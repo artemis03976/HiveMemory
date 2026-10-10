@@ -63,6 +63,7 @@ from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 from hivememory.server import deps
 from hivememory.server.routers.chat import router
+from hivememory.workspace.contracts import SubmitWriteIntentRequest
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
@@ -216,9 +217,11 @@ async def test_http_chat_preserves_split_identity_through_finalize_and_materiali
     global_bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway.process)
     submitted = []
 
-    async def write(operations):
-        """测试 CPU 经进程端口提交意图，物化任务由进程认领。"""
-        submitted.append(await operations.submit_write_intent(WriteFocus(content="保存本轮事实")))
+    async def write(submit):
+        """测试 CPU 经操作入口提交意图，物化任务由进程认领。"""
+        submitted.append(
+            await submit(SubmitWriteIntentRequest(focus=WriteFocus(content="保存本轮事实")))
+        )
 
     cpu = ScriptedCPU(
         result=make_cpu_result(

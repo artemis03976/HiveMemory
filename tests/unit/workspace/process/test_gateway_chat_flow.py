@@ -50,7 +50,7 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.workspace.contracts import CPUExecutionStatus
+from hivememory.workspace.contracts import CPUExecutionStatus, SubmitWriteIntentRequest
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from hivememory.workspace.process.table import ProcessStatusSnapshot
 from tests.helpers.chat_handoff import (
@@ -304,11 +304,11 @@ async def test_non_streaming_decision_uses_one_prepare_cpu_finalize_sequence() -
     calls: list[str] = []
 
     class _RecordingCPU(ScriptedCPU):
-        def execute(self, manifest, *, operations, generation_options=None, stream=False):
+        def execute(self, manifest, *, credential, generation_options=None, stream=False):
             calls.append("cpu")
             return super().execute(
                 manifest,
-                operations=operations,
+                credential=credential,
                 generation_options=generation_options,
                 stream=stream,
             )
@@ -346,8 +346,10 @@ async def test_completed_non_streaming_process_seals_interaction_payload() -> No
     turn_events = make_mtp_turn_events()
     submitted = []
 
-    async def write(operations):
-        submitted.append(await operations.submit_write_intent(WriteFocus(content="记住这一点")))
+    async def write(submit):
+        submitted.append(
+            await submit(SubmitWriteIntentRequest(focus=WriteFocus(content="记住这一点")))
+        )
 
     finalize_kwargs: dict = {}
     cpu = ScriptedCPU(
@@ -384,8 +386,10 @@ async def test_completed_streaming_process_seals_interaction_payload() -> None:
     turn_events = make_mtp_turn_events()
     submitted = []
 
-    async def write(operations):
-        submitted.append(await operations.submit_write_intent(WriteFocus(content="记住这一点")))
+    async def write(submit):
+        submitted.append(
+            await submit(SubmitWriteIntentRequest(focus=WriteFocus(content="记住这一点")))
+        )
 
     finalize_kwargs: dict = {}
     cpu = ScriptedCPU(

@@ -8,14 +8,21 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import MagicMock
+from typing import cast
 
 import pytest
 
 from hivememory.alice.application.cpu import AliceCPU
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.routes import GlobalRoutes
-from hivememory.workspace.contracts import CPUExecutionResult, CPUExecutionStatus
+from hivememory.core.models.reference import ReferenceResolution
+from hivememory.workspace.contracts import (
+    CPUExecutionResult,
+    CPUExecutionStatus,
+    ExecutionCredential,
+    OperationRequest,
+    ResolveReferencesRequest,
+)
 from tests.helpers.chat_handoff import make_input_manifest, make_mtp_turn_events
 
 # done 事件数据：结果字段 + Alice 的运行元数据（不应进入执行结果）
@@ -36,6 +43,28 @@ _DONE_DATA = {
 }
 
 
+class _ReferenceEntry:
+    """凭据绑定测试的外部入口替身，按凭据返回对应的引用结果。"""
+
+    def __init__(self) -> None:
+        self.labels: dict[ExecutionCredential, str] = {}
+
+    async def execute[R](
+        self, request: OperationRequest[R], *, credential: ExecutionCredential
+    ) -> R:
+        if not isinstance(request, ResolveReferencesRequest):
+            raise TypeError(f"Unsupported request: {type(request).__name__}")
+        return cast(
+            R,
+            [
+                ReferenceResolution(
+                    kind="not_found", requested_alias=f"{self.labels[credential]}:{alias}"
+                )
+                for alias in request.aliases
+            ],
+        )
+
+
 async def _stream_route(**_kwargs):
     async def _events():
         yield {"event": "token", "data": {"content": "完成"}}
@@ -50,13 +79,16 @@ async def test_alice_cpu_stream_relays_events_and_converts_done() -> None:
     """流式：交互事件原样透传，done 被转换为执行结果且元数据不进入结果。"""
     bus = GlobalSystemBus()
     bus.register(GlobalRoutes.ALICE_RUN_AGENT, _stream_route)
-    cpu = AliceCPU(bus)
+    cpu = AliceCPU(bus, _ReferenceEntry())
     manifest = make_input_manifest(process_id="process-1")
 
     items = [
         item
         async for item in cpu.execute(
-            manifest, generation_options={"temperature": 0.5}, stream=True, operations=MagicMock()
+            manifest,
+            generation_options={"temperature": 0.5},
+            stream=True,
+            credential=ExecutionCredential(),
         )
     ]
 
@@ -92,7 +124,7 @@ async def test_alice_cpu_once_yields_single_execution_result() -> None:
         return expected
 
     bus.register(GlobalRoutes.ALICE_RUN_AGENT, route)
-    cpu = AliceCPU(bus)
+    cpu = AliceCPU(bus, _ReferenceEntry())
 
     items = [
         item
@@ -100,7 +132,7 @@ async def test_alice_cpu_once_yields_single_execution_result() -> None:
             make_input_manifest(process_id="process-once"),
             generation_options=None,
             stream=False,
-            operations=MagicMock(),
+            credential=ExecutionCredential(),
         )
     ]
 
@@ -124,10 +156,13 @@ async def test_closing_cpu_iterator_closes_alice_event_stream() -> None:
         return _events()
 
     bus.register(GlobalRoutes.ALICE_RUN_AGENT, stream_route)
-    cpu = AliceCPU(bus)
+    cpu = AliceCPU(bus, _ReferenceEntry())
 
     iterator = cpu.execute(
-        make_input_manifest(), generation_options=None, stream=True, operations=MagicMock()
+        make_input_manifest(),
+        generation_options=None,
+        stream=True,
+        credential=ExecutionCredential(),
     )
     first = await iterator.__anext__()
     assert first == {"event": "token", "data": {"content": "一"}}
@@ -135,3 +170,40 @@ async def test_closing_cpu_iterator_closes_alice_event_stream() -> None:
     await iterator.aclose()
 
     assert stream_closed.is_set()
+
+
+@pytest.mark.asyncio
+async def test_cpu_binds_each_execution_credential_to_its_operation_submitter() -> None:
+    """每次执行的提交函数使用自己的凭据，不能被下一次执行的凭据覆盖。"""
+    bus = GlobalSystemBus()
+    entry = _ReferenceEntry()
+    first_credential = ExecutionCredential()
+    second_credential = ExecutionCredential()
+    entry.labels[first_credential] = "first"
+    entry.labels[second_credential] = "second"
+    submitters = []
+
+    async def route(*, submit_operation, **_kwargs):
+        submitters.append(submit_operation)
+        references = await submit_operation(ResolveReferencesRequest(("fact",)))
+        return CPUExecutionResult(final_text=references[0].requested_alias)
+
+    bus.register(GlobalRoutes.ALICE_RUN_AGENT, route)
+    cpu = AliceCPU(bus, entry)
+    results = []
+    for credential in (first_credential, second_credential):
+        results.extend(
+            [
+                result
+                async for result in cpu.execute(
+                    make_input_manifest(),
+                    credential=credential,
+                    generation_options=None,
+                    stream=False,
+                )
+            ]
+        )
+
+    assert [result.final_text for result in results] == ["first:fact", "second:fact"]
+    first_references = await submitters[0](ResolveReferencesRequest(("again",)))
+    assert first_references[0].requested_alias == "first:again"

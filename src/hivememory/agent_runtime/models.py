@@ -24,7 +24,7 @@ from hivememory.core.models import (
 from hivememory.core.mtp.models import MTPCallRequest
 
 if TYPE_CHECKING:
-    from hivememory.workspace.contracts import ProcessOperations
+    from hivememory.workspace.contracts import OperationSubmitter
 
 
 @dataclass
@@ -62,8 +62,8 @@ class ExecutionFrame:
     topic_id: str | None
     execution_policy: FrameExecutionPolicy = field(default_factory=FrameExecutionPolicy)
 
-    # 本进程的操作端口由 root 与 CALL 子帧共享，授权 context 仍由进程持有。
-    operations: ProcessOperations | None = None
+    # 本进程的操作提交函数由 root 与 CALL 子帧共享，执行凭据由 CPU 驱动绑定。
+    submit_operation: OperationSubmitter | None = None
 
     harvested_aliases: list[str] = field(default_factory=list)
 
@@ -105,7 +105,7 @@ class MTPExecutionContext:
     """单条 MTP 指令执行时的身份、权限与运行坐标上下文。"""
 
     runtime_scope: RuntimeScope
-    operations: ProcessOperations | None = None
+    submit_operation: OperationSubmitter | None = None
     agent_profile: Any = None
     execution_policy: FrameExecutionPolicy | None = None
     language: str | None = None  # 显式语言覆盖；None 时由 runtime 从 agent_profile 派生

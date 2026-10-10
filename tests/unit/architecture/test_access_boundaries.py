@@ -41,13 +41,13 @@ AUTH_MODULES = (
 AUTHORIZER_ONLY_FILES = frozenset(
     {
         "workspace/capability/memory.py",
+        "workspace/capability/operations.py",
         "workspace/capability/agent_profiles.py",
         "workspace/capability/topic.py",
         "workspace/capability/memory_tasks.py",
         "workspace/capability/assets.py",
         "workspace/process/runner.py",
         "workspace/process/allocation.py",
-        "workspace/process/operations.py",
     }
 )
 
@@ -99,7 +99,7 @@ def test_capability_and_process_do_not_import_the_auth_side():
 
 
 def test_authorizer_imports_neither_process_nor_capability():
-    """操作授权者不导入任务进程与能力层（依赖方向：process → capability → 授权者）。"""
+    """操作授权者不导入任务进程与能力层，只被编排与能力授权点消费。"""
     imports = _internal_imports(SRC_ROOT / "workspace" / "authorization.py")
     offenders = [
         module

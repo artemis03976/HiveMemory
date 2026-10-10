@@ -74,13 +74,18 @@ from hivememory.engines.memory_compiler import (
 )
 from hivememory.i18n.mtp_runtime import get_mtp_info_text
 from hivememory.i18n.resolver import resolve_language
+from hivememory.workspace.contracts import (
+    OperationSubmitter,
+    ResolveReferencesRequest,
+    SubmitUpdateIntentRequest,
+    SubmitWriteIntentRequest,
+)
 
 if TYPE_CHECKING:
     from hivememory.components.bus.async_bus import AsyncSystemBus
     from hivememory.config.alice import KoakumaConfig
     from hivememory.config.memory_compiler import MemoryCompilerConfig
     from hivememory.core.models import MemoryAtom
-    from hivememory.workspace.contracts import ProcessOperations
 
 logger = logging.getLogger(__name__)
 
@@ -328,11 +333,11 @@ class KoakumaRuntime:
         )
 
     @staticmethod
-    def _operations(context: MTPExecutionContext) -> ProcessOperations:
-        """取得进程交付的操作端口；缺失时显式拒绝资源操作。"""
-        if context.operations is None:
-            raise ScopeRequiredError("MTP 执行缺少进程操作端口")
-        return context.operations
+    def _operation_submitter(context: MTPExecutionContext) -> OperationSubmitter:
+        """取得 CPU 交付的提交函数；缺失时显式拒绝资源操作。"""
+        if context.submit_operation is None:
+            raise ScopeRequiredError("MTP 执行缺少操作提交函数")
+        return context.submit_operation
 
     # ========== 内部路由 ==========
 
@@ -512,7 +517,9 @@ class KoakumaRuntime:
         resolved_redirects: list[tuple[str, Any]] = []  # (alias, ReferenceResolution)
         resolved_terminal: list[tuple[str, Any]] = []  # (alias, ReferenceResolution)
         unresolved: list[str] = []
-        results = await self._operations(context).resolve_references(aliases)
+        results = await self._operation_submitter(context)(
+            ResolveReferencesRequest(aliases=tuple(aliases))
+        )
         for alias, result in zip(aliases, results, strict=True):
             if result.kind == "pending" and result.pending is not None:
                 resolved_pending.append((alias, result.pending))
@@ -622,9 +629,9 @@ class KoakumaRuntime:
             result = syscall.handler(command.args)
             return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 
-        # Level 1: 用户态工具路径（经进程端口进入 workspace 读取视图）
+        # Level 1: 用户态工具路径（提交引用请求进入 workspace 读取视图）
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
-        resolved = (await self._operations(context).resolve_references([alias]))[0]
+        resolved = (await self._operation_submitter(context)(ResolveReferencesRequest((alias,))))[0]
         warnings: list[MTPWarningInfo] = []
         if resolved.kind == "pending":
             raise InvalidArgumentError(
@@ -681,7 +688,7 @@ class KoakumaRuntime:
         处理 WRITE 指令 (Section 2.2 + 附录B)
 
         v3.0 延迟捕获模式:
-        将 WRITE 内容打包为 WriteFocus，经进程操作端口提交 workspace 登记，
+        将 WRITE 内容打包为操作请求，经提交函数交给 workspace 登记，
         实际记忆生成延迟到 InteractionPayload 提交时执行。
         ACK 响应文案保持不变，对 Agent 完全透明。
 
@@ -701,8 +708,10 @@ class KoakumaRuntime:
         title = command.args.get("title", "")
 
         # 注册 pending atom 并生成 pending alias
-        pending = await self._operations(context).submit_write_intent(
-            WriteFocus(content=content, title=title or None, reason=reason or None)
+        pending = await self._operation_submitter(context)(
+            SubmitWriteIntentRequest(
+                focus=WriteFocus(content=content, title=title or None, reason=reason or None)
+            )
         )
 
         logger.info(
@@ -729,7 +738,7 @@ class KoakumaRuntime:
         处理 UPDATE 指令 (附录 C)
 
         v3.0 延迟捕获模式:
-        将 UPDATE 意图经进程操作端口提交 workspace 登记，
+        将 UPDATE 意图打包为操作请求，经提交函数交给 workspace 登记，
         实际记忆更新延迟到 InteractionPayload 提交时执行。
         ACK 响应文案保持不变，对 Agent 完全透明。
 
@@ -751,10 +760,12 @@ class KoakumaRuntime:
 
         # 能力层在操作授权后解析可信基线，并负责登记成功后的缓存失效。
         try:
-            pending = await self._operations(context).submit_update_intent(
-                base_alias=alias,
-                instruction=instruction,
-                content=command.args.get("content"),
+            pending = await self._operation_submitter(context)(
+                SubmitUpdateIntentRequest(
+                    base_alias=alias,
+                    instruction=instruction,
+                    content=command.args.get("content"),
+                )
             )
         except PendingUpdateNotAllowedError as error:
             raise InvalidArgumentError(

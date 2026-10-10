@@ -323,13 +323,19 @@ async def test_unsuccessful_callee_withdraws_its_acknowledged_intents(status, ch
     """子帧未成功结束时撤回它收到 ACK 的意图；成功子帧与调用方的意图留给进程认领。"""
     harness = OperationsHarness()
     scope = make_identity_scope(user_id="u1", agent_id="writer")
-    operations = await harness.channel(scope, "process-1")
+    submit_operation = await harness.submitter(scope, "process-1")
     caller = _frame()
     child = _frame()
     child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
-    child.operations = operations
-    caller_intent = await operations.submit_write_intent(WriteFocus(content="caller draft"))
-    child_intent = await operations.submit_write_intent(WriteFocus(content="child draft"))
+    child.submit_operation = submit_operation
+    from hivememory.workspace.contracts import SubmitWriteIntentRequest
+
+    caller_intent = await submit_operation(
+        SubmitWriteIntentRequest(WriteFocus(content="caller draft"))
+    )
+    child_intent = await submit_operation(
+        SubmitWriteIntentRequest(WriteFocus(content="child draft"))
+    )
     child.add_harvested_alias(child_intent.pending_alias)
     runtime = SimpleNamespace(
         max_iterations=8,

@@ -15,7 +15,7 @@ from hivememory.core.models import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.workspace.contracts import ProcessOperations
+    from hivememory.workspace.contracts import OperationSubmitter
 
 
 @dataclass(frozen=True)
@@ -27,7 +27,7 @@ class FrameSpec:
     messages: Sequence[dict[str, str]]
     topic_id: str | None
     execution_policy: FrameExecutionPolicy
-    operations: ProcessOperations | None = None
+    submit_operation: OperationSubmitter | None = None
 
 
 class FrameFactory:
@@ -44,7 +44,7 @@ class FrameFactory:
             working_history=[dict(message) for message in spec.messages],
             topic_id=spec.topic_id,
             execution_policy=spec.execution_policy,
-            operations=spec.operations,
+            submit_operation=spec.submit_operation,
             progress=self._initial_progress(spec.messages),
         )
 

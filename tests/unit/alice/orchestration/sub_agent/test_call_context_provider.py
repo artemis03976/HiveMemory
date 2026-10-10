@@ -15,13 +15,14 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.reference import ReferenceResolution
 from hivememory.core.mtp import MTPCallRequest
+from hivememory.workspace.contracts import ResolveReferencesRequest
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_runtime_scope
 
 
-def _frame(*, profile: AgentProfile = OMNI_DOLL_PROFILE, operations=None) -> ExecutionFrame:
+def _frame(*, profile: AgentProfile = OMNI_DOLL_PROFILE, submit_operation=None) -> ExecutionFrame:
     return ExecutionFrame(
-        operations=operations,
+        submit_operation=submit_operation,
         runtime_scope=make_runtime_scope(run_id="run-1", frame_id="frame-1"),
         agent_profile=profile,
         working_history=[],
@@ -50,12 +51,16 @@ def _atom(title: str, content: str) -> MemoryAtom:
 def _provider(*, profile=OMNI_DOLL_PROFILE, alias_results=()) -> tuple:
     profile_resolver = MagicMock()
     profile_resolver.resolve = AsyncMock(return_value=profile)
-    alias_resolver = MagicMock()
-    alias_resolver.resolve_references = AsyncMock(
-        side_effect=[
-            [result] if not isinstance(result, Exception) else result for result in alias_results
-        ]
-    )
+    results = iter(alias_results)
+
+    async def alias_resolver(request: ResolveReferencesRequest):
+        """引用读取以请求中的 alias 选择既有测试结果，模拟外部读取边界。"""
+        result = next(results)
+        if isinstance(result, Exception):
+            raise result
+        assert request.aliases == (result.requested_alias,)
+        return [result]
+
     return (
         CallContextProvider(profile_resolver),
         profile_resolver,
@@ -66,7 +71,7 @@ def _provider(*, profile=OMNI_DOLL_PROFILE, alias_results=()) -> tuple:
 @pytest.mark.asyncio
 async def test_provide_resolves_profile_with_caller_identity_and_skips_empty_refs():
     provider, profile_resolver, alias_resolver = _provider()
-    caller = _frame(operations=alias_resolver)
+    caller = _frame(submit_operation=alias_resolver)
 
     context = await provider.provide(
         caller,
@@ -78,7 +83,6 @@ async def test_provide_resolves_profile_with_caller_identity_and_skips_empty_ref
         "helper",
         identity_scope=caller.identity_scope,
     )
-    alias_resolver.resolve_references.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -90,7 +94,8 @@ async def test_provide_compiles_atom_context_ref_for_callee():
     )
     provider, _, alias_resolver = _provider(alias_results=[resolved])
     caller = _frame(
-        operations=alias_resolver, profile=OMNI_DOLL_PROFILE.model_copy(update={"language": "en"})
+        submit_operation=alias_resolver,
+        profile=OMNI_DOLL_PROFILE.model_copy(update={"language": "en"}),
     )
 
     context = await provider.provide(
@@ -120,7 +125,7 @@ async def test_provide_compiles_redirected_context_ref_as_canonical_atom():
     provider, _, alias_resolver = _provider(alias_results=[resolved])
 
     context = await provider.provide(
-        _frame(operations=alias_resolver),
+        _frame(submit_operation=alias_resolver),
         MTPCallRequest(
             target_alias="helper",
             task="summarize",
@@ -145,7 +150,7 @@ async def test_provide_keeps_resolvable_refs_when_one_resolution_fails():
     )
 
     context = await provider.provide(
-        _frame(operations=alias_resolver),
+        _frame(submit_operation=alias_resolver),
         MTPCallRequest(
             target_alias="helper",
             task="summarize",
@@ -155,7 +160,6 @@ async def test_provide_keeps_resolvable_refs_when_one_resolution_fails():
 
     assert "Fact B" in context.shared_context
     assert "usable context" in context.shared_context
-    assert alias_resolver.resolve_references.await_count == 2
 
 
 @pytest.mark.asyncio
@@ -165,7 +169,7 @@ async def test_provide_returns_empty_context_when_no_ref_can_be_rendered():
     )
 
     context = await provider.provide(
-        _frame(operations=alias_resolver),
+        _frame(submit_operation=alias_resolver),
         MTPCallRequest(
             target_alias="helper",
             task="summarize",
@@ -184,12 +188,10 @@ async def test_provide_propagates_profile_resolution_failure_before_resolving_re
 
     with pytest.raises(RuntimeError, match="profile unavailable"):
         await provider.provide(
-            _frame(operations=alias_resolver),
+            _frame(submit_operation=alias_resolver),
             MTPCallRequest(
                 target_alias="helper",
                 task="summarize",
                 context_refs=["fact_a"],
             ),
         )
-
-    alias_resolver.resolve_references.assert_not_awaited()

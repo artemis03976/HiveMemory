@@ -1,41 +1,90 @@
-"""执行者使用的进程操作端口：身份与目标由任务进程绑定。
+"""执行者的操作请求、执行凭据与单一操作入口契约。
 
-端口只暴露操作参数，不携带访问 context，也不允许执行者更换目标
-Workspace；子线程沿用主线程的同一个端口。进程关闭后明确拒绝调用。
+请求只描述操作参数，不携带身份或目标 Workspace；CPU 用独立的执行凭据
+绑定提交函数，MTP 与 CALL 适配器只消费这个函数。子线程暂时沿用主线程
+的提交函数，凭据的签发、兑现与吊销始终由 workspace 管理。
 """
 
 from __future__ import annotations
 
-from typing import Protocol
+from dataclasses import dataclass
+from typing import NoReturn, Protocol
 
 from hivememory.core.models.pending import PendingAtom, WriteFocus
 from hivememory.core.models.reference import ReferenceResolution
 
 
-class ProcessOperationsClosedError(RuntimeError):
-    """操作端口所属进程已经关闭。"""
+class ExecutionCredentialRevokedError(RuntimeError):
+    """执行凭据未知或已吊销，操作入口拒绝继续分派。"""
 
 
-class ProcessOperations(Protocol):
-    """CPU 与执行线程共同消费的操作契约，不暴露进程的访问凭据。"""
+class ExecutionCredential:
+    """按对象身份兑现的不透明凭据，不保存或序列化身份数据。"""
 
-    async def submit_write_intent(self, focus: WriteFocus) -> PendingAtom:
-        """提交 WRITE，返回已登记的写入意图作为 ACK。"""
-        ...
+    __slots__ = ()
 
-    async def submit_update_intent(
-        self, base_alias: str, instruction: str, content: str | None = None
-    ) -> PendingAtom:
-        """提交 UPDATE，基础引用由能力层解析并验证。"""
-        ...
-
-    async def cancel_intents(self, aliases: list[str]) -> list[str]:
-        """撤回本进程仍为 PENDING 的指定意图（如未成功结束的子线程提交的意图）。"""
-        ...
-
-    async def resolve_references(self, aliases: list[str]) -> list[ReferenceResolution]:
-        """按请求顺序解析全部引用，包括不存在的引用。"""
-        ...
+    def __reduce__(self) -> NoReturn:
+        """凭据仅供进程内传递，不能复制为可持久化的身份载体。"""
+        raise TypeError("Execution credentials cannot be serialized")
 
 
-__all__ = ["ProcessOperations", "ProcessOperationsClosedError"]
+@dataclass(frozen=True)
+class OperationRequest[R]:
+    """操作请求的结果类型契约，具体请求与能力方法一一对应。"""
+
+
+@dataclass(frozen=True)
+class SubmitWriteIntentRequest(OperationRequest[PendingAtom]):
+    """提交 WRITE，返回 workspace 已登记的意图作为 ACK。"""
+
+    focus: WriteFocus
+
+
+@dataclass(frozen=True)
+class SubmitUpdateIntentRequest(OperationRequest[PendingAtom]):
+    """提交 UPDATE，由能力层解析基础引用并验证其可更新性。"""
+
+    base_alias: str
+    instruction: str
+    content: str | None = None
+
+
+@dataclass(frozen=True)
+class CancelIntentsRequest(OperationRequest[list[str]]):
+    """撤回当前进程仍为 PENDING 的指定意图。"""
+
+    aliases: tuple[str, ...]
+
+
+@dataclass(frozen=True)
+class ResolveReferencesRequest(OperationRequest[list[ReferenceResolution]]):
+    """按请求顺序解析引用，每个引用均获得中立解析结果。"""
+
+    aliases: tuple[str, ...]
+
+
+class OperationEntry(Protocol):
+    """workspace 的单一操作入口，凭据只在入口兑现为访问 context。"""
+
+    async def execute[R](
+        self, request: OperationRequest[R], *, credential: ExecutionCredential
+    ) -> R: ...
+
+
+class OperationSubmitter(Protocol):
+    """CPU 绑定凭据后的提交函数，适配器只提交操作参数。"""
+
+    async def __call__[R](self, request: OperationRequest[R]) -> R: ...
+
+
+__all__ = [
+    "CancelIntentsRequest",
+    "ExecutionCredential",
+    "ExecutionCredentialRevokedError",
+    "OperationEntry",
+    "OperationRequest",
+    "OperationSubmitter",
+    "ResolveReferencesRequest",
+    "SubmitUpdateIntentRequest",
+    "SubmitWriteIntentRequest",
+]

@@ -18,6 +18,7 @@ Profile 解析绑定 ``profile.read``、附件租借绑定 ``asset.acquire``，�
 from __future__ import annotations
 
 import logging
+from typing import Protocol
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.attachments import AttachmentCompilerConfig
@@ -38,11 +39,24 @@ from hivememory.engines.memory_compiler import (
     MemoryEnvelopeTarget,
 )
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
 from hivememory.workspace.contracts import CPUInputManifest
 from hivememory.workspace.process.working_set import ProcessWorkingSet
 
 logger = logging.getLogger(__name__)
+
+
+class _AgentProfileReader(Protocol):
+    """CPU 分配所需的 Profile 读取端口，由组合根注入能力层实现。"""
+
+    async def get_agent_profile(
+        self,
+        agent_alias: str | None,
+        *,
+        target_workspace: WorkspaceIdentity,
+        access: WorkspaceAccessContext,
+    ) -> AgentProfile:
+        """解析本进程的执行 Profile，并在交付前执行逐次授权。"""
+        ...
 
 
 class CPUAllocator:
@@ -59,7 +73,7 @@ class CPUAllocator:
         global_bus: GlobalSystemBus,
         *,
         operation_authorizer: WorkspaceOperationAuthorizer,
-        agent_service: AgentApplicationService,
+        agent_service: _AgentProfileReader,
         asset_reader: WorkspaceAssetReaderPort | None = None,
         memory_compiler_config: MemoryCompilerConfig | None = None,
         attachment_compiler_config: AttachmentCompilerConfig | None = None,

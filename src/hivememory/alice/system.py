@@ -25,6 +25,7 @@ from hivememory.config.alice import AliceConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.core.contracts.subsystem import SubsystemProtocol
 from hivememory.prompts.assembler import AgentPromptAssembler
+from hivememory.workspace.contracts import OperationEntry
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,7 @@ class AliceSystem(SubsystemProtocol):
         event_publisher: RuntimeEventPublisher | None = None,
         model_registry: ModelResolver | None = None,
         *,
+        operation_entry: OperationEntry,
         memory_compiler_config: MemoryCompilerConfig | None = None,
     ) -> None:
         self._config = config
@@ -87,7 +89,7 @@ class AliceSystem(SubsystemProtocol):
 
         # 任务进程经 CPUPort 端口调用本子系统；端口实现由组合根注入进程，
         # workspace 侧不出现 Alice 的路由名或结果类型。
-        self._cpu = AliceCPU(global_bus) if global_bus is not None else None
+        self._cpu = AliceCPU(global_bus, operation_entry) if global_bus is not None else None
 
         logger.info("AliceSystem 初始化完成")
 

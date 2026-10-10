@@ -108,7 +108,7 @@ async def test_run_agent_stream_without_executor_terminal_fails_cleanly():
         return_value=executor,
     ):
         with pytest.raises(RuntimeError, match="ended without done"):
-            async for _ in service.run_agent(manifest, stream=True, operations=MagicMock()):
+            async for _ in service.run_agent(manifest, stream=True, submit_operation=MagicMock()):
                 pass
 
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED

@@ -38,7 +38,7 @@ from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
-from hivememory.workspace.contracts import CPUExecutionStatus
+from hivememory.workspace.contracts import CPUExecutionStatus, SubmitWriteIntentRequest
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from tests.helpers.chat_handoff import (
     expected_mtp_traces,
@@ -211,8 +211,10 @@ async def test_test_cpu_completes_non_streaming_process_without_alice_routes() -
     turn_events = make_mtp_turn_events()
     submitted = []
 
-    async def write(operations):
-        submitted.append(await operations.submit_write_intent(WriteFocus(content="记住这一点")))
+    async def write(submit):
+        submitted.append(
+            await submit(SubmitWriteIntentRequest(focus=WriteFocus(content="记住这一点")))
+        )
 
     finalize_kwargs: dict = {}
     cpu = ScriptedCPU(
@@ -552,7 +554,7 @@ class _SlowClosingCPU:
         self.close_entered = asyncio.Event()
         self.release_close = asyncio.Event()
 
-    def execute(self, manifest, *, operations, generation_options, stream):
+    def execute(self, manifest, *, credential, generation_options, stream):
         return self._iterate()
 
     async def _iterate(self):

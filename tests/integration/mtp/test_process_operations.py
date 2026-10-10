@@ -1,4 +1,4 @@
-"""MTP 与真实 workspace 操作通道协作，验证跨轮句柄和结构化拒绝。"""
+"""MTP 与真实 workspace 操作入口协作，验证跨轮句柄和结构化拒绝。"""
 
 import pytest
 
@@ -25,7 +25,7 @@ async def test_write_ack_can_be_read_in_next_process_and_redirect_after_settleme
     first_scope = make_runtime_scope(run_id="first")
     first = MTPExecutionContext(
         runtime_scope=first_scope,
-        operations=await harness.channel(first_scope.identity_scope, "first"),
+        submit_operation=await harness.submitter(first_scope.identity_scope, "first"),
     )
     write = await koakuma.execute_mtp(
         '⟪ WRITE | * | title="跨轮草稿" content="共享的待定内容" ⟫', first
@@ -38,7 +38,7 @@ async def test_write_ack_can_be_read_in_next_process_and_redirect_after_settleme
     next_scope = make_runtime_scope(run_id="second", agent_id="another_agent")
     next_context = MTPExecutionContext(
         runtime_scope=next_scope,
-        operations=await harness.channel(next_scope.identity_scope, "second"),
+        submit_operation=await harness.submitter(next_scope.identity_scope, "second"),
     )
     read = await koakuma.execute_mtp(f"⟪ READ | {alias} | ⟫", next_context)
     assert read.response_status == "success"
@@ -69,13 +69,13 @@ async def test_write_ack_can_be_read_in_next_process_and_redirect_after_settleme
 
 
 @pytest.mark.asyncio
-async def test_closed_process_channel_returns_mtp_system_fault_without_registering():
-    """过期通道不能留下新意图，Alice 仍回填现有结构化系统错误。"""
+async def test_revoked_execution_credential_returns_mtp_system_fault_without_registering():
+    """吊销凭据后不能留下新意图，Alice 仍回填现有结构化系统错误。"""
     harness = OperationsHarness()
     scope = make_runtime_scope()
-    channel = await harness.channel(scope.identity_scope)
-    channel.close()
-    context = MTPExecutionContext(runtime_scope=scope, operations=channel)
+    submit_operation = await harness.submitter(scope.identity_scope)
+    harness.revoke("test_run")
+    context = MTPExecutionContext(runtime_scope=scope, submit_operation=submit_operation)
     result = await KoakumaRuntime().execute_mtp('⟪ WRITE | * | content="关闭后不能写入" ⟫', context)
     assert result.response_status == "error"
     assert 'code="mtp.system.fault"' in result.formatted_response
@@ -88,7 +88,7 @@ async def test_update_pending_base_returns_existing_mtp_argument_error():
     harness = OperationsHarness()
     scope = make_runtime_scope()
     context = MTPExecutionContext(
-        runtime_scope=scope, operations=await harness.channel(scope.identity_scope)
+        runtime_scope=scope, submit_operation=await harness.submitter(scope.identity_scope)
     )
     koakuma = KoakumaRuntime()
     write = await koakuma.execute_mtp('⟪ WRITE | * | content="待定草稿" ⟫', context)
@@ -114,7 +114,7 @@ async def test_operation_denial_maps_to_mtp_permission_error(command):
     scope = make_runtime_scope()
     context = MTPExecutionContext(
         runtime_scope=scope,
-        operations=await harness.channel(scope.identity_scope, allowed_operations=[]),
+        submit_operation=await harness.submitter(scope.identity_scope, allowed_operations=[]),
     )
     result = await KoakumaRuntime().execute_mtp(command, context)
     assert result.response_status == "error"

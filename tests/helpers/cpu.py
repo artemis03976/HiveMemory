@@ -10,15 +10,20 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypeVar
 
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
     CPUInputManifest,
     CPUOutput,
-    ProcessOperations,
+    ExecutionCredential,
+    OperationEntry,
+    OperationRequest,
+    OperationSubmitter,
 )
+
+_Result = TypeVar("_Result")
 
 
 @dataclass(frozen=True)
@@ -28,7 +33,7 @@ class CPUCall:
     manifest: CPUInputManifest
     generation_options: dict[str, Any] | None
     stream: bool
-    operations: ProcessOperations
+    credential: ExecutionCredential
 
 
 class ScriptedCPU:
@@ -50,23 +55,35 @@ class ScriptedCPU:
         result: CPUExecutionResult | None = None,
         error: Exception | None = None,
         hang_before_result: bool = False,
-        operation_script: Callable[[ProcessOperations], Awaitable[None]] | None = None,
+        operation_script: Callable[[OperationSubmitter], Awaitable[None]] | None = None,
     ) -> None:
         self._events = list(events or [])
         self._result = result
         self._error = error
         self._hang_before_result = hang_before_result
         self._operation_script = operation_script
+        self._operation_entry: OperationEntry | None = None
         self.calls: list[CPUCall] = []
         self.closed = False
         #: 挂起点被进入时置位；取消测试据此同步停止请求的注入时机。
         self.hang_entered = asyncio.Event()
 
+    @property
+    def operation_entry(self) -> OperationEntry:
+        """测试组合根注入的真实入口，供进程关闭后的凭据拒绝断言。"""
+        if self._operation_entry is None:
+            raise RuntimeError("ScriptedCPU 的操作入口尚未装配")
+        return self._operation_entry
+
+    def bind_operation_entry(self, entry: OperationEntry) -> None:
+        """以共享入口装配 CPU；每次执行只绑定该次进程的凭据。"""
+        self._operation_entry = entry
+
     def execute(
         self,
         manifest: CPUInputManifest,
         *,
-        operations: ProcessOperations,
+        credential: ExecutionCredential,
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]:
@@ -75,15 +92,19 @@ class ScriptedCPU:
                 manifest=manifest,
                 generation_options=generation_options,
                 stream=stream,
-                operations=operations,
+                credential=credential,
             )
         )
-        return self._iterate(operations)
+        return self._iterate(credential)
 
-    async def _iterate(self, operations: ProcessOperations) -> AsyncGenerator[CPUOutput, None]:
+    async def _iterate(self, credential: ExecutionCredential) -> AsyncGenerator[CPUOutput, None]:
         try:
             if self._operation_script is not None:
-                await self._operation_script(operations)
+
+                async def submit(request: OperationRequest[_Result]) -> _Result:
+                    return await self.operation_entry.execute(request, credential=credential)
+
+                await self._operation_script(submit)
             for event in self._events:
                 yield dict(event)
             if self._hang_before_result:

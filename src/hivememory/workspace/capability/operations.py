@@ -1,0 +1,117 @@
+"""workspace 单一操作入口：兑现凭据并薄分派到对应的能力方法。"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from typing import Any, cast
+
+from hivememory.core.models.pending import PendingAtom
+from hivememory.core.models.reference import ReferenceResolution
+from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.contracts.operations import (
+    CancelIntentsRequest,
+    ExecutionCredential,
+    ExecutionCredentialRevokedError,
+    OperationRequest,
+    ResolveReferencesRequest,
+    SubmitUpdateIntentRequest,
+    SubmitWriteIntentRequest,
+)
+from hivememory.workspace.credentials import ExecutionBinding, ExecutionCredentialRegistry
+from hivememory.workspace.intents.registry import WriteIntentRegistry
+
+
+class WorkspaceOperationEntry:
+    """无业务状态的入口，身份与进程关联只取自凭据表。"""
+
+    def __init__(
+        self,
+        memory: MemoryApplicationService,
+        *,
+        credential_registry: ExecutionCredentialRegistry,
+        intent_registry: WriteIntentRegistry,
+    ) -> None:
+        self._memory = memory
+        self._credentials = credential_registry
+        self._intents = intent_registry
+        # 泛型结果由公开契约约束；异构分派表仅在入口内部擦除类型。
+        self._handlers: dict[
+            type[OperationRequest[Any]], Callable[[Any, ExecutionBinding], Awaitable[Any]]
+        ] = {
+            SubmitWriteIntentRequest: self._submit_write,
+            SubmitUpdateIntentRequest: self._submit_update,
+            CancelIntentsRequest: self._cancel_intents,
+            ResolveReferencesRequest: self._resolve_references,
+        }
+
+    async def execute[R](
+        self, request: OperationRequest[R], *, credential: ExecutionCredential
+    ) -> R:
+        """分派前兑现凭据；UPDATE 在返回后的同步段补偿关闭期间的登记。
+
+        当前只有 UPDATE 在副作用前等待冷读。新增同类能力时必须一并加入
+        返回后的凭据检查与同步补偿；只读请求在吊销时已在途的仍正常完成。
+        """
+        binding = self._credentials.resolve(credential)
+        handler = self._handlers.get(type(request))
+        if handler is None:
+            raise TypeError(f"Unsupported operation request: {type(request).__name__}")
+        result = await handler(request, binding)
+        if isinstance(request, SubmitUpdateIntentRequest):
+            try:
+                self._credentials.resolve(credential)
+            except ExecutionCredentialRevokedError:
+                # 能力方法返回至这里没有挂起点。补偿直接撤回登记，不能在
+                # context 已失效后重新授权，也不能 await 后才清理游离意图。
+                pending = cast(PendingAtom, result)
+                self._intents.cancel_aliases([pending.pending_alias], process_id=binding.process_id)
+                raise
+        return cast(R, result)
+
+    async def _submit_write(
+        self, request: SubmitWriteIntentRequest, binding: ExecutionBinding
+    ) -> PendingAtom:
+        """WRITE 的进程关联与目标由入口绑定，能力层仍逐次授权。"""
+        return await self._memory.submit_write_intent(
+            request.focus,
+            process_id=binding.process_id,
+            target_workspace=binding.target_workspace,
+            access=binding.access,
+        )
+
+    async def _submit_update(
+        self, request: SubmitUpdateIntentRequest, binding: ExecutionBinding
+    ) -> PendingAtom:
+        """基础引用解析与缓存失效保持在 UPDATE 能力方法内。"""
+        return await self._memory.submit_update_intent(
+            request.base_alias,
+            request.instruction,
+            request.content,
+            process_id=binding.process_id,
+            target_workspace=binding.target_workspace,
+            access=binding.access,
+        )
+
+    async def _cancel_intents(
+        self, request: CancelIntentsRequest, binding: ExecutionBinding
+    ) -> list[str]:
+        """只撤回绑定进程仍为 PENDING 的指定意图。"""
+        return await self._memory.cancel_intents(
+            list(request.aliases),
+            process_id=binding.process_id,
+            target_workspace=binding.target_workspace,
+            access=binding.access,
+        )
+
+    async def _resolve_references(
+        self, request: ResolveReferencesRequest, binding: ExecutionBinding
+    ) -> list[ReferenceResolution]:
+        """请求不携带目标，引用解析沿用能力层的逐项结果。"""
+        return await self._memory.resolve_references(
+            list(request.aliases),
+            target_workspace=binding.target_workspace,
+            access=binding.access,
+        )
+
+
+__all__ = ["WorkspaceOperationEntry"]

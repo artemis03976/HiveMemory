@@ -55,7 +55,7 @@ from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
     CPUInputManifest,
-    ProcessOperations,
+    OperationSubmitter,
 )
 
 logger = logging.getLogger(__name__)
@@ -129,7 +129,7 @@ class AgentRunService:
         input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None = None,
         *,
-        operations: ProcessOperations,
+        submit_operation: OperationSubmitter,
         stream: Literal[True] = True,
     ) -> AsyncGenerator[dict[str, Any], None]: ...
 
@@ -139,7 +139,7 @@ class AgentRunService:
         input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None = None,
         *,
-        operations: ProcessOperations,
+        submit_operation: OperationSubmitter,
         stream: Literal[False],
     ) -> Coroutine[Any, Any, CPUExecutionResult]: ...
 
@@ -148,7 +148,7 @@ class AgentRunService:
         input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None = None,
         *,
-        operations: ProcessOperations,
+        submit_operation: OperationSubmitter,
         stream: bool = True,
     ) -> AsyncGenerator[dict[str, Any], None] | Coroutine[Any, Any, CPUExecutionResult]:
         """Alice Agent run 的统一入口（``stream`` 控制是否流式）。
@@ -158,7 +158,7 @@ class AgentRunService:
         ``stream=False`` 返回可 await 的 ``CPUExecutionResult``。
         """
         producer = self._run_agent(
-            input_manifest, generation_options, operations=operations, stream=stream
+            input_manifest, generation_options, submit_operation=submit_operation, stream=stream
         )
         if stream:
             # 流式骨架只产出交互事件与 done；骨架的产出类型是两种形态的并集。
@@ -170,7 +170,7 @@ class AgentRunService:
         input_manifest: CPUInputManifest,
         generation_options: dict[str, Any] | None,
         *,
-        operations: ProcessOperations,
+        submit_operation: OperationSubmitter,
         stream: bool,
     ) -> AsyncGenerator[dict[str, Any] | CPUExecutionResult, None]:
         """统一执行骨架：会话、事件、组装、执行与终态发布只有一份。
@@ -196,7 +196,7 @@ class AgentRunService:
                 agent_stream = self._stream_adapter.create(preparation.session)
                 frame = self._create_root_frame(
                     messages=messages,
-                    operations=operations,
+                    submit_operation=submit_operation,
                     identity_scope=preparation.context.identity_scope,
                     topic_id=preparation.context.topic_id,
                     session=preparation.session,
@@ -221,7 +221,7 @@ class AgentRunService:
             else:
                 frame = self._create_root_frame(
                     messages=messages,
-                    operations=operations,
+                    submit_operation=submit_operation,
                     identity_scope=preparation.context.identity_scope,
                     topic_id=preparation.context.topic_id,
                     session=preparation.session,
@@ -298,7 +298,7 @@ class AgentRunService:
         self,
         *,
         messages: list[dict[str, str]],
-        operations: ProcessOperations,
+        submit_operation: OperationSubmitter,
         identity_scope: IdentityScope,
         topic_id: str,
         agent_profile: AgentProfile | None,
@@ -320,7 +320,7 @@ class AgentRunService:
                 messages=messages,
                 topic_id=topic_id or "",
                 execution_policy=policy,
-                operations=operations,
+                submit_operation=submit_operation,
             )
         )
         session.register_root_frame(frame)

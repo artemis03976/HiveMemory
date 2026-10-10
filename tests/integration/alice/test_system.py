@@ -12,12 +12,15 @@ from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.system import AliceSystem
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.app import HiveMemoryConfig
+from tests.helpers.operations import OperationsHarness
 
 
 @pytest.mark.asyncio
 async def test_start_registers_public_routes_and_stop_unregisters():
     bus = GlobalSystemBus()
-    system = AliceSystem(config=HiveMemoryConfig().alice, global_bus=bus)
+    system = AliceSystem(
+        config=HiveMemoryConfig().alice, global_bus=bus, operation_entry=OperationsHarness().entry
+    )
 
     await system.start()
 
@@ -41,7 +44,9 @@ async def test_stop_clears_runtime_profile_cache():
         return ResolvedAgentProfile(profile=AgentProfile(persona="缓存的 Profile"))
 
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, load_profile)
-    system = AliceSystem(config=HiveMemoryConfig().alice, global_bus=bus)
+    system = AliceSystem(
+        config=HiveMemoryConfig().alice, global_bus=bus, operation_entry=OperationsHarness().entry
+    )
     await system.start()
     profile = await system.runtime.profile_resolver.resolve(
         "coder", identity_scope=make_identity_scope()

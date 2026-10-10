@@ -1,7 +1,7 @@
 """任务进程、真实能力层与意图登记的生命周期协作测试。
 
 Gateway/prepare/finalize 位于本边界之外，由公开路由替身提供；CPU 经真实
-操作通道提交意图，验证 completed 认领、取消隔离与关闭后的调用拒绝。
+操作入口提交请求，验证 completed 认领、取消隔离与关闭后的凭据拒绝。
 """
 
 from __future__ import annotations
@@ -14,14 +14,29 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import OperationDeniedError
-from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, ResolvedAgentProfile
+from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
+    ActorIdentity,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    PayloadLayer,
+    ResolvedAgentProfile,
+)
 from hivememory.core.models.pending import PendingAtomStatus, WriteFocus
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
-from hivememory.workspace.contracts import ProcessOperationsClosedError
+from hivememory.workspace.contracts import (
+    CancelIntentsRequest,
+    ExecutionCredentialRevokedError,
+    ResolveReferencesRequest,
+    SubmitUpdateIntentRequest,
+    SubmitWriteIntentRequest,
+)
 from hivememory.workspace.runtime import WorkspaceRuntime
 from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
+from tests.helpers.memory import make_memory_metadata
 from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
@@ -50,8 +65,8 @@ async def test_process_claims_or_cancels_only_its_own_intents(status):
     submitted = []
     finalized = []
 
-    async def write(operations):
-        submitted.append(await operations.submit_write_intent(WriteFocus(content="本进程")))
+    async def write(submit):
+        submitted.append(await submit(SubmitWriteIntentRequest(focus=WriteFocus(content="本进程"))))
 
     async def gateway(**_kwargs):
         return GatewayDecisionOutcome(decision=make_gateway_decision())
@@ -116,12 +131,15 @@ async def test_process_claims_or_cancels_only_its_own_intents(status):
             assert task.focus.content == "本进程"
         else:
             assert finalized == []
-        with pytest.raises(ProcessOperationsClosedError, match="closed"):
-            await cpu.calls[0].operations.submit_write_intent(WriteFocus(content="关闭后"))
-        with pytest.raises(ProcessOperationsClosedError, match="closed"):
-            await cpu.calls[0].operations.submit_update_intent("base", "关闭后")
-        with pytest.raises(ProcessOperationsClosedError, match="closed"):
-            await cpu.calls[0].operations.resolve_references([other.pending_alias])
+        # completed 同样关闭主线程凭据，全部请求类型均拒绝继续执行。
+        for request in (
+            SubmitWriteIntentRequest(focus=WriteFocus(content="关闭后")),
+            SubmitUpdateIntentRequest(base_alias="base", instruction="关闭后"),
+            ResolveReferencesRequest(aliases=(other.pending_alias,)),
+            CancelIntentsRequest(aliases=(other.pending_alias,)),
+        ):
+            with pytest.raises(ExecutionCredentialRevokedError):
+                await cpu.operation_entry.execute(request, credential=cpu.calls[0].credential)
         assert runtime.intents.size == 2
     finally:
         runtime.close()
@@ -163,8 +181,8 @@ async def test_finalize_authorization_failure_cancels_instead_of_stranding_inten
     submitted = []
     finalized = []
 
-    async def write(operations):
-        submitted.append(await operations.submit_write_intent(WriteFocus(content="本进程")))
+    async def write(submit):
+        submitted.append(await submit(SubmitWriteIntentRequest(focus=WriteFocus(content="本进程"))))
 
     async def gateway(**_kwargs):
         return GatewayDecisionOutcome(decision=make_gateway_decision())
@@ -219,48 +237,106 @@ async def test_finalize_authorization_failure_cancels_instead_of_stranding_inten
 
 
 @pytest.mark.asyncio
-async def test_channel_close_cancels_update_waiting_for_cold_read():
-    """关闭发生在 UPDATE 冷读期间时，不能在清理之后登记出新的 PENDING。"""
-    from hivememory.workspace.capability.memory import MemoryApplicationService
-    from hivememory.workspace.process.operations import ProcessOperationChannel
-
+async def test_process_close_revokes_waiting_update_without_cancelling_request_task():
+    """进程在 UPDATE 冷读期间关闭：入口补偿登记，调用方任务不被凭据吊销取消。"""
     access = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="omni_doll")]
     )
-    context = await access.authenticate(agent_id="omni_doll")
     bus = GlobalSystemBus()
     entered = asyncio.Event()
+    release = asyncio.Event()
+    atom = MemoryAtom(
+        meta=make_memory_metadata(source_agent_id="omni_doll", user_id="u1"),
+        index=IndexLayer(
+            title="基础原子", summary="基础摘要", alias="base", memory_type=MemoryType.FACT
+        ),
+        payload=PayloadLayer(content="原正文"),
+    )
 
     async def read(*_args, **_kwargs):
         entered.set()
-        await asyncio.Event().wait()
+        await release.wait()
+        return [atom]
 
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES, read)
     runtime = WorkspaceRuntime(
         backing=BusCanonicalReadBackend(bus), atom_capacity=8, profile_capacity=8
     )
-    memory = MemoryApplicationService(
+    update_tasks = []
+
+    async def update(submit):
+        # 外部适配器任务独立于 CPU 拉取任务，吊销凭据不得取消它。
+        update_tasks.append(
+            asyncio.create_task(
+                submit(SubmitUpdateIntentRequest(base_alias="base", instruction="新内容"))
+            )
+        )
+        await entered.wait()
+
+    async def profile(*_args, **_kwargs):
+        return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+
+    async def gateway(**_kwargs):
+        return GatewayDecisionOutcome(decision=make_gateway_decision())
+
+    async def prepare(*, interaction_id, identity_scope, **_kwargs):
+        return make_prepared_run(interaction_id=interaction_id, identity_scope=identity_scope)
+
+    async def cleanup(**_kwargs):
+        return True
+
+    for route, handler in (
+        (GlobalRoutes.GATEWAY_PROCESS, gateway),
+        (GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, profile),
+        (GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare),
+        (GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup),
+    ):
+        bus.register(route, handler)
+    cpu = ScriptedCPU(
+        events=[{"event": "token", "data": {"content": "一"}}],
+        hang_before_result=True,
+        operation_script=update,
+    )
+    service = make_task_process_service(
         bus,
+        cpu=cpu,
+        access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
-        memory_reader=runtime.aliases,
+        workspace_runtime=runtime,
     )
-    channel = ProcessOperationChannel(
-        memory, access=context, target_workspace=access.default_workspace, process_id="waiting"
+    handle = await service.register_process(
+        adapter="local",
+        principal=access.principal,
+        actor=ActorIdentity(user_id="u1", agent_id="omni_doll"),
+        workspace=access.default_workspace,
+        process_id="waiting",
+        message="冷读 UPDATE",
     )
-    task = asyncio.create_task(channel.submit_update_intent("base", "新内容"))
+    stream = service.run_process(handle, stream=True)
     try:
-        await asyncio.wait_for(entered.wait(), timeout=1)
-        channel.close()
-        runtime.intents.cancel_process("waiting")
-        with pytest.raises(asyncio.CancelledError):
-            await task
+        async with asyncio.timeout(1):
+            while (await anext(stream))["event"] != "token":
+                pass
+        await stream.aclose()
+        (task,) = update_tasks
+        assert task.cancelling() == 0
         assert runtime.intents.size == 0
-        with pytest.raises(ProcessOperationsClosedError, match="closed"):
-            await channel.resolve_references(["base"])
+        release.set()
+        with pytest.raises(ExecutionCredentialRevokedError):
+            await asyncio.wait_for(task, timeout=1)
+        assert task.cancelled() is False
+        assert runtime.intents.size == 1
+        assert runtime.intents.claim_process("waiting") == []
+        with pytest.raises(ExecutionCredentialRevokedError):
+            await cpu.operation_entry.execute(
+                ResolveReferencesRequest(aliases=("base",)), credential=cpu.calls[0].credential
+            )
     finally:
-        if not task.done():
-            task.cancel()
-            await asyncio.gather(task, return_exceptions=True)
+        await stream.aclose()
+        for task in update_tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*update_tasks, return_exceptions=True)
         runtime.close()
         access.gateway.close()
         access.gateway.revoke_all_contexts()

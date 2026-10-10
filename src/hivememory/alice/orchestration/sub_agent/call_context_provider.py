@@ -12,6 +12,7 @@ from hivememory.engines.memory_compiler import (
     MemoryCompiler,
     MemoryEnvelopeTarget,
 )
+from hivememory.workspace.contracts import ResolveReferencesRequest
 
 if TYPE_CHECKING:
     from hivememory.alice.runtime.profile_resolver import AgentProfileResolver
@@ -67,11 +68,13 @@ class CallContextProvider:
 
         compiler = MemoryCompiler()
         sources = []
-        if caller_frame.operations is None:
-            raise RuntimeError("CALL context_refs 缺少进程操作端口")
+        if caller_frame.submit_operation is None:
+            raise RuntimeError("CALL context_refs 缺少操作提交函数")
         for alias in aliases:
             try:
-                resolved = (await caller_frame.operations.resolve_references([alias]))[0]
+                resolved = (
+                    await caller_frame.submit_operation(ResolveReferencesRequest((alias,)))
+                )[0]
             except Exception as error:
                 logger.warning("Failed to resolve context_ref %s: %s", alias, error)
                 continue

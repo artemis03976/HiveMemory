@@ -1,4 +1,4 @@
-"""确定性 HTTP chat：真实 Alice 经进程操作端口跨轮回读 workspace 写入意图。"""
+"""确定性 HTTP chat：真实 Alice 经凭据绑定的操作入口跨轮回读 workspace 写入意图。"""
 
 from __future__ import annotations
 
@@ -52,7 +52,7 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
         default_workspace=workspace,
     )
     bus = GlobalSystemBus()
-    harness = OperationsHarness(bus)
+    harness = OperationsHarness(bus, operation_authorizer=access.authorizer)
     payloads = []
     completions = 0
 
@@ -102,13 +102,17 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
         (GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, topics),
     ):
         bus.register(route, handler)
-    alice = AliceSystem(config=HiveMemoryConfig().alice, global_bus=bus)
+    alice = AliceSystem(
+        config=HiveMemoryConfig().alice, global_bus=bus, operation_entry=harness.entry
+    )
     service = make_task_process_service(
         bus,
         cpu=alice.cpu_port,
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
         workspace_runtime=harness.runtime,
+        credential_registry=harness.credentials,
+        operation_entry=harness.entry,
     )
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
