@@ -877,7 +877,7 @@ sequenceDiagram
 | 写入意图迁移·第 1 步（2026-10-07 已实施，[写入意图迁移 Idea](./pending-intent-migration.md#02-第-1-步实施结果与剩余方向2026-10-07) 0.2） | 登记与 L0 进入 workspace；能力层的提交方法；Alice 的写入意图提交与 pending 读回经能力层 | 主线程 T-4 通道与 P-12a 已实现；其余开放项留给第 2 步 |
 | Alice 的能力层调用迁移（收窄后） | 先以操作请求与 workspace 的单一操作入口取代第 1 步的进程操作通道（执行单元 Idea T-9）；SEARCH、引用记录及 CALL 目标 Profile/cache 改经能力层（P-12）；删除 `cpu_execution_identity`；D-9 遗留 | P-12b、P-9f；T-4 中第 1 步未决定的部分；T-9 已于 2026-10-09 决定，其余细节留给计划 |
 | 执行线程层 | 派生经过进程、每个线程一份访问 context、派生授权（执行单元 Idea T-1、T-2 的决定） | 执行单元 Idea T-1a、T-1b、T-2a、T-3 |
-| 能力层分层：root API 与 actor API（2026-10-10 新增，15.12） | capability 目录分为 root API 与 actor API；actor 操作对齐 READ、SEARCH、RUN、WRITE、UPDATE 与 CALL；进程阶段调用改为系统操作；root 检查取代 `management.*` 与 `task.observe` | 15.12“留给计划的细节” |
+| 能力层分层：root API 与 actor API（2026-10-10 新增，15.12） | capability 目录分为 root API 与 actor API；actor 操作对齐 READ、SEARCH、RUN、WRITE、UPDATE 与 CALL；进程阶段调用改为系统操作；root 检查取代 `management.*` 与 `task.observe` | 15.12“留给计划的细节”；[计划](../plans/v0.7.0-capability-surface-split.md)已建立（2026-10-10） |
 | Agent 操作白名单（原“Agent Profile 的权限并入 operation 控制”） | 15.4：Profile 的 allow 字段移除，白名单为 actor 操作全集；2026-10-10 起排在能力层分层之后 | 权限的存储与编辑位置；子线程权限的过渡 |
 
 - 顺序：读取缓存失效与写入意图迁移第 1 步都在 Alice 的能力层调用迁移之前；两者之间的先后取决于第 1 步是否经 workspace 的原子缓存跟随结算后的 canonical 引用（P-12a）：若是，缓存失效在前。执行线程层在 Alice 的能力层调用迁移之后；它与 Profile 权限计划的先后受执行单元 Idea T-3c 约束。
@@ -999,7 +999,7 @@ sequenceDiagram
 
 ### 15.12 能力层分为 root API 与 actor API
 
-**状态**：已完成。2026-10-10 决定；尚未实施，作为单独的计划推进，在 Agent 操作白名单（15.4）之前。
+**状态**：已完成。2026-10-10 决定；尚未实施，作为单独的计划推进，在 Agent 操作白名单（15.4）之前。计划：[能力层分层](../plans/v0.7.0-capability-surface-split.md)。
 
 **问题**（owner，2026-10-10）：能力层是计划重构前从 system 层的 API 原样搬入 workspace 的（7.1.6），迁移结果没有经过审查。用户（管理员）使用的方法与 actor 使用的方法混在同一套能力层里，具有误导性：`management.*` 作为普通 operation 可以登记给任何 actor，而管理方法不应暴露给任何 actor。能力层提供的能力与 actor 应有的能力对齐之后，才能讨论白名单（15.4）。
 
