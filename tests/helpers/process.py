@@ -44,7 +44,6 @@ def make_task_process_service(
         global_bus,
         operation_authorizer=operation_authorizer,
         memory_reader=runtime.aliases,
-        intent_registry=runtime.intents,
     )
     agent = AgentApplicationService(
         global_bus,

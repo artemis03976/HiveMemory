@@ -366,7 +366,6 @@ class SystemAssembler:
             global_bus=runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
             memory_reader=runtime.workspace_runtime.aliases,
-            intent_registry=runtime.workspace_runtime.intents,
         )
         agent = AgentApplicationService(
             global_bus=runtime.global_bus,

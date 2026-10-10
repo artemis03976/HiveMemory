@@ -288,6 +288,10 @@ class TaskProcessRunner:
                 raise _ProcessCancelled(record.phase, record.stop_reason or "user_requested")
             events.status(record)
             yield Finalizing()
+            # finalize 所需的授权先于认领：授权失败时意图仍为 PENDING，由关闭
+            # 流程取消，不会停在无人派发的 MATERIALIZING。scope 只用于紧随的
+            # 阶段调用，不在工作集中冻结等待 finalize。
+            finalize_scope = self._authorize(process, WorkspaceOperation.INTERACTION_SUBMIT)
             # 进程在调用 finalize 前封口交互记录（Q-14）：这是骨架唯一从
             # CPU 执行结果提取字段组装交互输入的地方；组装失败沿异常路径
             # 按进程失败处理，走现有关闭流程。
@@ -306,8 +310,7 @@ class TaskProcessRunner:
                 GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
                 payload=payload,
-                # scope 只用于紧随的阶段调用，不在工作集中冻结等待 finalize。
-                identity_scope=self._authorize(process, WorkspaceOperation.INTERACTION_SUBMIT),
+                identity_scope=finalize_scope,
             )
             # finalize 成功后 Patchouli 已接管本轮交互，不再清理 prepared run。
             working_set.hand_off_prepared()

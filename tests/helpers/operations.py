@@ -86,7 +86,6 @@ class OperationsHarness:
             GlobalSystemBus(),
             operation_authorizer=composition.authorizer,
             memory_reader=self.runtime.aliases,
-            intent_registry=self.registry,
         )
         return ProcessOperationChannel(
             service, access=access, target_workspace=workspace, process_id=process_id

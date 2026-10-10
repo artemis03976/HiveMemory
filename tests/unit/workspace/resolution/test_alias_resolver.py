@@ -33,6 +33,7 @@ from hivememory.core.models import (
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.workspace.cache.atom import AtomCache
 from hivememory.workspace.cache.epoch import WorkspaceEpochs
+from hivememory.workspace.intents import WriteIntentRegistry
 from hivememory.workspace.resolution.alias import AliasResolver
 from hivememory.workspace.resolution.guard import ColdReadGuard
 from tests.helpers.memory import make_memory_metadata
@@ -126,7 +127,9 @@ class _FakeBacking:
 def _resolver(backing: _FakeBacking) -> tuple[AliasResolver, WorkspaceEpochs, ColdReadGuard]:
     epochs = WorkspaceEpochs()
     guard = ColdReadGuard(epochs, max_stale_retries=2)
-    resolver = AliasResolver(cache=AtomCache(capacity=16), guard=guard, backing=backing)
+    resolver = AliasResolver(
+        cache=AtomCache(capacity=16), guard=guard, backing=backing, intents=WriteIntentRegistry()
+    )
     return resolver, epochs, guard
 
 
@@ -318,7 +321,9 @@ async def test_read_in_flight_at_close_returns_result_without_backfill():
     epochs = WorkspaceEpochs()
     guard = ColdReadGuard(epochs)
     cache = AtomCache(capacity=16)
-    resolver = AliasResolver(cache=cache, guard=guard, backing=backing)
+    resolver = AliasResolver(
+        cache=cache, guard=guard, backing=backing, intents=WriteIntentRegistry()
+    )
     backing.on_fetch = guard.close
 
     result = await resolver.read(atom.id, scope=A1)

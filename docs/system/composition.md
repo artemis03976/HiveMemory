@@ -16,7 +16,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-09
 ---
 
 # System 组合根与生命周期
@@ -48,7 +48,7 @@ HiveMemorySystem.build(config)
        -> subsystem bundle
             GatewaySystem / PatchouliSystem / AliceSystem（各自只接收自己的配置段）
        -> service bundle
-            Memory / Agent 能力服务（workspace.capability；注入操作授权者、读取视图与写入意图登记）
+            Memory / Agent 能力服务（workspace.capability；注入操作授权者与读取视图，写入意图登记经读取视图取得同一份）
             CPUAllocator（workspace.process；注入操作授权者、Agent 能力服务、AssetStore 只读 reader 与 memory_compiler / attachment_compiler 配置段）
             TaskProcessRunner（workspace.process，四阶段骨架；注入全局总线、CPU 端口（AliceSystem.cpu_port）、CPUAllocator、Memory 能力服务、写入意图登记、操作授权者与 Gateway 请求超时）
             TaskProcessService（workspace.process，注册入口，含进程表；注入 TaskProcessRunner、认证网关、操作授权者与 root RuntimeEventPublisher）

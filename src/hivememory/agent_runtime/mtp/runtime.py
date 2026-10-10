@@ -36,7 +36,6 @@ from hivememory.core.errors import (
     OperationDeniedError,
     PendingUpdateNotAllowedError,
     ResourceNotFoundError,
-    ResourceNotVisibleError,
     ResourceUnavailableError,
     ScopeRequiredError,
 )
@@ -762,7 +761,8 @@ class KoakumaRuntime:
                 message_key="mtp.update.pending_not_updatable",
                 params={"alias": alias},
             ) from error
-        except (ResourceNotFoundError, ResourceNotVisibleError) as error:
+        except ResourceNotFoundError as error:
+            # 能力层把不可见与不存在合并为 not_found，UPDATE 不区分两者。
             raise AliasNotFoundError(
                 message_key="mtp.update.alias_not_found",
                 params={"alias": alias},

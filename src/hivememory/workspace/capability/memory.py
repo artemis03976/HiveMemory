@@ -55,7 +55,6 @@ if TYPE_CHECKING:
     from hivememory.core.models import IdentityScope, WorkspaceIdentity
     from hivememory.core.models.query import QueryFilters
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
-    from hivememory.workspace.intents import WriteIntentRegistry
     from hivememory.workspace.resolution.alias import AliasResolver
 
 
@@ -91,12 +90,12 @@ class MemoryApplicationService:
         *,
         operation_authorizer: WorkspaceOperationAuthorizer,
         memory_reader: AliasResolver,
-        intent_registry: WriteIntentRegistry | None = None,
     ) -> None:
         self._global_bus = global_bus
         self._authorizer = operation_authorizer
         self._reader = memory_reader
-        self._intents = intent_registry
+        # 提交与 L0 回读必须是同一份登记：只经读取视图取得，不另行注入。
+        self._intents = memory_reader.intents
 
     async def submit_write_intent(
         self,
@@ -108,8 +107,7 @@ class MemoryApplicationService:
     ) -> PendingAtom:
         """提交 WRITE（``memory_intent.submit``），ACK 仅表示意图已登记。"""
         scope = self._authorize(access, WorkspaceOperation.MEMORY_INTENT_SUBMIT, target_workspace)
-        registry = self._intents if self._intents is not None else self._reader.intents
-        return registry.register_write(
+        return self._intents.register_write(
             focus,
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -134,8 +132,7 @@ class MemoryApplicationService:
         if result.kind != "atom" or result.atom is None:
             raise ResourceNotFoundError(details={"alias": base_alias})
         atom = result.atom
-        registry = self._intents if self._intents is not None else self._reader.intents
-        pending = registry.register_update(
+        pending = self._intents.register_update(
             UpdateFocus(
                 base_alias=atom.index.alias or base_alias,
                 base_uuid=str(atom.id),
@@ -163,8 +160,7 @@ class MemoryApplicationService:
         返回实际撤回的 alias。
         """
         self._authorize(access, WorkspaceOperation.MEMORY_INTENT_SUBMIT, target_workspace)
-        registry = self._intents if self._intents is not None else self._reader.intents
-        return registry.cancel_aliases(aliases, process_id=process_id)
+        return self._intents.cancel_aliases(aliases, process_id=process_id)
 
     async def resolve_references(
         self,

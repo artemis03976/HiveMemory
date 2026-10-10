@@ -175,7 +175,6 @@ async def chain(tmp_path):
             bus,
             operation_authorizer=composition.authorizer,
             memory_reader=runtime.aliases,
-            intent_registry=runtime.intents,
         ),
         profiles=AgentApplicationService(
             bus,
@@ -455,7 +454,6 @@ async def test_denied_operation_has_no_registration_or_cache_side_effect(chain, 
         chain.bus,
         operation_authorizer=composition.authorizer,
         memory_reader=chain.runtime.aliases,
-        intent_registry=chain.runtime.intents,
     )
     before = chain.runtime.stats()
     with pytest.raises(OperationDeniedError) as exc_info:

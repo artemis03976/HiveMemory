@@ -11,7 +11,9 @@ import asyncio
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
+from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, ResolvedAgentProfile
 from hivememory.core.models.pending import PendingAtomStatus, WriteFocus
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
@@ -127,6 +129,95 @@ async def test_process_claims_or_cancels_only_its_own_intents(status):
         access.gateway.revoke_all_contexts()
 
 
+class _DenySubmitAtFinalize:
+    """真实授权者的包装：进入 Actor 前的 interaction.submit 预检照常通过，
+    finalize 时的同一检查被拒绝，模拟两次检查之间权限失效。"""
+
+    def __init__(self, inner) -> None:
+        self._inner = inner
+        self._submit_checks = 0
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def authorize_operation(self, access, operation, target_workspace):
+        if operation == WorkspaceOperation.INTERACTION_SUBMIT:
+            self._submit_checks += 1
+            if self._submit_checks > 1:
+                raise OperationDeniedError(details={"reason": "revoked_for_test"})
+        return self._inner.authorize_operation(access, operation, target_workspace)
+
+
+@pytest.mark.asyncio
+async def test_finalize_authorization_failure_cancels_instead_of_stranding_intents():
+    """finalize 授权在认领之前：被拒绝时意图未被认领，随关闭取消，不停在 MATERIALIZING。"""
+    access = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="omni_doll")]
+    )
+    workspace = access.default_workspace
+    actor = ActorIdentity(user_id="u1", agent_id="omni_doll")
+    bus = GlobalSystemBus()
+    runtime = WorkspaceRuntime(
+        backing=BusCanonicalReadBackend(bus), atom_capacity=8, profile_capacity=8
+    )
+    submitted = []
+    finalized = []
+
+    async def write(operations):
+        submitted.append(await operations.submit_write_intent(WriteFocus(content="本进程")))
+
+    async def gateway(**_kwargs):
+        return GatewayDecisionOutcome(decision=make_gateway_decision())
+
+    async def profile(*_args, **_kwargs):
+        return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+
+    async def prepare(*, interaction_id, identity_scope, **_kwargs):
+        return make_prepared_run(interaction_id=interaction_id, identity_scope=identity_scope)
+
+    async def finalize(*, payload, **_kwargs):
+        finalized.append(payload)
+        return []
+
+    async def cleanup(**_kwargs):
+        return True
+
+    for route, handler in (
+        (GlobalRoutes.GATEWAY_PROCESS, gateway),
+        (GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, profile),
+        (GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare),
+        (GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize),
+        (GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup),
+    ):
+        bus.register(route, handler)
+    service = make_task_process_service(
+        bus,
+        cpu=ScriptedCPU(result=make_cpu_result(status="completed"), operation_script=write),
+        access_gateway=access.gateway,
+        operation_authorizer=_DenySubmitAtFinalize(access.authorizer),
+        workspace_runtime=runtime,
+    )
+    handle = await service.register_process(
+        adapter="local",
+        principal=access.principal,
+        actor=actor,
+        workspace=workspace,
+        process_id="current",
+        message="登记",
+    )
+    try:
+        with pytest.raises(OperationDeniedError) as exc_info:
+            await service.run_process(handle, stream=False)
+
+        status = runtime.intents.get(submitted[0].pending_alias, workspace).status
+        assert exc_info.value.details["reason"] == "revoked_for_test"
+        assert (status, finalized) == (PendingAtomStatus.CANCELLED, [])
+    finally:
+        runtime.close()
+        access.gateway.close()
+        access.gateway.revoke_all_contexts()
+
+
 @pytest.mark.asyncio
 async def test_channel_close_cancels_update_waiting_for_cold_read():
     """关闭发生在 UPDATE 冷读期间时，不能在清理之后登记出新的 PENDING。"""
@@ -152,7 +243,6 @@ async def test_channel_close_cancels_update_waiting_for_cold_read():
         bus,
         operation_authorizer=access.authorizer,
         memory_reader=runtime.aliases,
-        intent_registry=runtime.intents,
     )
     channel = ProcessOperationChannel(
         memory, access=context, target_workspace=access.default_workspace, process_id="waiting"

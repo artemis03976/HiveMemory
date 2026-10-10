@@ -43,12 +43,12 @@ class AliasResolver:
         cache: AtomCache,
         guard: ColdReadGuard,
         backing: CanonicalReadBackend,
-        intents: WriteIntentRegistry | None = None,
+        intents: WriteIntentRegistry,
     ) -> None:
         self._cache = cache
         self._guard = guard
         self._backing = backing
-        self._intents = intents if intents is not None else WriteIntentRegistry()
+        self._intents = intents
 
     @property
     def intents(self) -> WriteIntentRegistry:

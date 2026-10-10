@@ -35,7 +35,8 @@ def seal_interaction(
 
     字段来源（与拆分前 Patchouli finalize 内组装的结果逐字段一致）：
     ``user_message`` 是入口消息，``rewritten_query``/``worth_saving`` 来自
-    Gateway 决定，回复、轮次事件、模型名与物化任务来自 Actor 执行结果，
+    Gateway 决定，回复、轮次事件与模型名来自 Actor 执行结果，物化任务由进程
+    从写入意图登记认领，
     ``used_attachments`` 是附件编译冻结的实际使用引用。``turn_events``
     接受 ``TurnEvent`` 对象或等价 dict（流式 done 事件的还原产物），
     MTP 轨迹由 core 归约器在此处一次性归约。

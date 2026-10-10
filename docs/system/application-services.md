@@ -60,7 +60,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 |:---|:---|:---|
 | `TaskProcessService`（`workspace.process`） | 任务请求的唯一注册入口：注册时完成两阶段认证并创建进程，返回不透明的进程句柄；运行已注册的进程（主动非流式/流式 chat、command short-circuit、四阶段编排与阶段授权）；CPU 分配（Profile 解析、附件租借、附件与记忆编译、组装 `CPUInputManifest`）；进程表登记每个任务进程，提供取消、状态查询与关闭 | 认证网关、操作授权者；Gateway、Patchouli public routes；CPU 端口（组合根注入，当前为 Alice 的实现）；WorkspaceAsset reader 端口；MemoryCompiler、AttachmentCompiler；RuntimeEventPublisher（经 `TaskProcessEventEmitter` 投影 `chat.run.*`） |
 | `PassiveIngressService`（`system.application`） | 外部事件摄入、idle maintenance 注册、显式 flush、shutdown drain | Passive Ingressor、Gateway/Patchouli public routes、scheduler |
-| `MemoryApplicationService`（`workspace.capability`） | Memory 管理 CRUD、feedback 和查询参数转换（`management.memory`）；actor 可见读取经读取视图（`resource.read` / `resource.search`）；提交 WRITE/UPDATE 意图（`memory_intent.submit`） | 操作授权者；Patchouli memory routes；workspace 读取视图与写入意图登记 |
+| `MemoryApplicationService`（`workspace.capability`） | Memory 管理 CRUD、feedback 和查询参数转换（`management.memory`）；actor 可见读取经读取视图（`resource.read` / `resource.search`）；提交 WRITE/UPDATE 意图与撤回本进程 PENDING 意图（`memory_intent.submit`） | 操作授权者；Patchouli memory routes；workspace 读取视图（写入意图登记经它取得，与 L0 回读是同一份） |
 | `MemoryTaskApplicationService`（`workspace.capability`） | 查询/取消 Patchouli 拥有的 memory generation task（观察 `task.observe`、取消 `management.task`） | 操作授权者；Patchouli task routes |
 | `AgentApplicationService`（`workspace.capability`） | 构造 Agent Profile atom 并调用 Patchouli profile routes（管理创建与列表绑定 `management.memory`）；Profile 读取经读取视图（`profile.read`） | 操作授权者；Patchouli profile routes；workspace 读取视图 |
 | `TopicApplicationService`（`workspace.capability`） | 活跃话题列表、手动 settle、evict（均绑定 `management.topic`） | 操作授权者；Patchouli topic routes |
