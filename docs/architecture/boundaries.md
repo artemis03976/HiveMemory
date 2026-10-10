@@ -22,12 +22,12 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # 系统边界与所有权
 
-本文定义 System、Workspace、Gateway、Patchouli、Alice 之间当前生效的责任、状态所有权和依赖方向。Workspace 既是横跨这些边界的资源归属坐标，也是与三个子系统同层的包，承载认证入口、actor 能力层、读取视图与 WorkspaceAsset 设施；它没有独立生命周期宿主，由组合根装配。其完整当前语义见[Workspace 架构](./workspace.md)，包的分层规则见[系统架构概览](./overview.md)第 3 节。具体公开输入输出由[子系统契约](../contracts/subsystem-contracts.md)定义。
+本文定义 System、Workspace、Gateway、Patchouli、Alice 之间当前生效的责任、状态所有权和依赖方向。Workspace 既是横跨这些边界的资源归属坐标，也是与三个子系统同层的包，承载认证入口、能力层（只供 `system` 的 root API 与供 actor 的 actor API）、读取视图与 WorkspaceAsset 设施；它没有独立生命周期宿主，由组合根装配。其完整当前语义见[Workspace 架构](./workspace.md)，包的分层规则见[系统架构概览](./overview.md)第 3 节。具体公开输入输出由[子系统契约](../contracts/subsystem-contracts.md)定义。
 
 这里的“边界”不是为了让目录看起来整齐，也不是把一套进程内实现包装成微服务。它要解决的是一个更直接的问题：当一次交互同时经过入口判断、记忆检索、Agent 执行和长期沉淀时，究竟由谁作决定、由谁保存状态、又由谁对失败负责。如果这个问题没有唯一答案，同一份状态就会在多个 Runtime 中出现副本，业务顺序会散落到 HTTP router、事件订阅者和领域对象里，局部修复最终会改变整条链路的语义。
 
@@ -61,7 +61,7 @@ last_reviewed: 2026-10-09
 
 公共模型在这里相当于一张“交接单”：它应说明上一阶段已经确认了什么、下一阶段可以依赖什么，却不允许接收方通过模型继续操纵发送方的内部对象。将公共模型做成 frozen 或依赖中立结构，目的正是防止 workflow state、存储客户端和引擎实体沿调用链泄漏，最终形成无法辨认的共享内部状态。
 
-访问控制的所有权同样分属两处：System 持有调用来源接入登记与 Principal authentication（`system.access`，第 1 阶段）；workspace 持有统一认证网关与第 2 阶段的准入、签发与撤销（`workspace.authentication`）、第 3 阶段的操作授权（`workspace.authorization`）与访问注册表（`workspace.registry`）。访问值类型与端口协议（`WorkspaceOperation`、密封的 `WorkspaceAccessContext` 与授予内容、`CallerPrincipal`、`PrincipalAuthenticator`）位于 `core.access`。操作授权在 workspace 的授权点（能力层、任务进程的阶段检查）完成，再将组装的 `IdentityScope` 交给公共 route；资源 owner 拆分身份后独立执行资源规则：先检查 Workspace 硬边界，再按 policy 判断发起者的可见性，来源字段不参与授权。Patchouli 与 Gateway 不接收访问 context，也不依赖 workspace 的认证与授权实现。依赖方向为 `system → workspace → core`；workspace 不导入 System。完整模型见[Workspace 架构](./workspace.md)第 4 节。
+访问控制的所有权同样分属两处：System 持有调用来源接入登记与 Principal authentication（`system.access`，第 1 阶段）；workspace 持有统一认证网关与第 2 阶段的准入、签发与撤销（`workspace.authentication`）、第 3 阶段的操作授权（`workspace.authorization`）与访问注册表（`workspace.registry`）。访问值类型与端口协议（`WorkspaceOperation`、密封的 `WorkspaceAccessContext` 与授予内容、`CallerPrincipal`、`PrincipalAuthenticator`）位于 `core.access`。操作授权在 workspace 的授权点完成：actor API 检查 actor 操作白名单，root API 只接受保留的 `system`，任务进程的阶段调用只校验准入与目标、不检查 actor 操作；三者都把组装的 `IdentityScope` 交给公共 route；资源 owner 拆分身份后独立执行资源规则：先检查 Workspace 硬边界，再按 policy 判断发起者的可见性，来源字段不参与授权。Patchouli 与 Gateway 不接收访问 context，也不依赖 workspace 的认证与授权实现。依赖方向为 `system → workspace → core`；workspace 不导入 System。完整模型见[Workspace 架构](./workspace.md)第 4 节。
 
 local bus 则是一个子系统内部的组合机制。它允许所有者替换内部实现，却不承诺跨子系统稳定性。一旦其他子系统直接依赖 local route，所谓内部重构就会变成隐蔽的公共契约变更，因此跨边界能力必须显式提升为公共 route、公共模型或全局事件。
 
@@ -70,7 +70,7 @@ local bus 则是一个子系统内部的组合机制。它允许所有者替换�
 | 边界 | 负责 | 明确不负责 |
 |:---|:---|:---|
 | System | 组合根与门面、配置加载、生命周期、共享设施实例的装配与关闭、Provider/Model 注册表、接入登记与 Principal authentication、被动摄入、就绪检查 | 查询分析、记忆算法、Agent loop、MTP 具体执行、Workspace 准入与行为白名单（归 workspace）、运行时机制实现（归 components） |
-| Workspace | 认证入口与准入、逐次行为授权、actor 能力层、写入意图登记、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`） | 记忆算法与 canonical 存储、接入登记、Agent loop |
+| Workspace | 认证入口与准入、逐次行为授权、能力层（root API 与 actor API）、写入意图登记、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`） | 记忆算法与 canonical 存储、接入登记、Agent loop |
 | Gateway | 入口拦截、命令解析（不执行）、话题/查询分析、检索计划、保守降级 | 记忆存储、检索执行、回复生成、interaction 提交 |
 | Patchouli | 记忆/话题/Profile、检索、感知、生成、生命周期、prepare/finalize | 入口命令、顶层 chat 编排、Agent 生成循环 |
 | Alice | Agent run、frame 编排、MTP/工具执行与 CALL 编排 | 长期记忆所有权、Gateway 分析、chat 任务进程编排、HTTP 生命周期 |
@@ -91,7 +91,7 @@ System 是舞台管理者：它装配所有参与者，知道它们按什么顺�
 
 ### 4.2 允许的依赖
 
-System 可以依赖任何下层包完成装配，也可以通过全局路由调用公共能力。HTTP router 经门面取得服务（workspace 能力层与任务进程编排、System 被动摄入），而不是直接依赖子系统 Runtime。
+System 可以依赖任何下层包完成装配，也可以通过全局路由调用公共能力。HTTP router 经门面取得服务（workspace root API 与任务进程编排、System 被动摄入），而不是直接依赖子系统 Runtime；actor API 只由操作入口持有，server 不导入它。
 
 ### 4.3 禁止的越界
 
@@ -143,9 +143,9 @@ Patchouli 是长期知识事实的核心。检索、话题、Profile、Interacti
 
 `prepare_agent_run` 把 Gateway 决策转换为 `PreparedAgentRun`：准备真实话题、读取话题上下文与话题池，并按检索计划检索记忆，返回未编译的检索原子。Agent Profile 解析、附件租借与编译、记忆编译和输入清单组装属于 workspace 任务进程的 CPU 分配，不在 Patchouli 边界内完成。
 
-`PreparedAgentRun` 只保存 prepare 的资源归属。`finalize_agent_run` 接收它、任务进程封口的 `InteractionPayload` 和当次 `interaction.submit` 阶段授权的 `IdentityScope`；归属不一致时在交互接纳前抛 `WorkspaceMismatchError`，一致时以当次 scope 的发起者创建 submission，原样提交感知链并调度 materialize task。交互记录由提交方封口（主动链路是任务进程，被动链路是 System 的 turn buffer），Patchouli 的公开路由因此不接收任何执行者专属的运行结果；trace 归约规则只有 core 中的一份，由封口方调用。
+`PreparedAgentRun` 只保存 prepare 的资源归属。`finalize_agent_run` 接收它、任务进程封口的 `InteractionPayload` 和当次阶段授权的 `IdentityScope`；归属不一致时在交互接纳前抛 `WorkspaceMismatchError`，一致时以当次 scope 的发起者创建 submission，原样提交感知链并调度 materialize task。交互记录由提交方封口（主动链路是任务进程，被动链路是 System 的 turn buffer），Patchouli 的公开路由因此不接收任何执行者专属的运行结果；trace 归约规则只有 core 中的一份，由封口方调用。
 
-如果任务进程未能完成 finalize，只能重新以 `resource.search` 授权并调用 cleanup 请求 Patchouli 清理预创建空话题，不能自行修改话题状态。cleanup 对越域 prepared 返回 `False`；阶段授权被拒时，任务进程记录警告并继续关闭。已被 finalization continuation 或 submission queue 接管的交互不再由调用方 cleanup。
+如果任务进程未能完成 finalize，只能重新执行阶段授权并调用 cleanup 请求 Patchouli 清理预创建空话题，不能自行修改话题状态。cleanup 对越域 prepared 返回 `False`；阶段授权被拒时，任务进程记录警告并继续关闭。已被 finalization continuation 或 submission queue 接管的交互不再由调用方 cleanup。
 
 prepare/finalize 把“为本次执行准备记忆视图”和“把完成后的交互提交回长期系统”放在 Patchouli 两端，中间由任务进程把本轮快照编译为输入清单交给 CPU（当前为 Alice）。这一设计允许执行者专注执行，又确保长期状态的创建与结算仍经过 Patchouli。cleanup 只是对 prepare 阶段临时副作用的补偿，不是跨子系统事务回滚：已经存在或已经产生内容的长期状态不会因为本轮执行失败而被调用方撤销。
 
@@ -170,7 +170,7 @@ Alice 是知识的使用者和行动者。它可以在一次 run 中读取记忆
 
 ### 7.2 依赖方向
 
-Alice 接收含只读 `ExecutionLabels` 的 `CPUInputManifest`，在内部转换为 `AgentRunContext`。CPU 端口的执行凭据独立于清单，`AliceCPU` 绑定凭据与公共 `OperationEntry` 形成 `OperationSubmitter`；MTP 与 CALL 仅构造请求，检索、引用交付、意图提交/撤回及 Profile 读取统一进入 workspace 能力层。主、子 frame 沿用同一提交函数与注册标签，不持有访问 context 或 `IdentityScope`，也不能用标签改变资源授权目标。
+Alice 接收含只读 `ExecutionLabels` 的 `CPUInputManifest`，在内部转换为 `AgentRunContext`。CPU 端口的执行凭据独立于清单，`AliceCPU` 绑定凭据与公共 `OperationEntry` 形成 `OperationSubmitter`；MTP 与 CALL 仅构造请求，READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取统一进入 workspace actor API，各自检查一项 actor 操作；子帧的意图撤回由操作入口直接补偿。主、子 frame 沿用同一提交函数与注册标签，不持有访问 context 或 `IdentityScope`，也不能用标签改变资源授权目标。
 
 模型解析经 `agent_runtime.model_resolution.ModelResolver` 端口使用 System 的模型注册表，由组合根注入。
 
@@ -205,7 +205,7 @@ Patchouli 结算意图后，经全局事件更新 workspace 登记；canonical �
 | PendingAtom 运行时状态 | Workspace 写入意图登记 | 分开保存归属、发起者与进程关联；Patchouli 结算事件回传 |
 | `ReferenceResolution` | Workspace 读取视图投影 | core 中立结果；意图与原子交付独立副本 |
 | `ExecutionCredential` / 凭据绑定 | workspace 共享凭据表 | 凭据独立交给 CPU；绑定仅在 workspace 内兑现，进程关闭同步吊销 |
-| `OperationRequest[R]` / `OperationEntry` / `OperationSubmitter` | workspace 定义，能力层执行，CPU 驱动绑定提交函数 | 只传操作参数与类型化结果，资源授权保持在能力层和资源 owner |
+| `OperationRequest[R]` / `OperationEntry` / `OperationSubmitter` | workspace 定义，actor API 执行，CPU 驱动绑定提交函数 | 只传操作参数与类型化结果，资源授权保持在 actor API 和资源 owner |
 | `ExecutionLabels` | 注册认证通过后创建，进程事件绑定载体持有 | CPU 清单、主子 frame 与运行事件共享只读标签，不携带授权身份 |
 | 任务进程控制（chat run 的 phase/outcome/stop reason/active_task） | Workspace 任务进程表（`workspace.process`） | 编排内部状态与 RuntimeEvent 投影 |
 | passive run 控制 | System | 应用服务内部状态与 RuntimeEvent 投影 |
@@ -215,12 +215,13 @@ Patchouli 结算意图后，经全局事件更新 workspace 登记；canonical �
 ## 9. 允许的调用方向
 
 ```text
-Server adapters -> 门面提供的服务（workspace 能力层与任务进程 / System 被动摄入）
+Server adapters -> 门面提供的服务（workspace root API 与任务进程 / System 被动摄入）
 上述服务 -> GlobalSystemBus public routes
 workspace 认证入口 -> System Principal authentication（经 core.access 端口注入）
 Gateway -> Patchouli public read routes (话题上下文)
-Alice -> OperationSubmitter -> workspace OperationEntry -> workspace 能力层
-workspace 能力层 -> Patchouli public routes (授权后组装当次 IdentityScope)
+任务进程 -> Gateway / Patchouli public routes、Profile 读取视图与 AssetStore reader (阶段授权，不经能力层)
+Alice -> OperationSubmitter -> workspace OperationEntry -> workspace actor API
+workspace root API / actor API -> Patchouli public routes (授权后组装当次 IdentityScope)
 Patchouli -> GlobalEvents -> workspace (意图结算与canonical读取失效)
 Subsystem -> RuntimeEventSink (观测旁路)
 ```

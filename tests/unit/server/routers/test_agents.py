@@ -13,11 +13,8 @@ from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.server import deps
 from hivememory.server.routers.agents import router
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from tests.helpers.workspace import (
-    make_server_access_overrides,
-    make_workspace_runtime,
-)
+from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
+from tests.helpers.workspace import make_server_access_overrides
 
 
 def _create_test_app(storage):
@@ -34,15 +31,14 @@ def _create_test_app(storage):
         GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
         management.list_agent_profiles,
     )
-    # 管理用例的 operation 授权（management.memory）在能力层执行：服务与
-    # 访问依赖共享同一组合的操作授权者，context 才能通过签发校验。
+    # 管理用例执行 root 授权：服务与访问依赖共享同一组合的操作授权者，
+    # Profile 管理不进入 actor 的读取视图。
     overrides, composition = make_server_access_overrides()
-    service = AgentApplicationService(
+    service = RootAgentProfileService(
         global_bus=bus,
         operation_authorizer=composition.authorizer,
-        profile_reader=make_workspace_runtime(bus).profiles,
     )
-    app.dependency_overrides[deps.get_agent_service] = lambda: service
+    app.dependency_overrides[deps.get_root_agent_service] = lambda: service
     app.dependency_overrides.update(overrides)
 
     return app
@@ -116,7 +112,7 @@ def test_list_agents_passes_target_workspace_and_access():
 
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
-    app.dependency_overrides[deps.get_agent_service] = lambda: service
+    app.dependency_overrides[deps.get_root_agent_service] = lambda: service
     overrides, _ = make_server_access_overrides(users=["u1"])
     app.dependency_overrides.update(overrides)
     client = TestClient(app)

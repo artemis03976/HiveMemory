@@ -24,11 +24,11 @@ from hivememory.infrastructure.attachments.errors import (
 from hivememory.server.deps import (
     RequestAccess,
     get_request_access,
-    get_workspace_asset_service,
+    get_root_workspace_asset_service,
 )
 from hivememory.server.models.workspace_asset import WorkspaceAssetUploadResponse
-from hivememory.workspace.capability.assets import (
-    WorkspaceAssetApplicationService,
+from hivememory.workspace.capability.root.assets import (
+    RootWorkspaceAssetService,
 )
 
 router = APIRouter(tags=["workspace-assets"])
@@ -93,14 +93,14 @@ async def upload_workspace_asset(
     response: Response,
     idempotency_key: str | None = Header(default=None),
     request_access: RequestAccess = Depends(get_request_access),
-    service: WorkspaceAssetApplicationService = Depends(get_workspace_asset_service),
+    service: RootWorkspaceAssetService = Depends(get_root_workspace_asset_service),
 ) -> WorkspaceAssetUploadResponse:
     """上传单个附件，创建 WorkspaceAsset 并返回 bound ref 与 RAW 摘要。
 
     首次创建返回 201；同一 ``Idempotency-Key`` 且内容一致的重放返回 200
     和同一逻辑资产的当前快照。上传成功只表示 RAW 已注册，不把附件自动
-    加入当前 Chat run。上传绑定 ``management.asset``：请求经统一认证网关
-    取得访问 context，注册使用的 scope 由操作授权者在授权时组装，调用方不能
+    加入当前 Chat run。上传经 root API：请求经统一认证网关取得保留的
+    system actor 访问 context，注册使用的 scope 由授权者组装，调用方不能
     另行传入（P-1 缺陷的结构性修复，A1 访问边界返工第 4.5 节）。
     """
     operation_id = idempotency_key.strip() if idempotency_key else ""

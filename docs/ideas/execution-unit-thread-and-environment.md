@@ -116,7 +116,7 @@ last_reviewed: 2026-10-10
 - **任务进程一侧没有线程层**：进程记录只持有一份访问 context（身份 Idea I-8）；context 的运行绑定 `RunBinding`（[`core/access.py`](../../src/hivememory/core/access.py)）只有运行类型（任务进程或请求）与运行标识。
 - **CPU 已有主线程回调通道**：进程调用 `CPUPort.execute` 时把 operations 作为独立参数交给 CPU，执行单元仍交回事件流与唯一终态结果（[`workspace/contracts/cpu.py`](../../src/hivememory/workspace/contracts/cpu.py)、[`operations.py`](../../src/hivememory/workspace/contracts/operations.py)）。`ProcessOperationChannel` 绑定访问 context、注册目标与 process_id，执行者不提交这些身份参数；关闭同步使通道失效并取消在途操作，防止迟到 UPDATE 冷读再登记新意图。输入清单仍携带过渡 `IdentityScope`（I-9），用于 SEARCH、引用记录与 CALL 目标 Profile 的剩余直接调用。
 - **目标 workspace**：授权点显式接收目标 workspace（身份 Idea I-4）；任务进程的阶段调用与 operations 通道均以任务注册时声明并通过认证的 workspace 为目标（I-8）。[MTP 契约](../contracts/mtp.md#2-执行位置)第 2 节继续禁止 MTP 文本、alias 或进程级缓存自行指定或推导 Workspace；已迁移的操作由进程通道绑定身份，剩余直接路由仍使用过渡 `RuntimeScope`。
-- **Profile 的默认可见性**：管理入口创建的 Agent Profile 使用 `MemoryAccessPolicy.public()`（[`workspace/capability/agent_profiles.py`](../../src/hivememory/workspace/capability/agent_profiles.py)）；`AgentProfile.agent_id` 取自源原子的 `index.alias`。
+- **Profile 的默认可见性**：管理入口创建的 Agent Profile 使用 `MemoryAccessPolicy.public()`（[`workspace/capability/root/agent_profiles.py`](../../src/hivememory/workspace/capability/root/agent_profiles.py)）；`AgentProfile.agent_id` 取自源原子的 `index.alias`。
 
 ## 3. 流程图
 
@@ -269,7 +269,7 @@ flowchart LR
 - **执行凭据**：进程内的不透明对象，按对象身份判定有效（与身份 Idea I-8 的进程句柄同一做法），绑定访问 context、目标 workspace 与 process_id；进程关闭时同步吊销。需要跨传输的外部 harness 由操作适配器持有“会话 → 凭据”的映射（外部 Actor Idea 3.4），凭据本身不跨传输。
 - **兑现位置**：操作入口是唯一认识凭据的地方，先把凭据还原为访问 context，再调用能力方法；能力方法的签名不变，仍只接收访问 context，“调用方参数的形态”因此不再需要选择。
 - **操作列表**：请求类型暂与能力方法一一对应，多对一地映射到现有 `WorkspaceOperation`；正式列表随 Profile 权限与白名单重构完成（总 Idea 15.4）。
-  - （owner，2026-10-10）actor 操作为 READ（含 Agent Profile）、SEARCH、RUN、WRITE、UPDATE 与只有 Alice 使用的 CALL，附件读取以后可能加入；进程阶段调用与 root 操作都不在列表中。命名在能力层分层的计划中确定（总 Idea 15.12）。
+  - （owner，2026-10-10）actor 操作为 READ（含 Agent Profile）、SEARCH、RUN、WRITE、UPDATE 与只有 Alice 使用的 CALL，附件读取以后可能加入；进程阶段调用与 root 操作都不在列表中。命名在能力层分层的计划中确定（总 Idea 15.12）；2026-10-10 实施后为 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，当前事实见 [Workspace 架构](../architecture/workspace.md)第 4.5 节。
 - **引用记录**：不是操作，也不设请求类型，是能力层引用读取的自动副作用（总 Idea P-12b）。
 - 其余细节（凭据表位置、装配顺序、凭据交给 CPU 的方式、目标 workspace）由[计划](../archive/plans/v0.7.0-alice-capability-migration.md)给出。
 

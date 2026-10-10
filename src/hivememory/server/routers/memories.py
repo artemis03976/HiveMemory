@@ -5,7 +5,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
-from hivememory.server.deps import RequestAccess, get_memory_service, get_request_access
+from hivememory.server.deps import RequestAccess, get_request_access, get_root_memory_service
 from hivememory.server.models.memory import (
     MemoryCreateRequest,
     MemoryFeedbackRequest,
@@ -14,10 +14,10 @@ from hivememory.server.models.memory import (
     MemoryResponse,
     MemoryUpdateRequest,
 )
-from hivememory.workspace.capability.memory import (
-    MemoryApplicationService,
+from hivememory.workspace.capability.root.memory import (
     MemoryLifecycleUnavailableError,
     MemoryNotFoundError,
+    RootMemoryService,
 )
 
 router = APIRouter(tags=["memories"])
@@ -26,7 +26,7 @@ router = APIRouter(tags=["memories"])
 @router.post("/memories", response_model=MemoryResponse, status_code=201)
 async def create_memory(
     body: MemoryCreateRequest,
-    service: MemoryApplicationService = Depends(get_memory_service),
+    service: RootMemoryService = Depends(get_root_memory_service),
     request_access: RequestAccess = Depends(get_request_access),
 ):
     """创建新的记忆（管理用例，actor 为保留 system）"""
@@ -54,7 +54,7 @@ async def list_memories(
     query: str = Query(default=None, description="语义搜索查询"),
     memory_type: str = Query(default=None, description="按记忆类型过滤"),
     limit: int = Query(default=20, le=100, description="最大返回数量"),
-    service: MemoryApplicationService = Depends(get_memory_service),
+    service: RootMemoryService = Depends(get_root_memory_service),
     request_access: RequestAccess = Depends(get_request_access),
 ):
     """检索记忆 — 支持语义搜索和过滤（owner-management 语义，不做 Agent 可见性过滤）"""
@@ -72,7 +72,7 @@ async def list_memories(
 @router.get("/memories/{memory_id}", response_model=MemoryResponse)
 async def get_memory(
     memory_id: str,
-    service: MemoryApplicationService = Depends(get_memory_service),
+    service: RootMemoryService = Depends(get_root_memory_service),
     request_access: RequestAccess = Depends(get_request_access),
 ):
     """获取单条记忆详情"""
@@ -96,7 +96,7 @@ async def get_memory(
 async def update_memory(
     memory_id: str,
     body: MemoryUpdateRequest,
-    service: MemoryApplicationService = Depends(get_memory_service),
+    service: RootMemoryService = Depends(get_root_memory_service),
     request_access: RequestAccess = Depends(get_request_access),
 ):
     """更新记忆的可编辑字段"""
@@ -130,7 +130,7 @@ async def update_memory(
 async def record_memory_feedback(
     memory_id: str,
     body: MemoryFeedbackRequest,
-    service: MemoryApplicationService = Depends(get_memory_service),
+    service: RootMemoryService = Depends(get_root_memory_service),
     request_access: RequestAccess = Depends(get_request_access),
 ):
     """记录用户对某条记忆的显式反馈。"""
@@ -171,7 +171,7 @@ async def record_memory_feedback(
 @router.delete("/memories/{memory_id}")
 async def delete_memory(
     memory_id: str,
-    service: MemoryApplicationService = Depends(get_memory_service),
+    service: RootMemoryService = Depends(get_root_memory_service),
     request_access: RequestAccess = Depends(get_request_access),
 ):
     """删除记忆"""

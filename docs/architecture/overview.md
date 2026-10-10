@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # HiveMemory 当前系统架构
@@ -81,7 +81,7 @@ Workspace 的资源归属、IdentityScope 传播、Topic/Asset 边界和 shutdow
 ```mermaid
 flowchart TB
     API["HTTP / SSE / WebSocket 适配层"] --> FACADE["HiveMemorySystem 门面"]
-    FACADE --> CAP["Workspace 能力层"]
+    FACADE --> CAP["Workspace root API（管理）"]
     FACADE --> CHAT["任务进程编排（workspace.process）"]
     CAP --> BUS["GlobalSystemBus"]
     CHAT --> BUS

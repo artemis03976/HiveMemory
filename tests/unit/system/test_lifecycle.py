@@ -146,12 +146,12 @@ def system_factory(mock_patchouli, global_bus, scheduler):
         services = _ServicesBundle(
             process=process_service,
             ingress=ingress_service,
-            memory=memory_service,
-            memory_task=memory_task_service,
-            agent=agent_service,
-            topic=topic_service,
+            root_memory=memory_service,
+            root_memory_task=memory_task_service,
+            root_agent=agent_service,
+            root_topic=topic_service,
             readiness=readiness_service,
-            workspace_assets=MagicMock(),
+            root_workspace_assets=MagicMock(),
         )
         return HiveMemorySystem(
             config=MagicMock(),

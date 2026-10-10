@@ -44,13 +44,15 @@ from hivememory.workspace.assets.parse_service import AttachmentParseService
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.authentication import ActorAuthenticationGateway, WorkspaceAuthenticator
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from hivememory.workspace.capability.assets import WorkspaceAssetApplicationService
+from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
-from hivememory.workspace.capability.memory import MemoryApplicationService
-from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
-from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
+from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
+from hivememory.workspace.capability.root.memory import RootMemoryService
+from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
+from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.credentials import ExecutionCredentialRegistry
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.runner import TaskProcessRunner
@@ -103,24 +105,26 @@ class _SubsystemBundle:
 
 @dataclass
 class _CapabilitiesBundle:
-    """子系统之前构建的能力层产物；入口与进程共享唯一的凭据表。"""
+    """子系统之前构建的 actor 能力产物；操作入口与进程共享唯一的凭据表。"""
 
-    memory: MemoryApplicationService
-    agent: AgentApplicationService
+    memory: ActorMemoryService
+    agent: ActorAgentService
     credentials: ExecutionCredentialRegistry
     operations: WorkspaceOperationEntry
 
 
 @dataclass
 class _ServicesBundle:
+    """门面暴露的应用服务：root 管理能力与系统编排服务。"""
+
     process: TaskProcessService
     ingress: PassiveIngressService
-    memory: MemoryApplicationService
-    memory_task: MemoryTaskApplicationService
-    agent: AgentApplicationService
-    topic: TopicApplicationService
+    root_memory: RootMemoryService
+    root_memory_task: RootMemoryTaskService
+    root_agent: RootAgentProfileService
+    root_topic: RootTopicService
     readiness: SystemReadinessService
-    workspace_assets: WorkspaceAssetApplicationService
+    root_workspace_assets: RootWorkspaceAssetService
 
 
 # ---------------------------------------------------------------------------
@@ -332,13 +336,12 @@ class SystemAssembler:
         access_control: _AccessControlBundle,
     ) -> _CapabilitiesBundle:
         """能力服务仅依赖共享运行时，先于需要操作入口的 Alice 装配。"""
-        memory = MemoryApplicationService(
+        memory = ActorMemoryService(
             global_bus=runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
             memory_reader=runtime.workspace_runtime.aliases,
         )
-        agent = AgentApplicationService(
-            global_bus=runtime.global_bus,
+        agent = ActorAgentService(
             operation_authorizer=access_control.operation_authorizer,
             profile_reader=runtime.workspace_runtime.profiles,
         )
@@ -412,7 +415,8 @@ class SystemAssembler:
         allocator = CPUAllocator(
             runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
-            agent_service=capabilities.agent,
+            # Profile 阶段读取直接使用读取视图，不经过 actor 能力的操作检查。
+            profile_reader=runtime.workspace_runtime.profiles,
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给 CPU 分配：
             # 附件租借在 CPU 分配边界 acquire，随进程关闭由分配器释放。
             asset_reader=runtime.workspace_asset_store,
@@ -451,14 +455,21 @@ class SystemAssembler:
                 component="passive_ingress_service",
             ),
         )
-        # 能力层（A2）：读取方法在 backing 调用前执行操作授权，随后经
-        # workspace resolver 解析；写入与管理用例的授权同样在本层执行
-        # （A1 访问边界返工 4.5），管理路由保持薄委托。
-        memory_task = MemoryTaskApplicationService(
+        # root API 独立于 actor 读取视图，只供保留的 system actor 管理资源。
+        # 管理读取直接走资源所有者路由，门面不再暴露 actor 能力服务。
+        root_memory = RootMemoryService(
             global_bus=runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
         )
-        topic = TopicApplicationService(
+        root_agent = RootAgentProfileService(
+            global_bus=runtime.global_bus,
+            operation_authorizer=access_control.operation_authorizer,
+        )
+        root_memory_task = RootMemoryTaskService(
+            global_bus=runtime.global_bus,
+            operation_authorizer=access_control.operation_authorizer,
+        )
+        root_topic = RootTopicService(
             global_bus=runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
         )
@@ -467,26 +478,26 @@ class SystemAssembler:
         )
         # 上传应用服务直接持有进程级唯一的 WorkspaceAssetStore 命令端口，
         # 附件上传不经过全局总线（资产状态真相由 Store 同步持有）。
-        workspace_assets = WorkspaceAssetApplicationService(
+        root_workspace_assets = RootWorkspaceAssetService(
             store=runtime.workspace_asset_store,
             parser_config=self._config.attachment_parser,
             parse_service=AttachmentParseService(
                 store=runtime.workspace_asset_store,
                 config=self._config.attachment_parser,
             ),
-            # A1：上传在自己的公共入口执行同一操作授权。
+            # 上传在 root API 公共入口检查保留的 system actor 与目标 Workspace。
             operation_authorizer=access_control.operation_authorizer,
         )
 
         return _ServicesBundle(
             process=process,
             ingress=ingress,
-            memory=capabilities.memory,
-            memory_task=memory_task,
-            agent=capabilities.agent,
-            topic=topic,
+            root_memory=root_memory,
+            root_memory_task=root_memory_task,
+            root_agent=root_agent,
+            root_topic=root_topic,
             readiness=readiness,
-            workspace_assets=workspace_assets,
+            root_workspace_assets=root_workspace_assets,
         )
 
 

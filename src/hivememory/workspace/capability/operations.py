@@ -1,4 +1,4 @@
-"""workspace 单一操作入口：兑现凭据并薄分派到对应的能力方法。"""
+"""workspace 操作入口：兑现凭据，分派 actor 请求或处理执行单元内部补偿。"""
 
 from __future__ import annotations
 
@@ -9,15 +9,16 @@ from hivememory.core.models.agent import AgentProfile
 from hivememory.core.models.memory import MemoryAtom
 from hivememory.core.models.pending import PendingAtom
 from hivememory.core.models.reference import ReferenceResolution
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.contracts.operations import (
     CancelIntentsRequest,
     ExecutionCredential,
     ExecutionCredentialRevokedError,
-    GetAgentProfileRequest,
     OperationRequest,
+    ResolveCallTargetRequest,
     ResolveReferencesRequest,
+    ResolveRunTargetRequest,
     RetrieveRequest,
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
@@ -34,9 +35,9 @@ class WorkspaceOperationEntry:
 
     def __init__(
         self,
-        memory: MemoryApplicationService,
+        memory: ActorMemoryService,
         *,
-        agent: AgentApplicationService,
+        agent: ActorAgentService,
         credential_registry: ExecutionCredentialRegistry,
         intent_registry: WriteIntentRegistry,
     ) -> None:
@@ -52,8 +53,9 @@ class WorkspaceOperationEntry:
             SubmitUpdateIntentRequest: self._submit_update,
             CancelIntentsRequest: self._cancel_intents,
             ResolveReferencesRequest: self._resolve_references,
+            ResolveRunTargetRequest: self._resolve_run_target,
             RetrieveRequest: self._retrieve,
-            GetAgentProfileRequest: self._get_agent_profile,
+            ResolveCallTargetRequest: self._resolve_call_target,
         }
 
     async def execute[R](
@@ -110,12 +112,14 @@ class WorkspaceOperationEntry:
     async def _cancel_intents(
         self, request: CancelIntentsRequest, binding: ExecutionBinding
     ) -> list[str]:
-        """只撤回绑定进程仍为 PENDING 的指定意图。"""
-        return await self._memory.cancel_intents(
+        """执行单元内部补偿，只撤回凭据绑定进程仍为 PENDING 的指定意图。
+
+        凭据已在分派前兑现；撤回不属于 actor 操作，不经能力层或操作授权，
+        因此缺少 WRITE/UPDATE 许可也能补偿本进程先前登记的意图。
+        """
+        return self._intents.cancel_aliases(
             list(request.aliases),
             process_id=binding.process_id,
-            target_workspace=binding.target_workspace,
-            access=binding.access,
         )
 
     async def _resolve_references(
@@ -141,11 +145,21 @@ class WorkspaceOperationEntry:
             access=binding.access,
         )
 
-    async def _get_agent_profile(
-        self, request: GetAgentProfileRequest, binding: ExecutionBinding
+    async def _resolve_run_target(
+        self, request: ResolveRunTargetRequest, binding: ExecutionBinding
+    ) -> ReferenceResolution:
+        """RUN 只携带一个执行目标，使用自身的 actor 操作许可。"""
+        return await self._memory.resolve_run_target(
+            request.alias,
+            target_workspace=binding.target_workspace,
+            access=binding.access,
+        )
+
+    async def _resolve_call_target(
+        self, request: ResolveCallTargetRequest, binding: ExecutionBinding
     ) -> AgentProfile:
         """CALL 图纸读取沿用主线程绑定，执行权限仍由 Alice 的 Profile 控制。"""
-        return await self._agent.get_agent_profile(
+        return await self._agent.resolve_call_target(
             request.agent_alias,
             target_workspace=binding.target_workspace,
             access=binding.access,

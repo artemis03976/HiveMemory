@@ -16,9 +16,9 @@ from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
+from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
-from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import CPUPort, OperationEntry
 from hivememory.workspace.credentials import ExecutionCredentialRegistry
@@ -46,14 +46,13 @@ def make_task_process_service(
     runtime = workspace_runtime or WorkspaceRuntime(
         backing=BusCanonicalReadBackend(global_bus), atom_capacity=64, profile_capacity=32
     )
-    memory = MemoryApplicationService(
+    memory = ActorMemoryService(
         global_bus,
         operation_authorizer=operation_authorizer,
         memory_reader=runtime.aliases,
     )
     credentials = credential_registry or ExecutionCredentialRegistry()
-    agent = AgentApplicationService(
-        global_bus,
+    agent = ActorAgentService(
         operation_authorizer=operation_authorizer,
         profile_reader=runtime.profiles,
     )
@@ -65,7 +64,7 @@ def make_task_process_service(
     allocator = CPUAllocator(
         global_bus,
         operation_authorizer=operation_authorizer,
-        agent_service=agent,
+        profile_reader=runtime.profiles,
         asset_reader=asset_reader,
         attachment_compiler_config=attachment_compiler_config,
     )

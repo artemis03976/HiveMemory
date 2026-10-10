@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # Archived Plans
@@ -14,6 +14,7 @@ last_reviewed: 2026-10-09
 
 当前记录：
 
+- [v0.7.0 能力层分层：root API 与 actor API](./v0.7.0-capability-surface-split.md)：2026-10-10 三阶段实施、验收与 code review 完成；capability 目录分为只供 `system` 的 root API 与 actor API，六项 actor 操作对齐 MTP 动词，任务进程的阶段调用改为不检查 actor 操作的阶段授权。阶段一至三提交为 `33cac7f`、`4351928`、`d85b2bf`，审查修复为 `0ecb75e`，事实文档收尾保留在工作区供审阅；未发布。全量后端 2904 passed、2 skipped，覆盖率 93.20%，确定性 HTTP E2E 4 passed。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[子系统契约](../../contracts/subsystem-contracts.md)与 [System 配置](../../system/configuration.md)。
 - [v0.7.0 Alice 的能力层调用迁移](./v0.7.0-alice-capability-migration.md)：2026-10-09 三阶段实施、验收与 code review 完成；单一操作入口与执行凭据、SEARCH/引用记录/CALL Profile 经能力层，以及 CPU/Alice 过渡身份删除已落地。阶段一、二分别提交为 `7c28c3c`、`f8dccad`，阶段三与事实文档收尾保留在工作区供审阅；未发布。全量后端 2789 passed、2 skipped，覆盖率 93.16%，确定性 HTTP E2E 3 passed。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[子系统契约](../../contracts/subsystem-contracts.md)与 [Alice](../../alice/README.md)。
 
 - [v0.7.0 写入意图登记迁入 workspace 与读取缓存失效](./v0.7.0-intent-registry-and-read-cache.md)：2026-10-07 已完成实施、验收与 code review，workspace 唯一登记与统一引用解析、进程操作通道和按进程认领/取消、canonical 变更同步失效已落地；全量后端 2720 passed、2 skipped，覆盖率 93.06%，确定性 HTTP chat E2E 2 passed。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[MTP 契约](../../contracts/mtp.md)与 [System 应用服务](../../system/application-services.md)；2026-10-09 连同审查后修复经 PR #109 合并至 master（`0fcf118`），未发布。

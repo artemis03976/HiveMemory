@@ -21,7 +21,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # 多 Agent 编排
@@ -116,14 +116,14 @@ current frame emits CALL
 
 未提供 alias 时使用内置 `OMNI_DOLL_PROFILE`；`default` 与 `omni_doll` 是对同一内置 Profile 的显式选择，不是加载失败后的降级。Omni-Doll 对当前 verb/tool 使用显式白名单，因此后续新增能力不会自动穿透 fallback 边界。
 
-所有 alias，包括未指定、`default` 与 `omni_doll`，都由 CallContextProvider 提交 `GetAgentProfileRequest`，经 workspace 能力层的 `profile.read` 授权。`WorkspaceOperationEntry` 只使用主线程执行凭据绑定的身份与目标；读取视图统一承担 Profile 解析、Workspace/alias 坐标定位、当前 actor 命中重验与 canonical 源变更失效。Patchouli 作为 Profile atom 所有者执行 Workspace ownership 和资源 policy 校验，再解析 persona、模型与权限。Alice 不保存另一份 Profile cache；管理入口修改源原子后，下一次 CALL 会通过失效视图读取新配置。`FrameExecutionPolicy` 仍按每次 CALL 从 Profile 派生，不进入 cache。
+所有 alias，包括未指定、`default` 与 `omni_doll`，都由 CallContextProvider 提交 `ResolveCallTargetRequest`，经 workspace actor API 的 `agent.call` 授权；`context_refs` 另以 READ 请求逐项解析，需要 `memory.read`，解析失败的引用被跳过。`WorkspaceOperationEntry` 只使用主线程执行凭据绑定的身份与目标；读取视图统一承担 Profile 解析、Workspace/alias 坐标定位、当前 actor 命中重验与 canonical 源变更失效。Patchouli 作为 Profile atom 所有者执行 Workspace ownership 和资源 policy 校验，再解析 persona、模型与权限。Alice 不保存另一份 Profile cache；管理入口修改源原子后，下一次 CALL 会通过失效视图读取新配置。`FrameExecutionPolicy` 仍按每次 CALL 从 Profile 派生，不进入 cache。
 
 显式失败通过 `MTPCallResponse.error` 回填，不再启动子 frame：
 
 | 场景 | 稳定 code | message key |
 |:---|:---|:---|
 | alias 不存在或源原子不可见 | `mtp.alias.not_found` | `mtp.call.profile_not_found` |
-| 缺少 `profile.read` 操作授权 | `mtp.permission.denied` | `mtp.permission.verb_denied` |
+| 缺少 `agent.call` 操作授权 | `mtp.permission.denied` | `mtp.permission.verb_denied` |
 | alias 类型不符 / Profile 配置无效 | `mtp.memory.type_mismatch` / `mtp.argument.invalid` | `mtp.call.profile_type_mismatch` / `mtp.call.profile_invalid` |
 | Profile route 或读取失败 | 对应 `mtp.system.*` | `mtp.call.profile_load_failed` 或底层稳定 key |
 | Profile 引用的模型不可用 | `mtp.system.service_unavailable` | `mtp.call_response.model_unavailable` |

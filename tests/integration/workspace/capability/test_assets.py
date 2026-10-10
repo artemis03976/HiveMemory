@@ -1,11 +1,11 @@
 """真实上传应用服务、附件服务与 Store 的集成测试。
 
-被测对象：``workspace/capability/assets.py``（自 ``system/application`` 迁入） 的校验、受限
+被测对象：``workspace/capability/root/assets.py`` 的校验、受限
 读取、哈希计算、上传专用 Store 命令交接与请求内解析接纳；协作者使用
 真实的 ``InMemoryWorkspaceAssetStore`` 轻量实现，竞态与取消场景使用可控
 解析协议替身与事件屏障。
 
-访问边界（A1 访问边界返工第 4.5 节）：上传绑定 ``management.asset``，
+访问边界：上传只向保留的 ``system`` actor 开放，
 access 由与上传服务共享同一访问组合（认证一侧 + 操作授权者）的网关签发，
 注册使用的 scope 只来自授权——授权先于接收与注册副作用，调用方不能再
 另传 scope。
@@ -67,7 +67,7 @@ async def _upload(service, composition, *, content: bytes, operation_id: str = "
         declared_media_type=kwargs.get("declared_media_type", "text/plain"),
         source=ChunkedSource(content),
         client_operation_id=operation_id,
-        access=await composition.authenticate(),
+        access=await composition.authenticate(agent_id="system"),
     )
 
 
@@ -320,7 +320,7 @@ async def test_upload_target_outside_resident_workspace_is_denied_before_side_ef
     """目标 workspace 不等于 context 驻留 workspace 时在授权点拒绝，无资产副作用。
 
     上传使用的 scope 只来自授权点：不存在"另传 scope 与目标一致性"的
-    二次校验，跨 workspace 声明在 ``authorize_operation`` 处按
+    二次校验，跨 workspace 声明在 ``authorize_root`` 处按
     ``target_workspace_not_resident`` 拒绝。
     """
     store = InMemoryWorkspaceAssetStore()
@@ -334,7 +334,7 @@ async def test_upload_target_outside_resident_workspace_is_denied_before_side_ef
             declared_media_type="text/plain",
             source=ChunkedSource(b"x"),
             client_operation_id="op-cross",
-            access=await composition.authenticate(),
+            access=await composition.authenticate(agent_id="system"),
         )
 
     assert exc_info.value.details["reason"] == "target_workspace_not_resident"
@@ -342,8 +342,8 @@ async def test_upload_target_outside_resident_workspace_is_denied_before_side_ef
 
 
 @pytest.mark.asyncio
-async def test_upload_without_management_asset_operation_denied_and_registers_nothing() -> None:
-    """空白名单 Actor 可进入但上传被拒：``management.asset`` 授权先于副作用。"""
+async def test_non_system_upload_denied_and_registers_nothing() -> None:
+    """具体 Actor 可进入但上传被拒，root 授权先于接收与注册副作用。"""
     store = InMemoryWorkspaceAssetStore()
     restricted_composition = make_access_composition(
         [
@@ -371,5 +371,5 @@ async def test_upload_without_management_asset_operation_denied_and_registers_no
             access=await restricted_composition.authenticate(),
         )
 
-    assert exc_info.value.details["reason"] == "operation_not_allowed"
+    assert exc_info.value.details["reason"] == "root_required"
     assert store.list_workspace_assets(make_identity_scope(user_id="user-1")) == []

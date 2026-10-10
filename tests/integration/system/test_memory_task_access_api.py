@@ -42,7 +42,7 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from hivememory.server import deps
 from hivememory.server.routers.memory_tasks import router
-from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
+from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 from tests.helpers.workspace import make_server_access_overrides, make_workspace_identity
 
 MAIN = make_workspace_identity(owner_user_id="user-1")
@@ -146,9 +146,7 @@ def task_api_stack(tmp_path) -> Iterator[_TaskApiStack]:
     global_bus.register(PatchouliRoutes.MEMORY_TASK_GET, task_owner.get_memory_task)
     global_bus.register(PatchouliRoutes.MEMORY_TASK_CANCEL, task_owner.cancel_memory_task)
     overrides, access = make_server_access_overrides(users=["user-1", "user-2"])
-    service = MemoryTaskApplicationService(
-        global_bus=global_bus, operation_authorizer=access.authorizer
-    )
+    service = RootMemoryTaskService(global_bus=global_bus, operation_authorizer=access.authorizer)
 
     @asynccontextmanager
     async def lifespan(_app: FastAPI):
@@ -166,7 +164,7 @@ def task_api_stack(tmp_path) -> Iterator[_TaskApiStack]:
     app = FastAPI(lifespan=lifespan)
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides.update(overrides)
-    app.dependency_overrides[deps.get_memory_task_service] = lambda: service
+    app.dependency_overrides[deps.get_root_memory_task_service] = lambda: service
     with TestClient(app, raise_server_exceptions=False) as client:
         if client.portal is None:
             raise RuntimeError("test client portal must be started")

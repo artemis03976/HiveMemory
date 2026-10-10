@@ -877,7 +877,7 @@ sequenceDiagram
 | 写入意图迁移·第 1 步（2026-10-07 已实施，[写入意图迁移 Idea](./pending-intent-migration.md#02-第-1-步实施结果与剩余方向2026-10-07) 0.2） | 登记与 L0 进入 workspace；能力层的提交方法；Alice 的写入意图提交与 pending 读回经能力层 | 主线程 T-4 通道与 P-12a 已实现；其余开放项留给第 2 步 |
 | Alice 的能力层调用迁移（收窄后） | 先以操作请求与 workspace 的单一操作入口取代第 1 步的进程操作通道（执行单元 Idea T-9）；SEARCH、引用记录及 CALL 目标 Profile/cache 改经能力层（P-12）；删除 `cpu_execution_identity`；D-9 遗留 | P-12b、P-9f；T-4 中第 1 步未决定的部分；T-9 已于 2026-10-09 决定，其余细节留给计划 |
 | 执行线程层 | 派生经过进程、每个线程一份访问 context、派生授权（执行单元 Idea T-1、T-2 的决定） | 执行单元 Idea T-1a、T-1b、T-2a、T-3 |
-| 能力层分层：root API 与 actor API（2026-10-10 新增，15.12） | capability 目录分为 root API 与 actor API；actor 操作对齐 READ、SEARCH、RUN、WRITE、UPDATE 与 CALL；进程阶段调用改为系统操作；root 检查取代 `management.*` 与 `task.observe` | 15.12“留给计划的细节”；[计划](../plans/v0.7.0-capability-surface-split.md)已建立（2026-10-10） |
+| 能力层分层：root API 与 actor API（2026-10-10 新增，15.12） | capability 目录分为 root API 与 actor API；actor 操作对齐 READ、SEARCH、RUN、WRITE、UPDATE 与 CALL；进程阶段调用改为系统操作；root 检查取代 `management.*` 与 `task.observe` | 15.12“留给计划的细节”；已实施并[归档](../archive/plans/v0.7.0-capability-surface-split.md)（2026-10-10），当前事实见 [Workspace 架构](../architecture/workspace.md)第 4.5 节 |
 | Agent 操作白名单（原“Agent Profile 的权限并入 operation 控制”） | 15.4：Profile 的 allow 字段移除，白名单为 actor 操作全集；2026-10-10 起排在能力层分层之后 | 权限的存储与编辑位置；子线程权限的过渡 |
 
 - 顺序：读取缓存失效与写入意图迁移第 1 步都在 Alice 的能力层调用迁移之前；两者之间的先后取决于第 1 步是否经 workspace 的原子缓存跟随结算后的 canonical 引用（P-12a）：若是，缓存失效在前。执行线程层在 Alice 的能力层调用迁移之后；它与 Profile 权限计划的先后受执行单元 Idea T-3c 约束。
@@ -999,7 +999,7 @@ sequenceDiagram
 
 ### 15.12 能力层分为 root API 与 actor API
 
-**状态**：已完成。2026-10-10 决定；尚未实施，作为单独的计划推进，在 Agent 操作白名单（15.4）之前。计划：[能力层分层](../plans/v0.7.0-capability-surface-split.md)。
+**状态**：已完成。2026-10-10 决定，同日实施、验收与 code review 完成并归档（[归档计划](../archive/plans/v0.7.0-capability-surface-split.md)），当前事实见 [Workspace 架构](../architecture/workspace.md)第 4.5 节；下一步是 Agent 操作白名单（15.4）。
 
 **问题**（owner，2026-10-10）：能力层是计划重构前从 system 层的 API 原样搬入 workspace 的（7.1.6），迁移结果没有经过审查。用户（管理员）使用的方法与 actor 使用的方法混在同一套能力层里，具有误导性：`management.*` 作为普通 operation 可以登记给任何 actor，而管理方法不应暴露给任何 actor。能力层提供的能力与 actor 应有的能力对齐之后，才能讨论白名单（15.4）。
 
@@ -1026,7 +1026,7 @@ sequenceDiagram
 - 15.8：阶段调用不再以 actor 白名单检查，预检索也不例外。阶段调用仍要组装 `IdentityScope` 调用 Patchouli 与 Gateway（预检索按进程的 actor 过滤可见性），因此操作授权者需要一个只做准入与目标检查、不查 actor 操作的阶段授权方法，调用面限定在 `workspace.process`。它与已删除的过渡方法（身份 Idea I-9）不同：组装出的 scope 只用于进程自己的阶段调用，不交给 CPU。
 - 15.10：记忆任务路由属于 root API。
 - `system` 的语义：13.4 与 15.1 所说“没有具体 Agent 作为操作来源主体，不承担权限绕过语义”改为唯一的 root 角色。`system` 同时仍是非主动写入路径的发起者（身份 Idea I-11），后者沿用 actor 可见性语义（只在 PUBLIC 内）；root 对整个 workspace 的视角只存在于 root API，两种用法不在同一个方法内混用。root 的判定在第 3 阶段授权中进行，不写进身份类型（身份 Idea 不变量 6）。
-- operation 目录（13.1）随之重整：`management.*` 与 `task.observe` 由 root 检查取代；`profile.read`、`asset.acquire`、`interaction.submit` 不再作为阶段检查使用；actor 操作的命名在能力层分层的计划中确定。
+- operation 目录（13.1）随之重整：`management.*` 与 `task.observe` 由 root 检查取代；`profile.read`、`asset.acquire`、`interaction.submit` 不再作为阶段检查使用；actor 操作的命名在能力层分层的计划中确定（2026-10-10 实施后为 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，见 [Workspace 架构](../architecture/workspace.md)第 4.5 节）。
 - P-9c：两类 context 由 API 面区分：root API 只接受 root 的请求级 context，actor API 经操作入口接受执行凭据。plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计。
 - 执行单元 Idea T-9 第 3 点“HTTP 管理侧理论上也采用这种映射形态”被取代：操作请求与操作列表只描述 actor API；root API 由 HTTP 管理入口直接调用。
 - P-3：RUN 与 CALL 成为 actor 操作，授权进入能力层；执行本身是否经能力层仍未决定。

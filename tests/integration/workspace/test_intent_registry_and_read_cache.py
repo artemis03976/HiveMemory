@@ -29,6 +29,7 @@ from hivememory.core.models import (
     WorkspaceMemoryKey,
     WriteFocus,
 )
+from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.patchouli.application.agent_profile_management_service import (
     AgentProfileManagementService,
@@ -50,7 +51,8 @@ from hivememory.patchouli.services.memory_generation import MemoryGenerationFami
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.workspace.cache import AtomCache, ProfileCache, ProfileCacheEntry, WorkspaceEpochs
 from hivememory.workspace.cache.invalidation import CacheInvalidator
-from hivememory.workspace.capability import AgentApplicationService, MemoryApplicationService
+from hivememory.workspace.capability.actor import ActorAgentService, ActorMemoryService
+from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.runtime import WorkspaceRuntime
 from tests.helpers.memory import make_memory_metadata
@@ -58,6 +60,7 @@ from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
     make_actor_access_record,
+    make_identity_scope,
     make_workspace_identity,
     make_workspace_runtime,
 )
@@ -111,8 +114,9 @@ class _Chain:
     bus: GlobalSystemBus
     store: MidTermMemoryStore
     runtime: WorkspaceRuntime
-    memories: MemoryApplicationService
-    profiles: AgentApplicationService
+    memories: ActorMemoryService
+    profiles: ActorAgentService
+    root_memories: RootMemoryService
     composition: AccessTestComposition
     writer: WorkspaceAccessContext
     reader: WorkspaceAccessContext
@@ -171,13 +175,13 @@ async def chain(tmp_path):
         store=store,
         runtime=runtime,
         composition=composition,
-        memories=MemoryApplicationService(
+        memories=ActorMemoryService(
             bus,
             operation_authorizer=composition.authorizer,
             memory_reader=runtime.aliases,
         ),
-        profiles=AgentApplicationService(
-            bus,
+        root_memories=RootMemoryService(bus, operation_authorizer=composition.authorizer),
+        profiles=ActorAgentService(
             operation_authorizer=composition.authorizer,
             profile_reader=runtime.profiles,
         ),
@@ -220,7 +224,7 @@ async def test_management_update_invalidates_actor_atom_read_before_return(chain
     )
     assert first[0].atom.payload.content == "old content"
 
-    await chain.memories.update_memory(
+    await chain.root_memories.update_memory(
         atom.id, content="new content", target_workspace=WORKSPACE, access=chain.manager
     )
     assert chain.runtime.stats()["atom_size"] == 0
@@ -234,19 +238,21 @@ async def test_management_update_invalidates_actor_atom_read_before_return(chain
 
 @pytest.mark.asyncio
 async def test_profile_source_update_invalidates_profile_configuration(chain):
-    """Profile 的源原子管理变更后，下一次能力层 Profile 解析取得新配置。"""
+    """Profile 的源原子管理变更后，下一次进程阶段解析取得新配置。"""
     atom = _atom("custom_agent", profile=True)
     await chain.store.upsert(atom)
     process_access = await chain.composition.authenticate(
         agent_id="custom_agent", binding=RunBinding.for_task_process("first_profile_process")
     )
     allocator = CPUAllocator(
-        chain.bus, operation_authorizer=chain.composition.authorizer, agent_service=chain.profiles
+        chain.bus,
+        operation_authorizer=chain.composition.authorizer,
+        profile_reader=chain.runtime.profiles,
     )
     first = await allocator.resolve_agent_profile(target_workspace=WORKSPACE, access=process_access)
     assert first.model_name == "old-model"
 
-    await chain.memories.update_memory(
+    await chain.root_memories.update_memory(
         atom.id,
         agent_config={"model_name": "new-model"},
         target_workspace=WORKSPACE,
@@ -261,6 +267,43 @@ async def test_profile_source_update_invalidates_profile_configuration(chain):
     )
 
     assert second.model_name == "new-model"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("warm_cache", [False, True], ids=["canonical", "cached"])
+async def test_cpu_profile_without_actor_operations_rejects_other_agents_private_source(
+    chain, warm_cache: bool
+):
+    """阶段读取不检查 actor 操作，但冷读与缓存命中都保持 PRIVATE 可见性。"""
+    atom = _atom("custom_agent", profile=True, visibility="PRIVATE")
+    await chain.store.upsert(atom)
+    if warm_cache:
+        # writer 有权读取此 PRIVATE 源原子，先填充共享读取视图以覆盖命中路径。
+        await chain.runtime.profiles.get(
+            "custom_agent", scope=make_identity_scope(user_id="u1", agent_id="writer")
+        )
+    composition = make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1", agent_id="custom_agent", allowed_operations=frozenset()
+            )
+        ],
+        default_workspace=WORKSPACE,
+    )
+    access = await composition.authenticate(
+        agent_id="custom_agent", binding=RunBinding.for_task_process("private_profile_process")
+    )
+    allocator = CPUAllocator(
+        chain.bus,
+        operation_authorizer=composition.authorizer,
+        profile_reader=chain.runtime.profiles,
+    )
+
+    with pytest.raises(AliasNotFoundError) as excinfo:
+        await allocator.resolve_agent_profile(target_workspace=WORKSPACE, access=access)
+
+    assert excinfo.value.message_key == "mtp.call.profile_not_found"
+    assert excinfo.value.params == {"agent_alias": "custom_agent"}
 
 
 @pytest.mark.asyncio
@@ -450,7 +493,7 @@ async def test_denied_operation_has_no_registration_or_cache_side_effect(chain, 
         default_workspace=WORKSPACE,
     )
     denied = await composition.authenticate(agent_id="denied")
-    service = MemoryApplicationService(
+    service = ActorMemoryService(
         chain.bus,
         operation_authorizer=composition.authorizer,
         memory_reader=chain.runtime.aliases,
@@ -477,11 +520,11 @@ async def test_denied_operation_has_no_registration_or_cache_side_effect(chain, 
                 ["canonical"], target_workspace=WORKSPACE, access=denied
             )
 
-    expected = (
-        WorkspaceOperation.RESOURCE_READ
-        if operation == "read"
-        else WorkspaceOperation.MEMORY_INTENT_SUBMIT
-    )
+    expected = {
+        "read": WorkspaceOperation.MEMORY_READ,
+        "write": WorkspaceOperation.MEMORY_WRITE,
+        "update": WorkspaceOperation.MEMORY_UPDATE,
+    }[operation]
     assert exc_info.value.details["operation"] == expected.value
     assert (chain.runtime.intents.size, chain.runtime.stats()) == (0, before)
 
@@ -513,10 +556,14 @@ async def test_subscriber_failure_after_invalidation_preserves_commit_and_advanc
     subscriber = BrokenInvalidator(atom_cache=atoms, profile_cache=profiles, epochs=epochs)
     subscriber.subscribe(chain.bus)
     try:
-        updated = await chain.memories.update_memory(
+        updated = await chain.root_memories.update_memory(
             atom.id, content="committed", target_workspace=WORKSPACE, access=chain.manager
         )
-        read = await chain.memories.read(atom.id, target_workspace=WORKSPACE, access=chain.reader)
+        read = (
+            await chain.memories.resolve_references(
+                [atom.index.alias], target_workspace=WORKSPACE, access=chain.reader
+            )
+        )[0].atom
 
         assert (updated.payload.content, read.payload.content) == ("committed", "committed")
         assert (

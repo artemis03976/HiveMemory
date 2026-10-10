@@ -2,7 +2,8 @@
 #
 # 本文件是两类访问登记之一（workspace 所有）：一条记录同时承载准入状态
 # 与行为白名单。W0 兼容基线：user_id 必须等于 owner_user_id；缺失记录即
-# 准入失败（fail closed）。operation 使用行为目录的枚举值，允许为空。
+# 准入失败（fail closed）。operation 只接受六项 actor 操作的枚举值，允许为空；
+# root 管理与任务进程的阶段调用不经白名单。
 #
 # agent_id 省略表示用户级记录：覆盖该用户的所有具体 Agent，但不覆盖保留
 # 的 system（system 必须单独显式登记）；每个 (owner, workspace, user) 至多
@@ -13,29 +14,22 @@
 
 workspace_actors:
   # 本地默认用户：覆盖 default 用户在 main_workspace 的所有具体 Agent。
-  # 白名单只包含现有调用方实际需要的 operation。
+  # 白名单包含全部六项 actor 操作，与 MTP 的 READ/SEARCH/RUN/WRITE/UPDATE/CALL 对应。
   - owner_user_id: "default"
     workspace_id: "main_workspace"
     user_id: "default"
     allowed_operations:
-      - "resource.read"
-      - "resource.search"
-      - "profile.read"
-      - "asset.acquire"
-      - "interaction.submit"
-      - "memory_intent.submit"
+      - "memory.read"
+      - "memory.search"
+      - "memory.run"
+      - "memory.write"
+      - "memory.update"
+      - "agent.call"
 
-  # 保留 system actor：管理入口（memories/topics/agents/assets/memory-tasks
-  # 与 chat 取消）以 (user, system) 坐标经网关取得 context。system 直接
-  # 通道不持有 actor 可见的读取 operation（总 Idea 15.7/P-9g）：不含
-  # resource.read，管理员的话题列表由 management.topic 覆盖。
+  # 保留 system actor：HTTP 管理入口与 chat 取消经网关取得 context。
+  # root API 只检查准入、目标与 system 身份，不使用 actor 操作白名单；
+  # system 记录不得配置 operation。
   - owner_user_id: "default"
     workspace_id: "main_workspace"
     user_id: "default"
     agent_id: "system"
-    allowed_operations:
-      - "management.memory"
-      - "management.topic"
-      - "management.asset"
-      - "management.task"
-      - "task.observe"

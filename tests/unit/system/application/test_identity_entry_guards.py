@@ -29,11 +29,13 @@ from hivememory.core.errors import ScopeRequiredError, WorkspaceDomainError
 from hivememory.core.models import ActorIdentity
 from hivememory.server import deps
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from hivememory.workspace.capability.assets import WorkspaceAssetApplicationService
-from hivememory.workspace.capability.memory import MemoryApplicationService
-from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
-from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService
+from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
+from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
+from hivememory.workspace.capability.root.memory import RootMemoryService
+from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
+from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.process import make_task_process_service
@@ -45,32 +47,28 @@ from tests.helpers.workspace import (
     make_workspace_identity,
 )
 
+#: root 与 actor 的能力入口均显式配对目标 Workspace 与访问 context。
+_CAPABILITY_SERVICES = (
+    ActorAgentService,
+    ActorMemoryService,
+    RootAgentProfileService,
+    RootMemoryService,
+    RootMemoryTaskService,
+    RootTopicService,
+    RootWorkspaceAssetService,
+)
+
 _APPLICATION_SERVICES = (
-    AgentApplicationService,
+    *_CAPABILITY_SERVICES,
     TaskProcessService,
-    MemoryApplicationService,
     PassiveIngressService,
-    TopicApplicationService,
 )
 
 #: 经统一认证网关接入的服务：能力层以 access + target_workspace 授权，
 #: 任务进程以 actor/workspace 声明注册；均不得再接收 identity_scope。
 _GATEWAY_WIRED_SERVICES = (
-    AgentApplicationService,
-    MemoryApplicationService,
-    MemoryTaskApplicationService,
-    TopicApplicationService,
-    WorkspaceAssetApplicationService,
+    *_CAPABILITY_SERVICES,
     TaskProcessService,
-)
-
-#: 显式接收目标 workspace 的能力层服务：每个目标都必须配对访问 context。
-_CAPABILITY_SERVICES = (
-    AgentApplicationService,
-    MemoryApplicationService,
-    MemoryTaskApplicationService,
-    TopicApplicationService,
-    WorkspaceAssetApplicationService,
 )
 
 MAIN = make_workspace_identity(owner_user_id="owner", workspace_id="main_workspace")

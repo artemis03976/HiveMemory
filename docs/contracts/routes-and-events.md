@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # 公开路由与事件
@@ -87,7 +87,7 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 上表两条路由只接收调用方授权点组装的 `IdentityScope`，本身不做操作授权，目前没有生产调用方。现有主动（chat finalize）与被动生产路径不经这两条路由，而是直接构造 `InteractionSubmission` 并提交到共享 lane；队列 handler 再调用 `PerceptionFamiliar.apply_interaction()` 完成一次实际应用。`InteractionSubmission.belong_to/from_actor` 分别是归属与发起者来源，`InteractionPayload` 不承担身份推断，新的跨 Workspace 调用方不能从 payload 或 topic id 反推出访问作用域。
 
-Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与存储只接收 `belong_to` 和需要的 `from_actor`。`PreparedAgentRun` 只保留 prepare 的归属；任务进程在进入 Actor 执行前预检 `interaction.submit`，调用 finalize 前再次授权并传入当次 scope。cleanup 则重新授权 `resource.search`，授权被拒时记录警告并完成关闭；资源 owner 拒绝删除越域 prepared 或已被提交链接管的话题。
+Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与存储只接收 `belong_to` 和需要的 `from_actor`。`PreparedAgentRun` 只保留 prepare 的归属；任务进程在调用 finalize 前重新执行阶段授权并传入当次 scope；cleanup 同样重新执行阶段授权，授权被拒时记录警告并完成关闭；资源 owner 拒绝删除越域 prepared 或已被提交链接管的话题。
 
 ### 2.3 Patchouli Memory
 

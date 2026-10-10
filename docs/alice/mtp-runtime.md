@@ -17,7 +17,7 @@ related_contracts:
   - docs/alice/orchestration.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -64,7 +64,7 @@ Runtime 不从命令文本相信身份或权限。每次执行都由 frame 构�
 - `execution_policy`：每帧预算与 CALL 等控制流硬限制；
 - `language`：错误、warning 与普通响应的本地化选择。
 
-资源操作统一提交冻结的 `OperationRequest`：意图提交与撤回、引用读取、检索、Profile 读取分别由 workspace 能力层逐次检查 `memory_intent.submit`、`resource.read`、`resource.search` 与 `profile.read`。操作入口从凭据恢复可信身份与固定目标，Alice/agent_runtime 不请求 Patchouli 路由；引用记录由读取能力自动完成。CALL 控制流仍由 `FrameExecutionPolicy` 决定，Profile 白名单独立约束 MTP 执行面，观测标签不参与授权。
+资源操作统一提交冻结的 `OperationRequest`：READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别由 workspace actor API 逐次检查 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`；RUN 提交 `ResolveRunTargetRequest`，`sys_*` 系统工具在本地执行且不提交请求；子帧的意图撤回是操作入口内部的补偿，不检查 operation。操作入口从凭据恢复可信身份与固定目标，Alice/agent_runtime 不请求 Patchouli 路由；引用记录由读取能力自动完成。CALL 控制流仍由 `FrameExecutionPolicy` 决定，Profile 的 `allowed_mtp_verbs` / `allowed_sys_tools` 独立约束 MTP 执行面，与 actor 操作白名单都通过才执行，观测标签不参与授权。
 
 ## 3. 双层权限
 

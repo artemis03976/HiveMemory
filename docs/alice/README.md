@@ -14,7 +14,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-10
 ---
 
 # Alice
@@ -91,7 +91,7 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 
 未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`；显式选择 `default` / `omni_doll` 也会直接选择同一个内置 Profile，但不属于错误 fallback。Omni-Doll 无特定 persona、模型名为 `default`，verb/tool 使用当前内置能力的显式白名单，而不是 `None=未来所有能力也自动允许`。因此新增 MTP verb 或 syscall 时必须同步审查并更新白名单，不能悄悄扩大 fallback 权限。
 
-主 Agent 与 CALL 目标（包括内置 Profile）统一经 workspace 的 `profile.read` 授权。CALL 通过 `GetAgentProfileRequest` 读取；操作入口从执行凭据恢复访问 context 与固定目标，能力层授权后才把一次操作的 `IdentityScope` 交给读取视图和 Patchouli 公开边界。Patchouli 先检查 Workspace 归属，再检查资源可见性、MemoryType 与 `agent_config`。Profile 缓存由 workspace 按 Workspace/alias 坐标定位，条目保存源原子的 policy 与 UUID，命中时对当前 actor 重验；canonical 源变更失效与在途回填代次检查统一维护，详见 [Workspace 架构](../architecture/workspace.md)。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
+主 Agent 的 Profile 由任务进程在 CPU 分配时经阶段授权读取，不要求任何 actor 操作；CALL 目标（包括内置 Profile）通过 `ResolveCallTargetRequest` 读取，经 workspace actor API 的 `agent.call` 授权。操作入口从执行凭据恢复访问 context 与固定目标，actor API 授权后才把一次操作的 `IdentityScope` 交给读取视图和 Patchouli 公开边界；两条路径都由读取视图按当前 actor 检查源原子可见性。Patchouli 先检查 Workspace 归属，再检查资源可见性、MemoryType 与 `agent_config`。Profile 缓存由 workspace 按 Workspace/alias 坐标定位，条目保存源原子的 policy 与 UUID，命中时对当前 actor 重验；canonical 源变更失效与在途回填代次检查统一维护，详见 [Workspace 架构](../architecture/workspace.md)。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
 
 ## 4. 当前主流程
 

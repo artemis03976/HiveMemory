@@ -25,51 +25,23 @@ from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 
 
 class WorkspaceOperation(str, Enum):
-    """Actor→Workspace 的行为目录（A1 访问边界返工第 4.7 节默认登记基线）。
+    """actor API 的六项行为目录，每项对应一种请求与一个能力方法。
 
-    枚举表达"系统有哪些操作"；某个 Actor 实际获准的集合只由 Workspace
-    Actor 访问注册表（``workspace.registry``）表达，两者必须分开。每个
-    operation 只授予其语义声明的能力，互不隐含、不可推导：
+    枚举表达系统提供的 actor 操作，实际获准集合只由 Workspace Actor
+    访问注册表表达。READ、SEARCH、RUN、WRITE、UPDATE 与 CALL 互不
+    隐含：RUN 不要求 READ，WRITE 不授予 UPDATE，CALL 的共享上下文
+    仍需单独执行 READ。WRITE/UPDATE 的 ACK 只表示意图已登记。
 
-    - ``RESOURCE_READ``：canonical 资源点读（Memory 点读、Topic 快照/数据
-      读取）；不授予检索、写入或管理能力；
-    - ``RESOURCE_SEARCH``：语义检索；不授予点读之外的新增能力，也不授予
-      主动写入；
-    - ``PROFILE_READ``：Agent Profile 定义读取；与 Profile 的管理写入/
-      列表（``MANAGEMENT_MEMORY`` 绑定例外）分别授权；
-    - ``ASSET_ACQUIRE``：WorkspaceAsset 解析/获取；**不授权上传**；
-    - ``INTERACTION_SUBMIT``：交互提交；不授予检索或主动意图；
-    - ``MEMORY_INTENT_SUBMIT``：主动记忆意图提交；不保证生成结果；
-    - ``TASK_OBSERVE``：生成任务观察/等待；不授予取消、Pending 内容读
-      或 canonical Memory 读取；
-    - ``MANAGEMENT_MEMORY``：完整的 Memory 管理能力（含已绑定的
-      AGENT_PROFILE atom 管理写入/列表例外）；不是"只读管理"，不得借
-      用为 Topic/Asset/Task 的放行依据；
-    - ``MANAGEMENT_TASK``：生成任务取消等任务管理动作；观察不授予取消；
-    - ``MANAGEMENT_TOPIC``：Topic 结算/驱逐等生命周期变更，以及管理员的
-      话题列表（P-9g：``system`` 直接通道不持有 actor 可见的读取
-      operation，列表暂由本项覆盖；若以后为管理视角的读取单独设立
-      operation，再随之调整）——Gateway 分析中的话题读取仍绑定
-      ``RESOURCE_READ``，不借本项放行；
-    - ``MANAGEMENT_ASSET``：WorkspaceAsset 上传登记（``ASSET_ACQUIRE``
-      不授权上传）。
-
-    方法与 operation 的绑定维护在各授权点（workspace 能力层、任务进程的
-    阶段检查）的类 docstring 中；新增 operation 由引入方同步维护目录、
-    配置与行为测试，且不自动加入已有白名单。
+    root 管理、任务进程阶段调用与执行单元的意图撤回补偿不属于 actor
+    操作，不在本目录登记；新增操作不会自动加入既有访问白名单。
     """
 
-    RESOURCE_READ = "resource.read"
-    RESOURCE_SEARCH = "resource.search"
-    PROFILE_READ = "profile.read"
-    ASSET_ACQUIRE = "asset.acquire"
-    INTERACTION_SUBMIT = "interaction.submit"
-    MEMORY_INTENT_SUBMIT = "memory_intent.submit"
-    TASK_OBSERVE = "task.observe"
-    MANAGEMENT_MEMORY = "management.memory"
-    MANAGEMENT_TASK = "management.task"
-    MANAGEMENT_TOPIC = "management.topic"
-    MANAGEMENT_ASSET = "management.asset"
+    MEMORY_READ = "memory.read"
+    MEMORY_SEARCH = "memory.search"
+    MEMORY_RUN = "memory.run"
+    MEMORY_WRITE = "memory.write"
+    MEMORY_UPDATE = "memory.update"
+    AGENT_CALL = "agent.call"
 
 
 class AccessRunType(str, Enum):

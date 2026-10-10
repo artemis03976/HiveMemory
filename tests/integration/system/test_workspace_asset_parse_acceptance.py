@@ -53,7 +53,7 @@ async def _raced_upload(service, composition):
         declared_media_type="text/plain",
         source=ChunkedSource(b"raced"),
         client_operation_id="op-race",
-        access=await composition.authenticate(),
+        access=await composition.authenticate(agent_id="system"),
     )
 
 

@@ -41,12 +41,14 @@ AUTH_MODULES = (
 # 只经操作授权者授权的授权点文件（不含注册入口：它另持认证网关）。
 AUTHORIZER_ONLY_FILES = frozenset(
     {
-        "workspace/capability/memory.py",
+        "workspace/capability/actor/memory.py",
         "workspace/capability/operations.py",
-        "workspace/capability/agent_profiles.py",
-        "workspace/capability/topic.py",
-        "workspace/capability/memory_tasks.py",
-        "workspace/capability/assets.py",
+        "workspace/capability/actor/agent_profiles.py",
+        "workspace/capability/root/memory.py",
+        "workspace/capability/root/agent_profiles.py",
+        "workspace/capability/root/topic.py",
+        "workspace/capability/root/memory_tasks.py",
+        "workspace/capability/root/assets.py",
         "workspace/process/runner.py",
         "workspace/process/allocation.py",
     }
@@ -134,6 +136,24 @@ def test_cpu_execution_identity_has_no_definition_or_call_site():
     assert offenders == []
 
 
+def test_stage_authorization_is_only_called_by_task_processes():
+    """阶段授权只供任务进程的系统编排使用，不能成为 actor 操作的旁路。"""
+    call_sites: set[str] = set()
+    for path in _source_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        if any(
+            isinstance(node, ast.Attribute) and node.attr == "authorize_stage"
+            for node in ast.walk(tree)
+        ):
+            call_sites.add(path.relative_to(SRC_ROOT).as_posix())
+
+    # 精确清单同时防止调用面扩散和扫描空转；方法引用也属于调用面。
+    assert call_sites == {
+        "workspace/process/runner.py",
+        "workspace/process/allocation.py",
+    }
+
+
 def _private_call_sites(attribute: str) -> set[str]:
     """生产代码中访问某个属性名的源文件（相对路径），不含定义处 core/access.py。"""
     sites: set[str] = set()
@@ -215,3 +235,22 @@ def test_alice_execution_does_not_import_or_reference_identity_scope():
             ):
                 offenders.append(f"{path.relative_to(SRC_ROOT).as_posix()}:{node.lineno}")
     assert offenders == []
+
+
+def test_root_authorization_is_only_used_by_root_api():
+    """root 授权只能供管理 API 使用，不能被 actor 操作或阶段编排借用。"""
+    call_sites: set[str] = set()
+    for path in _source_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        if any(
+            isinstance(node, ast.Attribute) and node.attr == "authorize_root"
+            for node in ast.walk(tree)
+        ):
+            call_sites.add(path.relative_to(SRC_ROOT).as_posix())
+    assert call_sites == {
+        "workspace/capability/root/memory.py",
+        "workspace/capability/root/agent_profiles.py",
+        "workspace/capability/root/topic.py",
+        "workspace/capability/root/memory_tasks.py",
+        "workspace/capability/root/assets.py",
+    }

@@ -1,13 +1,12 @@
-"""Patchouli 记忆意图提交 application API（memory_intent.submit）。
+"""Patchouli 记忆意图提交 application API（公开路由 ``patchouli.public.memory_intent.submit``）。
 
 承接中立的记忆意图参数并转换为内部生成任务：由 controller admission 与
 generation engine 决定生成、更新、合并或丢弃；**不映射为管理 CRUD，也
 不由调用方构造内部任务投影**。Alice 的 settlement coordinator（WRX-5）
 与计划 B 的外部 adapter 都经本 API 提交。
 
-本路由目前没有生产调用方，operation 授权（``memory_intent.submit``）在
-workspace 能力层出现对应方法时进行（总 Idea 15.6，A1 访问边界返工第
-4.6 节）；本层只接收调用方传入的 ``IdentityScope``。
+本路由目前没有生产调用方；actor 的 WRITE/UPDATE ACK 只在 workspace
+登记意图，不直接调用本路由。本层只接收授权点传入的 ``IdentityScope``。
 
 幂等语义：``MemoryIntent.intent_id`` 是幂等键——``pending_alias`` 由
 ``intent_id`` 确定性派生，同一 intent 携带相同载荷重试命中 controller
@@ -105,7 +104,7 @@ class MemoryIntentSubmissionResult:
 
 
 class MemoryIntentSubmissionService:
-    """经 Patchouli 生成提交链的公开意图提交 API（``memory_intent.submit``）。"""
+    """经 Patchouli 生成提交链的公开意图提交 API。"""
 
     def __init__(self, *, bus: PatchouliBus) -> None:
         self._bus = bus

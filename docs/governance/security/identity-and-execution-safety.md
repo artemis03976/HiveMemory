@@ -37,8 +37,9 @@ HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agen
 | 边界 | 当前实现基础 | 当前风险 |
 |:---|:---|:---|
 | Memory visibility | MemoryAtom 独立持有归属、`MemoryAccessPolicy` 与来源记录；Patchouli 是可见性所有者 | workspace resolver 在 L1 命中与 L2 交付时重验归属及 actor policy；canonical 变更失效原子、旧 alias 和 Profile 派生项，不提供通知未送达补偿 |
-| PendingAtom | workspace registry 独立保存 `belong_to`、`from_actor` 与 `process_id`；能力层分别以 `memory_intent.submit` / `resource.read` 授权 | 第一版不设 Pending policy，同 Workspace 中获读授权的 Actor 可读回意图；跨 Workspace 不可读，无持久化 ledger；结算 redirect 仍逐次校验 canonical 可见性 |
-| Agent Profile | Profile 作为 MemoryAtom，主线程分配经 workspace 能力层 `profile.read`，ProfileCache 按 Workspace/alias 定位，命中时以源 policy 对当前 actor 重验 | 主线程与 CALL 目标共用 workspace 读取视图，来源 UUID 失效与代次回填保护已生效；事件通知无持久重放或未送达补偿 |
+| PendingAtom | workspace registry 独立保存 `belong_to`、`from_actor` 与 `process_id`；actor API 分别以 `memory.write` / `memory.update` 授权登记、以 `memory.read` 授权回读 | 第一版不设 Pending policy，同 Workspace 中获读授权的 Actor 可读回意图；跨 Workspace 不可读，无持久化 ledger；结算 redirect 仍逐次校验 canonical 可见性 |
+| Agent Profile | Profile 作为 MemoryAtom，主线程 Profile 由任务进程 CPU 分配经阶段授权读取（不要求 actor 操作），CALL 目标经 actor API 的 `agent.call`；ProfileCache 按 Workspace/alias 定位，命中时以源 policy 对当前 actor 重验 | 主线程与 CALL 目标共用 workspace 读取视图，来源 UUID 失效与代次回填保护已生效；事件通知无持久重放或未送达补偿 |
+| 管理入口（root） | 能力层分为 root API 与 actor API：管理方法只经 root 授权，只接受保留的 `system`；`system` 的访问记录不得配置 operation，不能经操作入口执行 actor 操作；任务进程的阶段调用不检查 actor 操作，但仍以进程 Agent 为发起者过滤可见性 | root 只由 actor 是否为 `system` 判定，认证网关只限制 principal 可代表的用户，不限制谁可以声明 `system`；当前登记的来源（HTTP server、Profile 注入脚本）都是本地受信进程，登记外部来源前需要补上这条规则 |
 | Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy、Chat phase task 与 `AgentRunStreamAdapter` | frame registry/CALL record、可中断阶段 task、Alice runner、输出队列和流序号均按 run 隔离；执行模型只含观测标签，CALL 子帧共享主线程凭据，尚无独立子线程授权 |
 | MTP permission | Prompt 与 Koakuma runtime 有双层权限设计 | prompt 教学不是硬安全保证；Profile verb/tool 与 workspace operation 分别校验，观测标签不能替代访问凭据 |
 | MTP READ/RUN | READ 可访问记忆，RUN 可执行 memory code | RUN 没有强沙箱、资源限制、可信资产分级或强制审批边界 |
@@ -84,11 +85,11 @@ ExecutionLabels：agent_id/workspace_id 字符串，仅用于提示词、展示�
 
 子 Agent 当前继承父 run 的操作提交函数和观测标签，所有请求仍按主线程凭据授权；显式 `context_refs` 只选择共享内容，不签发更广或独立的资源权限。Alice/CPU 的 `RuntimeScope`、`AgentRunContext` 与 `CPUInputManifest` 不携带 `IdentityScope`，frame 与 MTP 上下文没有 `identity` 派生。标签取自注册入口并冻结，不能还原成资源归属或授权身份；提示词历史归并和运行事件使用注册标签，frame 流式角色展示优先使用 Profile 的源 alias。`request/run/frame` 等关联坐标属于运行模型，`ActorIdentity` 只含 user/agent/team，不含 `session_id`。
 
-入口层现状：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_claims` 解析为身份声明，经统一认证网关认证后，由 workspace 授权点在操作授权时组装 `IdentityScope`（`/ingest` 仍在认证前组装，是既有例外；模型见[Workspace 架构](../../architecture/workspace.md)第 4 节），应用服务不再解析裸 `user_id`。非 Agent action 使用单独登记的保留 `system` actor；Memory 管理读取按 owner-management 语义在归属硬边界内跳过 actor 可见性过滤，Agent retrieval 与 SETTLE 查重仍执行普通 `MemoryAccessPolicy`，后者以 `system` 为可见性主体。
+入口层现状：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_claims` 解析为身份声明，经统一认证网关认证后，由 workspace 授权点在操作授权时组装 `IdentityScope`（`/ingest` 仍在认证前组装，是既有例外；模型见[Workspace 架构](../../architecture/workspace.md)第 4 节），应用服务不再解析裸 `user_id`。非 Agent action 使用单独登记的保留 `system` actor，它也是 root API 唯一接受的 actor（root 授权不读取白名单）；Memory 管理读取按 owner-management 语义在归属硬边界内跳过 actor 可见性过滤，Agent retrieval 与 SETTLE 查重仍执行普通 `MemoryAccessPolicy`，后者以 `system` 为可见性主体。
 
 WorkspaceAsset 的 Store、解析服务与既有 Reader/Command 端口仍使用旧 `IdentityScope` 接口做归属检查；System 的 `AssetMaterializationReader` 只在一次 representation 租借内以归属和保留 `system` actor 组装适配所需 scope，Patchouli 使用归属读取端口，不保存该 scope。此例外不扩展到 Alice、CPU 或其他资源路径，内部拆分继续由 [WorkspaceAsset 归属 Todo](../../todo/workspace-asset-ownership-identity-split.md) 跟踪。
 
-执行凭据按对象身份兑现，不能序列化，也不保存身份字段；只有 workspace 凭据表保存访问 context、固定目标和 process ID 绑定。`WorkspaceOperationEntry` 在分派前拒绝未知/吊销凭据，能力方法仍逐次授权。进程关闭同步吊销、取消 PENDING 与释放租借先于任何 await；在途只读可完成；WRITE、UPDATE 返回入口后都会复查凭据（当前 UPDATE 的基础冷读可能跨越关闭），由入口同步补偿关闭期间产生的登记，不取消请求调用方 task。新增副作用前有 await 的能力方法必须补上同类检查和补偿。
+执行凭据按对象身份兑现，不能序列化，也不保存身份字段；只有 workspace 凭据表保存访问 context、固定目标和 process ID 绑定。`WorkspaceOperationEntry` 在分派前拒绝未知/吊销凭据，actor API 方法仍逐次授权；`system` 的白名单为空，即使取得凭据也不能执行 actor 操作。进程关闭同步吊销、取消 PENDING 与释放租借先于任何 await；在途只读可完成；WRITE、UPDATE 返回入口后都会复查凭据（当前 UPDATE 的基础冷读可能跨越关闭），由入口同步补偿关闭期间产生的登记，不取消请求调用方 task。新增副作用前有 await 的能力方法必须补上同类检查和补偿。
 
 ### 3.2 所有者重新校验
 
@@ -100,7 +101,7 @@ Cache 命中、MTP READ/RUN、PendingAtom resolution、Artifact ref 读取、Mem
 
 通用共享基础设施不自动按 Workspace 分区；缓存值必须在命中后由最终资源 owner 或 resolver 以调用方的归属和发起者重验。workspace 持有 canonical 原子与 alias 索引、全部 Profile 派生缓存；Alice 不保存资源读取缓存。分区消除错误命中与无效覆盖，但**不能替代命中后的 ownership/actor policy 重验**。workspace 在 canonical 提交尝试后依次失效原子、旧 alias、来源 Profile 并推进 Workspace 代次，在途点读跨代次时重读一次，仍变化则报资源不可用，不回填旧值；语义检索跨代次仍交付已授权结果，但不预热缓存。失败结果不进入缓存。调用方取得独立副本，不能修改缓存内授权事实。
 
-PendingAtom 的全 Workspace 回读只适用于意图：解析到结算后的 canonical 时再次执行当前 actor policy；目标不可读时不交付正文、canonical alias/UUID，也不交付含 UPDATE 基础坐标的 Pending 副本。UPDATE 意图的回读跟随基础原子的可读性，基础不可读时在任何状态下都与不存在相同。UPDATE 只接受可读的正式 atom，不接受 pending 或结算 redirect。MTP READ、RUN、SEARCH、意图提交/撤回与 CALL 的目标 Profile/共享引用全部经操作请求进入能力层。引用记录由能力层为已交付的正式原子自动执行（含缓存命中），失败只记日志，取消正常传播；UPDATE 基础解析不记录。Alice 与 agent_runtime 不导入 `IdentityScope`，也不请求 Patchouli 路由。权限、redirect 防泄露与副本隔离证据见[引用解析测试](../../../tests/unit/workspace/resolution/test_alias_resolver.py)和[意图/缓存集成回归](../../../tests/integration/workspace/test_intent_registry_and_read_cache.py)。
+PendingAtom 的全 Workspace 回读只适用于意图：解析到结算后的 canonical 时再次执行当前 actor policy；目标不可读时不交付正文、canonical alias/UUID，也不交付含 UPDATE 基础坐标的 Pending 副本。UPDATE 意图的回读跟随基础原子的可读性，基础不可读时在任何状态下都与不存在相同。UPDATE 只接受可读的正式 atom，不接受 pending 或结算 redirect。MTP READ、RUN、SEARCH、WRITE、UPDATE 与 CALL 的目标 Profile/共享引用全部经操作请求进入 actor API，各自检查对应的 actor 操作；子帧的意图撤回是操作入口内部的补偿，不检查 operation。READ 与 RUN 的引用记录由 actor API 为已交付的正式原子自动执行（含缓存命中），失败只记日志，取消正常传播；UPDATE 基础解析不记录。Alice 与 agent_runtime 不导入 `IdentityScope`，也不请求 Patchouli 路由。权限、redirect 防泄露与副本隔离证据见[引用解析测试](../../../tests/unit/workspace/resolution/test_alias_resolver.py)和[意图/缓存集成回归](../../../tests/integration/workspace/test_intent_registry_and_read_cache.py)。
 
 ### 3.4 可执行资产是更高风险能力
 
@@ -131,11 +132,13 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 
 Alice 操作请求与过渡执行身份删除的实现证据见[操作请求集成测试](../../../tests/integration/workspace/test_operation_requests.py)、[CALL Profile 集成测试](../../../tests/integration/alice/orchestration/test_call_profile_requests.py)、[访问边界测试](../../../tests/unit/architecture/test_access_boundaries.py)与 [HTTP 系统 E2E](../../../tests/e2e/system/)。实施历史保留于 [v0.7.0 Alice 能力迁移归档计划](../../archive/plans/v0.7.0-alice-capability-migration.md)。
 
+能力层分为 root API 与 actor API（2026-10-10）：管理能力不再是可登记给 actor 的 operation，actor 操作对齐 MTP 的六项动词，任务进程的阶段调用不再借用 actor 操作。证据见 [root 授权集成测试](../../../tests/integration/workspace/test_root_api_authorization.py)、[阶段授权 HTTP E2E](../../../tests/e2e/system/test_stage_authorization_chat.py) 与[访问边界测试](../../../tests/unit/architecture/test_access_boundaries.py)；实施历史见[能力层分层归档计划](../../archive/plans/v0.7.0-capability-surface-split.md)。
+
 ### Phase S2：Run-local 执行隔离（基础已完成）
 
 1. 已完成：以 `RunSession` 替代共享 FrameScheduler stack，将 frame registry 和 CALL record 收敛为 run-local 状态；Chat application 在上层持有可取消阶段 task，流式输出队列与流序号由每次 run 独占的 `AgentRunStreamAdapter/QueueAgentRunOutput` 持有，运行预算由 frame policy 持有；
 2. 继续验证并发 Agent run 的 CALL、READ、WRITE、citation、PendingAtom 和 cancel 不会跨用户或 workspace 交叉；
-3. 已完成（2026-10-09）：被调用 frame 继承 caller 的凭据绑定提交函数与观测标签，不携带操作 scope；CALL 权限由 `FrameExecutionPolicy`、Profile capability 与 workspace `profile.read` 分别硬检查，不以 depth 或标签作为授权依据；
+3. 已完成（2026-10-09）：被调用 frame 继承 caller 的凭据绑定提交函数与观测标签，不携带操作 scope；CALL 权限由 `FrameExecutionPolicy`、Profile capability 与 workspace `agent.call`（2026-10-10 起取代 `profile.read`）分别硬检查，不以 depth 或标签作为授权依据；
 4. 明确恢复/重试时不能复用已经失效的授权快照。
 
 ### Phase S3：执行资产安全

@@ -21,7 +21,7 @@
 
 ## 3. 当前架构与所有权
 
-当前组合根是 `src/hivememory/system/` 中的 `HiveMemorySystem`（装配、门面与生命周期）。HTTP 路由是入口适配层，经门面取得服务调用，不应重新实现业务流程：资源能力由 `workspace.capability` 提供，chat 任务进程的进程表与四阶段编排骨架位于 `workspace.process`，被动摄入与就绪检查位于 `system.application`。
+当前组合根是 `src/hivememory/system/` 中的 `HiveMemorySystem`（装配、门面与生命周期）。HTTP 路由是入口适配层，经门面取得服务调用，不应重新实现业务流程：管理能力由 `workspace.capability` 的 root API 提供（actor API 只经操作入口，不经门面），chat 任务进程的进程表与四阶段编排骨架位于 `workspace.process`，被动摄入与就绪检查位于 `system.application`。
 
 包按层组织，依赖只能指向同层或更低层（由 `tests/unit/architecture/test_package_layers.py` 守护）：
 
@@ -39,7 +39,7 @@
 | 边界 | 负责 | 不负责 |
 | --- | --- | --- |
 | System | 组合根与门面、配置加载、生命周期、模型/Provider 注册表、接入登记与 Principal authentication、Passive Ingress、就绪检查 | 记忆算法、Gateway 分析、Agent loop、MTP 具体执行、Workspace 准入与行为授权、运行时机制实现 |
-| Workspace | 认证入口（两阶段认证编排与 Workspace 准入）、逐次行为授权、actor 可见的能力层、写入意图登记、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`，含 CPU 分配：Profile 解析、附件租借与编译、记忆编译与输入清单组装；经组合根注入的 CPU 端口调用 Actor；Actor 完成后封口交互记录） | 记忆算法与 canonical 存储、接入登记、Agent loop |
+| Workspace | 认证入口（两阶段认证编排与 Workspace 准入）、逐次行为授权、能力层（只供 `system` 的 root API 与供 actor 的 actor API）、写入意图登记、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`，含 CPU 分配：Profile 解析、附件租借与编译、记忆编译与输入清单组装；经组合根注入的 CPU 端口调用 Actor；Actor 完成后封口交互记录） | 记忆算法与 canonical 存储、接入登记、Agent loop |
 | Gateway | 入口拦截、命令解析、话题/查询分析、检索计划和保守降级 | 命令执行、记忆存储、检索执行、回复生成、Interaction 提交 |
 | Patchouli | Memory/Topic/Profile、检索、感知、生成、生命周期、prepare（话题与检索）/finalize 和长期状态 | 顶层 chat 编排、入口命令、Agent 生成循环、附件租借与执行上下文编译 |
 | Alice | Agent run、frame、MTP/工具和 CALL 编排 | 长期记忆所有权、Gateway 分析、chat 任务进程编排、HTTP 生命周期 |
@@ -48,7 +48,14 @@
 
 必须保持以下方向：`server -> 经门面取得的服务（workspace 能力层与任务进程编排 / System 被动摄入） -> Global public routes -> 子系统`。跨子系统使用公共 route、公共模型或全局事件；不要持有对方 Runtime、Service、Controller、存储客户端或 local bus。
 
-执行者通过 `workspace.contracts` 的 `OperationRequest` 与 `OperationSubmitter` 提交操作；CPU 绑定进程签发的 `ExecutionCredential`，由 `WorkspaceOperationEntry` 兑现并分派到能力层。请求只携带操作参数，不暴露访问 context 或允许切换目标 Workspace；子 frame 沿用主线程提交函数，进程关闭同步吊销凭据并拒绝新调用。
+执行者通过 `workspace.contracts` 的 `OperationRequest` 与 `OperationSubmitter` 提交操作；CPU 绑定进程签发的 `ExecutionCredential`，由 `WorkspaceOperationEntry` 兑现并分派到 actor API。请求只携带操作参数，不暴露访问 context 或允许切换目标 Workspace；子 frame 沿用主线程提交函数，进程关闭同步吊销凭据并拒绝新调用。
+
+能力层的三个调用面（详见 [Workspace 架构](docs/architecture/workspace.md)第 4.5 节）：
+
+- **actor API**（`workspace/capability/actor/`）：六项 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，与 MTP 的 READ、SEARCH、RUN、WRITE、UPDATE、CALL 一一对应，每种请求只检查访问登记白名单中的对应一项；撤回意图是操作入口内部的补偿，不是 actor 操作。
+- **root API**（`workspace/capability/root/`）：全部管理方法，只接受保留的 `system`，不读取白名单；`system` 的访问记录不得配置 operation，也不能执行 actor 操作。HTTP 管理路由只调用 root API。
+- **任务进程的阶段调用**：经阶段授权（`authorize_stage`），只校验准入与目标、不检查 actor 操作，scope 仍以进程 Agent 为发起者，资源可见性照常按该 Agent 过滤；阶段授权只能在 `workspace.process` 中调用，scope 不得进入 CPU 可见的对象。
+- 两个 API 目录互不导入；server 只导入 root API，操作入口只导入 actor API。不要新增可登记给 actor 的管理 operation，也不要让阶段调用借用 actor 操作。
 
 关键所有权约束：
 
@@ -58,7 +65,7 @@
 - Gateway 只产生 `GatewayDecision`；它可以读取辅助上下文，但不取得记忆所有权。
 - RuntimeEvent 只用于 best-effort 观测，不能决定业务成功、替代 RPC 返回值或充当可靠命令。
 - 身份数据按形态区分，不得互相代替：访问 context 只由运行持有者与 workspace 授权点持有；`IdentityScope`（发起者 + 目标 Workspace）只由授权点组装，只在一次操作的调用链内经公共 route 到达资源 owner 与 Gateway，不写入记录、事件或后台任务。Import Bus 的 `/ingest` 仍在认证前组装，是既有例外（[Workspace 架构](docs/architecture/workspace.md)第 3.2 节）。Alice/CPU 的 `RuntimeScope`、`AgentRunContext`、`CPUInputManifest` 只携带注册认证后绑定的 `ExecutionLabels`（`agent_id`、`workspace_id`）；标签用于观测与提示词，不参与授权，不得据此重建访问身份。
-- 资源 owner 在公共边界把 `IdentityScope` 拆为资源归属（`WorkspaceIdentity`）与发起者（`ActorIdentity`），内部分开传递，不再传递或重新组装 `IdentityScope`。交互记录与后台任务以独立字段携带归属与（需要时）发起者；非主动生成路径的发起者是保留的 `system`，参与内容的 Agent 只记入贡献者。
+- 资源 owner 在公共边界把 `IdentityScope` 拆为资源归属（`WorkspaceIdentity`）与发起者（`ActorIdentity`），内部分开传递，不再传递或重新组装 `IdentityScope`。交互记录与后台任务以独立字段携带归属与（需要时）发起者；非主动生成路径的发起者是保留的 `system`，参与内容的 Agent 只记入贡献者；这种用法只按普通可见性读取，与 `system` 作为 root（只在 root API 生效）分属不同入口。
 - 身份第二批的暂缓边界：`WorkspaceAssetStore`、解析服务与既有资产 Reader/Command 端口仍使用旧 `IdentityScope` 做归属检查；System 的 `AssetMaterializationReader` 在一次 representation 租借内以归属和保留 `system` actor 组装旧接口所需 scope，Patchouli 只使用归属读取端口，不保存该 scope。此例外仅限该适配器，不得扩散，后续拆分见 [WorkspaceAsset 归属拆分 Todo](docs/todo/workspace-asset-ownership-identity-split.md)。
 - 资源授权在资源 owner 处进行：先校验资源归属等于目标 Workspace（硬边界，任何读取视角都不跳过），再按资源 policy 判断发起者的可见性；资源上的来源字段不参与授权。
 - Cache、queue、registry、scheduler 和 EventBus 默认是进程级共享基础设施；`workspace_id` 观测标签不等于授权或分区。
@@ -70,7 +77,7 @@
 - 被动链路：`PassiveIngressService -> Gateway PASSIVE_MEMORY -> buffer/seal -> InteractionSubmissionQueue -> Patchouli perception`；被动模式不运行 Alice、MTP、命令或回复生成。
 - prepare 失败或 Agent 取消/失败时，不默认进入 finalize；任务进程可请求 Patchouli cleanup，但 cleanup 只补偿 prepare 新建且仍为空的临时话题，不是跨边界事务回滚。
 - `MTP WRITE/UPDATE` 的 ACK 只表示意图已在 workspace 登记；completed 时任务进程认领本进程的 PENDING 意图并封口物化任务；CALL 子 frame 未成功结束时经提交函数撤回它已登记的 PENDING 意图；进程关闭同步吊销执行凭据，并仅取消本进程仍为 PENDING 的意图。WRITE/UPDATE 返回操作入口后都复查凭据并同步补偿迟到登记（当前 UPDATE 的基础冷读会跨越关闭），不取消调用方任务；正式持久化由 Patchouli 后续结算，不能在 Koakuma/Alice 内直接写正式 Memory。
-- MTP 权限由 Agent Profile 的允许 verb/tool 控制；CALL 只允许根 frame 发起，子 frame 不得递归 CALL。
+- MTP 动词与系统工具由 Agent Profile 的允许 verb/tool 控制，提交到 workspace 的请求另受访问登记的 actor 操作白名单约束，两处都通过才执行；CALL 只允许根 frame 发起，子 frame 不得递归 CALL。
 - Gateway 的局部失败只能在仍满足终态不变量时保守降级；投影、终态校验、装配错误和 cancellation 不得被静默吞掉。
 - RPC 用于需要确定返回值、失败传播或完成确认的操作；Pub/Sub 只用于发布者不依赖结果的通知。
 

@@ -14,8 +14,7 @@ if TYPE_CHECKING:
 class MemoryTaskManagementService:
     """Patchouli 面向公开记忆任务 API 的应用服务。
 
-    任务观察/取消的 operation 授权（``task.observe`` / ``management.task``）
-    已上移到 workspace 能力层（A1 访问边界返工第 4.5 节）；本层是授权点
+    任务观察与取消由 workspace root API 授权，只供保留的 system actor；本层是授权点
     以下的资源 owner，只接收授权点组装的 ``IdentityScope``，不接收访问
     context。资源归属检查在取得必要投影后执行：任务必须携带归属投影且
     属于 scope 的 Workspace（Workspace hard boundary），跨
@@ -53,7 +52,7 @@ class MemoryTaskManagementService:
         *,
         identity_scope: IdentityScope,
     ) -> bool:
-        # 取消授权（management.task）在能力层；归属校验在取得投影后执行：
+        # root 取消授权在能力层；归属校验在取得投影后执行：
         # 不能取消其他 Workspace 的任务，也不暴露其存在。
         scope = require_identity_scope(identity_scope)
         task = await self._bus.request(PatchouliLocalRoutes.MEMORY_TASK_GET, task_id)

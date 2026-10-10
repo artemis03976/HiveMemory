@@ -28,7 +28,6 @@ from hivememory.components.trace_context import (
     reset_trace_context,
     set_trace_context,
 )
-from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
 from hivememory.core.models import IdentityScope, WorkspaceIdentity
@@ -141,10 +140,9 @@ class TaskProcessRunner:
     参数只决定 CPU 以流式还是非流式产出。执行器与 ``CPUAllocator`` 由组合根
     构建并注入注册入口。
 
-    阶段授权（A1 访问边界返工第 4.4 节）：阶段调用是进程自身的编排而非
-    actor 的主动操作，operation 检查在每次阶段调用前以任务参数中的目标
-    workspace 执行，再把操作授权者返回的 ``IdentityScope`` 传给对应路由；
-    授权规则仍是同一份 Workspace 访问登记的白名单。
+    阶段调用由进程编排负责，每次调用前校验准入与任务目标 Workspace，
+    不检查 actor 操作白名单。授权返回的 ``IdentityScope`` 保留进程 actor，
+    使预检索仍按该 actor 的资源可见性过滤；scope 不进入 CPU 输入清单。
     """
 
     def __init__(
@@ -196,10 +194,9 @@ class TaskProcessRunner:
             # ---- Gateway：可被 stop 中断 ----
             record.enter_phase(ProcessPhase.GATEWAY)
             events.status(record)
-            # 阶段授权：Gateway 分析要读取话题快照与话题数据，绑定
-            # resource.read；Gateway 不做授权判断，只把组装后的 scope
-            # 用于话题读取路由。
-            gateway_scope = self._authorize(process, WorkspaceOperation.RESOURCE_READ)
+            # 阶段授权只校验准入与目标；Gateway 沿用进程 actor 的 scope
+            # 读取话题，actor 是否持有 READ 不影响这次系统编排。
+            gateway_scope = self._authorize(process)
             gateway_result = await _run_interruptible(
                 record,
                 ProcessPhase.GATEWAY,
@@ -290,7 +287,7 @@ class TaskProcessRunner:
             # finalize 所需的授权先于认领：授权失败时意图仍为 PENDING，由关闭
             # 流程取消，不会停在无人派发的 MATERIALIZING。scope 只用于紧随的
             # 阶段调用，不在工作集中冻结等待 finalize。
-            finalize_scope = self._authorize(process, WorkspaceOperation.INTERACTION_SUBMIT)
+            finalize_scope = self._authorize(process)
             # 进程在调用 finalize 前封口交互记录（Q-14）：这是骨架唯一从
             # CPU 执行结果提取字段组装交互输入的地方；组装失败沿异常路径
             # 按进程失败处理，走现有关闭流程。
@@ -350,10 +347,9 @@ class TaskProcessRunner:
     ) -> tuple[PreparedAgentRun, CPUInputManifest]:
         """Profile 解析、Patchouli prepare 与 CPU 分配，最后检查一次停止请求。
 
-        各阶段调用的操作授权按阶段语义在进程内执行：Profile 解析与附件
-        租借的检查在 CPUAllocator 内、副作用前执行；prepare 绑定
-        ``resource.search``；finalize 所需的 ``interaction.submit`` 提前到
-        进入 Actor 执行前检查，避免 CPU 执行完才在结算被拒。
+        Profile 解析与附件租借由 CPUAllocator 在副作用前执行阶段授权；
+        prepare 同样只检查准入与目标。finalize 在调用前再次校验，不要求
+        actor 持有交互提交操作。
         """
         record = process.record
         request = process.request
@@ -364,8 +360,8 @@ class TaskProcessRunner:
             access=record.access,
             target_workspace=request.target_workspace,
         )
-        # prepare 做话题准备与检索，绑定 resource.search。
-        prepare_scope = self._authorize(process, WorkspaceOperation.RESOURCE_SEARCH)
+        # prepare 做话题准备与检索，资源可见性仍使用进程 actor。
+        prepare_scope = self._authorize(process)
         prepared: PreparedAgentRun = await self._bus.request(
             GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
             identity_scope=prepare_scope,
@@ -391,25 +387,20 @@ class TaskProcessRunner:
             target_workspace=request.target_workspace,
         )
 
-        # finalize（提交交互记录）绑定 interaction.submit；检查在进入 Actor
-        # 执行前执行，避免 CPU 执行完才在结算被拒。
-        self._authorize(process, WorkspaceOperation.INTERACTION_SUBMIT)
-
         # 取消检查（Q-15）：只在进入 Actor 之前检查一次。prepare 与分配
         # 期间收到的 stop 请求都在此生效，已取得的租借由关闭流程释放。
         if record.outcome is ProcessOutcome.STOP_REQUESTED:
             raise _ProcessCancelled(ProcessPhase.PREPARE, record.stop_reason or "user_requested")
         return prepared, manifest
 
-    def _authorize(self, process: TaskProcess, operation: WorkspaceOperation) -> IdentityScope:
+    def _authorize(self, process: TaskProcess) -> IdentityScope:
         """以进程记录绑定的 context 对任务目标 workspace 执行阶段授权。
 
         返回操作授权者组装的可信 scope，供紧随的阶段路由使用；授权失败
         沿异常路径按进程失败收口。
         """
-        return self._authorizer.authorize_operation(
+        return self._authorizer.authorize_stage(
             process.record.access,
-            operation,
             process.request.target_workspace,
         )
 
@@ -452,8 +443,8 @@ class TaskProcessRunner:
                 await self._bus.request(
                     GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
                     prepared_run=prepared,
-                    # 补偿 prepare 使用同一 operation，context 此时尚未失效。
-                    identity_scope=self._authorize(process, WorkspaceOperation.RESOURCE_SEARCH),
+                    # 补偿仍校验准入与任务目标，context 此时尚未失效。
+                    identity_scope=self._authorize(process),
                 )
             except Exception:
                 logger.warning("清理 prepared run 失败", exc_info=True)
@@ -470,13 +461,13 @@ class TaskProcessRunner:
             logger.warning("关闭 CPU 输出流失败", exc_info=True)
 
     async def _list_final_pool_topics(self, process: TaskProcess) -> list[dict[str, Any]]:
-        """结算后的话题池读取（``resource.read``），只服务流式 done 事件。
+        """结算后的话题池读取，只服务流式 done 事件。
 
         授权失败沿异常路径按空池收口（前端刷新失败不影响业务终态）；
         路由收到的是授权返回的 scope，不取自 prepare 结果。
         """
         try:
-            pool_scope = self._authorize(process, WorkspaceOperation.RESOURCE_READ)
+            pool_scope = self._authorize(process)
             topics = await self._bus.request(
                 GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
                 identity_scope=pool_scope,

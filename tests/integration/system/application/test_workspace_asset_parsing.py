@@ -66,7 +66,7 @@ async def _upload(
         declared_media_type="text/plain",
         source=ChunkedSource(content),
         client_operation_id=operation_id,
-        access=await composition.authenticate(),
+        access=await composition.authenticate(agent_id="system"),
     )
 
 

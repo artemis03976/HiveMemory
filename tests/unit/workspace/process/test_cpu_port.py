@@ -1,8 +1,7 @@
 """任务进程经 CPU 端口执行 Actor 阶段的行为测试。
 
 被测边界：进程只经组合根注入的 ``CPUPort`` 调用 CPU，总线上不注册任何
-Alice 路由；进入 Actor 执行前的 ``interaction.submit`` 阶段授权缺许可时
-CPU 不被执行。测试 CPU（``tests.helpers.cpu``）覆盖完成、自报取消/失败、
+Alice 路由；没有 actor 操作权限仍能完成系统阶段调用。测试 CPU（``tests.helpers.cpu``）覆盖完成、自报取消/失败、
 停止请求、协议错误与断流关闭五种场景。子系统路由用 GlobalSystemBus 上的
 替身隔离。
 """
@@ -22,7 +21,6 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.contracts.runtime_events import RuntimeEventType
-from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import (
     ActorIdentity,
     AttachmentSelectionRequest,
@@ -350,33 +348,28 @@ async def test_cpu_iterator_is_closed_before_finalize(stream: bool) -> None:
 
 
 @pytest.mark.asyncio
-async def test_missing_interaction_submit_operation_skips_cpu_execution() -> None:
-    """缺 interaction.submit：进入 Actor 执行前被拒，CPU 不执行，cleanup 补偿 prepare。"""
+async def test_no_actor_operations_still_executes_cpu_and_finalizes() -> None:
+    """空操作白名单不阻止系统编排：CPU 完成后仍封口交互并 finalize。"""
     bus = GlobalSystemBus()
-    cpu = ScriptedCPU(result=make_cpu_result())
-    cleanup_calls: list = []
+    cpu = ScriptedCPU(result=make_cpu_result(final_text="无操作权限也完成"))
+    submitted_texts: list[str] = []
 
-    async def cleanup(*, prepared_run, **_kwargs):
-        cleanup_calls.append(prepared_run)
+    async def finalize(*, payload, **_kwargs):
+        submitted_texts.append(payload.assistant_final_text)
+        return []
 
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route)
     bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
-    composition = _composition(
-        excluded_operations=frozenset({WorkspaceOperation.INTERACTION_SUBMIT})
-    )
-
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    composition = _composition(excluded_operations=frozenset(WorkspaceOperation))
     service, composition = await _service(bus, cpu, composition=composition)
-    with pytest.raises(OperationDeniedError) as excinfo:
-        await _run_once(composition, service, "问题", process_id="process-no-interaction-submit")
+    result = await _run_once(composition, service, "问题", process_id="process-no-operations")
 
-    assert excinfo.value.details["reason"] == "operation_not_allowed"
-    assert excinfo.value.details["operation"] == "interaction.submit"
-    assert cpu.calls == []
-    assert cleanup_calls != [] and all(
-        prepared.interaction_id == "process-no-interaction-submit" for prepared in cleanup_calls
-    )
+    assert result.execution_result.status == "completed"
+    assert result.execution_result.final_text == "无操作权限也完成"
+    assert submitted_texts == ["无操作权限也完成"]
+    assert cpu.closed is True
 
 
 # ========== CPU 自报取消与失败 ==========
@@ -512,7 +505,7 @@ async def test_delivery_closed_early_closes_cpu_iterator_and_releases_leases() -
     composition = _composition()
     requestor = await composition.authenticate(agent_id=_AGENT)
     scope = composition.authorizer.authorize_operation(
-        requestor, WorkspaceOperation.RESOURCE_READ, composition.default_workspace
+        requestor, WorkspaceOperation.MEMORY_READ, composition.default_workspace
     )
     ref_a = make_ready_text_asset(store, scope, operation_id="op-a", content="正文甲")
 

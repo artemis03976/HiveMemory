@@ -3,9 +3,9 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
-from hivememory.server.deps import RequestAccess, get_agent_service, get_request_access
+from hivememory.server.deps import RequestAccess, get_request_access, get_root_agent_service
 from hivememory.server.models.agent import AgentCreateRequest, AgentProfileResponse
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
+from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
 
 router = APIRouter(tags=["agents"])
 
@@ -13,7 +13,7 @@ router = APIRouter(tags=["agents"])
 @router.post("/agents", response_model=AgentProfileResponse, status_code=201)
 async def create_agent(
     body: AgentCreateRequest,
-    service: AgentApplicationService = Depends(get_agent_service),
+    service: RootAgentProfileService = Depends(get_root_agent_service),
     request_access: RequestAccess = Depends(get_request_access),
 ):
     """创建新的 Agent Profile（管理用例，actor 为保留 system）"""
@@ -38,7 +38,7 @@ async def create_agent(
 
 @router.get("/agents", response_model=list[AgentProfileResponse])
 async def list_agents(
-    service: AgentApplicationService = Depends(get_agent_service),
+    service: RootAgentProfileService = Depends(get_root_agent_service),
     request_access: RequestAccess = Depends(get_request_access),
 ):
     """列出所有 Agent Profile（管理用例，actor 为保留 system）"""

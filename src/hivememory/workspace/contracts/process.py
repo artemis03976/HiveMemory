@@ -30,7 +30,7 @@ class CPUInputManifest(BaseModel):
     )
     labels: ExecutionLabels = Field(description="注册时绑定的只读观测标签，不用于行为授权")
     user_message: str = Field(description="原始用户消息")
-    agent_profile: AgentProfile = Field(description="CPU 分配时经 workspace 能力层解析的 Profile")
+    agent_profile: AgentProfile = Field(description="CPU 分配时经阶段授权与读取视图解析的 Profile")
     memories: list[MemoryAtom] = Field(
         default_factory=list,
         description="未编译的检索结果原子（prepare 返回的原始列表）",

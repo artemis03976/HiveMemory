@@ -111,7 +111,7 @@ def upload_stack():
     )
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
-    app.dependency_overrides[deps.get_workspace_asset_service] = lambda: service
+    app.dependency_overrides[deps.get_root_workspace_asset_service] = lambda: service
     app.dependency_overrides.update(overrides)
     app.add_exception_handler(AdmissionDeniedError, admission_denied_handler)
     app.add_exception_handler(OperationDeniedError, operation_denied_handler)
@@ -363,7 +363,7 @@ def test_oversized_file_returns_413() -> None:
     )
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
-    app.dependency_overrides[deps.get_workspace_asset_service] = lambda: service
+    app.dependency_overrides[deps.get_root_workspace_asset_service] = lambda: service
     app.dependency_overrides.update(overrides)
     client = TestClient(app)
 

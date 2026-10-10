@@ -3,19 +3,19 @@
 from fastapi import APIRouter, Depends, HTTPException
 
 from hivememory.core.errors import ResourceNotFoundError
-from hivememory.server.deps import RequestAccess, get_memory_task_service, get_request_access
+from hivememory.server.deps import RequestAccess, get_request_access, get_root_memory_task_service
 from hivememory.server.models.memory_task import MemoryTaskListResponse, MemoryTaskResponse
-from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
+from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 
 router = APIRouter(prefix="/memory-tasks", tags=["memory-tasks"])
 
 
 @router.get("", response_model=MemoryTaskListResponse)
 async def list_memory_tasks(
-    service: MemoryTaskApplicationService = Depends(get_memory_task_service),
+    service: RootMemoryTaskService = Depends(get_root_memory_task_service),
     request_access: RequestAccess = Depends(get_request_access),
 ) -> MemoryTaskListResponse:
-    """列出本 Workspace 的记忆生成任务（观察绑定 ``task.observe``）。"""
+    """经 root API 列出本 Workspace 的记忆生成任务。"""
     tasks = await service.list_memory_tasks(
         target_workspace=request_access.target_workspace,
         access=request_access.access,
@@ -28,10 +28,10 @@ async def list_memory_tasks(
 @router.get("/{task_id}", response_model=MemoryTaskResponse)
 async def get_memory_task(
     task_id: str,
-    service: MemoryTaskApplicationService = Depends(get_memory_task_service),
+    service: RootMemoryTaskService = Depends(get_root_memory_task_service),
     request_access: RequestAccess = Depends(get_request_access),
 ) -> MemoryTaskResponse:
-    """读取单个记忆生成任务（观察绑定 ``task.observe``）。"""
+    """经 root API 读取本 Workspace 的单个记忆生成任务。"""
     try:
         memory_task = await service.get_memory_task(
             task_id,
@@ -47,10 +47,10 @@ async def get_memory_task(
 @router.post("/{task_id}/cancel", response_model=MemoryTaskResponse)
 async def cancel_memory_task(
     task_id: str,
-    service: MemoryTaskApplicationService = Depends(get_memory_task_service),
+    service: RootMemoryTaskService = Depends(get_root_memory_task_service),
     request_access: RequestAccess = Depends(get_request_access),
 ) -> MemoryTaskResponse:
-    """取消记忆生成任务（取消绑定 ``management.task``，观察不授予取消）。"""
+    """经 root API 取消本 Workspace 的记忆生成任务。"""
     try:
         ok = await service.cancel_memory_task(
             task_id,

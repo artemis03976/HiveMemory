@@ -21,6 +21,8 @@
   分别拒绝；按授权者自己的访问登记判定准入（``actor_not_admitted``）；
 - 进程控制授权比对请求方与进程记录的驻留坐标（P-7）：请求方无效按
   ``ScopeRequiredError`` 拒绝，记录侧已撤销按 ``False``（不可控）呈现；
+- ``authorize_stage`` 只检查凭据、准入与目标，不要求 actor 操作白名单；
+  返回 scope 仍保留进程 actor 身份，不切换成保留的 system actor；
 
 签发约定：``WorkspaceAuthenticator.admit`` 只由认证网关调用——本套件的
 全部签发都经 ``composition.gateway.authenticate`` 完成，不直接调用
@@ -58,7 +60,7 @@ from tests.helpers.workspace import (
 MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 ISOLATION = make_workspace_identity(owner_user_id="u1", workspace_id="isolation_workspace")
 FOREIGN_OWNER = make_workspace_identity(owner_user_id="u2", workspace_id="main_workspace")
-READ = WorkspaceOperation.RESOURCE_READ
+READ = WorkspaceOperation.MEMORY_READ
 
 
 def _composition(**record_kwargs):
@@ -230,7 +232,7 @@ async def test_authorize_operation_returns_assembled_scope_for_whitelisted_opera
                 owner_user_id="u1",
                 agent_id="a1",
                 allowed_operations=frozenset(
-                    {WorkspaceOperation.RESOURCE_READ, WorkspaceOperation.RESOURCE_SEARCH}
+                    {WorkspaceOperation.MEMORY_READ, WorkspaceOperation.MEMORY_SEARCH}
                 ),
             )
         ],
@@ -239,10 +241,10 @@ async def test_authorize_operation_returns_assembled_scope_for_whitelisted_opera
     context = await composition.authenticate(agent_id="a1", user_id="u1")
 
     first = composition.authorizer.authorize_operation(
-        context, WorkspaceOperation.RESOURCE_READ, MAIN
+        context, WorkspaceOperation.MEMORY_READ, MAIN
     )
     second = composition.authorizer.authorize_operation(
-        context, WorkspaceOperation.RESOURCE_SEARCH, MAIN
+        context, WorkspaceOperation.MEMORY_SEARCH, MAIN
     )
 
     assert isinstance(first, IdentityScope)
@@ -261,7 +263,7 @@ async def test_authorize_operation_rejects_operation_out_of_whitelist():
             make_actor_access_record(
                 owner_user_id="u1",
                 agent_id="a1",
-                allowed_operations=frozenset({WorkspaceOperation.RESOURCE_READ}),
+                allowed_operations=frozenset({WorkspaceOperation.MEMORY_READ}),
             )
         ],
         default_workspace=MAIN,
@@ -269,12 +271,10 @@ async def test_authorize_operation_rejects_operation_out_of_whitelist():
     context = await composition.authenticate(agent_id="a1", user_id="u1")
 
     with pytest.raises(OperationDeniedError) as exc_info:
-        composition.authorizer.authorize_operation(
-            context, WorkspaceOperation.MEMORY_INTENT_SUBMIT, MAIN
-        )
+        composition.authorizer.authorize_operation(context, WorkspaceOperation.MEMORY_WRITE, MAIN)
 
     assert exc_info.value.details["reason"] == "operation_not_allowed"
-    assert exc_info.value.details["operation"] == "memory_intent.submit"
+    assert exc_info.value.details["operation"] == "memory.write"
 
 
 @pytest.mark.asyncio
@@ -294,7 +294,7 @@ async def test_authorize_operation_rejects_foreign_owner_target():
 
     with pytest.raises(OperationDeniedError) as exc_info:
         composition.authorizer.authorize_operation(
-            context, WorkspaceOperation.RESOURCE_READ, FOREIGN_OWNER
+            context, WorkspaceOperation.MEMORY_READ, FOREIGN_OWNER
         )
 
     assert exc_info.value.details["reason"] == "target_workspace_not_resident"
@@ -311,11 +311,11 @@ async def test_authorize_operation_rejects_missing_and_bare_scope_context():
     )
 
     with pytest.raises(ScopeRequiredError) as missing_info:
-        composition.authorizer.authorize_operation(None, WorkspaceOperation.RESOURCE_READ, MAIN)
+        composition.authorizer.authorize_operation(None, WorkspaceOperation.MEMORY_READ, MAIN)
     with pytest.raises(ScopeRequiredError) as bare_info:
         composition.authorizer.authorize_operation(
             make_identity_scope(user_id="u1", agent_id="a1"),
-            WorkspaceOperation.RESOURCE_READ,
+            WorkspaceOperation.MEMORY_READ,
             MAIN,
         )
 
@@ -356,11 +356,97 @@ async def test_authorize_operation_rejects_wrong_operation_and_target_types():
     context = await composition.authenticate(agent_id="a1", user_id="u1")
 
     with pytest.raises(TypeError):
-        composition.authorizer.authorize_operation(context, "resource.read", MAIN)
+        composition.authorizer.authorize_operation(context, "memory.read", MAIN)
     with pytest.raises(TypeError):
         composition.authorizer.authorize_operation(
-            context, WorkspaceOperation.RESOURCE_READ, "main_workspace"
+            context, WorkspaceOperation.MEMORY_READ, "main_workspace"
         )
+
+
+@pytest.mark.asyncio
+async def test_authorize_stage_without_operations_preserves_process_actor():
+    """没有 actor 操作许可也能做阶段授权，返回本进程 actor 的可信 scope。"""
+    composition = _composition(allowed_operations=frozenset())
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+
+    scope = composition.authorizer.authorize_stage(context, MAIN)
+
+    assert scope == IdentityScope(
+        actor_identity=make_identity_scope(user_id="u1", agent_id="a1").actor_identity,
+        workspace_identity=MAIN,
+    )
+
+
+@pytest.mark.asyncio
+async def test_authorize_stage_rejects_revoked_context():
+    """阶段授权兑现已撤销凭据时拒绝，空白名单不能绕过签发有效性检查。"""
+    composition = _composition(allowed_operations=frozenset())
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+    composition.gateway.invalidate_context(context)
+
+    with pytest.raises(ScopeRequiredError) as exc_info:
+        composition.authorizer.authorize_stage(context, MAIN)
+
+    assert exc_info.value.details["reason"] == "context_not_issued"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled", [True, False], ids=["missing-actor", "disabled-actor"])
+async def test_authorize_stage_rechecks_current_admission(enabled):
+    """准入记录缺失或已禁用时，阶段授权仍拒绝持有原签发凭据的 actor。"""
+    context = await _composition().authenticate(agent_id="a1", user_id="u1")
+    composition = make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1",
+                agent_id="other-agent" if enabled else "a1",
+                enabled=enabled,
+                allowed_operations=frozenset(),
+            )
+        ],
+        default_workspace=MAIN,
+    )
+
+    with pytest.raises(ScopeRequiredError) as exc_info:
+        composition.authorizer.authorize_stage(context, MAIN)
+
+    assert exc_info.value.details["reason"] == "actor_not_admitted"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", [ISOLATION, FOREIGN_OWNER], ids=["workspace", "owner"])
+async def test_authorize_stage_rejects_target_outside_resident_workspace(target):
+    """跨 workspace 或 owner 的阶段目标均拒绝，错误不伪造 actor operation。"""
+    composition = _composition(allowed_operations=frozenset())
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+
+    with pytest.raises(OperationDeniedError) as exc_info:
+        composition.authorizer.authorize_stage(context, target)
+
+    assert exc_info.value.details == {
+        "reason": "target_workspace_not_resident",
+        "resident_workspace_id": MAIN.workspace_id,
+        "target_workspace_id": target.workspace_id,
+    }
+
+
+@pytest.mark.asyncio
+async def test_authorize_stage_rejects_missing_context_and_invalid_target():
+    """阶段授权同样守住凭据与目标类型边界，不接受裸身份替代访问凭据。"""
+    composition = _composition()
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+
+    with pytest.raises(ScopeRequiredError) as missing_info:
+        composition.authorizer.authorize_stage(None, MAIN)
+    with pytest.raises(ScopeRequiredError) as bare_info:
+        composition.authorizer.authorize_stage(
+            make_identity_scope(user_id="u1", agent_id="a1"), MAIN
+        )
+    with pytest.raises(TypeError, match="target_workspace 必须是 WorkspaceIdentity"):
+        composition.authorizer.authorize_stage(context, "main_workspace")
+
+    assert missing_info.value.code == "workspace.scope_required"
+    assert bare_info.value.code == "workspace.scope_required"
 
 
 class TestAuthorizeProcessControl:
@@ -446,3 +532,57 @@ class TestAuthorizeProcessControl:
         revoked = await self._issued_record_context(composition)
         composition.gateway.invalidate_context(revoked)
         assert composition.authorizer.authorize_process_control(requestor, revoked) is False
+
+
+@pytest.mark.asyncio
+async def test_root_authorization_accepts_system_without_actor_operations():
+    """system 只需有效准入即可管理，root scope 仍绑定驻留 Workspace。"""
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="system")],
+        default_workspace=MAIN,
+    )
+    context = await composition.authenticate(agent_id="system")
+    scope = composition.authorizer.authorize_root(context, MAIN)
+    assert scope == make_identity_scope(user_id="u1", agent_id="system")
+
+
+@pytest.mark.asyncio
+async def test_all_actor_operations_do_not_grant_root_authority():
+    """普通 actor 即使持有全部操作，仍以 root_required 拒绝管理能力。"""
+    composition = _composition()
+    context = await composition.authenticate(agent_id="a1")
+    with pytest.raises(OperationDeniedError) as error:
+        composition.authorizer.authorize_root(context, MAIN)
+    assert error.value.details == {"reason": "root_required"}
+
+
+@pytest.mark.asyncio
+async def test_root_authorization_rejects_revoked_context():
+    """root 身份不绕过凭据失效：请求结束后不能继续管理。"""
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="system")],
+        default_workspace=MAIN,
+    )
+    context = await composition.authenticate(agent_id="system")
+    composition.gateway.invalidate_context(context)
+    with pytest.raises(ScopeRequiredError) as error:
+        composition.authorizer.authorize_root(context, MAIN)
+    assert error.value.details == {"reason": "context_not_issued"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", [ISOLATION, FOREIGN_OWNER])
+async def test_root_authorization_rejects_nonresident_target(target):
+    """root 管理仍受 Workspace 硬边界限制，不允许更换目标。"""
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="system")],
+        default_workspace=MAIN,
+    )
+    context = await composition.authenticate(agent_id="system")
+    with pytest.raises(OperationDeniedError) as error:
+        composition.authorizer.authorize_root(context, target)
+    assert error.value.details == {
+        "reason": "target_workspace_not_resident",
+        "resident_workspace_id": MAIN.workspace_id,
+        "target_workspace_id": target.workspace_id,
+    }

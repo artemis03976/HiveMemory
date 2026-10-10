@@ -6,6 +6,7 @@ from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import (
+    AgentProfile,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -127,7 +128,7 @@ async def test_operation_denial_maps_to_mtp_permission_error(command):
 
 
 @pytest.mark.asyncio
-async def test_search_without_resource_search_grant_does_not_deliver_or_warm_memories():
+async def test_search_without_memory_search_grant_does_not_deliver_or_warm_memories():
     """READ 授权不能代替 SEARCH 授权，拒绝后不交付内容或预热共享缓存。"""
     harness = OperationsHarness()
     atom = MemoryAtom(
@@ -145,7 +146,7 @@ async def test_search_without_resource_search_grant_does_not_deliver_or_warm_mem
     context = MTPExecutionContext(
         runtime_scope=scope,
         submit_operation=await harness.submitter(
-            make_identity_scope(), allowed_operations=[WorkspaceOperation.RESOURCE_READ]
+            make_identity_scope(), allowed_operations=[WorkspaceOperation.MEMORY_READ]
         ),
     )
 
@@ -155,6 +156,104 @@ async def test_search_without_resource_search_grant_does_not_deliver_or_warm_mem
     assert 'code="mtp.permission.denied"' in result.formatted_response
     assert result.response_content == ""
     assert harness.runtime.stats()["atom_size"] == 0
+    assert harness.citations == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("operation", "allowed_verb", "denied_verb", "expected_content"),
+    [
+        (WorkspaceOperation.MEMORY_READ, "READ", "RUN", "print(6 * 7)"),
+        (WorkspaceOperation.MEMORY_RUN, "RUN", "READ", "42"),
+    ],
+    ids=["read-does-not-grant-run", "run-does-not-grant-read"],
+)
+async def test_read_and_user_run_require_independent_operation_permissions(
+    operation, allowed_verb, denied_verb, expected_content
+):
+    """READ 与用户态 RUN 各自授权，拒绝不读取资源，获准交付仍记录正式引用。"""
+    harness = OperationsHarness()
+    atom = MemoryAtom(
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
+        index=IndexLayer(
+            title="独立执行许可的工具",
+            alias="tool_separate_permissions",
+            memory_type=MemoryType.CODE_SNIPPET,
+        ),
+        payload=PayloadLayer(content="print(6 * 7)"),
+    )
+    harness.memories[atom.get_alias()] = atom
+    context = MTPExecutionContext(
+        runtime_scope=make_runtime_scope(),
+        submit_operation=await harness.submitter(
+            make_identity_scope(), allowed_operations={operation}
+        ),
+    )
+    koakuma = KoakumaRuntime()
+
+    denied = await koakuma.execute_mtp(f"⟪ {denied_verb} | {atom.get_alias()} | ⟫", context)
+
+    assert denied.response_status == "error"
+    assert 'code="mtp.permission.denied"' in denied.formatted_response
+    assert harness.runtime.stats()["cold_reads"] == 0
+    assert harness.citations == []
+
+    allowed = await koakuma.execute_mtp(f"⟪ {allowed_verb} | {atom.get_alias()} | ⟫", context)
+
+    assert allowed.response_status == "success"
+    assert expected_content in allowed.response_content
+    assert [citation["memory_id"] for citation in harness.citations] == [atom.id]
+
+
+@pytest.mark.asyncio
+async def test_system_run_with_no_actor_operations_executes_without_submission():
+    """sys_* 工具保持 Alice 本地执行，不借用 memory.run 或提交任何 actor 请求。"""
+    harness = OperationsHarness()
+    submit = await harness.submitter(make_identity_scope(), allowed_operations=[])
+    requests = []
+
+    async def record_submission(request):
+        """观察公开提交端口；任何意外请求仍经真实凭据与授权执行。"""
+        requests.append(request)
+        return await submit(request)
+
+    context = MTPExecutionContext(
+        runtime_scope=make_runtime_scope(),
+        agent_profile=AgentProfile(
+            allowed_mtp_verbs=["RUN"], allowed_sys_tools=["sys_python_repl"]
+        ),
+        submit_operation=record_submission,
+    )
+
+    result = await KoakumaRuntime().execute_mtp(
+        '⟪ RUN | sys_python_repl | code="print(6 * 7)" ⟫', context
+    )
+
+    assert result.response_status == "success"
+    assert "42" in result.response_content
+    assert requests == []
+    assert harness.citations == []
+
+
+@pytest.mark.asyncio
+async def test_system_run_still_requires_profile_tool_permission():
+    """本地系统工具仍由 Profile 的工具许可保护，actor 的 RUN 许可不能代替它。"""
+    harness = OperationsHarness()
+    context = MTPExecutionContext(
+        runtime_scope=make_runtime_scope(),
+        agent_profile=AgentProfile(allowed_mtp_verbs=["RUN"], allowed_sys_tools=[]),
+        submit_operation=await harness.submitter(
+            make_identity_scope(), allowed_operations={WorkspaceOperation.MEMORY_RUN}
+        ),
+    )
+
+    result = await KoakumaRuntime().execute_mtp(
+        '⟪ RUN | sys_python_repl | code="print(6 * 7)" ⟫', context
+    )
+
+    assert result.response_status == "error"
+    assert 'code="mtp.permission.denied"' in result.formatted_response
+    assert harness.runtime.stats()["cold_reads"] == 0
     assert harness.citations == []
 
 

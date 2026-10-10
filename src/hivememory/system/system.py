@@ -28,11 +28,11 @@ if TYPE_CHECKING:
     from hivememory.gateway import GatewaySystem
     from hivememory.system.application.passive_ingress_service import PassiveIngressService
     from hivememory.system.application.readiness_service import SystemReadinessService
-    from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-    from hivememory.workspace.capability.assets import WorkspaceAssetApplicationService
-    from hivememory.workspace.capability.memory import MemoryApplicationService
-    from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
-    from hivememory.workspace.capability.topic import TopicApplicationService
+    from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
+    from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
+    from hivememory.workspace.capability.root.memory import RootMemoryService
+    from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
+    from hivememory.workspace.capability.root.topic import RootTopicService
     from hivememory.workspace.process.service import TaskProcessService
     from hivememory.workspace.runtime import WorkspaceRuntime
 
@@ -72,12 +72,12 @@ class HiveMemorySystem:
         # 应用服务
         self._process_service = services.process
         self._ingress_service = services.ingress
-        self._memory_service = services.memory
-        self._memory_task_service = services.memory_task
-        self._agent_service = services.agent
-        self._topic_service = services.topic
+        self._root_memory_service = services.root_memory
+        self._root_memory_task_service = services.root_memory_task
+        self._root_agent_service = services.root_agent
+        self._root_topic_service = services.root_topic
         self._readiness_service = services.readiness
-        self._workspace_asset_service = services.workspace_assets
+        self._root_workspace_asset_service = services.root_workspace_assets
 
         # 注册表：全局单例，供 API 层（deps.py）注入到路由
         self._model_registry = registries.model_registry
@@ -378,28 +378,33 @@ class HiveMemorySystem:
         return self._ingress_service
 
     @property
-    def memory_service(self) -> MemoryApplicationService:
-        return self._memory_service
+    def root_memory_service(self) -> RootMemoryService:
+        """只供 root 调用的记忆管理 API，actor 操作经操作入口提交。"""
+        return self._root_memory_service
 
     @property
-    def memory_task_service(self) -> MemoryTaskApplicationService:
-        return self._memory_task_service
+    def root_memory_task_service(self) -> RootMemoryTaskService:
+        """只供 root 调用的记忆任务管理 API。"""
+        return self._root_memory_task_service
 
     @property
-    def agent_service(self) -> AgentApplicationService:
-        return self._agent_service
+    def root_agent_service(self) -> RootAgentProfileService:
+        """只供 root 调用的 Agent Profile 管理 API。"""
+        return self._root_agent_service
 
     @property
-    def topic_service(self) -> TopicApplicationService:
-        return self._topic_service
+    def root_topic_service(self) -> RootTopicService:
+        """只供 root 调用的话题管理 API。"""
+        return self._root_topic_service
 
     @property
     def readiness_service(self) -> SystemReadinessService:
         return self._readiness_service
 
     @property
-    def workspace_asset_service(self) -> WorkspaceAssetApplicationService:
-        return self._workspace_asset_service
+    def root_workspace_asset_service(self) -> RootWorkspaceAssetService:
+        """只供 root 调用的 WorkspaceAsset 上传 API。"""
+        return self._root_workspace_asset_service
 
     @property
     def workspace_runtime(self) -> WorkspaceRuntime:

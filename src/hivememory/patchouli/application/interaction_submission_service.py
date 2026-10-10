@@ -1,13 +1,12 @@
-"""Patchouli 交互提交 application API（interaction.submit）。
+"""Patchouli 交互提交 application API（公开路由 ``patchouli.public.interaction.submit``）。
 
 公开的独立交互提交入口：封装 ``InteractionSubmissionQueue`` 的接纳与
 收据。队列继续是 Patchouli 的内部协作者——Passive/Alice/外部 adapter
 统一经本 API 提交，不直接持有 queue；单条事件接收、队列接纳、交互应用
 与 Memory 物化是不同事实。
 
-本路由目前没有生产调用方，operation 授权（``interaction.submit``）在
-workspace 能力层出现对应方法时进行（总 Idea 15.6，A1 访问边界返工第
-4.6 节）；本层只接收调用方传入的 ``IdentityScope``。
+本路由目前没有生产调用方；交互提交属于任务进程阶段，不属于 actor
+操作。本层只接收授权点传入的 ``IdentityScope``。
 """
 
 from __future__ import annotations
@@ -34,7 +33,7 @@ class InteractionSubmitResult:
 
 
 class InteractionSubmissionService:
-    """经 Patchouli 交互队列的公开提交 API（``interaction.submit``）。"""
+    """经 Patchouli 交互队列的公开提交 API。"""
 
     def __init__(self, *, interaction_queue: InteractionSubmissionQueue) -> None:
         self._queue = interaction_queue

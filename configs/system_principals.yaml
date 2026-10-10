@@ -15,3 +15,10 @@ principals:
     enabled: true
     adapters:
       - "http"
+
+  # Profile 注入脚本的独立本地来源；Workspace 管理仍需 system 准入与 root 授权。
+  - principal_id: "hivememory:profile-injector"
+    kind: "local-process"
+    enabled: true
+    adapters:
+      - "local"

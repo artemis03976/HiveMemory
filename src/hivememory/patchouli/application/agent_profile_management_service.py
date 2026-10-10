@@ -16,14 +16,10 @@ from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 class AgentProfileManagementService:
     """Patchouli 面向公开 agent profile 管理/读取 API 的应用服务。
 
-    Profile 管理写入/列表沿用 AGENT_PROFILE atom 的既有绑定例外，其
-    ``management.memory`` 行为授权、``get_agent_profile`` 的
-    ``profile.read`` 行为授权都在 workspace 能力层完成（A1 访问边界返工
-    第 4.5/4.6 节）；本层是授权点以下的资源 owner，只接收授权点组装的
-    ``IdentityScope``，不接收访问 context。``get_agent_profile`` 返回
-    ``ResolvedAgentProfile``（AgentProfile + 源原子 policy 依据与关联），
-    可见性校验在库内独立成立；Alice 的 profile resolver 仍按原签名直接
-    调用（无 operation 授权，总 Idea 15.5 的已知缺口）。
+    Profile 管理写入与列表由 workspace root API 授权；actor 读取与进程
+    阶段读取分别在对应授权点校验。本层只接收组装后的 ``IdentityScope``，
+    不接收访问 context。读取返回 ``ResolvedAgentProfile``（Profile、源原子
+    policy 依据与关联），读取视图在交付时仍按 actor 检查可见性。
     """
 
     def __init__(self, *, bus: Any) -> None:

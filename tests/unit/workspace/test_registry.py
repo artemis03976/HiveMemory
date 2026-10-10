@@ -84,7 +84,7 @@ def test_disabled_record_with_whitelist_rejected_at_load():
                     owner_user_id="u1",
                     agent_id="a1",
                     enabled=False,
-                    allowed_operations=frozenset({WorkspaceOperation.RESOURCE_READ}),
+                    allowed_operations=frozenset({WorkspaceOperation.MEMORY_READ}),
                 )
             ]
         )
@@ -115,7 +115,7 @@ def test_user_level_record_covers_all_concrete_agents():
             make_actor_access_record(
                 owner_user_id="u1",
                 agent_id=None,
-                allowed_operations=frozenset({WorkspaceOperation.RESOURCE_READ}),
+                allowed_operations=frozenset({WorkspaceOperation.MEMORY_READ}),
             )
         ]
     )
@@ -123,7 +123,7 @@ def test_user_level_record_covers_all_concrete_agents():
 
     found = registry.record_for(workspace, ActorIdentity(user_id="u1", agent_id="any_agent"))
     assert found is not None and found.agent_id is None
-    assert found.allowed_operations == frozenset({WorkspaceOperation.RESOURCE_READ})
+    assert found.allowed_operations == frozenset({WorkspaceOperation.MEMORY_READ})
 
 
 def test_user_level_record_does_not_cover_reserved_system_agent():
@@ -201,7 +201,22 @@ def test_disabled_user_level_record_with_whitelist_rejected_at_load():
                     owner_user_id="u1",
                     agent_id=None,
                     enabled=False,
-                    allowed_operations=frozenset({WorkspaceOperation.RESOURCE_READ}),
+                    allowed_operations=frozenset({WorkspaceOperation.MEMORY_READ}),
+                )
+            ]
+        )
+
+
+@pytest.mark.parametrize("operation", list(WorkspaceOperation))
+def test_system_record_rejects_actor_operation_at_load(operation):
+    """root actor 的准入记录不能配置任何 actor 操作，直接装配也必须拒绝。"""
+    with pytest.raises(ValueError, match="保留 system Actor 的访问记录不得配置 operation"):
+        WorkspaceActorAccessRegistry(
+            [
+                make_actor_access_record(
+                    owner_user_id="u1",
+                    agent_id=SYSTEM_AGENT_ID,
+                    allowed_operations={operation},
                 )
             ]
         )

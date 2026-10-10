@@ -199,7 +199,7 @@ def _assert_context_invalidated(composition: AccessTestComposition, context) -> 
     assert composition.gateway.describe_context(context) is None
     with pytest.raises(ScopeRequiredError) as excinfo:
         composition.authorizer.authorize_operation(
-            context, WorkspaceOperation.RESOURCE_READ, _workspace()
+            context, WorkspaceOperation.MEMORY_READ, _workspace()
         )
     assert excinfo.value.details["reason"] == "context_not_issued"
 
@@ -406,7 +406,7 @@ async def test_register_success_returns_handle_and_binds_issued_context_to_proce
     )
     # 绑定 context 经操作授权者按注册声明组装可信 scope。
     scope = composition.authorizer.authorize_operation(
-        bound_context, WorkspaceOperation.RESOURCE_READ, _workspace()
+        bound_context, WorkspaceOperation.MEMORY_READ, _workspace()
     )
     assert scope == IdentityScope(actor_identity=_actor(), workspace_identity=_workspace())
     # 签发即绑定：授予内容的运行绑定是本进程的 process_id（诊断查询）。

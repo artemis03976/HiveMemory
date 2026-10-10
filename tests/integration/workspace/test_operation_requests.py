@@ -6,59 +6,149 @@ import asyncio
 
 import pytest
 
-from hivememory.core.access import WorkspaceOperation
+from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.access import RunBinding, WorkspaceOperation
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import (
     ActorIdentity,
+    AgentProfile,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
     PendingAtomStatus,
+    ResolvedAgentProfile,
     UpdateFocus,
     WriteFocus,
 )
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.core.mtp.exceptions import AliasNotFoundError
+from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService
+from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
     CancelIntentsRequest,
     ExecutionCredential,
     ExecutionCredentialRevokedError,
-    GetAgentProfileRequest,
     OperationRequest,
+    ResolveCallTargetRequest,
     ResolveReferencesRequest,
+    ResolveRunTargetRequest,
     RetrieveRequest,
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
 )
+from hivememory.workspace.credentials import ExecutionCredentialRegistry
+from hivememory.workspace.runtime import WorkspaceRuntime
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.operations import OperationsHarness
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 
-@pytest.fixture
-def operation_setup():
-    """持久化用内存替身，其余边界使用同一份真实授权与登记。"""
-    access = make_access_composition([make_actor_access_record()])
-    harness = OperationsHarness(operation_authorizer=access.authorizer)
-    atom = MemoryAtom(
+class _OperationHarness:
+    """真实入口、总线 backing 与读取视图；资源 owner 仅在公共 RPC 边界替换。"""
+
+    def __init__(self, *, operation_authorizer) -> None:
+        self.bus = GlobalSystemBus()
+        self.memories: dict[str, MemoryAtom] = {}
+        self.profile_source = MemoryAtom(
+            meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
+            index=IndexLayer(
+                alias="call_target", title="CALL 目标", memory_type=MemoryType.AGENT_PROFILE
+            ),
+            payload=PayloadLayer(
+                content="CALL 目标人设", agent_config={"model_name": "call-model"}
+            ),
+        )
+        self.citations: list[dict] = []
+        self.owner_calls: list[str] = []
+        self.backing = BusCanonicalReadBackend(self.bus)
+        self.runtime = WorkspaceRuntime(backing=self.backing, atom_capacity=32, profile_capacity=16)
+        self.registry = self.runtime.intents
+        self.credentials = ExecutionCredentialRegistry()
+        for route, handler in (
+            (GlobalRoutes.PATCHOULI_MEMORY_READ, self._read),
+            (GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES, self._retrieve_by_aliases),
+            (GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, self._retrieve),
+            (GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, self._get_profile),
+            (GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION, self._record_citation),
+        ):
+            self.bus.register(route, handler)
+        self.entry = WorkspaceOperationEntry(
+            ActorMemoryService(
+                self.bus,
+                operation_authorizer=operation_authorizer,
+                memory_reader=self.runtime.aliases,
+            ),
+            agent=ActorAgentService(
+                operation_authorizer=operation_authorizer,
+                profile_reader=self.runtime.profiles,
+            ),
+            credential_registry=self.credentials,
+            intent_registry=self.registry,
+        )
+
+    async def _read(self, memory_id, *, identity_scope):
+        self.owner_calls.append(GlobalRoutes.PATCHOULI_MEMORY_READ)
+        return next((atom for atom in self.memories.values() if atom.id == memory_id), None)
+
+    async def _retrieve_by_aliases(self, aliases, *, identity_scope):
+        self.owner_calls.append(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES)
+        return [self.memories[alias] for alias in aliases if alias in self.memories]
+
+    async def _retrieve(self, request):
+        self.owner_calls.append(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE)
+        return list(self.memories.values())[: request.top_k]
+
+    async def _get_profile(self, agent_alias, *, identity_scope):
+        self.owner_calls.append(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE)
+        if agent_alias != self.profile_source.index.alias:
+            raise AliasNotFoundError(
+                message_key="mtp.call.profile_not_found", params={"agent_alias": agent_alias}
+            )
+        return ResolvedAgentProfile(
+            profile=AgentProfile.from_atom(self.profile_source),
+            access_policy=self.profile_source.meta.access_policy,
+            source_memory_id=self.profile_source.id,
+            source_version=self.profile_source.meta.version,
+        )
+
+    async def _record_citation(self, *, memory_id, source, identity_scope):
+        """正式引用的副作用由 RPC 接收端记录，不能由测试伪造服务返回结果。"""
+        self.owner_calls.append(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION)
+        self.citations.append(
+            {"memory_id": memory_id, "source": source, "identity_scope": identity_scope}
+        )
+
+
+def _seed_base(harness) -> None:
+    """为 READ、RUN 与 UPDATE 准备同一个可见正式原子。"""
+    harness.memories["base"] = MemoryAtom(
         meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
             alias="base", title="基础", summary="基础内容", memory_type=MemoryType.FACT
         ),
         payload=PayloadLayer(content="正式基础内容"),
     )
-    harness.memories["base"] = atom
+
+
+@pytest.fixture
+def operation_setup():
+    """持久化用内存替身，其余边界使用同一份真实授权与登记。"""
+    access = make_access_composition([make_actor_access_record()])
+    harness = _OperationHarness(operation_authorizer=access.authorizer)
+    _seed_base(harness)
     yield harness, access
     harness.runtime.close()
     access.gateway.close()
     access.gateway.revoke_all_contexts()
 
 
-async def _issue(harness, access, process_id="process"):
+async def _issue(harness, access, process_id="process", *, agent_id="test_agent"):
     """入口身份来自真实认证，不能由请求构造者指定。"""
-    context = await access.authenticate()
+    context = await access.authenticate(
+        agent_id=agent_id, binding=RunBinding.for_task_process(process_id)
+    )
     return harness.credentials.issue(
         access=context,
         target_workspace=access.default_workspace,
@@ -159,26 +249,156 @@ def _request_cases():
     """仅枚举公开请求与它们实际需要的 operation。"""
     return [
         pytest.param(
-            SubmitWriteIntentRequest(WriteFocus(content="拒绝写入")),
-            WorkspaceOperation.MEMORY_INTENT_SUBMIT,
+            SubmitWriteIntentRequest(WriteFocus(content="请求正文")),
+            WorkspaceOperation.MEMORY_WRITE,
             id="write",
         ),
         pytest.param(
-            SubmitUpdateIntentRequest("base", "拒绝更新"),
-            WorkspaceOperation.MEMORY_INTENT_SUBMIT,
+            SubmitUpdateIntentRequest("base", "更新指令"),
+            WorkspaceOperation.MEMORY_UPDATE,
             id="update",
         ),
         pytest.param(
-            CancelIntentsRequest(("pending",)), WorkspaceOperation.MEMORY_INTENT_SUBMIT, id="cancel"
+            ResolveReferencesRequest(("base",)), WorkspaceOperation.MEMORY_READ, id="read"
+        ),
+        pytest.param(ResolveRunTargetRequest("base"), WorkspaceOperation.MEMORY_RUN, id="run"),
+        pytest.param(
+            RetrieveRequest("查询基础内容"), WorkspaceOperation.MEMORY_SEARCH, id="search"
         ),
         pytest.param(
-            ResolveReferencesRequest(("base",)), WorkspaceOperation.RESOURCE_READ, id="read"
-        ),
-        pytest.param(RetrieveRequest("拒绝检索"), WorkspaceOperation.RESOURCE_SEARCH, id="search"),
-        pytest.param(
-            GetAgentProfileRequest("unreadable"), WorkspaceOperation.PROFILE_READ, id="profile"
+            ResolveCallTargetRequest("call_target"), WorkspaceOperation.AGENT_CALL, id="call"
         ),
     ]
+
+
+@pytest.fixture
+def single_operation_setup():
+    """每个场景只登记一项 actor 操作，验证请求不隐含其他许可。"""
+    created = []
+
+    async def make(operation: WorkspaceOperation):
+        access = make_access_composition([make_actor_access_record(allowed_operations={operation})])
+        harness = _OperationHarness(operation_authorizer=access.authorizer)
+        _seed_base(harness)
+        created.append((harness, access))
+        return harness, access, await _issue(harness, access)
+
+    yield make
+    for harness, access in created:
+        harness.runtime.close()
+        access.gateway.close()
+        access.gateway.revoke_all_contexts()
+
+
+@pytest.mark.asyncio
+async def test_write_with_only_memory_write_registers_without_reading(single_operation_setup):
+    """WRITE 只需 memory.write：意图带凭据绑定的进程与 actor，不读取任何记忆。"""
+    harness, access, credential = await single_operation_setup(WorkspaceOperation.MEMORY_WRITE)
+
+    pending = await harness.entry.execute(
+        SubmitWriteIntentRequest(WriteFocus(content="请求正文")), credential=credential
+    )
+
+    stored = harness.registry.get(pending.pending_alias, access.default_workspace)
+    assert stored.focus == WriteFocus(content="请求正文")
+    assert stored.status == PendingAtomStatus.PENDING
+    assert stored.process_id == "process"
+    assert stored.from_actor == ActorIdentity(user_id="test_user", agent_id="test_agent")
+    assert stored.belong_to == access.default_workspace
+    assert harness.registry.size == 1
+    assert harness.runtime.stats()["cold_reads"] == 0
+    assert harness.citations == []
+
+
+@pytest.mark.asyncio
+async def test_update_with_only_memory_update_resolves_base_without_citation(
+    single_operation_setup,
+):
+    """UPDATE 只需 memory.update：基础原子的解析不借用 READ，也不记录正式引用。"""
+    harness, access, credential = await single_operation_setup(WorkspaceOperation.MEMORY_UPDATE)
+
+    pending = await harness.entry.execute(
+        SubmitUpdateIntentRequest("base", "更新指令"), credential=credential
+    )
+
+    stored = harness.registry.get(pending.pending_alias, access.default_workspace)
+    assert stored.focus == UpdateFocus(
+        base_alias="base",
+        base_uuid=str(harness.memories["base"].id),
+        instruction="更新指令",
+    )
+    assert stored.status == PendingAtomStatus.PENDING
+    assert stored.process_id == "process"
+    assert stored.from_actor == ActorIdentity(user_id="test_user", agent_id="test_agent")
+    assert harness.registry.size == 1
+    assert harness.runtime.stats()["cold_reads"] == 1
+    assert harness.citations == []
+
+
+@pytest.mark.asyncio
+async def test_read_with_only_memory_read_delivers_and_records_citation(single_operation_setup):
+    """READ 只需 memory.read：交付逐项结果并为正式原子记录一次引用。"""
+    harness, _access, credential = await single_operation_setup(WorkspaceOperation.MEMORY_READ)
+
+    results = await harness.entry.execute(
+        ResolveReferencesRequest(("base",)), credential=credential
+    )
+
+    assert [(item.requested_alias, item.kind) for item in results] == [("base", "atom")]
+    assert results[0].atom.payload.content == "正式基础内容"
+    assert [item["memory_id"] for item in harness.citations] == [harness.memories["base"].id]
+    assert harness.registry.size == 0
+    assert harness.runtime.stats()["cold_reads"] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_with_only_memory_run_delivers_target_and_records_citation(
+    single_operation_setup,
+):
+    """RUN 只需 memory.run：交付单个执行目标，引用记录与 READ 相同。"""
+    harness, _access, credential = await single_operation_setup(WorkspaceOperation.MEMORY_RUN)
+
+    result = await harness.entry.execute(ResolveRunTargetRequest("base"), credential=credential)
+
+    assert (result.requested_alias, result.kind) == ("base", "atom")
+    assert result.atom.payload.content == "正式基础内容"
+    assert [item["memory_id"] for item in harness.citations] == [harness.memories["base"].id]
+    assert harness.registry.size == 0
+    assert harness.runtime.stats()["cold_reads"] == 1
+
+
+@pytest.mark.asyncio
+async def test_search_with_only_memory_search_delivers_without_citation(single_operation_setup):
+    """SEARCH 只需 memory.search：检索结果预热读取视图，但检索不是引用。"""
+    harness, _access, credential = await single_operation_setup(WorkspaceOperation.MEMORY_SEARCH)
+
+    atoms = await harness.entry.execute(RetrieveRequest("查询基础内容"), credential=credential)
+
+    assert [(atom.index.alias, atom.payload.content) for atom in atoms] == [
+        ("base", "正式基础内容")
+    ]
+    assert harness.citations == []
+    assert harness.registry.size == 0
+    assert harness.runtime.stats()["cold_reads"] == 1
+
+
+@pytest.mark.asyncio
+async def test_call_target_with_only_agent_call_delivers_profile(single_operation_setup):
+    """CALL 目标读取只需 agent.call：经 Profile 读取视图交付目标图纸，不记录记忆引用。"""
+    harness, _access, credential = await single_operation_setup(WorkspaceOperation.AGENT_CALL)
+
+    profile = await harness.entry.execute(
+        ResolveCallTargetRequest("call_target"), credential=credential
+    )
+
+    assert (profile.agent_id, profile.persona, profile.model_name) == (
+        "call_target",
+        "CALL 目标人设",
+        "call-model",
+    )
+    assert harness.citations == []
+    assert harness.registry.size == 0
+    assert harness.runtime.stats()["cold_reads"] == 1
 
 
 @pytest.mark.asyncio
@@ -190,7 +410,8 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
     access = make_access_composition(
         [make_actor_access_record(allowed_operations=set(WorkspaceOperation) - {operation})]
     )
-    harness = OperationsHarness(operation_authorizer=access.authorizer)
+    harness = _OperationHarness(operation_authorizer=access.authorizer)
+    _seed_base(harness)
     credential = await _issue(harness, access)
     prior = harness.registry.register_write(
         WriteFocus(content="保留意图"),
@@ -198,12 +419,9 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
         from_actor=ActorIdentity(user_id="test_user", agent_id="test_agent"),
         process_id="process",
     )
-    # 撤回请求必须命中已有句柄，才能暴露未授权撤回的回归。
-    requests = {CancelIntentsRequest: CancelIntentsRequest((prior.pending_alias,))}
-    actual_request = requests.get(type(operation_request), operation_request)
     try:
         with pytest.raises(OperationDeniedError) as error:
-            await harness.entry.execute(actual_request, credential=credential)
+            await harness.entry.execute(operation_request, credential=credential)
         assert error.value.details["operation"] == operation.value
         assert error.value.details["reason"] == "operation_not_allowed"
         assert harness.registry.size == 1
@@ -213,6 +431,7 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
         )
         assert harness.runtime.stats()["cold_reads"] == 0
         assert harness.citations == []
+        assert harness.owner_calls == []
     finally:
         harness.runtime.close()
         access.gateway.close()
@@ -220,7 +439,157 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operation_request,_operation", _request_cases())
+@pytest.mark.parametrize("operation_request,operation", _request_cases())
+async def test_system_context_is_denied_for_every_actor_request(operation_request, operation):
+    """root 准入不能借执行凭据获得 actor 操作，拒绝时不触达 owner 或意图登记。"""
+    access = make_access_composition([make_actor_access_record(agent_id="system")])
+    harness = _OperationHarness(operation_authorizer=access.authorizer)
+    _seed_base(harness)
+    credential = await _issue(harness, access, agent_id="system")
+    try:
+        with pytest.raises(OperationDeniedError) as error:
+            await harness.entry.execute(operation_request, credential=credential)
+
+        assert error.value.details == {
+            "operation": operation.value,
+            "reason": "operation_not_allowed",
+        }
+        assert harness.owner_calls == []
+        assert harness.registry.size == 0
+        assert harness.runtime.stats()["cold_reads"] == 0
+        assert harness.citations == []
+    finally:
+        harness.runtime.close()
+        access.gateway.close()
+        access.gateway.revoke_all_contexts()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "allowed_request,allowed_operation,denied_request,denied_operation",
+    [
+        pytest.param(
+            ResolveReferencesRequest(("base",)),
+            WorkspaceOperation.MEMORY_READ,
+            ResolveRunTargetRequest("base"),
+            WorkspaceOperation.MEMORY_RUN,
+            id="read-not-run",
+        ),
+        pytest.param(
+            ResolveRunTargetRequest("base"),
+            WorkspaceOperation.MEMORY_RUN,
+            ResolveReferencesRequest(("base",)),
+            WorkspaceOperation.MEMORY_READ,
+            id="run-not-read",
+        ),
+        pytest.param(
+            SubmitWriteIntentRequest(WriteFocus(content="独立写入")),
+            WorkspaceOperation.MEMORY_WRITE,
+            SubmitUpdateIntentRequest("base", "独立更新"),
+            WorkspaceOperation.MEMORY_UPDATE,
+            id="write-not-update",
+        ),
+        pytest.param(
+            SubmitUpdateIntentRequest("base", "独立更新"),
+            WorkspaceOperation.MEMORY_UPDATE,
+            SubmitWriteIntentRequest(WriteFocus(content="独立写入")),
+            WorkspaceOperation.MEMORY_WRITE,
+            id="update-not-write",
+        ),
+    ],
+)
+async def test_paired_operations_remain_independent_after_an_authorized_request(
+    allowed_request, allowed_operation, denied_request, denied_operation
+):
+    """获准请求先填充缓存或登记意图，不能使另一操作借复用状态绕过权限检查。"""
+    access = make_access_composition(
+        [make_actor_access_record(allowed_operations={allowed_operation})]
+    )
+    harness = _OperationHarness(operation_authorizer=access.authorizer)
+    _seed_base(harness)
+    credential = await _issue(harness, access)
+    try:
+        await harness.entry.execute(allowed_request, credential=credential)
+        before_calls = list(harness.owner_calls)
+        before_citations = list(harness.citations)
+        before_size = harness.registry.size
+        with pytest.raises(OperationDeniedError) as error:
+            await harness.entry.execute(denied_request, credential=credential)
+
+        assert error.value.details == {
+            "operation": denied_operation.value,
+            "reason": "operation_not_allowed",
+        }
+        assert harness.owner_calls == before_calls
+        assert harness.citations == before_citations
+        assert harness.registry.size == before_size
+    finally:
+        harness.runtime.close()
+        access.gateway.close()
+        access.gateway.revoke_all_contexts()
+
+
+@pytest.mark.asyncio
+async def test_internal_cancel_without_operations_only_retracts_bound_process_pending_intents():
+    """内部撤回只需有效凭据，不能撤回其他进程或已经交给物化流水线的记录。"""
+    access = make_access_composition([make_actor_access_record(allowed_operations=frozenset())])
+    harness = _OperationHarness(operation_authorizer=access.authorizer)
+    credential = await _issue(harness, access)
+    actor = ActorIdentity(user_id="test_user", agent_id="test_agent")
+
+    def register(content, process_id):
+        return harness.registry.register_write(
+            WriteFocus(content=content),
+            belong_to=access.default_workspace,
+            from_actor=actor,
+            process_id=process_id,
+        )
+
+    materializing = register("已认领", "process")
+    harness.registry.claim_process("process")
+    own = register("本进程 PENDING", "process")
+    other = register("其他进程 PENDING", "other-process")
+    try:
+        cancelled = await harness.entry.execute(
+            CancelIntentsRequest(
+                (
+                    own.pending_alias,
+                    other.pending_alias,
+                    materializing.pending_alias,
+                    "missing",
+                    own.pending_alias,
+                )
+            ),
+            credential=credential,
+        )
+
+        assert cancelled == [own.pending_alias]
+        assert (
+            harness.registry.get(own.pending_alias, access.default_workspace).status
+            == PendingAtomStatus.CANCELLED
+        )
+        assert (
+            harness.registry.get(other.pending_alias, access.default_workspace).status
+            == PendingAtomStatus.PENDING
+        )
+        assert (
+            harness.registry.get(materializing.pending_alias, access.default_workspace).status
+            == PendingAtomStatus.MATERIALIZING
+        )
+        assert harness.registry.size == 3
+        assert harness.owner_calls == []
+        assert harness.citations == []
+    finally:
+        harness.runtime.close()
+        access.gateway.close()
+        access.gateway.revoke_all_contexts()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation_request,_operation",
+    [*_request_cases(), pytest.param(CancelIntentsRequest(("pending",)), None, id="cancel")],
+)
 @pytest.mark.parametrize("credential_state", ["unknown", "revoked"])
 async def test_unknown_or_revoked_credential_rejects_every_request_without_side_effects(
     operation_setup, operation_request, _operation, credential_state
@@ -314,7 +683,7 @@ async def test_inflight_read_finishes_after_credential_revocation(operation_setu
         await asyncio.gather(task, return_exceptions=True)
 
 
-class _WriteAwaitingBeforeRegistration(MemoryApplicationService):
+class _WriteAwaitingBeforeRegistration(ActorMemoryService):
     """真实能力服务，只在 WRITE 登记前插入一次等待，模拟登记前出现 await 的能力方法。"""
 
     def __init__(self, *args, started: asyncio.Event, release: asyncio.Event, **kwargs) -> None:
@@ -344,8 +713,7 @@ async def test_write_registered_after_revocation_is_withdrawn_without_cancelling
             started=started,
             release=release,
         ),
-        agent=AgentApplicationService(
-            harness.bus,
+        agent=ActorAgentService(
             operation_authorizer=access.authorizer,
             profile_reader=harness.runtime.profiles,
         ),

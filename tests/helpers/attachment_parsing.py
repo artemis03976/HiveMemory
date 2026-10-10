@@ -14,7 +14,7 @@ from hivememory.config.attachments import AttachmentParserConfig
 from hivememory.core.ports.workspace_assets import WorkspaceAssetCommandPort
 from hivememory.infrastructure.attachments import AttachmentContentBuilder
 from hivememory.workspace.assets.parse_service import AttachmentParseService
-from hivememory.workspace.capability.assets import WorkspaceAssetApplicationService
+from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -24,15 +24,18 @@ from tests.helpers.workspace import (
 
 
 def make_upload_access(*, user_id: str = "user-1") -> AccessTestComposition:
-    """上传用例的访问组合：user 级登记（覆盖该用户所有具体 Agent）。
+    """上传用例的访问组合：显式登记 root actor 与用于拒绝验证的普通 actor。
 
-    上传是授权点行为（``management.asset``）：access 必须由与上传服务
+    上传是授权点行为（root API）：access 必须由与上传服务
     共享同一访问组合（认证一侧 + 操作授权者）的网关签发，因此需要上传的
     测试先用本函数构造组合，再把它传给 :func:`make_upload_service`；
-    缺省组合登记 ``user_id`` 的 user 级记录并授予全部 operation（测试便利）。
+    缺省组合为 ``system`` 登记空白名单，普通 actor 的操作许可不能授予上传。
     """
     return make_access_composition(
-        [make_actor_access_record(owner_user_id=user_id, agent_id=None)],
+        [
+            make_actor_access_record(owner_user_id=user_id, agent_id=None),
+            make_actor_access_record(owner_user_id=user_id, agent_id="system"),
+        ],
         default_workspace=make_workspace_identity(owner_user_id=user_id),
     )
 
@@ -43,16 +46,16 @@ def make_upload_service(
     parser_factory=None,
     *,
     access_composition: AccessTestComposition | None = None,
-) -> WorkspaceAssetApplicationService:
+) -> RootWorkspaceAssetService:
     """用同一 Store 和配置装配真实上传用例，仅允许替换解析算法。
 
-    A1 访问边界返工：上传服务在自己公共入口执行 ``management.asset``
+    A1 访问边界返工：上传服务在自己公共入口执行 root API
     授权；注入的操作授权者与签发上传 access 的认证一侧来自同一组合，
     读取同一份访问登记（与生产装配一致）；``access_composition`` 缺省为
-    :func:`make_upload_access` 的全操作本地登记组合。
+    :func:`make_upload_access` 的本地登记组合。
     """
     composition = access_composition or make_upload_access()
-    return WorkspaceAssetApplicationService(
+    return RootWorkspaceAssetService(
         store=store,
         parser_config=parser_config,
         parse_service=AttachmentParseService(store, parser_config, parser_factory),

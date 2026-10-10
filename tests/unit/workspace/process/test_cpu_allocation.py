@@ -2,7 +2,7 @@
 
 被测边界：``TaskProcessService`` 在 prepare 之后、进入 Actor 执行之前完成
 Profile 解析、附件租借与编译，并组装 ``CPUInputManifest``；Profile 解析与
-附件租借的阶段 operation 授权在分配层、副作用前执行，CPU 清单只接收注册
+附件租借的阶段授权在分配层、副作用前执行，不检查 actor 操作，CPU 清单只接收注册
 时绑定的观测标签。
 Patchouli 以总线路由替身隔离；Actor 阶段以测试 CPU 替换 Alice（总线上不注册
 Alice 路由）；附件租借以真实 ``InMemoryWorkspaceAssetStore`` 的公开可观察状态
@@ -27,7 +27,6 @@ from hivememory.core.errors import (
     AssetNotFoundError,
     AssetOperationConflictError,
     AssetRemovedError,
-    OperationDeniedError,
 )
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -125,7 +124,7 @@ async def _store_scope(composition: AccessTestComposition) -> IdentityScope:
     """构造 Store 测试资产的 scope：经操作授权者授权组装，与进程内阶段授权同源。"""
     context = await composition.authenticate(agent_id=_AGENT)
     return composition.authorizer.authorize_operation(
-        context, WorkspaceOperation.RESOURCE_READ, composition.default_workspace
+        context, WorkspaceOperation.MEMORY_READ, composition.default_workspace
     )
 
 
@@ -303,7 +302,7 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
 
     manifest = cpu.calls[0].manifest
     assert manifest.process_id == "process-manifest"
-    # 能力层交付独立副本，输入清单不持有读取缓存中的可变对象。
+    # 读取视图交付独立副本，输入清单不持有读取缓存中的可变对象。
     assert manifest.agent_profile == profile
     manifest.agent_profile.persona = "只改变本轮"
     assert profile.persona == "allocated-persona"
@@ -410,32 +409,27 @@ def _recording(calls: list):
 
 
 @pytest.mark.asyncio
-async def test_missing_profile_read_operation_fails_before_profile_route() -> None:
-    """缺 profile.read：Profile 解析在公开路由调用前被拒，prepare 与 CPU 均无副作用。"""
+async def test_no_actor_operations_still_allocates_execution_profile() -> None:
+    """没有 actor 操作仍能解析执行 Profile，阶段读取保持进程 actor 身份。"""
     bus = GlobalSystemBus()
     profile_calls: list = []
-    prepare_calls: list = []
-    cleanup_calls: list = []
+    profile = AgentProfile(persona="阶段读取配置", language="zh")
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
     bus.register(
         GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
-        _recording(profile_calls),
+        _profile_route(profile=profile, calls=profile_calls),
     )
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _recording(prepare_calls))
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _recording(cleanup_calls))
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
     cpu = ScriptedCPU(result=make_cpu_result())
-    composition = _composition(excluded_operations=frozenset({WorkspaceOperation.PROFILE_READ}))
+    composition = _composition(excluded_operations=frozenset(WorkspaceOperation))
 
     service, composition = await _service(bus, cpu=cpu, composition=composition)
-    with pytest.raises(OperationDeniedError) as excinfo:
-        await _run_once(composition, service, "问题", process_id="process-no-profile-read")
+    result = await _run_once(composition, service, "问题", process_id="process-no-actor-operations")
 
-    assert excinfo.value.details["reason"] == "operation_not_allowed"
-    assert excinfo.value.details["operation"] == "profile.read"
-    assert profile_calls == []
-    assert prepare_calls == []
-    assert cleanup_calls == []
-    assert cpu.calls == []
+    assert result.execution_result.status == "completed"
+    assert cpu.calls[0].manifest.agent_profile.persona == "阶段读取配置"
+    assert profile_calls == [("omni_doll", _expected_scope())]
 
 
 @pytest.mark.asyncio
@@ -547,45 +541,39 @@ async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> N
 
 
 @pytest.mark.asyncio
-async def test_missing_asset_acquire_operation_fails_before_lease_acquired() -> None:
-    """缺 asset.acquire：附件租借在 Store 副作用前被拒，CPU 不执行、租借不残留。"""
+async def test_no_actor_operations_still_allocates_attachments_and_finalizes() -> None:
+    """没有 actor 操作仍能租借并编译附件，完成交互封口后释放全部租借。"""
     store = InMemoryWorkspaceAssetStore()
-    composition = _composition(excluded_operations=frozenset({WorkspaceOperation.ASSET_ACQUIRE}))
-    scope = await _store_scope(composition)
-    ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
+    # 资产准备与本轮进程的行为许可无关；以同一归属的独立测试组合预先上传。
+    scope = await _store_scope(_composition())
+    ref_a = make_ready_text_asset(store, scope, operation_id="op-a", content="阶段附件正文")
+    composition = _composition(excluded_operations=frozenset(WorkspaceOperation))
 
     bus = GlobalSystemBus()
-    prepare_calls: list = []
-    cleanup_calls: list = []
-
-    async def prepare(**kwargs):
-        prepare_calls.append(kwargs)
-        return _scoped_prepared(kwargs)
-
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _recording(cleanup_calls))
+    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
+    finalize_kwargs: dict = {}
+
+    async def finalize(**kwargs):
+        finalize_kwargs.update(kwargs)
+        return []
+
+    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, store=store, cpu=cpu, composition=composition)
-    with pytest.raises(OperationDeniedError) as excinfo:
-        await _run_once(
-            composition,
-            service,
-            "带附件的消息",
-            process_id="process-no-asset-acquire",
-            attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
-        )
-
-    assert excinfo.value.details["reason"] == "operation_not_allowed"
-    assert excinfo.value.details["operation"] == "asset.acquire"
-    # prepare 已成功（缺许可发生在其后的租借授权点），cleanup 补偿 prepare 的结果。
-    assert len(prepare_calls) == 1
-    assert cleanup_calls != [] and all(
-        call["prepared_run"].interaction_id == "process-no-asset-acquire" for call in cleanup_calls
+    result = await _run_once(
+        composition,
+        service,
+        "带附件的消息",
+        process_id="process-no-actor-operations",
+        attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
-    assert cpu.calls == []
+
+    assert result.execution_result.status == "completed"
+    assert "阶段附件正文" in cpu.calls[0].manifest.attachment_context
+    assert tuple(finalize_kwargs["payload"].used_attachments) == (ref_a,)
     assert store.close_and_clear().leases_cleared == 0
 
 

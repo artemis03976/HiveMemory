@@ -23,12 +23,9 @@ from hivememory.core.models import (
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
 from hivememory.server import deps
 from hivememory.server.routers.memories import router
-from hivememory.workspace.capability.memory import MemoryApplicationService
+from hivememory.workspace.capability.root.memory import RootMemoryService
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import (
-    make_server_access_overrides,
-    make_workspace_runtime,
-)
+from tests.helpers.workspace import make_server_access_overrides
 
 
 def _create_test_app(storage, lifecycle_engine=None):
@@ -47,15 +44,14 @@ def _create_test_app(storage, lifecycle_engine=None):
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_UPDATE, management.update_memory)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_DELETE, management.delete_memory)
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_RECORD_FEEDBACK, management.record_feedback)
-    # 管理用例的 operation 授权（management.memory）在能力层执行：服务与
-    # 访问依赖共享同一组合的操作授权者，context 才能通过签发校验。
+    # 管理用例执行 root 授权：服务与访问依赖共享同一组合的操作授权者，
+    # 仅保留的 system actor 可以通过管理入口。
     overrides, composition = make_server_access_overrides()
-    service = MemoryApplicationService(
+    service = RootMemoryService(
         global_bus=bus,
         operation_authorizer=composition.authorizer,
-        memory_reader=make_workspace_runtime(bus).aliases,
     )
-    app.dependency_overrides[deps.get_memory_service] = lambda: service
+    app.dependency_overrides[deps.get_root_memory_service] = lambda: service
     app.dependency_overrides.update(overrides)
 
     return app
@@ -575,7 +571,7 @@ class TestRouterCapabilityContract:
 
         app = FastAPI()
         app.include_router(router, prefix="/api/v1")
-        app.dependency_overrides[deps.get_memory_service] = lambda: service
+        app.dependency_overrides[deps.get_root_memory_service] = lambda: service
         overrides, _ = make_server_access_overrides(users=["u1"])
         app.dependency_overrides.update(overrides)
         client = TestClient(app)

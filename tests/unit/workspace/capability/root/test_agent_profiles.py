@@ -1,11 +1,4 @@
-"""Agent Profile 能力（``workspace.capability.agent_profiles``）管理用例测试。
-
-能力层是授权点（A1 访问边界返工第 4.5 节）：方法只接收访问 context 与目标
-workspace，``IdentityScope`` 由 guard 组装并传给 Patchouli；管理写入/列表
-绑定 ``management.memory``、Profile 定义读取单独绑定 ``profile.read``，
-白名单缺少对应 operation 时在本层以 ``OperationDeniedError`` 拒绝，不触达
-Patchouli 路由。
-"""
+"""root Agent Profile 创建的领域组装与管理列表公共路由测试。"""
 
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -14,9 +7,7 @@ import pytest
 import pytest_asyncio
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
-from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -24,13 +15,12 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
 )
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
+from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
     make_workspace_identity,
-    make_workspace_runtime,
 )
 
 
@@ -48,7 +38,9 @@ def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
     )
 
 
-class TestAgentApplicationService:
+class TestRootAgentProfileService:
+    """root 管理的领域输入与公开路由契约。"""
+
     @pytest.fixture
     def workspace(self):
         """管理入口的目标 workspace（等于 context 的驻留 workspace）。"""
@@ -56,10 +48,14 @@ class TestAgentApplicationService:
 
     @pytest.fixture
     def composition(self, workspace):
-        # 管理用例的 operation 授权（management.memory）在本层执行：用真实
+        # root 管理授权在本层执行：用真实
         # 组合为 (u1, system) 签发管理 context。
         return make_access_composition(
-            [make_actor_access_record(owner_user_id="u1", agent_id="system")],
+            [
+                make_actor_access_record(
+                    owner_user_id="u1", agent_id="system", allowed_operations=frozenset()
+                )
+            ],
             default_workspace=workspace,
         )
 
@@ -72,12 +68,9 @@ class TestAgentApplicationService:
 
     @pytest.fixture
     def service(self, mock_global_bus, composition):
-        # Profile 读取依赖注入真实 resolver，读取 backing 挂在同一 mock 总线
-        # 上，便于断言授权失败时 backing 未被触达。
-        return AgentApplicationService(
+        return RootAgentProfileService(
             global_bus=mock_global_bus,
             operation_authorizer=composition.authorizer,
-            profile_reader=make_workspace_runtime(global_bus=mock_global_bus).profiles,
         )
 
     @pytest_asyncio.fixture
@@ -136,68 +129,3 @@ class TestAgentApplicationService:
         assert bus_scope.workspace_identity == workspace
         assert mock_global_bus.request.await_args.kwargs["limit"] == 100
         assert "access" not in mock_global_bus.request.await_args.kwargs
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("invoke", "expected_operation", "allowed_operations"),
-        [
-            pytest.param(
-                lambda service, workspace, access: service.create_agent_profile(
-                    target_workspace=workspace,
-                    title="Worker",
-                    alias="worker",
-                    summary="",
-                    content="persona",
-                    tags=["agent"],
-                    access=access,
-                ),
-                WorkspaceOperation.MANAGEMENT_MEMORY,
-                frozenset(),
-                id="create_agent_profile",
-            ),
-            pytest.param(
-                lambda service, workspace, access: service.list_agent_profiles(
-                    target_workspace=workspace, access=access
-                ),
-                WorkspaceOperation.MANAGEMENT_MEMORY,
-                frozenset(),
-                id="list_agent_profiles",
-            ),
-            pytest.param(
-                lambda service, workspace, access: service.get_agent_profile(
-                    "worker", target_workspace=workspace, access=access
-                ),
-                WorkspaceOperation.PROFILE_READ,
-                # 已有管理写入许可不隐含 Profile 定义读取：两者分别授权。
-                frozenset({WorkspaceOperation.MANAGEMENT_MEMORY}),
-                id="get_agent_profile",
-            ),
-        ],
-    )
-    async def test_entry_without_operation_denied_before_patchouli(
-        self, mock_global_bus, workspace, invoke, expected_operation, allowed_operations
-    ):
-        """白名单缺少对应 operation 时入口在本层拒绝，不触达 Patchouli。"""
-        composition = make_access_composition(
-            [
-                make_actor_access_record(
-                    owner_user_id="u1",
-                    agent_id="system",
-                    allowed_operations=allowed_operations,
-                )
-            ],
-            default_workspace=workspace,
-        )
-        service = AgentApplicationService(
-            global_bus=mock_global_bus,
-            operation_authorizer=composition.authorizer,
-            profile_reader=make_workspace_runtime(global_bus=mock_global_bus).profiles,
-        )
-        access = await composition.authenticate(agent_id="system", user_id="u1")
-
-        with pytest.raises(OperationDeniedError) as exc_info:
-            await invoke(service, workspace, access)
-
-        assert exc_info.value.details["reason"] == "operation_not_allowed"
-        assert exc_info.value.details["operation"] == expected_operation.value
-        mock_global_bus.request.assert_not_awaited()

@@ -11,9 +11,8 @@ import asyncio
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
-from hivememory.core.errors import OperationDeniedError
+from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
@@ -147,23 +146,20 @@ async def test_process_claims_or_cancels_only_its_own_intents(status):
         access.gateway.revoke_all_contexts()
 
 
-class _DenySubmitAtFinalize:
-    """真实授权者的包装：进入 Actor 前的 interaction.submit 预检照常通过，
-    finalize 时的同一检查被拒绝，模拟两次检查之间权限失效。"""
+class _RevokeAdmissionAtFinalize:
+    """Actor 登记意图后切换到已撤销的真实准入登记，阶段调用必须即时拒绝。"""
 
     def __init__(self, inner) -> None:
         self._inner = inner
-        self._submit_checks = 0
+        self._revoked = make_access_composition([]).authorizer
+        self.revoked = False
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
 
-    def authorize_operation(self, access, operation, target_workspace):
-        if operation == WorkspaceOperation.INTERACTION_SUBMIT:
-            self._submit_checks += 1
-            if self._submit_checks > 1:
-                raise OperationDeniedError(details={"reason": "revoked_for_test"})
-        return self._inner.authorize_operation(access, operation, target_workspace)
+    def authorize_stage(self, access, target_workspace):
+        authorizer = self._revoked if self.revoked else self._inner
+        return authorizer.authorize_stage(access, target_workspace)
 
 
 @pytest.mark.asyncio
@@ -178,11 +174,13 @@ async def test_finalize_authorization_failure_cancels_instead_of_stranding_inten
     runtime = WorkspaceRuntime(
         backing=BusCanonicalReadBackend(bus), atom_capacity=8, profile_capacity=8
     )
+    authorizer = _RevokeAdmissionAtFinalize(access.authorizer)
     submitted = []
     finalized = []
 
     async def write(submit):
         submitted.append(await submit(SubmitWriteIntentRequest(focus=WriteFocus(content="本进程"))))
+        authorizer.revoked = True
 
     async def gateway(**_kwargs):
         return GatewayDecisionOutcome(decision=make_gateway_decision())
@@ -212,7 +210,7 @@ async def test_finalize_authorization_failure_cancels_instead_of_stranding_inten
         bus,
         cpu=ScriptedCPU(result=make_cpu_result(status="completed"), operation_script=write),
         access_gateway=access.gateway,
-        operation_authorizer=_DenySubmitAtFinalize(access.authorizer),
+        operation_authorizer=authorizer,
         workspace_runtime=runtime,
     )
     handle = await service.register_process(
@@ -224,11 +222,11 @@ async def test_finalize_authorization_failure_cancels_instead_of_stranding_inten
         message="登记",
     )
     try:
-        with pytest.raises(OperationDeniedError) as exc_info:
+        with pytest.raises(ScopeRequiredError) as exc_info:
             await service.run_process(handle, stream=False)
 
         status = runtime.intents.get(submitted[0].pending_alias, workspace).status
-        assert exc_info.value.details["reason"] == "revoked_for_test"
+        assert exc_info.value.details["reason"] == "actor_not_admitted"
         assert (status, finalized) == (PendingAtomStatus.CANCELLED, [])
     finally:
         runtime.close()

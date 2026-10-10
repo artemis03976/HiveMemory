@@ -9,11 +9,11 @@ from hivememory.config.workspace import WorkspaceConfig
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.system import HiveMemorySystem
 from hivememory.workspace.authentication import ActorAuthenticationGateway
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from hivememory.workspace.capability.memory import (
-    MemoryApplicationService,
-)
-from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
+from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
+from hivememory.workspace.capability.root.memory import RootMemoryService
+from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
+from hivememory.workspace.capability.root.topic import RootTopicService
 
 
 @pytest.fixture
@@ -47,9 +47,11 @@ class TestApiApplicationServices:
         ):
             system = HiveMemorySystem.build(config=passive_config)
 
-        assert isinstance(system.memory_service, MemoryApplicationService)
-        assert isinstance(system.agent_service, AgentApplicationService)
-        assert isinstance(system.topic_service, TopicApplicationService)
+        assert isinstance(system.root_memory_service, RootMemoryService)
+        assert isinstance(system.root_agent_service, RootAgentProfileService)
+        assert isinstance(system.root_topic_service, RootTopicService)
+        assert isinstance(system.root_memory_task_service, RootMemoryTaskService)
+        assert isinstance(system.root_workspace_asset_service, RootWorkspaceAssetService)
         assert isinstance(system.readiness_service, SystemReadinessService)
         # A1 访问边界返工：统一认证网关随组合根装配并暴露给 server 入口。
         assert isinstance(system.access_gateway, ActorAuthenticationGateway)
@@ -69,10 +71,12 @@ class TestApiApplicationServices:
                 system = HiveMemorySystem.build(config=passive_config)
             deps._system = system
 
-            assert deps.get_memory_service() is system.memory_service
+            assert deps.get_root_memory_service() is system.root_memory_service
             assert deps.get_process_service() is system.process_service
             assert deps.get_ingress_service() is system.ingress_service
-            assert deps.get_agent_service() is system.agent_service
-            assert deps.get_topic_service() is system.topic_service
+            assert deps.get_root_agent_service() is system.root_agent_service
+            assert deps.get_root_topic_service() is system.root_topic_service
+            assert deps.get_root_memory_task_service() is system.root_memory_task_service
+            assert deps.get_root_workspace_asset_service() is system.root_workspace_asset_service
         finally:
             deps._system = previous_system

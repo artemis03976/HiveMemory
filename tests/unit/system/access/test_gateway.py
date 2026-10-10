@@ -49,7 +49,7 @@ async def test_authenticate_issues_reusable_context_without_operation():
             make_actor_access_record(
                 owner_user_id="u1",
                 agent_id="a1",
-                allowed_operations=frozenset({WorkspaceOperation.RESOURCE_READ}),
+                allowed_operations=frozenset({WorkspaceOperation.MEMORY_READ}),
             )
         ],
         default_workspace=MAIN,
@@ -276,7 +276,7 @@ async def test_gateway_close_only_blocks_new_authentication_and_keeps_issued_con
     assert summary is not None
     assert summary.workspace_id == MAIN.workspace_id
     scope = composition.authorizer.authorize_operation(
-        context, WorkspaceOperation.RESOURCE_READ, MAIN
+        context, WorkspaceOperation.MEMORY_READ, MAIN
     )
     assert scope.workspace_identity == MAIN
 
@@ -294,5 +294,5 @@ async def test_revoke_all_through_gateway_revokes_issued_contexts():
 
     assert composition.gateway.describe_context(context) is None
     with pytest.raises(ScopeRequiredError) as exc_info:
-        composition.authorizer.authorize_operation(context, WorkspaceOperation.RESOURCE_READ, MAIN)
+        composition.authorizer.authorize_operation(context, WorkspaceOperation.MEMORY_READ, MAIN)
     assert exc_info.value.details["reason"] == "context_not_issued"
