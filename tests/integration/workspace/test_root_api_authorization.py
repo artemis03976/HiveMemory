@@ -50,7 +50,7 @@ class _Case:
     keywords: tuple[tuple[str, object], ...] = ()
 
 
-_CASES = [
+_ROUTED_CASES = [
     _Case(
         "memory",
         "create_memory",
@@ -97,17 +97,19 @@ _CASES = [
     _Case("tasks", "list_memory_tasks", GlobalRoutes.PATCHOULI_MEMORY_TASK_LIST),
     _Case("tasks", "get_memory_task", GlobalRoutes.PATCHOULI_MEMORY_TASK_GET, ("task-1",)),
     _Case("tasks", "cancel_memory_task", GlobalRoutes.PATCHOULI_MEMORY_TASK_CANCEL, ("task-1",)),
-    _Case(
-        "assets",
-        "upload_asset",
-        None,
-        keywords=(
-            ("file_name", "sample.txt"),
-            ("declared_media_type", "text/plain"),
-            ("client_operation_id", "upload-1"),
-        ),
-    ),
 ]
+# 上传不经 Patchouli 路由，副作用落在进程内资产 Store。
+_UPLOAD_CASE = _Case(
+    "assets",
+    "upload_asset",
+    None,
+    keywords=(
+        ("file_name", "sample.txt"),
+        ("declared_media_type", "text/plain"),
+        ("client_operation_id", "upload-1"),
+    ),
+)
+_CASES = [*_ROUTED_CASES, _UPLOAD_CASE]
 
 
 class _OwnerBoundary:
@@ -115,9 +117,8 @@ class _OwnerBoundary:
 
     def __init__(self, bus: GlobalSystemBus) -> None:
         self.accepted: list[tuple[str, IdentityScope]] = []
-        for case in _CASES:
-            if case.route is not None:
-                bus.register(case.route, self._handler(case.route))
+        for case in _ROUTED_CASES:
+            bus.register(case.route, self._handler(case.route))
 
     def _handler(self, route):
         async def handle(*args, **kwargs):
@@ -230,10 +231,8 @@ async def test_each_root_method_rejects_non_system_before_owner_or_asset_effects
     assert store.list_workspace_assets(make_identity_scope(user_id="u1")) == []
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("case", _CASES, ids=lambda case: case.method)
-async def test_each_root_method_allows_system_without_actor_operations(case):
-    """system 的 root 能力只依赖准入与目标，空 actor 操作登记也能完成管理调用。"""
+async def _system_root_services():
+    """只登记 system 的空白名单准入，root 能力不依赖任何 actor 操作。"""
     composition = make_access_composition(
         [
             make_actor_access_record(
@@ -243,18 +242,33 @@ async def test_each_root_method_allows_system_without_actor_operations(case):
     )
     services, owner, store = _services(composition)
     access = await composition.authenticate(agent_id="system")
+    return composition, services, owner, store, access
 
-    result = await _invoke(case, services, composition, access)
 
-    if case.service == "assets":
-        assert result.handle.asset.state == WorkspaceAssetState.READY
-        assert result.handle.asset.representations[1].content_object["text"] == "root upload"
-        assert len(store.list_workspace_assets(make_identity_scope(user_id="u1"))) == 1
-        assert owner.accepted == []
-    else:
-        assert len(owner.accepted) == 1
-        route, scope = owner.accepted[0]
-        assert route == case.route
-        assert scope.workspace_identity == composition.default_workspace
-        assert scope.actor_identity.agent_id == "system"
-        assert scope.actor_identity.user_id == "u1"
+@pytest.mark.asyncio
+@pytest.mark.parametrize("case", _ROUTED_CASES, ids=lambda case: case.method)
+async def test_each_routed_root_method_reaches_owner_as_system_without_actor_operations(case):
+    """system 只经准入与目标校验即可调用管理路由，owner 收到 system 发起的可信 scope。"""
+    composition, services, owner, _store, access = await _system_root_services()
+
+    await _invoke(case, services, composition, access)
+
+    assert len(owner.accepted) == 1
+    route, scope = owner.accepted[0]
+    assert route == case.route
+    assert scope.workspace_identity == composition.default_workspace
+    assert scope.actor_identity.agent_id == "system"
+    assert scope.actor_identity.user_id == "u1"
+
+
+@pytest.mark.asyncio
+async def test_root_upload_registers_asset_as_system_without_actor_operations():
+    """上传经 root 授权后注册并解析资产，不经过 Patchouli 路由。"""
+    composition, services, owner, store, access = await _system_root_services()
+
+    receipt = await _invoke(_UPLOAD_CASE, services, composition, access)
+
+    assert receipt.handle.asset.state == WorkspaceAssetState.READY
+    assert receipt.handle.asset.representations[1].content_object["text"] == "root upload"
+    assert len(store.list_workspace_assets(make_identity_scope(user_id="u1"))) == 1
+    assert owner.accepted == []

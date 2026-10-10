@@ -271,65 +271,134 @@ def _request_cases():
     ]
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("operation_request,operation", _request_cases())
-async def test_request_with_only_its_own_operation_succeeds(operation_request, operation):
-    """每种请求只需对应的一项操作，不隐含 READ、WRITE 或其他 actor 许可。"""
-    access = make_access_composition([make_actor_access_record(allowed_operations={operation})])
-    harness = _OperationHarness(operation_authorizer=access.authorizer)
-    _seed_base(harness)
-    credential = await _issue(harness, access)
-    try:
-        result = await harness.entry.execute(operation_request, credential=credential)
-        if operation in {WorkspaceOperation.MEMORY_WRITE, WorkspaceOperation.MEMORY_UPDATE}:
-            stored = harness.registry.get(result.pending_alias, access.default_workspace)
-            assert stored.status == PendingAtomStatus.PENDING
-            assert stored.process_id == "process"
-            assert stored.from_actor == ActorIdentity(user_id="test_user", agent_id="test_agent")
-            assert stored.belong_to == access.default_workspace
-            if operation == WorkspaceOperation.MEMORY_WRITE:
-                assert stored.focus == WriteFocus(content="请求正文")
-                assert harness.runtime.stats()["cold_reads"] == 0
-            else:
-                assert stored.focus == UpdateFocus(
-                    base_alias="base",
-                    base_uuid=str(harness.memories["base"].id),
-                    instruction="更新指令",
-                )
-                assert harness.runtime.stats()["cold_reads"] == 1
-            assert harness.registry.size == 1
-            assert harness.citations == []
-        else:
-            assert harness.registry.size == 0
-            assert harness.runtime.stats()["cold_reads"] == 1
-            if operation == WorkspaceOperation.MEMORY_READ:
-                assert [(item.requested_alias, item.kind) for item in result] == [("base", "atom")]
-                assert result[0].atom.payload.content == "正式基础内容"
-                assert [item["memory_id"] for item in harness.citations] == [
-                    harness.memories["base"].id
-                ]
-            elif operation == WorkspaceOperation.MEMORY_RUN:
-                assert (result.requested_alias, result.kind) == ("base", "atom")
-                assert result.atom.payload.content == "正式基础内容"
-                assert [item["memory_id"] for item in harness.citations] == [
-                    harness.memories["base"].id
-                ]
-            elif operation == WorkspaceOperation.MEMORY_SEARCH:
-                assert [(atom.index.alias, atom.payload.content) for atom in result] == [
-                    ("base", "正式基础内容")
-                ]
-                assert harness.citations == []
-            else:
-                assert (result.agent_id, result.persona, result.model_name) == (
-                    "call_target",
-                    "CALL 目标人设",
-                    "call-model",
-                )
-                assert harness.citations == []
-    finally:
+@pytest.fixture
+def single_operation_setup():
+    """每个场景只登记一项 actor 操作，验证请求不隐含其他许可。"""
+    created = []
+
+    async def make(operation: WorkspaceOperation):
+        access = make_access_composition([make_actor_access_record(allowed_operations={operation})])
+        harness = _OperationHarness(operation_authorizer=access.authorizer)
+        _seed_base(harness)
+        created.append((harness, access))
+        return harness, access, await _issue(harness, access)
+
+    yield make
+    for harness, access in created:
         harness.runtime.close()
         access.gateway.close()
         access.gateway.revoke_all_contexts()
+
+
+@pytest.mark.asyncio
+async def test_write_with_only_memory_write_registers_without_reading(single_operation_setup):
+    """WRITE 只需 memory.write：意图带凭据绑定的进程与 actor，不读取任何记忆。"""
+    harness, access, credential = await single_operation_setup(WorkspaceOperation.MEMORY_WRITE)
+
+    pending = await harness.entry.execute(
+        SubmitWriteIntentRequest(WriteFocus(content="请求正文")), credential=credential
+    )
+
+    stored = harness.registry.get(pending.pending_alias, access.default_workspace)
+    assert stored.focus == WriteFocus(content="请求正文")
+    assert stored.status == PendingAtomStatus.PENDING
+    assert stored.process_id == "process"
+    assert stored.from_actor == ActorIdentity(user_id="test_user", agent_id="test_agent")
+    assert stored.belong_to == access.default_workspace
+    assert harness.registry.size == 1
+    assert harness.runtime.stats()["cold_reads"] == 0
+    assert harness.citations == []
+
+
+@pytest.mark.asyncio
+async def test_update_with_only_memory_update_resolves_base_without_citation(
+    single_operation_setup,
+):
+    """UPDATE 只需 memory.update：基础原子的解析不借用 READ，也不记录正式引用。"""
+    harness, access, credential = await single_operation_setup(WorkspaceOperation.MEMORY_UPDATE)
+
+    pending = await harness.entry.execute(
+        SubmitUpdateIntentRequest("base", "更新指令"), credential=credential
+    )
+
+    stored = harness.registry.get(pending.pending_alias, access.default_workspace)
+    assert stored.focus == UpdateFocus(
+        base_alias="base",
+        base_uuid=str(harness.memories["base"].id),
+        instruction="更新指令",
+    )
+    assert stored.status == PendingAtomStatus.PENDING
+    assert stored.process_id == "process"
+    assert stored.from_actor == ActorIdentity(user_id="test_user", agent_id="test_agent")
+    assert harness.registry.size == 1
+    assert harness.runtime.stats()["cold_reads"] == 1
+    assert harness.citations == []
+
+
+@pytest.mark.asyncio
+async def test_read_with_only_memory_read_delivers_and_records_citation(single_operation_setup):
+    """READ 只需 memory.read：交付逐项结果并为正式原子记录一次引用。"""
+    harness, _access, credential = await single_operation_setup(WorkspaceOperation.MEMORY_READ)
+
+    results = await harness.entry.execute(
+        ResolveReferencesRequest(("base",)), credential=credential
+    )
+
+    assert [(item.requested_alias, item.kind) for item in results] == [("base", "atom")]
+    assert results[0].atom.payload.content == "正式基础内容"
+    assert [item["memory_id"] for item in harness.citations] == [harness.memories["base"].id]
+    assert harness.registry.size == 0
+    assert harness.runtime.stats()["cold_reads"] == 1
+
+
+@pytest.mark.asyncio
+async def test_run_with_only_memory_run_delivers_target_and_records_citation(
+    single_operation_setup,
+):
+    """RUN 只需 memory.run：交付单个执行目标，引用记录与 READ 相同。"""
+    harness, _access, credential = await single_operation_setup(WorkspaceOperation.MEMORY_RUN)
+
+    result = await harness.entry.execute(ResolveRunTargetRequest("base"), credential=credential)
+
+    assert (result.requested_alias, result.kind) == ("base", "atom")
+    assert result.atom.payload.content == "正式基础内容"
+    assert [item["memory_id"] for item in harness.citations] == [harness.memories["base"].id]
+    assert harness.registry.size == 0
+    assert harness.runtime.stats()["cold_reads"] == 1
+
+
+@pytest.mark.asyncio
+async def test_search_with_only_memory_search_delivers_without_citation(single_operation_setup):
+    """SEARCH 只需 memory.search：检索结果预热读取视图，但检索不是引用。"""
+    harness, _access, credential = await single_operation_setup(WorkspaceOperation.MEMORY_SEARCH)
+
+    atoms = await harness.entry.execute(RetrieveRequest("查询基础内容"), credential=credential)
+
+    assert [(atom.index.alias, atom.payload.content) for atom in atoms] == [
+        ("base", "正式基础内容")
+    ]
+    assert harness.citations == []
+    assert harness.registry.size == 0
+    assert harness.runtime.stats()["cold_reads"] == 1
+
+
+@pytest.mark.asyncio
+async def test_call_target_with_only_agent_call_delivers_profile(single_operation_setup):
+    """CALL 目标读取只需 agent.call：经 Profile 读取视图交付目标图纸，不记录记忆引用。"""
+    harness, _access, credential = await single_operation_setup(WorkspaceOperation.AGENT_CALL)
+
+    profile = await harness.entry.execute(
+        ResolveCallTargetRequest("call_target"), credential=credential
+    )
+
+    assert (profile.agent_id, profile.persona, profile.model_name) == (
+        "call_target",
+        "CALL 目标人设",
+        "call-model",
+    )
+    assert harness.citations == []
+    assert harness.registry.size == 0
+    assert harness.runtime.stats()["cold_reads"] == 1
 
 
 @pytest.mark.asyncio

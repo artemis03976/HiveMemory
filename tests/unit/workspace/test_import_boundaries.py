@@ -23,7 +23,13 @@ workspace 包内更严格的约束：
 from __future__ import annotations
 
 import ast
+from dataclasses import fields
 from pathlib import Path
+
+import hivememory.workspace.contracts as workspace_contracts
+from hivememory.core.access import WorkspaceOperation
+from hivememory.workspace.contracts import operations as operation_contracts
+from hivememory.workspace.contracts.operations import OperationRequest
 
 SRC_ROOT = Path(__file__).resolve().parents[3] / "src" / "hivememory"
 WORKSPACE_PACKAGE = SRC_ROOT / "workspace"
@@ -279,26 +285,7 @@ def test_actor_capability_surface_only_contains_six_public_methods():
 
 def test_workspace_operation_catalog_only_contains_six_actor_operations():
     """操作登记只允许六项 actor 操作，root、阶段调用与补偿不进入白名单。"""
-    path = SRC_ROOT / "core" / "access.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-    catalog = [
-        node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef) and node.name == "WorkspaceOperation"
-    ]
-    assert len(catalog) == 1, "WorkspaceOperation 必须有唯一声明"
-    declared = {}
-    for node in catalog[0].body:
-        if isinstance(node, ast.Assign):
-            declared.update(
-                (target.id, ast.literal_eval(node.value))
-                for target in node.targets
-                if isinstance(target, ast.Name)
-            )
-        elif isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name):
-            assert node.value is not None, f"操作 {node.target.id} 必须声明稳定值"
-            declared[node.target.id] = ast.literal_eval(node.value)
-    assert declared == {
+    assert {operation.name: operation.value for operation in WorkspaceOperation} == {
         "MEMORY_READ": "memory.read",
         "MEMORY_SEARCH": "memory.search",
         "MEMORY_RUN": "memory.run",
@@ -310,28 +297,16 @@ def test_workspace_operation_catalog_only_contains_six_actor_operations():
 
 def test_operation_requests_only_expose_six_actor_requests_and_internal_compensation():
     """请求只携带操作参数；RUN/CALL 独立，撤回保持内部补偿且不携带目标身份。"""
-    path = WORKSPACE_PACKAGE / "contracts" / "operations.py"
-    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
     requests = {
-        node.name: node
-        for node in tree.body
-        if isinstance(node, ast.ClassDef)
-        and any(
-            isinstance(base, ast.Subscript)
-            and isinstance(base.value, ast.Name)
-            and base.value.id == "OperationRequest"
-            for base in node.bases
-        )
+        name: value
+        for name, value in vars(operation_contracts).items()
+        if isinstance(value, type)
+        and issubclass(value, OperationRequest)
+        and value is not OperationRequest
     }
-    fields = {
-        name: {
-            field.target.id
-            for field in request.body
-            if isinstance(field, ast.AnnAssign) and isinstance(field.target, ast.Name)
-        }
-        for name, request in requests.items()
-    }
-    assert fields == {
+    assert {
+        name: {field.name for field in fields(request)} for name, request in requests.items()
+    } == {
         "ResolveReferencesRequest": {"aliases"},
         "RetrieveRequest": {"semantic_query", "keywords", "top_k", "filters"},
         "ResolveRunTargetRequest": {"alias"},
@@ -342,19 +317,6 @@ def test_operation_requests_only_expose_six_actor_requests_and_internal_compensa
     }
 
     # 公开面同时包含声明与导出，避免请求留在源文件却从契约入口悄然消失。
-    expected_exports = {*fields, "OperationRequest"}
-    for exports_path in (path, WORKSPACE_PACKAGE / "contracts" / "__init__.py"):
-        exports_tree = ast.parse(
-            exports_path.read_text(encoding="utf-8"), filename=str(exports_path)
-        )
-        declarations = [
-            node
-            for node in exports_tree.body
-            if isinstance(node, ast.Assign)
-            and any(
-                isinstance(target, ast.Name) and target.id == "__all__" for target in node.targets
-            )
-        ]
-        assert len(declarations) == 1, f"公开契约必须声明唯一导出列表: {exports_path}"
-        exports = ast.literal_eval(declarations[0].value)
-        assert {name for name in exports if name.endswith("Request")} == expected_exports
+    expected_exports = {*requests, "OperationRequest"}
+    for module in (operation_contracts, workspace_contracts):
+        assert {name for name in module.__all__ if name.endswith("Request")} == expected_exports

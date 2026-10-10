@@ -1,4 +1,4 @@
-"""Patchouli 记忆意图提交 application API（memory_intent.submit）。
+"""Patchouli 记忆意图提交 application API（公开路由 ``patchouli.public.memory_intent.submit``）。
 
 承接中立的记忆意图参数并转换为内部生成任务：由 controller admission 与
 generation engine 决定生成、更新、合并或丢弃；**不映射为管理 CRUD，也

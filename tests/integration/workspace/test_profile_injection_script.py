@@ -13,15 +13,15 @@ from scripts import inject_profiles
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("principal_id", ["hivememory:profile-injector", "unknown-injector"])
-async def test_profile_injection_authenticates_and_releases_context(monkeypatch, principal_id):
-    """重复初始化不重复写入；未知来源不能进入 root API，认证失败也关闭系统。"""
-    atoms = {}
-    stopped = []
-    bindings = []
+class _ScriptSystems:
+    """替换脚本构建的系统：真实网关与 root API，只在 Patchouli 路由边界保存 Profile。"""
 
-    def build_system(*, config):
+    def __init__(self) -> None:
+        self.atoms = {}
+        self.stopped = 0
+        self.gateways = []
+
+    def build(self, *, config):
         composition = make_access_composition(
             [make_actor_access_record(owner_user_id="u1", agent_id="system")],
             principal_id="hivememory:profile-injector",
@@ -29,10 +29,10 @@ async def test_profile_injection_authenticates_and_releases_context(monkeypatch,
         bus = GlobalSystemBus()
 
         async def list_profiles(**_kwargs):
-            return list(atoms.values())
+            return list(self.atoms.values())
 
         async def create_profile(scope, atom):
-            atoms[atom.index.alias] = atom
+            self.atoms[atom.index.alias] = atom
             return atom
 
         bus.register(GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST, list_profiles)
@@ -45,14 +45,14 @@ async def test_profile_injection_authenticates_and_releases_context(monkeypatch,
             issued.append(context)
             return context
 
-        monkeypatch.setattr(composition.gateway, "authenticate", recording_authenticate)
-        bindings.append((composition.gateway, issued))
+        composition.gateway.authenticate = recording_authenticate
+        self.gateways.append((composition.gateway, issued))
 
         async def start():
             return None
 
         async def stop():
-            stopped.append(True)
+            self.stopped += 1
             composition.gateway.close()
             composition.gateway.revoke_all_contexts()
 
@@ -65,24 +65,46 @@ async def test_profile_injection_authenticates_and_releases_context(monkeypatch,
             stop=stop,
         )
 
-    monkeypatch.setattr(inject_profiles.HiveMemorySystem, "build", build_system)
+
+@pytest.fixture
+def script_systems(monkeypatch):
+    systems = _ScriptSystems()
+    monkeypatch.setattr(inject_profiles.HiveMemorySystem, "build", systems.build)
     monkeypatch.setattr(inject_profiles, "load_app_config", HiveMemoryConfig)
-    if principal_id == "unknown-injector":
-        with pytest.raises(AdmissionDeniedError) as error:
-            await inject_profiles.main("u1", principal_id)
-        assert error.value.details["reason"] == "unknown_principal"
-        assert atoms == {}
-        assert stopped == [True]
-        assert bindings[0][1] == []
-    else:
-        await inject_profiles.main("u1", principal_id)
-        original_ids = {alias: atom.id for alias, atom in atoms.items()}
-        await inject_profiles.main("u1", principal_id)
-        assert set(atoms) == {"coder_doll", "reviewer_doll"}
-        assert {alias: atom.id for alias, atom in atoms.items()} == original_ids
-        assert {atom.meta.provenance.source_agent_id for atom in atoms.values()} == {"system"}
-        assert {atom.meta.workspace_identity.owner_user_id for atom in atoms.values()} == {"u1"}
-        assert stopped == [True, True]
-        for gateway, issued in bindings:
-            (context,) = issued
-            assert gateway.describe_context(context) is None
+    return systems
+
+
+@pytest.mark.asyncio
+async def test_profile_injection_is_idempotent_and_releases_each_context(script_systems):
+    """登记的本地来源以 system 经 root API 注入；重复执行不重写，每次都撤销 context。"""
+    await inject_profiles.main("u1", "hivememory:profile-injector")
+    original_ids = {alias: atom.id for alias, atom in script_systems.atoms.items()}
+    await inject_profiles.main("u1", "hivememory:profile-injector")
+
+    assert set(script_systems.atoms) == {"coder_doll", "reviewer_doll"}
+    assert {alias: atom.id for alias, atom in script_systems.atoms.items()} == original_ids
+    assert {atom.meta.provenance.source_agent_id for atom in script_systems.atoms.values()} == {
+        "system"
+    }
+    assert {
+        atom.meta.workspace_identity.owner_user_id for atom in script_systems.atoms.values()
+    } == {"u1"}
+    assert script_systems.stopped == 2
+    for gateway, issued in script_systems.gateways:
+        (context,) = issued
+        assert gateway.describe_context(context) is None
+
+
+@pytest.mark.asyncio
+async def test_profile_injection_from_unknown_principal_is_denied_and_stops_system(
+    script_systems,
+):
+    """未登记来源不能进入 root API；认证失败不写入 Profile，系统仍被关闭。"""
+    with pytest.raises(AdmissionDeniedError) as error:
+        await inject_profiles.main("u1", "unknown-injector")
+
+    assert error.value.details["reason"] == "unknown_principal"
+    assert script_systems.atoms == {}
+    assert script_systems.stopped == 1
+    ((_gateway, issued),) = script_systems.gateways
+    assert issued == []
