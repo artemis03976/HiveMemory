@@ -1,8 +1,7 @@
 """记忆任务路由测试。
 
 覆盖序列化投影、取消链路的 router→能力层调用契约（``target_workspace`` +
-``access``，不再传 ``identity_scope``），以及白名单缺少 ``task.observe`` 时
-能力层授权拒绝的 403 映射。
+``access``，不再传 ``identity_scope``），以及 root API 的成功与拒绝映射。
 """
 
 from datetime import UTC, datetime
@@ -16,6 +15,7 @@ from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import OperationDeniedError, ResourceNotFoundError
+from hivememory.core.models import ActorIdentity
 from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
@@ -24,7 +24,7 @@ from hivememory.patchouli.control.memory_generation.models import (
 from hivememory.server import deps
 from hivememory.server.app import operation_denied_handler
 from hivememory.server.routers.memory_tasks import router
-from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
+from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -39,7 +39,7 @@ def _create_test_app(service):
     # 403 映射复用生产的访问错误处理器。
     app.add_exception_handler(OperationDeniedError, operation_denied_handler)
 
-    app.dependency_overrides[deps.get_memory_task_service] = lambda: service
+    app.dependency_overrides[deps.get_root_memory_task_service] = lambda: service
     # memory-tasks 路由经统一认证网关取得请求级 context。
     overrides, _ = make_server_access_overrides()
     app.dependency_overrides.update(overrides)
@@ -172,9 +172,8 @@ def test_cancel_memory_task_missing_projection_returns_404():
     assert response.json() == {"detail": "task not found"}
 
 
-def test_list_memory_tasks_without_operation_allowance_returns_403():
-    """访问白名单缺少 task.observe：能力层授权拒绝 → 403 + operation_not_allowed。"""
-    # 可进入（准入通过）但无任何资源 operation 的用户级 + system 记录
+def _create_authorized_task_app(*, request_agent_id: str = SYSTEM_AGENT_ID):
+    """真实 root 服务与认证组合；普通 actor 用例只替换入口声明选择。"""
     composition = make_access_composition(
         [
             make_actor_access_record(
@@ -192,7 +191,7 @@ def test_list_memory_tasks_without_operation_allowance_returns_403():
     bus = GlobalSystemBus()
     list_handler = AsyncMock(return_value=[])
     bus.register(GlobalRoutes.PATCHOULI_MEMORY_TASK_LIST, list_handler)
-    service = MemoryTaskApplicationService(
+    service = RootMemoryTaskService(
         global_bus=bus,
         operation_authorizer=composition.authorizer,
     )
@@ -200,11 +199,44 @@ def test_list_memory_tasks_without_operation_allowance_returns_403():
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
     app.add_exception_handler(OperationDeniedError, operation_denied_handler)
-    app.dependency_overrides[deps.get_memory_task_service] = lambda: service
+    app.dependency_overrides[deps.get_root_memory_task_service] = lambda: service
     app.dependency_overrides[deps.get_access_gateway] = lambda: composition.gateway
     app.dependency_overrides[deps.get_server_principal_id] = lambda: (
         composition.principal.principal_id
     )
+
+    async def selected_request_access():
+        """经真实请求级认证签发指定 actor 的凭据，退出时照常失效。"""
+        claims = deps.RequestIdentityClaims(
+            actor=ActorIdentity(user_id="default", agent_id=request_agent_id),
+            workspace=composition.default_workspace,
+        )
+        async with deps.request_access_for_claims(
+            claims,
+            gateway=composition.gateway,
+            principal_id=composition.principal.principal_id,
+        ) as request_access:
+            yield request_access
+
+    app.dependency_overrides[deps.get_request_access] = selected_request_access
+    return app, list_handler
+
+
+def test_list_memory_tasks_with_root_and_no_operations_returns_200():
+    """system 的空操作白名单仍能读取管理任务列表，root 能力不借用 actor 许可。"""
+    app, list_handler = _create_authorized_task_app()
+    client = TestClient(app)
+
+    response = client.get("/api/v1/memory-tasks")
+
+    assert response.status_code == 200
+    assert response.json() == {"tasks": []}
+    list_handler.assert_awaited_once()
+
+
+def test_list_memory_tasks_with_non_root_context_returns_403():
+    """普通 actor 凭据不能进入 root API，HTTP 保留 root_required 拒绝原因。"""
+    app, list_handler = _create_authorized_task_app(request_agent_id="task-observer")
     client = TestClient(app)
 
     response = client.get("/api/v1/memory-tasks")
@@ -212,6 +244,6 @@ def test_list_memory_tasks_without_operation_allowance_returns_403():
     assert response.status_code == 403
     body = response.json()
     assert body["error"] == "workspace.operation_denied"
-    assert body["reason"] == "operation_not_allowed"
+    assert body["reason"] == "root_required"
     # 授权在 backing 调用前执行：Patchouli 路由未被触达
     list_handler.assert_not_called()

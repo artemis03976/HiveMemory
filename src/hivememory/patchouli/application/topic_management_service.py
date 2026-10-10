@@ -22,10 +22,8 @@ if TYPE_CHECKING:
 class TopicManagementService:
     """Patchouli 对外提供的 Topic 管理应用服务。
 
-    ``list_active_topics`` / ``get_topic_data``（``resource.read``）与
-    ``settle_topic`` / ``evict_topic``（``management.topic``）的行为授权
-    已上移到 workspace 能力层或任务进程的阶段检查（A1 访问边界返工第
-    4.4/4.6 节）；本层是授权点以下的资源 owner，只接收授权点组装的
+    管理列表与生命周期变更由 workspace root API 授权；进程读取话题
+    时使用阶段授权。本层是授权点以下的资源 owner，只接收授权点组装的
     ``IdentityScope``，不接收访问 context。Topic 可见性仍由领域实现强制。
 
     ``prepare_topic`` 是内部对话编排用例（未挂载公开路由），不属于

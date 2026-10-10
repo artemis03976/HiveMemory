@@ -1,8 +1,7 @@
 """MemoryTaskManagementService 归属校验的单元测试。
 
 被测对象（A1 访问边界返工第 4.5/4.6 节）：
-- 本层是授权点以下的资源 owner：``task.observe`` / ``management.task`` 的
-  行为授权已上移 workspace 能力层，公开方法不接收 ``access`` 参数；
+- 本层是授权点以下的资源 owner：任务管理的 root 授权在 workspace 能力层，公开方法不接收 ``access`` 参数；
 - 任务必须携带归属投影且属于 scope 的 Workspace：跨 Workspace 与不存在
   统一按 not found 拒绝，不泄漏其他 Workspace 的任务存在性；
 - 列表按 scope 的 Workspace 过滤；

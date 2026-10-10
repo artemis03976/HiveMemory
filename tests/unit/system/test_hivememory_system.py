@@ -18,7 +18,7 @@ from hivememory.system.assembler import (
 )
 from hivememory.system.system import HiveMemorySystem
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
-from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.process import TaskProcessService
 from tests.helpers.workspace import (
     make_access_composition,
@@ -71,7 +71,7 @@ def system(mock_patchouli):
     access_composition = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="system")]
     )
-    topic_service = TopicApplicationService(
+    topic_service = RootTopicService(
         global_bus=global_bus,
         operation_authorizer=access_composition.authorizer,
     )
@@ -98,12 +98,12 @@ def system(mock_patchouli):
     services = _ServicesBundle(
         process=process_service,
         ingress=ingress_service,
-        memory=memory_service,
-        memory_task=memory_task_service,
-        agent=agent_service,
-        topic=topic_service,
+        root_memory=memory_service,
+        root_memory_task=memory_task_service,
+        root_agent=agent_service,
+        root_topic=topic_service,
         readiness=readiness_service,
-        workspace_assets=MagicMock(),
+        root_workspace_assets=MagicMock(),
     )
 
     system = HiveMemorySystem(

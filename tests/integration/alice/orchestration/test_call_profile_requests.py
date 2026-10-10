@@ -135,7 +135,7 @@ async def test_call_reloads_profile_after_management_updates_source_atom(profile
         "旧的人设",
     )
 
-    await profile_chain.memories.update_memory(
+    await profile_chain.root_memories.update_memory(
         atom.id,
         content="更新后的人设",
         agent_config={"model_name": "new-model"},

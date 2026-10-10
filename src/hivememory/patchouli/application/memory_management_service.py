@@ -19,23 +19,16 @@ from hivememory.utils.uuid import normalize_uuid
 class MemoryManagementService:
     """Patchouli 面向公开记忆管理/读取 API 的应用服务。
 
-    管理用例（create/list/get/update/delete/feedback）绑定
-    ``management.memory``、Actor 可见读取（``read_memory`` /
-    ``retrieve_by_aliases`` / ``retrieve``）绑定 ``resource.read`` /
-    ``resource.search`` 的行为授权都在 workspace 能力层完成（A1 访问边界
-    返工第 4.5/4.6 节）；本层是授权点以下的资源 owner，只接收授权点组装
-    的 ``IdentityScope``，不接收访问 context。资源归属与
-    ``MemoryAccessPolicy`` 仍由本层与存储边界独立校验（纵深防御）。
-
-    Alice 的直接调用（``retrieve`` / ``retrieve_by_aliases`` /
-    ``get_agent_profile`` / ``record_memory_citation``）签名不变，没有
-    operation 授权，属于已知缺口（总 Idea 15.5，另行建计划处理）。
+    管理用例由 workspace root API 授权，actor 读取由 actor 能力授权点
+    校验；本层是授权点以下的资源 owner，只接收组装后的 ``IdentityScope``，
+    不接收访问 context。资源归属与 ``MemoryAccessPolicy`` 仍由本层与存储
+    边界独立校验，读取 backing 路由同时服务于阶段编排与 actor 读取视图。
     """
 
     def __init__(self, *, bus) -> None:
         self._bus = bus
 
-    # ---- 管理用例（management.memory） ----
+    # ---- 管理用例（root API） ----
 
     async def create_memory(
         self,
@@ -74,7 +67,7 @@ class MemoryManagementService:
             limit=limit,
             # owner-management 语义（D4）：ownership hard boundary 之内
             # 读取该 Workspace 全部 Memory，不执行 Agent 可见性过滤；
-            # 该语义只由 management.memory 授权。
+            # 该语义只供经 root API 授权的管理读取使用。
             enforce_actor_visibility=False,
         )
         atoms = [

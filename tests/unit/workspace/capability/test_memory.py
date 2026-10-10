@@ -1,10 +1,4 @@
-"""Memory 能力（``workspace.capability.memory``）管理与读取入口测试。
-
-能力层是授权点（A1 访问边界返工第 4.5 节）：方法只接收访问 context 与目标
-workspace，``IdentityScope`` 由操作授权者组装并传给 Patchouli，检索请求也
-由本层用授权返回的 scope 构造（调用方不传入 scope）；白名单缺少对应
-operation 时在本层以 ``OperationDeniedError`` 拒绝，不触达 Patchouli 路由。
-"""
+"""actor Memory 能力入口的读取授权与引用副作用测试。"""
 
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -14,7 +8,6 @@ import pytest_asyncio
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceOperation
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import (
     ActorIdentity,
@@ -25,11 +18,7 @@ from hivememory.core.models import (
     ReferenceResolution,
 )
 from hivememory.core.protocol.models import RetrievalRequest
-from hivememory.workspace.capability.memory import (
-    MemoryApplicationService,
-    MemoryLifecycleUnavailableError,
-    MemoryNotFoundError,
-)
+from hivememory.workspace.capability.memory import MemoryApplicationService
 from hivememory.workspace.intents import WriteIntentRegistry
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
@@ -55,17 +44,19 @@ def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
 
 
 class TestMemoryApplicationService:
+    """actor 读取授权与正式引用交付行为。"""
+
     @pytest.fixture
     def workspace(self):
-        """管理入口的目标 workspace（等于 context 的驻留 workspace）。"""
+        """actor 入口的目标 workspace（等于 context 的驻留 workspace）。"""
         return make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 
     @pytest.fixture
     def composition(self, workspace):
-        # 管理用例的 operation 授权（management.memory）在本层执行：用真实
-        # 组合为 (u1, system) 签发管理 context。
+        # actor 操作授权在本层执行：用真实
+        # 组合为 (u1, test_agent) 签发 actor context。
         return make_access_composition(
-            [make_actor_access_record(owner_user_id="u1", agent_id="system")],
+            [make_actor_access_record(owner_user_id="u1", agent_id="test_agent")],
             default_workspace=workspace,
         )
 
@@ -88,153 +79,8 @@ class TestMemoryApplicationService:
 
     @pytest_asyncio.fixture
     async def access(self, composition):
-        """管理入口的访问 context（经真实网关两阶段认证签发）。"""
-        return await composition.authenticate(agent_id="system", user_id="u1")
-
-    @pytest.mark.asyncio
-    async def test_create_memory_uses_public_route(
-        self, service, mock_global_bus, workspace, access
-    ):
-        created = _make_memory_atom(title="Created memory")
-        mock_global_bus.request.return_value = created
-
-        await service.create_memory(
-            target_workspace=workspace,
-            title="Created memory",
-            summary="A sufficiently long memory summary",
-            content="Created memory content",
-            memory_type="FACT",
-            tags=["created", "ui"],
-            alias="created-memory",
-            access=access,
-        )
-
-        mock_global_bus.request.assert_awaited_once()
-        route, bus_scope, payload = mock_global_bus.request.await_args.args
-        assert route == GlobalRoutes.PATCHOULI_MEMORY_CREATE
-        # 传给 Patchouli 的 scope 来自 guard：已认证 actor + 目标 workspace
-        assert bus_scope.actor_identity == ActorIdentity(user_id="u1", agent_id="system")
-        assert bus_scope.workspace_identity == workspace
-        # context 不向下游传递，Patchouli 路由不接收 access
-        assert "access" not in mock_global_bus.request.await_args.kwargs
-        # 管理 actor（保留 system）作为 provenance 来源透传，不参与授权
-        assert payload.meta.provenance.source_agent_id == "system"
-        assert payload.workspace_identity == bus_scope.workspace_identity
-        assert payload.workspace_identity.owner_user_id == "u1"
-        assert payload.index.memory_type == MemoryType.FACT
-        assert payload.index.alias == "created-memory"
-
-    @pytest.mark.asyncio
-    async def test_get_memory_not_found_raises_domain_error(
-        self, service, mock_global_bus, workspace, access
-    ):
-        mock_global_bus.request.return_value = None
-
-        with pytest.raises(MemoryNotFoundError):
-            await service.get_memory(uuid4(), target_workspace=workspace, access=access)
-
-    @pytest.mark.asyncio
-    async def test_record_feedback_without_lifecycle_raises_domain_error(
-        self,
-        service,
-        mock_global_bus,
-        workspace,
-        access,
-    ):
-        mock_global_bus.request.side_effect = RuntimeError("Memory lifecycle engine is unavailable")
-
-        with pytest.raises(MemoryLifecycleUnavailableError):
-            await service.record_feedback(
-                uuid4(),
-                target_workspace=workspace,
-                positive=True,
-                source="ui.memory_ref",
-                access=access,
-            )
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("invoke", "expected_operation"),
-        [
-            pytest.param(
-                lambda service, workspace, access: service.create_memory(
-                    target_workspace=workspace,
-                    title="Created memory",
-                    summary="A sufficiently long memory summary",
-                    content="content",
-                    memory_type="FACT",
-                    tags=[],
-                    access=access,
-                ),
-                WorkspaceOperation.MANAGEMENT_MEMORY,
-                id="create_memory",
-            ),
-            pytest.param(
-                lambda service, workspace, access: service.list_memories(
-                    target_workspace=workspace, access=access
-                ),
-                WorkspaceOperation.MANAGEMENT_MEMORY,
-                id="list_memories",
-            ),
-            pytest.param(
-                lambda service, workspace, access: service.get_memory(
-                    uuid4(), target_workspace=workspace, access=access
-                ),
-                WorkspaceOperation.MANAGEMENT_MEMORY,
-                id="get_memory",
-            ),
-            pytest.param(
-                lambda service, workspace, access: service.update_memory(
-                    uuid4(), target_workspace=workspace, access=access
-                ),
-                WorkspaceOperation.MANAGEMENT_MEMORY,
-                id="update_memory",
-            ),
-            pytest.param(
-                lambda service, workspace, access: service.record_feedback(
-                    uuid4(),
-                    target_workspace=workspace,
-                    positive=True,
-                    source="ui.memory_ref",
-                    access=access,
-                ),
-                WorkspaceOperation.MANAGEMENT_MEMORY,
-                id="record_feedback",
-            ),
-            pytest.param(
-                lambda service, workspace, access: service.delete_memory(
-                    uuid4(), target_workspace=workspace, access=access
-                ),
-                WorkspaceOperation.MANAGEMENT_MEMORY,
-                id="delete_memory",
-            ),
-        ],
-    )
-    async def test_management_entry_without_management_memory_denied_before_patchouli(
-        self, mock_global_bus, workspace, invoke, expected_operation
-    ):
-        """白名单缺少 ``management.memory`` 时管理入口在本层拒绝，不触达 Patchouli。"""
-        composition = make_access_composition(
-            [
-                make_actor_access_record(
-                    owner_user_id="u1", agent_id="system", allowed_operations=frozenset()
-                )
-            ],
-            default_workspace=workspace,
-        )
-        service = MemoryApplicationService(
-            global_bus=mock_global_bus,
-            operation_authorizer=composition.authorizer,
-            memory_reader=make_workspace_runtime(global_bus=mock_global_bus).aliases,
-        )
-        access = await composition.authenticate(agent_id="system", user_id="u1")
-
-        with pytest.raises(OperationDeniedError) as exc_info:
-            await invoke(service, workspace, access)
-
-        assert exc_info.value.details["reason"] == "operation_not_allowed"
-        assert exc_info.value.details["operation"] == expected_operation.value
-        mock_global_bus.request.assert_not_awaited()
+        """actor 入口的访问 context（经真实网关两阶段认证签发）。"""
+        return await composition.authenticate(agent_id="test_agent", user_id="u1")
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -277,7 +123,7 @@ class TestMemoryApplicationService:
             [
                 make_actor_access_record(
                     owner_user_id="u1",
-                    agent_id="system",
+                    agent_id="test_agent",
                     allowed_operations=allowed_operations,
                 )
             ],
@@ -288,7 +134,7 @@ class TestMemoryApplicationService:
             operation_authorizer=composition.authorizer,
             memory_reader=make_workspace_runtime(global_bus=mock_global_bus).aliases,
         )
-        access = await composition.authenticate(agent_id="system", user_id="u1")
+        access = await composition.authenticate(agent_id="test_agent", user_id="u1")
 
         with pytest.raises(OperationDeniedError) as exc_info:
             await invoke(service, workspace, access)
@@ -348,7 +194,7 @@ class TestMemoryApplicationService:
         # （已认证 actor + 目标 workspace）
         assert request.identity_scope == expected_scope
         assert request.identity_scope.actor_identity == ActorIdentity(
-            user_id="u1", agent_id="system"
+            user_id="u1", agent_id="test_agent"
         )
         assert request.identity_scope.workspace_identity == workspace
         assert captured["scope"] == expected_scope

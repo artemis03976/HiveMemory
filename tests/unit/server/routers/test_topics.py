@@ -16,7 +16,7 @@ from hivememory.patchouli.contracts.topic_management import (
 )
 from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.server.routers.topics import router
-from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.capability.root.topic import RootTopicService
 from tests.helpers.workspace import (
     make_identity_scope,
     make_server_access_overrides,
@@ -36,15 +36,14 @@ def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=No
         bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, manual_settle_topic)
     if evict_topic is not None:
         bus.register(GlobalRoutes.PATCHOULI_EVICT_TOPIC, evict_topic)
-    # Topic 读取/生命周期变更的 operation 授权（management.topic，P-9g）在
-    # 能力层执行：服务与访问依赖共享同一组合的操作授权者，context 才能通过
-    # 签发校验。
+    # Topic 管理读取与生命周期变更执行 root 授权；服务与访问依赖共享
+    # 同一组合的操作授权者，context 才能通过签发与 root 身份校验。
     overrides, composition = make_server_access_overrides()
-    service = TopicApplicationService(
+    service = RootTopicService(
         global_bus=bus,
         operation_authorizer=composition.authorizer,
     )
-    app.dependency_overrides[deps.get_topic_service] = lambda: service
+    app.dependency_overrides[deps.get_root_topic_service] = lambda: service
     app.dependency_overrides.update(overrides)
 
     return app

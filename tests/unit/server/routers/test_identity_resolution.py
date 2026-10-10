@@ -185,7 +185,7 @@ def _create_topics_app():
     app = FastAPI()
     app.include_router(topics_router, prefix="/api/v1")
 
-    app.dependency_overrides[deps.get_topic_service] = lambda: _TopicServiceStub()
+    app.dependency_overrides[deps.get_root_topic_service] = lambda: _TopicServiceStub()
     # topics 路由经统一认证网关取得请求级 context：覆盖注入真实组合的网关。
     overrides, _ = make_server_access_overrides(users=["u1", "query-user", "header-user"])
     app.dependency_overrides.update(overrides)
@@ -361,7 +361,7 @@ class TestRequestAccessResolvedOncePerRequest:
                 captured.append(SimpleNamespace(target_workspace=target_workspace, access=access))
                 return []
 
-        app.dependency_overrides[deps.get_topic_service] = lambda: AccessCapturingStub()
+        app.dependency_overrides[deps.get_root_topic_service] = lambda: AccessCapturingStub()
 
         overrides, _ = make_server_access_overrides(users=["u1"])
         app.dependency_overrides.update(overrides)

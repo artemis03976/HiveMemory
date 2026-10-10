@@ -132,7 +132,7 @@ def make_actor_access_record(
 
     ``agent_id`` 传 ``None`` 构造用户级记录（覆盖该用户的所有具体 Agent，
     不覆盖保留 ``system``）。``allowed_operations`` 缺省授予全部 operation
-    （测试便利，不对应任何生产行为）；显式传 ``frozenset()`` 表达"可进入
+    （测试便利，不对应任何生产行为），保留的 system 缺省为空；显式传 ``frozenset()`` 表达"可进入
     但无资源操作"。
     """
     return WorkspaceActorAccessRecord(
@@ -142,7 +142,9 @@ def make_actor_access_record(
         agent_id=agent_id,
         enabled=enabled,
         allowed_operations=(
-            ALL_OPERATIONS if allowed_operations is None else frozenset(allowed_operations)
+            (frozenset() if agent_id == SYSTEM_AGENT_ID else ALL_OPERATIONS)
+            if allowed_operations is None
+            else frozenset(allowed_operations)
         ),
     )
 

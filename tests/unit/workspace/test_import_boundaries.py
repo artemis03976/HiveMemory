@@ -176,3 +176,33 @@ def test_workspace_process_does_not_import_capability():
         or target.startswith("hivememory.workspace.capability.")
     ]
     assert violations == []
+
+
+def test_server_imports_only_root_capability_api():
+    """HTTP 管理入口只依赖 root API，不取得 actor API 或操作入口。"""
+    files = sorted((SRC_ROOT / "server").rglob("*.py"))
+    assert files, "未扫描到 server 源文件"
+    capability = "hivememory.workspace.capability"
+    root_api = f"{capability}.root"
+    violations = [
+        f"{path}: {target}"
+        for path in files
+        for target in _import_targets_of(path)
+        if (target == capability or target.startswith(f"{capability}."))
+        and target != root_api
+        and not target.startswith(f"{root_api}.")
+    ]
+    assert violations == []
+
+
+def test_operation_entry_does_not_import_root_api():
+    """执行凭据兑现后的操作分派不能取得 root 管理能力。"""
+    entry = WORKSPACE_PACKAGE / "capability" / "operations.py"
+    assert entry.is_file(), f"操作入口文件不存在: {entry}"
+    root_api = "hivememory.workspace.capability.root"
+    violations = [
+        target
+        for target in _import_targets_of(entry)
+        if target == root_api or target.startswith(f"{root_api}.")
+    ]
+    assert violations == []

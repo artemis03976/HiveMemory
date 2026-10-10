@@ -10,8 +10,8 @@ Alice/PendingAtomRuntime/MTP（headless）。
 保护 A1 访问边界返工计划的验收证据：
 - 两项认证在统一网关一次完成，签发即绑定运行；未登记 principal、不匹配
   adapter 与无准入记录的 Actor 分别以稳定 reason 拒绝；
-- 访问 context 是密封凭据：身份只在操作授权者的 ``authorize_operation`` 中读取；
-  能力层作为授权点在 backing 调用前执行 operation 检查，Patchouli 公开
+- 访问 context 是密封凭据：身份只在操作授权者中读取；actor 能力执行
+  operation 检查，root 能力只向保留的 system actor 开放，Patchouli 公开
   路由只接收授权点组装的 ``IdentityScope``；
 - 同一 principal 多 Actor、同一 Actor 多 Workspace 的许可互不串扰；
 - 空白名单可进入但资源动作全拒绝；operation 互不隐含；
@@ -33,7 +33,12 @@ from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import Distance, VectorParams
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import CallerPrincipal, RunBinding, WorkspaceOperation
+from hivememory.core.access import (
+    CallerPrincipal,
+    RunBinding,
+    WorkspaceAccessContext,
+    WorkspaceOperation,
+)
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     AdmissionDeniedError,
@@ -80,7 +85,8 @@ from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublic
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.workspace.capability.memory import MemoryApplicationService
-from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
+from hivememory.workspace.capability.root.memory import RootMemoryService
+from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     AccessTestComposition,
@@ -97,20 +103,17 @@ READ = WorkspaceOperation.RESOURCE_READ
 SEARCH = WorkspaceOperation.RESOURCE_SEARCH
 INTENT = WorkspaceOperation.MEMORY_INTENT_SUBMIT
 INTERACT = WorkspaceOperation.INTERACTION_SUBMIT
-OBSERVE = WorkspaceOperation.TASK_OBSERVE
-MANAGE_MEMORY = WorkspaceOperation.MANAGEMENT_MEMORY
-MANAGE_TASK = WorkspaceOperation.MANAGEMENT_TASK
 
 
 def _access_records() -> list:
     """两类注册表共用的访问矩阵：同 owner 多 Actor、同 Actor 多 Workspace。"""
     return [
-        # MAIN：a1 全量基线操作；a2 仅读取；a3 空白名单；a4 仅观察；a5 仅 Memory 管理
+        # MAIN：a1 可读、检索和提交；a2 仅读取；a3 空白名单。
         make_actor_access_record(
             owner_user_id="u1",
             workspace_id=MAIN.workspace_id,
             agent_id="a1",
-            allowed_operations={READ, SEARCH, INTERACT, INTENT, OBSERVE, MANAGE_TASK},
+            allowed_operations={READ, SEARCH, INTERACT, INTENT},
         ),
         make_actor_access_record(
             owner_user_id="u1",
@@ -124,31 +127,20 @@ def _access_records() -> list:
             agent_id="a3",
             allowed_operations=frozenset(),
         ),
-        make_actor_access_record(
-            owner_user_id="u1",
-            workspace_id=MAIN.workspace_id,
-            agent_id="a4",
-            allowed_operations={OBSERVE},
-        ),
-        make_actor_access_record(
-            owner_user_id="u1",
-            workspace_id=MAIN.workspace_id,
-            agent_id="a5",
-            allowed_operations={MANAGE_MEMORY},
-        ),
-        # OTHER：a1 的白名单与 MAIN 不同；a2 无准入记录；a4 仅有观察
+        # OTHER：a1 的白名单与 MAIN 不同；a2 无准入记录。
         make_actor_access_record(
             owner_user_id="u1",
             workspace_id=OTHER.workspace_id,
             agent_id="a1",
             allowed_operations={READ, INTENT},
         ),
-        make_actor_access_record(
-            owner_user_id="u1",
-            workspace_id=OTHER.workspace_id,
-            agent_id="a4",
-            allowed_operations={OBSERVE},
-        ),
+        # root 在每个 Workspace 独立准入，不配置 actor operation。
+        *[
+            make_actor_access_record(
+                owner_user_id="u1", workspace_id=workspace.workspace_id, agent_id="system"
+            )
+            for workspace in (MAIN, OTHER)
+        ],
     ]
 
 
@@ -286,13 +278,15 @@ async def wired():
     )
     bridge.mount()
 
-    # System 管理门面：与外部 adapter 同一全局总线，授权点在能力层
-    system_memory = MemoryApplicationService(
+    # actor 读取走共享读取视图；root 管理直接经同一全局总线访问资源 owner。
+    runtime = make_workspace_runtime(global_bus)
+    actor_memory = MemoryApplicationService(
         global_bus=global_bus,
         operation_authorizer=access.authorizer,
-        memory_reader=make_workspace_runtime(global_bus).aliases,
+        memory_reader=runtime.aliases,
     )
-    system_tasks = MemoryTaskApplicationService(
+    root_memory = RootMemoryService(global_bus=global_bus, operation_authorizer=access.authorizer)
+    root_tasks = RootMemoryTaskService(
         global_bus=global_bus, operation_authorizer=access.authorizer
     )
 
@@ -303,12 +297,17 @@ async def wired():
             controller=controller,
             queue=queue,
             access=access,
-            system_memory=system_memory,
-            system_tasks=system_tasks,
+            actor_memory=actor_memory,
+            root_memory=root_memory,
+            root_tasks=root_tasks,
         )
     finally:
         await queue.stop()
         await controller.stop()
+        runtime.close()
+        access.gateway.close()
+        access.gateway.revoke_all_contexts()
+        bridge.unmount()
         await qdrant.close()
 
 
@@ -323,16 +322,18 @@ class _Wired:
         controller,
         queue,
         access: AccessTestComposition,
-        system_memory,
-        system_tasks,
+        actor_memory,
+        root_memory,
+        root_tasks,
     ):
         self.global_bus = global_bus
         self.store = store
         self.controller = controller
         self.queue = queue
         self.access = access
-        self.system_memory = system_memory
-        self.system_tasks = system_tasks
+        self.actor_memory = actor_memory
+        self.root_memory = root_memory
+        self.root_tasks = root_tasks
 
 
 class QdrantMemoryStoreStub:
@@ -397,7 +398,7 @@ async def _seed_public_fact(store, *, alias, content, workspace=MAIN, agent_id="
     return atom
 
 
-async def _submit_intent(wired, context: ActorIdentity) -> dict:
+async def _submit_intent(wired, context: WorkspaceAccessContext):
     """以操作授权者组装的可信 scope 提交一条 WRITE 意图（a1 获准）。"""
     scope = wired.access.authorizer.authorize_operation(context, INTENT, MAIN)
     return await wired.global_bus.request(
@@ -459,14 +460,13 @@ async def test_same_owner_actors_have_different_admission_across_workspaces(wire
 async def test_empty_whitelist_admits_entry_but_denies_every_resource_action(wired):
     """空白名单 Actor 可进入，但资源动作在授权点全部拒绝（证据 3）。
 
-    读取与管理路径的 operation 检查在 workspace 能力层、backing 调用前
-    执行；写入路径的 ``memory_intent.submit`` 当前没有能力层方法，授权
-    由调用方（未来的能力层）先经操作授权者检查。
+    actor 读取在 backing 调用前检查 operation；意图提交路径在组装可信
+    scope 后经公开路由到达真实生成链，缺少许可时不能登记生成任务。
     """
     context = await wired.access.authenticate(agent_id="a3", workspace=MAIN)
 
     with pytest.raises(OperationDeniedError) as read_error:
-        await wired.system_memory.read(str(uuid4()), target_workspace=MAIN, access=context)
+        await wired.actor_memory.read(str(uuid4()), target_workspace=MAIN, access=context)
     assert read_error.value.details["reason"] == "operation_not_allowed"
     with pytest.raises(OperationDeniedError) as intent_error:
         wired.access.authorizer.authorize_operation(context, INTENT, MAIN)
@@ -480,30 +480,40 @@ async def test_read_only_actor_cannot_submit_intent_or_reach_management(wired):
 
     with pytest.raises(OperationDeniedError):
         wired.access.authorizer.authorize_operation(read_context, INTENT, MAIN)
-    with pytest.raises(OperationDeniedError):
-        await wired.system_memory.get_memory(uuid4(), target_workspace=MAIN, access=read_context)
+    with pytest.raises(OperationDeniedError) as root_error:
+        await wired.root_memory.get_memory(uuid4(), target_workspace=MAIN, access=read_context)
+    assert root_error.value.details["reason"] == "root_required"
 
 
 @pytest.mark.asyncio
-async def test_observe_operation_cannot_cancel_task(wired):
-    """task.observe 不授予取消：取消绑定 management.task（证据 3）。"""
+@pytest.mark.parametrize("agent_id", ["a1", "a3"], ids=["actor-operations", "empty-whitelist"])
+async def test_non_root_actor_cannot_observe_or_cancel_task(wired, agent_id):
+    """actor 操作白名单无论是否为空，都不授予任务观察与取消的 root 能力。"""
     intent_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
     submission = await _submit_intent(wired, intent_context)
     assert submission.accepted is True
     final = await wired.controller.wait_task(submission.task_id)
     assert final.status.value == "completed"
 
-    observe_context = await wired.access.authenticate(agent_id="a4", workspace=MAIN)
-    with pytest.raises(OperationDeniedError) as exc_info:
-        await wired.system_tasks.cancel_memory_task(
-            submission.task_id,
-            target_workspace=MAIN,
-            access=observe_context,
-        )
-    assert exc_info.value.details["reason"] == "operation_not_allowed"
-    # 被拒的取消不改变任务终态：获准的提交者仍观察到 completed。
-    task = await wired.system_tasks.get_memory_task(
-        submission.task_id, target_workspace=MAIN, access=intent_context
+    actor_context = await wired.access.authenticate(agent_id=agent_id, workspace=MAIN)
+    for method in (wired.root_tasks.get_memory_task, wired.root_tasks.cancel_memory_task):
+        with pytest.raises(OperationDeniedError) as exc_info:
+            await method(
+                submission.task_id,
+                target_workspace=MAIN,
+                access=actor_context,
+            )
+        assert exc_info.value.details["reason"] == "root_required"
+    with pytest.raises(OperationDeniedError) as list_error:
+        await wired.root_tasks.list_memory_tasks(target_workspace=MAIN, access=actor_context)
+    assert list_error.value.details["reason"] == "root_required"
+
+    # 被拒的取消不改变权威任务终态：system 经 root API 仍观察到 completed。
+    root_context = await wired.access.authenticate(agent_id="system", workspace=MAIN)
+    task = await wired.root_tasks.get_memory_task(
+        submission.task_id,
+        target_workspace=MAIN,
+        access=root_context,
     )
     assert task.status.value == "completed"
 
@@ -539,20 +549,19 @@ async def test_actor_visible_read_enforces_visibility_and_workspace(wired):
 
     a1_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
 
-    visible = await wired.system_memory.read(
+    visible = await wired.actor_memory.read(
         str(public_atom.id), target_workspace=MAIN, access=a1_context
     )
-    assert visible is not None
     assert visible.payload.content == "visible"
 
     # 有 read 行为许可但资源 PRIVATE 只对 a2：对 a1 按不存在呈现
-    secret = await wired.system_memory.read(
+    secret = await wired.actor_memory.read(
         str(private_atom.id), target_workspace=MAIN, access=a1_context
     )
     assert secret is None
 
     # 跨 Workspace 的 canonical uuid 不可见
-    outside = await wired.system_memory.read(
+    outside = await wired.actor_memory.read(
         str(foreign.id), target_workspace=MAIN, access=a1_context
     )
     assert outside is None
@@ -560,40 +569,42 @@ async def test_actor_visible_read_enforces_visibility_and_workspace(wired):
 
 @pytest.mark.asyncio
 async def test_management_memory_reads_with_owner_semantics_independently(wired):
-    """management.memory 的 owner-management 读取独立生效（证据 4）。"""
+    """system 的 root 管理读取按 Workspace 归属独立生效，不要求 actor 操作。"""
     atom = await _seed_public_fact(wired.store, alias="fact_owned", content="managed content")
-    manage_context = await wired.access.authenticate(agent_id="a5", workspace=MAIN)
+    atom.meta.access_policy = MemoryAccessPolicy(
+        visibility=MemoryVisibility.PRIVATE, target_agent_id="a1"
+    )
+    await wired.store.upsert(atom)
+    manage_context = await wired.access.authenticate(agent_id="system", workspace=MAIN)
 
-    found = await wired.system_memory.get_memory(
+    found = await wired.root_memory.get_memory(
         atom.id, target_workspace=MAIN, access=manage_context
     )
-    assert found is not None
     assert found.payload.content == "managed content"
 
 
 @pytest.mark.asyncio
 async def test_single_context_reused_across_different_permitted_operations(wired):
-    """同一有效 context 先后执行 read/search/intent；未获准的管理操作仍拒绝（证据 6）。"""
+    """同一有效 context 可先后执行 read/search；actor 操作不授予 root 管理能力。"""
     context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
 
     public_atom = await _seed_public_fact(wired.store, alias="fact_reuse", content="reuse")
-    read = await wired.system_memory.read(
-        str(public_atom.id), target_workspace=MAIN, access=context
-    )
-    assert read is not None
+    read = await wired.actor_memory.read(str(public_atom.id), target_workspace=MAIN, access=context)
+    assert read.payload.content == "reuse"
 
     # 检索参数由调用方提交：检索请求由能力层用授权返回的可信 scope 构造
     # （A1 访问边界返工第 4.5 节），替身引擎无命中。
-    retrieval = await wired.system_memory.retrieve(
+    retrieval = await wired.actor_memory.retrieve(
         semantic_query="reuse",
         target_workspace=MAIN,
         access=context,
     )
     assert retrieval == []
 
-    # 换操作不重建身份，但方法所需的 operation 不在白名单内时仍拒绝
-    with pytest.raises(OperationDeniedError):
-        await wired.system_memory.get_memory(public_atom.id, target_workspace=MAIN, access=context)
+    # 换 actor 操作不重建身份，调用 root API 仍要求保留的 system actor。
+    with pytest.raises(OperationDeniedError) as root_error:
+        await wired.root_memory.get_memory(public_atom.id, target_workspace=MAIN, access=context)
+    assert root_error.value.details["reason"] == "root_required"
 
 
 @pytest.mark.asyncio
@@ -702,18 +713,16 @@ async def test_invalidated_context_cannot_create_a_generation_task(wired):
 
 @pytest.mark.asyncio
 async def test_intent_submit_and_observe_result_without_alice(wired):
-    """意图提交 → 真实生成链 → task.observe 观察真实结果；跨 scope 拒绝（证据 8）。"""
+    """actor 意图进入真实生成链，system 经 root API 观察结果；跨 Workspace 拒绝。"""
     intent_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
     submission = await _submit_intent(wired, intent_context)
     assert submission.accepted is True
-    assert submission.task_id is not None
-
     final = await wired.controller.wait_task(submission.task_id)
     assert final.status.value == "completed"
 
-    # 任务按权威 belong_to 判断归属：提交者自己的观察 context 可见
-    observe_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
-    result = await wired.system_tasks.get_memory_task(
+    # 观察独立于提交者的 actor 操作，按 root 授权与权威 belong_to 判断归属。
+    observe_context = await wired.access.authenticate(agent_id="system", workspace=MAIN)
+    result = await wired.root_tasks.get_memory_task(
         submission.task_id, target_workspace=MAIN, access=observe_context
     )
     assert result.status.value == "completed"
@@ -722,10 +731,10 @@ async def test_intent_submit_and_observe_result_without_alice(wired):
     assert result.belong_to == authorized.workspace_identity
     assert result.from_actor == authorized.actor_identity
 
-    # OTHER Workspace 的观察 Actor：归属不一致统一 not found，不泄漏存在性
+    # OTHER Workspace 的 root：归属不一致统一 not found，不泄漏存在性。
     other_context = await _other_observe_context(wired)
     with pytest.raises(ResourceNotFoundError):
-        await wired.system_tasks.get_memory_task(
+        await wired.root_tasks.get_memory_task(
             submission.task_id, target_workspace=OTHER, access=other_context
         )
 
@@ -734,18 +743,18 @@ async def test_intent_submit_and_observe_result_without_alice(wired):
 async def test_system_management_facade_propagates_authorized_scope_via_global_bus(wired):
     """System 管理门面与 adapter 走同一全局总线，授权组装的 scope 完整传播（证据 5）。"""
     atom = await _seed_public_fact(wired.store, alias="fact_system", content="system path")
-    manage_context = await wired.access.authenticate(agent_id="a5", workspace=MAIN)
+    manage_context = await wired.access.authenticate(agent_id="system", workspace=MAIN)
 
-    found = await wired.system_memory.get_memory(
+    found = await wired.root_memory.get_memory(
         atom.id, target_workspace=MAIN, access=manage_context
     )
-    assert found is not None
     assert found.payload.content == "system path"
 
-    # 无 permission 的 context 经同一 System 门面在能力层授权点被拒
+    # actor 的读取许可不能进入 System root 管理门面。
     read_context = await wired.access.authenticate(agent_id="a2", workspace=MAIN)
-    with pytest.raises(OperationDeniedError):
-        await wired.system_memory.get_memory(atom.id, target_workspace=MAIN, access=read_context)
+    with pytest.raises(OperationDeniedError) as exc_info:
+        await wired.root_memory.get_memory(atom.id, target_workspace=MAIN, access=read_context)
+    assert exc_info.value.details["reason"] == "root_required"
 
 
 @pytest.mark.asyncio
@@ -755,14 +764,15 @@ async def test_access_error_propagates_through_system_feedback_facade(wired):
 
     # System 门面的 record_feedback 曾把 RuntimeError 分支包装为
     # MemoryLifecycleUnavailableError；行为授权拒绝必须以原错误冒出。
-    with pytest.raises(OperationDeniedError):
-        await wired.system_memory.record_feedback(
+    with pytest.raises(OperationDeniedError) as exc_info:
+        await wired.root_memory.record_feedback(
             uuid4(),
             target_workspace=MAIN,
             positive=True,
             source="boundary",
             access=read_context,
         )
+    assert exc_info.value.details["reason"] == "root_required"
 
 
 @pytest.mark.asyncio
@@ -772,22 +782,22 @@ async def test_system_task_facade_lists_only_resident_workspace_tasks(wired):
     submission = await _submit_intent(wired, intent_context)
     await wired.controller.wait_task(submission.task_id)
 
-    observe_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
-    resident = await wired.system_tasks.list_memory_tasks(
+    observe_context = await wired.access.authenticate(agent_id="system", workspace=MAIN)
+    resident = await wired.root_tasks.list_memory_tasks(
         target_workspace=MAIN, access=observe_context
     )
     assert [task.task_id for task in resident] == [submission.task_id]
 
-    # OTHER Workspace 的观察 Actor：列表为空，不泄漏其他 Workspace 的任务。
+    # OTHER Workspace 的 root：列表为空，不泄漏其他 Workspace 的任务。
     other_context = await _other_observe_context(wired)
-    assert await wired.system_tasks.list_memory_tasks(
-        target_workspace=OTHER, access=other_context
-    ) == ([])
+    assert (
+        await wired.root_tasks.list_memory_tasks(target_workspace=OTHER, access=other_context) == []
+    )
 
 
 async def _other_observe_context(wired):
-    """OTHER Workspace 的观察 context（共享注册矩阵中的 OTHER/a4）。"""
-    return await wired.access.authenticate(agent_id="a4", workspace=OTHER)
+    """OTHER Workspace 独立准入的 root context，不借 MAIN 的授权切换目标。"""
+    return await wired.access.authenticate(agent_id="system", workspace=OTHER)
 
 
 @pytest.mark.asyncio
@@ -795,22 +805,22 @@ async def test_invalidated_context_rejected_and_reauthentication_restores_access
     """失效后的旧 context 在授权点拒绝；重新认证恢复（证据 7）。"""
     context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
     public_atom = await _seed_public_fact(wired.store, alias="fact_ttl", content="ttl")
-    assert (
-        await wired.system_memory.read(str(public_atom.id), target_workspace=MAIN, access=context)
-        is not None
+    first = await wired.actor_memory.read(
+        str(public_atom.id), target_workspace=MAIN, access=context
     )
+    assert first.payload.content == "ttl"
 
     wired.access.gateway.invalidate_context(context)
 
     with pytest.raises(ScopeRequiredError) as exc_info:
-        await wired.system_memory.read(str(public_atom.id), target_workspace=MAIN, access=context)
+        await wired.actor_memory.read(str(public_atom.id), target_workspace=MAIN, access=context)
     assert exc_info.value.details["reason"] == "context_not_issued"
 
     renewed = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
-    assert (
-        await wired.system_memory.read(str(public_atom.id), target_workspace=MAIN, access=renewed)
-        is not None
+    refreshed = await wired.actor_memory.read(
+        str(public_atom.id), target_workspace=MAIN, access=renewed
     )
+    assert refreshed.payload.content == "ttl"
 
 
 @pytest.mark.asyncio

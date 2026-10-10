@@ -35,28 +35,13 @@ class WorkspaceOperation(str, Enum):
       读取）；不授予检索、写入或管理能力；
     - ``RESOURCE_SEARCH``：语义检索；不授予点读之外的新增能力，也不授予
       主动写入；
-    - ``PROFILE_READ``：Agent Profile 定义读取；与 Profile 的管理写入/
-      列表（``MANAGEMENT_MEMORY`` 绑定例外）分别授权；
+    - ``PROFILE_READ``：Agent Profile 定义读取；不授予 Profile 管理能力；
     - ``ASSET_ACQUIRE``：WorkspaceAsset 解析/获取；**不授权上传**；
     - ``INTERACTION_SUBMIT``：交互提交；不授予检索或主动意图；
     - ``MEMORY_INTENT_SUBMIT``：主动记忆意图提交；不保证生成结果；
-    - ``TASK_OBSERVE``：生成任务观察/等待；不授予取消、Pending 内容读
-      或 canonical Memory 读取；
-    - ``MANAGEMENT_MEMORY``：完整的 Memory 管理能力（含已绑定的
-      AGENT_PROFILE atom 管理写入/列表例外）；不是"只读管理"，不得借
-      用为 Topic/Asset/Task 的放行依据；
-    - ``MANAGEMENT_TASK``：生成任务取消等任务管理动作；观察不授予取消；
-    - ``MANAGEMENT_TOPIC``：Topic 结算/驱逐等生命周期变更，以及管理员的
-      话题列表（P-9g：``system`` 直接通道不持有 actor 可见的读取
-      operation，列表暂由本项覆盖；若以后为管理视角的读取单独设立
-      operation，再随之调整）——Gateway 分析中的话题读取仍绑定
-      ``RESOURCE_READ``，不借本项放行；
-    - ``MANAGEMENT_ASSET``：WorkspaceAsset 上传登记（``ASSET_ACQUIRE``
-      不授权上传）。
-
-    方法与 operation 的绑定维护在各授权点（workspace 能力层、任务进程的
-    阶段检查）的类 docstring 中；新增 operation 由引入方同步维护目录、
-    配置与行为测试，且不自动加入已有白名单。
+    root 管理与任务进程阶段调用不属于 actor 操作，不在本目录登记。
+    方法与 operation 的绑定维护在 actor 能力授权点，新增操作不会自动加入
+    既有访问白名单。
     """
 
     RESOURCE_READ = "resource.read"
@@ -65,11 +50,6 @@ class WorkspaceOperation(str, Enum):
     ASSET_ACQUIRE = "asset.acquire"
     INTERACTION_SUBMIT = "interaction.submit"
     MEMORY_INTENT_SUBMIT = "memory_intent.submit"
-    TASK_OBSERVE = "task.observe"
-    MANAGEMENT_MEMORY = "management.memory"
-    MANAGEMENT_TASK = "management.task"
-    MANAGEMENT_TOPIC = "management.topic"
-    MANAGEMENT_ASSET = "management.asset"
 
 
 class AccessRunType(str, Enum):

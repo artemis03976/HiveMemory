@@ -2,7 +2,7 @@
 
 被测对象：Patchouli Topic 公共入口（A1 访问边界返工第 4.6 节）：
 - 本层是授权点以下的资源 owner：公开方法不接收 ``access`` 参数，构造函数
-  不接收 ``access_guard``；``resource.read`` / ``management.topic`` 的行为
+  不接收 ``access_guard``；阶段读取与 root 管理的
   授权在 workspace 能力层与任务进程阶段检查完成；
 - ``identity_scope`` 缺失由必填签名拒绝，不触达资源后端；
 - ``get_topic_data`` 隐藏越域话题，不泄漏可见性；

@@ -232,12 +232,12 @@ def _build_system(
     services = _ServicesBundle(
         process=object(),  # type: ignore[arg-type]
         ingress=_Ingress(calls),  # type: ignore[arg-type]
-        memory=object(),  # type: ignore[arg-type]
-        memory_task=object(),  # type: ignore[arg-type]
-        agent=object(),  # type: ignore[arg-type]
-        topic=object(),  # type: ignore[arg-type]
+        root_memory=object(),  # type: ignore[arg-type]
+        root_memory_task=object(),  # type: ignore[arg-type]
+        root_agent=object(),  # type: ignore[arg-type]
+        root_topic=object(),  # type: ignore[arg-type]
         readiness=object(),  # type: ignore[arg-type]
-        workspace_assets=object(),  # type: ignore[arg-type]
+        root_workspace_assets=object(),  # type: ignore[arg-type]
     )
     system = HiveMemorySystem(
         config=HiveMemoryConfig(runtime_events={"enabled": False}),
@@ -294,8 +294,8 @@ def test_assemble_wires_single_store_across_consumers() -> None:
     assert lease.representation.content_object == b"shared"
     assert store.release_representation_lease(lease.lease_id) is True
     assert reader.release_representation_lease(lease.lease_id) is False
-    assert system._workspace_asset_service._store is store
-    assert system._workspace_asset_service._parse_service._store is store
+    assert system._root_workspace_asset_service._store is store
+    assert system._root_workspace_asset_service._parse_service._store is store
 
 
 def test_workspace_assets_and_refs_are_isolated_across_workspaces() -> None:
@@ -441,12 +441,12 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
     services = _ServicesBundle(
         process=object(),  # type: ignore[arg-type]
         ingress=_Ingress(calls),  # type: ignore[arg-type]
-        memory=object(),  # type: ignore[arg-type]
-        memory_task=object(),  # type: ignore[arg-type]
-        agent=object(),  # type: ignore[arg-type]
-        topic=object(),  # type: ignore[arg-type]
+        root_memory=object(),  # type: ignore[arg-type]
+        root_memory_task=object(),  # type: ignore[arg-type]
+        root_agent=object(),  # type: ignore[arg-type]
+        root_topic=object(),  # type: ignore[arg-type]
         readiness=object(),  # type: ignore[arg-type]
-        workspace_assets=object(),  # type: ignore[arg-type]
+        root_workspace_assets=object(),  # type: ignore[arg-type]
     )
     system = HiveMemorySystem(
         config=HiveMemoryConfig(runtime_events={"enabled": False}),

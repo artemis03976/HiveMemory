@@ -52,6 +52,7 @@ from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.workspace.cache import AtomCache, ProfileCache, ProfileCacheEntry, WorkspaceEpochs
 from hivememory.workspace.cache.invalidation import CacheInvalidator
 from hivememory.workspace.capability import AgentApplicationService, MemoryApplicationService
+from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.runtime import WorkspaceRuntime
 from tests.helpers.memory import make_memory_metadata
@@ -115,6 +116,7 @@ class _Chain:
     runtime: WorkspaceRuntime
     memories: MemoryApplicationService
     profiles: AgentApplicationService
+    root_memories: RootMemoryService
     composition: AccessTestComposition
     writer: WorkspaceAccessContext
     reader: WorkspaceAccessContext
@@ -178,6 +180,7 @@ async def chain(tmp_path):
             operation_authorizer=composition.authorizer,
             memory_reader=runtime.aliases,
         ),
+        root_memories=RootMemoryService(bus, operation_authorizer=composition.authorizer),
         profiles=AgentApplicationService(
             bus,
             operation_authorizer=composition.authorizer,
@@ -222,7 +225,7 @@ async def test_management_update_invalidates_actor_atom_read_before_return(chain
     )
     assert first[0].atom.payload.content == "old content"
 
-    await chain.memories.update_memory(
+    await chain.root_memories.update_memory(
         atom.id, content="new content", target_workspace=WORKSPACE, access=chain.manager
     )
     assert chain.runtime.stats()["atom_size"] == 0
@@ -250,7 +253,7 @@ async def test_profile_source_update_invalidates_profile_configuration(chain):
     first = await allocator.resolve_agent_profile(target_workspace=WORKSPACE, access=process_access)
     assert first.model_name == "old-model"
 
-    await chain.memories.update_memory(
+    await chain.root_memories.update_memory(
         atom.id,
         agent_config={"model_name": "new-model"},
         target_workspace=WORKSPACE,
@@ -554,7 +557,7 @@ async def test_subscriber_failure_after_invalidation_preserves_commit_and_advanc
     subscriber = BrokenInvalidator(atom_cache=atoms, profile_cache=profiles, epochs=epochs)
     subscriber.subscribe(chain.bus)
     try:
-        updated = await chain.memories.update_memory(
+        updated = await chain.root_memories.update_memory(
             atom.id, content="committed", target_workspace=WORKSPACE, access=chain.manager
         )
         read = await chain.memories.read(atom.id, target_workspace=WORKSPACE, access=chain.reader)

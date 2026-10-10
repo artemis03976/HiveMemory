@@ -7,8 +7,8 @@ from hivememory.server.deps import (
     RequestIdentitySelection,
     get_access_gateway,
     get_identity_selection,
+    get_root_topic_service,
     get_server_principal_id,
-    get_topic_service,
     request_access_for_claims,
     resolve_request_identity_claims,
 )
@@ -19,7 +19,7 @@ from hivememory.server.models.topic import (
     TopicSettleResponse,
 )
 from hivememory.workspace.authentication import ActorAuthenticationGateway
-from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.capability.root.topic import RootTopicService
 
 router = APIRouter(tags=["topics"])
 
@@ -36,11 +36,11 @@ async def list_topics(
     user_id: str | None = TopicUserIdQuery,
     workspace_id: str | None = TopicWorkspaceIdQuery,
     selection: RequestIdentitySelection = Depends(get_identity_selection),
-    service: TopicApplicationService = Depends(get_topic_service),
+    service: RootTopicService = Depends(get_root_topic_service),
     gateway: ActorAuthenticationGateway = Depends(get_access_gateway),
     principal_id: str = Depends(get_server_principal_id),
 ) -> ActiveTopicListResponse:
-    """获取活跃话题列表（管理员话题列表，暂绑 ``management.topic``，P-9g）"""
+    """经 root API 获取目标 Workspace 的活跃话题列表。"""
     claims = resolve_request_identity_claims(
         selection,
         explicit_user_id=user_id,
@@ -64,11 +64,11 @@ async def settle_topic(
     user_id: str | None = TopicUserIdQuery,
     workspace_id: str | None = TopicWorkspaceIdQuery,
     selection: RequestIdentitySelection = Depends(get_identity_selection),
-    service: TopicApplicationService = Depends(get_topic_service),
+    service: RootTopicService = Depends(get_root_topic_service),
     gateway: ActorAuthenticationGateway = Depends(get_access_gateway),
     principal_id: str = Depends(get_server_principal_id),
 ) -> TopicSettleResponse:
-    """手动结算话题（生命周期变更绑定 ``management.topic``）"""
+    """经 root API 手动结算话题。"""
     claims = resolve_request_identity_claims(
         selection,
         explicit_user_id=user_id,
@@ -104,11 +104,11 @@ async def delete_topic(
     user_id: str | None = TopicUserIdQuery,
     workspace_id: str | None = TopicWorkspaceIdQuery,
     selection: RequestIdentitySelection = Depends(get_identity_selection),
-    service: TopicApplicationService = Depends(get_topic_service),
+    service: RootTopicService = Depends(get_root_topic_service),
     gateway: ActorAuthenticationGateway = Depends(get_access_gateway),
     principal_id: str = Depends(get_server_principal_id),
 ) -> TopicDeleteResponse:
-    """从活跃池驱逐话题（不结算，不写记忆；绑定 ``management.topic``）"""
+    """经 root API 从活跃池驱逐话题，不结算或写入记忆。"""
     claims = resolve_request_identity_claims(
         selection,
         explicit_user_id=user_id,

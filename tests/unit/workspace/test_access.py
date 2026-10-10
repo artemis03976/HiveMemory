@@ -534,3 +534,57 @@ class TestAuthorizeProcessControl:
         revoked = await self._issued_record_context(composition)
         composition.gateway.invalidate_context(revoked)
         assert composition.authorizer.authorize_process_control(requestor, revoked) is False
+
+
+@pytest.mark.asyncio
+async def test_root_authorization_accepts_system_without_actor_operations():
+    """system 只需有效准入即可管理，root scope 仍绑定驻留 Workspace。"""
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="system")],
+        default_workspace=MAIN,
+    )
+    context = await composition.authenticate(agent_id="system")
+    scope = composition.authorizer.authorize_root(context, MAIN)
+    assert scope == make_identity_scope(user_id="u1", agent_id="system")
+
+
+@pytest.mark.asyncio
+async def test_all_actor_operations_do_not_grant_root_authority():
+    """普通 actor 即使持有全部操作，仍以 root_required 拒绝管理能力。"""
+    composition = _composition()
+    context = await composition.authenticate(agent_id="a1")
+    with pytest.raises(OperationDeniedError) as error:
+        composition.authorizer.authorize_root(context, MAIN)
+    assert error.value.details == {"reason": "root_required"}
+
+
+@pytest.mark.asyncio
+async def test_root_authorization_rejects_revoked_context():
+    """root 身份不绕过凭据失效：请求结束后不能继续管理。"""
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="system")],
+        default_workspace=MAIN,
+    )
+    context = await composition.authenticate(agent_id="system")
+    composition.gateway.invalidate_context(context)
+    with pytest.raises(ScopeRequiredError) as error:
+        composition.authorizer.authorize_root(context, MAIN)
+    assert error.value.details == {"reason": "context_not_issued"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("target", [ISOLATION, FOREIGN_OWNER])
+async def test_root_authorization_rejects_nonresident_target(target):
+    """root 管理仍受 Workspace 硬边界限制，不允许更换目标。"""
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="system")],
+        default_workspace=MAIN,
+    )
+    context = await composition.authenticate(agent_id="system")
+    with pytest.raises(OperationDeniedError) as error:
+        composition.authorizer.authorize_root(context, target)
+    assert error.value.details == {
+        "reason": "target_workspace_not_resident",
+        "resident_workspace_id": MAIN.workspace_id,
+        "target_workspace_id": target.workspace_id,
+    }

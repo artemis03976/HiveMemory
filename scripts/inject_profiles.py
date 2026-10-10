@@ -8,7 +8,7 @@
 omni_doll 是代码内置的 fallback Profile（``OMNI_DOLL_PROFILE``），按 alias 解析时
 先于存储记录生效，因此不注入存储。
 
-写入走与 ``POST /api/v1/agents`` 相同的管理用例（AgentApplicationService →
+写入走与 ``POST /api/v1/agents`` 相同的root 管理用例（RootAgentProfileService →
 Patchouli 完整写入路径）：执行字段校验并生成版本记录。已存在的 alias 跳过，
 可重复执行。
 
@@ -16,6 +16,7 @@ Patchouli 完整写入路径）：执行字段校验并生成版本记录。已�
     python scripts/inject_profiles.py [--user-id USER]
 
 前置条件:
+    - 本地脚本 principal 已登记，目标用户的 system actor 有 Workspace 准入
     - Qdrant 服务已启动（使用与后端相同的配置）
     - 脚本会启动一个完整的 HiveMemorySystem（含后台调度），建议在后端未运行时执行
 """
@@ -23,10 +24,12 @@ Patchouli 完整写入路径）：执行字段校验并生成版本记录。已�
 import argparse
 import asyncio
 import logging
+from uuid import uuid4
 
 from hivememory.config.app import load_app_config
+from hivememory.core.access import CallerPrincipal, RunBinding
 from hivememory.core.constants import DEFAULT_USER_ID, SYSTEM_AGENT_ID
-from hivememory.core.models import ActorIdentity, IdentityScope
+from hivememory.core.models import ActorIdentity
 from hivememory.core.models.workspace import resolve_default_workspace_identity
 from hivememory.system import HiveMemorySystem
 
@@ -90,24 +93,26 @@ PROFILES = [
 ]
 
 
-def management_scope(user_id: str) -> IdentityScope:
-    """与 server 管理入口相同的身份：保留 system actor + 用户默认 Workspace。"""
-    return IdentityScope(
-        actor_identity=ActorIdentity(user_id=user_id, agent_id=SYSTEM_AGENT_ID),
-        workspace_identity=resolve_default_workspace_identity(user_id),
-    )
-
-
-async def main(user_id: str) -> None:
+async def main(user_id: str, principal_id: str = "hivememory:profile-injector") -> None:
     """注入尚不存在的人偶图纸；已存在的 alias 跳过。"""
-    identity_scope = management_scope(user_id)
+    target_workspace = resolve_default_workspace_identity(user_id)
     system = HiveMemorySystem.build(config=load_app_config())
     await system.start()
+    access = None
     try:
+        # 脚本是独立的本地入口，不能借用 HTTP 来源；接入登记与 system 准入
+        # 都由同一网关确认，root 服务只接受网关签发的请求级 context。
+        access = await system.access_gateway.authenticate(
+            adapter="local",
+            principal=CallerPrincipal(principal_id=principal_id),
+            actor=ActorIdentity(user_id=user_id, agent_id=SYSTEM_AGENT_ID),
+            workspace=target_workspace,
+            binding=RunBinding.for_request(f"profile-injection:{uuid4()}"),
+        )
         existing = {
             atom.index.alias
-            for atom in await system.agent_service.list_agent_profiles(
-                identity_scope=identity_scope, limit=1000
+            for atom in await system.root_agent_service.list_agent_profiles(
+                access=access, target_workspace=target_workspace, limit=1000
             )
         }
         for profile in PROFILES:
@@ -115,8 +120,9 @@ async def main(user_id: str) -> None:
             if alias in existing:
                 logger.info(f"Profile '{alias}' already exists, skipping.")
                 continue
-            atom = await system.agent_service.create_agent_profile(
-                identity_scope=identity_scope,
+            atom = await system.root_agent_service.create_agent_profile(
+                access=access,
+                target_workspace=target_workspace,
                 title=profile["title"],
                 alias=alias,
                 summary=profile["summary"],
@@ -126,6 +132,8 @@ async def main(user_id: str) -> None:
             )
             logger.info(f"Injected profile: {alias} (id={atom.id})")
     finally:
+        if access is not None:
+            system.access_gateway.invalidate_context(access)
         await system.stop()
 
     logger.info("Agent profile injection finished.")
@@ -134,4 +142,8 @@ async def main(user_id: str) -> None:
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="注入基础人偶图纸（AGENT_PROFILE 记忆）")
     parser.add_argument("--user-id", default=DEFAULT_USER_ID, help="目标用户（默认 Workspace）")
-    asyncio.run(main(parser.parse_args().user_id))
+    parser.add_argument(
+        "--principal-id", default="hivememory:profile-injector", help="已登记的本地脚本接入来源"
+    )
+    args = parser.parse_args()
+    asyncio.run(main(args.user_id, args.principal_id))

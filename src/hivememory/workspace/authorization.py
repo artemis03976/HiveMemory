@@ -1,10 +1,11 @@
-"""Workspace 操作授权：第 3 阶段授权与进程控制授权。
+"""Workspace 授权：actor 操作、root 管理、系统阶段与进程控制。
 
 :class:`WorkspaceOperationAuthorizer` 是授权点（能力层、任务进程的阶段
 检查、注册入口的取消与状态查询）使用的操作授权者（A1 访问边界返工第
 4.2 节，身份与访问体系 Idea I-10 及其 2026-10-04 补充）：它无状态，只
 依赖 Workspace Actor 访问登记——每次授权都读取 context 密封的授予内容，
-再对目标 workspace、owner 与访问登记白名单做检查，组装并返回
+再校验目标 workspace 与 owner，按调用面检查 actor 操作白名单或保留的
+system 身份；任务进程阶段不检查操作白名单。授权成功后组装并返回
 ``IdentityScope``。
 
 认证与授权互不依赖：本模块不导入认证一侧（``workspace.authentication``），
@@ -16,6 +17,7 @@
 from __future__ import annotations
 
 from hivememory.core.access import AccessGrant, WorkspaceAccessContext, WorkspaceOperation
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
 from hivememory.core.models import IdentityScope, WorkspaceIdentity
 from hivememory.workspace.registry import (
@@ -29,7 +31,7 @@ __all__ = [
 
 
 class WorkspaceOperationAuthorizer:
-    """第 3 阶段操作授权：目标、owner 与白名单检查，组装可信 scope。
+    """逐次授权：共享准入与目标校验，按 API 调用面检查权限并组装可信 scope。
 
     同一有效凭据可反复授权执行不同的获准操作；切换 Actor/Workspace 或
     凭据被撤销后必须重新经认证网关认证。授权规则来自同一份 Workspace
@@ -100,6 +102,22 @@ class WorkspaceOperationAuthorizer:
         """
         grant, _ = self._redeem(access)
         self._check_target(grant, target_workspace)
+        return IdentityScope(actor_identity=grant.actor, workspace_identity=target_workspace)
+
+    def authorize_root(
+        self,
+        access: WorkspaceAccessContext,
+        target_workspace: WorkspaceIdentity,
+    ) -> IdentityScope:
+        """root API 授权：有效准入与目标校验后，只允许保留的 system actor。
+
+        root 是授权规则，不是身份类型或可登记的 actor 操作；空白名单不影响
+        system 的管理能力，其他 actor 即使持有全部操作也不能进入 root API。
+        """
+        grant, _ = self._redeem(access)
+        self._check_target(grant, target_workspace)
+        if grant.actor.agent_id != SYSTEM_AGENT_ID:
+            raise OperationDeniedError(details={"reason": "root_required"})
         return IdentityScope(actor_identity=grant.actor, workspace_identity=target_workspace)
 
     # ---- 内部辅助 ----

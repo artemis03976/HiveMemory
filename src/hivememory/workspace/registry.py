@@ -85,6 +85,10 @@ class WorkspaceActorAccessRegistry:
         for record in records:
             if not isinstance(record, WorkspaceActorAccessRecord):
                 raise TypeError("访问记录必须是 WorkspaceActorAccessRecord")
+            if record.agent_id == SYSTEM_AGENT_ID and record.allowed_operations:
+                # system 的 root 能力独立于 actor 操作白名单，不能借登记授予
+                # actor API 权限，也不能用 operation 表达管理许可。
+                raise ValueError(f"保留 system Actor 的访问记录不得配置 operation: {record.key}")
             if not record.enabled and record.allowed_operations:
                 # 禁用记录上的白名单没有意义，属于配置矛盾，装载期拒绝。
                 raise ValueError(f"Workspace Actor 访问记录已禁用却配置了行为白名单: {record.key}")

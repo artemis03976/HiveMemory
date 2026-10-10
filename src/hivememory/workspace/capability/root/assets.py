@@ -1,8 +1,4 @@
-"""WorkspaceAsset 能力：上传用例（A2 §1.2，自 ``system/application`` 原样迁入）。
-
-串行接收、原子注册与请求内解析交接；AssetStore 与解析交接位于 ``workspace.assets``，
-文件格式解析器位于 ``infrastructure.attachments``。
-"""
+"""root WorkspaceAsset 上传 API：授权后接收、原子注册并交接附件解析。"""
 
 from __future__ import annotations
 
@@ -10,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from hivememory.components.serial_gate import KeyedSerialGate
 from hivememory.config.attachments import AttachmentParserConfig
-from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import WorkspaceIdentity
 from hivememory.core.models.workspace_asset import (
     WorkspaceAssetHandle,
@@ -30,18 +25,11 @@ if TYPE_CHECKING:
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 
 
-class WorkspaceAssetApplicationService:
-    """只编排上传用例，输入规则与解析接纳由附件服务负责。
+class RootWorkspaceAssetService:
+    """只向 system 提供上传编排，输入规则与解析接纳由附件服务负责。
 
-    同 key 的门覆盖完整请求，等待方只会在前次请求终态或错误收尾后进入
-    Store 的重放/冲突判定。
-
-    访问边界（A1 访问边界返工第 4.5 节）：WorkspaceAsset 不属于
-    Patchouli，在自己的公共入口调用同一操作授权——上传绑定
-    ``management.asset``（``asset.acquire`` 只授权解析/获取，不自动授权
-    上传），授权先于接收与注册副作用。本层是授权点：只接收访问 context
-    与目标 workspace，注册与解析交接一律使用操作授权者返回的可信 scope，
-    调用方不能再另传 scope（P-1 缺陷由此结构性消除）。
+    同 key 的门覆盖完整请求，等待方在前次请求终态或错误收尾后进入
+    Store 的重放/冲突判定；授权先于文件接收，scope 仅在本次上传内流动。
     """
 
     def __init__(
@@ -71,9 +59,7 @@ class WorkspaceAssetApplicationService:
         """接收一个文件，注册资产并返回解析终态，保留首次创建/重放标记。"""
         # 行为检查先于接收与注册副作用：不允许未经许可的上传消耗解析与
         # 存储资源；后续全部使用操作授权者返回的可信 scope。
-        authorized_scope = self._authorizer.authorize_operation(
-            access, WorkspaceOperation.MANAGEMENT_ASSET, target_workspace
-        )
+        authorized_scope = self._authorizer.authorize_root(access, target_workspace)
         key = (authorized_scope.workspace_identity, client_operation_id)
         async with self._serial_gate.hold(key):
             metadata, content, content_hash = await receive_upload(
@@ -101,4 +87,4 @@ class WorkspaceAssetApplicationService:
             )
 
 
-__all__ = ["WorkspaceAssetApplicationService"]
+__all__ = ["RootWorkspaceAssetService"]

@@ -44,9 +44,11 @@ AUTHORIZER_ONLY_FILES = frozenset(
         "workspace/capability/memory.py",
         "workspace/capability/operations.py",
         "workspace/capability/agent_profiles.py",
-        "workspace/capability/topic.py",
-        "workspace/capability/memory_tasks.py",
-        "workspace/capability/assets.py",
+        "workspace/capability/root/memory.py",
+        "workspace/capability/root/agent_profiles.py",
+        "workspace/capability/root/topic.py",
+        "workspace/capability/root/memory_tasks.py",
+        "workspace/capability/root/assets.py",
         "workspace/process/runner.py",
         "workspace/process/allocation.py",
     }
@@ -233,3 +235,22 @@ def test_alice_execution_does_not_import_or_reference_identity_scope():
             ):
                 offenders.append(f"{path.relative_to(SRC_ROOT).as_posix()}:{node.lineno}")
     assert offenders == []
+
+
+def test_root_authorization_is_only_used_by_root_api():
+    """root 授权只能供管理 API 使用，不能被 actor 操作或阶段编排借用。"""
+    call_sites: set[str] = set()
+    for path in _source_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        if any(
+            isinstance(node, ast.Attribute) and node.attr == "authorize_root"
+            for node in ast.walk(tree)
+        ):
+            call_sites.add(path.relative_to(SRC_ROOT).as_posix())
+    assert call_sites == {
+        "workspace/capability/root/memory.py",
+        "workspace/capability/root/agent_profiles.py",
+        "workspace/capability/root/topic.py",
+        "workspace/capability/root/memory_tasks.py",
+        "workspace/capability/root/assets.py",
+    }

@@ -20,11 +20,11 @@ from hivememory.system.application.passive_ingress_service import PassiveIngress
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
 from hivememory.workspace.authentication import ActorAuthenticationGateway
-from hivememory.workspace.capability.agent_profiles import AgentApplicationService
-from hivememory.workspace.capability.assets import WorkspaceAssetApplicationService
-from hivememory.workspace.capability.memory import MemoryApplicationService
-from hivememory.workspace.capability.memory_tasks import MemoryTaskApplicationService
-from hivememory.workspace.capability.topic import TopicApplicationService
+from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
+from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
+from hivememory.workspace.capability.root.memory import RootMemoryService
+from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
+from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.process.service import TaskProcessService
 
 logger = logging.getLogger(__name__)
@@ -60,14 +60,14 @@ def get_system() -> HiveMemorySystem:
     return _system
 
 
-def get_memory_service() -> MemoryApplicationService:
-    """FastAPI Depends 注入 — 获取记忆 API 应用服务。"""
-    return get_system().memory_service
+def get_root_memory_service() -> RootMemoryService:
+    """FastAPI Depends 注入 — 从门面获取 root 记忆管理 API。"""
+    return get_system().root_memory_service
 
 
-def get_memory_task_service() -> MemoryTaskApplicationService:
-    """FastAPI Depends 注入：获取记忆生成任务 API 应用服务。"""
-    return get_system().memory_task_service
+def get_root_memory_task_service() -> RootMemoryTaskService:
+    """FastAPI Depends 注入 — 从门面获取 root 记忆任务管理 API。"""
+    return get_system().root_memory_task_service
 
 
 def get_process_service() -> TaskProcessService:
@@ -80,19 +80,19 @@ def get_ingress_service() -> PassiveIngressService:
     return get_system().ingress_service
 
 
-def get_agent_service() -> AgentApplicationService:
-    """FastAPI Depends 注入 — 获取 Agent API 应用服务。"""
-    return get_system().agent_service
+def get_root_agent_service() -> RootAgentProfileService:
+    """FastAPI Depends 注入 — 从门面获取 root Agent Profile 管理 API。"""
+    return get_system().root_agent_service
 
 
-def get_topic_service() -> TopicApplicationService:
-    """FastAPI Depends 注入 — 获取话题 API 应用服务。"""
-    return get_system().topic_service
+def get_root_topic_service() -> RootTopicService:
+    """FastAPI Depends 注入 — 从门面获取 root 话题管理 API。"""
+    return get_system().root_topic_service
 
 
-def get_workspace_asset_service() -> WorkspaceAssetApplicationService:
-    """FastAPI Depends 注入 — 获取附件上传应用服务。"""
-    return get_system().workspace_asset_service
+def get_root_workspace_asset_service() -> RootWorkspaceAssetService:
+    """FastAPI Depends 注入 — 从门面获取 root WorkspaceAsset 上传 API。"""
+    return get_system().root_workspace_asset_service
 
 
 @dataclass(frozen=True)

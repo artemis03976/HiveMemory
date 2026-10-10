@@ -7,7 +7,7 @@ removed 竞态下继续使用 representation 的缺陷。
 
 访问边界（A1 访问边界返工第 4.4/4.5 节）：上传 access 与进程 context 都
 由同一真实网关组合签发（``register_process`` 完成两阶段认证并绑定
-process_id）；进程内各阶段授权按 operation 白名单执行。
+process_id）；上传执行 root 授权，进程阶段只校验准入与目标。
 """
 
 import pytest
@@ -78,7 +78,7 @@ async def test_uploaded_ready_asset_can_be_selected_by_task_process() -> None:
     """捕获选择坐标与上传产物漂移，或 PROCESSING 资产被提前选择。"""
     store = InMemoryWorkspaceAssetStore()
     composition = make_upload_access(user_id="user-1")
-    upload_access = await composition.authenticate(agent_id="omni_doll")
+    upload_access = await composition.authenticate(agent_id="system")
     upload_service = make_upload_service(
         store=store,
         parser_config=AttachmentParserConfig(),
@@ -160,7 +160,7 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
     store = InMemoryWorkspaceAssetStore()
     scope = make_identity_scope(user_id="user-1", agent_id="omni_doll")
     composition = make_upload_access(user_id="user-1")
-    upload_access = await composition.authenticate(agent_id="omni_doll")
+    upload_access = await composition.authenticate(agent_id="system")
     upload_service = make_upload_service(
         store=store,
         parser_config=AttachmentParserConfig(),
@@ -217,7 +217,7 @@ async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
     """
     store = InMemoryWorkspaceAssetStore()
     composition = make_upload_access(user_id="user-1")
-    upload_access = await composition.authenticate(agent_id="omni_doll")
+    upload_access = await composition.authenticate(agent_id="system")
     upload_service = make_upload_service(
         store=store,
         parser_config=AttachmentParserConfig(),
