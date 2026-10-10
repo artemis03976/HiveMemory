@@ -17,16 +17,14 @@ from uuid import uuid4
 import pytest
 
 from hivememory.core.models import (
-    ActorIdentity,
     Artifacts,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
-    build_internal_identity_scope,
 )
-from hivememory.core.models.workspace import MAIN_WORKSPACE_ID
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.registered_chat import stream_registered_chat
 
 logger = logging.getLogger(__name__)
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
@@ -49,13 +47,12 @@ def _event_summary(events: list[dict[str, Any]]) -> str:
     return " -> ".join(rows)
 
 
-def _done_commands(done_event: dict[str, Any] | None) -> list[str]:
-    if not done_event:
-        return []
+def _commands(events: list[dict[str, Any]]) -> list[str]:
+    """动作来自公开 mtp_start，封口用的 turn_events 不进入 done wire。"""
     return [
-        event.get("tool_kind")
-        for event in done_event.get("data", {}).get("turn_events", [])
-        if event.get("kind") == "tool_result" and event.get("tool_kind")
+        event["data"]["verb"]
+        for event in events
+        if event["event"] == "mtp_start" and event["data"]["scope"] == "main"
     ]
 
 
@@ -129,19 +126,15 @@ async def _collect_stream_events(
     agent_id: str = "omni_doll",
 ) -> list[dict[str, Any]]:
     events: list[dict[str, Any]] = []
-    async for event in system.process_service.run_process(
+    async for event in stream_registered_chat(
+        system,
         message=user_message,
-        identity_scope=build_internal_identity_scope(
-            ActorIdentity(user_id=user_id, agent_id=agent_id),
-            MAIN_WORKSPACE_ID,
-        ),
-        interaction_id=f"interaction_{uuid4().hex}",
+        user_id=user_id,
+        agent_id=agent_id,
         enable_memory_retrieval=False,
         generation_options={"temperature": 0, "top_p": 1},
     ):
         events.append(event)
-        if event.get("event") in {"done", "error"}:
-            break
     return events
 
 
@@ -161,7 +154,7 @@ async def test_live_sub_agent_call_stream_contract(e2e_system, coder_doll_profil
         user_id = _new_user_id()
         last_events = await _collect_stream_events(e2e_system, prompt, user_id=user_id)
         done = next((e for e in last_events if e.get("event") == "done"), None)
-        if done and "CALL" in _done_commands(done):
+        if done and "CALL" in _commands(last_events):
             break
 
     done = next((e for e in last_events if e.get("event") == "done"), None)
@@ -169,7 +162,7 @@ async def test_live_sub_agent_call_stream_contract(e2e_system, coder_doll_profil
     assert done["data"].get(
         "final_text"
     ), f"done.final_text 为空。events={_event_summary(last_events)}"
-    assert "CALL" in _done_commands(done), f"未触发 CALL。events={_event_summary(last_events)}"
+    assert "CALL" in _commands(last_events), f"未触发 CALL。events={_event_summary(last_events)}"
 
     sub_start = next((e for e in last_events if e["event"] == "sub_agent_start"), None)
     assert sub_start is not None, f"缺少 sub_agent_start。events={_event_summary(last_events)}"

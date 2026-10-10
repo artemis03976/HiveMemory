@@ -4,7 +4,7 @@
 可观测事件，不修改进程记录。scope、关联上下文、payload 安全转换与
 best-effort 边界统一由 :class:`RuntimeEventPublisher` 负责。
 
-:class:`BoundProcessEvents` 只持有绑定了观测标签的发布器，不回指进程
+:class:`BoundProcessEvents` 持有只读观测标签及其绑定发布器，不回指进程
 记录——发布时需要的状态（phase/outcome/stop_reason）由调用方显式传入，
 避免事件发布器与进程记录互相引用。
 """
@@ -14,6 +14,7 @@ from __future__ import annotations
 from hivememory.components.events.publisher import RuntimeEventPublisher, Severity
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import WorkspaceDomainError
+from hivememory.core.models import ExecutionLabels
 from hivememory.workspace.process.table import (
     CancelResult,
     ProcessOutcome,
@@ -52,24 +53,23 @@ class TaskProcessEventEmitter:
         self,
         *,
         process_id: str,
-        workspace_id: str,
-        agent_id: str,
+        labels: ExecutionLabels,
         trace_id: str | None = None,
     ) -> BoundProcessEvents:
         """绑定一次进程的稳定关联字段。
 
-        ``workspace_id`` / ``agent_id`` 是观测标签（字符串，不等于授权或
-        分区）：由注册入口在创建进程时用通过认证的注册声明绑定一次，此后
-        不再改变（A1 访问边界返工第 4.4 节，I-8 选项 C）。
+        ``labels`` 由注册入口在认证成功后绑定一次：事件与 CPU 输入清单
+        共用这组只读字符串，不等于授权或分区，也不携带身份数据。
         """
         return BoundProcessEvents(
             self._publisher.bind(
                 task_type="foreground",
                 trace_id=trace_id,
                 process_id=process_id,
-                workspace_id=workspace_id,
-                agent_id=agent_id,
+                workspace_id=labels.workspace_id,
+                agent_id=labels.agent_id,
             ),
+            labels=labels,
         )
 
     def cancel_requested(
@@ -99,11 +99,18 @@ class BoundProcessEvents:
 
     发布时的进程状态（status/reason）由调用方显式传入：本类只经注册入口
     写入进程记录的 ``events`` 字段、由进程编排与控制面读取，二者单向
-    依赖，不做互相引用。
+    依赖，不做互相引用。``labels`` 是注册时绑定的唯一标签载体，也交给
+    CPU 输入清单，标签不参与授权。
     """
 
-    def __init__(self, publisher: RuntimeEventPublisher) -> None:
+    def __init__(self, publisher: RuntimeEventPublisher, *, labels: ExecutionLabels) -> None:
         self._publisher = publisher
+        self._labels = labels
+
+    @property
+    def labels(self) -> ExecutionLabels:
+        """注册时绑定的只读观测标签，供事件与 CPU 输入清单共同使用。"""
+        return self._labels
 
     def bind_topic(self, topic_id: str) -> None:
         """prepare 返回后，此后的事件都关联本轮 Topic。"""

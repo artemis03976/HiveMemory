@@ -44,7 +44,7 @@ from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
-    IdentityScope,
+    ExecutionLabels,
 )
 from hivememory.core.protocol.models import (
     AgentRunContext,
@@ -79,7 +79,7 @@ def _agent_run_context_from_manifest(manifest: CPUInputManifest) -> AgentRunCont
     alias 登记等流程使用。``AgentRunContext`` 不出现在任何公开路由上。
     """
     return AgentRunContext(
-        identity_scope=manifest.identity_scope,
+        labels=manifest.labels,
         interaction_id=manifest.process_id,
         topic_id=manifest.topic_id,
         user_message=manifest.user_message,
@@ -197,7 +197,7 @@ class AgentRunService:
                 frame = self._create_root_frame(
                     messages=messages,
                     submit_operation=submit_operation,
-                    identity_scope=preparation.context.identity_scope,
+                    labels=preparation.context.labels,
                     topic_id=preparation.context.topic_id,
                     session=preparation.session,
                     agent_profile=preparation.context.agent_profile,
@@ -222,7 +222,7 @@ class AgentRunService:
                 frame = self._create_root_frame(
                     messages=messages,
                     submit_operation=submit_operation,
-                    identity_scope=preparation.context.identity_scope,
+                    labels=preparation.context.labels,
                     topic_id=preparation.context.topic_id,
                     session=preparation.session,
                     agent_profile=preparation.context.agent_profile,
@@ -299,7 +299,7 @@ class AgentRunService:
         *,
         messages: list[dict[str, str]],
         submit_operation: OperationSubmitter,
-        identity_scope: IdentityScope,
+        labels: ExecutionLabels,
         topic_id: str,
         agent_profile: AgentProfile | None,
         session: RunSession,
@@ -313,7 +313,7 @@ class AgentRunService:
         frame = self._frame_factory.create(
             FrameSpec(
                 runtime_scope=self._frame_factory.scope(
-                    identity_scope=identity_scope,
+                    labels=labels,
                     run_id=session.agent_run_id,
                 ),
                 profile=profile,
@@ -357,7 +357,7 @@ class AgentRunService:
 
     @staticmethod
     def _event_metadata_for_frame(frame: ExecutionFrame) -> dict[str, Any]:
-        agent_id = getattr(frame.agent_profile, "alias", None) or frame.identity.agent_id
+        agent_id = frame.agent_profile.agent_id or frame.runtime_scope.labels.agent_id
         return {
             "agent_run_id": frame.runtime_scope.run_id,
             "action_id": None,
@@ -399,8 +399,8 @@ class AgentRunService:
             agent_run_id=session.agent_run_id,
             process_id=session.process_id,
             topic_id=agent_run_context.topic_id,
-            agent_id=agent_run_context.identity_scope.actor_identity.agent_id,
-            workspace_id=agent_run_context.identity_scope.workspace_identity.workspace_id,
+            agent_id=agent_run_context.labels.agent_id,
+            workspace_id=agent_run_context.labels.workspace_id,
         )
 
 

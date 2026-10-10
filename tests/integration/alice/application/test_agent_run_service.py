@@ -35,7 +35,7 @@ from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.contracts import CPUExecutionStatus
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_execution_labels
 
 
 def _build_memory_atom() -> MemoryAtom:
@@ -59,11 +59,13 @@ def _build_memory_atom() -> MemoryAtom:
 def _build_input_manifest(
     memory: MemoryAtom,
     *,
-    identity_scope=None,
+    labels=None,
+    agent_profile=None,
     process_id: str = "process-test",
 ):
     return make_input_manifest(
-        identity_scope=identity_scope or make_identity_scope(user_id="u1", agent_id="omni_doll"),
+        labels=labels or make_execution_labels(agent_id="omni_doll"),
+        agent_profile=agent_profile,
         process_id=process_id,
         topic_id="topic_1",
         user_message="hello",
@@ -130,25 +132,63 @@ async def test_run_agent_passes_input_and_submitter_to_root_frame():
 
 
 @pytest.mark.asyncio
-async def test_root_frame_inherits_agent_run_workspace_context() -> None:
-    """防止 Alice 创建 root frame 时从 actor 字段重新拼装默认 Workspace。"""
-    runtime, service = _build_service()
-    context = _build_input_manifest(
+@pytest.mark.parametrize(
+    ("profile_agent_id", "display_agent_id"),
+    [("display_agent", "display_agent"), (None, "registered_agent"), ("", "registered_agent")],
+)
+async def test_registered_labels_drive_runtime_events_and_profile_controls_stream_display(
+    monkeypatch, profile_agent_id, display_agent_id
+) -> None:
+    """真实执行链不携带授权身份，事件用注册标签，流展示优先 Profile 源 alias。"""
+    from types import SimpleNamespace
+
+    from hivememory.core.models import AgentProfile
+
+    recorder = RecordingRuntimeEventSink()
+    _runtime, service = _build_service(runtime_events=recorder)
+    manifest = _build_input_manifest(
         _build_memory_atom(),
-        identity_scope=make_identity_scope(
-            user_id="u1",
-            agent_id="omni_doll",
-            workspace_id="isolation_workspace",
+        labels=make_execution_labels(
+            agent_id="registered_agent", workspace_id="isolation_workspace"
         ),
+        agent_profile=AgentProfile(agent_id=profile_agent_id),
         process_id="interaction-isolation",
     )
-    _stub_terminal_execution(runtime)
 
-    await service.run_agent(context, stream=False, submit_operation=MagicMock())
+    async def completion(**_kwargs):
+        async def chunks():
+            yield SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(content="标签保持一致"), finish_reason="stop"
+                    )
+                ]
+            )
 
-    frame = runtime._agent_runtime.run_frame.await_args.args[0]
-    assert frame.identity_scope == context.identity_scope
-    assert frame.runtime_scope.identity_scope == context.identity_scope
+        return chunks()
+
+    monkeypatch.setattr("hivememory.agent_runtime.execution.worker.litellm.acompletion", completion)
+    events = [
+        event
+        async for event in service.run_agent(
+            manifest,
+            {"model": "test-model"},
+            stream=True,
+            submit_operation=MagicMock(),
+        )
+    ]
+
+    assert [event["event"] for event in events] == ["token", "done"]
+    assert [event["data"]["agent_id"] for event in events] == [display_agent_id, display_agent_id]
+    assert events[-1]["data"]["final_text"] == "标签保持一致"
+    assert [event.event_type for event in recorder.events] == [
+        RuntimeEventType.AGENT_RUN_STARTED,
+        RuntimeEventType.AGENT_RUN_COMPLETED,
+    ]
+    assert [(event.agent_id, event.workspace_id) for event in recorder.events] == [
+        ("registered_agent", "isolation_workspace"),
+        ("registered_agent", "isolation_workspace"),
+    ]
 
 
 @pytest.mark.asyncio

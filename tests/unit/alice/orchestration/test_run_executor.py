@@ -18,6 +18,7 @@ from hivememory.alice.orchestration.sub_agent.call_coordinator import (
 )
 from hivememory.alice.runtime.streaming import QueueAgentRunOutput
 from hivememory.core.mtp import MTPCallRequest
+from tests.helpers.workspace import make_runtime_scope
 
 
 def _session_with(frame) -> RunSession:
@@ -28,9 +29,8 @@ def _session_with(frame) -> RunSession:
 
 def _frame_stub(frame_id: str, *, run_id: str = "run-1"):
     return SimpleNamespace(
-        runtime_scope=SimpleNamespace(run_id=run_id, frame_id=frame_id),
-        agent_profile=SimpleNamespace(alias="helper" if frame_id != "frame-1" else "main"),
-        identity=SimpleNamespace(agent_id="owner"),
+        runtime_scope=make_runtime_scope(run_id=run_id, frame_id=frame_id),
+        agent_profile=SimpleNamespace(agent_id="helper" if frame_id != "frame-1" else "main"),
     )
 
 

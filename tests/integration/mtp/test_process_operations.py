@@ -15,7 +15,7 @@ from hivememory.core.models import (
 )
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.operations import OperationsHarness
-from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.workspace import make_identity_scope, make_runtime_scope, make_workspace_identity
 
 
 @pytest.mark.asyncio
@@ -26,7 +26,7 @@ async def test_write_ack_can_be_read_in_next_process_and_redirect_after_settleme
     first_scope = make_runtime_scope(run_id="first")
     first = MTPExecutionContext(
         runtime_scope=first_scope,
-        submit_operation=await harness.submitter(first_scope.identity_scope, "first"),
+        submit_operation=await harness.submitter(make_identity_scope(), "first"),
     )
     write = await koakuma.execute_mtp(
         '⟪ WRITE | * | title="跨轮草稿" content="共享的待定内容" ⟫', first
@@ -39,7 +39,9 @@ async def test_write_ack_can_be_read_in_next_process_and_redirect_after_settleme
     next_scope = make_runtime_scope(run_id="second", agent_id="another_agent")
     next_context = MTPExecutionContext(
         runtime_scope=next_scope,
-        submit_operation=await harness.submitter(next_scope.identity_scope, "second"),
+        submit_operation=await harness.submitter(
+            make_identity_scope(agent_id="another_agent"), "second"
+        ),
     )
     read = await koakuma.execute_mtp(f"⟪ READ | {alias} | ⟫", next_context)
     assert read.response_status == "success"
@@ -74,7 +76,7 @@ async def test_revoked_execution_credential_returns_mtp_system_fault_without_reg
     """吊销凭据后不能留下新意图，Alice 仍回填现有结构化系统错误。"""
     harness = OperationsHarness()
     scope = make_runtime_scope()
-    submit_operation = await harness.submitter(scope.identity_scope)
+    submit_operation = await harness.submitter(make_identity_scope())
     harness.revoke("test_run")
     context = MTPExecutionContext(runtime_scope=scope, submit_operation=submit_operation)
     result = await KoakumaRuntime().execute_mtp('⟪ WRITE | * | content="关闭后不能写入" ⟫', context)
@@ -89,7 +91,7 @@ async def test_update_pending_base_returns_existing_mtp_argument_error():
     harness = OperationsHarness()
     scope = make_runtime_scope()
     context = MTPExecutionContext(
-        runtime_scope=scope, submit_operation=await harness.submitter(scope.identity_scope)
+        runtime_scope=scope, submit_operation=await harness.submitter(make_identity_scope())
     )
     koakuma = KoakumaRuntime()
     write = await koakuma.execute_mtp('⟪ WRITE | * | content="待定草稿" ⟫', context)
@@ -115,7 +117,7 @@ async def test_operation_denial_maps_to_mtp_permission_error(command):
     scope = make_runtime_scope()
     context = MTPExecutionContext(
         runtime_scope=scope,
-        submit_operation=await harness.submitter(scope.identity_scope, allowed_operations=[]),
+        submit_operation=await harness.submitter(make_identity_scope(), allowed_operations=[]),
     )
     result = await KoakumaRuntime().execute_mtp(command, context)
     assert result.response_status == "error"
@@ -143,7 +145,7 @@ async def test_search_without_resource_search_grant_does_not_deliver_or_warm_mem
     context = MTPExecutionContext(
         runtime_scope=scope,
         submit_operation=await harness.submitter(
-            scope.identity_scope, allowed_operations=[WorkspaceOperation.RESOURCE_READ]
+            make_identity_scope(), allowed_operations=[WorkspaceOperation.RESOURCE_READ]
         ),
     )
 
@@ -154,3 +156,32 @@ async def test_search_without_resource_search_grant_does_not_deliver_or_warm_mem
     assert result.response_content == ""
     assert harness.runtime.stats()["atom_size"] == 0
     assert harness.citations == []
+
+
+@pytest.mark.asyncio
+async def test_write_observation_labels_cannot_replace_credential_actor_or_workspace():
+    """伪造观测标签只改变展示，不能切换 WRITE 的授权主体或资源归属。"""
+    harness = OperationsHarness()
+    scope = make_identity_scope()
+    context = MTPExecutionContext(
+        runtime_scope=make_runtime_scope(
+            agent_id="observed_other_agent", workspace_id="observed_other_workspace"
+        ),
+        submit_operation=await harness.submitter(scope),
+    )
+
+    result = await KoakumaRuntime().execute_mtp(
+        '⟪ WRITE | * | content="凭据确定写入主体" ⟫', context
+    )
+
+    assert result.response_status == "ack"
+    pending = harness.registry.get(result.pending_alias, scope.workspace_identity)
+    assert pending.focus.content == "凭据确定写入主体"
+    assert pending.belong_to == scope.workspace_identity
+    assert pending.from_actor == scope.actor_identity
+    assert (
+        harness.registry.get(
+            result.pending_alias, make_workspace_identity(workspace_id="observed_other_workspace")
+        )
+        is None
+    )

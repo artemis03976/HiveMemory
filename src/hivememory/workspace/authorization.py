@@ -1,4 +1,4 @@
-"""Workspace 操作授权：第 3 阶段授权、进程控制授权与 CPU 执行身份。
+"""Workspace 操作授权：第 3 阶段授权与进程控制授权。
 
 :class:`WorkspaceOperationAuthorizer` 是授权点（能力层、任务进程的阶段
 检查、注册入口的取消与状态查询）使用的操作授权者（A1 访问边界返工第
@@ -87,22 +87,6 @@ class WorkspaceOperationAuthorizer:
         # WorkspaceIdentity 相等性覆盖 owner_user_id 与 workspace 坐标。
         return requestor_grant.workspace == record_grant.workspace
 
-    def cpu_execution_identity(
-        self,
-        access: WorkspaceAccessContext,
-        target_workspace: WorkspaceIdentity,
-    ) -> IdentityScope:
-        """CPU 执行身份的过渡组装（I-9）：只做目标与 owner 检查，不检查 operation。
-
-        只供任务进程在 CPU 分配时调用——CPU 执行本身没有对应的 operation，
-        Alice 直接调用 Patchouli 的缺口由 Alice 的能力层调用迁移解决；
-        该迁移完成后本方法删除。调用点由分层测试约束在
-        ``workspace/process`` 之内。
-        """
-        grant, _ = self._redeem(access)
-        self._check_target(grant, target_workspace, operation=None)
-        return IdentityScope(actor_identity=grant.actor, workspace_identity=target_workspace)
-
     # ---- 内部辅助 ----
 
     def _redeem(
@@ -141,9 +125,9 @@ class WorkspaceOperationAuthorizer:
         grant: AccessGrant,
         target_workspace: WorkspaceIdentity,
         *,
-        operation: WorkspaceOperation | None,
+        operation: WorkspaceOperation,
     ) -> None:
-        """目标 workspace 与 owner 检查：操作授权与 CPU 执行身份共用的唯一实现。
+        """操作授权的目标 workspace 与 owner 检查。
 
         目标检查（I-4）当前只接受等于驻留 workspace 的目标，受限穿透访问
         落地后在此放宽；owner 约束（W0 基线）在第 3 阶段检查，身份类型
@@ -151,7 +135,7 @@ class WorkspaceOperationAuthorizer:
         """
         if not isinstance(target_workspace, WorkspaceIdentity):
             raise TypeError("target_workspace 必须是 WorkspaceIdentity")
-        operation_detail = {"operation": operation.value} if operation is not None else {}
+        operation_detail = {"operation": operation.value}
         if target_workspace != grant.workspace:
             raise OperationDeniedError(
                 details={

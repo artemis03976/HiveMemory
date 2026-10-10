@@ -172,7 +172,7 @@ class CallCoordinator:
                 shared_context=call_context.shared_context,
             )
             scope = self._frame_factory.scope(
-                identity_scope=caller_frame.identity_scope,
+                labels=caller_frame.runtime_scope.labels,
                 run_id=caller_frame.runtime_scope.run_id,
             )
             return self._frame_factory.create(

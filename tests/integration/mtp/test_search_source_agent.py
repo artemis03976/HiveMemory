@@ -42,7 +42,7 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.operations import HarnessKoakumaRuntime
-from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
+from tests.helpers.workspace import make_identity_scope, make_runtime_scope, make_workspace_identity
 
 NOW = datetime(2026, 10, 4, 12, tzinfo=UTC)
 ACTOR = ActorIdentity(user_id="owner-1", agent_id="reader-agent", team_id="reader-team")
@@ -131,7 +131,12 @@ async def _search(koakuma: KoakumaRuntime, filter_text: str | None = None) -> MT
         arguments += f' filter="{filter_text}"'
     return await koakuma.execute_mtp(
         f"{MTP_LEFT_DELIMITER} SEARCH | * | {arguments} {MTP_RIGHT_DELIMITER}",
-        context=MTPExecutionContext(runtime_scope=make_runtime_scope(actor_identity=ACTOR)),
+        context=MTPExecutionContext(
+            runtime_scope=make_runtime_scope(agent_id=ACTOR.agent_id),
+            submit_operation=await koakuma.harness.submitter(
+                make_identity_scope(actor_identity=ACTOR)
+            ),
+        ),
     )
 
 

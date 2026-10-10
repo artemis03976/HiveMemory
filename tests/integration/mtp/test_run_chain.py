@@ -36,7 +36,7 @@ from hivememory.core.models import (
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.engines.generation.models import DuplicateDecision
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
+from tests.helpers.workspace import make_identity_scope, make_runtime_scope, make_workspace_identity
 
 MAIN = make_workspace_identity()
 
@@ -339,8 +339,8 @@ class TestRunUserToolPath:
     def test_redirected_pending_alias_executes_canonical_tool(self, koakuma):
         pending = koakuma.registry.register_write(
             WriteFocus(content="pending tool", title="Pending Tool", reason=None),
-            belong_to=make_runtime_scope().identity_scope.workspace_identity,
-            from_actor=make_runtime_scope().identity_scope.actor_identity,
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
             process_id=make_runtime_scope().run_id,
         )
         canonical = _make_code_memory(
@@ -378,8 +378,8 @@ class TestRunUserToolPath:
     def test_failed_pending_alias_returns_reclaimed_error(self, koakuma):
         pending = koakuma.registry.register_write(
             WriteFocus(content="pending tool", title="Pending Tool", reason=None),
-            belong_to=make_runtime_scope().identity_scope.workspace_identity,
-            from_actor=make_runtime_scope().identity_scope.actor_identity,
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
             process_id=make_runtime_scope().run_id,
         )
         koakuma.registry.claim_process(pending.process_id)
@@ -404,8 +404,8 @@ class TestRunUserToolPath:
         """同 scope 注册的 in-flight pending 仍按 pending 不可执行语义拒绝。"""
         pending = koakuma.registry.register_write(
             WriteFocus(content="pending tool", title="Pending Tool", reason=None),
-            belong_to=make_runtime_scope().identity_scope.workspace_identity,
-            from_actor=make_runtime_scope().identity_scope.actor_identity,
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
             process_id=make_runtime_scope().run_id,
         )
 
@@ -421,12 +421,8 @@ class TestRunUserToolPath:
         """跨 Workspace RUN 他人 pending alias：报 Alias Not Found，不泄露 pending 状态。"""
         pending = koakuma.registry.register_write(
             WriteFocus(content="pending tool", title="Pending Tool", reason=None),
-            belong_to=make_runtime_scope(
-                workspace_id="isolation_workspace"
-            ).identity_scope.workspace_identity,
-            from_actor=make_runtime_scope(
-                workspace_id="isolation_workspace"
-            ).identity_scope.actor_identity,
+            belong_to=make_identity_scope(workspace_id="isolation_workspace").workspace_identity,
+            from_actor=make_identity_scope(workspace_id="isolation_workspace").actor_identity,
             process_id=make_runtime_scope(workspace_id="isolation_workspace").run_id,
         )
 
@@ -449,12 +445,8 @@ class TestRunUserToolPath:
         """跨 Workspace RUN 已结算 redirect：不得执行 canonical 工具。"""
         pending = koakuma.registry.register_write(
             WriteFocus(content="pending tool", title="Pending Tool", reason=None),
-            belong_to=make_runtime_scope(
-                workspace_id="isolation_workspace"
-            ).identity_scope.workspace_identity,
-            from_actor=make_runtime_scope(
-                workspace_id="isolation_workspace"
-            ).identity_scope.actor_identity,
+            belong_to=make_identity_scope(workspace_id="isolation_workspace").workspace_identity,
+            from_actor=make_identity_scope(workspace_id="isolation_workspace").actor_identity,
             process_id=make_runtime_scope(workspace_id="isolation_workspace").run_id,
         )
         canonical = _make_code_memory(

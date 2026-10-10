@@ -383,6 +383,7 @@ class TaskProcessRunner:
         manifest = self._allocator.allocate(
             working_set,
             process_id=record.process_id,
+            labels=record.events.labels,
             user_message=request.message,
             agent_profile=agent_profile,
             selections=list(request.attachments),

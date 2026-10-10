@@ -631,9 +631,6 @@ class _DenyRepeatedOperation:
                 raise OperationDeniedError(details={"operation": operation.value})
         return self._delegate.authorize_operation(access, operation, target_workspace)
 
-    def cpu_execution_identity(self, access, target_workspace):
-        return self._delegate.cpu_execution_identity(access, target_workspace)
-
     def authorize_process_control(self, requestor, record_access):
         return self._delegate.authorize_process_control(requestor, record_access)
 

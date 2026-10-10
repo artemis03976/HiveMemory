@@ -34,7 +34,7 @@ from hivememory.core.mtp import (
     MTPFilterParser,
 )
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
+from tests.helpers.workspace import make_identity_scope, make_runtime_scope, make_workspace_identity
 
 MAIN = make_workspace_identity()
 
@@ -241,18 +241,28 @@ class TestSearchRetrievalRequest:
         assert result.response_status == "success"
         assert "Test Memory" in result.response_content
 
-    def test_identity_scope_injected_for_search(self, koakuma):
+    def test_search_uses_credential_identity_when_observation_labels_differ(self, koakuma):
+        """观测标签不能替代凭据授权声明，检索仍以显式认证主体读取。"""
         mem = _make_memory(user_id="user_42")
         koakuma.harness.backing.bus._mock_retrieval.retrieve.return_value = (
             _make_retrieval_response([mem])
         )
-        context = MTPExecutionContext(runtime_scope=make_runtime_scope(user_id="user_42"))
+        context = MTPExecutionContext(
+            runtime_scope=make_runtime_scope(
+                agent_id="display_agent", workspace_id="display_workspace"
+            ),
+            submit_operation=asyncio.run(
+                koakuma.harness.submitter(make_identity_scope(user_id="user_42"))
+            ),
+        )
 
         result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫', context=context)
 
         request = koakuma.harness.backing.bus._mock_retrieval.retrieve.call_args[1]["request"]
         assert request.identity_scope.actor_identity.user_id == "user_42"
+        assert request.identity_scope.actor_identity.agent_id == "test_agent"
         assert request.identity_scope.workspace_identity.owner_user_id == "user_42"
+        assert request.identity_scope.workspace_identity.workspace_id == "main_workspace"
         assert result.response_status == "success"
         assert "Test Memory" in result.response_content
 

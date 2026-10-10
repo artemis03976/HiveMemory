@@ -32,14 +32,14 @@ from hivememory.workspace.contracts import OperationRequest
 from hivememory.workspace.credentials import ExecutionCredentialRegistry
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.operations import OperationsHarness
-from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
 
-def _caller(submit_operation, *, user_id="test_user", agent_id="parent") -> ExecutionFrame:
+def _caller(submit_operation, *, agent_id="parent") -> ExecutionFrame:
     """创建已产生 CALL suspension 的调用方，保持真实响应回填入口。"""
     caller = ExecutionFrame(
         runtime_scope=make_runtime_scope(
-            user_id=user_id, agent_id=agent_id, run_id="call-process", frame_id="caller"
+            agent_id=agent_id, run_id="call-process", frame_id="caller"
         ),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[],
@@ -111,9 +111,7 @@ async def _profile_submitter(chain):
         credential_registry=credentials,
         intent_registry=chain.runtime.intents,
     )
-    workspace = make_runtime_scope(
-        user_id="u1", agent_id="reader"
-    ).identity_scope.workspace_identity
+    workspace = make_identity_scope(user_id="u1", agent_id="reader").workspace_identity
     credential = credentials.issue(
         access=chain.reader, target_workspace=workspace, process_id="call-process"
     )
@@ -130,9 +128,7 @@ async def test_call_reloads_profile_after_management_updates_source_atom(profile
     atom = _profile_atom()
     await profile_chain.store.upsert(atom)
     submit_operation, workspace = await _profile_submitter(profile_chain)
-    first, _ = await _begin_call(
-        _caller(submit_operation, user_id="u1", agent_id="reader"), "custom_agent"
-    )
+    first, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), "custom_agent")
     assert isinstance(first, DispatchCallee)
     assert (first.frame.agent_profile.model_name, first.frame.agent_profile.persona) == (
         "old-model",
@@ -146,9 +142,7 @@ async def test_call_reloads_profile_after_management_updates_source_atom(profile
         target_workspace=workspace,
         access=profile_chain.manager,
     )
-    second, _ = await _begin_call(
-        _caller(submit_operation, user_id="u1", agent_id="reader"), "custom_agent"
-    )
+    second, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), "custom_agent")
 
     assert isinstance(second, DispatchCallee)
     assert (second.frame.agent_profile.model_name, second.frame.agent_profile.persona) == (
@@ -164,9 +158,7 @@ async def test_builtin_call_uses_workspace_profile_read_and_keeps_builtin_config
 ):
     """未指定与显式内置 alias 经真实 backing 解析，仍交付同一能力配置。"""
     submit_operation, _ = await _profile_submitter(profile_chain)
-    transition, _ = await _begin_call(
-        _caller(submit_operation, user_id="u1", agent_id="reader"), alias
-    )
+    transition, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), alias)
 
     assert isinstance(transition, DispatchCallee)
     assert transition.frame.agent_profile == OMNI_DOLL_PROFILE
@@ -178,9 +170,9 @@ async def test_builtin_call_uses_workspace_profile_read_and_keeps_builtin_config
 async def test_call_without_profile_read_returns_permission_error_without_dispatch(alias):
     """缺少 profile.read 的凭据无法执行 CALL，内置 Profile 同样不能旁路。"""
     harness = OperationsHarness()
-    scope = make_runtime_scope(agent_id="parent")
+    scope = make_identity_scope(agent_id="parent")
     submit_operation = await harness.submitter(
-        scope.identity_scope,
+        scope,
         "call-process",
         allowed_operations={WorkspaceOperation.RESOURCE_READ},
     )
@@ -216,7 +208,7 @@ async def test_unusable_custom_profile_returns_preparation_error_without_fallbac
         )
         await profile_chain.store.upsert(atom)
     submit_operation, _ = await _profile_submitter(profile_chain)
-    caller = _caller(submit_operation, user_id="u1", agent_id="reader")
+    caller = _caller(submit_operation, agent_id="reader")
 
     transition, session = await _begin_call(caller, "custom_agent")
 
@@ -244,7 +236,7 @@ async def test_call_context_refs_record_citations_for_delivered_formal_atoms():
         payload=PayloadLayer(content="被共享的正式原子"),
     )
     harness.memories["context_atom"] = atom
-    submit_operation = await harness.submitter(make_runtime_scope(agent_id="parent").identity_scope)
+    submit_operation = await harness.submitter(make_identity_scope(agent_id="parent"))
     transition, _ = await _begin_call(
         _caller(submit_operation), "omni_doll", context_refs=["context_atom"]
     )

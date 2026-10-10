@@ -48,7 +48,7 @@ def _frame(
 
 def _context(frame: ExecutionFrame):
     return make_input_manifest(
-        identity_scope=frame.identity_scope,
+        labels=frame.runtime_scope.labels,
         process_id="interaction-test",
         topic_id=frame.topic_id,
         user_message="hello",

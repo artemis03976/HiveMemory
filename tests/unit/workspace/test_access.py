@@ -21,8 +21,6 @@
   分别拒绝；按授权者自己的访问登记判定准入（``actor_not_admitted``）；
 - 进程控制授权比对请求方与进程记录的驻留坐标（P-7）：请求方无效按
   ``ScopeRequiredError`` 拒绝，记录侧已撤销按 ``False``（不可控）呈现；
-- ``cpu_execution_identity`` 过渡方法不检查 operation，但与操作授权共用
-  目标与 owner 检查。
 
 签发约定：``WorkspaceAuthenticator.admit`` 只由认证网关调用——本套件的
 全部签发都经 ``composition.gateway.authenticate`` 完成，不直接调用
@@ -215,7 +213,7 @@ async def test_authenticator_does_not_retain_unused_contexts():
 
 
 # ---------------------------------------------------------------------------
-# 操作授权者（WorkspaceOperationAuthorizer）：第 3 阶段授权、进程控制与 CPU 身份
+# 操作授权者（WorkspaceOperationAuthorizer）：第 3 阶段授权与进程控制
 # ---------------------------------------------------------------------------
 
 
@@ -363,64 +361,6 @@ async def test_authorize_operation_rejects_wrong_operation_and_target_types():
         composition.authorizer.authorize_operation(
             context, WorkspaceOperation.RESOURCE_READ, "main_workspace"
         )
-    with pytest.raises(TypeError):
-        composition.authorizer.cpu_execution_identity(context, "main_workspace")
-
-
-@pytest.mark.asyncio
-async def test_cpu_execution_identity_skips_whitelist_but_checks_target():
-    """CPU 执行身份不检查 operation：空白名单 Actor 也取得可信 scope（I-9）。
-
-    任务进程在 CPU 分配时据此组装输入清单身份，operation 已在各阶段检查；
-    捕获把行为白名单重新带回 CPU 分配、形成双重检查的缺陷。目标 workspace
-    检查保留：非驻留目标仍被拒绝。
-    """
-    composition = make_access_composition(
-        [
-            make_actor_access_record(
-                owner_user_id="u1", agent_id="a1", allowed_operations=frozenset()
-            )
-        ],
-        default_workspace=MAIN,
-    )
-    context = await composition.authenticate(agent_id="a1", user_id="u1")
-
-    scope = composition.authorizer.cpu_execution_identity(context, MAIN)
-
-    assert isinstance(scope, IdentityScope)
-    assert scope.actor_identity.agent_id == "a1"
-    assert scope.workspace_identity == MAIN
-    # 同一凭据走 operation 授权仍受白名单约束：CPU 身份不放宽行为检查。
-    with pytest.raises(OperationDeniedError) as exc_info:
-        composition.authorizer.authorize_operation(context, WorkspaceOperation.RESOURCE_READ, MAIN)
-    assert exc_info.value.details["reason"] == "operation_not_allowed"
-    # 非驻留目标在 CPU 身份路径同样拒绝。
-    with pytest.raises(OperationDeniedError) as target_info:
-        composition.authorizer.cpu_execution_identity(context, ISOLATION)
-    assert target_info.value.details["reason"] == "target_workspace_not_resident"
-
-
-@pytest.mark.asyncio
-async def test_cpu_execution_identity_rejects_revoked_and_foreign_owner_contexts():
-    """CPU 执行身份不跳过撤销与 owner 检查（与操作授权共用目标检查）。"""
-    composition = make_access_composition(
-        [
-            make_actor_access_record(owner_user_id="u1", agent_id="a1"),
-            make_actor_access_record(owner_user_id="u2", agent_id="a1"),
-        ],
-        default_workspace=MAIN,
-    )
-    context = await composition.authenticate(agent_id="a1", user_id="u1")
-    foreign = await composition.authenticate(agent_id="a1", user_id="u2", workspace=FOREIGN_OWNER)
-
-    with pytest.raises(OperationDeniedError) as owner_info:
-        composition.authorizer.cpu_execution_identity(foreign, MAIN)
-    composition.gateway.invalidate_context(context)
-    with pytest.raises(ScopeRequiredError) as revoked_info:
-        composition.authorizer.cpu_execution_identity(context, MAIN)
-
-    assert owner_info.value.details["reason"] == "target_workspace_not_resident"
-    assert revoked_info.value.details["reason"] == "context_not_issued"
 
 
 class TestAuthorizeProcessControl:

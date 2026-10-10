@@ -281,8 +281,7 @@ async def test_mtp_execution_receives_frame_context():
     _, kwargs = executor._mtp_executor.intercept_and_execute.await_args
     context = kwargs["context"]
     assert isinstance(context, MTPExecutionContext)
-    assert context.identity == frame.identity
-    assert context.identity_scope == frame.identity_scope
+    assert context.runtime_scope.labels == frame.runtime_scope.labels
     assert context.agent_profile is frame.agent_profile
     assert context.runtime_scope.run_id == frame.runtime_scope.run_id
     assert context.runtime_scope.frame_id == frame.runtime_scope.frame_id

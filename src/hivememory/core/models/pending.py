@@ -18,7 +18,6 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hivememory.core.models.identity import ActorIdentity, WorkspaceIdentity
-from hivememory.core.models.workspace import IdentityScope
 
 # ===========================================================================
 # 生命周期状态体系
@@ -141,10 +140,23 @@ class UpdateFocus(BaseModel):
 # ===========================================================================
 
 
-class RuntimeScope(BaseModel):
-    """Alice run/frame/action 坐标及其不可切换的 Workspace hard boundary。"""
+class ExecutionLabels(BaseModel):
+    """注册时绑定的执行观测标签，只用于提示词、展示与事件关联。
 
-    identity_scope: IdentityScope
+    标签不含发起者或资源归属，不能组装授权身份、访问资源或切换 Workspace。
+    主线程与 CALL 子帧继承同一组标签，操作授权始终由执行凭据决定。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    agent_id: str
+    workspace_id: str
+
+
+class RuntimeScope(BaseModel):
+    """Alice run/frame/action 坐标与注册时绑定的观测标签。"""
+
+    labels: ExecutionLabels
     run_id: str
     frame_id: str
     action_id: str | None = None
@@ -304,6 +316,7 @@ __all__ = [
     "WriteFocus",
     "UpdateFocus",
     # 执行坐标
+    "ExecutionLabels",
     "RuntimeScope",
     # 主体
     "PendingAtom",

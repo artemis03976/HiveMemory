@@ -25,7 +25,11 @@ from hivememory.workspace.contracts import (
 )
 from hivememory.workspace.credentials import ExecutionCredentialRegistry
 from hivememory.workspace.runtime import WorkspaceRuntime
-from tests.helpers.workspace import make_access_composition, make_actor_access_record
+from tests.helpers.workspace import (
+    make_access_composition,
+    make_actor_access_record,
+    make_identity_scope,
+)
 
 
 class MemoryBackend:
@@ -77,6 +81,8 @@ class OperationsHarness:
     """为测试身份装配真实入口，跨调用保留同一份进程级登记。"""
 
     def __init__(self, bus=None, *, operation_authorizer=None) -> None:
+        # 缺省认证声明独立于 CPU 观测标签；自定义身份必须显式签发提交函数。
+        self.default_scope = make_identity_scope()
         self.bus = bus or GlobalSystemBus()
         self.citations: list[dict] = []
         if bus is None:
@@ -166,7 +172,7 @@ class HarnessKoakumaRuntime(KoakumaRuntime):
     async def execute_mtp(self, text, context=None):
         if context is not None and context.submit_operation is None:
             submit_operation = await self.harness.submitter(
-                context.identity_scope, context.runtime_scope.run_id
+                self.harness.default_scope, context.runtime_scope.run_id
             )
             context = replace(context, submit_operation=submit_operation)
         return await super().execute_mtp(text, context=context)

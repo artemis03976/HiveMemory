@@ -68,7 +68,7 @@ class TestKoakumaWriteE2E:
 
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        koakuma.context = MTPExecutionContext(runtime_scope=make_runtime_scope(user_id="test_user"))
+        koakuma.context = MTPExecutionContext(runtime_scope=make_runtime_scope())
         return koakuma
 
     @pytest.mark.asyncio
@@ -131,7 +131,6 @@ class TestKoakumaWriteE2E:
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
         context = MTPExecutionContext(
             runtime_scope=make_runtime_scope(
-                user_id="test_user",
                 run_id="run_write_test",
                 frame_id="frame_main_write",
             ),

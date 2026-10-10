@@ -111,7 +111,7 @@ class _WorkspaceEchoCPU:
     def execute(self, manifest, *, credential, generation_options=None, stream=False):
         async def _run():
             yield CPUExecutionResult(
-                final_text=manifest.identity_scope.workspace_identity.workspace_id,
+                final_text=manifest.labels.workspace_id,
             )
 
         return _run()

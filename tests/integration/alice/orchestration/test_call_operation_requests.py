@@ -22,7 +22,7 @@ from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.core.mtp import MTPCallRequest
 from hivememory.prompts.assembler import AgentPromptAssembler
 from tests.helpers.operations import OperationsHarness
-from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
 
 @pytest.mark.asyncio
@@ -30,7 +30,8 @@ async def test_callee_submits_with_parent_credential_and_keeps_parent_as_intent_
     """真实创建的子帧继承提交函数，WRITE 意图仍归主线程发起者，父帧可以回读。"""
     harness = OperationsHarness()
     scope = make_runtime_scope(agent_id="parent", run_id="process-parent")
-    submit_operation = await harness.submitter(scope.identity_scope, "process-parent")
+    identity_scope = make_identity_scope(agent_id="parent")
+    submit_operation = await harness.submitter(identity_scope, "process-parent")
     caller = ExecutionFrame(
         runtime_scope=scope,
         agent_profile=OMNI_DOLL_PROFILE,
@@ -71,8 +72,8 @@ async def test_callee_submits_with_parent_credential_and_keeps_parent_as_intent_
         ),
     )
     assert write.response_status == "ack"
-    pending = harness.registry.get(write.pending_alias, scope.identity_scope.workspace_identity)
-    assert pending.from_actor == scope.identity_scope.actor_identity
+    pending = harness.registry.get(write.pending_alias, identity_scope.workspace_identity)
+    assert pending.from_actor == identity_scope.actor_identity
     assert pending.process_id == "process-parent"
     read = await koakuma.execute_mtp(
         f"⟪ READ | {write.pending_alias} | ⟫",

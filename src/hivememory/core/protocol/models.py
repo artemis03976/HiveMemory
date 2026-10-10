@@ -18,6 +18,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models import (
     AgentProfile,
+    ExecutionLabels,
     IdentityScope,
     MemoryAtom,
     TraceItem,
@@ -169,9 +170,9 @@ class RetrievalResponse(ProtocolMessage):
 
 
 class AgentRunContext(BaseModel):
-    """供 Alice 组装并执行 Agent run 的中立上下文。"""
+    """供 Alice 组装 Agent run 的内容与观测上下文，不携带授权身份。"""
 
-    identity_scope: IdentityScope
+    labels: ExecutionLabels
     interaction_id: str = Field(description="本次 Chat Interaction 的稳定关联 ID")
     topic_id: str = Field(default="")
     user_message: str = Field(default="")

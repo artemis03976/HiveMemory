@@ -33,7 +33,7 @@ from hivememory.core.models import (
 from hivememory.prompts.assembler import AgentPromptAssembler
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_execution_labels
 
 
 def _build_memory_atom() -> MemoryAtom:
@@ -56,7 +56,7 @@ def _build_memory_atom() -> MemoryAtom:
 
 def _build_input_manifest(memory: MemoryAtom):
     return make_input_manifest(
-        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
+        labels=make_execution_labels(agent_id="omni_doll"),
         process_id="process-test",
         topic_id="topic_1",
         user_message="hello",

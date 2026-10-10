@@ -9,7 +9,7 @@ from hivememory.agent_runtime.models import ExecutionFrame, ExecutionProgress
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.core.models import (
     AgentProfile,
-    IdentityScope,
+    ExecutionLabels,
     RuntimeScope,
     TurnEvent,
 )
@@ -73,13 +73,13 @@ class FrameFactory:
     @staticmethod
     def scope(
         *,
-        identity_scope: IdentityScope,
+        labels: ExecutionLabels,
         run_id: str,
         frame_id: str | None = None,
     ) -> RuntimeScope:
-        """生成继承 hard boundary 的唯一 run/frame 坐标。"""
+        """生成继承观测标签的唯一 run/frame 坐标，不携带授权身份。"""
         return RuntimeScope(
-            identity_scope=identity_scope,
+            labels=labels,
             run_id=run_id,
             frame_id=frame_id or f"frame_{uuid4().hex}",
         )

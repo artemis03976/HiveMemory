@@ -2,8 +2,8 @@
 
 被测边界：``TaskProcessService`` 在 prepare 之后、进入 Actor 执行之前完成
 Profile 解析、附件租借与编译，并组装 ``CPUInputManifest``；Profile 解析与
-附件租借的阶段 operation 授权在分配层、副作用前执行，清单身份由操作授权者
-组装。
+附件租借的阶段 operation 授权在分配层、副作用前执行，CPU 清单只接收注册
+时绑定的观测标签。
 Patchouli 以总线路由替身隔离；Actor 阶段以测试 CPU 替换 Alice（总线上不注册
 Alice 路由）；附件租借以真实 ``InMemoryWorkspaceAssetStore`` 的公开可观察状态
 验收，不断言私有字段。
@@ -18,6 +18,8 @@ from uuid import uuid4
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
@@ -314,8 +316,8 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
 
 
 @pytest.mark.asyncio
-async def test_manifest_identity_scope_is_assembled_by_authorizer_cpu_execution_identity() -> None:
-    """清单身份由操作授权者的 CPU 执行身份方法组装：与通过认证的声明一致，不取自调用方。"""
+async def test_manifest_labels_match_registration_and_process_event_labels() -> None:
+    """非默认注册标签贯穿 CPU 与进程事件，不能退回默认 Agent/Workspace。"""
     bus = GlobalSystemBus()
     bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
     bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
@@ -323,10 +325,43 @@ async def test_manifest_identity_scope_is_assembled_by_authorizer_cpu_execution_
     cpu = ScriptedCPU(result=make_cpu_result())
     bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
 
-    service, composition = await _service(bus, cpu=cpu)
-    await _run_once(composition, service, "问题", process_id="process-manifest-scope")
+    sink = RecordingRuntimeEventSink()
+    workspace = make_workspace_identity(owner_user_id="u1", workspace_id="labels_workspace")
+    composition = make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1",
+                workspace_id="labels_workspace",
+                agent_id="registered_agent",
+            )
+        ],
+        default_workspace=workspace,
+    )
+    service = make_task_process_service(
+        bus,
+        cpu=cpu,
+        access_gateway=composition.gateway,
+        operation_authorizer=composition.authorizer,
+        event_publisher=RuntimeEventPublisher(sink),
+    )
+    handle = await service.register_process(
+        adapter="local",
+        principal=composition.principal,
+        actor=ActorIdentity(user_id="u1", agent_id="registered_agent"),
+        workspace=workspace,
+        process_id="process-manifest-labels",
+        message="问题",
+    )
+    result = await service.run_process(handle, stream=False)
 
-    assert cpu.calls[0].manifest.identity_scope == _expected_scope()
+    assert result.execution_result.status == "completed"
+    assert cpu.calls[0].manifest.labels.model_dump() == {
+        "agent_id": "registered_agent",
+        "workspace_id": "labels_workspace",
+    }
+    assert {(event.agent_id, event.workspace_id) for event in sink.events} == {
+        ("registered_agent", "labels_workspace")
+    }
 
 
 @pytest.mark.asyncio

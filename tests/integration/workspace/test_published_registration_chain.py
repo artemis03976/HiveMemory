@@ -487,10 +487,12 @@ async def test_chat_full_chain_succeeds_through_published_registration(published
     assert len(done["data"]["pool_topics"]) == 1
     assert done["data"]["pool_topics"][0]["topic_id"] == "topic-1"
 
-    # CPU 执行清单的身份由操作授权者的 CPU 执行身份组装：default/test_agent。
+    # CPU 执行清单只含注册时绑定的观测标签，操作身份仍只在授权点组装。
     assert len(stack.cpu.calls) == 1
-    manifest_scope = stack.cpu.calls[0].manifest.identity_scope
-    assert manifest_scope.actor_identity == ActorIdentity(user_id="default", agent_id="test_agent")
+    assert stack.cpu.calls[0].manifest.labels.model_dump() == {
+        "agent_id": "test_agent",
+        "workspace_id": MAIN_WORKSPACE_ID,
+    }
     # prepare 收到的是授权返回的 scope（由进程绑定 context 的授予内容组装）。
     assert stack.seen.prepare_scopes[-1].actor_identity.agent_id == "test_agent"
 

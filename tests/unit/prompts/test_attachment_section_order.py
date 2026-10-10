@@ -13,7 +13,7 @@ from hivememory.core.models import AgentProfile, TopicData
 from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
 from hivememory.i18n import set_default_language
 from hivememory.prompts.assembler import AgentPromptAssembler
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_execution_labels, make_identity_scope
 
 
 @pytest.fixture(autouse=True)
@@ -47,7 +47,7 @@ def _make_topic_data(state_summary="state"):
 
 def _context(attachment_context: str) -> AgentRunContext:
     return AgentRunContext(
-        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
+        labels=make_execution_labels(agent_id="omni_doll"),
         interaction_id="interaction-order",
         topic_id="topic_1",
         user_message="hello",

@@ -34,7 +34,7 @@ from hivememory.core.models import (
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.engines.generation.models import DuplicateDecision
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
+from tests.helpers.workspace import make_identity_scope, make_runtime_scope, make_workspace_identity
 
 MAIN = make_workspace_identity()
 
@@ -163,7 +163,7 @@ class TestReadAliasResolution:
         koakuma.memories[mem.get_alias()] = mem
         koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = None
         context = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(user_id="test_user"),
+            runtime_scope=make_runtime_scope(),
             language="en",
         )
 
@@ -215,8 +215,8 @@ class TestReadAliasResolution:
     def test_read_redirected_pending_alias(self, koakuma):
         pending = koakuma.registry.register_write(
             WriteFocus(content="pending content", title="Pending Note", reason=None),
-            belong_to=make_runtime_scope().identity_scope.workspace_identity,
-            from_actor=make_runtime_scope().identity_scope.actor_identity,
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
             process_id=make_runtime_scope().run_id,
         )
         canonical = _make_memory(
@@ -254,8 +254,8 @@ class TestReadAliasResolution:
     def test_read_discarded_pending_alias(self, koakuma):
         pending = koakuma.registry.register_write(
             WriteFocus(content="pending content", title="Pending Note", reason=None),
-            belong_to=make_runtime_scope().identity_scope.workspace_identity,
-            from_actor=make_runtime_scope().identity_scope.actor_identity,
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
             process_id=make_runtime_scope().run_id,
         )
         koakuma.registry.claim_process(pending.process_id)
@@ -281,8 +281,8 @@ class TestReadAliasResolution:
     def test_read_failed_pending_alias(self, koakuma):
         pending = koakuma.registry.register_write(
             WriteFocus(content="pending content", title="Pending Note", reason=None),
-            belong_to=make_runtime_scope().identity_scope.workspace_identity,
-            from_actor=make_runtime_scope().identity_scope.actor_identity,
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
             process_id=make_runtime_scope().run_id,
         )
         koakuma.registry.claim_process(pending.process_id)
@@ -490,8 +490,8 @@ class TestReadPendingScopeIsolation:
         """同 scope 注册的 in-flight pending 仍可通过 READ 读取。"""
         pending = koakuma.registry.register_write(
             WriteFocus(content="draft body", title="Draft Note", reason=None),
-            belong_to=make_runtime_scope().identity_scope.workspace_identity,
-            from_actor=make_runtime_scope().identity_scope.actor_identity,
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
             process_id=make_runtime_scope().run_id,
         )
 
@@ -504,12 +504,8 @@ class TestReadPendingScopeIsolation:
         """跨 Workspace 调用方 READ 他人 pending alias：报 Alias Not Found，不泄露内容。"""
         pending = koakuma.registry.register_write(
             WriteFocus(content="cross workspace draft", title="Secret Draft", reason=None),
-            belong_to=make_runtime_scope(
-                workspace_id="isolation_workspace"
-            ).identity_scope.workspace_identity,
-            from_actor=make_runtime_scope(
-                workspace_id="isolation_workspace"
-            ).identity_scope.actor_identity,
+            belong_to=make_identity_scope(workspace_id="isolation_workspace").workspace_identity,
+            from_actor=make_identity_scope(workspace_id="isolation_workspace").actor_identity,
             process_id=make_runtime_scope(workspace_id="isolation_workspace").run_id,
         )
         koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = None
@@ -532,12 +528,8 @@ class TestReadPendingScopeIsolation:
         """跨 Workspace READ 已结算 redirect：不触发 canonical 读取与 citation。"""
         pending = koakuma.registry.register_write(
             WriteFocus(content="pending content", title="Pending Note", reason=None),
-            belong_to=make_runtime_scope(
-                workspace_id="isolation_workspace"
-            ).identity_scope.workspace_identity,
-            from_actor=make_runtime_scope(
-                workspace_id="isolation_workspace"
-            ).identity_scope.actor_identity,
+            belong_to=make_identity_scope(workspace_id="isolation_workspace").workspace_identity,
+            from_actor=make_identity_scope(workspace_id="isolation_workspace").actor_identity,
             process_id=make_runtime_scope(workspace_id="isolation_workspace").run_id,
         )
         canonical = _make_memory(content="canonical content", alias="fact_canonical")

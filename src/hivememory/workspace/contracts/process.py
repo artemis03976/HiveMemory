@@ -6,7 +6,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models import (
     AgentProfile,
-    IdentityScope,
+    ExecutionLabels,
     MemoryAtom,
     TopicData,
 )
@@ -28,11 +28,9 @@ class CPUInputManifest(BaseModel):
     process_id: str = Field(
         description="任务进程唯一标识；同时充当本次 Interaction 的稳定关联 ID",
     )
-    identity_scope: IdentityScope = Field(
-        description="CPU 执行身份（过渡期由操作授权者的 CPU 执行身份方法组装，I-9）"
-    )
+    labels: ExecutionLabels = Field(description="注册时绑定的只读观测标签，不用于行为授权")
     user_message: str = Field(description="原始用户消息")
-    agent_profile: AgentProfile = Field(description="CPU 分配时经 Patchouli 公开路由解析的 Profile")
+    agent_profile: AgentProfile = Field(description="CPU 分配时经 workspace 能力层解析的 Profile")
     memories: list[MemoryAtom] = Field(
         default_factory=list,
         description="未编译的检索结果原子（prepare 返回的原始列表）",

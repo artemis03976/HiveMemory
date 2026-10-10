@@ -54,6 +54,7 @@ from .memory import (
 from .memory_change import MemoryChangeEvent
 from .model_definition import ModelDefinition
 from .pending import (
+    ExecutionLabels,
     InvalidStateTransition,
     PendingAtom,
     PendingAtomResolution,
@@ -171,6 +172,7 @@ __all__ = [
     "InvalidStateTransition",
     "WriteFocus",
     "UpdateFocus",
+    "ExecutionLabels",
     "RuntimeScope",
     "PendingAtom",
     "PendingAtomSettlement",

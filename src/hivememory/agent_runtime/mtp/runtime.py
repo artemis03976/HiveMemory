@@ -237,7 +237,7 @@ class KoakumaRuntime:
         """
         start_time = time.time()
         if context is None:
-            raise ScopeRequiredError("MTP 执行缺少 IdentityScope")
+            raise ScopeRequiredError("MTP 执行缺少运行上下文")
 
         try:
             language = _resolve_context_language(context)

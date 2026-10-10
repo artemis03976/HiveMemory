@@ -18,7 +18,7 @@ from hivememory.core.models import (
     WriteFocus,
 )
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
+from tests.helpers.workspace import make_identity_scope, make_runtime_scope, make_workspace_identity
 
 from .conftest import (
     make_koakuma_runtime,
@@ -75,7 +75,7 @@ class TestKoakumaUpdateE2E:
 
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        koakuma.context = MTPExecutionContext(runtime_scope=make_runtime_scope(user_id="test_user"))
+        koakuma.context = MTPExecutionContext(runtime_scope=make_runtime_scope())
 
         # 注册 alias 到缓存
         koakuma.memories[existing_memory.get_alias()] = existing_memory
@@ -136,7 +136,7 @@ class TestKoakumaUpdateValidation:
     def validation_koakuma(self) -> KoakumaRuntime:
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        koakuma.context = MTPExecutionContext(runtime_scope=make_runtime_scope(user_id="test_user"))
+        koakuma.context = MTPExecutionContext(runtime_scope=make_runtime_scope())
         return koakuma
 
     @pytest.mark.asyncio
@@ -195,8 +195,8 @@ class TestKoakumaUpdateValidation:
     async def test_pending_alias_rejected(self, validation_koakuma):
         pending = validation_koakuma.registry.register_write(
             WriteFocus(content="pending content", title="Pending Note", reason=None),
-            belong_to=validation_koakuma.context.runtime_scope.identity_scope.workspace_identity,
-            from_actor=validation_koakuma.context.identity,
+            belong_to=make_identity_scope().workspace_identity,
+            from_actor=make_identity_scope().actor_identity,
             process_id=validation_koakuma.context.runtime_scope.run_id,
         )
 
@@ -234,7 +234,6 @@ class TestKoakumaUpdateValidation:
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
         context = MTPExecutionContext(
             runtime_scope=make_runtime_scope(
-                user_id="test_user",
                 run_id="run_update_test",
                 frame_id="frame_main_update",
             ),
