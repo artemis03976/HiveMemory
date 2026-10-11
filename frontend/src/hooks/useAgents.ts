@@ -19,8 +19,6 @@ export interface BackendAgent {
   agent_config?: {
     model_name?: string;
     temperature?: number;
-    allowed_mtp_verbs?: string[];
-    allowed_sys_tools?: string[];
     language?: string;
   } | null;
 }
