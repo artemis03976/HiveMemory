@@ -27,10 +27,6 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Permission Denied] 你没有权限使用 '{verb}' 指令。\n"
         "Suggestion: 请使用你当前角色允许的指令和工具。"
     ),
-    "mtp.permission.tool_denied": (
-        "[Permission Denied] 你没有权限使用工具 '{tool_alias}'。\n"
-        "Suggestion: 请使用你当前角色允许的指令和工具。"
-    ),
     "mtp.permission.call_depth_exceeded": (
         "[Permission Denied] 子代理不允许调用 CALL 指令，只有主代理可以调用子代理。\n"
         "Suggestion: 请使用你当前角色允许的指令和工具。"
@@ -185,10 +181,6 @@ _ERROR_TEXT_EN: dict[str, str] = {
     # ---- 通用权限 ----
     "mtp.permission.verb_denied": (
         "[Permission Denied] You do not have permission to use the '{verb}' command.\n"
-        "Suggestion: Try a different approach using only your authorized tools and commands."
-    ),
-    "mtp.permission.tool_denied": (
-        "[Permission Denied] You do not have access to tool '{tool_alias}'.\n"
         "Suggestion: Try a different approach using only your authorized tools and commands."
     ),
     "mtp.permission.call_depth_exceeded": (

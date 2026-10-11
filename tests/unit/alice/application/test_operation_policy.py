@@ -4,6 +4,7 @@ import pytest
 
 from hivememory.alice.application.operation_policy import mtp_verbs_for_operations
 from hivememory.core.access import WorkspaceOperation
+from hivememory.core.mtp.models import MTPVerb
 
 
 @pytest.mark.parametrize(
@@ -25,3 +26,10 @@ def test_each_actor_operation_maps_to_its_verb_and_system_run(operation, expecte
 def test_empty_operations_keep_system_run():
     """空白名单仍可执行系统工具，但不能获得任何其它 MTP 动词。"""
     assert mtp_verbs_for_operations(frozenset()) == {"RUN"}
+
+
+def test_every_actor_operation_has_a_verb_translation():
+    """新增 actor 操作必须同时补齐翻译，否则 Alice 运行时会在构造执行策略时失败。"""
+    assert mtp_verbs_for_operations(frozenset(WorkspaceOperation)) == {
+        verb.value for verb in MTPVerb
+    }

@@ -45,7 +45,11 @@ DEFAULT_RUNTIME_TOOLS: list[tuple[str, str]] = [
 # 默认全量动词顺序
 _VERB_ORDER = ["SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"]
 # 教学模板中的独立动词标记；不把普通单词或系统工具别名当作 MTP 动词。
-_VERB_PATTERN = re.compile(r"\b(?:SEARCH|READ|RUN|WRITE|UPDATE|CALL)\b")
+# 只以 ASCII 字母、数字与下划线判定边界：Unicode 下的 ``\b`` 把汉字也算作
+# 单词字符，中文模板中紧贴汉字的动词（如“先SEARCH”）会被漏判。
+_VERB_PATTERN = re.compile(
+    r"(?<![A-Za-z0-9_])(?:SEARCH|READ|RUN|WRITE|UPDATE|CALL)(?![A-Za-z0-9_])"
+)
 _DEMO_VERBS = frozenset({"SEARCH", "READ", "RUN"})
 
 

@@ -155,3 +155,29 @@ def test_duplicate_verbs_are_only_listed_once():
 
     assert output.count("- READ:") == 1
     assert output.count("- SEARCH:") == 1
+
+
+def test_guidance_filter_detects_verbs_adjacent_to_chinese_text(monkeypatch):
+    """中文教学中紧贴汉字的禁用动词同样被裁剪，普通单词中的同名片段不受影响。"""
+    import hivememory.prompts.mtp as mtp_prompt
+
+    original = mtp_prompt.get_mtp_prompt_text
+    guidance = "\n".join(
+        [
+            "- 回答前先SEARCH再作答",
+            "- 已用READ读取的内容不要重复读取",
+            "- ALREADY_DONE 标记保持原样",
+            "- 保持回答简洁",
+        ]
+    )
+
+    def template(key, language):
+        return guidance if key == "behavioral_guidelines" else original(key, language)
+
+    monkeypatch.setattr(mtp_prompt, "get_mtp_prompt_text", template)
+    output = MTPPromptBuilder(language="zh", allowed_verbs={"RUN"}).build()
+
+    assert "先SEARCH再作答" not in output
+    assert "已用READ读取" not in output
+    assert "ALREADY_DONE 标记保持原样" in output
+    assert "保持回答简洁" in output

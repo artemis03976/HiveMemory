@@ -27,6 +27,7 @@ from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import (
+    AgentProfile,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -134,12 +135,35 @@ async def test_run_agent_passes_input_and_submitter_to_root_frame():
     assert any("hello" in message["content"] for message in frame.working_history)
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("stream", [False, True], ids=["non-stream", "stream"])
-async def test_root_policy_and_prompt_follow_manifest_despite_legacy_profile_keys(stream):
-    """两条运行入口都取清单能力；Profile 中旧拒绝键不能改变策略与系统工具菜单。"""
-    from hivememory.core.models import AgentProfile
+async def _terminal_status_without_stream(service, manifest, submit_operation) -> str:
+    """非流式入口直接返回终态结果。"""
+    result = await service.run_agent(manifest, stream=False, submit_operation=submit_operation)
+    return result.status
 
+
+async def _terminal_status_from_stream(service, manifest, submit_operation) -> str:
+    """流式入口以最后一个事件携带终态。"""
+    events = [
+        event
+        async for event in service.run_agent(
+            manifest, stream=True, submit_operation=submit_operation
+        )
+    ]
+    return events[-1]["data"]["status"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "run_to_terminal",
+    [
+        pytest.param(_terminal_status_without_stream, id="non-stream"),
+        pytest.param(_terminal_status_from_stream, id="stream"),
+    ],
+)
+async def test_root_policy_and_prompt_follow_manifest_despite_legacy_profile_keys(
+    run_to_terminal,
+):
+    """两条运行入口都取清单能力；Profile 中旧拒绝键不能改变策略与系统工具菜单。"""
     runtime, service = _build_service()
     manifest = _build_input_manifest(
         _build_memory_atom(),
@@ -160,17 +184,7 @@ async def test_root_policy_and_prompt_follow_manifest_despite_legacy_profile_key
         raise AssertionError("本场景不应提交资源操作")
 
     runtime._agent_runtime.run_frame = run_frame
-    if stream:
-        events = [
-            event
-            async for event in service.run_agent(
-                manifest, stream=True, submit_operation=submit_operation
-            )
-        ]
-        assert events[-1]["data"]["status"] == "completed"
-    else:
-        result = await service.run_agent(manifest, stream=False, submit_operation=submit_operation)
-        assert result.status == "completed"
+    assert await run_to_terminal(service, manifest, submit_operation) == "completed"
 
     (frame,) = seen
     assert frame.execution_policy.permitted_verbs == {"READ", "RUN", "CALL"}
