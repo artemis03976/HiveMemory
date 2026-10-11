@@ -19,7 +19,6 @@ from __future__ import annotations
 import logging
 from typing import Protocol
 
-from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.core.access import WorkspaceAccessContext
@@ -70,7 +69,6 @@ class CPUAllocator:
 
     def __init__(
         self,
-        global_bus: GlobalSystemBus,
         *,
         operation_authorizer: WorkspaceOperationAuthorizer,
         profile_reader: _AgentProfileReader,
@@ -78,7 +76,6 @@ class CPUAllocator:
         memory_compiler_config: MemoryCompilerConfig | None = None,
         attachment_compiler_config: AttachmentCompilerConfig | None = None,
     ) -> None:
-        self._bus = global_bus
         self._authorizer = operation_authorizer
         self._profile_reader = profile_reader
         self._asset_reader = asset_reader

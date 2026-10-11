@@ -5,7 +5,7 @@ from types import SimpleNamespace
 import pytest
 
 from hivememory.core.models import ActorIdentity, AgentProfile, LogicalBlock, TopicData, TurnRecord
-from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
+from hivememory.core.protocol.models import AgentRunContext
 from hivememory.i18n import get_default_language, set_default_language
 from hivememory.prompts.assembler import AgentPromptAssembler
 from tests.helpers.workspace import make_execution_labels, make_identity_scope
@@ -50,11 +50,9 @@ def test_build_main_agent_messages_from_context():
     )
     context = AgentRunContext(
         labels=make_execution_labels(agent_id="omni_doll"),
-        interaction_id="test-interaction",
         topic_id="topic_1",
         user_message="hello",
         topic_context=_make_topic_data("state"),
-        retrieval_result=RetrievalResponse(memories=[]),
         memory_context="<memory>ctx</memory>",
         agent_profile=profile,
         permitted_mtp_verbs=frozenset({"SEARCH", "READ", "RUN"}),
@@ -79,11 +77,9 @@ def test_build_main_agent_messages_includes_storage_notice_when_offline():
     )
     context = AgentRunContext(
         labels=make_execution_labels(agent_id="omni_doll"),
-        interaction_id="test-interaction",
         topic_id="topic_1",
         user_message="hello",
         topic_context=None,
-        retrieval_result=RetrievalResponse(),
         agent_profile=profile,
         permitted_mtp_verbs=frozenset({"SEARCH", "RUN"}),
         storage_available=False,
@@ -121,11 +117,9 @@ def test_history_role_prefix_uses_registered_label_instead_of_profile_display_al
     )
     context = AgentRunContext(
         labels=make_execution_labels(agent_id=registered_agent_id),
-        interaction_id="interaction-labels",
         topic_id="topic_1",
         user_message="当前问题",
         topic_context=topic,
-        retrieval_result=RetrievalResponse(),
         agent_profile=AgentProfile(agent_id="display_agent"),
         permitted_mtp_verbs=frozenset({"RUN"}),
     )
@@ -210,7 +204,6 @@ def test_main_prompt_uses_frame_verbs_and_ignores_legacy_profile_permissions(
     )
     context = AgentRunContext(
         labels=make_execution_labels(),
-        interaction_id="legacy-profile-prompt",
         agent_profile=profile,
         permitted_mtp_verbs=frozenset({"READ", "SEARCH", "RUN"}),
         storage_available=storage_available,
@@ -262,7 +255,6 @@ def test_main_prompt_for_empty_operation_translation_only_teaches_system_run(lan
     """空操作集合翻译为 RUN 后，教学与系统菜单仍可用，不建议资源动词。"""
     context = AgentRunContext(
         labels=make_execution_labels(),
-        interaction_id="run-only-prompt",
         agent_profile=AgentProfile(language=language),
         permitted_mtp_verbs=frozenset({"RUN"}),
     )

@@ -10,7 +10,7 @@ from types import SimpleNamespace
 import pytest
 
 from hivememory.core.models import AgentProfile, TopicData
-from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
+from hivememory.core.protocol.models import AgentRunContext
 from hivememory.i18n import get_default_language, set_default_language
 from hivememory.prompts.assembler import AgentPromptAssembler
 from tests.helpers.workspace import make_execution_labels, make_identity_scope
@@ -49,11 +49,9 @@ def _make_topic_data(state_summary="state"):
 def _context(attachment_context: str) -> AgentRunContext:
     return AgentRunContext(
         labels=make_execution_labels(agent_id="omni_doll"),
-        interaction_id="interaction-order",
         topic_id="topic_1",
         user_message="hello",
         topic_context=_make_topic_data("TOPIC-STATE"),
-        retrieval_result=RetrievalResponse(memories=[]),
         memory_context="MEMORY-CONTEXT",
         agent_profile=AgentProfile(persona="PERSONA", language="zh"),
         permitted_mtp_verbs=frozenset({"RUN"}),

@@ -62,7 +62,6 @@ def make_task_process_service(
     if isinstance(cpu, ScriptedCPU):
         cpu.bind_operation_entry(entry)
     allocator = CPUAllocator(
-        global_bus,
         operation_authorizer=operation_authorizer,
         profile_reader=runtime.profiles,
         asset_reader=asset_reader,

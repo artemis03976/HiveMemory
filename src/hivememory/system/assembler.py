@@ -413,7 +413,6 @@ class SystemAssembler:
         # 任务进程的编排依赖只交给执行器（四阶段骨架，所有进程共用）；
         # 注册入口只持有生命周期依赖（任务进程 Idea Q-3）。
         allocator = CPUAllocator(
-            runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
             # Profile 阶段读取直接使用读取视图，不经过 actor 能力的操作检查。
             profile_reader=runtime.workspace_runtime.profiles,

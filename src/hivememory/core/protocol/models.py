@@ -133,8 +133,8 @@ class RetrievalResponse(ProtocolMessage):
     检索结果协议消息（旧协议 envelope）
 
     A2 §2.4：正式读取链返回 ``list[MemoryAtom]``，本模型只作为调用侧 adapter
-    为旧协议/本地运行上下文（``AgentRunContext.retrieval_result``、Passive
-    上下文、MTP 输出）构造的包装，不再是 Patchouli 公共路由的返回类型。
+    为旧协议/本地上下文（Passive 上下文、MTP 输出）构造的包装，不再是
+    Patchouli 公共路由的返回类型。
     """
 
     msg_type: MessageType = MessageType.RETRIEVAL_RESPONSE
@@ -173,14 +173,12 @@ class AgentRunContext(BaseModel):
     """供 Alice 组装 Agent run 的内容与观测上下文，不携带授权身份。"""
 
     labels: ExecutionLabels
-    interaction_id: str = Field(description="本次 Chat Interaction 的稳定关联 ID")
     topic_id: str = Field(default="")
     user_message: str = Field(default="")
     topic_context: TopicData | None = Field(default=None)
-    retrieval_result: RetrievalResponse = Field(default_factory=RetrievalResponse)
 
-    # 已编译的记忆上下文文本，用于注入 system prompt。
-    # retrieval_result 只保留记忆原子，供缓存、引用记录等流程使用。
+    # 任务进程已编译的记忆上下文文本，用于注入 system prompt；未编译的
+    # 检索原子留在输入清单中，Alice 不再保留另一份。
     memory_context: str = Field(default="")
     agent_profile: AgentProfile
     permitted_mtp_verbs: frozenset[str] = Field(
