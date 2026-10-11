@@ -159,6 +159,23 @@ def test_stage_operation_snapshot_is_only_read_by_task_process_allocation():
     assert _private_call_sites("get_stage_operations") == {"workspace/process/allocation.py"}
 
 
+def test_thread_process_binding_queries_stay_inside_capability():
+    """线程的进程关联只供意图登记与入口补偿，不能扩散到 CPU 或资源 owner。"""
+    assert _private_call_sites("get_thread_process_id") <= {
+        "workspace/capability/operations.py",
+        "workspace/capability/actor/memory.py",
+    }
+
+
+def test_thread_lifecycle_is_only_consumed_by_runner():
+    """派生与撤销只经执行器端口进入认证侧，CPU 不取得签发能力。"""
+    for method in ("derive_thread_context", "revoke_thread_context"):
+        assert _private_call_sites(method) <= {
+            "workspace/authentication.py",
+            "workspace/process/runner.py",
+        }
+
+
 def test_profile_permission_symbols_have_no_production_references():
     """生产代码不能重新从 Profile 取得权限，也不能重新注入两份旧白名单。"""
     removed_symbols = {

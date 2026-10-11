@@ -5,7 +5,7 @@
   授予内容 ``AccessGrant``（actor、驻留 workspace、principal、运行绑定），
   对外没有公开字段；
 - ``AccessRunType`` / ``RunBinding``：访问 context 的运行绑定（运行类型
-  与运行标识）；
+  与进程/请求标识，以及执行线程标识）；
 - ``CallerPrincipal``：受信入口建立的调用来源身份；
 - ``PrincipalAuthenticator``：Principal authentication 端口，由 System 实现，
   供 workspace 认证入口在 Workspace 准入前调用。
@@ -48,11 +48,13 @@ class AccessRunType(str, Enum):
     """访问 context 绑定的运行类型：context 只在绑定的一次运行内有效。
 
     任务进程 context 在注册时签发并绑定 ``process_id``，随进程关闭失效；
+    执行线程 context 从进程 context 派生，随 CPU 执行结束失效；
     请求级 context 由入口在请求开始时签发并绑定本次请求，请求结束失效
     （P-6、P-9b、P-9c）。
     """
 
     TASK_PROCESS = "task_process"
+    EXECUTION_THREAD = "execution_thread"
     REQUEST = "request"
 
 
@@ -61,17 +63,24 @@ class RunBinding:
     """访问 context 的运行绑定：运行类型与运行标识（认证签发时写入授予内容）。
 
     ``run_id`` 是运行标识：任务进程为 server 入口冻结的 ``process_id``，
-    请求级 context 为入口为本次请求生成的标识。
+    请求级 context 为入口为本次请求生成的标识。线程沿用所属进程的
+    ``run_id``，另以非空的 ``thread_id`` 区分；其他运行类型不带线程标识。
     """
 
     run_type: AccessRunType
     run_id: str
+    thread_id: str | None = None
 
     def __post_init__(self) -> None:
         if not isinstance(self.run_type, AccessRunType):
             raise ValueError("run_type 必须是 AccessRunType")
         if not isinstance(self.run_id, str) or not self.run_id.strip():
             raise ValueError("run_id 不能为空")
+        if self.run_type is AccessRunType.EXECUTION_THREAD:
+            if not isinstance(self.thread_id, str) or not self.thread_id.strip():
+                raise ValueError("执行线程的 thread_id 不能为空")
+        elif self.thread_id is not None:
+            raise ValueError("只有执行线程运行绑定可以携带 thread_id")
 
     @classmethod
     def for_task_process(cls, process_id: str) -> RunBinding:
@@ -82,6 +91,11 @@ class RunBinding:
     def for_request(cls, request_id: str) -> RunBinding:
         """请求级运行绑定。"""
         return cls(run_type=AccessRunType.REQUEST, run_id=request_id)
+
+    @classmethod
+    def for_execution_thread(cls, process_id: str, thread_id: str) -> RunBinding:
+        """线程绑定保留所属进程的运行标识，另以 thread_id 区分线程。"""
+        return cls(AccessRunType.EXECUTION_THREAD, process_id, thread_id)
 
 
 @dataclass(frozen=True)
@@ -126,8 +140,8 @@ class WorkspaceAccessContext:
 
     - :meth:`_seal`：签发，只由 ``WorkspaceAuthenticator`` 调用；
     - :meth:`_revoke`：撤销，只由 ``WorkspaceAuthenticator`` 调用；
-    - :meth:`_unseal`：读取授予内容，只由操作授权者与认证一侧的诊断查询
-      调用。
+    - :meth:`_unseal`：读取授予内容，只由操作授权者与认证一侧的派生、
+      线程撤销校验和诊断查询调用。
 
     直接构造被拒绝；复制与序列化被拒绝（撤销状态随凭据对象本身，副本
     不能逃过撤销）；按对象身份比较。它不作为可序列化的远端凭据，也不写入
@@ -195,12 +209,29 @@ class PrincipalAuthenticator(Protocol):
     ) -> None: ...
 
 
+class ThreadContextLifecycle(Protocol):
+    """执行器使用的线程 context 生命周期端口，只暴露派生与撤销。
+
+    组合根注入认证网关的实现；执行器不依赖认证模块，也不能重新认证或
+    指定另一份身份。当前只派生主线程，CALL 子 frame 共用它。
+    """
+
+    def derive_thread_context(self, access: WorkspaceAccessContext) -> WorkspaceAccessContext:
+        """从有效的进程 context 同步派生主线程 context。"""
+        ...
+
+    def revoke_thread_context(self, access: WorkspaceAccessContext) -> None:
+        """同步撤销线程 context；重复撤销幂等。"""
+        ...
+
+
 __all__ = [
     "AccessGrant",
     "AccessRunType",
     "CallerPrincipal",
     "PrincipalAuthenticator",
     "RunBinding",
+    "ThreadContextLifecycle",
     "WorkspaceAccessContext",
     "WorkspaceOperation",
 ]
