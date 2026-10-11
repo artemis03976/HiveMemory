@@ -1,348 +1,179 @@
-"""Agent 权限链路集成测试（Profile → Prompt → Koakuma 运行时拦截）。"""
+"""Frame 动词集合驱动真实提示词与 MTP/Workspace 操作链路的集成测试。"""
 
-from types import MethodType
-from unittest.mock import Mock, patch
-from uuid import uuid4
+from dataclasses import replace
 
 import pytest
 
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.core.models import (
-    OMNI_DOLL_PROFILE,
-    AgentProfile,
-    IndexLayer,
-    MemoryAtom,
-    MemoryType,
-    PayloadLayer,
-)
-from hivememory.core.mtp.exceptions import (
-    AliasNotFoundError,
-    InvalidArgumentError,
-    PermissionDeniedError,
-)
-from hivememory.patchouli.runtime.core import PatchouliRuntime
+from hivememory.agent_runtime.policy import FrameExecutionPolicy
+from hivememory.core.access import WorkspaceOperation
+from hivememory.core.models import AgentProfile, IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.prompts.mtp import MTPPromptBuilder
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_runtime_scope
+from tests.helpers.operations import OperationsHarness
+from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
 
-def _make_profile_atom(
-    agent_id: str,
-    allowed_verbs: list,
-    allowed_tools: list,
-) -> MemoryAtom:
-    """构建 AGENT_PROFILE 类型的 MemoryAtom"""
-    return MemoryAtom(
-        id=uuid4(),
-        meta=make_memory_metadata(user_id="system", source_agent_id="system"),
+def _legacy_profile(*, allowed_verbs: list[str], allowed_tools: list[str]) -> AgentProfile:
+    """从存量图纸的旧权限键解析，模型参数与人设仍由 Profile 提供。"""
+    atom = MemoryAtom(
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
         index=IndexLayer(
-            alias=agent_id,
-            title=f"Agent {agent_id}",
-            summary=f"Profile for {agent_id}",
-            tags=["agent", "profile"],
-            memory_type=MemoryType.AGENT_PROFILE,
+            alias="legacy_agent", title="旧版人偶", memory_type=MemoryType.AGENT_PROFILE
         ),
         payload=PayloadLayer(
-            content=f"You are {agent_id}.",
+            content="专注代码审查",
             agent_config={
-                "model_name": "gpt-4",
-                "temperature": 0.7,
+                "model_name": "test-model",
+                "language": "en",
                 "allowed_mtp_verbs": allowed_verbs,
                 "allowed_sys_tools": allowed_tools,
             },
         ),
     )
+    profile = AgentProfile.from_atom(atom)
+    assert isinstance(profile, AgentProfile)
+    return profile
 
 
-def _create_runtime_with_koakuma():
-    """创建带 Koakuma 的 PatchouliRuntime"""
-    with (
-        patch.object(PatchouliRuntime, "_init_infrastructure"),
-        patch.object(PatchouliRuntime, "_build_engines", return_value={}),
-        patch.object(PatchouliRuntime, "_register_services"),
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "command",
+    [
+        '⟪ WRITE | * | content="越权写入" ⟫',
+        '⟪ UPDATE | fact_missing | instruction="越权更新" ⟫',
+        '⟪ CALL | another_agent | task="越权调用" ⟫',
+    ],
+)
+async def test_prompt_and_runtime_reject_verbs_outside_frame_without_submission(
+    command: str,
+) -> None:
+    """模型强制输出未列出的动词时，frame 在真实操作入口之前拒绝并不留副作用。"""
+    harness = OperationsHarness()
+    submit = await harness.submitter(make_identity_scope())
+    requests = []
+
+    async def record_submission(request):
+        """观察公开提交端口，意外请求仍经过真实凭据与授权。"""
+        requests.append(request)
+        return await submit(request)
+
+    policy = FrameExecutionPolicy.from_verbs({"READ", "SEARCH", "RUN"})
+    profile = _legacy_profile(
+        allowed_verbs=["READ", "SEARCH", "RUN", "WRITE", "UPDATE", "CALL"],
+        allowed_tools=["sys_clock"],
+    )
+    prompt = MTPPromptBuilder(
+        language=profile.language, allowed_verbs=policy.permitted_verbs
+    ).build()
+    context = MTPExecutionContext(
+        runtime_scope=make_runtime_scope(),
+        agent_profile=profile,
+        execution_policy=policy,
+        submit_operation=record_submission,
+    )
+
+    result = await KoakumaRuntime().execute_mtp(command, context)
+
+    assert "- READ:" in prompt
+    assert "- SEARCH:" in prompt
+    assert "- RUN:" in prompt
+    assert "- WRITE:" not in prompt
+    assert "- UPDATE:" not in prompt
+    assert "- CALL:" not in prompt
+    assert result.response_status == "error"
+    assert 'code="mtp.permission.denied"' in result.formatted_response
+    assert result.response_content == ""
+    assert requests == []
+    assert harness.registry.size == 0
+    assert harness.runtime.stats()["cold_reads"] == 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("legacy_verbs", [[], ["READ", "SEARCH"]])
+async def test_legacy_profile_denial_cannot_restrict_authorized_write_or_tool_menu(
+    legacy_verbs: list[str],
+) -> None:
+    """Profile 旧键不再裁剪 frame 教学或执行；真实 WRITE 按访问登记产生 ACK。"""
+    harness = OperationsHarness()
+    profile = _legacy_profile(allowed_verbs=legacy_verbs, allowed_tools=[])
+    policy = FrameExecutionPolicy.from_verbs({"READ", "RUN", "WRITE"})
+    prompt = MTPPromptBuilder(
+        language=profile.language, allowed_verbs=policy.permitted_verbs
+    ).build()
+    context = MTPExecutionContext(
+        runtime_scope=make_runtime_scope(),
+        agent_profile=profile,
+        execution_policy=policy,
+        submit_operation=await harness.submitter(
+            make_identity_scope(), allowed_operations={WorkspaceOperation.MEMORY_WRITE}
+        ),
+    )
+
+    result = await KoakumaRuntime().execute_mtp('⟪ WRITE | * | content="由访问登记授权" ⟫', context)
+
+    assert "- WRITE:" in prompt
+    assert "- UPDATE:" not in prompt
+    assert "- CALL:" not in prompt
+    for tool in (
+        "sys_clock",
+        "sys_web_search",
+        "sys_read_file",
+        "sys_write_file",
+        "sys_python_repl",
     ):
-
-        mock_patchouli_config = Mock()
-        mock_shared_config = Mock()
-
-        runtime = PatchouliRuntime(
-            patchouli_config=mock_patchouli_config, shared_config=mock_shared_config
-        )
-        runtime.storage = Mock()
-
-        def _get_agent_profile(agent_alias: str):
-            if not agent_alias or agent_alias in ("default", "omni_doll"):
-                return OMNI_DOLL_PROFILE
-            atom = runtime.storage.get_memory_by_alias(agent_alias)
-            if atom is None:
-                raise AliasNotFoundError(
-                    message_key="mtp.call.profile_not_found",
-                    params={"agent_alias": agent_alias},
-                )
-            profile = AgentProfile.from_atom(atom)
-            if profile is None:
-                raise InvalidArgumentError(
-                    message_key="mtp.call.profile_invalid",
-                    params={"agent_alias": agent_alias},
-                )
-            return profile
-
-        def _get_mtp_prompt(self, profile=None):
-            builder = MTPPromptBuilder(
-                language="en",
-                include_demo=True,
-                include_error_handling=True,
-                allowed_verbs=getattr(profile, "allowed_mtp_verbs", None),
-                allowed_runtime_tools=getattr(profile, "allowed_sys_tools", None),
-            )
-            return builder.build()
-
-        runtime.storage.get_agent_profile = Mock(side_effect=_get_agent_profile)
-        runtime.get_mtp_prompt = MethodType(_get_mtp_prompt, runtime)
-
-        # 创建真实的 Koakuma 实例
-        koakuma = KoakumaRuntime(config=None)
-        runtime._services = {"koakuma": koakuma}
-
-        return runtime, koakuma
+        assert f"`{tool}`" in prompt
+    assert result.response_status == "ack"
+    assert harness.registry.size == 1
+    pending = harness.registry.get(result.pending_alias, make_identity_scope().workspace_identity)
+    assert pending.focus.content == "由访问登记授权"
+    assert pending.from_actor == make_identity_scope().actor_identity
 
 
 @pytest.mark.asyncio
-class TestPromptToKoakumaEnforcement:
-    """Prompt → Koakuma 运行时拦截链路测试"""
+async def test_shared_runtime_keeps_frame_policies_independent_of_profile() -> None:
+    """同一个 runtime 与 Profile 不持有权限状态，换 frame 策略才能改变动词可用性。"""
+    harness = OperationsHarness()
+    profile = _legacy_profile(allowed_verbs=[], allowed_tools=[])
+    context = MTPExecutionContext(
+        runtime_scope=make_runtime_scope(),
+        agent_profile=profile,
+        execution_policy=FrameExecutionPolicy.from_verbs({"READ", "RUN"}),
+        submit_operation=await harness.submitter(make_identity_scope()),
+    )
+    runtime = KoakumaRuntime()
+    command = '⟪ WRITE | * | content="另一个 frame 的意图" ⟫'
 
-    async def test_koakuma_enforces_verb_permission(self):
-        """Koakuma 运行时拦截越权动词"""
-        kernel, koakuma = _create_runtime_with_koakuma()
+    denied = await runtime.execute_mtp(command, context)
+    granted = await runtime.execute_mtp(
+        command,
+        replace(
+            context, execution_policy=FrameExecutionPolicy.from_verbs({"READ", "RUN", "WRITE"})
+        ),
+    )
 
-        # 设置限制性 profile
-        profile_atom = _make_profile_atom(
-            agent_id="reader_only",
-            allowed_verbs=["READ", "SEARCH"],
-            allowed_tools=["sys_clock"],
-        )
-        kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
-
-        profile = kernel.storage.get_agent_profile("reader_only")
-        context = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(),
-            agent_profile=profile,
-        )
-
-        # 允许的动词应该通过
-        koakuma._check_verb_permission("READ", context=context)
-        koakuma._check_verb_permission("SEARCH", context=context)
-
-        # 禁止的动词应该被拦截
-        with pytest.raises(PermissionDeniedError):
-            koakuma._check_verb_permission("WRITE", context=context)
-
-        with pytest.raises(PermissionDeniedError):
-            koakuma._check_verb_permission("UPDATE", context=context)
-
-    async def test_koakuma_enforces_tool_permission(self):
-        """Koakuma 运行时拦截越权工具"""
-        kernel, koakuma = _create_runtime_with_koakuma()
-
-        profile_atom = _make_profile_atom(
-            agent_id="safe_agent",
-            allowed_verbs=["READ", "RUN"],
-            allowed_tools=["sys_clock"],
-        )
-        kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
-
-        profile = kernel.storage.get_agent_profile("safe_agent")
-        context = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(),
-            agent_profile=profile,
-        )
-
-        # 允许的工具应该通过
-        koakuma._check_tool_permission("sys_clock")
-
-        # 禁止的工具应该被拦截
-        with pytest.raises(PermissionDeniedError):
-            koakuma._check_tool_permission("sys_write_file", context=context)
-
-        with pytest.raises(PermissionDeniedError):
-            koakuma._check_tool_permission("sys_bash_exec", context=context)
+    assert denied.response_status == "error"
+    assert 'code="mtp.permission.denied"' in denied.formatted_response
+    assert granted.response_status == "ack"
+    assert harness.registry.size == 1
+    pending = harness.registry.get(granted.pending_alias, make_identity_scope().workspace_identity)
+    assert pending.focus.content == "另一个 frame 的意图"
 
 
 @pytest.mark.asyncio
-class TestEndToEndPermissionChain:
-    """端到端权限链路测试"""
+async def test_system_tool_alias_requires_exact_registration_without_resource_submission() -> None:
+    """系统工具不设 Agent 权限，但未注册的 sys_* 前缀不会当作内核工具或记忆执行。"""
+    harness = OperationsHarness()
+    context = MTPExecutionContext(
+        runtime_scope=make_runtime_scope(),
+        execution_policy=FrameExecutionPolicy.from_verbs({"RUN"}),
+        submit_operation=await harness.submitter(make_identity_scope(), allowed_operations=[]),
+    )
 
-    async def test_reviewer_profile_blocks_write(self):
-        """Reviewer profile: prompt 不显示 WRITE，运行时拦截 WRITE"""
-        kernel, koakuma = _create_runtime_with_koakuma()
+    result = await KoakumaRuntime().execute_mtp("⟪ RUN | sys_clock_evil | ⟫", context)
 
-        # 加载 reviewer profile
-        reviewer_atom = _make_profile_atom(
-            agent_id="reviewer_doll",
-            allowed_verbs=["READ", "SEARCH"],
-            allowed_tools=["sys_clock"],
-        )
-        kernel.storage.get_memory_by_alias = Mock(return_value=reviewer_atom)
-
-        profile = kernel.storage.get_agent_profile("reviewer_doll")
-
-        # 1. Prompt 层：WRITE 不应该出现
-        mtp_prompt = kernel.get_mtp_prompt(profile=profile)
-        assert "- WRITE:" not in mtp_prompt
-        assert "- UPDATE:" not in mtp_prompt
-
-        # 2. Runtime 层：Koakuma 拦截 WRITE
-        context = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(),
-            agent_profile=profile,
-        )
-
-        with pytest.raises(PermissionDeniedError) as exc_info:
-            koakuma._check_verb_permission("WRITE", context=context)
-
-        assert "WRITE" in str(exc_info.value)
-
-    async def test_coder_profile_allows_write(self):
-        """Coder profile: prompt 显示 WRITE，运行时允许 WRITE"""
-        kernel, koakuma = _create_runtime_with_koakuma()
-
-        # 加载 coder profile
-        coder_atom = _make_profile_atom(
-            agent_id="coder_doll",
-            allowed_verbs=["READ", "SEARCH", "WRITE", "RUN"],
-            allowed_tools=["sys_clock", "sys_read_file", "sys_write_file"],
-        )
-        kernel.storage.get_memory_by_alias = Mock(return_value=coder_atom)
-
-        profile = kernel.storage.get_agent_profile("coder_doll")
-
-        # 1. Prompt 层：WRITE 应该出现
-        mtp_prompt = kernel.get_mtp_prompt(profile=profile)
-        assert "- WRITE:" in mtp_prompt
-        assert "- RUN:" in mtp_prompt
-        assert "sys_write_file" in mtp_prompt
-
-        # 2. Runtime 层：Koakuma 允许 WRITE
-        context = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(),
-            agent_profile=profile,
-        )
-
-        # 应该不抛异常
-        koakuma._check_verb_permission("WRITE", context=context)
-        koakuma._check_verb_permission("RUN", context=context)
-        koakuma._check_tool_permission("sys_write_file", context=context)
-
-    async def test_no_profile_allows_all_operations(self):
-        """无 profile 时：prompt 显示全部，运行时允许全部"""
-        kernel, koakuma = _create_runtime_with_koakuma()
-
-        # 1. Prompt 层：全部动词和工具都应该出现
-        mtp_prompt = kernel.get_mtp_prompt(profile=None)
-        assert "- SEARCH:" in mtp_prompt
-        assert "- READ:" in mtp_prompt
-        assert "- WRITE:" in mtp_prompt
-        assert "- UPDATE:" in mtp_prompt
-        assert "- RUN:" in mtp_prompt
-
-        # 2. Runtime 层：Koakuma 允许全部（无 profile）
-        context = MTPExecutionContext(runtime_scope=make_runtime_scope())
-
-        # 应该不抛异常
-        koakuma._check_verb_permission("WRITE", context=context)
-        koakuma._check_verb_permission("UPDATE", context=context)
-        koakuma._check_verb_permission("RUN", context=context)
-        koakuma._check_tool_permission("sys_write_file", context=context)
-        koakuma._check_tool_permission("sys_bash_exec", context=context)
-
-
-@pytest.mark.asyncio
-class TestSecurityScenarios:
-    """安全场景测试"""
-
-    async def test_prompt_injection_cannot_bypass_runtime(self):
-        """Prompt 注入无法绕过运行时拦截"""
-        kernel, koakuma = _create_runtime_with_koakuma()
-
-        # 设置限制性 profile
-        profile_atom = _make_profile_atom(
-            agent_id="restricted",
-            allowed_verbs=["READ"],
-            allowed_tools=[],
-        )
-        kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
-
-        profile = kernel.storage.get_agent_profile("restricted")
-        context = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(),
-            agent_profile=profile,
-        )
-
-        # 即使 LLM 幻觉输出了 WRITE 指令，运行时也会拦截
-        with pytest.raises(PermissionDeniedError):
-            koakuma._check_verb_permission("WRITE", context=context)
-
-    async def test_tool_permission_exact_match(self):
-        """工具权限精确匹配（防止前缀攻击）"""
-        kernel, koakuma = _create_runtime_with_koakuma()
-
-        profile_atom = _make_profile_atom(
-            agent_id="limited",
-            allowed_verbs=["RUN"],
-            allowed_tools=["sys_clock"],
-        )
-        kernel.storage.get_memory_by_alias = Mock(return_value=profile_atom)
-
-        profile = kernel.storage.get_agent_profile("limited")
-        context = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(),
-            agent_profile=profile,
-        )
-
-        # sys_clock 应该通过
-        koakuma._check_tool_permission("sys_clock", context=context)
-
-        # sys_clock_evil 不应该通过（不是前缀匹配）
-        with pytest.raises(PermissionDeniedError):
-            koakuma._check_tool_permission("sys_clock_evil", context=context)
-
-    async def test_profile_switch_updates_permissions(self):
-        """Profile 切换正确更新权限"""
-        kernel, koakuma = _create_runtime_with_koakuma()
-
-        # 第一个 profile：限制性
-        restrictive_atom = _make_profile_atom(
-            agent_id="restrictive",
-            allowed_verbs=["READ"],
-            allowed_tools=[],
-        )
-        kernel.storage.get_memory_by_alias = Mock(return_value=restrictive_atom)
-
-        profile1 = kernel.storage.get_agent_profile("restrictive")
-        context1 = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(),
-            agent_profile=profile1,
-        )
-
-        # WRITE 应该被拒绝
-        with pytest.raises(PermissionDeniedError):
-            koakuma._check_verb_permission("WRITE", context=context1)
-
-        # 切换到第二个 profile：宽松
-        permissive_atom = _make_profile_atom(
-            agent_id="permissive",
-            allowed_verbs=["READ", "WRITE"],
-            allowed_tools=["sys_write_file"],
-        )
-        kernel.storage.get_memory_by_alias = Mock(return_value=permissive_atom)
-
-        profile2 = kernel.storage.get_agent_profile("permissive")
-        context2 = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(),
-            agent_profile=profile2,
-        )
-
-        # WRITE 现在应该通过
-        koakuma._check_verb_permission("WRITE", context=context2)
-        koakuma._check_tool_permission("sys_write_file", context=context2)
+    assert result.response_status == "error"
+    assert 'code="mtp.alias.not_found"' in result.formatted_response
+    assert harness.runtime.stats()["cold_reads"] == 0
+    assert harness.citations == []

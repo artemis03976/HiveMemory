@@ -1,12 +1,4 @@
-"""
-Agent 权限链路单元测试。
-
-测试覆盖:
-- Profile 的动词白名单正确过滤 MTP prompt
-- Profile 的工具白名单正确过滤 MTP prompt
-- 无 profile 时渲染完整 prompt（兜底逻辑）
-- Omni-Doll 兜底语义回归：仅在未指定 agent 或显式选择 default/omni_doll 时生效
-"""
+"""Agent Profile 加载错误与 Omni-Doll 显式回退语义单元测试。"""
 
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
@@ -16,7 +8,6 @@ import pytest
 from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
-    AgentProfile,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -31,7 +22,6 @@ from hivememory.patchouli.application.agent_profile_management_service import (
     AgentProfileManagementService,
 )
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
-from hivememory.prompts.mtp import MTPPromptBuilder
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -62,77 +52,6 @@ def _make_profile_atom(
             },
         ),
     )
-
-
-def _profile(agent_id: str, allowed_verbs: list, allowed_tools: list) -> AgentProfile:
-    profile = AgentProfile.from_atom(_make_profile_atom(agent_id, allowed_verbs, allowed_tools))
-    assert profile is not None
-    return profile
-
-
-def _build_prompt(profile: AgentProfile | None) -> str:
-    return MTPPromptBuilder(
-        language="en",
-        include_demo=True,
-        include_error_handling=True,
-        allowed_verbs=getattr(profile, "allowed_mtp_verbs", None),
-        allowed_runtime_tools=getattr(profile, "allowed_sys_tools", None),
-    ).build()
-
-
-@pytest.mark.asyncio
-class TestProfileToPromptFiltering:
-    """Profile → Prompt 过滤链路测试"""
-
-    async def test_profile_filters_prompt_verbs(self):
-        """Profile 的动词白名单正确过滤 prompt"""
-        profile = _profile(
-            agent_id="reviewer_doll",
-            allowed_verbs=["READ", "SEARCH"],
-            allowed_tools=["sys_clock"],
-        )
-        mtp_prompt = _build_prompt(profile)
-
-        # 允许的动词应该出现
-        assert "- READ:" in mtp_prompt
-        assert "- SEARCH:" in mtp_prompt
-
-        # 禁止的动词不应该出现
-        assert "- WRITE:" not in mtp_prompt
-        assert "- UPDATE:" not in mtp_prompt
-        assert "- RUN:" not in mtp_prompt
-
-    async def test_profile_filters_prompt_tools(self):
-        """Profile 的工具白名单正确过滤 prompt"""
-        profile = _profile(
-            agent_id="restricted_agent",
-            allowed_verbs=["READ", "RUN"],
-            allowed_tools=["sys_clock"],
-        )
-        mtp_prompt = _build_prompt(profile)
-
-        # 允许的工具应该出现
-        assert "sys_clock" in mtp_prompt
-
-        # 禁止的工具不应该出现
-        assert "sys_write_file" not in mtp_prompt
-        assert "sys_python_repl" not in mtp_prompt
-        assert "sys_web_search" not in mtp_prompt
-
-    async def test_no_profile_renders_full_prompt(self):
-        """无 profile 时渲染完整 prompt（兜底逻辑）"""
-        mtp_prompt = _build_prompt(profile=None)
-
-        # 所有动词都应该出现
-        assert "- SEARCH:" in mtp_prompt
-        assert "- READ:" in mtp_prompt
-        assert "- RUN:" in mtp_prompt
-        assert "- WRITE:" in mtp_prompt
-        assert "- UPDATE:" in mtp_prompt
-
-        # 所有默认工具都应该出现
-        assert "sys_clock" in mtp_prompt
-        assert "sys_web_search" in mtp_prompt
 
 
 def _make_retrieval_familiar() -> tuple[RetrievalFamiliar, AsyncMock]:
@@ -277,5 +196,6 @@ class TestProfileLoadingErrors:
 
         profile = resolved.profile
         assert profile.persona == "You are coder_doll."
-        assert profile.allowed_mtp_verbs == ["READ", "RUN"]
-        assert profile.allowed_sys_tools == ["sys_clock"]
+        assert profile.agent_id == "coder_doll"
+        assert profile.model_name == "gpt-4"
+        assert profile.temperature == pytest.approx(0.7)

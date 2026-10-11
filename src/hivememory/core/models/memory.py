@@ -315,7 +315,7 @@ class PayloadLayer(BaseModel):
     # 变化按内容版本处理但不触发向量重算。
     agent_config: dict[str, Any] | None = Field(
         default=None,
-        description="人偶图纸配置: {model_name, temperature, permissions: {allowed_mtp_verbs, allowed_sys_tools}}",
+        description="人偶图纸配置: {model_name, temperature, top_p, language}",
     )
 
     artifacts: Artifacts = Field(default_factory=Artifacts, description="原始数据存根")

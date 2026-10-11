@@ -6,8 +6,8 @@ from hivememory.i18n.types import Language
 _SYSTEM_PROMPT_TEXT_ZH = {
     "storage_offline_notice": (
         "[系统通知] 记忆存储当前离线。"
-        "所有 MTP 指令 (SEARCH, READ, RUN, WRITE, UPDATE) 将失败。"
-        "请勿发出任何 MTP 指令，使用自身知识回答用户。"
+        "依赖记忆存储的操作将失败。"
+        "请使用已有上下文继续对话；本地系统工具仍可使用。"
     ),
     "persona_header": "### 角色设定 ###",
     "topic_state_header": "[话题状态]",
@@ -16,8 +16,8 @@ _SYSTEM_PROMPT_TEXT_ZH = {
 _SYSTEM_PROMPT_TEXT_EN = {
     "storage_offline_notice": (
         "[SYSTEM NOTICE] Memory storage is currently OFFLINE. "
-        "All MTP commands (SEARCH, READ, RUN, WRITE, UPDATE) will fail. "
-        "Do NOT issue any MTP commands. Answer from your own knowledge."
+        "Operations that require memory storage will fail. "
+        "Continue using the available context; local system tools remain available."
     ),
     "persona_header": "### PERSONA ###",
     "topic_state_header": "[Topic State]",
@@ -27,8 +27,8 @@ _MTP_VERB_TEXT_ZH = {
     "SEARCH": '发现未知记忆。Target=`*`。参数: `query="..."`，可选 `filter="type:CODE"` (类型: CODE, FACT, URL, REFLECTION, PROFILE, WIP)。',
     "READ": "获取完整内容。Target=`alias` 或 `[alias1, alias2]` (使用列表批量读取)。",
     "RUN": '执行内核工具。Target=`tool_alias`。参数: `key="value"`。',
-    "WRITE": '保存有价值的洞察。Target=`*`。参数: `title="..." content=`...``。返回运行时 pending alias (draft_*)，可立即 READ。',
-    "UPDATE": '修正已有记忆。Target=`alias`。参数: `instruction="..."`。返回运行时 pending alias (rev_*)，可立即 READ。',
+    "WRITE": '保存有价值的洞察。Target=`*`。参数: `title="..." content=`...``。返回运行时 pending alias (draft_*)。',
+    "UPDATE": '修正已有记忆。Target=`alias`。参数: `instruction="..."`。返回运行时 pending alias (rev_*)。',
     "CALL": '委托子代理执行专项任务。Target=`agent_alias` (来自可用子代理列表)。参数: `topic="..."`，可选 `context_refs="[alias1, alias2]"` 共享记忆。',
 }
 
@@ -36,8 +36,8 @@ _MTP_VERB_TEXT_EN = {
     "SEARCH": 'Discover unknown memories. Target=`*`. Args: `query="..."`, optional `filter="type:CODE"` (types: CODE, FACT, URL, REFLECTION, PROFILE, WIP).',
     "READ": "Fetch full content. Target=`alias` or `[alias1, alias2]` (use LIST for batching).",
     "RUN": 'Execute a kernel tool. Target=`tool_alias`. Args: `key="value"`.',
-    "WRITE": 'Save valuable insights. Target=`*`. Args: `title="..." content=`...``. Returns a pending alias (draft_*) readable immediately via READ.',
-    "UPDATE": 'Patch existing memory. Target=`alias`. Args: `instruction="..."`. Returns a pending alias (rev_*) readable immediately via READ.',
+    "WRITE": 'Save valuable insights. Target=`*`. Args: `title="..." content=`...``. Returns a pending alias (draft_*).',
+    "UPDATE": 'Patch existing memory. Target=`alias`. Args: `instruction="..."`. Returns a pending alias (rev_*).',
     "CALL": 'Delegate to a sub-agent. Target=`agent_alias` (from Available Sub-Agents list). Args: `topic="..."`, optional `context_refs="[alias1, alias2]"` to share memories.',
 }
 

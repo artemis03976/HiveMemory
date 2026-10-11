@@ -23,7 +23,7 @@ def _frame(run_id: str, frame_id: str, policy: FrameExecutionPolicy) -> Executio
 
 
 def test_session_registers_frame_under_frame_id() -> None:
-    policy = FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE, max_iterations=7)
+    policy = FrameExecutionPolicy(max_iterations=7)
     session = RunSession(agent_run_id="run-a")
     frame = _frame("run-a", "frame-a", policy)
 

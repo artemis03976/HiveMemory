@@ -19,6 +19,8 @@ MTP System Prompt 构建器
 """
 
 import logging
+import re
+from collections.abc import Iterable
 
 from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
@@ -42,6 +44,9 @@ DEFAULT_RUNTIME_TOOLS: list[tuple[str, str]] = [
 
 # 默认全量动词顺序
 _VERB_ORDER = ["SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"]
+# 教学模板中的独立动词标记；不把普通单词或系统工具别名当作 MTP 动词。
+_VERB_PATTERN = re.compile(r"\b(?:SEARCH|READ|RUN|WRITE|UPDATE|CALL)\b")
+_DEMO_VERBS = frozenset({"SEARCH", "READ", "RUN"})
 
 
 # ========== Prompt 构建器 ==========
@@ -65,8 +70,7 @@ class MTPPromptBuilder:
         runtime_tools: list[tuple[str, str]] | None = None,
         include_demo: bool = True,
         include_error_handling: bool = True,
-        allowed_verbs: list[str] | None = None,
-        allowed_runtime_tools: list[str] | None = None,
+        allowed_verbs: Iterable[str] | None = None,
     ):
         """
         Args:
@@ -75,24 +79,19 @@ class MTPPromptBuilder:
                            如果为 None，使用 DEFAULT_RUNTIME_TOOLS
             include_demo: 是否包含 One-Shot 演示
             include_error_handling: 是否包含错误恢复指令
-            allowed_verbs: MTP 动词白名单，None=全量渲染
-            allowed_runtime_tools: 系统工具白名单，None=全量渲染，
-                                   空列表=不渲染工具列表
+            allowed_verbs: frame 可用的 MTP 动词集合，None=全量渲染；
+                           只约束教学内容，不承担资源操作授权
         """
         self.language = resolve_language(explicit=language)
         self.include_demo = include_demo
         self.include_error_handling = include_error_handling
 
-        base_tools = runtime_tools if runtime_tools is not None else DEFAULT_RUNTIME_TOOLS
-        if allowed_runtime_tools is not None:
-            allowed_set = set(allowed_runtime_tools)
-            self.runtime_tools = [(a, d) for a, d in base_tools if a in allowed_set]
-        else:
-            self.runtime_tools = base_tools
+        # 系统工具不设 agent 权限，菜单完整展示当前提供的工具列表。
+        self.runtime_tools = runtime_tools if runtime_tools is not None else DEFAULT_RUNTIME_TOOLS
 
-        # 权限过滤：MTP 动词白名单 (用于协议规格渲染)
+        # 同一集合同时裁剪协议规格、行为教学和演示，避免其它段落鼓励禁用动词。
         self.allowed_verbs = (
-            set(v.upper() for v in allowed_verbs) if allowed_verbs is not None else None
+            frozenset(v.upper() for v in allowed_verbs) if allowed_verbs is not None else None
         )
 
     def build(self) -> str:
@@ -118,7 +117,7 @@ class MTPPromptBuilder:
             sections.append(self._build_runtime_tools())
 
         # 5. 高密度演示 (可选)
-        if self.include_demo:
+        if self.include_demo and (self.allowed_verbs is None or _DEMO_VERBS <= self.allowed_verbs):
             sections.append(self._build_dense_demo())
 
         # 6. 错误恢复 (可选)
@@ -142,14 +141,25 @@ class MTPPromptBuilder:
 
     def _build_negative_constraints(self) -> str:
         """构建负面约束模块"""
-        return get_mtp_prompt_text("negative_constraints", self.language)
+        return self._filter_verb_guidance(
+            get_mtp_prompt_text("negative_constraints", self.language)
+        )
 
     def _build_behavioral_guidelines(self) -> str:
         """构建行为准则模块"""
-        text = get_mtp_prompt_text("behavioral_guidelines", self.language)
-        if self.allowed_verbs is not None and "CALL" not in self.allowed_verbs:
-            return "\n".join(line for line in text.splitlines() if "CALL" not in line)
-        return text
+        return self._filter_verb_guidance(
+            get_mtp_prompt_text("behavioral_guidelines", self.language)
+        )
+
+    def _filter_verb_guidance(self, text: str) -> str:
+        """仅保留所提及动词全部可用的教学行，避免裁剪后留下误导性的建议。"""
+        if self.allowed_verbs is None:
+            return text
+        return "\n".join(
+            line
+            for line in text.splitlines()
+            if set(_VERB_PATTERN.findall(line)) <= self.allowed_verbs
+        )
 
     def _build_runtime_tools(self) -> str:
         """构建运行时工具列表"""
@@ -170,7 +180,7 @@ class MTPPromptBuilder:
 
     def _build_error_handling(self) -> str:
         """构建错误处理指令"""
-        return get_mtp_prompt_text("error_handling", self.language)
+        return self._filter_verb_guidance(get_mtp_prompt_text("error_handling", self.language))
 
 
 # ========== 便捷函数 ==========

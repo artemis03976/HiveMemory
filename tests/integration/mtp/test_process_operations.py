@@ -4,6 +4,7 @@ import pytest
 
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import (
     AgentProfile,
@@ -219,9 +220,10 @@ async def test_system_run_with_no_actor_operations_executes_without_submission()
 
     context = MTPExecutionContext(
         runtime_scope=make_runtime_scope(),
-        agent_profile=AgentProfile(
-            allowed_mtp_verbs=["RUN"], allowed_sys_tools=["sys_python_repl"]
+        agent_profile=AgentProfile.model_validate(
+            {"allowed_mtp_verbs": [], "allowed_sys_tools": []}
         ),
+        execution_policy=FrameExecutionPolicy.from_verbs({"RUN"}),
         submit_operation=record_submission,
     )
 
@@ -236,23 +238,28 @@ async def test_system_run_with_no_actor_operations_executes_without_submission()
 
 
 @pytest.mark.asyncio
-async def test_system_run_still_requires_profile_tool_permission():
-    """本地系统工具仍由 Profile 的工具许可保护，actor 的 RUN 许可不能代替它。"""
+async def test_memory_run_without_actor_grant_is_denied_despite_frame_run():
+    """frame 的 RUN 供系统工具使用，不能代替 memory.run 的逐次资源授权。"""
     harness = OperationsHarness()
+    atom = MemoryAtom(
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
+        index=IndexLayer(
+            alias="tool_denied", title="未获授权的代码", memory_type=MemoryType.CODE_SNIPPET
+        ),
+        payload=PayloadLayer(content="print(42)"),
+    )
+    harness.memories[atom.get_alias()] = atom
     context = MTPExecutionContext(
         runtime_scope=make_runtime_scope(),
-        agent_profile=AgentProfile(allowed_mtp_verbs=["RUN"], allowed_sys_tools=[]),
-        submit_operation=await harness.submitter(
-            make_identity_scope(), allowed_operations={WorkspaceOperation.MEMORY_RUN}
-        ),
+        execution_policy=FrameExecutionPolicy.from_verbs({"RUN"}),
+        submit_operation=await harness.submitter(make_identity_scope(), allowed_operations=[]),
     )
 
-    result = await KoakumaRuntime().execute_mtp(
-        '⟪ RUN | sys_python_repl | code="print(6 * 7)" ⟫', context
-    )
+    result = await KoakumaRuntime().execute_mtp("⟪ RUN | tool_denied | ⟫", context)
 
     assert result.response_status == "error"
     assert 'code="mtp.permission.denied"' in result.formatted_response
+    assert result.response_content == ""
     assert harness.runtime.stats()["cold_reads"] == 0
     assert harness.citations == []
 

@@ -31,6 +31,7 @@ from hivememory.agent_runtime.models import (
 )
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.runtime import AgentRuntime
+from hivememory.alice.application.operation_policy import mtp_verbs_for_operations
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_executor import RunExecutor
 from hivememory.alice.orchestration.run_session import RunSession
@@ -77,6 +78,8 @@ def _agent_run_context_from_manifest(manifest: CPUInputManifest) -> AgentRunCont
     ``interaction_id`` 取 ``process_id``（进程是本次 Interaction 的关联 ID
     事实来源）；``retrieval_result`` 由未编译的记忆原子构造，供预检索
     alias 登记等流程使用。``AgentRunContext`` 不出现在任何公开路由上。
+    操作快照在 Alice 一侧翻译为 MTP 动词，提示词与 root frame 共享同一集合；
+    此转换只描述执行能力，不参与资源授权。
     """
     return AgentRunContext(
         labels=manifest.labels,
@@ -87,6 +90,7 @@ def _agent_run_context_from_manifest(manifest: CPUInputManifest) -> AgentRunCont
         retrieval_result=RetrievalResponse.from_memories(manifest.memories),
         memory_context=manifest.memory_context,
         agent_profile=manifest.agent_profile,
+        permitted_mtp_verbs=mtp_verbs_for_operations(manifest.allowed_operations),
         storage_available=manifest.storage_available,
         attachment_context=manifest.attachment_context,
     )
@@ -201,6 +205,7 @@ class AgentRunService:
                     topic_id=preparation.context.topic_id,
                     session=preparation.session,
                     agent_profile=preparation.context.agent_profile,
+                    permitted_verbs=preparation.context.permitted_mtp_verbs,
                 )
                 event_metadata = self._event_metadata_for_frame(frame)
                 executor_stream = agent_stream.events(
@@ -226,6 +231,7 @@ class AgentRunService:
                     topic_id=preparation.context.topic_id,
                     session=preparation.session,
                     agent_profile=preparation.context.agent_profile,
+                    permitted_verbs=preparation.context.permitted_mtp_verbs,
                 )
                 engine_result = await executor.run(frame, generation_options=generation_options)
 
@@ -302,12 +308,13 @@ class AgentRunService:
         labels: ExecutionLabels,
         topic_id: str,
         agent_profile: AgentProfile | None,
+        permitted_verbs: frozenset[str],
         session: RunSession,
     ) -> ExecutionFrame:
-        """为当前 run 创建并登记唯一 root frame。"""
+        """按提示词使用的同一动词集合，创建并登记当前 run 的唯一 root frame。"""
         profile = agent_profile or OMNI_DOLL_PROFILE
-        policy = FrameExecutionPolicy.from_profile(
-            profile,
+        policy = FrameExecutionPolicy.from_verbs(
+            permitted_verbs,
             max_iterations=getattr(self._agent_runtime, "max_iterations", None),
         )
         frame = self._frame_factory.create(

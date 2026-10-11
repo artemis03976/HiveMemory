@@ -183,6 +183,9 @@ class AgentRunContext(BaseModel):
     # retrieval_result 只保留记忆原子，供缓存、引用记录等流程使用。
     memory_context: str = Field(default="")
     agent_profile: AgentProfile
+    permitted_mtp_verbs: frozenset[str] = Field(
+        description="Alice 从操作快照翻译的 MTP 动词，只供提示词与 frame 执行策略使用",
+    )
     storage_available: bool = Field(default=True)
 
     # 进程编译好的附件 section 文本（AttachmentCompiler 产物）；未选择附件

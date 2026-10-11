@@ -18,7 +18,7 @@ def test_frame_factory_creates_root_frame_from_spec() -> None:
             profile=OMNI_DOLL_PROFILE,
             messages=[{"role": "system", "content": "hello"}],
             topic_id="topic-1",
-            execution_policy=FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE),
+            execution_policy=FrameExecutionPolicy(),
         )
     )
 
@@ -38,8 +38,8 @@ def test_frame_factory_creates_transient_frame_with_same_run_id() -> None:
             profile=OMNI_DOLL_PROFILE,
             messages=[{"role": "user", "content": "task"}],
             topic_id=None,
-            execution_policy=FrameExecutionPolicy.from_profile(
-                OMNI_DOLL_PROFILE,
+            execution_policy=FrameExecutionPolicy.from_verbs(
+                {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"},
                 denied_verbs={"CALL"},
             ),
         )
@@ -73,7 +73,7 @@ def test_frame_factory_records_only_latest_user_message() -> None:
             profile=OMNI_DOLL_PROFILE,
             messages=messages,
             topic_id="topic-1",
-            execution_policy=FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE),
+            execution_policy=FrameExecutionPolicy(),
         )
     )
 
@@ -98,7 +98,7 @@ def test_frame_factory_does_not_record_empty_latest_user_message() -> None:
                 {"role": "user", "content": ""},
             ],
             topic_id="topic-1",
-            execution_policy=FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE),
+            execution_policy=FrameExecutionPolicy(),
         )
     )
 

@@ -3,39 +3,33 @@ from __future__ import annotations
 from collections.abc import Iterable
 from dataclasses import dataclass
 
+from hivememory.core.mtp.models import MTPVerb
+
 
 @dataclass(frozen=True)
 class FrameExecutionPolicy:
-    """单次 frame 执行的显式能力白名单与迭代预算。"""
+    """单次 frame 可执行的 MTP 动词集合与迭代预算，不承担资源授权。"""
 
-    permitted_verbs: frozenset[str] | None = None
+    # 通用 frame 默认采用协议已知动词全集；Alice 会传入本进程的明确集合。
+    permitted_verbs: frozenset[str] = frozenset(verb.value for verb in MTPVerb)
     max_iterations: int | None = None
 
     @classmethod
-    def from_profile(
+    def from_verbs(
         cls,
-        profile: object | None,
+        permitted_verbs: Iterable[str],
         *,
         max_iterations: int | None = None,
         denied_verbs: Iterable[str] = (),
     ) -> FrameExecutionPolicy:
-        """从 Agent Profile 白名单构造策略，并可选移除被拒绝的动词。"""
-        configured = getattr(profile, "allowed_mtp_verbs", None)
-        permitted = None if configured is None else frozenset(v.upper() for v in configured)
+        """从明确的动词集合构造策略，并可选移除子 frame 禁止的动词。"""
+        permitted = frozenset(verb.upper() for verb in permitted_verbs)
         denied = {verb.upper() for verb in denied_verbs}
-        if permitted is not None:
-            permitted = frozenset(permitted.difference(denied))
-        elif denied:
-            # ``None`` 表示全部动词均允许；只有协议已知动词集合可用时，
-            # 才用完整集合来表达"除被拒绝动词外全部允许"。
-            from hivememory.core.mtp.models import MTPVerb
-
-            permitted = frozenset(v.value for v in MTPVerb).difference(denied)
-        return cls(permitted_verbs=permitted, max_iterations=max_iterations)
+        return cls(permitted_verbs=permitted.difference(denied), max_iterations=max_iterations)
 
     def allows(self, verb: str) -> bool:
-        """None 表示全部允许；否则只允许白名单中的动词（大小写不敏感）。"""
-        return self.permitted_verbs is None or verb.upper() in self.permitted_verbs
+        """只允许集合中的动词；大小写不敏感，未知动词不会默认放行。"""
+        return verb.upper() in self.permitted_verbs
 
 
 __all__ = ["FrameExecutionPolicy"]

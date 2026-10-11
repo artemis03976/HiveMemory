@@ -1,21 +1,56 @@
-"""Omni-Doll 默认 profile 能力清单与解析回退测试。
+"""Agent Profile 的默认模型参数与存量权限键兼容性单元测试。"""
 
-覆盖:
-- 内置 Omni-Doll profile 必须使用显式能力白名单（不允许 None）
-- 能力白名单与 MTP 动词枚举 / 内核 syscall 注册表保持同步
-"""
-
-from hivememory.agent_runtime.mtp.syscalls.registry import build_kernel_registry
-from hivememory.core.models.agent import (
-    OMNI_DOLL_ALLOWED_MTP_VERBS,
-    OMNI_DOLL_ALLOWED_SYS_TOOLS,
+from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
+    AgentProfile,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    PayloadLayer,
 )
-from hivememory.core.mtp.models import MTPVerb
+from tests.helpers.memory import make_memory_metadata
 
 
-def test_omni_doll_profile_uses_explicit_current_capability_lists():
-    assert OMNI_DOLL_PROFILE.allowed_mtp_verbs is not None
-    assert OMNI_DOLL_PROFILE.allowed_sys_tools is not None
-    assert set(OMNI_DOLL_ALLOWED_MTP_VERBS) == {verb.value for verb in MTPVerb}
-    assert set(OMNI_DOLL_ALLOWED_SYS_TOOLS) == set(build_kernel_registry())
+def test_omni_doll_profile_uses_default_model_parameters_without_permissions() -> None:
+    """内置图纸只提供运行配置，权限不再附着在 Profile 上。"""
+    assert OMNI_DOLL_PROFILE.model_dump() == {
+        "agent_id": None,
+        "persona": "",
+        "model_name": "default",
+        "temperature": None,
+        "top_p": None,
+        "language": "zh",
+    }
+    assert "allowed_mtp_verbs" not in AgentProfile.model_fields
+    assert "allowed_sys_tools" not in AgentProfile.model_fields
+
+
+def test_profile_parsing_ignores_legacy_permission_keys() -> None:
+    """旧键即使含非列表值也应忽略，真实配置和 alias 身份仍正常解析。"""
+    atom = MemoryAtom(
+        meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
+        index=IndexLayer(
+            alias="legacy_agent", title="旧版人偶", memory_type=MemoryType.AGENT_PROFILE
+        ),
+        payload=PayloadLayer(
+            content="专注代码审查",
+            agent_config={
+                "model_name": "legacy-model",
+                "language": "en",
+                "allowed_mtp_verbs": {"obsolete": "value"},
+                "allowed_sys_tools": 42,
+            },
+        ),
+    )
+
+    profile = AgentProfile.from_atom(atom)
+
+    assert isinstance(profile, AgentProfile)
+    assert profile.model_dump() == {
+        "agent_id": "legacy_agent",
+        "persona": "专注代码审查",
+        "model_name": "legacy-model",
+        "temperature": None,
+        "top_p": None,
+        "language": "en",
+    }
