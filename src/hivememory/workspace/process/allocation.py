@@ -139,6 +139,9 @@ class CPUAllocator:
         if prepared is None:
             raise RuntimeError("CPU 分配必须在 prepare 结果写入工作集之后执行")
 
+        # 即使没有附件也重新确认准入与目标；操作快照只供 CPU 描述执行能力。
+        allowed_operations = self._authorizer.get_stage_operations(access, target_workspace)
+
         # 1. 附件：按用户选择顺序 acquire READY representation 并核对版本摘要。
         #    取得的 lease 由 _acquire_selected_attachment 直接登记进工作集。
         for selection in selections:
@@ -177,6 +180,7 @@ class CPUAllocator:
             labels=labels,
             user_message=user_message,
             agent_profile=agent_profile,
+            allowed_operations=allowed_operations,
             memories=memories,
             memory_context=memory_context,
             attachment_context=attachment_compile_result.attachment_context,

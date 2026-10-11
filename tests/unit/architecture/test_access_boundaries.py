@@ -154,6 +154,11 @@ def test_stage_authorization_is_only_called_by_task_processes():
     }
 
 
+def test_stage_operation_snapshot_is_only_read_by_task_process_allocation():
+    """操作快照只供 CPU 分配读取，不能成为 actor API 或 CPU 的授权旁路。"""
+    assert _private_call_sites("get_stage_operations") == {"workspace/process/allocation.py"}
+
+
 def _private_call_sites(attribute: str) -> set[str]:
     """生产代码中访问某个属性名的源文件（相对路径），不含定义处 core/access.py。"""
     sites: set[str] = set()

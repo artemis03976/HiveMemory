@@ -378,21 +378,23 @@ async def test_authorize_stage_without_operations_preserves_process_actor():
 
 
 @pytest.mark.asyncio
-async def test_authorize_stage_rejects_revoked_context():
+@pytest.mark.parametrize("method", ["authorize_stage", "get_stage_operations"])
+async def test_authorize_stage_rejects_revoked_context(method):
     """阶段授权兑现已撤销凭据时拒绝，空白名单不能绕过签发有效性检查。"""
     composition = _composition(allowed_operations=frozenset())
     context = await composition.authenticate(agent_id="a1", user_id="u1")
     composition.gateway.invalidate_context(context)
 
     with pytest.raises(ScopeRequiredError) as exc_info:
-        composition.authorizer.authorize_stage(context, MAIN)
+        getattr(composition.authorizer, method)(context, MAIN)
 
     assert exc_info.value.details["reason"] == "context_not_issued"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("enabled", [True, False], ids=["missing-actor", "disabled-actor"])
-async def test_authorize_stage_rechecks_current_admission(enabled):
+@pytest.mark.parametrize("method", ["authorize_stage", "get_stage_operations"])
+async def test_authorize_stage_rechecks_current_admission(enabled, method):
     """准入记录缺失或已禁用时，阶段授权仍拒绝持有原签发凭据的 actor。"""
     context = await _composition().authenticate(agent_id="a1", user_id="u1")
     composition = make_access_composition(
@@ -408,20 +410,21 @@ async def test_authorize_stage_rechecks_current_admission(enabled):
     )
 
     with pytest.raises(ScopeRequiredError) as exc_info:
-        composition.authorizer.authorize_stage(context, MAIN)
+        getattr(composition.authorizer, method)(context, MAIN)
 
     assert exc_info.value.details["reason"] == "actor_not_admitted"
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("target", [ISOLATION, FOREIGN_OWNER], ids=["workspace", "owner"])
-async def test_authorize_stage_rejects_target_outside_resident_workspace(target):
+@pytest.mark.parametrize("method", ["authorize_stage", "get_stage_operations"])
+async def test_authorize_stage_rejects_target_outside_resident_workspace(target, method):
     """跨 workspace 或 owner 的阶段目标均拒绝，错误不伪造 actor operation。"""
     composition = _composition(allowed_operations=frozenset())
     context = await composition.authenticate(agent_id="a1", user_id="u1")
 
     with pytest.raises(OperationDeniedError) as exc_info:
-        composition.authorizer.authorize_stage(context, target)
+        getattr(composition.authorizer, method)(context, target)
 
     assert exc_info.value.details == {
         "reason": "target_workspace_not_resident",
@@ -431,19 +434,20 @@ async def test_authorize_stage_rejects_target_outside_resident_workspace(target)
 
 
 @pytest.mark.asyncio
-async def test_authorize_stage_rejects_missing_context_and_invalid_target():
+@pytest.mark.parametrize("method", ["authorize_stage", "get_stage_operations"])
+async def test_authorize_stage_rejects_missing_context_and_invalid_target(method):
     """阶段授权同样守住凭据与目标类型边界，不接受裸身份替代访问凭据。"""
     composition = _composition()
     context = await composition.authenticate(agent_id="a1", user_id="u1")
 
     with pytest.raises(ScopeRequiredError) as missing_info:
-        composition.authorizer.authorize_stage(None, MAIN)
+        getattr(composition.authorizer, method)(None, MAIN)
     with pytest.raises(ScopeRequiredError) as bare_info:
-        composition.authorizer.authorize_stage(
+        getattr(composition.authorizer, method)(
             make_identity_scope(user_id="u1", agent_id="a1"), MAIN
         )
     with pytest.raises(TypeError, match="target_workspace 必须是 WorkspaceIdentity"):
-        composition.authorizer.authorize_stage(context, "main_workspace")
+        getattr(composition.authorizer, method)(context, "main_workspace")
 
     assert missing_info.value.code == "workspace.scope_required"
     assert bare_info.value.code == "workspace.scope_required"

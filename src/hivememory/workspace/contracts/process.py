@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import (
     AgentProfile,
     ExecutionLabels,
@@ -31,6 +32,9 @@ class CPUInputManifest(BaseModel):
     labels: ExecutionLabels = Field(description="注册时绑定的只读观测标签，不用于行为授权")
     user_message: str = Field(description="原始用户消息")
     agent_profile: AgentProfile = Field(description="CPU 分配时经阶段授权与读取视图解析的 Profile")
+    allowed_operations: frozenset[WorkspaceOperation] = Field(
+        description="CPU 分配时的 actor 操作快照，只供提示词与执行策略使用，不作为授权依据",
+    )
     memories: list[MemoryAtom] = Field(
         default_factory=list,
         description="未编译的检索结果原子（prepare 返回的原始列表）",
