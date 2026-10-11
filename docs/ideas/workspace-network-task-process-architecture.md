@@ -1031,7 +1031,7 @@ sequenceDiagram
 - 15.10：记忆任务路由属于 root API。
 - `system` 的语义：13.4 与 15.1 所说“没有具体 Agent 作为操作来源主体，不承担权限绕过语义”改为唯一的 root 角色。`system` 同时仍是非主动写入路径的发起者（身份 Idea I-11），后者沿用 actor 可见性语义（只在 PUBLIC 内）；root 对整个 workspace 的视角只存在于 root API，两种用法不在同一个方法内混用。root 的判定在第 3 阶段授权中进行，不写进身份类型（身份 Idea 不变量 6）。
 - operation 目录（13.1）随之重整：`management.*` 与 `task.observe` 由 root 检查取代；`profile.read`、`asset.acquire`、`interaction.submit` 不再作为阶段检查使用；actor 操作的命名在能力层分层的计划中确定（2026-10-10 实施后为 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，见 [Workspace 架构](../architecture/workspace.md)第 4.5 节）。
-- P-9c：两类 context 由 API 面区分：root API 只接受 root 的请求级 context，actor API 经操作入口接受执行凭据。plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计。
+- P-9c：两类 context 由 API 面区分：root API 只接受 root 的请求级 context，actor API 经操作入口接受执行凭据（2026-10-11 改为线程 context，见执行单元 Idea T-2）。plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计。
 - 执行单元 Idea T-9 第 3 点“HTTP 管理侧理论上也采用这种映射形态”被取代：操作请求与操作列表只描述 actor API；root API 由 HTTP 管理入口直接调用。
 - P-3：RUN 与 CALL 成为 actor 操作，授权进入能力层；执行本身是否经能力层仍未决定。
 
@@ -1103,7 +1103,7 @@ P-4b（不开放创建任务进程）已完成，见 15.9。
 - **P-9c（剩余）能力层如何区分两类 context**：绑定进程的 context 与请求级 context 是否需要在授权时区分，以及如何区分。
   - 现状：区分实际依靠 actor，即 `system` 记录与用户级记录分开登记；context 中写入了运行绑定（运行类型与标识），但操作授权不读取它。
   - 选项：维持按访问登记区分（现状） / 操作授权按运行类型限制可用的 operation / 其他。
-  - 2026-10-10：按 15.12，root API 只接受 root 的请求级 context，actor API 经操作入口接受执行凭据，两类 context 由 API 面区分；剩下的是 plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计。
+  - 2026-10-10：按 15.12，root API 只接受 root 的请求级 context，actor API 经操作入口接受执行凭据（2026-10-11 改为线程 context，见执行单元 Idea T-2），两类 context 由 API 面区分；剩下的是 plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计。
 - **P-9d 进程的定义**：是否据此把“进程 = 由 CPU 执行的一个任务”确立为任务进程 Idea 的前提定义（15.1 的取舍）。
 - **P-9f 两种读取视角的入口形式**（2026-10-03，由 15.7 引出；2026-10-10 已决定：两个入口分属 root API 与 actor API，见 15.12，以下保留原选项与分析）：两个入口，视角体现在方法名与 operation 上（现状） / 一个入口加显式视角参数，例如 `read(memory_id, view=AGENT | OWNER)`，视角映射到 operation / 一个入口，按调用方持有的权限决定视角 / 其他。
   - 影响：

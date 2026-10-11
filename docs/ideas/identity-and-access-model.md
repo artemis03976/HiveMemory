@@ -29,13 +29,13 @@ related_docs:
   - docs/ideas/pending-intent-migration.md
   - docs/architecture/workspace.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # 身份与访问体系
 
 **文档状态**：Idea，保留决定理由与分批讨论；第一、二批均已实施归档。第二批于 2026-10-04 经测试与审查后在分支 `refactor/identity-access-batch-2` 提交（实现 commit `b2c7aee`），同日经 PR #107 合并至 master（`5660fed`），见[归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)；合并不表示 v0.7.0 已发布。
-**实施补充（2026-10-09）**：I-9 的 CPU 过渡身份已删除，Alice/CPU 改持观测标签与执行凭据；见 [Alice 迁移归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)。第二批快照及下文过渡设计保留为历史背景；当前事实由 [Workspace 架构](../architecture/workspace.md)维护。独立子线程 context 与 WorkspaceAsset 内部拆分仍按各自方向推进。
+**实施补充（2026-10-09）**：I-9 的 CPU 过渡身份已删除，Alice/CPU 改持观测标签与执行凭据（2026-10-11 决定以线程 context 取代执行凭据，尚未实施，见 I-9）；见 [Alice 迁移归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)。第二批快照及下文过渡设计保留为历史背景；当前事实由 [Workspace 架构](../architecture/workspace.md)维护。独立子线程 context 与 WorkspaceAsset 内部拆分仍按各自方向推进。
 
 **记录日期**：2026-10-03；2026-10-04 记录 I-6、I-6a、I-7、I-11 的决定，并按第二批最终代码更新现状。WorkspaceAsset 内部拆分明确暂缓，见 [Todo](../todo/workspace-asset-ownership-identity-split.md)。
 
@@ -109,6 +109,7 @@ owner 于 2026-10-03 决定把身份与访问作为一个独立的体系，在�
 
 1. 第 3 阶段之前不存在 `IdentityScope`。入口在认证前只持有 actor 声明与请求进入的 workspace。
 2. 访问 context 只出现在本次运行的持有者手里和 workspace 的授权点；不进入资源 owner、Gateway、引擎或存储，不写入任何记录、事件、交互记录或 DTO。
+   - （owner，2026-10-11）任务进程内分进程 context 与线程 context：进程 context 的持有者是任务进程，服务于全部四个阶段；线程 context 的“运行”是该执行线程在 CPU 执行阶段内的执行，持有者是 CPU，CPU 执行结束即撤销。CPU 不持有进程 context（[执行单元 Idea](./execution-unit-thread-and-environment.md#t-2-执行线程的访问-context) T-2）。
 3. 运行结束后不再读取访问 context。运行结束后的需求（交互记录、后台任务）以独立字段携带归属与（需要时）发起者，不保存 `IdentityScope`（I-6、I-6a，2026-10-04 修订）。进程记录与进程同寿：进程关闭时从进程表移除，此后取消与状态查询都返回 `not_found`；按任务进程 Idea Q-3a，访问 context 进入进程记录，与本条一致。
 4. 授权点只接收访问 context，`IdentityScope` 由授权点组装，不由调用方另行传入；授权点以下的公开边界（资源 owner 的公开路由、Gateway）只接收 `IdentityScope`。资源 owner 在内部把它拆为归属与发起者分别传递，内部不再传递或重新组装 `IdentityScope`（I-6，2026-10-04 修订）。
 5. 资源 owner 用 `IdentityScope` 与资源的归属、policy 做资源授权（第 3 节第 4 阶段）；归属只在资源创建时取自 `IdentityScope` 的目标 workspace；来源不参与资源授权（I-6，2026-10-04 修订）。
@@ -349,6 +350,7 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 
 - 过渡身份删除后，CPU 输入清单不再携带 `IdentityScope`，改为只用于观测与提示词的标签（例如 agent_id、workspace_id 字符串），不参与授权；Alice 内部 `RuntimeScope`、运行上下文与 MTP 执行上下文中的 `IdentityScope` 随之移除，`IdentityScope` 完全回到授权点之下的调用链内。
 - CPU 调用能力层所用的是执行凭据（[执行单元 Idea](./execution-unit-thread-and-environment.md#t-9-操作请求与-workspace-的操作入口) T-9）：进程内的不透明对象，本身不携带可读的身份，只能由 workspace 的操作入口兑现为访问 context；按对象身份判定有效，与进程句柄（I-8）同一做法，进程关闭时同步吊销。它与访问 context 分开：context 仍只由运行持有者与授权点持有，CPU 只持有凭据。
+  - （owner，2026-10-11，取代上一点）不另设执行凭据：执行线程的身份令牌就是它的线程 context。访问 context 本是密封凭据（I-1），CPU 持有也读不出身份；CPU 持有其执行线程的线程 context，提交操作请求时附上，CPU 执行结束即撤销；CPU 不持有进程 context。见[执行单元 Idea](./execution-unit-thread-and-environment.md#t-2-执行线程的访问-context) T-2。
 - 实施见 [Alice 的能力层调用迁移计划](../archive/plans/v0.7.0-alice-capability-migration.md)。
 
 #### I-10 workspace 一侧的认证与操作授权如何划分
@@ -395,7 +397,7 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 
 暂无。第二批的前置决定均已作出（2026-10-04）。
 
-2026-10-06：一个任务进程内有多个执行线程（主线程与 CALL 派生的子线程）时访问 context 的形态，已在[执行单元 Idea](./execution-unit-thread-and-environment.md#t-2-执行线程的访问-context) T-2 决定：每个执行线程一份 context，子线程的 context 在派生到达进程时签发（T-1）；外部执行单元不识别子线程，所有 actor 共享主线程的 context。本文第 2 节“每份 context 只属于一个 actor 和一次运行”不变，运行的粒度细化到线程；I-8“进程记录只持有访问 context”与 `RunBinding` 在实施时修订（进程记录持有全部线程的 context，运行绑定带上线程标识）。子线程 context 的失效时点（T-2a）仍待决；I-9 的删除依赖该部分的 T-4。问题与决定只在总 Idea 维护。
+2026-10-06：一个任务进程内有多个执行线程（主线程与 CALL 派生的子线程）时访问 context 的形态，已在[执行单元 Idea](./execution-unit-thread-and-environment.md#t-2-执行线程的访问-context) T-2 决定：每个执行线程一份 context，子线程的 context 在派生到达进程时签发（T-1）；外部执行单元不识别子线程，所有 actor 共享主线程的 context。本文第 2 节“每份 context 只属于一个 actor 和一次运行”不变，运行的粒度细化到线程；I-8“进程记录只持有访问 context”与 `RunBinding` 在实施时修订（进程记录持有全部线程的 context，运行绑定带上线程标识）。2026-10-11 补充：进程 context 服务于全部四个阶段，线程 context 只服务于 CPU 执行阶段并由 CPU 持有，取代执行凭据（T-2）。子线程 context 的失效时点（T-2a）仍待决；I-9 的删除依赖该部分的 T-4。问题与决定只在总 Idea 维护。
 
 ## 8. 分批
 
