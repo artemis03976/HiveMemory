@@ -824,7 +824,7 @@ sequenceDiagram
 
 ### 15.4 Agent Profile 的权限并入 operation 控制（P-2、P-10）
 
-**状态**：已完成。2026-09-28 决定，2026-10-02 确定归属，2026-10-06 改为单独建立计划，2026-10-10 补充白名单的决定并排在能力层分层（15.12）之后；尚未实施，计划尚未建立。P-10a 见第 16 节。
+**状态**：已完成。2026-09-28 决定，2026-10-02 确定归属，2026-10-06 改为单独建立计划，2026-10-10 补充白名单的决定并排在能力层分层（15.12）之后；能力层分层完成后，同日决定存储位置、运行时编辑与子线程权限（见下文）。尚未实施，计划：[Agent 操作白名单](../plans/v0.7.0-agent-operation-whitelist.md)。P-10a 见第 16 节。
 
 **问题**：两套权限并存：A1 的 operation 白名单与 Agent Profile 的 `allowed_mtp_verbs`、`allowed_sys_tools`（13.2）。后者的语义绑定 MTP 与系统工具体系，对不经 MTP 的外部 Actor（MCP、外部协议）没有定义含义（P-10，原记录于 AgentProfile 模型演进 Todo，2026-09-27 归档）。
 
@@ -840,7 +840,11 @@ sequenceDiagram
 - （owner，2026-10-10）白名单的内容就是 actor 操作的全集（15.12）：Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 移除，权限主体不再位于 Profile；白名单按 (user, workspace, agent) 记录。系统工具暂不设权限：Alice 中所有系统工具对所有 agent 可用，外部 harness 本就不适用。内置 OMNI_DOLL 的默认集合为全部 actor 操作。同一份名单对 Alice 翻译为 MTP 工具列表，对外部 harness 翻译为 MCP 工具列表。
 - 分析（2026-10-10）：Agent Profile 是某个 workspace 中的记忆原子，`agent_id` 即其 alias，只在 workspace 内唯一；不同 workspace 中的同名 agent 是两条独立的原子。因此“同一 agent 在不同 workspace 有不同能力”只可能出现在受限穿透访问中：那时一次跨 workspace 的操作要同时满足 agent 自身的白名单与目标一侧的授予，actor 身份也需要带上驻留 workspace（不在 v0.7.0）。
 - （owner，2026-10-10）能力层分层先于白名单：能力层提供的能力与 actor 应有的能力对齐之后，才讨论白名单。
-- 未决（随白名单计划讨论，不阻塞能力层分层）：权限留在 Profile 原子还是独立登记。留在 Profile：修改权限就是修改原子，删除 Profile 时权限随之消失，但只能表达一种权限情况，授权要读记忆库；独立登记：授权数据由 workspace 持有、记忆库不可达时仍能授权，但需要持久化、一个只对 root 开放的编辑接口，以及与 Profile 创建、删除的同步。owner（2026-10-10）认为两者没有明显优劣，并指出权限迟早需要在前端运行时编辑。另一项是执行线程层之前子线程的权限：Profile 字段移除后，子线程只能以主线程的白名单执行。
+- 已决（原未决，记录保留如下）：权限留在 Profile 原子还是独立登记。留在 Profile：修改权限就是修改原子，删除 Profile 时权限随之消失，但只能表达一种权限情况，授权要读记忆库；独立登记：授权数据由 workspace 持有、记忆库不可达时仍能授权，但需要持久化、一个只对 root 开放的编辑接口，以及与 Profile 创建、删除的同步。owner（2026-10-10）认为两者没有明显优劣，并指出权限迟早需要在前端运行时编辑。另一项是执行线程层之前子线程的权限：Profile 字段移除后，子线程只能以主线程的白名单执行。
+- 核对（2026-10-10，能力层分层之后）：访问登记的键已经是 (owner, workspace, user, agent)，actor API 已按它逐次授权，即“按 (user, workspace, agent) 记录的白名单”已经存在；actor 的 UPDATE 意图只覆盖 `payload.content`，不能改写 Profile 的 `agent_config`；`AgentProfile` 忽略多余字段，删除两个 allow 字段不会使已存 Profile 解析失败。
+- （owner，2026-10-10）白名单留在访问登记：Profile 不再承载任何权限，授权数据与授权都在 workspace，与 Profile 原子是否存在无关（外部 Actor 不一定有 Profile 原子）。
+- （owner，2026-10-10）白名单的运行时编辑与后续需要配置文件持久化、热更新的内容一起完成（[ROADMAP](../ROADMAP.md) 的“配置热更新”，外部 Actor Idea E-1），不在白名单计划内；在此之前修改白名单需改 `workspace_actors.yaml` 并重启。
+- （owner，2026-10-10）执行线程层落地之前，子 agent 继承父 agent 的操作权限：子线程的提示词与执行策略使用主线程的操作集合（子帧仍禁止 CALL），被调用方的 Profile 只提供 persona、模型与语言；独立的子线程权限属于执行线程层（[执行单元 Idea](./execution-unit-thread-and-environment.md#t-3-派生执行线程的认证与授权原总-idea-p-5a) T-3）。
 
 **取舍**：能力层只查白名单、Profile 权限留在 MTP 适配层，会形成两处检查，不经 MTP 的 Actor 不受 Profile 权限约束；能力层对两者取交集，会让 Profile 成为授权输入，持有 `management.memory` 即可影响授权。
 
