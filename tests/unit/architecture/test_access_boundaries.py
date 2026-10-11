@@ -1,10 +1,10 @@
 """A1 访问边界的架构级静态约束（AST 扫描，补充包分层泛化规则）。
 
-访问 context 是授权点之间的进程内凭据：只有 workspace 的认证入口、认证
-一侧、操作授权者与授权点（能力层、任务进程、注册入口、server 的 HTTP
-入口）接触它；Gateway、Patchouli、Alice 等资源 owner 与引擎位于授权点
-以下，资源调用只流动授权点组装的 ``IdentityScope``；Alice 与执行适配器
-只持操作提交函数和观测标签（A1 访问边界返工第 4.1 节，
+访问 context 是密封的进程内凭据：workspace 的认证一侧、授权点与运行持有者
+接触它；CPU 只持派生的线程 context，不持进程 context。Gateway、Patchouli
+等资源 owner 与引擎位于授权点以下，资源调用只流动授权点组装的
+``IdentityScope``；AliceCPU 将线程 context 绑定为操作提交函数，Agent loop
+与执行适配器只持提交函数和观测标签（A1 访问边界返工第 4.1 节，
 身份与访问体系不变量 2/4）。包分层测试只能证明"子系统之间只导入
 contracts"；本模块把认证与授权两侧的依赖方向固化为精确清单：
 
@@ -15,8 +15,8 @@ contracts"；本模块把认证与授权两侧的依赖方向固化为精确清�
 - 操作授权者不导入任务进程与能力层；认证一侧与操作授权者互不导入，只经
   context 这个类型发生联系（I-10 的 2026-10-04 补充）；
 - context 是密封凭据：签发（``_seal``）与撤销（``_revoke``）只在认证一侧
-  调用，读取授予内容（``_unseal``）只在操作授权者与认证一侧的诊断查询
-  调用。
+  调用，读取授予内容（``_unseal``）只在操作授权者与认证一侧的派生、
+  撤销校验和诊断查询调用。
 
 context 类型本身经 ``core.access`` 是依赖中立的值类型，其导入不受本约束
 （持有它只能把它交给授权点，读取内容的私有接口受上述清单约束）。
@@ -83,8 +83,8 @@ def test_auth_and_authz_imported_only_by_access_aware_packages():
 def test_capability_and_process_do_not_import_the_auth_side():
     """能力层、任务进程执行器与 CPU 分配只经操作授权者授权，不导入认证一侧。
 
-    授权点不接触签发与撤销：认证网关与 ``WorkspaceAuthenticator``
-    只属于运行持有者（server、注册入口）与组合根。
+    执行器只经窄化生命周期端口派生与撤销线程，认证网关与
+    ``WorkspaceAuthenticator`` 仍只由注册入口、server 与组合根导入。
     """
     scoped_files = [
         path
@@ -161,7 +161,7 @@ def test_stage_operation_snapshot_is_only_read_by_task_process_allocation():
 
 def test_thread_process_binding_queries_stay_inside_capability():
     """线程的进程关联只供意图登记与入口补偿，不能扩散到 CPU 或资源 owner。"""
-    assert _private_call_sites("get_thread_process_id") <= {
+    assert _private_call_sites("get_thread_process_id") == {
         "workspace/capability/operations.py",
         "workspace/capability/actor/memory.py",
     }
@@ -170,10 +170,82 @@ def test_thread_process_binding_queries_stay_inside_capability():
 def test_thread_lifecycle_is_only_consumed_by_runner():
     """派生与撤销只经执行器端口进入认证侧，CPU 不取得签发能力。"""
     for method in ("derive_thread_context", "revoke_thread_context"):
-        assert _private_call_sites(method) <= {
+        assert _private_call_sites(method) == {
             "workspace/authentication.py",
             "workspace/process/runner.py",
         }
+
+
+def test_thread_authorization_is_only_used_by_actor_api():
+    """只有 actor 能力从线程 context 组装资源 scope，CPU 只提交请求。"""
+    assert _private_call_sites("authorize_thread_operation") == {
+        "workspace/capability/actor/memory.py",
+        "workspace/capability/actor/agent_profiles.py",
+    }
+    assert _private_call_sites("validate_thread_context") == {"workspace/capability/operations.py"}
+
+
+def test_cpu_manifest_cannot_carry_access_context():
+    """输入清单的身份只含观测标签，线程 context 必须走 CPU 的独立参数。"""
+    from hivememory.workspace.contracts import CPUInputManifest
+
+    assert set(CPUInputManifest.model_fields) == {
+        "process_id",
+        "labels",
+        "user_message",
+        "agent_profile",
+        "allowed_operations",
+        "memories",
+        "memory_context",
+        "attachment_context",
+        "storage_available",
+        "topic_id",
+        "topic_context",
+    }
+
+
+def test_removed_execution_credentials_have_no_production_references():
+    """线程 context 是唯一执行令牌，不能重新引入凭据表或第二份绑定。"""
+    removed = {"ExecutionCredential", "ExecutionCredentialRegistry", "ExecutionBinding"}
+    offenders = []
+    for path in _source_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id in removed:
+                offenders.append(f"{path.relative_to(SRC_ROOT)}:{node.lineno}")
+            elif isinstance(node, (ast.ClassDef, ast.FunctionDef)) and node.name in removed:
+                offenders.append(f"{path.relative_to(SRC_ROOT)}:{node.lineno}")
+            elif isinstance(node, ast.ImportFrom) and any(a.name in removed for a in node.names):
+                offenders.append(f"{path.relative_to(SRC_ROOT)}:{node.lineno}")
+    assert offenders == []
+
+
+def test_actor_dispatch_does_not_unpack_requests_into_handlers():
+    """操作入口仅保留统一 execute，六项 actor 请求直接分派到能力方法。"""
+    path = SRC_ROOT / "workspace/capability/operations.py"
+    tree = ast.parse(path.read_text(encoding="utf-8"))
+    entry = next(n for n in tree.body if isinstance(n, ast.ClassDef))
+    assert {
+        n.name for n in entry.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
+    } == {"__init__", "execute"}
+    dispatch = next(
+        n.value
+        for n in ast.walk(entry)
+        if isinstance(n, ast.AnnAssign)
+        and isinstance(n.target, ast.Attribute)
+        and n.target.attr == "_handlers"
+    )
+    assert isinstance(dispatch, ast.Dict)
+    assert {
+        ast.unparse(key): ast.unparse(value) for key, value in zip(dispatch.keys, dispatch.values)
+    } == {
+        "SubmitWriteIntentRequest": "memory.submit_write_intent",
+        "SubmitUpdateIntentRequest": "memory.submit_update_intent",
+        "ResolveReferencesRequest": "memory.resolve_references",
+        "ResolveRunTargetRequest": "memory.resolve_run_target",
+        "RetrieveRequest": "memory.retrieve",
+        "ResolveCallTargetRequest": "agent.resolve_call_target",
+    }
 
 
 def test_profile_permission_symbols_have_no_production_references():
@@ -242,8 +314,8 @@ def test_context_issue_and_revoke_are_only_called_by_the_authentication_side():
     assert _private_call_sites("_revoke") == {"workspace/authentication.py"}
 
 
-def test_context_content_is_only_read_by_authorizer_and_diagnostics():
-    """授予内容只在操作授权者与认证一侧的诊断查询读取：其余代码只传递 context。"""
+def test_context_content_is_only_read_by_authorizer_and_authentication():
+    """授予内容只在操作授权者与认证侧读取：CPU 与其他代码只能传递 context。"""
     assert _private_call_sites("_unseal") == {
         "workspace/authorization.py",
         "workspace/authentication.py",

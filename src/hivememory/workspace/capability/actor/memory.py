@@ -17,15 +17,20 @@ from hivememory.core.models import (
     PendingAtom,
     ReferenceResolution,
     UpdateFocus,
-    WriteFocus,
 )
 from hivememory.core.protocol.models import RetrievalRequest
+from hivememory.workspace.contracts.operations import (
+    ResolveReferencesRequest,
+    ResolveRunTargetRequest,
+    RetrieveRequest,
+    SubmitUpdateIntentRequest,
+    SubmitWriteIntentRequest,
+)
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
     from hivememory.core.access import WorkspaceAccessContext
-    from hivememory.core.models import IdentityScope, WorkspaceIdentity
-    from hivememory.core.models.query import QueryFilters
+    from hivememory.core.models import IdentityScope
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
     from hivememory.workspace.resolution.alias import AliasResolver
 
@@ -50,16 +55,15 @@ class ActorMemoryService:
 
     async def submit_write_intent(
         self,
-        focus: WriteFocus,
+        request: SubmitWriteIntentRequest,
         *,
-        process_id: str | None,
-        target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> PendingAtom:
         """提交 WRITE（``memory.write``），ACK 仅表示意图已登记。"""
-        scope = self._authorize(access, WorkspaceOperation.MEMORY_WRITE, target_workspace)
+        scope = self._authorize(access, WorkspaceOperation.MEMORY_WRITE)
+        process_id = self._authorizer.get_thread_process_id(access)
         return self._intents.register_write(
-            focus,
+            request.focus,
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
             process_id=process_id,
@@ -67,28 +71,26 @@ class ActorMemoryService:
 
     async def submit_update_intent(
         self,
-        base_alias: str,
-        instruction: str,
-        content: str | None = None,
+        request: SubmitUpdateIntentRequest,
         *,
-        process_id: str | None,
-        target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> PendingAtom:
         """提交 UPDATE（``memory.update``）：授权后解析可读正式基础原子，登记成功才失效基础缓存。"""
-        scope = self._authorize(access, WorkspaceOperation.MEMORY_UPDATE, target_workspace)
-        result = (await self._reader.resolve_references([base_alias], scope=scope))[0]
+        scope = self._authorize(access, WorkspaceOperation.MEMORY_UPDATE)
+        # 在冷读之前取得关联；跨越撤销的迟到登记由操作入口同步补偿。
+        process_id = self._authorizer.get_thread_process_id(access)
+        result = (await self._reader.resolve_references([request.base_alias], scope=scope))[0]
         if result.kind == "pending":
-            raise PendingUpdateNotAllowedError(details={"alias": base_alias})
+            raise PendingUpdateNotAllowedError(details={"alias": request.base_alias})
         if result.kind != "atom" or result.atom is None:
-            raise ResourceNotFoundError(details={"alias": base_alias})
+            raise ResourceNotFoundError(details={"alias": request.base_alias})
         atom = result.atom
         pending = self._intents.register_update(
             UpdateFocus(
-                base_alias=atom.index.alias or base_alias,
+                base_alias=atom.index.alias or request.base_alias,
                 base_uuid=str(atom.id),
-                instruction=instruction,
-                content=content or None,
+                instruction=request.instruction,
+                content=request.content or None,
             ),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -99,9 +101,8 @@ class ActorMemoryService:
 
     async def resolve_references(
         self,
-        aliases: list[str],
+        request: ResolveReferencesRequest,
         *,
-        target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> list[ReferenceResolution]:
         """读取引用（``memory.read``），为本次交付的正式原子逐一记录引用。
@@ -110,14 +111,13 @@ class ActorMemoryService:
         只处理 atom 或带可读原子的 redirect；缓存命中也记录。记录失败只
         影响日志，不改变读取结果，取消则继续传播给调用方。
         """
-        scope = self._authorize(access, WorkspaceOperation.MEMORY_READ, target_workspace)
-        return await self._resolve_and_record_citations(aliases, scope=scope)
+        scope = self._authorize(access, WorkspaceOperation.MEMORY_READ)
+        return await self._resolve_and_record_citations(list(request.aliases), scope=scope)
 
     async def resolve_run_target(
         self,
-        alias: str,
+        request: ResolveRunTargetRequest,
         *,
-        target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> ReferenceResolution:
         """解析 RUN 的单个执行目标（``memory.run``），交付时记录正式引用。
@@ -125,8 +125,8 @@ class ActorMemoryService:
         RUN 与 READ 独立授权；资源可见性与引用副作用沿用同一读取视图，
         返回中立解析结果，目标是否可执行仍由 Actor 的工具运行时判断。
         """
-        scope = self._authorize(access, WorkspaceOperation.MEMORY_RUN, target_workspace)
-        return (await self._resolve_and_record_citations([alias], scope=scope))[0]
+        scope = self._authorize(access, WorkspaceOperation.MEMORY_RUN)
+        return (await self._resolve_and_record_citations([request.alias], scope=scope))[0]
 
     async def _resolve_and_record_citations(
         self,
@@ -163,12 +163,8 @@ class ActorMemoryService:
 
     async def retrieve(
         self,
+        request: RetrieveRequest,
         *,
-        semantic_query: str,
-        keywords: list[str] | None = None,
-        top_k: int = 5,
-        filters: QueryFilters | None = None,
-        target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> list[MemoryAtom]:
         """语义检索（``memory.search``）：保持领域排序，结果协作预热缓存。
@@ -177,21 +173,20 @@ class ActorMemoryService:
         ``IdentityScope`` 不进入调用方输入（A1 访问边界返工第 4.5 节），
         不能据请求体重新选择 Workspace。
         """
-        scope = self._authorize(access, WorkspaceOperation.MEMORY_SEARCH, target_workspace)
-        request = RetrievalRequest(
-            semantic_query=semantic_query,
-            keywords=list(keywords or ()),
+        scope = self._authorize(access, WorkspaceOperation.MEMORY_SEARCH)
+        retrieval = RetrievalRequest(
+            semantic_query=request.semantic_query,
+            keywords=list(request.keywords),
             identity_scope=scope,
-            filters=filters,
-            top_k=top_k,
+            filters=request.filters,
+            top_k=request.top_k,
         )
-        return await self._reader.search(request, scope=scope)
+        return await self._reader.search(retrieval, scope=scope)
 
     def _authorize(
         self,
         access: WorkspaceAccessContext,
         operation: WorkspaceOperation,
-        target_workspace: WorkspaceIdentity,
     ) -> IdentityScope:
         """在 backing 调用前执行操作授权，返回组装的可信 scope。"""
-        return self._authorizer.authorize_operation(access, operation, target_workspace)
+        return self._authorizer.authorize_thread_operation(access, operation)

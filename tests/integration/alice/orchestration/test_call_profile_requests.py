@@ -31,7 +31,6 @@ from hivememory.core.mtp import MTPCallRequest
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import OperationRequest
-from hivememory.workspace.credentials import ExecutionCredentialRegistry
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.operations import OperationsHarness
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope
@@ -106,20 +105,19 @@ def _profile_atom(*, visibility="PUBLIC", agent_config=None) -> MemoryAtom:
 
 async def _profile_submitter(chain):
     """操作入口与管理服务共用同一读取视图，凭据绑定主线程身份。"""
-    credentials = ExecutionCredentialRegistry()
     entry = WorkspaceOperationEntry(
         chain.memories,
         agent=chain.profiles,
-        credential_registry=credentials,
+        operation_authorizer=chain.composition.authorizer,
         intent_registry=chain.runtime.intents,
     )
     workspace = make_identity_scope(user_id="u1", agent_id="reader").workspace_identity
-    credential = credentials.issue(
-        access=chain.reader, target_workspace=workspace, process_id="call-process"
+    thread_access = await chain.composition.authenticate_thread(
+        agent_id="reader", process_id="call-process"
     )
 
     async def submit_operation[R](request: OperationRequest[R]) -> R:
-        return await entry.execute(request, credential=credential)
+        return await entry.execute(request, access=thread_access)
 
     return submit_operation, workspace
 

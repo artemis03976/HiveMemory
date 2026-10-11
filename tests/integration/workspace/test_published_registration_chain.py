@@ -112,6 +112,7 @@ from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 from hivememory.workspace.capability.root.topic import RootTopicService
+from hivememory.workspace.contracts import ResolveReferencesRequest, ResolveRunTargetRequest
 from hivememory.workspace.process.service import TaskProcessService
 from hivememory.workspace.registry import WorkspaceActorAccessRecord, WorkspaceActorAccessRegistry
 from tests.helpers.chat_handoff import make_gateway_decision
@@ -604,20 +605,22 @@ async def test_system_context_cannot_use_actor_visible_read_operations(published
         principal=CallerPrincipal(stack.registration.principal_id),
         actor=ActorIdentity(user_id="default", agent_id="system"),
         workspace=workspace,
-        binding=RunBinding.for_request("published_system_request"),
+        binding=RunBinding.for_task_process("published_system_process"),
     )
+
+    context = stack.registration.gateway.derive_thread_context(context)
 
     with pytest.raises(OperationDeniedError) as read_error:
         (
             await stack.memory_service.resolve_references(
-                [str(str(uuid4()))], target_workspace=workspace, access=context
+                ResolveReferencesRequest((str(str(uuid4())),)), access=context
             )
         )[0].atom
     assert read_error.value.details["reason"] == "operation_not_allowed"
 
     with pytest.raises(OperationDeniedError) as aliases_error:
         await stack.memory_service.resolve_run_target(
-            "some-alias", target_workspace=workspace, access=context
+            ResolveRunTargetRequest("some-alias"), access=context
         )
     assert aliases_error.value.details["reason"] == "operation_not_allowed"
 

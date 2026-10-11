@@ -14,7 +14,7 @@ from httpx import ASGITransport, AsyncClient
 
 from hivememory.alice.system import AliceSystem
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.core.access import WorkspaceOperation
+from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
 from hivememory.core.models import (
     ActorIdentity,
     AttachmentSelectionRequest,
@@ -35,9 +35,7 @@ from hivememory.workspace.contracts import (
     CPUInputManifest,
     CPUOutput,
     CPUPort,
-    ExecutionCredential,
 )
-from hivememory.workspace.credentials import ExecutionCredentialRegistry
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
@@ -90,7 +88,6 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
         )
     )
     runtime = make_workspace_runtime(stack.bus)
-    credentials = ExecutionCredentialRegistry()
     entry = WorkspaceOperationEntry(
         ActorMemoryService(
             stack.bus, operation_authorizer=access.authorizer, memory_reader=runtime.aliases
@@ -98,7 +95,7 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
         agent=ActorAgentService(
             operation_authorizer=access.authorizer, profile_reader=runtime.profiles
         ),
-        credential_registry=credentials,
+        operation_authorizer=access.authorizer,
         intent_registry=runtime.intents,
     )
     llm_messages = []
@@ -131,7 +128,6 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
         workspace_runtime=runtime,
-        credential_registry=credentials,
         operation_entry=entry,
     )
     app = FastAPI()
@@ -197,14 +193,14 @@ class _RecordingCPU:
         self,
         manifest: CPUInputManifest,
         *,
-        credential: ExecutionCredential,
+        access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]:
         self.manifests.append(manifest)
         return self._delegate.execute(
             manifest,
-            credential=credential,
+            access=access,
             generation_options=generation_options,
             stream=stream,
         )
@@ -272,7 +268,6 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
         content="本轮选中的附件正文",
     )
     runtime = make_workspace_runtime(stack.bus)
-    credentials = ExecutionCredentialRegistry()
     entry = WorkspaceOperationEntry(
         ActorMemoryService(
             stack.bus,
@@ -283,7 +278,7 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
             operation_authorizer=access.authorizer,
             profile_reader=runtime.profiles,
         ),
-        credential_registry=credentials,
+        operation_authorizer=access.authorizer,
         intent_registry=runtime.intents,
     )
     llm_messages = []
@@ -317,7 +312,6 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
         operation_authorizer=access.authorizer,
         asset_reader=assets,
         workspace_runtime=runtime,
-        credential_registry=credentials,
         operation_entry=entry,
     )
     app = FastAPI()

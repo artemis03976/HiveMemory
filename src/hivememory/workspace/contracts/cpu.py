@@ -14,8 +14,8 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.models import TurnEvent
-from hivememory.workspace.contracts.operations import ExecutionCredential
 from hivememory.workspace.contracts.process import CPUInputManifest
 
 
@@ -72,16 +72,16 @@ class CPUPort(Protocol):
       按失败处理。
     - ``generation_options`` 由各个 CPU 自行解释，进程原样传递。
 
-    ``credential`` 是本次主线程的不透明执行凭据，独立于冻结输入清单。
+    ``access`` 是本次主线程的密封线程 context，独立于冻结输入清单。
     CPU 驱动将它绑定到操作提交函数；操作适配器只构造请求，不取得访问
-    context 或目标 Workspace。进程关闭后同步吊销，后续提交明确拒绝。
+    context 或目标 Workspace。CPU 执行结束后同步撤销，后续提交明确拒绝。
     """
 
     def execute(
         self,
         manifest: CPUInputManifest,
         *,
-        credential: ExecutionCredential,
+        access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]: ...

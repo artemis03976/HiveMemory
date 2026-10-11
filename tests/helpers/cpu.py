@@ -12,12 +12,12 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any, TypeVar
 
+from hivememory.core.access import WorkspaceAccessContext
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
     CPUInputManifest,
     CPUOutput,
-    ExecutionCredential,
     OperationEntry,
     OperationRequest,
     OperationSubmitter,
@@ -33,7 +33,7 @@ class CPUCall:
     manifest: CPUInputManifest
     generation_options: dict[str, Any] | None
     stream: bool
-    credential: ExecutionCredential
+    access: WorkspaceAccessContext
 
 
 class ScriptedCPU:
@@ -83,7 +83,7 @@ class ScriptedCPU:
         self,
         manifest: CPUInputManifest,
         *,
-        credential: ExecutionCredential,
+        access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]:
@@ -92,17 +92,17 @@ class ScriptedCPU:
                 manifest=manifest,
                 generation_options=generation_options,
                 stream=stream,
-                credential=credential,
+                access=access,
             )
         )
-        return self._iterate(credential)
+        return self._iterate(access)
 
-    async def _iterate(self, credential: ExecutionCredential) -> AsyncGenerator[CPUOutput, None]:
+    async def _iterate(self, access: WorkspaceAccessContext) -> AsyncGenerator[CPUOutput, None]:
         try:
             if self._operation_script is not None:
 
                 async def submit(request: OperationRequest[_Result]) -> _Result:
-                    return await self.operation_entry.execute(request, credential=credential)
+                    return await self.operation_entry.execute(request, access=access)
 
                 await self._operation_script(submit)
             for event in self._events:

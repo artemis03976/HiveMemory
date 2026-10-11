@@ -10,7 +10,7 @@
 - ``registry``：Workspace Actor 访问注册表（准入状态与 actor 操作白名单）；
 - ``cache`` / ``resolution`` / ``runtime``：读取视图——完整原子缓存、
   Profile 解析缓存、失效代次与 alias/Profile resolver；
-- ``intents``：写入意图登记；``credentials``：执行凭据表；
+- ``intents``：写入意图登记；
 - ``capability``：能力层——只供 ``system`` 的 root API（``root``）、只经
   操作入口供 actor 使用的 actor API（``actor``）、操作入口与读取视图的
   总线 backing；

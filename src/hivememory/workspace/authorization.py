@@ -133,7 +133,7 @@ class WorkspaceOperationAuthorizer:
         """任务进程阶段授权：校验准入与目标，不检查 actor 操作白名单。
 
         阶段调用由进程负责，scope 保留进程 actor 的身份以执行资源可见性
-        检查；它只交给紧随的阶段调用，不进入 CPU 输入清单或执行凭据。
+        检查；它只交给紧随的阶段调用，不进入 CPU 输入清单或线程 context。
         生产调用面限定在 ``workspace.process``。
         """
         grant, _ = self._redeem(access)

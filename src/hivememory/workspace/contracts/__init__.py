@@ -14,8 +14,6 @@ from hivememory.workspace.contracts.cpu import (
 )
 from hivememory.workspace.contracts.operations import (
     CancelIntentsRequest,
-    ExecutionCredential,
-    ExecutionCredentialRevokedError,
     OperationEntry,
     OperationRequest,
     OperationSubmitter,
@@ -25,6 +23,7 @@ from hivememory.workspace.contracts.operations import (
     RetrieveRequest,
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
+    ThreadContextRevokedError,
 )
 from hivememory.workspace.contracts.process import CPUInputManifest
 
@@ -35,8 +34,7 @@ __all__ = [
     "CPUPort",
     "CPUOutput",
     "CancelIntentsRequest",
-    "ExecutionCredential",
-    "ExecutionCredentialRevokedError",
+    "ThreadContextRevokedError",
     "OperationEntry",
     "OperationRequest",
     "OperationSubmitter",

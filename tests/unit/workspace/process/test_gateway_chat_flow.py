@@ -303,11 +303,11 @@ async def test_non_streaming_decision_uses_one_prepare_cpu_finalize_sequence() -
     calls: list[str] = []
 
     class _RecordingCPU(ScriptedCPU):
-        def execute(self, manifest, *, credential, generation_options=None, stream=False):
+        def execute(self, manifest, *, access, generation_options=None, stream=False):
             calls.append("cpu")
             return super().execute(
                 manifest,
-                credential=credential,
+                access=access,
                 generation_options=generation_options,
                 stream=stream,
             )
