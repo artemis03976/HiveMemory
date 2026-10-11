@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # Memory Tool Protocol (MTP)
@@ -111,7 +111,7 @@ READ 列表是协议中显式支持的批量读取，而不是多命令特例。
 1. `sys_` 工具或 Kernel Registry 中的工具走注册 syscall；
 2. 其他 alias 经 PendingAtom/正式记忆解析，只允许 `CODE_SNIPPET` MemoryAtom。
 
-系统工具还受 Agent Profile 的 `allowed_sys_tools` 限制。redirect 可以执行但会附带 warning；pending 和 terminal alias 不可执行。记忆目标通过 `ResolveReferencesRequest` 读取，引用计数在工具类型检查与执行前已完成；后续类型拒绝或工具失败仍保留这次 `workspace.reference_read` citation。系统 syscall 不读取正式原子，不因此计数。
+系统工具不设 Agent 权限，所有已注册的 `sys_*` 对所有 Agent 可用，在 Alice 本地执行、不提交操作请求。redirect 可以执行但会附带 warning；pending 和 terminal alias 不可执行。记忆目标通过 `ResolveRunTargetRequest` 读取，要求 actor 操作 `memory.run`（不要求 `memory.read`），引用计数在工具类型检查与执行前已完成；后续类型拒绝或工具失败仍保留这次 `workspace.reference_read` citation。系统 syscall 不读取正式原子，不因此计数。
 
 当前用户代码通过本地执行器运行，尚无可作为安全边界的强隔离沙箱、进程级资源限制和真取消。不得把 RUN 描述为安全执行不受信任代码的能力。
 
@@ -157,7 +157,7 @@ UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pendin
 - Koakuma 返回 `suspend` 和结构化 `MTPCallRequest`；
 - Alice RunExecutor 通过协程调用栈挂起 caller frame，以 `ResolveCallTargetRequest` 读取目标、以 `ResolveReferencesRequest` 解析共享上下文，递归运行 callee frame，再以 `MTPCallResponse` 回填；
 - 目标读取要求 `agent.call`，内置 Profile 也不跳过；context_refs 以 READ 请求解析，要求 `memory.read`，缺少时被跳过而不阻止 CALL；正式原子交付自动记录 `workspace.reference_read` citation，先前 READ 过的原子在这次独立请求中再次计数；
-- CALL 只允许 root frame 发起；callee 的 `FrameExecutionPolicy` 显式移除 CALL，防止递归爆炸；
+- CALL 只允许 root frame 发起；callee frame 的 `FrameExecutionPolicy` 继承 caller 的动词集合并显式移除 CALL，防止递归爆炸，被调用方 Profile 只提供 persona、模型与语言，不改变动词集合；
 - 只有 `COMPLETED` 子帧产生 success CALL response，并可以返回其 PendingAtom alias；未成功结束的子帧不返回 alias，并撤回其已登记且仍为 PENDING 的意图；
 - `CANCELLED` 保持 cancelled 终态，`FAILED`、`BUDGET_EXHAUSTED` 会转换为结构化 error CALL response；`SUSPENDED` 是 RunExecutor 继续消费的控制流 trap，不构造 CALL response。
 
@@ -165,12 +165,24 @@ UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pendin
 
 ## 4. 权限
 
-`AgentProfile` 定义两个白名单：
+Agent 的权限只由 Workspace 访问登记的 actor 操作白名单表达，Agent Profile 不承载权限。任务进程在 CPU 分配时把本进程 actor 的操作集合写入输入清单（`allowed_operations`），Alice 按下表翻译为 frame 的动词集合：
 
-- `allowed_mtp_verbs`：`None` 表示全部允许，空列表表示全部禁止，其余为 verb 白名单；
-- `allowed_sys_tools`：对 Kernel syscall 使用同样的三态语义。
+| actor 操作 | MTP 动词 |
+|:---|:---|
+| `memory.read` | READ |
+| `memory.search` | SEARCH |
+| `memory.write` | WRITE |
+| `memory.update` | UPDATE |
+| `agent.call` | CALL |
+| `memory.run` | RUN 的记忆目标 |
+| —（系统工具不设权限） | RUN 的 `sys_*` |
 
-Profile 权限在执行前检查，workspace 行为授权在每次资源操作时独立执行；允许某个 verb 不授予 Workspace operation，operation 许可也不扩大 Profile 白名单。权限拒绝属于 `agent_fault`，稳定代码为 `mtp.permission.denied`，Agent 可以调整方案，但不能通过换写法绕过许可。
+RUN 始终在动词集合中，因为系统工具不设权限；没有 `memory.run` 时，RUN 的记忆目标由 actor API 拒绝。同一集合驱动两层：
+
+- **提示层**：只教学集合内的动词，同时裁剪提及集合外动词的行为准则、错误恢复与演示；系统工具菜单始终完整；
+- **执行层**：Koakuma 在分发前以 frame 的 `FrameExecutionPolicy` 检查动词，集合外的动词在提交任何操作请求之前被拒绝。
+
+资源操作仍由 actor API 按访问登记逐次授权；动词集合是 CPU 分配时的快照，只描述可用能力，不是授权依据。权限拒绝属于 `agent_fault`，稳定代码为 `mtp.permission.denied`（文案键 `mtp.permission.verb_denied`），Agent 可以调整方案，但不能通过换写法绕过许可。
 
 MTP 是否应该出现，取决于当前行动门槛，而不是“能调用工具就调用”：信息存在缺口时先 SEARCH/READ；动作产生副作用或需要执行资产时才 RUN；内容确有跨会话长期价值时才 WRITE/UPDATE；委派能形成明确子任务时才 CALL。Agent 不得臆造 alias，也不得把错误响应理解为持续试探权限的邀请。错误应该驱动修正查询、参数或计划；权限拒绝则意味着停止该能力路径。
 

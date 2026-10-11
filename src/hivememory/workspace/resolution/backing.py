@@ -1,12 +1,12 @@
 """resolver 的 L2 冷读端口：Patchouli backing 读取契约（A2 §2.1 / §8 D-2）。
 
-resolver 只依赖本协议，不导入 System 路由常量或 Patchouli 实现；基于
-``GlobalSystemBus`` 的实现位于能力层（``workspace.capability.backing``），
-由组合根注入。冷读取经公共 backing 路由（宪章 §4.4 过线契约），库侧资源
+resolver 只依赖本协议，不导入总线、System 路由常量或 Patchouli 实现；基于
+``GlobalSystemBus`` 的实现位于 ``workspace.capability.backing``（可依赖
+``components`` 的子包），由组合根注入。冷读取经公共 backing 路由（宪章 §4.4 过线契约），库侧资源
 归属与 policy 校验独立成立，构成纵深防御。
 
-``scope`` 是能力层完成操作授权后由操作授权者组装的可信坐标；resolver 与
-backing 位于授权点以下，不接收访问 context。
+``scope`` 是授权点（actor API 的操作授权或任务进程的阶段授权）组装的可信
+坐标；resolver 与 backing 位于授权点以下，不接收访问 context。
 """
 
 from __future__ import annotations

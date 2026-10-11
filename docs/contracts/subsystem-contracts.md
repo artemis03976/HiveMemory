@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # 子系统公共契约
@@ -218,7 +218,9 @@ class CPUPort(Protocol):
 
 CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接口：端口由 workspace 定义，执行者实现，组合根注入 `TaskProcessService`。进程只依赖端口与本节的中立模型，因此执行者可以替换而不改动进程与入口；当前唯一的实现是 Alice 的 `AliceCPU`（4.4），测试中的 `ScriptedCPU` 同样能跑完整个任务进程。端口采用对象而不是总线路由，是因为外部 harness 的驱动多数不是子系统：按路由契约接入，每种驱动都要新增路由常量，或在总线之后再建一层分派。
 
-`CPUInputManifest` 是任务进程在分配 CPU 时组装的输入清单，与具体执行者无关：`process_id`、`labels: ExecutionLabels`、用户消息、已解析的 Agent Profile、未编译的检索原子 `memories`、进程编译的记忆文本 `memory_context` 与附件文本 `attachment_context`、存储可用性，以及 `topic_id` 与 `topic_context`。
+`CPUInputManifest` 是任务进程在分配 CPU 时组装的输入清单，与具体执行者无关：`process_id`、`labels: ExecutionLabels`、用户消息、已解析的 Agent Profile、actor 操作快照 `allowed_operations`、未编译的检索原子 `memories`、进程编译的记忆文本 `memory_context` 与附件文本 `attachment_context`、存储可用性，以及 `topic_id` 与 `topic_context`。
+
+`allowed_operations` 是 CPU 分配时由阶段授权读取的、本进程 actor 在访问登记中的 actor 操作集合（`frozenset[WorkspaceOperation]`），空白名单得到空集合。它只描述执行者能做什么，供执行者生成提示词与执行策略（Alice 翻译为 MTP 动词，外部执行者的工具列表由其适配器翻译），不是授权依据：每个操作请求仍由 actor API 按访问登记即时授权。
 
 `ExecutionCredential` 是 execute 的独立参数，不进入冻结清单。CPU 驱动以公共 `OperationEntry` 绑定凭据为 `OperationSubmitter`，执行适配器只提交操作请求。清单的 `ExecutionLabels` 只有 `agent_id` 与 `workspace_id` 两个只读字符串，注册认证成功后创建一次并与进程事件沿用同一对象；标签不含 actor、owner 或访问 context，也不能改变授权或资源目标。
 
@@ -267,8 +269,8 @@ run_agent(
 - Alice 不直接请求 Patchouli；检索、引用交付与 Profile 读取经 workspace 操作请求完成，Alice 不持有资源缓存或 resolver；
 - WRITE/UPDATE 经操作请求只登记 workspace 意图并返回 ACK；物化任务由 completed 的任务进程认领，Alice 不持有登记；
 - 取消或失败结果不默认进入 Patchouli finalize；
-- MTP 动词与系统工具由 Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 控制；提交到 workspace 的请求另受访问登记的 actor 操作白名单约束，两处都通过才执行；
-- CALL 仅允许根 frame 发起，子 frame 不能继续递归 CALL。
+- Agent Profile 不承载权限；frame 的 MTP 动词集合由输入清单的 `allowed_operations` 翻译而来（RUN 始终可用，`sys_*` 系统工具不设权限），提交到 workspace 的请求仍由 actor API 逐次授权；
+- CALL 仅允许根 frame 发起；子 frame 继承父 frame 的动词集合并去掉 CALL，不能继续递归 CALL，被调用方 Profile 不改变这一集合。
 
 ### 4.6 操作请求与执行凭据
 

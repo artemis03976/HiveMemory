@@ -1,12 +1,9 @@
 import { Bot, Terminal, Zap, Thermometer } from 'lucide-react';
 import { useAgentManagement } from '@/hooks/useAgentManagement';
 import { useDraft } from '@/hooks/useDraft';
-import { AVAILABLE_TOOLS } from '@/constants/agents';
 import { AgentSidebar } from './agent/AgentSidebar';
 import { AgentEditorHeader } from './agent/AgentEditorHeader';
 import { TagsSection } from './agent/TagsSection';
-import { PermissionsSection } from './agent/PermissionsSection';
-import { ToolsSection } from './agent/ToolsSection';
 import type { AgentData } from '@/types/agent';
 
 const DEFAULT_AGENT: AgentData = {
@@ -21,11 +18,8 @@ const DEFAULT_AGENT: AgentData = {
   config: {
     model_name: 'default',
     temperature: 0.7,
-    allowed_mtp_verbs: null,
-    allowed_sys_tools: null,
     language: 'zh',
   },
-  tools: null,
 };
 
 export default function AgentManagement() {
@@ -105,7 +99,7 @@ export default function AgentManagement() {
 
               <div className="w-full h-px bg-white/5" />
 
-              {/* Model & Temperature — artifacts.agent_config */}
+              {/* 模型与温度 — payload.agent_config */}
               <section className="grid grid-cols-2 gap-6">
                 <div className="space-y-3">
                   <label className="text-sm font-bold text-slate-200 flex items-center gap-2">
@@ -152,25 +146,6 @@ export default function AgentManagement() {
                   </div>
                 </div>
               </section>
-
-              <div className="w-full h-px bg-white/5" />
-
-              <PermissionsSection
-                config={draft.config}
-                onChange={config => updateDraft({ config })}
-              />
-
-              <ToolsSection
-                selectedTools={draft.tools}
-                onToggleTool={(toolId) => {
-                  const current = draft.tools ?? AVAILABLE_TOOLS.map(t => t.id);
-                  if (current.includes(toolId)) {
-                    updateDraft({ tools: current.filter(t => t !== toolId) });
-                  } else {
-                    updateDraft({ tools: [...current, toolId] });
-                  }
-                }}
-              />
             </div>
           </div>
         </div>

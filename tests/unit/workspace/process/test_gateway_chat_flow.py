@@ -630,6 +630,10 @@ class _AdmissionChangingAuthorizer:
     def authorize_operation(self, access, operation, target_workspace):
         return self._delegate.authorize_operation(access, operation, target_workspace)
 
+    def get_stage_operations(self, access, target_workspace):
+        authorizer = self._revoked if self.revoked else self._delegate
+        return authorizer.get_stage_operations(access, target_workspace)
+
     def authorize_process_control(self, requestor, record_access):
         return self._delegate.authorize_process_control(requestor, record_access)
 

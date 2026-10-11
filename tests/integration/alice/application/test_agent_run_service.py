@@ -24,8 +24,10 @@ from hivememory.components.events.bus import (
 )
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import (
+    AgentProfile,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -62,10 +64,12 @@ def _build_input_manifest(
     labels=None,
     agent_profile=None,
     process_id: str = "process-test",
+    allowed_operations: frozenset[WorkspaceOperation] = frozenset(WorkspaceOperation),
 ):
     return make_input_manifest(
         labels=labels or make_execution_labels(agent_id="omni_doll"),
         agent_profile=agent_profile,
+        allowed_operations=allowed_operations,
         process_id=process_id,
         topic_id="topic_1",
         user_message="hello",
@@ -129,6 +133,66 @@ async def test_run_agent_passes_input_and_submitter_to_root_frame():
     (frame,) = seen
     assert frame.submit_operation is submit_operation
     assert any("hello" in message["content"] for message in frame.working_history)
+
+
+async def _terminal_status_without_stream(service, manifest, submit_operation) -> str:
+    """非流式入口直接返回终态结果。"""
+    result = await service.run_agent(manifest, stream=False, submit_operation=submit_operation)
+    return result.status
+
+
+async def _terminal_status_from_stream(service, manifest, submit_operation) -> str:
+    """流式入口以最后一个事件携带终态。"""
+    events = [
+        event
+        async for event in service.run_agent(
+            manifest, stream=True, submit_operation=submit_operation
+        )
+    ]
+    return events[-1]["data"]["status"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "run_to_terminal",
+    [
+        pytest.param(_terminal_status_without_stream, id="non-stream"),
+        pytest.param(_terminal_status_from_stream, id="stream"),
+    ],
+)
+async def test_root_policy_and_prompt_follow_manifest_despite_legacy_profile_keys(
+    run_to_terminal,
+):
+    """两条运行入口都取清单能力；Profile 中旧拒绝键不能改变策略与系统工具菜单。"""
+    runtime, service = _build_service()
+    manifest = _build_input_manifest(
+        _build_memory_atom(),
+        allowed_operations=frozenset(
+            {WorkspaceOperation.MEMORY_READ, WorkspaceOperation.AGENT_CALL}
+        ),
+        agent_profile=AgentProfile.model_validate(
+            {"persona": "执行人设", "allowed_mtp_verbs": [], "allowed_sys_tools": []}
+        ),
+    )
+    seen = []
+
+    async def run_frame(frame, **_kwargs):
+        seen.append(frame)
+        return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+
+    async def submit_operation(_request):
+        raise AssertionError("本场景不应提交资源操作")
+
+    runtime._agent_runtime.run_frame = run_frame
+    assert await run_to_terminal(service, manifest, submit_operation) == "completed"
+
+    (frame,) = seen
+    assert frame.execution_policy.permitted_verbs == {"READ", "RUN", "CALL"}
+    prompt = frame.working_history[0]["content"]
+    assert "执行人设" in prompt
+    assert "READ" in prompt and "CALL" in prompt
+    assert "WRITE" not in prompt and "UPDATE" not in prompt and "SEARCH" not in prompt
+    assert "sys_write_file" in prompt and "sys_python_repl" in prompt
 
 
 @pytest.mark.asyncio

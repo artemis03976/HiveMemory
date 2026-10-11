@@ -2,7 +2,7 @@
 
 冻结规则：system prompt 各 section 固定为 MTP/系统通知 → persona →
 memory_context → attachment_context → topic state；附件 section 只作为
-普通上下文注入，不改变 MTP 权限、工具白名单或 MemoryCompiler target。
+普通上下文注入，不改变 frame 动词集合或 MemoryCompiler target。
 """
 
 from types import SimpleNamespace
@@ -10,17 +10,18 @@ from types import SimpleNamespace
 import pytest
 
 from hivememory.core.models import AgentProfile, TopicData
-from hivememory.core.protocol.models import AgentRunContext, RetrievalResponse
-from hivememory.i18n import set_default_language
+from hivememory.core.protocol.models import AgentRunContext
+from hivememory.i18n import get_default_language, set_default_language
 from hivememory.prompts.assembler import AgentPromptAssembler
 from tests.helpers.workspace import make_execution_labels, make_identity_scope
 
 
 @pytest.fixture(autouse=True)
 def reset_i18n():
+    previous = get_default_language()
     set_default_language("zh")
     yield
-    set_default_language("zh")
+    set_default_language(previous)
 
 
 def _make_koakuma_config():
@@ -48,13 +49,12 @@ def _make_topic_data(state_summary="state"):
 def _context(attachment_context: str) -> AgentRunContext:
     return AgentRunContext(
         labels=make_execution_labels(agent_id="omni_doll"),
-        interaction_id="interaction-order",
         topic_id="topic_1",
         user_message="hello",
         topic_context=_make_topic_data("TOPIC-STATE"),
-        retrieval_result=RetrievalResponse(memories=[]),
         memory_context="MEMORY-CONTEXT",
         agent_profile=AgentProfile(persona="PERSONA", language="zh"),
+        permitted_mtp_verbs=frozenset({"RUN"}),
         storage_available=True,
         attachment_context=attachment_context,
     )

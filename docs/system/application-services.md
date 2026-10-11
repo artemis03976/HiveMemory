@@ -15,7 +15,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # 应用服务
@@ -104,7 +104,7 @@ TaskProcessService.run_process(handle, stream=False) -> TaskProcessRunner.run(pr
   -> command: return command outcome
   -> decision: 解析 Agent Profile（workspace 读取视图）  阶段授权
   -> Patchouli prepare_agent_run（Topic 与检索；interaction_id 取 process_id 值）  阶段授权
-  -> CPU 分配：附件租借（阶段授权）与编译、记忆编译、组装 CPUInputManifest
+  -> CPU 分配：读取 actor 操作快照（阶段授权）、附件租借（阶段授权）与编译、记忆编译、组装 CPUInputManifest
   -> Actor 执行：CPU 端口 execute（CPUInputManifest，非流式只产出终态结果）
   -> completed: 阶段授权 -> 认领本进程 PENDING 意图、封口交互记录（InteractionPayload）-> Patchouli finalize_agent_run
   -> cancelled/failed: 不进入 finalize，转入关闭补偿
@@ -116,7 +116,7 @@ TaskProcessService.run_process(handle, stream=False) -> TaskProcessRunner.run(pr
 
 阶段调用是进程替 Agent 做的系统操作，不是 Agent 主动执行的操作：每次阶段调用前，执行器以本进程注册时通过认证的 Workspace 为目标调用 `authorize_stage`，只校验 context 与准入仍然有效、目标与 owner 相符，不检查 actor 操作白名单，因此没有任何 actor 操作的 Agent 也能完成整条 chat 链路。返回的 `IdentityScope` 仍以进程的 Agent 为发起者，资源 owner 照常按该 Agent 过滤可见性：预检索结果中不会出现其他 Agent 的 PRIVATE 记忆，但预检索不检查 Agent 能否 READ。finalize 的阶段授权在认领本进程意图之前执行，并只把这次返回的 scope 交给 finalize，不保存在工作集中等待使用；授权失败时意图仍为 PENDING，由关闭流程取消。阶段授权只在 `workspace.process` 中调用（架构测试守护）。CPU 输入清单只携带冻结的 `ExecutionLabels(agent_id, workspace_id)`，与注册入口的 `chat.run.*` 发布器共用同一组标签；它不含访问 context 或 `IdentityScope`。标签用于提示词、展示与观测，不参与任何操作授权。
 
-CPU 分配由进程完成：Patchouli prepare 只返回话题准备结果与未编译的检索原子（`PreparedAgentRun`）；进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再把两者与已解析的 Profile 一起组装为输入清单经 CPU 端口交给 CPU。编译放在进程而不是执行者一侧，是为了让不同执行者共用同一份编译结果，而不必各自调用引擎。
+CPU 分配由进程完成：Patchouli prepare 只返回话题准备结果与未编译的检索原子（`PreparedAgentRun`）；进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再把两者与已解析的 Profile 一起组装为输入清单经 CPU 端口交给 CPU。清单还携带本进程 actor 的操作快照 `allowed_operations`：CPU 分配以 `get_stage_operations` 读取访问登记中的 actor 操作集合（与阶段授权相同的准入与目标检查），供执行者生成提示词与执行策略；它不是授权依据，每个操作请求仍由 actor API 即时授权。编译放在进程而不是执行者一侧，是为了让不同执行者共用同一份编译结果，而不必各自调用引擎。
 
 Agent Profile 属于 CPU 分配，但目前在 prepare 之前解析：prepare 可能按路由决定新建 Topic，话题池已满时还会先按 LRU 结算一个已有话题，Profile 缺失的请求应在这些副作用发生之前失败。Profile 经阶段授权后由组合根注入的读取视图（`ProfileResolver`）解析，不经能力层，仍按进程 Agent 检查源原子可见性；正式原子变更会失效解析缓存；解析时机仍在 prepare 之前。
 

@@ -1,7 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useAgents, type BackendAgent } from './useAgents';
 import { MOCK_AGENT_CONFIGS } from '@/constants/agents';
-import type { AgentData, AgentProfileConfig, MTPVerb } from '@/types';
+import type { AgentData, AgentProfileConfig } from '@/types';
 import { useToastStore } from '@/stores';
 import { createAgent, saveAgent, deleteAgent } from '@/services/agentApi';
 
@@ -9,11 +9,10 @@ import { createAgent, saveAgent, deleteAgent } from '@/services/agentApi';
 const DEFAULT_CONFIG: AgentProfileConfig = {
   model_name: 'default',
   temperature: 0.7,
-  allowed_mtp_verbs: null,
-  allowed_sys_tools: null,
   language: 'zh',
 };
 
+/** 只读取编辑器支持的配置，存量图纸中的废弃字段不会进入草稿。 */
 function backendToAgentData(b: BackendAgent): AgentData {
   const cfg = b.agent_config;
   return {
@@ -28,11 +27,8 @@ function backendToAgentData(b: BackendAgent): AgentData {
     config: {
       model_name: cfg?.model_name ?? 'default',
       temperature: cfg?.temperature ?? 0.7,
-      allowed_mtp_verbs: cfg?.allowed_mtp_verbs !== undefined ? (cfg.allowed_mtp_verbs as MTPVerb[] | null) : null,
-      allowed_sys_tools: cfg?.allowed_sys_tools ?? null,
       language: cfg?.language ?? 'zh',
     },
-    tools: cfg?.allowed_sys_tools ?? null,
   };
 }
 
@@ -87,7 +83,6 @@ export function useAgentManagement() {
       model: 'default',
       status: 'Inactive',
       config: { ...DEFAULT_CONFIG },
-      tools: null,
     };
     setAgents(prev => [newAgent, ...prev]);
     setSelectedId(tempId);

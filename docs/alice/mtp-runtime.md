@@ -17,7 +17,7 @@ related_contracts:
   - docs/alice/orchestration.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -58,23 +58,23 @@ CALL 是唯一不在 handler 内完成业务动作的动词。Koakuma 只解析�
 
 Runtime 不从命令文本相信身份或权限。每次执行都由 frame 构造 `MTPExecutionContext`，主要包含：
 
-- `agent_profile`：MTP verb 与系统工具白名单；
+- `agent_profile`：语言等运行描述，不承载权限；
 - `runtime_scope`：run、frame 与 action 坐标及冻结的 `ExecutionLabels`；标签仅用于观测，不携带授权身份或 parent/depth 拓扑信息；
 - `submit_operation`：CPU 驱动绑定执行凭据的请求提交函数，root 与 CALL 子帧共享，不暴露访问 context 或目标选择；
-- `execution_policy`：每帧预算与 CALL 等控制流硬限制；
+- `execution_policy`：frame 的 MTP 动词集合、每帧预算与 CALL 等控制流硬限制；
 - `language`：错误、warning 与普通响应的本地化选择。
 
-资源操作统一提交冻结的 `OperationRequest`：READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别由 workspace actor API 逐次检查 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`；RUN 提交 `ResolveRunTargetRequest`，`sys_*` 系统工具在本地执行且不提交请求；子帧的意图撤回是操作入口内部的补偿，不检查 operation。操作入口从凭据恢复可信身份与固定目标，Alice/agent_runtime 不请求 Patchouli 路由；引用记录由读取能力自动完成。CALL 控制流仍由 `FrameExecutionPolicy` 决定，Profile 的 `allowed_mtp_verbs` / `allowed_sys_tools` 独立约束 MTP 执行面，与 actor 操作白名单都通过才执行，观测标签不参与授权。
+资源操作统一提交冻结的 `OperationRequest`：READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别由 workspace actor API 逐次检查 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`；RUN 提交 `ResolveRunTargetRequest`，`sys_*` 系统工具在本地执行且不提交请求；子帧的意图撤回是操作入口内部的补偿，不检查 operation。操作入口从凭据恢复可信身份与固定目标，Alice/agent_runtime 不请求 Patchouli 路由；引用记录由读取能力自动完成。frame 的动词集合与 CALL 控制流由 `FrameExecutionPolicy` 决定，观测标签不参与授权。
 
-## 3. 双层权限
+## 3. 动词集合的三层检查
 
-Agent Profile 的权限同时作用于 prompt 和 runtime：
+Agent 的权限只由 Workspace 访问登记的 actor 操作白名单表达，Agent Profile 不承载权限。输入清单携带 CPU 分配时的操作快照 `allowed_operations`，Alice（`alice/application/operation_policy.py`）把它翻译为 frame 的 MTP 动词集合：每项 actor 操作对应一个动词，RUN 始终在集合中，因为 `sys_*` 系统工具不设权限（对应表见 [MTP 契约](../contracts/mtp.md#4-权限)第 4 节）。同一集合作用于三层：
 
-1. **提示层裁剪**：PromptBuilder 根据 `allowed_mtp_verbs` 与 `allowed_sys_tools` 缩减动词教学和工具菜单，降低模型生成不可用命令的概率；
-2. **执行层强制**：Koakuma 在分发前调用 `is_verb_allowed()`，RUN 内核工具前再调用 `is_tool_allowed()`。拒绝以 `agent_fault` 结构化错误回填，模型不能通过改写 prompt 或手工生成 MTP 绕过白名单；
-3. **控制流硬限制**：被调用 frame 的 policy 在 Profile 权限基础上显式移除 CALL；Koakuma 同时校验 Profile 与 frame policy，当前仍只支持根 run 的串行一层 CALL。
+1. **提示层裁剪**：PromptBuilder 只教学集合内的动词，并裁剪提及集合外动词的行为准则、错误恢复与演示，降低模型生成不可用命令的概率；系统工具菜单始终完整；
+2. **执行层强制**：Koakuma 在分发前以 frame 的 `FrameExecutionPolicy` 检查动词，集合外的动词以 `agent_fault` 结构化错误回填，且不提交任何操作请求；模型不能通过改写 prompt 或手工生成 MTP 绕过；
+3. **资源授权**：提交到 workspace 的请求由 actor API 按访问登记逐次授权，例如 RUN 的记忆目标还需要 `memory.run`。动词集合只是快照，不是授权依据。
 
-两个白名单都有三态语义：`None` 表示全部允许，空列表表示全部禁止，非空列表表示只允许列出的能力。提示层是可用性引导，runtime 检查才是授权判定；二者必须保持一致，但不能因为已有 runtime 检查就放任 prompt 持续教授被禁用能力。
+CALL 子帧继承 caller frame 的动词集合并显式移除 CALL，被调用方 Profile 只提供 persona、模型与语言；Koakuma 以 frame policy 硬拒绝递归调用，当前只支持根 run 的串行一层 CALL。提示层是可用性引导，执行层与资源授权才是判定；三者由同一集合驱动，不会出现 prompt 教授被禁用动词的情况。
 
 ## 4. 六个动词在 Runtime 中的兑现
 

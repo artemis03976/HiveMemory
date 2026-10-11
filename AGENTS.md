@@ -64,7 +64,7 @@
 - System 拥有 passive 控制状态，以及总线、调度器等共享设施实例的装配与关闭（机制实现在 `components`）；chat 任务进程的控制状态由 workspace 的进程表（`workspace.process`）持有；`WorkspaceAssetStore` 的进程内 working set 属于 workspace，由组合根装配并在关闭时最后清理。
 - Gateway 只产生 `GatewayDecision`；它可以读取辅助上下文，但不取得记忆所有权。
 - RuntimeEvent 只用于 best-effort 观测，不能决定业务成功、替代 RPC 返回值或充当可靠命令。
-- 身份数据按形态区分，不得互相代替：访问 context 只由运行持有者与 workspace 授权点持有；`IdentityScope`（发起者 + 目标 Workspace）只由授权点组装，只在一次操作的调用链内经公共 route 到达资源 owner 与 Gateway，不写入记录、事件或后台任务。Import Bus 的 `/ingest` 仍在认证前组装，是既有例外（[Workspace 架构](docs/architecture/workspace.md)第 3.2 节）。Alice/CPU 的 `RuntimeScope`、`AgentRunContext`、`CPUInputManifest` 只携带注册认证后绑定的 `ExecutionLabels`（`agent_id`、`workspace_id`）；标签用于观测与提示词，不参与授权，不得据此重建访问身份。
+- 身份数据按形态区分，不得互相代替：访问 context 只由运行持有者与 workspace 授权点持有；`IdentityScope`（发起者 + 目标 Workspace）只由授权点组装，只在一次操作的调用链内经公共 route 到达资源 owner 与 Gateway，不写入记录、事件或后台任务。Import Bus 的 `/ingest` 仍在认证前组装，是既有例外（[Workspace 架构](docs/architecture/workspace.md)第 3.2 节）。Alice/CPU 的 `RuntimeScope`、`AgentRunContext`、`CPUInputManifest` 只携带注册认证后绑定的 `ExecutionLabels`（`agent_id`、`workspace_id`）作为身份数据；标签用于观测与提示词，不参与授权，不得据此重建访问身份。输入清单另带 CPU 分配时的 actor 操作快照（`allowed_operations`），只用于提示词与 frame 执行策略，同样不是授权依据。
 - 资源 owner 在公共边界把 `IdentityScope` 拆为资源归属（`WorkspaceIdentity`）与发起者（`ActorIdentity`），内部分开传递，不再传递或重新组装 `IdentityScope`。交互记录与后台任务以独立字段携带归属与（需要时）发起者；非主动生成路径的发起者是保留的 `system`，参与内容的 Agent 只记入贡献者；这种用法只按普通可见性读取，与 `system` 作为 root（只在 root API 生效）分属不同入口。
 - 身份第二批的暂缓边界：`WorkspaceAssetStore`、解析服务与既有资产 Reader/Command 端口仍使用旧 `IdentityScope` 做归属检查；System 的 `AssetMaterializationReader` 在一次 representation 租借内以归属和保留 `system` actor 组装旧接口所需 scope，Patchouli 只使用归属读取端口，不保存该 scope。此例外仅限该适配器，不得扩散，后续拆分见 [WorkspaceAsset 归属拆分 Todo](docs/todo/workspace-asset-ownership-identity-split.md)。
 - 资源授权在资源 owner 处进行：先校验资源归属等于目标 Workspace（硬边界，任何读取视角都不跳过），再按资源 policy 判断发起者的可见性；资源上的来源字段不参与授权。
@@ -77,7 +77,7 @@
 - 被动链路：`PassiveIngressService -> Gateway PASSIVE_MEMORY -> buffer/seal -> InteractionSubmissionQueue -> Patchouli perception`；被动模式不运行 Alice、MTP、命令或回复生成。
 - prepare 失败或 Agent 取消/失败时，不默认进入 finalize；任务进程可请求 Patchouli cleanup，但 cleanup 只补偿 prepare 新建且仍为空的临时话题，不是跨边界事务回滚。
 - `MTP WRITE/UPDATE` 的 ACK 只表示意图已在 workspace 登记；completed 时任务进程认领本进程的 PENDING 意图并封口物化任务；CALL 子 frame 未成功结束时经提交函数撤回它已登记的 PENDING 意图；进程关闭同步吊销执行凭据，并仅取消本进程仍为 PENDING 的意图。WRITE/UPDATE 返回操作入口后都复查凭据并同步补偿迟到登记（当前 UPDATE 的基础冷读会跨越关闭），不取消调用方任务；正式持久化由 Patchouli 后续结算，不能在 Koakuma/Alice 内直接写正式 Memory。
-- MTP 动词与系统工具由 Agent Profile 的允许 verb/tool 控制，提交到 workspace 的请求另受访问登记的 actor 操作白名单约束，两处都通过才执行；CALL 只允许根 frame 发起，子 frame 不得递归 CALL。
+- Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，Agent Profile 不承载任何权限；Alice 把输入清单的操作快照翻译为 MTP 动词（RUN 始终可用），用于提示词与 frame 执行策略，资源操作仍由 actor API 逐次授权。`sys_*` 系统工具不设权限。CALL 只允许根 frame 发起，子 frame 继承父 frame 的动词集合并去掉 CALL，不得递归 CALL。
 - Gateway 的局部失败只能在仍满足终态不变量时保守降级；投影、终态校验、装配错误和 cancellation 不得被静默吞掉。
 - RPC 用于需要确定返回值、失败传播或完成确认的操作；Pub/Sub 只用于发布者不依赖结果的通知。
 

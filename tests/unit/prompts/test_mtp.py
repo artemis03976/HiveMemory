@@ -84,11 +84,6 @@ class TestMTPPromptBuilder:
         # 其他模块仍在
         assert "PROTOCOL RULES" in output
 
-    def test_build_without_kernel_tools(self):
-        """空白名单不渲染内核工具列表"""
-        output = MTPPromptBuilder(allowed_runtime_tools=[]).build()
-        assert "[RUNTIME TOOLS]" not in output
-
     def test_build_custom_kernel_tools(self):
         """自定义内核工具列表"""
         custom_tools = [("my_tool", "Does something cool")]
@@ -141,7 +136,7 @@ class TestMTPPromptBuilder:
         output = MTPPromptBuilder(
             include_demo=False,
             include_error_handling=False,
-            allowed_runtime_tools=[],
+            runtime_tools=[],
             language="en",
         ).build()
 

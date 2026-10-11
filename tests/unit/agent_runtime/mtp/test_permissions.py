@@ -1,183 +1,83 @@
-"""Koakuma 权限检查使用显式执行上下文。"""
+"""MTP 公开执行入口按 frame 策略拒绝动词，并忽略旧版 Profile 权限。"""
+
+from pathlib import Path
 
 import pytest
 
 from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.agent_runtime.policy import FrameExecutionPolicy
+from hivememory.config.alice import KoakumaConfig
 from hivememory.core.models import AgentProfile
-from hivememory.core.mtp.exceptions import AgentFault, PermissionDeniedError
+from hivememory.core.mtp import MTPCallRequest
 from tests.helpers.workspace import make_runtime_scope
 
 
-def _create_koakuma():
-    from tests.unit.agent_runtime.mtp.conftest import make_koakuma_runtime, make_mock_bus
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "command",
+    [
+        "⟪ READ | memory | ⟫",
+        '⟪ SEARCH | * | query="记忆" ⟫',
+        '⟪ WRITE | * | content="拒绝写入" ⟫',
+        '⟪ UPDATE | memory | instruction="修改" ⟫',
+        '⟪ RUN | sys_python_repl | code="print(42)" ⟫',
+        '⟪ CALL | another_agent | task="任务" ⟫',
+    ],
+)
+async def test_empty_frame_policy_rejects_verbs_before_submitting(command: str) -> None:
+    """frame 拒绝先于任何资源提交，Profile 无法扩大明确的空集合。"""
+    requests = []
 
-    bus = make_mock_bus()
-    return make_koakuma_runtime(bus)
+    async def record_submission(request):
+        requests.append(request)
+        raise AssertionError("被拒绝的动词不能进入操作提交端口")
 
-
-def _make_profile(allowed_verbs=None, allowed_tools=None):
-    return AgentProfile(
-        model_name="test-model",
-        temperature=0.7,
-        allowed_mtp_verbs=allowed_verbs,
-        allowed_sys_tools=allowed_tools,
-        language="zh",
-    )
-
-
-def _context(profile=None):
-    return MTPExecutionContext(
+    context = MTPExecutionContext(
         runtime_scope=make_runtime_scope(),
-        agent_profile=profile,
+        agent_profile=AgentProfile(),
+        execution_policy=FrameExecutionPolicy.from_verbs([]),
+        submit_operation=record_submission,
     )
 
+    result = await KoakumaRuntime().execute_mtp(command, context)
 
-class TestCheckVerbPermission:
-    def test_verb_allowed_no_exception(self):
-        koakuma = _create_koakuma()
-        context = _context(_make_profile(allowed_verbs=["READ", "SEARCH", "WRITE"]))
-
-        assert koakuma._check_verb_permission("READ", context=context) is None
-        assert koakuma._check_verb_permission("SEARCH", context=context) is None
-        assert koakuma._check_verb_permission("WRITE", context=context) is None
-
-    def test_verb_denied_raises_exception(self):
-        koakuma = _create_koakuma()
-        context = _context(_make_profile(allowed_verbs=["READ", "SEARCH"]))
-
-        with pytest.raises(PermissionDeniedError) as exc_info:
-            koakuma._check_verb_permission("WRITE", context=context)
-
-        assert "WRITE" in str(exc_info.value)
-        assert "permission" in str(exc_info.value).lower()
-
-    def test_verb_case_insensitive(self):
-        koakuma = _create_koakuma()
-        context = _context(_make_profile(allowed_verbs=["read", "search"]))
-
-        assert koakuma._check_verb_permission("READ", context=context) is None
-        assert koakuma._check_verb_permission("SEARCH", context=context) is None
-        assert koakuma._check_verb_permission("read", context=context) is None
-        assert koakuma._check_verb_permission("search", context=context) is None
-
-    def test_no_profile_allows_all_verbs(self):
-        koakuma = _create_koakuma()
-
-        for verb in ["READ", "WRITE", "UPDATE", "RUN", "SEARCH"]:
-            assert koakuma._check_verb_permission(verb, context=_context()) is None
-
-    def test_empty_verb_list_denies_all(self):
-        koakuma = _create_koakuma()
-        context = _context(_make_profile(allowed_verbs=[]))
-
-        for verb in ["READ", "WRITE", "UPDATE", "RUN", "SEARCH"]:
-            with pytest.raises(PermissionDeniedError):
-                koakuma._check_verb_permission(verb, context=context)
+    assert result.response_status == "error"
+    assert 'code="mtp.permission.denied"' in result.formatted_response
+    assert result.response_content == ""
+    assert requests == []
 
 
-class TestCheckToolPermission:
-    def test_tool_allowed_no_exception(self):
-        koakuma = _create_koakuma()
-        context = _context(_make_profile(allowed_tools=["sys_clock", "sys_read_file"]))
+@pytest.mark.asyncio
+async def test_frame_policy_allows_call_despite_legacy_profile_denial() -> None:
+    """旧配置中的空动词列表不影响 frame 明确允许的 CALL。"""
+    context = MTPExecutionContext(
+        runtime_scope=make_runtime_scope(),
+        agent_profile=AgentProfile.model_validate({"allowed_mtp_verbs": []}),
+        execution_policy=FrameExecutionPolicy.from_verbs({"call"}),
+    )
 
-        assert koakuma._check_tool_permission("sys_clock", context=context) is None
-        assert koakuma._check_tool_permission("sys_read_file", context=context) is None
+    result = await KoakumaRuntime().execute_mtp(
+        '⟪ CALL | reviewer_doll | task="审查代码" ⟫', context
+    )
 
-    def test_tool_denied_raises_exception(self):
-        koakuma = _create_koakuma()
-        context = _context(_make_profile(allowed_tools=["sys_clock"]))
-
-        with pytest.raises(PermissionDeniedError) as exc_info:
-            koakuma._check_tool_permission("sys_bash_exec", context=context)
-
-        assert "sys_bash_exec" in str(exc_info.value)
-        assert "access" in str(exc_info.value).lower()
-
-    def test_tool_exact_match(self):
-        koakuma = _create_koakuma()
-        context = _context(_make_profile(allowed_tools=["sys_clock"]))
-
-        assert koakuma._check_tool_permission("sys_clock", context=context) is None
-        with pytest.raises(PermissionDeniedError):
-            koakuma._check_tool_permission("SYS_CLOCK", context=context)
-
-    def test_no_profile_allows_all_tools(self):
-        koakuma = _create_koakuma()
-
-        for tool in ["sys_clock", "sys_bash_exec", "sys_web_search", "sys_python_repl"]:
-            assert koakuma._check_tool_permission(tool, context=_context()) is None
-
-    def test_empty_tool_list_denies_all(self):
-        koakuma = _create_koakuma()
-        context = _context(_make_profile(allowed_tools=[]))
-
-        for tool in ["sys_clock", "sys_bash_exec", "sys_web_search", "sys_python_repl"]:
-            with pytest.raises(PermissionDeniedError):
-                koakuma._check_tool_permission(tool, context=context)
+    assert result.response_status == "suspend"
+    assert result.call_request == MTPCallRequest(target_alias="reviewer_doll", task="审查代码")
 
 
-class TestPermissionDeniedError:
-    def test_error_is_agent_fault(self):
-        koakuma = _create_koakuma()
-        context = _context(_make_profile(allowed_verbs=["READ"]))
+@pytest.mark.asyncio
+async def test_system_write_ignores_legacy_tool_denial(tmp_path: Path) -> None:
+    """所有已注册系统工具都可执行，旧工具白名单不能阻止本地文件写入。"""
+    context = MTPExecutionContext(
+        runtime_scope=make_runtime_scope(),
+        agent_profile=AgentProfile.model_validate({"allowed_sys_tools": []}),
+        execution_policy=FrameExecutionPolicy.from_verbs({"RUN"}),
+    )
+    runtime = KoakumaRuntime(config=KoakumaConfig(workspace_path=str(tmp_path)))
 
-        with pytest.raises(PermissionDeniedError) as exc_info:
-            koakuma._check_verb_permission("WRITE", context=context)
+    result = await runtime.execute_mtp(
+        '⟪ RUN | sys_write_file | path="result.txt" content="系统工具无需权限" ⟫', context
+    )
 
-        assert isinstance(exc_info.value, AgentFault)
-
-    def test_error_message_contains_verb(self):
-        koakuma = _create_koakuma()
-        context = _context(_make_profile(allowed_verbs=["READ"]))
-
-        with pytest.raises(PermissionDeniedError) as exc_info:
-            koakuma._check_verb_permission("UPDATE", context=context)
-
-        assert "UPDATE" in str(exc_info.value)
-
-    def test_error_message_contains_tool(self):
-        koakuma = _create_koakuma()
-        context = _context(_make_profile(allowed_tools=["sys_clock"]))
-
-        with pytest.raises(PermissionDeniedError) as exc_info:
-            koakuma._check_tool_permission("sys_write_file", context=context)
-
-        assert "sys_write_file" in str(exc_info.value)
-
-
-class TestCombinedPermissions:
-    def test_restricted_verbs_and_tools(self):
-        koakuma = _create_koakuma()
-        context = _context(
-            _make_profile(
-                allowed_verbs=["READ", "SEARCH"],
-                allowed_tools=["sys_clock"],
-            )
-        )
-
-        assert koakuma._check_verb_permission("READ", context=context) is None
-        assert koakuma._check_verb_permission("SEARCH", context=context) is None
-        assert koakuma._check_tool_permission("sys_clock", context=context) is None
-
-        with pytest.raises(PermissionDeniedError):
-            koakuma._check_verb_permission("WRITE", context=context)
-        with pytest.raises(PermissionDeniedError):
-            koakuma._check_tool_permission("sys_bash_exec", context=context)
-        with pytest.raises(PermissionDeniedError):
-            koakuma._check_tool_permission("sys_write_file", context=context)
-
-    def test_coder_profile_scenario(self):
-        koakuma = _create_koakuma()
-        context = _context(
-            _make_profile(
-                allowed_verbs=["READ", "SEARCH", "WRITE", "RUN"],
-                allowed_tools=["sys_clock", "sys_read_file", "sys_write_file", "sys_python_repl"],
-            )
-        )
-
-        assert koakuma._check_verb_permission("READ", context=context) is None
-        assert koakuma._check_verb_permission("WRITE", context=context) is None
-        assert koakuma._check_verb_permission("RUN", context=context) is None
-        assert koakuma._check_tool_permission("sys_read_file", context=context) is None
-        assert koakuma._check_tool_permission("sys_write_file", context=context) is None
-        assert koakuma._check_tool_permission("sys_python_repl", context=context) is None
+    assert result.response_status == "success"
+    assert (tmp_path / "result.txt").read_text() == "系统工具无需权限"

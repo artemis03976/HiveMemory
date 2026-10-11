@@ -82,7 +82,12 @@ class CallContextProvider:
         aliases: list[str],
         caller_frame: ExecutionFrame,
     ) -> str:
-        """逐项解析 context_refs，并编译为子 Agent 的共享上下文。"""
+        """逐项解析 context_refs，并编译为子 Agent 的共享上下文。
+
+        每个引用单独提交 READ 请求：某个引用冷读失败（如存储不可达）时只
+        跳过该引用，已命中缓存的其余引用照常交付；合并为一次批量请求会让
+        单次失败丢弃全部共享上下文。
+        """
         if not aliases:
             return ""
 

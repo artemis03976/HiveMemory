@@ -21,7 +21,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # 跨边界错误模型
@@ -100,7 +100,7 @@ cause        内部原因，只供调试，序列化时排除
 | `mtp.memory.not_found` | 目标记忆不存在 |
 | `mtp.memory.type_mismatch` | 记忆类型不适用于操作 |
 | `mtp.argument.invalid` | 参数缺失或格式错误 |
-| `mtp.permission.denied` | Profile verb/tool、frame CALL policy 或 Workspace operation 拒绝 |
+| `mtp.permission.denied` | frame 动词集合（由输入清单的操作快照翻译，含子帧移除 CALL）或 Workspace actor 操作拒绝 |
 | `mtp.system.storage_offline` | 存储离线 |
 | `mtp.system.storage_error` | 存储读取错误 |
 | `mtp.system.service_unavailable` | 所需总线路由/服务不可用 |

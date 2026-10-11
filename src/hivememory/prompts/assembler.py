@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Iterable
 from typing import Any
 
 from hivememory.core.models import AgentProfile
@@ -29,7 +28,10 @@ class AgentPromptAssembler:
         language = self._prompt_language(context.agent_profile)
         builder = SystemPromptBuilder(language=language)
 
-        mtp_prompt = self._build_mtp_prompt(profile=context.agent_profile)
+        mtp_prompt = self._build_mtp_prompt(
+            profile=context.agent_profile,
+            permitted_verbs=context.permitted_mtp_verbs,
+        )
         builder.with_mtp_prompt(mtp_prompt)
 
         if mtp_prompt and not context.storage_available:
@@ -63,16 +65,23 @@ class AgentPromptAssembler:
 
     def build_sub_agent_messages(
         self,
-        profile: AgentProfile,
+        profile: AgentProfile | None,
         task: str,
         shared_context: str = "",
+        *,
+        permitted_verbs: frozenset[str],
     ) -> list[dict[str, str]]:
+        """使用父 frame 继承的动词集合，组装子 agent 的提示词。
+
+        被调用方 Profile 只提供人设与语言；再次去掉 CALL，避免子提示词
+        鼓励递归调用。执行策略仍由调用方按同一集合构造。
+        """
         language = self._prompt_language(profile)
         builder = SystemPromptBuilder(language=language)
 
         mtp_prompt = self._build_mtp_prompt(
             profile=profile,
-            denied_verbs={MTPVerb.CALL.value},
+            permitted_verbs=frozenset(v.upper() for v in permitted_verbs) - {MTPVerb.CALL.value},
         )
         builder.with_mtp_prompt(mtp_prompt)
 
@@ -90,9 +99,11 @@ class AgentPromptAssembler:
 
     def _build_mtp_prompt(
         self,
+        *,
+        permitted_verbs: frozenset[str],
         profile: AgentProfile | None = None,
-        denied_verbs: Iterable[str] | None = None,
     ) -> str:
+        """只按 frame 动词集合渲染教学，Profile 不承载任何权限。"""
         koakuma_config = self._koakuma_config
         if koakuma_config is None or not getattr(koakuma_config, "enabled", False):
             return ""
@@ -101,35 +112,14 @@ class AgentPromptAssembler:
         if prompt_config is None or not getattr(prompt_config, "enabled", False):
             return ""
 
-        allowed_verbs = self._allowed_verbs(profile, denied_verbs)
-        allowed_runtime_tools = (
-            getattr(profile, "allowed_sys_tools", None) if profile is not None else None
-        )
         language = self._prompt_language(profile)
 
         return MTPPromptBuilder(
             language=language,
             include_demo=getattr(prompt_config, "include_demo", True),
             include_error_handling=getattr(prompt_config, "include_error_handling", True),
-            allowed_verbs=allowed_verbs,
-            allowed_runtime_tools=allowed_runtime_tools,
+            allowed_verbs=permitted_verbs,
         ).build()
-
-    def _allowed_verbs(
-        self,
-        profile: AgentProfile | None,
-        denied_verbs: Iterable[str] | None,
-    ) -> list[str] | None:
-        allowed = getattr(profile, "allowed_mtp_verbs", None) if profile is not None else None
-
-        denied = {verb.upper() for verb in denied_verbs or []}
-        if not denied:
-            return allowed
-
-        if allowed is None:
-            allowed = [verb.value for verb in MTPVerb]
-
-        return [verb for verb in allowed if verb.upper() not in denied]
 
     def _prompt_language(self, profile: AgentProfile | None = None) -> str:
         profile_lang = getattr(profile, "language", None) if profile else None

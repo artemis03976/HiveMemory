@@ -3,7 +3,7 @@
 
 向指定用户的默认 Workspace 注入基础人偶图纸：
 1. coder_doll    - Python 开发者（代码生成 + 文件读写）
-2. reviewer_doll - 代码审查员（只读 + 检索）
+2. reviewer_doll - 代码审查员（安全与质量审查）
 
 omni_doll 是代码内置的 fallback Profile（``OMNI_DOLL_PROFILE``），按 alias 解析时
 先于存储记录生效，因此不注入存储。
@@ -43,7 +43,7 @@ PROFILES = [
     {
         "alias": "coder_doll",
         "title": "Python 开发者 (Coder-Doll)",
-        "summary": "擅长编写、调试 Python 脚本，拥有读写工作区文件和执行代码的权限。性格严谨，代码必须包含类型提示。",
+        "summary": "擅长编写、调试 Python 脚本与工作区文件处理。性格严谨，代码必须包含类型提示。",
         "tags": ["agent", "python", "developer", "coder"],
         "persona": (
             "你是一个资深的 Python 程序员，性格严谨，追求代码质量。\n"
@@ -57,20 +57,13 @@ PROFILES = [
         "agent_config": {
             "model_name": "default",
             "temperature": 0.2,
-            "allowed_mtp_verbs": ["READ", "RUN", "SEARCH", "WRITE"],
-            "allowed_sys_tools": [
-                "sys_read_file",
-                "sys_write_file",
-                "sys_python_repl",
-                "sys_clock",
-            ],
             "language": "zh",
         },
     },
     {
         "alias": "reviewer_doll",
         "title": "代码审查员 (Reviewer-Doll)",
-        "summary": "专注于代码审查，擅长发现安全漏洞和性能瓶颈。仅拥有只读权限，无法写入文件或执行代码。",
+        "summary": "专注于代码审查，擅长发现安全漏洞和性能瓶颈，并提供具体的修改建议。",
         "tags": ["agent", "reviewer", "security", "code-review"],
         "persona": (
             "你是一个严厉的 Code Reviewer，专注于发现代码中的问题。\n"
@@ -79,14 +72,12 @@ PROFILES = [
             "2. 性能瓶颈：N+1 查询、不必要的循环、内存泄漏\n"
             "3. 代码规范：命名一致性、函数长度、圈复杂度\n"
             "4. 边界条件：空值处理、并发安全、资源释放\n"
-            "5. 你只能阅读和检索代码，不能修改或执行代码\n"
+            "5. 专注于分析与建议，不代替用户修改代码\n"
             "审查时请给出具体的行号和修改建议。"
         ),
         "agent_config": {
             "model_name": "default",
             "temperature": 0.3,
-            "allowed_mtp_verbs": ["READ", "SEARCH"],
-            "allowed_sys_tools": ["sys_read_file", "sys_clock"],
             "language": "zh",
         },
     },

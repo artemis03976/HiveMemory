@@ -41,7 +41,7 @@ def _frame(
             profile=OMNI_DOLL_PROFILE,
             messages=(messages if messages is not None else [{"role": "user", "content": "hello"}]),
             topic_id="topic-1",
-            execution_policy=FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE),
+            execution_policy=FrameExecutionPolicy(),
         )
     )
 

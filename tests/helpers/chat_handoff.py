@@ -7,6 +7,7 @@
 
 from __future__ import annotations
 
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
@@ -74,6 +75,7 @@ def make_input_manifest(
     labels: ExecutionLabels | None = None,
     user_message: str = "hello",
     agent_profile: AgentProfile | None = None,
+    allowed_operations: frozenset[WorkspaceOperation] = frozenset(WorkspaceOperation),
     memories: list[MemoryAtom] | None = None,
     memory_context: str = "",
     attachment_context: str = "",
@@ -87,6 +89,7 @@ def make_input_manifest(
         labels=labels or make_execution_labels(),
         user_message=user_message,
         agent_profile=agent_profile or OMNI_DOLL_PROFILE,
+        allowed_operations=allowed_operations,
         memories=list(memories or []),
         memory_context=memory_context,
         attachment_context=attachment_context,

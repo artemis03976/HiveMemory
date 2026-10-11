@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # Archived Plans
@@ -14,6 +14,7 @@ last_reviewed: 2026-10-10
 
 当前记录：
 
+- [v0.7.0 Agent 操作白名单](./v0.7.0-agent-operation-whitelist.md)：2026-10-11 三阶段实施、验收与 code review 完成；访问登记的白名单成为 Agent 权限的唯一来源，Profile 的两个 allow 字段删除，Alice 把输入清单的操作快照翻译为 MTP 动词，系统工具不设权限，子 agent 继承父 agent。阶段一至三提交为 `991f54c`、`27cba45`、`0c660f8`，审查修复为 `bb3ce09`，事实文档收尾保留在工作区供审阅；未发布。全量后端 2930 passed、2 skipped，覆盖率 93.20%，确定性 HTTP E2E 5 passed，前端 lint 与 build 通过。当前事实见 [MTP 契约](../../contracts/mtp.md)、[Workspace 架构](../../architecture/workspace.md)与 [System 配置](../../system/configuration.md)。
 - [v0.7.0 能力层分层：root API 与 actor API](./v0.7.0-capability-surface-split.md)：2026-10-10 三阶段实施、验收与 code review 完成；capability 目录分为只供 `system` 的 root API 与 actor API，六项 actor 操作对齐 MTP 动词，任务进程的阶段调用改为不检查 actor 操作的阶段授权。阶段一至三提交为 `33cac7f`、`4351928`、`d85b2bf`，审查修复为 `0ecb75e`，事实文档收尾保留在工作区供审阅；未发布。全量后端 2904 passed、2 skipped，覆盖率 93.20%，确定性 HTTP E2E 4 passed。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[子系统契约](../../contracts/subsystem-contracts.md)与 [System 配置](../../system/configuration.md)。
 - [v0.7.0 Alice 的能力层调用迁移](./v0.7.0-alice-capability-migration.md)：2026-10-09 三阶段实施、验收与 code review 完成；单一操作入口与执行凭据、SEARCH/引用记录/CALL Profile 经能力层，以及 CPU/Alice 过渡身份删除已落地。阶段一、二分别提交为 `7c28c3c`、`f8dccad`，阶段三与事实文档收尾保留在工作区供审阅；未发布。全量后端 2789 passed、2 skipped，覆盖率 93.16%，确定性 HTTP E2E 3 passed。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[子系统契约](../../contracts/subsystem-contracts.md)与 [Alice](../../alice/README.md)。
 

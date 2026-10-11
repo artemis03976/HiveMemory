@@ -154,6 +154,43 @@ def test_stage_authorization_is_only_called_by_task_processes():
     }
 
 
+def test_stage_operation_snapshot_is_only_read_by_task_process_allocation():
+    """操作快照只供 CPU 分配读取，不能成为 actor API 或 CPU 的授权旁路。"""
+    assert _private_call_sites("get_stage_operations") == {"workspace/process/allocation.py"}
+
+
+def test_profile_permission_symbols_have_no_production_references():
+    """生产代码不能重新从 Profile 取得权限，也不能重新注入两份旧白名单。"""
+    removed_symbols = {
+        "allowed_mtp_verbs",
+        "allowed_sys_tools",
+        "is_verb_allowed",
+        "is_tool_allowed",
+        "get_verb_set",
+        "get_tool_set",
+        "OMNI_DOLL_ALLOWED_MTP_VERBS",
+        "OMNI_DOLL_ALLOWED_SYS_TOOLS",
+    }
+    root = SRC_ROOT.parent.parent
+    paths = [*_source_files(), *(root / "scripts").rglob("*.py")]
+    offenders = []
+    for path in paths:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            match node:
+                case ast.Name(id=name) | ast.Attribute(attr=name):
+                    symbol = name
+                case ast.FunctionDef(name=name) | ast.AsyncFunctionDef(name=name):
+                    symbol = name
+                case ast.Constant(value=str() as value):
+                    symbol = value
+                case _:
+                    continue
+            if symbol in removed_symbols:
+                offenders.append(f"{path.relative_to(root)}:{node.lineno}:{symbol}")
+    assert offenders == []
+
+
 def _private_call_sites(attribute: str) -> set[str]:
     """生产代码中访问某个属性名的源文件（相对路径），不含定义处 core/access.py。"""
     sites: set[str] = set()

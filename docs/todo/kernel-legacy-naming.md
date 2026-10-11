@@ -10,7 +10,7 @@ related_docs:
   - docs/frontend/chat-workspace.md
   - docs/help/troubleshooting.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-06
+last_reviewed: 2026-10-11
 ---
 
 # kernel 遗留命名清理
@@ -35,7 +35,7 @@ last_reviewed: 2026-10-06
 
 ## 完成条件
 
-- MTP 系统工具一组改用与 `allowed_sys_tools`、`sys_*` 一致的名称（例如“系统工具 / 用户工具”）；类名、注册表、错误键与文案、MTP 契约、MTP Runtime 与引用它的前端和应用文档同步，错误键的全部消费者与测试一并更新。
+- MTP 系统工具一组改用与 `sys_*` 一致的名称（例如“系统工具 / 用户工具”）；类名、注册表、错误键与文案、MTP 契约、MTP Runtime 与引用它的前端和应用文档同步，错误键的全部消费者与测试一并更新。
 - 提示词的改写按模型可见行为的变更评估，不只按重命名处理。
 - 后端注释与示例按当前组件名改写。
 - 前端观测面板的名称是用户可见的界面命名，先单独决定新名称，再同步代码、前端文档与排障文档。

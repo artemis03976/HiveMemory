@@ -68,9 +68,6 @@ export function AgentSidebar({ agents, selectedId, searchQuery, onSelect, onSear
                 <span className="text-[9px] px-1.5 py-0.5 rounded bg-black/30 text-slate-500 border border-white/5">
                   {agent.model}
                 </span>
-                <span className="text-[9px] px-1.5 py-0.5 rounded bg-black/30 text-slate-500 border border-white/5">
-                  {agent.tools === null ? '全部' : agent.tools.length} 工具
-                </span>
                 {agent.tags.length > 0 && (
                   <span className="text-[9px] px-1.5 py-0.5 rounded bg-primary/10 text-primary/60 border border-primary/10">
                     {agent.tags.length} 标签

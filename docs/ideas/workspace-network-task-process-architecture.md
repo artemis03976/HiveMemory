@@ -49,7 +49,7 @@ related_docs:
   - docs/ideas/identity-and-access-model.md
   - docs/contracts/mtp.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # Workspace 网络与任务进程架构
@@ -694,7 +694,7 @@ Import Bus 已排除在现有系统之外（5.8），本问题随其独立演进
 
 ### 13.2 Agent Profile 的 MTP 权限
 
-`AgentProfile`（[`core/models/agent.py`](../../src/hivememory/core/models/agent.py)）有 `allowed_mtp_verbs` 与 `allowed_sys_tools` 两个字段：MTP 动词由 `FrameExecutionPolicy.from_profile`（[`agent_runtime/policy.py`](../../src/hivememory/agent_runtime/policy.py)）在 frame 执行时检查；系统工具按 Profile 在提示词组装时筛选（`prompts/assembler.py`）。Profile 以 `AGENT_PROFILE` 类型的记忆原子存储；`management.memory` 包含对 Profile 原子的管理写入。
+（2026-10-11 更新：两个字段已随 [Agent 操作白名单](../archive/plans/v0.7.0-agent-operation-whitelist.md)删除，以下为当时的状态。）`AgentProfile`（[`core/models/agent.py`](../../src/hivememory/core/models/agent.py)）有 `allowed_mtp_verbs` 与 `allowed_sys_tools` 两个字段：MTP 动词由 `FrameExecutionPolicy.from_profile`（[`agent_runtime/policy.py`](../../src/hivememory/agent_runtime/policy.py)）在 frame 执行时检查；系统工具按 Profile 在提示词组装时筛选（`prompts/assembler.py`）。Profile 以 `AGENT_PROFILE` 类型的记忆原子存储；`management.memory` 包含对 Profile 原子的管理写入。
 
 ### 13.3 资源级授权
 
@@ -824,7 +824,7 @@ sequenceDiagram
 
 ### 15.4 Agent Profile 的权限并入 operation 控制（P-2、P-10）
 
-**状态**：已完成。2026-09-28 决定，2026-10-02 确定归属，2026-10-06 改为单独建立计划，2026-10-10 补充白名单的决定并排在能力层分层（15.12）之后；尚未实施，计划尚未建立。P-10a 见第 16 节。
+**状态**：已完成。2026-09-28 决定，2026-10-02 确定归属，2026-10-06 改为单独建立计划，2026-10-10 补充白名单的决定并排在能力层分层（15.12）之后；能力层分层完成后，同日决定存储位置、运行时编辑与子线程权限（见下文）。2026-10-11 实施、验收与 code review 完成并归档（[归档计划](../archive/plans/v0.7.0-agent-operation-whitelist.md)），当前事实见 [MTP 契约](../contracts/mtp.md#4-权限)第 4 节与 [Workspace 架构](../architecture/workspace.md)第 4.2、4.5 节；运行时编辑仍待配置热更新。P-10a 见第 16 节。
 
 **问题**：两套权限并存：A1 的 operation 白名单与 Agent Profile 的 `allowed_mtp_verbs`、`allowed_sys_tools`（13.2）。后者的语义绑定 MTP 与系统工具体系，对不经 MTP 的外部 Actor（MCP、外部协议）没有定义含义（P-10，原记录于 AgentProfile 模型演进 Todo，2026-09-27 归档）。
 
@@ -840,7 +840,11 @@ sequenceDiagram
 - （owner，2026-10-10）白名单的内容就是 actor 操作的全集（15.12）：Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 移除，权限主体不再位于 Profile；白名单按 (user, workspace, agent) 记录。系统工具暂不设权限：Alice 中所有系统工具对所有 agent 可用，外部 harness 本就不适用。内置 OMNI_DOLL 的默认集合为全部 actor 操作。同一份名单对 Alice 翻译为 MTP 工具列表，对外部 harness 翻译为 MCP 工具列表。
 - 分析（2026-10-10）：Agent Profile 是某个 workspace 中的记忆原子，`agent_id` 即其 alias，只在 workspace 内唯一；不同 workspace 中的同名 agent 是两条独立的原子。因此“同一 agent 在不同 workspace 有不同能力”只可能出现在受限穿透访问中：那时一次跨 workspace 的操作要同时满足 agent 自身的白名单与目标一侧的授予，actor 身份也需要带上驻留 workspace（不在 v0.7.0）。
 - （owner，2026-10-10）能力层分层先于白名单：能力层提供的能力与 actor 应有的能力对齐之后，才讨论白名单。
-- 未决（随白名单计划讨论，不阻塞能力层分层）：权限留在 Profile 原子还是独立登记。留在 Profile：修改权限就是修改原子，删除 Profile 时权限随之消失，但只能表达一种权限情况，授权要读记忆库；独立登记：授权数据由 workspace 持有、记忆库不可达时仍能授权，但需要持久化、一个只对 root 开放的编辑接口，以及与 Profile 创建、删除的同步。owner（2026-10-10）认为两者没有明显优劣，并指出权限迟早需要在前端运行时编辑。另一项是执行线程层之前子线程的权限：Profile 字段移除后，子线程只能以主线程的白名单执行。
+- 已决（原未决，记录保留如下）：权限留在 Profile 原子还是独立登记。留在 Profile：修改权限就是修改原子，删除 Profile 时权限随之消失，但只能表达一种权限情况，授权要读记忆库；独立登记：授权数据由 workspace 持有、记忆库不可达时仍能授权，但需要持久化、一个只对 root 开放的编辑接口，以及与 Profile 创建、删除的同步。owner（2026-10-10）认为两者没有明显优劣，并指出权限迟早需要在前端运行时编辑。另一项是执行线程层之前子线程的权限：Profile 字段移除后，子线程只能以主线程的白名单执行。
+- 核对（2026-10-10，能力层分层之后）：访问登记的键已经是 (owner, workspace, user, agent)，actor API 已按它逐次授权，即“按 (user, workspace, agent) 记录的白名单”已经存在；actor 的 UPDATE 意图只覆盖 `payload.content`，不能改写 Profile 的 `agent_config`；`AgentProfile` 忽略多余字段，删除两个 allow 字段不会使已存 Profile 解析失败。
+- （owner，2026-10-10）白名单留在访问登记：Profile 不再承载任何权限，授权数据与授权都在 workspace，与 Profile 原子是否存在无关（外部 Actor 不一定有 Profile 原子）。
+- （owner，2026-10-10）白名单的运行时编辑与后续需要配置文件持久化、热更新的内容一起完成（[ROADMAP](../ROADMAP.md) 的“配置热更新”，外部 Actor Idea E-1），不在白名单计划内；在此之前修改白名单需改 `workspace_actors.yaml` 并重启。
+- （owner，2026-10-10）执行线程层落地之前，子 agent 继承父 agent 的操作权限：子线程的提示词与执行策略使用主线程的操作集合（子帧仍禁止 CALL），被调用方的 Profile 只提供 persona、模型与语言；独立的子线程权限属于执行线程层（[执行单元 Idea](./execution-unit-thread-and-environment.md#t-3-派生执行线程的认证与授权原总-idea-p-5a) T-3）。
 
 **取舍**：能力层只查白名单、Profile 权限留在 MTP 适配层，会形成两处检查，不经 MTP 的 Actor 不受 Profile 权限约束；能力层对两者取交集，会让 Profile 成为授权输入，持有 `management.memory` 即可影响授权。
 
@@ -1027,7 +1031,7 @@ sequenceDiagram
 - 15.10：记忆任务路由属于 root API。
 - `system` 的语义：13.4 与 15.1 所说“没有具体 Agent 作为操作来源主体，不承担权限绕过语义”改为唯一的 root 角色。`system` 同时仍是非主动写入路径的发起者（身份 Idea I-11），后者沿用 actor 可见性语义（只在 PUBLIC 内）；root 对整个 workspace 的视角只存在于 root API，两种用法不在同一个方法内混用。root 的判定在第 3 阶段授权中进行，不写进身份类型（身份 Idea 不变量 6）。
 - operation 目录（13.1）随之重整：`management.*` 与 `task.observe` 由 root 检查取代；`profile.read`、`asset.acquire`、`interaction.submit` 不再作为阶段检查使用；actor 操作的命名在能力层分层的计划中确定（2026-10-10 实施后为 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，见 [Workspace 架构](../architecture/workspace.md)第 4.5 节）。
-- P-9c：两类 context 由 API 面区分：root API 只接受 root 的请求级 context，actor API 经操作入口接受执行凭据。plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计。
+- P-9c：两类 context 由 API 面区分：root API 只接受 root 的请求级 context，actor API 经操作入口接受执行凭据（2026-10-11 改为线程 context，见执行单元 Idea T-2）。plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计。
 - 执行单元 Idea T-9 第 3 点“HTTP 管理侧理论上也采用这种映射形态”被取代：操作请求与操作列表只描述 actor API；root API 由 HTTP 管理入口直接调用。
 - P-3：RUN 与 CALL 成为 actor 操作，授权进入能力层；执行本身是否经能力层仍未决定。
 
@@ -1099,7 +1103,7 @@ P-4b（不开放创建任务进程）已完成，见 15.9。
 - **P-9c（剩余）能力层如何区分两类 context**：绑定进程的 context 与请求级 context 是否需要在授权时区分，以及如何区分。
   - 现状：区分实际依靠 actor，即 `system` 记录与用户级记录分开登记；context 中写入了运行绑定（运行类型与标识），但操作授权不读取它。
   - 选项：维持按访问登记区分（现状） / 操作授权按运行类型限制可用的 operation / 其他。
-  - 2026-10-10：按 15.12，root API 只接受 root 的请求级 context，actor API 经操作入口接受执行凭据，两类 context 由 API 面区分；剩下的是 plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计。
+  - 2026-10-10：按 15.12，root API 只接受 root 的请求级 context，actor API 经操作入口接受执行凭据（2026-10-11 改为线程 context，见执行单元 Idea T-2），两类 context 由 API 面区分；剩下的是 plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计。
 - **P-9d 进程的定义**：是否据此把“进程 = 由 CPU 执行的一个任务”确立为任务进程 Idea 的前提定义（15.1 的取舍）。
 - **P-9f 两种读取视角的入口形式**（2026-10-03，由 15.7 引出；2026-10-10 已决定：两个入口分属 root API 与 actor API，见 15.12，以下保留原选项与分析）：两个入口，视角体现在方法名与 operation 上（现状） / 一个入口加显式视角参数，例如 `read(memory_id, view=AGENT | OWNER)`，视角映射到 operation / 一个入口，按调用方持有的权限决定视角 / 其他。
   - 影响：

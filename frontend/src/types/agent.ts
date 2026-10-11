@@ -1,19 +1,8 @@
-import type { LucideIcon } from 'lucide-react';
-import type { MTPVerb } from './mtp';
-
-/** 对应后端 AgentProfileConfig */
+/** Agent 图纸的模型参数与提示词语言。 */
 export interface AgentProfileConfig {
   model_name: string;
   temperature: number;
-  allowed_mtp_verbs: MTPVerb[] | null;
-  allowed_sys_tools: string[] | null;
   language: string;
-}
-
-export interface AgentTool {
-  id: string;
-  label: string;
-  icon: LucideIcon;
 }
 
 export type AgentStatus = 'Active' | 'Inactive';
@@ -28,5 +17,4 @@ export interface AgentData {
   model: string;       // config.model_name
   status: AgentStatus;
   config: AgentProfileConfig;
-  tools: string[] | null;     // config.allowed_sys_tools，null=全部允许
 }

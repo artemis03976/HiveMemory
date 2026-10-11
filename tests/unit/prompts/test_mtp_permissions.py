@@ -1,352 +1,183 @@
-"""
-MTP Prompt 权限过滤单元测试
+"""MTP 教学按 frame 动词集合裁剪，系统工具不设权限过滤。"""
 
-测试覆盖:
-- allowed_verbs: 动词白名单过滤 / None 全量渲染 / 空列表边界
-- allowed_runtime_tools: 工具白名单过滤 / None 全量渲染 / 空列表边界
-- 动态渲染 VERBS 列表的正确性
-"""
+import pytest
 
-from hivememory.prompts.mtp import DEFAULT_RUNTIME_TOOLS, MTPPromptBuilder
+from hivememory.prompts.mtp import MTPPromptBuilder
 
 
-class TestAllowedVerbsFiltering:
-    """allowed_verbs 动词白名单过滤测试"""
+@pytest.mark.parametrize("language", ["zh", "en"])
+def test_read_search_run_prompt_omits_other_verbs_from_all_teaching(language):
+    """规格、行为准则与演示都不能教导未获准的 WRITE、UPDATE 或 CALL。"""
+    output = MTPPromptBuilder(
+        language=language,
+        allowed_verbs={"READ", "SEARCH", "RUN"},
+    ).build()
 
-    def test_allowed_verbs_filters_protocol_spec(self):
-        """白名单过滤：只渲染允许的动词"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_verbs=["READ", "SEARCH"],
-        )
-        output = builder.build()
-
-        # 允许的动词应该出现
-        assert "- READ:" in output
-        assert "- SEARCH:" in output
-
-        # 禁止的动词不应该出现
-        assert "- WRITE:" not in output
-        assert "- UPDATE:" not in output
-        assert "- RUN:" not in output
-
-    def test_allowed_verbs_none_renders_all(self):
-        """None 白名单：渲染全部动词"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_verbs=None,  # 全量渲染
-        )
-        output = builder.build()
-
-        # 所有动词都应该出现
-        assert "- SEARCH:" in output
-        assert "- READ:" in output
-        assert "- RUN:" in output
-        assert "- WRITE:" in output
-        assert "- UPDATE:" in output
-
-    def test_allowed_verbs_empty_renders_none(self):
-        """空白名单：不渲染任何动词（但 VERBS 部分仍存在）"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_verbs=[],  # 空列表
-        )
-        output = builder.build()
-
-        # VERBS 部分应该存在
-        assert "3. VERBS:" in output
-
-        # 空白名单表示没有 MTP 动词权限。
-        assert "- SEARCH:" not in output
-        assert "- READ:" not in output
-        assert "- RUN:" not in output
-        assert "- WRITE:" not in output
-        assert "- UPDATE:" not in output
-        assert "- CALL:" not in output
-
-    def test_allowed_verbs_case_insensitive(self):
-        """动词白名单大小写不敏感"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_verbs=["read", "search"],  # 小写
-        )
-        output = builder.build()
-
-        # 应该正确匹配并渲染
-        assert "- READ:" in output
-        assert "- SEARCH:" in output
-        assert "- WRITE:" not in output
-
-    def test_allowed_verbs_partial_set(self):
-        """部分动词白名单"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_verbs=["READ", "SEARCH", "RUN"],
-        )
-        output = builder.build()
-
-        # 允许的动词
-        assert "- READ:" in output
-        assert "- SEARCH:" in output
-        assert "- RUN:" in output
-
-        # 禁止的动词
-        assert "- WRITE:" not in output
-        assert "- UPDATE:" not in output
-
-    def test_allowed_verbs_chinese(self):
-        """中文 prompt 的动词过滤"""
-        builder = MTPPromptBuilder(
-            language="zh",
-            allowed_verbs=["READ", "SEARCH"],
-        )
-        output = builder.build()
-
-        # 中文动词定义应该出现
-        assert "- READ:" in output
-        assert "- SEARCH:" in output
-        assert "获取完整内容" in output  # READ 的中文描述
-        assert "发现未知记忆" in output  # SEARCH 的中文描述
-
-        # 禁止的动词不应该出现
-        assert "- WRITE:" not in output
-        assert "- UPDATE:" not in output
+    assert "- READ:" in output
+    assert "- SEARCH:" in output
+    assert "- RUN:" in output
+    assert "WRITE" not in output
+    assert "UPDATE" not in output
+    assert "CALL" not in output
+    assert 'SEARCH | * | query="login deploy script"' in output
 
 
-class TestAllowedKernelToolsFiltering:
-    """allowed_runtime_tools 工具白名单过滤测试"""
+@pytest.mark.parametrize("language", ["zh", "en"])
+def test_run_only_prompt_omits_resource_teaching_and_preserves_all_system_tools(language):
+    """空操作集合对应的 RUN 仍能展示完整系统菜单，其它教学不泄露禁用动词。"""
+    output = MTPPromptBuilder(language=language, allowed_verbs={"RUN"}).build()
 
-    def test_allowed_runtime_tools_filters_list(self):
-        """白名单过滤：只渲染允许的工具"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_runtime_tools=["sys_clock", "sys_read_file"],
-        )
-        output = builder.build()
+    assert "- RUN:" in output
+    assert "SEARCH" not in output
+    assert "READ" not in output
+    assert "WRITE" not in output
+    assert "UPDATE" not in output
+    assert "CALL" not in output
+    assert "sys_clock" in output
+    assert "sys_web_search" in output
+    assert "sys_read_file" in output
+    assert "sys_write_file" in output
+    assert "sys_python_repl" in output
+    assert "tool_deploy_login" not in output
 
-        # 允许的工具应该出现
-        assert "sys_clock" in output
-        assert "sys_read_file" in output
 
-        # 禁止的工具不应该出现
-        assert "sys_write_file" not in output
-        assert "sys_python_repl" not in output
-        assert "sys_web_search" not in output
+@pytest.mark.parametrize("language", ["zh", "en"])
+@pytest.mark.parametrize("verb", ["WRITE", "UPDATE"])
+def test_write_update_instruction_does_not_imply_read_permission(language, verb):
+    """允许写入不隐含 READ，动词定义不能建议随后执行未获准的读取。"""
+    output = MTPPromptBuilder(language=language, allowed_verbs={verb, "RUN"}).build()
 
-    def test_allowed_runtime_tools_none_renders_all(self):
-        """None 白名单：渲染全部默认工具"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_runtime_tools=None,  # 全量渲染
-        )
-        output = builder.build()
+    assert f"- {verb}:" in output
+    assert "pending alias" in output
+    assert "READ" not in output
+    assert "SEARCH" not in output
+    assert "CALL" not in output
 
-        # 所有默认工具都应该出现
-        for tool_alias, _ in DEFAULT_RUNTIME_TOOLS:
-            assert tool_alias in output
 
-    def test_allowed_runtime_tools_empty_renders_none(self):
-        """空白名单：不渲染工具列表"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_runtime_tools=[],  # 空列表
-        )
-        output = builder.build()
+def test_no_verb_filter_renders_all_current_protocol_verbs():
+    """独立构建器省略过滤条件时完整渲染当前协议。"""
+    output = MTPPromptBuilder(language="en").build()
 
-        # 工具列表部分不应该出现
-        assert "[RUNTIME TOOLS]" not in output
-        assert "sys_clock" not in output
-        assert "sys_read_file" not in output
+    assert "- SEARCH:" in output
+    assert "- READ:" in output
+    assert "- RUN:" in output
+    assert "- WRITE:" in output
+    assert "- UPDATE:" in output
+    assert "- CALL:" in output
 
-    def test_allowed_runtime_tools_single_tool(self):
-        """单个工具白名单"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_runtime_tools=["sys_clock"],
-        )
-        output = builder.build()
 
-        # 只有 sys_clock 应该出现
-        assert "sys_clock" in output
-        assert "Get current date, time, and timezone" in output
+def test_empty_verb_list_preserves_protocol_structure_and_system_menu():
+    """显式空教学集合不渲染动词定义，工具列表仍由工具注册表提供。"""
+    output = MTPPromptBuilder(language="en", allowed_verbs=[]).build()
 
-        # 其他工具不应该出现
-        assert "sys_read_file" not in output
-        assert "sys_write_file" not in output
+    assert "3. VERBS:" in output
+    assert "- SEARCH:" not in output
+    assert "- READ:" not in output
+    assert "- RUN:" not in output
+    assert "- WRITE:" not in output
+    assert "- UPDATE:" not in output
+    assert "- CALL:" not in output
+    assert "[RUNTIME TOOLS]" in output
+    assert "sys_clock" in output
 
-    def test_allowed_runtime_tools_with_custom_registry(self):
-        """自定义工具注册表 + 白名单过滤"""
-        custom_tools = [
-            ("tool_a", "Tool A description"),
-            ("tool_b", "Tool B description"),
-            ("tool_c", "Tool C description"),
+
+def test_lowercase_verb_filter_normalizes_teaching_and_protocol_list():
+    """大小写规范化同时应用到规格和行为教学。"""
+    output = MTPPromptBuilder(language="en", allowed_verbs=["read", "search", "run"]).build()
+
+    assert "- READ:" in output
+    assert "- SEARCH:" in output
+    assert "- RUN:" in output
+    assert "WRITE" not in output
+    assert "UPDATE" not in output
+    assert "CALL" not in output
+
+
+@pytest.mark.parametrize(
+    "permitted_verbs, includes_demo",
+    [
+        ({"SEARCH", "READ", "RUN"}, True),
+        ({"READ", "RUN"}, False),
+        ({"SEARCH", "RUN"}, False),
+        ({"SEARCH", "READ"}, False),
+    ],
+    ids=["all-demo-verbs", "without-search", "without-read", "without-run"],
+)
+@pytest.mark.parametrize("language", ["zh", "en"])
+def test_demo_requires_every_verb_used_by_the_example(permitted_verbs, includes_demo, language):
+    """示例作为完整流程保留或省略，不裁剪成无法执行的半条教学链。"""
+    output = MTPPromptBuilder(language=language, allowed_verbs=permitted_verbs).build()
+
+    assert ("tool_deploy_login" in output) == includes_demo
+
+
+def test_filtered_prompt_keeps_core_sections_and_error_recovery():
+    """缺少示例所需动词时，核心结构和通用错误恢复仍保留。"""
+    output = MTPPromptBuilder(language="en", allowed_verbs={"READ", "RUN"}).build()
+
+    assert "HIVE MEMORY KERNEL CONTEXT" in output
+    assert "PROTOCOL RULES" in output
+    assert "CONSTRAINTS" in output
+    assert "BEHAVIORAL GUIDELINES" in output
+    assert "[RUNTIME TOOLS]" in output
+    assert "ERROR RECOVERY" in output
+    assert "[Syntax Error]" in output
+    assert "ONE-SHOT DEMONSTRATION" not in output
+
+
+def test_custom_tool_registry_is_rendered_completely():
+    """完整菜单由实际传入的工具列表决定，无 agent 工具白名单入口。"""
+    output = MTPPromptBuilder(
+        language="en",
+        runtime_tools=[("tool_a", "Tool A"), ("tool_b", "Tool B"), ("tool_c", "Tool C")],
+        allowed_verbs={"RUN"},
+    ).build()
+
+    assert "- `tool_a`: Tool A" in output
+    assert "- `tool_b`: Tool B" in output
+    assert "- `tool_c`: Tool C" in output
+    assert "sys_clock" not in output
+
+
+def test_unknown_verbs_are_ignored_without_enabling_other_verbs():
+    """未知标记不进入教学，也不扩大到已知但未提供的动词。"""
+    output = MTPPromptBuilder(language="en", allowed_verbs=["READ", "UNKNOWN_VERB"]).build()
+
+    assert "- READ:" in output
+    assert "UNKNOWN_VERB" not in output
+    assert "SEARCH" not in output
+    assert "WRITE" not in output
+
+
+def test_duplicate_verbs_are_only_listed_once():
+    """重复输入不能产生重复的动词定义。"""
+    output = MTPPromptBuilder(language="en", allowed_verbs=["READ", "READ", "SEARCH"]).build()
+
+    assert output.count("- READ:") == 1
+    assert output.count("- SEARCH:") == 1
+
+
+def test_guidance_filter_detects_verbs_adjacent_to_chinese_text(monkeypatch):
+    """中文教学中紧贴汉字的禁用动词同样被裁剪，普通单词中的同名片段不受影响。"""
+    import hivememory.prompts.mtp as mtp_prompt
+
+    original = mtp_prompt.get_mtp_prompt_text
+    guidance = "\n".join(
+        [
+            "- 回答前先SEARCH再作答",
+            "- 已用READ读取的内容不要重复读取",
+            "- ALREADY_DONE 标记保持原样",
+            "- 保持回答简洁",
         ]
+    )
 
-        builder = MTPPromptBuilder(
-            language="en",
-            runtime_tools=custom_tools,
-            allowed_runtime_tools=["tool_a", "tool_c"],  # 只允许 a 和 c
-        )
-        output = builder.build()
+    def template(key, language):
+        return guidance if key == "behavioral_guidelines" else original(key, language)
 
-        # 允许的工具
-        assert "tool_a" in output
-        assert "tool_c" in output
+    monkeypatch.setattr(mtp_prompt, "get_mtp_prompt_text", template)
+    output = MTPPromptBuilder(language="zh", allowed_verbs={"RUN"}).build()
 
-        # 禁止的工具
-        assert "tool_b" not in output
-
-
-class TestCombinedPermissions:
-    """组合权限过滤测试"""
-
-    def test_restricted_verbs_and_tools(self):
-        """同时限制动词和工具"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_verbs=["READ", "SEARCH"],
-            allowed_runtime_tools=["sys_clock"],
-        )
-        output = builder.build()
-
-        # 允许的动词
-        assert "- READ:" in output
-        assert "- SEARCH:" in output
-
-        # 禁止的动词
-        assert "- WRITE:" not in output
-        assert "- RUN:" not in output
-
-        # 允许的工具
-        assert "sys_clock" in output
-
-        # 禁止的工具
-        assert "sys_read_file" not in output
-        assert "sys_write_file" not in output
-
-    def test_coder_profile_prompt(self):
-        """Coder 人偶 prompt：读写权限"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_verbs=["READ", "SEARCH", "WRITE", "RUN"],
-            allowed_runtime_tools=[
-                "sys_clock",
-                "sys_read_file",
-                "sys_write_file",
-                "sys_python_repl",
-            ],
-        )
-        output = builder.build()
-
-        # 可以读写
-        assert "- READ:" in output
-        assert "- WRITE:" in output
-        assert "- RUN:" in output
-
-        # 可以使用文件和代码工具
-        assert "sys_read_file" in output
-        assert "sys_write_file" in output
-        assert "sys_python_repl" in output
-
-
-class TestPromptStructureIntegrity:
-    """Prompt 结构完整性测试"""
-
-    def test_filtered_prompt_has_all_sections(self):
-        """过滤后的 prompt 仍包含所有必要部分"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_verbs=["READ"],
-            allowed_runtime_tools=["sys_clock"],
-        )
-        output = builder.build()
-
-        # 核心部分应该存在
-        assert "HIVE MEMORY KERNEL CONTEXT" in output
-        assert "PROTOCOL RULES" in output
-        assert "CONSTRAINTS" in output
-        assert "BEHAVIORAL GUIDELINES" in output
-        assert "[RUNTIME TOOLS]" in output
-        assert "ONE-SHOT DEMONSTRATION" in output
-        assert "ERROR RECOVERY" in output
-
-    def test_empty_permissions_prompt_structure(self):
-        """空权限 prompt 结构完整"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_verbs=[],
-            allowed_runtime_tools=[],
-        )
-        output = builder.build()
-
-        # 核心部分应该存在
-        assert "HIVE MEMORY KERNEL CONTEXT" in output
-        assert "PROTOCOL RULES" in output
-        assert "CONSTRAINTS" in output
-
-        # 工具列表不应该出现（空列表）
-        assert "[RUNTIME TOOLS]" not in output
-
-    def test_filtered_verb_absent_from_verb_list(self):
-        """白名单之外的动词不应出现在 VERBS 列表中"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_verbs=["READ"],
-            include_demo=False,  # 关闭演示避免干扰
-        )
-        output = builder.build()
-
-        # WRITE 不应该在 VERBS 列表中
-        assert "- WRITE:" not in output
-
-        # 允许的动词仍然渲染
-        assert "- READ:" in output
-
-
-class TestEdgeCases:
-    """边界情况测试"""
-
-    def test_unknown_verb_in_whitelist_ignored(self):
-        """白名单中的未知动词被忽略"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_verbs=["READ", "UNKNOWN_VERB", "SEARCH"],
-        )
-        output = builder.build()
-
-        # 已知动词应该出现
-        assert "- READ:" in output
-        assert "- SEARCH:" in output
-
-        # 未知动词不应该出现（因为不在 _VERB_ORDER 中）
-        assert "- UNKNOWN_VERB:" not in output
-
-    def test_unknown_tool_in_whitelist_ignored(self):
-        """白名单中的未知工具被忽略"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_runtime_tools=["sys_clock", "unknown_tool"],
-        )
-        output = builder.build()
-
-        # 已知工具应该出现
-        assert "sys_clock" in output
-
-        # 未知工具不应该出现（因为不在 DEFAULT_RUNTIME_TOOLS 中）
-        assert "unknown_tool" not in output
-
-    def test_duplicate_verbs_in_whitelist(self):
-        """白名单中的重复动词不影响结果"""
-        builder = MTPPromptBuilder(
-            language="en",
-            allowed_verbs=["READ", "READ", "SEARCH", "READ"],
-        )
-        output = builder.build()
-
-        # 动词应该只出现一次
-        assert "- READ:" in output
-        assert "- SEARCH:" in output
-
-        # 计数验证（简单检查）
-        assert output.count("- READ:") == 1
-        assert output.count("- SEARCH:") == 1
+    assert "先SEARCH再作答" not in output
+    assert "已用READ读取" not in output
+    assert "ALREADY_DONE 标记保持原样" in output
+    assert "保持回答简洁" in output

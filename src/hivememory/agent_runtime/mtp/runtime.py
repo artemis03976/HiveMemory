@@ -11,7 +11,7 @@
 架构定位：
     Koakuma 是 AliceRuntime 持有的 MTP / 工具执行运行时，
     负责处理 Worker Agent 生成的 MTP 指令。它不管理 Agent
-    运行循环，也不保存交互 trace；权限、身份与深度信息由
+    运行循环，也不保存交互 trace；frame 策略、观测标签与操作提交函数由
     AgentRuntime 在执行时通过 MTPExecutionContext 传入。
 
     AliceRuntime
@@ -160,7 +160,7 @@ class KoakumaRuntime:
 
         logger.info("KoakumaRuntime (小恶魔 MTP 运行时) 初始化完成")
 
-    # ========== 多智能体权限沙箱 (Phase 1) ==========
+    # ========== frame 执行策略 ==========
 
     def _check_verb_permission(
         self,
@@ -168,7 +168,7 @@ class KoakumaRuntime:
         context: MTPExecutionContext | None = None,
     ) -> None:
         """
-        校验 MTP 动词权限 (O(1) set lookup)
+        校验 frame 的 MTP 动词集合；资源授权仍由 Workspace 逐次执行。
 
         Args:
             verb: MTP 动词 (如 "WRITE", "RUN")
@@ -176,42 +176,11 @@ class KoakumaRuntime:
         Raises:
             PermissionDeniedError: 当前人偶无权执行此动词
         """
-        profile = context.agent_profile if context is not None else None
         policy = context.execution_policy if context is not None else None
         if policy is not None and not policy.allows(verb):
             raise PermissionDeniedError(
                 message_key="mtp.permission.verb_denied",
                 params={"verb": verb},
-            )
-        if profile is None:
-            return
-        if not profile.is_verb_allowed(verb):
-            raise PermissionDeniedError(
-                message_key="mtp.permission.verb_denied",
-                params={"verb": verb},
-            )
-
-    def _check_tool_permission(
-        self,
-        tool_alias: str,
-        context: MTPExecutionContext | None = None,
-    ) -> None:
-        """
-        校验系统工具权限 (O(1) set lookup)
-
-        Args:
-            tool_alias: 工具别名 (如 "sys_write_file")
-
-        Raises:
-            PermissionDeniedError: 当前人偶无权使用此工具
-        """
-        profile = context.agent_profile if context is not None else None
-        if profile is None:
-            return
-        if not profile.is_tool_allowed(tool_alias):
-            raise PermissionDeniedError(
-                message_key="mtp.permission.tool_denied",
-                params={"tool_alias": tool_alias},
             )
 
     # ========== 公开 API ==========
@@ -363,7 +332,7 @@ class KoakumaRuntime:
             )
 
         try:
-            # 权限沙箱：校验 MTP 动词权限 (Phase 1 多智能体)
+            # 先校验 frame 动词集合，拒绝后不会提交资源操作或执行系统工具。
             self._check_verb_permission(command.verb.value, context=context)
             return await handler(command, context)
 
@@ -607,8 +576,7 @@ class KoakumaRuntime:
                 params={"alias": alias},
             )
         if syscall is not None:
-            # 权限沙箱：校验系统工具权限 (Phase 1 多智能体)
-            self._check_tool_permission(alias, context=context)
+            # 系统工具不设 Agent 权限，在 Alice 本地执行。
             result = syscall.handler(command.args)
             return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 

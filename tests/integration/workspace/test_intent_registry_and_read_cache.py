@@ -245,7 +245,6 @@ async def test_profile_source_update_invalidates_profile_configuration(chain):
         agent_id="custom_agent", binding=RunBinding.for_task_process("first_profile_process")
     )
     allocator = CPUAllocator(
-        chain.bus,
         operation_authorizer=chain.composition.authorizer,
         profile_reader=chain.runtime.profiles,
     )
@@ -294,7 +293,6 @@ async def test_cpu_profile_without_actor_operations_rejects_other_agents_private
         agent_id="custom_agent", binding=RunBinding.for_task_process("private_profile_process")
     )
     allocator = CPUAllocator(
-        chain.bus,
         operation_authorizer=composition.authorizer,
         profile_reader=chain.runtime.profiles,
     )

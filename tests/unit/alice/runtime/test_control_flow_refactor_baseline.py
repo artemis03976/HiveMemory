@@ -25,7 +25,7 @@ def _frame(run_id: str, frame_id: str) -> ExecutionFrame:
             profile=OMNI_DOLL_PROFILE,
             messages=[],
             topic_id="topic",
-            execution_policy=FrameExecutionPolicy.from_profile(OMNI_DOLL_PROFILE),
+            execution_policy=FrameExecutionPolicy(),
         )
     )
 

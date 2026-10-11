@@ -1,6 +1,7 @@
 import { identityHeaders } from '@/services/identity';
 import type { AgentData } from '@/types';
 
+/** 显式组装编辑器支持的图纸字段，避免回写存量配置中的废弃字段。 */
 function toPayload(agent: AgentData) {
   return {
     title: agent.name,
@@ -11,8 +12,6 @@ function toPayload(agent: AgentData) {
     agent_config: {
       model_name: agent.config.model_name,
       temperature: agent.config.temperature,
-      allowed_mtp_verbs: agent.config.allowed_mtp_verbs,
-      allowed_sys_tools: agent.tools,
       language: agent.config.language,
     },
   };

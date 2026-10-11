@@ -14,6 +14,7 @@ from httpx import ASGITransport, AsyncClient
 
 from hivememory.alice.system import AliceSystem
 from hivememory.config.app import HiveMemoryConfig
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import (
     ActorIdentity,
     AttachmentSelectionRequest,
@@ -48,6 +49,141 @@ from tests.helpers.workspace import (
 from tests.helpers.workspace_assets import make_ready_text_asset
 
 pytestmark = pytest.mark.e2e
+
+
+@pytest.mark.asyncio
+async def test_http_read_search_agent_rejects_model_write_without_registering_intent(
+    monkeypatch, patchouli_chat_stack
+):
+    """HTTP 白名单贯穿清单、提示词和真实 MTP；模型越权 WRITE 不登记任何意图。"""
+    stack = patchouli_chat_stack
+    workspace = make_workspace_identity(owner_user_id="u1")
+    actor = ActorIdentity(user_id="u1", agent_id="read_search_agent")
+    access = make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1",
+                agent_id=actor.agent_id,
+                allowed_operations=frozenset(
+                    {WorkspaceOperation.MEMORY_READ, WorkspaceOperation.MEMORY_SEARCH}
+                ),
+            )
+        ],
+        adapters=("http",),
+        default_workspace=workspace,
+    )
+    await stack.mid_term.upsert(
+        MemoryAtom(
+            meta=make_memory_metadata(user_id="u1", source_agent_id=actor.agent_id),
+            index=IndexLayer(
+                alias=actor.agent_id, title="只读执行图纸", memory_type=MemoryType.AGENT_PROFILE
+            ),
+            payload=PayloadLayer(
+                content="根据已有资料回答",
+                # 旧客户端残留全量许可也不能扩大访问登记的能力。
+                agent_config={
+                    "model_name": "fake-test-model",
+                    "allowed_mtp_verbs": None,
+                    "allowed_sys_tools": None,
+                },
+            ),
+        )
+    )
+    runtime = make_workspace_runtime(stack.bus)
+    credentials = ExecutionCredentialRegistry()
+    entry = WorkspaceOperationEntry(
+        ActorMemoryService(
+            stack.bus, operation_authorizer=access.authorizer, memory_reader=runtime.aliases
+        ),
+        agent=ActorAgentService(
+            operation_authorizer=access.authorizer, profile_reader=runtime.profiles
+        ),
+        credential_registry=credentials,
+        intent_registry=runtime.intents,
+    )
+    llm_messages = []
+    responses = iter(['⟪ WRITE | * | content="越权写入" ⟫', "权限拒绝后正常回答"])
+
+    async def completion(*, messages, **_kwargs):
+        """只替换 LLM 协议；MTP 解析、策略、操作入口和 finalize 都走真实链路。"""
+        llm_messages.append([dict(item) for item in messages])
+        text = next(responses)
+
+        async def chunks():
+            yield SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        delta=SimpleNamespace(content=text),
+                        finish_reason="stop",
+                    )
+                ]
+            )
+
+        return chunks()
+
+    monkeypatch.setattr("hivememory.agent_runtime.execution.worker.litellm.acompletion", completion)
+    alice = AliceSystem(
+        config=HiveMemoryConfig().alice, global_bus=stack.bus, operation_entry=entry
+    )
+    service = make_task_process_service(
+        stack.bus,
+        cpu=alice.cpu_port,
+        access_gateway=access.gateway,
+        operation_authorizer=access.authorizer,
+        workspace_runtime=runtime,
+        credential_registry=credentials,
+        operation_entry=entry,
+    )
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[deps.get_process_service] = lambda: service
+    app.dependency_overrides[deps.get_server_principal_id] = lambda: access.principal.principal_id
+    await alice.start()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await asyncio.wait_for(
+                client.post(
+                    "/api/v1/chat",
+                    headers={"X-User-ID": "u1", "X-Workspace-ID": workspace.workspace_id},
+                    json={
+                        "message": "根据已有资料回答",
+                        "agent_id": actor.agent_id,
+                        "generation_options": {"model": "fake-test-model"},
+                    },
+                ),
+                timeout=10,
+            )
+        assert response.status_code == 200
+        events = []
+        event_name = ""
+        for line in response.text.splitlines():
+            if line.startswith("event: "):
+                event_name = line.removeprefix("event: ")
+            elif line.startswith("data: "):
+                events.append((event_name, json.loads(line.removeprefix("data: "))))
+        terminal, done = events[-1]
+        assert terminal == "done"
+        assert done["status"] == "completed"
+        assert done["final_text"] == "权限拒绝后正常回答"
+        initial, resumed = llm_messages
+        prompt = initial[0]["content"]
+        assert "READ" in prompt and "SEARCH" in prompt and "RUN" in prompt
+        assert "WRITE" not in prompt and "UPDATE" not in prompt and "CALL" not in prompt
+        assert "sys_write_file" in prompt
+        # 结构化权限错误在真实交互记录中验收，不能只依赖自然语言回复。
+        (topic_snapshot,) = done["pool_topics"]
+        topic = stack.short_term.get(workspace, topic_snapshot["topic_id"])
+        (block,) = topic.blocks
+        (tool_result,) = [event for event in block.turn.turn_events if event.kind == "tool_result"]
+        assert tool_result.status == "error"
+        assert '<error code="mtp.permission.denied"' in tool_result.content
+        assert "WRITE" in resumed[-1]["content"]
+        assert runtime.intents.size == 0
+    finally:
+        await alice.stop()
+        runtime.close()
+        access.gateway.close()
+        access.gateway.revoke_all_contexts()
 
 
 class _RecordingCPU:
