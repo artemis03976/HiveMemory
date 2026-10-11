@@ -23,7 +23,7 @@ related_docs:
   - docs/todo/frontend-identity-ownership.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
   - docs/todo/workspace-asset-ownership-identity-split.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # 身份隔离与执行安全治理
@@ -41,7 +41,7 @@ HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agen
 | Agent Profile | Profile 作为 MemoryAtom，主线程 Profile 由任务进程 CPU 分配经阶段授权读取（不要求 actor 操作），CALL 目标经 actor API 的 `agent.call`；ProfileCache 按 Workspace/alias 定位，命中时以源 policy 对当前 actor 重验 | 主线程与 CALL 目标共用 workspace 读取视图，来源 UUID 失效与代次回填保护已生效；事件通知无持久重放或未送达补偿 |
 | 管理入口（root） | 能力层分为 root API 与 actor API：管理方法只经 root 授权，只接受保留的 `system`；`system` 的访问记录不得配置 operation，不能经操作入口执行 actor 操作；任务进程的阶段调用不检查 actor 操作，但仍以进程 Agent 为发起者过滤可见性 | root 只由 actor 是否为 `system` 判定，认证网关只限制 principal 可代表的用户，不限制谁可以声明 `system`；当前登记的来源（HTTP server、Profile 注入脚本）都是本地受信进程，登记外部来源前需要补上这条规则 |
 | Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy、Chat phase task 与 `AgentRunStreamAdapter` | frame registry/CALL record、可中断阶段 task、Alice runner、输出队列和流序号均按 run 隔离；执行模型只含观测标签，CALL 子帧共享主线程凭据，尚无独立子线程授权 |
-| MTP permission | Prompt 与 Koakuma runtime 有双层权限设计 | prompt 教学不是硬安全保证；Profile verb/tool 与 workspace operation 分别校验，观测标签不能替代访问凭据 |
+| MTP permission | Agent 权限只由访问登记的 actor 操作白名单表达，Profile 不承载权限；Alice 把输入清单的操作快照翻译为 frame 动词集合，同时驱动提示词与 Koakuma 执行前检查，资源操作由 actor API 逐次授权 | prompt 教学不是硬安全保证；`sys_*` 系统工具不设权限，所有 Agent 都可写文件与执行 Python；白名单只能改配置并重启；子 agent 继承父 agent 的动词集合，尚无独立子线程权限 |
 | MTP READ/RUN | READ 可访问记忆，RUN 可执行 memory code | RUN 没有强沙箱、资源限制、可信资产分级或强制审批边界 |
 | Frontend identity | 前端已统一用户导向身份选择上下文（`user_id + workspace_id` 基础选择经 `services/identity.ts` 以请求头携带） | UI 字段不是认证/授权边界；尚无登录/Workspace 切换 UI，切换时 cache/stream 清理仍待完整设计 |
 | Observability | RuntimeEvent 可携带 identity/run/frame/atom 关联 | 事件 payload 不能成为授权依据，也不能泄漏不应被当前身份看到的内容 |
@@ -138,7 +138,7 @@ Alice 操作请求与过渡执行身份删除的实现证据见[操作请求集�
 
 1. 已完成：以 `RunSession` 替代共享 FrameScheduler stack，将 frame registry 和 CALL record 收敛为 run-local 状态；Chat application 在上层持有可取消阶段 task，流式输出队列与流序号由每次 run 独占的 `AgentRunStreamAdapter/QueueAgentRunOutput` 持有，运行预算由 frame policy 持有；
 2. 继续验证并发 Agent run 的 CALL、READ、WRITE、citation、PendingAtom 和 cancel 不会跨用户或 workspace 交叉；
-3. 已完成（2026-10-09）：被调用 frame 继承 caller 的凭据绑定提交函数与观测标签，不携带操作 scope；CALL 权限由 `FrameExecutionPolicy`、Profile capability 与 workspace `agent.call`（2026-10-10 起取代 `profile.read`）分别硬检查，不以 depth 或标签作为授权依据；
+3. 已完成（2026-10-09）：被调用 frame 继承 caller 的凭据绑定提交函数与观测标签，不携带操作 scope；CALL 权限由 `FrameExecutionPolicy` 与 workspace `agent.call`（2026-10-10 起取代 `profile.read`）分别硬检查，不以 depth 或标签作为授权依据；Agent 操作白名单落地后（2026-10-11），Profile 不再承载权限，子帧的动词集合继承父帧并移除 CALL；
 4. 明确恢复/重试时不能复用已经失效的授权快照。
 
 ### Phase S3：执行资产安全

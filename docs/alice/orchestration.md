@@ -21,7 +21,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # 多 Agent 编排
@@ -95,7 +95,7 @@ CALL 的稳定语法和参数见 [MTP 契约](../contracts/mtp.md)。在编排�
 
 ```text
 current frame emits CALL
-  -> Koakuma validates profile + FrameExecutionPolicy and returns SUSPEND
+  -> Koakuma validates FrameExecutionPolicy and returns SUSPEND
   -> AgentLoopExecutor records tool_call and returns FrameExecutionResult
   -> RunExecutor calls CallCoordinator.begin_call()
   -> register CallRecord before the first await
@@ -171,7 +171,7 @@ root frame
   └─ continue root frame
 ```
 
-软限制由 PromptAssembler 实现：被调用 frame 的 prompt 始终移除 CALL 动词教学。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 消费 CallContext 后，在 Profile 权限基础上显式移除 CALL；Koakuma 同时校验 Profile 与 frame policy。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该 Agent，让它改用自然语言或其他获准能力继续。
+软限制由 PromptAssembler 实现：被调用 frame 的 prompt 按继承的动词集合渲染，并始终移除 CALL 动词教学。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 消费 CallContext 后，以 caller frame 的动词集合构造子帧策略并显式移除 CALL；被调用方 Profile 只提供 persona、模型与语言，不收窄也不扩大子帧的动词集合（执行线程层落地之前的过渡，子线程独立权限见[执行单元 Idea](../ideas/execution-unit-thread-and-environment.md#t-3-派生执行线程的认证与授权原总-idea-p-5a) T-3）。Koakuma 以 frame policy 校验。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该 Agent，让它改用自然语言或其他获准能力继续。
 
 这是能力策略，不是 RunExecutor 的结构限制：执行器对所有 frame 使用同一个递归入口，不包含 `RootTurn/CalleeTurn` 分支。未来允许嵌套 CALL 时可以沿用这条递归路径；并行 sibling CALL 可在一次 suspension 能表达多个请求后，于当前递归层使用结构化并发。持久化 DAG、跨进程恢复和 review loop 仍属于后置方向。
 

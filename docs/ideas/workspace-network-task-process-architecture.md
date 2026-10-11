@@ -49,7 +49,7 @@ related_docs:
   - docs/ideas/identity-and-access-model.md
   - docs/contracts/mtp.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # Workspace 网络与任务进程架构
@@ -694,7 +694,7 @@ Import Bus 已排除在现有系统之外（5.8），本问题随其独立演进
 
 ### 13.2 Agent Profile 的 MTP 权限
 
-`AgentProfile`（[`core/models/agent.py`](../../src/hivememory/core/models/agent.py)）有 `allowed_mtp_verbs` 与 `allowed_sys_tools` 两个字段：MTP 动词由 `FrameExecutionPolicy.from_profile`（[`agent_runtime/policy.py`](../../src/hivememory/agent_runtime/policy.py)）在 frame 执行时检查；系统工具按 Profile 在提示词组装时筛选（`prompts/assembler.py`）。Profile 以 `AGENT_PROFILE` 类型的记忆原子存储；`management.memory` 包含对 Profile 原子的管理写入。
+（2026-10-11 更新：两个字段已随 [Agent 操作白名单](../archive/plans/v0.7.0-agent-operation-whitelist.md)删除，以下为当时的状态。）`AgentProfile`（[`core/models/agent.py`](../../src/hivememory/core/models/agent.py)）有 `allowed_mtp_verbs` 与 `allowed_sys_tools` 两个字段：MTP 动词由 `FrameExecutionPolicy.from_profile`（[`agent_runtime/policy.py`](../../src/hivememory/agent_runtime/policy.py)）在 frame 执行时检查；系统工具按 Profile 在提示词组装时筛选（`prompts/assembler.py`）。Profile 以 `AGENT_PROFILE` 类型的记忆原子存储；`management.memory` 包含对 Profile 原子的管理写入。
 
 ### 13.3 资源级授权
 
@@ -824,7 +824,7 @@ sequenceDiagram
 
 ### 15.4 Agent Profile 的权限并入 operation 控制（P-2、P-10）
 
-**状态**：已完成。2026-09-28 决定，2026-10-02 确定归属，2026-10-06 改为单独建立计划，2026-10-10 补充白名单的决定并排在能力层分层（15.12）之后；能力层分层完成后，同日决定存储位置、运行时编辑与子线程权限（见下文）。尚未实施，计划：[Agent 操作白名单](../plans/v0.7.0-agent-operation-whitelist.md)。P-10a 见第 16 节。
+**状态**：已完成。2026-09-28 决定，2026-10-02 确定归属，2026-10-06 改为单独建立计划，2026-10-10 补充白名单的决定并排在能力层分层（15.12）之后；能力层分层完成后，同日决定存储位置、运行时编辑与子线程权限（见下文）。2026-10-11 实施、验收与 code review 完成并归档（[归档计划](../archive/plans/v0.7.0-agent-operation-whitelist.md)），当前事实见 [MTP 契约](../contracts/mtp.md#4-权限)第 4 节与 [Workspace 架构](../architecture/workspace.md)第 4.2、4.5 节；运行时编辑仍待配置热更新。P-10a 见第 16 节。
 
 **问题**：两套权限并存：A1 的 operation 白名单与 Agent Profile 的 `allowed_mtp_verbs`、`allowed_sys_tools`（13.2）。后者的语义绑定 MTP 与系统工具体系，对不经 MTP 的外部 Actor（MCP、外部协议）没有定义含义（P-10，原记录于 AgentProfile 模型演进 Todo，2026-09-27 归档）。
 

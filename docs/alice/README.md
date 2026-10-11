@@ -14,7 +14,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # Alice
@@ -83,11 +83,11 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 一张图纸分为两部分：
 
 - “灵魂”：`persona`，来自 MemoryAtom 正文，描述角色、工作方式和领域偏好；
-- “骨架”：模型名、temperature、top_p、语言、`allowed_mtp_verbs` 与 `allowed_sys_tools`，来自结构化 `agent_config`。
+- “骨架”：模型名、temperature、top_p 与语言，来自结构化 `agent_config`。
 
 `AgentProfile.agent_id` 是 Profile 的身份，解析时取自源原子的 `index.alias`，覆盖 `agent_config` 中的同名键；builtin Profile 的 `agent_id` 为 `None`。由于 alias 在同一 Workspace 的中期库内唯一（见 [MemoryLibrary](../patchouli/memory-library.md)第 1.2 节），`agent_id` 在同一 Workspace 内同样唯一。可见性不进入 Profile 模型，仍由源原子的 `MemoryAccessPolicy` 表达。
 
-权限与 persona 分离不是排版选择。若把工具权限只写入自然语言人设，模型幻觉或 prompt injection 就可能绕过它；当前实现既按 Profile 裁剪 MTP 教学与工具菜单，也在 Koakuma 执行前再次执行 verb/tool 白名单检查。提示词层降低误用概率，Runtime 层才是当前真正的执行闸门。
+图纸不承载权限。Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达：它与 Profile 原子是否存在、由谁编辑无关，也同样适用于没有 Profile 原子的外部 Actor。Alice 把输入清单携带的操作快照翻译为 frame 的 MTP 动词集合，用它裁剪 MTP 教学并在 Koakuma 执行前检查动词；资源操作仍由 actor API 逐次授权（[MTP Runtime](./mtp-runtime.md#3-动词集合的三层检查)第 3 节）。若把权限只写入自然语言人设，模型幻觉或 prompt injection 就可能绕过它，因此提示词层只降低误用概率，执行层与 workspace 授权才是闸门。`agent_config` 中残留的旧权限键（`allowed_mtp_verbs`、`allowed_sys_tools`）在解析时被忽略。
 
 未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`；显式选择 `default` / `omni_doll` 也会直接选择同一个内置 Profile，但不属于错误 fallback。Omni-Doll 无特定 persona、模型名为 `default`，verb/tool 使用当前内置能力的显式白名单，而不是 `None=未来所有能力也自动允许`。因此新增 MTP verb 或 syscall 时必须同步审查并更新白名单，不能悄悄扩大 fallback 权限。
 
@@ -131,7 +131,7 @@ root frame emits CALL
 
 子 Agent 的完整试错轨迹留在自己的 frame 中，主话题只接收 CALL、结构化返回与最终主 Agent 输出。这种黑盒隔离不是为了隐藏事实，而是为了避免一次专项执行的迭代细节污染主上下文；需要共享的记忆由 `context_refs` 显式解析并通过 MemoryCompiler 注入。
 
-当前只允许根 frame 发起 CALL。callee frame 的 `FrameExecutionPolicy` 会移除 CALL，Koakuma 同时以 policy 硬拒绝递归调用，形成单层串行星型拓扑。
+当前只允许根 frame 发起 CALL。callee frame 的 `FrameExecutionPolicy` 继承 caller 的动词集合并移除 CALL，Koakuma 以 policy 硬拒绝递归调用，形成单层串行星型拓扑；被调用方 Profile 不改变子 frame 的动词集合，子线程独立的权限留给执行线程层。
 
 ## 5. MTP 与临时写状态
 
@@ -147,7 +147,7 @@ Agent 使用 MTP 在生成过程中发现、读取和使用记忆，也可以提
 
 AliceBridge 不订阅 PendingAtom 结算事件；这些事件由 workspace 登记消费。全部派生读取缓存由 `WorkspaceRuntime.close()` 清理，Alice 停止只卸载自己的运行入口。
 
-`CPUInputManifest`、内部 `AgentRunContext` 与 `RuntimeScope` 只保留冻结的 `ExecutionLabels(agent_id, workspace_id)` 观测标签，不携带授权身份。标签取自注册入口绑定的同一组值，子帧沿用；提示词历史归并与运行事件使用注册标签，流式 frame 展示优先使用 `AgentProfile.agent_id`（源 alias），空值回退标签。标签不参与资源授权。
+`CPUInputManifest`、内部 `AgentRunContext` 与 `RuntimeScope` 只保留冻结的 `ExecutionLabels(agent_id, workspace_id)` 观测标签，不携带授权身份；清单的操作快照在 `AgentRunContext` 中被翻译为 `permitted_mtp_verbs`，只供提示词与 frame 执行策略使用。标签取自注册入口绑定的同一组值，子帧沿用；提示词历史归并与运行事件使用注册标签，流式 frame 展示优先使用 `AgentProfile.agent_id`（源 alias），空值回退标签。标签不参与资源授权。
 
 每次主 run 产生 `agent.run.started` 和 completed/cancelled/failed RuntimeEvent，终态事件载荷中的迭代统计从主 frame 进度取得。流式路径必须出现 `done` 才被视为正常终态；流式与非流式共用一套骨架，在终态前被关闭或取消时，两种模式都发出 cancelled 观测事件，失败时发出同一条 failed 事件。RuntimeEvent 是 best-effort 旁路，不参与业务成功判定。
 

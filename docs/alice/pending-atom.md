@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # PendingAtom：Alice 的写入意图适配与回读
@@ -28,7 +28,7 @@ MTP `WRITE` / `UPDATE` 已被接收、正式记忆尚未完成提取、去重、
 
 `AliceCPU.execute(..., credential=...)` 在 CPU 驱动内绑定不透明执行凭据，把 `submit_operation(request)` 交给统一执行路由。AgentRunService 将同一个函数交给 root frame、每条 `MTPExecutionContext` 与 CALL 子帧。请求只携带操作参数；`WorkspaceOperationEntry` 从凭据表恢复访问 context、固定目标 Workspace 与 process ID，能力层再逐次授权。执行者不能选择目标或另交访问 context。
 
-Koakuma 保留协议参数、Profile verb/tool 白名单和错误格式化职责：
+Koakuma 保留协议参数、frame 动词集合检查和错误格式化职责：
 
 - WRITE 校验内容并构造 `WriteFocus`，提交 `SubmitWriteIntentRequest`；登记返回的 alias 进入既有 `ack` 文案。
 - UPDATE 校验单 alias 与 instruction，提交 `SubmitUpdateIntentRequest`；可信基础 UUID 的解析、pending/缺失基础拒绝、登记和基础原子缓存失效由能力层完成。
@@ -39,7 +39,7 @@ Koakuma 保留协议参数、Profile verb/tool 白名单和错误格式化职责
 
 ## 2. 统一引用解析的消费
 
-READ、RUN 的记忆目标与 CALL 的 `context_refs` 提交 `ResolveReferencesRequest`，UPDATE 的基础解析由对应能力方法完成，均使用 workspace 的同一引用解析。引用读取返回 core 中的 `ReferenceResolution`，由 MemoryCompiler 编译为既有 Agent 可读文本；Alice 不重新实现 L0/L1/L2 或资源授权。
+READ 与 CALL 的 `context_refs` 提交 `ResolveReferencesRequest`，RUN 的记忆目标提交 `ResolveRunTargetRequest`，UPDATE 的基础解析由对应能力方法完成，均使用 workspace 的同一引用解析。引用读取返回 core 中的 `ReferenceResolution`，由 MemoryCompiler 编译为既有 Agent 可读文本；Alice 不重新实现 L0/L1/L2 或资源授权。
 
 同一 Workspace 的其他 Agent 或后续任务进程能够回读仍在飞行的意图；UPDATE 意图只对能读取其基础原子的 Agent 可见，否则在任何状态下都与不存在相同。结算后，旧 alias 可以解析为 canonical redirect；CALL 与 READ 只使用实际可读的 canonical 原子，不把无可读目标的 redirect 交给编译器。不同 Workspace 的意图与不存在相同。
 
