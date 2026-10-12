@@ -844,7 +844,7 @@ sequenceDiagram
 - 核对（2026-10-10，能力层分层之后）：访问登记的键已经是 (owner, workspace, user, agent)，actor API 已按它逐次授权，即“按 (user, workspace, agent) 记录的白名单”已经存在；actor 的 UPDATE 意图只覆盖 `payload.content`，不能改写 Profile 的 `agent_config`；`AgentProfile` 忽略多余字段，删除两个 allow 字段不会使已存 Profile 解析失败。
 - （owner，2026-10-10）白名单留在访问登记：Profile 不再承载任何权限，授权数据与授权都在 workspace，与 Profile 原子是否存在无关（外部 Actor 不一定有 Profile 原子）。
 - （owner，2026-10-10）白名单的运行时编辑与后续需要配置文件持久化、热更新的内容一起完成（[ROADMAP](../ROADMAP.md) 的“配置热更新”，外部 Actor Idea E-1），不在白名单计划内；在此之前修改白名单需改 `workspace_actors.yaml` 并重启。
-- （owner，2026-10-10）执行线程层落地之前，子 agent 继承父 agent 的操作权限：子线程的提示词与执行策略使用主线程的操作集合（子帧仍禁止 CALL），被调用方的 Profile 只提供 persona、模型与语言；独立的子线程权限属于执行线程层（[执行单元 Idea](./execution-unit-thread-and-environment.md#t-3-派生执行线程的认证与授权原总-idea-p-5a) T-3）。
+- （owner，2026-10-10）执行线程层落地之前，子 agent 继承父 agent 的操作权限：子线程的提示词与执行策略使用主线程的操作集合（子帧仍禁止 CALL），被调用方的 Profile 只提供 persona、模型与语言；独立的子线程权限属于执行线程层（[执行单元 Idea](./execution-unit-thread-and-environment.md#t-1at-2at-3t-4bt-5a-子线程的派生身份与撤销) T-3）。
 
 **取舍**：能力层只查白名单、Profile 权限留在 MTP 适配层，会形成两处检查，不经 MTP 的 Actor 不受 Profile 权限约束；能力层对两者取交集，会让 Profile 成为授权输入，持有 `management.memory` 即可影响授权。
 
@@ -880,7 +880,7 @@ sequenceDiagram
 | Workspace 读取缓存失效（2026-10-07 已实施） | canonical 变更事件与订阅者纪律（7.1.3）；任务进程主线程 Profile 解析改经能力层 | 本批归档记录见 15.11 |
 | 写入意图迁移·第 1 步（2026-10-07 已实施，[写入意图迁移 Idea](./pending-intent-migration.md#02-第-1-步实施结果与剩余方向2026-10-07) 0.2） | 登记与 L0 进入 workspace；能力层的提交方法；Alice 的写入意图提交与 pending 读回经能力层 | 主线程 T-4 通道与 P-12a 已实现；其余开放项留给第 2 步 |
 | Alice 的能力层调用迁移（收窄后） | 先以操作请求与 workspace 的单一操作入口取代第 1 步的进程操作通道（执行单元 Idea T-9）；SEARCH、引用记录及 CALL 目标 Profile/cache 改经能力层（P-12）；删除 `cpu_execution_identity`；D-9 遗留 | P-12b、P-9f；T-4 中第 1 步未决定的部分；T-9 已于 2026-10-09 决定，其余细节留给计划 |
-| 执行线程层 | 派生经过进程、每个线程一份访问 context、派生授权（执行单元 Idea T-1、T-2 的决定） | 执行单元 Idea T-1a、T-1b、T-2a、T-3 |
+| 执行线程层 | 派生经过进程、每个线程一份访问 context、派生授权（执行单元 Idea T-1、T-2 的决定） | 执行单元 Idea T-1a、T-1b、T-2a、T-3（2026-10-11 均已决定，[计划](../plans/v0.7.0-execution-thread-layer.md)已建立） |
 | 能力层分层：root API 与 actor API（2026-10-10 新增，15.12） | capability 目录分为 root API 与 actor API；actor 操作对齐 READ、SEARCH、RUN、WRITE、UPDATE 与 CALL；进程阶段调用改为系统操作；root 检查取代 `management.*` 与 `task.observe` | 15.12“留给计划的细节”；已实施并[归档](../archive/plans/v0.7.0-capability-surface-split.md)（2026-10-10），当前事实见 [Workspace 架构](../architecture/workspace.md)第 4.5 节 |
 | Agent 操作白名单（原“Agent Profile 的权限并入 operation 控制”） | 15.4：Profile 的 allow 字段移除，白名单为 actor 操作全集；2026-10-10 起排在能力层分层之后 | 权限的存储与编辑位置；子线程权限的过渡 |
 
