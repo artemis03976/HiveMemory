@@ -35,7 +35,7 @@ Alice 的多 Agent 能力当前不是一个会自主拆解任务图的“超级�
 ```text
 AliceSystem
   ├─ AliceCPU
-  │    └─ workspace CPUPort 的实现：经 alice.public.run_agent 调用，done -> CPUExecutionResult
+  │    └─ workspace CPUPort 的实现：选择 RUN_AGENT / RUN_AGENT_STREAM，done -> CPUExecutionResult
   ├─ AgentRunService
   │    ├─ unified run API (stream 参数) / root frame bootstrap / CPUExecutionResult / stream done
   │    ├─ RunSession
@@ -57,7 +57,7 @@ AliceSystem
 ```
 
 - AgentRunService 是 Alice 的公开 run 用例入口：`run_agent` 以 `stream` 参数控制是否流式，内部只有一套执行骨架，负责创建入口 frame、为每次 run 构造 Executor、组装 CPU 中立的执行结果，并在流式终态后发出唯一 `done`。两种模式的 `agent.run.*` 终态事件语义一致：完成、失败与终态前被关闭或取消分别只发布一次；queue、runner task、stream sequence 与 RuntimeEvent envelope 实现均不放在 application 层；
-- AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程；它经全局总线调用 Alice 的统一执行路由，把任务进程交来的线程 context 绑定为提交函数，原样转交交互事件并把 `done` 转换为执行结果，端口输出流关闭时一并关闭 Alice 的事件流，因此 Alice 的运行时仍在公开路由之后；
+- AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程；它经全局总线按是否流式选择 Alice 的两条类型化执行路由，把任务进程交来的线程 context 绑定为提交函数，原样转交交互事件并把 `done` 转换为执行结果，端口输出流关闭时一并关闭 Alice 的事件流，因此 Alice 的运行时仍在公开路由之后；
 - AliceSystem 是子系统装配根；AliceRuntime 只持有进程级执行机制，Profile 读取与缓存归 workspace，不参与单次 run 的控制链；
 - RunSession 只拥有一次 run 的 frame registry 与 CALL record，不保存取消信号、活动 frame、frame 调度状态或传输层 stream sequence；
 - RunExecutor 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件。它以协程递归执行 CALL 派生 frame，并在根帧终态只记录一次 run 结果；意图收尾属于任务进程；

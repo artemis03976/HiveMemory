@@ -58,6 +58,33 @@ jobs:
       - name: Black
         run: black --check .
 
+  # ========== 类型检查（运行依赖的类型标注同样按 uv.lock 锁定） ==========
+  typecheck:
+    name: Typecheck (mypy)
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Set up uv
+        uses: astral-sh/setup-uv@bec219d24cd3e171d82865faccec33120bb574f4 # v10.1.0
+        with:
+          version: '0.12.17'
+
+      - name: Install locked dependencies
+        run: uv sync --frozen --extra dev
+
+      - name: Check source and bus type regressions
+        # 样例不属于 pytest；误用不再报错时 unused-ignore 会让门禁失败。
+        # 显式包含 src，避免本地包被当作未提供 py.typed 的第三方包跳过。
+        run: uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
+
   # ========== E2E（手动触发，真实 LLM + Qdrant） ==========
   # 依赖真实外部服务，仅在 workflow_dispatch 手动运行时执行。
   # 需要仓库 Secrets：

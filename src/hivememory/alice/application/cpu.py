@@ -72,12 +72,13 @@ class AliceCPU:
                     else:
                         yield event
         else:
-            yield await self._bus.request(
+            result = await self._bus.request(
                 AliceRoutes.RUN_AGENT,
                 input_manifest=manifest,
                 submit_operation=submit_operation,
                 generation_options=generation_options,
             )
+            yield result
 
 
 __all__ = ["AliceCPU"]

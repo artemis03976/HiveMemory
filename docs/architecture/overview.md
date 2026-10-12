@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-12
 ---
 
 # HiveMemory 当前系统架构
@@ -66,7 +66,7 @@ HiveMemory 因而保留了原项目“双系统”的核心思想：热路径负
 
 | 层 | 包 | 职责 |
 |:---|:---|:---|
-| L0 | `core` / `config` / `utils` / `i18n` | 依赖中立的模型、契约常量、错误类型、访问值类型与端口协议；配置段模型 |
+| L0 | `core` / `config` / `utils` / `i18n` | 依赖中立的模型、Route 泛型原语、事件常量、错误类型、访问值类型与端口协议；配置段模型 |
 | L1 | `components` | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context |
 | L2 | `engines` / `infrastructure` / `prompts` | 算法与外部技术适配器 |
 | L3 | `workspace` / `patchouli` / `gateway` / `alice` + `agent_runtime` | 各子系统与 workspace 设施；彼此只导入对方公开的 `contracts` 子包 |
@@ -159,7 +159,7 @@ Alice 是在图书馆中工作的 Agent 执行环境。它可以阅读书页、�
 
 ### 4.1 GlobalSystemBus
 
-`GlobalSystemBus` 是进程内的公开跨子系统 RPC / PubSub 总线。顶层应用服务经公共契约调用子系统，总线路径只使用公开路由，不直接穿透子系统 Runtime。Patchouli 和 Gateway 的 local bus 只服务内部协作；Alice 没有用于代理 Patchouli 操作的 local bus。
+`GlobalSystemBus` 是进程内的公开跨子系统 RPC / PubSub 总线。顶层应用服务经公共契约调用子系统，总线路径只使用提供方 contracts 声明的类型化公开路由，不直接穿透子系统 Runtime。Patchouli 和 Gateway 的 local bus 只服务内部协作；Alice 没有用于代理 Patchouli 操作的 local bus。
 
 选择总线的目的不是模拟微服务，而是让调用方依赖“能力名称与公共模型”，而不是对方的对象图。这样才能看出一项能力究竟是公共契约还是偶然的内部方法。
 
@@ -193,7 +193,7 @@ TaskProcessService（workspace.process）
   -> workspace Profile 读取能力（CPU 分配的一部分，先于 prepare；按需经公开路由冷读）
   -> Patchouli PREPARE_AGENT_RUN（话题与检索）
   -> CPU 分配：附件租借与编译、记忆编译、组装 CPUInputManifest
-  -> Actor 执行：派生线程 context，经 CPU 端口（当前为 Alice，经 RUN_AGENT 路由）
+  -> Actor 执行：派生线程 context，经 CPU 端口（当前为 Alice，按流式选择 RUN_AGENT_STREAM 或 RUN_AGENT）
   -> CPU 结束：同步撤销线程 context
   -> 任务进程封口交互记录（InteractionPayload）
   -> Patchouli FINALIZE_AGENT_RUN

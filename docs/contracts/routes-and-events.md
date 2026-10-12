@@ -5,7 +5,10 @@ owner: system
 scope: global-routes-and-events
 code_paths:
   - src/hivememory/server/deps.py
-  - src/hivememory/core/contracts/route_names.py
+  - src/hivememory/core/contracts/route.py
+  - src/hivememory/patchouli/contracts/public_routes.py
+  - src/hivememory/gateway/contracts/public_routes.py
+  - src/hivememory/alice/contracts/public_routes.py
   - src/hivememory/core/contracts/events.py
   - src/hivememory/core/contracts/runtime_events.py
   - src/hivememory/components/bus/
@@ -15,7 +18,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-12
 ---
 
 # 公开路由与事件
@@ -56,7 +59,7 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 ## 2. 规范路由名
 
-`src/hivememory/core/contracts/route_names.py::RouteNames` 是 route 字符串的代码级唯一来源。`GlobalRoutes` 和各子系统 Routes 类只重导出这些常量。
+公开 route 的名称与签名由提供方 `contracts/public_routes.py` 中的 `PatchouliRoutes`、`GatewayPublicRoutes`、`AliceRoutes` 声明。调用方直接导入这些类型化 route；core 的 `Route` / `route` 只提供依赖中立的泛型原语。静态注册、调用与绑定表检查，以及运行时参数检查的分工见[运行时机制](../components/runtime-and-bus.md#1-globalsystembus)。
 
 一个公开调用的契约由三部分共同构成：route 字符串确定能力身份，handler 参数名和调用形式确定交接方式，公共模型确定输入输出语义。只同步其中一项仍可能让注册方与调用方在运行时分叉，因此参数重命名、模型字段变化和 route 重命名都属于契约变更。
 
@@ -121,11 +124,12 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `alice.public.run_agent` | `AgentRunService.run_agent`（统一入口） | `CPUInputManifest`（含 `process_id` 与只读 `labels`）、独立的 `submit_operation: OperationSubmitter`、generation options、`stream` | `stream=True`：交互输出的 async generator 对象；`stream=False`：`CPUExecutionResult` |
+| `alice.public.run_agent` | `AliceBridge._run_agent_route` → `AgentRunService.run_agent(stream=False)` | `CPUInputManifest`（含 `process_id` 与只读 `labels`）、独立的 `submit_operation: OperationSubmitter`、generation options | `CPUExecutionResult` |
+| `alice.public.run_agent_stream` | `AliceBridge._run_agent_stream_route` → `AgentRunService.run_agent(stream=True)` | 同上 | 交互输出的 async generator 对象，最后一项为 `done` |
 
-任务进程不直接调用这条路由，而是经组合根注入的 CPU 端口调用执行者；Alice 的端口实现 `AliceCPU` 经这条路由调用 Alice（[子系统公共契约](./subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节）。Alice 的资源操作经 workspace 公共 `OperationEntry` 与请求契约，不直接调用 Patchouli 路由；这一进程内入口不增加全局总线 API。
+两条 route 的参数相同，均不接收 `stream`；是否流式由所选 route 决定。任务进程经组合根注入的 CPU 端口调用执行者；端口实现 `AliceCPU` 选择对应 route 调用 Alice（[子系统公共契约](./subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节）。Alice 的资源操作经 workspace 公共 `OperationEntry` 与请求契约，不直接调用 Patchouli 路由；workspace 操作入口本身不注册全局总线路由。
 
-`stream=True` 时返回的是当前 Agent run 的交互输出流。兼容事件名保持为 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end` 和 `done`；每个事件携带 run-local `stream_sequence`，frame/CALL 事件还携带 `agent_run_id/frame_id/action_id` 等关联字段。这条流使用有界队列和背压，调用方提前断开会取消当前 runner 并沿 task cancellation 收尾，因此它属于请求执行协议的一部分，不是 RuntimeEvent 观测 SSE 的别名。
+流式 route 返回当前 Agent run 的交互输出流。兼容事件名保持为 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end` 和 `done`；每个事件携带 run-local `stream_sequence`，frame/CALL 事件还携带 `agent_run_id/frame_id/action_id` 等关联字段。这条流使用有界队列和背压，调用方提前断开会取消当前 runner 并沿 task cancellation 收尾，因此它属于请求执行协议的一部分，不是 RuntimeEvent 观测 SSE 的别名。
 
 交互流的 Agent 展示优先使用当前 Profile 的来源 alias，空值才回退注册标签；`agent.run.*` 与 `chat.run.*` 观测中的 Agent/Workspace 则使用同一次注册的 `ExecutionLabels`。历史角色匹配使用注册的 `labels.agent_id`，Profile 展示名不会改变授权身份或事件标签。
 
@@ -185,7 +189,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 ### 4.2 与 Agent 交互输出流的边界
 
-`alice.public.run_agent`（`stream=True`）的交互输出与 `/runtime-events/stream` 是两条独立通道：
+`alice.public.run_agent_stream` 的交互输出与 `/runtime-events/stream` 是两条独立通道：
 
 - 交互输出只属于一次 Agent run，承载 token、MTP、CALL 边界和最终 `done`，队列满时通过背压等待，断流会触发该 run 的取消；
 - RuntimeEvent 是全局扁平观测流，承载 `agent.run.started/completed/cancelled/failed` 等生命周期摘要，允许缓冲、回放和慢订阅者丢弃旧事件；
@@ -224,11 +228,11 @@ HTTP 路由本身不属于本文范围；这里只固化身份选择如何变成
 
 ## 7. 变更规则
 
-- 新公开 route 必须先加入 `RouteNames`，再由子系统 Routes 类重导出；
+- 新公开 route 在提供方 `contracts` 中以 `@route(name)` 声明名称与异步签名，输入输出引用公共契约；所有调用方直接导入该声明，绑定表用 `RouteBinding.of` 构造；
 - route handler 的参数名也是调用契约的一部分；
 - 新跨子系统通知应先判断需要 RPC 返回值还是 Pub/Sub；
 - 新观测事件加入 `RuntimeEventType`，不得通过 `data` 中的临时字符串模拟事件类型；
 - 删除或重命名 route/event 前必须更新所有注册方、调用方、测试和本文；
 - local route 不记录在本规范中，也不得被外部模块直接引用。
 
-主要验证入口：`tests/unit/system/contracts/test_public_routes.py`、`tests/unit/components/events/test_bus.py`、`tests/unit/components/bus/test_async_bus.py`。
+主要验证入口：`scripts/typecheck_bus_routes.py`、`tests/integration/alice/test_bus_routes.py`、`tests/unit/system/contracts/test_public_routes.py`、`tests/unit/components/events/test_bus.py`、`tests/unit/components/bus/test_async_bus.py`。

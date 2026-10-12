@@ -1,7 +1,7 @@
 """总线 RPC 的参数检查：只校验、不转换。
 
-总线以 ``handler(*args, **kwargs)`` 直接调用，调用点与 handler 签名之间没有静态
-类型约束。检查器在注册时解析一次 handler 的签名与类型标注，在每次请求时：
+总线以 ``handler(*args, **kwargs)`` 直接调用，类型化 route 在静态检查时约束签名。
+本检查器为动态调用兜底：注册时解析一次 handler 的签名与类型标注，每次请求时：
 
 - 按签名绑定参数，名称或数量不符时以 :class:`RouteArgumentError` 拒绝；
 - 对标注为具体类（含 ``X | None`` 与其他类的联合）的参数做 ``isinstance`` 检查。

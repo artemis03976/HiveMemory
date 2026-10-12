@@ -41,12 +41,10 @@ class TopicManagementService:
         include_empty: bool = False,
     ) -> tuple[TopicSnapshot, ...]:
         scope = require_identity_scope(identity_scope)
-        kwargs: dict[str, object] = {"belong_to": scope.workspace_identity}
-        if include_empty:
-            kwargs["include_empty"] = True
         snapshots = await self._bus.request(
             PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
-            **kwargs,
+            belong_to=scope.workspace_identity,
+            include_empty=include_empty,
         )
         return tuple(snapshots)
 

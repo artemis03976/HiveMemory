@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-12
 ---
 
 # 子系统公共契约
@@ -257,11 +257,11 @@ run_agent(
 ) -> AsyncGenerator[dict[str, Any], None] | Coroutine[Any, Any, CPUExecutionResult]
 ```
 
-`AgentRunService.run_agent` 是 Alice 唯一的执行入口，经全局路由 `alice.public.run_agent` 暴露。流式与非流式运行同一套执行骨架，`stream` 只决定是否产出交互事件：流式时返回事件的异步生成器，最后一项是 `done`（执行结果的字段加上运行元数据）；非流式时返回可 await 的 `CPUExecutionResult`。消费者关闭事件流时，Alice 取消并 join 自己创建的 runner。Alice 在内部把输入清单转换为提示词组装使用的 `AgentRunContext`；`AgentRunContext` 不出现在任何公开路由上。
+`AgentRunService.run_agent` 是 Alice 唯一的执行入口，服务方法保留 `stream` 参数及对应的 overload。AliceBridge 为它提供两条类型化全局路由：`alice.public.run_agent` 返回 `CPUExecutionResult`，`alice.public.run_agent_stream` 返回事件流；两条路由均不接收 `stream` 参数。流式与非流式运行同一套执行骨架，`stream` 只决定是否产出交互事件：流式时返回事件的异步生成器，最后一项是 `done`（执行结果的字段加上运行元数据）；非流式时返回可 await 的 `CPUExecutionResult`。消费者关闭事件流时，Alice 取消并 join 自己创建的 runner。Alice 在内部把输入清单转换为提示词组装使用的 `AgentRunContext`；`AgentRunContext` 不出现在任何公开路由上。
 
 ### 4.4 Alice 的端口实现
 
-`AliceCPU`（`alice/application/cpu.py`）持有公共 `OperationEntry`，以 `ThreadOperationSubmitter` 将 execute 的线程 context 绑定为提交函数后，经全局总线调用 `alice.public.run_agent`：流式时原样转交交互事件，把 `done` 转换为 `CPUExecutionResult`（运行元数据不进入结果）；非流式时产出路由返回的执行结果。端口输出流被关闭时，它一并关闭 Alice 的事件流。Alice 的运行时仍在公开路由之后，进程只持有端口对象。
+`AliceCPU`（`alice/application/cpu.py`）持有公共 `OperationEntry`，以 `ThreadOperationSubmitter` 将 execute 的线程 context 绑定为提交函数后，经全局总线选择执行路由：流式时调用 `AliceRoutes.RUN_AGENT_STREAM` 并原样转交交互事件，把 `done` 转换为 `CPUExecutionResult`（运行元数据不进入结果）；非流式时调用 `AliceRoutes.RUN_AGENT` 并产出返回的执行结果。端口输出流被关闭时，它一并关闭 Alice 的事件流。Alice 的运行时仍在公开路由之后，进程只持有端口对象。
 
 ### 4.5 Alice 不变量
 
