@@ -52,7 +52,7 @@ last_reviewed: 2026-10-09
 
 检查只校验、不转换：参数原样交给 handler，不复制容器，也不把字典转换成模型。`Any`、TypeVar、Protocol、`Literal` 与 `Callable` 等无法用 `isinstance` 表达的标注不做类型检查；mock、`functools.partial` 等非函数 handler 原样放行。标注引用了只在 `TYPE_CHECKING` 下导入的名称时，注册照常完成并记录 warning，该 route 降级为只检查签名，并出现在 `list_unresolved_routes()` 中；handler 模块应在运行时导入参数标注用到的类型。
 
-检查对所有 `AsyncSystemBus` 子类生效，包括各子系统的本地总线。它只在请求实际发生时生效，不替代调用点的静态检查；以类型化 route 与 mypy 检查全部调用点的方案见 [全局路由签名一致性 Todo](../todo/global-route-signature-consistency-check.md)。Pub/Sub 的订阅者不做参数检查。
+检查对所有 `AsyncSystemBus` 子类生效，包括各子系统的本地总线。它只在请求实际发生时生效，不替代调用点的静态检查；以类型化 route 与 mypy 检查全部调用点的方案见[总线路由类型化计划](../plans/v0.7.0-typed-bus-routes.md)。Pub/Sub 的订阅者不做参数检查。
 
 ### Pub/Sub
 
