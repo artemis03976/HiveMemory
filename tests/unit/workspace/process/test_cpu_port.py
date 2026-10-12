@@ -547,7 +547,7 @@ class _SlowClosingCPU:
         self.close_entered = asyncio.Event()
         self.release_close = asyncio.Event()
 
-    def execute(self, manifest, *, credential, generation_options, stream):
+    def execute(self, manifest, *, access, generation_options, stream):
         return self._iterate()
 
     async def _iterate(self):

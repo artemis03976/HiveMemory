@@ -5,6 +5,7 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.errors import OperationDeniedError
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
+from hivememory.workspace.contracts import ResolveCallTargetRequest
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -23,12 +24,10 @@ async def test_call_target_without_operation_denied_before_backing():
         operation_authorizer=composition.authorizer,
         profile_reader=make_workspace_runtime(global_bus=bus).profiles,
     )
-    access = await composition.authenticate()
+    access = await composition.authenticate_thread()
 
     with pytest.raises(OperationDeniedError) as exc_info:
-        await service.resolve_call_target(
-            "worker", target_workspace=composition.default_workspace, access=access
-        )
+        await service.resolve_call_target(ResolveCallTargetRequest("worker"), access=access)
 
     assert exc_info.value.details["reason"] == "operation_not_allowed"
     assert exc_info.value.details["operation"] == "agent.call"

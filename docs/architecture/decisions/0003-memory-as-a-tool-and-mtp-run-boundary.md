@@ -4,7 +4,7 @@ status: accepted
 owner: project
 scope: memory-as-a-tool-asset-consumption-and-executable-boundary
 decided_at: 2026-09-07
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-11
 related_docs:
   - docs/VISION.md
   - docs/contracts/mtp.md
@@ -59,12 +59,12 @@ Skill 和 Plugin 都可能同时包含说明、代码和运行时能力，不能
 
 - 可寻址身份（`memory_id`/alias）；
 - 冻结的引用及其内容 hash、工具/解析器版本，保证可复现；
-- 当前调用方的 `AgentProfile`、经执行凭据绑定的 Workspace 资源授权和最终权限判断；
+- 当前调用方的 `AgentProfile`、workspace 逐次执行的资源授权和最终权限判断；
 - 沙箱/隔离配置与可信来源审查（当强沙箱落地后）；
 - 来源与观测 hook（引用读取记录，以及执行结果作为记忆演化输入的关联依据）；
 - 失败契约（结构化 `MTPErrorInfo`，不回灌裸 stderr）。
 
-其中资源访问身份与读取权限由 workspace 在兑现执行凭据后逐次授权，MTP Runtime 只持有提交函数并检查当前 Profile 的执行白名单；参数、deadline、取消和本次执行限制仍由 Runtime 绑定。它们不能被缓存为脱离调用方的静态 Memory 视图。当前引用读取的自动副作用与统一来源标签见 [MTP 契约](../../contracts/mtp.md)，本决策不另行固定引用来源字符串。具体执行后端（当前本地 subprocess，未来沙箱容器或 MCP）是 RUN 的可替换落点，不是资产语义的一部分。
+其中资源访问身份与读取权限由 workspace 的 actor API 逐次授权（2026-10-11 起身份来自 CPU 附上的线程 context，取代 2026-10-09 引入的执行凭据），MTP Runtime 只持有提交函数并检查 frame 的动词集合（2026-10-11 起来自访问登记的操作白名单，Profile 不再承载权限）；参数、deadline、取消和本次执行限制仍由 Runtime 绑定。它们不能被缓存为脱离调用方的静态 Memory 视图。当前引用读取的自动副作用与统一来源标签见 [MTP 契约](../../contracts/mtp.md)，本决策不另行固定引用来源字符串。具体执行后端（当前本地 subprocess，未来沙箱容器或 MCP）是 RUN 的可替换落点，不是资产语义的一部分。
 
 附件的 `AssetRepresentation` 当前已经携带 `revision` 与 `content_hash`，但它属于 WorkspaceAsset 的进程内表示，不是通用的可执行资产模型。未来 RUN 若消费附件或其他外部资料，应建立等价的版本冻结约束；本 ADR 不把它提前提升为已经成立的全系统不变量。
 
@@ -109,6 +109,8 @@ Skill 和 Plugin 都可能同时包含说明、代码和运行时能力，不能
 ## Status
 
 Accepted。本决策只冻结 MaaT 的语义边界：Memory 是统一资产，Skill/Plugin 是外部消费形态，MemoryCompiler target 是资产视图，MTP RUN 必须表达受约束的执行依据。它不冻结三层模型的物理实现、可执行资料的存储类型、具体执行 IR、强沙箱、信任晋升或终端实践的自动晋升机制。若这些边界需要改变，应以新的证据和独立 ADR 重新评估，而不是在局部代码中悄然改变语义。
+
+2026-10-11 补充了资源访问身份来源与 MTP 动词检查来源的日期说明，未改写原决定。
 
 ## Related documents
 

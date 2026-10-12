@@ -193,7 +193,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 | 第 3 阶段：actor 用户不是目标 Workspace 的 owner | `OperationDeniedError` | `target_owner_mismatch` | 403 |
 | 第 3 阶段（actor API）：白名单不含该 actor 操作 | `OperationDeniedError` | `operation_not_allowed` | 403 |
 | 第 3 阶段（root API）：actor 不是保留的 `system` | `OperationDeniedError` | `root_required` | 403 |
-| 凭据无效：不是访问 context，或已撤销；授权时准入记录已不存在 | `ScopeRequiredError` | 无 / `context_not_issued` / `actor_not_admitted` | 500：生产入口经网关签发后不应出现，出现即为接线缺陷 |
+| 访问 context 无效：不是访问 context，或已撤销（已撤销的线程 context 见下文）；授权时准入记录已不存在；把进程 context 或请求级 context 交给操作入口；从非进程 context 派生线程 context | `ScopeRequiredError` | 无 / `context_not_issued` / `actor_not_admitted` | 500：生产入口经网关签发后不应出现，出现即为接线缺陷 |
 | 资源与请求 Workspace 不一致 | `WorkspaceMismatchError` | —— | 409 |
 
 - 缺少行为许可属于授权失败，不是身份认证失败；空白名单可以进入，但所有 actor 操作都被拒绝。未知 operation 在访问登记装载期失败。`operation_not_allowed` 的 `details.operation` 给出被拒绝的 actor 操作；root 授权与任务进程的阶段授权不检查 operation，它们的目标拒绝与 `root_required` 不附带 `operation`。阶段授权只校验准入与目标，因此不会出现 `operation_not_allowed`。
@@ -205,7 +205,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 
 actor API 与操作入口的错误保持各自边界：每种 actor 请求缺少对应操作时抛 `OperationDeniedError`（`operation_not_allowed`）——READ 与 CALL 的 `context_refs` 缺少 `memory.read`、SEARCH 缺少 `memory.search`、RUN 的记忆目标缺少 `memory.run`、WRITE 缺少 `memory.write`、UPDATE 缺少 `memory.update`、CALL 目标读取缺少 `agent.call`（包括内置目标）；意图撤回是入口内部补偿，不检查 operation；UPDATE 基础为 pending 时抛 `PendingUpdateNotAllowedError`，不存在、不可读或不是正式 atom 时抛 `ResourceNotFoundError`。Koakuma 分别映射为现有 `mtp.permission.denied`、`mtp.argument.invalid` 与 `mtp.alias.not_found`，provider 不可用映射为 `mtp.system.service_unavailable`，不暴露内部 cause。
 
-未知或已吊销的执行凭据在操作入口抛 `ExecutionCredentialRevokedError`（RuntimeError），未知请求类型抛 `TypeError`；它们表示接线或生命周期违规，没有独立 HTTP API，不新增 HTTP 映射。Koakuma 的既有兜底将未分类入口异常呈现为 `mtp.system.fault`，不暴露 cause。进程关闭同步吊销凭据，不取消在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 跨越关闭时在返回后的同步段撤回刚登记的意图并拒绝 ACK。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
+已撤销的线程 context 在操作入口与 actor API 抛 `ThreadContextRevokedError`（`core.errors`，RuntimeError，由 `workspace.contracts` 重新导出），未知请求类型抛 `TypeError`；前者是生命周期拒绝（CPU 执行结束或进程关闭后迟到的请求），后者是接线违规，与表示接线缺陷的 `ScopeRequiredError` 区分。它们没有独立 HTTP API，不新增 HTTP 映射。Koakuma 的既有兜底将未分类入口异常呈现为 `mtp.system.fault`，不暴露 cause。CPU 执行结束时同步撤销线程 context，不取消在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 跨越撤销时在返回后的同步段撤回刚登记的意图并拒绝 ACK。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
 
 引用交付的 citation 使用 `source="workspace.reference_read"`；普通记录失败只记日志、不改变可读结果，取消继续传播，已记录的引用不回滚。因此 RUN 工具失败不会撤销执行前已经完成的正式原子读取计数。
 

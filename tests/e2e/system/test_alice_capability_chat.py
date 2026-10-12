@@ -31,7 +31,6 @@ from hivememory.server.routers.chat import router
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
-from hivememory.workspace.credentials import ExecutionCredentialRegistry
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
@@ -85,7 +84,6 @@ async def test_http_chat_search_read_write_and_call_claims_intent_and_records_sh
     publisher = RuntimeEventPublisher(sink)
     runtime = make_workspace_runtime(stack.bus)
     runtime.subscribe(stack.bus)
-    credentials = ExecutionCredentialRegistry()
     entry = WorkspaceOperationEntry(
         ActorMemoryService(
             stack.bus,
@@ -96,7 +94,7 @@ async def test_http_chat_search_read_write_and_call_claims_intent_and_records_sh
             operation_authorizer=access.authorizer,
             profile_reader=runtime.profiles,
         ),
-        credential_registry=credentials,
+        operation_authorizer=access.authorizer,
         intent_registry=runtime.intents,
     )
     script = (
@@ -135,7 +133,6 @@ async def test_http_chat_search_read_write_and_call_claims_intent_and_records_sh
         operation_authorizer=access.authorizer,
         event_publisher=publisher,
         workspace_runtime=runtime,
-        credential_registry=credentials,
         operation_entry=entry,
     )
     app = FastAPI()

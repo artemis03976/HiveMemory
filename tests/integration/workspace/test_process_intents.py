@@ -1,7 +1,7 @@
 """任务进程、真实能力层与意图登记的生命周期协作测试。
 
 Gateway/prepare/finalize 位于本边界之外，由公开路由替身提供；CPU 经真实
-操作入口提交请求，验证 completed 认领、取消隔离与关闭后的凭据拒绝。
+操作入口提交请求，验证 completed 认领、取消隔离与CPU 结束后的线程 context 拒绝。
 """
 
 from __future__ import annotations
@@ -27,10 +27,10 @@ from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.contracts import (
     CancelIntentsRequest,
-    ExecutionCredentialRevokedError,
     ResolveReferencesRequest,
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
+    ThreadContextRevokedError,
 )
 from hivememory.workspace.runtime import WorkspaceRuntime
 from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
@@ -130,15 +130,15 @@ async def test_process_claims_or_cancels_only_its_own_intents(status):
             assert task.focus.content == "本进程"
         else:
             assert finalized == []
-        # completed 同样关闭主线程凭据，全部请求类型均拒绝继续执行。
+        # completed 同样关闭主线程 context，全部请求类型均拒绝继续执行。
         for request in (
             SubmitWriteIntentRequest(focus=WriteFocus(content="关闭后")),
             SubmitUpdateIntentRequest(base_alias="base", instruction="关闭后"),
             ResolveReferencesRequest(aliases=(other.pending_alias,)),
             CancelIntentsRequest(aliases=(other.pending_alias,)),
         ):
-            with pytest.raises(ExecutionCredentialRevokedError):
-                await cpu.operation_entry.execute(request, credential=cpu.calls[0].credential)
+            with pytest.raises(ThreadContextRevokedError):
+                await cpu.operation_entry.execute(request, access=cpu.calls[0].access)
         assert runtime.intents.size == 2
     finally:
         runtime.close()
@@ -236,7 +236,7 @@ async def test_finalize_authorization_failure_cancels_instead_of_stranding_inten
 
 @pytest.mark.asyncio
 async def test_process_close_revokes_waiting_update_without_cancelling_request_task():
-    """进程在 UPDATE 冷读期间关闭：入口补偿登记，调用方任务不被凭据吊销取消。"""
+    """进程在 UPDATE 冷读期间关闭：入口补偿登记，调用方任务不被线程 context 撤销取消。"""
     access = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="omni_doll")]
     )
@@ -263,7 +263,7 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
     update_tasks = []
 
     async def update(submit):
-        # 外部适配器任务独立于 CPU 拉取任务，吊销凭据不得取消它。
+        # 外部适配器任务独立于 CPU 拉取任务，撤销线程 context 不得取消它。
         update_tasks.append(
             asyncio.create_task(
                 submit(SubmitUpdateIntentRequest(base_alias="base", instruction="新内容"))
@@ -320,14 +320,14 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
         assert task.cancelling() == 0
         assert runtime.intents.size == 0
         release.set()
-        with pytest.raises(ExecutionCredentialRevokedError):
+        with pytest.raises(ThreadContextRevokedError):
             await asyncio.wait_for(task, timeout=1)
         assert task.cancelled() is False
         assert runtime.intents.size == 1
         assert runtime.intents.claim_process("waiting") == []
-        with pytest.raises(ExecutionCredentialRevokedError):
+        with pytest.raises(ThreadContextRevokedError):
             await cpu.operation_entry.execute(
-                ResolveReferencesRequest(aliases=("base",)), credential=cpu.calls[0].credential
+                ResolveReferencesRequest(aliases=("base",)), access=cpu.calls[0].access
             )
     finally:
         await stream.aclose()

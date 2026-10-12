@@ -1,4 +1,4 @@
-"""CALL 子帧与真实 workspace 操作入口协作，验证主线程凭据的继承。"""
+"""CALL 子帧与真实 workspace 操作入口协作，验证主线程 context的继承。"""
 
 from __future__ import annotations
 
@@ -88,7 +88,7 @@ async def test_callee_inherits_parent_verbs_and_ignores_legacy_profile_permissio
 
 
 @pytest.mark.asyncio
-async def test_callee_submits_with_parent_credential_and_keeps_parent_as_intent_actor() -> None:
+async def test_callee_submits_with_parent_thread_context_and_keeps_parent_as_intent_actor() -> None:
     """真实创建的子帧继承提交函数，WRITE 意图仍归主线程发起者，父帧可以回读。"""
     harness = OperationsHarness()
     scope = make_runtime_scope(agent_id="parent", run_id="process-parent")

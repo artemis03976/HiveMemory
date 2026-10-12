@@ -158,10 +158,9 @@ def test_workspace_contracts_only_depend_on_core():
 
 
 def test_workspace_shared_facilities_do_not_import_capability():
-    """意图、读取与凭据设施不得反向依赖能力入口，避免第二个编排所有者。"""
+    """意图与读取设施不得反向依赖能力入口，避免第二个编排所有者。"""
     packages = [WORKSPACE_PACKAGE / name for name in ("intents", "cache", "resolution")]
     files = [path for package in packages for path in package.rglob("*.py")]
-    files.append(WORKSPACE_PACKAGE / "credentials.py")
     violations = [
         f"{path}: {target}"
         for path in files
@@ -173,7 +172,7 @@ def test_workspace_shared_facilities_do_not_import_capability():
 
 
 def test_workspace_process_does_not_import_capability():
-    """进程只负责阶段编排与凭据生命周期，不持有具体能力服务。"""
+    """进程只负责阶段编排与线程 context 生命周期，不持有具体能力服务。"""
     files = sorted((WORKSPACE_PACKAGE / "process").rglob("*.py"))
     assert files, "未扫描到 workspace process 源文件"
     violations = [
@@ -204,7 +203,7 @@ def test_server_imports_only_root_capability_api():
 
 
 def test_operation_entry_only_imports_actor_capability_api():
-    """操作入口只取得 actor API；共享 backing、凭据与意图设施可以继续使用。"""
+    """操作入口只取得 actor API；共享 backing 与意图设施可以继续使用。"""
     entry = WORKSPACE_PACKAGE / "capability" / "operations.py"
     assert entry.is_file(), f"操作入口文件不存在: {entry}"
     capability = "hivememory.workspace.capability"

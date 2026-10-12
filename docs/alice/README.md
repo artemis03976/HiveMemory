@@ -34,7 +34,7 @@ Alice 当前拥有：
 - 单 Agent generate -> MTP -> 回填循环的装配与调用；
 - 人格注入、模型选择和权限应用；主 Agent 的 Profile 由输入清单提供（任务进程在 CPU 分配时解析），CALL 子 Agent 的 Profile 由 workspace 能力层经操作请求读取；
 - Koakuma MTP runtime、运行时 syscall registry 与格式化错误回填；
-- 经凭据绑定的 `submit_operation` 提交资源操作请求、消费中立结果与记录本帧收到的 ACK alias；
+- 经线程 context 绑定的 `submit_operation` 提交资源操作请求、消费中立结果与记录本帧收到的 ACK alias；
 - 共用一套执行骨架的非流式与流式 Agent run，以及 `agent.run.*` RuntimeEvent；
 
 这里的“拥有”主要指运行时语义，而不是所有代码都必须位于 `alice/`。chat 任务类型的编排与进程控制也不在 Alice：任务进程表与 `TaskProcessService` 位于 `workspace.process`，经公开路由调用 Gateway 与 Patchouli、经 CPU 端口调用 Alice，不参与 Agent loop。`agent_runtime/` 是 Alice 消费的单 Agent 执行层，`AgentProfile` 与 `PendingAtom` 等跨边界模型位于 `core`，CPU 端口、输入清单与执行结果位于 `workspace.contracts`，prompt 组装位于 `prompts`。Alice 决定这些部件如何组成一次 run，但不能因此取得长期记忆、入口决策或顶层 chat 用例的所有权。
@@ -51,7 +51,7 @@ Alice 不负责：
 - 把 `WRITE` / `UPDATE` ACK 当作正式记忆落库成功；
 - 为不受信任代码提供强安全沙箱。
 
-chat 任务进程编排（`workspace.process`）拥有完整 chat 顺序和取消控制；Gateway 拥有入口解释；Patchouli 拥有 Profile 与 MemoryAtom 的持久化事实。Alice 通过公开 run route、公共模型与 `workspace.contracts.OperationSubmitter` 交接；资源请求由 `WorkspaceOperationEntry` 兑现执行凭据后分派，写入意图登记、完整引用解析和全部原子/Profile 读取缓存属于 workspace。完整边界见[系统边界](../architecture/boundaries.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。
+chat 任务进程编排（`workspace.process`）拥有完整 chat 顺序和取消控制；Gateway 拥有入口解释；Patchouli 拥有 Profile 与 MemoryAtom 的持久化事实。Alice 通过公开 run route、公共模型与 `workspace.contracts.OperationSubmitter` 交接；资源请求由 `WorkspaceOperationEntry` 校验 CPU 附上的线程 context 后分派，写入意图登记、完整引用解析和全部原子/Profile 读取缓存属于 workspace。完整边界见[系统边界](../architecture/boundaries.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。
 
 ## 2. Alice 与 AgentRuntime 为什么是两层
 
@@ -74,7 +74,7 @@ AliceSystem
 - Alice 编排层是“进程调度器”：创建主帧，消费 CALL trap，通过 CallContextProvider 取得子 Agent Profile/共享上下文，派生子帧，收割结果并恢复主帧；
 - Patchouli 是长期存储与记忆域：Alice 可以提出物化请求，却不能自行确认长期事实已经成立。
 
-`agent_runtime/` 是顶层共享层，不是第四个子系统。它不实现 `SubsystemProtocol`，不注册全局公开路由，也不拥有独立启停；依赖的配置与模型注册表由 Alice 注入，凭据绑定的操作提交函数随 frame 传入。反向出现 `agent_runtime -> alice` 的领域依赖，或让执行循环重新决定子 Agent 拓扑，都意味着这道边界开始失效。
+`agent_runtime/` 是顶层共享层，不是第四个子系统。它不实现 `SubsystemProtocol`，不注册全局公开路由，也不拥有独立启停；依赖的配置与模型注册表由 Alice 注入，线程 context 绑定的操作提交函数随 frame 传入。反向出现 `agent_runtime -> alice` 的领域依赖，或让执行循环重新决定子 Agent 拓扑，都意味着这道边界开始失效。
 
 ## 3. 人偶图纸：人格与权限分离
 
@@ -91,7 +91,7 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 
 未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`；显式选择 `default` / `omni_doll` 也会直接选择同一个内置 Profile，但不属于错误 fallback。Omni-Doll 无特定 persona、模型名为 `default`，verb/tool 使用当前内置能力的显式白名单，而不是 `None=未来所有能力也自动允许`。因此新增 MTP verb 或 syscall 时必须同步审查并更新白名单，不能悄悄扩大 fallback 权限。
 
-主 Agent 的 Profile 由任务进程在 CPU 分配时经阶段授权读取，不要求任何 actor 操作；CALL 目标（包括内置 Profile）通过 `ResolveCallTargetRequest` 读取，经 workspace actor API 的 `agent.call` 授权。操作入口从执行凭据恢复访问 context 与固定目标，actor API 授权后才把一次操作的 `IdentityScope` 交给读取视图和 Patchouli 公开边界；两条路径都由读取视图按当前 actor 检查源原子可见性。Patchouli 先检查 Workspace 归属，再检查资源可见性、MemoryType 与 `agent_config`。Profile 缓存由 workspace 按 Workspace/alias 坐标定位，条目保存源原子的 policy 与 UUID，命中时对当前 actor 重验；canonical 源变更失效与在途回填代次检查统一维护，详见 [Workspace 架构](../architecture/workspace.md)。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
+主 Agent 的 Profile 由任务进程在 CPU 分配时经阶段授权读取，不要求任何 actor 操作；CALL 目标（包括内置 Profile）通过 `ResolveCallTargetRequest` 读取，经 workspace actor API 的 `agent.call` 授权。操作入口把请求与 CPU 附上的线程 context 交给 actor API，actor API 以线程的驻留 Workspace 为目标授权后，才把一次操作的 `IdentityScope` 交给读取视图和 Patchouli 公开边界；两条路径都由读取视图按当前 actor 检查源原子可见性。Patchouli 先检查 Workspace 归属，再检查资源可见性、MemoryType 与 `agent_config`。Profile 缓存由 workspace 按 Workspace/alias 坐标定位，条目保存源原子的 policy 与 UUID，命中时对当前 actor 重验；canonical 源变更失效与在途回填代次检查统一维护，详见 [Workspace 架构](../architecture/workspace.md)。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
 
 ## 4. 当前主流程
 
@@ -100,7 +100,7 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 ```text
 任务进程的 CPUInputManifest
   -> 转换为 AgentRunContext（Alice 内部）
-  -> attach credential-bound submit_operation to root frame
+  -> attach thread-context-bound submit_operation to root frame
   -> assemble MTP + persona + memory + topic messages
   -> create root ExecutionFrame(topic_id=...)
   -> RunExecutor -> AgentRuntime.run_frame()
@@ -177,7 +177,7 @@ AliceBridge 不订阅 PendingAtom 结算事件；这些事件由 workspace 登�
 
 ## 9. 当前限制与设计张力
 
-- `AgentProfile` 携带来源 alias，但子帧与 root 使用相同的凭据绑定提交函数，意图发起者仍为主线程 Actor；当前没有子线程独立身份或权限授予；
+- `AgentProfile` 携带来源 alias，但子帧与 root 使用相同的线程 context 绑定提交函数，意图发起者仍为主线程 Actor；当前没有子线程独立身份或权限授予；
 - 每次 run 的 frame registry 与 CallRecord 由独立 `RunSession` 持有，stream sequence 由流式输出端口持有；`RunExecutor` 用协程递归表达 CALL 的挂起与重入，不维护单活动 frame 状态机；Chat application 在更上层拥有可取消阶段 task。
 - 子 Agent 异常会被包装为 CALL error 交给主 Agent 继续处理；取消、预算耗尽和意外挂起分别保持 cancelled 或稳定 error，不会被视作成功返回；
 - Alice 的 Agent frame 不持久化，进程重启后不能恢复；workspace 的派生 cache 同样不跨重启保存；统一恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；

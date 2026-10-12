@@ -16,9 +16,18 @@ system 身份；任务进程阶段不检查操作白名单。授权成功后组�
 
 from __future__ import annotations
 
-from hivememory.core.access import AccessGrant, WorkspaceAccessContext, WorkspaceOperation
+from hivememory.core.access import (
+    AccessGrant,
+    AccessRunType,
+    WorkspaceAccessContext,
+    WorkspaceOperation,
+)
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
+from hivememory.core.errors import (
+    OperationDeniedError,
+    ScopeRequiredError,
+    ThreadContextRevokedError,
+)
 from hivememory.core.models import IdentityScope, WorkspaceIdentity
 from hivememory.workspace.registry import (
     WorkspaceActorAccessRecord,
@@ -67,6 +76,33 @@ class WorkspaceOperationAuthorizer:
             )
         return IdentityScope(actor_identity=grant.actor, workspace_identity=target_workspace)
 
+    def validate_thread_context(self, access: WorkspaceAccessContext) -> None:
+        """入口分派前检查线程 context 的类型与寿命，不代替逐次操作授权。"""
+        self._thread_grant(access)
+
+    def get_thread_process_id(self, access: WorkspaceAccessContext) -> str:
+        """只为能力层读取有效线程的进程关联，调用方不能自行指定关联。"""
+        return self._thread_grant(access).binding.run_id
+
+    def authorize_thread_operation(
+        self, access: WorkspaceAccessContext, operation: WorkspaceOperation
+    ) -> IdentityScope:
+        """线程只在驻留 Workspace 发起操作，目标从密封授予内容取得。"""
+        grant = self._thread_grant(access)
+        return self.authorize_operation(access, operation, grant.workspace)
+
+    @staticmethod
+    def _thread_grant(access: WorkspaceAccessContext) -> AccessGrant:
+        """线程已撤销属于生命周期拒绝，类型或运行种类错误属于接线缺陷。"""
+        if type(access) is not WorkspaceAccessContext:
+            raise ScopeRequiredError("actor 操作需要线程 context")
+        grant = access._unseal()
+        if grant is None:
+            raise ThreadContextRevokedError("Thread context is revoked")
+        if grant.binding.run_type is not AccessRunType.EXECUTION_THREAD:
+            raise ScopeRequiredError("actor 操作需要线程 context")
+        return grant
+
     def authorize_process_control(
         self,
         requestor: WorkspaceAccessContext,
@@ -97,7 +133,7 @@ class WorkspaceOperationAuthorizer:
         """任务进程阶段授权：校验准入与目标，不检查 actor 操作白名单。
 
         阶段调用由进程负责，scope 保留进程 actor 的身份以执行资源可见性
-        检查；它只交给紧随的阶段调用，不进入 CPU 输入清单或执行凭据。
+        检查；它只交给紧随的阶段调用，不进入 CPU 输入清单或线程 context。
         生产调用面限定在 ``workspace.process``。
         """
         grant, _ = self._redeem(access)

@@ -28,6 +28,7 @@ from hivememory.components.trace_context import (
     reset_trace_context,
     set_trace_context,
 )
+from hivememory.core.access import ThreadContextLifecycle
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
 from hivememory.core.models import IdentityScope, WorkspaceIdentity
@@ -40,7 +41,6 @@ from hivememory.workspace.contracts import (
     CPUInputManifest,
     CPUPort,
 )
-from hivememory.workspace.credentials import ExecutionCredentialRegistry
 from hivememory.workspace.intents import WriteIntentRegistry
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.command_terminal import command_terminal
@@ -152,7 +152,7 @@ class TaskProcessRunner:
         cpu: CPUPort,
         allocator: CPUAllocator,
         operation_authorizer: WorkspaceOperationAuthorizer,
-        credential_registry: ExecutionCredentialRegistry,
+        thread_contexts: ThreadContextLifecycle,
         intent_registry: WriteIntentRegistry,
         gateway_request_timeout_ms: int = 8000,
     ) -> None:
@@ -160,7 +160,7 @@ class TaskProcessRunner:
         self._cpu = cpu
         self._allocator = allocator
         self._authorizer = operation_authorizer
-        self._credentials = credential_registry
+        self._thread_contexts = thread_contexts
         self._intents = intent_registry
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
 
@@ -224,43 +224,43 @@ class TaskProcessRunner:
             # ---- Actor 执行：可被 stop 中断；流式逐条转交交互事件 ----
             record.enter_phase(ProcessPhase.ACTOR)
             events.status(record)
-            # 主线程的执行凭据独立于输入清单；入口按凭据恢复固定的调用绑定。
-            credential = self._credentials.issue(
-                access=record.access,
-                target_workspace=request.target_workspace,
-                process_id=record.process_id,
-            )
-            working_set.credential = credential
+            # CPU 只持有派生线程 context；进程 context 留给全部阶段的授权。
+            access = self._thread_contexts.derive_thread_context(record.access)
+            working_set.thread_access = access
             # Actor 阶段只剩一个循环：流式与非流式都经 CPU 端口逐项拉取
             # （非流式只拉取一次），交互事件产出为 ActorEvent、终态结果作为
             # 执行结果。每次拉取都经 _run_interruptible 包装，停止请求的
             # 响应点不变；输出流登记进工作集，由关闭流程兜底关闭（含断流与
             # 取消路径）。
-            cpu_output = self._cpu.execute(
-                manifest,
-                credential=credential,
-                generation_options=request.generation_options,
-                stream=stream,
-            )
-            working_set.cpu_output = cpu_output
-            execution_result: CPUExecutionResult | None = None
-            while True:
-                try:
-                    item = await _run_interruptible(
-                        record,
-                        ProcessPhase.ACTOR,
-                        lambda: anext(cpu_output),
-                    )
-                except StopAsyncIteration:
-                    break
-                if isinstance(item, CPUExecutionResult):
-                    # 终态结果恰好出现一次且是最后一项；拿到即结束拉取。
-                    execution_result = item
-                    break
-                yield ActorEvent(item)
-            # 拿到终态结果后立即关闭 CPU 输出流，让 CPU 在 finalize 之前释放
-            # 自己的资源（finalize 要等交互被应用）；关闭流程中的关闭仅作兜底。
-            await self._close_cpu_output(working_set)
+            try:
+                cpu_output = self._cpu.execute(
+                    manifest,
+                    access=access,
+                    generation_options=request.generation_options,
+                    stream=stream,
+                )
+                working_set.cpu_output = cpu_output
+                execution_result: CPUExecutionResult | None = None
+                while True:
+                    try:
+                        item = await _run_interruptible(
+                            record,
+                            ProcessPhase.ACTOR,
+                            lambda: anext(cpu_output),
+                        )
+                    except StopAsyncIteration:
+                        break
+                    if isinstance(item, CPUExecutionResult):
+                        # 终态结果恰好出现一次且是最后一项；拿到即结束拉取。
+                        execution_result = item
+                        break
+                    yield ActorEvent(item)
+                # 拿到终态结果后立即关闭 CPU 输出流，让 CPU 在 finalize 之前释放
+                # 自己的资源（finalize 要等交互被应用）；关闭流程中的关闭仅作兜底。
+                await self._close_cpu_output(working_set)
+            finally:
+                # 异常与取消也在交付终态前撤销；CPU 输出流正常关闭后才进入 finalize。
+                self._revoke_thread_context(working_set)
             # 迭代器在没有终态结果时结束属于端口语义错误，按进程失败处理。
             if execution_result is None:
                 raise RuntimeError("CPU 输出流在没有终态执行结果的情况下结束")
@@ -427,11 +427,9 @@ class TaskProcessRunner:
             record.mark_cancelled()
             record.events.closed_before_terminal(record)
 
-        # 吊销凭据、取消未认领意图与租借释放都先于任何 await：即使后续
-        # CPU 输出流关闭被取消，也不能留下有效凭据或游离 PENDING。
-        credential = working_set.take_credential()
-        if credential is not None:
-            self._credentials.revoke(credential)
+        # 撤销线程 context、取消未认领意图与租借释放都先于任何 await：即使后续
+        # CPU 输出流关闭被取消，也不能留下有效线程 context 或游离 PENDING。
+        self._revoke_thread_context(working_set)
         self._intents.cancel_process(record.process_id)
         # 附件文本在 CPU 分配时已编译进清单，Actor 执行不再读取租借内容。
         self._allocator.release(working_set)
@@ -448,6 +446,12 @@ class TaskProcessRunner:
                 )
             except Exception:
                 logger.warning("清理 prepared run 失败", exc_info=True)
+
+    def _revoke_thread_context(self, working_set: ProcessWorkingSet) -> None:
+        """CPU 结束即同步撤销，关闭流程也调用以兜底失败、取消与断流。"""
+        access = working_set.take_thread_access()
+        if access is not None:
+            self._thread_contexts.revoke_thread_context(access)
 
     @staticmethod
     async def _close_cpu_output(working_set: ProcessWorkingSet) -> None:

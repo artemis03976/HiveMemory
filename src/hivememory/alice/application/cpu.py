@@ -14,12 +14,12 @@ from contextlib import aclosing
 from typing import Any
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUInputManifest,
     CPUOutput,
-    ExecutionCredential,
     OperationEntry,
     OperationRequest,
 )
@@ -36,25 +36,25 @@ class AliceCPU:
         self,
         manifest: CPUInputManifest,
         *,
-        credential: ExecutionCredential,
+        access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]:
         return self._execute(
-            manifest, credential=credential, generation_options=generation_options, stream=stream
+            manifest, access=access, generation_options=generation_options, stream=stream
         )
 
     async def _execute(
         self,
         manifest: CPUInputManifest,
         *,
-        credential: ExecutionCredential,
+        access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]:
         async def submit_operation[R](request: OperationRequest[R]) -> R:
-            """绑定本次执行凭据，把操作请求交给 workspace 统一入口。"""
-            return await self._operation_entry.execute(request, credential=credential)
+            """绑定本次线程 context，把操作请求交给 workspace 统一入口。"""
+            return await self._operation_entry.execute(request, access=access)
 
         if stream:
             event_stream = await self._bus.request(

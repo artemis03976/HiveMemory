@@ -61,7 +61,7 @@ class ExecutionFrame:
     topic_id: str | None
     execution_policy: FrameExecutionPolicy = field(default_factory=FrameExecutionPolicy)
 
-    # 本进程的操作提交函数由 root 与 CALL 子帧共享，执行凭据由 CPU 驱动绑定。
+    # 本进程的操作提交函数由 root 与 CALL 子帧共享，线程 context 由 CPU 驱动绑定。
     submit_operation: OperationSubmitter | None = None
 
     harvested_aliases: list[str] = field(default_factory=list)

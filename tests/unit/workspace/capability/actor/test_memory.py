@@ -18,6 +18,11 @@ from hivememory.core.models import (
 )
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
+from hivememory.workspace.contracts import (
+    ResolveReferencesRequest,
+    ResolveRunTargetRequest,
+    RetrieveRequest,
+)
 from hivememory.workspace.intents import WriteIntentRegistry
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
@@ -67,33 +72,31 @@ class TestActorMemoryService:
     @pytest_asyncio.fixture
     async def access(self, composition):
         """actor 入口的访问 context（经真实网关两阶段认证签发）。"""
-        return await composition.authenticate(agent_id="test_agent", user_id="u1")
+        return await composition.authenticate_thread(agent_id="test_agent", user_id="u1")
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
         ("invoke", "expected_operation", "allowed_operations"),
         [
             pytest.param(
-                lambda service, workspace, access: service.resolve_references(
-                    ["fact"], target_workspace=workspace, access=access
+                lambda service, access: service.resolve_references(
+                    ResolveReferencesRequest(("fact",)), access=access
                 ),
                 WorkspaceOperation.MEMORY_READ,
                 frozenset(),
                 id="resolve_references",
             ),
             pytest.param(
-                lambda service, workspace, access: service.resolve_run_target(
-                    "fact", target_workspace=workspace, access=access
+                lambda service, access: service.resolve_run_target(
+                    ResolveRunTargetRequest("fact"), access=access
                 ),
                 WorkspaceOperation.MEMORY_RUN,
                 frozenset({WorkspaceOperation.MEMORY_READ}),
                 id="resolve_run_target",
             ),
             pytest.param(
-                lambda service, workspace, access: service.retrieve(
-                    semantic_query="q",
-                    target_workspace=workspace,
-                    access=access,
+                lambda service, access: service.retrieve(
+                    RetrieveRequest(semantic_query="q"), access=access
                 ),
                 WorkspaceOperation.MEMORY_SEARCH,
                 # 已有 memory.read 不隐含 memory.search：检索单独授权。
@@ -121,10 +124,10 @@ class TestActorMemoryService:
             operation_authorizer=composition.authorizer,
             memory_reader=make_workspace_runtime(global_bus=global_bus).aliases,
         )
-        access = await composition.authenticate(agent_id="test_agent", user_id="u1")
+        access = await composition.authenticate_thread(agent_id="test_agent", user_id="u1")
 
         with pytest.raises(OperationDeniedError) as exc_info:
-            await invoke(service, workspace, access)
+            await invoke(service, access)
 
         assert exc_info.value.details["reason"] == "operation_not_allowed"
         assert exc_info.value.details["operation"] == expected_operation.value
@@ -162,11 +165,7 @@ class TestActorMemoryService:
         )
 
         result = await service.retrieve(
-            semantic_query="q",
-            keywords=["keyword"],
-            top_k=3,
-            target_workspace=workspace,
-            access=access,
+            RetrieveRequest(semantic_query="q", keywords=("keyword",), top_k=3), access=access
         )
 
         assert [atom.index.title for atom in result] == ["Hit"]
@@ -223,11 +222,11 @@ class TestActorMemoryService:
 
         if operation == WorkspaceOperation.MEMORY_READ:
             (result,) = await service.resolve_references(
-                ["draft"], target_workspace=workspace, access=access
+                ResolveReferencesRequest(("draft",)), access=access
             )
         else:
             result = await service.resolve_run_target(
-                "draft", target_workspace=workspace, access=access
+                ResolveRunTargetRequest("draft"), access=access
             )
 
         assert (result.requested_alias, result.kind) == ("draft", kind)

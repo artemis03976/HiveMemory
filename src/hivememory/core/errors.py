@@ -47,6 +47,13 @@ class ScopeRequiredError(WorkspaceDomainError):
     code = "workspace.scope_required"
 
 
+class ThreadContextRevokedError(RuntimeError):
+    """线程 context 已撤销，CPU 结束后的迟到操作不能继续分派。
+
+    与缺少上下文的接线错误区分；执行适配器仍按既有系统错误路径回填。
+    """
+
+
 class WorkspaceMismatchError(WorkspaceDomainError):
     """资源与请求不属于同一 Workspace。"""
 
@@ -170,6 +177,7 @@ class ModelNotFoundError(Exception):
 __all__ = [
     "WorkspaceDomainError",
     "ScopeRequiredError",
+    "ThreadContextRevokedError",
     "WorkspaceMismatchError",
     "AdmissionDeniedError",
     "OperationDeniedError",

@@ -35,7 +35,7 @@ last_reviewed: 2026-10-11
 # 身份与访问体系
 
 **文档状态**：Idea，保留决定理由与分批讨论；第一、二批均已实施归档。第二批于 2026-10-04 经测试与审查后在分支 `refactor/identity-access-batch-2` 提交（实现 commit `b2c7aee`），同日经 PR #107 合并至 master（`5660fed`），见[归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)；合并不表示 v0.7.0 已发布。
-**实施补充（2026-10-09）**：I-9 的 CPU 过渡身份已删除，Alice/CPU 改持观测标签与执行凭据（2026-10-11 决定以线程 context 取代执行凭据，尚未实施，见 I-9）；见 [Alice 迁移归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)。第二批快照及下文过渡设计保留为历史背景；当前事实由 [Workspace 架构](../architecture/workspace.md)维护。独立子线程 context 与 WorkspaceAsset 内部拆分仍按各自方向推进。
+**实施补充（2026-10-09）**：I-9 的 CPU 过渡身份已删除，Alice/CPU 改持观测标签与执行凭据（2026-10-11 以线程 context 取代执行凭据并实施，见 I-9）；见 [Alice 迁移归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)。第二批快照及下文过渡设计保留为历史背景；当前事实由 [Workspace 架构](../architecture/workspace.md)维护。独立子线程 context 与 WorkspaceAsset 内部拆分仍按各自方向推进。
 
 **记录日期**：2026-10-03；2026-10-04 记录 I-6、I-6a、I-7、I-11 的决定，并按第二批最终代码更新现状。WorkspaceAsset 内部拆分明确暂缓，见 [Todo](../todo/workspace-asset-ownership-identity-split.md)。
 

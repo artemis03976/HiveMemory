@@ -55,7 +55,7 @@ async def test_prompt_and_runtime_reject_verbs_outside_frame_without_submission(
     requests = []
 
     async def record_submission(request):
-        """观察公开提交端口，意外请求仍经过真实凭据与授权。"""
+        """观察公开提交端口，意外请求仍经过真实线程 context 与授权。"""
         requests.append(request)
         return await submit(request)
 

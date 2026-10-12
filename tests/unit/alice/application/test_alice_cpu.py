@@ -14,16 +14,17 @@ import pytest
 
 from hivememory.alice.application.cpu import AliceCPU
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models.reference import ReferenceResolution
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
-    ExecutionCredential,
     OperationRequest,
     ResolveReferencesRequest,
 )
 from tests.helpers.chat_handoff import make_input_manifest, make_mtp_turn_events
+from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 # done 事件数据：结果字段 + Alice 的运行元数据（不应进入执行结果）
 _DONE_DATA = {
@@ -44,13 +45,13 @@ _DONE_DATA = {
 
 
 class _ReferenceEntry:
-    """凭据绑定测试的外部入口替身，按凭据返回对应的引用结果。"""
+    """线程 context 绑定测试的外部入口替身，按线程 context 返回对应的引用结果。"""
 
     def __init__(self) -> None:
-        self.labels: dict[ExecutionCredential, str] = {}
+        self.labels: dict[WorkspaceAccessContext, str] = {}
 
     async def execute[R](
-        self, request: OperationRequest[R], *, credential: ExecutionCredential
+        self, request: OperationRequest[R], *, access: WorkspaceAccessContext
     ) -> R:
         if not isinstance(request, ResolveReferencesRequest):
             raise TypeError(f"Unsupported request: {type(request).__name__}")
@@ -58,7 +59,7 @@ class _ReferenceEntry:
             R,
             [
                 ReferenceResolution(
-                    kind="not_found", requested_alias=f"{self.labels[credential]}:{alias}"
+                    kind="not_found", requested_alias=f"{self.labels[access]}:{alias}"
                 )
                 for alias in request.aliases
             ],
@@ -88,7 +89,9 @@ async def test_alice_cpu_stream_relays_events_and_converts_done() -> None:
             manifest,
             generation_options={"temperature": 0.5},
             stream=True,
-            credential=ExecutionCredential(),
+            access=await make_access_composition(
+                [make_actor_access_record()]
+            ).authenticate_thread(),
         )
     ]
 
@@ -132,7 +135,9 @@ async def test_alice_cpu_once_yields_single_execution_result() -> None:
             make_input_manifest(process_id="process-once"),
             generation_options=None,
             stream=False,
-            credential=ExecutionCredential(),
+            access=await make_access_composition(
+                [make_actor_access_record()]
+            ).authenticate_thread(),
         )
     ]
 
@@ -162,7 +167,7 @@ async def test_closing_cpu_iterator_closes_alice_event_stream() -> None:
         make_input_manifest(),
         generation_options=None,
         stream=True,
-        credential=ExecutionCredential(),
+        access=await make_access_composition([make_actor_access_record()]).authenticate_thread(),
     )
     first = await iterator.__anext__()
     assert first == {"event": "token", "data": {"content": "一"}}
@@ -173,14 +178,16 @@ async def test_closing_cpu_iterator_closes_alice_event_stream() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cpu_binds_each_execution_credential_to_its_operation_submitter() -> None:
-    """每次执行的提交函数使用自己的凭据，不能被下一次执行的凭据覆盖。"""
+async def test_cpu_binds_each_thread_context_to_its_operation_submitter() -> None:
+    """每次执行的提交函数使用自己的线程 context，不能被下一次执行的线程 context 覆盖。"""
     bus = GlobalSystemBus()
     entry = _ReferenceEntry()
-    first_credential = ExecutionCredential()
-    second_credential = ExecutionCredential()
-    entry.labels[first_credential] = "first"
-    entry.labels[second_credential] = "second"
+    first_access = await make_access_composition([make_actor_access_record()]).authenticate_thread()
+    second_access = await make_access_composition(
+        [make_actor_access_record()]
+    ).authenticate_thread()
+    entry.labels[first_access] = "first"
+    entry.labels[second_access] = "second"
     submitters = []
 
     async def route(*, submit_operation, **_kwargs):
@@ -191,13 +198,13 @@ async def test_cpu_binds_each_execution_credential_to_its_operation_submitter() 
     bus.register(GlobalRoutes.ALICE_RUN_AGENT, route)
     cpu = AliceCPU(bus, entry)
     results = []
-    for credential in (first_credential, second_credential):
+    for access in (first_access, second_access):
         results.extend(
             [
                 result
                 async for result in cpu.execute(
                     make_input_manifest(),
-                    credential=credential,
+                    access=access,
                     generation_options=None,
                     stream=False,
                 )

@@ -5,10 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivememory.core.access import WorkspaceOperation
+from hivememory.workspace.contracts.operations import ResolveCallTargetRequest
 
 if TYPE_CHECKING:
     from hivememory.core.access import WorkspaceAccessContext
-    from hivememory.core.models import AgentProfile, WorkspaceIdentity
+    from hivememory.core.models import AgentProfile
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
     from hivememory.workspace.resolution.profile import ProfileResolver
 
@@ -27,9 +28,8 @@ class ActorAgentService:
 
     async def resolve_call_target(
         self,
-        agent_alias: str | None,
+        request: ResolveCallTargetRequest,
         *,
-        target_workspace: WorkspaceIdentity,
         access: WorkspaceAccessContext,
     ) -> AgentProfile:
         """CALL 目标 Profile 读取（``agent.call``）：交付 AgentProfile 独立副本。
@@ -38,7 +38,5 @@ class ActorAgentService:
         自定义 alias 缺失、不可见、类型不符或配置损坏均显式失败，不降级为
         默认配置。读取 Profile 不等于获得其描述的权限。
         """
-        scope = self._authorizer.authorize_operation(
-            access, WorkspaceOperation.AGENT_CALL, target_workspace
-        )
-        return await self._profile_reader.get(agent_alias, scope=scope)
+        scope = self._authorizer.authorize_thread_operation(access, WorkspaceOperation.AGENT_CALL)
+        return await self._profile_reader.get(request.agent_alias, scope=scope)

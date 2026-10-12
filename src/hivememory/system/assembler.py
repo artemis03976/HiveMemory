@@ -4,7 +4,7 @@ HiveMemory 系统装配器
 将 HiveMemorySystem.build() 的关注层次拆分为独立方法：
   - _build_runtime     : 总线 / 事件 / 调度器 / WorkspaceAsset working set / workspace 读取运行时
   - _build_registries  : Provider & Model 注册表 + LLM 配置预解析
-  - _build_capabilities: workspace 能力服务 / 执行凭据表 / 操作入口
+  - _build_capabilities: workspace 能力服务 / 操作入口
   - _build_subsystems  : Gateway + Patchouli + Alice
   - _build_services    : 任务进程与其他应用服务
 
@@ -53,7 +53,6 @@ from hivememory.workspace.capability.root.assets import RootWorkspaceAssetServic
 from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 from hivememory.workspace.capability.root.topic import RootTopicService
-from hivememory.workspace.credentials import ExecutionCredentialRegistry
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.runner import TaskProcessRunner
 from hivememory.workspace.process.service import TaskProcessService
@@ -105,11 +104,10 @@ class _SubsystemBundle:
 
 @dataclass
 class _CapabilitiesBundle:
-    """子系统之前构建的 actor 能力产物；操作入口与进程共享唯一的凭据表。"""
+    """子系统之前构建的 actor 能力产物；操作入口与能力层共享同一操作授权者。"""
 
     memory: ActorMemoryService
     agent: ActorAgentService
-    credentials: ExecutionCredentialRegistry
     operations: WorkspaceOperationEntry
 
 
@@ -155,7 +153,7 @@ class SystemAssembler:
         access_control = self._build_access_control()
         capabilities = self._build_capabilities(runtime, access_control)
         subsystems = self._build_subsystems(runtime, registries, capabilities)
-        services = self._build_services(runtime, subsystems, access_control, capabilities)
+        services = self._build_services(runtime, subsystems, access_control)
 
         return HiveMemorySystem(
             config=self._config,
@@ -345,16 +343,13 @@ class SystemAssembler:
             operation_authorizer=access_control.operation_authorizer,
             profile_reader=runtime.workspace_runtime.profiles,
         )
-        credentials = ExecutionCredentialRegistry()
         operations = WorkspaceOperationEntry(
             memory,
             agent=agent,
-            credential_registry=credentials,
+            operation_authorizer=access_control.operation_authorizer,
             intent_registry=runtime.workspace_runtime.intents,
         )
-        return _CapabilitiesBundle(
-            memory=memory, agent=agent, credentials=credentials, operations=operations
-        )
+        return _CapabilitiesBundle(memory=memory, agent=agent, operations=operations)
 
     # ------------------------------------------------------------------
     # 层四：子系统（Gateway / Patchouli / Alice 平级装配）
@@ -408,7 +403,6 @@ class SystemAssembler:
         runtime: _RuntimeBundle,
         subsystems: _SubsystemBundle,
         access_control: _AccessControlBundle,
-        capabilities: _CapabilitiesBundle,
     ) -> _ServicesBundle:
         # 任务进程的编排依赖只交给执行器（四阶段骨架，所有进程共用）；
         # 注册入口只持有生命周期依赖（任务进程 Idea Q-3）。
@@ -431,7 +425,7 @@ class SystemAssembler:
             allocator=allocator,
             # 阶段授权在执行器内、每次阶段调用前执行。
             operation_authorizer=access_control.operation_authorizer,
-            credential_registry=capabilities.credentials,
+            thread_contexts=access_control.access_gateway,
             intent_registry=runtime.workspace_runtime.intents,
             gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
         )

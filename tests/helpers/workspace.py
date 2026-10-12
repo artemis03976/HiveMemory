@@ -165,6 +165,13 @@ class AccessTestComposition:
     principal: CallerPrincipal
     default_workspace: WorkspaceIdentity
 
+    async def authenticate_thread(
+        self, *, process_id: str = "test_run", **kwargs
+    ) -> WorkspaceAccessContext:
+        """先认证进程再派生主线程，actor API 测试不自行构造或解封 context。"""
+        process = await self.authenticate(binding=RunBinding.for_task_process(process_id), **kwargs)
+        return self.gateway.derive_thread_context(process)
+
     async def authenticate(
         self,
         *,

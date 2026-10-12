@@ -38,12 +38,13 @@ from weakref import WeakSet
 
 from hivememory.core.access import (
     AccessGrant,
+    AccessRunType,
     CallerPrincipal,
     PrincipalAuthenticator,
     RunBinding,
     WorkspaceAccessContext,
 )
-from hivememory.core.errors import AdmissionDeniedError
+from hivememory.core.errors import AdmissionDeniedError, ScopeRequiredError
 from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 
@@ -68,6 +69,7 @@ class AccessGrantSummary:
     principal_id: str
     run_type: str
     run_id: str
+    thread_id: str | None = None
 
 
 class WorkspaceAuthenticator:
@@ -124,6 +126,37 @@ class WorkspaceAuthenticator:
         self._issued.add(context)
         return context
 
+    def derive_thread_context(self, access: WorkspaceAccessContext) -> WorkspaceAccessContext:
+        """沿用已认证的授予内容，为主线程派生一份可独立撤销的 context。
+
+        派生不是重新认证，不访问接入登记或网关关闭状态；准入与操作许可
+        仍由授权点即时检查。请求级、线程级以及已撤销的 context 均不能派生。
+        """
+        if type(access) is not WorkspaceAccessContext:
+            raise ScopeRequiredError("派生需要有效的进程 context")
+        grant = access._unseal()
+        if grant is None or grant.binding.run_type is not AccessRunType.TASK_PROCESS:
+            raise ScopeRequiredError("派生需要有效的进程 context")
+        context = WorkspaceAccessContext._seal(
+            AccessGrant(
+                actor=grant.actor,
+                workspace=grant.workspace,
+                principal=grant.principal,
+                binding=RunBinding.for_execution_thread(grant.binding.run_id, "main"),
+            )
+        )
+        self._issued.add(context)
+        return context
+
+    def revoke_thread_context(self, access: WorkspaceAccessContext) -> None:
+        """只撤销线程 context，避免窄化端口误撤销仍需收尾的进程 context。"""
+        if type(access) is not WorkspaceAccessContext:
+            raise ScopeRequiredError("撤销线程需要线程 context")
+        grant = access._unseal()
+        if grant is not None and grant.binding.run_type is not AccessRunType.EXECUTION_THREAD:
+            raise ScopeRequiredError("撤销线程需要线程 context")
+        self.invalidate(access)
+
     def invalidate(self, access: WorkspaceAccessContext) -> None:
         """撤销单个 context（进程关闭或请求结束时调用）。
 
@@ -164,6 +197,7 @@ class WorkspaceAuthenticator:
             principal_id=grant.principal.principal_id,
             run_type=grant.binding.run_type.value,
             run_id=grant.binding.run_id,
+            thread_id=grant.binding.thread_id,
         )
 
 
@@ -180,8 +214,8 @@ class ActorAuthenticationGateway:
     直接接触 ``WorkspaceAuthenticator``。
 
     生命周期（v0.7.0 A1 访问边界返工第 4.8 节）：context 不设固定有效期，
-    只随三个时点失效——绑定的任务进程关闭、请求级 context 随请求结束、
-    System 停止。:meth:`close` 关闭网关并拒绝新的认证，已签发 context 照常
+    随绑定的任务进程关闭、CPU 执行结束、请求结束或 System 停止而失效。
+    :meth:`close` 关闭网关并拒绝新的认证，已签发 context 照常
     可用；任务进程收尾后经 :meth:`revoke_all_contexts` 撤销全部已签发
     context。本类不提供配置热更新——
     首版本地配置在运行实例内不可变，修改经重启生效。
@@ -199,7 +233,7 @@ class ActorAuthenticationGateway:
 
     @property
     def is_closed(self) -> bool:
-        """网关是否已关闭；关闭后不再签发 context。"""
+        """网关是否已关闭；关闭后拒绝新认证，已有进程仍可派生线程。"""
         return self._closed
 
     def close(self) -> None:
@@ -209,6 +243,14 @@ class ActorAuthenticationGateway:
     def invalidate_context(self, access: WorkspaceAccessContext) -> None:
         """撤销单个已签发 context；转交认证一侧（进程关闭或请求结束）。"""
         self._authenticator.invalidate(access)
+
+    def derive_thread_context(self, access: WorkspaceAccessContext) -> WorkspaceAccessContext:
+        """实现执行器的派生端口；关闭网关只拒绝新认证，不禁止已有进程派生。"""
+        return self._authenticator.derive_thread_context(access)
+
+    def revoke_thread_context(self, access: WorkspaceAccessContext) -> None:
+        """实现执行器的同步撤销端口，不暴露进程或请求 context 的撤销能力。"""
+        self._authenticator.revoke_thread_context(access)
 
     def revoke_all_contexts(self) -> None:
         """System 停止时撤销全部已签发 context；此后它们不再能通过授权。"""
@@ -250,6 +292,8 @@ class ActorAuthenticationGateway:
             raise TypeError("workspace 必须是 WorkspaceIdentity")
         if not isinstance(binding, RunBinding):
             raise TypeError("binding 必须是 RunBinding")
+        if binding.run_type is AccessRunType.EXECUTION_THREAD:
+            raise ScopeRequiredError("线程 context 必须从进程 context 派生")
 
         # ---- 1. Principal authentication：委托 System 实现的接入登记校验 ----
         self._principals.authenticate_principal(

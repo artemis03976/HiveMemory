@@ -45,6 +45,7 @@ from hivememory.core.errors import (
     OperationDeniedError,
     ResourceNotFoundError,
     ScopeRequiredError,
+    ThreadContextRevokedError,
 )
 from hivememory.core.models import (
     ActorIdentity,
@@ -87,6 +88,7 @@ from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
+from hivememory.workspace.contracts import ResolveReferencesRequest, RetrieveRequest
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     AccessTestComposition,
@@ -466,12 +468,12 @@ async def test_empty_whitelist_admits_entry_but_denies_every_resource_action(wir
     actor 读取在 backing 调用前检查 operation；意图提交路径在组装可信
     scope 后经公开路由到达真实生成链，缺少许可时不能登记生成任务。
     """
-    context = await wired.access.authenticate(agent_id="a3", workspace=MAIN)
+    context = await wired.access.authenticate_thread(agent_id="a3", workspace=MAIN)
 
     with pytest.raises(OperationDeniedError) as read_error:
         (
             await wired.actor_memory.resolve_references(
-                [str(str(uuid4()))], target_workspace=MAIN, access=context
+                ResolveReferencesRequest((str(str(uuid4())),)), access=context
             )
         )[0].atom
     assert read_error.value.details["reason"] == "operation_not_allowed"
@@ -554,11 +556,11 @@ async def test_actor_visible_read_enforces_visibility_and_workspace(wired):
         wired.store, alias="fact_foreign_ws", content="other ws", workspace=OTHER
     )
 
-    a1_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
+    a1_context = await wired.access.authenticate_thread(agent_id="a1", workspace=MAIN)
 
     visible = (
         await wired.actor_memory.resolve_references(
-            [public_atom.index.alias], target_workspace=MAIN, access=a1_context
+            ResolveReferencesRequest((public_atom.index.alias,)), access=a1_context
         )
     )[0].atom
     assert visible.payload.content == "visible"
@@ -566,7 +568,7 @@ async def test_actor_visible_read_enforces_visibility_and_workspace(wired):
     # 有 read 行为许可但资源 PRIVATE 只对 a2：对 a1 按不存在呈现
     secret = (
         await wired.actor_memory.resolve_references(
-            [private_atom.index.alias], target_workspace=MAIN, access=a1_context
+            ResolveReferencesRequest((private_atom.index.alias,)), access=a1_context
         )
     )[0].atom
     assert secret is None
@@ -574,7 +576,7 @@ async def test_actor_visible_read_enforces_visibility_and_workspace(wired):
     # 跨 Workspace 的正式 alias 不可见
     outside = (
         await wired.actor_memory.resolve_references(
-            [foreign.index.alias], target_workspace=MAIN, access=a1_context
+            ResolveReferencesRequest((foreign.index.alias,)), access=a1_context
         )
     )[0].atom
     assert outside is None
@@ -599,12 +601,12 @@ async def test_management_memory_reads_with_owner_semantics_independently(wired)
 @pytest.mark.asyncio
 async def test_single_context_reused_across_different_permitted_operations(wired):
     """同一有效 context 可先后执行 read/search；actor 操作不授予 root 管理能力。"""
-    context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
+    context = await wired.access.authenticate_thread(agent_id="a1", workspace=MAIN)
 
     public_atom = await _seed_public_fact(wired.store, alias="fact_reuse", content="reuse")
     read = (
         await wired.actor_memory.resolve_references(
-            [public_atom.index.alias], target_workspace=MAIN, access=context
+            ResolveReferencesRequest((public_atom.index.alias,)), access=context
         )
     )[0].atom
     assert read.payload.content == "reuse"
@@ -612,9 +614,7 @@ async def test_single_context_reused_across_different_permitted_operations(wired
     # 检索参数由调用方提交：检索请求由能力层用授权返回的可信 scope 构造
     # （A1 访问边界返工第 4.5 节），替身引擎无命中。
     retrieval = await wired.actor_memory.retrieve(
-        semantic_query="reuse",
-        target_workspace=MAIN,
-        access=context,
+        RetrieveRequest(semantic_query="reuse"), access=context
     )
     assert retrieval == []
 
@@ -820,29 +820,28 @@ async def _other_observe_context(wired):
 @pytest.mark.asyncio
 async def test_invalidated_context_rejected_and_reauthentication_restores_access(wired):
     """失效后的旧 context 在授权点拒绝；重新认证恢复（证据 7）。"""
-    context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
+    context = await wired.access.authenticate_thread(agent_id="a1", workspace=MAIN)
     public_atom = await _seed_public_fact(wired.store, alias="fact_ttl", content="ttl")
     first = (
         await wired.actor_memory.resolve_references(
-            [public_atom.index.alias], target_workspace=MAIN, access=context
+            ResolveReferencesRequest((public_atom.index.alias,)), access=context
         )
     )[0].atom
     assert first.payload.content == "ttl"
 
     wired.access.gateway.invalidate_context(context)
 
-    with pytest.raises(ScopeRequiredError) as exc_info:
+    with pytest.raises(ThreadContextRevokedError, match="revoked"):
         (
             await wired.actor_memory.resolve_references(
-                [public_atom.index.alias], target_workspace=MAIN, access=context
+                ResolveReferencesRequest((public_atom.index.alias,)), access=context
             )
         )[0].atom
-    assert exc_info.value.details["reason"] == "context_not_issued"
 
-    renewed = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
+    renewed = await wired.access.authenticate_thread(agent_id="a1", workspace=MAIN)
     refreshed = (
         await wired.actor_memory.resolve_references(
-            [public_atom.index.alias], target_workspace=MAIN, access=renewed
+            ResolveReferencesRequest((public_atom.index.alias,)), access=renewed
         )
     )[0].atom
     assert refreshed.payload.content == "ttl"

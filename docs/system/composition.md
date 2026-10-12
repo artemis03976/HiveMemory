@@ -16,7 +16,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # System 组合根与生命周期
@@ -42,24 +42,23 @@ HiveMemorySystem.build(config)
             ModelRegistry
        -> access-control bundle（两类登记分别从 configs/system_principals.yaml、configs/workspace_actors.yaml 装载）
             SystemActorAccessRegistry / WorkspaceActorAccessRegistry
-            WorkspaceAuthenticator（workspace.authentication；准入、签发与撤销）
+            WorkspaceAuthenticator（workspace.authentication；准入、签发、线程 context 派生与撤销）
             WorkspaceOperationAuthorizer（workspace.authorization；操作授权，只依赖访问注册表）
-            ActorAuthenticationGateway（workspace.authentication，注入 SystemPrincipalAuthenticator 与 WorkspaceAuthenticator）
+            ActorAuthenticationGateway（workspace.authentication，注入 SystemPrincipalAuthenticator 与 WorkspaceAuthenticator；同时实现线程 context 生命周期端口）
        -> capabilities bundle
             actor API：ActorMemoryService / ActorAgentService（workspace.capability.actor；注入操作授权者与统一读取视图）
-            ExecutionCredentialRegistry（workspace.credentials；共享执行凭据表）
-            WorkspaceOperationEntry（workspace.capability；凭据兑现，把 actor 请求薄分派到 actor API）
+            WorkspaceOperationEntry（workspace.capability；注入 actor API、操作授权者与写入意图登记；只接受线程 context，按请求类型直接分派到 actor API）
        -> subsystem bundle
             GatewaySystem / PatchouliSystem / AliceSystem（各自只接收自己的配置段；Alice 注入操作入口）
        -> service bundle
             CPUAllocator（workspace.process；注入操作授权者、Profile 读取端口（读取视图的 ProfileResolver）、AssetStore 只读 reader 与 memory_compiler / attachment_compiler 配置段）
-            TaskProcessRunner（workspace.process，四阶段骨架；注入全局总线、CPU 端口（AliceSystem.cpu_port）、CPUAllocator、执行凭据表、写入意图登记、操作授权者与 Gateway 请求超时）
+            TaskProcessRunner（workspace.process，四阶段骨架；注入全局总线、CPU 端口（AliceSystem.cpu_port）、CPUAllocator、线程 context 生命周期端口（认证网关）、写入意图登记、操作授权者与 Gateway 请求超时）
             TaskProcessService（workspace.process，注册入口，含进程表；注入 TaskProcessRunner、认证网关、操作授权者与 root RuntimeEventPublisher）
             PassiveIngressService / SystemReadinessService（system.application）
             root API：RootMemoryService / RootAgentProfileService / RootTopicService / RootMemoryTaskService / RootWorkspaceAssetService（workspace.capability.root；注入操作授权者，不接触读取视图）
 ```
 
-六个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，访问控制装载两类登记并组装认证网关与操作授权者，随后先构建 actor API、共享凭据表与操作入口，Alice 构建时即可注入入口；root API 在服务阶段构建，只交给门面；子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。认证网关只注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server；操作授权者注入 root API（root 授权）、actor API（actor 操作授权）、任务进程的执行器与 CPU 分配（阶段授权），以及注册入口（进程控制授权）；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[System 应用服务](./application-services.md)第 3 节）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。
+六个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，访问控制装载两类登记并组装认证网关与操作授权者，随后先构建 actor API 与操作入口，Alice 构建时即可注入入口；root API 在服务阶段构建，只交给门面；子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。认证网关注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server，另以只含派生与撤销线程 context 的 `ThreadContextLifecycle` 端口注入执行器；操作授权者注入 root API（root 授权）、actor API（actor 操作授权）、操作入口（线程 context 校验与进程关联）、任务进程的执行器与 CPU 分配（阶段授权），以及注册入口（进程控制授权）；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[System 应用服务](./application-services.md)第 3 节）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。
 
 ### 1.1 Runtime bundle
 
@@ -72,7 +71,7 @@ HiveMemorySystem.build(config)
 - `InMemoryWorkspaceAssetStore`：workspace 的进程内 WorkspaceAsset working set，保存当前资产、representation、opaque ref 和 lease；不按 Workspace 复制实例，由组合根创建并在关闭时最后清理；
 - `WorkspaceRuntime`：共享写入意图登记与读取视图（完整原子缓存、Profile 解析缓存、失效代次与 alias/Profile resolver），L2 冷读经 `GlobalSystemBus` 调用 Patchouli backing 路由；Alice 全部资源读取（含 SEARCH、CALL Profile）经 actor API 使用该视图，CPU 分配的 Profile 读取在阶段授权后直接使用该视图的 `ProfileResolver`。组合根创建后立即订阅 canonical 变更与三种写入意图结算事件，早于子系统构建及请求接收。
 
-写入意图登记、完整引用解析、原子与 Profile 读取缓存由 workspace 唯一持有；Alice 不持有自己的资源缓存或 resolver。CPUAllocator 只依赖 Profile 读取协议，runner 只签发与吊销执行凭据，不导入能力服务；CPU 驱动绑定凭据形成操作提交函数，入口与 runner 使用同一份凭据表和意图登记。WorkspaceAsset 命令端口由上传应用服务直接持有，附件上传不经过全局总线。
+写入意图登记、完整引用解析、原子与 Profile 读取缓存由 workspace 唯一持有；Alice 不持有自己的资源缓存或 resolver。CPUAllocator 只依赖 Profile 读取协议，runner 只经生命周期端口派生与撤销线程 context，不导入能力服务或认证一侧；CPU 驱动绑定线程 context 形成操作提交函数，入口与 runner 使用同一份意图登记。WorkspaceAsset 命令端口由上传应用服务直接持有，附件上传不经过全局总线。
 
 观测设施和业务总线在装配阶段就分开，是为了让 RuntimeEvent 的失败不会阻塞一次正常业务调用。
 

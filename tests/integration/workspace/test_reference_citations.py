@@ -13,7 +13,7 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
 from hivememory.core.contracts.events import GlobalEvents
 from hivememory.core.contracts.routes import GlobalRoutes
-from hivememory.core.errors import OperationDeniedError
+from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
 from hivememory.core.models import (
     IdentityScope,
     IndexLayer,
@@ -29,13 +29,12 @@ from hivememory.workspace.capability.actor.agent_profiles import ActorAgentServi
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
-    ExecutionCredential,
-    ExecutionCredentialRevokedError,
     ResolveReferencesRequest,
+    RetrieveRequest,
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
+    ThreadContextRevokedError,
 )
-from hivememory.workspace.credentials import ExecutionCredentialRegistry
 from hivememory.workspace.runtime import WorkspaceRuntime
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
@@ -86,10 +85,8 @@ class _ReferenceChain:
     runtime: WorkspaceRuntime
     memory: ActorMemoryService
     entry: WorkspaceOperationEntry
-    credentials: ExecutionCredentialRegistry
     composition: AccessTestComposition
     access: WorkspaceAccessContext
-    credential: ExecutionCredential
 
 
 @pytest_asyncio.fixture
@@ -104,11 +101,7 @@ async def chain():
     runtime = make_workspace_runtime(global_bus=bus)
     runtime.subscribe(bus)
     composition = make_access_composition([make_actor_access_record()])
-    access = await composition.authenticate()
-    credentials = ExecutionCredentialRegistry()
-    credential = credentials.issue(
-        access=access, target_workspace=composition.default_workspace, process_id="references"
-    )
+    access = await composition.authenticate_thread(process_id="references")
     memory = ActorMemoryService(
         bus, operation_authorizer=composition.authorizer, memory_reader=runtime.aliases
     )
@@ -117,15 +110,12 @@ async def chain():
         agent=ActorAgentService(
             operation_authorizer=composition.authorizer, profile_reader=runtime.profiles
         ),
-        credential_registry=credentials,
+        operation_authorizer=composition.authorizer,
         intent_registry=runtime.intents,
     )
     try:
-        yield _ReferenceChain(
-            bus, backing, runtime, memory, entry, credentials, composition, access, credential
-        )
+        yield _ReferenceChain(bus, backing, runtime, memory, entry, composition, access)
     finally:
-        credentials.revoke(credential)
         runtime.close()
         composition.gateway.close()
         composition.gateway.revoke_all_contexts()
@@ -147,15 +137,13 @@ def _add_atom(chain, alias="canonical", *, visibility="PUBLIC", user_id="test_us
 
 
 async def _resolve(chain, *aliases):
-    """经凭据绑定的公开操作请求读取，不向请求提交者暴露身份。"""
-    return await chain.entry.execute(
-        ResolveReferencesRequest(tuple(aliases)), credential=chain.credential
-    )
+    """经线程 context 绑定的公开操作请求读取，不向请求提交者暴露身份。"""
+    return await chain.entry.execute(ResolveReferencesRequest(tuple(aliases)), access=chain.access)
 
 
 async def _write(chain):
     return await chain.entry.execute(
-        SubmitWriteIntentRequest(WriteFocus(content="待结算内容")), credential=chain.credential
+        SubmitWriteIntentRequest(WriteFocus(content="待结算内容")), access=chain.access
     )
 
 
@@ -178,7 +166,7 @@ async def _settle(chain, pending, *, atom=None, discarded=False):
 
 @pytest.mark.asyncio
 async def test_reference_read_records_each_delivered_atom_once_with_authorized_scope(chain):
-    """重复项仍逐项交付，引用按正式 memory id 去重，身份只能来自入口凭据。"""
+    """重复项仍逐项交付，引用按正式 memory id 去重，身份只能来自入口线程 context。"""
     first = _add_atom(chain, "first")
     second = _add_atom(chain, "second")
 
@@ -301,7 +289,7 @@ async def test_update_base_resolution_does_not_record_citation(chain):
     atom = _add_atom(chain)
 
     pending = await chain.entry.execute(
-        SubmitUpdateIntentRequest("canonical", "更新指令"), credential=chain.credential
+        SubmitUpdateIntentRequest("canonical", "更新指令"), access=chain.access
     )
 
     assert pending.focus.base_uuid == str(atom.id)
@@ -319,12 +307,7 @@ async def test_update_base_resolution_does_not_record_citation(chain):
 async def test_search_does_not_record_citation(chain):
     """检索只交付匹配结果，不产生 READ/RUN 的引用记录副作用。"""
     atom = _add_atom(chain)
-    kwargs = {
-        "target_workspace": chain.composition.default_workspace,
-        "access": chain.access,
-    }
-
-    search = await chain.memory.retrieve(semantic_query="正式内容", **kwargs)
+    search = await chain.memory.retrieve(RetrieveRequest("正式内容"), access=chain.access)
 
     assert [item.id for item in search] == [atom.id]
     assert atom.meta.lifecycle.access_count == 0
@@ -399,21 +382,22 @@ async def test_cancellation_during_citation_propagates_to_reference_caller(chain
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("rejection", ["denied", "revoked", "unknown"])
+@pytest.mark.parametrize("rejection", ["denied", "revoked", "request-context"])
 async def test_rejected_reference_request_cannot_record_citation_even_after_cache_warmup(
     chain, rejection
 ):
-    """热缓存不能绕过凭据或 memory.read，拒绝时无额外引用。"""
+    """热缓存不能绕过线程 context 或 memory.read，拒绝时无额外引用。"""
     atom = _add_atom(chain)
     await _resolve(chain, "canonical")
-    credential = chain.credential
+    context = chain.access
     entry = chain.entry
     composition = None
-    error = ExecutionCredentialRevokedError
+    error = ThreadContextRevokedError
     if rejection == "revoked":
-        chain.credentials.revoke(credential)
-    elif rejection == "unknown":
-        credential = ExecutionCredential()
+        chain.composition.gateway.revoke_thread_context(context)
+    elif rejection == "request-context":
+        context = await chain.composition.authenticate()
+        error = ScopeRequiredError
     else:
         composition = make_access_composition(
             [
@@ -422,10 +406,7 @@ async def test_rejected_reference_request_cannot_record_citation_even_after_cach
                 )
             ]
         )
-        access = await composition.authenticate()
-        credential = chain.credentials.issue(
-            access=access, target_workspace=composition.default_workspace, process_id="denied"
-        )
+        context = await composition.authenticate_thread(process_id="denied")
         entry = WorkspaceOperationEntry(
             ActorMemoryService(
                 chain.bus,
@@ -436,17 +417,17 @@ async def test_rejected_reference_request_cannot_record_citation_even_after_cach
                 operation_authorizer=composition.authorizer,
                 profile_reader=chain.runtime.profiles,
             ),
-            credential_registry=chain.credentials,
+            operation_authorizer=composition.authorizer,
             intent_registry=chain.runtime.intents,
         )
         error = OperationDeniedError
     try:
         with pytest.raises(error):
-            await entry.execute(ResolveReferencesRequest(("canonical",)), credential=credential)
+            await entry.execute(ResolveReferencesRequest(("canonical",)), access=context)
         assert atom.meta.lifecycle.access_count == 1
         assert len(chain.backing.citations) == 1
     finally:
-        chain.credentials.revoke(credential)
+        chain.composition.gateway.invalidate_context(context)
         if composition:
             composition.gateway.close()
             composition.gateway.revoke_all_contexts()
