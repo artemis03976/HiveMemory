@@ -98,7 +98,7 @@ class CommandRegistry:
             return CommandParseResult(
                 raw_input=stripped,
                 name=tokens[0],
-                tokens=tokens,
+                tokens=tuple(tokens),
                 parse_status=CommandParseStatus.UNKNOWN,
                 error=f"Unknown system command: {tokens[0]}",
             )
@@ -116,7 +116,7 @@ class CommandRegistry:
             return CommandParseResult(
                 raw_input=stripped,
                 name=" ".join(tokens[: len(best.alias_tokens)]),
-                tokens=tokens,
+                tokens=tuple(tokens),
                 parse_status=CommandParseStatus.AMBIGUOUS,
                 error="Ambiguous system command",
             )

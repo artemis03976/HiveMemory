@@ -169,7 +169,7 @@ class RuleInterceptor(BaseInterceptor):
         return CommandParseResult(
             raw_input=query,
             name=name,
-            tokens=[name],
+            tokens=(name,),
             parse_status=CommandParseStatus.UNKNOWN,
             error="系统指令库未启用",
         )

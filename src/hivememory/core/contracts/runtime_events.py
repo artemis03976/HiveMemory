@@ -78,6 +78,9 @@ def generate_event_id() -> str:
     return f"evt_{uuid.uuid4().hex}"
 
 
+RuntimeEventSeverity = Literal["debug", "info", "warning", "error"]
+
+
 class RuntimeEvent(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
 
@@ -92,7 +95,7 @@ class RuntimeEvent(BaseModel):
     source: str | None = None
     subsystem: str | None = None
     component: str | None = None
-    severity: Literal["debug", "info", "warning", "error"] = "info"
+    severity: RuntimeEventSeverity = "info"
 
     process_id: str | None = None
     agent_run_id: str | None = None
@@ -112,6 +115,7 @@ class RuntimeEvent(BaseModel):
 
 __all__ = [
     "RuntimeEvent",
+    "RuntimeEventSeverity",
     "RuntimeEventType",
     "generate_event_id",
 ]

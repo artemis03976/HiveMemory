@@ -171,25 +171,26 @@ def merge_interaction_into_topic(
     binding 以 ``asset_id`` 幂等去重；原子性由「frozen 快照 → 新快照 →
     ``Store.put`` 整条替换」承担，互斥由调用方持有的 lease 保证。
     """
-    if asset_refs and not interaction_id:
-        raise ValueError("建立 asset binding 必须携带 interaction_id")
     bindings = list(topic.bindings)
-    existing_ids = {binding.asset_id for binding in bindings}
     now = datetime.now()
-    for asset_ref in asset_refs:
-        if not isinstance(asset_ref, WorkspaceAssetRef):
-            raise TypeError("asset_ref 必须是 WorkspaceAssetRef")
-        asset_id = asset_ref.asset_id
-        if asset_id in existing_ids:
-            continue
-        bindings.append(
-            TopicAssetBinding(
-                asset_ref=asset_ref,
-                first_bound_interaction_id=interaction_id,
-                bound_at=now,
+    if asset_refs:
+        if not interaction_id:
+            raise ValueError("建立 asset binding 必须携带 interaction_id")
+        existing_ids = {binding.asset_id for binding in bindings}
+        for asset_ref in asset_refs:
+            if not isinstance(asset_ref, WorkspaceAssetRef):
+                raise TypeError("asset_ref 必须是 WorkspaceAssetRef")
+            asset_id = asset_ref.asset_id
+            if asset_id in existing_ids:
+                continue
+            bindings.append(
+                TopicAssetBinding(
+                    asset_ref=asset_ref,
+                    first_bound_interaction_id=interaction_id,
+                    bound_at=now,
+                )
             )
-        )
-        existing_ids.add(asset_id)
+            existing_ids.add(asset_id)
     return topic.model_copy(
         update={
             "blocks": (*topic.blocks, block),

@@ -4,7 +4,12 @@ from datetime import datetime
 
 from hivememory.config.patchouli import ArtifactComponentConfig
 from hivememory.core.models import WorkspaceIdentity
-from hivememory.core.models.artifact import ArtifactRef, DocumentArtifact, DocumentLocator
+from hivememory.core.models.artifact import (
+    ArtifactRef,
+    DocumentArtifact,
+    DocumentLocator,
+    DocumentSourceType,
+)
 from hivememory.patchouli.memory_library import ArtifactStore
 
 _DOC_FIELDS = set(DocumentArtifact.model_fields)
@@ -17,7 +22,7 @@ class DocumentArtifactBuilder:
     async def build_and_store(
         self,
         *,
-        source_type: str,
+        source_type: DocumentSourceType,
         source_uri: str | None,
         content_hash: str | None,
         retrieved_at: datetime,
@@ -41,7 +46,7 @@ class NoOpDocumentArtifactBuilder:
     async def build_and_store(
         self,
         *,
-        source_type: str,
+        source_type: DocumentSourceType,
         source_uri: str | None,
         content_hash: str | None,
         retrieved_at: datetime,

@@ -12,6 +12,7 @@ from hivememory.components.events.bus import (
 )
 from hivememory.core.contracts.runtime_events import (
     RuntimeEvent,
+    RuntimeEventSeverity,
     RuntimeEventType,
 )
 from hivememory.core.models import IdentityScope, require_identity_scope
@@ -323,7 +324,7 @@ class GatewayWorkflow:
         self,
         event_type: RuntimeEventType,
         *,
-        severity: str = "info",
+        severity: RuntimeEventSeverity = "info",
         reason: str | None = None,
         message: str | None = None,
         data: dict[str, Any] | None = None,

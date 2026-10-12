@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from hivememory.core.models import IdentityScope, TurnEventRenderAs
+from hivememory.core.models import IdentityScope, TurnEventRenderAs, freeze_mapping
 from hivememory.core.models.interaction import TurnEvent
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import InteractionPayload
@@ -212,7 +212,7 @@ class MessageTurnBuffer:
                 action_id=action_id,
                 tool_name=tool_name,
                 tool_kind=tool_kind,
-                tool_args=tool_args,
+                tool_args=None if tool_args is None else freeze_mapping(tool_args),
                 target=target,
             )
         )

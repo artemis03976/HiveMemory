@@ -153,6 +153,8 @@ class MemoryIntentSubmissionService:
         """把中立意图转换为内部生成任务投影（本 API 的内部实现细节）。"""
         resolved_intent_id = intent.intent_id or f"intent_{uuid4().hex[:12]}"
         token = _intent_token(resolved_intent_id)
+        focus: WriteFocus | UpdateFocus
+        source_verb: Literal["WRITE", "UPDATE"]
         if intent.kind == "write":
             slug = _slugify(intent.title or intent.content or "") or "untitled"
             pending_alias = f"draft_{slug}_{token}"

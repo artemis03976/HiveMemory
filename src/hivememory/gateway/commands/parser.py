@@ -3,6 +3,7 @@ from __future__ import annotations
 import shlex
 from typing import Any
 
+from hivememory.core.models import freeze_mapping
 from hivememory.core.protocol.gateway import CommandParseResult, CommandParseStatus
 from hivememory.gateway.commands.models import CommandDefinition
 
@@ -91,6 +92,7 @@ def build_parse_result(
 ) -> CommandParseResult:
     """把匹配到的指令 definition 与参数 token 合成为结构化解析结果。"""
 
+    frozen_tokens = tuple(tokens)
     try:
         args = parse_command_args(arg_tokens)
     except CommandParseError as exc:
@@ -98,7 +100,7 @@ def build_parse_result(
             command_id=definition.command_id,
             raw_input=raw_input,
             name=definition.primary_name,
-            tokens=tokens,
+            tokens=frozen_tokens,
             matched_alias=matched_alias,
             parse_status=CommandParseStatus.INVALID_ARGS,
             error=str(exc),
@@ -110,8 +112,8 @@ def build_parse_result(
             command_id=definition.command_id,
             raw_input=raw_input,
             name=definition.primary_name,
-            args=args,
-            tokens=tokens,
+            args=freeze_mapping(args),
+            tokens=frozen_tokens,
             matched_alias=matched_alias,
             parse_status=CommandParseStatus.INVALID_ARGS,
             error=validation_error,
@@ -121,8 +123,8 @@ def build_parse_result(
         command_id=definition.command_id,
         raw_input=raw_input,
         name=definition.primary_name,
-        args=args,
-        tokens=tokens,
+        args=freeze_mapping(args),
+        tokens=frozen_tokens,
         matched_alias=matched_alias,
         parse_status=CommandParseStatus.MATCHED,
     )

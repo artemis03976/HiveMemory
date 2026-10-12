@@ -60,9 +60,9 @@ class MemoryPerceptionEngine:
             user_query=payload.user_message,
             rewritten_query=payload.rewritten_query,
             assistant_final_text=payload.assistant_final_text or "",
-            turn_events=payload.turn_events,
-            actions=actions,
-            semantic_traces=payload.mtp_traces,
+            turn_events=tuple(payload.turn_events),
+            actions=tuple(actions),
+            semantic_traces=tuple(payload.mtp_traces),
         )
         total_tokens = (
             estimate_tokens(turn.user_query)

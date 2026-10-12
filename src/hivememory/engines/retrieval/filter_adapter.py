@@ -10,9 +10,11 @@ from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
 from qdrant_client.models import (
+    Condition,
     FieldCondition,
     Filter,
     MatchValue,
+    Range,
 )
 
 from hivememory.core.models import (
@@ -106,7 +108,7 @@ class QdrantFilterConverter(FilterConverter):
         if filters.min_confidence > 0:
             must_conditions.append(
                 FieldCondition(
-                    key="meta.lifecycle.confidence_score", range={"gte": filters.min_confidence}
+                    key="meta.lifecycle.confidence_score", range=Range(gte=filters.min_confidence)
                 )
             )
 
@@ -162,7 +164,7 @@ class QdrantFilterConverter(FilterConverter):
 
     @staticmethod
     def _read_policy_filter(actor: ActorIdentity) -> Filter:
-        branches = [
+        branches: list[Condition] = [
             Filter(
                 must=[
                     FieldCondition(
