@@ -13,7 +13,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-12
 ---
 
 # 记忆检索
@@ -32,16 +32,17 @@ RetrievalRequest
        -> RetrievalQuery(belong_to, from_actor, business filters)
   -> RetrievalFamiliar
   -> RetrievalEngine
-  -> Dense / Sparse / Hybrid Retriever
-       -> Qdrant MidTermMemoryStore.search
-       -> Fusion
-       -> optional Reranker
+       -> 召回：Dense / Sparse / Hybrid Retriever
+            -> Qdrant MidTermMemoryStore.search
+            -> Fusion（仅 Hybrid）
+       -> 重排：Reranker（CrossEncoderReranker；关闭时 NoopReranker）
+       -> 截取 top-k
   -> RetrievalResult
   -> RetrievalResponse(MemoryAtom[])
   -> caller-owned MemoryCompiler
 ```
 
-`RetrievalEngine` 是很薄的执行层，只调用 retriever 并统计 latency/count。业务过滤、话题读取、Agent Profile 读取和生命周期副作用由 RetrievalFamiliar 承担。
+`RetrievalEngine` 是很薄的执行层：编排召回与重排两个阶段，并统计 latency/count。业务过滤、话题读取、Agent Profile 读取和生命周期副作用由 RetrievalFamiliar 承担。
 
 ## 2. 三种读取面
 
@@ -80,22 +81,28 @@ DenseRetriever 使用语义向量相似度，并可应用：
 
 SparseRetriever 使用 Qdrant 稀疏向量，目标是保留函数名、错误码和专有实体等词汇级信号，不应用时间衰减。
 
-默认 HybridRetriever 并行执行两路召回；任一路普通异常会退化为空结果，但 `StorageOfflineError` / `StorageReadError` 会重新抛出，使上层能够区分存储不可用与“确实没有相关记忆”。
+默认 HybridRetriever 并行执行两路召回；任一路普通异常会退化为空结果，但 `StorageOfflineError` / `StorageReadError` 会重新抛出，使上层能够区分存储不可用与“确实没有相关记忆”。取消等非 `Exception` 的 `BaseException` 同样向上传播，不会被当作某一路的检索结果交给融合。
+
+Hybrid 的 dense/sparse 两路可以分别在配置中关闭；关闭的一路由 `NoOpRetriever`（总是返回空结果）顶替，Hybrid 始终持有两个检索器并照常融合，不在调用处判空。两路同时关闭没有召回来源，配置加载时显式失败。
 
 `RetrievalQuery.keywords` 当前没有进入 `get_search_text()`，两路实际都使用 `semantic_query` 生成向量。换言之，Gateway 已能给出 keywords，但它们尚未形成独立 sparse query 输入，这是当前分析契约与检索实现之间的缺口。
 
 ## 5. Fusion 与 Rerank
 
-Hybrid 先融合 Dense/Sparse `SearchResults`，再可选重排，最后截取 top-k。
+Hybrid 融合 Dense/Sparse `SearchResults` 后截取 top-k。
 
 当前 Fusion 有两种：
 
 - Reciprocal Rank Fusion：按两路名次合并，适合不直接比较异构原始分数；
 - Adaptive Weighted Fusion：按 debug/concept/timeline/brainstorm 模式组合 dense、sparse、confidence 和 vitality 因素。
 
-默认配置使用 RRF。Reranker 可注入 cross-encoder service；未提供 service 时即使配置开启也会记录 warning 并关闭重排。CrossEncoderReranker 通过 MemoryCompiler 的 `DENSE_EMBEDDING` target 构造候选文本，避免维护另一套排序文本拼接。
+默认配置使用 RRF。
 
-分数阈值的语义当前并不完全统一：Dense/Sparse 在存储召回时接收阈值，Hybrid 融合后又根据 reranker 类型选择是否过滤；RRF score 与 cosine score 不能直接共享同一阈值。调用方应把 top-k 视为稳定控制，把跨策略 threshold 视为仍需收敛的实现细节。
+重排序不属于任何检索器，而是 RetrievalEngine 在召回之后的独立阶段：引擎先按重排器的 `candidate_count(top_k)` 向检索器索取候选，交给重排器后再截取 top-k。重排能独立于召回策略启用，dense、sparse 与 hybrid 都接收同一个重排阶段；检索器只负责“找什么”，不感知后续是否精排。配置位于 `patchouli.retrieval.reranker`，与 `retriever` 并列；写在旧位置 `retrieval.retriever.reranker` 时配置加载显式失败并提示迁移，而不是被静默忽略。
+
+重排阶段始终存在：`retrieval.reranker` 关闭时由 `NoopReranker` 顶替，候选数等于 top-k、结果原样返回；配置开启但未装配重排服务时同样退化为 `NoopReranker` 并记录 warning。CrossEncoderReranker 以配置的 `top_k`（默认 20）作为候选池，通过 MemoryCompiler 的 `DENSE_EMBEDDING` target 构造候选文本，避免维护另一套排序文本拼接。
+
+分数阈值的语义当前并不完全统一：Dense/Sparse 在存储召回时接收阈值；Hybrid 融合后不套用阈值（融合分数与相似度阈值不可比），其内部两路使用各自配置的阈值；重排后的分数不再过滤。调用方应把 top-k 视为稳定控制，把跨策略 threshold 视为仍需收敛的实现细节。
 
 ## 6. 与 MemoryCompiler 的边界
 
@@ -122,7 +129,7 @@ Retrieval 只返回 atoms。当前主要调用者分别编译：
 
 ## 8. 失败与降级
 
-普通检索对 storage offline/read error 保持结构化异常；其他未知异常记录日志并返回空 response。Profile 精确解析更严格：显式 alias 的任何加载异常都不得转为空结果或 Omni-Doll fallback。这个边界让系统可以对“书库离线”禁用记忆能力，而不会把配置或授权失败伪装成一次成功的 Agent 选择。
+普通检索对 storage offline/read error 保持结构化异常；取消始终向上传播；其他未知异常记录日志并返回空 response。Profile 精确解析更严格：显式 alias 的任何加载异常都不得转为空结果或 Omni-Doll fallback。这个边界让系统可以对“书库离线”禁用记忆能力，而不会把配置或授权失败伪装成一次成功的 Agent 选择。
 
 空 response 因而有两种可能：确实无结果，或某个被 Familiar 吸收的普通异常。RuntimeEvent/日志仍是定位后者的必要证据，业务层不能把空列表当作完整健康证明。
 
@@ -130,8 +137,7 @@ Retrieval 只返回 atoms。当前主要调用者分别编译：
 
 - `tags`、`time_range` 尚未转换为 Qdrant filters；
 - Gateway keywords 尚未进入独立 sparse query；
-- Hybrid 子 retriever 虽有 enabled 开关，但关闭单路后当前 Hybrid 调用仍假定对象存在，非默认组合需要补齐 NoOp/分支处理；
-- 跨 Dense、Sparse、RRF 与 reranker 的 threshold 口径未统一；启用 reranker 时 Hybrid 不应用分数阈值（与代码注释相反），默认配置下 `RetrievalEngine` 的 0.75 默认阈值实际不生效，见 [Todo](../todo/retrieval-hybrid-threshold-with-reranker.md)；
+- 跨 Dense、Sparse、RRF 与 reranker 的 threshold 口径未统一；重排后的分数不过滤，默认配置下 `RetrievalEngine` 的 0.75 默认阈值交给 Hybrid 后不生效，见 [Todo](../todo/retrieval-hybrid-threshold-with-reranker.md)；
 - 普通异常可能被投影为空结果，调用方只能通过观测区分；
 - 普通检索不搜索长期 archive，也不自动 revive；
 - 当前 retrieval response 主要暴露 atoms，`SearchResult.match_reason` 等解释元信息没有完整进入公共响应；

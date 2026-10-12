@@ -21,7 +21,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-12
 ---
 
 # 多 Agent 编排
@@ -112,6 +112,8 @@ current frame emits CALL
 ```
 
 `suspend` 不能被当作一条正文为空的成功响应。如果执行循环直接继续，Agent 会在被调用任务尚未执行时向下生成，CALL 的任务身份、结果和取消边界都会丢失。RunExecutor 必须先等待被调用任务完成，再以同一 action_id 通过 `AgentRuntime.apply_call_response()` 回填 tool result。
+
+`SUSPENDED` 结果必须同时携带 `MTPCallRequest` 与 action_id。RunExecutor 在进入 CallCoordinator 之前经 `FrameExecutionResult.require_call_suspension()` 校验，缺失任一项即显式失败、不进入 CALL 事务；CallCoordinator 的 begin/complete/cancel 与响应提交也只经该方法取得挂起信息，不各自假定字段存在。
 
 ### 3.1 Profile 解析
 

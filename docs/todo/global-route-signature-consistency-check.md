@@ -9,7 +9,7 @@ related_docs:
   - docs/contracts/subsystem-contracts.md
   - docs/system/attachments.md
   - docs/archive/plans/v0.7.0-identity-access-batch-2.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-12
 ---
 
 # 总线路由的类型化与静态签名检查
@@ -53,7 +53,9 @@ class AsyncSystemBus:
 
 ## 前置条件
 
-- **mypy 门禁**：CI 目前只运行 pytest、ruff 与 black，不运行 mypy，`mypy src` 有约 209 个既有错误。没有门禁时类型化 route 不提供任何保护。owner 于 2026-10-04 决定：本事项与 mypy 错误修复分支一同完成；门禁至少覆盖 route 契约模块与全部 `request` 调用点所在模块。
+- **mypy 门禁**：CI 目前只运行 pytest、ruff 与 black，不运行 mypy。没有门禁时类型化 route 不提供任何保护。owner 于 2026-10-04 决定：本事项与 mypy 错误修复分支一同完成；门禁至少覆盖 route 契约模块与全部 `request` 调用点所在模块。
+  - 进度（2026-10-12，分支 `fix/mypy-typing-baseline`）：`mypy src` 由 202 个错误降至 38 个，剩余全部是总线 `request` 返回 `Any` 造成的 `no-any-return`（31 处直接返回，7 处经中间变量），由本事项的类型化 route 消除；第三方类型存根已与 mypy 一并锁定精确版本。
+  - 门禁上线前还需处理依赖版本：CI 以 `pip install -e ".[dev]"` 安装，pydantic、qdrant-client、litellm 等运行依赖只有下界约束，而 mypy 结果依赖这些库自带的类型标注；需让 CI 按 `uv.lock` 安装或另行锁定，否则上游发版可能使门禁结果漂移。
 - handler 与调用点模块的类型标注需要能被 mypy 解析（只在 `TYPE_CHECKING` 下导入的名称对 mypy 可见，不影响静态检查）。
 
 ## 约束

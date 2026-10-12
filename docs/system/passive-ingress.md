@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-12
 ---
 
 # 被动对话摄入
@@ -34,7 +34,10 @@ Passive Ingress 是外部对话的记忆中间件。它接收已经在其他 har
 - `external_event_id`：与 `source` 共同构成进程内幂等键；
 - 可选 `turn_id`、`sequence`、`occurred_at`；
 - `role`：`user`、`assistant`、`tool_call`、`tool_result`；
+- `render_as`：tool_result 的历史渲染提示，取值 `plain`（默认）、`system_tool_result`、`system_call_response`，与 `TurnEvent.render_as` 共用同一取值集合；
 - `content`、tool metadata、`is_final`。
+
+`role` 与 `render_as` 的取值在入口校验：`/ingest` 请求模型与 `PassiveIngressEvent` 都声明同一取值集合（`render_as` 与 `TurnEvent` 共用），非法值在 HTTP 入口返回 422，不进入服务。若校验推迟到写入 accumulator 时才发生，事件已占用 dedup，connector 以同一 `external_event_id` 修正重试会被判为 duplicate，事件随之丢失。
 
 内部 `PassiveConversationKey` 还叠加 HiveMemory 的 `user_id`、`agent_id` 和可选 `team_id`。它是外部会话的分桶和排序键，不是 Workspace 资源所有权键；Workspace 只随当前 turn payload 保存。若相同会话 key 的在途 turn 发生 Workspace 漂移，入口会拒绝追加，而不会通过重新分桶掩盖冲突。同一 key 的事件路由、Gateway/retrieval、accumulator 修改和 queue admission 由 keyed async lock 串行化；不同会话仍可并发。
 

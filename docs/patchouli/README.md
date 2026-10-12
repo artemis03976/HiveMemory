@@ -18,7 +18,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-12
 ---
 
 # Patchouli
@@ -138,9 +138,8 @@ Retrieval 负责根据身份与查询找到候选 `MemoryAtom`，MemoryCompiler 
 ```text
 RetrievalRequest
   -> QueryFilters
-  -> dense / sparse recall
-  -> fusion
-  -> optional rerank
+  -> recall: dense / sparse / hybrid（融合两路）
+  -> rerank stage（关闭时为 NoopReranker）
   -> MemoryAtom[]
   -> MemoryCompiler(target, strategy, language)
   -> task-specific text view

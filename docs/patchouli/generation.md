@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-12
 ---
 
 # 记忆生成
@@ -112,6 +112,8 @@ Mode A/B 使用 `title + summary` 对中期库执行 dense top-1 搜索，Dedupl
 | `UPDATE` | 用 draft 内容覆盖现有 head；提交边界递增 version 并写版本 Artifact；合并结果与现有内容一致时降级为 `TOUCH`（§3.2：无变化不增版本） |
 | `TOUCH` | 经受限 `patch_payload` 推进 access count 与 last_accessed_at；不改内容时间、不升版本、不重算向量 |
 | `DISCARD` | 不写 MemoryAtom，返回低质量重复消息 |
+
+`TOUCH` 与 `UPDATE` 都作用于查重命中的已有记忆，Deduplicator 必须随决策返回该记忆；违反这一约定时 GenerationEngine 显式失败，不以缺失的记忆继续构造结果。
 
 去重 UPDATE 当前使用轻量覆盖，不调用强合并 prompt；这是刻意保守的当前实现，但也意味着 draft 质量直接决定新 head。历史由 MemoryVersionArtifact 保存，不能通过向正文不断追加旧版本来模拟版本控制。
 
