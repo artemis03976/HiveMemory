@@ -36,6 +36,7 @@ from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import RetrievalQuery
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.memory_library.library import MemoryLibrary
+from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class RetrievalFamiliar:
         self,
         engine: RetrievalEngine,
         memory_library: MemoryLibrary,
-        local_bus: Any | None = None,
+        local_bus: PatchouliBus | None = None,
     ):
         """
         初始化检索使魔

@@ -13,6 +13,7 @@ from hivememory.core.models.query import QueryFilters
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.engines.retrieval.models import RetrievalQuery
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.utils.uuid import normalize_uuid
 
 
@@ -25,7 +26,7 @@ class MemoryManagementService:
     边界独立校验，读取 backing 路由同时服务于阶段编排与 actor 读取视图。
     """
 
-    def __init__(self, *, bus) -> None:
+    def __init__(self, *, bus: PatchouliBus) -> None:
         self._bus = bus
 
     # ---- 管理用例（root API） ----

@@ -150,7 +150,7 @@ class PatchouliService:
                 topic_id=real_topic_id,
                 is_new_topic=is_new,
                 topic_context=topic_context,
-                pool_topics=pool_topics,
+                pool_topics=list(pool_topics),
                 retrieval_result=retrieval_result,
                 storage_available=await self._local_bus.request(
                     PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,

@@ -8,7 +8,6 @@ import uuid
 from collections import OrderedDict
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from typing import Any
 
 from hivememory.components.events.bus import (
     NullRuntimeEventSink,
@@ -41,6 +40,7 @@ from hivememory.patchouli.control.memory_generation.queue import (
     MemoryGenerationResults,
 )
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
+from hivememory.patchouli.runtime.bus import PatchouliBus
 
 logger = logging.getLogger(__name__)
 
@@ -85,7 +85,7 @@ class MemoryGenerationTaskController:
     def __init__(
         self,
         *,
-        bus: Any,
+        bus: PatchouliBus,
         runtime_events: RuntimeEventSink | None = None,
         memory_queue: MemoryGenerationQueue | None = None,
         queue_policy: QueuePolicy | None = None,

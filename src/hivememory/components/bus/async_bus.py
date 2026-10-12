@@ -16,9 +16,10 @@ AsyncSystemBus — 纯异步系统总线基类
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, overload
 
 from hivememory.components.bus.arguments import RouteArgumentChecker
+from hivememory.core.contracts.route import Route
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +34,12 @@ class AsyncSystemBus:
 
     # ========== RPC（请求-响应）==========
 
+    @overload
+    def register[**P, R](self, route: Route[P, R], handler: Callable[P, Awaitable[R]]) -> None: ...
+
+    @overload
+    def register(self, route: str, handler: Callable[..., Awaitable[Any]]) -> None: ...
+
     def register(self, route: str, handler: Callable[..., Awaitable[Any]]) -> None:
         if route in self._handlers:
             logger.warning(f"AsyncSystemBus: route '{route}' overwritten")
@@ -42,6 +49,12 @@ class AsyncSystemBus:
     def unregister(self, route: str) -> None:
         self._handlers.pop(route, None)
         self._checkers.pop(route, None)
+
+    @overload
+    async def request[**P, R](self, route: Route[P, R], *args: P.args, **kwargs: P.kwargs) -> R: ...
+
+    @overload
+    async def request(self, route: str, *args: Any, **kwargs: Any) -> Any: ...
 
     async def request(self, route: str, *args: Any, **kwargs: Any) -> Any:
         handler = self._handlers.get(route)
