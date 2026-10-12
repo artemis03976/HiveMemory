@@ -184,7 +184,7 @@ class PatchouliSystem(SubsystemProtocol):
 
     _MAINTENANCE_OWNER = "patchouli"
 
-    def register_maintenance_tasks(self, scheduler) -> bool:
+    def register_maintenance_tasks(self, scheduler: AsyncMaintenanceScheduler) -> bool:
         """向全局维护器注册 Patchouli 子系统的维护任务。"""
         if not self._scheduler_config.enabled:
             return False
@@ -209,7 +209,7 @@ class PatchouliSystem(SubsystemProtocol):
         )
         return True
 
-    def unregister_maintenance_tasks(self, scheduler) -> int:
+    def unregister_maintenance_tasks(self, scheduler: AsyncMaintenanceScheduler) -> int:
         """从全局维护器卸载 Patchouli 子系统的维护任务。"""
         return scheduler.unregister_owner(self._MAINTENANCE_OWNER)
 

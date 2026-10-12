@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Sequence
 from uuid import UUID
 
 from hivememory.core.errors import WorkspaceMismatchError
@@ -248,7 +249,7 @@ class MemoryGenerationCoordinator:
         topic_id: str,
         topic_title: str,
         topic_summary: str,
-        blocks: list[LogicalBlock],
+        blocks: Sequence[LogicalBlock],
         asset_bindings: tuple = (),
     ) -> InteractionArtifactInput | None:
         """将原始交互数据冻结为生成数据平面的交互输入。"""

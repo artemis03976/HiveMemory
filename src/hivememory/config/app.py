@@ -7,12 +7,14 @@
 
 import logging
 import os
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
 import yaml
 from dotenv import dotenv_values
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
 from hivememory.config.alice import AliceConfig
@@ -156,6 +158,21 @@ def yaml_config_settings_source() -> dict[str, Any]:
         return {}
 
 
+class _LoaderSettingsSource(PydanticBaseSettingsSource):
+    """把返回整份配置 dict 的装载函数适配为 pydantic-settings source。"""
+
+    def __init__(self, settings_cls: type[BaseSettings], load: Callable[[], dict[str, Any]]):
+        super().__init__(settings_cls)
+        self._load = load
+
+    def get_field_value(self, field: FieldInfo, field_name: str) -> tuple[Any, str, bool]:
+        # 装载函数一次产出整份 dict，不按字段取值。
+        return None, field_name, False
+
+    def __call__(self) -> dict[str, Any]:
+        return self._load()
+
+
 # ========== 顶层基础设施配置 ==========
 
 
@@ -240,9 +257,9 @@ class HiveMemoryConfig(BaseSettings):
             init_settings,
             env_settings,
             dotenv_settings,
-            legacy_env_alias_settings_source,
-            provider_credentials_settings_source,
-            yaml_config_settings_source,
+            _LoaderSettingsSource(settings_cls, legacy_env_alias_settings_source),
+            _LoaderSettingsSource(settings_cls, provider_credentials_settings_source),
+            _LoaderSettingsSource(settings_cls, yaml_config_settings_source),
             file_secret_settings,
         )
 

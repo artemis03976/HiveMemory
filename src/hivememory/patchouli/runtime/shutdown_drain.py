@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 from hivememory.patchouli.control.memory_generation.models import (
@@ -24,7 +24,7 @@ _GENERATION_SUMMARY_KEYS = (
 
 
 def build_shutdown_generation_summary(
-    tasks: list[MemoryGenerationTask | None],
+    tasks: Sequence[MemoryGenerationTask | None],
 ) -> dict[str, int]:
     """从 shutdown 等待返回的任务快照构造观测计数。
 

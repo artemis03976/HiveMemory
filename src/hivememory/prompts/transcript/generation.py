@@ -28,6 +28,8 @@ GenerationTranscriptBuilder — 记忆生成视图构建器
 版本: 1.0 (Phase 3)
 """
 
+from collections.abc import Sequence
+
 from hivememory.core.models import LogicalBlock, TraceItem
 from hivememory.engines.generation.models import GenerationContext, GenerationTurn
 
@@ -42,7 +44,7 @@ class GenerationTranscriptBuilder:
 
     def build_context(
         self,
-        blocks: list[LogicalBlock],
+        blocks: Sequence[LogicalBlock],
         state_summary: str = "",
     ) -> GenerationContext:
         """

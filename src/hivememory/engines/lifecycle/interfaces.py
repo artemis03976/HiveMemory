@@ -9,9 +9,8 @@ HiveMemory - Lifecycle 模块接口抽象层
 
 from abc import ABC, abstractmethod
 from collections.abc import Iterable
-from uuid import UUID
 
-from hivememory.core.models import MemoryAtom
+from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 
 
 class BaseGarbageCollector(ABC):
@@ -27,17 +26,17 @@ class BaseGarbageCollector(ABC):
     def scan_candidates(
         self,
         memories: Iterable[MemoryAtom],
-        vitality_threshold: float,
-    ) -> list[UUID]:
+        vitality_threshold: float | None = None,
+    ) -> list[WorkspaceMemoryKey]:
         """
         扫描低于生命力阈值的记忆
 
         Args:
             memories: 已刷新生命力的记忆集合
-            vitality_threshold: 生命力阈值 (0-100)
+            vitality_threshold: 生命力阈值 (0-100)；缺省使用实现的配置阈值
 
         Returns:
-            List[UUID]: 候选记忆ID列表
+            候选记忆的 Workspace 内资源键列表
         """
         pass
 

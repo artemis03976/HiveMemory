@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Sequence
+from typing import Any
 
 from hivememory.config.gateway import TopicRouterConfig
 from hivememory.core.models import TopicSnapshot
@@ -47,7 +48,7 @@ class TopicRouterEngine:
             language=self._language,
             active_topics_menu=self._render_topics(topic_snapshots),
         )
-        kwargs = {}
+        kwargs: dict[str, Any] = {}
         if self._config.model_override:
             kwargs["model"] = self._config.model_override
         try:

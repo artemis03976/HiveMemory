@@ -68,6 +68,7 @@ from hivememory.patchouli.runtime.shutdown_drain import (
 if TYPE_CHECKING:
     from hivememory.infrastructure.rerank import FastEmbedRerankerService
     from hivememory.patchouli.control.memory_generation import MemoryGenerationCoordinator
+    from hivememory.patchouli.memory_library import MemoryLibrary
     from hivememory.patchouli.service import PatchouliService
     from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
     from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
@@ -336,7 +337,7 @@ class PatchouliRuntime:
         # MemoryLibrary：三层存储协调层，在引擎构建前初始化以便注入
         self.memory_library = self._build_memory_library()
 
-    def _build_memory_library(self):
+    def _build_memory_library(self) -> MemoryLibrary:
         """构建 MemoryLibrary（三层存储协调层）"""
         from hivememory.patchouli.memory_library import (
             FileBasedStorageAdapter,

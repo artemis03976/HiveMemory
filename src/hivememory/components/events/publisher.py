@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Mapping
 from dataclasses import asdict, dataclass, replace
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel
 
@@ -86,7 +86,7 @@ class RuntimeEventPublisher:
         atom_id: str | None = None,
         workspace_id: str | None = None,
     ) -> RuntimeEventPublisher:
-        updates = {
+        updates: dict[str, Any] = {
             key: value
             for key, value in {
                 "task_type": task_type,

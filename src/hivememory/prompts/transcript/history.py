@@ -25,6 +25,8 @@ render_as 前缀策略:
 版本: 1.0 (Phase 2)
 """
 
+from collections.abc import Sequence
+
 from hivememory.core.models import LogicalBlock, TurnEvent
 from hivememory.i18n.mtp_runtime import get_mtp_info_text
 
@@ -47,7 +49,7 @@ class HistoryTranscriptBuilder:
 
     def build_messages(
         self,
-        blocks: list[LogicalBlock],
+        blocks: Sequence[LogicalBlock],
         current_agent_id: str = "default",
     ) -> list[dict[str, str]]:
         """
