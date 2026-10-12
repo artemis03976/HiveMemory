@@ -127,7 +127,7 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 | `ActorIdentity` | `user_id`、`agent_id`、可选 `team_id` | 不含 session 或运行关联 ID |
 | `IdentityScope` | 操作发起者 + 目标 Workspace | 一次操作调用链；不写入记录或后台任务 |
 | `ExecutionLabels` | 只有 `agent_id` 与 `workspace_id` 两个观测字符串；拒绝额外字段 | 注册认证通过后创建一次，CPU 清单、主子 frame 与运行事件共享；不用于授权 |
-| 线程 context（`WorkspaceAccessContext`，运行绑定为执行线程） | 密封的授予内容：沿用进程 context 的 actor、驻留 Workspace 与 principal，运行绑定为所属进程的 `process_id` 加线程标识 | 进入 CPU 执行阶段时从进程 context 派生，独立于 CPU 清单交给 CPU；CPU 执行结束即撤销；不复制或序列化 |
+| 线程 context（`WorkspaceAccessContext`，运行绑定为执行线程） | 密封的授予内容：沿用进程 context 的驻留 Workspace 与 principal；主线程沿用进程的 actor，CALL 子线程的 actor 是同一用户的被调用方；运行绑定为所属进程的 `process_id` 加线程标识（`main` 或 `child-N`） | 主线程在进入 CPU 执行阶段时、子线程在 CALL 派生时从进程 context 派生，独立于 CPU 清单交给 CPU；进程工作集登记全部线程，CPU 执行结束时一起撤销；不复制或序列化 |
 | `PreparedAgentRun` | `belong_to` | prepare 结果；finalize/cleanup 另接当次阶段授权的 scope |
 | `InteractionSubmission` | 必需的 `belong_to`、`from_actor` | 交互提交与重试；内容由 payload 保存 |
 | `MemoryGenerationTaskSpec` / `MemoryGenerationTask` | 必需的 `belong_to`、`from_actor` | 生成输入与对外任务快照；归属用于观察与取消检查 |

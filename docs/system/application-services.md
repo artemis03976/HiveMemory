@@ -79,9 +79,9 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 
 | 角色 | 持有 | 不持有 |
 |:---|:---|:---|
-| `TaskProcessService`（注册入口，`workspace/process/service.py`） | 生命周期依赖：认证网关、操作授权者（进程控制授权）、事件 emitter、进程表、执行器 | 总线、CPU 端口、CPU 分配器、asset reader、编译配置等编排依赖 |
+| `TaskProcessService`（注册入口，`workspace/process/service.py`） | 生命周期依赖：认证网关、操作授权者（进程控制授权）、事件 emitter、进程表（组合根创建，与进程线程管理共享）、执行器 | 总线、CPU 端口、CPU 分配器、asset reader、编译配置等编排依赖 |
 | `TaskProcess`（进程状态容器，`workspace/process/task_process.py`） | 本进程独有的东西：进程记录（含进程 context 与绑定了本进程标签的观测通道）、任务参数、工作集、`trace_id`、驱动本进程的 owner task | 任何跨进程共享的依赖 |
-| `TaskProcessRunner`（执行器，`workspace/process/runner.py`） | 所有进程共用的编排依赖：全局总线、CPU 端口、`CPUAllocator`、线程 context 生命周期端口（`ThreadContextLifecycle`，组合根注入认证网关）、写入意图登记、操作授权者（阶段授权）、Gateway 超时配置；唯一的编排骨架 `run(process)` 与唯一的关闭流程 `close(process)` | 任何进程的状态 |
+| `TaskProcessRunner`（执行器，`workspace/process/runner.py`） | 所有进程共用的编排依赖：全局总线、CPU 端口、`CPUAllocator`、进程线程管理 `ProcessThreads`（`workspace/process/threads.py`，经 `ThreadContextLifecycle` 端口派生与撤销线程 context）、写入意图登记、操作授权者（阶段授权）、Gateway 超时配置；唯一的编排骨架 `run(process)` 与唯一的关闭流程 `close(process)` | 任何进程的状态 |
 
 这样划分是为了让注册入口只管理进程的生命周期，而不认识具体流程（[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) Q-3），并让进程本身只是状态容器：进程记录与工作集，由所有进程共用的四阶段骨架驱动（同一 Idea 1.2）。执行器与 `CPUAllocator` 由组合根构建并注入注册入口，入口不转交编排依赖。
 
@@ -91,7 +91,7 @@ CPU 分配（Profile 解析、附件租借与编译、记忆编译与清单组�
 
 Actor 执行经 CPU 端口完成：执行器由组合根注入一个 `CPUPort`（`workspace.contracts`，当前唯一的实现是 Alice 的 `AliceCPU`），进程只调用端口的 `execute(manifest, *, access, generation_options, stream)`，不出现任何具体 CPU 的路由名或结果类型。端口返回的异步生成器先产出交互事件（流式时），最后产出唯一的终态结果 `CPUExecutionResult`；Actor 阶段只有一个拉取循环，流式与非流式共用，每次拉取都可被停止请求中断。进程拿到终态结果后立即关闭这条输出流，让 CPU 在 finalize 之前释放自己的资源；关闭流程中的再次关闭只作兜底。端口与结果的契约见[子系统公共契约](../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节。端口定义在 workspace、由 CPU 实现，是为了让 CPU 可以替换而不改动进程：Alice 之外的 CPU（测试中的 `ScriptedCPU`）能跑完整个任务进程。
 
-进入 Actor 阶段时，runner 经线程 context 生命周期端口从进程 context 派生主线程的线程 context，登记进工作集，并作为 `execute` 的独立 `access` 参数交给 CPU，输入清单不携带它。CPU 驱动将它绑定为 `submit_operation(request)`，Alice 的 root 与 CALL 子 frame 共用该函数。`WorkspaceOperationEntry` 先确认它是未撤销的线程 context，再把请求对象直接交给对应的 actor API 方法，逐次授权仍在 actor API；撤回意图请求由入口直接按线程 context 的进程关联处理，不检查 operation。请求不携带身份、目标或进程选择。runner 不持有能力服务，也不导入认证一侧；进程 context 留给全部阶段的阶段授权。
+进入 Actor 阶段时，runner 经 `ProcessThreads` 从进程 context 派生主线程的线程 context，登记进工作集，并作为 `execute` 的独立 `access` 参数交给 CPU，输入清单不携带它。CPU 驱动以 `workspace.contracts.ThreadOperationSubmitter` 将它绑定为主帧的提交函数。CALL 的派生请求经操作入口到达 actor API，再经 `ChildThreadSpawner` 端口回到 `ProcessThreads`：按进程关联找到进程，确认处于 Actor 阶段、仍在运行且调用方是登记的主线程，然后以被调用方准入后派生子线程 context、登记进工作集并读取被调用方的操作快照；CPU 驱动把子线程 context 绑定为子帧的提交函数。`WorkspaceOperationEntry` 先确认它是未撤销的线程 context，再把请求对象直接交给对应的 actor API 方法，逐次授权仍在 actor API；撤回意图请求由入口直接按线程 context 的进程关联处理，不检查 operation。请求不携带身份、目标或进程选择。runner 不持有能力服务，也不导入认证一侧；进程 context 留给全部阶段的阶段授权。
 
 CPU 返回终态结果、runner 关闭 CPU 输出流之后，立即同步撤销线程 context，再进入 finalize；Actor 阶段因异常、停止、调用方取消或断流提前结束时，同样在交付终态之前同步撤销。进程关闭兜底：先于任何 await 撤销仍登记的线程 context、取消本进程 PENDING 意图并释放附件租借。撤销后的请求抛 `ThreadContextRevokedError`；撤销不取消操作调用方 task，已在途的只读请求自然完成；WRITE、UPDATE 返回入口时若线程 context 已经撤销（当前只有 UPDATE 在登记前等待冷读），入口在同步段补偿刚登记的 alias 后抛撤销错误，防止留下游离 PENDING。新增副作用前有 await 的能力方法时，必须补充同类返回后检查与同步补偿。
 
@@ -123,7 +123,7 @@ Agent Profile 属于 CPU 分配，但目前在 prepare 之前解析：prepare �
 
 交互记录也由进程封口：Actor 正常完成、进入 finalize 之后，进程以入口消息、Gateway 决定、Actor 的执行结果与实际使用的附件组装 `InteractionPayload`（`workspace/process/sealing.py`），MTP 轨迹由 core 的归约器从轮次事件得到；物化任务来自 workspace 登记对本进程 PENDING 意图的同步认领，认领将其改为 MATERIALIZING，CPU 结果不携带物化任务；finalize 原样提交。finalize 失败时，已认领的意图保持 MATERIALIZING，不增加跨边界回滚补偿。这与被动链路由提交方（turn buffer）封口一致，Patchouli 不需要读懂执行者的运行结果。字段来源见[子系统公共契约](../contracts/subsystem-contracts.md#32-finalizeagentrun) 3.2。
 
-进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）登记本进程的 prepare 结果、附件租借、附件编译得出的实际使用引用、Actor 执行期间打开的 CPU 输出流与主线程的线程 context（只用于撤销）；输入清单在 CPU 分配后直接交给 CPU 端口，不留在工作集中。工作集只登记、不释放，也不持有共享依赖：资源由取得它的一方释放，附件租借由 `CPUAllocator` 释放，线程 context 的撤销、CPU 输出流的关闭与 prepare 结果的 cleanup 由执行器处理。
+进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）登记本进程的 prepare 结果、附件租借、附件编译得出的实际使用引用、Actor 执行期间打开的 CPU 输出流与本进程全部线程 context（主线程与 CALL 子线程，只用于撤销）；输入清单在 CPU 分配后直接交给 CPU 端口，不留在工作集中。工作集只登记、不释放，也不持有共享依赖：资源由取得它的一方释放，附件租借由 `CPUAllocator` 释放，线程 context 由 `ProcessThreads` 统一撤销（执行器在 CPU 执行结束与关闭流程中调用），CPU 输出流的关闭与 prepare 结果的 cleanup 由执行器处理。
 
 进程无论以何种结局结束都经注册入口关闭：执行器的 `close(process)` 先同步撤销仍登记的线程 context、取消本进程仍为 PENDING 的意图并释放全部租借，再关闭 CPU 输出流（若尚未关闭）、重新执行阶段授权后请求 cleanup；注册入口随后撤销进程 context 并从进程表注销，这两步放在内层 `finally`，因此即使这些 `await` 被取消，租借、context 与进程登记也不会泄漏。cleanup 的授权失败和调用失败都记录警告、跳过补偿，关闭照常完成。关闭流程可以重复执行（骨架收尾与注册入口的关闭路径都会调用它）：终态兜底只在进程尚无终态时执行，工作集中的每项资源只取出一次，已经释放的不会再次释放；第一次关闭在等待 CPU 输出流关闭时被取消，注册入口的再次关闭仍会请求尚未执行的 cleanup。prepare 返回的结果先写入工作集，再比对 `PreparedAgentRun.belong_to` 与任务目标 Workspace；校验失败时仍按本进程目标授权后交回 cleanup，Patchouli 拒绝清理越域结果，补偿不会删除其他 Workspace 的话题。
 
@@ -248,6 +248,7 @@ process_id
 - `tests/unit/system/application/test_readiness_service.py`
 - `tests/integration/workspace/capability/test_assets.py`、`tests/integration/system/application/test_workspace_asset_parsing.py`（真实附件服务、解析服务与 Store 的上传协作）
 - `tests/integration/workspace/test_process_intents.py`（按进程认领、取消、线程 context 撤销与在途 UPDATE 同步补偿）
-- `tests/integration/workspace/test_thread_context_process.py`（各种结局下 CPU 结束即撤销线程 context，finalize、话题池读取与 cleanup 仍以进程 context 授权）
+- `tests/integration/workspace/test_thread_context_process.py`（各种结局下 CPU 结束即撤销主线程与子线程 context，finalize、话题池读取与 cleanup 仍以进程 context 授权）
+- `tests/integration/workspace/test_process_threads.py`（进程侧只接受 Actor 阶段的主线程派生，被调用方快照按精确记录优先，统一撤销）
 - `tests/integration/system/test_workspace_intent_subscription.py`（组合根装配即订阅、关闭即取消订阅）
 - `tests/integration/workspace/test_published_registration_chain.py`（随仓库发布的登记文件驱动的管理路由、chat 与取消链路）

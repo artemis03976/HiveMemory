@@ -57,7 +57,7 @@ ExecutionFrame
   ├─ AgentProfile
   ├─ working_history[]
   ├─ topic_id | None
-  ├─ submit_operation（root 与 CALL 子帧共享）
+  ├─ submit_operation（本帧所属线程的提交函数）
   ├─ harvested_aliases[]（本帧收到的 ACK alias）
   └─ ExecutionProgress
        ├─ text_segments[]
@@ -198,7 +198,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程
 - `BUDGET_EXHAUSTED` 能区分循环预算耗尽，但当前没有动态扩容、自动任务分解或 checkpoint 恢复策略；
 - 主 run 的失败和预算耗尽都由 Alice 组装为执行结果的 `failed`，它是可观察且稳定的常规终态，不应被改写为 `cancelled`；
 - 未使用 ModelRegistry 时 `model_used` 可能为空，即使 WorkerAgent 实际已经使用了调用方提供的模型；
-- 资源操作的提交函数不提供访问 context、Workspace 选择或执行者重新绑定能力；CALL 子帧沿用主线程的线程 context；
+- 资源操作的提交函数不提供访问 context、Workspace 选择或执行者重新绑定能力；CALL 子帧使用以被调用方身份派生的子线程提交函数；
 - 流式取消只能在 LiteLLM chunk 或 MTP checkpoint 处生效，不能保证立即中断同步 syscall；
 - 执行层没有每 run 的资源配额、token budget、并发限流、持久化 checkpoint 或回放能力；
 - `health()` 只返回 loop/worker 固定 `ok`，不验证模型端点、正在运行的 frame 或迭代耗尽率。

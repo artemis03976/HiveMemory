@@ -59,7 +59,7 @@ MTP 是 Alice Agent 在生成循环中调用记忆、系统工具和子 Agent �
 
 Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格式化结果回填到消息历史，再继续生成。CALL 的 `suspend` 由 Alice `RunExecutor`/`CallCoordinator` 消费，不直接回填为空结果；Koakuma 只产出结构化 `MTPCallRequest`，目标 Profile 与 `context_refs` 由 `CallContextProvider` 在 Alice 编排边界解析。Executor 递归等待被调用 frame，完成后由 `AgentRuntime.apply_call_response()` 一次性写回 caller history 和 `tool_result`。
 
-每条指令的 `MTPExecutionContext` 从当前 frame 冻结得到，其中 `RuntimeScope` 只携带执行关联与只读 `ExecutionLabels`，不含 `IdentityScope`。任务进程进入 CPU 执行阶段时从进程 context 派生主线程的线程 context，CPU 驱动将它绑定为提交函数，主、子 frame 沿用同一函数和注册标签；CPU 执行结束即撤销，此后的提交被拒绝。请求不能自行指定目标或 process_id：actor API 的目标取线程的驻留 Workspace，意图的进程关联取自线程 context；READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别要求 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，各项互不隐含（RUN 不要求 READ，WRITE 不授予 UPDATE）；RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求；子帧的意图撤回是内部补偿，不检查 operation。资源归属与 actor policy 仍逐次校验。
+每条指令的 `MTPExecutionContext` 从当前 frame 冻结得到，其中 `RuntimeScope` 只携带执行关联与只读 `ExecutionLabels`，不含 `IdentityScope`。任务进程进入 CPU 执行阶段时从进程 context 派生主线程的线程 context，CPU 驱动将它绑定为提交函数；CALL 派生的子 frame 得到以被调用方身份签发的子线程 context 与自己的提交函数，主、子 frame 沿用同一组注册标签。CPU 执行结束时全部线程 context 一起撤销，此后的提交被拒绝。请求不能自行指定目标或 process_id：actor API 的目标取线程的驻留 Workspace，意图的进程关联取自线程 context；READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别要求 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，各项互不隐含（RUN 不要求 READ，WRITE 不授予 UPDATE）；RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求；子帧的意图撤回是内部补偿，不检查 operation。资源归属与 actor policy 仍逐次校验。
 
 ## 3. 动词契约
 
@@ -155,9 +155,10 @@ UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pendin
 
 - TARGET 和 `task` 必填；`context_refs` 可选；
 - Koakuma 返回 `suspend` 和结构化 `MTPCallRequest`；
-- Alice RunExecutor 通过协程调用栈挂起 caller frame，以 `ResolveCallTargetRequest` 读取目标、以 `ResolveReferencesRequest` 解析共享上下文，递归运行 callee frame，再以 `MTPCallResponse` 回填；
-- 目标读取要求 `agent.call`，内置 Profile 也不跳过；context_refs 以 READ 请求解析，要求 `memory.read`，缺少时被跳过而不阻止 CALL；正式原子交付自动记录 `workspace.reference_read` citation，先前 READ 过的原子在这次独立请求中再次计数；
-- CALL 只允许 root frame 发起；callee frame 的 `FrameExecutionPolicy` 继承 caller 的动词集合并显式移除 CALL，防止递归爆炸，被调用方 Profile 只提供 persona、模型与语言，不改变动词集合；
+- Alice RunExecutor 通过协程调用栈挂起 caller frame，经提交函数的 `derive_call_thread` 提交 `DeriveCallThreadRequest` 读取目标并派生子线程、以调用方的 `ResolveReferencesRequest` 解析共享上下文，递归运行 callee frame，再以 `MTPCallResponse` 回填；
+- 派生要求调用方的 `agent.call`，内置 Profile 也不跳过；被调用方须在本 Workspace 有准入，未准入或为保留的 `system` 时回填 `mtp.permission.denied`（文案键 `mtp.call.agent_unavailable`），不启动子 frame；context_refs 以 READ 请求解析，要求 `memory.read`，缺少时被跳过而不阻止 CALL；正式原子交付自动记录 `workspace.reference_read` citation，先前 READ 过的原子在这次独立请求中再次计数；
+- callee frame 以被调用方身份运行：资源操作按被调用方的白名单与可见性授权，写入意图记在被调用方名下；
+- CALL 只允许 root frame 发起；callee frame 的 `FrameExecutionPolicy` 由被调用方的操作快照翻译并显式移除 CALL，防止递归爆炸；被调用方 Profile 只提供 persona、模型与语言；
 - 只有 `COMPLETED` 子帧产生 success CALL response，并可以返回其 PendingAtom alias；未成功结束的子帧不返回 alias，并撤回其已登记且仍为 PENDING 的意图；
 - `CANCELLED` 保持 cancelled 终态，`FAILED`、`BUDGET_EXHAUSTED` 会转换为结构化 error CALL response；`SUSPENDED` 是 RunExecutor 继续消费的控制流 trap，不构造 CALL response。
 
@@ -177,12 +178,12 @@ Agent 的权限只由 Workspace 访问登记的 actor 操作白名单表达，Ag
 | `memory.run` | RUN 的记忆目标 |
 | —（系统工具不设权限） | RUN 的 `sys_*` |
 
-RUN 始终在动词集合中，因为系统工具不设权限；没有 `memory.run` 时，RUN 的记忆目标由 actor API 拒绝。同一集合驱动两层：
+RUN 始终在动词集合中，因为系统工具不设权限；没有 `memory.run` 时，RUN 的记忆目标由 actor API 拒绝。CALL 的子 frame 使用被调用方的操作集合（派生时由进程读取），按同一张表翻译后去掉 CALL。同一集合驱动两层：
 
 - **提示层**：只教学集合内的动词，同时裁剪提及集合外动词的行为准则、错误恢复与演示；系统工具菜单始终完整；
 - **执行层**：Koakuma 在分发前以 frame 的 `FrameExecutionPolicy` 检查动词，集合外的动词在提交任何操作请求之前被拒绝。
 
-资源操作仍由 actor API 按访问登记逐次授权；动词集合是 CPU 分配时的快照，只描述可用能力，不是授权依据。权限拒绝属于 `agent_fault`，稳定代码为 `mtp.permission.denied`（文案键 `mtp.permission.verb_denied`），Agent 可以调整方案，但不能通过换写法绕过许可。
+资源操作仍由 actor API 按访问登记逐次授权；动词集合是 CPU 分配时的快照，只描述可用能力，不是授权依据。权限拒绝属于 `agent_fault`，稳定代码为 `mtp.permission.denied`（文案键 `mtp.permission.verb_denied`；CALL 目标未准入时为 `mtp.call.agent_unavailable`），Agent 可以调整方案，但不能通过换写法绕过许可。
 
 MTP 是否应该出现，取决于当前行动门槛，而不是“能调用工具就调用”：信息存在缺口时先 SEARCH/READ；动作产生副作用或需要执行资产时才 RUN；内容确有跨会话长期价值时才 WRITE/UPDATE；委派能形成明确子任务时才 CALL。Agent 不得臆造 alias，也不得把错误响应理解为持续试探权限的邀请。错误应该驱动修正查询、参数或计划；权限拒绝则意味着停止该能力路径。
 

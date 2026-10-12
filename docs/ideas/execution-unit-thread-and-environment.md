@@ -25,7 +25,7 @@ last_reviewed: 2026-10-11
 
 # 执行单元、执行线程与执行环境
 
-**文档状态**：Idea；T-9 操作请求与执行凭据已于 2026-10-09 实施验收，取代 T-4a/T-4c 的主线程通道；2026-10-11 决定以线程 context 取代执行凭据（T-2），同日实施验收（主线程）；同日决定子线程的派生、身份与撤销（第 4 节），由[执行线程层计划](../plans/v0.7.0-execution-thread-layer.md)实施；执行环境方向仍在讨论。实施证据见 [Alice 迁移归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)与[线程 context 归档计划](../archive/plans/v0.7.0-thread-context.md)，当前事实见 [Workspace 架构](../architecture/workspace.md)。
+**文档状态**：Idea；T-9 操作请求与执行凭据已于 2026-10-09 实施验收，取代 T-4a/T-4c 的主线程通道；2026-10-11 决定以线程 context 取代执行凭据（T-2），同日实施验收（主线程）；同日决定子线程的派生、身份与撤销（第 4 节），并由[执行线程层计划](../archive/plans/v0.7.0-execution-thread-layer.md)实施验收；执行环境方向仍在讨论。实施证据见 [Alice 迁移归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)、[线程 context 归档计划](../archive/plans/v0.7.0-thread-context.md)与[执行线程层归档计划](../archive/plans/v0.7.0-execution-thread-layer.md)，当前事实见 [Workspace 架构](../architecture/workspace.md)。
 **记录日期**：2026-10-05 起；2026-10-06 由总 Idea 第四部分拆出
 
 ## 0. 文档性质
@@ -169,7 +169,7 @@ flowchart LR
 
 ### T-1 执行线程身份的确定方式
 
-**状态**：已完成（方向）。2026-10-06 决定；主线程部分随 Alice 的能力层调用迁移与线程 context 实施，子线程由[执行线程层计划](../plans/v0.7.0-execution-thread-layer.md)实施。T-1a 与 T-1b 见本节后文。
+**状态**：已完成（方向）。2026-10-06 决定；主线程部分随 Alice 的能力层调用迁移与线程 context 实施，子线程由[执行线程层计划](../archive/plans/v0.7.0-execution-thread-layer.md)实施（2026-10-11 验收）。T-1a 与 T-1b 见本节后文。
 
 **问题**：前提 4 由执行单元为工具调用补上发起人。“某个线程是哪个 actor”以什么为准：执行单元在工具调用上直接标注 actor，还是经进程确定？
 
@@ -303,7 +303,7 @@ flowchart LR
 
 ### T-1a、T-2a、T-3、T-4b、T-5a 子线程的派生、身份与撤销
 
-**状态**：已完成。2026-10-11 决定；由[执行线程层计划](../plans/v0.7.0-execution-thread-layer.md)实施。
+**状态**：已完成。2026-10-11 决定，同日由[执行线程层计划](../archive/plans/v0.7.0-execution-thread-layer.md)实施验收；当前事实见 [Workspace 架构](../architecture/workspace.md)第 4.3、5.4 节。
 
 **问题**：T-1、T-2 已确定子线程的身份由派生调用确定、派生必须到达进程、每个线程一份 context。剩下的是派生经什么途径到达进程（T-1a、T-4b）、子线程的认证与权限从哪里来（T-3，原总 Idea P-5a）、子线程 context 何时失效（T-2a），以及子线程的默认目标（T-5a）。执行线程层之前，子线程沿用主线程的线程 context 与操作集合（T-3 的 2026-10-10 决定）。
 
