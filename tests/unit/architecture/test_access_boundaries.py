@@ -408,11 +408,11 @@ def test_root_authorization_is_only_used_by_root_api():
 def test_alice_runtime_cannot_import_context_or_raw_derivation_results():
     """只有 CPU 驱动接触线程凭据与派生原始结果，frame、CALL 和 MTP 不得持有。"""
     forbidden = {"WorkspaceAccessContext", "DerivedCallThread", "DerivedThread", "OperationEntry"}
+    # CPU 驱动绑定线程 context，Alice 组合入口只把操作入口交给驱动。
+    driver_files = {SRC_ROOT / "alice/application/cpu.py", SRC_ROOT / "alice/system.py"}
     offenders = []
     files = [*(SRC_ROOT / "alice").rglob("*.py"), *(SRC_ROOT / "agent_runtime").rglob("*.py")]
-    for path in files:
-        if path.name in {"cpu.py", "system.py"}:
-            continue
+    for path in sorted(set(files) - driver_files):
         tree = ast.parse(path.read_text(encoding="utf-8"))
         for node in ast.walk(tree):
             if isinstance(node, ast.Name) and node.id in forbidden:

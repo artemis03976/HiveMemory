@@ -360,6 +360,7 @@ class AgentRunService:
 
     @staticmethod
     def _event_metadata_for_frame(frame: ExecutionFrame) -> dict[str, Any]:
+        # 与帧输出一致：取 Profile 的源 alias（内置图纸为 omni_doll），缺省时回退注册标签。
         agent_id = frame.agent_profile.agent_id or frame.runtime_scope.labels.agent_id
         return {
             "agent_run_id": frame.runtime_scope.run_id,

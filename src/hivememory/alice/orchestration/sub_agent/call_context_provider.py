@@ -62,10 +62,17 @@ class CallContextProvider:
             child = await caller_frame.submit_operation.derive_call_thread(
                 DeriveCallThreadRequest(agent_alias=request.target_alias)
             )
-        except (OperationDeniedError, AdmissionDeniedError) as error:
+        except OperationDeniedError as error:
             raise PermissionDeniedError(
                 message_key="mtp.permission.verb_denied",
                 params={"verb": "CALL"},
+                cause=error,
+            ) from error
+        except AdmissionDeniedError as error:
+            # 调用方有 CALL 许可；目标没有本 Workspace 的准入，对模型表现为该 agent 不可用。
+            raise PermissionDeniedError(
+                message_key="mtp.call.agent_unavailable",
+                params={"agent_alias": request.target_alias},
                 cause=error,
             ) from error
         except ResourceUnavailableError as error:

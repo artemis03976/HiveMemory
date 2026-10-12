@@ -81,7 +81,7 @@ class QueueAgentRunOutput(AgentRunOutput):
         scope: Literal["main", "sub"],
         depth: int,
     ) -> FrameOutputSink:
-        # Profile.agent_id 来自源原子的 alias；内置 Profile 回退到注册观测标签。
+        # 展示取 Profile 的源 alias（内置图纸为 omni_doll）；只有未携带身份的 Profile 回退注册标签。
         agent_id = frame.agent_profile.agent_id or frame.runtime_scope.labels.agent_id
         return _BoundFrameOutputSink(
             self,

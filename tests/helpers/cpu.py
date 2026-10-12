@@ -12,7 +12,6 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from hivememory.alice.application.cpu import ThreadOperationSubmitter
 from hivememory.core.access import WorkspaceAccessContext
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
@@ -21,6 +20,7 @@ from hivememory.workspace.contracts import (
     CPUOutput,
     OperationEntry,
     OperationSubmitter,
+    ThreadOperationSubmitter,
 )
 
 

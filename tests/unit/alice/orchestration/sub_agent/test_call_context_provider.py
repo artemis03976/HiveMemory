@@ -6,7 +6,11 @@ import pytest
 
 from hivememory.agent_runtime.models import ExecutionFrame
 from hivememory.alice.orchestration.sub_agent import CallContextProvider
-from hivememory.core.errors import OperationDeniedError, ResourceUnavailableError
+from hivememory.core.errors import (
+    AdmissionDeniedError,
+    OperationDeniedError,
+    ResourceUnavailableError,
+)
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
@@ -184,6 +188,12 @@ async def test_provide_returns_empty_context_when_no_ref_can_be_rendered():
             PermissionDeniedError,
             "mtp.permission.denied",
             "mtp.permission.verb_denied",
+        ),
+        (
+            AdmissionDeniedError("目标没有准入", details={"reason": "actor_not_admitted"}),
+            PermissionDeniedError,
+            "mtp.permission.denied",
+            "mtp.call.agent_unavailable",
         ),
         (
             ResourceUnavailableError("Profile 存储路由不可达"),

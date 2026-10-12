@@ -3,7 +3,11 @@
 import pytest
 
 from hivememory.core.access import RunBinding, WorkspaceOperation
-from hivememory.core.errors import ScopeRequiredError, ThreadContextRevokedError
+from hivememory.core.errors import (
+    AdmissionDeniedError,
+    ScopeRequiredError,
+    ThreadContextRevokedError,
+)
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 
@@ -160,23 +164,26 @@ async def test_child_derivation_uses_callee_admission_and_preserves_process_coor
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "callee, enabled, reason",
+    "callee, callee_records, reason",
     [
-        ("missing", None, "actor_not_admitted"),
-        ("disabled", False, "actor_not_admitted"),
-        ("system", True, "system_actor_not_allowed"),
+        pytest.param("missing", [], "actor_not_admitted", id="missing"),
+        pytest.param(
+            "disabled",
+            [make_actor_access_record(agent_id="disabled", enabled=False, allowed_operations=[])],
+            "actor_not_admitted",
+            id="disabled",
+        ),
+        pytest.param(
+            "system",
+            [make_actor_access_record(agent_id="system", allowed_operations=[])],
+            "system_actor_not_allowed",
+            id="system",
+        ),
     ],
 )
-async def test_child_derivation_rejects_unadmitted_or_system_actor(callee, enabled, reason):
+async def test_child_derivation_rejects_unadmitted_or_system_actor(callee, callee_records, reason):
     """被调用方无准入或为保留身份时明确拒绝，不退回调用方身份。"""
-    from hivememory.core.errors import AdmissionDeniedError
-
-    records = [make_actor_access_record()]
-    if enabled is not None:
-        records.append(
-            make_actor_access_record(agent_id=callee, enabled=enabled, allowed_operations=[])
-        )
-    composition = make_access_composition(records)
+    composition = make_access_composition([make_actor_access_record(), *callee_records])
     process = await process_context(composition)
     with pytest.raises(AdmissionDeniedError) as error:
         composition.gateway.derive_child_thread_context(

@@ -119,6 +119,33 @@ class OperationSubmitter(Protocol):
         ...
 
 
+class ThreadOperationSubmitter:
+    """CPU 驱动以线程 context 绑定的提交函数，供任何 CPU 驱动复用。
+
+    执行适配器、frame 与 CALL 编排只持有本对象，不取得 context；派生结果中的
+    子线程 context 在这里换成子帧的提交函数后才交出。
+    """
+
+    def __init__(self, entry: OperationEntry, access: WorkspaceAccessContext) -> None:
+        self._entry = entry
+        self._access = access
+
+    async def __call__[R](self, request: OperationRequest[R]) -> R:
+        """普通请求透传；派生结果含 context，只能经专用方法转换后交付。"""
+        if isinstance(request, DeriveCallThreadRequest):
+            raise TypeError("派生请求必须通过 derive_call_thread 提交")
+        return await self._entry.execute(request, access=self._access)
+
+    async def derive_call_thread(self, request: DeriveCallThreadRequest) -> CallThread:
+        """以本线程提交 CALL，绑定子线程后只交付运行层可用的数据。"""
+        child = await self._entry.execute(request, access=self._access)
+        return CallThread(
+            agent_profile=child.agent_profile,
+            allowed_operations=child.allowed_operations,
+            submit_operation=ThreadOperationSubmitter(self._entry, child.access),
+        )
+
+
 __all__ = [
     "CancelIntentsRequest",
     "CallThread",
@@ -133,4 +160,5 @@ __all__ = [
     "RetrieveRequest",
     "SubmitUpdateIntentRequest",
     "SubmitWriteIntentRequest",
+    "ThreadOperationSubmitter",
 ]

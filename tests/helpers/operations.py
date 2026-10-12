@@ -5,7 +5,6 @@ from __future__ import annotations
 from dataclasses import replace
 
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.alice.application.cpu import ThreadOperationSubmitter
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import RunBinding
 from hivememory.core.contracts.routes import GlobalRoutes
@@ -21,6 +20,7 @@ from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
     OperationSubmitter,
+    ThreadOperationSubmitter,
 )
 from hivememory.workspace.runtime import WorkspaceRuntime
 from tests.helpers.workspace import (

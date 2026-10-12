@@ -11,7 +11,6 @@ from hivememory.agent_runtime.models import (
     MTPExecutionContext,
 )
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.alice.application.cpu import ThreadOperationSubmitter
 from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
@@ -20,20 +19,31 @@ from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.config.alice import AliceConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.core.access import WorkspaceOperation
+from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
+    AgentProfile,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    PendingAtomStatus,
+    ResolvedAgentProfile,
     TurnEvent,
+    WriteFocus,
 )
 from hivememory.core.mtp import MTPCallRequest
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
+from hivememory.workspace.contracts import SubmitWriteIntentRequest, ThreadOperationSubmitter
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.operations import OperationsHarness
-from tests.helpers.workspace import make_identity_scope, make_runtime_scope
+from tests.helpers.workspace import (
+    make_access_composition,
+    make_actor_access_record,
+    make_identity_scope,
+    make_runtime_scope,
+)
 
 
 def _caller(submit_operation, *, agent_id="parent") -> ExecutionFrame:
@@ -307,30 +317,32 @@ async def test_callee_can_write_with_its_own_permission_even_when_caller_cannot(
     assert task.from_actor.agent_id == "omni_doll"
 
 
+async def _profile_named_by_alias(alias, **_kwargs):
+    """Profile 路由替身：自定义 alias 解析为同名 Agent 的图纸；内置图纸不经路由。"""
+    return ResolvedAgentProfile(profile=AgentProfile(agent_id=alias))
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize("callee_state", ["missing", "disabled", "system"])
-async def test_unadmitted_call_target_returns_structured_error_without_creating_child(callee_state):
+@pytest.mark.parametrize(
+    "target, callee_records",
+    [
+        pytest.param("omni_doll", [], id="missing"),
+        pytest.param(
+            "omni_doll",
+            [make_actor_access_record(agent_id="omni_doll", enabled=False, allowed_operations=[])],
+            id="disabled",
+        ),
+        pytest.param("system", [make_actor_access_record(agent_id="system")], id="system"),
+    ],
+)
+async def test_unadmitted_call_target_returns_structured_error_without_creating_child(
+    target, callee_records
+):
     """目标准入失败时只回填结构化权限错误，进程登记里没有子线程。"""
-    from hivememory.core.contracts.routes import GlobalRoutes
-    from hivememory.core.models import AgentProfile, ResolvedAgentProfile
-    from tests.helpers.workspace import make_access_composition, make_actor_access_record
-
-    records = [make_actor_access_record(agent_id="parent")]
-    if callee_state == "disabled":
-        records.append(
-            make_actor_access_record(agent_id="omni_doll", enabled=False, allowed_operations=[])
-        )
-    if callee_state == "system":
-        records.append(make_actor_access_record(agent_id="system"))
-    access = make_access_composition(records)
+    access = make_access_composition([make_actor_access_record(agent_id="parent"), *callee_records])
     harness = OperationsHarness()
-    if callee_state == "system":
-
-        async def profile(_alias, **_kwargs):
-            return ResolvedAgentProfile(profile=AgentProfile(agent_id="system"))
-
-        harness.bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, profile)
-        harness.backing.bus = harness.bus
+    harness.bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_named_by_alias)
+    harness.backing.bus = harness.bus
     context = await access.authenticate_thread(
         agent_id="parent", process_id="call-process", register_process=True
     )
@@ -339,12 +351,12 @@ async def test_unadmitted_call_target_returns_structured_error_without_creating_
     )
     caller = _caller(submit)
     try:
-        transition, session, _ = await _begin_call(
-            caller, "system" if callee_state == "system" else "omni_doll"
-        )
+        transition, session, _ = await _begin_call(caller, target)
         assert isinstance(transition, ResumeCaller)
         assert set(session.frames) == {"caller"}
-        assert 'code="mtp.permission.denied"' in caller.progress.turn_events[-1].content
+        response = caller.progress.turn_events[-1].content
+        assert 'code="mtp.permission.denied"' in response
+        assert "[Agent Unavailable]" in response
         assert set(access.process_table.get("call-process").working_set.thread_contexts) == {"main"}
     finally:
         access.gateway.revoke_all_contexts()
@@ -362,9 +374,6 @@ async def test_unadmitted_call_target_returns_structured_error_without_creating_
 )
 async def test_failed_child_withdraws_only_pending_intents_in_its_process(status):
     """真实子线程补偿取消自身 ACK，不动其他进程或已认领意图，随后仍可用。"""
-    from hivememory.core.models import PendingAtomStatus, WriteFocus
-    from hivememory.workspace.contracts import SubmitWriteIntentRequest
-
     harness = OperationsHarness()
     submit = await harness.submitter(make_identity_scope(agent_id="parent"), "call-process")
     foreign = await harness.submitter(make_identity_scope(agent_id="parent"), "other-process")
