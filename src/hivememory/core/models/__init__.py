@@ -35,6 +35,7 @@ from .interaction import (
     TraceItem,
     TraceReducer,
     TurnEvent,
+    TurnEventRenderAs,
     TurnRecord,
 )
 from .memory import (
@@ -148,6 +149,7 @@ __all__ = [
     "StreamMessageType",
     "StreamMessage",
     "TurnEvent",
+    "TurnEventRenderAs",
     "AgentAction",
     "TraceItem",
     "TurnRecord",

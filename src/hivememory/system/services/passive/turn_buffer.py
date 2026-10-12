@@ -10,7 +10,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Any
 
-from hivememory.core.models import IdentityScope
+from hivememory.core.models import IdentityScope, TurnEventRenderAs
 from hivememory.core.models.interaction import TurnEvent
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import InteractionPayload
@@ -224,7 +224,7 @@ class MessageTurnBuffer:
         *,
         action_id: str | None = None,
         status: str | None = None,
-        render_as: str = "plain",
+        render_as: TurnEventRenderAs = "plain",
     ) -> None:
         if self._state == MessageBufferState.IDLE:
             logger.warning(
