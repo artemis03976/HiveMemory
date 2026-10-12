@@ -56,6 +56,8 @@ from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.runner import TaskProcessRunner
 from hivememory.workspace.process.service import TaskProcessService
+from hivememory.workspace.process.table import ProcessTable
+from hivememory.workspace.process.threads import ProcessThreads
 from hivememory.workspace.registry import (
     WorkspaceActorAccessRecord,
     WorkspaceActorAccessRegistry,
@@ -93,6 +95,8 @@ class _AccessControlBundle:
     authenticator: WorkspaceAuthenticator
     operation_authorizer: WorkspaceOperationAuthorizer
     access_gateway: ActorAuthenticationGateway
+    process_table: ProcessTable
+    process_threads: ProcessThreads
 
 
 @dataclass
@@ -298,6 +302,7 @@ class SystemAssembler:
         # （无状态，读取 context 密封的授予内容）。两者互不依赖，都只读
         # 同一份 Workspace 访问登记。
         authenticator = WorkspaceAuthenticator(workspace_registry)
+        process_table = ProcessTable()
         operation_authorizer = WorkspaceOperationAuthorizer(workspace_registry)
         # Principal authentication 归 System（接入登记），经端口注入认证
         # 网关；Workspace 准入与签发归认证一侧。
@@ -311,6 +316,10 @@ class SystemAssembler:
             authenticator=authenticator,
             operation_authorizer=operation_authorizer,
             access_gateway=access_gateway,
+            process_table=process_table,
+            process_threads=ProcessThreads(
+                process_table, lifecycle=access_gateway, authorizer=operation_authorizer
+            ),
         )
 
     @staticmethod
@@ -342,6 +351,7 @@ class SystemAssembler:
         agent = ActorAgentService(
             operation_authorizer=access_control.operation_authorizer,
             profile_reader=runtime.workspace_runtime.profiles,
+            thread_spawner=access_control.process_threads,
         )
         operations = WorkspaceOperationEntry(
             memory,
@@ -425,12 +435,13 @@ class SystemAssembler:
             allocator=allocator,
             # 阶段授权在执行器内、每次阶段调用前执行。
             operation_authorizer=access_control.operation_authorizer,
-            thread_contexts=access_control.access_gateway,
+            thread_contexts=access_control.process_threads,
             intent_registry=runtime.workspace_runtime.intents,
             gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
         )
         process = TaskProcessService(
             runner,
+            process_table=access_control.process_table,
             # 注册入口是进程 context 的运行持有者（A1 访问边界返工 4.4）：
             # 认证经网关，进程控制授权经操作授权者。
             access_gateway=access_control.access_gateway,

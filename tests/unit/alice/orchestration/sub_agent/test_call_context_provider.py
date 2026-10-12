@@ -6,7 +6,11 @@ import pytest
 
 from hivememory.agent_runtime.models import ExecutionFrame
 from hivememory.alice.orchestration.sub_agent import CallContextProvider
-from hivememory.core.errors import OperationDeniedError, ResourceUnavailableError
+from hivememory.core.errors import (
+    AdmissionDeniedError,
+    OperationDeniedError,
+    ResourceUnavailableError,
+)
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
@@ -23,7 +27,8 @@ from hivememory.core.mtp.exceptions import (
     PermissionDeniedError,
     SystemFault,
 )
-from hivememory.workspace.contracts import ResolveCallTargetRequest, ResolveReferencesRequest
+from hivememory.workspace.contracts import DeriveCallThreadRequest, ResolveReferencesRequest
+from tests.helpers.call import StubOperationSubmitter, make_callee
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_runtime_scope
 
@@ -61,10 +66,6 @@ def _provider(*, profile=OMNI_DOLL_PROFILE, alias_results=(), profile_error=None
 
     async def submit_operation(request):
         """只替代 workspace 操作边界，CALL 的请求构造与上下文编译保持真实。"""
-        if isinstance(request, ResolveCallTargetRequest):
-            if profile_error is not None:
-                raise profile_error
-            return profile
         if not isinstance(request, ResolveReferencesRequest):
             raise TypeError(type(request))
         result = next(results)
@@ -73,7 +74,14 @@ def _provider(*, profile=OMNI_DOLL_PROFILE, alias_results=(), profile_error=None
         assert request.aliases == (result.requested_alias,)
         return [result]
 
-    return CallContextProvider(), submit_operation
+    async def derive(request):
+        if not isinstance(request, DeriveCallThreadRequest):
+            raise TypeError(type(request))
+        if profile_error is not None:
+            raise profile_error
+        return make_callee(profile)
+
+    return CallContextProvider(), StubOperationSubmitter(operation=submit_operation, derive=derive)
 
 
 @pytest.mark.asyncio
@@ -180,6 +188,12 @@ async def test_provide_returns_empty_context_when_no_ref_can_be_rendered():
             PermissionDeniedError,
             "mtp.permission.denied",
             "mtp.permission.verb_denied",
+        ),
+        (
+            AdmissionDeniedError("目标没有准入", details={"reason": "actor_not_admitted"}),
+            PermissionDeniedError,
+            "mtp.permission.denied",
+            "mtp.call.agent_unavailable",
         ),
         (
             ResourceUnavailableError("Profile 存储路由不可达"),

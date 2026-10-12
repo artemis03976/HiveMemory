@@ -3,7 +3,11 @@
 import pytest
 
 from hivememory.core.access import RunBinding, WorkspaceOperation
-from hivememory.core.errors import ScopeRequiredError, ThreadContextRevokedError
+from hivememory.core.errors import (
+    AdmissionDeniedError,
+    ScopeRequiredError,
+    ThreadContextRevokedError,
+)
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 
@@ -123,3 +127,83 @@ async def test_thread_binding_cannot_bypass_derivation_via_authentication(compos
     """线程签发必须以有效进程为来源，不能经认证入口自选线程绑定。"""
     with pytest.raises(ScopeRequiredError, match="必须从进程 context 派生"):
         await composition.authenticate(binding=RunBinding.for_execution_thread("p", "main"))
+
+
+@pytest.mark.asyncio
+async def test_child_derivation_uses_callee_admission_and_preserves_process_coordinates():
+    """子线程换为被调用方身份，保留来源与驻留目标；关闭网关不阻止派生。"""
+    composition = make_access_composition(
+        [
+            make_actor_access_record(),
+            make_actor_access_record(
+                agent_id="worker", allowed_operations=[WorkspaceOperation.MEMORY_WRITE]
+            ),
+        ]
+    )
+    process = await process_context(composition)
+    composition.gateway.close()
+    child = composition.gateway.derive_child_thread_context(
+        process, agent_id="worker", thread_id="child-1"
+    )
+    scope = composition.authorizer.authorize_thread_operation(
+        child, WorkspaceOperation.MEMORY_WRITE
+    )
+    assert scope.actor_identity.agent_id == "worker"
+    assert scope.actor_identity.user_id == "test_user"
+    assert scope.workspace_identity == composition.default_workspace
+    summary = composition.gateway.describe_context(child)
+    assert (summary.principal_id, summary.run_id, summary.thread_id) == (
+        composition.principal.principal_id,
+        "process-1",
+        "child-1",
+    )
+    composition.gateway.revoke_all_contexts()
+    with pytest.raises(ThreadContextRevokedError):
+        composition.authorizer.validate_thread_context(child)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "callee, callee_records, reason",
+    [
+        pytest.param("missing", [], "actor_not_admitted", id="missing"),
+        pytest.param(
+            "disabled",
+            [make_actor_access_record(agent_id="disabled", enabled=False, allowed_operations=[])],
+            "actor_not_admitted",
+            id="disabled",
+        ),
+        pytest.param(
+            "system",
+            [make_actor_access_record(agent_id="system", allowed_operations=[])],
+            "system_actor_not_allowed",
+            id="system",
+        ),
+    ],
+)
+async def test_child_derivation_rejects_unadmitted_or_system_actor(callee, callee_records, reason):
+    """被调用方无准入或为保留身份时明确拒绝，不退回调用方身份。"""
+    composition = make_access_composition([make_actor_access_record(), *callee_records])
+    process = await process_context(composition)
+    with pytest.raises(AdmissionDeniedError) as error:
+        composition.gateway.derive_child_thread_context(
+            process, agent_id=callee, thread_id="child-1"
+        )
+    assert error.value.details["reason"] == reason
+    assert (
+        composition.authorizer.authorize_stage(
+            process, composition.default_workspace
+        ).actor_identity.agent_id
+        == "test_agent"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("make_source", [revoked_process_context, request_context, thread_context])
+async def test_child_derivation_requires_valid_process_context(composition, make_source):
+    """子线程派生不能把请求或线程当作来源，也不能复用已撤销进程。"""
+    source = await make_source(composition)
+    with pytest.raises(ScopeRequiredError, match="有效的进程 context"):
+        composition.gateway.derive_child_thread_context(
+            source, agent_id="test_agent", thread_id="child-1"
+        )

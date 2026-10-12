@@ -23,7 +23,6 @@ from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.agent_runtime.products import FrameProducts
 from hivememory.alice.orchestration.run_output import CallOutputFinished
 from hivememory.alice.orchestration.run_session import RunSession
-from hivememory.alice.orchestration.sub_agent.call_context_provider import CallContext
 from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     CallCoordinator,
     DispatchCallee,
@@ -32,6 +31,7 @@ from hivememory.alice.orchestration.sub_agent.call_coordinator import (
 from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.core.mtp import MTPCallRequest, MTPResponseStatus
 from hivememory.core.mtp.exceptions import PermissionDeniedError, SystemFault
+from tests.helpers.call import make_call_context
 from tests.helpers.workspace import make_runtime_scope
 
 
@@ -65,7 +65,7 @@ def _coordinator(runtime, child: ExecutionFrame, *, context_provider=None) -> Ca
         runtime,
         context_provider
         or SimpleNamespace(
-            provide=AsyncMock(return_value=CallContext(agent_profile=OMNI_DOLL_PROFILE))
+            provide=AsyncMock(return_value=make_call_context(agent_profile=OMNI_DOLL_PROFILE))
         ),
         frame_factory=SimpleNamespace(
             scope=MagicMock(return_value=child.runtime_scope),

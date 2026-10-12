@@ -29,8 +29,8 @@ from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
     CancelIntentsRequest,
+    DeriveCallThreadRequest,
     OperationRequest,
-    ResolveCallTargetRequest,
     ResolveReferencesRequest,
     ResolveRunTargetRequest,
     RetrieveRequest,
@@ -46,7 +46,8 @@ from tests.helpers.workspace import make_access_composition, make_actor_access_r
 class _OperationHarness:
     """真实入口、总线 backing 与读取视图；资源 owner 仅在公共 RPC 边界替换。"""
 
-    def __init__(self, *, operation_authorizer) -> None:
+    def __init__(self, *, access) -> None:
+        operation_authorizer = access.authorizer
         self.bus = GlobalSystemBus()
         self.memories: dict[str, MemoryAtom] = {}
         self.profile_source = MemoryAtom(
@@ -80,6 +81,7 @@ class _OperationHarness:
             agent=ActorAgentService(
                 operation_authorizer=operation_authorizer,
                 profile_reader=self.runtime.profiles,
+                thread_spawner=access.thread_spawner,
             ),
             operation_authorizer=operation_authorizer,
             intent_registry=self.registry,
@@ -133,7 +135,7 @@ def _seed_base(harness) -> None:
 def operation_setup():
     """持久化用内存替身，其余边界使用同一份真实授权与登记。"""
     access = make_access_composition([make_actor_access_record()])
-    harness = _OperationHarness(operation_authorizer=access.authorizer)
+    harness = _OperationHarness(access=access)
     _seed_base(harness)
     yield harness, access
     harness.runtime.close()
@@ -146,7 +148,7 @@ async def _derive_thread(access, process_id="process", *, agent_id="test_agent")
     context = await access.authenticate(
         agent_id=agent_id, binding=RunBinding.for_task_process(process_id)
     )
-    return access.gateway.derive_thread_context(context)
+    return access.register_main_thread(context)
 
 
 @pytest.mark.asyncio
@@ -259,7 +261,7 @@ def _request_cases():
             RetrieveRequest("查询基础内容"), WorkspaceOperation.MEMORY_SEARCH, id="search"
         ),
         pytest.param(
-            ResolveCallTargetRequest("call_target"), WorkspaceOperation.AGENT_CALL, id="call"
+            DeriveCallThreadRequest("call_target"), WorkspaceOperation.AGENT_CALL, id="call"
         ),
     ]
 
@@ -270,8 +272,13 @@ def single_operation_setup():
     created = []
 
     async def make(operation: WorkspaceOperation):
-        access = make_access_composition([make_actor_access_record(allowed_operations={operation})])
-        harness = _OperationHarness(operation_authorizer=access.authorizer)
+        access = make_access_composition(
+            [
+                make_actor_access_record(allowed_operations={operation}),
+                make_actor_access_record(agent_id="call_target", allowed_operations=[]),
+            ]
+        )
+        harness = _OperationHarness(access=access)
         _seed_base(harness)
         created.append((harness, access))
         return harness, access, await _derive_thread(access)
@@ -378,10 +385,11 @@ async def test_call_target_with_only_agent_call_delivers_profile(single_operatio
     """CALL 目标读取只需 agent.call：经 Profile 读取视图交付目标图纸，不记录记忆引用。"""
     harness, _access, thread_access = await single_operation_setup(WorkspaceOperation.AGENT_CALL)
 
-    profile = await harness.entry.execute(
-        ResolveCallTargetRequest("call_target"), access=thread_access
+    child = await harness.entry.execute(
+        DeriveCallThreadRequest("call_target"), access=thread_access
     )
 
+    profile = child.agent_profile
     assert (profile.agent_id, profile.persona, profile.model_name) == (
         "call_target",
         "CALL 目标人设",
@@ -401,7 +409,7 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
     access = make_access_composition(
         [make_actor_access_record(allowed_operations=set(WorkspaceOperation) - {operation})]
     )
-    harness = _OperationHarness(operation_authorizer=access.authorizer)
+    harness = _OperationHarness(access=access)
     _seed_base(harness)
     thread_access = await _derive_thread(access)
     prior = harness.registry.register_write(
@@ -434,7 +442,7 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
 async def test_system_context_is_denied_for_every_actor_request(operation_request, operation):
     """root 准入不能借线程 context 获得 actor 操作，拒绝时不触达 owner 或意图登记。"""
     access = make_access_composition([make_actor_access_record(agent_id="system")])
-    harness = _OperationHarness(operation_authorizer=access.authorizer)
+    harness = _OperationHarness(access=access)
     _seed_base(harness)
     thread_access = await _derive_thread(access, agent_id="system")
     try:
@@ -496,7 +504,7 @@ async def test_paired_operations_remain_independent_after_an_authorized_request(
     access = make_access_composition(
         [make_actor_access_record(allowed_operations={allowed_operation})]
     )
-    harness = _OperationHarness(operation_authorizer=access.authorizer)
+    harness = _OperationHarness(access=access)
     _seed_base(harness)
     thread_access = await _derive_thread(access)
     try:
@@ -524,7 +532,7 @@ async def test_paired_operations_remain_independent_after_an_authorized_request(
 async def test_internal_cancel_without_operations_only_retracts_bound_process_pending_intents():
     """内部撤回只需有效线程 context，不能撤回其他进程或已经交给物化流水线的记录。"""
     access = make_access_composition([make_actor_access_record(allowed_operations=frozenset())])
-    harness = _OperationHarness(operation_authorizer=access.authorizer)
+    harness = _OperationHarness(access=access)
     thread_access = await _derive_thread(access)
     actor = ActorIdentity(user_id="test_user", agent_id="test_agent")
 
@@ -721,6 +729,7 @@ async def test_write_returning_after_revocation_is_withdrawn_without_cancelling_
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
             profile_reader=harness.runtime.profiles,
+            thread_spawner=access.thread_spawner,
         ),
         operation_authorizer=access.authorizer,
         intent_registry=harness.registry,
@@ -746,4 +755,35 @@ async def test_write_returning_after_revocation_is_withdrawn_without_cancelling_
         release.set()
         if not task.done():
             task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_call_finishing_profile_load_after_cpu_end_cannot_register_child(operation_setup):
+    """Profile 冷读跨越 CPU 结束时复查凭据，不签发或登记迟到子线程。"""
+    harness, access = operation_setup
+    thread = await _derive_thread(access)
+    entered, release = asyncio.Event(), asyncio.Event()
+    original = harness.backing.get_agent_profile
+
+    async def delayed(alias, *, scope):
+        entered.set()
+        await release.wait()
+        return await original(alias, scope=scope)
+
+    harness.backing.get_agent_profile = delayed
+    task = asyncio.create_task(
+        harness.entry.execute(DeriveCallThreadRequest("call_target"), access=thread)
+    )
+    try:
+        await asyncio.wait_for(entered.wait(), timeout=2)
+        process = access.process_table.get("process")
+        access.thread_spawner.revoke_threads(process.working_set)
+        release.set()
+        with pytest.raises(ThreadContextRevokedError):
+            await asyncio.wait_for(task, timeout=2)
+        assert process.working_set.thread_contexts == {}
+    finally:
+        release.set()
+        task.cancel()
         await asyncio.gather(task, return_exceptions=True)

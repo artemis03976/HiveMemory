@@ -13,17 +13,20 @@ from hivememory.workspace.contracts.cpu import (
     CPUPort,
 )
 from hivememory.workspace.contracts.operations import (
+    Callee,
     CancelIntentsRequest,
+    DeriveCallThreadRequest,
+    ExecutionThread,
     OperationEntry,
     OperationRequest,
     OperationSubmitter,
-    ResolveCallTargetRequest,
     ResolveReferencesRequest,
     ResolveRunTargetRequest,
     RetrieveRequest,
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
     ThreadContextRevokedError,
+    ThreadOperationSubmitter,
 )
 from hivememory.workspace.contracts.process import CPUInputManifest
 
@@ -34,11 +37,14 @@ __all__ = [
     "CPUPort",
     "CPUOutput",
     "CancelIntentsRequest",
+    "Callee",
+    "ExecutionThread",
     "ThreadContextRevokedError",
+    "ThreadOperationSubmitter",
     "OperationEntry",
     "OperationRequest",
     "OperationSubmitter",
-    "ResolveCallTargetRequest",
+    "DeriveCallThreadRequest",
     "ResolveReferencesRequest",
     "ResolveRunTargetRequest",
     "RetrieveRequest",

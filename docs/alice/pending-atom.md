@@ -26,7 +26,7 @@ MTP `WRITE` / `UPDATE` 已被接收、正式记忆尚未完成提取、去重、
 
 ## 1. WRITE 与 UPDATE 的交付边界
 
-`AliceCPU.execute(..., access=...)` 在 CPU 驱动内绑定主线程的线程 context，把 `submit_operation(request)` 交给统一执行路由。AgentRunService 将同一个函数交给 root frame、每条 `MTPExecutionContext` 与 CALL 子帧。请求只携带操作参数；`WorkspaceOperationEntry` 只接受线程 context，actor API 以其驻留 Workspace 为目标逐次授权，意图的 process ID 取自线程 context 的运行绑定。执行者不能选择目标或另交访问 context。
+`AliceCPU.execute(..., access=...)` 在 CPU 驱动内绑定主线程的线程 context，把 `submit_operation(request)` 交给统一执行路由。AgentRunService 将它交给 root frame 与 root 的每条 `MTPExecutionContext`；CALL 子帧使用 CPU 驱动为子线程绑定的另一个提交函数。请求只携带操作参数；`WorkspaceOperationEntry` 只接受线程 context，actor API 以其驻留 Workspace 为目标逐次授权，意图的 process ID 取自线程 context 的运行绑定。执行者不能选择目标或另交访问 context。
 
 Koakuma 保留协议参数、frame 动词集合检查和错误格式化职责：
 
@@ -51,7 +51,7 @@ Agent loop 只在收到 WRITE/UPDATE ACK 时把 alias 去重记入当前 frame �
 
 CALL 的 alias 回填只服务于父 Agent 的当前认知。物化任务不从这些 alias 反推：任务进程只在 CPU completed 后从登记认领本进程的 PENDING 意图，并封入 `InteractionPayload.materialize_tasks`，随后进入 Patchouli finalize。`CPUExecutionResult` 不承载物化任务，AgentRuntime 与 RunExecutor 不再认领、取消或回收登记记录。
 
-CPU 执行结束时任务进程同步撤销线程 context；根进程关闭先兜底撤销线程 context、取消本进程仍为 PENDING 的记录并释放附件租借，再等待 CPU 输出流关闭与 prepare cleanup。若在途 UPDATE 冷读于撤销后返回，入口同步补偿新登记的 alias 并抛撤销错误，不取消调用方任务。已在途的只读请求自然完成。已经认领的 MATERIALIZING 记录保持原状。子帧与根帧共享操作提交函数；子帧未成功结束时撤回它已收到 ACK 的意图，作为取消语义的一部分，其余意图仍由根进程终态处理。结算事件由 workspace 登记订阅，AliceBridge 不再订阅它们。Patchouli 的生成、结算与持久化边界见[生成与物化](../patchouli/generation.md)。
+CPU 执行结束时任务进程同步撤销全部线程 context；根进程关闭先兜底撤销线程 context、取消本进程仍为 PENDING 的记录并释放附件租借，再等待 CPU 输出流关闭与 prepare cleanup。若在途 UPDATE 冷读于撤销后返回，入口同步补偿新登记的 alias 并抛撤销错误，不取消调用方任务。已在途的只读请求自然完成。已经认领的 MATERIALIZING 记录保持原状。子帧以自己的提交函数提交与撤回；子帧未成功结束时撤回它已收到 ACK 的意图，作为取消语义的一部分，其余意图仍由根进程终态处理。结算事件由 workspace 登记订阅，AliceBridge 不再订阅它们。Patchouli 的生成、结算与持久化边界见[生成与物化](../patchouli/generation.md)。
 
 ## 4. 不变量与限制
 
@@ -60,7 +60,7 @@ CPU 执行结束时任务进程同步撤销线程 context；根进程关闭先�
 - 只有 completed 的任务进程默认进入 finalize；取消与失败不会把尚为 PENDING 的意图派发给 Patchouli。
 - 登记属于进程内状态，终态句柄保留到重启，不再产生 EXPIRED；模型中的兼容枚举与渲染种类保留。
 - 当前没有持久化登记、重启恢复、事件补齐或终态句柄回收；finalize 失败后已认领意图可能保持 MATERIALIZING。
-- CALL 使用主线程的线程 context 绑定的同一个提交函数，意图发起者仍为主线程 Actor；子帧沿用注册观测标签，不另行取得资源授权身份。
+- CALL 子帧以被调用方身份提交，意图的发起者是被调用方，进程关联与根帧相同；子帧沿用注册观测标签，标签不参与授权。
 
 ## 5. 代码与验证入口
 

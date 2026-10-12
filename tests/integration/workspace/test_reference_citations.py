@@ -108,7 +108,9 @@ async def chain():
     entry = WorkspaceOperationEntry(
         memory,
         agent=ActorAgentService(
-            operation_authorizer=composition.authorizer, profile_reader=runtime.profiles
+            operation_authorizer=composition.authorizer,
+            profile_reader=runtime.profiles,
+            thread_spawner=composition.thread_spawner,
         ),
         operation_authorizer=composition.authorizer,
         intent_registry=runtime.intents,
@@ -416,6 +418,7 @@ async def test_rejected_reference_request_cannot_record_citation_even_after_cach
             agent=ActorAgentService(
                 operation_authorizer=composition.authorizer,
                 profile_reader=chain.runtime.profiles,
+                thread_spawner=chain.composition.thread_spawner,
             ),
             operation_authorizer=composition.authorizer,
             intent_registry=chain.runtime.intents,

@@ -60,7 +60,7 @@ Runtime 不从命令文本相信身份或权限。每次执行都由 frame 构�
 
 - `agent_profile`：语言等运行描述，不承载权限；
 - `runtime_scope`：run、frame 与 action 坐标及冻结的 `ExecutionLabels`；标签仅用于观测，不携带授权身份或 parent/depth 拓扑信息；
-- `submit_operation`：CPU 驱动绑定线程 context 的请求提交函数，root 与 CALL 子帧共享，不暴露访问 context 或目标选择；CPU 执行结束后线程 context 被撤销，再提交会被拒绝；
+- `submit_operation`：CPU 驱动绑定线程 context 的请求提交函数，root 绑定主线程、CALL 子帧绑定以被调用方身份派生的子线程，不暴露访问 context 或目标选择；CPU 执行结束后全部线程 context 被撤销，再提交会被拒绝；
 - `execution_policy`：frame 的 MTP 动词集合、每帧预算与 CALL 等控制流硬限制；
 - `language`：错误、warning 与普通响应的本地化选择。
 
@@ -74,7 +74,7 @@ Agent 的权限只由 Workspace 访问登记的 actor 操作白名单表达，Ag
 2. **执行层强制**：Koakuma 在分发前以 frame 的 `FrameExecutionPolicy` 检查动词，集合外的动词以 `agent_fault` 结构化错误回填，且不提交任何操作请求；模型不能通过改写 prompt 或手工生成 MTP 绕过；
 3. **资源授权**：提交到 workspace 的请求由 actor API 按访问登记逐次授权，例如 RUN 的记忆目标还需要 `memory.run`。动词集合只是快照，不是授权依据。
 
-CALL 子帧继承 caller frame 的动词集合并显式移除 CALL，被调用方 Profile 只提供 persona、模型与语言；Koakuma 以 frame policy 硬拒绝递归调用，当前只支持根 run 的串行一层 CALL。提示层是可用性引导，执行层与资源授权才是判定；三者由同一集合驱动，不会出现 prompt 教授被禁用动词的情况。
+CALL 子帧的动词集合由被调用方的操作快照翻译并显式移除 CALL，被调用方 Profile 只提供 persona、模型与语言；Koakuma 以 frame policy 硬拒绝递归调用，当前只支持根 run 的串行一层 CALL。提示层是可用性引导，执行层与资源授权才是判定；三者由同一集合驱动，不会出现 prompt 教授被禁用动词的情况。
 
 ## 4. 六个动词在 Runtime 中的兑现
 

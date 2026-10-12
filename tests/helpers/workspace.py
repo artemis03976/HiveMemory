@@ -1,8 +1,10 @@
 """测试专用 IdentityScope、RuntimeScope 与 A1 访问组合构造器。"""
 
 from collections.abc import Iterable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
+from hivememory.components.events.bus import NullRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.access import (
     CallerPrincipal,
     RunBinding,
@@ -32,6 +34,10 @@ from hivememory.workspace.authentication import (
     WorkspaceAuthenticator,
 )
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
+from hivememory.workspace.process.events import TaskProcessEventEmitter
+from hivememory.workspace.process.table import ProcessPhase, ProcessRecord, ProcessTable
+from hivememory.workspace.process.task_process import ProcessRequest, TaskProcess
+from hivememory.workspace.process.threads import ProcessThreads
 
 
 def make_workspace_identity(
@@ -164,12 +170,47 @@ class AccessTestComposition:
     authorizer: WorkspaceOperationAuthorizer
     principal: CallerPrincipal
     default_workspace: WorkspaceIdentity
+    process_table: ProcessTable = field(default_factory=ProcessTable)
+
+    @property
+    def thread_spawner(self) -> ProcessThreads:
+        """能力测试复用真实进程表与派生边界，只有显式登记的主线程可派生。"""
+        return ProcessThreads(
+            self.process_table, lifecycle=self.gateway, authorizer=self.authorizer
+        )
+
+    def register_main_thread(self, process: WorkspaceAccessContext) -> WorkspaceAccessContext:
+        """测试组合根登记已认证进程，以真实进程管理器派生主线程。"""
+        summary = self.gateway.describe_context(process)
+        if summary is None:
+            raise ValueError("进程 context 已失效")
+        events = TaskProcessEventEmitter(RuntimeEventPublisher(NullRuntimeEventSink()))
+        task = TaskProcess(
+            record=ProcessRecord(
+                process_id=summary.run_id,
+                access=process,
+                events=events.for_process(
+                    process_id=summary.run_id,
+                    labels=ExecutionLabels(
+                        agent_id=summary.agent_id, workspace_id=summary.workspace_id
+                    ),
+                    trace_id="test",
+                ),
+            ),
+            request=ProcessRequest(message="测试派生", target_workspace=self.default_workspace),
+            trace_id="test",
+        )
+        task.record.enter_phase(ProcessPhase.ACTOR)
+        self.process_table.register(task)
+        return self.thread_spawner.derive_main_thread(task)
 
     async def authenticate_thread(
-        self, *, process_id: str = "test_run", **kwargs
+        self, *, process_id: str = "test_run", register_process: bool = False, **kwargs
     ) -> WorkspaceAccessContext:
         """先认证进程再派生主线程，actor API 测试不自行构造或解封 context。"""
         process = await self.authenticate(binding=RunBinding.for_task_process(process_id), **kwargs)
+        if register_process:
+            return self.register_main_thread(process)
         return self.gateway.derive_thread_context(process)
 
     async def authenticate(

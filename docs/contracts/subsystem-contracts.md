@@ -222,7 +222,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 
 `allowed_operations` 是 CPU 分配时由阶段授权读取的、本进程 actor 在访问登记中的 actor 操作集合（`frozenset[WorkspaceOperation]`），空白名单得到空集合。它只描述执行者能做什么，供执行者生成提示词与执行策略（Alice 翻译为 MTP 动词，外部执行者的工具列表由其适配器翻译），不是授权依据：每个操作请求仍由 actor API 按访问登记即时授权。
 
-`access` 是本次执行主线程的线程 context（密封的 `WorkspaceAccessContext`，进入 CPU 执行阶段时从进程 context 派生），是 execute 的独立参数，不进入冻结清单。CPU 驱动以公共 `OperationEntry` 把它绑定为 `OperationSubmitter`，执行适配器只提交操作请求；CPU 读不出 context 的内容，也不持有进程 context。CPU 执行结束（拿到终态结果并关闭输出流，或提前结束）后线程 context 即被撤销，此后的提交以 `ThreadContextRevokedError` 拒绝。清单的 `ExecutionLabels` 只有 `agent_id` 与 `workspace_id` 两个只读字符串，注册认证成功后创建一次并与进程事件沿用同一对象；标签不含 actor、owner 或访问 context，也不能改变授权或资源目标。
+`access` 是本次执行主线程的线程 context（密封的 `WorkspaceAccessContext`，进入 CPU 执行阶段时从进程 context 派生），是 execute 的独立参数，不进入冻结清单。CPU 驱动以公共 `OperationEntry` 把它绑定为提交函数（通用实现 `ThreadOperationSubmitter`，见 4.6），执行适配器只提交操作请求；CPU 读不出 context 的内容，也不持有进程 context。CPU 执行结束（拿到终态结果并关闭输出流，或提前结束）后，主线程与 CALL 派生的全部子线程 context 即被撤销，此后的提交以 `ThreadContextRevokedError` 拒绝。清单的 `ExecutionLabels` 只有 `agent_id` 与 `workspace_id` 两个只读字符串，注册认证成功后创建一次并与进程事件沿用同一对象；标签不含 actor、owner 或访问 context，也不能改变授权或资源目标。
 
 端口语义：
 
@@ -261,7 +261,7 @@ run_agent(
 
 ### 4.4 Alice 的端口实现
 
-`AliceCPU`（`alice/application/cpu.py`）持有公共 `OperationEntry`，将 execute 的线程 context 绑定为 `OperationSubmitter` 后，经全局总线调用 `alice.public.run_agent`：流式时原样转交交互事件，把 `done` 转换为 `CPUExecutionResult`（运行元数据不进入结果）；非流式时产出路由返回的执行结果。端口输出流被关闭时，它一并关闭 Alice 的事件流。Alice 的运行时仍在公开路由之后，进程只持有端口对象。
+`AliceCPU`（`alice/application/cpu.py`）持有公共 `OperationEntry`，以 `ThreadOperationSubmitter` 将 execute 的线程 context 绑定为提交函数后，经全局总线调用 `alice.public.run_agent`：流式时原样转交交互事件，把 `done` 转换为 `CPUExecutionResult`（运行元数据不进入结果）；非流式时产出路由返回的执行结果。端口输出流被关闭时，它一并关闭 Alice 的事件流。Alice 的运行时仍在公开路由之后，进程只持有端口对象。
 
 ### 4.5 Alice 不变量
 
@@ -270,7 +270,7 @@ run_agent(
 - WRITE/UPDATE 经操作请求只登记 workspace 意图并返回 ACK；物化任务由 completed 的任务进程认领，Alice 不持有登记；
 - 取消或失败结果不默认进入 Patchouli finalize；
 - Agent Profile 不承载权限；frame 的 MTP 动词集合由输入清单的 `allowed_operations` 翻译而来（RUN 始终可用，`sys_*` 系统工具不设权限），提交到 workspace 的请求仍由 actor API 逐次授权；
-- CALL 仅允许根 frame 发起；子 frame 继承父 frame 的动词集合并去掉 CALL，不能继续递归 CALL，被调用方 Profile 不改变这一集合。
+- CALL 仅允许根 frame 发起；子 frame 是以被调用方身份运行的子线程，动词集合由被调用方的操作快照翻译并去掉 CALL，不能继续递归 CALL；被调用方 Profile 只提供人设、模型与语言。
 
 ### 4.6 操作请求与线程 context
 
@@ -283,15 +283,17 @@ run_agent(
 | `ResolveRunTargetRequest` | RUN（记忆中的用户态工具） | `alias: str` | `ReferenceResolution` | `memory.run` |
 | `SubmitWriteIntentRequest` | WRITE | `focus: WriteFocus` | `PendingAtom` | `memory.write` |
 | `SubmitUpdateIntentRequest` | UPDATE | `base_alias`、`instruction`、`content=None` | `PendingAtom` | `memory.update` |
-| `ResolveCallTargetRequest` | CALL（只有 Alice 使用） | `agent_alias=None` | `AgentProfile` | `agent.call`（内置同样需要） |
+| `DeriveCallThreadRequest` | CALL（只有 Alice 使用） | `agent_alias=None` | `ExecutionThread`：目标 `AgentProfile`、被调用方的操作快照与子线程 context（只交付 CPU 驱动） | `agent.call`（内置同样需要） |
 
 `CancelIntentsRequest(aliases: tuple[str, ...]) -> list[str]` 是执行单元内部的补偿请求，不属于 actor 操作：入口校验线程 context 后只按它的进程关联撤回仍为 PENDING 的指定意图，返回实际撤回的 alias，不检查 operation，也不能撤回其他进程或已被认领的意图。RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求。
 
-公共入口与提交函数分别为 `OperationEntry.execute[R](request: OperationRequest[R], *, access: WorkspaceAccessContext) -> R`、`OperationSubmitter.__call__[R](request: OperationRequest[R]) -> R`。主、子 frame 暂时共享 CPU 驱动绑定的提交函数。新增资源操作应扩展请求与入口，而不增加 workspace 总线路由或让适配器切换资源目标。
+公共入口为 `OperationEntry.execute[R](request: OperationRequest[R], *, access: WorkspaceAccessContext) -> R`。提交函数协议 `OperationSubmitter` 有两个方法：`__call__[R](request: OperationRequest[R]) -> R` 提交普通请求，遇到派生请求以 `TypeError` 拒绝；`derive_call_thread(request: DeriveCallThreadRequest) -> Callee` 提交派生请求，把执行线程 `ExecutionThread` 中的子线程 context 绑定为新的提交函数，只交出被调用方 `Callee`（目标 Profile、操作快照与子帧的提交函数，没有线程或 context 概念）。`ThreadOperationSubmitter(entry, access)` 是 `workspace.contracts` 提供的通用实现，任何 CPU 驱动都用它绑定线程，执行适配器、frame 与 CALL 编排因此不接触 context。每个 frame 使用自己线程的提交函数。新增资源操作应扩展请求与入口，而不增加 workspace 总线路由或让适配器切换资源目标。
 
 `WorkspaceOperationEntry` 只接受线程 context：分派前经操作授权者确认它是未撤销的执行线程 context，再按请求类型把请求对象与线程 context 直接交给对应的 actor API 方法（`method(request, *, access)`），入口不拆参数，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验；入口不持有 root API。actor API 的目标取线程的驻留 Workspace，意图登记的 process_id 取自线程 context 的运行绑定。未知请求类型抛 `TypeError`；进程 context、请求级 context 或其他对象抛 `ScopeRequiredError`；已撤销的线程 context 抛 `ThreadContextRevokedError`（`core.errors`，由 `workspace.contracts` 重新导出）。拒绝都发生在任何副作用之前。
 
-CPU 执行结束时执行器同步撤销线程 context，关闭流程兜底；撤销不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。意图提交（WRITE、UPDATE）在分派前取得进程关联，返回入口后都在同步段再次检查线程 context，已撤销时以该关联同步撤回刚登记的 PENDING 意图并拒绝 ACK；当前 UPDATE 的基础冷读是会跨越撤销的等待点，WRITE 也纳入复查，使这条保证不依赖能力方法内部是否等待。完整的撤销时点、意图认领与引用计数语义见 [Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)。
+CALL 的派生由 actor API 经 `workspace.contracts.ChildThreadSpawner` 端口交给任务进程，进程只接受本进程主线程在 Actor 阶段内发起的派生，以被调用方准入后签发、登记子线程并读取被调用方的操作快照（[Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)第 5.4 节）。被调用方未准入或为保留的 `system` 时抛 `AdmissionDeniedError`，进程侧前置检查失败抛 `ScopeRequiredError`，均不登记子线程。
+
+CPU 执行结束时执行器同步撤销本进程的全部线程 context，关闭流程兜底；撤销不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。意图提交（WRITE、UPDATE）在分派前取得进程关联，返回入口后都在同步段再次检查线程 context，已撤销时以该关联同步撤回刚登记的 PENDING 意图并拒绝 ACK；当前 UPDATE 的基础冷读是会跨越撤销的等待点，WRITE 也纳入复查，使这条保证不依赖能力方法内部是否等待。完整的撤销时点、意图认领与引用计数语义见 [Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)。
 
 ## 5. 顶层主动链路契约
 
@@ -304,8 +306,9 @@ Gateway decision outcome
   -> 解析 Agent Profile（阶段授权后经 workspace 的 Profile 读取视图）
   -> Patchouli prepare（Topic 与检索）
   -> CPU 分配：附件租借、附件与记忆编译、组装输入清单
-  -> Actor 执行：从进程 context 派生线程 context，经 CPU 端口（当前为 Alice）
-       -> CPU 终态结果后关闭输出流，同步撤销线程 context
+  -> Actor 执行：从进程 context 派生主线程 context，经 CPU 端口（当前为 Alice）
+       -> CALL：经操作入口派生子线程（被调用方准入），进程登记
+       -> CPU 终态结果后关闭输出流，同步撤销全部线程 context
   -> completed: 任务进程认领本进程意图并封口交互记录（InteractionPayload，含实际使用的附件）
        -> Patchouli finalize
   -> cancelled/failed/exception: 不进入 finalize，转入关闭补偿

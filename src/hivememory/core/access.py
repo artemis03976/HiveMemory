@@ -210,10 +210,10 @@ class PrincipalAuthenticator(Protocol):
 
 
 class ThreadContextLifecycle(Protocol):
-    """执行器使用的线程 context 生命周期端口，只暴露派生与撤销。
+    """进程侧使用的线程 context 生命周期端口，只暴露派生与撤销。
 
-    组合根注入认证网关的实现；执行器不依赖认证模块，也不能重新认证或
-    指定另一份身份。当前只派生主线程，CALL 子 frame 共用它。
+    组合根注入认证网关的实现；进程不依赖认证模块。子线程只能沿用进程
+    的用户、驻留 Workspace 与 principal，以被调用方通过准入后派生。
     """
 
     def derive_thread_context(self, access: WorkspaceAccessContext) -> WorkspaceAccessContext:
@@ -222,6 +222,12 @@ class ThreadContextLifecycle(Protocol):
 
     def revoke_thread_context(self, access: WorkspaceAccessContext) -> None:
         """同步撤销线程 context；重复撤销幂等。"""
+        ...
+
+    def derive_child_thread_context(
+        self, access: WorkspaceAccessContext, *, agent_id: str, thread_id: str
+    ) -> WorkspaceAccessContext:
+        """从有效进程 context 派生通过 Workspace 准入的被调用方线程。"""
         ...
 
 

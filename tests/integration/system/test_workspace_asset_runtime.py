@@ -39,6 +39,8 @@ from hivememory.system.assembler import (
 )
 from hivememory.system.system import HiveMemorySystem
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.process.table import ProcessTable
+from hivememory.workspace.process.threads import ProcessThreads
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -497,12 +499,17 @@ async def test_system_stop_rejects_new_authentication_and_invalidates_issued_con
         default_workspace=make_workspace_identity(owner_user_id="user-1"),
     )
     context = await composition.authenticate(agent_id="agent-1")
+    process_table = ProcessTable()
     access_control = _AccessControlBundle(
         system_registry=object(),  # type: ignore[arg-type]
         workspace_registry=object(),  # type: ignore[arg-type]
         authenticator=composition.authenticator,
         operation_authorizer=composition.authorizer,
         access_gateway=composition.gateway,
+        process_table=process_table,
+        process_threads=ProcessThreads(
+            process_table, lifecycle=composition.gateway, authorizer=composition.authorizer
+        ),
     )
     system, _, _, sink = _build_system(
         store, scope, handle.asset_ref, access_control=access_control

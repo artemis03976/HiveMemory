@@ -69,6 +69,8 @@ last_reviewed: 2026-10-11
 
 升级注意（Agent 操作白名单）：Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 已删除，存量图纸中的这两个键在解析时被忽略、不需要迁移，前端也不再提供对应开关。曾依赖它们收窄动词的 Agent，现在按访问登记执行（默认用户级记录为全部六项）；需要收窄时，在本文件为该 Agent 增加精确记录。系统工具无法再按 Agent 限制。CALL 子 Agent 不再按被调用方 Profile 收窄，与父 Agent 的动词集合一致（去掉 CALL）。
 
+升级注意（执行线程层）：CALL 派生的子 Agent 以目标 Agent 的身份运行，需要目标在同一 Workspace 有准入记录，并按目标自己的白名单授权。随仓库发布的默认登记以用户级记录覆盖该用户的全部 Agent，行为不受影响；只为个别 Agent 配置精确记录的登记，需要为 CALL 目标补充记录，否则这些 CALL 以“agent 不可用”失败。内置图纸（未指定目标、`default` 或 `omni_doll`）以 `omni_doll` 身份运行。
+
 登记的字段语义、用户级记录规则、随仓库发布的默认登记与认证授权模型见 [Workspace 架构](../architecture/workspace.md)第 4.2 节。
 
 ## 2. 来源与优先级

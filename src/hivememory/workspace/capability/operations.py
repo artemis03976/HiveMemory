@@ -13,8 +13,8 @@ from hivememory.workspace.capability.actor.agent_profiles import ActorAgentServi
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.contracts.operations import (
     CancelIntentsRequest,
+    DeriveCallThreadRequest,
     OperationRequest,
-    ResolveCallTargetRequest,
     ResolveReferencesRequest,
     ResolveRunTargetRequest,
     RetrieveRequest,
@@ -46,7 +46,7 @@ class WorkspaceOperationEntry:
             ResolveReferencesRequest: memory.resolve_references,
             ResolveRunTargetRequest: memory.resolve_run_target,
             RetrieveRequest: memory.retrieve,
-            ResolveCallTargetRequest: agent.resolve_call_target,
+            DeriveCallThreadRequest: agent.derive_call_thread,
         }
 
     async def execute[R](

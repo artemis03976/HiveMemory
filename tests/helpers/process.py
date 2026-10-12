@@ -24,6 +24,8 @@ from hivememory.workspace.contracts import CPUPort, OperationEntry
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.runner import TaskProcessRunner
 from hivememory.workspace.process.service import TaskProcessService
+from hivememory.workspace.process.table import ProcessTable
+from hivememory.workspace.process.threads import ProcessThreads
 from hivememory.workspace.runtime import WorkspaceRuntime
 from tests.helpers.cpu import ScriptedCPU
 
@@ -39,11 +41,14 @@ def make_task_process_service(
     attachment_compiler_config: AttachmentCompilerConfig | None = None,
     workspace_runtime: WorkspaceRuntime | None = None,
     operation_entry: OperationEntry | None = None,
+    process_table: ProcessTable | None = None,
 ) -> TaskProcessService:
     """按生产顺序装配能力与操作入口，再构建 CPU 分配器、执行器与注册入口。"""
     runtime = workspace_runtime or WorkspaceRuntime(
         backing=BusCanonicalReadBackend(global_bus), atom_capacity=64, profile_capacity=32
     )
+    table = process_table if process_table is not None else ProcessTable()
+    threads = ProcessThreads(table, lifecycle=access_gateway, authorizer=operation_authorizer)
     memory = ActorMemoryService(
         global_bus,
         operation_authorizer=operation_authorizer,
@@ -52,6 +57,7 @@ def make_task_process_service(
     agent = ActorAgentService(
         operation_authorizer=operation_authorizer,
         profile_reader=runtime.profiles,
+        thread_spawner=threads,
     )
     entry = operation_entry or WorkspaceOperationEntry(
         memory,
@@ -72,11 +78,12 @@ def make_task_process_service(
         cpu=cpu,
         allocator=allocator,
         operation_authorizer=operation_authorizer,
-        thread_contexts=access_gateway,
+        thread_contexts=threads,
         intent_registry=runtime.intents,
     )
     return TaskProcessService(
         runner,
+        process_table=table,
         access_gateway=access_gateway,
         operation_authorizer=operation_authorizer,
         event_publisher=event_publisher,

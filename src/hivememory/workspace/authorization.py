@@ -161,7 +161,7 @@ class WorkspaceOperationAuthorizer:
         access: WorkspaceAccessContext,
         target_workspace: WorkspaceIdentity,
     ) -> frozenset[WorkspaceOperation]:
-        """任务进程在 CPU 分配时读取本进程 actor 的操作集合。
+        """任务进程在 CPU 分配或子线程派生时读取对应 actor 的操作集合。
 
         与阶段授权相同地兑现凭据、确认准入并校验目标；空白名单照常返回。
         返回值只用于 CPU 提示词与执行策略，不授予权限，也不携带访问身份；

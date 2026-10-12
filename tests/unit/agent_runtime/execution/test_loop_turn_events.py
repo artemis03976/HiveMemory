@@ -31,7 +31,8 @@ from hivememory.core.models import (
 )
 from hivememory.core.mtp import MTP_RIGHT_DELIMITER, MTPCallRequest
 from hivememory.core.protocol.models import MTPExecutionResult
-from hivememory.workspace.contracts import ResolveCallTargetRequest
+from hivememory.workspace.contracts import DeriveCallThreadRequest
+from tests.helpers.call import StubOperationSubmitter, make_callee
 from tests.helpers.workspace import make_runtime_scope
 
 
@@ -396,8 +397,8 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
 
     async def submit_operation(request):
         """仅替代能力提交端口；事件采集与 CALL 编排仍执行生产实现。"""
-        if isinstance(request, ResolveCallTargetRequest):
-            return OMNI_DOLL_PROFILE.model_copy(deep=True)
+        if isinstance(request, DeriveCallThreadRequest):
+            return make_callee(OMNI_DOLL_PROFILE.model_copy(deep=True))
         raise AssertionError(f"本场景不应提交其他资源操作: {request}")
 
     agent_runtime = AgentRuntime(
@@ -415,7 +416,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
         prompt_assembler=prompt_assembler,
     )
     frame = _make_frame()
-    frame.submit_operation = submit_operation
+    frame.submit_operation = StubOperationSubmitter(derive=submit_operation)
     session = RunSession(agent_run_id="run_test_1")
     session.register_root_frame(frame)
     executor = RunExecutor(

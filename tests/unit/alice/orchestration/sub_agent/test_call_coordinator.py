@@ -13,7 +13,6 @@ from hivememory.agent_runtime.products import FrameProducts
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.run_session import RunSession
-from hivememory.alice.orchestration.sub_agent.call_context_provider import CallContext
 from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     CallCoordinator,
     DispatchCallee,
@@ -22,6 +21,7 @@ from hivememory.alice.orchestration.sub_agent.call_coordinator import (
 from hivememory.alice.orchestration.sub_agent.call_record import CallRecord, CallRecordStatus
 from hivememory.core.models import OMNI_DOLL_PROFILE, PendingAtomStatus, TurnEvent, WriteFocus
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
+from tests.helpers.call import make_call_context
 from tests.helpers.operations import OperationsHarness
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
@@ -82,7 +82,7 @@ def _coordinator(runtime, child: ExecutionFrame, *, context_provider=None) -> Ca
         runtime,
         context_provider
         or SimpleNamespace(
-            provide=AsyncMock(return_value=CallContext(agent_profile=OMNI_DOLL_PROFILE))
+            provide=AsyncMock(return_value=make_call_context(agent_profile=OMNI_DOLL_PROFILE))
         ),
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
@@ -179,7 +179,7 @@ async def test_begin_and_complete_call_split_execution_from_coordination_phases(
     async def provide_context(*_args, **_kwargs):
         record = session.call_records[("frame-1", "act-1")]
         assert record.status == CallRecordStatus.RESOLVING
-        return CallContext(agent_profile=OMNI_DOLL_PROFILE)
+        return make_call_context(agent_profile=OMNI_DOLL_PROFILE)
 
     runtime = SimpleNamespace(
         max_iterations=8,
@@ -493,7 +493,7 @@ async def test_child_frame_inherits_caller_observation_labels() -> None:
     coordinator = CallCoordinator(
         runtime,
         SimpleNamespace(
-            provide=AsyncMock(return_value=CallContext(agent_profile=OMNI_DOLL_PROFILE))
+            provide=AsyncMock(return_value=make_call_context(agent_profile=OMNI_DOLL_PROFILE))
         ),
         frame_factory=FrameFactory(),
         prompt_assembler=SimpleNamespace(

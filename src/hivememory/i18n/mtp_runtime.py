@@ -123,6 +123,10 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Permission Denied] 当前身份无权访问子代理 Profile '{agent_alias}'。\n"
         "Suggestion: 请改用当前身份可见的子代理。"
     ),
+    "mtp.call.agent_unavailable": (
+        "[Agent Unavailable] 子代理 '{agent_alias}' 当前不可用。\n"
+        "Suggestion: 请改用其他子代理，或不调用子代理继续完成任务。"
+    ),
     "mtp.call.profile_type_mismatch": (
         "[Type Mismatch] alias '{agent_alias}' 不是 Agent Profile。\n"
         "Suggestion: 请从可用子代理列表中选择 Agent Profile alias。"
@@ -285,6 +289,10 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "[Permission Denied] The current identity cannot access sub-agent profile "
         "'{agent_alias}'.\n"
         "Suggestion: Use a sub-agent visible to the current identity."
+    ),
+    "mtp.call.agent_unavailable": (
+        "[Agent Unavailable] Sub-agent '{agent_alias}' is not available.\n"
+        "Suggestion: Choose another sub-agent, or continue the task without calling one."
     ),
     "mtp.call.profile_type_mismatch": (
         "[Type Mismatch] Alias '{agent_alias}' is not an Agent Profile.\n"

@@ -21,7 +21,7 @@ from hivememory.workspace.contracts import (
     CPUInputManifest,
     CPUOutput,
     OperationEntry,
-    OperationRequest,
+    ThreadOperationSubmitter,
 )
 
 
@@ -52,9 +52,7 @@ class AliceCPU:
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]:
-        async def submit_operation[R](request: OperationRequest[R]) -> R:
-            """绑定本次线程 context，把操作请求交给 workspace 统一入口。"""
-            return await self._operation_entry.execute(request, access=access)
+        submit_operation = ThreadOperationSubmitter(self._operation_entry, access)
 
         if stream:
             event_stream = await self._bus.request(

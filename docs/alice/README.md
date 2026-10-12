@@ -32,7 +32,7 @@ Alice 当前拥有：
 - `CPUInputManifest -> CPUExecutionResult` 的执行边界：唯一的执行入口 `run_agent` 以 `stream` 参数控制是否流式，接收任务进程组装的输入清单（`workspace.contracts`），在内部转换为提示词组装使用的 `AgentRunContext`；Alice 以 `AliceCPU` 实现 workspace 定义的 CPU 端口，由组合根注入任务进程；
 - 主 Agent 与子 Agent 的 `ExecutionFrame`、帧进度、CALL 挂起与恢复；
 - 单 Agent generate -> MTP -> 回填循环的装配与调用；
-- 人格注入、模型选择和权限应用；主 Agent 的 Profile 由输入清单提供（任务进程在 CPU 分配时解析），CALL 子 Agent 的 Profile 由 workspace 能力层经操作请求读取；
+- 人格注入、模型选择和权限应用；主 Agent 的 Profile 由输入清单提供（任务进程在 CPU 分配时解析），CALL 子 Agent 的 Profile 随子线程派生由 workspace 能力层经操作请求读取；
 - Koakuma MTP runtime、运行时 syscall registry 与格式化错误回填；
 - 经线程 context 绑定的 `submit_operation` 提交资源操作请求、消费中立结果与记录本帧收到的 ACK alias；
 - 共用一套执行骨架的非流式与流式 Agent run，以及 `agent.run.*` RuntimeEvent；
@@ -91,7 +91,7 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 
 未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`；显式选择 `default` / `omni_doll` 也会直接选择同一个内置 Profile，但不属于错误 fallback。Omni-Doll 无特定 persona、模型名为 `default`，verb/tool 使用当前内置能力的显式白名单，而不是 `None=未来所有能力也自动允许`。因此新增 MTP verb 或 syscall 时必须同步审查并更新白名单，不能悄悄扩大 fallback 权限。
 
-主 Agent 的 Profile 由任务进程在 CPU 分配时经阶段授权读取，不要求任何 actor 操作；CALL 目标（包括内置 Profile）通过 `ResolveCallTargetRequest` 读取，经 workspace actor API 的 `agent.call` 授权。操作入口把请求与 CPU 附上的线程 context 交给 actor API，actor API 以线程的驻留 Workspace 为目标授权后，才把一次操作的 `IdentityScope` 交给读取视图和 Patchouli 公开边界；两条路径都由读取视图按当前 actor 检查源原子可见性。Patchouli 先检查 Workspace 归属，再检查资源可见性、MemoryType 与 `agent_config`。Profile 缓存由 workspace 按 Workspace/alias 坐标定位，条目保存源原子的 policy 与 UUID，命中时对当前 actor 重验；canonical 源变更失效与在途回填代次检查统一维护，详见 [Workspace 架构](../architecture/workspace.md)。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
+主 Agent 的 Profile 由任务进程在 CPU 分配时经阶段授权读取，不要求任何 actor 操作；CALL 目标（包括内置 Profile）通过派生请求 `DeriveCallThreadRequest` 读取，经 workspace actor API 的 `agent.call` 授权，并由任务进程以被调用方准入后派生子线程。操作入口把请求与 CPU 附上的线程 context 交给 actor API，actor API 以线程的驻留 Workspace 为目标授权后，才把一次操作的 `IdentityScope` 交给读取视图和 Patchouli 公开边界；两条路径都由读取视图按当前 actor 检查源原子可见性。Patchouli 先检查 Workspace 归属，再检查资源可见性、MemoryType 与 `agent_config`。Profile 缓存由 workspace 按 Workspace/alias 坐标定位，条目保存源原子的 policy 与 UUID，命中时对当前 actor 重验；canonical 源变更失效与在途回填代次检查统一维护，详见 [Workspace 架构](../architecture/workspace.md)。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
 
 ## 4. 当前主流程
 
@@ -120,7 +120,7 @@ Alice 接收的是 Patchouli 已经准备好的本轮快照，不在 run 中重�
 root frame emits CALL
   -> Koakuma returns SUSPEND + MTPCallRequest
   -> RunExecutor 让 CallCoordinator 建立 CallRecord 并准备 callee
-  -> CallContextProvider resolve target Agent Profile
+  -> CallContextProvider derive_call_thread：agent.call + 目标 Profile + 进程以被调用方准入派生子线程
   -> CallContextProvider resolve context_refs + compile shared context
   -> FrameFactory 创建普通 callee frame
   -> RunExecutor 递归等待 callee frame
@@ -131,7 +131,7 @@ root frame emits CALL
 
 子 Agent 的完整试错轨迹留在自己的 frame 中，主话题只接收 CALL、结构化返回与最终主 Agent 输出。这种黑盒隔离不是为了隐藏事实，而是为了避免一次专项执行的迭代细节污染主上下文；需要共享的记忆由 `context_refs` 显式解析并通过 MemoryCompiler 注入。
 
-当前只允许根 frame 发起 CALL。callee frame 的 `FrameExecutionPolicy` 继承 caller 的动词集合并移除 CALL，Koakuma 以 policy 硬拒绝递归调用，形成单层串行星型拓扑；被调用方 Profile 不改变子 frame 的动词集合，子线程独立的权限留给执行线程层。
+当前只允许根 frame 发起 CALL。callee frame 是以被调用方身份运行的子线程：它的 `FrameExecutionPolicy` 由被调用方的操作快照翻译并移除 CALL，资源操作按被调用方的白名单与可见性授权，写入意图记在被调用方名下；Koakuma 以 policy 硬拒绝递归调用，形成单层串行星型拓扑。被调用方未在本 Workspace 准入时，CALL 以“agent 不可用”回填，不启动子 frame。
 
 ## 5. MTP 与临时写状态
 
@@ -173,11 +173,11 @@ AliceBridge 不订阅 PendingAtom 结算事件；这些事件由 workspace 登�
 | 公共运行模型 | `src/hivememory/workspace/contracts/process.py`（输入清单）、`src/hivememory/core/protocol/models.py`、`core/models/{agent,pending}.py` |
 | Alice 应用与编排测试 | `tests/unit/alice/application/`、`tests/unit/alice/orchestration/` |
 | 执行与 MTP 测试 | `tests/unit/agent_runtime/` |
-| 主动与 CALL 流程 | `tests/e2e/pipeline/test_agent_loop_e2e.py`、`test_chat_run_e2e.py`、`test_sub_agent_call_e2e.py` |
+| 主动与 CALL 流程 | `tests/e2e/pipeline/test_agent_loop_e2e.py`、`test_chat_run_e2e.py`、`test_sub_agent_call_e2e.py`；CALL 子线程按被调用方授权与写入归属见 `tests/e2e/system/test_alice_capability_chat.py`、`tests/integration/alice/orchestration/test_call_profile_requests.py` |
 
 ## 9. 当前限制与设计张力
 
-- `AgentProfile` 携带来源 alias，但子帧与 root 使用相同的线程 context 绑定提交函数，意图发起者仍为主线程 Actor；当前没有子线程独立身份或权限授予；
+- 能否 CALL 某个 Agent 只取决于调用方的 `agent.call`、目标 Profile 对调用方可见与被调用方的准入，没有“谁能调用谁”的细粒度策略；被调用方读到的 PRIVATE 记忆可能经 CALL 返回值交给调用方；
 - 每次 run 的 frame registry 与 CallRecord 由独立 `RunSession` 持有，stream sequence 由流式输出端口持有；`RunExecutor` 用协程递归表达 CALL 的挂起与重入，不维护单活动 frame 状态机；Chat application 在更上层拥有可取消阶段 task。
 - 子 Agent 异常会被包装为 CALL error 交给主 Agent 继续处理；取消、预算耗尽和意外挂起分别保持 cancelled 或稳定 error，不会被视作成功返回；
 - Alice 的 Agent frame 不持久化，进程重启后不能恢复；workspace 的派生 cache 同样不跨重启保存；统一恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；

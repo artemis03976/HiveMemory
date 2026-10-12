@@ -80,7 +80,7 @@ def _run(coro):
 
 
 def test_builtin_alias_returns_builtin_profile_without_source():
-    """default/omni_doll/空 alias 返回内置 Profile，不伪造源原子关联或身份。"""
+    """default/omni_doll/空 alias 归一为内置身份，不伪造源原子关联。"""
     familiar = RetrievalFamiliar(engine=Mock(), memory_library=_make_library_with_atom(None))
     scope = make_identity_scope()
 
@@ -94,7 +94,7 @@ def test_builtin_alias_returns_builtin_profile_without_source():
         assert (resolved.is_builtin, resolved.access_policy, resolved.profile.agent_id) == (
             True,
             None,
-            None,
+            "omni_doll",
         )
 
 

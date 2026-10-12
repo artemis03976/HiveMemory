@@ -1,4 +1,4 @@
-"""CALL 子帧与真实 workspace 操作入口协作，验证主线程 context的继承。"""
+"""CALL 子帧与真实 workspace 操作入口协作，验证被调用方的独立授权与记账。"""
 
 from __future__ import annotations
 
@@ -20,8 +20,14 @@ from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.alice import AliceConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.routes import GlobalRoutes
-from hivememory.core.models import OMNI_DOLL_PROFILE, AgentProfile, ResolvedAgentProfile
+from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
+    ActorIdentity,
+    AgentProfile,
+    ResolvedAgentProfile,
+)
 from hivememory.core.mtp import MTPCallRequest
 from hivememory.prompts.assembler import AgentPromptAssembler
 from tests.helpers.operations import OperationsHarness
@@ -29,11 +35,12 @@ from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
 
 @pytest.mark.asyncio
-async def test_callee_inherits_parent_verbs_and_ignores_legacy_profile_permissions():
-    """真实 CALL 准备使用父帧集合去掉 CALL，目标 Profile 的旧名单不能扩权或收窄。"""
+async def test_callee_uses_own_verbs_and_ignores_legacy_profile_permissions():
+    """子帧使用被调用方的 WRITE 快照，不继承父帧 READ；Profile 旧权限字段不生效。"""
     harness = OperationsHarness(GlobalSystemBus())
     profile = AgentProfile.model_validate(
         {
+            "agent_id": "callee",
             "persona": "被调用人设",
             "language": "en",
             "allowed_mtp_verbs": [],
@@ -53,7 +60,10 @@ async def test_callee_inherits_parent_verbs_and_ignores_legacy_profile_permissio
         topic_id="topic-parent",
         execution_policy=FrameExecutionPolicy.from_verbs({"READ", "RUN", "CALL"}),
         submit_operation=await harness.submitter(
-            make_identity_scope(agent_id="parent"), scope.run_id
+            make_identity_scope(agent_id="parent"),
+            scope.run_id,
+            allowed_operations={WorkspaceOperation.MEMORY_READ, WorkspaceOperation.AGENT_CALL},
+            callee_operations={WorkspaceOperation.MEMORY_WRITE, WorkspaceOperation.AGENT_CALL},
         ),
     )
     config = AliceConfig()
@@ -79,17 +89,17 @@ async def test_callee_inherits_parent_verbs_and_ignores_legacy_profile_permissio
 
     assert isinstance(transition, DispatchCallee)
     child = transition.frame
-    assert child.execution_policy.permitted_verbs == {"READ", "RUN"}
-    assert child.submit_operation is caller.submit_operation
+    assert child.execution_policy.permitted_verbs == {"WRITE", "RUN"}
+    assert child.submit_operation is not caller.submit_operation
     prompt = child.working_history[0]["content"]
-    assert "被调用人设" in prompt and "READ" in prompt
-    assert "CALL" not in prompt and "WRITE" not in prompt and "SEARCH" not in prompt
+    assert "被调用人设" in prompt and "WRITE" in prompt
+    assert "CALL" not in prompt and "READ" not in prompt and "SEARCH" not in prompt
     assert "sys_write_file" in prompt
 
 
 @pytest.mark.asyncio
-async def test_callee_submits_with_parent_thread_context_and_keeps_parent_as_intent_actor() -> None:
-    """真实创建的子帧继承提交函数，WRITE 意图仍归主线程发起者，父帧可以回读。"""
+async def test_callee_submits_with_own_thread_context_and_keeps_callee_as_intent_actor() -> None:
+    """真实子帧取得独立提交函数，WRITE 归被调用方且仍绑定同一进程，父帧可回读。"""
     harness = OperationsHarness()
     scope = make_runtime_scope(agent_id="parent", run_id="process-parent")
     identity_scope = make_identity_scope(agent_id="parent")
@@ -124,7 +134,7 @@ async def test_callee_submits_with_parent_thread_context_and_keeps_parent_as_int
 
     assert isinstance(transition, DispatchCallee)
     child = transition.frame
-    assert child.submit_operation is caller.submit_operation
+    assert child.submit_operation is not caller.submit_operation
     koakuma = KoakumaRuntime()
     write = await koakuma.execute_mtp(
         '⟪ WRITE | * | content="子帧创建的共享草稿" ⟫',
@@ -135,7 +145,7 @@ async def test_callee_submits_with_parent_thread_context_and_keeps_parent_as_int
     )
     assert write.response_status == "ack"
     pending = harness.registry.get(write.pending_alias, identity_scope.workspace_identity)
-    assert pending.from_actor == identity_scope.actor_identity
+    assert pending.from_actor == ActorIdentity(user_id="test_user", agent_id="omni_doll")
     assert pending.process_id == "process-parent"
     read = await koakuma.execute_mtp(
         f"⟪ READ | {write.pending_alias} | ⟫",
@@ -143,3 +153,79 @@ async def test_callee_submits_with_parent_thread_context_and_keeps_parent_as_int
     )
     assert read.response_status == "success"
     assert "子帧创建的共享草稿" in read.response_content
+
+
+@pytest.mark.asyncio
+async def test_child_reads_only_callee_private_memory_and_records_callee_citations():
+    """同一缓存中的 PRIVATE 原子仍按每次读取的子线程 actor 过滤。"""
+    from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+    from hivememory.workspace.contracts import DeriveCallThreadRequest, ResolveReferencesRequest
+    from tests.helpers.memory import make_memory_metadata
+
+    harness = OperationsHarness()
+    for owner in ("parent", "omni_doll"):
+        harness.memories[owner] = MemoryAtom(
+            meta=make_memory_metadata(
+                user_id="test_user", source_agent_id=owner, visibility="PRIVATE"
+            ),
+            index=IndexLayer(alias=owner, title=owner, memory_type=MemoryType.FACT),
+            payload=PayloadLayer(content=f"{owner} 的私有正文"),
+        )
+    submit = await harness.submitter(make_identity_scope(agent_id="parent"))
+    try:
+        parent_reads = await submit(ResolveReferencesRequest(("parent", "omni_doll")))
+        child = await submit.derive_call_thread(DeriveCallThreadRequest())
+        child_reads = await child.submit_operation(
+            ResolveReferencesRequest(("parent", "omni_doll"))
+        )
+        assert [item.kind for item in parent_reads] == ["atom", "not_found"]
+        assert [item.kind for item in child_reads] == ["not_found", "atom"]
+        assert child_reads[1].atom.payload.content == "omni_doll 的私有正文"
+        assert [item["identity_scope"].actor_identity.agent_id for item in harness.citations] == [
+            "parent",
+            "omni_doll",
+        ]
+    finally:
+        harness.revoke()
+        harness.runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_callee_permissions_do_not_inherit_caller_read_and_cannot_recursively_derive():
+    """调用方的 READ 不授予子线程；即使被调用方拥有 CALL，进程仍禁止递归派生。"""
+    from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
+    from hivememory.workspace.contracts import DeriveCallThreadRequest, ResolveReferencesRequest
+
+    harness = OperationsHarness()
+    submit = await harness.submitter(
+        make_identity_scope(agent_id="parent"),
+        allowed_operations={WorkspaceOperation.AGENT_CALL, WorkspaceOperation.MEMORY_READ},
+        callee_operations={WorkspaceOperation.AGENT_CALL},
+    )
+    try:
+        child = await submit.derive_call_thread(DeriveCallThreadRequest())
+        with pytest.raises(OperationDeniedError) as denied:
+            await child.submit_operation(ResolveReferencesRequest(("missing",)))
+        assert denied.value.details["operation"] == "memory.read"
+        with pytest.raises(ScopeRequiredError, match="主线程"):
+            await child.submit_operation.derive_call_thread(DeriveCallThreadRequest())
+        assert harness.runtime.stats()["cold_reads"] == 2
+    finally:
+        harness.revoke()
+        harness.runtime.close()
+
+
+@pytest.mark.asyncio
+async def test_generic_submission_cannot_deliver_child_context():
+    """普通提交拒绝派生请求，既不读取图纸也不交付含凭据的结果。"""
+    from hivememory.workspace.contracts import DeriveCallThreadRequest
+
+    harness = OperationsHarness()
+    submit = await harness.submitter(make_identity_scope(agent_id="parent"))
+    try:
+        with pytest.raises(TypeError, match="derive_call_thread"):
+            await submit(DeriveCallThreadRequest())
+        assert harness.runtime.stats()["cold_reads"] == 0
+    finally:
+        harness.revoke()
+        harness.runtime.close()

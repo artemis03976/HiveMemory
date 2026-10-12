@@ -6,7 +6,7 @@ from dataclasses import replace
 
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import RunBinding, WorkspaceAccessContext
+from hivememory.core.access import RunBinding
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import ResourceUnavailableError
 from hivememory.core.models import (
@@ -15,13 +15,12 @@ from hivememory.core.models import (
     MemoryAtom,
     ResolvedAgentProfile,
 )
-from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
-    OperationRequest,
     OperationSubmitter,
+    ThreadOperationSubmitter,
 )
 from hivememory.workspace.runtime import WorkspaceRuntime
 from tests.helpers.workspace import (
@@ -90,10 +89,12 @@ class OperationsHarness:
         self.runtime = WorkspaceRuntime(backing=self.backing, atom_capacity=32, profile_capacity=16)
         self.registry = self.runtime.intents
         self.memories = self.backing.memories
-        self._process_contexts: dict[
-            str, list[tuple[ActorAuthenticationGateway, WorkspaceAccessContext]]
-        ] = {}
-        self.entry = self.make_entry(operation_authorizer or make_access_composition([]).authorizer)
+        self._compositions = {}
+        empty_access = make_access_composition([])
+        self.entry = self.make_entry(
+            operation_authorizer or empty_access.authorizer,
+            empty_access.thread_spawner,
+        )
 
     async def _record_citation(self, *, memory_id, source, identity_scope):
         """持久化替身记录公共引用路由的副作用，读取与授权边界保持真实。"""
@@ -101,7 +102,7 @@ class OperationsHarness:
             {"memory_id": memory_id, "source": source, "identity_scope": identity_scope}
         )
 
-    def make_entry(self, operation_authorizer) -> WorkspaceOperationEntry:
+    def make_entry(self, operation_authorizer, thread_spawner) -> WorkspaceOperationEntry:
         """入口与所有测试线程 context 共享同一份登记，替身仅位于持久化边界。"""
         return WorkspaceOperationEntry(
             ActorMemoryService(
@@ -112,19 +113,32 @@ class OperationsHarness:
             agent=ActorAgentService(
                 operation_authorizer=operation_authorizer,
                 profile_reader=self.runtime.profiles,
+                thread_spawner=thread_spawner,
             ),
             operation_authorizer=operation_authorizer,
             intent_registry=self.registry,
         )
 
     async def submitter(
-        self, scope: IdentityScope, process_id: str = "test_run", *, allowed_operations=None
+        self,
+        scope: IdentityScope,
+        process_id: str = "test_run",
+        *,
+        allowed_operations=None,
+        callee_operations=None,
     ) -> OperationSubmitter:
         """完成真实认证并构造绑定线程 context 的泛型提交函数。"""
         workspace = scope.workspace_identity
         actor = scope.actor_identity
         composition = make_access_composition(
             [
+                make_actor_access_record(
+                    owner_user_id=workspace.owner_user_id,
+                    workspace_id=workspace.workspace_id,
+                    user_id=actor.user_id,
+                    agent_id=None,
+                    allowed_operations=callee_operations,
+                ),
                 make_actor_access_record(
                     owner_user_id=workspace.owner_user_id,
                     workspace_id=workspace.workspace_id,
@@ -142,21 +156,18 @@ class OperationsHarness:
             workspace=workspace,
             binding=RunBinding.for_task_process(process_id),
         )
-        entry = self.make_entry(composition.authorizer)
-        thread_access = composition.gateway.derive_thread_context(access)
-        self._process_contexts.setdefault(process_id, []).append(
-            (composition.gateway, thread_access)
-        )
-
-        async def submit_operation[R](request: OperationRequest[R]) -> R:
-            return await entry.execute(request, access=thread_access)
-
-        return submit_operation
+        self._compositions.setdefault(process_id, []).append(composition)
+        entry = self.make_entry(composition.authorizer, composition.thread_spawner)
+        thread_access = composition.register_main_thread(access)
+        return ThreadOperationSubmitter(entry, thread_access)
 
     def revoke(self, process_id: str = "test_run") -> None:
         """同步撤销测试进程的全部线程 context，不取消调用方任务。"""
-        for gateway, context in self._process_contexts.pop(process_id, []):
-            gateway.revoke_thread_context(context)
+        for composition in self._compositions.pop(process_id, []):
+            process = composition.process_table.get(process_id)
+            composition.thread_spawner.revoke_threads(process.working_set)
+            composition.gateway.invalidate_context(process.record.access)
+            composition.process_table.close(process)
 
 
 class HarnessKoakumaRuntime(KoakumaRuntime):

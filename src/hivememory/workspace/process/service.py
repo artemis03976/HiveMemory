@@ -120,13 +120,14 @@ class TaskProcessService:
         self,
         runner: TaskProcessRunner,
         *,
+        process_table: ProcessTable,
         access_gateway: ActorAuthenticationGateway,
         operation_authorizer: WorkspaceOperationAuthorizer,
         event_publisher: RuntimeEventPublisher | None = None,
     ) -> None:
         self._runner = runner
         # 唯一的进程注册表：process_id → 已注册的 TaskProcess（不外泄）。
-        self._process_table = ProcessTable()
+        self._process_table = process_table
         self._events = TaskProcessEventEmitter(
             event_publisher or RuntimeEventPublisher(NullRuntimeEventSink())
         )

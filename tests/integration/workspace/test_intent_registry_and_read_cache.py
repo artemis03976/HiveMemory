@@ -171,7 +171,7 @@ async def chain(tmp_path):
     composition = make_access_composition(
         [
             make_actor_access_record(owner_user_id="u1", agent_id=agent)
-            for agent in ("writer", "reader", "system", "custom_agent")
+            for agent in ("writer", "reader", "system", "custom_agent", "omni_doll")
         ],
         default_workspace=WORKSPACE,
     )
@@ -189,6 +189,7 @@ async def chain(tmp_path):
         profiles=ActorAgentService(
             operation_authorizer=composition.authorizer,
             profile_reader=runtime.profiles,
+            thread_spawner=composition.thread_spawner,
         ),
         writer=await composition.authenticate_thread(
             agent_id="writer", process_id="writer_process"

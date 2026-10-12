@@ -520,7 +520,7 @@ flowchart TB
 | P-2、P-10 Agent Profile 的权限 | 总 Idea 15.4 | 已完成：Profile 的两个 allow 字段演变为能力层的 operation 控制；2026-10-06 决定单独建立计划实施，不随 Alice 的能力层调用迁移 |
 | P-4 进程级权限收窄与创建进程的授权 | 总 Idea 15.9、[第 16 节](./workspace-network-task-process-architecture.md#p-4-进程级权限收窄与创建进程的授权) | P-4b 已完成：不开放创建任务进程；P-4a 未决 |
 | P-5 CALL 与触发器的认证 | 总 Idea [第 16 节](./workspace-network-task-process-architecture.md#p-5-call-与触发器的认证) | 未决；P-5a 已并入执行单元 Idea T-3，与 Q-10 相关；P-5b/c 与 Q-6 相关；被动请求只存在于 controller 模式 |
-| T-1–T-6 执行单元与执行线程 | [执行单元 Idea](./execution-unit-thread-and-environment.md#4-已完成的问题) | T-1、T-2 已决定：子线程身份在派生时确定，派生到达进程，每个线程一份 context，满足 Q-10；T-6 已决定（CPU 只指执行单元）。未决：T-1a、T-1b、T-2a、T-3（与 Q-10 相关）、T-4（CPU 端口之外由执行单元回到进程的通道）、T-5 |
+| T-1–T-6 执行单元与执行线程 | [执行单元 Idea](./execution-unit-thread-and-environment.md#4-已完成的问题) | T-1、T-2 已决定：子线程身份在派生时确定，派生到达进程，每个线程一份 context，满足 Q-10；T-6 已决定（CPU 只指执行单元）。T-1a、T-1b、T-2a、T-3（与 Q-10 相关）、T-4b、T-5a 已决定（2026-10-11；子线程以被调用方身份派生，由执行线程层实施）；未决：T-5b |
 | P-6 进程绑定 context 的失效时点 | 总 Idea 15.6 | 已完成并实施：context 与进程绑定，随进程关闭失效 |
 | P-7 进程控制操作的授权主体 | 总 Idea 15.10、[第 16 节](./workspace-network-task-process-architecture.md#p-7-进程控制操作的授权主体) | 取消已完成并实施（Q-15）；其余控制操作未决 |
 | P-9d 进程的定义 | 总 Idea 第 16 节 | 未决：管理员直接通道（方案 C）与前提第 3 条的关系 |

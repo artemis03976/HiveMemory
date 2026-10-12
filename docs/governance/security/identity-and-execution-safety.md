@@ -28,7 +28,7 @@ last_reviewed: 2026-10-11
 
 # 身份隔离与执行安全治理
 
-HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agent Profile 和 MemoryLibrary 可见性边界，workspace 派生缓存（含 CALL 目标 Profile）已接入 canonical 变更失效，Alice 全部资源操作已经过线程 context 绑定的能力入口；PendingAtom 的耐久隔离、子线程独立授权、前端身份状态与 RUN 执行安全仍有缺口。`IdentityScope` 由 `ActorIdentity` 与 `WorkspaceIdentity` 组成，表达一次操作的发起者与目标 Workspace；它只沿该操作的公开调用链传播。Patchouli 在公开边界拆为 `belong_to` 与 `from_actor`，内部、交互记录和后台任务分开携带归属与必要的发起者。来源记录不参与资源授权。
+HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agent Profile 和 MemoryLibrary 可见性边界，workspace 派生缓存（含 CALL 目标 Profile）已接入 canonical 变更失效，Alice 全部资源操作已经过线程 context 绑定的能力入口，CALL 子线程以被调用方身份独立授权；PendingAtom 的耐久隔离、“谁能调用谁”的委派策略、前端身份状态与 RUN 执行安全仍有缺口。`IdentityScope` 由 `ActorIdentity` 与 `WorkspaceIdentity` 组成，表达一次操作的发起者与目标 Workspace；它只沿该操作的公开调用链传播。Patchouli 在公开边界拆为 `belong_to` 与 `from_actor`，内部、交互记录和后台任务分开携带归属与必要的发起者。来源记录不参与资源授权。
 
 这不是单纯的登录页面工作，也不是给每个 handler 再加一个 `if user_id`。它需要统一回答：一次请求、一次 Agent run、一个 PendingAtom、一个 Profile、一个 MemoryAtom 和一段可执行资产分别属于谁；哪个组件拥有最终授权权；缓存、子帧、重试和后台任务如何继承或缩小权限。
 
@@ -40,8 +40,8 @@ HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agen
 | PendingAtom | workspace registry 独立保存 `belong_to`、`from_actor` 与 `process_id`；actor API 分别以 `memory.write` / `memory.update` 授权登记、以 `memory.read` 授权回读 | 第一版不设 Pending policy，同 Workspace 中获读授权的 Actor 可读回意图；跨 Workspace 不可读，无持久化 ledger；结算 redirect 仍逐次校验 canonical 可见性 |
 | Agent Profile | Profile 作为 MemoryAtom，主线程 Profile 由任务进程 CPU 分配经阶段授权读取（不要求 actor 操作），CALL 目标经 actor API 的 `agent.call`；ProfileCache 按 Workspace/alias 定位，命中时以源 policy 对当前 actor 重验 | 主线程与 CALL 目标共用 workspace 读取视图，来源 UUID 失效与代次回填保护已生效；事件通知无持久重放或未送达补偿 |
 | 管理入口（root） | 能力层分为 root API 与 actor API：管理方法只经 root 授权，只接受保留的 `system`；`system` 的访问记录不得配置 operation，不能经操作入口执行 actor 操作；任务进程的阶段调用不检查 actor 操作，但仍以进程 Agent 为发起者过滤可见性 | root 只由 actor 是否为 `system` 判定，认证网关只限制 principal 可代表的用户，不限制谁可以声明 `system`；当前登记的来源（HTTP server、Profile 注入脚本）都是本地受信进程，登记外部来源前需要补上这条规则 |
-| Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy、Chat phase task 与 `AgentRunStreamAdapter` | frame registry/CALL record、可中断阶段 task、Alice runner、输出队列和流序号均按 run 隔离；执行模型只含观测标签，CALL 子帧共享主线程的线程 context，尚无独立子线程授权 |
-| MTP permission | Agent 权限只由访问登记的 actor 操作白名单表达，Profile 不承载权限；Alice 把输入清单的操作快照翻译为 frame 动词集合，同时驱动提示词与 Koakuma 执行前检查，资源操作由 actor API 逐次授权 | prompt 教学不是硬安全保证；`sys_*` 系统工具不设权限，所有 Agent 都可写文件与执行 Python；白名单只能改配置并重启；子 agent 继承父 agent 的动词集合，尚无独立子线程权限 |
+| Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy、Chat phase task 与 `AgentRunStreamAdapter` | frame registry/CALL record、可中断阶段 task、Alice runner、输出队列和流序号均按 run 隔离；执行模型只含观测标签；CALL 子帧以被调用方身份运行（独立的子线程 context，按被调用方的白名单与可见性授权），调用方持有 `agent.call` 即可经 CALL 返回值取得被调用方的 PRIVATE 内容，没有“谁能调用谁”的细粒度策略 |
+| MTP permission | Agent 权限只由访问登记的 actor 操作白名单表达，Profile 不承载权限；Alice 把输入清单的操作快照翻译为 frame 动词集合，同时驱动提示词与 Koakuma 执行前检查，资源操作由 actor API 逐次授权 | prompt 教学不是硬安全保证；`sys_*` 系统工具不设权限，所有 Agent 都可写文件与执行 Python；白名单只能改配置并重启；子 agent 按被调用方自己的白名单运行，被调用方须在本 Workspace 准入 |
 | MTP READ/RUN | READ 可访问记忆，RUN 可执行 memory code | RUN 没有强沙箱、资源限制、可信资产分级或强制审批边界 |
 | Frontend identity | 前端已统一用户导向身份选择上下文（`user_id + workspace_id` 基础选择经 `services/identity.ts` 以请求头携带） | UI 字段不是认证/授权边界；尚无登录/Workspace 切换 UI，切换时 cache/stream 清理仍待完整设计 |
 | Observability | RuntimeEvent 可携带 identity/run/frame/atom 关联 | 事件 payload 不能成为授权依据，也不能泄漏不应被当前身份看到的内容 |
@@ -84,7 +84,7 @@ ExecutionLabels：agent_id/workspace_id 字符串，仅用于提示词、展示�
 资源 owner 内部、交互记录与后台任务：belong_to + 必要的 from_actor
 ```
 
-子 Agent 当前继承父 run 的操作提交函数和观测标签，所有请求仍按主线程的线程 context 授权；显式 `context_refs` 只选择共享内容，不签发更广或独立的资源权限。Alice/CPU 的 `RuntimeScope`、`AgentRunContext` 与 `CPUInputManifest` 不携带 `IdentityScope`，frame 与 MTP 上下文没有 `identity` 派生。标签取自注册入口并冻结，不能还原成资源归属或授权身份；提示词历史归并和运行事件使用注册标签，frame 流式角色展示优先使用 Profile 的源 alias。`request/run/frame` 等关联坐标属于运行模型，`ActorIdentity` 只含 user/agent/team，不含 `session_id`。
+CALL 子 Agent 以被调用方身份运行：任务进程在派生时对被调用方做 Workspace 准入，从进程 context 签发子线程 context，子帧的请求按被调用方的白名单与可见性授权，写入意图记在被调用方名下；子帧沿用父 run 的观测标签。显式 `context_refs` 由调用方以自己的 READ 读取，只选择共享内容，不签发更广的资源权限。Alice/CPU 的 `RuntimeScope`、`AgentRunContext` 与 `CPUInputManifest` 不携带 `IdentityScope`，frame 与 MTP 上下文没有 `identity` 派生。标签取自注册入口并冻结，不能还原成资源归属或授权身份；提示词历史归并和运行事件使用注册标签，frame 流式角色展示优先使用 Profile 的源 alias。`request/run/frame` 等关联坐标属于运行模型，`ActorIdentity` 只含 user/agent/team，不含 `session_id`。
 
 入口层现状：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_claims` 解析为身份声明，经统一认证网关认证后，由 workspace 授权点在操作授权时组装 `IdentityScope`（`/ingest` 仍在认证前组装，是既有例外；模型见[Workspace 架构](../../architecture/workspace.md)第 4 节），应用服务不再解析裸 `user_id`。非 Agent action 使用单独登记的保留 `system` actor，它也是 root API 唯一接受的 actor（root 授权不读取白名单）；Memory 管理读取按 owner-management 语义在归属硬边界内跳过 actor 可见性过滤，Agent retrieval 与 SETTLE 查重仍执行普通 `MemoryAccessPolicy`，后者以 `system` 为可见性主体。
 
@@ -139,7 +139,7 @@ Alice 操作请求与过渡执行身份删除的实现证据见[操作请求集�
 
 1. 已完成：以 `RunSession` 替代共享 FrameScheduler stack，将 frame registry 和 CALL record 收敛为 run-local 状态；Chat application 在上层持有可取消阶段 task，流式输出队列与流序号由每次 run 独占的 `AgentRunStreamAdapter/QueueAgentRunOutput` 持有，运行预算由 frame policy 持有；
 2. 继续验证并发 Agent run 的 CALL、READ、WRITE、citation、PendingAtom 和 cancel 不会跨用户或 workspace 交叉；
-3. 已完成（2026-10-09）：被调用 frame 继承 caller 的操作提交函数与观测标签（2026-10-11 起提交函数绑定主线程的线程 context），不携带操作 scope；CALL 权限由 `FrameExecutionPolicy` 与 workspace `agent.call`（2026-10-10 起取代 `profile.read`）分别硬检查，不以 depth 或标签作为授权依据；Agent 操作白名单落地后（2026-10-11），Profile 不再承载权限，子帧的动词集合继承父帧并移除 CALL；
+3. 已完成（2026-10-09）：被调用 frame 继承 caller 的观测标签（2026-10-11 起改用以被调用方身份派生的子线程提交函数），不携带操作 scope；CALL 权限由 `FrameExecutionPolicy` 与 workspace `agent.call`（2026-10-10 起取代 `profile.read`）分别硬检查，不以 depth 或标签作为授权依据；Agent 操作白名单落地后（2026-10-11），Profile 不再承载权限；执行线程层落地后（2026-10-11），子帧的动词集合由被调用方的操作快照翻译并移除 CALL；
 4. 明确恢复/重试时不能复用已经失效的授权快照。
 
 ### Phase S3：执行资产安全

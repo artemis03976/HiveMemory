@@ -48,7 +48,7 @@
 
 必须保持以下方向：`server -> 经门面取得的服务（workspace 能力层与任务进程编排 / System 被动摄入） -> Global public routes -> 子系统`。跨子系统使用公共 route、公共模型或全局事件；不要持有对方 Runtime、Service、Controller、存储客户端或 local bus。
 
-执行者通过 `workspace.contracts` 的 `OperationRequest` 与 `OperationSubmitter` 提交操作。任务进程内有两类访问 context：进程 context 服务于全部四个阶段的阶段调用，由进程记录持有、进程关闭时最后撤销；线程 context 只服务于 CPU 执行阶段的 actor 操作，进入该阶段时由执行器经 `ThreadContextLifecycle` 端口从进程 context 派生，CPU 把它与 `WorkspaceOperationEntry` 绑定为提交函数，CPU 执行结束即撤销。入口只接受线程 context，按请求类型把请求对象直接交给 actor API 方法；请求只携带操作参数，不暴露访问 context，也不能切换目标 Workspace 或指定 process_id；子 frame 沿用主线程提交函数。
+执行者通过 `workspace.contracts` 的 `OperationRequest` 与 `OperationSubmitter` 提交操作。任务进程内有两类访问 context：进程 context 服务于全部四个阶段的阶段调用，由进程记录持有、进程关闭时最后撤销；线程 context 只服务于 CPU 执行阶段的 actor 操作：主线程的线程 context 在进入该阶段时从进程 context 派生；CALL 的派生请求（`DeriveCallThreadRequest`，actor 操作 `agent.call`）经操作入口到达进程，进程只接受主线程在 Actor 阶段内的派生，以被调用方做 Workspace 准入后从进程 context 派生子线程 context。派生与撤销都集中在 `workspace.process` 的 `ProcessThreads`，经 `ThreadContextLifecycle` 端口进入认证一侧。CPU 驱动以 `workspace.contracts.ThreadOperationSubmitter` 把每个线程 context 与 `WorkspaceOperationEntry` 绑定为该线程的提交函数，全部线程 context 在 CPU 执行结束时一起撤销。入口只接受线程 context，按请求类型把请求对象直接交给 actor API 方法；请求只携带操作参数，不暴露访问 context，也不能切换目标 Workspace 或指定 process_id。
 
 能力层的三个调用面（详见 [Workspace 架构](docs/architecture/workspace.md)第 4.5 节）：
 
@@ -76,8 +76,8 @@
 - 主动链路：`Gateway process -> Patchouli prepare（话题与检索） -> 任务进程 CPU 分配 -> Actor 执行（经 CPU 端口，当前为 Alice run） -> (仅 completed) 任务进程封口交互记录 -> Patchouli finalize`；附件租借由任务进程持有，进程结束时无论结局都释放。
 - 被动链路：`PassiveIngressService -> Gateway PASSIVE_MEMORY -> buffer/seal -> InteractionSubmissionQueue -> Patchouli perception`；被动模式不运行 Alice、MTP、命令或回复生成。
 - prepare 失败或 Agent 取消/失败时，不默认进入 finalize；任务进程可请求 Patchouli cleanup，但 cleanup 只补偿 prepare 新建且仍为空的临时话题，不是跨边界事务回滚。
-- `MTP WRITE/UPDATE` 的 ACK 只表示意图已在 workspace 登记；completed 时任务进程认领本进程的 PENDING 意图并封口物化任务；CALL 子 frame 未成功结束时经提交函数撤回它已登记的 PENDING 意图；CPU 返回终态并关闭输出流后、finalize 之前同步撤销线程 context，Actor 阶段提前结束时也在交付终态前撤销；进程关闭先于任何 await 兜底撤销线程 context，并仅取消本进程仍为 PENDING 的意图。WRITE/UPDATE 返回操作入口后都复查线程 context 并同步补偿迟到登记（当前 UPDATE 的基础冷读会跨越撤销），不取消调用方任务；正式持久化由 Patchouli 后续结算，不能在 Koakuma/Alice 内直接写正式 Memory。
-- Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，Agent Profile 不承载任何权限；Alice 把输入清单的操作快照翻译为 MTP 动词（RUN 始终可用），用于提示词与 frame 执行策略，资源操作仍由 actor API 逐次授权。`sys_*` 系统工具不设权限。CALL 只允许根 frame 发起，子 frame 继承父 frame 的动词集合并去掉 CALL，不得递归 CALL。
+- `MTP WRITE/UPDATE` 的 ACK 只表示意图已在 workspace 登记；completed 时任务进程认领本进程的 PENDING 意图并封口物化任务；CALL 子 frame 未成功结束时经自己的提交函数撤回它已登记的 PENDING 意图；CPU 返回终态并关闭输出流后、finalize 之前同步撤销全部线程 context，Actor 阶段提前结束时也在交付终态前撤销；进程关闭先于任何 await 兜底撤销线程 context，并仅取消本进程仍为 PENDING 的意图。WRITE/UPDATE 返回操作入口后都复查线程 context 并同步补偿迟到登记（当前 UPDATE 的基础冷读会跨越撤销），不取消调用方任务；正式持久化由 Patchouli 后续结算，不能在 Koakuma/Alice 内直接写正式 Memory。
+- Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，Agent Profile 不承载任何权限；Alice 把输入清单的操作快照翻译为 MTP 动词（RUN 始终可用），用于提示词与 frame 执行策略，资源操作仍由 actor API 逐次授权。`sys_*` 系统工具不设权限。CALL 派生的子 frame 以被调用方身份运行：按被调用方的白名单与记忆可见性授权，写入记在被调用方名下，动词集合由被调用方的操作快照翻译并去掉 CALL；CALL 只允许根 frame 发起，不得递归 CALL。
 - Gateway 的局部失败只能在仍满足终态不变量时保守降级；投影、终态校验、装配错误和 cancellation 不得被静默吞掉。
 - RPC 用于需要确定返回值、失败传播或完成确认的操作；Pub/Sub 只用于发布者不依赖结果的通知。
 

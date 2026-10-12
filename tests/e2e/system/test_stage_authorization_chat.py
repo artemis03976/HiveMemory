@@ -93,7 +93,9 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
             stack.bus, operation_authorizer=access.authorizer, memory_reader=runtime.aliases
         ),
         agent=ActorAgentService(
-            operation_authorizer=access.authorizer, profile_reader=runtime.profiles
+            operation_authorizer=access.authorizer,
+            thread_spawner=access.thread_spawner,
+            profile_reader=runtime.profiles,
         ),
         operation_authorizer=access.authorizer,
         intent_registry=runtime.intents,
@@ -127,6 +129,7 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
         cpu=alice.cpu_port,
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
+        process_table=access.process_table,
         workspace_runtime=runtime,
         operation_entry=entry,
     )
@@ -276,6 +279,7 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
+            thread_spawner=access.thread_spawner,
             profile_reader=runtime.profiles,
         ),
         operation_authorizer=access.authorizer,
@@ -311,6 +315,7 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
         asset_reader=assets,
+        process_table=access.process_table,
         workspace_runtime=runtime,
         operation_entry=entry,
     )
