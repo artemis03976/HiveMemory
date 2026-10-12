@@ -26,6 +26,9 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
+from typing import get_args
+
+from pydantic import BaseModel
 
 from tests.unit.architecture.test_package_layers import SRC_ROOT, _internal_imports
 
@@ -185,23 +188,35 @@ def test_thread_authorization_is_only_used_by_actor_api():
     assert _private_call_sites("validate_thread_context") == {"workspace/capability/operations.py"}
 
 
+def _model_field_types(model: type[BaseModel]) -> list[tuple[str, object]]:
+    """展开模型字段标注中的联合、泛型参数与嵌套模型，返回（字段路径，类型）。"""
+    found: list[tuple[str, object]] = []
+    pending: list[type[BaseModel]] = [model]
+    visited: set[type[BaseModel]] = set()
+    while pending:
+        current = pending.pop()
+        visited.add(current)
+        for name, field in current.model_fields.items():
+            annotations = [field.annotation]
+            while annotations:
+                annotation = annotations.pop()
+                found.append((f"{current.__name__}.{name}", annotation))
+                annotations.extend(get_args(annotation))
+                nested = isinstance(annotation, type) and issubclass(annotation, BaseModel)
+                pending.extend([annotation] if nested and annotation not in visited else [])
+    return found
+
+
 def test_cpu_manifest_cannot_carry_access_context():
-    """输入清单的身份只含观测标签，线程 context 必须走 CPU 的独立参数。"""
+    """输入清单（含嵌套模型）的身份只有观测标签，线程 context 必须走 CPU 的独立参数。"""
+    from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.core.models import ExecutionLabels
     from hivememory.workspace.contracts import CPUInputManifest
 
-    assert set(CPUInputManifest.model_fields) == {
-        "process_id",
-        "labels",
-        "user_message",
-        "agent_profile",
-        "allowed_operations",
-        "memories",
-        "memory_context",
-        "attachment_context",
-        "storage_available",
-        "topic_id",
-        "topic_context",
-    }
+    field_types = _model_field_types(CPUInputManifest)
+
+    assert ("CPUInputManifest.labels", ExecutionLabels) in field_types
+    assert [path for path, kind in field_types if kind is WorkspaceAccessContext] == []
 
 
 def test_removed_execution_credentials_have_no_production_references():

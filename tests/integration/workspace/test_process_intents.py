@@ -1,7 +1,7 @@
 """任务进程、真实能力层与意图登记的生命周期协作测试。
 
 Gateway/prepare/finalize 位于本边界之外，由公开路由替身提供；CPU 经真实
-操作入口提交请求，验证 completed 认领、取消隔离与关闭后的凭据拒绝。
+操作入口提交请求，验证 completed 认领、取消隔离与CPU 结束后的线程 context 拒绝。
 """
 
 from __future__ import annotations
@@ -263,7 +263,7 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
     update_tasks = []
 
     async def update(submit):
-        # 外部适配器任务独立于 CPU 拉取任务，撤销线程 context不得取消它。
+        # 外部适配器任务独立于 CPU 拉取任务，撤销线程 context 不得取消它。
         update_tasks.append(
             asyncio.create_task(
                 submit(SubmitUpdateIntentRequest(base_alias="base", instruction="新内容"))

@@ -576,29 +576,42 @@ async def test_internal_cancel_without_operations_only_retracts_bound_process_pe
         access.gateway.revoke_all_contexts()
 
 
+async def _process_context(access):
+    """进程 context 只服务阶段调用，不能提交 actor 请求。"""
+    return await access.authenticate(binding=RunBinding.for_task_process("p"))
+
+
+async def _request_context(access):
+    """请求级 context 只服务 root API。"""
+    return await access.authenticate(binding=RunBinding.for_request("r"))
+
+
+async def _revoked_thread(access):
+    """CPU 执行结束后已撤销的线程 context。"""
+    context = await _derive_thread(access)
+    access.gateway.revoke_thread_context(context)
+    return context
+
+
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "operation_request,_operation",
     [*_request_cases(), pytest.param(CancelIntentsRequest(("pending",)), None, id="cancel")],
 )
-@pytest.mark.parametrize("context_state", ["process", "request", "revoked"])
+@pytest.mark.parametrize(
+    "make_context,error",
+    [
+        pytest.param(_process_context, ScopeRequiredError, id="process"),
+        pytest.param(_request_context, ScopeRequiredError, id="request"),
+        pytest.param(_revoked_thread, ThreadContextRevokedError, id="revoked"),
+    ],
+)
 async def test_nonthread_or_revoked_context_rejects_every_request_without_side_effects(
-    operation_setup, operation_request, _operation, context_state
+    operation_setup, operation_request, _operation, make_context, error
 ):
     """非线程 context 是接线缺陷，已撤销线程是生命周期拒绝；均无副作用。"""
     harness, access = operation_setup
-    if context_state == "revoked":
-        context = await _derive_thread(access)
-        access.gateway.revoke_thread_context(context)
-        error = ThreadContextRevokedError
-    else:
-        binding = (
-            RunBinding.for_task_process("p")
-            if context_state == "process"
-            else RunBinding.for_request("r")
-        )
-        context = await access.authenticate(binding=binding)
-        error = ScopeRequiredError
+    context = await make_context(access)
     with pytest.raises(error):
         await harness.entry.execute(operation_request, access=context)
     assert harness.registry.size == 0

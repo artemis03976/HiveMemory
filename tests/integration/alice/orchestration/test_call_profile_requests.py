@@ -104,7 +104,7 @@ def _profile_atom(*, visibility="PUBLIC", agent_config=None) -> MemoryAtom:
 
 
 async def _profile_submitter(chain):
-    """操作入口与管理服务共用同一读取视图，凭据绑定主线程身份。"""
+    """操作入口与管理服务共用同一读取视图，线程 context 绑定主线程身份。"""
     entry = WorkspaceOperationEntry(
         chain.memories,
         agent=chain.profiles,
@@ -283,7 +283,7 @@ async def test_call_permission_without_read_dispatches_child_without_shared_memo
 
 @pytest.mark.asyncio
 async def test_callee_cannot_gain_write_permission_from_its_profile():
-    """子帧沿用主线程提交函数；callee Profile 允许 WRITE 也不能扩大凭据许可。"""
+    """子帧沿用主线程提交函数；callee Profile 允许 WRITE 也不能扩大线程 context 的许可。"""
     harness = OperationsHarness()
     submit_operation = await harness.submitter(
         make_identity_scope(agent_id="parent"),

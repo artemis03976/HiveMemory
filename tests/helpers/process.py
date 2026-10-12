@@ -40,7 +40,7 @@ def make_task_process_service(
     workspace_runtime: WorkspaceRuntime | None = None,
     operation_entry: OperationEntry | None = None,
 ) -> TaskProcessService:
-    """按生产顺序装配能力与共享线程 context 表，再构建 CPU 分配器、执行器与注册入口。"""
+    """按生产顺序装配能力与操作入口，再构建 CPU 分配器、执行器与注册入口。"""
     runtime = workspace_runtime or WorkspaceRuntime(
         backing=BusCanonicalReadBackend(global_bus), atom_capacity=64, profile_capacity=32
     )

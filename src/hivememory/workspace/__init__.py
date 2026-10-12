@@ -16,7 +16,7 @@
   总线 backing；
 - ``process``：任务进程表、注册入口与四阶段编排（含 CPU 分配）；
 - ``assets``：WorkspaceAsset working set（AssetStore）、解析交接与上传接收；
-- ``contracts``：其他子系统可导入的唯一公共契约（CPU 端口、操作请求与凭据）。
+- ``contracts``：其他子系统可导入的唯一公共契约（CPU 端口、输入清单、操作请求与操作入口）。
 
 依赖方向：只依赖 core、components、engines/infrastructure 与其他子系统公开的
 ``contracts`` 子包；不导入 system、Alice/AgentRuntime、Gateway 或 Patchouli

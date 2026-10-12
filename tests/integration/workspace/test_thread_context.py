@@ -38,20 +38,38 @@ async def test_derivation_preserves_identity_and_binds_main_thread(composition):
     )
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("source", ["revoked", "request", "thread"])
-async def test_derivation_rejects_nonprocess_or_revoked_source(composition, source):
-    """已撤销的进程、请求级与线程级 context 均不能再派生线程。"""
+async def revoked_process_context(composition):
+    """进程关闭后撤销的进程 context。"""
     context = await process_context(composition)
-    if source == "revoked":
-        composition.gateway.invalidate_context(context)
-    elif source == "request":
-        context = await composition.authenticate()
-    else:
-        context = composition.gateway.derive_thread_context(context)
+    composition.gateway.invalidate_context(context)
+    return context
+
+
+async def request_context(composition):
+    """入口为一次管理请求签发的请求级 context。"""
+    return await composition.authenticate()
+
+
+async def thread_context(composition):
+    """已经派生出的线程 context。"""
+    return composition.gateway.derive_thread_context(await process_context(composition))
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "make_source",
+    [
+        pytest.param(revoked_process_context, id="revoked"),
+        pytest.param(request_context, id="request"),
+        pytest.param(thread_context, id="thread"),
+    ],
+)
+async def test_derivation_rejects_nonprocess_or_revoked_source(composition, make_source):
+    """已撤销的进程、请求级与线程级 context 均不能再派生线程。"""
+    source = await make_source(composition)
 
     with pytest.raises(ScopeRequiredError, match="有效的进程 context"):
-        composition.gateway.derive_thread_context(context)
+        composition.gateway.derive_thread_context(source)
 
 
 @pytest.mark.asyncio

@@ -79,7 +79,7 @@ class TestActorMemoryService:
         ("invoke", "expected_operation", "allowed_operations"),
         [
             pytest.param(
-                lambda service, workspace, access: service.resolve_references(
+                lambda service, access: service.resolve_references(
                     ResolveReferencesRequest(("fact",)), access=access
                 ),
                 WorkspaceOperation.MEMORY_READ,
@@ -87,7 +87,7 @@ class TestActorMemoryService:
                 id="resolve_references",
             ),
             pytest.param(
-                lambda service, workspace, access: service.resolve_run_target(
+                lambda service, access: service.resolve_run_target(
                     ResolveRunTargetRequest("fact"), access=access
                 ),
                 WorkspaceOperation.MEMORY_RUN,
@@ -95,7 +95,7 @@ class TestActorMemoryService:
                 id="resolve_run_target",
             ),
             pytest.param(
-                lambda service, workspace, access: service.retrieve(
+                lambda service, access: service.retrieve(
                     RetrieveRequest(semantic_query="q"), access=access
                 ),
                 WorkspaceOperation.MEMORY_SEARCH,
@@ -127,7 +127,7 @@ class TestActorMemoryService:
         access = await composition.authenticate_thread(agent_id="test_agent", user_id="u1")
 
         with pytest.raises(OperationDeniedError) as exc_info:
-            await invoke(service, workspace, access)
+            await invoke(service, access)
 
         assert exc_info.value.details["reason"] == "operation_not_allowed"
         assert exc_info.value.details["operation"] == expected_operation.value

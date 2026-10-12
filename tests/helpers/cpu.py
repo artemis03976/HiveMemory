@@ -70,13 +70,13 @@ class ScriptedCPU:
 
     @property
     def operation_entry(self) -> OperationEntry:
-        """测试组合根注入的真实入口，供进程关闭后的凭据拒绝断言。"""
+        """测试组合根注入的真实入口，供线程 context 撤销后的拒绝断言。"""
         if self._operation_entry is None:
             raise RuntimeError("ScriptedCPU 的操作入口尚未装配")
         return self._operation_entry
 
     def bind_operation_entry(self, entry: OperationEntry) -> None:
-        """以共享入口装配 CPU；每次执行只绑定该次进程的凭据。"""
+        """以共享入口装配 CPU；每次执行只绑定该次进程的线程 context。"""
         self._operation_entry = entry
 
     def execute(

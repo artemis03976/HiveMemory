@@ -161,7 +161,7 @@ class CallCoordinator:
 
         try:
             sub_profile: AgentProfile = call_context.agent_profile
-            # 子帧沿用主线程凭据与父帧能力，目标 Profile 只提供 persona、模型与语言。
+            # 子帧沿用主线程 context 与父帧能力，目标 Profile 只提供 persona、模型与语言。
             policy = FrameExecutionPolicy.from_verbs(
                 caller_frame.execution_policy.permitted_verbs,
                 max_iterations=getattr(self._agent_runtime, "max_iterations", None),

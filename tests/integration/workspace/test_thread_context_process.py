@@ -98,9 +98,22 @@ async def register(chain, cpu):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", ["completed", "failed", "cancelled", "exception", "no-result"])
+@pytest.mark.parametrize(
+    "cpu_outcome, expected_stages",
+    [
+        pytest.param(
+            {"result": make_cpu_result(status="completed")},
+            ["finalize", "topics"],
+            id="completed",
+        ),
+        pytest.param({"result": make_cpu_result(status="failed")}, ["cleanup"], id="failed"),
+        pytest.param({"result": make_cpu_result(status="cancelled")}, ["cleanup"], id="cancelled"),
+        pytest.param({"error": RuntimeError("CPU failed")}, ["cleanup"], id="exception"),
+        pytest.param({}, ["cleanup"], id="no-result"),
+    ],
+)
 async def test_cpu_end_revokes_thread_before_terminal_and_keeps_stage_authorization(
-    process_chain, status
+    process_chain, cpu_outcome, expected_stages
 ):
     """正常终态、异常和缺失终态均立即撤销；finalize/话题池或 cleanup 仍以进程身份调用。"""
     chain = process_chain
@@ -110,15 +123,7 @@ async def test_cpu_end_revokes_thread_before_terminal_and_keeps_stage_authorizat
         summary = chain.access.gateway.describe_context(chain.cpu.calls[0].access)
         observed.append((summary.run_type, summary.run_id, summary.thread_id))
 
-    cpu = ScriptedCPU(
-        result=(
-            make_cpu_result(status=status)
-            if status in {"completed", "failed", "cancelled"}
-            else None
-        ),
-        error=RuntimeError("CPU failed") if status == "exception" else None,
-        operation_script=inspect_thread,
-    )
+    cpu = ScriptedCPU(**cpu_outcome, operation_script=inspect_thread)
     handle = await register(chain, cpu)
     stream = chain.service.run_process(handle, stream=True)
     try:
@@ -133,7 +138,7 @@ async def test_cpu_end_revokes_thread_before_terminal_and_keeps_stage_authorizat
         await stream.aclose()
 
     assert observed == [("execution_thread", "thread-lifetime", "main")]
-    assert chain.stages == (["finalize", "topics"] if status == "completed" else ["cleanup"])
+    assert chain.stages == expected_stages
 
 
 class ClosingCPU(ScriptedCPU):
@@ -190,34 +195,53 @@ async def test_disconnect_revokes_thread_before_awaiting_cpu_close(process_chain
         await stream.aclose()
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("cancellation", ["stop", "owner-task"])
-async def test_interrupted_actor_revokes_thread_and_keeps_cleanup_authorized(
-    process_chain, cancellation
-):
-    """用户停止与调用方取消都撤销线程，cleanup 仍以尚有效的进程 context 执行。"""
-    chain = process_chain
+async def start_hanging_process(chain):
+    """CPU 挂起在终态之前，使停止与取消都落在 Actor 阶段内。"""
     cpu = ScriptedCPU(hang_before_result=True)
     handle = await register(chain, cpu)
-    task = asyncio.create_task(chain.service.run_process(handle, stream=False))
+    return cpu, asyncio.create_task(chain.service.run_process(handle, stream=False))
+
+
+@pytest.mark.asyncio
+async def test_user_stop_revokes_thread_and_keeps_cleanup_authorized(process_chain):
+    """用户停止撤销线程，cleanup 仍以尚有效的进程 context 执行。"""
+    chain = process_chain
+    cpu, task = await start_hanging_process(chain)
     try:
         await asyncio.wait_for(cpu.hang_entered.wait(), timeout=2)
-        if cancellation == "stop":
-            requestor = await chain.access.authenticate(agent_id="omni_doll")
-            result = chain.service.cancel_process("thread-lifetime", access=requestor)
-            assert result.cancelled
-            terminal = await asyncio.wait_for(task, timeout=2)
-            assert terminal.execution_result.status == "cancelled"
-        else:
-            task.cancel()
-            with pytest.raises(asyncio.CancelledError):
-                await task
+        requestor = await chain.access.authenticate(agent_id="omni_doll")
+        assert chain.service.cancel_process("thread-lifetime", access=requestor).cancelled
+        terminal = await asyncio.wait_for(task, timeout=2)
+
+        assert terminal.execution_result.status == "cancelled"
         with pytest.raises(ThreadContextRevokedError):
             await cpu.operation_entry.execute(
                 ResolveReferencesRequest(("missing",)), access=cpu.calls[0].access
             )
         assert chain.stages == ["cleanup"]
     finally:
-        if not task.done():
-            task.cancel()
+        task.cancel()
+        await asyncio.gather(task, return_exceptions=True)
+
+
+@pytest.mark.asyncio
+async def test_owner_task_cancellation_revokes_thread_and_keeps_cleanup_authorized(
+    process_chain,
+):
+    """调用方取消撤销线程，cleanup 仍以尚有效的进程 context 执行。"""
+    chain = process_chain
+    cpu, task = await start_hanging_process(chain)
+    try:
+        await asyncio.wait_for(cpu.hang_entered.wait(), timeout=2)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+
+        with pytest.raises(ThreadContextRevokedError):
+            await cpu.operation_entry.execute(
+                ResolveReferencesRequest(("missing",)), access=cpu.calls[0].access
+            )
+        assert chain.stages == ["cleanup"]
+    finally:
+        task.cancel()
         await asyncio.gather(task, return_exceptions=True)
