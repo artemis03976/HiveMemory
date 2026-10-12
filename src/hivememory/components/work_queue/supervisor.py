@@ -4,8 +4,10 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Callable, Coroutine
 from dataclasses import dataclass, field, replace
+from functools import partial
+from typing import Any
 
 from hivememory.components.work_queue.cancellation import WorkCancellationToken
 from hivememory.components.work_queue.models import (
@@ -21,7 +23,7 @@ logger = logging.getLogger(__name__)
 
 type ExecuteWork = Callable[
     [str, WorkRecord, WorkCancellationToken],
-    Awaitable[None],
+    Coroutine[Any, Any, None],
 ]
 
 
@@ -164,11 +166,7 @@ class WorkQueueSupervisor:
                     )
                     lane.running[record.work_id] = task
                     lane.cancellation_tokens[record.work_id] = token
-                    task.add_done_callback(
-                        lambda completed, *, current_lane=lane, work_id=record.work_id: (
-                            self._work_done(current_lane, work_id, completed)
-                        )
-                    )
+                    task.add_done_callback(partial(self._work_done, lane, record.work_id))
         except asyncio.CancelledError:
             return
 

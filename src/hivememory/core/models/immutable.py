@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, NoReturn, TypeVar
 
 KeyT = TypeVar("KeyT")
 ValueT = TypeVar("ValueT")
@@ -17,7 +17,7 @@ class FrozenDict(dict[KeyT, ValueT]):
         for key, value in (values or {}).items():
             dict.__setitem__(self, key, value)
 
-    def _immutable(self, *_args: Any, **_kwargs: Any) -> None:
+    def _immutable(self, *_args: Any, **_kwargs: Any) -> NoReturn:
         raise TypeError("FrozenDict 不允许修改")
 
     __setitem__ = _immutable

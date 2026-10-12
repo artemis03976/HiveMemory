@@ -270,7 +270,7 @@ class HybridRetriever(BaseMemoryRetriever):
         dense_retriever: BaseMemoryRetriever,
         sparse_retriever: BaseMemoryRetriever,
         fusion: BaseFusion,
-        reranker: BaseReranker = None,
+        reranker: BaseReranker | None = None,
     ):
         """
         初始化混合检索器
@@ -376,7 +376,7 @@ class HybridRetriever(BaseMemoryRetriever):
 def create_retriever(
     mid_term: "MidTermMemoryStore",
     config: HybridRetrieverConfig | DenseRetrieverConfig | SparseRetrieverConfig,
-    reranker_service: BaseRerankService = None,
+    reranker_service: BaseRerankService | None = None,
 ) -> BaseMemoryRetriever:
     """
     创建检索器工厂

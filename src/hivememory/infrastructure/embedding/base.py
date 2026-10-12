@@ -7,7 +7,7 @@ HiveMemory Embedding 基础模块
 import logging
 import threading
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, ClassVar
 
 if TYPE_CHECKING:
     from hivememory.config.shared import EmbeddingConfig
@@ -56,7 +56,7 @@ class SingletonModelService(BaseEmbeddingService):
     基于配置的 model_name 和 device 区分实例。
     """
 
-    _instances = {}
+    _instances: ClassVar[dict[str, "SingletonModelService"]] = {}
     _lock = threading.Lock()
     _model_lock = threading.Lock()
 
@@ -92,7 +92,7 @@ class SingletonModelService(BaseEmbeddingService):
         self.model_name = self.config.model_name
         self.device = self.config.device
         self.cache_dir = self.config.cache_dir
-        self._model = None
+        self._model: Any = None
 
         self._lazy_load_lock = threading.Lock()
 

@@ -3,6 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from functools import partial
 from typing import Any, Literal
 from uuid import UUID
 
@@ -187,9 +188,7 @@ class PatchouliService:
             )
             self._active_finalizations[prepared_run.interaction_id] = continuation
             continuation.add_done_callback(
-                lambda completed, interaction_id=prepared_run.interaction_id: (
-                    self._active_finalization_done(interaction_id, completed)
-                )
+                partial(self._active_finalization_done, prepared_run.interaction_id)
             )
 
         # 调用方取消只中断当前等待；continuation 继续完成已接管的业务义务。

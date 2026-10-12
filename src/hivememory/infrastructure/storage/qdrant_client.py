@@ -14,16 +14,7 @@ logger = logging.getLogger(__name__)
 
 
 def create_async_qdrant_client(config: QdrantConfig) -> AsyncQdrantClient:
-    client_kwargs = {
-        "host": config.host,
-        "port": config.port,
-        "grpc_port": config.grpc_port,
-        "prefer_grpc": config.prefer_grpc,
-        "timeout": config.timeout,
-    }
-
-    if config.api_key and config.api_key.strip():
-        client_kwargs["api_key"] = config.api_key
+    api_key = config.api_key if config.api_key and config.api_key.strip() else None
 
     logger.info(
         "Initializing Qdrant client host=%s port=%s grpc_port=%s prefer_grpc=%s timeout=%ss",
@@ -33,7 +24,14 @@ def create_async_qdrant_client(config: QdrantConfig) -> AsyncQdrantClient:
         config.prefer_grpc,
         config.timeout,
     )
-    return AsyncQdrantClient(**client_kwargs)
+    return AsyncQdrantClient(
+        host=config.host,
+        port=config.port,
+        grpc_port=config.grpc_port,
+        prefer_grpc=config.prefer_grpc,
+        timeout=config.timeout,
+        api_key=api_key,
+    )
 
 
 async def wait_for_qdrant_ready(

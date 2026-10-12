@@ -85,7 +85,21 @@ class TestQdrantMemoryStore:
             grpc_port=6334,
             prefer_grpc=True,
             timeout=42,
+            api_key=None,
         )
+
+    @pytest.mark.parametrize(
+        ("configured_key", "sent_key"),
+        [("   ", None), ("secret-key", "secret-key")],
+    )
+    def test_qdrant_client_sends_api_key_only_when_non_blank(
+        self, mock_qdrant_client, mock_embedding_service, configured_key, sent_key
+    ):
+        q_config = QdrantConfig(collection_name="test", api_key=configured_key)
+
+        QdrantMemoryStore(qdrant_config=q_config, embedding_config=EmbeddingConfig())
+
+        assert mock_qdrant_client.call_args.kwargs["api_key"] == sent_key
 
     @pytest.mark.asyncio
     async def test_ensure_ready_creates_missing_collection(self, storage):

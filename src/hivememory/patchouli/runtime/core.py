@@ -66,6 +66,7 @@ from hivememory.patchouli.runtime.shutdown_drain import (
 )
 
 if TYPE_CHECKING:
+    from hivememory.infrastructure.rerank import FastEmbedRerankerService
     from hivememory.patchouli.control.memory_generation import MemoryGenerationCoordinator
     from hivememory.patchouli.service import PatchouliService
     from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
@@ -317,10 +318,9 @@ class PatchouliRuntime:
         from hivememory.infrastructure.rerank import get_fast_embed_reranker_service
 
         reranker_config = self._patchouli_config.retrieval.retriever.reranker
+        self.reranker_service: FastEmbedRerankerService | None = None
         if reranker_config.enabled:
             self.reranker_service = get_fast_embed_reranker_service(config=reranker_config)
-        else:
-            self.reranker_service = None
 
         # MemoryLibrary：三层存储协调层，在引擎构建前初始化以便注入
         self.memory_library = self._build_memory_library()

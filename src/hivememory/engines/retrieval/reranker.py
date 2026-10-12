@@ -31,7 +31,7 @@ class NoopReranker(BaseReranker):
     作为默认实现和占位符。
     """
 
-    def __init__(self, config: RerankerConfig = None):
+    def __init__(self, config: RerankerConfig | None = None):
         """
         初始化 NoopReranker
 

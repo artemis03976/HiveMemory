@@ -350,7 +350,7 @@ def get_gateway_llm_service(
 
 
 def get_librarian_llm_service(
-    config: LLMConfig = None,
+    config: LLMConfig,
 ) -> LiteLLMService:
     """
     获取 Librarian LLM 服务实例（单例）

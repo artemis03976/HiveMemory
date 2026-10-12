@@ -101,7 +101,7 @@ class ModelUpdateRequest(BaseModel):
 
         特殊处理：api_key="" 表示"清除密钥"，转换为 None 存储。
         """
-        result = {}
+        result: dict[str, Any] = {}
         for field_name, value in self.model_dump(exclude_none=True).items():
             if field_name == "api_key" and value == "":
                 result[field_name] = None

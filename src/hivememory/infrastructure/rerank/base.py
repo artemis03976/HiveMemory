@@ -7,7 +7,7 @@ Rerank 服务基础模块
 import logging
 import threading
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from hivememory.config.patchouli import RerankerConfig
@@ -83,7 +83,7 @@ class SingletonModelService(BaseRerankService):
         self.device = config.device
         self.cache_dir = config.cache_dir
         self.use_fp16 = config.use_fp16
-        self._model = None
+        self._model: Any = None
         self._lazy_load_lock = threading.Lock()
 
         self._initialized = True
