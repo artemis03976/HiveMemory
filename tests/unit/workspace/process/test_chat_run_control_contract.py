@@ -30,7 +30,6 @@ from hivememory.core.access import (
     WorkspaceOperation,
 )
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import (
     AdmissionDeniedError,
@@ -47,6 +46,8 @@ from hivememory.core.models import (
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.core.protocol.models import RetrievalResponse
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.authentication import AccessGrantSummary
 from hivememory.workspace.process.events import BoundProcessEvents
@@ -187,10 +188,10 @@ def _bus_until_finalize() -> GlobalSystemBus:
             retrieval_result=RetrievalResponse(),
         )
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, profile)
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, profile)
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
     return bus
 
 
@@ -578,7 +579,7 @@ async def test_stale_handle_cannot_control_a_reregistered_process() -> None:
 async def test_handle_cancel_after_delivery_reports_not_found_without_event() -> None:
     """交付结束已收口的进程：句柄已失效，取消按 not_found 收口且不发布事件。"""
     bus = _bus_until_finalize()
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
     sink = RecordingRuntimeEventSink()
     service, composition = await _service(bus, event_publisher=RuntimeEventPublisher(sink))
     handle = await _register(composition, service, process_id="process-cancelled-late")
@@ -636,7 +637,7 @@ async def test_accepted_cancel_publishes_identical_events(use_handle: bool) -> N
         gateway_started.set()
         await asyncio.Event().wait()
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
     sink = RecordingRuntimeEventSink()
     service, composition = await _service(
         bus, cpu=ScriptedCPU(result=make_cpu_result()), event_publisher=RuntimeEventPublisher(sink)
@@ -683,7 +684,7 @@ async def test_handle_cancel_skips_process_control_authorization() -> None:
         gateway_started.set()
         await asyncio.Event().wait()
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
     service, composition = await _service(bus)
     handle = await _register(composition, service, process_id="process-handle-stop")
     task = asyncio.create_task(service.run_process(handle, stream=False))
@@ -711,7 +712,7 @@ async def test_handle_cancel_skips_process_control_authorization() -> None:
 async def test_completed_delivery_invalidates_bound_context() -> None:
     """completed 结局：交付结束自动 close_process，绑定 context 失效、进程注销。"""
     bus = _bus_until_finalize()
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
     service, composition = await _service(bus)
     requestor = await composition.authenticate(agent_id=_AGENT)
     issued = _capture_issued_contexts(composition)
@@ -750,7 +751,7 @@ async def test_cancelled_delivery_invalidates_bound_context() -> None:
         gateway_started.set()
         await asyncio.Event().wait()
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
     service, composition = await _service(bus)
     requestor = await composition.authenticate(agent_id=_AGENT)
     issued = _capture_issued_contexts(composition)

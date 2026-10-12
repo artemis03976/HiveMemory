@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from hivememory.core.access import WorkspaceOperation
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     PendingUpdateNotAllowedError,
     ResourceNotFoundError,
@@ -19,6 +18,7 @@ from hivememory.core.models import (
     UpdateFocus,
 )
 from hivememory.core.protocol.models import RetrievalRequest
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.contracts.operations import (
     ResolveReferencesRequest,
     ResolveRunTargetRequest,
@@ -145,7 +145,7 @@ class ActorMemoryService:
             cited.add(atom.id)
             try:
                 await self._global_bus.request(
-                    GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION,
+                    PatchouliRoutes.RECORD_MEMORY_CITATION,
                     memory_id=atom.id,
                     identity_scope=scope,
                     source="workspace.reference_read",

@@ -12,7 +12,6 @@ from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionOutcome,
     InteractionSubmissionQueue,
     InteractionSubmissionReceipt,
-    InteractionSubmissionResult,
     TransientInteractionSubmissionError,
 )
 from hivememory.patchouli.control.memory_change_publisher import MemoryChangePublisher
@@ -36,7 +35,6 @@ __all__ = [
     "InteractionSubmissionOutcome",
     "InteractionSubmissionQueue",
     "InteractionSubmissionReceipt",
-    "InteractionSubmissionResult",
     "TransientInteractionSubmissionError",
     "MemoryGenerationCoordinator",
     "MemoryGenerationHandle",

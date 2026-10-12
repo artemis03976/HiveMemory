@@ -6,12 +6,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Coroutine
+from collections.abc import AsyncGenerator
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.workspace.contracts import (
+    CPUExecutionResult,
+    CPUInputManifest,
+    OperationSubmitter,
+)
 
 if TYPE_CHECKING:
     from hivememory.alice.application import AgentRunService
@@ -66,18 +71,46 @@ class AliceBridge:
             AliceRoutes.RUN_AGENT,
             self._run_agent_route,
         )
+        self._global_bus.register(
+            AliceRoutes.RUN_AGENT_STREAM,
+            self._run_agent_stream_route,
+        )
 
     def _unregister_public_routes(self) -> None:
         if self._global_bus is None:
             return
         self._global_bus.unregister(AliceRoutes.RUN_AGENT)
+        self._global_bus.unregister(AliceRoutes.RUN_AGENT_STREAM)
 
-    async def _run_agent_route(self, *args: Any, **kwargs: Any) -> Any:
-        """统一执行路由 handler：非流式等待执行结果，流式返回事件生成器对象。"""
-        call = self._public_api.agent.run_agent(*args, **kwargs)
-        if isinstance(call, Coroutine):
-            return await call
-        return call
+    async def _run_agent_route(
+        self,
+        input_manifest: CPUInputManifest,
+        generation_options: dict[str, Any] | None = None,
+        *,
+        submit_operation: OperationSubmitter,
+    ) -> CPUExecutionResult:
+        """非流式路由等待统一执行入口的结果。"""
+        return await self._public_api.agent.run_agent(
+            input_manifest,
+            generation_options,
+            submit_operation=submit_operation,
+            stream=False,
+        )
+
+    async def _run_agent_stream_route(
+        self,
+        input_manifest: CPUInputManifest,
+        generation_options: dict[str, Any] | None = None,
+        *,
+        submit_operation: OperationSubmitter,
+    ) -> AsyncGenerator[dict[str, Any], None]:
+        """交付原始事件流，保留消费者关闭流时的取消与 join 语义。"""
+        return self._public_api.agent.run_agent(
+            input_manifest,
+            generation_options,
+            submit_operation=submit_operation,
+            stream=True,
+        )
 
 
 __all__ = ["AliceBridge", "AlicePublicApi"]

@@ -63,7 +63,7 @@ class TestAlicePublicRoutes:
 
     @pytest.mark.asyncio
     async def test_start_registers_public_routes_on_global_bus(self):
-        """Alice 只挂载一条统一执行路由，已删除的流式路由名不再注册。"""
+        """Alice 为两种输出形态各挂载一条执行路由。"""
         system = AliceSystem(
             config=self.config, global_bus=self.global_bus, operation_entry=self.operation_entry
         )
@@ -71,7 +71,7 @@ class TestAlicePublicRoutes:
 
         routes = self.global_bus.list_routes()
         assert AliceRoutes.RUN_AGENT in routes
-        assert "alice.public.run_agent_stream" not in routes
+        assert AliceRoutes.RUN_AGENT_STREAM in routes
 
     @pytest.mark.asyncio
     async def test_stop_removes_public_routes_from_global_bus(self):
@@ -83,55 +83,7 @@ class TestAlicePublicRoutes:
 
         routes = self.global_bus.list_routes()
         assert AliceRoutes.RUN_AGENT not in routes
-
-    @pytest.mark.asyncio
-    async def test_request_through_global_bus_reaches_handler(self):
-        system = AliceSystem(
-            config=self.config, global_bus=self.global_bus, operation_entry=self.operation_entry
-        )
-        received = []
-
-        async def fake_run_agent(*, messages, identity):
-            received.append((messages, identity))
-            return "agent_result"
-
-        system._service.run_agent = fake_run_agent
-        await system.start()
-
-        result = await self.global_bus.request(
-            AliceRoutes.RUN_AGENT,
-            messages=[],
-            identity="id",
-        )
-
-        assert result == "agent_result"
-        assert received == [([], "id")]
-
-    @pytest.mark.asyncio
-    async def test_stream_mode_returns_async_generator(self):
-        system = AliceSystem(
-            config=self.config, global_bus=self.global_bus, operation_entry=self.operation_entry
-        )
-
-        async def _stream(**kwargs):
-            yield {"event": "token"}
-            yield {"event": "done"}
-
-        system._service.run_agent = _stream
-        await system.start()
-
-        stream = await self.global_bus.request(
-            AliceRoutes.RUN_AGENT,
-            messages=[],
-            identity="id",
-            stream=True,
-        )
-
-        events = []
-        async for event in stream:
-            events.append(event)
-
-        assert [e["event"] for e in events] == ["token", "done"]
+        assert AliceRoutes.RUN_AGENT_STREAM not in routes
 
     @pytest.mark.asyncio
     async def test_no_global_bus_skips_public_routes(self):

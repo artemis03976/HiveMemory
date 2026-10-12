@@ -42,19 +42,22 @@ def _symbol_references(node: ast.AST, symbols: set[str]) -> list[int]:
     return references
 
 
-def _is_public_handler(path: Path) -> bool:
-    """只有阶段门面与应用 service 是公开处理者，不给整个 application 包豁免。"""
+def _is_public_boundary(path: Path) -> bool:
+    """公开路由签名、阶段门面与应用 service 可引用 scope，不豁免整个包。"""
     relative = path.relative_to(SRC_ROOT)
-    return relative.as_posix() == "patchouli/service.py" or (
+    return relative.as_posix() in {
+        "patchouli/service.py",
+        "patchouli/contracts/public_routes.py",
+    } or (
         relative.parts[:2] == ("patchouli", "application") and relative.name.endswith("service.py")
     )
 
 
-def test_patchouli_only_public_handlers_reference_identity_scope():
-    """Patchouli 内部只使用归属与发起者，scope 仅在公开处理者的入口拆分。"""
+def test_patchouli_only_public_boundaries_reference_identity_scope():
+    """内部只使用归属与发起者，公开签名声明 scope，公开处理者负责拆分。"""
     violations = []
     for path in _source_files(SRC_ROOT / "patchouli"):
-        if _is_public_handler(path):
+        if _is_public_boundary(path):
             continue
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for line in sorted(set(_symbol_references(tree, IDENTITY_SCOPE_SYMBOLS))):

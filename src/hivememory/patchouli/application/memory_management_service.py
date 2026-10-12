@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from typing import Any
 from uuid import UUID
 
 from hivememory.core.errors import WorkspaceMismatchError
@@ -146,7 +147,7 @@ class MemoryManagementService:
         identity_scope: IdentityScope,
         positive: bool,
         source: str,
-    ):
+    ) -> Any:
         scope = require_identity_scope(identity_scope)
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_RECORD_FEEDBACK,

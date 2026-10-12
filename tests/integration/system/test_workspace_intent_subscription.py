@@ -7,7 +7,6 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.contracts.events import GlobalEvents
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import IndexLayer, MemoryAtom, MemoryChangeEvent, PayloadLayer
 from hivememory.core.models.pending import (
     PendingAtomResolution,
@@ -15,6 +14,7 @@ from hivememory.core.models.pending import (
     PendingAtomStatus,
     WriteFocus,
 )
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.system.system import HiveMemorySystem
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
@@ -44,7 +44,7 @@ async def test_composition_subscribes_before_start_and_unsubscribes_after_stop(m
     async def backing(*_args, **_kwargs):
         return atom.model_copy(deep=True)
 
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_READ, backing)
+    bus.register(PatchouliRoutes.MEMORY_READ, backing)
     try:
         first = await runtime.aliases.read(atom.id, scope=scope)
         assert first.payload.content == "old"

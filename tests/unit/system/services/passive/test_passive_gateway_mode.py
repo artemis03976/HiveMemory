@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     CommandParseResult,
@@ -22,6 +21,8 @@ from hivememory.core.protocol.gateway import (
     RetrievalPlan,
 )
 from hivememory.core.protocol.models import RetrievalResponse
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.system.services.passive import (
     PassiveConversationKey,
     PassiveIngressContractError,
@@ -86,8 +87,8 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
     bus = GlobalSystemBus()
     gateway = AsyncMock(return_value=_decision_outcome())
     retrieve = AsyncMock(return_value=RetrievalResponse())
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, retrieve)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
+    bus.register(PatchouliRoutes.MEMORY_RETRIEVE, retrieve)
     submitted = []
     ingressor = PassiveMessageIngressor(
         bus,
@@ -121,9 +122,9 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
 async def test_scoped_passive_seam_keeps_workspace_only_in_payload() -> None:
     """确保显式 scope 进入 payload，但不污染 passive ordering 命名域。"""
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(
-        GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
+        PatchouliRoutes.MEMORY_RETRIEVE,
         AsyncMock(return_value=RetrievalResponse()),
     )
     submitted = []
@@ -161,7 +162,7 @@ async def test_scoped_passive_seam_keeps_workspace_only_in_payload() -> None:
 async def test_passive_simple_chat_skips_retrieval() -> None:
     bus = GlobalSystemBus()
     bus.register(
-        GlobalRoutes.GATEWAY_PROCESS,
+        GatewayPublicRoutes.PROCESS,
         AsyncMock(return_value=_decision_outcome(RetrievalMode.SKIP)),
     )
     ingressor = PassiveMessageIngressor(
@@ -182,7 +183,7 @@ async def test_passive_simple_chat_skips_retrieval() -> None:
 async def test_passive_rejects_impossible_command_outcome() -> None:
     bus = GlobalSystemBus()
     bus.register(
-        GlobalRoutes.GATEWAY_PROCESS,
+        GatewayPublicRoutes.PROCESS,
         AsyncMock(
             return_value=GatewayCommandOutcome(
                 command_parse_result=CommandParseResult(

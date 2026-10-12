@@ -9,7 +9,6 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.passive import PassiveIngressConfig
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -20,6 +19,8 @@ from hivememory.core.protocol.gateway import (
     RetrievalPlan,
 )
 from hivememory.core.protocol.models import RetrievalResponse
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.system.services.passive import (
     PassiveConversationKey,
     PassiveIngressEvent,
@@ -96,8 +97,8 @@ def _build(
     **config_kwargs,
 ) -> PassiveMessageIngressor:
     bus = bus or GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, recorder.gateway)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
+    bus.register(GatewayPublicRoutes.PROCESS, recorder.gateway)
+    bus.register(PatchouliRoutes.MEMORY_RETRIEVE, recorder.retrieve)
     return PassiveMessageIngressor(
         bus,
         interaction_queue=recorder,
@@ -118,8 +119,8 @@ async def test_same_conversation_waits_for_inflight_user_event() -> None:
         return _decision()
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, blocking_gateway)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
+    bus.register(GatewayPublicRoutes.PROCESS, blocking_gateway)
+    bus.register(PatchouliRoutes.MEMORY_RETRIEVE, recorder.retrieve)
     ingressor = PassiveMessageIngressor(bus, interaction_queue=recorder)
 
     user_task = asyncio.create_task(ingressor.route_event(_event("user", "u1"), IDENTITY))
@@ -155,8 +156,8 @@ async def test_different_conversations_remain_concurrent() -> None:
         return _decision()
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, selectively_blocking_gateway)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
+    bus.register(GatewayPublicRoutes.PROCESS, selectively_blocking_gateway)
+    bus.register(PatchouliRoutes.MEMORY_RETRIEVE, recorder.retrieve)
     ingressor = PassiveMessageIngressor(bus, interaction_queue=recorder)
 
     await ingressor.route_event(_event("user", "u-b", conversation="c-b"), IDENTITY)
@@ -192,8 +193,8 @@ async def test_cancelled_event_releases_conversation_gate() -> None:
         return _decision()
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, cancellable_gateway)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
+    bus.register(GatewayPublicRoutes.PROCESS, cancellable_gateway)
+    bus.register(PatchouliRoutes.MEMORY_RETRIEVE, recorder.retrieve)
     ingressor = PassiveMessageIngressor(bus, interaction_queue=recorder)
 
     cancelled_task = asyncio.create_task(
@@ -224,8 +225,8 @@ async def test_manual_flush_waits_for_inflight_event() -> None:
         return _decision()
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, blocking_gateway)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
+    bus.register(GatewayPublicRoutes.PROCESS, blocking_gateway)
+    bus.register(PatchouliRoutes.MEMORY_RETRIEVE, recorder.retrieve)
     ingressor = PassiveMessageIngressor(bus, interaction_queue=recorder)
 
     user_task = asyncio.create_task(ingressor.route_event(_event("user", "u1"), IDENTITY))
@@ -251,8 +252,8 @@ async def test_shutdown_waits_for_inflight_event_before_finalizing() -> None:
         return _decision()
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, blocking_gateway)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
+    bus.register(GatewayPublicRoutes.PROCESS, blocking_gateway)
+    bus.register(PatchouliRoutes.MEMORY_RETRIEVE, recorder.retrieve)
     ingressor = PassiveMessageIngressor(bus, interaction_queue=recorder)
 
     user_task = asyncio.create_task(ingressor.route_event(_event("user", "u1"), IDENTITY))
@@ -291,9 +292,9 @@ async def test_gateway_failure_does_not_block_previous_turn_submit() -> None:
 
     await ingressor.route_event(_event("user", "u1"), IDENTITY)
     await ingressor.route_event(_event("assistant", "a1"), IDENTITY)
-    bus.unregister(GlobalRoutes.GATEWAY_PROCESS)
+    bus.unregister(GatewayPublicRoutes.PROCESS)
     bus.register(
-        GlobalRoutes.GATEWAY_PROCESS,
+        GatewayPublicRoutes.PROCESS,
         AsyncMock(side_effect=RuntimeError("gateway down")),
     )
 

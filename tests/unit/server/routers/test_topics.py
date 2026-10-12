@@ -8,8 +8,8 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import TopicLastTurn, TopicSnapshot
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
     TopicSettleResult,
@@ -31,11 +31,11 @@ def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=No
 
     bus = GlobalSystemBus()
     management = _TopicManagementStub(librarian_core)
-    bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, management.list_active_topics)
+    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, management.list_active_topics)
     if manual_settle_topic is not None:
-        bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, manual_settle_topic)
+        bus.register(PatchouliRoutes.MANUAL_SETTLE_TOPIC, manual_settle_topic)
     if evict_topic is not None:
-        bus.register(GlobalRoutes.PATCHOULI_EVICT_TOPIC, evict_topic)
+        bus.register(PatchouliRoutes.EVICT_TOPIC, evict_topic)
     # Topic 管理读取与生命周期变更执行 root 授权；服务与访问依赖共享
     # 同一组合的操作授权者，context 才能通过签发与 root 身份校验。
     overrides, composition = make_server_access_overrides()

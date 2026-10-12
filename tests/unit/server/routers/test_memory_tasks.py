@@ -13,9 +13,9 @@ from fastapi.testclient import TestClient
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import OperationDeniedError, ResourceNotFoundError
 from hivememory.core.models import ActorIdentity
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
@@ -190,7 +190,7 @@ def _create_authorized_task_app(*, request_agent_id: str = SYSTEM_AGENT_ID):
     # 能力层是授权点：必须用真实服务才能验证授权拒绝发生在 backing 调用前
     bus = GlobalSystemBus()
     list_handler = AsyncMock(return_value=[])
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_TASK_LIST, list_handler)
+    bus.register(PatchouliRoutes.MEMORY_TASK_LIST, list_handler)
     service = RootMemoryTaskService(
         global_bus=bus,
         operation_authorizer=composition.authorizer,

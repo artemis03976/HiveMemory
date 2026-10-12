@@ -14,10 +14,11 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.attachments import AttachmentParserConfig
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import AssetRemovedError
 from hivememory.core.models import ActorIdentity, AttachmentSelectionRequest
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.attachment_parsing import ChunkedSource, make_upload_access, make_upload_service
 from tests.helpers.chat_handoff import make_gateway_decision
@@ -112,16 +113,16 @@ async def test_uploaded_ready_asset_can_be_selected_by_task_process() -> None:
     )
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
     finalize_kwargs: dict = {}
 
     async def finalize(**kwargs):
         finalize_kwargs.update(kwargs)
         return []
 
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     service = _process_service(
         bus, composition, store, ScriptedCPU(result=make_cpu_result(final_text="完成"))
@@ -178,10 +179,10 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
     store.remove_asset(scope, receipt.handle.asset_ref)
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _async_true)
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _async_true)
 
     service = _process_service(
         bus, composition, store, ScriptedCPU(result=make_cpu_result(final_text="完成"))
@@ -249,12 +250,12 @@ async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
     )
     bus = GlobalSystemBus()
     bus.register(
-        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+        PatchouliRoutes.PREPARE_AGENT_RUN,
         patchouli_service.prepare_agent_run,
     )
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _async_empty_tasks)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _async_empty_tasks)
 
     service = _process_service(
         bus, composition, store, ScriptedCPU(result=make_cpu_result(final_text="完成"))

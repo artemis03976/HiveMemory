@@ -13,7 +13,6 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
@@ -22,6 +21,8 @@ from hivememory.core.models import (
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.core.protocol.models import RetrievalResponse
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUExecutionStatus
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
@@ -140,11 +141,11 @@ async def test_cpu_self_reported_cancel_skips_finalize_and_reports_cancelled_don
     async def profile(_agent_id, *, identity_scope, **_kwargs):
         return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, profile)
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, profile)
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     service, composition = await _service(bus, cpu=cpu)
     handle = await _register(composition, service, "hello", process_id="process-cancel-1")

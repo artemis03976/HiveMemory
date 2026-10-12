@@ -17,7 +17,6 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     AssetNotReadyError,
     ScopeRequiredError,
@@ -48,6 +47,8 @@ from hivememory.core.protocol.gateway import (
     RetrievalPlan,
 )
 from hivememory.core.protocol.models import RetrievalResponse
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUExecutionStatus, SubmitWriteIntentRequest
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
@@ -274,7 +275,7 @@ def _profile_route():
 
 
 def _register_profile(bus: GlobalSystemBus) -> None:
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
 
 
 @pytest.mark.asyncio
@@ -282,7 +283,7 @@ async def test_non_streaming_command_short_circuits_patchouli_and_cpu() -> None:
     """命令只解析不执行：进程把解析结果转为"暂不可用"终态，不调用 prepare/Profile/CPU。"""
     bus = GlobalSystemBus()
     gateway = AsyncMock(return_value=_command_outcome())
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, cpu)
@@ -294,7 +295,7 @@ async def test_non_streaming_command_short_circuits_patchouli_and_cpu() -> None:
     assert result.command_execution_result.error_code == "command.unavailable"
     assert result.command_execution_result.client_action is None
     assert cpu.calls == []
-    assert bus.list_routes() == [GlobalRoutes.GATEWAY_PROCESS]
+    assert bus.list_routes() == [GatewayPublicRoutes.PROCESS]
 
 
 @pytest.mark.asyncio
@@ -325,10 +326,10 @@ async def test_non_streaming_decision_uses_one_prepare_cpu_finalize_sequence() -
         calls.append("finalize")
         return []
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     service, composition = await _service(bus, _RecordingCPU(result=make_cpu_result()))
     result = await _run_once(composition, service, "问题", process_id="process-sequence")
@@ -362,10 +363,10 @@ async def test_completed_non_streaming_process_seals_interaction_payload() -> No
         finalize_kwargs.update(kwargs)
         return []
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     service, composition = await _service(bus, cpu)
     result = await _run_once(composition, service, "问题", process_id="process-seal-once")
@@ -403,11 +404,11 @@ async def test_completed_streaming_process_seals_interaction_payload() -> None:
         finalize_kwargs.update(kwargs)
         return []
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
-    bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
     service, composition = await _service(bus, cpu)
     events = await _stream_events(composition, service, "问题", process_id="process-seal-stream")
@@ -476,12 +477,12 @@ async def test_streaming_done_omits_sealing_only_result_fields(
             turn_events=make_mtp_turn_events(),
         ),
     )
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
-    bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
+    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
     service, composition = await _service(bus, cpu)
     events = await _stream_events(
@@ -501,7 +502,7 @@ async def test_streaming_command_emits_result_and_done_only() -> None:
     """流式命令请求：command_result 为"暂不可用"终态且不带客户端动作，随后 done 收口。"""
     bus = GlobalSystemBus()
     bus.register(
-        GlobalRoutes.GATEWAY_PROCESS,
+        GatewayPublicRoutes.PROCESS,
         AsyncMock(return_value=_command_outcome()),
     )
 
@@ -538,11 +539,11 @@ async def test_completed_stream_uses_one_process_id_for_events_and_downstream_ro
         route = _scoped_prepared_route(memories=[_memory_ref_atom()])
         return await route(identity_scope=identity_scope, **kwargs)
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
-    bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
     service, composition = await _service(bus, cpu)
     events = await _stream_events(
@@ -594,11 +595,11 @@ async def test_stage_routes_receive_only_authorizer_assembled_identity_scope() -
         captured["finalize"] = kwargs
         return []
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
-    bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, topic_list)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, topic_list)
 
     service, composition = await _service(bus)
     # 话题池读取只发生在流式交付（结算后、done 之前）。
@@ -659,11 +660,11 @@ async def test_finalize_reauthorizes_and_revoked_admission_closes_completed_cpu_
     async def cleanup(**kwargs):
         cleaned.append(kwargs)
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service = make_task_process_service(
         bus,
         cpu=cpu,
@@ -696,10 +697,10 @@ async def test_cleanup_admission_denial_skips_route_and_still_closes_process(cap
     async def cleanup(**kwargs):
         cleaned.append(kwargs)
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     cpu = ScriptedCPU(
         result=make_cpu_result(status=CPUExecutionStatus.FAILED.value),
         operation_script=revoke_admission,
@@ -728,7 +729,7 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
         started.set()
         await asyncio.Event().wait()
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
     service, composition = await _service(bus)
     handle = await _register(composition, service, "问题", process_id="process-gateway")
 
@@ -755,16 +756,16 @@ async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
 
     cleanup = AsyncMock(return_value=True)
     bus.register(
-        GlobalRoutes.GATEWAY_PROCESS,
+        GatewayPublicRoutes.PROCESS,
         AsyncMock(return_value=_decision_outcome()),
     )
     bus.register(
-        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+        PatchouliRoutes.PREPARE_AGENT_RUN,
         prepare,
     )
     _register_profile(bus)
     bus.register(
-        GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
+        PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
         cleanup,
     )
 
@@ -789,16 +790,16 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
     cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
     prepared_holder: dict = {}
     bus.register(
-        GlobalRoutes.GATEWAY_PROCESS,
+        GatewayPublicRoutes.PROCESS,
         AsyncMock(return_value=_decision_outcome()),
     )
     bus.register(
-        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+        PatchouliRoutes.PREPARE_AGENT_RUN,
         _recording_prepared_route(prepared_holder),
     )
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
     service, composition = await _service(bus, cpu)
     result = await _run_once(composition, service, "问题", process_id="process-cpu-failed")
@@ -815,17 +816,17 @@ async def test_streaming_failed_agent_run_preserves_failed_done_status() -> None
     bus = GlobalSystemBus()
     cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
     bus.register(
-        GlobalRoutes.GATEWAY_PROCESS,
+        GatewayPublicRoutes.PROCESS,
         AsyncMock(return_value=_decision_outcome()),
     )
     _register_profile(bus)
     prepared_holder: dict = {}
     bus.register(
-        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+        PatchouliRoutes.PREPARE_AGENT_RUN,
         _recording_prepared_route(prepared_holder),
     )
     cleanup = AsyncMock(return_value=True)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
     service, composition = await _service(bus, cpu)
     events = await _stream_events(
@@ -868,11 +869,11 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_cpu_and_finalize
         prepared_holder["prepared"] = prepared
         return prepared
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, recording_prepare)
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, recording_prepare)
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service, composition = await _service(bus, cpu)
     handle = await _register(composition, service, "问题", process_id="process-prepare")
 
@@ -904,14 +905,14 @@ async def test_stream_stop_cancels_current_cpu_pull_and_closes_cpu_iterator() ->
     finalize = AsyncMock()
     cleanup = AsyncMock(return_value=True)
     prepared_holder: dict = {}
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(
-        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+        PatchouliRoutes.PREPARE_AGENT_RUN,
         _recording_prepared_route(prepared_holder),
     )
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service, composition = await _service(bus, cpu)
     handle = await _register(composition, service, "问题", process_id="process-stream-cancel")
 
@@ -946,14 +947,14 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
         return []
 
     cleanup = AsyncMock(return_value=True)
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(
-        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+        PatchouliRoutes.PREPARE_AGENT_RUN,
         _scoped_prepared_route(),
     )
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service, composition = await _service(bus)
     handle = await _register(composition, service, "问题", process_id="process-finalize")
 
@@ -973,10 +974,10 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
 async def test_completed_delivery_closes_process_and_invalidates_context() -> None:
     """交付结束自动收口：绑定 context 撤销（授权被拒），进程从表中注销。"""
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _scoped_prepared_route())
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
 
     service, composition = await _service(bus)
     requestor = await composition.authenticate(agent_id=_AGENT)
@@ -1016,13 +1017,13 @@ async def test_attachment_selection_without_reader_fails_allocation() -> None:
     cleanup = AsyncMock(return_value=True)
     cpu = ScriptedCPU(result=make_cpu_result())
     prepared_holder: dict = {}
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(
-        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+        PatchouliRoutes.PREPARE_AGENT_RUN,
         _recording_prepared_route(prepared_holder),
     )
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
     service, composition = await _service(bus, cpu)
     with pytest.raises(WorkspaceDomainError, match="附件读取能力"):
@@ -1052,10 +1053,10 @@ async def test_streaming_workspace_domain_error_yields_safe_code() -> None:
     async def prepare(**_kwargs):
         raise AssetNotReadyError("附件尚未完成解析，不能在本轮使用")
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
     _register_profile(bus)
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=False))
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=False))
 
     service, composition = await _service(bus)
     handle = await _register(composition, service, "问题", process_id="process-domain-error")

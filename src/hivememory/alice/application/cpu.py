@@ -1,7 +1,7 @@
 """``CPUPort`` 的 Alice 实现 — 任务进程经端口调用 Alice Agent run。
 
 端口对象由组合根注入任务进程；进程只持有端口，Alice 的运行时仍在公开
-路由之后。本实现经全局总线调用 Alice 的统一执行路由（见
+路由之后。本实现经全局总线选择 Alice 的流式或非流式执行路由（见
 ``AgentRunService.run_agent``）：流式时交互事件原样透传、``done`` 事件被
 转换为 CPU 中立的执行结果（``done`` 中的运行元数据不进入结果，进程同样
 丢弃它们）；非流式时路由直接返回执行结果。
@@ -13,9 +13,9 @@ from collections.abc import AsyncGenerator
 from contextlib import aclosing
 from typing import Any
 
+from hivememory.alice.contracts import AliceRoutes
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceAccessContext
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUInputManifest,
@@ -56,11 +56,10 @@ class AliceCPU:
 
         if stream:
             event_stream = await self._bus.request(
-                GlobalRoutes.ALICE_RUN_AGENT,
+                AliceRoutes.RUN_AGENT_STREAM,
                 input_manifest=manifest,
                 submit_operation=submit_operation,
                 generation_options=generation_options,
-                stream=True,
             )
             # 无论耗尽、被进程关闭还是在拉取中被取消，都要把 Alice 的事件流
             # 一并关闭，使 Alice 以取消语义收口自己的 run。
@@ -74,11 +73,10 @@ class AliceCPU:
                         yield event
         else:
             yield await self._bus.request(
-                GlobalRoutes.ALICE_RUN_AGENT,
+                AliceRoutes.RUN_AGENT,
                 input_manifest=manifest,
                 submit_operation=submit_operation,
                 generation_options=generation_options,
-                stream=False,
             )
 
 

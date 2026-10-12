@@ -1,6 +1,6 @@
 """``AliceCPU``（``CPUPort`` 的 Alice 实现）的单元测试。
 
-被测边界：端口实现经全局总线调用统一执行路由——流式时交互事件原样透传、
+被测边界：端口实现经全局总线选择流式或非流式执行路由——流式时交互事件原样透传、
 ``done`` 被转换为 CPU 中立的执行结果；非流式时只产出执行结果；关闭端口
 迭代器会关闭 Alice 的事件流。总线以替身 handler 注册隔离。
 """
@@ -13,9 +13,9 @@ from typing import cast
 import pytest
 
 from hivememory.alice.application.cpu import AliceCPU
+from hivememory.alice.contracts import AliceRoutes
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceAccessContext
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models.reference import ReferenceResolution
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
@@ -79,7 +79,7 @@ async def _stream_route(**_kwargs):
 async def test_alice_cpu_stream_relays_events_and_converts_done() -> None:
     """流式：交互事件原样透传，done 被转换为执行结果且元数据不进入结果。"""
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT, _stream_route)
+    bus.register(AliceRoutes.RUN_AGENT_STREAM, _stream_route)
     cpu = AliceCPU(bus, _ReferenceEntry())
     manifest = make_input_manifest(process_id="process-1")
 
@@ -123,10 +123,10 @@ async def test_alice_cpu_once_yields_single_execution_result() -> None:
     async def route(**kwargs):
         assert kwargs["input_manifest"].process_id == "process-once"
         assert kwargs["generation_options"] is None
-        assert kwargs["stream"] is False
+        assert "stream" not in kwargs
         return expected
 
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT, route)
+    bus.register(AliceRoutes.RUN_AGENT, route)
     cpu = AliceCPU(bus, _ReferenceEntry())
 
     items = [
@@ -160,7 +160,7 @@ async def test_closing_cpu_iterator_closes_alice_event_stream() -> None:
     async def stream_route(**_kwargs):
         return _events()
 
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT, stream_route)
+    bus.register(AliceRoutes.RUN_AGENT_STREAM, stream_route)
     cpu = AliceCPU(bus, _ReferenceEntry())
 
     iterator = cpu.execute(
@@ -195,7 +195,7 @@ async def test_cpu_binds_each_thread_context_to_its_operation_submitter() -> Non
         references = await submit_operation(ResolveReferencesRequest(("fact",)))
         return CPUExecutionResult(final_text=references[0].requested_alias)
 
-    bus.register(GlobalRoutes.ALICE_RUN_AGENT, route)
+    bus.register(AliceRoutes.RUN_AGENT, route)
     cpu = AliceCPU(bus, entry)
     results = []
     for access in (first_access, second_access):

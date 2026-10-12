@@ -3,11 +3,8 @@ from hivememory.patchouli.application.agent_profile_management_service import (
 )
 from hivememory.patchouli.application.interaction_submission_service import (
     InteractionSubmissionService,
-    InteractionSubmitResult,
 )
 from hivememory.patchouli.application.memory_intent_submission_service import (
-    MemoryIntent,
-    MemoryIntentSubmissionResult,
     MemoryIntentSubmissionService,
 )
 from hivememory.patchouli.application.memory_management_service import (
@@ -26,9 +23,6 @@ from hivememory.patchouli.application.topic_management_service import (
 __all__ = [
     "AgentProfileManagementService",
     "InteractionSubmissionService",
-    "InteractionSubmitResult",
-    "MemoryIntent",
-    "MemoryIntentSubmissionResult",
     "MemoryIntentSubmissionService",
     "MemoryManagementService",
     "MemoryTaskManagementService",

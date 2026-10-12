@@ -16,7 +16,6 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
@@ -30,6 +29,8 @@ from hivememory.core.protocol.gateway import (
     RetrievalMode,
     RetrievalPlan,
 )
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.system.services.passive import (
     PassiveConversationKey,
     PassiveIngressContractError,
@@ -111,8 +112,8 @@ def _build(
 ) -> tuple[PassiveMessageIngressor, RecordingRuntimeEventSink]:
     bus = GlobalSystemBus()
     if register_gateway:
-        bus.register(GlobalRoutes.GATEWAY_PROCESS, recorder.gateway)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, recorder.retrieve)
+        bus.register(GatewayPublicRoutes.PROCESS, recorder.gateway)
+    bus.register(PatchouliRoutes.MEMORY_RETRIEVE, recorder.retrieve)
     sink = RecordingRuntimeEventSink()
     ingressor = PassiveMessageIngressor(
         bus,

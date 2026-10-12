@@ -13,7 +13,6 @@ import asyncio
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import ActorIdentity, ResolvedAgentProfile
 from hivememory.core.protocol.gateway import (
@@ -23,6 +22,8 @@ from hivememory.core.protocol.gateway import (
     MemoryWriteSignal,
     RetrievalPlan,
 )
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUExecutionResult
 from hivememory.workspace.process.service import TaskProcessService
@@ -144,10 +145,10 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
         finalized_contexts.append(identity_scope)
         return []
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     main_task = asyncio.create_task(
         service.run_process(
@@ -220,10 +221,10 @@ async def test_chat_rejects_prepared_run_from_different_workspace_before_alice()
     async def cleanup(*, prepared_run, identity_scope):
         cleaned.append((prepared_run.belong_to, identity_scope.workspace_identity))
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
     service = _service(bus, composition, ScriptedCPU(result=make_cpu_result()))
     process = await _register(
@@ -270,10 +271,10 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
     async def finalize(*, prepared_run, **_kwargs):
         return []
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     main_task = asyncio.create_task(
         service.run_process(

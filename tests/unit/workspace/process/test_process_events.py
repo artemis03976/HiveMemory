@@ -17,7 +17,6 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.core.errors import AssetNotReadyError
 from hivememory.core.models import (
@@ -34,6 +33,8 @@ from hivememory.core.protocol.gateway import (
     RetrievalPlan,
 )
 from hivememory.core.protocol.models import RetrievalResponse
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.process import NonStreamingAgentOutcome, TaskProcessService
 from hivememory.workspace.process.service import ProcessHandle
@@ -94,10 +95,10 @@ async def _profile(agent_id, *, identity_scope, **_kwargs):
 
 def _bus_until_actor() -> GlobalSystemBus:
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile)
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare)
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile)
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
     return bus
 
 
@@ -148,10 +149,10 @@ async def test_completed_stream_events_share_process_correlation_and_bind_topic(
     bus = _bus_until_actor()
     cpu = ScriptedCPU(result=make_cpu_result())
     bus.register(
-        GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
+        PatchouliRoutes.FINALIZE_AGENT_RUN,
         AsyncMock(return_value=[SimpleNamespace(task_id="memory-task-1")]),
     )
-    bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
+    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
     sink = RecordingRuntimeEventSink()
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=cpu)
     handle = await _register(composition, service, "问题", process_id="process-events")
@@ -204,7 +205,7 @@ async def test_stop_during_gateway_cancels_process_in_gateway_phase() -> None:
         gateway_started.set()
         await asyncio.Event().wait()
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
     sink = RecordingRuntimeEventSink()
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=ScriptedCPU())
     handle = await _register(composition, service, "问题", process_id="process-stop")
@@ -344,7 +345,7 @@ class _RaisingSink(RecordingRuntimeEventSink):
 async def test_event_sink_failure_does_not_change_chat_result() -> None:
     """观测是 best-effort 旁路：sink 失败时进程仍按业务结果完成。"""
     bus = _bus_until_actor()
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
     cpu = ScriptedCPU(result=make_cpu_result())
     service, composition = await _service(bus, RuntimeEventPublisher(_RaisingSink()), cpu=cpu)
     handle = await _register(composition, service, "问题", process_id="process-sink-failure")

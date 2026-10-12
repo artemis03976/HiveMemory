@@ -39,7 +39,6 @@ from hivememory.core.access import (
     WorkspaceAccessContext,
     WorkspaceOperation,
 )
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     AdmissionDeniedError,
     OperationDeniedError,
@@ -64,13 +63,14 @@ from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
     InteractionSubmissionService,
-    MemoryIntent,
     MemoryIntentSubmissionService,
     MemoryManagementService,
     MemoryTaskManagementService,
     TopicManagementService,
 )
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.memory_intent import MemoryIntent
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.patchouli.control.memory_generation.controller import (
     MemoryGenerationTaskController,
@@ -407,7 +407,7 @@ async def _submit_intent(wired, context: WorkspaceAccessContext):
     """以操作授权者组装的可信 scope 提交一条 WRITE 意图（a1 获准）。"""
     scope = wired.access.authorizer.authorize_operation(context, INTENT, MAIN)
     return await wired.global_bus.request(
-        GlobalRoutes.PATCHOULI_MEMORY_INTENT_SUBMIT,
+        PatchouliRoutes.MEMORY_INTENT_SUBMIT,
         intent=MemoryIntent(
             kind="write",
             topic_id="topic_boundary",
@@ -634,7 +634,7 @@ async def test_interaction_submit_reaches_real_queue_via_global_route(wired):
     context = await wired.access.authenticate(agent_id="a3", workspace=MAIN)
     scope = wired.access.authorizer.authorize_stage(context, MAIN)
     receipt = await wired.global_bus.request(
-        GlobalRoutes.PATCHOULI_INTERACTION_SUBMIT,
+        PatchouliRoutes.INTERACTION_SUBMIT,
         payload=InteractionPayload(
             user_message="boundary question",
             mtp_traces=[],
@@ -671,7 +671,7 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
     )
     scope = wired.access.authorizer.authorize_stage(context, MAIN)
     first = await wired.global_bus.request(
-        GlobalRoutes.PATCHOULI_INTERACTION_SUBMIT,
+        PatchouliRoutes.INTERACTION_SUBMIT,
         payload=payload,
         identity_scope=scope,
         interaction_id="delayed_interaction",
@@ -689,7 +689,7 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
     renewed = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
     renewed_scope = wired.access.authorizer.authorize_stage(renewed, MAIN)
     replay = await wired.global_bus.request(
-        GlobalRoutes.PATCHOULI_INTERACTION_SUBMIT,
+        PatchouliRoutes.INTERACTION_SUBMIT,
         payload=payload,
         identity_scope=renewed_scope,
         interaction_id="delayed_interaction",
@@ -853,4 +853,4 @@ async def test_profile_snapshot_route_is_not_mounted_on_global_bus(wired):
     routes = wired.global_bus.list_routes()
 
     assert "patchouli.public.get_agent_profile_snapshot" not in routes
-    assert GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE in routes
+    assert PatchouliRoutes.GET_AGENT_PROFILE in routes

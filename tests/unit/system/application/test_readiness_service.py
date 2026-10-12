@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.contracts.routes import GlobalRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.system.application.readiness_service import SystemReadinessService
 
 
@@ -14,7 +14,7 @@ class TestSystemReadinessService:
     async def test_warmup_models_uses_public_route(self):
         bus = GlobalSystemBus()
         handler = AsyncMock()
-        bus.register(GlobalRoutes.PATCHOULI_WARMUP_MODELS, handler)
+        bus.register(PatchouliRoutes.WARMUP_MODELS, handler)
         service = SystemReadinessService(global_bus=bus)
 
         await service.warmup_models()
@@ -25,7 +25,7 @@ class TestSystemReadinessService:
     async def test_readiness_maps_models_ready_state(self):
         bus = GlobalSystemBus()
         handler = AsyncMock(return_value=True)
-        bus.register(GlobalRoutes.PATCHOULI_MODELS_READY, handler)
+        bus.register(PatchouliRoutes.MODELS_READY, handler)
         service = SystemReadinessService(global_bus=bus)
 
         assert await service.is_models_ready() is True

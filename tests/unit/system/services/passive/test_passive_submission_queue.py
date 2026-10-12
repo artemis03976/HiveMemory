@@ -13,7 +13,6 @@ from hivememory.components.work_queue import (
     WorkQueueCapacityError,
 )
 from hivememory.config.passive import PassiveIngressConfig
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
@@ -24,6 +23,7 @@ from hivememory.core.protocol.gateway import (
     RetrievalMode,
     RetrievalPlan,
 )
+from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
 )
@@ -62,7 +62,7 @@ def _build() -> tuple[PassiveMessageIngressor, _SubmissionQueueRecorder]:
         )
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
     queue = _SubmissionQueueRecorder()
     return PassiveMessageIngressor(bus, interaction_queue=queue), queue
 
@@ -319,7 +319,7 @@ async def test_apply_retry_does_not_block_next_accumulator() -> None:
             )
 
         bus = GlobalSystemBus()
-        bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
+        bus.register(GatewayPublicRoutes.PROCESS, gateway)
         ingressor = PassiveMessageIngressor(bus, interaction_queue=queue)
 
         await ingressor.route_event(
@@ -373,7 +373,7 @@ async def test_shutdown_waits_for_accepted_submission_work() -> None:
             )
 
         bus = GlobalSystemBus()
-        bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
+        bus.register(GatewayPublicRoutes.PROCESS, gateway)
         config = MagicMock()
         config.gateway.workflow.default_request_timeout_ms = 100
         config.passive_ingress = PassiveIngressConfig()

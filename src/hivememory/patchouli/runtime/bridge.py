@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from hivememory.components.bus.binding import RouteBinding
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.events import GlobalEvents
 from hivememory.core.models.memory_change import MemoryChangeEvent
@@ -85,113 +86,113 @@ class PatchouliBridge:
             self._unregister_local_event_bridges()
             self._local_events_registered = False
 
-    def _public_route_bindings(self) -> list[tuple[str, Any]]:
+    def _public_route_bindings(self) -> list[RouteBinding]:
         return [
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MEMORY_CREATE,
                 self._public_api.memory.create_memory,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MEMORY_LIST,
                 self._public_api.memory.list_memories,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MEMORY_GET,
                 self._public_api.memory.get_memory,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MEMORY_UPDATE,
                 self._public_api.memory.update_memory,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MEMORY_DELETE,
                 self._public_api.memory.delete_memory,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MEMORY_RECORD_FEEDBACK,
                 self._public_api.memory.record_feedback,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MEMORY_TASK_LIST,
                 self._public_api.memory_tasks.list_memory_tasks,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MEMORY_TASK_GET,
                 self._public_api.memory_tasks.get_memory_task,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MEMORY_TASK_CANCEL,
                 self._public_api.memory_tasks.cancel_memory_task,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.AGENT_PROFILE_CREATE,
                 self._public_api.agent_profiles.create_agent_profile,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.AGENT_PROFILE_LIST,
                 self._public_api.agent_profiles.list_agent_profiles,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.TOPIC_LIST_ACTIVE,
                 self._public_api.topics.list_active_topics,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.TOPIC_GET_DATA,
                 self._public_api.topics.get_topic_data,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MEMORY_RETRIEVE,
                 self._public_api.memory.retrieve,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
                 self._public_api.memory.retrieve_by_aliases,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.GET_AGENT_PROFILE,
                 self._public_api.agent_profiles.get_agent_profile,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MEMORY_READ,
                 self._public_api.memory.read_memory,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.INTERACTION_SUBMIT,
                 self._public_api.interactions.submit_interaction,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MEMORY_INTENT_SUBMIT,
                 self._public_api.memory_intents.submit_memory_intent,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.PREPARE_AGENT_RUN,
                 self._public_api.chat.prepare_agent_run,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.FINALIZE_AGENT_RUN,
                 self._public_api.chat.finalize_agent_run,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
                 self._public_api.chat.cleanup_prepared_agent_run,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MANUAL_SETTLE_TOPIC,
                 self._public_api.topics.settle_topic,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.EVICT_TOPIC,
                 self._public_api.topics.evict_topic,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.RECORD_MEMORY_CITATION,
                 self._public_api.chat.record_memory_citation,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.WARMUP_MODELS,
                 self._public_api.readiness.warmup_models,
             ),
-            (
+            RouteBinding.of(
                 PatchouliRoutes.MODELS_READY,
                 self._public_api.readiness.is_models_ready,
             ),

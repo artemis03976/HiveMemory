@@ -51,7 +51,6 @@ from hivememory.core.access import (
     WorkspaceOperation,
 )
 from hivememory.core.constants import DEFAULT_USER_ID
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import (
     AdmissionDeniedError,
@@ -76,6 +75,8 @@ from hivememory.core.models.workspace import (
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.core.protocol.models import RetrievalResponse
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.memory_tasks import (
     MemoryGenerationSource,
     MemoryGenerationTask,
@@ -292,14 +293,14 @@ async def published_stack():
     async def finalize_agent_run(**_kwargs):
         return []
 
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_CREATE, memory_create)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_LIST, memory_list)
-    bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, topic_list_active)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_TASK_LIST, memory_task_list)
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway_process)
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare_agent_run)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, get_agent_profile)
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize_agent_run)
+    bus.register(PatchouliRoutes.MEMORY_CREATE, memory_create)
+    bus.register(PatchouliRoutes.MEMORY_LIST, memory_list)
+    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, topic_list_active)
+    bus.register(PatchouliRoutes.MEMORY_TASK_LIST, memory_task_list)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway_process)
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare_agent_run)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, get_agent_profile)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize_agent_run)
 
     cpu = ScriptedCPU(result=make_cpu_result(final_text="发布登记链路完成"))
 

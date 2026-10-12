@@ -13,9 +13,10 @@ from httpx import ASGITransport, AsyncClient
 from hivememory.alice.system import AliceSystem
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import OMNI_DOLL_PROFILE, PendingAtomStatus, ResolvedAgentProfile
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.server import deps
 from hivememory.server.routers.chat import router
 from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
@@ -95,11 +96,11 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
 
     monkeypatch.setattr("hivememory.agent_runtime.execution.worker.litellm.acompletion", completion)
     for route, handler in (
-        (GlobalRoutes.GATEWAY_PROCESS, gateway),
-        (GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare),
-        (GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, profile),
-        (GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize),
-        (GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, topics),
+        (GatewayPublicRoutes.PROCESS, gateway),
+        (PatchouliRoutes.PREPARE_AGENT_RUN, prepare),
+        (PatchouliRoutes.GET_AGENT_PROFILE, profile),
+        (PatchouliRoutes.FINALIZE_AGENT_RUN, finalize),
+        (PatchouliRoutes.TOPIC_LIST_ACTIVE, topics),
     ):
         bus.register(route, handler)
     alice = AliceSystem(

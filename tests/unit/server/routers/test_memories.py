@@ -11,7 +11,6 @@ from pydantic import ValidationError
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceAccessContext
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
 from hivememory.core.memory_access import memory_belongs_to_workspace
 from hivememory.core.models import (
@@ -21,6 +20,7 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.server import deps
 from hivememory.server.routers.memories import router
 from hivememory.workspace.capability.root.memory import RootMemoryService
@@ -38,12 +38,12 @@ def _create_test_app(storage, lifecycle_engine=None):
 
     bus = GlobalSystemBus()
     management = _MemoryManagementStub(storage, lifecycle_engine)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_CREATE, management.create_memory)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_LIST, management.list_memories)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_GET, management.get_memory)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_UPDATE, management.update_memory)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_DELETE, management.delete_memory)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RECORD_FEEDBACK, management.record_feedback)
+    bus.register(PatchouliRoutes.MEMORY_CREATE, management.create_memory)
+    bus.register(PatchouliRoutes.MEMORY_LIST, management.list_memories)
+    bus.register(PatchouliRoutes.MEMORY_GET, management.get_memory)
+    bus.register(PatchouliRoutes.MEMORY_UPDATE, management.update_memory)
+    bus.register(PatchouliRoutes.MEMORY_DELETE, management.delete_memory)
+    bus.register(PatchouliRoutes.MEMORY_RECORD_FEEDBACK, management.record_feedback)
     # 管理用例执行 root 授权：服务与访问依赖共享同一组合的操作授权者，
     # 仅保留的 system actor 可以通过管理入口。
     overrides, composition = make_server_access_overrides()
