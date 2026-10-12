@@ -8,6 +8,7 @@ MemoryRetriever 单元测试
 - 时间衰减逻辑
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock
 from zoneinfo import ZoneInfo
@@ -26,6 +27,7 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.models.query import QueryFilters
+from hivememory.core.mtp.exceptions import StorageOfflineError
 from hivememory.engines.retrieval.models import (
     RetrievalQuery,
     SearchResult,
@@ -266,6 +268,73 @@ class TestHybridRetriever:
         # 两个检索通道的结果经真实 RRF 融合后都被保留
         assert len(results.results) == 2
         assert {r.memory.id for r in results.results} == {self.memory1.id, self.memory2.id}
+
+
+class TestHybridRetrieverParallelRecall:
+    """并行召回：单路普通失败降级为空，存储失败与取消向上传播。"""
+
+    def setup_method(self):
+        from hivememory.engines.retrieval.fusion import ReciprocalRankFusion
+
+        self.mock_dense = AsyncMock()
+        self.mock_sparse = AsyncMock()
+        self.searcher = HybridRetriever(
+            config=HybridRetrieverConfig(enable_parallel=True),
+            dense_retriever=self.mock_dense,
+            sparse_retriever=self.mock_sparse,
+            fusion=ReciprocalRankFusion(config=ReciprocalRankFusionConfig()),
+        )
+        self.memory = MemoryAtom(
+            index=IndexLayer(
+                title="M1",
+                summary="Summary of M1 content is long enough",
+                memory_type=MemoryType.FACT,
+            ),
+            payload=PayloadLayer(content="C1"),
+            meta=make_memory_metadata(
+                source_agent_id="a1",
+                user_id="u1",
+                updated_at=datetime.now(UTC),
+            ),
+        )
+        scope = _make_identity_scope()
+        self.query = RetrievalQuery(
+            semantic_query="test",
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+        )
+
+    def _sparse_returns_memory(self) -> None:
+        self.mock_sparse.retrieve = AsyncMock(
+            return_value=SearchResults(results=[SearchResult(memory=self.memory, score=0.8)])
+        )
+
+    @pytest.mark.asyncio
+    async def test_ordinary_failure_on_one_path_degrades_to_other_path(self):
+        self.mock_dense.retrieve = AsyncMock(side_effect=RuntimeError("dense index broken"))
+        self._sparse_returns_memory()
+
+        results = await self.searcher.retrieve(self.query, top_k=5)
+
+        assert [r.memory.id for r in results.results] == [self.memory.id]
+
+    @pytest.mark.asyncio
+    async def test_storage_offline_on_one_path_propagates(self):
+        self.mock_dense.retrieve = AsyncMock(
+            side_effect=StorageOfflineError(cause=ConnectionError("qdrant down"))
+        )
+        self._sparse_returns_memory()
+
+        with pytest.raises(StorageOfflineError):
+            await self.searcher.retrieve(self.query, top_k=5)
+
+    @pytest.mark.asyncio
+    async def test_cancellation_on_one_path_propagates_instead_of_fusing(self):
+        self.mock_dense.retrieve = AsyncMock(side_effect=asyncio.CancelledError())
+        self._sparse_returns_memory()
+
+        with pytest.raises(asyncio.CancelledError):
+            await self.searcher.retrieve(self.query, top_k=5)
 
 
 if __name__ == "__main__":

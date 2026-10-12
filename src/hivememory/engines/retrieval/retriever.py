@@ -349,19 +349,28 @@ class HybridRetriever(BaseMemoryRetriever):
         return fused_results
 
     async def _parallel_recall(self, query: RetrievalQuery) -> tuple[SearchResults, SearchResults]:
-        """asyncio.gather 并行执行稠密和稀疏检索"""
-        results = await asyncio.gather(
+        """asyncio.gather 并行执行稠密和稀疏检索
+
+        单路的普通失败降级为空结果；存储离线/读取失败与取消等非 ``Exception``
+        的 ``BaseException`` 必须向上传播，不能被当作检索结果交给融合。
+        """
+        dense_outcome, sparse_outcome = await asyncio.gather(
             self.dense_retriever.retrieve(query),
             self.sparse_retriever.retrieve(query),
             return_exceptions=True,
         )
-        dense_results = results[0] if not isinstance(results[0], Exception) else SearchResults()
-        sparse_results = results[1] if not isinstance(results[1], Exception) else SearchResults()
+        for outcome in (dense_outcome, sparse_outcome):
+            if isinstance(outcome, (StorageOfflineError, StorageReadError)):
+                raise outcome
+            if isinstance(outcome, BaseException) and not isinstance(outcome, Exception):
+                raise outcome
 
-        for r in results:
-            if isinstance(r, (StorageOfflineError, StorageReadError)):
-                raise r
-
+        dense_results = (
+            SearchResults() if isinstance(dense_outcome, BaseException) else dense_outcome
+        )
+        sparse_results = (
+            SearchResults() if isinstance(sparse_outcome, BaseException) else sparse_outcome
+        )
         return dense_results, sparse_results
 
     async def _sequential_recall(
