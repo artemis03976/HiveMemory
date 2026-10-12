@@ -405,6 +405,7 @@ class PatchouliRuntime:
         from hivememory.engines.retrieval import (
             BaseMemoryRetriever,
             RetrievalEngine,
+            create_reranker,
             create_retriever,
         )
 
@@ -413,11 +414,11 @@ class PatchouliRuntime:
         retriever: BaseMemoryRetriever = create_retriever(
             self.memory_library.mid_term,
             config.retriever,
-            reranker_config=config.reranker,
-            reranker_service=self.reranker_service,
         )
+        # 重排序是引擎中召回之后的独立阶段；关闭时由 NoopReranker 顶替。
+        reranker = create_reranker(config=config.reranker, service=self.reranker_service)
 
-        return RetrievalEngine(retriever=retriever)
+        return RetrievalEngine(retriever=retriever, reranker=reranker)
 
     def _build_perception_engine(self):
         """[私有构建器] 组装 Perception 纯算法引擎

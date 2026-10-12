@@ -84,6 +84,7 @@ from hivememory.engines.memory_compiler import (
 )
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import RetrievalQuery
+from hivememory.engines.retrieval.reranker import create_reranker
 from hivememory.engines.retrieval.retriever import HybridRetriever, create_retriever
 from hivememory.infrastructure.rerank.fast_embed_reranker import FastEmbedRerankerService
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
@@ -205,13 +206,12 @@ def setup_test_env() -> RetrievalEngine:
     _shared_retriever = create_retriever(
         mid_term=_shared_mid_term,
         config=retriever_config,
-        reranker_config=reranker_config,
-        reranker_service=_shared_reranker_service,
     )
 
-    # 4. 创建 RetrievalEngine
+    # 4. 创建 RetrievalEngine（重排是引擎中召回之后的独立阶段）
     _shared_engine = RetrievalEngine(
         retriever=_shared_retriever,
+        reranker=create_reranker(reranker_config, _shared_reranker_service),
     )
 
     console.print("[green]Retrieval E2E 测试环境初始化完成[/green]")
@@ -498,13 +498,13 @@ class TestReranking:
     """
     Group 2: 重排序测试
 
-    验证 CrossEncoderReranker 的重排序能力。
+    验证 CrossEncoderReranker 的重排序能力；重排是 RetrievalEngine 中召回之后的阶段。
     """
 
     @pytest.fixture(autouse=True)
     def setup(self):
         """每个测试前初始化"""
-        self.retriever = get_shared_retriever()
+        self.engine = get_shared_engine()
         self.reranker_service = get_shared_reranker_service()
         self.storage = get_shared_storage()
         # 确保 Golden Memories 已注入
@@ -524,7 +524,7 @@ class TestReranking:
         query = create_retrieval_query(semantic_query=test_case["query"])
 
         # 执行检索（包含 Rerank）
-        results = _run(self.retriever.retrieve(query, top_k=10, score_threshold=0.0))
+        results = _run(self.engine.retrieve(query, top_k=10, score_threshold=0.0)).search_results
 
         # 验证结果
         expected_top1 = test_case.get("expected_top1_after_rerank")
@@ -570,7 +570,9 @@ class TestReranking:
 
         # 执行检索
         score_threshold = test_case.get("score_threshold", 0.5)
-        results = _run(self.retriever.retrieve(query, top_k=5, score_threshold=score_threshold))
+        results = _run(
+            self.engine.retrieve(query, top_k=5, score_threshold=score_threshold)
+        ).search_results
 
         # 验证结果：应该返回空或低分结果
         if test_case.get("expected_empty_or_low_score"):

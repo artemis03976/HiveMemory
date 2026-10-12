@@ -18,19 +18,16 @@ from typing import TYPE_CHECKING
 from hivememory.config.patchouli import (
     DenseRetrieverConfig,
     HybridRetrieverConfig,
-    RerankerConfig,
     SparseRetrieverConfig,
 )
 from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
 from hivememory.engines.retrieval.fusion import create_fusion
-from hivememory.engines.retrieval.interfaces import BaseFusion, BaseMemoryRetriever, BaseReranker
+from hivememory.engines.retrieval.interfaces import BaseFusion, BaseMemoryRetriever
 from hivememory.engines.retrieval.models import (
     RetrievalQuery,
     SearchResult,
     SearchResults,
 )
-from hivememory.engines.retrieval.reranker import create_reranker
-from hivememory.infrastructure.rerank.base import BaseRerankService
 
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
@@ -263,8 +260,7 @@ class HybridRetriever(BaseMemoryRetriever):
         2. Fusion: RRF 合并结果
         3. Return: Top-K 融合结果
 
-    重排序不属于混合检索，由 :class:`RerankingRetriever` 作为召回之后的
-    独立阶段包裹任意检索器。
+    重排序不属于检索器，是 RetrievalEngine 中召回之后的独立阶段。
     """
 
     def __init__(
@@ -388,49 +384,9 @@ class NoOpRetriever(BaseMemoryRetriever):
         return SearchResults()
 
 
-class RerankingRetriever(BaseMemoryRetriever):
-    """
-    重排序阶段
-
-    包裹任意召回策略：先向内层检索器取 ``max(top_k, candidate_top_k)`` 条
-    候选，重排序后再截取 top_k。重排后的分数不再套用召回阶段的阈值。
-    """
-
-    def __init__(
-        self,
-        inner: BaseMemoryRetriever,
-        reranker: BaseReranker,
-        *,
-        candidate_top_k: int,
-    ):
-        self.inner = inner
-        self.reranker = reranker
-        self.candidate_top_k = candidate_top_k
-
-    async def retrieve(
-        self,
-        query: RetrievalQuery,
-        top_k: int | None = None,
-        score_threshold: float | None = None,
-    ) -> SearchResults:
-        candidate_count = None if top_k is None else max(top_k, self.candidate_top_k)
-        candidates = await self.inner.retrieve(
-            query,
-            top_k=candidate_count,
-            score_threshold=score_threshold,
-        )
-        reranked = self.reranker.rerank(candidates, query)
-        if top_k is not None:
-            reranked.results = reranked.results[:top_k]
-        return reranked
-
-
 def create_retriever(
     mid_term: "MidTermMemoryStore",
     config: HybridRetrieverConfig | DenseRetrieverConfig | SparseRetrieverConfig,
-    *,
-    reranker_config: RerankerConfig | None = None,
-    reranker_service: BaseRerankService | None = None,
 ) -> BaseMemoryRetriever:
     """
     创建检索器工厂
@@ -440,34 +396,15 @@ def create_retriever(
     - SparseRetrieverConfig -> SparseRetriever
     - HybridRetrieverConfig -> HybridRetriever
 
-    重排序启用且提供了服务时，任意召回策略外再包一层 RerankingRetriever。
+    重排序不在此组装，由 RetrievalEngine 作为独立阶段持有。
 
     Args:
         mid_term: 中期记忆存储
         config: 召回策略配置
-        reranker_config: 重排序配置（缺省不重排）
-        reranker_service: Rerank 服务实例
 
     Returns:
         BaseMemoryRetriever 实例
     """
-    retriever = _create_recall_retriever(mid_term, config)
-    if reranker_config is None or not reranker_config.enabled:
-        return retriever
-    if reranker_service is None:
-        logger.warning("Reranker 已启用但未提供重排服务，跳过重排序")
-        return retriever
-    return RerankingRetriever(
-        retriever,
-        create_reranker(config=reranker_config, service=reranker_service),
-        candidate_top_k=reranker_config.top_k,
-    )
-
-
-def _create_recall_retriever(
-    mid_term: "MidTermMemoryStore",
-    config: HybridRetrieverConfig | DenseRetrieverConfig | SparseRetrieverConfig,
-) -> BaseMemoryRetriever:
     # 多态分发
     if isinstance(config, DenseRetrieverConfig):
         return DenseRetriever(mid_term, config)
@@ -502,6 +439,5 @@ __all__ = [
     "SparseRetriever",
     "HybridRetriever",
     "NoOpRetriever",
-    "RerankingRetriever",
     "create_retriever",
 ]

@@ -32,6 +32,7 @@ from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngin
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.engines.retrieval.engine import RetrievalEngine
+from hivememory.engines.retrieval.reranker import NoopReranker
 from hivememory.engines.retrieval.retriever import DenseRetriever
 from hivememory.gateway.runtime import GatewayRuntime
 from hivememory.gateway.service import GatewayService
@@ -167,7 +168,9 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
         artifact_store=artifacts,
     )
     retrieval = RetrievalFamiliar(
-        RetrievalEngine(DenseRetriever(mid_term, DenseRetrieverConfig())), library, local_bus
+        RetrievalEngine(DenseRetriever(mid_term, DenseRetrieverConfig()), reranker=NoopReranker()),
+        library,
+        local_bus,
     )
     perception = PerceptionFamiliar(
         engine=MemoryPerceptionEngine(

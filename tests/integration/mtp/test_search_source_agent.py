@@ -25,6 +25,7 @@ from hivememory.core.models import (
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.engines.retrieval.engine import RetrievalEngine
+from hivememory.engines.retrieval.reranker import NoopReranker
 from hivememory.engines.retrieval.retriever import DenseRetriever
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.patchouli.application.memory_management_service import MemoryManagementService
@@ -82,7 +83,7 @@ async def search_stack(tmp_path) -> AsyncIterator[tuple[KoakumaRuntime, MidTermM
             DenseRetrieverConfig(enable_time_decay=False, enable_confidence_boost=False),
             now=lambda: NOW,
         )
-        familiar = RetrievalFamiliar(RetrievalEngine(retriever), library)
+        familiar = RetrievalFamiliar(RetrievalEngine(retriever, reranker=NoopReranker()), library)
         local_bus = PatchouliBus()
         local_bus.register(PatchouliLocalRoutes.MEMORY_RETRIEVE, familiar.retrieve_async)
         application = MemoryManagementService(bus=local_bus)

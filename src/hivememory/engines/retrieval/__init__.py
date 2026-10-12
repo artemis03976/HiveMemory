@@ -49,6 +49,7 @@ from hivememory.engines.retrieval.models import (
 from hivememory.engines.retrieval.reranker import (
     CrossEncoderReranker,
     NoopReranker,
+    create_reranker,
 )
 
 # 混合检索组件
@@ -56,7 +57,6 @@ from hivememory.engines.retrieval.retriever import (
     DenseRetriever,
     HybridRetriever,
     NoOpRetriever,
-    RerankingRetriever,
     SparseRetriever,
     create_retriever,
 )
@@ -83,10 +83,10 @@ __all__ = [
     "SparseRetriever",
     "HybridRetriever",
     "NoOpRetriever",
-    "RerankingRetriever",
     "ReciprocalRankFusion",
     "AdaptiveWeightedFusion",
     "NoopReranker",
     "CrossEncoderReranker",
+    "create_reranker",
     "create_retriever",
 ]

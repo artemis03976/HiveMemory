@@ -19,7 +19,6 @@ from hivememory.config.patchouli import (
     DenseRetrieverConfig,
     HybridRetrieverConfig,
     ReciprocalRankFusionConfig,
-    RerankerConfig,
 )
 from hivememory.core.models import (
     IndexLayer,
@@ -341,51 +340,6 @@ class TestHybridRetrieverParallelRecall:
 
         with pytest.raises(asyncio.CancelledError):
             await self.searcher.retrieve(self.query, top_k=5)
-
-
-class TestRerankingStage:
-    """重排序作为召回之后的独立阶段，适用于任意召回策略。"""
-
-    @staticmethod
-    def _memory(title: str) -> MemoryAtom:
-        return MemoryAtom(
-            index=IndexLayer(
-                title=title,
-                summary=f"Summary of {title} content is long enough",
-                memory_type=MemoryType.FACT,
-            ),
-            payload=PayloadLayer(content=title),
-            meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
-        )
-
-    @pytest.mark.asyncio
-    async def test_dense_recall_is_reranked_from_candidate_pool(self):
-        first, second = self._memory("M1"), self._memory("M2")
-        storage = AsyncMock()
-        storage.search = AsyncMock(
-            return_value=[{"memory": first, "score": 0.9}, {"memory": second, "score": 0.8}]
-        )
-        rerank_service = Mock()
-        # 候选按召回顺序 [M1, M2] 送入重排；重排分数把 M2 提到首位
-        rerank_service.compute_score = Mock(return_value=[-5.0, 5.0])
-        retriever = create_retriever(
-            storage,
-            DenseRetrieverConfig(enable_time_decay=False, enable_confidence_boost=False),
-            reranker_config=RerankerConfig(enabled=True, top_k=20),
-            reranker_service=rerank_service,
-        )
-        scope = _make_identity_scope()
-        query = RetrievalQuery(
-            semantic_query="test",
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-        )
-
-        results = await retriever.retrieve(query, top_k=1)
-
-        assert [r.memory.id for r in results.results] == [second.id]
-        # 召回取 max(top_k, reranker.top_k) 条候选，而不是只取最终的 top_k
-        assert storage.search.call_args.kwargs["top_k"] == 20
 
 
 class TestHybridRetrieverDisabledPath:
