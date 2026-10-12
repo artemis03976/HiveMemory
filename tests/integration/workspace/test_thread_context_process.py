@@ -10,6 +10,8 @@ from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, ResolvedAgentProfile
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.workspace.contracts import ResolveReferencesRequest, ThreadContextRevokedError
+from hivememory.workspace.process.table import ProcessTable
+from hivememory.workspace.process.threads import ProcessThreads
 from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.process import make_task_process_service
@@ -23,12 +25,20 @@ from tests.helpers.workspace import (
 @pytest.fixture
 def process_chain():
     """仅替换阶段 RPC 的资源 owner，认证、授权、执行器和入口均为真实对象。"""
-    access = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="omni_doll")]
-    )
+    access = make_access_composition([make_actor_access_record(owner_user_id="u1", agent_id=None)])
     bus = GlobalSystemBus()
     runtime = make_workspace_runtime(bus)
-    chain = SimpleNamespace(access=access, bus=bus, runtime=runtime, stages=[])
+    table = ProcessTable()
+    threads = ProcessThreads(table, lifecycle=access.gateway, authorizer=access.authorizer)
+    chain = SimpleNamespace(
+        access=access,
+        bus=bus,
+        runtime=runtime,
+        stages=[],
+        table=table,
+        threads=threads,
+        children=[],
+    )
 
     async def gateway(**_kwargs):
         return GatewayDecisionOutcome(decision=make_gateway_decision())
@@ -47,6 +57,11 @@ def process_chain():
             await chain.cpu.operation_entry.execute(
                 ResolveReferencesRequest(("missing",)), access=chain.cpu.calls[0].access
             )
+        for child in chain.children:
+            with pytest.raises(ThreadContextRevokedError):
+                await chain.cpu.operation_entry.execute(
+                    ResolveReferencesRequest(("missing",)), access=child
+                )
         chain.stages.append(stage)
 
     async def finalize(*, identity_scope, **_kwargs):
@@ -86,6 +101,7 @@ async def register(chain, cpu):
         access_gateway=chain.access.gateway,
         operation_authorizer=chain.access.authorizer,
         workspace_runtime=chain.runtime,
+        process_table=chain.table,
     )
     return await chain.service.register_process(
         adapter="local",
@@ -123,7 +139,7 @@ async def test_cpu_end_revokes_thread_before_terminal_and_keeps_stage_authorizat
         summary = chain.access.gateway.describe_context(chain.cpu.calls[0].access)
         observed.append((summary.run_type, summary.run_id, summary.thread_id))
 
-    cpu = ScriptedCPU(**cpu_outcome, operation_script=inspect_thread)
+    cpu = DerivingCPU(chain, **cpu_outcome, operation_script=inspect_thread)
     handle = await register(chain, cpu)
     stream = chain.service.run_process(handle, stream=True)
     try:
@@ -141,11 +157,30 @@ async def test_cpu_end_revokes_thread_before_terminal_and_keeps_stage_authorizat
     assert chain.stages == expected_stages
 
 
-class ClosingCPU(ScriptedCPU):
+class DerivingCPU(ScriptedCPU):
+    """CPU 运行期间派生两个子线程，覆盖所有终态的统一撤销。"""
+
+    def __init__(self, chain, **kwargs):
+        super().__init__(**kwargs)
+        self.chain = chain
+
+    def execute(self, manifest, *, access, generation_options, stream):
+        source = super().execute(
+            manifest, access=access, generation_options=generation_options, stream=stream
+        )
+        for agent_id in ("worker", "reviewer"):
+            child = self.chain.threads.derive_child_thread(
+                access=access, process_id=manifest.process_id, agent_id=agent_id
+            )
+            self.chain.children.append(child.access)
+        return source
+
+
+class ClosingCPU(DerivingCPU):
     """让输出流的异步关闭挂起，以便观察关闭流程的第一个 await 之前的状态。"""
 
-    def __init__(self):
-        super().__init__(events=[{"event": "token", "data": {"content": "一"}}])
+    def __init__(self, chain):
+        super().__init__(chain, events=[{"event": "token", "data": {"content": "一"}}])
         self.close_entered = asyncio.Event()
         self.release_close = asyncio.Event()
 
@@ -169,7 +204,7 @@ class ClosingCPU(ScriptedCPU):
 async def test_disconnect_revokes_thread_before_awaiting_cpu_close(process_chain):
     """交付方断流时先同步撤销，CPU 输出关闭挂起也不能继续提交 actor 请求。"""
     chain = process_chain
-    cpu = ClosingCPU()
+    cpu = ClosingCPU(chain)
     handle = await register(chain, cpu)
     stream = chain.service.run_process(handle, stream=True)
     close_task = None
@@ -184,6 +219,11 @@ async def test_disconnect_revokes_thread_before_awaiting_cpu_close(process_chain
             await cpu.operation_entry.execute(
                 ResolveReferencesRequest(("missing",)), access=cpu.calls[0].access
             )
+        for child in chain.children:
+            with pytest.raises(ThreadContextRevokedError):
+                await cpu.operation_entry.execute(
+                    ResolveReferencesRequest(("missing",)), access=child
+                )
         assert chain.runtime.stats()["cold_reads"] == reads_before_request
         cpu.release_close.set()
         await asyncio.wait_for(close_task, timeout=2)
@@ -197,7 +237,7 @@ async def test_disconnect_revokes_thread_before_awaiting_cpu_close(process_chain
 
 async def start_hanging_process(chain):
     """CPU 挂起在终态之前，使停止与取消都落在 Actor 阶段内。"""
-    cpu = ScriptedCPU(hang_before_result=True)
+    cpu = DerivingCPU(chain, hang_before_result=True)
     handle = await register(chain, cpu)
     return cpu, asyncio.create_task(chain.service.run_process(handle, stream=False))
 

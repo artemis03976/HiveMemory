@@ -44,6 +44,7 @@ from hivememory.core.access import (
     RunBinding,
     WorkspaceAccessContext,
 )
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import AdmissionDeniedError, ScopeRequiredError
 from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.workspace.registry import WorkspaceActorAccessRegistry
@@ -75,7 +76,7 @@ class AccessGrantSummary:
 class WorkspaceAuthenticator:
     """第 2 阶段 Workspace 认证：准入、签发与撤销（认证一侧）。
 
-    准入 :meth:`admit` 只由认证网关调用；撤销（:meth:`invalidate`、
+    准入 :meth:`admit` 由认证网关与本类的子线程派生调用；撤销（:meth:`invalidate`、
     :meth:`revoke_all`）与诊断查询（:meth:`describe`）只经认证网关转交。
     签发的 context 自带密封的授予内容，本类只记住"签发过哪些仍可能存活
     的 context"，用于 System 停止时撤销全部；没有自身的关闭状态——关闭
@@ -99,9 +100,9 @@ class WorkspaceAuthenticator:
 
         owner 约束（W0 基线）在本阶段检查：actor 用户必须等于要进入的
         workspace 的 owner。不检查 principal，也不重复校验入参类型与关闭
-        状态——唯一调用方认证网关在公开入口已完成来源/adapter 验证、入参
-        类型检查与关闭检查（认证流程内无 await，两项检查间不存在状态
-        变化）。此方法不作为 adapter 或领域服务的另一认证入口。
+        状态——认证网关已验证来源与声明；子线程派生则复用有效进程的来源
+        与驻留目标，只替换同一用户的 agent。两条调用链均无 await，不存在
+        校验与签发之间的状态变化。此方法不作为 adapter 或领域服务的另一认证入口。
         """
         if actor.user_id != workspace.owner_user_id:
             raise AdmissionDeniedError(
@@ -147,6 +148,33 @@ class WorkspaceAuthenticator:
         )
         self._issued.add(context)
         return context
+
+    def derive_child_thread_context(
+        self, access: WorkspaceAccessContext, *, agent_id: str, thread_id: str
+    ) -> WorkspaceAccessContext:
+        """被调用方沿用进程来源与驻留目标，经第二阶段准入后签发子线程。
+
+        不重新认证 principal；网关关闭不阻止已有进程派生。先完成全部
+        校验再签发，失败时不会留下可用凭据。
+        """
+        if type(access) is not WorkspaceAccessContext:
+            raise ScopeRequiredError("派生需要有效的进程 context")
+        grant = access._unseal()
+        if grant is None or grant.binding.run_type is not AccessRunType.TASK_PROCESS:
+            raise ScopeRequiredError("派生需要有效的进程 context")
+        if agent_id == SYSTEM_AGENT_ID:
+            raise AdmissionDeniedError(
+                "子线程不能使用保留 system actor",
+                details={"reason": "system_actor_not_allowed"},
+            )
+        if thread_id == "main":
+            raise ScopeRequiredError("子线程不能使用主线程标识")
+        return self.admit(
+            actor=ActorIdentity(user_id=grant.actor.user_id, agent_id=agent_id),
+            workspace=grant.workspace,
+            principal=grant.principal,
+            binding=RunBinding.for_execution_thread(grant.binding.run_id, thread_id),
+        )
 
     def revoke_thread_context(self, access: WorkspaceAccessContext) -> None:
         """只撤销线程 context，避免窄化端口误撤销仍需收尾的进程 context。"""
@@ -247,6 +275,14 @@ class ActorAuthenticationGateway:
     def derive_thread_context(self, access: WorkspaceAccessContext) -> WorkspaceAccessContext:
         """实现执行器的派生端口；关闭网关只拒绝新认证，不禁止已有进程派生。"""
         return self._authenticator.derive_thread_context(access)
+
+    def derive_child_thread_context(
+        self, access: WorkspaceAccessContext, *, agent_id: str, thread_id: str
+    ) -> WorkspaceAccessContext:
+        """实现进程侧的子线程派生端口；准入仍由认证一侧检查。"""
+        return self._authenticator.derive_child_thread_context(
+            access, agent_id=agent_id, thread_id=thread_id
+        )
 
     def revoke_thread_context(self, access: WorkspaceAccessContext) -> None:
         """实现执行器的同步撤销端口，不暴露进程或请求 context 的撤销能力。"""

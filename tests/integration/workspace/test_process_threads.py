@@ -1,0 +1,99 @@
+"""真实进程表、线程管理与认证授权的派生边界。"""
+
+import pytest
+
+from hivememory.components.events.bus import NullRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.core.access import RunBinding, WorkspaceOperation
+from hivememory.core.errors import ScopeRequiredError, ThreadContextRevokedError
+from hivememory.workspace.process.events import TaskProcessEventEmitter
+from hivememory.workspace.process.table import ProcessPhase, ProcessRecord, ProcessTable
+from hivememory.workspace.process.task_process import ProcessRequest, TaskProcess
+from hivememory.workspace.process.threads import ProcessThreads
+from tests.helpers.workspace import (
+    make_access_composition,
+    make_actor_access_record,
+    make_execution_labels,
+)
+
+
+async def make_process_threads():
+    """用户级准入允许 READ，被调用方的精确登记只允许 WRITE。"""
+    access = make_access_composition(
+        [
+            make_actor_access_record(
+                agent_id=None, allowed_operations=[WorkspaceOperation.MEMORY_READ]
+            ),
+            make_actor_access_record(
+                agent_id="worker", allowed_operations=[WorkspaceOperation.MEMORY_WRITE]
+            ),
+        ]
+    )
+    context = await access.authenticate(binding=RunBinding.for_task_process("p"))
+    events = TaskProcessEventEmitter(RuntimeEventPublisher(NullRuntimeEventSink()))
+    process = TaskProcess(
+        record=ProcessRecord(
+            process_id="p",
+            access=context,
+            events=events.for_process(process_id="p", labels=make_execution_labels(), trace_id="t"),
+        ),
+        request=ProcessRequest(message="派生", target_workspace=access.default_workspace),
+        trace_id="t",
+    )
+    table = ProcessTable()
+    table.register(process)
+    threads = ProcessThreads(table, lifecycle=access.gateway, authorizer=access.authorizer)
+    process.record.enter_phase(ProcessPhase.ACTOR)
+    main = threads.derive_main_thread(process)
+    return access, process, threads, main
+
+
+@pytest.mark.asyncio
+async def test_child_snapshots_follow_exact_callee_record_and_all_threads_are_revoked():
+    """多个子线程各自登记，精确记录覆盖用户级权限，统一撤销仍保留进程授权。"""
+    access, process, threads, main = await make_process_threads()
+    first = threads.derive_child_thread(access=main, process_id="p", agent_id="worker")
+    second = threads.derive_child_thread(access=main, process_id="p", agent_id="other")
+    assert first.allowed_operations == frozenset({WorkspaceOperation.MEMORY_WRITE})
+    assert second.allowed_operations == frozenset({WorkspaceOperation.MEMORY_READ})
+    assert access.gateway.describe_context(first.access).thread_id == "child-1"
+    assert access.gateway.describe_context(second.access).thread_id == "child-2"
+    threads.revoke_threads(process.working_set)
+    threads.revoke_threads(process.working_set)
+    for context in (main, first.access, second.access):
+        with pytest.raises(ThreadContextRevokedError):
+            access.authorizer.validate_thread_context(context)
+    assert (
+        access.authorizer.authorize_stage(
+            process.record.access, access.default_workspace
+        ).actor_identity.agent_id
+        == "test_agent"
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "invalid", ["child", "other-process", "missing", "finalize", "revoked", "ended", "stopped"]
+)
+async def test_derivation_rejects_invalid_caller_or_phase_without_registration(invalid):
+    """递归、错进程、结束或停止后派生都拒绝，已有线程登记不变。"""
+    access, process, threads, main = await make_process_threads()
+    caller, process_id = main, "p"
+    if invalid == "child":
+        caller = threads.derive_child_thread(access=main, process_id="p", agent_id="worker").access
+    elif invalid == "other-process":
+        caller = await access.authenticate_thread(process_id="other")
+    elif invalid == "missing":
+        process_id = "missing"
+    elif invalid == "finalize":
+        process.record.enter_phase(ProcessPhase.FINALIZE)
+    elif invalid == "revoked":
+        access.gateway.revoke_thread_context(main)
+    elif invalid == "ended":
+        threads.revoke_threads(process.working_set)
+    elif invalid == "stopped":
+        process.record.request_stop()
+    before = dict(process.working_set.thread_contexts)
+    with pytest.raises((ScopeRequiredError, ThreadContextRevokedError)):
+        threads.derive_child_thread(access=caller, process_id=process_id, agent_id="worker")
+    assert process.working_set.thread_contexts == before

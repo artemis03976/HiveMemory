@@ -54,6 +54,7 @@ AUTHORIZER_ONLY_FILES = frozenset(
         "workspace/capability/root/assets.py",
         "workspace/process/runner.py",
         "workspace/process/allocation.py",
+        "workspace/process/threads.py",
     }
 )
 
@@ -157,9 +158,12 @@ def test_stage_authorization_is_only_called_by_task_processes():
     }
 
 
-def test_stage_operation_snapshot_is_only_read_by_task_process_allocation():
-    """操作快照只供 CPU 分配读取，不能成为 actor API 或 CPU 的授权旁路。"""
-    assert _private_call_sites("get_stage_operations") == {"workspace/process/allocation.py"}
+def test_stage_operation_snapshot_is_only_read_by_task_process():
+    """操作快照只供进程分配与派生读取，不能成为 actor API 或 CPU 的授权旁路。"""
+    assert _private_call_sites("get_stage_operations") == {
+        "workspace/process/allocation.py",
+        "workspace/process/threads.py",
+    }
 
 
 def test_thread_process_binding_queries_stay_inside_capability():
@@ -170,12 +174,12 @@ def test_thread_process_binding_queries_stay_inside_capability():
     }
 
 
-def test_thread_lifecycle_is_only_consumed_by_runner():
-    """派生与撤销只经执行器端口进入认证侧，CPU 不取得签发能力。"""
-    for method in ("derive_thread_context", "revoke_thread_context"):
+def test_thread_lifecycle_is_only_consumed_by_process_threads():
+    """派生与撤销集中在进程线程管理，CPU 不取得签发能力。"""
+    for method in ("derive_thread_context", "derive_child_thread_context", "revoke_thread_context"):
         assert _private_call_sites(method) == {
             "workspace/authentication.py",
-            "workspace/process/runner.py",
+            "workspace/process/threads.py",
         }
 
 
@@ -185,7 +189,10 @@ def test_thread_authorization_is_only_used_by_actor_api():
         "workspace/capability/actor/memory.py",
         "workspace/capability/actor/agent_profiles.py",
     }
-    assert _private_call_sites("validate_thread_context") == {"workspace/capability/operations.py"}
+    assert _private_call_sites("validate_thread_context") == {
+        "workspace/capability/operations.py",
+        "workspace/process/threads.py",
+    }
 
 
 def _model_field_types(model: type[BaseModel]) -> list[tuple[str, object]]:

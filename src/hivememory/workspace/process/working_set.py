@@ -37,7 +37,7 @@ class ProcessWorkingSet:
     交互，工作集经 :meth:`hand_off_prepared` 记下不再负有补偿义务。
     ``used_attachments`` 在附件编译后写入，供封口交互记录使用。
     ``cpu_output`` 是 Actor 执行期间打开的 CPU 输出流，进程关闭时必须关闭。
-    ``thread_access`` 是主线程 context，CPU 结束即撤销；异常关闭先于任何 await 撤销。
+    ``thread_contexts`` 登记全部执行线程，CPU 结束统一撤销；异常关闭先于任何 await 撤销。
     """
 
     prepared: PreparedAgentRun | None = None
@@ -45,7 +45,7 @@ class ProcessWorkingSet:
     used_attachments: tuple[WorkspaceAssetRef, ...] = ()
     cpu_output: AsyncGenerator[CPUOutput, None] | None = None
     # 工作集登记线程 context 供撤销；进程 context 仍由进程记录持有。
-    thread_access: WorkspaceAccessContext | None = None
+    thread_contexts: dict[str, WorkspaceAccessContext] = field(default_factory=dict)
     # prepare 结果是否已交回 Patchouli（finalize 接管，或关闭流程已取出
     # 请求 cleanup）；交回之后工作集不再负有补偿义务。
     _prepared_handed_off: bool = field(default=False, repr=False)
@@ -69,10 +69,11 @@ class ProcessWorkingSet:
         cpu_output, self.cpu_output = self.cpu_output, None
         return cpu_output
 
-    def take_thread_access(self) -> WorkspaceAccessContext | None:
-        """取出待撤销的主线程 context；同步清字段，使重复关闭不会再次撤销。"""
-        thread_access, self.thread_access = self.thread_access, None
-        return thread_access
+    def take_thread_contexts(self) -> tuple[WorkspaceAccessContext, ...]:
+        """取出全部待撤销线程并同步清空登记，使重复关闭保持幂等。"""
+        contexts = tuple(self.thread_contexts.values())
+        self.thread_contexts.clear()
+        return contexts
 
     def hand_off_prepared(self) -> None:
         """finalize 成功：Patchouli 已接管本轮交互，prepare 结果不再需要 cleanup。"""

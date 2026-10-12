@@ -28,7 +28,6 @@ from hivememory.components.trace_context import (
     reset_trace_context,
     set_trace_context,
 )
-from hivememory.core.access import ThreadContextLifecycle
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
 from hivememory.core.models import IdentityScope, WorkspaceIdentity
@@ -63,6 +62,7 @@ from hivememory.workspace.process.table import (
     ProcessRecord,
 )
 from hivememory.workspace.process.task_process import TaskProcess
+from hivememory.workspace.process.threads import ProcessThreads
 from hivememory.workspace.process.working_set import ProcessWorkingSet
 
 logger = logging.getLogger(__name__)
@@ -152,7 +152,7 @@ class TaskProcessRunner:
         cpu: CPUPort,
         allocator: CPUAllocator,
         operation_authorizer: WorkspaceOperationAuthorizer,
-        thread_contexts: ThreadContextLifecycle,
+        thread_contexts: ProcessThreads,
         intent_registry: WriteIntentRegistry,
         gateway_request_timeout_ms: int = 8000,
     ) -> None:
@@ -225,8 +225,7 @@ class TaskProcessRunner:
             record.enter_phase(ProcessPhase.ACTOR)
             events.status(record)
             # CPU 只持有派生线程 context；进程 context 留给全部阶段的授权。
-            access = self._thread_contexts.derive_thread_context(record.access)
-            working_set.thread_access = access
+            access = self._thread_contexts.derive_main_thread(process)
             # Actor 阶段只剩一个循环：流式与非流式都经 CPU 端口逐项拉取
             # （非流式只拉取一次），交互事件产出为 ActorEvent、终态结果作为
             # 执行结果。每次拉取都经 _run_interruptible 包装，停止请求的
@@ -260,7 +259,7 @@ class TaskProcessRunner:
                 await self._close_cpu_output(working_set)
             finally:
                 # 异常与取消也在交付终态前撤销；CPU 输出流正常关闭后才进入 finalize。
-                self._revoke_thread_context(working_set)
+                self._thread_contexts.revoke_threads(working_set)
             # 迭代器在没有终态结果时结束属于端口语义错误，按进程失败处理。
             if execution_result is None:
                 raise RuntimeError("CPU 输出流在没有终态执行结果的情况下结束")
@@ -429,7 +428,7 @@ class TaskProcessRunner:
 
         # 撤销线程 context、取消未认领意图与租借释放都先于任何 await：即使后续
         # CPU 输出流关闭被取消，也不能留下有效线程 context 或游离 PENDING。
-        self._revoke_thread_context(working_set)
+        self._thread_contexts.revoke_threads(working_set)
         self._intents.cancel_process(record.process_id)
         # 附件文本在 CPU 分配时已编译进清单，Actor 执行不再读取租借内容。
         self._allocator.release(working_set)
@@ -446,12 +445,6 @@ class TaskProcessRunner:
                 )
             except Exception:
                 logger.warning("清理 prepared run 失败", exc_info=True)
-
-    def _revoke_thread_context(self, working_set: ProcessWorkingSet) -> None:
-        """CPU 结束即同步撤销，关闭流程也调用以兜底失败、取消与断流。"""
-        access = working_set.take_thread_access()
-        if access is not None:
-            self._thread_contexts.revoke_thread_context(access)
 
     @staticmethod
     async def _close_cpu_output(working_set: ProcessWorkingSet) -> None:
