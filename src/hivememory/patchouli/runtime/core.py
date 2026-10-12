@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from hivememory.components.events.bus import (
     NullRuntimeEventSink,
@@ -75,6 +75,16 @@ if TYPE_CHECKING:
     from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
 logger = logging.getLogger(__name__)
+
+
+class _PatchouliServices(TypedDict, total=False):
+    """``_register_services`` 装配的内部服务；按键取值即得对应类型。"""
+
+    perception: PerceptionFamiliar
+    retrieval: RetrievalFamiliar
+    generation: MemoryGenerationFamiliar
+    generation_coordinator: MemoryGenerationCoordinator
+    lifecycle: LifecycleFamiliar
 
 
 class PatchouliRuntime:
@@ -128,7 +138,7 @@ class PatchouliRuntime:
         self._engines: dict[str, Any] = self._build_engines()
 
         # 3. 注册微服务
-        self._services: dict[str, Any] = {}
+        self._services: _PatchouliServices = {}
         self._register_services()
 
         logger.info("PatchouliRuntime 帕秋莉运行时初始化完成")
