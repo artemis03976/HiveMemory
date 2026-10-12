@@ -28,6 +28,8 @@ def sys_clock(args: dict[str, str]) -> SyscallResult:
     if fmt == "time":
         return SyscallResult(content=now.strftime("%H:%M:%S"))
 
-    utc_offset_hours = now.utcoffset().total_seconds() / 3600
+    offset = now.utcoffset()
+    assert offset is not None  # astimezone() 总是返回带本地时区的时间
+    utc_offset_hours = offset.total_seconds() / 3600
     offset_int = int(utc_offset_hours)
     return SyscallResult(content=f"{now.strftime('%Y-%m-%d %H:%M:%S')} (UTC{offset_int:+d})")

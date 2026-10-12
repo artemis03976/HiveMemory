@@ -135,6 +135,14 @@ class FrameExecutionStatus(str, Enum):
     BUDGET_EXHAUSTED = "budget_exhausted"  # 达到循环预算但没有自然收敛
 
 
+@dataclass(frozen=True)
+class CallSuspension:
+    """CALL 挂起中已确认存在的派生请求与 action_id。"""
+
+    call_request: MTPCallRequest
+    action_id: str
+
+
 @dataclass
 class FrameExecutionResult:
     """引擎单次执行的 trap/return 信号。
@@ -162,8 +170,19 @@ class FrameExecutionResult:
     # FAILED 时保留受控的内部异常，编排层只把稳定错误信息回填给 Agent。
     error: Exception | None = None
 
+    def require_call_suspension(self) -> CallSuspension:
+        """取出 CALL 挂起的派生信息；不是完整的 CALL 挂起时显式失败。"""
+        if self.status != FrameExecutionStatus.SUSPENDED:
+            raise RuntimeError("CALL suspension requires a suspended frame result.")
+        if self.call_request is None:
+            raise RuntimeError("CALL suspension is missing its request.")
+        if not self.suspend_action_id:
+            raise RuntimeError("CALL suspension is missing its action id.")
+        return CallSuspension(call_request=self.call_request, action_id=self.suspend_action_id)
+
 
 __all__ = [
+    "CallSuspension",
     "ExecutionFrame",
     "ExecutionProgress",
     "FrameExecutionResult",

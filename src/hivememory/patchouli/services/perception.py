@@ -272,17 +272,20 @@ class PerceptionFamiliar:
         调用方必须已持有该话题的 lease：Relay 摘要生成期间其他调用无法取
         得同一话题的占用权，因此写回不再需要旧的 expected_state 补偿校验。
         """
+        engine = self._engine
+        if engine is None:  # 感知关闭：与 apply 一致，不做任何折叠
+            return
         topic = self._store.get(belong_to, topic_id)
-        if topic is None or topic.is_empty or not self._engine.should_compact(topic.total_tokens):
+        if topic is None or topic.is_empty or not engine.should_compact(topic.total_tokens):
             return
         logger.info("Token 溢出，触发 Page Folding: topic_id=%s", topic_id)
         # 保留块数以 Engine 配置为单一事实源。
-        blocks_to_fold = self._engine.select_blocks_to_fold(
-            topic.blocks, self._engine.config.fold_retain_recent_blocks
+        blocks_to_fold = engine.select_blocks_to_fold(
+            topic.blocks, engine.config.fold_retain_recent_blocks
         )
         if not blocks_to_fold:
             return
-        summary = self._engine.generate_fold_summary(blocks_to_fold, topic.state_summary)
+        summary = engine.generate_fold_summary(blocks_to_fold, topic.state_summary)
         retained = topic.blocks[len(blocks_to_fold) :]
         self._store.put(
             topic.model_copy(

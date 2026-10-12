@@ -6,12 +6,12 @@ import asyncio
 import hashlib
 import logging
 from collections.abc import Callable
+from dataclasses import dataclass
 
 from hivememory.config.attachments import AttachmentParserConfig
 from hivememory.core.errors import WorkspaceDomainError
 from hivememory.core.models.identity import IdentityScope
 from hivememory.core.models.workspace_asset import (
-    AssetRepresentation,
     AssetRepresentationKind,
     AssetRepresentationState,
     AssetSafeError,
@@ -80,12 +80,16 @@ class AttachmentParseService:
         target = next(
             item for item in processing.representations if item.representation_id == target_id
         )
+        # start_representation 返回的目标处于 PROCESSING，必须携带本次解析的 token。
+        operation_id = target.parse_operation_id
+        if operation_id is None:
+            raise RuntimeError("解析目标缺少 parse operation token")
         try:
             raw = _verify_raw_snapshot(processing)
             # 在线程中运行以让出事件循环；不持有 Store 锁，不引入后台任务队列。
             result = await asyncio.to_thread(
                 parser.parse,
-                raw.content_object,
+                raw.content,
                 config=self._config,
                 source_raw_revision=raw.revision,
                 source_raw_hash=raw.content_hash,
@@ -94,7 +98,13 @@ class AttachmentParseService:
         except asyncio.CancelledError:
             # 原 token 尽力收尾；Store 拒绝不能替换请求取消，也不另起任务重试。
             try:
-                self._fail(identity_scope, asset_ref, target, _GENERIC_PARSE_FAILURE_MESSAGE)
+                self._fail(
+                    identity_scope,
+                    asset_ref,
+                    target.representation_id,
+                    operation_id,
+                    _GENERIC_PARSE_FAILURE_MESSAGE,
+                )
             except WorkspaceDomainError as exc:
                 logger.warning("解析取消收尾被 Store 拒绝：%r", exc)
             raise
@@ -104,17 +114,25 @@ class AttachmentParseService:
                 if exc.category in {CONTENT_UNREADABLE, RESOURCE_LIMIT}
                 else _GENERIC_PARSE_FAILURE_MESSAGE
             )
-            return self._fail(identity_scope, asset_ref, target, message)
+            return self._fail(
+                identity_scope, asset_ref, target.representation_id, operation_id, message
+            )
         except Exception as exc:
             logger.warning("附件解析发生内部错误：%r", exc)
-            return self._fail(identity_scope, asset_ref, target, _GENERIC_PARSE_FAILURE_MESSAGE)
+            return self._fail(
+                identity_scope,
+                asset_ref,
+                target.representation_id,
+                operation_id,
+                _GENERIC_PARSE_FAILURE_MESSAGE,
+            )
 
         # Store 提交错误必须原样传播，不能被转换成解析失败或旧快照。
         return self._store.complete_representation(
             identity_scope,
             asset_ref,
             target.representation_id,
-            target.parse_operation_id,
+            operation_id,
             content_object=result.content_object,
             content_hash=result.content_hash,
         )
@@ -123,20 +141,30 @@ class AttachmentParseService:
         self,
         identity_scope: IdentityScope,
         asset_ref: WorkspaceAssetRef,
-        target: AssetRepresentation,
+        representation_id: str,
+        operation_id: str,
         message: str,
     ) -> WorkspaceAsset:
         """以原目标 token 提交安全失败；过期、移除或关闭均由 Store 拒绝。"""
         return self._store.fail_representation(
             identity_scope,
             asset_ref,
-            target.representation_id,
-            target.parse_operation_id,
+            representation_id,
+            operation_id,
             safe_error=AssetSafeError(code=ASSET_FAILED_CODE, message=message),
         )
 
 
-def _verify_raw_snapshot(snapshot: WorkspaceAsset) -> AssetRepresentation:
+@dataclass(frozen=True)
+class _VerifiedRaw:
+    """已按实际字节核对过大小与摘要的 RAW 内容。"""
+
+    content: bytes
+    content_hash: str
+    revision: int
+
+
+def _verify_raw_snapshot(snapshot: WorkspaceAsset) -> _VerifiedRaw:
     """直接校验 Store RAW 的实际字节、摘要和大小，不再另传上传摘要副本。"""
     raw = next(
         (item for item in snapshot.representations if item.kind == AssetRepresentationKind.RAW),
@@ -147,19 +175,27 @@ def _verify_raw_snapshot(snapshot: WorkspaceAsset) -> AssetRepresentation:
         or raw.state != AssetRepresentationState.READY
         or not isinstance(raw.content_object, bytes)
         or len(raw.content_object) != snapshot.size_bytes
-        or hashlib.sha256(raw.content_object).hexdigest() != raw.content_hash
     ):
-        raise AttachmentParseError(
-            EXECUTION_FAILURE,
-            _GENERIC_PARSE_FAILURE_MESSAGE,
-            params={"reason": "raw_snapshot_mismatch"},
-        )
-    return raw
+        raise _raw_snapshot_mismatch()
+    content_hash = hashlib.sha256(raw.content_object).hexdigest()
+    if content_hash != raw.content_hash:
+        raise _raw_snapshot_mismatch()
+    return _VerifiedRaw(
+        content=raw.content_object, content_hash=content_hash, revision=raw.revision
+    )
+
+
+def _raw_snapshot_mismatch() -> AttachmentParseError:
+    return AttachmentParseError(
+        EXECUTION_FAILURE,
+        _GENERIC_PARSE_FAILURE_MESSAGE,
+        params={"reason": "raw_snapshot_mismatch"},
+    )
 
 
 def _verify_result_source(
     result: ParsedAttachmentContent,
-    raw: AssetRepresentation,
+    raw: _VerifiedRaw,
     parser: AttachmentParser,
 ) -> None:
     """结果必须来自本次 RAW 与 parser，不能接纳漂移的来源。"""

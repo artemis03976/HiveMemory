@@ -133,19 +133,16 @@ class MemoryGenerationEngine:
         # 提交边界时点：由 Familiar 传入的同一 UTC now；缺省取当前 UTC。
         commit_now = require_utc(now) if now is not None else utc_now()
 
-        # 路由到对应模式
-        if request.is_update:
+        # 路由到对应模式；focus 在分派处收窄后交给对应模式
+        if request.update_focus is not None:
             return await self._process_mode_c(
-                request, belong_to, from_actor=from_actor, now=commit_now
+                request, request.update_focus, belong_to, from_actor=from_actor, now=commit_now
             )
-        elif request.is_write:
+        if request.write_focus is not None:
             return await self._process_mode_b(
-                request, belong_to, from_actor=from_actor, now=commit_now
+                request, request.write_focus, belong_to, from_actor=from_actor, now=commit_now
             )
-        else:
-            return await self._process_mode_a(
-                request, belong_to, from_actor=from_actor, now=commit_now
-            )
+        return await self._process_mode_a(request, belong_to, from_actor=from_actor, now=commit_now)
 
     async def _process_mode_a(
         self,
@@ -187,6 +184,7 @@ class MemoryGenerationEngine:
     async def _process_mode_b(
         self,
         request: GenerationRequest,
+        focus: WriteFocus,
         belong_to: WorkspaceIdentity,
         *,
         from_actor: ActorIdentity,
@@ -198,8 +196,6 @@ class MemoryGenerationEngine:
         Agent 明确要求保存，以 WriteFocus 为核心，对话历史为背景。
         包含 fallback 机制：LLM 提取失败时直接从 WriteFocus 构建草稿。
         """
-        focus = request.write_focus
-
         logger.info(f"[Mode B] WRITE 主动响应: content='{focus.content[:50]}...'")
 
         # 格式化背景对话；空上下文时由 _render_transcript() 统一返回占位文本
@@ -251,6 +247,7 @@ class MemoryGenerationEngine:
     async def _process_mode_c(
         self,
         request: GenerationRequest,
+        uf: UpdateFocus,
         belong_to: WorkspaceIdentity,
         *,
         from_actor: ActorIdentity,
@@ -263,7 +260,6 @@ class MemoryGenerationEngine:
         LLM 执行智能合并，生成新内容和变更日志。
         包含 fallback 机制：LLM 合并失败时直接拼接。
         """
-        uf = request.update_focus
         # 从内存索引中获取原始记忆
         existing = request.existing_memory
 
@@ -429,8 +425,9 @@ class MemoryGenerationEngine:
 
         decision, existing_memory = self.deduplicator.check_duplicate(draft, candidates)
 
-        # 根据决策执行操作
+        # 根据决策执行操作；TOUCH/UPDATE 由查重器保证携带命中的已有记忆
         if decision == DuplicateDecision.TOUCH:
+            existing_memory = _require_matched_memory(decision, existing_memory)
             # 内容相同的重复访问：引擎保持纯决策，不改任何字段（MVL-0 冻结）。
             # 访问计数的推进与持久化由 Familiar 经受限 patch_payload 完成。
             logger.info("记忆重复，访问状态由 Familiar 经受限 patch 更新")
@@ -443,6 +440,7 @@ class MemoryGenerationEngine:
             ]
 
         elif decision == DuplicateDecision.UPDATE:
+            existing_memory = _require_matched_memory(decision, existing_memory)
             logger.info("记忆演化，覆盖当前版本内容")
 
             # TODO: 如轻量覆盖路径效果不足，可在这里引入强合并路径：
@@ -585,6 +583,16 @@ class MemoryGenerationEngine:
                 content=draft.content,
             ),
         )
+
+
+def _require_matched_memory(
+    decision: DuplicateDecision,
+    existing_memory: MemoryAtom | None,
+) -> MemoryAtom:
+    """TOUCH/UPDATE 决策必须携带命中的已有记忆；违反查重器契约时显式失败。"""
+    if existing_memory is None:
+        raise RuntimeError(f"查重决策 {decision.value} 未返回命中的已有记忆")
+    return existing_memory
 
 
 __all__ = [

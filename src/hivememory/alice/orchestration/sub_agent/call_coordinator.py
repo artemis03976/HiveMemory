@@ -83,8 +83,9 @@ class CallCoordinator:
 
         output = run_output or NullAgentRunOutput()
 
-        action_id = suspension.suspend_action_id
-        call_request = suspension.call_request
+        call = suspension.require_call_suspension()
+        action_id = call.action_id
+        call_request = call.call_request
 
         session.require_frame(caller_frame)
 
@@ -211,8 +212,9 @@ class CallCoordinator:
     ) -> CallCompletionResult:
         """把 callee outcome 收口为 caller 可消费的 CALL response。"""
         output = run_output or NullAgentRunOutput()
-        call_request = suspension.call_request
-        action_id = suspension.suspend_action_id
+        call = suspension.require_call_suspension()
+        call_request = call.call_request
+        action_id = call.action_id
 
         session.require_frame(caller_frame)
         session.require_frame(callee_frame)
@@ -267,7 +269,7 @@ class CallCoordinator:
         session: RunSession,
     ) -> None:
         """协程取消时收尾未 apply 的 CALL，并回填 cancelled response。"""
-        action_id = suspension.suspend_action_id
+        action_id = suspension.require_call_suspension().action_id
         record = session.require_call(caller_frame, action_id)
         if record.status in {CallRecordStatus.APPLIED, CallRecordStatus.CANCELLED}:
             return
@@ -301,8 +303,9 @@ class CallCoordinator:
         run_output: AgentRunOutput,
     ) -> CallCompletionResult:
         """在发布完成输出前，先提交调用方可消费的响应。"""
-        call_request = suspension.call_request
-        action_id = suspension.suspend_action_id
+        call = suspension.require_call_suspension()
+        call_request = call.call_request
+        action_id = call.action_id
 
         record.mark_resolved()
 
