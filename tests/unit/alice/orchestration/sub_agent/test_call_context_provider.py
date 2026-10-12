@@ -23,7 +23,8 @@ from hivememory.core.mtp.exceptions import (
     PermissionDeniedError,
     SystemFault,
 )
-from hivememory.workspace.contracts import ResolveCallTargetRequest, ResolveReferencesRequest
+from hivememory.workspace.contracts import DeriveCallThreadRequest, ResolveReferencesRequest
+from tests.helpers.call import StubOperationSubmitter, make_call_thread
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_runtime_scope
 
@@ -61,10 +62,6 @@ def _provider(*, profile=OMNI_DOLL_PROFILE, alias_results=(), profile_error=None
 
     async def submit_operation(request):
         """只替代 workspace 操作边界，CALL 的请求构造与上下文编译保持真实。"""
-        if isinstance(request, ResolveCallTargetRequest):
-            if profile_error is not None:
-                raise profile_error
-            return profile
         if not isinstance(request, ResolveReferencesRequest):
             raise TypeError(type(request))
         result = next(results)
@@ -73,7 +70,14 @@ def _provider(*, profile=OMNI_DOLL_PROFILE, alias_results=(), profile_error=None
         assert request.aliases == (result.requested_alias,)
         return [result]
 
-    return CallContextProvider(), submit_operation
+    async def derive(request):
+        if not isinstance(request, DeriveCallThreadRequest):
+            raise TypeError(type(request))
+        if profile_error is not None:
+            raise profile_error
+        return make_call_thread(profile)
+
+    return CallContextProvider(), StubOperationSubmitter(operation=submit_operation, derive=derive)
 
 
 @pytest.mark.asyncio

@@ -11,6 +11,7 @@ from hivememory.agent_runtime.models import (
 )
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.products import FrameProducts
+from hivememory.alice.application.operation_policy import mtp_verbs_for_operations
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_output import (
     AgentRunOutput,
@@ -161,9 +162,9 @@ class CallCoordinator:
 
         try:
             sub_profile: AgentProfile = call_context.agent_profile
-            # 子帧沿用主线程 context 与父帧能力，目标 Profile 只提供 persona、模型与语言。
+            # 子帧按被调用方的操作快照生成策略；仍禁止递归 CALL。
             policy = FrameExecutionPolicy.from_verbs(
-                caller_frame.execution_policy.permitted_verbs,
+                mtp_verbs_for_operations(call_context.allowed_operations),
                 max_iterations=getattr(self._agent_runtime, "max_iterations", None),
                 denied_verbs={"CALL"},
             )
@@ -184,7 +185,7 @@ class CallCoordinator:
                     messages=messages,
                     topic_id=None,
                     execution_policy=policy,
-                    submit_operation=caller_frame.submit_operation,
+                    submit_operation=call_context.submit_operation,
                 )
             )
         except Exception as error:

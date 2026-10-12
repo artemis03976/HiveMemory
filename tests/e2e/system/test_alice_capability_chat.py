@@ -92,6 +92,7 @@ async def test_http_chat_search_read_write_and_call_claims_intent_and_records_sh
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
+            thread_spawner=access.thread_spawner,
             profile_reader=runtime.profiles,
         ),
         operation_authorizer=access.authorizer,
@@ -132,6 +133,7 @@ async def test_http_chat_search_read_write_and_call_claims_intent_and_records_sh
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
         event_publisher=publisher,
+        process_table=access.process_table,
         workspace_runtime=runtime,
         operation_entry=entry,
     )
@@ -249,6 +251,160 @@ async def test_http_chat_search_read_write_and_call_claims_intent_and_records_sh
         assert {event.agent_id for event in observations} == {actor.agent_id}
         assert {event.workspace_id for event in observations} == {workspace.workspace_id}
         assert {event.process_id for event in observations} == {done["process_id"]}
+    finally:
+        await alice.stop()
+        runtime.close()
+        access.gateway.close()
+        access.gateway.revoke_all_contexts()
+
+
+@pytest.mark.asyncio
+async def test_http_call_uses_callee_permissions_private_memory_and_write_ownership(
+    monkeypatch, patchouli_chat_stack
+):
+    """HTTP CALL 子线程独立授权，完成后 WRITE 以被调用方身份进入真实 finalize。"""
+    from hivememory.core.access import WorkspaceOperation
+
+    stack = patchouli_chat_stack
+    workspace = make_workspace_identity(owner_user_id="u1")
+    caller = ActorIdentity(user_id="u1", agent_id="omni_doll")
+    callee = ActorIdentity(user_id="u1", agent_id="worker")
+    access = make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1",
+                agent_id="omni_doll",
+                allowed_operations={
+                    WorkspaceOperation.AGENT_CALL,
+                    WorkspaceOperation.MEMORY_SEARCH,
+                },
+            ),
+            make_actor_access_record(
+                owner_user_id="u1",
+                agent_id="worker",
+                allowed_operations={
+                    WorkspaceOperation.MEMORY_READ,
+                    WorkspaceOperation.MEMORY_WRITE,
+                    WorkspaceOperation.AGENT_CALL,
+                },
+            ),
+        ],
+        adapters=("http",),
+        default_workspace=workspace,
+    )
+    profile = MemoryAtom(
+        meta=make_memory_metadata(user_id="u1", source_agent_id="worker"),
+        index=IndexLayer(alias="worker", title="独立子线程", memory_type=MemoryType.AGENT_PROFILE),
+        payload=PayloadLayer(
+            content="按自己的权限完成任务", agent_config={"model_name": "fake-test-model"}
+        ),
+    )
+    await stack.mid_term.upsert(profile)
+    for actor in (caller, callee):
+        await stack.mid_term.upsert(
+            MemoryAtom(
+                meta=make_memory_metadata(
+                    user_id="u1", source_agent_id=actor.agent_id, visibility="PRIVATE"
+                ),
+                index=IndexLayer(
+                    alias=f"private_{actor.agent_id}", title="私有记忆", memory_type=MemoryType.FACT
+                ),
+                payload=PayloadLayer(content=f"{actor.agent_id} 的私有正文"),
+            )
+        )
+    runtime = make_workspace_runtime(stack.bus)
+    runtime.subscribe(stack.bus)
+    entry = WorkspaceOperationEntry(
+        ActorMemoryService(
+            stack.bus, operation_authorizer=access.authorizer, memory_reader=runtime.aliases
+        ),
+        agent=ActorAgentService(
+            operation_authorizer=access.authorizer,
+            profile_reader=runtime.profiles,
+            thread_spawner=access.thread_spawner,
+        ),
+        operation_authorizer=access.authorizer,
+        intent_registry=runtime.intents,
+    )
+    script = (
+        '⟪ CALL | worker | task="读取自己的私有资料并写入" ⟫',
+        '⟪ SEARCH | * | query="不应继承父帧 SEARCH" ⟫',
+        "⟪ READ | private_omni_doll | ⟫",
+        "⟪ READ | private_worker | ⟫",
+        '⟪ WRITE | * | content="子线程独立写入" ⟫',
+        '⟪ CALL | omni_doll | task="禁止递归" ⟫',
+        "子线程完成",
+        "主线程完成",
+    )
+    messages_seen = []
+
+    async def completion(*, messages, **_kwargs):
+        messages_seen.append([dict(message) for message in messages])
+        text = script[len(messages_seen) - 1]
+
+        async def chunks():
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(delta=SimpleNamespace(content=text), finish_reason="stop")]
+            )
+
+        return chunks()
+
+    monkeypatch.setattr("hivememory.agent_runtime.execution.worker.litellm.acompletion", completion)
+    alice = AliceSystem(
+        config=HiveMemoryConfig().alice, global_bus=stack.bus, operation_entry=entry
+    )
+    service = make_task_process_service(
+        stack.bus,
+        cpu=alice.cpu_port,
+        access_gateway=access.gateway,
+        operation_authorizer=access.authorizer,
+        workspace_runtime=runtime,
+        operation_entry=entry,
+        process_table=access.process_table,
+    )
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[deps.get_process_service] = lambda: service
+    app.dependency_overrides[deps.get_server_principal_id] = lambda: access.principal.principal_id
+    await alice.start()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await asyncio.wait_for(
+                client.post(
+                    "/api/v1/chat",
+                    headers={"X-User-ID": "u1", "X-Workspace-ID": workspace.workspace_id},
+                    json={
+                        "message": "委托 worker",
+                        "agent_id": "omni_doll",
+                        "enable_memory_retrieval": False,
+                        "generation_options": {"model": "fake-test-model"},
+                    },
+                ),
+                timeout=10,
+            )
+        assert response.status_code == 200
+        terminal, done = _events(response)[-1]
+        assert (terminal, done["status"], done["final_text"]) == ("done", "completed", "主线程完成")
+        assert len(messages_seen) == 8
+        assert 'code="mtp.permission.denied"' in messages_seen[2][-1]["content"]
+        assert "omni_doll 的私有正文" not in str(messages_seen)
+        assert "worker 的私有正文" in messages_seen[4][-1]["content"]
+        assert 'code="mtp.permission.denied"' in messages_seen[6][-1]["content"]
+        (task_id,) = done["memory_task_ids"]
+        task = await stack.controller.wait_task(task_id, timeout=2)
+        assert task.status == MemoryGenerationTaskStatus.COMPLETED
+        assert task.from_actor == callee
+        assert task.belong_to == workspace
+        pending = runtime.intents.get(task.pending_alias, workspace)
+        assert pending.process_id == done["process_id"]
+        assert pending.from_actor == callee
+        assert pending.focus.content == "子线程独立写入"
+        assert pending.status == PendingAtomStatus.SETTLED
+        memory = await stack.mid_term.get_by_alias(
+            workspace, task.canonical_alias, from_actor=callee
+        )
+        assert memory.meta.provenance.source_agent_id == "worker"
+        assert memory.payload.content == "HTTP chat materialized content"
     finally:
         await alice.stop()
         runtime.close()

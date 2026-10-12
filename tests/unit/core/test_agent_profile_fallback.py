@@ -12,9 +12,9 @@ from tests.helpers.memory import make_memory_metadata
 
 
 def test_omni_doll_profile_uses_default_model_parameters_without_permissions() -> None:
-    """内置图纸只提供运行配置，权限不再附着在 Profile 上。"""
+    """内置图纸提供固定身份与默认运行配置，权限不附着在 Profile 上。"""
     assert OMNI_DOLL_PROFILE.model_dump() == {
-        "agent_id": None,
+        "agent_id": "omni_doll",
         "persona": "",
         "model_name": "default",
         "temperature": None,

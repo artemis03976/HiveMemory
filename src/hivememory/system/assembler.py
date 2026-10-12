@@ -351,6 +351,7 @@ class SystemAssembler:
         agent = ActorAgentService(
             operation_authorizer=access_control.operation_authorizer,
             profile_reader=runtime.workspace_runtime.profiles,
+            thread_spawner=access_control.process_threads,
         )
         operations = WorkspaceOperationEntry(
             memory,

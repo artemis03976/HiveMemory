@@ -278,7 +278,7 @@ def test_actor_capability_surface_only_contains_six_public_methods():
         "ActorMemoryService.resolve_run_target",
         "ActorMemoryService.submit_write_intent",
         "ActorMemoryService.submit_update_intent",
-        "ActorAgentService.resolve_call_target",
+        "ActorAgentService.derive_call_thread",
     }
 
 
@@ -311,7 +311,7 @@ def test_operation_requests_only_expose_six_actor_requests_and_internal_compensa
         "ResolveRunTargetRequest": {"alias"},
         "SubmitWriteIntentRequest": {"focus"},
         "SubmitUpdateIntentRequest": {"base_alias", "instruction", "content"},
-        "ResolveCallTargetRequest": {"agent_alias"},
+        "DeriveCallThreadRequest": {"agent_alias"},
         "CancelIntentsRequest": {"aliases"},
     }
 

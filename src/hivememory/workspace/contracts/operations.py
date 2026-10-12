@@ -1,8 +1,8 @@
 """执行者的操作请求、线程 context 与单一操作入口契约。
 
 请求只描述操作参数，不携带身份或目标 Workspace；CPU 用独立的线程 context
-绑定提交函数，MTP 与 CALL 适配器只消费这个函数。子线程暂时沿用主线程
-的提交函数，线程 context 的派生、检查与撤销始终由 workspace 管理。
+绑定提交函数，MTP 与 CALL 适配器只消费这个函数。CALL 经专用派生方法
+取得子线程的提交函数，context 的派生、检查与撤销始终由 workspace 管理。
 """
 
 from __future__ import annotations
@@ -10,13 +10,14 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Protocol
 
-from hivememory.core.access import WorkspaceAccessContext
+from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
 from hivememory.core.errors import ThreadContextRevokedError
 from hivememory.core.models.agent import AgentProfile
 from hivememory.core.models.memory import MemoryAtom
 from hivememory.core.models.pending import PendingAtom, WriteFocus
 from hivememory.core.models.query import QueryFilters
 from hivememory.core.models.reference import ReferenceResolution
+from hivememory.workspace.contracts.threads import DerivedThread
 
 
 @dataclass(frozen=True)
@@ -76,8 +77,24 @@ class RetrieveRequest(OperationRequest[list[MemoryAtom]]):
 
 
 @dataclass(frozen=True)
-class ResolveCallTargetRequest(OperationRequest[AgentProfile]):
-    """CALL：读取目标 Profile，内置与自定义图纸均经过 agent.call 授权。"""
+class DerivedCallThread(DerivedThread):
+    """workspace 返回 CPU 的派生结果，不进入 Alice 运行层。"""
+
+    agent_profile: AgentProfile
+
+
+@dataclass(frozen=True)
+class CallThread:
+    """CPU 已绑定的子线程；运行层只取得图纸、策略快照与提交函数。"""
+
+    agent_profile: AgentProfile
+    allowed_operations: frozenset[WorkspaceOperation]
+    submit_operation: OperationSubmitter
+
+
+@dataclass(frozen=True)
+class DeriveCallThreadRequest(OperationRequest[DerivedCallThread]):
+    """CALL：授权并解析目标后派生线程；含 context 的结果只交付 CPU 驱动。"""
 
     agent_alias: str | None = None
 
@@ -93,16 +110,24 @@ class OperationEntry(Protocol):
 class OperationSubmitter(Protocol):
     """CPU 绑定线程 context 后的提交函数，适配器只提交操作参数。"""
 
-    async def __call__[R](self, request: OperationRequest[R]) -> R: ...
+    async def __call__[R](self, request: OperationRequest[R]) -> R:
+        """提交普通请求；派生请求必须以 TypeError 拒绝，防止 context 外泄。"""
+        ...
+
+    async def derive_call_thread(self, request: DeriveCallThreadRequest) -> CallThread:
+        """由 CPU 提交派生请求，并把子线程 context 绑定成新的提交函数。"""
+        ...
 
 
 __all__ = [
     "CancelIntentsRequest",
+    "CallThread",
+    "DerivedCallThread",
     "ThreadContextRevokedError",
     "OperationEntry",
     "OperationRequest",
     "OperationSubmitter",
-    "ResolveCallTargetRequest",
+    "DeriveCallThreadRequest",
     "ResolveReferencesRequest",
     "ResolveRunTargetRequest",
     "RetrieveRequest",

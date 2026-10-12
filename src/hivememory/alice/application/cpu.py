@@ -17,12 +17,37 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.workspace.contracts import (
+    CallThread,
     CPUExecutionResult,
     CPUInputManifest,
     CPUOutput,
+    DeriveCallThreadRequest,
     OperationEntry,
     OperationRequest,
 )
+
+
+class ThreadOperationSubmitter:
+    """CPU 驱动绑定的线程提交函数；凭据不交给 frame、MTP 或 CALL 编排。"""
+
+    def __init__(self, entry: OperationEntry, access: WorkspaceAccessContext) -> None:
+        self._entry = entry
+        self._access = access
+
+    async def __call__[R](self, request: OperationRequest[R]) -> R:
+        """普通请求透传；派生结果含凭据，只能通过专用方法转换后交付。"""
+        if isinstance(request, DeriveCallThreadRequest):
+            raise TypeError("派生请求必须通过 derive_call_thread 提交")
+        return await self._entry.execute(request, access=self._access)
+
+    async def derive_call_thread(self, request: DeriveCallThreadRequest) -> CallThread:
+        """以本线程提交 CALL，绑定子线程后只交付运行层可用的数据。"""
+        child = await self._entry.execute(request, access=self._access)
+        return CallThread(
+            agent_profile=child.agent_profile,
+            allowed_operations=child.allowed_operations,
+            submit_operation=ThreadOperationSubmitter(self._entry, child.access),
+        )
 
 
 class AliceCPU:
@@ -52,9 +77,7 @@ class AliceCPU:
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]:
-        async def submit_operation[R](request: OperationRequest[R]) -> R:
-            """绑定本次线程 context，把操作请求交给 workspace 统一入口。"""
-            return await self._operation_entry.execute(request, access=access)
+        submit_operation = ThreadOperationSubmitter(self._operation_entry, access)
 
         if stream:
             event_stream = await self._bus.request(

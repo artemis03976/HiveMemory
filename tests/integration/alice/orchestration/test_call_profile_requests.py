@@ -11,6 +11,7 @@ from hivememory.agent_runtime.models import (
     MTPExecutionContext,
 )
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.alice.application.cpu import ThreadOperationSubmitter
 from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
@@ -30,7 +31,6 @@ from hivememory.core.models import (
 from hivememory.core.mtp import MTPCallRequest
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
-from hivememory.workspace.contracts import OperationRequest
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.operations import OperationsHarness
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope
@@ -82,7 +82,7 @@ async def _begin_call(caller, target_alias, *, context_refs=()):
         ),
         suspend_action_id="call-1",
     )
-    return await coordinator.begin_call(caller, suspension, session=session), session
+    return await coordinator.begin_call(caller, suspension, session=session), session, coordinator
 
 
 def _profile_atom(*, visibility="PUBLIC", agent_config=None) -> MemoryAtom:
@@ -113,13 +113,10 @@ async def _profile_submitter(chain):
     )
     workspace = make_identity_scope(user_id="u1", agent_id="reader").workspace_identity
     thread_access = await chain.composition.authenticate_thread(
-        agent_id="reader", process_id="call-process"
+        agent_id="reader", process_id="call-process", register_process=True
     )
 
-    async def submit_operation[R](request: OperationRequest[R]) -> R:
-        return await entry.execute(request, access=thread_access)
-
-    return submit_operation, workspace
+    return ThreadOperationSubmitter(entry, thread_access), workspace
 
 
 @pytest.mark.asyncio
@@ -128,7 +125,7 @@ async def test_call_reloads_profile_after_management_updates_source_atom(profile
     atom = _profile_atom()
     await profile_chain.store.upsert(atom)
     submit_operation, workspace = await _profile_submitter(profile_chain)
-    first, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), "custom_agent")
+    first, _, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), "custom_agent")
     assert isinstance(first, DispatchCallee)
     assert (first.frame.agent_profile.model_name, first.frame.agent_profile.persona) == (
         "old-model",
@@ -142,7 +139,7 @@ async def test_call_reloads_profile_after_management_updates_source_atom(profile
         target_workspace=workspace,
         access=profile_chain.manager,
     )
-    second, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), "custom_agent")
+    second, _, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), "custom_agent")
 
     assert isinstance(second, DispatchCallee)
     assert (second.frame.agent_profile.model_name, second.frame.agent_profile.persona) == (
@@ -158,7 +155,7 @@ async def test_builtin_call_uses_workspace_profile_read_and_keeps_builtin_config
 ):
     """未指定与显式内置 alias 经真实 backing 解析，仍交付同一能力配置。"""
     submit_operation, _ = await _profile_submitter(profile_chain)
-    transition, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), alias)
+    transition, _, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), alias)
 
     assert isinstance(transition, DispatchCallee)
     assert transition.frame.agent_profile == OMNI_DOLL_PROFILE
@@ -178,7 +175,7 @@ async def test_call_without_call_permission_returns_permission_error_without_dis
     )
     caller = _caller(submit_operation)
 
-    transition, session = await _begin_call(caller, alias)
+    transition, session, _ = await _begin_call(caller, alias)
 
     assert isinstance(transition, ResumeCaller)
     assert set(session.frames) == {"caller"}
@@ -210,7 +207,7 @@ async def test_unusable_custom_profile_returns_preparation_error_without_fallbac
     submit_operation, _ = await _profile_submitter(profile_chain)
     caller = _caller(submit_operation, agent_id="reader")
 
-    transition, session = await _begin_call(caller, "custom_agent")
+    transition, session, _ = await _begin_call(caller, "custom_agent")
 
     assert isinstance(transition, ResumeCaller)
     assert set(session.frames) == {"caller"}
@@ -237,7 +234,7 @@ async def test_call_context_refs_record_citations_for_delivered_formal_atoms():
     )
     harness.memories["context_atom"] = atom
     submit_operation = await harness.submitter(make_identity_scope(agent_id="parent"))
-    transition, _ = await _begin_call(
+    transition, _, _ = await _begin_call(
         _caller(submit_operation), "omni_doll", context_refs=["context_atom"]
     )
 
@@ -270,7 +267,7 @@ async def test_call_permission_without_read_dispatches_child_without_shared_memo
     )
     caller = _caller(submit_operation)
 
-    transition, session = await _begin_call(caller, "omni_doll", context_refs=[atom.get_alias()])
+    transition, session, _ = await _begin_call(caller, "omni_doll", context_refs=[atom.get_alias()])
 
     assert isinstance(transition, DispatchCallee)
     assert set(session.frames) == {"caller", transition.frame.runtime_scope.frame_id}
@@ -282,8 +279,8 @@ async def test_call_permission_without_read_dispatches_child_without_shared_memo
 
 
 @pytest.mark.asyncio
-async def test_callee_cannot_gain_write_permission_from_its_profile():
-    """子帧沿用主线程提交函数；callee Profile 允许 WRITE 也不能扩大线程 context 的许可。"""
+async def test_callee_can_write_with_its_own_permission_even_when_caller_cannot():
+    """被调用方自己的访问记录允许 WRITE，调用方仅有 CALL 不限制子线程写入。"""
     harness = OperationsHarness()
     submit_operation = await harness.submitter(
         make_identity_scope(agent_id="parent"),
@@ -291,12 +288,12 @@ async def test_callee_cannot_gain_write_permission_from_its_profile():
         allowed_operations={WorkspaceOperation.AGENT_CALL},
     )
     caller = _caller(submit_operation)
-    transition, _ = await _begin_call(caller, "omni_doll")
+    transition, _, _ = await _begin_call(caller, "omni_doll")
     assert isinstance(transition, DispatchCallee)
     child = transition.frame
 
     result = await KoakumaRuntime().execute_mtp(
-        '⟪ WRITE | * | content="子帧不能扩大主线程权限" ⟫',
+        '⟪ WRITE | * | content="子帧使用自己的写入许可" ⟫',
         MTPExecutionContext(
             runtime_scope=child.runtime_scope,
             agent_profile=child.agent_profile,
@@ -304,7 +301,115 @@ async def test_callee_cannot_gain_write_permission_from_its_profile():
         ),
     )
 
-    assert child.submit_operation is caller.submit_operation
-    assert result.response_status == "error"
-    assert 'code="mtp.permission.denied"' in result.formatted_response
-    assert harness.registry.size == 0
+    assert child.submit_operation is not caller.submit_operation
+    assert result.response_status == "ack"
+    (task,) = harness.registry.claim_process("call-process")
+    assert task.from_actor.agent_id == "omni_doll"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("callee_state", ["missing", "disabled", "system"])
+async def test_unadmitted_call_target_returns_structured_error_without_creating_child(callee_state):
+    """目标准入失败时只回填结构化权限错误，进程登记里没有子线程。"""
+    from hivememory.core.contracts.routes import GlobalRoutes
+    from hivememory.core.models import AgentProfile, ResolvedAgentProfile
+    from tests.helpers.workspace import make_access_composition, make_actor_access_record
+
+    records = [make_actor_access_record(agent_id="parent")]
+    if callee_state == "disabled":
+        records.append(
+            make_actor_access_record(agent_id="omni_doll", enabled=False, allowed_operations=[])
+        )
+    if callee_state == "system":
+        records.append(make_actor_access_record(agent_id="system"))
+    access = make_access_composition(records)
+    harness = OperationsHarness()
+    if callee_state == "system":
+
+        async def profile(_alias, **_kwargs):
+            return ResolvedAgentProfile(profile=AgentProfile(agent_id="system"))
+
+        harness.bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, profile)
+        harness.backing.bus = harness.bus
+    context = await access.authenticate_thread(
+        agent_id="parent", process_id="call-process", register_process=True
+    )
+    submit = ThreadOperationSubmitter(
+        harness.make_entry(access.authorizer, access.thread_spawner), context
+    )
+    caller = _caller(submit)
+    try:
+        transition, session, _ = await _begin_call(
+            caller, "system" if callee_state == "system" else "omni_doll"
+        )
+        assert isinstance(transition, ResumeCaller)
+        assert set(session.frames) == {"caller"}
+        assert 'code="mtp.permission.denied"' in caller.progress.turn_events[-1].content
+        assert set(access.process_table.get("call-process").working_set.thread_contexts) == {"main"}
+    finally:
+        access.gateway.revoke_all_contexts()
+        harness.runtime.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "status",
+    [
+        FrameExecutionStatus.FAILED,
+        FrameExecutionStatus.CANCELLED,
+        FrameExecutionStatus.BUDGET_EXHAUSTED,
+    ],
+)
+async def test_failed_child_withdraws_only_pending_intents_in_its_process(status):
+    """真实子线程补偿取消自身 ACK，不动其他进程或已认领意图，随后仍可用。"""
+    from hivememory.core.models import PendingAtomStatus, WriteFocus
+    from hivememory.workspace.contracts import SubmitWriteIntentRequest
+
+    harness = OperationsHarness()
+    submit = await harness.submitter(make_identity_scope(agent_id="parent"), "call-process")
+    foreign = await harness.submitter(make_identity_scope(agent_id="parent"), "other-process")
+    try:
+        claimed = await submit(SubmitWriteIntentRequest(WriteFocus(content="已认领")))
+        harness.registry.claim_process("call-process")
+        parent_pending = await submit(SubmitWriteIntentRequest(WriteFocus(content="父线程")))
+        foreign_pending = await foreign(SubmitWriteIntentRequest(WriteFocus(content="另一进程")))
+        caller = _caller(submit)
+        transition, session, coordinator = await _begin_call(caller, "omni_doll")
+        assert isinstance(transition, DispatchCallee)
+        child = transition.frame
+        child_pending = await child.submit_operation(
+            SubmitWriteIntentRequest(WriteFocus(content="子线程"))
+        )
+        assert child_pending.from_actor.agent_id == "omni_doll"
+        for pending in (child_pending, claimed, foreign_pending):
+            child.add_harvested_alias(pending.pending_alias)
+        await coordinator.complete_call(
+            caller,
+            FrameExecutionResult(
+                status=FrameExecutionStatus.SUSPENDED,
+                call_request=MTPCallRequest(target_alias="omni_doll", task="总结资料"),
+                suspend_action_id="call-1",
+            ),
+            child,
+            FrameExecutionResult(status=status),
+            session=session,
+        )
+        assert [
+            harness.registry.get(p.pending_alias, make_identity_scope().workspace_identity).status
+            for p in (child_pending, parent_pending, foreign_pending, claimed)
+        ] == [
+            PendingAtomStatus.CANCELLED,
+            PendingAtomStatus.PENDING,
+            PendingAtomStatus.PENDING,
+            PendingAtomStatus.MATERIALIZING,
+        ]
+        # CALL 返回并不提前撤销子线程，统一寿命仍以 CPU 执行结束为界。
+        later = await child.submit_operation(
+            SubmitWriteIntentRequest(WriteFocus(content="线程仍有效"))
+        )
+        assert later.from_actor.agent_id == "omni_doll"
+        assert later.process_id == "call-process"
+    finally:
+        harness.revoke("call-process")
+        harness.revoke("other-process")
+        harness.runtime.close()

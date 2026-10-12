@@ -4,7 +4,12 @@ import logging
 from dataclasses import dataclass
 
 from hivememory.agent_runtime.models import ExecutionFrame
-from hivememory.core.errors import OperationDeniedError, ResourceUnavailableError
+from hivememory.core.access import WorkspaceOperation
+from hivememory.core.errors import (
+    AdmissionDeniedError,
+    OperationDeniedError,
+    ResourceUnavailableError,
+)
 from hivememory.core.models import AgentProfile
 from hivememory.core.mtp import MTPCallRequest
 from hivememory.core.mtp.exceptions import (
@@ -18,7 +23,11 @@ from hivememory.engines.memory_compiler import (
     MemoryCompiler,
     MemoryEnvelopeTarget,
 )
-from hivememory.workspace.contracts import ResolveCallTargetRequest, ResolveReferencesRequest
+from hivememory.workspace.contracts import (
+    DeriveCallThreadRequest,
+    OperationSubmitter,
+    ResolveReferencesRequest,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -28,6 +37,8 @@ class CallContext:
     """CALL target 的编排上下文，不包含 frame 或 CALL ledger 状态。"""
 
     agent_profile: AgentProfile
+    allowed_operations: frozenset[WorkspaceOperation]
+    submit_operation: OperationSubmitter
     shared_context: str = ""
 
 
@@ -39,7 +50,7 @@ class CallContextProvider:
         caller_frame: ExecutionFrame,
         request: MTPCallRequest,
     ) -> CallContext:
-        """经调用方提交函数读取目标 Profile，再编译受控共享上下文。
+        """经调用方提交函数派生子线程，再以调用方权限编译共享上下文。
 
         内置 Profile 同样提交 CALL 目标请求，不能绕过 ``agent.call`` 授权；
         context_refs 另提交 READ 请求，仍需要 ``memory.read``。Alice 只保留
@@ -48,10 +59,10 @@ class CallContextProvider:
         if caller_frame.submit_operation is None:
             raise RuntimeError("CALL 缺少操作提交函数")
         try:
-            profile = await caller_frame.submit_operation(
-                ResolveCallTargetRequest(agent_alias=request.target_alias)
+            child = await caller_frame.submit_operation.derive_call_thread(
+                DeriveCallThreadRequest(agent_alias=request.target_alias)
             )
-        except OperationDeniedError as error:
+        except (OperationDeniedError, AdmissionDeniedError) as error:
             raise PermissionDeniedError(
                 message_key="mtp.permission.verb_denied",
                 params={"verb": "CALL"},
@@ -72,7 +83,9 @@ class CallContextProvider:
             caller_frame=caller_frame,
         )
         return CallContext(
-            agent_profile=profile,
+            agent_profile=child.agent_profile,
+            allowed_operations=child.allowed_operations,
+            submit_operation=child.submit_operation,
             shared_context=shared_context,
         )
 

@@ -171,6 +171,7 @@ def test_thread_process_binding_queries_stay_inside_capability():
     assert _private_call_sites("get_thread_process_id") == {
         "workspace/capability/operations.py",
         "workspace/capability/actor/memory.py",
+        "workspace/capability/actor/agent_profiles.py",
     }
 
 
@@ -266,7 +267,7 @@ def test_actor_dispatch_does_not_unpack_requests_into_handlers():
         "ResolveReferencesRequest": "memory.resolve_references",
         "ResolveRunTargetRequest": "memory.resolve_run_target",
         "RetrieveRequest": "memory.retrieve",
-        "ResolveCallTargetRequest": "agent.resolve_call_target",
+        "DeriveCallThreadRequest": "agent.derive_call_thread",
     }
 
 
@@ -402,3 +403,31 @@ def test_root_authorization_is_only_used_by_root_api():
         "workspace/capability/root/memory_tasks.py",
         "workspace/capability/root/assets.py",
     }
+
+
+def test_alice_runtime_cannot_import_context_or_raw_derivation_results():
+    """只有 CPU 驱动接触线程凭据与派生原始结果，frame、CALL 和 MTP 不得持有。"""
+    forbidden = {"WorkspaceAccessContext", "DerivedCallThread", "DerivedThread", "OperationEntry"}
+    offenders = []
+    files = [*(SRC_ROOT / "alice").rglob("*.py"), *(SRC_ROOT / "agent_runtime").rglob("*.py")]
+    for path in files:
+        if path.name in {"cpu.py", "system.py"}:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Name) and node.id in forbidden:
+                offenders.append(f"{path.relative_to(SRC_ROOT)}:{node.lineno}:{node.id}")
+            elif isinstance(node, ast.ImportFrom) and any(
+                alias.name in forbidden for alias in node.names
+            ):
+                offenders.append(f"{path.relative_to(SRC_ROOT)}:{node.lineno}")
+    assert offenders == []
+
+
+def test_removed_call_target_request_has_no_production_reference():
+    """生产 CALL 必须经线程派生，不能恢复仅解析 Profile 的旧请求。"""
+    assert [
+        path.relative_to(SRC_ROOT).as_posix()
+        for path in _source_files()
+        if "ResolveCallTargetRequest" in path.read_text(encoding="utf-8")
+    ] == []

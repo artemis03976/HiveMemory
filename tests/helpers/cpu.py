@@ -10,8 +10,9 @@ from __future__ import annotations
 import asyncio
 from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import Any
 
+from hivememory.alice.application.cpu import ThreadOperationSubmitter
 from hivememory.core.access import WorkspaceAccessContext
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
@@ -19,11 +20,8 @@ from hivememory.workspace.contracts import (
     CPUInputManifest,
     CPUOutput,
     OperationEntry,
-    OperationRequest,
     OperationSubmitter,
 )
-
-_Result = TypeVar("_Result")
 
 
 @dataclass(frozen=True)
@@ -100,11 +98,7 @@ class ScriptedCPU:
     async def _iterate(self, access: WorkspaceAccessContext) -> AsyncGenerator[CPUOutput, None]:
         try:
             if self._operation_script is not None:
-
-                async def submit(request: OperationRequest[_Result]) -> _Result:
-                    return await self.operation_entry.execute(request, access=access)
-
-                await self._operation_script(submit)
+                await self._operation_script(ThreadOperationSubmitter(self.operation_entry, access))
             for event in self._events:
                 yield dict(event)
             if self._hang_before_result:
