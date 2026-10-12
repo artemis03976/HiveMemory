@@ -204,6 +204,12 @@ class HybridRetrieverConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    @model_validator(mode="after")
+    def _require_a_recall_path(self) -> "HybridRetrieverConfig":
+        if not self.dense.enabled and not self.sparse.enabled:
+            raise ValueError("混合检索至少需要启用 dense 或 sparse 其中一路召回")
+        return self
+
 
 class MemoryRetrievalConfig(BaseModel):
     retriever: HybridRetrieverConfig | DenseRetrieverConfig | SparseRetrieverConfig = Field(

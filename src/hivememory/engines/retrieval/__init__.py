@@ -55,6 +55,7 @@ from hivememory.engines.retrieval.reranker import (
 from hivememory.engines.retrieval.retriever import (
     DenseRetriever,
     HybridRetriever,
+    NoOpRetriever,
     RerankingRetriever,
     SparseRetriever,
     create_retriever,
@@ -81,6 +82,7 @@ __all__ = [
     "DenseRetriever",
     "SparseRetriever",
     "HybridRetriever",
+    "NoOpRetriever",
     "RerankingRetriever",
     "ReciprocalRankFusion",
     "AdaptiveWeightedFusion",

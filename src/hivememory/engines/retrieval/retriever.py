@@ -279,8 +279,8 @@ class HybridRetriever(BaseMemoryRetriever):
 
         Args:
             config: 混合检索配置
-            dense_retriever: 稠密检索器实例
-            sparse_retriever: 稀疏检索器实例
+            dense_retriever: 稠密检索器实例；该路在配置中关闭时为 NoOpRetriever
+            sparse_retriever: 稀疏检索器实例；该路在配置中关闭时为 NoOpRetriever
             fusion: 融合器实例
         """
         self.config = config
@@ -372,6 +372,22 @@ class HybridRetriever(BaseMemoryRetriever):
         return dense_results, sparse_results
 
 
+class NoOpRetriever(BaseMemoryRetriever):
+    """
+    空召回
+
+    在配置中关闭的召回路径由它顶替，保持检索器接口调用一致；总是返回空结果。
+    """
+
+    async def retrieve(
+        self,
+        query: RetrievalQuery,
+        top_k: int | None = None,
+        score_threshold: float | None = None,
+    ) -> SearchResults:
+        return SearchResults()
+
+
 class RerankingRetriever(BaseMemoryRetriever):
     """
     重排序阶段
@@ -460,14 +476,13 @@ def _create_recall_retriever(
         return SparseRetriever(mid_term, config)
 
     if isinstance(config, HybridRetrieverConfig):
-        # 1. 创建子检索器
-        dense_retriever = None
-        if config.dense.enabled:
-            dense_retriever = DenseRetriever(mid_term, config.dense)
-
-        sparse_retriever = None
-        if config.sparse.enabled:
-            sparse_retriever = SparseRetriever(mid_term, config.sparse)
+        # 1. 创建子检索器；关闭的召回路径由 NoOpRetriever 顶替
+        dense_retriever: BaseMemoryRetriever = (
+            DenseRetriever(mid_term, config.dense) if config.dense.enabled else NoOpRetriever()
+        )
+        sparse_retriever: BaseMemoryRetriever = (
+            SparseRetriever(mid_term, config.sparse) if config.sparse.enabled else NoOpRetriever()
+        )
 
         # 2. 创建 Fusion
         fusion = create_fusion(config.fusion)
@@ -486,6 +501,7 @@ __all__ = [
     "DenseRetriever",
     "SparseRetriever",
     "HybridRetriever",
+    "NoOpRetriever",
     "RerankingRetriever",
     "create_retriever",
 ]

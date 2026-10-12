@@ -5,6 +5,7 @@ from pydantic import ValidationError
 
 from hivememory.config.patchouli import (
     AdaptiveWeightedFusionConfig,
+    HybridRetrieverConfig,
     MemoryGenerationConfig,
     MemoryLifecycleConfig,
     MemoryRetrievalConfig,
@@ -53,3 +54,8 @@ def test_retriever_level_reranker_is_rejected_with_migration_hint(retriever_type
         MemoryRetrievalConfig.model_validate(
             {"retriever": {"type": retriever_type, "reranker": {"enabled": False}}}
         )
+
+
+def test_hybrid_retriever_requires_at_least_one_recall_path() -> None:
+    with pytest.raises(ValidationError, match="至少需要启用 dense 或 sparse"):
+        HybridRetrieverConfig(dense={"enabled": False}, sparse={"enabled": False})

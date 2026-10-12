@@ -388,5 +388,39 @@ class TestRerankingStage:
         assert storage.search.call_args.kwargs["top_k"] == 20
 
 
+class TestHybridRetrieverDisabledPath:
+    """混合检索关闭其中一路召回时，另一路照常返回。"""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("enable_parallel", [True, False], ids=["parallel", "sequential"])
+    async def test_disabled_dense_path_recalls_from_sparse_only(self, enable_parallel):
+        memory = MemoryAtom(
+            index=IndexLayer(
+                title="M1",
+                summary="Summary of M1 content is long enough",
+                memory_type=MemoryType.FACT,
+            ),
+            payload=PayloadLayer(content="C1"),
+            meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
+        )
+        storage = AsyncMock()
+        storage.search = AsyncMock(return_value=[{"memory": memory, "score": 0.7}])
+        retriever = create_retriever(
+            storage,
+            HybridRetrieverConfig(enable_parallel=enable_parallel, dense={"enabled": False}),
+        )
+        scope = _make_identity_scope()
+        query = RetrievalQuery(
+            semantic_query="test",
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+        )
+
+        results = await retriever.retrieve(query, top_k=5)
+
+        assert [r.memory.id for r in results.results] == [memory.id]
+        assert [call.kwargs["mode"] for call in storage.search.call_args_list] == ["sparse"]
+
+
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
