@@ -1,24 +1,30 @@
-"""能力层与任务进程共享的子线程派生端口，不暴露进程实现。"""
+"""执行线程契约：任务进程派生的执行线程，以及能力层交给进程的派生端口。"""
 
 from dataclasses import dataclass
 from typing import Protocol
 
 from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
+from hivememory.core.models.agent import AgentProfile
 
 
 @dataclass(frozen=True)
-class DerivedThread:
-    """进程派生结果；context 只交给 CPU 驱动绑定提交函数。"""
+class ExecutionThread:
+    """任务进程派生的执行线程：以哪份图纸运行、能做什么，以及它的线程 context。
 
-    access: WorkspaceAccessContext
+    只经操作入口交给 CPU 驱动，由驱动把 ``access`` 绑定为该线程的提交函数；
+    不进入 Alice 运行层、输入清单或任何记录。
+    """
+
+    agent_profile: AgentProfile
     allowed_operations: frozenset[WorkspaceOperation]
+    access: WorkspaceAccessContext
 
 
 class ChildThreadSpawner(Protocol):
     """actor API 交给进程的派生请求；进程关联由授权者读取。"""
 
     def derive_child_thread(
-        self, *, access: WorkspaceAccessContext, process_id: str, agent_id: str
-    ) -> DerivedThread:
-        """确认主线程仍在 Actor 阶段，再派生、登记并读取被调用方快照。"""
+        self, *, access: WorkspaceAccessContext, process_id: str, profile: AgentProfile
+    ) -> ExecutionThread:
+        """确认主线程仍在 Actor 阶段，再以图纸的 Agent 派生、登记并读取其操作快照。"""
         ...

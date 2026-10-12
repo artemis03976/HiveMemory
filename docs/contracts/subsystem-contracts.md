@@ -283,11 +283,11 @@ run_agent(
 | `ResolveRunTargetRequest` | RUN（记忆中的用户态工具） | `alias: str` | `ReferenceResolution` | `memory.run` |
 | `SubmitWriteIntentRequest` | WRITE | `focus: WriteFocus` | `PendingAtom` | `memory.write` |
 | `SubmitUpdateIntentRequest` | UPDATE | `base_alias`、`instruction`、`content=None` | `PendingAtom` | `memory.update` |
-| `DeriveCallThreadRequest` | CALL（只有 Alice 使用） | `agent_alias=None` | `DerivedCallThread`：目标 `AgentProfile`、被调用方的操作快照与子线程 context（只交付 CPU 驱动） | `agent.call`（内置同样需要） |
+| `DeriveCallThreadRequest` | CALL（只有 Alice 使用） | `agent_alias=None` | `ExecutionThread`：目标 `AgentProfile`、被调用方的操作快照与子线程 context（只交付 CPU 驱动） | `agent.call`（内置同样需要） |
 
 `CancelIntentsRequest(aliases: tuple[str, ...]) -> list[str]` 是执行单元内部的补偿请求，不属于 actor 操作：入口校验线程 context 后只按它的进程关联撤回仍为 PENDING 的指定意图，返回实际撤回的 alias，不检查 operation，也不能撤回其他进程或已被认领的意图。RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求。
 
-公共入口为 `OperationEntry.execute[R](request: OperationRequest[R], *, access: WorkspaceAccessContext) -> R`。提交函数协议 `OperationSubmitter` 有两个方法：`__call__[R](request: OperationRequest[R]) -> R` 提交普通请求，遇到派生请求以 `TypeError` 拒绝；`derive_call_thread(request: DeriveCallThreadRequest) -> CallThread` 提交派生请求，把结果中的子线程 context 绑定为新的提交函数，只交出 `CallThread`（目标 Profile、操作快照与子帧的提交函数）。`ThreadOperationSubmitter(entry, access)` 是 `workspace.contracts` 提供的通用实现，任何 CPU 驱动都用它绑定线程，执行适配器、frame 与 CALL 编排因此不接触 context。每个 frame 使用自己线程的提交函数。新增资源操作应扩展请求与入口，而不增加 workspace 总线路由或让适配器切换资源目标。
+公共入口为 `OperationEntry.execute[R](request: OperationRequest[R], *, access: WorkspaceAccessContext) -> R`。提交函数协议 `OperationSubmitter` 有两个方法：`__call__[R](request: OperationRequest[R]) -> R` 提交普通请求，遇到派生请求以 `TypeError` 拒绝；`derive_call_thread(request: DeriveCallThreadRequest) -> Callee` 提交派生请求，把执行线程 `ExecutionThread` 中的子线程 context 绑定为新的提交函数，只交出被调用方 `Callee`（目标 Profile、操作快照与子帧的提交函数，没有线程或 context 概念）。`ThreadOperationSubmitter(entry, access)` 是 `workspace.contracts` 提供的通用实现，任何 CPU 驱动都用它绑定线程，执行适配器、frame 与 CALL 编排因此不接触 context。每个 frame 使用自己线程的提交函数。新增资源操作应扩展请求与入口，而不增加 workspace 总线路由或让适配器切换资源目标。
 
 `WorkspaceOperationEntry` 只接受线程 context：分派前经操作授权者确认它是未撤销的执行线程 context，再按请求类型把请求对象与线程 context 直接交给对应的 actor API 方法（`method(request, *, access)`），入口不拆参数，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验；入口不持有 root API。actor API 的目标取线程的驻留 Workspace，意图登记的 process_id 取自线程 context 的运行绑定。未知请求类型抛 `TypeError`；进程 context、请求级 context 或其他对象抛 `ScopeRequiredError`；已撤销的线程 context 抛 `ThreadContextRevokedError`（`core.errors`，由 `workspace.contracts` 重新导出）。拒绝都发生在任何副作用之前。
 

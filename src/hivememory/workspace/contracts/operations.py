@@ -17,7 +17,7 @@ from hivememory.core.models.memory import MemoryAtom
 from hivememory.core.models.pending import PendingAtom, WriteFocus
 from hivememory.core.models.query import QueryFilters
 from hivememory.core.models.reference import ReferenceResolution
-from hivememory.workspace.contracts.threads import DerivedThread
+from hivememory.workspace.contracts.threads import ExecutionThread
 
 
 @dataclass(frozen=True)
@@ -77,15 +77,8 @@ class RetrieveRequest(OperationRequest[list[MemoryAtom]]):
 
 
 @dataclass(frozen=True)
-class DerivedCallThread(DerivedThread):
-    """workspace 返回 CPU 的派生结果，不进入 Alice 运行层。"""
-
-    agent_profile: AgentProfile
-
-
-@dataclass(frozen=True)
-class CallThread:
-    """CPU 已绑定的子线程；运行层只取得图纸、策略快照与提交函数。"""
+class Callee:
+    """CALL 的被调用方：图纸、可用的 actor 操作与 CPU 驱动绑定好的提交函数。"""
 
     agent_profile: AgentProfile
     allowed_operations: frozenset[WorkspaceOperation]
@@ -93,8 +86,8 @@ class CallThread:
 
 
 @dataclass(frozen=True)
-class DeriveCallThreadRequest(OperationRequest[DerivedCallThread]):
-    """CALL：授权并解析目标后派生线程；含 context 的结果只交付 CPU 驱动。"""
+class DeriveCallThreadRequest(OperationRequest[ExecutionThread]):
+    """CALL：授权并解析目标后派生执行线程；含 context 的结果只交付 CPU 驱动。"""
 
     agent_alias: str | None = None
 
@@ -114,8 +107,8 @@ class OperationSubmitter(Protocol):
         """提交普通请求；派生请求必须以 TypeError 拒绝，防止 context 外泄。"""
         ...
 
-    async def derive_call_thread(self, request: DeriveCallThreadRequest) -> CallThread:
-        """由 CPU 提交派生请求，并把子线程 context 绑定成新的提交函数。"""
+    async def derive_call_thread(self, request: DeriveCallThreadRequest) -> Callee:
+        """由 CPU 提交派生请求，把执行线程的 context 绑定成被调用方的提交函数。"""
         ...
 
 
@@ -136,20 +129,20 @@ class ThreadOperationSubmitter:
             raise TypeError("派生请求必须通过 derive_call_thread 提交")
         return await self._entry.execute(request, access=self._access)
 
-    async def derive_call_thread(self, request: DeriveCallThreadRequest) -> CallThread:
-        """以本线程提交 CALL，绑定子线程后只交付运行层可用的数据。"""
-        child = await self._entry.execute(request, access=self._access)
-        return CallThread(
-            agent_profile=child.agent_profile,
-            allowed_operations=child.allowed_operations,
-            submit_operation=ThreadOperationSubmitter(self._entry, child.access),
+    async def derive_call_thread(self, request: DeriveCallThreadRequest) -> Callee:
+        """以本线程提交 CALL，把派生的执行线程换成运行层可用的被调用方。"""
+        thread = await self._entry.execute(request, access=self._access)
+        return Callee(
+            agent_profile=thread.agent_profile,
+            allowed_operations=thread.allowed_operations,
+            submit_operation=ThreadOperationSubmitter(self._entry, thread.access),
         )
 
 
 __all__ = [
     "CancelIntentsRequest",
-    "CallThread",
-    "DerivedCallThread",
+    "Callee",
+    "ExecutionThread",
     "ThreadContextRevokedError",
     "OperationEntry",
     "OperationRequest",

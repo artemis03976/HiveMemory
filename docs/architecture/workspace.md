@@ -179,7 +179,7 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 | Patchouli 内部、引擎、存储 | 独立的 `WorkspaceIdentity` 与需要时的 `ActorIdentity` | `IdentityScope`、访问 context、认证网关、操作授权者 |
 | 进程记录 | 进程 context 与进程元数据；事件绑定载体中的只读观测标签；工作集登记 CPU 执行阶段的线程 context，只用于撤销 | 身份字段副本 |
 | CPU 驱动（`AliceCPU`） | 本次执行的主线程与 CALL 派生的子线程 context，各自与操作入口绑定为提交函数（`workspace.contracts.ThreadOperationSubmitter`） | 进程 context、`IdentityScope`、读取 context 内容的能力 |
-| Alice 运行（frame、Agent loop、MTP、CALL 编排）与 agent_runtime | `ExecutionLabels`、每个 frame 自己线程的 `OperationSubmitter` | 访问 context、派生结果中的 context、`IdentityScope`、可用于授权的 actor / Workspace 身份 |
+| Alice 运行（frame、Agent loop、MTP、CALL 编排）与 agent_runtime | `ExecutionLabels`、每个 frame 自己线程的 `OperationSubmitter` | 访问 context、`ExecutionThread` 及其中的 context、`IdentityScope`、可用于授权的 actor / Workspace 身份 |
 
 必须持续成立的不变量：
 
@@ -402,11 +402,11 @@ canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.l
 
 `WorkspaceOperationEntry` 实现公共 `OperationEntry`，入口只接受线程 context：分派前经操作授权者确认请求附带的是未撤销的执行线程 context，进程 context 与请求级 context 以 `ScopeRequiredError` 拒绝，已撤销的以 `ThreadContextRevokedError` 拒绝，均没有副作用。随后入口只按请求类型把请求对象与线程 context 直接交给对应的 actor API 方法，不拆参数；actor API 逐次授权并组装该次调用的 `IdentityScope`，资源 owner 仍执行归属与 actor policy 检查。意图登记的 `process_id` 取自线程 context 的运行绑定（操作授权者的只读查询，只对线程 context 有效），请求不能指定。线程 context 的派生不授予操作许可：`system` 的进程即使派生出线程 context，也因白名单为空而在每个 actor 请求上被拒绝。
 
-**CALL 派生子线程**：CALL 提交的 `DeriveCallThreadRequest(agent_alias)` 是 actor 操作 `agent.call`。actor API 先以调用方的线程 context 授权，再以调用方的 scope 读取目标 Profile（对调用方不可见与不存在相同），读取之后重新确认调用方线程未撤销，再以 Profile 的 `agent_id`（内置图纸为 `omni_doll`）经 `ChildThreadSpawner` 交给进程。进程侧依次确认：进程存在且处于 Actor 阶段、仍在运行，调用方就是本进程登记的主线程 context（按对象身份比较，不读取内容），否则以 `ScopeRequiredError` 拒绝——只有主线程能派生，派生只发生在 CPU 执行阶段。随后分配线程标识，以被调用方准入后派生子线程 context，再以子线程 context 读取被调用方的操作快照；快照读取失败时撤销刚签发的 context，不登记。成功后子线程登记进工作集，结果（目标 Profile、操作快照与子线程 context）只返回给 CPU 驱动。
+**CALL 派生子线程**：CALL 提交的 `DeriveCallThreadRequest(agent_alias)` 是 actor 操作 `agent.call`。actor API 先以调用方的线程 context 授权，再以调用方的 scope 读取目标 Profile（对调用方不可见与不存在相同），读取之后重新确认调用方线程未撤销，再以 Profile 的 `agent_id`（内置图纸为 `omni_doll`）经 `ChildThreadSpawner` 交给进程。进程侧依次确认：进程存在且处于 Actor 阶段、仍在运行，调用方就是本进程登记的主线程 context（按对象身份比较，不读取内容），否则以 `ScopeRequiredError` 拒绝——只有主线程能派生，派生只发生在 CPU 执行阶段。随后分配线程标识，以被调用方准入后派生子线程 context，再以子线程 context 读取被调用方的操作快照；快照读取失败时撤销刚签发的 context，不登记。成功后子线程登记进工作集，结果是执行线程 `ExecutionThread`（`workspace.contracts`：目标 Profile、操作快照与子线程 context），只返回给 CPU 驱动。
 
 子线程以被调用方的身份运行：每个 actor 请求按被调用方的白名单检查，`IdentityScope` 的发起者是被调用方，资源 owner 按被调用方的可见性过滤；写入意图的 `from_actor` 是被调用方，进程关联不变，completed 时照常由本进程认领。调用方持有 `agent.call` 即可让被调用方读取它自己的 PRIVATE 记忆，并经 CALL 的返回值交给调用方；这是委派的本义，闸门是 `agent.call` 与被调用方的准入。
 
-主线程的线程 context 是 CPU `execute` 的独立 `access` 参数，不进入输入清单。CPU 驱动以 `workspace.contracts.ThreadOperationSubmitter` 把它与入口绑定为提交函数，读不出其中的内容，也不持有进程 context；提交函数的泛型调用拒绝派生请求，派生只经 `derive_call_thread`，后者把结果中的子线程 context 绑定成子帧的提交函数，只把目标 Profile、操作快照与该函数交给 CALL 编排。MTP 与 CALL 只提交操作参数，不能另选目标 Workspace 或 process_id。六项 actor 请求与内部撤回请求的参数与结果契约见[子系统公共契约](../contracts/subsystem-contracts.md#46-操作请求与线程-context)。Alice 不再直接请求 Patchouli，也不维护 CALL Profile 缓存。子 frame 未成功结束时以自己的提交函数提交撤回请求，只撤回它已收到 ACK 且仍为 PENDING 的意图；子线程 context 在 CPU 执行结束前一直有效，CALL 返回时不提前撤销。撤回是执行单元内部的补偿，不属于 actor 操作：操作入口校验线程 context 后直接以它的进程关联调用写入意图登记，不检查 operation、不经 actor API，因此缺少 WRITE/UPDATE 许可也能补偿本进程先前登记的意图，且不能撤回其他进程或已被认领的意图。
+主线程的线程 context 是 CPU `execute` 的独立 `access` 参数，不进入输入清单。CPU 驱动以 `workspace.contracts.ThreadOperationSubmitter` 把它与入口绑定为提交函数，读不出其中的内容，也不持有进程 context；提交函数的泛型调用拒绝派生请求，派生只经 `derive_call_thread`，后者把结果中的子线程 context 绑定成子帧的提交函数，只把被调用方 `Callee`（目标 Profile、操作快照与该函数，不含 context）交给 CALL 编排。MTP 与 CALL 只提交操作参数，不能另选目标 Workspace 或 process_id。六项 actor 请求与内部撤回请求的参数与结果契约见[子系统公共契约](../contracts/subsystem-contracts.md#46-操作请求与线程-context)。Alice 不再直接请求 Patchouli，也不维护 CALL Profile 缓存。子 frame 未成功结束时以自己的提交函数提交撤回请求，只撤回它已收到 ACK 且仍为 PENDING 的意图；子线程 context 在 CPU 执行结束前一直有效，CALL 返回时不提前撤销。撤回是执行单元内部的补偿，不属于 actor 操作：操作入口校验线程 context 后直接以它的进程关联调用写入意图登记，不检查 operation、不经 actor API，因此缺少 WRITE/UPDATE 许可也能补偿本进程先前登记的意图，且不能撤回其他进程或已被认领的意图。
 
 执行器在 CPU 返回终态结果、关闭 CPU 输出流之后立即同步撤销本进程登记的全部线程 context（主线程与子线程），再进入 finalize；Actor 阶段因异常、停止、调用方取消或断流提前结束时，也在交付终态之前同步撤销。completed 时任务进程认领本进程 PENDING 意图为 MATERIALIZING，并投影到交互记录；已认领任务在 finalize 失败时保持 MATERIALIZING。关闭流程兜底：先于任何 await 撤销仍登记的线程 context、取消本进程仍为 PENDING 的意图并释放附件租借，再等待输出流关闭与 cleanup；进程 context 最后由注册入口撤销。撤销不取消操作调用方任务，在途只读请求可以自然完成；后续提交明确拒绝。意图提交可能在等待期间遇到撤销（当前是 UPDATE 的基础冷读），操作入口对 WRITE、UPDATE 在分派前取得进程关联，在能力返回后的同步段复查线程 context，若已撤销就以该关联同步撤回该次刚登记的意图并拒绝返回 ACK，避免撤销后留下游离 PENDING 意图；统一复查使这条保证不依赖能力方法内部是否等待。
 

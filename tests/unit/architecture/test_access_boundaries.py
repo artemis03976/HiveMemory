@@ -407,7 +407,7 @@ def test_root_authorization_is_only_used_by_root_api():
 
 def test_alice_runtime_cannot_import_context_or_raw_derivation_results():
     """只有 CPU 驱动接触线程凭据与派生原始结果，frame、CALL 和 MTP 不得持有。"""
-    forbidden = {"WorkspaceAccessContext", "DerivedCallThread", "DerivedThread", "OperationEntry"}
+    forbidden = {"WorkspaceAccessContext", "ExecutionThread", "OperationEntry"}
     # CPU 驱动绑定线程 context，Alice 组合入口只把操作入口交给驱动。
     driver_files = {SRC_ROOT / "alice/application/cpu.py", SRC_ROOT / "alice/system.py"}
     offenders = []

@@ -5,8 +5,8 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivememory.core.access import WorkspaceOperation
-from hivememory.workspace.contracts.operations import DeriveCallThreadRequest, DerivedCallThread
-from hivememory.workspace.contracts.threads import ChildThreadSpawner
+from hivememory.workspace.contracts.operations import DeriveCallThreadRequest
+from hivememory.workspace.contracts.threads import ChildThreadSpawner, ExecutionThread
 
 if TYPE_CHECKING:
     from hivememory.core.access import WorkspaceAccessContext
@@ -33,7 +33,7 @@ class ActorAgentService:
         request: DeriveCallThreadRequest,
         *,
         access: WorkspaceAccessContext,
-    ) -> DerivedCallThread:
+    ) -> ExecutionThread:
         """CALL 派生（``agent.call``）：以调用方可见的图纸确定被调用方。
 
         未指定 alias 或显式选择 ``default`` / ``omni_doll`` 时返回内置 Profile；
@@ -43,12 +43,7 @@ class ActorAgentService:
         """
         scope = self._authorizer.authorize_thread_operation(access, WorkspaceOperation.AGENT_CALL)
         profile = await self._profile_reader.get(request.agent_alias, scope=scope)
-        if not profile.agent_id:
-            raise ValueError("CALL 目标 Profile 缺少 agent_id")
         process_id = self._authorizer.get_thread_process_id(access)
-        child = self._thread_spawner.derive_child_thread(
-            access=access, process_id=process_id, agent_id=profile.agent_id
-        )
-        return DerivedCallThread(
-            agent_profile=profile, access=child.access, allowed_operations=child.allowed_operations
+        return self._thread_spawner.derive_child_thread(
+            access=access, process_id=process_id, profile=profile
         )

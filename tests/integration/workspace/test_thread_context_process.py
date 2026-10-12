@@ -7,7 +7,12 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.routes import GlobalRoutes
-from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, ResolvedAgentProfile
+from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
+    ActorIdentity,
+    AgentProfile,
+    ResolvedAgentProfile,
+)
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.workspace.contracts import ResolveReferencesRequest, ThreadContextRevokedError
 from hivememory.workspace.process.table import ProcessTable
@@ -170,7 +175,9 @@ class DerivingCPU(ScriptedCPU):
         )
         for agent_id in ("worker", "reviewer"):
             child = self.chain.threads.derive_child_thread(
-                access=access, process_id=manifest.process_id, agent_id=agent_id
+                access=access,
+                process_id=manifest.process_id,
+                profile=AgentProfile(agent_id=agent_id),
             )
             self.chain.children.append(child.access)
         return source

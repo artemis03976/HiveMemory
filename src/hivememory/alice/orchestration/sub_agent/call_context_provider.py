@@ -4,13 +4,11 @@ import logging
 from dataclasses import dataclass
 
 from hivememory.agent_runtime.models import ExecutionFrame
-from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import (
     AdmissionDeniedError,
     OperationDeniedError,
     ResourceUnavailableError,
 )
-from hivememory.core.models import AgentProfile
 from hivememory.core.mtp import MTPCallRequest
 from hivememory.core.mtp.exceptions import (
     BusRouteUnavailableError,
@@ -24,8 +22,8 @@ from hivememory.engines.memory_compiler import (
     MemoryEnvelopeTarget,
 )
 from hivememory.workspace.contracts import (
+    Callee,
     DeriveCallThreadRequest,
-    OperationSubmitter,
     ResolveReferencesRequest,
 )
 
@@ -34,11 +32,9 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class CallContext:
-    """CALL target 的编排上下文，不包含 frame 或 CALL ledger 状态。"""
+    """CALL 的编排上下文：被调用方与调用方共享的上下文，不包含 frame 或 CALL ledger 状态。"""
 
-    agent_profile: AgentProfile
-    allowed_operations: frozenset[WorkspaceOperation]
-    submit_operation: OperationSubmitter
+    callee: Callee
     shared_context: str = ""
 
 
@@ -59,7 +55,7 @@ class CallContextProvider:
         if caller_frame.submit_operation is None:
             raise RuntimeError("CALL 缺少操作提交函数")
         try:
-            child = await caller_frame.submit_operation.derive_call_thread(
+            callee = await caller_frame.submit_operation.derive_call_thread(
                 DeriveCallThreadRequest(agent_alias=request.target_alias)
             )
         except OperationDeniedError as error:
@@ -89,12 +85,7 @@ class CallContextProvider:
             aliases=request.context_refs,
             caller_frame=caller_frame,
         )
-        return CallContext(
-            agent_profile=child.agent_profile,
-            allowed_operations=child.allowed_operations,
-            submit_operation=child.submit_operation,
-            shared_context=shared_context,
-        )
+        return CallContext(callee=callee, shared_context=shared_context)
 
     async def _resolve_shared_context(
         self,

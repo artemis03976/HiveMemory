@@ -161,10 +161,11 @@ class CallCoordinator:
             return preparation_error_response(call_request.target_alias, error)
 
         try:
-            sub_profile: AgentProfile = call_context.agent_profile
+            callee = call_context.callee
+            sub_profile: AgentProfile = callee.agent_profile
             # 子帧按被调用方的操作快照生成策略；仍禁止递归 CALL。
             policy = FrameExecutionPolicy.from_verbs(
-                mtp_verbs_for_operations(call_context.allowed_operations),
+                mtp_verbs_for_operations(callee.allowed_operations),
                 max_iterations=getattr(self._agent_runtime, "max_iterations", None),
                 denied_verbs={"CALL"},
             )
@@ -185,7 +186,7 @@ class CallCoordinator:
                     messages=messages,
                     topic_id=None,
                     execution_policy=policy,
-                    submit_operation=call_context.submit_operation,
+                    submit_operation=callee.submit_operation,
                 )
             )
         except Exception as error:

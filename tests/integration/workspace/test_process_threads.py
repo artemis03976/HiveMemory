@@ -6,6 +6,7 @@ from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.access import RunBinding, WorkspaceOperation
 from hivememory.core.errors import ScopeRequiredError, ThreadContextRevokedError
+from hivememory.core.models import AgentProfile
 from hivememory.workspace.process.events import TaskProcessEventEmitter
 from hivememory.workspace.process.table import ProcessPhase, ProcessRecord, ProcessTable
 from hivememory.workspace.process.task_process import ProcessRequest, TaskProcess
@@ -15,6 +16,11 @@ from tests.helpers.workspace import (
     make_actor_access_record,
     make_execution_labels,
 )
+
+
+def profile_of(agent_id):
+    """被调用方图纸只需身份：派生以它的 agent_id 做 Workspace 准入。"""
+    return AgentProfile(agent_id=agent_id)
 
 
 async def make_process_threads():
@@ -52,8 +58,9 @@ async def make_process_threads():
 async def test_child_snapshots_follow_exact_callee_record_and_all_threads_are_revoked():
     """多个子线程各自登记，精确记录覆盖用户级权限，统一撤销仍保留进程授权。"""
     access, process, threads, main = await make_process_threads()
-    first = threads.derive_child_thread(access=main, process_id="p", agent_id="worker")
-    second = threads.derive_child_thread(access=main, process_id="p", agent_id="other")
+    first = threads.derive_child_thread(access=main, process_id="p", profile=profile_of("worker"))
+    second = threads.derive_child_thread(access=main, process_id="p", profile=profile_of("other"))
+    assert first.agent_profile.agent_id == "worker"
     assert first.allowed_operations == frozenset({WorkspaceOperation.MEMORY_WRITE})
     assert second.allowed_operations == frozenset({WorkspaceOperation.MEMORY_READ})
     assert access.gateway.describe_context(first.access).thread_id == "child-1"
@@ -73,7 +80,7 @@ async def test_child_snapshots_follow_exact_callee_record_and_all_threads_are_re
 
 async def from_child_thread(access, process, threads, main):
     """子线程不能再派生。"""
-    child = threads.derive_child_thread(access=main, process_id="p", agent_id="worker")
+    child = threads.derive_child_thread(access=main, process_id="p", profile=profile_of("worker"))
     return child.access, "p"
 
 
@@ -130,5 +137,17 @@ async def test_derivation_rejects_invalid_caller_or_phase_without_registration(p
     caller, process_id = await prepare(access, process, threads, main)
     before = dict(process.working_set.thread_contexts)
     with pytest.raises(error):
-        threads.derive_child_thread(access=caller, process_id=process_id, agent_id="worker")
+        threads.derive_child_thread(
+            access=caller, process_id=process_id, profile=profile_of("worker")
+        )
+    assert process.working_set.thread_contexts == before
+
+
+@pytest.mark.asyncio
+async def test_derivation_rejects_profile_without_agent_identity():
+    """没有身份的图纸无法确定被调用方，拒绝且不签发、不登记。"""
+    access, process, threads, main = await make_process_threads()
+    before = dict(process.working_set.thread_contexts)
+    with pytest.raises(ValueError, match="agent_id"):
+        threads.derive_child_thread(access=main, process_id="p", profile=AgentProfile())
     assert process.working_set.thread_contexts == before

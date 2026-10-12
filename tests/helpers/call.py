@@ -3,7 +3,7 @@
 from hivememory.alice.orchestration.sub_agent.call_context_provider import CallContext
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import OMNI_DOLL_PROFILE
-from hivememory.workspace.contracts import CallThread, DeriveCallThreadRequest
+from hivememory.workspace.contracts import Callee, DeriveCallThreadRequest
 
 
 class StubOperationSubmitter:
@@ -34,14 +34,18 @@ def make_call_context(
 ):
     """只供 Coordinator 单元边界注入已完成派生的上下文。"""
     return CallContext(
-        agent_profile=agent_profile,
-        allowed_operations=allowed_operations,
-        submit_operation=submit_operation or StubOperationSubmitter(),
+        callee=Callee(
+            agent_profile=agent_profile,
+            allowed_operations=allowed_operations,
+            submit_operation=submit_operation or StubOperationSubmitter(),
+        )
     )
 
 
-def make_call_thread(profile=OMNI_DOLL_PROFILE, *, submit_operation=None):
+def make_callee(profile=OMNI_DOLL_PROFILE, *, submit_operation=None):
     """Provider 单元测试以端口结果替代边界外的线程派生。"""
-    return CallThread(
-        profile, frozenset(WorkspaceOperation), submit_operation or StubOperationSubmitter()
+    return Callee(
+        agent_profile=profile,
+        allowed_operations=frozenset(WorkspaceOperation),
+        submit_operation=submit_operation or StubOperationSubmitter(),
     )

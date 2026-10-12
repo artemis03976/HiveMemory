@@ -28,7 +28,7 @@ from hivememory.core.mtp.exceptions import (
     SystemFault,
 )
 from hivememory.workspace.contracts import DeriveCallThreadRequest, ResolveReferencesRequest
-from tests.helpers.call import StubOperationSubmitter, make_call_thread
+from tests.helpers.call import StubOperationSubmitter, make_callee
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_runtime_scope
 
@@ -79,7 +79,7 @@ def _provider(*, profile=OMNI_DOLL_PROFILE, alias_results=(), profile_error=None
             raise TypeError(type(request))
         if profile_error is not None:
             raise profile_error
-        return make_call_thread(profile)
+        return make_callee(profile)
 
     return CallContextProvider(), StubOperationSubmitter(operation=submit_operation, derive=derive)
 

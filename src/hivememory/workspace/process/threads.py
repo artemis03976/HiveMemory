@@ -2,8 +2,9 @@
 
 from hivememory.core.access import ThreadContextLifecycle, WorkspaceAccessContext
 from hivememory.core.errors import ScopeRequiredError
+from hivememory.core.models.agent import AgentProfile
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
-from hivememory.workspace.contracts.threads import DerivedThread
+from hivememory.workspace.contracts.threads import ExecutionThread
 from hivememory.workspace.process.table import ProcessOutcome, ProcessPhase, ProcessTable
 from hivememory.workspace.process.task_process import TaskProcess
 from hivememory.workspace.process.working_set import ProcessWorkingSet
@@ -32,8 +33,8 @@ class ProcessThreads:
         return access
 
     def derive_child_thread(
-        self, *, access: WorkspaceAccessContext, process_id: str, agent_id: str
-    ) -> DerivedThread:
+        self, *, access: WorkspaceAccessContext, process_id: str, profile: AgentProfile
+    ) -> ExecutionThread:
         """只接受 Actor 阶段主线程派生；同步完成全部检查与登记。
 
         context 按对象身份比较，不读取密封内容。即使 Profile 解析曾经
@@ -48,10 +49,12 @@ class ProcessThreads:
         ):
             raise ScopeRequiredError("只有 Actor 阶段的本进程主线程可以派生子线程")
         self._authorizer.validate_thread_context(access)
+        if not profile.agent_id:
+            raise ValueError("CALL 目标 Profile 缺少 agent_id")
         working_set = process.working_set
         thread_id = f"child-{len(working_set.thread_contexts)}"
         child = self._lifecycle.derive_child_thread_context(
-            process.record.access, agent_id=agent_id, thread_id=thread_id
+            process.record.access, agent_id=profile.agent_id, thread_id=thread_id
         )
         try:
             operations = self._authorizer.get_stage_operations(
@@ -62,7 +65,7 @@ class ProcessThreads:
             self._lifecycle.revoke_thread_context(child)
             raise
         working_set.thread_contexts[thread_id] = child
-        return DerivedThread(access=child, allowed_operations=operations)
+        return ExecutionThread(agent_profile=profile, allowed_operations=operations, access=child)
 
     def revoke_threads(self, working_set: ProcessWorkingSet) -> None:
         """CPU 结束与关闭兜底共用同步撤销，不等待任何外部操作。"""
