@@ -158,15 +158,16 @@ patchouli:
         dense_weight: 1.0
         sparse_weight: 1.0
         final_top_k: 5
-      reranker:
-        enabled: true
-        model_name: "BAAI/bge-reranker-base"
-        device: "cpu"
-        cache_dir: "data/model_cache"
-        use_fp16: true
-        batch_size: 32
-        top_k: 20
-        normalize_scores: true
+    # 重排序是召回之后的独立阶段，适用于任意 retriever 类型
+    reranker:
+      enabled: true
+      model_name: "BAAI/bge-reranker-base"
+      device: "cpu"
+      cache_dir: "data/model_cache"
+      use_fp16: true
+      batch_size: 32
+      top_k: 20
+      normalize_scores: true
 
   lifecycle:
     vitality_calculator:

@@ -195,8 +195,9 @@ def setup_test_env() -> RetrievalEngine:
     _shared_mid_term = MidTermMemoryStore(primary=QdrantStorageAdapter(_shared_storage))
 
     # 2. 创建 Reranker 服务
-    retriever_config = app_config.patchouli.retrieval.retriever
-    reranker_config = retriever_config.reranker
+    retrieval_config = app_config.patchouli.retrieval
+    retriever_config = retrieval_config.retriever
+    reranker_config = retrieval_config.reranker
     console.print(f"[dim]Reranker 模型: {reranker_config.model_name}[/dim]")
     _shared_reranker_service = FastEmbedRerankerService(config=reranker_config)
 
@@ -204,6 +205,7 @@ def setup_test_env() -> RetrievalEngine:
     _shared_retriever = create_retriever(
         mid_term=_shared_mid_term,
         config=retriever_config,
+        reranker_config=reranker_config,
         reranker_service=_shared_reranker_service,
     )
 

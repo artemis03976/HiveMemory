@@ -27,15 +27,18 @@ class BaseMemoryRetriever(ABC):
 
     @abstractmethod
     async def retrieve(
-        self, query: RetrievalQuery, top_k: int = 5, score_threshold: float = 0.75
+        self,
+        query: RetrievalQuery,
+        top_k: int | None = None,
+        score_threshold: float | None = None,
     ) -> SearchResults:
         """
         检索记忆
 
         Args:
             query: 检索查询
-            top_k: 返回数量
-            score_threshold: 相似度阈值
+            top_k: 返回数量；None 使用实现的配置默认值
+            score_threshold: 相似度阈值；None 使用实现的配置默认值
 
         Returns:
             SearchResults: 检索结果集合

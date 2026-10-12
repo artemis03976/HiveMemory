@@ -327,7 +327,8 @@ class PatchouliRuntime:
 
         from hivememory.infrastructure.rerank import get_fast_embed_reranker_service
 
-        reranker_config = self._patchouli_config.retrieval.retriever.reranker
+        # 重排序是召回之后的独立阶段，与召回策略无关。
+        reranker_config = self._patchouli_config.retrieval.reranker
         self.reranker_service: FastEmbedRerankerService | None = None
         if reranker_config.enabled:
             self.reranker_service = get_fast_embed_reranker_service(config=reranker_config)
@@ -409,7 +410,10 @@ class PatchouliRuntime:
         config = self._patchouli_config.retrieval
 
         retriever: BaseMemoryRetriever = create_retriever(
-            self.memory_library.mid_term, config.retriever, self.reranker_service
+            self.memory_library.mid_term,
+            config.retriever,
+            reranker_config=config.reranker,
+            reranker_service=self.reranker_service,
         )
 
         return RetrievalEngine(retriever=retriever)

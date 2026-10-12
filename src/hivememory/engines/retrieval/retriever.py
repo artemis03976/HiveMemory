@@ -18,6 +18,7 @@ from typing import TYPE_CHECKING
 from hivememory.config.patchouli import (
     DenseRetrieverConfig,
     HybridRetrieverConfig,
+    RerankerConfig,
     SparseRetrieverConfig,
 )
 from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
@@ -28,7 +29,7 @@ from hivememory.engines.retrieval.models import (
     SearchResult,
     SearchResults,
 )
-from hivememory.engines.retrieval.reranker import NoopReranker, create_reranker
+from hivememory.engines.retrieval.reranker import create_reranker
 from hivememory.infrastructure.rerank.base import BaseRerankService
 
 if TYPE_CHECKING:
@@ -260,8 +261,10 @@ class HybridRetriever(BaseMemoryRetriever):
     架构:
         1. Parallel Recall: DenseRetriever || SparseRetriever
         2. Fusion: RRF 合并结果
-        3. Rerank: 可选的重排序
-        4. Return: Top-K 最终结果
+        3. Return: Top-K 融合结果
+
+    重排序不属于混合检索，由 :class:`RerankingRetriever` 作为召回之后的
+    独立阶段包裹任意检索器。
     """
 
     def __init__(
@@ -270,7 +273,6 @@ class HybridRetriever(BaseMemoryRetriever):
         dense_retriever: BaseMemoryRetriever,
         sparse_retriever: BaseMemoryRetriever,
         fusion: BaseFusion,
-        reranker: BaseReranker | None = None,
     ):
         """
         初始化混合检索器
@@ -280,7 +282,6 @@ class HybridRetriever(BaseMemoryRetriever):
             dense_retriever: 稠密检索器实例
             sparse_retriever: 稀疏检索器实例
             fusion: 融合器实例
-            reranker: 重排序器实例
         """
         self.config = config
         self.enable_parallel = config.enable_parallel
@@ -289,7 +290,6 @@ class HybridRetriever(BaseMemoryRetriever):
         self.sparse_retriever = sparse_retriever
 
         self.fusion = fusion
-        self.reranker = reranker
 
     async def retrieve(
         self,
@@ -324,21 +324,11 @@ class HybridRetriever(BaseMemoryRetriever):
         # RRF 融合
         fused_results = self.fusion.fuse(dense_results, sparse_results)
 
-        # 可选重排序
-        if self.reranker:
-            fused_results = self.reranker.rerank(fused_results, query)
-
-        # 应用分数阈值
-        # 注意: 仅当使用了非 NoopReranker 时才应用阈值
+        # 融合分数（RRF 名次分数等）与 cosine 相似度阈值不可比，融合后不套用阈值。
         if score_threshold > 0:
-            if isinstance(self.reranker, NoopReranker):
-                fused_results.results = [
-                    r for r in fused_results.results if r.score >= score_threshold
-                ]
-            else:
-                logger.debug(
-                    f"跳过阈值过滤 (threshold={score_threshold}): 当前使用的是 RRF 分数，不适用 Cosine 阈值"
-                )
+            logger.debug(
+                f"跳过融合后阈值过滤 (threshold={score_threshold})：融合分数不适用相似度阈值"
+            )
 
         # 截取 top_k
         fused_results.results = fused_results.results[:top_k]
@@ -382,27 +372,86 @@ class HybridRetriever(BaseMemoryRetriever):
         return dense_results, sparse_results
 
 
+class RerankingRetriever(BaseMemoryRetriever):
+    """
+    重排序阶段
+
+    包裹任意召回策略：先向内层检索器取 ``max(top_k, candidate_top_k)`` 条
+    候选，重排序后再截取 top_k。重排后的分数不再套用召回阶段的阈值。
+    """
+
+    def __init__(
+        self,
+        inner: BaseMemoryRetriever,
+        reranker: BaseReranker,
+        *,
+        candidate_top_k: int,
+    ):
+        self.inner = inner
+        self.reranker = reranker
+        self.candidate_top_k = candidate_top_k
+
+    async def retrieve(
+        self,
+        query: RetrievalQuery,
+        top_k: int | None = None,
+        score_threshold: float | None = None,
+    ) -> SearchResults:
+        candidate_count = None if top_k is None else max(top_k, self.candidate_top_k)
+        candidates = await self.inner.retrieve(
+            query,
+            top_k=candidate_count,
+            score_threshold=score_threshold,
+        )
+        reranked = self.reranker.rerank(candidates, query)
+        if top_k is not None:
+            reranked.results = reranked.results[:top_k]
+        return reranked
+
+
 def create_retriever(
     mid_term: "MidTermMemoryStore",
     config: HybridRetrieverConfig | DenseRetrieverConfig | SparseRetrieverConfig,
+    *,
+    reranker_config: RerankerConfig | None = None,
     reranker_service: BaseRerankService | None = None,
 ) -> BaseMemoryRetriever:
     """
     创建检索器工厂
 
-    支持多态配置:
+    召回策略按配置多态分发:
     - DenseRetrieverConfig -> DenseRetriever
     - SparseRetrieverConfig -> SparseRetriever
     - HybridRetrieverConfig -> HybridRetriever
 
+    重排序启用且提供了服务时，任意召回策略外再包一层 RerankingRetriever。
+
     Args:
         mid_term: 中期记忆存储
-        config: 检索器配置
+        config: 召回策略配置
+        reranker_config: 重排序配置（缺省不重排）
         reranker_service: Rerank 服务实例
 
     Returns:
         BaseMemoryRetriever 实例
     """
+    retriever = _create_recall_retriever(mid_term, config)
+    if reranker_config is None or not reranker_config.enabled:
+        return retriever
+    if reranker_service is None:
+        logger.warning("Reranker 已启用但未提供重排服务，跳过重排序")
+        return retriever
+    return RerankingRetriever(
+        retriever,
+        create_reranker(config=reranker_config, service=reranker_service),
+        candidate_top_k=reranker_config.top_k,
+    )
+
+
+def _create_recall_retriever(
+    mid_term: "MidTermMemoryStore",
+    config: HybridRetrieverConfig | DenseRetrieverConfig | SparseRetrieverConfig,
+) -> BaseMemoryRetriever:
     # 多态分发
     if isinstance(config, DenseRetrieverConfig):
         return DenseRetriever(mid_term, config)
@@ -423,21 +472,10 @@ def create_retriever(
         # 2. 创建 Fusion
         fusion = create_fusion(config.fusion)
 
-        # 3. 创建 Reranker
-        reranker = None
-        if config.reranker.enabled:
-            if reranker_service is None:
-                logger.warning(
-                    "HybridRetriever: Reranker enabled but no service provided. Disabling reranker."
-                )
-            else:
-                reranker = create_reranker(config=config.reranker, service=reranker_service)
-
         return HybridRetriever(
             dense_retriever=dense_retriever,
             sparse_retriever=sparse_retriever,
             fusion=fusion,
-            reranker=reranker,
             config=config,
         )
 
@@ -448,5 +486,6 @@ __all__ = [
     "DenseRetriever",
     "SparseRetriever",
     "HybridRetriever",
+    "RerankingRetriever",
     "create_retriever",
 ]

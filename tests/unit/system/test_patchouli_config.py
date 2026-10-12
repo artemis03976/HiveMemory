@@ -1,9 +1,13 @@
 """Patchouli 配置公共表面的回归测试。"""
 
+import pytest
+from pydantic import ValidationError
+
 from hivememory.config.patchouli import (
     AdaptiveWeightedFusionConfig,
     MemoryGenerationConfig,
     MemoryLifecycleConfig,
+    MemoryRetrievalConfig,
     PatchouliConfig,
     RetrievalModeConfig,
 )
@@ -40,3 +44,12 @@ def test_legacy_unwired_fields_are_pruned_during_validation() -> None:
 
     assert "time_weight" not in mode.model_dump()
     assert "high_watermark" not in lifecycle.model_dump()
+
+
+@pytest.mark.parametrize("retriever_type", ["hybrid", "dense", "sparse"])
+def test_retriever_level_reranker_is_rejected_with_migration_hint(retriever_type) -> None:
+    """旧位置 retriever.reranker 必须显式失败，而不是被 extra=ignore 静默丢弃。"""
+    with pytest.raises(ValidationError, match="已移至 retrieval.reranker"):
+        MemoryRetrievalConfig.model_validate(
+            {"retriever": {"type": retriever_type, "reranker": {"enabled": False}}}
+        )

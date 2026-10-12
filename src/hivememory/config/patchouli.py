@@ -1,6 +1,6 @@
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ========== 存储 ==========
 
@@ -201,7 +201,6 @@ class HybridRetrieverConfig(BaseModel):
         default_factory=ReciprocalRankFusionConfig,
         discriminator="type",
     )
-    reranker: RerankerConfig = Field(default_factory=RerankerConfig)
 
     model_config = ConfigDict(extra="ignore")
 
@@ -211,8 +210,23 @@ class MemoryRetrievalConfig(BaseModel):
         default_factory=HybridRetrieverConfig,
         discriminator="type",
     )
+    # 重排序是召回之后的独立阶段，适用于任意召回策略。
+    reranker: RerankerConfig = Field(default_factory=RerankerConfig)
 
     model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_retriever_level_reranker(cls, data: Any) -> Any:
+        # 检索器配置忽略未知字段；旧位置若不显式拒绝，其设置会被静默丢弃。
+        if isinstance(data, dict):
+            retriever = data.get("retriever")
+            if isinstance(retriever, dict) and "reranker" in retriever:
+                raise ValueError(
+                    "retrieval.retriever.reranker 已移至 retrieval.reranker，"
+                    "重排序配置不再属于具体检索器"
+                )
+        return data
 
 
 # ========== 生命周期 ==========
