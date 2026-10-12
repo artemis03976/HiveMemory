@@ -25,7 +25,7 @@ last_reviewed: 2026-10-11
 
 # 执行单元、执行线程与执行环境
 
-**文档状态**：Idea；T-9 操作请求与执行凭据已于 2026-10-09 实施验收，取代 T-4a/T-4c 的主线程通道；2026-10-11 决定以线程 context 取代执行凭据（T-2），尚未实施；独立子线程身份、派生授权与执行环境方向仍在讨论。实施证据见 [Alice 迁移归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)，当前事实见 [Workspace 架构](../architecture/workspace.md)。
+**文档状态**：Idea；T-9 操作请求与执行凭据已于 2026-10-09 实施验收，取代 T-4a/T-4c 的主线程通道；2026-10-11 决定以线程 context 取代执行凭据（T-2），同日实施验收（主线程）；独立子线程身份、派生授权与执行环境方向仍在讨论。实施证据见 [Alice 迁移归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)与[线程 context 归档计划](../archive/plans/v0.7.0-thread-context.md)，当前事实见 [Workspace 架构](../architecture/workspace.md)。
 **记录日期**：2026-10-05 起；2026-10-06 由总 Idea 第四部分拆出
 
 ## 0. 文档性质
@@ -183,7 +183,7 @@ flowchart LR
 
 ### T-2 执行线程的访问 context
 
-**状态**：已完成。2026-10-06 决定；2026-10-11 补充进程 context 与线程 context 的分工，并以线程 context 取代执行凭据；尚未实施。T-2a 见第 5 节。
+**状态**：已完成。2026-10-06 决定；2026-10-11 补充进程 context 与线程 context 的分工，并以线程 context 取代执行凭据；主线程部分同日实施验收，子线程各自的 context 属于执行线程层。T-2a 见第 5 节。
 
 **问题**：身份 Idea 第 2 节规定一份 context 只属于一个 actor 和一次运行；I-8 规定进程记录只持有访问 context；任务进程 Idea Q-10 规定父进程的访问上下文需要容纳被调用方的身份与权限。一个进程内有多个执行线程时，context 采用什么形态？
 
@@ -204,7 +204,7 @@ flowchart LR
 - 本条取代 T-9 的“绑定改为执行凭据”与计划前补充决定中的执行凭据、兑现位置，T-1b 的“每个线程一份执行凭据”，以及身份 Idea I-9“删除之后”的第 2 点。
 - 分析：两类 context 正好对应 2026-10-10 划分的两类操作——进程 context 用于系统操作（阶段授权），线程 context 用于 actor 操作（操作授权）。
 - （owner，2026-10-11）主线程的线程 context 从进程 context 派生：主线程与进程是同一个 actor，不重新认证。子线程的 context 如何取得（派生或以被调用方重新认证）仍属 T-3a。
-- 实施：[线程 context 取代执行凭据](../plans/v0.7.0-thread-context.md)（计划，2026-10-11 建立）。
+- 实施：[线程 context 取代执行凭据](../archive/plans/v0.7.0-thread-context.md)（2026-10-11 实施验收并归档）。
 
 **取舍**：另一种做法是进程只持有主线程的一份 context，授权时另行传入发起线程的 actor；它使一份 context 对应多个 actor，需要修订身份 Idea 第 2 节，第 3 阶段还要另行校验该 actor 属于本进程登记的线程。
 
@@ -238,7 +238,7 @@ flowchart LR
 
 ### T-9 操作请求与 workspace 的操作入口
 
-**状态**：已完成并实施（2026-10-09）；2026-10-11 执行凭据由线程 context 取代（T-2），尚未实施。2026-10-08、2026-10-09 的决定先作为 Alice 迁移阶段一落地，随后完成 SEARCH、引用记录与 CALL Profile，以及过渡身份删除；[归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)保留三阶段验收。每个子线程独立签发 context/凭据仍属于后续执行线程层，本次子帧共用主线程提交函数。
+**状态**：已完成并实施（2026-10-09）；2026-10-11 执行凭据由线程 context 取代（T-2），同日实施。2026-10-08、2026-10-09 的决定先作为 Alice 迁移阶段一落地，随后完成 SEARCH、引用记录与 CALL Profile，以及过渡身份删除；[归档计划](../archive/plans/v0.7.0-alice-capability-migration.md)保留三阶段验收。每个子线程独立签发 context/凭据仍属于后续执行线程层，本次子帧共用主线程提交函数。
 
 **问题**（owner，2026-10-08）：第 1 步实施的进程操作通道（T-4c，2.2）有两个结构问题：
 

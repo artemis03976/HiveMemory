@@ -60,11 +60,11 @@ Runtime 不从命令文本相信身份或权限。每次执行都由 frame 构�
 
 - `agent_profile`：语言等运行描述，不承载权限；
 - `runtime_scope`：run、frame 与 action 坐标及冻结的 `ExecutionLabels`；标签仅用于观测，不携带授权身份或 parent/depth 拓扑信息；
-- `submit_operation`：CPU 驱动绑定执行凭据的请求提交函数，root 与 CALL 子帧共享，不暴露访问 context 或目标选择；
+- `submit_operation`：CPU 驱动绑定线程 context 的请求提交函数，root 与 CALL 子帧共享，不暴露访问 context 或目标选择；CPU 执行结束后线程 context 被撤销，再提交会被拒绝；
 - `execution_policy`：frame 的 MTP 动词集合、每帧预算与 CALL 等控制流硬限制；
 - `language`：错误、warning 与普通响应的本地化选择。
 
-资源操作统一提交冻结的 `OperationRequest`：READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别由 workspace actor API 逐次检查 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`；RUN 提交 `ResolveRunTargetRequest`，`sys_*` 系统工具在本地执行且不提交请求；子帧的意图撤回是操作入口内部的补偿，不检查 operation。操作入口从凭据恢复可信身份与固定目标，Alice/agent_runtime 不请求 Patchouli 路由；引用记录由读取能力自动完成。frame 的动词集合与 CALL 控制流由 `FrameExecutionPolicy` 决定，观测标签不参与授权。
+资源操作统一提交冻结的 `OperationRequest`：READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别由 workspace actor API 逐次检查 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`；RUN 提交 `ResolveRunTargetRequest`，`sys_*` 系统工具在本地执行且不提交请求；子帧的意图撤回是操作入口内部的补偿，不检查 operation。身份与目标由 actor API 从线程 context 取得，Alice/agent_runtime 不请求 Patchouli 路由；引用记录由读取能力自动完成。frame 的动词集合与 CALL 控制流由 `FrameExecutionPolicy` 决定，观测标签不参与授权。
 
 ## 3. 动词集合的三层检查
 
@@ -160,7 +160,7 @@ Alice 配置当前分为两组：
 
 1. 变化属于协议语义还是 Alice 的实现策略？前者更新 Contracts，后者更新本文；
 2. 新能力是否同时经过 prompt 裁剪和 runtime 权限检查；
-3. 资源操作是否经凭据绑定的提交函数，是否误用观测标签构造授权身份或重新请求 Patchouli 路由；
+3. 资源操作是否经线程 context 绑定的提交函数，是否误用观测标签构造授权身份或重新请求 Patchouli 路由；
 4. WRITE/UPDATE 是否仍然只登记意图，CALL 是否仍然只产生 `SUSPENDED` trap；
 5. handler 是否保持结构化 error/warning，不泄露内部 exception；
 6. 同步工作、timeout 与取消是否给出了与真实接线一致的保证；

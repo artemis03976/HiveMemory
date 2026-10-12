@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # Agent Runtime
@@ -41,7 +41,7 @@ AgentRunService
 - 不拥有 start/stop/health 生命周期；
 - 不直接 import Alice 的 RunExecutor、CallCoordinator、CallContextProvider；
 - 只消费注入的 MTP port、配置、模型注册表和运行时状态；
-- WRITE/UPDATE、引用读取与 SEARCH 经 frame 的凭据绑定提交函数进入 workspace；CALL Profile 读取由 Alice 编排层提交请求，引用记录由 workspace 读取能力自动完成。
+- WRITE/UPDATE、引用读取与 SEARCH 经 frame 的线程 context 绑定提交函数进入 workspace；CALL Profile 读取由 Alice 编排层提交请求，引用记录由 workspace 读取能力自动完成。
 
 `AgentRuntime` 门面与 frame 级契约保留在 `agent_runtime/` 根部，`execution/` 收拢 loop 与 WorkerAgent，`mtp/` 保存协议执行。AliceRuntime 只装配执行机制；写入意图登记、完整引用解析、原子与 Profile 缓存由 workspace 持有，执行层只消费 CPU 驱动交付的提交函数。
 
@@ -198,7 +198,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程
 - `BUDGET_EXHAUSTED` 能区分循环预算耗尽，但当前没有动态扩容、自动任务分解或 checkpoint 恢复策略；
 - 主 run 的失败和预算耗尽都由 Alice 组装为执行结果的 `failed`，它是可观察且稳定的常规终态，不应被改写为 `cancelled`；
 - 未使用 ModelRegistry 时 `model_used` 可能为空，即使 WorkerAgent 实际已经使用了调用方提供的模型；
-- 资源操作的提交函数不提供访问 context、Workspace 选择或执行者重新绑定能力；CALL 子帧沿用主线程凭据；
+- 资源操作的提交函数不提供访问 context、Workspace 选择或执行者重新绑定能力；CALL 子帧沿用主线程的线程 context；
 - 流式取消只能在 LiteLLM chunk 或 MTP checkpoint 处生效，不能保证立即中断同步 syscall；
 - 执行层没有每 run 的资源配额、token budget、并发限流、持久化 checkpoint 或回放能力；
 - `health()` 只返回 loop/worker 固定 `ok`，不验证模型端点、正在运行的 frame 或迭代耗尽率。

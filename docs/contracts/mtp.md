@@ -55,11 +55,11 @@ MTP 是 Alice Agent 在生成循环中调用记忆、系统工具和子 Agent �
 
 ## 2. 执行位置
 
-`KoakumaRuntime` 负责 parse、Profile 权限检查、verb 分发、结果计时和格式化。它属于 Alice；SEARCH、READ/RUN 记忆目标、WRITE/UPDATE 以及 CALL 目标 Profile 与 context_refs 全部提交公共操作请求，经绑定执行凭据的 `OperationSubmitter` 进入 workspace 能力层。Alice 不直接请求 Patchouli，不持有 local bus 代理或 Profile 读取缓存。
+`KoakumaRuntime` 负责 parse、frame 执行策略的动词检查、verb 分发、结果计时和格式化。它属于 Alice；SEARCH、READ/RUN 记忆目标、WRITE/UPDATE 以及 CALL 目标 Profile 与 context_refs 全部提交公共操作请求，经绑定线程 context 的 `OperationSubmitter` 进入 workspace 能力层。Alice 不直接请求 Patchouli，不持有 local bus 代理或 Profile 读取缓存。
 
 Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格式化结果回填到消息历史，再继续生成。CALL 的 `suspend` 由 Alice `RunExecutor`/`CallCoordinator` 消费，不直接回填为空结果；Koakuma 只产出结构化 `MTPCallRequest`，目标 Profile 与 `context_refs` 由 `CallContextProvider` 在 Alice 编排边界解析。Executor 递归等待被调用 frame，完成后由 `AgentRuntime.apply_call_response()` 一次性写回 caller history 和 `tool_result`。
 
-每条指令的 `MTPExecutionContext` 从当前 frame 冻结得到，其中 `RuntimeScope` 只携带执行关联与只读 `ExecutionLabels`，不含 `IdentityScope`。workspace 凭据表绑定主线程的访问 context、注册目标 Workspace 与 process_id，CPU 驱动将不透明凭据绑定为提交函数，主、子 frame 沿用同一函数和注册标签。请求不能自行指定目标；READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别要求 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，各项互不隐含（RUN 不要求 READ，WRITE 不授予 UPDATE）；RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求；子帧的意图撤回是内部补偿，不检查 operation。资源归属与 actor policy 仍逐次校验。
+每条指令的 `MTPExecutionContext` 从当前 frame 冻结得到，其中 `RuntimeScope` 只携带执行关联与只读 `ExecutionLabels`，不含 `IdentityScope`。任务进程进入 CPU 执行阶段时从进程 context 派生主线程的线程 context，CPU 驱动将它绑定为提交函数，主、子 frame 沿用同一函数和注册标签；CPU 执行结束即撤销，此后的提交被拒绝。请求不能自行指定目标或 process_id：actor API 的目标取线程的驻留 Workspace，意图的进程关联取自线程 context；READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别要求 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，各项互不隐含（RUN 不要求 READ，WRITE 不授予 UPDATE）；RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求；子帧的意图撤回是内部补偿，不检查 operation。资源归属与 actor policy 仍逐次校验。
 
 ## 3. 动词契约
 
@@ -226,10 +226,10 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 - READ/SEARCH 输出通过 MemoryCompiler，不在 handler 内维护第二套记忆渲染；
 - WRITE/UPDATE 的 ACK 不等同于持久化成功；
 - CALL 的 suspend 只能由 Alice 编排层恢复；
-- 记忆访问经执行凭据绑定进入 workspace，授权点组装当次 `IdentityScope`，资源 owner 先执行 Workspace ownership hard boundary，再执行 actor 可见性策略；执行标签不能代替任一授权边界；
+- 记忆访问经线程 context 绑定的提交函数进入 workspace，授权点组装当次 `IdentityScope`，资源 owner 先执行 Workspace ownership hard boundary，再执行 actor 可见性策略；执行标签不能代替任一授权边界；
 - cancellation 不能被转换成普通 success。
 
-> **实现说明**：workspace 统一按 L0 写入意图登记、L1 完整原子缓存、L2 canonical 冷读解析。L0 只比较 Workspace 归属，不比较提交 Agent 或进程；UPDATE 意图另按基础原子的 actor policy 判断，读不到基础时与不存在相同；L1/L2 对正式原子逐次执行 ownership 与 actor policy。redirect 目标不可读时清空 canonical 引用和结算视图字段，并省略可能携带基础身份的 pending 记录。Patchouli 的 canonical 变更事件内联失效原子、Profile 与 Workspace 代次；UPDATE 登记成功后另失效基础原子。意图与原子结果均为独立副本。详见 [Workspace 架构](../architecture/workspace.md#54-写入意图执行凭据与操作入口)、[MTP Runtime](../alice/mtp-runtime.md)。
+> **实现说明**：workspace 统一按 L0 写入意图登记、L1 完整原子缓存、L2 canonical 冷读解析。L0 只比较 Workspace 归属，不比较提交 Agent 或进程；UPDATE 意图另按基础原子的 actor policy 判断，读不到基础时与不存在相同；L1/L2 对正式原子逐次执行 ownership 与 actor policy。redirect 目标不可读时清空 canonical 引用和结算视图字段，并省略可能携带基础身份的 pending 记录。Patchouli 的 canonical 变更事件内联失效原子、Profile 与 Workspace 代次；UPDATE 登记成功后另失效基础原子。意图与原子结果均为独立副本。详见 [Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)、[MTP Runtime](../alice/mtp-runtime.md)。
 
 ## 7. 设计矛盾检查
 

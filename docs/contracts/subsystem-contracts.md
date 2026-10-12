@@ -26,7 +26,7 @@ last_reviewed: 2026-10-11
 
 因此，公共模型倾向于使用 frozen、Pydantic 或依赖中立的 dataclass。不可变并不只是编码偏好，它要求上游先形成完整决定，再交给下游只读消费；依赖中立则阻止某个领域对象沿模型引用把存储、Runtime 或 Controller 一并泄漏出去。本文既记录字段和终态，也记录这些形态背后的所有权理由。
 
-Gateway 与资源 owner 公开操作的身份输入使用 `IdentityScope`：它表达一次操作的发起者与目标 Workspace，由 workspace 的授权点在操作授权通过后组装。Patchouli 在公共边界拆为 `belong_to: WorkspaceIdentity` 与 `from_actor: ActorIdentity`，内部服务、引擎、存储、交互记录和后台任务独立携带所需身份，不保留或重建 scope。领域所有者在最终读写处先检查 Workspace 归属，再按资源 policy 检查发起者；资源来源不参与授权。共享的 queue、registry 和 Runtime 不因此按 Workspace 复制或分区。Alice/CPU 的清单仅携带观测标签，资源请求经独立凭据绑定的 workspace 操作入口授权（第 4 节）。WorkspaceAsset 旧端口的当前例外见[Workspace 架构](../architecture/workspace.md#10-当前边界与限制)。
+Gateway 与资源 owner 公开操作的身份输入使用 `IdentityScope`：它表达一次操作的发起者与目标 Workspace，由 workspace 的授权点在操作授权通过后组装。Patchouli 在公共边界拆为 `belong_to: WorkspaceIdentity` 与 `from_actor: ActorIdentity`，内部服务、引擎、存储、交互记录和后台任务独立携带所需身份，不保留或重建 scope。领域所有者在最终读写处先检查 Workspace 归属，再按资源 policy 检查发起者；资源来源不参与授权。共享的 queue、registry 和 Runtime 不因此按 Workspace 复制或分区。Alice/CPU 的清单仅携带观测标签，资源请求经绑定线程 context 的 workspace 操作入口授权（第 4 节）。WorkspaceAsset 旧端口的当前例外见[Workspace 架构](../architecture/workspace.md#10-当前边界与限制)。
 
 ## 1. 生命周期契约
 
@@ -192,7 +192,7 @@ Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，�
 
 ### 3.5 访问 context 与操作授权
 
-Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService` 的阶段方法（prepare、finalize、cleanup）以 `IdentityScope` 接收操作身份，不接收访问 context，也不做操作授权。操作授权在调用方一侧的授权点完成，再把 `WorkspaceOperationAuthorizer` 返回的 `IdentityScope` 交给紧随的 Patchouli 路由：actor API 用 `authorize_operation(access, operation, target_workspace)` 检查 actor 操作白名单；root API 用 `authorize_root(access, target_workspace)`，只接受保留的 `system`；任务进程的阶段调用（Gateway 话题读取、prepare、finalize、cleanup、话题池读取）用 `authorize_stage(access, target_workspace)`，不检查 actor 操作，发起者仍是进程的 Agent。finalize 与 cleanup 各自重新授权，不复用 prepare 的 scope。公共 handler 拆分身份后，内部调用只传归属与需要的发起者（完整模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
+Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService` 的阶段方法（prepare、finalize、cleanup）以 `IdentityScope` 接收操作身份，不接收访问 context，也不做操作授权。操作授权在调用方一侧的授权点完成，再把 `WorkspaceOperationAuthorizer` 返回的 `IdentityScope` 交给紧随的 Patchouli 路由：actor API 用 `authorize_thread_operation(access, operation)` 检查 actor 操作白名单（只接受未撤销的线程 context，目标取其驻留 Workspace）；root API 用 `authorize_root(access, target_workspace)`，只接受保留的 `system`；任务进程的阶段调用（Gateway 话题读取、prepare、finalize、cleanup、话题池读取）用 `authorize_stage(access, target_workspace)`，不检查 actor 操作，发起者仍是进程的 Agent。finalize 与 cleanup 各自重新授权，不复用 prepare 的 scope。公共 handler 拆分身份后，内部调用只传归属与需要的发起者（完整模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
 
 Patchouli 一侧仍独立执行资源授权：资源归属与 `MemoryAccessPolicy` 可见性在最终读写处校验，越域目标按不存在处理，不因调用方已通过操作授权而放宽。
 
@@ -210,7 +210,7 @@ class CPUPort(Protocol):
         self,
         manifest: CPUInputManifest,
         *,
-        credential: ExecutionCredential,
+        access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
         stream: bool,
     ) -> AsyncGenerator[CPUOutput, None]: ...
@@ -222,7 +222,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 
 `allowed_operations` 是 CPU 分配时由阶段授权读取的、本进程 actor 在访问登记中的 actor 操作集合（`frozenset[WorkspaceOperation]`），空白名单得到空集合。它只描述执行者能做什么，供执行者生成提示词与执行策略（Alice 翻译为 MTP 动词，外部执行者的工具列表由其适配器翻译），不是授权依据：每个操作请求仍由 actor API 按访问登记即时授权。
 
-`ExecutionCredential` 是 execute 的独立参数，不进入冻结清单。CPU 驱动以公共 `OperationEntry` 绑定凭据为 `OperationSubmitter`，执行适配器只提交操作请求。清单的 `ExecutionLabels` 只有 `agent_id` 与 `workspace_id` 两个只读字符串，注册认证成功后创建一次并与进程事件沿用同一对象；标签不含 actor、owner 或访问 context，也不能改变授权或资源目标。
+`access` 是本次执行主线程的线程 context（密封的 `WorkspaceAccessContext`，进入 CPU 执行阶段时从进程 context 派生），是 execute 的独立参数，不进入冻结清单。CPU 驱动以公共 `OperationEntry` 把它绑定为 `OperationSubmitter`，执行适配器只提交操作请求；CPU 读不出 context 的内容，也不持有进程 context。CPU 执行结束（拿到终态结果并关闭输出流，或提前结束）后线程 context 即被撤销，此后的提交以 `ThreadContextRevokedError` 拒绝。清单的 `ExecutionLabels` 只有 `agent_id` 与 `workspace_id` 两个只读字符串，注册认证成功后创建一次并与进程事件沿用同一对象；标签不含 actor、owner 或访问 context，也不能改变授权或资源目标。
 
 端口语义：
 
@@ -261,7 +261,7 @@ run_agent(
 
 ### 4.4 Alice 的端口实现
 
-`AliceCPU`（`alice/application/cpu.py`）持有公共 `OperationEntry`，将 execute 的凭据绑定为 `OperationSubmitter` 后，经全局总线调用 `alice.public.run_agent`：流式时原样转交交互事件，把 `done` 转换为 `CPUExecutionResult`（运行元数据不进入结果）；非流式时产出路由返回的执行结果。端口输出流被关闭时，它一并关闭 Alice 的事件流。Alice 的运行时仍在公开路由之后，进程只持有端口对象。
+`AliceCPU`（`alice/application/cpu.py`）持有公共 `OperationEntry`，将 execute 的线程 context 绑定为 `OperationSubmitter` 后，经全局总线调用 `alice.public.run_agent`：流式时原样转交交互事件，把 `done` 转换为 `CPUExecutionResult`（运行元数据不进入结果）；非流式时产出路由返回的执行结果。端口输出流被关闭时，它一并关闭 Alice 的事件流。Alice 的运行时仍在公开路由之后，进程只持有端口对象。
 
 ### 4.5 Alice 不变量
 
@@ -272,7 +272,7 @@ run_agent(
 - Agent Profile 不承载权限；frame 的 MTP 动词集合由输入清单的 `allowed_operations` 翻译而来（RUN 始终可用，`sys_*` 系统工具不设权限），提交到 workspace 的请求仍由 actor API 逐次授权；
 - CALL 仅允许根 frame 发起；子 frame 继承父 frame 的动词集合并去掉 CALL，不能继续递归 CALL，被调用方 Profile 不改变这一集合。
 
-### 4.6 操作请求与执行凭据
+### 4.6 操作请求与线程 context
 
 `OperationRequest[R]` 是 frozen dataclass 结果类型契约；具体请求只携带业务参数，不接收访问 context、`IdentityScope`、目标 Workspace 或 process_id。六项 actor 请求与 actor 操作一一对应，每种请求恰好检查一项操作：
 
@@ -285,13 +285,13 @@ run_agent(
 | `SubmitUpdateIntentRequest` | UPDATE | `base_alias`、`instruction`、`content=None` | `PendingAtom` | `memory.update` |
 | `ResolveCallTargetRequest` | CALL（只有 Alice 使用） | `agent_alias=None` | `AgentProfile` | `agent.call`（内置同样需要） |
 
-`CancelIntentsRequest(aliases: tuple[str, ...]) -> list[str]` 是执行单元内部的补偿请求，不属于 actor 操作：入口兑现凭据后只按绑定的进程关联撤回仍为 PENDING 的指定意图，返回实际撤回的 alias，不检查 operation，也不能撤回其他进程或已被认领的意图。RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求。
+`CancelIntentsRequest(aliases: tuple[str, ...]) -> list[str]` 是执行单元内部的补偿请求，不属于 actor 操作：入口校验线程 context 后只按它的进程关联撤回仍为 PENDING 的指定意图，返回实际撤回的 alias，不检查 operation，也不能撤回其他进程或已被认领的意图。RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求。
 
-公共入口与提交函数分别为 `OperationEntry.execute[R](request: OperationRequest[R], *, credential: ExecutionCredential) -> R`、`OperationSubmitter.__call__[R](request: OperationRequest[R]) -> R`。主、子 frame 暂时共享 CPU 驱动绑定的提交函数。新增资源操作应扩展请求与入口，而不增加 workspace 总线路由或让适配器切换资源目标。
+公共入口与提交函数分别为 `OperationEntry.execute[R](request: OperationRequest[R], *, access: WorkspaceAccessContext) -> R`、`OperationSubmitter.__call__[R](request: OperationRequest[R]) -> R`。主、子 frame 暂时共享 CPU 驱动绑定的提交函数。新增资源操作应扩展请求与入口，而不增加 workspace 总线路由或让适配器切换资源目标。
 
-`ExecutionCredentialRegistry` 是 workspace 内部共享表，签发对象身份凭据并绑定访问 context、注册目标与 process_id；兑现只接受确切的已签发对象，凭据不保存身份字段，拒绝复制与序列化。`WorkspaceOperationEntry` 兑现凭据后把 actor 请求薄分派到对应的 actor API 方法，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验；入口不持有 root API。未知请求类型抛 `TypeError`，未知或已吊销凭据抛 `ExecutionCredentialRevokedError`。
+`WorkspaceOperationEntry` 只接受线程 context：分派前经操作授权者确认它是未撤销的执行线程 context，再按请求类型把请求对象与线程 context 直接交给对应的 actor API 方法（`method(request, *, access)`），入口不拆参数，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验；入口不持有 root API。actor API 的目标取线程的驻留 Workspace，意图登记的 process_id 取自线程 context 的运行绑定。未知请求类型抛 `TypeError`；进程 context、请求级 context 或其他对象抛 `ScopeRequiredError`；已撤销的线程 context 抛 `ThreadContextRevokedError`（`core.errors`，由 `workspace.contracts` 重新导出）。拒绝都发生在任何副作用之前。
 
-进程关闭同步吊销凭据；吊销不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。意图提交（WRITE、UPDATE）返回入口后都在同步段再次检查凭据，吊销时同步撤回刚登记的 PENDING 意图并拒绝 ACK；当前 UPDATE 的基础冷读是会跨越关闭的等待点，WRITE 也纳入复查，使这条保证不依赖能力方法内部是否等待。凭据表不拥有访问 context 的撤销；完整关闭、意图认领与引用计数语义见 [Workspace 架构](../architecture/workspace.md#54-写入意图执行凭据与操作入口)。
+CPU 执行结束时执行器同步撤销线程 context，关闭流程兜底；撤销不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。意图提交（WRITE、UPDATE）在分派前取得进程关联，返回入口后都在同步段再次检查线程 context，已撤销时以该关联同步撤回刚登记的 PENDING 意图并拒绝 ACK；当前 UPDATE 的基础冷读是会跨越撤销的等待点，WRITE 也纳入复查，使这条保证不依赖能力方法内部是否等待。完整的撤销时点、意图认领与引用计数语义见 [Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)。
 
 ## 5. 顶层主动链路契约
 
@@ -304,13 +304,14 @@ Gateway decision outcome
   -> 解析 Agent Profile（阶段授权后经 workspace 的 Profile 读取视图）
   -> Patchouli prepare（Topic 与检索）
   -> CPU 分配：附件租借、附件与记忆编译、组装输入清单
-  -> Actor 执行：经 CPU 端口（当前为 Alice）
+  -> Actor 执行：从进程 context 派生线程 context，经 CPU 端口（当前为 Alice）
+       -> CPU 终态结果后关闭输出流，同步撤销线程 context
   -> completed: 任务进程认领本进程意图并封口交互记录（InteractionPayload，含实际使用的附件）
        -> Patchouli finalize
   -> cancelled/failed/exception: 不进入 finalize，转入关闭补偿
-  -> 进程结束：先同步吊销凭据、取消本进程仍为 PENDING 的意图、释放附件租借
+  -> 进程结束：先同步撤销仍登记的线程 context（兜底）、取消本进程仍为 PENDING 的意图、释放附件租借
        -> 关闭输出流；prepare 成功但 finalize 未成功时请求 Patchouli cleanup
-       -> 注册入口最后撤销访问 context
+       -> 注册入口最后撤销进程 context
 ```
 
 Agent Profile 属于 CPU 分配，但当前在 prepare 之前解析：prepare 可能新建 Topic 或按 LRU 结算已有话题，Profile 缺失的请求应在这些副作用发生前失败。

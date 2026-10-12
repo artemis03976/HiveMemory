@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # HiveMemory 项目总览
@@ -218,7 +218,7 @@ Patchouli 拥有长期记忆、话题、Agent Profile、检索、感知、生成
 
 ### 7.3 Alice
 
-Alice 以 CPU 端口的实现接入任务进程，消费任务进程组装的输入清单（`CPUInputManifest`）执行 Agent run，拥有 frame、Agent loop、Koakuma MTP runtime、frame ACK alias 集合和 CALL 编排。写入意图登记与引用解析由 workspace 持有，Alice 经执行凭据绑定的提交函数发出操作请求。它不直接拥有长期记忆存储。
+Alice 以 CPU 端口的实现接入任务进程，消费任务进程组装的输入清单（`CPUInputManifest`）执行 Agent run，拥有 frame、Agent loop、Koakuma MTP runtime、frame ACK alias 集合和 CALL 编排。写入意图登记与引用解析由 workspace 持有，Alice 经线程 context 绑定的提交函数发出操作请求。它不直接拥有长期记忆存储。
 
 代码入口：`src/hivememory/alice/system.py`、`runtime/`、`src/hivememory/agent_runtime/`。
 
@@ -258,7 +258,7 @@ external event
 
 ### 8.3 MTP
 
-Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、执行、写入、更新记忆或调用子 Agent。资源操作统一经绑定执行凭据的操作请求进入 workspace 的 actor API，每个动词检查访问登记中对应的一项 actor 操作，Alice 只持有只读观测标签；READ 与 RUN 的引用交付统一记录 `workspace.reference_read` citation，CALL 目标 Profile 包括内置目标都要求 `agent.call`。WRITE/UPDATE 的 ACK 只表示 PendingAtom 已登记；进程正常完成时认领本进程的 PENDING 意图，正式持久化由 Patchouli finalize 后续处理。进程关闭同步吊销凭据，只取消该进程仍为 PENDING 的意图。
+Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、执行、写入、更新记忆或调用子 Agent。资源操作统一经绑定线程 context 的操作请求进入 workspace 的 actor API，每个动词检查访问登记中对应的一项 actor 操作，Alice 只持有只读观测标签；READ 与 RUN 的引用交付统一记录 `workspace.reference_read` citation，CALL 目标 Profile 包括内置目标都要求 `agent.call`。WRITE/UPDATE 的 ACK 只表示 PendingAtom 已登记；进程正常完成时认领本进程的 PENDING 意图，正式持久化由 Patchouli finalize 后续处理。CPU 执行结束即撤销线程 context，此后的操作请求被拒绝；进程关闭只取消该进程仍为 PENDING 的意图。
 
 完整规范见[MTP 契约](./contracts/mtp.md)。
 

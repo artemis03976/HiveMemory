@@ -18,7 +18,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-11
 ---
 
 # Patchouli
@@ -110,7 +110,7 @@ Prepare 只准备话题与检索结果，不解析 Profile、不编译记忆、�
 
 `PreparedAgentRun` 只保存资源归属与准备结果，不保存阶段授权 scope。任务进程在 prepare、finalize 与 cleanup 调用前分别从仍有效的访问 context 授权并组装 scope；finalize 和 cleanup 会核对准备结果的归属，拒绝越域交接。进入提交队列后的交互记录独立携带归属与本轮发起者，取消调用方等待不会让后台 continuation 重新依赖访问 context。
 
-`WRITE` / `UPDATE` 的 ACK 只代表 workspace 已登记一个 PendingAtom；Alice 经执行凭据绑定的提交函数发出操作请求，completed 后由任务进程认领并交接物化任务。Patchouli 完成生成、去重、artifact 挂载和中期存储写入后，才通过 settlement 通知 workspace registry 投影 canonical alias/UUID 或 discard/failure/cancel 终态。canonical 读取缓存由中期 Store 的独立变更事件失效，结算通知不回填原子；详情见[MemoryLibrary](./memory-library.md)与[PendingAtom](../alice/pending-atom.md)。
+`WRITE` / `UPDATE` 的 ACK 只代表 workspace 已登记一个 PendingAtom；Alice 经线程 context 绑定的提交函数发出操作请求，completed 后由任务进程认领并交接物化任务。Patchouli 完成生成、去重、artifact 挂载和中期存储写入后，才通过 settlement 通知 workspace registry 投影 canonical alias/UUID 或 discard/failure/cancel 终态。canonical 读取缓存由中期 Store 的独立变更事件失效，结算通知不回填原子；详情见[MemoryLibrary](./memory-library.md)与[PendingAtom](../alice/pending-atom.md)。
 
 ### 3.2 被动摄入与话题结算
 

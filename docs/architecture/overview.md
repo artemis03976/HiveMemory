@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-11
 ---
 
 # HiveMemory 当前系统架构
@@ -149,7 +149,7 @@ Alice 是 Agent 执行与控制平面，拥有：
 - Koakuma MTP 解析、执行与回填；
 - 当前 frame 的 ACK 别名清单与 CALL 父子 frame 调度。
 
-写入意图登记、完整引用解析与可失效的原子/Profile 读取缓存由 workspace 拥有。Alice 通过绑定执行凭据的操作提交函数访问这些能力，包括 SEARCH 和 CALL 目标 Profile；引用记录由 workspace 统一完成，正式记忆仍由 Patchouli 物化和结算。运行清单与主、子 frame 仅携带注册时创建的只读观测标签，标签不参与资源授权。
+写入意图登记、完整引用解析与可失效的原子/Profile 读取缓存由 workspace 拥有。Alice 通过绑定线程 context 的操作提交函数访问这些能力，包括 SEARCH 和 CALL 目标 Profile；引用记录由 workspace 统一完成，正式记忆仍由 Patchouli 物化和结算。运行清单与主、子 frame 仅携带注册时创建的只读观测标签，标签不参与资源授权。
 
 Alice 是在图书馆中工作的 Agent 执行环境。它可以阅读书页、使用工具、提出写入或修订意图，也可以把工作委派给子 Agent；但正式书目如何产生、更新和归档仍由 Patchouli 决定。
 
@@ -193,10 +193,11 @@ TaskProcessService（workspace.process）
   -> workspace Profile 读取能力（CPU 分配的一部分，先于 prepare；按需经公开路由冷读）
   -> Patchouli PREPARE_AGENT_RUN（话题与检索）
   -> CPU 分配：附件租借与编译、记忆编译、组装 CPUInputManifest
-  -> Actor 执行：CPU 端口（当前为 Alice，经 RUN_AGENT 路由）
+  -> Actor 执行：派生线程 context，经 CPU 端口（当前为 Alice，经 RUN_AGENT 路由）
+  -> CPU 结束：同步撤销线程 context
   -> 任务进程封口交互记录（InteractionPayload）
   -> Patchouli FINALIZE_AGENT_RUN
-  -> 同步吊销执行凭据、取消本进程未认领意图、释放附件租借
+  -> 取消本进程未认领意图、释放附件租借
   -> 关闭输出流与进程，返回 Agent 结果和记忆任务信息
 ```
 
@@ -206,7 +207,7 @@ TaskProcessService（workspace.process）
 
 1. Gateway 必须先形成命令终态或完整决策；
 2. Patchouli prepare 只准备话题并检索记忆，返回 `PreparedAgentRun`（未编译的检索原子）；
-3. 任务进程在 CPU 分配时解析 Agent Profile、取得附件租借、编译附件与记忆，组装 `CPUInputManifest`；CPU 消费输入清单、独立的不透明执行凭据和单次生成覆盖参数，任务进程只经 CPU 端口调用它，因此执行者可以替换而不改动进程；
+3. 任务进程在 CPU 分配时解析 Agent Profile、取得附件租借、编译附件与记忆，组装 `CPUInputManifest`；CPU 消费输入清单、独立的线程 context（只用于提交操作请求，CPU 执行结束即撤销）和单次生成覆盖参数，任务进程只经 CPU 端口调用它，因此执行者可以替换而不改动进程；
 4. 只有执行结果为 completed 的一轮进入 finalize；
 5. prepare 成功但 finalize 未成功时，任务进程请求 Patchouli cleanup，清理可能预创建的空话题；附件租借无论结局如何都在进程结束时释放；
 6. 任务进程封口交互记录（用 core 的归约器从结构化 `turn_events` 得到 MTP trace），finalize 原样提交 interaction，并处理物化任务和检索命中。
