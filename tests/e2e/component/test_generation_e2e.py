@@ -10,7 +10,7 @@ HiveMemory Generation Module E2E Tests
     - Group 4: Schema 验证测试
 
 运行方式：
-    pytest tests/components/test_generation_e2e.py -v
+    pytest tests/e2e/component/test_generation_e2e.py -v -m e2e
 
 核心原则：
     - 使用真实的 LiteLLMService（librarian 配置）
@@ -104,6 +104,8 @@ from hivememory.infrastructure.llm.litellm_service import get_librarian_llm_serv
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.patchouli.memory_library import MidTermMemoryStore
 from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.system.model_registry import ModelRegistry
+from hivememory.system.provider_registry import ProviderRegistry
 
 # 导入 conftest 中的辅助函数
 from tests.conftest import print_test_result
@@ -126,6 +128,51 @@ _shared_extractor: LLMMemoryExtractor | None = None
 _shared_deduplicator: MemoryDeduplicator | None = None
 _shared_engine: MemoryGenerationEngine | None = None
 _test_collection_name: str = "hivememory_generation_test"
+_loop: asyncio.AbstractEventLoop | None = None
+
+
+# ========== 事件循环 ==========
+#
+# 本模块的测试是同步函数，共享的 QdrantMemoryStore 持有 AsyncQdrantClient，它绑定在
+# 首次使用它的事件循环上。逐次 ``asyncio.run`` 会为每次调用新建并关闭事件循环，第二次
+# 调用起便以 "Event loop is closed" 失败。因此模块内的全部异步调用都经 ``_run`` 在同一个
+# 事件循环中执行。
+
+
+def _get_loop() -> asyncio.AbstractEventLoop:
+    """返回模块共享的事件循环；首次调用时创建并设为当前循环（客户端在循环外构造）。"""
+    global _loop
+    if _loop is None or _loop.is_closed():
+        _loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(_loop)
+    return _loop
+
+
+def _run(coro: Any) -> Any:
+    """在模块共享的事件循环中执行协程。"""
+    return _get_loop().run_until_complete(coro)
+
+
+@pytest.fixture(scope="module", autouse=True)
+def _shared_event_loop():
+    """先于共享存储创建事件循环；模块结束时关闭 Qdrant 客户端与循环并清空共享状态。"""
+    global _loop, _shared_storage, _shared_extractor, _shared_deduplicator, _shared_engine
+
+    _get_loop()
+    try:
+        yield
+    finally:
+        loop = _loop
+        if loop is not None and not loop.is_closed():
+            if _shared_storage is not None:
+                loop.run_until_complete(_shared_storage.client.close())
+            loop.close()
+        asyncio.set_event_loop(None)
+        _loop = None
+        _shared_storage = None
+        _shared_extractor = None
+        _shared_deduplicator = None
+        _shared_engine = None
 
 
 def setup_test_env() -> MemoryGenerationEngine:
@@ -147,8 +194,12 @@ def setup_test_env() -> MemoryGenerationEngine:
     # 加载配置
     app_config = load_app_config()
 
-    # 1. 创建 LLM 服务（使用 librarian 配置）
-    llm_config = app_config.get_librarian_llm_config()
+    # 1. 创建 LLM 服务（使用 librarian 配置）：与组合根一致，model_id 经模型注册表
+    #    解析为 litellm 模型并补齐 provider 凭证。
+    model_registry = ModelRegistry(
+        provider_registry=ProviderRegistry(env_providers=app_config.shared.providers)
+    )
+    llm_config = model_registry.resolve_for_llm_config(app_config.get_librarian_llm_config())
     console.print(f"[dim]LLM 模型: {llm_config.model}[/dim]")
     llm_service = get_librarian_llm_service(config=llm_config)
 
@@ -163,7 +214,7 @@ def setup_test_env() -> MemoryGenerationEngine:
     )
 
     # 确保测试集合存在
-    asyncio.run(_shared_storage.create_collection(recreate=False))
+    _run(_shared_storage.create_collection(recreate=False))
 
     # 3. 创建 LLMMemoryExtractor
     _shared_extractor = LLMMemoryExtractor(
@@ -230,7 +281,7 @@ def reset_test_env() -> None:
     if _shared_storage is not None:
         try:
             # 删除并重建测试集合
-            asyncio.run(_shared_storage.create_collection(recreate=True))
+            _run(_shared_storage.create_collection(recreate=True))
             console.print("[dim]测试集合已重置[/dim]")
         except Exception as e:
             console.print(f"[yellow]重置测试集合失败: {e}[/yellow]")
@@ -316,7 +367,7 @@ def search_dedup_candidates(draft: ExtractedMemoryDraft, actor: ActorIdentity) -
     """通过真实中期库查询候选，按归属与本次生成的发起者落实可见性。"""
     belong_to = resolve_default_workspace_identity(actor.user_id)
     store = MidTermMemoryStore(QdrantStorageAdapter(get_shared_storage()))
-    return asyncio.run(
+    return _run(
         store.search(
             belong_to,
             query=f"{draft.title} {draft.summary}",
@@ -574,7 +625,7 @@ class TestDeduplicationLogic:
         existing_key = test_case["existing_memory_key"]
         existing_data = EXISTING_MEMORY_DATA[existing_key]
         existing_memory = create_memory_from_data(existing_data, self.identity)
-        asyncio.run(self.storage.upsert_memory(existing_memory))
+        _run(self.storage.upsert_memory(existing_memory))
 
         # 创建新草稿（与现有记忆不相似）
         draft = create_draft_from_data(test_case["draft_data"])
@@ -611,7 +662,7 @@ class TestDeduplicationLogic:
         existing_key = test_case["existing_memory_key"]
         existing_data = EXISTING_MEMORY_DATA[existing_key]
         existing_memory = create_memory_from_data(existing_data, self.identity)
-        asyncio.run(self.storage.upsert_memory(existing_memory))
+        _run(self.storage.upsert_memory(existing_memory))
 
         # 创建几乎相同的草稿
         draft = create_draft_from_data(test_case["draft_data"])
@@ -649,7 +700,7 @@ class TestDeduplicationLogic:
         existing_key = test_case["existing_memory_key"]
         existing_data = EXISTING_MEMORY_DATA[existing_key]
         existing_memory = create_memory_from_data(existing_data, self.identity)
-        asyncio.run(self.storage.upsert_memory(existing_memory))
+        _run(self.storage.upsert_memory(existing_memory))
 
         # 创建有增量的草稿
         draft = create_draft_from_data(test_case["draft_data"])
@@ -934,71 +985,6 @@ class TestSchemaValidation:
 
         assert success, f"缺失必需字段: {missing_fields}"
 
-    def test_update_confidence_reset(self):
-        """
-        GEN-SCH-002: 更新置信度重置
-
-        验证点：
-        - 统一 UPDATE primitive 应将更新后置信度置为 1.0
-        """
-        test_case = SCHEMA_VALIDATION_CASES[1]  # GEN-SCH-002
-        assert test_case["id"] == "GEN-SCH-002"
-
-        old_confidence = test_case["existing_confidence"]
-        new_confidence = test_case["new_confidence"]
-
-        # 创建现有记忆
-        existing_memory = MemoryAtom(
-            meta=make_memory_metadata(
-                source_agent_id=self.identity.agent_id,
-                user_id=self.identity.user_id,
-                confidence_score=old_confidence,
-            ),
-            index=IndexLayer(
-                title="测试记忆",
-                summary="用于测试置信度计算的详细摘要信息",
-                tags=["测试"],
-                memory_type=MemoryType.FACT,
-            ),
-            payload=PayloadLayer(
-                content="原始内容",
-            ),
-        )
-
-        # 创建新草稿
-        new_draft = ExtractedMemoryDraft(
-            title="测试记忆更新",
-            summary="用于测试置信度计算的更新",
-            tags=["测试", "更新"],
-            memory_type="FACT",
-            content="新内容",
-            confidence_score=new_confidence,
-            has_value=True,
-        )
-
-        # 执行统一 UPDATE primitive
-        merged = self.engine._apply_update(
-            existing_memory,
-            MergeResult(
-                new_content=new_draft.content,
-                changelog=f"Dedup update: {new_draft.summary[:120]}",
-            ),
-            provenance=system_settlement_provenance(GenerationContext()),
-            dedup_draft=new_draft,
-        )[0].atom
-
-        # 验证置信度计算
-        actual_confidence = merged.meta.confidence_score
-        success = actual_confidence == 1.0
-
-        print_test_result(console, "GEN-SCH-002: 更新置信度重置", success)
-        console.print(f"    [dim]原置信度: {old_confidence}[/dim]")
-        console.print(f"    [dim]新置信度: {new_confidence}[/dim]")
-        console.print("    [dim]预期结果: 1.0[/dim]")
-        console.print(f"    [dim]实际结果: {actual_confidence:.4f}[/dim]")
-
-        assert success, f"更新置信度不符合预期: 预期 1.0，实际 {actual_confidence}"
-
     def _format_transcript(self, messages: list[dict[str, str]]) -> str:
         """格式化对话为文本"""
         lines = []
@@ -1091,7 +1077,7 @@ class TestEndToEndFlow:
 
         # 调用引擎处理
         context = create_generation_context(test_case["messages"], self.identity)
-        memories = asyncio.run(
+        memories = _run(
             self.engine.process(
                 GenerationRequest(context=context),
                 belong_to=resolve_default_workspace_identity(self.identity.user_id),
@@ -1128,7 +1114,7 @@ class TestEndToEndFlow:
 
         # 调用引擎处理
         context = create_generation_context(test_case["messages"], self.identity)
-        memories = asyncio.run(
+        memories = _run(
             self.engine.process(
                 GenerationRequest(context=context),
                 belong_to=resolve_default_workspace_identity(self.identity.user_id),

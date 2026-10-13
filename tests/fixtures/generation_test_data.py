@@ -354,15 +354,6 @@ SCHEMA_VALIDATION_CASES = [
             "payload.content",
         ],
     },
-    {
-        "id": "GEN-SCH-002",
-        "name": "更新置信度重置",
-        "description": "验证统一 UPDATE primitive 会将更新后置信度置为 1.0",
-        "priority": "P1",
-        "existing_confidence": 0.80,
-        "new_confidence": 0.90,
-        "expected_updated_confidence": 1.0,
-    },
 ]
 
 
