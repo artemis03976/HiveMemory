@@ -21,7 +21,7 @@ last_reviewed: 2026-10-12
 - [RuntimeEvent 生产端迁移后续](./runtime-event-producer-migration.md)；
 - [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)；
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
-- [kernel 遗留命名清理](./kernel-legacy-naming.md)（2026-10-06：kernel 不再作为概念使用，剩余的 MTP 系统工具、提示词、注释与前端观测面板命名分组清理）；
+- [kernel 遗留命名清理](./kernel-legacy-naming.md)（2026-10-06：kernel 不再作为概念使用，剩余的 MTP 系统工具、提示词、注释与前端观测面板命名分组清理；2026-10-12 定下各组新名称：保留 syscall 只去掉 Kernel、移除 HiveOS、前端面板改称 Workspace Vision）；
 
 原“检索分数阈值与候选截取收敛”于 2026-10-12 实施并归档（阈值只作用于 Dense 召回，融合不再提前截取，截取只在重排之后进行一次）：[归档记录](../archive/todo/retrieval-hybrid-threshold-with-reranker.md)；当前事实见 [Patchouli 检索](../patchouli/retrieval.md)。
 
