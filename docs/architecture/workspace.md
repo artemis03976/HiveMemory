@@ -396,9 +396,13 @@ canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.l
 
 ### 5.4 写入意图、线程 context 与操作入口
 
+写入意图在正式落库之前，是 Actor 回读刚写内容的唯一句柄，由 workspace 持有。它是尚未被书库接收的要约：没有入库承诺，也从未进入记忆库的管护，按 [ADR-0006](decisions/0006-memory-library-custody-criteria-and-independence-contract.md) 的管护判据不归 Patchouli；它又必须活得过单次 run，供同 Workspace 的其他 Actor 与后续任务进程回读，所以也不归 Alice 的 run/frame 或任务进程的工作集。生成链只是消费意图的异步任务，不因消费取得所有权。两侧互相透明：Patchouli 只接收带登记标识的 `MemoryIntent`，不知道登记的存在；workspace 只看到接纳结果与结算事件，不参与生成决策。登记与读取视图同在 workspace，pending 引用在 resolver 内本地查表，系统只有这一个意图状态机。登记中的意图既不是 canonical Memory，也不是可淘汰的缓存。
+
 `WriteIntentRegistry` 是进程级唯一登记，记录 `belong_to`、`from_actor` 与只作关联的 `process_id`。同 Workspace 的其他 Agent 可经 `memory.read` 回读；越界与不存在相同。UPDATE 意图携带基础原子的修改内容与坐标，回读跟随基础原子的可读性：读不到基础的 Actor 在任何状态下都得到 not_found。WRITE 经 `memory.write`、UPDATE 经 `memory.update` 分别授权后登记为 MATERIALIZING，并经 `PatchouliRoutes.MEMORY_INTENT_SUBMIT` 派发；生成队列接纳后才返回 ACK；UPDATE 只接受可读的正式 atom，pending 与 redirect 句柄不能作为基础，登记成功后失效基础原子。
 
 `AliasResolver` 统一产出 core 的 `ReferenceResolution`：pending、redirect、discarded、failed、atom 与 not_found。SETTLED redirect 的正式目标仍按原子 policy 授权；不可读时清空 canonical 字段与结算视图中的引用，并不交付 pending 记录，避免 UPDATE focus 泄露基础身份。意图和原子结果都是独立副本。新登记不产生 expired，终态句柄保留到重启。
+
+登记中存在的别名只按意图解析：取消、对当前 Actor 不可见或缺少结算载荷都得到 not_found，不回落为同名的正式原子。redirect 优先按结算的 `canonical_uuid` 读取，alias 被重新绑定后旧意图不会跟随到另一份资源，只有缺少 UUID 的结算载荷才按 `canonical_alias` 查找。读取正式原子始终返回已提交版本，进行中的 UPDATE 修订只经它自己的 pending 句柄可见。
 
 `WorkspaceOperationEntry` 实现公共 `OperationEntry`，入口只接受线程 context：分派前经操作授权者确认请求附带的是未撤销的执行线程 context，进程 context 与请求级 context 以 `ScopeRequiredError` 拒绝，已撤销的以 `ThreadContextRevokedError` 拒绝，均没有副作用。随后入口只按请求类型把请求对象与线程 context 直接交给对应的 actor API 方法，不拆参数；actor API 逐次授权并组装该次调用的 `IdentityScope`，资源 owner 仍执行归属与 actor policy 检查。意图登记的 `process_id` 取自线程 context 的运行绑定（操作授权者的只读查询，只对线程 context 有效），请求不能指定。线程 context 的派生不授予操作许可：`system` 的进程即使派生出线程 context，也因白名单为空而在每个 actor 请求上被拒绝。
 
@@ -519,12 +523,13 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 - `sys_*` 系统工具不设 Agent 权限，所有 Agent 都可使用全部已注册系统工具（含文件写入与 Python 执行），执行安全的缺口见[身份与执行安全治理](../governance/security/identity-and-execution-safety.md)；
 - 能否 CALL 某个 Agent 只取决于调用方的 `agent.call`、目标 Profile 对调用方可见以及被调用方的准入，没有“谁能调用谁”的细粒度策略；子线程不能再 CALL，CALL 返回时子线程 context 不提前撤销；
 - root 只由 actor 是否为保留的 `system` 判定，认证网关只限制 principal 可代表的用户，不限制谁可以声明 `system`：任何已登记且可代表该用户的来源都能进入 root API。当前登记的来源都是本地受信进程；
-- Patchouli 的交互提交与主动记忆意图提交路由只接收 `IdentityScope`、不做操作授权，目前没有生产调用方；新的调用方必须在自己的授权点先完成操作授权；
+- Patchouli 的交互提交与主动记忆意图提交路由只接收 `IdentityScope`、不做操作授权。交互提交路由没有生产调用方；意图提交路由唯一的生产调用方是 actor API，在 `memory.write`/`memory.update` 授权之后调用。新的调用方必须在自己的授权点先完成操作授权；
 - `/ingest` 不经认证网关，在认证前组装 `IdentityScope`（第 3.2 节）；
 - WorkspaceAssetStore、解析流程与原 `WorkspaceAssetReaderPort` 仍接收 `IdentityScope`，身份拆分留待[WorkspaceAsset 归属身份拆分](../todo/workspace-asset-ownership-identity-split.md)。System 的 `AssetMaterializationReader` 兼容适配器接收 Patchouli 提交的 `belong_to`，仅在一次租借调用内构造旧端口所需的 system scope，不保存到后台任务、不返回给 Patchouli；
 - 进程控制授权只比对驻留的 owner 与 Workspace：同一 Workspace 下的请求方可以查询或停止其他请求方的进程；System 停止流程不排空任务进程表，任务进程由注册入口在交付结束时关闭；
 - WorkspaceAssetStore、opaque ref 和 lease 只承诺当前进程生命周期，不提供跨重启恢复；已持久化的 Memory/Artifact 按各自存储契约存在；
 - workspace 读取视图与写入意图登记均为进程内状态；失效通知不处理未送达补齐，意图句柄不回收也不跨重启恢复，实时派发的结果未知时可能长期保持 MATERIALIZING；
+- 写入意图不设 policy，同 Workspace 内持有别名即可回读；别名由标题或内容片段（UPDATE 为基础 alias）加 4 位十六进制后缀组成，不能充当访问控制。结算对账、句柄保留期、意图 policy 与外部提交契约等后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)；
 - 原子缓存与意图读取交付独立副本，但对象仍可变，不宣称递归冻结；
 - WorkspaceIdentity 的传播不意味着所有组件都参与隔离。任何新增资源都必须先明确其所有者，再决定是否使用 Workspace 复合键；新增派生缓存时按派生源坐标键控，不能从 scope 的存在自动推导隔离。
 

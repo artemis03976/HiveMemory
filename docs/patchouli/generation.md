@@ -207,6 +207,7 @@ Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任
 ## 8. 当前限制
 
 - 结果未知或结算事件丢失时，句柄可能长期保持 MATERIALIZING；没有对账恢复。写入一旦开始派发就不因 CPU、进程或 CALL 子帧失败取消；
+- UPDATE 意图不携带登记时的基础版本，spec 构建时按 UUID 读取当时的最新版本，并发 UPDATE 不检测基础版本冲突；后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)第 6 节；
 - memory work、typed result 与终态快照只存在于当前进程，重启后不可恢复；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
 - 终态快照与 Queue 使用同一 `terminal_retention` 上限；
 - Active spec 的 I/O 构建仍在 Coordinator 并行完成；批量 admission 本身按输入顺序串行，以维持确定的入队顺序；

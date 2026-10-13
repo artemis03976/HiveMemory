@@ -272,7 +272,7 @@ Topic 身份、prepare handle、路由关联和资料快照分别交接。主动
 
 资料读取与绑定须固定本次任务的来源，后续 Session 路由或 handle 状态变化不能让同一任务重试悄悄切换 Topic。若处理需要继续访问活 Topic，应明确保护何时取得和释放；若已取得独立资料快照，则按快照保留约定处理，不靠临时 handle 充当无限期资料保留。选择哪种绑定、取样时点、Topic 内容变化后的重试行为以及可用版本证据待定（第 8 节），不假定现有 Topic 已有可持久化 revision 或通用 pin 能力。
 
-本节涉及资料身份、全部可用内容的读取/绑定和保留/释放；生成侧的预算编译与 Pending 状态不在本文范围，见[写入意图体系迁移](./pending-intent-migration.md)。资料为空、原文已经折叠而不可恢复、读取失败和无权读取必须区分。
+本节涉及资料身份、全部可用内容的读取/绑定和保留/释放；生成侧的预算编译与 Pending 状态不在本文范围，见[写入意图后续方向](./pending-intent-migration.md)第 8 节与 [Workspace 架构](../architecture/workspace.md)第 5.4 节。资料为空、原文已经折叠而不可恢复、读取失败和无权读取必须区分。
 
 ### 4.5 实现复用方向（候选）
 
@@ -302,7 +302,7 @@ Topic 身份、prepare handle、路由关联和资料快照分别交接。主动
 - 演进 `InteractionPayload` 为正式共同输入，补齐 Session、稳定 identity、顺序、封口与来源语义；以 turn_events 为内容来源。
 - 原 user/final 文本和 trace 逐项退出独立正文地位，兼容解码或只读派生视图必须可追溯到同一事件序列。
 - `InteractionSubmission` 继续是进入 Patchouli submission lane 的内部 envelope，携带可信 scope、同一 interaction_id 和 ordering；queue/work 身份不外化为会话身份。
-- `materialize_tasks` 不进入新版本 interaction 输入；主动 WRITE/UPDATE 保持独立提交责任，其公共模型见[写入意图体系迁移](./pending-intent-migration.md)。
+- `materialize_tasks` 不进入新版本 interaction 输入；主动 WRITE/UPDATE 保持独立提交责任，其公共模型 `MemoryIntent` 见[公开路由与事件](../contracts/routes-and-events.md)。
 
 | 现有字段 | 目标承接 | 兼容要求 |
 |:---|:---|:---|

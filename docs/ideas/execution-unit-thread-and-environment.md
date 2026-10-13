@@ -19,7 +19,7 @@ related_docs:
   - docs/ideas/identity-and-access-model.md
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
-  - docs/ideas/pending-intent-migration.md
+  - docs/archive/plans/v0.7.0-intent-registry-and-read-cache.md
 last_reviewed: 2026-10-11
 ---
 
@@ -372,7 +372,7 @@ T-7、T-8 不在 v0.7.0（owner，2026-10-06）：v0.7.0 只有 Alice 一个执�
 | [身份与访问体系 Idea](./identity-and-access-model.md) | 访问 context 的界定；T-2 使运行绑定细化到线程，I-8 与 `RunBinding` 在实施时修订；T-4 决定 I-9 的删除 |
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | CPU 端口与 CPU 分配（1.2）；Q-10 由 T-1、T-2 满足 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | 操作适配器的定义（3.4，2026-10-09 起只产出操作请求，见 T-9）；harness 登记的两个侧面（1.2）；外部执行单元不识别子线程（E-5）；外部 harness 是执行环境（E-6a） |
-| [写入意图迁移 Idea](./pending-intent-migration.md) | 第 1 步先于 Alice 的能力层调用迁移（总 Idea P-11），需要主线程的回调通道（T-4） |
+| [写入意图登记迁移归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)（历史） | 写入意图迁移第 1 步先于 Alice 的能力层调用迁移（总 Idea P-11），需要主线程的回调通道（T-4） |
 
 ## 7. 形成计划的条件
 

@@ -51,7 +51,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 | A1 访问边界返工（2026-10-04） | 注册入口完成两阶段认证、先注册后运行；进程记录持有访问 context；进程表登记任务进程；不透明的进程句柄与唯一的取消方法 | [归档计划](../archive/plans/v0.7.0-a1-access-boundary-rework.md) |
 | TaskProcess 容器（2026-10-04） | 四阶段骨架拆为所有进程共用的执行器 `TaskProcessRunner`，`TaskProcess` 只作状态容器；注册入口只持有生命周期依赖 | [归档的 Todo](../archive/todo/task-process-container-ownership.md) |
 
-当前事实见 [System 应用服务](../system/application-services.md)第 3、4 节、[子系统公共契约](../contracts/subsystem-contracts.md)与 [Gateway 全局命令](../gateway/commands.md)。1.2 中尚未实施的部分归其他方向：Topic 不再承担对话上下文归[外部会话与 Topic 投影](./external-session-and-topic-projection.md)（原定的 Topic 按需创建与 cleanup 路由的移除，于 2026-10-13 改为保留预建），写入意图的实时提交归[写入意图迁移](./pending-intent-migration.md)，Profile 权限并入 operation 控制已随 Agent 操作白名单实施（2026-10-11）。
+当前事实见 [System 应用服务](../system/application-services.md)第 3、4 节、[子系统公共契约](../contracts/subsystem-contracts.md)与 [Gateway 全局命令](../gateway/commands.md)。1.2 中尚未实施的部分归其他方向：Topic 不再承担对话上下文归[外部会话与 Topic 投影](./external-session-and-topic-projection.md)（原定的 Topic 按需创建与 cleanup 路由的移除，于 2026-10-13 改为保留预建），写入意图的实时提交已于 2026-10-13 实施（当前事实见 [Workspace 架构](../architecture/workspace.md)第 5.4 节），Profile 权限并入 operation 控制已随 Agent 操作白名单实施（2026-10-11）。
 
 ## 1. 前提（owner 提出）
 
@@ -139,7 +139,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 
 - 槽位可以动态，值必须有类型：哪些槽位被填上由进程自己决定（例如命令进程只有 GatewayDecision），但每个槽位都有声明的类型与所有者；不使用 `dict[str, Any]` 这类无类型载体。
 - 进程关闭时释放工作集中登记的资源，取代迁移前分散的清理：`finally` 中的 prepared run 清理、finalize 中的租借释放、临时话题的补偿（2.5）。
-- 写入意图不在工作集中：它在 workspace 登记，生命周期与进程完全解耦（Q-1、Q-2，[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1）；进程最多在执行记录中保留意图的引用。
+- 写入意图不在工作集中：它在 workspace 登记，生命周期与进程完全解耦（Q-1、Q-2；当前事实见 [Workspace 架构](../architecture/workspace.md)第 5.4 节）；进程最多在执行记录中保留意图的引用。
 - **进程表登记的对象**（owner，2026-10-04）：进程表是唯一的进程注册表，登记 `process_id → TaskProcess`（进程容器），进程记录作为进程的控制面经进程取得，不单独登记。上表“进程记录（控制面）”最初沿用的是 `ChatGenerationRunRegistry` 演化为进程表、`ChatGenerationRun` 演化为进程记录的路线；进程容器出现后，进程表登记容器本身。
 - **现有实现**（2026-10-04 核对，2026-10-12 补充）：
   - 进程记录（`ProcessRecord`）有 `process_id`、访问 context、事件通道、当前阶段、停止请求与终态，不保存身份字段（[身份与访问体系 Idea](./identity-and-access-model.md) I-8）。请求方式与 CPU 分配尚未记入：被动请求这一阶段不考虑（Q-6），CPU 的选择机制后置。
@@ -335,14 +335,14 @@ flowchart TB
 
 **设计**：进程在结算结束的时点关闭，不设结算期。
 
-- 写入意图的提交成为 workspace 能力层的一个方法，实时响应 Actor 的请求，不必等到一轮对话结束；写入意图的生命周期与进程完全解耦，登记位于 workspace，生成与结算由 Patchouli 的 memory generation controller 单独管理（[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1）。收尾只需提交对话记录与相应的衍生内容，这一步基本没有开销，随后关闭进程。
+- 写入意图的提交成为 workspace 能力层的一个方法，实时响应 Actor 的请求，不必等到一轮对话结束；写入意图的生命周期与进程完全解耦，登记位于 workspace，生成与结算由 Patchouli 的 memory generation controller 单独管理（已实施，当前事实见 [Workspace 架构](../architecture/workspace.md)第 5.4 节）。收尾只需提交对话记录与相应的衍生内容，这一步基本没有开销，随后关闭进程。
 - 收尾阶段等到交互被提交队列（`InteractionSubmissionQueue`）成功接纳，进程即可退出，不再等待 applied。附件租借因此在接纳时随进程关闭释放；Artifact promotion 在生成时按 `binding.asset_ref` 重新取得内容（[Chat 附件链路](../system/attachments.md)第 4 节），不依赖本轮的租借（分析）。
 - 实时提交时当前一轮的交互记录还没有进入 Topic，生成材料只能“舍弃当前一轮”；取消与失败不再丢弃已提交的写入意图。
 - 对 `topic_info` 的影响见 1.2（改为异步的记忆标注）。
 
 **取舍**：曾考虑两阶段关闭（运行中 → 结算中 → 关闭，意图在关闭前归该进程），它需要在进程表中保留不占用 CPU 的进程，并定义保留窗口、容量与停机处理；写入意图改由 workspace 登记后，这些都不再需要。
 
-**实现现状**：进程在 finalize 返回后关闭，finalize 仍等到交互 applied，因为写入意图的物化仍在结算阶段派发、以 applied 为边界（总 Idea 3.4）。“接纳后即退出”要等写入意图迁移第 2 步把派发移出结算阶段之后才能实施（分析）。2026-10-13 第 2 步的派发设计已决定（实时派发，收尾不再派发物化）；这一尾项暂时保持现状，第 2 步之后进程仍在交互 applied 后关闭，与话题是否预建一起留给外部会话方向（[写入意图迁移 Idea](./pending-intent-migration.md#03-第-2-步的派发设计owner2026-10-13) 0.3 W11）。
+**实现现状**：写入意图已在 actor 操作内实时派发，收尾不再派发物化（[Workspace 架构](../architecture/workspace.md)第 5.4 节）；进程仍在 finalize 等到交互 applied 后关闭。“接纳后即退出”暂时保持现状，与话题是否预建一起留给外部会话方向（owner，2026-10-13）。
 
 #### Q-2 写入意图（中间产物）的可见范围
 
@@ -355,7 +355,7 @@ flowchart TB
 - 第一版采用简单实现：PendingAtom 不设 policy，默认对全 workspace 开放；
 - PendingAtom 不参与检索，能拿到其别名的一般只有写入它的 agent，别人几乎无法访问；狭义上能做到“中间产物归进程”；
 - 登记与进程解耦后，plugin 模式（不建进程，经 MCP 提交的写入意图没有所属进程）与 CALL 子执行线程的写入同样适用；
-- 结算后句柄的生命周期需要重新设计，兼容期内暂不回收；可见范围放宽与别名强度的分析见[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1。
+- 结算后句柄的生命周期需要重新设计，兼容期内暂不回收；句柄寿命、可见范围与别名强度的后续方向见[写入意图后续方向 Idea](./pending-intent-migration.md)第 3、5 节。
 
 **取舍**：“仅本进程可见”会让后续任务在结算前读不到上一个任务的意图别名，与迁移前在同一 AliceRuntime 内可读不同；“显式声明前驱进程链可见”需要定义前驱的声明、校验与链长。
 
@@ -529,7 +529,7 @@ flowchart TB
 | Q-11–Q-13 Import Bus | 总 Idea [6.2](./workspace-network-task-process-architecture.md#62-import-bus-的问题不在-v070) | 不在 v0.7.0；Q-14 进程不经 Import Bus 提交交互记录 |
 | M-1–M-7 迁移问题 | 总 Idea [第 5 节](./workspace-network-task-process-architecture.md#5-第一部分已完成的问题) | M-4 之外均已完成：按流程纵切，首条迁移流程为 Alice 的 chat 链路 |
 | 会话记录的设计 | [外部会话与 Topic 投影](./external-session-and-topic-projection.md) | Q-9 的承载者；Topic 不再承担上下文（1.2）；话题保留预建（2026-10-13） |
-| 写入意图的迁移 | [写入意图体系迁移](./pending-intent-migration.md) | Q-1、Q-2：登记位于 workspace、与进程解耦、第一版不设 policy；v0.7.0 内分两步实施（该 Idea 0.1） |
+| 写入意图 | [写入意图后续方向](./pending-intent-migration.md) | Q-1、Q-2：登记位于 workspace、与进程解耦、第一版不设 policy，已实施（[Workspace 架构](../architecture/workspace.md)第 5.4 节）；该 Idea 只保留后续方向 |
 | 外部 Actor 的接入与运行时访问 | [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两种接入模式：controller 模式（v0.7.1）使用本文的进程模型，plugin 模式（其后的 v0.7.x）不建进程；Q-8、Q-3b |
 | 进程记录如何持有身份 | [身份与访问体系 Idea](./identity-and-access-model.md) I-3、I-8 | 已完成：注册入口签发即绑定；进程记录只持有 context；进程句柄与唯一的取消方法 |
 

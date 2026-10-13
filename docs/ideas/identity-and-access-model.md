@@ -158,7 +158,7 @@ owner 于 2026-10-03 决定把身份与访问作为一个独立的体系，在�
 
 `ActorIdentity` 已只保留 `user_id`、`agent_id`、`team_id`。server 不再将会话标识放入 actor 声明，finalize 的关联字段不再写入它；`ChatRequest.session_id` 仍可接受，但当前不使用，其未来语义归[外部会话 Idea](./external-session-and-topic-projection.md)。
 
-历史交互 Artifact 中的额外 `session_id` 键由模型读取时忽略，完整性 hash 仍基于原始 JSON 验证，不改写旧文件。写入意图回读仍按整个 `RuntimeScope.identity_scope` 比较，这是[写入意图迁移 Idea](./pending-intent-migration.md)的范围；该比较已不受会话标识影响。
+历史交互 Artifact 中的额外 `session_id` 键由模型读取时忽略，完整性 hash 仍基于原始 JSON 验证，不改写旧文件。写入意图回读已改为按 Workspace 硬边界与读取操作判断，不再比较 `RuntimeScope`（[Workspace 架构](../architecture/workspace.md)第 5.4 节）。
 
 ### 6.4 治理规则
 
@@ -281,7 +281,7 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 
 - 改动面覆盖 6.1 第三类、6.5 列出的 Patchouli 内部使用点及其在 engines 中的对应部分；6.2 的应用服务签名一并收紧。
 - 记录只按归属比对，与几处现有行为一致：记忆任务的观察检查只比对 workspace，`MemoryAtom` 与 Artifact 的归属只取 workspace（6.5），WorkspaceAsset 只按归属授权（6.6）。
-- 写入意图的回读目前按 `RuntimeScope` 中的整个 `IdentityScope` 相等判断可见性（6.3、6.6），与本决定不一致；它属于[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 的范围，该 Idea 0.1 已决定写入意图在落库前对全 workspace 可回读。
+- 写入意图的回读原先按 `RuntimeScope` 中的整个 `IdentityScope` 相等判断可见性（6.3、6.6），与本决定不一致；现已改为落库前对同 Workspace 可回读、UPDATE 意图跟随基础原子的可读性（[Workspace 架构](../architecture/workspace.md)第 5.4 节）。
 - 后台生成的查重以任务的发起者为可见性主体；非主动生成路径的发起者是 `system`，查重因此只在 PUBLIC 内进行（I-11）。
 
 **演进**：2026-10-04 先决定资源身份只剩归属、来源降为辅助信息；同日 owner 指出这样的“资源身份”只是归属，于是取消资源身份的概念，第 2–4 节改用“资源归属”；之后 owner 又指出发起者与归属性质不同，Patchouli 内部不需要组装 `IdentityScope`，范围扩大为 Patchouli 全系统的重构，并给出 `MemoryGenerationTask` 的拆分方式。
@@ -424,7 +424,7 @@ owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留�
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | Q-3a 决定访问 context 进入进程记录，与不变量 3 一致；进程记录如何持有身份见 I-8；认证与进程创建的顺序见 I-3 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | principal 与 adapter 的登记（I-2）；plugin 模式下不建进程的访问同样遵循本文的边界 |
 | [外部会话 Idea](./external-session-and-topic-projection.md) | `ActorIdentity.session_id` 随第二批移除（I-7），承接该文第 8 节第 3 项；chat 请求体中 `session_id` 的语义仍归该文 |
-| [写入意图迁移 Idea](./pending-intent-migration.md) | `PendingAtomMaterializeTask` 属于第二批的范围（6.1）；写入意图回读的可见范围由该文决定，落库前对全 workspace 可回读，与 I-6 一致 |
+| [写入意图后续方向 Idea](./pending-intent-migration.md) | 写入意图回读已实施为落库前对同 Workspace 可回读（[Workspace 架构](../architecture/workspace.md)第 5.4 节），与 I-6 一致；意图 policy 的后续讨论见该 Idea 第 5 节 |
 | [已归档的记忆溯源 Todo](../archive/todo/memory-provenance-vs-authorship.md) | PR #96 把 SETTLE 的来源字段统一为 `system`；结算任务的发起者未随之修改，由 I-11 补完 |
 | [Workspace 架构](../architecture/workspace.md)第 4 节 | 第一、二批的当前事实；本文保留决定理由 |
 

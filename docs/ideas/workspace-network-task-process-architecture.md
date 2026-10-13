@@ -223,7 +223,7 @@ flowchart TB
 
 - 外部 harness 有两种接入模式（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。controller 模式下，用户在 HiveMemory 的入口选择外部 harness 作为 actor，请求经注册入口登记为任务进程，外部 harness 是进程中的 CPU；plugin 模式下，对话由外部 harness 管理，不经注册入口，harness 以不建进程的方式经能力层访问，形状与管理员直接通道相同。
 - 2026-10-06：CPU 一栏按第四部分前提 3 改称执行单元（原为“Actor = CPU”），一个执行单元内可以有多个执行线程（actor）。管理员直接通道与 plugin 模式的 harness 没有执行单元，只经操作适配器调用能力层，不称 CPU，从 CPU 一栏移出（T-6）。
-- Import Bus（现有 Passive Ingress 链路）在现有代码中仍经交互提交队列进入记忆生成（3.3、3.4、4.5）；它不属于核心全局拓扑，已排除在现有系统之外（5.8）。任务进程的交互记录由进程自行提交（任务进程 Idea Q-14）；写入意图在 workspace 登记后提交给记忆库，与进程解耦（写入意图迁移 Idea 0.1）。
+- Import Bus（现有 Passive Ingress 链路）在现有代码中仍经交互提交队列进入记忆生成（3.3、3.4、4.5）；它不属于核心全局拓扑，已排除在现有系统之外（5.8）。任务进程的交互记录由进程自行提交（任务进程 Idea Q-14）；写入意图在 workspace 登记后提交给记忆库，与进程解耦（当前事实见 [Workspace 架构](../architecture/workspace.md)第 5.4 节）。
 
 4.2–4.4（任务进程的生命周期、通用流程与 chat 任务类型）已移至[任务进程 Idea](./task-process-table-and-registration-entry.md)第 3 节。
 
@@ -287,7 +287,7 @@ flowchart LR
 | 任务进程表与唯一注册入口 | v0.7.0 的首个方向，见[任务进程 Idea](./task-process-table-and-registration-entry.md)；v0.7.0 内的批次已全部实施 |
 | 外部会话消息的接收与 Topic 投影 | 在 v0.7.0 内完成，Alice 作为第一个使用者，见[外部会话与 Topic 投影](./external-session-and-topic-projection.md) |
 | A1 返工 | 在任务进程表计划完成、已有稳定入口之后接入；已于 2026-10-04 实施归档（[A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)） |
-| 写入意图（PendingAtom）体系的迁移 | 2026-09-28 决定纳入 v0.7.0，分两步实施，见[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1 |
+| 写入意图（PendingAtom）体系的迁移 | 2026-09-28 决定纳入 v0.7.0，分两步实施；两步均已实施（[第 1 步](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)、[第 2 步](../archive/plans/v0.7.0-intent-inflight-dispatch.md)，归档计划），后续方向见[写入意图后续方向 Idea](./pending-intent-migration.md) |
 | Import Bus | 不在 v0.7.0，见 5.8 |
 
 **版本目标**（2026-09-28）：
@@ -310,10 +310,10 @@ flowchart LR
 | 文档 | 处置 |
 |:---|:---|
 | A2（未完成部分）、A5、A6、WRX-0 清单 | 作废，直接删除；删除前最后版本见 commit `dda9d9d` |
-| A3、A4 | 方向保留，不再按编号看待：A3 对应“Topic 体系不能接收外部 Actor 的会话消息”，A4 对应“PendingAtom 体系的迁移”。两者删除计划安排内容后，设计完整退回 Idea：[外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md)、[写入意图（PendingAtom）体系的迁移](./pending-intent-migration.md) |
+| A3、A4 | 方向保留，不再按编号看待：A3 对应“Topic 体系不能接收外部 Actor 的会话消息”，A4 对应“PendingAtom 体系的迁移”。两者删除计划安排内容后，设计完整退回 Idea：[外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md)、写入意图（PendingAtom）体系的迁移（两步均已实施，文件现在只保留[后续方向](./pending-intent-migration.md)） |
 | 任务进程表与任务请求唯一注册入口 | 当时唯一的有效计划方向；设计讨论集中在独立的[任务进程 Idea](./task-process-table-and-registration-entry.md) |
 | 协调入口 | 删除；版本内计划导航由 [Plans 索引](../plans/README.md)承担，不含设计决策；ROADMAP 的 v0.7.0 部分缩为摘要 |
-| 边界宪章 | 拆分后删除：原则层（归属判据、记忆库一侧的独立工作契约、证伪条件）成为 [ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)；裁定层退回 Idea（本文 7.1、写入意图体系迁移第 4.2 节、外部会话与 Topic 投影第 2.1 节）；过程记录不再保留 |
+| 边界宪章 | 拆分后删除：原则层（归属判据、记忆库一侧的独立工作契约、证伪条件）成为 [ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)；裁定层退回 Idea（本文 7.1、写入意图归属理由现见 Workspace 架构第 5.4 节、外部会话与 Topic 投影第 2.1 节）；过程记录不再保留 |
 | 计划 B | 作为计划作废：Passive 的设计已经更新，内容也大多过时。它的核心问题——外部 Actor 的信息如何注册进系统、运行时如何访问系统（adapter 接口设计）——退回 Idea：[外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) |
 
 同时决定：
@@ -360,7 +360,7 @@ flowchart LR
 | 决定 | 日期 | 记录位置 |
 |:---|:---|:---|
 | 会话模型与 Topic 池：前台对话回归常规 Agent 软件的 session 概念，保留新建、恢复、压缩三个会话操作，压缩由 CPU 负责；Topic 不绑定 Session，workspace 共享一个 Topic 池；Gateway 的话题路由只服务于后台的 Topic 路由。前端改造与新建、恢复在 v0.7.0，Alice 的压缩约在 v0.7.1 | 2026-09-28 | [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1 |
-| 写入意图：登记位于 workspace，与任务进程和记忆生成两侧都解耦，经能力层实时提交；取消与失败不再丢弃已提交的写入意图；PendingAtom 在落库前对全 workspace 可回读；放在外部会话改造之前或之后都可以 | 2026-09-28 | [写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1；任务进程 Idea Q-1、Q-2 |
+| 写入意图：登记位于 workspace，与任务进程和记忆生成两侧都解耦，经能力层实时提交；取消与失败不再丢弃已提交的写入意图；PendingAtom 在落库前对全 workspace 可回读；放在外部会话改造之前或之后都可以 | 2026-09-28 | 已实施，当前事实见 [Workspace 架构](../architecture/workspace.md)第 5.4 节；任务进程 Idea Q-1、Q-2 |
 | 任务进程的结构：进程创建时机、四阶段通用骨架、进程记录与工作集、prepare 的拆分、附件与 Topic 的去向 | 2026-09-28 | [任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2 |
 | P-1a：注册前经认证网关验证身份，此后每次请求都重新校验 | 2026-09-27 | 15.2 |
 | E-1：接入登记维持启动时从配置装载；运行时登记与其他配置文件的热更新由未来单独的计划实现 | 2026-09-27 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md#e-1-接入登记的来源与生效时点) |
@@ -426,7 +426,7 @@ canonical 变更事件与 workspace 读取缓存的失效直接相关，是 Alic
 | 本文元素 | 既有文档中的相关内容 |
 |:---|:---|
 | 唯一注册入口、进程生命周期 | [任务进程 Idea](./task-process-table-and-registration-entry.md)；[System 应用服务](../system/application-services.md)第 3、4 节；[Chat Run 生命周期后续候选](./chat-run-lifecycle-follow-ups.md) |
-| 进程中的写入意图 | [写入意图体系迁移](./pending-intent-migration.md)（原 A4，含原宪章 §6.2 的归属论证） |
+| 进程中的写入意图 | [Workspace 架构](../architecture/workspace.md)第 5.4 节（原 A4，含原宪章 §6.2 的归属理由）；后续方向见[写入意图后续方向 Idea](./pending-intent-migration.md) |
 | 网络共享读视图 | A2 读取能力面与派生缓存（已删除，最后版本见 commit `dda9d9d`）；workspace 包的现有读取实现保留为 Alice 读取实现的迁移目标，见第 9 节 D-9 |
 | 对话连续性（Q-9） | [外部会话与 Topic 投影](./external-session-and-topic-projection.md)（原 A3） |
 | Import Bus | [Passive Ingress 当前设计](../system/passive-ingress.md) |
@@ -443,7 +443,7 @@ canonical 变更事件与 workspace 读取缓存的失效直接相关，是 Alic
 
 #### 7.1.1 候选归属表
 
-记忆库一侧的各行与 ADR-0006 一致；其余各行是原宪章的裁定。2026-09-28 按第 9 节 D-9 决定：ConversationSession、Atom cache / Profile 解析缓存、alias resolver 各行均位于 workspace 的共享设施。其中 pending registry 一行已于 2026-09-28 决定：登记位于 workspace，生命周期与任务进程解耦，经物化过线、结算以全局事件回流（[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1）。
+记忆库一侧的各行与 ADR-0006 一致；其余各行是原宪章的裁定。2026-09-28 按第 9 节 D-9 决定：ConversationSession、Atom cache / Profile 解析缓存、alias resolver 各行均位于 workspace 的共享设施。其中 pending registry 一行已于 2026-09-28 决定：登记位于 workspace，生命周期与任务进程解耦，经物化过线、结算以全局事件回流（已实施，当前事实见 [Workspace 架构](../architecture/workspace.md)第 5.4 节）。
 
 | 状态/能力 | 原裁定的持有者 | 过线动作 | 依据 |
 |:---|:---|:---|:---|
@@ -878,7 +878,7 @@ sequenceDiagram
 | 方向 | 内容 | 建立计划前要定的问题 |
 |:---|:---|:---|
 | Workspace 读取缓存失效（2026-10-07 已实施） | canonical 变更事件与订阅者纪律（7.1.3）；任务进程主线程 Profile 解析改经能力层 | 本批归档记录见 15.11 |
-| 写入意图迁移·第 1 步（2026-10-07 已实施，[写入意图迁移 Idea](./pending-intent-migration.md#02-第-1-步实施结果与剩余方向2026-10-07) 0.2） | 登记与 L0 进入 workspace；能力层的提交方法；Alice 的写入意图提交与 pending 读回经能力层 | 主线程 T-4 通道与 P-12a 已实现；其余开放项留给第 2 步 |
+| 写入意图迁移·第 1 步（2026-10-07 已实施，[归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)） | 登记与 L0 进入 workspace；能力层的提交方法；Alice 的写入意图提交与 pending 读回经能力层 | 主线程 T-4 通道与 P-12a 已实现；第 2 步已于 2026-10-13 实施（[归档计划](../archive/plans/v0.7.0-intent-inflight-dispatch.md)） |
 | Alice 的能力层调用迁移（收窄后） | 先以操作请求与 workspace 的单一操作入口取代第 1 步的进程操作通道（执行单元 Idea T-9）；SEARCH、引用记录及 CALL 目标 Profile/cache 改经能力层（P-12）；删除 `cpu_execution_identity`；D-9 遗留 | P-12b、P-9f；T-4 中第 1 步未决定的部分；T-9 已于 2026-10-09 决定，其余细节留给计划 |
 | 执行线程层 | 派生经过进程、每个线程一份访问 context、派生授权（执行单元 Idea T-1、T-2 的决定） | 执行单元 Idea T-1a、T-1b、T-2a、T-3（2026-10-11 均已决定，同日[实施验收并归档](../archive/plans/v0.7.0-execution-thread-layer.md)） |
 | 能力层分层：root API 与 actor API（2026-10-10 新增，15.12） | capability 目录分为 root API 与 actor API；actor 操作对齐 READ、SEARCH、RUN、WRITE、UPDATE 与 CALL；进程阶段调用改为系统操作；root 检查取代 `management.*` 与 `task.observe` | 15.12“留给计划的细节”；已实施并[归档](../archive/plans/v0.7.0-capability-surface-split.md)（2026-10-10），当前事实见 [Workspace 架构](../architecture/workspace.md)第 4.5 节 |
@@ -979,7 +979,7 @@ sequenceDiagram
 
 - 迁移前 Alice 的 `RuntimeAliasResolver`（历史路径 `agent_runtime/aliases/resolver.py`，现已删除）按 L0 `PendingAtomRuntime`、L1 Alice 自有的原子缓存、L2 Patchouli 冷读的顺序解析，三级在同一个 resolver 内；L0 命中按整个 `IdentityScope` 相等判断可见性。workspace 的 `AliasResolver` 中 L0 尚未接入，恒为未命中（13.6）。
 - Alice 自有缓存的维护也在 Alice 内：结算事件到达后，`AliceRuntime.on_pending_atom_settled` 失效并回填 L1（[`alice/runtime/core.py`](../../src/hivememory/alice/runtime/core.py)）；MTP UPDATE 登记修订时失效原 alias 的 L1 条目；SEARCH 的结果与 prepare 的检索结果会预热 L1。
-- [写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1 的第 1 步包括：登记迁出 Alice、对全 workspace 开放的回读、能力层的提交方法、结算事件的接收；同节还写明 Alice 的 alias resolver 与缓存迁移到 workspace 的读取视图（D-9）。两个方向都涉及 resolver 的迁出。
+- 写入意图迁移第 1 步（owner，2026-09-28；[归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)）包括：登记迁出 Alice、对全 workspace 开放的回读、能力层的提交方法、结算事件的接收；同节还写明 Alice 的 alias resolver 与缓存迁移到 workspace 的读取视图（D-9）。两个方向都涉及 resolver 的迁出。
 - [Plans 导航](../plans/README.md)中，写入意图迁移与外部会话方向的先后均可；它与 Alice 的能力层调用迁移的先后没有规定。
 
 **设计**（owner）：写入意图迁移的第 1 步先完成：登记与 L0 先进入 workspace，Alice 的能力层调用迁移时 resolver 整体迁出。
@@ -1136,7 +1136,7 @@ P-10（Profile 的能力字段并入能力层的 operation 控制）已完成，
 **背景**：按[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#34-操作适配器的定义与边界) 3.4（2026-10-06），操作适配器把操作请求归一化为能力层已有方法的调用；能力层缺少对应方法时扩展能力层，而不是在操作适配器中实现领域语义。2026-10-07 MTP 提交与共同引用解析已经由进程通道进入能力层（[执行单元 Idea](./execution-unit-thread-and-environment.md#22-代码现状2026-10-07-核对) 2.2）；本节保留建立计划时的选项；P-12a 于 2026-10-07、P-12b 于 2026-10-09 实施，P-12b 当前为能力层引用读取的自动副作用。
 
 - **P-12a MTP 的引用解析结果**（2026-10-07 已实施）：旧 Alice resolver 返回 `ResolveResult`，区分 pending、redirect、discarded、failed、expired、atom 与 not_found 七种结果。MTP READ 按种类编译输出；UPDATE 拒绝 pending、要求正式原子；RUN 只执行 `CODE_SNIPPET`，对 redirect 给出警告；CALL 的 `context_refs` 也经它解析。能力层的 `retrieve_by_aliases` 只返回实际可读的原子列表，`read` 返回原子或 `None`。
-  - 选项：能力层提供与 `ResolveResult` 语义等价的中立解析结果（[写入意图迁移 Idea](./pending-intent-migration.md#41-共同引用读取与-alias-resolver-归属) 4.1 的候选设计） / 能力层只返回 canonical 原子，pending 与结算状态由写入意图的读取方法另行提供 / 其他。
+  - 选项：能力层提供与 `ResolveResult` 语义等价的中立解析结果（后由写入意图迁移第 1 步采用为 core `ReferenceResolution`，见 [Workspace 架构](../architecture/workspace.md)第 5.4 节） / 能力层只返回 canonical 原子，pending 与结算状态由写入意图的读取方法另行提供 / 其他。
   - 影响：中立结果类型放在哪里，决定 `engines/memory_compiler` 对 `agent_runtime.aliases` 的已知向上导入（第 10 节）如何处理；与 P-11 相互约束，取决于 pending 结果由哪一侧提供。
   - 2026-10-06：W1 合并后，能力层在[写入意图登记与读取缓存失效历史计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)中提供与 `ResolveResult` 等价的中立结果（第一项），中立模型移到 core。
 - **P-12b 引用记录（2026-10-09 已实施）**：迁移前 Alice 在 MTP READ（来源 `mtp.read`）与 RUN（`mtp.run`）交付原子后，调用 Patchouli 的 `record_memory_citation`，由 Patchouli 的生命周期服务记录一次引用事件；调用失败只记日志。当时能力层没有对应方法（13.5）。
@@ -1159,8 +1159,8 @@ P-10（Profile 的能力字段并入能力层的 operation 控制）已完成，
 | P-9a | D-8a；任务进程 Idea 前提第 3 条；[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) 1.1（plugin 模式） |
 | P-9c、P-9f | Alice 的能力层调用迁移（actor 可见读取接入生产，15.5）；[Memory Garden 接入真实语义检索](../todo/frontend-memory-semantic-search.md) |
 | P-9d | 任务进程 Idea 前提 |
-| P-11 | [写入意图迁移 Idea](./pending-intent-migration.md) 0.1、4.1；15.5（缓存失效前置条件）；6.3、7.1.3；D-9 |
-| P-12 | 外部 Actor Idea 3.4；写入意图迁移 Idea 4.1；P-9f；第 10 节 engines 的既有向上导入 |
+| P-11 | [写入意图登记迁移归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)；15.5（缓存失效前置条件）；6.3、7.1.3；D-9 |
+| P-12 | 外部 Actor Idea 3.4；[写入意图登记迁移归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)；P-9f；第 10 节 engines 的既有向上导入 |
 
 ## 17. 第四部分：执行单元、执行线程与执行环境（已拆出）
 
