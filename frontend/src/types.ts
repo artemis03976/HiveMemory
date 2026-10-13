@@ -2,7 +2,7 @@ export * from './types/agent';
 export * from './types/attachment';
 export * from './types/chat';
 export * from './types/identity';
-export * from './types/kernel';
+export * from './types/workspace';
 export * from './types/memory';
 export * from './types/memoryTask';
 export * from './types/mtp';

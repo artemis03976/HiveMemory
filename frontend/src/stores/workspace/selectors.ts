@@ -1,4 +1,4 @@
-import type { FilterState, LogEntry } from '@/types/kernel';
+import type { FilterState, LogEntry } from '@/types/workspace';
 
 export function filterLogs(logs: LogEntry[], filters: FilterState): LogEntry[] {
   return logs.filter((log) => {

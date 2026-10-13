@@ -11,9 +11,9 @@ import {
   XCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useChatStore, useKernelStore, useMemoryTaskStore } from '@/stores';
+import { useChatStore, useWorkspaceStore, useMemoryTaskStore } from '@/stores';
 import type { MemoryGenerationTask, MemoryGenerationTaskStatus } from '@/types';
-import type { RuntimeEventConnectionStatus } from '@/types/kernel';
+import type { RuntimeEventConnectionStatus } from '@/types/workspace';
 
 const TERMINAL_STATUSES = new Set<MemoryGenerationTaskStatus>([
   'completed',
@@ -232,7 +232,7 @@ function TaskItem({
 
 export default function MemoryRuntimeTab() {
   const currentMemoryTaskIds = useChatStore((state) => state.currentMemoryTaskIds);
-  const runtimeEventConnection = useKernelStore((state) => state.runtimeEventConnection);
+  const runtimeEventConnection = useWorkspaceStore((state) => state.runtimeEventConnection);
   const tasks = useMemoryTaskStore((state) => state.tasks);
   const connection = useMemoryTaskStore((state) => state.connection);
   const showTerminalTasks = useMemoryTaskStore((state) => state.showTerminalTasks);

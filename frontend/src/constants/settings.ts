@@ -189,7 +189,6 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
       role: 'default',
       include_demo: true,
       include_error_handling: true,
-      include_kernel_tools: true,
     },
   },
 };

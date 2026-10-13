@@ -71,7 +71,7 @@ export const MOCK_MEMORY_TASKS: MemoryGenerationTask[] = [
     topic_id: 'mock-topic-cleanup',
     label: '归档过期调试记忆',
     source: 'ARCHIVE',
-    pending_alias: 'debug_old_kernel_store_notes',
+    pending_alias: 'debug_old_workspace_store_notes',
     status: 'cancelled',
     canonical_alias: null,
     error: null,

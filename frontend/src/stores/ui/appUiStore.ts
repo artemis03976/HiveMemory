@@ -3,7 +3,7 @@ import { devtools, persist } from 'zustand/middleware';
 import type { NavTab } from '@/types';
 
 type ContextSidebarTab = 'topics' | 'config';
-type KernelVisionTab = 'context' | 'memory-runtime' | 'terminal';
+type WorkspaceVisionTab = 'context' | 'memory-runtime' | 'terminal';
 type ThemeMode = 'dark' | 'light';
 
 interface ChatUiStore {
@@ -20,16 +20,16 @@ interface ChatUiStore {
   setContextSidebarCollapsed: (collapsed: boolean) => void;
   toggleContextSidebar: () => void;
 
-  isKernelVisionCollapsed: boolean;
-  setKernelVisionCollapsed: (collapsed: boolean) => void;
-  toggleKernelVision: () => void;
+  isWorkspaceVisionCollapsed: boolean;
+  setWorkspaceVisionCollapsed: (collapsed: boolean) => void;
+  toggleWorkspaceVision: () => void;
 
   // Sidebar tabs
   contextSidebarTab: ContextSidebarTab;
   setContextSidebarTab: (tab: ContextSidebarTab) => void;
 
-  kernelVisionTab: KernelVisionTab;
-  setKernelVisionTab: (tab: KernelVisionTab) => void;
+  workspaceVisionTab: WorkspaceVisionTab;
+  setWorkspaceVisionTab: (tab: WorkspaceVisionTab) => void;
 
   // Settings page
   settingsActiveCategory: string;
@@ -54,15 +54,15 @@ export const useChatUiStore = create<ChatUiStore>()(
         setContextSidebarCollapsed: (collapsed) => set({ isContextSidebarCollapsed: collapsed }),
         toggleContextSidebar: () => set((s) => ({ isContextSidebarCollapsed: !s.isContextSidebarCollapsed })),
 
-        isKernelVisionCollapsed: false,
-        setKernelVisionCollapsed: (collapsed) => set({ isKernelVisionCollapsed: collapsed }),
-        toggleKernelVision: () => set((s) => ({ isKernelVisionCollapsed: !s.isKernelVisionCollapsed })),
+        isWorkspaceVisionCollapsed: false,
+        setWorkspaceVisionCollapsed: (collapsed) => set({ isWorkspaceVisionCollapsed: collapsed }),
+        toggleWorkspaceVision: () => set((s) => ({ isWorkspaceVisionCollapsed: !s.isWorkspaceVisionCollapsed })),
 
         contextSidebarTab: 'topics',
         setContextSidebarTab: (tab) => set({ contextSidebarTab: tab }),
 
-        kernelVisionTab: 'context',
-        setKernelVisionTab: (tab) => set({ kernelVisionTab: tab }),
+        workspaceVisionTab: 'context',
+        setWorkspaceVisionTab: (tab) => set({ workspaceVisionTab: tab }),
 
         settingsActiveCategory: 'general',
         setSettingsActiveCategory: (category) => set({ settingsActiveCategory: category }),
@@ -72,12 +72,29 @@ export const useChatUiStore = create<ChatUiStore>()(
       }),
       {
         name: 'chat-ui-store',
-        version: 2,
+        version: 3,
         migrate: (persisted, version) => {
+          const state = persisted as {
+            activeNavTab?: string;
+            isKernelVisionCollapsed?: boolean;
+            kernelVisionTab?: WorkspaceVisionTab;
+            isWorkspaceVisionCollapsed?: boolean;
+            workspaceVisionTab?: WorkspaceVisionTab;
+          };
           // v2: 'theme' 标签已改为主题切换开关，迁移历史状态中失效的标签值
-          const state = persisted as { activeNavTab?: string };
           if (version < 2 && state.activeNavTab === 'theme') {
             state.activeNavTab = 'chat';
+          }
+          // v3: 右侧观测面板由 Kernel Vision 改称 Workspace Vision，迁移折叠状态与选中的 tab
+          if (version < 3) {
+            if (state.isKernelVisionCollapsed !== undefined) {
+              state.isWorkspaceVisionCollapsed = state.isKernelVisionCollapsed;
+            }
+            if (state.kernelVisionTab !== undefined) {
+              state.workspaceVisionTab = state.kernelVisionTab;
+            }
+            delete state.isKernelVisionCollapsed;
+            delete state.kernelVisionTab;
           }
           return persisted as ChatUiStore;
         },

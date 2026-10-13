@@ -220,7 +220,6 @@ export interface MtpPromptConfig {
   role: 'coder' | 'chat' | 'default';
   include_demo: boolean;
   include_error_handling: boolean;
-  include_kernel_tools: boolean;
 }
 
 export interface KoakumaConfig {

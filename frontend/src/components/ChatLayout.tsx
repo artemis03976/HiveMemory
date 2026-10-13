@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import ContextSidebar from './chat/ContextSidebar';
-import ChatWorkspace from './chat/ChatWorkspace';
-import KernelVision from './chat/KernelVision';
+import ChatPane from './chat/ChatPane';
+import WorkspaceVision from './chat/WorkspaceVision';
 import { useChatStore, useChatUiStore, useTopicStore } from '@/stores';
 
 export default function ChatLayout() {
@@ -10,8 +10,8 @@ export default function ChatLayout() {
   const {
     isContextSidebarCollapsed,
     toggleContextSidebar,
-    isKernelVisionCollapsed,
-    toggleKernelVision,
+    isWorkspaceVisionCollapsed,
+    toggleWorkspaceVision,
   } = useChatUiStore();
 
   const [activeTopicId, setActiveTopicId] = useState('');
@@ -32,13 +32,13 @@ export default function ChatLayout() {
         isCollapsed={isContextSidebarCollapsed}
         onToggleCollapse={toggleContextSidebar}
       />
-      <ChatWorkspace
+      <ChatPane
         activeTopicTitle={activeTopic?.title || ''}
       />
-      <KernelVision
+      <WorkspaceVision
         memories={retrievedMemories}
-        isCollapsed={isKernelVisionCollapsed}
-        onToggleCollapse={toggleKernelVision}
+        isCollapsed={isWorkspaceVisionCollapsed}
+        onToggleCollapse={toggleWorkspaceVision}
       />
     </>
   );
