@@ -216,7 +216,7 @@ WRITE/UPDATE 登记后的派发错误携带 `pending_alias` 与 `intent_id`，�
 | `IntentDispatchRejectedError` / `workspace.memory.intent.dispatch_rejected` | `mtp.memory.intent_rejected` / agent_fault | 明确未接纳，同步标为 FAILED；失败通知可重复到达 |
 | `IntentDispatchUnknownError` / `workspace.memory.intent.dispatch_unknown` | `mtp.memory.intent_unknown` / system_fault | 保持 MATERIALIZING，不假定未入队；若已接纳，结算仍可推进终态 |
 
-两种错误均在 ACK 之前交给 Agent，中英文文案分别说明拒绝与未知。总线异常或接纳响应丢失按未知处理；队列停止、容量拒绝、UPDATE 基础丢失及本地意图参数非法按明确拒绝处理。
+两种错误均在 ACK 之前交给 Agent，中英文文案分别说明拒绝与未知。总线异常或接纳响应丢失按未知处理；队列停止、容量拒绝、UPDATE 基础丢失及本地意图参数非法按明确拒绝处理。由于 MTP 错误不携带内部 cause，根因只由 actor API 记录日志：总线异常导致的未知结果以 error 级别连同异常堆栈记录，并关联 `intent_id` 与 `pending_alias`，便于排查长期停在 MATERIALIZING 的句柄。
 
 引用交付的 citation 使用 `source="workspace.reference_read"`；普通记录失败只记日志、不改变可读结果，取消继续传播，已记录的引用不回滚。因此 RUN 工具失败不会撤销执行前已经完成的正式原子读取计数。
 

@@ -28,7 +28,7 @@ _ERROR_TEXT_ZH: dict[str, str] = {
     ),
     "mtp.memory.intent_unknown": (
         "[Intent Unknown] 无法确认写入意图 '{pending_alias}' 是否已被接纳。\n"
-        "Suggestion: 请用 READ 查看句柄状态；重复写入可能产生重复记忆。"
+        "Suggestion: 该意图可能仍会完成生成，立即重复写入可能产生重复记忆；确需重试请稍后再写。"
     ),
     # ---- 通用权限 ----
     "mtp.permission.verb_denied": (
@@ -197,7 +197,8 @@ _ERROR_TEXT_EN: dict[str, str] = {
     ),
     "mtp.memory.intent_unknown": (
         "[Intent Unknown] Admission of intent '{pending_alias}' could not be confirmed.\n"
-        "Suggestion: READ the handle to check its state; rewriting may create duplicates."
+        "Suggestion: It may still be generated; rewriting now may create duplicates. "
+        "Retry later only if needed."
     ),
     # ---- 通用权限 ----
     "mtp.permission.verb_denied": (

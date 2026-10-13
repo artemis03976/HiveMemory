@@ -136,6 +136,7 @@ class ActorMemoryService:
                 # 统一在下方读取任务结果，调用方取消不会掩盖登记状态的处理。
                 break
         if cancelled:
+            # 取走异常避免未检索告警；错误根因已由提交任务记录。
             if not task.cancelled() and task.exception() is not None:
                 logger.warning(
                     "Intent dispatch finished with an error after caller cancellation: %s",
@@ -148,19 +149,23 @@ class ActorMemoryService:
     async def _submit_intent(
         self, pending: PendingAtom, *, topic_id: str, scope: IdentityScope
     ) -> None:
-        """只经唯一公共意图路由提交，明确拒绝与未知结果使用不同领域错误。"""
-        focus = pending.focus
+        """只经唯一公共意图路由提交，明确拒绝与未知结果使用不同领域错误。
+
+        两类错误交给 Agent 时都不携带内部 cause，因此根因只在这里记录日志；
+        未知结果的句柄可能长期停在 MATERIALIZING，必须保留异常堆栈。
+        """
         details = {"intent_id": pending.intent_id, "pending_alias": pending.pending_alias}
         try:
-            intent = MemoryIntent(
-                kind="write" if isinstance(focus, WriteFocus) else "update",
-                topic_id=topic_id,
-                intent_id=pending.intent_id,
-                pending_alias=pending.pending_alias,
-                **focus.model_dump(),
-            )
+            intent = self._memory_intent(pending, topic_id=topic_id)
         except ValueError as error:
             # 本地载荷校验失败确定没有入队，不能留下永远等不到结算的句柄。
+            logger.warning(
+                "Intent dispatch rejected by local validation: "
+                "intent_id=%s, pending_alias=%s, error=%s",
+                pending.intent_id,
+                pending.pending_alias,
+                error,
+            )
             self._intents.mark_failed(pending.pending_alias, intent_id=pending.intent_id)
             raise IntentDispatchRejectedError(details=details) from error
         try:
@@ -169,12 +174,61 @@ class ActorMemoryService:
             )
             status = result.status
         except Exception as error:
+            logger.error(
+                "Intent dispatch outcome unknown: intent_id=%s, pending_alias=%s",
+                pending.intent_id,
+                pending.pending_alias,
+                exc_info=True,
+            )
             raise IntentDispatchUnknownError(details=details) from error
         if status is MemoryGenerationAdmissionStatus.REJECTED:
+            # 拒绝原因由生成侧接纳处记录，这里只关联到登记句柄。
+            logger.info(
+                "Intent dispatch rejected by generation admission: "
+                "intent_id=%s, pending_alias=%s, detail=%s",
+                pending.intent_id,
+                pending.pending_alias,
+                result.detail,
+            )
             self._intents.mark_failed(pending.pending_alias, intent_id=pending.intent_id)
             raise IntentDispatchRejectedError(details=details)
         if status is not MemoryGenerationAdmissionStatus.ACCEPTED:
+            logger.warning(
+                "Intent dispatch admission unknown: intent_id=%s, pending_alias=%s, detail=%s",
+                pending.intent_id,
+                pending.pending_alias,
+                result.detail,
+            )
             raise IntentDispatchUnknownError(details=details)
+
+    @staticmethod
+    def _memory_intent(pending: PendingAtom, *, topic_id: str) -> MemoryIntent:
+        """逐字段转换为公共意图，不依赖 focus 与意图字段一一同名。
+
+        focus 新增字段只需要在这里补映射，不会在登记之后以 ``TypeError`` 绕过
+        确定性拒绝、把句柄留在 MATERIALIZING。
+        """
+        focus = pending.focus
+        if isinstance(focus, WriteFocus):
+            return MemoryIntent(
+                kind="write",
+                topic_id=topic_id,
+                intent_id=pending.intent_id,
+                pending_alias=pending.pending_alias,
+                content=focus.content,
+                title=focus.title,
+                reason=focus.reason,
+            )
+        return MemoryIntent(
+            kind="update",
+            topic_id=topic_id,
+            intent_id=pending.intent_id,
+            pending_alias=pending.pending_alias,
+            instruction=focus.instruction,
+            content=focus.content,
+            base_alias=focus.base_alias,
+            base_uuid=focus.base_uuid,
+        )
 
     async def resolve_references(
         self,

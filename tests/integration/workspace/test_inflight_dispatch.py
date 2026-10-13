@@ -5,6 +5,7 @@ Coordinator、Controller 和 work queue 均使用生产对象。
 """
 
 import asyncio
+import logging
 from types import SimpleNamespace
 
 import pytest
@@ -218,6 +219,29 @@ async def test_lost_admission_response_keeps_handle_until_later_settlement(chain
         chain.harness.registry.get(intent.pending_alias, chain.scope.workspace_identity).status
         == PendingAtomStatus.SETTLED
     )
+
+
+@pytest.mark.asyncio
+async def test_unknown_dispatch_logs_root_cause_hidden_from_agent(chain, caplog):
+    """Agent 只得到 unknown 错误码，派发失败的原始异常必须留在日志中可诊断。"""
+    failure = RuntimeError("patchouli submit route crashed")
+
+    async def crash(*, intent, identity_scope):
+        chain.intents.append(intent)
+        raise failure
+
+    chain.harness.bus.register(PatchouliRoutes.MEMORY_INTENT_SUBMIT, crash)
+    with caplog.at_level(logging.ERROR, logger="hivememory.workspace.capability.actor.memory"):
+        result = await _write(chain)
+    assert "mtp.memory.intent_unknown" in result.formatted_response
+    assert "patchouli submit route crashed" not in result.formatted_response
+    logged = [
+        record
+        for record in caplog.records
+        if record.name == "hivememory.workspace.capability.actor.memory"
+    ]
+    assert [(record.levelno, record.exc_info[1]) for record in logged] == [(logging.ERROR, failure)]
+    assert chain.intents[0].pending_alias in logged[0].getMessage()
 
 
 @pytest.mark.asyncio

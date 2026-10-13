@@ -23,6 +23,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.patchouli.contracts import PatchouliRoutes
+from hivememory.patchouli.contracts.memory_intent import MemoryIntent
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
@@ -194,6 +195,43 @@ async def test_update_request_resolves_base_and_registers_supplied_instruction_o
     assert stored.process_id == "process"
     assert stored.from_actor.agent_id == "test_agent"
     assert stored.belong_to == access.default_workspace
+
+
+@pytest.mark.asyncio
+async def test_write_and_update_dispatch_every_focus_field_with_registered_identifiers(
+    operation_setup,
+):
+    """派发给 Patchouli 的公共意图逐字段对应登记内容，标识与话题来自登记和进程。"""
+    harness, access = operation_setup
+    thread_access = await _derive_thread(access)
+    write = await harness.entry.execute(
+        SubmitWriteIntentRequest(WriteFocus(content="写入正文", title="写入标题", reason="原因")),
+        access=thread_access,
+    )
+    update = await harness.entry.execute(
+        SubmitUpdateIntentRequest("base", "更新指令", "更新正文"), access=thread_access
+    )
+    assert [intent for intent, _scope in harness.admission.submissions] == [
+        MemoryIntent(
+            kind="write",
+            topic_id="test-topic",
+            intent_id=write.intent_id,
+            pending_alias=write.pending_alias,
+            content="写入正文",
+            title="写入标题",
+            reason="原因",
+        ),
+        MemoryIntent(
+            kind="update",
+            topic_id="test-topic",
+            intent_id=update.intent_id,
+            pending_alias=update.pending_alias,
+            instruction="更新指令",
+            content="更新正文",
+            base_alias="base",
+            base_uuid=str(harness.memories["base"].id),
+        ),
+    ]
 
 
 @pytest.mark.asyncio
