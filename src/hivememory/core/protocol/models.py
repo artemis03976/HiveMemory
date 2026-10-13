@@ -40,19 +40,19 @@ class MessageType(str, Enum):
     """
     消息类型枚举
 
-    定义模块间通信的消息类型，用于类型检查和路由。
+    协议消息（ProtocolMessage 子类）的类型标识。
     """
 
-    # 检索请求 - Eye -> RetrievalFamiliar (热路径)
+    # 检索请求：RetrievalRequest 的消息类型
     RETRIEVAL_REQUEST = "retrieval_request"
 
-    # 感知信号 - Eye -> LibrarianCore (冷路径)
+    # 感知信号（当前没有生产方）
     OBSERVATION = "observation"
 
-    # 检索结果 - RetrievalFamiliar -> 外部Worker
+    # 检索结果：RetrievalResponse 的消息类型
     RETRIEVAL_RESPONSE = "retrieval_response"
 
-    # MTP 指令与响应（Koakuma 服务）
+    # MTP 指令与响应（当前没有生产方）
     MTP_COMMAND = "mtp_command"
     MTP_RESPONSE = "mtp_response"
 
@@ -61,11 +61,10 @@ class ProtocolMessage(BaseModel):
     """
     协议消息基类
 
-    所有模块间通信消息的统一封装，提供：
+    RetrievalRequest 与 RetrievalResponse 的公共基类，提供：
     - 消息类型标识
     - 唯一消息 ID
     - 时间戳
-    - 可扩展的上下文
 
     Attributes:
         msg_type: 消息类型
@@ -87,11 +86,13 @@ class RetrievalRequest(ProtocolMessage):
     """
     检索请求协议消息
 
-    从 Eye 发送到 RetrievalFamiliar 的检索请求。
-    用于热路径 (Hot Path) 的实时记忆检索。
+    语义检索公共路由 ``patchouli.public.memory.retrieve`` 的输入，用于热路径的
+    实时记忆检索。由授权点（能力层的 ``memory.search``、Passive 记忆上下文）
+    以授权得到的 scope 构造。
 
-    乐观检索策略：
-    - 基础过滤条件由 RetrievalFamiliar 根据 identity 动态创建
+    过滤语义：
+    - Patchouli 在公共边界把 ``identity_scope`` 拆为资源归属与发起者：归属是
+      Workspace 硬边界，可见性按发起者过滤
     - MTP SEARCH 指令可通过 filters 字段叠加额外过滤维度 (如 type:CODE)
 
     Attributes:
@@ -105,9 +106,7 @@ class RetrievalRequest(ProtocolMessage):
         >>> request = RetrievalRequest(
         ...     semantic_query="如何部署贪吃蛇游戏？",
         ...     keywords=["部署", "贪吃蛇", "游戏"],
-        ...     identity_scope=resolve_default_identity_scope(
-        ...         ActorIdentity(user_id="user123"),
-        ...     )
+        ...     identity_scope=scope,  # 授权点返回的 scope
         ... )
     """
 
@@ -132,11 +131,11 @@ class RetrievalRequest(ProtocolMessage):
 
 class RetrievalResponse(ProtocolMessage):
     """
-    检索结果协议消息（旧协议 envelope）
+    检索结果包装（调用侧 envelope）
 
-    A2 §2.4：正式读取链返回 ``list[MemoryAtom]``，本模型只作为调用侧 adapter
-    为旧协议/本地上下文（Passive 上下文、MTP 输出）构造的包装，不再是
-    Patchouli 公共路由的返回类型。
+    语义检索路由返回 ``list[MemoryAtom]``；本模型由调用侧 adapter 包装检索原子
+    并测量耗时，供 Patchouli prepare 的 ``PreparedAgentRun.retrieval_result`` 与
+    Passive 记忆上下文使用，不是 Patchouli 公共路由的返回类型。
     """
 
     msg_type: MessageType = MessageType.RETRIEVAL_RESPONSE
@@ -155,7 +154,7 @@ class RetrievalResponse(ProtocolMessage):
         *,
         latency_ms: float = 0.0,
     ) -> RetrievalResponse:
-        """由正式读取链返回的原子列表构造旧协议 envelope。
+        """由检索路由返回的原子列表构造包装。
 
         ``memories_count`` 取列表长度；``latency_ms`` 由调用侧 adapter 测量
         并传入。不重新实现检索、授权或缓存。
@@ -238,12 +237,12 @@ class InteractionPayload(BaseModel):
     # ========== 结构化轮次事件 ==========
     # 模型最终自然语言回复
     assistant_final_text: str | None = Field(
-        default=None, description="去除 MTP 噪音后的最终自然语言回复（loop_result.final_text 直传）"
+        default=None, description="去除 MTP 噪音后的最终自然语言回复"
     )
     # 收集的结构化轮次事件列表
     turn_events: list[TurnEvent] = Field(
         default_factory=list,
-        description="LoopExecutor 收集的结构化轮次事件列表，有值时感知层优先走结构化路径",
+        description="结构化轮次事件列表（主动链路来自 Agent 执行循环，被动链路来自 turn buffer），有值时感知层优先走结构化路径",
     )
     mtp_traces: list[TraceItem] = Field(
         default_factory=list,
