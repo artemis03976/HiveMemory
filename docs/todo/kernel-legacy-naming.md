@@ -27,6 +27,8 @@ last_reviewed: 2026-10-12
 | 后端注释与示例 | `agent_runtime/execution/loop.py` 的“Kernel Loop Executor”；`core/protocol/models.py` 的“Eye 与 Kernel”（整段说明已过时）；`core/mtp/models.py` 的“Kernel 执行链路”“内核执行结果”；`prompts/mtp.py` 的“内核上下文”“内核工具列表”；`agent_runtime/mtp/runtime.py` 的“供 Kernel 注入”“进入内核态执行”；`server/routers/logs.py` 的示例模块名 `kernel.py` | 早期架构中的组件名 |
 | 前端观测面板 | `frontend/src/stores/kernel/`（持久化 key `kernel-store`、BroadcastChannel `hivememory_kernel_logs`）、`types/kernel.ts`、`components/chat/KernelVision.tsx` 与 `KernelTerminalTab.tsx`、`stores/ui/appUiStore.ts` 的面板状态（随 `chat-ui-store` 持久化）、界面标题“内核视界”；`types/config.ts` 与 `constants/settings.ts` 的 `include_kernel_tools`；[Chat 工作区](../frontend/chat-workspace.md)、[状态与传输](../frontend/state-and-transports.md)、[应用外壳](../frontend/application-shell.md)、[前端索引](../frontend/README.md)、[排障](../help/troubleshooting.md)第 9 节与[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md)中的“Kernel Vision”“Kernel Terminal”“内核终端” | 日志、trace 与 RuntimeEvent 的观测面板 |
 
+面板改称 Workspace Vision 后，前端的 Workspace 一词留给后端 Workspace 概念的映射，原先以“工作区”指称 Chat 页面与中间栏的命名随前端一组一并更换：`components/chat/ChatWorkspace.tsx`（及其注释、`ChatLayout.tsx` 的导入、`hooks/useAttachmentUpload.ts` 的注释）；[Chat 工作区](../frontend/chat-workspace.md)的文件名、标题与正文，[应用外壳](../frontend/application-shell.md)、[前端索引](../frontend/README.md)与[状态与传输](../frontend/state-and-transports.md)中的“Chat 工作区”“Chat Workspace”“工作区偏好”；引用 `docs/frontend/chat-workspace.md` 路径的 [文档治理](../DOCUMENTATION.md)目录树、[附件链路](../system/attachments.md)元数据与 `docs/archive/` 中 8 份文档的链接。
+
 测试中有 12 个文件引用上述名称：`tests/e2e/pipeline/test_agent_loop_e2e.py` 的模块说明，`tests/integration/mtp/` 的 `conftest.py`、`test_mtp_integration.py`、`test_run_chain.py`、`test_agent_permission_chain.py`、`test_process_operations.py`，`tests/unit/agent_runtime/` 的 `execution/test_loop_turn_events.py`、`mtp/syscalls/conftest.py`、`mtp/syscalls/test_registry.py`，`tests/unit/prompts/` 的 `test_mtp.py`、`test_mtp_permissions.py`（断言标题 `HIVE MEMORY KERNEL CONTEXT`）、`test_message_assembler.py`（断言 HiveOS 身份句）。
 
 ## 影响
@@ -63,6 +65,15 @@ MTP 系统工具一组保留 syscall 相关命名（`syscalls/` 包、`SyscallRe
 
 只指日志流而不指面板的说法（如“Kernel 日志 WebSocket”“Kernel stream URL”）直接去掉 Kernel。
 
+Chat 页面与中间栏让出 Workspace 一词（2026-10-12）：
+
+| 现名 | 新名 |
+|:---|:---|
+| 中间栏组件 `ChatWorkspace`、`ChatWorkspaceProps`，文档中的“Chat Workspace” | `ChatPane`、`ChatPaneProps`，“Chat Pane / 对话区” |
+| 整个 Chat 页面“Chat 工作区”，文档 `docs/frontend/chat-workspace.md` | “Chat View / Chat 视图”，文档改为 `docs/frontend/chat-view.md` |
+
+页面组件 `ChatLayout` 不含 Workspace，保持不变。
+
 ## 实施注意
 
 - 前端管理视图第 2.1 节“编辑 MTP verb 和五个 kernel syscall 白名单”与第 2.2 节前两条，自 #114 移除 Agent 图纸权限编辑后已不成立，应删除，不做改名。
@@ -75,4 +86,4 @@ MTP 系统工具一组保留 syscall 相关命名（`syscalls/` 包、`SyscallRe
 - 四组按上述命名完成；错误键的全部消费者与测试一并更新，测试辅助与测试类名（如 `simulate_kernel_loop_single`、`TestKernelRegistry`、`TestRunKernelFastPath`）同步改名。
 - 提示词的改写按模型可见行为的变更评估，不只按重命名处理。
 - 后端注释与示例按当前组件名改写；已过时的整段说明（如 `core/protocol/models.py`）按现状重写。
-- 完成后，除 `docs/archive/` 与 `docs/governance/baselines/` 外，代码与文档不再以 kernel、内核、用户态或 HiveOS 指称现有组件。保留项：[AE2 类比 Idea](../ideas/ae2-hivememory-architecture-analogy.md) 中 AIOS 角色列的“Kernel Composition”，以及执行单元 Idea 记录本决定的条目。
+- 完成后，除 `docs/archive/` 与 `docs/governance/baselines/` 外，代码与文档不再以 kernel、内核、用户态或 HiveOS 指称现有组件，前端不再以 Workspace 或“工作区”指称 Chat 页面与中间栏；`chat-view.md` 的全部入链（含归档文档，只修链接）已更新。保留项：[AE2 类比 Idea](../ideas/ae2-hivememory-architecture-analogy.md) 中 AIOS 角色列的“Kernel Composition”，以及执行单元 Idea 记录本决定的条目。
