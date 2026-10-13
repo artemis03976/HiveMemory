@@ -1,5 +1,5 @@
 """
-Kernel Loop Executor - 纯单 Agent 执行循环总控
+Agent Loop Executor - 纯单 Agent 执行循环总控
 
 职责（引擎层，agent-数量无关）：
     - 驱动单个 ExecutionFrame 的 generate → MTP → 回填循环

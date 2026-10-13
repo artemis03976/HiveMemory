@@ -25,6 +25,7 @@ from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.run_executor import RunExecutor
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
+from hivememory.config.alice import AgentRuntimeConfig
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     TurnEvent,
@@ -114,10 +115,7 @@ def _make_frame() -> ExecutionFrame:
     )
 
 
-def _build_executor(generate_async_side_effect) -> tuple[AgentLoopExecutor, MagicMock]:
-    kernel = MagicMock()
-    kernel.config = MagicMock()
-    kernel.config.agent_runtime = MagicMock(max_loop_iterations=10)
+def _build_executor(generate_async_side_effect) -> AgentLoopExecutor:
     mtp_executor = MagicMock()
     mtp_executor.intercept_and_execute = AsyncMock(return_value=None)
 
@@ -127,16 +125,16 @@ def _build_executor(generate_async_side_effect) -> tuple[AgentLoopExecutor, Magi
     executor = AgentLoopExecutor(
         worker_agent=worker_agent,
         mtp_executor=mtp_executor,
-        config=kernel.config.agent_runtime,
+        config=AgentRuntimeConfig(max_loop_iterations=10),
     )
-    return executor, kernel
+    return executor
 
 
 @pytest.mark.asyncio
 async def test_natural_stop_produces_one_assistant_message_event():
     """自然停止: 1 个 assistant_message 事件，sequence=0，role=assistant"""
     frame = _make_frame()
-    executor, _kernel = _build_executor([_natural_result("Hello world")])
+    executor = _build_executor([_natural_result("Hello world")])
 
     engine_result = await executor.execute_frame(frame, max_iterations=5)
 
@@ -155,7 +153,7 @@ async def test_natural_stop_produces_one_assistant_message_event():
 @pytest.mark.asyncio
 async def test_iteration_limit_returns_budget_exhausted():
     frame = _make_frame()
-    executor, _kernel = _build_executor([_mtp_result("", "<< READ | alias_x >>")])
+    executor = _build_executor([_mtp_result("", "<< READ | alias_x >>")])
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
 
     engine_result = await executor.execute_frame(frame, max_iterations=1)
@@ -167,7 +165,7 @@ async def test_iteration_limit_returns_budget_exhausted():
 @pytest.mark.asyncio
 async def test_missing_mtp_result_returns_failed():
     frame = _make_frame()
-    executor, _kernel = _build_executor([_mtp_result("", "<< READ | alias_x >>")])
+    executor = _build_executor([_mtp_result("", "<< READ | alias_x >>")])
 
     engine_result = await executor.execute_frame(frame, max_iterations=2)
 
@@ -179,7 +177,7 @@ async def test_missing_mtp_result_returns_failed():
 @pytest.mark.asyncio
 async def test_generation_failure_returns_failed_frame_outcome():
     frame = _make_frame()
-    executor, _kernel = _build_executor([])
+    executor = _build_executor([])
     error = RuntimeError("provider unavailable")
     executor.worker_agent.generate_async = AsyncMock(side_effect=error)
 
@@ -192,7 +190,7 @@ async def test_generation_failure_returns_failed_frame_outcome():
 @pytest.mark.asyncio
 async def test_stream_generation_failure_returns_failed_frame_outcome():
     frame = _make_frame()
-    executor, _kernel = _build_executor([])
+    executor = _build_executor([])
     error = RuntimeError("stream unavailable")
 
     async def fail_stream(*_args, **_kwargs):
@@ -221,7 +219,7 @@ async def test_stream_generation_failure_returns_failed_frame_outcome():
 @pytest.mark.asyncio
 async def test_generation_cancelled_error_is_not_converted_to_failed_outcome():
     frame = _make_frame()
-    executor, _kernel = _build_executor([])
+    executor = _build_executor([])
     executor.worker_agent.generate_async = AsyncMock(side_effect=asyncio.CancelledError())
 
     with pytest.raises(asyncio.CancelledError):
@@ -236,7 +234,7 @@ async def test_single_mtp_produces_four_events():
         _mtp_result("查找中", "<< READ | alias_x >>"),
         _natural_result("找到了"),
     ]
-    executor, _kernel = _build_executor(gen_results)
+    executor = _build_executor(gen_results)
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
 
     await executor.execute_frame(frame, max_iterations=5)
@@ -274,7 +272,7 @@ async def test_single_mtp_produces_four_events():
 async def test_mtp_execution_receives_frame_context():
     frame = _make_frame()
     gen_results = [_mtp_result("", "READ alias_x"), _natural_result("done")]
-    executor, _kernel = _build_executor(gen_results)
+    executor = _build_executor(gen_results)
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
 
     await executor.execute_frame(frame, max_iterations=5)
@@ -298,7 +296,7 @@ async def test_task_cancellation_during_generation_propagates_before_mtp():
         started.set()
         await asyncio.Event().wait()
 
-    executor, _kernel = _build_executor([])
+    executor = _build_executor([])
     executor.worker_agent.generate_async = slow_generate
 
     task = asyncio.create_task(executor.execute_frame(frame, max_iterations=5))
@@ -314,7 +312,7 @@ async def test_task_cancellation_during_generation_propagates_before_mtp():
 async def test_task_cancellation_during_mtp_propagates():
     frame = _make_frame()
     gen_results = [_mtp_result("前缀", "<< READ | alias_x >>")]
-    executor, _kernel = _build_executor(gen_results)
+    executor = _build_executor(gen_results)
     started = asyncio.Event()
 
     async def slow_execute(*args, **kwargs):
@@ -342,7 +340,7 @@ async def test_sequence_is_monotonically_increasing_across_iterations():
         _mtp_result("", "<< READ | alias_y >>"),
         _natural_result("done"),
     ]
-    executor, _kernel = _build_executor(gen_results)
+    executor = _build_executor(gen_results)
     executor._mtp_executor.intercept_and_execute = AsyncMock(
         side_effect=[
             _mtp_exec_result("SEARCH"),
@@ -365,7 +363,7 @@ async def test_empty_prefix_text_not_recorded():
         _mtp_result("", "<< READ | alias_x >>"),
         _natural_result("done"),
     ]
-    executor, _kernel = _build_executor(gen_results)
+    executor = _build_executor(gen_results)
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
 
     await executor.execute_frame(frame, max_iterations=5)
@@ -389,7 +387,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
             return _mtp_result("正在调用", '<< CALL | sub_agent | task="do work" >>')
         return _natural_result("完成")
 
-    executor, _kernel = _build_executor([])
+    executor = _build_executor([])
     worker_agent = MagicMock()
     worker_agent.generate_async = AsyncMock(side_effect=gen_async_side)
     executor.worker_agent = worker_agent
@@ -459,7 +457,7 @@ async def test_run_command_event_carries_execution_status_for_reducer():
         _mtp_result("", '<< RUN | tool_x | cmd="echo hi" >>'),
         _natural_result("done"),
     ]
-    executor, _kernel = _build_executor(gen_results)
+    executor = _build_executor(gen_results)
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("RUN"))
 
     await executor.execute_frame(frame, max_iterations=5)
