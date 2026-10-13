@@ -36,6 +36,7 @@ from hivememory.patchouli.control.interaction_apply_journal import (
 )
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
 from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
+from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 
@@ -59,7 +60,7 @@ class PerceptionFamiliar:
         engine: MemoryPerceptionEngine | None,
         store: ShortTermMemoryStore,
         working_set: TopicWorkingSet,
-        bus,
+        bus: PatchouliBus,
         config: MemoryPerceptionConfig,
         interaction_journal: InMemoryInteractionApplyJournal,
     ) -> None:
