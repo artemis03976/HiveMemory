@@ -1,14 +1,14 @@
 """
-WRITE 指令执行链路测试
+WRITE 意图物化测试
 
-验证 MTP WRITE 指令从 Koakuma → LibrarianCore → GenerationEngine 的完整链路。
+MTP WRITE 只在 workspace 登记写入意图；finalize 后由 Patchouli 的
+MemoryGenerationEngine 以 Mode B 物化。本文件验证生成引擎一侧的行为。
 
 测试覆盖:
-    1. WriteFocus / GenerationRequest 数据模型
-    2. Mode B 提示词选择 (extractor)
-    3. Mode B fallback 草稿构建
-    4. 双重处理防护 (MTP_WRITE flush 不触发 Mode A)
-    5. Koakuma._handle_write E2E
+    1. Mode B 以写入元数据调用 extractor；无写入元数据时走 Mode A
+    2. Mode B fallback 草稿构建
+    3. 感知层不再保留 MTP_WRITE flush 原因
+    4. 引擎统一以 GenerationRequest 为输入
 
 作者: HiveMemory Team
 版本: 1.0

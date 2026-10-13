@@ -1,17 +1,14 @@
 """
-UPDATE 指令执行链路测试
+UPDATE 意图物化测试
 
-验证 MTP UPDATE 指令从 Koakuma → LibrarianCore → GenerationEngine 的完整链路。
+MTP UPDATE 只在 workspace 登记修订意图；finalize 后由 Patchouli 的
+MemoryGenerationEngine 以 Mode C 合并。本文件验证生成引擎一侧的行为。
 
 测试覆盖:
-    1. UpdateFocus / MergeResult 数据模型
-    2. GenerationRequest is_update 属性
-    3. Mode C Merge Prompt 选择 (extractor)
-    4. Mode C fallback 拼接
-    5. _apply_update 纯计算边界（内容合并 + before 快照；版本/时间归 Familiar）
-    6. 双重处理防护 (MTP_UPDATE flush 不触发 Mode A)
-    7. Koakuma._handle_update E2E
-    8. Koakuma UPDATE 校验 (alias/instruction 缺失)
+    1. Mode C 调用 extractor.merge() 而非提取，并返回更新后的记忆
+    2. Mode C fallback 拼接；无既有记忆时返回空
+    3. _apply_update 纯计算边界（内容合并 + before 快照；版本/时间归 Familiar）
+    4. 感知层不再保留 MTP_UPDATE flush 原因
 
 作者: HiveMemory Team
 版本: 1.0

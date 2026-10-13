@@ -46,15 +46,8 @@ class MessageType(str, Enum):
     # 检索请求：RetrievalRequest 的消息类型
     RETRIEVAL_REQUEST = "retrieval_request"
 
-    # 感知信号（当前没有生产方）
-    OBSERVATION = "observation"
-
     # 检索结果：RetrievalResponse 的消息类型
     RETRIEVAL_RESPONSE = "retrieval_response"
-
-    # MTP 指令与响应（当前没有生产方）
-    MTP_COMMAND = "mtp_command"
-    MTP_RESPONSE = "mtp_response"
 
 
 class ProtocolMessage(BaseModel):
