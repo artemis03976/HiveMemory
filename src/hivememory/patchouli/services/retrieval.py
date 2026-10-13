@@ -232,7 +232,7 @@ class RetrievalFamiliar:
             source_version=atom.meta.version,
         )
 
-    async def retrieve(self, query: RetrievalQuery, top_k: int = 5) -> list[MemoryAtom]:
+    async def retrieve(self, query: RetrievalQuery, top_k: int | None = None) -> list[MemoryAtom]:
         """
         语义检索相关记忆，按领域排序返回完整原子列表（A2 §2.1）。
 
@@ -252,7 +252,9 @@ class RetrievalFamiliar:
         )
         return list(engine_result.memories)
 
-    async def retrieve_async(self, query: RetrievalQuery, top_k: int = 5) -> list[MemoryAtom]:
+    async def retrieve_async(
+        self, query: RetrievalQuery, top_k: int | None = None
+    ) -> list[MemoryAtom]:
         """
         异步总线入口：只执行检索与活跃度刷新。
         """

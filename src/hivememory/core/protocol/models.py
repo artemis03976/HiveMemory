@@ -125,7 +125,9 @@ class RetrievalRequest(ProtocolMessage):
     # MTP SEARCH 指令传入的过滤条件 (可选)
     filters: QueryFilters | None = Field(default=None, description="MTP filter 过滤条件")
 
-    top_k: int = Field(default=5, ge=0, description="本次检索候选数量")
+    top_k: int | None = Field(
+        default=None, ge=0, description="本次检索结果条数；缺省时使用检索引擎配置的默认条数"
+    )
 
 
 class RetrievalResponse(ProtocolMessage):

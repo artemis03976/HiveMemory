@@ -30,15 +30,15 @@ class BaseMemoryRetriever(ABC):
         self,
         query: RetrievalQuery,
         top_k: int | None = None,
-        score_threshold: float | None = None,
     ) -> SearchResults:
         """
         检索记忆
 
+        分数阈值不由调用方传入：只有 Dense 召回按自身配置的 cosine 阈值粗筛。
+
         Args:
             query: 检索查询
             top_k: 返回数量；None 使用实现的配置默认值
-            score_threshold: 相似度阈值；None 使用实现的配置默认值
 
         Returns:
             SearchResults: 检索结果集合
@@ -57,7 +57,8 @@ class BaseFusion(ABC):
     融合算法接口
 
     职责:
-        合并多路检索结果。
+        合并多路检索结果，按融合分数排序后全部返回，不截取；
+        条数由检索器按调用方请求的候选数截取，最终条数在重排之后确定。
     """
 
     @abstractmethod

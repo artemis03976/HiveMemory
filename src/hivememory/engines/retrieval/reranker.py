@@ -87,8 +87,8 @@ class CrossEncoderReranker(BaseReranker):
         """
         使用 sigmoid 将分数映射到 0-1
 
-        BGE-Reranker 原始输出范围约 -10 到 +10，
-        使用 sigmoid 函数将其映射到 0-1 范围以便于阈值过滤。
+        BGE-Reranker 原始输出范围约 -10 到 +10，sigmoid 映射到 0-1 便于展示与
+        比较；只改变尺度不改变排序，重排分数不用于阈值过滤。
 
         Args:
             score: 原始 reranker 分数

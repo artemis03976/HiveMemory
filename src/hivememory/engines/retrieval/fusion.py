@@ -90,7 +90,7 @@ class ReciprocalRankFusion(BaseFusion):
 
         # 构建最终结果
         fused_results = []
-        for memory_id in sorted_ids[: self.config.final_top_k]:
+        for memory_id in sorted_ids:
             result = result_map[memory_id]
             result.score = scores[memory_id]  # 更新为 RRF 分数
             fused_results.append(result)
@@ -144,7 +144,7 @@ class ReciprocalRankFusion(BaseFusion):
 
         # 构建最终结果
         fused_results = []
-        for memory_id in sorted_ids[: self.config.final_top_k]:
+        for memory_id in sorted_ids:
             result = result_map[memory_id]
             result.score = scores[memory_id]
             fused_results.append(result)
@@ -256,7 +256,7 @@ class AdaptiveWeightedFusion(BaseFusion):
 
         # 构建最终结果
         fused_results = []
-        for memory_id in sorted_ids[: self.config.final_top_k]:
+        for memory_id in sorted_ids:
             result = result_map[memory_id]
             # 创建新的 SearchResult 以避免修改原始对象
             new_result = result.model_copy()

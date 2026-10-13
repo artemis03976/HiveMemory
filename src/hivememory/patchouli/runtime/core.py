@@ -418,7 +418,9 @@ class PatchouliRuntime:
         # 重排序是引擎中召回之后的独立阶段；关闭时由 NoopReranker 顶替。
         reranker = create_reranker(config=config.reranker, service=self.reranker_service)
 
-        return RetrievalEngine(retriever=retriever, reranker=reranker)
+        return RetrievalEngine(
+            retriever=retriever, reranker=reranker, default_top_k=config.default_top_k
+        )
 
     def _build_perception_engine(self):
         """[私有构建器] 组装 Perception 纯算法引擎

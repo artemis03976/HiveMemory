@@ -83,7 +83,9 @@ async def search_stack(tmp_path) -> AsyncIterator[tuple[KoakumaRuntime, MidTermM
             DenseRetrieverConfig(enable_time_decay=False, enable_confidence_boost=False),
             now=lambda: NOW,
         )
-        familiar = RetrievalFamiliar(RetrievalEngine(retriever, reranker=NoopReranker()), library)
+        familiar = RetrievalFamiliar(
+            RetrievalEngine(retriever, reranker=NoopReranker(), default_top_k=5), library
+        )
         local_bus = PatchouliBus()
         local_bus.register(PatchouliLocalRoutes.MEMORY_RETRIEVE, familiar.retrieve_async)
         application = MemoryManagementService(bus=local_bus)

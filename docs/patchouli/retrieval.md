@@ -36,13 +36,13 @@ RetrievalRequest
             -> Qdrant MidTermMemoryStore.search
             -> Fusion（仅 Hybrid）
        -> 重排：Reranker（CrossEncoderReranker；关闭时 NoopReranker）
-       -> 截取 top-k
+       -> 截取：请求的 top_k，缺省为 retrieval.default_top_k（只在这里进行一次）
   -> RetrievalResult
   -> RetrievalResponse(MemoryAtom[])
   -> caller-owned MemoryCompiler
 ```
 
-`RetrievalEngine` 是很薄的执行层：编排召回与重排两个阶段，并统计 latency/count。业务过滤、话题读取、Agent Profile 读取和生命周期副作用由 RetrievalFamiliar 承担。
+`RetrievalEngine` 是很薄的执行层：编排召回与重排两个阶段，在重排之后做唯一一次截取，并统计 latency/count。业务过滤、话题读取、Agent Profile 读取和生命周期副作用由 RetrievalFamiliar 承担。
 
 ## 2. 三种读取面
 
@@ -74,12 +74,13 @@ QdrantStorageAdapter 对 UUID、alias、scroll 与 search 返回的每个原子�
 
 DenseRetriever 使用语义向量相似度，并可应用：
 
-- 基于 `updated_at` 与 half-life 配置的时间衰减惩罚；
+- 按 `score_threshold`（默认 0.5）在存储召回时过滤原始 cosine 相似度，这是检索链路中唯一的分数阈值；
+- 基于 `decay_anchor_at`（与生命力评分共用的衰减基准）与 half-life 配置的时间衰减惩罚；
 - 基于 confidence 的轻量加成。
 
 时间影响当前只由 DenseRetriever 的 `enable_time_decay` 与 `time_decay_days` 解释。Fusion 不再暴露没有消费者的独立 `time_weight`，以免把未来的复习调度或时间线排序误写成当前能力。
 
-SparseRetriever 使用 Qdrant 稀疏向量，目标是保留函数名、错误码和专有实体等词汇级信号，不应用时间衰减。
+SparseRetriever 使用 Qdrant 稀疏向量，目标是保留函数名、错误码和专有实体等词汇级信号，不应用时间衰减，也不设分数阈值：BM25 原始分没有上界，阈值会依赖语料。
 
 默认 HybridRetriever 并行执行两路召回；任一路普通异常会退化为空结果，但 `StorageOfflineError` / `StorageReadError` 会重新抛出，使上层能够区分存储不可用与“确实没有相关记忆”。取消等非 `Exception` 的 `BaseException` 同样向上传播，不会被当作某一路的检索结果交给融合。
 
@@ -89,7 +90,7 @@ Hybrid 的 dense/sparse 两路可以分别在配置中关闭；关闭的一路�
 
 ## 5. Fusion 与 Rerank
 
-Hybrid 融合 Dense/Sparse `SearchResults` 后截取 top-k。
+Hybrid 融合 Dense/Sparse `SearchResults` 后，按调用方请求的候选数截取；融合本身返回全部结果，既不截取，也不设分数阈值。
 
 当前 Fusion 有两种：
 
@@ -102,7 +103,15 @@ Hybrid 融合 Dense/Sparse `SearchResults` 后截取 top-k。
 
 重排阶段始终存在：`retrieval.reranker` 关闭时由 `NoopReranker` 顶替，候选数等于 top-k、结果原样返回；配置开启但未装配重排服务时同样退化为 `NoopReranker` 并记录 warning。CrossEncoderReranker 以配置的 `top_k`（默认 20）作为候选池，通过 MemoryCompiler 的 `DENSE_EMBEDDING` target 构造候选文本，避免维护另一套排序文本拼接。
 
-分数阈值的语义当前并不完全统一：Dense/Sparse 在存储召回时接收阈值；Hybrid 融合后不套用阈值（融合分数与相似度阈值不可比），其内部两路使用各自配置的阈值；重排后的分数不再过滤。调用方应把 top-k 视为稳定控制，把跨策略 threshold 视为仍需收敛的实现细节。
+召回、融合与重排的分数尺度互不相同，同一个阈值数字只能对其中一种有意义，因此分数阈值只作用于 Dense 召回，交给重排的候选即粗筛后的结果：
+
+- Sparse 不设阈值（见第 4 节）；
+- 融合分数不设阈值：RRF 只反映名次，无意义查询的第 1 名与相关查询的第 1 名得分相同；加权融合直接相加 cosine 与 BM25 原始分，尺度随查询变化；
+- 重排分数不设阈值：CrossEncoderReranker 用 sigmoid 把分数映射到 0–1，只用于排序与展示。
+
+阈值不由调用方传入，引擎与检索器接口都只接收条数。本次结果条数是请求的 `top_k`；未给出时（当前为 MTP SEARCH）使用 `patchouli.retrieval.default_top_k`（默认 5）。prepare 与被动链路的条数来自 Gateway 检索计划（`gateway.default_top_k`），不受该配置影响。引擎按结果条数向重排器索取候选池，并且只在重排之后截取一次。
+
+已删除的配置键在出现时使配置加载显式失败，而不是被静默忽略：`retrieval.retriever.sparse.score_threshold`（以及 Sparse 检索器的 `score_threshold`）、Hybrid 顶层的 `score_threshold`、融合配置的 `final_top_k`（由 `retrieval.default_top_k` 取代）。
 
 ## 6. 与 MemoryCompiler 的边界
 
@@ -137,10 +146,11 @@ Retrieval 只返回 atoms。当前主要调用者分别编译：
 
 - `tags`、`time_range` 尚未转换为 Qdrant filters；
 - Gateway keywords 尚未进入独立 sparse query；
-- 跨 Dense、Sparse、RRF 与 reranker 的 threshold 口径未统一；重排后的分数不过滤，默认配置下 `RetrievalEngine` 的 0.75 默认阈值交给 Hybrid 后不生效，见 [Todo](../todo/retrieval-hybrid-threshold-with-reranker.md)；
+- Hybrid 下 Sparse 不受阈值约束，弱相关查询的结果可能主要来自 BM25 命中，无意义查询不保证返回空结果；
+- 加权融合直接相加 cosine 与未归一化的 BM25 原始分，尺度随查询变化（默认配置使用 RRF，不受影响）；
 - 普通异常可能被投影为空结果，调用方只能通过观测区分；
 - 普通检索不搜索长期 archive，也不自动 revive；
 - 当前 retrieval response 主要暴露 atoms，`SearchResult.match_reason` 等解释元信息没有完整进入公共响应；
-- Workspace ownership hard filter 与 actor policy 已由 Memory store/adapter 统一执行；Generation 的 dedup search 同样独立传入归属与发起者，SETTLE 使用无 Team 的保留 system actor，只能查重本域 PUBLIC 记忆；多种 threshold 口径仍需继续收敛（legacy record 兼容已随存量迁移删除）。
+- Workspace ownership hard filter 与 actor policy 已由 Memory store/adapter 统一执行；Generation 的 dedup search 同样独立传入归属与发起者，SETTLE 使用无 Team 的保留 system actor，只能查重本域 PUBLIC 记忆（legacy record 兼容已随存量迁移删除）。
 
 修复这些缺口时应优先保持身份硬过滤和 Retrieval/Compiler 解耦，不能为了快速接入一个新字段而把 prompt 或跨系统状态重新塞回 retriever。

@@ -66,15 +66,15 @@ class DenseRetriever(BaseMemoryRetriever):
         self,
         query: RetrievalQuery,
         top_k: int | None = None,
-        score_threshold: float | None = None,
     ) -> SearchResults:
         """
         执行稠密向量检索
 
+        按配置的 cosine 阈值在存储召回时粗筛；这是检索链路中唯一的分数阈值。
+
         Args:
             query: 处理后的查询
             top_k: 返回数量
-            score_threshold: 相似度阈值
 
         Returns:
             检索结果集合
@@ -82,7 +82,6 @@ class DenseRetriever(BaseMemoryRetriever):
         start_time = time.time()
 
         top_k = top_k or self.config.top_k
-        score_threshold = score_threshold or self.config.score_threshold
 
         # 获取搜索文本
         search_text = query.get_search_text()
@@ -96,7 +95,7 @@ class DenseRetriever(BaseMemoryRetriever):
                 top_k=top_k,
                 filters=query.filters,
                 mode="dense",
-                score_threshold=score_threshold,
+                score_threshold=self.config.score_threshold,
             )
         except (StorageOfflineError, StorageReadError):
             raise
@@ -190,15 +189,15 @@ class SparseRetriever(BaseMemoryRetriever):
         self,
         query: RetrievalQuery,
         top_k: int | None = None,
-        score_threshold: float | None = None,
     ) -> SearchResults:
         """
         执行稀疏向量检索
 
+        BM25 原始分没有上界，Sparse 召回不设分数阈值。
+
         Args:
             query: 处理后的查询
             top_k: 返回数量
-            score_threshold: 相似度阈值
 
         Returns:
             检索结果集合
@@ -206,7 +205,6 @@ class SparseRetriever(BaseMemoryRetriever):
         start_time = time.time()
 
         top_k = top_k or self.config.top_k
-        score_threshold = score_threshold or self.config.score_threshold
 
         # 获取搜索文本
         search_text = query.get_search_text()
@@ -220,7 +218,6 @@ class SparseRetriever(BaseMemoryRetriever):
                 top_k=top_k,
                 filters=query.filters,
                 mode="sparse",
-                score_threshold=score_threshold,
             )
         except (StorageOfflineError, StorageReadError):
             raise
@@ -291,23 +288,21 @@ class HybridRetriever(BaseMemoryRetriever):
         self,
         query: RetrievalQuery,
         top_k: int | None = None,
-        score_threshold: float | None = None,
     ) -> SearchResults:
         """
         执行混合检索
 
-        执行稠密+稀疏并行召回和 RRF 融合。
+        执行稠密+稀疏并行召回和融合。融合返回完整结果，这里按调用方请求的候选数
+        截取（引擎请求的是重排器的候选池大小）；融合分数不设阈值。
 
         Args:
             query: 处理后的查询
             top_k: 返回数量（可选）
-            score_threshold: 相似度阈值（可选）
 
         Returns:
             检索结果集合
         """
         top_k = top_k or self.config.top_k
-        score_threshold = score_threshold or self.config.score_threshold
 
         start_time = time.time()
 
@@ -317,14 +312,8 @@ class HybridRetriever(BaseMemoryRetriever):
         else:
             dense_results, sparse_results = await self._sequential_recall(query)
 
-        # RRF 融合
+        # 融合：RRF 分数只反映名次，加权融合混合了不同尺度的原始分，均不设阈值。
         fused_results = self.fusion.fuse(dense_results, sparse_results)
-
-        # 融合分数（RRF 名次分数等）与 cosine 相似度阈值不可比，融合后不套用阈值。
-        if score_threshold > 0:
-            logger.debug(
-                f"跳过融合后阈值过滤 (threshold={score_threshold})：融合分数不适用相似度阈值"
-            )
 
         # 截取 top_k
         fused_results.results = fused_results.results[:top_k]
@@ -379,7 +368,6 @@ class NoOpRetriever(BaseMemoryRetriever):
         self,
         query: RetrievalQuery,
         top_k: int | None = None,
-        score_threshold: float | None = None,
     ) -> SearchResults:
         return SearchResults()
 

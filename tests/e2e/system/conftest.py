@@ -168,7 +168,11 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
         artifact_store=artifacts,
     )
     retrieval = RetrievalFamiliar(
-        RetrievalEngine(DenseRetriever(mid_term, DenseRetrieverConfig()), reranker=NoopReranker()),
+        RetrievalEngine(
+            DenseRetriever(mid_term, DenseRetrieverConfig()),
+            reranker=NoopReranker(),
+            default_top_k=5,
+        ),
         library,
         local_bus,
     )

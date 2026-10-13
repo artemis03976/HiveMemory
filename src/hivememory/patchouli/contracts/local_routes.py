@@ -92,7 +92,7 @@ class PatchouliLocalRoutes:
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("memory.retrieve")
-    async def MEMORY_RETRIEVE(query: RetrievalQuery, top_k: int = 5) -> list[MemoryAtom]:
+    async def MEMORY_RETRIEVE(query: RetrievalQuery, top_k: int | None = None) -> list[MemoryAtom]:
         """异步总线入口：只执行检索与活跃度刷新。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 

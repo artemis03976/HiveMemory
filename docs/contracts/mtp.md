@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-12
 ---
 
 # Memory Tool Protocol (MTP)
@@ -74,7 +74,7 @@ Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格�
 - 必填 `query`；
 - 可选 `filter`，当前支持 memory type、tags 和 vitality 等解析规则；
 - filter 中的非法 token 不使整次搜索失败，而是忽略过滤并返回 warning；
-- 提交 `RetrieveRequest` 经 workspace 语义检索能力读取，默认 `top_k=5`；
+- 提交 `RetrieveRequest` 经 workspace 语义检索能力读取，不指定 `top_k`，条数由检索引擎配置的 `retrieval.default_top_k`（默认 5）决定；
 - 结果由 MemoryCompiler 编译为 Retrieval Context；
 - 读取能力预热 workspace 完整原子缓存，后续交付仍重新检查当前 actor 的可见性；
 - 空结果仍为 `success`，并带 `no_memories_found` warning。

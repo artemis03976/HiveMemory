@@ -362,15 +362,14 @@ RERANKING_TEST_CASES = [
     },
     {
         "id": "RET-RNK-002",
-        "name": "阈值过滤",
-        "description": "无关 Query 经 Rerank 后返回空列表或低分结果",
+        "name": "无关查询的重排分数",
+        "description": "重排分数不设阈值；无关 Query 经 Rerank 后结果分数均低于上界",
         "priority": "P1",
         "query": "外星人入侵地球的电影推荐",
-        "score_threshold": 0.5,
-        "expected_empty_or_low_score": True,
+        "max_rerank_score": 0.5,
         "validation": {
-            "type": "threshold_filtering",
-            "description": "所有结果分数应低于阈值",
+            "type": "low_rerank_score",
+            "description": "所有结果的重排分数应低于上界",
         },
     },
 ]

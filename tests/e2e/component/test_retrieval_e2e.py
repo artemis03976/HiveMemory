@@ -69,6 +69,7 @@ from hivememory.config.memory_compiler import (
     CompactContextStrategyConfig,
     FullContextStrategyConfig,
 )
+from hivememory.config.patchouli import DenseRetrieverConfig, MemoryRetrievalConfig
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -85,7 +86,11 @@ from hivememory.engines.memory_compiler import (
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import RetrievalQuery
 from hivememory.engines.retrieval.reranker import create_reranker
-from hivememory.engines.retrieval.retriever import HybridRetriever, create_retriever
+from hivememory.engines.retrieval.retriever import (
+    DenseRetriever,
+    HybridRetriever,
+    create_retriever,
+)
 from hivememory.infrastructure.rerank.fast_embed_reranker import FastEmbedRerankerService
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
@@ -108,6 +113,7 @@ _shared_mid_term: MidTermMemoryStore | None = None
 _shared_retriever: HybridRetriever | None = None
 _shared_reranker_service: FastEmbedRerankerService | None = None
 _shared_engine: RetrievalEngine | None = None
+_shared_retrieval_config: MemoryRetrievalConfig | None = None
 _test_collection_name: str = "hivememory_retrieval_test"
 _golden_memories_injected: bool = False
 _golden_identity: ActorIdentity | None = None
@@ -141,6 +147,7 @@ def _shared_event_loop():
     """先于共享存储创建事件循环；模块结束时关闭 Qdrant 客户端与循环并清空共享状态。"""
     global _loop, _shared_storage, _shared_mid_term, _shared_retriever
     global _shared_reranker_service, _shared_engine, _golden_memories_injected, _golden_identity
+    global _shared_retrieval_config
 
     _get_loop()
     try:
@@ -157,6 +164,7 @@ def _shared_event_loop():
         _shared_mid_term = None
         _shared_retriever = None
         _shared_reranker_service = None
+        _shared_retrieval_config = None
         _shared_engine = None
         _golden_memories_injected = False
         _golden_identity = None
@@ -172,6 +180,7 @@ def setup_test_env() -> RetrievalEngine:
     创建真实的 RetrievalEngine 及其依赖组件。
     """
     global _shared_storage, _shared_mid_term, _shared_retriever, _shared_reranker_service, _shared_engine
+    global _shared_retrieval_config
 
     if _shared_engine is not None:
         return _shared_engine
@@ -197,6 +206,7 @@ def setup_test_env() -> RetrievalEngine:
 
     # 2. 创建 Reranker 服务
     retrieval_config = app_config.patchouli.retrieval
+    _shared_retrieval_config = retrieval_config
     retriever_config = retrieval_config.retriever
     reranker_config = retrieval_config.reranker
     console.print(f"[dim]Reranker 模型: {reranker_config.model_name}[/dim]")
@@ -212,6 +222,7 @@ def setup_test_env() -> RetrievalEngine:
     _shared_engine = RetrievalEngine(
         retriever=_shared_retriever,
         reranker=create_reranker(reranker_config, _shared_reranker_service),
+        default_top_k=retrieval_config.default_top_k,
     )
 
     console.print("[green]Retrieval E2E 测试环境初始化完成[/green]")
@@ -294,6 +305,17 @@ def create_test_identity(prefix: str = "test") -> ActorIdentity:
     )
 
 
+def _dense_recall_config(retrieval_config: MemoryRetrievalConfig) -> DenseRetrieverConfig:
+    """分数阈值只属于 Dense 召回；从配置中取出 Dense 路径（单独或 Hybrid 内）。"""
+    retriever = retrieval_config.retriever
+    if isinstance(retriever, DenseRetrieverConfig):
+        return retriever
+    dense = getattr(retriever, "dense", None)
+    if not isinstance(dense, DenseRetrieverConfig):
+        pytest.skip("当前检索配置没有 Dense 召回路径")
+    return dense
+
+
 def create_retrieval_query(
     semantic_query: str, keywords: list[str] | None = None
 ) -> RetrievalQuery:
@@ -367,7 +389,7 @@ class TestHybridSearch:
         query = create_retrieval_query(semantic_query=test_case["query"])
 
         # 执行检索
-        results = _run(self.retriever.retrieve(query, top_k=5, score_threshold=0.0))
+        results = _run(self.retriever.retrieve(query, top_k=5))
 
         # 验证结果
         result_ids = [str(r.memory.id) for r in results.results]
@@ -414,7 +436,7 @@ class TestHybridSearch:
         )
 
         # 执行检索
-        results = _run(self.retriever.retrieve(query, top_k=5, score_threshold=0.0))
+        results = _run(self.retriever.retrieve(query, top_k=5))
 
         # 验证结果
         result_ids = [str(r.memory.id) for r in results.results]
@@ -456,7 +478,7 @@ class TestHybridSearch:
         query = create_retrieval_query(semantic_query=test_case["query"])
 
         # 执行检索
-        results = _run(self.retriever.retrieve(query, top_k=5, score_threshold=0.0))
+        results = _run(self.retriever.retrieve(query, top_k=5))
 
         # 验证结果
         result_ids = [str(r.memory.id) for r in results.results]
@@ -524,7 +546,7 @@ class TestReranking:
         query = create_retrieval_query(semantic_query=test_case["query"])
 
         # 执行检索（包含 Rerank）
-        results = _run(self.engine.retrieve(query, top_k=10, score_threshold=0.0)).search_results
+        results = _run(self.engine.retrieve(query, top_k=10)).search_results
 
         # 验证结果
         expected_top1 = test_case.get("expected_top1_after_rerank")
@@ -555,47 +577,31 @@ class TestReranking:
 
         assert success, "Rerank 后 Top-1 不符合预期"
 
-    def test_threshold_filtering(self):
+    def test_irrelevant_query_scores_low_after_rerank(self):
         """
-        RET-RNK-002: 阈值过滤
+        RET-RNK-002: 无关查询的重排分数
 
         验证点：
-        - 无关 Query 经 Rerank 后返回空列表或低分结果
+        - 重排分数不设阈值、不过滤结果；无关 Query 的结果经 Rerank 后分数均低于用例上界
         """
         test_case = RERANKING_TEST_CASES[1]  # RET-RNK-002
         assert test_case["id"] == "RET-RNK-002"
 
-        # 构建查询（完全无关的查询）
         query = create_retrieval_query(semantic_query=test_case["query"])
+        results = _run(self.engine.retrieve(query, top_k=5)).search_results
 
-        # 执行检索
-        score_threshold = test_case.get("score_threshold", 0.5)
-        results = _run(
-            self.engine.retrieve(query, top_k=5, score_threshold=score_threshold)
-        ).search_results
+        max_rerank_score = test_case["max_rerank_score"]
+        scores = [r.score for r in results.results]
+        success = all(score < max_rerank_score for score in scores)
 
-        # 验证结果：应该返回空或低分结果
-        if test_case.get("expected_empty_or_low_score"):
-            # 检查是否为空或所有分数都低于阈值
-            if results.results:
-                max_score = max(r.score for r in results.results)
-                success = max_score < score_threshold or len(results.results) == 0
-            else:
-                success = True
-        else:
-            success = True
-
-        print_test_result(console, "RET-RNK-002: 阈值过滤", success)
+        print_test_result(console, "RET-RNK-002: 无关查询的重排分数", success)
         console.print(f"    [dim]查询: {test_case['query']}[/dim]")
-        console.print(f"    [dim]阈值: {score_threshold}[/dim]")
+        console.print(f"    [dim]分数上界: {max_rerank_score}[/dim]")
         console.print(f"    [dim]召回数: {len(results)} 条[/dim]")
+        if scores:
+            console.print(f"    [dim]最高重排分: {max(scores):.4f}[/dim]")
 
-        if results.results:
-            max_score = max(r.score for r in results.results)
-            console.print(f"    [dim]最高分: {max_score:.4f}[/dim]")
-
-        # 注意：阈值过滤应生效
-        assert success, f"阈值过滤应生效, 查询={test_case['query']}, 阈值={score_threshold}"
+        assert success, f"无关查询的重排分数应低于 {max_rerank_score}, 实际: {scores}"
 
 
 # ========== Group 3: 上下文编译测试 (MemoryCompiler) ==========
@@ -809,7 +815,6 @@ class TestEndToEndFlow:
             self.engine.retrieve(
                 query=query,
                 top_k=5,
-                score_threshold=0.0,
             )
         )
 
@@ -843,31 +848,43 @@ class TestEndToEndFlow:
 
     def test_empty_result_handling(self):
         """
-        E2E-002: 空结果处理
+        E2E-002: 空结果处理（Dense 召回阈值）
 
         验证点：
-        - 无匹配结果时返回空列表和空上下文
-        - 不抛出异常
+        - 不设阈值时，无意义查询仍能召回到 Dense 候选，且其原始 cosine 全部低于配置阈值
+        - 按配置阈值召回时这些候选不进入重排，最终结果为空，不抛出异常
         """
-        # 构建一个极不可能匹配的查询
+        assert _shared_retrieval_config is not None and _shared_mid_term is not None
+        retrieval_config = _shared_retrieval_config
+        dense_config = _dense_recall_config(retrieval_config)
         query = create_retrieval_query(semantic_query="xyzzy12345_不存在的查询_abcde67890")
 
-        # 执行检索
-        result = _run(
-            self.engine.retrieve(
-                query=query,
-                top_k=5,
-                score_threshold=0.9,  # 高阈值
-            )
+        unfiltered = _run(
+            DenseRetriever(
+                _shared_mid_term, dense_config.model_copy(update={"score_threshold": 0.0})
+            ).retrieve(query, top_k=20)
+        )
+        assert unfiltered.results, "前提：不设阈值时 Dense 应能召回到低分候选"
+        max_cosine = max(r.vector_score for r in unfiltered.results)
+        assert max_cosine < dense_config.score_threshold, (
+            f"前提：无意义查询的最高 cosine {max_cosine:.4f} "
+            f"应低于配置阈值 {dense_config.score_threshold}"
         )
 
-        # 验证结果：无匹配时应返回空列表
-        assert (
-            len(result.memories) == 0
-        ), f"无匹配结果应返回空列表, 实际召回 {len(result.memories)} 条"
+        engine = RetrievalEngine(
+            retriever=DenseRetriever(_shared_mid_term, dense_config),
+            reranker=create_reranker(retrieval_config.reranker, get_shared_reranker_service()),
+            default_top_k=retrieval_config.default_top_k,
+        )
+        result = _run(engine.retrieve(query))
 
-        print_test_result(console, "E2E-002: 空结果处理", True)
+        print_test_result(console, "E2E-002: 空结果处理", not result.memories)
+        console.print(f"    [dim]不设阈值的候选数: {len(unfiltered.results)}[/dim]")
+        console.print(f"    [dim]最高 cosine: {max_cosine:.4f}[/dim]")
+        console.print(f"    [dim]Dense 阈值: {dense_config.score_threshold}[/dim]")
         console.print(f"    [dim]召回记忆数: {len(result.memories)}[/dim]")
+
+        assert result.memories == [], f"低于阈值的候选不应进入结果, 实际 {len(result.memories)} 条"
 
     def test_retrieval_with_markdown_format(self):
         """
@@ -885,7 +902,6 @@ class TestEndToEndFlow:
             self.engine.retrieve(
                 query=query,
                 top_k=3,
-                score_threshold=0.0,
             )
         )
 
@@ -943,7 +959,7 @@ class TestEndToEndFlow:
 
         for query_text, expected_ids in test_queries:
             query = create_retrieval_query(semantic_query=query_text)
-            result = _run(self.engine.retrieve(query=query, top_k=5, score_threshold=0.0))
+            result = _run(self.engine.retrieve(query=query, top_k=5))
 
             result_ids = [str(m.id) for m in result.memories]
 

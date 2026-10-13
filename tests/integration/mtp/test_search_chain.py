@@ -236,7 +236,8 @@ class TestSearchRetrievalRequest:
 
         call_args = koakuma.harness.backing.bus._mock_retrieval.retrieve.call_args[1]["request"]
         assert call_args.semantic_query == "python decorators"
-        assert call_args.top_k == 5
+        # SEARCH 不指定条数：top_k 缺省到达检索层，由引擎配置的 default_top_k 决定
+        assert call_args.top_k is None
         assert call_args.keywords == []
         assert result.response_status == "success"
         assert "Test Memory" in result.response_content

@@ -26,14 +26,20 @@ from tests.helpers.registered_chat import run_registered_chat, stream_registered
 pytestmark = [pytest.mark.e2e, pytest.mark.live_llm, pytest.mark.asyncio(loop_scope="session")]
 
 
-async def _seed_memory(system, user_id: str, content: str) -> MemoryAtom:
-    """经 root 管理入口在测试用户的 Workspace 预埋一条公开记忆（含真实向量）。"""
+async def _seed_memory(
+    system, user_id: str, *, title: str, summary: str, content: str
+) -> MemoryAtom:
+    """经 root 管理入口在测试用户的 Workspace 预埋一条公开记忆（含真实向量）。
+
+    标题与摘要按生成记忆的写法描述内容本身：它们进入 dense 文本，写成“测试用记忆”之类
+    的说明会让向量偏离内容，低于 Dense 召回阈值。
+    """
     workspace = workspace_for(user_id)
     async with root_access(system, workspace) as access:
         return await system.root_memory_service.create_memory(
             target_workspace=workspace,
-            title="E2E Memory",
-            summary="用于 e2e 检索注入验证的记忆",
+            title=title,
+            summary=summary,
             content=content,
             memory_type=MemoryType.FACT.value,
             tags=["e2e"],
@@ -119,7 +125,11 @@ class TestChatRun:
         """检索注入：预埋记忆 → chat 的 memory_refs 引用该记忆"""
         user_id = e2e_user()
         atom = await _seed_memory(
-            e2e_system, user_id, "我最喜欢的编程语言是 Rust，因为它内存安全。"
+            e2e_system,
+            user_id,
+            title="用户最喜欢的编程语言",
+            summary="用户偏好 Rust，原因是内存安全",
+            content="我最喜欢的编程语言是 Rust，因为它内存安全。",
         )
 
         events = await _collect_stream_events(

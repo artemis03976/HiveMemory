@@ -279,7 +279,7 @@ run_agent(
 | 请求 | MTP 动词 | 参数 | 结果 `R` | actor 操作 |
 |:---|:---|:---|:---|:---|
 | `ResolveReferencesRequest` | READ（含 CALL 的 `context_refs`） | `aliases: tuple[str, ...]` | `list[ReferenceResolution]` | `memory.read` |
-| `RetrieveRequest` | SEARCH | `semantic_query`、`keywords=()`、`top_k=5`、`filters=None` | `list[MemoryAtom]` | `memory.search` |
+| `RetrieveRequest` | SEARCH | `semantic_query`、`keywords=()`、`top_k=None`（缺省时由 `retrieval.default_top_k` 决定）、`filters=None` | `list[MemoryAtom]` | `memory.search` |
 | `ResolveRunTargetRequest` | RUN（记忆中的用户态工具） | `alias: str` | `ReferenceResolution` | `memory.run` |
 | `SubmitWriteIntentRequest` | WRITE | `focus: WriteFocus` | `PendingAtom` | `memory.write` |
 | `SubmitUpdateIntentRequest` | UPDATE | `base_alias`、`instruction`、`content=None` | `PendingAtom` | `memory.update` |
