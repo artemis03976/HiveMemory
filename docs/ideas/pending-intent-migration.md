@@ -61,7 +61,7 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 | B | 进程把当前一轮尚未闭合的执行记录作为快照，随意图一起提交 | 目前不采用 |
 | C | 从 conversation session 的历史取材料 | 排除：session 不是记忆的材料来源 |
 
-按选项 A：Gateway 路由到已有 Topic 时，材料是该 Topic 在提交时点已有的内容；路由到新 Topic 时，Topic 要到结算后才创建（任务进程 Idea 1.2），材料只有 focus。生成引擎支持只凭 focus 生成（第 3 节）。
+按选项 A：Gateway 路由到已有 Topic 时，材料是该 Topic 在提交时点已有的内容；路由到新 Topic 时，Topic 要到结算后才创建（任务进程 Idea 1.2），材料只有 focus。（2026-10-13 话题保留预建：新话题在派发时已经存在但为空，材料同样只有 focus。）生成引擎支持只凭 focus 生成（第 3 节）。
 
 **回读与可见性**：在记忆正式落库之前，PendingAtom 是替代正式记忆的唯一机制，因此直到落库之前，它都必须对后续进程可回读（任务进程 Idea Q-2）。第一版采用简单实现：PendingAtom 不设 policy，默认对全 workspace 开放。PendingAtom 不参与检索，能拿到其别名的一般只有写入它的 agent，狭义上能做到“中间产物归进程”。
 
@@ -81,7 +81,7 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 **分两步实施**：
 
 1. 登记迁出 Alice：登记移到 workspace、对全 workspace 开放的回读、能力层的提交方法、生命周期与进程解耦、结算事件的接收；已实施（2026-10-07，见 0.2）；
-2. 实时派发生成（材料按选项 A）；尚未实施，派发设计已于 2026-10-13 决定，待决问题见 0.3。
+2. 实时派发生成（材料按选项 A）；尚未实施，派发设计与相关问题已于 2026-10-13 全部决定，见 0.3。
 
 依赖实时派发的简化，必须与第 2 步在同一份计划中完成，包括：收尾阶段不再派发物化、`InteractionPayload.materialize_tasks` 移除、写入意图不再作为进程工作集中的资源。
 
@@ -104,7 +104,7 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 - Store 的 canonical 变更事件内联失效 workspace 原子、旧 alias 与来源 Profile 派生项并推进代次；结算只推进 registry，不回填原子，通知无重试、replay 或未送达对账。
 - completed 进程认领意图后仍经 `InteractionPayload.materialize_tasks` 和 finalize 派发；关闭取消尚未认领的 PENDING，不取消 MATERIALIZING。没有实时派发、保留期或 durable ledger，终态句柄保留到重启。
 
-第 2 步的派发设计、认领前意图的寿命（W8）与移除 interaction 隐式物化字段已于 2026-10-13 决定（0.3）；Topic 全部可用资料与预算（W10）仍待决定，权威结果对账和容量/保留期仍搁置。下文有关实时提交、独立路由、完整 Topic 输入及持久化的要求继续作为候选约束；不能从第 1 步完成推断它们已落地。
+第 2 步的派发设计、认领前意图的寿命（W8）、移除 interaction 隐式物化字段与生成材料（W10）已于 2026-10-13 决定（0.3）；权威结果对账和容量/保留期仍搁置。下文有关实时提交、独立路由、完整 Topic 输入及持久化的要求继续作为候选约束；不能从第 1 步完成推断它们已落地。
 
 ### 0.3 第 2 步的派发设计（owner，2026-10-13）
 
@@ -120,48 +120,25 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 
 **W9 done 事件不再携带记忆任务**：`ChatDoneEvent` 的 `memory_task_ids` 删除。前端监听事件总线上与记忆任务有关的事件（`memory.task.*`），自动捕获新建的任务及其任何状态变化，并反映在界面上。
 
+**W6 派发时的 Topic**：派发时的 topic_id 跟随 Gateway 的话题路由结果，由进程在转到 CPU 时补全；actor 的操作请求不携带 topic_id。
+
+**W7 ACK 之前的错误**：直到成功返回 ACK 之前的任何错误，都抛回给 agent，由 agent 自行处理。
+
+**W10 生成材料**：材料只取话题过去若干轮的历史记录（block）与可能存在的 `state_summary`，当前一轮有意不参与；取几轮改为可配置项，不再写死。派发时话题内容可能为空（例如新话题），此时只凭 focus 生成。第 3 节“按预算编译全部可用资料、不退化为最近五条”的要求改为未来方向：对话以流式方式同步到 Patchouli 之后，材料变为之前全部的 Interaction 记录加上当前轮已流式接收的消息，本条的局限随之消失（[长时间运行 Agent 的 Turn 内上下文折叠 Idea](./long-running-agent-intra-turn-context-folding.md)开头的 owner 方向）。
+
+**W11 进程关闭时点**：暂时保持现状：第 2 步保留 prepare 预建话题，finalize 仍等交互 applied 后返回；“交互被接纳后即退出”（[任务进程 Idea](./task-process-table-and-registration-entry.md#q-1-进程何时关闭) Q-1 的尾项）留给外部会话方向；话题保留预建（任务进程 Idea 1.2，2026-10-13）。
+
 **实施时必须一起改的地方**（分析，2026-10-13 代码核对）：
 
 - 别名与 intent_id 由 workspace 登记提供：`submit_memory_intent` 现在按 intent_id 自行派生 `pending_alias`，而 Patchouli 的 FAILED、CANCELLED 结算事件只携带 `pending_alias`，登记先按别名匹配。别名不一致时失败事件回不到登记，句柄会停在 MATERIALIZING。`MemoryIntent` 需要接收登记产生的别名与 intent_id，Patchouli 不再派生；
+- W6 的补全：现状下 Gateway 路由到新话题时只给出占位值 `NEW_TOPIC`，真实 id 由 prepare 预建话题时生成，CPU 输入清单的 `topic_id` 取自 prepare 结果，因此进入 CPU 阶段时一定有真实 id；话题保留预建后长期如此。进程在 CPU 分配时把本轮 topic_id 按 process_id 记在 workspace 一侧，能力层派发时读取；CALL 子线程与主线程同属一个进程，使用同一话题。capability 与 process 两个子包现在互不导入，需要经端口；
 - 线程 context 的复查改在登记之前同步完成，顺序为授权、UPDATE 的基础冷读、复查、登记、派发：复查与登记之间没有挂起点，不会再出现迟到登记。操作入口在返回后的补偿、`CancelIntentsRequest`、登记的 `cancel_aliases` 与 `cancel_process` 随 W8 删除。派发期间线程被撤销不影响已经开始的提交；派发需屏蔽调用方的取消，避免登记状态与生成队列不一致；
-- 提交结果要区分确定性拒绝与结果未知：现在 `MemoryIntentSubmissionResult.accepted=False` 两者不分。确定性拒绝时向 agent 返回错误、不给 ACK，句柄为 FAILED；
+- W7 的句柄状态：现在 `MemoryIntentSubmissionResult.accepted=False` 不区分确定性拒绝与结果未知，需要分开。确定性拒绝时句柄为 FAILED；结果未知（总线异常、spec 构建异常）时无法确认是否已被接纳，句柄保持 MATERIALIZING，未被接纳则一直挂起，归入 0.1“分析与遗留”中搁置的结算对账。agent 收到错误后重新 WRITE 会登记新的意图；如果前一次其实已被接纳，重复内容由生成侧的去重决策处理；
+- W10 的配置项放在 Patchouli 的生成配置段；现有的 `fold_retain_recent_blocks` 服务于话题折叠，用途不同；
 - 任务进程不再从 finalize 取得记忆任务：`RunCompleted.memory_task_ids`、进程完成事件中的同名字段与前端 Memory Runtime 的“本轮任务置顶”随 W9 删除，记忆任务事件不携带 process_id。事件流是 best-effort 的，Memory Runtime 挂载时调用任务列表 API，可以补齐丢失的事件；
 - root API 的 `cancel_memory_task` 不受 W8 影响：它是对生成任务本身的管理操作，意图随之变为 CANCELLED；
-- ACK 要等待 Topic 读取、UPDATE 的基础记忆读取与生成队列的接纳，这段延迟进入 agent 的执行循环；
+- ACK 要等待话题读取、UPDATE 的基础记忆读取与生成队列的接纳，这段延迟进入 agent 的执行循环；
 - 实施完成后按晋升门禁同步 AGENTS.md 第 4 节、[MTP 契约](../contracts/mtp.md)、[公开路由与事件](../contracts/routes-and-events.md)与 [Chat 视图](../frontend/chat-view.md)第 3 节。
-
-**待决问题**（阻塞第 2 步的计划；只列选项及其影响，选项顺序不代表倾向）：
-
-**W6 派发时的 Topic 从哪来**：`MemoryIntent.topic_id` 必填，actor 的操作请求不带 Topic，workspace 的 capability 与 process 两个子包互不导入。现状下 prepare 总会预建 Topic（包括新话题），CPU 执行期间 `prepared.topic_id` 一定存在。
-
-| 选项 | 内容 | 影响 |
-|:---|:---|:---|
-| A | 能力层注入一个端口，按线程 context 中的 process_id 读取进程 prepare 得到的 topic_id | 新增 workspace 内部端口；Topic 改为按需创建后（外部会话方向），topic_id 需要改为可选 |
-| B | 进程进入 CPU 执行阶段时，把 Topic 写进登记或随线程一起绑定 | 登记或线程绑定开始携带业务数据 |
-| C | 本步不传 Topic，材料只有 focus | 与 0.1 选项 A 的“使用 Topic 已有内容”不一致 |
-
-**W7 派发结果未知时**（总线异常、spec 构建异常）：实时派发后不再有“下一次派发”可以重试；生成任务的 spec 含提交时点的 Topic 材料快照，Topic 一变，同一 intent_id 的重试会被判为载荷冲突。
-
-| 选项 | 内容 | 影响 |
-|:---|:---|:---|
-| A | 向 agent 返回错误，句柄保持 MATERIALIZING；若其实已被接纳，由结算事件纠正 | 未被接纳时句柄长期挂起，归入 0.1“分析与遗留”中的结算对账 |
-| B | 在本地标为 FAILED | 若其实已被接纳，FAILED 不能再迁到 SETTLED，canonical 记忆产生而句柄仍为 FAILED |
-| C | 由 workspace 用同一 intent_id 重试一次 | 可能因材料快照变化被判为冲突；ACK 延迟增加 |
-
-**W10 生成材料与预算**：现状为 `state_summary` 加最近 5 个 block（第 3 节代码现状），第 3 节要求按预算编译全部可用资料、不退化为最近五条。实时提交时当前一轮天然不在材料中，已满足 0.1 选项 A。
-
-| 选项 | 内容 | 影响 |
-|:---|:---|:---|
-| A | 本步沿用现状 | 第 3 节的约束留作后续事项 |
-| B | 本步改为全部 block 加按 token 预算编译 | 需要定预算口径，计划范围扩大 |
-| C | `state_summary` 加可配置的最近 N 个 block | 只扩展配置，第 3 节的约束仍未满足 |
-
-**W11 “交互被接纳后进程即退出”的归属**（[任务进程 Idea](./task-process-table-and-registration-entry.md#q-1-进程何时关闭) Q-1 的尾项）：派发移出 finalize 后，finalize 不再需要等到 applied；但不等 applied，prepare 预建空 Topic 的补偿（`cleanup_prepared_agent_run`）需要移到 Patchouli 内部。
-
-| 选项 | 内容 | 影响 |
-|:---|:---|:---|
-| A | 并入第 2 步 | 第 2 步同时修改 finalize 的等待语义与空 Topic 补偿 |
-| B | 留给外部会话与 Topic 投影方向，与 Topic 按需创建、删除 cleanup 路由同批 | 第 2 步之后进程仍在交互 applied 后关闭 |
 
 ## 1. 目标边界
 
@@ -196,7 +173,7 @@ WRITE/UPDATE -> Pending 登记 -> 受权 Pending READ
 
 ## 3. Topic 资料和 Session 关系
 
-主动生成需要读取对应 Topic 在共同契约确定的资料读取时点的全部可用 blocks、summary 和 provenance，再按领域预算编译；不能隐式退化为“最近五条”。Topic 为空时，有效 WRITE/UPDATE 仍可进入生成；Topic 读取失败、越权、scope 冲突和成功取得空资料必须区分。没有 Topic 或没有交互不等于没有有效主动意图。
+主动生成需要读取对应 Topic 在共同契约确定的资料读取时点的全部可用 blocks、summary 和 provenance，再按领域预算编译；不能隐式退化为“最近五条”。（owner，2026-10-13：第 2 步有意只取过去若干轮与 `state_summary`，轮数可配置，当前一轮不参与；本段要求改为对话流式同步到 Patchouli 之后的方向，见 0.3 W10。）Topic 为空时，有效 WRITE/UPDATE 仍可进入生成；Topic 读取失败、越权、scope 冲突和成功取得空资料必须区分。没有 Topic 或没有交互不等于没有有效主动意图。
 
 本文只讨论资料消费与生成预算；Topic 输入分类、prepare handle 是否可用、省略 Topic 的行为、资料绑定/快照时点与重试保留见[外部会话与 Topic 投影](./external-session-and-topic-projection.md#44-向主动意图交接资料)第 4.4 节与第 8 节。生成侧只提供约束，不另行决定是否创建空 Topic；如契约要求准备/释放，消费共同领域能力，不复制 prepare/cleanup 算法或跟随 Session cursor 重选资料。UPDATE 仍须验证目标 Memory、授权和已知基版本；空交互不免除这些条件。
 
@@ -296,7 +273,7 @@ ADR-0006 的判据只裁定写入意图不归记忆库；上述论证进一步�
 
 以下约束来自原计划的验收要求，是候选设计必须满足的行为，不是测试计划：
 
-- 无交互、无 Session 的主动写入可以进入生成；Topic 缺失、越权、为空与读取失败分别表达；多于五个 blocks 不被静默截断；UPDATE 仍验证目标与基版本；
+- 无交互、无 Session 的主动写入可以进入生成；Topic 缺失、越权、为空与读取失败分别表达；多于五个 blocks 不被静默截断（第 2 步按可配置的轮数截取是有意的，见 0.3 W10）；UPDATE 仍验证目标与基版本；
 - 无 Alice run/frame 也能读回 WRITE/UPDATE 意图；只存在一份权威状态机和领域解析实现，旧/新状态机与 resolver 不同时作为成功来源；
 - 重复键同载荷定位同一提交、同键异载荷 conflict；响应丢失后可查询；过期可解释；重复提交不产生第二个 canonical；
 - 原 Pending 引用在 cache 命中与未命中时定位同一真实结果，并重新授权 canonical 读取；Pending 与 canonical 权限可以不同；

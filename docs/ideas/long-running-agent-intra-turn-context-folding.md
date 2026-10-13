@@ -12,9 +12,10 @@ related_current:
   - docs/system/passive-ingress.md
 related_ideas:
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
+  - docs/ideas/pending-intent-migration.md
 related_todos:
   - docs/todo/conversation-compact-command.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-13
 ---
 
 # 长时间运行 Agent 的 Turn 内上下文折叠
@@ -22,6 +23,8 @@ last_reviewed: 2026-10-01
 本文记录一项面向未来生产级长时间运行 Agent 的开放设计，不是当前能力说明，也不代表近期排期。当前短期话题、Agent runtime、Passive Ingress、Generation 和 Artifact 的真实行为分别以 front matter 中列出的当前文档为准。
 
 > 定位调整（owner，2026-10-01）：ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是两项各自独立的工作。前台的上下文压缩归 CPU，用户以 `/compact` 触发（[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md)）；后台的 Topic 管理继续使用 page folding（[Page Folding Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md)）。影响（分析）：本文的 Level 1（Turn 内上下文折叠）属于前台、由 CPU 管理的上下文，Level 2（Topic Page Folding）属于后台；下文把两级串成一条流水线的设计需要按这一划分重新审视。
+
+> 方向（owner，2026-10-13）：对话以流式方式同步到 Patchouli 侧，仍保留一轮 Interaction 的概念，但 Topic 侧接收更原子的输入结构，以解决一轮对话或执行过长导致的上下文爆炸。Topic 的生成材料相应变为之前全部的 Interaction 记录，加上当前轮已流式接收的消息。写入意图第 2 步“只取过去若干轮历史与 `state_summary`、当前一轮不参与”的局限随之消失（[写入意图迁移 Idea](./pending-intent-migration.md#03-第-2-步的派发设计owner2026-10-13) 0.3 W10）。影响（分析）：第 1 节“当前主路径以完整 turn 为基本摄入单位”是这一方向要改变的现状；第 3.1 节在 SemanticBuffer 之前接收未结束 turn 的 OpenTurnWorkspace 是一种候选承载；第 10.1 节“partial turn 提前进入 settlement”的顾虑仍然成立，流式接收的消息作为生成材料不等于提前结算。接收流式输入需要 Patchouli 侧先有容器保存关联信息，并供生成取出已接收的内容；容器是话题本身，还是第 3.1 节那样单独接收未结束 Interaction 的容器，决定话题是否需要预建，在此之前话题保留预建（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2，owner，2026-10-13）。
 
 ## 0. 核心判断与升级门槛
 
