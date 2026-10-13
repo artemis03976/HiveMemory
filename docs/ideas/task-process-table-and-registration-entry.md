@@ -19,7 +19,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/identity-and-access-model.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-12
 ---
 
 # 任务进程表与任务请求唯一注册入口
@@ -92,7 +92,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 
 本节适用于 controller 模式；plugin 模式不建进程（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。
 
-**实施状态**（2026-10-04 核对）：
+**实施状态**（2026-10-04 核对，2026-10-12 补充）：
 
 | 部分 | 状态 |
 |:---|:---|
@@ -100,7 +100,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 | 四阶段通用骨架 | 已实施：所有进程共用的执行器 `TaskProcessRunner`（第一批、TaskProcess 容器） |
 | CPU 分配、输入清单与 CPU 端口 | 已实施（第二、四批）；CPU 的选择机制后置：2026-10-06 决定 agent 与执行环境由用户分别选择，不存在固定的 actor 到 CPU 的映射（执行单元 Idea 前提 9、10，T-7、T-8 待决） |
 | 进程记录与工作集 | 部分实施：进程记录与工作集的现有内容见下文“进程记录与工作集”；请求方式与 CPU 分配未记入进程记录，GatewayDecision 与执行记录未成为工作集槽位 |
-| Patchouli prepare 与结算的拆分 | prepare 退化、进程编译、附件、Profile 解析、交互记录由进程组装已实施（第二、三批）；Topic 按需创建与 Profile 解析回到 prepare 之后未实施（外部会话方向）；Profile 权限并入 operation 控制未实施（单独的计划，总 Idea 15.4） |
+| Patchouli prepare 与结算的拆分 | prepare 退化、进程编译、附件、Profile 解析、交互记录由进程组装已实施（第二、三批）；Topic 按需创建与 Profile 解析回到 prepare 之后未实施（外部会话方向）；Profile 改经 workspace 读取视图解析已实施（2026-10-07 起，见下文）；Profile 权限并入 operation 控制已实施（[Agent 操作白名单](../archive/plans/v0.7.0-agent-operation-whitelist.md)，2026-10-11） |
 | v0.7.0 版本目标 | 第 1、2、4 条已达成；第 3 条只剩 Patchouli cleanup 路由，随 Topic 按需创建移除 |
 
 **创建时机与入口**
@@ -141,9 +141,9 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 - 进程关闭时释放工作集中登记的资源，取代迁移前分散的清理：`finally` 中的 prepared run 清理、finalize 中的租借释放、临时话题的补偿（2.5）。
 - 写入意图不在工作集中：它在 workspace 登记，生命周期与进程完全解耦（Q-1、Q-2，[写入意图迁移 Idea](./pending-intent-migration.md#01-owner-的决定2026-09-28) 0.1）；进程最多在执行记录中保留意图的引用。
 - **进程表登记的对象**（owner，2026-10-04）：进程表是唯一的进程注册表，登记 `process_id → TaskProcess`（进程容器），进程记录作为进程的控制面经进程取得，不单独登记。上表“进程记录（控制面）”最初沿用的是 `ChatGenerationRunRegistry` 演化为进程表、`ChatGenerationRun` 演化为进程记录的路线；进程容器出现后，进程表登记容器本身。
-- **现有实现**（2026-10-04 核对）：
+- **现有实现**（2026-10-04 核对，2026-10-12 补充）：
   - 进程记录（`ProcessRecord`）有 `process_id`、访问 context、事件通道、当前阶段、停止请求与终态，不保存身份字段（[身份与访问体系 Idea](./identity-and-access-model.md) I-8）。请求方式与 CPU 分配尚未记入：被动请求这一阶段不考虑（Q-6），CPU 的选择机制后置。
-  - 工作集（`ProcessWorkingSet`）登记 prepare 结果、附件租借、附件编译得出的实际使用引用与 Actor 执行期间打开的 CPU 输出流；它只登记、不释放，资源由取得它的一方释放（租借由 `CPUAllocator`，CPU 输出流与 prepare 结果的 cleanup 由执行器）。GatewayDecision 与 CPU 执行结果由骨架以局部值持有，尚未成为工作集槽位；Topic 路由决定跨阶段传到结算是 Topic 按需创建的一部分。
+  - 工作集（`ProcessWorkingSet`）登记 prepare 结果、附件租借、附件编译得出的实际使用引用、Actor 执行期间打开的 CPU 输出流，以及全部执行线程的线程 context（2026-10-11 起，供 CPU 执行结束时统一撤销；进程 context 仍由进程记录持有）；它只登记、不释放，资源由取得它的一方释放（租借由 `CPUAllocator`，CPU 输出流与 prepare 结果的 cleanup 由执行器，线程 context 由 `ProcessThreads` 撤销）。GatewayDecision 与 CPU 执行结果由骨架以局部值持有，尚未成为工作集槽位；Topic 路由决定跨阶段传到结算是 Topic 按需创建的一部分。
   - 进程容器 `TaskProcess` 只持有进程记录、任务参数与工作集；四阶段骨架是所有进程共用的执行器 `TaskProcessRunner`。
 
 迁移前对象的去向（均已完成）：
@@ -166,8 +166,9 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
   - 实际使用的对话上下文由 ConversationSession 提供，原样积累，不再由外界干涉；Topic 作为内部记忆生成的资料，Gateway 话题路由与 Topic 只为记忆生成服务（Q-9）。conversation session 不是记忆的材料来源（owner，2026-09-28）。
   - 影响：前端以 SSE 事件 `topic_info` 确认本轮的 Topic，该事件目前在 prepare 之后、Actor 执行之前发出。Topic 改为提交后创建、进程在交互被提交队列接纳后就结束（Q-1）之后，进程结束时新 Topic 可能还没有路由确定。2026-09-28 已决定：取消“当前 Topic”概念，`topic_info` 改为进程结束后的异步记忆标注，前端回归 session 模型（[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）。
 - **Profile 在 CPU 分配时由进程解析**（owner，2026-09-29）：prepare 不再解析 Profile。Profile 暂时直接调用 Patchouli 的公开路由，不经能力层：能力层的 `get_agent_profile` 依赖的 Profile 缓存还没有失效机制（`ProfileCache.evict_source` 没有调用方）。失效机制具备后再改经能力层（总 Idea 15.5）。
+  - 实施（2026-10-07、2026-10-10）：canonical 变更事件接入后 `ProfileCache.evict_source` 有了调用方，CPU 分配的 Profile 解析随[写入意图登记与读取缓存失效](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)改经能力层；能力层分层后改为阶段授权后经 workspace 读取视图解析，可见性仍按进程 Agent 检查（[能力层分层](../archive/plans/v0.7.0-capability-surface-split.md)）。
   - **解析时点的中间态**（owner，2026-09-29）：Profile 暂时在 Gateway 之后、Patchouli prepare 之前解析。当前 prepare 会按路由决定预先新建 Topic，话题池已满时还会先按 LRU 结算一个已有话题；若 Profile 在 prepare 之后才失败，失败的请求会留下这些不可逆的副作用。Topic 的新建与驱逐改到 interaction 提交之后以后，Profile 可以回到 prepare 之后的 CPU 分配步骤。
-  - Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 演变为 workspace 能力层的 operation 控制，对所有 CPU 生效（总 Idea 15.4）。
+  - Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 演变为 workspace 能力层的 operation 控制，对所有 CPU 生效（总 Idea 15.4）。已实施（2026-10-11）：两个字段删除，访问登记的 actor 操作白名单是唯一来源，系统工具不设权限（当前事实见 [MTP 契约](../contracts/mtp.md)第 4 节）。
 - **交互记录由进程组装**（owner，2026-09-29）：进程组装最终的交互记录 `InteractionPayload` 交给结算阶段，结算阶段不再接收 `AgentRunResult`（版本目标第 1 条）。ActionReducer 与 TraceReducer 位于 core，进程调用它们归约轨迹不形成第二套规则；被动链路也由提交方（System 的 turn buffer）自行组装 `InteractionPayload`。`PendingAtomMaterializeTask` 继续存在，在写入意图的实时派发实现之前，`InteractionPayload` 仍携带 `materialize_tasks`。
 - 写入意图改为经能力层实时提交之后，结算阶段只提交交互记录与相应的衍生内容，随后关闭进程（Q-1）。
 
@@ -535,6 +536,6 @@ flowchart TB
 
 - 满足 [Ideas 升级规则](./README.md#升级规则)，并遵守[文档治理规范](../DOCUMENTATION.md)第 8.3 节的计划约束；
 - 本方向在 v0.7.0 内的五个批次均已实施归档（第 0 节“实施进度”）；
-- 1.2 中尚未实施的部分分别由外部会话与 Topic 投影、写入意图迁移、Alice 的能力层调用迁移（Profile 解析改经能力层）与 Profile 权限并入 operation 控制（2026-10-06 拆出）各自建立计划，依据本文已完成的问题；
+- 1.2 中尚未实施的部分由外部会话与 Topic 投影（Topic 按需创建、Profile 解析回到 prepare 之后）与写入意图迁移第 2 步（实时派发、“接纳后即退出”的前提）各自建立计划，依据本文已完成的问题；Profile 解析改经能力层与 Profile 权限并入 operation 控制已分别随写入意图登记与读取缓存失效、Agent 操作白名单实施；
 - 4.2 的问题都不阻塞 v0.7.0：Q-3b 与 Q-8 随外部 Actor 的 controller 模式（v0.7.1）决定，Q-5a 的剩余部分随命令系统决定，Q-5b 随 Import Bus 决定，Q-7 的剩余部分在需要统一后台任务视图时决定；
 - owner 对问题的决定记录在对应问题下，并注明日期。

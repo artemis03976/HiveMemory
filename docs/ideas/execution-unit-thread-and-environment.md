@@ -269,7 +269,7 @@ flowchart LR
 影响（分析）：
 
 - T-4c 由本条取代；T-1b 的方向由本条确定：每个线程一份执行凭据，派生时签发，由 CPU 在每次提交时附上。（2026-10-11 修订为每个线程一份线程 context，见 T-2）
-- 现有 `WorkspaceOperation` 的粒度比能力方法粗：`resource.read` 覆盖点读、alias 批读与引用解析，`memory_intent.submit` 覆盖 WRITE 与 UPDATE。合为同一套列表时，需要拆分条目或合并方法，随分类与命名的重写处理。
+- 现有 `WorkspaceOperation` 的粒度比能力方法粗：`resource.read` 覆盖点读、alias 批读与引用解析，`memory_intent.submit` 覆盖 WRITE 与 UPDATE。合为同一套列表时，需要拆分条目或合并方法，随分类与命名的重写处理。（2026-10-10 已随[能力层分层](../archive/plans/v0.7.0-capability-surface-split.md)重写为六项 actor 操作，每项对应一种请求与一个能力方法。）
 - MTP 动词是协议语法，与操作不是一一对应：READ、WRITE、UPDATE 各对应一个请求；RUN 由引用解析与本地执行组成，CALL 组合引用解析、目标 Profile 与派生。白名单按操作还是按动词授权，属于总 Idea 15.4“统一 operation 与 MTP 动词、系统工具的粒度”。
 - 外部执行单元的操作适配器（ACP 会话提供的 MCP 等）产出同一套请求，经同一个入口提交。入口的调用方因此有两种形态：CPU 附上的执行凭据，以及请求级访问 context 的持有者（暂不迁移的 HTTP 管理侧；plugin 模式随其设计另定）。
 

@@ -13,7 +13,7 @@ related_docs:
   - docs/alice/pending-atom.md
   - docs/ideas/workspace-network-task-process-architecture.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-12
 ---
 
 # 写入意图（PendingAtom）体系的迁移
@@ -49,7 +49,7 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 
 **与任务进程解耦**：写入意图的生命周期与任务进程完全解耦；生成与结算由 Patchouli 的 memory generation controller 单独管理（[任务进程 Idea](./task-process-table-and-registration-entry.md) Q-1）。
 
-**实时提交**：主动写入意图的提交是 workspace 能力层的一个方法，可以实时响应 Actor 的请求，不必等到一轮对话结束（operation 目录中已有 `memory_intent.submit`）。
+**实时提交**：主动写入意图的提交是 workspace 能力层的一个方法，可以实时响应 Actor 的请求，不必等到一轮对话结束（当时 operation 目录中已有 `memory_intent.submit`；2026-10-10 能力层分层后，WRITE、UPDATE 分别对应 actor 操作 `memory.write` 与 `memory.update`，见[总 Idea](./workspace-network-task-process-architecture.md#1512-能力层分为-root-api-与-actor-api) 15.12）。
 
 **取消与失败**：不再丢弃已经提交的写入意图。
 
@@ -74,6 +74,7 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 - **W4 未以 completed 结束的进程**：第 1 步沿用现状，进程关闭时取消本进程仍为 PENDING 的意图；本节“取消与失败：不再丢弃”随第 2 步与实时派发一起实施。第 1 步仍只在 finalize 时派发物化，不取消的意图将永远不被派发。
   - （owner，2026-10-09）CALL 子 frame 未成功结束时，同样撤回它提交且仍为 PENDING 的写入意图，一并视为第 1 步取消语义的一部分；第 2 步改为实时派发后随取消语义重新设计，现阶段不做更复杂的处理。
 - **W5 operation 与默认登记**：提交（WRITE、UPDATE）绑定 `memory_intent.submit`，读回绑定 `resource.read`；默认的用户级访问登记加入 `memory_intent.submit`。
+  - （2026-10-10 起由能力层分层取代）WRITE、UPDATE 分别要求 `memory.write`、`memory.update`，读回要求 `memory.read`，各项互不隐含；默认的用户级访问登记包含全部六项 actor 操作（总 Idea 15.12；当前事实见 [System 配置](../system/configuration.md)第 1.1 节）。
 - 第 1 步与读取缓存失效、Alice 引用解析的整体迁出合为一份计划，已于 2026-10-07 实施验收：[写入意图登记与读取缓存失效归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)（历史实施记录，总 Idea 15.11 的补充）。
 
 **分两步实施**：
@@ -97,7 +98,7 @@ PendingAtom 对 Patchouli 透明，记忆生成对 workspace 透明，两边完�
 登记、共同引用解析与读取缓存失效已同批形成稳定基线，实施与验收记录见[归档计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)。当前事实以[Workspace 架构](../architecture/workspace.md)、[PendingAtom](../alice/pending-atom.md)、[MemoryLibrary](../patchouli/memory-library.md)及[公开路由与事件](../contracts/routes-and-events.md)为准，本文不复制其完整接口。
 
 - workspace `WriteIntentRegistry` 是唯一状态机，PendingAtom 分开保存 `belong_to`、`from_actor` 与 `process_id`，不保存 RuntimeScope；意图在同 Workspace 内可回读（UPDATE 意图跟随基础原子的可读性，2026-10-09），读回及交接任务是独立副本。
-- 2026-10-07 第 1 步曾通过绑定主线程的操作通道把意图提交与共同引用解析接入能力层。2026-10-09 [Alice 迁移](../archive/plans/v0.7.0-alice-capability-migration.md)已进一步用执行凭据和请求入口替换通道，并完成 SEARCH、引用记录、CALL Profile 与过渡身份删除；子帧仍共用主线程提交函数。这不改变本 Idea 第 2 步的实时派发、寿命与对账范围。
+- 2026-10-07 第 1 步曾通过绑定主线程的操作通道把意图提交与共同引用解析接入能力层。2026-10-09 [Alice 迁移](../archive/plans/v0.7.0-alice-capability-migration.md)已进一步用执行凭据和请求入口替换通道，并完成 SEARCH、引用记录、CALL Profile 与过渡身份删除。2026-10-11 [线程 context](../archive/plans/v0.7.0-thread-context.md)取代执行凭据，[执行线程层](../archive/plans/v0.7.0-execution-thread-layer.md)使 CALL 子帧以被调用方身份取得自己的线程 context 与提交函数，写入记在被调用方名下（当前事实见 [Workspace 架构](../architecture/workspace.md)第 4.3、5.4 节）。这些都不改变本 Idea 第 2 步的实时派发、寿命与对账范围。
 - core `ReferenceResolution` 提供七种逐项状态。结算后优先按 UUID 读取 canonical，当前 actor 不可读时不交付目标坐标或含 UPDATE 基础坐标的 Pending 副本；UPDATE 继续只接受正式 atom，不接受结算 redirect。
 - Store 的 canonical 变更事件内联失效 workspace 原子、旧 alias 与来源 Profile 派生项并推进代次；结算只推进 registry，不回填原子，通知无重试、replay 或未送达对账。
 - completed 进程认领意图后仍经 `InteractionPayload.materialize_tasks` 和 finalize 派发；关闭取消尚未认领的 PENDING，不取消 MATERIALIZING。没有实时派发、保留期或 durable ledger，终态句柄保留到重启。
@@ -127,7 +128,9 @@ WRITE/UPDATE -> Pending 登记 -> 受权 Pending READ
   -> 失效派生 cache -> Pending 解析真实结果 -> 重新授权读取 canonical
 ```
 
-`interaction.submit` 和 `memory_intent.submit` 是独立路由方法、独立 operation 和独立收据；可以由同一个 application service 承接，不要求两个类。旧 `InteractionPayload.materialize_tasks` 只作兼容迁移字段，最终不能让普通交互入口隐式执行主动物化。
+`interaction.submit` 和 `memory_intent.submit` 是独立路由方法和独立收据；可以由同一个 application service 承接，不要求两个类。原文还要求两者是独立 operation；2026-10-10 能力层分层后同名 operation 已删除，两者都不是 actor 操作：actor 只经 `memory.write`/`memory.update` 登记意图，交互提交是任务进程结算阶段的阶段调用（总 Idea 15.12）。旧 `InteractionPayload.materialize_tasks` 只作兼容迁移字段，最终不能让普通交互入口隐式执行主动物化。
+
+代码现状（2026-10-12 核对）：两条公开路由 `patchouli.public.interaction.submit` 与 `patchouli.public.memory_intent.submit` 已存在，都没有生产调用方（[公开路由与事件](../contracts/routes-and-events.md)第 2.2 节）。后者接收中立的 `MemoryIntent`（kind、topic_id、内容或修订指令、可选 intent_id），在 Patchouli 内部构造 `PendingAtomMaterializeTask`，`pending_alias` 由 intent_id 确定性派生，与 workspace 登记的别名不是同一来源。
 
 共同输入继续使用 `PendingAtomMaterializeTask`：它的 pending alias、intent_id、source verb、`belong_to`、`from_actor` 和 WriteFocus/UpdateFocus 具有跨 Actor 语义；`from_pending_atom()` 不能成为外部客户端前置依赖。ACK 必须区分 Pending 已登记、物化任务已接纳和 canonical Memory 已产生。
 
@@ -141,7 +144,7 @@ WRITE/UPDATE -> Pending 登记 -> 受权 Pending READ
 
 “全部可用”指 Topic 资料契约所选读取时点的实际资料快照；已折叠且未保存的原始 blocks 无法凭空恢复，原文保全由折叠专项负责。应先取得该时点全部可用材料，再按生成预算编译，不让 adapter 截取最近几条代替领域读取。
 
-代码现状（2026-09-27 复核）：`patchouli/control/memory_generation/coordinator.py` 的 `submit_active()` 仍使用 `recent_blocks(5)`；MemoryGenerationEngine 在没有上下文且没有 WRITE/UPDATE focus 时才跳过。候选方向是保留生成引擎支持意图独立生成的能力，修正上游资料获取，而非让 adapter 自行拉 blocks。
+代码现状（2026-09-27 复核，2026-10-12 复核仍如此）：`patchouli/control/memory_generation/coordinator.py` 的 `submit_active()` 仍使用 `recent_blocks(5)`；MemoryGenerationEngine 在没有上下文且没有 WRITE/UPDATE focus 时才跳过。候选方向是保留生成引擎支持意图独立生成的能力，修正上游资料获取，而非让 adapter 自行拉 blocks。
 
 交互是可选来源（conversation session 不是记忆的材料来源，见 0.1），交互资料交接见[外部会话与 Topic 投影](./external-session-and-topic-projection.md)第 4.4 节：需要纳入某次交互时，通过授权结果查询确认其 applied 和实际 topic_id；路由关联本身不证明内容已应用，不要求独立 TopicAssignment 实体。意图接纳后使用契约规定的资料绑定，不因物化失败回滚已应用交互，也不让 Topic 清理影响仍被已接纳任务依赖的资料；保留/释放方式见外部会话 Idea 第 8 节，尚未决定。
 
@@ -156,7 +159,7 @@ WRITE/UPDATE -> Pending 登记 -> 受权 Pending READ
 | 原 canonical 引用 | 返回当前已提交版本；是否提示调用者自己的未完成修订待定，不静默叠加 Pending 正文 |
 | discard/fail/cancel/expire | 明确区别，不伪造成功引用、不自动重建意图 |
 
-`task.observe` 不自动授予 Pending 内容或最终 Memory 的读取权。稳定 intent identity 用于响应丢失后的查询/重试；相同 identity 不同 payload 返回 conflict。通知事件仅作观测，不能作为唯一终态真相。当前实现不承诺跨重启恢复；若要引入持久化需要另行规划迁移。
+记忆任务的观察（2026-10-10 起为只供 `system` 的 root API）不自动授予 Pending 内容或最终 Memory 的读取权。稳定 intent identity 用于响应丢失后的查询/重试；相同 identity 不同 payload 返回 conflict。通知事件仅作观测，不能作为唯一终态真相。当前实现不承诺跨重启恢复；若要引入持久化需要另行规划迁移。
 
 Pending snapshot、materialization task、task result 和 settlement projection 分别保存交接信息，不复制终态推进器。结算须可从权威任务/领域结果核对，不能等待事件订阅者才变正确。提交前取消与接纳后取消有不同承诺，cancel 只开放领域支持的范围。并发 UPDATE 的版本冲突仍由 canonical 更新规则判断；Pending 的原意图可读不等于所有 search 已能看到最终 Memory，也不默认加入全局搜索。
 
@@ -197,7 +200,7 @@ READ、RUN、UPDATE 和 Profile 类型读取可以复用同一资源解析事实
 
 Pending 终态不被当作普通 Memory 负缓存淘汰；其保留与过期按权威状态生命周期处理。失效和结算推进不依赖 Alice 订阅者。settlement 经既有事件链（`pending_atom_settler`/bridge）加速 registry 终态回写，但事件是加速不是真相——终态以 intent_id 锚定的权威任务/领域结果对账核对（事件协作见总 Idea 7.1.3；本节"通知事件仅作观测"约束继续有效）。
 
-旧 resolver 曾以 `pending.runtime_scope.identity_scope == context.identity_scope` 判断可见性；第 1 步已按 Workspace 硬边界及 `resource.read` 进行回读，Pending 不设 policy。后续若增加 Pending policy，仍不能要求外部构造 RuntimeScope，也不能重新引入整个 scope 相等而把兼容 session 字段变为权限条件。Pending 引用类型或命名空间必须明确，未知/不可见 Pending 不回落为同名 canonical；Pending 与 canonical 的可见性分别处理，不能通过 redirect 泄露不可读目标的内容或未获准披露的元数据。
+旧 resolver 曾以 `pending.runtime_scope.identity_scope == context.identity_scope` 判断可见性；第 1 步已按 Workspace 硬边界及读取操作进行回读（当时为 `resource.read`，2026-10-10 起为 `memory.read`），Pending 不设 policy。后续若增加 Pending policy，仍不能要求外部构造 RuntimeScope，也不能重新引入整个 scope 相等而把兼容 session 字段变为权限条件。Pending 引用类型或命名空间必须明确，未知/不可见 Pending 不回落为同名 canonical；Pending 与 canonical 的可见性分别处理，不能通过 redirect 泄露不可读目标的内容或未获准披露的元数据。
 
 结算指向应以权威 canonical identity 定位，alias 用于展示或兼容查找；若 alias 已被重新绑定，不得让旧 Pending 跟随到另一份资源。缓存丢失、失效或没有可用 alias 时，仍能按已结算的目标 identity 经授权读取；不存在和不可见不能被伪装为物化仍在进行。具体错误投影与 legacy settlement 缺失 identity 的处理待定（第 5 节）。
 

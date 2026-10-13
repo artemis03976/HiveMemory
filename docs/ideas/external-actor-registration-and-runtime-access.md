@@ -222,7 +222,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 | Profile read | Agent Profile 定义与授权语义 | 读取不等于实例化 Agent、改变调用方身份或已应用 system prompt；客户端可以不采用定义（与总 Idea P-10 相关；2026-09-28 决定 Profile 的两个 allow 字段演变为能力层的 operation 控制，对所有 CPU 生效，见总 Idea 15.4） |
 | Attachment read | 解析已有授权 ref、READY 检查、必要的内容快照 | lease 在服务内管理，不把 lease 对象跨网络传递 |
 | Write/update intent | 显式提交内容、目标、理由与来源引用 | Patchouli 决定生成、合并、修订或丢弃；不把日志自动当作写入命令 |
-| Pending read/resolve | 登记后读取意图与状态，结算后解析原引用 | 见[写入意图体系迁移](./pending-intent-migration.md)；`task.observe` 不自动授予内容读取权 |
+| Pending read/resolve | 登记后读取意图与状态，结算后解析原引用 | 见[写入意图体系迁移](./pending-intent-migration.md)；记忆任务的观察（原 `task.observe`，2026-10-10 起为只供 `system` 的 root API）不自动授予内容读取权 |
 | Result query | 提交类型及真实领域结果或任务投影 | 查询状态不授予读取最终 Memory 的权限；Patchouli 的记忆任务不暴露给 Agent（[任务进程 Idea](./task-process-table-and-registration-entry.md#q-7-记忆库内部工作与进程表) Q-7，2026-09-27），涉及任务投影的部分需按此重新审视 |
 
 能力层是否覆盖执行类操作见总 Idea P-3。
