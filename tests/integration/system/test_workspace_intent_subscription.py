@@ -65,7 +65,6 @@ async def test_composition_subscribes_before_start_and_unsubscribes_after_stop(m
             from_actor=scope.actor_identity,
             process_id="before-start",
         )
-        runtime.intents.claim_process("before-start")
         await bus.publish(GlobalEvents.PENDING_ATOM_FAILED, pending_alias=pending.pending_alias)
         assert runtime.intents.get(pending.pending_alias, scope.workspace_identity).status == (
             PendingAtomStatus.FAILED
@@ -77,7 +76,6 @@ async def test_composition_subscribes_before_start_and_unsubscribes_after_stop(m
             from_actor=scope.actor_identity,
             process_id="after-stop",
         )
-        runtime.intents.claim_process("after-stop")
         await system.stop()
         await bus.publish(
             GlobalEvents.PENDING_ATOM_SETTLED,

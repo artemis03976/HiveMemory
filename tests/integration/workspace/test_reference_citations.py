@@ -36,6 +36,7 @@ from hivememory.workspace.contracts import (
     ThreadContextRevokedError,
 )
 from hivememory.workspace.runtime import WorkspaceRuntime
+from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     AccessTestComposition,
@@ -93,6 +94,7 @@ class _ReferenceChain:
 async def chain():
     """引用走真实读取端口、缓存、意图结算与总线，不替换被测协作。"""
     bus = GlobalSystemBus()
+    install_intent_admission(bus)
     backing = _MemoryBacking()
     bus.register(PatchouliRoutes.MEMORY_READ, backing.read)
     bus.register(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES, backing.retrieve_by_aliases)
@@ -101,9 +103,12 @@ async def chain():
     runtime = make_workspace_runtime(global_bus=bus)
     runtime.subscribe(bus)
     composition = make_access_composition([make_actor_access_record()])
-    access = await composition.authenticate_thread(process_id="references")
+    access = await composition.authenticate_thread(process_id="references", register_process=True)
     memory = ActorMemoryService(
-        bus, operation_authorizer=composition.authorizer, memory_reader=runtime.aliases
+        bus,
+        operation_authorizer=composition.authorizer,
+        memory_reader=runtime.aliases,
+        dispatch_topics=composition.thread_spawner,
     )
     entry = WorkspaceOperationEntry(
         memory,
@@ -113,7 +118,6 @@ async def chain():
             thread_spawner=composition.thread_spawner,
         ),
         operation_authorizer=composition.authorizer,
-        intent_registry=runtime.intents,
     )
     try:
         yield _ReferenceChain(bus, backing, runtime, memory, entry, composition, access)
@@ -150,8 +154,7 @@ async def _write(chain):
 
 
 async def _settle(chain, pending, *, atom=None, discarded=False):
-    """用真实认领与事件订阅驱动终态，不直接改登记的内部状态。"""
-    chain.runtime.intents.claim_process("references")
+    """用真实事件订阅驱动终态，不直接改登记的内部状态。"""
     await chain.bus.publish(
         GlobalEvents.PENDING_ATOM_SETTLED,
         settlement=PendingAtomSettlement(
@@ -234,16 +237,13 @@ async def test_settled_redirect_and_canonical_alias_share_one_citation(chain):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("state", ["pending", "materializing", "failed", "discarded", "cancelled"])
+@pytest.mark.parametrize("state", ["materializing", "failed", "discarded", "cancelled"])
 async def test_reference_read_without_delivered_canonical_atom_does_not_record_citation(
     chain, state
 ):
     """各意图终态只交付自身状态，未交付正式内容不触发生命周期引用。"""
     pending = await _write(chain)
-    if state == "materializing":
-        chain.runtime.intents.claim_process("references")
-    elif state == "failed":
-        chain.runtime.intents.claim_process("references")
+    if state == "failed":
         await chain.bus.publish(
             GlobalEvents.PENDING_ATOM_FAILED,
             pending_alias=pending.pending_alias,
@@ -252,7 +252,7 @@ async def test_reference_read_without_delivered_canonical_atom_does_not_record_c
     elif state == "discarded":
         await _settle(chain, pending, discarded=True)
     elif state == "cancelled":
-        chain.runtime.intents.cancel_process("references")
+        await chain.runtime.intents.on_cancelled(pending_alias=pending.pending_alias)
 
     (result,) = await _resolve(chain, pending.pending_alias)
 
@@ -414,6 +414,7 @@ async def test_rejected_reference_request_cannot_record_citation_even_after_cach
                 chain.bus,
                 operation_authorizer=composition.authorizer,
                 memory_reader=chain.runtime.aliases,
+                dispatch_topics=composition.thread_spawner,
             ),
             agent=ActorAgentService(
                 operation_authorizer=composition.authorizer,
@@ -421,7 +422,6 @@ async def test_rejected_reference_request_cannot_record_citation_even_after_cach
                 thread_spawner=chain.composition.thread_spawner,
             ),
             operation_authorizer=composition.authorizer,
-            intent_registry=chain.runtime.intents,
         )
         error = OperationDeniedError
     try:

@@ -118,6 +118,20 @@ class SystemFault(MTPError):  # noqa: N818 -- MTP 契约术语
     severity = MTPErrorSeverity.SYSTEM_FAULT
 
 
+class MemoryIntentRejectedError(AgentFault):
+    """本次写入未被接纳，Agent 可根据原因调整请求或稍后重试。"""
+
+    code = "mtp.memory.intent_rejected"
+    default_message_key = "mtp.memory.intent_rejected"
+
+
+class MemoryIntentUnknownError(SystemFault):
+    """写入结果未知，盲目重试可能重复生成，优先回读句柄。"""
+
+    code = "mtp.memory.intent_unknown"
+    default_message_key = "mtp.memory.intent_unknown"
+
+
 class StorageOfflineError(SystemFault):
     """存储层离线（连接超时、拒绝连接等）。"""
 
@@ -221,6 +235,8 @@ __all__ = [
     "MemoryTypeMismatchError",
     "InvalidArgumentError",
     "PermissionDeniedError",
+    "MemoryIntentRejectedError",
+    "MemoryIntentUnknownError",
     "StorageOfflineError",
     "StorageReadError",
     "BusRouteUnavailableError",

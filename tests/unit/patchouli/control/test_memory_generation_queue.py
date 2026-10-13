@@ -15,6 +15,7 @@ from hivememory.components.work_queue import (
     UnknownWorkPayloadCodecError,
     WorkPayloadCodecRegistry,
     WorkPayloadDecodeError,
+    WorkQueueStoppedError,
     WorkState,
     encode_canonical_json,
 )
@@ -389,7 +390,7 @@ def test_memory_generation_rejects_multiple_attempt_policy() -> None:
 async def test_memory_generation_submit_requires_explicit_start() -> None:
     controller = MemoryGenerationTaskController(bus=Mock(request=AsyncMock(), publish=AsyncMock()))
 
-    with pytest.raises(RuntimeError, match="must be started"):
+    with pytest.raises(WorkQueueStoppedError, match="must be started"):
         await controller.submit_generation(_spec())
 
 

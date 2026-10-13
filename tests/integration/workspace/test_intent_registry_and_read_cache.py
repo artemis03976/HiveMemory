@@ -60,6 +60,7 @@ from hivememory.workspace.contracts import (
 )
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.runtime import WorkspaceRuntime
+from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     AccessTestComposition,
@@ -133,6 +134,7 @@ async def chain(tmp_path):
     """真实 RPC 与通知链，未参与本场景的生成/生命周期服务只作失败占位。"""
     local_bus = PatchouliBus()
     bus = GlobalSystemBus()
+    install_intent_admission(bus)
     runtime = make_workspace_runtime(global_bus=bus)
     runtime.subscribe(bus)
     store = MidTermMemoryStore(
@@ -168,6 +170,7 @@ async def chain(tmp_path):
         ),
     )
     bridge.mount()
+    install_intent_admission(bus)
     composition = make_access_composition(
         [
             make_actor_access_record(owner_user_id="u1", agent_id=agent)
@@ -184,6 +187,7 @@ async def chain(tmp_path):
             bus,
             operation_authorizer=composition.authorizer,
             memory_reader=runtime.aliases,
+            dispatch_topics=composition.thread_spawner,
         ),
         root_memories=RootMemoryService(bus, operation_authorizer=composition.authorizer),
         profiles=ActorAgentService(
@@ -192,10 +196,10 @@ async def chain(tmp_path):
             thread_spawner=composition.thread_spawner,
         ),
         writer=await composition.authenticate_thread(
-            agent_id="writer", process_id="writer_process"
+            agent_id="writer", process_id="writer_process", register_process=True
         ),
         reader=await composition.authenticate_thread(
-            agent_id="reader", process_id="reader_process"
+            agent_id="reader", process_id="reader_process", register_process=True
         ),
         manager=await composition.authenticate(agent_id="system"),
     )
@@ -320,14 +324,13 @@ async def test_write_ack_is_shared_then_global_settlement_redirects(chain):
     pending = await chain.memories.submit_write_intent(
         SubmitWriteIntentRequest(WriteFocus(content="intent body")),
         access=await chain.composition.authenticate_thread(
-            agent_id="writer", process_id="first_process"
+            agent_id="writer", process_id="first_process", register_process=True
         ),
     )
     before = await chain.memories.resolve_references(
         ResolveReferencesRequest((pending.pending_alias,)), access=chain.reader
     )
     assert (before[0].kind, before[0].pending.focus.content) == ("pending", "intent body")
-    chain.runtime.intents.claim_process("first_process")
     atom = _atom()
     await chain.store.upsert(atom)
     await chain.bus.publish(
@@ -372,7 +375,7 @@ async def test_update_rejects_pending_and_missing_bases_without_registering(chai
     assert chain.runtime.intents.size == 1
     assert (
         chain.runtime.intents.get(pending.pending_alias, WORKSPACE).status
-        == PendingAtomStatus.PENDING
+        == PendingAtomStatus.MATERIALIZING
     )
 
 
@@ -417,7 +420,7 @@ async def test_update_success_invalidates_base_and_claims_canonical_uuid(chain):
         access=chain.writer,
     )
     assert chain.runtime.stats()["atom_size"] == 0
-    task = chain.runtime.intents.claim_process("writer_process")[0]
+    task = pending
 
     assert (task.pending_alias, task.focus.base_uuid, task.focus.content) == (
         pending.pending_alias,
@@ -433,7 +436,6 @@ async def test_update_rejects_settled_handle_but_accepts_formal_alias(chain):
         SubmitWriteIntentRequest(WriteFocus(content="shared")),
         access=chain.writer,
     )
-    chain.runtime.intents.claim_process("writer_process")
     atom = _atom()
     await chain.store.upsert(atom)
     await chain.bus.publish(
@@ -458,7 +460,7 @@ async def test_update_rejects_settled_handle_but_accepts_formal_alias(chain):
     revision = await chain.memories.submit_update_intent(
         SubmitUpdateIntentRequest("canonical", "revise"),
         access=await chain.composition.authenticate_thread(
-            agent_id="writer", process_id="second_process"
+            agent_id="writer", process_id="second_process", register_process=True
         ),
     )
 
@@ -482,6 +484,7 @@ async def test_denied_operation_has_no_registration_or_cache_side_effect(chain, 
         chain.bus,
         operation_authorizer=composition.authorizer,
         memory_reader=chain.runtime.aliases,
+        dispatch_topics=composition.thread_spawner,
     )
     before = chain.runtime.stats()
     with pytest.raises(OperationDeniedError) as exc_info:
@@ -560,7 +563,6 @@ async def test_registry_unsubscribe_stops_terminal_events_and_resubscribe_is_ide
         SubmitWriteIntentRequest(WriteFocus(content="shared")),
         access=chain.writer,
     )
-    chain.runtime.intents.claim_process("writer_process")
     chain.runtime.unsubscribe()
     await chain.bus.publish(GlobalEvents.PENDING_ATOM_FAILED, pending_alias=pending.pending_alias)
     assert (

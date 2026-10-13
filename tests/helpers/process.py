@@ -11,9 +11,11 @@ from __future__ import annotations
 
 from typing import Any
 
+from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
@@ -28,6 +30,7 @@ from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.process.threads import ProcessThreads
 from hivememory.workspace.runtime import WorkspaceRuntime
 from tests.helpers.cpu import ScriptedCPU
+from tests.helpers.intent_dispatch import install_intent_admission
 
 
 def make_task_process_service(
@@ -44,6 +47,11 @@ def make_task_process_service(
     process_table: ProcessTable | None = None,
 ) -> TaskProcessService:
     """按生产顺序装配能力与操作入口，再构建 CPU 分配器、执行器与注册入口。"""
+    if (
+        isinstance(global_bus, GlobalSystemBus)
+        and PatchouliRoutes.MEMORY_INTENT_SUBMIT not in global_bus.list_routes()
+    ):
+        install_intent_admission(global_bus)
     runtime = workspace_runtime or WorkspaceRuntime(
         backing=BusCanonicalReadBackend(global_bus), atom_capacity=64, profile_capacity=32
     )
@@ -53,6 +61,7 @@ def make_task_process_service(
         global_bus,
         operation_authorizer=operation_authorizer,
         memory_reader=runtime.aliases,
+        dispatch_topics=threads,
     )
     agent = ActorAgentService(
         operation_authorizer=operation_authorizer,
@@ -63,7 +72,6 @@ def make_task_process_service(
         memory,
         agent=agent,
         operation_authorizer=operation_authorizer,
-        intent_registry=runtime.intents,
     )
     if isinstance(cpu, ScriptedCPU):
         cpu.bind_operation_entry(entry)
@@ -79,7 +87,6 @@ def make_task_process_service(
         allocator=allocator,
         operation_authorizer=operation_authorizer,
         thread_contexts=threads,
-        intent_registry=runtime.intents,
     )
     return TaskProcessService(
         runner,

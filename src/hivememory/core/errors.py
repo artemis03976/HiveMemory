@@ -133,6 +133,18 @@ class PendingUpdateNotAllowedError(WorkspaceDomainError):
     code = "workspace.memory.intent.pending_update_not_allowed"
 
 
+class IntentDispatchRejectedError(WorkspaceDomainError):
+    """生成队列明确拒绝本次意图，登记句柄已标记 FAILED。"""
+
+    code = "workspace.memory.intent.dispatch_rejected"
+
+
+class IntentDispatchUnknownError(WorkspaceDomainError):
+    """无法确认派发结果，句柄保留 MATERIALIZING 等待可能的结算。"""
+
+    code = "workspace.memory.intent.dispatch_unknown"
+
+
 class ResourceNotVisibleError(WorkspaceDomainError):
     """资源存在但当前 Actor 未通过可见性授权。
 
@@ -183,6 +195,8 @@ __all__ = [
     "OperationDeniedError",
     "ResourceNotFoundError",
     "PendingUpdateNotAllowedError",
+    "IntentDispatchRejectedError",
+    "IntentDispatchUnknownError",
     "ResourceNotVisibleError",
     "ResourceUnavailableError",
     "MemoryAliasConflictError",

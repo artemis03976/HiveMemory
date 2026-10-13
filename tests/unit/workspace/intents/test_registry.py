@@ -1,4 +1,4 @@
-"""写入意图登记的归属隔离、独立副本、进程认领与结算状态测试。"""
+"""写入意图登记的归属隔离、独立副本、同步拒绝与结算状态测试。"""
 
 from uuid import UUID
 
@@ -50,60 +50,9 @@ def test_register_and_read_return_independent_copies():
     stored = registry.get(atom.pending_alias, WORKSPACE)
 
     assert (stored.status, stored.focus.content) == (
-        PendingAtomStatus.PENDING,
+        PendingAtomStatus.MATERIALIZING,
         "original intent",
     )
-
-
-def test_claim_selects_only_pending_records_of_the_requested_process():
-    """completed 认领不跨进程，且物化任务独立携带归属与发起者。"""
-    registry = WriteIntentRegistry()
-    own = _write(registry)
-    other = _write(registry, "process_b")
-
-    tasks = registry.claim_process("process_a")
-
-    assert [(task.pending_alias, task.belong_to, task.from_actor) for task in tasks] == [
-        (own.pending_alias, WORKSPACE, SCOPE.actor_identity)
-    ]
-    assert registry.get(own.pending_alias, WORKSPACE).status == PendingAtomStatus.MATERIALIZING
-    assert registry.get(other.pending_alias, WORKSPACE).status == PendingAtomStatus.PENDING
-    assert registry.claim_process("process_a") == []
-
-
-def test_cancel_process_preserves_materializing_and_other_process_records():
-    """进程关闭只取消本进程 PENDING，不中止已认领任务或他人意图。"""
-    registry = WriteIntentRegistry()
-    materializing = _write(registry)
-    registry.claim_process("process_a")
-    pending = _write(registry)
-    other = _write(registry, "process_b")
-
-    assert registry.cancel_process("process_a") == [pending.pending_alias]
-    assert [
-        registry.get(atom.pending_alias, WORKSPACE).status
-        for atom in (materializing, pending, other)
-    ] == [PendingAtomStatus.MATERIALIZING, PendingAtomStatus.CANCELLED, PendingAtomStatus.PENDING]
-
-
-def test_cancel_aliases_withdraws_only_pending_records_of_the_process():
-    """按 alias 撤回只作用于本进程 PENDING；已认领、他人与未知句柄不受影响。"""
-    registry = WriteIntentRegistry()
-    materializing = _write(registry)
-    registry.claim_process("process_a")
-    pending = _write(registry)
-    other = _write(registry, "process_b")
-
-    cancelled = registry.cancel_aliases(
-        [materializing.pending_alias, pending.pending_alias, other.pending_alias, "missing"],
-        process_id="process_a",
-    )
-
-    assert cancelled == [pending.pending_alias]
-    assert [
-        registry.get(atom.pending_alias, WORKSPACE).status
-        for atom in (materializing, pending, other)
-    ] == [PendingAtomStatus.MATERIALIZING, PendingAtomStatus.CANCELLED, PendingAtomStatus.PENDING]
 
 
 @pytest.mark.asyncio
@@ -111,7 +60,6 @@ async def test_settlement_matches_intent_id_and_keeps_terminal_handle():
     """不匹配的结算不会改状态；结算后旧句柄仍可读且重复事件幂等。"""
     registry = WriteIntentRegistry()
     atom = _write(registry)
-    registry.claim_process("process_a")
     wrong = PendingAtomSettlement(
         pending_alias=atom.pending_alias,
         intent_id="wrong",
@@ -142,7 +90,6 @@ async def test_alias_terminal_event_checks_optional_intent_id(event, status):
     """失败、取消保持旧 alias 载荷，并校验调用方附加的 intent_id。"""
     registry = WriteIntentRegistry()
     atom = _write(registry)
-    registry.claim_process("process_a")
     callback = getattr(registry, event)
     await callback(pending_alias=atom.pending_alias, intent_id="wrong")
     assert registry.get(atom.pending_alias, WORKSPACE).status == PendingAtomStatus.MATERIALIZING
@@ -165,23 +112,34 @@ def test_alias_collision_generates_a_new_suffix_without_overwriting(monkeypatch)
         "draft_fact_title_bbbb",
     )
     assert registry.get(first.pending_alias, WORKSPACE).process_id == "process_a"
-    assert registry.claim_process("process_b")[0].intent_id == second.intent_id
+    assert registry.get(second.pending_alias, WORKSPACE).intent_id == second.intent_id
 
 
 def test_update_registration_keeps_authorized_base_focus():
-    """UPDATE 认领后物化请求仍引用登记时确定的正式基础原子。"""
+    """UPDATE 登记后句柄仍引用登记时确定的正式基础原子。"""
     registry = WriteIntentRegistry()
-    registry.register_update(
+    task = registry.register_update(
         UpdateFocus(base_alias="fact_base", base_uuid="base-uuid", instruction="revise"),
         belong_to=WORKSPACE,
         from_actor=SCOPE.actor_identity,
         process_id="process_a",
     )
 
-    task = registry.claim_process("process_a")[0]
-
     assert (task.source_verb, task.focus.base_alias, task.focus.base_uuid) == (
         "UPDATE",
         "fact_base",
         "base-uuid",
     )
+
+
+def test_rejection_marks_only_matching_intent_failed():
+    """同步拒绝匹配 intent_id，重复拒绝不能改变其他句柄。"""
+    registry = WriteIntentRegistry()
+    atom = _write(registry)
+    other = _write(registry)
+    registry.mark_failed(atom.pending_alias, intent_id="wrong")
+    assert registry.get(atom.pending_alias, WORKSPACE).status == PendingAtomStatus.MATERIALIZING
+    registry.mark_failed(atom.pending_alias, intent_id=atom.intent_id)
+    registry.mark_failed(atom.pending_alias, intent_id=atom.intent_id)
+    assert registry.get(atom.pending_alias, WORKSPACE).status == PendingAtomStatus.FAILED
+    assert registry.get(other.pending_alias, WORKSPACE).status == PendingAtomStatus.MATERIALIZING

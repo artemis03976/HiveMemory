@@ -89,6 +89,7 @@ async def test_http_chat_search_read_write_and_call_claims_intent_and_records_sh
             stack.bus,
             operation_authorizer=access.authorizer,
             memory_reader=runtime.aliases,
+            dispatch_topics=access.thread_spawner,
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
@@ -96,7 +97,6 @@ async def test_http_chat_search_read_write_and_call_claims_intent_and_records_sh
             profile_reader=runtime.profiles,
         ),
         operation_authorizer=access.authorizer,
-        intent_registry=runtime.intents,
     )
     script = (
         '⟪ SEARCH | * | query="HTTP formal context" ⟫',
@@ -316,7 +316,10 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
     runtime.subscribe(stack.bus)
     entry = WorkspaceOperationEntry(
         ActorMemoryService(
-            stack.bus, operation_authorizer=access.authorizer, memory_reader=runtime.aliases
+            stack.bus,
+            operation_authorizer=access.authorizer,
+            memory_reader=runtime.aliases,
+            dispatch_topics=access.thread_spawner,
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
@@ -324,7 +327,6 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
             thread_spawner=access.thread_spawner,
         ),
         operation_authorizer=access.authorizer,
-        intent_registry=runtime.intents,
     )
     script = (
         '⟪ CALL | worker | task="读取自己的私有资料并写入" ⟫',

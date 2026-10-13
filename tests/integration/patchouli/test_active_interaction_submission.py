@@ -19,12 +19,11 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
 )
-from hivememory.core.models.pending import PendingAtomMaterializeTask, WriteFocus
+from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.protocol.models import (
     InteractionPayload,
     RetrievalResponse,
 )
-from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.patchouli.control.interaction_submission import (
@@ -36,7 +35,7 @@ from hivememory.patchouli.service import (
     ActiveInteractionFinalizationError,
     PatchouliService,
 )
-from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
+from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -88,21 +87,9 @@ def _prepared(
     )
 
 
-def _write_task() -> PendingAtomMaterializeTask:
-    return PendingAtomMaterializeTask(
-        pending_alias="draft_active",
-        intent_id="intent_active",
-        source_verb="WRITE",
-        belong_to=(make_memory_identity_scope(user_id="u1", agent_id="a1")).workspace_identity,
-        from_actor=(make_memory_identity_scope(user_id="u1", agent_id="a1")).actor_identity,
-        focus=WriteFocus(content="remember this"),
-    )
-
-
 def _sealed_payload(
     *,
     final_text: str = "answer",
-    materialize_tasks: list[PendingAtomMaterializeTask] | None = None,
 ) -> InteractionPayload:
     """构造任务进程封口后的交互记录（finalize 的输入）。"""
     return InteractionPayload(
@@ -110,7 +97,6 @@ def _sealed_payload(
         rewritten_query="原查询",
         worth_saving=True,
         assistant_final_text=final_text,
-        materialize_tasks=list(materialize_tasks or []),
     )
 
 
@@ -140,7 +126,7 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
     queue = InteractionSubmissionQueue(apply, policy=_queue_policy())
     service = PatchouliService(bus, interaction_queue=queue)
     prepared = _prepared()
-    payload = _sealed_payload(materialize_tasks=[_write_task()])
+    payload = _sealed_payload()
 
     try:
         submit_spy = AsyncMock(wraps=queue.submit)
@@ -168,17 +154,16 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
         )
         assert submission.requested_topic_id == prepared.topic_id
         assert submission.ordering_key == f"topic:{prepared.topic_id}"
-        assert calls == ["apply_started", "apply", "materialize"]
-        # 物化任务按 payload.materialize_tasks 派发。
-        assert dispatched_tasks == payload.materialize_tasks
+        assert calls == ["apply_started", "apply"]
+        assert dispatched_tasks == []
+        assert "materialize_tasks" not in payload.model_dump()
 
         # 重复 finalize 复用原 work，interaction apply 不会再次执行。
         await service.finalize_agent_run(
             prepared, payload, identity_scope=make_identity_scope(user_id="u1", agent_id="a1")
         )
         assert calls.count("apply_started") == 1
-        # finalize 可重新 dispatch；真正的幂等复用由下游 intent_id 边界保证。
-        assert calls.count("materialize") == 2
+        assert calls.count("materialize") == 0
     finally:
         release_apply.set()
         await queue.stop()
@@ -219,7 +204,7 @@ async def test_active_finalize_keeps_retrieval_hit_in_owned_continuation() -> No
         assert not finalize_task.done()
 
         release_hit.set()
-        assert await finalize_task == []
+        assert await finalize_task is None
     finally:
         release_hit.set()
         if finalize_task is not None and not finalize_task.done():
@@ -252,9 +237,7 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
         with pytest.raises(ActiveInteractionFinalizationError) as exc_info:
             await service.finalize_agent_run(
                 prepared,
-                _sealed_payload(
-                    materialize_tasks=[_write_task()],
-                ),
+                _sealed_payload(),
                 identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
             )
     finally:
@@ -342,9 +325,7 @@ async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> 
         with pytest.raises(ActiveInteractionFinalizationError) as exc_info:
             await service.finalize_agent_run(
                 prepared,
-                _sealed_payload(
-                    materialize_tasks=[_write_task()],
-                ),
+                _sealed_payload(),
                 identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
             )
 
@@ -395,9 +376,7 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
         finalize_task = asyncio.create_task(
             service.finalize_agent_run(
                 prepared,
-                _sealed_payload(
-                    materialize_tasks=[_write_task()],
-                ),
+                _sealed_payload(),
                 identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
             )
         )
@@ -419,7 +398,7 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
         outcome = await queue.wait(prepared.interaction_id, timeout=1)
         assert outcome is not None
         assert outcome.state == WorkState.SUCCEEDED
-        materialize.assert_awaited_once()
+        materialize.assert_not_awaited()
         record_hit.assert_awaited_once()
     finally:
         release_apply.set()
@@ -479,73 +458,6 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
 
 
 @pytest.mark.asyncio
-async def test_post_apply_materialization_failure_isolated_from_chat() -> None:
-    queue = InteractionSubmissionQueue(
-        AsyncMock(return_value="topic-1"),
-        policy=_queue_policy(),
-    )
-    bus = PatchouliBus()
-    bus.register(
-        PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
-        AsyncMock(side_effect=RuntimeError("generation unavailable")),
-    )
-    failed_aliases: list[str] = []
-
-    async def capture_failure(*, pending_alias: str) -> None:
-        failed_aliases.append(pending_alias)
-
-    bus.subscribe(PatchouliLocalEvents.PENDING_ATOM_FAILED, capture_failure)
-    service = PatchouliService(bus, interaction_queue=queue)
-
-    try:
-        await queue.start()
-        result = await service.finalize_agent_run(
-            _prepared(),
-            _sealed_payload(
-                materialize_tasks=[_write_task()],
-            ),
-            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
-        )
-    finally:
-        await queue.stop()
-
-    assert result == []
-    assert failed_aliases == []
-
-
-@pytest.mark.asyncio
-async def test_pending_atom_failure_publish_does_not_reopen_chat_outcome() -> None:
-    queue = InteractionSubmissionQueue(
-        AsyncMock(return_value="topic-1"),
-        policy=_queue_policy(),
-    )
-    bus = PatchouliBus()
-    bus.register(
-        PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
-        AsyncMock(side_effect=RuntimeError("generation unavailable")),
-    )
-    bus.subscribe(
-        PatchouliLocalEvents.PENDING_ATOM_FAILED,
-        AsyncMock(side_effect=ConnectionError("event subscriber unavailable")),
-    )
-    service = PatchouliService(bus, interaction_queue=queue)
-
-    try:
-        await queue.start()
-        result = await service.finalize_agent_run(
-            _prepared(),
-            _sealed_payload(
-                materialize_tasks=[_write_task()],
-            ),
-            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
-        )
-    finally:
-        await queue.stop()
-
-    assert result == []
-
-
-@pytest.mark.asyncio
 async def test_post_apply_retrieval_hit_failure_is_best_effort() -> None:
     queue = InteractionSubmissionQueue(
         AsyncMock(return_value="topic-1"),
@@ -567,7 +479,7 @@ async def test_post_apply_retrieval_hit_failure_is_best_effort() -> None:
     finally:
         await queue.stop()
 
-    assert result == []
+    assert result is None
     record_hit.assert_awaited_once()
 
 

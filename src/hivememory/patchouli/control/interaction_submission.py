@@ -93,10 +93,10 @@ class InteractionSubmission:
 
 
 class InteractionSubmissionCodec:
-    """InteractionSubmission 的 v3 canonical JSON codec，独立编码归属与发起者。"""
+    """InteractionSubmission 的 v4 canonical JSON codec，交互不再携带物化任务。"""
 
     kind = "patchouli.interaction_submission"
-    schema_version = 3
+    schema_version = 4
 
     def encode(self, submission: InteractionSubmission) -> object:
         if not isinstance(submission, InteractionSubmission):

@@ -41,7 +41,6 @@ from hivememory.workspace.contracts import (
     CPUInputManifest,
     CPUPort,
 )
-from hivememory.workspace.intents import WriteIntentRegistry
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.command_terminal import command_terminal
 from hivememory.workspace.process.outputs import (
@@ -154,7 +153,6 @@ class TaskProcessRunner:
         allocator: CPUAllocator,
         operation_authorizer: WorkspaceOperationAuthorizer,
         thread_contexts: ProcessThreads,
-        intent_registry: WriteIntentRegistry,
         gateway_request_timeout_ms: int = 8000,
     ) -> None:
         self._bus = global_bus
@@ -162,7 +160,6 @@ class TaskProcessRunner:
         self._allocator = allocator
         self._authorizer = operation_authorizer
         self._thread_contexts = thread_contexts
-        self._intents = intent_registry
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
 
     # ========== 编排骨架 ==========
@@ -284,9 +281,7 @@ class TaskProcessRunner:
                 raise _ProcessCancelled(record.phase, record.stop_reason or "user_requested")
             events.status(record)
             yield Finalizing()
-            # finalize 所需的授权先于认领：授权失败时意图仍为 PENDING，由关闭
-            # 流程取消，不会停在无人派发的 MATERIALIZING。scope 只用于紧随的
-            # 阶段调用，不在工作集中冻结等待 finalize。
+            # scope 只用于紧随的阶段调用，不进入 CPU 可见对象。
             finalize_scope = self._authorize(process)
             # 进程在调用 finalize 前封口交互记录（Q-14）：这是骨架唯一从
             # CPU 执行结果提取字段组装交互输入的地方；组装失败沿异常路径
@@ -297,12 +292,10 @@ class TaskProcessRunner:
                 assistant_final_text=execution_result.final_text,
                 turn_events=execution_result.turn_events,
                 model_used=execution_result.model_used,
-                # completed 才认领本进程的意图；CPU 不再拥有物化请求。
-                materialize_tasks=self._intents.claim_process(record.process_id),
                 # 附件编译冻结的实际使用引用（被预算跳过的附件不在其中）。
                 used_attachments=working_set.used_attachments,
             )
-            memory_tasks = await self._bus.request(
+            await self._bus.request(
                 PatchouliRoutes.FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
                 payload=payload,
@@ -310,7 +303,7 @@ class TaskProcessRunner:
             )
             # finalize 成功后 Patchouli 已接管本轮交互，不再清理 prepared run。
             working_set.hand_off_prepared()
-            memory_task_ids = [memory_task.task_id for memory_task in (memory_tasks or [])]
+            memory_task_ids: list[str] = []
             # 结算后的话题池只服务于流式 done 事件的前端刷新。
             pool_topics = await self._list_final_pool_topics(process) if stream else []
 
@@ -427,10 +420,9 @@ class TaskProcessRunner:
             record.mark_cancelled()
             record.events.closed_before_terminal(record)
 
-        # 撤销线程 context、取消未认领意图与租借释放都先于任何 await：即使后续
-        # CPU 输出流关闭被取消，也不能留下有效线程 context 或游离 PENDING。
+        # 撤销线程 context 与租借释放都先于任何 await：即使后续
+        # CPU 输出流关闭被取消，也不能留下有效线程 context 或未释放租借。
         self._thread_contexts.revoke_threads(working_set)
-        self._intents.cancel_process(record.process_id)
         # 附件文本在 CPU 分配时已编译进清单，Actor 执行不再读取租借内容。
         self._allocator.release(working_set)
         await self._close_cpu_output(working_set)

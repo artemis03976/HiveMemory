@@ -1,4 +1,4 @@
-"""进程级写入意图登记、认领与结算；只保存归属、发起者和进程关联。"""
+"""进程级写入意图登记、派发与结算；只保存归属、发起者和进程关联。"""
 
 from __future__ import annotations
 
@@ -11,7 +11,6 @@ from hivememory.core.contracts.events import GlobalEvents
 from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.core.models.pending import (
     PendingAtom,
-    PendingAtomMaterializeTask,
     PendingAtomSettlement,
     PendingAtomStatus,
     UpdateFocus,
@@ -32,7 +31,7 @@ def _slugify(text: str, max_len: int = 30) -> str:
 class WriteIntentRegistry:
     """全 Workspace 可回读的登记，同步操作在单个事件循环内原子完成。
 
-    ``process_id`` 仅供认领与取消关联，不限制回读。结算后句柄保留到重启，
+    ``process_id`` 仅供观测关联，不限制回读。结算后句柄保留到重启，
     不产生 EXPIRED，也不回填 canonical 缓存。
     """
 
@@ -49,7 +48,7 @@ class WriteIntentRegistry:
         from_actor: ActorIdentity,
         process_id: str | None,
     ) -> PendingAtom:
-        """登记 WRITE；返回独立副本，调用方不能改写登记中的状态。"""
+        """登记 WRITE 并进入 MATERIALIZING；返回独立副本，调用方不能改写登记中的状态。"""
         prefix = f"draft_{_slugify(focus.title or focus.content[:20])}"
         return self._register(prefix, focus, belong_to, from_actor, process_id)
 
@@ -82,7 +81,7 @@ class WriteIntentRegistry:
         atom = PendingAtom(
             pending_alias=alias,
             intent_id=intent_id,
-            status=PendingAtomStatus.PENDING,
+            status=PendingAtomStatus.MATERIALIZING,
             source_verb="WRITE" if isinstance(focus, WriteFocus) else "UPDATE",
             focus=focus.model_copy(deep=True),
             belong_to=belong_to,
@@ -100,38 +99,11 @@ class WriteIntentRegistry:
             return None
         return atom.model_copy(deep=True)
 
-    def claim_process(self, process_id: str) -> list[PendingAtomMaterializeTask]:
-        """认领指定进程尚为 PENDING 的记录；重复认领不重复派发。"""
-        tasks: list[PendingAtomMaterializeTask] = []
-        for atom in self._atoms.values():
-            if atom.process_id == process_id and atom.status == PendingAtomStatus.PENDING:
-                task = PendingAtomMaterializeTask.from_pending_atom(atom)
-                atom.status = PendingAtomStatus.MATERIALIZING
-                tasks.append(task)
-        return tasks
-
-    def cancel_process(self, process_id: str) -> list[str]:
-        """关闭进程时只取消未认领意图，不改变已交给物化流水线的记录。"""
-        aliases: list[str] = []
-        for atom in self._atoms.values():
-            if atom.process_id == process_id and atom.status == PendingAtomStatus.PENDING:
-                atom.status = PendingAtomStatus.CANCELLED
-                aliases.append(atom.pending_alias)
-        return aliases
-
-    def cancel_aliases(self, aliases: list[str], *, process_id: str) -> list[str]:
-        """撤回指定进程仍为 PENDING 的意图；其他进程的句柄与已认领记录不受影响。"""
-        cancelled: list[str] = []
-        for alias in dict.fromkeys(aliases):
-            atom = self._atoms.get(alias)
-            if (
-                atom is not None
-                and atom.process_id == process_id
-                and atom.status == PendingAtomStatus.PENDING
-            ):
-                atom.status = PendingAtomStatus.CANCELLED
-                cancelled.append(alias)
-        return cancelled
+    def mark_failed(self, pending_alias: str, *, intent_id: str) -> None:
+        """同步记录确定性拒绝；重复事件不能覆盖已经结算的终态。"""
+        atom = self._matching(pending_alias, intent_id)
+        if atom is not None and is_legal_transition(atom.status, PendingAtomStatus.FAILED):
+            atom.status = PendingAtomStatus.FAILED
 
     def subscribe(self, bus: AsyncSystemBus) -> None:
         """订阅既有结算事件；重复装配幂等，切换总线时先取消旧订阅。"""

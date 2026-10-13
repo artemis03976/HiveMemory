@@ -352,6 +352,7 @@ class SystemAssembler:
             global_bus=runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
             memory_reader=runtime.workspace_runtime.aliases,
+            dispatch_topics=access_control.process_threads,
         )
         agent = ActorAgentService(
             operation_authorizer=access_control.operation_authorizer,
@@ -362,7 +363,6 @@ class SystemAssembler:
             memory,
             agent=agent,
             operation_authorizer=access_control.operation_authorizer,
-            intent_registry=runtime.workspace_runtime.intents,
         )
         return _CapabilitiesBundle(memory=memory, agent=agent, operations=operations)
 
@@ -441,7 +441,6 @@ class SystemAssembler:
             # 阶段授权在执行器内、每次阶段调用前执行。
             operation_authorizer=access_control.operation_authorizer,
             thread_contexts=access_control.process_threads,
-            intent_registry=runtime.workspace_runtime.intents,
             gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
         )
         process = TaskProcessService(

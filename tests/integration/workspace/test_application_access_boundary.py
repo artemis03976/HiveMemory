@@ -289,6 +289,7 @@ async def wired():
         global_bus=global_bus,
         operation_authorizer=access.authorizer,
         memory_reader=runtime.aliases,
+        dispatch_topics=access.thread_spawner,
     )
     root_memory = RootMemoryService(global_bus=global_bus, operation_authorizer=access.authorizer)
     root_tasks = RootMemoryTaskService(

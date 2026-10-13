@@ -369,7 +369,6 @@ async def test_settled_reference_redirect_authorizes_and_redacts_nested_target(p
     atom = backing.store(_atom("canonical", private_to=private_to))
     resolver, _, _ = _resolver(backing)
     pending = _pending(resolver)
-    resolver.intents.claim_process("writer_process")
     await resolver.intents.on_settled(
         settlement=PendingAtomSettlement(
             pending_alias=pending.pending_alias,
@@ -406,7 +405,6 @@ async def test_reference_results_cover_terminal_states_and_canonical_atom():
     discarded = _pending(resolver)
     failed = _pending(resolver)
     cancelled = _pending(resolver)
-    resolver.intents.claim_process("writer_process")
     await resolver.intents.on_settled(
         settlement=PendingAtomSettlement(
             pending_alias=discarded.pending_alias,
@@ -446,20 +444,14 @@ def _update_by_a1(resolver: AliasResolver, base: MemoryAtom):
 
 
 async def _leave_pending(intents, pending, base) -> None:
-    """保持 PENDING。"""
-
-
-async def _claim(intents, pending, base) -> None:
-    intents.claim_process("writer_process")
+    """登记即处于 MATERIALIZING，无需额外推进。"""
 
 
 async def _fail(intents, pending, base) -> None:
-    intents.claim_process("writer_process")
     await intents.on_failed(pending_alias=pending.pending_alias)
 
 
 async def _discard(intents, pending, base) -> None:
-    intents.claim_process("writer_process")
     await intents.on_settled(
         settlement=PendingAtomSettlement(
             pending_alias=pending.pending_alias,
@@ -470,7 +462,6 @@ async def _discard(intents, pending, base) -> None:
 
 
 async def _settle_updated(intents, pending, base) -> None:
-    intents.claim_process("writer_process")
     await intents.on_settled(
         settlement=PendingAtomSettlement(
             pending_alias=pending.pending_alias,
@@ -487,12 +478,11 @@ async def _settle_updated(intents, pending, base) -> None:
     ("advance", "visible_kind"),
     [
         (_leave_pending, "pending"),
-        (_claim, "pending"),
         (_fail, "failed"),
         (_discard, "discarded"),
         (_settle_updated, "redirect"),
     ],
-    ids=["pending", "materializing", "failed", "discarded", "updated"],
+    ids=["materializing", "failed", "discarded", "updated"],
 )
 async def test_update_intent_on_unreadable_base_is_not_found_in_every_state(advance, visible_kind):
     """UPDATE 意图的可见性跟随基础原子：读不到基础的 Actor 在任何状态下都得到

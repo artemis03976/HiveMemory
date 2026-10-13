@@ -167,9 +167,8 @@ def test_stage_operation_snapshot_is_only_read_by_task_process():
 
 
 def test_thread_process_binding_queries_stay_inside_capability():
-    """线程的进程关联只供意图登记与入口补偿，不能扩散到 CPU 或资源 owner。"""
+    """线程的进程关联只供意图派发与子线程派生，不能扩散到 CPU 或资源 owner。"""
     assert _private_call_sites("get_thread_process_id") == {
-        "workspace/capability/operations.py",
         "workspace/capability/actor/memory.py",
         "workspace/capability/actor/agent_profiles.py",
     }
@@ -191,6 +190,7 @@ def test_thread_authorization_is_only_used_by_actor_api():
         "workspace/capability/actor/agent_profiles.py",
     }
     assert _private_call_sites("validate_thread_context") == {
+        "workspace/capability/actor/memory.py",
         "workspace/capability/operations.py",
         "workspace/process/threads.py",
     }
@@ -431,3 +431,30 @@ def test_removed_call_target_request_has_no_production_reference():
         for path in _source_files()
         if "ResolveCallTargetRequest" in path.read_text(encoding="utf-8")
     ] == []
+
+
+def test_intent_dispatch_uses_only_public_submission_path():
+    """主动生成只从意图提交服务进入，旧认领和交互携带物化不能复活。"""
+    calls = []
+    removed = {"claim_process", "cancel_aliases", "CancelIntentsRequest", "materialize_tasks"}
+    offenders = []
+    for path in _source_files():
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Attribute) and node.attr in removed:
+                offenders.append((str(path), node.attr))
+            if isinstance(node, ast.Name) and node.id in removed:
+                offenders.append((str(path), node.id))
+            if (
+                isinstance(node, ast.Call)
+                and isinstance(node.func, ast.Attribute)
+                and node.func.attr == "request"
+            ):
+                if (
+                    node.args
+                    and isinstance(node.args[0], ast.Attribute)
+                    and node.args[0].attr == "GENERATION_SUBMIT_ACTIVE"
+                ):
+                    calls.append(path.relative_to(SRC_ROOT).as_posix())
+    assert offenders == []
+    assert calls == ["patchouli/application/memory_intent_submission_service.py"]

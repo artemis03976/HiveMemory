@@ -213,12 +213,7 @@ def _assert_sealed_payload(payload, *, turn_events: list[TurnEvent], submitted) 
     assert payload.assistant_final_text == "完成"
     assert payload.turn_events == turn_events
     assert payload.model_used == "glm-4"
-    (task,) = payload.materialize_tasks
-    assert task.pending_alias == submitted[0].pending_alias
-    assert task.intent_id == submitted[0].intent_id
-    assert task.focus.content == "记住这一点"
-    assert task.belong_to == _workspace()
-    assert task.from_actor == _actor()
+    assert "materialize_tasks" not in payload.model_dump()
     # 本测试未选择附件：附件编译的实际使用集合为空
     assert payload.used_attachments == []
     assert payload.mtp_traces == expected_mtp_traces()
@@ -295,7 +290,7 @@ async def test_non_streaming_command_short_circuits_patchouli_and_cpu() -> None:
     assert result.command_execution_result.error_code == "command.unavailable"
     assert result.command_execution_result.client_action is None
     assert cpu.calls == []
-    assert bus.list_routes() == [GatewayPublicRoutes.PROCESS]
+    assert bus.list_routes() == [GatewayPublicRoutes.PROCESS, PatchouliRoutes.MEMORY_INTENT_SUBMIT]
 
 
 @pytest.mark.asyncio

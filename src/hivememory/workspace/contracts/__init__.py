@@ -14,7 +14,6 @@ from hivememory.workspace.contracts.cpu import (
 )
 from hivememory.workspace.contracts.operations import (
     Callee,
-    CancelIntentsRequest,
     DeriveCallThreadRequest,
     ExecutionThread,
     OperationEntry,
@@ -36,7 +35,6 @@ __all__ = [
     "CPUInputManifest",
     "CPUPort",
     "CPUOutput",
-    "CancelIntentsRequest",
     "Callee",
     "ExecutionThread",
     "ThreadContextRevokedError",

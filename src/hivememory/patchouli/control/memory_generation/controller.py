@@ -19,6 +19,7 @@ from hivememory.components.work_queue import (
     TaskOutcome,
     WorkQueueError,
     WorkQueueShutdownSummary,
+    WorkQueueStoppedError,
     WorkState,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -161,7 +162,9 @@ class MemoryGenerationTaskController:
         )
 
         if not self._queue.started:
-            raise RuntimeError("memory generation queue must be started before submitting work")
+            raise WorkQueueStoppedError(
+                "memory generation queue must be started before submitting work"
+            )
 
         # 只有队列确认接纳后才建立 entry 和发布 created，避免把 admission
         # rejection 混入任务状态机。

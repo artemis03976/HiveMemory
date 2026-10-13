@@ -19,7 +19,6 @@ from hivememory.core.models import (
     WorkspaceIdentity,
     require_identity_scope,
 )
-from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     RetrievalMode,
@@ -36,8 +35,6 @@ from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
     InteractionSubmissionReceipt,
 )
-from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
-from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.runtime.bus import PatchouliBus
 
 logger = logging.getLogger(__name__)
@@ -85,16 +82,14 @@ class PatchouliService:
         bus: PatchouliBus,
         *,
         interaction_queue: InteractionSubmissionQueue,
-        pending_atom_settler: PendingAtomSettler | None = None,
     ) -> None:
         if interaction_queue is None:
             raise TypeError("interaction_queue is required")
         self._local_bus = bus
-        self._pending_atom_settler = pending_atom_settler or PendingAtomSettler(bus)
         self._interaction_queue = interaction_queue
         self._active_finalizations: dict[
             str,
-            asyncio.Task[list[MemoryGenerationTask]],
+            asyncio.Task[None],
         ] = {}
         self._detached_finalizations: set[str] = set()
 
@@ -168,11 +163,11 @@ class PatchouliService:
         payload: InteractionPayload,
         *,
         identity_scope: IdentityScope,
-    ) -> list[MemoryGenerationTask]:
+    ) -> None:
         """原样提交封口好的交互记录，并把 post-apply 工作交给 Patchouli 持有。
 
         ``payload`` 由提交方（任务进程）组装并封口，与被动链路一致；finalize
-        原样提交，不改写其内容。物化任务按 ``payload.materialize_tasks`` 派发；附件租借由进程持有并随进程关闭
+        原样提交，不改写其内容；附件租借由进程持有并随进程关闭
         释放，finalize 不负责释放。``identity_scope`` 来自调用前的
         任务进程阶段授权；公共边界拆分后，后台 continuation
         只携带归属与本次提交的发起者。
@@ -204,7 +199,7 @@ class PatchouliService:
         prepared_run: PreparedAgentRun,
         payload: InteractionPayload,
         from_actor: ActorIdentity,
-    ) -> list[MemoryGenerationTask]:
+    ) -> None:
         try:
             receipt = await self._admit_active_interaction(prepared_run, payload, from_actor)
             await self._wait_active_interaction(prepared_run, receipt)
@@ -221,14 +216,7 @@ class PatchouliService:
 
         # Interaction applied 后 Chat 的业务终态已经锁定。后续工作各自结算，
         # 不得再把 Chat 改写为 failed。
-        materialization, _ = await asyncio.gather(
-            self._dispatch_materialization(
-                prepared_run,
-                list(payload.materialize_tasks),
-            ),
-            self._record_retrieval_hits(prepared_run),
-        )
-        return materialization
+        await self._record_retrieval_hits(prepared_run)
 
     async def _admit_active_interaction(
         self,
@@ -312,39 +300,10 @@ class PatchouliService:
                 work_state=outcome.state,
             )
 
-    async def _dispatch_materialization(
-        self,
-        prepared_run: PreparedAgentRun,
-        tasks: list[PendingAtomMaterializeTask],
-    ) -> list[MemoryGenerationTask]:
-        if not tasks:
-            return []
-
-        try:
-            admissions = await self._local_bus.request(
-                PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
-                tasks,
-                topic_id=prepared_run.topic_id,
-                belong_to=prepared_run.belong_to,
-            )
-        except Exception as error:
-            logger.warning(
-                "Active materialization dispatch failed after interaction apply: "
-                "interaction_id=%s, error=%s",
-                prepared_run.interaction_id,
-                type(error).__name__,
-                exc_info=True,
-            )
-
-            # 这里的调用可能在下游已接纳任务后才断开响应，结果属于 unknown。
-            # 只有下游明确返回 rejected 时，才由 Coordinator 按 intent 单独结算失败。
-            return []
-        return [admission.task for admission in admissions if admission.task is not None]
-
     def _active_finalization_done(
         self,
         interaction_id: str,
-        task: asyncio.Task[list[MemoryGenerationTask]],
+        task: asyncio.Task[None],
     ) -> None:
         if self._active_finalizations.get(interaction_id) is task:
             self._active_finalizations.pop(interaction_id, None)

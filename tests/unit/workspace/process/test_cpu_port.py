@@ -248,12 +248,7 @@ async def test_test_cpu_completes_non_streaming_process_without_alice_routes() -
     assert payload.assistant_final_text == "完成"
     assert payload.turn_events == turn_events
     assert payload.model_used == "glm-4"
-    (task,) = payload.materialize_tasks
-    assert task.pending_alias == submitted[0].pending_alias
-    assert task.intent_id == submitted[0].intent_id
-    assert task.focus.content == "记住这一点"
-    assert task.belong_to == _workspace()
-    assert task.from_actor == _actor()
+    assert "materialize_tasks" not in payload.model_dump()
     assert payload.mtp_traces == expected_mtp_traces()
 
 

@@ -12,14 +12,12 @@ from tests.helpers.chat_handoff import (
     expected_mtp_traces,
     make_gateway_decision,
     make_mtp_turn_events,
-    make_write_materialize_task,
 )
 
 
 def test_seal_interaction_assembles_payload_from_explicit_fields() -> None:
     """给定显式字段组装出的 payload 与预期逐字段相同。"""
     turn_events = make_mtp_turn_events()
-    write_task = make_write_materialize_task()
     used = [WorkspaceAssetRef(token="ref-a", asset_id="asset-a")]
 
     payload = seal_interaction(
@@ -28,7 +26,6 @@ def test_seal_interaction_assembles_payload_from_explicit_fields() -> None:
         assistant_final_text="完成",
         turn_events=turn_events,
         model_used="glm-4",
-        materialize_tasks=[write_task],
         used_attachments=used,
     )
 
@@ -39,7 +36,7 @@ def test_seal_interaction_assembles_payload_from_explicit_fields() -> None:
     assert payload.assistant_final_text == "完成"
     assert payload.turn_events == turn_events
     assert payload.model_used == "glm-4"
-    assert payload.materialize_tasks == [write_task]
+    assert "materialize_tasks" not in payload.model_dump()
     assert payload.used_attachments == used
     # 固定轮次事件归约出的具体轨迹内容（预期手写）
     assert payload.mtp_traces == expected_mtp_traces()
@@ -53,11 +50,10 @@ def test_seal_interaction_without_turn_events_has_empty_mtp_traces() -> None:
         assistant_final_text="完成",
         turn_events=[],
         model_used="",
-        materialize_tasks=[],
         used_attachments=[],
     )
 
     assert payload.mtp_traces == []
     assert payload.turn_events == []
-    assert payload.materialize_tasks == []
+    assert "materialize_tasks" not in payload.model_dump()
     assert payload.used_attachments == []
