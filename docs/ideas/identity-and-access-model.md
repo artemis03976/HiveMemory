@@ -29,7 +29,7 @@ related_docs:
   - docs/ideas/pending-intent-migration.md
   - docs/architecture/workspace.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-12
 ---
 
 # 身份与访问体系
@@ -397,7 +397,9 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 
 暂无。第二批的前置决定均已作出（2026-10-04）。
 
-2026-10-06：一个任务进程内有多个执行线程（主线程与 CALL 派生的子线程）时访问 context 的形态，已在[执行单元 Idea](./execution-unit-thread-and-environment.md#t-2-执行线程的访问-context) T-2 决定：每个执行线程一份 context，子线程的 context 在派生到达进程时签发（T-1）；外部执行单元不识别子线程，所有 actor 共享主线程的 context。本文第 2 节“每份 context 只属于一个 actor 和一次运行”不变，运行的粒度细化到线程；I-8“进程记录只持有访问 context”与 `RunBinding` 在实施时修订（进程记录持有全部线程的 context，运行绑定带上线程标识）。2026-10-11 补充：进程 context 服务于全部四个阶段，线程 context 只服务于 CPU 执行阶段并由 CPU 持有，取代执行凭据（T-2）。子线程 context 的失效时点（T-2a）仍待决；I-9 的删除依赖该部分的 T-4。问题与决定只在总 Idea 维护。
+2026-10-06：一个任务进程内有多个执行线程（主线程与 CALL 派生的子线程）时访问 context 的形态，已在[执行单元 Idea](./execution-unit-thread-and-environment.md#t-2-执行线程的访问-context) T-2 决定：每个执行线程一份 context，子线程的 context 在派生到达进程时签发（T-1）；外部执行单元不识别子线程，所有 actor 共享主线程的 context。本文第 2 节“每份 context 只属于一个 actor 和一次运行”不变，运行的粒度细化到线程。2026-10-11 补充：进程 context 服务于全部四个阶段，线程 context 只服务于 CPU 执行阶段并由 CPU 持有，取代执行凭据（T-2）。
+
+实施情况（2026-10-12 核对）：子线程 context 的失效时点（T-2a）已于 2026-10-11 决定：与主线程的线程 context 一起在 CPU 执行阶段结束时撤销，同日随[执行线程层](../archive/plans/v0.7.0-execution-thread-layer.md)实施；I-9 的 CPU 过渡身份已于 2026-10-09 删除（[Alice 迁移](../archive/plans/v0.7.0-alice-capability-migration.md)）。I-8 的实际修订为：进程记录持有进程 context，全部线程 context 登记在进程工作集，运行绑定以 `RunBinding.thread_id` 区分线程（当前事实见 [Workspace 架构](../architecture/workspace.md)第 4.3 节）。T 系列问题与决定在执行单元 Idea 维护。
 
 ## 8. 分批
 

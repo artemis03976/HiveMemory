@@ -10,11 +10,12 @@ code_paths:
   - frontend/src/services/memoryApi.ts
   - src/hivememory/server/models/memory.py
   - src/hivememory/server/routers/memories.py
+  - src/hivememory/workspace/capability/root/memory.py
 related_docs:
   - ../frontend/management-views.md
   - ../architecture/workspace.md
   - ../archive/todo/memory-provenance-vs-authorship.md
-last_reviewed: 2026-09-06
+last_reviewed: 2026-10-12
 ---
 
 # Memory 可见性策略前端组件
@@ -23,7 +24,7 @@ last_reviewed: 2026-09-06
 
 Memory Library 当前没有编辑 `MemoryAccessPolicy` 的前端组件。创建弹层 [CreateMemoryModal](../../frontend/src/components/memory/CreateMemoryModal.tsx) 只提交标题、摘要、正文、类型、标签和别名；详情编辑弹层 [MemoryDetailModal](../../frontend/src/components/memory/MemoryDetailModal.tsx) 也只允许修改内容字段。
 
-前端的 [MemoryAtom 类型](../../frontend/src/types/memory.ts) 不包含 `access_policy`，[`memoryApi`](../../frontend/src/services/memoryApi.ts) 的创建和更新 payload 也没有策略字段。后端的 [MemoryCreateRequest](../../src/hivememory/server/models/memory.py) 与 [MemoryUpdateRequest](../../src/hivememory/server/models/memory.py) 同样未接受策略，MemoryResponse 未向前端投影策略；[memory service](../../src/hivememory/system/application/memory_service.py) 创建时固定使用 `MemoryAccessPolicy.public()`，更新路径不修改策略。
+前端的 [MemoryAtom 类型](../../frontend/src/types/memory.ts) 不包含 `access_policy`，[`memoryApi`](../../frontend/src/services/memoryApi.ts) 的创建和更新 payload 也没有策略字段。后端的 [MemoryCreateRequest](../../src/hivememory/server/models/memory.py) 与 [MemoryUpdateRequest](../../src/hivememory/server/models/memory.py) 同样未接受策略，MemoryResponse 未向前端投影策略；root API 的记忆管理（[`workspace/capability/root/memory.py`](../../src/hivememory/workspace/capability/root/memory.py)，2026-10-10 能力层分层后取代原 System memory service）创建时固定使用 `MemoryAccessPolicy.public()`，更新路径不修改策略。
 
 因此当前管理页面创建的 Memory 都是 PUBLIC，页面无法查看或修改已有记忆的 PRIVATE/TEAM 目标。该事实与管理读取“可以观测 Workspace 全部记忆”并不冲突：管理读取绕过 Agent 可见性过滤，但策略仍决定 Agent retrieval 的可见范围。
 

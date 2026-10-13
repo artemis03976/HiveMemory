@@ -13,9 +13,7 @@ related_docs:
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
-  - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
-  - docs/ideas/long-running-agent-intra-turn-context-folding.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-13
 ---
 
 # 外部会话消息的接收与 Topic 投影
@@ -27,7 +25,7 @@ last_reviewed: 2026-10-04
 - 要解决的问题：Topic 体系不能接收外部 Actor 的会话消息（owner 表述，2026-09-27）。
 - **版本归属**（owner，2026-09-27）：本方向在 v0.7.0 内完成，Alice 作为第一个使用者（[总 Idea](./workspace-network-task-process-architecture.md#54-m-5-v070-的范围与版本目标) 5.4）。外部 Actor 分为两种接入模式（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）：controller 模式在 v0.7.1，plugin 模式在其后的 v0.7.x。
 - plugin 模式的会话归外部 harness 所有；Alice 与 controller 模式的会话由 HiveMemory 发起。本文最初面向外部 harness 自有的会话。
-- **Topic 与会话解耦**（owner，2026-09-28）：Topic 将与 conversation session 解耦，不再承担上下文，但仍是记忆生成的历史材料来源；conversation session 不是记忆的材料来源；任务进程不再预先创建临时话题，Gateway 的 Topic 路由决定跨阶段传递到结算，提交后依此按需创建 Topic（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2、Q-9）。本文第 3 节 Topic 的 working set 职责、第 4.3 节的 prepare 生命周期，以及第 8 节 Topic 生命周期事项中的预创建与条件清理，需要按此决定重新审视。
+- **Topic 与会话解耦**（owner，2026-09-28；预建部分 2026-10-13 改为保留，见本条末尾）：Topic 将与 conversation session 解耦，不再承担上下文，但仍是记忆生成的历史材料来源；conversation session 不是记忆的材料来源；任务进程不再预先创建临时话题，Gateway 的 Topic 路由决定跨阶段传递到结算，提交后依此按需创建 Topic（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2、Q-9）。本文第 3 节 Topic 的 working set 职责、第 4.3 节的 prepare 生命周期，以及第 8 节 Topic 生命周期事项中的预创建与条件清理，需要按此决定重新审视。（owner，2026-10-13）预建部分改为保留：将来对话流式同步到 Patchouli 时需要先有容器接收，话题是否预建随流式设计决定，“取消当前 Topic”与 `topic_info` 改为异步标注不依赖是否预建（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2）。
 - **对话上下文由 Session 提供**（owner，2026-09-28）：实际使用的对话上下文由 ConversationSession 提供，原样积累，不再由外界干涉；Topic 作为内部记忆生成的资料，Gateway 话题路由与 Topic 只为记忆生成服务。这是本文一开始就定下的前提（见下段与第 3 节）。第 3 节表中 ConversationSession“不负责模型工作集”一格需要按此修订。
 - **会话模型与 Topic 池**（owner，2026-09-28）：见 0.1。
 - 原计划中的“决定”“冻结”在本文中均为候选设计，不是已采纳的方案；原计划留待 A3-0 冻结的事项汇总为第 8 节的开放问题。例外：第 2.2 节的 `InteractionPayload` 是 owner 提出的共用提交模型，不是待选方案（owner，2026-09-28）；字段细节仍按第 8 节待定。
@@ -71,7 +69,7 @@ last_reviewed: 2026-10-04
 
 Topic prepare/handle、assignment、条件清理和资料引用交接的生命周期集中在第 4 节定义。
 
-代码依据：`core/models/identity.py` 保留兼容 `session_id`；`core/protocol/models.py` 的 `InteractionPayload` 混合事件、物化任务和价值信号；`core/models/interaction.py` 已有可选 `action_id` 的 TurnEvent、ActionReducer 和 TurnRecord；`core/models/topic.py` 的 LogicalBlock 内嵌 TurnRecord。`patchouli/application/interaction_submission_service.py` 已有 `InteractionSubmitResult`，当前仅表达接纳结果，使用 `topic:{requested_topic_id}` 排序；`patchouli/control/interaction_apply_journal.py` 的 `InteractionApplyRecord` 已按 interaction_id 保存 topic_id、应用阶段和摘要，但只提供有界内部记录。`system/services/passive/turn_buffer.py` 已把部分外部事件转换为 TurnEvent；其启动条件、容量截断和封口规则仍不足以承接一般外部会话。以上路径已于 2026-09-27 复核存在；不能据此声称新的 Session 模型、无损输入处理或公共应用结果查询已实现。
+代码依据：`ActorIdentity` 的兼容 `session_id` 已于 2026-10-04 随身份第二批移除，HTTP chat 请求体仍接受该字段但不使用；`core/protocol/models.py` 的 `InteractionPayload` 混合事件、物化任务和价值信号；`core/models/interaction.py` 已有可选 `action_id` 的 TurnEvent、ActionReducer 和 TurnRecord；`core/models/topic.py` 的 LogicalBlock 内嵌 TurnRecord。`patchouli/application/interaction_submission_service.py` 返回 `InteractionSubmitResult`（定义在 `patchouli/contracts/interaction_submission.py`），当前仅表达接纳结果，使用 `topic:{requested_topic_id}` 排序；`patchouli/control/interaction_apply_journal.py` 的 `InteractionApplyRecord` 已按 interaction_id 保存 topic_id、应用阶段和摘要，但只提供有界内部记录。`system/services/passive/turn_buffer.py` 已把部分外部事件转换为 TurnEvent；其启动条件、容量截断和封口规则仍不足以承接一般外部会话。以上路径已于 2026-09-27 复核存在，2026-10-12 再次核对；不能据此声称新的 Session 模型、无损输入处理或公共应用结果查询已实现。
 
 ## 2. 数据模型
 
@@ -110,7 +108,7 @@ Session 不在事务上拥有 Topic，也不把 `session_id` 塞进 `ActorIdenti
 
 2026-09-23 归属确认（原边界宪章 §6.3，判据见 [ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)）：本节的 Session/Topic 切分即为宪章确认的归属——Session 是 workspace 归属的会话连续性真相源，Topic 是库对已提交素材的管护；短期记忆库的管辖权语义是"库已接收素材的接入暂存（intake buffer）"，不是 actor 可见记忆分层（命名是否随之调整待定）。由此得到四点确认：① 提交可靠性是过线契约，active finalize 的“Interaction applied 硬成功边界”与被动链的 InteractionSubmissionQueue 是该契约的现状形态，只指认、不重建（2026-09-28：任务进程在交互被提交队列接纳后即结束，不再等待 applied，见[任务进程 Idea](./task-process-table-and-registration-entry.md#q-1-进程何时关闭) Q-1）；② 结算触发（idle/LRU/shutdown）是库管理自身接入积压的库内事务，不改为由会话生命周期驱动，关闭 Session 不级联 Topic/Memory；③ Session 持封口 payload、Topic 持路由 blocks 的双份内容是接受的成本，不新增第三份；④ 短期库的管辖权语义如上。
 
-对外能力上，会话相关操作可归为三类：session 管理/读取、`interaction.submit`（InteractionPayload 提交）与 topic 资料读取；领域行为只在 Patchouli 领域实现维护，能力层不复制。原计划把这三类方法接入 `workspace/capability`，排在 A2 能力层骨架之后；workspace 包的现有实现需要重新调查，见[总 Idea](./workspace-network-task-process-architecture.md)第 5.5 节。
+对外能力上，会话相关操作可归为三类：session 管理/读取、`interaction.submit`（InteractionPayload 提交）与 topic 资料读取；领域行为只在 Patchouli 领域实现维护，能力层不复制。原计划把这三类方法接入 `workspace/capability`，排在 A2 能力层骨架之后。现状（2026-10-12 核对）：能力层已分为只供 `system` 的 root API 与只有六项 actor 操作的 actor API，任务进程的阶段调用另经阶段授权（[Workspace 架构](../architecture/workspace.md)第 4.5 节）；交互提交目前是任务进程结算阶段经 Patchouli finalize 完成的阶段调用，被动链路由 System 直接提交到交互提交队列，都不是独立的能力层方法。三类操作各自放在哪个调用面，见第 8 节第 2 项。
 
 ### 2.2 InteractionPayload：共同封口交互
 
@@ -177,7 +175,7 @@ TurnEvent（在现有字段上补齐表达能力）
 
 ## 4. Topic 路由指令与交接
 
-（2026-09-28：任务进程不再预先创建 Topic；Gateway 的路由决定由进程携带到结算，提交后按需创建 Topic（0.1；任务进程 Idea 1.2）。本节中 prepare handle 与预创建 Topic 的条件清理，在 controller 模式下失去前提，待本方向的实施批次重审；路由指令、路由关联与应用结果的内容不受影响。）
+（2026-09-28：任务进程不再预先创建 Topic；Gateway 的路由决定由进程携带到结算，提交后按需创建 Topic（0.1；任务进程 Idea 1.2）。本节中 prepare handle 与预创建 Topic 的条件清理，在 controller 模式下失去前提，待本方向的实施批次重审；路由指令、路由关联与应用结果的内容不受影响。2026-10-13 owner 改为保留预建（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2），预建 Topic 的条件清理继续由现有 cleanup 路由承担。）
 
 本节集中定义 Topic 交接生命周期，包含没有 Session 的 prepare/主动意图场景，不意味着 Topic 属于 Session。这部分的公开方法、总线路由映射、operation 绑定和领域实现应在同一处定义；生成侧只引用本节，不另行决定 handle/assignment 的有效性、清理或来源绑定。
 
@@ -335,7 +333,7 @@ RelayController 的新边界是 Topic working set 的折叠器：管理 Topic �
 模型、字段与语义：
 
 1. TurnEvent 新增 kind、来源/时间、外部调用关联和多模态引用的字段；ActionReducer 的可靠关联规则；Payload 文本/trace 的派生与兼容限制。第 2 节的候选设计复用现有模型，不另建 Segment/Part 双模型。
-2. System Session 及封口 Payload 的物理位置（2026-09-28：ConversationSession 位于 workspace 的共享设施，见[总 Idea](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属) D-9）、最小创建/读取/封口/关闭能力与 A1 operation、历史分页、保留期/容量/溢出行为；暂停/删除是否暴露及其边界。不要求创建新的大子系统或耐久历史平台。
+2. System Session 及封口 Payload 的物理位置（2026-09-28：ConversationSession 位于 workspace 的共享设施，见[总 Idea](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属) D-9）、最小创建/读取/封口/关闭能力及其调用面与授权（2026-10-10 能力层分层后，root API 只接受 `system`，actor API 只有与 MTP 动词对应的六项操作，任务进程另有阶段调用；会话操作放在哪一面待定）、历史分页、保留期/容量/溢出行为；暂停/删除是否暴露及其边界。不要求创建新的大子系统或耐久历史平台。
 3. 旧 Passive Ingress `source + external_conversation_id + actor` key 的兼容映射，补齐可信 Workspace 分区及 scope/Actor 漂移规则；actor 会话字段对 equality/hash/cache key 的影响已于 2026-10-04 随[身份第二批](../archive/plans/v0.7.0-identity-access-batch-2.md)移除，HTTP 请求体中会话字段的未来语义仍由本方向处理。speaker、来源与调用主体分别处理。
 4. 无 session 的旧 Alice/单次交互如何映射为明确的临时 Session，不能静默合并全用户历史；主动意图仍可无 Session。旧 Topic 只保存可证来源，不能编造完整 Session。
 5. interaction_id 在封口、Session 历史、公开参数、queue envelope、apply record/result 间的一致映射；work_id、外部 ID 和 turn/block ID 各自含义；新旧 codec、版本与规范化摘要的兼容样例（2026-09-28：controller 模式下 `interaction_id` 始终取 `process_id` 的值，见任务进程 Idea Q-16）。
@@ -346,7 +344,7 @@ Topic 生命周期事项：
 
 | 事项 | 需要回答的问题 |
 |:---|:---|
-| prepare 副作用与引用 | 是否预创建/预留 Topic（2026-09-28：任务进程不再预先创建，见第 0 节）；handle 的 scope/调用关联、引用编码与提交参数；同 interaction_id/路由指令/幂等摘要的绑定及冲突行为 |
+| prepare 副作用与引用 | 是否预创建/预留 Topic（2026-09-28：任务进程不再预先创建，见第 0 节；2026-10-13 owner 改为保留预建，话题是否预建随流式设计决定容器形态时再定，见[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2）；handle 的 scope/调用关联、引用编码与提交参数；同 interaction_id/路由指令/幂等摘要的绑定及冲突行为 |
 | handle 存续与交接 | 有效期、一次/多次使用、重复 prepare、接纳时保护转移、过期后的查询/冲突/显式重新准备 |
 | 条件清理 | 本次创建的证据、空/占用判定、与并发 submit/资料读取的协调、幂等结果、关闭时收尾 |
 | 资料来源与保留 | 省略 Topic 的唯一行为；是否接受 prepare handle；快照时点/版本证据、重试绑定及必要保护释放 |
