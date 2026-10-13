@@ -196,7 +196,7 @@ async def wired():
     )
 
     controller = MemoryGenerationTaskController(bus=local_bus)
-    coordinator = MemoryGenerationCoordinator(bus=local_bus)
+    coordinator = MemoryGenerationCoordinator(bus=local_bus, recent_block_limit=5)
     await controller.start()
     local_bus.register(
         PatchouliLocalRoutes.MEMORY_GET,
@@ -411,6 +411,8 @@ async def _submit_intent(wired, context: WorkspaceAccessContext):
         intent=MemoryIntent(
             kind="write",
             topic_id="topic_boundary",
+            intent_id=f"intent_{uuid4().hex[:12]}",
+            pending_alias=f"draft_boundary_note_{uuid4().hex[:4]}",
             content="remember the boundary fact",
             title="Boundary Note",
         ),

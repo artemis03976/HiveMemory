@@ -18,6 +18,16 @@ def test_queue_max_attempts_not_in_memory_generation_config() -> None:
     assert "queue_max_attempts" not in MemoryGenerationConfig.model_fields
 
 
+def test_active_generation_material_defaults_to_five_recent_blocks() -> None:
+    assert MemoryGenerationConfig().active_recent_blocks == 5
+    assert MemoryGenerationConfig(active_recent_blocks=0).active_recent_blocks == 0
+
+
+def test_active_generation_material_rejects_negative_block_count() -> None:
+    with pytest.raises(ValidationError, match="active_recent_blocks"):
+        MemoryGenerationConfig(active_recent_blocks=-1)
+
+
 def test_legacy_memory_generation_retry_config_is_pruned() -> None:
     config = MemoryGenerationConfig.model_validate({"queue_max_attempts": 3})
 

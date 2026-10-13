@@ -206,7 +206,7 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
         memory_library=library,
     )
     controller = MemoryGenerationTaskController(bus=local_bus)
-    coordinator = MemoryGenerationCoordinator(bus=local_bus)
+    coordinator = MemoryGenerationCoordinator(bus=local_bus, recent_block_limit=5)
 
     async def storage_health() -> bool:
         """读取真实书库健康结果，省去验收范围之外的模型装配。"""

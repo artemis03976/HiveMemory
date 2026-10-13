@@ -7,6 +7,8 @@ from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_intent import MemoryIntent, MemoryIntentSubmissionResult
 from hivememory.patchouli.contracts.memory_tasks import (
+    MemoryGenerationAdmission,
+    MemoryGenerationAdmissionStatus,
     MemoryGenerationSource,
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
@@ -24,6 +26,8 @@ __all__ = [
     "InteractionOrigin",
     "InteractionSubmitResult",
     "InteractionSubmissionResult",
+    "MemoryGenerationAdmission",
+    "MemoryGenerationAdmissionStatus",
     "MemoryGenerationSource",
     "MemoryGenerationTask",
     "MemoryGenerationTaskStatus",

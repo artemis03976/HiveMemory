@@ -25,6 +25,12 @@ from hivememory.patchouli.application import (
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_intent import MemoryIntent
+from hivememory.patchouli.contracts.memory_tasks import (
+    MemoryGenerationAdmission,
+    MemoryGenerationAdmissionStatus,
+    MemoryGenerationSource,
+    MemoryGenerationTask,
+)
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from tests.helpers.workspace import make_identity_scope
@@ -120,34 +126,54 @@ def test_submit_interaction_rejects_access_parameter_and_access_guard():
 # ---- 意图提交 ----
 
 
-def test_submit_memory_intent_converts_neutral_intent_to_generation_task():
-    """write 意图转换为内部 WRITE 任务：focus 与坐标逐项对应。"""
+def _write_intent(**overrides) -> MemoryIntent:
+    fields = {
+        "kind": "write",
+        "topic_id": "topic_1",
+        "intent_id": "intent_registered",
+        "pending_alias": "draft_registered_ab12",
+        "content": "remember this",
+        "title": "My Note",
+    }
+    fields.update(overrides)
+    return MemoryIntent(**fields)
+
+
+def _accepted_admission(task):
+    return MemoryGenerationAdmission.accepted(
+        MemoryGenerationTask(
+            task_id=f"active:{task.intent_id}",
+            topic_id="topic_1",
+            label=task.pending_alias,
+            source=MemoryGenerationSource.WRITE,
+            from_actor=task.from_actor,
+            belong_to=task.belong_to,
+            pending_alias=task.pending_alias,
+        )
+    )
+
+
+def test_submit_memory_intent_uses_registered_alias_and_intent_id():
+    """write 意图原样使用登记的别名与 intent_id，focus 与坐标逐项对应。"""
     bus = PatchouliBus()
     captured = {}
 
     async def _submit_active(tasks, topic_id, *, belong_to):
         captured["task"] = tasks[0]
         captured["topic_id"] = topic_id
-        return []
+        return [_accepted_admission(tasks[0])]
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
     service = MemoryIntentSubmissionService(bus=bus)
     scope = _scope()
 
-    result = _run(
-        service.submit_memory_intent(
-            identity_scope=scope,
-            intent=MemoryIntent(
-                kind="write",
-                topic_id="topic_1",
-                content="remember this",
-                title="My Note",
-            ),
-        )
-    )
+    result = _run(service.submit_memory_intent(identity_scope=scope, intent=_write_intent()))
 
-    assert result.accepted is False  # fake 未接纳任何任务
+    assert result.status is MemoryGenerationAdmissionStatus.ACCEPTED
+    assert result.task_id == "active:intent_registered"
     task = captured["task"]
+    assert task.pending_alias == "draft_registered_ab12"
+    assert task.intent_id == "intent_registered"
     assert task.source_verb == "WRITE"
     assert isinstance(task.focus, WriteFocus)
     assert task.focus.content == "remember this"
@@ -163,7 +189,7 @@ def test_submit_memory_intent_update_maps_update_focus():
 
     async def _submit_active(tasks, topic_id, *, belong_to):
         captured["task"] = tasks[0]
-        return []
+        return [MemoryGenerationAdmission.rejected()]
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
     service = MemoryIntentSubmissionService(bus=bus)
@@ -174,6 +200,8 @@ def test_submit_memory_intent_update_maps_update_focus():
             intent=MemoryIntent(
                 kind="update",
                 topic_id="topic_1",
+                intent_id="intent_update",
+                pending_alias="rev_fact_base_cd34",
                 instruction="merge this",
                 content="new content",
                 base_alias="fact_base",
@@ -184,34 +212,38 @@ def test_submit_memory_intent_update_maps_update_focus():
 
     task = captured["task"]
     assert task.source_verb == "UPDATE"
+    assert task.pending_alias == "rev_fact_base_cd34"
     assert isinstance(task.focus, UpdateFocus)
     assert task.focus.base_alias == "fact_base"
 
 
-def test_same_intent_id_derives_identical_pending_alias():
-    """同一 intent_id 确定性派生同一 pending_alias：重试可命中幂等复用。"""
+@pytest.mark.parametrize(
+    "admission",
+    [MemoryGenerationAdmission.rejected(), MemoryGenerationAdmission.unknown()],
+    ids=["rejected", "unknown"],
+)
+def test_unaccepted_submission_reports_status_without_task(admission):
+    """拒绝与结果未知分开报告，都不携带任务标识。"""
     bus = PatchouliBus()
-    aliases: list[str] = []
 
     async def _submit_active(tasks, topic_id, *, belong_to):
-        aliases.append(tasks[0].pending_alias)
-        return []
+        return [admission]
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
     service = MemoryIntentSubmissionService(bus=bus)
-    intent = MemoryIntent(
-        kind="write",
-        topic_id="topic_1",
-        content="stable content",
-        title="Stable Title",
-        intent_id="intent_stable_123",
-    )
 
-    _run(service.submit_memory_intent(identity_scope=_scope(), intent=intent))
-    _run(service.submit_memory_intent(identity_scope=_scope(), intent=intent))
+    result = _run(service.submit_memory_intent(identity_scope=_scope(), intent=_write_intent()))
 
-    assert aliases[0] == aliases[1]
-    assert aliases[0].startswith("draft_stable_title_")
+    assert result.status is admission.status
+    assert result.accepted is False
+    assert result.task_id is None
+
+
+@pytest.mark.parametrize("field", ["intent_id", "pending_alias", "topic_id"])
+def test_memory_intent_requires_registered_identifiers(field):
+    """意图必须携带登记产生的标识与目标话题，Patchouli 不再自行派生。"""
+    with pytest.raises(ValueError, match=field):
+        _write_intent(**{field: " "})
 
 
 def test_submit_memory_intent_requires_identity_scope():
@@ -227,11 +259,7 @@ def test_submit_memory_intent_requires_identity_scope():
     service = MemoryIntentSubmissionService(bus=bus)
 
     with pytest.raises(TypeError, match="identity_scope"):
-        _run(
-            service.submit_memory_intent(
-                intent=MemoryIntent(kind="write", topic_id="topic_1", content="x"),
-            )
-        )
+        _run(service.submit_memory_intent(intent=_write_intent()))
     assert submitted == []
 
 

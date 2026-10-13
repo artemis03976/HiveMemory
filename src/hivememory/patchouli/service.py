@@ -321,7 +321,7 @@ class PatchouliService:
             return []
 
         try:
-            return await self._local_bus.request(
+            admissions = await self._local_bus.request(
                 PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
                 tasks,
                 topic_id=prepared_run.topic_id,
@@ -339,6 +339,7 @@ class PatchouliService:
             # 这里的调用可能在下游已接纳任务后才断开响应，结果属于 unknown。
             # 只有下游明确返回 rejected 时，才由 Coordinator 按 intent 单独结算失败。
             return []
+        return [admission.task for admission in admissions if admission.task is not None]
 
     def _active_finalization_done(
         self,

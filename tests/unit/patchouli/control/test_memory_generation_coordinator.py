@@ -9,6 +9,7 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    TopicData,
     TurnRecord,
 )
 from hivememory.core.models.pending import (
@@ -19,6 +20,10 @@ from hivememory.core.models.pending import (
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.memory_tasks import (
+    MemoryGenerationAdmission,
+    MemoryGenerationAdmissionStatus,
+)
 from hivememory.patchouli.control.memory_generation.coordinator import (
     MemoryGenerationCoordinator,
 )
@@ -77,8 +82,21 @@ def _update_task(base_uuid: str, alias="draft_update"):
     )
 
 
-def _topic_block():
-    return LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
+def _topic_block(query: str = "q"):
+    return LogicalBlock(turn=TurnRecord(user_query=query, assistant_final_text="a"))
+
+
+def _accepted(task_id="j1", source=MemoryGenerationSource.WRITE):
+    return MemoryGenerationAdmission.accepted(_task_handle(task_id=task_id, source=source))
+
+
+def _statuses(admissions):
+    return [admission.status for admission in admissions]
+
+
+ACCEPTED = MemoryGenerationAdmissionStatus.ACCEPTED
+REJECTED = MemoryGenerationAdmissionStatus.REJECTED
+UNKNOWN = MemoryGenerationAdmissionStatus.UNKNOWN
 
 
 def _memory_atom(memory_id) -> MemoryAtom:
@@ -115,17 +133,12 @@ class TestMemoryGenerationCoordinator:
                     "draft_ok",
                     "draft_rejected",
                 ]
-                return [
-                    _task_handle(
-                        task_id="accepted",
-                        source=MemoryGenerationSource.WRITE,
-                    )
-                ]
+                return [_accepted("accepted"), MemoryGenerationAdmission.rejected()]
             raise AssertionError(route)
 
         bus.request = AsyncMock(side_effect=request)
         bus.publish = AsyncMock()
-        coordinator = MemoryGenerationCoordinator(bus=bus)
+        coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
 
         result = await coordinator.submit_active(
             [_write_task("draft_ok"), _write_task("draft_rejected")],
@@ -133,7 +146,9 @@ class TestMemoryGenerationCoordinator:
             belong_to=_identity_scope().workspace_identity,
         )
 
-        assert [task.task_id for task in result] == ["accepted"]
+        assert _statuses(result) == [ACCEPTED, REJECTED]
+        assert result[0].task.task_id == "accepted"
+        # 批量入口逐项结算；协调层不重复发布失败事件。
         bus.publish.assert_not_awaited()
 
     @pytest.mark.asyncio
@@ -154,7 +169,7 @@ class TestMemoryGenerationCoordinator:
 
         bus.request = AsyncMock(side_effect=request)
         bus.publish = AsyncMock()
-        coordinator = MemoryGenerationCoordinator(bus=bus)
+        coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
 
         result = await coordinator.submit_active(
             [_write_task("draft_unknown")],
@@ -162,14 +177,14 @@ class TestMemoryGenerationCoordinator:
             belong_to=_identity_scope().workspace_identity,
         )
 
-        assert result == []
+        assert _statuses(result) == [UNKNOWN]
         bus.publish.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_submit_settlement_builds_settle_spec(self):
         bus = Mock()
         bus.request = AsyncMock(return_value=_task_handle())
-        coordinator = MemoryGenerationCoordinator(bus=bus)
+        coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
         payload = TopicMaterializeTask(
             topic_id="t1",
             topic_title="title",
@@ -193,7 +208,7 @@ class TestMemoryGenerationCoordinator:
     async def test_submit_settlement_skips_empty_generation_context(self):
         bus = Mock()
         bus.request = AsyncMock()
-        coordinator = MemoryGenerationCoordinator(bus=bus)
+        coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
         payload = TopicMaterializeTask(
             topic_id="empty",
             topic_title="empty",
@@ -211,7 +226,7 @@ class TestMemoryGenerationCoordinator:
     async def test_submit_active_empty_tasks_returns_without_bus_request(self):
         bus = Mock()
         bus.request = AsyncMock()
-        coordinator = MemoryGenerationCoordinator(bus=bus)
+        coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
 
         result = await coordinator.submit_active(
             [],
@@ -235,11 +250,11 @@ class TestMemoryGenerationCoordinator:
             if route == PatchouliLocalRoutes.TOPIC_GET:
                 return topic_data
             if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
-                return [_task_handle(source=MemoryGenerationSource.WRITE)]
+                return [_accepted()]
             raise AssertionError(route)
 
         bus.request = AsyncMock(side_effect=request)
-        coordinator = MemoryGenerationCoordinator(bus=bus)
+        coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
 
         result = await coordinator.submit_active(
             [_write_task("draft_1")],
@@ -247,7 +262,7 @@ class TestMemoryGenerationCoordinator:
             belong_to=_identity_scope().workspace_identity,
         )
 
-        assert len(result) == 1
+        assert _statuses(result) == [ACCEPTED]
         spec = bus.request.await_args_list[-1].args[1][0]
         assert spec.source == MemoryGenerationSource.WRITE
         assert spec.pending_alias == "draft_1"
@@ -272,11 +287,11 @@ class TestMemoryGenerationCoordinator:
             if route == PatchouliLocalRoutes.MEMORY_GET:
                 return existing
             if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
-                return [_task_handle(source=MemoryGenerationSource.UPDATE)]
+                return [_accepted(source=MemoryGenerationSource.UPDATE)]
             raise AssertionError(route)
 
         bus.request = AsyncMock(side_effect=request)
-        coordinator = MemoryGenerationCoordinator(bus=bus)
+        coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
 
         result = await coordinator.submit_active(
             [_update_task(str(memory_id), "draft_update")],
@@ -284,7 +299,7 @@ class TestMemoryGenerationCoordinator:
             belong_to=_identity_scope().workspace_identity,
         )
 
-        assert len(result) == 1
+        assert _statuses(result) == [ACCEPTED]
         memory_get_call = bus.request.await_args_list[1]
         assert memory_get_call.args == (PatchouliLocalRoutes.MEMORY_GET, memory_id)
         assert memory_get_call.kwargs == {
@@ -315,7 +330,7 @@ class TestMemoryGenerationCoordinator:
 
         bus.request = AsyncMock(side_effect=request)
         bus.publish = AsyncMock()
-        coordinator = MemoryGenerationCoordinator(bus=bus)
+        coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
 
         result = await coordinator.submit_active(
             [_update_task(str(memory_id), "draft_update")],
@@ -323,7 +338,7 @@ class TestMemoryGenerationCoordinator:
             belong_to=_identity_scope().workspace_identity,
         )
 
-        assert result == []
+        assert _statuses(result) == [REJECTED]
         requested_routes = [call.args[0] for call in bus.request.await_args_list]
         assert PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY not in requested_routes
         bus.publish.assert_awaited_once_with(
@@ -347,12 +362,12 @@ class TestMemoryGenerationCoordinator:
             if route == PatchouliLocalRoutes.MEMORY_GET:
                 return None
             if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
-                return [_task_handle(source=MemoryGenerationSource.WRITE)]
+                return [_accepted()]
             raise AssertionError(route)
 
         bus.request = AsyncMock(side_effect=request)
         bus.publish = AsyncMock()
-        coordinator = MemoryGenerationCoordinator(bus=bus)
+        coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
 
         result = await coordinator.submit_active(
             [
@@ -363,7 +378,7 @@ class TestMemoryGenerationCoordinator:
             belong_to=_identity_scope().workspace_identity,
         )
 
-        assert len(result) == 1
+        assert _statuses(result) == [ACCEPTED, REJECTED]
         spec = bus.request.await_args_list[-1].args[1][0]
         assert spec.source == MemoryGenerationSource.WRITE
         assert spec.pending_alias == "draft_write"
@@ -388,12 +403,12 @@ class TestMemoryGenerationCoordinator:
             if route == PatchouliLocalRoutes.MEMORY_GET:
                 raise RuntimeError("memory store unavailable")
             if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
-                return [_task_handle(source=MemoryGenerationSource.WRITE)]
+                return [_accepted()]
             raise AssertionError(route)
 
         bus.request = AsyncMock(side_effect=request)
         bus.publish = AsyncMock()
-        coordinator = MemoryGenerationCoordinator(bus=bus)
+        coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
 
         result = await coordinator.submit_active(
             [
@@ -404,7 +419,7 @@ class TestMemoryGenerationCoordinator:
             belong_to=_identity_scope().workspace_identity,
         )
 
-        assert len(result) == 1
+        assert _statuses(result) == [ACCEPTED, UNKNOWN]
         spec = bus.request.await_args_list[-1].args[1][0]
         assert spec.pending_alias == "draft_write"
         bus.publish.assert_not_awaited()
@@ -425,7 +440,7 @@ class TestMemoryGenerationCoordinator:
 
         bus.request = AsyncMock(side_effect=request)
         bus.publish = AsyncMock()
-        coordinator = MemoryGenerationCoordinator(bus=bus)
+        coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
 
         result = await coordinator.submit_active(
             [_update_task("not-a-uuid", "draft_update")],
@@ -433,7 +448,7 @@ class TestMemoryGenerationCoordinator:
             belong_to=_identity_scope().workspace_identity,
         )
 
-        assert result == []
+        assert _statuses(result) == [REJECTED]
         requested_routes = [call.args[0] for call in bus.request.await_args_list]
         assert PatchouliLocalRoutes.MEMORY_GET not in requested_routes
         assert PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY not in requested_routes
@@ -441,3 +456,95 @@ class TestMemoryGenerationCoordinator:
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             pending_alias="draft_update",
         )
+
+    @pytest.mark.asyncio
+    async def test_submit_active_uses_configured_number_of_recent_blocks(self):
+        """材料只取话题最近 recent_block_limit 个 block，并带上 state_summary。"""
+        topic = TopicData(
+            topic_id="t1",
+            workspace_identity=_identity_scope().workspace_identity,
+            topic_title="title",
+            state_summary="state",
+            blocks=tuple(_topic_block(f"q{index}") for index in range(5)),
+            last_update=0.0,
+        )
+        bus = Mock()
+
+        async def request(route, *args, **kwargs):
+            if route == PatchouliLocalRoutes.TOPIC_GET:
+                return topic
+            if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
+                return [_accepted()]
+            raise AssertionError(route)
+
+        bus.request = AsyncMock(side_effect=request)
+        coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=2)
+
+        await coordinator.submit_active(
+            [_write_task("draft_1")],
+            "t1",
+            belong_to=_identity_scope().workspace_identity,
+        )
+
+        spec = bus.request.await_args_list[-1].args[1][0]
+        assert [turn.user_query for turn in spec.request.context.turns] == ["q3", "q4"]
+        assert spec.request.context.state_summary == "state"
+        assert [block.turn.user_query for block in spec.interaction_input.blocks] == ["q3", "q4"]
+
+    @pytest.mark.asyncio
+    async def test_submit_active_rejects_all_intents_when_topic_read_fails(self):
+        """读取材料失败时没有意图进入队列：逐项结算为失败并返回拒绝。"""
+        bus = Mock()
+
+        async def request(route, *args, **kwargs):
+            if route == PatchouliLocalRoutes.TOPIC_GET:
+                raise RuntimeError("topic store unavailable")
+            raise AssertionError(route)
+
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
+
+        result = await coordinator.submit_active(
+            [_write_task("draft_a"), _write_task("draft_b")],
+            "t1",
+            belong_to=_identity_scope().workspace_identity,
+        )
+
+        assert _statuses(result) == [REJECTED, REJECTED]
+        failed = [call.kwargs["pending_alias"] for call in bus.publish.await_args_list]
+        assert failed == ["draft_a", "draft_b"]
+
+    @pytest.mark.asyncio
+    async def test_submit_active_treats_invalid_batch_response_as_unknown(self):
+        """批量响应数量与输入不符时无法判断接纳情况，逐项按结果未知处理。"""
+        topic_data = Mock()
+        topic_data.recent_blocks.return_value = [_topic_block()]
+        topic_data.state_summary = "state"
+        topic_data.topic_title = "title"
+        topic_data.topic_summary = "summary"
+        bus = Mock()
+
+        async def request(route, *args, **kwargs):
+            if route == PatchouliLocalRoutes.TOPIC_GET:
+                return topic_data
+            if route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY:
+                return [_accepted()]
+            raise AssertionError(route)
+
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
+
+        result = await coordinator.submit_active(
+            [_write_task("draft_a"), _write_task("draft_b")],
+            "t1",
+            belong_to=_identity_scope().workspace_identity,
+        )
+
+        assert _statuses(result) == [UNKNOWN, UNKNOWN]
+        bus.publish.assert_not_awaited()
+
+    def test_negative_recent_block_limit_is_rejected(self):
+        with pytest.raises(ValueError, match="recent_block_limit"):
+            MemoryGenerationCoordinator(bus=Mock(), recent_block_limit=-1)

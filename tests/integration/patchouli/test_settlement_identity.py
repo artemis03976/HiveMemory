@@ -84,7 +84,7 @@ async def test_all_settlement_triggers_create_system_initiated_tasks(trigger: st
     from_actor = ActorIdentity(user_id="owner-1", agent_id="agent-1", team_id="team-1")
     clock = _Clock()
     bus = PatchouliBus()
-    coordinator = MemoryGenerationCoordinator(bus=bus)
+    coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
     accepted = []
 
     async def accept(spec):
@@ -285,7 +285,7 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
         artifact_store=artifacts,
     )
     bus = PatchouliBus()
-    coordinator = MemoryGenerationCoordinator(bus=bus)
+    coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
     controller = MemoryGenerationTaskController(bus=bus)
     generation = MemoryGenerationFamiliar(
         generation_engine=MemoryGenerationEngine(

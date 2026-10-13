@@ -124,6 +124,8 @@ patchouli:
           type: "simple"
 
   generation:
+    # 主动生成（WRITE/UPDATE）取话题最近几个 block 与 state_summary 作为材料
+    active_recent_blocks: 5
     extractor:
       enabled: true
     deduplicator:

@@ -24,6 +24,7 @@ from hivememory.engines.generation.models import DuplicateDecision, GenerationOu
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationAdmissionStatus
 from hivememory.patchouli.control.memory_generation.controller import (
     MemoryGenerationTaskController,
 )
@@ -138,7 +139,7 @@ def _wire_generation_pipeline(
     bus: PatchouliBus,
 ) -> tuple[MemoryGenerationCoordinator, MemoryGenerationTaskController]:
     controller = MemoryGenerationTaskController(bus=bus)
-    coordinator = MemoryGenerationCoordinator(bus=bus)
+    coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
     bus.register(
         PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION,
         controller.submit_generation,
@@ -204,13 +205,13 @@ async def test_active_write_routes_to_generation_and_publishes_settlement():
         lambda **kwargs: _capture_event(published, **kwargs),
     )
 
-    memory_tasks = await coordinator.submit_active(
+    admissions = await coordinator.submit_active(
         [_write_task("draft_write")],
         "topic_1",
         belong_to=_identity_scope().workspace_identity,
     )
-    await controller.wait_task(memory_tasks[0].task_id)
-    completed = await controller.get_task(memory_tasks[0].task_id)
+    await controller.wait_task(admissions[0].task.task_id)
+    completed = await controller.get_task(admissions[0].task.task_id)
 
     assert completed.status == MemoryGenerationTaskStatus.COMPLETED
     assert completed.canonical_alias == "memory_alias"
@@ -234,12 +235,12 @@ async def test_active_update_fetches_existing_memory_before_generation():
     bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
     bus.register(PatchouliLocalRoutes.MEMORY_GET, memory_get)
 
-    memory_tasks = await coordinator.submit_active(
+    admissions = await coordinator.submit_active(
         [_update_task(str(existing.id), "draft_update")],
         "topic_1",
         belong_to=_identity_scope().workspace_identity,
     )
-    await controller.wait_task(memory_tasks[0].task_id)
+    await controller.wait_task(admissions[0].task.task_id)
 
     memory_get.assert_awaited_once_with(
         existing.id,
@@ -269,7 +270,7 @@ async def test_active_batch_skips_missing_update_and_runs_valid_write():
         lambda **kwargs: _capture_event(failed, **kwargs),
     )
 
-    memory_tasks = await coordinator.submit_active(
+    admissions = await coordinator.submit_active(
         [
             _write_task("draft_write"),
             _update_task(str(uuid4()), "draft_update"),
@@ -277,10 +278,13 @@ async def test_active_batch_skips_missing_update_and_runs_valid_write():
         "topic_1",
         belong_to=_identity_scope().workspace_identity,
     )
-    await controller.wait_task(memory_tasks[0].task_id)
-    completed = await controller.get_task(memory_tasks[0].task_id)
+    await controller.wait_task(admissions[0].task.task_id)
+    completed = await controller.get_task(admissions[0].task.task_id)
 
-    assert len(memory_tasks) == 1
+    assert [admission.status for admission in admissions] == [
+        MemoryGenerationAdmissionStatus.ACCEPTED,
+        MemoryGenerationAdmissionStatus.REJECTED,
+    ]
     assert completed.status == MemoryGenerationTaskStatus.COMPLETED
     spec = execute_spec.await_args.args[0]
     assert spec.source == MemoryGenerationSource.WRITE
@@ -538,13 +542,13 @@ async def test_active_write_lands_in_real_mid_term(memory_library, artifact_engi
         lambda **kwargs: _capture_event(published, **kwargs),
     )
 
-    memory_tasks = await coordinator.submit_active(
+    admissions = await coordinator.submit_active(
         [_write_task("draft_write")],
         "topic_1",
         belong_to=_identity_scope().workspace_identity,
     )
-    await controller.wait_task(memory_tasks[0].task_id)
-    completed = await controller.get_task(memory_tasks[0].task_id)
+    await controller.wait_task(admissions[0].task.task_id)
+    completed = await controller.get_task(admissions[0].task.task_id)
 
     assert completed.status == MemoryGenerationTaskStatus.COMPLETED
     assert completed.canonical_alias == "memory_alias"
