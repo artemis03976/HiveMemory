@@ -133,14 +133,14 @@ def normalize_worker_agent_mtp_output(text: str) -> str:
     return text.rstrip() + " " + MTP_RIGHT_DELIMITER
 
 
-def simulate_kernel_loop_single(koakuma: KoakumaRuntime, agent_text: str) -> MTPExecutionResult:
+def simulate_loop_single(koakuma: KoakumaRuntime, agent_text: str) -> MTPExecutionResult:
     result = asyncio.run(
         koakuma.intercept_and_execute(
             normalize_worker_agent_mtp_output(agent_text),
             context=MTPExecutionContext(runtime_scope=make_runtime_scope()),
         )
     )
-    assert result is not None, f"Kernel Loop 未检测到 MTP 指令。Agent 文本: {agent_text!r}"
+    assert result is not None, f"执行循环未检测到 MTP 指令。Agent 文本: {agent_text!r}"
     return result
 
 

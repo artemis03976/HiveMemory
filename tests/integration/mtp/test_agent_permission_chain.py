@@ -163,7 +163,7 @@ async def test_shared_runtime_keeps_frame_policies_independent_of_profile() -> N
 
 @pytest.mark.asyncio
 async def test_system_tool_alias_requires_exact_registration_without_resource_submission() -> None:
-    """系统工具不设 Agent 权限，但未注册的 sys_* 前缀不会当作内核工具或记忆执行。"""
+    """系统工具不设 Agent 权限，但未注册的 sys_* 前缀不会当作系统工具或记忆执行。"""
     harness = OperationsHarness()
     context = MTPExecutionContext(
         runtime_scope=make_runtime_scope(),

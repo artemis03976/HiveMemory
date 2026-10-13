@@ -192,7 +192,7 @@ def execute_sandboxed(
 
 
 def sys_python_repl(args: dict[str, str], *, timeout_seconds: int = 10) -> SyscallResult:
-    """受限 Python REPL syscall（Level 0 内核工具）。"""
+    """受限 Python REPL syscall。"""
     code = args.get("code", "")
     if not code:
         raise SyscallInvalidArgumentError(

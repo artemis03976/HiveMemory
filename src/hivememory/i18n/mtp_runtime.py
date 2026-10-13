@@ -67,8 +67,9 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Invalid Argument] RUN 需要单个工具 alias 作为目标。\n"
         "Suggestion: 请提供一个工具 alias 作为目标。"
     ),
-    "mtp.run.kernel_tool_not_found": (
-        "[Alias Not Found] 内核工具 '{alias}' 不存在。\n" "Suggestion: 请用 SEARCH 查找可用工具。"
+    "mtp.run.tool_not_found": (
+        "[Alias Not Found] 工具 '{alias}' 不存在。\n"
+        "Suggestion: 可用的系统工具见 [RUNTIME TOOLS] 列表。"
     ),
     "mtp.run.pending_not_runnable": (
         "[Invalid Argument] alias '{alias}' 是运行时 pending atom，尚未固化为可执行记忆。\n"
@@ -228,9 +229,9 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "[Invalid Argument] RUN requires a single tool alias as target.\n"
         "Suggestion: Provide a single tool alias as the target."
     ),
-    "mtp.run.kernel_tool_not_found": (
-        "[Alias Not Found] Kernel tool '{alias}' not found.\n"
-        "Suggestion: Use SEARCH to discover available tools."
+    "mtp.run.tool_not_found": (
+        "[Alias Not Found] Tool '{alias}' not found.\n"
+        "Suggestion: See the [RUNTIME TOOLS] list for available system tools."
     ),
     "mtp.run.pending_not_runnable": (
         "[Invalid Argument] Alias '{alias}' is a runtime pending atom and has not been "

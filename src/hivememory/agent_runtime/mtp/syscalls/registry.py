@@ -7,41 +7,41 @@ from functools import partial
 from hivememory.agent_runtime.mtp.syscalls.clock import sys_clock
 from hivememory.agent_runtime.mtp.syscalls.file_io import sys_read_file, sys_write_file
 from hivememory.agent_runtime.mtp.syscalls.repl import sys_python_repl
-from hivememory.agent_runtime.mtp.syscalls.types import KernelSyscall
+from hivememory.agent_runtime.mtp.syscalls.types import Syscall
 from hivememory.agent_runtime.mtp.syscalls.web_search import sys_web_search
 
 
-def build_kernel_registry(
+def build_syscall_registry(
     *,
     python_repl_timeout: int = 10,
     workspace_path: str = "./workspace",
     file_read_max_bytes: int = 102400,
     file_write_max_bytes: int = 102400,
     web_search_timeout: int = 15,
-) -> dict[str, KernelSyscall]:
+) -> dict[str, Syscall]:
     """
-    构建内核工具注册表 (KERNEL_REGISTRY)。
+    构建 sys_* 系统工具的 syscall 注册表。
     """
     return {
-        "sys_clock": KernelSyscall(
+        "sys_clock": Syscall(
             handler=sys_clock,
             description="Get current date, time, and timezone.",
         ),
-        "sys_python_repl": KernelSyscall(
+        "sys_python_repl": Syscall(
             handler=partial(
                 sys_python_repl,
                 timeout_seconds=python_repl_timeout,
             ),
             description="Execute Python code for calculation or data processing.",
         ),
-        "sys_web_search": KernelSyscall(
+        "sys_web_search": Syscall(
             handler=partial(
                 sys_web_search,
                 timeout_seconds=web_search_timeout,
             ),
             description="Search the internet for latest information.",
         ),
-        "sys_read_file": KernelSyscall(
+        "sys_read_file": Syscall(
             handler=partial(
                 sys_read_file,
                 workspace=workspace_path,
@@ -49,7 +49,7 @@ def build_kernel_registry(
             ),
             description="Read a file from the workspace directory.",
         ),
-        "sys_write_file": KernelSyscall(
+        "sys_write_file": Syscall(
             handler=partial(
                 sys_write_file,
                 workspace=workspace_path,

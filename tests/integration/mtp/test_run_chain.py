@@ -5,12 +5,12 @@ RUN 指令执行链路测试
 
 测试覆盖:
     1. Target 校验 (通配符/列表/空 target 拒绝)
-    2. Level 0 内核工具快速路径 (sys_clock, sys_python_repl)
-    3. Level 1 用户态工具路径 (统一原子缓存 + L2 冷检索 + 沙箱执行)
+    2. 系统工具快速路径 (sys_clock, sys_python_repl)
+    3. 用户工具路径 (统一原子缓存 + L2 冷检索 + 沙箱执行)
 
 与 test_syscall_chain.py 的区别:
     - test_syscall_chain.py: 聚焦 syscall 函数本身的行为正确性
-    - 本文件: 聚焦 RUN 指令的 _handle_run 链路 (target 校验、快速路径分发、用户态路径)
+    - 本文件: 聚焦 RUN 指令的 _handle_run 链路 (target 校验、快速路径分发、用户工具路径)
 
 作者: HiveMemory Team
 版本: 3.0
@@ -130,11 +130,11 @@ class TestRunTargetValidation:
         assert not result.success
 
 
-# ========== Test 2：内核快速路径 ==========
+# ========== Test 2：系统工具快速路径 ==========
 
 
-class TestRunKernelFastPath:
-    """Level 0 内核工具快速路径"""
+class TestRunSyscallFastPath:
+    """系统工具快速路径"""
 
     def test_sys_clock_default(self, koakuma):
         result = _execute_mtp(koakuma, "⟪ RUN | sys_clock | ⟫")
@@ -178,7 +178,7 @@ class TestRunKernelFastPath:
 
 
 class TestRunUserToolPath:
-    """Level 1 用户态工具慢速路径"""
+    """用户工具路径"""
 
     def test_unknown_tool_not_found(self, koakuma):
         """L1+L2 均未命中，返回 not found"""
@@ -309,7 +309,7 @@ class TestRunUserToolPath:
         assert "import" in result.formatted_response.lower()
 
     def test_params_injection(self, koakuma):
-        """验证 params 字典正确传入用户态工具"""
+        """验证 params 字典正确传入用户工具"""
         mem = _make_code_memory(
             code="print(f\"x={params['x']}, y={params['y']}\")",
             alias="tool_params",
