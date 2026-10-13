@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-13
 ---
 
 # Memory Tool Protocol (MTP)
@@ -124,14 +124,14 @@ RUN 被保留在记忆协议中，是因为一部分记忆不仅需要被阅读�
 ```
 
 - `content` 必填；`title`、`reason` 可选；
-- 提交 `SubmitWriteIntentRequest` 在 workspace 登记 PendingAtom 并返回 `ack + pending_alias`；同 Workspace 的其他 Agent 可经读取许可回读；
+- 提交 `SubmitWriteIntentRequest`，workspace 登记 MATERIALIZING 意图并立即经 Patchouli 意图路由派发，生成队列接纳后返回 `ack + pending_alias`；同 Workspace 的其他 Agent 可经读取许可回读；
 - 不在 Koakuma 内同步创建正式 MemoryAtom；
-- completed 时任务进程认领本进程的 PENDING 意图为 MATERIALIZING，生成 materialize task，经 `InteractionPayload` 进入 Patchouli finalize；CPU 执行结果不携带物化任务；
-- 只有完成 finalize 后，后续生成/结算流程才可能形成正式记忆。
+- 派发话题来自任务进程，与 CPU 输入清单一致，生成材料取过去的 block 与摘要，不含当前轮；
+- CPU 结果与 `InteractionPayload` 都不携带物化任务，finalize 只处理完成的交互与预检索命中。
 
-ACK 表示意图已在 workspace 登记，不表示长期记忆已经持久化。进程关闭只取消其仍为 PENDING 的意图；已认领意图不被关闭回滚。结算后的句柄保留到重启。
+ACK 表示意图已在 workspace 登记并被生成队列接纳，不表示长期记忆已经持久化。确定性拒绝返回 `mtp.memory.intent_rejected`（agent_fault），句柄为 FAILED；结果未知返回 `mtp.memory.intent_unknown`（system_fault），句柄保持 MATERIALIZING，若实际已接纳可继续收到结算。两类错误都不返回 ACK，详见[错误模型](./error-model.md)。
 
-延迟物化保护了长期记忆免受半完成运行污染。WRITE 发生时，Agent 仍可能在后续迭代中失败、取消或修正自己的判断；如果 Koakuma 立即写入正式 MemoryAtom，执行事务尚未完成就会产生难以撤销的长期事实。PendingAtom 让本轮可以引用刚提出的内容，同时把正式生成、来源归约和持久化留给成功后的 Patchouli finalize。
+显式保存意图不再等待整轮完成：长时间运行的 Agent 可以及时提交阶段成果，随后 CPU 失败、取消或进程关闭都不撤回它。PendingAtom 支持在正式提取、去重与持久化之前引用刚提交的内容，正式 MemoryAtom 仍由 Patchouli 生成链创建。结算句柄保留到重启；队列接纳是进程内承诺，不是跨重启耐久承诺。
 
 ### 3.5 UPDATE
 
@@ -143,7 +143,7 @@ ACK 表示意图已在 workspace 登记，不表示长期记忆已经持久化�
 - 目标必须解析为请求方可读的正式 atom；pending 与结算 redirect 句柄不能再次 UPDATE；
 - 提交 `SubmitUpdateIntentRequest`，注册以原记忆 UUID 为基线的 pending revision；基础校验不属于引用交付、不记录 citation；pending revision 只对能读取基础原子的 Agent 可回读，读不到基础时在任何状态下都与不存在相同，以它为目标再次 UPDATE 也按不存在拒绝；
 - 使 workspace 共享完整原子缓存中的基础原子及 alias 索引失效，防止后续脏读；
-- 返回 `ack + pending_alias`，实际更新延迟到 Patchouli finalize 后处理。
+- 基础冷读之后同步复查线程、读取进程话题并登记，立即提交到 Patchouli；接纳后返回 `ack + pending_alias`，正式更新由后台生成链处理，失败和取消规则与 WRITE 一致。
 
 UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pending revision，使当前 run 能表达修订意图，又保留旧版本和来源链；workspace 共享完整原子缓存中的基础原子及 alias 索引立即失效，是为了避免 Agent 在同一轮继续把待修订内容当成无变化的权威事实。
 
@@ -159,7 +159,7 @@ UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pendin
 - 派生要求调用方的 `agent.call`，内置 Profile 也不跳过；被调用方须在本 Workspace 有准入，未准入或为保留的 `system` 时回填 `mtp.permission.denied`（文案键 `mtp.call.agent_unavailable`），不启动子 frame；context_refs 以 READ 请求解析，要求 `memory.read`，缺少时被跳过而不阻止 CALL；正式原子交付自动记录 `workspace.reference_read` citation，先前 READ 过的原子在这次独立请求中再次计数；
 - callee frame 以被调用方身份运行：资源操作按被调用方的白名单与可见性授权，写入意图记在被调用方名下；
 - CALL 只允许 root frame 发起；callee frame 的 `FrameExecutionPolicy` 由被调用方的操作快照翻译并显式移除 CALL，防止递归爆炸；被调用方 Profile 只提供 persona、模型与语言；
-- 只有 `COMPLETED` 子帧产生 success CALL response，并可以返回其 PendingAtom alias；未成功结束的子帧不返回 alias，并撤回其已登记且仍为 PENDING 的意图；
+- 只有 `COMPLETED` 子帧产生 success CALL response，并可以返回其 PendingAtom alias；未成功结束的子帧不返回 alias，但其已提交写入继续生成；
 - `CANCELLED` 保持 cancelled 终态，`FAILED`、`BUDGET_EXHAUSTED` 会转换为结构化 error CALL response；`SUSPENDED` 是 RunExecutor 继续消费的控制流 trap，不构造 CALL response。
 
 `suspend` 是控制流，不是“成功但没有正文”的普通工具结果。父 frame 必须停在一个可恢复位置，等待调度器建立子 frame、传递受控上下文并返回结构化响应；若直接把空结果写回模型，父 Agent 会在子任务尚未完成时继续生成，委派关系也无法被可靠观测和取消。

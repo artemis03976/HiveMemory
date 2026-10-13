@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-13
 ---
 
 # Archived Plans
@@ -13,6 +13,8 @@ last_reviewed: 2026-10-12
 本目录保存已经完成或被替代、且当前事实已经合并进规范文档的实施计划。每篇归档计划必须标明归档日期、实现版本或 PR，以及替代它的当前文档。
 
 当前记录：
+
+- [v0.7.0 写入意图实时派发](./v0.7.0-intent-inflight-dispatch.md)：2026-10-13 三阶段实现、验收与 code review 完成；WRITE/UPDATE 操作内派发，生成队列接纳后 ACK，运行失败不撤回写入；finalize 与交互去除物化任务，前端从事件与列表观察。后端 3050 passed、2 skipped，覆盖率 93.18%；确定性 HTTP E2E 8 passed，前端 lint/build 通过。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[MTP](../../contracts/mtp.md)与 [生成](../../patchouli/generation.md)。
 
 - [v0.7.0 总线路由类型化与 mypy 门禁](./v0.7.0-typed-bus-routes.md)：2026-10-12 三阶段实现、验收与 code review 完成；提供方声明 route 名称与签名，Alice 拆分两种执行路由，CI 锁定依赖检查源码与类型回归样例。后端 3024 passed，覆盖率 93.16%；当前事实见[运行时机制](../../components/runtime-and-bus.md)和[公开路由与事件](../../contracts/routes-and-events.md)。
 

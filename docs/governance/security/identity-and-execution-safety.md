@@ -23,7 +23,7 @@ related_docs:
   - docs/todo/frontend-identity-ownership.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
   - docs/todo/workspace-asset-ownership-identity-split.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-13
 ---
 
 # 身份隔离与执行安全治理
@@ -90,7 +90,7 @@ CALL 子 Agent 以被调用方身份运行：任务进程在派生时对被调�
 
 WorkspaceAsset 的 Store、解析服务与既有 Reader/Command 端口仍使用旧 `IdentityScope` 接口做归属检查；System 的 `AssetMaterializationReader` 只在一次 representation 租借内以归属和保留 `system` actor 组装适配所需 scope，Patchouli 使用归属读取端口，不保存该 scope。此例外不扩展到 Alice、CPU 或其他资源路径，内部拆分继续由 [WorkspaceAsset 归属 Todo](../../todo/workspace-asset-ownership-identity-split.md) 跟踪。
 
-线程 context 与其他访问 context 一样不能复制或序列化，CPU 读不出其内容；派生只复制已认证的 actor、驻留 Workspace 与 principal，不能改变身份或目标，准入与白名单仍在每次授权时即时检查。`WorkspaceOperationEntry` 只接受未撤销的线程 context，进程 context、请求级 context 与已撤销的线程 context 在分派前被拒绝，actor API 方法仍逐次授权；`system` 的白名单为空，即使派生出线程 context 也不能执行 actor 操作。CPU 执行结束即同步撤销线程 context；进程关闭兜底撤销、取消 PENDING 与释放租借先于任何 await；在途只读可完成；WRITE、UPDATE 返回入口后都会复查线程 context（当前 UPDATE 的基础冷读可能跨越撤销），由入口同步补偿撤销后产生的登记，不取消请求调用方 task。新增副作用前有 await 的能力方法必须补上同类检查和补偿。
+线程 context 与其他访问 context 一样不能复制或序列化，CPU 读不出其内容；派生只复制已认证的 actor、驻留 Workspace 与 principal，不能改变身份或目标，准入与白名单仍在每次授权时即时检查。`WorkspaceOperationEntry` 只接受未撤销的线程 context，进程 context、请求级 context 与已撤销的线程 context 在分派前被拒绝，actor API 方法仍逐次授权；`system` 的白名单为空，即使派生出线程 context 也不能执行 actor 操作。CPU 执行结束即同步撤销线程 context；进程关闭兜底撤销与释放租借先于任何 await，在途只读可完成。WRITE/UPDATE 在基础校验之后同步复查线程、读取进程话题并登记；冷读跨越撤销时不登记。派发开始后持有受取消保护的提交任务直至结束，再传播取消；进程或 CALL 失败不撤回写入。新增副作用前有 await 的能力方法必须明确撤销与提交的边界。
 
 ### 3.2 所有者重新校验
 
@@ -102,7 +102,7 @@ Cache 命中、MTP READ/RUN、PendingAtom resolution、Artifact ref 读取、Mem
 
 通用共享基础设施不自动按 Workspace 分区；缓存值必须在命中后由最终资源 owner 或 resolver 以调用方的归属和发起者重验。workspace 持有 canonical 原子与 alias 索引、全部 Profile 派生缓存；Alice 不保存资源读取缓存。分区消除错误命中与无效覆盖，但**不能替代命中后的 ownership/actor policy 重验**。workspace 在 canonical 提交尝试后依次失效原子、旧 alias、来源 Profile 并推进 Workspace 代次，在途点读跨代次时重读一次，仍变化则报资源不可用，不回填旧值；语义检索跨代次仍交付已授权结果，但不预热缓存。失败结果不进入缓存。调用方取得独立副本，不能修改缓存内授权事实。
 
-PendingAtom 的全 Workspace 回读只适用于意图：解析到结算后的 canonical 时再次执行当前 actor policy；目标不可读时不交付正文、canonical alias/UUID，也不交付含 UPDATE 基础坐标的 Pending 副本。UPDATE 意图的回读跟随基础原子的可读性，基础不可读时在任何状态下都与不存在相同。UPDATE 只接受可读的正式 atom，不接受 pending 或结算 redirect。MTP READ、RUN、SEARCH、WRITE、UPDATE 与 CALL 的目标 Profile/共享引用全部经操作请求进入 actor API，各自检查对应的 actor 操作；子帧的意图撤回是操作入口内部的补偿，不检查 operation。READ 与 RUN 的引用记录由 actor API 为已交付的正式原子自动执行（含缓存命中），失败只记日志，取消正常传播；UPDATE 基础解析不记录。Alice 与 agent_runtime 不导入 `IdentityScope`，也不请求 Patchouli 路由。权限、redirect 防泄露与副本隔离证据见[引用解析测试](../../../tests/unit/workspace/resolution/test_alias_resolver.py)和[意图/缓存集成回归](../../../tests/integration/workspace/test_intent_registry_and_read_cache.py)。
+PendingAtom 的全 Workspace 回读只适用于意图：解析到结算后的 canonical 时再次执行当前 actor policy；目标不可读时不交付正文、canonical alias/UUID，也不交付含 UPDATE 基础坐标的 Pending 副本。UPDATE 意图的回读跟随基础原子的可读性，基础不可读时在任何状态下都与不存在相同。UPDATE 只接受可读的正式 atom，不接受 pending 或结算 redirect。MTP READ、RUN、SEARCH、WRITE、UPDATE 与 CALL 的目标 Profile/共享引用全部经操作请求进入 actor API，各自检查对应的 actor 操作。READ 与 RUN 的引用记录由 actor API 为已交付的正式原子自动执行（含缓存命中），失败只记日志，取消正常传播；UPDATE 基础解析不记录。Alice 与 agent_runtime 不导入 `IdentityScope`，也不请求 Patchouli 路由。权限、redirect 防泄露与副本隔离证据见[引用解析测试](../../../tests/unit/workspace/resolution/test_alias_resolver.py)和[意图/缓存集成回归](../../../tests/integration/workspace/test_intent_registry_and_read_cache.py)。
 
 ### 3.4 可执行资产是更高风险能力
 

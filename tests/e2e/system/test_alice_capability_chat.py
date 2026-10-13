@@ -56,7 +56,7 @@ def _events(response):
 
 
 @pytest.mark.asyncio
-async def test_http_chat_search_read_write_and_call_claims_intent_and_records_shared_citations(
+async def test_http_chat_search_read_write_and_call_dispatches_intent_and_records_shared_citations(
     monkeypatch, patchouli_chat_stack
 ):
     """完整 HTTP 链路保留正式引用、CALL 共享读取和本进程 WRITE 的结算归属。"""
@@ -212,8 +212,10 @@ async def test_http_chat_search_read_write_and_call_claims_intent_and_records_sh
         assert [event.event_type for event in history] == [EventType.CITATION, EventType.CITATION]
         assert runtime.stats()["atom_hits"] == 2
 
-        # 认领后的任务最终经真实结算事件反馈到 workspace 登记，不会随关闭取消。
-        (task_id,) = done["memory_task_ids"]
+        # 执行期间派发的任务最终经真实结算事件反馈到 workspace 登记，不会随关闭取消。
+        assert "memory_task_ids" not in done
+        (created,) = await stack.controller.list_tasks()
+        task_id = created.task_id
         task = await stack.controller.wait_task(task_id, timeout=2)
         assert task.status == MemoryGenerationTaskStatus.COMPLETED
         assert task.belong_to == workspace
@@ -224,7 +226,6 @@ async def test_http_chat_search_read_write_and_call_claims_intent_and_records_sh
         assert pending.focus.content == "单轮请求登记的新内容"
         assert pending.settlement.resolution == PendingAtomResolution.CREATED
         assert pending.settlement.canonical_alias == task.canonical_alias
-        assert runtime.intents.claim_process(done["process_id"]) == []
 
         # 正式资源读回同时核对存储正文、归属与来源，避免仅凭结算回执判定物化成功。
         materialized = await stack.mid_term.get_by_alias(
@@ -392,7 +393,9 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
         assert "omni_doll 的私有正文" not in str(messages_seen)
         assert "worker 的私有正文" in messages_seen[4][-1]["content"]
         assert 'code="mtp.permission.denied"' in messages_seen[6][-1]["content"]
-        (task_id,) = done["memory_task_ids"]
+        assert "memory_task_ids" not in done
+        (created,) = await stack.controller.list_tasks()
+        task_id = created.task_id
         task = await stack.controller.wait_task(task_id, timeout=2)
         assert task.status == MemoryGenerationTaskStatus.COMPLETED
         assert task.from_actor == callee

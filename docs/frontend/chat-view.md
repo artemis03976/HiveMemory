@@ -18,7 +18,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/system/attachments.md
   - docs/frontend/state-and-transports.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-13
 ---
 
 # Chat 视图
@@ -63,7 +63,7 @@ OmniInput 在发送前组装：
 | `command_result` | 展示命令消息；结果带显式客户端动作（如 `clear_chat`）时执行该动作。当前内置命令暂时不可用，后端不返回客户端动作（见 [Gateway 全局命令](../gateway/commands.md)） |
 | `process_id` | 建立取消请求所需的任务进程标识 |
 | `run_status` | 驱动准备、流式、取消、收尾和失败状态 |
-| `done` | 写入最终文本、task IDs、Topic 池与终态 |
+| `done` | 写入最终文本、Topic 池与终态；不携带记忆任务 ID |
 | `error` | 结束本地流并显示错误 |
 
 `scope=sub` 的 token 和 MTP 事件进入相应 SubAgentBlock，不与主 Agent 正文混合。`ContentBlock[]` 保留文本、MTP 和子 Agent 的相对顺序，使卡片能够出现在动作真实发生的位置，而不是全部堆在消息末尾。
@@ -89,7 +89,7 @@ ChatLayout 在挂载时读取后端 Topic 池。用户点击某个 Topic 后，�
 
 ### 5.2 Memory Runtime
 
-`done.memory_task_ids` 和 RuntimeEvent 共同投影后台记忆生成任务。用户可以刷新、选择和取消 task；task 数据本身不写入 localStorage，重载后重新以后端查询为准。开发模式下 memory task API 失败可能使用 mock task，这一降级必须与真实执行状态区分。
+`memory.task.*` RuntimeEvent 在 WRITE/UPDATE 执行期间即可投影任务创建与状态变化，面板挂载时调用任务列表 API 补齐 best-effort 事件的遗漏；done 不再触发按任务 ID 刷新。任务按创建时间倒序排列，不显示“当前轮”标记或置顶（任务事件没有 process_id）。用户可以刷新、选择和取消 task；task 数据本身不写入 localStorage，重载后重新以后端查询为准。开发模式下 memory task API 失败可能使用 mock task，这一降级必须与真实执行状态区分。
 
 ### 5.3 Workspace Terminal
 

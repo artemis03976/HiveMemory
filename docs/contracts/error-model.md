@@ -21,7 +21,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-13
 ---
 
 # 跨边界错误模型
@@ -203,11 +203,20 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 
 这些错误表示跨边界拒绝或当前 WorkspaceAsset 生命周期状态，不改变 MTP error/warning 的表达规则；访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。Workspace 资源归属、认证/授权模型、opaque ref 和 shutdown 清理的完整语义见[Workspace 架构](../architecture/workspace.md)第 4 节。
 
-actor API 与操作入口的错误保持各自边界：每种 actor 请求缺少对应操作时抛 `OperationDeniedError`（`operation_not_allowed`）——READ 与 CALL 的 `context_refs` 缺少 `memory.read`、SEARCH 缺少 `memory.search`、RUN 的记忆目标缺少 `memory.run`、WRITE 缺少 `memory.write`、UPDATE 缺少 `memory.update`、CALL 目标读取缺少 `agent.call`（包括内置目标）；意图撤回是入口内部补偿，不检查 operation；UPDATE 基础为 pending 时抛 `PendingUpdateNotAllowedError`，不存在、不可读或不是正式 atom 时抛 `ResourceNotFoundError`。Koakuma 分别映射为现有 `mtp.permission.denied`、`mtp.argument.invalid` 与 `mtp.alias.not_found`，provider 不可用映射为 `mtp.system.service_unavailable`，不暴露内部 cause。
+actor API 与操作入口的错误保持各自边界：每种 actor 请求缺少对应操作时抛 `OperationDeniedError`（`operation_not_allowed`）——READ 与 CALL 的 `context_refs` 缺少 `memory.read`、SEARCH 缺少 `memory.search`、RUN 的记忆目标缺少 `memory.run`、WRITE 缺少 `memory.write`、UPDATE 缺少 `memory.update`、CALL 目标读取缺少 `agent.call`（包括内置目标）；UPDATE 基础为 pending 时抛 `PendingUpdateNotAllowedError`，不存在、不可读或不是正式 atom 时抛 `ResourceNotFoundError`。Koakuma 分别映射为现有 `mtp.permission.denied`、`mtp.argument.invalid` 与 `mtp.alias.not_found`，provider 不可用映射为 `mtp.system.service_unavailable`，不暴露内部 cause。
 
 CALL 派生子线程时，被调用方在本 Workspace 没有准入或为保留的 `system`，认证一侧抛 `AdmissionDeniedError`（`actor_not_admitted` / `system_actor_not_allowed`），不签发、不登记子线程；Alice 映射为 `mtp.permission.denied`，文案键 `mtp.call.agent_unavailable`（目标 agent 不可用），与调用方缺少 `agent.call` 时的 `mtp.permission.verb_denied` 区分。进程侧前置检查失败（非主线程发起、不在 Actor 阶段）抛 `ScopeRequiredError`，属于接线缺陷，Koakuma 呈现为 `mtp.system.fault`。
 
-已撤销的线程 context 在操作入口与 actor API 抛 `ThreadContextRevokedError`（`core.errors`，RuntimeError，由 `workspace.contracts` 重新导出），未知请求类型抛 `TypeError`；前者是生命周期拒绝（CPU 执行结束或进程关闭后迟到的请求），后者是接线违规，与表示接线缺陷的 `ScopeRequiredError` 区分。它们没有独立 HTTP API，不新增 HTTP 映射。Koakuma 的既有兜底将未分类入口异常呈现为 `mtp.system.fault`，不暴露 cause。CPU 执行结束时同步撤销线程 context，不取消在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 跨越撤销时在返回后的同步段撤回刚登记的意图并拒绝 ACK。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
+已撤销的线程 context 在操作入口与 actor API 抛 `ThreadContextRevokedError`（`core.errors`，RuntimeError，由 `workspace.contracts` 重新导出），未知请求类型抛 `TypeError`；前者是生命周期拒绝（CPU 执行结束或进程关闭后迟到的请求），后者是接线违规，与表示接线缺陷的 `ScopeRequiredError` 区分。它们没有独立 HTTP API，不新增 HTTP 映射。Koakuma 的既有兜底将未分类入口异常呈现为 `mtp.system.fault`，不暴露 cause。CPU 执行结束时同步撤销线程 context，不取消在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 在基础校验之后、登记之前同步复查线程，跨越撤销时拒绝登记；派发开始后持有提交任务直到完成，再传播调用方取消。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
+
+WRITE/UPDATE 登记后的派发错误携带 `pending_alias` 与 `intent_id`，不暴露内部 cause：
+
+| Workspace 异常 / code | MTP 错误 / 严重度 | 句柄状态 |
+|:---|:---|:---|
+| `IntentDispatchRejectedError` / `workspace.memory.intent.dispatch_rejected` | `mtp.memory.intent_rejected` / agent_fault | 明确未接纳，同步标为 FAILED；失败通知可重复到达 |
+| `IntentDispatchUnknownError` / `workspace.memory.intent.dispatch_unknown` | `mtp.memory.intent_unknown` / system_fault | 保持 MATERIALIZING，不假定未入队；若已接纳，结算仍可推进终态 |
+
+两种错误均在 ACK 之前交给 Agent，中英文文案分别说明拒绝与未知。总线异常或接纳响应丢失按未知处理；队列停止、容量拒绝、UPDATE 基础丢失及本地意图参数非法按明确拒绝处理。
 
 引用交付的 citation 使用 `source="workspace.reference_read"`；普通记录失败只记日志、不改变可读结果，取消继续传播，已记录的引用不回滚。因此 RUN 工具失败不会撤销执行前已经完成的正式原子读取计数。
 

@@ -11,7 +11,8 @@ import {
   XCircle,
 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useChatStore, useWorkspaceStore, useMemoryTaskStore } from '@/stores';
+import { useWorkspaceStore, useMemoryTaskStore } from '@/stores';
+import { sortTasks } from '@/stores/memory/taskReducers';
 import type { MemoryGenerationTask, MemoryGenerationTaskStatus } from '@/types';
 import type { RuntimeEventConnectionStatus } from '@/types/workspace';
 
@@ -122,13 +123,11 @@ function DetailRow({ label, value, danger = false }: { label: string; value: str
 
 function TaskItem({
   task,
-  isCurrentRunTask,
   isExpanded,
   onToggle,
   onCancel,
 }: {
   task: MemoryGenerationTask;
-  isCurrentRunTask: boolean;
   isExpanded: boolean;
   onToggle: () => void;
   onCancel: () => void;
@@ -155,11 +154,6 @@ function TaskItem({
             <span className="truncate text-[13px] font-semibold text-slate-200">
               {task.label || alias}
             </span>
-            {isCurrentRunTask && (
-              <span className="shrink-0 rounded-md border border-primary/20 bg-primary/10 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wider text-primary">
-                当前
-              </span>
-            )}
           </div>
 
           <div className="mt-2 flex min-w-0 flex-col gap-1 text-[10px] text-slate-500">
@@ -231,7 +225,6 @@ function TaskItem({
 }
 
 export default function MemoryRuntimeTab() {
-  const currentMemoryTaskIds = useChatStore((state) => state.currentMemoryTaskIds);
   const runtimeEventConnection = useWorkspaceStore((state) => state.runtimeEventConnection);
   const tasks = useMemoryTaskStore((state) => state.tasks);
   const connection = useMemoryTaskStore((state) => state.connection);
@@ -245,20 +238,14 @@ export default function MemoryRuntimeTab() {
     void fetchTasks();
   }, [fetchTasks]);
 
-  const currentTaskIdSet = useMemo(() => new Set(currentMemoryTaskIds), [currentMemoryTaskIds]);
-
   const visibleTasks = useMemo(() => {
     const filtered = showTerminalTasks
       ? tasks
       : tasks.filter((task) => !TERMINAL_STATUSES.has(task.status));
 
-    return [...filtered].sort((a, b) => {
-      const aCurrent = currentTaskIdSet.has(a.task_id);
-      const bCurrent = currentTaskIdSet.has(b.task_id);
-      if (aCurrent !== bCurrent) return aCurrent ? -1 : 1;
-      return 0;
-    });
-  }, [currentTaskIdSet, showTerminalTasks, tasks]);
+    // 任务没有进程关联，统一按创建时间倒序展示。
+    return sortTasks(filtered);
+  }, [showTerminalTasks, tasks]);
 
   const activeCount = tasks.filter((task) => !TERMINAL_STATUSES.has(task.status)).length;
   const isLoading = connection.status === 'loading';
@@ -333,7 +320,6 @@ export default function MemoryRuntimeTab() {
                 <TaskItem
                   key={task.task_id}
                   task={task}
-                  isCurrentRunTask={currentTaskIdSet.has(task.task_id)}
                   isExpanded={expandedTaskIds[task.task_id] === true}
                   onToggle={() =>
                     setExpandedTaskIds((prev) => ({

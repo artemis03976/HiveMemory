@@ -52,7 +52,7 @@
 
 能力层的三个调用面（详见 [Workspace 架构](docs/architecture/workspace.md)第 4.5 节）：
 
-- **actor API**（`workspace/capability/actor/`）：六项 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，与 MTP 的 READ、SEARCH、RUN、WRITE、UPDATE、CALL 一一对应，每种请求只检查访问登记白名单中的对应一项；撤回意图是操作入口内部的补偿，不是 actor 操作。
+- **actor API**（`workspace/capability/actor/`）：六项 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，与 MTP 的 READ、SEARCH、RUN、WRITE、UPDATE、CALL 一一对应，每种请求只检查访问登记白名单中的对应一项。
 - **root API**（`workspace/capability/root/`）：全部管理方法，只接受保留的 `system`，不读取白名单；`system` 的访问记录不得配置 operation，也不能执行 actor 操作。HTTP 管理路由只调用 root API。
 - **任务进程的阶段调用**：经阶段授权（`authorize_stage`），只校验准入与目标、不检查 actor 操作，scope 仍以进程 Agent 为发起者，资源可见性照常按该 Agent 过滤；阶段授权只能在 `workspace.process` 中调用，scope 不得进入 CPU 可见的对象。
 - 两个 API 目录互不导入；server 只导入 root API，操作入口只导入 actor API。不要新增可登记给 actor 的管理 operation，也不要让阶段调用借用 actor 操作。
@@ -76,7 +76,7 @@
 - 主动链路：`Gateway process -> Patchouli prepare（话题与检索） -> 任务进程 CPU 分配 -> Actor 执行（经 CPU 端口，当前为 Alice run） -> (仅 completed) 任务进程封口交互记录 -> Patchouli finalize`；附件租借由任务进程持有，进程结束时无论结局都释放。
 - 被动链路：`PassiveIngressService -> Gateway PASSIVE_MEMORY -> buffer/seal -> InteractionSubmissionQueue -> Patchouli perception`；被动模式不运行 Alice、MTP、命令或回复生成。
 - prepare 失败或 Agent 取消/失败时，不默认进入 finalize；任务进程可请求 Patchouli cleanup，但 cleanup 只补偿 prepare 新建且仍为空的临时话题，不是跨边界事务回滚。
-- `MTP WRITE/UPDATE` 的 ACK 只表示意图已在 workspace 登记；completed 时任务进程认领本进程的 PENDING 意图并封口物化任务；CALL 子 frame 未成功结束时经自己的提交函数撤回它已登记的 PENDING 意图；CPU 返回终态并关闭输出流后、finalize 之前同步撤销全部线程 context，Actor 阶段提前结束时也在交付终态前撤销；进程关闭先于任何 await 兜底撤销线程 context，并仅取消本进程仍为 PENDING 的意图。WRITE/UPDATE 返回操作入口后都复查线程 context 并同步补偿迟到登记（当前 UPDATE 的基础冷读会跨越撤销），不取消调用方任务；正式持久化由 Patchouli 后续结算，不能在 Koakuma/Alice 内直接写正式 Memory。
+- `MTP WRITE/UPDATE` 的 ACK 表示意图已在 workspace 登记，并已被 Patchouli 生成队列接纳，不表示正式记忆已经持久化。actor API 在同步段复查线程 context、读取进程派发话题并登记为 MATERIALIZING；UPDATE 的基础冷读在同步段之前。派发开始后屏蔽调用方取消并持有提交任务直到完成，再传播取消；CPU 失败、取消、进程关闭或 CALL 子帧失败都不撤回已提交写入。CPU 返回终态并关闭输出流后、finalize 之前同步撤销全部线程 context，Actor 阶段提前结束时也在交付终态前撤销；进程关闭先于任何 await 兜底撤销线程 context。completed 只封口交互记录，finalize 不派发写入；正式持久化由 Patchouli 生成链结算，不能在 Koakuma/Alice 内直接写正式 Memory。
 - Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，Agent Profile 不承载任何权限；Alice 把输入清单的操作快照翻译为 MTP 动词（RUN 始终可用），用于提示词与 frame 执行策略，资源操作仍由 actor API 逐次授权。`sys_*` 系统工具不设权限。CALL 派生的子 frame 以被调用方身份运行：按被调用方的白名单与记忆可见性授权，写入记在被调用方名下，动词集合由被调用方的操作快照翻译并去掉 CALL；CALL 只允许根 frame 发起，不得递归 CALL。
 - Gateway 的局部失败只能在仍满足终态不变量时保守降级；投影、终态校验、装配错误和 cancellation 不得被静默吞掉。
 - RPC 用于需要确定返回值、失败传播或完成确认的操作；Pub/Sub 只用于发布者不依赖结果的通知。

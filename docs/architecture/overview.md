@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-13
 ---
 
 # HiveMemory 当前系统架构
@@ -197,11 +197,11 @@ TaskProcessService（workspace.process）
   -> CPU 结束：同步撤销线程 context
   -> 任务进程封口交互记录（InteractionPayload）
   -> Patchouli FINALIZE_AGENT_RUN
-  -> 取消本进程未认领意图、释放附件租借
-  -> 关闭输出流与进程，返回 Agent 结果和记忆任务信息
+  -> 释放附件租借（已接纳写入继续生成）
+  -> 关闭输出流与进程，返回 Agent 结果（记忆任务独立经事件观察）
 ```
 
-这条三段式链路刻意把“准备知识”“执行工作”“沉淀结果”分开。若把 finalize 藏进 Alice，Agent 取消就可能留下半完成的长期写入；若把 run 藏进 Patchouli，记忆域又会重新拥有模型执行。显式交接让每一步都可以单独失败、观测和补偿。
+这条三段式链路刻意把“准备知识”“执行工作”“沉淀结果”分开。若把 finalize 藏进 Alice，执行者就必须承担交互提交与 cleanup 的领域责任；若把 run 藏进 Patchouli，记忆域又会重新拥有模型执行。显式交接让每一步都可以单独失败、观测和补偿。
 
 关键语义：
 
@@ -210,7 +210,7 @@ TaskProcessService（workspace.process）
 3. 任务进程在 CPU 分配时解析 Agent Profile、取得附件租借、编译附件与记忆，组装 `CPUInputManifest`；CPU 消费输入清单、独立的线程 context（只用于提交操作请求，CPU 执行结束即撤销）和单次生成覆盖参数，任务进程只经 CPU 端口调用它，因此执行者可以替换而不改动进程；
 4. 只有执行结果为 completed 的一轮进入 finalize；
 5. prepare 成功但 finalize 未成功时，任务进程请求 Patchouli cleanup，清理可能预创建的空话题；附件租借无论结局如何都在进程结束时释放；
-6. 任务进程封口交互记录（用 core 的归约器从结构化 `turn_events` 得到 MTP trace），finalize 原样提交 interaction，并处理物化任务和检索命中。
+6. 任务进程封口交互记录（用 core 的归约器从结构化 `turn_events` 得到 MTP trace），finalize 原样提交 interaction，并记录检索命中；WRITE/UPDATE 已在 actor 操作内独立派发。
 
 ## 6. 被动摄入：让外部经历进入记忆，而不是伪造一次对话
 

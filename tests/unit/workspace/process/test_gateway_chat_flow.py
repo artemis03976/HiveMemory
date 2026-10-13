@@ -430,7 +430,6 @@ async def test_completed_streaming_process_seals_interaction_payload() -> None:
                 "model_used",
                 "stopped",
                 "reason",
-                "memory_task_ids",
                 "pool_topics",
             },
         ),
@@ -443,7 +442,6 @@ async def test_completed_streaming_process_seals_interaction_payload() -> None:
                 "model_used",
                 "stopped",
                 "reason",
-                "memory_task_ids",
             },
         ),
         (
@@ -455,7 +453,6 @@ async def test_completed_streaming_process_seals_interaction_payload() -> None:
                 "model_used",
                 "stopped",
                 "reason",
-                "memory_task_ids",
             },
         ),
     ],

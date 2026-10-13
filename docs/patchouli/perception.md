@@ -13,7 +13,7 @@ related_contracts:
   - docs/system/passive-ingress.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-13
 ---
 
 # 感知与短期话题
@@ -54,9 +54,9 @@ Perception 以 `TopicData` 快照作为话题工作视图，保存 blocks、展�
 
 `InteractionPayload` 是主动与被动入口共享的协议，当前主字段包括 user message、rewritten query、assistant final text、turn events、MTP traces、materialize tasks、worth_saving 与 model_used。它不重复保存本轮 Workspace 身份；主动和被动入口在资源 owner 边界拆分 `IdentityScope`，进入提交队列时由外层 `InteractionSubmission.belong_to` 与 `from_actor` 独立携带归属和本轮发起者。物化意图中的归属也必须与提交目标一致。
 
-`InteractionSubmissionCodec` 当前为 v3，只注册当前布局：缺失字段、额外字段、旧 `identity_scope` 布局及嵌套对象不能规范往返的载荷均被拒绝。队列使用 `InMemoryWorkStore`，提交快照与幂等收据只驻留于当前进程，不提供旧版本队列载荷迁移或重启恢复。相同 `interaction_id` 的相同载荷复用原收据，不同载荷明确冲突。
+`InteractionSubmissionCodec` 当前为 v4，只注册当前布局：缺失字段、额外字段、旧 `identity_scope` 布局及嵌套对象不能规范往返的载荷均被拒绝。队列使用 `InMemoryWorkStore`，提交快照与幂等收据只驻留于当前进程，不提供旧版本队列载荷迁移或重启恢复。相同 `interaction_id` 的相同载荷复用原收据，不同载荷明确冲突。
 
-当前布局与幂等拒绝的回归入口为 [InteractionSubmission v3 测试](../../tests/unit/patchouli/control/test_interaction_submission_v3.py)；被动入口经过真实队列与感知存储的身份交接见[被动摄入集成测试](../../tests/integration/system/test_passive_identity_submission.py)。
+当前布局与幂等拒绝的回归入口为 [InteractionSubmission v4 测试](../../tests/unit/patchouli/control/test_interaction_submission_v4.py)；被动入口经过真实队列与感知存储的身份交接见[被动摄入集成测试](../../tests/integration/system/test_passive_identity_submission.py)。
 
 交互应用成功后，Perception 才会把用户明确使用的 `(asset_id, asset_ref)` 记录为 Topic 的 `TopicAssetBinding`。上传、候选列表或 UI 选择本身不会进入 Topic 事实。由此，感知层只接收已完成身份与资源前置校验的交接输入，不拥有 `WorkspaceAssetStore` 的生命周期。
 

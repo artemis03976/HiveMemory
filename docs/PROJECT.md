@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-13
 ---
 
 # HiveMemory 项目总览
@@ -168,7 +168,7 @@ Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX �
 - Agent Profile 驱动的模型、采样参数、语言和权限；
 - Agent loop、结构化 turn events、取消与运行终态；
 - MTP `SEARCH / READ / RUN / WRITE / UPDATE / CALL`；
-- workspace 共享的 PendingAtom 登记、按进程认领后延迟物化、alias redirect 和结算通知；
+- workspace 共享的 PendingAtom 登记、操作内实时派发与队列接纳、alias redirect 和结算通知；
 - MTP 引用读取统一经 workspace 读取视图：L0 意图按 Workspace 回读，L1/L2 正式记忆逐次检查 actor policy；原子与 Profile 解析缓存由 workspace 持有，canonical 变更同步失效；
 - 根 Agent 对子 Agent 的有限深度 CALL 编排。
 
@@ -240,7 +240,7 @@ message
   -> response + background memory tasks
 ```
 
-Prepare 成功而 finalize 未完成时，任务进程请求 Patchouli cleanup；附件租借在进程结束时释放。取消或失败的 Agent run 不默认触发长期记忆生成。
+Prepare 成功而 finalize 未完成时，任务进程请求 Patchouli cleanup；附件租借在进程结束时释放。取消或失败的 Agent run 不提交交互；其已接纳的显式写入继续生成。
 
 ### 8.2 被动模式
 
@@ -258,7 +258,7 @@ external event
 
 ### 8.3 MTP
 
-Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、执行、写入、更新记忆或调用子 Agent。资源操作统一经绑定线程 context 的操作请求进入 workspace 的 actor API，每个动词检查访问登记中对应的一项 actor 操作，Alice 只持有只读观测标签；READ 与 RUN 的引用交付统一记录 `workspace.reference_read` citation，CALL 目标 Profile 包括内置目标都要求 `agent.call`。WRITE/UPDATE 的 ACK 只表示 PendingAtom 已登记；进程正常完成时认领本进程的 PENDING 意图，正式持久化由 Patchouli finalize 后续处理。CPU 执行结束即撤销线程 context，此后的操作请求被拒绝；进程关闭只取消该进程仍为 PENDING 的意图。
+Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、执行、写入、更新记忆或调用子 Agent。资源操作统一经绑定线程 context 的操作请求进入 workspace 的 actor API，每个动词检查访问登记中对应的一项 actor 操作，Alice 只持有只读观测标签；READ 与 RUN 的引用交付统一记录 `workspace.reference_read` citation，CALL 目标 Profile 包括内置目标都要求 `agent.call`。WRITE/UPDATE 在操作内登记并实时派发，ACK 表示生成队列已接纳，正式持久化由 Patchouli 生成链处理。CPU 执行结束即撤销线程 context，此后的操作请求被拒绝；CPU 失败、取消、进程关闭或 CALL 子帧失败不撤回已提交写入。
 
 完整规范见[MTP 契约](./contracts/mtp.md)。
 

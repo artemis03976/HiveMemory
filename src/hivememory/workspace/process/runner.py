@@ -303,15 +303,13 @@ class TaskProcessRunner:
             )
             # finalize 成功后 Patchouli 已接管本轮交互，不再清理 prepared run。
             working_set.hand_off_prepared()
-            memory_task_ids: list[str] = []
             # 结算后的话题池只服务于流式 done 事件的前端刷新。
             pool_topics = await self._list_final_pool_topics(process) if stream else []
 
             record.mark_completed()
-            events.completed(record, memory_task_ids=memory_task_ids)
+            events.completed(record)
             yield RunCompleted(
                 execution_result=execution_result,
-                memory_task_ids=memory_task_ids,
                 pool_topics=pool_topics,
             )
         except _ProcessCancelled as cancelled:

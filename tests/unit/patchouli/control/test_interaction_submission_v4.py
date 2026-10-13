@@ -1,4 +1,4 @@
-"""交互队列 v3 编码守护：独立身份与附件冻结。"""
+"""交互队列 v4 编码守护：独立身份与附件冻结。"""
 
 import pytest
 
@@ -32,7 +32,7 @@ def _submission() -> InteractionSubmission:
     )
 
 
-def test_v3_roundtrip_preserves_split_identity_and_attachment_order() -> None:
+def test_v4_roundtrip_preserves_split_identity_and_attachment_order() -> None:
     """编码或解码丢失发起者、归属或附件顺序时必须失败。"""
     codec = InteractionSubmissionCodec()
     encoded = codec.encode(_submission())

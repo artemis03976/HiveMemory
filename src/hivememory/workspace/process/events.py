@@ -138,11 +138,10 @@ class BoundProcessEvents:
             data={"command_id": command_id},
         )
 
-    def completed(self, record: ProcessRecord, *, memory_task_ids: list[str]) -> None:
+    def completed(self, record: ProcessRecord) -> None:
         self._emit(
             record,
             RuntimeEventType.CHAT_RUN_COMPLETED,
-            data={"memory_task_ids": memory_task_ids},
         )
 
     def cancelled(self, record: ProcessRecord, *, phase: ProcessPhase | None = None) -> None:

@@ -22,7 +22,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-13
 ---
 
 # 系统边界与所有权
@@ -143,7 +143,7 @@ Patchouli 是长期知识事实的核心。检索、话题、Profile、Interacti
 
 `prepare_agent_run` 把 Gateway 决策转换为 `PreparedAgentRun`：准备真实话题、读取话题上下文与话题池，并按检索计划检索记忆，返回未编译的检索原子。Agent Profile 解析、附件租借与编译、记忆编译和输入清单组装属于 workspace 任务进程的 CPU 分配，不在 Patchouli 边界内完成。
 
-`PreparedAgentRun` 只保存 prepare 的资源归属。`finalize_agent_run` 接收它、任务进程封口的 `InteractionPayload` 和当次阶段授权的 `IdentityScope`；归属不一致时在交互接纳前抛 `WorkspaceMismatchError`，一致时以当次 scope 的发起者创建 submission，原样提交感知链并调度 materialize task。交互记录由提交方封口（主动链路是任务进程，被动链路是 System 的 turn buffer），Patchouli 的公开路由因此不接收任何执行者专属的运行结果；trace 归约规则只有 core 中的一份，由封口方调用。
+`PreparedAgentRun` 只保存 prepare 的资源归属。`finalize_agent_run` 接收它、任务进程封口的 `InteractionPayload` 和当次阶段授权的 `IdentityScope`；归属不一致时在交互接纳前抛 `WorkspaceMismatchError`，一致时以当次 scope 的发起者创建 submission，原样提交感知链、等待 applied 并记录命中；主动写入经独立的意图路由实时派发。交互记录由提交方封口（主动链路是任务进程，被动链路是 System 的 turn buffer），Patchouli 的公开路由因此不接收任何执行者专属的运行结果；trace 归约规则只有 core 中的一份，由封口方调用。
 
 如果任务进程未能完成 finalize，只能重新执行阶段授权并调用 cleanup 请求 Patchouli 清理预创建空话题，不能自行修改话题状态。cleanup 对越域 prepared 返回 `False`；阶段授权被拒时，任务进程记录警告并继续关闭。已被 finalization continuation 或 submission queue 接管的交互不再由调用方 cleanup。
 
@@ -158,7 +158,7 @@ prepare/finalize 把“为本次执行准备记忆视图”和“把完成后的
 
 ## 7. Alice 边界
 
-Alice 是知识的使用者和行动者。它可以在一次 run 中读取记忆、建立 PendingAtom、执行工具和调度子 frame，但这些都是为了完成当前任务而存在的运行时视图。将临时执行状态与长期知识分开，既能让 Agent 在单轮内保持连贯，也能避免失败、取消或半完成的 run 直接污染正式记忆。
+Alice 是知识的使用者和行动者。它可以在一次 run 中读取记忆、建立 PendingAtom、执行工具和调度子 frame，但这些都是为了完成当前任务而存在的运行时视图。将临时执行状态与长期知识分开，既能让 Agent 在单轮内保持连贯，也能让正式生成独立于执行者推进；已接纳的显式写入不受后续 run 失败或取消影响。
 
 ### 7.1 拥有的状态
 
@@ -170,7 +170,7 @@ Alice 是知识的使用者和行动者。它可以在一次 run 中读取记忆
 
 ### 7.2 依赖方向
 
-Alice 接收含只读 `ExecutionLabels` 的 `CPUInputManifest`，在内部转换为 `AgentRunContext`。CPU 端口的线程 context 独立于清单，`AliceCPU` 以 `workspace.contracts.ThreadOperationSubmitter` 把它与公共 `OperationEntry` 绑定为提交函数；CALL 经提交函数的派生方法取得以被调用方身份运行的子线程与它自己的提交函数；MTP 与 CALL 仅构造请求，READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取统一进入 workspace actor API，各自检查一项 actor 操作；子帧的意图撤回由操作入口直接补偿。主、子 frame 各自使用自己线程的提交函数并沿用注册标签，不持有访问 context 或 `IdentityScope`，也不能用标签改变资源授权目标；CPU 执行结束后全部线程 context 被撤销，提交函数随之失效。
+Alice 接收含只读 `ExecutionLabels` 的 `CPUInputManifest`，在内部转换为 `AgentRunContext`。CPU 端口的线程 context 独立于清单，`AliceCPU` 以 `workspace.contracts.ThreadOperationSubmitter` 把它与公共 `OperationEntry` 绑定为提交函数；CALL 经提交函数的派生方法取得以被调用方身份运行的子线程与它自己的提交函数；MTP 与 CALL 仅构造请求，READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取统一进入 workspace actor API，各自检查一项 actor 操作。主、子 frame 各自使用自己线程的提交函数并沿用注册标签，不持有访问 context 或 `IdentityScope`，也不能用标签改变资源授权目标；CPU 执行结束后全部线程 context 被撤销，提交函数随之失效。
 
 模型解析经 `agent_runtime.model_resolution.ModelResolver` 端口使用 System 的模型注册表，由组合根注入。
 
@@ -198,7 +198,7 @@ Patchouli 结算意图后，经全局事件更新 workspace 登记；canonical �
 | `CPUExecutionResult` | CPU 组装（当前为 Alice），任务进程消费 | `workspace.contracts` 中的 frozen Pydantic 模型，不含执行者专属的统计 |
 | `InteractionPayload` | 提交方组装并封口（主动：任务进程；被动：System turn buffer），Patchouli 消费 | 公共协议模型，不由 router 拼装，finalize 不改写 |
 | `InteractionSubmission` / `MemoryGenerationTaskSpec` / `MemoryGenerationTask` | Patchouli | 独立保存必需的 `belong_to` 与 `from_actor`；scope 不进入记录或队列 |
-| `PendingAtomMaterializeTask` | workspace 任务进程认领登记后投影，Patchouli 消费 | 只读请求独立保存 `belong_to` 与 `from_actor`，不交接 Alice 的运行时 scope |
+| `PendingAtomMaterializeTask` | Patchouli 意图提交服务内部构造，生成链消费 | 只读请求独立保存 `belong_to` 与 `from_actor`，不交接 Alice 的运行时 scope |
 | `MemoryAtom` / Topic | Patchouli | 公共模型或受控路由返回值 |
 | `WorkspaceAsset` working set | Workspace（组合根装配） | `core.ports.workspace_assets` 窄化端口、`WorkspaceAssetRef` 与 lease |
 | `WorkspaceIdentity` / `ActorIdentity` / `IdentityScope` | Core value object；授权点组装操作 scope，资源 owner 拆分归属与发起者 | 不可变公共模型，不构成独立运行时状态；scope 不随记录或后台任务保存 |

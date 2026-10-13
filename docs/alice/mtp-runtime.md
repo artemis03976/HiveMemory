@@ -17,7 +17,7 @@ related_contracts:
   - docs/alice/orchestration.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-13
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -83,8 +83,8 @@ CALL 子帧的动词集合由被调用方的操作快照翻译并显式移除 CA
 | `SEARCH` | 解析 query/filter，提交 `RetrieveRequest`；能力层授权检索并在代次未变时预热 workspace 原子缓存，MemoryCompiler 编译结果 | Patchouli 拥有检索，Alice 拥有本帧回填 |
 | `READ` | 提交 `ResolveReferencesRequest` 解析一个或多个 alias；编译 pending、redirect、atom 与终态 | alias 与缓存语义由 workspace 统一 |
 | `RUN` | 先匹配 syscall 注册表；否则提交 `ResolveRunTargetRequest` 解析 MemoryAtom，仅允许执行 `CODE_SNIPPET` | 系统工具不设权限，记忆目标要求 `memory.run`；受限子进程不等于 OS 沙箱 |
-| `WRITE` | 校验 content，提交 `SubmitWriteIntentRequest(WriteFocus)`，返回 `ack + draft_*` | 正式物化延迟到 Patchouli finalize |
-| `UPDATE` | 校验参数，提交 `SubmitUpdateIntentRequest` 让能力层解析正式基础、登记 revision 并失效基础缓存，返回 `ack + rev_*` | 不在 Koakuma 内原地覆盖记忆 |
+| `WRITE` | 校验 content，提交 `SubmitWriteIntentRequest(WriteFocus)`，返回 `ack + draft_*` | 能力层立即派发，生成队列接纳后 ACK |
+| `UPDATE` | 校验参数，提交 `SubmitUpdateIntentRequest` 让能力层解析正式基础、登记 revision、失效基础缓存并派发，接纳后返回 `ack + rev_*` | 不在 Koakuma 内原地覆盖记忆 |
 | `CALL` | 校验 target/task/policy，返回 `suspend + MTPCallRequest` | Alice `CallContextProvider` 解析上下文，`CallCoordinator` 负责 callee 与结果回流 |
 
 SEARCH 空结果是带 `no_memories_found` warning 的 success，而不是基础设施错误；READ 列表中部分 alias 丢失时返回已有内容并附 warning，全部丢失才返回 error。这样的区别让“不确定检索没有证据”和“系统无法完成请求”保持不同语义。
@@ -113,6 +113,8 @@ READ/SEARCH 输出都经过 MemoryCompiler。MTP handler 不维护另一套记�
 
 代码正文由 MemoryAtom 提供，命令 args 作为 `params` 注入受限 namespace。它仍使用与 Python REPL 相同的本地子进程限制，不能因为代码来自“记忆”就推断其来源可信。
 
+WRITE/UPDATE 的确定性拒绝映射为 `mtp.memory.intent_rejected`（agent_fault），结果未知映射为 `mtp.memory.intent_unknown`（system_fault），两者均不返回 ACK。中英文文案区分拒绝与未知；未知不能解释为未入队，详见[错误模型](../contracts/error-model.md)。
+
 ## 6. 错误、warning、citation 与 i18n
 
 Koakuma 把可预期失败统一转换为 `MTPResponse`：
@@ -129,7 +131,7 @@ READ、RUN 的记忆目标和 CALL `context_refs` 共用 workspace 引用读取�
 
 ## 7. 取消边界
 
-Koakuma、MTPExecutor 和 Agent loop 不接收 Chat Run 取消句柄，也不定义取消协议。Chat application 取消等待中的 Agent task 后，原生 `asyncio.CancelledError` 直接穿过 MTP await；不得转换为普通 success，也不得构造 Chat-level cancelled 哨兵。内部已经结算的 `FrameExecutionStatus.CANCELLED` 仍可用于 frame finalize 和 CALL response 映射，但不能吞掉 task cancellation。
+Koakuma、MTPExecutor 和 Agent loop 不接收 Chat Run 取消句柄，也不定义取消协议。Chat application 取消等待中的 Agent task 后，原生 `asyncio.CancelledError` 穿过 MTP await；若 WRITE/UPDATE 已开始派发，能力层先等待受保护的提交完成再传播取消；不得转换为普通 success，也不得构造 Chat-level cancelled 哨兵。内部已经结算的 `FrameExecutionStatus.CANCELLED` 仍可用于 frame finalize 和 CALL response 映射，但不能吞掉 task cancellation。
 
 同步 syscall 一旦开始执行，事件循环必须等待函数返回；REPL 自身的 subprocess timeout 能终止超时子进程，但 Python task cancellation 不能在运行中强制打断同步代码。文件 I/O 和 web search 同样没有中途抢占点。
 
@@ -161,7 +163,7 @@ Alice 配置当前分为两组：
 1. 变化属于协议语义还是 Alice 的实现策略？前者更新 Contracts，后者更新本文；
 2. 新能力是否同时经过 prompt 裁剪和 runtime 权限检查；
 3. 资源操作是否经线程 context 绑定的提交函数，是否误用观测标签构造授权身份或重新请求 Patchouli 路由；
-4. WRITE/UPDATE 是否仍然只登记意图，CALL 是否仍然只产生 `SUSPENDED` trap；
+4. WRITE/UPDATE 是否经能力层登记与派发、在生成队列接纳后才 ACK，CALL 是否仍然只产生 `SUSPENDED` trap；
 5. handler 是否保持结构化 error/warning，不泄露内部 exception；
 6. 同步工作、timeout 与取消是否给出了与真实接线一致的保证；
 7. RUN 的权限白名单是否被误写成安全沙箱；

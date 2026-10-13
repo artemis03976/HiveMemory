@@ -54,6 +54,7 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
     )
     bus = GlobalSystemBus()
     harness = OperationsHarness(bus, operation_authorizer=access.authorizer)
+    entry = harness.make_entry(access.authorizer, access.thread_spawner)
     payloads = []
     completions = 0
 
@@ -83,7 +84,7 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
         if turn == 0:
             text = '⟪ WRITE | * | title="跨轮事实" content="HTTP 第一轮登记的内容" ⟫'
         elif turn == 2:
-            text = f"⟪ READ | {payloads[0].materialize_tasks[0].pending_alias} | ⟫"
+            text = f"⟪ READ | {harness.admission.submissions[0][0].pending_alias} | ⟫"
         else:
             text = "完成"
 
@@ -103,16 +104,15 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
         (PatchouliRoutes.TOPIC_LIST_ACTIVE, topics),
     ):
         bus.register(route, handler)
-    alice = AliceSystem(
-        config=HiveMemoryConfig().alice, global_bus=bus, operation_entry=harness.entry
-    )
+    alice = AliceSystem(config=HiveMemoryConfig().alice, global_bus=bus, operation_entry=entry)
     service = make_task_process_service(
         bus,
         cpu=alice.cpu_port,
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
         workspace_runtime=harness.runtime,
-        operation_entry=harness.entry,
+        process_table=access.process_table,
+        operation_entry=entry,
     )
     app = FastAPI()
     app.include_router(router, prefix="/api/v1")
@@ -144,12 +144,12 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
             "completed",
         ]
         assert len(payloads) == 2
-        (task,) = payloads[0].materialize_tasks
+        ((task, _scope),) = harness.admission.submissions
         assert (
             harness.registry.get(task.pending_alias, workspace).status
             == PendingAtomStatus.MATERIALIZING
         )
-        assert payloads[1].materialize_tasks == []
+        assert "materialize_tasks" not in payloads[1].model_dump()
         read_result = next(
             event for event in payloads[1].turn_events if event.kind == "tool_result"
         )

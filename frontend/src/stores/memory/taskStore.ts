@@ -29,7 +29,6 @@ interface MemoryTaskStore {
 
   fetchTasks: () => Promise<void>;
   refreshTask: (taskId: string) => Promise<void>;
-  refreshTasksByIds: (taskIds: string[]) => Promise<void>;
   cancelTask: (taskId: string) => Promise<void>;
   upsertTask: (task: MemoryGenerationTask) => void;
   applyRuntimeEvent: (event: RuntimeEvent) => void;
@@ -110,11 +109,6 @@ export const useMemoryTaskStore = create<MemoryTaskStore>()(
               },
             }));
           }
-        },
-
-        refreshTasksByIds: async (taskIds) => {
-          const uniqueIds = [...new Set(taskIds.filter(Boolean))];
-          await Promise.all(uniqueIds.map((taskId) => get().refreshTask(taskId)));
         },
 
         cancelTask: async (taskId) => {

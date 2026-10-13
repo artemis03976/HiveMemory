@@ -281,7 +281,7 @@ async def test_test_cpu_completes_streaming_process_and_relays_events() -> None:
     done = events[-1]
     assert done["data"]["status"] == "completed"
     assert done["data"]["final_text"] == "完成"
-    assert done["data"]["memory_task_ids"] == []
+    assert "memory_task_ids" not in done["data"]
     assert "mtp_iterations" not in done["data"]
     assert "total_iterations" not in done["data"]
     assert cpu.closed is True
