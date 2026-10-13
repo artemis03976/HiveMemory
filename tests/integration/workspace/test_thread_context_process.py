@@ -6,7 +6,6 @@ from types import SimpleNamespace
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
@@ -14,6 +13,8 @@ from hivememory.core.models import (
     ResolvedAgentProfile,
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.contracts import ResolveReferencesRequest, ThreadContextRevokedError
 from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.process.threads import ProcessThreads
@@ -83,12 +84,12 @@ def process_chain():
         return True
 
     for route, handler in (
-        (GlobalRoutes.GATEWAY_PROCESS, gateway),
-        (GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, profile),
-        (GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare),
-        (GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize),
-        (GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, topics),
-        (GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup),
+        (GatewayPublicRoutes.PROCESS, gateway),
+        (PatchouliRoutes.GET_AGENT_PROFILE, profile),
+        (PatchouliRoutes.PREPARE_AGENT_RUN, prepare),
+        (PatchouliRoutes.FINALIZE_AGENT_RUN, finalize),
+        (PatchouliRoutes.TOPIC_LIST_ACTIVE, topics),
+        (PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup),
     ):
         bus.register(route, handler)
     yield chain

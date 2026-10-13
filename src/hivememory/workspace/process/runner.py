@@ -28,10 +28,11 @@ from hivememory.components.trace_context import (
     reset_trace_context,
     set_trace_context,
 )
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
 from hivememory.core.models import IdentityScope, WorkspaceIdentity
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 from hivememory.workspace.contracts import (
@@ -201,7 +202,7 @@ class TaskProcessRunner:
                 record,
                 ProcessPhase.GATEWAY,
                 lambda: self._bus.request(
-                    GlobalRoutes.GATEWAY_PROCESS,
+                    GatewayPublicRoutes.PROCESS,
                     message=request.message,
                     identity_scope=gateway_scope,
                     ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
@@ -302,7 +303,7 @@ class TaskProcessRunner:
                 used_attachments=working_set.used_attachments,
             )
             memory_tasks = await self._bus.request(
-                GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
+                PatchouliRoutes.FINALIZE_AGENT_RUN,
                 prepared_run=prepared,
                 payload=payload,
                 identity_scope=finalize_scope,
@@ -362,7 +363,7 @@ class TaskProcessRunner:
         # prepare 做话题准备与检索，资源可见性仍使用进程 actor。
         prepare_scope = self._authorize(process)
         prepared: PreparedAgentRun = await self._bus.request(
-            GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+            PatchouliRoutes.PREPARE_AGENT_RUN,
             identity_scope=prepare_scope,
             interaction_id=record.process_id,
             gateway_decision=decision,
@@ -438,7 +439,7 @@ class TaskProcessRunner:
         if prepared is not None:
             try:
                 await self._bus.request(
-                    GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
+                    PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
                     prepared_run=prepared,
                     # 补偿仍校验准入与任务目标，context 此时尚未失效。
                     identity_scope=self._authorize(process),
@@ -466,7 +467,7 @@ class TaskProcessRunner:
         try:
             pool_scope = self._authorize(process)
             topics = await self._bus.request(
-                GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
+                PatchouliRoutes.TOPIC_LIST_ACTIVE,
                 identity_scope=pool_scope,
                 include_empty=True,
             )

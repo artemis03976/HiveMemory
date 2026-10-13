@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.contracts.routes import GlobalRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.root.topic import RootTopicService
 from tests.helpers.workspace import (
     AccessTestComposition,
@@ -47,7 +47,7 @@ class TestRootTopicService:
     @pytest.mark.asyncio
     async def test_list_active_topics_uses_public_route(self, service, bus, composition, workspace):
         handler = AsyncMock(return_value=["snapshot"])
-        bus.register(GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE, handler)
+        bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, handler)
         access = await composition.authenticate(agent_id="system", user_id="u1")
 
         await service.list_active_topics(target_workspace=workspace, access=access)
@@ -71,7 +71,7 @@ class TestRootTopicService:
                 generation_task_id="memtask_1",
             )
         )
-        bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, handler)
+        bus.register(PatchouliRoutes.MANUAL_SETTLE_TOPIC, handler)
         access = await composition.authenticate(agent_id="system", user_id="u1")
 
         result = await service.settle_topic(
@@ -98,7 +98,7 @@ class TestRootTopicService:
                 topic_id="t1",
             )
         )
-        bus.register(GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC, handler)
+        bus.register(PatchouliRoutes.MANUAL_SETTLE_TOPIC, handler)
         access = await composition.authenticate(agent_id="system", user_id="u1")
 
         result = await service.settle_topic(
@@ -114,7 +114,7 @@ class TestRootTopicService:
         from hivememory.patchouli.contracts.topic_management import TopicEvictionResult
 
         handler = AsyncMock(return_value=TopicEvictionResult(topic_id="t1", removed=True))
-        bus.register(GlobalRoutes.PATCHOULI_EVICT_TOPIC, handler)
+        bus.register(PatchouliRoutes.EVICT_TOPIC, handler)
         access = await composition.authenticate(agent_id="system", user_id="u1")
 
         result = await service.evict_topic(target_workspace=workspace, topic_id="t1", access=access)

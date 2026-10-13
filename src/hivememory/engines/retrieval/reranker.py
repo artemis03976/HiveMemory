@@ -31,7 +31,7 @@ class NoopReranker(BaseReranker):
     作为默认实现和占位符。
     """
 
-    def __init__(self, config: RerankerConfig = None):
+    def __init__(self, config: RerankerConfig | None = None):
         """
         初始化 NoopReranker
 
@@ -59,7 +59,7 @@ class CrossEncoderReranker(BaseReranker):
     """
     CrossEncoder 重排序器
 
-    使用 Infrastructure 层提供的 RerankService 对 RRF 融合后的结果进行精排。
+    使用 Infrastructure 层提供的 RerankService 对召回结果进行精排。
     """
 
     def __init__(
@@ -79,12 +79,16 @@ class CrossEncoderReranker(BaseReranker):
 
         logger.info("CrossEncoderReranker 初始化完成")
 
+    def candidate_count(self, top_k: int) -> int:
+        """至少取配置的候选池大小，重排后再截取到 top_k。"""
+        return max(top_k, self.config.top_k)
+
     def _normalize_score(self, score: float) -> float:
         """
         使用 sigmoid 将分数映射到 0-1
 
-        BGE-Reranker 原始输出范围约 -10 到 +10，
-        使用 sigmoid 函数将其映射到 0-1 范围以便于阈值过滤。
+        BGE-Reranker 原始输出范围约 -10 到 +10，sigmoid 映射到 0-1 便于展示与
+        比较；只改变尺度不改变排序，重排分数不用于阈值过滤。
 
         Args:
             score: 原始 reranker 分数
@@ -108,7 +112,7 @@ class CrossEncoderReranker(BaseReranker):
         5. 更新 match_reason
 
         Args:
-            results: RRF 融合后的检索结果
+            results: 检索器返回的召回结果
             query: 处理后的查询
 
         Returns:
@@ -165,23 +169,28 @@ class CrossEncoderReranker(BaseReranker):
         )
 
 
-def create_reranker(config: RerankerConfig, service: BaseRerankService) -> BaseReranker:
+def create_reranker(
+    config: RerankerConfig,
+    service: BaseRerankService | None,
+) -> BaseReranker:
     """
     创建 Reranker 实例的工厂函数
 
-    根据配置自动创建合适的 Reranker 实例。
+    关闭或缺少重排服务时由 NoopReranker 顶替，RetrievalEngine 的重排阶段始终可调用。
 
     Args:
         config: Reranker 配置
-        service: Rerank 服务实例 (仅当 type=cross_encoder 时需要)
+        service: Rerank 服务实例（启用重排时需要）
 
     Returns:
         NoopReranker 或 CrossEncoderReranker 实例
     """
     if not config.enabled:
         return NoopReranker(config)
-    else:
-        return CrossEncoderReranker(service, config)
+    if service is None:
+        logger.warning("Reranker 已启用但未提供重排服务，退化为 NoopReranker")
+        return NoopReranker(config)
+    return CrossEncoderReranker(service, config)
 
 
 __all__ = [

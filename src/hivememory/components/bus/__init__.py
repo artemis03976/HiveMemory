@@ -1,9 +1,11 @@
 from hivememory.components.bus.arguments import RouteArgumentError
 from hivememory.components.bus.async_bus import AsyncSystemBus
+from hivememory.components.bus.binding import RouteBinding
 from hivememory.components.bus.global_bus import GlobalSystemBus
 
 __all__ = [
     "AsyncSystemBus",
     "GlobalSystemBus",
     "RouteArgumentError",
+    "RouteBinding",
 ]

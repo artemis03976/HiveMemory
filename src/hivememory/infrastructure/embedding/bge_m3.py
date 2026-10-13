@@ -4,11 +4,15 @@ HiveMemory BGE-M3 Dense Embedding 服务 (FastEmbed ONNX 实现)
 
 import logging
 import threading
-from typing import TYPE_CHECKING, Any, Optional
+from typing import TYPE_CHECKING, Any, Optional, overload
 
 if TYPE_CHECKING:
     from hivememory.config.shared import EmbeddingConfig
-from hivememory.infrastructure.embedding.base import SingletonModelService
+from hivememory.infrastructure.embedding.base import (
+    DenseSparseEncoding,
+    EmbeddingOutput,
+    SingletonModelService,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -57,12 +61,28 @@ class BGEM3EmbeddingService(SingletonModelService):
             logger.error(f"BGE-M3 模型加载失败: {e}")
             raise
 
+    # 存储层的两种调用（单条 dense、单条 dense+sparse）有精确返回类型；
+    # 其余组合按通用签名返回联合。
+    @overload
+    def encode(self, dense_texts: str, sparse_texts: None = None) -> list[float]: ...
+
+    @overload
+    def encode(self, dense_texts: str, sparse_texts: str) -> DenseSparseEncoding: ...
+
+    @overload
     def encode(
         self,
         dense_texts: str | list[str] | None = None,
         sparse_texts: str | list[str] | None = None,
-        **kwargs,
-    ) -> list[float] | str | dict[str, Any]:
+        **kwargs: Any,
+    ) -> EmbeddingOutput: ...
+
+    def encode(
+        self,
+        dense_texts: str | list[str] | None = None,
+        sparse_texts: str | list[str] | None = None,
+        **kwargs: Any,
+    ) -> EmbeddingOutput:
         """
         编码文本为稠密向量，或返回 sparse 原始文本供 Qdrant BM25 使用。
 
@@ -72,33 +92,28 @@ class BGEM3EmbeddingService(SingletonModelService):
             - both: {"dense": List[float], "sparse_text": str}
         """
         if dense_texts is None and sparse_texts is None:
-            if "texts" in kwargs:
-                dense_texts = kwargs["texts"]
-            else:
+            dense_texts = kwargs.get("texts")
+
+        if dense_texts is None:
+            if sparse_texts is None:
                 raise ValueError("至少需要提供 dense_texts 或 sparse_texts 参数")
+            # sparse only：返回原文，由向量库计算 BM25
+            return sparse_texts
 
-        dense_result = None
-        if dense_texts is not None:
-            single = isinstance(dense_texts, str)
-            input_list = [dense_texts] if single else dense_texts
-            try:
-                embeddings = list(self.model.embed(input_list))
-                dense_result = (
-                    embeddings[0].tolist() if single else [e.tolist() for e in embeddings]
-                )
-            except Exception as e:
-                logger.warning(f"稠密向量编码失败: {e}")
-                dense_result = [] if single else [[] for _ in input_list]
+        single = isinstance(dense_texts, str)
+        input_list = [dense_texts] if isinstance(dense_texts, str) else dense_texts
+        dense_result: list[float] | list[list[float]]
+        try:
+            embeddings = list(self.model.embed(input_list))
+            dense_result = embeddings[0].tolist() if single else [e.tolist() for e in embeddings]
+        except Exception as e:
+            logger.warning(f"稠密向量编码失败: {e}")
+            empty_batch: list[list[float]] = [[] for _ in input_list]
+            dense_result = [] if single else empty_batch
 
-        sparse_result = None
-        if sparse_texts is not None:
-            sparse_result = sparse_texts
-
-        if dense_result is not None and sparse_result is not None:
-            return {"dense": dense_result, "sparse_text": sparse_result}
-        if dense_result is not None:
+        if sparse_texts is None:
             return dense_result
-        return sparse_result
+        return {"dense": dense_result, "sparse_text": sparse_texts}
 
 
 _bge_m3_instance = None

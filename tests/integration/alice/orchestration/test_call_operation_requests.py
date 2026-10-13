@@ -21,7 +21,6 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.alice import AliceConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.core.access import WorkspaceOperation
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
@@ -29,6 +28,7 @@ from hivememory.core.models import (
     ResolvedAgentProfile,
 )
 from hivememory.core.mtp import MTPCallRequest
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.prompts.assembler import AgentPromptAssembler
 from tests.helpers.operations import OperationsHarness
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope
@@ -51,7 +51,7 @@ async def test_callee_uses_own_verbs_and_ignores_legacy_profile_permissions():
     async def profile_route(_alias, **_kwargs):
         return ResolvedAgentProfile(profile=profile)
 
-    harness.bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, profile_route)
+    harness.bus.register(PatchouliRoutes.GET_AGENT_PROFILE, profile_route)
     scope = make_runtime_scope(agent_id="parent", run_id="process-inherit")
     caller = ExecutionFrame(
         runtime_scope=scope,

@@ -22,7 +22,7 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-12
 ---
 
 # 运行时机制：总线、调度器与 Work Queue
@@ -37,6 +37,15 @@ last_reviewed: 2026-10-09
 
 ### RPC
 
+route 的名称与签名由提供方 `contracts` 一起声明；`core/contracts/route.py` 只提供依赖中立的 `Route[P, R]` 与 `@route(name)`。`Route` 是 `str` 子类，运行时与原字符串相等、可哈希，注册表、日志和路由列表继续使用字符串语义。装饰器把异步签名声明替换为路由对象，不保存声明函数，也不执行其函数体。
+
+```python
+def register[**P, R](route: Route[P, R], handler: Callable[P, Awaitable[R]]) -> None: ...
+async def request[**P, R](route: Route[P, R], *args: P.args, **kwargs: P.kwargs) -> R: ...
+```
+
+mypy 在注册处检查 handler，在调用处检查参数名称、数量、类型和返回类型。异构绑定表通过 `RouteBinding.of(route, handler)` 逐项检查，之后才擦除类型保存；总线只在取回 handler 的结果时恢复返回类型。返回类型参数保持不变，避免把不匹配的 handler 返回类型扩宽为共同父类后放行。Patchouli 的同步查询在本地绑定处适配为异步 handler，保留直接调用接口。
+
 - `register(route, handler)`：一个 route 对应一个 handler，重复注册覆盖并记录 warning；
 - `unregister(route)`：移除 handler，不存在时 no-op；
 - `request(route, *args, **kwargs)`：调用并等待结果，未注册 route 抛 `KeyError`；调用 handler 前先做参数检查，不符时抛 `RouteArgumentError`（`TypeError` 的子类）；
@@ -45,14 +54,16 @@ last_reviewed: 2026-10-09
 
 ### 参数检查
 
-总线以 `handler(*args, **kwargs)` 直接调用，调用点与 handler 之间没有静态类型约束：关键字名称不符会在调用时以 `TypeError` 暴露，但按位置传入错误类型的值不会报错，可能被 handler 当作字典键或比较对象静默使用。检查器（`components/bus/arguments.py`）因此在 `register` 时解析一次 handler 的签名与类型标注，在每次 `request` 时：
+总线以 `handler(*args, **kwargs)` 直接调用。类型化 route 负责静态约束；动态调用或未参与 mypy 的测试替身仍可能传错参数，尤其是按位置把 `IdentityScope` 当作 `WorkspaceIdentity`。运行时检查器（`components/bus/arguments.py`）在 `register` 时解析一次 handler 的签名与类型标注，在每次 `request` 时：
 
 - 按签名绑定参数，名称或数量不符时以 `RouteArgumentError` 拒绝，错误信息带 route 名；
 - 对标注为具体类的参数做 `isinstance` 检查，包括 `X | None` 与类的联合；`float` 按数值塔接受 `int`；泛型只检查容器本身，例如 `list[X]` 只检查 `list`。
 
 检查只校验、不转换：参数原样交给 handler，不复制容器，也不把字典转换成模型。`Any`、TypeVar、Protocol、`Literal` 与 `Callable` 等无法用 `isinstance` 表达的标注不做类型检查；mock、`functools.partial` 等非函数 handler 原样放行。标注引用了只在 `TYPE_CHECKING` 下导入的名称时，注册照常完成并记录 warning，该 route 降级为只检查签名，并出现在 `list_unresolved_routes()` 中；handler 模块应在运行时导入参数标注用到的类型。
 
-检查对所有 `AsyncSystemBus` 子类生效，包括各子系统的本地总线。它只在请求实际发生时生效，不替代调用点的静态检查；以类型化 route 与 mypy 检查全部调用点的方案见 [全局路由签名一致性 Todo](../todo/global-route-signature-consistency-check.md)。Pub/Sub 的订阅者不做参数检查。
+检查对所有 `AsyncSystemBus` 子类生效，包括各子系统的本地总线。静态 API 的 `register` / `request` 只接受类型化 route；运行时仍兼容按字符串注册和调用的测试替身，且按替身 handler 的签名检查。检查不注入 route 声明中的默认值，实际默认值仍由 handler 决定。Pub/Sub 的订阅者不做参数检查。
+
+CI 的 typecheck job 使用锁定版本的 uv 与 setup action，以 `uv sync --frozen --extra dev` 安装 `uv.lock` 中的依赖，再运行 `uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py`。mypy 只覆盖源码与专用类型回归样例，不覆盖测试套件。样例中的误用以精确错误码标记；若某种误用不再报错，`unused-ignore` 使门禁失败；正例用 `assert_type` 验证推断结果。相关运行时验证见 `tests/unit/components/bus/test_typed_routes.py` 与 `tests/integration/alice/test_bus_routes.py`。
 
 ### Pub/Sub
 

@@ -5,7 +5,6 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.scheduler.async_scheduler import AsyncMaintenanceScheduler
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -14,6 +13,7 @@ from hivememory.core.protocol.gateway import (
     RetrievalPlan,
 )
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
+from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.control.interaction_apply_journal import InMemoryInteractionApplyJournal
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
@@ -63,7 +63,7 @@ async def test_passive_submission_applies_split_identity_once_in_target_workspac
             )
         )
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
     queue = InteractionSubmissionQueue(perception.apply_interaction)
     scheduler = AsyncMaintenanceScheduler()
     service = PassiveIngressService(bus, config, scheduler, queue)
@@ -109,4 +109,4 @@ async def test_passive_submission_applies_split_identity_once_in_target_workspac
     finally:
         await service.stop()
         await queue.stop()
-        bus.unregister(GlobalRoutes.GATEWAY_PROCESS)
+        bus.unregister(GatewayPublicRoutes.PROCESS)

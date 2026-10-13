@@ -8,7 +8,6 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import RunBinding, WorkspaceOperation
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
 from hivememory.core.models import (
     ActorIdentity,
@@ -23,6 +22,7 @@ from hivememory.core.models import (
     WriteFocus,
 )
 from hivememory.core.mtp.exceptions import AliasNotFoundError
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
@@ -65,11 +65,11 @@ class _OperationHarness:
         self.runtime = WorkspaceRuntime(backing=self.backing, atom_capacity=32, profile_capacity=16)
         self.registry = self.runtime.intents
         for route, handler in (
-            (GlobalRoutes.PATCHOULI_MEMORY_READ, self._read),
-            (GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES, self._retrieve_by_aliases),
-            (GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, self._retrieve),
-            (GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, self._get_profile),
-            (GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION, self._record_citation),
+            (PatchouliRoutes.MEMORY_READ, self._read),
+            (PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES, self._retrieve_by_aliases),
+            (PatchouliRoutes.MEMORY_RETRIEVE, self._retrieve),
+            (PatchouliRoutes.GET_AGENT_PROFILE, self._get_profile),
+            (PatchouliRoutes.RECORD_MEMORY_CITATION, self._record_citation),
         ):
             self.bus.register(route, handler)
         self.entry = WorkspaceOperationEntry(
@@ -88,19 +88,19 @@ class _OperationHarness:
         )
 
     async def _read(self, memory_id, *, identity_scope):
-        self.owner_calls.append(GlobalRoutes.PATCHOULI_MEMORY_READ)
+        self.owner_calls.append(PatchouliRoutes.MEMORY_READ)
         return next((atom for atom in self.memories.values() if atom.id == memory_id), None)
 
     async def _retrieve_by_aliases(self, aliases, *, identity_scope):
-        self.owner_calls.append(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES)
+        self.owner_calls.append(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES)
         return [self.memories[alias] for alias in aliases if alias in self.memories]
 
     async def _retrieve(self, request):
-        self.owner_calls.append(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE)
+        self.owner_calls.append(PatchouliRoutes.MEMORY_RETRIEVE)
         return list(self.memories.values())[: request.top_k]
 
     async def _get_profile(self, agent_alias, *, identity_scope):
-        self.owner_calls.append(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE)
+        self.owner_calls.append(PatchouliRoutes.GET_AGENT_PROFILE)
         if agent_alias != self.profile_source.index.alias:
             raise AliasNotFoundError(
                 message_key="mtp.call.profile_not_found", params={"agent_alias": agent_alias}
@@ -114,7 +114,7 @@ class _OperationHarness:
 
     async def _record_citation(self, *, memory_id, source, identity_scope):
         """正式引用的副作用由 RPC 接收端记录，不能由测试伪造服务返回结果。"""
-        self.owner_calls.append(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION)
+        self.owner_calls.append(PatchouliRoutes.RECORD_MEMORY_CITATION)
         self.citations.append(
             {"memory_id": memory_id, "source": source, "identity_scope": identity_scope}
         )

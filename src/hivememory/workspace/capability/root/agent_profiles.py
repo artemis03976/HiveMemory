@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import InvalidMemoryFieldError
 from hivememory.core.models import (
     IndexLayer,
@@ -22,6 +21,7 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.models.provenance import MemoryProvenance
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.utils.time import utc_now
 
 if TYPE_CHECKING:
@@ -88,7 +88,7 @@ class RootAgentProfileService:
             payload=payload,
         )
         return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_AGENT_PROFILE_CREATE,
+            PatchouliRoutes.AGENT_PROFILE_CREATE,
             scope,
             atom,
         )
@@ -103,7 +103,7 @@ class RootAgentProfileService:
         """在目标 Workspace 中列出 Agent Profile（root 管理用例）。"""
         scope = self._authorizer.authorize_root(access, target_workspace)
         return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
+            PatchouliRoutes.AGENT_PROFILE_LIST,
             identity_scope=scope,
             limit=limit,
         )

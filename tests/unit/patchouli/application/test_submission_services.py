@@ -21,10 +21,10 @@ from hivememory.core.models.pending import UpdateFocus, WriteFocus
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.application import (
     InteractionSubmissionService,
-    MemoryIntent,
     MemoryIntentSubmissionService,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.memory_intent import MemoryIntent
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from tests.helpers.workspace import make_identity_scope

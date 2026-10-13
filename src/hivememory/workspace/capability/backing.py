@@ -20,14 +20,14 @@ workspace 自身，经本协议冷读，不导入总线；依赖总线机制的�
 
 from __future__ import annotations
 
-from typing import Any
 from uuid import UUID
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.contracts.routes import GlobalRoutes
+from hivememory.core.contracts.route import Route
 from hivememory.core.errors import ResourceUnavailableError
 from hivememory.core.models import IdentityScope, MemoryAtom, ResolvedAgentProfile
 from hivememory.core.protocol.models import RetrievalRequest
+from hivememory.patchouli.contracts import PatchouliRoutes
 
 
 class BusCanonicalReadBackend:
@@ -43,7 +43,7 @@ class BusCanonicalReadBackend:
         scope: IdentityScope,
     ) -> MemoryAtom | None:
         return await self._request(
-            GlobalRoutes.PATCHOULI_MEMORY_READ,
+            PatchouliRoutes.MEMORY_READ,
             memory_id,
             identity_scope=scope,
         )
@@ -55,7 +55,7 @@ class BusCanonicalReadBackend:
         scope: IdentityScope,
     ) -> list[MemoryAtom]:
         return await self._request(
-            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
+            PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
             list(aliases),
             identity_scope=scope,
         )
@@ -65,7 +65,7 @@ class BusCanonicalReadBackend:
         request: RetrievalRequest,
     ) -> list[MemoryAtom]:
         return await self._request(
-            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
+            PatchouliRoutes.MEMORY_RETRIEVE,
             request,
         )
 
@@ -76,12 +76,12 @@ class BusCanonicalReadBackend:
         scope: IdentityScope,
     ) -> ResolvedAgentProfile:
         return await self._request(
-            GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
+            PatchouliRoutes.GET_AGENT_PROFILE,
             agent_alias,
             identity_scope=scope,
         )
 
-    async def _request(self, route: str, *args: Any, **kwargs: Any) -> Any:
+    async def _request[**P, R](self, route: Route[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
         """请求 backing 路由；路由未挂载即库不可达，显式失败。"""
         if route not in self._bus.list_routes():
             raise ResourceUnavailableError(

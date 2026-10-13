@@ -1,7 +1,5 @@
 from __future__ import annotations
 
-from typing import Any
-
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     IdentityScope,
@@ -11,6 +9,7 @@ from hivememory.core.models import (
     require_identity_scope,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.runtime.bus import PatchouliBus
 
 
 class AgentProfileManagementService:
@@ -22,7 +21,7 @@ class AgentProfileManagementService:
     policy 依据与关联），读取视图在交付时仍按 actor 检查可见性。
     """
 
-    def __init__(self, *, bus: Any) -> None:
+    def __init__(self, *, bus: PatchouliBus) -> None:
         self._bus = bus
 
     async def create_agent_profile(

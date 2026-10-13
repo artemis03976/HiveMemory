@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/system/i18n.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-12
 ---
 
 # MemoryCompiler
@@ -64,7 +64,7 @@ IR 的意义是让 target handler 面对稳定语义，而不是知道 MemoryAto
 | `AGENT_PROFILE_MENU` | Agent Profile 候选菜单 |
 | `RUNNABLE_TOOL` | 仅保留枚举，当前显式抛出 Phase 3 reserved 错误 |
 
-Unit 编译单项返回 CompiledMemory，列表返回同长度列表。CompiledMemory 除 text 外还保留 source kind、alias、memory id、status 与 metadata，使运行时不必从文本反向猜测 redirect 或 pending 状态。
+Unit 编译单个源返回 CompiledMemory；列表源长度不为 1 时返回同长度列表，长度为 1 时同样返回单个 CompiledMemory。`compile` 以 overload 声明这一区分：单个源经 unit target、以及任意源经 envelope target 的返回类型都是 CompiledMemory。CompiledMemory 除 text 外还保留 source kind、alias、memory id、status 与 metadata，使运行时不必从文本反向猜测 redirect 或 pending 状态。
 
 ## 4. Envelope targets
 

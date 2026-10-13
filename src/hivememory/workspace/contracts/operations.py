@@ -72,7 +72,8 @@ class RetrieveRequest(OperationRequest[list[MemoryAtom]]):
 
     semantic_query: str
     keywords: tuple[str, ...] = ()
-    top_k: int = 5
+    # 缺省时由检索引擎配置的默认条数决定。
+    top_k: int | None = None
     filters: QueryFilters | None = None
 
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivememory.core.contracts.routes import GlobalRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationTask
 
 if TYPE_CHECKING:
@@ -35,7 +35,7 @@ class RootMemoryTaskService:
         """列出本 Workspace 的记忆生成任务（root 授权）。"""
         scope = self._authorizer.authorize_root(access, target_workspace)
         return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_TASK_LIST,
+            PatchouliRoutes.MEMORY_TASK_LIST,
             identity_scope=scope,
         )
 
@@ -52,7 +52,7 @@ class RootMemoryTaskService:
         """
         scope = self._authorizer.authorize_root(access, target_workspace)
         return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_TASK_GET,
+            PatchouliRoutes.MEMORY_TASK_GET,
             task_id,
             identity_scope=scope,
         )
@@ -67,7 +67,7 @@ class RootMemoryTaskService:
         """取消记忆生成任务（root 管理操作）。"""
         scope = self._authorizer.authorize_root(access, target_workspace)
         return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_TASK_CANCEL,
+            PatchouliRoutes.MEMORY_TASK_CANCEL,
             task_id,
             identity_scope=scope,
         )

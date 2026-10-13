@@ -35,7 +35,7 @@ from hivememory.agent_runtime.output import (
     TokenDelta,
 )
 from hivememory.config.alice import AgentRuntimeConfig
-from hivememory.core.models import TurnEvent
+from hivememory.core.models import TurnEvent, freeze_mapping
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.execution.worker import WorkerAgentService
@@ -216,7 +216,7 @@ class AgentLoopExecutor:
                 action_id=action_id,
                 tool_kind=verb_hint,
                 tool_name=target_hint if target_hint else None,
-                tool_args=args_hint or None,
+                tool_args=freeze_mapping(args_hint) if args_hint else None,
                 target=target_hint if target_hint else None,
             )
             p.turn_events.append(command_event)

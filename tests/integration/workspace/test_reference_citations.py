@@ -12,7 +12,6 @@ import pytest_asyncio
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
 from hivememory.core.contracts.events import GlobalEvents
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
 from hivememory.core.models import (
     IdentityScope,
@@ -25,6 +24,7 @@ from hivememory.core.models import (
     WriteFocus,
 )
 from hivememory.core.protocol.models import RetrievalRequest
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
@@ -94,10 +94,10 @@ async def chain():
     """引用走真实读取端口、缓存、意图结算与总线，不替换被测协作。"""
     bus = GlobalSystemBus()
     backing = _MemoryBacking()
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_READ, backing.read)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES, backing.retrieve_by_aliases)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, backing.retrieve)
-    bus.register(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION, backing.record_citation)
+    bus.register(PatchouliRoutes.MEMORY_READ, backing.read)
+    bus.register(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES, backing.retrieve_by_aliases)
+    bus.register(PatchouliRoutes.MEMORY_RETRIEVE, backing.retrieve)
+    bus.register(PatchouliRoutes.RECORD_MEMORY_CITATION, backing.record_citation)
     runtime = make_workspace_runtime(global_bus=bus)
     runtime.subscribe(bus)
     composition = make_access_composition([make_actor_access_record()])
@@ -203,7 +203,7 @@ async def test_reference_read_records_cache_hits_in_each_request(chain):
     """L1 命中可脱离冷读路由交付，每次引用读取仍独立记录一次。"""
     atom = _add_atom(chain)
     await _resolve(chain, "canonical")
-    chain.bus.unregister(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES)
+    chain.bus.unregister(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES)
 
     (result,) = await _resolve(chain, "canonical")
 
@@ -329,8 +329,8 @@ async def test_citation_failure_logs_and_preserves_all_read_results(chain, caplo
             memory_id=memory_id, source=source, identity_scope=identity_scope
         )
 
-    chain.bus.unregister(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION)
-    chain.bus.register(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION, record_citation)
+    chain.bus.unregister(PatchouliRoutes.RECORD_MEMORY_CITATION)
+    chain.bus.register(PatchouliRoutes.RECORD_MEMORY_CITATION, record_citation)
 
     results = await _resolve(chain, "first", "first", "second")
 
@@ -365,8 +365,8 @@ async def test_cancellation_during_citation_propagates_to_reference_caller(chain
             memory_id=memory_id, source=source, identity_scope=identity_scope
         )
 
-    chain.bus.unregister(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION)
-    chain.bus.register(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION, record_citation)
+    chain.bus.unregister(PatchouliRoutes.RECORD_MEMORY_CITATION)
+    chain.bus.register(PatchouliRoutes.RECORD_MEMORY_CITATION, record_citation)
     task = asyncio.create_task(_resolve(chain, "canonical"))
     try:
         await asyncio.wait_for(started.wait(), timeout=2)

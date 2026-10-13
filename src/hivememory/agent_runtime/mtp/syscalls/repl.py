@@ -146,7 +146,10 @@ else:
         raise ImportError(result.get("message") or "import is not allowed.")
     if status == "error":
         raise RuntimeError(result.get("message") or "Python execution failed.")
-    return result.get("stdout", "")
+    stdout = result.get("stdout", "")
+    if not isinstance(stdout, str):
+        raise RuntimeError("Python execution failed without structured result.")
+    return stdout
 
 
 def execute_sandboxed(

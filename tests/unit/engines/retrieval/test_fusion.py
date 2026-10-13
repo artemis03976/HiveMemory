@@ -23,9 +23,7 @@ class TestReciprocalRankFusion:
 
     @pytest.fixture
     def fusion(self):
-        config = ReciprocalRankFusionConfig(
-            rrf_k=60, dense_weight=1.0, sparse_weight=1.0, final_top_k=10
-        )
+        config = ReciprocalRankFusionConfig(rrf_k=60, dense_weight=1.0, sparse_weight=1.0)
         return ReciprocalRankFusion(config)
 
     def create_result(self, memory_id: UUID, score: float, match_reason: str) -> SearchResult:
@@ -148,20 +146,16 @@ class TestReciprocalRankFusion:
         assert fused_weighted.results[1].memory.id == id2  # 权重 1
         assert fused_weighted.results[2].memory.id == id3  # 权重 0.1
 
-    def test_top_k_truncation(self):
-        """测试结果截断"""
-        config = ReciprocalRankFusionConfig(final_top_k=2)
-        fusion = ReciprocalRankFusion(config)
+    def test_fusion_returns_every_candidate_without_truncation(self, fusion):
+        """融合不截取：条数由检索器按请求的候选数决定，最终条数在重排之后确定。"""
+        dense = SearchResults(results=[self.create_result(uuid4(), 0.9, f"d{i}") for i in range(6)])
+        sparse = SearchResults(
+            results=[self.create_result(uuid4(), 9.0, f"s{i}") for i in range(6)]
+        )
+        extra = SearchResults(results=[self.create_result(uuid4(), 0.9, "x")])
 
-        # 创建 3 个不同的结果
-        r1 = SearchResults(results=[self.create_result(uuid4(), 0.9, "r1")])
-        r2 = SearchResults(results=[self.create_result(uuid4(), 0.9, "r2")])
-        r3 = SearchResults(results=[self.create_result(uuid4(), 0.9, "r3")])
-
-        fused = fusion.fuse_multi([r1, r2, r3])
-
-        assert len(fused.results) == 2
-        assert fused.total_candidates == 3
+        assert len(fusion.fuse(dense, sparse).results) == 12
+        assert len(fusion.fuse_multi([dense, sparse, extra]).results) == 13
 
     def test_latency_aggregation(self, fusion):
         """测试延迟时间累加"""
@@ -365,25 +359,18 @@ class TestAdaptiveWeightedFusion:
         # Debug 模式会惩罚低置信度，分数应明显低于原始 0.9
         assert fused.results[0].score < 0.2
 
-    def test_top_k_truncation(self):
-        """测试结果截断"""
-        config = AdaptiveWeightedFusionConfig(final_top_k=2)
-        fusion = AdaptiveWeightedFusion(config)
-
-        # 创建 3 个结果
+    def test_fusion_returns_every_candidate_without_truncation(self):
+        """融合不截取：全部候选按融合分数排序后返回。"""
+        fusion = AdaptiveWeightedFusion(AdaptiveWeightedFusionConfig())
         dense_results = SearchResults(
-            results=[
-                self.create_result(uuid4(), 0.9, "r1"),
-                self.create_result(uuid4(), 0.8, "r2"),
-                self.create_result(uuid4(), 0.7, "r3"),
-            ]
+            results=[self.create_result(uuid4(), 0.9 - i * 0.1, f"r{i}") for i in range(7)]
         )
         sparse_results = SearchResults(results=[])
 
         fused = fusion.fuse(dense_results, sparse_results)
 
-        assert len(fused.results) == 2
-        assert fused.total_candidates == 3
+        assert [r.memory.id for r in fused.results] == [r.memory.id for r in dense_results.results]
+        assert fused.total_candidates == 7
 
     def test_latency_aggregation(self, fusion):
         """测试延迟时间累加"""

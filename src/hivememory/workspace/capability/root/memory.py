@@ -11,7 +11,6 @@ from uuid import UUID
 
 from pydantic import ValidationError
 
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     InvalidMemoryFieldError,
     WorkspaceDomainError,
@@ -26,6 +25,7 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.models.provenance import MemoryProvenance
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.utils.time import utc_now
 
 if TYPE_CHECKING:
@@ -104,7 +104,7 @@ class RootMemoryService:
             payload=payload,
         )
         return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_CREATE,
+            PatchouliRoutes.MEMORY_CREATE,
             scope,
             atom,
         )
@@ -126,7 +126,7 @@ class RootMemoryService:
         scope = self._authorizer.authorize_root(access, target_workspace)
         filters = self._build_filters(memory_type=memory_type)
         return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_LIST,
+            PatchouliRoutes.MEMORY_LIST,
             identity_scope=scope,
             query=query,
             filters=filters if filters else None,
@@ -145,7 +145,7 @@ class RootMemoryService:
         """管理读取入口（root 授权）：在目标 Workspace 中读取 Memory。"""
         scope = self._authorizer.authorize_root(access, target_workspace)
         atom = await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_GET,
+            PatchouliRoutes.MEMORY_GET,
             memory_id,
             identity_scope=scope,
             refresh_vitality=True,
@@ -170,7 +170,7 @@ class RootMemoryService:
         """管理更新入口（root 授权）：显式授权 mutation，且不改变原 ownership/provenance。"""
         scope = self._authorizer.authorize_root(access, target_workspace)
         atom = await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_UPDATE,
+            PatchouliRoutes.MEMORY_UPDATE,
             memory_id,
             identity_scope=scope,
             title=title,
@@ -197,7 +197,7 @@ class RootMemoryService:
         scope = self._authorizer.authorize_root(access, target_workspace)
         try:
             return await self._global_bus.request(
-                GlobalRoutes.PATCHOULI_MEMORY_RECORD_FEEDBACK,
+                PatchouliRoutes.MEMORY_RECORD_FEEDBACK,
                 memory_id,
                 identity_scope=scope,
                 positive=positive,
@@ -222,7 +222,7 @@ class RootMemoryService:
         """管理删除入口（root 授权）：在目标 Workspace 中删除 Memory。"""
         scope = self._authorizer.authorize_root(access, target_workspace)
         return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_DELETE,
+            PatchouliRoutes.MEMORY_DELETE,
             memory_id,
             identity_scope=scope,
         )

@@ -12,7 +12,6 @@ from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Literal
 
 from hivememory.components.events.bus import RuntimeEventSink
 from hivememory.components.work_queue import (
@@ -30,12 +29,11 @@ from hivememory.components.work_queue import (
 from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.infrastructure.work_queue import InMemoryWorkStore
+from hivememory.patchouli.contracts.interaction_submission import (
+    InteractionOrigin,
+    InteractionSubmissionResult,
+)
 from hivememory.patchouli.errors import TopicBusyError
-
-# ``workspace_port`` 供 Patchouli 交互提交 application 用例
-# （InteractionSubmissionService）使用：与 active/passive 并列的程序化提交
-# 来源（WRX-1）。
-InteractionOrigin = Literal["active_chat", "passive_memory", "workspace_port"]
 
 
 def _require_text(value: str, *, field_name: str) -> None:
@@ -158,18 +156,6 @@ class InteractionSubmissionCodec:
         if self.encode(submission) != payload:
             raise ValueError("interaction submission payload is not canonical")
         return submission
-
-
-@dataclass(frozen=True)
-class InteractionSubmissionResult:
-    """handler 成功后的业务结果；``topic_id`` 是 NEW_TOPIC 的真实落点。"""
-
-    interaction_id: str
-    topic_id: str
-
-    @property
-    def result_ref(self) -> str:
-        return self.topic_id
 
 
 @dataclass(frozen=True)
@@ -507,13 +493,11 @@ class InteractionSubmissionQueue:
 
 
 __all__ = [
-    "InteractionOrigin",
     "InteractionSubmission",
     "InteractionSubmissionCodec",
     "InteractionSubmissionHandler",
     "InteractionSubmissionOutcome",
     "InteractionSubmissionQueue",
     "InteractionSubmissionReceipt",
-    "InteractionSubmissionResult",
     "TransientInteractionSubmissionError",
 ]

@@ -134,16 +134,18 @@ patchouli:
       enable_vitality_tracking: true
 
   retrieval:
+    # 请求未给出 top_k 时的结果条数；最终截取只在重排阶段之后进行一次
+    default_top_k: 5
     retriever:
       type: "hybrid"
       top_k: 5
-      score_threshold: 0.0
       enable_parallel: true
       dense:
         type: "dense"
         enabled: true
         top_k: 50
-        score_threshold: 0.0
+        # 分数阈值只作用于 Dense 召回（原始 cosine 相似度）；Sparse 与融合不设阈值
+        score_threshold: 0.5
         enable_time_decay: true
         time_decay_days: 30
         enable_confidence_boost: true
@@ -151,22 +153,21 @@ patchouli:
         type: "sparse"
         enabled: true
         top_k: 50
-        score_threshold: 0.0
       fusion:
         type: "rrf"
         rrf_k: 60
         dense_weight: 1.0
         sparse_weight: 1.0
-        final_top_k: 5
-      reranker:
-        enabled: true
-        model_name: "BAAI/bge-reranker-base"
-        device: "cpu"
-        cache_dir: "data/model_cache"
-        use_fp16: true
-        batch_size: 32
-        top_k: 20
-        normalize_scores: true
+    # 重排序是召回之后的独立阶段，适用于任意 retriever 类型
+    reranker:
+      enabled: true
+      model_name: "BAAI/bge-reranker-base"
+      device: "cpu"
+      cache_dir: "data/model_cache"
+      use_fp16: true
+      batch_size: 32
+      top_k: 20
+      normalize_scores: true
 
   lifecycle:
     vitality_calculator:

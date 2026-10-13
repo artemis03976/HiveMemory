@@ -17,7 +17,7 @@ import ast
 import json
 import logging
 import re
-from typing import Any, TypeVar
+from typing import Any, TypeVar, overload
 
 logger = logging.getLogger(__name__)
 
@@ -99,12 +99,20 @@ class LLMJSONParser:
         self.strip_bom = strip_bom
         self.log_errors = log_errors
 
+    # 指定 as_model 时返回模型实例；否则返回 JSON 值（dict/list）或调用方给的 default。
+    # default 为 None 时解析失败抛出 JSONParseError，因此两种形态都不会返回 None。
+    @overload
+    def parse(self, raw_output: str, as_model: type[T], default: T | None = None) -> T: ...
+
+    @overload
+    def parse(self, raw_output: str, as_model: None = None, default: Any = None) -> Any: ...
+
     def parse(
         self,
         raw_output: str,
         as_model: type[T] | None = None,
         default: Any = None,
-    ) -> T | None:
+    ) -> Any:
         """
         解析 JSON 字符串
 
@@ -190,7 +198,7 @@ class LLMJSONParser:
             return None
         return result if isinstance(result, dict) else None
 
-    def _parse_with_strategies(self, raw_output: str) -> dict | None:
+    def _parse_with_strategies(self, raw_output: str) -> Any:
         """
         使用多种策略解析 JSON
 
@@ -198,7 +206,7 @@ class LLMJSONParser:
             raw_output: 待解析的原始字符串
 
         Returns:
-            解析后的字典，所有策略失败时返回 None
+            解析后的 JSON 值（dict/list），所有策略失败时返回 None
         """
         # 预处理
         text = self._preprocess(raw_output)
@@ -399,11 +407,19 @@ class LLMJSONParser:
 _default_parser = LLMJSONParser()
 
 
+@overload
+def parse_llm_json[T](raw_output: str, as_model: type[T], default: T | None = None) -> T: ...
+
+
+@overload
+def parse_llm_json(raw_output: str, as_model: None = None, default: Any = None) -> Any: ...
+
+
 def parse_llm_json[T](
     raw_output: str,
     as_model: type[T] | None = None,
     default: Any = None,
-) -> T | None:
+) -> Any:
     """
     便捷函数：解析 LLM 返回的 JSON
 

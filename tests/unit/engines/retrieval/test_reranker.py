@@ -194,6 +194,10 @@ class TestCreateReranker:
         reranker = create_reranker(config, service=mock_service)
         assert isinstance(reranker, CrossEncoderReranker)
 
+    def test_enabled_without_service_falls_back_to_noop(self):
+        reranker = create_reranker(RerankerConfig(enabled=True), service=None)
+        assert isinstance(reranker, NoopReranker)
+
     def test_create_default_config(self):
         """测试默认配置创建 CrossEncoderReranker"""
         mock_service = Mock(spec=BaseRerankService)

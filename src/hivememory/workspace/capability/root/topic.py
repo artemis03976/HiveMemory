@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivememory.core.contracts.routes import GlobalRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
     TopicSettleResult,
@@ -38,7 +38,7 @@ class RootTopicService:
         """列出活跃 Topic 快照（root 管理读取）。"""
         scope = self._authorizer.authorize_root(access, target_workspace)
         return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE,
+            PatchouliRoutes.TOPIC_LIST_ACTIVE,
             identity_scope=scope,
         )
 
@@ -52,7 +52,7 @@ class RootTopicService:
         """结算 Topic（root 授权），并原样返回 Patchouli 的业务结果。"""
         scope = self._authorizer.authorize_root(access, target_workspace)
         return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC,
+            PatchouliRoutes.MANUAL_SETTLE_TOPIC,
             identity_scope=scope,
             topic_id=topic_id,
         )
@@ -67,7 +67,7 @@ class RootTopicService:
         """删除 Topic（root 授权），并原样返回 Patchouli 的驱逐结果。"""
         scope = self._authorizer.authorize_root(access, target_workspace)
         return await self._global_bus.request(
-            GlobalRoutes.PATCHOULI_EVICT_TOPIC,
+            PatchouliRoutes.EVICT_TOPIC,
             identity_scope=scope,
             topic_id=topic_id,
         )

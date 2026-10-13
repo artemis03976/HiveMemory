@@ -22,7 +22,6 @@ from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.core.access import WorkspaceOperation
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import (
     AssetNotFoundError,
     AssetOperationConflictError,
@@ -45,6 +44,8 @@ from hivememory.core.models import (
 from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.core.protocol.models import RetrievalResponse
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.contracts import CPUExecutionStatus
@@ -306,10 +307,10 @@ async def test_manifest_operations_follow_access_record_precedence(exact_records
     )
     composition = make_access_composition([user_record, *exact_records])
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
     cpu = ScriptedCPU(result=make_cpu_result())
     service, composition = await _service(bus, cpu=cpu, composition=composition)
 
@@ -339,14 +340,14 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
     bus = GlobalSystemBus()
     profile = AgentProfile(persona="allocated-persona", language="zh")
     profile_calls: list = []
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
     bus.register(
-        GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
+        PatchouliRoutes.GET_AGENT_PROFILE,
         _profile_route(profile=profile, calls=profile_calls),
     )
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
     cpu = ScriptedCPU(result=make_cpu_result())
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
 
     service, composition = await _service(bus, cpu=cpu)
     result = await _run_once(composition, service, "问题", process_id="process-manifest")
@@ -374,11 +375,11 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
 async def test_manifest_labels_match_registration_and_process_event_labels() -> None:
     """非默认注册标签贯穿 CPU 与进程事件，不能退回默认 Agent/Workspace。"""
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
     cpu = ScriptedCPU(result=make_cpu_result())
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
 
     sink = RecordingRuntimeEventSink()
     workspace = make_workspace_identity(owner_user_id="u1", workspace_id="labels_workspace")
@@ -424,11 +425,11 @@ async def test_manifest_memory_context_is_process_compiled_from_prepare_retrieva
     """memory_context 由进程对 prepare 返回的原始原子编译得到，memories 保持原始。"""
     bus = GlobalSystemBus()
     atoms = [_memory_atom("部署手册"), _memory_atom("发布记录")]
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route(memories=atoms))
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route(memories=atoms))
     cpu = ScriptedCPU(result=make_cpu_result())
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
 
     service, composition = await _service(bus, cpu=cpu)
     await _run_once(composition, service, "问题", process_id="process-compile")
@@ -443,11 +444,11 @@ async def test_manifest_memory_context_is_process_compiled_from_prepare_retrieva
 async def test_manifest_memory_context_is_empty_string_without_retrieval() -> None:
     """检索为空时清单的 memory_context 是空字符串，而不是占位文本。"""
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route(memories=[]))
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route(memories=[]))
     cpu = ScriptedCPU(result=make_cpu_result())
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
 
     service, composition = await _service(bus, cpu=cpu)
     await _run_once(composition, service, "问题", process_id="process-empty-retrieval")
@@ -470,13 +471,13 @@ async def test_no_actor_operations_still_allocates_execution_profile() -> None:
     bus = GlobalSystemBus()
     profile_calls: list = []
     profile = AgentProfile(persona="阶段读取配置", language="zh")
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
     bus.register(
-        GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
+        PatchouliRoutes.GET_AGENT_PROFILE,
         _profile_route(profile=profile, calls=profile_calls),
     )
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
     cpu = ScriptedCPU(result=make_cpu_result())
     composition = _composition(excluded_operations=frozenset(WorkspaceOperation))
 
@@ -502,10 +503,10 @@ async def test_profile_resolution_failure_fails_stream_before_prepare() -> None:
     )
     prepare_calls: list = []
     cleanup_calls: list = []
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _raising(failure))
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _recording(prepare_calls))
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _recording(cleanup_calls))
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _raising(failure))
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _recording(prepare_calls))
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _recording(cleanup_calls))
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, cpu=cpu)
@@ -528,10 +529,10 @@ async def test_profile_resolution_failure_propagates_before_prepare() -> None:
     )
     prepare_calls: list = []
     cleanup_calls: list = []
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _raising(failure))
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _recording(prepare_calls))
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _recording(cleanup_calls))
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _raising(failure))
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _recording(prepare_calls))
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _recording(cleanup_calls))
 
     service, composition = await _service(bus)
     with pytest.raises(AliasNotFoundError):
@@ -566,16 +567,16 @@ async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> N
         prepare_kwargs.update(kwargs)
         return _scoped_prepared(kwargs)
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare)
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
     finalize_kwargs: dict = {}
 
     async def finalize(**kwargs):
         finalize_kwargs.update(kwargs)
         return []
 
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     service, composition = await _service(bus, store=store)
     result = await _run_once(
@@ -606,16 +607,16 @@ async def test_no_actor_operations_still_allocates_attachments_and_finalizes() -
     composition = _composition(excluded_operations=frozenset(WorkspaceOperation))
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
     finalize_kwargs: dict = {}
 
     async def finalize(**kwargs):
         finalize_kwargs.update(kwargs)
         return []
 
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, store=store, cpu=cpu, composition=composition)
@@ -649,10 +650,10 @@ async def test_attachment_version_mismatch_releases_leases_and_rejects() -> None
     )
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _constant(True))
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
 
     service, composition = await _service(bus, store=store)
     with pytest.raises(AssetOperationConflictError):
@@ -680,10 +681,10 @@ async def test_unknown_attachment_ref_rejected_without_leaking_leases() -> None:
     ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _constant(True))
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
 
     service, composition = await _service(bus, store=store)
     with pytest.raises(AssetNotFoundError):
@@ -713,10 +714,10 @@ async def test_removed_asset_rejected_without_leaking_leases() -> None:
     store.remove_asset(scope, ref_a)
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _constant(True))
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
 
     service, composition = await _service(bus, store=store)
     with pytest.raises(AssetRemovedError):
@@ -747,9 +748,9 @@ async def test_finalize_receives_used_attachments_from_compile_result() -> None:
     )
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
     cpu = ScriptedCPU(result=make_cpu_result())
     finalize_kwargs: dict = {}
 
@@ -757,7 +758,7 @@ async def test_finalize_receives_used_attachments_from_compile_result() -> None:
         finalize_kwargs.update(kwargs)
         return []
 
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     service, composition = await _service(
         bus,
@@ -795,10 +796,10 @@ async def test_leased_attachment_released_after_completed_run() -> None:
     ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, _constant([]))
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
 
     service, composition = await _service(bus, store=store)
     result = await _run_once(
@@ -822,10 +823,10 @@ async def test_leased_attachment_released_when_cpu_reports_failure() -> None:
     ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _constant(True))
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
     cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
 
     service, composition = await _service(bus, store=store, cpu=cpu)
@@ -871,11 +872,11 @@ async def test_cancel_during_cleanup_still_releases_leases_and_closes_process() 
     bus = GlobalSystemBus()
     cleanup_started = asyncio.Event()
     release_cleanup = asyncio.Event()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
     bus.register(
-        GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
+        PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
         _blocking_cleanup(cleanup_started, release_cleanup),
     )
     cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
@@ -911,12 +912,12 @@ async def test_stream_cancel_during_cleanup_still_releases_leases_and_closes_pro
     bus = GlobalSystemBus()
     cleanup_started = asyncio.Event()
     release_cleanup = asyncio.Event()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
     cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
     bus.register(
-        GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN,
+        PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
         _blocking_cleanup(cleanup_started, release_cleanup),
     )
 
@@ -958,10 +959,10 @@ async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() ->
     bus = GlobalSystemBus()
     prepare_started = asyncio.Event()
     release_prepare = asyncio.Event()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
     bus.register(
-        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+        PatchouliRoutes.PREPARE_AGENT_RUN,
         _prepare_route(started=prepare_started, gate=release_prepare),
     )
     cleanup_calls: list = []
@@ -971,10 +972,10 @@ async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() ->
 
     finalize_calls: list = []
     bus.register(
-        GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
+        PatchouliRoutes.FINALIZE_AGENT_RUN,
         _recording(finalize_calls),
     )
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, store=store, cpu=cpu)
@@ -1015,22 +1016,22 @@ async def test_stop_during_profile_resolution_takes_effect_before_actor() -> Non
     bus = GlobalSystemBus()
     allocation_started = asyncio.Event()
     release_allocation = asyncio.Event()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
     bus.register(
-        GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE,
+        PatchouliRoutes.GET_AGENT_PROFILE,
         _profile_route(started=allocation_started, gate=release_allocation),
     )
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
     cleanup_calls: list = []
 
     async def cleanup(*, prepared_run, **_kwargs):
         cleanup_calls.append(prepared_run)
 
     bus.register(
-        GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN,
+        PatchouliRoutes.FINALIZE_AGENT_RUN,
         _raising(AssertionError("finalize 不应被调用")),
     )
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, store=store, cpu=cpu)
@@ -1062,13 +1063,13 @@ async def test_stream_stop_before_actor_emits_no_prelude() -> None:
     bus = GlobalSystemBus()
     prepare_started = asyncio.Event()
     release_prepare = asyncio.Event()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
     bus.register(
-        GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN,
+        PatchouliRoutes.PREPARE_AGENT_RUN,
         _prepare_route(started=prepare_started, gate=release_prepare),
     )
-    bus.register(GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, _constant(True))
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, cpu=cpu)
@@ -1095,16 +1096,16 @@ async def test_lease_release_tolerates_store_closed_after_finalize() -> None:
     ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
 
     bus = GlobalSystemBus()
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, _gateway_route)
-    bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_route())
-    bus.register(GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
 
     async def finalize(**_kwargs):
         # finalize 期间 Store 关闭：finally 中的租借释放沿容忍语义记录警告。
         store.close_and_clear()
         return []
 
-    bus.register(GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     service, composition = await _service(bus, store=store)
     result = await _run_once(

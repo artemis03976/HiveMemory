@@ -180,7 +180,7 @@ def system_settlement_provenance(context: GenerationContext) -> MemoryProvenance
     return MemoryProvenance(
         source_agent_id=SYSTEM_AGENT_ID,
         source_team_id=None,
-        contributing_agent_ids=_turn_agent_ids(context),
+        contributing_agent_ids=normalize_contributing_agent_ids(_turn_agent_ids(context)),
     )
 
 

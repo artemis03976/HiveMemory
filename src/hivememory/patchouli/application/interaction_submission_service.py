@@ -11,25 +11,18 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from uuid import uuid4
 
 from hivememory.core.models import IdentityScope, require_identity_scope
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.patchouli.control.interaction_submission import (
+from hivememory.patchouli.contracts.interaction_submission import (
     InteractionOrigin,
+    InteractionSubmitResult,
+)
+from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionQueue,
 )
-
-
-@dataclass(frozen=True)
-class InteractionSubmitResult:
-    """交互提交收据投影：请求已被队列接纳，应用进度按 interaction_id 跟踪。"""
-
-    interaction_id: str
-    work_id: str
-    state: str
 
 
 class InteractionSubmissionService:
@@ -79,5 +72,4 @@ class InteractionSubmissionService:
 
 __all__ = [
     "InteractionSubmissionService",
-    "InteractionSubmitResult",
 ]

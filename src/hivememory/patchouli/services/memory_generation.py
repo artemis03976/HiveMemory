@@ -25,6 +25,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.artifact import (
     ArtifactRef,
+    DocumentSourceType,
     MemoryEventLog,
     MemoryEventType,
     snapshot_memory_atom,
@@ -370,7 +371,7 @@ class MemoryGenerationFamiliar:
             content_format = ""
             if isinstance(representation.content_object, Mapping):
                 content_format = str(representation.content_object.get("format") or "")
-            source_type = "markdown" if content_format == "markdown" else "file"
+            source_type: DocumentSourceType = "markdown" if content_format == "markdown" else "file"
             mime_type = "text/markdown" if content_format == "markdown" else "text/plain"
             # 冻结映射：source asset/representation 标识 + revision +
             # producer/version 全部钉进 source_uri，content_hash 单列，

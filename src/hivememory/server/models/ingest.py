@@ -5,6 +5,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field
 
+from hivememory.core.models import TurnEventRenderAs
+
 
 class PassiveIngressRequest(BaseModel):
     # ---------- 外部来源与关联标识 ----------
@@ -45,7 +47,7 @@ class PassiveIngressRequest(BaseModel):
     tool_args: dict[str, Any] | None = Field(default=None, description="工具参数 (tool_call)")
     target: str | None = Field(default=None, description="目标 (tool_call)")
     status: str | None = Field(default=None, description="执行状态 (tool_result)")
-    render_as: str = Field(default="plain", description="渲染方式 (tool_result)")
+    render_as: TurnEventRenderAs = Field(default="plain", description="渲染方式 (tool_result)")
 
 
 class PassiveIngressResponse(BaseModel):

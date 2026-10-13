@@ -27,7 +27,7 @@
 
 | 层 | 包 | 职责 |
 | --- | --- | --- |
-| L0 | `core` / `config` / `utils` / `i18n` | 依赖中立的模型、契约常量、错误类型、访问值类型与端口协议；配置段模型 |
+| L0 | `core` / `config` / `utils` / `i18n` | 依赖中立的模型、Route 泛型原语、事件常量、错误类型、访问值类型与端口协议；配置段模型 |
 | L1 | `components` | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context |
 | L2 | `engines` / `infrastructure` / `prompts` | 算法与外部技术适配器 |
 | L3 | `workspace` / `patchouli` / `gateway` / `alice` + `agent_runtime` | 子系统；彼此只能导入对方公开的 `contracts` 子包 |
@@ -43,10 +43,10 @@
 | Gateway | 入口拦截、命令解析、话题/查询分析、检索计划和保守降级 | 命令执行、记忆存储、检索执行、回复生成、Interaction 提交 |
 | Patchouli | Memory/Topic/Profile、检索、感知、生成、生命周期、prepare（话题与检索）/finalize 和长期状态 | 顶层 chat 编排、入口命令、Agent 生成循环、附件租借与执行上下文编译 |
 | Alice | Agent run、frame、MTP/工具和 CALL 编排 | 长期记忆所有权、Gateway 分析、chat 任务进程编排、HTTP 生命周期 |
-| Core/Contracts | 依赖中立的模型、协议枚举、route/event 常量、访问值类型与端口协议 | 业务编排、I/O、可变运行时状态 |
+| Core/Contracts | 依赖中立的模型、协议枚举、Route 泛型原语、事件常量、访问值类型与端口协议 | 业务编排、I/O、可变运行时状态 |
 | Components | 进程内运行时机制（总线、调度器、work queue、运行时事件、串行门、trace context） | 业务状态与业务判断 |
 
-必须保持以下方向：`server -> 经门面取得的服务（workspace 能力层与任务进程编排 / System 被动摄入） -> Global public routes -> 子系统`。跨子系统使用公共 route、公共模型或全局事件；不要持有对方 Runtime、Service、Controller、存储客户端或 local bus。
+必须保持以下方向：`server -> 经门面取得的服务（workspace 能力层与任务进程编排 / System 被动摄入） -> Global public routes -> 子系统`。route 名称与签名由提供方 `contracts` 声明，调用方直接导入提供方的类型化 route；core 只提供 `Route` / `route` 原语，事件常量仍在 core。跨子系统使用公共 route、公共模型或全局事件；不要持有对方 Runtime、Service、Controller、存储客户端或 local bus。
 
 执行者通过 `workspace.contracts` 的 `OperationRequest` 与 `OperationSubmitter` 提交操作。任务进程内有两类访问 context：进程 context 服务于全部四个阶段的阶段调用，由进程记录持有、进程关闭时最后撤销；线程 context 只服务于 CPU 执行阶段的 actor 操作：主线程的线程 context 在进入该阶段时从进程 context 派生；CALL 的派生请求（`DeriveCallThreadRequest`，actor 操作 `agent.call`）经操作入口到达进程，进程只接受主线程在 Actor 阶段内的派生，以被调用方做 Workspace 准入后从进程 context 派生子线程 context。派生与撤销都集中在 `workspace.process` 的 `ProcessThreads`，经 `ThreadContextLifecycle` 端口进入认证一侧。CPU 驱动以 `workspace.contracts.ThreadOperationSubmitter` 把每个线程 context 与 `WorkspaceOperationEntry` 绑定为该线程的提交函数，全部线程 context 在 CPU 执行结束时一起撤销。入口只接受线程 context，按请求类型把请求对象直接交给 actor API 方法；请求只携带操作参数，不暴露访问 context，也不能切换目标 Workspace 或指定 process_id。
 
@@ -129,7 +129,8 @@ pytest tests/unit tests/integration -v --tb=short \
 # 静态检查（项目配置已写入 pyproject.toml）
 ruff check .
 black --check .
-mypy src
+uv sync --frozen --extra dev
+uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 
 # 前端变更
 cd frontend && npm ci && npm run lint && npm run build

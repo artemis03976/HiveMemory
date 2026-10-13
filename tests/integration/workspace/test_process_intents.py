@@ -11,7 +11,6 @@ import asyncio
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -24,6 +23,8 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.pending import PendingAtomStatus, WriteFocus
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.contracts import (
     CancelIntentsRequest,
@@ -84,11 +85,11 @@ async def test_process_claims_or_cancels_only_its_own_intents(status):
         return True
 
     for route, handler in (
-        (GlobalRoutes.GATEWAY_PROCESS, gateway),
-        (GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, profile),
-        (GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare),
-        (GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize),
-        (GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup),
+        (GatewayPublicRoutes.PROCESS, gateway),
+        (PatchouliRoutes.GET_AGENT_PROFILE, profile),
+        (PatchouliRoutes.PREPARE_AGENT_RUN, prepare),
+        (PatchouliRoutes.FINALIZE_AGENT_RUN, finalize),
+        (PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup),
     ):
         bus.register(route, handler)
     cpu = ScriptedCPU(result=make_cpu_result(status=status), operation_script=write)
@@ -199,11 +200,11 @@ async def test_finalize_authorization_failure_cancels_instead_of_stranding_inten
         return True
 
     for route, handler in (
-        (GlobalRoutes.GATEWAY_PROCESS, gateway),
-        (GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, profile),
-        (GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare),
-        (GlobalRoutes.PATCHOULI_FINALIZE_AGENT_RUN, finalize),
-        (GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup),
+        (GatewayPublicRoutes.PROCESS, gateway),
+        (PatchouliRoutes.GET_AGENT_PROFILE, profile),
+        (PatchouliRoutes.PREPARE_AGENT_RUN, prepare),
+        (PatchouliRoutes.FINALIZE_AGENT_RUN, finalize),
+        (PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup),
     ):
         bus.register(route, handler)
     service = make_task_process_service(
@@ -256,7 +257,7 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
         await release.wait()
         return [atom]
 
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES, read)
+    bus.register(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES, read)
     runtime = WorkspaceRuntime(
         backing=BusCanonicalReadBackend(bus), atom_capacity=8, profile_capacity=8
     )
@@ -284,10 +285,10 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
         return True
 
     for route, handler in (
-        (GlobalRoutes.GATEWAY_PROCESS, gateway),
-        (GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, profile),
-        (GlobalRoutes.PATCHOULI_PREPARE_AGENT_RUN, prepare),
-        (GlobalRoutes.PATCHOULI_CLEANUP_PREPARED_AGENT_RUN, cleanup),
+        (GatewayPublicRoutes.PROCESS, gateway),
+        (PatchouliRoutes.GET_AGENT_PROFILE, profile),
+        (PatchouliRoutes.PREPARE_AGENT_RUN, prepare),
+        (PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup),
     ):
         bus.register(route, handler)
     cpu = ScriptedCPU(

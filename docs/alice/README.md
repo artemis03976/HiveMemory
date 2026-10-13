@@ -14,7 +14,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-12
 ---
 
 # Alice
@@ -143,7 +143,7 @@ Agent 使用 MTP 在生成过程中发现、读取和使用记忆，也可以提
 
 ## 6. 启停、公开能力与观测
 
-`AliceSystem.start()` 通过 AliceBridge 向 `GlobalSystemBus` 注册统一执行路由 `alice.public.run_agent`（带 `submit_operation` 与 `stream` 参数），停止时卸载。Alice 和 agent_runtime 不持有 local bus，也不请求任何 Patchouli 公开路由；记忆检索、引用读取与 CALL Profile 读取均提交 workspace 操作请求。Alice 没有独立后台 worker 或 shutdown drain，运行中的 chat 取消和连接关闭由 workspace 任务进程持有的控制状态处理。
+`AliceSystem.start()` 通过 AliceBridge 向 `GlobalSystemBus` 注册 `alice.public.run_agent` 与 `alice.public.run_agent_stream`，停止时一起卸载。两条路由都接收输入清单、`submit_operation` 与 generation options，由路由名决定输出形态；Bridge 分别以 `stream=False/True` 调用同一个 `AgentRunService.run_agent`。Alice 和 agent_runtime 不持有 local bus，也不请求任何 Patchouli 公开路由；记忆检索、引用读取与 CALL Profile 读取均提交 workspace 操作请求。Alice 没有独立后台 worker 或 shutdown drain，运行中的 chat 取消和连接关闭由 workspace 任务进程持有的控制状态处理。
 
 AliceBridge 不订阅 PendingAtom 结算事件；这些事件由 workspace 登记消费。全部派生读取缓存由 `WorkspaceRuntime.close()` 清理，Alice 停止只卸载自己的运行入口。
 

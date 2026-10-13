@@ -8,6 +8,7 @@ MemoryRetriever 单元测试
 - 时间衰减逻辑
 """
 
+import asyncio
 from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock
 from zoneinfo import ZoneInfo
@@ -18,6 +19,7 @@ from hivememory.config.patchouli import (
     DenseRetrieverConfig,
     HybridRetrieverConfig,
     ReciprocalRankFusionConfig,
+    SparseRetrieverConfig,
 )
 from hivememory.core.models import (
     IndexLayer,
@@ -26,11 +28,17 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.models.query import QueryFilters
+from hivememory.core.mtp.exceptions import StorageOfflineError
 from hivememory.engines.retrieval.models import (
     RetrievalQuery,
     SearchResult,
 )
-from hivememory.engines.retrieval.retriever import DenseRetriever, HybridRetriever, SearchResults
+from hivememory.engines.retrieval.retriever import (
+    DenseRetriever,
+    HybridRetriever,
+    SearchResults,
+    create_retriever,
+)
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -202,7 +210,7 @@ class TestHybridRetriever:
     """测试混合检索器"""
 
     def setup_method(self):
-        self.config = HybridRetrieverConfig(enable_parallel=False, reranker={"enabled": False})
+        self.config = HybridRetrieverConfig(enable_parallel=False)
 
         self.mock_dense = AsyncMock()
         self.mock_sparse = AsyncMock()
@@ -266,6 +274,181 @@ class TestHybridRetriever:
         # 两个检索通道的结果经真实 RRF 融合后都被保留
         assert len(results.results) == 2
         assert {r.memory.id for r in results.results} == {self.memory1.id, self.memory2.id}
+
+
+class TestHybridRetrieverParallelRecall:
+    """并行召回：单路普通失败降级为空，存储失败与取消向上传播。"""
+
+    def setup_method(self):
+        from hivememory.engines.retrieval.fusion import ReciprocalRankFusion
+
+        self.mock_dense = AsyncMock()
+        self.mock_sparse = AsyncMock()
+        self.searcher = HybridRetriever(
+            config=HybridRetrieverConfig(enable_parallel=True),
+            dense_retriever=self.mock_dense,
+            sparse_retriever=self.mock_sparse,
+            fusion=ReciprocalRankFusion(config=ReciprocalRankFusionConfig()),
+        )
+        self.memory = MemoryAtom(
+            index=IndexLayer(
+                title="M1",
+                summary="Summary of M1 content is long enough",
+                memory_type=MemoryType.FACT,
+            ),
+            payload=PayloadLayer(content="C1"),
+            meta=make_memory_metadata(
+                source_agent_id="a1",
+                user_id="u1",
+                updated_at=datetime.now(UTC),
+            ),
+        )
+        scope = _make_identity_scope()
+        self.query = RetrievalQuery(
+            semantic_query="test",
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+        )
+
+    def _sparse_returns_memory(self) -> None:
+        self.mock_sparse.retrieve = AsyncMock(
+            return_value=SearchResults(results=[SearchResult(memory=self.memory, score=0.8)])
+        )
+
+    @pytest.mark.asyncio
+    async def test_ordinary_failure_on_one_path_degrades_to_other_path(self):
+        self.mock_dense.retrieve = AsyncMock(side_effect=RuntimeError("dense index broken"))
+        self._sparse_returns_memory()
+
+        results = await self.searcher.retrieve(self.query, top_k=5)
+
+        assert [r.memory.id for r in results.results] == [self.memory.id]
+
+    @pytest.mark.asyncio
+    async def test_storage_offline_on_one_path_propagates(self):
+        self.mock_dense.retrieve = AsyncMock(
+            side_effect=StorageOfflineError(cause=ConnectionError("qdrant down"))
+        )
+        self._sparse_returns_memory()
+
+        with pytest.raises(StorageOfflineError):
+            await self.searcher.retrieve(self.query, top_k=5)
+
+    @pytest.mark.asyncio
+    async def test_cancellation_on_one_path_propagates_instead_of_fusing(self):
+        self.mock_dense.retrieve = AsyncMock(side_effect=asyncio.CancelledError())
+        self._sparse_returns_memory()
+
+        with pytest.raises(asyncio.CancelledError):
+            await self.searcher.retrieve(self.query, top_k=5)
+
+
+class TestHybridRetrieverDisabledPath:
+    """混合检索关闭其中一路召回时，另一路照常返回。"""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("enable_parallel", [True, False], ids=["parallel", "sequential"])
+    async def test_disabled_dense_path_recalls_from_sparse_only(self, enable_parallel):
+        memory = MemoryAtom(
+            index=IndexLayer(
+                title="M1",
+                summary="Summary of M1 content is long enough",
+                memory_type=MemoryType.FACT,
+            ),
+            payload=PayloadLayer(content="C1"),
+            meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
+        )
+        storage = AsyncMock()
+        storage.search = AsyncMock(return_value=[{"memory": memory, "score": 0.7}])
+        retriever = create_retriever(
+            storage,
+            HybridRetrieverConfig(enable_parallel=enable_parallel, dense={"enabled": False}),
+        )
+        scope = _make_identity_scope()
+        query = RetrievalQuery(
+            semantic_query="test",
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+        )
+
+        results = await retriever.retrieve(query, top_k=5)
+
+        assert [r.memory.id for r in results.results] == [memory.id]
+        assert [call.kwargs["mode"] for call in storage.search.call_args_list] == ["sparse"]
+
+
+def _recall_memory(title: str) -> MemoryAtom:
+    return MemoryAtom(
+        index=IndexLayer(
+            title=title,
+            summary="Summary of recall candidate is long enough",
+            memory_type=MemoryType.FACT,
+        ),
+        payload=PayloadLayer(content=title),
+        meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
+    )
+
+
+def _recall_query() -> RetrievalQuery:
+    scope = _make_identity_scope()
+    return RetrievalQuery(
+        semantic_query="test",
+        belong_to=scope.workspace_identity,
+        from_actor=scope.actor_identity,
+    )
+
+
+class TestRecallThresholdAndCandidateCount:
+    """分数阈值只作用于 Dense 召回；融合不截取，Hybrid 按请求的候选数交出结果。"""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("config", "expected"),
+        [(DenseRetrieverConfig(), 0.5), (DenseRetrieverConfig(score_threshold=0.42), 0.42)],
+        ids=["default", "configured"],
+    )
+    async def test_dense_recall_filters_by_configured_cosine_threshold(self, config, expected):
+        storage = AsyncMock()
+        storage.search = AsyncMock(return_value=[])
+
+        await create_retriever(storage, config).retrieve(_recall_query(), top_k=5)
+
+        assert storage.search.call_args.kwargs["score_threshold"] == expected
+
+    @pytest.mark.asyncio
+    async def test_sparse_recall_passes_no_score_threshold(self):
+        storage = AsyncMock()
+        storage.search = AsyncMock(return_value=[])
+
+        await create_retriever(storage, SparseRetrieverConfig()).retrieve(_recall_query(), top_k=5)
+
+        assert "score_threshold" not in storage.search.call_args.kwargs
+
+    @pytest.mark.asyncio
+    async def test_hybrid_hands_out_requested_candidates_beyond_former_fusion_cut(self):
+        """融合不再截到 5 条：引擎为重排请求 20 条时，两路共 12 条候选全部交出。"""
+        by_mode = {
+            "dense": [_recall_memory(f"D{i}") for i in range(6)],
+            "sparse": [_recall_memory(f"S{i}") for i in range(6)],
+        }
+
+        async def search(*_args, mode, **_kwargs):
+            return [{"memory": m, "score": 0.9 - i * 0.01} for i, m in enumerate(by_mode[mode])]
+
+        storage = AsyncMock()
+        storage.search = AsyncMock(side_effect=search)
+        retriever = create_retriever(storage, HybridRetrieverConfig(enable_parallel=False))
+
+        results = await retriever.retrieve(_recall_query(), top_k=20)
+
+        assert {r.memory.id for r in results.results} == {
+            m.id for memories in by_mode.values() for m in memories
+        }
+        thresholds = {
+            call.kwargs["mode"]: call.kwargs.get("score_threshold")
+            for call in storage.search.call_args_list
+        }
+        assert thresholds == {"dense": 0.5, "sparse": None}
 
 
 if __name__ == "__main__":

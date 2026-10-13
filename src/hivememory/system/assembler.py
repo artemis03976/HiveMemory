@@ -14,6 +14,7 @@ HiveMemory 系统装配器
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
 from hivememory.alice.system import AliceSystem
 from hivememory.components.bus.global_bus import GlobalSystemBus
@@ -63,6 +64,10 @@ from hivememory.workspace.registry import (
     WorkspaceActorAccessRegistry,
 )
 from hivememory.workspace.runtime import WorkspaceRuntime
+
+if TYPE_CHECKING:
+    # system.system 在运行时导入本模块；返回类型只在类型检查时解析。
+    from hivememory.system.system import HiveMemorySystem
 
 # ---------------------------------------------------------------------------
 # 中间产物 Bundle（模块私有，仅供 SystemAssembler 内部流转）
@@ -149,7 +154,7 @@ class SystemAssembler:
     # 公开入口
     # ------------------------------------------------------------------
 
-    def assemble(self) -> HiveMemorySystem:  # noqa: F821 — 避免循环导入
+    def assemble(self) -> HiveMemorySystem:
         from hivememory.system.system import HiveMemorySystem
 
         runtime = self._build_runtime()

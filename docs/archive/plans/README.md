@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-12
 ---
 
 # Archived Plans
@@ -13,6 +13,8 @@ last_reviewed: 2026-10-11
 本目录保存已经完成或被替代、且当前事实已经合并进规范文档的实施计划。每篇归档计划必须标明归档日期、实现版本或 PR，以及替代它的当前文档。
 
 当前记录：
+
+- [v0.7.0 总线路由类型化与 mypy 门禁](./v0.7.0-typed-bus-routes.md)：2026-10-12 三阶段实现、验收与 code review 完成；提供方声明 route 名称与签名，Alice 拆分两种执行路由，CI 锁定依赖检查源码与类型回归样例。后端 3024 passed，覆盖率 93.16%；当前事实见[运行时机制](../../components/runtime-and-bus.md)和[公开路由与事件](../../contracts/routes-and-events.md)。
 
 - [v0.7.0 执行线程层](./v0.7.0-execution-thread-layer.md)：2026-10-11 三阶段实施、验收与 code review 完成；CALL 子线程以被调用方身份运行，按其白名单与可见性授权、写入记在其名下；进程以被调用方准入后派生并登记子线程，全部线程 context 在 CPU 执行结束时一起撤销；当前事实见 [Workspace 架构](../../architecture/workspace.md)第 4.3、5.4 节与[子系统契约](../../contracts/subsystem-contracts.md)第 4.6 节。
 - [v0.7.0 线程 context 取代执行凭据](./v0.7.0-thread-context.md)：2026-10-11 三阶段实施、验收与 code review 完成；任务进程内分进程 context 与线程 context，主线程的线程 context 从进程 context 派生、CPU 执行结束即撤销，执行凭据、凭据表与入口的拆参 handler 删除，操作入口只按请求类型分派；当前事实见 [Workspace 架构](../../architecture/workspace.md)第 4.3、5.4 节与[子系统契约](../../contracts/subsystem-contracts.md)第 4.6 节。

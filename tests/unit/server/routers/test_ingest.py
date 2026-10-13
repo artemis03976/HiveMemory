@@ -182,6 +182,18 @@ class TestIngestRouter:
         assert event.action_id == "a1"
         assert event.status == "success"
 
+    def test_ingest_rejects_unknown_render_as_before_service(self):
+        """非法 render_as 在入口拒绝，不进入服务（否则 dedup 已占位、事件随后丢失）。"""
+        mock_service = _mock_service()
+        client = TestClient(_create_test_app(mock_service))
+
+        response = client.post(
+            "/api/v1/ingest",
+            json=_body(role="tool_result", content="out", render_as="bogus"),
+        )
+        assert response.status_code == 422
+        mock_service.ingest_event.assert_not_called()
+
 
 class TestIngestFlushRouter:
     def test_flush_conversation(self):

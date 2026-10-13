@@ -67,7 +67,7 @@ class AttachmentParseError(Exception):
     @property
     def message(self) -> str:
         """可直接展示给用户的安全文案。"""
-        return self.args[0]
+        return str(self.args[0])
 
 
 __all__ = [

@@ -36,6 +36,7 @@ from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import RetrievalQuery
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.memory_library.library import MemoryLibrary
+from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.utils.time import utc_now
 
 logger = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class RetrievalFamiliar:
         self,
         engine: RetrievalEngine,
         memory_library: MemoryLibrary,
-        local_bus: Any | None = None,
+        local_bus: PatchouliBus | None = None,
     ):
         """
         初始化检索使魔
@@ -231,7 +232,7 @@ class RetrievalFamiliar:
             source_version=atom.meta.version,
         )
 
-    async def retrieve(self, query: RetrievalQuery, top_k: int = 5) -> list[MemoryAtom]:
+    async def retrieve(self, query: RetrievalQuery, top_k: int | None = None) -> list[MemoryAtom]:
         """
         语义检索相关记忆，按领域排序返回完整原子列表（A2 §2.1）。
 
@@ -251,7 +252,9 @@ class RetrievalFamiliar:
         )
         return list(engine_result.memories)
 
-    async def retrieve_async(self, query: RetrievalQuery, top_k: int = 5) -> list[MemoryAtom]:
+    async def retrieve_async(
+        self, query: RetrievalQuery, top_k: int | None = None
+    ) -> list[MemoryAtom]:
         """
         异步总线入口：只执行检索与活跃度刷新。
         """

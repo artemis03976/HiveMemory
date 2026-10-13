@@ -8,9 +8,9 @@ import pytest
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.components.bus.async_bus import AsyncSystemBus
 from hivememory.config.alice import KoakumaConfig
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.core.protocol.models import MTPExecutionResult
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.prompts.mtp import MTPPromptBuilder
 from tests.helpers.operations import HarnessKoakumaRuntime
 
@@ -31,9 +31,9 @@ class MockAsyncBus(AsyncSystemBus):
         self.register("retrieval.retrieve", self._handle_retrieve)
         self.register("memory.retrieve", self._handle_retrieve)
         self.register("memory.retrieve_by_aliases", self._handle_retrieve_by_aliases)
-        self.register(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, self._handle_retrieve)
+        self.register(PatchouliRoutes.MEMORY_RETRIEVE, self._handle_retrieve)
         self.register(
-            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
+            PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
             self._handle_retrieve_by_aliases,
         )
         self.register("generation.process", self._handle_generation_process)

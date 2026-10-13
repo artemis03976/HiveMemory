@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.contracts.routes import GlobalRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 from tests.helpers.workspace import (
     make_access_composition,
@@ -43,7 +43,7 @@ def _service(bus: GlobalSystemBus, composition) -> RootMemoryTaskService:
 async def test_list_memory_tasks_requests_patchouli_route(composition, workspace):
     bus = GlobalSystemBus()
     handler = AsyncMock(return_value=["task"])
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_TASK_LIST, handler)
+    bus.register(PatchouliRoutes.MEMORY_TASK_LIST, handler)
     access = await composition.authenticate(agent_id="system", user_id="u1")
 
     result = await _service(bus, composition).list_memory_tasks(
@@ -62,7 +62,7 @@ async def test_list_memory_tasks_requests_patchouli_route(composition, workspace
 async def test_get_memory_task_requests_patchouli_route(composition, workspace):
     bus = GlobalSystemBus()
     handler = AsyncMock(return_value="task")
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_TASK_GET, handler)
+    bus.register(PatchouliRoutes.MEMORY_TASK_GET, handler)
     access = await composition.authenticate(agent_id="system", user_id="u1")
 
     result = await _service(bus, composition).get_memory_task(
@@ -78,7 +78,7 @@ async def test_get_memory_task_requests_patchouli_route(composition, workspace):
 async def test_cancel_memory_task_requests_patchouli_route(composition, workspace):
     bus = GlobalSystemBus()
     handler = AsyncMock(return_value=True)
-    bus.register(GlobalRoutes.PATCHOULI_MEMORY_TASK_CANCEL, handler)
+    bus.register(PatchouliRoutes.MEMORY_TASK_CANCEL, handler)
     access = await composition.authenticate(agent_id="system", user_id="u1")
 
     result = await _service(bus, composition).cancel_memory_task(

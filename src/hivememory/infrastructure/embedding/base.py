@@ -7,12 +7,25 @@ HiveMemory Embedding 基础模块
 import logging
 import threading
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 
 if TYPE_CHECKING:
     from hivememory.config.shared import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
+
+
+class DenseSparseEncoding(TypedDict):
+    """单条文本同时请求 dense 与 sparse 时的编码结果。"""
+
+    dense: list[float]
+    sparse_text: str
+
+
+# encode 的全部返回形状：dense 单条/批量、sparse 原文、dense+sparse 组合。
+type EmbeddingOutput = (
+    list[float] | list[list[float]] | str | list[str] | DenseSparseEncoding | dict[str, Any]
+)
 
 
 class BaseEmbeddingService(ABC):
@@ -24,18 +37,21 @@ class BaseEmbeddingService(ABC):
 
     @abstractmethod
     def encode(
-        self, texts: str | list[str], normalize: bool = True, show_progress: bool = False
-    ) -> list[float] | list[list[float]]:
+        self,
+        dense_texts: str | list[str] | None = None,
+        sparse_texts: str | list[str] | None = None,
+        **kwargs: Any,
+    ) -> EmbeddingOutput:
         """
-        编码文本为向量
+        编码 dense 向量，或返回 sparse 原文供向量库的 BM25 使用
 
         Args:
-            texts: 单个文本或文本列表
-            normalize: 是否归一化
-            show_progress: 是否显示进度条
+            dense_texts: 需要 dense 向量的单个文本或文本列表
+            sparse_texts: 需要 sparse 检索的单个文本或文本列表
 
         Returns:
-            向量或向量列表
+            dense only 为向量或向量列表；sparse only 为原文；两者都给时为
+            ``{"dense": ..., "sparse_text": ...}``
         """
         pass
 
@@ -56,7 +72,7 @@ class SingletonModelService(BaseEmbeddingService):
     基于配置的 model_name 和 device 区分实例。
     """
 
-    _instances = {}
+    _instances: ClassVar[dict[str, "SingletonModelService"]] = {}
     _lock = threading.Lock()
     _model_lock = threading.Lock()
 
@@ -92,7 +108,7 @@ class SingletonModelService(BaseEmbeddingService):
         self.model_name = self.config.model_name
         self.device = self.config.device
         self.cache_dir = self.config.cache_dir
-        self._model = None
+        self._model: Any = None
 
         self._lazy_load_lock = threading.Lock()
 

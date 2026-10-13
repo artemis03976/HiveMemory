@@ -171,7 +171,7 @@ class RunExecutor:
             )
             match outcome:
                 case DispatchCallee(frame=callee_frame):
-                    action_id = suspension.suspend_action_id
+                    action_id = suspension.require_call_suspension().action_id
 
                     callee_result = await self._execute_frame(
                         callee_frame,
@@ -257,11 +257,7 @@ class RunExecutor:
 
     @staticmethod
     def _require_call_suspension(suspension: FrameExecutionResult) -> None:
-        if suspension.call_request is None:
-            raise RuntimeError("CALL suspension is missing its request.")
-        action_id = suspension.suspend_action_id
-        if not action_id:
-            raise RuntimeError("CALL suspension is missing its action id.")
+        suspension.require_call_suspension()
 
 
 __all__ = ["RunExecutor"]

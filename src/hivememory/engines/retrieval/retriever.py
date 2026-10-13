@@ -22,14 +22,12 @@ from hivememory.config.patchouli import (
 )
 from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
 from hivememory.engines.retrieval.fusion import create_fusion
-from hivememory.engines.retrieval.interfaces import BaseFusion, BaseMemoryRetriever, BaseReranker
+from hivememory.engines.retrieval.interfaces import BaseFusion, BaseMemoryRetriever
 from hivememory.engines.retrieval.models import (
     RetrievalQuery,
     SearchResult,
     SearchResults,
 )
-from hivememory.engines.retrieval.reranker import NoopReranker, create_reranker
-from hivememory.infrastructure.rerank.base import BaseRerankService
 
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
@@ -68,15 +66,15 @@ class DenseRetriever(BaseMemoryRetriever):
         self,
         query: RetrievalQuery,
         top_k: int | None = None,
-        score_threshold: float | None = None,
     ) -> SearchResults:
         """
         执行稠密向量检索
 
+        按配置的 cosine 阈值在存储召回时粗筛；这是检索链路中唯一的分数阈值。
+
         Args:
             query: 处理后的查询
             top_k: 返回数量
-            score_threshold: 相似度阈值
 
         Returns:
             检索结果集合
@@ -84,7 +82,6 @@ class DenseRetriever(BaseMemoryRetriever):
         start_time = time.time()
 
         top_k = top_k or self.config.top_k
-        score_threshold = score_threshold or self.config.score_threshold
 
         # 获取搜索文本
         search_text = query.get_search_text()
@@ -98,7 +95,7 @@ class DenseRetriever(BaseMemoryRetriever):
                 top_k=top_k,
                 filters=query.filters,
                 mode="dense",
-                score_threshold=score_threshold,
+                score_threshold=self.config.score_threshold,
             )
         except (StorageOfflineError, StorageReadError):
             raise
@@ -192,15 +189,15 @@ class SparseRetriever(BaseMemoryRetriever):
         self,
         query: RetrievalQuery,
         top_k: int | None = None,
-        score_threshold: float | None = None,
     ) -> SearchResults:
         """
         执行稀疏向量检索
 
+        BM25 原始分没有上界，Sparse 召回不设分数阈值。
+
         Args:
             query: 处理后的查询
             top_k: 返回数量
-            score_threshold: 相似度阈值
 
         Returns:
             检索结果集合
@@ -208,7 +205,6 @@ class SparseRetriever(BaseMemoryRetriever):
         start_time = time.time()
 
         top_k = top_k or self.config.top_k
-        score_threshold = score_threshold or self.config.score_threshold
 
         # 获取搜索文本
         search_text = query.get_search_text()
@@ -222,7 +218,6 @@ class SparseRetriever(BaseMemoryRetriever):
                 top_k=top_k,
                 filters=query.filters,
                 mode="sparse",
-                score_threshold=score_threshold,
             )
         except (StorageOfflineError, StorageReadError):
             raise
@@ -260,8 +255,9 @@ class HybridRetriever(BaseMemoryRetriever):
     架构:
         1. Parallel Recall: DenseRetriever || SparseRetriever
         2. Fusion: RRF 合并结果
-        3. Rerank: 可选的重排序
-        4. Return: Top-K 最终结果
+        3. Return: Top-K 融合结果
+
+    重排序不属于检索器，是 RetrievalEngine 中召回之后的独立阶段。
     """
 
     def __init__(
@@ -270,17 +266,15 @@ class HybridRetriever(BaseMemoryRetriever):
         dense_retriever: BaseMemoryRetriever,
         sparse_retriever: BaseMemoryRetriever,
         fusion: BaseFusion,
-        reranker: BaseReranker = None,
     ):
         """
         初始化混合检索器
 
         Args:
             config: 混合检索配置
-            dense_retriever: 稠密检索器实例
-            sparse_retriever: 稀疏检索器实例
+            dense_retriever: 稠密检索器实例；该路在配置中关闭时为 NoOpRetriever
+            sparse_retriever: 稀疏检索器实例；该路在配置中关闭时为 NoOpRetriever
             fusion: 融合器实例
-            reranker: 重排序器实例
         """
         self.config = config
         self.enable_parallel = config.enable_parallel
@@ -289,29 +283,26 @@ class HybridRetriever(BaseMemoryRetriever):
         self.sparse_retriever = sparse_retriever
 
         self.fusion = fusion
-        self.reranker = reranker
 
     async def retrieve(
         self,
         query: RetrievalQuery,
         top_k: int | None = None,
-        score_threshold: float | None = None,
     ) -> SearchResults:
         """
         执行混合检索
 
-        执行稠密+稀疏并行召回和 RRF 融合。
+        执行稠密+稀疏并行召回和融合。融合返回完整结果，这里按调用方请求的候选数
+        截取（引擎请求的是重排器的候选池大小）；融合分数不设阈值。
 
         Args:
             query: 处理后的查询
             top_k: 返回数量（可选）
-            score_threshold: 相似度阈值（可选）
 
         Returns:
             检索结果集合
         """
         top_k = top_k or self.config.top_k
-        score_threshold = score_threshold or self.config.score_threshold
 
         start_time = time.time()
 
@@ -321,24 +312,8 @@ class HybridRetriever(BaseMemoryRetriever):
         else:
             dense_results, sparse_results = await self._sequential_recall(query)
 
-        # RRF 融合
+        # 融合：RRF 分数只反映名次，加权融合混合了不同尺度的原始分，均不设阈值。
         fused_results = self.fusion.fuse(dense_results, sparse_results)
-
-        # 可选重排序
-        if self.reranker:
-            fused_results = self.reranker.rerank(fused_results, query)
-
-        # 应用分数阈值
-        # 注意: 仅当使用了非 NoopReranker 时才应用阈值
-        if score_threshold > 0:
-            if isinstance(self.reranker, NoopReranker):
-                fused_results.results = [
-                    r for r in fused_results.results if r.score >= score_threshold
-                ]
-            else:
-                logger.debug(
-                    f"跳过阈值过滤 (threshold={score_threshold}): 当前使用的是 RRF 分数，不适用 Cosine 阈值"
-                )
 
         # 截取 top_k
         fused_results.results = fused_results.results[:top_k]
@@ -349,19 +324,28 @@ class HybridRetriever(BaseMemoryRetriever):
         return fused_results
 
     async def _parallel_recall(self, query: RetrievalQuery) -> tuple[SearchResults, SearchResults]:
-        """asyncio.gather 并行执行稠密和稀疏检索"""
-        results = await asyncio.gather(
+        """asyncio.gather 并行执行稠密和稀疏检索
+
+        单路的普通失败降级为空结果；存储离线/读取失败与取消等非 ``Exception``
+        的 ``BaseException`` 必须向上传播，不能被当作检索结果交给融合。
+        """
+        dense_outcome, sparse_outcome = await asyncio.gather(
             self.dense_retriever.retrieve(query),
             self.sparse_retriever.retrieve(query),
             return_exceptions=True,
         )
-        dense_results = results[0] if not isinstance(results[0], Exception) else SearchResults()
-        sparse_results = results[1] if not isinstance(results[1], Exception) else SearchResults()
+        for outcome in (dense_outcome, sparse_outcome):
+            if isinstance(outcome, (StorageOfflineError, StorageReadError)):
+                raise outcome
+            if isinstance(outcome, BaseException) and not isinstance(outcome, Exception):
+                raise outcome
 
-        for r in results:
-            if isinstance(r, (StorageOfflineError, StorageReadError)):
-                raise r
-
+        dense_results = (
+            SearchResults() if isinstance(dense_outcome, BaseException) else dense_outcome
+        )
+        sparse_results = (
+            SearchResults() if isinstance(sparse_outcome, BaseException) else sparse_outcome
+        )
         return dense_results, sparse_results
 
     async def _sequential_recall(
@@ -373,23 +357,38 @@ class HybridRetriever(BaseMemoryRetriever):
         return dense_results, sparse_results
 
 
+class NoOpRetriever(BaseMemoryRetriever):
+    """
+    空召回
+
+    在配置中关闭的召回路径由它顶替，保持检索器接口调用一致；总是返回空结果。
+    """
+
+    async def retrieve(
+        self,
+        query: RetrievalQuery,
+        top_k: int | None = None,
+    ) -> SearchResults:
+        return SearchResults()
+
+
 def create_retriever(
     mid_term: "MidTermMemoryStore",
     config: HybridRetrieverConfig | DenseRetrieverConfig | SparseRetrieverConfig,
-    reranker_service: BaseRerankService = None,
 ) -> BaseMemoryRetriever:
     """
     创建检索器工厂
 
-    支持多态配置:
+    召回策略按配置多态分发:
     - DenseRetrieverConfig -> DenseRetriever
     - SparseRetrieverConfig -> SparseRetriever
     - HybridRetrieverConfig -> HybridRetriever
 
+    重排序不在此组装，由 RetrievalEngine 作为独立阶段持有。
+
     Args:
         mid_term: 中期记忆存储
-        config: 检索器配置
-        reranker_service: Rerank 服务实例
+        config: 召回策略配置
 
     Returns:
         BaseMemoryRetriever 实例
@@ -402,33 +401,21 @@ def create_retriever(
         return SparseRetriever(mid_term, config)
 
     if isinstance(config, HybridRetrieverConfig):
-        # 1. 创建子检索器
-        dense_retriever = None
-        if config.dense.enabled:
-            dense_retriever = DenseRetriever(mid_term, config.dense)
-
-        sparse_retriever = None
-        if config.sparse.enabled:
-            sparse_retriever = SparseRetriever(mid_term, config.sparse)
+        # 1. 创建子检索器；关闭的召回路径由 NoOpRetriever 顶替
+        dense_retriever: BaseMemoryRetriever = (
+            DenseRetriever(mid_term, config.dense) if config.dense.enabled else NoOpRetriever()
+        )
+        sparse_retriever: BaseMemoryRetriever = (
+            SparseRetriever(mid_term, config.sparse) if config.sparse.enabled else NoOpRetriever()
+        )
 
         # 2. 创建 Fusion
         fusion = create_fusion(config.fusion)
-
-        # 3. 创建 Reranker
-        reranker = None
-        if config.reranker.enabled:
-            if reranker_service is None:
-                logger.warning(
-                    "HybridRetriever: Reranker enabled but no service provided. Disabling reranker."
-                )
-            else:
-                reranker = create_reranker(config=config.reranker, service=reranker_service)
 
         return HybridRetriever(
             dense_retriever=dense_retriever,
             sparse_retriever=sparse_retriever,
             fusion=fusion,
-            reranker=reranker,
             config=config,
         )
 
@@ -439,5 +426,6 @@ __all__ = [
     "DenseRetriever",
     "SparseRetriever",
     "HybridRetriever",
+    "NoOpRetriever",
     "create_retriever",
 ]

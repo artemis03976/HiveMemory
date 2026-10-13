@@ -20,7 +20,6 @@ from hivememory.config.patchouli import (
     SemanticFlowPerceptionConfig,
     VitalityCalculatorConfig,
 )
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import MemoryAtom, MemoryLifecycleState
 from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
@@ -32,7 +31,9 @@ from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngin
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.engines.retrieval.engine import RetrievalEngine
+from hivememory.engines.retrieval.reranker import NoopReranker
 from hivememory.engines.retrieval.retriever import DenseRetriever
+from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.gateway.runtime import GatewayRuntime
 from hivememory.gateway.service import GatewayService
 from hivememory.patchouli.application import (
@@ -167,7 +168,13 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
         artifact_store=artifacts,
     )
     retrieval = RetrievalFamiliar(
-        RetrievalEngine(DenseRetriever(mid_term, DenseRetrieverConfig())), library, local_bus
+        RetrievalEngine(
+            DenseRetriever(mid_term, DenseRetrieverConfig()),
+            reranker=NoopReranker(),
+            default_top_k=5,
+        ),
+        library,
+        local_bus,
     )
     perception = PerceptionFamiliar(
         engine=MemoryPerceptionEngine(
@@ -245,7 +252,7 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
     bridge.mount()
     # 无模型保守模式仍经过真实 Gateway workflow 和话题上下文读取。
     gateway = GatewayService(GatewayRuntime(config=SystemGatewayConfig(), global_bus=global_bus))
-    global_bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway.process)
+    global_bus.register(GatewayPublicRoutes.PROCESS, gateway.process)
     await controller.start()
     await queue.start()
     try:
@@ -257,4 +264,4 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
         await queue.stop()
         await controller.stop()
         bridge.unmount()
-        global_bus.unregister(GlobalRoutes.GATEWAY_PROCESS)
+        global_bus.unregister(GatewayPublicRoutes.PROCESS)

@@ -7,7 +7,6 @@ from dataclasses import replace
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import RunBinding
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import ResourceUnavailableError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -15,6 +14,7 @@ from hivememory.core.models import (
     MemoryAtom,
     ResolvedAgentProfile,
 )
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
@@ -41,7 +41,7 @@ class MemoryBackend:
         return next((atom for atom in self.memories.values() if atom.id == memory_id), None)
 
     async def retrieve_by_aliases(self, aliases, *, scope):
-        from hivememory.core.contracts.routes import GlobalRoutes
+        from hivememory.patchouli.contracts import PatchouliRoutes
 
         found = [self.memories[alias] for alias in aliases if alias in self.memories]
         missing = [alias for alias in aliases if alias not in self.memories]
@@ -49,7 +49,7 @@ class MemoryBackend:
             try:
                 found.extend(
                     await self.bus.request(
-                        GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE_BY_ALIASES,
+                        PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
                         aliases=missing,
                         identity_scope=scope,
                     )
@@ -60,7 +60,7 @@ class MemoryBackend:
 
     async def retrieve(self, request):
         if self.bus is not None:
-            return await self.bus.request(GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE, request=request)
+            return await self.bus.request(PatchouliRoutes.MEMORY_RETRIEVE, request=request)
         return list(self.memories.values())
 
     async def get_agent_profile(self, alias, *, scope):
@@ -71,7 +71,7 @@ class MemoryBackend:
         if self.bus is None:
             raise NotImplementedError("本测试未装配 Profile backing")
         return await self.bus.request(
-            GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, alias, identity_scope=scope
+            PatchouliRoutes.GET_AGENT_PROFILE, alias, identity_scope=scope
         )
 
 
@@ -84,7 +84,7 @@ class OperationsHarness:
         self.bus = bus or GlobalSystemBus()
         self.citations: list[dict] = []
         if bus is None:
-            self.bus.register(GlobalRoutes.PATCHOULI_RECORD_MEMORY_CITATION, self._record_citation)
+            self.bus.register(PatchouliRoutes.RECORD_MEMORY_CITATION, self._record_citation)
         self.backing = MemoryBackend(bus)
         self.runtime = WorkspaceRuntime(backing=self.backing, atom_capacity=32, profile_capacity=16)
         self.registry = self.runtime.intents

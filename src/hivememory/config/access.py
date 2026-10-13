@@ -147,7 +147,9 @@ class AccessRegistration:
         self.workspace_actors = workspace_actors
 
 
-def _load_registration_file(path: Path, model_type: type, env_var: str) -> BaseModel:
+def _load_registration_file[ModelT: BaseModel](
+    path: Path, model_type: type[ModelT], env_var: str
+) -> ModelT:
     """读取并校验一个登记文件。
 
     显式指定的路径缺失时抛出 ``FileNotFoundError``；默认路径缺失视为

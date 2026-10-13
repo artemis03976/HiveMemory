@@ -107,14 +107,14 @@ class RuleInterceptor(BaseInterceptor):
             )
 
         if allow_system and self.enable_system and self.command_registry is not None:
-            command = self.command_registry.match(query_stripped)
-            if command is not None:
+            matched = self.command_registry.match(query_stripped)
+            if matched is not None:
                 logger.debug("L1 intercepted system command: %s", query_stripped)
                 return InterceptorResult(
                     intent=GatewayIntent.SYSTEM,
-                    reason=self._command_reason(query_stripped, command.parse_status),
+                    reason=self._command_reason(query_stripped, matched.parse_status),
                     hit=True,
-                    command=command,
+                    command=matched,
                 )
 
         if self.enable_chat:
@@ -169,7 +169,7 @@ class RuleInterceptor(BaseInterceptor):
         return CommandParseResult(
             raw_input=query,
             name=name,
-            tokens=[name],
+            tokens=(name,),
             parse_status=CommandParseStatus.UNKNOWN,
             error="系统指令库未启用",
         )

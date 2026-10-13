@@ -19,7 +19,6 @@ from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.config.alice import AliceConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.core.access import WorkspaceOperation
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
@@ -33,6 +32,7 @@ from hivememory.core.models import (
     WriteFocus,
 )
 from hivememory.core.mtp import MTPCallRequest
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import SubmitWriteIntentRequest, ThreadOperationSubmitter
@@ -341,7 +341,7 @@ async def test_unadmitted_call_target_returns_structured_error_without_creating_
     """目标准入失败时只回填结构化权限错误，进程登记里没有子线程。"""
     access = make_access_composition([make_actor_access_record(agent_id="parent"), *callee_records])
     harness = OperationsHarness()
-    harness.bus.register(GlobalRoutes.PATCHOULI_GET_AGENT_PROFILE, _profile_named_by_alias)
+    harness.bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_named_by_alias)
     harness.backing.bus = harness.bus
     context = await access.authenticate_thread(
         agent_id="parent", process_id="call-process", register_process=True

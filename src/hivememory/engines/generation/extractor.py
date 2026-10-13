@@ -52,7 +52,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
     def __init__(
         self,
         config: ExtractorConfig,
-        llm_service: BaseLLMService = None,
+        llm_service: BaseLLMService,
     ):
         """
         初始化 LLM 提取器

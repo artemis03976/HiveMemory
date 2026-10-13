@@ -21,7 +21,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from hivememory.core.models import IdentityScope
+from hivememory.core.models import IdentityScope, TurnEventRenderAs
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import RetrievalResponse
 
@@ -134,7 +134,7 @@ class PassiveIngressEvent(BaseModel):
     tool_args: dict[str, Any] | None = None
     target: str | None = None
     status: str | None = None
-    render_as: str = "plain"
+    render_as: TurnEventRenderAs = "plain"
 
     @property
     def dedup_key(self) -> tuple[str, str]:

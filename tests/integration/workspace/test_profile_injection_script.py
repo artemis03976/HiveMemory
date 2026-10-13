@@ -6,8 +6,8 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import AdmissionDeniedError
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
 from scripts import inject_profiles
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
@@ -35,8 +35,8 @@ class _ScriptSystems:
             self.atoms[atom.index.alias] = atom
             return atom
 
-        bus.register(GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST, list_profiles)
-        bus.register(GlobalRoutes.PATCHOULI_AGENT_PROFILE_CREATE, create_profile)
+        bus.register(PatchouliRoutes.AGENT_PROFILE_LIST, list_profiles)
+        bus.register(PatchouliRoutes.AGENT_PROFILE_CREATE, create_profile)
         issued = []
         authenticate = composition.gateway.authenticate
 

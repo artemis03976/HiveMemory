@@ -251,12 +251,15 @@ class DocumentLocator(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+DocumentSourceType = Literal["url", "file", "pdf", "markdown", "html", "repo", "unknown"]
+
+
 class DocumentArtifact(BaseArtifact):
     """外部文档引用快照（point-in-time citation）- 写入后不可变。"""
 
     artifact_type: Literal[ArtifactType.DOCUMENT] = ArtifactType.DOCUMENT
 
-    source_type: Literal["url", "file", "pdf", "markdown", "html", "repo", "unknown"] = "unknown"
+    source_type: DocumentSourceType = "unknown"
     source_uri: str | None = None
     canonical_uri: str | None = None
     mime_type: str | None = None

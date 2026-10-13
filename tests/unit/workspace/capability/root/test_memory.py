@@ -7,7 +7,6 @@ import pytest
 import pytest_asyncio
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -15,6 +14,7 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
 )
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.root.memory import (
     MemoryLifecycleUnavailableError,
     MemoryNotFoundError,
@@ -102,7 +102,7 @@ class TestRootMemoryService:
 
         mock_global_bus.request.assert_awaited_once()
         route, bus_scope, payload = mock_global_bus.request.await_args.args
-        assert route == GlobalRoutes.PATCHOULI_MEMORY_CREATE
+        assert route == PatchouliRoutes.MEMORY_CREATE
         # 传给 Patchouli 的 scope 来自 guard：已认证 actor + 目标 workspace
         assert bus_scope.actor_identity == ActorIdentity(user_id="u1", agent_id="system")
         assert bus_scope.workspace_identity == workspace

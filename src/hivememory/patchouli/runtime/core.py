@@ -35,7 +35,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypedDict
 
 from hivememory.components.events.bus import (
     NullRuntimeEventSink,
@@ -66,7 +66,9 @@ from hivememory.patchouli.runtime.shutdown_drain import (
 )
 
 if TYPE_CHECKING:
+    from hivememory.infrastructure.rerank import FastEmbedRerankerService
     from hivememory.patchouli.control.memory_generation import MemoryGenerationCoordinator
+    from hivememory.patchouli.memory_library import MemoryLibrary
     from hivememory.patchouli.service import PatchouliService
     from hivememory.patchouli.services.lifecycle import LifecycleFamiliar
     from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
@@ -74,6 +76,16 @@ if TYPE_CHECKING:
     from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 
 logger = logging.getLogger(__name__)
+
+
+class _PatchouliServices(TypedDict, total=False):
+    """``_register_services`` 装配的内部服务；按键取值即得对应类型。"""
+
+    perception: PerceptionFamiliar
+    retrieval: RetrievalFamiliar
+    generation: MemoryGenerationFamiliar
+    generation_coordinator: MemoryGenerationCoordinator
+    lifecycle: LifecycleFamiliar
 
 
 class PatchouliRuntime:
@@ -127,7 +139,7 @@ class PatchouliRuntime:
         self._engines: dict[str, Any] = self._build_engines()
 
         # 3. 注册微服务
-        self._services: dict[str, Any] = {}
+        self._services: _PatchouliServices = {}
         self._register_services()
 
         logger.info("PatchouliRuntime 帕秋莉运行时初始化完成")
@@ -316,16 +328,16 @@ class PatchouliRuntime:
 
         from hivememory.infrastructure.rerank import get_fast_embed_reranker_service
 
-        reranker_config = self._patchouli_config.retrieval.retriever.reranker
+        # 重排序是召回之后的独立阶段，与召回策略无关。
+        reranker_config = self._patchouli_config.retrieval.reranker
+        self.reranker_service: FastEmbedRerankerService | None = None
         if reranker_config.enabled:
             self.reranker_service = get_fast_embed_reranker_service(config=reranker_config)
-        else:
-            self.reranker_service = None
 
         # MemoryLibrary：三层存储协调层，在引擎构建前初始化以便注入
         self.memory_library = self._build_memory_library()
 
-    def _build_memory_library(self):
+    def _build_memory_library(self) -> MemoryLibrary:
         """构建 MemoryLibrary（三层存储协调层）"""
         from hivememory.patchouli.memory_library import (
             FileBasedStorageAdapter,
@@ -393,16 +405,22 @@ class PatchouliRuntime:
         from hivememory.engines.retrieval import (
             BaseMemoryRetriever,
             RetrievalEngine,
+            create_reranker,
             create_retriever,
         )
 
         config = self._patchouli_config.retrieval
 
         retriever: BaseMemoryRetriever = create_retriever(
-            self.memory_library.mid_term, config.retriever, self.reranker_service
+            self.memory_library.mid_term,
+            config.retriever,
         )
+        # 重排序是引擎中召回之后的独立阶段；关闭时由 NoopReranker 顶替。
+        reranker = create_reranker(config=config.reranker, service=self.reranker_service)
 
-        return RetrievalEngine(retriever=retriever)
+        return RetrievalEngine(
+            retriever=retriever, reranker=reranker, default_top_k=config.default_top_k
+        )
 
     def _build_perception_engine(self):
         """[私有构建器] 组装 Perception 纯算法引擎

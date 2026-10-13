@@ -50,6 +50,9 @@ dev = [
     "black==26.5.1",
     "ruff==0.16.8",
     "mypy==2.3.1",
+    # 第三方类型存根同样决定 mypy 的检查结果，与 mypy 一并锁定。
+    "types-PyYAML==6.0.12.20260906",
+    "types-defusedxml==0.7.0.20260504",
     "ipython>=8.20.0",
 ]
 ui = [
@@ -110,6 +113,12 @@ warn_return_any = true
 warn_unused_configs = true
 disallow_untyped_defs = false
 check_untyped_defs = true
+
+# duckduckgo-search 属于可选 extra（search），默认开发环境与 CI 不安装；
+# web_search syscall 在导入失败时显式报不可用。
+[[tool.mypy.overrides]]
+module = ["duckduckgo_search"]
+ignore_missing_imports = true
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

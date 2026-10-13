@@ -21,6 +21,7 @@ from hivememory.i18n import get_relay_prompt_text
 
 if TYPE_CHECKING:
     from hivememory.config.patchouli import RelayControllerConfig
+    from hivememory.infrastructure.llm.base import BaseLLMService
 
 logger = logging.getLogger(__name__)
 
@@ -143,7 +144,7 @@ class LLMRelayController(BaseRelayController):
     使用 LLM 生成更智能、更语义化的摘要。
     """
 
-    def __init__(self, summary_llm: Any | None = None):
+    def __init__(self, summary_llm: "BaseLLMService | None" = None):
         """
         初始化 LLM 接力控制器
 
@@ -274,7 +275,7 @@ class NoOpRelayController(BaseRelayController):
 
 
 def create_relay_controller(
-    config: "RelayControllerConfig", llm_service: Any | None = None
+    config: "RelayControllerConfig", llm_service: "BaseLLMService | None" = None
 ) -> BaseRelayController:
     """
     创建 RelayController 实例（工厂函数）

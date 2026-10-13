@@ -10,6 +10,8 @@ Resolver 的私有实现细节，后续按观测数据决定是否拆分。
 
 from __future__ import annotations
 
+from typing import Any
+
 from hivememory.config.gateway import UserQueryAnalysisConfig
 from hivememory.core.models import TopicData
 from hivememory.core.protocol.gateway import IntentType, MemoryWriteSignal
@@ -52,7 +54,7 @@ class QueryUnderstandingEngine:
             language=self._language,
             topic_context=self._render_topic_context(topic_data),
         )
-        kwargs = {}
+        kwargs: dict[str, Any] = {}
         if self._config.model_override:
             kwargs["model"] = self._config.model_override
         try:

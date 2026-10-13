@@ -8,42 +8,43 @@
 - chat_stream(): 完整事件序列契约（process_id → topic_info → memory_refs → 运行期 → run_status → done）
 - 检索注入：预埋记忆后 chat，memory_refs 携带引用
 
-标记: [e2e, live_llm]（需真实 LLM API Key + Qdrant）
+标记: [e2e, live_llm]（需真实 LLM API Key + Qdrant；隔离环境见 tests/e2e/conftest.py）
 """
 
 from __future__ import annotations
 
 from typing import Any
-from uuid import uuid4
 
 import pytest
 
-from hivememory.core.models import (
-    IndexLayer,
-    MemoryAtom,
-    MemoryType,
-    PayloadLayer,
-)
+from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.workspace.process.service import NonStreamingAgentOutcome
-from tests.e2e.conftest import wait_for_memory_persistence_async
-from tests.helpers.memory import make_memory_metadata
+from tests.e2e.conftest import root_access, wait_for_workspace_memories, workspace_for
 from tests.helpers.registered_chat import run_registered_chat, stream_registered_chat
 
-pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
+# 系统由 session 级 fixture 在 session 事件循环中启动，测试须运行在同一循环。
+pytestmark = [pytest.mark.e2e, pytest.mark.live_llm, pytest.mark.asyncio(loop_scope="session")]
 
 
-def _make_memory(user_id: str, content: str, title: str = "E2E Memory") -> MemoryAtom:
-    return MemoryAtom(
-        id=uuid4(),
-        meta=make_memory_metadata(source_agent_id="e2e_test", user_id=user_id),
-        index=IndexLayer(
+async def _seed_memory(
+    system, user_id: str, *, title: str, summary: str, content: str
+) -> MemoryAtom:
+    """经 root 管理入口在测试用户的 Workspace 预埋一条公开记忆（含真实向量）。
+
+    标题与摘要按生成记忆的写法描述内容本身：它们进入 dense 文本，写成“测试用记忆”之类
+    的说明会让向量偏离内容，低于 Dense 召回阈值。
+    """
+    workspace = workspace_for(user_id)
+    async with root_access(system, workspace) as access:
+        return await system.root_memory_service.create_memory(
+            target_workspace=workspace,
             title=title,
-            summary="用于 e2e 检索注入验证的记忆",
+            summary=summary,
+            content=content,
+            memory_type=MemoryType.FACT.value,
             tags=["e2e"],
-            memory_type=MemoryType.FACT,
-        ),
-        payload=PayloadLayer(content=content),
-    )
+            access=access,
+        )
 
 
 def _event_summary(events: list[dict[str, Any]]) -> str:
@@ -78,10 +79,9 @@ async def _collect_stream_events(
 class TestChatRun:
     """完整 chat run 闭环"""
 
-    @pytest.mark.asyncio
-    async def test_chat_full_round_trip_persists_memory(self, e2e_system, clean_user):
+    async def test_chat_full_round_trip_persists_memory(self, e2e_system, e2e_user):
         """chat() 完整闭环：回答 + finalize 触发记忆落库"""
-        user_id = clean_user()
+        user_id = e2e_user()
         result = await run_registered_chat(
             e2e_system,
             user_id=user_id,
@@ -95,18 +95,12 @@ class TestChatRun:
         assert result.execution_result.status == "completed"
 
         # finalize 链路应把对话内容物化为真实记忆
-        memories = await wait_for_memory_persistence_async(
-            e2e_system,
-            user_id,
-            min_count=1,
-            timeout=30.0,
-        )
+        memories = await wait_for_workspace_memories(e2e_system, user_id, timeout=30.0)
         assert memories, "chat finalize 后 Qdrant 应有记忆落库"
 
-    @pytest.mark.asyncio
-    async def test_chat_stream_event_sequence(self, e2e_system, clean_user):
+    async def test_chat_stream_event_sequence(self, e2e_system, e2e_user):
         """chat_stream() 完整事件序列：序言 → 运行期 → 终态"""
-        user_id = clean_user()
+        user_id = e2e_user()
         events = await _collect_stream_events(
             e2e_system,
             "你好，请用一句话介绍你自己。",
@@ -127,12 +121,16 @@ class TestChatRun:
         assert done is not None, f"缺少 done 事件。events={_event_summary(events)}"
         assert done.get("data", {}).get("final_text"), "done.final_text 应为空字符串之外的文本"
 
-    @pytest.mark.asyncio
-    async def test_chat_stream_retrieval_injection(self, e2e_system, clean_user, qdrant_store):
-        """检索注入：预埋记忆 → chat 携带 memory_refs"""
-        user_id = clean_user()
-        atom = _make_memory(user_id, "我最喜欢的编程语言是 Rust，因为它内存安全。")
-        await qdrant_store.upsert_memory(atom)
+    async def test_chat_stream_retrieval_injection(self, e2e_system, e2e_user):
+        """检索注入：预埋记忆 → chat 的 memory_refs 引用该记忆"""
+        user_id = e2e_user()
+        atom = await _seed_memory(
+            e2e_system,
+            user_id,
+            title="用户最喜欢的编程语言",
+            summary="用户偏好 Rust，原因是内存安全",
+            content="我最喜欢的编程语言是 Rust，因为它内存安全。",
+        )
 
         events = await _collect_stream_events(
             e2e_system,
@@ -141,19 +139,16 @@ class TestChatRun:
             enable_memory_retrieval=True,
         )
 
-        # 检索注入事件应携带引用
+        # 检索注入事件应引用预埋的记忆
         refs_events = [e for e in events if e.get("event") == "memory_refs"]
         assert refs_events, f"缺少 memory_refs 事件。events={_event_summary(events)}"
-        assert any(
-            str(refs_events[i].get("data")) != "{}" or refs_events[i].get("data")
-            for i in range(len(refs_events))
-        ), "memory_refs 应携带检索结果"
+        referenced_ids = {ref["id"] for event in refs_events for ref in event["data"]["memories"]}
+        assert str(atom.id) in referenced_ids, f"memory_refs 未引用预埋记忆: {referenced_ids}"
 
-    @pytest.mark.asyncio
     async def test_chat_mtp_write_persists_deterministic_content(
         self,
         e2e_system,
-        clean_user,
+        e2e_user,
     ):
         """
         MTP WRITE 主动生成路径（确定性验证）：
@@ -162,7 +157,7 @@ class TestChatRun:
         本用例要求 agent 输出一次 WRITE 指令并得到 ACK，再经实际落库内容
         验证进程已认领并派发登记意图。
         """
-        user_id = clean_user()
+        user_id = e2e_user()
         result = await run_registered_chat(
             e2e_system,
             user_id=user_id,
@@ -185,12 +180,7 @@ class TestChatRun:
         ], "应经 MTP WRITE 登记一次意图，再由进程收尾认领"
 
         # WRITE 走 Mode B（WriteFocus 直接落库），内容应确定性地包含显式给定文本
-        memories = await wait_for_memory_persistence_async(
-            e2e_system,
-            user_id,
-            min_count=1,
-            timeout=30.0,
-        )
+        memories = await wait_for_workspace_memories(e2e_system, user_id, timeout=30.0)
         all_content = " ".join(m.payload.content for m in memories if m.payload.content)
         assert (
             "张伟" in all_content and "打篮球" in all_content

@@ -254,7 +254,8 @@ def test_retrieve_splits_public_scope_into_internal_query():
     assert query.semantic_query == "query"
     assert query.belong_to == request.identity_scope.workspace_identity
     assert query.from_actor == request.identity_scope.actor_identity
-    assert call["kwargs"] == {"top_k": 5}
+    # 请求未给出 top_k：原样缺省转发，条数由检索引擎配置决定
+    assert call["kwargs"] == {"top_k": None}
 
 
 def test_retrieve_by_aliases_forwards_aliases_and_scope():

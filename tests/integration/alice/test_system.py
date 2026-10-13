@@ -24,8 +24,8 @@ async def test_start_registers_public_routes_and_stop_unregisters():
 
     await system.start()
 
-    assert AliceRoutes.RUN_AGENT in bus.list_routes()
+    assert bus.list_routes() == sorted(AliceRoutes.ALL)
 
     await system.stop()
 
-    assert AliceRoutes.RUN_AGENT not in bus.list_routes()
+    assert bus.list_routes() == []

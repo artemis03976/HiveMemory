@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-10-06
+last_reviewed: 2026-10-12
 ---
 
 # Todo
@@ -12,7 +12,6 @@ last_reviewed: 2026-10-06
 
 当前事项：
 
-- [Hybrid 检索启用 reranker 时分数阈值不生效](./retrieval-hybrid-threshold-with-reranker.md)（2026-10-04 由检索 e2e 暴露：条件与注释相反，默认配置下阈值从不生效；改正前需决定 reranker 分数的阈值语义）；
 - [WorkspaceAsset 内部归属与操作身份拆分](./workspace-asset-ownership-identity-split.md)（身份第二批明确暂缓：Store/解析旧 scope 接口与 System 物化 reader 桥接）；
 - [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：无 alias 记忆的寻址、alias 查询索引）；
 - [会话 `/compact` 指令](./conversation-compact-command.md)（2026-10-01 由原 Topic `/compact` 系统指令接入重写：compact 归属前台的 CPU 会话上下文，依赖 ConversationSession、命令运行位置与 Alice 会话压缩）；
@@ -22,8 +21,11 @@ last_reviewed: 2026-10-06
 - [RuntimeEvent 生产端迁移后续](./runtime-event-producer-migration.md)；
 - [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)；
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
-- [总线路由的类型化与静态签名检查](./global-route-signature-consistency-check.md)（运行时参数检查已于 2026-10-04 落地；类型化 route 与 mypy 门禁随 mypy 错误修复分支完成）；
 - [kernel 遗留命名清理](./kernel-legacy-naming.md)（2026-10-06：kernel 不再作为概念使用，剩余的 MTP 系统工具、提示词、注释与前端观测面板命名分组清理）；
+
+原“检索分数阈值与候选截取收敛”于 2026-10-12 实施并归档（阈值只作用于 Dense 召回，融合不再提前截取，截取只在重排之后进行一次）：[归档记录](../archive/todo/retrieval-hybrid-threshold-with-reranker.md)；当前事实见 [Patchouli 检索](../patchouli/retrieval.md)。
+
+原“总线路由的类型化与静态签名检查”涉及 core、各子系统 contracts、总线与 CI 的跨系统改动，于 2026-10-12 升级为计划：[v0.7.0 总线路由类型化与 mypy 门禁（已完成归档）](../archive/plans/v0.7.0-typed-bus-routes.md)（删除前最后版本见 commit `8faa0b7`）。
 
 原“A1 访问边界返工”涉及 workspace、Patchouli、server 与配置的跨系统改动，于 2026-10-02 升级为计划，2026-10-04 实施归档：[v0.7.0 A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)。原“WorkspaceAsset 上传的认证上下文与 scope 不一致”已随该计划修复并归档：[归档记录](../archive/todo/workspace-asset-upload-access-scope-mismatch.md)。原“TaskProcess 容器的职责与依赖方向”于 2026-10-04 完成并归档（编排骨架拆为执行器 `TaskProcessRunner`，进程只是状态容器）：[归档记录](../archive/todo/task-process-container-ownership.md)。
 

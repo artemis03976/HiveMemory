@@ -17,9 +17,14 @@ def _configure_logging() -> None:
 
 def _install_thread_exception_hook() -> None:
     def _handle_thread_exception(args: threading.ExceptHookArgs) -> None:
+        exc_info = (
+            (args.exc_type, args.exc_value, args.exc_traceback)
+            if args.exc_value is not None
+            else None
+        )
         logging.getLogger("hivememory.server").error(
             f"未捕获线程异常: thread={getattr(args.thread, 'name', 'unknown')}",
-            exc_info=(args.exc_type, args.exc_value, args.exc_traceback),
+            exc_info=exc_info,
         )
 
     threading.excepthook = _handle_thread_exception

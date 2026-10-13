@@ -16,7 +16,6 @@ from dataclasses import dataclass
 from typing import Literal
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.models import IdentityScope
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -24,6 +23,8 @@ from hivememory.core.protocol.gateway import (
     RetrievalMode,
 )
 from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.system.services.passive.events import PassiveIngressEventEmitter
 from hivememory.system.services.passive.exceptions import (
     PassiveIngressContractError,
@@ -158,7 +159,7 @@ class MemoryContextProvider:
         identity_scope: IdentityScope,
     ) -> GatewayDecision:
         gateway_result = await self._bus.request(
-            GlobalRoutes.GATEWAY_PROCESS,
+            GatewayPublicRoutes.PROCESS,
             message=content,
             identity_scope=identity_scope,
             ingress_mode=GatewayIngressMode.PASSIVE_MEMORY,
@@ -180,7 +181,7 @@ class MemoryContextProvider:
         # envelope，由本 adapter 构造并测量调用耗时（A2 §2.4，A6 切换）。
         started_at = time.perf_counter()
         memories = await self._bus.request(
-            GlobalRoutes.PATCHOULI_MEMORY_RETRIEVE,
+            PatchouliRoutes.MEMORY_RETRIEVE,
             request=RetrievalRequest(
                 semantic_query=decision.rewritten_query,
                 keywords=list(decision.search_keywords),

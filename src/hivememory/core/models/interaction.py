@@ -16,6 +16,9 @@ from hivememory.core.models.identity import ActorIdentity
 from hivememory.core.models.immutable import FrozenDict, freeze_mapping
 from hivememory.utils.token_estimator import estimate_tokens
 
+# tool_result 在历史视图中的渲染提示；入口模型与 TurnEvent 共用同一取值集合。
+TurnEventRenderAs = Literal["plain", "system_tool_result", "system_call_response"]
+
 
 class StreamMessageType(str, Enum):
     """流式消息类型枚举"""
@@ -103,7 +106,7 @@ class TurnEvent(BaseModel):
     status: str | None = None
 
     # 历史视图渲染提示
-    render_as: Literal["plain", "system_tool_result", "system_call_response"] = "plain"
+    render_as: TurnEventRenderAs = "plain"
 
     model_config = ConfigDict(
         frozen=True,

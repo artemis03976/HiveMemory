@@ -16,9 +16,10 @@ AsyncSystemBus — 纯异步系统总线基类
 import inspect
 import logging
 from collections.abc import Awaitable, Callable
-from typing import Any
+from typing import Any, cast
 
 from hivememory.components.bus.arguments import RouteArgumentChecker
+from hivememory.core.contracts.route import Route
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,8 @@ class AsyncSystemBus:
 
     # ========== RPC（请求-响应）==========
 
-    def register(self, route: str, handler: Callable[..., Awaitable[Any]]) -> None:
+    def register[**P, R](self, route: Route[P, R], handler: Callable[P, Awaitable[R]]) -> None:
+        """按路由契约检查 handler 的静态签名，并保留运行时参数检查器。"""
         if route in self._handlers:
             logger.warning(f"AsyncSystemBus: route '{route}' overwritten")
         self._handlers[route] = handler
@@ -43,7 +45,8 @@ class AsyncSystemBus:
         self._handlers.pop(route, None)
         self._checkers.pop(route, None)
 
-    async def request(self, route: str, *args: Any, **kwargs: Any) -> Any:
+    async def request[**P, R](self, route: Route[P, R], *args: P.args, **kwargs: P.kwargs) -> R:
+        """原样调用 handler，返回类型由路由声明确定。"""
         handler = self._handlers.get(route)
         if handler is None:
             raise KeyError(f"AsyncSystemBus: route '{route}' not registered")
@@ -51,9 +54,10 @@ class AsyncSystemBus:
         if checker is not None:
             checker.check(args, kwargs)
         result = handler(*args, **kwargs)
+        # 异构注册表擦除了签名；仅在总线出口恢复由 register 保证的返回类型。
         if inspect.isawaitable(result):
-            return await result
-        return result
+            return cast(R, await result)
+        return cast(R, result)
 
     # ========== Pub/Sub（事件广播）==========
 

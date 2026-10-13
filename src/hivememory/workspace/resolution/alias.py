@@ -193,12 +193,12 @@ class AliasResolver:
             )
             pending = set(misses)
             for atom in atoms:
-                alias = atom.index.alias
-                if alias not in pending:
+                atom_alias = atom.index.alias
+                if atom_alias is None or atom_alias not in pending:
                     continue
                 admitted = self._admit(atom, scope, fill=fill)
                 if admitted is not None:
-                    delivered[alias] = admitted
+                    delivered[atom_alias] = admitted
         return [delivered[alias] for alias in requested if alias in delivered]
 
     async def search(

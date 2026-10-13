@@ -251,7 +251,7 @@ class DynamicReinforcementEngine:
         Returns:
             Dict[str, Any]: 统计信息
         """
-        event_counts = {}
+        event_counts: dict[str, int] = {}
         for result in self._event_history:
             event_type = result.event_type.value
             event_counts[event_type] = event_counts.get(event_type, 0) + 1

@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-12
 ---
 
 # Plans
@@ -26,6 +26,7 @@ last_reviewed: 2026-10-11
 | Alice 的能力层调用迁移之后 | 能力层分层：root API 与 actor API | 已完成（2026-10-10）：三阶段实现、验收与 code review 均完成并归档；capability 目录分为只供 `system` 的 root API 与 actor API，actor 操作对齐 READ、SEARCH、RUN、WRITE、UPDATE 与只有 Alice 使用的 CALL，进程阶段调用改为不检查 actor 操作的阶段授权 | [归档计划](../archive/plans/v0.7.0-capability-surface-split.md)；当前事实：[Workspace 架构](../architecture/workspace.md#45-三个调用面actor-apiroot-api-与任务进程的阶段调用)第 4.5 节；背景：[总 Idea](../ideas/workspace-network-task-process-architecture.md#1512-能力层分为-root-api-与-actor-api) 15.12 |
 | 能力层分层之后 | Agent 操作白名单（原“Agent Profile 的权限并入 operation 控制”） | 已完成（2026-10-11）：三阶段实现、验收与 code review 均完成并归档；访问登记的白名单成为 Agent 权限的唯一来源，Profile 的两个 allow 字段删除，Alice 把输入清单的操作快照翻译为 MTP 动词，系统工具不设权限，子 agent 继承父 agent 的动词集合；运行时编辑并入配置热更新 | [归档计划](../archive/plans/v0.7.0-agent-operation-whitelist.md)；当前事实：[MTP 契约](../contracts/mtp.md#4-权限)第 4 节；背景：[总 Idea](../ideas/workspace-network-task-process-architecture.md#154-agent-profile-的权限并入-operation-控制p-2p-10) 15.4 |
 | Agent 操作白名单之后 | 线程 context 取代执行凭据 | 已完成（2026-10-11）：三阶段实现、验收与 code review 均完成并归档；进程 context 服务于全部四个阶段，主线程的线程 context 在进入 CPU 执行阶段时从进程 context 派生、CPU 执行结束即撤销；执行凭据、凭据表与入口的拆参 handler 删除，入口只按请求类型分派到 actor API；子线程沿用主线程 context，独立 context 属于执行线程层 | [归档计划](../archive/plans/v0.7.0-thread-context.md)；当前事实：[Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)第 4.3、5.4 节；背景：[执行单元 Idea](../ideas/execution-unit-thread-and-environment.md#t-2-执行线程的访问-context) T-2 |
+| — | 总线路由类型化与 mypy 门禁 | 已完成：2026-10-12 三阶段实现、验收与 code review 后归档，分支 `fix/mypy-typing-baseline` 形成稳定基线；未发布 | [归档计划](../archive/plans/v0.7.0-typed-bus-routes.md)；当前事实见[运行时机制](../components/runtime-and-bus.md) |
 | — | 外部会话消息的接收与 Topic 投影 | v0.7.0 内完成，Alice 为第一个使用者；包括前端回归 session 模型与新建、恢复两个会话操作（Alice 的压缩约在 v0.7.1）；与其他方向的先后未定 | [Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
 
 - 不在 v0.7.0：执行环境的选择（[执行单元 Idea](../ideas/execution-unit-thread-and-environment.md#5-未完成的问题) T-7、T-8）随后续版本实施，不一定是 v0.7.1（2026-10-06）；外部 Actor 的真实接入（[Idea](../ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)，原计划 B）分为两种接入模式，controller 模式在 v0.7.1（[ROADMAP](../ROADMAP.md) 第 4.4.2 节），plugin 模式在其后的 v0.7.x；Import Bus（现有 Passive Ingress 链路）逐步演进为独立功能，不在 v0.7.0 计划内；

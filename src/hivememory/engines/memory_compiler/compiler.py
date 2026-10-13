@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Literal, overload
+
 from hivememory.config.memory_compiler import CompactContextStrategyConfig
 from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.engines.memory_compiler.builders import (
@@ -21,13 +24,46 @@ from hivememory.engines.memory_compiler.models import (
 )
 from hivememory.i18n.resolver import get_default_language
 
+if TYPE_CHECKING:
+    from hivememory.core.models.pending import PendingAtom, PendingAtomSettlement
+    from hivememory.core.models.reference import ReferenceResolution
+
+    # 公开编译源；运行时由 ``_build_unit_ir`` 按同一集合分派。
+    CompilableMemory = MemoryAtom | PendingAtom | ReferenceResolution | PendingAtomSettlement
+
 
 class MemoryCompiler:
     """将可编译记忆数据转为 Agent 可读文本。"""
 
+    # 单个源经单元 target 恰好产出一个单元；列表源长度为 1 时同样返回单个
+    # 产物，因此列表源只能声明为联合；信封 target 总是产出一份文本。
+    @overload
     def compile(
         self,
-        source,
+        source: CompilableMemory,
+        target: MemoryCompileTarget,
+        options: MemoryCompileOptions | None = None,
+    ) -> CompiledMemory: ...
+
+    @overload
+    def compile[SourceT: CompilableMemory](
+        self,
+        source: list[SourceT],
+        target: MemoryCompileTarget,
+        options: MemoryCompileOptions | None = None,
+    ) -> CompiledMemory | list[CompiledMemory]: ...
+
+    @overload
+    def compile[SourceT: CompilableMemory](
+        self,
+        source: CompilableMemory | list[SourceT],
+        target: MemoryEnvelopeTarget,
+        options: MemoryCompileOptions | None = None,
+    ) -> CompiledMemory: ...
+
+    def compile(
+        self,
+        source: CompilableMemory | Sequence[CompilableMemory],
         target: MemoryCompileTarget | MemoryEnvelopeTarget,
         options: MemoryCompileOptions | None = None,
     ) -> CompiledMemory | list[CompiledMemory]:
@@ -155,7 +191,7 @@ class MemoryCompiler:
                 source = source.atom
 
         if isinstance(source, PendingAtomSettlement):
-            kind = (
+            kind: Literal["discarded", "redirect"] = (
                 "discarded" if source.resolution == PendingAtomResolution.DISCARDED else "redirect"
             )
             resolve = ReferenceResolution(

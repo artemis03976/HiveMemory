@@ -15,6 +15,14 @@ from hivememory.infrastructure.llm.base import SingletonLLMService
 logger = logging.getLogger(__name__)
 
 
+def _response_text(response: Any, model: str | None) -> str:
+    """取出首个 choice 的文本内容；provider 未返回文本时显式失败。"""
+    content = response.choices[0].message.content
+    if not isinstance(content, str):
+        raise ValueError(f"LLM 响应缺少文本内容 (model={model})")
+    return content
+
+
 class LiteLLMService(SingletonLLMService):
     """
     LiteLLM 服务实现
@@ -62,7 +70,7 @@ class LiteLLMService(SingletonLLMService):
             **kwargs,
         )
 
-        content = response.choices[0].message.content
+        content = _response_text(response, self.model)
 
         # 记录 token 使用情况
         if hasattr(response, "usage") and response.usage:
@@ -121,7 +129,7 @@ class LiteLLMService(SingletonLLMService):
         )
 
         # 构建 litellm 参数
-        llm_params = {
+        llm_params: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "api_key": self.api_key,
@@ -156,7 +164,7 @@ class LiteLLMService(SingletonLLMService):
     async def acomplete_with_tools(
         self, messages, tools=None, tool_choice=None, temperature=None, max_tokens=None, **kwargs
     ):
-        llm_params = {
+        llm_params: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "api_key": self.api_key,
@@ -190,7 +198,7 @@ class LiteLLMService(SingletonLLMService):
         max_tokens: int | None = None,
         **kwargs,
     ) -> str:
-        llm_params = {
+        llm_params: dict[str, Any] = {
             "model": self.model,
             "messages": messages,
             "api_key": self.api_key,
@@ -213,7 +221,7 @@ class LiteLLMService(SingletonLLMService):
             )
             response = await litellm.acompletion(**llm_params)
 
-        content = response.choices[0].message.content
+        content = _response_text(response, self.model)
 
         if hasattr(response, "usage") and response.usage:
             logger.info(
@@ -289,7 +297,7 @@ class LiteLLMService(SingletonLLMService):
             max_tokens=max_tokens if max_tokens is not None else self.max_tokens,
             **kwargs,
         )
-        content = response.choices[0].message.content
+        content = _response_text(response, self.model)
 
         # 记录 token 使用情况
         if hasattr(response, "usage") and response.usage:
@@ -350,7 +358,7 @@ def get_gateway_llm_service(
 
 
 def get_librarian_llm_service(
-    config: LLMConfig = None,
+    config: LLMConfig,
 ) -> LiteLLMService:
     """
     获取 Librarian LLM 服务实例（单例）

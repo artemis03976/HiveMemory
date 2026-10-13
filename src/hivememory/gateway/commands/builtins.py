@@ -43,7 +43,7 @@ def _builtin_definitions() -> list[CommandDefinition]:
             command_id="system.help",
             category=CommandCategory.SYSTEM,
             primary_name="/help",
-            aliases=["/start"],
+            aliases=("/start",),
             summary="显示可用系统指令。",
             route_target=CommandRouteTarget(
                 kind=CommandRouteTargetKind.LOCAL_HANDLER,
@@ -68,7 +68,7 @@ def _builtin_definitions() -> list[CommandDefinition]:
             command_id="system.clear",
             category=CommandCategory.SYSTEM,
             primary_name="/clear",
-            aliases=["/reset", "/restart"],
+            aliases=("/reset", "/restart"),
             summary="清空当前聊天客户端状态。",
             route_target=CommandRouteTarget(
                 kind=CommandRouteTargetKind.CLIENT_ACTION,

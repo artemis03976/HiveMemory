@@ -18,8 +18,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, TypedDict
 
 from hivememory.config.attachments import AttachmentParserConfig
 from hivememory.infrastructure.attachments.errors import (
@@ -40,7 +41,7 @@ LOCATOR_KIND_LINE = "line"
 LOCATOR_KIND_PARAGRAPH = "paragraph"
 
 
-def canonical_content_bytes(content_object: dict[str, Any]) -> bytes:
+def canonical_content_bytes(content_object: Mapping[str, Any]) -> bytes:
     """完整 content_object 的 canonical JSON UTF-8 编码。
 
     键排序、紧凑分隔符、非 ASCII 字符直接编码、无额外换行；数组顺序由
@@ -55,13 +56,24 @@ def canonical_content_bytes(content_object: dict[str, Any]) -> bytes:
     ).encode("utf-8")
 
 
+class AttachmentContentObject(TypedDict):
+    """``content_object`` 的固定结构；只由 :class:`AttachmentContentBuilder` 构造。"""
+
+    schema_version: int
+    format: str
+    text: str
+    source_raw: dict[str, Any]
+    locators: list[dict[str, Any]]
+    warnings: list[dict[str, Any]]
+
+
 @dataclass(frozen=True)
 class ParsedAttachmentContent:
     """所有解析器共用的成功结果结构。"""
 
     producer: str
     producer_version: str
-    content_object: dict[str, Any]
+    content_object: AttachmentContentObject
     content_hash: str
 
     @property
@@ -193,7 +205,7 @@ class AttachmentContentBuilder:
             deduplicated[key] for key in sorted(deduplicated, key=lambda item: (item[0], item[1]))
         ]
 
-        content_object: dict[str, Any] = {
+        content_object: AttachmentContentObject = {
             "schema_version": SCHEMA_VERSION,
             "format": self._format,
             "text": text,
@@ -223,6 +235,7 @@ __all__ = [
     "LOCATOR_KIND_PARAGRAPH",
     "SCHEMA_VERSION",
     "AttachmentContentBuilder",
+    "AttachmentContentObject",
     "ParsedAttachmentContent",
     "canonical_content_bytes",
 ]

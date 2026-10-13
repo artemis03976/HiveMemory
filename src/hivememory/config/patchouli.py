@@ -1,6 +1,6 @@
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 # ========== 存储 ==========
 
@@ -98,15 +98,33 @@ class MemoryGenerationConfig(BaseModel):
 
 # ========== 检索 ==========
 
+_FUSION_FINAL_TOP_K_REMOVED = (
+    "融合配置不再支持 final_top_k：融合不再截取，最终条数在重排之后按请求的 top_k"
+    "（缺省时为 retrieval.default_top_k）截取"
+)
+
+
+def _reject_removed_keys(data: Any, removed: dict[str, str]) -> Any:
+    """检索配置段忽略未知字段；已删除的键若不显式拒绝，其设置会被静默丢弃。"""
+    if isinstance(data, dict):
+        for key, reason in removed.items():
+            if key in data:
+                raise ValueError(reason)
+    return data
+
 
 class ReciprocalRankFusionConfig(BaseModel):
     type: Literal["rrf"] = "rrf"
     rrf_k: int = Field(default=60)
     dense_weight: float = Field(default=1.0)
     sparse_weight: float = Field(default=1.0)
-    final_top_k: int = Field(default=5)
 
     model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_final_top_k(cls, data: Any) -> Any:
+        return _reject_removed_keys(data, {"final_top_k": _FUSION_FINAL_TOP_K_REMOVED})
 
 
 class RetrievalModeConfig(BaseModel):
@@ -126,7 +144,6 @@ class RetrievalModeConfig(BaseModel):
 
 class AdaptiveWeightedFusionConfig(BaseModel):
     type: Literal["adaptive"] = "adaptive"
-    final_top_k: int = Field(default=5)
     default_mode: str = Field(default="concept")
     debug_mode: RetrievalModeConfig = Field(
         default_factory=lambda: RetrievalModeConfig(dense_weight=0.3, sparse_weight=0.9)
@@ -155,6 +172,11 @@ class AdaptiveWeightedFusionConfig(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_final_top_k(cls, data: Any) -> Any:
+        return _reject_removed_keys(data, {"final_top_k": _FUSION_FINAL_TOP_K_REMOVED})
+
 
 class RerankerConfig(BaseModel):
     enabled: bool = Field(default=True)
@@ -173,7 +195,8 @@ class DenseRetrieverConfig(BaseModel):
     type: Literal["dense"] = "dense"
     enabled: bool = Field(default=True)
     top_k: int = Field(default=50)
-    score_threshold: float = Field(default=0.0)
+    # 分数阈值只作用于 Dense 召回：按原始 cosine 相似度粗筛，交给重排的即粗筛后的候选。
+    score_threshold: float = Field(default=0.5)
     enable_time_decay: bool = Field(default=True)
     time_decay_days: int = Field(default=30)
     enable_confidence_boost: bool = Field(default=True)
@@ -185,15 +208,24 @@ class SparseRetrieverConfig(BaseModel):
     type: Literal["sparse"] = "sparse"
     enabled: bool = Field(default=True)
     top_k: int = Field(default=50)
-    score_threshold: float = Field(default=0.0)
 
     model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_score_threshold(cls, data: Any) -> Any:
+        # BM25 原始分没有上界，阈值依赖语料，Sparse 召回不设阈值。
+        return _reject_removed_keys(
+            data,
+            {
+                "score_threshold": "Sparse 召回配置不再支持 score_threshold：分数阈值只作用于 Dense 召回"
+            },
+        )
 
 
 class HybridRetrieverConfig(BaseModel):
     type: Literal["hybrid"] = "hybrid"
     top_k: int = Field(default=5)
-    score_threshold: float = Field(default=0.0)
     enable_parallel: bool = Field(default=True)
     dense: DenseRetrieverConfig = Field(default_factory=DenseRetrieverConfig)
     sparse: SparseRetrieverConfig = Field(default_factory=SparseRetrieverConfig)
@@ -201,9 +233,28 @@ class HybridRetrieverConfig(BaseModel):
         default_factory=ReciprocalRankFusionConfig,
         discriminator="type",
     )
-    reranker: RerankerConfig = Field(default_factory=RerankerConfig)
 
     model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_score_threshold(cls, data: Any) -> Any:
+        # 融合分数只反映名次或混合了不同尺度的原始分，不设阈值。
+        return _reject_removed_keys(
+            data,
+            {
+                "score_threshold": (
+                    "Hybrid 检索配置不再支持 score_threshold：融合分数不设阈值，"
+                    "阈值只作用于 dense 召回路径"
+                )
+            },
+        )
+
+    @model_validator(mode="after")
+    def _require_a_recall_path(self) -> "HybridRetrieverConfig":
+        if not self.dense.enabled and not self.sparse.enabled:
+            raise ValueError("混合检索至少需要启用 dense 或 sparse 其中一路召回")
+        return self
 
 
 class MemoryRetrievalConfig(BaseModel):
@@ -211,8 +262,25 @@ class MemoryRetrievalConfig(BaseModel):
         default_factory=HybridRetrieverConfig,
         discriminator="type",
     )
+    # 重排序是召回之后的独立阶段，适用于任意召回策略。
+    reranker: RerankerConfig = Field(default_factory=RerankerConfig)
+    # 请求未给出 top_k 时的结果条数；最终截取只在重排阶段之后进行一次。
+    default_top_k: int = Field(default=5, ge=1)
 
     model_config = ConfigDict(extra="ignore")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_retriever_level_reranker(cls, data: Any) -> Any:
+        # 检索器配置忽略未知字段；旧位置若不显式拒绝，其设置会被静默丢弃。
+        if isinstance(data, dict):
+            retriever = data.get("retriever")
+            if isinstance(retriever, dict) and "reranker" in retriever:
+                raise ValueError(
+                    "retrieval.retriever.reranker 已移至 retrieval.reranker，"
+                    "重排序配置不再属于具体检索器"
+                )
+        return data
 
 
 # ========== 生命周期 ==========

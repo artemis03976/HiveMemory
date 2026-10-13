@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
+
 from hivememory.config.memory_compiler import (
     CascadeContextStrategyConfig,
     CompactContextStrategyConfig,
@@ -22,6 +24,11 @@ from hivememory.i18n import (
     get_memory_section_title,
 )
 from hivememory.utils import estimate_tokens
+
+type CompileUnit = Callable[
+    [MemoryUnitIR, MemoryCompileTarget, MemoryCompileOptions],
+    CompiledMemoryArtifact,
+]
 
 
 def compile_envelope_from_ir(
@@ -114,7 +121,12 @@ def _compile_units_with_strategy(
     return [compile_unit_from_ir(u, MemoryCompileTarget.PROMPT_FULL, options) for u in units]
 
 
-def _apply_full_strategy(units, cfg: FullContextStrategyConfig, opts, compile_unit_from_ir):
+def _apply_full_strategy(
+    units: list[MemoryUnitIR],
+    cfg: FullContextStrategyConfig,
+    opts: MemoryCompileOptions,
+    compile_unit_from_ir: CompileUnit,
+) -> list[CompiledMemoryArtifact]:
     artifacts: list[CompiledMemoryArtifact] = []
     total = 0
     unit_opts = opts.model_copy(
@@ -132,7 +144,12 @@ def _apply_full_strategy(units, cfg: FullContextStrategyConfig, opts, compile_un
     return artifacts
 
 
-def _apply_cascade_strategy(units, cfg: CascadeContextStrategyConfig, opts, compile_unit_from_ir):
+def _apply_cascade_strategy(
+    units: list[MemoryUnitIR],
+    cfg: CascadeContextStrategyConfig,
+    opts: MemoryCompileOptions,
+    compile_unit_from_ir: CompileUnit,
+) -> list[CompiledMemoryArtifact]:
     artifacts: list[CompiledMemoryArtifact] = []
     remaining = cfg.max_memory_tokens
     for i, unit in enumerate(units):
@@ -161,7 +178,12 @@ def _apply_cascade_strategy(units, cfg: CascadeContextStrategyConfig, opts, comp
     return artifacts
 
 
-def _apply_compact_strategy(units, cfg: CompactContextStrategyConfig, opts, compile_unit_from_ir):
+def _apply_compact_strategy(
+    units: list[MemoryUnitIR],
+    cfg: CompactContextStrategyConfig,
+    opts: MemoryCompileOptions,
+    compile_unit_from_ir: CompileUnit,
+) -> list[CompiledMemoryArtifact]:
     artifacts: list[CompiledMemoryArtifact] = []
     remaining = cfg.max_memory_tokens
     index_opts = opts.model_copy(update={"max_summary_length": cfg.index_max_summary_length})

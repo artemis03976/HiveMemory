@@ -9,7 +9,7 @@
 - 错误恢复：工具异常不影响循环收敛
 
 入口: e2e_system.process_service.run_process(stream=False)
-标记: [e2e, live_llm]（需真实 LLM API Key + Qdrant）
+标记: [e2e, live_llm]（需真实 LLM API Key + Qdrant；隔离环境见 tests/e2e/conftest.py）
 """
 
 import pytest
@@ -17,7 +17,8 @@ import pytest
 from hivememory.workspace.process.service import NonStreamingAgentOutcome
 from tests.helpers.registered_chat import run_registered_chat
 
-pytestmark = [pytest.mark.e2e, pytest.mark.live_llm]
+# 系统由 session 级 fixture 在 session 事件循环中启动，测试须运行在同一循环。
+pytestmark = [pytest.mark.e2e, pytest.mark.live_llm, pytest.mark.asyncio(loop_scope="session")]
 
 
 def _mtp_calls(result) -> int:
@@ -42,10 +43,9 @@ async def _chat(e2e_system, user_id: str, prompt: str, **kwargs):
 class TestAgentLoop:
     """单 agent 执行循环控制基础流程"""
 
-    @pytest.mark.asyncio
-    async def test_agent_loop_simple_reply_converges(self, e2e_system, clean_user):
+    async def test_agent_loop_simple_reply_converges(self, e2e_system, e2e_user):
         """无 MTP 指令：单帧自然收敛，不发生 MTP 工具调用"""
-        user_id = clean_user()
+        user_id = e2e_user()
         result = await _chat(
             e2e_system,
             user_id,
@@ -55,10 +55,9 @@ class TestAgentLoop:
         assert _mtp_calls(result) == 0
         assert result.status == "completed"
 
-    @pytest.mark.asyncio
-    async def test_agent_loop_sys_clock_tool_call(self, e2e_system, clean_user):
+    async def test_agent_loop_sys_clock_tool_call(self, e2e_system, e2e_user):
         """MTP RUN sys.clock：工具结果回填进最终回复"""
-        user_id = clean_user()
+        user_id = e2e_user()
         result = await _chat(
             e2e_system,
             user_id,
@@ -69,10 +68,9 @@ class TestAgentLoop:
         # 时间结果应包含数字（工具返回的时间字符串）
         assert any(ch.isdigit() for ch in result.final_text)
 
-    @pytest.mark.asyncio
-    async def test_agent_loop_python_repl_computes(self, e2e_system, clean_user):
+    async def test_agent_loop_python_repl_computes(self, e2e_system, e2e_user):
         """MTP RUN python.repl：计算结果出现在最终回复"""
-        user_id = clean_user()
+        user_id = e2e_user()
         result = await _chat(
             e2e_system,
             user_id,
@@ -81,10 +79,9 @@ class TestAgentLoop:
         assert _mtp_calls(result) >= 1
         assert "480" in result.final_text
 
-    @pytest.mark.asyncio
-    async def test_agent_loop_chinese_multi_tool_sequence(self, e2e_system, clean_user):
+    async def test_agent_loop_chinese_multi_tool_sequence(self, e2e_system, e2e_user):
         """多轮迭代：两次工具调用在循环内依次执行并保序回填"""
-        user_id = clean_user()
+        user_id = e2e_user()
         result = await _chat(
             e2e_system,
             user_id,
@@ -93,10 +90,9 @@ class TestAgentLoop:
         assert _mtp_calls(result) >= 2, f"应发生至少 2 次 MTP 工具调用, 实际 {_mtp_calls(result)}"
         assert "1024" in result.final_text
 
-    @pytest.mark.asyncio
-    async def test_agent_loop_mtp_error_recovers(self, e2e_system, clean_user):
+    async def test_agent_loop_mtp_error_recovers(self, e2e_system, e2e_user):
         """工具错误恢复：计算 1/0 不应中断循环，最终仍给出回复"""
-        user_id = clean_user()
+        user_id = e2e_user()
         result = await _chat(
             e2e_system,
             user_id,

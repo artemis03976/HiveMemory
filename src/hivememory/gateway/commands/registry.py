@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import builtins
 from dataclasses import dataclass
 
 from hivememory.core.protocol.gateway import CommandParseResult, CommandParseStatus
@@ -97,7 +98,7 @@ class CommandRegistry:
             return CommandParseResult(
                 raw_input=stripped,
                 name=tokens[0],
-                tokens=tokens,
+                tokens=tuple(tokens),
                 parse_status=CommandParseStatus.UNKNOWN,
                 error=f"Unknown system command: {tokens[0]}",
             )
@@ -115,7 +116,7 @@ class CommandRegistry:
             return CommandParseResult(
                 raw_input=stripped,
                 name=" ".join(tokens[: len(best.alias_tokens)]),
-                tokens=tokens,
+                tokens=tuple(tokens),
                 parse_status=CommandParseStatus.AMBIGUOUS,
                 error="Ambiguous system command",
             )
@@ -129,11 +130,12 @@ class CommandRegistry:
             arg_tokens=arg_tokens,
         )
 
-    def _matching_candidates(self, tokens: list[str]) -> list[_Candidate]:
+    # 类体内的 ``list`` 已被同名方法遮蔽，此后的注解显式使用内置类型。
+    def _matching_candidates(self, tokens: builtins.list[str]) -> builtins.list[_Candidate]:
         """查找所有命中候选，长命令优先，其次按 priority 排序。"""
 
         normalized_tokens = tuple(token.casefold() for token in tokens)
-        candidates: list[_Candidate] = []
+        candidates: builtins.list[_Candidate] = []
 
         for definition in self._definitions.values():
             if not definition.enabled:

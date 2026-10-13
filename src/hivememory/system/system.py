@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from hivememory.gateway import GatewaySystem
     from hivememory.system.application.passive_ingress_service import PassiveIngressService
     from hivememory.system.application.readiness_service import SystemReadinessService
+    from hivememory.workspace.authentication import ActorAuthenticationGateway
     from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
     from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
     from hivememory.workspace.capability.root.memory import RootMemoryService
@@ -444,6 +445,6 @@ class HiveMemorySystem:
         return self._provider_registry
 
     @property
-    def access_gateway(self):
+    def access_gateway(self) -> ActorAuthenticationGateway | None:
         """统一 Actor Authentication 网关（A1）；未装配时为 ``None``。"""
         return self._access_gateway

@@ -3,6 +3,8 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.config.patchouli import PatchouliConfig
+from hivememory.config.shared import SharedConfig
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_generation.models import (
@@ -281,3 +283,47 @@ class TestRuntimeStorageHealth:
 
         assert await runtime.check_storage_health() is False
         runtime.memory_library.check_storage_health.assert_awaited_once()
+
+
+class TestRuntimeRerankerAssembly:
+    """重排序服务按 retrieval.reranker 装配，与召回策略无关。"""
+
+    @staticmethod
+    def _build_runtime(retrieval: dict) -> tuple[PatchouliRuntime, Mock]:
+        reranker_factory = Mock()
+        with (
+            patch("hivememory.infrastructure.storage.QdrantMemoryStore"),
+            patch("hivememory.infrastructure.llm.get_librarian_llm_service"),
+            patch(
+                "hivememory.infrastructure.rerank.get_fast_embed_reranker_service",
+                reranker_factory,
+            ),
+            patch.object(PatchouliRuntime, "_build_memory_library"),
+            patch.object(PatchouliRuntime, "_build_engines", return_value={}),
+            patch.object(PatchouliRuntime, "_register_services"),
+        ):
+            runtime = PatchouliRuntime(
+                patchouli_config=PatchouliConfig.model_validate({"retrieval": retrieval}),
+                shared_config=SharedConfig(),
+            )
+        return runtime, reranker_factory
+
+    @pytest.mark.parametrize("retriever_type", ["dense", "sparse", "hybrid"])
+    def test_enabled_reranker_is_built_for_any_retriever_type(self, retriever_type):
+        _, reranker_factory = self._build_runtime(
+            {
+                "retriever": {"type": retriever_type},
+                "reranker": {"enabled": True, "model_name": "test/reranker"},
+            }
+        )
+
+        reranker_factory.assert_called_once()
+        assert reranker_factory.call_args.kwargs["config"].model_name == "test/reranker"
+
+    def test_disabled_reranker_is_not_built(self):
+        runtime, reranker_factory = self._build_runtime(
+            {"retriever": {"type": "dense"}, "reranker": {"enabled": False}}
+        )
+
+        assert runtime.reranker_service is None
+        reranker_factory.assert_not_called()

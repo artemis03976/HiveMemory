@@ -9,8 +9,8 @@ from fastapi.testclient import TestClient
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceAccessContext
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import MemoryAliasConflictError
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.server import deps
 from hivememory.server.routers.agents import router
 from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
@@ -24,11 +24,11 @@ def _create_test_app(storage):
     bus = GlobalSystemBus()
     management = _AgentProfileManagementStub(storage)
     bus.register(
-        GlobalRoutes.PATCHOULI_AGENT_PROFILE_CREATE,
+        PatchouliRoutes.AGENT_PROFILE_CREATE,
         management.create_agent_profile,
     )
     bus.register(
-        GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
+        PatchouliRoutes.AGENT_PROFILE_LIST,
         management.list_agent_profiles,
     )
     # 管理用例执行 root 授权：服务与访问依赖共享同一组合的操作授权者，

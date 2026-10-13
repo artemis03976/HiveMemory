@@ -14,7 +14,7 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.config.passive import PassiveIngressConfig
-from hivememory.core.contracts.routes import GlobalRoutes
+from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.system.application.passive_ingress_service import (
     PassiveIngressService,
 )
@@ -72,7 +72,7 @@ def _build(config, *, gateway_error: Exception | None = None):
         async def submit(self, submission):
             submitted.append(submission)
 
-    bus.register(GlobalRoutes.GATEWAY_PROCESS, gateway)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
 
     sink = RecordingRuntimeEventSink()
     service = PassiveIngressService(

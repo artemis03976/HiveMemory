@@ -9,7 +9,6 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.attachments import AttachmentParserConfig
 from hivememory.core.access import WorkspaceOperation
-from hivememory.core.contracts.routes import GlobalRoutes
 from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import (
     IdentityScope,
@@ -19,6 +18,7 @@ from hivememory.core.models import (
     PayloadLayer,
     WorkspaceAssetState,
 )
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationSource, MemoryGenerationTask
 from hivememory.patchouli.contracts.topic_management import TopicEvictionResult, TopicSettleResult
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
@@ -54,7 +54,7 @@ _ROUTED_CASES = [
     _Case(
         "memory",
         "create_memory",
-        GlobalRoutes.PATCHOULI_MEMORY_CREATE,
+        PatchouliRoutes.MEMORY_CREATE,
         keywords=(
             ("title", "记忆"),
             ("summary", "管理创建"),
@@ -63,40 +63,40 @@ _ROUTED_CASES = [
             ("tags", []),
         ),
     ),
-    _Case("memory", "list_memories", GlobalRoutes.PATCHOULI_MEMORY_LIST),
-    _Case("memory", "get_memory", GlobalRoutes.PATCHOULI_MEMORY_GET, (_MEMORY_ID,)),
-    _Case("memory", "update_memory", GlobalRoutes.PATCHOULI_MEMORY_UPDATE, (_MEMORY_ID,)),
-    _Case("memory", "delete_memory", GlobalRoutes.PATCHOULI_MEMORY_DELETE, (_MEMORY_ID,)),
+    _Case("memory", "list_memories", PatchouliRoutes.MEMORY_LIST),
+    _Case("memory", "get_memory", PatchouliRoutes.MEMORY_GET, (_MEMORY_ID,)),
+    _Case("memory", "update_memory", PatchouliRoutes.MEMORY_UPDATE, (_MEMORY_ID,)),
+    _Case("memory", "delete_memory", PatchouliRoutes.MEMORY_DELETE, (_MEMORY_ID,)),
     _Case(
         "memory",
         "record_feedback",
-        GlobalRoutes.PATCHOULI_MEMORY_RECORD_FEEDBACK,
+        PatchouliRoutes.MEMORY_RECORD_FEEDBACK,
         (_MEMORY_ID,),
         (("positive", True), ("source", "root.test")),
     ),
     _Case(
         "profiles",
         "create_agent_profile",
-        GlobalRoutes.PATCHOULI_AGENT_PROFILE_CREATE,
+        PatchouliRoutes.AGENT_PROFILE_CREATE,
         keywords=(("title", "Worker"), ("alias", "worker"), ("tags", [])),
     ),
-    _Case("profiles", "list_agent_profiles", GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST),
-    _Case("topic", "list_active_topics", GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE),
+    _Case("profiles", "list_agent_profiles", PatchouliRoutes.AGENT_PROFILE_LIST),
+    _Case("topic", "list_active_topics", PatchouliRoutes.TOPIC_LIST_ACTIVE),
     _Case(
         "topic",
         "settle_topic",
-        GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC,
+        PatchouliRoutes.MANUAL_SETTLE_TOPIC,
         keywords=(("topic_id", "topic-1"),),
     ),
     _Case(
         "topic",
         "evict_topic",
-        GlobalRoutes.PATCHOULI_EVICT_TOPIC,
+        PatchouliRoutes.EVICT_TOPIC,
         keywords=(("topic_id", "topic-1"),),
     ),
-    _Case("tasks", "list_memory_tasks", GlobalRoutes.PATCHOULI_MEMORY_TASK_LIST),
-    _Case("tasks", "get_memory_task", GlobalRoutes.PATCHOULI_MEMORY_TASK_GET, ("task-1",)),
-    _Case("tasks", "cancel_memory_task", GlobalRoutes.PATCHOULI_MEMORY_TASK_CANCEL, ("task-1",)),
+    _Case("tasks", "list_memory_tasks", PatchouliRoutes.MEMORY_TASK_LIST),
+    _Case("tasks", "get_memory_task", PatchouliRoutes.MEMORY_TASK_GET, ("task-1",)),
+    _Case("tasks", "cancel_memory_task", PatchouliRoutes.MEMORY_TASK_CANCEL, ("task-1",)),
 ]
 # 上传不经 Patchouli 路由，副作用落在进程内资产 Store。
 _UPLOAD_CASE = _Case(
@@ -127,11 +127,11 @@ class _OwnerBoundary:
                 scope = args[0]
             self.accepted.append((route, scope))
             if route in {
-                GlobalRoutes.PATCHOULI_MEMORY_CREATE,
-                GlobalRoutes.PATCHOULI_AGENT_PROFILE_CREATE,
+                PatchouliRoutes.MEMORY_CREATE,
+                PatchouliRoutes.AGENT_PROFILE_CREATE,
             }:
                 return args[1]
-            if route in {GlobalRoutes.PATCHOULI_MEMORY_GET, GlobalRoutes.PATCHOULI_MEMORY_UPDATE}:
+            if route in {PatchouliRoutes.MEMORY_GET, PatchouliRoutes.MEMORY_UPDATE}:
                 return MemoryAtom(
                     id=_MEMORY_ID,
                     meta=make_memory_metadata(user_id="u1", source_agent_id="writer"),
@@ -139,18 +139,18 @@ class _OwnerBoundary:
                     payload=PayloadLayer(content="正文"),
                 )
             if route in {
-                GlobalRoutes.PATCHOULI_MEMORY_LIST,
-                GlobalRoutes.PATCHOULI_AGENT_PROFILE_LIST,
-                GlobalRoutes.PATCHOULI_MEMORY_TASK_LIST,
+                PatchouliRoutes.MEMORY_LIST,
+                PatchouliRoutes.AGENT_PROFILE_LIST,
+                PatchouliRoutes.MEMORY_TASK_LIST,
             }:
                 return []
-            if route == GlobalRoutes.PATCHOULI_TOPIC_LIST_ACTIVE:
+            if route == PatchouliRoutes.TOPIC_LIST_ACTIVE:
                 return ()
-            if route == GlobalRoutes.PATCHOULI_MANUAL_SETTLE_TOPIC:
+            if route == PatchouliRoutes.MANUAL_SETTLE_TOPIC:
                 return TopicSettleResult(topic_id=kwargs["topic_id"])
-            if route == GlobalRoutes.PATCHOULI_EVICT_TOPIC:
+            if route == PatchouliRoutes.EVICT_TOPIC:
                 return TopicEvictionResult(topic_id=kwargs["topic_id"], removed=True)
-            if route == GlobalRoutes.PATCHOULI_MEMORY_TASK_GET:
+            if route == PatchouliRoutes.MEMORY_TASK_GET:
                 return MemoryGenerationTask(
                     task_id=args[0],
                     topic_id="topic-1",
