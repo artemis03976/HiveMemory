@@ -3,7 +3,7 @@ title: Ideas
 status: current
 owner: project
 scope: uncommitted-exploration
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-13
 ---
 
 # Ideas
@@ -31,7 +31,7 @@ Idea 以 frontmatter 的 `horizon` 字段分为三类，规则见[文档治理�
 | [身份与访问体系](./identity-and-access-model.md) | 第一、二批均于 2026-10-04 实施归档：密封的访问 context、两阶段认证与两阶段授权；Patchouli 内部和后台记录分开携带归属与发起者；SETTLE 使用 system；actor 不含 session_id。当前事实见 [Workspace 架构](../architecture/workspace.md)，本地阶段证据见 [第二批归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md) | I-1–I-11（含 I-6a）均已决定并实施，I-9 的 CPU 过渡身份已于 2026-10-09 删除，改用观测标签与执行凭据（[Alice 迁移归档](../archive/plans/v0.7.0-alice-capability-migration.md)；执行凭据于 2026-10-11 由线程 context 取代）；[WorkspaceAsset 内部拆分](../todo/workspace-asset-ownership-identity-split.md)由用户明确暂缓；受限跨 Workspace 访问不在 v0.7.0 |
 | [任务进程表与任务请求唯一注册入口](./task-process-table-and-registration-entry.md) | v0.7.0 内的五个批次已实施归档：`workspace.process` 的注册入口、进程表、执行器 `TaskProcessRunner` 与 CPU 分配，CPU 端口，命令只解析不执行 | 已完成（1.1、1.2、4.1）：请求方分类、任务进程的结构、Q-1–Q-6、Q-7（记忆任务不暴露给 Agent）、Q-9、Q-10、Q-14–Q-16；其中 Topic 按需创建、写入意图实时提交与“接纳后即退出”归其他方向，尚未实施。未完成（4.2）：Q-3b 传输入口、Q-5a 命令的运行位置（随命令系统后置）、Q-5b、Q-7 进程表是否收录后台任务、Q-8 外部 CPU 的进程（v0.7.1） |
 | [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | `InteractionPayload`、`TurnEvent`、`InteractionApplyRecord` 与 Passive turn buffer | 原 A3 计划退回，v0.7.0 内完成、Alice 为第一个使用者：Topic 体系如何接收外部 Actor 的会话消息；任务进程 Idea Q-9 已选 B：实际使用的对话上下文由 `ConversationSession` 提供，Topic 与 Gateway 话题路由只为记忆生成服务；会话操作（新建、恢复、压缩）、workspace 共享 Topic 池与前端回归 session 模型已决定（前端与新建、恢复在 v0.7.0，Alice 的压缩约在 v0.7.1）；模型字段与 Topic 生命周期事项待定 |
-| [写入意图（PendingAtom）体系的迁移](./pending-intent-migration.md) | workspace `WriteIntentRegistry`、共同引用解析与读取缓存失效（第 1 步于 2026-10-07 实施，[历史计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)）；`PendingAtomMaterializeTask` 与主动生成仍在 finalize 交接 | 原 A4 计划退回，v0.7.0 内分两步完成：第 1 步已迁出 Alice 登记与原子解析、提供能力层提交/全 Workspace 回读并接结算事件；第 2 步的实时物化派发、移除 interaction 隐式物化字段、Topic 全资料、结算后句柄寿命及未送达对账仍待实施或决定 |
+| [写入意图（PendingAtom）体系的迁移](./pending-intent-migration.md) | workspace `WriteIntentRegistry`、共同引用解析与读取缓存失效（第 1 步于 2026-10-07 实施，[历史计划](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)）；`PendingAtomMaterializeTask` 与主动生成仍在 finalize 交接 | 原 A4 计划退回，v0.7.0 内分两步完成：第 1 步已迁出 Alice 登记与原子解析、提供能力层提交/全 Workspace 回读并接结算事件；第 2 步的派发设计已于 2026-10-13 决定（实时派发、唯一提交路径、生成队列接纳后返回 ACK；提交后的失败与取消不影响已提交意图；done 事件不再携带记忆任务），待决 W6、W7、W10、W11；结算后句柄寿命及未送达对账仍搁置 |
 
 ## 候选方向（`candidate`）
 

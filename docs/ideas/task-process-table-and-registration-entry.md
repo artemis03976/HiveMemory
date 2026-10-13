@@ -19,7 +19,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/identity-and-access-model.md
   - docs/ideas/execution-unit-thread-and-environment.md
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-13
 ---
 
 # 任务进程表与任务请求唯一注册入口
@@ -341,7 +341,7 @@ flowchart TB
 
 **取舍**：曾考虑两阶段关闭（运行中 → 结算中 → 关闭，意图在关闭前归该进程），它需要在进程表中保留不占用 CPU 的进程，并定义保留窗口、容量与停机处理；写入意图改由 workspace 登记后，这些都不再需要。
 
-**实现现状**：进程在 finalize 返回后关闭，finalize 仍等到交互 applied，因为写入意图的物化仍在结算阶段派发、以 applied 为边界（总 Idea 3.4）。“接纳后即退出”要等写入意图迁移第 2 步把派发移出结算阶段之后才能实施（分析）。
+**实现现状**：进程在 finalize 返回后关闭，finalize 仍等到交互 applied，因为写入意图的物化仍在结算阶段派发、以 applied 为边界（总 Idea 3.4）。“接纳后即退出”要等写入意图迁移第 2 步把派发移出结算阶段之后才能实施（分析）。2026-10-13 第 2 步的派发设计已决定（实时派发，收尾不再派发物化）；这一尾项并入第 2 步还是留给外部会话方向，见[写入意图迁移 Idea](./pending-intent-migration.md#03-第-2-步的派发设计owner2026-10-13) 0.3 W11。
 
 #### Q-2 写入意图（中间产物）的可见范围
 
