@@ -26,7 +26,7 @@ _SYSTEM_PROMPT_TEXT_EN = {
 _MTP_VERB_TEXT_ZH = {
     "SEARCH": '发现未知记忆。Target=`*`。参数: `query="..."`，可选 `filter="type:CODE"` (类型: CODE, FACT, URL, REFLECTION, PROFILE, WIP)。',
     "READ": "获取完整内容。Target=`alias` 或 `[alias1, alias2]` (使用列表批量读取)。",
-    "RUN": '执行内核工具。Target=`tool_alias`。参数: `key="value"`。',
+    "RUN": '执行工具。Target=`tool_alias`。参数: `key="value"`。',
     "WRITE": '保存有价值的洞察。Target=`*`。参数: `title="..." content=`...``。返回运行时 pending alias (draft_*)。',
     "UPDATE": '修正已有记忆。Target=`alias`。参数: `instruction="..."`。返回运行时 pending alias (rev_*)。',
     "CALL": '委托子代理执行专项任务。Target=`agent_alias` (来自可用子代理列表)。参数: `topic="..."`，可选 `context_refs="[alias1, alias2]"` 共享记忆。',
@@ -35,7 +35,7 @@ _MTP_VERB_TEXT_ZH = {
 _MTP_VERB_TEXT_EN = {
     "SEARCH": 'Discover unknown memories. Target=`*`. Args: `query="..."`, optional `filter="type:CODE"` (types: CODE, FACT, URL, REFLECTION, PROFILE, WIP).',
     "READ": "Fetch full content. Target=`alias` or `[alias1, alias2]` (use LIST for batching).",
-    "RUN": 'Execute a kernel tool. Target=`tool_alias`. Args: `key="value"`.',
+    "RUN": 'Execute a tool. Target=`tool_alias`. Args: `key="value"`.',
     "WRITE": 'Save valuable insights. Target=`*`. Args: `title="..." content=`...``. Returns a pending alias (draft_*).',
     "UPDATE": 'Patch existing memory. Target=`alias`. Args: `instruction="..."`. Returns a pending alias (rev_*).',
     "CALL": 'Delegate to a sub-agent. Target=`agent_alias` (from Available Sub-Agents list). Args: `topic="..."`, optional `context_refs="[alias1, alias2]"` to share memories.',
@@ -43,9 +43,9 @@ _MTP_VERB_TEXT_EN = {
 
 _MTP_PROMPT_TEXT_ZH = {
     "protocol_spec": """\
-### HIVE MEMORY 内核上下文 ###
+### HIVE MEMORY 上下文 ###
 
-你是运行在 HiveOS 上的智能 Agent。你可以通过 Memory Tool Protocol (MTP) 访问持久化记忆内核。
+你是运行在 HiveMemory 上的智能 Agent。你可以通过 Memory Tool Protocol (MTP) 访问持久化记忆。
 
 [协议规则]
 1. 交互方式: 不要使用 JSON 或 Function Calling。直接在文本流中使用 MTP 语法。
@@ -111,9 +111,9 @@ _MTP_PROMPT_TEXT_ZH = {
 
 _MTP_PROMPT_TEXT_EN = {
     "protocol_spec": """\
-### HIVE MEMORY KERNEL CONTEXT ###
+### HIVE MEMORY CONTEXT ###
 
-You are an intelligent Agent running on HiveOS. You have access to a persistent memory kernel via the Memory Tool Protocol (MTP).
+You are an intelligent Agent running on HiveMemory. You have access to persistent memory via the Memory Tool Protocol (MTP).
 
 [PROTOCOL RULES]
 1. INTERACTION: Do NOT use JSON or Function Calling. Use MTP syntax directly in your text flow.
@@ -266,7 +266,7 @@ intent_type, rewritten_query, search_keywords, memory_write_signal, sub_intents,
 _RELAY_PROMPT_TEXT_ZH = {
     "system_prompt": """\
 [系统指令]
-你是 AI 操作系统 (HiveOS) 的状态管理器。
+你是 HiveMemory 的状态管理器。
 你的任务是将特定话题的近期交互历史压缩为高密度、结构化的"状态快照"，供 Worker Agent 使用。
 
 [输入数据]
@@ -307,7 +307,7 @@ _RELAY_PROMPT_TEXT_ZH = {
 _RELAY_PROMPT_TEXT_EN = {
     "system_prompt": """\
 [System Instruction]
-You are the State Manager of an AI Operating System (HiveOS).
+You are the State Manager of HiveMemory.
 Your task is to compress the recent interaction history of a specific topic into a highly dense, structured "State Snapshot" for the Worker Agent.
 
 [Input Data]

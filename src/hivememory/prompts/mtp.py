@@ -107,7 +107,7 @@ class MTPPromptBuilder:
         """
         sections = []
 
-        # 1. 协议规格 (含内核上下文 header)
+        # 1. 协议规格 (含 HIVE MEMORY 上下文 header)
         sections.append(self._build_protocol_spec())
 
         # 2. 负面约束
@@ -116,7 +116,7 @@ class MTPPromptBuilder:
         # 3. 行为准则
         sections.append(self._build_behavioral_guidelines())
 
-        # 4. 内核工具列表 (有工具时渲染)
+        # 4. 系统工具列表 (有工具时渲染)
         if self.runtime_tools:
             sections.append(self._build_runtime_tools())
 

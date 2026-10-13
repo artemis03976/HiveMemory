@@ -170,8 +170,8 @@ def test_mtp_prompt_uses_resolved_profile_language():
         permitted_verbs=frozenset({"SEARCH", "RUN"}),
     )
 
-    assert "You are an intelligent Agent running on HiveOS" in messages[0]["content"]
-    assert "你是运行在 HiveOS" not in messages[0]["content"]
+    assert "You are an intelligent Agent running on HiveMemory" in messages[0]["content"]
+    assert "你是运行在 HiveMemory" not in messages[0]["content"]
 
 
 def test_mtp_prompt_uses_global_language_without_profile_language():
@@ -185,7 +185,7 @@ def test_mtp_prompt_uses_global_language_without_profile_language():
         permitted_verbs=frozenset({"SEARCH", "RUN"}),
     )
 
-    assert "You are an intelligent Agent running on HiveOS" in messages[0]["content"]
+    assert "You are an intelligent Agent running on HiveMemory" in messages[0]["content"]
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])
