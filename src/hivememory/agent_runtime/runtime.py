@@ -25,8 +25,8 @@ class AgentRuntime:
 
     封装执行引擎（loop_executor + worker_agent + mtp_executor）与
     对外提供 "跑一个 frame" 与 "收割成功子帧产物" 的 API。
-    类比 patchouli 的 LibrarianCore——把底层引擎组件收拢成一个聚合，
-    编排层（AliceRuntime / RunExecutor）只拿这个门面操作，不直接接触引擎细节。
+    它把底层引擎组件收拢成一个聚合，编排层（AliceRuntime / RunExecutor）
+    只拿这个门面操作，不直接接触引擎细节。
 
     迭代上限由门面内部从 config.agent_runtime 消化，编排不再传 max_iterations。
     """

@@ -1,14 +1,14 @@
-import { RUNTIME_EVENTS_STATUS_URL, RUNTIME_EVENTS_URL } from '@/stores/kernel/constants';
+import { RUNTIME_EVENTS_STATUS_URL, RUNTIME_EVENTS_URL } from '@/stores/workspace/constants';
 import { EventSourceClient } from '@/transports/sse/eventSourceClient';
 import { markConnected, markConnecting, markDisabled, markError } from '@/transports/state';
-import type { KernelStore, RuntimeEvent } from '@/types/kernel';
+import type { WorkspaceStore, RuntimeEvent } from '@/types/workspace';
 
-type KernelSet = (partial: Partial<KernelStore>) => void;
-type KernelGet = () => KernelStore;
+type WorkspaceSet = (partial: Partial<WorkspaceStore>) => void;
+type WorkspaceGet = () => WorkspaceStore;
 
 const runtimeEventClient = new EventSourceClient<RuntimeEvent>();
 
-export function initializeRuntimeEventStream(set: KernelSet, get: KernelGet): void {
+export function initializeRuntimeEventStream(set: WorkspaceSet, get: WorkspaceGet): void {
   const state = get();
   if (
     state._eventSource &&
@@ -45,7 +45,7 @@ export function initializeRuntimeEventStream(set: KernelSet, get: KernelGet): vo
     });
 }
 
-function openRuntimeEventSource(lastEventId: string | null, set: KernelSet, get: KernelGet): void {
+function openRuntimeEventSource(lastEventId: string | null, set: WorkspaceSet, get: WorkspaceGet): void {
   try {
     const eventSource = runtimeEventClient.connect({
       url: RUNTIME_EVENTS_URL,

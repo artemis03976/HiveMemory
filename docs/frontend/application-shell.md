@@ -17,7 +17,7 @@ last_reviewed: 2026-07-29
 
 # 前端应用壳与视觉系统
 
-应用壳把 HiveMemory 的多个观察和管理视角放进同一张工作台。它不试图用一套路由层模拟多个独立产品，而是让用户在 Chat、记忆、Agent 和配置之间快速切换，同时保留主题与工作区偏好。当前设计优先服务桌面开发与个人使用，尚未把 URL 导航、账户边界或移动端布局作为已交付能力。
+应用壳把 HiveMemory 的多个观察和管理视角放进同一张工作台。它不试图用一套路由层模拟多个独立产品，而是让用户在 Chat、记忆、Agent 和配置之间快速切换，同时保留主题与面板布局偏好。当前设计优先服务桌面开发与个人使用，尚未把 URL 导航、账户边界或移动端布局作为已交付能力。
 
 ## 1. 当前结构
 
@@ -26,8 +26,8 @@ App
   ├─ GlobalNavBar (fixed 64px)
   ├─ ChatLayout
   │    ├─ ContextSidebar (288px / collapsed 48px)
-  │    ├─ ChatWorkspace (flex)
-  │    └─ KernelVision (320 / 440 / 600px, collapsed 48px)
+  │    ├─ ChatPane (flex)
+  │    └─ WorkspaceVision (320 / 440 / 600px, collapsed 48px)
   ├─ MemoryLibrary
   ├─ AgentManagement
   ├─ SettingsPanel
@@ -36,7 +36,7 @@ App
 
 `activeNavTab` 决定四个主页面中的哪一个被渲染。这里没有 React Router，也没有按 URL 恢复页面、浏览器前进后退或页面级深链接。GlobalNavBar 的 Terminal 按钮会把状态切为 `terminal`，但 App 没有该分支，因此当前会出现空白主区。
 
-Chat 工作区也不是旧设计中的可拖拽四栏：左侧 Context Sidebar 和右侧 Kernel Vision 采用固定宽度，支持折叠；中央 Chat Workspace 使用剩余空间。`react-resizable-panels` 尚未被源码使用，不能把依赖存在等同于拖拽布局已经落地。
+Chat View 也不是旧设计中的可拖拽四栏：左侧 Context Sidebar 和右侧 Workspace Vision 采用固定宽度，支持折叠；中央 Chat Pane 使用剩余空间。`react-resizable-panels` 尚未被源码使用，不能把依赖存在等同于拖拽布局已经落地。
 
 ## 2. 为什么采用同屏工作台
 
@@ -96,7 +96,7 @@ HiveMemory 的价值不仅在最终回答，还在回答依赖了哪些记忆、
 
 生产构建只有在 `HIVEMEMORY_SERVE_FRONTEND=true` 且构建目录存在时才由 FastAPI 提供。静态服务对非 API 路径执行 SPA fallback，并对请求路径做 realpath/commonpath 检查；API 未匹配仍返回 404，不会被 `index.html` 吞掉。
 
-大多数前端请求直接使用相对 `/api`，因此非同源部署需要外部反向代理。`VITE_BACKEND_ORIGIN` 当前只直接影响 Kernel 日志 WebSocket 与 RuntimeEvent URL，不能单独改变全部 HTTP API 的目标。
+大多数前端请求直接使用相对 `/api`，因此非同源部署需要外部反向代理。`VITE_BACKEND_ORIGIN` 当前只直接影响日志 WebSocket 与 RuntimeEvent URL，不能单独改变全部 HTTP API 的目标。
 
 ## 6. 不变量与矛盾检查
 
@@ -116,4 +116,4 @@ HiveMemory 的价值不仅在最终回答，还在回答依赖了哪些记忆、
 - 没有已配置的前端组件测试、视觉回归或可访问性自动化门槛；
 - `react-resizable-panels` 留在依赖中但未使用，属于实现与依赖清理问题。
 
-Chat 内部交互见 [Chat 工作区](./chat-workspace.md)，状态与部署连接细节见[状态、持久化与传输](./state-and-transports.md)。
+Chat 内部交互见 [Chat 视图](./chat-view.md)，状态与部署连接细节见[状态、持久化与传输](./state-and-transports.md)。

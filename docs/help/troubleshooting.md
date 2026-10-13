@@ -117,7 +117,7 @@ Memory、Agent、Settings 和开发模式 Memory task 存在 mock fallback。典
 
 本轮真实 Topic 以 SSE `topic_info` 为准。若要调查话题资产，请使用 Topic API 与 Patchouli 当前文档，而不是把左侧栏当作会话历史浏览器。
 
-## 9. Kernel Terminal 没有日志或事件
+## 9. Workspace Terminal 没有日志或事件
 
 检查：
 

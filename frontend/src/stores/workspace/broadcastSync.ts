@@ -1,8 +1,8 @@
-import { HEARTBEAT_INTERVAL, PRIMARY_WINDOW_KEY } from '@/stores/kernel/constants';
-import type { BroadcastMessage, KernelStore } from '@/types/kernel';
+import { HEARTBEAT_INTERVAL, PRIMARY_WINDOW_KEY } from '@/stores/workspace/constants';
+import type { BroadcastMessage, WorkspaceStore } from '@/types/workspace';
 
-type KernelSet = (partial: Partial<KernelStore>) => void;
-type KernelGet = () => KernelStore;
+type WorkspaceSet = (partial: Partial<WorkspaceStore>) => void;
+type WorkspaceGet = () => WorkspaceStore;
 
 export function checkAndClaimPrimaryWindow(): boolean {
   const now = Date.now();
@@ -22,7 +22,7 @@ export function checkAndClaimPrimaryWindow(): boolean {
   return false;
 }
 
-export function handleBroadcastMessage(message: BroadcastMessage, set: KernelSet, get: KernelGet): void {
+export function handleBroadcastMessage(message: BroadcastMessage, set: WorkspaceSet, get: WorkspaceGet): void {
   switch (message.type) {
     case 'NEW_LOG':
       get().addLog(message.payload);
@@ -93,7 +93,7 @@ export function handleBroadcastMessage(message: BroadcastMessage, set: KernelSet
   }
 }
 
-export function startPrimaryHeartbeat(get: KernelGet): ReturnType<typeof setInterval> {
+export function startPrimaryHeartbeat(get: WorkspaceGet): ReturnType<typeof setInterval> {
   return setInterval(() => {
     const state = get();
     if (!state._isPrimaryWindow) return;

@@ -1,13 +1,13 @@
 /**
- * Kernel Terminal Type Definitions
+ * Workspace Terminal Type Definitions
  *
- * Types for the kernel terminal panel with real-time log streaming,
+ * Types for the Workspace Terminal panel with real-time log streaming,
  * WebSocket connection management, and cross-window synchronization.
  */
 
 export type LogLevel = 'DEBUG' | 'INFO' | 'WARNING' | 'ERROR' | 'CRITICAL';
 
-export type KernelConnectionStatus =
+export type WorkspaceConnectionStatus =
   | 'disconnected'
   | 'connecting'
   | 'connected'
@@ -97,7 +97,7 @@ export interface RuntimeEvent {
  * WebSocket connection state
  */
 export interface ConnectionState {
-  status: KernelConnectionStatus;
+  status: WorkspaceConnectionStatus;
   error: string | null;
   connectedAt: number | null; // Unix timestamp
   reconnectAttempts: number;
@@ -142,7 +142,7 @@ export interface Statistics {
 /**
  * Main Zustand store interface
  */
-export interface KernelStore {
+export interface WorkspaceStore {
   // State
   logs: LogEntry[];
   runtimeEvents: RuntimeEvent[];

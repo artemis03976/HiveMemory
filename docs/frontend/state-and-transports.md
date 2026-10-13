@@ -50,7 +50,7 @@ Chat tokens / logs / RuntimeEvents
 | `chat-store` | 当前 Agent ID | messages、Topic ID、引用记忆、连接、generation ID、run status |
 | `memory-view-store` | search mode、类型、status filter、排序、grid/list | search query、selected tags、Memory 数据 |
 | `memory-task-store` | 是否显示 terminal tasks | task、选中 task、请求状态 |
-| `kernel-store` | filters、trace/span UI | logs、trace groups、RuntimeEvents、连接、主窗口状态 |
+| `workspace-store` | filters、trace/span UI | logs、trace groups、RuntimeEvents、连接、主窗口状态 |
 | `topic-store` | 无 | Topic 池、loading、error |
 
 Settings 和 OmniInput 草稿当前使用组件 state/useDraft，不跨刷新恢复。Topic `settle`/`delete` 使用乐观移除并在失败时回滚；这里的 `settle` 是结束 Topic 生命周期并交给记忆生成，不是 Memory Library 的 `archive`。Memory delete 当前不回滚，是需要修正的不一致。
@@ -74,7 +74,7 @@ Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送�
 
 本地开发时，Vite 在 `127.0.0.1:5173` 运行，并将 `/api` 代理到 `http://localhost:8769`，包括 WebSocket upgrade。Docker/整合部署由 FastAPI 在 `8000` 同源提供前端和 API。
 
-普通 HTTP services 全部使用相对 `/api`；Kernel stream URL 则由 `VITE_BACKEND_ORIGIN || window.location.origin` 生成。因此：
+普通 HTTP services 全部使用相对 `/api`；日志与 RuntimeEvent 流的 URL 则由 `VITE_BACKEND_ORIGIN || window.location.origin` 生成。因此：
 
 - 同源部署与 Vite proxy 是当前完整支持路径；
 - 仅设置 `VITE_BACKEND_ORIGIN` 只会迁移日志和 RuntimeEvent，不会迁移 chat、memory、topic 等 HTTP 请求；
@@ -84,7 +84,7 @@ Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送�
 
 ## 5. 多窗口日志同步
 
-Kernel store 通过 `hivememory_primary_window` localStorage heartbeat 判断主窗口。主窗口建立 WebSocket 与 RuntimeEvent 连接，再通过 `hivememory_kernel_logs` BroadcastChannel 广播新日志、事件和连接状态；次窗口只消费广播。
+Workspace store 通过 `hivememory_primary_window` localStorage heartbeat 判断主窗口。主窗口建立 WebSocket 与 RuntimeEvent 连接，再通过 `hivememory_workspace_logs` BroadcastChannel 广播新日志、事件和连接状态；次窗口只消费广播。
 
 这个机制减少重复连接，但没有服务端 lease，也没有跨浏览器实例协调。浏览器冻结、localStorage 清理、时钟漂移或主窗口非正常终止时可能短暂出现无主或多主；它不能替代后端订阅身份和可靠消费语义。
 
@@ -118,4 +118,4 @@ Mock 的合理用途是让组件开发仍有可见状态，不是把离线体验
 - `VITE_BACKEND_ORIGIN` 不是全局 API base；
 - 浏览器 store 没有自动化持久化迁移测试或跨窗口一致性测试。
 
-后端 route 与 event 的唯一契约见[公开路由与事件](../contracts/routes-and-events.md)，Chat 事件如何进入页面见 [Chat 工作区](./chat-workspace.md)。
+后端 route 与 event 的唯一契约见[公开路由与事件](../contracts/routes-and-events.md)，Chat 事件如何进入页面见 [Chat 视图](./chat-view.md)。

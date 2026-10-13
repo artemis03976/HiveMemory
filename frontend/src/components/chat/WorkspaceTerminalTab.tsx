@@ -1,10 +1,10 @@
 import { useEffect, useRef, useCallback, useMemo, useState } from 'react';
 import { Circle, Play, Pause, ArrowDownToLine, ArrowUpFromLine, Trash2, Search, RefreshCw, ChevronRight, User, Activity, Layers, Radio } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
-import { useKernelStore } from '@/stores';
-import type { LogLevel, LogEntry, KernelConnectionStatus, RuntimeEventConnectionStatus, RuntimeEvent, SpanGroup, TraceGroup } from '@/types/kernel';
+import { useWorkspaceStore } from '@/stores';
+import type { LogLevel, LogEntry, WorkspaceConnectionStatus, RuntimeEventConnectionStatus, RuntimeEvent, SpanGroup, TraceGroup } from '@/types/workspace';
 
-const STATUS_DOT: Record<KernelConnectionStatus, string> = {
+const STATUS_DOT: Record<WorkspaceConnectionStatus, string> = {
   disconnected: 'text-slate-500',
   connecting: 'text-magic-metal',
   connected: 'text-magic-wood',
@@ -12,7 +12,7 @@ const STATUS_DOT: Record<KernelConnectionStatus, string> = {
   reconnecting: 'text-magic-metal animate-pulse',
 };
 
-const STATUS_LABEL: Record<KernelConnectionStatus, string> = {
+const STATUS_LABEL: Record<WorkspaceConnectionStatus, string> = {
   disconnected: 'Disconnected',
   connecting: 'Connecting...',
   connected: 'Connected',
@@ -36,7 +36,7 @@ const EVENT_STATUS_LABEL: Record<RuntimeEventConnectionStatus, string> = {
   error: 'Events error',
 };
 
-type KernelView = 'logs' | 'events';
+type TerminalView = 'logs' | 'events';
 
 const LEVEL_STYLES: Record<LogLevel, string> = {
   DEBUG: 'text-slate-500 bg-slate-500/10',
@@ -142,7 +142,7 @@ function EventRow({ event }: { event: RuntimeEvent }) {
 }
 
 /** Empty state placeholder */
-function EmptyState({ status }: { status: KernelConnectionStatus }) {
+function EmptyState({ status }: { status: WorkspaceConnectionStatus }) {
   return (
     <div className="flex flex-col items-center justify-center h-full text-slate-500 gap-2 select-none">
       <span className="text-lg opacity-40">{'>'}_</span>
@@ -151,7 +151,7 @@ function EmptyState({ status }: { status: KernelConnectionStatus }) {
           ? 'Waiting for backend activity...'
           : status === 'error'
             ? 'Connection failed. Click reconnect to retry.'
-            : 'Connecting to kernel...'}
+            : 'Connecting to log stream...'}
       </span>
     </div>
   );
@@ -282,19 +282,19 @@ function TraceBlock({
   );
 }
 
-export default function KernelTerminalTab() {
+export default function WorkspaceTerminalTab() {
   const scrollRef = useRef<HTMLDivElement>(null);
-  const [view, setView] = useState<KernelView>('logs');
+  const [view, setView] = useState<TerminalView>('logs');
 
   // State selectors
-  const connection = useKernelStore((s) => s.connection);
-  const runtimeEventConnection = useKernelStore((s) => s.runtimeEventConnection);
-  const filters = useKernelStore((s) => s.filters);
-  const ui = useKernelStore((s) => s.ui);
-  const traceGroups = useKernelStore((s) => s.traceGroups);
-  const runtimeEvents = useKernelStore((s) => s.runtimeEvents);
+  const connection = useWorkspaceStore((s) => s.connection);
+  const runtimeEventConnection = useWorkspaceStore((s) => s.runtimeEventConnection);
+  const filters = useWorkspaceStore((s) => s.filters);
+  const ui = useWorkspaceStore((s) => s.ui);
+  const traceGroups = useWorkspaceStore((s) => s.traceGroups);
+  const runtimeEvents = useWorkspaceStore((s) => s.runtimeEvents);
 
-  const allLogs = useKernelStore((s) => s.logs);
+  const allLogs = useWorkspaceStore((s) => s.logs);
   const logs = useMemo(() => {
     return allLogs.filter((log) => {
       if (filters.logLevel && log.level !== filters.logLevel) return false;
@@ -312,17 +312,17 @@ export default function KernelTerminalTab() {
   }, [allLogs, filters.logLevel, filters.loggerNamespace, filters.searchText]);
 
   // Actions
-  const connect = useKernelStore((s) => s.connect);
-  const disconnect = useKernelStore((s) => s.disconnect);
-  const setLogLevel = useKernelStore((s) => s.setLogLevel);
-  const setSearchText = useKernelStore((s) => s.setSearchText);
-  const clearLogs = useKernelStore((s) => s.clearLogs);
-  const clearRuntimeEvents = useKernelStore((s) => s.clearRuntimeEvents);
-  const toggleAutoScroll = useKernelStore((s) => s.toggleAutoScroll);
-  const togglePause = useKernelStore((s) => s.togglePause);
-  const reconnect = useKernelStore((s) => s.reconnect);
-  const toggleTraceCollapse = useKernelStore((s) => s.toggleTraceCollapse);
-  const toggleSpanCollapse = useKernelStore((s) => s.toggleSpanCollapse);
+  const connect = useWorkspaceStore((s) => s.connect);
+  const disconnect = useWorkspaceStore((s) => s.disconnect);
+  const setLogLevel = useWorkspaceStore((s) => s.setLogLevel);
+  const setSearchText = useWorkspaceStore((s) => s.setSearchText);
+  const clearLogs = useWorkspaceStore((s) => s.clearLogs);
+  const clearRuntimeEvents = useWorkspaceStore((s) => s.clearRuntimeEvents);
+  const toggleAutoScroll = useWorkspaceStore((s) => s.toggleAutoScroll);
+  const togglePause = useWorkspaceStore((s) => s.togglePause);
+  const reconnect = useWorkspaceStore((s) => s.reconnect);
+  const toggleTraceCollapse = useWorkspaceStore((s) => s.toggleTraceCollapse);
+  const toggleSpanCollapse = useWorkspaceStore((s) => s.toggleSpanCollapse);
 
   // Auto-scroll
   useEffect(() => {

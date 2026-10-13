@@ -172,7 +172,7 @@ async def test_search_without_memory_search_grant_does_not_deliver_or_warm_memor
 async def test_read_and_user_run_require_independent_operation_permissions(
     operation, allowed_verb, denied_verb, expected_content
 ):
-    """READ 与用户态 RUN 各自授权，拒绝不读取资源，获准交付仍记录正式引用。"""
+    """READ 与用户工具的 RUN 各自授权，拒绝不读取资源，获准交付仍记录正式引用。"""
     harness = OperationsHarness()
     atom = MemoryAtom(
         meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),

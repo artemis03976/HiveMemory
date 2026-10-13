@@ -4,18 +4,18 @@ import {
   PING_INTERVAL,
   RECONNECT_DELAYS,
   WS_URL,
-} from '@/stores/kernel/constants';
+} from '@/stores/workspace/constants';
 import { markActivity, markConnected, markDisconnected, markError, markReconnecting } from '@/transports/state';
 import { WebSocketClient } from '@/transports/websocket/websocketClient';
-import type { KernelStore } from '@/types/kernel';
+import type { WorkspaceStore } from '@/types/workspace';
 
-type KernelSet = (partial: Partial<KernelStore>) => void;
-type KernelGet = () => KernelStore;
-type LogPayload = Omit<KernelStore['logs'][number], 'id'>;
+type WorkspaceSet = (partial: Partial<WorkspaceStore>) => void;
+type WorkspaceGet = () => WorkspaceStore;
+type LogPayload = Omit<WorkspaceStore['logs'][number], 'id'>;
 
 const websocketClient = new WebSocketClient<LogPayload>();
 
-export function initializeWebSocket(set: KernelSet, get: KernelGet): void {
+export function initializeWebSocket(set: WorkspaceSet, get: WorkspaceGet): void {
   const ws = websocketClient.connect({
     url: WS_URL,
     connectTimeoutMs: CONNECT_TIMEOUT,
@@ -31,13 +31,13 @@ export function initializeWebSocket(set: KernelSet, get: KernelGet): void {
     parseMessage: (data) => {
       const logData = JSON.parse(data);
       if (!logData.timestamp || !logData.level || !logData.logger) {
-        console.warn('[KernelStore] Invalid log entry:', logData);
+        console.warn('[WorkspaceStore] Invalid log entry:', logData);
         return null;
       }
       return logData as LogPayload;
     },
     onOpen: () => {
-      console.log('[KernelStore] WebSocket connected');
+      console.log('[WorkspaceStore] WebSocket connected');
       const connected = markConnected(get().connection);
       set({
         connection: {
@@ -71,13 +71,13 @@ export function initializeWebSocket(set: KernelSet, get: KernelGet): void {
       }
     },
     onError: (message, error) => {
-      console.error('[KernelStore] WebSocket error:', error ?? message);
+      console.error('[WorkspaceStore] WebSocket error:', error ?? message);
       set({
         connection: markError(get().connection, message),
       });
     },
     onClosedByRequest: () => {
-      console.log('[KernelStore] WebSocket closed');
+      console.log('[WorkspaceStore] WebSocket closed');
       set({
         connection: {
           ...markDisconnected(get().connection),
@@ -90,7 +90,7 @@ export function initializeWebSocket(set: KernelSet, get: KernelGet): void {
     },
     onReconnecting: (attempt, delay) => {
       console.log(
-        `[KernelStore] Reconnecting in ${delay}ms (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})`,
+        `[WorkspaceStore] Reconnecting in ${delay}ms (attempt ${attempt}/${MAX_RECONNECT_ATTEMPTS})`,
       );
 
       set({

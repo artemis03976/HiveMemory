@@ -7,7 +7,9 @@ export const WS_URL = `${WS_PROTOCOL}://${API_ORIGIN.host}/api/v1/ws/logs`;
 export const RUNTIME_EVENTS_URL = `${API_ORIGIN.origin}/api/v1/runtime-events/stream`;
 export const RUNTIME_EVENTS_STATUS_URL = `${API_ORIGIN.origin}/api/v1/runtime-events/status`;
 
-export const BROADCAST_CHANNEL_NAME = 'hivememory_kernel_logs';
+export const BROADCAST_CHANNEL_NAME = 'hivememory_workspace_logs';
+export const PERSIST_KEY = 'workspace-store';
+export const LEGACY_PERSIST_KEY = 'kernel-store';
 export const PRIMARY_WINDOW_KEY = 'hivememory_primary_window';
 export const HEARTBEAT_INTERVAL = 5000;
 export const MAX_RECONNECT_ATTEMPTS = 10;

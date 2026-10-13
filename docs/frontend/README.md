@@ -27,7 +27,7 @@ HiveMemory Frontend 不是后端之外的另一套系统真相，而是人能够
 
 - **透明**：系统选择了哪个话题、引用了哪些记忆、正在执行什么 MTP 动作、是否进入后台 finalize，都应由真实事件驱动并能够被用户感知；
 - **沉浸**：观测信息通过卡片、侧栏和状态提示渐进展开，不用协议原文、日志洪流或频繁弹窗切断对话；
-- **可观测**：开发者可以在 Kernel Vision 中查看引用记忆、Memory Runtime task、RuntimeEvent 与日志流，但观测旁路不能反过来决定业务成功。
+- **可观测**：开发者可以在 Workspace Vision 中查看引用记忆、Memory Runtime task、RuntimeEvent 与日志流，但观测旁路不能反过来决定业务成功。
 
 ### 1.2 人类态与机器态分离
 
@@ -80,7 +80,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 ## 4. 当前文档
 
 - [应用壳与视觉系统](./application-shell.md)：导航、布局、主题、视觉隐喻与部署方式；
-- [Chat 工作区](./chat-workspace.md)：对话主流程、SSE 事件、Topic、MTP、子 Agent 与 Kernel Vision；
+- [Chat 视图](./chat-view.md)：对话主流程、SSE 事件、Topic、MTP、子 Agent 与 Workspace Vision；
 - [管理页面](./management-views.md)：Memory Library、Agent Management、Settings 与人工干预边界；
 - [状态、持久化与传输](./state-and-transports.md)：状态所有权、本地持久化矩阵、HTTP/SSE/WebSocket 和 mock 降级。
 
@@ -93,7 +93,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 | 责任 | 代码入口 |
 |:---|:---|
 | 应用入口与导航 | `frontend/src/App.tsx`、`components/GlobalNavBar.tsx` |
-| Chat 与观测工作区 | `components/ChatLayout.tsx`、`components/chat/` |
+| Chat 视图与观测面板 | `components/ChatLayout.tsx`、`components/chat/` |
 | 管理页面 | `components/MemoryLibrary.tsx`、`AgentManagement.tsx`、`SettingsPanel.tsx` |
 | 状态所有权 | `frontend/src/stores/`、`hooks/` |
 | API 与流传输 | `frontend/src/services/`、`transports/` |

@@ -115,7 +115,7 @@ def test_filtered_prompt_keeps_core_sections_and_error_recovery():
     """缺少示例所需动词时，核心结构和通用错误恢复仍保留。"""
     output = MTPPromptBuilder(language="en", allowed_verbs={"READ", "RUN"}).build()
 
-    assert "HIVE MEMORY KERNEL CONTEXT" in output
+    assert "HIVE MEMORY CONTEXT" in output
     assert "PROTOCOL RULES" in output
     assert "CONSTRAINTS" in output
     assert "BEHAVIORAL GUIDELINES" in output

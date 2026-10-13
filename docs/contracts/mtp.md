@@ -108,7 +108,7 @@ READ 列表是协议中显式支持的批量读取，而不是多命令特例。
 
 两层分发：
 
-1. `sys_` 工具或 Kernel Registry 中的工具走注册 syscall；
+1. `sys_*` 工具走 syscall 注册表中注册的 syscall；未注册的 `sys_*` alias 直接返回 `mtp.alias.not_found`，不转为记忆解析；
 2. 其他 alias 经 PendingAtom/正式记忆解析，只允许 `CODE_SNIPPET` MemoryAtom。
 
 系统工具不设 Agent 权限，所有已注册的 `sys_*` 对所有 Agent 可用，在 Alice 本地执行、不提交操作请求。redirect 可以执行但会附带 warning；pending 和 terminal alias 不可执行。记忆目标通过 `ResolveRunTargetRequest` 读取，要求 actor 操作 `memory.run`（不要求 `memory.read`），引用计数在工具类型检查与执行前已完成；后续类型拒绝或工具失败仍保留这次 `workspace.reference_read` citation。系统 syscall 不读取正式原子，不因此计数。

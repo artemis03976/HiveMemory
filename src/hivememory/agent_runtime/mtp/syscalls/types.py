@@ -16,9 +16,9 @@ class SyscallResult:
 
 
 @dataclass(frozen=True)
-class KernelSyscall:
+class Syscall:
     """
-    内核级工具定义（Level 0）。
+    sys_* 系统工具定义。
 
     handler 签名: (args: Dict[str, str]) -> SyscallResult
     """

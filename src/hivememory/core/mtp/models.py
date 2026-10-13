@@ -2,7 +2,7 @@
 MTP request/response models 与协议常量。
 
 定义 MTP 协议的核心常量、枚举与结构化数据模型。
-这些模型在 Parser、Formatter、Kernel 执行链路之间共享使用。
+这些模型在 Parser、Formatter 与 KoakumaRuntime 执行链路之间共享使用。
 """
 
 from enum import Enum
@@ -26,7 +26,7 @@ class MTPVerb(str, Enum):
     核心能力:
         SEARCH - 检索候选记忆
         READ   - 读取具体记忆内容
-        RUN    - 调用内核工具或执行代码
+        RUN    - 调用系统工具或执行代码记忆
         WRITE  - 异步保存信号
         UPDATE - 异步更新信号
         CALL   - 子代理调用（多智能体场景）
@@ -154,7 +154,7 @@ class MTPWarningInfo(BaseModel):
 
 class MTPResponse(BaseModel):
     """
-    内核执行结果的结构化响应模型。
+    MTP 指令执行结果的结构化响应模型。
 
     用于后续统一格式化为 `<mtp_response ...>` XML 容器。
 

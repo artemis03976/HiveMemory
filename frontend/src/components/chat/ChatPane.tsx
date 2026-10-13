@@ -6,15 +6,15 @@ import OmniInput from './OmniInput';
 import { useChatStore } from '@/stores';
 import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
 
-interface ChatWorkspaceProps {
+interface ChatPaneProps {
   activeTopicTitle: string;
 }
 
-export default function ChatWorkspace({ activeTopicTitle }: ChatWorkspaceProps) {
+export default function ChatPane({ activeTopicTitle }: ChatPaneProps) {
   const { messages } = useChatStore();
   const { enqueueFiles } = useAttachmentUpload();
   const [isDragActive, setIsDragActive] = useState(false);
-  // 拖拽进入子元素会连续触发 dragenter/dragleave，用计数判断是否真正离开工作区
+  // 拖拽进入子元素会连续触发 dragenter/dragleave，用计数判断是否真正离开对话区
   const dragDepthRef = useRef(0);
 
   const hasFiles = (e: React.DragEvent) =>
@@ -74,7 +74,7 @@ export default function ChatWorkspace({ activeTopicTitle }: ChatWorkspaceProps) 
 
       <OmniInput />
 
-      {/* 拖入文件时的 drop 状态提示；pointer-events-none 保证 drop 命中工作区 */}
+      {/* 拖入文件时的 drop 状态提示；pointer-events-none 保证 drop 命中对话区 */}
       {isDragActive && (
         <div className="absolute inset-0 z-40 pointer-events-none flex items-center justify-center bg-primary/10 backdrop-blur-sm border-2 border-dashed border-primary/50 rounded-lg">
           <div className="flex flex-col items-center gap-2 text-primary">

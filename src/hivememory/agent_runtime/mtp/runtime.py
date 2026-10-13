@@ -117,7 +117,7 @@ class KoakumaRuntime:
         2. 解析 MTP 指令
         3. 将资源操作请求提交给 workspace 能力层
         4. 格式化执行结果为 XML 响应容器
-        5. 返回回填文本供 Kernel 注入 Assistant 历史
+        5. 返回回填文本，供执行循环注入 Assistant 历史
 
     资源访问由执行上下文中的提交函数提供；运行时只保留协议翻译、
     结果编译与工具执行，不直接持有资源 owner 的总线路由。
@@ -144,11 +144,11 @@ class KoakumaRuntime:
 
         self._memory_compiler_config = memory_compiler_config
 
-        # 初始化内核工具注册表 KERNEL_REGISTRY (Section 4.2.1)
+        # 初始化 sys_* 系统工具的 syscall 注册表
         # 硬编码的 sys_ 工具集，随系统启动加载，Zero Latency
-        from hivememory.agent_runtime.mtp.syscalls import build_kernel_registry
+        from hivememory.agent_runtime.mtp.syscalls import build_syscall_registry
 
-        self._kernel_registry = build_kernel_registry(
+        self._syscall_registry = build_syscall_registry(
             python_repl_timeout=self._config.python_repl_timeout_seconds,
             workspace_path=self._config.workspace_path,
             file_read_max_bytes=self._config.file_read_max_bytes,
@@ -269,7 +269,7 @@ class KoakumaRuntime:
         拦截流程:
         1. 捕获 (Capture): 查找最后一个 ⟪
         2. 解析 (Parsing): 提取 VERB, TARGET, ARGS
-        3. 挂起 (Suspend): 进入内核态执行
+        3. 挂起 (Suspend): 暂停生成并执行指令
 
         Args:
             assistant_text: 已由 WorkerAgent 补全右定界符的 LLM 输出文本
@@ -554,8 +554,8 @@ class KoakumaRuntime:
         处理 RUN 指令 (Section 2.2)
 
         两层分发:
-        - Level 0: 内核工具快速路径 (KERNEL_REGISTRY, Section 4.2.1)
-        - Level 1: 用户态工具慢速路径 (LRU Cache → L1/L2 别名解析 → Qdrant → 沙箱执行)
+        - 系统工具快速路径: 命中 syscall 注册表的 sys_* 工具在本地执行
+        - 用户工具路径: 经 ResolveRunTargetRequest 解析 CODE_SNIPPET 记忆 → 沙箱执行
 
         Type B 动作类响应 (Section 3.3.3)
 
@@ -569,10 +569,10 @@ class KoakumaRuntime:
         if alias is None:
             raise InvalidArgumentError(message_key="mtp.run.missing_single_target")
 
-        syscall = self._kernel_registry.get(alias)
+        syscall = self._syscall_registry.get(alias)
         if syscall is None and alias.startswith("sys_"):
             raise AliasNotFoundError(
-                message_key="mtp.run.kernel_tool_not_found",
+                message_key="mtp.run.tool_not_found",
                 params={"alias": alias},
             )
         if syscall is not None:
@@ -580,7 +580,7 @@ class KoakumaRuntime:
             result = syscall.handler(command.args)
             return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
 
-        # Level 1: 用户态工具路径。RUN 以自己的操作请求进入读取视图，
+        # 用户工具路径。RUN 以自己的操作请求进入读取视图，
         # 与 READ 的许可独立；交付执行目标时仍由 workspace 记录正式引用。
         # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
         resolved = await self._operation_submitter(context)(ResolveRunTargetRequest(alias=alias))
@@ -815,9 +815,9 @@ class KoakumaRuntime:
 
     def _execute_user_tool(self, alias: str, code: str, args: dict[str, str]) -> MTPResponse:
         """
-        在受限沙箱中执行用户态工具 (Section 4.2.2)
+        在受限沙箱中执行用户工具
 
-        用户态工具通过 params 字典接收 MTP 参数。
+        用户工具通过 params 字典接收 MTP 参数。
         工具代码中可通过 params["key"] 访问传入的参数。
 
         Args:

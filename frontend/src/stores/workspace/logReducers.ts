@@ -1,4 +1,4 @@
-import type { LogEntry, TraceGroup } from '@/types/kernel';
+import type { LogEntry, TraceGroup } from '@/types/workspace';
 
 export function appendBounded<T>(current: T[], incoming: T[], maxSize: number): T[] {
   const next = [...current, ...incoming];

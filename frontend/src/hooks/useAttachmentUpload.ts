@@ -1,7 +1,7 @@
 /**
  * 附件上传队列的共享入口
  *
- * ChatWorkspace 工作区拖拽、composer Paperclip 与附件选择对话框都必须
+ * ChatPane 对话区拖拽、composer Paperclip 与附件选择对话框都必须
  * 经过本 hook 的 `enqueueFiles` 进入队列，保证三个入口使用同一份入队
  * 逻辑，避免同一文件被重复入队（计划 A5 节）。
  *

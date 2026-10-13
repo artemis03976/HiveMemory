@@ -1,24 +1,24 @@
 import { useEffect } from 'react';
 import { X, ChevronLeft, Database, Terminal, Brain, ListChecks } from 'lucide-react';
 import type { MemoryAtom } from '@/types';
-import KernelTerminalTab from './KernelTerminalTab';
+import WorkspaceTerminalTab from './WorkspaceTerminalTab';
 import MemoryRuntimeTab from './MemoryRuntimeTab';
 import ReferencedMemoryTab from './ReferencedMemoryTab';
-import { useChatUiStore, useKernelStore, useMemoryTaskStore } from '@/stores';
+import { useChatUiStore, useWorkspaceStore, useMemoryTaskStore } from '@/stores';
 
-interface KernelVisionProps {
+interface WorkspaceVisionProps {
   memories: MemoryAtom[];
   isCollapsed: boolean;
   onToggleCollapse: () => void;
 }
 
-export default function KernelVision({
+export default function WorkspaceVision({
   memories,
   isCollapsed,
   onToggleCollapse
-}: KernelVisionProps) {
-  const { kernelVisionTab: activeTab, setKernelVisionTab: setActiveTab } = useChatUiStore();
-  const connectRuntimeEvents = useKernelStore((state) => state.connectRuntimeEvents);
+}: WorkspaceVisionProps) {
+  const { workspaceVisionTab: activeTab, setWorkspaceVisionTab: setActiveTab } = useChatUiStore();
+  const connectRuntimeEvents = useWorkspaceStore((state) => state.connectRuntimeEvents);
   const activeMemoryTaskCount = useMemoryTaskStore((state) =>
     state.tasks.filter((task) => task.status === 'pending' || task.status === 'running').length,
   );
@@ -43,7 +43,7 @@ export default function KernelVision({
         <div className="mt-8 flex flex-col gap-8 items-center">
           <Database className="w-4 h-4 text-slate-600" />
           <div className="[writing-mode:vertical-rl] text-[10px] font-bold tracking-[0.2em] uppercase text-slate-500 select-none">
-            内核视界
+            工作区视界
           </div>
         </div>
       </aside>
@@ -56,7 +56,7 @@ export default function KernelVision({
     >
       <div className="p-6 pb-2 border-b border-white/5 flex flex-col gap-4">
         <div className="flex items-center justify-between">
-          <h3 className="font-manrope font-bold text-sm uppercase tracking-widest text-primary">内核视界</h3>
+          <h3 className="font-manrope font-bold text-sm uppercase tracking-widest text-primary">工作区视界</h3>
           <X 
             onClick={onToggleCollapse}
             className="w-4 h-4 text-slate-500 cursor-pointer hover:text-white transition-colors" 
@@ -106,7 +106,7 @@ export default function KernelVision({
       <div className="flex-1 overflow-y-auto p-4 scrollbar-hide">
         {activeTab === 'context' && <ReferencedMemoryTab memories={memories} />}
         {activeTab === 'memory-runtime' && <MemoryRuntimeTab />}
-        {activeTab === 'terminal' && <KernelTerminalTab />}
+        {activeTab === 'terminal' && <WorkspaceTerminalTab />}
       </div>
     </aside>
   );

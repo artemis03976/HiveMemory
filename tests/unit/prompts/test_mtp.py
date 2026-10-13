@@ -38,7 +38,7 @@ class TestMTPPromptBuilder:
         # Unicode 定界符
         assert MTP_LEFT_DELIMITER in output
         assert MTP_RIGHT_DELIMITER in output
-        # 内核工具
+        # 系统工具
         assert "[RUNTIME TOOLS]" in output
         # 演示部分
         assert "mtp_response" in output
@@ -84,8 +84,8 @@ class TestMTPPromptBuilder:
         # 其他模块仍在
         assert "PROTOCOL RULES" in output
 
-    def test_build_custom_kernel_tools(self):
-        """自定义内核工具列表"""
+    def test_build_custom_runtime_tools(self):
+        """自定义系统工具列表"""
         custom_tools = [("my_tool", "Does something cool")]
         output = MTPPromptBuilder(runtime_tools=custom_tools).build()
 
@@ -94,7 +94,7 @@ class TestMTPPromptBuilder:
         # 默认工具不应出现
         assert "sys_clock" not in output
 
-    def test_build_empty_kernel_tools(self):
+    def test_build_empty_runtime_tools(self):
         """空工具列表不生成工具部分"""
         output = MTPPromptBuilder(runtime_tools=[]).build()
         assert "[RUNTIME TOOLS]" not in output
@@ -124,7 +124,7 @@ class TestMTPPromptBuilder:
         assert "<mtp_response" in demo_text
         assert "</mtp_response>" in demo_text
 
-    def test_default_kernel_tools_complete(self):
+    def test_default_runtime_tools_complete(self):
         """默认工具列表包含 MVP 工具集"""
         output = MTPPromptBuilder().build()
 
@@ -172,7 +172,7 @@ class TestGetMTPPrompt:
         assert "协议规则" in result_zh
         assert "PROTOCOL RULES" in result_en
 
-    def test_passes_kernel_tools_param(self):
+    def test_passes_runtime_tools_param(self):
         """工具列表参数正确传递"""
         custom = [("test_tool", "A test tool")]
         result = get_mtp_prompt(runtime_tools=custom)

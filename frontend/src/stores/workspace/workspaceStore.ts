@@ -1,23 +1,35 @@
 /**
- * Kernel Store - Zustand state management for kernel terminal.
+ * Workspace Store - Zustand state management for the Workspace Terminal.
  *
  * The store keeps the public state/actions in one place while connection
- * lifecycles and pure reducers live in focused kernel modules.
+ * lifecycles and pure reducers live in focused store modules.
  */
 
 import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
-import { checkAndClaimPrimaryWindow, handleBroadcastMessage, startPrimaryHeartbeat } from '@/stores/kernel/broadcastSync';
-import { BROADCAST_CHANNEL_NAME, PRIMARY_WINDOW_KEY } from '@/stores/kernel/constants';
-import { appendBounded, groupLogsByTrace, toggleSpanCollapseInGroups, toggleTraceCollapseInGroups } from '@/stores/kernel/logReducers';
-import { clearWebSocketReconnectTimer, disconnectWebSocket, initializeWebSocket } from '@/stores/kernel/logWebSocket';
-import { initializeRuntimeEventStream } from '@/stores/kernel/runtimeEventStream';
-import { filterLogs } from '@/stores/kernel/selectors';
+import { checkAndClaimPrimaryWindow, handleBroadcastMessage, startPrimaryHeartbeat } from '@/stores/workspace/broadcastSync';
+import { BROADCAST_CHANNEL_NAME, LEGACY_PERSIST_KEY, PERSIST_KEY, PRIMARY_WINDOW_KEY } from '@/stores/workspace/constants';
+import { appendBounded, groupLogsByTrace, toggleSpanCollapseInGroups, toggleTraceCollapseInGroups } from '@/stores/workspace/logReducers';
+import { clearWebSocketReconnectTimer, disconnectWebSocket, initializeWebSocket } from '@/stores/workspace/logWebSocket';
+import { initializeRuntimeEventStream } from '@/stores/workspace/runtimeEventStream';
+import { filterLogs } from '@/stores/workspace/selectors';
 import { markConnected, markConnecting, markDisconnected, markError } from '@/transports/state';
 import { useMemoryTaskStore } from '@/stores/memory';
-import type { KernelStore, LogEntry } from '@/types/kernel';
+import type { WorkspaceStore, LogEntry } from '@/types/workspace';
 
-export const useKernelStore = create<KernelStore>()(
+// 持久化 key 由 kernel-store 改名而来：首次加载时把旧 key 中的 filters/ui 偏好迁到新 key
+function migrateLegacyPersistKey(): void {
+  const legacy = localStorage.getItem(LEGACY_PERSIST_KEY);
+  if (legacy === null) return;
+  if (localStorage.getItem(PERSIST_KEY) === null) {
+    localStorage.setItem(PERSIST_KEY, legacy);
+  }
+  localStorage.removeItem(LEGACY_PERSIST_KEY);
+}
+
+migrateLegacyPersistKey();
+
+export const useWorkspaceStore = create<WorkspaceStore>()(
   devtools(
     persist(
       (set, get) => ({
@@ -67,11 +79,11 @@ export const useKernelStore = create<KernelStore>()(
         connect: () => {
           const state = get();
           if (state._ws?.readyState === WebSocket.OPEN || state._ws?.readyState === WebSocket.CONNECTING) {
-            console.log('[KernelStore] Already connected');
+            console.log('[WorkspaceStore] Already connected');
             return;
           }
 
-          console.log('[KernelStore] Connecting...');
+          console.log('[WorkspaceStore] Connecting...');
           set({
             connection: markConnecting(state.connection),
             _manualDisconnecting: false,
@@ -81,13 +93,13 @@ export const useKernelStore = create<KernelStore>()(
             const isPrimary = checkAndClaimPrimaryWindow();
             set({ _isPrimaryWindow: isPrimary });
 
-            console.log(`[KernelStore] Window role: ${isPrimary ? 'PRIMARY' : 'SECONDARY'}`);
+            console.log(`[WorkspaceStore] Window role: ${isPrimary ? 'PRIMARY' : 'SECONDARY'}`);
 
             if (!state._broadcastChannel) {
               const bc = new BroadcastChannel(BROADCAST_CHANNEL_NAME);
               bc.onmessage = (event) => handleBroadcastMessage(event.data, set, get);
               set({ _broadcastChannel: bc });
-              console.log('[KernelStore] BroadcastChannel initialized');
+              console.log('[WorkspaceStore] BroadcastChannel initialized');
             }
 
             if (isPrimary) {
@@ -99,7 +111,7 @@ export const useKernelStore = create<KernelStore>()(
               const bc = get()._broadcastChannel;
               if (bc) {
                 bc.postMessage({ type: 'REQUEST_SYNC' });
-                console.log('[KernelStore] Requested full sync from primary');
+                console.log('[WorkspaceStore] Requested full sync from primary');
               }
 
               set({
@@ -114,8 +126,8 @@ export const useKernelStore = create<KernelStore>()(
               });
             }
           } catch (error) {
-            const message = error instanceof Error ? error.message : 'Kernel connection initialization failed';
-            console.error('[KernelStore] Failed to start connection:', error);
+            const message = error instanceof Error ? error.message : 'Log stream connection initialization failed';
+            console.error('[WorkspaceStore] Failed to start connection:', error);
             set({
               connection: markError(get().connection, message),
             });
@@ -123,7 +135,7 @@ export const useKernelStore = create<KernelStore>()(
         },
 
         disconnect: () => {
-          console.log('[KernelStore] Disconnecting...');
+          console.log('[WorkspaceStore] Disconnecting...');
           const state = get();
           const hasWs = Boolean(state._ws);
           if (hasWs) {
@@ -173,7 +185,7 @@ export const useKernelStore = create<KernelStore>()(
         },
 
         reconnect: () => {
-          console.log('[KernelStore] Manual reconnect triggered');
+          console.log('[WorkspaceStore] Manual reconnect triggered');
           get().disconnect();
           setTimeout(() => get().connect(), 1000);
         },
@@ -338,13 +350,13 @@ export const useKernelStore = create<KernelStore>()(
         },
       }),
       {
-        name: 'kernel-store',
+        name: PERSIST_KEY,
         partialize: (state) => ({
           filters: state.filters,
           ui: state.ui,
         }),
       },
     ),
-    { name: 'KernelStore' },
+    { name: 'WorkspaceStore' },
   ),
 );

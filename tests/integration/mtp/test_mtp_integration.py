@@ -11,7 +11,7 @@ from hivememory.config.alice import KoakumaConfig
 from hivememory.core.mtp.models import MTP_LEFT_DELIMITER, MTPVerb
 from tests.helpers.workspace import make_runtime_scope
 
-from .conftest import build_resumed_history, simulate_kernel_loop_single
+from .conftest import build_resumed_history, simulate_loop_single
 
 
 def _context() -> MTPExecutionContext:
@@ -23,30 +23,30 @@ class TestSyscallViaMTP:
 
     def test_clock_intercept(self, koakuma):
         agent_text = "让我查看一下当前时间。\n⟪ RUN | sys_clock |"
-        result = simulate_kernel_loop_single(koakuma, agent_text)
+        result = simulate_loop_single(koakuma, agent_text)
         assert result.success is True
         assert result.command.verb == MTPVerb.RUN
         assert re.search(r"\d{4}-\d{2}-\d{2}", result.response_content)
         assert "UTC" in result.response_content
 
     def test_clock_response_format(self, koakuma):
-        result = simulate_kernel_loop_single(koakuma, "⟪ RUN | sys_clock |")
+        result = simulate_loop_single(koakuma, "⟪ RUN | sys_clock |")
         assert MTP_LEFT_DELIMITER not in result.formatted_response
         assert '<mtp_response status="success"' in result.formatted_response
         assert "</mtp_response>" in result.formatted_response
 
     def test_clock_iso_via_mtp(self, koakuma):
-        result = simulate_kernel_loop_single(koakuma, '⟪ RUN | sys_clock | format="iso"')
+        result = simulate_loop_single(koakuma, '⟪ RUN | sys_clock | format="iso"')
         assert result.success is True
         assert "T" in result.response_content
 
     def test_clock_date_via_mtp(self, koakuma):
-        result = simulate_kernel_loop_single(koakuma, '⟪ RUN | sys_clock | format="date"')
+        result = simulate_loop_single(koakuma, '⟪ RUN | sys_clock | format="date"')
         assert result.success is True
         assert re.match(r"\d{4}-\d{2}-\d{2}$", result.response_content)
 
     def test_repl_arithmetic_via_mtp(self, koakuma):
-        result = simulate_kernel_loop_single(
+        result = simulate_loop_single(
             koakuma, '⟪ RUN | sys_python_repl | code="print(12345 * 6789)"'
         )
         assert result.success is True
@@ -64,31 +64,31 @@ class TestSyscallViaMTP:
         assert "5050" in result.response_content
 
     def test_repl_security_via_mtp(self, koakuma):
-        result = simulate_kernel_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="import os"')
+        result = simulate_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="import os"')
         assert result.success is False  # syscall 错误升级为 SyscallInternalError
         assert result.response_content == ""
         assert "import" in result.formatted_response.lower()
 
     def test_repl_runtime_error_via_mtp(self, koakuma):
-        result = simulate_kernel_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="1/0"')
+        result = simulate_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="1/0"')
         assert result.success is False
         assert result.response_content == ""
         assert "runtime errors" in result.formatted_response.lower()
 
     def test_repl_no_output_via_mtp(self, koakuma):
-        result = simulate_kernel_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="x = 42"')
+        result = simulate_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="x = 42"')
         assert result.success is True
         assert "no output" in result.response_content.lower() or "无输出" in result.response_content
 
     def test_web_search_missing_query_via_mtp(self, koakuma):
-        result = simulate_kernel_loop_single(koakuma, "⟪ RUN | sys_web_search |")
+        result = simulate_loop_single(koakuma, "⟪ RUN | sys_web_search |")
         assert result.success is False  # 缺少 query 参数，SyscallInternalError
         assert result.response_content == ""
         assert "query" in result.formatted_response.lower()
 
     def test_clock_natural_language_response(self, koakuma):
         """响应是人类可读的时间字符串，不是 JSON"""
-        result = simulate_kernel_loop_single(koakuma, "⟪ RUN | sys_clock |")
+        result = simulate_loop_single(koakuma, "⟪ RUN | sys_clock |")
         assert "{" not in result.response_content
         assert "}" not in result.response_content
 
@@ -120,15 +120,13 @@ class TestFileIOViaMTP:
 
     def test_read_file_via_mtp(self, file_koakuma, workspace):
         (workspace / "hello.txt").write_text("Hello, World!", encoding="utf-8")
-        result = simulate_kernel_loop_single(
-            file_koakuma, '⟪ RUN | sys_read_file | path="hello.txt"'
-        )
+        result = simulate_loop_single(file_koakuma, '⟪ RUN | sys_read_file | path="hello.txt"')
         assert result.success is True
         assert "Hello, World!" in result.response_content
         assert "<content>" in result.response_content
 
     def test_read_file_not_found_via_mtp(self, file_koakuma):
-        result = simulate_kernel_loop_single(
+        result = simulate_loop_single(
             file_koakuma, '⟪ RUN | sys_read_file | path="nonexistent.txt"'
         )
         assert result.response_content == ""
@@ -138,7 +136,7 @@ class TestFileIOViaMTP:
         )
 
     def test_read_file_path_traversal_via_mtp(self, file_koakuma):
-        result = simulate_kernel_loop_single(
+        result = simulate_loop_single(
             file_koakuma, '⟪ RUN | sys_read_file | path="../../etc/passwd"'
         )
         assert result.response_content == ""
@@ -149,21 +147,17 @@ class TestFileIOViaMTP:
 
     def test_read_file_binary_rejected_via_mtp(self, file_koakuma, workspace):
         (workspace / "binary.dat").write_bytes(b"\x00\x01\x02\x03" * 128)
-        result = simulate_kernel_loop_single(
-            file_koakuma, '⟪ RUN | sys_read_file | path="binary.dat"'
-        )
+        result = simulate_loop_single(file_koakuma, '⟪ RUN | sys_read_file | path="binary.dat"')
         assert result.response_content == ""
         assert "binary" in result.formatted_response.lower()
 
     def test_read_file_truncation_via_mtp(self, file_koakuma, workspace):
         (workspace / "large.txt").write_text("x" * 200000, encoding="utf-8")
-        result = simulate_kernel_loop_single(
-            file_koakuma, '⟪ RUN | sys_read_file | path="large.txt"'
-        )
+        result = simulate_loop_single(file_koakuma, '⟪ RUN | sys_read_file | path="large.txt"')
         assert "已截断" in result.response_content
 
     def test_write_file_via_mtp(self, file_koakuma, workspace):
-        result = simulate_kernel_loop_single(
+        result = simulate_loop_single(
             file_koakuma,
             '⟪ RUN | sys_write_file | path="output.txt" content="Hello, World!"',
         )
@@ -173,7 +167,7 @@ class TestFileIOViaMTP:
 
     def test_write_file_append_via_mtp(self, file_koakuma, workspace):
         (workspace / "log.txt").write_text("line1\n", encoding="utf-8")
-        result = simulate_kernel_loop_single(
+        result = simulate_loop_single(
             file_koakuma,
             '⟪ RUN | sys_write_file | path="log.txt" content="line2\n" mode="append"',
         )
@@ -183,7 +177,7 @@ class TestFileIOViaMTP:
         assert "line2\n" in content
 
     def test_write_file_path_traversal_via_mtp(self, file_koakuma):
-        result = simulate_kernel_loop_single(
+        result = simulate_loop_single(
             file_koakuma,
             '⟪ RUN | sys_write_file | path="../../evil.txt" content="pwned"',
         )
@@ -194,7 +188,7 @@ class TestFileIOViaMTP:
         )
 
     def test_write_file_auto_create_dirs_via_mtp(self, file_koakuma, workspace):
-        result = simulate_kernel_loop_single(
+        result = simulate_loop_single(
             file_koakuma,
             '⟪ RUN | sys_write_file | path="deep/nested/file.txt" content="nested!"',
         )
@@ -208,12 +202,12 @@ class TestFileIOViaMTP:
 class TestSyscallErrorRecovery:
     """错误恢复与多轮递归"""
 
-    def test_unknown_tool_guides_search(self, koakuma):
-        result = simulate_kernel_loop_single(koakuma, "⟪ RUN | sys_nonexistent_tool |")
+    def test_unknown_system_tool_points_to_runtime_tool_list(self, koakuma):
+        result = simulate_loop_single(koakuma, "⟪ RUN | sys_nonexistent_tool |")
         assert result.success is False
         assert result.response_content == ""
-        assert "not found" in result.formatted_response.lower()
-        assert "SEARCH" in result.formatted_response
+        assert "工具 'sys_nonexistent_tool' 不存在" in result.formatted_response
+        assert "[RUNTIME TOOLS]" in result.formatted_response
 
     def test_invalid_verb_error(self, koakuma):
         result = asyncio.run(koakuma.execute_mtp("⟪ DELETE | * | ⟫", context=_context()))
@@ -223,7 +217,7 @@ class TestSyscallErrorRecovery:
         assert "syntax error" in result.formatted_response.lower()
 
     def test_missing_code_arg(self, koakuma):
-        result = simulate_kernel_loop_single(koakuma, "⟪ RUN | sys_python_repl |")
+        result = simulate_loop_single(koakuma, "⟪ RUN | sys_python_repl |")
         assert result.success is False
         assert result.response_content == ""
         assert "code" in result.formatted_response.lower()
@@ -260,32 +254,30 @@ class TestSyscallRecursiveLoop:
 
     def test_two_round_recursive(self, koakuma):
         """Round 1: 获取时间 → Round 2: 计算"""
-        r1 = simulate_kernel_loop_single(
-            koakuma, "用户问了一个关于时间的问题。\n⟪ RUN | sys_clock |"
-        )
+        r1 = simulate_loop_single(koakuma, "用户问了一个关于时间的问题。\n⟪ RUN | sys_clock |")
         assert r1.success is True
 
         history_r1 = build_resumed_history("用户问了一个关于时间的问题。\n", r1)
         assert "<mtp_response" in history_r1
 
-        r2 = simulate_kernel_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="print(42)"')
+        r2 = simulate_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="print(42)"')
         assert r2.success is True
         assert "42" in r2.response_content
 
     def test_mixed_syscall_sequence(self, koakuma):
         """clock → repl 混合序列"""
-        r1 = simulate_kernel_loop_single(koakuma, "⟪ RUN | sys_clock |")
+        r1 = simulate_loop_single(koakuma, "⟪ RUN | sys_clock |")
         assert r1.success is True
         assert "UTC" in r1.response_content
 
-        r2 = simulate_kernel_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="print(42)"')
+        r2 = simulate_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="print(42)"')
         assert r2.success is True
         assert "42" in r2.response_content
 
     def test_full_loop_history_assembly(self, koakuma):
         """完整闭环: Agent 前缀 + 回填 = 可续写的 assistant 历史"""
         prefix = "让我查看一下当前时间。\n"
-        result = simulate_kernel_loop_single(koakuma, prefix + "⟪ RUN | sys_clock |")
+        result = simulate_loop_single(koakuma, prefix + "⟪ RUN | sys_clock |")
         history = build_resumed_history(prefix, result)
 
         assert history.startswith("让我查看一下当前时间。\n")
@@ -295,7 +287,7 @@ class TestSyscallRecursiveLoop:
     def test_repl_history_assembly(self, koakuma):
         """计算结果正确回填到 assistant 历史"""
         prefix = "这个计算需要精确结果。\n"
-        result = simulate_kernel_loop_single(
+        result = simulate_loop_single(
             koakuma, prefix + '⟪ RUN | sys_python_repl | code="print(2**10)"'
         )
         history = build_resumed_history(prefix, result)

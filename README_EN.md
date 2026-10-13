@@ -93,7 +93,7 @@ HiveMemory provides an in-process protocol that allows the Worker Agent to activ
 
 - `SEARCH`: fuzzy search returning candidate memory indices
 - `READ`: read specific memory content
-- `RUN`: execute kernel tools or code snippets stored in memory
+- `RUN`: execute system tools or code snippets stored in memory
 - `WRITE`: actively submit a new memory write intent
 - `UPDATE`: actively submit an update intent for an existing memory
 - `CALL`: suspend the current frame and delegate work to a sub-agent

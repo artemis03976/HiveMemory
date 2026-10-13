@@ -2,7 +2,7 @@
 完整 Agent Loop E2E 测试
 
 驱动真实 HiveMemorySystem（真实 LLM + Qdrant）经 chat() 入口，
-验证 v4 agent_runtime 单 agent 执行循环控制基础流程（原 kernel loop 演进产物）：
+验证 agent_runtime 单 agent 执行循环控制基础流程：
 - 自然收敛：无 MTP 指令时单帧完成
 - MTP 工具调用：sys.clock / python repl 经循环执行并回填
 - 多轮迭代：连续工具调用保持上下文

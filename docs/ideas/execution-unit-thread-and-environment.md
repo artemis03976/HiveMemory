@@ -58,7 +58,7 @@ last_reviewed: 2026-10-11
    - （owner，2026-10-10）管理员（唯一的 root 角色 `system`）经 HTTP 操作适配器调用的是独立的 root API，不与 actor 共用能力层方法；本条“只是因身份与操作意图不同而映射到不同的方法”相应改为“映射到不同的 API 面”。见总 Idea 15.12。
    - （owner，2026-10-09）操作适配器不直接调用能力层 API：它把协议请求解析为固定类型的操作请求，交回 CPU，由 CPU 调用对应的能力层 API；只有 CPU 持有能力层的入口。请求与能力方法一一对应，见 T-9。
 7. （2026-10-06）HTTP server 承担两个角色：对任务请求，它是**请求入口**，`POST /chat` 进入唯一注册入口、创建任务进程，这不是能力层的操作（总 Idea P-4b 已决定不设“创建任务”类 operation）；对管理操作，它是 HTTP 操作适配器。
-8. （2026-10-06）“kernel”是早期架构遗留的命名，不再作为概念使用；harness 实例不称 kernel。代码与文档中的剩余使用点见 [kernel 遗留命名清理 Todo](../todo/kernel-legacy-naming.md)。
+8. （2026-10-06）“kernel”是早期架构遗留的命名，不再作为概念使用；harness 实例不称 kernel。代码与文档中的剩余使用点已于 2026-10-12 清理（[kernel 遗留命名清理归档记录](../archive/todo/kernel-legacy-naming.md)）。
 9. （2026-10-06）**agent 与执行环境解耦**：外部 harness 最初被视为一个单独的 agent；现在它是一个执行环境（CPU 的 backend）。理论上可以在外部 harness 之上再应用 Agent Profile（例如作为系统提示词），外部协议是否支持另当别论。用户在前端或任何交互环境中分别选择要使用的 agent 与执行环境，外部 harness 本身与单个 agent 的概念解耦。这一条决定了[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#e-6-actor-与执行单元的对应) E-6a。
    - 分析：agent 的身份、访问登记、记忆可见性与（迁入能力层 operation 控制之后的）权限都只跟随 agent，由 HiveMemory 强制执行，与执行环境无关；更换执行环境不改变 agent 能看到什么、能做什么。Profile 的权限字段并入能力层的 operation 控制（总 Idea 15.4）是这一点成立的前提：现有的 MTP 动词检查只在 Alice 内部生效。
    - 分析：Profile 中的执行参数（persona、`model_name`、`temperature`、`top_p`、`language`）能否生效取决于执行环境，对外部 harness 只能尽力应用；应用结果的承载见总 Idea P-10a。按 ACP 仓库文档（2026-10-06 核对），`session/new` 的参数为 `cwd`、`mcpServers` 等，未见系统提示词字段；模型只能在 harness 自己声明的配置项（`configOptions` 中 `category` 为 `model` 的选项）中经 `session/set_config_option` 选择。persona 只能作为首轮 prompt 内容或各 harness 私有的扩展注入，约束力弱于系统提示词。
@@ -85,7 +85,7 @@ last_reviewed: 2026-10-11
 | 执行者 | “Agent、一次 Chat Run、子 Frame 和后台任务” | [Workspace 架构](../architecture/workspace.md) 第 1 节 |
 | adapter | 入站：把外部协议的请求归一化后调用能力层 | 总 Idea 7.1.6、15.1“HTTP 入口作为 system actor 的 adapter”；外部 Actor Idea 3.4；[`configs/system_principals.yaml`](../../configs/system_principals.yaml) 的 `adapters` 字段 |
 | adapter | 泛指接口转换，与接入无关 | 代码中的 `QdrantStorageAdapter`、`AgentRunStreamAdapter`、`QueueTaskAdapter` 等 |
-| kernel | 早期架构遗留：MTP 的内核工具、提示词中的“memory kernel”、前端的 `stores/kernel/` | 见 [kernel 遗留命名清理 Todo](../todo/kernel-legacy-naming.md) |
+| kernel | 早期架构遗留，已于 2026-10-12 清理：原 MTP 的内核工具、提示词中的“memory kernel”、前端的 `stores/kernel/` | 见 [kernel 遗留命名清理归档记录](../archive/todo/kernel-legacy-naming.md) |
 
 按前提 3、5–10 统一后的用语：
 
