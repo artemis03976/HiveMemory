@@ -62,21 +62,19 @@ Agent Profile 是存储在 Patchouli 中的 `AGENT_PROFILE` 记忆，也是 Alic
 - 创建本地草稿，再通过 `POST /api/v1/agents` 创建 Profile；
 - 编辑 title、alias、summary、tags、persona/system prompt；
 - 编辑 model name、temperature、language；
-- 编辑 MTP verb 和五个 kernel syscall 白名单；
 - 通过通用 memory `PATCH` / `DELETE` 更新和删除已存在 Profile。
 
 后端 agents router 当前只提供 create/list；更新和删除依赖 generic memories API。这一组合成立的前提是 Agent Profile 继续保持 MemoryAtom 的一种，而不是另建平行实体。
 
 ### 2.2 权限与状态限制
 
-- 前端 `MTPVerb` 列表没有 CALL，无法从 UI 为 Profile 配置已经由后端实现的 CALL；
-- `null` 白名单表示全部允许。UI 从全权限关闭某一项时，会展开为静态“全部已知项减一”，因此静态清单遗漏会变成权限表达偏差；
+- 管理页不编辑权限：Agent Profile 不承载权限，Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，`sys_*` 系统工具不设权限；
 - Active/Inactive 只是前端字段，`toPayload()` 不发送 status，启停按钮没有后端运行语义；
 - model 是自由文本，而不是 Model Registry 选择器，可能保存不存在的 model ID；
 - Profile 获取失败会回退到 `MOCK_AGENT_CONFIGS`，这些条目看似可编辑，但保存仍需要真实后端；
 - Chat 消息中的 Agent 名称和图标有一部分仍依赖静态 `MOCK_AGENTS`，不完全反映 Profile 元数据。
 
-权限的后端契约与 runtime 闸门以 [Alice 当前设计](../alice/README.md)和 [MTP Runtime](../alice/mtp-runtime.md)为准，不能由前端复选框反向定义。
+权限的后端契约与 runtime 闸门以 [MTP 契约](../contracts/mtp.md)第 4 节和 [System 配置](../system/configuration.md)的访问登记为准。
 
 ## 3. Settings
 

@@ -467,7 +467,7 @@ flowchart TB
 
 **设计**：删除 `interaction_id` 与 `generation_id` 作为进程标识的用法，改用 `process_id` 作为任意任务进程的唯一标识，向下兼容 `interaction_id` 原先的位置。
 
-- server 生成 `process_{uuid}`；前后端与 server 契约（SSE 首个事件、停止请求体、done 事件、RuntimeEvent、内核终端的分组）统一使用 `process_id`，不再使用 `generation_id`，也不设原拟的 `active_request_id`；
+- server 生成 `process_{uuid}`；前后端与 server 契约（SSE 首个事件、停止请求体、done 事件、RuntimeEvent、Workspace Terminal 的分组）统一使用 `process_id`，不再使用 `generation_id`，也不设原拟的 `active_request_id`；
 - `InteractionPayload` 单独保留 `interaction_id` 这一字段名，但始终赋 `process_id` 的值；
 - 一个进程最多提交一次交互（Q-14），`process_id` 可以直接作为交互提交的幂等键；
 - Qdrant 中的持久数据不保存 `interaction_id`（交互 Artifact 以 `turn_id` 与 `block_id` 记录），改名不需要数据迁移；

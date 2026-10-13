@@ -280,7 +280,7 @@ run_agent(
 |:---|:---|:---|:---|:---|
 | `ResolveReferencesRequest` | READ（含 CALL 的 `context_refs`） | `aliases: tuple[str, ...]` | `list[ReferenceResolution]` | `memory.read` |
 | `RetrieveRequest` | SEARCH | `semantic_query`、`keywords=()`、`top_k=None`（缺省时由 `retrieval.default_top_k` 决定）、`filters=None` | `list[MemoryAtom]` | `memory.search` |
-| `ResolveRunTargetRequest` | RUN（记忆中的用户态工具） | `alias: str` | `ReferenceResolution` | `memory.run` |
+| `ResolveRunTargetRequest` | RUN（记忆中的用户工具） | `alias: str` | `ReferenceResolution` | `memory.run` |
 | `SubmitWriteIntentRequest` | WRITE | `focus: WriteFocus` | `PendingAtom` | `memory.write` |
 | `SubmitUpdateIntentRequest` | UPDATE | `base_alias`、`instruction`、`content=None` | `PendingAtom` | `memory.update` |
 | `DeriveCallThreadRequest` | CALL（只有 Alice 使用） | `agent_alias=None` | `ExecutionThread`：目标 `AgentProfile`、被调用方的操作快照与子线程 context（只交付 CPU 驱动） | `agent.call`（内置同样需要） |

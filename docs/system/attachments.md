@@ -34,7 +34,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/system/application-services.md
-  - docs/frontend/chat-workspace.md
+  - docs/frontend/chat-view.md
   - docs/patchouli/artifacts.md
 related_plans:
   - docs/archive/plans/v0.6.2-w1-chat-attachments.md

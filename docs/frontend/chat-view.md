@@ -1,13 +1,13 @@
 ---
-title: Frontend Chat Workspace
+title: Frontend Chat View
 status: current
 owner: frontend
-scope: chat-topics-structured-events-and-kernel-vision
+scope: chat-topics-structured-events-and-workspace-vision
 code_paths:
   - frontend/src/components/chat/
   - frontend/src/stores/chat/
   - frontend/src/stores/topic/
-  - frontend/src/stores/kernel/
+  - frontend/src/stores/workspace/
   - frontend/src/services/chatApi.ts
   - src/hivememory/server/routers/chat.py
 related_contracts:
@@ -21,14 +21,14 @@ related_docs:
 last_reviewed: 2026-10-04
 ---
 
-# Chat 工作区
+# Chat 视图
 
 Chat 是 HiveMemory 前端的主工作面。它需要在同一轮交互中容纳自然语言、入口决策、记忆引用、MTP 动作、子 Agent 运行和后台记忆任务，却不能把这些状态压扁成一串难以理解的文本。当前实现以 fetch-based SSE 为主传输，将人类回答与机器动作拆成有序内容块，再把更重的观测信息放入左右侧栏。
 
-## 1. 工作区分层
+## 1. 视图分层
 
 ```text
-Context Sidebar              Chat Workspace                Kernel Vision
+Context Sidebar              Chat Pane                     Workspace Vision
   Topic 概览                   消息时间线                     引用记忆
   模型/采样覆盖                 OmniInput                    Memory Runtime
                                 MTP / Sub-Agent 卡片          日志与 RuntimeEvent
@@ -81,7 +81,7 @@ ChatLayout 在挂载时读取后端 Topic 池。用户点击某个 Topic 后，�
 
 本轮真正的 `currentTopicId` 只来自后端 `topic_info`。因此左侧 Topic 当前是“活跃上下文概览”，不是完整会话切换器。Topic 生命周期统一使用 `settle` 与 `delete` 两个后端术语：`settle` 将 Topic 内容交给记忆生成并结束当前 Topic 生命周期，`delete` 结束生命周期但不触发记忆写入；两者都可以先在本地乐观移除，失败后由 Topic store 按实际操作回滚。前端历史上的“Archive”显示不再作为 Topic 操作名称，`archive` 仅保留给中期记忆进入长期记忆库的操作。
 
-## 5. Kernel Vision
+## 5. Workspace Vision
 
 ### 5.1 引用记忆
 
@@ -91,9 +91,9 @@ ChatLayout 在挂载时读取后端 Topic 池。用户点击某个 Topic 后，�
 
 `done.memory_task_ids` 和 RuntimeEvent 共同投影后台记忆生成任务。用户可以刷新、选择和取消 task；task 数据本身不写入 localStorage，重载后重新以后端查询为准。开发模式下 memory task API 失败可能使用 mock task，这一降级必须与真实执行状态区分。
 
-### 5.3 Kernel Terminal
+### 5.3 Workspace Terminal
 
-日志通过 `/api/v1/ws/logs` WebSocket 进入，RuntimeEvent 通过 `/api/v1/runtime-events/stream` EventSource 进入。Kernel store 维护过滤、trace/span 折叠与连接状态，但日志和事件不是业务账本，也不会跨刷新恢复。
+日志通过 `/api/v1/ws/logs` WebSocket 进入，RuntimeEvent 通过 `/api/v1/runtime-events/stream` EventSource 进入。Workspace store 维护过滤、trace/span 折叠与连接状态，但日志和事件不是业务账本，也不会跨刷新恢复。
 
 为避免多个窗口各自占用连接，前端以 localStorage heartbeat 选举一个主窗口持有流连接，再通过 BroadcastChannel 把新日志与事件同步给其他窗口。这是浏览器级资源优化，不是跨进程可靠消费或 leader election 契约。
 
@@ -107,7 +107,7 @@ ChatLayout 在挂载时读取后端 Topic 池。用户点击某个 Topic 后，�
 - Enter 发送、Shift+Enter 换行；
 - 流式状态、停止生成；
 - MTP 与子 Agent 卡片；
-- 引用记忆、memory task 和 Kernel 日志面板；
+- 引用记忆、memory task 和 Workspace Terminal 日志面板；
 - 附件上传（拖拽/Paperclip 进入同一串行队列，请求内解析到 READY/FAILED）、READY 附件的本轮选择与发送时冻结，选择随 `attachments` 字段提交。
 
 尚未接线：
@@ -130,7 +130,7 @@ ChatLayout 在挂载时读取后端 Topic 池。用户点击某个 Topic 后，�
 
 ## 8. 验证入口与限制
 
-主要入口为 `frontend/src/services/chatApi.ts`、`stores/chat/`、`components/chat/`、`stores/kernel/` 和 `stores/topic/`；后端契约与路由测试位于 `tests/unit/server/routers/test_chat.py`、`test_topics.py`、`test_runtime_events.py`、`test_logs.py`。
+主要入口为 `frontend/src/services/chatApi.ts`、`stores/chat/`、`components/chat/`、`stores/workspace/` 和 `stores/topic/`；后端契约与路由测试位于 `tests/unit/server/routers/test_chat.py`、`test_topics.py`、`test_runtime_events.py`、`test_logs.py`。
 附件上传与选择的入口为 `services/attachmentApi.ts`、`stores/attachment/`、`components/chat/AttachmentQueue.tsx` 和 `hooks/useAttachmentUpload.ts`；链路事实见[Chat 附件链路](../system/attachments.md)。
 
-当前 Chat 更接近“单次运行工作区”而非完整聊天产品：它没有服务端消息历史、账户边界、断线续传和跨刷新恢复，也没有证明多窗口选举在所有浏览器挂起/崩溃情形下可靠。状态所有权的完整矩阵见[状态、持久化与传输](./state-and-transports.md)。
+当前 Chat 更接近“单次运行的对话视图”而非完整聊天产品：它没有服务端消息历史、账户边界、断线续传和跨刷新恢复，也没有证明多窗口选举在所有浏览器挂起/崩溃情形下可靠。状态所有权的完整矩阵见[状态、持久化与传输](./state-and-transports.md)。

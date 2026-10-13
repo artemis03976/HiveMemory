@@ -23,7 +23,7 @@ source_inventory: docs/archive/plans/documentation-migration-inventory.md
 3. **产品计划**必须与当前能力分开。`MealAssistantProductSpec.md` 继续保持 `planned`，它的验收项不是已完成证据；
 4. **旧承诺**若没有代码、契约或测试支撑，必须在当前文档中标为历史设想或实现缺口，不能因为旧稿写得完整就继承为规范。
 
-本批复核后的当前入口为 [Gateway](../../gateway/README.md)、[Gateway 固定工作流](../../gateway/workflow.md)、[话题与查询分析](../../gateway/analysis.md)、[全局命令](../../gateway/commands.md)、[Frontend 总览](../../frontend/README.md)、[应用壳与视觉系统](../../frontend/application-shell.md)、[Chat 工作区](../../frontend/chat-workspace.md)、[管理页面](../../frontend/management-views.md)、[状态与传输](../../frontend/state-and-transports.md) 以及 [Applications 索引](../../applications/README.md)。
+本批复核后的当前入口为 [Gateway](../../gateway/README.md)、[Gateway 固定工作流](../../gateway/workflow.md)、[话题与查询分析](../../gateway/analysis.md)、[全局命令](../../gateway/commands.md)、[Frontend 总览](../../frontend/README.md)、[应用壳与视觉系统](../../frontend/application-shell.md)、[Chat 工作区](../../frontend/chat-view.md)、[管理页面](../../frontend/management-views.md)、[状态与传输](../../frontend/state-and-transports.md) 以及 [Applications 索引](../../applications/README.md)。
 
 ## 2. 第 9 节：`docs/engines/gateway.md`
 
@@ -65,7 +65,7 @@ source_inventory: docs/archive/plans/documentation-migration-inventory.md
 
 ### 3.2 `docs/frontend/FrontendDesign.md`
 
-已承接的内容包括“透明、沉浸、可观测”的产品方向、人类态与机器态分离、同屏工作台、日月交辉与五行状态色、水晶层次，以及把协议事实翻译成结构化卡片的理由。它们分别进入 [Frontend 总览](../../frontend/README.md)、[应用壳](../../frontend/application-shell.md) 和 [Chat 工作区](../../frontend/chat-workspace.md)。本次复核进一步在应用壳中明确：动效是后端状态迁移的视觉投影，真实事件到达前不得用动画制造成功感。
+已承接的内容包括“透明、沉浸、可观测”的产品方向、人类态与机器态分离、同屏工作台、日月交辉与五行状态色、水晶层次，以及把协议事实翻译成结构化卡片的理由。它们分别进入 [Frontend 总览](../../frontend/README.md)、[应用壳](../../frontend/application-shell.md) 和 [Chat 工作区](../../frontend/chat-view.md)。本次复核进一步在应用壳中明确：动效是后端状态迁移的视觉投影，真实事件到达前不得用动画制造成功感。
 
 明确不继承：Shadcn/Radix 作为当前组件基础、四栏可拖拽布局已经交付、Terminal/账户/附件/`#` 引用等空壳入口已经完成、前端正则解析原始 MTP XML 是主路径，以及恒速 token 队列可以掩盖停顿或断流。当前组件、布局和事件事实以 Frontend 当前文档为准。
 

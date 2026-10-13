@@ -272,7 +272,7 @@ docs/
 ├── frontend/
 │   ├── README.md
 │   ├── application-shell.md
-│   ├── chat-workspace.md
+│   ├── chat-view.md
 │   ├── management-views.md
 │   └── state-and-transports.md
 ├── help/

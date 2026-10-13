@@ -82,7 +82,7 @@ CALL 子帧的动词集合由被调用方的操作快照翻译并显式移除 CA
 |:---|:---|:---|
 | `SEARCH` | 解析 query/filter，提交 `RetrieveRequest`；能力层授权检索并在代次未变时预热 workspace 原子缓存，MemoryCompiler 编译结果 | Patchouli 拥有检索，Alice 拥有本帧回填 |
 | `READ` | 提交 `ResolveReferencesRequest` 解析一个或多个 alias；编译 pending、redirect、atom 与终态 | alias 与缓存语义由 workspace 统一 |
-| `RUN` | 先匹配 Kernel syscall；否则解析 MemoryAtom，仅允许执行 `CODE_SNIPPET` | Profile 控制工具可见面，但不等于 OS 沙箱 |
+| `RUN` | 先匹配 syscall 注册表；否则提交 `ResolveRunTargetRequest` 解析 MemoryAtom，仅允许执行 `CODE_SNIPPET` | 系统工具不设权限，记忆目标要求 `memory.run`；受限子进程不等于 OS 沙箱 |
 | `WRITE` | 校验 content，提交 `SubmitWriteIntentRequest(WriteFocus)`，返回 `ack + draft_*` | 正式物化延迟到 Patchouli finalize |
 | `UPDATE` | 校验参数，提交 `SubmitUpdateIntentRequest` 让能力层解析正式基础、登记 revision 并失效基础缓存，返回 `ack + rev_*` | 不在 Koakuma 内原地覆盖记忆 |
 | `CALL` | 校验 target/task/policy，返回 `suspend + MTPCallRequest` | Alice `CallContextProvider` 解析上下文，`CallCoordinator` 负责 callee 与结果回流 |
@@ -93,9 +93,9 @@ READ/SEARCH 输出都经过 MemoryCompiler。MTP handler 不维护另一套记�
 
 ## 5. RUN 的两层执行面
 
-### 5.1 Kernel syscalls
+### 5.1 系统工具（syscall）
 
-当前内核注册表提供五个固定工具：
+当前 syscall 注册表提供五个固定的系统工具：
 
 - `sys_clock`：读取当前时间；
 - `sys_python_repl`：在受限子进程执行短 Python 代码；
@@ -107,9 +107,9 @@ READ/SEARCH 输出都经过 MemoryCompiler。MTP handler 不维护另一套记�
 
 这些措施适合降低误操作和普通生成代码的风险，但不是不受信任代码的强安全边界。子进程没有容器、OS 权限降级、网络隔离、文件系统虚拟化、CPU/内存配额或来源签名。builtin 限制也不应被描述为经过对抗验证的沙箱。
 
-### 5.2 `CODE_SNIPPET` 用户态工具
+### 5.2 `CODE_SNIPPET` 用户工具
 
-如果 target 没有命中 Kernel Registry，Koakuma 提交引用读取请求。只有 `MemoryType.CODE_SNIPPET` 能进入执行器；普通事实、pending alias、失败/过期句柄都不能作为代码运行。settled redirect 可以继续执行 canonical code atom，但会携带 alias 已重定向的 warning；正式原子一经读取交付即由 workspace 记录引用，随后类型拒绝或工具执行失败也不撤回此次读取记录。
+如果 target 没有命中 syscall 注册表且不以 `sys_` 开头，Koakuma 提交 `ResolveRunTargetRequest`；未注册的 `sys_*` alias 直接返回 alias not found，不转为记忆解析。只有 `MemoryType.CODE_SNIPPET` 能进入执行器；普通事实、pending alias、失败/过期句柄都不能作为代码运行。settled redirect 可以继续执行 canonical code atom，但会携带 alias 已重定向的 warning；正式原子一经读取交付即由 workspace 记录引用，随后类型拒绝或工具执行失败也不撤回此次读取记录。
 
 代码正文由 MemoryAtom 提供，命令 args 作为 `params` 注入受限 namespace。它仍使用与 Python REPL 相同的本地子进程限制，不能因为代码来自“记忆”就推断其来源可信。
 
@@ -150,9 +150,9 @@ Alice 配置当前分为两组：
 | `koakuma.file_write_max_bytes` | `102400` | 单次写入上限 |
 | `koakuma.web_search_timeout_seconds` | `15` | 传入 web search 注册函数，但当前实现忽略 |
 | `koakuma.execution_timeout_seconds` | `30` | 当前未接入 MTP 总执行 timeout |
-| `koakuma.tool_cache_size` | `64` | 当前未用于 Kernel Registry 或 atom cache 容量 |
+| `koakuma.tool_cache_size` | `64` | 当前未用于 syscall 注册表或 atom cache 容量 |
 
-`koakuma.enabled=false` 目前不会阻止 Runtime 解析和执行模型自行生成的 MTP 文本。若它被当作安全关闭开关，会形成错误预期；真正禁用执行面仍需 Profile 白名单或后续补齐 runtime gate。
+`koakuma.enabled=false` 目前不会阻止 Runtime 解析和执行模型自行生成的 MTP 文本。若它被当作安全关闭开关，会形成错误预期；访问登记的操作白名单只能拒绝资源操作，`sys_*` 系统工具不设权限、RUN 始终可用，真正禁用执行面仍需后续补齐 runtime gate。
 
 ## 9. 维护检查
 
@@ -187,11 +187,11 @@ Alice 配置当前分为两组：
 - `koakuma.enabled=false` 只移除 prompt 教学，不关闭 runtime 执行；它不是 kill switch；
 - `execution_timeout_seconds` 没有包住 `execute_mtp()`，`tool_cache_size` 也未接入任何 cache；配置存在不代表能力已实现；
 - `web_search_timeout_seconds` 虽被传进 syscall registry，但 `sys_web_search()` 明确忽略该参数；底层调用可能超过配置时间；
-- Kernel syscalls 是同步函数，并在 async handler 中直接执行。文件、搜索和 subprocess 等工作会阻塞当前事件循环；
+- 系统工具的 syscall 是同步函数，并在 async handler 中直接执行。文件、搜索和 subprocess 等工作会阻塞当前事件循环；
 - MTP 调用不携带 Chat Run 取消参数；取消边界由拥有该 await 的外层 task 负责；
 - 同步 syscall 执行期间不会轮询取消状态，因此 task cancellation 不能立即中断文件或网络调用；
 - PromptBuilder 会按白名单过滤主要动词说明和工具菜单，但 dense one-shot demo 没有完整按 denied verbs 裁剪。例如禁止 RUN 时，示例中仍可能出现 RUN；
-- prompt 的默认工具菜单来自静态 `DEFAULT_RUNTIME_TOOLS`，不是从实际 Kernel Registry 动态生成。注册表与提示词可能漂移；
+- prompt 的默认工具菜单来自静态 `DEFAULT_RUNTIME_TOOLS`，不是从实际 syscall 注册表动态生成。注册表与提示词可能漂移；
 - RUN 的受限子进程不是面向敌对输入的安全沙箱，也没有来源签名、资源配额与 OS 级隔离；
 - Agent loop 达到 `max_loop_iterations` 后返回 `BUDGET_EXHAUSTED`，根 run 对外映射为执行结果的 `failed`，CALL callee 映射为稳定的 budget error；
 - Koakuma 的执行机制属于 Alice 组合根，写入意图登记、完整引用解析、原子与 Profile 缓存由 workspace 持有；frame registry、CALL ledger 与 stream sequence 按 run 隔离。
