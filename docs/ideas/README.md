@@ -48,7 +48,7 @@ Idea 以 frontmatter 的 `horizon` 字段分为三类，规则见[文档治理�
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
-| [第五代架构：Workspace 网络](./fifth-generation-architecture.md) | 第五代的核心理念 Idea，有效期到需要下一代架构为止；Workspace 网络的拓扑、能力层、任务进程、访问模型、库外设施与包分层已落地，当前事实见 [Workspace 架构](../architecture/workspace.md) | 十条核心理念（唯一能力提供者、一切任务都是进程、执行者可以替换、库内与库外、两阶段认证与授权、身份数据形态、调用与事件、显式写入即时提交、上下文与记忆材料分离、包分层）及其检验问题；演进方向分属各子 Idea；架构级开放问题 P-1、P-3、P-4a、P-5、P-7–P-10a、core 整理、M-4 与负缓存 |
+| [第五代架构：Workspace 网络](./fifth-generation-architecture.md) | 第五代的核心理念 Idea，有效期到需要下一代架构为止；Workspace 网络的拓扑、能力层、任务进程、访问模型、库外设施与包分层已落地，当前事实见 [Workspace 架构](../architecture/workspace.md) | 十条核心理念（唯一能力提供者、一切任务都是进程、执行者可以替换、库内与库外、两阶段认证与授权、身份数据形态、调用与事件、显式写入即时提交、上下文与记忆材料分离、包分层）及其检验问题；演进方向分属各子 Idea；架构级开放问题 P-1、P-3、P-4a、P-5、P-7–P-10a、core 整理与负缓存 |
 | [AE2 与 HiveMemory 的架构同构性](./ae2-hivememory-architecture-analogy.md) | Patchouli 存储平面、Alice Frame/编排、MTP 能力契约与当前可见性过滤 | Workspace/软件子网、Harness-to-Harness、Workflow Memory、Job Graph、Mount/Bridge、AIOS 资源抽象与隔离执行是否值得进入真实验证 |
 | [MaaT 与 Skill/Plugin 边界的资产消费模型](./memory-as-tool-skill-plugin-boundary.md) | `MemoryCompiler` target 体系、MTP `RUN` 两层分发、MemoryAtom/Artifact 分离 | 如何让 MTP RUN 编译为结构化执行意图，证明相对外部 harness + Patchouli 的结构性优势，以及 CODE_SNIPPET 的迁移边界、ToolInvocationIR 与共享 MemoryCompiler IR 的关系、执行证据回流与终端实践的晋升机制 |
 | [生命力分数长期演进](./VitalityScoringLongTermEvolutionIdeas.md) | 当前 vitality 公式、强化事件、gardening 与显式 archive/revive | 哪些新状态能由真实使用数据校准，而不是继续叠加启发式参数 |

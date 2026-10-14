@@ -20,7 +20,7 @@ last_reviewed: 2026-10-13
 
 ## 0. 文档性质
 
-> 2026-10-13：文中的“总 Idea”指《Workspace 网络与任务进程架构》Idea，所引节号与问题编号对应其 commit `6add90f` 版本；该 Idea 已重写为[第五代架构 Idea](./fifth-generation-architecture.md)，仍开放的架构级问题（P-1、P-3、P-4a、P-5、P-7–P-10a、M-4）保留原编号。
+> 2026-10-13：文中的“总 Idea”指《Workspace 网络与任务进程架构》Idea，所引节号与问题编号对应其 commit `6add90f` 版本；该 Idea 已重写为[第五代架构 Idea](./fifth-generation-architecture.md)，仍开放的架构级问题（P-1、P-3、P-4a、P-5、P-7–P-10a）保留原编号。
 >
 > 2026-10-13：文中引用的任务进程 Idea、执行单元 Idea 与身份 Idea 的节号和已决定问题对应 commit `a384688` 版本；三文已精简为后续方向，仍开放的问题（Q-3b、Q-5a、Q-5b、Q-7、Q-8、T-5b、T-7、T-8）保留原编号，已实施的决定见 [Workspace 架构](../architecture/workspace.md)与 [System 应用服务](../system/application-services.md)。
 
