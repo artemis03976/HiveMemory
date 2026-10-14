@@ -175,7 +175,7 @@ root frame
   └─ continue root frame
 ```
 
-软限制由 PromptAssembler 实现：被调用 frame 的 prompt 按被调用方的动词集合渲染，并始终移除 CALL 动词教学。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 消费 CallContext 后，以被调用方的操作快照（`mtp_verbs_for_operations` 翻译，RUN 始终可用）构造子帧策略并显式移除 CALL；被调用方 Profile 只提供 persona、模型与语言。动词集合只是提示与执行前检查，子帧的资源操作仍由 actor API 按被调用方的白名单授权（[执行单元 Idea](../ideas/execution-unit-thread-and-environment.md#t-1at-2at-3t-4bt-5a-子线程的派生身份与撤销)）。Koakuma 以 frame policy 校验。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该 Agent，让它改用自然语言或其他获准能力继续。
+软限制由 PromptAssembler 实现：被调用 frame 的 prompt 按被调用方的动词集合渲染，并始终移除 CALL 动词教学。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 消费 CallContext 后，以被调用方的操作快照（`mtp_verbs_for_operations` 翻译，RUN 始终可用）构造子帧策略并显式移除 CALL；被调用方 Profile 只提供 persona、模型与语言。动词集合只是提示与执行前检查，子帧的资源操作仍由 actor API 按被调用方的白名单授权（[Workspace 架构](../architecture/workspace.md)第 5.4 节）。Koakuma 以 frame policy 校验。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该 Agent，让它改用自然语言或其他获准能力继续。
 
 这是能力策略，不是 RunExecutor 的结构限制：执行器对所有 frame 使用同一个递归入口，不包含 `RootTurn/CalleeTurn` 分支。未来允许嵌套 CALL 时可以沿用这条递归路径；并行 sibling CALL 可在一次 suspension 能表达多个请求后，于当前递归层使用结构化并发。持久化 DAG、跨进程恢复和 review loop 仍属于后置方向。
 

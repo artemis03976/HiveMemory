@@ -35,6 +35,8 @@ last_reviewed: 2026-10-10
 ## 0. 文档性质
 
 > 2026-10-13：文中的“总 Idea”指《Workspace 网络与任务进程架构》Idea，所引节号与问题编号对应其 commit `6add90f` 版本；该 Idea 已重写为[第五代架构 Idea](./fifth-generation-architecture.md)，仍开放的架构级问题（P-1、P-3、P-4a、P-5、P-7–P-10a、M-4）保留原编号。
+>
+> 2026-10-13：文中引用的任务进程 Idea、执行单元 Idea 与身份 Idea 的节号和已决定问题对应 commit `a384688` 版本；三文已精简为后续方向，仍开放的问题（Q-3b、Q-5a、Q-5b、Q-7、Q-8、T-5b、T-7、T-8）保留原编号，已实施的决定见 [Workspace 架构](../architecture/workspace.md)与 [System 应用服务](../system/application-services.md)。
 
 本文由原 v0.7.0 计划 B（外部记忆服务与 Actor 交互契约）于 2026-09-27 退回 Idea。计划的最后版本见 commit `dda9d9d` 中的 `docs/plans/v0.7.0-external-memory-service-and-actor-interaction.md`。
 
@@ -43,7 +45,7 @@ last_reviewed: 2026-10-10
 - 现状事实按 2026-09-27 的代码核对。
 - 待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。
 - **版本归属**（owner，2026-09-27）：外部 Actor 的真实接入（真正的 adapter 接口与外部服务身份等）不在 v0.7.0。v0.7.0 不对外部 Actor 所需的基建作承诺，只验证 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构（[ROADMAP](../ROADMAP.md) 的 v0.7.0 范围）。外部 Actor 分为两种接入模式（1.1）：先做 controller 模式，作为 v0.7.1 的首个真实外部 harness 接入；plugin 模式在 v0.7.1 之后的 v0.7.x 版本完善。本文的 horizon 相应为 `candidate`，目标窗口见 [ROADMAP](../ROADMAP.md) 第 4.2 与 4.4.2 节。
-- **术语**（owner，2026-10-06）：本文的 adapter 即**操作适配器**（operation adapter），定义见 3.4；1.2 中执行侧面的实现，即 CPU 端口的实现，称 **CPU 驱动**。两者的分层见[执行单元 Idea](./execution-unit-thread-and-environment.md#1-前提owner-提出)前提 5–7。
+- **术语**（owner，2026-10-06）：本文的 adapter 即**操作适配器**（operation adapter），定义见 3.4；1.2 中执行侧面的实现，即 CPU 端口的实现，称 **CPU 驱动**。两者的分层见[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节的执行一侧用语。
 
 ## 1. 问题
 
@@ -64,7 +66,7 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 | plugin 模式 | HiveMemory 以插件形式挂载在某个外部 harness 中。该 harness 一般有完整的生态（包括 GUI），用户直接使用它，而不是 HiveMemory；HiveMemory 本质上是监听者，同时通过提供 MCP 工具响应 harness 对记忆域的任何工具调用 | 在外部 harness 手中，HiveMemory 对用户的对话没有控制权 | 没有侵入性，用户继续使用自己喜欢的 harness，把 HiveMemory 作为辅助；对用户更友好 |
 | controller 模式 | 外部 harness 作为类似 agent 的存在（类似 Agent Client Protocol 的概念）：所有请求统一走 HiveMemory 自己的请求入口，由用户指定想使用的 actor（如同选择 agent），系统处理请求后转发给对应的外部 harness | 流程包裹在 HiveMemory 的系统控制内，只是利用外部 harness 的完备性来干活 | 更突出项目自身的特色 |
 
-- **命名**：此前称为“被动 / 主动服务状态”，是历史遗留叫法，改称 plugin 模式与 controller 模式。两种模式与[任务进程 Idea](./task-process-table-and-registration-entry.md#11-请求方的分类owner2026-09-27) 1.1 的主动请求 / 被动请求是两个维度：controller 模式同时接受两类请求；plugin 模式下的对话不经注册入口。
+- **命名**：此前称为“被动 / 主动服务状态”，是历史遗留叫法，改称 plugin 模式与 controller 模式。两种模式与[任务进程 Idea](./task-process-table-and-registration-entry.md#1-请求方的分类owner2026-09-27)第 1 节的主动请求 / 被动请求是两个维度：controller 模式同时接受两类请求；plugin 模式下的对话不经注册入口。
 - **与现有实现的关系**：plugin 模式很像一直以来的 Passive Ingress 模式；controller 模式本质上就是如今的 Alice。任务进程表与注册入口更偏向 controller 模式，这与现有 chat 链路服务 Alice 同源。
 - **共同基建**：两种模式对进程的控制能力不同，但都使用 workspace 能力层。到能力层为止是真正的 workspace 架构基建，再往上两种模式各有各的样式。
 - **版本安排**：v0.7.0 不能同时完成两者，先做 controller 模式，作为 v0.7.1 的首个真实外部 harness 接入；plugin 模式已有一定代码基础，在 v0.7.1 之后的 v0.7.x 版本完善，不在 v0.7.1 中完成。
@@ -77,7 +79,7 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 | 任务进程与注册入口 | 不使用：外部 harness 的任务对 HiveMemory 不可见 | 使用：外部 harness 与 Alice 同为进程中的 CPU |
 | 访问 context | 不绑定进程，形状与管理员直接通道相同（[Workspace 架构](../architecture/workspace.md)第 4.5 节；[第五代架构 Idea](./fifth-generation-architecture.md) P-9） | 绑定进程 |
 | 记忆域访问 | 外部 harness 经 MCP 调用能力层 | 外部 harness 同样可经 MCP 调用能力层；例如 ACP 在创建会话时允许客户端提供 MCP server，HiveMemory 可以提供绑定进程的操作适配器端点（这类由执行单元回到进程的通道见执行单元 Idea T-4） |
-| 交互记录的回流 | 经 Import Bus（现有 Passive Ingress 链路；已排除在现有系统之外，随 plugin 模式另行设计） | 任务进程自行提交（[任务进程 Idea](./task-process-table-and-registration-entry.md#q-14-主动进程的交互记录去向) Q-14 选项 A） |
+| 交互记录的回流 | 经 Import Bus（现有 Passive Ingress 链路；已排除在现有系统之外，随 plugin 模式另行设计） | 任务进程自行提交（[System 应用服务](../system/application-services.md)第 3 节） |
 | HiveMemory 能否发起任务 | 不能 | 能；被动请求（定时任务、队列任务）只能在此模式下存在 |
 | 对外部 harness 的控制 | 无 | 任务边界：actor 选择、输入、生命周期与取消、执行轨迹回流；harness 内部的 loop、工具、上下文压缩与子 agent 派生仍由其自身管理（子 agent 不被识别为执行线程，见 E-5） |
 | 现有代码 | Passive Ingress 与 `/api/v1/ingest`、能力层 | Alice 的 chat 链路与 chat run 注册表（内部 CPU） |
@@ -85,7 +87,7 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 
 两种模式并存，对以下尚未决定的共用设计构成约束（分析，决定时一并考虑）：
 
-- [任务进程 Idea](./task-process-table-and-registration-entry.md#q-2-写入意图中间产物的可见范围) Q-2：plugin 模式经 MCP 提交的写入意图没有所属进程（2026-09-28 已消解：写入意图在 workspace 登记，与进程解耦）；
+- 写入意图（[Workspace 架构](../architecture/workspace.md)第 5.4 节）：plugin 模式经 MCP 提交的写入意图没有所属进程（2026-09-28 已消解：写入意图在 workspace 登记，与进程解耦）；
 - 任务进程 Idea Q-14：两条回流路径进入同一提交队列；同一 harness 同时以两种模式使用时，同一交互可能被记录两次（2026-09-28：Q-14 选 A，Import Bus 排除在现有系统之外，此问题留待 plugin 模式设计时处理）；
 - [外部会话与 Topic 投影](./external-session-and-topic-projection.md)：plugin 模式的会话归外部 harness 所有，Alice 与 controller 模式的会话由 HiveMemory 发起；
 - [第五代架构 Idea](./fifth-generation-architecture.md) P-9：不建进程的访问不只来自管理员；
@@ -95,7 +97,7 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 
 | 问题 | 归属 |
 |:---|:---|
-| [Q-8 外部 CPU 的进程](./task-process-table-and-registration-entry.md#q-8-外部-cpu-的进程) | 只涉及 controller 模式（plugin 模式不建进程）；Q-8a–Q-8c 仍待决 |
+| [Q-8 外部 CPU 的进程](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) | 只涉及 controller 模式（plugin 模式不建进程）；Q-8a–Q-8c 仍待决 |
 | E-4 结果观察的方式 | 主要涉及 plugin 模式，controller 模式可经任务进程观察结果；仍待决 |
 | [P-5b 被动请求的 principal](./fifth-generation-architecture.md) | 被动请求只存在于 controller 模式；owner 倾向由登记的 Agent 反推；仍待决 |
 | 请求方类型与认证 principal 的关系 | 按两种模式的定义：controller 模式下，用户直接向 HiveMemory 的入口发出请求；plugin 模式下，没有请求进入注册入口，外部 harness 以不建进程的方式访问能力层。外部 harness 连接方的身份如何证明见 P-1c |
@@ -110,12 +112,12 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 | 执行侧面 | 任务进程如何驱动该 harness 执行（驱动类型及其配置） | CPU 驱动：workspace 定义的 CPU 端口的一个实现 | 任务进程的 Actor 执行阶段 |
 
 - 运行时仍是两个注册表，按方向分开：入站认证属于 System，出站执行属于任务进程。System 装载登记后分别构造两者并注入使用方，与总 Idea D-5 的做法一致。
-- 由此，任务进程调用 CPU 采用对象端口：端口由 workspace 定义，CPU 实现，组合根注入，不采用总线路由契约（[任务进程 Idea](./task-process-table-and-registration-entry.md#12-任务进程的结构owner2026-09-28) 1.2）。
+- 由此，任务进程调用 CPU 采用对象端口：端口由 workspace 定义，CPU 实现，组合根注入，不采用总线路由契约（[子系统公共契约](../contracts/subsystem-contracts.md)第 4.1 节）。
 - 登记仍在启动时从配置装载（E-1）。
 - 并非每个参与者都有两个侧面（分析）：plugin 模式的 harness 与管理员直接通道只有接入侧面；Alice 两个侧面都有，执行侧面是内置的；测试 CPU 只有执行侧面。
 - 驱动类型与 harness 实例（分析）：驱动类型是代码，按协议而不是按 harness 编写，例如一个 ACP 驱动可以覆盖所有支持 ACP 的 harness；harness 实例是登记数据，包括选用的驱动、驱动配置与绑定的 principal。能否不写代码就加入一个新 harness 取决于 E-2a：采用通用协议时，只需新增一条登记；按各家 SDK 或 CLI 适配时，每家至少需要一个驱动。入站方向的 `adapters` 字段已经是“代码定义种类、登记数据引用种类”的形态。
 - 后续设计（owner，2026-09-30）：actor 对应哪个 CPU 的映射放在哪里（执行侧面 / Agent Profile 的字段 / 独立的映射表 / 其他）；按 actor 或按请求选择 CPU 的机制。v0.7.0 只需要 Alice 接入 CPU 端口。
-  - 2026-10-06：按[执行单元 Idea](./execution-unit-thread-and-environment.md#1-前提owner-提出)前提 3、5，CPU 专指执行单元，即 CPU 驱动加上它驱动的 harness 实例，actor 是执行单元中的执行线程；本表的执行侧面对应 CPU 驱动，接入侧面对应操作适配器。只有接入侧面的参与者不称 CPU（执行单元 Idea T-6）。
+  - 2026-10-06：按[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节的用语，CPU 专指执行单元，即 CPU 驱动加上它驱动的 harness 实例，actor 是执行单元中的执行线程；本表的执行侧面对应 CPU 驱动，接入侧面对应操作适配器。只有接入侧面的参与者不称 CPU（执行单元 Idea T-6）。
   - 2026-10-06：按执行单元 Idea前提 9、10，agent 与执行环境解耦，不存在固定的“actor 对应哪个 CPU”的映射：用户在对话开始前分别选择 agent 与执行环境，选择执行环境不是 workspace 的能力，倾向由系统层级控制、在 CPU 分配时决定 backend（E-6a）。选择的承载、默认值与可用范围见执行单元 Idea T-8。
 - 仍待决：登记记录的结构，以及它与 Workspace Actor 访问登记的关系（E-1a）。
 
@@ -187,7 +189,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 - 例：现有的 MTP READ 与将来经 MCP 提供的记忆读取，都归一化为 `MemoryApplicationService.read` 的调用；管理员操作同样遵循归一化原则，经 HTTP 操作适配器映射到能力层。管理员与 agent 因身份与操作意图不同，最终映射到不同的方法（总 Idea 15.7），归一化的逻辑相同。
 - 职责：协议翻译；一次操作映射到一个能力方法；把结果与错误映射回协议。
-- 细化（owner，2026-10-09）：操作适配器不直接调用能力层，而是把协议请求解析为固定类型的操作请求，交回 CPU，由 CPU 经 workspace 的单一操作入口调用能力层；请求与能力方法一一对应，对 actor 暴露的操作、操作请求、能力层 API 与 `WorkspaceOperation` 是同一套操作列表。HTTP 管理侧理论上也采用这一形态，暂不迁移。见[执行单元 Idea](./execution-unit-thread-and-environment.md#t-9-操作请求与-workspace-的操作入口) T-9。
+- 细化（owner，2026-10-09）：操作适配器不直接调用能力层，而是把协议请求解析为固定类型的操作请求，交回 CPU，由 CPU 经 workspace 的单一操作入口调用能力层；请求与能力方法一一对应，对 actor 暴露的操作、操作请求、能力层 API 与 `WorkspaceOperation` 是同一套操作列表。HTTP 管理侧理论上也采用这一形态，暂不迁移。见[子系统公共契约](../contracts/subsystem-contracts.md)第 4.6 节。
 - 细化（owner，2026-10-10）：能力层分为 actor API 与 root API。外部 Actor（含 plugin 模式的 harness）只能使用 actor API，其操作列表翻译为 MCP 工具时不含 CALL；管理员（唯一的 root 角色 `system`）经 HTTP 操作适配器调用 root API。上文例子中“管理员操作映射到不同的方法”应理解为映射到不同的 API 面。见[Workspace 架构](../architecture/workspace.md)第 4.5 节。
 
 **不属于操作适配器的职责**：
@@ -225,7 +227,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 | Attachment read | 解析已有授权 ref、READY 检查、必要的内容快照 | lease 在服务内管理，不把 lease 对象跨网络传递 |
 | Write/update intent | 显式提交内容、目标、理由与来源引用 | Patchouli 决定生成、合并、修订或丢弃；不把日志自动当作写入命令 |
 | Pending read/resolve | 登记后读取意图与状态，结算后解析原引用 | 当前事实见 [Workspace 架构](../architecture/workspace.md)第 5.4 节，外部提交与回读契约见[写入意图后续方向](./pending-intent-migration.md)第 7 节；记忆任务的观察（原 `task.observe`，2026-10-10 起为只供 `system` 的 root API）不自动授予内容读取权 |
-| Result query | 提交类型及真实领域结果或任务投影 | 查询状态不授予读取最终 Memory 的权限；Patchouli 的记忆任务不暴露给 Agent（[任务进程 Idea](./task-process-table-and-registration-entry.md#q-7-记忆库内部工作与进程表) Q-7，2026-09-27），涉及任务投影的部分需按此重新审视 |
+| Result query | 提交类型及真实领域结果或任务投影 | 查询状态不授予读取最终 Memory 的权限；Patchouli 的记忆任务不暴露给 Agent（[Workspace 架构](../architecture/workspace.md)第 4.5 节），涉及任务投影的部分需按此重新审视 |
 
 能力层是否覆盖执行类操作见总 Idea P-3。
 
@@ -305,7 +307,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 | C | 多种传输并存，各由 adapter 适配到同一能力层 | 各 adapter 需要共享 3.6 的语义 |
 | D | 其他 | —— |
 
-与任务进程 Idea [Q-3b](./task-process-table-and-registration-entry.md#q-3-唯一注册入口的职责边界)（唯一入口是否同时要求唯一的传输入口）相关。
+与任务进程 Idea [Q-3b](./task-process-table-and-registration-entry.md#q-3b-唯一入口与传输入口)（唯一入口是否同时要求唯一的传输入口）相关。
 
 **子问题 E-2a controller 模式下驱动外部 harness 的方式**：上述选项是外部 harness 调用 HiveMemory 的传输；controller 模式还需要 HiveMemory 驱动外部 harness（1.1）。
 
@@ -351,7 +353,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
   - 外部执行单元不经过派生授权（执行单元 Idea T-3）；子 agent 能做什么只受主线程 actor 的白名单与资源 policy 约束。
   - 失效条件：出现能在协议中可靠标识派生调用、并允许子 agent 使用独立端点的 harness 或协议版本，且接入它的收益足够时，重新讨论。
 
-与[任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部-cpu-的进程) Q-8（外部 CPU 的进程，尤其 Q-8c 的粒度）相关。
+与[任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) Q-8（外部 CPU 的进程，尤其 Q-8c 的粒度）相关。
 
 ### E-6 actor 与执行单元的对应
 
@@ -373,6 +375,6 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 | P-3 能力层是否覆盖执行类操作 | 同上 | 外部 Actor 可调用的操作范围（3.5） |
 | P-9a 直接通道的适用范围 | 同上 | 外部 Actor 的哪些请求不建进程；plugin 模式的访问不建进程（1.1） |
 | P-10 Agent Profile 的能力描述是否与 MTP 解耦 | 同上 | 外部 Actor 如何理解 Profile；已决定：allow 字段并入能力层的 operation 控制（总 Idea 15.4），P-10a 仍待决 |
-| Q-8 外部 CPU 的进程 | [任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部-cpu-的进程) | 外部 Actor 的调用与进程的关系、回收与取消；只涉及 controller 模式（1.1） |
+| Q-8 外部 CPU 的进程 | [任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) | 外部 Actor 的调用与进程的关系、回收与取消；只涉及 controller 模式（1.1） |
 | Q-11–Q-13 Import Bus | [Import Bus Idea](./import-bus.md)第 4 节 | Import Bus 路线的 Topic 落位、价值信号与历史导入；不在 v0.7.0 范围 |
-| T-1–T-6 执行单元与执行线程 | [执行单元 Idea](./execution-unit-thread-and-environment.md#4-已完成的问题) | T-1（子线程身份在派生时确定）、T-2（每个线程一份 context）与 T-6（只有接入侧面的参与者不称 CPU）已决定；外部执行单元不识别子线程，见 E-5；回调通道与操作适配器的绑定（T-4）关系到 E-3b；T-1a、T-1b、T-2a 只涉及 Alice |
+| T-1–T-6 执行单元与执行线程 | [Workspace 架构](../architecture/workspace.md)第 4.3、5.4 节 | T-1（子线程身份在派生时确定）、T-2（每个线程一份 context）与 T-6（只有接入侧面的参与者不称 CPU）已决定；外部执行单元不识别子线程，见 E-5；回调通道与操作适配器的绑定（T-4）关系到 E-3b；T-1a、T-1b、T-2a 只涉及 Alice |

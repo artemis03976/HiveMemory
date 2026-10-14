@@ -287,6 +287,8 @@ RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求。
 
 公共入口为 `OperationEntry.execute[R](request: OperationRequest[R], *, access: WorkspaceAccessContext) -> R`。提交函数协议 `OperationSubmitter` 有两个方法：`__call__[R](request: OperationRequest[R]) -> R` 提交普通请求，遇到派生请求以 `TypeError` 拒绝；`derive_call_thread(request: DeriveCallThreadRequest) -> Callee` 提交派生请求，把执行线程 `ExecutionThread` 中的子线程 context 绑定为新的提交函数，只交出被调用方 `Callee`（目标 Profile、操作快照与子帧的提交函数，没有线程或 context 概念）。`ThreadOperationSubmitter(entry, access)` 是 `workspace.contracts` 提供的通用实现，任何 CPU 驱动都用它绑定线程，执行适配器、frame 与 CALL 编排因此不接触 context。每个 frame 使用自己线程的提交函数。新增资源操作应扩展请求与入口，而不增加 workspace 总线路由或让适配器切换资源目标。
 
+这一形态来自“绑定”与“调用面”的拆分：绑定（谁发起、属于哪个进程与线程）随线程变化，由线程 context 承载；调用面（能调用哪些能力）是稳定的，由请求类型与 actor API 各分类拥有。入口只按请求类型分派，接口不随能力增加而增长；执行适配器只把协议请求解析为请求对象，不持有能力层，也不持有身份。workspace 的调用方只有执行单元与 HTTP 管理入口两类，因此不为它另建总线路由。
+
 `WorkspaceOperationEntry` 只接受线程 context：分派前经操作授权者确认它是未撤销的执行线程 context，再按请求类型把请求对象与线程 context 直接交给对应的 actor API 方法（`method(request, *, access)`），入口不拆参数，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验；入口不持有 root API。actor API 的目标取线程的驻留 Workspace，意图登记的 process_id 取自线程 context 的运行绑定。未知请求类型抛 `TypeError`；进程 context、请求级 context 或其他对象抛 `ScopeRequiredError`；已撤销的线程 context 抛 `ThreadContextRevokedError`（`core.errors`，由 `workspace.contracts` 重新导出）。拒绝都发生在任何副作用之前。
 
 CALL 的派生由 actor API 经 `workspace.contracts.ChildThreadSpawner` 端口交给任务进程，进程只接受本进程主线程在 Actor 阶段内发起的派生，以被调用方准入后签发、登记子线程并读取被调用方的操作快照（[Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)第 5.4 节）。被调用方未准入或为保留的 `system` 时抛 `AdmissionDeniedError`，进程侧前置检查失败抛 `ScopeRequiredError`，均不登记子线程。

@@ -83,7 +83,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 | `TaskProcess`（进程状态容器，`workspace/process/task_process.py`） | 本进程独有的东西：进程记录（含进程 context 与绑定了本进程标签的观测通道）、任务参数、工作集、`trace_id`、驱动本进程的 owner task | 任何跨进程共享的依赖 |
 | `TaskProcessRunner`（执行器，`workspace/process/runner.py`） | 所有进程共用的编排依赖：全局总线、CPU 端口、`CPUAllocator`、进程线程管理 `ProcessThreads`（`workspace/process/threads.py`，经 `ThreadContextLifecycle` 端口派生与撤销线程 context）、写入意图登记、操作授权者（阶段授权）、Gateway 超时配置；唯一的编排骨架 `run(process)` 与唯一的关闭流程 `close(process)` | 任何进程的状态 |
 
-这样划分是为了让注册入口只管理进程的生命周期，而不认识具体流程（[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) Q-3），并让进程本身只是状态容器：进程记录与工作集，由所有进程共用的四阶段骨架驱动（同一 Idea 1.2）。执行器与 `CPUAllocator` 由组合根构建并注入注册入口，入口不转交编排依赖。
+这样划分是为了让注册入口只管理进程的生命周期，而不认识具体流程，并让进程本身只是状态容器：进程记录与工作集，由所有进程共用的四阶段骨架驱动（理念见[第五代架构 Idea](../ideas/fifth-generation-architecture.md)第 3.2 节）。执行器与 `CPUAllocator` 由组合根构建并注入注册入口，入口不转交编排依赖。
 
 骨架只产出类型化的阶段产出（`workspace/process/outputs.py`），流式交付把它们投影为 SSE 事件，非流式交付只取终态产出；两种形态共用同一条阶段顺序、同一组取消响应点与同一个关闭流程。它们在执行上只有两处差异：CPU 以流式还是非流式产出，finalize 之后的话题池读取只服务于流式 `done` 事件。编排途中的异常在两种形态下都先记录失败终态、完成关闭，再由流式交付翻译为 `error` 事件（Workspace 领域错误携带安全文案与错误码，其余统一为系统错误），或由非流式交付原样上抛。
 
@@ -155,7 +155,7 @@ process_id
 
 ## 4. 注册入口、进程表与取消
 
-**注册**（在流式响应开始之前完成）：
+**注册**（在流式响应开始之前完成）：进程在注册时就创建，此后 Gateway 分析、预检索、CPU 分配与执行都在进程内进行，停止与关闭因此覆盖整条链路，中间产物与访问 context 也都有明确的持有者。
 
 1. 拒绝保留的 `system` 作为任务请求的 actor：任务进程必须由具体 Agent 执行；
 2. 经认证网关完成两阶段认证，运行绑定为本进程的 `process_id`（由 server 入口在进入编排服务前生成并冻结）；认证失败直接抛出，HTTP 入口据此返回 403，不创建、不登记进程；

@@ -187,7 +187,7 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 2. 访问 context 只出现在本次运行的持有者和授权点（线程 context 的运行是该线程在 CPU 执行阶段内的执行，持有者是 CPU 驱动）；不进入资源 owner、Gateway、引擎或存储，不写入任何记录、事件、交互记录或 DTO。
 3. 运行结束后不再读取访问 context。交互记录与后台任务独立保存资源归属和需要的发起者，不保存操作 scope。
 4. 授权点只接收访问 context 与目标 Workspace，`IdentityScope` 只由操作授权者组装，不由调用方另行传入；公共 route 接收 scope，Patchouli 公共边界以下只接收拆分后的归属与发起者。没有函数同时接收 `identity_scope` 与 `access`（`/ingest` 除外）。
-5. 资源 owner 先校验目标 Workspace 等于资源归属，再按资源 policy 检查发起者；管理视角也不跳过 Workspace 硬边界，资源来源不能充当权限依据。
+5. 资源 owner 先校验目标 Workspace 等于资源归属，再按资源 policy 检查发起者；管理视角也不跳过 Workspace 硬边界，资源来源不能充当权限依据。归属检查常以分区键或查询预过滤的形式完成、看似多余，但缓存与资产索引是进程级共享设施，存储的预过滤也不是授权事实，因此不能省略。
 6. 授权规则不是身份类型的约束：“actor 用户等于 Workspace owner”属于第 2、3 阶段，`IdentityScope` 不校验它。
 
 不变量 2、4 由架构测试守护：认证与授权模块只允许 workspace、组合根与 server 导入；能力层、任务进程的执行器 `TaskProcessRunner` 与 CPU 分配不导入认证一侧，执行器只经线程 context 生命周期端口派生与撤销线程 context；Gateway、Patchouli 不导入两者。身份拆分边界测试另限定 Patchouli 的 scope 引用只能出现在公共 handler，五个引擎与记录/任务模型不保留 scope。
@@ -328,6 +328,8 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 | `RootMemoryTaskService` | `list_memory_tasks`、`get_memory_task`、`cancel_memory_task` |
 | `RootWorkspaceAssetService` | `upload_asset` |
 
+记忆任务是后台系统的任务，不暴露给 Agent：任务的列表、查询与取消只在 root API，没有对应的 actor 操作或 MTP 动词。
+
 **System 层面的 API**：模型、Provider、配置、运行时事件与日志与 Workspace 资源无关，HTTP 路由直接经门面调用 System 的注册表与服务，不经认证网关、root API 或操作授权。workspace 只负责与 Workspace 资源相关的请求。
 
 两种读取视角因此分属两个 API 面：
@@ -408,7 +410,7 @@ canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.l
 
 `WorkspaceOperationEntry` 实现公共 `OperationEntry`，入口只接受线程 context：分派前经操作授权者确认请求附带的是未撤销的执行线程 context，进程 context 与请求级 context 以 `ScopeRequiredError` 拒绝，已撤销的以 `ThreadContextRevokedError` 拒绝，均没有副作用。随后入口只按请求类型把请求对象与线程 context 直接交给对应的 actor API 方法，不拆参数；actor API 逐次授权并组装该次调用的 `IdentityScope`，资源 owner 仍执行归属与 actor policy 检查。意图登记的 `process_id` 取自线程 context 的运行绑定（操作授权者的只读查询，只对线程 context 有效），请求不能指定。线程 context 的派生不授予操作许可：`system` 的进程即使派生出线程 context，也因白名单为空而在每个 actor 请求上被拒绝。
 
-**CALL 派生子线程**：CALL 提交的 `DeriveCallThreadRequest(agent_alias)` 是 actor 操作 `agent.call`。actor API 先以调用方的线程 context 授权，再以调用方的 scope 读取目标 Profile（对调用方不可见与不存在相同），读取之后重新确认调用方线程未撤销，再以 Profile 的 `agent_id`（内置图纸为 `omni_doll`）经 `ChildThreadSpawner` 交给进程。进程侧依次确认：进程存在且处于 Actor 阶段、仍在运行，调用方就是本进程登记的主线程 context（按对象身份比较，不读取内容），否则以 `ScopeRequiredError` 拒绝——只有主线程能派生，派生只发生在 CPU 执行阶段。随后分配线程标识，以被调用方准入后派生子线程 context，再以子线程 context 读取被调用方的操作快照；快照读取失败时撤销刚签发的 context，不登记。成功后子线程登记进工作集，结果是执行线程 `ExecutionThread`（`workspace.contracts`：目标 Profile、操作快照与子线程 context），只返回给 CPU 驱动。
+**CALL 派生子线程**：CALL 提交的 `DeriveCallThreadRequest(agent_alias)` 是 actor 操作 `agent.call`。actor API 先以调用方的线程 context 授权，再以调用方的 scope 读取目标 Profile（对调用方不可见与不存在相同），读取之后重新确认调用方线程未撤销，再以 Profile 的 `agent_id`（内置图纸为 `omni_doll`）经 `ChildThreadSpawner` 交给进程。进程侧依次确认：进程存在且处于 Actor 阶段、仍在运行，调用方就是本进程登记的主线程 context（按对象身份比较，不读取内容），否则以 `ScopeRequiredError` 拒绝——只有主线程能派生，派生只发生在 CPU 执行阶段。随后分配线程标识，以被调用方准入后派生子线程 context，再以子线程 context 读取被调用方的操作快照；快照读取失败时撤销刚签发的 context，不登记。成功后子线程登记进工作集，结果是执行线程 `ExecutionThread`（`workspace.contracts`：目标 Profile、操作快照与子线程 context），只返回给 CPU 驱动。派生必须到达进程：线程 context 只能由认证一侧签发，执行单元能认出发起派生的是哪个线程，但被调用方是谁、能否进入 Workspace 由进程确定，执行单元因此不能自报子线程的身份。
 
 子线程以被调用方的身份运行：每个 actor 请求按被调用方的白名单检查，`IdentityScope` 的发起者是被调用方，资源 owner 按被调用方的可见性过滤；写入意图的 `from_actor` 是被调用方，进程关联不变，在操作内立即派发到与主线程相同的话题。调用方持有 `agent.call` 即可让被调用方读取它自己的 PRIVATE 记忆，并经 CALL 的返回值交给调用方；这是委派的本义，闸门是 `agent.call` 与被调用方的准入。
 

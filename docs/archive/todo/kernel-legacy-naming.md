@@ -23,7 +23,7 @@ last_reviewed: 2026-10-12
 
 ## 问题与证据
 
-“kernel”在大约第三代项目架构时引入，随子系统分层逐渐取消。owner 于 2026-10-06 确认它不再作为概念使用，CPU 内部的 backend 称为 harness 实例（[执行单元 Idea](../../ideas/execution-unit-thread-and-environment.md#1-前提owner-提出)前提 5、8）。剩余使用点是当时未改动的命名，与它配对的“用户态工具”和同期的“HiveOS”一并清理。按含义分为四组（2026-10-12 重新核对，不含 `docs/archive/` 与冻结的 `docs/governance/baselines/`）：
+“kernel”在大约第三代项目架构时引入，随子系统分层逐渐取消。owner 于 2026-10-06 确认它不再作为概念使用，CPU 内部的 backend 称为 harness 实例（commit `a384688` 版本的执行单元 Idea前提 5、8）。剩余使用点是当时未改动的命名，与它配对的“用户态工具”和同期的“HiveOS”一并清理。按含义分为四组（2026-10-12 重新核对，不含 `docs/archive/` 与冻结的 `docs/governance/baselines/`）：
 
 | 组 | 使用点 | 当前含义 |
 |:---|:---|:---|
