@@ -55,7 +55,6 @@ class RunCompleted:
     """终态：Actor 完成且 finalize 已接管本轮交互。"""
 
     execution_result: CPUExecutionResult
-    memory_task_ids: list[str]
     pool_topics: list[dict[str, Any]]
 
 
@@ -161,7 +160,6 @@ def stream_events(output: ProcessOutput, *, process_id: str) -> list[dict[str, A
                         "status": "completed",
                         "stopped": False,
                         "reason": None,
-                        "memory_task_ids": output.memory_task_ids,
                         "pool_topics": output.pool_topics,
                     },
                 }
@@ -205,7 +203,6 @@ def _stopped_done(
             "status": status,
             "stopped": True,
             "reason": reason,
-            "memory_task_ids": [],
         },
     }
 
@@ -219,7 +216,6 @@ def _command_done(process_id: str, command_result: CommandExecutionResult) -> di
             "status": "completed",
             "stopped": False,
             "reason": None,
-            "memory_task_ids": [],
             "pool_topics": [],
         },
     }

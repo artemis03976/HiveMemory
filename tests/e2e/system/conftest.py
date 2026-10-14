@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
 from typing import Any
@@ -9,6 +10,7 @@ from typing import Any
 import pytest_asyncio
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.config.gateway import SystemGatewayConfig
 from hivememory.config.patchouli import (
     ArtifactConfig,
@@ -77,6 +79,8 @@ class _VectorStore:
         self._memories: dict[str, MemoryAtom] = {}
         self.client = self
         self.search_matches: dict[str, tuple[str, ...]] = {}
+        self.write_allowed = asyncio.Event()
+        self.write_allowed.set()
 
     async def get_collections(self) -> list:
         return []
@@ -96,6 +100,8 @@ class _VectorStore:
         return [atom.id for atom in self._memories.values() if atom.index.alias == alias][:limit]
 
     async def upsert_memory(self, memory: MemoryAtom, **_kwargs: Any) -> None:
+        # 验收可在外部存储边界暂停落库，精确区分进程关闭与生成完成的先后。
+        await self.write_allowed.wait()
         self._memories[str(memory.id)] = memory.model_copy(deep=True)
 
     async def get_memory(self, key) -> MemoryAtom | None:
@@ -118,7 +124,11 @@ class _VectorStore:
 class _Extractor:
     """外部 LLM 提取端口的确定性替身，生成业务流程由真实 engine 执行。"""
 
+    def __init__(self) -> None:
+        self.inputs: list[dict[str, Any]] = []
+
     def extract(self, **_kwargs: Any) -> ExtractedMemoryDraft:
+        self.inputs.append(_kwargs)
         return ExtractedMemoryDraft(
             title="跨边界写入",
             alias_suffix="http_chat",
@@ -148,6 +158,8 @@ class PatchouliChatStack:
     controller: MemoryGenerationTaskController
     lifecycle: LifecycleFamiliar
     vector_store: _VectorStore
+    events: RecordingRuntimeEventSink
+    extractor: _Extractor
 
 
 @pytest_asyncio.fixture
@@ -186,10 +198,11 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
         config=MemoryPerceptionConfig(),
         interaction_journal=InMemoryInteractionApplyJournal(),
     )
+    extractor = _Extractor()
     generation = MemoryGenerationFamiliar(
         generation_engine=MemoryGenerationEngine(
             mid_term=mid_term,
-            extractor=_Extractor(),
+            extractor=extractor,
             deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
         ),
         memory_library=library,
@@ -205,8 +218,9 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
         ),
         memory_library=library,
     )
-    controller = MemoryGenerationTaskController(bus=local_bus)
-    coordinator = MemoryGenerationCoordinator(bus=local_bus)
+    events = RecordingRuntimeEventSink()
+    controller = MemoryGenerationTaskController(bus=local_bus, runtime_events=events)
+    coordinator = MemoryGenerationCoordinator(bus=local_bus, recent_block_limit=5)
 
     async def storage_health() -> bool:
         """读取真实书库健康结果，省去验收范围之外的模型装配。"""
@@ -257,7 +271,7 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
     await queue.start()
     try:
         yield PatchouliChatStack(
-            global_bus, short_term, mid_term, controller, lifecycle, vector_store
+            global_bus, short_term, mid_term, controller, lifecycle, vector_store, events, extractor
         )
     finally:
         await chat_service.drain_active_finalizations()

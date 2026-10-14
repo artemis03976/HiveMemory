@@ -25,7 +25,10 @@ if TYPE_CHECKING:
     from hivememory.core.models.pending import PendingAtomMaterializeTask
     from hivememory.engines.perception.models import TopicMaterializeTask
     from hivememory.engines.retrieval.models import RetrievalQuery
-    from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationTask
+    from hivememory.patchouli.contracts.memory_tasks import (
+        MemoryGenerationAdmission,
+        MemoryGenerationTask,
+    )
     from hivememory.patchouli.contracts.topic_management import (
         TopicEvictionResult,
         TopicSettleResult,
@@ -151,8 +154,8 @@ class PatchouliLocalRoutes:
     @route("generation.submit_active")
     async def GENERATION_SUBMIT_ACTIVE(
         tasks: list[PendingAtomMaterializeTask], topic_id: str, *, belong_to: WorkspaceIdentity
-    ) -> list[MemoryGenerationTask]:
-        """将 MTP WRITE/UPDATE 请求转为主动生成任务规范。"""
+    ) -> list[MemoryGenerationAdmission]:
+        """将 WRITE/UPDATE 意图转为主动生成任务，返回与输入一一对应的接纳结果。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("generation.execute_spec")
@@ -172,8 +175,8 @@ class PatchouliLocalRoutes:
     @route("memory_task.submit_generation_many")
     async def MEMORY_TASK_SUBMIT_GENERATION_MANY(
         specs: list[MemoryGenerationTaskSpec],
-    ) -> list[MemoryGenerationTask]:
-        """按输入顺序逐项接纳，并只返回已接纳或幂等复用的任务。"""
+    ) -> list[MemoryGenerationAdmission]:
+        """按输入顺序逐项接纳，返回与输入一一对应的接纳结果。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("memory_task.list")

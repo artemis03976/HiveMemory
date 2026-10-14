@@ -16,7 +16,6 @@ from hivememory.core.models import (
     TraceReducer,
     WorkspaceAssetRef,
 )
-from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import InteractionPayload
 
@@ -28,15 +27,13 @@ def seal_interaction(
     assistant_final_text: str,
     turn_events: Sequence[Any],
     model_used: str,
-    materialize_tasks: Sequence[PendingAtomMaterializeTask],
     used_attachments: Sequence[WorkspaceAssetRef],
 ) -> InteractionPayload:
     """把进程各阶段的产出封口为提交给 finalize 的交互记录。
 
     字段来源（与拆分前 Patchouli finalize 内组装的结果逐字段一致）：
     ``user_message`` 是入口消息，``rewritten_query``/``worth_saving`` 来自
-    Gateway 决定，回复、轮次事件与模型名来自 Actor 执行结果，物化任务由进程
-    从写入意图登记认领，
+    Gateway 决定，回复、轮次事件与模型名来自 Actor 执行结果，
     ``used_attachments`` 是附件编译冻结的实际使用引用。``turn_events``
     接受 ``TurnEvent`` 对象或等价 dict（流式 done 事件的还原产物），
     MTP 轨迹由 core 归约器在此处一次性归约。
@@ -45,7 +42,6 @@ def seal_interaction(
     return InteractionPayload(
         user_message=user_message,
         mtp_traces=TraceReducer.reduce(actions),
-        materialize_tasks=list(materialize_tasks),
         rewritten_query=gateway_decision.rewritten_query,
         worth_saving=gateway_decision.worth_saving,
         assistant_final_text=assistant_final_text,

@@ -580,6 +580,7 @@ class PatchouliRuntime:
 
         self._services["generation_coordinator"] = MemoryGenerationCoordinator(
             bus=self._local_bus,
+            recent_block_limit=self._patchouli_config.generation.active_recent_blocks,
             pending_atom_settler=self._pending_atom_settler,
         )
 

@@ -96,11 +96,9 @@ class CPUAllocator:
         阶段授权只校验准入与目标，读取视图负责可见性、缓存及 canonical 变更失效；运行上下文
         只需要能力描述，源原子的授权依据不进入 run。
 
-        中间态（2026-09-29）：Profile 属于 CPU 分配，但暂时在 Patchouli prepare
-        之前解析。当前 prepare 会按 Gateway 的路由决定预先新建 Topic，话题池已满
-        时还会先按 LRU 结算一个已有话题；若在 prepare 之后才发现 Profile 缺失，
-        失败的请求已经留下这些不可逆的副作用。Topic 的新建与驱逐改到 interaction
-        提交之后以后，Profile 解析可以回到 prepare 之后的 CPU 分配步骤。
+        Profile 属于 CPU 分配，但在 Patchouli prepare 之前解析。prepare 保留
+        Topic 预建，话题池已满时还会先按 LRU 结算已有话题；先解析 Profile
+        可避免缺少图纸的请求留下这些副作用，也保证 Actor 开始前已有派发话题。
         """
         # 当前执行 Agent 由授权点确定，不能从入口附带的 Profile alias 推断。
         # Profile 可见性仍由读取视图按进程 actor 检查，不改用 system 身份。
@@ -185,6 +183,7 @@ class CPUAllocator:
             topic_id=prepared.topic_id,
             topic_context=prepared.topic_context,
         )
+        working_set.dispatch_topic_id = manifest.topic_id
         return manifest
 
     def _acquire_selected_attachment(

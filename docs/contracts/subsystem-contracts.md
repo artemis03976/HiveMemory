@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-13
 ---
 
 # 子系统公共契约
@@ -133,7 +133,7 @@ finalize_agent_run(
     payload: InteractionPayload,
     *,
     identity_scope: IdentityScope,
-) -> list[MemoryGenerationTask]
+) -> None
 ```
 
 `payload` 是任务进程封口的本轮交互记录。进程在 Actor 正常完成、进入 finalize 之后组装它（`workspace/process/sealing.py`），材料全部来自进程自身：
@@ -143,7 +143,6 @@ finalize_agent_run(
 | `user_message` | 任务请求的入口消息 |
 | `rewritten_query`、`worth_saving` | Gateway 阶段的决定 |
 | `assistant_final_text`、`turn_events`、`model_used` | Actor 的执行结果 |
-| `materialize_tasks` | completed 时任务进程从 workspace 登记认领本进程的 PENDING 意图，迁为 MATERIALIZING 后投影 |
 | `mtp_traces` | 由 core 的 `ActionReducer` / `TraceReducer` 从 `turn_events` 归约 |
 | `used_attachments` | 附件编译确认实际进入上下文的附件引用快照 |
 
@@ -153,12 +152,11 @@ Finalize：
 
 1. 验证当次阶段 scope，确认其目标 Workspace 等于 `prepared_run.belong_to`；不一致时在交互接纳前抛 `WorkspaceMismatchError`；
 2. 用 prepared 的归属与当次 scope 的发起者构造 `InteractionSubmission`，将 payload 原样提交到目标话题，不改写其内容；
-3. 为 payload 中 WRITE/UPDATE 形成的 materialize task 启动主动记忆生成；
-4. 记录预检索命中。
+3. 等待交互 applied，然后 best-effort 记录预检索命中，返回 `None`；WRITE/UPDATE 已在 actor 操作内独立派发。
 
-任务进程只对 `status == completed` 的执行结果封口并调用 finalize。finalize 前重新执行阶段授权（在认领本进程意图之前），不能从 prepared 取回旧 scope。Finalize 已成功后不能再 cleanup；调用方取消等待时，Patchouli 已接管的 finalization continuation 继续完成，cleanup 也不能删除其话题。
+任务进程只对 `status == completed` 的执行结果封口并调用 finalize。finalize 前重新执行阶段授权（在封口交互记录之前），不能从 prepared 取回旧 scope。Finalize 已成功后不能再 cleanup；调用方取消等待时，Patchouli 已接管的 finalization continuation 继续完成，cleanup 也不能删除其话题。
 
-finalize 是执行事务与记忆事务的分界。交互记录由提交方封口：主动链路由任务进程封口，被动链路由 System 的 turn buffer 封口，两条链路的封口位置一致；Patchouli 的公开路由因此不必读懂任何执行者的运行结果，换一个 CPU 也不需要 Patchouli 随之改变。轨迹归约规则只有 core 中的一份，封口方调用它，不会形成第二套规则。Patchouli 负责判断已封口的交互如何进入长期知识（提交、感知、生成与 lifecycle）；只有 completed 的一轮才封口提交，取消和失败的半完成 run 不会默认进入长期知识。
+finalize 是执行事务与记忆事务的分界。交互记录由提交方封口：主动链路由任务进程封口，被动链路由 System 的 turn buffer 封口，两条链路的封口位置一致；Patchouli 的公开路由因此不必读懂任何执行者的运行结果，换一个 CPU 也不需要 Patchouli 随之改变。轨迹归约规则只有 core 中的一份，封口方调用它，不会形成第二套规则。Patchouli 负责判断已封口的交互如何进入长期知识（提交、感知、生成与 lifecycle）；只有 completed 的一轮才封口提交，取消和失败的半完成 run 不提交交互；它们已接纳的显式写入照常生成。
 
 ### 3.3 CleanupPreparedAgentRun
 
@@ -241,7 +239,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 - `turn_events`：结构化运行事实（`TurnEvent`）；
 - `model_used`：执行者实际使用的模型展示名，空字符串表示未解析；
 
-执行结果不携带 `materialize_tasks`；该字段只在任务进程封口的交互记录中出现，来自 workspace 登记的本进程认领结果。
+执行结果与交互记录均不携带物化任务；WRITE/UPDATE 在操作内提交 `MemoryIntent`，由 Patchouli 的意图提交服务构造内部生成任务。
 
 执行者专属的统计（例如 Alice 的 MTP 迭代次数）不进入执行结果，只出现在各自的观测事件中。任务进程据执行结果决定是否进入 finalize，并从中封口交互记录；任何一方都不能仅凭流中的部分文本推断执行已经完成。
 
@@ -267,7 +265,7 @@ run_agent(
 
 - Alice 不修改输入清单所引用的长期记忆或话题；
 - Alice 不直接请求 Patchouli；检索、引用交付与 Profile 读取经 workspace 操作请求完成，Alice 不持有资源缓存或 resolver；
-- WRITE/UPDATE 经操作请求只登记 workspace 意图并返回 ACK；物化任务由 completed 的任务进程认领，Alice 不持有登记；
+- WRITE/UPDATE 经操作请求登记 workspace 意图并实时派发，生成队列接纳后返回 ACK；Alice 不持有登记；
 - 取消或失败结果不默认进入 Patchouli finalize；
 - Agent Profile 不承载权限；frame 的 MTP 动词集合由输入清单的 `allowed_operations` 翻译而来（RUN 始终可用，`sys_*` 系统工具不设权限），提交到 workspace 的请求仍由 actor API 逐次授权；
 - CALL 仅允许根 frame 发起；子 frame 是以被调用方身份运行的子线程，动词集合由被调用方的操作快照翻译并去掉 CALL，不能继续递归 CALL；被调用方 Profile 只提供人设、模型与语言。
@@ -285,15 +283,17 @@ run_agent(
 | `SubmitUpdateIntentRequest` | UPDATE | `base_alias`、`instruction`、`content=None` | `PendingAtom` | `memory.update` |
 | `DeriveCallThreadRequest` | CALL（只有 Alice 使用） | `agent_alias=None` | `ExecutionThread`：目标 `AgentProfile`、被调用方的操作快照与子线程 context（只交付 CPU 驱动） | `agent.call`（内置同样需要） |
 
-`CancelIntentsRequest(aliases: tuple[str, ...]) -> list[str]` 是执行单元内部的补偿请求，不属于 actor 操作：入口校验线程 context 后只按它的进程关联撤回仍为 PENDING 的指定意图，返回实际撤回的 alias，不检查 operation，也不能撤回其他进程或已被认领的意图。RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求。
+RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求。
 
 公共入口为 `OperationEntry.execute[R](request: OperationRequest[R], *, access: WorkspaceAccessContext) -> R`。提交函数协议 `OperationSubmitter` 有两个方法：`__call__[R](request: OperationRequest[R]) -> R` 提交普通请求，遇到派生请求以 `TypeError` 拒绝；`derive_call_thread(request: DeriveCallThreadRequest) -> Callee` 提交派生请求，把执行线程 `ExecutionThread` 中的子线程 context 绑定为新的提交函数，只交出被调用方 `Callee`（目标 Profile、操作快照与子帧的提交函数，没有线程或 context 概念）。`ThreadOperationSubmitter(entry, access)` 是 `workspace.contracts` 提供的通用实现，任何 CPU 驱动都用它绑定线程，执行适配器、frame 与 CALL 编排因此不接触 context。每个 frame 使用自己线程的提交函数。新增资源操作应扩展请求与入口，而不增加 workspace 总线路由或让适配器切换资源目标。
+
+这一形态来自“绑定”与“调用面”的拆分：绑定（谁发起、属于哪个进程与线程）随线程变化，由线程 context 承载；调用面（能调用哪些能力）是稳定的，由请求类型与 actor API 各分类拥有。入口只按请求类型分派，接口不随能力增加而增长；执行适配器只把协议请求解析为请求对象，不持有能力层，也不持有身份。workspace 的调用方只有执行单元与 HTTP 管理入口两类，因此不为它另建总线路由。
 
 `WorkspaceOperationEntry` 只接受线程 context：分派前经操作授权者确认它是未撤销的执行线程 context，再按请求类型把请求对象与线程 context 直接交给对应的 actor API 方法（`method(request, *, access)`），入口不拆参数，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验；入口不持有 root API。actor API 的目标取线程的驻留 Workspace，意图登记的 process_id 取自线程 context 的运行绑定。未知请求类型抛 `TypeError`；进程 context、请求级 context 或其他对象抛 `ScopeRequiredError`；已撤销的线程 context 抛 `ThreadContextRevokedError`（`core.errors`，由 `workspace.contracts` 重新导出）。拒绝都发生在任何副作用之前。
 
 CALL 的派生由 actor API 经 `workspace.contracts.ChildThreadSpawner` 端口交给任务进程，进程只接受本进程主线程在 Actor 阶段内发起的派生，以被调用方准入后签发、登记子线程并读取被调用方的操作快照（[Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)第 5.4 节）。被调用方未准入或为保留的 `system` 时抛 `AdmissionDeniedError`，进程侧前置检查失败抛 `ScopeRequiredError`，均不登记子线程。
 
-CPU 执行结束时执行器同步撤销本进程的全部线程 context，关闭流程兜底；撤销不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。意图提交（WRITE、UPDATE）在分派前取得进程关联，返回入口后都在同步段再次检查线程 context，已撤销时以该关联同步撤回刚登记的 PENDING 意图并拒绝 ACK；当前 UPDATE 的基础冷读是会跨越撤销的等待点，WRITE 也纳入复查，使这条保证不依赖能力方法内部是否等待。完整的撤销时点、意图认领与引用计数语义见 [Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)。
+CPU 执行结束时执行器同步撤销本进程的全部线程 context，关闭流程兜底；撤销不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。WRITE/UPDATE 在基础校验之后同步复查线程、读取派发话题并登记为 MATERIALIZING；UPDATE 冷读跨越撤销时不登记。派发开始后持有 shield 保护的提交任务直到结束，再传播调用方取消。`IntentDispatchTopicReader` 由进程实现并由组合根注入 actor API，只接受仍处于 Actor 阶段且运行中的已登记线程；主、子线程共享 CPU 输入清单的话题。完整生命周期见 [Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)。
 
 ## 5. 顶层主动链路契约
 
@@ -309,10 +309,10 @@ Gateway decision outcome
   -> Actor 执行：从进程 context 派生主线程 context，经 CPU 端口（当前为 Alice）
        -> CALL：经操作入口派生子线程（被调用方准入），进程登记
        -> CPU 终态结果后关闭输出流，同步撤销全部线程 context
-  -> completed: 任务进程认领本进程意图并封口交互记录（InteractionPayload，含实际使用的附件）
+  -> completed: 任务进程封口交互记录（InteractionPayload，含实际使用的附件）
        -> Patchouli finalize
   -> cancelled/failed/exception: 不进入 finalize，转入关闭补偿
-  -> 进程结束：先同步撤销仍登记的线程 context（兜底）、取消本进程仍为 PENDING 的意图、释放附件租借
+  -> 进程结束：先同步撤销仍登记的线程 context（兜底）、释放附件租借
        -> 关闭输出流；prepare 成功但 finalize 未成功时请求 Patchouli cleanup
        -> 注册入口最后撤销进程 context
 ```
@@ -337,7 +337,7 @@ Passive Ingress 由 System 拥有并调用 Gateway `PASSIVE_MEMORY`。它可以�
 
 Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 Topic 追加 Interaction，因此共享同一组时序职责：
 
-`InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：必需的 `belong_to` 与 `from_actor` 独立保存归属与发起者，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容和物化请求，不嵌入操作 scope。Interaction codec v3 与 `schema_version="1.1"`（字符串）的 generation codec 分别 round-trip 两种身份；当前进程内队列不注册旧 codec，retry 恢复相同字段，不重跑身份解析、不重新组装 scope。apply journal 的摘要使用归属与包含 actor 的 TurnRecord，继续校验重放内容一致性。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
+`InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：必需的 `belong_to` 与 `from_actor` 独立保存归属与发起者，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容，不嵌入操作 scope。Interaction codec v4 与 `schema_version="1.1"`（字符串）的 generation codec 分别 round-trip 两种身份；当前进程内队列不注册旧 codec，retry 恢复相同字段，不重跑身份解析、不重新组装 scope。apply journal 的摘要使用归属与包含 actor 的 TurnRecord，继续校验重放内容一致性。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
 
 `InteractionPayload.used_attachments` 携带任务进程的 `AttachmentCompiler` 确认实际进入上下文的 bound ref 快照（由任务进程封口时写入）：submission handler 把这份快照以 `asset_refs` 形参一次性传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
 

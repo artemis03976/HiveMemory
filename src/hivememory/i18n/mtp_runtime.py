@@ -22,6 +22,14 @@ from hivememory.i18n.types import Language
 # ---------------------------------------------------------------------------
 
 _ERROR_TEXT_ZH: dict[str, str] = {
+    "mtp.memory.intent_rejected": (
+        "[Intent Rejected] 写入意图 '{pending_alias}' 未被生成队列接纳。\n"
+        "Suggestion: 本次意图已失败，请调整请求或稍后重试。"
+    ),
+    "mtp.memory.intent_unknown": (
+        "[Intent Unknown] 无法确认写入意图 '{pending_alias}' 是否已被接纳。\n"
+        "Suggestion: 该意图可能仍会完成生成，立即重复写入可能产生重复记忆；确需重试请稍后再写。"
+    ),
     # ---- 通用权限 ----
     "mtp.permission.verb_denied": (
         "[Permission Denied] 你没有权限使用 '{verb}' 指令。\n"
@@ -183,6 +191,15 @@ _ERROR_TEXT_ZH: dict[str, str] = {
 }
 
 _ERROR_TEXT_EN: dict[str, str] = {
+    "mtp.memory.intent_rejected": (
+        "[Intent Rejected] Intent '{pending_alias}' was not admitted to generation.\n"
+        "Suggestion: This intent failed; revise the request or retry later."
+    ),
+    "mtp.memory.intent_unknown": (
+        "[Intent Unknown] Admission of intent '{pending_alias}' could not be confirmed.\n"
+        "Suggestion: It may still be generated; rewriting now may create duplicates. "
+        "Retry later only if needed."
+    ),
     # ---- 通用权限 ----
     "mtp.permission.verb_denied": (
         "[Permission Denied] You do not have permission to use the '{verb}' command.\n"
@@ -359,11 +376,11 @@ _ERROR_TEXT_EN: dict[str, str] = {
 _INFO_TEXT_ZH: dict[str, str] = {
     # ---- WRITE / UPDATE ACK ----
     "mtp.write.ack": (
-        "记忆已作为 pending atom '{pending_alias}' 接受。\n"
+        "记忆已作为 pending atom '{pending_alias}' 接纳并进入生成队列。\n"
         "本次运行期间可通过 READ 读取。最终记忆生成将异步完成。"
     ),
     "mtp.update.ack": (
-        "记忆 '{base_alias}' 的更新已作为 pending revision '{pending_alias}' 接受。\n"
+        "记忆 '{base_alias}' 的更新已作为 pending revision '{pending_alias}' 接纳并进入生成队列。\n"
         "本次运行期间可通过 READ 读取。最终记忆更新将异步完成。"
     ),
     # ---- loop / CALL response 包装标题（Phase C）----
@@ -378,12 +395,12 @@ _INFO_TEXT_ZH: dict[str, str] = {
 _INFO_TEXT_EN: dict[str, str] = {
     # ---- WRITE / UPDATE ACK ----
     "mtp.write.ack": (
-        "Memory accepted as pending atom '{pending_alias}'.\n"
+        "Memory accepted as pending atom '{pending_alias}' into the generation queue.\n"
         "It is readable during this run via READ. "
         "Final memory generation will complete asynchronously."
     ),
     "mtp.update.ack": (
-        "Memory '{base_alias}' update accepted as pending revision '{pending_alias}'.\n"
+        "Memory '{base_alias}' update accepted as pending revision '{pending_alias}' into the generation queue.\n"
         "It is readable during this run via READ. "
         "Final memory update will complete asynchronously."
     ),

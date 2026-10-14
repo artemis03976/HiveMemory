@@ -313,16 +313,16 @@ async def test_cancelled_callee_resumes_caller_when_run_is_not_cancelled():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("status", "child_intent_status"),
+    "status",
     [
-        (FrameExecutionStatus.FAILED, PendingAtomStatus.CANCELLED),
-        (FrameExecutionStatus.CANCELLED, PendingAtomStatus.CANCELLED),
-        (FrameExecutionStatus.BUDGET_EXHAUSTED, PendingAtomStatus.CANCELLED),
-        (FrameExecutionStatus.COMPLETED, PendingAtomStatus.PENDING),
+        FrameExecutionStatus.FAILED,
+        FrameExecutionStatus.CANCELLED,
+        FrameExecutionStatus.BUDGET_EXHAUSTED,
+        FrameExecutionStatus.COMPLETED,
     ],
 )
-async def test_unsuccessful_callee_withdraws_its_acknowledged_intents(status, child_intent_status):
-    """子帧未成功结束时撤回它收到 ACK 的意图；成功子帧与调用方的意图留给进程认领。"""
+async def test_callee_terminal_status_preserves_its_acknowledged_intents(status):
+    """子帧任意终态都不撤回已接纳意图；调用方意图同样继续物化。"""
     harness = OperationsHarness()
     scope = make_identity_scope(user_id="u1", agent_id="writer")
     submit_operation = await harness.submitter(scope, "process-1")
@@ -360,7 +360,7 @@ async def test_unsuccessful_callee_withdraws_its_acknowledged_intents(status, ch
     assert [
         harness.registry.get(intent.pending_alias, scope.workspace_identity).status
         for intent in (child_intent, caller_intent)
-    ] == [child_intent_status, PendingAtomStatus.PENDING]
+    ] == [PendingAtomStatus.MATERIALIZING, PendingAtomStatus.MATERIALIZING]
 
 
 @pytest.mark.asyncio

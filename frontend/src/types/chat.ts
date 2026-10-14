@@ -83,7 +83,6 @@ export interface ChatDoneEvent {
   status?: Exclude<ChatRunStatus, 'idle' | 'preparing' | 'streaming' | 'cancelling' | 'finalizing'>;
   stopped?: boolean;
   reason?: string | null;
-  memory_task_ids?: string[];
   pool_topics?: TopicPoolInfo['topics'];
 }
 

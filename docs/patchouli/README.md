@@ -18,7 +18,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-13
 ---
 
 # Patchouli
@@ -57,7 +57,7 @@ Patchouli 不负责：
 - 拥有 workspace 的 chat 任务进程、System 的 passive ingress 用例、全局维护时钟或跨系统取消；
 - 解析执行所用的 Agent Profile、持有附件租借、编译附件或为执行者组装运行上下文（这些属于 workspace 任务进程的 CPU 分配）；
 - 把检索结果无条件解释为正确事实；
-- 把 `WRITE` / `UPDATE` 的即时 ACK 当作正式记忆已经持久化；
+- 把 `WRITE` / `UPDATE` 的队列接纳 ACK 当作正式记忆已经持久化；
 - 为任意不受信任内容提供执行沙箱。
 
 Gateway、workspace 与 System 只能通过公开路由或显式用例交接使用 Patchouli，不能持有它的 Runtime、Familiar、Store 或 local bus；Alice 的资源请求先进入 workspace 能力层。完整边界见[子系统公共契约](../contracts/subsystem-contracts.md)与[系统边界](../architecture/boundaries.md)。
@@ -99,18 +99,18 @@ GatewayDecision
        -> PreparedAgentRun（话题准备结果 + 未编译的检索原子）
   -> workspace 任务进程：CPU 分配（编译检索结果与附件，组装输入清单）
   -> Alice RUN / RUN_STREAM
+       -> WRITE / UPDATE -> workspace actor API -> memory_intent.submit -> generation tasks
   -> workspace 任务进程：封口交互记录（InteractionPayload：MTP trace、实际使用的附件）
   -> Patchouli FINALIZE_AGENT_RUN
        -> InteractionSubmissionQueue -> PerceptionFamiliar.apply_interaction
-       -> WRITE / UPDATE materialize tasks -> generation tasks
        -> best-effort record retrieval HIT
 ```
 
-Prepare 只准备话题与检索结果，不解析 Profile、不编译记忆、不接触附件，也不运行 Alice；`PreparedAgentRun` 位于 `patchouli.contracts.prepare`，由任务进程读取并交回 finalize/cleanup。Finalize 接收任务进程封口的 `InteractionPayload` 并原样提交，先等待本轮结构化事实成功摄入话题；该 applied gate 锁定 Chat completed，之后在同一个 Active continuation 内并行执行 MTP 物化接纳与 best-effort retrieval HIT，不反向改写 Chat 终态。HIT 只做单批去重，不自动 retry，也不提供跨 finalize 去重。若 prepare 已创建新话题而 run 没有走到 finalize，任务进程会调用 cleanup 删除仍为空的话题。
+Prepare 只准备话题与检索结果，不解析 Profile、不编译记忆、不接触附件，也不运行 Alice；`PreparedAgentRun` 位于 `patchouli.contracts.prepare`，由任务进程读取并交回 finalize/cleanup。Finalize 接收任务进程封口的 `InteractionPayload` 并原样提交，先等待本轮结构化事实成功摄入话题；该 applied gate 锁定 Chat completed，之后在同一个 Active continuation 内执行 best-effort retrieval HIT，返回 `None`，不反向改写 Chat 终态。HIT 只做单批去重，不自动 retry，也不提供跨 finalize 去重。若 prepare 已创建新话题而 run 没有走到 finalize，任务进程会调用 cleanup 删除仍为空的话题。
 
 `PreparedAgentRun` 只保存资源归属与准备结果，不保存阶段授权 scope。任务进程在 prepare、finalize 与 cleanup 调用前分别从仍有效的访问 context 授权并组装 scope；finalize 和 cleanup 会核对准备结果的归属，拒绝越域交接。进入提交队列后的交互记录独立携带归属与本轮发起者，取消调用方等待不会让后台 continuation 重新依赖访问 context。
 
-`WRITE` / `UPDATE` 的 ACK 只代表 workspace 已登记一个 PendingAtom；Alice 经线程 context 绑定的提交函数发出操作请求，completed 后由任务进程认领并交接物化任务。Patchouli 完成生成、去重、artifact 挂载和中期存储写入后，才通过 settlement 通知 workspace registry 投影 canonical alias/UUID 或 discard/failure/cancel 终态。canonical 读取缓存由中期 Store 的独立变更事件失效，结算通知不回填原子；详情见[MemoryLibrary](./memory-library.md)与[PendingAtom](../alice/pending-atom.md)。
+`WRITE` / `UPDATE` 的 ACK 表示 workspace 已登记意图且生成队列已接纳。Alice 经线程 context 绑定的提交函数发出操作请求，actor API 在操作内经 `memory_intent.submit` 实时派发；这是主动生成的唯一生产入口。背景取过去 N 个 block 与摘要（`patchouli.generation.active_recent_blocks`，默认 5），不含当前轮；后续执行失败、取消或进程关闭都不撤回写入。Patchouli 完成生成、去重、artifact 挂载和中期存储写入后，才通过 settlement 通知 workspace registry 投影 canonical alias/UUID 或 discard/failure/cancel 终态。canonical 读取缓存由中期 Store 的独立变更事件失效，结算通知不回填原子；详情见[MemoryLibrary](./memory-library.md)与[PendingAtom](../alice/pending-atom.md)。
 
 ### 3.2 被动摄入与话题结算
 

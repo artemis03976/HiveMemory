@@ -22,12 +22,12 @@ from hivememory.workspace.contracts.threads import ExecutionThread
 
 @dataclass(frozen=True)
 class OperationRequest[R]:
-    """请求的结果类型契约：actor 请求一一对应能力方法，补偿请求由入口处理。"""
+    """请求的结果类型契约：actor 请求一一对应能力方法。"""
 
 
 @dataclass(frozen=True)
 class SubmitWriteIntentRequest(OperationRequest[PendingAtom]):
-    """提交 WRITE，返回 workspace 已登记的意图作为 ACK。"""
+    """提交 WRITE，生成队列接纳后返回 workspace 已登记的意图作为 ACK。"""
 
     focus: WriteFocus
 
@@ -39,17 +39,6 @@ class SubmitUpdateIntentRequest(OperationRequest[PendingAtom]):
     base_alias: str
     instruction: str
     content: str | None = None
-
-
-@dataclass(frozen=True)
-class CancelIntentsRequest(OperationRequest[list[str]]):
-    """执行单元内部补偿：撤回当前进程仍为 PENDING 的指定意图。
-
-    不属于 actor 操作；入口校验线程 context 后只按绑定的进程关联撤回，不检查
-    actor 操作许可，也不能撤回其他进程或已经认领的意图。
-    """
-
-    aliases: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -141,7 +130,6 @@ class ThreadOperationSubmitter:
 
 
 __all__ = [
-    "CancelIntentsRequest",
     "Callee",
     "ExecutionThread",
     "ThreadContextRevokedError",

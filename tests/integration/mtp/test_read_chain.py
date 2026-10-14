@@ -224,7 +224,6 @@ class TestReadAliasResolution:
             alias="fact_canonical",
         )
         koakuma.memories[canonical.get_alias()] = canonical
-        koakuma.registry.claim_process(pending.process_id)
         asyncio.run(
             koakuma.registry.on_settled(
                 settlement=PendingAtomSettlement(
@@ -258,7 +257,6 @@ class TestReadAliasResolution:
             from_actor=make_identity_scope().actor_identity,
             process_id=make_runtime_scope().run_id,
         )
-        koakuma.registry.claim_process(pending.process_id)
         asyncio.run(
             koakuma.registry.on_settled(
                 settlement=PendingAtomSettlement(
@@ -285,7 +283,6 @@ class TestReadAliasResolution:
             from_actor=make_identity_scope().actor_identity,
             process_id=make_runtime_scope().run_id,
         )
-        koakuma.registry.claim_process(pending.process_id)
         asyncio.run(
             koakuma.registry.on_failed(
                 pending_alias=pending.pending_alias, intent_id=pending.intent_id
@@ -534,7 +531,6 @@ class TestReadPendingScopeIsolation:
         )
         canonical = _make_memory(content="canonical content", alias="fact_canonical")
         koakuma.memories[canonical.get_alias()] = canonical
-        koakuma.registry.claim_process(pending.process_id)
         asyncio.run(
             koakuma.registry.on_settled(
                 settlement=PendingAtomSettlement(

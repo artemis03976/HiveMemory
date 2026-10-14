@@ -32,6 +32,8 @@ from typing import TYPE_CHECKING, Any
 
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.core.errors import (
+    IntentDispatchRejectedError,
+    IntentDispatchUnknownError,
     OperationDeniedError,
     PendingUpdateNotAllowedError,
     ResourceNotFoundError,
@@ -56,6 +58,8 @@ from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     BusRouteUnavailableError,
     InvalidArgumentError,
+    MemoryIntentRejectedError,
+    MemoryIntentUnknownError,
     MemoryTypeMismatchError,
     MTPError,
     PermissionDeniedError,
@@ -335,6 +339,17 @@ class KoakumaRuntime:
             # 先校验 frame 动词集合，拒绝后不会提交资源操作或执行系统工具。
             self._check_verb_permission(command.verb.value, context=context)
             return await handler(command, context)
+
+        except (IntentDispatchRejectedError, IntentDispatchUnknownError) as error:
+            error_type = (
+                MemoryIntentRejectedError
+                if isinstance(error, IntentDispatchRejectedError)
+                else MemoryIntentUnknownError
+            )
+            dispatch_error = error_type(params=error.details, cause=error)
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR, content="", error=dispatch_error.to_error_info()
+            )
 
         except ResourceUnavailableError as error:
             unavailable = BusRouteUnavailableError(cause=error)
@@ -637,10 +652,8 @@ class KoakumaRuntime:
         """
         处理 WRITE 指令 (Section 2.2 + 附录B)
 
-        v3.0 延迟捕获模式:
-        将 WRITE 内容打包为操作请求，经提交函数交给 workspace 登记，
-        实际记忆生成延迟到 InteractionPayload 提交时执行。
-        ACK 响应文案保持不变，对 Agent 完全透明。
+        将 WRITE 内容打包为操作请求，经 workspace 登记并实时派发；
+        生成队列接纳后返回 ACK，正式记忆由 Patchouli 异步生成。
 
         Type B 动作类响应 (Section 3.3.3)
 
@@ -665,7 +678,7 @@ class KoakumaRuntime:
         )
 
         logger.info(
-            f"MTP WRITE 延迟捕获: content='{content[:50]}...', "
+            f"MTP WRITE admitted: content='{content[:50]}...', "
             f"pending_alias='{pending.pending_alias}'"
         )
 
@@ -687,10 +700,8 @@ class KoakumaRuntime:
         """
         处理 UPDATE 指令 (附录 C)
 
-        v3.0 延迟捕获模式:
-        将 UPDATE 意图打包为操作请求，经提交函数交给 workspace 登记，
-        实际记忆更新延迟到 InteractionPayload 提交时执行。
-        ACK 响应文案保持不变，对 Agent 完全透明。
+        将 UPDATE 意图交给 workspace 验证、登记并实时派发；
+        生成队列接纳后返回 ACK，正式记忆由 Patchouli 异步更新。
 
         Type B 动作类响应 (Section 3.3.3)
 
@@ -730,7 +741,7 @@ class KoakumaRuntime:
             ) from error
 
         logger.info(
-            f"MTP UPDATE 延迟捕获: alias='{alias}', " f"pending_alias='{pending.pending_alias}'"
+            f"MTP UPDATE admitted: alias='{alias}', " f"pending_alias='{pending.pending_alias}'"
         )
 
         return MTPResponse(

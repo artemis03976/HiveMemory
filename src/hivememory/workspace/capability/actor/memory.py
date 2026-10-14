@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
 
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import (
+    IntentDispatchRejectedError,
+    IntentDispatchUnknownError,
     PendingUpdateNotAllowedError,
     ResourceNotFoundError,
 )
@@ -16,9 +19,12 @@ from hivememory.core.models import (
     PendingAtom,
     ReferenceResolution,
     UpdateFocus,
+    WriteFocus,
 )
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.patchouli.contracts import PatchouliRoutes
+from hivememory.patchouli.contracts.memory_intent import MemoryIntent
+from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationAdmissionStatus
 from hivememory.workspace.contracts.operations import (
     ResolveReferencesRequest,
     ResolveRunTargetRequest,
@@ -26,6 +32,7 @@ from hivememory.workspace.contracts.operations import (
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
 )
+from hivememory.workspace.contracts.threads import IntentDispatchTopicReader
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
@@ -46,10 +53,12 @@ class ActorMemoryService:
         *,
         operation_authorizer: WorkspaceOperationAuthorizer,
         memory_reader: AliasResolver,
+        dispatch_topics: IntentDispatchTopicReader,
     ) -> None:
         self._global_bus = global_bus
         self._authorizer = operation_authorizer
         self._reader = memory_reader
+        self._dispatch_topics = dispatch_topics
         # 提交与 L0 回读必须是同一份登记：只经读取视图取得，不另行注入。
         self._intents = memory_reader.intents
 
@@ -59,15 +68,16 @@ class ActorMemoryService:
         *,
         access: WorkspaceAccessContext,
     ) -> PendingAtom:
-        """提交 WRITE（``memory.write``），ACK 仅表示意图已登记。"""
+        """提交 WRITE（``memory.write``），生成队列接纳后才返回 ACK。"""
         scope = self._authorize(access, WorkspaceOperation.MEMORY_WRITE)
-        process_id = self._authorizer.get_thread_process_id(access)
-        return self._intents.register_write(
+        process_id, topic_id = self._dispatch_coordinates(access)
+        pending = self._intents.register_write(
             request.focus,
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
             process_id=process_id,
         )
+        return await self._dispatch(pending, topic_id=topic_id, scope=scope)
 
     async def submit_update_intent(
         self,
@@ -77,14 +87,13 @@ class ActorMemoryService:
     ) -> PendingAtom:
         """提交 UPDATE（``memory.update``）：授权后解析可读正式基础原子，登记成功才失效基础缓存。"""
         scope = self._authorize(access, WorkspaceOperation.MEMORY_UPDATE)
-        # 在冷读之前取得关联；跨越撤销的迟到登记由操作入口同步补偿。
-        process_id = self._authorizer.get_thread_process_id(access)
         result = (await self._reader.resolve_references([request.base_alias], scope=scope))[0]
         if result.kind == "pending":
             raise PendingUpdateNotAllowedError(details={"alias": request.base_alias})
         if result.kind != "atom" or result.atom is None:
             raise ResourceNotFoundError(details={"alias": request.base_alias})
         atom = result.atom
+        process_id, topic_id = self._dispatch_coordinates(access)
         pending = self._intents.register_update(
             UpdateFocus(
                 base_alias=atom.index.alias or request.base_alias,
@@ -97,7 +106,129 @@ class ActorMemoryService:
             process_id=process_id,
         )
         self._reader.evict(scope.workspace_identity, atom.id)
+        return await self._dispatch(pending, topic_id=topic_id, scope=scope)
+
+    def _dispatch_coordinates(self, access: WorkspaceAccessContext) -> tuple[str, str]:
+        """冷读之后重新校验线程；到登记结束不挂起，撤销不能插入同步段。"""
+        self._authorizer.validate_thread_context(access)
+        process_id = self._authorizer.get_thread_process_id(access)
+        topic_id = self._dispatch_topics.get_dispatch_topic(access=access, process_id=process_id)
+        return process_id, topic_id
+
+    async def _dispatch(
+        self, pending: PendingAtom, *, topic_id: str, scope: IdentityScope
+    ) -> PendingAtom:
+        """持有派发任务直到提交完成；取消只影响调用方，不撤回已开始的提交。
+
+        等待过程中可能反复收到取消，始终屏蔽到任务结束并取走异常，避免留下
+        无人持有的后台协程。取消优先返回调用方，登记仍按真实接纳结果结算。
+        """
+        task = asyncio.create_task(self._submit_intent(pending, topic_id=topic_id, scope=scope))
+        cancelled = False
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                if task.cancelled():
+                    raise
+                cancelled = True
+            except Exception:
+                # 统一在下方读取任务结果，调用方取消不会掩盖登记状态的处理。
+                break
+        if cancelled:
+            # 取走异常避免未检索告警；错误根因已由提交任务记录。
+            if not task.cancelled() and task.exception() is not None:
+                logger.warning(
+                    "Intent dispatch finished with an error after caller cancellation: %s",
+                    pending.intent_id,
+                )
+            raise asyncio.CancelledError
+        task.result()
         return pending
+
+    async def _submit_intent(
+        self, pending: PendingAtom, *, topic_id: str, scope: IdentityScope
+    ) -> None:
+        """只经唯一公共意图路由提交，明确拒绝与未知结果使用不同领域错误。
+
+        两类错误交给 Agent 时都不携带内部 cause，因此根因只在这里记录日志；
+        未知结果的句柄可能长期停在 MATERIALIZING，必须保留异常堆栈。
+        """
+        details = {"intent_id": pending.intent_id, "pending_alias": pending.pending_alias}
+        try:
+            intent = self._memory_intent(pending, topic_id=topic_id)
+        except ValueError as error:
+            # 本地载荷校验失败确定没有入队，不能留下永远等不到结算的句柄。
+            logger.warning(
+                "Intent dispatch rejected by local validation: "
+                "intent_id=%s, pending_alias=%s, error=%s",
+                pending.intent_id,
+                pending.pending_alias,
+                error,
+            )
+            self._intents.mark_failed(pending.pending_alias, intent_id=pending.intent_id)
+            raise IntentDispatchRejectedError(details=details) from error
+        try:
+            result = await self._global_bus.request(
+                PatchouliRoutes.MEMORY_INTENT_SUBMIT, intent=intent, identity_scope=scope
+            )
+            status = result.status
+        except Exception as error:
+            logger.error(
+                "Intent dispatch outcome unknown: intent_id=%s, pending_alias=%s",
+                pending.intent_id,
+                pending.pending_alias,
+                exc_info=True,
+            )
+            raise IntentDispatchUnknownError(details=details) from error
+        if status is MemoryGenerationAdmissionStatus.REJECTED:
+            # 拒绝原因由生成侧接纳处记录，这里只关联到登记句柄。
+            logger.info(
+                "Intent dispatch rejected by generation admission: "
+                "intent_id=%s, pending_alias=%s, detail=%s",
+                pending.intent_id,
+                pending.pending_alias,
+                result.detail,
+            )
+            self._intents.mark_failed(pending.pending_alias, intent_id=pending.intent_id)
+            raise IntentDispatchRejectedError(details=details)
+        if status is not MemoryGenerationAdmissionStatus.ACCEPTED:
+            logger.warning(
+                "Intent dispatch admission unknown: intent_id=%s, pending_alias=%s, detail=%s",
+                pending.intent_id,
+                pending.pending_alias,
+                result.detail,
+            )
+            raise IntentDispatchUnknownError(details=details)
+
+    @staticmethod
+    def _memory_intent(pending: PendingAtom, *, topic_id: str) -> MemoryIntent:
+        """逐字段转换为公共意图，不依赖 focus 与意图字段一一同名。
+
+        focus 新增字段只需要在这里补映射，不会在登记之后以 ``TypeError`` 绕过
+        确定性拒绝、把句柄留在 MATERIALIZING。
+        """
+        focus = pending.focus
+        if isinstance(focus, WriteFocus):
+            return MemoryIntent(
+                kind="write",
+                topic_id=topic_id,
+                intent_id=pending.intent_id,
+                pending_alias=pending.pending_alias,
+                content=focus.content,
+                title=focus.title,
+                reason=focus.reason,
+            )
+        return MemoryIntent(
+            kind="update",
+            topic_id=topic_id,
+            intent_id=pending.intent_id,
+            pending_alias=pending.pending_alias,
+            instruction=focus.instruction,
+            content=focus.content,
+            base_alias=focus.base_alias,
+            base_uuid=focus.base_uuid,
+        )
 
     async def resolve_references(
         self,

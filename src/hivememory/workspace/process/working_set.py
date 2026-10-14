@@ -40,6 +40,8 @@ class ProcessWorkingSet:
     ``thread_contexts`` 登记全部执行线程，CPU 结束统一撤销；异常关闭先于任何 await 撤销。
     """
 
+    # CPU 分配冻结真实话题，主线程与 CALL 子线程共享，actor 请求不能指定。
+    dispatch_topic_id: str | None = None
     prepared: PreparedAgentRun | None = None
     attachment_leases: list[RepresentationLease] = field(default_factory=list)
     used_attachments: tuple[WorkspaceAssetRef, ...] = ()

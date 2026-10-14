@@ -15,12 +15,12 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-13
 ---
 
 # PendingAtom：Alice 的写入意图适配与回读
 
-MTP `WRITE` / `UPDATE` 已被接收、正式记忆尚未完成提取、去重、合并与持久化时，Agent 仍需要能够检查或引用刚提出的内容。只返回一句“已收到”无法支持继续推理，而同步创建 MemoryAtom 又会把半完成或随后取消的运行提前变成长久事实。PendingAtom 因而保留写入意图，并以 pending alias 提供可读句柄；ACK 始终只表示登记成功。
+MTP `WRITE` / `UPDATE` 已被生成队列接纳、正式记忆尚未完成提取、去重、合并与持久化时，Agent 仍需要能够检查或引用刚提出的内容。PendingAtom 保留写入意图，以 pending alias 提供可读句柄，使 Agent 无需等待完整生成即可继续推理。ACK 表示登记与队列接纳都已成功，正式记忆仍由 Patchouli 异步生成；后续运行失败或取消不撤回已接纳的写入。
 
 写入意图现在由 workspace 的进程级 `WriteIntentRegistry` 持有，正式 MemoryAtom 与物化决策由 Patchouli 持有。Alice 通过 CPU 驱动以线程 context 绑定的 `submit_operation` 提交和读取意图，负责把结果映射为 MTP 响应，不保存第二份登记、状态机、原子缓存或结算投影。登记模型、状态迁移、Workspace 回读范围、redirect 授权和缓存失效的唯一详细入口是 [Workspace 架构](../architecture/workspace.md)。
 
@@ -30,8 +30,8 @@ MTP `WRITE` / `UPDATE` 已被接收、正式记忆尚未完成提取、去重、
 
 Koakuma 保留协议参数、frame 动词集合检查和错误格式化职责：
 
-- WRITE 校验内容并构造 `WriteFocus`，提交 `SubmitWriteIntentRequest`；登记返回的 alias 进入既有 `ack` 文案。
-- UPDATE 校验单 alias 与 instruction，提交 `SubmitUpdateIntentRequest`；可信基础 UUID 的解析、pending/缺失基础拒绝、登记和基础原子缓存失效由能力层完成。
+- WRITE 校验内容并构造 `WriteFocus`，提交 `SubmitWriteIntentRequest`；生成队列接纳后返回的 alias 进入 `ack` 文案。
+- UPDATE 校验单 alias 与 instruction，提交 `SubmitUpdateIntentRequest`；可信基础 UUID 的解析、pending/缺失基础拒绝、登记、基础原子缓存失效与实时派发由能力层完成。
 - 能力层的 pending 基础拒绝与缺失基础分别映射为既有 MTP 参数错误和 alias 不存在错误；操作授权拒绝映射为 MTP 权限错误。
 - CPU 执行结束（或进程提前关闭）时同步撤销线程 context，后续请求以 `ThreadContextRevokedError` 拒绝，Alice 以结构化系统错误回填；task cancellation 继续原样传播。
 
@@ -47,19 +47,19 @@ SEARCH 提交 `RetrieveRequest`，经 `memory.search` 授权后检索；读取�
 
 ## 3. frame 产物与进程收尾
 
-Agent loop 只在收到 WRITE/UPDATE ACK 时把 alias 去重记入当前 frame 的 `harvested_aliases`。成功子帧的 `finalize_frame()` 投影这些句柄为 `FrameProducts.artifact_aliases`，供 caller 继续 READ 或通过 CALL 共享；失败、取消或预算耗尽的子帧不回填产物，CallCoordinator 还会提交 `CancelIntentsRequest` 撤回这些句柄中仍为 PENDING 的意图。UPDATE 的原基础 alias 不再被当作新产物补入。
+Agent loop 只在收到 WRITE/UPDATE ACK 时把 alias 去重记入当前 frame 的 `harvested_aliases`。成功子帧的 `finalize_frame()` 投影这些句柄为 `FrameProducts.artifact_aliases`，供 caller 继续 READ 或通过 CALL 共享；失败、取消或预算耗尽的子帧不回填产物，但不撤回已提交的写入。UPDATE 的原基础 alias 不再被当作新产物补入。
 
-CALL 的 alias 回填只服务于父 Agent 的当前认知。物化任务不从这些 alias 反推：任务进程只在 CPU completed 后从登记认领本进程的 PENDING 意图，并封入 `InteractionPayload.materialize_tasks`，随后进入 Patchouli finalize。`CPUExecutionResult` 不承载物化任务，AgentRuntime 与 RunExecutor 不再认领、取消或回收登记记录。
+CALL 的 alias 回填只服务于父 Agent 的当前认知。物化任务不从这些 alias 反推：workspace actor API 在每次 WRITE/UPDATE 内登记并提交 `MemoryIntent`，Patchouli 意图服务构造内部生成任务。`CPUExecutionResult` 与 `InteractionPayload` 都不承载物化任务，AgentRuntime 与 RunExecutor 不管理登记收尾。
 
-CPU 执行结束时任务进程同步撤销全部线程 context；根进程关闭先兜底撤销线程 context、取消本进程仍为 PENDING 的记录并释放附件租借，再等待 CPU 输出流关闭与 prepare cleanup。若在途 UPDATE 冷读于撤销后返回，入口同步补偿新登记的 alias 并抛撤销错误，不取消调用方任务。已在途的只读请求自然完成。已经认领的 MATERIALIZING 记录保持原状。子帧以自己的提交函数提交与撤回；子帧未成功结束时撤回它已收到 ACK 的意图，作为取消语义的一部分，其余意图仍由根进程终态处理。结算事件由 workspace 登记订阅，AliceBridge 不再订阅它们。Patchouli 的生成、结算与持久化边界见[生成与物化](../patchouli/generation.md)。
+CPU 执行结束时任务进程同步撤销全部线程 context；进程关闭先兜底撤销并释放附件租借，再等待 CPU 输出流关闭与 prepare cleanup。WRITE/UPDATE 在登记前同步复查线程；UPDATE 基础冷读跨越撤销时不登记。开始派发后，actor API 屏蔽调用方取消并持有提交任务至结束，再传播取消。主、子帧以各自提交函数授权，但都使用同一进程的真实话题，CPU 或 CALL 失败均不撤回已派发写入。明确拒绝得到结构化错误并标为 FAILED，未知结果保持 MATERIALIZING；结算事件由 workspace 登记订阅，AliceBridge 不订阅它们。Patchouli 的生成、结算与持久化边界见[生成与物化](../patchouli/generation.md)。
 
 ## 4. 不变量与限制
 
 - ACK、frame alias 回填和正式持久化是三个不同事实，不能互相替代。
 - Alice 只消费操作提交函数与独立返回值，不持有 workspace 内部服务、登记或访问 context。
-- 只有 completed 的任务进程默认进入 finalize；取消与失败不会把尚为 PENDING 的意图派发给 Patchouli。
+- 只有 completed 的任务进程默认封口交互并进入 finalize；显式写入在操作内实时派发，不取决于进程终态。
 - 登记属于进程内状态，终态句柄保留到重启，不再产生 EXPIRED；模型中的兼容枚举与渲染种类保留。
-- 当前没有持久化登记、重启恢复、事件补齐或终态句柄回收；finalize 失败后已认领意图可能保持 MATERIALIZING。
+- 当前没有持久化登记、重启恢复、事件补齐或终态句柄回收；派发结果未知或结算事件丢失时意图可能保持 MATERIALIZING。
 - CALL 子帧以被调用方身份提交，意图的发起者是被调用方，进程关联与根帧相同；子帧沿用注册观测标签，标签不参与授权。
 
 ## 5. 代码与验证入口
@@ -71,4 +71,4 @@ CPU 执行结束时任务进程同步撤销全部线程 context；根进程关�
 - [MTP 操作请求集成测试](../../tests/integration/mtp/test_process_operations.py)：跨轮回读、redirect、关闭、权限拒绝与 UPDATE 错误；
 - [HTTP chat 跨轮回读 E2E](../../tests/e2e/system/test_intent_read_chat.py)：真实 HTTP、任务进程与 Alice MTP 的确定性链路。
 
-- [HTTP 单轮能力迁移 E2E](../../tests/e2e/system/test_alice_capability_chat.py)：同轮 SEARCH、READ、WRITE、CALL 共享引用、意图认领与引用记录。
+- [HTTP 单轮能力迁移 E2E](../../tests/e2e/system/test_alice_capability_chat.py)：同轮 SEARCH、READ、WRITE、CALL 共享引用、意图实时派发与引用记录。

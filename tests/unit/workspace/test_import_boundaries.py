@@ -294,8 +294,8 @@ def test_workspace_operation_catalog_only_contains_six_actor_operations():
     }
 
 
-def test_operation_requests_only_expose_six_actor_requests_and_internal_compensation():
-    """请求只携带操作参数；RUN/CALL 独立，撤回保持内部补偿且不携带目标身份。"""
+def test_operation_requests_only_expose_six_actor_requests():
+    """请求只携带六项 actor 操作参数，不能指定身份、进程或派发话题。"""
     requests = {
         name: value
         for name, value in vars(operation_contracts).items()
@@ -312,7 +312,6 @@ def test_operation_requests_only_expose_six_actor_requests_and_internal_compensa
         "SubmitWriteIntentRequest": {"focus"},
         "SubmitUpdateIntentRequest": {"base_alias", "instruction", "content"},
         "DeriveCallThreadRequest": {"agent_alias"},
-        "CancelIntentsRequest": {"aliases"},
     }
 
     # 公开面同时包含声明与导出，避免请求留在源文件却从契约入口悄然消失。

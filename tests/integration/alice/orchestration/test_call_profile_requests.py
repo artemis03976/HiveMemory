@@ -119,7 +119,6 @@ async def _profile_submitter(chain):
         chain.memories,
         agent=chain.profiles,
         operation_authorizer=chain.composition.authorizer,
-        intent_registry=chain.runtime.intents,
     )
     workspace = make_identity_scope(user_id="u1", agent_id="reader").workspace_identity
     thread_access = await chain.composition.authenticate_thread(
@@ -313,8 +312,15 @@ async def test_callee_can_write_with_its_own_permission_even_when_caller_cannot(
 
     assert child.submit_operation is not caller.submit_operation
     assert result.response_status == "ack"
-    (task,) = harness.registry.claim_process("call-process")
+    task = harness.registry.get(result.pending_alias, make_identity_scope().workspace_identity)
     assert task.from_actor.agent_id == "omni_doll"
+    intent, scope = harness.admission.submissions[-1]
+    assert (
+        intent.pending_alias,
+        intent.intent_id,
+        intent.topic_id,
+        scope.actor_identity.agent_id,
+    ) == (result.pending_alias, task.intent_id, "test-topic", "omni_doll")
 
 
 async def _profile_named_by_alias(alias, **_kwargs):
@@ -372,14 +378,13 @@ async def test_unadmitted_call_target_returns_structured_error_without_creating_
         FrameExecutionStatus.BUDGET_EXHAUSTED,
     ],
 )
-async def test_failed_child_withdraws_only_pending_intents_in_its_process(status):
-    """真实子线程补偿取消自身 ACK，不动其他进程或已认领意图，随后仍可用。"""
+async def test_failed_child_preserves_dispatched_intents(status):
+    """子帧失败不撤回已派发意图，主线程、其他进程和子线程写入均保留。"""
     harness = OperationsHarness()
     submit = await harness.submitter(make_identity_scope(agent_id="parent"), "call-process")
     foreign = await harness.submitter(make_identity_scope(agent_id="parent"), "other-process")
     try:
         claimed = await submit(SubmitWriteIntentRequest(WriteFocus(content="已认领")))
-        harness.registry.claim_process("call-process")
         parent_pending = await submit(SubmitWriteIntentRequest(WriteFocus(content="父线程")))
         foreign_pending = await foreign(SubmitWriteIntentRequest(WriteFocus(content="另一进程")))
         caller = _caller(submit)
@@ -407,9 +412,9 @@ async def test_failed_child_withdraws_only_pending_intents_in_its_process(status
             harness.registry.get(p.pending_alias, make_identity_scope().workspace_identity).status
             for p in (child_pending, parent_pending, foreign_pending, claimed)
         ] == [
-            PendingAtomStatus.CANCELLED,
-            PendingAtomStatus.PENDING,
-            PendingAtomStatus.PENDING,
+            PendingAtomStatus.MATERIALIZING,
+            PendingAtomStatus.MATERIALIZING,
+            PendingAtomStatus.MATERIALIZING,
             PendingAtomStatus.MATERIALIZING,
         ]
         # CALL 返回并不提前撤销子线程，统一寿命仍以 CPU 执行结束为界。

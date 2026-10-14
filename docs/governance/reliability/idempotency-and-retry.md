@@ -17,7 +17,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/contracts/subsystem-contracts.md
   - docs/patchouli/artifacts.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-13
 ---
 
 # 跨子系统幂等性与重试治理
@@ -33,7 +33,7 @@ HiveMemory 的后台任务、Artifact、MemoryAtom、Passive Ingress、PendingAt
 | Passive ingress | `source + external_event_id` 进程内去重，重复事件可忽略 | dedup 记录不耐久；重启后可能再次接受；submit apply 的跨进程幂等仍需定义 |
 | Interaction submission | Active/Passive 共享 apply、ordering key 与有限 retry；明确瞬态异常复用同一 `interaction_id`；apply journal 按 Workspace、interaction 与目标 Topic 判断重放或冲突 | retry 结果与跨重启 operation record 仍未耐久化；模糊失败 reconciliation 尚未完成 |
 | Memory generation | TaskController 只写一次终态，lane 固定单次 attempt | 任务失败后的部分副作用仍可能无法确认；task id 是运行句柄，不自动等同业务幂等键 |
-| PendingAtom settlement | workspace `WriteIntentRegistry` 按 alias/intent_id 校验；每个 PENDING 只认领一次，终态不再被后续通知重写 | registry 进程内，resolution 与重复 settlement 缺少耐久唯一约束、跨重启 replay 和通知未送达对账 |
+| PendingAtom settlement | workspace `WriteIntentRegistry` 按 alias/intent_id 校验；登记生成唯一 intent_id，生成侧以 `active:{intent_id}` 幂等；同步拒绝与结算通知幂等，终态不再被后续通知重写 | registry 进程内，resolution 与重复 settlement 缺少耐久唯一约束、跨重启 replay 和通知未送达对账 |
 | Artifact | 随机 artifact id、hash 校验和 ref | `put()` 没有 compare-and-set，调用方仍需保证 id 一次性；artifact 写入和 atom upsert 不原子 |
 | MemoryAtom update | version 字段和 UPDATE artifact | 版本冲突、重复 UPDATE、CREATE/UPDATE/TOUCH 重放的业务结果需要统一 |
 | archive/revive | MemoryLibrary 编排跨层搬运，GC 会检查已归档 | 中间失败可能产生重复副本；重复 archive/revive 的返回语义未形成公共规则 |
@@ -83,7 +83,7 @@ at-least-once delivery
 
 幂等 key 需要根据业务包含 user、team、workspace、topic、memory、ordering key 或 source scope。这里的作用域由业务操作定义：操作 scope 只到公开资源边界，后台 payload 独立保存归属与发起者；共享 Work Queue、registry 和 cache 不因携带这些字段就自动按 Workspace 分区。一个全局短字符串可能把两个用户的合法操作错误合并；把随机 task id 当作幂等 key 又无法识别重试。
 
-Interaction apply 的 canonical 摘要使用 `belong_to` 与交互事实，actor 已在 turn 中。摘要排除随机 turn/block 标识与 block 创建、binding 绑定时点，使等价重试得到相同摘要，不同 Workspace 得到不同摘要。代码与回归见 [apply journal](../../../src/hivememory/patchouli/control/interaction_apply_journal.py) 和 [摘要测试](../../../tests/unit/patchouli/control/test_interaction_apply_journal.py)。Interaction Submission codec 为 v3，Memory Generation codec 的 `schema_version` 为字符串 `"1.1"`；旧 codec 不注册，旧版本解码显式拒绝。当前 Store 只有 `InMemoryWorkStore`，重启后无旧队列 payload，故此轮不提供旧载荷读升级；这不扩大跨重启恢复承诺。
+Interaction apply 的 canonical 摘要使用 `belong_to` 与交互事实，actor 已在 turn 中。摘要排除随机 turn/block 标识与 block 创建、binding 绑定时点，使等价重试得到相同摘要，不同 Workspace 得到不同摘要。代码与回归见 [apply journal](../../../src/hivememory/patchouli/control/interaction_apply_journal.py) 和 [摘要测试](../../../tests/unit/patchouli/control/test_interaction_apply_journal.py)。Interaction Submission codec 为 v4，Memory Generation codec 的 `schema_version` 为字符串 `"1.1"`；旧 codec 不注册，旧版本解码显式拒绝。当前 Store 只有 `InMemoryWorkStore`，重启后无旧队列 payload，故此轮不提供旧载荷读升级；这不扩大跨重启恢复承诺。
 
 ## 3. 初步幂等键目录
 

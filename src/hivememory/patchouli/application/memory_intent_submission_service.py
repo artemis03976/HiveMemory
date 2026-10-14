@@ -2,24 +2,17 @@
 
 承接中立的记忆意图参数并转换为内部生成任务：由 controller admission 与
 generation engine 决定生成、更新、合并或丢弃；**不映射为管理 CRUD，也
-不由调用方构造内部任务投影**。Alice 的 settlement coordinator（WRX-5）
-与计划 B 的外部 adapter 都经本 API 提交。
+不由调用方构造内部任务投影**。本层只接收授权点传入的 ``IdentityScope``。
 
-本路由目前没有生产调用方；actor 的 WRITE/UPDATE ACK 只在 workspace
-登记意图，不直接调用本路由。本层只接收授权点传入的 ``IdentityScope``。
-
-幂等语义：``MemoryIntent.intent_id`` 是幂等键——``pending_alias`` 由
-``intent_id`` 确定性派生，同一 intent 携带相同载荷重试命中 controller
-幂等复用并返回原任务；载荷变化按 intent 冲突确定性拒绝
-（at-most-one-canonical，不产生第二个 canonical Memory）。
+意图的 ``intent_id`` 与 ``pending_alias`` 由 workspace 登记产生并原样使用：
+结算事件（FAILED、CANCELLED 只携带别名）因此回到登记的同一句柄。
+``intent_id`` 是生成任务的幂等键：同一 intent 携带相同载荷重试命中 controller
+幂等复用并返回原任务；载荷变化不会产生第二个任务（at-most-one-canonical）。
 """
 
 from __future__ import annotations
 
-import hashlib
-import re
 from typing import TYPE_CHECKING, Literal
-from uuid import uuid4
 
 from hivememory.core.models import (
     ActorIdentity,
@@ -34,23 +27,10 @@ from hivememory.core.models.pending import (
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_intent import MemoryIntent, MemoryIntentSubmissionResult
+from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationAdmissionStatus
 
 if TYPE_CHECKING:
     from hivememory.patchouli.runtime.bus import PatchouliBus
-
-
-def _slugify(text: str, max_len: int = 30) -> str:
-    """将文本转为 alias 友好的 slug 片段（与 PendingAtom alias 风格一致）。"""
-    slug = text.lower().strip()
-    slug = re.sub(r"[^a-z0-9\s_]", "", slug)
-    slug = re.sub(r"\s+", "_", slug)
-    slug = re.sub(r"_+", "_", slug).strip("_")
-    return slug[:max_len].rstrip("_")
-
-
-def _intent_token(intent_id: str) -> str:
-    """从 intent_id 派生确定性短 token，保证重试生成同一 pending_alias。"""
-    return hashlib.sha1(intent_id.encode("utf-8")).hexdigest()[:4]
 
 
 class MemoryIntentSubmissionService:
@@ -65,31 +45,27 @@ class MemoryIntentSubmissionService:
         intent: MemoryIntent,
         identity_scope: IdentityScope,
     ) -> MemoryIntentSubmissionResult:
-        """
-        提交记忆意图；结果由 Patchouli 生成链决定并经任务观察 API 查询。
-        """
+        """提交记忆意图，返回生成队列的接纳结果；应用进度经任务观察 API 查询。"""
         scope = require_identity_scope(identity_scope)
 
         task = self._build_materialize_task(intent, scope.workspace_identity, scope.actor_identity)
-        accepted = await self._bus.request(
+        (admission,) = await self._bus.request(
             PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
             tasks=[task],
             topic_id=intent.topic_id,
             belong_to=scope.workspace_identity,
         )
-        tasks = list(accepted or [])
-        if not tasks:
-            # 空响应表示确定性拒绝（intent 冲突 / spec 构建失败，settler 已
-            # 发布失败投影）或批量结果缺失；两种情况都不能声称"已接纳"。
-            return MemoryIntentSubmissionResult(
-                accepted=False,
-                detail="generation admission did not accept the intent",
+        if admission.task is None:
+            detail = (
+                "generation admission rejected the intent"
+                if admission.status is MemoryGenerationAdmissionStatus.REJECTED
+                else "generation admission outcome unknown"
             )
-        admitted = tasks[0]
+            return MemoryIntentSubmissionResult(status=admission.status, detail=detail)
         return MemoryIntentSubmissionResult(
-            accepted=True,
-            task_id=admitted.task_id,
-            task_status=admitted.status.value,
+            status=admission.status,
+            task_id=admission.task.task_id,
+            task_status=admission.task.status.value,
         )
 
     # ---- 内部辅助 ----
@@ -101,13 +77,9 @@ class MemoryIntentSubmissionService:
         from_actor: ActorIdentity,
     ) -> PendingAtomMaterializeTask:
         """把中立意图转换为内部生成任务投影（本 API 的内部实现细节）。"""
-        resolved_intent_id = intent.intent_id or f"intent_{uuid4().hex[:12]}"
-        token = _intent_token(resolved_intent_id)
         focus: WriteFocus | UpdateFocus
         source_verb: Literal["WRITE", "UPDATE"]
         if intent.kind == "write":
-            slug = _slugify(intent.title or intent.content or "") or "untitled"
-            pending_alias = f"draft_{slug}_{token}"
             focus = WriteFocus(
                 content=intent.content or "",
                 reason=intent.reason,
@@ -115,8 +87,6 @@ class MemoryIntentSubmissionService:
             )
             source_verb = "WRITE"
         else:
-            slug = _slugify(intent.base_alias or "") or "base"
-            pending_alias = f"rev_{slug}_{token}"
             focus = UpdateFocus(
                 instruction=intent.instruction or "",
                 content=intent.content,
@@ -125,8 +95,8 @@ class MemoryIntentSubmissionService:
             )
             source_verb = "UPDATE"
         return PendingAtomMaterializeTask(
-            pending_alias=pending_alias,
-            intent_id=resolved_intent_id,
+            pending_alias=intent.pending_alias,
+            intent_id=intent.intent_id,
             source_verb=source_verb,
             belong_to=belong_to,
             from_actor=from_actor,

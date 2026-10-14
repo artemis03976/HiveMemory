@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-13
 ---
 
 # Agent Runtime
@@ -163,7 +163,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程
 
 迭代统计（`mtp_iterations/total_iterations`）来自主 frame PCB，但属于 Alice 的观测：它们只进入 `agent.run.*` 终态事件的载荷，不进入执行结果。
 
-执行层不维护写入意图或物化任务副本。Agent loop 只在 ACK 时记录 alias；成功子帧的 `finalize_frame()` 返回 `FrameProducts.artifact_aliases`，服务于当前 CALL 的回填。整个进程的物化任务由 workspace 在 completed 后认领和封口，AgentRuntime 不再提供 `finalize_run()`，RunExecutor 只记录根帧终态。
+执行层不维护写入意图或物化任务副本。Agent loop 只在 ACK 时记录 alias；成功子帧的 `finalize_frame()` 返回 `FrameProducts.artifact_aliases`，服务于当前 CALL 的回填。写入由 workspace 在每次操作内派发，正式物化由 Patchouli 独立完成，AgentRuntime 不再提供 `finalize_run()`，RunExecutor 只记录根帧终态。
 
 ## 8. 关键不变量与矛盾检查
 

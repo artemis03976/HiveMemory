@@ -67,6 +67,20 @@ class ProcessThreads:
         working_set.thread_contexts[thread_id] = child
         return ExecutionThread(agent_profile=profile, allowed_operations=operations, access=child)
 
+    def get_dispatch_topic(self, *, access: WorkspaceAccessContext, process_id: str) -> str:
+        """主线程与子线程共用 CPU 输入话题，阶段或关联失效时拒绝登记。"""
+        self._authorizer.validate_thread_context(access)
+        process = self._table.get(process_id)
+        if (
+            process is None
+            or process.record.phase is not ProcessPhase.ACTOR
+            or process.record.outcome is not ProcessOutcome.RUNNING
+            or not any(item is access for item in process.working_set.thread_contexts.values())
+            or not process.working_set.dispatch_topic_id
+        ):
+            raise ScopeRequiredError("只有 Actor 阶段的本进程执行线程可以派发写入意图")
+        return process.working_set.dispatch_topic_id
+
     def revoke_threads(self, working_set: ProcessWorkingSet) -> None:
         """CPU 结束与关闭兜底共用同步撤销，不等待任何外部操作。"""
         for access in working_set.take_thread_contexts():

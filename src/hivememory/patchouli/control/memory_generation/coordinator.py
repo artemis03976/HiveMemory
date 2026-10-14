@@ -17,6 +17,7 @@ from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFoc
 from hivememory.engines.generation.models import GenerationRequest
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationAdmission
 from hivememory.patchouli.control.memory_generation.models import (
     InteractionArtifactInput,
     MemoryGenerationSource,
@@ -41,9 +42,14 @@ class MemoryGenerationCoordinator:
         self,
         *,
         bus: PatchouliBus,
+        recent_block_limit: int,
         pending_atom_settler: PendingAtomSettler | None = None,
     ) -> None:
+        if recent_block_limit < 0:
+            raise ValueError("recent_block_limit 不能为负数")
         self._bus = bus
+        # 主动生成只取话题最近的若干个 block 作为材料（含 state_summary）。
+        self._recent_block_limit = recent_block_limit
         self._pending_atom_settler = pending_atom_settler or PendingAtomSettler(bus)
         self._transcript_builder = GenerationTranscriptBuilder()
 
@@ -85,19 +91,40 @@ class MemoryGenerationCoordinator:
         topic_id: str,
         *,
         belong_to: WorkspaceIdentity,
-    ) -> list[MemoryGenerationTask]:
-        """将 MTP WRITE/UPDATE 请求转为主动生成任务规范。
-        来源记录由 Patchouli 生成链内部维护；任务独立携带归属与发起者。
+    ) -> list[MemoryGenerationAdmission]:
+        """将 WRITE/UPDATE 意图转为主动生成任务，返回与输入一一对应的接纳结果。
+
+        材料是话题的 ``state_summary`` 与最近 ``recent_block_limit`` 个 block；
+        话题不存在时按空材料生成。来源记录由 Patchouli 生成链内部维护；任务
+        独立携带归属与发起者。
         """
         if not tasks:
             return []
 
-        topic_data = await self._bus.request(
-            PatchouliLocalRoutes.TOPIC_GET,
-            topic_id,
-            belong_to=belong_to,
+        try:
+            topic_data = await self._bus.request(
+                PatchouliLocalRoutes.TOPIC_GET,
+                topic_id,
+                belong_to=belong_to,
+            )
+        except asyncio.CancelledError:
+            raise
+        except Exception:
+            # 读取材料失败时没有任何意图进入生成队列：确定性地结算为失败，
+            # 不留下永远等不到结算的句柄。
+            logger.warning(
+                "Active generation topic read failed: topic_id=%s, intents=%s",
+                topic_id,
+                [task.intent_id for task in tasks],
+                exc_info=True,
+            )
+            for task in tasks:
+                await self._pending_atom_settler.failed(task.pending_alias)
+            return [MemoryGenerationAdmission.rejected() for _ in tasks]
+
+        blocks = (
+            topic_data.recent_blocks(self._recent_block_limit) if topic_data is not None else ()
         )
-        blocks = topic_data.recent_blocks(5) if topic_data is not None else []
         state_summary = topic_data.state_summary if topic_data is not None else ""
         gen_context = self._transcript_builder.build_context(
             blocks,
@@ -111,7 +138,7 @@ class MemoryGenerationCoordinator:
         )
 
         # 并行构建任务规范，防止 UPDATE 任务的 IO 操作阻塞
-        raw_specs = await asyncio.gather(
+        built = await asyncio.gather(
             *[
                 self._try_build_active_spec(
                     task,
@@ -123,13 +150,26 @@ class MemoryGenerationCoordinator:
                 for task in tasks
             ]
         )
-        # 过滤构建失败的任务
-        specs = [spec for spec in raw_specs if spec is not None]
-        if not specs:
-            return []
+        # 构建失败的意图已有结果；其余规范批量提交，再按原位置合并回去。
+        admissions: dict[int, MemoryGenerationAdmission] = {}
+        pending_specs: list[tuple[int, MemoryGenerationTaskSpec]] = []
+        for index, item in enumerate(built):
+            if isinstance(item, MemoryGenerationAdmission):
+                admissions[index] = item
+            else:
+                pending_specs.append((index, item))
+        if pending_specs:
+            batch = await self._submit_specs([spec for _, spec in pending_specs])
+            for (index, _), admission in zip(pending_specs, batch, strict=True):
+                admissions[index] = admission
+        return [admissions[index] for index in range(len(tasks))]
 
+    async def _submit_specs(
+        self, specs: list[MemoryGenerationTaskSpec]
+    ) -> list[MemoryGenerationAdmission]:
+        """批量提交规范；批量响应本身丢失或无效时，全部按结果未知处理。"""
         try:
-            accepted = await self._bus.request(
+            admissions = await self._bus.request(
                 PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY,
                 specs,
             )
@@ -137,20 +177,22 @@ class MemoryGenerationCoordinator:
             raise
         except Exception:
             # 批量入口会在 Controller 内逐项隔离 admission；若连批量响应本身都
-            # 未返回，则无法判断哪些 intent 已被接纳，必须保持 PendingAtom 非终态。
+            # 未返回，则无法判断哪些 intent 已被接纳，不能发布结算事件。
             logger.warning(
                 "Active generation batch admission outcome unknown: intents=%s",
                 [spec.intent_id for spec in specs],
                 exc_info=True,
             )
-            return []
+            return [MemoryGenerationAdmission.unknown() for _ in specs]
 
-        if not isinstance(accepted, list) or not all(
-            isinstance(task, MemoryGenerationTask) for task in accepted
+        if (
+            not isinstance(admissions, list)
+            or len(admissions) != len(specs)
+            or not all(isinstance(item, MemoryGenerationAdmission) for item in admissions)
         ):
-            logger.warning("Active generation batch admission returned invalid tasks")
-            return []
-        return accepted
+            logger.warning("Active generation batch admission returned invalid results")
+            return [MemoryGenerationAdmission.unknown() for _ in specs]
+        return admissions
 
     async def _try_build_active_spec(
         self,
@@ -160,7 +202,8 @@ class MemoryGenerationCoordinator:
         gen_context,
         interaction_input: InteractionArtifactInput | None,
         belong_to: WorkspaceIdentity,
-    ) -> MemoryGenerationTaskSpec | None:
+    ) -> MemoryGenerationTaskSpec | MemoryGenerationAdmission:
+        """构建规范；确定性失败结算为 FAILED 并返回拒绝，不确定的失败返回结果未知。"""
         try:
             return await self._build_active_spec(
                 task,
@@ -174,15 +217,15 @@ class MemoryGenerationCoordinator:
                 f"Active spec build failed, skipping task: pending_alias={task.pending_alias}, err={exc}",
             )
             await self._pending_atom_settler.failed(task.pending_alias)
-            return None
+            return MemoryGenerationAdmission.rejected()
         except Exception:
             logger.exception(
-                "Active spec build outcome unknown, keeping intent pending: pending_alias=%s",
+                "Active spec build outcome unknown, keeping intent in flight: pending_alias=%s",
                 task.pending_alias,
             )
             # 例如 MEMORY_GET 的存储异常无法确定 UPDATE 的业务前提，不属于
-            # 确定性输入拒绝；保留 intent，下一次 dispatch 使用同一 intent_id 重试。
-            return None
+            # 确定性输入拒绝；不发布结算事件，由提交方按结果未知处理。
+            return MemoryGenerationAdmission.unknown()
 
     async def _build_active_spec(
         self,

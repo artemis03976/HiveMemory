@@ -14,7 +14,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-13
 ---
 
 # Alice
@@ -137,9 +137,9 @@ root frame emits CALL
 
 Agent 使用 MTP 在生成过程中发现、读取和使用记忆，也可以提出长期写入或委派意图。完整语法和动词契约只在 [MTP 契约](../contracts/mtp.md)维护；Alice 文档只说明运行时怎样兑现它。
 
-`WRITE` / `UPDATE` 不同步修改 Qdrant。Koakuma 提交操作请求，在 workspace 登记意图，返回 `draft_*` 或 `rev_*` 句柄供当前及后续进程 READ；completed 后由任务进程认领本进程意图并交给 Patchouli finalize，结算事件更新 workspace 登记。
+`WRITE` / `UPDATE` 不同步修改 Qdrant。Koakuma 提交操作请求，在 workspace 登记意图并立即交给 Patchouli 意图路由；生成队列接纳后返回 ACK 与 `draft_*` 或 `rev_*` 句柄，供当前及后续进程 READ。结算事件更新 workspace 登记。
 
-这条写缓冲边界使 Agent 可以在同一 run 内读到自己的写意图，又不会让半完成、失败或取消的执行直接污染长期记忆。Alice 的适配与 frame 产物见 [PendingAtom](./pending-atom.md)，登记状态和读取缓存的权威说明见 [Workspace 架构](../architecture/workspace.md)。
+这条写缓冲边界使 Agent 可以在同一 run 内读到自己的写意图，正式生成由 Patchouli 异步处理，随后执行失败或取消不撤回已接纳写入。Alice 的适配与 frame 产物见 [PendingAtom](./pending-atom.md)，登记状态和读取缓存的权威说明见 [Workspace 架构](../architecture/workspace.md)。
 
 ## 6. 启停、公开能力与观测
 

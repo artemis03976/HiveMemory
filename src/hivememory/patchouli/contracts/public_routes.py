@@ -200,7 +200,7 @@ class PatchouliRoutes:
         payload: InteractionPayload,
         *,
         identity_scope: IdentityScope,
-    ) -> list[MemoryGenerationTask]:
+    ) -> None:
         """原样提交封口好的交互记录，并把 post-apply 工作交给 Patchouli 持有。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 

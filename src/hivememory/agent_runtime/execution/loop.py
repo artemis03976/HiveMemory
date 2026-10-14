@@ -290,7 +290,7 @@ class AgentLoopExecutor:
                     suspend_action_id=action_id,
                 )
 
-            # 只记录已收到 ACK 的产物句柄；登记与物化的所有权留在 workspace。
+            # 只记录已收到 ACK 的产物句柄；登记归 workspace，正式物化归 Patchouli。
             if mtp_result.response_status == "ack" and mtp_result.pending_alias:
                 frame.add_harvested_alias(mtp_result.pending_alias)
 

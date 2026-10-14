@@ -19,9 +19,11 @@ from hivememory.components.work_queue import (
     TaskOutcome,
     WorkQueueError,
     WorkQueueShutdownSummary,
+    WorkQueueStoppedError,
     WorkState,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationAdmission
 from hivememory.patchouli.control.memory_generation.events import (
     MemoryTaskEventEmitter,
 )
@@ -160,7 +162,9 @@ class MemoryGenerationTaskController:
         )
 
         if not self._queue.started:
-            raise RuntimeError("memory generation queue must be started before submitting work")
+            raise WorkQueueStoppedError(
+                "memory generation queue must be started before submitting work"
+            )
 
         # 只有队列确认接纳后才建立 entry 和发布 created，避免把 admission
         # rejection 混入任务状态机。
@@ -201,15 +205,15 @@ class MemoryGenerationTaskController:
     async def submit_generation_many(
         self,
         specs: list[MemoryGenerationTaskSpec],
-    ) -> list[MemoryGenerationTask]:
-        """按输入顺序逐项接纳，并只返回已接纳或幂等复用的任务。
+    ) -> list[MemoryGenerationAdmission]:
+        """按输入顺序逐项接纳，返回与输入一一对应的接纳结果。
 
-        一项确定性拒绝不会阻断后续任务，并由 Controller 结算关联的
-        ``PendingAtom``；无法判断是否接纳的异常只记录稳定 identity，保留
-        ``PendingAtom`` 非终态供上层按同一 intent 重试。
+        一项确定性拒绝不会阻断后续任务，并由 Controller 以 FAILED 结算关联的
+        ``PendingAtom``；无法判断是否接纳的异常与 intent 载荷冲突都是结果未知，
+        不发布结算事件：冲突时既有任务仍拥有该 intent 的结算权。
         """
 
-        accepted: list[MemoryGenerationTask] = []
+        admissions: list[MemoryGenerationAdmission] = []
         rejected_aliases: list[str] = []
         # 整批持有 admission 锁，保证同一批规范不会与并发提交交错；实际执行仍
         # 由队列异步调度，本方法只串行化轻量的接纳阶段。
@@ -229,6 +233,7 @@ class MemoryGenerationTaskController:
                         spec.intent_id,
                         exc,
                     )
+                    admissions.append(MemoryGenerationAdmission.unknown())
                     continue
                 except (TypeError, ValueError, WorkQueueError) as exc:
                     logger.warning(
@@ -240,6 +245,7 @@ class MemoryGenerationTaskController:
                     )
                     if spec.pending_alias:
                         rejected_aliases.append(spec.pending_alias)
+                    admissions.append(MemoryGenerationAdmission.rejected())
                     continue
                 except Exception:
                     logger.warning(
@@ -249,13 +255,14 @@ class MemoryGenerationTaskController:
                         spec.intent_id,
                         exc_info=True,
                     )
+                    admissions.append(MemoryGenerationAdmission.unknown())
                     continue
-                accepted.append(task)
+                admissions.append(MemoryGenerationAdmission.accepted(task))
 
         # 功能事件发布不占用 admission 锁，避免慢订阅者阻塞其他提交方。
         for pending_alias in rejected_aliases:
             await self._pending_atom_settler.failed(pending_alias)
-        return accepted
+        return admissions
 
     async def _execute_generation(
         self,

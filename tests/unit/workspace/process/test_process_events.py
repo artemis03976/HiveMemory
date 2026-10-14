@@ -192,7 +192,7 @@ async def test_completed_stream_events_share_process_correlation_and_bind_topic(
         )
     }
     assert events[0].trace_id.startswith("task-")
-    assert events[-1].data == {"memory_task_ids": ["memory-task-1"]}
+    assert events[-1].data == {}
 
 
 @pytest.mark.asyncio

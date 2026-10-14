@@ -200,6 +200,7 @@ class AccessTestComposition:
             request=ProcessRequest(message="测试派生", target_workspace=self.default_workspace),
             trace_id="test",
         )
+        task.working_set.dispatch_topic_id = "test-topic"
         task.record.enter_phase(ProcessPhase.ACTOR)
         self.process_table.register(task)
         return self.thread_spawner.derive_main_thread(task)

@@ -68,7 +68,7 @@ async def test_identity_scope_passed_as_ownership_to_real_local_handler_is_rejec
     这样的调用会静默成功。
     """
     local_bus = PatchouliBus()
-    coordinator = MemoryGenerationCoordinator(bus=local_bus)
+    coordinator = MemoryGenerationCoordinator(bus=local_bus, recent_block_limit=5)
     local_bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, coordinator.submit_active)
     scope = make_identity_scope(user_id="u1", agent_id="a1")
 

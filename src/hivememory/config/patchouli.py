@@ -92,6 +92,9 @@ class MemoryGenerationConfig(BaseModel):
     queue_capacity: int = Field(default=128, ge=1)
     queue_max_concurrency: int = Field(default=2, ge=1)
     queue_timeout_seconds: float | None = Field(default=300.0, gt=0)
+    # 主动生成（WRITE/UPDATE）取话题最近几个 block 与 state_summary 作为材料；
+    # 意图在本轮交互封口之前提交，当前一轮不在材料中。
+    active_recent_blocks: int = Field(default=5, ge=0)
 
     model_config = ConfigDict(extra="ignore")
 

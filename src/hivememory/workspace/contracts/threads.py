@@ -28,3 +28,11 @@ class ChildThreadSpawner(Protocol):
     ) -> ExecutionThread:
         """确认主线程仍在 Actor 阶段，再以图纸的 Agent 派生、登记并读取其操作快照。"""
         ...
+
+
+class IntentDispatchTopicReader(Protocol):
+    """能力层读取本进程的派发话题；只接受仍在 Actor 阶段的已登记线程。"""
+
+    def get_dispatch_topic(self, *, access: WorkspaceAccessContext, process_id: str) -> str:
+        """同步校验进程与线程关联，返回 CPU 分配时冻结的真实话题 ID。"""
+        ...

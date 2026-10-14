@@ -121,7 +121,6 @@ class PatchouliSystem(SubsystemProtocol):
         self._service = PatchouliService(
             bus=self.runtime.local_bus,
             interaction_queue=self._interaction_submission_queue,
-            pending_atom_settler=self.runtime.pending_atom_settler,
         )
         self._memory_management_service = MemoryManagementService(
             bus=self.runtime.local_bus,

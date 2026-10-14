@@ -14,7 +14,6 @@ import { devtools, persist } from 'zustand/middleware';
 import { ChatSSEClient, stopProcess } from '@/services/chatApi';
 import { createChatSSECallbacks } from '@/stores/chat/streamHandlers';
 import { applyDone, applyStreamError } from '@/stores/chat/messageReducers';
-import { useMemoryTaskStore } from '@/stores/memory';
 import { useTopicStore } from '@/stores/topic';
 import { DEFAULT_AGENT_ID } from '@/constants/identity';
 import type {
@@ -44,7 +43,6 @@ interface ChatStore {
   connection: ChatConnectionState;
   isStreaming: boolean;
   runStatus: ChatRunStatus;
-  currentMemoryTaskIds: string[];
   lastRunReason: string | null;
   currentTopicId: string | null;
   currentAgentId: string;
@@ -77,7 +75,6 @@ export const useChatStore = create<ChatStore>()(
         },
         isStreaming: false,
         runStatus: 'idle',
-        currentMemoryTaskIds: [],
         lastRunReason: null,
         currentTopicId: null,
         currentAgentId: DEFAULT_AGENT_ID,
@@ -132,7 +129,6 @@ export const useChatStore = create<ChatStore>()(
             messages: [...state.messages, userMessage],
             isStreaming: true,
             runStatus: 'preparing',
-            currentMemoryTaskIds: [],
             lastRunReason: null,
             connection: { status: 'connecting', error: null },
             // Clear stale referenced memories when a new chat turn starts.
@@ -197,7 +193,6 @@ export const useChatStore = create<ChatStore>()(
                       : updatedMessages,
                     currentTopicId: clearChat ? null : s.currentTopicId,
                     retrievedMemories: clearChat ? [] : s.retrievedMemories,
-                    currentMemoryTaskIds: clearChat ? [] : s.currentMemoryTaskIds,
                   };
                 });
                 if (clearChat) {
@@ -235,12 +230,10 @@ export const useChatStore = create<ChatStore>()(
                 const status = data.status ?? (data.stopped ? 'cancelled' : 'completed');
                 const isCancelled = status === 'cancelled';
                 const isFailed = status === 'failed';
-                const memoryTaskIds = data.memory_task_ids ?? [];
                 set((s) => ({
                   messages: applyDone(s.messages, assistantMessageId, data.final_text),
                   isStreaming: false,
                   runStatus: status,
-                  currentMemoryTaskIds: memoryTaskIds,
                   lastRunReason: data.reason ?? s.lastRunReason,
                   connection: {
                     status: isFailed ? 'error' : 'connected',
@@ -249,10 +242,6 @@ export const useChatStore = create<ChatStore>()(
                   _currentStreamingMessageId: null,
                   _currentProcessId: null,
                 }));
-
-                if (memoryTaskIds.length > 0) {
-                  void useMemoryTaskStore.getState().refreshTasksByIds(memoryTaskIds);
-                }
 
                 if (status === 'completed' && data.pool_topics) {
                   const activeTopicId = get().currentTopicId;
@@ -310,7 +299,6 @@ export const useChatStore = create<ChatStore>()(
             messages: [],
             currentTopicId: null,
             retrievedMemories: [],
-            currentMemoryTaskIds: [],
             lastRunReason: null,
             runStatus: 'idle',
           });

@@ -14,7 +14,7 @@ related_docs:
   - docs/governance/baselines/durability-d0-state-inventory.md
   - docs/governance/baselines/idempotency-i0-operations-inventory.md
   - docs/governance/baselines/identity-s0-threat-model-inventory.md
-last_reviewed: 2026-10-07
+last_reviewed: 2026-10-13
 ---
 
 # 数据模型可变性治理
@@ -47,7 +47,7 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 ## 4. 当前缺口
 
 1. MemoryAtom 及其嵌套层仍是可变模型；workspace 原子/Profile 缓存的保存和读取交付独立深副本，但其他领域调用点的合法更新入口尚未统一；
-2. PendingAtom 状态迁移已收敛到 workspace `WriteIntentRegistry`，登记、读取与认领任务均隔离持有副本；这不是对全部公共 DTO 的递归不可变保证；
+2. PendingAtom 状态迁移已收敛到 workspace `WriteIntentRegistry`，登记与读取均交付独立副本，派发按公共意图字段构造任务；这不是对全部公共 DTO 的递归不可变保证；
 3. `RetrievalResponse`、`AgentRunContext/Result` 等公共 DTO 仍包含可变容器；
 4. 多个 frozen 应用服务 outcome 只冻结外壳；
 5. `FrozenDict` 不处理任意自定义对象，`MappingProxyType` 只冻结顶层；
@@ -93,7 +93,7 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 - 先决定 MemoryAtom 采用受控可变聚合还是版本化不可变聚合，再修改实现；
 - 收敛 meta、index、payload、artifacts、relations 的合法更新入口；
 - Repository/MemoryLibrary 不向调用方返回可任意修改的内部实例；
-- 已完成（2026-10-07）：PendingAtom 状态变化由 workspace registry 的登记、认领、进程取消与结算处理推进，外部读取对象与 registry 内状态脱钩；
+- 已完成（2026-10-07；2026-10-13 实时派发更新）：PendingAtom 状态变化由 workspace registry 的登记、明确拒绝与结算处理推进，外部读取对象与 registry 内状态脱钩；
 - 明确正式 atom、pending、redirect 与 terminal snapshot 的传播规则。
 
 交付物：Memory/Pending 聚合边界、合法迁移 API、并发/版本测试。

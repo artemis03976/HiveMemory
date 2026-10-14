@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-13
 ---
 
 # 记忆生成
@@ -87,7 +87,9 @@ Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记�
 
 ### 3.2 Mode B：主动 WRITE
 
-Alice 的 MTP WRITE 经线程 context 绑定的操作请求进入 workspace 能力层，在共享 `WriteIntentRegistry` 登记 PendingAtom，ACK 只表示登记成功。Actor completed 后，任务进程认领本进程仍为 PENDING 的意图，将其推进为 MATERIALIZING 并构造 `PendingAtomMaterializeTask`，随封口的 `InteractionPayload` 交给 Patchouli finalize；Coordinator 使用话题最近五个 blocks 作为背景，并把 `WriteFocus` 作为保存核心。意图登记与终态由 workspace 持有，正式记忆生成与任务状态仍由 Patchouli 持有。
+Alice 的 MTP WRITE 经线程 context 绑定的操作请求进入 workspace 能力层，在共享 `WriteIntentRegistry` 登记 MATERIALIZING 意图，并立即调用 Patchouli 的 `memory_intent.submit`。服务沿用登记的 `intent_id` 与 `pending_alias` 构造内部 `PendingAtomMaterializeTask`，生成队列接纳后才返回 ACK。意图登记与终态由 workspace 持有，正式记忆生成与任务状态由 Patchouli 持有。
+
+Coordinator 使用话题的 `state_summary` 与过去 N 个 block 作为背景，以 `WriteFocus` 为保存核心。N 由 `patchouli.generation.active_recent_blocks` 配置（默认 5，允许 0），与感知折叠保留轮数无关。派发发生在交互封口前，当前轮不进入背景；新话题为空时只依赖 focus。话题不存在时按空材料生成，话题读取抛错时因尚无任务入队，逐项结算 FAILED 并拒绝。
 
 Extractor 失败时，Mode B 会直接从 WriteFocus 构建 fallback draft，保证明确保存意图不会因为 Librarian LLM 暂时失败而无声丢失。Fallback 仍要经过去重，因而最终可能 CREATE、UPDATE、TOUCH 或 DISCARD；ACK 从未承诺“一定新建一条独立记忆”。
 
@@ -178,28 +180,25 @@ WaitResult/WaitSummary。等待使用 `asyncio.shield`，超时返回当前 `PEN
 
 PendingAtom settlement 只更新意图状态，不回填 canonical 缓存。中期 Store 的独立变更事件负责原子、alias 与 Profile 派生项失效，所有正式记忆重新读取都经过当前授权；两种事件的作用见[MemoryLibrary](./memory-library.md#12-中期当前可检索书库)。
 
-## 7. Active finalize 的时序
+## 7. 实时派发与交互 finalize
 
-Patchouli finalize 当前顺序为：
+主动写入与交互提交分别执行：
 
 ```text
-InteractionPayload（任务进程封口）
-  -> submit as-is
-  -> wait until current turn is applied to Perception
-  -> lock Chat completed
-  -> independently submit WRITE/UPDATE materialize tasks
-  -> best-effort record prepared retrieval HITs
+WRITE/UPDATE -> workspace 登记 -> memory_intent.submit
+  -> Coordinator 构建材料与 spec -> Controller 接纳生成任务 -> ACK
+  -> 后台生成、持久化与结算事件
+
+CPU completed -> 任务进程封口 InteractionPayload -> finalize
+  -> submit as-is -> wait until interaction applied
+  -> best-effort record prepared retrieval HITs -> None
 ```
 
-Interaction applied 是 Chat 的硬成功边界。之后 Coordinator 一次调用 `submit_generation_many()`；批量入口
-按输入顺序逐项接纳，返回值只包含已接纳或幂等复用的任务。确定性 admission rejection 由 Controller 结算
-对应 PendingAtom failed，且不创建伪造的 `MemoryGenerationTask.FAILED`；调用异常或响应丢失属于 unknown，
-不会把 PendingAtom 锁为 failed，可通过稳定 `intent_id` 再次 dispatch 并复用已有任务。单项 rejected/unknown
-不会阻断批内后续项。若同一 intent 携带不同 spec 重放，已有任务仍保留该 PendingAtom 的结算权，冲突请求
-只被拒绝而不会抢先发布 failed。retrieval HIT 失败只记录 warning；两者都不能反向把 Chat 改写为 failed。Active
-continuation 由 Patchouli 进程级持有，因此 HTTP/SSE 调用方取消不会中止已经接管的 post-apply 义务。
+`submit_generation_many()` 按输入顺序逐项接纳，并返回一一对应的 `MemoryGenerationAdmission`：accepted 携带新建或幂等复用的任务快照；rejected 由 Controller 结算对应 PendingAtom failed，不伪造 FAILED 任务；unknown 不结算，可继续由实际接纳的任务给出终态。单项拒绝或未知不阻断后续项。稳定的 `active:{intent_id}` 是任务标识，同一 intent 携带不同 spec 重放时结果为 unknown，既有任务保留结算权，不能抢先发布 failed。
 
-主动生成因此可以从 topic 最近 blocks 中看到当前轮，而不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。当前交互仍留在被动话题链中，之后可在 idle/LRU/shutdown 时参与 Mode A；主动保存与被动归档是不同意图，不能通过清空 buffer 相互替代。
+Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任务，也不返回任务列表。预检索 HIT 失败只记录 warning，不反向改写 Chat 终态。Finalization continuation 由 Patchouli 进程级持有，HTTP/SSE 调用方取消不会中止已经接管的提交与 post-apply 义务。CPU 失败、取消、进程关闭与失败 CALL 子帧都不撤回此前的显式写入。
+
+主动生成不等待当前交互 applied，不读取当前轮，也不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。completed 后的当前交互留在被动话题链中，之后可在 idle/LRU/shutdown 时参与 Mode A；主动保存与被动归档不能通过清空 buffer 相互替代。未完成进程的预建空话题仍可 cleanup，已派发任务保留该 topic_id 作观测，正式原子不保存 topic_id。
 
 这条解耦边界是对旧链路实际问题的回应。旧实现曾把 MTP WRITE/UPDATE 当作话题结算理由，执行 `archive + compact + clear`：连续两次 WRITE 时，第二次只能看到已经被压扁的 summary；每次主动写还会额外触发一次 summary，使原始细节在明确保存意图下反复丢失。当前实现直接使用 topic 最近 context，并以 `WriteFocus`/`UpdateFocus` 驱动 Mode B/C；主动生成与被动归档保持两条正交流，主动写入后的 blocks 仍可在之后进入 Mode A。
 
@@ -207,7 +206,8 @@ continuation 由 Patchouli 进程级持有，因此 HTTP/SSE 调用方取消不�
 
 ## 8. 当前限制
 
-- WRITE/UPDATE 仍在 completed 进程的 finalize 阶段派发，没有实时物化入口；进程关闭取消本进程尚未认领的 PENDING，已认领的 MATERIALIZING 不随进程关闭取消；
+- 结果未知或结算事件丢失时，句柄可能长期保持 MATERIALIZING；没有对账恢复。写入一旦开始派发就不因 CPU、进程或 CALL 子帧失败取消；
+- UPDATE 意图不携带登记时的基础版本，spec 构建时按 UUID 读取当时的最新版本，并发 UPDATE 不检测基础版本冲突；后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)第 6 节；
 - memory work、typed result 与终态快照只存在于当前进程，重启后不可恢复；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
 - 终态快照与 Queue 使用同一 `terminal_retention` 上限；
 - Active spec 的 I/O 构建仍在 Coordinator 并行完成；批量 admission 本身按输入顺序串行，以维持确定的入队顺序；

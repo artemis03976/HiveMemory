@@ -90,7 +90,10 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
     runtime = make_workspace_runtime(stack.bus)
     entry = WorkspaceOperationEntry(
         ActorMemoryService(
-            stack.bus, operation_authorizer=access.authorizer, memory_reader=runtime.aliases
+            stack.bus,
+            operation_authorizer=access.authorizer,
+            memory_reader=runtime.aliases,
+            dispatch_topics=access.thread_spawner,
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
@@ -98,7 +101,6 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
             profile_reader=runtime.profiles,
         ),
         operation_authorizer=access.authorizer,
-        intent_registry=runtime.intents,
     )
     llm_messages = []
     responses = iter(['⟪ WRITE | * | content="越权写入" ⟫', "权限拒绝后正常回答"])
@@ -276,6 +278,7 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
             stack.bus,
             operation_authorizer=access.authorizer,
             memory_reader=runtime.aliases,
+            dispatch_topics=access.thread_spawner,
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
@@ -283,7 +286,6 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
             profile_reader=runtime.profiles,
         ),
         operation_authorizer=access.authorizer,
-        intent_registry=runtime.intents,
     )
     llm_messages = []
 

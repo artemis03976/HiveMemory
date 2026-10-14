@@ -123,6 +123,7 @@ class TestActorMemoryService:
             global_bus=global_bus,
             operation_authorizer=composition.authorizer,
             memory_reader=make_workspace_runtime(global_bus=global_bus).aliases,
+            dispatch_topics=composition.thread_spawner,
         )
         access = await composition.authenticate_thread(agent_id="test_agent", user_id="u1")
 
@@ -162,6 +163,7 @@ class TestActorMemoryService:
             global_bus=global_bus,
             operation_authorizer=composition.authorizer,
             memory_reader=CapturingReader(),
+            dispatch_topics=composition.thread_spawner,
         )
 
         result = await service.retrieve(
@@ -218,6 +220,7 @@ class TestActorMemoryService:
             global_bus=CitationBus(),
             operation_authorizer=composition.authorizer,
             memory_reader=ReferenceReader(),
+            dispatch_topics=composition.thread_spawner,
         )
 
         if operation == WorkspaceOperation.MEMORY_READ:

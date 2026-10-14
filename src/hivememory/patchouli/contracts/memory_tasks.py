@@ -110,7 +110,47 @@ class MemoryGenerationTask:
         return self.cancel_requested or self.status == MemoryGenerationTaskStatus.CANCELLED
 
 
+class MemoryGenerationAdmissionStatus(str, Enum):
+    """一项生成请求的接纳结果。
+
+    ``REJECTED`` 是确定性拒绝，关联的写入意图已经以 FAILED 结算；``UNKNOWN``
+    表示无法确认是否已被接纳，不发布结算事件，若其实已被接纳，由之后的
+    结算事件给出终态。
+    """
+
+    ACCEPTED = "accepted"
+    REJECTED = "rejected"
+    UNKNOWN = "unknown"
+
+
+@dataclass(frozen=True)
+class MemoryGenerationAdmission:
+    """逐项接纳结果：只有 ``ACCEPTED`` 携带接纳时刻的任务快照。"""
+
+    status: MemoryGenerationAdmissionStatus
+    task: MemoryGenerationTask | None = None
+
+    def __post_init__(self) -> None:
+        accepted = self.status is MemoryGenerationAdmissionStatus.ACCEPTED
+        if accepted != (self.task is not None):
+            raise ValueError("只有接纳结果携带任务快照")
+
+    @classmethod
+    def accepted(cls, task: MemoryGenerationTask) -> MemoryGenerationAdmission:
+        return cls(MemoryGenerationAdmissionStatus.ACCEPTED, task)
+
+    @classmethod
+    def rejected(cls) -> MemoryGenerationAdmission:
+        return cls(MemoryGenerationAdmissionStatus.REJECTED)
+
+    @classmethod
+    def unknown(cls) -> MemoryGenerationAdmission:
+        return cls(MemoryGenerationAdmissionStatus.UNKNOWN)
+
+
 __all__ = [
+    "MemoryGenerationAdmission",
+    "MemoryGenerationAdmissionStatus",
     "MemoryGenerationSource",
     "MemoryGenerationTask",
     "MemoryGenerationTaskStatus",

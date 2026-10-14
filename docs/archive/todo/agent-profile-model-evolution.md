@@ -7,14 +7,14 @@ superseded_by: docs/alice/README.md
 owner: patchouli
 scope: agent-profile-mtp-decoupling-and-external-actor-semantics
 related_docs:
-  - docs/ideas/workspace-network-task-process-architecture.md
+  - docs/ideas/fifth-generation-architecture.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
 last_reviewed: 2026-09-27
 ---
 
 # AgentProfile 模型演进
 
-> **归档说明（2026-09-27）**：已完成的两项（模型自持 `agent_id`、可见性不进入模型）随 PR #103（`dda9d9d`）合并，当前事实见 [Alice](../../alice/README.md)中的 Agent Profile 说明。仍开放的“能力描述与 MTP 解耦”与“外部 actor 应用语义”转为 [Workspace 网络与任务进程架构 Idea](../../ideas/workspace-network-task-process-architecture.md)的 P-10 问题。文中引用的 A2 计划已作废删除，引用改为纯文本，删除前最后版本见 commit `dda9d9d`。
+> **归档说明（2026-09-27）**：已完成的两项（模型自持 `agent_id`、可见性不进入模型）随 PR #103（`dda9d9d`）合并，当前事实见 [Alice](../../alice/README.md)中的 Agent Profile 说明。仍开放的“能力描述与 MTP 解耦”与“外部 actor 应用语义”转为 [第五代架构 Idea](../../ideas/fifth-generation-architecture.md)的 P-10a 问题。文中引用的 A2 计划已作废删除，引用改为纯文本，删除前最后版本见 commit `dda9d9d`。
 
 ## 问题与证据
 

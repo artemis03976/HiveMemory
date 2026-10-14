@@ -25,7 +25,6 @@ from hivememory.core.models import (
     TurnEvent,
     WorkspaceAssetRef,
 )
-from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.core.models.query import QueryFilters
 from hivememory.core.mtp.models import MTPCallRequest
 
@@ -212,7 +211,6 @@ class InteractionPayload(BaseModel):
     Attributes:
         user_message: 原始用户消息
         mtp_traces: 封口方从结构化轮次事件归约得到的 Trace 列表
-        materialize_tasks: 本 run 产出的不可变物化请求，由 finalize 分发 mode b/c
         rewritten_query: Gateway 重写后的查询
         worth_saving: Gateway 价值判断
         assistant_final_text: 最终自然语言回复
@@ -240,12 +238,6 @@ class InteractionPayload(BaseModel):
     mtp_traces: list[TraceItem] = Field(
         default_factory=list,
         description="由封口方在提交前从结构化轮次事件归约得到的 Trace 列表",
-    )
-
-    # 控制信号
-    materialize_tasks: list[PendingAtomMaterializeTask] = Field(
-        default_factory=list,
-        description="本 run 产出的不可变物化请求列表，由 finalize 分发 mode b/c",
     )
 
     worth_saving: bool | None = Field(default=None, description="Gateway 价值判断")

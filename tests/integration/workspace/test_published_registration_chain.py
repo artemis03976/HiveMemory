@@ -115,6 +115,8 @@ from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskServ
 from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.contracts import ResolveReferencesRequest, ResolveRunTargetRequest
 from hivememory.workspace.process.service import TaskProcessService
+from hivememory.workspace.process.table import ProcessTable
+from hivememory.workspace.process.threads import ProcessThreads
 from hivememory.workspace.registry import WorkspaceActorAccessRecord, WorkspaceActorAccessRegistry
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
@@ -309,6 +311,9 @@ async def published_stack():
         global_bus=bus,
         operation_authorizer=registration.authorizer,
         memory_reader=make_workspace_runtime(bus).aliases,
+        dispatch_topics=ProcessThreads(
+            ProcessTable(), lifecycle=registration.gateway, authorizer=registration.authorizer
+        ),
     )
     topic_service = RootTopicService(bus, operation_authorizer=registration.authorizer)
     memory_task_service = RootMemoryTaskService(bus, operation_authorizer=registration.authorizer)

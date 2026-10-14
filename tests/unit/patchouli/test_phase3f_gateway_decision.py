@@ -212,7 +212,7 @@ async def test_finalize_uses_current_submission_actor_instead_of_prepare_actor()
     finally:
         await queue.stop()
 
-    assert result == []
+    assert result is None
     assert applied == [
         ("问题", prepared.belong_to, ActorIdentity(user_id="u1", agent_id="submit-actor"))
     ]

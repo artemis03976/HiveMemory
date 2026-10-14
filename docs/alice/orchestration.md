@@ -21,7 +21,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-13
 ---
 
 # 多 Agent 编排
@@ -83,7 +83,7 @@ AliceSystem
 - `agent_profile` 是本次主 Agent 图纸；
 - `working_history` 已由 PromptAssembler 组装。
 
-FrameFactory 会把当前 user message 插入 `TurnEvent` 序列首位，使最终事件流拥有完整的一轮事实。随后 `RunExecutor._execute_frame()` 调用 `AgentRuntime.run_frame(frame)`：`SUSPENDED` 进入 CALL 事务并递归求值派生 frame；`COMPLETED/CANCELLED/FAILED/BUDGET_EXHAUSTED` 返回上一层。最外层入口 frame 的终态由 Alice 映射为 CPU 结果，任务进程据此认领或取消意图。
+FrameFactory 会把当前 user message 插入 `TurnEvent` 序列首位，使最终事件流拥有完整的一轮事实。随后 `RunExecutor._execute_frame()` 调用 `AgentRuntime.run_frame(frame)`：`SUSPENDED` 进入 CALL 事务并递归求值派生 frame；`COMPLETED/CANCELLED/FAILED/BUDGET_EXHAUSTED` 返回上一层。最外层入口 frame 的终态由 Alice 映射为 CPU 结果，任务进程据此封口交互或跳过 finalize，已提交写入不受影响。
 
 frame 是实际可恢复状态。恢复 caller 时必须继续使用原 frame，不能从消息重新构造一个“看似等价”的新 frame，否则迭代预算、事件序号、已经产生的正文和 ACK alias 清单都会分叉。父子、caller action 等调用关系只记录在 Alice 的 `CallRecord` 与事件元数据中，不进入 `RuntimeScope`。
 
@@ -160,7 +160,7 @@ Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARC
 - 继承父 frame 的同一组 `ExecutionLabels`；
 - 自己的子线程提交函数：以被调用方身份授权，写入意图记在被调用方名下。
 
-子帧不读取主话题完整 history，也不会把内部 token、SEARCH/RUN 重试或工具结果写回主 frame 的 working history。只有子帧以 `COMPLETED` 自然结束后，CallCoordinator 才取 `text_segments` 形成 reply，并把运行期间收到 ACK 的 aliases 放入 CALL artifacts。取消、失败或预算耗尽的子帧不会收割 reply/artifact，CallCoordinator 会经子帧自己的提交函数撤回该子帧收到 ACK 且仍为 PENDING 的意图；取消协程时由根进程关闭同步取消全部未认领意图。`SUSPENDED` 是 RunExecutor 必须继续递归消费的非终态 trap；若它进入 `complete_call()`，属于编排不变量违约，不构造 CALL response。
+子帧不读取主话题完整 history，也不会把内部 token、SEARCH/RUN 重试或工具结果写回主 frame 的 working history。只有子帧以 `COMPLETED` 自然结束后，CallCoordinator 才取 `text_segments` 形成 reply，并把运行期间收到 ACK 的 aliases 放入 CALL artifacts。取消、失败或预算耗尽的子帧不会收割 reply/artifact，已提交写入仍由 Patchouli 继续生成。`SUSPENDED` 是 RunExecutor 必须继续递归消费的非终态 trap；若它进入 `complete_call()`，属于编排不变量违约，不构造 CALL response。
 
 这种黑盒隔离避免主 Agent 与 Perception 被子任务细节淹没，但它并不等于子任务没有证据。子帧流事件仍可被 UI 观察，CALL 在主 frame 中有结构化 tool_call/tool_result，PendingAtom 又保存写入意图；只是这些事实目前没有被组合成持久化子任务 artifact。
 
@@ -175,7 +175,7 @@ root frame
   └─ continue root frame
 ```
 
-软限制由 PromptAssembler 实现：被调用 frame 的 prompt 按被调用方的动词集合渲染，并始终移除 CALL 动词教学。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 消费 CallContext 后，以被调用方的操作快照（`mtp_verbs_for_operations` 翻译，RUN 始终可用）构造子帧策略并显式移除 CALL；被调用方 Profile 只提供 persona、模型与语言。动词集合只是提示与执行前检查，子帧的资源操作仍由 actor API 按被调用方的白名单授权（[执行单元 Idea](../ideas/execution-unit-thread-and-environment.md#t-1at-2at-3t-4bt-5a-子线程的派生身份与撤销)）。Koakuma 以 frame policy 校验。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该 Agent，让它改用自然语言或其他获准能力继续。
+软限制由 PromptAssembler 实现：被调用 frame 的 prompt 按被调用方的动词集合渲染，并始终移除 CALL 动词教学。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 消费 CallContext 后，以被调用方的操作快照（`mtp_verbs_for_operations` 翻译，RUN 始终可用）构造子帧策略并显式移除 CALL；被调用方 Profile 只提供 persona、模型与语言。动词集合只是提示与执行前检查，子帧的资源操作仍由 actor API 按被调用方的白名单授权（[Workspace 架构](../architecture/workspace.md)第 5.4 节）。Koakuma 以 frame policy 校验。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该 Agent，让它改用自然语言或其他获准能力继续。
 
 这是能力策略，不是 RunExecutor 的结构限制：执行器对所有 frame 使用同一个递归入口，不包含 `RootTurn/CalleeTurn` 分支。未来允许嵌套 CALL 时可以沿用这条递归路径；并行 sibling CALL 可在一次 suspension 能表达多个请求后，于当前递归层使用结构化并发。持久化 DAG、跨进程恢复和 review loop 仍属于后置方向。
 
@@ -189,7 +189,7 @@ root frame
 
 CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：`call_response.py` 仅将 `COMPLETED` 映射为 success，将 `CANCELLED` 映射为 cancelled，将 `FAILED`、`BUDGET_EXHAUSTED` 映射为带稳定 error code 的 error；`SUSPENDED` 不属于可映射终态。
 
-caller 与 callee 各自使用自己线程的提交函数：callee 登记的意图发起者是被调用方，进程关联与 caller 相同，completed 时一并由本进程认领。子线程 context 在 CPU 执行结束前一直有效，CALL 返回时不提前撤销。callee 未成功结束时，CallCoordinator 提交 `CancelIntentsRequest` 撤回 callee 已收到 ACK 的意图（只影响仍为 PENDING 的记录），避免它们在根帧 completed 后被认领物化。IPC alias 服务于 caller 当前认知，最终物化任务由任务进程在 completed 后直接从 workspace 登记认领；CPU 结果不携带物化任务，Alice 不再提供 run 级登记收尾。
+caller 与 callee 各自使用自己线程的提交函数：callee 登记的意图发起者是被调用方，进程关联与 caller 相同，操作内立即派发到相同的进程话题。子线程 context 在 CPU 执行结束前一直有效，CALL 返回时不提前撤销；callee 未成功结束不回填 IPC alias，也不撤回已经提交的写入。IPC alias 服务于 caller 当前认知，正式生成由能力层提交后独立运行；CPU 结果不携带物化任务，Alice 不管理 run 级登记收尾。
 
 ## 7. 流式事件
 
@@ -225,7 +225,7 @@ frame 的展示 `agent_id` 优先取 `AgentProfile.agent_id`（源 alias，内�
 - 子帧只接收 task 与显式 shared context，不能默认复制主 frame 全部工作历史；
 - 主 Agent 最终负责用户回复，子 Agent 不直接写入主话题或向客户端产生第二个 done；
 - Profile 的 persona 不能提升结构化权限，调用方 task 也不能替被调用者改写白名单；
-- Pending alias 的 IPC 收割与任务进程的意图认领是两条不同用途的数据流；
+- Pending alias 的 IPC 收割与能力层的意图实时派发是两条不同用途的数据流；
 - `context_refs` 必须经过操作请求的 workspace 引用解析与 MemoryCompiler，不能通过裸 UUID 或字符串拼接绕过 alias/状态语义；
 - CALL 权限与预算必须随 frame policy 传播，不能只依赖 prompt 告诫模型；取消沿拥有 Alice run 的 task 递归展开，不通过 session 建立第二套控制面；
 - Profile 与完整引用解析缓存只由 workspace 持有，Alice 不另建派生状态真相；观测标签不能成为资源授权依据。

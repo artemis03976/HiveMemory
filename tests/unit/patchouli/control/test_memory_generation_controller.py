@@ -12,6 +12,7 @@ from hivememory.engines.generation.models import (
 )
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationAdmissionStatus
 from hivememory.patchouli.control.memory_generation.controller import (
     MemoryGenerationTaskController,
 )
@@ -134,7 +135,9 @@ class TestMemoryGenerationTaskController:
         first = await controller.submit_generation(first_spec)
         with pytest.raises(ValueError, match="different spec"):
             await controller.submit_generation(conflicting_spec)
-        assert await controller.submit_generation_many([conflicting_spec]) == []
+        (conflict,) = await controller.submit_generation_many([conflicting_spec])
+        # 既有任务仍拥有该 intent 的结算权：冲突按结果未知处理，不发布失败。
+        assert conflict.status is MemoryGenerationAdmissionStatus.UNKNOWN
         bus.publish.assert_not_awaited()
 
         await controller.wait_task(first.task_id)
@@ -153,7 +156,15 @@ class TestMemoryGenerationTaskController:
                 ]
             )
 
-            assert [task.label for task in result] == ["first", "third"]
+            assert [admission.status for admission in result] == [
+                MemoryGenerationAdmissionStatus.ACCEPTED,
+                MemoryGenerationAdmissionStatus.REJECTED,
+                MemoryGenerationAdmissionStatus.ACCEPTED,
+            ]
+            assert [admission.task.label for admission in result if admission.task] == [
+                "first",
+                "third",
+            ]
             bus.publish.assert_awaited_once_with(
                 PatchouliLocalEvents.PENDING_ATOM_FAILED,
                 pending_alias="draft-failed",
@@ -183,7 +194,9 @@ class TestMemoryGenerationTaskController:
             ]
         )
 
-        assert result == []
+        assert [admission.status for admission in result] == [
+            MemoryGenerationAdmissionStatus.UNKNOWN
+        ]
         bus.publish.assert_not_awaited()
 
     @pytest.mark.asyncio

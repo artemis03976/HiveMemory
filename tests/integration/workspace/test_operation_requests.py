@@ -23,12 +23,12 @@ from hivememory.core.models import (
 )
 from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.patchouli.contracts import PatchouliRoutes
+from hivememory.patchouli.contracts.memory_intent import MemoryIntent
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
-    CancelIntentsRequest,
     DeriveCallThreadRequest,
     OperationRequest,
     ResolveReferencesRequest,
@@ -39,6 +39,7 @@ from hivememory.workspace.contracts import (
     ThreadContextRevokedError,
 )
 from hivememory.workspace.runtime import WorkspaceRuntime
+from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
@@ -49,6 +50,7 @@ class _OperationHarness:
     def __init__(self, *, access) -> None:
         operation_authorizer = access.authorizer
         self.bus = GlobalSystemBus()
+        self.admission = install_intent_admission(self.bus)
         self.memories: dict[str, MemoryAtom] = {}
         self.profile_source = MemoryAtom(
             meta=make_memory_metadata(user_id="test_user", source_agent_id="test_agent"),
@@ -77,6 +79,7 @@ class _OperationHarness:
                 self.bus,
                 operation_authorizer=operation_authorizer,
                 memory_reader=self.runtime.aliases,
+                dispatch_topics=access.thread_spawner,
             ),
             agent=ActorAgentService(
                 operation_authorizer=operation_authorizer,
@@ -84,7 +87,6 @@ class _OperationHarness:
                 thread_spawner=access.thread_spawner,
             ),
             operation_authorizer=operation_authorizer,
-            intent_registry=self.registry,
         )
 
     async def _read(self, memory_id, *, identity_scope):
@@ -169,7 +171,7 @@ async def test_write_request_registers_once_with_thread_context_actor_workspace_
     assert stored.from_actor.agent_id == "test_agent"
     assert stored.belong_to == access.default_workspace
     assert stored.process_id == "process"
-    assert stored.status == PendingAtomStatus.PENDING
+    assert stored.status == PendingAtomStatus.MATERIALIZING
 
 
 @pytest.mark.asyncio
@@ -196,31 +198,40 @@ async def test_update_request_resolves_base_and_registers_supplied_instruction_o
 
 
 @pytest.mark.asyncio
-async def test_cancel_request_only_retracts_intents_of_thread_context_process(operation_setup):
-    """请求无法借其他进程的 alias 撤回其意图，同步撤销也不串用线程 context。"""
+async def test_write_and_update_dispatch_every_focus_field_with_registered_identifiers(
+    operation_setup,
+):
+    """派发给 Patchouli 的公共意图逐字段对应登记内容，标识与话题来自登记和进程。"""
     harness, access = operation_setup
-    first = await _derive_thread(access, "first")
-    second = await _derive_thread(access, "second")
-    own = await harness.entry.execute(
-        SubmitWriteIntentRequest(WriteFocus(content="本进程")), access=first
+    thread_access = await _derive_thread(access)
+    write = await harness.entry.execute(
+        SubmitWriteIntentRequest(WriteFocus(content="写入正文", title="写入标题", reason="原因")),
+        access=thread_access,
     )
-    other = await harness.entry.execute(
-        SubmitWriteIntentRequest(WriteFocus(content="其他进程")), access=second
+    update = await harness.entry.execute(
+        SubmitUpdateIntentRequest("base", "更新指令", "更新正文"), access=thread_access
     )
-    access.gateway.revoke_thread_context(second)
-    cancelled = await harness.entry.execute(
-        CancelIntentsRequest((own.pending_alias, other.pending_alias, own.pending_alias)),
-        access=first,
-    )
-    assert cancelled == [own.pending_alias]
-    assert (
-        harness.registry.get(own.pending_alias, access.default_workspace).status
-        == PendingAtomStatus.CANCELLED
-    )
-    assert (
-        harness.registry.get(other.pending_alias, access.default_workspace).status
-        == PendingAtomStatus.PENDING
-    )
+    assert [intent for intent, _scope in harness.admission.submissions] == [
+        MemoryIntent(
+            kind="write",
+            topic_id="test-topic",
+            intent_id=write.intent_id,
+            pending_alias=write.pending_alias,
+            content="写入正文",
+            title="写入标题",
+            reason="原因",
+        ),
+        MemoryIntent(
+            kind="update",
+            topic_id="test-topic",
+            intent_id=update.intent_id,
+            pending_alias=update.pending_alias,
+            instruction="更新指令",
+            content="更新正文",
+            base_alias="base",
+            base_uuid=str(harness.memories["base"].id),
+        ),
+    ]
 
 
 @pytest.mark.asyncio
@@ -301,7 +312,7 @@ async def test_write_with_only_memory_write_registers_without_reading(single_ope
 
     stored = harness.registry.get(pending.pending_alias, access.default_workspace)
     assert stored.focus == WriteFocus(content="请求正文")
-    assert stored.status == PendingAtomStatus.PENDING
+    assert stored.status == PendingAtomStatus.MATERIALIZING
     assert stored.process_id == "process"
     assert stored.from_actor == ActorIdentity(user_id="test_user", agent_id="test_agent")
     assert stored.belong_to == access.default_workspace
@@ -327,7 +338,7 @@ async def test_update_with_only_memory_update_resolves_base_without_citation(
         base_uuid=str(harness.memories["base"].id),
         instruction="更新指令",
     )
-    assert stored.status == PendingAtomStatus.PENDING
+    assert stored.status == PendingAtomStatus.MATERIALIZING
     assert stored.process_id == "process"
     assert stored.from_actor == ActorIdentity(user_id="test_user", agent_id="test_agent")
     assert harness.registry.size == 1
@@ -426,7 +437,7 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
         assert harness.registry.size == 1
         assert (
             harness.registry.get(prior.pending_alias, access.default_workspace).status
-            == PendingAtomStatus.PENDING
+            == PendingAtomStatus.MATERIALIZING
         )
         assert harness.runtime.stats()["cold_reads"] == 0
         assert harness.citations == []
@@ -528,62 +539,6 @@ async def test_paired_operations_remain_independent_after_an_authorized_request(
         access.gateway.revoke_all_contexts()
 
 
-@pytest.mark.asyncio
-async def test_internal_cancel_without_operations_only_retracts_bound_process_pending_intents():
-    """内部撤回只需有效线程 context，不能撤回其他进程或已经交给物化流水线的记录。"""
-    access = make_access_composition([make_actor_access_record(allowed_operations=frozenset())])
-    harness = _OperationHarness(access=access)
-    thread_access = await _derive_thread(access)
-    actor = ActorIdentity(user_id="test_user", agent_id="test_agent")
-
-    def register(content, process_id):
-        return harness.registry.register_write(
-            WriteFocus(content=content),
-            belong_to=access.default_workspace,
-            from_actor=actor,
-            process_id=process_id,
-        )
-
-    materializing = register("已认领", "process")
-    harness.registry.claim_process("process")
-    own = register("本进程 PENDING", "process")
-    other = register("其他进程 PENDING", "other-process")
-    try:
-        cancelled = await harness.entry.execute(
-            CancelIntentsRequest(
-                (
-                    own.pending_alias,
-                    other.pending_alias,
-                    materializing.pending_alias,
-                    "missing",
-                    own.pending_alias,
-                )
-            ),
-            access=thread_access,
-        )
-
-        assert cancelled == [own.pending_alias]
-        assert (
-            harness.registry.get(own.pending_alias, access.default_workspace).status
-            == PendingAtomStatus.CANCELLED
-        )
-        assert (
-            harness.registry.get(other.pending_alias, access.default_workspace).status
-            == PendingAtomStatus.PENDING
-        )
-        assert (
-            harness.registry.get(materializing.pending_alias, access.default_workspace).status
-            == PendingAtomStatus.MATERIALIZING
-        )
-        assert harness.registry.size == 3
-        assert harness.owner_calls == []
-        assert harness.citations == []
-    finally:
-        harness.runtime.close()
-        access.gateway.close()
-        access.gateway.revoke_all_contexts()
-
-
 async def _process_context(access):
     """进程 context 只服务阶段调用，不能提交 actor 请求。"""
     return await access.authenticate(binding=RunBinding.for_task_process("p"))
@@ -604,7 +559,7 @@ async def _revoked_thread(access):
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "operation_request,_operation",
-    [*_request_cases(), pytest.param(CancelIntentsRequest(("pending",)), None, id="cancel")],
+    _request_cases(),
 )
 @pytest.mark.parametrize(
     "make_context,error",
@@ -696,7 +651,7 @@ async def test_inflight_read_finishes_after_thread_context_revocation(operation_
 
 
 class _WriteAwaitingBeforeReturn(ActorMemoryService):
-    """真实能力服务，只在 WRITE 登记后、返回入口前插入一次等待，验证统一返回复查。"""
+    """真实能力服务，只在 WRITE 登记后、返回入口前插入一次等待，验证接纳不随线程撤销回滚。"""
 
     def __init__(self, *args, started: asyncio.Event, release: asyncio.Event, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -711,10 +666,10 @@ class _WriteAwaitingBeforeReturn(ActorMemoryService):
 
 
 @pytest.mark.asyncio
-async def test_write_returning_after_revocation_is_withdrawn_without_cancelling_caller(
+async def test_write_returning_after_revocation_preserves_admitted_intent(
     operation_setup,
 ):
-    """WRITE 与 UPDATE 同样在返回入口后复查线程 context：返回期间线程撤销，已登记意图被撤回。"""
+    """WRITE 已被接纳后线程撤销，不撤回已派发的意图。"""
     harness, access = operation_setup
     started = asyncio.Event()
     release = asyncio.Event()
@@ -723,6 +678,7 @@ async def test_write_returning_after_revocation_is_withdrawn_without_cancelling_
             harness.bus,
             operation_authorizer=access.authorizer,
             memory_reader=harness.runtime.aliases,
+            dispatch_topics=access.thread_spawner,
             started=started,
             release=release,
         ),
@@ -732,7 +688,6 @@ async def test_write_returning_after_revocation_is_withdrawn_without_cancelling_
             thread_spawner=access.thread_spawner,
         ),
         operation_authorizer=access.authorizer,
-        intent_registry=harness.registry,
     )
     thread_access = await _derive_thread(access)
     task = asyncio.create_task(
@@ -745,12 +700,12 @@ async def test_write_returning_after_revocation_is_withdrawn_without_cancelling_
         access.gateway.revoke_thread_context(thread_access)
         assert task.cancelling() == 0
         release.set()
-        with pytest.raises(ThreadContextRevokedError, match="revoked"):
-            await asyncio.wait_for(task, timeout=2)
-
-        # 登记确实发生过，但已不再是可被 completed 认领的 PENDING。
+        pending = await asyncio.wait_for(task, timeout=2)
         assert harness.registry.size == 1
-        assert harness.registry.claim_process("process") == []
+        assert (
+            harness.registry.get(pending.pending_alias, access.default_workspace).status
+            == PendingAtomStatus.MATERIALIZING
+        )
     finally:
         release.set()
         if not task.done():

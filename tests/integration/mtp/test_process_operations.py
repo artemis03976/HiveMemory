@@ -35,7 +35,7 @@ async def test_write_ack_can_be_read_in_next_process_and_redirect_after_settleme
     )
     assert write.response_status == "ack"
     alias = write.pending_alias
-    (task,) = harness.registry.claim_process("first")
+    task = harness.registry.get(alias, make_identity_scope().workspace_identity)
     assert task.pending_alias == alias
 
     next_scope = make_runtime_scope(run_id="second", agent_id="another_agent")

@@ -23,6 +23,7 @@ from hivememory.workspace.contracts import (
     ThreadOperationSubmitter,
 )
 from hivememory.workspace.runtime import WorkspaceRuntime
+from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -82,6 +83,7 @@ class OperationsHarness:
         # 缺省认证声明独立于 CPU 观测标签；自定义身份必须显式签发提交函数。
         self.default_scope = make_identity_scope()
         self.bus = bus or GlobalSystemBus()
+        self.admission = install_intent_admission(self.bus)
         self.citations: list[dict] = []
         if bus is None:
             self.bus.register(PatchouliRoutes.RECORD_MEMORY_CITATION, self._record_citation)
@@ -89,7 +91,7 @@ class OperationsHarness:
         self.runtime = WorkspaceRuntime(backing=self.backing, atom_capacity=32, profile_capacity=16)
         self.registry = self.runtime.intents
         self.memories = self.backing.memories
-        self._compositions = {}
+        self.compositions = {}
         empty_access = make_access_composition([])
         self.entry = self.make_entry(
             operation_authorizer or empty_access.authorizer,
@@ -109,6 +111,7 @@ class OperationsHarness:
                 self.bus,
                 operation_authorizer=operation_authorizer,
                 memory_reader=self.runtime.aliases,
+                dispatch_topics=thread_spawner,
             ),
             agent=ActorAgentService(
                 operation_authorizer=operation_authorizer,
@@ -116,7 +119,6 @@ class OperationsHarness:
                 thread_spawner=thread_spawner,
             ),
             operation_authorizer=operation_authorizer,
-            intent_registry=self.registry,
         )
 
     async def submitter(
@@ -156,14 +158,14 @@ class OperationsHarness:
             workspace=workspace,
             binding=RunBinding.for_task_process(process_id),
         )
-        self._compositions.setdefault(process_id, []).append(composition)
+        self.compositions.setdefault(process_id, []).append(composition)
         entry = self.make_entry(composition.authorizer, composition.thread_spawner)
         thread_access = composition.register_main_thread(access)
         return ThreadOperationSubmitter(entry, thread_access)
 
     def revoke(self, process_id: str = "test_run") -> None:
         """同步撤销测试进程的全部线程 context，不取消调用方任务。"""
-        for composition in self._compositions.pop(process_id, []):
+        for composition in self.compositions.pop(process_id, []):
             process = composition.process_table.get(process_id)
             composition.thread_spawner.revoke_threads(process.working_set)
             composition.gateway.invalidate_context(process.record.access)

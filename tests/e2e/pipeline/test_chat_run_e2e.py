@@ -4,7 +4,7 @@
 驱动真实 HiveMemorySystem（真实 LLM + Qdrant）经 TaskProcessService 统一入口，
 验证 v4「一次 chat 调用 = gateway → prepare(检索) → agent run → finalize(记忆落库)」完整闭环：
 - chat(): 非流式完整闭环，finalize 后记忆真实落库 Qdrant
-- chat(): MTP WRITE 主动生成路径（materialize_tasks → submit_active → 确定性落库）
+- chat(): MTP WRITE 主动生成路径（memory_intent.submit → submit_active → 确定性落库）
 - chat_stream(): 完整事件序列契约（process_id → topic_info → memory_refs → 运行期 → run_status → done）
 - 检索注入：预埋记忆后 chat，memory_refs 携带引用
 
