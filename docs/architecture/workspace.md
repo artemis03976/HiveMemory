@@ -82,7 +82,7 @@ Workspace 的架构意义是一个稳定的资源归属与访问边界，而不�
 
 `SystemAssembler` 是组合根。它创建全局运行时和注册表，再装配 Gateway、Patchouli、Alice、workspace 设施（认证网关、认证一侧与操作授权者、能力层、读取视图、AssetStore、任务进程表与 chat 任务进程编排）以及其余应用服务；`HiveMemorySystem` 只持有这张组件图、作为入口使用的门面并负责启停。Workspace 语义横跨这些边界，但不取得任何子系统的领域所有权：
 
-workspace 的 `contracts` 子包是其他 L3 子系统可以导入的唯一入口（分层规则只允许 L3 子系统之间导入对方的 `contracts`）。它定义 CPU 输入与结果、CPU 端口，以及操作请求、单一操作入口与提交函数协议，只依赖 `core` 与本包公共契约，由 `tests/unit/workspace/test_import_boundaries.py` 守护；workspace 中 `process` 以外的模块不得导入 `process`。
+workspace 的 `contracts` 子包是其他 L3 子系统可以导入的唯一入口（分层规则只允许 L3 子系统之间导入对方的 `contracts`）。它定义 CPU 输入与结果、CPU 端口，以及操作请求、单一操作入口与提交函数协议，只依赖 `core` 与本包公共契约，由 `tests/unit/workspace/test_import_boundaries.py` 守护；workspace 中 `process` 以外的模块不得导入 `process`：root API 的请求不建进程，能力层与共享设施必须在没有进程时同样可用，因此不能依赖进程。
 
 ```mermaid
 flowchart TB
@@ -328,6 +328,8 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 | `RootMemoryTaskService` | `list_memory_tasks`、`get_memory_task`、`cancel_memory_task` |
 | `RootWorkspaceAssetService` | `upload_asset` |
 
+**System 层面的 API**：模型、Provider、配置、运行时事件与日志与 Workspace 资源无关，HTTP 路由直接经门面调用 System 的注册表与服务，不经认证网关、root API 或操作授权。workspace 只负责与 Workspace 资源相关的请求。
+
 两种读取视角因此分属两个 API 面：
 
 | | actor 读取（actor API） | 管理读取（root API） |
@@ -392,7 +394,7 @@ work queue、ordering/idempotency key、task/run registry、scheduler、runtime 
 1. **事实源按 ownership 寻址与校验**：跨子系统的 WorkspaceAssetStore 等事实源以 `WorkspaceIdentity` 参与资源复合键，在最终边界校验归属；
 2. **派生视图按派生源坐标键控**：workspace 的完整原子缓存按 `(WorkspaceIdentity, memory_id)` 寻址并维护 alias 索引，Profile 缓存按 `(WorkspaceIdentity, agent_alias)` 寻址，随条目保存源原子 policy 与 UUID。命中后对当前发起者逐次授权，不缓存授权结论；保存与交付均复制嵌套可变对象。主进程与 CALL 目标都经同一个 `ProfileResolver` 读取并按当前发起者检查源原子可见性：主进程 Profile 由 CPU 分配在阶段授权后读取，CALL 目标经 actor API 先检查 `agent.call`，内置 Profile 同样检查。
 
-canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.lifecycle` 动态状态的 patch 不发布，缓存原子的统计值可能较旧）；workspace 依次失效原子及 alias、失效源原子的 Profile 条目、推进 Workspace 代次。冷读开始与回填前比较代次，避免旧值在变更后重新进入缓存。通知只携带资源引用，不回放值，不做未送达补齐或重试。语义检索能力预热完整原子缓存，MTP SEARCH 经该能力获得同样行为；prepare 的检索结果不预热。
+canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.lifecycle` 动态状态的 patch 不发布，缓存原子的统计值可能较旧）；workspace 依次失效原子及 alias、失效源原子的 Profile 条目、推进 Workspace 代次。冷读开始与回填前比较代次，避免旧值在变更后重新进入缓存。通知只携带资源引用，不回放值，不做未送达补齐或重试。发布在提交调用内联完成，订阅者只做纯内存的失效与代次推进，不回填也不调用外部：提交返回时缓存已不可能命中旧值，订阅者也没有会失败而留下过期条目的步骤。读取视图只负责引用定位、交付授权与缓存，不做检索排序、去重或内容解释，也没有写路径；语义检索与正式状态仍在 Patchouli，workspace 不成为第二个记忆库。语义检索能力预热完整原子缓存，MTP SEARCH 经该能力获得同样行为；prepare 的检索结果不预热。
 
 ### 5.4 写入意图、线程 context 与操作入口
 
