@@ -15,7 +15,7 @@ code_paths:
   - src/hivememory/core/access.py
   - src/hivememory/server/models/chat.py
 related_docs:
-  - docs/ideas/workspace-network-task-process-architecture.md
+  - docs/ideas/fifth-generation-architecture.md
   - docs/ideas/identity-and-access-model.md
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
@@ -30,9 +30,11 @@ last_reviewed: 2026-10-11
 
 ## 0. 文档性质
 
+> 2026-10-13：文中的“总 Idea”指《Workspace 网络与任务进程架构》Idea，所引节号与问题编号对应其 commit `6add90f` 版本；该 Idea 已重写为[第五代架构 Idea](./fifth-generation-architecture.md)，仍开放的架构级问题（P-1、P-3、P-4a、P-5、P-7–P-10a、M-4）保留原编号。
+
 本文讨论任务进程内“谁在执行、谁发起操作”的分层：执行单元（CPU）与执行线程（actor）、CPU 驱动与 harness 实例、操作适配器与请求入口，以及 agent 与执行环境的关系。
 
-- 2026-10-06 由[总 Idea](./workspace-network-task-process-architecture.md)第四部分拆出；前提编号（1–10）与问题编号（T-1–T-8）不变，总 Idea 与其他文档提到“第四部分”及这些编号时，均指本文。拆出时只把章节号改为本文的编号、把指向总 Idea 的引用改写为“总 Idea X”，并补充同日的两项决定：T-7、T-8 不在 v0.7.0（第 5 节），以及写入意图迁移第 1 步对回调通道的依赖（T-4）。
+- 2026-10-06 由原总 Idea（现[第五代架构 Idea](./fifth-generation-architecture.md)）第四部分拆出；前提编号（1–10）与问题编号（T-1–T-8）不变，其他文档提到“第四部分”及这些编号时，均指本文。拆出时只把章节号改为本文的编号、把指向总 Idea 的引用改写为“总 Idea X”，并补充同日的两项决定：T-7、T-8 不在 v0.7.0（第 5 节），以及写入意图迁移第 1 步对回调通道的依赖（T-4）。
 - 总 Idea 的章节在本文中写作“总 Idea X”，例如“总 Idea 15.5”；身份数据的界定以[身份与访问体系 Idea](./identity-and-access-model.md)为准，外部 harness 的接入以[外部 Actor Idea](./external-actor-registration-and-runtime-access.md)为准。
 - 版本归属：T-1a、T-1b、T-2a、T-3、T-4、T-5a、T-9 服务于 v0.7.0 的 Alice 迁移（总 Idea 15.5）；T-7、T-8（执行环境的选择）不在 v0.7.0，见第 5 节。
 - 前提是 owner 提出的出发点；已完成的问题注明决定日期与实施状态；未完成的问题只列出选项及其影响，不替 owner 作出选择，选项顺序不代表倾向；分析均标注为分析。
@@ -368,7 +370,7 @@ T-7、T-8 不在 v0.7.0（owner，2026-10-06）：v0.7.0 只有 Alice 一个执�
 
 | 文档 | 关系 |
 |:---|:---|
-| [总 Idea](./workspace-network-task-process-architecture.md) | 本文原为其第四部分；Alice 的能力层调用迁移（15.5）、Profile 权限并入 operation 控制（15.4）、与写入意图迁移的先后（P-11）与能力层为 MTP 补齐的接口（P-12）在总 Idea 维护 |
+| [第五代架构 Idea](./fifth-generation-architecture.md) | 本文原为其前身的第四部分，承担第 3.3 节“执行者可以替换”的设计讨论；Alice 的能力层调用迁移、Profile 权限并入 operation 控制等决定已实施，原记录见 commit `6add90f` |
 | [身份与访问体系 Idea](./identity-and-access-model.md) | 访问 context 的界定；T-2 使运行绑定细化到线程，I-8 与 `RunBinding` 在实施时修订；T-4 决定 I-9 的删除 |
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | CPU 端口与 CPU 分配（1.2）；Q-10 由 T-1、T-2 满足 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | 操作适配器的定义（3.4，2026-10-09 起只产出操作请求，见 T-9）；harness 登记的两个侧面（1.2）；外部执行单元不识别子线程（E-5）；外部 harness 是执行环境（E-6a） |

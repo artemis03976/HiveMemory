@@ -7,7 +7,7 @@ superseded_by: docs/alice/mtp-runtime.md
 owner: project
 scope: legacy-kernel-naming-cleanup
 related_docs:
-  - docs/ideas/workspace-network-task-process-architecture.md
+  - docs/ideas/fifth-generation-architecture.md
   - docs/contracts/mtp.md
   - docs/alice/mtp-runtime.md
   - docs/frontend/chat-view.md

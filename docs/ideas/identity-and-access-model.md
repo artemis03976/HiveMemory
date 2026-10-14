@@ -19,7 +19,7 @@ code_paths:
   - src/hivememory/patchouli/
   - src/hivememory/engines/
 related_docs:
-  - docs/ideas/workspace-network-task-process-architecture.md
+  - docs/ideas/fifth-generation-architecture.md
   - docs/archive/plans/v0.7.0-a1-access-boundary-rework.md
   - docs/archive/plans/v0.7.0-identity-access-batch-2.md
   - docs/todo/workspace-asset-ownership-identity-split.md
@@ -41,9 +41,11 @@ last_reviewed: 2026-10-12
 
 ## 0. 文档性质
 
+> 2026-10-13：文中的“总 Idea”指《Workspace 网络与任务进程架构》Idea，所引节号与问题编号对应其 commit `6add90f` 版本；该 Idea 已重写为[第五代架构 Idea](./fifth-generation-architecture.md)，仍开放的架构级问题（P-1、P-3、P-4a、P-5、P-7–P-10a、M-4）保留原编号。
+
 owner 于 2026-10-03 决定把身份与访问作为一个独立的体系，在本文集中讨论。起因是 A1 返工的实现暴露出两个现象：访问 context 只剩 `IdentityScope` 一个字段；代码里 `identity_scope` 与 `access` 两个身份字段随意混用。这说明 A1 交付时建立的权限体系与身份之间的边界是错的。这本应是一个独立且复杂的体系，但鉴于 A1 的错误实现，需要在 v0.7.0 内正式建立，否则后续漂移会更严重。
 
-- **与总 Idea 第三部分的分工**：[总 Idea](./workspace-network-task-process-architecture.md)第三部分讨论认证与授权的流程（两阶段认证、能力层操作授权、管理员直接通道、P-1–P-10）；本文界定在这些流程中流动的身份数据：actor 身份、访问 context、`IdentityScope` 与资源归属分别是什么、在哪里产生、可以流向哪里。两者冲突时，身份数据的界定以本文为准。
+- **与第五代架构 Idea 的分工**：[第五代架构 Idea](./fifth-generation-architecture.md)第 3.5 节与第 5 节讨论认证与授权的理念和架构级开放问题（P-1、P-4a、P-7–P-9）；本文界定在这些流程中流动的身份数据：actor 身份、访问 context、`IdentityScope` 与资源归属分别是什么、在哪里产生、可以流向哪里。两者冲突时，身份数据的界定以本文为准。
 - **阅读方式**：
   - 第 1–5 节保留身份模型的决定背景，当前事实由 [Workspace 架构](../architecture/workspace.md)第 4 节维护；资源归属与发起者拆分已随第二批落地，资产暂缓边界另行跟踪；
   - 第 6 节是第二批收尾后的现状摘要，只为解释下文决定提供背景，详细事实以当前设计文档、代码和测试为准；
@@ -386,7 +388,7 @@ PR #96（`Refactor/identity cleanup`，commit `37a5329`，对应[已归档的记
 
 - 所有非主动写入的路径都以 `system` 作为发起者结算：这些路径中本来就没有任何 agent 的主动意图；参与过工作的 agent 只记录在 `contributing_agent_ids` 中。
 - 当前实现中，非主动路径得到的记忆都以 PUBLIC 开放，查重同样只在 PUBLIC 内进行。以 `system` 为发起者即满足这一点：policy 拒绝把 `system` 作为 PRIVATE 的 target，`system` 的 `team_id` 为 `None`（6.7，分析）。
-- 补充（2026-10-10）：`system` 同时是唯一的 root 角色，管理员能力只对它开放（[总 Idea](./workspace-network-task-process-architecture.md#1512-能力层分为-root-api-与-actor-api) 15.12）。分析：两种用法不冲突的前提是各自限定在不同的入口：非主动路径以 `system` 为发起者时仍按 actor 可见性语义（只在 PUBLIC 内）；root 对整个 workspace 的视角只存在于 root API。root 的判定属于第 3 阶段授权，不写进身份类型（不变量 6）。
+- 补充（2026-10-10）：`system` 同时是唯一的 root 角色，管理员能力只对它开放（[Workspace 架构](../architecture/workspace.md)第 4.5 节）。分析：两种用法不冲突的前提是各自限定在不同的入口：非主动路径以 `system` 为发起者时仍按 actor 可见性语义（只在 PUBLIC 内）；root 对整个 workspace 的视角只存在于 root API。root 的判定属于第 3 阶段授权，不写进身份类型（不变量 6）。
 - 发起者作为后台任务的字段携带（I-6 的 `from_actor`），不在 Patchouli 内部组装 `IdentityScope`。
 
 主动的 WRITE、UPDATE 仍以提交写入意图的 actor 为发起者（现状）。管理写入由用户经直接通道显式指定 policy，不属于非主动生成路径（分析）。
@@ -417,7 +419,7 @@ owner 于 2026-10-03 决定：建立独立 Idea；`IdentityScope` 名称保留�
 
 | 文档 | 关系 |
 |:---|:---|
-| [总 Idea](./workspace-network-task-process-architecture.md)第三部分 | 认证与授权的流程与待决问题（P-1、P-4a、P-9 等）在那里；本文界定其中流动的身份数据 |
+| [第五代架构 Idea](./fifth-generation-architecture.md)第 3.5 节、第 5 节 | 认证与授权的理念与待决问题（P-1、P-4a、P-9 等）在那里；本文界定其中流动的身份数据 |
 | [执行单元 Idea](./execution-unit-thread-and-environment.md) | 执行单元（CPU）与执行线程（actor）的分层；T-1、T-2 涉及本文第 2 节、I-1 与 I-8，T-4 涉及 I-9 |
 | [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)（已归档） | 第一批的实施计划 |
 | [v0.7.0 身份与访问体系第二批](../archive/plans/v0.7.0-identity-access-batch-2.md)（已归档） | 第二批的实施历史与本地验收证据 |

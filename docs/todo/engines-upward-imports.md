@@ -8,7 +8,7 @@ code_paths:
   - src/hivememory/engines/
   - src/hivememory/patchouli/memory_library/
 related_docs:
-  - docs/ideas/workspace-network-task-process-architecture.md
+  - docs/ideas/fifth-generation-architecture.md
 last_reviewed: 2026-10-13
 ---
 
@@ -27,7 +27,7 @@ last_reviewed: 2026-10-13
 
 | 方式 | 内容 | 影响 |
 |:---|:---|:---|
-| 下移 | 把被导入的模型或协议下移到 L0/L1 | 需要区分存储实现与可以下移的协议、模型；与 core 的内容整理相互约束（[Workspace 网络与任务进程架构 Idea](../ideas/workspace-network-task-process-architecture.md)第 10 节） |
+| 下移 | 把被导入的模型或协议下移到 L0/L1 | 需要区分存储实现与可以下移的协议、模型；与 core 的内容整理相互约束（[第五代架构 Idea](../ideas/fifth-generation-architecture.md)第 5 节 C） |
 | 上移 | 把相关 engines 模块上移到对应子系统 | engines 不再承载这些算法，子系统内部职责变重 |
 | 端口 | 由 engines 定义端口，子系统实现并注入 | 每处需要一个端口定义 |
 
@@ -39,6 +39,6 @@ last_reviewed: 2026-10-13
 
 ## 追踪
 
-- 2026-09-26：包分层实施时登记为已知例外，原记录于 Workspace 网络与任务进程架构 Idea 第 10 节；
+- 2026-09-26：包分层实施时登记为已知例外，原记录于第五代架构 Idea 的前身（《Workspace 网络与任务进程架构》Idea）第 10 节；
 - 2026-10-07：`engines/memory_compiler` 对 `agent_runtime.aliases` 的 2 处导入随引用解析迁入 workspace 删除；
 - 2026-10-13：随该 Idea 重写转为本 Todo，未绑定版本或 Issue。

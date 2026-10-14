@@ -9,7 +9,7 @@ code_paths:
   - src/hivememory/server/routers/ingest.py
 related_docs:
   - docs/system/passive-ingress.md
-  - docs/ideas/workspace-network-task-process-architecture.md
+  - docs/ideas/fifth-generation-architecture.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ROADMAP.md
 last_reviewed: 2026-10-13

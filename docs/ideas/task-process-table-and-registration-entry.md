@@ -11,7 +11,7 @@ code_paths:
   - src/hivememory/agent_runtime/runtime.py
   - src/hivememory/workspace/intents/
 related_docs:
-  - docs/ideas/workspace-network-task-process-architecture.md
+  - docs/ideas/fifth-generation-architecture.md
   - docs/ideas/ae2-hivememory-architecture-analogy.md
   - docs/ideas/chat-run-lifecycle-follow-ups.md
   - docs/ideas/external-session-and-topic-projection.md
@@ -25,11 +25,13 @@ last_reviewed: 2026-10-13
 # 任务进程表与任务请求唯一注册入口
 
 **文档状态**：Idea，未形成实施承诺；本方向在 v0.7.0 内的批次已全部实施
-**记录日期**：2026-09-27，内容自 [Workspace 网络与任务进程架构](./workspace-network-task-process-architecture.md)第一部分拆出；2026-10-04 按“已完成 / 未完成”重新整理
+**记录日期**：2026-09-27，内容自原《Workspace 网络与任务进程架构》Idea（现[第五代架构 Idea](./fifth-generation-architecture.md)）第一部分拆出；2026-10-04 按“已完成 / 未完成”重新整理
 
 ## 0. 文档性质
 
-owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”定为 v0.7.0 的首个计划方向，本文是它的集中讨论载体，本身不是 Plan。v0.7.0 的范围（M-5）、迁移方式（M-1）与首条迁移流程（M-3，Alice 的 chat 链路）见总 Idea [第 5 节](./workspace-network-task-process-architecture.md#5-第一部分已完成的问题)。
+> 2026-10-13：文中的“总 Idea”指《Workspace 网络与任务进程架构》Idea，所引节号与问题编号对应其 commit `6add90f` 版本；该 Idea 已重写为[第五代架构 Idea](./fifth-generation-architecture.md)，仍开放的架构级问题（P-1、P-3、P-4a、P-5、P-7–P-10a、M-4）保留原编号。
+
+owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”定为 v0.7.0 的首个计划方向，本文是它的集中讨论载体，本身不是 Plan。v0.7.0 的范围见 [ROADMAP](../ROADMAP.md)，迁移方式见[第五代架构 Idea](./fifth-generation-architecture.md)第 1 节；首条迁移流程为 Alice 的 chat 链路（owner，2026-09-27）。
 
 - **来源**：内容自总 Idea 第一部分拆出（原前提 2.2、现状事实 3.1/3.2/3.5、流程图 4.2–4.4 与问题 Q-1–Q-10、Q-14），问题编号沿用原编号。全局拓扑、Import Bus（Q-11–Q-13）、迁移问题（M-1–M-7）与认证授权（第三部分）仍在总 Idea，关联见第 5 节。
 - **阅读方式**：
@@ -55,7 +57,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 
 ## 1. 前提（owner 提出）
 
-类比映射见总 Idea [第 2.1 节](./workspace-network-task-process-architecture.md#21-类比映射)：Workspace 对应 ME 网络，Patchouli 对应存储系统，任意 Actor 对应合成 CPU，一次任务请求对应一个任务进程。
+类比映射见[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节：Workspace 对应 ME 网络，Patchouli 对应存储系统，任意 Actor 对应合成 CPU，一次任务请求对应一个任务进程。
 
 1. 运行一个任务，需要为它保留一个“合成进程”；CPU 在进程内工作。
 2. CPU 必须在 Workspace 的一个集中区域里工作，但这件事不由单一的 runtime 环境承担。原先把 Workspace runtime 当作 CPU 真实工作区的观念是半对半错。
@@ -73,7 +75,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 | 被动请求（Passive） | 由条件触发；用户设定之后不再主动发出请求 | 最常见的是定时任务与队列任务 |
 
 - **区分标准是“即时”**：进程在用户指令到达的那一刻创建，即为主动请求；否则为被动请求。队列任务虽由用户提交，但进程要等条件满足时才创建，因此属于被动请求。
-- **术语**：“被动（Passive）”一词保留给被动请求体系。现有的 Passive Ingress 链路不是请求方，总 Idea 称其为 Import Bus；它已排除在现有系统之外（总 Idea [5.8](./workspace-network-task-process-architecture.md#58-import-bus-移出现有系统)）。
+- **术语**：“被动（Passive）”一词保留给被动请求体系。现有的 Passive Ingress 链路不是请求方，现称 Import Bus；它不在核心拓扑上，作为独立功能重新设计（[Import Bus Idea](./import-bus.md)）。
 - 请求方类别与执行者（CPU）是两个维度：controller 模式下，请求方是在 HiveMemory 入口发出指令的用户，外部 harness 是 CPU；plugin 模式下的对话不经注册入口（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。
 - 现状：注册入口只接收主动请求（Alice 的 chat 链路）；被动请求这一阶段不考虑（Q-6）。
 
@@ -150,7 +152,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 
 | 迁移前对象 | 去向 |
 |:---|:---|
-| `ChatGenerationRunRegistry` | 进程表 `ProcessTable`，位于 workspace 的 `process` 子包（总 Idea [D-9](./workspace-network-task-process-architecture.md#d-9-chat-编排与-chat-run-注册表的最终归属)） |
+| `ChatGenerationRunRegistry` | 进程表 `ProcessTable`，位于 workspace 的 `process` 子包（当前事实见 [System 应用服务](../system/application-services.md)第 4 节） |
 | `ChatGenerationRun` | 进程记录 `ProcessRecord` |
 | `interaction_id` / `generation_id` 作为进程标识的用法 | 由 `process_id` 取代（Q-16） |
 | `PreparedAgentRun` | 拆散：附件租借进入工作集；记忆原子、编译后的记忆与附件文本进入 CPU 输入清单；`AgentRunContext` 中编译好的记忆文本改由进程编译；`StreamPrelude` 改由进程从自身状态推导；`PreparedAgentRun` 不再回传用户消息与 GatewayDecision，两者由进程自己持有 |
@@ -174,7 +176,7 @@ owner 于 2026-09-27 将“任务进程表与任务请求唯一注册入口”�
 - **交互记录由进程组装**（owner，2026-09-29）：进程组装最终的交互记录 `InteractionPayload` 交给结算阶段，结算阶段不再接收 `AgentRunResult`（版本目标第 1 条）。ActionReducer 与 TraceReducer 位于 core，进程调用它们归约轨迹不形成第二套规则；被动链路也由提交方（System 的 turn buffer）自行组装 `InteractionPayload`。`PendingAtomMaterializeTask` 继续存在，在写入意图的实时派发实现之前，`InteractionPayload` 仍携带 `materialize_tasks`。
 - 写入意图改为经能力层实时提交之后，结算阶段只提交交互记录与相应的衍生内容，随后关闭进程（Q-1）。
 
-**v0.7.0 版本目标**（owner，2026-09-28；记录见总 Idea [5.4](./workspace-network-task-process-architecture.md#54-m-5-v070-的范围与版本目标)）：
+**v0.7.0 版本目标**（owner，2026-09-28；作为检验问题收入[第五代架构 Idea](./fifth-generation-architecture.md)第 3.2、3.3 节）：
 
 | 目标 | 状态 |
 |:---|:---|
@@ -436,7 +438,7 @@ flowchart TB
 
 **状态**：已完成。2026-09-28 决定；进程封口并只在 completed 时提交已实施（第三批），携带 Topic 路由决定提交未实施（外部会话方向）。
 
-**问题**：Active finalize 与 Passive Ingress 共用同一提交队列（总 Idea [3.4](./workspace-network-task-process-architecture.md#34-统一的交互提交队列)）。进程是自行封口并提交交互记录，还是把执行轨迹交给 Import Bus、自身只读取与提交写入意图？
+**问题**：Active finalize 与 Passive Ingress 共用同一提交队列（[被动对话摄入](../system/passive-ingress.md)第 3 节）。进程是自行封口并提交交互记录，还是把执行轨迹交给 Import Bus、自身只读取与提交写入意图？
 
 **设计**：进程自行封口并提交交互记录。
 
@@ -446,7 +448,7 @@ flowchart TB
 - 写入意图改为实时提交后，结算阶段只提交交互记录与衍生内容（Q-1），`materialize_tasks` 随写入意图迁移第 2 步移出交互载荷；
 - 提交时携带 Topic 路由决定，Topic 在提交后按需创建（1.2）；现有排序键以 `topic:{topic_id}` 生成，新建 Topic 的交互在提交时还没有 topic_id，需要随外部会话方向处理。（2026-10-13 保留预建后，提交时话题已存在，排序键沿用 `topic:{topic_id}`。）
 
-**取舍**：经 Import Bus 提交的方案依赖 Import Bus 向提交方返回可等待的 applied 回执；Import Bus 已排除在现有系统之外（总 Idea [5.8](./workspace-network-task-process-architecture.md#58-import-bus-移出现有系统)），该方案不成立。“同一 harness 同时以 plugin 模式上报对话、又以 controller 模式运行任务进程时重复记录”的问题，留待 plugin 模式设计时处理。
+**取舍**：经 Import Bus 提交的方案依赖 Import Bus 向提交方返回可等待的 applied 回执；Import Bus 不在核心拓扑上（[Import Bus Idea](./import-bus.md)），该方案不成立。“同一 harness 同时以 plugin 模式上报对话、又以 controller 模式运行任务进程时重复记录”的问题，留待 plugin 模式设计时处理。
 
 #### Q-15 各阶段取消策略的声明方式
 
@@ -458,7 +460,7 @@ flowchart TB
 
 - 统一在 Actor 执行开始前检查一次取消请求并响应：在预检索、取得附件租借、CPU 分配期间收到的取消请求，在这里生效；结算阶段不可取消（`already_finalizing`）；
 - 外部取消请求必须带明确的 `process_id`，指明取消哪个任务进程；
-- 只有用户有权取消，入口是唯一的 HTTP server 入口（总 Idea [15.10](./workspace-network-task-process-architecture.md#1510-进程控制取消与记忆任务路由)）；客户端断开时 server 路由发起的取消也经这一入口；
+- 只有用户有权取消，入口是唯一的 HTTP server 入口（[System 应用服务](../system/application-services.md)第 4 节）；客户端断开时 server 路由发起的取消也经这一入口；
 - 分析：系统停机时，asyncio task 在任何阶段都会被取消，这不属于外部取消请求；进程容器在这条路径上仍要释放工作集中的资源（AGENTS.md 对 `CancelledError` 传播与资源释放的要求）。
 
 #### Q-16 进程标识与交互标识
@@ -494,7 +496,7 @@ flowchart TB
 
 #### Q-5b `PASSIVE_MEMORY` 模式的去留
 
-**背景**：Gateway 的 `PASSIVE_MEMORY` 模式只服务于 Import Bus（现有 Passive Ingress 链路）。它的去留取决于总 Idea 的 [Q-11](./workspace-network-task-process-architecture.md#q-11-import-bus-交互的-topic-落位) 与 [Q-12](./workspace-network-task-process-architecture.md#q-12-import-bus-交互的价值信号worth_saving)；Import Bus 不在 v0.7.0 范围（总 Idea 5.8）。
+**背景**：Gateway 的 `PASSIVE_MEMORY` 模式只服务于 Import Bus（现有 Passive Ingress 链路）。它的去留取决于 [Import Bus Idea](./import-bus.md) 的 Q-11 与 Q-12；Import Bus 不在核心拓扑上，作为独立功能重新设计。
 
 #### Q-7（剩余）进程表是否收录后台任务
 
@@ -518,16 +520,16 @@ flowchart TB
 
 | 问题 | 位置 | 与本文的关系 |
 |:---|:---|:---|
-| P-1 经网络接入的 Actor 如何证明身份 | 总 Idea [15.2](./workspace-network-task-process-architecture.md#152-每次请求重新校验身份p-1a)、[第 16 节](./workspace-network-task-process-architecture.md#p-1-经网络接入的-actor每次请求如何证明身份) | P-1a 已完成：每次请求重新校验身份；P-1b、P-1c 未决，与 Q-8 相关 |
-| P-2、P-10 Agent Profile 的权限 | 总 Idea 15.4 | 已完成：Profile 的两个 allow 字段演变为能力层的 operation 控制；2026-10-06 决定单独建立计划实施，不随 Alice 的能力层调用迁移 |
-| P-4 进程级权限收窄与创建进程的授权 | 总 Idea 15.9、[第 16 节](./workspace-network-task-process-architecture.md#p-4-进程级权限收窄与创建进程的授权) | P-4b 已完成：不开放创建任务进程；P-4a 未决 |
-| P-5 CALL 与触发器的认证 | 总 Idea [第 16 节](./workspace-network-task-process-architecture.md#p-5-call-与触发器的认证) | 未决；P-5a 已并入执行单元 Idea T-3，与 Q-10 相关；P-5b/c 与 Q-6 相关；被动请求只存在于 controller 模式 |
+| P-1 经网络接入的 Actor 如何证明身份 | [第五代架构 Idea](./fifth-generation-architecture.md) P-1 | P-1a 已决定：每次请求重新校验身份（第 3.5 节）；P-1b、P-1c 未决，与 Q-8 相关 |
+| P-2、P-10 Agent Profile 的权限 | [MTP 契约](../contracts/mtp.md)第 4 节 | 已实施：权限只由访问登记的操作白名单表达，Profile 不承载权限（2026-10-11） |
+| P-4 进程级权限收窄与创建进程的授权 | [第五代架构 Idea](./fifth-generation-architecture.md) P-4a | P-4b 已决定：不开放创建任务进程；P-4a 未决 |
+| P-5 被动请求的认证 | [第五代架构 Idea](./fifth-generation-architecture.md) P-5 | 未决；原 P-5a 已并入执行单元 Idea T-3，与 Q-10 相关；P-5b/c 与 Q-6 相关；被动请求只存在于 controller 模式 |
 | T-1–T-6 执行单元与执行线程 | [执行单元 Idea](./execution-unit-thread-and-environment.md#4-已完成的问题) | T-1、T-2 已决定：子线程身份在派生时确定，派生到达进程，每个线程一份 context，满足 Q-10；T-6 已决定（CPU 只指执行单元）。T-1a、T-1b、T-2a、T-3（与 Q-10 相关）、T-4b、T-5a 已决定（2026-10-11；子线程以被调用方身份派生，由执行线程层实施）；未决：T-5b |
-| P-6 进程绑定 context 的失效时点 | 总 Idea 15.6 | 已完成并实施：context 与进程绑定，随进程关闭失效 |
-| P-7 进程控制操作的授权主体 | 总 Idea 15.10、[第 16 节](./workspace-network-task-process-architecture.md#p-7-进程控制操作的授权主体) | 取消已完成并实施（Q-15）；其余控制操作未决 |
-| P-9d 进程的定义 | 总 Idea 第 16 节 | 未决：管理员直接通道（方案 C）与前提第 3 条的关系 |
-| Q-11–Q-13 Import Bus | 总 Idea [6.2](./workspace-network-task-process-architecture.md#62-import-bus-的问题不在-v070) | 不在 v0.7.0；Q-14 进程不经 Import Bus 提交交互记录 |
-| M-1–M-7 迁移问题 | 总 Idea [第 5 节](./workspace-network-task-process-architecture.md#5-第一部分已完成的问题) | M-4 之外均已完成：按流程纵切，首条迁移流程为 Alice 的 chat 链路 |
+| P-6 进程绑定 context 的失效时点 | [Workspace 架构](../architecture/workspace.md)第 4.3 节 | 已实施：context 与进程绑定，随进程关闭失效 |
+| P-7 进程控制操作的授权主体 | [第五代架构 Idea](./fifth-generation-architecture.md) P-7 | 取消已实施（Q-15）；其余控制操作未决 |
+| P-9d 进程的定义 | [第五代架构 Idea](./fifth-generation-architecture.md) P-9d | 未决：root 直接通道与前提第 3 条的关系 |
+| Q-11–Q-13 Import Bus | [Import Bus Idea](./import-bus.md)第 4 节 | 不在 v0.7.0；Q-14 进程不经 Import Bus 提交交互记录 |
+| M-1–M-7 迁移问题 | [第五代架构 Idea](./fifth-generation-architecture.md)第 1 节、第 5 节 M-4 | 按流程纵切，首条迁移流程为 Alice 的 chat 链路；M-4 未决 |
 | 会话记录的设计 | [外部会话与 Topic 投影](./external-session-and-topic-projection.md) | Q-9 的承载者；Topic 不再承担上下文（1.2）；话题保留预建（2026-10-13） |
 | 写入意图 | [写入意图后续方向](./pending-intent-migration.md) | Q-1、Q-2：登记位于 workspace、与进程解耦、第一版不设 policy，已实施（[Workspace 架构](../architecture/workspace.md)第 5.4 节）；该 Idea 只保留后续方向 |
 | 外部 Actor 的接入与运行时访问 | [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两种接入模式：controller 模式（v0.7.1）使用本文的进程模型，plugin 模式（其后的 v0.7.x）不建进程；Q-8、Q-3b |
