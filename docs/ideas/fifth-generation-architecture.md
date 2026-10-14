@@ -184,6 +184,7 @@ flowchart TB
 **约束**：
 
 - 端口由 workspace 定义、执行者实现，workspace 不导入任何执行者；
+- 一个任务进程只对应一个执行单元：CALL 只能派生本执行单元能够运行的 actor（owner，2026-10-13，[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) E-6b）；
 - 执行者只拿到输入清单与绑定了线程 context 的提交函数，读不出 context，也不持有进程 context；
 - 观测标签只用于观测与提示词，不参与授权。
 
