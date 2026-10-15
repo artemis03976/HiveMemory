@@ -13,7 +13,7 @@ related_docs:
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # 外部会话消息的接收与 Topic 投影
@@ -32,7 +32,7 @@ last_reviewed: 2026-10-13
 - **Topic 与会话解耦**（owner，2026-09-28；预建部分 2026-10-13 改为保留，见本条末尾）：Topic 将与 conversation session 解耦，不再承担上下文，但仍是记忆生成的历史材料来源；conversation session 不是记忆的材料来源；任务进程不再预先创建临时话题，Gateway 的 Topic 路由决定跨阶段传递到结算，提交后依此按需创建 Topic（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1、Q-9）。本文第 3 节 Topic 的 working set 职责、第 4.3 节的 prepare 生命周期，以及第 8 节 Topic 生命周期事项中的预创建与条件清理，需要按此决定重新审视。（owner，2026-10-13）预建部分改为保留：将来对话流式同步到 Patchouli 时需要先有容器接收，话题是否预建随流式设计决定，“取消当前 Topic”与 `topic_info` 改为异步标注不依赖是否预建（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1）。
 - **对话上下文由 Session 提供**（owner，2026-09-28）：实际使用的对话上下文由 ConversationSession 提供，原样积累，不再由外界干涉；Topic 作为内部记忆生成的资料，Gateway 话题路由与 Topic 只为记忆生成服务。这是本文一开始就定下的前提（见下段与第 3 节）。第 3 节表中 ConversationSession“不负责模型工作集”一格需要按此修订。
 - **会话模型与 Topic 池**（owner，2026-09-28）：见 0.1。
-- 原计划中的“决定”“冻结”在本文中均为候选设计，不是已采纳的方案；原计划留待 A3-0 冻结的事项汇总为第 8 节的开放问题。例外：第 2.2 节的 `InteractionPayload` 是 owner 提出的共用提交模型，不是待选方案（owner，2026-09-28）；字段细节仍按第 8 节待定。
+- 原计划中的“决定”“冻结”在本文中均为候选设计，不是已采纳的方案；原计划留待 A3-0 冻结的事项汇总为第 8 节的开放问题（2026-10-15 重新梳理为 8.1 阻塞下一份计划的问题与 8.2 的搁置事项）。例外：第 2.2 节的 `InteractionPayload` 是 owner 提出的共用提交模型，不是待选方案（owner，2026-09-28）；字段细节仍按第 8 节待定。
 - 本文的 `ConversationSession` 是[任务进程 Idea](./task-process-table-and-registration-entry.md) Q-9 选项 B（保留独立的会话记录）的一种形态。2026-09-28 Q-9 已选 B：实际使用的对话上下文由 ConversationSession 提供；模型字段等细节仍是候选设计；主动进程的交互记录去向见同文 Q-14，Import Bus（现有 Passive Ingress 链路）交互的 Topic 落位见 [Import Bus Idea](./import-bus.md) Q-11，该链路不在 v0.7.0 范围。
 - 文中“A1”指已归档的 A1 访问边界（当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节）；原文提到的 A2、A5、A6 计划已作废删除，相关表述改为中性描述。
 
@@ -112,7 +112,7 @@ Session 不在事务上拥有 Topic，也不把 `session_id` 塞进 `ActorIdenti
 
 2026-09-23 归属确认（原边界宪章 §6.3，判据见 [ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)）：本节的 Session/Topic 切分即为宪章确认的归属——Session 是 workspace 归属的会话连续性真相源，Topic 是库对已提交素材的管护；短期记忆库的管辖权语义是"库已接收素材的接入暂存（intake buffer）"，不是 actor 可见记忆分层（命名是否随之调整待定）。由此得到四点确认：① 提交可靠性是过线契约，active finalize 的“Interaction applied 硬成功边界”与被动链的 InteractionSubmissionQueue 是该契约的现状形态，只指认、不重建（2026-09-28：任务进程在交互被提交队列接纳后即结束，不再等待 applied，见[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1）；② 结算触发（idle/LRU/shutdown）是库管理自身接入积压的库内事务，不改为由会话生命周期驱动，关闭 Session 不级联 Topic/Memory；③ Session 持封口 payload、Topic 持路由 blocks 的双份内容是接受的成本，不新增第三份；④ 短期库的管辖权语义如上。
 
-对外能力上，会话相关操作可归为三类：session 管理/读取、`interaction.submit`（InteractionPayload 提交）与 topic 资料读取；领域行为只在 Patchouli 领域实现维护，能力层不复制。原计划把这三类方法接入 `workspace/capability`，排在 A2 能力层骨架之后。现状（2026-10-12 核对）：能力层已分为只供 `system` 的 root API 与只有六项 actor 操作的 actor API，任务进程的阶段调用另经阶段授权（[Workspace 架构](../architecture/workspace.md)第 4.5 节）；交互提交目前是任务进程结算阶段经 Patchouli finalize 完成的阶段调用，被动链路由 System 直接提交到交互提交队列，都不是独立的能力层方法。三类操作各自放在哪个调用面，见第 8 节第 2 项。
+对外能力上，会话相关操作可归为三类：session 管理/读取、`interaction.submit`（InteractionPayload 提交）与 topic 资料读取；领域行为只在 Patchouli 领域实现维护，能力层不复制。原计划把这三类方法接入 `workspace/capability`，排在 A2 能力层骨架之后。现状（2026-10-12 核对）：能力层已分为只供 `system` 的 root API 与只有六项 actor 操作的 actor API，任务进程的阶段调用另经阶段授权（[Workspace 架构](../architecture/workspace.md)第 4.5 节）；交互提交目前是任务进程结算阶段经 Patchouli finalize 完成的阶段调用，被动链路由 System 直接提交到交互提交队列，都不是独立的能力层方法。三类操作各自放在哪个调用面，见第 8.1 节 S7a。
 
 ### 2.2 InteractionPayload：共同封口交互
 
@@ -137,7 +137,7 @@ InteractionPayload（演进现有模型）
 
 `interaction_id` 同时标识封口交互及其逻辑提交；同一次提交重试必须复用它。既有 envelope、公开结果与 apply journal 沿用同一值，不能各自产生新 ID；兼容参数与 payload 同时携带 ID 时须校验一致。`work_id` 仍是队列工作身份，外部 turn/event ID 和 execution reference 仍是来源关联，不与 interaction_id 互换。Session 顺序由可信 Session key 与交互 sequence 保证，不能继续简单使用 `topic:{topic_id}` 作为会话排序键；TurnEvent.sequence 则只表达交互内部顺序。
 
-开放段是 accumulator 的可变工作记录，公开提交的是封口后的不可变快照；保留类名不意味着保留当前模型的可变提交语义。`completion_state` 描述交互实际结束结果，`seal_reason` 描述为何封口，两者都不表示 Patchouli 已接纳。取消/失败也可有可保存内容，不应因没有成功 final reply 而丢弃全部记录。一份交互不硬性要求恰好一条 user 和一条 assistant；可包含多条消息或不完整工具事件。可信 scope 仍由 access/内部 envelope 承载，正文中的来源信息不能成为第二份授权身份。controller 模式下只有 completed 的进程提交交互记录（任务进程 Idea Q-14），其余取值的用途见第 8 节第 6 条。
+开放段是 accumulator 的可变工作记录，公开提交的是封口后的不可变快照；保留类名不意味着保留当前模型的可变提交语义。`completion_state` 描述交互实际结束结果，`seal_reason` 描述为何封口，两者都不表示 Patchouli 已接纳。取消/失败也可有可保存内容，不应因没有成功 final reply 而丢弃全部记录。一份交互不硬性要求恰好一条 user 和一条 assistant；可包含多条消息或不完整工具事件。可信 scope 仍由 access/内部 envelope 承载，正文中的来源信息不能成为第二份授权身份。controller 模式下只有 completed 的进程提交交互记录（任务进程 Idea Q-14），其余取值是否写入会话见第 8.1 节 S4。
 
 路由指令表达本次交互的处理意图；prepare handle（2026-09-28 起在 controller 模式下失去前提，见第 4 节开头）作为可选提交参数交接，不成为另一份正文或授权容器。其与 interaction_id、指令和幂等摘要的绑定方式待定（第 8 节）；无论采用哪种绑定，都要说明未接纳时如何显式重新准备；接纳结果未知或已经接纳时，须先定位原结果，不能以换 handle 为由改变既有路由。
 
@@ -332,28 +332,112 @@ RelayController 的新边界是 Topic working set 的折叠器：管理 Topic �
 
 ## 8. 开放问题
 
-原计划中留待 A3-0 冻结的事项如下，均未决定。
+2026-10-15 按 v0.7.0 的下一份计划重新梳理：8.1 只列阻塞该计划的问题，其余事项（含原计划留待 A3-0 冻结的各项）在 8.2 各留一行，需要时再展开；梳理前的版本见 commit `4c92e583`。
 
-模型、字段与语义：
+### 8.1 阻塞下一份计划的问题
 
-1. TurnEvent 新增 kind、来源/时间、外部调用关联和多模态引用的字段；ActionReducer 的可靠关联规则；Payload 文本/trace 的派生与兼容限制。第 2 节的候选设计复用现有模型，不另建 Segment/Part 双模型。
-2. System Session 及封口 Payload 的物理位置（2026-09-28：ConversationSession 位于 workspace 的共享设施，见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.4 节）、最小创建/读取/封口/关闭能力及其调用面与授权（2026-10-10 能力层分层后，root API 只接受 `system`，actor API 只有与 MTP 动词对应的六项操作，任务进程另有阶段调用；会话操作放在哪一面待定）、历史分页、保留期/容量/溢出行为；暂停/删除是否暴露及其边界。不要求创建新的大子系统或耐久历史平台。
-3. 旧 Passive Ingress `source + external_conversation_id + actor` key 的兼容映射，补齐可信 Workspace 分区及 scope/Actor 漂移规则；actor 会话字段对 equality/hash/cache key 的影响已于 2026-10-04 随[身份第二批](../archive/plans/v0.7.0-identity-access-batch-2.md)移除，HTTP 请求体中会话字段的未来语义仍由本方向处理。speaker、来源与调用主体分别处理。
-4. 无 session 的旧 Alice/单次交互如何映射为明确的临时 Session，不能静默合并全用户历史；主动意图仍可无 Session。旧 Topic 只保存可证来源，不能编造完整 Session。
-5. interaction_id 在封口、Session 历史、公开参数、queue envelope、apply record/result 间的一致映射；work_id、外部 ID 和 turn/block ID 各自含义；新旧 codec、版本与规范化摘要的兼容样例（2026-09-28：controller 模式下 `interaction_id` 始终取 `process_id` 的值，见任务进程 Idea Q-16）。
-6. 封口信号、completion outcome、partial/cancel/failed、迟到/重复/sequence 缺口策略；Session 与 Topic 两种序列化约束；开放段容量和无 user 事件的接收规则。
-7. 路由指令优先级、默认候选范围和显式 attach（2026-09-28：默认候选范围已决定为整个 workspace，见 0.1）；Topic prepare/handle、条件清理、资料绑定、结果观察/保留与 API 决定见下方 Topic 生命周期事项；跨 Session 复用不改变 Workspace ownership。
+每个问题只列选项及其影响，选项顺序不代表倾向。依据中的代码现状于 2026-10-15 核对。
 
-Topic 生命周期事项：
+#### S1 计划范围
 
-| 事项 | 需要回答的问题 |
+依据：第 2、4、5、6 节的候选设计大多面向外部 harness 自有的会话（TurnEvent 扩展、ActionReducer 关联规则、`InteractionPayload` 增加会话与结局字段并升级 codec、交互结果查询、prepare handle）。[ROADMAP](../ROADMAP.md) 第 4.3 节写明 v0.7.0 不对外部 Actor 所需的基建作承诺，controller 模式在 v0.7.1；流式同步所在的[长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md) 为 candidate；[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1 的“交互被接纳后即关闭进程”暂不实施，与话题是否预建一起随外部会话与流式同步的设计决定。
+
+| 选项 | 内容 | 影响 |
+|:---|:---|:---|
+| A | 会话资源、Alice 改用会话上下文、前端回归 session 模型；面向外部 harness 的模型演进、流式同步与 Q-1 都不在本计划 | 外部相关的模型演进进入 v0.7.1 controller 模式的计划；`InteractionPayload` 与 codec 不变；话题仍预建，finalize 仍等待 applied |
+| B | A 加上第 2、5、6 节的模型演进（TurnEvent、`InteractionPayload` 与 codec） | 计划跨 core 协议模型与 Patchouli 感知；只有 Alice 一个使用者时，新增的 kind 与来源字段没有可验收的输入 |
+| C | B 加上流式同步（Topic 接收更原子的输入）与 Q-1 | 需要先满足长时间运行 Agent Idea 的升级门槛；同时决定话题是否预建与 Profile 的解析时点 |
+
+#### S2 会话记录的耐久性
+
+依据：当前只有中期记忆（Qdrant）与 Artifact（文件系统）跨重启保留；短期 Topic、交互提交队列与写入意图登记都在进程内（[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)第 1 节）。前端不持久化消息（`frontend/src/stores/chat/chatStore.ts` 的 persist 只保留当前 agent），后端没有读取对话历史的接口。0.1 决定的“恢复”与“加载历史”能否跨后端重启取决于本项。
+
+| 选项 | 内容 | 影响 |
+|:---|:---|:---|
+| A | 只在进程内保存，容量用尽时显式拒绝 | 与短期 Topic 的耐久性一致；后端重启后会话列表清空；存储放在接口之后，可以随耐久性治理单独升级 |
+| B | 本地持久化（文件或 SQLite） | 成为 workspace 第一份跨重启的状态，需要 schema 版本、保留期、删除语义与损坏恢复；会话中记录的 Topic 在重启后已不存在 |
+| C | 前端保存展示用的历史，后端只在进程内保存 CPU 上下文所需的部分 | 会话出现两个真相源，与第 2.1 节“Session 是会话连续性真相源”的归属不一致 |
+
+#### S3 会话与 agent 的绑定
+
+依据：前端每次请求携带当前选中的 agent，HTTP chat 请求逐次携带 `agent_id`；Alice 拼接历史时为其他 agent 的回复加 `[From: agent_id]` 前缀（`prompts/transcript/history.py`）。[执行单元 Idea](./execution-unit-thread-and-environment.md) 前提 10 已决定执行环境只能在对话开始前选择，T-8a 把“作为会话的属性”列为承载位置之一。
+
+| 选项 | 内容 | 影响 |
+|:---|:---|:---|
+| A | 新建会话时固定 agent，换 agent 即新建会话 | 注册入口校验请求的 agent 与会话一致；会话历史只有一个 agent 的回复；T-8a 的会话属性选项可以沿用同一位置 |
+| B | 每次请求各自选择 agent（现状） | 会话历史成为多个 agent 共享的上下文，需要保留身份前缀；controller 模式下一个会话可能对应多个外部会话 |
+| C | 会话记录默认 agent，请求可以覆盖 | 兼有 A 与 B 的处理；需要定义覆盖后的历史如何呈现 |
+
+#### S4 写入会话的轮次与时点
+
+依据：Patchouli 只接收 completed 进程的交互记录（任务进程 Q-14，已实施）；cancelled 与 failed 的轮次现在不进入 Topic，Alice 的下一轮看不到它们，而前端已经显示了取消前的部分回复。finalize 仍等到交互 applied 才返回（`patchouli/service.py`），进程在此之前不关闭。
+
+| 选项 | 内容 | 影响 |
+|:---|:---|:---|
+| A | 只记录 completed 的轮次 | 被取消轮次的部分回复只在前端可见，CPU 的下一轮不知道它 |
+| B | 记录所有进入 Actor 阶段的轮次并带结局，由 CPU 的上下文视图决定取舍 | 会话记录需要表达结局（第 2.2 节的 `completion_state`）；CPU 的取舍规则成为 S5 的一部分 |
+| C | completed 加上有输出的 cancelled | 介于 A 与 B 之间；failed 的部分输出被丢弃 |
+
+同时需要决定：
+
+- **写入时点**：CPU 返回终态并封口之后、finalize 之前 / finalize 之后。影响：写在 finalize 之后，下一轮要等本轮交互 applied 才能看到它。
+- **同一会话的并发**：同时只允许一个进程，后到的请求显式拒绝 / 排队 / 允许并发。影响：前端在 finalizing 期间已禁止发送；允许并发时，会话内的顺序与 CPU 上下文需要另行定义。
+
+#### S5 CPU 取得会话上下文的方式与范围
+
+依据：Alice 每轮的历史是 Gateway 路由到的 Topic 的 `state_summary` 与最近 5 个 block（`prompts/assembler.py`），经 `CPUInputManifest.topic_context` 传入；该字段与 `PreparedAgentRun` 的 `topic_context`、`pool_topics` 都注明在 ConversationSession 一批之前暂时保留。v0.7.0 内 Alice 没有会话内压缩（0.1）。
+
+**S5a 取得方式**
+
+| 选项 | 内容 | 影响 |
+|:---|:---|:---|
+| A | 进程读取会话，把历史快照放进输入清单，CPU 从中派生自己的视图 | CPU 仍只消费输入清单；`CPUInputManifest`（`workspace.contracts`）改为携带会话历史；controller 模式的外部 harness 自带会话，清单需要能改为携带它的会话句柄 |
+| B | 清单只携带会话引用，CPU 经新的读取端口取得 | 需要新增注入 CPU 的端口；CPU 可以按需分页读取 |
+| C | CPU 按会话自己保存上下文，会话记录只用于展示与恢复 | 与外部 harness 自带会话的形态一致；Alice 一侧出现第二份会话内容 |
+
+**S5b 没有压缩时的范围**
+
+| 选项 | 影响 |
 |:---|:---|
-| prepare 副作用与引用 | 是否预创建/预留 Topic（2026-09-28：任务进程不再预先创建，见第 0 节；2026-10-13 owner 改为保留预建，话题是否预建随流式设计决定容器形态时再定，见[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1）；handle 的 scope/调用关联、引用编码与提交参数；同 interaction_id/路由指令/幂等摘要的绑定及冲突行为 |
-| handle 存续与交接 | 有效期、一次/多次使用、重复 prepare、接纳时保护转移、过期后的查询/冲突/显式重新准备 |
-| 条件清理 | 本次创建的证据、空/占用判定、与并发 submit/资料读取的协调、幂等结果、关闭时收尾 |
-| 资料来源与保留 | 省略 Topic 的唯一行为；是否接受 prepare handle；快照时点/版本证据、重试绑定及必要保护释放 |
-| 应用结果与路由关联 | 扩展既有 apply record/result 的字段；accepted/routed/applied 的观察方式、授权、保留/过期与幂等窗口 |
-| API/授权/兼容 | prepare、资料读取、assignment/apply 查询、条件清理、interaction.submit 的参数/结果、operation 与旧 prepare_topic 返回 topic_id 的迁移 |
+| 全量 | 会话越长输入越长，超出模型窗口时失败；对 KV cache 的前缀命中最友好 |
+| 最近 N 轮 | 输入有上限；窗口填满后每轮的前缀都变化 |
+| 按 token 预算从最早的整轮丢弃 | 输入有上限；前缀在两次丢弃之间保持稳定；预算需要配置 |
+
+影响（分析）：无论选哪一项，Alice 提示词中的 Topic `state_summary` 与 Topic 历史都不再符合 0.1 的决定（对话上下文由 Session 提供，Topic 只为记忆生成服务）。
+
+#### S6 Gateway 的对话上下文
+
+依据：Gateway 的查询理解（改写、意图与价值初判）读取路由到的 Topic 最近若干 block（`engines/gateway/query_understanding.py`），重复输入检测读取最后一个 block（`gateway/analysis/resolver.py`）；话题路由只使用本条消息与候选话题菜单（`engines/gateway/topic_router.py`）。0.1 决定 Topic 不绑定 Session，同一主题在不同会话中的讨论路由到同一个 Topic，因此路由到的 Topic 最近的 block 可能来自另一个会话。
+
+| 选项 | 内容 | 影响 |
+|:---|:---|:---|
+| A | 不变 | 多个会话交错进入同一 Topic 时，指代消解与重复检测按其他会话的内容进行，检索与记忆落位随之偏移 |
+| B | 进程把本会话最近若干轮作为参数交给 Gateway，查询理解与重复检测改读它；Topic 只作路由候选 | 修改 Gateway 公开路由 `process` 的参数与上下文准备；Gateway 不读取会话，由进程传入 |
+| C | 在 B 之上，把本会话上一轮所在的 Topic 作为路由提示（第 4 节的 `continue`） | 路由的输入增加一项；会话需要记录每轮所在的 Topic（与 S7e 相关） |
+
+#### S7 会话接口的细节
+
+| 事项 | 选项 | 影响 |
+|:---|:---|:---|
+| S7a 会话操作的调用面 | root API（HTTP 管理路由调用），进程在阶段内经 workspace 内部访问 / 另设 actor 操作 / 其他 | root API 只接受保留的 `system`，与话题管理同一路径；actor 操作目前与 MTP 动词一一对应（[Workspace 架构](../architecture/workspace.md)第 4.5 节），另设会话操作会让 agent 能够读取会话 |
+| S7b chat 请求缺少 `session_id` | 自动新建会话并在首个事件中返回 / 拒绝请求 | 现在前端始终发送空值；拒绝时现有调用方（脚本、E2E）需要同步修改 |
+| S7c 会话的状态与删除 | 只有存在与删除 / 第 2.1 节的 open、paused、closed / 不提供删除 | 0.1 的前端决定只列出新建、恢复、重命名与加载历史；删除不级联 Topic 与 Memory（第 2.1 节归属确认的第 ② 点） |
+| S7d 会话标题的来源 | 首条消息截断 / 模型生成 / 留空由用户命名 | 模型生成多一次调用 |
+| S7e `topic_info` 异步标注的形态 | 在 done 事件中给出并记入会话的该轮 / 单独的事件或查询 | 话题预建时 prepare 之后即知 topic_id；finalize 仍等待 applied，done 事件晚于交互应用；话题池只在记忆面板展示时，`PreparedAgentRun.pool_topics` 与 done 事件中的话题池可以移除 |
+
+### 8.2 不阻塞下一份计划的事项
+
+各留一行，需要时再展开；括号内为相关章节与归属方向。
+
+- TurnEvent 新增 kind、来源与时间、外部调用关联和多模态引用；ActionReducer 的可靠关联规则；Payload 文本与 trace 的派生（第 2.3、5、6 节；controller 模式）。
+- `InteractionPayload` 增加会话、顺序与结局字段，`InteractionSubmission` codec 升级与新旧兼容样例；interaction_id 与 work_id、外部 ID、turn/block ID 的映射（第 2.2、6 节；controller 模式；`interaction_id` 取 `process_id` 已决定）。
+- 封口信号、迟到、重复与 sequence 缺口；开放段容量与无 user 事件的接收（第 4.1、5 节；controller 模式）。
+- Topic 生命周期：prepare 的副作用与 handle、handle 存续、条件清理、资料来源与保留、accepted/routed/applied 的结果查询与保留、相关 API 的迁移（第 4 节；话题预建保留期间沿用现有 cleanup 路由，随流式同步的容器设计重审）。
+- 路由指令的优先级与显式 attach（第 4 节；默认候选范围已决定为整个 workspace）。
+- 旧 Passive Ingress 会话键（`source + external_conversation_id`）的映射与 Workspace 分区（Import Bus）。
+- 会话 ID 是否进入 Patchouli（LogicalBlock 的来源字段），与 Gateway 的会话提示一起决定（0.1；后续版本）。
+- 提示词中检索记忆的位置与 KV cache 命中（0.1 背景第 3 点）。
+- Alice 的会话压缩与 `/compact`（v0.7.1；[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md)）。
 
 ## 9. 设计需满足的行为约束
 

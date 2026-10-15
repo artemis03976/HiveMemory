@@ -3,7 +3,7 @@ title: Ideas
 status: current
 owner: project
 scope: uncommitted-exploration
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # Ideas
@@ -26,7 +26,7 @@ Idea 以 frontmatter 的 `horizon` 字段分为三类，规则见[文档治理�
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
-| [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | `InteractionPayload`、`TurnEvent`、`InteractionApplyRecord` 与 Passive turn buffer | 原 A3 计划退回，v0.7.0 内完成、Alice 为第一个使用者：Topic 体系如何接收外部 Actor 的会话消息；任务进程 Idea Q-9 已选 B：实际使用的对话上下文由 `ConversationSession` 提供，Topic 与 Gateway 话题路由只为记忆生成服务；会话操作（新建、恢复、压缩）、workspace 共享 Topic 池与前端回归 session 模型已决定（前端与新建、恢复在 v0.7.0，Alice 的压缩约在 v0.7.1）；模型字段与 Topic 生命周期事项待定 |
+| [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | `InteractionPayload`、`TurnEvent`、`InteractionApplyRecord` 与 Passive turn buffer | 原 A3 计划退回，v0.7.0 内完成、Alice 为第一个使用者：Topic 体系如何接收外部 Actor 的会话消息；任务进程 Idea Q-9 已选 B：实际使用的对话上下文由 `ConversationSession` 提供，Topic 与 Gateway 话题路由只为记忆生成服务；会话操作（新建、恢复、压缩）、workspace 共享 Topic 池与前端回归 session 模型已决定（前端与新建、恢复在 v0.7.0，Alice 的压缩约在 v0.7.1）；阻塞下一份计划的问题见第 8.1 节 S1–S7（计划范围、会话的耐久性、会话与 agent 的绑定、写入会话的轮次、CPU 与 Gateway 的会话上下文、会话接口的细节），其余事项在第 8.2 节搁置 |
 
 ## 候选方向（`candidate`）
 
