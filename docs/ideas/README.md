@@ -26,7 +26,7 @@ Idea 以 frontmatter 的 `horizon` 字段分为三类，规则见[文档治理�
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
-| [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | `InteractionPayload`、`TurnEvent`、`InteractionApplyRecord` 与 Passive turn buffer | 原 A3 计划退回，v0.7.0 内完成、Alice 为第一个使用者：Topic 体系如何接收外部 Actor 的会话消息；任务进程 Idea Q-9 已选 B：实际使用的对话上下文由 `ConversationSession` 提供，Topic 与 Gateway 话题路由只为记忆生成服务；会话操作（新建、恢复、压缩）、workspace 共享 Topic 池与前端回归 session 模型已决定（前端与新建、恢复在 v0.7.0，Alice 的压缩约在 v0.7.1）；阻塞下一份计划的问题见第 8.1 节 S1–S7（计划范围、会话的耐久性、会话与 agent 的绑定、写入会话的轮次、CPU 与 Gateway 的会话上下文、会话接口的细节），其余事项在第 8.2 节搁置 |
+| [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | `InteractionPayload`、`TurnEvent`、`InteractionApplyRecord` 与 Passive turn buffer | 原 A3 计划退回，v0.7.0 内完成、Alice 为第一个使用者：Topic 体系如何接收外部 Actor 的会话消息；任务进程 Idea Q-9 已选 B：实际使用的对话上下文由 `ConversationSession` 提供，Topic 与 Gateway 话题路由只为记忆生成服务；会话操作（新建、恢复、压缩）、workspace 共享 Topic 池与前端回归 session 模型已决定（前端与新建、恢复在 v0.7.0）；2026-10-15 决定只做窄范围（先让 Alice 改用新体系）、会话只在进程内保存、会话内可随时切换 agent、CPU 使用全量会话上下文、被取消且有输出的轮次记入会话并带结局提交 Patchouli，Alice 的压缩提前到 v0.7.0、在会话计划之后单独一份计划（0.2）；Gateway 照旧取得话题列表并另外取得当前会话的最近 N 轮；会话计划的其余细节为候选设计（0.3），阻塞问题已全部决定，其余事项在第 8.2 节搁置 |
 
 ## 候选方向（`candidate`）
 
