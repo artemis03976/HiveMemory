@@ -1,16 +1,7 @@
-"""
-MTPTraceReducer 单测
+"""MTPTraceReducer 门面的输入适配：空输入、dict 输入与 TurnEvent 到 TraceItem 的委托链路。
 
-覆盖:
-- 空列表 → 空 traces
-- assistant_message / tool_result 类型 → 全部过滤
-- READ / SEARCH / RUN tool_call → 正确 TraceItem
-- WRITE / UPDATE / CALL → 保留为 TraceItem
-- dict 输入（模拟 SSE 序列化路径）→ 与对象输入结果相同
-- 混合事件列表 → 保留 READ/SEARCH/RUN/WRITE/UPDATE/CALL 等控制信号
+逐动词的摘要规则由 TraceReducer 测试守护，事件到动作的归并由 ActionReducer 测试守护。
 """
-
-import pytest
 
 from hivememory.core.models import TurnEvent
 from hivememory.core.mtp.trace_reducer import MTPTraceReducer
@@ -45,106 +36,21 @@ def _event_dict(kind, tool_kind=None, target=None, status=None, content="", tool
     }
 
 
-class TestMTPTraceReducerEmpty:
+class TestMTPTraceReducerInputAdaptation:
     def test_empty_list(self):
         assert MTPTraceReducer.reduce([]) == []
 
-    def test_all_assistant_message(self):
-        events = [_event("assistant_message"), _event("assistant_message")]
-        assert MTPTraceReducer.reduce(events) == []
-
-    def test_all_tool_result(self):
+    def test_orphan_tool_result_produces_no_trace(self):
         events = [_event("tool_result", tool_kind="READ", status="success")]
         assert MTPTraceReducer.reduce(events) == []
 
-
-class TestMTPTraceReducerCommandMapping:
-    def test_read_command(self):
-        events = [_event("tool_call", tool_kind="READ", target="my_alias")]
-        traces = MTPTraceReducer.reduce(events)
-        assert len(traces) == 1
-        assert traces[0].action == "READ"
-        assert traces[0].target == "my_alias"
-
-    def test_search_command_no_query(self):
-        events = [_event("tool_call", tool_kind="SEARCH", target="*", content="")]
-        traces = MTPTraceReducer.reduce(events)
-        assert len(traces) == 1
-        assert traces[0].action == "SEARCH"
-        assert traces[0].query is None
-
-    def test_search_command_uses_tool_args_query(self):
-        events = [
-            _event_dict(
-                "tool_call",
-                tool_kind="SEARCH",
-                target="*",
-                content='⟪ SEARCH | * | query="authentication flow" ⟫',
-                tool_args={"query": "authentication flow"},
-            )
-        ]
-        traces = MTPTraceReducer.reduce(events)
-        assert len(traces) == 1
-        assert traces[0].action == "SEARCH"
-        assert traces[0].query == "authentication flow"
-
-    def test_run_command(self):
-        events = [_event("tool_call", tool_kind="RUN", target="git_log", status="success")]
-        traces = MTPTraceReducer.reduce(events)
-        assert len(traces) == 1
-        assert traces[0].action == "RUN"
-        assert traces[0].tool == "git_log"
-        assert traces[0].status == "success"
-
-    def test_run_command_no_status(self):
-        events = [_event("tool_call", tool_kind="RUN", target="tool_x")]
-        traces = MTPTraceReducer.reduce(events)
-        assert traces[0].status == "unknown"
-
-
-class TestMTPTraceReducerControlActions:
-    @pytest.mark.parametrize("tool_kind", ["WRITE", "UPDATE", "CALL"])
-    def test_control_tool_kinds_are_kept(self, tool_kind):
-        events = [_event("tool_call", tool_kind=tool_kind, target="something")]
-        traces = MTPTraceReducer.reduce(events)
-        assert len(traces) == 1
-        assert traces[0].action == tool_kind
-
-    def test_unknown_tool_kind(self):
-        events = [_event("tool_call", tool_kind="UNKNOWN")]
-        assert MTPTraceReducer.reduce(events) == []
-
-
-class TestMTPTraceReducerDictInput:
-    """模拟 chat_stream SSE 序列化后以 dict 重建的场景"""
-
-    def test_dict_read(self):
+    def test_dict_events_are_reduced_like_turn_events(self):
+        """模拟 chat_stream SSE 序列化后以 dict 重建的场景。"""
         event_dict = _event_dict("tool_call", tool_kind="READ", target="alias_x")
         traces = MTPTraceReducer.reduce([event_dict])
         assert len(traces) == 1
         assert traces[0].action == "READ"
         assert traces[0].target == "alias_x"
-
-    def test_dict_run(self):
-        event_dict = _event_dict("tool_call", tool_kind="RUN", target="my_tool", status="error")
-        traces = MTPTraceReducer.reduce([event_dict])
-        assert traces[0].action == "RUN"
-        assert traces[0].status == "error"
-
-    def test_dict_assistant_message_filtered(self):
-        event_dict = {
-            "kind": "assistant_message",
-            "sequence": 0,
-            "role": "assistant",
-            "content": "hi",
-        }
-        assert MTPTraceReducer.reduce([event_dict]) == []
-
-    def test_dict_write_kept(self):
-        event_dict = _event_dict("tool_call", tool_kind="WRITE")
-        traces = MTPTraceReducer.reduce([event_dict])
-        assert len(traces) == 1
-        assert traces[0].action == "WRITE"
 
 
 class TestMTPTraceReducerMixedList:

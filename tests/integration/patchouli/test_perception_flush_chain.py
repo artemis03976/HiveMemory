@@ -1,24 +1,21 @@
 """
-Perception 感知链路集成测试。
+Perception 感知链路的多轮与跨 Workspace 场景。
 
 驱动真实组件协作：
     PerceptionFamiliar + MemoryPerceptionEngine + TopicWorkingSet
     + ShortTermMemoryStore + InMemoryInteractionApplyJournal
-仅 relay（LLM 摘要）与 bus（下游生成端口）为 fake。
+仅 relay（LLM 摘要）与 bus（下游生成端口）为 fake。单次用例（apply、LRU 改选、
+IDLE/LRU 的占用跳过、manual settle/delete、compact 折叠、shutdown 分类）由
+tests/unit/patchouli/services/test_perception.py 在同一边界守护，此处不重复。
 
 覆盖：
-- IDLE 超时结算并驱逐话题
-- IDLE 空话题跳过 settlement 提交但仍正常结束生命周期
-- IDLE 扫描跳过被占用（lease）的话题
-- IDLE 释放容量后新话题可入池
-- LRU 候选被占用时改选其他话题
+- IDLE 空话题跳过 settlement 提交但仍正常结束生命周期；IDLE 释放容量后新话题可入池
 - 跨 Workspace 复用同一 interaction_id 被拒绝
-- SHUTDOWN 全量结算 + 驱逐（含真正空 Topic）
-- SHUTDOWN busy / admission 异常隔离到 failed_topic_ids
+- SHUTDOWN 跨 Workspace 全量结算；drain 后仍被占用的话题记为 failed
 - folding 后的 shutdown 结算保留 state_summary 与 retained block
-- summary-only Topic 的列表与 discard 语义
-- token 溢出 compact 折叠旧前缀、不触发记忆生成、不驱逐
-- manual settle / manual delete 三个互不混杂的用例
+- summary-only Topic 的列表与 discard 语义；生成侧未建任务或全部过滤时的 skip
+- manual settle 的 admission 失败可重试；全部 block 被过滤时不建任务
+- 未超过保留块数时 compact 不折叠
 """
 
 from types import SimpleNamespace
@@ -136,28 +133,6 @@ def _accept_settlement_task(route, payload):
 
 
 @pytest.mark.asyncio
-async def test_idle_flush_swaps_out_topic():
-    familiar, store, _, clock, bus = _make_real_familiar(idle_timeout_seconds=1)
-    identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    await familiar.apply_interaction(
-        _make_payload("question", "answer"),
-        belong_to=identity_scope.workspace_identity,
-        from_actor=identity_scope.actor_identity,
-        target_topic_id="NEW_TOPIC",
-    )
-    assert len(store.list_by_workspace(identity_scope.workspace_identity)) == 1
-
-    clock.advance(100)
-    flushed = await familiar.scan_idle_buffers_once()
-
-    assert len(flushed) == 1
-    assert store.list_by_workspace(identity_scope.workspace_identity) == []
-    route, settlement = bus.request.await_args.args
-    assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
-    assert settlement.reason == TriggerReason.IDLE_TIMEOUT
-
-
-@pytest.mark.asyncio
 async def test_idle_flush_skips_empty_settlement_submission():
     familiar, store, _, clock, bus = _make_real_familiar(idle_timeout_seconds=1)
     identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
@@ -173,25 +148,6 @@ async def test_idle_flush_skips_empty_settlement_submission():
     # 真正空 Topic：不提交 settlement，但生命周期正常结束
     bus.request.assert_not_awaited()
     assert store.get(identity_scope.workspace_identity, topic_id) is None
-
-
-@pytest.mark.asyncio
-async def test_idle_scan_skips_topic_that_becomes_busy_before_settlement():
-    """维护快照之后被占用（lease）的 Topic 留给下一轮扫描。"""
-    familiar, store, working_set, clock, bus = _make_real_familiar(idle_timeout_seconds=1)
-    identity_scope = make_identity_scope(user_id="u-busy", agent_id="a-busy")
-    topic_id = await familiar.prepare_topic(
-        "NEW_TOPIC", None, None, identity_scope.workspace_identity
-    )
-    assert working_set.acquire(identity_scope.workspace_identity, topic_id) is not None
-
-    clock.advance(100)
-    flushed = await familiar.scan_idle_buffers_once()
-
-    assert flushed == []
-    remaining = store.get(identity_scope.workspace_identity, topic_id)
-    assert remaining is not None
-    bus.request.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -246,38 +202,6 @@ async def test_idle_flush_frees_slot():
         )
         == 1
     )
-
-
-@pytest.mark.asyncio
-async def test_lru_reselects_another_topic_when_first_candidate_becomes_busy():
-    """LRU 候选被占用时改选其他话题，不能导致超额创建或误报驱逐成功。"""
-    familiar, store, working_set, clock, bus = _make_real_familiar(max_resident_topics=2)
-    identity_scope = make_identity_scope(user_id="u-lru", agent_id="a-lru")
-    first_id = await familiar.prepare_topic(
-        "NEW_TOPIC", None, None, identity_scope.workspace_identity
-    )
-    clock.advance(10)
-    second_id = await familiar.prepare_topic(
-        "NEW_TOPIC", None, None, identity_scope.workspace_identity
-    )
-    clock.advance(10)
-    # 占住最久未访问的候选，迫使驱逐改选
-    lease = working_set.acquire(identity_scope.workspace_identity, first_id)
-    assert lease is not None
-
-    new_id = await familiar.apply_interaction(
-        _make_payload("new question", "new answer"),
-        belong_to=identity_scope.workspace_identity,
-        from_actor=identity_scope.actor_identity,
-        target_topic_id="NEW_TOPIC",
-    )
-
-    resident = store.list_by_workspace(identity_scope.workspace_identity)
-    assert {topic.topic_id for topic in resident} == {first_id, new_id}
-    assert store.get(identity_scope.workspace_identity, second_id) is None
-    # 空话题结算不产生材料，不触发生成 admission
-    bus.request.assert_not_awaited()
-    working_set.release(lease)
 
 
 @pytest.mark.asyncio
@@ -452,37 +376,7 @@ async def test_discard_if_empty_keeps_summary_only_topic():
     assert store.get(identity_scope.workspace_identity, topic_id) is not None
 
 
-@pytest.mark.asyncio
-async def test_discard_if_empty_evicts_truly_empty_topic():
-    familiar, store, _, _, _ = _make_real_familiar()
-    identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.prepare_topic(
-        "NEW_TOPIC", None, None, identity_scope.workspace_identity
-    )
-
-    discarded = familiar.discard_if_empty(identity_scope.workspace_identity, topic_id)
-
-    assert discarded is True
-    assert store.get(identity_scope.workspace_identity, topic_id) is None
-
-
 # ========== 真正空 Topic 仍正常结束生命周期 ==========
-
-
-@pytest.mark.asyncio
-async def test_shutdown_evicts_truly_empty_topic_and_marks_generation_skip():
-    familiar, store, _, _, bus = _make_real_familiar()
-    identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.prepare_topic(
-        "NEW_TOPIC", None, None, identity_scope.workspace_identity
-    )
-
-    result = await familiar.flush_all_for_shutdown()
-
-    assert topic_id in result.settled_topic_ids
-    assert result.generation_skipped_topic_ids == (topic_id,)
-    assert store.get(identity_scope.workspace_identity, topic_id) is None
-    bus.request.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -502,27 +396,6 @@ async def test_shutdown_marks_generation_skip_when_submission_builds_no_task():
     assert result.settled_topic_ids == (topic_id,)
     assert result.generation_skipped_topic_ids == (topic_id,)
     assert store.get(identity_scope.workspace_identity, topic_id) is None
-
-
-@pytest.mark.asyncio
-async def test_shutdown_isolates_admission_failure_in_failed_ids():
-    """generation admission 异常被隔离到 failed_topic_ids，话题内容保留。"""
-    familiar, store, _, _, bus = _make_real_familiar()
-    identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.apply_interaction(
-        _make_payload("question", "answer"),
-        belong_to=identity_scope.workspace_identity,
-        from_actor=identity_scope.actor_identity,
-        target_topic_id="NEW_TOPIC",
-    )
-    bus.request.side_effect = RuntimeError("generation admission failed")
-
-    result = await familiar.flush_all_for_shutdown()
-
-    assert result.failed_topic_ids == (topic_id,)
-    assert result.settled_topic_ids == ()
-    # admission 失败：话题内容保留，可重试
-    assert store.get(identity_scope.workspace_identity, topic_id) is not None
 
 
 @pytest.mark.asyncio
@@ -556,54 +429,7 @@ async def test_shutdown_marks_filtered_topic_as_generation_skip_and_evicts_it():
     bus.request.assert_not_awaited()
 
 
-@pytest.mark.asyncio
-async def test_manual_settle_evicts_truly_empty_topic():
-    familiar, store, _, _, bus = _make_real_familiar()
-    identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.prepare_topic(
-        "NEW_TOPIC", None, None, identity_scope.workspace_identity
-    )
-
-    result = await familiar.manual_settle_topic(identity_scope.workspace_identity, topic_id)
-
-    assert result.topic_id == topic_id
-    assert result.generation_submitted is False
-    assert result.generation_task_id is None
-    assert store.get(identity_scope.workspace_identity, topic_id) is None
-    bus.request.assert_not_awaited()
-
-
 # ========== manual settle: admission -> evict 顺序 ==========
-
-
-@pytest.mark.asyncio
-async def test_manual_settle_admits_generation_task_before_evicting():
-    familiar, store, _, _, bus = _make_real_familiar()
-    identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.apply_interaction(
-        _make_payload("question", "answer"),
-        belong_to=identity_scope.workspace_identity,
-        from_actor=identity_scope.actor_identity,
-        target_topic_id="NEW_TOPIC",
-    )
-    accepted = MemoryGenerationTask(
-        task_id="memtask-1",
-        topic_id=topic_id,
-        label=topic_id,
-        source=MemoryGenerationSource.SETTLE,
-        belong_to=identity_scope.workspace_identity,
-        from_actor=system_actor_for_workspace(identity_scope.workspace_identity),
-    )
-    bus.request = AsyncMock(return_value=accepted)
-
-    result = await familiar.manual_settle_topic(identity_scope.workspace_identity, topic_id)
-
-    assert result.topic_id == topic_id
-    assert result.generation_task_id == "memtask-1"
-    assert result.generation_submitted is True
-    assert bus.request.await_args.args[0] == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
-    # 接纳成功后 Topic 才从池中移除
-    assert store.get(identity_scope.workspace_identity, topic_id) is None
 
 
 @pytest.mark.asyncio
@@ -667,71 +493,7 @@ async def test_manual_settle_with_all_blocks_filtered_evicts_without_task():
 # ========== manual delete: 只驱逐，不写记忆 ==========
 
 
-@pytest.mark.asyncio
-async def test_manual_delete_evicts_without_generation_task():
-    familiar, store, _, _, bus = _make_real_familiar()
-    identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.apply_interaction(
-        _make_payload("question", "answer"),
-        belong_to=identity_scope.workspace_identity,
-        from_actor=identity_scope.actor_identity,
-        target_topic_id="NEW_TOPIC",
-    )
-
-    removed = await familiar.evict_topic(identity_scope.workspace_identity, topic_id)
-
-    assert removed.topic_id == topic_id
-    assert removed.removed is True
-    assert store.get(identity_scope.workspace_identity, topic_id) is None
-    bus.request.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_manual_delete_reports_busy_topic_without_removing_it():
-    """话题正被占用时，手动删除报告 removed=False 并保留它。"""
-    familiar, store, working_set, _, bus = _make_real_familiar()
-    identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.apply_interaction(
-        _make_payload("question", "answer"),
-        belong_to=identity_scope.workspace_identity,
-        from_actor=identity_scope.actor_identity,
-        target_topic_id="NEW_TOPIC",
-    )
-    lease = working_set.acquire(identity_scope.workspace_identity, topic_id)
-    assert lease is not None
-
-    result = await familiar.evict_topic(identity_scope.workspace_identity, topic_id)
-
-    assert result.removed is False
-    assert store.get(identity_scope.workspace_identity, topic_id) is not None
-    bus.request.assert_not_awaited()
-    working_set.release(lease)
-
-
 # ========== token 溢出 compact：只压缩工作集 ==========
-
-
-@pytest.mark.asyncio
-async def test_token_overflow_compact_trims_prefix_and_keeps_topic():
-    familiar, store, _, _, bus = _make_real_familiar(
-        fold_token_threshold=1, fold_retain_recent_blocks=1
-    )
-    identity_scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = "NEW_TOPIC"
-    for i in range(3):
-        topic_id = await familiar.apply_interaction(
-            _make_payload(f"question-{i}-" * 80, f"answer-{i}"),
-            belong_to=identity_scope.workspace_identity,
-            from_actor=identity_scope.actor_identity,
-            target_topic_id=topic_id,
-        )
-
-    data = store.get(identity_scope.workspace_identity, topic_id)
-    assert data is not None
-    assert data.state_summary == "folded:1|folded:1"
-    assert [b.user_query for b in data.blocks] == ["question-2-" * 80]
-    # compact 不触发记忆生成、不驱逐
-    bus.request.assert_not_awaited()
 
 
 @pytest.mark.asyncio

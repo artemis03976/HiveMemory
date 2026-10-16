@@ -34,7 +34,7 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
 )
-from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
+from hivememory.patchouli.errors import TopicBusyError
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
@@ -392,7 +392,7 @@ class TestCompact:
         mock_relay.generate_summary.side_effect = (
             lambda blocks_to_fold, previous_summary=None: (previous_summary or "") + "---folded"
         )
-        familiar, store, _, _, _ = _make_familiar(engine_config=engine_config, relay=mock_relay)
+        familiar, store, _, bus, _ = _make_familiar(engine_config=engine_config, relay=mock_relay)
         scope = _identity_scope()
         store.create(scope.workspace_identity, topic_id="t1")
 
@@ -423,6 +423,8 @@ class TestCompact:
         # 第二次折叠收到第一次的摘要（"---folded"）作为 previous_summary，累积成链
         assert topic.state_summary == "---folded---folded"
         assert topic.total_tokens == topic.blocks[0].total_tokens
+        # 折叠只压缩上下文，不触发记忆生成，也不驱逐话题
+        bus.request.assert_not_awaited()
 
     @pytest.mark.asyncio
     async def test_compact_failure_after_write_resumes_on_retry(self):
@@ -513,23 +515,6 @@ class TestNamedUseCases:
         assert result.generation_task_id is None
         bus.request.assert_not_awaited()
         assert store.get(scope.workspace_identity, topic_id) is None
-
-    @pytest.mark.asyncio
-    async def test_manual_settle_admission_failure_keeps_topic(self):
-        familiar, store, _, bus, _ = _make_familiar()
-        scope = _identity_scope()
-        topic_id = await familiar.apply_interaction(
-            _payload(),
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            interaction_id="i-1",
-        )
-        bus.request = AsyncMock(side_effect=RuntimeError("admission boom"))
-
-        with pytest.raises(TopicSettleAdmissionError, match="可重试"):
-            await familiar.manual_settle_topic(scope.workspace_identity, topic_id)
-
-        assert store.get(scope.workspace_identity, topic_id) is not None
 
     @pytest.mark.asyncio
     async def test_manual_settle_busy_topic_raises_busy_error(self):
@@ -638,6 +623,9 @@ class TestMaintenance:
         assert flushed == [stale_id]
         assert store.get(scope.workspace_identity, stale_id) is None
         assert store.get(scope.workspace_identity, fresh_id) is not None
+        route, settlement = bus.request.await_args.args
+        assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
+        assert settlement.reason == TriggerReason.IDLE_TIMEOUT
 
     @pytest.mark.asyncio
     async def test_scan_idle_skips_leased_topic(self):
