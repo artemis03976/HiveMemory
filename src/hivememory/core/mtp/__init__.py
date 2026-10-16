@@ -51,7 +51,6 @@ from hivememory.core.mtp.parser import (
     create_filter_parser,
     create_parser,
 )
-from hivememory.core.mtp.trace_reducer import MTPTraceReducer
 
 
 def create_formatter() -> MTPFormatter:
@@ -77,7 +76,6 @@ __all__ = [
     "MTPParser",
     "MTPFilterParser",
     "MTPFormatter",
-    "MTPTraceReducer",
     "MTPError",
     "AgentFault",
     "SystemFault",
