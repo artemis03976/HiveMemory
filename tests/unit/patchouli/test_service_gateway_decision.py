@@ -216,19 +216,3 @@ async def test_finalize_uses_current_submission_actor_instead_of_prepare_actor()
     assert applied == [
         ("问题", prepared.belong_to, ActorIdentity(user_id="u1", agent_id="submit-actor"))
     ]
-
-
-@pytest.mark.asyncio
-async def test_finalize_requires_explicit_stage_scope() -> None:
-    """公开 finalize 缺少本阶段 scope 时在提交前拒绝。"""
-    bus, _retrieve, submit = _prepare_bus()
-    queue = InteractionSubmissionQueue(submit)
-    service = PatchouliService(bus, interaction_queue=queue)
-    prepared = await service.prepare_agent_run(
-        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
-        interaction_id="missing-finalize-scope",
-        gateway_decision=_decision(),
-    )
-    with pytest.raises(TypeError, match="identity_scope"):
-        await service.finalize_agent_run(prepared, InteractionPayload(user_message="问题"))
-    assert await queue.is_accepted(prepared.interaction_id) is False

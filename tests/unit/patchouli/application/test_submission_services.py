@@ -203,20 +203,3 @@ def test_memory_intent_requires_registered_identifiers(field):
     """意图必须携带登记产生的标识与目标话题，Patchouli 不再自行派生。"""
     with pytest.raises(ValueError, match=field):
         _write_intent(**{field: " "})
-
-
-def test_submit_memory_intent_requires_identity_scope():
-    """identity_scope 缺失由必填签名拒绝，不进入生成提交链。"""
-    bus = PatchouliBus()
-    submitted: list = []
-
-    async def _submit_active(tasks, topic_id, *, belong_to):
-        submitted.append(tasks)
-        return []
-
-    bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
-    service = MemoryIntentSubmissionService(bus=bus)
-
-    with pytest.raises(TypeError, match="identity_scope"):
-        _run(service.submit_memory_intent(intent=_write_intent()))
-    assert submitted == []

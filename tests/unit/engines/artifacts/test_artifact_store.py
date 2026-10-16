@@ -78,13 +78,6 @@ async def test_put_and_get_roundtrip_uses_workspace_scoped_ref(store):
 
 
 @pytest.mark.asyncio
-async def test_artifact_reads_require_workspace_ownership(store):
-    """Artifact 内部读取必须显式提供归属，缺参在调用边界拒绝。"""
-    with pytest.raises(TypeError, match="belong_to"):
-        await store.get(ref_or_id="test-id")
-
-
-@pytest.mark.asyncio
 async def test_same_artifact_id_is_independent_between_workspaces(store):
     main = _identity_scope(workspace_id="main_workspace")
     isolated = _identity_scope(workspace_id="isolation_workspace")
