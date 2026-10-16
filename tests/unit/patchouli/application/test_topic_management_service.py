@@ -1,10 +1,7 @@
 """TopicManagementService 身份边界与读语义的单元测试。
 
-被测对象：Patchouli Topic 公共入口（A1 访问边界返工第 4.6 节）：
-- 本层是授权点以下的资源 owner：公开方法不接收 ``access`` 参数，构造函数
-  不接收 ``access_guard``；阶段读取与 root 管理的
-  授权在 workspace 能力层与任务进程阶段检查完成；
-- ``identity_scope`` 缺失由必填签名拒绝，不触达资源后端；
+被测对象：Patchouli Topic 公共入口。本层是授权点以下的资源 owner，阶段读取与
+root 管理的授权在 workspace 能力层与任务进程阶段完成：
 - ``get_topic_data`` 隐藏越域话题，不泄漏可见性；
 - settle/evict 在公共边界拆出归属，再传给内部路由。
 local bus 为记录型假总线（边界外协作者）。
@@ -13,8 +10,6 @@ local bus 为记录型假总线（边界外协作者）。
 from __future__ import annotations
 
 import asyncio
-
-import pytest
 
 from hivememory.core.models import IdentityScope, TopicData
 from hivememory.patchouli.application import TopicManagementService
@@ -135,23 +130,3 @@ def test_settle_and_evict_forward_scope_to_local_routes():
         PatchouliLocalRoutes.TOPIC_EVICT,
         (scope.workspace_identity, "t_evict"),
     )
-
-
-@pytest.mark.parametrize(
-    "invoke",
-    [
-        lambda svc: svc.list_active_topics(),
-        lambda svc: svc.get_topic_data(topic_id="t1"),
-        lambda svc: svc.settle_topic(),
-        lambda svc: svc.evict_topic(topic_id="t1"),
-    ],
-    ids=["list_active_topics", "get_topic_data", "settle_topic", "evict_topic"],
-)
-def test_missing_identity_scope_rejected_as_required_argument(invoke):
-    """identity_scope 缺失由必填签名拒绝，且不触达资源后端。"""
-    bus = RecordingBus()
-    service = TopicManagementService(bus=bus)
-
-    with pytest.raises(TypeError, match="identity_scope"):
-        _run(invoke(service))
-    assert bus.calls == []

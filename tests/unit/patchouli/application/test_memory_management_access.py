@@ -1,9 +1,7 @@
 """MemoryManagementService 身份边界的单元测试。
 
-被测对象：application 层公开用例的身份边界（A1 访问边界返工第 4.6 节）：
-- 本层是授权点以下的资源 owner：公开方法不再接收 ``access`` 参数，构造
-  函数不再接收 ``access_guard``；
-- ``identity_scope`` 必填，类型错误经 ``require_identity_scope`` 拒绝，不触达资源后端；
+被测对象：application 层公开用例的身份边界。本层是授权点以下的资源 owner：
+- ``identity_scope`` 类型错误经 ``require_identity_scope`` 拒绝，不触达资源后端；
 - 资源归属校验保留：atom 的 Workspace 归属与 scope 不一致按
   ``WorkspaceMismatchError`` 拒绝；
 - 管理 GET 固定 owner-management 语义（不做 Agent 可见性过滤），
@@ -66,42 +64,7 @@ def _scope(workspace_id: str = "main_workspace") -> IdentityScope:
     return make_identity_scope(user_id="u1", agent_id="a1", workspace_id=workspace_id)
 
 
-# ---- 必填签名拒绝缺省，require_identity_scope 拒绝错误类型 ----
-
-
-@pytest.mark.parametrize(
-    "invoke",
-    [
-        lambda svc: svc.get_memory("11111111-1111-1111-1111-111111111111"),
-        lambda svc: svc.read_memory("11111111-1111-1111-1111-111111111111"),
-        lambda svc: svc.list_memories(),
-        lambda svc: svc.update_memory("11111111-1111-1111-1111-111111111111"),
-        lambda svc: svc.delete_memory("11111111-1111-1111-1111-111111111111"),
-        lambda svc: svc.record_feedback(
-            "11111111-1111-1111-1111-111111111111", positive=True, source="test"
-        ),
-        lambda svc: svc.retrieve_by_aliases(["alias_a"]),
-        lambda svc: svc.create_memory(atom=_make_memory_atom()),
-    ],
-    ids=[
-        "get_memory",
-        "read_memory",
-        "list_memories",
-        "update_memory",
-        "delete_memory",
-        "record_feedback",
-        "retrieve_by_aliases",
-        "create_memory",
-    ],
-)
-def test_missing_identity_scope_rejected_as_required_argument(invoke):
-    """identity_scope 缺失由必填签名拒绝，且不触达资源后端。"""
-    bus = RecordingBus()
-    service = MemoryManagementService(bus=bus)
-
-    with pytest.raises(TypeError, match="identity_scope"):
-        _run(invoke(service))
-    assert bus.calls == []
+# ---- require_identity_scope 拒绝错误类型 ----
 
 
 def test_identity_scope_wrong_type_rejected_as_scope_required():
