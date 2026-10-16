@@ -172,7 +172,7 @@ Engine 不持有 Store / Journal / Queue，也不导入 `hivememory.patchouli.*`
 - Relay 的摘要调用位于 compact 路径内（lease 持有期间），LLM relay 可能增加该操作的同步等待；
 - `worth_saving=False` 在 settlement 时过滤，但原始 block 在此之前仍存在于短期话题中；
 - WorkingSet 的容量检查与候选选择运行在单事件循环内（方法同步、不内部 await），跨线程使用需调用方先行串行化；两个并发 NEW_TOPIC 的容量检查存在与旧实现等价的短暂竞态窗口；
-- flush 触发器的历史 e2e 用例随感知层删除而移除，重建需要真实 LLM/Qdrant 栈；当前回归由 Familiar 集成测试（tests/integration/patchouli/test_perception_flush_chain.py）覆盖；
+- flush 触发器的历史 e2e 用例随感知层删除而移除，重建需要真实 LLM/Qdrant 栈；当前回归由 Familiar 集成测试（tests/integration/patchouli/test_perception.py）覆盖；
 - 旧文档中的 `assistant_message` fallback、扁平 `context_messages` 和 Perception 私有 `InteractionPayload` 均已退出主路径。
 
 调整这些语义时必须同时检查 Generation、Artifacts、Passive Ingress 与 shutdown drain，因为“何时清空 blocks”本质上是数据耐久性边界，而不只是一个摘要算法参数。

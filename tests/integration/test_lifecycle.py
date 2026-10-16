@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from pathlib import Path
 from typing import Any
 from uuid import UUID, uuid4
 
@@ -254,11 +255,16 @@ async def test_reinforcement_updates_mid_term_memory(lifecycle_stack):
 
 @pytest.mark.asyncio
 async def test_memory_library_archive_and_revive_moves_between_stores(lifecycle_stack):
+    """归档把记忆移出中期存储并落盘到冷存储，复活后回到中期存储且内容完整。"""
     _, memory_library, _ = lifecycle_stack
     memory = _make_memory(vitality_score=10.0)
     await memory_library.mid_term.upsert(memory)
 
     await memory_library.archive(_key(memory))
+    (record,) = [
+        record for record in await memory_library.long_term.query() if record.memory_id == memory.id
+    ]
+    assert Path(record.storage_path).exists()
 
     assert (
         await memory_library.mid_term.get(
@@ -272,13 +278,15 @@ async def test_memory_library_archive_and_revive_moves_between_stores(lifecycle_
 
     await memory_library.revive(_identity_scope().workspace_identity, memory.id)
 
-    assert (
-        await memory_library.mid_term.get(
-            _identity_scope().workspace_identity,
-            memory.id,
-            from_actor=_identity_scope().actor_identity,
-        )
-        is not None
+    revived = await memory_library.mid_term.get(
+        _identity_scope().workspace_identity,
+        memory.id,
+        from_actor=_identity_scope().actor_identity,
+    )
+    assert (revived.index.title, revived.index.tags, revived.payload.content) == (
+        "Test",
+        ["test"],
+        "content",
     )
     assert await memory_library.long_term.is_archived(_key(memory)) is False
 

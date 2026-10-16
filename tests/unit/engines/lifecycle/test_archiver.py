@@ -92,7 +92,7 @@ class TestFileBasedStorageAdapter:
         assert [record.memory_id for record in records] == [low.id]
 
     @pytest.mark.asyncio
-    async def test_persist_with_compression_uses_gzip_file(self, tmp_path):
+    async def test_persist_with_compression_uses_gzip_file_and_loads_back(self, tmp_path):
         adapter = FileBasedStorageAdapter(str(tmp_path), compress=True)
         memory = _make_memory()
 
@@ -101,6 +101,8 @@ class TestFileBasedStorageAdapter:
         record = (await adapter.query())[0]
         assert record.storage_path.endswith(".json.gz")
         assert Path(record.storage_path).exists()
+        loaded = await adapter.load(_key(memory))
+        assert (loaded.id, loaded.payload.content) == (memory.id, "Content")
 
     @pytest.mark.asyncio
     async def test_index_is_loaded_after_restart(self, tmp_path):

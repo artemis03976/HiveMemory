@@ -6,18 +6,18 @@ HiveMemory Lifecycle 组件单元测试。
 测试组：
     - Group 1: 评分逻辑测试 (Vitality Scoring)
     - Group 2: 强化事件测试 (Reinforcement)
-    - Group 3: 归档与唤醒测试 (Archiving)
+
+归档与复活经真实 MemoryLibrary 与文件冷存储的协作由 tests/integration/test_lifecycle.py 覆盖。
 
 核心原则：
     - 使用 Mock Storage 模拟 Qdrant
     - 使用 Mock Clock 模拟时间流逝
-    - 验证评分公式、强化机制、归档流程
+    - 验证评分公式与强化机制
 """
 
 import os
 import sys
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from uuid import UUID
 
 # UTF-8 编码配置 (Windows 兼容性)
@@ -43,7 +43,6 @@ from rich.panel import Panel
 
 # 配置
 from hivememory.config.patchouli import (
-    ArchiverConfig,
     ReinforcementEngineConfig,
     VitalityCalculatorConfig,
 )
@@ -51,7 +50,6 @@ from hivememory.config.patchouli import (
 # 核心模型
 from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 from hivememory.engines.lifecycle.models import (
-    ArchiveRecord,
     EventType,
     MemoryEvent,
 )
@@ -60,18 +58,13 @@ from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngin
 # Lifecycle 组件
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.patchouli.memory_library import (
-    LongTermMemoryStore,
-    MemoryLibrary,
     MidTermMemoryStore,
-    ShortTermMemoryStore,
 )
-from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
 
 # 导入测试数据
 from tests.fixtures.lifecycle_test_data import (
     create_memory_with_age,
     create_test_memory,
-    get_archiving_test_by_id,
     get_reinforcement_test_by_id,
     get_scoring_test_by_id,
 )
@@ -132,40 +125,6 @@ class _MockMidTermAdapter:
 
     async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]:
         return self._storage.list_all_memories(limit=limit)
-
-
-class _LegacyArchiverFixture:
-    def __init__(self, memory_library: MemoryLibrary):
-        self._library = memory_library
-
-    async def archive(self, memory_id: UUID) -> None:
-        key = self._memory_key(memory_id)
-        if await self._library.long_term.is_archived(key):
-            return
-        await self._library.archive(key)
-
-    async def resurrect(self, memory_id: UUID) -> MemoryAtom:
-        key = self._memory_key(memory_id)
-        memory = await self._library.long_term.load(key)
-        await self._library.revive(self._identity_scope().workspace_identity, memory_id)
-        return memory
-
-    async def is_archived(self, memory_id: UUID) -> bool:
-        return await self._library.long_term.is_archived(self._memory_key(memory_id))
-
-    @staticmethod
-    def _identity_scope():
-        return make_identity_scope(user_id="test_user", agent_id="test_agent")
-
-    @classmethod
-    def _memory_key(cls, memory_id: UUID) -> WorkspaceMemoryKey:
-        return WorkspaceMemoryKey(
-            workspace_identity=cls._identity_scope().workspace_identity, memory_id=memory_id
-        )
-
-    async def get_archive_record(self, memory_id: UUID) -> ArchiveRecord | None:
-        records = await self._library.long_term.query(limit=100)
-        return next((record for record in records if record.memory_id == memory_id), None)
 
 
 # ========== Mock 存储 ==========
@@ -313,31 +272,6 @@ def reinforcement_engine(
         config=reinforcement_config,
         vitality_calculator=vitality_calculator,
     )
-
-
-@pytest.fixture
-def archiver_config(tmp_path) -> ArchiverConfig:
-    """提供归档器配置（使用临时目录）"""
-    return ArchiverConfig(
-        archive_dir=str(tmp_path / "archived"),
-        compression=True,
-    )
-
-
-@pytest.fixture
-def archiver(mock_storage, archiver_config) -> _LegacyArchiverFixture:
-    """提供归档器实例"""
-    memory_library = MemoryLibrary(
-        short_term=ShortTermMemoryStore(),
-        mid_term=MidTermMemoryStore(primary=_MockMidTermAdapter(mock_storage)),
-        long_term=LongTermMemoryStore(
-            FileBasedStorageAdapter(
-                archive_dir=archiver_config.archive_dir,
-                compress=archiver_config.compression,
-            )
-        ),
-    )
-    return _LegacyArchiverFixture(memory_library)
 
 
 # ========== 测试类: 评分逻辑 ==========
@@ -851,153 +785,6 @@ class TestReinforcement:
             f"AccessCount: {initial_access_count} -> "
             f"{updated_memory.meta.lifecycle.access_count}",
         )
-
-
-# ========== 测试类: 归档与唤醒 ==========
-
-
-class TestArchiving:
-    """
-    归档与唤醒测试
-
-    验证 MemoryLibrary + LongTermMemoryStore 的归档和唤醒流程。
-    """
-
-    @pytest.mark.asyncio
-    async def test_lif_arc_001_archive_trigger(self, mock_storage, archiver):
-        """
-        LIF-ARC-001: 归档触发
-
-        验证低分记忆被正确归档到冷存储。
-        """
-        case = get_archiving_test_by_id("LIF-ARC-001")
-        print_test_header(case["id"], case["name"])
-
-        # 创建低生命力记忆
-        memory = create_test_memory(
-            template_name="low_vitality",
-            vitality_score=case["initial_vitality"],
-        )
-        await mock_storage.upsert_memory(memory)
-        memory_id = memory.id
-
-        # 验证记忆在热存储中
-        assert (
-            await mock_storage.get_memory(memory_id) is not None
-        ), "Memory should exist in hot storage before archive"
-
-        # 执行归档
-        await archiver.archive(memory_id)
-
-        # 验证记忆从热存储中删除
-        assert (
-            await mock_storage.get_memory(memory_id) is None
-        ), "Memory should be deleted from hot storage after archive"
-
-        # 验证记忆在冷存储中
-        assert await archiver.is_archived(
-            memory_id
-        ), "Memory should be in cold storage after archive"
-
-        # 验证归档文件存在
-        record = await archiver.get_archive_record(memory_id)
-        assert record is not None, "Archive record should exist"
-        assert Path(
-            record.storage_path
-        ).exists(), f"Archive file should exist at {record.storage_path}"
-
-        print_test_result(
-            case["id"], case["name"], True, f"Archived to {Path(record.storage_path).name}"
-        )
-
-    @pytest.mark.asyncio
-    async def test_lif_arc_002_resurrect_flow(self, mock_storage, archiver):
-        """
-        LIF-ARC-002: 唤醒流程
-
-        验证已归档记忆能被正确唤醒到热存储，且数据完整。
-        """
-        case = get_archiving_test_by_id("LIF-ARC-002")
-        print_test_header(case["id"], case["name"])
-
-        # 创建并归档记忆
-        original_memory = create_test_memory(
-            template_name="fact",
-            vitality_score=5.0,
-        )
-        await mock_storage.upsert_memory(original_memory)
-        memory_id = original_memory.id
-
-        # 保存原始数据用于比较
-        original_title = original_memory.index.title
-        original_content = original_memory.payload.content
-        original_tags = original_memory.index.tags.copy()
-
-        # 归档
-        await archiver.archive(memory_id)
-        assert await archiver.is_archived(memory_id), "Memory should be archived"
-
-        # 唤醒
-        resurrected_memory = await archiver.resurrect(memory_id)
-
-        # 验证记忆回到热存储
-        assert (
-            await mock_storage.get_memory(memory_id) is not None
-        ), "Memory should be back in hot storage"
-
-        # 验证不再在冷存储中
-        assert not await archiver.is_archived(
-            memory_id
-        ), "Memory should not be in cold storage after resurrect"
-
-        # 验证数据完整性
-        assert resurrected_memory.id == memory_id, "ID should match"
-        assert resurrected_memory.index.title == original_title, "Title should match"
-        assert resurrected_memory.payload.content == original_content, "Content should match"
-        # tags 经 IndexLayer.validate_tags 使用 set 去重，顺序非确定，改用集合比较
-        assert set(resurrected_memory.index.tags) == set(original_tags), "Tags should match"
-
-        print_test_result(
-            case["id"],
-            case["name"],
-            True,
-            "Data integrity verified: title, content, tags all match",
-        )
-
-    @pytest.mark.asyncio
-    async def test_lif_arc_003_archive_idempotency(self, mock_storage, archiver):
-        """
-        LIF-ARC-003: 归档幂等性
-
-        验证对已归档记忆再次调用归档不会产生错误或重复文件。
-        """
-        case = get_archiving_test_by_id("LIF-ARC-003")
-        print_test_header(case["id"], case["name"])
-
-        # 创建并归档记忆
-        memory = create_test_memory(
-            template_name="low_vitality",
-            vitality_score=5.0,
-        )
-        await mock_storage.upsert_memory(memory)
-        memory_id = memory.id
-
-        # 第一次归档
-        await archiver.archive(memory_id)
-        assert await archiver.is_archived(memory_id), "Memory should be archived"
-
-        # 获取归档记录
-        first_record = await archiver.get_archive_record(memory_id)
-        first_path = first_record.storage_path
-
-        # 第二次归档（应该是幂等的，不产生错误）
-        await archiver.archive(memory_id)
-
-        # 验证没有重复文件
-        record_after = await archiver.get_archive_record(memory_id)
-        assert record_after.storage_path == first_path, "Archive path should remain the same"
-
-        print_test_result(case["id"], case["name"], True, "Idempotent: no error, no duplicate file")
 
 
 # ========== 主入口 ==========

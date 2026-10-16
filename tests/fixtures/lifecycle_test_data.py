@@ -6,7 +6,6 @@ HiveMemory Lifecycle E2E 测试数据 Fixtures
 设计原则:
     - 覆盖评分逻辑的各种场景 (基础分、时间衰减、访问加成)
     - 覆盖强化事件的四种类型 (HIT, CITATION, FEEDBACK_POSITIVE, FEEDBACK_NEGATIVE)
-    - 覆盖归档与唤醒的完整流程
 
 作者: HiveMemory Team
 版本: 1.0.0
@@ -141,45 +140,6 @@ REINFORCEMENT_TEST_CASES = [
         "expected_event_vitality_boost": 5.0,
         "expected_updated_at_unchanged_on_hit": True,  # HIT 不重置 updated_at
         "assertion": "新记忆 HIT 后 vitality 保持 100, B 项=5, updated_at 未重置",
-    },
-]
-
-
-# ========== 归档测试用例 ==========
-
-ARCHIVING_TEST_CASES = [
-    # LIF-ARC-001: 归档触发 (P0)
-    {
-        "id": "LIF-ARC-001",
-        "name": "归档触发",
-        "priority": "P0",
-        "description": "验证低分记忆被正确归档到冷存储",
-        "initial_vitality": 5.0,
-        "archive_threshold": 10.0,
-        "expected_in_hot_storage": False,
-        "expected_in_cold_storage": True,
-        "assertion": "Qdrant: M1 Deleted, FileSystem: M1.json.gz Created",
-    },
-    # LIF-ARC-002: 唤醒流程 (P1)
-    {
-        "id": "LIF-ARC-002",
-        "name": "唤醒流程",
-        "priority": "P1",
-        "description": "验证已归档记忆能被正确唤醒到热存储",
-        "expected_in_hot_storage": True,
-        "expected_in_cold_storage": False,
-        "expected_data_integrity": True,  # 所有字段应保持不变
-        "assertion": "Qdrant: M1 Inserted, FileSystem: M1 Deleted",
-    },
-    # LIF-ARC-003: 归档幂等性 (P2)
-    {
-        "id": "LIF-ARC-003",
-        "name": "归档幂等性",
-        "priority": "P2",
-        "description": "验证对已归档记忆再次调用归档不会产生错误或重复文件",
-        "expected_error": False,
-        "expected_duplicate_file": False,
-        "assertion": "No Error, No Duplicate File",
     },
 ]
 
@@ -343,7 +303,7 @@ def get_test_cases_by_priority(priority: str) -> list[dict[str, Any]]:
     Returns:
         List[Dict]: 匹配的测试用例列表
     """
-    all_cases = SCORING_TEST_CASES + REINFORCEMENT_TEST_CASES + ARCHIVING_TEST_CASES
+    all_cases = SCORING_TEST_CASES + REINFORCEMENT_TEST_CASES
     return [case for case in all_cases if case.get("priority") == priority]
 
 
@@ -373,19 +333,10 @@ def get_reinforcement_test_by_id(test_id: str) -> dict[str, Any] | None:
     return None
 
 
-def get_archiving_test_by_id(test_id: str) -> dict[str, Any] | None:
-    """根据 ID 获取归档测试用例"""
-    for case in ARCHIVING_TEST_CASES:
-        if case["id"] == test_id:
-            return case
-    return None
-
-
 __all__ = [
     # 测试用例
     "SCORING_TEST_CASES",
     "REINFORCEMENT_TEST_CASES",
-    "ARCHIVING_TEST_CASES",
     # 模板
     "MEMORY_TEMPLATES",
     # 辅助函数
@@ -396,5 +347,4 @@ __all__ = [
     "get_p1_test_cases",
     "get_scoring_test_by_id",
     "get_reinforcement_test_by_id",
-    "get_archiving_test_by_id",
 ]

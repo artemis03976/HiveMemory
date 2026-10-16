@@ -1,12 +1,13 @@
-"""Workspace scope 在真实 Interaction submission retry 链路中的集成测试。
+"""Interaction submission retry 在真实感知链路中的集成测试。
 
 测试驱动 InteractionSubmissionQueue、真实 InteractionSubmissionHandler、
-PerceptionFamiliar（Engine + WorkingSet + Store）与真实 Journal；只在首次
-attempt 的外部提交边界注入一次确定性的瞬态错误。
+PerceptionFamiliar（Engine + WorkingSet + Store）与真实 Journal；只在 attempt
+的不同时间点注入确定性的瞬态错误：调用感知之前、写块之后与 compact 之中。
 """
 
 from __future__ import annotations
 
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
@@ -22,6 +23,7 @@ from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
+    InteractionApplyStage,
 )
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
@@ -34,19 +36,40 @@ from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 from tests.helpers.workspace import make_identity_scope
 
 
-def _payload() -> InteractionPayload:
+def _payload(message: str = "retry question") -> InteractionPayload:
     """构造不可变的结构化交互载荷。"""
     return InteractionPayload(
-        user_message="retry question",
-        assistant_final_text="retry answer",
+        user_message=message,
+        assistant_final_text=f"answer:{message}",
         turn_events=[
             TurnEvent(
                 kind="assistant_message",
                 sequence=0,
                 role="assistant",
-                content="retry answer",
+                content=f"answer:{message}",
             )
         ],
+    )
+
+
+def _build_familiar(
+    store: ShortTermMemoryStore,
+    journal: InMemoryInteractionApplyJournal,
+    *,
+    engine: MemoryPerceptionEngine | None = None,
+) -> PerceptionFamiliar:
+    """真实感知编排；未指定引擎时使用不触发折叠的默认阈值。"""
+    return PerceptionFamiliar(
+        engine=engine
+        or MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
+            relay_controller=Mock(),
+        ),
+        store=store,
+        working_set=TopicWorkingSet(max_resident=4),
+        bus=Mock(request=AsyncMock(return_value=None)),
+        config=SimpleNamespace(idle_timeout_seconds=900),
+        interaction_journal=journal,
     )
 
 
@@ -67,18 +90,7 @@ def _queue_policy() -> QueuePolicy:
 async def test_interaction_retry_preserves_workspace_and_applies_block_once():
     """捕获 retry 丢失 scope、写错 Workspace 或重复写入 block 的缺陷。"""
     store = ShortTermMemoryStore()
-    journal = InMemoryInteractionApplyJournal()
-    familiar = PerceptionFamiliar(
-        engine=MemoryPerceptionEngine(
-            config=SemanticFlowPerceptionConfig(fold_token_threshold=999999),
-            relay_controller=Mock(),
-        ),
-        store=store,
-        working_set=TopicWorkingSet(max_resident=4),
-        bus=Mock(request=AsyncMock(return_value=None)),
-        config=SimpleNamespace(idle_timeout_seconds=900),
-        interaction_journal=journal,
-    )
+    familiar = _build_familiar(store, InMemoryInteractionApplyJournal())
 
     scope = make_identity_scope(
         user_id="u-retry",
@@ -143,3 +155,121 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once():
     assert stored.topic_id == outcome.topic_id
     assert [block.user_query for block in stored.blocks] == ["retry question"]
     assert store.list_by_workspace(other_scope.workspace_identity) == []
+
+
+@pytest.mark.asyncio
+async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> None:
+    """写块之后、调用方拿到结果之前失败：retry 不重复写块，完成后的重放幂等。"""
+    store = ShortTermMemoryStore()
+    familiar = _build_familiar(store, InMemoryInteractionApplyJournal())
+    original_fold = familiar._compact_topic_if_needed
+    fold_calls = 0
+
+    async def fail_once_after_add(identity_scope, topic_id):
+        nonlocal fold_calls
+        fold_calls += 1
+        if fold_calls == 1:
+            raise TransientInteractionSubmissionError("caller missed apply result")
+        return await original_fold(identity_scope, topic_id)
+
+    familiar._compact_topic_if_needed = fail_once_after_add
+    queue = InteractionSubmissionQueue(familiar.apply_interaction)
+    scope = make_identity_scope(user_id="u1", agent_id="a1")
+    submission = InteractionSubmission(
+        belong_to=scope.workspace_identity,
+        from_actor=scope.actor_identity,
+        interaction_id="interaction-ambiguous",
+        payload=_payload("ambiguous"),
+        requested_topic_id="NEW_TOPIC",
+        ordering_key="conversation-1",
+        origin="passive_memory",
+        correlation={"turn_id": "interaction-ambiguous"},
+    )
+
+    try:
+        await queue.start()
+        receipt = await queue.submit(submission)
+        outcome = await queue.wait(receipt, timeout=2)
+    finally:
+        await queue.stop()
+
+    assert outcome is not None
+    assert outcome.state == WorkState.SUCCEEDED
+    assert outcome.topic_id is not None
+    topic = store.get(scope.workspace_identity, outcome.topic_id)
+    assert topic is not None
+    assert topic.block_count == 1
+    # 行为断言：缺省 manual settle 命中的正是本次写入的最近活跃话题
+    settle_result = await familiar.manual_settle_topic(scope.workspace_identity)
+    assert settle_result.topic_id == outcome.topic_id
+    assert store.get(scope.workspace_identity, outcome.topic_id) is None
+
+    # retry 已全部完成（COMPLETED），幂等返回同一话题且不重复写块
+    replayed_topic = await asyncio.wait_for(
+        familiar.apply_interaction(
+            _payload("ambiguous"),
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+            target_topic_id=outcome.topic_id,
+            interaction_id="interaction-ambiguous",
+        ),
+        timeout=1,
+    )
+    assert replayed_topic == outcome.topic_id
+
+
+@pytest.mark.asyncio
+async def test_retry_resumes_pending_compact_without_duplicating_block() -> None:
+    """INTERACTION_APPLIED 阶段的 retry 补跑本地 compact 义务，不重复写块。"""
+    store = ShortTermMemoryStore()
+    journal = InMemoryInteractionApplyJournal()
+    relay = Mock()
+    relay.generate_summary.side_effect = [
+        TransientInteractionSubmissionError("relay missed"),
+        "folded-summary",
+    ]
+    engine = MemoryPerceptionEngine(
+        config=SemanticFlowPerceptionConfig(fold_token_threshold=1, fold_retain_recent_blocks=1),
+        relay_controller=relay,
+    )
+    familiar = _build_familiar(store, journal, engine=engine)
+    scope = make_identity_scope(user_id="u1", agent_id="a1")
+    topic_id = await familiar.apply_interaction(
+        _payload("first"),
+        belong_to=scope.workspace_identity,
+        from_actor=scope.actor_identity,
+        interaction_id="i-first",
+    )
+    queue = InteractionSubmissionQueue(familiar.apply_interaction)
+    submission = InteractionSubmission(
+        belong_to=scope.workspace_identity,
+        from_actor=scope.actor_identity,
+        interaction_id="interaction-settlement",
+        payload=_payload("second"),
+        requested_topic_id=topic_id,
+        ordering_key="conversation-1",
+        origin="passive_memory",
+        correlation={"turn_id": "interaction-settlement"},
+    )
+
+    try:
+        await queue.start()
+        receipt = await queue.submit(submission)
+        outcome = await queue.wait(receipt, timeout=2)
+    finally:
+        await queue.stop()
+
+    # 首次 attempt 写入 block 后 compact 失败（relay 抛瞬态错误）；retry 补跑
+    # compact 完成，不重复写块。
+    assert outcome is not None
+    assert outcome.state == WorkState.SUCCEEDED
+    topic = store.get(scope.workspace_identity, topic_id)
+    assert topic is not None
+    assert topic.block_count == 1  # 折叠保留最近 1 块
+    assert topic.state_summary == "folded-summary"
+    record = journal.get("interaction-settlement")
+    assert record is not None
+    assert record.stage is InteractionApplyStage.COMPLETED
+    assert record.settlement_to_submit is None
+    # 首次 attempt 失败一次 + retry 补跑成功一次
+    assert relay.generate_summary.call_count == 2
