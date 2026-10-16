@@ -30,7 +30,7 @@ from hivememory.components.trace_context import (
 )
 from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
 from hivememory.core.models import IdentityScope, WorkspaceIdentity
-from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode
+from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode, GatewaySessionTurn
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
@@ -156,6 +156,7 @@ class TaskProcessRunner:
         operation_authorizer: WorkspaceOperationAuthorizer,
         thread_contexts: ProcessThreads,
         gateway_request_timeout_ms: int = 8000,
+        gateway_session_turn_limit: int = 3,
     ) -> None:
         self._sessions = sessions
         self._bus = global_bus
@@ -164,6 +165,7 @@ class TaskProcessRunner:
         self._authorizer = operation_authorizer
         self._thread_contexts = thread_contexts
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
+        self._gateway_session_turn_limit = gateway_session_turn_limit
 
     # ========== 编排骨架 ==========
 
@@ -206,6 +208,15 @@ class TaskProcessRunner:
                     message=request.message,
                     identity_scope=gateway_scope,
                     ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
+                    session_turns=tuple(
+                        GatewaySessionTurn(
+                            user_message=t.payload.user_message,
+                            assistant_text=t.payload.assistant_final_text or "",
+                        )
+                        for t in self._sessions.get(
+                            request.target_workspace, request.session_id
+                        ).turns[-self._gateway_session_turn_limit :]
+                    ),
                     request_timeout_ms=self._gateway_request_timeout_ms,
                 ),
             )
@@ -385,6 +396,7 @@ class TaskProcessRunner:
             user_message=request.message,
             agent_profile=agent_profile,
             selections=list(request.attachments),
+            session_history=self._sessions.get(request.target_workspace, request.session_id).turns,
             access=record.access,
             target_workspace=request.target_workspace,
         )

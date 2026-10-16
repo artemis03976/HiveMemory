@@ -11,7 +11,11 @@ from hivememory.core.contracts.route import route
 
 if TYPE_CHECKING:
     from hivememory.core.models import IdentityScope
-    from hivememory.core.protocol.gateway import GatewayIngressMode, GatewayProcessResult
+    from hivememory.core.protocol.gateway import (
+        GatewayIngressMode,
+        GatewayProcessResult,
+        GatewaySessionTurn,
+    )
 
 
 class GatewayPublicRoutes:
@@ -24,6 +28,7 @@ class GatewayPublicRoutes:
         identity_scope: IdentityScope,
         ingress_mode: GatewayIngressMode,
         request_timeout_ms: int | None = None,
+        session_turns: tuple[GatewaySessionTurn, ...] = (),
     ) -> GatewayProcessResult:
         """把一次 Gateway 请求完整委托给 Runtime 持有的 workflow。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。

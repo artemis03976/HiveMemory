@@ -54,7 +54,7 @@ def _prepare_bus() -> tuple[PatchouliBus, AsyncMock, AsyncMock]:
         PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
         AsyncMock(return_value=[]),
     )
-    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=None))
+    # prepare 的接口不再读取 Topic 内容；未注册该路由，旧读取会直接失败。
     bus.register(PatchouliLocalRoutes.MEMORY_RETRIEVE, retrieve)
     bus.register(
         PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,

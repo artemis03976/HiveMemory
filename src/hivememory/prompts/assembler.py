@@ -40,23 +40,18 @@ class AgentPromptAssembler:
         if context.agent_profile and context.agent_profile.persona:
             builder.with_persona(context.agent_profile.persona)
 
-        topic_context = context.topic_context
-        topic_state = topic_context.state_summary if topic_context is not None else ""
-        recent_blocks = topic_context.recent_blocks(5) if topic_context is not None else []
-
         builder.with_memory_context(context.memory_context)
-        # W1-E：附件 section 固定位于 memory_context 之后、topic state 之前；
+        # W1-E：附件 section 固定位于 memory_context 之后；
         # 只消费任务进程编译好的 attachment_context 文本，不接触 Store/lease。
         if context.attachment_context:
             builder.with_attachment_context(context.attachment_context)
-        builder.with_topic_state(topic_state)
 
         system_prompt = builder.build()
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
 
         history_messages = HistoryTranscriptBuilder().build_messages(
-            blocks=recent_blocks,
+            turns=context.session_history,
             current_agent_id=context.labels.agent_id,
         )
         messages.extend(history_messages)

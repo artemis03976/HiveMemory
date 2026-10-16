@@ -14,6 +14,7 @@ from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import ActorIdentity, LogicalBlock, TopicData, TurnRecord
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
+    GatewaySessionTurn,
     IntentType,
     MemoryWriteSignal,
     RetrievalMode,
@@ -141,7 +142,8 @@ async def test_llm_resolver_rule_marks_repeated_input_skip() -> None:
     context = _build_context(
         "晚饭吃什么",
         topic_id="topic-1",
-        routed_topic_data=_build_topic_data(last_user_query="晚饭吃什么"),
+        routed_topic_data=_build_topic_data(last_user_query="其他会话的问题"),
+        session_turns=(GatewaySessionTurn(user_message="晚饭吃什么"),),
     )
 
     result = await resolver.resolve(context)
@@ -278,3 +280,17 @@ async def test_runtime_falls_back_to_conservative_result_on_analysis_error() -> 
     assert result.decision.memory_write_signal == MemoryWriteSignal.UNKNOWN
     assert result.decision.retrieval_plan.mode == RetrievalMode.HYBRID
     assert result.decision.retrieval_plan.top_k == 9
+
+
+@pytest.mark.asyncio
+async def test_repeated_topic_input_without_session_is_not_skipped():
+    """其他会话在同一 Topic 中的重复内容不触发当前会话去重。"""
+    resolver = LLMUserQueryAnalysisResolver(
+        config=UserQueryAnalysisConfig(), engine=_build_engine_mock()
+    )
+    result = await resolver.resolve(
+        _build_context(
+            "晚饭吃什么", routed_topic_data=_build_topic_data(last_user_query="晚饭吃什么")
+        )
+    )
+    assert result.memory_write_signal == MemoryWriteSignal.WRITE

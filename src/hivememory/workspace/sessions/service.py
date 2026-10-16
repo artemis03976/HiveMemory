@@ -14,8 +14,7 @@ from hivememory.core.errors import (
     SessionNotFoundError,
 )
 from hivememory.core.models import WorkspaceIdentity
-from hivememory.core.protocol.models import InteractionPayload
-from hivememory.core.protocol.session import ConversationTurn
+from hivememory.core.protocol.models import ConversationTurn, InteractionPayload
 
 
 class SessionSummary(BaseModel):

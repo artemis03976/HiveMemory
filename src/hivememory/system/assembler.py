@@ -448,6 +448,7 @@ class SystemAssembler:
             operation_authorizer=access_control.operation_authorizer,
             thread_contexts=access_control.process_threads,
             gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
+            gateway_session_turn_limit=self._config.gateway.context_preparation.session_turn_limit,
         )
         process = TaskProcessService(
             runner,

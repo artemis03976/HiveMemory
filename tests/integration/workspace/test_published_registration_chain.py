@@ -249,7 +249,6 @@ def _prepared_run(scope) -> PreparedAgentRun:
         interaction_id="interaction-published",
         topic_id="topic-1",
         is_new_topic=True,
-        topic_context=None,
         pool_topics=[],
         retrieval_result=RetrievalResponse.from_memories([]),
         storage_available=True,

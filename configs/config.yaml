@@ -86,6 +86,8 @@ memory_compiler:
 
 # ========== System Gateway 配置 ==========
 gateway:
+  context_preparation:
+    session_turn_limit: 3
   interceptor:
     enabled: true
     enable_system: true

@@ -48,6 +48,7 @@ def make_task_process_service(
     operation_entry: OperationEntry | None = None,
     process_table: ProcessTable | None = None,
     sessions: ConversationSessionService | None = None,
+    gateway_session_turn_limit: int = 3,
 ) -> TaskProcessService:
     """按生产顺序装配能力与操作入口，再构建 CPU 分配器、执行器与注册入口。"""
     if (
@@ -92,6 +93,7 @@ def make_task_process_service(
         allocator=allocator,
         operation_authorizer=operation_authorizer,
         thread_contexts=threads,
+        gateway_session_turn_limit=gateway_session_turn_limit,
     )
     return TaskProcessService(
         runner,

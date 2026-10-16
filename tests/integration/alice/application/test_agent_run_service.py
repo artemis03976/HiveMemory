@@ -37,6 +37,7 @@ from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.contracts import CPUExecutionStatus
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.sessions import make_conversation_turn
 from tests.helpers.workspace import make_execution_labels
 
 
@@ -119,7 +120,15 @@ async def test_run_agent_passes_input_and_submitter_to_root_frame():
     """CPU 交付的提交函数随 root frame 进入执行层，预检索内容仍进入提示词。"""
     runtime, service = _build_service()
     memory = _build_memory_atom()
-    context = _build_input_manifest(memory)
+    context = _build_input_manifest(memory).model_copy(
+        update={
+            "session_history": (
+                make_conversation_turn(
+                    agent_id="other", user_message="历史问题", assistant_final_text="历史回答"
+                ),
+            ),
+        }
+    )
     seen = []
     submit_operation = MagicMock()
 
@@ -132,7 +141,11 @@ async def test_run_agent_passes_input_and_submitter_to_root_frame():
     assert result.status == CPUExecutionStatus.COMPLETED.value
     (frame,) = seen
     assert frame.submit_operation is submit_operation
-    assert any("hello" in message["content"] for message in frame.working_history)
+    assert frame.working_history[-3:] == [
+        {"role": "user", "content": "历史问题"},
+        {"role": "assistant", "content": "[From: other]\n历史回答"},
+        {"role": "user", "content": "hello"},
+    ]
 
 
 async def _terminal_status_without_stream(service, manifest, submit_operation) -> str:

@@ -201,7 +201,6 @@ def _prepare_route(
             interaction_id=interaction_id,
             topic_id=topic_id,
             is_new_topic=is_new_topic,
-            topic_context=None,
             pool_topics=[],
             retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
             storage_available=True,
@@ -330,7 +329,7 @@ async def test_manifest_operations_follow_access_record_precedence(exact_records
         "attachment_context",
         "storage_available",
         "topic_id",
-        "topic_context",
+        "session_history",
     }
 
 

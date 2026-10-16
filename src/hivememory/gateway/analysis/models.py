@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models import ActorIdentity, TopicData
 from hivememory.core.protocol.gateway import (
+    GatewaySessionTurn,
     IntentType,
     MemoryWriteSignal,
     RetrievalPlan,
@@ -25,6 +26,7 @@ class UserQueryAnalysisContext(BaseModel):
     new_topic_title: str | None = None
     new_topic_summary: str | None = None
     routed_topic_data: TopicData | None = None
+    session_turns: tuple[GatewaySessionTurn, ...] = ()
 
     model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
 

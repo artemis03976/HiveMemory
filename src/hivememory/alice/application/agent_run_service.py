@@ -83,7 +83,7 @@ def _agent_run_context_from_manifest(manifest: CPUInputManifest) -> AgentRunCont
         labels=manifest.labels,
         topic_id=manifest.topic_id,
         user_message=manifest.user_message,
-        topic_context=manifest.topic_context,
+        session_history=manifest.session_history,
         memory_context=manifest.memory_context,
         agent_profile=manifest.agent_profile,
         permitted_mtp_verbs=mtp_verbs_for_operations(manifest.allowed_operations),

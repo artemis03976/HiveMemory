@@ -13,6 +13,7 @@ from hivememory.config.gateway import (
 from hivememory.core.models import IdentityScope, TopicSnapshot
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
+    GatewaySessionTurn,
     IntentType,
     MemoryWriteSignal,
     RetrievalMode,
@@ -57,6 +58,7 @@ class CandidateTopicsInput:
 class TopicRoutingInput:
     raw_message: str
     topic_snapshots: tuple[TopicSnapshot, ...]
+    session_turns: tuple[GatewaySessionTurn, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -109,6 +111,7 @@ def build_gateway_workflow(
             return await topic_router.route(
                 selected.raw_message,
                 topic_snapshots=selected.topic_snapshots,
+                session_turns=selected.session_turns,
             )
         except TopicRouterError as exc:
             raise RecoverableGatewayError(str(exc)) from exc
@@ -233,6 +236,7 @@ def _select_topic_routing_input(snapshot: GatewayStateSnapshot) -> TopicRoutingI
     return TopicRoutingInput(
         raw_message=snapshot.raw_message,
         topic_snapshots=snapshot.candidate_topics.topic_snapshots,
+        session_turns=snapshot.session_turns,
     )
 
 
@@ -272,6 +276,7 @@ def _select_analysis_context(
         new_topic_title=snapshot.new_topic_title,
         new_topic_summary=snapshot.new_topic_summary,
         routed_topic_data=snapshot.routed_topic_data,
+        session_turns=snapshot.session_turns,
     )
 
 

@@ -1,5 +1,6 @@
 """Gateway Topic Router 与查询分析提示词。"""
 
+from hivememory.core.protocol.gateway import GatewaySessionTurn
 from hivememory.i18n import get_gateway_prompt_text
 
 
@@ -29,3 +30,13 @@ __all__ = [
     "get_query_understanding_system_prompt",
     "get_topic_router_system_prompt",
 ]
+
+
+def session_history_messages(turns: tuple[GatewaySessionTurn, ...]) -> list[dict[str, str]]:
+    """会话文本单独形成历史消息，为当前输入提供指代背景。"""
+    messages: list[dict[str, str]] = []
+    for turn in turns:
+        messages.append({"role": "user", "content": turn.user_message})
+        if turn.assistant_text:
+            messages.append({"role": "assistant", "content": turn.assistant_text})
+    return messages

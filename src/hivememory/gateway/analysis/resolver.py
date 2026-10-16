@@ -103,6 +103,7 @@ class LLMUserQueryAnalysisResolver:
             analysis = await self._engine.analyze(
                 context.raw_message,
                 topic_data=context.routed_topic_data,
+                session_turns=context.session_turns,
             )
         except QueryUnderstandingError as exc:
             self._emit_capability(started_at, error=exc)
@@ -137,13 +138,12 @@ class LLMUserQueryAnalysisResolver:
         return None, None
 
     def _is_repeated_input(self, context: UserQueryAnalysisContext) -> bool:
-        topic_data = context.routed_topic_data
-        if topic_data is None:
+        # Topic 池可能交错多个会话，重复检测只能比较当前会话的上一轮。
+        if not context.session_turns:
             return False
-        recent = topic_data.recent_blocks(1)
-        if not recent:
-            return False
-        return self._normalize(recent[0].user_query) == self._normalize(context.raw_message)
+        return self._normalize(context.session_turns[-1].user_message) == self._normalize(
+            context.raw_message
+        )
 
     @staticmethod
     def _normalize(text: str) -> str:
