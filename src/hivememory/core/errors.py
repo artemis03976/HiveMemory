@@ -41,6 +41,30 @@ class WorkspaceDomainError(RuntimeError):
         super().__init__(message or self.code)
 
 
+class SessionNotFoundError(WorkspaceDomainError):
+    """会话不存在或不属于目标 Workspace。"""
+
+    code = "workspace.session.not_found"
+
+
+class SessionBusyError(WorkspaceDomainError):
+    """会话已被运行中的进程认领。"""
+
+    code = "workspace.session.busy"
+
+
+class SessionCapacityError(WorkspaceDomainError):
+    """会话或轮数达到容量上限。"""
+
+    code = "workspace.session.capacity_exceeded"
+
+
+class SessionClosedError(WorkspaceDomainError):
+    """会话服务已关闭，拒绝继续读写。"""
+
+    code = "workspace.session.closed"
+
+
 class ScopeRequiredError(WorkspaceDomainError):
     """内部领域边界缺少完整 Workspace 访问上下文。"""
 
@@ -187,6 +211,10 @@ class ModelNotFoundError(Exception):
 
 
 __all__ = [
+    "SessionNotFoundError",
+    "SessionBusyError",
+    "SessionCapacityError",
+    "SessionClosedError",
     "WorkspaceDomainError",
     "ScopeRequiredError",
     "ThreadContextRevokedError",

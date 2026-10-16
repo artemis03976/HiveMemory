@@ -53,6 +53,7 @@ from hivememory.workspace.capability.root.agent_profiles import RootAgentProfile
 from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
 from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
+from hivememory.workspace.capability.root.session import RootSessionService
 from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.runner import TaskProcessRunner
@@ -64,6 +65,7 @@ from hivememory.workspace.registry import (
     WorkspaceActorAccessRegistry,
 )
 from hivememory.workspace.runtime import WorkspaceRuntime
+from hivememory.workspace.sessions import ConversationSessionService
 
 if TYPE_CHECKING:
     # system.system 在运行时导入本模块；返回类型只在类型检查时解析。
@@ -80,6 +82,7 @@ class _RuntimeBundle:
     scheduler: GlobalMaintenanceScheduler
     workspace_asset_store: InMemoryWorkspaceAssetStore
     workspace_runtime: WorkspaceRuntime
+    sessions: ConversationSessionService
     event_bus: RuntimeEventBus | None
     event_sink: RuntimeEventSink
     event_publisher: RuntimeEventPublisher
@@ -130,6 +133,7 @@ class _ServicesBundle:
     root_memory_task: RootMemoryTaskService
     root_agent: RootAgentProfileService
     root_topic: RootTopicService
+    root_session: RootSessionService
     readiness: SystemReadinessService
     root_workspace_assets: RootWorkspaceAssetService
 
@@ -222,6 +226,7 @@ class SystemAssembler:
             scheduler=scheduler,
             workspace_asset_store=workspace_asset_store,
             workspace_runtime=workspace_runtime,
+            sessions=ConversationSessionService(self._config.workspace.sessions),
             event_bus=event_bus,
             event_sink=event_sink,
             event_publisher=event_publisher,
@@ -437,6 +442,7 @@ class SystemAssembler:
             # Actor 执行经 CPU 端口完成：Alice 是当前唯一的 CPU，其端口实现
             # 由组合根注入，workspace.process 不出现 Alice 的路由名或结果类型。
             cpu=subsystems.alice.cpu_port,
+            sessions=runtime.sessions,
             allocator=allocator,
             # 阶段授权在执行器内、每次阶段调用前执行。
             operation_authorizer=access_control.operation_authorizer,
@@ -446,6 +452,7 @@ class SystemAssembler:
         process = TaskProcessService(
             runner,
             process_table=access_control.process_table,
+            sessions=runtime.sessions,
             # 注册入口是进程 context 的运行持有者（A1 访问边界返工 4.4）：
             # 认证经网关，进程控制授权经操作授权者。
             access_gateway=access_control.access_gateway,
@@ -504,6 +511,9 @@ class SystemAssembler:
             root_memory_task=root_memory_task,
             root_agent=root_agent,
             root_topic=root_topic,
+            root_session=RootSessionService(
+                runtime.sessions, operation_authorizer=access_control.operation_authorizer
+            ),
             readiness=readiness,
             root_workspace_assets=root_workspace_assets,
         )

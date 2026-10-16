@@ -91,6 +91,10 @@ def test_workspace_access_and_read_modules_depend_only_on_core():
         if module.startswith("hivememory")
         and not module.startswith(ALLOWED_INTERNAL)
         and not (
+            path == WORKSPACE_PACKAGE / "sessions" / "service.py"
+            and module == "hivememory.config.workspace"
+        )
+        and not (
             (path in SHARED_EVENT_SUBSCRIBERS or WORKSPACE_PACKAGE / "intents" in path.parents)
             and module.startswith("hivememory.components")
         )

@@ -422,13 +422,16 @@ async def test_register_success_returns_handle_and_binds_issued_context_to_proce
 
 
 @pytest.mark.asyncio
-async def test_process_handle_exposes_only_process_id() -> None:
-    """句柄是入口 adapter 唯一引用：只暴露 process_id，不暴露记录、context 或进程容器。"""
+async def test_process_handle_exposes_only_process_and_session_ids() -> None:
+    """句柄是入口 adapter 唯一引用：只暴露 process_id/session_id，不暴露记录、context 或进程容器。"""
     service, composition = await _service()
     handle = await _register(composition, service, process_id="process-opaque")
 
     assert handle.process_id == "process-opaque"
-    assert [name for name in dir(handle) if not name.startswith("_")] == ["process_id"]
+    assert [name for name in dir(handle) if not name.startswith("_")] == [
+        "process_id",
+        "session_id",
+    ]
     assert not hasattr(handle, "record")
     assert not hasattr(handle, "access")
     assert not hasattr(handle, "task")

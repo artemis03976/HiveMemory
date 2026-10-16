@@ -91,6 +91,7 @@ type ProcessOutput = ProcessStarted | InputsAllocated | ActorEvent | Finalizing 
 class NonStreamingCommandOutcome:
     """非流式交付的系统指令终态。"""
 
+    session_id: str
     kind: Literal["command"] = "command"
     command_execution_result: CommandExecutionResult
 
@@ -99,6 +100,7 @@ class NonStreamingCommandOutcome:
 class NonStreamingAgentOutcome:
     """非流式交付的 Agent 运行终态。"""
 
+    session_id: str
     kind: Literal["agent"] = "agent"
     execution_result: CPUExecutionResult
 
@@ -109,11 +111,18 @@ type NonStreamingResult = NonStreamingCommandOutcome | NonStreamingAgentOutcome
 # ========== 流式交付 ==========
 
 
-def stream_events(output: ProcessOutput, *, process_id: str) -> list[dict[str, Any]]:
+def stream_events(
+    output: ProcessOutput, *, process_id: str, session_id: str
+) -> list[dict[str, Any]]:
     """把一项阶段产出投影为流式事件（``ProcessFailed`` 由调用方翻译）。"""
     match output:
         case ProcessStarted():
-            return [{"event": "process_id", "data": {"process_id": process_id}}]
+            return [
+                {
+                    "event": "process_id",
+                    "data": {"process_id": process_id, "session_id": session_id},
+                }
+            ]
         case InputsAllocated(prepared=prepared, manifest=manifest):
             return [
                 {

@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-__all__ = ["WorkspaceCacheConfig", "WorkspaceConfig"]
+__all__ = ["WorkspaceCacheConfig", "WorkspaceConfig", "WorkspaceSessionConfig"]
 
 
 class WorkspaceCacheConfig(BaseModel):
@@ -23,9 +23,19 @@ class WorkspaceCacheConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class WorkspaceSessionConfig(BaseModel):
+    """会话容量按 Workspace 与单个会话限制，用尽时不淘汰历史。"""
+
+    max_sessions_per_workspace: int = Field(default=128, ge=1)
+    max_turns_per_session: int = Field(default=512, ge=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class WorkspaceConfig(BaseModel):
     """workspace 运行时根配置。"""
 
+    sessions: WorkspaceSessionConfig = Field(default_factory=WorkspaceSessionConfig)
     cache: WorkspaceCacheConfig = Field(default_factory=WorkspaceCacheConfig)
 
     model_config = ConfigDict(extra="forbid")

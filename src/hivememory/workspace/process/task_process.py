@@ -34,6 +34,7 @@ class ProcessRequest:
 
     message: str
     target_workspace: WorkspaceIdentity
+    session_id: str
     enable_memory_retrieval: bool = True
     generation_options: dict[str, Any] | None = None
     attachments: tuple[AttachmentSelectionRequest, ...] = ()

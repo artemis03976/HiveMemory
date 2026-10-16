@@ -50,6 +50,7 @@ AUTHORIZER_ONLY_FILES = frozenset(
         "workspace/capability/root/memory.py",
         "workspace/capability/root/agent_profiles.py",
         "workspace/capability/root/topic.py",
+        "workspace/capability/root/session.py",
         "workspace/capability/root/memory_tasks.py",
         "workspace/capability/root/assets.py",
         "workspace/process/runner.py",
@@ -400,6 +401,7 @@ def test_root_authorization_is_only_used_by_root_api():
         "workspace/capability/root/memory.py",
         "workspace/capability/root/agent_profiles.py",
         "workspace/capability/root/topic.py",
+        "workspace/capability/root/session.py",
         "workspace/capability/root/memory_tasks.py",
         "workspace/capability/root/assets.py",
     }

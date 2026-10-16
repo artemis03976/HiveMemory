@@ -545,7 +545,9 @@ async def test_completed_stream_uses_one_process_id_for_events_and_downstream_ro
         process_id="process-complete",
     )
 
-    assert events[0] == {"event": "process_id", "data": {"process_id": "process-complete"}}
+    assert events[0]["event"] == "process_id"
+    assert events[0]["data"]["process_id"] == "process-complete"
+    assert events[0]["data"]["session_id"].startswith("session_")
     topic_info = next(event for event in events if event["event"] == "topic_info")
     assert topic_info["data"] == {
         "topic_id": "topic-1",

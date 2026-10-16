@@ -45,6 +45,7 @@ interface ChatStore {
   runStatus: ChatRunStatus;
   lastRunReason: string | null;
   currentTopicId: string | null;
+  currentSessionId: string | null;
   currentAgentId: string;
   retrievedMemories: MemoryAtom[];
 
@@ -77,6 +78,7 @@ export const useChatStore = create<ChatStore>()(
         runStatus: 'idle',
         lastRunReason: null,
         currentTopicId: null,
+        currentSessionId: null,
         currentAgentId: DEFAULT_AGENT_ID,
         retrievedMemories: [],
         _sseClient: null,
@@ -192,6 +194,7 @@ export const useChatStore = create<ChatStore>()(
                       ? updatedMessages.filter((message) => message.id === assistantMessageId)
                       : updatedMessages,
                     currentTopicId: clearChat ? null : s.currentTopicId,
+                    currentSessionId: clearChat ? null : s.currentSessionId,
                     retrievedMemories: clearChat ? [] : s.retrievedMemories,
                   };
                 });
@@ -201,7 +204,7 @@ export const useChatStore = create<ChatStore>()(
               },
               setProcessId: (data) => {
                 const current = get();
-                set({ _currentProcessId: data.process_id });
+                set({ _currentProcessId: data.process_id, currentSessionId: data.session_id });
                 if (current.runStatus === 'cancelling') {
                   void stopProcess(data.process_id);
                 }
@@ -276,6 +279,7 @@ export const useChatStore = create<ChatStore>()(
             await client.connect(
               {
                 message: content,
+                session_id: state.currentSessionId,
                 agent_id: currentAgentId,
                 ...options,
               },
@@ -298,6 +302,7 @@ export const useChatStore = create<ChatStore>()(
           set({
             messages: [],
             currentTopicId: null,
+            currentSessionId: null,
             retrievedMemories: [],
             lastRunReason: null,
             runStatus: 'idle',
@@ -333,6 +338,7 @@ export const useChatStore = create<ChatStore>()(
         partialize: (state) => ({
           messages: [],
           currentTopicId: null,
+          currentSessionId: null,
           currentAgentId: state.currentAgentId,
         }),
         // During beta migrations, clear persisted chat messages to avoid stale stream state.

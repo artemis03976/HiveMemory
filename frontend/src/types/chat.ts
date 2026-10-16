@@ -109,6 +109,7 @@ export interface MemoryRefsEvent {
 
 export interface ProcessIdEvent {
   process_id: string;
+  session_id: string;
 }
 
 export interface CommandResultEvent {

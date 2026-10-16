@@ -64,6 +64,7 @@ from hivememory.workspace.process.table import (
 from hivememory.workspace.process.task_process import TaskProcess
 from hivememory.workspace.process.threads import ProcessThreads
 from hivememory.workspace.process.working_set import ProcessWorkingSet
+from hivememory.workspace.sessions import ConversationSessionService
 
 logger = logging.getLogger(__name__)
 
@@ -150,11 +151,13 @@ class TaskProcessRunner:
         global_bus: GlobalSystemBus,
         *,
         cpu: CPUPort,
+        sessions: ConversationSessionService,
         allocator: CPUAllocator,
         operation_authorizer: WorkspaceOperationAuthorizer,
         thread_contexts: ProcessThreads,
         gateway_request_timeout_ms: int = 8000,
     ) -> None:
+        self._sessions = sessions
         self._bus = global_bus
         self._cpu = cpu
         self._allocator = allocator
@@ -294,6 +297,14 @@ class TaskProcessRunner:
                 model_used=execution_result.model_used,
                 # 附件编译冻结的实际使用引用（被预算跳过的附件不在其中）。
                 used_attachments=working_set.used_attachments,
+            )
+            self._sessions.append(
+                request.target_workspace,
+                request.session_id,
+                process_id=record.process_id,
+                agent_id=record.events.labels.agent_id,
+                payload=payload,
+                topic_id=prepared.topic_id,
             )
             await self._bus.request(
                 PatchouliRoutes.FINALIZE_AGENT_RUN,

@@ -10,6 +10,7 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
+from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import (
@@ -41,12 +42,20 @@ from hivememory.system.system import HiveMemorySystem
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.process.threads import ProcessThreads
+from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
     make_workspace_identity,
     make_workspace_runtime,
 )
+
+
+class _Processes:
+    """没有在途进程的生命周期替身。"""
+
+    async def shutdown(self) -> None:
+        pass
 
 
 class _Scheduler:
@@ -227,16 +236,18 @@ def _build_system(
         scheduler=_Scheduler(calls),  # type: ignore[arg-type]
         workspace_asset_store=store,
         workspace_runtime=make_workspace_runtime(),
+        sessions=ConversationSessionService(WorkspaceSessionConfig()),
         event_bus=None,
         event_sink=sink,
         event_publisher=RuntimeEventPublisher(sink),
     )
     services = _ServicesBundle(
-        process=object(),  # type: ignore[arg-type]
+        process=_Processes(),  # type: ignore[arg-type]
         ingress=_Ingress(calls),  # type: ignore[arg-type]
         root_memory=object(),  # type: ignore[arg-type]
         root_memory_task=object(),  # type: ignore[arg-type]
         root_agent=object(),  # type: ignore[arg-type]
+        root_session=object(),  # type: ignore[arg-type]
         root_topic=object(),  # type: ignore[arg-type]
         readiness=object(),  # type: ignore[arg-type]
         root_workspace_assets=object(),  # type: ignore[arg-type]
@@ -436,16 +447,18 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
         scheduler=_Scheduler(calls),  # type: ignore[arg-type]
         workspace_asset_store=store,
         workspace_runtime=make_workspace_runtime(),
+        sessions=ConversationSessionService(WorkspaceSessionConfig()),
         event_bus=None,
         event_sink=sink,
         event_publisher=RuntimeEventPublisher(sink),
     )
     services = _ServicesBundle(
-        process=object(),  # type: ignore[arg-type]
+        process=_Processes(),  # type: ignore[arg-type]
         ingress=_Ingress(calls),  # type: ignore[arg-type]
         root_memory=object(),  # type: ignore[arg-type]
         root_memory_task=object(),  # type: ignore[arg-type]
         root_agent=object(),  # type: ignore[arg-type]
+        root_session=object(),  # type: ignore[arg-type]
         root_topic=object(),  # type: ignore[arg-type]
         readiness=object(),  # type: ignore[arg-type]
         root_workspace_assets=object(),  # type: ignore[arg-type]

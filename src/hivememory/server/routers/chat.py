@@ -110,6 +110,7 @@ async def chat(
         workspace=claims.workspace,
         process_id=process_id,
         message=body.message,
+        session_id=body.session_id,
         enable_memory_retrieval=body.enable_memory_retrieval,
         generation_options=(
             body.generation_options.model_dump(exclude_none=True)

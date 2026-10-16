@@ -201,6 +201,10 @@ class ProcessTable:
             )
         self._processes[process_id] = process
 
+    def snapshot(self) -> tuple[TaskProcess, ...]:
+        """关闭入口遍历当前登记；快照避免注销改变迭代集合。"""
+        return tuple(self._processes.values())
+
     def get(self, process_id: str) -> TaskProcess | None:
         """按 ``process_id`` 原样取回已登记的任务进程；找不到返回 ``None``。"""
         return self._processes.get(process_id)

@@ -8,6 +8,7 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
+from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.core import PatchouliRuntime
@@ -20,6 +21,7 @@ from hivememory.system.assembler import (
 )
 from hivememory.system.system import HiveMemorySystem
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.workspace import make_workspace_runtime
 
 
@@ -106,7 +108,7 @@ def scheduler():
 def system_factory(mock_patchouli, global_bus, scheduler):
     def _build(**kwargs):
         ingress_service = kwargs.pop("ingress_service", MagicMock())
-        process_service = kwargs.pop("process_service", MagicMock())
+        process_service = kwargs.pop("process_service", MagicMock(shutdown=AsyncMock()))
         memory_service = kwargs.pop("memory_service", MagicMock())
         memory_task_service = kwargs.pop("memory_task_service", MagicMock())
         agent_service = kwargs.pop("agent_service", MagicMock())
@@ -130,6 +132,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
             scheduler=scheduler,
             workspace_asset_store=InMemoryWorkspaceAssetStore(),
             workspace_runtime=make_workspace_runtime(),
+            sessions=ConversationSessionService(WorkspaceSessionConfig()),
             event_bus=None,
             event_sink=runtime_event_sink,
             event_publisher=RuntimeEventPublisher(runtime_event_sink),
@@ -149,6 +152,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
             root_memory=memory_service,
             root_memory_task=memory_task_service,
             root_agent=agent_service,
+            root_session=object(),  # type: ignore[arg-type]
             root_topic=topic_service,
             readiness=readiness_service,
             root_workspace_assets=MagicMock(),
