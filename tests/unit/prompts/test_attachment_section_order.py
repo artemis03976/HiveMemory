@@ -1,7 +1,7 @@
 """AgentPromptAssembler 附件 section 注入顺序的快照测试（计划 10.6 节）。
 
 冻结规则：system prompt 各 section 固定为 MTP/系统通知 → persona →
-memory_context → attachment_context → topic state；附件 section 只作为
+memory_context → attachment_context；附件 section 只作为
 普通上下文注入，不改变 frame 动词集合或 MemoryCompiler target。
 """
 
@@ -9,11 +9,11 @@ from types import SimpleNamespace
 
 import pytest
 
-from hivememory.core.models import AgentProfile, TopicData
+from hivememory.core.models import AgentProfile
 from hivememory.core.protocol.models import AgentRunContext
 from hivememory.i18n import get_default_language, set_default_language
 from hivememory.prompts.assembler import AgentPromptAssembler
-from tests.helpers.workspace import make_execution_labels, make_identity_scope
+from tests.helpers.workspace import make_execution_labels
 
 
 @pytest.fixture(autouse=True)
@@ -35,23 +35,11 @@ def _make_koakuma_config():
     )
 
 
-def _make_topic_data(state_summary="state"):
-    return TopicData(
-        topic_id="topic_1",
-        workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
-        topic_title="测试话题",
-        state_summary=state_summary,
-        blocks=(),
-        last_update=1.0,
-    )
-
-
 def _context(attachment_context: str) -> AgentRunContext:
     return AgentRunContext(
         labels=make_execution_labels(agent_id="omni_doll"),
         topic_id="topic_1",
         user_message="hello",
-        topic_context=_make_topic_data("TOPIC-STATE"),
         memory_context="MEMORY-CONTEXT",
         agent_profile=AgentProfile(persona="PERSONA", language="zh"),
         permitted_mtp_verbs=frozenset({"RUN"}),
@@ -64,7 +52,7 @@ def _koakuma_off():
     return SimpleNamespace(enabled=False, mtp_prompt=None)
 
 
-def test_attachment_section_is_injected_between_memory_and_topic_state() -> None:
+def test_attachment_section_is_injected_after_memory() -> None:
     """捕获附件 section 注入位置漂移或丢失。"""
     assembler = AgentPromptAssembler(_koakuma_off())
     system_prompt = assembler.build_main_agent_messages(
@@ -75,10 +63,9 @@ def test_attachment_section_is_injected_between_memory_and_topic_state() -> None
 
     memory_pos = system_prompt.index("MEMORY-CONTEXT")
     attachment_pos = system_prompt.index("ATTACHMENT-SECTION")
-    topic_pos = system_prompt.index("TOPIC-STATE")
     persona_pos = system_prompt.index("PERSONA")
 
-    assert persona_pos < memory_pos < attachment_pos < topic_pos
+    assert persona_pos < memory_pos < attachment_pos
 
 
 def test_empty_attachment_context_keeps_prompt_unchanged() -> None:

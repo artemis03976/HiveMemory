@@ -47,6 +47,15 @@ class ProcessOutcome(str, Enum):
     FAILED = "failed"
 
 
+#: System 关闭时经进程记录送达的停止原因。
+SYSTEM_SHUTDOWN_STOP_REASON = "system_shutdown"
+
+#: 不是用户决定的停止：交付方已离开或系统关闭，部分输出不写入会话、不提交。
+DISCARDING_STOP_REASONS = frozenset(
+    {"client_disconnected", "stream_closed", SYSTEM_SHUTDOWN_STOP_REASON}
+)
+
+
 @dataclass(frozen=True)
 class StopResult:
     """一次 stop 请求的即时判定。"""
@@ -107,6 +116,14 @@ class ProcessRecord:
         """
         return self.phase is ProcessPhase.TERMINAL
 
+    @property
+    def discards_output(self) -> bool:
+        """已接受的停止是否不由用户决定；此时已产生的输出既不写会话也不提交。"""
+        return (
+            self.outcome is ProcessOutcome.STOP_REQUESTED
+            and self.stop_reason in DISCARDING_STOP_REASONS
+        )
+
     def bind_phase(self, phase: ProcessPhase, task: asyncio.Task[object]) -> None:
         """绑定当前可被 stop 中断的阶段 task。"""
         self.phase = phase
@@ -123,8 +140,8 @@ class ProcessRecord:
         self.active_task = None
 
     def try_enter_finalizing(self) -> bool:
-        """同步进入 finalize；已接受 stop 时拒绝进入。"""
-        if self.outcome in {ProcessOutcome.STOP_REQUESTED, ProcessOutcome.CANCELLED}:
+        """同步进入 finalize；用户停止不阻止结算已产生的输出，已收口或丢弃时拒绝。"""
+        if self.outcome is ProcessOutcome.CANCELLED or self.discards_output:
             return False
         if self.phase is ProcessPhase.TERMINAL:
             return False
@@ -152,6 +169,8 @@ class ProcessRecord:
 
     def request_stop(self, reason: str = "user_requested") -> StopResult:
         """同步记录 stop，并取消当前唯一的可中断阶段 task。"""
+        if self.phase is ProcessPhase.FINALIZE:
+            return StopResult(accepted=False, reason="already_finalizing")
         if self.outcome in {ProcessOutcome.STOP_REQUESTED, ProcessOutcome.CANCELLED}:
             return StopResult(
                 accepted=True,
@@ -200,6 +219,10 @@ class ProcessTable:
                 details={"process_id": process_id},
             )
         self._processes[process_id] = process
+
+    def snapshot(self) -> tuple[TaskProcess, ...]:
+        """关闭入口遍历当前登记；快照避免注销改变迭代集合。"""
+        return tuple(self._processes.values())
 
     def get(self, process_id: str) -> TaskProcess | None:
         """按 ``process_id`` 原样取回已登记的任务进程；找不到返回 ``None``。"""

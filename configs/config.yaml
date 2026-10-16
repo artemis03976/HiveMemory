@@ -86,6 +86,8 @@ memory_compiler:
 
 # ========== System Gateway 配置 ==========
 gateway:
+  context_preparation:
+    session_turn_limit: 3
   interceptor:
     enabled: true
     enable_system: true
@@ -205,6 +207,13 @@ patchouli:
 
 # ========== Workspace 运行时配置 ==========
 workspace:
+  # 会话只在进程内保存，容量用尽时显式拒绝新增。
+  sessions:
+    max_sessions_per_workspace: 128
+    max_turns_per_session: 512
+  # System 关闭时向在途任务进程发出停止，等待交付方自行收口的秒数；超时兜底关闭。
+  process:
+    shutdown_wait_seconds: 10
   # 读取能力派生缓存的全局 LRU 容量（不承诺 Workspace 独立配额）；
   # 当前性由失效事件协作保证，容量只影响命中率与内存占用。
   cache:

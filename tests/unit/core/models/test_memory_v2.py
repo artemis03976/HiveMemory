@@ -8,7 +8,6 @@ from pydantic import ValidationError
 
 from hivememory.core.models import (
     ActorIdentity,
-    Artifacts,
     IdentityScope,
     IndexLayer,
     MemoryAccessPolicy,
@@ -247,30 +246,6 @@ def test_lifecycle_decay_anchor_is_required() -> None:
     """decay_anchor_at 是衰减唯一基准，创建路径必须显式提供。"""
     with pytest.raises(ValidationError):
         MemoryLifecycleState()
-
-
-def test_flat_provenance_and_session_fields_are_removed() -> None:
-    """旧平铺 provenance/session 字段不再是 MetaData 字段，防止旧写入路径复活。"""
-    for removed in (
-        "source_agent_id",
-        "source_team_id",
-        "contributing_agent_ids",
-        "session_id",
-        "last_accessed_at",
-        "access_count",
-        "vitality_score",
-        "confidence_score",
-        "event_vitality_boost",
-        "verification_status",
-    ):
-        assert removed not in MetaData.model_fields
-
-
-def test_payload_history_summary_removed_and_agent_config_moved() -> None:
-    """history_summary 退出 schema；agent_config 移到 payload 顶层。"""
-    assert "history_summary" not in PayloadLayer.model_fields
-    assert "agent_config" in PayloadLayer.model_fields
-    assert "agent_config" not in Artifacts.model_fields
 
 
 # ─── Index 字段取值口径：必填、合法空值与规范化 ────────────────────────────

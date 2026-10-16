@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-09-29
+last_reviewed: 2026-10-16
 ---
 
 # 运行时事件与可观测性
@@ -107,7 +107,7 @@ RuntimeEvent 的消费语义已经稳定，生产端迁移则处于渐进阶段�
 
 - `tests/unit/components/events/test_bus.py`
 - `tests/unit/components/events/test_publisher.py`
-- `tests/unit/alice/runtime/test_runtime_events.py`
+- `tests/integration/alice/runtime/test_runtime_events.py`
 - `tests/unit/workspace/process/test_process_events.py`
 - `tests/unit/components/events/test_operations.py`
 - `tests/unit/components/test_trace_context.py`

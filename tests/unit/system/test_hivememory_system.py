@@ -8,6 +8,7 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
+from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.assembler import (
@@ -20,6 +21,7 @@ from hivememory.system.system import HiveMemorySystem
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.process import TaskProcessService
+from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -82,6 +84,7 @@ def system(mock_patchouli):
         scheduler=scheduler,
         workspace_asset_store=InMemoryWorkspaceAssetStore(),
         workspace_runtime=make_workspace_runtime(),
+        sessions=ConversationSessionService(WorkspaceSessionConfig()),
         event_bus=None,
         event_sink=runtime_events,
         event_publisher=RuntimeEventPublisher(runtime_events),
@@ -101,6 +104,7 @@ def system(mock_patchouli):
         root_memory=memory_service,
         root_memory_task=memory_task_service,
         root_agent=agent_service,
+        root_session=object(),  # type: ignore[arg-type]
         root_topic=topic_service,
         readiness=readiness_service,
         root_workspace_assets=MagicMock(),
@@ -215,6 +219,8 @@ class TestHiveMemorySystem:
             "access_gateway.close",
             "scheduler.stop",
             "passive_ingress.shutdown_drain",
+            "process_service.shutdown",
+            "sessions.close_and_clear",
             "alice.stop",
             "patchouli.stop",
             "gateway.stop",
@@ -244,6 +250,8 @@ class TestHiveMemorySystem:
             "access_gateway.close",
             "scheduler.stop",
             "passive_ingress.shutdown_drain",
+            "process_service.shutdown",
+            "sessions.close_and_clear",
             "workspace_runtime.close",
             "workspace_asset_store.close_and_clear",
             "workspace_access_contexts.revoke",
@@ -288,6 +296,8 @@ class TestHiveMemorySystem:
             "access_gateway.close",
             "scheduler.stop",
             "passive_ingress.shutdown_drain",
+            "process_service.shutdown",
+            "sessions.close_and_clear",
         ]
         assert failed.data["failed_step"] == "alice.stop"
         assert failed.data["scheduler_stopped"] is True

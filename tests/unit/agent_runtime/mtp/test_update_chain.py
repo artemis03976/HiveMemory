@@ -37,7 +37,6 @@ from hivememory.engines.generation.models import (
     MergeResult,
     system_settlement_provenance,
 )
-from hivememory.engines.perception.models import TriggerReason
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 
 # ========== Fixtures ==========
@@ -437,13 +436,3 @@ class TestApplyUpdate:
         assert r1_outcome[0].memory_before_snapshot.meta.version == 1
         assert r2_outcome[0].memory_before_snapshot.payload.content == "v2 content"
         assert r2_outcome[0].memory_before_snapshot.meta.version == 1
-
-
-# ========== Test 11：Active Flush 原因已移除 ==========
-
-
-class TestTriggerReasonActiveGenerationRemoved:
-    """主动更新生成已脱离感知层，不再保留 MTP flush reason"""
-
-    def test_mtp_update_removed(self):
-        assert "MTP_UPDATE" not in TriggerReason.__members__

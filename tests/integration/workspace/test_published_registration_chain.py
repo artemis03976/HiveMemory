@@ -249,8 +249,6 @@ def _prepared_run(scope) -> PreparedAgentRun:
         interaction_id="interaction-published",
         topic_id="topic-1",
         is_new_topic=True,
-        topic_context=None,
-        pool_topics=[],
         retrieval_result=RetrievalResponse.from_memories([]),
         storage_available=True,
     )
@@ -480,17 +478,13 @@ async def test_chat_full_chain_succeeds_through_published_registration(published
     events = _parse_sse_events(response.text)
     assert events[0]["event"] == "process_id"
     assert events[0]["data"]["process_id"].startswith("process_")
-    topic_info = next(event for event in events if event["event"] == "topic_info")
-    assert topic_info["data"]["topic_id"] == "topic-1"
     done = events[-1]
     assert done["event"] == "done"
     assert (done["data"]["status"], done["data"]["final_text"]) == (
         "completed",
         "发布登记链路完成",
     )
-    # 结算后的话题池阶段读取成功：done 事件携带替身快照。
-    assert len(done["data"]["pool_topics"]) == 1
-    assert done["data"]["pool_topics"][0]["topic_id"] == "topic-1"
+    assert done["data"]["topic_id"] == "topic-1"
 
     # CPU 执行清单只含注册时绑定的观测标签，操作身份仍只在授权点组装。
     assert len(stack.cpu.calls) == 1

@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Protocol
 
@@ -31,7 +32,7 @@ class CPUExecutionResult(BaseModel):
     """一次 CPU 执行的终态产出（CPU 中立，取代 Alice 专属的运行结果模型）。
 
     字段不变量：每个字段由 CPU 组装，且有完全明确的下游消费者。
-        status            → 任务进程按此判定 Actor 阶段结局；仅 completed 进入 finalize
+        status            → 任务进程按此判定 Actor 阶段结局；有输出的三种结局均进入 finalize
         final_text        → 用户可见回复 / InteractionPayload.assistant_final_text
         turn_events       → 封口归约 MTP 轨迹 → 感知层
         model_used        → 本次 run 实际使用的模型展示名；空字符串表示未解析
@@ -51,18 +52,40 @@ class CPUExecutionResult(BaseModel):
         description="实际使用的模型展示名，空字符串表示注册表未启用或未解析",
     )
 
+    @property
+    def has_output(self) -> bool:
+        """初始用户消息是输入；只有回复文本或执行事件才构成本轮输出。"""
+        return bool(self.final_text) or any(
+            event.kind != "user_message" for event in self.turn_events
+        )
+
 
 #: CPU 输出流的单项：交互事件（带 ``event`` 与 ``data`` 的字典，进程原样
 #: 转交流式交付、不做解释）或唯一的终态执行结果。
 type CPUOutput = dict[str, Any] | CPUExecutionResult
 
 
+@dataclass
+class CPUResultSlot:
+    """CPU 同步写入的终态结果槽；取消传播时仍可交回已产生的输出，结局如实填写、进程不改写。"""
+
+    result: CPUExecutionResult | None = None
+
+
+@dataclass(frozen=True)
+class CPURunHandle:
+    """一次 CPU 执行的输出流与结果槽；不暴露具体执行器或进程控制。"""
+
+    output: AsyncGenerator[CPUOutput, None]
+    result_slot: CPUResultSlot
+
+
 class CPUPort(Protocol):
     """任务进程调用 CPU 的对象端口。
 
     ``execute`` 是以 ``stream`` 参数控制是否流式的统一入口，返回一个异步
-    生成器：流式时先产出交互事件、再产出唯一的终态结果；非流式时只产出
-    终态结果。返回 ``AsyncGenerator`` 是契约的一部分——进程在关闭流程中
+    run 句柄：输出流先产出交互事件、再产出唯一终态；非流式只产出终态。
+    取消收尾时 CPU 同步写入结果槽，再传播原生 CancelledError。进程在关闭流程中
     以 ``aclose`` 关闭它（含断流与取消路径）。端口的取消、异常与关闭语义：
 
     - 进程取消正在拉取下一项的任务（用户停止），并在关闭流程中关闭迭代器；
@@ -84,10 +107,12 @@ class CPUPort(Protocol):
         access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
         stream: bool,
-    ) -> AsyncGenerator[CPUOutput, None]: ...
+    ) -> CPURunHandle: ...
 
 
 __all__ = [
+    "CPURunHandle",
+    "CPUResultSlot",
     "CPUExecutionResult",
     "CPUExecutionStatus",
     "CPUPort",

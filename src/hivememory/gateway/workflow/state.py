@@ -13,6 +13,7 @@ from hivememory.core.protocol.gateway import (
     GatewayDecisionOutcome,
     GatewayIngressMode,
     GatewayProcessResult,
+    GatewaySessionTurn,
     RetrievalPlan,
 )
 from hivememory.engines.gateway.models import InterceptorResult
@@ -43,6 +44,7 @@ class GatewayStateSnapshot:
     new_topic_title: str | None
     new_topic_summary: str | None
     user_query_analysis: UserQueryAnalysisResult | None
+    session_turns: tuple[GatewaySessionTurn, ...] = ()
 
 
 @dataclass
@@ -58,6 +60,7 @@ class GatewayExecutionState:
     raw_message: str
     identity_scope: IdentityScope
     ingress_mode: GatewayIngressMode
+    session_turns: tuple[GatewaySessionTurn, ...] = ()
     candidate_topics: CandidateTopics | None = None
     l1_result: InterceptorResult | None = None
     command_parse_result: CommandParseResult | None = None
@@ -69,7 +72,7 @@ class GatewayExecutionState:
     user_query_analysis: UserQueryAnalysisResult | None = None
     status: ExecutionStateStatus = ExecutionStateStatus.RUNNING
 
-    _INITIAL_FIELDS = frozenset({"raw_message", "identity_scope", "ingress_mode"})
+    _INITIAL_FIELDS = frozenset({"raw_message", "identity_scope", "ingress_mode", "session_turns"})
     _UPDATABLE_FIELDS = frozenset(
         {
             "candidate_topics",
@@ -90,6 +93,7 @@ class GatewayExecutionState:
             raw_message=self.raw_message,
             identity_scope=self.identity_scope,
             ingress_mode=self.ingress_mode,
+            session_turns=self.session_turns,
             candidate_topics=self.candidate_topics,
             l1_result=self.l1_result,
             command_parse_result=self.command_parse_result,

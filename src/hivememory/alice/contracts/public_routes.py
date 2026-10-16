@@ -16,6 +16,7 @@ if TYPE_CHECKING:
     from hivememory.workspace.contracts import (
         CPUExecutionResult,
         CPUInputManifest,
+        CPUResultSlot,
         OperationSubmitter,
     )
 
@@ -29,6 +30,7 @@ class AliceRoutes:
         generation_options: dict[str, Any] | None = None,
         *,
         submit_operation: OperationSubmitter,
+        result_slot: CPUResultSlot | None = None,
     ) -> CPUExecutionResult:
         """等待执行终态并返回 CPU 中立结果。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
@@ -39,6 +41,7 @@ class AliceRoutes:
         generation_options: dict[str, Any] | None = None,
         *,
         submit_operation: OperationSubmitter,
+        result_slot: CPUResultSlot | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """返回最后一项为 done 的交互流，关闭流时收尾对应 runner。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。

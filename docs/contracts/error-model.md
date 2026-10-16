@@ -21,7 +21,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # 跨边界错误模型
@@ -62,7 +62,7 @@ HiveMemory 当前没有一个覆盖所有 HTTP、子系统和运行时的统一 
 
 ### 2.2 Agent run
 
-CPU 执行结果（`CPUExecutionResult`）的 `status` 为 `completed`、`cancelled` 或 `failed`。任务进程只对 `completed` 封口交互记录并调用 Patchouli finalize；取消/失败触发本轮控制收尾和 prepared cleanup。
+CPU 执行结果（`CPUExecutionResult`）的 `status` 为 `completed`、`cancelled` 或 `failed`。任务进程对有输出的三种结局封口、写入会话并 finalize；无输出、异常或 finalize 前断连执行控制收尾与 prepared cleanup。已进入 finalize 后交付方取消也必须等待提交完成。
 
 ### 2.3 Passive Ingress
 
@@ -219,6 +219,8 @@ WRITE/UPDATE 登记后的派发错误携带 `pending_alias` 与 `intent_id`，�
 两种错误均在 ACK 之前交给 Agent，中英文文案分别说明拒绝与未知。总线异常或接纳响应丢失按未知处理；队列停止、容量拒绝、UPDATE 基础丢失及本地意图参数非法按明确拒绝处理。由于 MTP 错误不携带内部 cause，根因只由 actor API 记录日志：总线异常导致的未知结果以 error 级别连同异常堆栈记录，并关联 `intent_id` 与 `pending_alias`，便于排查长期停在 MATERIALIZING 的句柄。
 
 引用交付的 citation 使用 `source="workspace.reference_read"`；普通记录失败只记日志、不改变可读结果，取消继续传播，已记录的引用不回滚。因此 RUN 工具失败不会撤销执行前已经完成的正式原子读取计数。
+
+会话错误由 `workspace.session.*` 表达：`not_found`（404，含越域隐藏）、`busy`（409，同一会话认领冲突或运行中删除）、`capacity_exceeded`（409，Workspace 会话数/会话轮数上限）、`closed`（503，服务已关闭）。这些错误在注册或管理操作时显式返回，不自动新建替代不存在的会话、不淘汰历史。
 
 ### 4.5 Memory 输入校验与存储写入错误（v0.7.0 A2-P）
 

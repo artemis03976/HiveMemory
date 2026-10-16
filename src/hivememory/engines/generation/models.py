@@ -22,6 +22,7 @@ from hivememory.core.models import (
     UpdateFocus,
     WriteFocus,
 )
+from hivememory.core.models.interaction import InteractionOutcome
 from hivememory.core.models.memory import MEMORY_SUMMARY_MAX_LENGTH, MEMORY_TITLE_MAX_LENGTH
 from hivememory.core.models.provenance import (
     MemoryProvenance,
@@ -124,12 +125,14 @@ class GenerationTurn(BaseModel):
     保留语义摘要，丢弃 MTP 执行细节，供 GenerationEngine 提取记忆使用。
 
     Attributes:
+        outcome: 轮次结局，用于标注不完整材料
         user_query: 用户的原始问题
         assistant_final_text: Agent 最终自然语言回复（已去除 MTP 噪音）
         trace_summaries: 本轮动作摘要（如 SEARCH: "..." / READ: alias_x）
         identity: 产出此轮的身份标识
     """
 
+    outcome: InteractionOutcome = "completed"
     user_query: str
     assistant_final_text: str = ""
     trace_summaries: list[str] = Field(default_factory=list)

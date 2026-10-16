@@ -13,7 +13,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-10-15
 ---
 
 # Gateway 话题与查询分析
@@ -48,9 +48,11 @@ Provider 负责读取和类型验证，不做决策。Patchouli 若返回非 tup
 
 这种设计避免 Gateway 缓存第二份权威话题状态，也避免把所有活跃话题的完整 transcript 送入模型。代价是路由后可能多一次读取，但失败可以局部降级为“没有 routed topic context”，而不必推翻已经完成的话题选择。
 
+进程另传当前会话最近 `gateway.context_preparation.session_turn_limit` 轮（默认 3）的用户/助手文本。`GatewaySessionTurn` 不携带工具事件、身份或权限；Topic 菜单和路由后辅助背景仍按既有路径读取，会话文本才是指代消解的对话来源。该输入不进入 `GatewayDecision` 或 InteractionPayload；被动摄入不传会话。
+
 ## 3. Topic Router：只做选择
 
-`TopicRouterEngine` 接收原始消息和候选 `TopicSnapshot`，只允许返回：
+`TopicRouterEngine` 接收原始消息、候选 `TopicSnapshot` 和会话 `session_turns`，只允许返回：
 
 - 候选列表中的一个 `topic_id`；
 - `NEW_TOPIC`，并在模型成功响应时同时提供非空 title 与 summary。
@@ -63,7 +65,7 @@ Topic Router 不生成关键词、不判断意图、不读完整 `TopicData`，�
 
 ## 4. User Query Analysis 的稳定边界
 
-`UserQueryAnalysisResolver` 接收冻结的 `UserQueryAnalysisContext`：原始消息、已从完整 `IdentityScope` 派生的 `ActorIdentity`、候选话题、路由结果以及可选的 routed `TopicData`。候选话题与 `TopicData` 已由带 scope 的 Context Provider 取得，因此查询分析本身不重新承担 Workspace ownership 校验。它必须一次性返回完整的 `UserQueryAnalysisResult`：
+`UserQueryAnalysisResolver` 接收冻结的 `UserQueryAnalysisContext`：原始消息、已从完整 `IdentityScope` 派生的 `ActorIdentity`、候选话题、路由结果、可选的 routed `TopicData` 与会话 `session_turns`。候选话题与 `TopicData` 已由带 scope 的 Context Provider 取得，因此查询分析本身不重新承担 Workspace ownership 校验。它必须一次性返回完整的 `UserQueryAnalysisResult`：
 
 ```text
 intent_type
@@ -82,7 +84,7 @@ retrieval_plan
 ```text
 Tier 0：本地规则
   -> 显式“记住 / 以后 / remember / from now on” => WRITE + WRITE
-  -> 与当前话题最近一条 user_query 重复 => memory signal SKIP
+  -> 与当前会话上一轮 user_message 重复 => memory signal SKIP
 
 Tier 1：一次 QueryUnderstanding LLM 调用
   -> intent_type
@@ -97,9 +99,9 @@ Tier 2：纯函数派生 retrieval plan
   -> 有关键词 => HYBRID
 ```
 
-Tier 0 只覆盖低成本、高确定性的规则，并在与模型结果冲突时覆盖对应字段。重复检测会移除空白并忽略大小写，但只比较 routed topic 最近一个 block 的用户输入。
+Tier 0 只覆盖低成本、高确定性的规则，并在与模型结果冲突时覆盖对应字段。重复检测会移除空白并忽略大小写，但只比较当前会话的最后一轮用户输入；没有会话轮次时不回退到 Topic。
 
-Tier 1 的 `QueryUnderstandingEngine` 共享一次 LLM 调用，同时产生意图、重写、关键词和记忆初判。这是第一代实现的成本/延迟取舍，不是永久规定。Engine 还能解析 `sub_intents`，但 Resolver 当前没有把它投影到公共 `UserQueryAnalysisResult`，因此没有下游消费者，也不能被描述为已支持复合意图执行。
+Topic Router 与 QueryUnderstanding 的模型消息均按 system、最近会话轮次、当前输入组装。Tier 1 的 `QueryUnderstandingEngine` 共享一次 LLM 调用，同时产生意图、重写、关键词和记忆初判。这是第一代实现的成本/延迟取舍，不是永久规定。Engine 还能解析 `sub_intents`，但 Resolver 当前没有把它投影到公共 `UserQueryAnalysisResult`，因此没有下游消费者，也不能被描述为已支持复合意图执行。
 
 Tier 2 不再调用模型。检索模式是 Gateway 根据已提交分析派生的提示，不代表 Patchouli 已经执行检索。
 

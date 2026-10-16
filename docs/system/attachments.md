@@ -38,7 +38,7 @@ related_docs:
   - docs/patchouli/artifacts.md
 related_plans:
   - docs/archive/plans/v0.6.2-w1-chat-attachments.md
-last_reviewed: 2026-10-10
+last_reviewed: 2026-10-15
 ---
 
 # Chat 附件链路
@@ -181,7 +181,7 @@ ref 已 remove、Store 已关闭或写入失败时跳过该 binding 的 promotio
 - 上传服务与请求内解析：[`tests/integration/workspace/capability/test_assets.py`](../../tests/integration/workspace/capability/test_assets.py)、[`test_workspace_asset_parsing.py`](../../tests/integration/system/application/test_workspace_asset_parsing.py)；
 - 公开入口：[`tests/integration/system/test_workspace_asset_upload_api.py`](../../tests/integration/system/test_workspace_asset_upload_api.py)、[`test_workspace_asset_chat_selection.py`](../../tests/integration/system/test_workspace_asset_chat_selection.py)、[`test_workspace_asset_parse_acceptance.py`](../../tests/integration/system/test_workspace_asset_parse_acceptance.py)；
 - 解析器与编译器：[`tests/unit/system/services/attachments/`](../../tests/unit/system/services/attachments/)、[`tests/integration/system/services/attachments/`](../../tests/integration/system/services/attachments/)、[`tests/unit/engines/attachment_compiler/`](../../tests/unit/engines/attachment_compiler/)；
-- codec 与 binding/promotion：[`tests/unit/patchouli/control/test_interaction_submission_v4.py`](../../tests/unit/patchouli/control/test_interaction_submission_v4.py)、[`tests/unit/workspace/process/test_cpu_allocation.py`](../../tests/unit/workspace/process/test_cpu_allocation.py)（选择、租借释放与 used refs）、[`tests/unit/patchouli/services/test_memory_generation_promotion.py`](../../tests/unit/patchouli/services/test_memory_generation_promotion.py)。
+- codec 与 binding/promotion：[`tests/unit/patchouli/control/test_interaction_submission_v5.py`](../../tests/unit/patchouli/control/test_interaction_submission_v5.py)、[`tests/unit/workspace/process/test_cpu_allocation.py`](../../tests/unit/workspace/process/test_cpu_allocation.py)（选择、租借释放与 used refs）、[`tests/unit/patchouli/services/test_memory_generation_promotion.py`](../../tests/unit/patchouli/services/test_memory_generation_promotion.py)。
 
 ## 10. 当前边界与限制
 

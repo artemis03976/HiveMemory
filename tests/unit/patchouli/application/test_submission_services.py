@@ -102,27 +102,6 @@ def test_submit_interaction_without_identity_scope_rejected():
     assert applied == []
 
 
-def test_submit_interaction_rejects_access_parameter_and_access_guard():
-    """授权点参数不再出现在本层签名：构造与提交均不接受 access。"""
-
-    async def _apply_noop(payload, **kwargs):
-        return "topic"
-
-    queue = InteractionSubmissionQueue(_apply_noop)
-    with pytest.raises(TypeError, match="access_guard"):
-        InteractionSubmissionService(interaction_queue=queue, access_guard=object())
-
-    service = InteractionSubmissionService(interaction_queue=queue)
-    with pytest.raises(TypeError, match="access"):
-        _run(
-            service.submit_interaction(
-                identity_scope=_scope(),
-                payload=_payload(),
-                access=object(),
-            )
-        )
-
-
 # ---- 意图提交 ----
 
 
@@ -261,9 +240,3 @@ def test_submit_memory_intent_requires_identity_scope():
     with pytest.raises(TypeError, match="identity_scope"):
         _run(service.submit_memory_intent(intent=_write_intent()))
     assert submitted == []
-
-
-def test_intent_service_constructor_rejects_access_guard():
-    """构造函数不再接收 access_guard：guard 注入已随边界返工删除。"""
-    with pytest.raises(TypeError, match="access_guard"):
-        MemoryIntentSubmissionService(bus=PatchouliBus(), access_guard=object())

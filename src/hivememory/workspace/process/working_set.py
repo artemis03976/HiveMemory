@@ -15,6 +15,7 @@ cleanup 由编排骨架（``TaskProcessRunner``）
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import AsyncGenerator
 from dataclasses import dataclass, field
 
@@ -24,7 +25,7 @@ from hivememory.core.models.workspace_asset import (
     WorkspaceAssetRef,
 )
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.workspace.contracts import CPUOutput
+from hivememory.workspace.contracts import CPUExecutionResult, CPUOutput
 
 
 @dataclass
@@ -46,6 +47,9 @@ class ProcessWorkingSet:
     attachment_leases: list[RepresentationLease] = field(default_factory=list)
     used_attachments: tuple[WorkspaceAssetRef, ...] = ()
     cpu_output: AsyncGenerator[CPUOutput, None] | None = None
+    # 封口后持有提交任务，交付流提前关闭仍等待 Patchouli 接管。
+    finalization_task: asyncio.Task[None] | None = None
+    execution_result: CPUExecutionResult | None = None
     # 工作集登记线程 context 供撤销；进程 context 仍由进程记录持有。
     thread_contexts: dict[str, WorkspaceAccessContext] = field(default_factory=dict)
     # prepare 结果是否已交回 Patchouli（finalize 接管，或关闭流程已取出

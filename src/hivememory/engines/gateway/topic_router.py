@@ -7,10 +7,11 @@ from typing import Any
 
 from hivememory.config.gateway import TopicRouterConfig
 from hivememory.core.models import TopicSnapshot
+from hivememory.core.protocol.gateway import GatewaySessionTurn
 from hivememory.engines.gateway.models import TopicRoutingResult
 from hivememory.i18n import resolve_language
 from hivememory.infrastructure.llm.base import BaseLLMService
-from hivememory.prompts.gateway import get_topic_router_system_prompt
+from hivememory.prompts.gateway import get_topic_router_system_prompt, session_history_messages
 from hivememory.utils.json_parser import parse_llm_json
 
 
@@ -36,6 +37,7 @@ class TopicRouterEngine:
         message: str,
         *,
         topic_snapshots: Sequence[TopicSnapshot],
+        session_turns: tuple[GatewaySessionTurn, ...] = (),
     ) -> TopicRoutingResult:
         """选择已有话题或 NEW_TOPIC，不派生其他 Gateway 决策。"""
 
@@ -55,6 +57,7 @@ class TopicRouterEngine:
             content = await self._llm_service.acomplete_json(
                 messages=[
                     {"role": "system", "content": prompt},
+                    *session_history_messages(session_turns),
                     {"role": "user", "content": message},
                 ],
                 **kwargs,

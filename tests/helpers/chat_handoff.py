@@ -14,7 +14,6 @@ from hivememory.core.models import (
     ExecutionLabels,
     IdentityScope,
     MemoryAtom,
-    TopicData,
     TraceItem,
     TurnEvent,
 )
@@ -25,7 +24,7 @@ from hivememory.core.protocol.gateway import (
     MemoryWriteSignal,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import RetrievalResponse
+from hivememory.core.protocol.models import ConversationTurn, RetrievalResponse
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUInputManifest
 from tests.helpers.memory import make_memory_identity_scope
@@ -51,8 +50,6 @@ def make_prepared_run(
     interaction_id: str = "interaction-test",
     topic_id: str = "topic-1",
     is_new_topic: bool = False,
-    topic_context: TopicData | None = None,
-    pool_topics: list | None = None,
     memories: list[MemoryAtom] | None = None,
     storage_available: bool = True,
 ) -> PreparedAgentRun:
@@ -62,8 +59,6 @@ def make_prepared_run(
         interaction_id=interaction_id,
         topic_id=topic_id,
         is_new_topic=is_new_topic,
-        topic_context=topic_context,
-        pool_topics=list(pool_topics or []),
         retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
         storage_available=storage_available,
     )
@@ -81,7 +76,7 @@ def make_input_manifest(
     attachment_context: str = "",
     storage_available: bool = True,
     topic_id: str = "topic-1",
-    topic_context: TopicData | None = None,
+    session_history: tuple[ConversationTurn, ...] = (),
 ) -> CPUInputManifest:
     """构造 Alice 执行路由接收的 CPU 输入清单。"""
     return CPUInputManifest(
@@ -95,7 +90,7 @@ def make_input_manifest(
         attachment_context=attachment_context,
         storage_available=storage_available,
         topic_id=topic_id,
-        topic_context=topic_context,
+        session_history=session_history,
     )
 
 

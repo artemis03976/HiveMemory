@@ -14,11 +14,14 @@ from typing import Any
 
 from hivememory.config.gateway import UserQueryAnalysisConfig
 from hivememory.core.models import TopicData
-from hivememory.core.protocol.gateway import IntentType, MemoryWriteSignal
+from hivememory.core.protocol.gateway import GatewaySessionTurn, IntentType, MemoryWriteSignal
 from hivememory.engines.gateway.models import QueryUnderstandingResult
 from hivememory.i18n import resolve_language
 from hivememory.infrastructure.llm.base import BaseLLMService
-from hivememory.prompts.gateway import get_query_understanding_system_prompt
+from hivememory.prompts.gateway import (
+    get_query_understanding_system_prompt,
+    session_history_messages,
+)
 from hivememory.utils.json_parser import parse_llm_json
 
 
@@ -44,6 +47,7 @@ class QueryUnderstandingEngine:
         message: str,
         *,
         topic_data: TopicData | None = None,
+        session_turns: tuple[GatewaySessionTurn, ...] = (),
     ) -> QueryUnderstandingResult:
         """完成一次共享查询分析，不执行检索、写入或话题选择。"""
 
@@ -61,6 +65,7 @@ class QueryUnderstandingEngine:
             content = await self._llm_service.acomplete_json(
                 messages=[
                     {"role": "system", "content": prompt},
+                    *session_history_messages(session_turns),
                     {"role": "user", "content": message},
                 ],
                 **kwargs,

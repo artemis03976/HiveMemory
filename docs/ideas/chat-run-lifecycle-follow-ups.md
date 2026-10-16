@@ -34,14 +34,13 @@ last_reviewed: 2026-10-15
 
 **2026-10-01 核对**：chat 编排已迁入 workspace 的任务进程（[任务进程 Idea](./task-process-table-and-registration-entry.md)），本文沿用的旧名按以下对应理解：`chat_stream()` 与 `chat_service` 对应执行器的 `TaskProcessRunner.run(process)`（`workspace/process/runner.py`；2026-10-04 起四阶段骨架从进程容器 `TaskProcess` 拆出），Chat Run 注册表对应进程表 `ProcessTable`（`workspace/process/table.py`），`generation_id` 对应 `process_id`，Alice 阶段对应经 CPU 端口执行的 Actor 阶段。候选 F 的前提已经变化，见第 8 节。
 
-**2026-10-15**：[v0.7.0 会话计划](../plans/v0.7.0-conversation-session.md)（Planned）吸收候选 D 并修复第 3.4 节的断连丢失结算：外部会话方向决定被取消且有输出的一轮记入会话并带结局提交（[外部会话 Idea](./external-session-and-topic-projection.md#02-计划范围与会话上下文owner2026-10-15) 0.2），即第 6.3 节所说的产品决策。计划保留第 2 节的基线：停止仍只经 `Task.cancel()`，CPU 在取消收尾时把部分结果写入 run 句柄的结果槽。两项实施完成后从本文移出。
+**2026-10-15**：[会话计划](../archive/plans/v0.7.0-conversation-session.md)已完成并归档，原候选 D 和第 3.4 节问题移出本文：有输出的取消/失败轮次可恢复，finalizing 处关闭也等待提交完成。当前事实见 [System 应用服务](../system/application-services.md#33-部分输出与交付关闭)，原候选全文见 commit `c7e912a9` 中的本文。停止仍只经 `Task.cancel()` 与原生 `CancelledError`。
 
 本文覆盖：
 
 - 独立 `ChatRunJob` 与 SSE 生命周期解耦；
 - `ChatOutputChannel` 与断连后的输出策略；
 - RuntimeEvent 发布位置、数量和顺序收敛；
-- cancelled `done.final_text` 与前端 partial text 契约；
 - Gateway command 提交屏障；
 - Patchouli `PreparedRunLease` 候选设计；
 - Chat Run 查询、恢复与 reconciliation 的扩展点。
@@ -72,9 +71,8 @@ last_reviewed: 2026-10-15
 最小方案继续由 `chat_stream()` async generator 拥有编排。客户端断开时，ASGI 关闭
 generator，当前 Chat Run 也随之结束。这在短链路中可以接受，但无法表达：
 
-- Alice 已完成、Patchouli finalize 仍应继续；
 - 客户端临时断线后重新订阅同一个 generation；
-- HTTP transport 消失但后台提交必须完成；
+- finalize 之前 transport 消失后，仍要求继续整个生成与提交；
 - 一个 Chat Run 同时被状态查询与 SSE 订阅观察。
 
 只有出现上述明确需求时，才引入独立 Job。
@@ -111,23 +109,12 @@ flowchart TD
 
 满足任一条件再立项：
 
-- finalize 已经出现明显耗时，断连导致提交丢失；
+- 需要在进入 finalize 之前就把生成生命周期与连接解耦；
 - 产品要求断线重连或同 generation 多订阅者；
 - 非流式和流式入口因所有权不同持续产生状态分叉；
 - Chat Run 需要独立状态查询或后台观察。
 
 在此之前，独立 Job 只增加 registry、task、队列和关闭协议，不应实现。
-
-### 3.4 已发现的断连丢失提交（2026-10-01 复核，已复现；2026-10-15 起由 v0.7.0 会话计划修复）
-
-`TaskProcessRunner.run()` 先进入 FINALIZE（此后 stop 返回 `already_finalizing`），再产出 `finalizing` 状态事件，然后才调用 finalize。server 路由每发出一个事件就检查一次断开，断开即关闭流；若断开落在这个产出点，finalize 不会被调用，关闭流程转而执行 cleanup，Actor 已完成的一轮交互丢失。这与“finalize 开始后 stop 不再打断提交”（第 2 节基线第 6 条）在语义上矛盾。finalize 调用开始之后断开不受影响：Patchouli 以 shield 继续，cleanup 会跳过已接管的 continuation。该问题在迁入任务进程前的 `chat_stream()` 中同样存在。
-
-候选处理方向（只列选项，不代表倾向）：
-
-- 先让 Patchouli 接管 finalize，再产出 `finalizing` 事件；
-- finalize 之前不产出单独的事件；
-- 关闭流程对已进入 FINALIZE、尚未交给 Patchouli 的进程补做结算，而不是 cleanup；
-- 保持现状，作为本候选的启用依据之一，随独立 Job 一并解决。
 
 ---
 
@@ -204,46 +191,6 @@ chat.run.cancel_requested
 - 重复或矛盾事件已影响监控、告警或审计；
 - 必须按阶段统计取消延迟；
 - 独立 Job 使事件生产位置发生实质变化。
-
----
-
-## 6. 候选 D：cancelled `done.final_text` 与前端契约（2026-10-15 起由 v0.7.0 会话计划吸收）
-
-### 6.1 当前问题
-
-流式生成中，前端已经通过 token delta 累积了取消前可见文本。后端若在取消后从
-`frame.progress.text_segments` 重建 `final_text`，可能遗漏当前尚未 append 的生成轮，
-得到比前端已经渲染内容更短的字符串。
-
-使用这份重建结果覆盖前端文本，会造成内容回退。`FrameExecutionResult` 本身也不承载
-文本，不能作为 partial 来源。
-
-### 6.2 推荐长期契约
-
-若决定版本化 SSE 协议，推荐：
-
-- `status=completed`：`done.final_text` 是后端权威终稿；
-- `status=cancelled`：`done` 省略 `final_text`，前端保留已渲染文本；
-- `status=failed`：是否保留 partial 由独立产品策略决定；
-- 不使用 `final_text=""` 表达缺失，避免前端把已有文本清空；
-- 非流式取消没有 token 可保留，仍返回取消元数据，不伪造 partial；
-- `done` 的 schema 与 TypeScript 类型显式允许 `final_text` 缺失；
-- Alice 内部 `done` 不直接进入 Chat SSE。
-
-前端 `applyDone` 应把 `undefined` / `null` 解释为“保留当前内容”，只在收到明确字符串时
-替换文本，并增加 cancelled contract 测试。
-
-### 6.3 持久化不是默认要求
-
-前端保留的 partial text 是否写入 interaction、刷新后是否恢复，是单独的产品决策。
-如需落库，必须先定义“取消 interaction”的提交语义；不得借 Patchouli finalize 或
-`done.final_text` 顺带实现。
-
-### 6.4 启用条件
-
-- 用户实际观察到停止后文本回退或清空；
-- SSE schema 准备版本化；
-- 独立输出通道需要定义重连重放内容。
 
 ---
 
@@ -342,8 +289,7 @@ Gateway 最小方案取消整个 workflow task，因此取消可能在 command a
 5. Job 后台执行 finalize；
 6. 发布 chat.run.completed。
 
-这会影响 `memory_task_ids`、最终 topic pool 和前端 refresh 时机，必须版本化迁移；
-不得在最小取消重构中顺带改变。
+当前 done 已不含 `memory_task_ids` 或 topic pool。未来拆分生成完成与提交完成仍会改变 done、会话刷新和运行状态语义，需要独立版本化迁移。
 
 ---
 
@@ -351,13 +297,12 @@ Gateway 最小方案取消整个 workflow task，因此取消可能在 command a
 
 | 候选 | 默认状态 | 何时优先 |
 |:---|:---|:---|
-| 独立 ChatRunJob / SSE 解耦 | 延后 | finalize 丢失、断线重连或后台状态查询成为真实需求 |
+| 独立 ChatRunJob / SSE 解耦 | 延后 | finalize 前继续生成、断线重连或后台状态查询成为真实需求 |
 | ChatOutputChannel | 跟随 Job | Job 与 SSE 解耦后才有独立价值 |
 | RuntimeEvent 收敛 | 延后 | 监控/审计被重复事件影响，且 emitter 基础完成 |
-| cancelled final_text 契约 | 延后但推荐 | 用户出现文本回退，或 SSE schema 版本化 |
 | PreparedRunLease | 无限期延后 / 删除候选 | 仅在 prepare 重新变长且可取消时重启 |
 | Gateway command 屏障 | 按需 | 出现不可逆或结果未知的 command |
-| partial text 持久化 | 产品决策 | 明确要求刷新后恢复取消文本 |
+| 会话跨进程持久化 | 独立立项 | 明确要求后端重启后仍恢复会话（含取消文本） |
 
 任何候选立项时，应从本文摘出为独立计划并重新做代码审计、风险评估和验收标准；
 本文不作为一次性大重构的实施清单。

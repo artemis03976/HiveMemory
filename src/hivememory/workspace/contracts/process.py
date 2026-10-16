@@ -9,8 +9,8 @@ from hivememory.core.models import (
     AgentProfile,
     ExecutionLabels,
     MemoryAtom,
-    TopicData,
 )
+from hivememory.core.protocol.models import ConversationTurn
 
 
 class CPUInputManifest(BaseModel):
@@ -20,8 +20,7 @@ class CPUInputManifest(BaseModel):
     Alice Agent run）只消费成品文本与未编译的检索原子，不再接触
     Patchouli prepare 的内部结构，也不再为它组装专属上下文。
 
-    ``topic_id`` / ``topic_context`` 暂时保留：Topic 的准备与话题上下文
-    在 ConversationSession 一批之前仍由 Patchouli 处理。
+    ``topic_id`` 只用于根帧挂载与观测；历史来自当前会话，Topic 不提供对话上下文。
     """
 
     model_config = ConfigDict(frozen=True)
@@ -49,7 +48,9 @@ class CPUInputManifest(BaseModel):
     )
     storage_available: bool = Field(default=True, description="记忆存储健康状态")
     topic_id: str = Field(default="", description="本轮 Topic 准备结果；暂时保留")
-    topic_context: TopicData | None = Field(default=None, description="话题上下文；暂时保留")
+    session_history: tuple[ConversationTurn, ...] = Field(
+        default_factory=tuple, description="当前会话的全量历史快照，不按 Agent 过滤或截断"
+    )
 
 
 __all__ = [

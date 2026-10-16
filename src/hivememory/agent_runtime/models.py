@@ -35,6 +35,8 @@ class ExecutionProgress:
     """
 
     text_segments: list[str] = field(default_factory=list)
+    # 本次 LLM 调用已交付的文字；取消或失败时封成未完成消息。
+    streaming_text: list[str] = field(default_factory=list)
     turn_events: list[TurnEvent] = field(default_factory=list)
     iteration: int = 0
     sequence: int = 0

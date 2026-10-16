@@ -43,7 +43,9 @@ async def make_process_threads():
             access=context,
             events=events.for_process(process_id="p", labels=make_execution_labels(), trace_id="t"),
         ),
-        request=ProcessRequest(message="派生", target_workspace=access.default_workspace),
+        request=ProcessRequest(
+            session_id="test-session", message="派生", target_workspace=access.default_workspace
+        ),
         trace_id="t",
     )
     table = ProcessTable()

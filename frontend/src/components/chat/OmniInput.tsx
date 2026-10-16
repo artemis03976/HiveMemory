@@ -14,7 +14,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import AttachmentQueue from './AttachmentQueue';
 
 export default function OmniInput() {
-  const [message, setMessage] = useState('');
+  const { draft: message, setDraft: setMessage, isLoadingHistory, historyReady, currentSessionId } = useChatStore();
 
   const { enableMemory, setEnableMemory } = useChatUiStore();
   const [isAgentMenuOpen, setIsAgentMenuOpen] = useState(false);
@@ -125,7 +125,7 @@ export default function OmniInput() {
   };
 
   const handleSend = () => {
-    if (message.trim() && !isStreaming) {
+    if (message.trim() && !isStreaming && !isLoadingHistory && (!currentSessionId || historyReady)) {
       // 会话级覆盖按需下发：
       // - model 为空 = 跟随 Agent 默认（不下发，避免后端 min_length=1 校验失败）
       // - overrideParams 关闭时不下发 temperature/top_p/max_tokens，跟随 profile/模型定义
@@ -164,7 +164,7 @@ export default function OmniInput() {
   const stopTitle = isCancelling
     ? '正在请求停止'
     : isFinalizing
-      ? '正在收尾，可继续请求停止'
+      ? '正在收尾，请等待完成'
       : '停止生成';
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
@@ -374,7 +374,7 @@ export default function OmniInput() {
           {isStreaming ? (
             <button
               onClick={stopStreaming}
-              disabled={isCancelling}
+              disabled={isCancelling || isFinalizing}
               className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-300 active:scale-95 ${
                 isCancelling
                   ? 'bg-magic-metal/20 text-magic-metal cursor-wait animate-pulse shadow-[0_0_10px_rgba(245,158,11,0.25)]'
@@ -387,7 +387,7 @@ export default function OmniInput() {
             </button>
           ) : (
             <button
-              disabled={!message.trim()}
+              disabled={!message.trim() || isLoadingHistory || (!!currentSessionId && !historyReady)}
               onClick={handleSend}
               className={`p-2.5 rounded-xl flex items-center justify-center transition-all duration-300 active:scale-95 ${
                 message.trim()

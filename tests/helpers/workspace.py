@@ -197,7 +197,11 @@ class AccessTestComposition:
                     trace_id="test",
                 ),
             ),
-            request=ProcessRequest(message="测试派生", target_workspace=self.default_workspace),
+            request=ProcessRequest(
+                session_id="test-session",
+                message="测试派生",
+                target_workspace=self.default_workspace,
+            ),
             trace_id="test",
         )
         task.working_set.dispatch_topic_id = "test-topic"

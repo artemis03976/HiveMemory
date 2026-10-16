@@ -19,6 +19,7 @@ from hivememory.core.models import IdentityScope, require_identity_scope
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     GatewayProcessResult,
+    GatewaySessionTurn,
     GatewayTimeoutError,
 )
 from hivememory.engines.gateway.models import GatewayIntent
@@ -55,6 +56,7 @@ class GatewayWorkflow:
         identity_scope: IdentityScope,
         ingress_mode: GatewayIngressMode,
         request_timeout_ms: int | None = None,
+        session_turns: tuple[GatewaySessionTurn, ...] = (),
     ) -> GatewayProcessResult:
         """执行 Entry、固定 topic 前缀和唯一 analysis 分支。
 
@@ -67,6 +69,7 @@ class GatewayWorkflow:
             raw_message=message,
             identity_scope=require_identity_scope(identity_scope),
             ingress_mode=ingress_mode,
+            session_turns=session_turns,
         )
         workspace_id = state.identity_scope.workspace_identity.workspace_id
         current_step_id: str | None = None

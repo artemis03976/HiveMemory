@@ -112,7 +112,11 @@ export default function SubAgentCard({ block }: SubAgentCardProps) {
                 textClassName="text-sm leading-relaxed text-on-surface/80"
               />
 
-              {block.contentBlocks.length === 0 && block.status === 'error' && (
+              {/* 恢复历史只有根帧回填结果，保留原文显示，不能伪造子帧流。 */}
+              {block.contentBlocks.length === 0 && block.finalText && (
+                <div className="text-sm text-on-surface/80 whitespace-pre-wrap break-words">{block.finalText}</div>
+              )}
+              {block.contentBlocks.length === 0 && !block.finalText && block.status === 'error' && (
                 <div className="flex items-center gap-2 text-magic-fire/70 text-sm">
                   <XCircle className="w-4 h-4" />
                   <span>子代理执行过程中出现错误</span>

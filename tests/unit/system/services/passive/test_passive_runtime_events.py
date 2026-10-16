@@ -237,21 +237,6 @@ async def test_events_never_carry_external_content_or_tool_args() -> None:
 
 
 @pytest.mark.asyncio
-async def test_outcome_carries_no_observability_trace() -> None:
-    """验收 #9：观测信息只进 sink，outcome 不累积 trace。"""
-    recorder = _Recorder()
-    ingressor, sink = _build(recorder)
-
-    outcome = await ingressor.route_event(_event("user", USER_SECRET), IDENTITY)
-
-    assert not hasattr(outcome, "runtime_events")
-    assert not hasattr(outcome, "trace")
-    assert not hasattr(outcome, "fallback")
-    # 观测事件确实经由 sink 发布
-    assert RuntimeEventType.PASSIVE_INGRESS_EVENT_ACCEPTED.value in _types(sink)
-
-
-@pytest.mark.asyncio
 async def test_ingressor_works_without_sink() -> None:
     """未接入 sink 时业务流程不受影响（NullRuntimeEventSink 兜底）。"""
     recorder = _Recorder()

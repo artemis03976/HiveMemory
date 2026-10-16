@@ -37,6 +37,7 @@ from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.contracts import CPUExecutionStatus
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.sessions import make_conversation_turn
 from tests.helpers.workspace import make_execution_labels
 
 
@@ -119,7 +120,15 @@ async def test_run_agent_passes_input_and_submitter_to_root_frame():
     """CPU 交付的提交函数随 root frame 进入执行层，预检索内容仍进入提示词。"""
     runtime, service = _build_service()
     memory = _build_memory_atom()
-    context = _build_input_manifest(memory)
+    context = _build_input_manifest(memory).model_copy(
+        update={
+            "session_history": (
+                make_conversation_turn(
+                    agent_id="other", user_message="历史问题", assistant_final_text="历史回答"
+                ),
+            ),
+        }
+    )
     seen = []
     submit_operation = MagicMock()
 
@@ -132,7 +141,11 @@ async def test_run_agent_passes_input_and_submitter_to_root_frame():
     assert result.status == CPUExecutionStatus.COMPLETED.value
     (frame,) = seen
     assert frame.submit_operation is submit_operation
-    assert any("hello" in message["content"] for message in frame.working_history)
+    assert frame.working_history[-3:] == [
+        {"role": "user", "content": "历史问题"},
+        {"role": "assistant", "content": "[From: other]\n历史回答"},
+        {"role": "user", "content": "hello"},
+    ]
 
 
 async def _terminal_status_without_stream(service, manifest, submit_operation) -> str:
@@ -494,3 +507,106 @@ async def test_non_streaming_cancellation_publishes_cancelled_runtime_event():
 
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_CANCELLED
     assert recorder.events[-1].status == "cancelled"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("during_pull", [True, False])
+async def test_native_cancellation_fills_slot_with_delivered_partial_text(monkeypatch, during_pull):
+    """真实 AgentLoop/RunExecutor 收口半截文字；关闭与取消都在异常传播前回填结果槽。"""
+    from hivememory.agent_runtime.execution.worker import WorkerAgentService
+    from hivememory.agent_runtime.models import StreamChunk
+    from hivememory.workspace.contracts import CPUResultSlot
+
+    entered = asyncio.Event()
+    cancelled = asyncio.Event()
+
+    async def generate_stream(self, *_args, **_kwargs):
+        try:
+            yield StreamChunk(delta="半截答案", full_text="半截答案")
+            entered.set()
+            await asyncio.Event().wait()
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
+
+    monkeypatch.setattr(WorkerAgentService, "generate_stream", generate_stream)
+    _runtime, service = _build_service()
+    slot = CPUResultSlot()
+    stream = service.run_agent(
+        _build_input_manifest(_build_memory_atom()),
+        stream=True,
+        submit_operation=MagicMock(),
+        result_slot=slot,
+    )
+    assert (await anext(stream))["data"]["content"] == "半截答案"
+    await entered.wait()
+    if during_pull:
+        pull = asyncio.create_task(anext(stream))
+        # 下一次事件拉取开始后注入原生取消；不依赖固定 sleep。
+        asyncio.get_running_loop().call_soon(pull.cancel)
+        with pytest.raises(asyncio.CancelledError):
+            await pull
+    else:
+        await stream.aclose()
+    assert cancelled.is_set()
+    assert slot.result.status == "cancelled"
+    assert slot.result.final_text == "半截答案"
+    assert [(e.kind, e.content, e.status) for e in slot.result.turn_events] == [
+        ("user_message", "hello", None),
+        ("assistant_message", "半截答案", "cancelled"),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_cancel_in_call_keeps_root_call_without_child_partial_text(monkeypatch):
+    """子帧中断时只保存根帧的不完整 CALL，不把尚未回填的子回复写成根回复。"""
+    from hivememory.agent_runtime.execution.worker import WorkerAgentService
+    from hivememory.agent_runtime.models import GenerationResult, StreamChunk
+    from hivememory.workspace.contracts import CPUResultSlot
+    from tests.helpers.call import StubOperationSubmitter, make_callee
+
+    calls = 0
+    child_entered = asyncio.Event()
+
+    async def generate_stream(self, *_args, **_kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            command = '⟪ CALL | helper | task="分析" ⟫'
+            yield StreamChunk(
+                is_final=True,
+                result=GenerationResult(
+                    text=command,
+                    prefix_text="",
+                    mtp_fragment=command,
+                    was_mtp_interrupted=True,
+                ),
+            )
+        else:
+            yield StreamChunk(delta="子帧半截", full_text="子帧半截")
+            child_entered.set()
+            await asyncio.Event().wait()
+
+    async def derive(_request):
+        return make_callee(AgentProfile(agent_id="helper"))
+
+    monkeypatch.setattr(WorkerAgentService, "generate_stream", generate_stream)
+    _runtime, service = _build_service()
+    slot = CPUResultSlot()
+    stream = service.run_agent(
+        _build_input_manifest(_build_memory_atom()),
+        stream=True,
+        submit_operation=StubOperationSubmitter(derive=derive),
+        result_slot=slot,
+    )
+    while (await anext(stream))["event"] != "token":
+        pass
+    await child_entered.wait()
+    await stream.aclose()
+    assert slot.result.status == "cancelled"
+    assert slot.result.final_text == ""
+    assert [(e.kind, e.tool_kind) for e in slot.result.turn_events] == [
+        ("user_message", None),
+        ("tool_call", "CALL"),
+    ]
+    assert slot.result.has_output is True

@@ -24,6 +24,7 @@ from hivememory.workspace.capability.root.agent_profiles import RootAgentProfile
 from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
 from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
+from hivememory.workspace.capability.root.session import RootSessionService
 from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.process.service import TaskProcessService
 
@@ -83,6 +84,11 @@ def get_ingress_service() -> PassiveIngressService:
 def get_root_agent_service() -> RootAgentProfileService:
     """FastAPI Depends 注入 — 从门面获取 root Agent Profile 管理 API。"""
     return get_system().root_agent_service
+
+
+def get_root_session_service() -> RootSessionService:
+    """从门面取得会话管理 root API。"""
+    return get_system().root_session_service
 
 
 def get_root_topic_service() -> RootTopicService:

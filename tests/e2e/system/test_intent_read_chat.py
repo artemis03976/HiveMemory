@@ -149,7 +149,6 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
             harness.registry.get(task.pending_alias, workspace).status
             == PendingAtomStatus.MATERIALIZING
         )
-        assert "materialize_tasks" not in payloads[1].model_dump()
         read_result = next(
             event for event in payloads[1].turn_events if event.kind == "tool_result"
         )

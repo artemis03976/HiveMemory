@@ -14,7 +14,8 @@
     "dev": "vite",
     "build": "tsc -b && vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "test:session": "node --test tests/conversation-session.test.mjs"
   },
   "dependencies": {
     "@types/react-syntax-highlighter": "^15.5.13",

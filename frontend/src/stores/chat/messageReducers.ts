@@ -348,7 +348,7 @@ export function applySubAgentEnd(
   }));
 }
 
-export function applyDone(messages: Message[], assistantMessageId: string, finalText: string | null): Message[] {
+export function applyDone(messages: Message[], assistantMessageId: string, finalText: string | null | undefined): Message[] {
   return updateAssistantMessage(messages, assistantMessageId, (msg) => {
     const text = finalText ?? msg.content;
     return {

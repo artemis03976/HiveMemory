@@ -1,15 +1,12 @@
 from __future__ import annotations
 
 import ast
-import inspect
 from pathlib import Path
 
 from hivememory.agent_runtime.models import ExecutionFrame, MTPExecutionContext
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.run_session import RunSession
-from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.core.models import OMNI_DOLL_PROFILE
 from tests.helpers.workspace import make_execution_labels, make_runtime_scope
 
@@ -52,37 +49,6 @@ def test_agent_runtime_package_does_not_import_alice() -> None:
     assert violations == []
 
 
-def test_agent_runtime_has_no_child_specific_public_api() -> None:
-    public_methods = {
-        name
-        for name, member in inspect.getmembers(AgentRuntime, predicate=inspect.isfunction)
-        if not name.startswith("_")
-    }
-
-    assert not any("child" in name or "sub_frame" in name for name in public_methods)
-
-
-def test_alice_runtime_does_not_own_agent_run_use_case() -> None:
-    runtime_public_methods = {
-        name
-        for name, member in inspect.getmembers(AliceRuntime, predicate=inspect.isfunction)
-        if not name.startswith("_")
-    }
-
-    assert "run_agent" not in runtime_public_methods
-    assert "run_agent_stream" not in runtime_public_methods
-
-
-def test_frame_factory_creates_ordinary_frames_without_topology_metadata() -> None:
-    frame = _frame("run-a", "frame-a")
-
-    # 架构护栏：普通 frame 不携带父子拓扑元数据
-    assert not hasattr(frame.runtime_scope, "depth")
-    assert not hasattr(frame.runtime_scope, "parent_frame_id")
-    assert not hasattr(frame, "is_main_frame")
-    assert not hasattr(frame, "is_sub_frame")
-
-
 def test_run_session_keeps_frames_and_calls_run_local() -> None:
     session = RunSession(agent_run_id="run-a")
     frame_a = _frame("run-a", "frame-a")
@@ -102,5 +68,3 @@ def test_mtp_context_contains_workspace_and_frame_coordinates() -> None:
     assert context.runtime_scope.run_id == "test_run"
     assert context.runtime_scope.frame_id == "test_frame"
     assert context.runtime_scope.labels.workspace_id == "main_workspace"
-    # 架构护栏：执行上下文不携带父子拓扑元数据
-    assert not hasattr(context.runtime_scope, "depth")

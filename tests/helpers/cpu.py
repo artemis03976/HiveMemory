@@ -18,6 +18,8 @@ from hivememory.workspace.contracts import (
     CPUExecutionStatus,
     CPUInputManifest,
     CPUOutput,
+    CPUResultSlot,
+    CPURunHandle,
     OperationEntry,
     OperationSubmitter,
     ThreadOperationSubmitter,
@@ -52,12 +54,14 @@ class ScriptedCPU:
         events: list[dict[str, Any]] | None = None,
         result: CPUExecutionResult | None = None,
         error: Exception | None = None,
+        cancelled_result: CPUExecutionResult | None = None,
         hang_before_result: bool = False,
         operation_script: Callable[[OperationSubmitter], Awaitable[None]] | None = None,
     ) -> None:
         self._events = list(events or [])
         self._result = result
         self._error = error
+        self._cancelled_result = cancelled_result
         self._hang_before_result = hang_before_result
         self._operation_script = operation_script
         self._operation_entry: OperationEntry | None = None
@@ -84,7 +88,7 @@ class ScriptedCPU:
         access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
         stream: bool,
-    ) -> AsyncGenerator[CPUOutput, None]:
+    ) -> CPURunHandle:
         self.calls.append(
             CPUCall(
                 manifest=manifest,
@@ -93,9 +97,12 @@ class ScriptedCPU:
                 access=access,
             )
         )
-        return self._iterate(access)
+        slot = CPUResultSlot()
+        return CPURunHandle(output=self._iterate(access, slot), result_slot=slot)
 
-    async def _iterate(self, access: WorkspaceAccessContext) -> AsyncGenerator[CPUOutput, None]:
+    async def _iterate(
+        self, access: WorkspaceAccessContext, slot: CPUResultSlot
+    ) -> AsyncGenerator[CPUOutput, None]:
         try:
             if self._operation_script is not None:
                 await self._operation_script(ThreadOperationSubmitter(self.operation_entry, access))
@@ -107,7 +114,11 @@ class ScriptedCPU:
             if self._error is not None:
                 raise self._error
             if self._result is not None:
+                slot.result = self._result
                 yield self._result
+        except (asyncio.CancelledError, GeneratorExit):
+            slot.result = self._cancelled_result
+            raise
         finally:
             self.closed = True
 

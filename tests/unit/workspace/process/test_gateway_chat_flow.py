@@ -211,9 +211,11 @@ def _assert_sealed_payload(payload, *, turn_events: list[TurnEvent], submitted) 
     assert payload.rewritten_query == decision.rewritten_query
     assert payload.worth_saving is True
     assert payload.assistant_final_text == "完成"
-    assert payload.turn_events == turn_events
+    assert payload.turn_events == [
+        *turn_events,
+        TurnEvent(kind="assistant_message", sequence=5, role="assistant", content="完成"),
+    ]
     assert payload.model_used == "glm-4"
-    assert "materialize_tasks" not in payload.model_dump()
     # 本测试未选择附件：附件编译的实际使用集合为空
     assert payload.used_attachments == []
     assert payload.mtp_traces == expected_mtp_traces()
@@ -238,8 +240,6 @@ def _scoped_prepared_route(
             interaction_id=interaction_id,
             topic_id=topic_id,
             is_new_topic=is_new_topic,
-            topic_context=None,
-            pool_topics=[],
             retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
             storage_available=True,
         )
@@ -430,7 +430,7 @@ async def test_completed_streaming_process_seals_interaction_payload() -> None:
                 "model_used",
                 "stopped",
                 "reason",
-                "pool_topics",
+                "topic_id",
             },
         ),
         (
@@ -442,6 +442,7 @@ async def test_completed_streaming_process_seals_interaction_payload() -> None:
                 "model_used",
                 "stopped",
                 "reason",
+                "topic_id",
             },
         ),
         (
@@ -453,6 +454,7 @@ async def test_completed_streaming_process_seals_interaction_payload() -> None:
                 "model_used",
                 "stopped",
                 "reason",
+                "topic_id",
             },
         ),
     ],
@@ -518,7 +520,7 @@ async def test_streaming_command_emits_result_and_done_only() -> None:
 async def test_completed_stream_uses_one_process_id_for_events_and_downstream_routes() -> None:
     """完成的流式进程：SSE 首个事件、finalizing 状态与 done 携带同一 process_id，
     并以它调用 Patchouli prepare（interaction_id）与 CPU（清单 process_id）；
-    topic_info 与 memory_refs 由进程从 prepare 结果推导。"""
+    done 的话题标注与 memory_refs 由进程从 prepare 结果推导。"""
     bus = GlobalSystemBus()
     prepare_calls: list[dict] = []
     cpu = ScriptedCPU(
@@ -545,13 +547,10 @@ async def test_completed_stream_uses_one_process_id_for_events_and_downstream_ro
         process_id="process-complete",
     )
 
-    assert events[0] == {"event": "process_id", "data": {"process_id": "process-complete"}}
-    topic_info = next(event for event in events if event["event"] == "topic_info")
-    assert topic_info["data"] == {
-        "topic_id": "topic-1",
-        "is_new": False,
-        "pool_topics": [],
-    }
+    assert events[0]["event"] == "process_id"
+    assert events[0]["data"]["process_id"] == "process-complete"
+    assert events[0]["data"]["session_id"].startswith("session_")
+    assert events[-1]["data"]["topic_id"] == "topic-1"
     memory_refs = next(event for event in events if event["event"] == "memory_refs")
     assert memory_refs["data"]["memories"][0]["title"] == "引用记忆"
     assert [event["data"] for event in events if event["event"] == "run_status"] == [
@@ -594,7 +593,7 @@ async def test_stage_routes_receive_only_authorizer_assembled_identity_scope() -
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, topic_list)
 
     service, composition = await _service(bus)
-    # 话题池读取只发生在流式交付（结算后、done 之前）。
+    # 流式交付只保留阶段调用，话题池由独立管理入口读取。
     await _stream_events(composition, service, "问题", process_id="process-scope-only")
 
     assert "access" not in captured["gateway"]
@@ -603,9 +602,8 @@ async def test_stage_routes_receive_only_authorizer_assembled_identity_scope() -
     assert captured["prepare"]["identity_scope"] == _expected_scope()
     assert captured["finalize"]["identity_scope"] == _expected_scope()
     assert "access" not in captured["finalize"]
-    # 结算后的话题池读取同样只收到授权返回的 scope（不取自 prepared_run）。
-    assert "access" not in captured["topic_pool"]
-    assert captured["topic_pool"]["identity_scope"] == _expected_scope()
+    # finalize 后不再请求话题池。
+    assert "topic_pool" not in captured
 
 
 class _AdmissionChangingAuthorizer:
@@ -694,7 +692,7 @@ async def test_cleanup_admission_denial_skips_route_and_still_closes_process(cap
     _register_profile(bus)
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     cpu = ScriptedCPU(
-        result=make_cpu_result(status=CPUExecutionStatus.FAILED.value),
+        result=make_cpu_result(status=CPUExecutionStatus.FAILED.value, final_text=""),
         operation_script=revoke_admission,
     )
     service = make_task_process_service(
@@ -739,7 +737,7 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
 async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
     bus = GlobalSystemBus()
     prepared_holder: dict = {}
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.CANCELLED))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.CANCELLED, final_text=""))
 
     async def prepare(**kwargs):
         prepared = await _scoped_prepared_route()(**kwargs)
@@ -779,7 +777,7 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
     bus = GlobalSystemBus()
     finalize = AsyncMock(return_value=[])
     cleanup = AsyncMock(return_value=True)
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
     prepared_holder: dict = {}
     bus.register(
         GatewayPublicRoutes.PROCESS,
@@ -806,7 +804,7 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
 @pytest.mark.asyncio
 async def test_streaming_failed_agent_run_preserves_failed_done_status() -> None:
     bus = GlobalSystemBus()
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
     bus.register(
         GatewayPublicRoutes.PROCESS,
         AsyncMock(return_value=_decision_outcome()),

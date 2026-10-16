@@ -14,7 +14,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # Alice
@@ -110,9 +110,9 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
   -> 任务进程据执行结果决定是否封口交互记录并进入 Patchouli finalize
 ```
 
-Alice 接收的是 Patchouli 已经准备好的本轮快照，不在 run 中重新分析 Gateway，也不重新构造长期记忆上下文。主帧只保存运行所需的消息与 `ExecutionProgress`；最后的执行结果包含终态、自然语言正文、结构化 `TurnEvent[]`、实际模型展示名；迭代统计只出现在 `agent.run.*` 观测事件中。
+Alice 接收的是 workspace 任务进程组装的本轮输入清单，不在 run 中重新分析 Gateway，也不重新构造长期记忆上下文。主帧只保存运行所需的消息与 `ExecutionProgress`；最后的执行结果包含终态、自然语言正文、结构化 `TurnEvent[]`、实际模型展示名；迭代统计只出现在 `agent.run.*` 观测事件中。
 
-`FrameExecutionResult.FAILED` 与 `BUDGET_EXHAUSTED` 会由 Alice 稳定映射为执行结果的 `failed`，基础设施异常才向上抛出并由任务进程按失败结束；取消返回 `cancelled`，不交出物化任务。只有完成的 run 才会在任务进程管理的主动流程中进入 Patchouli finalize。
+`FrameExecutionResult.FAILED` 与 `BUDGET_EXHAUSTED` 会由 Alice 稳定映射为执行结果的 `failed`，基础设施异常才向上抛出并由任务进程按失败结束；取消返回 `cancelled`，不交出物化任务。有输出的 completed/cancelled/failed 都由任务进程封口、追加会话并进入 Patchouli finalize；Alice 只提供结果，CPU 取消时通过结果槽交回部分输出。主帧历史来自输入清单的全量会话轮次，Topic 内容不再作为对话上下文。
 
 ### 4.2 CALL 与瞬态子帧
 
@@ -143,7 +143,7 @@ Agent 使用 MTP 在生成过程中发现、读取和使用记忆，也可以提
 
 ## 6. 启停、公开能力与观测
 
-`AliceSystem.start()` 通过 AliceBridge 向 `GlobalSystemBus` 注册 `alice.public.run_agent` 与 `alice.public.run_agent_stream`，停止时一起卸载。两条路由都接收输入清单、`submit_operation` 与 generation options，由路由名决定输出形态；Bridge 分别以 `stream=False/True` 调用同一个 `AgentRunService.run_agent`。Alice 和 agent_runtime 不持有 local bus，也不请求任何 Patchouli 公开路由；记忆检索、引用读取与 CALL Profile 读取均提交 workspace 操作请求。Alice 没有独立后台 worker 或 shutdown drain，运行中的 chat 取消和连接关闭由 workspace 任务进程持有的控制状态处理。
+`AliceSystem.start()` 通过 AliceBridge 向 `GlobalSystemBus` 注册 `alice.public.run_agent` 与 `alice.public.run_agent_stream`，停止时一起卸载。两条路由都接收输入清单、`submit_operation`、generation options 与可选 `result_slot`，由路由名决定输出形态；Bridge 分别以 `stream=False/True` 调用同一个 `AgentRunService.run_agent`。Alice 和 agent_runtime 不持有 local bus，也不请求任何 Patchouli 公开路由；记忆检索、引用读取与 CALL Profile 读取均提交 workspace 操作请求。Alice 没有独立后台 worker 或 shutdown drain，运行中的 chat 取消和连接关闭由 workspace 任务进程持有的控制状态处理。
 
 AliceBridge 不订阅 PendingAtom 结算事件；这些事件由 workspace 登记消费。全部派生读取缓存由 `WorkspaceRuntime.close()` 清理，Alice 停止只卸载自己的运行入口。
 

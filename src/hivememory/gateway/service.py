@@ -6,6 +6,7 @@ from hivememory.core.models import IdentityScope, require_identity_scope
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     GatewayProcessResult,
+    GatewaySessionTurn,
 )
 from hivememory.gateway.runtime import GatewayRuntime
 
@@ -27,6 +28,7 @@ class GatewayService:
         identity_scope: IdentityScope,
         ingress_mode: GatewayIngressMode,
         request_timeout_ms: int | None = None,
+        session_turns: tuple[GatewaySessionTurn, ...] = (),
     ) -> GatewayProcessResult:
         """把一次 Gateway 请求完整委托给 Runtime 持有的 workflow。
 
@@ -47,6 +49,7 @@ class GatewayService:
             message,
             identity_scope=identity_scope,
             ingress_mode=ingress_mode,
+            session_turns=session_turns,
             request_timeout_ms=effective_timeout_ms,
         )
 

@@ -10,6 +10,15 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 from hivememory.core.models import FrozenDict, freeze_mapping
 
 
+class GatewaySessionTurn(BaseModel):
+    """Gateway 分析专用的会话轮次；不携带会话 ID 或授权身份。"""
+
+    user_message: str
+    assistant_text: str = ""
+
+    model_config = ConfigDict(frozen=True)
+
+
 class GatewayIngressMode(str, Enum):
     """Gateway 固定入口策略。"""
 

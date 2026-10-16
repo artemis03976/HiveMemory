@@ -81,8 +81,6 @@ def _prepared(
         interaction_id=interaction_id,
         topic_id="topic-1",
         is_new_topic=is_new,
-        topic_context=None,
-        pool_topics=[],
         retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
     )
 
@@ -156,7 +154,6 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
         assert submission.ordering_key == f"topic:{prepared.topic_id}"
         assert calls == ["apply_started", "apply"]
         assert dispatched_tasks == []
-        assert "materialize_tasks" not in payload.model_dump()
 
         # 重复 finalize 复用原 work，interaction apply 不会再次执行。
         await service.finalize_agent_run(

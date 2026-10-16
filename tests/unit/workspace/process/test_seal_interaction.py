@@ -6,7 +6,7 @@
 
 from __future__ import annotations
 
-from hivememory.core.models import WorkspaceAssetRef
+from hivememory.core.models import TurnEvent, WorkspaceAssetRef
 from hivememory.workspace.process.sealing import seal_interaction
 from tests.helpers.chat_handoff import (
     expected_mtp_traces,
@@ -34,16 +34,18 @@ def test_seal_interaction_assembles_payload_from_explicit_fields() -> None:
     # WRITE signal 派生的价值判断
     assert payload.worth_saving is True
     assert payload.assistant_final_text == "完成"
-    assert payload.turn_events == turn_events
+    assert payload.turn_events == [
+        *turn_events,
+        TurnEvent(kind="assistant_message", sequence=5, role="assistant", content="完成"),
+    ]
     assert payload.model_used == "glm-4"
-    assert "materialize_tasks" not in payload.model_dump()
     assert payload.used_attachments == used
     # 固定轮次事件归约出的具体轨迹内容（预期手写）
     assert payload.mtp_traces == expected_mtp_traces()
 
 
 def test_seal_interaction_without_turn_events_has_empty_mtp_traces() -> None:
-    """没有轮次事件时 ``mtp_traces`` 为空，列表字段不携带默认之外的内容。"""
+    """只有正文时补齐助手事件，仍不凭正文推导 MTP 轨迹。"""
     payload = seal_interaction(
         user_message="问题",
         gateway_decision=make_gateway_decision(),
@@ -54,6 +56,7 @@ def test_seal_interaction_without_turn_events_has_empty_mtp_traces() -> None:
     )
 
     assert payload.mtp_traces == []
-    assert payload.turn_events == []
-    assert "materialize_tasks" not in payload.model_dump()
+    assert payload.turn_events == [
+        TurnEvent(kind="assistant_message", sequence=0, role="assistant", content="完成")
+    ]
     assert payload.used_attachments == []

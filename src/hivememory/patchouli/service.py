@@ -121,17 +121,6 @@ class PatchouliService:
                 new_topic_summary=gateway_decision.new_topic_summary,
                 belong_to=belong_to,
             )
-            pool_topics = await self._local_bus.request(
-                PatchouliLocalRoutes.TOPIC_LIST_ACTIVE,
-                belong_to=belong_to,
-                include_empty=True,
-            )
-            topic_context = await self._local_bus.request(
-                PatchouliLocalRoutes.TOPIC_GET,
-                real_topic_id,
-                belong_to=belong_to,
-            )
-
             retrieval_result = await self.retrieve_for_decision(
                 gateway_decision,
                 belong_to=belong_to,
@@ -144,8 +133,6 @@ class PatchouliService:
                 interaction_id=interaction_id,
                 topic_id=real_topic_id,
                 is_new_topic=is_new,
-                topic_context=topic_context,
-                pool_topics=list(pool_topics),
                 retrieval_result=retrieval_result,
                 storage_available=await self._local_bus.request(
                     PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,

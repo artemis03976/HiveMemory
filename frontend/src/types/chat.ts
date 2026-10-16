@@ -40,26 +40,6 @@ export interface MTPResultEvent extends StreamNamespace {
   stats?: Record<string, unknown>;
 }
 
-export interface TopicPoolInfo {
-  topics: Array<{
-    topic_id: string;
-    topic_title?: string;
-    title?: string;
-    topic_summary?: string;
-    state_summary?: string;
-    block_count?: number;
-    last_accessed_at?: number;
-    total_tokens?: number;
-  }>;
-  current_count: number;
-}
-
-export interface TopicInfoEvent {
-  topic_id: string;
-  is_new: boolean;
-  pool_topics?: TopicPoolInfo['topics'];
-}
-
 export type ChatRunStatus =
   | 'idle'
   | 'preparing'
@@ -77,13 +57,13 @@ export interface ChatRunStatusEvent {
 }
 
 export interface ChatDoneEvent {
-  final_text: string;
+  final_text?: string;
+  topic_id?: string;
   mtp_commands_executed?: string[];
   process_id?: string | null;
   status?: Exclude<ChatRunStatus, 'idle' | 'preparing' | 'streaming' | 'cancelling' | 'finalizing'>;
   stopped?: boolean;
   reason?: string | null;
-  pool_topics?: TopicPoolInfo['topics'];
 }
 
 export interface ChatErrorEvent {
@@ -109,6 +89,7 @@ export interface MemoryRefsEvent {
 
 export interface ProcessIdEvent {
   process_id: string;
+  session_id: string;
 }
 
 export interface CommandResultEvent {
@@ -123,7 +104,7 @@ export interface CommandResultEvent {
 // ========== SSE Event Union Type ==========
 
 export type SSEEventType =
-  | 'token' | 'mtp_start' | 'mtp_result' | 'topic_info' | 'memory_refs' | 'command_result' | 'done' | 'error'
+  | 'token' | 'mtp_start' | 'mtp_result' | 'memory_refs' | 'command_result' | 'done' | 'error'
   | 'sub_agent_start' | 'sub_agent_end' | 'process_id' | 'run_status';
 
 export interface SSEEvent {
@@ -132,7 +113,6 @@ export interface SSEEvent {
     | ChatTokenEvent
     | MTPStartEvent
     | MTPResultEvent
-    | TopicInfoEvent
     | MemoryRefsEvent
     | CommandResultEvent
     | ChatDoneEvent
@@ -183,7 +163,6 @@ export interface SSECallbacks {
   onToken: (data: ChatTokenEvent) => void;
   onMTPStart: (data: MTPStartEvent) => void;
   onMTPResult: (data: MTPResultEvent) => void;
-  onTopicInfo: (data: TopicInfoEvent) => void;
   onMemoryRefs: (data: MemoryRefsEvent) => void;
   onCommandResult: (data: CommandResultEvent) => void;
   onDone: (data: ChatDoneEvent) => void;

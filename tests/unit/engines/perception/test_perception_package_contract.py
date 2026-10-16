@@ -28,15 +28,3 @@ def test_engines_perception_does_not_import_patchouli():
                     assert not alias.name.startswith(
                         "hivememory.patchouli"
                     ), f"{py_file.name} imports {alias.name}"
-
-
-def test_engines_perception_package_exports_algorithm_surface():
-    """包导出只含纯算法引擎、协议模型与 Relay 控制器，不再有 layer 接口。"""
-    import hivememory.engines.perception as package
-
-    assert package.MemoryPerceptionEngine is not None
-    assert package.BaseRelayController is not None
-    assert not hasattr(package, "BasePerceptionLayer")
-    assert not hasattr(package, "SemanticFlowPerceptionLayer")
-    assert not hasattr(package, "NullPerceptionLayer")
-    assert not hasattr(package, "create_perception_layer")

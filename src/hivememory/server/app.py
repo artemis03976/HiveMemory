@@ -16,6 +16,11 @@ from hivememory.core.errors import (
     AdmissionDeniedError,
     OperationDeniedError,
     ScopeRequiredError,
+    SessionBusyError,
+    SessionCapacityError,
+    SessionClosedError,
+    SessionNotFoundError,
+    WorkspaceDomainError,
     WorkspaceMismatchError,
 )
 from hivememory.server.deps import (
@@ -36,6 +41,7 @@ from hivememory.server.routers.memory_tasks import router as memory_tasks_router
 from hivememory.server.routers.models import router as models_router
 from hivememory.server.routers.providers import router as providers_router
 from hivememory.server.routers.runtime_events import router as runtime_events_router
+from hivememory.server.routers.sessions import router as sessions_router
 from hivememory.server.routers.topics import router as topics_router
 from hivememory.server.routers.workspace_assets import router as workspace_assets_router
 
@@ -158,6 +164,20 @@ async def workspace_mismatch_handler(request: Request, exc: WorkspaceMismatchErr
     return JSONResponse(status_code=409, content=_access_error_payload(exc))
 
 
+@app.exception_handler(SessionNotFoundError)
+@app.exception_handler(SessionBusyError)
+@app.exception_handler(SessionCapacityError)
+@app.exception_handler(SessionClosedError)
+async def session_error_handler(request: Request, exc: WorkspaceDomainError):
+    """会话不存在返回 404，冲突/容量返回 409，关闭返回 503。"""
+    code = (
+        404
+        if isinstance(exc, SessionNotFoundError)
+        else 503 if isinstance(exc, SessionClosedError) else 409
+    )
+    return JSONResponse(status_code=code, content=_access_error_payload(exc))
+
+
 @app.exception_handler(ScopeRequiredError)
 async def scope_required_handler(request: Request, exc: ScopeRequiredError):
     """生产入口经网关后不应出现 scope 缺失；出现即为接线缺陷，按 500 返回并记录。"""
@@ -187,6 +207,7 @@ async def readiness():
 # 注册路由
 app.include_router(agents_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
+app.include_router(sessions_router, prefix="/api/v1")
 app.include_router(config_router, prefix="/api/v1")
 app.include_router(ingest_router, prefix="/api/v1")
 app.include_router(logs_router, prefix="/api/v1")

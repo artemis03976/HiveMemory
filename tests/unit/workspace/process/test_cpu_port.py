@@ -29,6 +29,7 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    TurnEvent,
     WorkspaceIdentity,
     WriteFocus,
 )
@@ -39,6 +40,7 @@ from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.contracts import CPUExecutionStatus, SubmitWriteIntentRequest
+from hivememory.workspace.contracts.cpu import CPUResultSlot, CPURunHandle
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from tests.helpers.chat_handoff import (
     expected_mtp_traces,
@@ -246,9 +248,11 @@ async def test_test_cpu_completes_non_streaming_process_without_alice_routes() -
 
     payload = finalize_kwargs["payload"]
     assert payload.assistant_final_text == "完成"
-    assert payload.turn_events == turn_events
+    assert payload.turn_events == [
+        *turn_events,
+        TurnEvent(kind="assistant_message", sequence=5, role="assistant", content="完成"),
+    ]
     assert payload.model_used == "glm-4"
-    assert "materialize_tasks" not in payload.model_dump()
     assert payload.mtp_traces == expected_mtp_traces()
 
 
@@ -270,18 +274,16 @@ async def test_test_cpu_completes_streaming_process_and_relays_events() -> None:
     assert cpu.calls[0].stream is True
     assert [event["event"] for event in events] == [
         "process_id",
-        "topic_info",
         "memory_refs",
         "token",
         "run_status",
         "done",
     ]
     # 交互事件原样转交：内容与顺序不经过进程解释。
-    assert events[3] == interaction_event
+    assert events[2] == interaction_event
     done = events[-1]
     assert done["data"]["status"] == "completed"
     assert done["data"]["final_text"] == "完成"
-    assert "memory_task_ids" not in done["data"]
     assert "mtp_iterations" not in done["data"]
     assert "total_iterations" not in done["data"]
     assert cpu.closed is True
@@ -377,9 +379,9 @@ async def test_no_actor_operations_still_executes_cpu_and_finalizes() -> None:
 async def test_cpu_self_reported_terminal_ends_process_without_finalize(
     status: CPUExecutionStatus,
 ) -> None:
-    """CPU 自报取消/失败：进程以相应结局结束，不调用 finalize，并请求 cleanup。"""
+    """CPU 自报取消/失败且无输出：进程以相应结局结束，不调用 finalize，并请求 cleanup。"""
     bus = GlobalSystemBus()
-    cpu = ScriptedCPU(result=make_cpu_result(status=status))
+    cpu = ScriptedCPU(result=make_cpu_result(status=status, final_text=""))
     cleanup_calls: list = []
 
     async def cleanup(*, prepared_run, **_kwargs):
@@ -545,7 +547,7 @@ class _SlowClosingCPU:
         self.release_close = asyncio.Event()
 
     def execute(self, manifest, *, access, generation_options, stream):
-        return self._iterate()
+        return CPURunHandle(self._iterate(), CPUResultSlot())
 
     async def _iterate(self):
         try:

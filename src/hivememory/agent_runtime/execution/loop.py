@@ -113,6 +113,7 @@ class AgentLoopExecutor:
                     break
                 if not chunk.mtp_detected and chunk.delta:
                     await sink.send(TokenDelta(content=chunk.delta))
+                    frame.progress.streaming_text.append(chunk.delta)
         finally:
             close = getattr(chunks, "aclose", None)
             if callable(close):
@@ -152,13 +153,16 @@ class AgentLoopExecutor:
         while p.iteration < max_iterations:
             p.iteration += 1
 
-            result = await self._generate_turn(
-                frame,
-                generation_options,
-                sink,
-            )
+            try:
+                result = await self._generate_turn(frame, generation_options, sink)
+            except asyncio.CancelledError:
+                self._seal_partial_text(frame, "cancelled")
+                raise
             if isinstance(result, FrameExecutionResult):
+                self._seal_partial_text(frame, "failed")
                 return result
+            # 完整结果已经包含流出的文字，随后记录时不能再次追加缓冲。
+            p.streaming_text.clear()
 
             if not result.was_mtp_interrupted:
                 p.text_segments.append(result.text)
@@ -333,6 +337,25 @@ class AgentLoopExecutor:
             p.sequence += 1
 
         return FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
+
+    @staticmethod
+    def _seal_partial_text(frame: ExecutionFrame, status: str) -> None:
+        """把已交付但尚未完成的文字同步封入进度，保持事件编号连续。"""
+        progress = frame.progress
+        text = "".join(progress.streaming_text)
+        progress.streaming_text.clear()
+        if text:
+            progress.text_segments.append(text)
+            progress.turn_events.append(
+                TurnEvent(
+                    kind="assistant_message",
+                    sequence=progress.sequence,
+                    role="assistant",
+                    content=text,
+                    status=status,
+                )
+            )
+            progress.sequence += 1
 
     def _extract_command_info(self, command, raw_hint):
         """从解析出的 MTP 命令中提取 verb 提示、target 与 args，用于事件投影。"""

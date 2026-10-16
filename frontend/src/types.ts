@@ -60,6 +60,8 @@ export interface SubAgentBlock {
 export type ContentBlock = InlineBlock | SubAgentBlock;
 
 export interface Message {
+  topicId?: string;
+  outcome?: 'completed' | 'cancelled' | 'failed';
   id: string;
   role: 'agent' | 'user' | 'assistant' | 'system';
   content: string;

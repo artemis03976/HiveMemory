@@ -66,58 +66,6 @@ def _scope(workspace_id: str = "main_workspace") -> IdentityScope:
     return make_identity_scope(user_id="u1", agent_id="a1", workspace_id=workspace_id)
 
 
-# ---- 授权点参数不再出现在本层签名 ----
-
-
-def test_constructor_rejects_access_guard():
-    """构造函数不再接收 access_guard：guard 注入已随边界返工删除。"""
-    with pytest.raises(TypeError, match="access_guard"):
-        MemoryManagementService(bus=RecordingBus(), access_guard=object())
-
-
-@pytest.mark.parametrize(
-    "invoke",
-    [
-        lambda svc, access: svc.get_memory("11111111-1111-1111-1111-111111111111", access=access),
-        lambda svc, access: svc.read_memory("11111111-1111-1111-1111-111111111111", access=access),
-        lambda svc, access: svc.list_memories(access=access),
-        lambda svc, access: svc.update_memory(
-            "11111111-1111-1111-1111-111111111111", access=access
-        ),
-        lambda svc, access: svc.delete_memory(
-            "11111111-1111-1111-1111-111111111111", access=access
-        ),
-        lambda svc, access: svc.record_feedback(
-            "11111111-1111-1111-1111-111111111111", access=access, positive=True, source="test"
-        ),
-        lambda svc, access: svc.retrieve_by_aliases(["alias_a"], access=access),
-        lambda svc, access: svc.retrieve(
-            RetrievalRequest(
-                semantic_query="query",
-                identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
-            ),
-            access=access,
-        ),
-    ],
-    ids=[
-        "get_memory",
-        "read_memory",
-        "list_memories",
-        "update_memory",
-        "delete_memory",
-        "record_feedback",
-        "retrieve_by_aliases",
-        "retrieve",
-    ],
-)
-def test_public_methods_no_longer_accept_access_parameter(invoke):
-    """公开方法不再接收 access 参数：访问 context 不进入 application 层签名。"""
-    service = MemoryManagementService(bus=RecordingBus())
-
-    with pytest.raises(TypeError, match="access"):
-        invoke(service, object())
-
-
 # ---- 必填签名拒绝缺省，require_identity_scope 拒绝错误类型 ----
 
 

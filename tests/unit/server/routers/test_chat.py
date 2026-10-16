@@ -4,8 +4,8 @@ Chat 路由单元测试
 测试覆盖:
     1. 注册入口 — 先经网关认证并注册进程，再开始流式运行；注册失败
        （AdmissionDeniedError）返回 403 且不创建进程、不运行
-    2. 正常对话 — SSE 事件序列: topic_info → token → done
-    3. MTP 对话 — SSE 事件序列: topic_info → token → mtp_start → mtp_result → token → done
+    2. 正常对话 — SSE 事件序列: token → done
+    3. MTP 对话 — SSE 事件序列: token → mtp_start → mtp_result → token → done
     4. 异常处理 — SSE error 事件
     5. 断连/断流 — cancel_process(handle, reason="client_disconnected") 取消
        自己注册的进程（不经进程控制授权），close_process(handle) 收口
@@ -281,10 +281,9 @@ class TestChatRegistration:
 
 class TestChatRouter:
     def test_normal_chat_sse_events(self):
-        """正常对话: topic_info → token → done"""
+        """正常对话: token → done"""
         mock_service = _wired_chat_service(
             lambda *args, **kw: _simple_stream(
-                {"event": "topic_info", "data": {"topic_id": "t1", "is_new": False}},
                 {"event": "token", "data": {"content": "Hello "}},
                 {"event": "token", "data": {"content": "world!"}},
                 {
@@ -311,13 +310,12 @@ class TestChatRouter:
         event_types = [e["event"] for e in events]
 
         # 完整事件顺序（router 透传 service 事件原样）
-        assert event_types == ["topic_info", "token", "token", "done"]
+        assert event_types == ["token", "token", "done"]
 
     def test_mtp_chat_sse_events(self):
-        """MTP 对话: topic_info → token → mtp_start → mtp_result → token → done"""
+        """MTP 对话: token → mtp_start → mtp_result → token → done"""
         mock_service = _wired_chat_service(
             lambda *args, **kw: _simple_stream(
-                {"event": "topic_info", "data": {"topic_id": "t1", "is_new": False}},
                 {"event": "token", "data": {"content": "Let me search. "}},
                 {"event": "mtp_start", "data": {"verb": "SEARCH", "iteration": 1}},
                 {
@@ -349,7 +347,6 @@ class TestChatRouter:
         event_types = [e["event"] for e in events]
 
         assert event_types == [
-            "topic_info",
             "token",
             "mtp_start",
             "mtp_result",

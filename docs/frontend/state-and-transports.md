@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-09-06
+last_reviewed: 2026-10-15
 ---
 
 # 前端状态、持久化与传输
@@ -30,14 +30,14 @@ UI preference
 Draft / optimistic projection
   -> browser owns only until submit or reconciliation
 
-Topic / Memory / Agent Profile / Config / Task
+ConversationSession / Topic / Memory / Agent Profile / Config / Task
   -> backend owns truth; frontend refetches and projects
 
 Chat tokens / logs / RuntimeEvents
   -> runtime stream projection; no durable browser truth
 ```
 
-当前 `chat-store` 虽然使用 Zustand persist，但 `partialize` 主动把 `messages` 固定为空、`currentTopicId` 固定为 null，只保存 `currentAgentId`。这不是遗漏，而是对“浏览器没有消息历史真相”的保护：没有服务端 history/reconnect 契约时，恢复半条流消息比清空更危险。
+`chat-store` 的 persist 版本为 4，`partialize` 只保存 `currentSessionId` 与 `currentAgentId`。启动后从服务端读取会话历史；旧版本状态不会复活消息或旧 Topic 指针。读取 404 时清除选择，其他失败保留错误并阻止发送，直到成功加载或新建会话。会话历史的权威副本仅在后端进程内，浏览器不保存消息正文。
 
 浏览器的 localStorage 也应被视为一个需要版本治理的本地契约，而不是“随手缓存”。当前持久化 store 已采用 `name`、`version`、`migrate` 或 `partialize` 的组合来清理旧结构、缩小写入面并恢复可解释的小状态；新增 store 或改变字段时也必须遵循同一规则。优先保存主题、tab、折叠、筛选和短小的运行偏好，谨慎保存可重新解释的草稿，避免把过期的 Agent ID、Topic 指针、消息块或后端实体整棵复活。
 
@@ -47,13 +47,13 @@ Chat tokens / logs / RuntimeEvents
 |:---|:---|:---|
 | `chat-ui-store` | 主导航、主题、左右面板折叠、侧栏 tab、Settings 分类、记忆预检索开关 | toast、页面业务数据 |
 | `chat-runtime-config-store` | model override、temperature/top_p/max_tokens、是否覆盖参数 | 某次请求终态 |
-| `chat-store` | 当前 Agent ID | messages、Topic ID、引用记忆、连接、generation ID、run status |
+| `chat-store` | 当前 Session ID 与 Agent ID | messages、会话列表/历史、输入草稿、引用记忆、连接、process ID、run status |
 | `memory-view-store` | search mode、类型、status filter、排序、grid/list | search query、selected tags、Memory 数据 |
 | `memory-task-store` | 是否显示 terminal tasks | task、选中 task、请求状态 |
 | `workspace-store` | filters、trace/span UI | logs、trace groups、RuntimeEvents、连接、主窗口状态 |
 | `topic-store` | 无 | Topic 池、loading、error |
 
-Settings 和 OmniInput 草稿当前使用组件 state/useDraft，不跨刷新恢复。Topic `settle`/`delete` 使用乐观移除并在失败时回滚；这里的 `settle` 是结束 Topic 生命周期并交给记忆生成，不是 Memory Library 的 `archive`。Memory delete 当前不回滚，是需要修正的不一致。
+Settings 草稿使用组件 state/useDraft；OmniInput 草稿使用 chat store 的运行期字段，供无输出停止时回填，两者都不跨刷新恢复。Topic `settle`/`delete` 使用乐观移除并在失败时回滚；这里的 `settle` 是结束 Topic 生命周期并交给记忆生成，不是 Memory Library 的 `archive`。Memory delete 当前不回滚，是需要修正的不一致。
 
 ## 3. 当前传输
 
@@ -62,13 +62,13 @@ Settings 和 OmniInput 草稿当前使用组件 state/useDraft，不跨刷新恢
 | 统一身份上下文 | HTTP 请求头 | `x-user-id` / `x-workspace-id`（`services/identity.ts`） | 所有身份相关请求统一携带；body/query 与 header 冲突时后端 409 |
 | Chat | fetch-based SSE | `POST /api/v1/chat` | `done` / `error`；无断线续传 |
 | Stop | HTTP | `POST /api/v1/chat/stop` | best-effort 请求，等待流终态确认 |
-| Topics / Memories / Agents / Config / Registries / Tasks | HTTP JSON | 相对 `/api/v1/...` | 请求级成功失败；页面按能力 refetch 或乐观更新 |
+| Sessions / Topics / Memories / Agents / Config / Registries / Tasks | HTTP JSON | 相对 `/api/v1/...` | 请求级成功失败；页面按能力 refetch 或乐观更新 |
 | RuntimeEvent | EventSource SSE | `/api/v1/runtime-events/stream` | 支持 `last_event_id`/gap 的后端语义，浏览器只保留当前运行期 |
 | Logs | WebSocket | `/api/v1/ws/logs` | ping/pong、有限重连，无历史恢复 |
 
 Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送请求体。RuntimeEvent 是 GET 流，使用 EventSource。日志需要双向 ping/pong 和持续推送，使用 WebSocket。
 
-身份选择传输约定：Memory、Agent、Topic、Chat 与 stop 请求统一携带 `x-user-id`/`x-workspace-id` 基础选择；Topic 旧的 `?user_id=` query 已不再由前端使用（后端保留兼容并与 header 做冲突检测）；Chat/stop 请求体不携带身份字段。管理请求（Memory/Agent/Topic）默认依赖统一请求头，不需要额外参数。
+身份选择传输约定：Session、Memory、Agent、Topic、Chat 与 stop 请求统一携带 `x-user-id`/`x-workspace-id` 基础选择；Topic 旧的 `?user_id=` query 已不再由前端使用（后端保留兼容并与 header 做冲突检测）；Chat/stop 请求体不携带身份字段。管理请求（Session/Memory/Agent/Topic）默认依赖统一请求头，不需要额外参数。
 
 ## 4. Origin 与代理
 
@@ -96,7 +96,7 @@ Workspace store 通过 `hivememory_primary_window` localStorage heartbeat 判断
 - Agent 列表失败时回退 `MOCK_AGENT_CONFIGS`；
 - Config 失败时回退 `MOCK_CONFIG`，同时保存 error；
 - Memory task 只在 Vite development 模式回退 mock；
-- Provider、Model、Topic 与 Chat 不使用同类数据回退。
+- Session、Provider、Model、Topic 与 Chat 不使用同类数据回退。
 
 Mock 的合理用途是让组件开发仍有可见状态，不是把离线体验冒充真实系统。当前 Memory/Agent 页面缺少醒目的 mock 标识，且写操作仍指向后端，是最容易制造误解的边界。后续若统一降级策略，至少应区分 `loading / live / mock / stale / error`，并阻止或明确模拟不可兑现的写操作。
 
@@ -111,11 +111,11 @@ Mock 的合理用途是让组件开发仍有可见状态，不是把离线体验
 
 ## 8. 当前限制
 
-- 没有 chat SSE 的 last-event-id、断线续传或消息历史；
+- 没有 chat SSE 的 last-event-id 或断线续传；会话历史可重新读取，但后端重启后丢失；
 - 没有统一 query cache、请求去重或 stale-while-revalidate 层；
 - 多个页面的 mock 降级策略和错误可见性不一致；
 - 基础身份选择当前固定为 `user_id=default + main_workspace`（`services/identity.ts`），没有认证 token、租户或 per-user storage namespace；
 - `VITE_BACKEND_ORIGIN` 不是全局 API base；
-- 浏览器 store 没有自动化持久化迁移测试或跨窗口一致性测试。
+- 会话已有自动化行为测试；尚无完整的持久化迁移矩阵与跨窗口一致性测试。
 
 后端 route 与 event 的唯一契约见[公开路由与事件](../contracts/routes-and-events.md)，Chat 事件如何进入页面见 [Chat 视图](./chat-view.md)。

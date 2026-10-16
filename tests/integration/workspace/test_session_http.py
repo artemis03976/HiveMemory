@@ -1,0 +1,49 @@
+"""会话 HTTP 管理入口与真实 root API、认证网关、会话存储的集成。"""
+
+import httpx
+import pytest
+from fastapi import FastAPI
+
+from hivememory.config.workspace import WorkspaceSessionConfig
+from hivememory.core.errors import SessionBusyError, SessionNotFoundError
+from hivememory.server.app import session_error_handler
+from hivememory.server.deps import get_root_session_service
+from hivememory.server.routers.sessions import router
+from hivememory.workspace.capability.root.session import RootSessionService
+from hivememory.workspace.sessions import ConversationSessionService
+from tests.helpers.workspace import make_server_access_overrides
+
+
+@pytest.mark.asyncio
+async def test_http_session_crud_and_busy_error():
+    """HTTP 返回可恢复历史的稳定形状，忙会话不能被删除。"""
+    overrides, access = make_server_access_overrides()
+    store = ConversationSessionService(WorkspaceSessionConfig())
+    root = RootSessionService(store, operation_authorizer=access.authorizer)
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides.update(overrides)
+    app.dependency_overrides[get_root_session_service] = lambda: root
+    app.add_exception_handler(SessionBusyError, session_error_handler)
+    app.add_exception_handler(SessionNotFoundError, session_error_handler)
+    async with httpx.AsyncClient(
+        transport=httpx.ASGITransport(app=app), base_url="http://test"
+    ) as client:
+        created = await client.post("/api/v1/sessions", json={"title": "旧标题"})
+        assert created.status_code == 201
+        session_id = created.json()["session_id"]
+        renamed = await client.patch(f"/api/v1/sessions/{session_id}", json={"title": "新标题"})
+        assert renamed.json()["title"] == "新标题"
+        history = await client.get(f"/api/v1/sessions/{session_id}")
+        assert history.json()["turns"] == []
+        listed = await client.get("/api/v1/sessions")
+        assert [(s["session_id"], s["title"]) for s in listed.json()] == [(session_id, "新标题")]
+        store.claim(access.default_workspace, session_id, "p")
+        busy = await client.delete(f"/api/v1/sessions/{session_id}")
+        assert busy.status_code == 409
+        assert busy.json()["error"] == "workspace.session.busy"
+        store.release(access.default_workspace, session_id, "p")
+        assert (await client.delete(f"/api/v1/sessions/{session_id}")).status_code == 204
+        missing = await client.get(f"/api/v1/sessions/{session_id}")
+        assert missing.status_code == 404
+        assert missing.json()["error"] == "workspace.session.not_found"

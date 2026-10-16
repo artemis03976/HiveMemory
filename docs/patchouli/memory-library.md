@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-10-15
 ---
 
 # MemoryLibrary 与存储层
@@ -36,7 +36,7 @@ MemoryLibrary
 
 ### 1.1 短期：话题工作台
 
-短期存储保存 Topic 记录，是纯 CRUD 的存储事实封装：adapter 直接存储 frozen `TopicData`，Store/Port 对外交接不可变快照；记录包含话题标题、展示摘要、折叠后的 `state_summary`、结构化 `LogicalBlock[]`、token 估算与最近模型名。记录不再携带执行状态或访问时间——占用权归 `TopicWorkingSet` 的 lease，访问顺序归 WorkingSet 的 LRU 索引（见[感知与短期话题](./perception.md)）。它服务于当前进程中的对话连续性，不是崩溃后可恢复的 durable session store。
+短期存储保存 Topic 记录，是纯 CRUD 的存储事实封装：adapter 直接存储 frozen `TopicData`，Store/Port 对外交接不可变快照；记录包含话题标题、展示摘要、折叠后的 `state_summary`、结构化 `LogicalBlock[]`、token 估算与最近模型名。记录不再携带执行状态或访问时间——占用权归 `TopicWorkingSet` 的 lease，访问顺序归 WorkingSet 的 LRU 索引（见[感知与短期话题](./perception.md)）。它保存记忆生成的接入材料，可混合多个会话的交互；对话连续性由 workspace 的 ConversationSession 提供。Topic 不再是 Alice 的历史源，两者当前均不提供跨重启恢复。
 
 `topic_id` 是领域上的全局唯一身份；内部调用方通过 `belong_to: WorkspaceIdentity + topic_id` 访问，`WorkspaceTopicKey` 只由短期 adapter 在内部构造，用于 Workspace 归属校验和物理索引，不是允许不同 Workspace 复用同一 Topic ID 的局部命名空间。公共 owner 边界从授权 scope 拆出归属，短期 Store 不接收 actor 或 `IdentityScope`。写入同一 `topic_id` 到另一 Workspace 会被 adapter 以全局唯一性检查拒绝。Topic 的编排规则由 PerceptionFamiliar 负责，MemoryLibrary 只维护存储事实与归属检查。
 

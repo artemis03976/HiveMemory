@@ -40,6 +40,9 @@ class GatewayContextPreparationConfig(BaseModel):
     candidate_topics_timeout_ms: int = Field(default=1000, ge=1)
     routed_topic_timeout_ms: int = Field(default=1000, ge=1)
     include_empty_topics: bool = False
+    session_turn_limit: int = Field(
+        default=3, ge=1, description="主动请求提供给 Gateway 的最近会话轮数"
+    )
 
     model_config = ConfigDict(extra="forbid")
 

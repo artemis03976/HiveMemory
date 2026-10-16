@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # Agent Runtime
@@ -73,21 +73,21 @@ ExecutionFrame
 
 ## 3. 输入上下文与 Prompt 组装
 
-Agent Runtime 不接收原始 Gateway 输入，而消费 `AgentRunContext` 已准备好的事实：`ExecutionLabels`、话题、当前用户消息、最近话题 blocks、检索 atoms、已编译 memory context、已编译附件文本、Agent Profile 和 storage availability。`AgentRunContext` 由 `AgentRunService` 从任务进程交来的 `CPUInputManifest` 转换而来：Profile 由进程解析，记忆与附件由进程编译，Alice 只决定这些文本在提示词中的位置。
+Agent Runtime 不接收原始 Gateway 输入，而消费 `AgentRunContext` 已准备好的事实：`ExecutionLabels`、话题、当前用户消息、全量会话 `session_history`、检索 atoms、已编译 memory context、已编译附件文本、Agent Profile 和 storage availability。`AgentRunContext` 由 `AgentRunService` 从任务进程交来的 `CPUInputManifest` 转换而来：Profile 由进程解析，记忆与附件由进程编译，Alice 只决定这些文本在提示词中的位置。
 
 Alice 在创建主帧前按“三明治”顺序组装消息：
 
 ```text
 Top     MTP protocol + permitted verbs/tools + storage-offline notice
 Middle  Agent Profile persona
-Bottom  compiled memory context + topic state summary
-History latest five LogicalBlocks rendered as messages
+Bottom  compiled memory context + compiled attachment context
+History all ConversationTurns rendered as messages
 User    current user message
 ```
 
 这种层次不是为了依赖某种 prompt 技巧，而是让机器约束、角色偏好和工作状态拥有不同来源。MTP 教学从结构化权限生成，persona 不得暗中扩张权限，memory context 也只是本轮工作视图；三者不能拼成一段后再由 Runtime 反向解析。
 
-历史消息由结构化 `TurnEvent` 重放，`current_agent_id` 使用输入清单的注册标签。若历史 block 来自另一个非默认 Agent，assistant 消息会增加 `[From: agent_id]` 前缀，避免当前 Agent 把同事的旧输出误认成自己曾经作出的承诺。工具结果则按 `render_as` 添加本地化系统前缀。旧 block 只有在缺少事件时才回退到 `assistant_final_text` 等兼容字段。
+历史消息由结构化 `TurnEvent` 重放，`current_agent_id` 使用输入清单的注册标签。若历史轮次来自另一个 Agent，assistant 消息会增加 `[From: agent_id]` 前缀，避免当前 Agent 把同事的旧输出误认成自己曾经作出的承诺。工具结果则按 `render_as` 添加本地化系统前缀。会话 payload 缺少事件时回退到用户/助手文本；cancelled/failed 轮次的本地化未完成说明附在该轮最后一条消息末尾，不在历史中间插入 system 消息（部分模型适配会把 system 消息合并到开头，或要求角色严格交替）。Topic 状态摘要与 block 不进入 Alice 的上下文，全量历史暂不截断，超出模型窗口按 CPU 失败收口。
 
 ## 4. 模型选择与 WorkerAgent
 
@@ -151,6 +151,8 @@ Agent Runtime 不再直接构造 SSE dict，也不依赖名为 EventBus/Sink 的
 交互输出流与 RuntimeEvent 是两条严格独立的数据面。前者面向当前调用方，参与背压和断流取消，不能丢弃，并保留 `token/mtp_start/mtp_result/sub_agent_start/sub_agent_end/done` 兼容事件名；后者是全局 best-effort 观测旁路，可以缓冲、回放和丢弃慢订阅者数据，只记录 `agent.run.*` 等生命周期摘要。FrameOutput 不会自动桥接到 RuntimeEventBus，RuntimeEvent 也不驱动 frame、CALL 或 run 状态。
 
 非流式 LiteLLM await、流式 async iterator 的每次 pull，以及 MTP await 都直接响应外层 task cancellation。Agent loop 在 `finally` 中关闭 Worker generator，Worker 再关闭 LiteLLM/provider response；各层 close 失败只记录日志，不能替换正在传播的 `CancelledError`。RunExecutor 的 CALL/run 收尾遵循同一优先级：先做 best-effort 本地清理，再原样重抛取消。同步 syscall 一旦开始执行，事件循环仍必须等待函数返回，这属于 Python task cancellation 无法解决的同步边界。
+
+LLM 流已交付的文字同步积累到 frame 的 `streaming_text`；正常结果到达后清空以避免重复，原生取消或模型失败时封为带状态的未完成 `assistant_message` 并加入正文。非流式没有 token 缓冲，只保留已完成迭代。
 
 ## 7. 执行结果的组装边界
 

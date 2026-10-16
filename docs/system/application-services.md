@@ -15,7 +15,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # 应用服务
@@ -23,7 +23,7 @@ last_reviewed: 2026-10-13
 应用服务是 transport 与子系统之间的用例层。它们由 System 组合根装配、经 `HiveMemorySystem` 门面交给入口，但按归属分布在三处：
 
 - 任务进程表与 chat 任务进程编排：`workspace.process`（`ProcessTable`/`ProcessRecord` 进程表、`TaskProcessService` 唯一注册入口、`TaskProcess` 进程状态容器与 `TaskProcessRunner` 四阶段骨架）；
-- 资源能力层：`workspace.capability`，分为只供 `system` 的 root API（`root/`：Memory、Agent Profile、Topic、MemoryTask、WorkspaceAsset 管理服务）与只经操作入口供 actor 使用的 actor API（`actor/`：Memory 与 CALL 目标服务）；门面只向入口暴露 root API；
+- 资源能力层：`workspace.capability`，分为只供 `system` 的 root API（`root/`：Memory、Agent Profile、Topic、Session、MemoryTask、WorkspaceAsset 管理服务）与只经操作入口供 actor 使用的 actor API（`actor/`：Memory 与 CALL 目标服务）；门面只向入口暴露 root API；
 - 系统级服务：`system.application`（被动摄入与就绪检查）。
 
 本文统一描述它们共同遵守的用例层规则。它们回答“这次请求应该按什么顺序跨边界运行”，而不回答“记忆如何检索”“Agent 如何生成”或“Gateway 如何分析”。
@@ -63,6 +63,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 | `RootMemoryService`（`workspace.capability.root`） | Memory 管理 CRUD、feedback 和查询参数转换（root 授权） | 操作授权者；Patchouli memory routes |
 | `RootMemoryTaskService`（`workspace.capability.root`） | 查询/取消 Patchouli 拥有的 memory generation task（root 授权） | 操作授权者；Patchouli task routes |
 | `RootAgentProfileService`（`workspace.capability.root`） | 构造 Agent Profile atom 并调用 Patchouli profile routes 创建与列出（root 授权） | 操作授权者；Patchouli profile routes |
+| `RootSessionService`（`workspace.capability.root`） | 会话创建、列表、全量历史、重命名、删除（root 授权） | 操作授权者；共享会话服务 |
 | `RootTopicService`（`workspace.capability.root`） | 活跃话题列表、手动 settle、evict（root 授权） | 操作授权者；Patchouli topic routes |
 | `RootWorkspaceAssetService`（`workspace.capability.root`） | 编排 Chat 附件的接收、原子注册和请求内解析，保留首次创建/重放回执语义；在接收与注册副作用之前执行 root 授权，注册只使用授权返回的 scope | workspace 的 WorkspaceAssetStore（命令端口）、附件接收函数、AttachmentParseService、上传串行门、操作授权者；链路事实见[Chat 附件链路](./attachments.md) |
 | `SystemReadinessService`（`system.application`） | 模型 warmup、ready 和简短 readiness 状态 | Patchouli readiness routes |
@@ -73,7 +74,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 
 ## 3. 主动 chat：唯一编排者
 
-`TaskProcessService` 是任务请求的唯一注册入口（当前只有主动 chat 经它进入），注册与运行分开：`register_process()` 完成认证并创建进程、返回进程句柄（第 4 节），`run_process(handle, stream=…)` 运行已注册的进程，`stream`（默认 `True`）只决定交付形态；注册参数 `message` 是交给 Gateway 分析的指令文本。
+`TaskProcessService` 是任务请求的唯一注册入口（当前只有主动 chat 经它进入），注册与运行分开：`register_process()` 完成认证、认领会话并创建进程、返回进程句柄（第 4 节），`run_process(handle, stream=…)` 运行已注册的进程，`stream`（默认 `True`）只决定交付形态；注册参数 `message` 是交给 Gateway 分析的指令文本。
 
 任务进程由三个角色组成，按“谁持有什么”划分：
 
@@ -109,49 +110,57 @@ TaskProcessService.run_process(handle, stream=False) -> TaskProcessRunner.run(pr
   -> CPU 分配：读取 actor 操作快照（阶段授权）、附件租借（阶段授权）与编译、记忆编译、组装 CPUInputManifest
   -> Actor 执行：派生线程 context，CPU 端口 execute（CPUInputManifest，非流式只产出终态结果）
        -> 终态结果后关闭 CPU 输出流，同步撤销线程 context
-  -> completed: 阶段授权 -> 封口交互记录（InteractionPayload）-> Patchouli finalize_agent_run
-  -> cancelled/failed: 不进入 finalize，转入关闭补偿
+  -> 有输出的 completed/cancelled/failed：封口交互记录 -> 同步写入会话 -> 进入 finalize
+       -> 持有提交 task，阶段授权 -> Patchouli finalize_agent_run
+  -> 无输出、异常、finalize 前断连：不写会话，转入关闭补偿
   -> 关闭：TaskProcessRunner.close(process)
        -> 同步撤销仍登记的线程 context（兜底），经 CPUAllocator 释放附件租借
        -> await CPU 输出流关闭；若 prepare 成功且 finalize 未成功，阶段授权 -> await Patchouli cleanup_prepared_agent_run
        -> 注册入口在 finally 中撤销进程 context、从进程表注销
 ```
 
-阶段调用是进程替 Agent 做的系统操作，不是 Agent 主动执行的操作：每次阶段调用前，执行器以本进程注册时通过认证的 Workspace 为目标调用 `authorize_stage`，只校验 context 与准入仍然有效、目标与 owner 相符，不检查 actor 操作白名单，因此没有任何 actor 操作的 Agent 也能完成整条 chat 链路。返回的 `IdentityScope` 仍以进程的 Agent 为发起者，资源 owner 照常按该 Agent 过滤可见性：预检索结果中不会出现其他 Agent 的 PRIVATE 记忆，但预检索不检查 Agent 能否 READ。finalize 的阶段授权在封口交互记录之前执行，并只把这次返回的 scope 交给 finalize，不保存在工作集中等待使用；授权失败时不提交交互，不影响已接纳写入。阶段授权只在 `workspace.process` 中调用（架构测试守护）。CPU 输入清单只携带冻结的 `ExecutionLabels(agent_id, workspace_id)`，与注册入口的 `chat.run.*` 发布器共用同一组标签；它不含访问 context 或 `IdentityScope`。标签用于提示词、展示与观测，不参与任何操作授权。
+阶段调用是进程替 Agent 做的系统操作，不是 Agent 主动执行的操作：每次阶段调用前，执行器以本进程注册时通过认证的 Workspace 为目标调用 `authorize_stage`，只校验 context 与准入仍然有效、目标与 owner 相符，不检查 actor 操作白名单，因此没有任何 actor 操作的 Agent 也能完成整条 chat 链路。返回的 `IdentityScope` 仍以进程的 Agent 为发起者，资源 owner 照常按该 Agent 过滤可见性：预检索结果中不会出现其他 Agent 的 PRIVATE 记忆，但预检索不检查 Agent 能否 READ。finalize 的阶段授权在提交任务内、调用公开路由前执行，并只把这次返回的 scope 交给 finalize，不保存在工作集中等待使用；授权失败时不提交交互，不影响已接纳写入。阶段授权只在 `workspace.process` 中调用（架构测试守护）。CPU 输入清单只携带冻结的 `ExecutionLabels(agent_id, workspace_id)`，与注册入口的 `chat.run.*` 发布器共用同一组标签；它不含访问 context 或 `IdentityScope`。标签用于提示词、展示与观测，不参与任何操作授权。
 
-CPU 分配由进程完成：Patchouli prepare 只返回话题准备结果与未编译的检索原子（`PreparedAgentRun`）；进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再把两者与已解析的 Profile 一起组装为输入清单经 CPU 端口交给 CPU。清单还携带本进程 actor 的操作快照 `allowed_operations`：CPU 分配以 `get_stage_operations` 读取访问登记中的 actor 操作集合（与阶段授权相同的准入与目标检查），供执行者生成提示词与执行策略；它不是授权依据，每个操作请求仍由 actor API 即时授权。编译放在进程而不是执行者一侧，是为了让不同执行者共用同一份编译结果，而不必各自调用引擎。
+CPU 分配由进程完成：Patchouli prepare 只返回话题准备结果与未编译的检索原子（`PreparedAgentRun`）；进程用共享引擎 `MemoryCompiler` 把检索结果编译为 `RETRIEVAL_CONTEXT` 文本，用 `AttachmentCompiler` 编译附件并得出实际使用的附件，再把两者与已解析的 Profile、会话全量历史 `session_history` 一起组装为输入清单经 CPU 端口交给 CPU。清单还携带本进程 actor 的操作快照 `allowed_operations`：CPU 分配以 `get_stage_operations` 读取访问登记中的 actor 操作集合（与阶段授权相同的准入与目标检查），供执行者生成提示词与执行策略；它不是授权依据，每个操作请求仍由 actor API 即时授权。编译放在进程而不是执行者一侧，是为了让不同执行者共用同一份编译结果，而不必各自调用引擎。
 
 Agent Profile 属于 CPU 分配，但目前在 prepare 之前解析：prepare 可能按路由决定新建 Topic，话题池已满时还会先按 LRU 结算一个已有话题，Profile 缺失的请求应在这些副作用发生之前失败。Profile 经阶段授权后由组合根注入的读取视图（`ProfileResolver`）解析，不经能力层，仍按进程 Agent 检查源原子可见性；正式原子变更会失效解析缓存；解析时机仍在 prepare 之前。
 
-交互记录也由进程封口：Actor 正常完成、进入 finalize 之后，进程以入口消息、Gateway 决定、Actor 的执行结果与实际使用的附件组装 `InteractionPayload`（`workspace/process/sealing.py`），MTP 轨迹由 core 的归约器从轮次事件得到；CPU 结果与交互记录都不携带物化任务；finalize 原样提交、等待 applied 并记录命中后返回 `None`，不派发写入。finalize 失败不影响已接纳写入。这与被动链路由提交方（turn buffer）封口一致，Patchouli 不需要读懂执行者的运行结果。字段来源见[子系统公共契约](../contracts/subsystem-contracts.md#32-finalizeagentrun) 3.2。
+交互记录也由进程封口：Actor 有输出、进入 finalize 之前，进程以入口消息、Gateway 决定、Actor 的执行结果与实际使用的附件组装 `InteractionPayload`（`workspace/process/sealing.py`），MTP 轨迹由 core 的归约器从轮次事件得到；CPU 结果与交互记录都不携带物化任务；finalize 原样提交、等待 applied 并记录命中后返回 `None`，不派发写入。finalize 失败不影响已接纳写入。这与被动链路由提交方（turn buffer）封口一致，Patchouli 不需要读懂执行者的运行结果。字段来源见[子系统公共契约](../contracts/subsystem-contracts.md#32-finalizeagentrun) 3.2。
 
-进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）登记本进程的 prepare 结果、CPU 分配时写入的派发话题 `dispatch_topic_id`、附件租借、附件编译得出的实际使用引用、Actor 执行期间打开的 CPU 输出流与本进程全部线程 context（主线程与 CALL 子线程，只用于撤销）；输入清单在 CPU 分配后直接交给 CPU 端口，不留在工作集中。工作集只登记、不释放，也不持有共享依赖：资源由取得它的一方释放，附件租借由 `CPUAllocator` 释放，线程 context 由 `ProcessThreads` 统一撤销（执行器在 CPU 执行结束与关闭流程中调用），CPU 输出流的关闭与 prepare 结果的 cleanup 由执行器处理。
+进程工作集（`ProcessWorkingSet`，`workspace/process/working_set.py`）登记本进程的 prepare 结果、CPU 分配时写入的派发话题 `dispatch_topic_id`、附件租借、附件编译得出的实际使用引用、Actor 执行期间打开的 CPU 输出流、执行结果、finalize 提交任务与本进程全部线程 context（主线程与 CALL 子线程，只用于撤销）；输入清单在 CPU 分配后直接交给 CPU 端口，不留在工作集中。工作集只登记、不释放，也不持有共享依赖：资源由取得它的一方释放，附件租借由 `CPUAllocator` 释放，线程 context 由 `ProcessThreads` 统一撤销（执行器在 CPU 执行结束与关闭流程中调用），CPU 输出流的关闭与 prepare 结果的 cleanup 由执行器处理。
 
-进程无论以何种结局结束都经注册入口关闭：执行器的 `close(process)` 先同步撤销仍登记的线程 context并释放全部租借，再关闭 CPU 输出流（若尚未关闭）、重新执行阶段授权后请求 cleanup；注册入口随后撤销进程 context 并从进程表注销，这两步放在内层 `finally`，因此即使这些 `await` 被取消，租借、context 与进程登记也不会泄漏。cleanup 的授权失败和调用失败都记录警告、跳过补偿，关闭照常完成。关闭流程可以重复执行（骨架收尾与注册入口的关闭路径都会调用它）：终态兜底只在进程尚无终态时执行，工作集中的每项资源只取出一次，已经释放的不会再次释放；第一次关闭在等待 CPU 输出流关闭时被取消，注册入口的再次关闭仍会请求尚未执行的 cleanup。prepare 返回的结果先写入工作集，再比对 `PreparedAgentRun.belong_to` 与任务目标 Workspace；校验失败时仍按本进程目标授权后交回 cleanup，Patchouli 拒绝清理越域结果，补偿不会删除其他 Workspace 的话题。
+进程无论以何种结局结束都经注册入口关闭：执行器的 `close(process)` 先同步撤销仍登记的线程 context并释放全部租借，再关闭 CPU 输出流（若尚未关闭）、等待已创建的 finalize 任务，之后才对尚未交接的 prepare 结果重新执行阶段授权并请求 cleanup；注册入口随后撤销进程 context 并从进程表注销，这两步放在内层 `finally`，因此即使这些 `await` 被取消，租借、context 与进程登记也不会泄漏。cleanup 的授权失败和调用失败都记录警告、跳过补偿，关闭照常完成。关闭流程可以重复执行（骨架收尾与注册入口的关闭路径都会调用它）：终态兜底只在进程尚无终态时执行，工作集中的每项资源只取出一次，已经释放的不会再次释放；第一次关闭在等待 CPU 输出流关闭时被取消，注册入口的再次关闭仍会请求尚未执行的 cleanup。prepare 返回的结果先写入工作集，再比对 `PreparedAgentRun.belong_to` 与任务目标 Workspace；校验失败时仍按本进程目标授权后交回 cleanup，Patchouli 拒绝清理越域结果，补偿不会删除其他 Workspace 的话题。
 
 Gateway 返回 command outcome 时，结果只携带命令解析结果，服务立即完成本次 run，不进入 topic、retrieval、Actor 执行或主动记忆生成。命令终态由进程按解析状态产生（`workspace/process/command_terminal.py`）：解析成功时命令暂不可用（`not_implemented`、`command.unavailable`），解析失败时拒绝（`rejected`、`command.parse.<状态>`），均不带客户端动作；进程仍以 completed 结束。这是控制消息与普通对话之间的语义隔离，不是一个性能优化开关。
 
-普通决策进入 prepare 后，Profile 解析、prepare 与 CPU 分配期间收到的停止请求会被进程记录；分配完成、进入 Actor 执行前统一检查一次，命中即跳过 Actor 执行和 finalize，返回 cancelled 结果，并在关闭流程中释放租借、请求 cleanup。只有在 CPU 执行结果的 `status == completed` 且进程未取消时才允许进入 finalize；finalize 成功后才将 prepared 标记为已接管，不再 cleanup。
+普通决策进入 prepare 后，Profile 解析、prepare 与 CPU 分配期间收到的停止请求会被进程记录；分配完成、进入 Actor 执行前统一检查一次，命中即跳过 Actor 执行和 finalize，返回 cancelled 结果，并在关闭流程中释放租借、请求 cleanup。CPU 的三种结局只要有回复文本或执行事件就封口、同步写入会话并进入 finalize；初始 `user_message` 是输入，不算输出。只有正文而无助手事件时，封口处补齐规范 `assistant_message`。finalize 成功后 prepared 标记为已接管，不再 cleanup。
 
 ### 3.2 流式链路
 
 `run_process(handle)`（默认 `stream=True`）运行同一个骨架，CPU 以流式产出，阶段产出按以下顺序投影为 transport 事件：
 
 ```text
-process_id
+process_id（含 session_id）
   -> Gateway decision / command
   -> command_result + done
   -> 或 Profile 解析、prepare、CPU 分配
-       topic_info
        memory_refs
        CPU 交互事件（原样转交）
        run_status(finalizing)
-       done(completed + pool_topics)
+       done(completed/cancelled/failed + topic_id)
 ```
 
-流式执行必须收到 CPU 的终态结果才能结束 Actor 阶段。若输出流在没有终态结果时结束，服务按协议错误处理；`done` 只携带交付方使用的执行结果字段（终态、最终回复、模型名）与进程字段：轮次事件只用于封口交互记录，不下发；记忆任务经 `memory.task.*` 事件与任务查询观察；也不含执行者专属的统计。客户端提前关闭时，SSE adapter 以句柄形式的 `cancel_process(handle, reason="client_disconnected")` 取消当前进程，先取消并 join 自己创建的 stream-pull task，再经注册入口关闭进程；生成器从未开始迭代时（例如关停信号在注册期间到达），SSE 响应在自身收尾时兜底关闭进程。进程的关闭流程随后以 `stream_closed` 收口尚未发布终态的进程，释放附件租借、关闭 CPU 输出流，并对尚未 finalize 的 prepared run 执行 cleanup。`topic_info` 与 `memory_refs` 由进程从 prepare 结果与输入清单推导，只在 CPU 分配成功后发出。
+正常流式执行取得 CPU 流的终态结果；用户停止时从 `CPURunHandle.result_slot` 读取取消收尾的结果。若输出流在没有终态结果时结束，服务按协议错误处理；`done` 只携带交付方使用的执行结果字段（终态、最终回复、模型名）与进程字段：轮次事件只用于封口交互记录，不下发；记忆任务经 `memory.task.*` 事件与任务查询观察；也不含执行者专属的统计。客户端提前关闭时，SSE adapter 以句柄形式的 `cancel_process(handle, reason="client_disconnected")` 取消当前进程，先取消并 join 自己创建的 stream-pull task，再经注册入口关闭进程；生成器从未开始迭代时（例如关停信号在注册期间到达），SSE 响应在自身收尾时兜底关闭进程。进程的关闭流程随后以 `stream_closed` 收口尚未发布终态的进程，释放附件租借、关闭 CPU 输出流，等待已创建的 finalize 任务，再对尚未交接的 prepared run 执行 cleanup。`memory_refs` 在 CPU 分配成功后发出；不再发送 `topic_info` 或 done 的 `pool_topics`。有输出的三种 done 携带本轮 `topic_id`，无输出不携带 `final_text` 或话题标注。
 
 流式 `done`、`command_result` 和 `error` 是 transport 可消费的事件，不是新的跨子系统业务契约；它们的来源和调用顺序仍由本服务和 Contracts 共同约束。
+
+### 3.3 部分输出与交付关闭
+
+已输出的取消或失败轮次仍是后续会话的事实，因此同时保存到会话和记忆材料，并标明结局。这样既保留“内容够了就停止”的回复，又维持一轮对应一个 process/interaction；不引入待用户下一轮确认的中间状态。后续若支持编辑重发，需单独处理已提交轮次的分叉，不能以停止代替撤回。
+
+用户停止仍只取消当前可中断 task，不引入取消 token、信号或轮询。Alice 在原生取消收尾中同步填入 CPU 中立结果槽；停止发生在两次拉取之间时，进程先关闭流促成 CPU 收尾，再读取槽。空槽按无输出处理。进程沿用 CPU 给出的结局：停止晚于 CPU 终态（或槽中已是 completed）时，本轮仍按 completed 结算，不把完整回复改记为中断。finalize 前的客户端断连、交付流关闭与 System 关闭都不是用户的停止，不保存部分轮次（`ProcessRecord.discards_output`）。
+
+封口、会话追加、进入 FINALIZE 与创建 `finalization_task` 之间没有 await/yield；工作集持有该任务，之后才交出 `finalizing`。等待使用 shield，交付方被取消也先等待提交结束再传播取消；关闭流程会等待同一个任务。因此在 `finalizing` 事件处关闭流不会跳过提交或 cleanup 已接管交互。有输出的 cancelled/failed 的 `chat.run.*` 终态晚于 finalize。停止后要等交互 applied 才结束，这是当前契约而非后台脱离运行。
 
 ## 4. 注册入口、进程表与取消
 
@@ -159,8 +168,8 @@ process_id
 
 1. 拒绝保留的 `system` 作为任务请求的 actor：任务进程必须由具体 Agent 执行；
 2. 经认证网关完成两阶段认证，运行绑定为本进程的 `process_id`（由 server 入口在进入编排服务前生成并冻结）；认证失败直接抛出，HTTP 入口据此返回 403，不创建、不登记进程；
-3. 创建进程记录（写入访问 context）与 `TaskProcess`，以通过认证的声明绑定 `chat.run.*` 的观测标签（`workspace_id`、`agent_id`），登记到进程表；认证通过后、登记完成前失败时撤销已签发的 context；
-4. 签发并返回不透明的进程句柄。
+3. 使用请求 `session_id` 查找本 Workspace 会话，缺省则自动创建；同步检查容量与单进程认领，失败撤销 context 并回滚本次自动创建的空会话；然后创建进程记录（写入访问 context）与 `TaskProcess`，以通过认证的声明绑定 `chat.run.*` 的观测标签（`workspace_id`、`agent_id`），登记到进程表；认证通过后、登记完成前失败时撤销已签发的 context；
+4. 签发并返回不透明的进程句柄（只读 `process_id/session_id`）；关闭时在 context 撤销、进程注销后释放会话认领。
 
 **进程表**（`ProcessTable`，`workspace/process/table.py`）是唯一的进程注册表，也是 workspace 的进程内共享设施：以 `process_id` 为键登记 `TaskProcess`，注销只移除同一个进程对象；进程记录作为进程的控制面经进程取得，不单独登记。进程记录（`ProcessRecord`）有：
 
@@ -174,7 +183,7 @@ process_id
 
 进程表不保存 `Event`、Token 或 waiter。
 
-**进程句柄**（`ProcessHandle`）是入口 adapter 与已注册进程之间唯一的引用：只暴露 `process_id`，不暴露进程记录、其中的 context 或 `TaskProcess`。句柄只由注册入口签发，按对象身份判定有效：句柄私下记着它对应的进程，注册入口解析时要求进程表中登记的正是这一个。按 `process_id` 重新构造的对象、进程关闭后的旧句柄都不是有效句柄——运行时以 `process_handle_unknown` 拒绝，取消时返回 `not_found` 且不发布事件，关闭是空操作。持有有效句柄即为该进程生命周期的所有者。
+**进程句柄**（`ProcessHandle`）是入口 adapter 与已注册进程之间唯一的引用：只暴露 `process_id` 与 `session_id`，不暴露进程记录、其中的 context 或 `TaskProcess`。句柄只由注册入口签发，按对象身份判定有效：句柄私下记着它对应的进程，注册入口解析时要求进程表中登记的正是这一个。按 `process_id` 重新构造的对象、进程关闭后的旧句柄都不是有效句柄——运行时以 `process_handle_unknown` 拒绝，取消时返回 `not_found` 且不发布事件，关闭是空操作。持有有效句柄即为该进程生命周期的所有者。
 
 **取消**：`cancel_process` 是唯一的取消方法，取消的依据作为参数：
 
@@ -191,7 +200,7 @@ process_id
 
 **关闭**：`close_process(handle)` 是注册入口的关闭路径，幂等；交付路径结束时注册入口直接关闭进程。进程关闭后从进程表注销、绑定的 context 被撤销，此后取消与状态查询都按 `not_found` 处理。
 
-当前进程表是进程内短期控制状态，不是可恢复的长期工作记录。进程重启后不能据此恢复进程；System 停止流程不排空进程表。用户可见长期任务与后台 Agent workflow 当前未立项，需在真实负载和执行能力成立后独立设计。
+当前进程表是进程内短期控制状态，不是可恢复的长期工作记录。进程重启后不能据此恢复进程；System 停止时经进程记录向在途进程发出 `system_shutdown` 停止，等待各自的交付方收口（SSE 交付每次拉取都在新 task 中进行，因此不取消某个 task，也不在交付方仍在驱动时并发关闭）；从未开始运行的进程直接关闭，超过 `workspace.process.shutdown_wait_seconds` 仍未关闭的进程兜底关闭；之后才清空会话服务。用户可见长期任务与后台 Agent workflow 当前未立项，需在真实负载和执行能力成立后独立设计。
 
 ## 5. 管理类应用服务
 

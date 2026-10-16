@@ -201,8 +201,6 @@ def _prepare_route(
             interaction_id=interaction_id,
             topic_id=topic_id,
             is_new_topic=is_new_topic,
-            topic_context=None,
-            pool_topics=[],
             retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
             storage_available=True,
         )
@@ -330,7 +328,7 @@ async def test_manifest_operations_follow_access_record_precedence(exact_records
         "attachment_context",
         "storage_available",
         "topic_id",
-        "topic_context",
+        "session_history",
     }
 
 
@@ -512,7 +510,6 @@ async def test_profile_resolution_failure_fails_stream_before_prepare() -> None:
     service, composition = await _service(bus, cpu=cpu)
     events = await _stream_events(composition, service, "问题", process_id="process-profile-fail")
 
-    assert [event["event"] for event in events if event["event"] == "topic_info"] == []
     assert [event["event"] for event in events if event["event"] == "error"] == ["error"]
     assert prepare_calls == []
     assert cleanup_calls == []
@@ -816,7 +813,7 @@ async def test_leased_attachment_released_after_completed_run() -> None:
 
 @pytest.mark.asyncio
 async def test_leased_attachment_released_when_cpu_reports_failure() -> None:
-    """CPU 自报失败路径：不进入 finalize，进程 finally 仍释放租借。"""
+    """CPU 自报失败且无输出：不进入 finalize，进程 finally 仍释放租借。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
     scope = await _store_scope(composition)
@@ -827,7 +824,7 @@ async def test_leased_attachment_released_when_cpu_reports_failure() -> None:
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
     bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
 
     service, composition = await _service(bus, store=store, cpu=cpu)
     result = await _run_once(
@@ -879,7 +876,7 @@ async def test_cancel_during_cleanup_still_releases_leases_and_closes_process() 
         PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
         _blocking_cleanup(cleanup_started, release_cleanup),
     )
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
 
     service, composition = await _service(bus, store=store, cpu=cpu)
     requestor = await composition.authenticate(agent_id=_AGENT)
@@ -915,7 +912,7 @@ async def test_stream_cancel_during_cleanup_still_releases_leases_and_closes_pro
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
     bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
     bus.register(
         PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
         _blocking_cleanup(cleanup_started, release_cleanup),
@@ -1080,7 +1077,6 @@ async def test_stream_stop_before_actor_emits_no_prelude() -> None:
     release_prepare.set()
     events = await task
 
-    assert [event["event"] for event in events if event["event"] == "topic_info"] == []
     assert [event["event"] for event in events if event["event"] == "memory_refs"] == []
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "cancelled"

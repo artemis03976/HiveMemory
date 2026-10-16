@@ -23,6 +23,8 @@ TaskProcessService — 任务请求的唯一注册入口与进程控制面
 
 from __future__ import annotations
 
+import asyncio
+import logging
 from collections.abc import AsyncGenerator, Coroutine
 from contextlib import aclosing
 from typing import Any, Literal, overload
@@ -63,18 +65,22 @@ from hivememory.workspace.process.outputs import (
 )
 from hivememory.workspace.process.runner import TaskProcessRunner
 from hivememory.workspace.process.table import (
+    SYSTEM_SHUTDOWN_STOP_REASON,
     CancelResult,
     ProcessRecord,
     ProcessStatusSnapshot,
     ProcessTable,
 )
 from hivememory.workspace.process.task_process import ProcessRequest, TaskProcess
+from hivememory.workspace.sessions import ConversationSessionService
+
+logger = logging.getLogger(__name__)
 
 
 class ProcessHandle:
     """已注册任务进程的不透明句柄（I-8 的补充）。
 
-    句柄是入口 adapter 与已注册进程之间唯一的引用：只暴露 ``process_id``，
+    句柄是入口 adapter 与已注册进程之间唯一的引用：只暴露 ``process_id`` 与 ``session_id``，
     不暴露进程记录、其中的访问 context 或 ``TaskProcess``。句柄只由注册
     入口签发，按对象身份判定有效（I-8 的 2026-10-04 补充）：它私下记着
     签发时对应的进程，注册入口解析时要求进程表中登记的正是这一个。按
@@ -89,6 +95,11 @@ class ProcessHandle:
     def __init__(self, process: TaskProcess) -> None:
         self._process = process
         self._process_id = process.record.process_id
+
+    @property
+    def session_id(self) -> str:
+        """本进程认领的会话 ID；不暴露访问凭据。"""
+        return self._process.request.session_id
 
     @property
     def process_id(self) -> str:
@@ -113,7 +124,8 @@ class TaskProcessService:
     context 的运行持有者——注册经 ``access_gateway`` 认证签发即绑定本进程，
     进程以任何结局关闭时由本入口经认证网关使绑定 context 失效；
     ``operation_authorizer`` 只用于进程控制授权（阶段授权由执行器执行）；
-    ``event_publisher`` 驱动 ``chat.run.*`` 观测事件。
+    ``event_publisher`` 驱动 ``chat.run.*`` 观测事件；``shutdown_wait_seconds``
+    是 System 关闭时等待交付方自行收口的上限。
     """
 
     def __init__(
@@ -121,10 +133,14 @@ class TaskProcessService:
         runner: TaskProcessRunner,
         *,
         process_table: ProcessTable,
+        sessions: ConversationSessionService,
         access_gateway: ActorAuthenticationGateway,
         operation_authorizer: WorkspaceOperationAuthorizer,
         event_publisher: RuntimeEventPublisher | None = None,
+        shutdown_wait_seconds: float = 10.0,
     ) -> None:
+        self._sessions = sessions
+        self._shutdown_wait_seconds = shutdown_wait_seconds
         self._runner = runner
         # 唯一的进程注册表：process_id → 已注册的 TaskProcess（不外泄）。
         self._process_table = process_table
@@ -148,6 +164,7 @@ class TaskProcessService:
         enable_memory_retrieval: bool = True,
         generation_options: dict[str, Any] | None = None,
         attachments: list[AttachmentSelectionRequest] | None = None,
+        session_id: str | None = None,
     ) -> ProcessHandle:
         """注册步骤：认证、签发即绑定、创建进程并登记（流式响应开始前完成）。
 
@@ -170,7 +187,17 @@ class TaskProcessService:
             workspace=workspace,
             binding=RunBinding.for_task_process(process_id),
         )
+        claimed = False
+        created = False
         try:
+            # 认证成功后同步认领；后续登记失败时还原会话与凭据。
+            if self._process_table.get(process_id) is not None:
+                raise WorkspaceDomainError("process_id 已被注册，拒绝覆盖现有任务进程")
+            if session_id is None:
+                session_id = self._sessions.create(workspace).session_id
+                created = True
+            self._sessions.claim(workspace, session_id, process_id)
+            claimed = True
             # 3-4. 创建进程记录写入 context，绑定观测标签，并登记到进程表。
             # 标签只在认证成功后创建一次，事件通道与 CPU 输入清单共用。
             labels = ExecutionLabels(agent_id=actor.agent_id, workspace_id=workspace.workspace_id)
@@ -187,6 +214,7 @@ class TaskProcessService:
             request = ProcessRequest(
                 message=message,
                 target_workspace=workspace,
+                session_id=session_id,
                 enable_memory_retrieval=enable_memory_retrieval,
                 generation_options=generation_options,
                 attachments=tuple(attachments or ()),
@@ -197,6 +225,10 @@ class TaskProcessService:
         except BaseException:
             # 登记前失败：使已签发的 context 失效，不留悬挂凭据（P-6）。
             self._access_gateway.invalidate_context(access)
+            if claimed and session_id is not None:
+                self._sessions.release(workspace, session_id, process_id)
+            if created and session_id is not None:
+                self._sessions.delete(workspace, session_id)
             raise
         # 5. 签发不透明的进程句柄；运行由调用方经 run_process 发起。
         return ProcessHandle(process)
@@ -235,6 +267,39 @@ class TaskProcessService:
             return self._deliver_stream(process)
         return self._deliver_once(process)
 
+    async def shutdown(self) -> None:
+        """停止全部在途进程，并在返回前完成关闭；会话设施只能在本方法之后清空。
+
+        驱动进程的 task 不固定（SSE 交付每次拉取都在新 task 中进行），因此这里
+        不取消某个 task，也不在交付方仍在驱动时并发关闭：停止经进程记录送达，
+        交付方照常收尾并经注册入口关闭进程。系统关闭不是用户的停止，已产生的
+        部分输出不写入会话、不提交；已进入 finalize 的进程照常等待提交完成。
+        从未开始运行的进程没有交付方，直接关闭；等待超过
+        ``shutdown_wait_seconds`` 仍未关闭的进程由本方法兜底关闭。
+        """
+        driven: list[TaskProcess] = []
+        for process in self._process_table.snapshot():
+            if process.owner_task is None:
+                await self._close(process)
+                continue
+            process.record.request_stop(SYSTEM_SHUTDOWN_STOP_REASON)
+            driven.append(process)
+        if driven:
+            waiters = [asyncio.create_task(process.closed.wait()) for process in driven]
+            try:
+                await asyncio.wait(waiters, timeout=self._shutdown_wait_seconds)
+            finally:
+                for waiter in waiters:
+                    waiter.cancel()
+                await asyncio.gather(*waiters, return_exceptions=True)
+        for process in driven:
+            if not process.closed.is_set():
+                logger.warning(
+                    "任务进程未在关闭等待内由交付方收口，兜底关闭: %s",
+                    process.record.process_id,
+                )
+                await self._close(process)
+
     async def close_process(self, handle: ProcessHandle) -> None:
         """注册入口的关闭路径：经执行器释放进程资源，使绑定 context 失效并注销。
 
@@ -253,6 +318,8 @@ class TaskProcessService:
         context 失效与进程注销放在内层 ``finally``：关闭子流被取消中断时
         收口仍要完成，不留已失效却仍登记的进程。
         """
+        if self._process_table.get(process.record.process_id) is not process:
+            return
         record = process.record
         try:
             await self._runner.close(process)
@@ -260,7 +327,13 @@ class TaskProcessService:
             # 绑定 context 随进程关闭失效（P-6）：无论 completed、失败、
             # 取消还是断流，进程结束后该凭据不再可用。
             self._access_gateway.invalidate_context(record.access)
-            self._process_table.close(process)
+            # 并发关闭的后到者不重复释放；会话此时可能已被删除或重新认领。
+            if self._process_table.get(record.process_id) is process:
+                self._process_table.close(process)
+                self._sessions.release(
+                    process.request.target_workspace, process.request.session_id, record.process_id
+                )
+                process.closed.set()
 
     async def _deliver_stream(
         self,
@@ -273,7 +346,11 @@ class TaskProcessService:
                     if isinstance(output, ProcessFailed):
                         yield _stream_error(output.error)
                         continue
-                    for event in stream_events(output, process_id=process.record.process_id):
+                    for event in stream_events(
+                        output,
+                        process_id=process.record.process_id,
+                        session_id=process.request.session_id,
+                    ):
                         yield event
         finally:
             await self._close(process)
@@ -287,15 +364,20 @@ class TaskProcessService:
                     match output:
                         case CommandCompleted(command_result=command_result):
                             result = NonStreamingCommandOutcome(
-                                command_execution_result=command_result
+                                command_execution_result=command_result,
+                                session_id=process.request.session_id,
                             )
                         case RunCompleted(execution_result=execution_result) | RunFailed(
                             execution_result=execution_result
                         ):
-                            result = NonStreamingAgentOutcome(execution_result=execution_result)
+                            result = NonStreamingAgentOutcome(
+                                execution_result=execution_result,
+                                session_id=process.request.session_id,
+                            )
                         case RunCancelled(execution_result=execution_result):
                             result = NonStreamingAgentOutcome(
-                                execution_result=_cancelled_execution_result(execution_result)
+                                execution_result=_cancelled_execution_result(execution_result),
+                                session_id=process.request.session_id,
                             )
                         case ProcessFailed(error=error):
                             raise error

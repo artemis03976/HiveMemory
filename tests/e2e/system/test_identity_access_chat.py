@@ -28,7 +28,7 @@ pytestmark = pytest.mark.e2e
 async def test_http_chat_preserves_split_identity_through_finalize_and_materialization(
     patchouli_chat_stack,
 ):
-    """HTTP 完成后交互与物化任务保留身份，done 话题池来自真实归属读取。"""
+    """HTTP 完成后交互与物化任务保留身份，done 话题标注对应真实归属记录。"""
     workspace = make_workspace_identity(owner_user_id="u1")
     other_workspace = make_workspace_identity(owner_user_id="u1", workspace_id="other")
     actor = ActorIdentity(user_id="u1", agent_id="omni_doll")
@@ -80,7 +80,6 @@ async def test_http_chat_preserves_split_identity_through_finalize_and_materiali
                 json={
                     "message": "保存本轮事实",
                     "agent_id": actor.agent_id,
-                    "session_id": "external-session",
                     "enable_memory_retrieval": False,
                 },
             )
@@ -96,16 +95,15 @@ async def test_http_chat_preserves_split_identity_through_finalize_and_materiali
         assert terminal == "done"
         assert done["status"] == "completed"
         assert done["final_text"] == "本轮完成"
-        (topic_snapshot,) = done["pool_topics"]
-        assert topic_snapshot["workspace_identity"] == workspace.model_dump(mode="json")
-        assert topic_snapshot["block_count"] == 1
-        assert topic_snapshot["last_turn"] == {"user": "保存本轮事实", "assistant": "本轮完成"}
-        topic = short_term.get(workspace, topic_snapshot["topic_id"])
+        topic = short_term.get(workspace, done["topic_id"])
+        assert topic.workspace_identity == workspace
+        assert len(topic.blocks) == 1
+        assert topic.blocks[0].user_query == "保存本轮事实"
+        assert topic.blocks[0].assistant_final_text == "本轮完成"
         assert topic.blocks[0].turn.identity == actor
         assert "session_id" not in topic.blocks[0].turn.identity.model_dump()
         assert short_term.get(other_workspace, foreign_topic.topic_id) == foreign_topic
 
-        assert "memory_task_ids" not in done
         (created,) = await controller.list_tasks()
         task_id = created.task_id
         task = await controller.wait_task(task_id, timeout=2)
@@ -128,7 +126,7 @@ async def test_http_chat_preserves_split_identity_through_finalize_and_materiali
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", ["failed", "cancelled"])
 async def test_http_write_survives_unsuccessful_cpu_and_process_close(patchouli_chat_stack, status):
-    """WRITE 接纳后 CPU 失败或取消，交互不提交，记忆仍经真实生成链落库。"""
+    """WRITE 接纳后 CPU 无交互输出并失败或取消，交互不提交，记忆仍经真实生成链落库。"""
     from hivememory.components.events.publisher import RuntimeEventPublisher
     from hivememory.core.contracts.runtime_events import RuntimeEventType
     from hivememory.core.models import PendingAtomStatus
@@ -159,7 +157,7 @@ async def test_http_write_survives_unsuccessful_cpu_and_process_close(patchouli_
         ]
         assert created.data["pending_alias"] == submitted[0].pending_alias
 
-    cpu = ScriptedCPU(result=make_cpu_result(status=status), operation_script=write)
+    cpu = ScriptedCPU(result=make_cpu_result(status=status, final_text=""), operation_script=write)
     service = make_task_process_service(
         stack.bus,
         cpu=cpu,
@@ -192,7 +190,6 @@ async def test_http_write_survives_unsuccessful_cpu_and_process_close(patchouli_
             ][-1]
         )
         assert done["status"] == status
-        assert "memory_task_ids" not in done
         (created,) = [
             event
             for event in stack.events.events

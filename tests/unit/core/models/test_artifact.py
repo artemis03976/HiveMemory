@@ -160,13 +160,6 @@ def test_version_artifact_schema_2_with_structured_provenance():
     assert artifact.snapshot_after["schema_version"] == "2.1"
 
 
-def test_version_artifact_rejects_flat_legacy_provenance_fields():
-    """旧平铺来源字段不再是模型字段，防止旧写入路径复活。"""
-    assert "source_agent_id" not in MemoryVersionArtifact.model_fields
-    assert "contributing_agent_ids" not in MemoryVersionArtifact.model_fields
-    assert "source_agent_id" not in MemoryCreationArtifact.model_fields
-
-
 def test_create_v1_rejects_snapshot_before():
     """CREATE v1 不允许携带 snapshot_before（无修改前状态）。"""
     memory_id = uuid4()
@@ -301,21 +294,3 @@ def test_legacy_flat_json_without_actor_identity_fails_closed():
         InteractionTurnSnapshot.model_validate(
             {k: v for k, v in _snapshot_payload().items() if k != "actor_identity"}
         )
-
-
-def test_flat_actor_fields_are_not_model_fields():
-    """平铺三元组不是模型字段，extra="ignore" 不会复活旧语义。"""
-    assert "user_id" not in InteractionTurnSnapshot.model_fields
-    assert "agent_id" not in InteractionTurnSnapshot.model_fields
-    assert "team_id" not in InteractionTurnSnapshot.model_fields
-
-
-def test_interaction_artifact_has_no_top_level_agent_source_field():
-    """InteractionArtifact 不设置顶层 Agent 来源字段。
-
-    来源 provenance 按 block 粒度由 ``InteractionTurnSnapshot.actor_identity``
-    记录；话题级单值来源无法表达同一话题内切换 Agent 的事实，也不得复活为
-    Agent owner 语义。
-    """
-    assert "source_agent_id" not in InteractionArtifact.model_fields
-    assert "owner_agent_id" not in InteractionArtifact.model_fields

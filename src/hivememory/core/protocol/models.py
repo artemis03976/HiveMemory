@@ -12,7 +12,7 @@ from __future__ import annotations
 import uuid
 from datetime import datetime
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -25,14 +25,9 @@ from hivememory.core.models import (
     TurnEvent,
     WorkspaceAssetRef,
 )
+from hivememory.core.models.interaction import InteractionOutcome
 from hivememory.core.models.query import QueryFilters
 from hivememory.core.mtp.models import MTPCallRequest
-
-if TYPE_CHECKING:
-    from hivememory.core.models import TopicData
-else:
-    # 运行时避免 core.protocol -> patchouli 包初始化 -> core.protocol 的循环导入。
-    TopicData = Any
 
 
 class MessageType(str, Enum):
@@ -162,31 +157,6 @@ class RetrievalResponse(ProtocolMessage):
         return len(self.memories) == 0
 
 
-class AgentRunContext(BaseModel):
-    """供 Alice 组装 Agent run 的内容与观测上下文，不携带授权身份。"""
-
-    labels: ExecutionLabels
-    topic_id: str = Field(default="")
-    user_message: str = Field(default="")
-    topic_context: TopicData | None = Field(default=None)
-
-    # 任务进程已编译的记忆上下文文本，用于注入 system prompt；未编译的
-    # 检索原子留在输入清单中，Alice 不再保留另一份。
-    memory_context: str = Field(default="")
-    agent_profile: AgentProfile
-    permitted_mtp_verbs: frozenset[str] = Field(
-        description="Alice 从操作快照翻译的 MTP 动词，只供提示词与 frame 执行策略使用",
-    )
-    storage_available: bool = Field(default=True)
-
-    # 进程编译好的附件 section 文本（AttachmentCompiler 产物）；未选择附件
-    # 时为空。实际使用的附件引用集合由任务进程交给 finalize，不进入
-    # 运行上下文。
-    attachment_context: str = Field(default="")
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-
 class MTPExecutionResult(BaseModel):
     """MTP 指令执行结果"""
 
@@ -221,6 +191,7 @@ class InteractionPayload(BaseModel):
         ``belong_to``、``from_actor`` 独立承载，避免 payload 成为第二份身份事实。
     """
 
+    outcome: InteractionOutcome = Field(default="completed", description="本轮执行结局")
     user_message: str = Field(..., description="原始用户消息")
 
     rewritten_query: str | None = Field(default=None, description="Gateway 重写后的查询")
@@ -257,7 +228,45 @@ class InteractionPayload(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
 
+class ConversationTurn(BaseModel):
+    """一轮已封口的交互，正文只保存在 payload 中。"""
+
+    interaction_id: str
+    agent_id: str
+    payload: InteractionPayload
+    topic_id: str
+    created_at: datetime
+
+    model_config = ConfigDict(frozen=True)
+
+
+class AgentRunContext(BaseModel):
+    """供 Alice 组装 Agent run 的内容与观测上下文，不携带授权身份。"""
+
+    labels: ExecutionLabels
+    topic_id: str = Field(default="")
+    user_message: str = Field(default="")
+    session_history: tuple[ConversationTurn, ...] = Field(default_factory=tuple)
+
+    # 任务进程已编译的记忆上下文文本，用于注入 system prompt；未编译的
+    # 检索原子留在输入清单中，Alice 不再保留另一份。
+    memory_context: str = Field(default="")
+    agent_profile: AgentProfile
+    permitted_mtp_verbs: frozenset[str] = Field(
+        description="Alice 从操作快照翻译的 MTP 动词，只供提示词与 frame 执行策略使用",
+    )
+    storage_available: bool = Field(default=True)
+
+    # 进程编译好的附件 section 文本（AttachmentCompiler 产物）；未选择附件
+    # 时为空。实际使用的附件引用集合由任务进程交给 finalize，不进入
+    # 运行上下文。
+    attachment_context: str = Field(default="")
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
+
 __all__ = [
+    "ConversationTurn",
     "MessageType",
     "ProtocolMessage",
     "QueryFilters",

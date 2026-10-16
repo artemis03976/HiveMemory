@@ -33,6 +33,7 @@ if TYPE_CHECKING:
     from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
     from hivememory.workspace.capability.root.memory import RootMemoryService
     from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
+    from hivememory.workspace.capability.root.session import RootSessionService
     from hivememory.workspace.capability.root.topic import RootTopicService
     from hivememory.workspace.process.service import TaskProcessService
     from hivememory.workspace.runtime import WorkspaceRuntime
@@ -62,6 +63,7 @@ class HiveMemorySystem:
         self._scheduler = runtime.scheduler
         self._workspace_asset_store = runtime.workspace_asset_store
         self._workspace_runtime = runtime.workspace_runtime
+        self._sessions = runtime.sessions
         self._runtime_events = runtime.event_bus
         self._runtime_event_sink = runtime.event_sink
 
@@ -77,6 +79,7 @@ class HiveMemorySystem:
         self._root_memory_task_service = services.root_memory_task
         self._root_agent_service = services.root_agent
         self._root_topic_service = services.root_topic
+        self._root_session_service = services.root_session
         self._readiness_service = services.readiness
         self._root_workspace_asset_service = services.root_workspace_assets
 
@@ -201,6 +204,8 @@ class HiveMemorySystem:
             "access_gateway.close",
             "scheduler.stop",
             "passive_ingress.shutdown_drain",
+            "process_service.shutdown",
+            "sessions.close_and_clear",
             "alice.stop",
             "patchouli.stop",
             "gateway.stop",
@@ -231,6 +236,10 @@ class HiveMemorySystem:
             completed_steps.append("scheduler.stop")
             passive_shutdown_drain = await self._ingress_service.shutdown_drain()
             completed_steps.append("passive_ingress.shutdown_drain")
+            await self._process_service.shutdown()
+            completed_steps.append("process_service.shutdown")
+            self._sessions.close_and_clear()
+            completed_steps.append("sessions.close_and_clear")
             if not was_started:
                 self._workspace_runtime.close()
                 completed_steps.append("workspace_runtime.close")
@@ -392,6 +401,11 @@ class HiveMemorySystem:
     def root_agent_service(self) -> RootAgentProfileService:
         """只供 root 调用的 Agent Profile 管理 API。"""
         return self._root_agent_service
+
+    @property
+    def root_session_service(self) -> RootSessionService:
+        """会话管理 root API。"""
+        return self._root_session_service
 
     @property
     def root_topic_service(self) -> RootTopicService:

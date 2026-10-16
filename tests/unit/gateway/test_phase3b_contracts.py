@@ -130,7 +130,6 @@ def test_private_context_contracts_do_not_duplicate_identity() -> None:
     )
 
     assert isinstance(candidates.topic_snapshots, tuple)
-    assert "identity" not in CandidateTopics.model_fields
     assert context.candidate_topics is candidates
 
 

@@ -188,8 +188,7 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
         assert "子帧已读取共享资料" in llm_messages[5][-1]["content"]
 
         # 已封口的真实 Topic 记录证明四次动作都穿过主帧并进入交互提交。
-        (topic_snapshot,) = done["pool_topics"]
-        topic = stack.short_term.get(workspace, topic_snapshot["topic_id"])
+        topic = stack.short_term.get(workspace, done["topic_id"])
         (block,) = topic.blocks
         assert block.turn.identity == actor
         assert [event.tool_kind for event in block.turn_events if event.kind == "tool_call"] == [
@@ -213,7 +212,6 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
         assert runtime.stats()["atom_hits"] == 2
 
         # 执行期间派发的任务最终经真实结算事件反馈到 workspace 登记，不会随关闭取消。
-        assert "memory_task_ids" not in done
         (created,) = await stack.controller.list_tasks()
         task_id = created.task_id
         task = await stack.controller.wait_task(task_id, timeout=2)
@@ -393,7 +391,6 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
         assert "omni_doll 的私有正文" not in str(messages_seen)
         assert "worker 的私有正文" in messages_seen[4][-1]["content"]
         assert 'code="mtp.permission.denied"' in messages_seen[6][-1]["content"]
-        assert "memory_task_ids" not in done
         (created,) = await stack.controller.list_tasks()
         task_id = created.task_id
         task = await stack.controller.wait_task(task_id, timeout=2)

@@ -116,6 +116,11 @@ export default function ChatMessage({ message }: ChatMessageProps) {
           ))}
         </div>
 
+        {isAgent && <div className="flex gap-3 text-xs text-slate-500 px-1">
+          {message.topicId && <span title={message.topicId}>话题 · {message.topicId}</span>}
+          {message.outcome === 'cancelled' && <span className="text-amber-300">已中断 · 回复未完成</span>}
+          {message.outcome === 'failed' && <span className="text-red-300">执行失败 · 回复可能不完整</span>}
+        </div>}
         {/* Agent 消息工具按钮 */}
         {isAgent && !message.isStreaming && (
           <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">

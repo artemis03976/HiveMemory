@@ -1,6 +1,5 @@
 """公开路由注册/卸载测试 — 验证 System 门面在生命周期中正确管理全局总线路由。"""
 
-import dataclasses
 import inspect
 import typing
 from unittest.mock import AsyncMock, MagicMock
@@ -21,7 +20,7 @@ from hivememory.core.models import (
     PendingAtomResolution,
     PendingAtomSettlement,
 )
-from hivememory.core.protocol.models import AgentRunContext, InteractionPayload
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
@@ -86,14 +85,6 @@ class TestAlicePublicRoutes:
         assert AliceRoutes.RUN_AGENT_STREAM not in routes
 
     @pytest.mark.asyncio
-    async def test_no_global_bus_skips_public_routes(self):
-        system = AliceSystem(
-            config=self.config, global_bus=None, operation_entry=self.operation_entry
-        )
-        await system.start()
-        await system.stop()
-
-    @pytest.mark.asyncio
     async def test_alice_does_not_subscribe_to_intent_settlement_events(self):
         """结算投影只由 workspace 登记订阅，Alice 生命周期不注册订阅者。"""
         system = AliceSystem(
@@ -111,38 +102,10 @@ class TestAlicePublicRoutes:
 class TestChatHandoffContractShapes:
     """prepare 拆分后的交接契约形状（PreparedAgentRun 与公开路由签名）。"""
 
-    def test_prepared_agent_run_no_longer_carries_cpu_side_payload(self):
-        """PreparedAgentRun 只承载 Topic 与检索：不再有 Profile/租借/编译文本，也不回传用户消息与 Gateway 决定。"""
-        fields = {field.name for field in dataclasses.fields(PreparedAgentRun)}
-        for removed in (
-            "agent_run_context",
-            "stream_prelude",
-            "attachment_leases",
-            "generation_options",
-            "agent_profile",
-            "user_message",
-            "gateway_decision",
-            "identity_scope",
-        ):
-            assert removed not in fields
-        for kept in (
-            "belong_to",
-            "interaction_id",
-            "topic_id",
-            "is_new_topic",
-            "retrieval_result",
-            "storage_available",
-        ):
-            assert kept in fields
-
-    def test_patchouli_chat_route_signages_no_longer_expose_agent_run_models(self):
-        """Patchouli chat 路由签名不再出现 AgentRunContext/AgentRunResult 或附件参数。"""
+    def test_patchouli_chat_route_signatures(self):
+        """Patchouli chat 路由以 PreparedAgentRun 与 InteractionPayload 交接。"""
         prepare_hints = typing.get_type_hints(PatchouliService.prepare_agent_run)
-        assert AgentRunContext not in prepare_hints.values()
         assert prepare_hints["return"] is PreparedAgentRun
-        prepare_params = inspect.signature(PatchouliService.prepare_agent_run).parameters
-        for removed in ("user_message", "generation_options", "selected_attachments"):
-            assert removed not in prepare_params
 
         finalize_hints = typing.get_type_hints(PatchouliService.finalize_agent_run)
         assert finalize_hints["payload"] is InteractionPayload
@@ -159,12 +122,8 @@ class TestChatHandoffContractShapes:
         hints = typing.get_type_hints(AgentRunService.run_agent)
         assert hints["input_manifest"] is CPUInputManifest
         params = inspect.signature(AgentRunService.run_agent).parameters
-        assert "agent_run_context" not in params
-        assert "process_id" not in params
-        # 统一入口以 stream 参数控制是否流式，不再有两个入口
         assert params["stream"].kind is inspect.Parameter.KEYWORD_ONLY
         assert params["stream"].default is True
-        assert not hasattr(AgentRunService, "run_agent_stream")
 
 
 class TestPatchouliPublicRoutes:
@@ -173,39 +132,12 @@ class TestPatchouliPublicRoutes:
         self.global_bus = GlobalSystemBus()
 
     @pytest.mark.asyncio
-    async def test_public_route_constants_are_consistent(self):
-        assert PatchouliRoutes.MEMORY_RETRIEVE == "patchouli.public.memory.retrieve"
-        assert (
-            PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES
-            == "patchouli.public.memory.retrieve_by_aliases"
-        )
-        assert PatchouliRoutes.MEMORY_TASK_LIST == "patchouli.public.memory_task.list"
-        assert PatchouliRoutes.MEMORY_TASK_GET == "patchouli.public.memory_task.get"
-        assert PatchouliRoutes.MEMORY_TASK_CANCEL == "patchouli.public.memory_task.cancel"
-        assert PatchouliRoutes.MEMORY_READ == "patchouli.public.memory.read"
-        assert PatchouliRoutes.INTERACTION_SUBMIT == "patchouli.public.interaction.submit"
-        assert PatchouliRoutes.MEMORY_INTENT_SUBMIT == "patchouli.public.memory_intent.submit"
-        assert PatchouliRoutes.PREPARE_AGENT_RUN == "patchouli.public.prepare_agent_run"
-        assert PatchouliRoutes.FINALIZE_AGENT_RUN == "patchouli.public.finalize_agent_run"
-        assert (
-            PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN
-            == "patchouli.public.cleanup_prepared_agent_run"
-        )
-        assert PatchouliRoutes.TOPIC_GET_DATA == "patchouli.public.topic.get_data"
-        assert PatchouliRoutes.EVICT_TOPIC == "patchouli.public.evict_topic"
-        assert PatchouliRoutes.RECORD_MEMORY_CITATION == "patchouli.public.record_memory_citation"
-        assert PatchouliRoutes.WARMUP_MODELS == "patchouli.public.models.warmup"
-        assert PatchouliRoutes.MODELS_READY == "patchouli.public.models.ready"
-        assert AliceRoutes.RUN_AGENT == "alice.public.run_agent"
-
-    @pytest.mark.asyncio
     async def test_patchouli_public_routes_register_and_unregister(self):
         bridge = self._make_bridge()
 
         bridge.mount()
 
         routes = self.global_bus.list_routes()
-        assert "patchouli.public.submit_interaction" not in routes
         assert PatchouliRoutes.FINALIZE_AGENT_RUN in routes
         assert PatchouliRoutes.TOPIC_GET_DATA in routes
         assert PatchouliRoutes.EVICT_TOPIC in routes

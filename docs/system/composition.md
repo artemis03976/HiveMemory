@@ -16,7 +16,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-11
+last_reviewed: 2026-10-15
 ---
 
 # System 组合根与生命周期
@@ -77,6 +77,8 @@ HiveMemorySystem.build(config)
 
 观测设施和业务总线在装配阶段就分开，是为了让 RuntimeEvent 的失败不会阻塞一次正常业务调用。
 
+组合根另创建共享 `ConversationSessionService`，把相同实例注入 `RootSessionService`、任务注册入口与执行器；它只接收 `WorkspaceSessionConfig`。root 会话服务由门面供 HTTP 管理路由取得。
+
 ### 1.2 Registry bundle
 
 `ProviderRegistry` 保存 provider 凭证与环境配置的合并结果；`ModelRegistry` 根据模型引用解析 Gateway/Librarian 的 LLM 配置。System 在子系统构建前完成这一步，使 Gateway 和 Patchouli 使用已经解析过的配置，而不是在请求路径里各自重新读取凭证。
@@ -122,6 +124,8 @@ Gateway.start
 ActorAuthenticationGateway.close
   -> GlobalMaintenanceScheduler.stop
   -> PassiveIngressService.shutdown_drain
+  -> TaskProcessService.shutdown（停止在途进程并等待交付方收口，超时兜底关闭；释放会话认领）
+  -> ConversationSessionService.close_and_clear
   -> Alice.stop
   -> Patchouli.stop
   -> Gateway.stop
@@ -131,7 +135,7 @@ ActorAuthenticationGateway.close
   -> SYSTEM_STOPPED
 ```
 
-认证网关最先关闭：此后拒绝新的认证，已签发的访问 context 照常可用，在途请求与任务进程仍能完成各自的授权；全部已签发 context 在最后一步撤销。操作授权者无状态，不需要关闭。先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`。Alice 停止时卸载自己的 run route；此后 Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 关闭 workspace 运行时（停止新读、取消结算与 canonical 变更订阅、清理派生缓存，不触碰 canonical 数据），最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
+认证网关最先关闭：此后拒绝新的认证，已签发的访问 context 照常可用，在途请求与任务进程仍能完成各自的授权；全部已签发 context 在最后一步撤销。操作授权者无状态，不需要关闭。先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`。全部任务进程关闭后清空会话，再停止 Alice；Alice 停止时卸载自己的 run route；此后 Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 关闭 workspace 运行时（停止新读、取消结算与 canonical 变更订阅、清理派生缓存，不触碰 canonical 数据），最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
 
 重复 `stop()` 会保持幂等：scheduler 已停止时不重复等待，未启动的系统仍会执行必要的被动 drain 并发布 `already_stopped=true`。任一步骤失败都会发布 `system.stop_failed`，记录已完成步骤、scheduler 状态和被动 drain 摘要后抛出异常。
 

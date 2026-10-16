@@ -14,6 +14,7 @@ from typing import Any
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.attachments import AttachmentCompilerConfig
+from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.authentication import ActorAuthenticationGateway
@@ -29,6 +30,7 @@ from hivememory.workspace.process.service import TaskProcessService
 from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.process.threads import ProcessThreads
 from hivememory.workspace.runtime import WorkspaceRuntime
+from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.cpu import ScriptedCPU
 from tests.helpers.intent_dispatch import install_intent_admission
 
@@ -45,6 +47,9 @@ def make_task_process_service(
     workspace_runtime: WorkspaceRuntime | None = None,
     operation_entry: OperationEntry | None = None,
     process_table: ProcessTable | None = None,
+    sessions: ConversationSessionService | None = None,
+    gateway_session_turn_limit: int = 3,
+    shutdown_wait_seconds: float = 10.0,
 ) -> TaskProcessService:
     """按生产顺序装配能力与操作入口，再构建 CPU 分配器、执行器与注册入口。"""
     if (
@@ -81,19 +86,24 @@ def make_task_process_service(
         asset_reader=asset_reader,
         attachment_compiler_config=attachment_compiler_config,
     )
+    sessions = sessions or ConversationSessionService(WorkspaceSessionConfig())
     runner = TaskProcessRunner(
         global_bus,
         cpu=cpu,
+        sessions=sessions,
         allocator=allocator,
         operation_authorizer=operation_authorizer,
         thread_contexts=threads,
+        gateway_session_turn_limit=gateway_session_turn_limit,
     )
     return TaskProcessService(
         runner,
         process_table=table,
+        sessions=sessions,
         access_gateway=access_gateway,
         operation_authorizer=operation_authorizer,
         event_publisher=event_publisher,
+        shutdown_wait_seconds=shutdown_wait_seconds,
     )
 
 
