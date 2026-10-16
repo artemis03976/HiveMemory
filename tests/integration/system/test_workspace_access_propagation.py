@@ -26,6 +26,7 @@ from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUExecutionResult
+from hivememory.workspace.contracts.cpu import CPUResultSlot, CPURunHandle
 from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.chat_handoff import make_prepared_run
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
@@ -115,7 +116,7 @@ class _WorkspaceEchoCPU:
                 final_text=manifest.labels.workspace_id,
             )
 
-        return _run()
+        return CPURunHandle(_run(), CPUResultSlot())
 
 
 @pytest.mark.asyncio

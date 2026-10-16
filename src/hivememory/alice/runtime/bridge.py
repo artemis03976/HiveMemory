@@ -15,6 +15,7 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUInputManifest,
+    CPUResultSlot,
     OperationSubmitter,
 )
 
@@ -88,12 +89,14 @@ class AliceBridge:
         generation_options: dict[str, Any] | None = None,
         *,
         submit_operation: OperationSubmitter,
+        result_slot: CPUResultSlot | None = None,
     ) -> CPUExecutionResult:
         """非流式路由等待统一执行入口的结果。"""
         return await self._public_api.agent.run_agent(
             input_manifest,
             generation_options,
             submit_operation=submit_operation,
+            result_slot=result_slot,
             stream=False,
         )
 
@@ -103,12 +106,14 @@ class AliceBridge:
         generation_options: dict[str, Any] | None = None,
         *,
         submit_operation: OperationSubmitter,
+        result_slot: CPUResultSlot | None = None,
     ) -> AsyncGenerator[dict[str, Any], None]:
         """交付原始事件流，保留消费者关闭流时的取消与 join 语义。"""
         return self._public_api.agent.run_agent(
             input_manifest,
             generation_options,
             submit_operation=submit_operation,
+            result_slot=result_slot,
             stream=True,
         )
 

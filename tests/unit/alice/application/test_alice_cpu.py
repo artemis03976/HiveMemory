@@ -92,7 +92,7 @@ async def test_alice_cpu_stream_relays_events_and_converts_done() -> None:
             access=await make_access_composition(
                 [make_actor_access_record()]
             ).authenticate_thread(),
-        )
+        ).output
     ]
 
     assert items[:-1] == [
@@ -138,7 +138,7 @@ async def test_alice_cpu_once_yields_single_execution_result() -> None:
             access=await make_access_composition(
                 [make_actor_access_record()]
             ).authenticate_thread(),
-        )
+        ).output
     ]
 
     assert items == [expected]
@@ -169,10 +169,10 @@ async def test_closing_cpu_iterator_closes_alice_event_stream() -> None:
         stream=True,
         access=await make_access_composition([make_actor_access_record()]).authenticate_thread(),
     )
-    first = await iterator.__anext__()
+    first = await iterator.output.__anext__()
     assert first == {"event": "token", "data": {"content": "一"}}
 
-    await iterator.aclose()
+    await iterator.output.aclose()
 
     assert stream_closed.is_set()
 
@@ -207,7 +207,7 @@ async def test_cpu_binds_each_thread_context_to_its_operation_submitter() -> Non
                     access=access,
                     generation_options=None,
                     stream=False,
-                )
+                ).output
             ]
         )
 

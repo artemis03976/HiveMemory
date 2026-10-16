@@ -815,7 +815,7 @@ async def test_leased_attachment_released_after_completed_run() -> None:
 
 @pytest.mark.asyncio
 async def test_leased_attachment_released_when_cpu_reports_failure() -> None:
-    """CPU 自报失败路径：不进入 finalize，进程 finally 仍释放租借。"""
+    """CPU 自报失败且无输出：不进入 finalize，进程 finally 仍释放租借。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
     scope = await _store_scope(composition)
@@ -826,7 +826,7 @@ async def test_leased_attachment_released_when_cpu_reports_failure() -> None:
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
     bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
 
     service, composition = await _service(bus, store=store, cpu=cpu)
     result = await _run_once(
@@ -878,7 +878,7 @@ async def test_cancel_during_cleanup_still_releases_leases_and_closes_process() 
         PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
         _blocking_cleanup(cleanup_started, release_cleanup),
     )
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
 
     service, composition = await _service(bus, store=store, cpu=cpu)
     requestor = await composition.authenticate(agent_id=_AGENT)
@@ -914,7 +914,7 @@ async def test_stream_cancel_during_cleanup_still_releases_leases_and_closes_pro
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
     bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
     bus.register(
         PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
         _blocking_cleanup(cleanup_started, release_cleanup),

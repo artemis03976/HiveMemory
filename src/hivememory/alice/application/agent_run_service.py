@@ -55,6 +55,7 @@ from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
     CPUInputManifest,
+    CPUResultSlot,
     OperationSubmitter,
 )
 
@@ -130,6 +131,7 @@ class AgentRunService:
         generation_options: dict[str, Any] | None = None,
         *,
         submit_operation: OperationSubmitter,
+        result_slot: CPUResultSlot | None = None,
         stream: Literal[True] = True,
     ) -> AsyncGenerator[dict[str, Any], None]: ...
 
@@ -140,6 +142,7 @@ class AgentRunService:
         generation_options: dict[str, Any] | None = None,
         *,
         submit_operation: OperationSubmitter,
+        result_slot: CPUResultSlot | None = None,
         stream: Literal[False],
     ) -> Coroutine[Any, Any, CPUExecutionResult]: ...
 
@@ -149,6 +152,7 @@ class AgentRunService:
         generation_options: dict[str, Any] | None = None,
         *,
         submit_operation: OperationSubmitter,
+        result_slot: CPUResultSlot | None = None,
         stream: bool = True,
     ) -> AsyncGenerator[dict[str, Any], None] | Coroutine[Any, Any, CPUExecutionResult]:
         """Alice Agent run 的统一入口（``stream`` 控制是否流式）。
@@ -158,7 +162,11 @@ class AgentRunService:
         ``stream=False`` 返回可 await 的 ``CPUExecutionResult``。
         """
         producer = self._run_agent(
-            input_manifest, generation_options, submit_operation=submit_operation, stream=stream
+            input_manifest,
+            generation_options,
+            submit_operation=submit_operation,
+            stream=stream,
+            result_slot=result_slot,
         )
         if stream:
             # 流式骨架只产出交互事件与 done；骨架的产出类型是两种形态的并集。
@@ -171,6 +179,7 @@ class AgentRunService:
         generation_options: dict[str, Any] | None,
         *,
         submit_operation: OperationSubmitter,
+        result_slot: CPUResultSlot | None = None,
         stream: bool,
     ) -> AsyncGenerator[dict[str, Any] | CPUExecutionResult, None]:
         """统一执行骨架：会话、事件、组装、执行与终态发布只有一份。
@@ -182,6 +191,8 @@ class AgentRunService:
         preparation = self._prepare_run(input_manifest)
         run_events = preparation.events
 
+        frame: ExecutionFrame | None = None
+        executor: RunExecutor | None = None
         exit_reason = StreamExitReason.RUNNING
         executor_stream: AsyncGenerator[dict[str, Any], None] | None = None
 
@@ -232,6 +243,8 @@ class AgentRunService:
                 engine_result = await executor.run(frame, generation_options=generation_options)
 
             result = self._assemble_execution_result(frame, engine_result)
+            if result_slot is not None:
+                result_slot.result = result
             self._publish_terminal(run_events, result, self._stats_for(frame))
             exit_reason = StreamExitReason.TERMINAL
             if stream:
@@ -265,13 +278,21 @@ class AgentRunService:
                     ),
                     close_reason="stream_closed" if stream else None,
                 )
-            if executor_stream is not None:
-                try:
-                    await executor_stream.aclose()
-                except asyncio.CancelledError:
-                    raise
-                except Exception:
-                    logger.warning("关闭 Agent executor stream 失败", exc_info=True)
+            try:
+                if executor_stream is not None:
+                    try:
+                        await executor_stream.aclose()
+                    except asyncio.CancelledError:
+                        raise
+                    except Exception:
+                        logger.warning("关闭 Agent executor stream 失败", exc_info=True)
+            finally:
+                # 关闭流会取消仍运行的 executor；此时半截文本已经归入根帧进度。
+                # 只做同步投影，不改变 CancelledError/GeneratorExit 的传播路径。
+                if result_slot is not None and frame is not None and executor is not None:
+                    terminal = executor.terminal_result
+                    if terminal is not None:
+                        result_slot.result = self._assemble_execution_result(frame, terminal)
 
     async def _collect_execution_result(
         self,

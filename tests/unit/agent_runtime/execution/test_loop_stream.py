@@ -194,3 +194,21 @@ async def test_streaming_without_final_chunk_returns_failed_frame_result() -> No
 
     assert result.status == FrameExecutionStatus.FAILED
     assert isinstance(result.error, RuntimeError)
+
+
+@pytest.mark.asyncio
+async def test_failed_stream_keeps_delivered_text_as_incomplete_event() -> None:
+    """模型缺少终态时，已交付文字仍能进入 failed 交互，不能无声丢失。"""
+    stream = TrackingChunkStream([StreamChunk(delta="未完成", full_text="未完成")])
+    executor = AgentLoopExecutor(
+        worker_agent=MagicMock(generate_stream=MagicMock(return_value=stream)),
+        mtp_executor=MagicMock(),
+        config=MagicMock(max_loop_iterations=2),
+    )
+    frame = _frame()
+    result = await executor.execute_frame(
+        frame, max_iterations=2, output_sink=RecordingFrameOutputSink()
+    )
+    assert result.status == FrameExecutionStatus.FAILED
+    assert frame.progress.text_segments == ["未完成"]
+    assert [(e.content, e.status) for e in frame.progress.turn_events] == [("未完成", "failed")]

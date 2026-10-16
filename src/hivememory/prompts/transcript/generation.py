@@ -98,6 +98,7 @@ class GenerationTranscriptBuilder:
 
         return GenerationTurn(
             user_query=user_query,
+            outcome=block.turn.outcome,
             assistant_final_text=final_text,
             trace_summaries=trace_summaries,
             identity=identity,
@@ -147,6 +148,8 @@ class GenerationTranscriptBuilder:
     def _format_turn(self, idx: int, turn: GenerationTurn) -> str:
         """渲染单轮对话。"""
         lines = [f"[Turn {idx}]"]
+        if turn.outcome != "completed":
+            lines.append(f"[Outcome: {turn.outcome}] This turn did not complete normally.")
 
         if turn.user_query:
             lines.append(f"[User]: {turn.user_query}")

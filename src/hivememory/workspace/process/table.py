@@ -122,9 +122,11 @@ class ProcessRecord:
         self.phase = phase
         self.active_task = None
 
-    def try_enter_finalizing(self) -> bool:
-        """同步进入 finalize；已接受 stop 时拒绝进入。"""
-        if self.outcome in {ProcessOutcome.STOP_REQUESTED, ProcessOutcome.CANCELLED}:
+    def try_enter_finalizing(self, *, stopped_output: bool = False) -> bool:
+        """同步进入 finalize；已接受 stop 只允许结算已产生的取消输出。"""
+        if self.outcome is ProcessOutcome.CANCELLED:
+            return False
+        if self.outcome is ProcessOutcome.STOP_REQUESTED and not stopped_output:
             return False
         if self.phase is ProcessPhase.TERMINAL:
             return False
@@ -152,6 +154,8 @@ class ProcessRecord:
 
     def request_stop(self, reason: str = "user_requested") -> StopResult:
         """同步记录 stop，并取消当前唯一的可中断阶段 task。"""
+        if self.phase is ProcessPhase.FINALIZE:
+            return StopResult(accepted=False, reason="already_finalizing")
         if self.outcome in {ProcessOutcome.STOP_REQUESTED, ProcessOutcome.CANCELLED}:
             return StopResult(
                 accepted=True,

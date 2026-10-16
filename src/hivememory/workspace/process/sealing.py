@@ -16,6 +16,7 @@ from hivememory.core.models import (
     TraceReducer,
     WorkspaceAssetRef,
 )
+from hivememory.core.models.interaction import InteractionOutcome
 from hivememory.core.protocol.gateway import GatewayDecision
 from hivememory.core.protocol.models import InteractionPayload
 
@@ -28,6 +29,7 @@ def seal_interaction(
     turn_events: Sequence[Any],
     model_used: str,
     used_attachments: Sequence[WorkspaceAssetRef],
+    outcome: InteractionOutcome = "completed",
 ) -> InteractionPayload:
     """把进程各阶段的产出封口为提交给 finalize 的交互记录。
 
@@ -40,6 +42,7 @@ def seal_interaction(
     """
     actions = ActionReducer.reduce(turn_events)
     return InteractionPayload(
+        outcome=outcome,
         user_message=user_message,
         mtp_traces=TraceReducer.reduce(actions),
         rewritten_query=gateway_decision.rewritten_query,

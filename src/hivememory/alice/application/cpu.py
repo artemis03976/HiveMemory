@@ -20,6 +20,8 @@ from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUInputManifest,
     CPUOutput,
+    CPUResultSlot,
+    CPURunHandle,
     OperationEntry,
     ThreadOperationSubmitter,
 )
@@ -39,9 +41,17 @@ class AliceCPU:
         access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
         stream: bool,
-    ) -> AsyncGenerator[CPUOutput, None]:
-        return self._execute(
-            manifest, access=access, generation_options=generation_options, stream=stream
+    ) -> CPURunHandle:
+        slot = CPUResultSlot()
+        return CPURunHandle(
+            output=self._execute(
+                manifest,
+                access=access,
+                generation_options=generation_options,
+                stream=stream,
+                result_slot=slot,
+            ),
+            result_slot=slot,
         )
 
     async def _execute(
@@ -51,6 +61,7 @@ class AliceCPU:
         access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
         stream: bool,
+        result_slot: CPUResultSlot,
     ) -> AsyncGenerator[CPUOutput, None]:
         submit_operation = ThreadOperationSubmitter(self._operation_entry, access)
 
@@ -59,6 +70,7 @@ class AliceCPU:
                 AliceRoutes.RUN_AGENT_STREAM,
                 input_manifest=manifest,
                 submit_operation=submit_operation,
+                result_slot=result_slot,
                 generation_options=generation_options,
             )
             # 无论耗尽、被进程关闭还是在拉取中被取消，都要把 Alice 的事件流
@@ -76,6 +88,7 @@ class AliceCPU:
                 AliceRoutes.RUN_AGENT,
                 input_manifest=manifest,
                 submit_operation=submit_operation,
+                result_slot=result_slot,
                 generation_options=generation_options,
             )
             yield result

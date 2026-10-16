@@ -56,6 +56,7 @@ class MemoryPerceptionEngine:
         """
         actions = ActionReducer.reduce(payload.turn_events)
         turn = TurnRecord(
+            outcome=payload.outcome,
             identity=from_actor,
             user_query=payload.user_message,
             rewritten_query=payload.rewritten_query,

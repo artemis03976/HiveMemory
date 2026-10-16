@@ -117,9 +117,9 @@ async def test_cancel_unknown_process_id_returns_not_found() -> None:
 
 @pytest.mark.asyncio
 async def test_cpu_self_reported_cancel_skips_finalize_and_reports_cancelled_done() -> None:
-    """CPU 自报取消：流式交付发出 cancelled 的 done，finalize 路由全程未被调用。"""
+    """CPU 自报取消且无输出：流式交付发出 cancelled 的 done，finalize 路由全程未被调用。"""
     bus = GlobalSystemBus()
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.CANCELLED))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.CANCELLED, final_text=""))
     finalize_calls: list = []
 
     async def finalize(**kwargs):

@@ -16,6 +16,7 @@ from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.contracts import ResolveReferencesRequest, ThreadContextRevokedError
+from hivememory.workspace.contracts.cpu import CPURunHandle
 from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.process.threads import ProcessThreads
 from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
@@ -128,8 +129,8 @@ async def register(chain, cpu):
             ["finalize", "topics"],
             id="completed",
         ),
-        pytest.param({"result": make_cpu_result(status="failed")}, ["cleanup"], id="failed"),
-        pytest.param({"result": make_cpu_result(status="cancelled")}, ["cleanup"], id="cancelled"),
+        pytest.param({"result": make_cpu_result(status="failed")}, ["finalize"], id="failed"),
+        pytest.param({"result": make_cpu_result(status="cancelled")}, ["finalize"], id="cancelled"),
         pytest.param({"error": RuntimeError("CPU failed")}, ["cleanup"], id="exception"),
         pytest.param({}, ["cleanup"], id="no-result"),
     ],
@@ -196,7 +197,7 @@ class ClosingCPU(DerivingCPU):
         source = super().execute(
             manifest, access=access, generation_options=generation_options, stream=stream
         )
-        return self.output(source)
+        return CPURunHandle(self.output(source.output), source.result_slot)
 
     async def output(self, source):
         try:

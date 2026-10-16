@@ -25,6 +25,7 @@ from hivememory.core.models import (
     TurnEvent,
     WorkspaceAssetRef,
 )
+from hivememory.core.models.interaction import InteractionOutcome
 from hivememory.core.models.query import QueryFilters
 from hivememory.core.mtp.models import MTPCallRequest
 
@@ -190,6 +191,7 @@ class InteractionPayload(BaseModel):
         ``belong_to``、``from_actor`` 独立承载，避免 payload 成为第二份身份事实。
     """
 
+    outcome: InteractionOutcome = Field(default="completed", description="本轮执行结局")
     user_message: str = Field(..., description="原始用户消息")
 
     rewritten_query: str | None = Field(default=None, description="Gateway 重写后的查询")

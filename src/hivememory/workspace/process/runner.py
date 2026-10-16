@@ -1,7 +1,7 @@
 """任务进程执行器 — 所有进程共用的四阶段编排骨架。
 
 骨架依次驱动 Gateway 分析 → Patchouli prepare → CPU 分配 → Actor 执行 →
-（仅 completed）封口交互记录并 finalize，对子系统的一切调用都经全局总线
+有输出时封口交互记录并 finalize，对子系统的一切调用都经全局总线
 的公开路由完成，Actor 执行经组合根注入的 CPU 端口（``workspace.contracts``
 的 :class:`CPUPort`）完成。骨架只产出类型化的阶段产出（见
 ``workspace.process.outputs``），流式与非流式交付共用同一条阶段顺序、
@@ -31,6 +31,7 @@ from hivememory.components.trace_context import (
 from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
 from hivememory.core.models import IdentityScope, WorkspaceIdentity
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode, GatewaySessionTurn
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
@@ -244,96 +245,101 @@ class TaskProcessRunner:
             # 响应点不变；输出流登记进工作集，由关闭流程兜底关闭（含断流与
             # 取消路径）。
             try:
-                cpu_output = self._cpu.execute(
+                cpu_run = self._cpu.execute(
                     manifest,
                     access=access,
                     generation_options=request.generation_options,
                     stream=stream,
                 )
+                cpu_output = cpu_run.output
                 working_set.cpu_output = cpu_output
                 execution_result: CPUExecutionResult | None = None
-                while True:
-                    try:
-                        item = await _run_interruptible(
-                            record,
-                            ProcessPhase.ACTOR,
-                            lambda: anext(cpu_output),
-                        )
-                    except StopAsyncIteration:
-                        break
-                    if isinstance(item, CPUExecutionResult):
-                        # 终态结果恰好出现一次且是最后一项；拿到即结束拉取。
-                        execution_result = item
-                        break
-                    yield ActorEvent(item)
-                # 拿到终态结果后立即关闭 CPU 输出流，让 CPU 在 finalize 之前释放
-                # 自己的资源（finalize 要等交互被应用）；关闭流程中的关闭仅作兜底。
-                await self._close_cpu_output(working_set)
+                try:
+                    while True:
+                        try:
+                            item = await _run_interruptible(
+                                record, ProcessPhase.ACTOR, lambda: anext(cpu_output)
+                            )
+                        except StopAsyncIteration:
+                            break
+                        if isinstance(item, CPUExecutionResult):
+                            execution_result = item
+                            break
+                        yield ActorEvent(item)
+                except _ProcessCancelled:
+                    # 停止可能发生在两次拉取之间；先关闭流，CPU 才会同步回填结果槽。
+                    await self._close_cpu_output(working_set)
+                    if record.stop_reason in {"client_disconnected", "stream_closed"}:
+                        raise
+                    execution_result = cpu_run.result_slot.result
+                    if execution_result is None:
+                        raise
+                    execution_result = execution_result.model_copy(
+                        update={"status": CPUExecutionStatus.CANCELLED.value}
+                    )
+                finally:
+                    if execution_result is None:
+                        # 断连或异常先撤销，不能在等待 CPU 关闭时保留线程权限。
+                        self._thread_contexts.revoke_threads(working_set)
+                    await self._close_cpu_output(working_set)
             finally:
-                # 异常与取消也在交付终态前撤销；CPU 输出流正常关闭后才进入 finalize。
+                # 输出流关闭与线程撤销先于封口，不让 finalize 持有 actor 权限。
                 self._thread_contexts.revoke_threads(working_set)
             # 迭代器在没有终态结果时结束属于端口语义错误，按进程失败处理。
             if execution_result is None:
                 raise RuntimeError("CPU 输出流在没有终态执行结果的情况下结束")
 
-            if execution_result.status == CPUExecutionStatus.CANCELLED.value:
-                record.mark_cancelled()
-                events.cancelled(record)
-                yield RunCancelled(
-                    reason=record.stop_reason or "user_requested",
-                    execution_result=execution_result,
+            if record.outcome is ProcessOutcome.STOP_REQUESTED:
+                if record.stop_reason in {"client_disconnected", "stream_closed"}:
+                    raise _ProcessCancelled(record.phase, record.stop_reason)
+                execution_result = execution_result.model_copy(update={"status": "cancelled"})
+            working_set.execution_result = execution_result
+            has_output = execution_result.has_output
+            if has_output:
+                # 封口、会话追加、进入 finalize 与登记提交任务之间没有 await/yield。
+                # finalizing 一旦交给客户端，提交任务就已由进程持有。
+                payload = seal_interaction(
+                    user_message=request.message,
+                    gateway_decision=gateway_result.decision,
+                    assistant_final_text=execution_result.final_text,
+                    turn_events=execution_result.turn_events,
+                    model_used=execution_result.model_used,
+                    used_attachments=working_set.used_attachments,
+                    outcome=CPUExecutionStatus(execution_result.status).value,
                 )
-                return
-            if execution_result.status == CPUExecutionStatus.FAILED.value:
-                record.mark_failed()
-                events.failed(record)
+                self._sessions.append(
+                    request.target_workspace,
+                    request.session_id,
+                    process_id=record.process_id,
+                    agent_id=record.events.labels.agent_id,
+                    payload=payload,
+                    topic_id=prepared.topic_id,
+                )
+                if not record.try_enter_finalizing(
+                    stopped_output=execution_result.status == CPUExecutionStatus.CANCELLED.value
+                ):
+                    raise _ProcessCancelled(record.phase, record.stop_reason or "user_requested")
+                working_set.finalization_task = asyncio.create_task(
+                    self._finalize(process, prepared, payload)
+                )
+                events.status(record)
+                yield Finalizing()
+                await self._join_finalization(working_set.finalization_task)
+
+            pool_topics = (
+                await self._list_final_pool_topics(process)
+                if stream and execution_result.status == CPUExecutionStatus.COMPLETED.value
+                else []
+            )
+            self._mark_execution_terminal(process, execution_result)
+            if execution_result.status == CPUExecutionStatus.CANCELLED.value:
+                yield RunCancelled(
+                    reason=record.stop_reason or "user_requested", execution_result=execution_result
+                )
+            elif execution_result.status == CPUExecutionStatus.FAILED.value:
                 yield RunFailed(execution_result)
-                return
-
-            # ---- finalize（仅 completed）：进入后拒绝取消 ----
-            if not record.try_enter_finalizing():
-                raise _ProcessCancelled(record.phase, record.stop_reason or "user_requested")
-            events.status(record)
-            yield Finalizing()
-            # scope 只用于紧随的阶段调用，不进入 CPU 可见对象。
-            finalize_scope = self._authorize(process)
-            # 进程在调用 finalize 前封口交互记录（Q-14）：这是骨架唯一从
-            # CPU 执行结果提取字段组装交互输入的地方；组装失败沿异常路径
-            # 按进程失败处理，走现有关闭流程。
-            payload = seal_interaction(
-                user_message=request.message,
-                gateway_decision=gateway_result.decision,
-                assistant_final_text=execution_result.final_text,
-                turn_events=execution_result.turn_events,
-                model_used=execution_result.model_used,
-                # 附件编译冻结的实际使用引用（被预算跳过的附件不在其中）。
-                used_attachments=working_set.used_attachments,
-            )
-            self._sessions.append(
-                request.target_workspace,
-                request.session_id,
-                process_id=record.process_id,
-                agent_id=record.events.labels.agent_id,
-                payload=payload,
-                topic_id=prepared.topic_id,
-            )
-            await self._bus.request(
-                PatchouliRoutes.FINALIZE_AGENT_RUN,
-                prepared_run=prepared,
-                payload=payload,
-                identity_scope=finalize_scope,
-            )
-            # finalize 成功后 Patchouli 已接管本轮交互，不再清理 prepared run。
-            working_set.hand_off_prepared()
-            # 结算后的话题池只服务于流式 done 事件的前端刷新。
-            pool_topics = await self._list_final_pool_topics(process) if stream else []
-
-            record.mark_completed()
-            events.completed(record)
-            yield RunCompleted(
-                execution_result=execution_result,
-                pool_topics=pool_topics,
-            )
+            else:
+                yield RunCompleted(execution_result=execution_result, pool_topics=pool_topics)
         except _ProcessCancelled as cancelled:
             record.mark_cancelled()
             events.cancelled(record, phase=cancelled.phase)
@@ -352,6 +358,53 @@ class TaskProcessRunner:
             finally:
                 if trace_tokens is not None:
                     reset_trace_context(trace_tokens)
+
+    async def _finalize(
+        self, process: TaskProcess, prepared: PreparedAgentRun, payload: InteractionPayload
+    ) -> None:
+        """把已封口交互交回 Patchouli；任务归进程持有，scope 仅在调用链内存在。"""
+        await self._bus.request(
+            PatchouliRoutes.FINALIZE_AGENT_RUN,
+            prepared_run=prepared,
+            payload=payload,
+            identity_scope=self._authorize(process),
+        )
+        process.working_set.hand_off_prepared()
+
+    @staticmethod
+    async def _join_finalization(task: asyncio.Task[None]) -> None:
+        """屏蔽交付方取消直到提交结束，再传播取消；不留下脱离进程的后台任务。"""
+        cancelled = False
+        while not task.done():
+            try:
+                await asyncio.shield(task)
+            except asyncio.CancelledError:
+                if task.cancelled():
+                    raise
+                cancelled = True
+            except Exception:
+                break
+        if cancelled:
+            # 取出异常以免未观察告警；关闭流程仍会按同一任务的结果收尾。
+            task.exception()
+            raise asyncio.CancelledError
+        task.result()
+
+    @staticmethod
+    def _mark_execution_terminal(process: TaskProcess, result: CPUExecutionResult) -> None:
+        """仅在提交完成后发布对应终态，重复关闭不重复发布。"""
+        record = process.record
+        if record.is_terminal:
+            return
+        if result.status == CPUExecutionStatus.CANCELLED.value:
+            record.mark_cancelled()
+            record.events.cancelled(record)
+        elif result.status == CPUExecutionStatus.FAILED.value:
+            record.mark_failed()
+            record.events.failed(record)
+        else:
+            record.mark_completed()
+            record.events.completed(record)
 
     async def _prepare_and_allocate(
         self,
@@ -435,7 +488,11 @@ class TaskProcessRunner:
         # 分支：交付方提前关闭（如客户端断流），且此前没有交出终态。
         owner_task = process.owner_task
         owner_is_cancelling = owner_task is not None and owner_task.cancelling() > 0
-        if not record.is_terminal and not owner_is_cancelling:
+        if (
+            working_set.finalization_task is None
+            and not record.is_terminal
+            and not owner_is_cancelling
+        ):
             if record.outcome is ProcessOutcome.RUNNING:
                 record.request_stop("stream_closed")
             record.mark_cancelled()
@@ -447,6 +504,17 @@ class TaskProcessRunner:
         # 附件文本在 CPU 分配时已编译进清单，Actor 执行不再读取租借内容。
         self._allocator.release(working_set)
         await self._close_cpu_output(working_set)
+        if working_set.finalization_task is not None and not record.is_terminal:
+            try:
+                await self._join_finalization(working_set.finalization_task)
+            except Exception as exc:
+                if not record.is_terminal:
+                    record.mark_failed()
+                    record.events.failed(record, exc)
+                logger.warning("关闭期间 finalize 失败", exc_info=True)
+            else:
+                if working_set.execution_result is not None:
+                    self._mark_execution_terminal(process, working_set.execution_result)
         # 只要 prepare 成功但 finalize 未成功，就清理可能的新建空 Topic。
         prepared = working_set.take_prepared_for_cleanup()
         if prepared is not None:

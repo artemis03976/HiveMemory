@@ -52,6 +52,7 @@ class AgentPromptAssembler:
 
         history_messages = HistoryTranscriptBuilder().build_messages(
             turns=context.session_history,
+            language=language,
             current_agent_id=context.labels.agent_id,
         )
         messages.extend(history_messages)

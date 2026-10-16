@@ -4,6 +4,7 @@ from collections.abc import Sequence
 
 from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import ConversationTurn
+from hivememory.i18n import resolve_language
 from hivememory.i18n.mtp_runtime import get_mtp_info_text
 
 _SYSTEM_PREFIX_KEYS: dict[str, str] = {
@@ -19,6 +20,7 @@ class HistoryTranscriptBuilder:
         self,
         turns: Sequence[ConversationTurn],
         current_agent_id: str = "default",
+        language: str | None = None,
     ) -> list[dict[str, str]]:
         """
         构建历史消息列表。
@@ -34,6 +36,21 @@ class HistoryTranscriptBuilder:
 
         for turn in turns:
             self._render_turn(turn, current_agent_id, messages)
+            if turn.payload.outcome != "completed":
+                status = turn.payload.outcome
+                if resolve_language(explicit=language).value == "zh":
+                    note = (
+                        "[本轮已中断，回复未完成。]"
+                        if status == "cancelled"
+                        else "[本轮执行失败，回复可能不完整。]"
+                    )
+                else:
+                    note = (
+                        "[This turn was interrupted; the response is incomplete.]"
+                        if status == "cancelled"
+                        else "[This turn failed; the response may be incomplete.]"
+                    )
+                messages.append({"role": "system", "content": note})
 
         return messages
 

@@ -17,6 +17,8 @@ from hivememory.core.models.immutable import FrozenDict, freeze_mapping
 from hivememory.utils.token_estimator import estimate_tokens
 
 # tool_result 在历史视图中的渲染提示；入口模型与 TurnEvent 共用同一取值集合。
+InteractionOutcome = Literal["completed", "cancelled", "failed"]
+
 TurnEventRenderAs = Literal["plain", "system_tool_result", "system_call_response"]
 
 
@@ -217,6 +219,7 @@ class TurnRecord(BaseModel):
     - LogicalBlock 是感知层容器
     """
 
+    outcome: InteractionOutcome = "completed"
     turn_id: str = Field(default_factory=lambda: str(uuid4()))
     identity: ActorIdentity = Field(default_factory=ActorIdentity)
 

@@ -194,7 +194,10 @@ _SEALING_ONLY_FIELDS = frozenset({"turn_events"})
 
 def _done_result_fields(result: CPUExecutionResult) -> dict[str, Any]:
     """``done`` 事件携带的执行结果字段（不含封口专用字段）。"""
-    return result.model_dump(exclude=set(_SEALING_ONLY_FIELDS))
+    fields = result.model_dump(exclude=set(_SEALING_ONLY_FIELDS))
+    if not result.has_output:
+        fields.pop("final_text", None)
+    return fields
 
 
 def _stopped_done(

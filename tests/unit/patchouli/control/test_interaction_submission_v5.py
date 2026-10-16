@@ -1,4 +1,4 @@
-"""交互队列 v4 编码守护：独立身份与附件冻结。"""
+"""交互队列 v5 编码守护：独立身份与附件冻结。"""
 
 import pytest
 
@@ -20,6 +20,7 @@ def _submission() -> InteractionSubmission:
         interaction_id="interaction-attachments",
         payload=InteractionPayload(
             user_message="带附件的消息",
+            outcome="cancelled",
             used_attachments=[
                 WorkspaceAssetRef(asset_id="asset-a", token="ref-a"),
                 WorkspaceAssetRef(asset_id="asset-b", token="ref-b"),
@@ -32,12 +33,14 @@ def _submission() -> InteractionSubmission:
     )
 
 
-def test_v4_roundtrip_preserves_split_identity_and_attachment_order() -> None:
+def test_v5_roundtrip_preserves_split_identity_and_attachment_order() -> None:
     """编码或解码丢失发起者、归属或附件顺序时必须失败。"""
     codec = InteractionSubmissionCodec()
     encoded = codec.encode(_submission())
     decoded = codec.decode(encoded)
 
+    assert decoded.payload.outcome == "cancelled"
+    assert codec.schema_version == 5
     assert decoded.belong_to.workspace_id == "main_workspace"
     assert decoded.from_actor.agent_id == "a1"
     assert decoded.payload.used_attachments == [
@@ -76,3 +79,17 @@ async def test_queue_freezes_actor_and_attachments_before_external_mutation() ->
         ]
     finally:
         await queue.stop()
+
+
+@pytest.mark.parametrize("version", [1, 2, 3, 4])
+def test_registry_rejects_old_submission_versions(version):
+    """版本不匹配不能按新字段默认值悄悄解码旧交互。"""
+    from hivememory.components.work_queue.exceptions import UnknownWorkPayloadCodecError
+    from hivememory.components.work_queue.payloads import WorkPayloadCodecRegistry
+
+    codec = InteractionSubmissionCodec()
+    registry = WorkPayloadCodecRegistry()
+    registry.register(codec)
+    encoded = registry.encode(codec.kind, 5, _submission())
+    with pytest.raises(UnknownWorkPayloadCodecError):
+        registry.decode(codec.kind, version, encoded)

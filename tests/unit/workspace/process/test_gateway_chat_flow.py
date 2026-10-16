@@ -695,7 +695,7 @@ async def test_cleanup_admission_denial_skips_route_and_still_closes_process(cap
     _register_profile(bus)
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     cpu = ScriptedCPU(
-        result=make_cpu_result(status=CPUExecutionStatus.FAILED.value),
+        result=make_cpu_result(status=CPUExecutionStatus.FAILED.value, final_text=""),
         operation_script=revoke_admission,
     )
     service = make_task_process_service(
@@ -740,7 +740,7 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
 async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
     bus = GlobalSystemBus()
     prepared_holder: dict = {}
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.CANCELLED))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.CANCELLED, final_text=""))
 
     async def prepare(**kwargs):
         prepared = await _scoped_prepared_route()(**kwargs)
@@ -780,7 +780,7 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
     bus = GlobalSystemBus()
     finalize = AsyncMock(return_value=[])
     cleanup = AsyncMock(return_value=True)
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
     prepared_holder: dict = {}
     bus.register(
         GatewayPublicRoutes.PROCESS,
@@ -807,7 +807,7 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
 @pytest.mark.asyncio
 async def test_streaming_failed_agent_run_preserves_failed_done_status() -> None:
     bus = GlobalSystemBus()
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED))
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
     bus.register(
         GatewayPublicRoutes.PROCESS,
         AsyncMock(return_value=_decision_outcome()),

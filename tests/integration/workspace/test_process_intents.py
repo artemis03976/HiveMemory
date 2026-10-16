@@ -129,7 +129,7 @@ async def test_process_terminal_status_preserves_dispatched_intents(status, new_
             runtime.intents.get(other.pending_alias, workspace).status
             == PendingAtomStatus.MATERIALIZING
         )
-        assert len(finalized) == (1 if status == "completed" else 0)
+        assert [payload.outcome for payload in finalized] == [status]
         # completed 同样关闭主线程 context，全部请求类型均拒绝继续执行。
         for request in (
             SubmitWriteIntentRequest(focus=WriteFocus(content="关闭后")),

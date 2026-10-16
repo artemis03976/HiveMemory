@@ -11,6 +11,8 @@ from hivememory.workspace.contracts.cpu import (
     CPUExecutionStatus,
     CPUOutput,
     CPUPort,
+    CPUResultSlot,
+    CPURunHandle,
 )
 from hivememory.workspace.contracts.operations import (
     Callee,
@@ -30,6 +32,8 @@ from hivememory.workspace.contracts.operations import (
 from hivememory.workspace.contracts.process import CPUInputManifest
 
 __all__ = [
+    "CPURunHandle",
+    "CPUResultSlot",
     "CPUExecutionResult",
     "CPUExecutionStatus",
     "CPUInputManifest",

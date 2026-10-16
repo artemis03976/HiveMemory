@@ -39,6 +39,7 @@ from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.contracts import CPUExecutionStatus, SubmitWriteIntentRequest
+from hivememory.workspace.contracts.cpu import CPUResultSlot, CPURunHandle
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from tests.helpers.chat_handoff import (
     expected_mtp_traces,
@@ -377,9 +378,9 @@ async def test_no_actor_operations_still_executes_cpu_and_finalizes() -> None:
 async def test_cpu_self_reported_terminal_ends_process_without_finalize(
     status: CPUExecutionStatus,
 ) -> None:
-    """CPU 自报取消/失败：进程以相应结局结束，不调用 finalize，并请求 cleanup。"""
+    """CPU 自报取消/失败且无输出：进程以相应结局结束，不调用 finalize，并请求 cleanup。"""
     bus = GlobalSystemBus()
-    cpu = ScriptedCPU(result=make_cpu_result(status=status))
+    cpu = ScriptedCPU(result=make_cpu_result(status=status, final_text=""))
     cleanup_calls: list = []
 
     async def cleanup(*, prepared_run, **_kwargs):
@@ -545,7 +546,7 @@ class _SlowClosingCPU:
         self.release_close = asyncio.Event()
 
     def execute(self, manifest, *, access, generation_options, stream):
-        return self._iterate()
+        return CPURunHandle(self._iterate(), CPUResultSlot())
 
     async def _iterate(self):
         try:
