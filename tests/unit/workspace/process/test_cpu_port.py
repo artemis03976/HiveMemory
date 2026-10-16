@@ -29,6 +29,7 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    TurnEvent,
     WorkspaceIdentity,
     WriteFocus,
 )
@@ -247,7 +248,10 @@ async def test_test_cpu_completes_non_streaming_process_without_alice_routes() -
 
     payload = finalize_kwargs["payload"]
     assert payload.assistant_final_text == "完成"
-    assert payload.turn_events == turn_events
+    assert payload.turn_events == [
+        *turn_events,
+        TurnEvent(kind="assistant_message", sequence=5, role="assistant", content="完成"),
+    ]
     assert payload.model_used == "glm-4"
     assert "materialize_tasks" not in payload.model_dump()
     assert payload.mtp_traces == expected_mtp_traces()
@@ -271,14 +275,13 @@ async def test_test_cpu_completes_streaming_process_and_relays_events() -> None:
     assert cpu.calls[0].stream is True
     assert [event["event"] for event in events] == [
         "process_id",
-        "topic_info",
         "memory_refs",
         "token",
         "run_status",
         "done",
     ]
     # 交互事件原样转交：内容与顺序不经过进程解释。
-    assert events[3] == interaction_event
+    assert events[2] == interaction_event
     done = events[-1]
     assert done["data"]["status"] == "completed"
     assert done["data"]["final_text"] == "完成"

@@ -21,13 +21,11 @@ import type {
   SSECallbacks,
   SubAgentEndEvent,
   SubAgentStartEvent,
-  TopicInfoEvent,
 } from '@/types';
 
 interface CreateChatSSECallbacksDeps {
   assistantMessageId: string;
   updateMessages: (updater: (messages: Message[]) => Message[]) => void;
-  setTopicInfo: (data: TopicInfoEvent) => void;
   setRetrievedMemories: (memories: MemoryAtom[]) => void;
   handleCommandResult: (data: CommandResultEvent) => void;
   setProcessId: (data: ProcessIdEvent) => void;
@@ -78,10 +76,6 @@ export function createChatSSECallbacks(deps: CreateChatSSECallbacksDeps): SSECal
 
     onSubAgentEnd: (data: SubAgentEndEvent) => {
       deps.updateMessages((messages) => applySubAgentEnd(messages, assistantMessageId, data));
-    },
-
-    onTopicInfo: (data: TopicInfoEvent) => {
-      deps.setTopicInfo(data);
     },
 
     onMemoryRefs: (data: MemoryRefsEvent) => {

@@ -13,7 +13,7 @@ related_contracts:
   - docs/system/passive-ingress.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # 感知与短期话题
@@ -36,6 +36,8 @@ Perception 负责把一轮已经发生的交互转化为 Patchouli 可以持续�
 
 当前 `TurnEvent.kind` 只接受 `user_message / assistant_message / thought / tool_call / tool_result`。工具事件通过 `action_id` 保持一次 action 的结构边界。Perception 不再接受旧 `assistant_message` fallback 字段，也不会从一段拼接文本逆向解析工具事实。
 
+`TurnRecord.outcome` 保存 completed/cancelled/failed（默认 completed），从 `InteractionPayload` 原样转入。中断和失败只要有输出，也沿同一提交与幂等应用链形成 block；结局不是成功知识的标志，生成转写会注明不完整。会话上下文属于 workspace，Topic 仅作为记忆材料，不反向填充 Alice 的历史。
+
 ### 1.2 感知容器：LogicalBlock
 
 `LogicalBlock` 在 TurnRecord 外增加感知层元数据：block id、created time、估算 token、gateway intent 与 `worth_saving`。它是不可变模型，表明同一轮内容事实进入短期话题后的感知视图。
@@ -54,9 +56,9 @@ Perception 以 `TopicData` 快照作为话题工作视图，保存 blocks、展�
 
 `InteractionPayload` 是主动与被动入口共享的协议，当前主字段包括 user message、rewritten query、assistant final text、turn events、MTP traces、materialize tasks、worth_saving 与 model_used。它不重复保存本轮 Workspace 身份；主动和被动入口在资源 owner 边界拆分 `IdentityScope`，进入提交队列时由外层 `InteractionSubmission.belong_to` 与 `from_actor` 独立携带归属和本轮发起者。物化意图中的归属也必须与提交目标一致。
 
-`InteractionSubmissionCodec` 当前为 v4，只注册当前布局：缺失字段、额外字段、旧 `identity_scope` 布局及嵌套对象不能规范往返的载荷均被拒绝。队列使用 `InMemoryWorkStore`，提交快照与幂等收据只驻留于当前进程，不提供旧版本队列载荷迁移或重启恢复。相同 `interaction_id` 的相同载荷复用原收据，不同载荷明确冲突。
+`InteractionSubmissionCodec` 当前为 v5，只注册当前布局：缺失字段、额外字段、旧 `identity_scope` 布局及嵌套对象不能规范往返的载荷均被拒绝。队列使用 `InMemoryWorkStore`，提交快照与幂等收据只驻留于当前进程，不提供旧版本队列载荷迁移或重启恢复。相同 `interaction_id` 的相同载荷复用原收据，不同载荷明确冲突。
 
-当前布局与幂等拒绝的回归入口为 [InteractionSubmission v4 测试](../../tests/unit/patchouli/control/test_interaction_submission_v4.py)；被动入口经过真实队列与感知存储的身份交接见[被动摄入集成测试](../../tests/integration/system/test_passive_identity_submission.py)。
+当前布局与幂等拒绝的回归入口为 [InteractionSubmission v5 测试](../../tests/unit/patchouli/control/test_interaction_submission_v5.py)；被动入口经过真实队列与感知存储的身份交接见[被动摄入集成测试](../../tests/integration/system/test_passive_identity_submission.py)。
 
 交互应用成功后，Perception 才会把用户明确使用的 `(asset_id, asset_ref)` 记录为 Topic 的 `TopicAssetBinding`。上传、候选列表或 UI 选择本身不会进入 Topic 事实。由此，感知层只接收已完成身份与资源前置校验的交接输入，不拥有 `WorkspaceAssetStore` 的生命周期。
 

@@ -14,6 +14,7 @@ from typing import Any
 from hivememory.core.models import (
     ActionReducer,
     TraceReducer,
+    TurnEvent,
     WorkspaceAssetRef,
 )
 from hivememory.core.models.interaction import InteractionOutcome
@@ -40,7 +41,22 @@ def seal_interaction(
     接受 ``TurnEvent`` 对象或等价 dict（流式 done 事件的还原产物），
     MTP 轨迹由 core 归约器在此处一次性归约。
     """
-    actions = ActionReducer.reduce(turn_events)
+    events = [
+        event if isinstance(event, TurnEvent) else TurnEvent.model_validate(event)
+        for event in turn_events
+    ]
+    # CPU 允许只返回回复正文；在生产者封口处补成规范事件，感知层仍只接收结构化输入。
+    if assistant_final_text and not any(event.kind == "assistant_message" for event in events):
+        events.append(
+            TurnEvent(
+                kind="assistant_message",
+                sequence=max((event.sequence for event in events), default=-1) + 1,
+                role="assistant",
+                content=assistant_final_text,
+                status=outcome if outcome != "completed" else None,
+            )
+        )
+    actions = ActionReducer.reduce(events)
     return InteractionPayload(
         outcome=outcome,
         user_message=user_message,
@@ -48,7 +64,7 @@ def seal_interaction(
         rewritten_query=gateway_decision.rewritten_query,
         worth_saving=gateway_decision.worth_saving,
         assistant_final_text=assistant_final_text,
-        turn_events=list(turn_events),
+        turn_events=events,
         model_used=model_used,
         used_attachments=list(used_attachments),
     )

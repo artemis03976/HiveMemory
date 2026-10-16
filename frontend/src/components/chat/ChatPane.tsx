@@ -6,11 +6,7 @@ import OmniInput from './OmniInput';
 import { useChatStore } from '@/stores';
 import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
 
-interface ChatPaneProps {
-  activeTopicTitle: string;
-}
-
-export default function ChatPane({ activeTopicTitle }: ChatPaneProps) {
+export default function ChatPane() {
   const { messages } = useChatStore();
   const { enqueueFiles } = useAttachmentUpload();
   const [isDragActive, setIsDragActive] = useState(false);
@@ -59,7 +55,7 @@ export default function ChatPane({ activeTopicTitle }: ChatPaneProps) {
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
     >
-      <TopBar activeTopicTitle={activeTopicTitle} />
+      <TopBar />
 
       <div className="flex-1 overflow-y-auto p-8 space-y-8 max-w-4xl mx-auto w-full scrollbar-hide">
         {messages.map((msg) => (

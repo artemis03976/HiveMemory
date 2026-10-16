@@ -126,7 +126,7 @@ async def register(chain, cpu):
     [
         pytest.param(
             {"result": make_cpu_result(status="completed")},
-            ["finalize", "topics"],
+            ["finalize"],
             id="completed",
         ),
         pytest.param({"result": make_cpu_result(status="failed")}, ["finalize"], id="failed"),

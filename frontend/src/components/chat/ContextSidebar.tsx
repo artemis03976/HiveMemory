@@ -1,21 +1,14 @@
 import { Columns, ChevronRight } from 'lucide-react';
-import type { Topic } from '@/types';
-import TopicTab from './TopicTab';
+import SessionTab from './SessionTab';
 import ModelConfigTab from './ModelConfigTab';
 import { useChatUiStore } from '@/stores';
 
 interface ContextSidebarProps {
-  topics: Topic[];
-  activeTopicId: string;
-  onTopicSelect: (id: string) => void;
   isCollapsed: boolean;
   onToggleCollapse: () => void;
 }
 
 export default function ContextSidebar({
-  topics,
-  activeTopicId,
-  onTopicSelect,
   isCollapsed,
   onToggleCollapse
 }: ContextSidebarProps) {
@@ -58,17 +51,17 @@ export default function ContextSidebar({
           <div
             className="absolute top-1 bottom-1 w-[calc(50%-4px)] bg-primary/20 rounded-full shadow-[0_0_10px_rgba(197,154,255,0.2)] transition-all duration-300 ease-[cubic-bezier(0.23,1,0.32,1)]"
             style={{
-              left: activeTab === 'topics' ? '4px' : 'calc(50% + 0px)'
+              left: activeTab === 'sessions' ? '4px' : 'calc(50% + 0px)'
             }}
           />
           
           <button 
-            onClick={() => setActiveTab('topics')}
+            onClick={() => setActiveTab('sessions')}
             className={`relative z-10 flex-1 py-1.5 px-3 text-[12px] font-bold tracking-widest rounded-full transition-all duration-300 ${
-              activeTab === 'topics' ? 'text-primary' : 'text-slate-400 hover:text-slate-200'
+              activeTab === 'sessions' ? 'text-primary' : 'text-slate-400 hover:text-slate-200'
             }`}
           >
-            话题
+            会话
           </button>
           <button 
             onClick={() => setActiveTab('config')}
@@ -83,12 +76,8 @@ export default function ContextSidebar({
 
       {/* Tab Content */}
       <div className="flex-1 overflow-y-auto px-2 mt-4 flex flex-col gap-1 scrollbar-hide pb-6">
-        {activeTab === 'topics' ? (
-          <TopicTab 
-            topics={topics}
-            activeTopicId={activeTopicId}
-            onTopicSelect={onTopicSelect}
-          />
+        {activeTab === 'sessions' ? (
+          <SessionTab />
         ) : (
           <ModelConfigTab />
         )}

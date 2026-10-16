@@ -45,7 +45,7 @@ related_docs:
   - docs/patchouli/artifacts.md
   - docs/governance/security/identity-and-execution-safety.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # Workspace 架构
@@ -124,7 +124,7 @@ Workspace 只在资源所有者需要它的地方生效。Patchouli 在公共边
 | `WorkspaceIdentity` | 资源归属于哪个用户和 Workspace：`owner_user_id`、`workspace_key`、`workspace_id`。W0 要求 key 与 ID 相同且非空。 | 不表示登录 session、grant 或永久 capability。 |
 | `IdentityScope` | 一次操作的发起者与目标 Workspace，由 `ActorIdentity + WorkspaceIdentity` 组成；由授权点在操作授权通过后组装（第 4 节）。 | 不携带 `interaction_id`、generation、run、frame、request 或 trace 等关联 ID；不校验 owner 规则（owner 约束属于第 4 节的第 2、3 阶段）；不表示 actor 驻留在哪里（那是访问 context 的内容）。 |
 
-`interaction_id`、`topic_id`、`memory_id`、`artifact_id` 和 work/task ID 仍由各自领域载体持有。`ActorIdentity` 不含 `session_id`；Chat 请求体继续接受该兼容字段，但身份构造与 finalize 关联均不使用它。这样可以避免把局部关联 ID 误当成公共身份，或在队列、缓存中派生出第二套 scope 模型。
+`interaction_id`、`topic_id`、`memory_id`、`artifact_id` 和 work/task ID 仍由各自领域载体持有。`ActorIdentity` 不含 `session_id`；Chat 请求的 `session_id` 选择会话资源，但不进入身份；finalize 仍以进程的 `interaction_id` 关联。这样可以避免把局部关联 ID 误当成公共身份，或在队列、缓存中派生出第二套 scope 模型。
 
 ### 3.2 默认入口和内部 seam
 
@@ -324,6 +324,7 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 |:---|:---|
 | `RootMemoryService` | `create_memory`、`list_memories`、`get_memory`、`update_memory`、`record_feedback`、`delete_memory` |
 | `RootAgentProfileService` | `create_agent_profile`、`list_agent_profiles` |
+| `RootSessionService` | `create_session`、`list_sessions`、`get_session`、`rename_session`、`delete_session` |
 | `RootTopicService` | `list_active_topics`、`settle_topic`、`evict_topic` |
 | `RootMemoryTaskService` | `list_memory_tasks`、`get_memory_task`、`cancel_memory_task` |
 | `RootWorkspaceAssetService` | `upload_asset` |
@@ -376,6 +377,7 @@ Workspace 资源的最终寻址同时包含 WorkspaceIdentity 和资源 ID。复
 
 | 资源 | 当前寻址结构 | 主要所有者 |
 |:---|:---|:---|
+| ConversationSession | `WorkspaceIdentity + session_id`，管理入口先做 root 授权 | workspace `ConversationSessionService` |
 | Topic | 公共边界为 `IdentityScope + topic_id`；内部为 `belong_to + topic_id`（adapter 内部为 `WorkspaceTopicKey`） | Patchouli Perception / `ShortTermMemoryStore` |
 | Memory | `WorkspaceMemoryKey(workspace_identity, memory_id)` | Patchouli `MidTermMemoryStore` / 长期存储 |
 | Artifact | `WorkspaceArtifactKey(workspace_identity, artifact_id)`；`ArtifactRef` 同时带 WorkspaceIdentity | Patchouli `ArtifactStore` 及其适配器 |
@@ -423,6 +425,16 @@ canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.l
 CPU 分配把与输入清单相同的真实 `topic_id` 写入 `ProcessWorkingSet.dispatch_topic_id`。`ProcessThreads` 经 `IntentDispatchTopicReader` 提供读取：进程必须处于 Actor 阶段且仍在运行，传入的线程 context 必须是本进程登记的对象，话题必须已准备；否则在登记前拒绝。CALL 子线程共享该话题，请求与 CPU 不能指定派发目标。能力层与进程互不导入，由组合根注入端口。
 
 确定性拒绝同步以 `mark_failed` 把句柄推进为 FAILED，并向 agent 返回结构化错误；结果未知保持 MATERIALIZING。结算事件仍由 Patchouli 发布，同步失败与随后失败通知幂等；settled 必带且匹配 intent_id，failed/cancelled 保持只带不可复用 pending_alias 的载荷，登记处理器在可选 intent_id 被提供时追加校验。状态终结后不再被晚到通知重写。
+
+### 5.5 会话资源与历史所有权
+
+`workspace/sessions/ConversationSessionService` 是 ConversationSession 的唯一状态所有者，组合根创建同一个实例并注入 root 管理能力、注册入口与进程执行器。会话以 `belong_to: WorkspaceIdentity` 归属 Workspace，不属于单个 Agent；每次请求独立认证并选择 Agent。列表、读取、重命名、删除均检查完整 Workspace 归属，越域与不存在统一隐藏。每轮的 `agent_id` 是展示标签，不参与授权；其他 Agent 的旧回复在提示词中带身份前缀，原有记忆可见性仍只约束直接资源访问。
+
+会话保存有序 `ConversationTurn`：进程关联 `interaction_id`、Agent 标签、唯一正文 `payload: InteractionPayload`、本轮 `topic_id` 与写入时间。读取和追加都复制嵌套载荷，调用方不能改写历史。它不是 Topic 的副本：Alice 获取全量会话历史；Gateway 获取最近 N 轮用户/助手文本；Topic 汇集可能来自多个会话的记忆材料，删除或结算 Topic 不删除会话。
+
+认证通过后注册入口同步创建或查找会话并认领，再登记进程；同一会话同时只允许一个进程，运行中不能删除，任何结局关闭后均释放认领。容量达到 `workspace.sessions` 上限时显式拒绝，不淘汰旧数据；失败注册回滚本次认领及自动创建的空会话。System 先关闭全部进程，再 `close_and_clear()`，此后读写拒绝。会话只在本进程内保存，不提供跨重启恢复或并发多进程存储。
+
+有输出的 completed/cancelled/failed 交互在关闭 CPU 流、撤销线程后封口，同步追加会话，再进入 finalize；无输出、进程异常与 finalize 前断连不追加。提交失败不回滚已经封口的会话事实，也不回滚已接纳写入。取消收口与 finalize 的任务所有权见[应用服务](../system/application-services.md)。
 
 ## 6. WorkspaceAssetStore
 
@@ -475,7 +487,7 @@ Asset remove 不回调 Patchouli，也不清理 binding。AssetStore 与 Topic �
 
 `InteractionSubmission`、`MemoryGenerationTaskSpec`、`MemoryGenerationTask` 与 `PendingAtomMaterializeTask` 独立保存必需的 `belong_to` 和 `from_actor`，并携带所需的 interaction、intent、topic 或 task ID；`PreparedAgentRun`、`TopicMaterializeTask` 和 Topic working set 的 lease 只保存归属。Topic working set 的驻留记录为 `(WorkspaceIdentity, topic_id) → 最近访问时间`，idle/LRU/shutdown 候选只返回归属与 Topic ID，不保存最近访问者。
 
-Interaction codec 为 v4，generation codec 的 `schema_version` 为字符串 `"1.1"`，分别完整编码归属与发起者；当前队列是进程内队列，未注册旧 codec。Work Queue 只运输编码后的 payload 和执行状态，不解释 Workspace 领域模型。retry 从 payload 分别恢复身份与领域 ID，再到真正的 Workspace-owned resource 边界执行检查；它不重跑默认 resolver、不读取进程当前 Workspace，也不重新组装 scope。任务 list/get/cancel 以 task 的 `belong_to` 检查目标 Workspace，越域与不存在统一按 not found 处理。
+Interaction codec 为 v5，generation codec 的 `schema_version` 为字符串 `"1.1"`，分别完整编码归属与发起者；当前队列是进程内队列，未注册旧 codec。Work Queue 只运输编码后的 payload 和执行状态，不解释 Workspace 领域模型。retry 从 payload 分别恢复身份与领域 ID，再到真正的 Workspace-owned resource 边界执行检查；它不重跑默认 resolver、不读取进程当前 Workspace，也不重新组装 scope。任务 list/get/cancel 以 task 的 `belong_to` 检查目标 Workspace，越域与不存在统一按 not found 处理。
 
 手动、idle、LRU 与 shutdown 结算都由 coordinator 创建 SETTLE 生成任务，发起者统一为 `system_actor_for_workspace(belong_to)`（Workspace owner 用户、保留的 `system`、无 Team）。参与内容的 Agent 只进入贡献者集合；结算查重按这个 system actor 的普通读取规则只看到本 Workspace 的 PUBLIC 记忆。WRITE/UPDATE 则保留提交 Agent 的可见性与来源。队列的状态机和重试策略见[运行时机制：总线、调度器与 Work Queue](../components/runtime-and-bus.md)。
 
@@ -530,7 +542,7 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 - Patchouli 的交互提交与主动记忆意图提交路由只接收 `IdentityScope`、不做操作授权。交互提交路由没有生产调用方；意图提交路由唯一的生产调用方是 actor API，在 `memory.write`/`memory.update` 授权之后调用。新的调用方必须在自己的授权点先完成操作授权；
 - `/ingest` 不经认证网关，在认证前组装 `IdentityScope`（第 3.2 节）；
 - WorkspaceAssetStore、解析流程与原 `WorkspaceAssetReaderPort` 仍接收 `IdentityScope`，身份拆分留待[WorkspaceAsset 归属身份拆分](../todo/workspace-asset-ownership-identity-split.md)。System 的 `AssetMaterializationReader` 兼容适配器接收 Patchouli 提交的 `belong_to`，仅在一次租借调用内构造旧端口所需的 system scope，不保存到后台任务、不返回给 Patchouli；
-- 进程控制授权只比对驻留的 owner 与 Workspace：同一 Workspace 下的请求方可以查询或停止其他请求方的进程；System 停止流程不排空任务进程表，任务进程由注册入口在交付结束时关闭；
+- 进程控制授权只比对驻留的 owner 与 Workspace：同一 Workspace 下的请求方可以查询或停止其他请求方的进程；任务进程由注册入口在交付结束时关闭，System 停止时也会取消、等待并关闭在途进程；
 - WorkspaceAssetStore、opaque ref 和 lease 只承诺当前进程生命周期，不提供跨重启恢复；已持久化的 Memory/Artifact 按各自存储契约存在；
 - workspace 读取视图与写入意图登记均为进程内状态；失效通知不处理未送达补齐，意图句柄不回收也不跨重启恢复，实时派发的结果未知时可能长期保持 MATERIALIZING；
 - 写入意图不设 policy，同 Workspace 内持有别名即可回读；别名由标题或内容片段（UPDATE 为基础 alias）加 4 位十六进制后缀组成，不能充当访问控制。结算对账、句柄保留期、意图 policy 与外部提交契约等后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)；

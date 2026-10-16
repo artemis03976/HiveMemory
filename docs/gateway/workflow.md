@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-15
 ---
 
 # Gateway 固定工作流
@@ -73,6 +73,8 @@ Decision 分支固定经过三个步骤：
 3. `routed_topic_preparation` 仅在选中已有话题后读取完整 `TopicData`。
 
 两阶段准备避免为了做候选选择而加载所有话题全文，也避免 Query Analysis 自行再查一套上下文。它牺牲了一次潜在 route round trip，换取了更小的模型输入、更明确的数据所有权和可独立降级的边界。
+
+`session_turns` 随公开/本地 process 路由进入 workflow，作为受保护的入口字段保存在 state/snapshot，steps 不得覆盖。Topic Routing 与 User Query Analysis 都消费它，最终投影不输出它。近期轮数由进程按配置裁剪，workflow 不读取 workspace 会话服务。
 
 ## 3. Step 是一次受控提交
 

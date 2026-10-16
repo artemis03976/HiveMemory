@@ -50,7 +50,6 @@ def make_prepared_run(
     interaction_id: str = "interaction-test",
     topic_id: str = "topic-1",
     is_new_topic: bool = False,
-    pool_topics: list | None = None,
     memories: list[MemoryAtom] | None = None,
     storage_available: bool = True,
 ) -> PreparedAgentRun:
@@ -60,7 +59,6 @@ def make_prepared_run(
         interaction_id=interaction_id,
         topic_id=topic_id,
         is_new_topic=is_new_topic,
-        pool_topics=list(pool_topics or []),
         retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
         storage_available=storage_available,
     )

@@ -8,9 +8,8 @@
 
 import { create } from 'zustand';
 import { devtools } from 'zustand/middleware';
-import { fetchTopics, settleTopic, deleteTopic, mapTopic } from '@/services/topicApi';
+import { fetchTopics, settleTopic, deleteTopic } from '@/services/topicApi';
 import type { Topic } from '@/types';
-import type { TopicPoolInfo } from '@/types/chat';
 
 interface TopicStore {
   topics: Topic[];
@@ -20,7 +19,6 @@ interface TopicStore {
   fetchTopics: () => Promise<void>;
   settleTopic: (topicId: string) => Promise<void>;
   deleteTopic: (topicId: string) => Promise<void>;
-  setTopicsFromPool: (pool: TopicPoolInfo, activeTopicId: string) => void;
 }
 
 export const useTopicStore = create<TopicStore>()(
@@ -60,10 +58,7 @@ export const useTopicStore = create<TopicStore>()(
         }
       },
 
-      setTopicsFromPool: (pool: TopicPoolInfo, activeTopicId: string) => {
-        const topics: Topic[] = pool.topics.map((t) => mapTopic(t, activeTopicId));
-        set({ topics, isLoading: false, error: null });
-      },
+
     }),
     { name: 'TopicStore' }
   )

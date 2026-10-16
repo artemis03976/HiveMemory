@@ -15,7 +15,6 @@ import type {
   ChatTokenEvent,
   MTPStartEvent,
   MTPResultEvent,
-  TopicInfoEvent,
   MemoryRefsEvent,
   ChatDoneEvent,
   ChatErrorEvent,
@@ -117,10 +116,6 @@ export class ChatSSEClient {
         }
         break;
       }
-
-      case 'topic_info':
-        callbacks.onTopicInfo(data as TopicInfoEvent);
-        break;
 
       case 'memory_refs':
         callbacks.onMemoryRefs(data as MemoryRefsEvent);

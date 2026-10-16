@@ -18,7 +18,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # 公开路由与事件
@@ -67,7 +67,7 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `gateway.public.process` | `GatewayService.process` | message、`IdentityScope`、ingress mode、可选 `request_timeout_ms` | `GatewayProcessResult`（命令结果只携带解析结果） |
+| `gateway.public.process` | `GatewayService.process` | message、`IdentityScope`、ingress mode、`session_turns: tuple[GatewaySessionTurn, ...] = ()`、可选 `request_timeout_ms` | `GatewayProcessResult`（命令结果只携带解析结果） |
 
 ### 2.2 Patchouli Chat / Retrieval
 
@@ -128,6 +128,8 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 |:---|:---|:---|:---|
 | `alice.public.run_agent` | `AliceBridge._run_agent_route` → `AgentRunService.run_agent(stream=False)` | `CPUInputManifest`（含 `process_id` 与只读 `labels`）、独立的 `submit_operation: OperationSubmitter`、generation options | `CPUExecutionResult` |
 | `alice.public.run_agent_stream` | `AliceBridge._run_agent_stream_route` → `AgentRunService.run_agent(stream=True)` | 同上 | 交互输出的 async generator 对象，最后一项为 `done` |
+
+Alice 两条运行路由均可接收 `result_slot: CPUResultSlot | None`，由 CPU 驱动传入；槽只回传 CPU 中立终态，不改变流式交互事件或原生取消传播。
 
 两条 route 的参数相同，均不接收 `stream`；是否流式由所选 route 决定。任务进程经组合根注入的 CPU 端口调用执行者；端口实现 `AliceCPU` 选择对应 route 调用 Alice（[子系统公共契约](./subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节）。Alice 的资源操作经 workspace 公共 `OperationEntry` 与请求契约，不直接调用 Patchouli 路由；workspace 操作入口本身不注册全局总线路由。
 
@@ -204,17 +206,23 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 ## 6. HTTP 入口的身份交接与管理读取边界
 
-HTTP 路由本身不属于本文范围；这里只固化身份选择如何变成进入上述 route 的 `IdentityScope`，因为它是所有总线调用共享的前置契约。完整的认证与授权模型见[Workspace 架构](../architecture/workspace.md)第 4 节。
+本节固化 HTTP 身份选择、会话管理与 Chat SSE 契约；身份选择转换为进入上述 route 的 `IdentityScope`，因为它是所有总线调用共享的前置契约。完整的认证与授权模型见[Workspace 架构](../architecture/workspace.md)第 4 节。
 
 - 用户导向身份选择为 `user_id + workspace_id` 基础选择，Agent action（Chat、被动接入）附加具体 `agent_id`；基础选择经统一请求头 `x-user-id`/`x-workspace-id` 承载，Chat/stop 请求体不再重复携带身份字段，Topic 的 `?user_id=` 旧 query 与 header 收敛到同一解析规则。
 - `server/deps.py resolve_request_identity_claims` 是唯一解析入口，只产出身份声明（actor 声明与请求进入的 Workspace），不组装 `IdentityScope`：header 与 body/query 冲突显式拒绝（409）；未知 Workspace 拒绝（404）；Agent action 缺失具体 `agent_id` 或显式使用保留的 `system` 返回 400；非 Agent action 使用保留 `SYSTEM_AGENT_ID = "system"`（"没有具体 Agent 作为操作来源主体"，不得成为 `MemoryAccessPolicy` target）。
 - 声明交给统一认证网关取得访问 context：Chat 由任务进程的注册入口认证并创建进程；管理操作与 `/chat/stop` 取得绑定本次请求的请求级 context，请求结束时撤销。进入上述 route 的 `IdentityScope` 由授权点在操作授权后组装。
-- Chat 请求体保留 `session_id` 兼容字段，但身份构造与 finalize 关联不使用它；`ActorIdentity` 仅包含 `user_id`、`agent_id` 与可选 `team_id`。
+- Chat 请求体的 `session_id` 绑定会话资源，缺省自动创建；不进入身份构造，finalize 关联仍使用进程 ID；`ActorIdentity` 仅包含 `user_id`、`agent_id` 与可选 `team_id`。
 - `/chat/stop` 不是 Agent action：注册入口经进程控制授权比对请求方与进程记录的驻留坐标，不可控与不存在统一按 `not_found` 返回，取消与事件发布使用进程注册时绑定的观测标签，不从当前选择重新构造身份。
 - 被动接入 `/ingest` 不经认证网关，由 `resolve_request_identity_scope` 在认证前组装 `IdentityScope`（已知例外）。
 - 管理读取（Memory/Agent Profile/Topic 管理）按 owner-management 语义执行：在 Workspace ownership hard boundary 通过后可读取该 Workspace 的 `PUBLIC/PRIVATE/TEAM` 全部 Memory，不执行 Agent 可见性过滤；Agent retrieval 仍按 `MemoryAccessPolicy` 过滤，`system` 不承担权限绕过语义。
 - Memory task list 按快照的必需 `belong_to` 过滤；get/cancel 对越域与不存在统一抛 `ResourceNotFoundError`，HTTP 统一映射为 404，任务 ID 不授予观察或取消能力。
 - 响应 DTO 中的 `user_id`（如 `MemoryResponse.user_id`）保留为对外 owner 展示兼容字段，来源是 `workspace_identity.owner_user_id`；前端不得把它反推为下一次 actor 选择。
+
+### 6.1 会话管理与 Chat SSE
+
+会话 HTTP 由 `server/routers/sessions.py` 经门面取得 `RootSessionService`，沿用请求认证与 root 授权。POST/GET `/api/v1/sessions` 创建（201）/列出摘要；GET/PATCH/DELETE `/api/v1/sessions/{session_id}` 读取全量历史/以 `{title}` 重命名/删除（204）。创建体同为 `{title}`，允许空标题，首轮写入时自动取用户消息前 80 字。标题最多 200 字。会话不属于 Agent，不增加 actor 操作。
+
+Chat 首个 `process_id` SSE 事件携带 `{process_id, session_id}`；非流式结果也含 `session_id`。`memory_refs` 保留；不再发布 `topic_info`。有输出的 completed/cancelled/failed 的 done 包含 `topic_id`，对应会话本轮标注；没有 `pool_topics`。无输出的 done 不含 `final_text` 与 `topic_id`。前端通过独立 Topic 列表接口管理短期话题。取消、失败有输出时先 finalize 再交付终态，详见[应用服务](../system/application-services.md#33-部分输出与交付关闭)。
 
 ## 7. 设计矛盾检查
 

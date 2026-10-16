@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # HiveMemory 当前系统架构
@@ -208,7 +208,7 @@ TaskProcessService（workspace.process）
 1. Gateway 必须先形成命令终态或完整决策；
 2. Patchouli prepare 只准备话题并检索记忆，返回 `PreparedAgentRun`（未编译的检索原子）；
 3. 任务进程在 CPU 分配时解析 Agent Profile、取得附件租借、编译附件与记忆，组装 `CPUInputManifest`；CPU 消费输入清单、独立的线程 context（只用于提交操作请求，CPU 执行结束即撤销）和单次生成覆盖参数，任务进程只经 CPU 端口调用它，因此执行者可以替换而不改动进程；
-4. 只有执行结果为 completed 的一轮进入 finalize；
+4. 执行结果为 completed/cancelled/failed 且有输出时，先追加 ConversationSession，再进入 finalize；无输出、进程异常与 finalize 前断连不提交；
 5. prepare 成功但 finalize 未成功时，任务进程请求 Patchouli cleanup，清理可能预创建的空话题；附件租借无论结局如何都在进程结束时释放；
 6. 任务进程封口交互记录（用 core 的归约器从结构化 `turn_events` 得到 MTP trace），finalize 原样提交 interaction，并记录检索命中；WRITE/UPDATE 已在 actor 操作内独立派发。
 

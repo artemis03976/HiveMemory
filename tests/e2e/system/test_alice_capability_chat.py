@@ -188,8 +188,7 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
         assert "子帧已读取共享资料" in llm_messages[5][-1]["content"]
 
         # 已封口的真实 Topic 记录证明四次动作都穿过主帧并进入交互提交。
-        (topic_snapshot,) = done["pool_topics"]
-        topic = stack.short_term.get(workspace, topic_snapshot["topic_id"])
+        topic = stack.short_term.get(workspace, done["topic_id"])
         (block,) = topic.blocks
         assert block.turn.identity == actor
         assert [event.tool_kind for event in block.turn_events if event.kind == "tool_call"] == [

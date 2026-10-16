@@ -2,7 +2,7 @@ import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import type { NavTab } from '@/types';
 
-type ContextSidebarTab = 'topics' | 'config';
+type ContextSidebarTab = 'sessions' | 'config';
 type WorkspaceVisionTab = 'context' | 'memory-runtime' | 'terminal';
 type ThemeMode = 'dark' | 'light';
 
@@ -58,7 +58,7 @@ export const useChatUiStore = create<ChatUiStore>()(
         setWorkspaceVisionCollapsed: (collapsed) => set({ isWorkspaceVisionCollapsed: collapsed }),
         toggleWorkspaceVision: () => set((s) => ({ isWorkspaceVisionCollapsed: !s.isWorkspaceVisionCollapsed })),
 
-        contextSidebarTab: 'topics',
+        contextSidebarTab: 'sessions',
         setContextSidebarTab: (tab) => set({ contextSidebarTab: tab }),
 
         workspaceVisionTab: 'context',
@@ -72,15 +72,17 @@ export const useChatUiStore = create<ChatUiStore>()(
       }),
       {
         name: 'chat-ui-store',
-        version: 3,
+        version: 4,
         migrate: (persisted, version) => {
           const state = persisted as {
+            contextSidebarTab?: string;
             activeNavTab?: string;
             isKernelVisionCollapsed?: boolean;
             kernelVisionTab?: WorkspaceVisionTab;
             isWorkspaceVisionCollapsed?: boolean;
             workspaceVisionTab?: WorkspaceVisionTab;
           };
+          if (version < 4 && state.contextSidebarTab === 'topics') state.contextSidebarTab = 'sessions';
           // v2: 'theme' 标签已改为主题切换开关，迁移历史状态中失效的标签值
           if (version < 2 && state.activeNavTab === 'theme') {
             state.activeNavTab = 'chat';

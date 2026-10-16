@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # PendingAtom：Alice 的写入意图适配与回读
@@ -57,7 +57,7 @@ CPU 执行结束时任务进程同步撤销全部线程 context；进程关闭�
 
 - ACK、frame alias 回填和正式持久化是三个不同事实，不能互相替代。
 - Alice 只消费操作提交函数与独立返回值，不持有 workspace 内部服务、登记或访问 context。
-- 只有 completed 的任务进程默认封口交互并进入 finalize；显式写入在操作内实时派发，不取决于进程终态。
+- 有输出的 completed/cancelled/failed 轮次均由任务进程封口、追加会话并进入 finalize；显式写入在操作内实时派发，不取决于进程终态。
 - 登记属于进程内状态，终态句柄保留到重启，不再产生 EXPIRED；模型中的兼容枚举与渲染种类保留。
 - 当前没有持久化登记、重启恢复、事件补齐或终态句柄回收；派发结果未知或结算事件丢失时意图可能保持 MATERIALIZING。
 - CALL 子帧以被调用方身份提交，意图的发起者是被调用方，进程关联与根帧相同；子帧沿用注册观测标签，标签不参与授权。

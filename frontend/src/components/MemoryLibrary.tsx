@@ -1,8 +1,9 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'motion/react';
-import { useToastStore } from '@/stores';
+import { useToastStore, useTopicStore } from '@/stores';
 import { useMemories } from '@/hooks/useMemories';
 import type { MemoryAtom } from '@/types/memory';
+import TopicTab from './chat/TopicTab';
 import MemoryAtomCard from './memory/MemoryAtomCard';
 import MemoryAtomListItem from './memory/MemoryAtomListItem';
 import MemoryHeader from './memory/MemoryHeader';
@@ -13,6 +14,9 @@ import { ConfirmDialog } from './common/ConfirmDialog';
 
 export default function MemoryLibrary() {
   const { addToast } = useToastStore();
+  const { topics, fetchTopics } = useTopicStore();
+  const [selectedTopic, setSelectedTopic] = useState('');
+  useEffect(() => { void fetchTopics(); }, [fetchTopics]);
   const [selectedAtom, setSelectedAtom] = useState<MemoryAtom | null>(null);
   const [deleteId, setDeleteId] = useState<string | null>(null);
   const [showCreateModal, setShowCreateModal] = useState(false);
@@ -94,6 +98,13 @@ export default function MemoryLibrary() {
 
       {/* Atom Cards Area */}
       <div className="flex-1 overflow-y-auto p-8 scrollbar-hide">
+        <details className="mb-8 rounded-xl border border-white/10 p-4">
+          <summary className="cursor-pointer text-sm text-primary">短期话题池 · {topics.length}</summary>
+          <button onClick={() => void fetchTopics()} className="text-xs text-slate-400 my-3">刷新话题</button>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            <TopicTab topics={topics} activeTopicId={selectedTopic} onTopicSelect={setSelectedTopic} />
+          </div>
+        </details>
         {loading ? (
           <div className="flex items-center justify-center h-full text-slate-500">
             <span className="animate-pulse">加载记忆中...</span>

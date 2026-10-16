@@ -40,7 +40,7 @@ class ActorEvent:
 
 @dataclass(frozen=True, slots=True)
 class Finalizing:
-    """Actor 正常完成，进程已进入 finalize（此后拒绝取消）。"""
+    """Actor 已产生输出，进程已进入 finalize（此后拒绝取消）。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -55,7 +55,7 @@ class RunCompleted:
     """终态：Actor 完成且 finalize 已接管本轮交互。"""
 
     execution_result: CPUExecutionResult
-    pool_topics: list[dict[str, Any]]
+    topic_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -64,6 +64,7 @@ class RunCancelled:
 
     reason: str
     execution_result: CPUExecutionResult | None = None
+    topic_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,6 +72,7 @@ class RunFailed:
     """终态：Actor 自行报告失败。"""
 
     execution_result: CPUExecutionResult
+    topic_id: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -123,18 +125,8 @@ def stream_events(
                     "data": {"process_id": process_id, "session_id": session_id},
                 }
             ]
-        case InputsAllocated(prepared=prepared, manifest=manifest):
+        case InputsAllocated(manifest=manifest):
             return [
-                {
-                    "event": "topic_info",
-                    "data": {
-                        "topic_id": prepared.topic_id,
-                        "is_new": prepared.is_new_topic,
-                        "pool_topics": [
-                            topic.model_dump(mode="json") for topic in prepared.pool_topics
-                        ],
-                    },
-                },
                 {
                     "event": "memory_refs",
                     "data": {
@@ -169,18 +161,23 @@ def stream_events(
                         "status": "completed",
                         "stopped": False,
                         "reason": None,
-                        "pool_topics": output.pool_topics,
+                        **({"topic_id": output.topic_id} if output.topic_id else {}),
                     },
                 }
             ]
         case RunCancelled(reason=reason, execution_result=execution_result):
             base = _done_result_fields(execution_result) if execution_result is not None else {}
+            if output.topic_id:
+                base["topic_id"] = output.topic_id
             return [_stopped_done(process_id, base, status="cancelled", reason=reason)]
         case RunFailed(execution_result=execution_result):
             return [
                 _stopped_done(
                     process_id,
-                    _done_result_fields(execution_result),
+                    {
+                        **_done_result_fields(execution_result),
+                        **({"topic_id": output.topic_id} if output.topic_id else {}),
+                    },
                     status="failed",
                     reason="agent_run_failed",
                 )
@@ -228,7 +225,6 @@ def _command_done(process_id: str, command_result: CommandExecutionResult) -> di
             "status": "completed",
             "stopped": False,
             "reason": None,
-            "pool_topics": [],
         },
     }
 

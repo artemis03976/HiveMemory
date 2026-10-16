@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # HiveMemory 项目总览
@@ -146,7 +146,8 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 
 ### 5.1 入口与对话
 
-- 主动 chat：Gateway 决策后执行 Patchouli prepare（话题与检索）、任务进程 CPU 分配（Profile、附件与记忆编译）、Alice run、任务进程封口交互记录、Patchouli finalize；
+- 主动 chat：Gateway 决策后执行 Patchouli prepare（话题与检索）、任务进程 CPU 分配（Profile、附件与记忆编译）、Alice run、有输出时任务进程封口并追加会话、Patchouli finalize；
+- ConversationSession 的创建、列表、重命名、删除与历史恢复；会话属于 Workspace，逐轮选择 Agent，Alice 使用全量会话历史，Gateway 使用最近 N 轮；会话仅在进程内保存；
 - SSE 流式与非流式 Agent run；
 - 全局系统指令注册、解析、分发和 chat 短路；
 - Passive Ingress：外部离散事件去重、顺序缓冲、封口提交和失败重试；
@@ -235,12 +236,12 @@ message
   -> Patchouli prepare（话题与检索）
   -> 任务进程 CPU 分配（Profile、附件租借与编译、记忆编译、输入清单）
   -> Actor 执行：CPU 端口（当前为 Alice run，流式或非流式）
-  -> 任务进程封口交互记录（InteractionPayload）
+  -> 有输出时封口交互记录（InteractionPayload，含结局）并追加会话
   -> Patchouli finalize
   -> response + background memory tasks
 ```
 
-Prepare 成功而 finalize 未完成时，任务进程请求 Patchouli cleanup；附件租借在进程结束时释放。取消或失败的 Agent run 不提交交互；其已接纳的显式写入继续生成。
+有输出的 completed/cancelled/failed 均提交交互；无输出、进程异常与 finalize 前断连不追加会话、不提交。finalize 任务在交出 finalizing 事件前创建，交付关闭也等待提交结束；尚未交接的 prepare 结果才请求 cleanup，补偿仅限新建空 Topic。附件租借在进程结束时释放，已接纳的显式写入继续生成。
 
 ### 8.2 被动模式
 

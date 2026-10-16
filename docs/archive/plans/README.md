@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # Archived Plans
@@ -13,6 +13,8 @@ last_reviewed: 2026-10-13
 本目录保存已经完成或被替代、且当前事实已经合并进规范文档的实施计划。每篇归档计划必须标明归档日期、实现版本或 PR，以及替代它的当前文档。
 
 当前记录：
+
+- [v0.7.0 会话与 Alice 迁移](./v0.7.0-conversation-session.md)：2026-10-15 四阶段实现、验收与 code review 完成；Workspace 会话资源、Alice 全量历史、Gateway 最近 N 轮、部分输出保存与 finalize 保护、前端会话恢复。后端 3094 passed、覆盖率 93.25%，确定性 HTTP E2E 12 passed，前端会话测试 8 passed、lint/build 通过。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[System 应用服务](../../system/application-services.md)和 [Chat 视图](../../frontend/chat-view.md)。
 
 - [v0.7.0 写入意图实时派发](./v0.7.0-intent-inflight-dispatch.md)：2026-10-13 三阶段实现、验收与 code review 完成；WRITE/UPDATE 操作内派发，生成队列接纳后 ACK，运行失败不撤回写入；finalize 与交互去除物化任务，前端从事件与列表观察。后端 3052 passed、2 skipped，覆盖率 93.18%；确定性 HTTP E2E 8 passed，前端 lint/build 通过。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[MTP](../../contracts/mtp.md)与 [生成](../../patchouli/generation.md)。
 

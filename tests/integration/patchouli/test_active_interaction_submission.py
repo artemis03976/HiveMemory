@@ -81,7 +81,6 @@ def _prepared(
         interaction_id=interaction_id,
         topic_id="topic-1",
         is_new_topic=is_new,
-        pool_topics=[],
         retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
     )
 

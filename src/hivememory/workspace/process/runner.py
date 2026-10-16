@@ -6,8 +6,7 @@
 的 :class:`CPUPort`）完成。骨架只产出类型化的阶段产出（见
 ``workspace.process.outputs``），流式与非流式交付共用同一条阶段顺序、
 同一组取消响应点与同一个关闭流程；两者的执行差异只有 CPU 以流式还是
-非流式产出（流式逐条转交交互事件），以及 finalize 之后读取话题池
-（只服务于流式 done 事件）。
+非流式产出（流式逐条转交交互事件）。
 
 执行器跨进程共享、不持有任何进程的状态：它只持有编排依赖，每次运行与
 关闭都以 :class:`TaskProcess` 为参数，进程的全部状态（进程记录、任务参数、
@@ -326,20 +325,18 @@ class TaskProcessRunner:
                 yield Finalizing()
                 await self._join_finalization(working_set.finalization_task)
 
-            pool_topics = (
-                await self._list_final_pool_topics(process)
-                if stream and execution_result.status == CPUExecutionStatus.COMPLETED.value
-                else []
-            )
+            topic_id = prepared.topic_id if has_output else None
             self._mark_execution_terminal(process, execution_result)
             if execution_result.status == CPUExecutionStatus.CANCELLED.value:
                 yield RunCancelled(
-                    reason=record.stop_reason or "user_requested", execution_result=execution_result
+                    reason=record.stop_reason or "user_requested",
+                    execution_result=execution_result,
+                    topic_id=topic_id,
                 )
             elif execution_result.status == CPUExecutionStatus.FAILED.value:
-                yield RunFailed(execution_result)
+                yield RunFailed(execution_result, topic_id=topic_id)
             else:
-                yield RunCompleted(execution_result=execution_result, pool_topics=pool_topics)
+                yield RunCompleted(execution_result=execution_result, topic_id=topic_id)
         except _ProcessCancelled as cancelled:
             record.mark_cancelled()
             events.cancelled(record, phase=cancelled.phase)
@@ -538,24 +535,6 @@ class TaskProcessRunner:
             await cpu_output.aclose()
         except Exception:
             logger.warning("关闭 CPU 输出流失败", exc_info=True)
-
-    async def _list_final_pool_topics(self, process: TaskProcess) -> list[dict[str, Any]]:
-        """结算后的话题池读取，只服务流式 done 事件。
-
-        授权失败沿异常路径按空池收口（前端刷新失败不影响业务终态）；
-        路由收到的是授权返回的 scope，不取自 prepare 结果。
-        """
-        try:
-            pool_scope = self._authorize(process)
-            topics = await self._bus.request(
-                PatchouliRoutes.TOPIC_LIST_ACTIVE,
-                identity_scope=pool_scope,
-                include_empty=True,
-            )
-        except Exception:
-            logger.warning("Failed to load final topic pool after finalize.", exc_info=True)
-            return []
-        return [topic.model_dump(mode="json") for topic in (topics or [])]
 
 
 __all__ = ["TaskProcessRunner"]

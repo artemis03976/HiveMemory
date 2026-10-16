@@ -10,7 +10,7 @@ code_paths:
   - frontend/src/
 related_contracts:
   - docs/contracts/error-model.md
-last_reviewed: 2026-07-28
+last_reviewed: 2026-10-15
 ---
 
 # HiveMemory 故障排查
@@ -107,15 +107,16 @@ Memory、Agent、Settings 和开发模式 Memory task 存在 mock fallback。典
 - 保存后重启并重新检查 readiness；
 - 用版本控制 diff 确认没有意外删除未出现在旧表单中的配置段。
 
-## 8. Chat 看不到历史或 Topic 切换无效
+## 8. Chat 看不到会话历史
 
-这是当前能力边界，不是数据加载延迟：
+会话历史只在后端进程内保存，浏览器只保存当前会话 ID 与 Agent ID：
 
-- 浏览器不持久化 messages 和 `currentTopicId`；
-- 后端没有 session/message history API；
-- 点击左侧 Topic 只改变标题和本地高亮，不会加载历史，也不会指定下一轮后端 Topic。
+- 后端重启后旧会话不存在，读取历史返回 404；前端清除失效选择，此时需要新建会话；
+- 网络或服务错误不会当作空历史，页面保留错误并禁止发送，可重新选择会话重试；
+- 在另一个窗口运行的同一会话会返回 busy，等该任务进程结束后再继续；
+- 会话与 Topic 独立，MemoryLibrary 的短期话题池用于整理记忆材料，不负责恢复聊天。
 
-本轮真实 Topic 以 SSE `topic_info` 为准。若要调查话题资产，请使用 Topic API 与 Patchouli 当前文档，而不是把左侧栏当作会话历史浏览器。
+本轮回复的 Topic 标注来自 `done.topic_id`，重新加载时来自会话轮次。会话 CRUD 与历史契约见[公开路由与事件](../contracts/routes-and-events.md#61-会话管理与-chat-sse)。
 
 ## 9. Workspace Terminal 没有日志或事件
 

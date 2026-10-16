@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # 记忆生成
@@ -61,13 +61,16 @@ Generation 不再消费拼接的 `context_messages`。`GenerationTranscriptBuild
 GenerationContext
   ├─ state_summary
   └─ GenerationTurn[]
+       ├─ outcome（completed/cancelled/failed）
        ├─ user_query
        ├─ assistant_final_text
        ├─ trace_summaries
        └─ identity
 ```
 
-它保留对记忆提取有意义的语义，丢弃工具结果正文等执行噪音。历史重放与记忆生成共享底层 TurnRecord，却各自生成适合任务的视图；Generation 不能反向依赖 Alice 的消息渲染格式。
+它保留对记忆提取有意义的语义，丢弃工具结果正文等执行噪音。Alice 历史从会话 payload 重放，记忆生成从 Topic 的 TurnRecord 取材，两者各自生成适合任务的视图；Generation 不能反向依赖 Alice 的消息渲染格式。
+
+`GenerationTranscriptBuilder` 将 `TurnRecord.outcome` 传给 `GenerationTurn`；cancelled/failed 在转写中附 `[Outcome: ...]` 和未正常完成的说明，避免把半截回复视为完整结论。
 
 ## 3. 三种生成模式
 
@@ -189,7 +192,7 @@ WRITE/UPDATE -> workspace 登记 -> memory_intent.submit
   -> Coordinator 构建材料与 spec -> Controller 接纳生成任务 -> ACK
   -> 后台生成、持久化与结算事件
 
-CPU completed -> 任务进程封口 InteractionPayload -> finalize
+CPU 有输出（completed/cancelled/failed）-> 封口 InteractionPayload -> 同步写入会话 -> finalize
   -> submit as-is -> wait until interaction applied
   -> best-effort record prepared retrieval HITs -> None
 ```
@@ -198,7 +201,7 @@ CPU completed -> 任务进程封口 InteractionPayload -> finalize
 
 Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任务，也不返回任务列表。预检索 HIT 失败只记录 warning，不反向改写 Chat 终态。Finalization continuation 由 Patchouli 进程级持有，HTTP/SSE 调用方取消不会中止已经接管的提交与 post-apply 义务。CPU 失败、取消、进程关闭与失败 CALL 子帧都不撤回此前的显式写入。
 
-主动生成不等待当前交互 applied，不读取当前轮，也不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。completed 后的当前交互留在被动话题链中，之后可在 idle/LRU/shutdown 时参与 Mode A；主动保存与被动归档不能通过清空 buffer 相互替代。未完成进程的预建空话题仍可 cleanup，已派发任务保留该 topic_id 作观测，正式原子不保存 topic_id。
+主动生成不等待当前交互 applied，不读取当前轮，也不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。有输出轮次的当前交互留在被动话题链中，之后可在 idle/LRU/shutdown 时参与 Mode A；主动保存与被动归档不能通过清空 buffer 相互替代。未完成进程的预建空话题仍可 cleanup，已派发任务保留该 topic_id 作观测，正式原子不保存 topic_id。
 
 这条解耦边界是对旧链路实际问题的回应。旧实现曾把 MTP WRITE/UPDATE 当作话题结算理由，执行 `archive + compact + clear`：连续两次 WRITE 时，第二次只能看到已经被压扁的 summary；每次主动写还会额外触发一次 summary，使原始细节在明确保存意图下反复丢失。当前实现直接使用 topic 最近 context，并以 `WriteFocus`/`UpdateFocus` 驱动 Mode B/C；主动生成与被动归档保持两条正交流，主动写入后的 blocks 仍可在之后进入 Mode A。
 

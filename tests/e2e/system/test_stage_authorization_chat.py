@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from collections.abc import AsyncGenerator
 from types import SimpleNamespace
 from typing import Any
 
@@ -33,8 +32,8 @@ from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
     CPUInputManifest,
-    CPUOutput,
     CPUPort,
+    CPURunHandle,
 )
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.process import make_task_process_service
@@ -172,8 +171,7 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
         assert "WRITE" not in prompt and "UPDATE" not in prompt and "CALL" not in prompt
         assert "sys_write_file" in prompt
         # 结构化权限错误在真实交互记录中验收，不能只依赖自然语言回复。
-        (topic_snapshot,) = done["pool_topics"]
-        topic = stack.short_term.get(workspace, topic_snapshot["topic_id"])
+        topic = stack.short_term.get(workspace, done["topic_id"])
         (block,) = topic.blocks
         (tool_result,) = [event for event in block.turn.turn_events if event.kind == "tool_result"]
         assert tool_result.status == "error"
@@ -201,7 +199,7 @@ class _RecordingCPU:
         access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
         stream: bool,
-    ) -> AsyncGenerator[CPUOutput, None]:
+    ) -> CPURunHandle:
         self.manifests.append(manifest)
         return self._delegate.execute(
             manifest,
@@ -370,8 +368,7 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
         assert "他人的私有资料" not in "\n".join(item["content"] for item in messages)
 
         # finalize 后真实话题记录保留本轮 actor，阶段授权没有把发起者改成 system。
-        (topic_snapshot,) = done["pool_topics"]
-        topic = stack.short_term.get(workspace, topic_snapshot["topic_id"])
+        topic = stack.short_term.get(workspace, done["topic_id"])
         (block,) = topic.blocks
         assert block.turn.identity == actor
         assert block.turn.user_query == message

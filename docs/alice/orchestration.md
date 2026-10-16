@@ -21,7 +21,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-15
 ---
 
 # 多 Agent 编排
@@ -215,6 +215,8 @@ frame 的展示 `agent_id` 优先取 `AgentProfile.agent_id`（源 alias，内�
 - Chat application 不向主/子 AgentRuntime 传递取消 token。用户 stop 取消当前 Alice task；RunExecutor 捕获 `CancelledError` 做本地 unwind，活跃 CALL 只清理 callee frame 和 record，不伪造 caller response，最外层收尾整个 run 一次，并保留原生异常传播；
 - 流生成器提前关闭时，`AgentRunStream` 取消并 join 自己创建的 runner；`CancelledError` 沿递归协程栈展开，各层清理尚未 apply 的 CALL，且不再向关闭的 consumer 阻塞发送事件；
 - RunExecutor、Agent loop 与 Worker 的 unwind/close 都是 best effort：清理异常记录日志，但不能替换正在传播的 `CancelledError`；
+- CPU 驱动把 `CPUResultSlot` 经运行路由传给服务；RunExecutor 同步落定 CANCELLED 后，服务在收尾中把根帧文字/事件投影为 `CPUExecutionResult` 写槽，再传播原生取消。若 stop 落在两次拉取间隙，关闭输出流也完成相同回填。
+- CALL 子帧取消时不伪造 caller response；根帧只保留未完成的 CALL，子帧半截正文不混入根帧结果或会话历史。
 - 子 Agent 没有独立的公开取消句柄、重试策略或超时配置，生命周期依附于父 run。
 
 将子 Agent 失败包装成 CALL error 是局部容错，不代表子任务成功；主 Agent 是否还能完成用户请求由后续生成决定。相反，主 frame 基础设施失败没有可用的上层 Agent 继续纠正，因此必须结束本次 run。
