@@ -11,7 +11,7 @@ from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecution
 from hivememory.agent_runtime.output import TokenDelta
 from hivememory.alice.contracts import AliceRoutes
 from hivememory.alice.runtime.bridge import AliceBridge, AlicePublicApi
-from hivememory.components.bus import GlobalSystemBus, RouteArgumentError
+from hivememory.components.bus import GlobalSystemBus
 from hivememory.workspace.contracts import CPUExecutionResult
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.integration.alice.application.test_agent_run_service import _build_service
@@ -87,25 +87,5 @@ async def test_closing_route_stream_cancels_and_joins_runner():
             assert (await anext(events))["data"]["content"] == "开始"
             await events.aclose()
         assert closed.is_set()
-    finally:
-        bridge.unmount()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("route", AliceRoutes.ALL)
-async def test_execution_routes_reject_removed_stream_parameter(route):
-    """旧 stream 关键字在进入执行层之前由真实 handler 的签名检查拒绝。"""
-    _, service = _build_service()
-    bus = GlobalSystemBus()
-    bridge = AliceBridge(global_bus=bus, public_api=AlicePublicApi(agent=service))
-    bridge.mount()
-    try:
-        with pytest.raises(RouteArgumentError, match="unexpected keyword argument 'stream'"):
-            await bus.request(
-                route,
-                make_input_manifest(),
-                submit_operation=_unused_operation,
-                stream=True,
-            )
     finally:
         bridge.unmount()

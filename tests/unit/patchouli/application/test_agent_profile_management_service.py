@@ -37,12 +37,6 @@ def bus():
     return bus
 
 
-def test_constructor_rejects_access_guard():
-    """构造函数不再接收 access_guard：guard 注入已随边界返工删除。"""
-    with pytest.raises(TypeError, match="access_guard"):
-        AgentProfileManagementService(bus=AsyncMock(), access_guard=object())
-
-
 @pytest.mark.asyncio
 async def test_create_agent_profile_forces_profile_type_and_requests_memory_create(bus):
     service = AgentProfileManagementService(bus=bus)

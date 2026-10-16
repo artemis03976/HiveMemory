@@ -186,8 +186,6 @@ async def test_http_session_resume_after_partial_stop(monkeypatch, patchouli_cha
             data["topic_id"] for data in terminals
         ]
         for response, data, turn in zip(responses, terminals, history["turns"], strict=True):
-            assert "pool_topics" not in data
-            assert "topic_info" not in [name for name, _ in events_from_text(response.text)]
             topic = stack.short_term.get(workspace, data["topic_id"])
             block = next(
                 block

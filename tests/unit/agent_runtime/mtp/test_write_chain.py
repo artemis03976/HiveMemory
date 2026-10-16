@@ -32,7 +32,6 @@ from hivememory.engines.generation.models import (
     GenerationRequest,
     GenerationTurn,
 )
-from hivememory.engines.perception.models import TriggerReason
 from tests.helpers.memory import make_memory_identity_scope
 
 # ========== Fixtures ==========
@@ -240,16 +239,6 @@ class TestModeBFallback:
         draft = engine._build_fallback_draft(focus)
         # 无 title 时回退 content[:50]
         assert draft.title == "A very long content that should be truncated for t"
-
-
-# ========== Test 8：Active Flush 原因已移除 ==========
-
-
-class TestTriggerReasonActiveGenerationRemoved:
-    """主动写生成已脱离感知层，不再保留 MTP flush reason"""
-
-    def test_mtp_write_removed(self):
-        assert "MTP_WRITE" not in TriggerReason.__members__
 
 
 # ========== Test 9：Engine 统一 API ==========

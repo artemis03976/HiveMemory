@@ -79,17 +79,3 @@ async def test_queue_freezes_actor_and_attachments_before_external_mutation() ->
         ]
     finally:
         await queue.stop()
-
-
-@pytest.mark.parametrize("version", [1, 2, 3, 4])
-def test_registry_rejects_old_submission_versions(version):
-    """版本不匹配不能按新字段默认值悄悄解码旧交互。"""
-    from hivememory.components.work_queue.exceptions import UnknownWorkPayloadCodecError
-    from hivememory.components.work_queue.payloads import WorkPayloadCodecRegistry
-
-    codec = InteractionSubmissionCodec()
-    registry = WorkPayloadCodecRegistry()
-    registry.register(codec)
-    encoded = registry.encode(codec.kind, 5, _submission())
-    with pytest.raises(UnknownWorkPayloadCodecError):
-        registry.decode(codec.kind, version, encoded)

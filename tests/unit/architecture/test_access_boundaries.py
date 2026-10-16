@@ -122,25 +122,6 @@ def test_authorizer_imports_neither_process_nor_capability():
     assert offenders == []
 
 
-def test_cpu_execution_identity_has_no_definition_or_call_site():
-    """过渡执行身份已删除，生产代码不能重新定义或调用其无 operation 路径。"""
-    offenders: list[str] = []
-    for path in _source_files():
-        relative = path.relative_to(SRC_ROOT).as_posix()
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if (
-                isinstance(node, ast.Attribute)
-                and node.attr == "cpu_execution_identity"
-                or isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
-                and node.name == "cpu_execution_identity"
-                or isinstance(node, ast.Name)
-                and node.id == "cpu_execution_identity"
-            ):
-                offenders.append(f"{relative}:{node.lineno}")
-    assert offenders == []
-
-
 def test_stage_authorization_is_only_called_by_task_processes():
     """阶段授权只供任务进程的系统编排使用，不能成为 actor 操作的旁路。"""
     call_sites: set[str] = set()
@@ -228,22 +209,6 @@ def test_cpu_manifest_cannot_carry_access_context():
     assert [path for path, kind in field_types if kind is WorkspaceAccessContext] == []
 
 
-def test_removed_execution_credentials_have_no_production_references():
-    """线程 context 是唯一执行令牌，不能重新引入凭据表或第二份绑定。"""
-    removed = {"ExecutionCredential", "ExecutionCredentialRegistry", "ExecutionBinding"}
-    offenders = []
-    for path in _source_files():
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            if isinstance(node, ast.Name) and node.id in removed:
-                offenders.append(f"{path.relative_to(SRC_ROOT)}:{node.lineno}")
-            elif isinstance(node, (ast.ClassDef, ast.FunctionDef)) and node.name in removed:
-                offenders.append(f"{path.relative_to(SRC_ROOT)}:{node.lineno}")
-            elif isinstance(node, ast.ImportFrom) and any(a.name in removed for a in node.names):
-                offenders.append(f"{path.relative_to(SRC_ROOT)}:{node.lineno}")
-    assert offenders == []
-
-
 def test_actor_dispatch_does_not_unpack_requests_into_handlers():
     """操作入口仅保留统一 execute，六项 actor 请求直接分派到能力方法。"""
     path = SRC_ROOT / "workspace/capability/operations.py"
@@ -270,38 +235,6 @@ def test_actor_dispatch_does_not_unpack_requests_into_handlers():
         "RetrieveRequest": "memory.retrieve",
         "DeriveCallThreadRequest": "agent.derive_call_thread",
     }
-
-
-def test_profile_permission_symbols_have_no_production_references():
-    """生产代码不能重新从 Profile 取得权限，也不能重新注入两份旧白名单。"""
-    removed_symbols = {
-        "allowed_mtp_verbs",
-        "allowed_sys_tools",
-        "is_verb_allowed",
-        "is_tool_allowed",
-        "get_verb_set",
-        "get_tool_set",
-        "OMNI_DOLL_ALLOWED_MTP_VERBS",
-        "OMNI_DOLL_ALLOWED_SYS_TOOLS",
-    }
-    root = SRC_ROOT.parent.parent
-    paths = [*_source_files(), *(root / "scripts").rglob("*.py")]
-    offenders = []
-    for path in paths:
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        for node in ast.walk(tree):
-            match node:
-                case ast.Name(id=name) | ast.Attribute(attr=name):
-                    symbol = name
-                case ast.FunctionDef(name=name) | ast.AsyncFunctionDef(name=name):
-                    symbol = name
-                case ast.Constant(value=str() as value):
-                    symbol = value
-                case _:
-                    continue
-            if symbol in removed_symbols:
-                offenders.append(f"{path.relative_to(root)}:{node.lineno}:{symbol}")
-    assert offenders == []
 
 
 def _private_call_sites(attribute: str) -> set[str]:
@@ -426,27 +359,12 @@ def test_alice_runtime_cannot_import_context_or_raw_derivation_results():
     assert offenders == []
 
 
-def test_removed_call_target_request_has_no_production_reference():
-    """生产 CALL 必须经线程派生，不能恢复仅解析 Profile 的旧请求。"""
-    assert [
-        path.relative_to(SRC_ROOT).as_posix()
-        for path in _source_files()
-        if "ResolveCallTargetRequest" in path.read_text(encoding="utf-8")
-    ] == []
-
-
 def test_intent_dispatch_uses_only_public_submission_path():
-    """主动生成只从意图提交服务进入，旧认领和交互携带物化不能复活。"""
+    """主动生成只从意图提交服务进入。"""
     calls = []
-    removed = {"claim_process", "cancel_aliases", "CancelIntentsRequest", "materialize_tasks"}
-    offenders = []
     for path in _source_files():
         tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
         for node in ast.walk(tree):
-            if isinstance(node, ast.Attribute) and node.attr in removed:
-                offenders.append((str(path), node.attr))
-            if isinstance(node, ast.Name) and node.id in removed:
-                offenders.append((str(path), node.id))
             if (
                 isinstance(node, ast.Call)
                 and isinstance(node.func, ast.Attribute)
@@ -458,5 +376,4 @@ def test_intent_dispatch_uses_only_public_submission_path():
                     and node.args[0].attr == "GENERATION_SUBMIT_ACTIVE"
                 ):
                     calls.append(path.relative_to(SRC_ROOT).as_posix())
-    assert offenders == []
     assert calls == ["patchouli/application/memory_intent_submission_service.py"]

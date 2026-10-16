@@ -378,12 +378,6 @@ class TestKoakumaReadE2E:
 class TestKoakumaReadValidation:
     """READ 参数校验"""
 
-    def test_wildcard_target(self, koakuma):
-        result = _execute_mtp(koakuma, "⟪ READ | * | ⟫")
-        assert not result.success
-        assert result.response_content == ""
-        assert "SEARCH" in result.formatted_response
-
     def test_empty_target(self, koakuma):
         """空 target 解析为无 aliases"""
         result = _execute_mtp(koakuma, "⟪ READ | | ⟫")

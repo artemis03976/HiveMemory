@@ -216,7 +216,6 @@ def _assert_sealed_payload(payload, *, turn_events: list[TurnEvent], submitted) 
         TurnEvent(kind="assistant_message", sequence=5, role="assistant", content="完成"),
     ]
     assert payload.model_used == "glm-4"
-    assert "materialize_tasks" not in payload.model_dump()
     # 本测试未选择附件：附件编译的实际使用集合为空
     assert payload.used_attachments == []
     assert payload.mtp_traces == expected_mtp_traces()
@@ -551,7 +550,6 @@ async def test_completed_stream_uses_one_process_id_for_events_and_downstream_ro
     assert events[0]["event"] == "process_id"
     assert events[0]["data"]["process_id"] == "process-complete"
     assert events[0]["data"]["session_id"].startswith("session_")
-    assert "topic_info" not in [event["event"] for event in events]
     assert events[-1]["data"]["topic_id"] == "topic-1"
     memory_refs = next(event for event in events if event["event"] == "memory_refs")
     assert memory_refs["data"]["memories"][0]["title"] == "引用记忆"

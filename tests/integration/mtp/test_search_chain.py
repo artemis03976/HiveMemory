@@ -190,13 +190,6 @@ class TestParseFilter:
         assert warnings[0].message_key == "mtp.filter.unknown_key"
         assert warnings[0].params == {"key": "unknown"}
 
-    def test_warning_is_structured(self, koakuma):
-        filters, warnings = koakuma.parse("unknown:value tag:test")
-        assert filters.tags == ["test"]
-        assert len(warnings) == 1
-        assert warnings[0].message_key == "mtp.filter.unknown_key"
-        assert warnings[0].params == {"key": "unknown"}
-
     def test_invalid_token_no_colon(self, koakuma):
         filters, warnings = koakuma.parse("invalid_token tag:test")
         assert filters.tags == ["test"]

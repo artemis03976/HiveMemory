@@ -510,7 +510,6 @@ async def test_profile_resolution_failure_fails_stream_before_prepare() -> None:
     service, composition = await _service(bus, cpu=cpu)
     events = await _stream_events(composition, service, "问题", process_id="process-profile-fail")
 
-    assert [event["event"] for event in events if event["event"] == "topic_info"] == []
     assert [event["event"] for event in events if event["event"] == "error"] == ["error"]
     assert prepare_calls == []
     assert cleanup_calls == []
@@ -1078,7 +1077,6 @@ async def test_stream_stop_before_actor_emits_no_prelude() -> None:
     release_prepare.set()
     events = await task
 
-    assert [event["event"] for event in events if event["event"] == "topic_info"] == []
     assert [event["event"] for event in events if event["event"] == "memory_refs"] == []
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "cancelled"

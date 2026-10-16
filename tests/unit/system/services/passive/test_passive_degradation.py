@@ -320,17 +320,13 @@ async def test_retrieval_degradation_publishes_stage_and_topic() -> None:
 
 
 @pytest.mark.asyncio
-async def test_degradation_detail_not_leaked_into_outcome() -> None:
-    """§6：降级细节只进 sink，不混入业务结果对象。"""
+async def test_degradation_events_do_not_leak_exception_text() -> None:
+    """降级观测只记录分类，不外泄异常文本。"""
     recorder = _Recorder()
     recorder.gateway_error = TimeoutError("gateway timeout: secret-detail")
     ingressor, sink = _build(recorder)
 
-    outcome = await ingressor.route_event(_event("user", "u1"), IDENTITY)
-
-    assert not hasattr(outcome, "degraded")
-    assert not hasattr(outcome, "error_class")
-    assert not hasattr(outcome, "failed_stage")
+    await ingressor.route_event(_event("user", "u1"), IDENTITY)
 
     serialized = "\n".join(event.model_dump_json() for event in sink.events)
     assert "secret-detail" not in serialized

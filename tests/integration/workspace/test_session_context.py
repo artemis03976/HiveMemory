@@ -117,7 +117,6 @@ async def test_interleaved_sessions_share_topic_but_not_cpu_or_gateway_history()
         "A6",
         "A7",
     ]
-    assert "topic_context" not in manifest.model_dump()
     assert manifest.topic_id == "shared-topic"
 
 

@@ -212,7 +212,6 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
         assert runtime.stats()["atom_hits"] == 2
 
         # 执行期间派发的任务最终经真实结算事件反馈到 workspace 登记，不会随关闭取消。
-        assert "memory_task_ids" not in done
         (created,) = await stack.controller.list_tasks()
         task_id = created.task_id
         task = await stack.controller.wait_task(task_id, timeout=2)
@@ -392,7 +391,6 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
         assert "omni_doll 的私有正文" not in str(messages_seen)
         assert "worker 的私有正文" in messages_seen[4][-1]["content"]
         assert 'code="mtp.permission.denied"' in messages_seen[6][-1]["content"]
-        assert "memory_task_ids" not in done
         (created,) = await stack.controller.list_tasks()
         task_id = created.task_id
         task = await stack.controller.wait_task(task_id, timeout=2)

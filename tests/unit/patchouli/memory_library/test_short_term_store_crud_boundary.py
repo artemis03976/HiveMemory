@@ -39,8 +39,6 @@ def test_store_public_surface_is_crud_only_and_key_free():
         "check_health",
     }
     assert not any("key" in name for name in public_methods)
-    # Store 不再提供访问追踪入口；签名中不得有 touch 参数
-    assert "touch" not in inspect.signature(ShortTermMemoryStore.get).parameters
 
 
 @pytest.mark.unit

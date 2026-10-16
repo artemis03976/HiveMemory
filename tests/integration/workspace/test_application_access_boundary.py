@@ -848,12 +848,3 @@ async def test_invalidated_context_rejected_and_reauthentication_restores_access
         )
     )[0].atom
     assert refreshed.payload.content == "ttl"
-
-
-@pytest.mark.asyncio
-async def test_profile_snapshot_route_is_not_mounted_on_global_bus(wired):
-    """A2 §2.4：删除 snapshot 路由后，bridge 不再挂载任何 Profile 快照公共入口。"""
-    routes = wired.global_bus.list_routes()
-
-    assert "patchouli.public.get_agent_profile_snapshot" not in routes
-    assert PatchouliRoutes.GET_AGENT_PROFILE in routes

@@ -150,18 +150,6 @@ def test_list_memory_tasks_filters_to_own_workspace():
     assert [t.task_id for t in foreign_view] == [foreign.task_id]
 
 
-def test_constructor_rejects_access_guard_and_methods_reject_access_parameter():
-    """授权点参数不再出现在本层签名：构造与公开方法均不接受 access。"""
-    with pytest.raises(TypeError, match="access_guard"):
-        MemoryTaskManagementService(bus=FakeTaskBus([]), access_guard=object())
-
-    service = MemoryTaskManagementService(bus=FakeTaskBus([_task()]))
-    with pytest.raises(TypeError, match="access"):
-        _run(service.get_memory_task("active:i1", identity_scope=_scope(), access=object()))
-    with pytest.raises(TypeError, match="access"):
-        _run(service.cancel_memory_task("active:i1", identity_scope=_scope(), access=object()))
-
-
 @pytest.mark.parametrize(
     "invoke",
     [

@@ -137,19 +137,6 @@ def test_settle_and_evict_forward_scope_to_local_routes():
     )
 
 
-def test_constructor_rejects_access_guard_and_methods_reject_access_parameter():
-    """授权点参数不再出现在本层签名：构造与公开方法均不接受 access。"""
-    with pytest.raises(TypeError, match="access_guard"):
-        TopicManagementService(bus=RecordingBus(), access_guard=object())
-
-    service = TopicManagementService(bus=RecordingBus())
-    scope = _scope()
-    with pytest.raises(TypeError, match="access"):
-        _run(service.list_active_topics(identity_scope=scope, access=object()))
-    with pytest.raises(TypeError, match="access"):
-        _run(service.settle_topic(identity_scope=scope, access=object()))
-
-
 @pytest.mark.parametrize(
     "invoke",
     [

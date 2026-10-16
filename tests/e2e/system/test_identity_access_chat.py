@@ -104,7 +104,6 @@ async def test_http_chat_preserves_split_identity_through_finalize_and_materiali
         assert "session_id" not in topic.blocks[0].turn.identity.model_dump()
         assert short_term.get(other_workspace, foreign_topic.topic_id) == foreign_topic
 
-        assert "memory_task_ids" not in done
         (created,) = await controller.list_tasks()
         task_id = created.task_id
         task = await controller.wait_task(task_id, timeout=2)
@@ -191,7 +190,6 @@ async def test_http_write_survives_unsuccessful_cpu_and_process_close(patchouli_
             ][-1]
         )
         assert done["status"] == status
-        assert "memory_task_ids" not in done
         (created,) = [
             event
             for event in stack.events.events

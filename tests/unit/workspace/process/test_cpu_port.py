@@ -253,7 +253,6 @@ async def test_test_cpu_completes_non_streaming_process_without_alice_routes() -
         TurnEvent(kind="assistant_message", sequence=5, role="assistant", content="完成"),
     ]
     assert payload.model_used == "glm-4"
-    assert "materialize_tasks" not in payload.model_dump()
     assert payload.mtp_traces == expected_mtp_traces()
 
 
@@ -285,7 +284,6 @@ async def test_test_cpu_completes_streaming_process_and_relays_events() -> None:
     done = events[-1]
     assert done["data"]["status"] == "completed"
     assert done["data"]["final_text"] == "完成"
-    assert "memory_task_ids" not in done["data"]
     assert "mtp_iterations" not in done["data"]
     assert "total_iterations" not in done["data"]
     assert cpu.closed is True

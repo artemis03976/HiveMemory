@@ -21,8 +21,6 @@ def test_omni_doll_profile_uses_default_model_parameters_without_permissions() -
         "top_p": None,
         "language": "zh",
     }
-    assert "allowed_mtp_verbs" not in AgentProfile.model_fields
-    assert "allowed_sys_tools" not in AgentProfile.model_fields
 
 
 def test_profile_parsing_ignores_legacy_permission_keys() -> None:

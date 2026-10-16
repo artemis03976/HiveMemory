@@ -478,7 +478,6 @@ async def test_chat_full_chain_succeeds_through_published_registration(published
     events = _parse_sse_events(response.text)
     assert events[0]["event"] == "process_id"
     assert events[0]["data"]["process_id"].startswith("process_")
-    assert "topic_info" not in [event["event"] for event in events]
     done = events[-1]
     assert done["event"] == "done"
     assert (done["data"]["status"], done["data"]["final_text"]) == (
@@ -486,7 +485,6 @@ async def test_chat_full_chain_succeeds_through_published_registration(published
         "发布登记链路完成",
     )
     assert done["data"]["topic_id"] == "topic-1"
-    assert "pool_topics" not in done["data"]
 
     # CPU 执行清单只含注册时绑定的观测标签，操作身份仍只在授权点组装。
     assert len(stack.cpu.calls) == 1

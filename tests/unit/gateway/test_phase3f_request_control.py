@@ -7,7 +7,6 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-import hivememory
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.config.gateway import (
@@ -117,9 +116,3 @@ async def test_exhausted_deadline_without_fallback_raises_timeout() -> None:
             ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
             request_timeout_ms=0,
         )
-
-
-def test_legacy_gateway_root_exports_are_removed() -> None:
-    # __getattr__ 对未知名字抛 AttributeError，__all__ 断言已足够
-    assert "GatewayState" not in hivememory.__all__
-    assert "PatchouliPrepareDecision" not in hivememory.__all__

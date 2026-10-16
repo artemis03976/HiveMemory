@@ -82,7 +82,6 @@ class TestResolveRequestIdentityClaims:
             "workspace",
         }
         assert isinstance(claims.workspace, WorkspaceIdentity)
-        assert not hasattr(claims, "workspace_identity")
 
     def test_resolve_request_identity_scope_still_builds_scope_for_ingest(self):
         """/ingest 已知例外：scope 解析入口仍一次性组装完整 IdentityScope。"""

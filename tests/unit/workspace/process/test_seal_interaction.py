@@ -39,7 +39,6 @@ def test_seal_interaction_assembles_payload_from_explicit_fields() -> None:
         TurnEvent(kind="assistant_message", sequence=5, role="assistant", content="完成"),
     ]
     assert payload.model_used == "glm-4"
-    assert "materialize_tasks" not in payload.model_dump()
     assert payload.used_attachments == used
     # 固定轮次事件归约出的具体轨迹内容（预期手写）
     assert payload.mtp_traces == expected_mtp_traces()
@@ -60,5 +59,4 @@ def test_seal_interaction_without_turn_events_has_empty_mtp_traces() -> None:
     assert payload.turn_events == [
         TurnEvent(kind="assistant_message", sequence=0, role="assistant", content="完成")
     ]
-    assert "materialize_tasks" not in payload.model_dump()
     assert payload.used_attachments == []

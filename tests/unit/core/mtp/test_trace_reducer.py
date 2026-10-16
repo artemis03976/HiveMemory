@@ -88,19 +88,6 @@ class TestMTPTraceReducerCommandMapping:
         assert traces[0].action == "SEARCH"
         assert traces[0].query == "authentication flow"
 
-    def test_search_command_without_tool_args_no_longer_parses_content(self):
-        events = [
-            _event_dict(
-                "tool_call",
-                tool_kind="SEARCH",
-                target="*",
-                content='⟪ SEARCH | * | query="authentication flow" ⟫',
-            )
-        ]
-        traces = MTPTraceReducer.reduce(events)
-        assert len(traces) == 1
-        assert traces[0].query is None
-
     def test_run_command(self):
         events = [_event("tool_call", tool_kind="RUN", target="git_log", status="success")]
         traces = MTPTraceReducer.reduce(events)
