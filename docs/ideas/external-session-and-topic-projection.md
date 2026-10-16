@@ -32,7 +32,7 @@ last_reviewed: 2026-10-15
 - **Topic 与会话解耦**（owner，2026-09-28；预建部分 2026-10-13 改为保留，见本条末尾）：Topic 将与 conversation session 解耦，不再承担上下文，但仍是记忆生成的历史材料来源；conversation session 不是记忆的材料来源；任务进程不再预先创建临时话题，Gateway 的 Topic 路由决定跨阶段传递到结算，提交后依此按需创建 Topic（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1、Q-9）。本文第 3 节 Topic 的 working set 职责、第 4.3 节的 prepare 生命周期，以及第 8 节 Topic 生命周期事项中的预创建与条件清理，需要按此决定重新审视。（owner，2026-10-13）预建部分改为保留：将来对话流式同步到 Patchouli 时需要先有容器接收，话题是否预建随流式设计决定，“取消当前 Topic”与 `topic_info` 改为异步标注不依赖是否预建（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1）。
 - **对话上下文由 Session 提供**（owner，2026-09-28）：实际使用的对话上下文由 ConversationSession 提供，原样积累，不再由外界干涉；Topic 作为内部记忆生成的资料，Gateway 话题路由与 Topic 只为记忆生成服务。这是本文一开始就定下的前提（见下段与第 3 节）。第 3 节表中 ConversationSession“不负责模型工作集”一格需要按此修订。
 - **会话模型与 Topic 池**（owner，2026-09-28）：见 0.1。
-- **计划范围与会话上下文**（owner，2026-10-15）：见 0.2。
+- **计划范围与会话上下文**（owner，2026-10-15）：见 0.2；据 0.2、0.3 建立的计划见 [v0.7.0 会话：Alice 改用会话上下文](../plans/v0.7.0-conversation-session.md)（Planned）。
 - 原计划中的“决定”“冻结”在本文中均为候选设计，不是已采纳的方案；原计划留待 A3-0 冻结的事项汇总为第 8 节的开放问题（2026-10-15 重新梳理为 8.1 阻塞下一份计划的问题与 8.2 的搁置事项）。例外：第 2.2 节的 `InteractionPayload` 是 owner 提出的共用提交模型，不是待选方案（owner，2026-09-28）；字段细节仍按第 8 节待定。
 - 本文的 `ConversationSession` 是[任务进程 Idea](./task-process-table-and-registration-entry.md) Q-9 选项 B（保留独立的会话记录）的一种形态。2026-09-28 Q-9 已选 B：实际使用的对话上下文由 ConversationSession 提供；模型字段等细节仍是候选设计；主动进程的交互记录去向见同文 Q-14，Import Bus（现有 Passive Ingress 链路）交互的 Topic 落位见 [Import Bus Idea](./import-bus.md) Q-11，该链路不在 v0.7.0 范围。
 - 文中“A1”指已归档的 A1 访问边界（当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节）；原文提到的 A2、A5、A6 计划已作废删除，相关表述改为中性描述。

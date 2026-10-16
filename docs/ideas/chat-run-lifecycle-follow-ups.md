@@ -19,7 +19,7 @@ related_docs:
   - docs/components/observability.md
   - docs/contracts/routes-and-events.md
   - docs/ideas/task-process-table-and-registration-entry.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-15
 ---
 
 # Chat Run 取消与生命周期后续设计
@@ -33,6 +33,8 @@ last_reviewed: 2026-10-01
 独立启用条件立项。不得以“架构最终会需要”为理由一次性实施全部内容。
 
 **2026-10-01 核对**：chat 编排已迁入 workspace 的任务进程（[任务进程 Idea](./task-process-table-and-registration-entry.md)），本文沿用的旧名按以下对应理解：`chat_stream()` 与 `chat_service` 对应执行器的 `TaskProcessRunner.run(process)`（`workspace/process/runner.py`；2026-10-04 起四阶段骨架从进程容器 `TaskProcess` 拆出），Chat Run 注册表对应进程表 `ProcessTable`（`workspace/process/table.py`），`generation_id` 对应 `process_id`，Alice 阶段对应经 CPU 端口执行的 Actor 阶段。候选 F 的前提已经变化，见第 8 节。
+
+**2026-10-15**：[v0.7.0 会话计划](../plans/v0.7.0-conversation-session.md)（Planned）吸收候选 D 并修复第 3.4 节的断连丢失结算：外部会话方向决定被取消且有输出的一轮记入会话并带结局提交（[外部会话 Idea](./external-session-and-topic-projection.md#02-计划范围与会话上下文owner2026-10-15) 0.2），即第 6.3 节所说的产品决策。计划保留第 2 节的基线：停止仍只经 `Task.cancel()`，CPU 在取消收尾时把部分结果写入 run 句柄的结果槽。两项实施完成后从本文移出。
 
 本文覆盖：
 
@@ -116,7 +118,7 @@ flowchart TD
 
 在此之前，独立 Job 只增加 registry、task、队列和关闭协议，不应实现。
 
-### 3.4 已发现的断连丢失提交（2026-10-01 复核，已复现）
+### 3.4 已发现的断连丢失提交（2026-10-01 复核，已复现；2026-10-15 起由 v0.7.0 会话计划修复）
 
 `TaskProcessRunner.run()` 先进入 FINALIZE（此后 stop 返回 `already_finalizing`），再产出 `finalizing` 状态事件，然后才调用 finalize。server 路由每发出一个事件就检查一次断开，断开即关闭流；若断开落在这个产出点，finalize 不会被调用，关闭流程转而执行 cleanup，Actor 已完成的一轮交互丢失。这与“finalize 开始后 stop 不再打断提交”（第 2 节基线第 6 条）在语义上矛盾。finalize 调用开始之后断开不受影响：Patchouli 以 shield 继续，cleanup 会跳过已接管的 continuation。该问题在迁入任务进程前的 `chat_stream()` 中同样存在。
 
@@ -205,7 +207,7 @@ chat.run.cancel_requested
 
 ---
 
-## 6. 候选 D：cancelled `done.final_text` 与前端契约
+## 6. 候选 D：cancelled `done.final_text` 与前端契约（2026-10-15 起由 v0.7.0 会话计划吸收）
 
 ### 6.1 当前问题
 
