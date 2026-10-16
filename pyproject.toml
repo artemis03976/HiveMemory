@@ -105,7 +105,6 @@ ignore = [
 "scripts/**/*.py" = ["E402"]
 "tests/conftest.py" = ["E402"]
 "tests/e2e/**/*.py" = ["E402"]
-"tests/unit/engines/lifecycle/test_lifecycle_component.py" = ["E402"]
 
 [tool.mypy]
 python_version = "3.12"
