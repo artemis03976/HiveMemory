@@ -10,7 +10,7 @@ related_docs:
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/gateway/commands.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-15
 ---
 
 # 会话 `/compact` 指令
@@ -24,17 +24,17 @@ ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是�
 
 本 Todo 由原“Topic `/compact` 系统指令接入”（`docs/todo/topic-compact-command-ingress.md`，重写前最后版本见 commit `74b5056`）重写。原问题——用户能从聊天前端用 `/compact` 压缩上下文——仍然有效，但形式发生了变化：压缩对象从 Patchouli 的 Topic 工作集改为 CPU 的会话上下文。原设计中经 Gateway dispatcher 执行命令、由前端传播 `current_topic_id`、调用 Patchouli Topic manual compact 的路径不再成立：dispatcher 已删除，“当前 Topic”概念将随前端回归会话模型取消。
 
-## 问题与证据（2026-10-01 核对）
+## 问题与证据（2026-10-01 核对，2026-10-15 复核）
 
 - 内置命令中没有 `/compact`。Gateway 只解析命令、不执行，内置命令暂时不可用；命令在任务进程中何时、由谁运行尚未决定（[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) Q-5a，[Gateway 全局命令](../gateway/commands.md)）。
 - ConversationSession 尚未落地。Alice 每轮的历史目前来自 Topic 最近 5 个 block 的滑动窗口与 `state_summary`（`prompts/assembler.py`），还不存在独立的会话上下文。
 - CPU 端口（`workspace.contracts.CPUPort`）只有执行入口 `execute`，没有压缩操作，也没有声明是否支持压缩的方式（[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节）。
-- Alice 没有会话内压缩，压缩算法的目标窗口约为 v0.7.1（[ROADMAP](../ROADMAP.md) 第 4.4.3 节）。外部 harness 经 controller 模式接入在 v0.7.1；HiveMemory 能否触发某个 harness 的压缩，取决于驱动它的协议或 SDK 是否提供这项能力。
+- Alice 没有会话内压缩。2026-10-15 起会话上下文全量交给 CPU，由执行单元自己的压缩防止溢出，Alice 的压缩提前到 v0.7.0，在外部会话计划之后单独一份计划（[ROADMAP](../ROADMAP.md) 第 4.3 节；[外部会话与 Topic 投影 Idea](../ideas/external-session-and-topic-projection.md#02-计划范围与会话上下文owner2026-10-15) 0.2）。外部 harness 经 controller 模式接入在 v0.7.1；HiveMemory 能否触发某个 harness 的压缩，取决于驱动它的协议或 SDK 是否提供这项能力。
 - 会话操作中的压缩已决定由 CPU 负责，作用于 CPU 自己基于 Session 派生的上下文视图，Session 记录保持原样（[外部会话与 Topic 投影 Idea](../ideas/external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1）。
 
 ## 影响
 
-- 用户目前没有压缩会话上下文的入口。v0.7.0 期间，长会话的上下文长度只能靠新建会话控制（外部会话 Idea 0.1 的分析）。
+- 用户目前没有压缩会话上下文的入口。会话上下文改为全量后，Alice 的压缩落地之前，长会话可能超出模型窗口（外部会话 Idea 0.2 的分析）。
 - 如果不区分前台与后台，`/compact` 容易被实现为压缩 Topic 工作集，混淆两种对象，也会让前台的压缩改动后台记忆生成的资料。
 
 ## 约束
@@ -48,7 +48,7 @@ ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是�
 
 - ConversationSession 与前端会话模型（外部会话与 Topic 投影方向，v0.7.0）；
 - 命令的运行位置（命令系统接回，Q-5a）；
-- Alice 的会话压缩算法（约 v0.7.1）；
+- Alice 的会话压缩算法（v0.7.0，外部会话计划之后）；
 - 外部 harness 的 controller 模式接入（v0.7.1）。
 
 ## 待决问题
