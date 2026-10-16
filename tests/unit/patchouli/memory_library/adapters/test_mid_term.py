@@ -297,13 +297,16 @@ async def test_patch_payload_replaces_access_policy() -> None:
 @pytest.mark.parametrize(
     "patch",
     [
-        {"meta.access_policy": "garbage"},
         {"meta.access_policy": {"visibility": "PRIVATE"}},
         {"meta.lifecycle.confidence_score": 1.5},
     ],
+    ids=["access-policy", "lifecycle"],
 )
 async def test_patch_payload_rejects_invalid_values_without_write(patch) -> None:
-    """非法策略（含 PRIVATE 缺 target）或越界 lifecycle 值在写入前拒绝。"""
+    """策略赋值与 lifecycle 赋值两条路径的非法值都在写入前拒绝。
+
+    策略值的完整校验矩阵归 core 模型单测，这里取 PRIVATE 缺 target 代表。
+    """
     atom = _private_memory()
     store = _PatchableStore(atom)
     adapter = QdrantStorageAdapter(store)

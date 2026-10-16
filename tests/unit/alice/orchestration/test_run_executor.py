@@ -16,7 +16,6 @@ from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     DispatchCallee,
     ResumeCaller,
 )
-from hivememory.alice.runtime.streaming import QueueAgentRunOutput
 from hivememory.core.mtp import MTPCallRequest
 from tests.helpers.workspace import make_runtime_scope
 
@@ -105,21 +104,6 @@ class _RecordingRunOutput:
 
     async def call_finished(self, _output) -> None:
         return None
-
-
-@pytest.mark.asyncio
-async def test_queue_sink_applies_backpressure_at_capacity():
-    output = QueueAgentRunOutput("run-1", maxsize=1)
-
-    await output.send_event("token", {"content": "first"})
-    second_emit = asyncio.create_task(output.send_event("token", {"content": "second"}))
-    await asyncio.sleep(0)
-
-    assert not second_emit.done()
-    assert (await output.receive())["data"]["stream_sequence"] == 0
-
-    await second_emit
-    assert (await output.receive())["data"]["stream_sequence"] == 1
 
 
 @pytest.mark.asyncio
@@ -354,13 +338,13 @@ async def test_run_executor_accepts_call_resume_without_applying_response_itself
         FrameExecutionStatus.BUDGET_EXHAUSTED,
     ],
 )
-async def test_run_executor_finalizes_each_terminal_status_exactly_once(status):
-    finalize_run = MagicMock()
+async def test_run_executor_records_each_terminal_status(status):
+    """四种终态都属于显式接受集合，漏任一成员会落入 unsupported 分支。"""
 
     async def run_frame(_frame, **_kwargs):
         return FrameExecutionResult(status=status)
 
-    runtime = SimpleNamespace(run_frame=run_frame, finalize_run=finalize_run)
+    runtime = SimpleNamespace(run_frame=run_frame)
     frame = _frame_stub("frame-1")
     executor = RunExecutor(runtime, session=_session_with(frame))
 

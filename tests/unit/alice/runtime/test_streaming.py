@@ -154,3 +154,19 @@ async def test_runner_cleanup_error_does_not_replace_consumer_cancellation() -> 
 
     with pytest.raises(asyncio.CancelledError):
         await pull_task
+
+
+@pytest.mark.asyncio
+async def test_queue_output_applies_backpressure_at_capacity() -> None:
+    """队列满时发送方等待消费，不丢弃也不越过容量缓冲事件。"""
+    output = QueueAgentRunOutput("run-1", maxsize=1)
+
+    await output.send_event("token", {"content": "first"})
+    second_emit = asyncio.create_task(output.send_event("token", {"content": "second"}))
+    await asyncio.sleep(0)
+
+    assert not second_emit.done()
+    assert (await output.receive())["data"]["stream_sequence"] == 0
+
+    await second_emit
+    assert (await output.receive())["data"]["stream_sequence"] == 1

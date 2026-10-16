@@ -276,34 +276,22 @@ async def _stream_events(
 # ========== 清单组装（Profile 与编译） ==========
 
 
-def _exact_record(operations: frozenset[WorkspaceOperation]):
-    """本进程 agent 的精确访问记录，优先于同一用户的用户级记录。"""
-    return make_actor_access_record(
-        owner_user_id=_USER, agent_id=_AGENT, allowed_operations=operations
-    )
-
-
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "exact_records, expected",
-    [
-        ((), frozenset({WorkspaceOperation.MEMORY_SEARCH})),
-        (
-            (_exact_record(frozenset({WorkspaceOperation.MEMORY_READ})),),
-            frozenset({WorkspaceOperation.MEMORY_READ}),
-        ),
-        ((_exact_record(frozenset()),), frozenset()),
-    ],
-    ids=["user-record", "exact-record", "empty-exact-record"],
-)
-async def test_manifest_operations_follow_access_record_precedence(exact_records, expected):
-    """清单取访问登记的实际白名单；精确空名单也不能回落到用户级记录。"""
+async def test_manifest_operations_follow_access_record_precedence():
+    """清单取访问登记的实际白名单；精确空名单也不能回落到用户级记录。
+
+    记录优先级由访问登记决定（见 registry 单测），分配器只原样转交，
+    这里以最容易被用户级许可覆盖或在传递中丢失的空精确名单作代表。
+    """
     user_record = make_actor_access_record(
         owner_user_id=_USER,
         agent_id=None,
         allowed_operations=frozenset({WorkspaceOperation.MEMORY_SEARCH}),
     )
-    composition = make_access_composition([user_record, *exact_records])
+    exact_record = make_actor_access_record(
+        owner_user_id=_USER, agent_id=_AGENT, allowed_operations=frozenset()
+    )
+    composition = make_access_composition([user_record, exact_record])
     bus = GlobalSystemBus()
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
@@ -315,7 +303,7 @@ async def test_manifest_operations_follow_access_record_precedence(exact_records
     result = await _run_once(composition, service, "问题", process_id="process-operations")
 
     assert result.execution_result.status == "completed"
-    assert cpu.calls[0].manifest.allowed_operations == expected
+    assert cpu.calls[0].manifest.allowed_operations == frozenset()
     # 精确字段集合保护 CPU 边界：不能把 context、scope 或身份作为清单字段传递。
     assert set(cpu.calls[0].manifest.model_dump()) == {
         "process_id",

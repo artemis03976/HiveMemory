@@ -1,6 +1,8 @@
-"""Koakuma UPDATE 指令链路集成测试。"""
+"""Koakuma UPDATE 指令链路集成测试。
 
-from unittest.mock import AsyncMock
+真实 parser、handler、workspace 操作入口、授权与读取视图协作；只有存储边界为替身。
+"""
+
 from uuid import uuid4
 
 import pytest
@@ -65,14 +67,11 @@ async def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, c
     )
 
 
-class TestKoakumaUpdateE2E:
+class TestKoakumaUpdateChain:
     """通过 MTP 指令验证 Koakuma UPDATE 完整链路"""
 
     @pytest.fixture
     def update_koakuma(self, existing_memory) -> KoakumaRuntime:
-        mock_librarian = AsyncMock()
-        mock_librarian.handle_update_signal.return_value = [existing_memory]
-
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
         koakuma.context = MTPExecutionContext(runtime_scope=make_runtime_scope())

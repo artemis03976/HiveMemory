@@ -132,6 +132,8 @@ def test_build_sub_agent_messages_disables_call():
     assert "- READ:" in messages[0]["content"]
     assert "- RUN:" in messages[0]["content"]
     assert "SEARCH" not in messages[0]["content"]
+    assert "sys_write_file" in messages[0]["content"]
+    assert "sys_python_repl" in messages[0]["content"]
     assert "[Shared Context]" in messages[0]["content"]
     assert messages[-1] == {"role": "user", "content": "Write unit tests"}
 
@@ -166,68 +168,6 @@ def test_mtp_prompt_uses_global_language_without_profile_language():
     )
 
     assert "You are an intelligent Agent running on HiveMemory" in messages[0]["content"]
-
-
-@pytest.mark.parametrize("language", ["zh", "en"])
-@pytest.mark.parametrize("storage_available", [True, False], ids=["online", "offline"])
-def test_main_prompt_uses_frame_verbs_and_ignores_legacy_profile_permissions(
-    language, storage_available
-):
-    """旧 Profile 的扩权键不能放入 WRITE，工具禁用键不能缩减系统菜单。"""
-    profile = AgentProfile.model_validate(
-        {
-            "persona": "当前人设",
-            "language": language,
-            "allowed_mtp_verbs": ["WRITE", "CALL"],
-            "allowed_sys_tools": [],
-        }
-    )
-    context = AgentRunContext(
-        labels=make_execution_labels(),
-        agent_profile=profile,
-        permitted_mtp_verbs=frozenset({"READ", "SEARCH", "RUN"}),
-        storage_available=storage_available,
-    )
-    config = SimpleNamespace(
-        enabled=True,
-        mtp_prompt=SimpleNamespace(enabled=True, include_demo=True, include_error_handling=True),
-    )
-
-    system_prompt = AgentPromptAssembler(config).build_main_agent_messages(context)[0]["content"]
-
-    assert "- READ:" in system_prompt
-    assert "- SEARCH:" in system_prompt
-    assert "- RUN:" in system_prompt
-    assert "WRITE" not in system_prompt
-    assert "UPDATE" not in system_prompt
-    assert "CALL" not in system_prompt
-    assert "sys_clock" in system_prompt
-    assert "sys_web_search" in system_prompt
-    assert "sys_read_file" in system_prompt
-    assert "sys_write_file" in system_prompt
-    assert "sys_python_repl" in system_prompt
-
-
-@pytest.mark.parametrize("language", ["zh", "en"])
-def test_sub_prompt_inherits_verbs_without_legacy_profile_restrictions(language):
-    """被调用方旧空白名单不再缩减父 frame 的 READ、RUN 与完整系统工具。"""
-    profile = AgentProfile.model_validate(
-        {"language": language, "allowed_mtp_verbs": [], "allowed_sys_tools": []}
-    )
-
-    system_prompt = AgentPromptAssembler(_make_koakuma_config()).build_sub_agent_messages(
-        profile=profile,
-        task="子任务",
-        permitted_verbs=frozenset({"READ", "RUN"}),
-    )[0]["content"]
-
-    assert "- READ:" in system_prompt
-    assert "- RUN:" in system_prompt
-    assert "SEARCH" not in system_prompt
-    assert "WRITE" not in system_prompt
-    assert "CALL" not in system_prompt
-    assert "sys_write_file" in system_prompt
-    assert "sys_python_repl" in system_prompt
 
 
 @pytest.mark.parametrize("language", ["zh", "en"])

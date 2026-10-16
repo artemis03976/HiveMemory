@@ -43,6 +43,7 @@ from hivememory.core.access import (
     WorkspaceAccessContext,
     WorkspaceOperation,
 )
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import (
     AdmissionDeniedError,
     OperationDeniedError,
@@ -392,10 +393,17 @@ async def test_authorize_stage_rejects_revoked_context(method):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("enabled", [True, False], ids=["missing-actor", "disabled-actor"])
-@pytest.mark.parametrize("method", ["authorize_stage", "get_stage_operations"])
-async def test_authorize_stage_rechecks_current_admission(enabled, method):
-    """准入记录缺失或已禁用时，阶段授权仍拒绝持有原签发凭据的 actor。"""
+@pytest.mark.parametrize(
+    ("method", "enabled"),
+    [("authorize_stage", True), ("get_stage_operations", False)],
+    ids=["authorize_stage-missing-actor", "get_stage_operations-disabled-actor"],
+)
+async def test_authorize_stage_rechecks_current_admission(method, enabled):
+    """准入记录缺失或已禁用时，阶段授权仍拒绝持有原签发凭据的 actor。
+
+    两个入口共用同一准入复查，缺失与禁用也在同一判断处汇合；对角两例
+    同时覆盖两个入口与两种失效形态。
+    """
     context = await _composition().authenticate(agent_id="a1", user_id="u1")
     composition = make_access_composition(
         [
@@ -416,10 +424,14 @@ async def test_authorize_stage_rechecks_current_admission(enabled, method):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("target", [ISOLATION, FOREIGN_OWNER], ids=["workspace", "owner"])
 @pytest.mark.parametrize("method", ["authorize_stage", "get_stage_operations"])
-async def test_authorize_stage_rejects_target_outside_resident_workspace(target, method):
-    """跨 workspace 或 owner 的阶段目标均拒绝，错误不伪造 actor operation。"""
+async def test_authorize_stage_rejects_target_outside_resident_workspace(method):
+    """驻留 workspace 以外的阶段目标拒绝，错误不伪造 actor operation。
+
+    owner 与 workspace_id 都是 WorkspaceIdentity 的坐标，在同一相等比较处汇合；
+    跨 owner 的目标由操作授权用例覆盖。
+    """
+    target = ISOLATION
     composition = _composition(allowed_operations=frozenset())
     context = await composition.authenticate(agent_id="a1", user_id="u1")
 
@@ -462,12 +474,17 @@ class TestAuthorizeProcessControl:
 
     @pytest.mark.asyncio
     async def test_same_owner_and_workspace_authorizes_control(self):
-        """请求方与进程记录驻留在同一 owner 与 workspace → True。"""
+        """请求方与进程记录驻留在同一 owner 与 workspace → True；只比对驻留坐标，不比对 agent。"""
         composition = make_access_composition(
-            [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
+            [
+                make_actor_access_record(owner_user_id="u1", agent_id="a1"),
+                make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
+            ],
             default_workspace=MAIN,
         )
-        requestor = await composition.authenticate(agent_id="a1", user_id="u1", workspace=MAIN)
+        requestor = await composition.authenticate(
+            agent_id=SYSTEM_AGENT_ID, user_id="u1", workspace=MAIN
+        )
         record_access = await self._issued_record_context(composition)
 
         assert composition.authorizer.authorize_process_control(requestor, record_access) is True

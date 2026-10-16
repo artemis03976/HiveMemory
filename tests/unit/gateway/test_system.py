@@ -1,4 +1,4 @@
-"""Gateway Phase 3A 子系统骨架测试。"""
+"""Gateway 子系统骨架：装配、路由注册与身份边界测试。"""
 
 from types import SimpleNamespace
 from unittest.mock import AsyncMock

@@ -3,13 +3,15 @@ title: Archived Todo
 status: current
 owner: project
 scope: completed-todo-history
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-16
 ---
 
 # Archived Todo
 
 本目录保存已完成的修复与技术债处置历史；当前行为从对应事实文档进入，活动待办见 [Todo](../../todo/README.md)。
 
+- [Profile 管理列表的可见性语义](./agent-profile-management-list-visibility.md)：2026-10-16 修复，root Profile 列表补齐 owner-management 语义（`enforce_actor_visibility=False`），不再只列出 PUBLIC Profile；当前事实见[路由与事件契约](../../contracts/routes-and-events.md)与 [System 应用服务](../../system/application-services.md)。
+- [测试套件冗余收敛后续](./test-suite-redundancy-follow-ups.md)：2026-10-16 完成，按[冻结调查基线](../../governance/baselines/test-suite-redundancy-2026-10-16.md)收敛参数化矩阵、测试随归属迁入 owner、退役类型层测试与 `_e2e` 命名，生命周期评分与强化组并入 owner 并补充重算顺序用例；现行规则见[测试设计规范](../../governance/testing/test-design-standards.md)第 4 节。
 - [kernel 遗留命名清理](./kernel-legacy-naming.md)：2026-10-12 完成，系统工具保留 syscall 命名只去掉 Kernel（错误键改为 `mtp.run.tool_not_found`），提示词移除 kernel 与 HiveOS，后端注释改用当前组件名，前端观测面板改称 Workspace Vision、Chat 页面与中间栏改称 Chat View 与 ChatPane；当前事实见 [MTP Runtime](../../alice/mtp-runtime.md)第 5 节与 [Chat 视图](../../frontend/chat-view.md)。
 - [检索分数阈值与候选截取收敛](./retrieval-hybrid-threshold-with-reranker.md)：2026-10-12 完成，分数阈值只作用于 Dense 召回（默认 0.5），Sparse、融合与重排不设阈值；融合不再提前截取，截取只在重排之后按请求的 `top_k`（缺省为 `retrieval.default_top_k`）进行一次；当前事实见 [Patchouli 检索](../../patchouli/retrieval.md)第 4、5、9 节。
 - [TaskProcess 容器的职责与依赖方向](./task-process-container-ownership.md)：2026-10-04 完成，编排骨架从进程容器拆为所有进程共用的执行器 `TaskProcessRunner`，注册入口只持有生命周期依赖；当前事实见 [System 应用服务](../../system/application-services.md)第 3 节。

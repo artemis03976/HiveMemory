@@ -173,7 +173,7 @@ AliceBridge 不订阅 PendingAtom 结算事件；这些事件由 workspace 登�
 | 公共运行模型 | `src/hivememory/workspace/contracts/process.py`（输入清单）、`src/hivememory/core/protocol/models.py`、`core/models/{agent,pending}.py` |
 | Alice 应用与编排测试 | `tests/unit/alice/application/`、`tests/unit/alice/orchestration/` |
 | 执行与 MTP 测试 | `tests/unit/agent_runtime/` |
-| 主动与 CALL 流程 | `tests/e2e/pipeline/test_agent_loop_e2e.py`、`test_chat_run_e2e.py`、`test_sub_agent_call_e2e.py`；CALL 子线程按被调用方授权与写入归属见 `tests/e2e/system/test_alice_capability_chat.py`、`tests/integration/alice/orchestration/test_call_profile_requests.py` |
+| 主动与 CALL 流程 | `tests/e2e/pipeline/test_agent_loop_e2e.py`、`test_chat_run_e2e.py`、`test_sub_agent_call_e2e.py`；CALL 子线程按被调用方授权与写入归属见 `tests/e2e/system/test_chat_mtp_operations.py`、`tests/integration/alice/orchestration/test_call_profile_requests.py` |
 
 ## 9. 当前限制与设计张力
 

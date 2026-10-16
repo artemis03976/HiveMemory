@@ -27,7 +27,7 @@ last_reviewed: 2026-08-13
 
 ### Testing
 
-- [测试设计规范](./testing/test-design-standards.md)：测试编写的分层、断言、mock、隔离与命名规则，以及必须避免的无效测试反模式。
+- [测试设计规范](./testing/test-design-standards.md)：测试编写的分层、归属与去重、断言、mock、隔离与命名规则，必须避免的无效测试反模式，以及测试随契约演进的要求。
 
 ## 调研基线
 

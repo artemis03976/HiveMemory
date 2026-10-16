@@ -1,13 +1,10 @@
 """公开路由注册/卸载测试 — 验证 System 门面在生命周期中正确管理全局总线路由。"""
 
-import inspect
-import typing
 from unittest.mock import AsyncMock, MagicMock
 from uuid import uuid4
 
 import pytest
 
-from hivememory.alice.application.agent_run_service import AgentRunService
 from hivememory.alice.contracts.public_routes import AliceRoutes
 from hivememory.alice.system import AliceSystem
 from hivememory.components.bus.global_bus import GlobalSystemBus
@@ -20,14 +17,10 @@ from hivememory.core.models import (
     PendingAtomResolution,
     PendingAtomSettlement,
 )
-from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.patchouli.service import PatchouliService
-from hivememory.workspace.contracts import CPUInputManifest
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.operations import OperationsHarness
 
@@ -97,33 +90,6 @@ class TestAlicePublicRoutes:
 
 
 # ========== Patchouli（轻量级 — 完整集成在 test_bootstrap 中测试） ==========
-
-
-class TestChatHandoffContractShapes:
-    """prepare 拆分后的交接契约形状（PreparedAgentRun 与公开路由签名）。"""
-
-    def test_patchouli_chat_route_signatures(self):
-        """Patchouli chat 路由以 PreparedAgentRun 与 InteractionPayload 交接。"""
-        prepare_hints = typing.get_type_hints(PatchouliService.prepare_agent_run)
-        assert prepare_hints["return"] is PreparedAgentRun
-
-        finalize_hints = typing.get_type_hints(PatchouliService.finalize_agent_run)
-        assert finalize_hints["payload"] is InteractionPayload
-        finalize_params = inspect.signature(PatchouliService.finalize_agent_run).parameters
-        assert set(finalize_params) == {"self", "prepared_run", "payload", "identity_scope"}
-
-        cleanup_params = inspect.signature(
-            PatchouliService.cleanup_prepared_agent_run,
-        ).parameters
-        assert set(cleanup_params) == {"self", "prepared_run", "identity_scope"}
-
-    def test_alice_run_routes_receive_cpu_input_manifest(self):
-        """Alice 统一执行入口以 CPUInputManifest 为输入；AgentRunContext 仅内部使用。"""
-        hints = typing.get_type_hints(AgentRunService.run_agent)
-        assert hints["input_manifest"] is CPUInputManifest
-        params = inspect.signature(AgentRunService.run_agent).parameters
-        assert params["stream"].kind is inspect.Parameter.KEYWORD_ONLY
-        assert params["stream"].default is True
 
 
 class TestPatchouliPublicRoutes:

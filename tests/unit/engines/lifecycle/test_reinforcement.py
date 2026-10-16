@@ -9,12 +9,13 @@ HiveMemory - 强化引擎单元测试
 - 事件历史跟踪
 """
 
+from datetime import UTC, datetime, timedelta
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
 
 import pytest
 
-from hivememory.config.patchouli import ReinforcementEngineConfig
+from hivememory.config.patchouli import ReinforcementEngineConfig, VitalityCalculatorConfig
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -24,9 +25,21 @@ from hivememory.core.models import (
 )
 from hivememory.engines.lifecycle.models import EventType, MemoryEvent
 from hivememory.engines.lifecycle.reinforcement import DynamicReinforcementEngine
+from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from hivememory.utils.time import utc_now
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
+
+# 评分决策时刻：注入计算器的固定时钟。
+FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
+
+#: 每个事件都提交的基础 lifecycle 字段（MVL-2 受限 patch）。
+_BASE_PATCH_FIELDS = {
+    "meta.lifecycle.access_count",
+    "meta.lifecycle.last_accessed_at",
+    "meta.lifecycle.event_vitality_boost",
+    "meta.lifecycle.vitality_score",
+}
 
 
 def _identity_scope():
@@ -103,12 +116,7 @@ class TestDynamicReinforcementEngine:
         patch = self._submitted_patch()
         assert patch["meta.lifecycle.event_vitality_boost"] == self.config.hit_boost
         # HIT patch 只含 4 个基础授权字段，不提交 decay_anchor_at
-        assert set(patch) == {
-            "meta.lifecycle.access_count",
-            "meta.lifecycle.last_accessed_at",
-            "meta.lifecycle.event_vitality_boost",
-            "meta.lifecycle.vitality_score",
-        }
+        assert set(patch) == _BASE_PATCH_FIELDS
         # HIT 不推进 decay_anchor_at，也不改写内容时间 updated_at
         assert self.test_memory.meta.lifecycle.decay_anchor_at == original_decay_anchor_at
         assert self.test_memory.meta.updated_at == original_updated_at
@@ -134,34 +142,15 @@ class TestDynamicReinforcementEngine:
 
         # A2-P 契约: CITATION 推进 meta.lifecycle.decay_anchor_at，不再更新 updated_at
         patch = self._submitted_patch()
+        assert set(patch) == _BASE_PATCH_FIELDS | {"meta.lifecycle.decay_anchor_at"}
         assert patch["meta.lifecycle.decay_anchor_at"] > original_decay_anchor_at
-        assert "meta.updated_at" not in patch and "meta.lifecycle.updated_at" not in patch
         assert self.test_memory.meta.updated_at == original_updated_at
 
     @pytest.mark.asyncio
-    async def test_negative_feedback_reduces_confidence(self):
-        """测试负面反馈降低置信度"""
+    async def test_positive_feedback_accumulates_boost_without_extra_fields(self):
+        """正面反馈的加成累加进 B 项，只提交基础字段，不推进衰减基准也不改置信度"""
         self.mock_mid_term.get_by_key.return_value = self.test_memory
-        self.mock_vitality_calc.calculate.return_value = 25.0  # 降低后
-
-        event = MemoryEvent(
-            event_type=EventType.FEEDBACK_NEGATIVE, memory_id=self.test_memory.id, source="user"
-        )
-
-        result = await self.engine.reinforce(
-            _identity_scope().workspace_identity, self.test_memory.id, event
-        )
-
-        assert result.event_type == EventType.FEEDBACK_NEGATIVE
-        assert result.new_confidence < result.previous_confidence
-        # 应该降低 50%
-        assert abs(result.new_confidence - 0.4) < 0.01  # 0.8 * 0.5
-
-    @pytest.mark.asyncio
-    async def test_positive_feedback_increases_vitality(self):
-        """测试正面反馈增加生命力"""
-        self.mock_mid_term.get_by_key.return_value = self.test_memory
-        self.mock_vitality_calc.calculate.return_value = 100.0  # 大幅提升
+        self.mock_vitality_calc.calculate.return_value = 100.0
 
         event = MemoryEvent(
             event_type=EventType.FEEDBACK_POSITIVE, memory_id=self.test_memory.id, source="user"
@@ -172,7 +161,9 @@ class TestDynamicReinforcementEngine:
         )
 
         assert result.event_type == EventType.FEEDBACK_POSITIVE
-        assert result.new_vitality > result.previous_vitality
+        patch = self._submitted_patch()
+        assert set(patch) == _BASE_PATCH_FIELDS
+        assert patch["meta.lifecycle.event_vitality_boost"] == self.config.positive_feedback_boost
 
     @pytest.mark.asyncio
     async def test_negative_feedback_applies_vitality_penalty_after_recalculate(self):
@@ -199,7 +190,33 @@ class TestDynamicReinforcementEngine:
             self.config.negative_feedback_penalty
         )
         # FEEDBACK_NEGATIVE 额外提交 confidence_score（×0.5 后的完整值）
+        assert set(patch) == _BASE_PATCH_FIELDS | {"meta.lifecycle.confidence_score"}
         assert patch["meta.lifecycle.confidence_score"] == pytest.approx(0.4)
+
+    @pytest.mark.asyncio
+    async def test_recalculation_includes_this_event_boost_and_access(self):
+        """重算发生在本次事件加成与访问计数生效之后，提交的分数已包含本次事件。"""
+        engine = DynamicReinforcementEngine(
+            mid_term=self.mock_mid_term,
+            vitality_calculator=VitalityCalculator(
+                VitalityCalculatorConfig(), now=lambda: FIXED_NOW
+            ),
+            config=self.config,
+        )
+        lifecycle = self.test_memory.meta.lifecycle
+        lifecycle.access_count = 0
+        lifecycle.event_vitality_boost = 0.0
+        lifecycle.decay_anchor_at = FIXED_NOW - timedelta(days=30)
+        self.mock_mid_term.get_by_key.return_value = self.test_memory
+
+        event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
+        result = await engine.reinforce(
+            _identity_scope().workspace_identity, self.test_memory.id, event
+        )
+
+        # FACT 衰减 30 天 ≈71.89，加一次访问 10·ln2 ≈6.93 与 HIT 加成 5（固定期望值）
+        assert result.new_vitality == pytest.approx(83.82, abs=0.01)
+        assert self._submitted_patch()["meta.lifecycle.vitality_score"] == result.new_vitality
 
     @pytest.mark.asyncio
     async def test_reinforcement_clamps_vitality_to_valid_range(self):

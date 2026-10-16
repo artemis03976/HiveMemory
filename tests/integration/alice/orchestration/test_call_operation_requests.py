@@ -35,18 +35,10 @@ from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
 
 @pytest.mark.asyncio
-async def test_callee_uses_own_verbs_and_ignores_legacy_profile_permissions():
-    """子帧使用被调用方的 WRITE 快照，不继承父帧 READ；Profile 旧权限字段不生效。"""
+async def test_callee_frame_uses_callee_verbs_without_call():
+    """子帧按被调用方的操作快照翻译动词并去掉 CALL，不继承父帧 READ。"""
     harness = OperationsHarness(GlobalSystemBus())
-    profile = AgentProfile.model_validate(
-        {
-            "agent_id": "callee",
-            "persona": "被调用人设",
-            "language": "en",
-            "allowed_mtp_verbs": [],
-            "allowed_sys_tools": [],
-        }
-    )
+    profile = AgentProfile(agent_id="callee", persona="被调用人设", language="en")
 
     async def profile_route(_alias, **_kwargs):
         return ResolvedAgentProfile(profile=profile)

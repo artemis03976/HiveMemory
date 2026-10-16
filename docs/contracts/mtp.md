@@ -250,7 +250,7 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 
 - parser / filter：`tests/unit/core/mtp/`；
 - verb 链路：`tests/integration/mtp/`；操作入口、引用计数与撤销边界：`tests/integration/workspace/test_operation_requests.py`、`test_reference_citations.py`；
-- HTTP 单轮 SEARCH/READ/WRITE/CALL 与真实记忆结算：`tests/e2e/system/test_alice_capability_chat.py`；
+- HTTP 单轮 SEARCH/READ/WRITE/CALL 与真实记忆结算：`tests/e2e/system/test_chat_mtp_operations.py`；
 - alias / PendingAtom：`tests/unit/workspace/intents/test_registry.py`、`tests/unit/workspace/resolution/test_alias_resolver.py` 与 `tests/integration/workspace/test_intent_registry_and_read_cache.py`；
 - CALL：`tests/unit/core/mtp/test_call_response_formatting.py`、Alice RunExecutor/CallContextProvider/CallCoordinator 测试；
 - syscall：`tests/unit/agent_runtime/mtp/syscalls/`；

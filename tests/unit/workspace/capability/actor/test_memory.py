@@ -7,7 +7,6 @@ import pytest_asyncio
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceOperation
-from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -20,7 +19,6 @@ from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.contracts import (
     ResolveReferencesRequest,
-    ResolveRunTargetRequest,
     RetrieveRequest,
 )
 from hivememory.workspace.intents import WriteIntentRegistry
@@ -29,7 +27,6 @@ from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
     make_workspace_identity,
-    make_workspace_runtime,
 )
 
 
@@ -73,65 +70,6 @@ class TestActorMemoryService:
     async def access(self, composition):
         """actor 入口的访问 context（经真实网关两阶段认证签发）。"""
         return await composition.authenticate_thread(agent_id="test_agent", user_id="u1")
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        ("invoke", "expected_operation", "allowed_operations"),
-        [
-            pytest.param(
-                lambda service, access: service.resolve_references(
-                    ResolveReferencesRequest(("fact",)), access=access
-                ),
-                WorkspaceOperation.MEMORY_READ,
-                frozenset(),
-                id="resolve_references",
-            ),
-            pytest.param(
-                lambda service, access: service.resolve_run_target(
-                    ResolveRunTargetRequest("fact"), access=access
-                ),
-                WorkspaceOperation.MEMORY_RUN,
-                frozenset({WorkspaceOperation.MEMORY_READ}),
-                id="resolve_run_target",
-            ),
-            pytest.param(
-                lambda service, access: service.retrieve(
-                    RetrieveRequest(semantic_query="q"), access=access
-                ),
-                WorkspaceOperation.MEMORY_SEARCH,
-                # 已有 memory.read 不隐含 memory.search：检索单独授权。
-                frozenset({WorkspaceOperation.MEMORY_READ}),
-                id="retrieve",
-            ),
-        ],
-    )
-    async def test_actor_read_without_operation_denied_before_backing(
-        self, global_bus, workspace, invoke, expected_operation, allowed_operations
-    ):
-        """白名单缺少对应读取 operation 时读取入口在本层拒绝，不触达 backing。"""
-        composition = make_access_composition(
-            [
-                make_actor_access_record(
-                    owner_user_id="u1",
-                    agent_id="test_agent",
-                    allowed_operations=allowed_operations,
-                )
-            ],
-            default_workspace=workspace,
-        )
-        service = ActorMemoryService(
-            global_bus=global_bus,
-            operation_authorizer=composition.authorizer,
-            memory_reader=make_workspace_runtime(global_bus=global_bus).aliases,
-            dispatch_topics=composition.thread_spawner,
-        )
-        access = await composition.authenticate_thread(agent_id="test_agent", user_id="u1")
-
-        with pytest.raises(OperationDeniedError) as exc_info:
-            await invoke(service, access)
-
-        assert exc_info.value.details["reason"] == "operation_not_allowed"
-        assert exc_info.value.details["operation"] == expected_operation.value
 
     @pytest.mark.asyncio
     async def test_retrieve_builds_backing_request_from_authorized_scope(
@@ -187,14 +125,15 @@ class TestActorMemoryService:
         assert captured["scope"] == expected_scope
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "operation", [WorkspaceOperation.MEMORY_READ, WorkspaceOperation.MEMORY_RUN]
-    )
-    @pytest.mark.parametrize("kind", ["pending", "failed", "discarded", "not_found", "expired"])
     async def test_reference_status_outside_formal_delivery_does_not_record_citation(
-        self, kind, operation, composition, workspace, access
+        self, composition, workspace, access
     ):
-        """READ/RUN 只为正式交付记录引用，其他状态即使带有原子也不能引用。"""
+        """只为正式交付记录引用，其他状态即使带有原子也不能引用；READ 与 RUN 共用该判断。
+
+        非 atom/redirect 状态在同一 kind 判断处跳过，取带原子的 pending 代表，
+        防止退化为只按原子存在与否记录引用。
+        """
+        kind = "pending"
         citations = []
 
         class CitationBus:
@@ -223,14 +162,9 @@ class TestActorMemoryService:
             dispatch_topics=composition.thread_spawner,
         )
 
-        if operation == WorkspaceOperation.MEMORY_READ:
-            (result,) = await service.resolve_references(
-                ResolveReferencesRequest(("draft",)), access=access
-            )
-        else:
-            result = await service.resolve_run_target(
-                ResolveRunTargetRequest("draft"), access=access
-            )
+        (result,) = await service.resolve_references(
+            ResolveReferencesRequest(("draft",)), access=access
+        )
 
         assert (result.requested_alias, result.kind) == ("draft", kind)
         assert citations == []

@@ -85,3 +85,17 @@ def test_create_applies_default_title_and_explicit_title():
     assert titled_topic.topic_title == "Session"
     assert titled_topic.topic_summary == "sum"
     assert store.count(scope.workspace_identity) == 2
+
+
+@pytest.mark.unit
+def test_non_empty_listing_keeps_summary_only_topic():
+    """include_empty=False 按内容判断：只有折叠摘要、没有 block 的话题仍然列出。"""
+    store = ShortTermMemoryStore()
+    scope = make_identity_scope()
+    store.create(scope.workspace_identity)
+    summary_only = store.create(scope.workspace_identity)
+    store.put(summary_only.model_copy(update={"state_summary": "已经折叠的历史内容"}))
+
+    topics = store.list_by_workspace(scope.workspace_identity, include_empty=False)
+
+    assert [topic.topic_id for topic in topics] == [summary_only.topic_id]

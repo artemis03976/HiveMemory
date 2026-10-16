@@ -69,3 +69,12 @@ def test_reduce_keeps_control_actions():
     assert [trace.action for trace in traces] == ["WRITE", "UPDATE", "CALL"]
     assert [trace.target for trace in traces] == ["memo", "memo", "sub_agent"]
     assert all(trace.status == "unknown" for trace in traces)
+
+
+def test_reduce_search_without_query_keeps_query_empty():
+    traces = TraceReducer.reduce([_action("a8", "SEARCH", tool_name="*")])
+    assert [(trace.action, trace.query) for trace in traces] == [("SEARCH", None)]
+
+
+def test_reduce_drops_unknown_tool_kind():
+    assert TraceReducer.reduce([_action("a9", "UNKNOWN")]) == []

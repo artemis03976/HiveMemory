@@ -170,9 +170,9 @@ WRITE 表达式和简单寒暄正则直接写在代码中，语言覆盖有限�
 
 ## 9. 验证入口
 
-- `tests/unit/gateway/test_phase3d_context_provider.py`
-- `tests/unit/gateway/test_phase3e_analysis_resolver.py`
+- `tests/unit/gateway/test_context_provider.py`
+- `tests/unit/gateway/test_analysis_resolver.py`
 - `tests/unit/engines/gateway/test_topic_router.py`
 - `tests/unit/engines/gateway/test_query_understanding.py`
 - `tests/unit/engines/gateway/test_interceptors.py`
-- `tests/unit/patchouli/test_phase3f_gateway_decision.py`
+- `tests/unit/patchouli/test_service_gateway_decision.py`

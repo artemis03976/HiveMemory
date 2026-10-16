@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-16
 ---
 
 # Todo
@@ -24,6 +24,10 @@ last_reviewed: 2026-10-12
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
 - [engines 对上层的既有导入](./engines-upward-imports.md)（包分层登记的 10 处已知例外，原记录于 Workspace 网络与任务进程架构 Idea）；
 - [RUN 目标的可执行性检查](./run-target-executability-check.md)（能力层分层审查遗留：只有 `memory.run` 的 actor 可经 RUN 的错误探测可见记忆的类型与存在，不可执行目标也记录引用）；
+
+原“Profile 管理列表的可见性语义”于 2026-10-16 修复并归档（root Profile 列表改按 owner-management 语义列出 Workspace 内全部 Profile）：[归档记录](../archive/todo/agent-profile-management-list-visibility.md)；当前事实见[路由与事件契约](../contracts/routes-and-events.md)。
+
+原“测试套件冗余收敛后续”于 2026-10-16 完成并归档（按冻结基线收敛参数化矩阵、测试随归属迁入 owner、退役类型层测试，生命周期评分与强化组并入 owner）：[归档记录](../archive/todo/test-suite-redundancy-follow-ups.md)；现行规则见[测试设计规范](../governance/testing/test-design-standards.md)第 4 节。
 
 原“kernel 遗留命名清理”于 2026-10-12 实施并归档（系统工具保留 syscall 命名只去掉 Kernel，提示词移除 kernel 与 HiveOS，前端观测面板改称 Workspace Vision，Chat 页面与中间栏改称 Chat View 与 ChatPane）：[归档记录](../archive/todo/kernel-legacy-naming.md)；当前事实见 [MTP Runtime](../alice/mtp-runtime.md) 与 [Chat 视图](../frontend/chat-view.md)。
 

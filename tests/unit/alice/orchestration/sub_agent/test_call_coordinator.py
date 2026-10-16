@@ -1,4 +1,11 @@
+"""CallCoordinator 单元测试。
+
+Coordinator 与其持有的 RunSession 调用记录属于同一内聚单元，均使用真实对象；
+context provider、frame factory、prompt assembler 与 runtime 的 frame 执行为替身。
+"""
+
 import asyncio
+import logging
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -9,9 +16,11 @@ from hivememory.agent_runtime.models import (
     FrameExecutionResult,
     FrameExecutionStatus,
 )
+from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.agent_runtime.products import FrameProducts
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.frame_factory import FrameFactory
+from hivememory.alice.orchestration.run_output import CallOutputFinished
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     CallCoordinator,
@@ -19,11 +28,11 @@ from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     ResumeCaller,
 )
 from hivememory.alice.orchestration.sub_agent.call_record import CallRecord, CallRecordStatus
-from hivememory.core.models import OMNI_DOLL_PROFILE, PendingAtomStatus, TurnEvent, WriteFocus
+from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
+from hivememory.core.mtp.exceptions import PermissionDeniedError, SystemFault
 from tests.helpers.call import make_call_context
-from tests.helpers.operations import OperationsHarness
-from tests.helpers.workspace import make_identity_scope, make_runtime_scope
+from tests.helpers.workspace import make_runtime_scope
 
 
 def _frame(
@@ -93,6 +102,29 @@ def _session(caller: ExecutionFrame) -> RunSession:
     session = RunSession(agent_run_id=caller.runtime_scope.run_id)
     session.register_frame(caller)
     return session
+
+
+def _child() -> ExecutionFrame:
+    child = _frame()
+    child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
+    return child
+
+
+class _RecordingRunOutput:
+    """只记录 CALL 结束输出的 run output 替身。"""
+
+    def __init__(self) -> None:
+        self.call_finished_outputs: list[CallOutputFinished] = []
+        self._frame_output = NullFrameOutputSink()
+
+    def for_frame(self, *_args, **_kwargs):
+        return self._frame_output
+
+    async def call_started(self, _output) -> None:
+        return None
+
+    async def call_finished(self, output: CallOutputFinished) -> None:
+        self.call_finished_outputs.append(output)
 
 
 def test_apply_call_response_is_exactly_once_and_updates_call_pair():
@@ -312,58 +344,6 @@ async def test_cancelled_callee_resumes_caller_when_run_is_not_cancelled():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "status",
-    [
-        FrameExecutionStatus.FAILED,
-        FrameExecutionStatus.CANCELLED,
-        FrameExecutionStatus.BUDGET_EXHAUSTED,
-        FrameExecutionStatus.COMPLETED,
-    ],
-)
-async def test_callee_terminal_status_preserves_its_acknowledged_intents(status):
-    """子帧任意终态都不撤回已接纳意图；调用方意图同样继续物化。"""
-    harness = OperationsHarness()
-    scope = make_identity_scope(user_id="u1", agent_id="writer")
-    submit_operation = await harness.submitter(scope, "process-1")
-    caller = _frame()
-    child = _frame()
-    child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
-    child.submit_operation = submit_operation
-    from hivememory.workspace.contracts import SubmitWriteIntentRequest
-
-    caller_intent = await submit_operation(
-        SubmitWriteIntentRequest(WriteFocus(content="caller draft"))
-    )
-    child_intent = await submit_operation(
-        SubmitWriteIntentRequest(WriteFocus(content="child draft"))
-    )
-    child.add_harvested_alias(child_intent.pending_alias)
-    runtime = SimpleNamespace(
-        max_iterations=8,
-        finalize_frame=MagicMock(return_value=FrameProducts()),
-        apply_call_response=MagicMock(),
-    )
-    coordinator = _coordinator(runtime, child)
-    session = _session(caller)
-    suspension = _suspension()
-
-    await coordinator.begin_call(caller, suspension, session=session)
-    await coordinator.complete_call(
-        caller,
-        suspension,
-        child,
-        FrameExecutionResult(status=status),
-        session=session,
-    )
-
-    assert [
-        harness.registry.get(intent.pending_alias, scope.workspace_identity).status
-        for intent in (child_intent, caller_intent)
-    ] == [PendingAtomStatus.MATERIALIZING, PendingAtomStatus.MATERIALIZING]
-
-
-@pytest.mark.asyncio
 async def test_call_response_is_committed_before_finished_output_await():
     caller = _frame()
     child = _frame()
@@ -514,3 +494,95 @@ async def test_child_frame_inherits_caller_observation_labels() -> None:
     assert result.frame.runtime_scope.labels == caller.runtime_scope.labels
     assert result.frame.runtime_scope.run_id == caller.runtime_scope.run_id
     assert result.frame.runtime_scope.frame_id != caller.runtime_scope.frame_id
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected_level", "expected_log"),
+    [
+        (
+            PermissionDeniedError("denied"),
+            logging.WARNING,
+            "CALL target resolution rejected",
+        ),
+        (
+            SystemFault("profile route unavailable"),
+            logging.ERROR,
+            "CALL context preparation failed",
+        ),
+    ],
+)
+async def test_call_context_error_is_returned_without_dispatching_child(
+    error,
+    expected_level,
+    expected_log,
+    caplog,
+):
+    """目标解析被拒与上下文准备故障分别以对应级别记录，并回填稳定错误码且不派发子帧。"""
+    caller = _frame()
+    child = _child()
+    runtime = SimpleNamespace(
+        max_iterations=8,
+        run_frame=AsyncMock(),
+        finalize_frame=MagicMock(return_value=FrameProducts()),
+    )
+    context_provider = SimpleNamespace(provide=AsyncMock(side_effect=error))
+    coordinator = _coordinator(runtime, child, context_provider=context_provider)
+    output = _RecordingRunOutput()
+
+    with caplog.at_level(logging.DEBUG):
+        transition = await coordinator.begin_call(
+            caller,
+            _suspension(),
+            session=_session(caller),
+            run_output=output,
+        )
+    response = runtime.apply_call_response.call_args.args[2]
+
+    assert transition == ResumeCaller()
+    assert response.status == MTPResponseStatus.ERROR
+    assert response.error is not None
+    assert response.error.code == error.code
+    runtime.run_frame.assert_not_awaited()
+    runtime.finalize_frame.assert_not_called()
+    assert len(output.call_finished_outputs) == 1
+    assert output.call_finished_outputs[0].frame_id is None
+    assert any(
+        record.levelno == expected_level and expected_log in record.getMessage()
+        for record in caplog.records
+    )
+
+
+@pytest.mark.asyncio
+async def test_artifact_harvest_failure_becomes_stable_call_error_and_cleans_child():
+    """子帧产物收割失败时回填稳定 CALL 错误，并以 FAILED 再次收尾子帧。"""
+    caller = _frame()
+    child = _child()
+    child_result = FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+    runtime = SimpleNamespace(
+        max_iterations=8,
+        run_frame=AsyncMock(return_value=child_result),
+        finalize_frame=MagicMock(side_effect=[RuntimeError("harvest failed"), FrameProducts()]),
+    )
+    coordinator = _coordinator(runtime, child)
+
+    suspension = _suspension()
+    session = _session(caller)
+    begin = await coordinator.begin_call(caller, suspension, session=session)
+    assert begin == DispatchCallee(child)
+    transition = await coordinator.complete_call(
+        caller,
+        suspension,
+        child,
+        child_result,
+        session=session,
+    )
+    response = runtime.apply_call_response.call_args.args[2]
+
+    assert transition == ResumeCaller()
+    assert response.status == MTPResponseStatus.ERROR
+    assert response.error is not None
+    assert response.error.code == "mtp.call_response.sub_agent_error"
+    assert runtime.finalize_frame.call_count == 2
+    cleanup_result = runtime.finalize_frame.call_args.args[1]
+    assert cleanup_result.status == FrameExecutionStatus.FAILED

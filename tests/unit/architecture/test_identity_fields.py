@@ -1,20 +1,16 @@
-"""领域模型裸 user_id 字段守卫（v0.6.2 B2 验收）。
+"""领域模型身份字段的静态约束。
 
 扫描 ``core/models`` 与 ``engines`` 的类级字段声明，断言不存在白名单外的
 裸 ``user_id`` 字段：actor 语义一律收敛到 ``ActorIdentity``，owner 语义使用
-``WorkspaceIdentity.owner_user_id``。
-
-白名单约定（v0.6.2 计划 §2/§7）：
-- ``core/models/identity.py``：``ActorIdentity.user_id`` 是权威字段本身；
-- ``memory.py`` 的存储平铺投影与 passive 命名键不在扫描范围或以注释说明，
-  保留至「Workspace 历史数据转换」独立迁移切片处理。
+``WorkspaceIdentity.owner_user_id``；``ActorIdentity.user_id`` 是权威字段本身。
+默认用户回退只允许出现在定义处、``ActorIdentity`` 默认值与 HTTP 顶层身份解析。
 """
 
 import ast
 from pathlib import Path
 
 # 相对仓库根目录的扫描范围与白名单（文件名 → 允许原因）
-_REPO_ROOT = Path(__file__).resolve().parents[4]
+_REPO_ROOT = Path(__file__).resolve().parents[3]
 _SCAN_DIRS = (
     _REPO_ROOT / "src" / "hivememory" / "core" / "models",
     _REPO_ROOT / "src" / "hivememory" / "engines",
@@ -41,7 +37,7 @@ def _class_level_user_id_fields(path: Path) -> list[str]:
     return hits
 
 
-# DEFAULT_USER_ID / normalize_user_id 的合法使用边界（v0.6.2 计划 §4）：
+# DEFAULT_USER_ID / normalize_user_id 的合法使用边界：
 # 1. core/constants.py —— 定义处；
 # 2. core/models/identity.py —— ActorIdentity 字段默认值；
 # 3. server/deps.py —— HTTP 顶层身份解析的唯一缺省回退点。

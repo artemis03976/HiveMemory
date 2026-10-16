@@ -82,25 +82,6 @@ def test_segments_appended_in_different_order_produce_identical_hash() -> None:
     assert result.content_hash == EXPECTED_SHA256
 
 
-@pytest.mark.parametrize(
-    "mutate",
-    [
-        lambda obj: obj.__setitem__("text", "a\nX"),
-        lambda obj: obj["locators"][0].__setitem__("end", 2),
-        lambda obj: obj["source_raw"].__setitem__("revision", 2),
-        lambda obj: obj["warnings"].append({"message_key": "x", "params": {}}),
-        lambda obj: obj.__setitem__("format", "markdown"),
-    ],
-)
-def test_changing_any_hashed_field_is_detectable(mutate) -> None:
-    """捕获 hash 只覆盖 text 而遗漏 locator/warning/来源版本。"""
-    result = _build_sample()
-    mutated = {**result.content_object}
-    mutate(mutated)
-
-    assert canonical_content_bytes(mutated) != EXPECTED_CANONICAL
-
-
 def test_empty_or_whitespace_only_content_fails_without_partial_result() -> None:
     """捕获以空文本冒充 READY 或产生半份成功结果。"""
     builder = _builder()

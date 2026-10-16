@@ -33,7 +33,6 @@ def _parse_xml_block(formatted: str) -> tuple[ET.Element, str]:
     "content",
     [
         "if a < b && c > d; quotes=\"value\"/'value'",
-        "already encoded: &lt;tag&gt; &amp;",
         "before ]]> after",
         '<content><nested attr="a&b">值</nested></content>',
     ],
@@ -61,6 +60,8 @@ def test_preencoded_entities_are_not_escaped_again():
     assert "&lt;tag&gt; &amp;" in xml_block
     assert "&amp;lt;" not in xml_block
     assert root.text == f"\n{content}\n"
+    assert list(root) == []
+    assert "<![CDATA[" in xml_block
 
 
 def test_unicode_and_long_content_round_trip():

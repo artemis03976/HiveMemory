@@ -45,9 +45,12 @@ pytestmark = pytest.mark.integration
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", ["completed", "cancelled", "failed"])
-@pytest.mark.parametrize("new_topic", [False, True])
-async def test_process_terminal_status_preserves_dispatched_intents(status, new_topic):
-    """完成、取消与失败都不撤回已经派发的意图。"""
+async def test_process_terminal_status_preserves_dispatched_intents(status):
+    """完成、取消与失败都不撤回已经派发的意图。
+
+    Gateway 决定新建话题，prepare 返回预建话题：意图话题必须取 prepare 结果，
+    不能沿用 Gateway 的目标标记。
+    """
     access = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="omni_doll")]
     )
@@ -71,9 +74,7 @@ async def test_process_terminal_status_preserves_dispatched_intents(status, new_
         submitted.append(await submit(SubmitWriteIntentRequest(focus=WriteFocus(content="本进程"))))
 
     async def gateway(**_kwargs):
-        return GatewayDecisionOutcome(
-            decision=make_gateway_decision(target_topic_id="NEW_TOPIC" if new_topic else "topic-1")
-        )
+        return GatewayDecisionOutcome(decision=make_gateway_decision(target_topic_id="NEW_TOPIC"))
 
     async def profile(*_args, **_kwargs):
         return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
@@ -82,8 +83,8 @@ async def test_process_terminal_status_preserves_dispatched_intents(status, new_
         return make_prepared_run(
             interaction_id=interaction_id,
             identity_scope=identity_scope,
-            topic_id="prebuilt-topic" if new_topic else "topic-1",
-            is_new_topic=new_topic,
+            topic_id="prebuilt-topic",
+            is_new_topic=True,
         )
 
     async def finalize(*, payload, **_kwargs):
@@ -122,7 +123,7 @@ async def test_process_terminal_status_preserves_dispatched_intents(status, new_
         assert result.execution_result.status == status
         intent, scope = admission.submissions[0]
         assert (intent.topic_id, scope.actor_identity) == (cpu.calls[0].manifest.topic_id, actor)
-        assert intent.topic_id == ("prebuilt-topic" if new_topic else "topic-1")
+        assert intent.topic_id == "prebuilt-topic"
         current = runtime.intents.get(submitted[0].pending_alias, workspace)
         assert current.status == PendingAtomStatus.MATERIALIZING
         assert (

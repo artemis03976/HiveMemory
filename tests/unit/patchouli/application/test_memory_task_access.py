@@ -1,11 +1,10 @@
 """MemoryTaskManagementService 归属校验的单元测试。
 
-被测对象（A1 访问边界返工第 4.5/4.6 节）：
-- 本层是授权点以下的资源 owner：任务管理的 root 授权在 workspace 能力层，公开方法不接收 ``access`` 参数；
+被测对象：授权点以下的资源 owner（任务管理的 root 授权在 workspace 能力层）：
 - 任务必须携带归属投影且属于 scope 的 Workspace：跨 Workspace 与不存在
   统一按 not found 拒绝，不泄漏其他 Workspace 的任务存在性；
 - 列表按 scope 的 Workspace 过滤；
-- 显式传入 None 或非 ``IdentityScope`` 时以 ``ScopeRequiredError`` 拒绝，不触达任务控制面。
+- 每个入口传入非 ``IdentityScope`` 时以 ``ScopeRequiredError`` 拒绝，不触达任务控制面。
 """
 
 from __future__ import annotations
@@ -153,42 +152,18 @@ def test_list_memory_tasks_filters_to_own_workspace():
 @pytest.mark.parametrize(
     "invoke",
     [
-        lambda svc: svc.list_memory_tasks(),
-        lambda svc: svc.get_memory_task("active:i1"),
-        lambda svc: svc.cancel_memory_task("active:i1"),
-    ],
-    ids=["list_memory_tasks", "get_memory_task", "cancel_memory_task"],
-)
-def test_missing_identity_scope_rejected_as_required_argument(invoke):
-    """identity_scope 缺失由必填签名拒绝，且不触达任务控制面。"""
-    bus = FakeTaskBus([])
-    service = MemoryTaskManagementService(bus=bus)
-
-    with pytest.raises(TypeError, match="identity_scope"):
-        _run(invoke(service))
-    assert bus.requested == []
-
-
-@pytest.mark.parametrize(
-    "bad_scope",
-    [None, MAIN],
-    ids=["none", "workspace_identity"],
-)
-@pytest.mark.parametrize(
-    "invoke",
-    [
         lambda svc, scope: svc.list_memory_tasks(identity_scope=scope),
         lambda svc, scope: svc.get_memory_task("active:i1", identity_scope=scope),
         lambda svc, scope: svc.cancel_memory_task("active:i1", identity_scope=scope),
     ],
     ids=["list_memory_tasks", "get_memory_task", "cancel_memory_task"],
 )
-def test_non_scope_identity_rejected_before_reaching_task_control(invoke, bad_scope):
-    """显式传入 None 或非 IdentityScope 时按 ScopeRequiredError 拒绝，且不触达任务控制面。"""
+def test_non_scope_identity_rejected_before_reaching_task_control(invoke):
+    """误传归属而非 IdentityScope 时每个入口都按 ScopeRequiredError 拒绝，且不触达任务控制面。"""
     bus = FakeTaskBus([_task()])
     service = MemoryTaskManagementService(bus=bus)
 
     with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
-        _run(invoke(service, bad_scope))
+        _run(invoke(service, MAIN))
     assert bus.requested == []
     assert bus.cancelled == []

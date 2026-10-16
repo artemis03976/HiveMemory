@@ -1,13 +1,47 @@
-from unittest.mock import AsyncMock
+"""MemoryManagementService 单元测试。
+
+被测对象：Patchouli 记忆管理与读取 backing 的应用服务。本层位于授权点以下，只接收
+授权点组装的 ``IdentityScope``；local bus 为记录型假总线（边界外协作者）。
+
+转发的参数形状由类型化 route 与 mypy 约束，经全局总线到真实 handler 的链路见
+``tests/integration/workspace/test_application_access_boundary.py``。本文件只守护本层
+自己的判断：
+- scope 类型与资源归属校验，拒绝时不触达后端；
+- 管理读取（owner-management，不做 Agent 可见性过滤）与 actor 读取的语义区分；
+- 列表的类型排除与生命力刷新编排；
+- 检索请求在边界拆分为归属与可见性主体。
+"""
+
+from __future__ import annotations
+
+import asyncio
 from uuid import uuid4
 
 import pytest
 
-from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+from hivememory.core.errors import ScopeRequiredError, WorkspaceMismatchError
+from hivememory.core.models import IdentityScope, IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.patchouli.application import MemoryManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_identity_scope, make_workspace_identity
+
+
+class RecordingBus:
+    """记录局部路由调用并按路由返回预置结果的假总线（边界外协作者）。"""
+
+    def __init__(self, responses=None):
+        self.calls: list[tuple[str, tuple, dict]] = []
+        self._responses = responses or {}
+
+    async def request(self, route, *args, **kwargs):
+        self.calls.append((route, args, kwargs))
+        return self._responses.get(route)
+
+
+def _run(coro):
+    return asyncio.run(coro)
 
 
 def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
@@ -24,100 +58,144 @@ def _make_memory_atom(title: str = "Test", user_id: str = "u1") -> MemoryAtom:
     )
 
 
-@pytest.fixture
-def bus():
-    bus = AsyncMock()
-    bus.request = AsyncMock()
-    return bus
+def _scope() -> IdentityScope:
+    return make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
 
 
-@pytest.mark.asyncio
-async def test_list_memories_uses_memory_list_and_refreshes_vitality(bus):
-    atom = _make_memory_atom()
+# ---- scope 与资源归属 ----
 
-    async def request(route, *args, **kwargs):
-        if route == PatchouliLocalRoutes.MEMORY_LIST:
-            return [atom]
-        if route == PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY:
-            return None
-        raise AssertionError(route)
 
-    bus.request.side_effect = request
+def test_identity_scope_wrong_type_rejected_as_scope_required():
+    """identity_scope 类型错误（如传入 WorkspaceIdentity）按 ScopeRequiredError 拒绝。"""
+    bus = RecordingBus()
+
+    with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
+        _run(
+            MemoryManagementService(bus=bus).read_memory(
+                str(uuid4()),
+                identity_scope=make_workspace_identity(owner_user_id="u1"),
+            )
+        )
+    assert bus.calls == []
+
+
+def test_create_memory_forwards_only_atoms_owned_by_scope_workspace():
+    """归属与 scope 一致的 atom 交给 MEMORY_CREATE；异域 atom 按 WorkspaceMismatchError 拒绝且不触达后端。"""
+    bus = RecordingBus()
     service = MemoryManagementService(bus=bus)
-    identity_scope = make_identity_scope(user_id="u1")
+    scope = _scope()
+    owned = _make_memory_atom()
 
-    atoms = await service.list_memories(
-        identity_scope=identity_scope,
-        filters={"index.memory_type": "FACT"},
-        limit=10,
-    )
-    assert atoms == [atom]
+    _run(service.create_memory(scope, owned))
+    with pytest.raises(WorkspaceMismatchError, match="workspace.mismatch"):
+        _run(service.create_memory(scope, _make_memory_atom(user_id="u2")))
 
-    # 编排顺序契约：MEMORY_LIST → REFRESH_MEMORY_VITALITY(persist=False)
-    assert bus.request.await_args_list[0].args == (PatchouliLocalRoutes.MEMORY_LIST,)
-    assert bus.request.await_args_list[0].kwargs == {
-        "query": None,
-        "filters": {"index.memory_type": "FACT"},
-        "limit": 10,
-        "belong_to": identity_scope.workspace_identity,
-        "from_actor": identity_scope.actor_identity,
-        # owner-management 语义（D4）：管理读取不做 Agent 可见性过滤
-        "enforce_actor_visibility": False,
-    }
-    assert bus.request.await_args_list[1].args == (
-        PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
-        [atom],
-    )
-    assert bus.request.await_args_list[1].kwargs == {"persist": False}
+    assert [(route, args) for route, args, _ in bus.calls] == [
+        (PatchouliLocalRoutes.MEMORY_CREATE, (scope.workspace_identity, owned))
+    ]
 
 
-@pytest.mark.asyncio
-async def test_list_memories_excludes_agent_profiles_after_route_response(bus):
+# ---- 管理读取与 actor 读取的可见性语义 ----
+
+
+@pytest.mark.parametrize(
+    ("invoke", "route", "enforce_actor_visibility"),
+    [
+        (
+            lambda svc, scope: svc.get_memory(
+                str(uuid4()), identity_scope=scope, refresh_vitality=False
+            ),
+            PatchouliLocalRoutes.MEMORY_GET,
+            False,
+        ),
+        (
+            lambda svc, scope: svc.list_memories(identity_scope=scope, refresh_vitality=False),
+            PatchouliLocalRoutes.MEMORY_LIST,
+            False,
+        ),
+        (
+            lambda svc, scope: svc.read_memory(
+                str(uuid4()), identity_scope=scope, refresh_vitality=False
+            ),
+            PatchouliLocalRoutes.MEMORY_GET,
+            True,
+        ),
+    ],
+    ids=["management-get", "management-list", "actor-read"],
+)
+def test_read_entries_carry_their_visibility_semantics(invoke, route, enforce_actor_visibility):
+    """管理读取在归属硬边界内跳过 Agent 可见性过滤；actor 读取强制可见性。
+
+    每个入口各自声明可见性语义，任一入口取错值都会让管理视图漏项或让 actor 越权读取。
+    """
+    bus = RecordingBus({PatchouliLocalRoutes.MEMORY_LIST: []})
+    scope = _scope()
+
+    _run(invoke(MemoryManagementService(bus=bus), scope))
+
+    [(called_route, _, kwargs)] = bus.calls
+    assert called_route == route
+    assert kwargs["belong_to"] == scope.workspace_identity
+    assert kwargs["from_actor"] == scope.actor_identity
+    assert kwargs["enforce_actor_visibility"] is enforce_actor_visibility
+
+
+# ---- 列表与点读的编排 ----
+
+
+def test_list_memories_excludes_types_then_refreshes_remaining_without_persisting():
+    """类型排除在路由返回后执行，只为保留的原子刷新生命力，刷新不持久化。"""
     fact = _make_memory_atom(title="Fact")
     profile = _make_memory_atom(title="Agent")
     profile.index.memory_type = MemoryType.AGENT_PROFILE
-    bus.request.return_value = [fact, profile]
-    service = MemoryManagementService(bus=bus)
-    identity_scope = make_identity_scope(user_id="u1")
+    bus = RecordingBus({PatchouliLocalRoutes.MEMORY_LIST: [fact, profile]})
 
-    atoms = await service.list_memories(
-        identity_scope=identity_scope,
-        query="test",
-        limit=5,
-        exclude_types=[MemoryType.AGENT_PROFILE.value],
-        refresh_vitality=False,
+    atoms = _run(
+        MemoryManagementService(bus=bus).list_memories(
+            identity_scope=_scope(),
+            filters={"index.memory_type": "FACT"},
+            limit=10,
+            exclude_types=[MemoryType.AGENT_PROFILE.value],
+        )
     )
 
     assert atoms == [fact]
-    bus.request.assert_awaited_once_with(
+    assert [route for route, _, _ in bus.calls] == [
         PatchouliLocalRoutes.MEMORY_LIST,
-        belong_to=identity_scope.workspace_identity,
-        from_actor=identity_scope.actor_identity,
-        query="test",
-        filters=None,
-        limit=5,
-        enforce_actor_visibility=False,
-    )
+        PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
+    ]
+    list_kwargs = bus.calls[0][2]
+    assert (list_kwargs["filters"], list_kwargs["limit"]) == ({"index.memory_type": "FACT"}, 10)
+    assert bus.calls[1][1:] == (([fact],), {"persist": False})
 
 
-@pytest.mark.asyncio
-async def test_get_memory_requests_memory_get_and_skips_refresh_when_missing(bus):
-    memory_id = uuid4()
-    bus.request.return_value = None
-    service = MemoryManagementService(bus=bus)
-    identity_scope = make_identity_scope(user_id="u1")
+def test_get_memory_skips_refresh_when_missing():
+    """点读未命中时不请求生命力刷新。"""
+    bus = RecordingBus()
 
-    assert (
-        await service.get_memory(
-            memory_id,
-            identity_scope=identity_scope,
-        )
-        is None
+    result = _run(
+        MemoryManagementService(bus=bus).get_memory(str(uuid4()), identity_scope=_scope())
     )
-    bus.request.assert_awaited_once_with(
-        PatchouliLocalRoutes.MEMORY_GET,
-        memory_id,
-        belong_to=identity_scope.workspace_identity,
-        from_actor=identity_scope.actor_identity,
-        enforce_actor_visibility=False,
-    )
+
+    assert result is None
+    assert [route for route, _, _ in bus.calls] == [PatchouliLocalRoutes.MEMORY_GET]
+
+
+# ---- 检索 backing：scope 完全来自请求 ----
+
+
+def test_retrieve_splits_public_scope_into_internal_query():
+    """公开请求在边界转换；本地检索只接收归属与可见性主体。"""
+    bus = RecordingBus({PatchouliLocalRoutes.MEMORY_RETRIEVE: []})
+    request = RetrievalRequest(semantic_query="query", identity_scope=_scope())
+
+    _run(MemoryManagementService(bus=bus).retrieve(request))
+
+    [(route, args, kwargs)] = bus.calls
+    assert route == PatchouliLocalRoutes.MEMORY_RETRIEVE
+    query = args[0]
+    assert query.semantic_query == "query"
+    assert query.belong_to == request.identity_scope.workspace_identity
+    assert query.from_actor == request.identity_scope.actor_identity
+    # 请求未给出 top_k：原样缺省转发，条数由检索引擎配置决定
+    assert kwargs == {"top_k": None}

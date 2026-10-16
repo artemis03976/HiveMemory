@@ -3,7 +3,7 @@ title: HiveMemory Documentation Governance
 status: current
 owner: project
 scope: documentation-governance-and-maintenance
-last_reviewed: 2026-09-27
+last_reviewed: 2026-10-16
 ---
 
 # HiveMemory 文档治理与维护规范
@@ -445,6 +445,8 @@ Plan 用于描述一个可独立验收的功能、重构或迁移，至少包括
 - 风险与待决问题；
 - 完成时必须更新的当前文档。
 
+“测试和验收标准”写明需要守住的不变量、各自的归属层与验证命令，不逐条预列测试函数、参数化矩阵或“某符号不再存在”式检查；实施时验收测试写入归属层的现有测试文件，不形成以计划命名的测试集合。测试归属、去重与随契约演进的规则由[测试设计规范](governance/testing/test-design-standards.md)第 4 节维护。
+
 Plan 是实施过程的工作依据，但在功能落地后不能继续承担当前设计说明。
 
 进入 `plans/` 还必须满足：
@@ -617,7 +619,8 @@ Governance work package
 2. 将已完成 Plan 移入 `archive/plans/`；
 3. 将仍有长期价值的决策提炼为 ADR；
 4. 更新 `PROJECT.md`、子系统 README 和 `ROADMAP.md` 中受影响的链接或状态；
-5. 检查相关帮助文档、配置示例和源码 README。
+5. 检查相关帮助文档、配置示例和源码 README；
+6. 确认验收测试已并入归属层的测试文件，没有遗留以计划命名的测试文件，也没有只守护旧契约的测试。
 
 文档更新不是 PR 完成后的可选清理工作，而是设计变更完成定义的一部分。
 

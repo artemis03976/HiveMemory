@@ -132,4 +132,4 @@ ChatLayout 挂载时加载会话列表，并按浏览器保存的 `currentSessio
 主要入口为 `frontend/src/services/sessionApi.ts`、`frontend/src/services/chatApi.ts`、`stores/chat/`、`components/chat/`、`stores/workspace/` 和 `stores/topic/`；后端契约与路由测试位于 `tests/unit/server/routers/test_chat.py`、`test_topics.py`、`test_runtime_events.py`、`test_logs.py`。
 附件上传与选择的入口为 `services/attachmentApi.ts`、`stores/attachment/`、`components/chat/AttachmentQueue.tsx` 和 `hooks/useAttachmentUpload.ts`；链路事实见[Chat 附件链路](../system/attachments.md)。
 
-会话行为测试位于 `frontend/tests/conversation-session.test.mjs`（`npm run test:session`），覆盖历史重建、服务端恢复、404、加载失败、发送绑定、无输出回填、晚到停止响应，以及 finalizing 前后断连的不同处理；确定性 HTTP 链路见 `tests/e2e/system/test_conversation_session_chat.py`。会话没有跨后端重启持久化，也没有 SSE 断线续传；多窗口日志选举在浏览器挂起/崩溃情形下的可靠性仍未全面验证。状态所有权的完整矩阵见[状态、持久化与传输](./state-and-transports.md)。
+会话行为测试位于 `frontend/tests/conversation-session.test.mjs`（`npm run test:session`），覆盖历史重建、服务端恢复、404、加载失败、发送绑定、无输出回填、晚到停止响应，以及 finalizing 前后断连的不同处理；确定性 HTTP 链路见 `tests/e2e/system/test_chat_session.py`。会话没有跨后端重启持久化，也没有 SSE 断线续传；多窗口日志选举在浏览器挂起/崩溃情形下的可靠性仍未全面验证。状态所有权的完整矩阵见[状态、持久化与传输](./state-and-transports.md)。

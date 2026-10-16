@@ -137,13 +137,16 @@ async def test_output_with_each_outcome_is_submitted_before_terminal(status):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("status", ["failed", "completed", "cancelled"])
-async def test_empty_terminal_does_not_create_turn_and_done_omits_text(status):
-    """无输出结果不能污染历史；空 final_text 不得覆盖客户端已显示的内容。"""
+async def test_empty_terminal_does_not_create_turn_and_done_omits_text():
+    """无输出结果不能污染历史；空 final_text 不得覆盖客户端已显示的内容。
+
+    无输出判断位于终态分派之前，各终态的 done 投影由流程单测逐一覆盖；
+    这里取 cancelled 代表，它同时经过取消终态省略 topic_id 的分支。
+    """
     service, handle, sessions, workspace, probe = await completion_chain(
         ScriptedCPU(
             result=make_cpu_result(
-                status=status,
+                status="cancelled",
                 final_text="",
                 turn_events=[
                     TurnEvent(kind="user_message", sequence=0, role="user", content="请继续分析")

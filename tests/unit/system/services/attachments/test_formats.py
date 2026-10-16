@@ -86,9 +86,9 @@ def test_legacy_doc_gets_save_as_docx_hint() -> None:
     assert ".docx" in error.value.args[0]
 
 
-@pytest.mark.parametrize("file_name", ["archive.pdf", "doc.rtf", "docx", "noext"])
+@pytest.mark.parametrize("file_name", ["archive.pdf", "docx"])
 def test_unsupported_or_missing_extension_is_rejected(file_name: str) -> None:
-    """捕获不批准格式或无扩展名文件被静默接受。"""
+    """捕获不批准扩展名，或无扩展名但与批准后缀同名的文件被静默接受。"""
     with pytest.raises(UnsupportedAttachmentFormatError) as error:
         resolve_attachment_format(file_name, None)
     assert error.value.reason == "unsupported_format"

@@ -18,6 +18,9 @@ from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLa
 from hivememory.engines.lifecycle.vitality import VitalityCalculator
 from tests.helpers.memory import make_memory_metadata
 
+# 评分决策时刻：注入计算器的固定时钟，衰减天数由 decay_anchor_at 相对该时刻控制。
+FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
+
 
 class TestVitalityCalculator:
     """测试生命力分数计算 (三段式 V = V_0·D(t) + A + B)"""
@@ -40,23 +43,18 @@ class TestVitalityCalculator:
         assert score == pytest.approx(100.0, abs=0.01)
 
     def test_time_decay(self):
-        """测试时间衰减"""
-        # 新记忆
+        """衰减自 decay_anchor_at 起算，速率按类型固有价值调制：λ_eff = λ·(2 - I)"""
+        calculator = VitalityCalculator(self.config, now=lambda: FIXED_NOW)
         memory_new = self._create_memory(
-            confidence=0.9, memory_type=MemoryType.FACT, access_count=0, days_ago=0
+            confidence=0.9, memory_type=MemoryType.FACT, access_count=0, days_ago=0, now=FIXED_NOW
         )
-        # 100天前的记忆
         memory_old = self._create_memory(
-            confidence=0.9, memory_type=MemoryType.FACT, access_count=0, days_ago=100
+            confidence=0.9, memory_type=MemoryType.FACT, access_count=0, days_ago=30, now=FIXED_NOW
         )
 
-        score_new = self.calculator.calculate(memory_new)
-        score_old = self.calculator.calculate(memory_old)
-
-        # 旧记忆应该有更低分数
-        assert score_old < score_new
-        # 在 100 天时，衰减应该约为 37%
-        assert score_old < score_new * 0.5
+        assert calculator.calculate(memory_new) == pytest.approx(100.0)
+        # FACT 的 I=0.9，λ_eff=0.011：30 天后 100·exp(-0.33) 的固定期望值
+        assert calculator.calculate(memory_old) == pytest.approx(71.89, abs=0.01)
 
     def test_access_boost(self):
         """测试访问加成 (对数曲线 A = coef·log(1 + n))"""
@@ -125,10 +123,15 @@ class TestVitalityCalculator:
         assert score_code > score_wip
 
     def _create_memory(
-        self, confidence: float, memory_type: MemoryType, access_count: int, days_ago: int
+        self,
+        confidence: float,
+        memory_type: MemoryType,
+        access_count: int,
+        days_ago: int,
+        now: datetime | None = None,
     ) -> MemoryAtom:
-        """创建测试记忆"""
-        created_at = datetime.now(UTC) - timedelta(days=days_ago)
+        """创建测试记忆；decay_anchor_at 取 created_at"""
+        created_at = (now or datetime.now(UTC)) - timedelta(days=days_ago)
 
         return MemoryAtom(
             id=uuid4(),

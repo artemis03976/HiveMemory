@@ -15,7 +15,7 @@ import pytest
 from fastapi import FastAPI, HTTPException
 from fastapi.testclient import TestClient
 
-from hivememory.core.access import WorkspaceAccessContext
+from hivememory.core.access import AccessRunType, WorkspaceAccessContext
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import IdentityScope, WorkspaceIdentity
 from hivememory.server import deps
@@ -27,7 +27,11 @@ from hivememory.server.deps import (
 )
 from hivememory.server.routers.chat import router as chat_router
 from hivememory.server.routers.topics import router as topics_router
-from tests.helpers.workspace import make_server_access_overrides
+from tests.helpers.workspace import (
+    make_access_composition,
+    make_actor_access_record,
+    make_server_access_overrides,
+)
 
 # ─── 解析器单元行为 ──────────────────────────────────────────────────────────
 
@@ -343,6 +347,37 @@ class TestTopicsEntryIdentity:
         )
 
         assert response.status_code == 409
+
+
+class TestAuthenticateRequestAccess:
+    """请求级认证经网关签发：授予内容携带 server principal 与请求运行类型。"""
+
+    @pytest.mark.asyncio
+    async def test_authenticate_request_access_binds_request_run(self):
+        composition = make_access_composition(
+            [
+                make_actor_access_record(owner_user_id="u1", agent_id=None),
+                make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
+            ],
+            adapters=("http",),
+        )
+        claims = deps.resolve_request_identity_claims(
+            deps.RequestIdentitySelection(user_id=None, workspace_id=None),
+            explicit_user_id="u1",
+        )
+
+        access = await deps.authenticate_request_access(
+            claims,
+            gateway=composition.gateway,
+            principal_id=composition.principal.principal_id,
+        )
+
+        summary = composition.gateway.describe_context(access)
+        assert summary.actor_user_id == "u1"
+        assert summary.agent_id == SYSTEM_AGENT_ID
+        assert summary.workspace_id == claims.workspace.workspace_id
+        assert summary.principal_id == composition.principal.principal_id
+        assert summary.run_type == AccessRunType.REQUEST.value
 
 
 class TestRequestAccessResolvedOncePerRequest:

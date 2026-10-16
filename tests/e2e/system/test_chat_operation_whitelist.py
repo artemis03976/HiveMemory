@@ -1,4 +1,7 @@
-"""无 actor 操作许可的 HTTP chat 仍完成阶段编排，并保留 actor 资源可见性。"""
+"""HTTP chat 按 actor 操作白名单执行。
+
+越权动词在登记意图前被拒绝；无 actor 操作许可时仍完成阶段编排并保留资源可见性。
+"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Gateway Phase 3B 公共契约与私有状态测试。"""
+"""Gateway 公共契约与私有状态测试。"""
 
 from __future__ import annotations
 

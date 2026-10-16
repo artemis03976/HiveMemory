@@ -1,13 +1,10 @@
 """InteractionSubmissionService / MemoryIntentSubmissionService 的单元测试。
 
-被测对象：两个公开提交 API 的身份边界与载荷语义（A1 访问边界返工第 4.6 节）：
-- 本层不再检查 operation：``interaction.submit`` / ``memory.write``
-  的行为授权在 workspace 能力层出现对应方法时进行，本层只接收调用方传入
-  的 ``IdentityScope``，不接收 ``access`` 参数；
+被测对象：两个公开提交 API 的载荷语义（行为授权在 workspace 能力层完成，本层只接收
+调用方传入的 ``IdentityScope``）：
 - ``submit_interaction`` 经真实内存队列接纳并返回收据投影；
 - ``submit_memory_intent`` 把中立意图转换为内部生成任务（出站载荷契约），
-  确定性 alias 支持重试幂等；
-- ``identity_scope`` 缺失由必填签名拒绝；接纳后只携带独立归属与发起者。
+  确定性 alias 支持重试幂等；接纳后只携带独立归属与发起者。
 """
 
 from __future__ import annotations
@@ -82,23 +79,6 @@ def test_submit_interaction_accepts_scope_and_returns_receipt():
     assert result.interaction_id == "interaction_stable_1"
     assert result.work_id.startswith("interaction:")
     # 队列只是接纳（seal 后的领域应用异步发生）
-    assert applied == []
-
-
-def test_submit_interaction_without_identity_scope_rejected():
-    """identity_scope 缺失由必填签名拒绝，不进入队列。"""
-    applied = []
-
-    async def _apply(payload, **kwargs):
-        applied.append(kwargs)
-        return "topic"
-
-    service = InteractionSubmissionService(
-        interaction_queue=InteractionSubmissionQueue(_apply),
-    )
-
-    with pytest.raises(TypeError, match="identity_scope"):
-        _run(service.submit_interaction(payload=_payload()))
     assert applied == []
 
 
@@ -223,20 +203,3 @@ def test_memory_intent_requires_registered_identifiers(field):
     """意图必须携带登记产生的标识与目标话题，Patchouli 不再自行派生。"""
     with pytest.raises(ValueError, match=field):
         _write_intent(**{field: " "})
-
-
-def test_submit_memory_intent_requires_identity_scope():
-    """identity_scope 缺失由必填签名拒绝，不进入生成提交链。"""
-    bus = PatchouliBus()
-    submitted: list = []
-
-    async def _submit_active(tasks, topic_id, *, belong_to):
-        submitted.append(tasks)
-        return []
-
-    bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
-    service = MemoryIntentSubmissionService(bus=bus)
-
-    with pytest.raises(TypeError, match="identity_scope"):
-        _run(service.submit_memory_intent(intent=_write_intent()))
-    assert submitted == []

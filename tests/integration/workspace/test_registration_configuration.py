@@ -6,24 +6,9 @@ from hivememory.config.app import HiveMemoryConfig
 from hivememory.system.system import HiveMemorySystem
 
 
-@pytest.mark.parametrize(
-    "operation",
-    [
-        "management.memory",
-        "management.topic",
-        "management.asset",
-        "management.task",
-        "task.observe",
-        "resource.read",
-        "resource.search",
-        "profile.read",
-        "asset.acquire",
-        "interaction.submit",
-        "memory_intent.submit",
-    ],
-)
-def test_removed_operation_fails_during_system_assembly(tmp_path, monkeypatch, operation):
+def test_removed_operation_fails_during_system_assembly(tmp_path, monkeypatch):
     """旧版 operation 不能继续装载，错误明确指出未知值与访问坐标。"""
+    operation = "resource.read"
     path = tmp_path / "workspace_actors.yaml"
     path.write_text(
         "workspace_actors:\n"

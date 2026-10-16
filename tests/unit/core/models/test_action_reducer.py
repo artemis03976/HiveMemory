@@ -8,6 +8,8 @@ ActionReducer 单元测试
 - thought 归并到最近动作
 - 无 action_id 的 tool_call 使用 sequence 生成兜底键
 - 非动作类事件被忽略
+- 之前没有动作的孤立 tool_result 不形成动作
+- 序列化后的 dict 事件与 TurnEvent 等价
 """
 
 from hivememory.core.models import ActionReducer, TurnEvent
@@ -125,3 +127,18 @@ def test_reduce_ignores_non_action_events():
 
     assert len(actions) == 1
     assert actions[0].tool_kind == "READ"
+
+
+def test_reduce_drops_result_without_preceding_action():
+    events = [_ev("tool_result", 0, tool_kind="READ", status="success")]
+
+    assert ActionReducer.reduce(events) == []
+
+
+def test_reduce_accepts_serialized_event_dicts():
+    """SSE 序列化后以 dict 重建的事件按 TurnEvent 同样归并。"""
+    event = _ev("tool_call", 0, action_id="a1", tool_kind="READ", tool_name="alias_x")
+
+    actions = ActionReducer.reduce([event.model_dump()])
+
+    assert [(a.action_id, a.tool_kind, a.tool_name) for a in actions] == [("a1", "READ", "alias_x")]

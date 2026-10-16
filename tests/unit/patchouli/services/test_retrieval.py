@@ -187,16 +187,6 @@ class TestRetrievalFamiliarAgentProfiles:
         assert exc_info.value.message_key == "mtp.call.profile_not_found"
 
     @pytest.mark.asyncio
-    async def test_custom_profile_requires_owner_and_actor_arguments(self):
-        """内部读取必须显式指定归属和可见性主体。"""
-        with pytest.raises(TypeError, match="belong_to.*from_actor"):
-            await self.familiar.get_agent_profile(
-                "private_doll",
-            )
-
-        self.mock_library.mid_term.get_by_alias.assert_not_awaited()
-
-    @pytest.mark.asyncio
     async def test_non_profile_alias_is_type_mismatch(self):
         self.mock_library.mid_term.get_by_alias.return_value = _make_memory()
 

@@ -1,4 +1,7 @@
-"""单次 HTTP chat 经真实 Alice 操作请求完成检索、引用、写入与 CALL。"""
+"""确定性 HTTP chat：真实 Alice 经线程 context 绑定的操作入口执行 MTP 资源操作。
+
+覆盖单轮内的检索、引用、写入与 CALL，跨轮回读写入意图，以及 CPU 未成功结束时已接纳写入的落库。
+"""
 
 from __future__ import annotations
 
@@ -11,11 +14,13 @@ from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
 from hivememory.alice.system import AliceSystem
+from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
     ActorIdentity,
     IndexLayer,
     MemoryAtom,
@@ -23,15 +28,24 @@ from hivememory.core.models import (
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomStatus,
+    ResolvedAgentProfile,
+    WriteFocus,
 )
+from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.engines.lifecycle.models import EventType
+from hivememory.gateway.contracts import GatewayPublicRoutes
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationTaskStatus
 from hivememory.server import deps
 from hivememory.server.routers.chat import router
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
+from hivememory.workspace.contracts import SubmitWriteIntentRequest
+from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
+from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.operations import OperationsHarness
 from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
     make_access_composition,
@@ -409,6 +423,231 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
         assert memory.payload.content == "HTTP chat materialized content"
     finally:
         await alice.stop()
+        runtime.close()
+        access.gateway.close()
+        access.gateway.revoke_all_contexts()
+
+
+@pytest.mark.asyncio
+async def test_next_http_chat_reads_pending_alias_from_previous_completed_process(monkeypatch):
+    """第一轮 WRITE 保留 MATERIALIZING，第二轮真实 MTP READ 取得草稿内容。"""
+    workspace = make_workspace_identity(owner_user_id="u1")
+    access = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="omni_doll")],
+        adapters=("http",),
+        default_workspace=workspace,
+    )
+    bus = GlobalSystemBus()
+    harness = OperationsHarness(bus, operation_authorizer=access.authorizer)
+    entry = harness.make_entry(access.authorizer, access.thread_spawner)
+    payloads = []
+    completions = 0
+
+    async def gateway(**_kwargs):
+        return GatewayDecisionOutcome(decision=make_gateway_decision())
+
+    async def prepare(*, identity_scope, interaction_id=None, **_kwargs):
+        return make_prepared_run(
+            identity_scope=identity_scope, interaction_id=interaction_id or "chat"
+        )
+
+    async def profile(_alias, *, identity_scope):
+        return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+
+    async def finalize(*, payload, **_kwargs):
+        # 本验收只验证提交和跨轮回读，不让外部生成流水线提前结算句柄。
+        payloads.append(payload)
+        return []
+
+    async def topics(**_kwargs):
+        return []
+
+    async def completion(**_kwargs):
+        nonlocal completions
+        turn = completions
+        completions += 1
+        if turn == 0:
+            text = '⟪ WRITE | * | title="跨轮事实" content="HTTP 第一轮登记的内容" ⟫'
+        elif turn == 2:
+            text = f"⟪ READ | {harness.admission.submissions[0][0].pending_alias} | ⟫"
+        else:
+            text = "完成"
+
+        async def chunks():
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(delta=SimpleNamespace(content=text), finish_reason="stop")]
+            )
+
+        return chunks()
+
+    monkeypatch.setattr("hivememory.agent_runtime.execution.worker.litellm.acompletion", completion)
+    for route, handler in (
+        (GatewayPublicRoutes.PROCESS, gateway),
+        (PatchouliRoutes.PREPARE_AGENT_RUN, prepare),
+        (PatchouliRoutes.GET_AGENT_PROFILE, profile),
+        (PatchouliRoutes.FINALIZE_AGENT_RUN, finalize),
+        (PatchouliRoutes.TOPIC_LIST_ACTIVE, topics),
+    ):
+        bus.register(route, handler)
+    alice = AliceSystem(config=HiveMemoryConfig().alice, global_bus=bus, operation_entry=entry)
+    service = make_task_process_service(
+        bus,
+        cpu=alice.cpu_port,
+        access_gateway=access.gateway,
+        operation_authorizer=access.authorizer,
+        workspace_runtime=harness.runtime,
+        process_table=access.process_table,
+        operation_entry=entry,
+    )
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[deps.get_process_service] = lambda: service
+    app.dependency_overrides[deps.get_server_principal_id] = lambda: access.principal.principal_id
+    await alice.start()
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            responses = []
+            for message in ("保存事实", "读取刚才的草稿"):
+                responses.append(
+                    await asyncio.wait_for(
+                        client.post(
+                            "/api/v1/chat",
+                            headers={"X-User-ID": "u1", "X-Workspace-ID": workspace.workspace_id},
+                            json={
+                                "message": message,
+                                "agent_id": "omni_doll",
+                                "enable_memory_retrieval": False,
+                                "generation_options": {"model": "fake-test-model"},
+                            },
+                        ),
+                        timeout=10,
+                    )
+                )
+        assert [response.status_code for response in responses] == [200, 200]
+        assert [_events(response)[-1][1]["status"] for response in responses] == [
+            "completed",
+            "completed",
+        ]
+        assert len(payloads) == 2
+        ((task, _scope),) = harness.admission.submissions
+        assert (
+            harness.registry.get(task.pending_alias, workspace).status
+            == PendingAtomStatus.MATERIALIZING
+        )
+        read_result = next(
+            event for event in payloads[1].turn_events if event.kind == "tool_result"
+        )
+        assert read_result.tool_kind == "READ"
+        assert read_result.status == "success"
+        assert "HTTP 第一轮登记的内容" in read_result.content
+        assert completions == 4
+    finally:
+        await alice.stop()
+        harness.runtime.close()
+        access.gateway.close()
+        access.gateway.revoke_all_contexts()
+
+
+@pytest.mark.asyncio
+async def test_http_write_survives_cancelled_cpu_and_process_close(patchouli_chat_stack):
+    """WRITE 接纳后 CPU 无交互输出并取消，交互不提交，记忆仍经真实生成链落库。
+
+    各种 CPU 终态下意图都不撤回由任务进程的意图集成测试逐项守护，此处只保留端到端代表。
+    """
+    status = "cancelled"
+    from hivememory.components.events.publisher import RuntimeEventPublisher
+    from hivememory.core.contracts.runtime_events import RuntimeEventType
+    from hivememory.core.models import PendingAtomStatus
+    from tests.helpers.workspace import make_workspace_runtime
+
+    stack = patchouli_chat_stack
+    stack.vector_store.write_allowed.clear()
+    workspace = make_workspace_identity(owner_user_id="u1")
+    actor = ActorIdentity(user_id="u1", agent_id="omni_doll")
+    access = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id="omni_doll")],
+        adapters=("http",),
+        default_workspace=workspace,
+    )
+    runtime = make_workspace_runtime(stack.bus)
+    runtime.subscribe(stack.bus)
+    submitted = []
+
+    async def write(submit):
+        """进程仍在 Actor 阶段时接纳写入，后续 CPU 终态独立失败。"""
+        submitted.append(
+            await submit(SubmitWriteIntentRequest(WriteFocus(content="保留失败轮的写入")))
+        )
+        (created,) = [
+            event
+            for event in stack.events.events
+            if event.event_type == RuntimeEventType.MEMORY_TASK_CREATED
+        ]
+        assert created.data["pending_alias"] == submitted[0].pending_alias
+
+    cpu = ScriptedCPU(result=make_cpu_result(status=status, final_text=""), operation_script=write)
+    service = make_task_process_service(
+        stack.bus,
+        cpu=cpu,
+        access_gateway=access.gateway,
+        operation_authorizer=access.authorizer,
+        workspace_runtime=runtime,
+        event_publisher=RuntimeEventPublisher(stack.events),
+    )
+    app = FastAPI()
+    app.include_router(router, prefix="/api/v1")
+    app.dependency_overrides[deps.get_process_service] = lambda: service
+    app.dependency_overrides[deps.get_server_principal_id] = lambda: access.principal.principal_id
+    try:
+        async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
+            response = await client.post(
+                "/api/v1/chat",
+                headers={"X-User-ID": "u1", "X-Workspace-ID": workspace.workspace_id},
+                json={
+                    "message": "当前一轮不应进入生成背景",
+                    "agent_id": actor.agent_id,
+                    "enable_memory_retrieval": False,
+                },
+            )
+        assert response.status_code == 200
+        done = json.loads(
+            [
+                line.removeprefix("data: ")
+                for line in response.text.splitlines()
+                if line.startswith("data: ")
+            ][-1]
+        )
+        assert done["status"] == status
+        (created,) = [
+            event
+            for event in stack.events.events
+            if event.event_type == RuntimeEventType.MEMORY_TASK_CREATED
+        ]
+        # HTTP 已交付失败/取消终态，此时尚未落库；关闭不能提前结算或撤回意图。
+        assert (
+            runtime.intents.get(submitted[0].pending_alias, workspace).status
+            == PendingAtomStatus.MATERIALIZING
+        )
+        stack.vector_store.write_allowed.set()
+        task = await stack.controller.wait_task(created.task_id, timeout=2)
+        assert task.status == MemoryGenerationTaskStatus.COMPLETED
+        pending = runtime.intents.get(submitted[0].pending_alias, workspace)
+        assert pending.status == PendingAtomStatus.SETTLED
+        atom = await stack.mid_term.get_by_alias(workspace, task.canonical_alias, from_actor=actor)
+        assert atom.payload.content == "HTTP chat materialized content"
+        assert atom.meta.provenance.source_agent_id == actor.agent_id
+        assert stack.short_term.get(workspace, task.topic_id) is None
+        (extraction,) = stack.extractor.inputs
+        assert "当前一轮不应进入生成背景" not in extraction["transcript"]
+        assert extraction["metadata"]["write_content"] == "保留失败轮的写入"
+        assert cpu.closed is True
+        assert [
+            event.event_type
+            for event in stack.events.events
+            if event.event_type == RuntimeEventType.MEMORY_TASK_COMPLETED
+        ] == [RuntimeEventType.MEMORY_TASK_COMPLETED]
+    finally:
+        stack.vector_store.write_allowed.set()
         runtime.close()
         access.gateway.close()
         access.gateway.revoke_all_contexts()

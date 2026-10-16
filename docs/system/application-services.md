@@ -15,7 +15,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-16
 ---
 
 # 应用服务
@@ -62,7 +62,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 | `PassiveIngressService`（`system.application`） | 外部事件摄入、idle maintenance 注册、显式 flush、shutdown drain | Passive Ingressor、Gateway/Patchouli public routes、scheduler |
 | `RootMemoryService`（`workspace.capability.root`） | Memory 管理 CRUD、feedback 和查询参数转换（root 授权） | 操作授权者；Patchouli memory routes |
 | `RootMemoryTaskService`（`workspace.capability.root`） | 查询/取消 Patchouli 拥有的 memory generation task（root 授权） | 操作授权者；Patchouli task routes |
-| `RootAgentProfileService`（`workspace.capability.root`） | 构造 Agent Profile atom 并调用 Patchouli profile routes 创建与列出（root 授权） | 操作授权者；Patchouli profile routes |
+| `RootAgentProfileService`（`workspace.capability.root`） | 构造 Agent Profile atom 并调用 Patchouli profile routes 创建与列出（root 授权）；列出按 owner-management 语义返回 Workspace 内全部 Profile，不按 Agent 可见性过滤 | 操作授权者；Patchouli profile routes |
 | `RootSessionService`（`workspace.capability.root`） | 会话创建、列表、全量历史、重命名、删除（root 授权） | 操作授权者；共享会话服务 |
 | `RootTopicService`（`workspace.capability.root`） | 活跃话题列表、手动 settle、evict（root 授权） | 操作授权者；Patchouli topic routes |
 | `RootWorkspaceAssetService`（`workspace.capability.root`） | 编排 Chat 附件的接收、原子注册和请求内解析，保留首次创建/重放回执语义；在接收与注册副作用之前执行 root 授权，注册只使用授权返回的 scope | workspace 的 WorkspaceAssetStore（命令端口）、附件接收函数、AttachmentParseService、上传串行门、操作授权者；链路事实见[Chat 附件链路](./attachments.md) |
@@ -243,7 +243,6 @@ process_id（含 session_id）
 
 - `tests/unit/workspace/process/test_gateway_chat_flow.py`
 - `tests/unit/workspace/process/test_chat_run_control_contract.py`
-- `tests/unit/workspace/process/test_cancel_hardening.py`
 - `tests/unit/workspace/process/test_cpu_allocation.py`（CPU 分配、租借释放与关闭顺序）
 - `tests/unit/workspace/process/test_command_terminal.py`（命令解析结果转换为命令终态）
 - `tests/unit/workspace/process/test_cpu_port.py`（经 CPU 端口执行：测试 CPU 跑通任务进程、自报结局、停止、缺终态与输出流关闭）
@@ -251,10 +250,10 @@ process_id（含 session_id）
 - `tests/unit/workspace/process/test_process_events.py`（`chat.run.*` 投影与 best-effort 边界）
 - `tests/unit/server/routers/test_chat.py`（注册后运行、客户端断开取消、流从未开始时的关闭）
 - `tests/unit/system/application/test_api_services.py`
-- `tests/unit/system/application/test_identity_entry_guards.py`（服务签名/身份入口守卫）
+- `tests/unit/architecture/test_access_boundaries.py`（能力层与任务进程入口只经访问 context 接收身份）
 - `tests/unit/workspace/capability/root/`、`tests/unit/workspace/capability/actor/`（root 与 actor API 的各服务）
 - `tests/integration/workspace/test_root_api_authorization.py`（逐方法验证 root 授权：非 `system` 拒绝且不触达 owner，`system` 无白名单也能调用）
-- `tests/e2e/system/test_stage_authorization_chat.py`（没有任何 actor 操作的 Agent 经 HTTP 完成 chat，预检索与 Profile 仍按该 Agent 校验可见性）
+- `tests/e2e/system/test_chat_operation_whitelist.py`（没有任何 actor 操作的 Agent 经 HTTP 完成 chat，预检索与 Profile 仍按该 Agent 校验可见性）
 - `tests/integration/workspace/test_profile_injection_script.py`（注入脚本经认证网关与 root API 写入，重复执行幂等）
 - `tests/unit/system/application/test_readiness_service.py`
 - `tests/integration/workspace/capability/test_assets.py`、`tests/integration/system/application/test_workspace_asset_parsing.py`（真实附件服务、解析服务与 Store 的上传协作）

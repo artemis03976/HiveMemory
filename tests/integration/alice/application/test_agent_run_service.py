@@ -173,19 +173,15 @@ async def _terminal_status_from_stream(service, manifest, submit_operation) -> s
         pytest.param(_terminal_status_from_stream, id="stream"),
     ],
 )
-async def test_root_policy_and_prompt_follow_manifest_despite_legacy_profile_keys(
-    run_to_terminal,
-):
-    """两条运行入口都取清单能力；Profile 中旧拒绝键不能改变策略与系统工具菜单。"""
+async def test_root_policy_and_prompt_follow_manifest_operations(run_to_terminal):
+    """根 frame 的策略与教学由清单的操作快照翻译，系统工具菜单不受操作集合裁剪。"""
     runtime, service = _build_service()
     manifest = _build_input_manifest(
         _build_memory_atom(),
         allowed_operations=frozenset(
             {WorkspaceOperation.MEMORY_READ, WorkspaceOperation.AGENT_CALL}
         ),
-        agent_profile=AgentProfile.model_validate(
-            {"persona": "执行人设", "allowed_mtp_verbs": [], "allowed_sys_tools": []}
-        ),
+        agent_profile=AgentProfile(persona="执行人设"),
     )
     seen = []
 
@@ -211,7 +207,7 @@ async def test_root_policy_and_prompt_follow_manifest_despite_legacy_profile_key
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("profile_agent_id", "display_agent_id"),
-    [("display_agent", "display_agent"), (None, "registered_agent"), ("", "registered_agent")],
+    [("display_agent", "display_agent"), (None, "registered_agent")],
 )
 async def test_registered_labels_drive_runtime_events_and_profile_controls_stream_display(
     monkeypatch, profile_agent_id, display_agent_id

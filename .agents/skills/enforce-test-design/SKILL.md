@@ -1,6 +1,6 @@
 ---
 name: enforce-test-design
-description: Enforce HiveMemory's test design, classification, mocking, isolation, and verification standards. Use whenever creating, modifying, moving, deleting, or reviewing tests; implementing a bug fix or behavior change that needs tests; adding fixtures, fakes, mocks, or pytest markers; or changing test-related pytest, coverage, or CI configuration in the HiveMemory repository.
+description: Enforce HiveMemory's test design, classification, ownership, deduplication, mocking, isolation, and verification standards. Use whenever creating, modifying, moving, deleting, or reviewing tests; implementing a bug fix or behavior change that needs tests; adding fixtures, fakes, mocks, or pytest markers; or changing test-related pytest, coverage, or CI configuration in the HiveMemory repository.
 ---
 
 # Enforce HiveMemory Test Design
@@ -22,11 +22,22 @@ Add or change a test when protecting at least one of these:
 - a permission rule, state transition, filter, idempotency rule, error path, or concurrency invariant;
 - a high-risk branch whose failure would be observable.
 
-Usually do not add a separate test for plain field assignment, logic-free models, constant re-exports, trivial pass-through wrappers, behavior already protected at the same boundary, or coverage-only execution.
+Usually do not add a separate test for plain field assignment, logic-free models, constant re-exports, trivial pass-through wrappers, behavior already protected by an existing test at its owning layer, or coverage-only execution.
 
-Before adding a test, name the plausible production defect it must catch. If no plausible defect would make it fail, do not add it.
+Do not add runtime tests for properties guaranteed by Python, `mypy`, or the architecture tests: a missing required argument raising `TypeError`, a parameter or field being present or absent in a signature or model, or constants matching their source definitions. Test an explicit runtime guard once where it is defined.
 
-### 2. Assign exactly one primary type
+Before adding a test, name the plausible production defect it must catch. If no plausible defect would make it fail, or an existing test already fails for that defect, do not add it.
+
+### 2. Place it at the owning layer
+
+Find the code that makes the decision under test (the authorization check, ownership check, state transition, or failure mapping). Its lowest testable layer owns the authoritative test and the full case matrix.
+
+- Search existing tests before writing: `rg` for the error type, its `details` reason, the route constant, and the function or model name.
+- If a test already guards the same decision, extend it (add a case or tighten an assertion) instead of creating a file or repeating it at another layer.
+- At wider `integration` and `e2e` levels, keep at most one representative case proving the real chain reaches the decision. Do not copy the lower-level matrix, and do not add an e2e scenario per plan.
+- Treat tests with the same setup, trigger, and assertions as duplicates even when their names differ.
+
+### 3. Assign exactly one primary type
 
 Use the test directory as the source of truth:
 
@@ -46,15 +57,19 @@ Apply runtime-condition markers orthogonally:
 
 Never combine `unit` with `real_infra` or `live_llm`. Classify a real provider adapter test as `integration + live_llm`; classify a full live chain as `e2e + live_llm`, adding `real_infra` when required.
 
-### 3. Design the failure before writing the assertion
+Name test files after the module or behavior under test, never after a plan, phase, batch, version, or baseline.
+
+### 4. Design the failure before writing the assertion
 
 Define the input, observable behavior, and counterexample first. Assert the output, state transition, persisted result, emitted event, external contract, or error that distinguishes correct behavior from the plausible defect.
 
 Keep one scenario and one failure reason per test; multiple assertions are valid when they jointly describe that one behavior.
 
+Give every parametrize dimension a distinct production branch or mapping entry. When values converge on a shared check before branching, keep one representative value. Before taking a Cartesian product, confirm every combination takes a different path, and drop values already dominated by another value.
+
 For a bug fix, run the regression test against the broken behavior before fixing production code when practical. Otherwise state which pre-fix behavior the assertion distinguishes.
 
-### 4. Keep the tested boundary real
+### 5. Keep the tested boundary real
 
 Use real objects inside the boundary claimed by the test. Use fake/mock objects only outside that boundary.
 
@@ -71,7 +86,14 @@ Do not make a failing test green by:
 
 Prefer public behavior over private methods and internal attributes. If a complex private pure algorithm cannot be exercised economically through a public boundary, consider extracting it into a separately testable unit.
 
-### 5. Preserve determinism and isolation
+### 6. Evolve tests with the contract
+
+- When a change intentionally alters or removes a field, parameter, route, event, enum member, configuration key, or module, delete or rewrite the tests of the old contract in the same change. Do not add tombstone tests asserting that removed things no longer exist.
+- Compatibility behavior is part of the current contract: reading persisted legacy data, or rejecting a removed configuration key with a clear error. Test it at its owning layer with one representative old value, not by enumerating every historical name.
+- When ownership moves to another package, move the tests to the new owner's directory and merge them with its existing tests.
+- Write a plan's acceptance tests into the owning layer's existing test files. Do not leave plan-named test files behind at archive time.
+
+### 7. Preserve determinism and isolation
 
 - Freeze or inject time; do not use fixed sleeps to wait for asynchronous state.
 - Use events or polling with a bounded timeout for eventual behavior.
@@ -81,20 +103,22 @@ Prefer public behavior over private methods and internal attributes. If a comple
 - Make each test pass independently, in arbitrary order, and under the project's parallel test execution.
 - Do not introduce unawaited coroutines, leaked resources, or unexpected warnings.
 
-### 6. Verify proportionally
+### 8. Verify proportionally
 
 Run the narrowest affected test first, then the containing file or package, then the relevant configured test set. Read `pyproject.toml` and `.github/workflows/ci.yml` for the current commands and markers instead of assuming they already match the governance target.
 
 Do not invoke `real_infra`, `live_llm`, or `slow` tests unless the required services, credentials, cost authorization, and time budget are available. Report excluded runtime-condition markers explicitly.
 
-When reviewing rather than editing, report violations with the affected behavior and likely false-positive or brittleness risk. Do not expand a focused change into unrelated suite cleanup; record adjacent legacy violations separately.
+When reviewing rather than editing, report violations with the affected behavior and likely false-positive or brittleness risk. Do not expand a focused change into unrelated suite cleanup; record adjacent redundant or misplaced tests as a Todo in `docs/todo/`, naming the tests, the duplicated invariant, and the suggested owning layer.
 
 ## Handoff requirements
 
 Report:
 
 - the behavior and plausible defect each new or changed test protects;
+- its owning layer, and the existing tests checked for overlap;
 - its primary type and runtime-condition markers;
+- tests deleted, merged, or moved because of a contract or ownership change;
 - the test commands run and their results;
 - any excluded test sets, warnings, or remaining gaps.
 

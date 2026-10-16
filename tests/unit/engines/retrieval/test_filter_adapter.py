@@ -134,12 +134,6 @@ def test_source_agent_filter_matches_contributors_and_source_branches() -> None:
     assert values["meta.workspace_id"] == {"isolation_workspace"}
 
 
-def test_filter_converter_requires_actor_for_visibility_query() -> None:
-    """检索必须明确传入发起者，不能因缺失主体退回无策略查询。"""
-    with pytest.raises(TypeError, match="from_actor"):
-        QdrantFilterConverter().convert(QueryFilters(), _workspace())  # type: ignore[call-arg]
-
-
 def test_management_filter_keeps_ownership_and_business_filters() -> None:
     """管理读取跳过 actor 策略，仍保留 Workspace 与业务筛选。"""
     result = QdrantFilterConverter().convert(

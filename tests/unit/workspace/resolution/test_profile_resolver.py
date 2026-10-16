@@ -78,9 +78,13 @@ def _resolver(backing) -> tuple[ProfileResolver, WorkspaceEpochs, ProfileCache]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("alias", [None, "", "default", "omni_doll"])
+@pytest.mark.parametrize("alias", [None, "default"])
 async def test_builtin_profile_is_resolved_by_backing_each_time_and_not_cached(alias):
-    """builtin Profile 无源原子：每次经 backing 解析，不进缓存、无本地解析旁路。"""
+    """builtin Profile 无源原子：每次经 backing 解析，不进缓存、无本地解析旁路。
+
+    空别名跳过缓存查找，非空别名先查缓存再回源，各取一个代表；
+    内置别名的归一化由 Patchouli 的 Profile 读取单测覆盖。
+    """
     backing = _FakeProfileBacking()
     resolver, _, cache = _resolver(backing)
 

@@ -1,4 +1,4 @@
-"""Gateway Phase 3D Context Provider 与 Global Bus 测试。"""
+"""Gateway Context Provider 与 Global Bus 测试。"""
 
 from __future__ import annotations
 
