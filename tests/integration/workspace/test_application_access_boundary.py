@@ -86,6 +86,7 @@ from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublic
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
+from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
 from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 from hivememory.workspace.contracts import ResolveReferencesRequest, RetrieveRequest
@@ -203,6 +204,10 @@ async def wired():
         familiar.get_memory,
     )
     local_bus.register(
+        PatchouliLocalRoutes.MEMORY_LIST,
+        familiar.list_memories,
+    )
+    local_bus.register(
         PatchouliLocalRoutes.MEMORY_RETRIEVE,
         familiar.retrieve_async,
     )
@@ -292,6 +297,9 @@ async def wired():
         dispatch_topics=access.thread_spawner,
     )
     root_memory = RootMemoryService(global_bus=global_bus, operation_authorizer=access.authorizer)
+    root_profiles = RootAgentProfileService(
+        global_bus=global_bus, operation_authorizer=access.authorizer
+    )
     root_tasks = RootMemoryTaskService(
         global_bus=global_bus, operation_authorizer=access.authorizer
     )
@@ -305,6 +313,7 @@ async def wired():
             access=access,
             actor_memory=actor_memory,
             root_memory=root_memory,
+            root_profiles=root_profiles,
             root_tasks=root_tasks,
         )
     finally:
@@ -330,6 +339,7 @@ class _Wired:
         access: AccessTestComposition,
         actor_memory,
         root_memory,
+        root_profiles,
         root_tasks,
     ):
         self.global_bus = global_bus
@@ -339,6 +349,7 @@ class _Wired:
         self.access = access
         self.actor_memory = actor_memory
         self.root_memory = root_memory
+        self.root_profiles = root_profiles
         self.root_tasks = root_tasks
 
 
@@ -599,6 +610,34 @@ async def test_management_memory_reads_with_owner_semantics_independently(wired)
         atom.id, target_workspace=MAIN, access=manage_context
     )
     assert found.payload.content == "managed content"
+
+
+@pytest.mark.asyncio
+async def test_management_profile_list_reads_with_owner_semantics(wired):
+    """root Profile 列表与 Memory 管理读取同为 owner-management：PRIVATE/TEAM Profile 也列出。
+
+    system 不是任何受限 Profile 的目标；若列表按 system 的可见性过滤，管理视图只剩 PUBLIC。
+    """
+    policies = {
+        "agent_public": MemoryAccessPolicy.public(),
+        "agent_private": MemoryAccessPolicy(
+            visibility=MemoryVisibility.PRIVATE, target_agent_id="a1"
+        ),
+        "agent_team": MemoryAccessPolicy(visibility=MemoryVisibility.TEAM, target_team_id="t1"),
+    }
+    for alias, policy in policies.items():
+        atom = await _seed_public_fact(wired.store, alias=alias, content=alias)
+        atom.index.memory_type = MemoryType.AGENT_PROFILE
+        atom.meta.access_policy = policy
+        await wired.store.upsert(atom)
+    await _seed_public_fact(wired.store, alias="fact_not_profile", content="fact")
+    manage_context = await wired.access.authenticate(agent_id="system", workspace=MAIN)
+
+    profiles = await wired.root_profiles.list_agent_profiles(
+        target_workspace=MAIN, access=manage_context
+    )
+
+    assert sorted(profile.index.alias for profile in profiles) == sorted(policies)
 
 
 @pytest.mark.asyncio

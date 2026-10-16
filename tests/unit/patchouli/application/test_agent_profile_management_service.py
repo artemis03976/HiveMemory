@@ -90,8 +90,8 @@ async def test_create_agent_profile_requires_identity_scope(bus):
 
 
 @pytest.mark.asyncio
-async def test_list_agent_profiles_filters_by_profile_type(bus):
-    """列表只请求 Profile 类型的记忆，默认上限 100。"""
+async def test_list_agent_profiles_filters_by_profile_type_with_owner_semantics(bus):
+    """管理列表只请求 Profile 类型的记忆（默认上限 100），按 owner-management 语义不做可见性过滤。"""
     service = AgentProfileManagementService(bus=bus)
     identity_scope = make_identity_scope(user_id="u1")
 
@@ -102,3 +102,4 @@ async def test_list_agent_profiles_filters_by_profile_type(bus):
     assert route == PatchouliLocalRoutes.MEMORY_LIST
     assert kwargs["belong_to"] == identity_scope.workspace_identity
     assert (kwargs["filters"], kwargs["limit"]) == ({"index.memory_type": "AGENT_PROFILE"}, 100)
+    assert kwargs["enforce_actor_visibility"] is False
