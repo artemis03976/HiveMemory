@@ -43,6 +43,7 @@ from hivememory.core.access import (
     WorkspaceAccessContext,
     WorkspaceOperation,
 )
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import (
     AdmissionDeniedError,
     OperationDeniedError,
@@ -462,12 +463,17 @@ class TestAuthorizeProcessControl:
 
     @pytest.mark.asyncio
     async def test_same_owner_and_workspace_authorizes_control(self):
-        """请求方与进程记录驻留在同一 owner 与 workspace → True。"""
+        """请求方与进程记录驻留在同一 owner 与 workspace → True；只比对驻留坐标，不比对 agent。"""
         composition = make_access_composition(
-            [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
+            [
+                make_actor_access_record(owner_user_id="u1", agent_id="a1"),
+                make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
+            ],
             default_workspace=MAIN,
         )
-        requestor = await composition.authenticate(agent_id="a1", user_id="u1", workspace=MAIN)
+        requestor = await composition.authenticate(
+            agent_id=SYSTEM_AGENT_ID, user_id="u1", workspace=MAIN
+        )
         record_access = await self._issued_record_context(composition)
 
         assert composition.authorizer.authorize_process_control(requestor, record_access) is True

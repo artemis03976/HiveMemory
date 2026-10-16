@@ -377,3 +377,41 @@ def test_intent_dispatch_uses_only_public_submission_path():
                 ):
                     calls.append(path.relative_to(SRC_ROOT).as_posix())
     assert calls == ["patchouli/application/memory_intent_submission_service.py"]
+
+
+def test_capability_and_process_entries_take_identity_only_through_access():
+    """能力层与任务进程的公共方法不接收调用方组装的 IdentityScope；显式目标必须配对访问 context。"""
+    import inspect
+
+    from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
+    from hivememory.workspace.capability.actor.memory import ActorMemoryService
+    from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
+    from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
+    from hivememory.workspace.capability.root.memory import RootMemoryService
+    from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
+    from hivememory.workspace.capability.root.session import RootSessionService
+    from hivememory.workspace.capability.root.topic import RootTopicService
+    from hivememory.workspace.process.service import TaskProcessService
+
+    violations = []
+    for service in (
+        ActorAgentService,
+        ActorMemoryService,
+        RootAgentProfileService,
+        RootMemoryService,
+        RootMemoryTaskService,
+        RootSessionService,
+        RootTopicService,
+        RootWorkspaceAssetService,
+        TaskProcessService,
+    ):
+        for name, method in inspect.getmembers(service, inspect.isfunction):
+            if name.startswith("_"):
+                continue
+            parameters = inspect.signature(method).parameters
+            if "identity_scope" in parameters:
+                violations.append(f"{service.__name__}.{name} 接收 identity_scope")
+            if "target_workspace" in parameters and "access" not in parameters:
+                violations.append(f"{service.__name__}.{name} 接收目标 workspace 却没有 access")
+
+    assert violations == []

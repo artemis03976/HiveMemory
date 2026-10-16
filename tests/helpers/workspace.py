@@ -76,24 +76,6 @@ def make_identity_scope(
     )
 
 
-def make_management_identity_scope(
-    *,
-    user_id: str = "test_user",
-    workspace_id: str = "main_workspace",
-) -> IdentityScope:
-    """构造 server 非 Agent action 语义的管理 scope（保留 ``system`` actor）。
-
-    对齐 ``server.deps.resolve_request_identity_scope`` 的公共入口行为：
-    管理读取/管理写入等没有具体 Agent 作为操作来源主体的操作，由 server
-    注入 ``SYSTEM_AGENT_ID`` 后冻结。
-    """
-    return make_identity_scope(
-        user_id=user_id,
-        agent_id=SYSTEM_AGENT_ID,
-        workspace_id=workspace_id,
-    )
-
-
 def make_execution_labels(
     *,
     agent_id: str = "test_agent",
