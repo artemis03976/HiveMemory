@@ -1,20 +1,13 @@
-"""Koakuma WRITE 指令链路集成测试。"""
+"""Koakuma WRITE 指令链路集成测试。
 
-from unittest.mock import MagicMock
+真实 parser、handler、workspace 操作入口、授权与读取视图协作；只有存储边界为替身。
+"""
 
 import pytest
 
 from hivememory.agent_runtime.models import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.config.alice import KoakumaConfig
-from hivememory.core.models import (
-    ActorIdentity,
-    IndexLayer,
-    MemoryAtom,
-    MemoryType,
-    PayloadLayer,
-)
-from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 
 from .conftest import (
@@ -22,31 +15,6 @@ from .conftest import (
     make_mock_bus,
     normalize_worker_agent_mtp_output,
 )
-
-
-@pytest.fixture
-def identity() -> ActorIdentity:
-    return ActorIdentity(user_id="test_user", agent_id="test_agent", session_id="test_session")
-
-
-@pytest.fixture
-def sample_memory(identity) -> MemoryAtom:
-    return MemoryAtom(
-        meta=make_memory_metadata(
-            user_id=identity.user_id,
-            source_agent_id=identity.agent_id,
-            session_id=None,
-            confidence_score=1.0,
-        ),
-        index=IndexLayer(
-            title="Fix CORS",
-            summary="修复 CORS 跨域问题，端口从 8080 改为 9090",
-            tags=["cors"],
-            memory_type=MemoryType.FACT,
-        ),
-        payload=PayloadLayer(content="端口从 8080 改为 9090"),
-    )
-
 
 MAIN = make_workspace_identity()
 
@@ -58,14 +26,11 @@ async def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, c
     )
 
 
-class TestKoakumaWriteE2E:
+class TestKoakumaWriteChain:
     """通过 MTP 指令验证 Koakuma WRITE 完整链路"""
 
     @pytest.fixture
-    def write_koakuma(self, sample_memory) -> KoakumaRuntime:
-        mock_librarian = MagicMock()
-        mock_librarian.handle_write_signal.return_value = [sample_memory]
-
+    def write_koakuma(self) -> KoakumaRuntime:
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
         koakuma.context = MTPExecutionContext(runtime_scope=make_runtime_scope())
