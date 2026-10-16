@@ -23,8 +23,9 @@ last_reviewed: 2026-10-16
 - [Memory 可见性策略前端组件](./memory-visibility-policy-ui.md)（依赖 Memory CRUD 契约先支持 `access_policy` 读写）；
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
 - [engines 对上层的既有导入](./engines-upward-imports.md)（包分层登记的 10 处已知例外，原记录于 Workspace 网络与任务进程架构 Idea）；
-- [Profile 管理列表的可见性语义](./agent-profile-management-list-visibility.md)（2026-10-16 整理 application 测试时复现：root Profile 列表未按 owner-management 语义读取，只列出 PUBLIC Profile）；
 - [RUN 目标的可执行性检查](./run-target-executability-check.md)（能力层分层审查遗留：只有 `memory.run` 的 actor 可经 RUN 的错误探测可见记忆的类型与存在，不可执行目标也记录引用）；
+
+原“Profile 管理列表的可见性语义”于 2026-10-16 修复并归档（root Profile 列表改按 owner-management 语义列出 Workspace 内全部 Profile）：[归档记录](../archive/todo/agent-profile-management-list-visibility.md)；当前事实见[路由与事件契约](../contracts/routes-and-events.md)。
 
 原“测试套件冗余收敛后续”于 2026-10-16 完成并归档（按冻结基线收敛参数化矩阵、测试随归属迁入 owner、退役类型层测试，生命周期评分与强化组并入 owner）：[归档记录](../archive/todo/test-suite-redundancy-follow-ups.md)；现行规则见[测试设计规范](../governance/testing/test-design-standards.md)第 4 节。
 

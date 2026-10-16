@@ -425,8 +425,8 @@ def test_write_creates_memory(self):
     mock 返回值的用例删除，其链路由真实 bus 集成测试（`test_application_access_boundary.py`、
     `test_topic_access_chain.py`、CALL Profile 链路）承担；两个 Memory 管理测试文件合并，管理读取与
     actor 读取的可见性语义改为参数化契约表，只保留归属校验、类型强制与过滤、生命力刷新编排、检索
-    请求拆分与越域隐藏等本层判断。整理中发现的 Profile 管理列表可见性偏差见
-    [对应 Todo](../../todo/agent-profile-management-list-visibility.md)。
+    请求拆分与越域隐藏等本层判断。整理中发现 Profile 管理列表未按 owner-management 语义读取，
+    已修复并补充真实 handler 回归（[归档记录](../../archive/todo/agent-profile-management-list-visibility.md)）。
 - **P3（机制建设）**：
   - FLAKY 可控时钟 ✅：scheduler 注入可控单调时钟（`test_async_scheduler.py` 的 `_FakeMonotonic`）；
     perception idle 与 vitality 已达"相对时间 + 有界轮询"标准；e2e 明确不做时钟化；

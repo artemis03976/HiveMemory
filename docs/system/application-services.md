@@ -15,7 +15,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-16
 ---
 
 # 应用服务
@@ -62,7 +62,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 | `PassiveIngressService`（`system.application`） | 外部事件摄入、idle maintenance 注册、显式 flush、shutdown drain | Passive Ingressor、Gateway/Patchouli public routes、scheduler |
 | `RootMemoryService`（`workspace.capability.root`） | Memory 管理 CRUD、feedback 和查询参数转换（root 授权） | 操作授权者；Patchouli memory routes |
 | `RootMemoryTaskService`（`workspace.capability.root`） | 查询/取消 Patchouli 拥有的 memory generation task（root 授权） | 操作授权者；Patchouli task routes |
-| `RootAgentProfileService`（`workspace.capability.root`） | 构造 Agent Profile atom 并调用 Patchouli profile routes 创建与列出（root 授权） | 操作授权者；Patchouli profile routes |
+| `RootAgentProfileService`（`workspace.capability.root`） | 构造 Agent Profile atom 并调用 Patchouli profile routes 创建与列出（root 授权）；列出按 owner-management 语义返回 Workspace 内全部 Profile，不按 Agent 可见性过滤 | 操作授权者；Patchouli profile routes |
 | `RootSessionService`（`workspace.capability.root`） | 会话创建、列表、全量历史、重命名、删除（root 授权） | 操作授权者；共享会话服务 |
 | `RootTopicService`（`workspace.capability.root`） | 活跃话题列表、手动 settle、evict（root 授权） | 操作授权者；Patchouli topic routes |
 | `RootWorkspaceAssetService`（`workspace.capability.root`） | 编排 Chat 附件的接收、原子注册和请求内解析，保留首次创建/重放回执语义；在接收与注册副作用之前执行 root 授权，注册只使用授权返回的 scope | workspace 的 WorkspaceAssetStore（命令端口）、附件接收函数、AttachmentParseService、上传串行门、操作授权者；链路事实见[Chat 附件链路](./attachments.md) |
