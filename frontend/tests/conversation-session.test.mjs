@@ -140,3 +140,34 @@ test('停止请求晚于 done 返回错误时，不能覆盖已确认的终态',
   assert.equal(useChatStore.getState().isStreaming, false);
   assert.deepEqual(useChatStore.getState().connection, { status: 'connected', error: null });
 });
+
+test('finalizing 之后断连按服务端历史恢复本轮，不提示未保存也不回填输入', async () => {
+  reset({ currentSessionId: 's1', draft: '' });
+  const saved = { ...turn, interaction_id: 'p4', payload: { ...turn.payload, user_message: '问题',
+    assistant_final_text: '完整答案', outcome: 'completed', turn_events: [] } };
+  globalThis.fetch = async url => {
+    if (url === '/api/v1/sessions') return new Response(JSON.stringify([summary]));
+    if (url === '/api/v1/sessions/s1') return new Response(JSON.stringify({ ...summary, turns: [saved] }));
+    return new Response(
+      'event: process_id\ndata: {"process_id":"p4","session_id":"s1"}\n\nevent: token\ndata: {"content":"完整答案"}\n\nevent: run_status\ndata: {"process_id":"p4","status":"finalizing"}\n\n',
+      { headers: { 'Content-Type': 'text/event-stream' } });
+  };
+  await useChatStore.getState().sendMessage('问题');
+  const state = useChatStore.getState();
+  assert.deepEqual(state.messages.map(m => [m.id, m.content]), [['p4-user', '问题'], ['p4-assistant', '完整答案']]);
+  assert.equal(state.isStreaming, false);
+  assert.equal(state.draft, '');
+  assert.deepEqual(state.connection, { status: 'error', error: '连接中断，本轮已保存到会话' });
+});
+
+test('finalizing 之前断连仍按未保存处理', async () => {
+  reset({ currentSessionId: 's1' });
+  globalThis.fetch = async url => url === '/api/v1/sessions' ? new Response('[]') : new Response(
+    'event: process_id\ndata: {"process_id":"p5","session_id":"s1"}\n\nevent: token\ndata: {"content":"半截"}\n\n',
+    { headers: { 'Content-Type': 'text/event-stream' } });
+  await useChatStore.getState().sendMessage('问题');
+  const state = useChatStore.getState();
+  assert.equal(state.runStatus, 'failed');
+  assert.equal(state.lastRunReason, '连接提前结束，本轮未保存');
+  assert.equal(state.isStreaming, false);
+});

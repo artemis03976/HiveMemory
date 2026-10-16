@@ -454,6 +454,7 @@ class SystemAssembler:
             runner,
             process_table=access_control.process_table,
             sessions=runtime.sessions,
+            shutdown_wait_seconds=self._config.workspace.process.shutdown_wait_seconds,
             # 注册入口是进程 context 的运行持有者（A1 访问边界返工 4.4）：
             # 认证经网关，进程控制授权经操作授权者。
             access_gateway=access_control.access_gateway,

@@ -174,11 +174,27 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
           connection: { status: 'error', error: message }, _currentStreamingMessageId: null, _currentProcessId: null }));
       },
     });
+    // 连接在终态前结束：已收到 finalizing 时本轮已写入会话、后端继续提交，
+    // 改以服务端历史为准；此前结束的轮次没有保存。
+    const endWithoutTerminal = async (error: Error) => {
+      if (terminalReceived) return;
+      const sessionId = get().currentSessionId;
+      if (get().runStatus !== 'finalizing' || !sessionId) {
+        callbacks.onConnectionError(error);
+        return;
+      }
+      terminalReceived = true;
+      set(s => ({ messages: applyDone(s.messages, assistantMessageId, null), isStreaming: false,
+        runStatus: 'idle', _currentStreamingMessageId: null, _currentProcessId: null }));
+      await get().selectSession(sessionId);
+      set({ connection: { status: 'error', error: '连接中断，本轮已保存到会话' } });
+      void get().refreshSessions();
+    };
     try {
       await client.connect({ ...options, message: content, session_id: state.currentSessionId, agent_id: state.currentAgentId }, callbacks);
-      if (!terminalReceived) callbacks.onConnectionError(new Error('连接提前结束，本轮未保存'));
+      await endWithoutTerminal(new Error('连接提前结束，本轮未保存'));
     } catch (error) {
-      if (!terminalReceived) callbacks.onConnectionError(error instanceof Error ? error : new Error(String(error)));
+      await endWithoutTerminal(error instanceof Error ? error : new Error(String(error)));
     } finally {
       client.disconnect();
       // 终态之后可能立即开始下一轮，旧连接不能清掉新连接的引用。

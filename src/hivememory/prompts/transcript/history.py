@@ -35,26 +35,35 @@ class HistoryTranscriptBuilder:
         messages: list[dict[str, str]] = []
 
         for turn in turns:
+            start = len(messages)
             self._render_turn(turn, current_agent_id, messages)
-            if turn.payload.outcome != "completed":
-                status = turn.payload.outcome
-                if resolve_language(explicit=language).value == "zh":
-                    note = (
-                        "[本轮已中断，回复未完成。]"
-                        if status == "cancelled"
-                        else "[本轮执行失败，回复可能不完整。]"
-                    )
-                else:
-                    note = (
-                        "[This turn was interrupted; the response is incomplete.]"
-                        if status == "cancelled"
-                        else "[This turn failed; the response may be incomplete.]"
-                    )
-                messages.append({"role": "system", "content": note})
+            note = self._outcome_note(turn.payload.outcome, language)
+            if note and len(messages) > start:
+                # 结局说明附在本轮最后一条消息末尾，不在历史中间插入 system 消息：
+                # 部分模型适配会把 system 消息合并到开头，或要求角色严格交替。
+                last = messages[-1]
+                messages[-1] = {**last, "content": f"{last['content']}\n\n{note}"}
 
         return messages
 
     # ============ 内部方法 ============
+
+    @staticmethod
+    def _outcome_note(outcome: str, language: str | None) -> str:
+        """未正常完成的轮次给出结局说明；completed 不加说明。"""
+        if outcome == "completed":
+            return ""
+        if resolve_language(explicit=language).value == "zh":
+            return (
+                "[本轮已中断，回复未完成。]"
+                if outcome == "cancelled"
+                else "[本轮执行失败，回复可能不完整。]"
+            )
+        return (
+            "[This turn was interrupted; the response is incomplete.]"
+            if outcome == "cancelled"
+            else "[This turn failed; the response may be incomplete.]"
+        )
 
     def _render_turn(
         self,

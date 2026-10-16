@@ -268,14 +268,12 @@ class TaskProcessRunner:
                 except _ProcessCancelled:
                     # 停止可能发生在两次拉取之间；先关闭流，CPU 才会同步回填结果槽。
                     await self._close_cpu_output(working_set)
-                    if record.stop_reason in {"client_disconnected", "stream_closed"}:
+                    if record.discards_output:
                         raise
+                    # 沿用槽中的结局：CPU 在停止生效前已经完成时，结果仍是 completed。
                     execution_result = cpu_run.result_slot.result
                     if execution_result is None:
                         raise
-                    execution_result = execution_result.model_copy(
-                        update={"status": CPUExecutionStatus.CANCELLED.value}
-                    )
                 finally:
                     if execution_result is None:
                         # 断连或异常先撤销，不能在等待 CPU 关闭时保留线程权限。
@@ -288,10 +286,10 @@ class TaskProcessRunner:
             if execution_result is None:
                 raise RuntimeError("CPU 输出流在没有终态执行结果的情况下结束")
 
-            if record.outcome is ProcessOutcome.STOP_REQUESTED:
-                if record.stop_reason in {"client_disconnected", "stream_closed"}:
-                    raise _ProcessCancelled(record.phase, record.stop_reason)
-                execution_result = execution_result.model_copy(update={"status": "cancelled"})
+            # 交付方离开或系统关闭时丢弃本轮；用户停止晚于 CPU 终态时沿用 CPU
+            # 的结局，不把完整回复改记为 cancelled。
+            if record.discards_output:
+                raise _ProcessCancelled(record.phase, record.stop_reason or "stream_closed")
             working_set.execution_result = execution_result
             has_output = execution_result.has_output
             if has_output:
@@ -314,9 +312,7 @@ class TaskProcessRunner:
                     payload=payload,
                     topic_id=prepared.topic_id,
                 )
-                if not record.try_enter_finalizing(
-                    stopped_output=execution_result.status == CPUExecutionStatus.CANCELLED.value
-                ):
+                if not record.try_enter_finalizing():
                     raise _ProcessCancelled(record.phase, record.stop_reason or "user_requested")
                 working_set.finalization_task = asyncio.create_task(
                     self._finalize(process, prepared, payload)

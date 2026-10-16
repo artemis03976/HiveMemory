@@ -211,6 +211,9 @@ workspace:
   sessions:
     max_sessions_per_workspace: 128
     max_turns_per_session: 512
+  # System 关闭时向在途任务进程发出停止，等待交付方自行收口的秒数；超时兜底关闭。
+  process:
+    shutdown_wait_seconds: 10
   # 读取能力派生缓存的全局 LRU 容量（不承诺 Workspace 独立配额）；
   # 当前性由失效事件协作保证，容量只影响命中率与内存占用。
   cache:

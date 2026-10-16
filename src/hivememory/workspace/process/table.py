@@ -47,6 +47,15 @@ class ProcessOutcome(str, Enum):
     FAILED = "failed"
 
 
+#: System 关闭时经进程记录送达的停止原因。
+SYSTEM_SHUTDOWN_STOP_REASON = "system_shutdown"
+
+#: 不是用户决定的停止：交付方已离开或系统关闭，部分输出不写入会话、不提交。
+DISCARDING_STOP_REASONS = frozenset(
+    {"client_disconnected", "stream_closed", SYSTEM_SHUTDOWN_STOP_REASON}
+)
+
+
 @dataclass(frozen=True)
 class StopResult:
     """一次 stop 请求的即时判定。"""
@@ -107,6 +116,14 @@ class ProcessRecord:
         """
         return self.phase is ProcessPhase.TERMINAL
 
+    @property
+    def discards_output(self) -> bool:
+        """已接受的停止是否不由用户决定；此时已产生的输出既不写会话也不提交。"""
+        return (
+            self.outcome is ProcessOutcome.STOP_REQUESTED
+            and self.stop_reason in DISCARDING_STOP_REASONS
+        )
+
     def bind_phase(self, phase: ProcessPhase, task: asyncio.Task[object]) -> None:
         """绑定当前可被 stop 中断的阶段 task。"""
         self.phase = phase
@@ -122,11 +139,9 @@ class ProcessRecord:
         self.phase = phase
         self.active_task = None
 
-    def try_enter_finalizing(self, *, stopped_output: bool = False) -> bool:
-        """同步进入 finalize；已接受 stop 只允许结算已产生的取消输出。"""
-        if self.outcome is ProcessOutcome.CANCELLED:
-            return False
-        if self.outcome is ProcessOutcome.STOP_REQUESTED and not stopped_output:
+    def try_enter_finalizing(self) -> bool:
+        """同步进入 finalize；用户停止不阻止结算已产生的输出，已收口或丢弃时拒绝。"""
+        if self.outcome is ProcessOutcome.CANCELLED or self.discards_output:
             return False
         if self.phase is ProcessPhase.TERMINAL:
             return False

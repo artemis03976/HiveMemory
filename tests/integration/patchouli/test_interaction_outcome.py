@@ -24,5 +24,6 @@ def test_outcome_survives_perception_and_transcript_projection(outcome, note):
     assert f"[Outcome: {outcome}]" in transcript
     assert "半截回答" in transcript
     history = HistoryTranscriptBuilder().build_messages([turn], language="zh")
-    assert history[-2] == {"role": "assistant", "content": "半截回答"}
+    assert [m["role"] for m in history] == ["user", "assistant"]
+    assert history[-1]["content"].startswith("半截回答\n\n")
     assert note in history[-1]["content"]

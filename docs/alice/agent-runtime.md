@@ -87,7 +87,7 @@ User    current user message
 
 这种层次不是为了依赖某种 prompt 技巧，而是让机器约束、角色偏好和工作状态拥有不同来源。MTP 教学从结构化权限生成，persona 不得暗中扩张权限，memory context 也只是本轮工作视图；三者不能拼成一段后再由 Runtime 反向解析。
 
-历史消息由结构化 `TurnEvent` 重放，`current_agent_id` 使用输入清单的注册标签。若历史轮次来自另一个 Agent，assistant 消息会增加 `[From: agent_id]` 前缀，避免当前 Agent 把同事的旧输出误认成自己曾经作出的承诺。工具结果则按 `render_as` 添加本地化系统前缀。会话 payload 缺少事件时回退到用户/助手文本；cancelled/failed 轮次追加本地化未完成说明。Topic 状态摘要与 block 不进入 Alice 的上下文，全量历史暂不截断，超出模型窗口按 CPU 失败收口。
+历史消息由结构化 `TurnEvent` 重放，`current_agent_id` 使用输入清单的注册标签。若历史轮次来自另一个 Agent，assistant 消息会增加 `[From: agent_id]` 前缀，避免当前 Agent 把同事的旧输出误认成自己曾经作出的承诺。工具结果则按 `render_as` 添加本地化系统前缀。会话 payload 缺少事件时回退到用户/助手文本；cancelled/failed 轮次的本地化未完成说明附在该轮最后一条消息末尾，不在历史中间插入 system 消息（部分模型适配会把 system 消息合并到开头，或要求角色严格交替）。Topic 状态摘要与 block 不进入 Alice 的上下文，全量历史暂不截断，超出模型窗口按 CPU 失败收口。
 
 ## 4. 模型选择与 WorkerAgent
 

@@ -67,7 +67,7 @@ type CPUOutput = dict[str, Any] | CPUExecutionResult
 
 @dataclass
 class CPUResultSlot:
-    """CPU 同步写入的终态结果槽；取消传播时仍可交回已产生的输出。"""
+    """CPU 同步写入的终态结果槽；取消传播时仍可交回已产生的输出，结局如实填写、进程不改写。"""
 
     result: CPUExecutionResult | None = None
 

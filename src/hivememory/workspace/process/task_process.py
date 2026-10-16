@@ -47,7 +47,9 @@ class TaskProcess:
     由注册入口创建并登记到进程表，按对象身份识别（进程表注销与进程句柄
     都比较对象身份）。``owner_task`` 是驱动本进程编排的 task，由骨架在
     运行开始时写入；关闭流程据此区分“交付方提前关闭”与“驱动方正在被
-    取消”。
+    取消”。交付方可以在不同 task 中逐项拉取（SSE），因此它只说明进程
+    是否已经开始运行，不一定是此刻正在驱动的 task。``closed`` 在注册入口
+    完成关闭（注销并释放会话认领）后置位，System 关闭据此等待交付方收口。
     """
 
     record: ProcessRecord
@@ -55,6 +57,7 @@ class TaskProcess:
     trace_id: str
     working_set: ProcessWorkingSet = field(default_factory=ProcessWorkingSet)
     owner_task: asyncio.Task[Any] | None = None
+    closed: asyncio.Event = field(default_factory=asyncio.Event)
 
 
 __all__ = ["ProcessRequest", "TaskProcess"]

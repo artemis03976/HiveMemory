@@ -345,3 +345,36 @@ class TestMixedBlocks:
         msgs = builder.build_messages([block])
         assert msgs[1]["content"] == "[System MTP Call Response]\nsub response"
         assert msgs[2]["content"] == "[System MTP Execution Result]\nread result"
+
+
+# ============ 7. 未正常完成的轮次 ============
+
+
+class TestOutcomeNotes:
+    def test_cancelled_note_is_appended_to_last_message_without_system_role(self):
+        """中断说明附在本轮最后一条消息后，历史中间不出现 system 消息。"""
+        cancelled = make_conversation_turn(
+            user_message="问题一", assistant_final_text="半截", outcome="cancelled"
+        )
+        follow_up = _turn_fallback("问题二", "回复二")
+        msgs = builder.build_messages([cancelled, follow_up], language="zh")
+        assert msgs == [
+            {"role": "user", "content": "问题一"},
+            {"role": "assistant", "content": "半截\n\n[本轮已中断，回复未完成。]"},
+            {"role": "user", "content": "问题二"},
+            {"role": "assistant", "content": "回复二"},
+        ]
+
+    def test_failed_note_follows_tool_result_when_turn_ends_there(self):
+        """失败轮次以工具结果收尾时，说明附在该结果后，角色交替不变。"""
+        events = [
+            _ev("assistant_message", 0, "assistant", "我先读取"),
+            _ev("tool_result", 1, "user", "read result", render_as="system_tool_result"),
+        ]
+        failed = make_conversation_turn(user_message="读一下", turn_events=events, outcome="failed")
+        msgs = builder.build_messages([failed], language="en")
+        assert [m["role"] for m in msgs] == ["user", "assistant", "user"]
+        assert msgs[-1]["content"] == (
+            "[System MTP Execution Result]\nread result\n\n"
+            "[This turn failed; the response may be incomplete.]"
+        )

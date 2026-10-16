@@ -24,6 +24,7 @@ TaskProcessService — 任务请求的唯一注册入口与进程控制面
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import AsyncGenerator, Coroutine
 from contextlib import aclosing
 from typing import Any, Literal, overload
@@ -64,6 +65,7 @@ from hivememory.workspace.process.outputs import (
 )
 from hivememory.workspace.process.runner import TaskProcessRunner
 from hivememory.workspace.process.table import (
+    SYSTEM_SHUTDOWN_STOP_REASON,
     CancelResult,
     ProcessRecord,
     ProcessStatusSnapshot,
@@ -71,6 +73,8 @@ from hivememory.workspace.process.table import (
 )
 from hivememory.workspace.process.task_process import ProcessRequest, TaskProcess
 from hivememory.workspace.sessions import ConversationSessionService
+
+logger = logging.getLogger(__name__)
 
 
 class ProcessHandle:
@@ -120,7 +124,8 @@ class TaskProcessService:
     context 的运行持有者——注册经 ``access_gateway`` 认证签发即绑定本进程，
     进程以任何结局关闭时由本入口经认证网关使绑定 context 失效；
     ``operation_authorizer`` 只用于进程控制授权（阶段授权由执行器执行）；
-    ``event_publisher`` 驱动 ``chat.run.*`` 观测事件。
+    ``event_publisher`` 驱动 ``chat.run.*`` 观测事件；``shutdown_wait_seconds``
+    是 System 关闭时等待交付方自行收口的上限。
     """
 
     def __init__(
@@ -132,8 +137,10 @@ class TaskProcessService:
         access_gateway: ActorAuthenticationGateway,
         operation_authorizer: WorkspaceOperationAuthorizer,
         event_publisher: RuntimeEventPublisher | None = None,
+        shutdown_wait_seconds: float = 10.0,
     ) -> None:
         self._sessions = sessions
+        self._shutdown_wait_seconds = shutdown_wait_seconds
         self._runner = runner
         # 唯一的进程注册表：process_id → 已注册的 TaskProcess（不外泄）。
         self._process_table = process_table
@@ -261,13 +268,37 @@ class TaskProcessService:
         return self._deliver_once(process)
 
     async def shutdown(self) -> None:
-        """停止并关闭全部进程；会话设施只能在本方法完成后清空。"""
+        """停止全部在途进程，并在返回前完成关闭；会话设施只能在本方法之后清空。
+
+        驱动进程的 task 不固定（SSE 交付每次拉取都在新 task 中进行），因此这里
+        不取消某个 task，也不在交付方仍在驱动时并发关闭：停止经进程记录送达，
+        交付方照常收尾并经注册入口关闭进程。系统关闭不是用户的停止，已产生的
+        部分输出不写入会话、不提交；已进入 finalize 的进程照常等待提交完成。
+        从未开始运行的进程没有交付方，直接关闭；等待超过
+        ``shutdown_wait_seconds`` 仍未关闭的进程由本方法兜底关闭。
+        """
+        driven: list[TaskProcess] = []
         for process in self._process_table.snapshot():
-            task = process.owner_task
-            if task is not None and task is not asyncio.current_task() and not task.done():
-                task.cancel()
-                await asyncio.gather(task, return_exceptions=True)
-            await self._close(process)
+            if process.owner_task is None:
+                await self._close(process)
+                continue
+            process.record.request_stop(SYSTEM_SHUTDOWN_STOP_REASON)
+            driven.append(process)
+        if driven:
+            waiters = [asyncio.create_task(process.closed.wait()) for process in driven]
+            try:
+                await asyncio.wait(waiters, timeout=self._shutdown_wait_seconds)
+            finally:
+                for waiter in waiters:
+                    waiter.cancel()
+                await asyncio.gather(*waiters, return_exceptions=True)
+        for process in driven:
+            if not process.closed.is_set():
+                logger.warning(
+                    "任务进程未在关闭等待内由交付方收口，兜底关闭: %s",
+                    process.record.process_id,
+                )
+                await self._close(process)
 
     async def close_process(self, handle: ProcessHandle) -> None:
         """注册入口的关闭路径：经执行器释放进程资源，使绑定 context 失效并注销。
@@ -302,6 +333,7 @@ class TaskProcessService:
                 self._sessions.release(
                     process.request.target_workspace, process.request.session_id, record.process_id
                 )
+                process.closed.set()
 
     async def _deliver_stream(
         self,

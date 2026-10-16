@@ -124,7 +124,7 @@ Gateway.start
 ActorAuthenticationGateway.close
   -> GlobalMaintenanceScheduler.stop
   -> PassiveIngressService.shutdown_drain
-  -> TaskProcessService.shutdown（取消并等待进程关闭，释放会话认领）
+  -> TaskProcessService.shutdown（停止在途进程并等待交付方收口，超时兜底关闭；释放会话认领）
   -> ConversationSessionService.close_and_clear
   -> Alice.stop
   -> Patchouli.stop

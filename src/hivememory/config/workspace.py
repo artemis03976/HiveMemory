@@ -1,4 +1,4 @@
-"""Workspace 运行时配置：派生缓存容量与会话容量。
+"""Workspace 运行时配置：派生缓存容量、会话容量与任务进程关闭等待。
 
 缓存采用全局 LRU 容量，不承诺 Workspace 独立配额；负缓存首版不启用。
 缓存容量只影响命中率与内存占用，当前性由失效事件协作保证，不以 TTL 代替一致性。
@@ -9,7 +9,12 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-__all__ = ["WorkspaceCacheConfig", "WorkspaceConfig", "WorkspaceSessionConfig"]
+__all__ = [
+    "WorkspaceCacheConfig",
+    "WorkspaceConfig",
+    "WorkspaceProcessConfig",
+    "WorkspaceSessionConfig",
+]
 
 
 class WorkspaceCacheConfig(BaseModel):
@@ -32,10 +37,19 @@ class WorkspaceSessionConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class WorkspaceProcessConfig(BaseModel):
+    """任务进程配置：System 关闭时等待交付方自行收口的上限，超时后兜底关闭。"""
+
+    shutdown_wait_seconds: float = Field(default=10.0, ge=0)
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class WorkspaceConfig(BaseModel):
     """workspace 运行时根配置。"""
 
     sessions: WorkspaceSessionConfig = Field(default_factory=WorkspaceSessionConfig)
+    process: WorkspaceProcessConfig = Field(default_factory=WorkspaceProcessConfig)
     cache: WorkspaceCacheConfig = Field(default_factory=WorkspaceCacheConfig)
 
     model_config = ConfigDict(extra="forbid")
