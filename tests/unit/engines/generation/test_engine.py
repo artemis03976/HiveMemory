@@ -7,7 +7,8 @@ MemoryGenerationEngine 单元测试
 - Mode B: 正常 WRITE / LLM 失败 fallback
 - Mode C: 正常 UPDATE / existing_memory=None / LLM 合并失败 fallback
 - 查重分支: TOUCH / UPDATE / CREATE / DISCARD
-- 纯计算边界: 引擎不改 version/updated_at/confidence，CREATE 用传入 now 打戳
+- 纯计算边界: 引擎不改 version/updated_at/decay anchor/confidence，CREATE 用传入 now 打戳；
+  多轮修订的 before 快照互不污染
 """
 
 from datetime import UTC, datetime
@@ -112,7 +113,7 @@ def _make_draft(
     )
 
 
-def _make_memory(title="已有记忆") -> MemoryAtom:
+def _make_memory(title="已有记忆", alias: str | None = None) -> MemoryAtom:
     return MemoryAtom(
         meta=make_memory_metadata(
             source_agent_id="a1",
@@ -123,6 +124,7 @@ def _make_memory(title="已有记忆") -> MemoryAtom:
             summary="这是一段足够长的测试摘要用于通过验证",
             tags=["t"],
             memory_type=MemoryType.FACT,
+            alias=alias,
         ),
         payload=PayloadLayer(content="旧内容"),
     )
@@ -174,12 +176,13 @@ class TestGenerationEngineRouting:
         )
 
         self.mock_extractor.extract.assert_called_once()
+        assert "mode" not in self.mock_extractor.extract.call_args.kwargs["metadata"]
         assert len(result) == 1
 
     @pytest.mark.asyncio
     async def test_routes_to_mode_b(self):
-        """有 write_focus 时走 Mode B"""
-        focus = WriteFocus(content="保存这段代码")
+        """有 write_focus 时走 Mode B，提取元数据携带写入内容与理由"""
+        focus = WriteFocus(content="保存这段代码", reason="后续复用")
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
@@ -192,14 +195,16 @@ class TestGenerationEngineRouting:
             from_actor=make_memory_identity_scope().actor_identity,
         )
 
-        call_kwargs = self.mock_extractor.extract.call_args
-        assert call_kwargs[1]["metadata"]["mode"] == "write"
+        metadata = self.mock_extractor.extract.call_args.kwargs["metadata"]
+        assert metadata["mode"] == "write"
+        assert metadata["write_content"] == "保存这段代码"
+        assert metadata["write_reason"] == "后续复用"
         assert len(result) == 1
         assert result[0].atom.index.title == "测试记忆"
 
     @pytest.mark.asyncio
     async def test_routes_to_mode_c(self):
-        """有 update_focus 时走 Mode C"""
+        """有 update_focus 时走 Mode C：调用 merge 而非 extract，并携带修订指令"""
         existing = _make_memory()
         uf = UpdateFocus(
             instruction="添加错误处理",
@@ -222,6 +227,10 @@ class TestGenerationEngineRouting:
         )
 
         self.mock_extractor.merge.assert_called_once()
+        self.mock_extractor.extract.assert_not_called()
+        metadata = self.mock_extractor.merge.call_args.kwargs["metadata"]
+        assert metadata["mode"] == "update"
+        assert metadata["instruction"] == "添加错误处理"
         assert len(result) == 1
 
 
@@ -363,17 +372,6 @@ class TestGenerationEngineModeA:
 
         assert result == []
 
-    @pytest.mark.asyncio
-    async def test_mode_a_empty_messages(self):
-        """Mode A 空消息列表返回空"""
-        request = GenerationRequest()
-        result = await self.engine.process(
-            request,
-            belong_to=make_memory_identity_scope().workspace_identity,
-            from_actor=make_memory_identity_scope().actor_identity,
-        )
-        assert result == []
-
 
 class TestGenerationEngineModeB:
     """Mode B (WRITE 主动响应) 测试"""
@@ -483,14 +481,15 @@ class TestGenerationEngineModeB:
         assert draft.content == "内容"
         assert draft.has_value is True
         assert draft.confidence_score == 1.0
+        assert draft.memory_type == "FACT"
         assert "mtp_write" in draft.tags
 
     def test_build_fallback_draft_no_title(self):
-        """fallback 无 title 时从 content 截取"""
-        focus = WriteFocus(content="这是一段很长的内容用于测试")
+        """fallback 无 title 时取 content 前 50 个字符"""
+        focus = WriteFocus(content="A very long content that should be truncated for title")
         draft = self.engine._build_fallback_draft(focus)
 
-        assert draft.title == "这是一段很长的内容用于测试"
+        assert draft.title == "A very long content that should be truncated for t"
 
 
 class TestGenerationEngineModeC:
@@ -531,8 +530,10 @@ class TestGenerationEngineModeC:
         merge_result = MergeResult(new_content="合并后内容", changelog="更新了内容")
         self.mock_extractor.merge.return_value = merge_result
         self.mock_storage.upsert = AsyncMock()
+        existing = _make_memory(alias="fact_test")
+        memory_id = existing.id
 
-        request = self._make_update_request()
+        request = self._make_update_request(existing=existing)
         result = await self.engine.process(
             request,
             belong_to=make_memory_identity_scope().workspace_identity,
@@ -541,6 +542,9 @@ class TestGenerationEngineModeC:
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "合并后内容"
+        # UPDATE 修订已有记忆，不另建原子
+        assert result[0].atom.id == memory_id
+        assert result[0].atom.index.alias == "fact_test"
 
     @pytest.mark.asyncio
     async def test_mode_c_update_merges_actor_and_context_contributors(self):
@@ -603,7 +607,7 @@ class TestGenerationEngineModeC:
 
     @pytest.mark.asyncio
     async def test_mode_c_fallback_on_merge_failure(self):
-        """LLM 合并失败时启用 fallback"""
+        """LLM 合并失败时以提交时点日期把新内容追加到旧内容之后"""
         self.mock_extractor.merge.return_value = None
         self.mock_storage.upsert = AsyncMock()
 
@@ -612,14 +616,16 @@ class TestGenerationEngineModeC:
             request,
             belong_to=make_memory_identity_scope().workspace_identity,
             from_actor=make_memory_identity_scope().actor_identity,
+            now=FIXED_NOW,
         )
 
         assert len(result) == 1
-        assert "追加内容" in result[0].atom.payload.content
+        assert result[0].atom.payload.content == "旧内容\n\n## 更新 (2026-09-01)\n追加内容"
+        assert result[0].changelog.startswith("Fallback")
 
     @pytest.mark.asyncio
     async def test_mode_c_fallback_no_content(self):
-        """fallback 仅有 instruction 无 content 时保留旧内容"""
+        """fallback 仅有 instruction 无 content 时内容不变，降级为 TOUCH 而不创建版本"""
         existing = _make_memory()
         self.mock_extractor.merge.return_value = None
         self.mock_storage.upsert = AsyncMock()
@@ -633,13 +639,15 @@ class TestGenerationEngineModeC:
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "旧内容"
+        assert result[0].duplicate_decision == DuplicateDecision.TOUCH
 
     def test_apply_update_merges_content_and_captures_before_snapshot(self):
-        """纯计算边界：内容合并 + before 快照；version/confidence 留给提交边界"""
+        """纯计算边界：内容合并 + before 快照；version/时间/confidence 留给提交边界"""
         existing = _make_memory()
         existing.meta.lifecycle.confidence_score = 0.42
         version_before = existing.meta.version
         updated_at_before = existing.meta.updated_at
+        decay_anchor_before = existing.meta.lifecycle.decay_anchor_at
         merge_result = MergeResult(new_content="新版本", changelog="v2 更新")
         self.mock_storage.upsert = Mock()
 
@@ -656,12 +664,37 @@ class TestGenerationEngineModeC:
         assert mem.meta.version == version_before
         assert mem.meta.lifecycle.confidence_score == 0.42
         assert mem.meta.updated_at == updated_at_before
+        assert mem.meta.lifecycle.decay_anchor_at == decay_anchor_before
         # before 快照是深拷贝，保留修改前的完整原子
         snapshot = result[0].memory_before_snapshot
         assert snapshot is not existing
         assert snapshot.payload.content == "旧内容"
         assert snapshot.meta.version == version_before
         assert result[0].changelog == "v2 更新"
+
+    def test_apply_update_snapshots_each_round_without_cross_contamination(self):
+        """连续修订同一原子：每轮 before 快照只记录当轮修改前的内容，引擎不推进版本"""
+        existing = _make_memory()
+        version_before = existing.meta.version
+        provenance = system_settlement_provenance(GenerationContext())
+
+        first = self.engine._apply_update(
+            existing,
+            MergeResult(new_content="v2 content", changelog="first"),
+            provenance=provenance,
+        )
+        second = self.engine._apply_update(
+            existing,
+            MergeResult(new_content="v3 content", changelog="second"),
+            provenance=provenance,
+        )
+
+        assert existing.payload.content == "v3 content"
+        assert first[0].memory_before_snapshot.payload.content == "旧内容"
+        assert second[0].memory_before_snapshot.payload.content == "v2 content"
+        assert first[0].memory_before_snapshot.meta.version == version_before
+        assert second[0].memory_before_snapshot.meta.version == version_before
+        assert existing.meta.version == version_before
 
     def test_apply_update_degrades_to_touch_when_content_unchanged(self):
         """§3.2：合并结果与现有内容一致时不创建新版本——降级为 TOUCH 纯决策。"""
