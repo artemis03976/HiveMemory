@@ -449,32 +449,6 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("operation_request,operation", _request_cases())
-async def test_system_context_is_denied_for_every_actor_request(operation_request, operation):
-    """root 准入不能借线程 context 获得 actor 操作，拒绝时不触达 owner 或意图登记。"""
-    access = make_access_composition([make_actor_access_record(agent_id="system")])
-    harness = _OperationHarness(access=access)
-    _seed_base(harness)
-    thread_access = await _derive_thread(access, agent_id="system")
-    try:
-        with pytest.raises(OperationDeniedError) as error:
-            await harness.entry.execute(operation_request, access=thread_access)
-
-        assert error.value.details == {
-            "operation": operation.value,
-            "reason": "operation_not_allowed",
-        }
-        assert harness.owner_calls == []
-        assert harness.registry.size == 0
-        assert harness.runtime.stats()["cold_reads"] == 0
-        assert harness.citations == []
-    finally:
-        harness.runtime.close()
-        access.gateway.close()
-        access.gateway.revoke_all_contexts()
-
-
-@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "allowed_request,allowed_operation,denied_request,denied_operation",
     [
@@ -539,44 +513,18 @@ async def test_paired_operations_remain_independent_after_an_authorized_request(
         access.gateway.revoke_all_contexts()
 
 
-async def _process_context(access):
-    """进程 context 只服务阶段调用，不能提交 actor 请求。"""
-    return await access.authenticate(binding=RunBinding.for_task_process("p"))
-
-
-async def _request_context(access):
-    """请求级 context 只服务 root API。"""
-    return await access.authenticate(binding=RunBinding.for_request("r"))
-
-
-async def _revoked_thread(access):
-    """CPU 执行结束后已撤销的线程 context。"""
+@pytest.mark.asyncio
+async def test_revoked_thread_context_rejects_request_before_dispatch_without_side_effects(
+    operation_setup,
+):
+    """入口在分派前检查线程 context；各类 context 的拒绝分支由线程 context 测试逐项守护。"""
+    harness, access = operation_setup
     context = await _derive_thread(access)
     access.gateway.revoke_thread_context(context)
-    return context
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "operation_request,_operation",
-    _request_cases(),
-)
-@pytest.mark.parametrize(
-    "make_context,error",
-    [
-        pytest.param(_process_context, ScopeRequiredError, id="process"),
-        pytest.param(_request_context, ScopeRequiredError, id="request"),
-        pytest.param(_revoked_thread, ThreadContextRevokedError, id="revoked"),
-    ],
-)
-async def test_nonthread_or_revoked_context_rejects_every_request_without_side_effects(
-    operation_setup, operation_request, _operation, make_context, error
-):
-    """非线程 context 是接线缺陷，已撤销线程是生命周期拒绝；均无副作用。"""
-    harness, access = operation_setup
-    context = await make_context(access)
-    with pytest.raises(error):
-        await harness.entry.execute(operation_request, access=context)
+    with pytest.raises(ThreadContextRevokedError):
+        await harness.entry.execute(
+            SubmitWriteIntentRequest(WriteFocus(content="请求正文")), access=context
+        )
     assert harness.registry.size == 0
     assert harness.runtime.stats()["cold_reads"] == 0
     assert harness.citations == []

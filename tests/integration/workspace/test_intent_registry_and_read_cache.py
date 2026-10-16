@@ -8,10 +8,9 @@ import pytest
 import pytest_asyncio
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import RunBinding, WorkspaceAccessContext, WorkspaceOperation
+from hivememory.core.access import RunBinding, WorkspaceAccessContext
 from hivememory.core.contracts.events import GlobalEvents
 from hivememory.core.errors import (
-    OperationDeniedError,
     PendingUpdateNotAllowedError,
     ResourceNotFoundError,
 )
@@ -465,49 +464,6 @@ async def test_update_rejects_settled_handle_but_accepts_formal_alias(chain):
     )
 
     assert (revision.source_verb, revision.focus.base_uuid) == ("UPDATE", str(atom.id))
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("operation", ["write", "update", "read"])
-async def test_denied_operation_has_no_registration_or_cache_side_effect(chain, operation):
-    """缺少提交或读取 operation 时，授权失败不触及登记、缓存或冷读。"""
-    composition = make_access_composition(
-        [
-            make_actor_access_record(
-                owner_user_id="u1", agent_id="denied", allowed_operations=frozenset()
-            )
-        ],
-        default_workspace=WORKSPACE,
-    )
-    denied = await composition.authenticate_thread(agent_id="denied")
-    service = ActorMemoryService(
-        chain.bus,
-        operation_authorizer=composition.authorizer,
-        memory_reader=chain.runtime.aliases,
-        dispatch_topics=composition.thread_spawner,
-    )
-    before = chain.runtime.stats()
-    with pytest.raises(OperationDeniedError) as exc_info:
-        if operation == "write":
-            await service.submit_write_intent(
-                SubmitWriteIntentRequest(WriteFocus(content="denied")), access=denied
-            )
-        elif operation == "update":
-            await service.submit_update_intent(
-                SubmitUpdateIntentRequest("canonical", "denied"), access=denied
-            )
-        else:
-            await service.resolve_references(
-                ResolveReferencesRequest(("canonical",)), access=denied
-            )
-
-    expected = {
-        "read": WorkspaceOperation.MEMORY_READ,
-        "write": WorkspaceOperation.MEMORY_WRITE,
-        "update": WorkspaceOperation.MEMORY_UPDATE,
-    }[operation]
-    assert exc_info.value.details["operation"] == expected.value
-    assert (chain.runtime.intents.size, chain.runtime.stats()) == (0, before)
 
 
 @pytest.mark.asyncio

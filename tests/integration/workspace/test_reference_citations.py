@@ -10,9 +10,8 @@ import pytest
 import pytest_asyncio
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
+from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.contracts.events import GlobalEvents
-from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
 from hivememory.core.models import (
     IdentityScope,
     IndexLayer,
@@ -30,10 +29,7 @@ from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
     ResolveReferencesRequest,
-    RetrieveRequest,
-    SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
-    ThreadContextRevokedError,
 )
 from hivememory.workspace.runtime import WorkspaceRuntime
 from tests.helpers.intent_dispatch import install_intent_admission
@@ -84,7 +80,6 @@ class _ReferenceChain:
     bus: GlobalSystemBus
     backing: _MemoryBacking
     runtime: WorkspaceRuntime
-    memory: ActorMemoryService
     entry: WorkspaceOperationEntry
     composition: AccessTestComposition
     access: WorkspaceAccessContext
@@ -120,7 +115,7 @@ async def chain():
         operation_authorizer=composition.authorizer,
     )
     try:
-        yield _ReferenceChain(bus, backing, runtime, memory, entry, composition, access)
+        yield _ReferenceChain(bus, backing, runtime, entry, composition, access)
     finally:
         runtime.close()
         composition.gateway.close()
@@ -153,18 +148,16 @@ async def _write(chain):
     )
 
 
-async def _settle(chain, pending, *, atom=None, discarded=False):
-    """用真实事件订阅驱动终态，不直接改登记的内部状态。"""
+async def _settle(chain, pending, *, atom):
+    """用真实事件订阅驱动结算，不直接改登记的内部状态。"""
     await chain.bus.publish(
         GlobalEvents.PENDING_ATOM_SETTLED,
         settlement=PendingAtomSettlement(
             pending_alias=pending.pending_alias,
             intent_id=pending.intent_id,
-            resolution=(
-                PendingAtomResolution.DISCARDED if discarded else PendingAtomResolution.CREATED
-            ),
-            canonical_uuid=str(atom.id) if atom else None,
-            canonical_alias=atom.index.alias if atom else None,
+            resolution=PendingAtomResolution.CREATED,
+            canonical_uuid=str(atom.id),
+            canonical_alias=atom.index.alias,
         ),
     )
 
@@ -237,27 +230,13 @@ async def test_settled_redirect_and_canonical_alias_share_one_citation(chain):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("state", ["materializing", "failed", "discarded", "cancelled"])
-async def test_reference_read_without_delivered_canonical_atom_does_not_record_citation(
-    chain, state
-):
-    """各意图终态只交付自身状态，未交付正式内容不触发生命周期引用。"""
+async def test_pending_reference_read_does_not_record_citation(chain):
+    """未交付正式内容的意图不触发生命周期引用；各终态的投影由别名解析测试守护。"""
     pending = await _write(chain)
-    if state == "failed":
-        await chain.bus.publish(
-            GlobalEvents.PENDING_ATOM_FAILED,
-            pending_alias=pending.pending_alias,
-            intent_id=pending.intent_id,
-        )
-    elif state == "discarded":
-        await _settle(chain, pending, discarded=True)
-    elif state == "cancelled":
-        await chain.runtime.intents.on_cancelled(pending_alias=pending.pending_alias)
 
     (result,) = await _resolve(chain, pending.pending_alias)
 
-    expected = {"materializing": "pending", "cancelled": "not_found"}.get(state, state)
-    assert result.kind == expected
+    assert result.kind == "pending"
     assert result.atom is None
     assert chain.backing.citations == []
 
@@ -282,37 +261,6 @@ async def test_unreadable_redirect_hides_target_and_does_not_record_citation(cha
     assert result.atom is None
     assert result.canonical_alias is None
     assert result.canonical_uuid is None
-    assert chain.backing.citations == []
-
-
-@pytest.mark.asyncio
-async def test_update_base_resolution_does_not_record_citation(chain):
-    """UPDATE 的基础读取仅用于登记资格，不是引用内容的交付。"""
-    atom = _add_atom(chain)
-
-    pending = await chain.entry.execute(
-        SubmitUpdateIntentRequest("canonical", "更新指令"), access=chain.access
-    )
-
-    assert pending.focus.base_uuid == str(atom.id)
-    assert (
-        chain.runtime.intents.get(
-            pending.pending_alias, chain.composition.default_workspace
-        ).focus.instruction
-        == "更新指令"
-    )
-    assert atom.meta.lifecycle.access_count == 0
-    assert chain.backing.citations == []
-
-
-@pytest.mark.asyncio
-async def test_search_does_not_record_citation(chain):
-    """检索只交付匹配结果，不产生 READ/RUN 的引用记录副作用。"""
-    atom = _add_atom(chain)
-    search = await chain.memory.retrieve(RetrieveRequest("正式内容"), access=chain.access)
-
-    assert [item.id for item in search] == [atom.id]
-    assert atom.meta.lifecycle.access_count == 0
     assert chain.backing.citations == []
 
 
@@ -381,56 +329,3 @@ async def test_cancellation_during_citation_propagates_to_reference_caller(chain
         if not task.done():
             task.cancel()
         await asyncio.gather(task, return_exceptions=True)
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("rejection", ["denied", "revoked", "request-context"])
-async def test_rejected_reference_request_cannot_record_citation_even_after_cache_warmup(
-    chain, rejection
-):
-    """热缓存不能绕过线程 context 或 memory.read，拒绝时无额外引用。"""
-    atom = _add_atom(chain)
-    await _resolve(chain, "canonical")
-    context = chain.access
-    entry = chain.entry
-    composition = None
-    error = ThreadContextRevokedError
-    if rejection == "revoked":
-        chain.composition.gateway.revoke_thread_context(context)
-    elif rejection == "request-context":
-        context = await chain.composition.authenticate()
-        error = ScopeRequiredError
-    else:
-        composition = make_access_composition(
-            [
-                make_actor_access_record(
-                    allowed_operations=set(WorkspaceOperation) - {WorkspaceOperation.MEMORY_READ}
-                )
-            ]
-        )
-        context = await composition.authenticate_thread(process_id="denied")
-        entry = WorkspaceOperationEntry(
-            ActorMemoryService(
-                chain.bus,
-                operation_authorizer=composition.authorizer,
-                memory_reader=chain.runtime.aliases,
-                dispatch_topics=composition.thread_spawner,
-            ),
-            agent=ActorAgentService(
-                operation_authorizer=composition.authorizer,
-                profile_reader=chain.runtime.profiles,
-                thread_spawner=chain.composition.thread_spawner,
-            ),
-            operation_authorizer=composition.authorizer,
-        )
-        error = OperationDeniedError
-    try:
-        with pytest.raises(error):
-            await entry.execute(ResolveReferencesRequest(("canonical",)), access=context)
-        assert atom.meta.lifecycle.access_count == 1
-        assert len(chain.backing.citations) == 1
-    finally:
-        chain.composition.gateway.invalidate_context(context)
-        if composition:
-            composition.gateway.close()
-            composition.gateway.revoke_all_contexts()

@@ -206,17 +206,14 @@ async def _invoke(case, services, composition, access, upload_source=None):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case", _CASES, ids=lambda case: case.method)
-@pytest.mark.parametrize(
-    "actor_operations",
-    [frozenset(), frozenset(WorkspaceOperation)],
-    ids=["no_operations", "all_actor_operations"],
-)
-async def test_each_root_method_rejects_non_system_before_owner_or_asset_effects(
-    case, actor_operations
-):
-    """actor 操作许可不能授予任何管理方法，拒绝先于 owner 与资产注册。"""
+async def test_each_root_method_rejects_non_system_before_owner_or_asset_effects(case):
+    """全部 actor 操作许可也不能授予任何管理方法，拒绝先于 owner 与资产注册。"""
     composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", allowed_operations=actor_operations)]
+        [
+            make_actor_access_record(
+                owner_user_id="u1", allowed_operations=frozenset(WorkspaceOperation)
+            )
+        ]
     )
     services, owner, store = _services(composition)
     access = await composition.authenticate()

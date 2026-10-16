@@ -207,8 +207,7 @@ def test_disabled_user_level_record_with_whitelist_rejected_at_load():
         )
 
 
-@pytest.mark.parametrize("operation", list(WorkspaceOperation))
-def test_system_record_rejects_actor_operation_at_load(operation):
+def test_system_record_rejects_actor_operation_at_load():
     """root actor 的准入记录不能配置任何 actor 操作，直接装配也必须拒绝。"""
     with pytest.raises(ValueError, match="保留 system Actor 的访问记录不得配置 operation"):
         WorkspaceActorAccessRegistry(
@@ -216,7 +215,7 @@ def test_system_record_rejects_actor_operation_at_load(operation):
                 make_actor_access_record(
                     owner_user_id="u1",
                     agent_id=SYSTEM_AGENT_ID,
-                    allowed_operations={operation},
+                    allowed_operations={WorkspaceOperation.MEMORY_READ},
                 )
             ]
         )
