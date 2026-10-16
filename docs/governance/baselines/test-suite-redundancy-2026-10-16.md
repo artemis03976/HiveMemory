@@ -10,13 +10,13 @@ code_paths:
   - src/hivememory/
 related_docs:
   - docs/governance/testing/test-design-standards.md
-  - docs/todo/test-suite-redundancy-follow-ups.md
+  - docs/archive/todo/test-suite-redundancy-follow-ups.md
 last_reviewed: 2026-10-16
 ---
 
 # 测试冗余后续追查基线
 
-本文冻结 `source_commit` 上对[冗余收敛后续 Todo](../../todo/test-suite-redundancy-follow-ups.md)的调查证据。
+本文冻结 `source_commit` 上对[冗余收敛后续 Todo](../../archive/todo/test-suite-redundancy-follow-ups.md)的调查证据。
 最新行为仍以代码、测试和当前设计为准；待处理项由 Todo 跟踪。本轮只调查和整理文档，没有删除、迁移或改写测试。
 
 ## 1. 范围、数量与判断边界

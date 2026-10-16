@@ -395,9 +395,9 @@ def test_write_creates_memory(self):
    跨计划重复的拒绝路径测试、类型层运行时测试，以及以计划或阶段命名的测试文件。清理以归属层为单位分批进行，
    每批只删除或合并已由归属层守护的用例，并对比覆盖率确认没有丢失分支；不在功能分支中顺带执行。
    2026-10-16 完成第一轮（快速集 3035 → 2863 个用例），同日按
-   [后续追查基线](../baselines/test-suite-redundancy-2026-10-16.md)完成第二轮（快速集 2863 → 2748 个用例）；
-   两轮的行与分支覆盖均无新增缺失，遗留事项见
-   [测试套件冗余收敛后续 Todo](../../todo/test-suite-redundancy-follow-ups.md)。
+   [后续追查基线](../baselines/test-suite-redundancy-2026-10-16.md)完成第二轮（快速集 2863 → 2748 个用例），
+   并将生命周期评分与强化组并入 owner（快速集 → 2740 个用例）；各轮的行与分支覆盖均无新增缺失，
+   处理记录见[已归档的冗余收敛 Todo](../../archive/todo/test-suite-redundancy-follow-ups.md)。
 
 ## 12. 相关文档
 
@@ -421,8 +421,12 @@ def test_write_creates_memory(self):
   - e2e 修复 ✅：CI 手动触发 e2e job（`.github/workflows/ci.yml`）、固定 sleep 轮询化、
     `sub_agent_call_e2e.py` 共享存储副作用清理、`flush_triggers_e2e.py` OR 断言收紧；
     新增完整 agent loop 与 chat run（含 MTP WRITE 确定性落库）e2e；
-  - 薄 service 转发测试收敛 ⏳ **遗留**：`tests/unit/patchouli/application/` 下 4 个文件的
-    bus 转发测试仍以 mock 回读为主，待参数化契约化或并入真实 bus 集成。
+  - 薄 service 转发测试收敛 ✅（2026-10-16）：`tests/unit/patchouli/application/` 下纯转发与回读
+    mock 返回值的用例删除，其链路由真实 bus 集成测试（`test_application_access_boundary.py`、
+    `test_topic_access_chain.py`、CALL Profile 链路）承担；两个 Memory 管理测试文件合并，管理读取与
+    actor 读取的可见性语义改为参数化契约表，只保留归属校验、类型强制与过滤、生命力刷新编排、检索
+    请求拆分与越域隐藏等本层判断。整理中发现的 Profile 管理列表可见性偏差见
+    [对应 Todo](../../todo/agent-profile-management-list-visibility.md)。
 - **P3（机制建设）**：
   - FLAKY 可控时钟 ✅：scheduler 注入可控单调时钟（`test_async_scheduler.py` 的 `_FakeMonotonic`）；
     perception idle 与 vitality 已达"相对时间 + 有界轮询"标准；e2e 明确不做时钟化；
