@@ -238,7 +238,7 @@ async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
         InteractionSubmissionQueue,
     )
     from hivememory.patchouli.service import PatchouliService
-    from tests.unit.patchouli.test_phase3f_gateway_decision import _prepare_bus
+    from tests.unit.patchouli.test_service_gateway_decision import _prepare_bus
 
     async def apply_interaction(_payload, **_kwargs):
         return "topic-1"

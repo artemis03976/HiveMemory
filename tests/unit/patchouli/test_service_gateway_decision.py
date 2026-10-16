@@ -1,4 +1,4 @@
-"""Phase 3F Patchouli GatewayDecision 消费契约测试。"""
+"""Patchouli 消费 GatewayDecision 的契约测试。"""
 
 from __future__ import annotations
 

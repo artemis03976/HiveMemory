@@ -1,4 +1,4 @@
-"""确定性 HTTP 会话验收：真实 Alice/Gateway/Patchouli，外部模型与存储使用替身。"""
+"""确定性 HTTP 会话链路：真实 Alice/Gateway/Patchouli，外部模型与存储使用替身。"""
 
 import asyncio
 import json

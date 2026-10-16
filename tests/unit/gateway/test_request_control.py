@@ -1,4 +1,4 @@
-"""Gateway Phase 3F 请求取消与 deadline 测试。"""
+"""Gateway 请求取消与 deadline 测试。"""
 
 from __future__ import annotations
 

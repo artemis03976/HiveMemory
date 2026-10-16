@@ -179,10 +179,10 @@ RuntimeEvent sink 失败不得改变 Gateway 结果。观测字段也不进入�
 
 ## 10. 验证入口
 
-- `tests/unit/gateway/test_phase3a_system.py`
-- `tests/unit/gateway/test_phase3b_contracts.py`
-- `tests/unit/gateway/test_phase3c_workflow.py`
-- `tests/unit/gateway/test_phase3d_context_provider.py`
-- `tests/unit/gateway/test_phase3f_request_control.py`
+- `tests/unit/gateway/test_system.py`
+- `tests/unit/gateway/test_contracts.py`
+- `tests/unit/gateway/test_workflow.py`
+- `tests/unit/gateway/test_context_provider.py`
+- `tests/unit/gateway/test_request_control.py`
 - `tests/unit/workspace/process/test_gateway_chat_flow.py`
 - `tests/unit/system/services/passive/test_passive_gateway_mode.py`

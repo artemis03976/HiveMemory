@@ -243,7 +243,6 @@ process_id（含 session_id）
 
 - `tests/unit/workspace/process/test_gateway_chat_flow.py`
 - `tests/unit/workspace/process/test_chat_run_control_contract.py`
-- `tests/unit/workspace/process/test_cancel_hardening.py`
 - `tests/unit/workspace/process/test_cpu_allocation.py`（CPU 分配、租借释放与关闭顺序）
 - `tests/unit/workspace/process/test_command_terminal.py`（命令解析结果转换为命令终态）
 - `tests/unit/workspace/process/test_cpu_port.py`（经 CPU 端口执行：测试 CPU 跑通任务进程、自报结局、停止、缺终态与输出流关闭）
@@ -251,10 +250,10 @@ process_id（含 session_id）
 - `tests/unit/workspace/process/test_process_events.py`（`chat.run.*` 投影与 best-effort 边界）
 - `tests/unit/server/routers/test_chat.py`（注册后运行、客户端断开取消、流从未开始时的关闭）
 - `tests/unit/system/application/test_api_services.py`
-- `tests/unit/system/application/test_identity_entry_guards.py`（服务签名/身份入口守卫）
+- `tests/unit/architecture/test_access_boundaries.py`（能力层与任务进程入口只经访问 context 接收身份）
 - `tests/unit/workspace/capability/root/`、`tests/unit/workspace/capability/actor/`（root 与 actor API 的各服务）
 - `tests/integration/workspace/test_root_api_authorization.py`（逐方法验证 root 授权：非 `system` 拒绝且不触达 owner，`system` 无白名单也能调用）
-- `tests/e2e/system/test_stage_authorization_chat.py`（没有任何 actor 操作的 Agent 经 HTTP 完成 chat，预检索与 Profile 仍按该 Agent 校验可见性）
+- `tests/e2e/system/test_chat_operation_whitelist.py`（没有任何 actor 操作的 Agent 经 HTTP 完成 chat，预检索与 Profile 仍按该 Agent 校验可见性）
 - `tests/integration/workspace/test_profile_injection_script.py`（注入脚本经认证网关与 root API 写入，重复执行幂等）
 - `tests/unit/system/application/test_readiness_service.py`
 - `tests/integration/workspace/capability/test_assets.py`、`tests/integration/system/application/test_workspace_asset_parsing.py`（真实附件服务、解析服务与 Store 的上传协作）

@@ -213,7 +213,7 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 
 主要验证入口：
 
-- `tests/unit/gateway/test_phase3b_contracts.py`；
+- `tests/unit/gateway/test_contracts.py`；
 - `tests/unit/patchouli/memory_library/test_memory_library.py`；
 - `tests/unit/workspace/intents/test_registry.py`、`tests/unit/workspace/resolution/test_alias_resolver.py`；
 - `src/hivememory/core/models/immutable.py`、`interaction.py`、`topic.py`、`memory.py`、`pending.py`；

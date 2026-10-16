@@ -1,4 +1,4 @@
-"""Phase 3F 被动入口 GatewayDecision 契约测试。"""
+"""被动入口 GatewayDecision 契约测试。"""
 
 from __future__ import annotations
 

@@ -1,4 +1,4 @@
-"""Gateway Phase 3C 固定 workflow 与通用 Step 测试。"""
+"""Gateway 固定 workflow 与通用 Step 测试。"""
 
 from __future__ import annotations
 

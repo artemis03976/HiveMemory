@@ -141,8 +141,8 @@ Registry 在 Gateway Runtime 装配时创建并注册内置命令；`gateway.com
 
 - `tests/unit/gateway/commands/test_registry.py`、`tests/unit/gateway/commands/test_parser.py`
 - `tests/unit/engines/gateway/test_interceptors.py`
-- `tests/unit/gateway/test_phase3b_contracts.py`
-- `tests/unit/gateway/test_phase3c_workflow.py`
+- `tests/unit/gateway/test_contracts.py`
+- `tests/unit/gateway/test_workflow.py`
 - `tests/unit/workspace/process/test_command_terminal.py`
 - `tests/unit/workspace/process/test_gateway_chat_flow.py`
 - `tests/unit/server/routers/test_chat.py`

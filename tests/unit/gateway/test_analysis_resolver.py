@@ -1,4 +1,4 @@
-"""Gateway Phase 3E 查询分析解析器测试。"""
+"""Gateway 查询分析解析器测试。"""
 
 from __future__ import annotations
 

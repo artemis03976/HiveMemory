@@ -69,6 +69,4 @@ CPU 执行结束时任务进程同步撤销全部线程 context；进程关闭�
 - [AgentRuntime](../../src/hivememory/agent_runtime/runtime.py)：成功子帧产物投影；
 - [操作请求与提交函数](../../src/hivememory/workspace/contracts/operations.py)：Alice 消费的稳定契约；
 - [MTP 操作请求集成测试](../../tests/integration/mtp/test_process_operations.py)：跨轮回读、redirect、关闭、权限拒绝与 UPDATE 错误；
-- [HTTP chat 跨轮回读 E2E](../../tests/e2e/system/test_intent_read_chat.py)：真实 HTTP、任务进程与 Alice MTP 的确定性链路。
-
-- [HTTP 单轮能力迁移 E2E](../../tests/e2e/system/test_alice_capability_chat.py)：同轮 SEARCH、READ、WRITE、CALL 共享引用、意图实时派发与引用记录。
+- [HTTP chat MTP 操作 E2E](../../tests/e2e/system/test_chat_mtp_operations.py)：真实 HTTP、任务进程与 Alice MTP 的确定性链路，覆盖跨轮回读上一进程的写入意图，以及同轮 SEARCH、READ、WRITE、CALL 共享引用、意图实时派发与引用记录。

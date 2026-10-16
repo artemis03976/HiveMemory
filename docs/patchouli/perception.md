@@ -58,7 +58,7 @@ Perception 以 `TopicData` 快照作为话题工作视图，保存 blocks、展�
 
 `InteractionSubmissionCodec` 当前为 v5，只注册当前布局：缺失字段、额外字段、旧 `identity_scope` 布局及嵌套对象不能规范往返的载荷均被拒绝。队列使用 `InMemoryWorkStore`，提交快照与幂等收据只驻留于当前进程，不提供旧版本队列载荷迁移或重启恢复。相同 `interaction_id` 的相同载荷复用原收据，不同载荷明确冲突。
 
-当前布局与幂等拒绝的回归入口为 [InteractionSubmission v5 测试](../../tests/unit/patchouli/control/test_interaction_submission_v5.py)；被动入口经过真实队列与感知存储的身份交接见[被动摄入集成测试](../../tests/integration/system/test_passive_identity_submission.py)。
+当前布局与幂等拒绝的回归入口为 [InteractionSubmission 测试](../../tests/unit/patchouli/control/test_interaction_submission.py)；被动入口经过真实队列与感知存储的身份交接见[被动摄入集成测试](../../tests/integration/system/test_passive_identity_submission.py)。
 
 交互应用成功后，Perception 才会把用户明确使用的 `(asset_id, asset_ref)` 记录为 Topic 的 `TopicAssetBinding`。上传、候选列表或 UI 选择本身不会进入 Topic 事实。由此，感知层只接收已完成身份与资源前置校验的交接输入，不拥有 `WorkspaceAssetStore` 的生命周期。
 

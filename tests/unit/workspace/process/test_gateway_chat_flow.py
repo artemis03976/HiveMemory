@@ -1,4 +1,4 @@
-"""Phase 3F 主动聊天 Gateway 编排测试。
+"""主动聊天任务进程的 Gateway 编排测试。
 
 被测边界：``TaskProcessService`` 注册入口与四阶段编排在命令短路、完成、
 取消、失败与断流路径上的行为。注册经真实认证网关完成两阶段认证（组合内
@@ -799,6 +799,33 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
     cleanup.assert_any_await(
         prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
     )
+
+
+@pytest.mark.asyncio
+async def test_streaming_cpu_self_reported_cancel_skips_finalize_and_reports_stopped_done() -> None:
+    """CPU 自报取消且无输出：流式交付发出 cancelled 的 done，finalize 路由全程未被调用。"""
+    bus = GlobalSystemBus()
+    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.CANCELLED, final_text=""))
+    finalize_calls: list = []
+
+    async def finalize(**kwargs):
+        finalize_calls.append(kwargs)
+        return []
+
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
+    _register_profile(bus)
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+
+    service, composition = await _service(bus, cpu)
+    events = await _stream_events(composition, service, "hello", process_id="process-cpu-cancel")
+
+    done_events = [event for event in events if event["event"] == "done"]
+    assert [(event["data"]["status"], event["data"]["stopped"]) for event in done_events] == [
+        ("cancelled", True)
+    ]
+    assert finalize_calls == []
 
 
 @pytest.mark.asyncio

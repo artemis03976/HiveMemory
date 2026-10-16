@@ -17,7 +17,7 @@ from hivememory.components.work_queue import (
     encode_canonical_json,
 )
 from hivememory.config.patchouli import SemanticFlowPerceptionConfig
-from hivememory.core.models import TurnEvent
+from hivememory.core.models import TurnEvent, WorkspaceAssetRef
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.patchouli.control.interaction_apply_journal import (
@@ -489,6 +489,28 @@ async def test_same_interaction_id_different_scope_is_one_conflicting_work() -> 
 
     assert receipt.work_id == "interaction:interaction-shared"
     assert await queue.pending_count() == 1
+
+
+def test_codec_roundtrip_preserves_split_identity_and_attachment_order() -> None:
+    """编码或解码丢失发起者、归属、结局或附件顺序时必须失败。"""
+    attachments = [
+        WorkspaceAssetRef(asset_id="asset-a", token="ref-a"),
+        WorkspaceAssetRef(asset_id="asset-b", token="ref-b"),
+    ]
+    submission = _submission(
+        "interaction-attachments",
+        payload=InteractionPayload(
+            user_message="带附件的消息", outcome="cancelled", used_attachments=attachments
+        ),
+    )
+    codec = InteractionSubmissionCodec()
+
+    decoded = codec.decode(codec.encode(submission))
+
+    assert decoded.payload.outcome == "cancelled"
+    assert decoded.payload.used_attachments == attachments
+    assert decoded.belong_to == submission.belong_to
+    assert decoded.from_actor == submission.from_actor
 
 
 def test_codec_rejects_flattened_identity_projection() -> None:
