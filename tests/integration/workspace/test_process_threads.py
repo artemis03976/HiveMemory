@@ -86,11 +86,6 @@ async def from_child_thread(access, process, threads, main):
     return child.access, "p"
 
 
-async def from_other_process(access, process, threads, main):
-    """另一进程的线程不是本进程登记的主线程。"""
-    return await access.authenticate_thread(process_id="other"), "p"
-
-
 async def from_unregistered_process(access, process, threads, main):
     """进程关联指向未登记的进程。"""
     return main, "missing"
@@ -108,12 +103,6 @@ async def after_main_revoked(access, process, threads, main):
     return main, "p"
 
 
-async def after_cpu_end(access, process, threads, main):
-    """CPU 执行结束，全部线程已撤销并移出登记。"""
-    threads.revoke_threads(process.working_set)
-    return main, "p"
-
-
 async def after_stop_requested(access, process, threads, main):
     """用户已请求停止进程。"""
     process.record.request_stop()
@@ -125,16 +114,18 @@ async def after_stop_requested(access, process, threads, main):
     "prepare, error",
     [
         pytest.param(from_child_thread, ScopeRequiredError, id="child"),
-        pytest.param(from_other_process, ScopeRequiredError, id="other-process"),
         pytest.param(from_unregistered_process, ScopeRequiredError, id="missing"),
         pytest.param(after_entering_finalize, ScopeRequiredError, id="finalize"),
         pytest.param(after_main_revoked, ThreadContextRevokedError, id="revoked"),
-        pytest.param(after_cpu_end, ScopeRequiredError, id="ended"),
         pytest.param(after_stop_requested, ScopeRequiredError, id="stopped"),
     ],
 )
 async def test_derivation_rejects_invalid_caller_or_phase_without_registration(prepare, error):
-    """递归、错进程、结束或停止后派生都拒绝，已有线程登记不变。"""
+    """递归、未登记进程、离开 Actor 阶段、主线程撤销或停止后派生都拒绝，已有线程登记不变。
+
+    其他进程的线程与 CPU 结束后的主线程都落在“不是本进程登记的主线程”这一判断，
+    由 child 代表。
+    """
     access, process, threads, main = await make_process_threads()
     caller, process_id = await prepare(access, process, threads, main)
     before = dict(process.working_set.thread_contexts)

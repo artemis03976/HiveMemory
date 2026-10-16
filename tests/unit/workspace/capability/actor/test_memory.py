@@ -125,11 +125,15 @@ class TestActorMemoryService:
         assert captured["scope"] == expected_scope
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("kind", ["pending", "failed", "discarded", "not_found", "expired"])
     async def test_reference_status_outside_formal_delivery_does_not_record_citation(
-        self, kind, composition, workspace, access
+        self, composition, workspace, access
     ):
-        """只为正式交付记录引用，其他状态即使带有原子也不能引用；READ 与 RUN 共用该判断。"""
+        """只为正式交付记录引用，其他状态即使带有原子也不能引用；READ 与 RUN 共用该判断。
+
+        非 atom/redirect 状态在同一 kind 判断处跳过，取带原子的 pending 代表，
+        防止退化为只按原子存在与否记录引用。
+        """
+        kind = "pending"
         citations = []
 
         class CitationBus:

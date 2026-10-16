@@ -1,6 +1,5 @@
 """话题结算的发起者与生成查重可见性跨组件回归。"""
 
-from datetime import UTC, datetime
 from types import SimpleNamespace
 
 import pytest
@@ -40,7 +39,6 @@ from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationTaskStat
 from hivememory.patchouli.control.interaction_apply_journal import InMemoryInteractionApplyJournal
 from hivememory.patchouli.control.memory_generation.controller import MemoryGenerationTaskController
 from hivememory.patchouli.control.memory_generation.coordinator import MemoryGenerationCoordinator
-from hivememory.patchouli.control.memory_generation.models import memory_task_from_spec
 from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
 from hivememory.patchouli.memory_library.adapters.long_term import FileBasedStorageAdapter
 from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
@@ -74,74 +72,6 @@ class _Relay:
         raise AssertionError("settlement identity test must not compact")
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("trigger", ["manual", "idle", "lru", "shutdown"])
-async def test_all_settlement_triggers_create_system_initiated_tasks(trigger: str) -> None:
-    """最后访问者或驱逐触发者被错误保存为结算发起者时必须失败。"""
-    belong_to = WorkspaceIdentity(
-        owner_user_id="owner-1", workspace_key="main_workspace", workspace_id="main_workspace"
-    )
-    from_actor = ActorIdentity(user_id="owner-1", agent_id="agent-1", team_id="team-1")
-    clock = _Clock()
-    bus = PatchouliBus()
-    coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
-    accepted = []
-
-    async def accept(spec):
-        task = memory_task_from_spec(
-            "settlement-1", spec, created_at=datetime(2026, 10, 4, tzinfo=UTC)
-        )
-        accepted.append(task)
-        return task
-
-    bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, coordinator.submit_settlement)
-    bus.register(PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION, accept)
-    store = ShortTermMemoryStore()
-    familiar = PerceptionFamiliar(
-        engine=MemoryPerceptionEngine(
-            SemanticFlowPerceptionConfig(fold_token_threshold=999999), _Relay()
-        ),
-        store=store,
-        working_set=TopicWorkingSet(max_resident=1, clock=clock),
-        bus=bus,
-        config=SimpleNamespace(idle_timeout_seconds=5),
-        interaction_journal=InMemoryInteractionApplyJournal(),
-    )
-    payload = InteractionPayload(
-        user_message="需要结算的交互",
-        assistant_final_text="回复",
-        turn_events=[
-            TurnEvent(kind="assistant_message", sequence=0, role="assistant", content="回复")
-        ],
-    )
-    topic_id = await familiar.apply_interaction(
-        payload, belong_to=belong_to, from_actor=from_actor, interaction_id="interaction-1"
-    )
-    if trigger == "manual":
-        await familiar.manual_settle_topic(belong_to, topic_id)
-    elif trigger == "idle":
-        clock.value = 6
-        await familiar.scan_idle_buffers_once()
-    elif trigger == "lru":
-        await familiar.apply_interaction(
-            payload,
-            belong_to=belong_to,
-            from_actor=ActorIdentity(user_id="owner-1", agent_id="evicting-agent"),
-            interaction_id="interaction-2",
-        )
-    else:
-        await familiar.flush_all_for_shutdown()
-
-    assert [(task.topic_id, task.belong_to, task.from_actor) for task in accepted] == [
-        (
-            topic_id,
-            belong_to,
-            ActorIdentity(user_id="owner-1", agent_id=SYSTEM_AGENT_ID, team_id=None),
-        )
-    ]
-    assert store.get(belong_to, topic_id) is None
-
-
 class _Extractor:
     """LLM 提取边界的确定性草稿替身。"""
 
@@ -172,21 +102,20 @@ class _LeakyVectorStore:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("visibility", [MemoryVisibility.PRIVATE, MemoryVisibility.TEAM])
 @pytest.mark.parametrize("active_write", [False, True], ids=["settle", "write"])
 async def test_settle_skips_restricted_dedup_but_write_keeps_actor_visibility(
-    visibility: MemoryVisibility, active_write: bool
+    active_write: bool,
 ) -> None:
-    """SETTLE 合并受限记忆或 WRITE 丢失提交者可见性时必须失败。"""
+    """SETTLE 合并受限记忆或 WRITE 丢失提交者可见性时必须失败。
+
+    两种生成模式以不同发起者查重；受限策略的 PRIVATE/TEAM 判定矩阵归 core
+    可读性单测，这里取 PRIVATE 代表。
+    """
     belong_to = WorkspaceIdentity(
         owner_user_id="owner-1", workspace_key="main_workspace", workspace_id="main_workspace"
     )
     from_actor = ActorIdentity(user_id="owner-1", agent_id="agent-1", team_id="team-1")
-    policy = MemoryAccessPolicy(
-        visibility=visibility,
-        target_agent_id="agent-1" if visibility == MemoryVisibility.PRIVATE else None,
-        target_team_id="team-1" if visibility == MemoryVisibility.TEAM else None,
-    )
+    policy = MemoryAccessPolicy(visibility=MemoryVisibility.PRIVATE, target_agent_id="agent-1")
     existing = MemoryAtom(
         meta=make_memory_metadata(
             user_id="owner-1", source_agent_id="agent-1", access_policy=policy

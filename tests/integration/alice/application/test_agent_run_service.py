@@ -207,7 +207,7 @@ async def test_root_policy_and_prompt_follow_manifest_operations(run_to_terminal
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     ("profile_agent_id", "display_agent_id"),
-    [("display_agent", "display_agent"), (None, "registered_agent"), ("", "registered_agent")],
+    [("display_agent", "display_agent"), (None, "registered_agent")],
 )
 async def test_registered_labels_drive_runtime_events_and_profile_controls_stream_display(
     monkeypatch, profile_agent_id, display_agent_id

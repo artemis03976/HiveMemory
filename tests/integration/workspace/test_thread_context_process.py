@@ -129,16 +129,17 @@ async def register(chain, cpu):
             ["finalize"],
             id="completed",
         ),
-        pytest.param({"result": make_cpu_result(status="failed")}, ["finalize"], id="failed"),
-        pytest.param({"result": make_cpu_result(status="cancelled")}, ["finalize"], id="cancelled"),
         pytest.param({"error": RuntimeError("CPU failed")}, ["cleanup"], id="exception"),
-        pytest.param({}, ["cleanup"], id="no-result"),
     ],
 )
 async def test_cpu_end_revokes_thread_before_terminal_and_keeps_stage_authorization(
     process_chain, cpu_outcome, expected_stages
 ):
-    """正常终态、异常和缺失终态均立即撤销；finalize/话题池或 cleanup 仍以进程身份调用。"""
+    """有终态与无终态两条撤销路径都先于交付撤销线程；finalize 或 cleanup 仍以进程身份调用。
+
+    三种终态共用取得结果后的统一撤销，异常与缺失终态共用无结果时的提前撤销；
+    各取一个代表。无输出终态与缺失终态的进程结局由 CPU 端口单测覆盖。
+    """
     chain = process_chain
     observed = []
 

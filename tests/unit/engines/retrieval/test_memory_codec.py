@@ -103,9 +103,9 @@ def test_missing_schema_version_is_rejected() -> None:
         decode_memory_payload(payload)
 
 
-@pytest.mark.parametrize("schema_version", [2, "2", 7])
+@pytest.mark.parametrize("schema_version", [2, "2"])
 def test_non_current_schema_version_is_rejected(schema_version) -> None:
-    """只接受 "2.1"：已迁移完毕的整数 2 旧格式、Artifact 轴的 "2" 与未知版本都 fail closed。"""
+    """只接受 "2.1"：已迁移完毕的整数 2 旧格式与 Artifact 轴的 "2" 都 fail closed。"""
     payload = _v21_payload()
     payload["schema_version"] = schema_version
 

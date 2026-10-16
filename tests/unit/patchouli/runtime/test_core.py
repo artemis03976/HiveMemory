@@ -308,11 +308,11 @@ class TestRuntimeRerankerAssembly:
             )
         return runtime, reranker_factory
 
-    @pytest.mark.parametrize("retriever_type", ["dense", "sparse", "hybrid"])
-    def test_enabled_reranker_is_built_for_any_retriever_type(self, retriever_type):
+    def test_enabled_reranker_is_built_for_any_retriever_type(self):
+        """装配只读取 retrieval.reranker，召回类型不参与判断，取 dense 代表。"""
         _, reranker_factory = self._build_runtime(
             {
-                "retriever": {"type": retriever_type},
+                "retriever": {"type": "dense"},
                 "reranker": {"enabled": True, "model_name": "test/reranker"},
             }
         )

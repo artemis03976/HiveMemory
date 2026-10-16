@@ -200,21 +200,19 @@ def test_http_task_observation_and_cancel_reach_queue_terminal(
     assert final.json()["reason"] == "user_requested"
 
 
-@pytest.mark.parametrize(
-    "foreign_workspace",
-    [
-        make_workspace_identity(owner_user_id="user-2"),
-        make_workspace_identity(owner_user_id="user-1", workspace_id="isolation_workspace"),
-    ],
-    ids=["other-owner", "other-workspace"],
-)
 @pytest.mark.parametrize("cancel", [False, True], ids=["observe", "cancel"])
 def test_http_foreign_task_is_hidden_without_cancelling_queue(
-    task_api_stack: _TaskApiStack, foreign_workspace: WorkspaceIdentity, cancel: bool
+    task_api_stack: _TaskApiStack, cancel: bool
 ) -> None:
-    """任务归属越 owner 或 Workspace 时统一隐藏，原任务保持运行且未请求取消。"""
+    """其他 Workspace 的任务统一隐藏，原任务保持运行且未请求取消。
+
+    owner 与 workspace_id 在同一处完整归属比较中汇合，逐坐标矩阵由
+    MemoryTaskManagementService 单测承担；HTTP 只证明两个入口的 404 映射。
+    """
     stack = task_api_stack
-    task = stack.submit_running(foreign_workspace)
+    task = stack.submit_running(
+        make_workspace_identity(owner_user_id="user-1", workspace_id="isolation_workspace")
+    )
     listed = stack.client.get("/api/v1/memory-tasks", headers=USER_HEADERS)
     path = f"/api/v1/memory-tasks/{task.task_id}"
     response = (

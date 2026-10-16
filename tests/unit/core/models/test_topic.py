@@ -9,8 +9,6 @@
 空白字符串不构成有效 state_summary；has_blocks 保持“是否有原始 block”的窄语义。
 """
 
-import pytest
-
 from hivememory.core.models import LogicalBlock, TopicData, TurnRecord
 from tests.helpers.workspace import make_identity_scope
 
@@ -63,14 +61,9 @@ class TestTopicDataContentEmptiness:
         assert topic.has_content is True
         assert topic.has_blocks is True
 
-    @pytest.mark.parametrize(
-        "summary",
-        ["", "   ", "\n\t "],
-        ids=["empty", "spaces", "whitespace"],
-    )
-    def test_blank_summary_does_not_count_as_content(self, summary):
-        """空白字符串不构成有效 state_summary。"""
-        topic = _make_topic(blocks=[], state_summary=summary)
+    def test_blank_summary_does_not_count_as_content(self):
+        """只含换行、制表符与空格的 state_summary 不构成有效内容。"""
+        topic = _make_topic(blocks=[], state_summary="\n\t ")
         assert topic.is_empty is True
         assert topic.has_content is False
 

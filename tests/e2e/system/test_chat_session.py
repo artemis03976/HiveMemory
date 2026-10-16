@@ -207,11 +207,15 @@ async def test_http_session_resume_after_partial_stop(monkeypatch, patchouli_cha
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("outcome", ["completed", "cancelled", "failed"])
 async def test_text_only_cpu_output_is_structured_before_patchouli_submission(
-    patchouli_chat_stack, outcome
+    patchouli_chat_stack,
 ):
-    """CPU 只交回正文时，HTTP 到真实 Patchouli 仍形成可重放的结构化轮次。"""
+    """CPU 只交回正文时，HTTP 到真实 Patchouli 仍形成可重放的结构化轮次。
+
+    三种有输出结局的封口与会话写入由进程归属层矩阵覆盖，这里只保留
+    completed 代表证明公开入口到真实 Patchouli 的链路。
+    """
+    outcome = "completed"
     from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 
     access = make_access_composition(

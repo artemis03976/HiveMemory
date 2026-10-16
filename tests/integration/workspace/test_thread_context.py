@@ -54,22 +54,19 @@ async def request_context(composition):
     return await composition.authenticate()
 
 
-async def thread_context(composition):
-    """已经派生出的线程 context。"""
-    return composition.gateway.derive_thread_context(await process_context(composition))
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
     "make_source",
     [
         pytest.param(revoked_process_context, id="revoked"),
         pytest.param(request_context, id="request"),
-        pytest.param(thread_context, id="thread"),
     ],
 )
 async def test_derivation_rejects_nonprocess_or_revoked_source(composition, make_source):
-    """已撤销的进程、请求级与线程级 context 均不能再派生线程。"""
+    """已撤销的进程 context 与非进程 context 均不能再派生线程。
+
+    请求级与线程级 context 在同一 run_type 比较处被拒，由 request 代表。
+    """
     source = await make_source(composition)
 
     with pytest.raises(ScopeRequiredError, match="有效的进程 context"):
@@ -199,9 +196,9 @@ async def test_child_derivation_rejects_unadmitted_or_system_actor(callee, calle
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("make_source", [revoked_process_context, request_context, thread_context])
+@pytest.mark.parametrize("make_source", [revoked_process_context, request_context])
 async def test_child_derivation_requires_valid_process_context(composition, make_source):
-    """子线程派生不能把请求或线程当作来源，也不能复用已撤销进程。"""
+    """子线程派生不能把非进程 context 当作来源，也不能复用已撤销进程。"""
     source = await make_source(composition)
     with pytest.raises(ScopeRequiredError, match="有效的进程 context"):
         composition.gateway.derive_child_thread_context(

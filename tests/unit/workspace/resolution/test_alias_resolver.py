@@ -226,6 +226,29 @@ async def test_backing_atom_from_another_workspace_is_neither_delivered_nor_cach
 
 
 @pytest.mark.asyncio
+async def test_cold_read_rechecks_policy_when_backing_returns_restricted_atom():
+    """纵深防御：backing 冷读未按 policy 过滤时，交付前仍拒绝当前 Actor 不可读的原子。
+
+    拒绝只针对当前 Actor，不能把原子当作不存在：policy 允许的 Actor 照常取得。
+    """
+    backing = _FakeBacking()
+    private = _atom("fact_leaked", private_to="a2")
+
+    async def leaky_read(memory_id, *, scope):
+        backing.calls += 1
+        return private.model_copy(deep=True)
+
+    backing.read = leaky_read  # type: ignore[method-assign]
+    resolver, _, _ = _resolver(backing)
+
+    denied = await resolver.read(private.id, scope=A1)
+    allowed = await resolver.read(private.id, scope=A2)
+
+    assert denied is None
+    assert allowed.id == private.id
+
+
+@pytest.mark.asyncio
 async def test_missing_result_is_not_negatively_cached():
     """缺失/不可见结果不写负缓存：资源随后出现时下一次读取可取得。"""
     backing = _FakeBacking()
@@ -443,55 +466,18 @@ def _update_by_a1(resolver: AliasResolver, base: MemoryAtom):
     )
 
 
-async def _leave_pending(intents, pending, base) -> None:
-    """登记即处于 MATERIALIZING，无需额外推进。"""
-
-
-async def _fail(intents, pending, base) -> None:
-    await intents.on_failed(pending_alias=pending.pending_alias)
-
-
-async def _discard(intents, pending, base) -> None:
-    await intents.on_settled(
-        settlement=PendingAtomSettlement(
-            pending_alias=pending.pending_alias,
-            intent_id=pending.intent_id,
-            resolution=PendingAtomResolution.DISCARDED,
-        )
-    )
-
-
-async def _settle_updated(intents, pending, base) -> None:
-    await intents.on_settled(
-        settlement=PendingAtomSettlement(
-            pending_alias=pending.pending_alias,
-            intent_id=pending.intent_id,
-            resolution=PendingAtomResolution.UPDATED,
-            canonical_alias=base.index.alias,
-            canonical_uuid=str(base.id),
-        )
-    )
-
-
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("advance", "visible_kind"),
-    [
-        (_leave_pending, "pending"),
-        (_fail, "failed"),
-        (_discard, "discarded"),
-        (_settle_updated, "redirect"),
-    ],
-    ids=["materializing", "failed", "discarded", "updated"],
-)
-async def test_update_intent_on_unreadable_base_is_not_found_in_every_state(advance, visible_kind):
+async def test_update_intent_on_unreadable_base_is_not_found_in_every_state():
     """UPDATE 意图的可见性跟随基础原子：读不到基础的 Actor 在任何状态下都得到
-    not_found，拿不到修改内容与基础坐标；能读基础的 Actor 仍得到对应状态。"""
+    not_found，拿不到修改内容与基础坐标；能读基础的 Actor 仍得到对应状态。
+
+    基础可读性在按状态投影之前统一检查，取物化中状态代表；各状态的投影由
+    终态与 redirect 用例覆盖。
+    """
     backing = _FakeBacking()
     base = backing.store(_atom("private_base", content="secret v1", private_to="a1"))
     resolver, _, _ = _resolver(backing)
     pending = _update_by_a1(resolver, base)
-    await advance(resolver.intents, pending, base)
 
     hidden = (await resolver.resolve_references([pending.pending_alias], scope=A2))[0]
     visible = (await resolver.resolve_references([pending.pending_alias], scope=A1))[0]
@@ -502,7 +488,7 @@ async def test_update_intent_on_unreadable_base_is_not_found_in_every_state(adva
         None,
         None,
     )
-    assert (visible.kind, visible.pending.focus.content) == (visible_kind, "secret revision")
+    assert (visible.kind, visible.pending.focus.content) == ("pending", "secret revision")
 
 
 @pytest.mark.asyncio

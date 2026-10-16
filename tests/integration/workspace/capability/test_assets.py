@@ -174,23 +174,17 @@ async def test_upload_accepts_content_exactly_at_limit() -> None:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "raw_name",
-    ["   ", "", "../etc/passwd"],
-)
-async def test_upload_rejects_invalid_or_path_like_names_with_no_side_effect(
-    raw_name: str,
-) -> None:
-    """捕获路径分隔符/控制字符未清理或非法名仍然注册资产。"""
+async def test_upload_rejects_blank_name_with_no_side_effect() -> None:
+    """捕获清理后为空的文件名仍然注册资产；分隔符清理与格式拒绝由下方用例承担。"""
     store = InMemoryWorkspaceAssetStore()
     service, composition = _service(store)
 
-    with pytest.raises((InvalidAttachmentNameError, UnsupportedAttachmentFormatError)):
+    with pytest.raises(InvalidAttachmentNameError):
         await _upload(
             service,
             composition,
             content=b"x",
-            file_name=raw_name,
+            file_name="   ",
             declared_media_type=None,
         )
 

@@ -466,26 +466,17 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
             WorkspaceOperation.MEMORY_READ,
             id="run-not-read",
         ),
-        pytest.param(
-            SubmitWriteIntentRequest(WriteFocus(content="独立写入")),
-            WorkspaceOperation.MEMORY_WRITE,
-            SubmitUpdateIntentRequest("base", "独立更新"),
-            WorkspaceOperation.MEMORY_UPDATE,
-            id="write-not-update",
-        ),
-        pytest.param(
-            SubmitUpdateIntentRequest("base", "独立更新"),
-            WorkspaceOperation.MEMORY_UPDATE,
-            SubmitWriteIntentRequest(WriteFocus(content="独立写入")),
-            WorkspaceOperation.MEMORY_WRITE,
-            id="update-not-write",
-        ),
     ],
 )
 async def test_paired_operations_remain_independent_after_an_authorized_request(
     allowed_request, allowed_operation, denied_request, denied_operation
 ):
-    """获准请求先填充缓存或登记意图，不能使另一操作借复用状态绕过权限检查。"""
+    """获准请求先填充读取缓存，不能使另一操作借已缓存的目标绕过权限检查。
+
+    READ 与 RUN 共用同一读取缓存，任一入口若在授权前查缓存，只有热态才能暴露，
+    因此两个方向各保留一例。WRITE 与 UPDATE 在授权前不读取任何共享状态，
+    其拒绝由冷态逐请求矩阵覆盖。
+    """
     access = make_access_composition(
         [make_actor_access_record(allowed_operations={allowed_operation})]
     )

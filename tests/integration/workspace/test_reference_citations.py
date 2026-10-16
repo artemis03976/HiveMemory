@@ -122,11 +122,11 @@ async def chain():
         composition.gateway.revoke_all_contexts()
 
 
-def _add_atom(chain, alias="canonical", *, visibility="PUBLIC", user_id="test_user"):
+def _add_atom(chain, alias="canonical", *, visibility="PUBLIC"):
     """把正式原子加入持久化替身，由真实读取视图完成归属与 policy 检查。"""
     atom = MemoryAtom(
         meta=make_memory_metadata(
-            user_id=user_id, source_agent_id="other_agent", visibility=visibility
+            user_id="test_user", source_agent_id="other_agent", visibility=visibility
         ),
         index=IndexLayer(
             alias=alias, title="引用原子", summary="引用原子摘要", memory_type=MemoryType.FACT
@@ -242,16 +242,13 @@ async def test_pending_reference_read_does_not_record_citation(chain):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("target", ["missing", "private", "other_workspace"])
-async def test_unreadable_redirect_hides_target_and_does_not_record_citation(chain, target):
-    """缺失、policy 拒绝与归属越界的结算目标均不交付，也不记引用。"""
-    atom = _add_atom(
-        chain,
-        visibility="PRIVATE" if target == "private" else "PUBLIC",
-        user_id="other_user" if target == "other_workspace" else "test_user",
-    )
-    if target == "missing":
-        chain.backing.atoms.pop(atom.id)
+async def test_unreadable_redirect_hides_target_and_does_not_record_citation(chain):
+    """结算目标对当前 Actor 不可读时不交付、脱敏坐标，也不记引用。
+
+    冷读的缺失、归属越界与 policy 拒绝三个判断由 AliasResolver 单测逐一覆盖，
+    这里取 policy 拒绝代表证明引用链经过该判断。
+    """
+    atom = _add_atom(chain, visibility="PRIVATE")
     pending = await _write(chain)
     await _settle(chain, pending, atom=atom)
 

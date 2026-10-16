@@ -103,10 +103,12 @@ def test_lowercase_verb_filter_normalizes_teaching_and_protocol_list():
     ],
     ids=["all-demo-verbs", "without-search", "without-read", "without-run"],
 )
-@pytest.mark.parametrize("language", ["zh", "en"])
-def test_demo_requires_every_verb_used_by_the_example(permitted_verbs, includes_demo, language):
-    """示例作为完整流程保留或省略，不裁剪成无法执行的半条教学链。"""
-    output = MTPPromptBuilder(language=language, allowed_verbs=permitted_verbs).build()
+def test_demo_requires_every_verb_used_by_the_example(permitted_verbs, includes_demo):
+    """示例作为完整流程保留或省略，不裁剪成无法执行的半条教学链。
+
+    是否包含示例只取决于动词集合；中英文模板的示例内容由上方双语言用例覆盖。
+    """
+    output = MTPPromptBuilder(language="en", allowed_verbs=permitted_verbs).build()
 
     assert ("tool_deploy_login" in output) == includes_demo
 

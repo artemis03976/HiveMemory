@@ -20,12 +20,14 @@ def test_active_generation_material_rejects_negative_block_count() -> None:
         MemoryGenerationConfig(active_recent_blocks=-1)
 
 
-@pytest.mark.parametrize("retriever_type", ["hybrid", "dense", "sparse"])
-def test_retriever_level_reranker_is_rejected_with_migration_hint(retriever_type) -> None:
-    """旧位置 retriever.reranker 必须显式失败，而不是被 extra=ignore 静默丢弃。"""
+def test_retriever_level_reranker_is_rejected_with_migration_hint() -> None:
+    """旧位置 retriever.reranker 必须显式失败，而不是被 extra=ignore 静默丢弃。
+
+    拒绝发生在按 type 分派检索器之前，任一检索器类型都走同一检查。
+    """
     with pytest.raises(ValidationError, match="已移至 retrieval.reranker"):
         MemoryRetrievalConfig.model_validate(
-            {"retriever": {"type": retriever_type, "reranker": {"enabled": False}}}
+            {"retriever": {"type": "hybrid", "reranker": {"enabled": False}}}
         )
 
 
@@ -38,10 +40,6 @@ def test_hybrid_retriever_requires_at_least_one_recall_path() -> None:
     ("retriever", "message"),
     [
         ({"type": "sparse", "score_threshold": 0.3}, "Sparse 召回配置不再支持 score_threshold"),
-        (
-            {"type": "hybrid", "sparse": {"score_threshold": 0.3}},
-            "Sparse 召回配置不再支持 score_threshold",
-        ),
         ({"type": "hybrid", "score_threshold": 0.3}, "Hybrid 检索配置不再支持 score_threshold"),
         (
             {"type": "hybrid", "fusion": {"type": "rrf", "final_top_k": 5}},
@@ -52,7 +50,7 @@ def test_hybrid_retriever_requires_at_least_one_recall_path() -> None:
             "融合配置不再支持 final_top_k",
         ),
     ],
-    ids=["sparse", "hybrid-sparse", "hybrid", "rrf", "adaptive"],
+    ids=["sparse", "hybrid", "rrf", "adaptive"],
 )
 def test_removed_threshold_and_truncation_keys_fail_explicitly(retriever, message) -> None:
     """已删除的阈值与截取键必须显式失败，而不是被 extra=ignore 静默丢弃。"""

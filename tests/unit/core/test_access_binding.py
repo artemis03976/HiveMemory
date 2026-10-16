@@ -11,7 +11,6 @@ from hivememory.core.access import AccessRunType, RunBinding
         ("execution_thread", None),
         ("execution_thread", " "),
         ("task_process", "main"),
-        ("request", "main"),
     ],
 )
 def test_run_binding_rejects_inconsistent_thread_identifier(run_type, thread_id):

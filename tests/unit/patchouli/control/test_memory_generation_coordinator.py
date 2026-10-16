@@ -3,7 +3,9 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
+    ActorIdentity,
     IndexLayer,
     LogicalBlock,
     MemoryAtom,
@@ -201,6 +203,12 @@ class TestMemoryGenerationCoordinator:
         assert route == PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION
         assert spec.topic_id == "t1"
         assert spec.source == MemoryGenerationSource.SETTLE
+        # 结算材料不携带访问者：manual/idle/LRU/shutdown 都以归属对应的 system 发起，
+        # 最后访问者或驱逐触发者不能成为结算发起者。
+        assert spec.belong_to == _identity_scope().workspace_identity
+        assert spec.from_actor == ActorIdentity(
+            user_id="test_user", agent_id=SYSTEM_AGENT_ID, team_id=None
+        )
         assert spec.request.context.state_summary == "state"
         assert spec.interaction_input.topic_title == "title"
 

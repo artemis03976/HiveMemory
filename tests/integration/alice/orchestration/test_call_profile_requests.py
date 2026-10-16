@@ -158,13 +158,15 @@ async def test_call_reloads_profile_after_management_updates_source_atom(profile
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("alias", ["", "default", "omni_doll"])
 async def test_builtin_call_uses_workspace_profile_read_and_keeps_builtin_configuration(
-    profile_chain, alias
+    profile_chain,
 ):
-    """未指定与显式内置 alias 经真实 backing 解析，仍交付同一能力配置。"""
+    """显式内置 alias 经真实 backing 解析，交付内置能力配置且不进缓存。
+
+    空 alias 与 default 的归一化由 Patchouli 的 Profile 读取单测覆盖。
+    """
     submit_operation, _ = await _profile_submitter(profile_chain)
-    transition, _, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), alias)
+    transition, _, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), "omni_doll")
 
     assert isinstance(transition, DispatchCallee)
     assert transition.frame.agent_profile == OMNI_DOLL_PROFILE
@@ -172,9 +174,11 @@ async def test_builtin_call_uses_workspace_profile_read_and_keeps_builtin_config
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("alias", ["", "default", "omni_doll", "custom_agent"])
-async def test_call_without_call_permission_returns_permission_error_without_dispatch(alias):
-    """只有 READ 许可不能执行 CALL，内置 Profile 同样受 agent.call 约束。"""
+async def test_call_without_call_permission_returns_permission_error_without_dispatch():
+    """只有 READ 许可不能执行 CALL，内置 Profile 同样受 agent.call 约束。
+
+    agent.call 授权先于 Profile 解析，任何 alias 都在同一处被拒，取内置目标代表。
+    """
     harness = OperationsHarness()
     scope = make_identity_scope(agent_id="parent")
     submit_operation = await harness.submitter(
@@ -184,7 +188,7 @@ async def test_call_without_call_permission_returns_permission_error_without_dis
     )
     caller = _caller(submit_operation)
 
-    transition, session, _ = await _begin_call(caller, alias)
+    transition, session, _ = await _begin_call(caller, "omni_doll")
 
     assert isinstance(transition, ResumeCaller)
     assert set(session.frames) == {"caller"}
@@ -195,24 +199,14 @@ async def test_call_without_call_permission_returns_permission_error_without_dis
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    ("scenario", "expected_code"),
-    [
-        ("missing", "mtp.alias.not_found"),
-        ("private", "mtp.alias.not_found"),
-        ("invalid", "mtp.argument.invalid"),
-    ],
-)
-async def test_unusable_custom_profile_returns_preparation_error_without_fallback(
-    profile_chain, scenario, expected_code
-):
-    """缺失、不可见与损坏的自定义图纸回填具体错误，不降级执行内置 Agent。"""
-    if scenario != "missing":
-        atom = _profile_atom(
-            visibility="PRIVATE" if scenario == "private" else "PUBLIC",
-            agent_config={"temperature": 9} if scenario == "invalid" else None,
-        )
-        await profile_chain.store.upsert(atom)
+async def test_unusable_custom_profile_returns_preparation_error_without_fallback(profile_chain):
+    """调用方不可见的自定义图纸回填具体错误，不降级执行内置 Agent。
+
+    缺失、不可见与配置损坏的完整矩阵归 Patchouli 的 Profile 读取单测；这里取
+    经真实 adapter 可见性过滤的不可见图纸作代表。
+    """
+    expected_code = "mtp.alias.not_found"
+    await profile_chain.store.upsert(_profile_atom(visibility="PRIVATE"))
     submit_operation, _ = await _profile_submitter(profile_chain)
     caller = _caller(submit_operation, agent_id="reader")
 
@@ -329,23 +323,13 @@ async def _profile_named_by_alias(alias, **_kwargs):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "target, callee_records",
-    [
-        pytest.param("omni_doll", [], id="missing"),
-        pytest.param(
-            "omni_doll",
-            [make_actor_access_record(agent_id="omni_doll", enabled=False, allowed_operations=[])],
-            id="disabled",
-        ),
-        pytest.param("system", [make_actor_access_record(agent_id="system")], id="system"),
-    ],
-)
-async def test_unadmitted_call_target_returns_structured_error_without_creating_child(
-    target, callee_records
-):
-    """目标准入失败时只回填结构化权限错误，进程登记里没有子线程。"""
-    access = make_access_composition([make_actor_access_record(agent_id="parent"), *callee_records])
+async def test_unadmitted_call_target_returns_structured_error_without_creating_child():
+    """目标准入失败时只回填结构化权限错误，进程登记里没有子线程。
+
+    缺失、禁用与保留 system 三种准入拒绝由认证一侧的子线程派生测试覆盖。
+    """
+    target = "omni_doll"
+    access = make_access_composition([make_actor_access_record(agent_id="parent")])
     harness = OperationsHarness()
     harness.bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_named_by_alias)
     harness.backing.bus = harness.bus
@@ -370,16 +354,12 @@ async def test_unadmitted_call_target_returns_structured_error_without_creating_
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "status",
-    [
-        FrameExecutionStatus.FAILED,
-        FrameExecutionStatus.CANCELLED,
-        FrameExecutionStatus.BUDGET_EXHAUSTED,
-    ],
-)
-async def test_failed_child_preserves_dispatched_intents(status):
-    """子帧失败不撤回已派发意图，主线程、其他进程和子线程写入均保留。"""
+async def test_failed_child_preserves_dispatched_intents():
+    """子帧失败不撤回已派发意图，主线程、其他进程和子线程写入均保留。
+
+    子帧终态只决定 CALL 响应，不触及意图登记；响应映射另有单测，取 FAILED 代表。
+    """
+    status = FrameExecutionStatus.FAILED
     harness = OperationsHarness()
     submit = await harness.submitter(make_identity_scope(agent_id="parent"), "call-process")
     foreign = await harness.submitter(make_identity_scope(agent_id="parent"), "other-process")

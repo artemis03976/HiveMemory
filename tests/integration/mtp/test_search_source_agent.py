@@ -149,22 +149,18 @@ async def _search(koakuma: KoakumaRuntime, filter_text: str | None = None) -> MT
     [
         ("research-agent", ()),
         ("system", ("research-agent", "writer-agent")),
-        ("writer-agent", ("research-agent",)),
-        ("research-agent", ("writer-agent",)),
     ],
-    ids=[
-        "source-only",
-        "system-contributor",
-        "other-source-contributor",
-        "source-with-contributors",
-    ],
+    ids=["source-only", "system-contributor"],
 )
 async def test_search_agent_filter_matches_source_or_contributor_and_excludes_other_sources(
     search_stack,
     source_agent_id: str,
     contributors: tuple[str, ...],
 ) -> None:
-    """agent 筛选同时支持来源与贡献者，不丢条件，也不绑定调用者 Agent。"""
+    """agent 筛选同时支持来源与贡献者，不丢条件，也不绑定调用者 Agent。
+
+    两例分别只经来源分支与贡献者分支命中，证明真实存储执行 OR 的两侧。
+    """
     koakuma, store = search_stack
     await store.upsert(
         _memory(
