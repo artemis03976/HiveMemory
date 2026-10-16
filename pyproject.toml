@@ -128,9 +128,9 @@ python_classes = ["Test*"]
 python_functions = ["test_*"]
 addopts = "-v -m 'not live_llm and not e2e and not slow'"
 markers = [
-    "unit: 快速单元测试，无外部依赖 (< 1s)",
-    "integration: 多组件协作测试，使用 mock (< 10s)",
-    "e2e: 端到端测试，需要真实外部服务 (Qdrant, Embedding, Reranker)",
+    "unit: 单元测试，被测行为单元真实，协作者可替换（主类型由 tests/unit/ 目录决定）",
+    "integration: 多个真实内部组件协作，或适配器与真实依赖的兼容性（主类型由 tests/integration/ 目录决定）",
+    "e2e: 从公开入口穿过主要边界到达用户可观察终态；需要真实服务时另加 real_infra/live_llm",
     "live_llm: 需要真实 LLM API (设置 LLM 相关环境变量或 config.yaml)",
     "slow: 耗时 > 30s 的测试 (idle timeout 等)",
     "real_infra: 需要真实基础设施（独立 Qdrant 服务等）；服务不可达时跳过",
