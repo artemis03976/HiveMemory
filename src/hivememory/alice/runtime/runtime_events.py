@@ -59,6 +59,17 @@ class BoundAgentRunEvents:
             status="started",
         )
 
+    def compaction(
+        self, *, status: str, data: dict[str, object], reason: str | None = None
+    ) -> None:
+        """只记录压缩统计，摘要与历史正文不得进入观测事件。"""
+        self._publisher.emit(
+            RuntimeEventType.AGENT_CONTEXT_COMPACTION,
+            status=status,
+            reason=reason,
+            data=data,
+        )
+
     def completed(self, stats: AgentRunStats) -> None:
         self._publisher.emit(
             RuntimeEventType.AGENT_RUN_COMPLETED,

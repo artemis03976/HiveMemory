@@ -378,3 +378,156 @@ class TestOutcomeNotes:
             "[System MTP Execution Result]\nread result\n\n"
             "[This turn failed; the response may be incomplete.]"
         )
+
+
+class TestResultReduction:
+    def test_only_covered_results_change_and_original_turns_remain_intact(self):
+        """减重边界包含当前轮次，后缀与用户、助手和调用正文逐字保留。"""
+        events = [
+            TurnEvent(kind="user_message", sequence=0, role="user", content="原始问题"),
+            TurnEvent(kind="assistant_message", sequence=1, role="assistant", content="先读取"),
+            TurnEvent(kind="tool_call", sequence=2, role="assistant", content="⟪ READ | mem_a ⟫"),
+            TurnEvent(
+                kind="tool_result",
+                sequence=3,
+                role="user",
+                content="完整资料",
+                tool_kind="READ",
+                target="mem_a",
+                status="success",
+            ),
+        ]
+        old = make_conversation_turn(
+            interaction_id="old", user_message="原始问题", turn_events=events
+        )
+        recent = make_conversation_turn(
+            interaction_id="recent", user_message="新问题", turn_events=events
+        )
+        original = [old.model_dump(), recent.model_dump()]
+        raw = builder.build_messages([old, recent], language="zh")
+        reduced = builder.build_messages([old, recent], reduced_through="old", language="zh")
+        assert reduced[:3] == raw[:3]
+        assert reduced[3] == {
+            "role": "user",
+            "content": "[READ target=mem_a status=success]\n可重新 READ 获取正文。",
+        }
+        assert reduced[4:] == raw[4:]
+        assert [old.model_dump(), recent.model_dump()] == original
+
+    def test_search_and_run_recover_arguments_from_the_matching_call(self):
+        """结果事件不带参数时按 action_id 关联，多个调用的查询和路径不会串用。"""
+        events = [
+            TurnEvent(
+                kind="tool_call",
+                sequence=0,
+                role="assistant",
+                content="search",
+                action_id="s",
+                tool_args={"query": "缓存失效"},
+            ),
+            TurnEvent(
+                kind="tool_call",
+                sequence=1,
+                role="assistant",
+                content="run",
+                action_id="r",
+                tool_args={"path": "a.py"},
+            ),
+            TurnEvent(
+                kind="tool_result",
+                sequence=2,
+                role="user",
+                content="全文",
+                action_id="s",
+                tool_kind="SEARCH",
+                status="success",
+            ),
+            TurnEvent(
+                kind="tool_result",
+                sequence=3,
+                role="user",
+                content="运行结果",
+                action_id="r",
+                tool_kind="RUN",
+                target="sys_read_file",
+                status="success",
+            ),
+        ]
+        turn = make_conversation_turn(user_message="执行", turn_events=events)
+        messages = builder.build_messages(
+            [turn], reduced_through=turn.interaction_id, language="en"
+        )
+        assert (
+            messages[3]["content"]
+            == "[SEARCH query=缓存失效 status=success]\nSearch again with the original query."
+        )
+        assert (
+            messages[4]["content"]
+            == '[RUN tool=sys_read_file args={"path": "a.py"} status=success]\n运行结果'
+        )
+
+    def test_ack_error_call_and_unknown_status_keep_bounded_original_content(self):
+        """ACK、失败原因和 CALL 响应不可替换成成功线索；长文本保留头尾。"""
+        cases = [
+            ("WRITE", "ack"),
+            ("UPDATE", "ack"),
+            ("READ", "error"),
+            ("CALL", "success"),
+            ("SEARCH", None),
+        ]
+        events = [
+            TurnEvent(
+                kind="tool_result",
+                sequence=index,
+                role="user",
+                content="保留原文",
+                tool_kind=verb,
+                status=status,
+            )
+            for index, (verb, status) in enumerate(cases)
+        ]
+        events.append(
+            TurnEvent(
+                kind="tool_result",
+                sequence=5,
+                role="user",
+                content="head" + "x" * 200 + "tail",
+                tool_kind="CALL",
+                status="success",
+            )
+        )
+        turn = make_conversation_turn(user_message="执行", turn_events=events)
+        messages = builder.build_messages(
+            [turn], reduced_through=turn.interaction_id, language="zh", tool_result_excerpt_chars=40
+        )
+        assert [m["content"] for m in messages[1:6]] == ["保留原文"] * 5
+        excerpt = messages[-1]["content"]
+        assert len(excerpt) == 40
+        assert excerpt.startswith("head") and excerpt.endswith("tail")
+        assert "已省略部分工具结果" in excerpt
+
+    def test_missing_retrieval_metadata_keeps_original_instead_of_unusable_hint(self):
+        """历史缺少 READ 目标或 SEARCH 查询时，没有可靠重取线索就保留原文。"""
+        turn = make_conversation_turn(
+            user_message="读取",
+            turn_events=[
+                TurnEvent(
+                    kind="tool_result",
+                    sequence=0,
+                    role="user",
+                    content="旧格式正文",
+                    tool_kind="READ",
+                    status="success",
+                ),
+                TurnEvent(
+                    kind="tool_result",
+                    sequence=1,
+                    role="user",
+                    content="旧格式结果",
+                    tool_kind="SEARCH",
+                    status="success",
+                ),
+            ],
+        )
+        messages = builder.build_messages([turn], reduced_through=turn.interaction_id)
+        assert [message["content"] for message in messages] == ["读取", "旧格式正文", "旧格式结果"]

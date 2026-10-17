@@ -24,6 +24,7 @@ from hivememory.workspace.contracts import (
     ResolveReferencesRequest,
 )
 from tests.helpers.chat_handoff import make_input_manifest, make_mtp_turn_events
+from tests.helpers.sessions import make_compaction_checkpoint
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 # done 事件数据：结果字段 + Alice 的运行元数据（不应进入执行结果）
@@ -33,7 +34,7 @@ _DONE_DATA = {
         final_text="完成",
         turn_events=make_mtp_turn_events(),
         model_used="glm-4",
-    ).model_dump(),
+    ).model_dump(exclude={"compaction_checkpoint"}),
     "agent_run_id": "agent_run_1",
     "frame_id": "frame-1",
     "scope": "main",
@@ -66,10 +67,13 @@ class _ReferenceEntry:
         )
 
 
-async def _stream_route(**_kwargs):
+async def _stream_route(*, result_slot, **_kwargs):
     async def _events():
         yield {"event": "token", "data": {"content": "完成"}}
         yield {"event": "mtp_start", "data": {"verb": "SEARCH"}}
+        result_slot.result = CPUExecutionResult(
+            **_DONE_DATA, compaction_checkpoint=make_compaction_checkpoint(reduced_through="old")
+        )
         yield {"event": "done", "data": _DONE_DATA}
 
     return _events()
@@ -112,6 +116,7 @@ async def test_alice_cpu_stream_relays_events_and_converts_done() -> None:
         "tool_result",
     ]
     assert result.model_extra is None
+    assert result.compaction_checkpoint.reduced_through == "old"
 
 
 @pytest.mark.asyncio

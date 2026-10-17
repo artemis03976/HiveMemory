@@ -76,6 +76,7 @@ class AliceSystem(SubsystemProtocol):
             prompt_assembler=prompt_assembler,
             stream_adapter=AgentRunStreamAdapter(),
             agent_run_events=AgentRunEventEmitter(publisher.scoped(component="agent_run_service")),
+            compaction_config=config.compaction,
         )
 
         self._bridge = AliceBridge(

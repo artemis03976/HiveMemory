@@ -10,7 +10,7 @@ from hivememory.core.models import (
     ExecutionLabels,
     MemoryAtom,
 )
-from hivememory.core.protocol.models import ConversationTurn
+from hivememory.core.protocol.models import ConversationTurn, SessionCompactionCheckpoint
 
 
 class CPUInputManifest(BaseModel):
@@ -50,6 +50,9 @@ class CPUInputManifest(BaseModel):
     topic_id: str = Field(default="", description="本轮 Topic 准备结果，只用于根帧挂载与观测")
     session_history: tuple[ConversationTurn, ...] = Field(
         default_factory=tuple, description="当前会话的全量历史快照，不按 Agent 过滤或截断"
+    )
+    compaction_checkpoint: SessionCompactionCheckpoint | None = Field(
+        default=None, description="会话持有的历史压缩检查点，由 CPU 判断格式是否可用"
     )
 
 

@@ -17,6 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.models import TurnEvent
+from hivememory.core.protocol.models import SessionCompactionCheckpoint
 from hivememory.workspace.contracts.process import CPUInputManifest
 
 
@@ -32,6 +33,7 @@ class CPUFailureReason(str, Enum):
     """执行者可选上报的稳定失败原因，禁止携带内部异常正文。"""
 
     INPUT_TOO_LARGE = "input_too_large"
+    COMPACTION_FAILED = "compaction_failed"
     TURN_CONTEXT_BUDGET_EXCEEDED = "turn_context_budget_exceeded"
     MODEL_CONTEXT_WINDOW_EXCEEDED = "model_context_window_exceeded"
 
@@ -45,6 +47,7 @@ class CPUExecutionResult(BaseModel):
         turn_events       → 封口归约 MTP 轨迹 → 感知层
         model_used        → 本次 run 实际使用的模型展示名；空字符串表示未解析
         failure_reason    → failed 终态的公开原因码；外部 CPU 可以不填
+        compaction_checkpoint → 会话接受的旧历史派生视图，不进入本轮封口或 done
 
     端口语义：终态结果由 ``execute`` 迭代器恰好产出一次且是最后一项；
     非流式时它是唯一一项。迭代器在没有终态结果时结束属于协议错误，
@@ -55,6 +58,9 @@ class CPUExecutionResult(BaseModel):
 
     status: CPUExecutionStatus = Field(default=CPUExecutionStatus.COMPLETED)
     failure_reason: CPUFailureReason | None = Field(default=None)
+    compaction_checkpoint: SessionCompactionCheckpoint | None = Field(
+        default=None, description="只覆盖已封口旧轮次的新检查点，不算本轮输出"
+    )
     final_text: str = Field(default="")
     turn_events: list[TurnEvent] = Field(default_factory=list)
     model_used: str = Field(

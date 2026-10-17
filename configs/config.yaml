@@ -235,5 +235,9 @@ alice:
     max_loop_iterations: 10
 
   compaction:
+    enabled: true
+    trigger_ratio: 0.75
+    recent_raw_ratio: 0.25
+    tool_result_excerpt_chars: 2000
     default_context_window: 65536  # 未登记模型窗口时使用的保守总窗口
     safety_margin: 2048           # 为字符估算误差预留的 token 数

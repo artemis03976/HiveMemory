@@ -216,6 +216,7 @@ def _build_service(
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
         stream_adapter=AgentRunStreamAdapter(),
+        compaction_config=config.alice.compaction,
         agent_run_events=AgentRunEventEmitter(
             RuntimeEventPublisher(runtime_events or NullRuntimeEventSink())
         ),
@@ -643,14 +644,18 @@ async def test_native_cancellation_fills_slot_with_delivered_partial_text(monkey
             raise
 
     monkeypatch.setattr(WorkerAgentService, "generate_stream", generate_stream)
-    _runtime, service = _build_service()
+    config, manifest = _compaction_inputs()
+    manifest = manifest.model_copy(update={"user_message": "hello"})
+    _runtime, service = _build_service(config=config)
     slot = CPUResultSlot()
     stream = service.run_agent(
-        _build_input_manifest(_build_memory_atom()),
+        manifest,
         stream=True,
         submit_operation=MagicMock(),
         result_slot=slot,
     )
+    assert (await anext(stream))["data"]["status"] == "started"
+    assert (await anext(stream))["data"]["status"] == "completed"
     assert (await anext(stream))["data"]["content"] == "半截答案"
     await entered.wait()
     if during_pull:
@@ -664,6 +669,7 @@ async def test_native_cancellation_fills_slot_with_delivered_partial_text(monkey
     assert cancelled.is_set()
     assert slot.result.status == "cancelled"
     assert slot.result.final_text == "半截答案"
+    assert slot.result.compaction_checkpoint.reduced_through == "old"
     assert [(e.kind, e.content, e.status) for e in slot.result.turn_events] == [
         ("user_message", "hello", None),
         ("assistant_message", "半截答案", "cancelled"),
@@ -723,3 +729,168 @@ async def test_cancel_in_call_keeps_root_call_without_child_partial_text(monkeyp
         ("tool_call", "CALL"),
     ]
     assert slot.result.has_output is True
+
+
+def _compaction_inputs(*, compressible=True):
+    """小预算和超阈值旧历史，用真实渲染触发压缩。"""
+    from hivememory.config.alice import CompactionConfig
+    from hivememory.core.models import TurnEvent
+
+    config = HiveMemoryConfig()
+    config.alice.koakuma.enabled = False
+    config.alice.compaction = CompactionConfig(default_context_window=33768, safety_margin=0)
+    turn = make_conversation_turn(
+        interaction_id="old",
+        user_message="old" if compressible else "x" * 6000,
+        turn_events=(
+            [
+                TurnEvent(
+                    kind="tool_result",
+                    sequence=0,
+                    role="user",
+                    content="x" * 6000,
+                    tool_kind="READ",
+                    target="mem_a",
+                    status="success",
+                )
+            ]
+            if compressible
+            else []
+        ),
+    )
+    manifest = make_input_manifest(
+        agent_profile=AgentProfile(persona="", language="en"),
+        user_message="next",
+        session_history=(turn,),
+    )
+    return config, manifest
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_compaction_reaches_generation_and_returns_checkpoint_without_recording_progress(
+    monkeypatch, stream
+):
+    """减重不调用辅助模型；正常生成消费缩小后的视图，进度不进入交互载荷。"""
+    from hivememory.agent_runtime.execution.worker import WorkerAgentService
+    from hivememory.agent_runtime.models import GenerationResult, StreamChunk
+    from hivememory.workspace.contracts import CPUResultSlot
+
+    requests = []
+
+    async def generate(_self, messages, **_kwargs):
+        requests.append(messages)
+        return GenerationResult(text="完成")
+
+    async def generate_stream(_self, messages, **_kwargs):
+        yield StreamChunk(is_final=True, result=await generate(_self, messages))
+
+    monkeypatch.setattr(WorkerAgentService, "generate_async", generate)
+    monkeypatch.setattr(WorkerAgentService, "generate_stream", generate_stream)
+    config, manifest = _compaction_inputs()
+    recorder = RecordingRuntimeEventSink()
+    _, service = _build_service(config=config, runtime_events=recorder)
+    slot = CPUResultSlot()
+    if stream:
+        events = [
+            event
+            async for event in service.run_agent(
+                manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
+            )
+        ]
+        progress = [event for event in events if event["event"] == "context_compaction"]
+        assert [event["data"]["status"] for event in progress] == ["started", "completed"]
+        assert [event["data"]["stream_sequence"] for event in events] == list(range(len(events)))
+        assert "compaction_checkpoint" not in events[-1]["data"]
+        result = slot.result
+    else:
+        result = await service.run_agent(
+            manifest, stream=False, submit_operation=MagicMock(), result_slot=slot
+        )
+    assert result.status == "completed"
+    assert result.compaction_checkpoint.reduced_through == "old"
+    assert [(event.kind, event.content) for event in result.turn_events] == [
+        ("user_message", "next"),
+        ("assistant_message", "完成"),
+    ]
+    assert len(requests) == 1
+    assert "READ again" in requests[0][1]["content"]
+    assert all("x" * 6000 not in message["content"] for message in requests[0])
+    observed = [
+        event
+        for event in recorder.events
+        if event.event_type == RuntimeEventType.AGENT_CONTEXT_COMPACTION
+    ]
+    assert [event.status for event in observed] == ["started", "completed"]
+    assert observed[-1].data["covered_turns"] == 1
+    assert observed[-1].data["tokens_after"] < observed[-1].data["tokens_before"]
+    assert set(observed[-1].data) == {
+        "layer",
+        "tokens_before",
+        "tokens_after",
+        "covered_turns",
+        "elapsed_ms",
+    }
+
+
+@pytest.mark.asyncio
+async def test_uncompressible_history_fails_without_output_and_keeps_reduction_checkpoint(
+    monkeypatch,
+):
+    """用户原文不能减重，仍超限时不调用生成模型；进度本身不构成输出。"""
+    from hivememory.agent_runtime.execution.worker import WorkerAgentService
+    from hivememory.workspace.contracts import CPUResultSlot
+
+    generate = AsyncMock(side_effect=AssertionError("超限不应调用模型"))
+    monkeypatch.setattr(WorkerAgentService, "generate_async", generate)
+    config, manifest = _compaction_inputs(compressible=False)
+    recorder = RecordingRuntimeEventSink()
+    _, service = _build_service(config=config, runtime_events=recorder)
+    slot = CPUResultSlot()
+    events = [
+        event
+        async for event in service.run_agent(
+            manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
+        )
+    ]
+    assert [event["event"] for event in events] == [
+        "context_compaction",
+        "context_compaction",
+        "done",
+    ]
+    assert events[1]["data"]["status"] == "failed"
+    assert slot.result.failure_reason == "compaction_failed"
+    assert slot.result.has_output is False
+    assert slot.result.compaction_checkpoint.reduced_through == "old"
+    generate.assert_not_awaited()
+    failed_compaction = [
+        event
+        for event in recorder.events
+        if event.event_type == RuntimeEventType.AGENT_CONTEXT_COMPACTION
+        and event.status == "failed"
+    ]
+    assert [event.reason for event in failed_compaction] == ["compaction_failed"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("after_completion", [False, True])
+async def test_closing_at_compaction_progress_only_returns_completed_checkpoint(after_completion):
+    """压缩开始时关闭不产生新检查点，结束事件交出后关闭则交回已完成视图。"""
+    from hivememory.workspace.contracts import CPUResultSlot
+
+    config, manifest = _compaction_inputs()
+    _, service = _build_service(config=config)
+    slot = CPUResultSlot()
+    stream = service.run_agent(
+        manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
+    )
+    assert (await anext(stream))["data"]["status"] == "started"
+    if after_completion:
+        assert (await anext(stream))["data"]["status"] == "completed"
+    await stream.aclose()
+    if after_completion:
+        assert slot.result.status == "cancelled"
+        assert slot.result.compaction_checkpoint.reduced_through == "old"
+        assert slot.result.has_output is False
+    else:
+        assert slot.result is None

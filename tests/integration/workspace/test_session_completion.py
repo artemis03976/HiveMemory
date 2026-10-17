@@ -11,6 +11,7 @@ from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, ResolvedAgentProfile
 from hivememory.core.models.interaction import TurnEvent
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
@@ -19,6 +20,7 @@ from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.process import make_task_process_service
+from tests.helpers.sessions import make_compaction_checkpoint
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 
@@ -32,7 +34,9 @@ class CompletionProbe:
     release: asyncio.Event = field(default_factory=asyncio.Event)
 
 
-async def completion_chain(cpu, *, block_finalize=False, shutdown_wait_seconds=10.0):
+async def completion_chain(
+    cpu, *, block_finalize=False, shutdown_wait_seconds=10.0, seed_history=False
+):
     """组装进程与会话，只有 Gateway/Patchouli 服务边界使用确定性替身。"""
     access = make_access_composition([make_actor_access_record(agent_id="omni_doll")])
     sessions = ConversationSessionService(WorkspaceSessionConfig())
@@ -79,12 +83,26 @@ async def completion_chain(cpu, *, block_finalize=False, shutdown_wait_seconds=1
         operation_authorizer=access.authorizer,
         shutdown_wait_seconds=shutdown_wait_seconds,
     )
+    session_id = None
+    if seed_history:
+        session_id = sessions.create(access.default_workspace).session_id
+        sessions.claim(access.default_workspace, session_id, "old")
+        sessions.append(
+            access.default_workspace,
+            session_id,
+            process_id="old",
+            agent_id="omni_doll",
+            payload=InteractionPayload(user_message="旧问题", assistant_final_text="旧回复"),
+            topic_id="old-topic",
+        )
+        sessions.release(access.default_workspace, session_id, "old")
     handle = await service.register_process(
         adapter="local",
         principal=access.principal,
         actor=ActorIdentity(user_id=access.default_workspace.owner_user_id, agent_id="omni_doll"),
         workspace=access.default_workspace,
         process_id="partial",
+        session_id=session_id,
         message="请继续分析",
     )
     return service, handle, sessions, access.default_workspace, probe
@@ -127,12 +145,22 @@ async def test_user_stop_seals_partial_slot_even_between_pulls(during_pull):
 async def test_output_with_each_outcome_is_submitted_before_terminal(status):
     """三种结局统一封口，失败/取消不被改写为 completed。"""
     service, handle, sessions, workspace, probe = await completion_chain(
-        ScriptedCPU(result=make_cpu_result(status=status, final_text="已有输出"))
+        ScriptedCPU(
+            result=make_cpu_result(
+                status=status,
+                final_text="已有输出",
+                compaction_checkpoint=make_compaction_checkpoint(reduced_through="old"),
+            )
+        ),
+        seed_history=True,
     )
     events = [event async for event in service.run_process(handle, stream=True)]
     assert events[-1]["data"]["status"] == status
     assert [p.outcome for p in probe.submitted] == [status]
-    assert sessions.get(workspace, handle.session_id).turns[0].payload == probe.submitted[0]
+    saved = sessions.get(workspace, handle.session_id)
+    assert saved.turns[-1].payload == probe.submitted[0]
+    assert saved.compaction_checkpoint.reduced_through == "old"
+    assert "compaction_checkpoint" not in events[-1]["data"]
     assert probe.cleaned == []
 
 
@@ -194,15 +222,20 @@ async def test_empty_terminal_does_not_create_turn_and_done_omits_text():
             result=make_cpu_result(
                 status="cancelled",
                 final_text="",
+                compaction_checkpoint=make_compaction_checkpoint(reduced_through="old"),
                 turn_events=[
                     TurnEvent(kind="user_message", sequence=0, role="user", content="请继续分析")
                 ],
             )
-        )
+        ),
+        seed_history=True,
     )
     events = [event async for event in service.run_process(handle, stream=True)]
     assert "final_text" not in events[-1]["data"]
-    assert sessions.get(workspace, handle.session_id).turns == ()
+    saved = sessions.get(workspace, handle.session_id)
+    assert [turn.interaction_id for turn in saved.turns] == ["old"]
+    assert saved.compaction_checkpoint.reduced_through == "old"
+    assert "compaction_checkpoint" not in events[-1]["data"]
     assert probe.submitted == []
     assert probe.cleaned == [handle.process_id]
 
@@ -237,7 +270,9 @@ async def test_close_at_finalizing_drains_submission_and_never_cleans_prepared(c
 class SlowCloseCPU:
     """交出 completed 终态后，关闭输出流要等待测试放行，用于在此窗口注入停止。"""
 
-    def __init__(self) -> None:
+    def __init__(self, *, result=None, fill_slot=True) -> None:
+        self.result = result or make_cpu_result(final_text="完整答案")
+        self.fill_slot = fill_slot
         self.closing = asyncio.Event()
         self.release = asyncio.Event()
 
@@ -246,9 +281,10 @@ class SlowCloseCPU:
         return CPURunHandle(output=self._iterate(slot), result_slot=slot)
 
     async def _iterate(self, slot):
-        slot.result = make_cpu_result(final_text="完整答案")
+        if self.fill_slot:
+            slot.result = self.result
         try:
-            yield slot.result
+            yield self.result
         finally:
             self.closing.set()
             await self.release.wait()
@@ -363,3 +399,103 @@ async def test_shutdown_closes_registered_process_that_never_ran():
     assert sessions.get(workspace, handle.session_id).active_process_id is None
     assert service.cancel_process(handle).status == "not_found"
     assert probe.cleaned == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("close_mode", ["stream", "direct", "shutdown", "cancel"])
+async def test_closing_cpu_accepts_old_history_checkpoint_before_releasing_claim(close_mode):
+    """断流、直接关闭、关停与用户取消均保存旧轮次视图，且不新增空轮次。"""
+    checkpoint = make_compaction_checkpoint(reduced_through="old")
+    cpu = ScriptedCPU(
+        events=[{"event": "context_compaction", "data": {"status": "completed"}}],
+        cancelled_result=make_cpu_result(
+            status="cancelled", final_text="", compaction_checkpoint=checkpoint
+        ),
+    )
+    service, handle, sessions, workspace, probe = await completion_chain(
+        cpu, seed_history=True, shutdown_wait_seconds=0
+    )
+    stream = service.run_process(handle, stream=True)
+    while (await anext(stream))["event"] != "context_compaction":
+        pass
+    if close_mode == "stream":
+        await stream.aclose()
+    elif close_mode == "direct":
+        await service.close_process(handle)
+        await stream.aclose()
+    elif close_mode == "shutdown":
+        await service.shutdown()
+        await stream.aclose()
+    else:
+        service.cancel_process(handle)
+        events = [event async for event in stream]
+        assert events[-1]["data"]["status"] == "cancelled"
+    saved = sessions.get(workspace, handle.session_id)
+    assert saved.compaction_checkpoint == checkpoint
+    assert [turn.interaction_id for turn in saved.turns] == ["old"]
+    assert saved.active_process_id is None
+    assert probe.submitted == []
+
+
+@pytest.mark.asyncio
+async def test_rejected_checkpoint_does_not_prevent_current_turn_submission(caplog):
+    """拒绝覆盖本轮或外部轮次的游标只发告警，正常回复仍提交。"""
+    cpu = ScriptedCPU(
+        result=make_cpu_result(
+            compaction_checkpoint=make_compaction_checkpoint(reduced_through="partial")
+        )
+    )
+    service, handle, sessions, workspace, probe = await completion_chain(cpu, seed_history=True)
+    with caplog.at_level(logging.WARNING):
+        result = await service.run_process(handle, stream=False)
+    assert result.execution_result.status == "completed"
+    saved = sessions.get(workspace, handle.session_id)
+    assert saved.compaction_checkpoint is None
+    assert [turn.interaction_id for turn in saved.turns] == ["old", "partial"]
+    assert probe.submitted == [saved.turns[-1].payload]
+    assert any("拒绝会话压缩检查点" in record.message for record in caplog.records)
+
+
+@pytest.mark.asyncio
+async def test_cpu_exception_does_not_accept_checkpoint_from_unreturned_result():
+    """异常发生在返回结果前时，关闭流程不能把候选结果当成已完成压缩。"""
+
+    class FailingCPU:
+        """模拟先填结果槽、尚未交付终态就抛错的 CPU。"""
+
+        def execute(self, manifest, *, access, generation_options, stream):
+            slot = CPUResultSlot()
+
+            async def output():
+                slot.result = make_cpu_result(
+                    compaction_checkpoint=make_compaction_checkpoint(reduced_through="old")
+                )
+                yield {"event": "context_compaction", "data": {"status": "completed"}}
+                raise RuntimeError("cpu failed")
+
+            return CPURunHandle(output=output(), result_slot=slot)
+
+    cpu = FailingCPU()
+    service, handle, sessions, workspace, probe = await completion_chain(cpu, seed_history=True)
+    events = [event async for event in service.run_process(handle, stream=True)]
+    assert events[-1] == {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
+    assert sessions.get(workspace, handle.session_id).compaction_checkpoint is None
+    assert probe.submitted == []
+
+
+@pytest.mark.asyncio
+async def test_cancellation_while_closing_cpu_preserves_delivered_checkpoint_without_slot():
+    """已取得的终态不能因关闭期间取消而丢失，CPU 正常返回时无需填写结果槽。"""
+    checkpoint = make_compaction_checkpoint(reduced_through="old")
+    cpu = SlowCloseCPU(result=make_cpu_result(compaction_checkpoint=checkpoint), fill_slot=False)
+    service, handle, sessions, workspace, probe = await completion_chain(cpu, seed_history=True)
+    driver = asyncio.create_task(_collect(service.run_process(handle, stream=True)))
+    await cpu.closing.wait()
+    driver.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await driver
+    saved = sessions.get(workspace, handle.session_id)
+    assert saved.compaction_checkpoint == checkpoint
+    assert [turn.interaction_id for turn in saved.turns] == ["old"]
+    assert saved.active_process_id is None
+    assert probe.submitted == []

@@ -10,11 +10,16 @@ from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.errors import (
     SessionBusyError,
     SessionCapacityError,
+    SessionCheckpointError,
     SessionClosedError,
     SessionNotFoundError,
 )
 from hivememory.core.models import WorkspaceIdentity
-from hivememory.core.protocol.models import ConversationTurn, InteractionPayload
+from hivememory.core.protocol.models import (
+    ConversationTurn,
+    InteractionPayload,
+    SessionCompactionCheckpoint,
+)
 
 
 class SessionSummary(BaseModel):
@@ -35,6 +40,7 @@ class ConversationSession(SessionSummary):
     """会话资源快照；历史按封口顺序排列，任意 Agent 都可继续该会话。"""
 
     turns: tuple[ConversationTurn, ...] = ()
+    compaction_checkpoint: SessionCompactionCheckpoint | None = None
 
 
 class ConversationSessionService:
@@ -90,7 +96,7 @@ class ConversationSessionService:
         """按最近更新时间列出指定 Workspace 的会话。"""
         self._require_open()
         return tuple(
-            SessionSummary(**s.model_dump(exclude={"turns"}))
+            SessionSummary(**s.model_dump(exclude={"turns", "compaction_checkpoint"}))
             for s in sorted(self._sessions.values(), key=lambda s: s.updated_at, reverse=True)
             if s.belong_to == belong_to
         )
@@ -163,6 +169,44 @@ class ConversationSessionService:
                 "turn_count": session.turn_count + 1,
                 "title": session.title or payload.user_message.strip()[:80],
                 "updated_at": now,
+            }
+        )
+
+    def accept_checkpoint(
+        self,
+        belong_to: WorkspaceIdentity,
+        session_id: str,
+        *,
+        process_id: str,
+        checkpoint: SessionCompactionCheckpoint,
+    ) -> None:
+        """认领者同步提交旧轮次的检查点；完整校验后才替换已有视图。"""
+        session = self._get(belong_to, session_id)
+        if session.active_process_id != process_id:
+            raise SessionBusyError("进程未持有会话认领")
+        positions = {turn.interaction_id: index for index, turn in enumerate(session.turns)}
+
+        def position(cursor: str | None) -> int:
+            if cursor is None:
+                return -1
+            if cursor not in positions:
+                raise SessionCheckpointError("检查点游标必须指向本会话已有轮次")
+            return positions[cursor]
+
+        reduced = position(checkpoint.reduced_through)
+        summarized = position(checkpoint.summarized_through)
+        if reduced < summarized:
+            raise SessionCheckpointError("减重边界不能早于摘要覆盖")
+        previous = session.compaction_checkpoint
+        if previous is not None and (
+            reduced < position(previous.reduced_through)
+            or summarized < position(previous.summarized_through)
+        ):
+            raise SessionCheckpointError("检查点游标不能后退")
+        self._sessions[session_id] = session.model_copy(
+            update={
+                "compaction_checkpoint": checkpoint.model_copy(deep=True),
+                "updated_at": self._clock(),
             }
         )
 

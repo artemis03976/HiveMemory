@@ -10,7 +10,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import Enum
 from typing import Any
 
@@ -228,6 +228,20 @@ class InteractionPayload(BaseModel):
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
 
 
+class SessionCompactionCheckpoint(BaseModel):
+    """已封口历史的派生视图；游标引用轮次，正文仍由会话原文持有。"""
+
+    producer: str
+    format_version: int = Field(ge=1)
+    reduced_through: str | None = None
+    summarized_through: str | None = None
+    summary: str = ""
+    references: tuple[str, ...] = ()
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+    model_config = ConfigDict(frozen=True)
+
+
 class ConversationTurn(BaseModel):
     """一轮已封口的交互，正文只保存在 payload 中。"""
 
@@ -267,6 +281,7 @@ class AgentRunContext(BaseModel):
 
 __all__ = [
     "ConversationTurn",
+    "SessionCompactionCheckpoint",
     "MessageType",
     "ProtocolMessage",
     "QueryFilters",

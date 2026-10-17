@@ -26,6 +26,7 @@ from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.config.alice import CompactionConfig
 from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.workspace.contracts import CPUExecutionStatus
 from tests.helpers.chat_handoff import make_input_manifest
@@ -84,6 +85,7 @@ def _runtime_for_frame(
             build_main_agent_messages=MagicMock(return_value=frame.working_history)
         ),
         stream_adapter=AgentRunStreamAdapter(),
+        compaction_config=CompactionConfig(),
         agent_run_events=AgentRunEventEmitter(RuntimeEventPublisher(NullRuntimeEventSink())),
     )
     run_session = session or RunSession(agent_run_id="run-1", process_id="process-1")

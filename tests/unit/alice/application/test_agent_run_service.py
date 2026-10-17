@@ -83,6 +83,7 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
         stream_adapter=AgentRunStreamAdapter(),
+        compaction_config=config.alice.compaction,
         agent_run_events=AgentRunEventEmitter(
             RuntimeEventPublisher(runtime_events or NullRuntimeEventSink())
         ),

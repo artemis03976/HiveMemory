@@ -34,6 +34,14 @@ class CompactionConfig(BaseModel):
 
     default_context_window: int = Field(default=65536, gt=0, description="默认总窗口 token 数")
     safety_margin: int = Field(default=2048, ge=0, description="为估算误差预留的 token 数")
+    enabled: bool = Field(default=True, description="启用历史压缩，不影响轮内预算守卫")
+    trigger_ratio: float = Field(default=0.75, gt=0, le=1, description="触发压缩的输入预算比例")
+    recent_raw_ratio: float = Field(
+        default=0.25, ge=0, le=1, description="压缩后近期原文可占用的输入预算比例"
+    )
+    tool_result_excerpt_chars: int = Field(
+        default=2000, gt=0, description="RUN 摘录及保留型工具结果的最大正文字符数"
+    )
 
     model_config = ConfigDict(extra="ignore")
 

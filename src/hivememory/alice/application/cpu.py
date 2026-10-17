@@ -80,7 +80,15 @@ class AliceCPU:
                     if event["event"] == "done":
                         # done 除结果字段外还携带运行元数据；构造执行结果时
                         # 按模型校验还原 turn_events 等字段，多余字段被忽略。
-                        yield CPUExecutionResult(**event["data"])
+                        result = CPUExecutionResult(**event["data"])
+                        # 检查点只经结果槽交给进程，不进入交互事件载荷。
+                        if result_slot.result is not None:
+                            result = result.model_copy(
+                                update={
+                                    "compaction_checkpoint": result_slot.result.compaction_checkpoint
+                                }
+                            )
+                        yield result
                     else:
                         yield event
         else:

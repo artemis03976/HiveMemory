@@ -317,6 +317,7 @@ async def test_manifest_operations_follow_access_record_precedence():
         "storage_available",
         "topic_id",
         "session_history",
+        "compaction_checkpoint",
     }
 
 
