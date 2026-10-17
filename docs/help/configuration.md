@@ -17,7 +17,7 @@ code_paths:
   - src/hivememory/server/routers/config.py
 related_contracts:
   - docs/architecture/boundaries.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-17
 ---
 
 # HiveMemory 配置指南
@@ -98,6 +98,7 @@ configs/providers.secrets.example.yaml
 - `litellm_model`：交给 LiteLLM 的实际模型名；
 - `provider`：用于解析凭证；
 - temperature、top_p、max_tokens 默认值；
+- 可选的 `context_window`：提供商支持的总上下文窗口 token 数，用于 Alice 计算输入预算；
 - `is_default`：系统默认模型标记。
 
 Settings -> Model Registry 或 `/api/v1/models` 可以运行时 CRUD，并原子写回 YAML。注册表会在新增/更新默认模型时清除其他默认标记；如果没有显式默认，解析 `default` 会回退到第一条记录。
@@ -127,6 +128,12 @@ ProviderRegistry 和 ModelRegistry 自身支持运行时 CRUD；Provider 凭证�
 - 请求头中的用户身份不做证明，只适用于本地单用户部署。
 
 字段说明与规则见 [System 配置](../system/configuration.md)第 1.1 节与 [Workspace 架构](../architecture/workspace.md)第 4.2 节。
+
+### 5.2 Alice 会话压缩
+
+自动压缩由 `configs/config.yaml` 的 `alice.compaction` 控制；完整默认值与单位见 [System 配置](../system/configuration.md#12-alice-会话预算与压缩)。修改后重启运行实例。模型窗口可在 `configs/models.yaml` 或模型 API 登记，不把总窗口误填为最大输出长度；未登记时使用保守默认窗口，请求的 `max_tokens` 也会占用窗口预算。
+
+关闭 `enabled` 会让 Alice 忽略已有检查点、重放原文，但不会关闭每次生成前的输入守卫。压缩不删除会话原文、不增加会话容量，也不提供跨后端重启保存；当前没有手动 `/compact` 入口。
 
 ## 6. 当前 Settings 页面限制
 

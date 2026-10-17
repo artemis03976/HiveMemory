@@ -3,12 +3,13 @@ import { create } from 'zustand';
 import { devtools, persist } from 'zustand/middleware';
 import { ChatSSEClient, stopProcess } from '@/services/chatApi';
 import * as sessionsApi from '@/services/sessionApi';
-import type { SessionSummary } from '@/services/sessionApi';
-import { sessionMessages } from './sessionHistory';
+import type { SessionSummary, SessionCompactionCheckpoint } from '@/services/sessionApi';
+import { sessionCheckpoint, sessionMessages } from './sessionHistory';
+import { chatFailureMessage } from './failureMessage';
 import { createChatSSECallbacks } from './streamHandlers';
 import { applyDone, applyStreamError } from './messageReducers';
 import { DEFAULT_AGENT_ID } from '@/constants/identity';
-import type { Message, ChatConnectionState, ChatRequestParams, ChatRunStatus, MemoryAtom } from '@/types';
+import type { Message, ChatConnectionState, ChatRequestParams, ChatRunStatus, ContextCompactionEvent, MemoryAtom } from '@/types';
 
 interface ChatStore {
   messages: Message[];
@@ -16,6 +17,8 @@ interface ChatStore {
   isStreaming: boolean;
   runStatus: ChatRunStatus;
   lastRunReason: string | null;
+  compactionProgress: ContextCompactionEvent | null;
+  compactionCheckpoint: SessionCompactionCheckpoint | null;
   currentSessionId: string | null;
   currentAgentId: string;
   retrievedMemories: MemoryAtom[];
@@ -40,15 +43,18 @@ interface ChatStore {
   _currentStreamingMessageId: string | null;
   _currentProcessId: string | null;
   _listRequest: number;
+  _historyRevision: number;
 }
 const errorText = (error: unknown) => error instanceof Error ? error.message : '会话操作失败';
 
 export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => ({
   messages: [], connection: { status: 'disconnected', error: null },
   isStreaming: false, runStatus: 'idle', lastRunReason: null,
+  compactionProgress: null, compactionCheckpoint: null,
   currentSessionId: null, currentAgentId: DEFAULT_AGENT_ID, retrievedMemories: [],
   sessions: [], sessionError: null, isLoadingHistory: false, historyReady: false, draft: '',
   _sseClient: null, _currentStreamingMessageId: null, _currentProcessId: null, _listRequest: 0,
+  _historyRevision: 0,
   setDraft: (draft) => set({ draft }),
   setCurrentAgentId: (currentAgentId) => set({ currentAgentId }),
 
@@ -70,24 +76,28 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
   },
   selectSession: async (id) => {
     if (get().isStreaming || get().isLoadingHistory) return;
-    set({ isLoadingHistory: true, historyReady: false, sessionError: null });
+    set({ isLoadingHistory: true, historyReady: false, sessionError: null,
+      _historyRevision: get()._historyRevision + 1, compactionProgress: null });
     try {
       const session = await sessionsApi.getSession(id);
       set({ historyReady: true, currentSessionId: id, messages: sessionMessages(session), retrievedMemories: [],
+        compactionCheckpoint: sessionCheckpoint(session),
         runStatus: 'idle', lastRunReason: null, connection: { status: 'disconnected', error: null } });
     } catch (error) {
       if (error instanceof sessionsApi.SessionApiError && error.status === 404) {
-        set({ currentSessionId: null, messages: [], retrievedMemories: [], sessionError: '会话已不存在，请新建或选择会话。' });
+        set({ currentSessionId: null, messages: [], retrievedMemories: [], compactionCheckpoint: null,
+          sessionError: '会话已不存在，请新建或选择会话。' });
         await get().refreshSessions();
       } else set({ sessionError: errorText(error) });
     } finally { set({ isLoadingHistory: false }); }
   },
   newSession: async () => {
     if (get().isStreaming || get().isLoadingHistory) return;
-    set({ isLoadingHistory: true, sessionError: null });
+    set({ isLoadingHistory: true, sessionError: null, _historyRevision: get()._historyRevision + 1 });
     try {
       const session = await sessionsApi.createSession();
-      set({ historyReady: true, currentSessionId: session.session_id, messages: [], retrievedMemories: [], runStatus: 'idle', lastRunReason: null });
+      set({ historyReady: true, currentSessionId: session.session_id, messages: [], retrievedMemories: [], runStatus: 'idle', lastRunReason: null,
+        compactionCheckpoint: sessionCheckpoint(session), compactionProgress: null });
       await get().refreshSessions();
     } catch (error) { set({ sessionError: errorText(error) }); }
     finally { set({ isLoadingHistory: false }); }
@@ -101,10 +111,11 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
   },
   deleteSession: async (id) => {
     if (get().isStreaming || get().isLoadingHistory) return;
-    set({ isLoadingHistory: true, sessionError: null });
+    set({ isLoadingHistory: true, sessionError: null, _historyRevision: get()._historyRevision + 1 });
     try {
       await sessionsApi.deleteSession(id);
-      if (get().currentSessionId === id) set({ currentSessionId: null, messages: [], retrievedMemories: [], runStatus: 'idle' });
+      if (get().currentSessionId === id) set({ currentSessionId: null, messages: [], retrievedMemories: [], runStatus: 'idle',
+        compactionCheckpoint: null, compactionProgress: null });
       await get().refreshSessions();
     } catch (error) { set({ sessionError: errorText(error) }); }
     finally { set({ isLoadingHistory: false }); }
@@ -125,16 +136,19 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
     const userId = crypto.randomUUID();
     const assistantMessageId = crypto.randomUUID();
     const client = new ChatSSEClient();
+    const revision = state._historyRevision + 1;
     set({
       messages: [...state.messages,
         { id: userId, role: 'user', content, timestamp: Date.now() },
         { id: assistantMessageId, role: 'assistant', content: '', contentBlocks: [],
           timestamp: Date.now(), isStreaming: true, agent_id: state.currentAgentId }],
       isStreaming: true, runStatus: 'preparing', lastRunReason: null, sessionError: null,
+      compactionProgress: null, _historyRevision: revision,
       connection: { status: 'connecting', error: null }, retrievedMemories: [],
       _sseClient: client, _currentStreamingMessageId: assistantMessageId,
     });
     let terminalReceived = false;
+    let compactionFinished = false;
     const callbacks = createChatSSECallbacks({
       assistantMessageId,
       updateMessages: (updater) => set(s => ({ messages: updater(s.messages) })),
@@ -151,6 +165,10 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
         if (get().runStatus === 'preparing') set({ runStatus: 'streaming', connection: { status: 'connected', error: null } });
       },
       setRunStatus: (data) => set({ runStatus: data.status, lastRunReason: data.reason ?? null }),
+      setCompactionProgress: (data) => {
+        compactionFinished ||= data.status !== 'started';
+        set({ compactionProgress: data });
+      },
       finalizeSuccess: (data) => {
         terminalReceived = true;
         const status = data.status ?? (data.stopped ? 'cancelled' : 'completed');
@@ -159,10 +177,13 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
           messages: data.final_text === undefined
             ? s.messages.filter(m => m.id !== userId && m.id !== assistantMessageId)
             : applyDone(s.messages, assistantMessageId, data.final_text).map(m => m.id === assistantMessageId
-              ? { ...m, outcome: status, topicId: data.topic_id } : m),
+              ? { ...m, outcome: status, topicId: data.topic_id,
+                interactionId: data.process_id ?? s._currentProcessId ?? undefined,
+                failureReason: status === 'failed' ? data.failure_reason : null } : m),
           draft: data.final_text === undefined ? [content, s.draft].filter(Boolean).join('\n') : s.draft,
-          isStreaming: false, runStatus: status, lastRunReason: data.reason ?? null,
-          connection: { status: status === 'failed' ? 'error' : 'connected', error: status === 'failed' ? '本轮执行失败' : null },
+          isStreaming: false, runStatus: status, lastRunReason: data.failure_reason ?? data.reason ?? null,
+          compactionProgress: null,
+          connection: { status: status === 'failed' ? 'error' : 'connected', error: status === 'failed' ? chatFailureMessage(data.failure_reason) : null },
           _currentStreamingMessageId: null, _currentProcessId: null,
         }));
         void get().refreshSessions();
@@ -170,6 +191,7 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
       finalizeError: (message, detail) => {
         terminalReceived = true;
         set(s => ({ messages: applyStreamError(s.messages, assistantMessageId, message, detail),
+          compactionProgress: null,
           isStreaming: false, runStatus: 'failed', lastRunReason: detail ?? message,
           connection: { status: 'error', error: message }, _currentStreamingMessageId: null, _currentProcessId: null }));
       },
@@ -185,6 +207,7 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
       }
       terminalReceived = true;
       set(s => ({ messages: applyDone(s.messages, assistantMessageId, null), isStreaming: false,
+        compactionProgress: null,
         runStatus: 'idle', _currentStreamingMessageId: null, _currentProcessId: null }));
       await get().selectSession(sessionId);
       set({ connection: { status: 'error', error: '连接中断，本轮已保存到会话' } });
@@ -193,6 +216,18 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
     try {
       await client.connect({ ...options, message: content, session_id: state.currentSessionId, agent_id: state.currentAgentId }, callbacks);
       await endWithoutTerminal(new Error('连接提前结束，本轮未保存'));
+      const sessionId = get().currentSessionId;
+      if (compactionFinished && sessionId && get()._historyRevision === revision) {
+        // done 不携带检查点；只显示会话服务真正接受的结果，晚到读取不能污染新视图。
+        try {
+          const session = await sessionsApi.getSession(sessionId);
+          if (get()._historyRevision === revision && get().currentSessionId === sessionId) {
+            set({ compactionCheckpoint: sessionCheckpoint(session) });
+          }
+        } catch {
+          if (get()._historyRevision === revision) set({ sessionError: '压缩标记读取失败，可重新选择会话刷新。' });
+        }
+      }
     } catch (error) {
       await endWithoutTerminal(error instanceof Error ? error : new Error(String(error)));
     } finally {
@@ -203,7 +238,8 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
   },
   clearMessages: () => {
     if (get().isStreaming || get().isLoadingHistory) return;
-    set({ messages: [], currentSessionId: null, retrievedMemories: [], runStatus: 'idle', lastRunReason: null });
+    set({ messages: [], currentSessionId: null, retrievedMemories: [], runStatus: 'idle', lastRunReason: null,
+      compactionProgress: null, compactionCheckpoint: null, _historyRevision: get()._historyRevision + 1 });
   },
   retryMessage: async (id) => {
     const state = get();

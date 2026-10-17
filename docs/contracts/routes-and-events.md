@@ -18,12 +18,12 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-17
 ---
 
 # 公开路由与事件
 
-本文是进程内跨子系统路由名、事件名和投递语义的规范入口。HTTP API 不属于本文范围。
+本文是进程内跨子系统路由名、事件名和投递语义的规范入口；第 6 节同时固化共享身份交接、会话管理与 Chat SSE 契约。
 
 全局总线的目标是解除对象图耦合：Gateway 与 workspace 可以请求 Patchouli 的公共能力，却不需要持有它的 Runtime、Service 或存储对象。它不是为了把单体进程伪装成分布式系统，也不提供网络消息中间件的可靠性语义。明确这一点很重要，否则调用方容易把一次普通函数交接误写成无人负责的事件流，或反过来依赖总线并未承诺的持久化、重试和 exactly-once。
 
@@ -175,7 +175,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 | Command | `command.executed` |
 | Passive Ingress | `passive.ingress.*`、`passive.memory.context.prepared`；提交生命周期复用 `work.*` |
 | Gateway | `gateway.workflow.*`、`gateway.step.completed`、`gateway.analysis.capability.completed` |
-| Agent | `agent.run.*` |
+| Agent | `agent.run.*`、`agent.context.compaction`、`agent.context.budget_exceeded` |
 | Memory Task | `memory.task.*` |
 | Maintenance | `maintenance.task.*` |
 | System lifecycle | `system.starting/ready/start_failed/shutting_down/stopped/stop_failed` |
@@ -195,10 +195,14 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 `alice.public.run_agent_stream` 的交互输出与 `/runtime-events/stream` 是两条独立通道：
 
-- 交互输出只属于一次 Agent run，承载 token、MTP、CALL 边界和最终 `done`，队列满时通过背压等待，断流会触发该 run 的取消；
+- 交互输出只属于一次 Agent run，承载 token、MTP、CALL 边界、压缩进度和最终 `done`，队列满时通过背压等待，断流会触发该 run 的取消；
 - RuntimeEvent 是全局扁平观测流，承载 `agent.run.started/completed/cancelled/failed` 等生命周期摘要，允许缓冲、回放和慢订阅者丢弃旧事件；
 - 两条流可以通过 `process_id/agent_run_id` 关联展示，但不得自动互相桥接；
 - RuntimeEvent 的缺失或 transport 故障不能改变 Agent 结果，交互输出也不替代结构化 `TurnEvent` 与权威 run 状态。
+
+### 4.3 上下文预算观测
+
+`agent.context.compaction` 在压缩开始/结束记录与交互进度相同的统计（第 6.1 节），外层 `status` 表示阶段；结束可带 `reason`（摘要拒绝、超时或预算失败的稳定标识）。`agent.context.budget_exceeded` 在根或 CALL 子 frame 被轮内守卫拦截时发布：`status=blocked`、`severity=warning`、`reason=turn_context_budget_exceeded`，`data` 仅含 `estimated_tokens` 与 `input_token_limit`，关联字段包含 `frame_id`。两者均关联本次 process/run，不携带摘要、历史或异常正文，不决定检查点接受与业务终态。
 
 ## 5. `SystemEvent` 的状态
 
@@ -220,9 +224,25 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 ### 6.1 会话管理与 Chat SSE
 
-会话 HTTP 由 `server/routers/sessions.py` 经门面取得 `RootSessionService`，沿用请求认证与 root 授权。POST/GET `/api/v1/sessions` 创建（201）/列出摘要；GET/PATCH/DELETE `/api/v1/sessions/{session_id}` 读取全量历史/以 `{title}` 重命名/删除（204）。创建体同为 `{title}`，允许空标题，首轮写入时自动取用户消息前 80 字。标题最多 200 字。会话不属于 Agent，不增加 actor 操作。
+会话 HTTP 由 `server/routers/sessions.py` 经门面取得 `RootSessionService`，沿用请求认证与 root 授权。POST/GET `/api/v1/sessions` 创建（201）/列出摘要；GET/PATCH/DELETE `/api/v1/sessions/{session_id}` 读取全量历史/以 `{title}` 重命名/删除（204）。创建体同为 `{title}`，允许空标题，首轮写入时自动取用户消息前 80 字。标题最多 200 字。会话不属于 Agent，不增加 actor 操作。完整读取返回可空的 `compaction_checkpoint`，结构见[子系统契约](./subsystem-contracts.md#421-会话压缩检查点)；列表摘要不含轮次或检查点。
 
 Chat 首个 `process_id` SSE 事件携带 `{process_id, session_id}`；非流式结果也含 `session_id`。`memory_refs` 保留；不再发布 `topic_info`。有输出的 completed/cancelled/failed 的 done 包含 `topic_id`，对应会话本轮标注；没有 `pool_topics`。无输出的 done 不含 `final_text` 与 `topic_id`。前端通过独立 Topic 列表接口管理短期话题。取消、失败有输出时先 finalize 再交付终态，详见[应用服务](../system/application-services.md#33-部分输出与交付关闭)。
+
+failed done 保留 `reason=agent_run_failed`，CPU 有稳定原因时另带 `failure_reason`；`chat.run.failed.message` 使用该码，不下发异常正文。四类预算原因见[错误模型](./error-model.md#22-agent-run)。done 不包含 `turn_events` 或 `compaction_checkpoint`；检查点以会话读取结果为准，压缩结束事件不代表会话已接受。
+
+流式 Alice 在创建根 frame 前可发出 `context_compaction`，经 CPU 输出流与任务进程原样交付：
+
+| 字段 | 含义 |
+|:---|:---|
+| `status` | `started`、`completed`、`abandoned`（放弃摘要但视图仍可用）或 `failed` |
+| `layer` | `reduction` 或 `summary` |
+| `tokens_before` / `tokens_after` | 完整视图的估算 token；开始时相等 |
+| `covered_turns` | 当前减重边界累计覆盖轮数 |
+| `summarized_turns` | 结束时的累计摘要覆盖轮数 |
+| `summary_status` | 结束时为 `not_needed`、`completed` 或 `abandoned` |
+| `elapsed_ms` | 结束时的压缩耗时 |
+
+事件沿用 run 的 `stream_sequence`，开始时 `layer=reduction`、覆盖轮数为 0；正常完成压缩产出开始和结束，取消或程序异常可只有开始。它不进入 `turn_events`，不构成本轮输出，也不单独触发封口。非流式不产出交互进度事件，但可产生上述 RuntimeEvent。
 
 ## 7. 设计矛盾检查
 

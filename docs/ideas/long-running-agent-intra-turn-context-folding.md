@@ -16,7 +16,7 @@ related_ideas:
   - docs/ideas/pending-intent-migration.md
 related_todos:
   - docs/todo/conversation-compact-command.md
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-17
 ---
 
 # 长时间运行 Agent 的 Turn 内上下文折叠
@@ -377,7 +377,7 @@ summary 自身最终也会溢出，必须拥有独立预算、版本和再压缩
 
 ### 11.4 Alice turn 内执行检查点
 
-- 在根 frame 跨历史轮次 compact 之外，单独评估当前 turn 迭代增长的处理；v0.7.0 的 Alice 压缩只对单轮增长设预算守卫，超出即以结构化错误结束（[短期记忆 Idea](./short-term-memory-and-context-compaction.md#5-alice-会话-compact-候选机制)第 5 节），轮内压缩仍属本专项；
+- 在根 frame 跨历史轮次 compact 之外，单独评估当前 turn 迭代增长的处理；v0.7.0 的 Alice 压缩只对单轮增长设预算守卫，超出即以结构化错误结束（[Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)），轮内压缩仍属本专项；
 - 验证一个 turn 多次 compact、失败、取消、恢复与 child frame；
 - 明确执行检查点只影响 CPU 自己的视图；
 - 建立 continuation summary 与记忆视图摘要的质量对照，不强制同步生成。

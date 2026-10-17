@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-17
 ---
 
 # Archived Plans
@@ -13,6 +13,8 @@ last_reviewed: 2026-10-15
 本目录保存已经完成或被替代、且当前事实已经合并进规范文档的实施计划。每篇归档计划必须标明归档日期、实现版本或 PR，以及替代它的当前文档。
 
 当前记录：
+
+- [v0.7.0 Alice 会话压缩](./v0.7.0-alice-session-compaction.md)：2026-10-17 四阶段实现、确定性验收与 code review 完成；模型预算、工具减重、增量摘要、会话检查点、轮内守卫与前端标记；审阅后修复 RUN 减重变长与摘要分批开销。后端 2814 passed、2 skipped，覆盖率 93.51%；HTTP E2E 9 passed、前端会话测试 18 passed。真实 LLM 摘要质量未验证，未发布；当前事实见 [Agent Runtime](../../alice/agent-runtime.md)、[Workspace](../../architecture/workspace.md)和 [Chat 视图](../../frontend/chat-view.md)。
 
 - [v0.7.0 会话与 Alice 迁移](./v0.7.0-conversation-session.md)：2026-10-15 四阶段实现、验收与 code review 完成；Workspace 会话资源、Alice 全量历史、Gateway 最近 N 轮、部分输出保存与 finalize 保护、前端会话恢复。后端 3094 passed、覆盖率 93.25%，确定性 HTTP E2E 12 passed，前端会话测试 8 passed、lint/build 通过。当前事实见 [Workspace 架构](../../architecture/workspace.md)、[System 应用服务](../../system/application-services.md)和 [Chat 视图](../../frontend/chat-view.md)。
 

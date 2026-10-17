@@ -11,7 +11,7 @@ related_docs:
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/gateway/commands.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-17
 ---
 
 # 会话 `/compact` 指令
@@ -28,9 +28,9 @@ ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是�
 ## 问题与证据（2026-10-16 复核）
 
 - 内置命令中没有 `/compact`。Gateway 只解析命令、不执行，内置命令暂时不可用；命令在任务进程中何时、由谁运行尚未决定（[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md) Q-5a，[Gateway 全局命令](../gateway/commands.md)）。
-- ConversationSession 已落地；Alice 从输入清单取得完整会话历史并重放，尚无会话内压缩（`prompts/assembler.py`）。
+- ConversationSession 已落地；Alice 从输入清单取得完整会话原文与检查点，构建压缩后的执行视图，Session 原文不变。
 - CPU 端口（`workspace.contracts.CPUPort`）只有执行入口 `execute`，没有压缩操作，也没有声明是否支持压缩的方式（[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节）。
-- Alice 没有会话内压缩。2026-10-15 起会话上下文全量交给 CPU，由执行单元自己的压缩防止溢出，Alice 的压缩提前到 v0.7.0，在外部会话计划之后单独一份计划（[ROADMAP](../ROADMAP.md) 第 4.3 节；[短期记忆与上下文压缩 Idea](../ideas/short-term-memory-and-context-compaction.md#2-已确认的方向与范围)）。外部 harness 经 controller 模式接入在 v0.7.1；HiveMemory 能否触发某个 harness 的压缩，取决于驱动它的协议或 SDK 是否提供这项能力。
+- Alice 的自动会话压缩已经完成，当前算法见 [Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)；手动命令尚未接线。对外部 harness 的触发仍取决于其驱动协议或 SDK。
 - 会话操作中的压缩已决定由 CPU 负责，作用于 CPU 自己基于 Session 派生的上下文视图，Session 记录保持原样（[短期记忆与上下文压缩 Idea](../ideas/short-term-memory-and-context-compaction.md#2-已确认的方向与范围)）。
 
 ## 影响
@@ -49,7 +49,7 @@ ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是�
 
 - 已完成的 ConversationSession 与前端会话模型；
 - 命令的运行位置（命令系统接回，Q-5a）；
-- Alice 的会话压缩算法（v0.7.0，外部会话计划之后；候选设计见[短期记忆 Idea 第 5 节](../ideas/short-term-memory-and-context-compaction.md#5-alice-会话-compact-候选机制)，首个压缩计划只做自动压缩，`/compact` 随命令系统接回实施，届时复用压缩入口的强制参数（[AC-2](../ideas/short-term-memory-and-context-compaction.md#ac-2-本计划只做自动压缩)，owner，2026-10-16；[计划](../plans/v0.7.0-alice-session-compaction.md)）；
+- Alice 自动压缩已完成，见[归档计划](../archive/plans/v0.7.0-alice-session-compaction.md)；手动入口随命令系统接回，复用现有强制压缩参数，不另建摘要算法（owner，2026-10-16）；
 - 外部 harness 的 controller 模式接入（v0.7.1）。
 
 ## 待决问题

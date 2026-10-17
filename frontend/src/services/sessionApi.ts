@@ -34,6 +34,17 @@ export interface ConversationTurn {
 }
 export interface ConversationSession extends SessionSummary {
   turns: ConversationTurn[];
+  compaction_checkpoint?: SessionCompactionCheckpoint | null;
+}
+/** 后端接受的历史视图；游标只标记原文范围，不替换浏览器展示的历史。 */
+export interface SessionCompactionCheckpoint {
+  producer: string;
+  format_version: number;
+  reduced_through: string | null;
+  summarized_through: string | null;
+  summary: string;
+  references: string[];
+  created_at: string;
 }
 export class SessionApiError extends Error {
   status: number;

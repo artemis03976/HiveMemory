@@ -414,3 +414,33 @@ async def test_run_executor_rejects_a_second_run():
     await executor.run(frame)
     with pytest.raises(RuntimeError, match="more than once"):
         await executor.run(frame)
+
+
+@pytest.mark.asyncio
+async def test_budget_failure_emits_frame_statistics_without_changing_terminal_result():
+    """预算拦截只投影数值与帧坐标，观测不改变失败结果，也不泄露历史正文。"""
+    from hivememory.agent_runtime.context_budget import TurnContextBudgetExceededError
+    from hivememory.alice.runtime.runtime_events import BoundAgentRunEvents
+    from hivememory.components.events.bus import RecordingRuntimeEventSink
+    from hivememory.components.events.publisher import RuntimeEventPublisher
+
+    async def run_frame(_frame, **_kwargs):
+        return FrameExecutionResult(
+            status=FrameExecutionStatus.FAILED,
+            error=TurnContextBudgetExceededError(1001, 1000),
+        )
+
+    sink = RecordingRuntimeEventSink()
+    frame = _frame_stub("frame-1")
+    executor = RunExecutor(
+        SimpleNamespace(run_frame=run_frame),
+        session=_session_with(frame),
+        run_events=BoundAgentRunEvents(RuntimeEventPublisher(sink)),
+    )
+    result = await executor.run(frame)
+    assert result.status == FrameExecutionStatus.FAILED
+    (event,) = sink.events
+    assert event.event_type == "agent.context.budget_exceeded"
+    assert event.frame_id == "frame-1"
+    assert event.reason == "turn_context_budget_exceeded"
+    assert event.data == {"estimated_tokens": 1001, "input_token_limit": 1000}

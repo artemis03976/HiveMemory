@@ -10,7 +10,7 @@ code_paths:
   - frontend/src/
 related_contracts:
   - docs/contracts/error-model.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-17
 ---
 
 # HiveMemory 故障排查
@@ -71,6 +71,10 @@ Docker 镜像默认尝试在 build 阶段预下载模型；构建失败与运行
 6. 修改注册表或主配置后，相关组件是否需要重启。
 
 Provider/Model 列表 API 只返回脱敏 key；看到掩码代表“存在一个值”，不证明凭证可用。
+
+上下文相关失败会在 Chat 中给出具体提示，稳定原因见[错误模型](../contracts/error-model.md#22-agent-run)：当前输入过大时缩短消息、减少附件或检索材料；压缩失败时可重试或新建会话；轮内工具结果超预算时可继续对话或缩小任务；提供商超窗时核对模型登记的窗口与生成上限，减少输入或选择更大窗口。字符估算与提供商计数可能不同，不应仅为消除提示而虚增窗口。
+
+压缩会在部分长会话轮次开始时增加等待，界面显示进度；原文不会被压缩标记隐藏或删除。标记刷新失败可重新选择会话；`agent.context.*` 只用于观测，是否接受检查点以会话 GET 为准。配置说明见[会话压缩配置](./configuration.md#52-alice-会话压缩)。
 
 ## 5. 前端 API、SSE 或 WebSocket 失败
 

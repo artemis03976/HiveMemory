@@ -391,7 +391,7 @@ class TestResultReduction:
                 kind="tool_result",
                 sequence=3,
                 role="user",
-                content="完整资料",
+                content="完整资料" * 50,
                 tool_kind="READ",
                 target="mem_a",
                 status="success",
@@ -414,57 +414,87 @@ class TestResultReduction:
         assert reduced[4:] == raw[4:]
         assert [old.model_dump(), recent.model_dump()] == original
 
-    def test_search_and_run_recover_arguments_from_the_matching_call(self):
-        """结果事件不带参数时按 action_id 关联，多个调用的查询和路径不会串用。"""
+    def test_search_recovers_query_from_the_matching_call(self):
+        """结果事件不带参数时按 action_id 关联，多个调用的查询不会串用。"""
         events = [
             TurnEvent(
                 kind="tool_call",
-                sequence=0,
+                sequence=index,
                 role="assistant",
-                content="search",
-                action_id="s",
-                tool_args={"query": "缓存失效"},
-            ),
-            TurnEvent(
-                kind="tool_call",
-                sequence=1,
-                role="assistant",
-                content="run",
-                action_id="r",
-                tool_args={"path": "a.py"},
-            ),
+                content=f"search {query}",
+                action_id=action_id,
+                tool_args={"query": query},
+            )
+            for index, (action_id, query) in enumerate((("s1", "缓存失效"), ("s2", "索引重建")))
+        ] + [
             TurnEvent(
                 kind="tool_result",
-                sequence=2,
+                sequence=2 + index,
                 role="user",
-                content="全文",
-                action_id="s",
+                content="检索全文" * 50,
+                action_id=action_id,
                 tool_kind="SEARCH",
                 status="success",
-            ),
-            TurnEvent(
-                kind="tool_result",
-                sequence=3,
-                role="user",
-                content="运行结果",
-                action_id="r",
-                tool_kind="RUN",
-                target="sys_read_file",
-                status="success",
-            ),
+            )
+            for index, action_id in enumerate(("s2", "s1"))
         ]
         turn = make_conversation_turn(user_message="执行", turn_events=events)
         messages = builder.build_messages(
             [turn], reduced_through=turn.interaction_id, language="en"
         )
-        assert (
-            messages[3]["content"]
-            == "[SEARCH query=缓存失效 status=success]\nSearch again with the original query."
+        assert [m["content"] for m in messages[3:]] == [
+            "[SEARCH query=索引重建 status=success]\nSearch again with the original query.",
+            "[SEARCH query=缓存失效 status=success]\nSearch again with the original query.",
+        ]
+
+    def test_run_result_does_not_repeat_call_arguments_or_grow_history(self):
+        """参数只留在原样重放的调用中；输出短于线索时保留原文，减重后历史不会变长。"""
+        code = "print(1)\n" * 600
+        events = [
+            TurnEvent(
+                kind="tool_call",
+                sequence=index * 2,
+                role="assistant",
+                content=f'⟪ RUN | sys_python_repl | code="{code}" ⟫',
+                action_id=action_id,
+                tool_kind="RUN",
+                tool_args={"code": code},
+                target="sys_python_repl",
+            )
+            for index, action_id in enumerate(("short", "long"))
+        ]
+        events.insert(
+            1,
+            TurnEvent(
+                kind="tool_result",
+                sequence=1,
+                role="user",
+                content="1",
+                action_id="short",
+                status="success",
+            ),
         )
-        assert (
-            messages[4]["content"]
-            == '[RUN tool=sys_read_file args={"path": "a.py"} status=success]\n运行结果'
+        events.append(
+            TurnEvent(
+                kind="tool_result",
+                sequence=3,
+                role="user",
+                content="1\n" * 300,
+                action_id="long",
+                status="success",
+            )
         )
+        turn = make_conversation_turn(user_message="执行", turn_events=events)
+        raw = builder.build_messages([turn], language="en")
+        reduced = builder.build_messages(
+            [turn], reduced_through=turn.interaction_id, language="en", tool_result_excerpt_chars=40
+        )
+        assert [m["content"] for m in reduced[:2]] == [m["content"] for m in raw[:2]]
+        assert reduced[2]["content"] == "1"
+        assert reduced[3] == raw[3]
+        assert reduced[4]["content"].startswith("[RUN tool=sys_python_repl status=success]\n1\n")
+        assert code not in reduced[4]["content"]
+        assert sum(len(m["content"]) for m in reduced) < sum(len(m["content"]) for m in raw)
 
     def test_ack_error_call_and_unknown_status_keep_bounded_original_content(self):
         """ACK、失败原因和 CALL 响应不可替换成成功线索；长文本保留头尾。"""

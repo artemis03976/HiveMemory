@@ -6,6 +6,7 @@ from typing import Any
 import litellm
 
 from hivememory.agent_runtime.context_budget import (
+    MESSAGE_OVERHEAD_TOKENS,
     ModelContextWindowExceededError,
     estimate_context_tokens,
 )
@@ -14,7 +15,7 @@ from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
 from hivememory.config.alice import CompactionConfig
 from hivememory.core.constants import DEFAULT_MAX_TOKENS
 from hivememory.core.mtp.models import MTP_LEFT_DELIMITER, MTP_STOP_SEQUENCE
-from hivememory.prompts.session_compaction import build_summary_messages
+from hivememory.prompts.session_compaction import SummaryRequest, encode_summary_turn
 from hivememory.utils.token_estimator import TokenEstimator
 
 
@@ -49,19 +50,31 @@ class RelaySummarizer:
             model.generation_options.get("max_tokens") or DEFAULT_MAX_TOKENS,
         )
         options = {**model.generation_options, "max_tokens": output_limit}
+        # 每轮只编码、计数一次；候选批次的估算按字符数累加，开销随轮数线性增长。
+        encoded = [encode_summary_turn(turn) for turn in turns]
+        turn_counts = [_char_counts(text) for text in encoded]
+        separator_counts = _char_counts(SummaryRequest.separator)
         while cursor < len(turns):
-            batch: list[dict[str, Any]] = []
-            messages: list[dict[str, str]] = []
-            for turn in turns[cursor:]:
-                candidate = build_summary_messages(
-                    summary, [*batch, turn], language=language, max_tokens=output_limit
+            request = SummaryRequest(summary, language=language, max_tokens=output_limit)
+            instruction_tokens = estimate_context_tokens([{"content": request.instruction}])
+            cjk, other = _char_counts(request.head + request.tail)
+            end = cursor
+            while end < len(turns):
+                turn_cjk, turn_other = turn_counts[end]
+                if end > cursor:
+                    turn_cjk += separator_counts[0]
+                    turn_other += separator_counts[1]
+                request_tokens = (
+                    instruction_tokens
+                    + TokenEstimator.estimate_from_counts(cjk + turn_cjk, other + turn_other)
+                    + MESSAGE_OVERHEAD_TOKENS
                 )
-                if estimate_context_tokens(candidate) > model.input_token_limit:
+                if request_tokens > model.input_token_limit:
                     break
-                batch.append(turn)
-                messages = candidate
-            if not batch:
+                cjk, other, end = cjk + turn_cjk, other + turn_other, end + 1
+            if end == cursor:
                 raise SummaryRejectedError("summary_input_too_large")
+            messages = request.messages(encoded[cursor:end])
             try:
                 async with asyncio.timeout(config.summary_timeout_seconds):
                     result = await self._worker.generate_async(messages, **options)
@@ -101,5 +114,11 @@ class RelaySummarizer:
             if TokenEstimator.estimate(text) > output_limit:
                 raise SummaryRejectedError("summary_output_too_large")
             summary = text
-            cursor += len(batch)
+            cursor = end
         return summary
+
+
+def _char_counts(text: str) -> tuple[int, int]:
+    """返回 (CJK 字符数, 其他字符数)，与整段估算使用同一分类。"""
+    cjk = TokenEstimator.count_cjk_chars(text)
+    return cjk, len(text) - cjk

@@ -14,7 +14,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-17
 ---
 
 # Alice
@@ -101,7 +101,7 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 任务进程的 CPUInputManifest
   -> 转换为 AgentRunContext（Alice 内部）
   -> attach thread-context-bound submit_operation to root frame
-  -> assemble MTP + persona + memory + topic messages
+  -> resolve model budget; build MTP + persona + summary + memory/attachments + session view
   -> create root ExecutionFrame(topic_id=...)
   -> RunExecutor -> AgentRuntime.run_frame()
        -> LLM generate
@@ -110,9 +110,9 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
   -> 任务进程据执行结果决定是否封口交互记录并进入 Patchouli finalize
 ```
 
-Alice 接收的是 workspace 任务进程组装的本轮输入清单，不在 run 中重新分析 Gateway，也不重新构造长期记忆上下文。主帧只保存运行所需的消息与 `ExecutionProgress`；最后的执行结果包含终态、自然语言正文、结构化 `TurnEvent[]`、实际模型展示名；迭代统计只出现在 `agent.run.*` 观测事件中。
+Alice 接收的是 workspace 任务进程组装的本轮输入清单，不在 run 中重新分析 Gateway，也不重新构造长期记忆上下文。主帧只保存运行所需的消息与 `ExecutionProgress`；最后的执行结果包含终态、自然语言正文、结构化 `TurnEvent[]`、实际模型展示名、可选失败原因和压缩检查点；迭代统计只出现在 `agent.run.*` 观测事件中。
 
-`FrameExecutionResult.FAILED` 与 `BUDGET_EXHAUSTED` 会由 Alice 稳定映射为执行结果的 `failed`，基础设施异常才向上抛出并由任务进程按失败结束；取消返回 `cancelled`，不交出物化任务。有输出的 completed/cancelled/failed 都由任务进程封口、追加会话并进入 Patchouli finalize；Alice 只提供结果，CPU 取消时通过结果槽交回部分输出。主帧历史来自输入清单的全量会话轮次，Topic 内容不再作为对话上下文。
+`FrameExecutionResult.FAILED` 与 `BUDGET_EXHAUSTED` 会由 Alice 稳定映射为执行结果的 `failed`，基础设施异常才向上抛出并由任务进程按失败结束；取消返回 `cancelled`，不交出物化任务。有输出的 completed/cancelled/failed 都由任务进程封口、追加会话并进入 Patchouli finalize；Alice 只提供结果，CPU 取消时通过结果槽交回部分输出。主帧历史来自输入清单的全量会话轮次，Alice 按模型预算先减重旧工具结果，再按需生成增量摘要；原文与检查点由会话资源保存。根帧与 CALL 子帧每次生成前都有输入预算守卫；算法与取消规则见 [Agent Runtime](./agent-runtime.md#31-会话上下文视图)。Topic 内容不作为对话上下文。
 
 ### 4.2 CALL 与瞬态子帧
 
@@ -153,7 +153,7 @@ AliceBridge 不订阅 PendingAtom 结算事件；这些事件由 workspace 登�
 
 ## 7. 当前设计文档
 
-- [Agent Runtime](./agent-runtime.md)：单 Agent 执行层、ExecutionFrame、prompt、模型解析、循环与流式输出；
+- [Agent Runtime](./agent-runtime.md)：单 Agent 执行层、会话视图与压缩、ExecutionFrame、模型预算、循环与流式输出；
 - [多 Agent 编排](./orchestration.md)：RunExecutor、CallCoordinator、CallContextProvider、CALL trap、Profile 解析、共享上下文、结果回流与当前单层策略；
 - [PendingAtom](./pending-atom.md)：操作请求的写入意图适配、回读与 ACK alias 收割；
 - [MTP Runtime](./mtp-runtime.md)：Koakuma、权限、verb 分发、syscall、错误、取消和真实安全边界。

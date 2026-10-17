@@ -45,7 +45,7 @@ related_docs:
   - docs/patchouli/artifacts.md
   - docs/governance/security/identity-and-execution-safety.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-17
 ---
 
 # Workspace 架构
@@ -430,11 +430,17 @@ CPU 分配把与输入清单相同的真实 `topic_id` 写入 `ProcessWorkingSet
 
 `workspace/sessions/ConversationSessionService` 是 ConversationSession 的唯一状态所有者，组合根创建同一个实例并注入 root 管理能力、注册入口与进程执行器。会话以 `belong_to: WorkspaceIdentity` 归属 Workspace，不属于单个 Agent；每次请求独立认证并选择 Agent。列表、读取、重命名、删除均检查完整 Workspace 归属，越域与不存在统一隐藏。每轮的 `agent_id` 是展示标签，不参与授权；其他 Agent 的旧回复在提示词中带身份前缀，原有记忆可见性仍只约束直接资源访问。
 
-会话保存有序 `ConversationTurn`：进程关联 `interaction_id`、Agent 标签、唯一正文 `payload: InteractionPayload`、本轮 `topic_id` 与写入时间。读取和追加都复制嵌套载荷，调用方不能改写历史。它不是 Topic 的副本：Alice 获取全量会话历史；Gateway 获取最近 N 轮用户/助手文本；Topic 汇集可能来自多个会话的记忆材料，删除或结算 Topic 不删除会话。
+会话保存有序 `ConversationTurn`：进程关联 `interaction_id`、Agent 标签、唯一正文 `payload: InteractionPayload`、本轮 `topic_id` 与写入时间。读取和追加都复制嵌套载荷，调用方不能改写历史。它不是 Topic 的副本：Alice 获取全量会话原文及检查点，自行构建预算受限的提示词视图；Gateway 获取最近 N 轮用户/助手文本；Topic 汇集可能来自多个会话的记忆材料，删除或结算 Topic 不删除会话。
 
 认证通过后注册入口同步创建或查找会话并认领，再登记进程；同一会话同时只允许一个进程，运行中不能删除，任何结局关闭后均释放认领。容量达到 `workspace.sessions` 上限时显式拒绝，不淘汰旧数据；失败注册回滚本次认领及自动创建的空会话。System 先关闭全部进程，再 `close_and_clear()`，此后读写拒绝。会话只在本进程内保存，不提供跨重启恢复或并发多进程存储。
 
 有输出的 completed/cancelled/failed 交互在关闭 CPU 流、撤销线程后封口，同步追加会话，再进入 finalize；无输出、进程异常与 finalize 前断连不追加。提交失败不回滚已经封口的会话事实，也不回滚已接纳写入。取消收口与 finalize 的任务所有权见[应用服务](../system/application-services.md)。
+
+会话另持有至多一份 CPU 中立的压缩检查点，结构见[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)。摘要与工具减重属于执行视图，不替代或删除原始 `ConversationTurn`；Workspace 只负责存储和接受，不解释 CPU 的摘要算法。这使 CPU 可以替换，也避免 Alice 建立第二份跨 run 的会话状态。
+
+`accept_checkpoint()` 是同步操作：校验完整 Workspace 归属、当前进程认领、两个非空游标都指向本会话已有轮次、减重边界不早于摘要覆盖，以及相对旧检查点两个游标各自不回退。拒绝不改变已有值；进程记录告警后继续收尾。完整会话读取返回检查点、列表不返回，删除与关闭随会话清除。
+
+进程在 CPU 输出流关闭、线程 context 撤销之后，判断丢弃或无输出之前接受检查点；接受到正常封口、会话追加之间没有 await。检查点只覆盖旧轮次，因此无输出、取消或交付关闭导致本轮不保存时仍可接受已完成的压缩。普通执行异常不把结果槽中的候选值当成成功交接；终态结果优先，关闭路径只消费一次结果槽。压缩进度与 RuntimeEvent 都不是接受依据。
 
 ## 6. WorkspaceAssetStore
 

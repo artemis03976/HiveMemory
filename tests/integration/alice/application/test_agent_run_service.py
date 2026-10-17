@@ -128,7 +128,8 @@ async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(
     config = HiveMemoryConfig()
     config.alice.koakuma.mtp_prompt.enabled = False
     config.alice.compaction.safety_margin = 0
-    _, service = _build_service(config=config, model_registry=registry)
+    recorder = RecordingRuntimeEventSink()
+    _, service = _build_service(config=config, model_registry=registry, runtime_events=recorder)
     requests = []
 
     async def generate(_self, messages, **kwargs):
@@ -155,6 +156,9 @@ async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(
     assert call_result.status == "error"
     assert 'code="mtp.call_response.sub_agent_error"' in call_result.content
     assert requests == ["provider/parent", "provider/parent"]
+    (guard,) = [e for e in recorder.events if e.event_type == "agent.context.budget_exceeded"]
+    assert guard.data["input_token_limit"] == 100
+    assert recorder.events[-1].event_type == "agent.run.completed"
 
 
 def _build_memory_atom() -> MemoryAtom:

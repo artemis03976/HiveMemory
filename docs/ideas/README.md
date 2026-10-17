@@ -3,7 +3,7 @@ title: Ideas
 status: current
 owner: project
 scope: uncommitted-exploration
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-17
 ---
 
 # Ideas
@@ -22,17 +22,14 @@ Idea 以 frontmatter 的 `horizon` 字段分为三类，规则见[文档治理�
 
 ## 当前版本的设计讨论（`current`）
 
-服务于 v0.7.0，版本内的计划顺序见 [Plans 导航](../plans/README.md#v070)。
-
-| Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
-|:---|:---|:---|
-| [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md) | Session 全量历史、Topic page folding 与压缩技术调研 | v0.7.0 的 Alice compact 候选（工具结果减重、接力摘要与轮内预算守卫），AC-1/AC-2 已决定，已形成[计划](../plans/v0.7.0-alice-session-compaction.md)；Topic folding 优化另行排期；两边共享机制但独立维护视图 |
-| [Agent Harness 会话压缩技术调研](./agent-context-compaction-research.md) | Claude Code 官方资料，以及 Codex、Hermes、pi、OpenCode 的固定源码快照（2026-10-16） | 为 Alice 会话压缩 Plan 提供预算、覆盖边界、检查点、取消与恢复的技术依据；参数默认值待计划实施时按样本校准 |
+当前没有为下一份 Plan 供料的 Idea；Alice 自动压缩已经完成，相关剩余方向与调研快照转为 candidate。版本内状态见 [Plans 导航](../plans/README.md#v070)。
 
 ## 候选方向（`candidate`）
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
+| [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md) | Alice 自动压缩已完成；Topic page folding 现有实现 | Topic folding 优化、真实模型摘要质量与成本评估；两边独立维护视图 |
+| [Agent Harness 会话压缩技术调研](./agent-context-compaction-research.md) | 2026-10-16 固定源码与资料快照，已为 Alice 归档计划提供依据 | 作为未排期的压缩扩展参考，不代表外部项目现状 |
 | [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | 会话与 Alice 迁移已于 2026-10-15 完成，当前事实见[归档计划](../archive/plans/v0.7.0-conversation-session.md)和 Workspace 架构 | 外部输入、流式交接、路由结果、会话持久化与 Gateway 会话提示；Alice compact 已迁入独立 Idea |
 | [任务进程表与任务请求唯一注册入口](./task-process-table-and-registration-entry.md) | 注册入口、进程表、四阶段骨架、CPU 分配与 CPU 端口已落地，当前事实见 [System 应用服务](../system/application-services.md)第 3、4 节 | 交互被接纳后即关闭进程与 Profile 解析时点（随话题是否预建决定）、进程记录与工作集的剩余槽位、四阶段骨架的失效条件、被动请求；Q-3b、Q-5a、Q-5b、Q-7、Q-8 |
 | [执行单元、执行线程与执行环境](./execution-unit-thread-and-environment.md) | 执行线程各自的线程 context、操作请求与单一操作入口、CALL 子线程以被调用方身份运行已落地，当前事实见 [Workspace 架构](../architecture/workspace.md)第 4.3、5.4 节 | agent 与执行环境分别选择（前提 9、10）；跨 Workspace 目标的表达（T-5b）、组合的有效性（T-7）、选择的承载与系统层级控制（T-8） |

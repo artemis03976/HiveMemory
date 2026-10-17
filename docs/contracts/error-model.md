@@ -21,7 +21,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-17
 ---
 
 # 跨边界错误模型
@@ -63,6 +63,17 @@ HiveMemory 当前没有一个覆盖所有 HTTP、子系统和运行时的统一 
 ### 2.2 Agent run
 
 CPU 执行结果（`CPUExecutionResult`）的 `status` 为 `completed`、`cancelled` 或 `failed`。任务进程对有输出的三种结局封口、写入会话并 finalize；无输出、异常或 finalize 前断连执行控制收尾与 prepared cleanup。已进入 finalize 后交付方取消也必须等待提交完成。
+
+`CPUExecutionResult.failure_reason` 是可选的 `CPUFailureReason`，只在 failed 时有意义；未识别为以下类型的错误不填原因码，保留通用失败处理。Alice 按类型映射以下四种原因：
+
+| 原因码 | 含义与失败边界 |
+|:---|:---|
+| `input_too_large` | 固定输入本身超限，或必须压缩时连固定输入与完整摘要预留都无法容纳 |
+| `compaction_failed` | 历史压缩后仍超出输入上限，包括摘要拒绝后无法用减重视图继续 |
+| `turn_context_budget_exceeded` | frame 每次生成前的预算守卫拦截，不再调用模型；CALL 子帧沿 CALL error 返回父帧 |
+| `model_context_window_exceeded` | 提供商仍报告上下文超窗；按具体异常类型识别，不重试 |
+
+任务进程的 failed done 保留 `reason=agent_run_failed`，另投影非空 `failure_reason`；`chat.run.failed.message` 使用相同原因码。原因不含异常正文，不写入交互原文。可用的历史检查点可以随 failed 或无输出结果交回，接受与本轮是否封口独立；原生取消仍传播 `CancelledError`。
 
 ### 2.3 Passive Ingress
 
@@ -221,6 +232,8 @@ WRITE/UPDATE 登记后的派发错误携带 `pending_alias` 与 `intent_id`，�
 引用交付的 citation 使用 `source="workspace.reference_read"`；普通记录失败只记日志、不改变可读结果，取消继续传播，已记录的引用不回滚。因此 RUN 工具失败不会撤销执行前已经完成的正式原子读取计数。
 
 会话错误由 `workspace.session.*` 表达：`not_found`（404，含越域隐藏）、`busy`（409，同一会话认领冲突或运行中删除）、`capacity_exceeded`（409，Workspace 会话数/会话轮数上限）、`closed`（503，服务已关闭）。这些错误在注册或管理操作时显式返回，不自动新建替代不存在的会话、不淘汰历史。
+
+`SessionCheckpointError` 使用 `workspace.session.checkpoint_invalid`，表示检查点游标不属于会话、摘要边界晚于减重边界或相对已有检查点倒退。归属与认领错误沿用会话既有错误；任何拒绝都不改变原检查点。进程写回时仅记录告警、继续本轮收尾，没有公开的检查点写入 HTTP 入口。
 
 ### 4.5 Memory 输入校验与存储写入错误（v0.7.0 A2-P）
 

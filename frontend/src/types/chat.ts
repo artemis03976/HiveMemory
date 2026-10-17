@@ -64,6 +64,19 @@ export interface ChatDoneEvent {
   status?: Exclude<ChatRunStatus, 'idle' | 'preparing' | 'streaming' | 'cancelling' | 'finalizing'>;
   stopped?: boolean;
   reason?: string | null;
+  failure_reason?: string | null;
+}
+
+/** 压缩进度仅用于本轮显示，不是回复正文或检查点提交凭据。 */
+export interface ContextCompactionEvent {
+  status: 'started' | 'completed' | 'abandoned' | 'failed';
+  layer: 'reduction' | 'summary';
+  tokens_before: number;
+  tokens_after: number;
+  covered_turns: number;
+  summarized_turns?: number;
+  summary_status?: 'not_needed' | 'completed' | 'abandoned';
+  elapsed_ms?: number;
 }
 
 export interface ChatErrorEvent {
@@ -105,7 +118,7 @@ export interface CommandResultEvent {
 
 export type SSEEventType =
   | 'token' | 'mtp_start' | 'mtp_result' | 'memory_refs' | 'command_result' | 'done' | 'error'
-  | 'sub_agent_start' | 'sub_agent_end' | 'process_id' | 'run_status';
+  | 'sub_agent_start' | 'sub_agent_end' | 'process_id' | 'run_status' | 'context_compaction';
 
 export interface SSEEvent {
   event: SSEEventType;
@@ -118,6 +131,7 @@ export interface SSEEvent {
     | ChatDoneEvent
     | ChatErrorEvent
     | ChatRunStatusEvent
+    | ContextCompactionEvent
     | ProcessIdEvent;
 }
 
@@ -175,4 +189,5 @@ export interface SSECallbacks {
   onSubAgentEnd: (data: SubAgentEndEvent) => void;
   onProcessId: (data: ProcessIdEvent) => void;
   onRunStatus: (data: ChatRunStatusEvent) => void;
+  onContextCompaction: (data: ContextCompactionEvent) => void;
 }

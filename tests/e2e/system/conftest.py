@@ -193,7 +193,8 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
             SemanticFlowPerceptionConfig(fold_token_threshold=999999), _Relay()
         ),
         store=short_term,
-        working_set=TopicWorkingSet(),
+        # 为多轮会话样本预留话题容量；LRU 结算由资源归属层单独验证。
+        working_set=TopicWorkingSet(max_resident=16),
         bus=local_bus,
         config=MemoryPerceptionConfig(),
         interaction_journal=InMemoryInteractionApplyJournal(),

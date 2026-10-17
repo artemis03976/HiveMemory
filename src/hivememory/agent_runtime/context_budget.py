@@ -4,10 +4,16 @@ from collections.abc import Sequence
 
 from hivememory.utils.token_estimator import TokenEstimator
 
+# 每条消息的角色与分隔符开销；增量估算请求时须与整体估算使用同一值。
+MESSAGE_OVERHEAD_TOKENS = 4
+
 
 def estimate_context_tokens(messages: Sequence[dict[str, str]]) -> int:
     """沿用文本估算，并为每条消息的角色与分隔符预留固定开销。"""
-    return sum(TokenEstimator.estimate(message.get("content", "")) + 4 for message in messages)
+    return sum(
+        TokenEstimator.estimate(message.get("content", "")) + MESSAGE_OVERHEAD_TOKENS
+        for message in messages
+    )
 
 
 class InputTooLargeError(Exception):

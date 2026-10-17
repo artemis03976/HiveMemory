@@ -4,6 +4,7 @@ import { motion } from 'motion/react';
 import SubAgentCard from './SubAgentCard';
 import InlineBlockList from './InlineBlockList';
 import { MOCK_AGENTS } from '@/constants/agents';
+import { chatFailureMessage } from '@/stores/chat/failureMessage';
 
 interface ChatMessageProps {
   message: Message;
@@ -119,7 +120,7 @@ export default function ChatMessage({ message }: ChatMessageProps) {
         {isAgent && <div className="flex gap-3 text-xs text-slate-500 px-1">
           {message.topicId && <span title={message.topicId}>话题 · {message.topicId}</span>}
           {message.outcome === 'cancelled' && <span className="text-amber-300">已中断 · 回复未完成</span>}
-          {message.outcome === 'failed' && <span className="text-red-300">执行失败 · 回复可能不完整</span>}
+          {message.outcome === 'failed' && <span className="text-red-300">{chatFailureMessage(message.failureReason)} · 回复可能不完整</span>}
         </div>}
         {/* Agent 消息工具按钮 */}
         {isAgent && !message.isStreaming && (

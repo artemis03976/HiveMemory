@@ -219,6 +219,7 @@ class AgentRunService:
                 agent_runtime=self._agent_runtime,
                 session=preparation.session,
                 call_coordinator=self._call_coordinator,
+                run_events=run_events,
             )
             # 解析与预算先于历史组装，根帧随后复用同一解析快照。
             resolved_model = None

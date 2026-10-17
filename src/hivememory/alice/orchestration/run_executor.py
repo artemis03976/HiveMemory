@@ -5,6 +5,7 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
+from hivememory.agent_runtime.context_budget import TurnContextBudgetExceededError
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
@@ -21,6 +22,7 @@ from hivememory.alice.orchestration.sub_agent.call_record import CallRecord
 if TYPE_CHECKING:
     from hivememory.agent_runtime.runtime import AgentRuntime
     from hivememory.alice.orchestration.sub_agent.call_coordinator import CallCoordinator
+    from hivememory.alice.runtime.runtime_events import BoundAgentRunEvents
 
 logger = logging.getLogger(__name__)
 
@@ -49,10 +51,12 @@ class RunExecutor:
         *,
         session: RunSession,
         call_coordinator: CallCoordinator | None = None,
+        run_events: BoundAgentRunEvents | None = None,
     ) -> None:
         self._agent_runtime = agent_runtime
         self._session = session
         self._call_coordinator = call_coordinator
+        self._run_events = run_events
         self._started = False
         self.terminal_result: FrameExecutionResult | None = None
 
@@ -111,6 +115,13 @@ class RunExecutor:
                 generation_options=generation_options,
                 output_sink=frame_output,
             )
+            if isinstance(result.error, TurnContextBudgetExceededError) and self._run_events:
+                self._run_events.budget_exceeded(
+                    frame_id=frame.runtime_scope.frame_id,
+                    agent_id=frame.runtime_scope.labels.agent_id,
+                    estimated_tokens=result.error.estimated_tokens,
+                    input_token_limit=result.error.input_token_limit,
+                )
 
             match result.status:
                 # 进入 Agent Run Subagent CALL 执行

@@ -52,6 +52,40 @@ async def test_fold_splits_complete_turns_and_uses_previous_fold_with_same_model
 
 
 @pytest.mark.asyncio
+async def test_batch_boundary_matches_the_estimate_of_the_assembled_request():
+    """增量计数与实际发送请求的估算一致：恰好放下时合并，少一个 token 就拆分。"""
+    turns = [
+        {"interaction_id": "a", "messages": [{"role": "user", "content": "中文资料" * 37 + "x"}]},
+        {"interaction_id": "b", "messages": [{"role": "user", "content": "混合 mixed 内容" * 23}]},
+    ]
+
+    async def fold(limit):
+        generate = AsyncMock(return_value=GenerationResult(text="summary"))
+        await RelaySummarizer(SimpleNamespace(generate_async=generate)).fold(
+            "旧摘要",
+            turns,
+            model=ResolvedFrameModel({}, limit),
+            config=CompactionConfig(summary_max_tokens=64),
+            language="zh",
+        )
+        return [call.args[0] for call in generate.await_args_list]
+
+    (combined,) = await fold(100000)
+    exact = estimate_context_tokens(combined)
+    assert [turn["interaction_id"] for turn in json.loads(combined[1]["content"])["turns"]] == [
+        "a",
+        "b",
+    ]
+    assert len(await fold(exact)) == 1
+    split = await fold(exact - 1)
+    assert [
+        [turn["interaction_id"] for turn in json.loads(messages[1]["content"])["turns"]]
+        for messages in split
+    ] == [["a"], ["b"]]
+    assert all(estimate_context_tokens(messages) <= exact - 1 for messages in split)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "result,reason",
     [

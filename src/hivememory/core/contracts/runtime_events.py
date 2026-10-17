@@ -39,6 +39,7 @@ class RuntimeEventType(str, Enum):
     AGENT_RUN_CANCELLED = "agent.run.cancelled"
     AGENT_RUN_FAILED = "agent.run.failed"
     AGENT_CONTEXT_COMPACTION = "agent.context.compaction"
+    AGENT_CONTEXT_BUDGET_EXCEEDED = "agent.context.budget_exceeded"
 
     MEMORY_TASK_CREATED = "memory.task.created"
     MEMORY_TASK_STATUS = "memory.task.status"

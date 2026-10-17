@@ -3,6 +3,12 @@ import { normalizeMtpStatus } from './messageReducers';
 import type { ContentBlock, Message, MtpAction } from '@/types';
 import type { ConversationSession, ConversationTurn } from '@/services/sessionApi';
 
+/** 未知产生方或格式不解释为 Alice 的压缩边界，原始历史仍照常展示。 */
+export function sessionCheckpoint(session: ConversationSession) {
+  const checkpoint = session.compaction_checkpoint;
+  return checkpoint?.producer === 'alice' && checkpoint.format_version === 1 ? checkpoint : null;
+}
+
 function blocksFor(turn: ConversationTurn): ContentBlock[] {
   const blocks: ContentBlock[] = [];
   const events = [...turn.payload.turn_events].sort((a, b) => a.sequence - b.sequence);
@@ -42,6 +48,7 @@ export function sessionMessages(session: ConversationSession): Message[] {
     { id: `${turn.interaction_id}-user`, role: 'user' as const, content: turn.payload.user_message,
       timestamp: Date.parse(turn.created_at) },
     { id: `${turn.interaction_id}-assistant`, role: 'assistant' as const,
+      interactionId: turn.interaction_id,
       content: turn.payload.assistant_final_text || '', contentBlocks: blocksFor(turn),
       timestamp: Date.parse(turn.created_at), agent_id: turn.agent_id,
       topicId: turn.topic_id, outcome: turn.payload.outcome, isStreaming: false },
