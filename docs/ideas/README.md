@@ -3,7 +3,7 @@ title: Ideas
 status: current
 owner: project
 scope: uncommitted-exploration
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-16
 ---
 
 # Ideas
@@ -26,20 +26,22 @@ Idea 以 frontmatter 的 `horizon` 字段分为三类，规则见[文档治理�
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
-| [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | ConversationSession、InteractionPayload、TurnEvent 与 Topic 投影边界 | Alice 会话迁移四阶段已完成（2026-10-15，[归档计划](../archive/plans/v0.7.0-conversation-session.md)）；后续为 Alice 会话压缩（v0.7.0 独立立项）、跨重启持久化、外部 harness 输入演进与 Gateway 会话提示，详见 Idea 0.2、8.2 |
+| [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md) | Session 全量历史、Topic page folding 与压缩技术调研 | v0.7.0 的 Alice compact 候选（工具结果减重、接力摘要与轮内预算守卫），AC-1/AC-2 已决定，已形成[计划](../plans/v0.7.0-alice-session-compaction.md)；Topic folding 优化另行排期；两边共享机制但独立维护视图 |
+| [Agent Harness 会话压缩技术调研](./agent-context-compaction-research.md) | Claude Code 官方资料，以及 Codex、Hermes、pi、OpenCode 的固定源码快照（2026-10-16） | 为 Alice 会话压缩 Plan 提供预算、覆盖边界、检查点、取消与恢复的技术依据；参数默认值待计划实施时按样本校准 |
 
 ## 候选方向（`candidate`）
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
+| [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | 会话与 Alice 迁移已于 2026-10-15 完成，当前事实见[归档计划](../archive/plans/v0.7.0-conversation-session.md)和 Workspace 架构 | 外部输入、流式交接、路由结果、会话持久化与 Gateway 会话提示；Alice compact 已迁入独立 Idea |
 | [任务进程表与任务请求唯一注册入口](./task-process-table-and-registration-entry.md) | 注册入口、进程表、四阶段骨架、CPU 分配与 CPU 端口已落地，当前事实见 [System 应用服务](../system/application-services.md)第 3、4 节 | 交互被接纳后即关闭进程与 Profile 解析时点（随话题是否预建决定）、进程记录与工作集的剩余槽位、四阶段骨架的失效条件、被动请求；Q-3b、Q-5a、Q-5b、Q-7、Q-8 |
 | [执行单元、执行线程与执行环境](./execution-unit-thread-and-environment.md) | 执行线程各自的线程 context、操作请求与单一操作入口、CALL 子线程以被调用方身份运行已落地，当前事实见 [Workspace 架构](../architecture/workspace.md)第 4.3、5.4 节 | agent 与执行环境分别选择（前提 9、10）；跨 Workspace 目标的表达（T-5b）、组合的有效性（T-7）、选择的承载与系统层级控制（T-8） |
 | [身份与访问体系](./identity-and-access-model.md) | 身份模型、两阶段认证与两阶段授权、密封的访问 context、资源归属与发起者的拆分已落地，当前事实见 [Workspace 架构](../architecture/workspace.md)第 3、4 节 | 受限穿透访问的授予模型、资源授权的扩展约束、访问 context 可能增加的内容；WorkspaceAsset 与 `/ingest` 两项已登记例外 |
 | [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两类接入登记（配置装载）、统一认证网关（HTTP 与进程注册已接入；外部 harness 尚未接入）、ingest HTTP 入口与能力层 | 原计划 B 退回：外部 Actor 分为 plugin 与 controller 两种接入模式（controller 模式为 v0.7.1 的首个真实接入，plugin 模式在其后的 v0.7.x 完善）；外部 Actor 如何登记进系统、运行时如何访问系统，以及操作适配器的接口边界（E-1 已决定维持配置装载；E-3a 已决定以归一化定义操作适配器；E-5 已决定外部执行单元不识别子线程、所有 actor 共享主线程的 context；E-6a 已决定外部 harness 是执行环境、与 agent 分别选择；E-6b 已决定不允许 CALL 的目标位于另一个执行单元；E-2、E-3b、E-4 待决） |
 | [写入意图（PendingAtom）的后续方向](./pending-intent-migration.md) | workspace 唯一登记与统一引用解析，actor 操作内实时派发（生成队列接纳后 ACK），结算事件订阅；当前事实见 [Workspace 架构](../architecture/workspace.md)第 5.4 节与 [Patchouli 生成](../patchouli/generation.md) | 结算对账与结果未知、句柄寿命与过期、持久化、意图可见性与 policy、UPDATE 的基础版本、外部 Actor 的提交与回读契约、完整的生成材料 |
 | [Import Bus：只向网络输入的记忆来源](./import-bus.md) | 现有 Passive Ingress 链路（`/ingest`、turn buffer、交互提交队列）；owner 前提：只向网络输入、两种接收方式、不在核心拓扑上 | Topic 落位（Q-11）、价值信号（Q-12）、完整交互记录的接收范围（Q-13）、接入认证与目标 Workspace（D-8a），以及与 plugin 模式对话回流的关系 |
-| [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md) | TurnEvent、LogicalBlock、Agent runtime、topic Page Folding 与 passive event ingress | 如何在一个 turn 内多次 compact，同时保持执行连续性、记忆生成语义、原始证据和跨入口契约；2026-10-13 owner 方向：对话流式同步到 Patchouli，Topic 接收更原子的输入，生成材料包含当前轮已接收的消息 |
-| [Page Folding Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md) | `state_summary` 折叠、InteractionArtifact 与异步 Generation | 后台 Topic 累计消息过长时，如何保证输入记忆生成的资料不会导致上下文爆炸；保存原始折叠页是否值得引入新的耐久性、隐私与去重成本（2026-10-01 定位为后台问题，前台会话压缩归 CPU） |
+| [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md) | TurnEvent、封口交互、运行时与被动事件接入 | 原子事件流、长 turn 分段、封口、跨入口与恢复；CPU 检查点与 Patchouli 摄入水位分别推进，通用压缩与证据保存见各自 Idea |
+| [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md) | ConversationSession、Topic 资料投影、InteractionArtifact 与 Generation | 贯通 Session → Topic 完整资料 → 来源 Artifact → Memory 引用；保留、交接、删除与未来编辑能力，会话持久化另行计划 |
 | [Chat Run 生命周期后续候选](./chat-run-lifecycle-follow-ups.md) | 已完成的取消最小闭环、SSE 与 run registry | 哪些候选具有独立收益，是否值得分别立项，而不是实施一次性大重构 |
 | [复合意图分解](./composite-intent-decomposition.md) | `COMPOSITE` 分类信号与私有 `sub_intents` | 真实样本能否证明单主意图路径存在稳定缺口，以及 envelope、消费所有权与 fallback 如何冻结 |
 | [全项目时间使用统一规范](./project-wide-time-semantics-standardization.md) | A2-P 已统一 Memory 域时间（UTC-aware、四字段职责、局部 now 注入）；附录 D 记录的域外调用清单 | monotonic 域统一、topic 域字段分类、耗时统计与展示 allowlist 的治理路径与 owner |

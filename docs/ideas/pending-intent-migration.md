@@ -93,11 +93,11 @@ PendingAtom 解决所有 Actor 共有的资源问题：Actor 明确提出 WRITE/
 
 问题：主动生成的背景材料只取话题过去若干轮与 `state_summary`，当前一轮不参与（[Patchouli 生成](../patchouli/generation.md)第 3.2 节）。长时间执行中途的显式保存因此看不到本轮的上下文。
 
-方向（owner，2026-10-13）：对话以流式方式同步到 Patchouli 之后，材料变为之前全部的 Interaction 记录加上当前轮已流式接收的消息，见[长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md)开头的方向。由进程把当前一轮未闭合的执行记录作为快照随意图提交是另一条路径，未采用；会话（ConversationSession）不是记忆的材料来源。
+方向（owner，2026-10-13）：对话以流式方式同步到 Patchouli 之后，材料变为之前全部的 Interaction 记录加上当前轮已流式接收的消息，见[长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md)开头的方向。由进程把当前一轮未闭合的执行记录作为快照随意图提交是另一条路径，未采用；Topic 继续组织生成材料；ConversationSession 可承载原始记录，由进程/入口交接到 Topic，不作为生成时反向读取的会话或 CPU 视图。全链路来源保存见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)。
 
 约束：
 
-- 先取得资料契约所选时点的全部可用材料，再按生成预算编译，不让 adapter 截取最近几条代替领域读取；已折叠且未保存的原文无法恢复，原文保全归折叠专项；
+- 先取得资料契约所选时点的全部可用材料，再按生成预算编译，不让 adapter 截取最近几条代替领域读取；已折叠且未保存的原文无法恢复，原文保全归[全链路 Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)，有界视图归[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)；
 - Topic 缺失、越权、为空与读取失败分别表达，缺失不等同于空材料；
 - 生成侧只提供材料约束，不决定是否创建空 Topic；资料身份、绑定、快照时点与保留/释放见[外部会话与 Topic 投影](./external-session-and-topic-projection.md)第 4.4 节与第 8 节；
 - 意图接纳后物化失败不回滚已应用的交互，Topic 清理不影响已接纳任务依赖的资料。

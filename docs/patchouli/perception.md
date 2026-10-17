@@ -131,7 +131,7 @@ Topic 是否为空由 `blocks` 与 `state_summary` 共同决定：`has_content =
 
 Page Folding 的设计目标是把 context window 视为工作集，而不是无限日志：旧页可以折叠为接力摘要，新的交互继续发生在同一话题。摘要是工作视图，不应被误认为原始证据；需要长期保留的原始 turn 应由 settlement/artifact 链另行保存。
 
-Page Folding 是 Patchouli 的内部 topic working-set compaction，主动与被动入口共享同一语义。主动 Agent 会消费 `state_summary + recent_blocks`；Passive Ingress 的公共响应当前只返回检索记忆，不把折叠上下文返回给外部 Agent，但 Gateway 话题分析与后续 settlement generation 仍会消费这份内部工作集。外部 harness 自行 compact 对话不会缩减 Patchouli 已摄入的 blocks，因此不能作为跳过内部 folding 的依据。
+Page Folding 是 Patchouli 的内部 topic working-set compaction，主动与被动入口共享同一语义。`state_summary` 与近期 blocks 服务于 Gateway 辅助分析、主动 WRITE/UPDATE 的生成背景与后续 settlement；Alice 的对话历史从 Session 重放。Passive Ingress 的公共响应当前只返回检索记忆，不把折叠上下文返回给外部 Agent。外部 harness 自行 compact 对话不会缩减 Patchouli 已摄入的 blocks，因此不能作为跳过内部 folding 的依据。
 
 当前 overflow 仍不执行 Settle。被移除的旧前缀不会自动进入 InteractionArtifact 或长期记忆；开放的 raw-evidence folding 方案仍位于 Ideas，尚不能当作当前能力。当 blocks 数量不大于保留数时没有可折叠前缀，本轮 compact 会延后，因此阈值是工作集软水位线，而不是严格的模型 context 上限。
 
@@ -177,4 +177,4 @@ Engine 不持有 Store / Journal / Queue，也不导入 `hivememory.patchouli.*`
 
 调整这些语义时必须同时检查 Generation、Artifacts、Passive Ingress 与 shutdown drain，因为“何时清空 blocks”本质上是数据耐久性边界，而不只是一个摘要算法参数。
 
-token-aware 保留、summary-only Topic、入口来源与折叠证据等后台折叠的已知缺口记录在 [Page Folding Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md) 第 9 节；跨入口的上下文所有权属于前台上下文，见[长时间运行 Agent 的 Turn 内上下文折叠 Idea](../ideas/long-running-agent-intra-turn-context-folding.md) 第 14 节。
+token-aware 保留、summary-only Topic 与 Relay 优化等议题见[短期记忆与上下文压缩 Idea](../ideas/short-term-memory-and-context-compaction.md)第 6 节；完整资料与来源保存见 [Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md)第 9 节；长 turn 与跨入口专项见[Turn 内上下文折叠 Idea](../ideas/long-running-agent-intra-turn-context-folding.md)第 14 节。

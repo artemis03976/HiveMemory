@@ -1,435 +1,186 @@
 ---
-title: Patchouli Page Folding Raw Evidence
+title: 从 ConversationSession 到 Topic 与 Memory Artifact 的原始资料保存
 status: idea
 horizon: candidate
-owner: patchouli
-scope: page-folding-raw-evidence-exploration
+owner:
+  - workspace
+  - patchouli
+scope: session-topic-artifact-raw-evidence-lifecycle
 related_current:
+  - docs/architecture/workspace.md
   - docs/patchouli/perception.md
   - docs/patchouli/artifacts.md
   - docs/patchouli/generation.md
   - docs/system/passive-ingress.md
 related_ideas:
+  - docs/ideas/short-term-memory-and-context-compaction.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/ideas/external-session-and-topic-projection.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-16
 ---
 
-# Patchouli Page Folding Raw Evidence 设计备忘
+# 从 ConversationSession 到 Topic 与 Memory Artifact 的原始资料保存
 
-本文是一项未排期的开放设计，不是 Patchouli 当前能力说明。当前 Page Folding、Artifact 与 Generation 的真实边界分别以[感知与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)和[记忆生成](../patchouli/generation.md)为准。一个未结束 turn 内多次 compact 的工作集管理另见[长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md)；两项 Idea 可以共享 evidence refs，但不能互相充当已经落地的能力。
+本文是一项未排期的开放设计。2026-10-16 按 owner 的方向，将原先围绕 page folding 的证据旁路扩展为完整资料链：**ConversationSession 保存完整对话，Topic 保存已交接的完整资料，记忆生成阶段冻结相应来源 Artifact，再由 Memory 引用。** 会话原始数据是否持久化另行计划；本文不以新增独立原始记录仓库为前提。
 
-## 0.0 定位调整（owner，2026-10-01）
+当前能力仍以 [Workspace 架构](../architecture/workspace.md)、[感知与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)和[记忆生成](../patchouli/generation.md)为准。Alice compact、Topic page folding 的算法、预算与检查点集中在[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)。本文维护原始资料的保存、交接与来源生命周期。
 
-ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是两项各自独立的工作。前台的上下文压缩归 CPU（用户以 `/compact` 触发，见[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md)）；后台的 Topic 管理继续使用 page folding。本 Idea 针对的是后台问题：Topic 累计消息过长时，如何保证输入 Patchouli 记忆生成的资料不会导致上下文爆炸。
+## 1. 问题与范围
 
-影响（分析）：
+上下文压缩允许原文退出模型的工作视图，但摘要具有损失，不能因此让原文在资料层消失。后续用户纠正、记忆更新、高保真提取、审计和调试，都可能重新需要当时未被摘要选中的细节。未来的对话编辑、回退和分支，也需要能够区分完整记录与某次执行使用的派生视图。
 
-- 下文把 `TOKEN_OVERFLOW` 描述为“面向 Agent 热路径的设计决策”，并设计了 Agent Context Flow（3.1）。这反映的是当前代码：Alice 每轮的历史来自 Topic 的 `state_summary` 与最近 blocks（`prompts/assembler.py`）。ConversationSession 落地后，Agent 的上下文改由会话提供，page folding 不再服务 Agent 的上下文，相关段落需要按新的定位重新审视；
-- 第 0 节所述“Agent 的工作上下文与系统保存的原始证据是两种不同资产”仍然成立，只是 Agent 的工作上下文从此归前台、由 CPU 管理。
+保存原文、控制模型输入、生成正式记忆是三项独立决策：
 
-## 0. 复核结论与成立条件
+- 原文保存决定哪些实际接收的资料仍可查回，以及保留期限、容量和删除规则。
+- 上下文压缩决定某次模型调用需要看到哪些内容；Alice 与 Patchouli 分别维护各自视图。
+- 记忆生成决定哪些内容形成或更新正式 Memory，并记录其来源。
 
-这个 Idea 所保护的核心理念仍然成立：Agent 的工作上下文与系统保存的原始证据是两种不同资产。旧页退出 active buffer，不等于它们在证据层也应当消失；反过来，保存证据也不意味着每轮都应把全部历史重新注入 Agent。
+“已退出上下文”不等于“资料可删除”，“保存了资料”也不等于“已生成 Memory”。本文所说的完整，是约定接收范围内实际取得的原始事件、工具输入输出、交互结局和关联资料，不承诺恢复外部 harness 从未交付的内容，也不包含模型未公开的内部推理。
 
-当前代码已经具备三块可复用基础：`TOKEN_OVERFLOW` 会生成 `state_summary` 并保留配置数量的最近 blocks，Generation 接受结算后的 `TopicMaterializeTask`，Artifact 层也能保存 append-oriented 的 InteractionArtifact。但三者尚未形成本文设想的旁路：overflow 当前不 Settle，被裁剪的旧前缀只进入有损摘要；没有 `FoldResult`、folded evidence artifact 类型或 raw turn store；`TopicMaterializeTask` 也不携带 folded artifact refs。现有 Artifact 基础因此不能被解释为“折叠原文已经保全”。
+## 2. 当前实现基线与缺口
 
-本方向只有在以下条件同时满足后才应升级为 Plan：
+以下为 2026-10-16 核对的代码事实，用于说明本 Idea 的起点。
 
-1. 通过可复现案例证明 overflow 原文丢失确实影响记忆质量、审计或调试，而不是只存在理论风险；
-2. 明确证据保留期限、用户隔离、敏感内容处理、容量上限和删除语义；
-3. 决定写入所有权与失败语义，并证明 artifact 旁路不会阻塞 Agent 热路径；
-4. 定义默认 settlement 与 high-fidelity refinement 的质量/延迟基线、去重策略和验收测试；
-5. 形成独立 Plan，明确修改 Perception、Artifacts、Generation 和配置时必须同步更新的当前文档。
+| 环节 | 当前证据 | 与全链路目标的差距 |
+|:---|:---|:---|
+| Session | [ConversationSessionService](../../src/hivememory/workspace/sessions/service.py)按封口顺序保存 `ConversationTurn` 与 payload 深拷贝；有容量限制，同会话只允许一个进程认领；删除不级联 Topic/Memory，关闭时清空 | 当前为进程内记录，尚无编辑、回退、分支或会话持久化；保存范围仍受当前 payload 与生产者实际输出约束 |
+| 主动交接 | [交互封口](../../src/hivememory/workspace/process/sealing.py)组装 `InteractionPayload`；任务进程对有输出的 completed/cancelled/failed 封口、追加会话并提交 finalize | 当前是封口交接，未结束轮次的流式资料同步仍是方向；Session 写入与 Patchouli 应用不是跨系统原子事务 |
+| Topic | [PerceptionFamiliar](../../src/hivememory/patchouli/services/perception.py)把交互投影为 block，维护 Topic 和 apply journal；overflow 更新摘要并移除旧前缀 | 没有与工作视图分离的完整资料集合，folding 前也不保存原文；journal 不能充当完整历史 |
+| 结算与生成 | [TopicMaterializeTask](../../src/hivememory/engines/perception/models.py)从现存 blocks 冻结结算材料并过滤 `worth_saving=False`；[生成协调器](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)构建模型视图与 `InteractionArtifactInput`，主动生成只取近期 blocks | 进入生成的资料受当前 blocks、价值过滤及近期窗口限制，不能补回此前已折叠的前缀；模型选择也不能证明全部资料已保存 |
+| 来源 Artifact | [InteractionArtifactBuilder](../../src/hivememory/engines/artifacts/interaction.py)冻结交到它的 blocks；生成链捕获 InteractionArtifact、按结果挂载来源引用 | 当前 interaction/document 来源捕获为 best-effort，不能据此宣称完整证据必然保存；强制写入的 Memory version artifact 是另一项承诺 |
 
-## 1. 背景
+当前 Session 与 Topic 都是进程内资源；既有 Artifact 已有文件保存能力，这不等于前面两层已具备重启恢复。2026-10-13 owner 保留“未来对话流式同步到 Patchouli 需要接收容器”的方向，见[外部会话与 Topic 投影](./external-session-and-topic-projection.md)；容器、同步协议与失败恢复尚未落地。
 
-当前 Patchouli 感知层的 `TOKEN_OVERFLOW` 行为是一个面向 Agent 热路径的设计决策：
+## 3. 候选资料链与所有权
 
-```text
-active topic blocks
--> token overflow
--> compact into state_summary
--> discard folded raw blocks from active buffer
+```mermaid
+flowchart TD
+    I[实际接收的交互事件与关联资料] --> S[Workspace ConversationSession 完整对话]
+    S --> H[任务进程或入口交接实际资料]
+    X[无本地 Session 的被动或外部入口] --> H
+    H --> T[Patchouli Topic 完整资料集合]
+    S --> A[Alice 有界执行视图]
+    T --> P[Patchouli 有界分析与生成视图]
+    T --> F[生成阶段冻结来源材料为 Artifact]
+    P --> G[记忆生成]
+    F --> M[Memory 引用来源 Artifact]
+    G --> M
 ```
 
-这套机制的核心目标不是完整保全短期对话原文，而是为 Agent 腾出可用上下文空间。换言之，Page Folding 的一等语义是 **Agent context compression**，不是 archive。
+图中的 Session → Topic 表达事实交接，不要求 Patchouli 反向查询 workspace 的会话服务。Session 继续由 workspace 管理，Topic 和来源 Artifact 继续由 Patchouli 管理；任务进程、Import Bus 或外部 adapter 在各自提交边界交付实际内容及来源。Patchouli 持有已接收资料的正文或可独立管理寿命的稳定引用，不把 Session 的可变历史当作运行时读取依赖。
 
-因此，compact 后旧 blocks 从 active buffer 中移除是合理的：对 Agent 来说，这些 blocks 已经不可见，后续上下文只通过 `state_summary + recent_blocks` 接力。
+| 位置 | 候选保存责任 | 生命周期边界 |
+|:---|:---|:---|
+| ConversationSession | 实际接收的完整对话、顺序、交互结局及来源关联，服务于会话连续性与未来编辑能力 | workspace 管理会话资源，compact 不修改原记录；会话删除与关闭不自动删除已交接资料 |
+| Topic 完整资料集合 | 归入该 Topic 的原始交互与相关资料，正文或稳定引用均可；按话题组织，不复制整个 Session | Patchouli 管理接收、保留、冻结与释放；完整资料不随 page folding 的工作窗口裁剪而消失 |
+| Artifact | 冻结生成时关联的来源材料与覆盖范围，作为稳定证据 | Patchouli 管理不可变快照及引用；可复用既有 Interaction/Document Artifact，不在本文新增固定类型 |
+| Memory | 可提炼、合并、修订的知识结果，通过来源引用关联证据 | Memory 变化不回写原始记录；Memory 是否保留与证据是否保留分别决定 |
 
-但这也带来一个明确代价：summary 是有损压缩。被折叠的原始 blocks 如果没有被保存到其他位置，就无法用于后续高保真记忆生成、审计、debug 或历史重放。
+同一 Session 可以涉及多个 Topic，同一 Topic 也可以汇集多个 Session、多个 Agent 和被动入口的材料。Topic 的完整资料是本话题实际接收的集合，不代表任一 Session 的完整副本。来源、Workspace 归属与读取授权继续分别表达，provenance 不能授予访问权。
 
-本文记录一个未来可实现的优化方向：在不破坏当前热路径简洁性的前提下，为 Page Folding 增加 raw evidence side-channel。
+不要求每层再建一份独立物理副本。共享正文、快照或引用的取舍，以各自生命周期内可兑现的读取保障为准；引用若依赖 Session 不被删除，就还没有完成向 Topic 的独立资料交接。
 
-## 2. 当前设计取舍
+## 4. 完整资料与有界工作视图
 
-### 2.1 当前策略
+Topic 完整资料保存“有哪些来源材料”；`state_summary + recent_blocks` 等派生视图回答“当前分析或生成看什么”。两者应独立演进：page folding 只推进后者，既不决定原文是否值得保存，也不自动宣告该段材料已被物化为正式记忆。
 
-当前策略可以概括为：
+这不要求 active blocks 始终保留全部历史。若把所有正文留在同一个活跃输入中，Perception 会同时管理模型窗口和资料保全，settlement extractor 仍可能超出上下文窗口。候选方向是在 Topic 所有权下分开完整资料与工作窗口，共享稳定来源关联；具体数据布局留待 Plan 决定。
 
-```text
-TOKEN_OVERFLOW = compact + discard raw pages from active buffer
-```
+Alice compact 和 Topic folding 可以复用 token 计算、分段与摘要校验等机制，但拥有独立覆盖范围、检查点和保留策略。Alice 已压缩的进度不能证明 Patchouli 已接收资料，Topic 已折叠也不能证明 Memory 已生成。详细设计由[压缩 Idea](./short-term-memory-and-context-compaction.md)维护。
 
-优点：
+外部 harness 交付的 summary/checkpoint 应标明来源、覆盖范围与已知损失，作为辅助资料保存，不能冒充未提供的原始事件，也不能直接覆盖 Topic 的既有摘要。对于未知事件、多模态引用或无法形成完整 action 的片段，保存原事件与报告投影缺口应当优先于静默丢弃。
 
-- Agent 热路径简单，active buffer 大小可控。
-- `state_summary` 是唯一接力状态，topic context 组装逻辑稳定。
-- 不需要让 generation extractor 直接承接无限增长的历史 blocks。
-- 不引入额外的 artifact / cold store 读写路径。
+## 5. 交接、冻结与来源引用
 
-缺点：
+### 5.1 从接收记录到 Topic 资料
 
-- summary 会丢失细节。
-- 被折叠 blocks 未必已经被 settlement 生成过长期记忆。
-- 后续 idle / LRU / manual settlement 只能看到 summary 和 compact 后的新 blocks。
-- debug、审计和高保真重放缺少原始证据。
+进程或入口应交付实际发生的事实与已冻结来源，Patchouli 在领域内产生 block 等工作投影。接收、接纳、应用和保存完成需要有可区分的含义，不能用 best-effort 运行时事件证明资料已可靠交接；跨入口的共同提交与路由边界仍由[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md)维护。
 
-### 2.2 不建议简单改为始终保留所有 blocks
+封口交互身份、事件关联和顺序必须在重试时稳定。相同提交不重复追加正文，内容冲突不当作普通重试；乱序、迟到和不完整工具结果保留其真实状态。资料是否可用于生成、是否有记忆价值，与资料是否已被保存分别表达，不能以 `worth_saving=False` 自动授权删除唯一原文。
 
-一个直接方案是：Page Folding 只更新 summary，但 active buffer 始终保留所有 blocks。
+对于未来未结束轮次的增量交接，需区分可继续追加的资料与已封口内容，并明确取消、失败、断连后覆盖范围。这里只保留完整性目标，不提前决定一个新开放轮次模型；流式接收、封口和生成时点见[长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md)。
 
-这个方案不推荐作为默认策略，原因是：
+### 5.2 从 Topic 资料到 Artifact
 
-- active buffer 控制流会重新变复杂。
-- Agent topic context 仍然不能无界注入这些 blocks，保留原文并不等于 Agent 可见。
-- settlement 时 extractor 可能因历史过长超过上下文窗口。
-- LRU / idle / manual settlement 的语义会混入“压缩页是否仍在 active buffer 中”的细节。
-- perception 层会被迫同时管理 Agent 可见上下文和原文保全，两种职责再次耦合。
+生成接纳或执行时，应绑定稳定的来源范围，避免任务重试读取已变化的 Topic 或 Session 而悄悄切换证据。候选方向是在生成阶段将选定的完整来源冻结为 Artifact，或者复用内容与覆盖范围相同的已有 Artifact。冻结资料集可以比该次模型真正读取的片段更广，但不能声称未读部分已经影响生成结论。
 
-更好的方向是拆流。
+生成来源至少需要能够解释三件事：原始资料来自哪里、这份快照覆盖哪些交互/事件、某次提取实际消费哪些范围。具体粒度、引用结构与 schema 需结合既有 Artifact 模型评估，不在本文冻结字段或新增类型。工具结果若只保存短标识、附件若只留下随时可能失效的临时 ref，也不能声称已经保存了其完整正文。
 
-## 3. 候选设计
+候选生命周期要求是：Topic 结束或被驱逐之前，仍有保留责任的资料应已由生成任务接管、形成独立来源快照，或按明确保留规则继续可用；不能因为模型只消费了摘要，就删除尚无其他承接方的完整资料。冻结任务接纳不等于 Artifact 已写入，二者之间如何持有材料仍需设计。
 
-未来优化应拆成三条语义独立的流：
+### 5.3 Memory 的来源关联
 
-```text
-1. Agent Context Flow
-   active buffer -> state_summary + recent_blocks
+Memory 关联来源 Artifact，不把原始对话嵌入每条知识正文。一份来源可以支撑多条 Memory，也可以在后续修订或高保真处理中被再次读取；生成任务的身份与原始交互身份不互相替代。
 
-2. Raw Evidence Flow
-   folded blocks -> append-only artifact / raw turn store
+没有产生 Memory 的资料，也需要明确释放规则。TOUCH、DISCARD、生成失败或取消，不应隐含地决定是否保留证据。当前不同结果的挂载行为见[Artifacts 当前文档](../patchouli/artifacts.md)；本 Idea 只要求后续计划明确完整资料链在这些结果下的承诺。
 
-3. Generation Flow
-   state_summary + recent_blocks by default
-   optional raw evidence replay for high-fidelity generation
-```
+## 6. 材料消费与高保真处理
 
-### 3.1 Agent Context Flow
+保存完整资料不意味着一次 generation 请求读完全部历史。默认分析与生成继续使用有界视图；需要高保真提取时，可按稳定范围分片读取原文，形成候选记忆，再由 Generation 的去重、合并与更新机制处理结果。
 
-这条流保持当前策略：
+异步 refinement 是可探索的消费策略，不是把原文推回 Alice 每轮输入的通道。它需要明确质量收益、资源预算、背压、可取消性、重试和幂等，并记录每次实际处理的资料范围。后续原文重读不应依赖已经失效的会话 cursor 或临时工作窗口。
 
-- `TOKEN_OVERFLOW` 触发 compact。
-- compact 后旧 blocks 从 active buffer 移除。
-- active topic context 只暴露 `state_summary + recent_blocks`。
-- Agent 不感知 folded raw blocks。
+同一份原文可能被主动 WRITE/UPDATE、普通 settlement 和 refinement 重复消费。Perception 管理资料及话题生命周期，不负责追踪“每一块是否已经生成过一条记忆”；生成侧管理重复提取、去重与来源关系，避免为了保存完整资料再引入一套与 Memory 结算竞争的状态机。
 
-这保证热路径仍然轻量，Page Folding 继续承担上下文压缩职责。
+本方向应保留前台响应的延迟目标。来源保存与高保真消费可以分别安排，但异步执行不能被解释为允许先释放唯一资料副本，再期待后台补回。
 
-### 3.2 Raw Evidence Flow
+## 7. 保留、容量、删除与失败
 
-在 folded blocks 被移出 active buffer 前，将它们写入 append-only 原始证据仓库。
+### 7.1 进程内完整性与持久化分别承诺
 
-候选落点：
+本 Idea 先讨论运行周期和明确保留范围内的完整资料链，不承诺进程崩溃后的会话恢复。会话正文的持久化、恢复、分页和跨进程存储可以另行计划；既有 Artifact 存储能力可以继续复用，不要求为全链路先建设统一持久化服务。
 
-- `ArtifactStore`
-- 独立 `RawTurnStore`
-- `InteractionArtifact`
-- 未来的 cold raw transcript store
+即使暂不持久化，也必须给出进程内资料的容量与释放边界。容量用尽、接收拒绝、资料过期和来源不可回查应当可区分，不能以“短期”作为静默淘汰唯一原文的理由。普通 Session 删除不能意外使已被 Topic 或生成任务接管的资料失效。
 
-关键约束：
+### 7.2 保存承诺决定失败处理
 
-- raw evidence 不参与 active topic context。
-- raw evidence 不影响 LRU / idle / manual topic 控制流。
-- perception 层不负责决定何时消费 raw evidence。
-- 写入应是 append-only，便于审计和重放。
+旧稿建议“保存失败后 warning，继续裁剪”。它只适用于明确允许证据缺失的可选增强，无法同时兑现完整保全目标。后续计划必须先选择每条交接的保障，再定义失败处理：
 
-### 3.3 Generation Flow
+- 承诺完整保全的范围，在确认其他持有者已接管之前不能丢弃唯一副本。可探索保留原状、暂缓裁剪或显式背压，具体方式需与延迟和容量共同设计。
+- 若提供允许有损运行的模式，需要明确对外说明覆盖缺口；保存失败、来源读取失败和原始资料本就未提供不能混为一类，也不能仅凭 warning 宣称链路完整。
 
-默认 settlement 仍只使用：
+当前来源 Artifact 的 best-effort 行为应作为需评估的基线，不能被本文直接改写为新的强制提交契约。Artifact 写入成功、Memory 内容提交成功与资料释放之间的次序及补偿，待独立计划确定。
 
-```text
-state_summary + recent_blocks
-```
+### 7.3 引用、隐私与删除
 
-但 `TopicMaterializeTask` 可以携带 raw evidence 引用：
+保留策略需要覆盖 Session、Topic 资料、生成任务持有内容和 Artifact。普通会话删除、Topic 生命周期结束、Memory 删除与用户要求删除来源资料是不同操作；是否级联、如何处理共享来源、引用失效和孤立 Artifact，需要明确规则。
 
-```text
-topic_id
-state_summary
-recent_blocks
-folded_artifact_refs
-reason
-```
+来源读取仍执行 Workspace 硬边界和资源 policy。多 Agent、多入口和跨会话聚合不能使原本不可见的资料因一个来源引用而变得可见。容量统计、保留期限、敏感内容处理、授权读取与垃圾回收均需在实施前给出可验证的范围。
 
-generation coordinator 根据策略决定是否读取 raw evidence。
+## 8. 与编辑、回退和分支的关系
 
-默认策略应保持低延迟：
+完整会话记录是这些能力的前提，但不会自动带来版本化能力。未来应区分“当前选中的会话历史”与“当时已经交接并用于生成的来源”。修改或回退 Session，不应原地改写已有 Artifact，也不应无条件撤回独立提交的写入或删除正式 Memory。
 
-```text
-SETTLEMENT default:
-  build context from state_summary + recent_blocks
-  run normal generation
-```
+候选方向是让资料交接、压缩检查点和来源引用绑定具体历史范围；未来引入修订或分支后，再绑定对应版本。受影响的 Alice/Topic 派生视图可以失效并重建，既有 Artifact 保留当时事实；如何纠正已生成 Memory 则由显式的更新、失效或回档规则决定。
 
-高保真策略可以异步执行：
+本次不提前引入完整分支图、统一事件日志或修订字段。后续模型只需避免把“某个 Session 当前内容”作为长期稳定证据，并为旧版资料保留、分支共享、删除和重算留下清晰边界。
 
-```text
-HIGH_FIDELITY_SETTLEMENT:
-  load folded evidence refs
-  chunk raw blocks
-  run extraction per chunk
-  dedup / merge generated atoms
-```
+## 9. 已知缺口、历史承接与待设计范围
 
-## 4. 候选演进顺序
+### 9.1 历史承接
 
-### Phase 1: 提取 fold 原语
+2026-10-01，原占位计划“话题折叠、Actor 上下文与原始证据统一改造”（`docs/plans/topic-folding-context-and-raw-evidence.md`）退回 Idea，原 Todo“Page Folding 跨入口上下文与证据后续技术债”（`docs/todo/page-folding-cross-ingress-follow-ups.md`）拆分。后台部分并入本节，前台部分并入[长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md)第 14 节；原文件删除前最后版本见 commit `74b5056`。
 
-为 `ShortTermMemoryStore` 增加明确的 fold API：
+2026-10-16，本篇从“折叠时额外保存旧页”调整为 Session → Topic → Artifact 的全链路资料保存。原稿中的 Agent Context Flow 定位已失效：Alice 的对话历史来自 Session，Topic folding 面向 Patchouli 的分析与生成。原第 9 节中的 token/block 联合预算、摘要增长、超大 block 和 summary-only Topic 等压缩问题，转由[短期记忆与上下文压缩 Idea](./short-term-memory-and-context-compaction.md)维护；原文保存、跨入口 provenance、生成与删除生命周期继续由本文承接。
 
-```python
-def fold_blocks(
-    self,
-    topic_id: str,
-    summary: str,
-    retain_count: int,
-) -> FoldResult:
-    ...
-```
+### 9.2 保留的资料链问题
 
-`FoldResult` 建议包含：
-
-```python
-class FoldResult:
-    topic_id: str
-    folded_blocks: tuple[LogicalBlock, ...]
-    retained_blocks: tuple[LogicalBlock, ...]
-    state_summary: str
-```
-
-职责边界：
-
-- Store 负责裁剪 active blocks 和更新 token 计数。
-- Store 不负责写 artifact。
-- TriggerManager / PerceptionFamiliar 决定是否把 `folded_blocks` 交给 side-channel。
-
-### Phase 2: 引入 raw evidence artifact
-
-新增 artifact 类型，例如：
-
-```text
-ArtifactType.FOLDED_TOPIC_BLOCKS
-```
-
-建议字段：
-
-```text
-artifact_id
-topic_id
-user_id
-created_at
-fold_sequence
-source_reason = TOKEN_OVERFLOW
-state_summary_before
-state_summary_after
-blocks
-block_ids
-turn_event_ids
-```
-
-注意：artifact 是原始证据，不是长期记忆原子，不参与正常 retrieval ranking。
-
-### Phase 3: 在 TopicMaterializeTask 中携带引用
-
-扩展 `TopicMaterializeTask`：
-
-```python
-folded_artifact_refs: list[ArtifactRef] = []
-```
-
-这只是 metadata，不意味着 generation 必须读取 artifact。
-
-### Phase 4: 高保真后台 refinement
-
-增加一个可选后台任务：
-
-```text
-memory_task.submit_high_fidelity_settlement
-```
-
-输入：
-
-```text
-topic_id
-state_summary
-recent_blocks
-folded_artifact_refs
-```
-
-处理：
-
-```text
-load artifacts
--> chunk raw blocks
--> extract candidates per chunk
--> dedup / merge with existing atoms
--> optionally update artifacts / source links
-```
-
-该任务不应阻塞 Agent finalize / shutdown drain 的热路径。
-
-## 5. 关键边界
-
-### 5.1 Perception 层
-
-Perception 仍然只负责短期 MMU：
-
-- ingest turn payload
-- maintain active topic buffer
-- fold pages
-- settle topic into `TopicMaterializeTask`
-
-Perception 不应：
-
-- 直接运行 generation。
-- 决定 raw evidence 如何生成 memory。
-- 为了 artifact replay 改变 active context 行为。
-
-### 5.2 Artifact / Raw Store
-
-Artifact / Raw Store 负责不可变证据保存：
-
-- folded blocks
-- turn events
-- action traces
-- interaction snapshots
-
-它不负责：
-
-- Agent context 组装。
-- generation 策略。
-- memory lifecycle。
-
-### 5.3 Generation Coordinator
-
-Generation Coordinator 决定如何消费输入：
-
-- 默认只消费 `state_summary + recent_blocks`。
-- 可选读取 `folded_artifact_refs`。
-- 可将高保真处理拆到后台任务。
-
-这能避免把 generation 的策略复杂度泄漏回 perception。
-
-## 6. 配置建议
-
-未来可增加配置：
-
-```yaml
-patchouli:
-  perception:
-    page_folding:
-      retain_recent_blocks: 3
-      persist_folded_evidence: true
-      folded_evidence_store: artifact
-
-  generation:
-    settlement:
-      use_folded_evidence: false
-      high_fidelity_refinement_enabled: false
-      folded_evidence_chunk_blocks: 8
-```
-
-默认值应偏向当前行为：
-
-```text
-persist_folded_evidence = false 或 true 但不消费
-use_folded_evidence = false
-high_fidelity_refinement_enabled = false
-```
-
-即使先打开 evidence 保存，也不应立即改变 generation 结果路径。
-
-## 7. 风险与注意事项
-
-### 7.1 不要让 raw evidence 回流成 active context
-
-raw evidence 的存在只是为了保真和后处理，不应让 Agent 每轮重新看到全部 folded history。
-
-否则 Page Folding 失去意义。
-
-### 7.2 不要让 extractor 一次消费全部历史
-
-如果 raw evidence 很长，应分片提取：
-
-```text
-artifact chunks -> candidate memories -> dedup / merge
-```
-
-不要把所有 folded blocks 拼回一个超长 generation context。
-
-### 7.3 不要在 perception 中加入“哪些 blocks 已生成记忆”的复杂状态
-
-主动写入、被动归档、高保真 refinement 可能都消费同一段原始证据。
-
-去重应由 generation deduplicator / memory merge 机制兜底，而不是让 perception 追踪消费状态。
-
-### 7.4 Artifact 写入失败策略
-
-raw evidence 是增强能力，不应阻塞 Agent 热路径。
-
-建议：
-
-- artifact 写入失败记录 warning / runtime event。
-- active buffer folding 仍继续。
-- 后续可通过 observability 发现证据缺失。
-
-## 8. 理想候选形态
-
-理想状态下，Page Folding 的语义是：
-
-```text
-For Agent:
-  old blocks are compressed into state_summary and removed from active context.
-
-For System:
-  old blocks may be preserved as immutable raw evidence outside active buffer.
-
-For Generation:
-  default settlement stays lightweight.
-  high-fidelity extraction can replay raw evidence asynchronously.
-```
-
-这保留了当前设计中最重要的热路径性质，同时为未来更高质量的记忆生成、审计、回放和调试提供基础设施。
-
-## 9. 后台折叠的已知缺口与待设计范围
-
-2026-10-01 并入：原占位计划“话题折叠、Actor 上下文与原始证据统一改造”（`docs/plans/topic-folding-context-and-raw-evidence.md`）退回 Idea，原 Todo“Page Folding 跨入口上下文与证据后续技术债”（`docs/todo/page-folding-cross-ingress-follow-ups.md`）拆分。两份文档中属于后台 Topic 管理的内容并入本节，属于前台上下文的内容并入[长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md)第 14 节，原文件随后删除，删除前最后版本见 commit `74b5056`。
-
-### 9.1 已知缺口（代码核对，2026-07-30 记录，2026-10-01 复核配置）
-
-- **软水位线**：overflow 后只按 block 数保留后缀。单个超大 turn 或最近 blocks 本身可能继续超过 `fold_token_threshold`，因此它只是软水位线。按 0.0 节的定位，后果是 Topic 交给记忆生成的资料可能超出预算。
-- **不支持 summary-only Topic**：公开配置拒绝 `fold_retain_recent_blocks=0`（`config/patchouli.py`，`ge=1`）。底层 Store 把零值定义为“清空全部 blocks”，但 `TopicData.is_empty`、shutdown settlement、Generation identity 与 InteractionArtifact 尚不支持只剩摘要的 Topic。
-- **缺少入口来源**：主动与被动入口共享 `InteractionPayload` 和短期 Topic，payload 与 block 没有稳定的 ingress origin 与 connector provenance，因此不能安全地按入口类型切换整个 Topic 的折叠策略。若直接根据 `PASSIVE_MEMORY` 跳过折叠，Patchouli 内部 buffer 与 settlement generation 可能无界增长。
-- **compact-only**：`TOKEN_OVERFLOW` 只压缩，被折叠的旧前缀不会自动形成 settlement 或 raw evidence artifact（见第 0、1 节），长时间运行的被动对话尤其可能只剩有损摘要，高保真的原始 turn 可能在正式记忆或 artifact 生成前被裁剪。
-
-“何时清空 blocks”本质上是数据耐久性边界，而不只是一个摘要算法参数；调整这些语义时，必须同时检查 Generation、Artifacts、Passive Ingress 与 shutdown drain。
-
-### 9.2 待设计范围（原占位计划的后台部分）
-
-| 工作域 | 需要覆盖的问题 |
+| 工作域 | 尚需回答的问题 |
 |:---|:---|
-| 折叠算法 | RelayController 的定位、触发策略与摘要算法的分离、token 与 block 数的联合预算、摘要自身的增长、超大 block 与保留后缀 |
-| 原始证据 | 保存时机、存储归属、引用与覆盖范围、折叠前后的材料交接、容量、保留期限、删除与写入失败 |
-| Generation 与生命周期 | 普通 settlement、高保真分块处理、去重与来源关联、幂等、背压、关闭及持久化恢复的承诺边界 |
+| 完整范围与跨入口 | 哪些事件、工具结果、多模态与附件内容被承诺保存；来源未提供与投影丢失如何区分；混合来源 Topic 如何保留可靠 provenance |
+| 交接与引用 | 封口及流式资料何时算保存成功；正文复制与稳定引用如何取舍；Session 删除、Topic 结束或接纳结果未知时由谁继续持有 |
+| 冻结与生成 | 来源范围何时绑定，如何与有界视图、普通 settlement、主动生成和异步 refinement 对齐；过滤、失败、取消及无 Memory 结果后的资料如何处置 |
+| 容量与生命周期 | 进程内完整性的容量、保留期限、背压和释放条件；Artifact 引用共享、孤立资料、敏感内容删除及 shutdown 的承诺范围 |
+| 后续编辑能力 | 未来修订/分支如何寻址来源、使派生视图失效并处理既有记忆；与会话持久化的范围如何分别安排 |
 
-### 9.3 升级为 Plan 前需要回答的问题
+### 9.3 升级为 Plan 的门槛
 
-在第 0 节的成立条件之外，还需要回答（候选，未决定）：
+进入实施计划之前，需要明确一个可独立验收的切片，而不是要求同时完成 compact、流式同步、持久化和高级会话功能：
 
-1. count limit 与 token budget 的联合保留算法如何处理单个超大 block，需要哪些可观测事件；
-2. 是否支持 retain zero：若支持，需要完整定义 summary-only Topic 的非空判断、身份归属、shutdown/idle settlement、Generation 与 artifact 行为；若不支持，继续在 schema 与当前文档中明确拒绝；
-3. 在需要按入口区分折叠策略之前，如何定义 interaction origin/provenance 以及混合来源 Topic 的冲突规则，而不是根据 connector 名称或单个事件临时推断；
-4. folded prefix 采用 checkpoint settlement、append-only raw evidence 还是其他耐久化路径，以及写入失败、容量、隐私、删除与 shutdown 语义。
+1. 通过实际案例明确要保全的资料范围、质量收益与当前丢失点，并决定接收和交接成功的含义。
+2. 确定 Session、Topic、任务持有材料与 Artifact 的生命周期和稳定引用保障，覆盖跨入口、失败、重试、取消与关闭。
+3. 明确保留、容量、隐私和删除规则；证明完整保全承诺与延迟目标、失败处理相容。
+4. 如纳入高保真 refinement，明确分片消费、生成侧去重、来源关联与预算，并验证其不依赖无界模型输入。
+5. 绑定版本或里程碑，确定相关契约、迁移与验证归属；实现、验收和代码审查完成后，再按最终代码更新 Workspace、Perception、Generation、Artifacts 与 Passive Ingress 的当前事实文档。
 
-每项跨系统能力在实施前都应形成独立 Plan，并同步更新 Perception、Generation、Artifacts、Passive Ingress 与相关契约文档。
+会话原始数据持久化可以独立立项。本文不把它作为开始梳理和贯通进程内完整资料链的默认前置条件。
