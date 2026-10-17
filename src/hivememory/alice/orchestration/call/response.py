@@ -3,7 +3,7 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
+from hivememory.agent_runtime import FrameExecutionResult, FrameExecutionStatus
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.mtp.exceptions import (
     AgentModelUnavailableError,

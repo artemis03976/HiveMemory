@@ -158,8 +158,8 @@ def _summary_dependencies(limit=1000, results=None):
     from types import SimpleNamespace
     from unittest.mock import AsyncMock
 
-    from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
-    from hivememory.agent_runtime.models import GenerationResult
+    from hivememory.agent_runtime.model.client import GenerationResult
+    from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
     from hivememory.alice.context.summarizer import RelaySummarizer
 
     generate = AsyncMock(
@@ -216,7 +216,7 @@ async def test_summary_covers_complete_prefix_and_next_compaction_only_folds_new
 @pytest.mark.asyncio
 async def test_later_fold_failure_keeps_previous_summary_and_only_advances_reduction():
     """局部折叠成功不代表整份摘要可以提交，后续失败必须整体回退。"""
-    from hivememory.agent_runtime.models import GenerationResult
+    from hivememory.agent_runtime.model.client import GenerationResult
 
     old = make_compaction_checkpoint(
         reduced_through="t0",
@@ -282,7 +282,7 @@ async def test_large_reservation_uses_hard_limit_when_history_no_longer_fits():
 @pytest.mark.asyncio
 async def test_summary_reservation_exceeding_hard_limit_reports_input_too_large():
     """即使去掉全部历史也放不下摘要预留时，不发起付费调用。"""
-    from hivememory.agent_runtime.context_budget import InputTooLargeError
+    from hivememory.agent_runtime.model.budget import InputTooLargeError
 
     config = CompactionConfig(summary_max_tokens=1200)
     summarizer, model, generate = _summary_dependencies()

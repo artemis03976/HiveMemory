@@ -1,6 +1,6 @@
 import pytest
 
-from hivememory.agent_runtime.mtp.syscalls.file_io import sys_read_file, sys_write_file
+from hivememory.agent_runtime.tools.file_io import sys_read_file, sys_write_file
 from hivememory.core.mtp.exceptions import (
     SyscallInvalidArgumentError,
     SyscallPermissionDeniedError,

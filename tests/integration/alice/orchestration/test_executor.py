@@ -14,7 +14,7 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
+from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import TokenDelta
 from hivememory.alice.interface.stream import AgentRunStream
 from hivememory.alice.orchestration.call.coordinator import (

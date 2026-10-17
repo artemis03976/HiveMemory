@@ -3,7 +3,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from hivememory.agent_runtime.mtp.syscalls.web_search import sys_web_search
+from hivememory.agent_runtime.tools.web_search import sys_web_search
 from hivememory.core.mtp.exceptions import (
     SyscallInvalidArgumentError,
     SyscallUnavailableError,

@@ -7,7 +7,7 @@ import subprocess
 import sys
 from typing import Any
 
-from hivememory.agent_runtime.mtp.syscalls.types import SyscallResult
+from hivememory.agent_runtime.tools.types import SyscallResult
 from hivememory.core.mtp.exceptions import (
     SyscallExecutionError,
     SyscallInvalidArgumentError,

@@ -2,7 +2,7 @@
 HiveMemory 核心数据模型 - Pending / Settlement 领域
 
 PendingAtom 由 workspace 的写入意图登记拥有，结算视图供生成引擎与登记共同使用。
-状态枚举、Focus 与 Alice 仍使用的 RuntimeScope 均为依赖中立的跨域模型。
+状态枚举与 Focus 是供写入登记和记忆生成共同使用的跨域模型。
 
 新代码应直接从本模块或 ``hivememory.core.models`` 导入。生成域 facade
 ``hivememory.engines.generation.models`` 仍 re-export 一份 PendingAtomSettlement /
@@ -151,21 +151,6 @@ class ExecutionLabels(BaseModel):
 
     agent_id: str
     workspace_id: str
-
-
-class RuntimeScope(BaseModel):
-    """Alice run/frame/action 坐标与注册时绑定的观测标签。"""
-
-    labels: ExecutionLabels
-    run_id: str
-    frame_id: str
-    action_id: str | None = None
-
-    def with_action(self, action_id: str) -> RuntimeScope:
-        """返回限定在单个 agent 动作范围内的副本。"""
-        return self.model_copy(update={"action_id": action_id})
-
-    model_config = ConfigDict(frozen=True)
 
 
 # ===========================================================================
@@ -317,7 +302,6 @@ __all__ = [
     "UpdateFocus",
     # 执行坐标
     "ExecutionLabels",
-    "RuntimeScope",
     # 主体
     "PendingAtom",
     "PendingAtomSettlement",

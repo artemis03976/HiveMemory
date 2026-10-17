@@ -2,9 +2,9 @@
 
 import pytest
 
-from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import (
     AgentProfile,
@@ -27,6 +27,9 @@ async def test_write_ack_can_be_read_in_next_process_and_redirect_after_settleme
     koakuma = KoakumaRuntime()
     first_scope = make_runtime_scope(run_id="first")
     first = MTPExecutionContext(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
         runtime_scope=first_scope,
         submit_operation=await harness.submitter(make_identity_scope(), "first"),
     )
@@ -40,6 +43,9 @@ async def test_write_ack_can_be_read_in_next_process_and_redirect_after_settleme
 
     next_scope = make_runtime_scope(run_id="second", agent_id="another_agent")
     next_context = MTPExecutionContext(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
         runtime_scope=next_scope,
         submit_operation=await harness.submitter(
             make_identity_scope(agent_id="another_agent"), "second"
@@ -80,7 +86,13 @@ async def test_revoked_thread_context_returns_mtp_system_fault_without_registeri
     scope = make_runtime_scope()
     submit_operation = await harness.submitter(make_identity_scope())
     harness.revoke("test_run")
-    context = MTPExecutionContext(runtime_scope=scope, submit_operation=submit_operation)
+    context = MTPExecutionContext(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
+        runtime_scope=scope,
+        submit_operation=submit_operation,
+    )
     result = await KoakumaRuntime().execute_mtp('⟪ WRITE | * | content="关闭后不能写入" ⟫', context)
     assert result.response_status == "error"
     assert 'code="mtp.system.fault"' in result.formatted_response
@@ -93,7 +105,11 @@ async def test_update_pending_base_returns_existing_mtp_argument_error():
     harness = OperationsHarness()
     scope = make_runtime_scope()
     context = MTPExecutionContext(
-        runtime_scope=scope, submit_operation=await harness.submitter(make_identity_scope())
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
+        runtime_scope=scope,
+        submit_operation=await harness.submitter(make_identity_scope()),
     )
     koakuma = KoakumaRuntime()
     write = await koakuma.execute_mtp('⟪ WRITE | * | content="待定草稿" ⟫', context)
@@ -118,6 +134,9 @@ async def test_operation_denial_maps_to_mtp_permission_error(command):
     harness = OperationsHarness()
     scope = make_runtime_scope()
     context = MTPExecutionContext(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
         runtime_scope=scope,
         submit_operation=await harness.submitter(make_identity_scope(), allowed_operations=[]),
     )
@@ -145,6 +164,9 @@ async def test_search_without_memory_search_grant_does_not_deliver_or_warm_memor
     harness.memories[atom.get_alias()] = atom
     scope = make_runtime_scope()
     context = MTPExecutionContext(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
         runtime_scope=scope,
         submit_operation=await harness.submitter(
             make_identity_scope(), allowed_operations=[WorkspaceOperation.MEMORY_READ]
@@ -185,6 +207,9 @@ async def test_read_and_user_run_require_independent_operation_permissions(
     )
     harness.memories[atom.get_alias()] = atom
     context = MTPExecutionContext(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
         runtime_scope=make_runtime_scope(),
         submit_operation=await harness.submitter(
             make_identity_scope(), allowed_operations={operation}
@@ -270,6 +295,9 @@ async def test_write_observation_labels_cannot_replace_thread_context_actor_or_w
     harness = OperationsHarness()
     scope = make_identity_scope()
     context = MTPExecutionContext(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
         runtime_scope=make_runtime_scope(
             agent_id="observed_other_agent", workspace_id="observed_other_workspace"
         ),

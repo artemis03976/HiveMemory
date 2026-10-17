@@ -5,12 +5,11 @@ import json
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
-import litellm
 import pytest
 
-from hivememory.agent_runtime.context_budget import estimate_context_tokens
-from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
-from hivememory.agent_runtime.models import GenerationResult
+from hivememory.agent_runtime.model.budget import estimate_context_tokens
+from hivememory.agent_runtime.model.client import GenerationResult, ModelProviderError
+from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
 from hivememory.alice.context.summarizer import RelaySummarizer, SummaryRejectedError
 from hivememory.config.alice import CompactionConfig
 
@@ -132,7 +131,7 @@ async def test_oversized_single_turn_is_rejected_before_model_call():
 @pytest.mark.asyncio
 async def test_provider_failure_is_typed_but_programming_errors_propagate():
     """提供商错误允许回退，错误接线不能被伪装成可用摘要。"""
-    generate = AsyncMock(side_effect=litellm.RateLimitError("limited", "provider", "model"))
+    generate = AsyncMock(side_effect=ModelProviderError("Model provider request failed."))
     summarizer = RelaySummarizer(SimpleNamespace(generate_async=generate))
     with pytest.raises(SummaryRejectedError, match="summary_provider_error"):
         await summarizer.fold(
@@ -172,4 +171,33 @@ async def test_summary_deadline_cancels_worker_and_returns_typed_timeout():
             config=CompactionConfig(summary_timeout_seconds=0.001),
             language="en",
         )
+    assert closed.is_set()
+
+
+@pytest.mark.asyncio
+async def test_summary_task_cancellation_propagates_after_worker_cleanup():
+    """调用方停止摘要时保留取消信号，并先关闭等待中的模型调用。"""
+    started = asyncio.Event()
+    closed = asyncio.Event()
+
+    async def generate(*args, **kwargs):
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    task = asyncio.create_task(
+        RelaySummarizer(SimpleNamespace(generate_async=generate)).fold(
+            "",
+            [{"text": "history"}],
+            model=ResolvedFrameModel({}, 1000),
+            config=CompactionConfig(),
+            language="en",
+        )
+    )
+    await started.wait()
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
     assert closed.is_set()

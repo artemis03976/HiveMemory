@@ -2,8 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import replace
-
+from hivememory.agent_runtime.frame import FrameExecutionPolicy, RuntimeScope
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import RunBinding
@@ -181,10 +181,22 @@ class HarnessKoakumaRuntime(KoakumaRuntime):
         self.memories = self.harness.memories
         self.registry = self.harness.registry
 
-    async def execute_mtp(self, text, context=None):
-        if context is not None and context.submit_operation is None:
-            submit_operation = await self.harness.submitter(
-                self.harness.default_scope, context.runtime_scope.run_id
-            )
-            context = replace(context, submit_operation=submit_operation)
-        return await super().execute_mtp(text, context=context)
+    async def make_context(
+        self,
+        *,
+        runtime_scope: RuntimeScope,
+        execution_policy: FrameExecutionPolicy,
+        agent_profile=None,
+        language=None,
+    ) -> MTPExecutionContext:
+        """用测试身份完成认证，再把真实线程提交函数交给 MTP 上下文。"""
+        submit_operation = await self.harness.submitter(
+            self.harness.default_scope, runtime_scope.run_id
+        )
+        return MTPExecutionContext(
+            runtime_scope=runtime_scope,
+            execution_policy=execution_policy,
+            submit_operation=submit_operation,
+            agent_profile=agent_profile,
+            language=language,
+        )

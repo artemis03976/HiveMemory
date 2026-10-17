@@ -5,14 +5,13 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 from uuid import uuid4
 
-from hivememory.agent_runtime.models import ExecutionFrame, ExecutionProgress
-from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.core.models import (
-    AgentProfile,
-    ExecutionLabels,
+from hivememory.agent_runtime import (
+    ExecutionFrame,
+    ExecutionProgress,
+    FrameExecutionPolicy,
     RuntimeScope,
-    TurnEvent,
 )
+from hivememory.core.models import AgentProfile, ExecutionLabels, TurnEvent
 
 if TYPE_CHECKING:
     from hivememory.workspace.contracts import OperationSubmitter
@@ -27,7 +26,7 @@ class FrameSpec:
     messages: Sequence[dict[str, str]]
     topic_id: str | None
     execution_policy: FrameExecutionPolicy
-    submit_operation: OperationSubmitter | None = None
+    submit_operation: OperationSubmitter
 
 
 class FrameFactory:

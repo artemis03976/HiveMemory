@@ -4,12 +4,12 @@
 
 from datetime import datetime
 
-from hivememory.agent_runtime.mtp.syscalls.types import SyscallResult
+from hivememory.agent_runtime.tools.types import SyscallResult
 
 
 def sys_clock(args: dict[str, str]) -> SyscallResult:
     """
-    获取当前系统时间 (Chapter 8.4)
+    获取当前系统时间
 
     Args (MTP):
         format: 输出格式 (可选)

@@ -5,11 +5,11 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal
 
-from hivememory.agent_runtime.context_budget import TurnContextBudgetExceededError
-from hivememory.agent_runtime.models import (
+from hivememory.agent_runtime import (
     ExecutionFrame,
     FrameExecutionResult,
     FrameExecutionStatus,
+    TurnContextBudgetExceededError,
 )
 from hivememory.alice.orchestration.call.coordinator import (
     DispatchCallee,
@@ -20,7 +20,7 @@ from hivememory.alice.orchestration.output import AgentRunOutput, NullAgentRunOu
 from hivememory.alice.orchestration.session import RunSession
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.runtime import AgentRuntime
+    from hivememory.agent_runtime import AgentRuntime
     from hivememory.alice.events import BoundAgentRunEvents
     from hivememory.alice.orchestration.call.coordinator import CallCoordinator
 

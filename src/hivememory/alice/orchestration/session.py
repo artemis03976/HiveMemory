@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 
-from hivememory.agent_runtime.models import ExecutionFrame
+from hivememory.agent_runtime import ExecutionFrame
 from hivememory.alice.orchestration.call.record import CallRecord, CallRecordStatus
 
 

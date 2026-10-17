@@ -11,15 +11,15 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.execution.worker import WorkerAgentService
-from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
-from hivememory.agent_runtime.models import (
+from hivememory.agent_runtime.frame import (
     ExecutionFrame,
+    FrameExecutionPolicy,
     FrameExecutionResult,
     FrameExecutionStatus,
+    FrameProducts,
 )
-from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.agent_runtime.products import FrameProducts
+from hivememory.agent_runtime.model.client import LLMClient
+from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.events import AgentRunEventEmitter
 from hivememory.alice.interface.stream import AgentRunStreamAdapter
@@ -31,6 +31,7 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.alice import CompactionConfig
 from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.workspace.contracts import CPUExecutionStatus
+from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.workspace import make_runtime_scope
 
@@ -41,11 +42,12 @@ def _frame(
 ) -> ExecutionFrame:
     return FrameFactory().create(
         FrameSpec(
+            submit_operation=StubOperationSubmitter(),
             runtime_scope=make_runtime_scope(run_id="run-1", frame_id=frame_id),
             profile=OMNI_DOLL_PROFILE,
             messages=(messages if messages is not None else [{"role": "user", "content": "hello"}]),
             topic_id="topic-1",
-            execution_policy=FrameExecutionPolicy(),
+            execution_policy=FrameExecutionPolicy(permitted_verbs=frozenset()),
         )
     )
 
@@ -80,7 +82,7 @@ def _runtime_for_frame(
     factory.scope.side_effect = FrameFactory.scope
     factory.create.return_value = frame
     service = AgentRunService(
-        summarizer=RelaySummarizer(WorkerAgentService()),
+        summarizer=RelaySummarizer(LLMClient()),
         agent_runtime=resolved_agent_runtime,
         call_coordinator=MagicMock(),
         frame_factory=factory,

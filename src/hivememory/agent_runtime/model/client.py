@@ -1,7 +1,7 @@
 """
-Worker Agent Service - Agent Runtime 的无状态 LLM 文本生成服务。
+无状态 LLM 客户端：文本生成、流式分段与提供商错误翻译。
 
-Worker 只负责 LLM 调用、MTP stop sequence 和文本分段；取消由调用它的
+客户端只负责 LLM 调用、MTP stop sequence 和文本分段；取消由调用它的
 asyncio task 直接传播，不在本层维护额外的控制信号。
 """
 
@@ -11,12 +11,12 @@ import asyncio
 import inspect
 import logging
 from collections.abc import AsyncGenerator
+from dataclasses import dataclass
 from typing import Any
 
 import litellm
 
-from hivememory.agent_runtime.context_budget import ModelContextWindowExceededError
-from hivememory.agent_runtime.models import GenerationResult, StreamChunk
+from hivememory.agent_runtime.model.budget import ModelContextWindowExceededError
 from hivememory.core.constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TOP_P
 from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
@@ -27,18 +27,66 @@ from hivememory.core.mtp.models import (
 logger = logging.getLogger(__name__)
 
 
-class WorkerAgentService:
+class ModelProviderError(Exception):
+    """模型提供商拒绝或未能完成请求；原始异常保留在 cause 链中。"""
+
+
+_PROVIDER_ERRORS = (
+    litellm.APIError,
+    litellm.OpenAIError,
+    litellm.BadGatewayError,
+    litellm.APIConnectionError,
+    litellm.APIResponseValidationError,
+    litellm.BadRequestError,
+    litellm.AuthenticationError,
+    litellm.PermissionDeniedError,
+    litellm.NotFoundError,
+    litellm.RateLimitError,
+    litellm.Timeout,
+    litellm.UnprocessableEntityError,
+    litellm.InternalServerError,
+    litellm.ServiceUnavailableError,
+    litellm.BudgetExceededError,
+)
+
+
+@dataclass
+class GenerationResult:
+    """一次 LLM 生成的结构化结果。"""
+
+    text: str = ""
+    finish_reason: str = "stop"
+    was_mtp_interrupted: bool = False
+    prefix_text: str = ""
+    mtp_fragment: str = ""
+    # 实际发给 litellm 的模型标识符（如 "deepseek/deepseek-chat"）
+    # 由 LLMClient._extract_runtime_params 解析后写入
+    model_used: str = ""
+
+
+@dataclass
+class StreamChunk:
+    """流式生成发出的单个 chunk。"""
+
+    delta: str = ""
+    full_text: str = ""
+    is_final: bool = False
+    result: GenerationResult | None = None
+    mtp_detected: bool = False
+
+
+class LLMClient:
     """无状态 LLM 文本生成服务。"""
 
     def __init__(self) -> None:
-        logger.info("WorkerAgentService 初始化完成（无状态）")
+        logger.info("LLMClient 初始化完成（无状态）")
 
     def _extract_runtime_params(self, kwargs: dict[str, Any]) -> dict[str, Any]:
         """提取本次 LLM 调用的运行时参数。"""
         model = kwargs.pop("model", None)
         if not model:
             raise ValueError(
-                "WorkerAgentService: 缺少必填参数 'model'。"
+                "LLMClient: 缺少必填参数 'model'。"
                 "请通过 generation_options 显式指定，或在 ModelRegistry 中为 Agent "
                 "配置对应模型。不允许静默回落到其他模型。"
             )
@@ -86,6 +134,8 @@ class WorkerAgentService:
             )
         except litellm.ContextWindowExceededError as error:
             raise ModelContextWindowExceededError("Model context window exceeded.") from error
+        except _PROVIDER_ERRORS as error:
+            raise ModelProviderError("Model provider request failed.") from error
         except Exception as error:
             logger.error("LLM 异步生成失败: %s", error)
             raise
@@ -136,6 +186,8 @@ class WorkerAgentService:
             )
         except litellm.ContextWindowExceededError as error:
             raise ModelContextWindowExceededError("Model context window exceeded.") from error
+        except _PROVIDER_ERRORS as error:
+            raise ModelProviderError("Model provider request failed.") from error
         except Exception as error:
             logger.error("LLM 流式生成启动失败: %s", error)
             raise
@@ -218,6 +270,8 @@ class WorkerAgentService:
         except litellm.ContextWindowExceededError as error:
             # 超窗也可能在拉取响应时出现，与建立请求时采用同一错误语义。
             raise ModelContextWindowExceededError("Model context window exceeded.") from error
+        except _PROVIDER_ERRORS as error:
+            raise ModelProviderError("Model provider request failed.") from error
         finally:
             close = getattr(response, "aclose", None)
             if callable(close):
@@ -234,5 +288,6 @@ class WorkerAgentService:
 __all__ = [
     "GenerationResult",
     "StreamChunk",
-    "WorkerAgentService",
+    "LLMClient",
+    "ModelProviderError",
 ]

@@ -12,7 +12,6 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 from enum import Enum
-from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -27,7 +26,6 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.interaction import InteractionOutcome
 from hivememory.core.models.query import QueryFilters
-from hivememory.core.mtp.models import MTPCallRequest
 
 
 class MessageType(str, Enum):
@@ -157,19 +155,6 @@ class RetrievalResponse(ProtocolMessage):
         return len(self.memories) == 0
 
 
-class MTPExecutionResult(BaseModel):
-    """MTP 指令执行结果"""
-
-    command: Any | None = Field(default=None)
-    response_status: str = Field(default="error")
-    response_content: str = Field(default="")
-    formatted_response: str = Field(default="")
-    success: bool = Field(default=False)
-    execution_time_ms: float = Field(default=0.0)
-    pending_alias: str | None = Field(default=None)
-    call_request: MTPCallRequest | None = Field(default=None)
-
-
 class InteractionPayload(BaseModel):
     """
     提交方封口、交由 Perception 消费的原子交互传输包
@@ -289,5 +274,4 @@ __all__ = [
     "RetrievalResponse",
     "AgentRunContext",
     "InteractionPayload",
-    "MTPExecutionResult",
 ]

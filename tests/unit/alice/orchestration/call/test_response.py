@@ -1,6 +1,6 @@
 import pytest
 
-from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
+from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus
 from hivememory.alice.orchestration.call.response import (
     cancelled_response,
     preparation_error_response,

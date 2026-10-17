@@ -3,20 +3,25 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.execution.loop import AgentLoopExecutor
-from hivememory.agent_runtime.models import (
+from hivememory.agent_runtime.frame import (
     ExecutionFrame,
+    FrameExecutionPolicy,
     FrameExecutionStatus,
-    GenerationResult,
-    StreamChunk,
 )
+from hivememory.agent_runtime.loop import AgentLoopExecutor
+from hivememory.agent_runtime.model.client import GenerationResult, StreamChunk
 from hivememory.agent_runtime.output import FrameOutput, TokenDelta
 from hivememory.core.models import OMNI_DOLL_PROFILE
+from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.workspace import make_runtime_scope
 
 
 def _frame() -> ExecutionFrame:
     return ExecutionFrame(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
+        submit_operation=StubOperationSubmitter(),
         runtime_scope=make_runtime_scope(run_id="run-1", frame_id="frame-1"),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "user", "content": "task"}],
@@ -81,7 +86,7 @@ async def test_stream_sink_receives_typed_token_outputs_in_order() -> None:
 
     worker_agent = MagicMock(generate_stream=MagicMock(return_value=stream))
     executor = AgentLoopExecutor(
-        worker_agent=worker_agent,
+        llm_client=worker_agent,
         mtp_executor=MagicMock(),
         config=MagicMock(max_loop_iterations=2),
     )
@@ -105,7 +110,7 @@ async def test_stream_is_closed_when_output_sink_fails() -> None:
     stream = TrackingChunkStream([StreamChunk(delta="partial", full_text="partial")])
     worker_agent = MagicMock(generate_stream=MagicMock(return_value=stream))
     executor = AgentLoopExecutor(
-        worker_agent=worker_agent,
+        llm_client=worker_agent,
         mtp_executor=MagicMock(),
         config=MagicMock(max_loop_iterations=2),
     )
@@ -125,7 +130,7 @@ async def test_stream_is_closed_when_pull_task_is_cancelled() -> None:
     stream = TrackingChunkStream(block_after_chunks=True)
     worker_agent = MagicMock(generate_stream=MagicMock(return_value=stream))
     executor = AgentLoopExecutor(
-        worker_agent=worker_agent,
+        llm_client=worker_agent,
         mtp_executor=MagicMock(),
         config=MagicMock(max_loop_iterations=2),
     )
@@ -154,7 +159,7 @@ async def test_stream_close_error_does_not_replace_task_cancellation() -> None:
     )
     worker_agent = MagicMock(generate_stream=MagicMock(return_value=stream))
     executor = AgentLoopExecutor(
-        worker_agent=worker_agent,
+        llm_client=worker_agent,
         mtp_executor=MagicMock(),
         config=MagicMock(max_loop_iterations=2),
     )
@@ -182,7 +187,7 @@ async def test_streaming_without_final_chunk_returns_failed_frame_result() -> No
 
     worker_agent = MagicMock(generate_stream=generate_stream)
     executor = AgentLoopExecutor(
-        worker_agent=worker_agent,
+        llm_client=worker_agent,
         mtp_executor=MagicMock(),
         config=MagicMock(max_loop_iterations=2),
     )
@@ -201,7 +206,7 @@ async def test_failed_stream_keeps_delivered_text_as_incomplete_event() -> None:
     """模型缺少终态时，已交付文字仍能进入 failed 交互，不能无声丢失。"""
     stream = TrackingChunkStream([StreamChunk(delta="未完成", full_text="未完成")])
     executor = AgentLoopExecutor(
-        worker_agent=MagicMock(generate_stream=MagicMock(return_value=stream)),
+        llm_client=MagicMock(generate_stream=MagicMock(return_value=stream)),
         mtp_executor=MagicMock(),
         config=MagicMock(max_loop_iterations=2),
     )

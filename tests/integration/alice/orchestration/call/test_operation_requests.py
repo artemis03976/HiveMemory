@@ -4,14 +4,14 @@ from __future__ import annotations
 
 import pytest
 
-from hivememory.agent_runtime.models import (
+from hivememory.agent_runtime.frame import (
     ExecutionFrame,
+    FrameExecutionPolicy,
     FrameExecutionResult,
     FrameExecutionStatus,
-    MTPExecutionContext,
 )
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.runtime import build_agent_runtime
 from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
 from hivememory.alice.orchestration.call.coordinator import DispatchCallee
@@ -62,7 +62,6 @@ async def test_callee_frame_uses_callee_verbs_without_call():
     runtime = build_agent_runtime(
         runtime_config=config.runtime,
         koakuma_config=config.koakuma,
-        compaction_config=config.compaction,
         memory_compiler_config=MemoryCompilerConfig(),
     )
     coordinator = CallCoordinator(
@@ -102,6 +101,9 @@ async def test_callee_submits_with_own_thread_context_and_keeps_callee_as_intent
     identity_scope = make_identity_scope(agent_id="parent")
     submit_operation = await harness.submitter(identity_scope, "process-parent")
     caller = ExecutionFrame(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
         runtime_scope=scope,
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "user", "content": "委托写入"}],
@@ -112,7 +114,6 @@ async def test_callee_submits_with_own_thread_context_and_keeps_callee_as_intent
     runtime = build_agent_runtime(
         runtime_config=config.runtime,
         koakuma_config=config.koakuma,
-        compaction_config=config.compaction,
         memory_compiler_config=MemoryCompilerConfig(),
     )
     coordinator = CallCoordinator(
@@ -138,6 +139,9 @@ async def test_callee_submits_with_own_thread_context_and_keeps_callee_as_intent
     write = await koakuma.execute_mtp(
         '⟪ WRITE | * | content="子帧创建的共享草稿" ⟫',
         MTPExecutionContext(
+            execution_policy=FrameExecutionPolicy.from_verbs(
+                {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+            ),
             runtime_scope=child.runtime_scope,
             submit_operation=child.submit_operation,
         ),
@@ -148,7 +152,13 @@ async def test_callee_submits_with_own_thread_context_and_keeps_callee_as_intent
     assert pending.process_id == "process-parent"
     read = await koakuma.execute_mtp(
         f"⟪ READ | {write.pending_alias} | ⟫",
-        MTPExecutionContext(runtime_scope=scope, submit_operation=caller.submit_operation),
+        MTPExecutionContext(
+            execution_policy=FrameExecutionPolicy.from_verbs(
+                {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+            ),
+            runtime_scope=scope,
+            submit_operation=caller.submit_operation,
+        ),
     )
     assert read.response_status == "success"
     assert "子帧创建的共享草稿" in read.response_content

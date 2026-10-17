@@ -7,7 +7,7 @@ HiveMemory Generation 模块数据模型
 
 跨 alice/engines/compiler 共享的领域模型（``PendingAtom`` /
 ``PendingAtomSettlement`` / ``PendingAtomResolution`` / ``PendingAtomStatus`` /
-``WriteFocus`` / ``UpdateFocus`` / ``RuntimeScope``）位于
+``WriteFocus`` / ``UpdateFocus``）位于
 ``hivememory.core.models``，避免各子系统为共享模型互相导入。
 """
 

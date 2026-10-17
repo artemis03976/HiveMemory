@@ -4,11 +4,11 @@ syscall 注册表构建器。
 
 from functools import partial
 
-from hivememory.agent_runtime.mtp.syscalls.clock import sys_clock
-from hivememory.agent_runtime.mtp.syscalls.file_io import sys_read_file, sys_write_file
-from hivememory.agent_runtime.mtp.syscalls.repl import sys_python_repl
-from hivememory.agent_runtime.mtp.syscalls.types import Syscall
-from hivememory.agent_runtime.mtp.syscalls.web_search import sys_web_search
+from hivememory.agent_runtime.tools.clock import sys_clock
+from hivememory.agent_runtime.tools.file_io import sys_read_file, sys_write_file
+from hivememory.agent_runtime.tools.repl import sys_python_repl
+from hivememory.agent_runtime.tools.types import Syscall
+from hivememory.agent_runtime.tools.web_search import sys_web_search
 
 
 def build_syscall_registry(

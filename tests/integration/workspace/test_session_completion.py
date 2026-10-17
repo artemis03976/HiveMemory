@@ -167,15 +167,14 @@ async def test_output_with_each_outcome_is_submitted_before_terminal(status):
 @pytest.mark.asyncio
 async def test_alice_context_guard_seals_tool_output_as_failed_turn(tmp_path, monkeypatch):
     """真实 Alice 读入大文件后由守卫结束，经 CPU 端口保留 failed 会话和工具原文。"""
-    from hivememory.agent_runtime.execution.worker import WorkerAgentService
-    from hivememory.agent_runtime.models import GenerationResult, StreamChunk
+    from hivememory.agent_runtime.model.client import GenerationResult, LLMClient, StreamChunk
     from hivememory.alice.system import AliceSystem
-    from hivememory.config.alice import AliceConfig, CompactionConfig
+    from hivememory.config.alice import AgentRuntimeConfig, AliceConfig
     from tests.helpers.operations import OperationsHarness
 
     content = "x" * 20000
     (tmp_path / "large.txt").write_text(content)
-    config = AliceConfig(compaction=CompactionConfig(default_context_window=36000, safety_margin=0))
+    config = AliceConfig(runtime=AgentRuntimeConfig(default_context_window=36000, safety_margin=0))
     config.koakuma.workspace_path = str(tmp_path)
     config.koakuma.mtp_prompt.enabled = False
     calls = []
@@ -188,7 +187,7 @@ async def test_alice_context_guard_seals_tool_output_as_failed_turn(tmp_path, mo
             result=GenerationResult(text=text, was_mtp_interrupted=True, mtp_fragment=text),
         )
 
-    monkeypatch.setattr(WorkerAgentService, "generate_stream", generate)
+    monkeypatch.setattr(LLMClient, "generate_stream", generate)
     alice = AliceSystem(config, GlobalSystemBus(), operation_entry=OperationsHarness().entry)
     await alice.start()
     try:

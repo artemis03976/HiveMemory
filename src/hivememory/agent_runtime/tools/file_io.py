@@ -4,7 +4,7 @@
 
 from pathlib import Path
 
-from hivememory.agent_runtime.mtp.syscalls.types import SyscallResult
+from hivememory.agent_runtime.tools.types import SyscallResult
 from hivememory.core.mtp.exceptions import (
     SyscallExecutionError,
     SyscallInvalidArgumentError,
@@ -36,7 +36,7 @@ def sys_read_file(
     max_bytes: int = 102400,
 ) -> SyscallResult:
     """
-    读取工作区文件 (Chapter 8.1)。
+    读取工作区文件。
     """
     path_str = args.get("path", "")
     if not path_str:
@@ -113,7 +113,7 @@ def sys_write_file(
     max_bytes: int = 102400,
 ) -> SyscallResult:
     """
-    写入工作区文件 (Chapter 8.1)。
+    写入工作区文件。
     """
     path_str = args.get("path", "")
     if not path_str:

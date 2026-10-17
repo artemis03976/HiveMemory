@@ -4,8 +4,7 @@ from collections.abc import Callable
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
-from hivememory.agent_runtime.context_budget import InputTooLargeError, estimate_context_tokens
-from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
+from hivememory.agent_runtime import InputTooLargeError, ResolvedFrameModel, estimate_context_tokens
 from hivememory.alice.context.references import extend_references
 from hivememory.alice.context.summarizer import RelaySummarizer, SummaryRejectedError
 from hivememory.config.alice import CompactionConfig

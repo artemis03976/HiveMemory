@@ -3,7 +3,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass
 
-from hivememory.agent_runtime.models import ExecutionFrame
+from hivememory.agent_runtime import ExecutionFrame
 from hivememory.core.errors import (
     AdmissionDeniedError,
     OperationDeniedError,
@@ -52,8 +52,6 @@ class CallContextProvider:
         context_refs 另提交 READ 请求，仍需要 ``memory.read``。Alice 只保留
         MTP 错误映射，不持有另一份 Profile 缓存。
         """
-        if caller_frame.submit_operation is None:
-            raise RuntimeError("CALL 缺少操作提交函数")
         try:
             callee = await caller_frame.submit_operation.derive_call_thread(
                 DeriveCallThreadRequest(agent_alias=request.target_alias)
@@ -104,8 +102,6 @@ class CallContextProvider:
 
         compiler = MemoryCompiler()
         sources = []
-        if caller_frame.submit_operation is None:
-            raise RuntimeError("CALL context_refs 缺少操作提交函数")
         for alias in aliases:
             try:
                 resolved = (

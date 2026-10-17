@@ -134,7 +134,7 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
 
         return chunks()
 
-    monkeypatch.setattr("hivememory.agent_runtime.execution.worker.litellm.acompletion", completion)
+    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
     alice = AliceSystem(
         config=HiveMemoryConfig().alice,
         global_bus=stack.bus,
@@ -364,7 +364,7 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
 
         return chunks()
 
-    monkeypatch.setattr("hivememory.agent_runtime.execution.worker.litellm.acompletion", completion)
+    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
     alice = AliceSystem(
         config=HiveMemoryConfig().alice, global_bus=stack.bus, operation_entry=entry
     )
@@ -480,7 +480,7 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
 
         return chunks()
 
-    monkeypatch.setattr("hivememory.agent_runtime.execution.worker.litellm.acompletion", completion)
+    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
     for route, handler in (
         (GatewayPublicRoutes.PROCESS, gateway),
         (PatchouliRoutes.PREPARE_AGENT_RUN, prepare),

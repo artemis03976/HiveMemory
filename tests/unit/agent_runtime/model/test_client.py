@@ -1,5 +1,5 @@
 """
-WorkerAgentService 单元测试
+LLMClient 单元测试
 
 测试覆盖:
 - 正常完成 / MTP 中断检测 / finish_reason 分支
@@ -13,8 +13,8 @@ from unittest.mock import Mock, patch
 import litellm
 import pytest
 
-from hivememory.agent_runtime.context_budget import ModelContextWindowExceededError
-from hivememory.agent_runtime.execution.worker import WorkerAgentService
+from hivememory.agent_runtime.model.budget import ModelContextWindowExceededError
+from hivememory.agent_runtime.model.client import LLMClient, ModelProviderError
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER, MTP_STOP_SEQUENCE
 
 
@@ -34,9 +34,22 @@ def _make_response(text="hello", finish_reason="stop", has_usage=True):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("path", ["async", "stream_start", "stream_pull"])
-async def test_context_window_error_is_typed_without_retry(path):
-    """建立请求与拉取流时的超窗统一映射，关闭已取得的流且不重试。"""
-    provider_error = litellm.ContextWindowExceededError(
+@pytest.mark.parametrize(
+    ("provider_type", "error_type", "public_message"),
+    [
+        (
+            litellm.ContextWindowExceededError,
+            ModelContextWindowExceededError,
+            "Model context window exceeded.",
+        ),
+        (litellm.RateLimitError, ModelProviderError, "Model provider request failed."),
+    ],
+)
+async def test_provider_errors_are_typed_without_retry(
+    path, provider_type, error_type, public_message
+):
+    """完整调用、流式启动与拉取分别翻译超窗和提供商失败，并保留原因链。"""
+    provider_error = provider_type(
         message="private provider detail", model="test-model", llm_provider="openai"
     )
     closed = []
@@ -48,31 +61,65 @@ async def test_context_window_error_is_typed_without_retry(path):
         finally:
             closed.append(True)
 
-    with patch("hivememory.agent_runtime.execution.worker.litellm.acompletion") as completion:
+    with patch("hivememory.agent_runtime.model.client.litellm.acompletion") as completion:
         if path == "stream_pull":
             completion.return_value = failing_stream()
         else:
             completion.side_effect = provider_error
-        service = WorkerAgentService()
-        with pytest.raises(ModelContextWindowExceededError, match="Model context window exceeded"):
+        service = LLMClient()
+        with pytest.raises(error_type) as raised:
             if path == "async":
                 await service.generate_async([], model="test-model")
             else:
                 async for _ in service.generate_stream([], model="test-model"):
                     pass
 
+        assert str(raised.value) == public_message
+        assert raised.value.__cause__ is provider_error
         completion.assert_awaited_once()
     assert closed == ([True] if path == "stream_pull" else [])
 
 
 @pytest.mark.asyncio
-class TestWorkerAgentGenerateAsync:
+@pytest.mark.parametrize(
+    ("path", "failure"),
+    [
+        ("async", asyncio.CancelledError()),
+        ("stream_start", asyncio.CancelledError()),
+        ("stream_start", TypeError("bad wiring")),
+        ("stream_pull", TypeError("bad wiring")),
+    ],
+)
+async def test_unclassified_failures_propagate_unchanged(path, failure):
+    """取消与程序错误保持原异常，不能降格成可保守处理的提供商失败。"""
+
+    async def fail_stream():
+        raise failure
+        yield
+
+    with patch("hivememory.agent_runtime.model.client.litellm.acompletion") as completion:
+        if path == "stream_pull":
+            completion.return_value = fail_stream()
+        else:
+            completion.side_effect = failure
+        client = LLMClient()
+        with pytest.raises(type(failure)) as raised:
+            if path == "async":
+                await client.generate_async([], model="test-model")
+            else:
+                async for _ in client.generate_stream([], model="test-model"):
+                    pass
+        assert raised.value is failure
+
+
+@pytest.mark.asyncio
+class TestLLMClientGenerateAsync:
     """generate_async() 方法测试"""
 
     def setup_method(self):
-        self.service = WorkerAgentService()
+        self.service = LLMClient()
 
-    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    @patch("hivememory.agent_runtime.model.client.litellm.acompletion")
     async def test_normal_completion(self, mock_completion):
         """正常完成，无 MTP 中断"""
         mock_completion.return_value = _make_response("普通回复", "stop")
@@ -89,7 +136,7 @@ class TestWorkerAgentGenerateAsync:
         assert result.prefix_text == "普通回复"
         assert result.mtp_fragment == ""
 
-    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    @patch("hivememory.agent_runtime.model.client.litellm.acompletion")
     async def test_mtp_interrupted(self, mock_completion):
         """finish_reason=stop 且文本含 ⟪ 时检测为 MTP 中断"""
         text = f"前面的文本{MTP_LEFT_DELIMITER}READ|mem_doc"
@@ -106,7 +153,7 @@ class TestWorkerAgentGenerateAsync:
         assert result.text == f"前面的文本{MTP_LEFT_DELIMITER}READ|mem_doc {MTP_RIGHT_DELIMITER}"
         assert result.mtp_fragment == f"{MTP_LEFT_DELIMITER}READ|mem_doc {MTP_RIGHT_DELIMITER}"
 
-    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    @patch("hivememory.agent_runtime.model.client.litellm.acompletion")
     async def test_length_limited_not_mtp(self, mock_completion):
         """finish_reason=length 时即使含 ⟪ 也不标记为 MTP"""
         text = f"文本{MTP_LEFT_DELIMITER}something"
@@ -122,7 +169,7 @@ class TestWorkerAgentGenerateAsync:
         assert result.prefix_text == text
         assert result.mtp_fragment == ""
 
-    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    @patch("hivememory.agent_runtime.model.client.litellm.acompletion")
     async def test_empty_text_response(self, mock_completion):
         """LLM 返回空文本"""
         mock_completion.return_value = _make_response("", "stop")
@@ -136,7 +183,7 @@ class TestWorkerAgentGenerateAsync:
         assert result.text == ""
         assert result.was_mtp_interrupted is False
 
-    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    @patch("hivememory.agent_runtime.model.client.litellm.acompletion")
     async def test_mtp_delimiter_at_start(self, mock_completion):
         """⟪ 在位置 0，prefix_text 为空"""
         text = f'{MTP_LEFT_DELIMITER}SEARCH|query="test"'
@@ -153,7 +200,7 @@ class TestWorkerAgentGenerateAsync:
         assert result.text == f"{text} {MTP_RIGHT_DELIMITER}"
         assert result.mtp_fragment == f"{text} {MTP_RIGHT_DELIMITER}"
 
-    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    @patch("hivememory.agent_runtime.model.client.litellm.acompletion")
     async def test_mtp_already_complete_not_completed_twice(self, mock_completion):
         """已完整的 MTP 文本不会重复补右定界符。"""
         text = f"{MTP_LEFT_DELIMITER}READ|mem_doc {MTP_RIGHT_DELIMITER}"
@@ -169,7 +216,7 @@ class TestWorkerAgentGenerateAsync:
         assert result.text == text
         assert result.mtp_fragment == text
 
-    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    @patch("hivememory.agent_runtime.model.client.litellm.acompletion")
     async def test_multiple_delimiters_uses_last(self, mock_completion):
         """多个 ⟪ 使用 rfind 取最后一个"""
         text = f"a{MTP_LEFT_DELIMITER}first{MTP_LEFT_DELIMITER}second"
@@ -186,7 +233,7 @@ class TestWorkerAgentGenerateAsync:
         assert result.text == f"{text} {MTP_RIGHT_DELIMITER}"
         assert result.mtp_fragment == f"{MTP_LEFT_DELIMITER}second {MTP_RIGHT_DELIMITER}"
 
-    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    @patch("hivememory.agent_runtime.model.client.litellm.acompletion")
     async def test_llm_exception_propagated(self, mock_completion):
         """litellm.acompletion 抛异常时向上传播"""
         mock_completion.side_effect = RuntimeError("API error")
@@ -198,7 +245,7 @@ class TestWorkerAgentGenerateAsync:
                 api_key="test-key",
             )
 
-    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    @patch("hivememory.agent_runtime.model.client.litellm.acompletion")
     async def test_stop_sequence_injected(self, mock_completion):
         """验证 stop=[MTP_STOP_SEQUENCE] 被传入"""
         mock_completion.return_value = _make_response("ok", "stop")
@@ -210,7 +257,7 @@ class TestWorkerAgentGenerateAsync:
         call_kwargs = mock_completion.call_args
         assert call_kwargs[1]["stop"] == [MTP_STOP_SEQUENCE]
 
-    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    @patch("hivememory.agent_runtime.model.client.litellm.acompletion")
     async def test_kwargs_passed_through(self, mock_completion):
         """额外 kwargs 正确传递给 litellm"""
         mock_completion.return_value = _make_response("ok", "stop")
@@ -227,7 +274,7 @@ class TestWorkerAgentGenerateAsync:
         assert call_kwargs["top_p"] == 0.9
         assert call_kwargs["presence_penalty"] == 0.5
 
-    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    @patch("hivememory.agent_runtime.model.client.litellm.acompletion")
     async def test_task_cancellation_propagates_from_completion(self, mock_completion):
         """非流式 LLM 调用期间 task cancellation 原样向上传播。"""
         started = asyncio.Event()
@@ -298,11 +345,11 @@ def _make_stream_chunk(delta: str = "", finish_reason=None):
 
 
 @pytest.mark.asyncio
-class TestWorkerAgentGenerateStream:
+class TestLLMClientGenerateStream:
     def setup_method(self):
-        self.service = WorkerAgentService()
+        self.service = LLMClient()
 
-    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    @patch("hivememory.agent_runtime.model.client.litellm.acompletion")
     async def test_response_close_error_does_not_replace_task_cancellation(
         self,
         mock_completion,
@@ -324,7 +371,7 @@ class TestWorkerAgentGenerateStream:
 
         assert response.close_calls == 1
 
-    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    @patch("hivememory.agent_runtime.model.client.litellm.acompletion")
     async def test_stream_no_duplicate_before_mtp(self, mock_completion):
         left = MTP_LEFT_DELIMITER
         chunks = [
@@ -347,7 +394,7 @@ class TestWorkerAgentGenerateStream:
         assert stream_chunks[-1].is_final is True
         assert stream_chunks[-1].result.was_mtp_interrupted is True
 
-    @patch("hivememory.agent_runtime.execution.worker.litellm.acompletion")
+    @patch("hivememory.agent_runtime.model.client.litellm.acompletion")
     async def test_stream_flushes_pending_tail_without_mtp(self, mock_completion):
         chunks = [
             _make_stream_chunk("A"),

@@ -4,12 +4,13 @@ from __future__ import annotations
 
 import pytest
 
-from hivememory.agent_runtime.models import (
+from hivememory.agent_runtime.frame import (
     ExecutionFrame,
+    FrameExecutionPolicy,
     FrameExecutionResult,
     FrameExecutionStatus,
-    MTPExecutionContext,
 )
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.runtime import build_agent_runtime
 from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
@@ -49,6 +50,9 @@ from tests.helpers.workspace import (
 def _caller(submit_operation, *, agent_id="parent") -> ExecutionFrame:
     """创建已产生 CALL suspension 的调用方，保持真实响应回填入口。"""
     caller = ExecutionFrame(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
         runtime_scope=make_runtime_scope(
             agent_id=agent_id, run_id="call-process", frame_id="caller"
         ),
@@ -79,7 +83,6 @@ async def _begin_call(caller, target_alias, *, context_refs=()):
     runtime = build_agent_runtime(
         runtime_config=config.runtime,
         koakuma_config=config.koakuma,
-        compaction_config=config.compaction,
         memory_compiler_config=MemoryCompilerConfig(),
     )
     coordinator = CallCoordinator(
@@ -303,6 +306,9 @@ async def test_callee_can_write_with_its_own_permission_even_when_caller_cannot(
     result = await KoakumaRuntime().execute_mtp(
         '⟪ WRITE | * | content="子帧使用自己的写入许可" ⟫',
         MTPExecutionContext(
+            execution_policy=FrameExecutionPolicy.from_verbs(
+                {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+            ),
             runtime_scope=child.runtime_scope,
             agent_profile=child.agent_profile,
             submit_operation=child.submit_operation,

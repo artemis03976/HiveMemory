@@ -10,8 +10,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.execution.worker import WorkerAgentService
-from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
+from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus
+from hivememory.agent_runtime.model.client import LLMClient
 from hivememory.agent_runtime.output import TokenDelta
 from hivememory.agent_runtime.runtime import AgentRuntime, build_agent_runtime
 from hivememory.alice.context.summarizer import RelaySummarizer
@@ -48,8 +48,7 @@ async def test_session_model_and_output_override_control_budget_and_provider_req
     tmp_path, monkeypatch
 ):
     """会话覆盖模型与输出上限后，预检预算和实际模型请求使用同一次解析。"""
-    from hivememory.agent_runtime.execution.worker import WorkerAgentService
-    from hivememory.agent_runtime.models import GenerationResult
+    from hivememory.agent_runtime.model.client import GenerationResult, LLMClient
     from hivememory.core.models.model_definition import ModelDefinition
     from hivememory.system.model_registry import ModelRegistry
 
@@ -65,7 +64,7 @@ async def test_session_model_and_output_override_control_budget_and_provider_req
     )
     config = HiveMemoryConfig()
     config.alice.koakuma.enabled = False
-    config.alice.compaction.safety_margin = 100
+    config.alice.runtime.safety_margin = 100
     _, service = _build_service(config=config, model_registry=registry)
     profile = AgentProfile(model_name="unavailable-profile-model", persona="", temperature=0.2)
     manifest = make_input_manifest(agent_profile=profile, user_message="x" * 2000)
@@ -75,7 +74,7 @@ async def test_session_model_and_output_override_control_budget_and_provider_req
         requests.append(kwargs)
         return GenerationResult(text="完成")
 
-    monkeypatch.setattr(WorkerAgentService, "generate_async", generate)
+    monkeypatch.setattr(LLMClient, "generate_async", generate)
     rejected = await service.run_agent(
         manifest, {"model": "small"}, stream=False, submit_operation=MagicMock()
     )
@@ -108,8 +107,7 @@ async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(
     tmp_path, monkeypatch
 ):
     """子帧按自己的小窗口被拦截，父帧收到 CALL 错误后继续完成。"""
-    from hivememory.agent_runtime.execution.worker import WorkerAgentService
-    from hivememory.agent_runtime.models import GenerationResult
+    from hivememory.agent_runtime.model.client import GenerationResult, LLMClient
     from hivememory.core.models.model_definition import ModelDefinition
     from hivememory.system.model_registry import ModelRegistry
     from tests.helpers.call import StubOperationSubmitter, make_callee
@@ -127,7 +125,7 @@ async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(
         )
     config = HiveMemoryConfig()
     config.alice.koakuma.mtp_prompt.enabled = False
-    config.alice.compaction.safety_margin = 0
+    config.alice.runtime.safety_margin = 0
     recorder = RecordingRuntimeEventSink()
     _, service = _build_service(config=config, model_registry=registry, runtime_events=recorder)
     requests = []
@@ -142,7 +140,7 @@ async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(
     async def derive(_request):
         return make_callee(AgentProfile(model_name="child", persona="x" * 1000))
 
-    monkeypatch.setattr(WorkerAgentService, "generate_async", generate)
+    monkeypatch.setattr(LLMClient, "generate_async", generate)
     result = await service.run_agent(
         make_input_manifest(
             agent_profile=AgentProfile(model_name="parent", persona=""),
@@ -206,7 +204,6 @@ def _build_service(
     runtime = build_agent_runtime(
         runtime_config=config.alice.runtime,
         koakuma_config=config.alice.koakuma,
-        compaction_config=config.alice.compaction,
         memory_compiler_config=config.memory_compiler,
         model_registry=model_registry,
     )
@@ -219,7 +216,7 @@ def _build_service(
         prompt_assembler=prompt_assembler,
     )
     service = AgentRunService(
-        summarizer=RelaySummarizer(WorkerAgentService()),
+        summarizer=RelaySummarizer(LLMClient()),
         agent_runtime=runtime,
         call_coordinator=coordinator,
         frame_factory=frame_factory,
@@ -367,7 +364,7 @@ async def test_registered_labels_drive_runtime_events_and_profile_controls_strea
 
         return chunks()
 
-    monkeypatch.setattr("hivememory.agent_runtime.execution.worker.litellm.acompletion", completion)
+    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
     events = [
         event
         async for event in service.run_agent(
@@ -539,7 +536,7 @@ async def test_run_agent_stream_error_preserves_failed_runtime_event():
 async def test_unified_entry_stream_and_once_agree_on_terminal_outcome():
     """同一段脚本化运行：流式最后的 done 与非流式结果在终态、回复、轮次事件与
     模型名上一致；两种模式都发布 started 与终态事件，终态载荷仍含两个统计字段。"""
-    from hivememory.agent_runtime.models import FrameExecutionResult
+    from hivememory.agent_runtime.frame import FrameExecutionResult
     from hivememory.core.models import TurnEvent
 
     def _scripted_run_frame(frame, **_kwargs):
@@ -636,8 +633,7 @@ async def test_non_streaming_cancellation_publishes_cancelled_runtime_event():
 @pytest.mark.parametrize("during_pull", [True, False])
 async def test_native_cancellation_fills_slot_with_delivered_partial_text(monkeypatch, during_pull):
     """真实 AgentLoop/RunExecutor 收口半截文字；关闭与取消都在异常传播前回填结果槽。"""
-    from hivememory.agent_runtime.execution.worker import WorkerAgentService
-    from hivememory.agent_runtime.models import StreamChunk
+    from hivememory.agent_runtime.model.client import LLMClient, StreamChunk
     from hivememory.workspace.contracts import CPUResultSlot
 
     entered = asyncio.Event()
@@ -652,11 +648,11 @@ async def test_native_cancellation_fills_slot_with_delivered_partial_text(monkey
             cancelled.set()
             raise
 
-    monkeypatch.setattr(WorkerAgentService, "generate_stream", generate_stream)
-    from hivememory.agent_runtime.models import GenerationResult
+    monkeypatch.setattr(LLMClient, "generate_stream", generate_stream)
+    from hivememory.agent_runtime.model.client import GenerationResult
 
     monkeypatch.setattr(
-        WorkerAgentService,
+        LLMClient,
         "generate_async",
         AsyncMock(return_value=GenerationResult(text="Accepted summary")),
     )
@@ -696,8 +692,7 @@ async def test_native_cancellation_fills_slot_with_delivered_partial_text(monkey
 @pytest.mark.asyncio
 async def test_cancel_in_call_keeps_root_call_without_child_partial_text(monkeypatch):
     """子帧中断时只保存根帧的不完整 CALL，不把尚未回填的子回复写成根回复。"""
-    from hivememory.agent_runtime.execution.worker import WorkerAgentService
-    from hivememory.agent_runtime.models import GenerationResult, StreamChunk
+    from hivememory.agent_runtime.model.client import GenerationResult, LLMClient, StreamChunk
     from hivememory.workspace.contracts import CPUResultSlot
     from tests.helpers.call import StubOperationSubmitter, make_callee
 
@@ -726,7 +721,7 @@ async def test_cancel_in_call_keeps_root_call_without_child_partial_text(monkeyp
     async def derive(_request):
         return make_callee(AgentProfile(agent_id="helper"))
 
-    monkeypatch.setattr(WorkerAgentService, "generate_stream", generate_stream)
+    monkeypatch.setattr(LLMClient, "generate_stream", generate_stream)
     _runtime, service = _build_service()
     slot = CPUResultSlot()
     stream = service.run_agent(
@@ -755,9 +750,9 @@ def _compaction_inputs(*, compressible=True):
 
     config = HiveMemoryConfig()
     config.alice.koakuma.enabled = False
-    config.alice.compaction = CompactionConfig(
-        default_context_window=33768, safety_margin=0, summary_max_tokens=64
-    )
+    config.alice.runtime.default_context_window = 33768
+    config.alice.runtime.safety_margin = 0
+    config.alice.compaction = CompactionConfig(summary_max_tokens=64)
     turn = make_conversation_turn(
         interaction_id="old",
         user_message="old" if compressible else "x" * 6000,
@@ -791,8 +786,7 @@ async def test_compaction_reaches_generation_and_returns_checkpoint_without_reco
     monkeypatch, stream
 ):
     """减重不调用辅助模型；正常生成消费缩小后的视图，进度不进入交互载荷。"""
-    from hivememory.agent_runtime.execution.worker import WorkerAgentService
-    from hivememory.agent_runtime.models import GenerationResult, StreamChunk
+    from hivememory.agent_runtime.model.client import GenerationResult, LLMClient, StreamChunk
     from hivememory.workspace.contracts import CPUResultSlot
 
     requests = []
@@ -804,8 +798,8 @@ async def test_compaction_reaches_generation_and_returns_checkpoint_without_reco
     async def generate_stream(_self, messages, **_kwargs):
         yield StreamChunk(is_final=True, result=await generate(_self, messages))
 
-    monkeypatch.setattr(WorkerAgentService, "generate_async", generate)
-    monkeypatch.setattr(WorkerAgentService, "generate_stream", generate_stream)
+    monkeypatch.setattr(LLMClient, "generate_async", generate)
+    monkeypatch.setattr(LLMClient, "generate_stream", generate_stream)
     config, manifest = _compaction_inputs()
     recorder = RecordingRuntimeEventSink()
     _, service = _build_service(config=config, runtime_events=recorder)
@@ -859,11 +853,11 @@ async def test_uncompressible_history_fails_without_output_and_keeps_reduction_c
     monkeypatch,
 ):
     """用户原文不能减重，仍超限时不调用生成模型；进度本身不构成输出。"""
-    from hivememory.agent_runtime.execution.worker import WorkerAgentService
+    from hivememory.agent_runtime.model.client import LLMClient
     from hivememory.workspace.contracts import CPUResultSlot
 
     generate = AsyncMock(side_effect=AssertionError("超限不应调用模型"))
-    monkeypatch.setattr(WorkerAgentService, "generate_async", generate)
+    monkeypatch.setattr(LLMClient, "generate_async", generate)
     config, manifest = _compaction_inputs(compressible=False)
     recorder = RecordingRuntimeEventSink()
     _, service = _build_service(config=config, runtime_events=recorder)
@@ -944,7 +938,7 @@ async def test_cancellation_during_summary_propagates_without_new_checkpoint(mon
         finally:
             closed.set()
 
-    monkeypatch.setattr(WorkerAgentService, "generate_async", summarize)
+    monkeypatch.setattr(LLMClient, "generate_async", summarize)
     config, manifest = _summary_inputs()
     _, service = _build_service(config=config)
     slot = CPUResultSlot()
@@ -965,11 +959,11 @@ async def test_cancellation_during_summary_propagates_without_new_checkpoint(mon
 @pytest.mark.asyncio
 async def test_abandoned_summary_still_generates_from_reduced_view_if_it_fits(monkeypatch):
     """摘要被拒绝但减重视图可执行时继续生成，摘要失败不会变成本轮输出。"""
-    from hivememory.agent_runtime.models import GenerationResult, StreamChunk
+    from hivememory.agent_runtime.model.client import GenerationResult, StreamChunk
     from hivememory.workspace.contracts import CPUResultSlot
 
     monkeypatch.setattr(
-        WorkerAgentService,
+        LLMClient,
         "generate_async",
         AsyncMock(return_value=GenerationResult(text="", finish_reason="stop")),
     )
@@ -979,7 +973,7 @@ async def test_abandoned_summary_still_generates_from_reduced_view_if_it_fits(mo
         prompts.append(messages)
         yield StreamChunk(is_final=True, result=GenerationResult(text="继续完成"))
 
-    monkeypatch.setattr(WorkerAgentService, "generate_stream", generate)
+    monkeypatch.setattr(LLMClient, "generate_stream", generate)
     config, manifest = _summary_inputs()
     recorder = RecordingRuntimeEventSink()
     _, service = _build_service(config=config, runtime_events=recorder)

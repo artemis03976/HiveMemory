@@ -1,28 +1,67 @@
-"""Alice 单 Agent 执行层的运行时数据模型。
-
-PendingAtom / PendingAtomStatus / RuntimeScope 由 ``hivememory.core.models`` 提供，
-写入意图登记由 workspace 持有。本模块保留 agent_runtime 自己的执行壳：
-``MTPExecutionContext`` / ``ExecutionFrame`` / ``GenerationResult`` / ``StreamChunk``，
-以及引擎↔编排解耦所需的执行信号 ``FrameExecutionResult`` / ``ExecutionProgress``。
-"""
+"""单帧执行的状态、策略、观测坐标与停机信号。"""
 
 from __future__ import annotations
 
+from collections.abc import Iterable
 from dataclasses import dataclass, field
 from enum import Enum
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
-from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.core.models import (
-    AgentProfile,
-    RuntimeScope,
-    TurnEvent,
-)
+from pydantic import BaseModel, ConfigDict
+
+from hivememory.core.models import AgentProfile, ExecutionLabels, TurnEvent
 from hivememory.core.mtp.models import MTPCallRequest
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
+    from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
     from hivememory.workspace.contracts import OperationSubmitter
+
+
+class RuntimeScope(BaseModel):
+    """单次 run/frame/action 坐标与注册时绑定的观测标签。"""
+
+    labels: ExecutionLabels
+    run_id: str
+    frame_id: str
+    action_id: str | None = None
+
+    def with_action(self, action_id: str) -> RuntimeScope:
+        """返回限定在单个 agent 动作范围内的副本。"""
+        return self.model_copy(update={"action_id": action_id})
+
+    model_config = ConfigDict(frozen=True)
+
+
+@dataclass(frozen=True)
+class FrameExecutionPolicy:
+    """单次 frame 可执行的 MTP 动词集合与迭代预算，不承担资源授权。"""
+
+    permitted_verbs: frozenset[str]
+    max_iterations: int | None = None
+
+    @classmethod
+    def from_verbs(
+        cls,
+        permitted_verbs: Iterable[str],
+        *,
+        max_iterations: int | None = None,
+        denied_verbs: Iterable[str] = (),
+    ) -> FrameExecutionPolicy:
+        """从明确的动词集合构造策略，并可选移除子 frame 禁止的动词。"""
+        permitted = frozenset(verb.upper() for verb in permitted_verbs)
+        denied = {verb.upper() for verb in denied_verbs}
+        return cls(permitted_verbs=permitted.difference(denied), max_iterations=max_iterations)
+
+    def allows(self, verb: str) -> bool:
+        """只允许集合中的动词；大小写不敏感，未知动词不会默认放行。"""
+        return verb.upper() in self.permitted_verbs
+
+
+@dataclass(frozen=True)
+class FrameProducts:
+    """从一次成功收尾的 frame 投影出的产物（仅供当前 CALL 使用）。"""
+
+    artifact_aliases: tuple[str, ...] = ()
 
 
 @dataclass
@@ -50,7 +89,7 @@ class ExecutionFrame:
     一次单 Agent 执行的可恢复进程控制块（PCB）。
 
     ExecutionFrame 携带运行一个 Agent 所需的隔离状态，使共享 runtime 无需
-    保存每帧的观测标签与权限。资源访问由进程绑定的操作提交函数负责，
+    保存每帧的观测标签与执行策略。资源访问由 CPU 驱动绑定到所属线程的提交函数负责，
     标签仅用于展示与观测。执行进度（正文、事件、迭代与序号）
     全部放在 ``progress`` 上，CALL 挂起后重入同一 frame 可自然续接。
     """
@@ -59,10 +98,10 @@ class ExecutionFrame:
     agent_profile: AgentProfile
     working_history: list[dict[str, str]]
     topic_id: str | None
-    execution_policy: FrameExecutionPolicy = field(default_factory=FrameExecutionPolicy)
+    execution_policy: FrameExecutionPolicy
 
-    # 本进程的操作提交函数由 root 与 CALL 子帧共享，线程 context 由 CPU 驱动绑定。
-    submit_operation: OperationSubmitter | None = None
+    # 每帧使用所属线程的提交函数；线程 context 由 CPU 驱动绑定。
+    submit_operation: OperationSubmitter
 
     harvested_aliases: list[str] = field(default_factory=list)
 
@@ -90,42 +129,6 @@ class ExecutionFrame:
         )
 
 
-@dataclass(frozen=True)
-class MTPExecutionContext:
-    """单条 MTP 指令执行时的观测标签、权限与运行坐标上下文。"""
-
-    runtime_scope: RuntimeScope
-    submit_operation: OperationSubmitter | None = None
-    agent_profile: Any = None
-    execution_policy: FrameExecutionPolicy | None = None
-    language: str | None = None  # 显式语言覆盖；None 时由 runtime 从 agent_profile 派生
-
-
-@dataclass
-class GenerationResult:
-    """一次 LLM 生成的结构化结果。"""
-
-    text: str = ""
-    finish_reason: str = "stop"
-    was_mtp_interrupted: bool = False
-    prefix_text: str = ""
-    mtp_fragment: str = ""
-    # 实际发给 litellm 的模型标识符（如 "deepseek/deepseek-chat"）
-    # 由 WorkerAgentService._extract_runtime_params 解析后写入
-    model_used: str = ""
-
-
-@dataclass
-class StreamChunk:
-    """流式生成发出的单个 chunk。"""
-
-    delta: str = ""
-    full_text: str = ""
-    is_final: bool = False
-    result: GenerationResult | None = None
-    mtp_detected: bool = False
-
-
 class FrameExecutionStatus(str, Enum):
     """引擎单次执行的停机原因。"""
 
@@ -148,15 +151,14 @@ class CallSuspension:
 class FrameExecutionResult:
     """引擎单次执行的 trap/return 信号。
 
-    它**不承载本帧累积产物**
-    ——那些已下沉到 ``frame.progress``（见 ``ExecutionProgress``）。这里只表达
+    本帧累积产物保存在 ``frame.progress``（``ExecutionProgress``）中。这里只表达
     "为什么停下来"，以及挂起时编排派生子帧所需的最小信息。
 
     引擎语义：``execute_frame(frame)`` 读写传入的 ``frame``，跑到自然收敛返回
-    ``COMPLETED``，命中 CALL 返回 ``SUSPENDED`` 并把控制权交还编排，取消、失败和
-    循环预算耗尽分别返回对应终态。引擎自己不 fork、不 resume、不组 CALL response。
-    执行结果（CPU 执行结果）不再由引擎产出，改由编排在 frame 终态确定后从 ``frame.progress``
-    聚合。
+    ``COMPLETED``，命中 CALL 返回 ``SUSPENDED`` 并把控制权交还编排；失败和循环预算
+    耗尽分别返回对应终态，原生任务取消直接沿调用栈传播。
+    引擎自己不 fork、不 resume、不组 CALL response。
+    CPU 执行结果由编排在 frame 终态确定后从 ``frame.progress`` 聚合。
     """
 
     status: FrameExecutionStatus
@@ -164,7 +166,7 @@ class FrameExecutionResult:
     # ---- status == SUSPENDED 时填充 ----
     # 触发 CALL 的派生请求（target_alias / task / context_refs）。
     call_request: MTPCallRequest | None = None
-    # WorkerAgent 已为被 stop sequence 截断的挂起文本补全右定界符。
+    # LLMClient 已为被 stop sequence 截断的挂起文本补全右定界符。
     suspend_assistant_text: str | None = None
     # 供编排回填 tool_result TurnEvent 的 action_id。
     suspend_action_id: str | None = None
@@ -180,15 +182,3 @@ class FrameExecutionResult:
         if not self.suspend_action_id:
             raise RuntimeError("CALL suspension is missing its action id.")
         return CallSuspension(call_request=self.call_request, action_id=self.suspend_action_id)
-
-
-__all__ = [
-    "CallSuspension",
-    "ExecutionFrame",
-    "ExecutionProgress",
-    "FrameExecutionResult",
-    "FrameExecutionStatus",
-    "GenerationResult",
-    "MTPExecutionContext",
-    "StreamChunk",
-]

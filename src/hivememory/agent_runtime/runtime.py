@@ -3,23 +3,21 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.execution import AgentLoopExecutor, WorkerAgentService
-from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
-from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
-from hivememory.agent_runtime.mtp import KoakumaMTPExecutor
+from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus, FrameProducts
+from hivememory.agent_runtime.loop import AgentLoopExecutor
+from hivememory.agent_runtime.model.client import LLMClient
+from hivememory.agent_runtime.model.resolution import ResolvedFrameModel, resolve_frame_model
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.output import FrameOutputSink
-from hivememory.agent_runtime.products import FrameProducts
-from hivememory.core.constants import DEFAULT_MAX_TOKENS
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import AgentProfile, TurnEvent
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.model_resolution import ModelResolver
-    from hivememory.agent_runtime.models import ExecutionFrame
-    from hivememory.agent_runtime.mtp import MTPExecutor
-    from hivememory.config.alice import AgentRuntimeConfig, CompactionConfig, KoakumaConfig
+    from hivememory.agent_runtime.frame import ExecutionFrame
+    from hivememory.agent_runtime.model.resolution import ModelResolver
+    from hivememory.agent_runtime.mtp.runtime import MTPExecutor
+    from hivememory.config.alice import AgentRuntimeConfig, KoakumaConfig
     from hivememory.config.memory_compiler import MemoryCompilerConfig
 
 logger = logging.getLogger(__name__)
@@ -28,7 +26,7 @@ logger = logging.getLogger(__name__)
 class AgentRuntime:
     """单 Agent 运行时门面。
 
-    封装执行引擎（loop_executor + worker_agent + mtp_executor）与
+    封装执行引擎（loop_executor + llm_client + mtp_executor）与
     对外提供 "跑一个 frame" 与 "收割成功子帧产物" 的 API。
     它把底层引擎组件收拢成一个聚合，编排层（RunExecutor）
     只拿这个门面操作，不直接接触引擎细节。
@@ -41,33 +39,29 @@ class AgentRuntime:
         *,
         mtp_executor: MTPExecutor,
         runtime_config: AgentRuntimeConfig,
-        compaction_config: CompactionConfig,
         loop_executor: AgentLoopExecutor | None = None,
         model_registry: ModelResolver | None = None,
     ) -> None:
         # 模型注册表：在每个 frame 开始时根据 agent_profile.model_name 解析实际模型。
-        # 若未提供，generation_options 中必须已包含 model，否则 WorkerAgentService 会报错。
+        # 若未提供，generation_options 中必须已包含 model，否则 LLMClient 会报错。
         self._model_registry = model_registry
-        self._compaction_config = compaction_config
+        self._config = runtime_config
         if loop_executor is not None:
             self._loop_executor = loop_executor
         else:
-            # WorkerAgentService 是无状态服务，不依赖任何实例级 LLM 配置。
+            # LLMClient 是无状态服务，不依赖任何实例级 LLM 配置。
             # 所有 LLM 参数均在运行时由 resolve_model 注入。
-            worker_agent = WorkerAgentService()
+            llm_client = LLMClient()
             self._loop_executor = AgentLoopExecutor(
-                worker_agent=worker_agent,
+                llm_client=llm_client,
                 mtp_executor=mtp_executor,
                 config=runtime_config,
             )
 
     @property
-    def _max_iterations(self) -> int:
-        return self._loop_executor.config.max_loop_iterations
-
-    @property
     def max_iterations(self) -> int:
-        return self._max_iterations
+        """帧未覆盖时采用的统一循环上限。"""
+        return self._config.max_loop_iterations
 
     async def run_frame(
         self,
@@ -76,7 +70,7 @@ class AgentRuntime:
         generation_options: dict[str, Any] | None = None,
         output_sink: FrameOutputSink,
     ) -> FrameExecutionResult:
-        """跑一个 frame 到自然收敛或命中 CALL（非流式）。"""
+        """按输出端口生成，推进当前帧直到自然收敛、CALL 挂起或失败。"""
         try:
             if frame.resolved_model is None:
                 frame.resolved_model = self.resolve_model(frame.agent_profile, generation_options)
@@ -88,7 +82,7 @@ class AgentRuntime:
                 status=FrameExecutionStatus.FAILED,
                 error=error,
             )
-        max_iterations = frame.execution_policy.max_iterations or self._max_iterations
+        max_iterations = frame.execution_policy.max_iterations or self.max_iterations
         return await self._loop_executor.execute_frame(
             frame=frame,
             max_iterations=max_iterations,
@@ -163,88 +157,10 @@ class AgentRuntime:
         profile: AgentProfile,
         generation_options: dict[str, Any] | None,
     ) -> ResolvedFrameModel:
-        """
-        根据 agent_profile 从注册表解析 LLM 参数，注入到 generation_options
-        供 WorkerAgentService 使用；输入预算与展示名独立返回，不传给模型 SDK。
-
-        参数覆盖优先级（从高到低）：
-            会话请求 (generation_options) > Agent Profile > 模型注册表定义
-
-        - model：会话传入的注册表 ID 覆盖 profile.model_name（供侧边栏实时切换模型调试）
-        - api_key / api_base：来自解析出的模型（Profile 仅通过 model_name 选择模型）
-        - temperature / top_p：会话覆盖优先，其次 Profile，最后模型定义默认
-        - max_tokens：会话覆盖优先，其次模型定义默认
-
-        设计原则：
-        - 注册表未注入（model_registry 为 None）时，由调用方通过 generation_options
-          直接传 model；WorkerAgentService 缺 model 时会抛出明确错误。
-        - 注册表解析失败由 run_frame 稳定投影为 FAILED，不静默降级到其他模型。
-        """
-        session_opts = dict(generation_options or {})
-        if self._model_registry is None:
-            max_tokens = session_opts.get("max_tokens")
-            if max_tokens is None:
-                max_tokens = DEFAULT_MAX_TOKENS
-            return ResolvedFrameModel(
-                generation_options=session_opts,
-                input_token_limit=self._input_token_limit(None, max_tokens),
-            )
-
-        # 模型选择：会话传入的注册表 ID 优先，否则用 Agent Profile 的 model_name。
-        # 二者语义一致（都是注册表 ID / 'default'），resolve 统一解析。
-        session_model_id = session_opts.get("model")
-        effective_model_name = session_model_id or profile.model_name
-
-        # 覆盖值：会话请求优先于 Agent Profile；两者皆无则由 resolve 回落到模型定义
-        temperature_override = session_opts.get("temperature")
-        if temperature_override is None:
-            temperature_override = profile.temperature
-
-        top_p_override = session_opts.get("top_p")
-        if top_p_override is None:
-            top_p_override = profile.top_p
-
-        max_tokens_override = session_opts.get("max_tokens")
-
-        # 解析失败由 run_frame 转为 frame FAILED，由编排执行器按 root/callee 关系解释。
-        llm_config, display_name = self._model_registry.resolve(
-            effective_model_name,
-            temperature_override=temperature_override,
-            max_tokens_override=max_tokens_override,
-            top_p_override=top_p_override,
+        """解析帧模型与输入预算；解析结果随帧保留，恢复时不重新读取注册表。"""
+        return resolve_frame_model(
+            profile, generation_options, model_registry=self._model_registry, config=self._config
         )
-
-        # 用解析结果覆盖 generation_options 中的对应键——
-        # resolve 已完成三级优先级合并，这里以其结果为准（包括把会话传入的
-        # 注册表 ID 替换为 litellm 模型标识符，供 WorkerAgentService 使用）。
-        # api_key / api_base 为 None 是合法状态（litellm 从环境变量读取）。
-        resolved: dict[str, Any] = {
-            **session_opts,
-            "model": llm_config.model,
-            "api_key": llm_config.api_key,
-            "api_base": llm_config.api_base,
-            "temperature": llm_config.temperature,
-            "max_tokens": llm_config.max_tokens,
-            "top_p": llm_config.top_p,
-        }
-        logger.debug(
-            f"模型解析: effective={effective_model_name!r} "
-            f"(session={session_model_id!r}, profile={profile.model_name!r}) → "
-            f"litellm_model={llm_config.model!r}, display={display_name!r}, "
-            f"temperature={llm_config.temperature}, top_p={llm_config.top_p}"
-        )
-        return ResolvedFrameModel(
-            generation_options=resolved,
-            input_token_limit=self._input_token_limit(
-                llm_config.context_window, llm_config.max_tokens
-            ),
-            display_name=display_name,
-        )
-
-    def _input_token_limit(self, context_window: int | None, max_tokens: int) -> int:
-        """生成预算和安全余量从总窗口扣除；非正预算保留给输入检查明确拒绝。"""
-        window = context_window or self._compaction_config.default_context_window
-        return window - max_tokens - self._compaction_config.safety_margin
 
     def finalize_frame(
         self,
@@ -269,7 +185,6 @@ def build_agent_runtime(
     runtime_config: AgentRuntimeConfig,
     koakuma_config: KoakumaConfig,
     memory_compiler_config: MemoryCompilerConfig,
-    compaction_config: CompactionConfig,
     model_registry: ModelResolver | None = None,
 ) -> AgentRuntime:
     """装配单帧执行内核，编排层只取得运行时门面。
@@ -282,9 +197,8 @@ def build_agent_runtime(
         memory_compiler_config=memory_compiler_config,
     )
     runtime = AgentRuntime(
-        mtp_executor=KoakumaMTPExecutor(koakuma),
+        mtp_executor=koakuma,
         runtime_config=runtime_config,
-        compaction_config=compaction_config,
         model_registry=model_registry,
     )
     logger.info("AgentRuntime 初始化完成")

@@ -11,12 +11,11 @@ from unittest.mock import MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.models import MTPExecutionContext
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
+from hivememory.agent_runtime.mtp.context import MTPExecutionResult
 from hivememory.components.bus.async_bus import AsyncSystemBus
 from hivememory.config.alice import KoakumaConfig
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
-from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.prompts.mtp import MTPPromptBuilder
 from tests.helpers.operations import HarnessKoakumaRuntime
@@ -116,7 +115,7 @@ def make_mock_bus(
     )
 
 
-def make_koakuma_runtime(bus: MockAsyncBus, config=None) -> KoakumaRuntime:
+def make_koakuma_runtime(bus: MockAsyncBus, config=None) -> HarnessKoakumaRuntime:
     return HarnessKoakumaRuntime(
         bus=bus,
         config=config or KoakumaConfig(),
@@ -133,11 +132,18 @@ def normalize_worker_agent_mtp_output(text: str) -> str:
     return text.rstrip() + " " + MTP_RIGHT_DELIMITER
 
 
-def simulate_loop_single(koakuma: KoakumaRuntime, agent_text: str) -> MTPExecutionResult:
+def simulate_loop_single(koakuma: HarnessKoakumaRuntime, agent_text: str) -> MTPExecutionResult:
     result = asyncio.run(
         koakuma.intercept_and_execute(
             normalize_worker_agent_mtp_output(agent_text),
-            context=MTPExecutionContext(runtime_scope=make_runtime_scope()),
+            context=asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(),
+                )
+            ),
         )
     )
     assert result is not None, f"执行循环未检测到 MTP 指令。Agent 文本: {agent_text!r}"
@@ -149,7 +155,7 @@ def build_resumed_history(agent_prefix: str, mtp_result: MTPExecutionResult) -> 
 
 
 @pytest.fixture
-def koakuma() -> KoakumaRuntime:
+def koakuma() -> HarnessKoakumaRuntime:
     bus = make_mock_bus()
     return make_koakuma_runtime(bus, KoakumaConfig())
 

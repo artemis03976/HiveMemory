@@ -6,30 +6,30 @@ Agent Loop Executor - 纯单 Agent 执行循环总控
     - 命中 CALL 时返回 FrameExecutionResult(SUSPENDED)，不自我编排
     - 累积产物写入 frame.progress（PCB），支持 CALL 后重入续接
 
-Phase A→B→C→D 循环：
+每轮依次执行：
     A. LLM 生成
     B. 自然停止检测
     C. MTP 执行（CALL → 返回 SUSPENDED，交还编排）
     D. 回填 & 继续
 
-不变量：本模块不得出现 sub-agent / topology / 下一个该调谁 词汇。
+本模块只推进当前帧，帧之间的调度由调用方负责。
 """
 
 import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.context_budget import (
-    TurnContextBudgetExceededError,
-    estimate_context_tokens,
-)
-from hivememory.agent_runtime.models import (
+from hivememory.agent_runtime.frame import (
     ExecutionFrame,
     FrameExecutionResult,
     FrameExecutionStatus,
-    GenerationResult,
-    MTPExecutionContext,
 )
+from hivememory.agent_runtime.model.budget import (
+    TurnContextBudgetExceededError,
+    estimate_context_tokens,
+)
+from hivememory.agent_runtime.model.client import GenerationResult
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.output import (
     FrameOutputSink,
     MTPFinished,
@@ -41,8 +41,8 @@ from hivememory.config.alice import AgentRuntimeConfig
 from hivememory.core.models import TurnEvent, freeze_mapping
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.execution.worker import WorkerAgentService
-    from hivememory.agent_runtime.mtp.executor import MTPExecutor
+    from hivememory.agent_runtime.model.client import LLMClient
+    from hivememory.agent_runtime.mtp.runtime import MTPExecutor
 
 logger = logging.getLogger(__name__)
 
@@ -61,11 +61,11 @@ class AgentLoopExecutor:
 
     def __init__(
         self,
-        worker_agent: "WorkerAgentService",
+        llm_client: "LLMClient",
         mtp_executor: "MTPExecutor",
         config: AgentRuntimeConfig,
     ):
-        self.worker_agent = worker_agent
+        self.llm_client = llm_client
         self._mtp_executor = mtp_executor
         self.config = config
 
@@ -78,7 +78,7 @@ class AgentLoopExecutor:
         """执行一轮 LLM 生成：按 sink 是否输出 token 选择完整 / 流式路径。"""
         if not sink.streams_tokens:
             try:
-                return await self.worker_agent.generate_async(
+                return await self.llm_client.generate_async(
                     frame.working_history,
                     **(generation_options or {}),
                 )
@@ -92,7 +92,7 @@ class AgentLoopExecutor:
                 )
 
         result: GenerationResult | None = None
-        chunks = self.worker_agent.generate_stream(
+        chunks = self.llm_client.generate_stream(
             frame.working_history,
             **(generation_options or {}),
         ).__aiter__()
@@ -125,7 +125,7 @@ class AgentLoopExecutor:
                 except asyncio.CancelledError:
                     raise
                 except Exception:
-                    logger.warning("关闭 Worker stream 失败", exc_info=True)
+                    logger.warning("关闭 LLM stream 失败", exc_info=True)
 
         if result is not None:
             return result

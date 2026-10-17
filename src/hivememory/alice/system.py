@@ -10,9 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hivememory.agent_runtime.execution.worker import WorkerAgentService
-from hivememory.agent_runtime.model_resolution import ModelResolver
-from hivememory.agent_runtime.runtime import AgentRuntime, build_agent_runtime
+from hivememory.agent_runtime import AgentRuntime, LLMClient, ModelResolver, build_agent_runtime
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.events import AgentRunEventEmitter
 from hivememory.alice.interface.bridge import AliceBridge, AlicePublicApi
@@ -60,7 +58,6 @@ class AliceSystem(SubsystemProtocol):
         self._runtime = build_agent_runtime(
             runtime_config=config.runtime,
             koakuma_config=config.koakuma,
-            compaction_config=config.compaction,
             memory_compiler_config=memory_compiler_config or MemoryCompilerConfig(),
             model_registry=model_registry,
         )
@@ -75,7 +72,7 @@ class AliceSystem(SubsystemProtocol):
             prompt_assembler=prompt_assembler,
         )
         self._service = AgentRunService(
-            summarizer=RelaySummarizer(WorkerAgentService()),
+            summarizer=RelaySummarizer(LLMClient()),
             agent_runtime=self._runtime,
             call_coordinator=call_coordinator,
             frame_factory=frame_factory,

@@ -1,5 +1,5 @@
-from hivememory.agent_runtime.mtp.syscalls.registry import build_syscall_registry
-from hivememory.agent_runtime.mtp.syscalls.types import Syscall
+from hivememory.agent_runtime.tools.registry import build_syscall_registry
+from hivememory.agent_runtime.tools.types import Syscall
 
 
 class TestSyscallRegistry:

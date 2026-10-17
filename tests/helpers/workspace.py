@@ -3,6 +3,7 @@
 from collections.abc import Iterable
 from dataclasses import dataclass, field
 
+from hivememory.agent_runtime.frame import RuntimeScope
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.access import (
@@ -16,7 +17,6 @@ from hivememory.core.models import (
     ActorIdentity,
     ExecutionLabels,
     IdentityScope,
-    RuntimeScope,
     WorkspaceIdentity,
     build_internal_identity_scope,
 )

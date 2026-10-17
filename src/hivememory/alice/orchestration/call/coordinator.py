@@ -4,13 +4,13 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime.models import (
+from hivememory.agent_runtime import (
     ExecutionFrame,
+    FrameExecutionPolicy,
     FrameExecutionResult,
     FrameExecutionStatus,
+    FrameProducts,
 )
-from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.agent_runtime.products import FrameProducts
 from hivememory.alice.orchestration.call.context import CallContextProvider
 from hivememory.alice.orchestration.call.record import CallRecord, CallRecordStatus
 from hivememory.alice.orchestration.call.response import (
@@ -29,7 +29,7 @@ from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStat
 from hivememory.core.mtp.exceptions import MTPError, SystemFault
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.runtime import AgentRuntime
+    from hivememory.agent_runtime import AgentRuntime
     from hivememory.alice.orchestration.session import RunSession
     from hivememory.core.models import AgentProfile
     from hivememory.prompts.assembler import AgentPromptAssembler
@@ -166,7 +166,6 @@ class CallCoordinator:
             # 子帧按被调用方的操作快照生成策略；仍禁止递归 CALL。
             policy = FrameExecutionPolicy.from_verbs(
                 mtp_verbs_for_operations(callee.allowed_operations),
-                max_iterations=getattr(self._agent_runtime, "max_iterations", None),
                 denied_verbs={"CALL"},
             )
             messages = self._prompt_assembler.build_sub_agent_messages(

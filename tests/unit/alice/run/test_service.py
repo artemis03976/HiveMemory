@@ -4,12 +4,12 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
-from hivememory.agent_runtime.context_budget import (
+from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus
+from hivememory.agent_runtime.model.budget import (
     ModelContextWindowExceededError,
     TurnContextBudgetExceededError,
 )
-from hivememory.agent_runtime.execution.worker import WorkerAgentService
-from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
+from hivememory.agent_runtime.model.client import LLMClient
 from hivememory.agent_runtime.runtime import AgentRuntime, build_agent_runtime
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.events import AgentRunEventEmitter
@@ -70,7 +70,6 @@ def _build_service(*, runtime_events=None) -> tuple[AgentRuntime, AgentRunServic
     runtime = build_agent_runtime(
         runtime_config=config.alice.runtime,
         koakuma_config=config.alice.koakuma,
-        compaction_config=config.alice.compaction,
         memory_compiler_config=config.memory_compiler,
     )
     frame_factory = FrameFactory()
@@ -82,7 +81,7 @@ def _build_service(*, runtime_events=None) -> tuple[AgentRuntime, AgentRunServic
         prompt_assembler=prompt_assembler,
     )
     service = AgentRunService(
-        summarizer=RelaySummarizer(WorkerAgentService()),
+        summarizer=RelaySummarizer(LLMClient()),
         agent_runtime=runtime,
         call_coordinator=coordinator,
         frame_factory=frame_factory,

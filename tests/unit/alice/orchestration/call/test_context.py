@@ -4,7 +4,7 @@ from datetime import UTC, datetime
 
 import pytest
 
-from hivememory.agent_runtime.models import ExecutionFrame
+from hivememory.agent_runtime.frame import ExecutionFrame, FrameExecutionPolicy
 from hivememory.alice.orchestration.call import CallContextProvider
 from hivememory.core.errors import (
     AdmissionDeniedError,
@@ -33,8 +33,11 @@ from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_runtime_scope
 
 
-def _frame(*, profile: AgentProfile = OMNI_DOLL_PROFILE, submit_operation=None) -> ExecutionFrame:
+def _frame(*, submit_operation, profile: AgentProfile = OMNI_DOLL_PROFILE) -> ExecutionFrame:
     return ExecutionFrame(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
         submit_operation=submit_operation,
         runtime_scope=make_runtime_scope(run_id="run-1", frame_id="frame-1"),
         agent_profile=profile,
@@ -233,12 +236,3 @@ async def test_profile_failure_maps_to_mtp_error_before_resolving_context_refs(
 
     assert exc_info.value.code == expected_code
     assert exc_info.value.message_key == expected_key
-
-
-@pytest.mark.asyncio
-async def test_call_without_submitter_fails_explicitly():
-    """没有操作提交函数时不得以默认 Profile 旁路执行 CALL。"""
-    with pytest.raises(RuntimeError, match="CALL 缺少操作提交函数"):
-        await CallContextProvider().provide(
-            _frame(), MTPCallRequest(target_alias="omni_doll", task="summarize")
-        )

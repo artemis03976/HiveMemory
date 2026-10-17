@@ -2,7 +2,7 @@
 网络搜索 syscall。
 """
 
-from hivememory.agent_runtime.mtp.syscalls.types import SyscallResult
+from hivememory.agent_runtime.tools.types import SyscallResult
 from hivememory.core.mtp.exceptions import (
     SyscallExecutionError,
     SyscallInvalidArgumentError,
@@ -13,9 +13,9 @@ from hivememory.i18n.syscall_runtime import get_syscall_info_text
 
 def sys_web_search(args: dict[str, str], *, timeout_seconds: int = 15) -> SyscallResult:
     """
-    网络搜索 (Chapter 8.2)。
+    网络搜索。
 
-    timeout_seconds 参数为兼容注册表保留，当前实现未直接使用。
+    timeout_seconds 由注册表传入，但搜索适配器尚未把它交给外部客户端。
     """
     _ = timeout_seconds
     query = args.get("query", "")

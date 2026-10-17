@@ -1,6 +1,6 @@
 import pytest
 
-from hivememory.agent_runtime.mtp.syscalls.repl import sys_python_repl
+from hivememory.agent_runtime.tools.repl import sys_python_repl
 from hivememory.core.mtp.exceptions import (
     SyscallExecutionError,
     SyscallInvalidArgumentError,

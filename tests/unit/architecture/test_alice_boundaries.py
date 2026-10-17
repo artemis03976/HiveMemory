@@ -30,8 +30,8 @@ ALLOWED_ALICE_IMPORTS = {
 KNOWN_REVERSE_IMPORTS = {("run/service.py", "interface.stream")}
 
 
-def _alice_imports(path: Path) -> set[str]:
-    """解析 Alice 模块依赖，包含相对导入、包内模块导入与类型检查分支。"""
+def _package_imports(path: Path, package: str) -> set[str]:
+    """解析指定包的模块依赖，包含相对导入、包内模块导入与类型检查分支。"""
     modules = set()
     tree = ast.parse(path.read_text(encoding="utf-8"))
     for node in ast.walk(tree):
@@ -50,9 +50,9 @@ def _alice_imports(path: Path) -> set[str]:
             else:
                 modules.add(base)
     return {
-        "__init__" if module == "hivememory.alice" else module.removeprefix("hivememory.alice.")
+        "__init__" if module == package else module.removeprefix(f"{package}.")
         for module in modules
-        if module == "hivememory.alice" or module.startswith("hivememory.alice.")
+        if module == package or module.startswith(f"{package}.")
     }
 
 
@@ -64,12 +64,45 @@ def test_alice_layers_only_import_allowed_dependencies() -> None:
         layer = relative.parts[0] if len(relative.parts) > 1 else path.stem
         assert layer in ALLOWED_ALICE_IMPORTS, f"未登记 Alice 层: {relative}"
         allowed = ALLOWED_ALICE_IMPORTS[layer]
-        for target in _alice_imports(path):
+        for target in _package_imports(path, "hivememory.alice"):
             if not any(target == prefix or target.startswith(f"{prefix}.") for prefix in allowed):
                 violations.add((relative.as_posix(), target))
 
     # 精确比对使新增逆向依赖和已经消失的例外都需要显式审查。
     assert violations == KNOWN_REVERSE_IMPORTS
+
+
+def test_alice_and_system_only_import_runtime_public_api() -> None:
+    """内核使用方只依赖包根显式公开的符号，不能穿透到实现模块。"""
+    package = "hivememory.agent_runtime"
+    public_tree = ast.parse((SRC_ROOT / "agent_runtime/__init__.py").read_text(encoding="utf-8"))
+    exports = next(
+        set(ast.literal_eval(node.value))
+        for node in public_tree.body
+        if isinstance(node, ast.Assign)
+        and any(isinstance(target, ast.Name) and target.id == "__all__" for target in node.targets)
+    )
+    paths = [
+        *ALICE_ROOT.rglob("*.py"),
+        *(SRC_ROOT / "system").rglob("*.py"),
+        SRC_ROOT.parents[1] / "scripts/calibrate_session_compaction.py",
+    ]
+    violations = []
+    for path in paths:
+        for target in _package_imports(path, package) - {"__init__"}:
+            violations.append(f"{path.name}: {package}.{target}")
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            base = _resolve_relative(path, node) if node.level else node.module
+            if base == package:
+                violations.extend(
+                    f"{path.name}: 未公开的符号 {alias.name}"
+                    for alias in node.names
+                    if alias.name not in exports
+                )
+
+    assert violations == []
 
 
 def test_agent_runtime_package_does_not_import_alice() -> None:

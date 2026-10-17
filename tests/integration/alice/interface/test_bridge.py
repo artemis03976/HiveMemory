@@ -7,7 +7,7 @@ import asyncio
 
 import pytest
 
-from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
+from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import TokenDelta
 from hivememory.alice.contracts import AliceRoutes
 from hivememory.alice.interface.bridge import AliceBridge, AlicePublicApi

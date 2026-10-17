@@ -2,9 +2,9 @@
 
 import pytest
 
-from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.core.models import AgentProfile
 from tests.helpers.workspace import make_runtime_scope
 

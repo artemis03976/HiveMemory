@@ -3,15 +3,14 @@
 import asyncio
 from typing import Any
 
-import litellm
-
-from hivememory.agent_runtime.context_budget import (
+from hivememory.agent_runtime import (
     MESSAGE_OVERHEAD_TOKENS,
+    LLMClient,
     ModelContextWindowExceededError,
+    ModelProviderError,
+    ResolvedFrameModel,
     estimate_context_tokens,
 )
-from hivememory.agent_runtime.execution.worker import WorkerAgentService
-from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
 from hivememory.config.alice import CompactionConfig
 from hivememory.core.constants import DEFAULT_MAX_TOKENS
 from hivememory.core.mtp.models import MTP_LEFT_DELIMITER, MTP_STOP_SEQUENCE
@@ -30,7 +29,7 @@ class SummaryRejectedError(Exception):
 class RelaySummarizer:
     """摘要只生成文本，不创建 frame、执行工具或写入长期记忆。"""
 
-    def __init__(self, worker: WorkerAgentService) -> None:
+    def __init__(self, worker: LLMClient) -> None:
         self._worker = worker
 
     async def fold(
@@ -82,23 +81,7 @@ class RelaySummarizer:
                 raise SummaryRejectedError("summary_timeout") from error
             except ModelContextWindowExceededError as error:
                 raise SummaryRejectedError("summary_model_context_exceeded") from error
-            except (
-                litellm.APIError,
-                litellm.OpenAIError,
-                litellm.BadGatewayError,
-                litellm.APIConnectionError,
-                litellm.APIResponseValidationError,
-                litellm.BadRequestError,
-                litellm.AuthenticationError,
-                litellm.PermissionDeniedError,
-                litellm.NotFoundError,
-                litellm.RateLimitError,
-                litellm.Timeout,
-                litellm.UnprocessableEntityError,
-                litellm.InternalServerError,
-                litellm.ServiceUnavailableError,
-                litellm.BudgetExceededError,
-            ) as error:
+            except ModelProviderError as error:
                 raise SummaryRejectedError("summary_provider_error") from error
             text = result.text.strip()
             if not text:

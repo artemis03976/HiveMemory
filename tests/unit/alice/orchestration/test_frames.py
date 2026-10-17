@@ -1,8 +1,9 @@
 from __future__ import annotations
 
-from hivememory.agent_runtime.policy import FrameExecutionPolicy
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
 from hivememory.alice.orchestration.frames import FrameFactory, FrameSpec
 from hivememory.core.models import OMNI_DOLL_PROFILE
+from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.workspace import make_execution_labels
 
 
@@ -10,6 +11,7 @@ def test_frame_factory_creates_root_frame_from_spec() -> None:
     factory = FrameFactory()
     frame = factory.create(
         FrameSpec(
+            submit_operation=StubOperationSubmitter(),
             runtime_scope=factory.scope(
                 labels=make_execution_labels(),
                 run_id="run-1",
@@ -18,7 +20,7 @@ def test_frame_factory_creates_root_frame_from_spec() -> None:
             profile=OMNI_DOLL_PROFILE,
             messages=[{"role": "system", "content": "hello"}],
             topic_id="topic-1",
-            execution_policy=FrameExecutionPolicy(),
+            execution_policy=FrameExecutionPolicy(permitted_verbs=frozenset()),
         )
     )
 
@@ -30,6 +32,7 @@ def test_frame_factory_creates_transient_frame_with_same_run_id() -> None:
     factory = FrameFactory()
     frame = factory.create(
         FrameSpec(
+            submit_operation=StubOperationSubmitter(),
             runtime_scope=factory.scope(
                 labels=make_execution_labels(),
                 run_id="run-1",
@@ -65,6 +68,7 @@ def test_frame_factory_records_only_latest_user_message() -> None:
 
     frame = factory.create(
         FrameSpec(
+            submit_operation=StubOperationSubmitter(),
             runtime_scope=factory.scope(
                 labels=make_execution_labels(),
                 run_id="run-1",
@@ -73,7 +77,7 @@ def test_frame_factory_records_only_latest_user_message() -> None:
             profile=OMNI_DOLL_PROFILE,
             messages=messages,
             topic_id="topic-1",
-            execution_policy=FrameExecutionPolicy(),
+            execution_policy=FrameExecutionPolicy(permitted_verbs=frozenset()),
         )
     )
 
@@ -87,6 +91,7 @@ def test_frame_factory_does_not_record_empty_latest_user_message() -> None:
     factory = FrameFactory()
     frame = factory.create(
         FrameSpec(
+            submit_operation=StubOperationSubmitter(),
             runtime_scope=factory.scope(
                 labels=make_execution_labels(),
                 run_id="run-1",
@@ -98,7 +103,7 @@ def test_frame_factory_does_not_record_empty_latest_user_message() -> None:
                 {"role": "user", "content": ""},
             ],
             topic_id="topic-1",
-            execution_policy=FrameExecutionPolicy(),
+            execution_policy=FrameExecutionPolicy(permitted_verbs=frozenset()),
         )
     )
 

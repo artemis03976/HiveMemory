@@ -1,6 +1,6 @@
-"""FrameExecutionPolicy 的集合规范化、拒绝规则与默认边界单元测试。"""
+"""FrameExecutionPolicy 的集合规范化与拒绝规则单元测试。"""
 
-from hivememory.agent_runtime.policy import FrameExecutionPolicy
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
 
 
 def test_callee_policy_removes_call_and_keeps_iteration_budget() -> None:
@@ -25,10 +25,10 @@ def test_empty_explicit_verbs_deny_every_known_verb() -> None:
         assert not policy.allows(verb)
 
 
-def test_default_policy_allows_known_protocol_verbs_and_rejects_unknown() -> None:
-    """通用默认策略采用已知协议全集，未知动词不会自动获得执行许可。"""
-    policy = FrameExecutionPolicy()
+def test_explicit_policy_rejects_unknown_verbs() -> None:
+    """只允许显式列出的动词，未知动词不获得执行许可。"""
+    policy = FrameExecutionPolicy.from_verbs({"READ", "CALL"})
 
-    assert policy.permitted_verbs == frozenset({"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"})
+    assert policy.permitted_verbs == frozenset({"READ", "CALL"})
     assert policy.allows("CALL")
     assert not policy.allows("UNKNOWN")

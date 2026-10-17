@@ -24,18 +24,16 @@ from enum import Enum
 from time import perf_counter
 from typing import Any, Literal, cast, overload
 
-from hivememory.agent_runtime.context_budget import (
+from hivememory.agent_runtime import (
+    AgentRuntime,
+    ExecutionFrame,
+    FrameExecutionPolicy,
+    FrameExecutionResult,
+    FrameExecutionStatus,
     InputTooLargeError,
     ModelContextWindowExceededError,
     TurnContextBudgetExceededError,
 )
-from hivememory.agent_runtime.models import (
-    ExecutionFrame,
-    FrameExecutionResult,
-    FrameExecutionStatus,
-)
-from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.context.view import CompactionFailedError, SessionContextView
 from hivememory.alice.events import (
@@ -428,7 +426,6 @@ class AgentRunService:
         profile = agent_profile or OMNI_DOLL_PROFILE
         policy = FrameExecutionPolicy.from_verbs(
             permitted_verbs,
-            max_iterations=getattr(self._agent_runtime, "max_iterations", None),
         )
         frame = self._frame_factory.create(
             FrameSpec(

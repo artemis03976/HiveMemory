@@ -11,13 +11,14 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.models import (
+from hivememory.agent_runtime.frame import (
     ExecutionFrame,
+    FrameExecutionPolicy,
     FrameExecutionResult,
     FrameExecutionStatus,
+    FrameProducts,
 )
 from hivememory.agent_runtime.output import NullFrameOutputSink
-from hivememory.agent_runtime.products import FrameProducts
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.call.coordinator import (
     CallCoordinator,
@@ -28,11 +29,10 @@ from hivememory.alice.orchestration.call.record import CallRecord, CallRecordSta
 from hivememory.alice.orchestration.frames import FrameFactory
 from hivememory.alice.orchestration.output import CallOutputFinished
 from hivememory.alice.orchestration.session import RunSession
-from hivememory.config.alice import CompactionConfig
 from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
 from hivememory.core.mtp.exceptions import PermissionDeniedError, SystemFault
-from tests.helpers.call import make_call_context
+from tests.helpers.call import StubOperationSubmitter, make_call_context
 from tests.helpers.workspace import make_runtime_scope
 
 
@@ -43,6 +43,10 @@ def _frame(
     workspace_id: str = "main_workspace",
 ) -> ExecutionFrame:
     frame = ExecutionFrame(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
+        submit_operation=StubOperationSubmitter(),
         runtime_scope=make_runtime_scope(
             agent_id=agent_id,
             run_id="run-1",
@@ -130,7 +134,6 @@ class _RecordingRunOutput:
 
 def test_apply_call_response_is_exactly_once_and_updates_call_pair():
     runtime = AgentRuntime(
-        compaction_config=CompactionConfig(),
         mtp_executor=MagicMock(),
         runtime_config=MagicMock(),
         loop_executor=MagicMock(),
@@ -158,7 +161,6 @@ def test_apply_call_response_is_exactly_once_and_updates_call_pair():
 @pytest.mark.parametrize("action_id", ["wrong", None])
 def test_apply_call_response_rejects_wrong_or_missing_action(action_id):
     runtime = AgentRuntime(
-        compaction_config=CompactionConfig(),
         mtp_executor=MagicMock(),
         runtime_config=MagicMock(),
         loop_executor=MagicMock(),

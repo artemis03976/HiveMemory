@@ -8,8 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-from hivememory.agent_runtime.models import ExecutionFrame
-from hivememory.agent_runtime.output import FrameOutputSink, NullFrameOutputSink
+from hivememory.agent_runtime import ExecutionFrame, FrameOutputSink, NullFrameOutputSink
 
 
 @dataclass(frozen=True, slots=True)

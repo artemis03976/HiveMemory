@@ -13,27 +13,27 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.context_budget import TurnContextBudgetExceededError
-from hivememory.agent_runtime.execution.loop import AgentLoopExecutor
-from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
-from hivememory.agent_runtime.models import (
+from hivememory.agent_runtime.frame import (
     ExecutionFrame,
+    FrameExecutionPolicy,
     FrameExecutionStatus,
-    GenerationResult,
-    MTPExecutionContext,
 )
+from hivememory.agent_runtime.loop import AgentLoopExecutor
+from hivememory.agent_runtime.model.budget import TurnContextBudgetExceededError
+from hivememory.agent_runtime.model.client import GenerationResult
+from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext, MTPExecutionResult
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
 from hivememory.alice.orchestration.executor import RunExecutor
 from hivememory.alice.orchestration.frames import FrameFactory
 from hivememory.alice.orchestration.session import RunSession
-from hivememory.config.alice import AgentRuntimeConfig, CompactionConfig
+from hivememory.config.alice import AgentRuntimeConfig
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     TurnEvent,
 )
 from hivememory.core.mtp import MTP_RIGHT_DELIMITER, MTPCallRequest
-from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.workspace.contracts import DeriveCallThreadRequest
 from tests.helpers.call import StubOperationSubmitter, make_callee
 from tests.helpers.workspace import make_runtime_scope
@@ -107,6 +107,10 @@ def _call_mtp_exec_result() -> MTPExecutionResult:
 
 def _make_frame() -> ExecutionFrame:
     return ExecutionFrame(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
+        submit_operation=StubOperationSubmitter(),
         runtime_scope=make_runtime_scope(
             run_id="run_test_1",
             frame_id="test_frame",
@@ -125,7 +129,7 @@ def _build_executor(generate_async_side_effect) -> AgentLoopExecutor:
     worker_agent.generate_async = AsyncMock(side_effect=generate_async_side_effect)
 
     executor = AgentLoopExecutor(
-        worker_agent=worker_agent,
+        llm_client=worker_agent,
         mtp_executor=mtp_executor,
         config=AgentRuntimeConfig(max_loop_iterations=10),
     )
@@ -180,7 +184,7 @@ async def test_tool_result_growth_stops_before_next_generation():
     assert isinstance(result.error, TurnContextBudgetExceededError)
     assert frame.progress.iteration == 1
     assert frame.progress.turn_events[-1].content == "x" * 400
-    executor.worker_agent.generate_async.assert_awaited_once()
+    executor.llm_client.generate_async.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -214,7 +218,7 @@ async def test_generation_failure_returns_failed_frame_outcome():
     frame = _make_frame()
     executor = _build_executor([])
     error = RuntimeError("provider unavailable")
-    executor.worker_agent.generate_async = AsyncMock(side_effect=error)
+    executor.llm_client.generate_async = AsyncMock(side_effect=error)
 
     result = await executor.execute_frame(frame, max_iterations=2)
 
@@ -239,7 +243,7 @@ async def test_stream_generation_failure_returns_failed_frame_outcome():
         async def send(self, _output):
             return None
 
-    executor.worker_agent.generate_stream = fail_stream
+    executor.llm_client.generate_stream = fail_stream
 
     result = await executor.execute_frame(
         frame,
@@ -255,7 +259,7 @@ async def test_stream_generation_failure_returns_failed_frame_outcome():
 async def test_generation_cancelled_error_is_not_converted_to_failed_outcome():
     frame = _make_frame()
     executor = _build_executor([])
-    executor.worker_agent.generate_async = AsyncMock(side_effect=asyncio.CancelledError())
+    executor.llm_client.generate_async = AsyncMock(side_effect=asyncio.CancelledError())
 
     with pytest.raises(asyncio.CancelledError):
         await executor.execute_frame(frame, max_iterations=2)
@@ -332,7 +336,7 @@ async def test_task_cancellation_during_generation_propagates_before_mtp():
         await asyncio.Event().wait()
 
     executor = _build_executor([])
-    executor.worker_agent.generate_async = slow_generate
+    executor.llm_client.generate_async = slow_generate
 
     task = asyncio.create_task(executor.execute_frame(frame, max_iterations=5))
     await started.wait()
@@ -425,7 +429,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     executor = _build_executor([])
     worker_agent = MagicMock()
     worker_agent.generate_async = AsyncMock(side_effect=gen_async_side)
-    executor.worker_agent = worker_agent
+    executor.llm_client = worker_agent
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_call_mtp_exec_result())
 
     async def submit_operation(request):
@@ -435,9 +439,8 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
         raise AssertionError(f"本场景不应提交其他资源操作: {request}")
 
     agent_runtime = AgentRuntime(
-        compaction_config=CompactionConfig(),
         mtp_executor=MagicMock(),
-        runtime_config=MagicMock(),
+        runtime_config=AgentRuntimeConfig(),
         loop_executor=executor,
     )
     frame_factory = FrameFactory()

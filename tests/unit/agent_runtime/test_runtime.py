@@ -3,27 +3,32 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.execution import AgentLoopExecutor
-from hivememory.agent_runtime.models import (
+from hivememory.agent_runtime.frame import (
     ExecutionFrame,
+    FrameExecutionPolicy,
     FrameExecutionResult,
     FrameExecutionStatus,
 )
+from hivememory.agent_runtime.loop import AgentLoopExecutor
 from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.agent_runtime.runtime import AgentRuntime
-from hivememory.config.alice import CompactionConfig
-from hivememory.config.app import HiveMemoryConfig
+from hivememory.config.alice import AgentRuntimeConfig
 from hivememory.config.shared import LLMConfig
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     TurnEvent,
 )
+from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.workspace import make_runtime_scope
 
 
 def _frame(*, run_id: str = "run-1", frame_id: str = "frame-1") -> ExecutionFrame:
     return ExecutionFrame(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
+        submit_operation=StubOperationSubmitter(),
         runtime_scope=make_runtime_scope(run_id=run_id, frame_id=frame_id),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[],
@@ -31,19 +36,42 @@ def _frame(*, run_id: str = "run-1", frame_id: str = "frame-1") -> ExecutionFram
     )
 
 
-def test_agent_runtime_builds_engine_facade():
-    """AgentRuntime 作为单 Agent 运行时门面，内部装配 loop_executor 引擎。"""
-    config = HiveMemoryConfig()
-    mtp_executor = MagicMock()
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("frame_limit", "expected_iterations"), [(None, 2), (1, 1)])
+async def test_built_runtime_uses_config_budget_unless_frame_overrides(
+    monkeypatch, frame_limit, expected_iterations
+):
+    """完整装配的内核执行 MTP；帧未覆盖上限时统一使用运行时预算。"""
+    from hivememory.agent_runtime import GenerationResult, LLMClient, build_agent_runtime
+    from hivememory.config.alice import KoakumaConfig
+    from hivememory.config.memory_compiler import MemoryCompilerConfig
 
-    runtime = AgentRuntime(
-        compaction_config=CompactionConfig(),
-        mtp_executor=mtp_executor,
-        runtime_config=config.alice.runtime,
+    command = "⟪ RUN | sys_clock | ⟫"
+    monkeypatch.setattr(
+        LLMClient,
+        "generate_async",
+        AsyncMock(
+            return_value=GenerationResult(
+                text=command, was_mtp_interrupted=True, mtp_fragment=command
+            )
+        ),
     )
+    runtime = build_agent_runtime(
+        runtime_config=AgentRuntimeConfig(max_loop_iterations=2),
+        koakuma_config=KoakumaConfig(),
+        memory_compiler_config=MemoryCompilerConfig(),
+    )
+    frame = _frame()
+    frame.execution_policy = FrameExecutionPolicy.from_verbs({"RUN"}, max_iterations=frame_limit)
 
-    assert isinstance(runtime._loop_executor, AgentLoopExecutor)
-    assert runtime.max_iterations == config.alice.runtime.max_loop_iterations
+    result = await runtime.run_frame(frame, output_sink=NullFrameOutputSink())
+
+    assert result.status == FrameExecutionStatus.BUDGET_EXHAUSTED
+    assert frame.progress.iteration == expected_iterations
+    assert [
+        event.status for event in frame.progress.turn_events if event.kind == "tool_result"
+    ] == ["success"] * expected_iterations
+    assert runtime.max_iterations == 2
 
 
 @pytest.mark.asyncio
@@ -55,9 +83,8 @@ async def test_agent_runtime_uses_injected_loop_executor():
         execute_frame=AsyncMock(return_value=result),
     )
     runtime = AgentRuntime(
-        compaction_config=CompactionConfig(),
         mtp_executor=MagicMock(),
-        runtime_config=MagicMock(),
+        runtime_config=AgentRuntimeConfig(),
         loop_executor=loop_executor,
     )
 
@@ -80,9 +107,8 @@ async def test_run_frame_maps_missing_model_to_failed_outcome():
     error = ModelNotFoundError("missing")
     model_registry.resolve.side_effect = error
     runtime = AgentRuntime(
-        compaction_config=CompactionConfig(),
         mtp_executor=MagicMock(),
-        runtime_config=MagicMock(),
+        runtime_config=AgentRuntimeConfig(),
         loop_executor=loop_executor,
         model_registry=model_registry,
     )
@@ -100,9 +126,8 @@ async def test_run_frame_maps_missing_model_to_failed_outcome():
 def test_finalize_completed_frame_projects_only_acknowledged_aliases():
     """成功子帧只返回收到 ACK 的句柄，不把 UPDATE 基础 alias 当作新产物。"""
     runtime = AgentRuntime(
-        compaction_config=CompactionConfig(),
         mtp_executor=MagicMock(),
-        runtime_config=MagicMock(),
+        runtime_config=AgentRuntimeConfig(),
         loop_executor=MagicMock(),
     )
     frame = _frame()
@@ -127,9 +152,8 @@ def test_finalize_completed_frame_projects_only_acknowledged_aliases():
 def test_finalize_unsuccessful_frame_does_not_harvest_aliases():
     """失败子帧不把部分完成的产物回填 caller，登记状态由进程负责。"""
     runtime = AgentRuntime(
-        compaction_config=CompactionConfig(),
         mtp_executor=MagicMock(),
-        runtime_config=MagicMock(),
+        runtime_config=AgentRuntimeConfig(),
         loop_executor=MagicMock(),
     )
     frame = _frame()
@@ -153,9 +177,8 @@ def test_resolved_model_budget_reserves_output_and_margin(window, max_tokens, ex
     )
     runtime = AgentRuntime(
         mtp_executor=MagicMock(),
-        runtime_config=MagicMock(),
+        runtime_config=AgentRuntimeConfig(default_context_window=20000, safety_margin=500),
         loop_executor=MagicMock(),
-        compaction_config=CompactionConfig(default_context_window=20000, safety_margin=500),
         model_registry=resolver,
     )
     resolved = runtime.resolve_model(OMNI_DOLL_PROFILE, None)
@@ -169,16 +192,15 @@ def test_resolved_model_budget_reserves_output_and_margin(window, max_tokens, ex
 @pytest.mark.asyncio
 async def test_frame_reentry_keeps_resolved_model_and_budget():
     """挂起恢复不重新读取注册表，以免预算与已经组装的请求发生漂移。"""
-    from hivememory.agent_runtime.models import GenerationResult
+    from hivememory.agent_runtime.model.client import GenerationResult
 
     resolver = MagicMock()
     resolver.resolve.return_value = (LLMConfig(model="model", max_tokens=100), "模型")
     worker = MagicMock(generate_async=AsyncMock(return_value=GenerationResult(text="完成")))
     runtime = AgentRuntime(
         mtp_executor=MagicMock(),
-        runtime_config=MagicMock(),
+        runtime_config=AgentRuntimeConfig(),
         loop_executor=AgentLoopExecutor(worker, MagicMock(), MagicMock(max_loop_iterations=3)),
-        compaction_config=CompactionConfig(),
         model_registry=resolver,
     )
     frame = _frame()

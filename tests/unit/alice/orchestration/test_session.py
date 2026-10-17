@@ -2,17 +2,18 @@ from __future__ import annotations
 
 import pytest
 
-from hivememory.agent_runtime.models import ExecutionFrame
-from hivememory.agent_runtime.policy import FrameExecutionPolicy
+from hivememory.agent_runtime.frame import ExecutionFrame, FrameExecutionPolicy
 from hivememory.alice.orchestration.frames import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.session import RunSession
 from hivememory.core.models import OMNI_DOLL_PROFILE
+from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.workspace import make_runtime_scope
 
 
 def _frame(run_id: str, frame_id: str, policy: FrameExecutionPolicy) -> ExecutionFrame:
     return FrameFactory().create(
         FrameSpec(
+            submit_operation=StubOperationSubmitter(),
             runtime_scope=make_runtime_scope(run_id=run_id, frame_id=frame_id),
             profile=OMNI_DOLL_PROFILE,
             messages=[],
@@ -23,7 +24,7 @@ def _frame(run_id: str, frame_id: str, policy: FrameExecutionPolicy) -> Executio
 
 
 def test_session_registers_frame_under_frame_id() -> None:
-    policy = FrameExecutionPolicy(max_iterations=7)
+    policy = FrameExecutionPolicy(max_iterations=7, permitted_verbs=frozenset())
     session = RunSession(agent_run_id="run-a")
     frame = _frame("run-a", "frame-a", policy)
 
@@ -34,9 +35,9 @@ def test_session_registers_frame_under_frame_id() -> None:
 
 def test_session_rejects_frame_id_collision_and_unregistered_call() -> None:
     session = RunSession(agent_run_id="run-a")
-    registered = _frame("run-a", "frame-a", FrameExecutionPolicy())
-    collision = _frame("run-a", "frame-a", FrameExecutionPolicy())
-    unregistered = _frame("run-a", "frame-b", FrameExecutionPolicy())
+    registered = _frame("run-a", "frame-a", FrameExecutionPolicy(permitted_verbs=frozenset()))
+    collision = _frame("run-a", "frame-a", FrameExecutionPolicy(permitted_verbs=frozenset()))
+    unregistered = _frame("run-a", "frame-b", FrameExecutionPolicy(permitted_verbs=frozenset()))
     session.register_frame(registered)
 
     with pytest.raises(RuntimeError, match="already exists"):
@@ -51,8 +52,8 @@ def test_session_rejects_frame_id_collision_and_unregistered_call() -> None:
 def test_interleaved_sessions_keep_records_isolated() -> None:
     session_a = RunSession(agent_run_id="run-a")
     session_b = RunSession(agent_run_id="run-b")
-    frame_a = _frame("run-a", "frame-a", FrameExecutionPolicy())
-    frame_b = _frame("run-b", "frame-b", FrameExecutionPolicy())
+    frame_a = _frame("run-a", "frame-a", FrameExecutionPolicy(permitted_verbs=frozenset()))
+    frame_b = _frame("run-b", "frame-b", FrameExecutionPolicy(permitted_verbs=frozenset()))
     session_a.register_frame(frame_a)
     session_b.register_frame(frame_b)
 
@@ -64,8 +65,8 @@ def test_interleaved_sessions_keep_records_isolated() -> None:
 
 def test_session_registers_root_and_callee_with_explicit_run_local_relationship() -> None:
     session = RunSession(agent_run_id="run-a")
-    root = _frame("run-a", "frame-root", FrameExecutionPolicy())
-    callee = _frame("run-a", "frame-callee", FrameExecutionPolicy())
+    root = _frame("run-a", "frame-root", FrameExecutionPolicy(permitted_verbs=frozenset()))
+    callee = _frame("run-a", "frame-callee", FrameExecutionPolicy(permitted_verbs=frozenset()))
 
     session.register_root_frame(root)
     record = session.register_call(root, "action-a")
@@ -83,10 +84,10 @@ def test_session_registers_root_and_callee_with_explicit_run_local_relationship(
 
 def test_session_rejects_duplicate_root_callee_binding_and_cross_run_frame() -> None:
     session = RunSession(agent_run_id="run-a")
-    root = _frame("run-a", "frame-root", FrameExecutionPolicy())
-    other_root = _frame("run-a", "frame-other", FrameExecutionPolicy())
-    cross_run = _frame("run-b", "frame-cross", FrameExecutionPolicy())
-    callee = _frame("run-a", "frame-callee", FrameExecutionPolicy())
+    root = _frame("run-a", "frame-root", FrameExecutionPolicy(permitted_verbs=frozenset()))
+    other_root = _frame("run-a", "frame-other", FrameExecutionPolicy(permitted_verbs=frozenset()))
+    cross_run = _frame("run-b", "frame-cross", FrameExecutionPolicy(permitted_verbs=frozenset()))
+    callee = _frame("run-a", "frame-callee", FrameExecutionPolicy(permitted_verbs=frozenset()))
     session.register_root_frame(root)
 
     with pytest.raises(RuntimeError, match="already has a root"):

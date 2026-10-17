@@ -7,8 +7,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.agent_runtime.context_budget import TurnContextBudgetExceededError
-from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
+from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus
+from hivememory.agent_runtime.model.budget import TurnContextBudgetExceededError
 from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.alice.events import BoundAgentRunEvents
 from hivememory.alice.orchestration.call.coordinator import (

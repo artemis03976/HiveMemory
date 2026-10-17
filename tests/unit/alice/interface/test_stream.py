@@ -6,8 +6,9 @@ import asyncio
 
 import pytest
 
-from hivememory.agent_runtime.models import (
+from hivememory.agent_runtime.frame import (
     ExecutionFrame,
+    FrameExecutionPolicy,
     FrameExecutionResult,
 )
 from hivememory.agent_runtime.output import MTPFinished, MTPStarted, TokenDelta
@@ -15,11 +16,16 @@ from hivememory.alice.interface.stream import AgentRunStream, QueueAgentRunOutpu
 from hivememory.alice.orchestration.output import CallOutputFinished, CallOutputStarted
 from hivememory.alice.orchestration.session import RunSession
 from hivememory.core.models import OMNI_DOLL_PROFILE
+from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.workspace import make_runtime_scope
 
 
 def _frame() -> ExecutionFrame:
     return ExecutionFrame(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
+        submit_operation=StubOperationSubmitter(),
         runtime_scope=make_runtime_scope(run_id="run-1", frame_id="frame-1"),
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[],
