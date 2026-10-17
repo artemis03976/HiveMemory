@@ -11,8 +11,6 @@ HiveMemory - 记忆检索模块 (MemoryRetrieval)
 - AdaptiveWeightedFusion: 自适应加权融合
 - RetrievalEngine: 统一入口门面 (接口)
 
-对应设计文档: PROJECT.md 第 5 章
-
 作者: HiveMemory Team
 """
 

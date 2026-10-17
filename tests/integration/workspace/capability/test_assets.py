@@ -102,7 +102,7 @@ async def test_upload_registers_document_asset_with_actual_bytes_and_hash() -> N
         11,
         AssetRepresentationKind.EXTRACTED_TEXT,
     )
-    # W1-C：同一请求内完成解析，RAW 保留原 bytes，required text 进入终态。
+    # 同一请求内完成解析，RAW 保留原 bytes，required text 进入终态。
     assert raw.content_object == b"hello world"
     assert raw.content_hash == EXPECTED_SHA256_HELLO_WORLD
     assert (raw.producer, raw.producer_version) == (UPLOAD_PRODUCER, UPLOAD_PRODUCER_VERSION)

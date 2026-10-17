@@ -1,4 +1,4 @@
-"""按 Workspace 维护的运行时失效代次（A2 §2.2 / §8.2）。
+"""按 Workspace 维护的运行时失效代次。
 
 epoch 是运行时失效代次，不是持久化业务 revision：冷读前记录、回填前比对，
 代次变化说明读取期间同一 Workspace 发生过 canonical 变更，旧值不得回填。

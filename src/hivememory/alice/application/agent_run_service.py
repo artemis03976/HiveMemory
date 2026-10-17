@@ -2,8 +2,7 @@
 
 AgentRunService 是 Alice 的公开 run 用例入口：接收任务进程组装的 CPU
 输入清单，在内部转换为提示词组装使用的 ``AgentRunContext``；创建 root
-frame、为每次 run 构造 run-local RunExecutor，并产出 CPU 中立的执行结果
-（见 docs/alice/orchestration.md §1）。
+frame、为每次 run 构造 run-local RunExecutor，并产出 CPU 中立的执行结果。
 
 统一入口 :meth:`AgentRunService.run_agent` 与 ``run_process`` 一样以
 ``stream`` 参数控制是否流式，内部只有一套执行骨架（会话、``agent.run.*``

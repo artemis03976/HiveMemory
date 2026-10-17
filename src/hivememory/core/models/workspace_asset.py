@@ -34,7 +34,7 @@ class AssetRepresentationState(str, Enum):
 
 
 class AssetRepresentationKind(str, Enum):
-    """W0 已冻结的最小 representation 类型集合。"""
+    """已冻结的最小 representation 类型集合。"""
 
     RAW = "raw"
     EXTRACTED_TEXT = "extracted_text"
@@ -248,7 +248,7 @@ class WorkspaceAssetUploadReceipt(BaseModel):
 
 
 class AttachmentSelectionRequest(BaseModel):
-    """Chat 请求中的单个附件选择（客户端视图，计划 9.2 节）。
+    """Chat 请求中的单个附件选择（客户端视图）。
 
     只携带 bound ref 与可选的预期版本摘要；字段严格校验，拒绝未知键。
     ref 的 Workspace 归属、asset READY 状态与版本一致性由 Patchouli

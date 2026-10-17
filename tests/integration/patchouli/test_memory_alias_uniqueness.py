@@ -1,4 +1,4 @@
-"""Memory alias 同 Workspace 唯一性不变量的集成测试（A2 §8 D-4 第二层）。
+"""Memory alias 同 Workspace 唯一性不变量的集成测试（第二层：中期库写入前兜底校验）。
 
 真实协作边界：``MidTermMemoryStore`` + ``QdrantStorageAdapter`` +
 ``QdrantMemoryStore``（Qdrant ``:memory:``），归档/复活路径叠加真实

@@ -1,7 +1,7 @@
 """
 HiveMemory 核心数据模型 - 记忆领域
 
-基于 PROJECT.md 3.1 节的"记忆原子模型"设计
+记忆原子模型
 采用冰山存储架构:
 - Layer 1 (Index): 向量化检索层
 - Layer 2 (Payload): 内容负载层
@@ -285,7 +285,7 @@ class Artifacts(BaseModel):
     可版本化的 Agent Profile 内容在 ``PayloadLayer.agent_config``。
     """
 
-    # ---- v0.5.0 正式溯源层 ----
+    # ---- 正式溯源层 ----
     refs: list[ArtifactRef] = Field(
         default_factory=list, description="ArtifactRef 列表 - 指向本记忆关联的所有 Artifact"
     )

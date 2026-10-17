@@ -1,4 +1,4 @@
-"""W1-F binding 投影与附件 promotion 的单元验收。
+"""Topic binding 投影与附件 promotion 的单元测试。
 
 - handler 把 payload.used_attachments 一次性投影为 bound refs；
 - promotion 只在 Memory CREATE/UPDATE 后发生，沿 binding.asset_ref

@@ -15,8 +15,6 @@ HiveMemory - 帕秋莉感知引擎 (Perception Engine / MMU 算法层)
     - TriggerReason / TopicMaterializeTask: 触发与交接协议模型
     - BaseRelayController: Token 溢出接力控制器 / Page Folding 摘要生成器
 
-参考: ShortTermMemory.md, PROJECT.md 2.3.1 节
-
 作者: HiveMemory Team
 版本: 7.0.0
 """

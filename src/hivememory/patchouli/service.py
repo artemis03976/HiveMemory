@@ -71,7 +71,7 @@ class PatchouliService:
     prepare 只做 Topic 与检索：Profile 解析、附件租借与记忆/附件编译由
     chat 任务进程在 CPU 分配时完成，不再出现在 Patchouli 公开路由上。
 
-    访问边界（A1 访问边界返工第 4.6 节）：本门面是授权点以下的资源
+    访问边界：本门面是授权点以下的资源
     owner，阶段路由只接收任务进程在阶段授权后组装的 ``IdentityScope``，
     不接收访问 context，也不做 operation 检查；资源归属仍由本层与领域
     实现独立校验。
@@ -390,8 +390,8 @@ class PatchouliService:
     ) -> RetrievalResponse:
         """按 GatewayDecision 派生 Patchouli 检索请求。
 
-        检索路由返回完整原子列表（A2 §2.1）；运行上下文仍消费旧协议
-        envelope，由本 adapter 构造并测量调用耗时（A2 §2.4，A6 切换）。
+        检索路由返回完整原子列表；运行上下文仍消费旧协议
+        envelope，由本 adapter 构造并测量调用耗时。
         """
 
         if (

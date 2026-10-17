@@ -392,8 +392,8 @@ async def test_system_closes_store_only_after_all_asset_consumers_stop() -> None
         RuntimeEventType.SYSTEM_SHUTTING_DOWN,
         RuntimeEventType.SYSTEM_STOPPED,
     ]
-    # A1 访问边界返工：Store 在全部消费者停止后收口，撤销全部已签发
-    # context 是停止顺序的最后一步（第 4.8 节）。
+    # Store 在全部消费者停止后收口，撤销全部已签发
+    # context 是停止顺序的最后一步。
     completed_steps = sink.events[-1].data["completed_steps"]
     assert completed_steps[-2:] == [
         "workspace_asset_store.close_and_clear",
@@ -497,7 +497,7 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
 
 @pytest.mark.asyncio
 async def test_system_stop_rejects_new_authentication_and_invalidates_issued_contexts() -> None:
-    """System 停止的访问生命周期（A1 访问边界返工第 4.8 节）。
+    """System 停止的访问生命周期。
 
     停止顺序：统一认证网关先关闭（拒绝新认证），在 Store 最终清理之后
     经认证网关 ``revoke_all_contexts`` 撤销全部已签发 context——停止后旧

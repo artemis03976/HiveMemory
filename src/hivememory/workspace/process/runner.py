@@ -414,7 +414,7 @@ class TaskProcessRunner:
         request = process.request
         working_set = process.working_set
         record.enter_phase(ProcessPhase.PREPARE)
-        # Profile 暂时先于 prepare 解析（中间态），原因见 CPUAllocator.resolve_agent_profile。
+        # Profile 在 prepare 之前解析：缺少图纸的请求不会留下预建话题或 LRU 结算的副作用。
         agent_profile = await self._allocator.resolve_agent_profile(
             access=record.access,
             target_workspace=request.target_workspace,
@@ -447,7 +447,7 @@ class TaskProcessRunner:
             target_workspace=request.target_workspace,
         )
 
-        # 取消检查（Q-15）：只在进入 Actor 之前检查一次。prepare 与分配
+        # 取消检查：只在进入 Actor 之前检查一次。prepare 与分配
         # 期间收到的 stop 请求都在此生效，已取得的租借由关闭流程释放。
         if record.outcome is ProcessOutcome.STOP_REQUESTED:
             raise _ProcessCancelled(ProcessPhase.PREPARE, record.stop_reason or "user_requested")
@@ -472,7 +472,7 @@ class TaskProcessRunner:
         无论完成、取消、失败、断流还是分配失败，都经此关闭。租借释放必须先于
         任何 await 同步执行：owner task 在关闭子流或 cleanup 期间被取消时，
         释放不能依赖这些 await 完成。context 失效与进程注销由注册入口在
-        本流程之后执行（A1 访问边界返工第 4.4 节）。本方法可重复调用——
+        本流程之后执行。本方法可重复调用——
         run() 的收尾与注册入口的关闭路径都会调用它：终态兜底只在进程尚无
         终态时执行，工作集中的每项资源只取出一次，已经释放的不会再次释放。
         """

@@ -1,11 +1,11 @@
 """附件选择跨阶段集成验收（prepare 拆分后由进程 CPU 分配承担）。
 
-从 W1-C 的真实出口出发：真实上传应用服务（真实 text parser）把文件推进
+从解析交接的真实出口出发：真实上传应用服务（真实 text parser）把文件推进
 到 EXTRACTED_TEXT READY，随后 chat 任务进程在 CPU 分配边界按用户选择顺序
 resolve/acquire 并冻结坐标。捕获选择绕过 READY 门槛、版本摘要漂移或
 removed 竞态下继续使用 representation 的缺陷。
 
-访问边界（A1 访问边界返工第 4.4/4.5 节）：上传 access 与进程 context 都
+访问边界：上传 access 与进程 context 都
 由同一真实网关组合签发（``register_process`` 完成两阶段认证并绑定
 process_id）；上传执行 root 授权，进程阶段只校验准入与目标。
 """

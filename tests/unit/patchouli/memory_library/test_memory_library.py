@@ -129,7 +129,7 @@ class TestMemoryLibraryArchiveRevive:
         await self.library.revive(identity_scope.workspace_identity, memory.id)
 
         self.mock_long_term.load.assert_awaited_once_with(key)
-        # MVL-2: 复活重建必要索引，完整原子提交且重算向量
+        # 复活重建必要索引，完整原子提交且重算向量
         self.mock_mid_term.upsert.assert_awaited_once_with(memory, recompute_vectors=True)
         self.mock_long_term.remove.assert_awaited_once_with(key)
         assert memory.payload.artifacts.events[-1].event_type == MemoryEventType.REVIVED

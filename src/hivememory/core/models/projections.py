@@ -3,7 +3,7 @@
 ``ResolvedAgentProfile`` 是 Patchouli Profile 读取 backing（``GET_AGENT_PROFILE``）
 的返回值，按"共享 DTO 放在依赖中立契约"的规则定义在 core，避免 Patchouli 与
 Workspace 为取得 DTO 互导对方的实现。Memory 侧不提供裁剪投影：canonical 读取
-与历史记录使用完整 MemoryAtom（A2-P §3.3 引用隔离）。
+与历史记录使用完整 MemoryAtom，调用方持有各自独立的副本。
 """
 
 from __future__ import annotations
@@ -17,7 +17,7 @@ from hivememory.core.models.memory import MemoryAccessPolicy
 
 
 class ResolvedAgentProfile(BaseModel):
-    """一次 Profile 定义解析的 backing 结果（A2 §8 D-3）。
+    """一次 Profile 定义解析的 backing 结果。
 
     ``profile`` 是解析出的 ``AgentProfile`` 独立副本（``agent_id`` 取自源原子
     alias）；``access_policy`` / ``source_memory_id`` / ``source_version`` 是

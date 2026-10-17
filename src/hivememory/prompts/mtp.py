@@ -12,8 +12,6 @@ MTP System Prompt 构建器
 5. 高密度演示 (Dense Demo, optional)
 6. 错误恢复 (Error Recovery, optional)
 
-对应设计文档: MemoryToolProtocol.md Chapter 5
-
 作者: HiveMemory Team
 版本: 2.1
 """

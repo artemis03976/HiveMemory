@@ -1,10 +1,10 @@
-"""WorkspaceRuntime：workspace 读取能力与派生缓存的进程内聚合（A2 §1 / 宪章 §3）。
+"""WorkspaceRuntime：workspace 读取能力与派生缓存的进程内聚合。
 
 由 System 组合根装配并持有，延续 ``WorkspaceAssetStore`` 的既有归属事实。
 聚合写入意图登记、失效代次、双缓存与 resolver；L2 冷读端口由组合根注入。
 结算与 canonical 变更订阅由组合根在接受请求前装配，不导入 Patchouli 实现。
 
-独立工作（宪章 §4.3）：库不可达时 L1 命中与交付授权照常，L2 冷读显式失败，
+独立工作：库不可达时 L1 命中与交付授权照常，L2 冷读显式失败，
 不以过期条目伪装新鲜成功。canonical 变更事件内联失效双缓存并推进代次。
 """
 

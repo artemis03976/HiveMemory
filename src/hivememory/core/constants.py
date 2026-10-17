@@ -9,7 +9,7 @@ HiveMemory 核心常量定义
 DEFAULT_USER_ID = "default"
 """默认用户 ID - 用于未登录/匿名场景。
 
-使用边界（v0.6.2 身份收敛）：该回退值只允许出现在两处——
+使用边界：该回退值只允许出现在两处——
 1. ``server/deps.py`` 的 ``_resolve_identity_coordinates``（声明解析
    ``resolve_request_identity_claims`` 与 /ingest 例外路径
    ``resolve_request_identity_scope`` 共用的唯一缺省回退点）；

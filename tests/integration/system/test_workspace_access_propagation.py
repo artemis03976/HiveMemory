@@ -1,6 +1,6 @@
 """任务进程编排（chat）经共享总线并发传播 IdentityScope 的集成测试。
 
-访问边界（A1 访问边界返工第 4.4 节）：每个进程的 context 在
+访问边界：每个进程的 context 在
 ``register_process`` 经真实网关签发并绑定本进程；进程控制（状态查询与
 取消）由请求级 context 经操作授权者的进程控制授权比对驻留坐标——跨
 workspace 请求与不存在统一按 ``not_found`` 呈现。

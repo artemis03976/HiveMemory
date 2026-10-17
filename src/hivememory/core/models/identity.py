@@ -4,7 +4,7 @@
 
 - ``ActorIdentity``：谁在执行；
 - ``WorkspaceIdentity``：正在访问哪个资源归属域；
-- ``IdentityScope``：前两者的冻结组合，是 W0 唯一的公共身份作用域。
+- ``IdentityScope``：前两者的冻结组合，是唯一的公共身份作用域。
 
 ``IdentityScope`` 只冻结身份坐标，不携带 interaction/generation/agent_run/frame/
 request/trace 等关联 ID，也不缓存授权结果或 Workspace 当前状态。
@@ -96,7 +96,7 @@ def system_actor_for_workspace(belong_to: WorkspaceIdentity) -> ActorIdentity:
 
 
 class IdentityScope(BaseModel):
-    """一次顶层操作冻结的执行者与目标 Workspace（Idea 前提第 1 条）。
+    """一次顶层操作冻结的执行者与目标 Workspace。
 
     只回答两个问题：谁在执行（``actor_identity``）、这次操作作用于哪个
     资源归属域（``workspace_identity``）。它由授权点在操作授权通过后组装，
@@ -104,7 +104,7 @@ class IdentityScope(BaseModel):
     agent_run/frame/request/trace 等关联 ID，也不缓存授权结果或 Workspace
     当前状态。
 
-    身份类型本身不承担授权规则（不变量 6）："actor 用户等于 workspace
+    身份类型本身不承担授权规则："actor 用户等于 workspace
     owner"等 owner 约束属于两阶段认证的第 2 阶段与两阶段授权的第 3 阶段，
     由认证网关（准入）与操作授权者（操作授权）检查，不在本模型构造时校验。
     """

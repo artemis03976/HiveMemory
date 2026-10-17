@@ -1,7 +1,7 @@
 """Memory 持久化 payload 的受控读取与规范化。
 
 只接受 schema ``"2.1"``（字符串）的 canonical 格式。整数 schema ``2`` 的旧
-布局已由 A2-P 一次性迁移转换完毕，兼容解码随之移除；缺少
+布局不再解码；缺少
 ``schema_version``、未知版本、部分 Workspace 投影和冲突 owner 均 fail closed。
 """
 

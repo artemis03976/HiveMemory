@@ -48,7 +48,7 @@ function StatusBadge({
  * 附件队列条：展示逐文件上传状态、提供重试/移除入口与 Chat 回合选择。
  *
  * 单项失败只影响该项；队列项与 bound ref 只存在于当前运行时内存。
- * 选择集合在发送时以快照冻结进 Chat 请求（计划 9.1 节）。
+ * 选择集合在发送时以快照冻结进 Chat 请求。
  */
 export default function AttachmentQueue() {
   const items = useAttachmentStore((state) => state.items);

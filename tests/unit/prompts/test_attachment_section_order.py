@@ -1,4 +1,4 @@
-"""AgentPromptAssembler 附件 section 注入顺序的快照测试（计划 10.6 节）。
+"""AgentPromptAssembler 附件 section 注入顺序的快照测试。
 
 冻结规则：system prompt 各 section 固定为 MTP/系统通知 → persona →
 memory_context → attachment_context；附件 section 只作为

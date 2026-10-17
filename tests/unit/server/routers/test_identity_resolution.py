@@ -1,4 +1,4 @@
-"""server 入口层统一身份解析测试（v0.6.2 B1 + A1 访问边界返工）。
+"""server 入口层统一身份解析测试。
 
 覆盖 ``resolve_request_identity_claims`` 的合并/冲突规则与各 HTTP 入口的
 身份上下文行为：user_id + workspace_id 构造认证前声明（不产出
@@ -74,7 +74,7 @@ class TestResolveRequestIdentityClaims:
         }
 
     def test_claims_resolution_does_not_assemble_identity_scope(self):
-        """不变量 1：认证前的声明解析不产出 IdentityScope。"""
+        """认证前的声明解析不产出 IdentityScope。"""
         claims = resolve_request_identity_claims(
             RequestIdentitySelection(user_id="u1", workspace_id=None),
         )

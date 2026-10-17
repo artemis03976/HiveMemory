@@ -1,4 +1,4 @@
-"""统一认证网关、共享操作授权与公开 application 链路的集成测试（A1 返工验收）。
+"""统一认证网关、共享操作授权与公开 application 链路的集成测试。
 
 真实协作边界：GlobalSystemBus + PatchouliBridge + PatchouliPublicApi（真实
 application 服务）+ 统一认证网关（真实两类注册表）+ Patchouli local bus
@@ -7,7 +7,7 @@ application 服务）+ 统一认证网关（真实两类注册表）+ Patchouli 
 定性二维向量、生成执行（LLM）与 Topic 会话读取用确定性实现。不创建
 Alice/PendingAtomRuntime/MTP（headless）。
 
-保护 A1 访问边界返工计划的验收证据：
+保护的契约：
 - 两项认证在统一网关一次完成，签发即绑定运行；未登记 principal、不匹配
   adapter 与无准入记录的 Actor 分别以稳定 reason 拒绝；
 - 访问 context 是密封凭据：身份只在操作授权者中读取；actor 能力执行
@@ -262,7 +262,7 @@ async def wired():
     access = make_access_composition(_access_records(), default_workspace=MAIN)
 
     # Patchouli 公开路由是授权点以下的资源 owner：不注入共享行为检查，
-    # 只接收授权点组装的 IdentityScope（A1 访问边界返工第 4.6 节）。
+    # 只接收授权点组装的 IdentityScope。
     memory_service = MemoryManagementService(bus=local_bus)
     profile_service = AgentProfileManagementService(bus=local_bus)
     task_service = MemoryTaskManagementService(bus=local_bus)
@@ -439,7 +439,7 @@ async def _submit_intent(wired, context: WorkspaceAccessContext):
 
 @pytest.mark.asyncio
 async def test_unregistered_source_denied_before_workspace_admission(wired):
-    """未登记来源在系统接入层拒绝，不进入 Workspace 准入（证据 1）。"""
+    """未登记来源在系统接入层拒绝，不进入 Workspace 准入。"""
     with pytest.raises(AdmissionDeniedError) as exc_info:
         await wired.access.gateway.authenticate(
             adapter="local",
@@ -453,7 +453,7 @@ async def test_unregistered_source_denied_before_workspace_admission(wired):
 
 @pytest.mark.asyncio
 async def test_mismatched_adapter_denied_at_principal_authentication(wired):
-    """来源 adapter 与接入登记不匹配时在第一项认证拒绝（证据 1）。"""
+    """来源 adapter 与接入登记不匹配时在第一项认证拒绝。"""
     with pytest.raises(AdmissionDeniedError) as exc_info:
         await wired.access.authenticate(agent_id="a1", adapter="http")
     assert exc_info.value.details["reason"] == "adapter_mismatch"
@@ -461,7 +461,7 @@ async def test_mismatched_adapter_denied_at_principal_authentication(wired):
 
 @pytest.mark.asyncio
 async def test_same_owner_actors_have_different_admission_across_workspaces(wired):
-    """同一 owner：a2 在 MAIN 获准、在 OTHER 无准入记录；权限互不串扰（证据 1/2）。
+    """同一 owner：a2 在 MAIN 获准、在 OTHER 无准入记录；权限互不串扰。
 
     context 是密封凭据：驻留坐标只在操作授权者中读取——授权返回的 scope
     携带准入的 workspace。
@@ -477,7 +477,7 @@ async def test_same_owner_actors_have_different_admission_across_workspaces(wire
 
 @pytest.mark.asyncio
 async def test_empty_whitelist_admits_entry_but_denies_every_resource_action(wired):
-    """空白名单 Actor 可进入，但资源动作在授权点全部拒绝（证据 3）。
+    """空白名单 Actor 可进入，但资源动作在授权点全部拒绝。
 
     actor 读取在 backing 调用前检查 operation；意图提交路径在组装可信
     scope 后经公开路由到达真实生成链，缺少许可时不能登记生成任务。
@@ -498,7 +498,7 @@ async def test_empty_whitelist_admits_entry_but_denies_every_resource_action(wir
 
 @pytest.mark.asyncio
 async def test_read_only_actor_cannot_submit_intent_or_reach_management(wired):
-    """仅有 read 的 Actor 无法写；也不能借读取进入管理路由（证据 3）。"""
+    """仅有 read 的 Actor 无法写；也不能借读取进入管理路由。"""
     read_context = await wired.access.authenticate(agent_id="a2", workspace=MAIN)
 
     with pytest.raises(OperationDeniedError):
@@ -543,7 +543,7 @@ async def test_non_root_actor_cannot_observe_or_cancel_task(wired, agent_id):
 
 @pytest.mark.asyncio
 async def test_actor_visible_read_enforces_visibility_and_workspace(wired):
-    """行为许可与资源 owner 规则分别生效（证据 4）：PUBLIC 可读；PRIVATE
+    """行为许可与资源 owner 规则分别生效：PUBLIC 可读；PRIVATE
     只对目标 Agent；跨 Workspace 不可见；管理语义独立验证。"""
     public_atom = await _seed_public_fact(wired.store, alias="fact_public", content="visible")
     private_atom = MemoryAtom(
@@ -653,8 +653,8 @@ async def test_single_context_reused_across_different_permitted_operations(wired
     )[0].atom
     assert read.payload.content == "reuse"
 
-    # 检索参数由调用方提交：检索请求由能力层用授权返回的可信 scope 构造
-    # （A1 访问边界返工第 4.5 节），替身引擎无命中。
+    # 检索参数由调用方提交：检索请求由能力层用授权返回的可信 scope 构造，
+    # 替身引擎无命中。
     retrieval = await wired.actor_memory.retrieve(
         RetrieveRequest(semantic_query="reuse"), access=context
     )
@@ -700,7 +700,7 @@ async def test_interaction_submit_reaches_real_queue_via_global_route(wired):
 async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_close(wired):
     """失效 context 不能再授权新工作；已接纳交互携带独立身份字段，停止后仍可应用。
 
-    System 停止顺序（A1 访问边界返工第 4.8 节）：网关先关闭（拒绝新
+    System 停止顺序：网关先关闭（拒绝新
     认证），任务进程收尾后撤销全部已签发 context（之后授权按
     ``context_not_issued`` 失败，取代旧的固定 TTL 语义）。
     """
@@ -741,7 +741,7 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
 
     # System 停止：网关先关闭（拒绝新认证）；任务进程收尾后经网关撤销
     # 全部已签发 context——它们不再能通过授权（context_not_issued）
-    # （操作授权者无状态，不随停止关闭，A1 访问边界返工第 4.8 节）。
+    # （操作授权者无状态，不随停止关闭）。
     wired.access.gateway.close()
     with pytest.raises(AdmissionDeniedError) as auth_error:
         await wired.access.authenticate(agent_id="a1", workspace=MAIN)
@@ -800,7 +800,7 @@ async def test_intent_submit_and_observe_result_without_alice(wired):
 
 @pytest.mark.asyncio
 async def test_system_management_facade_propagates_authorized_scope_via_global_bus(wired):
-    """System 管理门面与 adapter 走同一全局总线，授权组装的 scope 完整传播（证据 5）。"""
+    """System 管理门面与 adapter 走同一全局总线，授权组装的 scope 完整传播。"""
     atom = await _seed_public_fact(wired.store, alias="fact_system", content="system path")
     manage_context = await wired.access.authenticate(agent_id="system", workspace=MAIN)
 
@@ -818,7 +818,7 @@ async def test_system_management_facade_propagates_authorized_scope_via_global_b
 
 @pytest.mark.asyncio
 async def test_access_error_propagates_through_system_feedback_facade(wired):
-    """访问错误沿 System 门面原语义传播，不被包装成服务不可用（A1 第 3.4 节）。"""
+    """访问错误沿 System 门面原语义传播，不被包装成服务不可用。"""
     read_context = await wired.access.authenticate(agent_id="a2", workspace=MAIN)
 
     # System 门面的 record_feedback 曾把 RuntimeError 分支包装为
@@ -836,7 +836,7 @@ async def test_access_error_propagates_through_system_feedback_facade(wired):
 
 @pytest.mark.asyncio
 async def test_system_task_facade_lists_only_resident_workspace_tasks(wired):
-    """System 任务门面的观察列表按驻留 Workspace 过滤（证据 5/8）。"""
+    """System 任务门面的观察列表按驻留 Workspace 过滤。"""
     intent_context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
     submission = await _submit_intent(wired, intent_context)
     await wired.controller.wait_task(submission.task_id)
@@ -861,7 +861,7 @@ async def _other_observe_context(wired):
 
 @pytest.mark.asyncio
 async def test_invalidated_context_rejected_and_reauthentication_restores_access(wired):
-    """失效后的旧 context 在授权点拒绝；重新认证恢复（证据 7）。"""
+    """失效后的旧 context 在授权点拒绝；重新认证恢复。"""
     context = await wired.access.authenticate_thread(agent_id="a1", workspace=MAIN)
     public_atom = await _seed_public_fact(wired.store, alias="fact_ttl", content="ttl")
     first = (

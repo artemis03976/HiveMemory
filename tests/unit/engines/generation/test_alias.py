@@ -1,5 +1,5 @@
 """
-AliasGenerator 单元测试（A2 §8 D-4 alias 唯一性第一层）
+AliasGenerator 单元测试（alias 唯一性第一层：生成侧先查询空闲候选）
 
 测试覆盖:
 - build_candidate: 前缀映射、LLM 后缀优先、title 派生、清洗与截断

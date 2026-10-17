@@ -47,7 +47,7 @@ def _make_identity_scope():
     return make_identity_scope(user_id="u1", agent_id="a1")
 
 
-# 检索评分决策时刻（A2-P 时间边界）：注入 DenseRetriever 的固定时钟，
+# 检索评分决策时刻：注入 DenseRetriever 的固定时钟，
 # 衰减天数由 meta.lifecycle.decay_anchor_at 相对该时刻控制。
 FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
 

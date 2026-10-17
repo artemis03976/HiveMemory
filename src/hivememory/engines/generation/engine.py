@@ -161,7 +161,7 @@ class MemoryGenerationEngine:
         """
         logger.info("[Mode A] 开始处理...")
 
-        # Step 1: 渲染 transcript（Phase 3 优先路径）
+        # Step 1: 渲染 transcript
         transcript = self._render_transcript(request)
         if not transcript:
             return []
@@ -351,7 +351,7 @@ class MemoryGenerationEngine:
         ``meta.version``/``updated_at``/``decay_anchor_at``/``confidence_score``
         的赋值全部发生在 Familiar 的提交边界（使用同一个 ``now``）。
         """
-        # §3.2：实际内容相同的重复更新不创建新版本。合并结果与现有内容一致
+        # 实际内容相同的重复更新不创建新版本。合并结果与现有内容一致
         # 时降级为 TOUCH 纯决策——不合并贡献者、不刷新 dedup index、不改任何
         # 字段；访问统计由 Familiar 经受限 patch_payload 处理。
         if result.new_content == memory.payload.content:
@@ -428,7 +428,7 @@ class MemoryGenerationEngine:
         # 根据决策执行操作；TOUCH/UPDATE 由查重器保证携带命中的已有记忆
         if decision == DuplicateDecision.TOUCH:
             existing_memory = _require_matched_memory(decision, existing_memory)
-            # 内容相同的重复访问：引擎保持纯决策，不改任何字段（MVL-0 冻结）。
+            # 内容相同的重复访问：引擎保持纯决策，不改任何字段。
             # 访问计数的推进与持久化由 Familiar 经受限 patch_payload 完成。
             logger.info("记忆重复，访问状态由 Familiar 经受限 patch 更新")
 
@@ -460,7 +460,7 @@ class MemoryGenerationEngine:
         elif decision == DuplicateDecision.CREATE:
             logger.info("创建新记忆")
 
-            # 构建 Workspace 内唯一的 MTP 别名 (Section 2.3；A2 §8 D-4 第一层)
+            # 构建 Workspace 内唯一的 MTP 别名（唯一性第一层：生成侧先查询空闲候选）
             alias = await self._alias_generator.generate(
                 workspace_identity=belong_to,
                 memory_type=draft.memory_type,
@@ -517,7 +517,7 @@ class MemoryGenerationEngine:
         if not request.context.turns and not request.context.state_summary:
             return "(无背景对话)"
         # 延迟导入：prompts 在依赖层级上高于 engines，模块加载期 import 会形成
-        # engines.generation ↔ prompts.transcript 循环（见 PendingAtomRuntimeDesign §6.2）。
+        # engines.generation ↔ prompts.transcript 循环。
         from hivememory.prompts.transcript import GenerationTranscriptBuilder
 
         builder = GenerationTranscriptBuilder()

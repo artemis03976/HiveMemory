@@ -1,7 +1,6 @@
-"""workspace memory read 能力：canonical 引用的多级解析与交付授权（A2 §2.2）。
+"""workspace memory read 能力：canonical 引用的多级解析与交付授权。
 
-迁移源为 Alice 侧 ``agent_runtime/aliases/resolver.py``（``RuntimeAliasResolver``）
-的 L1/L2 部分；按边界宪章 §6.1 归 workspace runtime。解析顺序：
+resolver 归 workspace runtime 持有。解析顺序：
 
 - L0 写入意图登记：在 Workspace 归属边界内交付 pending 与结算状态；
 - L1 ``AtomCache``：按原子自身 policy 对当前 Actor 授权，有效命中不回源；
@@ -146,7 +145,7 @@ class AliasResolver:
         *,
         scope: IdentityScope,
     ) -> MemoryAtom | None:
-        """UUID 点读：未知或对当前 Actor 不可见时返回 None（A1 防泄露）。"""
+        """UUID 点读：未知或对当前 Actor 不可见时返回 None，不泄露资源是否存在。"""
         self._guard.ensure_open()
         workspace = scope.workspace_identity
         cached = self._cache.get_by_id(workspace, memory_id)
@@ -158,7 +157,7 @@ class AliasResolver:
             lambda: self._backing.read(memory_id, scope=scope),
         )
         if atom is None:
-            # 缺失与不可见被合并为 None，不能据此写共享负缓存（A2 §3.2）。
+            # 缺失与不可见被合并为 None，不能据此写共享负缓存。
             return None
         return self._admit(atom, scope, fill=fill)
 

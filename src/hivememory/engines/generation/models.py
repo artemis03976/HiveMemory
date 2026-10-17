@@ -7,8 +7,8 @@ HiveMemory Generation 模块数据模型
 
 跨 alice/engines/compiler 共享的领域模型（``PendingAtom`` /
 ``PendingAtomSettlement`` / ``PendingAtomResolution`` / ``PendingAtomStatus`` /
-``WriteFocus`` / ``UpdateFocus`` / ``RuntimeScope``）已上移到
-``hivememory.core.models``（见 docs/agent_runtime/pending_atom/PendingAtomRuntimeDesign.md §6.2）。
+``WriteFocus`` / ``UpdateFocus`` / ``RuntimeScope``）位于
+``hivememory.core.models``，避免各子系统为共享模型互相导入。
 """
 
 from enum import Enum
@@ -115,7 +115,7 @@ class MergeResult(BaseModel):
     changelog: str
 
 
-# ============ Phase 3: 记忆生成视图数据模型 ============
+# ============ 记忆生成视图数据模型 ============
 
 
 class GenerationTurn(BaseModel):

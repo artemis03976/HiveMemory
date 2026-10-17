@@ -25,7 +25,6 @@ GenerationTranscriptBuilder — 记忆生成视图构建器
     - RUN: tool_name (status)
 
 作者: HiveMemory Team
-版本: 1.0 (Phase 3)
 """
 
 from collections.abc import Sequence

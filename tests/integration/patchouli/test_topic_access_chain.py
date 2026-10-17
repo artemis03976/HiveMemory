@@ -109,7 +109,7 @@ def _topic_boundary(*, max_resident_topics: int = 5):
         )
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT, admit_settlement)
-    # A1 访问边界返工（第 4.6 节）：Patchouli 公开路由是授权点以下的资源
+    # Patchouli 公开路由是授权点以下的资源
     # owner，只接收授权点组装的 IdentityScope，不再注入共享行为检查。
     return (
         TopicManagementService(bus=bus),

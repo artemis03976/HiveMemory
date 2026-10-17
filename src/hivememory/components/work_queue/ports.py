@@ -124,7 +124,7 @@ class WorkQueuePort(Protocol):
     ) -> WorkRecord | None: ...
 
 
-# 无 Port 后缀的名称用于对应设计文档中的角色术语；Port 名称是代码中的规范名称。
+# 无 Port 后缀的名称是角色术语的别名；Port 名称是代码中的规范名称。
 WorkHandler = WorkHandlerPort
 WorkQueue = WorkQueuePort
 WorkStore = WorkStorePort

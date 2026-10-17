@@ -5,7 +5,7 @@ WorkingSet（驻留与 lease）与 Interaction journal，负责话题路由、In
 原子写入与 retry、统一 settle 时序、LRU / idle / shutdown 维护，并把领域
 结果投影为公开报告。
 
-占用权统一由 WorkingSet 的 lease 表达（见 Plan §2.1/§3.5）：所有写路径都是
+占用权统一由 WorkingSet 的 lease 表达：所有写路径都是
 ``acquire → try/finally release``；Relay 摘要生成在 lease 持有期间进行，
 其他调用无法取得同一话题的占用权，因此无需旧的记录状态补偿校验。
 统一 settle 时序（``_settle_topic``）为所有来源共用；``reason`` 只作为

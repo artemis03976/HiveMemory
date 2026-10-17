@@ -1,7 +1,7 @@
 """
 LoopExecutor TurnEvent 采集单测
 
-验证 Phase 1 新增的结构化事件采集行为:
+验证结构化事件采集行为:
 1. 自然停止 -> 1 个 assistant_message 事件
 2. 单次 MTP -> prefix + tool_call + tool_result，sequence 递增
 3. CALL 路径 -> 编排侧产出 kind=tool_result tool_kind=CALL 事件

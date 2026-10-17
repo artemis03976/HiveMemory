@@ -2,7 +2,7 @@
 
 schema "2" 起，版本记录的 snapshot_before/after 直接嵌入捕获时点完整
 MemoryAtom 的 canonical JSON（见 :func:`snapshot_memory_atom`）；捕获时点
-与内容提交时点的统一由 Familiar 完整写入路径负责（MVL-2/MVL-3 收敛）。
+与内容提交时点的统一由 Familiar 完整写入路径负责。
 """
 
 from datetime import datetime

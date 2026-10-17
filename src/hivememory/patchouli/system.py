@@ -115,7 +115,7 @@ class PatchouliSystem(SubsystemProtocol):
         )
 
         # 2. Patchouli 对外能力门面。Active/Passive 共用同一条 interaction lane。
-        # 访问边界（A1 访问边界返工第 4.6 节）：Patchouli 是授权点以下的
+        # 访问边界：Patchouli 是授权点以下的
         # 资源 owner，公开方法与阶段路由只接收授权点组装的 IdentityScope，
         # 不接收访问 context，也不再注入共享操作授权。
         self._service = PatchouliService(

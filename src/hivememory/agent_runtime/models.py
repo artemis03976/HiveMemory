@@ -3,8 +3,7 @@
 PendingAtom / PendingAtomStatus / RuntimeScope 由 ``hivememory.core.models`` 提供，
 写入意图登记由 workspace 持有。本模块保留 agent_runtime 自己的执行壳：
 ``MTPExecutionContext`` / ``ExecutionFrame`` / ``GenerationResult`` / ``StreamChunk``，
-以及引擎↔编排解耦所需的执行信号 ``FrameExecutionResult`` / ``ExecutionProgress``
-（见 docs/archive/plans/implementation/agent-loop-decoupling.md §3.1 / §3.1bis）。
+以及引擎↔编排解耦所需的执行信号 ``FrameExecutionResult`` / ``ExecutionProgress``。
 """
 
 from __future__ import annotations
@@ -29,9 +28,8 @@ if TYPE_CHECKING:
 class ExecutionProgress:
     """单帧执行的累积产物载体（PCB 的"程序状态"部分）。
 
-    见 docs/archive/plans/implementation/agent-loop-decoupling.md §3.1bis。
-    write_foci / update_foci / pending_aliases 三个累积器已随 PendingAtomMaterializeTask
-    重组移除（见 docs/archive/legacy-docs/agent_runtime/pending_atom/PendingAtomMaterializeTaskDesign.md §3.5）。
+    累积器放在 frame 上而不是循环的局部变量中，CALL 挂起后重入同一 frame
+    时自然续接，事件编号连续。写入意图的登记不在这里累积，由 workspace 负责。
     """
 
     text_segments: list[str] = field(default_factory=list)
@@ -53,8 +51,7 @@ class ExecutionFrame:
     ExecutionFrame 携带运行一个 Agent 所需的隔离状态，使共享 runtime 无需
     保存每帧的观测标签与权限。资源访问由进程绑定的操作提交函数负责，
     标签仅用于展示与观测。执行进度（正文、事件、迭代与序号）
-    全部放在 ``progress`` 上，CALL 挂起后重入同一 frame 可自然续接
-    （见 docs/alice/agent-runtime.md §2）。
+    全部放在 ``progress`` 上，CALL 挂起后重入同一 frame 可自然续接。
     """
 
     runtime_scope: RuntimeScope
@@ -68,9 +65,8 @@ class ExecutionFrame:
 
     harvested_aliases: list[str] = field(default_factory=list)
 
-    # PCB 的"程序状态"：单帧执行的累积产物。Phase 1 起，引擎累积器从
-    # execute_frame 的局部变量下沉到此处，使 CALL 挂起后重入续接、编号连续。
-    # 见 docs/archive/plans/implementation/agent-loop-decoupling.md §3.1bis。
+    # PCB 的"程序状态"：单帧执行的累积产物。累积器放在此处而不是
+    # execute_frame 的局部变量中，使 CALL 挂起后重入续接、编号连续。
     progress: ExecutionProgress = field(default_factory=ExecutionProgress)
 
     def is_transient(self) -> bool:
@@ -149,7 +145,7 @@ class CallSuspension:
 class FrameExecutionResult:
     """引擎单次执行的 trap/return 信号。
 
-    见 docs/archive/plans/implementation/agent-loop-decoupling.md §3.1。它**不承载本帧累积产物**
+    它**不承载本帧累积产物**
     ——那些已下沉到 ``frame.progress``（见 ``ExecutionProgress``）。这里只表达
     "为什么停下来"，以及挂起时编排派生子帧所需的最小信息。
 

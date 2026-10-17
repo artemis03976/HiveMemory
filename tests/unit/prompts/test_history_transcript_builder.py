@@ -1,7 +1,7 @@
 """
 HistoryTranscriptBuilder 单测
 
-覆盖 Phase 2 / Phase 4C 实施方案清单要求的所有测试场景：
+覆盖以下场景：
 
 1. 无 turn_events 的 轮次 → 优先回退到 assistant_final_text
 2. 结构化重放: assistant_message + tool_call + tool_result + assistant_message

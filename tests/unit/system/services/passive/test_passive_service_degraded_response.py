@@ -1,6 +1,6 @@
 """PassiveIngressService 降级响应契约测试。
 
-覆盖 v0.6.0 设计 §5/§6 在服务边界的部分：
+覆盖服务边界的降级行为：
     - Gateway/retrieval 可恢复失败时公共响应仍是 accepted + 无 memory context
     - 降级响应不泄漏 Gateway internal state 或 fallback/debug 细节
 """
@@ -117,7 +117,7 @@ async def test_degraded_response_leaks_no_internal_detail(config) -> None:
 
 @pytest.mark.asyncio
 async def test_degraded_turn_is_still_submitted_to_patchouli(config) -> None:
-    """§6：降级后原始交互仍在 turn 完成后提交。"""
+    """降级后原始交互仍在 turn 完成后提交。"""
     service, _, submitted = _build(config, gateway_error=TimeoutError(GATEWAY_SECRET))
 
     await service.ingest_event(_event("user", "u1"), identity_scope=_u1_scope())

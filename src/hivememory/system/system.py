@@ -87,8 +87,8 @@ class HiveMemorySystem:
         self._model_registry = registries.model_registry
         self._provider_registry = registries.provider_registry
 
-        # 访问控制（A1）：统一认证网关是唯一对外认证入口；A1 访问边界返工
-        # 后生产 HTTP 入口已经接入。缺省 None 仅兼容旧装配调用，正常构建由
+        # 访问控制：统一认证网关是唯一对外认证入口，生产 HTTP 入口经它
+        # 认证。缺省 None 仅兼容旧装配调用，正常构建由
         # assembler 注入。签发与撤销归认证一侧（经网关转交），操作授权者
         # 无状态、不需要关闭。
         self._access_gateway = access_control.access_gateway if access_control else None
@@ -226,7 +226,7 @@ class HiveMemorySystem:
         passive_shutdown_drain: Any = None
         scheduler_stopped = self._scheduler_stopped
         try:
-            # 先关闭统一认证网关、拒绝新认证（A1 访问边界返工 4.4）：已签发
+            # 先关闭统一认证网关、拒绝新认证：已签发
             # context 由各自所有者在收尾时撤销；任务进程收尾后经网关撤销全部。
             if self._access_gateway is not None:
                 self._access_gateway.close()
@@ -423,7 +423,7 @@ class HiveMemorySystem:
 
     @property
     def workspace_runtime(self) -> WorkspaceRuntime:
-        """workspace 读取能力与派生缓存的运行时聚合（A2）。"""
+        """workspace 读取能力与派生缓存的运行时聚合。"""
         return self._workspace_runtime
 
     @property
@@ -460,5 +460,5 @@ class HiveMemorySystem:
 
     @property
     def access_gateway(self) -> ActorAuthenticationGateway | None:
-        """统一 Actor Authentication 网关（A1）；未装配时为 ``None``。"""
+        """统一 Actor Authentication 网关；未装配时为 ``None``。"""
         return self._access_gateway

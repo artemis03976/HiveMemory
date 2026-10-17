@@ -1,4 +1,4 @@
-"""Workspace 共享的 Profile 解析结果缓存（ProfileCache，A2 §2.3 / §3）。
+"""Workspace 共享的 Profile 解析结果缓存（ProfileCache）。
 
 迁移源为 Alice 侧 ``alice/runtime/profile_cache.py``（``AgentProfileCache``）。
 旧实现按完整 Actor 授权坐标分区并缓存"已通过授权的裸 AgentProfile"；这里

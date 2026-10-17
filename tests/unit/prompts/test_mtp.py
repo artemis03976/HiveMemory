@@ -6,8 +6,6 @@ MTP System Prompt 构建器单元测试
 - get_mtp_prompt: 便捷函数
 - 模板内容验证: 定界符正确、指令集完整、演示格式正确
 - 配置驱动: 可选模块开关
-
-对应设计文档: MemoryToolProtocol.md Chapter 5
 """
 
 from hivememory.core.mtp import (

@@ -4,7 +4,7 @@ HiveMemory - 查重与演化管理器 (Deduplicator)
 职责:
     检测重复记忆，输出 CREATE / UPDATE / TOUCH / DISCARD 决策。
 
-决策逻辑 (PROJECT.md 4.2 Step 3):
+决策逻辑:
     - 相似度 > 0.95 + 内容一致 → TOUCH (仅更新访问时间)
     - 0.75 < 相似度 < 0.95 → UPDATE (知识演化)
     - 相似度 < 0.75 → CREATE (创建新记忆)

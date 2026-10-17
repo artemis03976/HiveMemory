@@ -2,7 +2,7 @@
 
 响应只包含安全摘要：bound ref 的序列化对象、资产元数据与 representation
 的版本坐标；不得暴露原始 bytes、物理路径、Store 内部对象或可当作永久
-授权凭证的 ref 解释。W1-A 与 W1-C 共用同一份摘要 DTO。
+授权凭证的 ref 解释。上传响应与解析完成后的快照共用同一份摘要 DTO。
 """
 
 from __future__ import annotations

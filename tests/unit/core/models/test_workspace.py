@@ -98,7 +98,7 @@ def test_identity_scope_accepts_cross_owner_coordinates():
     """owner 规则移到准入与授权阶段：身份类型可冻结跨 owner 的操作坐标。
 
     ``IdentityScope`` 只回答"谁在执行、作用于哪个资源归属域"，不在构造时
-    校验 actor 用户等于 workspace owner（不变量 6）；"actor 借用另一用户
+    校验 actor 用户等于 workspace owner；"actor 借用另一用户
     的资源域"由认证网关准入（``actor_not_owner``）与 guard 操作授权
     （``target_owner_mismatch``）在两阶段认证/授权中拒绝。
     """
@@ -113,7 +113,7 @@ def test_identity_scope_accepts_cross_owner_coordinates():
         workspace_identity=workspace,
     )
 
-    # 构造不校验 owner 规则（I-5：owner 校验在第 2、3 阶段），坐标原样冻结、不被改写。
+    # 构造不校验 owner 规则（owner 校验在认证与授权的第 2、3 阶段），坐标原样冻结、不被改写。
     assert scope.actor_identity.user_id == "attacker"
     assert scope.workspace_identity == workspace
 

@@ -68,7 +68,7 @@ def _make_memory(title: str = "Test", vitality_score: float = 50.0) -> MemoryAto
 
 
 class InMemoryMidTermPort:
-    # 与 QdrantStorageAdapter 相同的 patch_payload dotted 字段白名单（MVL-2）。
+    # 与 QdrantStorageAdapter 相同的 patch_payload dotted 字段白名单。
     _PATCH_ALLOWED_PATHS = frozenset(
         {
             "meta.lifecycle.access_count",
@@ -240,7 +240,7 @@ async def test_reinforcement_updates_mid_term_memory(lifecycle_stack):
     assert result.event_type == EventType.HIT
     assert updated.meta.lifecycle.access_count == 1
     assert updated.meta.lifecycle.vitality_score >= result.previous_vitality
-    # MVL-2: HIT 经受限 patch 持久化，只提交 4 个授权 lifecycle 字段
+    # HIT 经受限 patch 持久化，只提交 4 个授权 lifecycle 字段
     assert len(mid_port.patch_calls) == 1
     key, patch = mid_port.patch_calls[0]
     assert key == _key(memory)

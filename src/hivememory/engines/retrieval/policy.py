@@ -1,4 +1,4 @@
-"""Memory 授权谓词的兼容转发（A2 §8.2：实现已上收 ``hivememory.core.memory_access``）。
+"""Memory 授权谓词的兼容转发（实现位于 ``hivememory.core.memory_access``）。
 
 新代码直接从 core 导入；本模块只为既有引用保留转发，不维护第二份实现。
 """

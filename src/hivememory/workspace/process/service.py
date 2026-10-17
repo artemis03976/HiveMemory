@@ -5,18 +5,17 @@ TaskProcessService — 任务请求的唯一注册入口与进程控制面
 创建进程、登记到进程表，返回不透明的进程句柄；已注册的
 :class:`TaskProcess`（状态容器）经句柄交给组合根注入的执行器
 :class:`TaskProcessRunner`（四阶段编排骨架）运行，交付为流式事件或非流式
-结果，并经进程表提供取消与状态查询。本入口只管理任务进程的生命周期
-（任务进程 Idea Q-3）：不持有总线、CPU 端口、CPU 分配器、asset reader
+结果，并经进程表提供取消与状态查询。本入口只管理任务进程的生命周期：
+不持有总线、CPU 端口、CPU 分配器、asset reader
 与编译配置等编排依赖，它们只由执行器持有。
 
-注册入口的生命周期职责（A1 访问边界返工第 4.4 节）：未通过两阶段认证不
+注册入口的生命周期职责：未通过两阶段认证不
 创建进程；注册成功即登记，进程以任何结局关闭后由本入口使 context 失效
 并从进程表注销——执行器的关闭流程只释放进程自身的资源。进程表是唯一的进程
 注册表，登记 ``process_id → TaskProcess``。进程记录与 ``TaskProcess`` 都不
 离开本入口：入口 adapter（server）只持有 :class:`ProcessHandle`；句柄按
 对象身份判定有效，持有有效句柄即为该进程生命周期的所有者，运行与关闭以
-句柄为参数，取消以句柄或 ``process_id`` 加请求级 context 为依据（I-8 的
-2026-10-04 补充）。
+句柄为参数，取消以句柄或 ``process_id`` 加请求级 context 为依据。
 注册成功但流一直没有开始时（例如关停信号在注册期间到达），调用方经
 :meth:`close_process` 触发同一关闭路径。
 """
@@ -78,11 +77,11 @@ logger = logging.getLogger(__name__)
 
 
 class ProcessHandle:
-    """已注册任务进程的不透明句柄（I-8 的补充）。
+    """已注册任务进程的不透明句柄。
 
     句柄是入口 adapter 与已注册进程之间唯一的引用：只暴露 ``process_id`` 与 ``session_id``，
     不暴露进程记录、其中的访问 context 或 ``TaskProcess``。句柄只由注册
-    入口签发，按对象身份判定有效（I-8 的 2026-10-04 补充）：它私下记着
+    入口签发，按对象身份判定有效：它私下记着
     签发时对应的进程，注册入口解析时要求进程表中登记的正是这一个。按
     ``process_id`` 重新构造的对象、进程关闭后的旧句柄都不是有效句柄；
     入口 adapter 见不到进程对象，因此造不出有效句柄。这维护的是可信进程
@@ -103,7 +102,7 @@ class ProcessHandle:
 
     @property
     def process_id(self) -> str:
-        """句柄对应进程的唯一标识（Q-16）。"""
+        """句柄对应进程的唯一标识。"""
         return self._process_id
 
     def __repr__(self) -> str:
@@ -113,7 +112,7 @@ class ProcessHandle:
 class TaskProcessService:
     """任务进程服务 — 任务请求的唯一注册入口与进程控制面。
 
-    注册入口完成两阶段认证（v0.7.0 A1 访问边界返工第 4.4 节）：调用方只
+    注册入口完成两阶段认证：调用方只
     提交 actor 声明与请求进入的 workspace（认证前不组装 ``IdentityScope``），
     认证失败直接抛出 ``AdmissionDeniedError``，不创建、不登记进程。任务
     进程是 Agent action，必须由具体 Agent 执行；actor 为保留 ``system`` 值
@@ -170,7 +169,7 @@ class TaskProcessService:
 
         ``actor`` / ``workspace`` 是 server 入口解析的声明（不是已组装的
         ``IdentityScope``）；``process_id`` 由 server 入口在进入本服务前
-        生成并冻结（Q-16），认证签发的 context 以它为运行绑定。任一认证
+        生成并冻结，认证签发的 context 以它为运行绑定。任一认证
         检查失败直接抛出（HTTP 入口据此返回 403），此时不创建、不登记
         进程；认证通过后、登记完成前失败（如 ``process_id`` 重复）时使
         已签发的 context 失效，不留悬挂凭据。注册成功返回不透明的进程
@@ -179,7 +178,7 @@ class TaskProcessService:
         """
         # 1. 拒绝 system 作为任务请求的 actor：任务进程必须由具体 Agent 执行。
         self._reject_system_actor(actor.agent_id)
-        # 2. 经认证网关完成两阶段认证，签发即绑定本进程（I-3）。
+        # 2. 经认证网关完成两阶段认证，签发即绑定本进程。
         access = await self._access_gateway.authenticate(
             adapter=adapter,
             principal=principal,
@@ -223,7 +222,7 @@ class TaskProcessService:
             self._process_table.register(process)
             record.events.created(record)
         except BaseException:
-            # 登记前失败：使已签发的 context 失效，不留悬挂凭据（P-6）。
+            # 登记前失败：使已签发的 context 失效，不留悬挂凭据。
             self._access_gateway.invalidate_context(access)
             if claimed and session_id is not None:
                 self._sessions.release(workspace, session_id, process_id)
@@ -324,7 +323,7 @@ class TaskProcessService:
         try:
             await self._runner.close(process)
         finally:
-            # 绑定 context 随进程关闭失效（P-6）：无论 completed、失败、
+            # 绑定 context 随进程关闭失效：无论 completed、失败、
             # 取消还是断流，进程结束后该凭据不再可用。
             self._access_gateway.invalidate_context(record.access)
             # 并发关闭的后到者不重复释放；会话此时可能已被删除或重新认领。
@@ -413,13 +412,13 @@ class TaskProcessService:
         access: WorkspaceAccessContext | None = None,
         reason: str = "user_requested",
     ) -> CancelResult:
-        """唯一的幂等取消方法：取消的依据作为参数（I-8 的 2026-10-04 补充）。
+        """唯一的幂等取消方法：取消的依据作为参数。
 
         - 传入句柄：调用方是进程的所有者（例如 chat 路由在客户端断开时），
           不经进程控制授权，不接受另传的 ``access``；句柄已失效时返回
           ``not_found``，不发布事件。
         - 传入 ``process_id`` 与请求级 ``access``：控制请求（``/chat/stop``），
-          经操作授权者的进程控制授权比对请求方与进程记录的驻留坐标（P-7）；
+          经操作授权者的进程控制授权比对请求方与进程记录的驻留坐标；
           不匹配时与进程不存在一样返回 ``not_found``，不泄露进程是否存在，
           并发布带请求方观测标签的事件。判定顺序：进程查无先于请求方
           context 校验；进程存在而请求方 context 无效按接线缺陷以

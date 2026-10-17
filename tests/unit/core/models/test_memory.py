@@ -132,7 +132,7 @@ def test_identity_scope_keeps_cross_owner_coordinates_for_authorization() -> Non
     生成入口若用 actor user 覆盖另一资源 owner，缺陷改由授权点拦截
     （guard ``authorize_operation`` 的 ``target_owner_mismatch`` 与网关
     准入的 ``actor_not_owner``）；``IdentityScope`` 构造不再承担 owner
-    校验（不变量 6），坐标原样保留供授权点比对。
+    校验，坐标原样保留供授权点比对。
     """
     target = _workspace(user_id="owner")
 

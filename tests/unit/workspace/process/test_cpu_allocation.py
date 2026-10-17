@@ -1,4 +1,4 @@
-"""任务进程 CPU 分配的行为测试（prepare 拆分第二批）。
+"""任务进程 CPU 分配的行为测试。
 
 被测边界：``TaskProcessService`` 在 prepare 之后、进入 Actor 执行之前完成
 Profile 解析、附件租借与编译，并组装 ``CPUInputManifest``；Profile 解析与
@@ -932,7 +932,7 @@ async def _collect_stream(stream) -> list[dict]:
 
 @pytest.mark.asyncio
 async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() -> None:
-    """prepare 或分配期间收到的停止请求在进入 Actor 执行前生效（Q-15）。
+    """prepare 或分配期间收到的停止请求在进入 Actor 执行前生效。
 
     CPU 与 finalize 均未调用；cleanup 补偿 prepare 的结果；分配已取得的租借已释放。
     """
@@ -989,7 +989,7 @@ async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() ->
 
 @pytest.mark.asyncio
 async def test_stop_during_profile_resolution_takes_effect_before_actor() -> None:
-    """Profile 解析期间收到 stop：prepare 与其余分配照常完成，进入 Actor 前生效（Q-15）。
+    """Profile 解析期间收到 stop：prepare 与其余分配照常完成，进入 Actor 前生效。
 
     CPU 与 finalize 均未调用；cleanup 补偿 prepare 的结果；分配已取得的租借已释放。
     """

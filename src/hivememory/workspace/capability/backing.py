@@ -1,4 +1,4 @@
-"""workspace 读取视图经总线访问 Patchouli backing 读取路由（宪章 §4.4 / §5.3）。
+"""workspace 读取视图经总线访问 Patchouli backing 读取路由。
 
 实现 ``workspace.resolution.CanonicalReadBackend``：resolver 的 L2 冷读经
 ``GlobalSystemBus`` 调用 Patchouli 公共 backing 路由（第二层 client-server），

@@ -47,7 +47,7 @@ class CPUInputManifest(BaseModel):
         description="进程编译的附件 section 文本；未选择附件时为空字符串",
     )
     storage_available: bool = Field(default=True, description="记忆存储健康状态")
-    topic_id: str = Field(default="", description="本轮 Topic 准备结果；暂时保留")
+    topic_id: str = Field(default="", description="本轮 Topic 准备结果，只用于根帧挂载与观测")
     session_history: tuple[ConversationTurn, ...] = Field(
         default_factory=tuple, description="当前会话的全量历史快照，不按 Agent 过滤或截断"
     )

@@ -20,7 +20,7 @@ class ChatRequest(BaseModel):
     一律由统一请求头（``x-user-id`` / ``x-workspace-id``）承载，body 不再
     重复传递，避免同一请求出现两种身份事实。
 
-    ``attachments`` 是用户显式选择的附件数组（计划 9.2 节）：空数组与缺少
+    ``attachments`` 是用户显式选择的附件数组：空数组与缺少
     字段等价；同一 ``asset_ref`` 只能出现一次，重复即请求冲突；顺序属于
     用户输入，保留进请求 canonical 表示。ref 归属与版本校验在 Patchouli
     prepare 边界完成，HTTP 层只校验字段类型与数组结构。

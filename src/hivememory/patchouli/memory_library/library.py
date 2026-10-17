@@ -5,11 +5,9 @@ MemoryLibrary — 三级存储协调层（书库）
 负责各层之间的状态转移（archive / revive）。
 
 状态转移协议：
-    短期 → 中期：由 MemoryIngestionPipeline 驱动（Phase 4），Library 提供两端读写能力
+    短期 → 中期：由 Topic 结算触发的记忆生成驱动，Library 提供两端读写能力
     中期 → 长期：MemoryLibrary.archive()  （纯数据搬运）
     长期 → 中期：MemoryLibrary.revive()   （纯数据搬运）
-
-实现阶段: Phase 1 骨架
 """
 
 from __future__ import annotations

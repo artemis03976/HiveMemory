@@ -16,8 +16,8 @@ class AgentProfile(BaseModel):
     """
     人偶图纸配置 - Agent 运行时的完整配置信息
 
-    身份 (Identity): 由 agent_id 字段承载，来自源原子的 index.alias（A2 §2.3：
-        alias 即 AgentProfile 的 actor 面向身份，由模型自持；内置为 omni_doll）
+    身份 (Identity): 由 agent_id 字段承载，来自源原子的 index.alias；
+        alias 即 AgentProfile 的 actor 面向身份，由模型自持，内置为 omni_doll
     灵魂 (Persona): 由 persona 字段承载，来自 MemoryAtom.payload.content
     骨架 (Skeleton): 模型参数与语言，来自 MemoryAtom.payload.agent_config
 

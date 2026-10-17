@@ -5,7 +5,7 @@ HiveMemory - 记忆别名生成器 (Alias Generator)
     按 memory type 前缀 + 后缀构造 MTP 别名候选，并经中期库确认同一
     Workspace 内唯一；候选被占用时追加消歧后缀重试。
 
-唯一性分两层保证（A2 §8 D-4，见 docs/archive/todo/memory-alias-uniqueness.md）:
+唯一性分两层保证:
     - 第一层（本组件）: 生成侧查询中期库后给出空闲候选，让抽取草稿的正常
       路径不触碰冲突错误；
     - 第二层（``MidTermMemoryStore.upsert``）: 写入前兜底校验，覆盖手工
@@ -24,7 +24,7 @@ from uuid import UUID
 from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.core.models import WorkspaceIdentity
 
-# MTP 别名系统: MemoryType -> 别名前缀映射 (Section 2.3.1)
+# MTP 别名系统: MemoryType -> 别名前缀映射
 MEMORY_TYPE_ALIAS_PREFIX: dict[str, str] = {
     "CODE_SNIPPET": "code",
     "FACT": "fact",
@@ -129,7 +129,7 @@ class AliasGenerator:
         title: str,
     ) -> str | None:
         """
-        构建基础 MTP 别名候选 (Section 2.3.1)，不查询唯一性。
+        构建基础 MTP 别名候选，不查询唯一性。
 
         策略:
             1. 从 MEMORY_TYPE_ALIAS_PREFIX 取前缀

@@ -1,15 +1,14 @@
 """System Actor 接入注册表：受信调用来源的准入配置。
 
-A1 计划（docs/plans/v0.7.0-a1-workspace-access-boundary.md 第 2.2 节）
-确立的两类登记之一：本注册表由 System 持有，回答"哪个调用来源被允许
+两类访问登记之一：本注册表由 System 持有，回答"哪个调用来源被允许
 接入、通过什么 adapter、如何解析 Actor 身份"。它**不以 principal 配置
 授予任何 Workspace operation**——操作许可只由 Workspace Actor 访问注册表
 （``workspace.registry``）表达。
 
 最小内容：稳定调用来源标识、是否启用、连接/接收方式、可用 adapter 及
 身份解析规则。首版为进程内不可变本地配置；Alice 和本地管理入口也有
-显式的内置接入登记，无需模拟远程连接，具体外部凭据与协议转换由计划 B
-提供。principal 同名请求字段不构成"已注册"——请求必须匹配启用的接入
+显式的内置接入登记，无需模拟远程连接；外部调用来源的凭据与协议转换
+尚未实现。principal 同名请求字段不构成"已注册"——请求必须匹配启用的接入
 登记及相应 adapter。
 """
 
@@ -52,7 +51,7 @@ class SystemActorAccessEntry:
 
 
 class SystemActorAccessRegistry:
-    """进程内不可变的 System 接入注册表（v0.7.0 首版本地配置）。
+    """进程内不可变的 System 接入注册表（本地配置）。
 
     供 ``system.access.ActorAuthenticationGateway`` 在第一项认证中查询。
     未登记与已禁用的来源统一按未知 principal 拒绝，不区分两者，避免

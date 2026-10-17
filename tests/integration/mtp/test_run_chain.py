@@ -166,7 +166,7 @@ class TestRunSyscallFastPath:
         assert "import" in result.formatted_response.lower()
 
     def test_sys_python_repl_multiline(self, koakuma):
-        # 使用反引号语法支持多行代码 (Section 2.1)
+        # 使用反引号语法支持多行代码
         result = _execute_mtp(
             koakuma, "⟪ RUN | sys_python_repl | code=`x = 10\ny = 20\nprint(x + y)` ⟫"
         )

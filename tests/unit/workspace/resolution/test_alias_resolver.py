@@ -1,11 +1,11 @@
-"""AliasResolver 的单元测试（A2 §2.2 workspace memory read 能力）。
+"""AliasResolver（workspace memory read 能力）的单元测试。
 
 被测对象：L1 命中不回源且逐次授权、L2 冷读受 Workspace 代次守护（代次变化
 拒绝旧值回填与成功返回）、归属纵深防御、不写负缓存、alias 批读的顺序与
 去重、语义检索的协作预热，以及关闭语义。backing 以内存替身实现（被测
 单元边界之外的 Patchouli），按 backing 契约只返回当前 Actor 可读的原子。
 
-resolver 与 backing 位于授权点以下（A1 访问边界返工第 4.1 节）：只流动
+resolver 与 backing 位于授权点以下：只流动
 授权点组装的可信 ``IdentityScope``，不接收访问 context。
 """
 

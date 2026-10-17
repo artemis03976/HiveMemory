@@ -1,7 +1,7 @@
 """附件固定格式分派表的单元测试。
 
-被测对象：``system/services/attachments/formats.py`` 的批准格式集合与
-``resolve_attachment_format`` 分派规则（计划 7.1 节）。
+被测对象：``infrastructure/attachments/formats.py`` 的批准格式集合与
+``resolve_attachment_format`` 分派规则。
 """
 
 import pytest

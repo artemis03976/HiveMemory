@@ -56,7 +56,7 @@ class DenseRetriever(BaseMemoryRetriever):
         Args:
             mid_term: 中期记忆存储
             config: 检索器配置
-            now: 评分决策时刻的局部注入（A2-P 时间边界）；默认当前 UTC
+            now: 评分决策时刻的局部注入；默认当前 UTC
         """
         self.mid_term = mid_term
         self._now = now or (lambda: datetime.now(UTC))
@@ -115,7 +115,7 @@ class DenseRetriever(BaseMemoryRetriever):
 
             # 时间衰减
             if self.config.enable_time_decay:
-                # 时间衰减基准与生命力评分一致：decay_anchor_at（A2-P §3.1）。
+                # 时间衰减基准与生命力评分一致：decay_anchor_at。
                 decay = self._calculate_time_decay(memory.meta.lifecycle.decay_anchor_at)
                 boost = (1 - decay) * 0.1  # 最多 10% 的时间惩罚
                 final_score = vector_score * (1 - boost)

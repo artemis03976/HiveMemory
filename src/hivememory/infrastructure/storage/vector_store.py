@@ -54,7 +54,7 @@ def _storage_error(exc: Exception, *, operation: str, write: bool) -> SystemFaul
     """把存储异常归类为结构化错误：连接类为离线，其余按读/写区分。
 
     失败必须传播给调用方：读取失败不能伪装成"没有记忆"，写入/删除失败不能
-    伪装成已生效（A2-P M0.3）。
+    伪装成已生效。
     """
     logger.error("Memory 存储操作失败: %s: %s", operation, exc, exc_info=True)
     if isinstance(exc, _OFFLINE_ERRORS):
@@ -256,7 +256,7 @@ class QdrantMemoryStore:
         query_filter: Filter,
     ) -> MemoryAtom | None:
         """
-        根据别名精确匹配检索记忆 (L2 Cold Lookup, MTP Section 2.3.2)
+        根据别名精确匹配检索记忆（L2 冷读）
 
         使用 scroll API + FieldCondition 精确匹配 index.alias 字段。
 

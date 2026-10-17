@@ -98,7 +98,7 @@ def test_snapshot_validation_rejects_wrong_embedded_schema():
 def test_snapshot_validation_rejects_placeholder_structure():
     """顶层键齐全但 meta 为空占位的"伪完整原子"不能冒充完整快照。
 
-    旧裁剪快照只有 content/tags，补空结构后标记 2.1 属于 §7.2 禁止的伪装。
+    旧裁剪快照只有 content/tags，补空结构后标记为 2.1 等于把它伪装成完整快照，必须拒绝。
     """
     placeholder = {
         "schema_version": "2.1",
@@ -175,7 +175,7 @@ def test_create_v1_rejects_snapshot_before():
 
 
 def test_version_number_must_match_embedded_atom_version():
-    """version_number 与 snapshot_after.meta.version 必须一致（§3.4）。"""
+    """version_number 与 snapshot_after.meta.version 必须一致。"""
     with pytest.raises(ValidationError, match="version_number=3"):
         _version_artifact(version_number=3)
 
@@ -187,7 +187,7 @@ def test_version_record_rejects_snapshot_of_other_memory():
 
 
 def test_version_record_rejects_snapshot_from_other_workspace():
-    """快照 Workspace 与记录归属不一致时拒绝（§5.3 同属一个 Workspace）。"""
+    """快照 Workspace 与记录归属不一致时拒绝：快照与记录必须同属一个 Workspace。"""
     other = WorkspaceIdentity(
         owner_user_id="u1",
         workspace_key="isolation_workspace",

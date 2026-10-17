@@ -5,7 +5,7 @@
 GET 读取路径必然 TypeError（WRX-1 修复）。本文件同时锁定 get_by_alias
 与 search/scroll 的同构透传行为（list_memories 曾因门面 scroll/search
 缺参导致 /api/v1/memories 与 /api/v1/agents 全量 500），以及 ``upsert``
-在主后端写入前的 alias 唯一性兜底（A2 §8 D-4 第二层）。
+在主后端写入前的 alias 唯一性兜底（第二层）。
 """
 
 from __future__ import annotations
@@ -191,7 +191,7 @@ def test_store_forwards_enforce_flag_for_search_and_scroll():
 
 
 def test_store_forwards_patch_payload_to_primary_and_secondary():
-    """MVL-2: patch_payload 必须把同一 patch 沿顺序转发 primary 与全部 secondary。"""
+    """patch_payload 必须把同一 patch 沿顺序转发 primary 与全部 secondary。"""
     call_order: list[str] = []
     primary = _RecordingPort(name="primary", call_order=call_order)
     secondary = _RecordingPort(name="secondary", call_order=call_order)
@@ -213,7 +213,7 @@ def test_store_forwards_patch_payload_to_primary_and_secondary():
 
 
 def test_store_propagates_secondary_failure_for_upsert_and_patch():
-    """MVL-4：primary 成功后 secondary 失败时，门面必须让错误按序直接传播（不吞）。"""
+    """primary 成功后 secondary 失败时，门面必须让错误按序直接传播（不吞）。"""
     primary = _MutatingPort(name="primary")
     secondary = _MutatingPort(name="secondary", fail_with=RuntimeError("secondary down"))
     store = MidTermMemoryStore(primary, secondary=[secondary])

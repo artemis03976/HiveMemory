@@ -5,7 +5,7 @@
  * - 逐文件上传队列：每项拥有独立的 queued/uploading/uploaded/failed 状态
  * - 单一串行泵按 FIFO 逐项提交：同一时刻至多一个上传在执行，前一个文件
  *   完成（含失败）后才启动下一个；跨批次与重试同样生效
- * - Chat 回合选择（计划 9.1 节）：只有服务端 required representation READY
+ * - Chat 回合选择：只有服务端 required representation READY
  *   的项可选；选择集合按选择顺序保存，发送时以快照冻结
  * - 队列项首次入队时生成稳定 operation ID（Idempotency-Key），重试沿用
  * - 上传是独立于 Chat SSE run 的资产命令，可在生成期间继续接收文件

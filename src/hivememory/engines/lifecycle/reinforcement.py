@@ -3,7 +3,7 @@ HiveMemory - 动态强化引擎
 
 处理记忆生命周期事件，动态调整生命力分数和置信度。
 
-事件效果 (A2-P 冻结契约):
+事件效果:
 - HIT:              lifecycle.event_vitality_boost += 5,  access_count += 1,  不推进衰减基准
 - CITATION:         lifecycle.event_vitality_boost += 20, access_count += 1,  推进衰减基准 (decay_anchor_at = now)
 - FEEDBACK_POSITIVE: lifecycle.event_vitality_boost += 50, access_count += 1, 不推进衰减基准
@@ -72,7 +72,7 @@ class DynamicReinforcementEngine:
     ):
         self._mid_term = mid_term
         self.config = config
-        # A2-P 时间边界：一次强化事件的提交时点来源（局部注入）。
+        # 一次强化事件的提交时点来源（局部注入，不读全局时钟）。
         self._now = now or utc_now
         self._event_history: list[ReinforcementResult] = []
         self.vitality_calculator = vitality_calculator
@@ -110,7 +110,7 @@ class DynamicReinforcementEngine:
             logger.warning(f"Memory not found for reinforcement: {memory_id}")
             raise ValueError(f"Memory {memory_id} not found")
 
-        # 一次事件只取一个提交时点（时间边界 §2.3），全部字段共享。
+        # 一次事件只取一个提交时点，全部字段共享。
         current = self._now()
 
         # 记录当前状态
@@ -131,7 +131,7 @@ class DynamicReinforcementEngine:
             min(100.0, memory.meta.lifecycle.event_vitality_boost + adjustment),
         )
 
-        # 更新访问元信息（A2-P：业务时间统一 UTC；MVL-2 起持久化改走受限 patch）
+        # 更新访问元信息（业务时间统一 UTC；持久化走受限 patch）
         # 注意: 只更新 last_accessed_at；衰减基准仅在 CITATION 主动复习时推进
         # (上面 _handle_citation 已处理)。HIT 不推进 decay_anchor_at，让遗忘曲线持续作用。
         memory.meta.lifecycle.access_count += 1
@@ -141,7 +141,7 @@ class DynamicReinforcementEngine:
         new_vitality = self._clamp_vitality(self.vitality_calculator.calculate(memory))
         memory.meta.lifecycle.vitality_score = new_vitality
 
-        # 受限局部更新：只提交本事件授权的 lifecycle 字段（A2-P §4.1）。
+        # 受限局部更新：只提交本事件授权的 lifecycle 字段。
         # access_count 为调用方基于当前原子计算后的完整替换值。
         patch: dict[str, Any] = {
             "meta.lifecycle.access_count": memory.meta.lifecycle.access_count,

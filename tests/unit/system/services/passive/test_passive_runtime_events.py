@@ -1,6 +1,6 @@
 """Passive ingress 可观测性契约测试。
 
-覆盖 v0.6.0 设计 §9 与验收清单 #9：
+覆盖：
     - Passive 事件接收、duplicate 与 memory context 按语义发布
     - submission 生命周期统一由通用 WORK_* 事件观测
     - 观测信息只进 RuntimeEventSink，不进 outcome / 公共响应
@@ -101,7 +101,7 @@ class _Recorder:
         return _decision()
 
     async def retrieve(self, **kwargs):
-        # 检索路由返回完整原子列表（A2 §2.1）。
+        # 检索路由返回完整原子列表。
         return list(self.memories)
 
     async def submit(self, submission):
@@ -212,7 +212,7 @@ async def test_non_user_event_does_not_publish_memory_context() -> None:
 
 @pytest.mark.asyncio
 async def test_events_never_carry_external_content_or_tool_args() -> None:
-    """§9：passive event 不记录外部消息全文、tool args 或完整 memory context。"""
+    """passive event 不记录外部消息全文、tool args 或完整 memory context。"""
     recorder = _Recorder()
     recorder.memories = [_memory()]
     ingressor, sink = _build(recorder)

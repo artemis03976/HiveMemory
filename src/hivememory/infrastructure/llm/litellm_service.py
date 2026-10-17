@@ -271,7 +271,7 @@ class LiteLLMService(SingletonLLMService):
         """
         异步生成聊天补全
 
-        并发范式 (参考 Concurrent.md):
+        并发范式:
             这是热链路 LLM 调用，使用 await 确保阻塞。
 
         Args:

@@ -1,8 +1,7 @@
 """Workspace 授权：actor 操作、root 管理、系统阶段与进程控制。
 
 :class:`WorkspaceOperationAuthorizer` 是授权点（能力层、任务进程的阶段
-检查、注册入口的取消与状态查询）使用的操作授权者（A1 访问边界返工第
-4.2 节，身份与访问体系 Idea I-10 及其 2026-10-04 补充）：它无状态，只
+检查、注册入口的取消与状态查询）使用的操作授权者：它无状态，只
 依赖 Workspace Actor 访问登记——每次授权都读取 context 密封的授予内容，
 再校验目标 workspace 与 owner，按调用面检查 actor 操作白名单或保留的
 system 身份；任务进程阶段不检查操作白名单。授权成功后组装并返回
@@ -10,7 +9,7 @@ system 身份；任务进程阶段不检查操作白名单。授权成功后组�
 
 认证与授权互不依赖：本模块不导入认证一侧（``workspace.authentication``），
 只经 context 这个类型与它发生联系；也不导入任务进程与能力层。授权点
-显式接收目标 workspace（I-4）：它是这次操作的参数，不是身份；当前只
+显式接收目标 workspace：它是这次操作的参数，不是身份；当前只
 接受等于驻留 workspace 的目标，受限穿透访问落地后在此放宽。
 """
 
@@ -59,8 +58,7 @@ class WorkspaceOperationAuthorizer:
         """第 3 阶段操作授权：确认 context 有效，返回目标 workspace 的可信 scope。
 
         目标不等于驻留 workspace、actor 用户不是目标 workspace 的 owner、
-        或访问登记的白名单不含该 operation 时分别以稳定 reason 拒绝
-        （A1 访问边界返工第 4.2 节）。
+        或访问登记的白名单不含该 operation 时分别以稳定 reason 拒绝。
         """
         if not isinstance(operation, WorkspaceOperation):
             raise TypeError("operation 必须是 WorkspaceOperation")
@@ -108,7 +106,7 @@ class WorkspaceOperationAuthorizer:
         requestor: WorkspaceAccessContext,
         record_access: WorkspaceAccessContext,
     ) -> bool:
-        """进程控制授权：比对请求方与进程记录的驻留坐标（P-7）。
+        """进程控制授权：比对请求方与进程记录的驻留坐标。
 
         两份 context 驻留在同一 owner 与 workspace 时返回 ``True``（沿用
         既有进程表比对规则）；请求方 context 无效以 ``ScopeRequiredError``
@@ -213,9 +211,9 @@ class WorkspaceOperationAuthorizer:
     ) -> None:
         """操作授权的目标 workspace 与 owner 检查。
 
-        目标检查（I-4）当前只接受等于驻留 workspace 的目标，受限穿透访问
-        落地后在此放宽；owner 约束（W0 基线）在第 3 阶段检查，身份类型
-        不承担授权规则（I-5）。
+        目标检查当前只接受等于驻留 workspace 的目标，受限穿透访问
+        落地后在此放宽；owner 约束（成员模型落地前的准入约束）在第 3 阶段检查，身份类型
+        不承担授权规则。
         """
         if not isinstance(target_workspace, WorkspaceIdentity):
             raise TypeError("target_workspace 必须是 WorkspaceIdentity")

@@ -1,6 +1,6 @@
 """SystemActorAccessRegistry 的单元测试。
 
-被测对象：system.access.registry（A1 计划第 2.2 节）。保护的契约：来源
+被测对象：system.access.registry。保护的契约：来源
 登记的装载校验（重复 principal、空 adapter 集合）、查询返回登记本身、
 禁用与未登记由网关统一折叠处理。
 """

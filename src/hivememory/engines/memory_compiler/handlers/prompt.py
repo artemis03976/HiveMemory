@@ -105,8 +105,7 @@ def _render_full_from_ir(
         else _text("memory_time_unknown", language)
     )
 
-    # A2-P 移除 history_summary 后历史占位恒为空；正式历史展示由
-    # MemoryVersionArtifact 历史编译链路承担（v0.7.3 MTP READ）。
+    # 历史占位恒为空：记忆的版本历史不在 prompt 编译中展示。
     history = ""
 
     return _text("memory_full_item_template", language).format(

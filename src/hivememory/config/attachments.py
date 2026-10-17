@@ -1,11 +1,11 @@
-"""Chat 附件的组件级配置（计划 7.7 / 10.4 节）。
+"""Chat 附件的组件级配置。
 
 按"一个组件一份 config"的既有惯例拆分：``AttachmentParserConfig`` 承载
-W1-B 确定性解析的资源限制，``AttachmentCompilerConfig`` 承载 W1-E 附件
-编译的预算。``max_raw_bytes`` 由上传接收（W1-A）与 parser（W1-B）共用
-同一个值（计划 7.7 节），避免"上传合规但解析必然超限"的配置漂移。
+确定性解析的资源限制，``AttachmentCompilerConfig`` 承载附件
+编译的预算。``max_raw_bytes`` 由上传接收与 parser 共用
+同一个值，避免"上传合规但解析必然超限"的配置漂移。
 
-首轮限制取自计划的建议默认值，实现时用边界样例校准。
+默认限制按边界样例校准。
 """
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -14,13 +14,13 @@ _MIB = 1024 * 1024
 
 
 class AttachmentParserConfig(BaseModel):
-    """确定性解析（W1-B）的资源限制。
+    """确定性解析的资源限制。
 
     解析输出、解压和结构上限独立于 RAW 输入上限计算，因此上传合规的
     文件仍可能在解析阶段因输出超限进入 FAILED，这不属于上传状态回滚。
     """
 
-    # 与上传接收（W1-A）共用的 RAW 字节数硬上限。
+    # 与上传接收共用的 RAW 字节数硬上限。
     max_raw_bytes: int = Field(default=10 * _MIB, ge=1)
     # 提取正文 UTF-8 大小上限，在解码/提取过程中累计。
     max_extracted_text_bytes: int = Field(default=8 * _MIB, ge=1)
@@ -49,7 +49,7 @@ class AttachmentParserConfig(BaseModel):
 
 
 class AttachmentCompilerConfig(BaseModel):
-    """附件编译（W1-E）的预算。
+    """附件编译的预算。
 
     多附件严格按用户选择顺序处理；单附件超出字符预算或 chunk 数上限时
     在 locator 边界保留前部完整内容并声明 truncated；合计超出总预算时

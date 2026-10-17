@@ -1,4 +1,4 @@
-"""DOCX 正文提取器与真实 ZIP/XML 依赖的集成测试（计划 15.4 节）。
+"""DOCX 正文提取器与真实 ZIP/XML 依赖的集成测试。
 
 被测协作边界：``DocxAttachmentParser`` 使用真实 ``zipfile`` 与
 ``defusedxml`` 处理内存中构造的 DOCX 包样本；覆盖正文顺序、段落级

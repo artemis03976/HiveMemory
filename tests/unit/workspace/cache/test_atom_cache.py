@@ -1,4 +1,4 @@
-"""AtomCache 的单元测试（A2 §3 完整原子缓存）。
+"""AtomCache（完整原子缓存）的单元测试。
 
 被测对象：Workspace 分区寻址、alias 正反索引与 LRU 淘汰的一致性，以及
 copy-on-read 的引用隔离。缓存不做授权与回源，相关行为由 resolver 测试覆盖。

@@ -1,7 +1,7 @@
 """附件固定格式分派表。
 
-W1-A 上传白名单、前端 file input ``accept`` 与 W1-B parser 分派必须共用
-本模块冻结的同一格式集合（计划 7.1 节）。客户端声明的 MIME 只作为提示，
+上传白名单、前端 file input ``accept`` 与 parser 分派必须共用
+本模块冻结的同一格式集合。客户端声明的 MIME 只作为提示，
 不能作为格式判断的唯一依据；格式冲突时返回稳定错误，不凭 MIME 选择
 解析器，也不在 DOCX 解析失败后回退为 TXT。
 """
@@ -10,7 +10,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-# 7.1 节冻结的规范媒体类型；扩展名大小写不敏感。
+# 冻结的规范媒体类型；扩展名大小写不敏感。
 MEDIA_TYPE_PLAIN_TEXT = "text/plain"
 MEDIA_TYPE_MARKDOWN = "text/markdown"
 MEDIA_TYPE_DOCX = "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
