@@ -335,7 +335,9 @@ def test_write_creates_memory(self):
 
 - 每个测试类/文件用一行 docstring 说明被测对象与范围；
 - 禁止从其他文件复制 docstring 导致与实际内容不符（审计发现 `system/application/` 下 5 个文件 docstring 全部
-  复制自同一模板、`core/mtp/` 3 个文件 docstring 互相雷同）。
+  复制自同一模板、`core/mtp/` 3 个文件 docstring 互相雷同）；
+- docstring 与注释直接写出被测的行为与契约，不写“某计划验收”“第 N 节”“证据 N”或计划、决定编号，规则见
+  [文档治理规范](../../DOCUMENTATION.md)第 11.2 节。
 
 ## 8. fixture 与隔离规范
 
