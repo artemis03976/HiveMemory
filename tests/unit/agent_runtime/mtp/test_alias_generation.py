@@ -1,13 +1,11 @@
 """
-MTP 别名系统测试 (Section 2.3)
+MTP 别名系统测试
 
 测试覆盖:
 - MemoryAtom.get_alias() 的存储别名优先逻辑
 
 别名构建与 Workspace 内唯一性由 ``AliasGenerator`` 负责，见
 ``tests/unit/engines/generation/test_alias.py``。
-
-对应设计文档: MemoryToolProtocol.md Section 2.3
 """
 
 from unittest.mock import MagicMock

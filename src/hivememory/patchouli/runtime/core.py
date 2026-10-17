@@ -123,7 +123,7 @@ class PatchouliRuntime:
         self._patchouli_config = patchouli_config
         self._shared_config = shared_config
         self._runtime_events = runtime_events or NullRuntimeEventSink()
-        # 进程级唯一 WorkspaceAssetStore 的只读 reader（W1-F）：供记忆生成
+        # 进程级唯一 WorkspaceAssetStore 的只读 reader：供记忆生成
         # 使魔在 promotion 时按 binding.asset_ref acquire 内容。
         self._workspace_asset_reader = workspace_asset_reader
         self._local_bus = PatchouliBus()
@@ -477,7 +477,7 @@ class PatchouliRuntime:
             mid_term=self.memory_library.mid_term,
             extractor=extractor,
             deduplicator=deduplicator,
-            # alias 唯一性第一层：生成侧以中期库为占用查询端口（A2 §8 D-4）。
+            # alias 唯一性第一层：生成侧以中期库为占用查询端口。
             alias_generator=AliasGenerator(self.memory_library.mid_term),
         )
 
@@ -498,7 +498,7 @@ class PatchouliRuntime:
 
         memory_builder = create_memory_builder(config.memory, store)
         if isinstance(memory_builder, NoOpMemoryArtifactBuilder):
-            # A2-P §5.3：版本记录是内容提交成功的前置条件。此处只做启动
+            # 版本记录是内容提交成功的前置条件。此处只做启动
             # 诊断——内容 create/update 会在 Familiar 明确失败。
             logger.warning(
                 "Memory 版本存储未启用（patchouli.artifacts.enabled=%s, "

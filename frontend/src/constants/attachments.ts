@@ -1,8 +1,8 @@
 /**
  * Chat 附件上传的共享常量
  *
- * 与后端 `system/services/attachments/formats.py` 冻结的批准格式集合
- * 保持一致（计划 7.1 节：前端 accept、上传白名单与 parser 分派共用
+ * 与后端 `src/hivememory/infrastructure/attachments/formats.py` 冻结的批准格式集合
+ * 保持一致（前端 accept、上传白名单与 parser 分派共用
  * 同一格式集合）；两侧修改时必须同步。客户端不做本地格式校验，格式
  * 与大小以后端稳定错误为准。
  */

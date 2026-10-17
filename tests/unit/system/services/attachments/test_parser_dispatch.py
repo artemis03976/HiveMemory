@@ -1,7 +1,7 @@
-"""附件解析器固定分派的单元测试（计划 7.1 / 7.8 节）。
+"""附件解析器固定分派的单元测试。
 
-被测对象：``system/services/attachments/parser.py`` 的 ``resolve_parser``；
-分派集合与 W1-A 上传白名单共用同一冻结格式表。
+被测对象：``infrastructure/attachments/parser.py`` 的 ``resolve_parser``；
+分派集合与上传白名单共用同一冻结格式表。
 """
 
 import pytest

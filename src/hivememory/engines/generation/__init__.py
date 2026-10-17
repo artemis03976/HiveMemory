@@ -8,8 +8,6 @@ HiveMemory - 记忆生成模块 (MemoryGeneration)
 - Deduplicator: 查重与知识演化管理器
 - MemoryGenerationOrchestrator: 编排器，协调所有组件
 
-对应设计文档: PROJECT.md 第 4 章
-
 跨域共享类型（``WriteFocus`` / ``UpdateFocus`` / ``PendingAtomSettlement``）
 已上移到 ``hivememory.core.models``。
 

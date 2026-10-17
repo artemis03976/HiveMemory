@@ -200,7 +200,7 @@ class InteractionSubmissionHandler(
         payload: InteractionSubmission,
         context: WorkExecutionContext,
     ) -> InteractionSubmissionResult:
-        # W1-F：只有实际进入 attachment_context 的 bound refs 才进入 binding
+        # 只有实际进入 attachment_context 的 bound refs 才进入 binding
         # 投影（按 payload 顺序一次性投影）；selected 但被编译跳过的项不建立
         # binding，handler 也不按文件名或当前选择重新推导。
         asset_refs = tuple(payload.payload.used_attachments)

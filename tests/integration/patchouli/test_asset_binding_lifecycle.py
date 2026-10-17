@@ -1,7 +1,7 @@
 """TopicAssetBinding 与 WorkspaceAssetStore remove/acquire 竞态集成测试。
 
 使用真实 ``InMemoryWorkspaceAssetStore``、``ShortTermMemoryStore`` 与
-``PerceptionFamiliar`` 验证 design v0.6.2 §8.6 的跨 Store 竞态结果：
+``PerceptionFamiliar`` 验证跨 Store 竞态的结果：
 - remove-before-acquire：本轮无使用事实，不建立 binding；
 - acquire-before-remove：已有 lease 可完成，成功 Interaction 后留下 binding；
 - remove 后历史 binding 保留，但新 acquire 稳定失败。

@@ -1,4 +1,4 @@
-"""AttachmentCompiler：独立于 MemoryCompiler 的附件上下文编译组件（W1-E）。
+"""AttachmentCompiler：独立于 MemoryCompiler 的附件上下文编译组件。
 
 输出契约模型位于 ``hivememory.core.models.attachment_compile``。
 """

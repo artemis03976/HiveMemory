@@ -191,7 +191,7 @@ class RetrievalFamiliar:
     ) -> ResolvedAgentProfile:
         """
         Profile 解析的唯一实现：builtin/alias 查找/可见性校验/类型校验/解析
-        只维护在本方法，返回 ``ResolvedAgentProfile``（A2 §8 D-3）。
+        只维护在本方法，返回 ``ResolvedAgentProfile``。
 
         只有未指定 alias 或明确选择内置 ``default`` / ``omni_doll`` 时才返回
         Omni-Doll（无源原子）。任何自定义 alias 的缺失、越权、类型错误或配置
@@ -234,7 +234,7 @@ class RetrievalFamiliar:
 
     async def retrieve(self, query: RetrievalQuery, top_k: int | None = None) -> list[MemoryAtom]:
         """
-        语义检索相关记忆，按领域排序返回完整原子列表（A2 §2.1）。
+        语义检索相关记忆，按领域排序返回完整原子列表。
 
         检索失败（存储不可用、引擎异常）按原错误传播，不伪装为空列表；
         耗时等诊断信息只进入日志，由调用侧 adapter 自行测量。
@@ -270,7 +270,7 @@ class RetrievalFamiliar:
         from_actor: ActorIdentity,
     ) -> list[MemoryAtom]:
         """
-        精确按 alias 取回实际可读的完整原子（A2 §2.1）。
+        精确按 alias 取回实际可读的完整原子。
 
         alias 先去首尾空白并按首次出现去重，结果保持请求顺序；缺失或对当前
         Actor 不可见的 alias 不出现在结果中（不以下标表达逐项状态）。存储
@@ -323,7 +323,7 @@ class RetrievalFamiliar:
         now = utc_now()
         for memory in memories:
             try:
-                # 受限局部更新：只推进访问计数与最近访问时间（A2-P §4.1）。
+                # 受限局部更新：只推进访问计数与最近访问时间。
                 await self._memory_library.mid_term.patch_payload(
                     WorkspaceMemoryKey(
                         workspace_identity=belong_to,

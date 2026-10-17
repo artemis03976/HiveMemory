@@ -348,7 +348,7 @@ class TestRetrievalFamiliarRetrieve:
 
     @pytest.mark.asyncio
     async def test_retrieve_engine_failure_propagates_instead_of_empty_list(self):
-        """引擎异常按原错误传播，不伪装为"没有检索到记忆"（A2 §2.1）。"""
+        """引擎异常按原错误传播，不伪装为"没有检索到记忆"。"""
         self.mock_engine.retrieve.side_effect = RuntimeError("engine error")
 
         with pytest.raises(RuntimeError, match="engine error"):
@@ -462,7 +462,7 @@ class TestRetrievalFamiliarAccessStats:
         await self.familiar.update_access_stats(
             make_identity_scope(user_id="u1").workspace_identity, [m1, m2]
         )
-        # MVL-2: 逐条 patch_payload，单条失败 warning 吞掉，不中断后续条目
+        # 逐条 patch_payload，单条失败 warning 吞掉，不中断后续条目
         assert self.mock_library.mid_term.patch_payload.call_count == 2
         first_call = self.mock_library.mid_term.patch_payload.call_args_list[0]
         key, patch = first_call.args

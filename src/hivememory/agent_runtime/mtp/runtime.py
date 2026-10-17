@@ -18,8 +18,6 @@
     ├── AgentRuntime (Agent 运行循环)
     └── KoakumaRuntime (MTP / 工具执行)
 
-对应设计文档: MemoryToolProtocol.md Chapter 3 & 4
-
 作者: HiveMemory Team
 版本: 1.0
 """
@@ -265,7 +263,7 @@ class KoakumaRuntime:
         context: MTPExecutionContext | None = None,
     ) -> MTPExecutionResult | None:
         """
-        拦截检测 + 执行 (Section 3.1.2 Stop Sequence 场景)
+        拦截检测 + 执行（Stop Sequence 场景）
 
         当 LLM API 因 stop=["⟫"] 而停止时调用。
         检测文本末尾是否包含 MTP 指令，如果是则执行。
@@ -308,7 +306,7 @@ class KoakumaRuntime:
         context: MTPExecutionContext,
     ) -> MTPResponse:
         """
-        路由并执行 MTP 指令 (Section 3)
+        路由并执行 MTP 指令
 
         根据 VERB 分发到对应的处理器。
         集中捕获所有 MTP 语义化异常，格式化为 Agent 可读的错误提示。
@@ -325,7 +323,7 @@ class KoakumaRuntime:
             MTPVerb.RUN: self._handle_run,
             MTPVerb.WRITE: self._handle_write,
             MTPVerb.UPDATE: self._handle_update,
-            MTPVerb.CALL: self._handle_call,  # Phase 2: 子代理调用
+            MTPVerb.CALL: self._handle_call,  # 子代理调用
         }
 
         handler = handlers.get(command.verb)
@@ -395,12 +393,12 @@ class KoakumaRuntime:
         context: MTPExecutionContext,
     ) -> MTPResponse:
         """
-        处理 SEARCH 指令 (Section 2.2)
+        处理 SEARCH 指令
 
         提交检索请求，经 workspace 授权与缓存预热后，
         再通过 MemoryCompiler 编译为 Agent 可读文本。
 
-        Type A 数据类响应 (Section 3.3.3)
+        Type A 数据类响应
 
         Args:
             command: SEARCH 指令 (target=*, args: query="...", filter="...")
@@ -412,7 +410,7 @@ class KoakumaRuntime:
         if not query:
             raise InvalidArgumentError(message_key="mtp.search.missing_query")
 
-        # 解析 filter 参数 (Section 2.2)
+        # 解析 filter 参数
         # 例如 filter="type:CODE" → QueryFilters(memory_type=CODE_SNIPPET)
         # 宽容解析: 非法 filter 降级为 None，但返回警告
         filter_str = command.args.get("filter", "")
@@ -464,11 +462,11 @@ class KoakumaRuntime:
         context: MTPExecutionContext,
     ) -> MTPResponse:
         """
-        处理 READ 指令 (Section 2.2)
+        处理 READ 指令
 
         获取记忆原子的 Payload 内容。支持列表并行读取。
 
-        Type A 数据类响应 (Section 3.3.3)
+        Type A 数据类响应
 
         Args:
             command: READ 指令 (target=alias 或 [alias1, alias2])
@@ -566,13 +564,13 @@ class KoakumaRuntime:
         context: MTPExecutionContext,
     ) -> MTPResponse:
         """
-        处理 RUN 指令 (Section 2.2)
+        处理 RUN 指令
 
         两层分发:
         - 系统工具快速路径: 命中 syscall 注册表的 sys_* 工具在本地执行
         - 用户工具路径: 经 ResolveRunTargetRequest 解析 CODE_SNIPPET 记忆 → 沙箱执行
 
-        Type B 动作类响应 (Section 3.3.3)
+        Type B 动作类响应
 
         Args:
             command: RUN 指令 (target=tool_alias, args=key-value pairs)
@@ -650,12 +648,12 @@ class KoakumaRuntime:
         context: MTPExecutionContext,
     ) -> MTPResponse:
         """
-        处理 WRITE 指令 (Section 2.2 + 附录B)
+        处理 WRITE 指令
 
         将 WRITE 内容打包为操作请求，经 workspace 登记并实时派发；
         生成队列接纳后返回 ACK，正式记忆由 Patchouli 异步生成。
 
-        Type B 动作类响应 (Section 3.3.3)
+        Type B 动作类响应
 
         Args:
             command: WRITE 指令 (target=*, args: content=`...`, reason="...", title="...")
@@ -703,7 +701,7 @@ class KoakumaRuntime:
         将 UPDATE 意图交给 workspace 验证、登记并实时派发；
         生成队列接纳后返回 ACK，正式记忆由 Patchouli 异步更新。
 
-        Type B 动作类响应 (Section 3.3.3)
+        Type B 动作类响应
 
         Args:
             command: UPDATE 指令 (target=alias, args: instruction="...", content=`...`)
@@ -760,7 +758,7 @@ class KoakumaRuntime:
         context: MTPExecutionContext | None = None,
     ) -> MTPResponse:
         """
-        处理 CALL 指令 - 触发子代理调用 (Phase 2)
+        处理 CALL 指令 - 触发子代理调用
 
         此方法仅负责验证参数和权限，实际调用由 Alice 的 CallCoordinator 处理。
         返回特殊的 SUSPEND 状态，通知运行时交还 frame 控制权。

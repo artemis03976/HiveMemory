@@ -1,6 +1,6 @@
-"""AttachmentCompiler 的单元测试（计划 15.1 / E 门）。
+"""AttachmentCompiler 的单元测试。
 
-被测边界：真实 compiler 组件；lease 由测试按 W1-D 的 prepare 出口构造。
+被测边界：真实 compiler 组件；lease 由测试按 Chat 附件选择后冻结的形态构造。
 覆盖确定性 section、用户顺序、预算截断、逐项降级与整体失败。
 """
 
@@ -34,7 +34,7 @@ def _lease_for(
     content_hash: str | None = None,
     content_override: object = None,
 ) -> RepresentationLease:
-    """按 W1-B 产物形态构造冻结 representation lease。"""
+    """按确定性解析的产物形态构造冻结 representation lease。"""
     if content_override is not None:
         content = content_override
     else:

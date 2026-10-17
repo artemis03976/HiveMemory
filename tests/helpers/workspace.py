@@ -1,4 +1,4 @@
-"""测试专用 IdentityScope、RuntimeScope 与 A1 访问组合构造器。"""
+"""测试专用 IdentityScope、RuntimeScope 与访问组合构造器。"""
 
 from collections.abc import Iterable
 from dataclasses import dataclass, field
@@ -101,7 +101,7 @@ def make_runtime_scope(
 
 
 # ---------------------------------------------------------------------------
-# A1 访问组合辅助：统一认证网关 + 共享行为检查的显式本地组合
+# 访问组合辅助：统一认证网关 + 共享行为检查的显式本地组合
 # ---------------------------------------------------------------------------
 
 ALL_OPERATIONS = frozenset(WorkspaceOperation)

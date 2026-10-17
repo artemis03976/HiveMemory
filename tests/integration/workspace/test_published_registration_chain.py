@@ -1,4 +1,4 @@
-"""随仓库发布的访问登记文件驱动的集成链路验收（A1 访问边界返工第 8 节）。
+"""随仓库发布的访问登记文件驱动的集成链路测试。
 
 被测链路：``load_access_registration()`` 装载随仓库发布的两个登记文件
 （``configs/system_principals.yaml`` 与 ``configs/workspace_actors.yaml``），
@@ -497,7 +497,7 @@ async def test_chat_full_chain_succeeds_through_published_registration(published
 
 
 # ---------------------------------------------------------------------------
-# 1.5 取消经发布登记成功（第 8 节集成清单：取消）
+# 1.5 取消经发布登记成功
 # ---------------------------------------------------------------------------
 
 

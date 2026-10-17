@@ -1,6 +1,6 @@
 """Passive conversation ingress 配置。
 
-按 v0.6.0 设计，Passive ingress 配置属于 System application 层，
+Passive ingress 配置属于 System application 层，
 不并入 Gateway 配置；Gateway 只识别固定的 `GatewayIngressMode`。
 
 注意：idle flush 的扫描间隔与超时阈值仍由 `scheduler.tasks` 单一持有

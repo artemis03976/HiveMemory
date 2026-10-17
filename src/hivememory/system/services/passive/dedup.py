@@ -1,7 +1,7 @@
 """
 外部事件幂等 registry
 
-v0.6.0 只承诺有界的进程内幂等：同一 `source + external_event_id` 在 TTL 窗口内
+只承诺有界的进程内幂等：同一 `source + external_event_id` 在 TTL 窗口内
 重复到达时不重复追加 buffer、不重复 retrieval、不重复提交 interaction。
 不承诺跨进程 exactly-once；后续可替换为持久化 ingress store。
 """

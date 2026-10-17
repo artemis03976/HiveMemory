@@ -3,8 +3,6 @@ MemoryLibrary 三层存储 Port 接口定义
 
 定义短期 / 中期 / 长期三层存储的抽象契约，供各层 Store 通过 Port 多态实现。
 实现类不应感知其他层的存储，跨层操作由 MemoryLibrary 编排。
-
-实现阶段: Phase 1 骨架
 """
 
 from __future__ import annotations
@@ -48,7 +46,7 @@ class ShortTermStoragePort(ABC):
     boundary behind an adapter instead of leaking await points into the store.
 
     实现：
-        InMemoryShortTermStorage（内存态，Phase 1）
+        InMemoryShortTermStorage（内存态）
         RedisShortTermStorage（future）
     """
 
@@ -103,7 +101,7 @@ class MidTermStoragePort(ABC):
           ``StorageWriteError`` 传播，不以空结果或 ``False`` 掩盖。
 
     实现：
-        QdrantStorageAdapter（Phase 1）
+        QdrantStorageAdapter
         GraphStorageAdapter（future）
     """
 
@@ -215,7 +213,7 @@ class LongTermStoragePort(ABC):
     跨层状态转移（archive / revive）由 MemoryLibrary 编排，不在此 Port 内实现。
 
     实现：
-        FileBasedStorageAdapter（Phase 1）
+        FileBasedStorageAdapter
         DBBasedStorageAdapter（future）
     """
 
@@ -250,7 +248,7 @@ class ArtifactStoragePort(ABC):
     Artifact 记忆附属资产仓库 Port — append-only 持久化存储。
 
     实现：
-        FilesystemArtifactStorageAdapter（Phase 2，从 infrastructure/storage 迁入）
+        FilesystemArtifactStorageAdapter
         SQLArtifactStorageAdapter（future）
     """
 

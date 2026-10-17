@@ -60,7 +60,7 @@ class VitalityCalculator:
 
         Args:
             config: 生命力计算器配置对象
-            now: 评分决策时刻的局部注入（A2-P 时间边界）；默认当前 UTC
+            now: 评分决策时刻的局部注入；默认当前 UTC
         """
         self.config = config
         self._now = now or utc_now
@@ -93,7 +93,7 @@ class VitalityCalculator:
             memory.index.memory_type,
             self.config.default_weight,
         )
-        # 衰减唯一时间基准是 decay_anchor_at（A2-P §3.1）：创建时等于
+        # 衰减唯一时间基准是 decay_anchor_at：创建时等于
         # created_at，CITATION 与内容修订推进；HIT/访问不改写。
         days_since_anchor = self._days_since(memory.meta.lifecycle.decay_anchor_at)
         decay_factor = self._calculate_decay(days_since_anchor, intrinsic_value)

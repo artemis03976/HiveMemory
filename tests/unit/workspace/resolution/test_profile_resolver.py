@@ -1,10 +1,10 @@
-"""ProfileResolver 的单元测试（A2 §2.3 Profile 读取 resolver）。
+"""ProfileResolver（Profile 读取 resolver）的单元测试。
 
 被测对象：builtin 结果不进缓存、命中按条目随存的源原子 policy 对每个 Actor
 逐次授权且不回源、交付副本隔离，以及冷读的代次守护。backing 以内存替身
 实现（被测单元边界之外的 Patchouli ``GET_AGENT_PROFILE``）。
 
-resolver 与 backing 位于授权点以下（A1 访问边界返工第 4.1 节）：只流动
+resolver 与 backing 位于授权点以下：只流动
 授权点组装的可信 ``IdentityScope``，不接收访问 context。
 """
 

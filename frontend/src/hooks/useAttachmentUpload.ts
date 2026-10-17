@@ -3,7 +3,7 @@
  *
  * ChatPane 对话区拖拽、composer Paperclip 与附件选择对话框都必须
  * 经过本 hook 的 `enqueueFiles` 进入队列，保证三个入口使用同一份入队
- * 逻辑，避免同一文件被重复入队（计划 A5 节）。
+ * 逻辑，避免同一文件被重复入队。
  *
  * 只接收真实文件列表：目录拖拽不会出现在 `DataTransfer.files` 中，
  * 无文件的 drag payload 在 `extractFiles` 中被直接忽略。

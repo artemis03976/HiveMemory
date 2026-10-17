@@ -71,10 +71,10 @@ class MemoryGenerationFamiliar:
         self._generation_engine = generation_engine
         self._mid_term = memory_library.mid_term
         self._artifact_engine = artifact_engine or ArtifactEngine.noop()
-        # W1-F：附件 promotion 的只读 reader（assembler 经 PatchouliRuntime
+        # 附件 promotion 的只读 reader（assembler 经 PatchouliRuntime
         # 注入进程级唯一 Store）；ref 失效或 Store 关闭时 best-effort 降级。
         self._asset_reader = asset_reader
-        # A2-P 时间边界：完整内容写入路径的提交时点来源（局部注入，非全局时钟）。
+        # 完整内容写入路径的提交时点来源（局部注入，非全局时钟）。
         self._now = now or utc_now
 
         logger.info("MemoryGenerationFamiliar 初始化完成")
@@ -147,7 +147,7 @@ class MemoryGenerationFamiliar:
         if atom.workspace_identity != belong_to:
             raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
         commit_now = require_utc(self._now())
-        # 提交边界决定创建时点：created/updated/decay 同值（M0.1）。
+        # 提交边界决定创建时点：created/updated/decay 同值。
         atom.meta.created_at = commit_now
         atom.meta.updated_at = commit_now
         atom.meta.lifecycle.decay_anchor_at = commit_now
@@ -198,10 +198,10 @@ class MemoryGenerationFamiliar:
             agent_config=agent_config,
         )
         if not changed_fields:
-            # A2-P §3.2：实际内容相同的重复更新不创建新版本。
+            # 实际内容相同的重复更新不创建新版本。
             logger.info("外部编辑未产生字段变化，跳过版本提交: %s", atom.id)
             return atom
-        # 提交边界分配内容时间/版本/衰减基准/置信度（M0.1/M0.2：UPDATE 重置 1.0）。
+        # 提交边界分配内容时间/版本/衰减基准/置信度（UPDATE 时置信度重置为 1.0）。
         atom.meta.version += 1
         atom.meta.updated_at = commit_now
         atom.meta.lifecycle.decay_anchor_at = commit_now
@@ -236,7 +236,7 @@ class MemoryGenerationFamiliar:
         """按字段应用外部编辑，返回实际发生变化的字段。
 
         赋值经模型校验与规范化（去首尾空白、空白 alias 转 None、tags 规范
-        化），变化判断比较规范化后的值——§3.2：实际内容相同的重复更新不创建
+        化），变化判断比较规范化后的值：实际内容相同的重复更新不创建
         新版本。非法取值以 ``InvalidMemoryFieldError`` 拒绝。
         """
         edits = (
@@ -270,7 +270,7 @@ class MemoryGenerationFamiliar:
 
         提交边界在本方法入口取一次 UTC now，随后传给引擎（内容日期）与
         全部字段/Artifact 赋值；TOUCH 走受限 patch，CREATE/UPDATE 走完整
-        ``upsert``。版本记录是内容提交成功的前置条件（M0.3）。
+        ``upsert``。版本记录是内容提交成功的前置条件。
         """
         commit_now = require_utc(self._now())
 
@@ -299,7 +299,7 @@ class MemoryGenerationFamiliar:
                 update_source=spec.source.version_update_source,
             )
 
-        # Step 4（W1-F）：只有确实产生 Memory CREATE/UPDATE 时才对 topic
+        # Step 4：只有确实产生 Memory CREATE/UPDATE 时才对 topic
         # bindings 做附件 Artifact promotion；TOUCH/DISCARD 与纯上传/选择
         # 不提升。失败沿 best-effort 语义记录 warning，不回滚本轮结果。
         if any(
@@ -329,7 +329,7 @@ class MemoryGenerationFamiliar:
         每个 binding 固定为：acquire READY representation → 构建
         DocumentArtifact → 释放 lease。ref 已 remove、Store 已关闭或写入
         失败时跳过该 binding 并记录结构化 warning；已提交的 binding 保持
-        不变，不回滚 Interaction/Memory 结果（计划 11.3 节）。promotion
+        不变，不回滚 Interaction/Memory 结果。promotion
         retry 复用现有 generation operation identity 与同一 binding payload。
         """
         if not bindings:
@@ -375,7 +375,7 @@ class MemoryGenerationFamiliar:
             mime_type = "text/markdown" if content_format == "markdown" else "text/plain"
             # 冻结映射：source asset/representation 标识 + revision +
             # producer/version 全部钉进 source_uri，content_hash 单列，
-            # 使提升产物自身锁定来源版本（ADR-0003 消费版本冻结不变量）。
+            # 使提升产物自身锁定来源版本：消费方读到的始终是被冻结的那个版本。
             source_uri = (
                 f"attachment://{binding.asset_id}"
                 f"#{representation.representation_id}"
@@ -487,7 +487,7 @@ class MemoryGenerationFamiliar:
         """单个 outcome 的提交流水线：字段分配 → artifact 挂载 → 持久化。
 
         - TOUCH：不改内容字段与版本，经受限 ``patch_payload`` 只推进访问
-          计数与 ``last_accessed_at``（MVL-0 M0.5 决定 ②）。
+          计数与 ``last_accessed_at``。
         - CREATE/UPDATE：版本与内容时间在此提交边界分配；版本记录写入是
           内容提交成功的前置条件（builder 失败直接传播，不静默降级）。
         """
@@ -515,7 +515,7 @@ class MemoryGenerationFamiliar:
 
         if decision == DuplicateDecision.UPDATE:
             # 引擎是纯计算，outcome.atom 携带的即提交前版本；内容修订在此
-            # 提交边界推进一次版本与内容时间，衰减基准随之推进（M0.1/M0.2）。
+            # 提交边界推进一次版本与内容时间，衰减基准随之推进。
             atom.meta.version += 1
             atom.meta.updated_at = now
             atom.meta.lifecycle.decay_anchor_at = now
@@ -558,9 +558,9 @@ class MemoryGenerationFamiliar:
         """为单个已生成或外部编辑的 MemoryAtom 挂载 artifact。
 
         ``now`` 为提交边界时点：版本记录 ``changed_at`` 与事件 ``at`` 使用
-        同一时点（A2-P 时间边界 §2.3）。全部内容提交（外部创建/编辑与生成
+        同一时点。全部内容提交（外部创建/编辑与生成
         CREATE/UPDATE）都经过这里，类型相关的内容约束与 alias 唯一性在写
-        Artifact 之前检查：alias 冲突时不留下孤立版本记录（A2 §8 D-4；upsert
+        Artifact 之前检查：alias 冲突时不留下孤立版本记录（upsert
         仍作为不变量兜底重验）。
         """
         _require_content_invariants(atom)
@@ -615,7 +615,7 @@ class MemoryGenerationFamiliar:
         creation_source: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
         now: datetime,
     ) -> MemoryCreationBundle:
-        """构建 v1 版本记录与创建 Artifact；失败直接传播（M0.3：无历史不提交）。"""
+        """构建 v1 版本记录与创建 Artifact；失败直接传播：没有版本历史就不提交内容。"""
         bundle = await self._artifact_engine.memory.build_for_create(
             memory=atom,
             context=gen_context,
@@ -644,7 +644,7 @@ class MemoryGenerationFamiliar:
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
         now: datetime,
     ) -> ArtifactRef:
-        """构建版本记录；失败直接传播（M0.3：版本记录是提交成功的前置条件）。"""
+        """构建版本记录；失败直接传播：版本记录是提交成功的前置条件。"""
         snapshot_before: dict | None = None
         if isinstance(memory_before_snapshot, MemoryAtom):
             snapshot_before = snapshot_memory_atom(memory_before_snapshot)

@@ -123,7 +123,7 @@ class ShortTermMemoryStore:
 class MidTermMemoryStore:
     """中期记忆存储（向量库）。
 
-    alias 唯一性不变量（A2 §8 D-4）：同一 Workspace 的中期库内，一个 alias
+    alias 唯一性不变量：同一 Workspace 的中期库内，一个 alias
     至多被一条 Memory 占用。``upsert`` 是全部完整写入（生成、手工编辑、
     Profile 管理、revive）的汇聚点，也是唯一能覆盖所有路径的检查点，因此
     在主后端写入前校验；归档即释放 alias，revive 撞名显式失败。
@@ -157,7 +157,7 @@ class MidTermMemoryStore:
         """提交完整 canonical Memory；primary 写入后沿顺序同步 secondary。
 
         写入前校验 alias 唯一性，冲突时抛 ``MemoryAliasConflictError`` 且不
-        产生任何写入。首版沿用 A2-P 的串行写入假设：并发写入者之间"检查→
+        产生任何写入。沿用串行写入假设：并发写入者之间"检查→
         写入"的竞态不在保证范围内。
         """
         try:

@@ -1,4 +1,4 @@
-"""RetrievalFamiliar.get_agent_profile 的单元测试（Profile 读取 backing，A2 §2.3/§8 D-3）。
+"""RetrievalFamiliar.get_agent_profile 的单元测试（Profile 读取 backing）。
 
 被测对象：Profile 解析的唯一实现，返回 ``ResolvedAgentProfile``：
 - builtin alias 返回内置 Profile，且不伪造源原子关联；

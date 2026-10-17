@@ -1,8 +1,8 @@
-"""resolver 的 L2 冷读端口：Patchouli backing 读取契约（A2 §2.1 / §8 D-2）。
+"""resolver 的 L2 冷读端口：Patchouli backing 读取契约。
 
 resolver 只依赖本协议，不导入总线、System 路由常量或 Patchouli 实现；基于
 ``GlobalSystemBus`` 的实现位于 ``workspace.capability.backing``（可依赖
-``components`` 的子包），由组合根注入。冷读取经公共 backing 路由（宪章 §4.4 过线契约），库侧资源
+``components`` 的子包），由组合根注入。冷读取经跨越记忆库边界的公共 backing 路由，库侧资源
 归属与 policy 校验独立成立，构成纵深防御。
 
 ``scope`` 是授权点（actor API 的操作授权或任务进程的阶段授权）组装的可信
@@ -22,7 +22,7 @@ class CanonicalReadBackend(Protocol):
     """Patchouli canonical/Profile 读取的 backing 端口。
 
     不可达或路由缺失时抛出 ``ResourceUnavailableError``；存储错误按原结构化
-    错误传播；未知或不可见资源按 A1 防泄露规则返回 ``None`` / 不出现在列表中。
+    错误传播；未知与不可见资源同样返回 ``None`` 或不出现在列表中，不泄露资源是否存在。
     """
 
     async def read(

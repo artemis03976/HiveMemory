@@ -41,7 +41,7 @@ class AgentPromptAssembler:
             builder.with_persona(context.agent_profile.persona)
 
         builder.with_memory_context(context.memory_context)
-        # W1-E：附件 section 固定位于 memory_context 之后；
+        # 附件 section 固定位于 memory_context 之后；
         # 只消费任务进程编译好的 attachment_context 文本，不接触 Store/lease。
         if context.attachment_context:
             builder.with_attachment_context(context.attachment_context)

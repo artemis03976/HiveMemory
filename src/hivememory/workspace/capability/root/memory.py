@@ -85,8 +85,8 @@ class RootMemoryService:
             payload = PayloadLayer(content=content)
         except ValidationError as exc:
             raise InvalidMemoryFieldError.from_validation_error(exc) from exc
-        # A2-P：创建时点在提交边界取一次 now，created/updated/decay anchor 同值；
-        # MVL-2 收敛后统一由 Patchouli 完整写入路径赋值。
+        # 创建时点在提交边界取一次 now，created/updated/decay anchor 同值，
+        # 统一由 Patchouli 完整写入路径赋值。
         now = utc_now()
         atom = MemoryAtom(
             meta=MetaData(
@@ -204,7 +204,7 @@ class RootMemoryService:
                 source=source,
             )
         except WorkspaceDomainError:
-            # 访问/领域受控错误必须按原语义传播（A1 第 3.4 节），
+            # 访问/领域受控错误必须按原语义传播，
             # 不得被通用 RuntimeError 分支包装成"服务不可用"。
             raise
         except RuntimeError as exc:

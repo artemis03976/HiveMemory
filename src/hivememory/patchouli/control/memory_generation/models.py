@@ -1,7 +1,7 @@
 """Patchouli 记忆生成控制面模型与任务快照投影。
 
 对外只读快照 ``MemoryGenerationTask`` 及其状态/来源枚举定义在公共契约
-``patchouli.contracts.memory_tasks``（A2 §8.2），此处转发导出以兼容既有
+``patchouli.contracts.memory_tasks``，此处转发导出以兼容既有
 引用；本模块保留控制面与数据面共享的输入/结果模型，以及由通用 work queue
 结果投影任务快照的工厂函数。
 """

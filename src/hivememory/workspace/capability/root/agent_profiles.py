@@ -69,8 +69,8 @@ class RootAgentProfileService:
             payload = PayloadLayer(content=content, agent_config=agent_config)
         except ValidationError as exc:
             raise InvalidMemoryFieldError.from_validation_error(exc) from exc
-        # A2-P：创建时点在提交边界取一次 now，created/updated/decay anchor 同值；
-        # MVL-2 收敛后统一由 Patchouli 完整写入路径赋值。
+        # 创建时点在提交边界取一次 now，created/updated/decay anchor 同值，
+        # 统一由 Patchouli 完整写入路径赋值。
         now = utc_now()
         atom = MemoryAtom(
             meta=MetaData(

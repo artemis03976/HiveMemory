@@ -1,6 +1,6 @@
 """Passive ingress 可恢复失败降级契约测试。
 
-覆盖 v0.6.0 设计 §6 与 P5 条目：
+覆盖：
     - Gateway / retrieval 可恢复失败仍接收并累计 turn
     - 降级响应无 memory context，但原始交互照常在 turn 完成后提交
     - retrieval 失败保留已获得的 decision（topic 路由不丢）
@@ -96,7 +96,7 @@ class _Recorder:
         self.calls.append("retrieve")
         if self.retrieval_error is not None:
             raise self.retrieval_error
-        # 检索路由返回完整原子列表（A2 §2.1）。
+        # 检索路由返回完整原子列表。
         return []
 
     async def submit(self, submission):
@@ -135,7 +135,7 @@ def _context_event(sink: RecordingRuntimeEventSink):
 
 @pytest.mark.asyncio
 async def test_gateway_failure_still_buffers_user_event() -> None:
-    """§6：Gateway 可恢复失败不得阻止当前 user 进入 buffer。"""
+    """Gateway 可恢复失败不得阻止当前 user 进入 buffer。"""
     recorder = _Recorder()
     recorder.gateway_error = TimeoutError("gateway timeout")
     ingressor, _ = _build(recorder)
@@ -165,7 +165,7 @@ async def test_gateway_failure_returns_no_memory_context() -> None:
 
 @pytest.mark.asyncio
 async def test_degraded_turn_still_submits_raw_interaction() -> None:
-    """§6：降级后仍继续在 turn 完成后提交原始交互。"""
+    """降级后仍继续在 turn 完成后提交原始交互。"""
     recorder = _Recorder()
     recorder.gateway_error = TimeoutError("gateway timeout")
     ingressor, _ = _build(recorder)

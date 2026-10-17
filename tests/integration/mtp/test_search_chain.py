@@ -64,7 +64,7 @@ def _make_memory(
 
 
 def _make_retrieval_response(memories=None) -> list[MemoryAtom]:
-    """检索路由的返回值：按领域排序的完整原子列表（A2 §2.1）。"""
+    """检索路由的返回值：按领域排序的完整原子列表。"""
     return list(memories or [])
 
 

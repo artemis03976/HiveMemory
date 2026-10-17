@@ -53,7 +53,7 @@ class TestApiApplicationServices:
         assert isinstance(system.root_memory_task_service, RootMemoryTaskService)
         assert isinstance(system.root_workspace_asset_service, RootWorkspaceAssetService)
         assert isinstance(system.readiness_service, SystemReadinessService)
-        # A1 访问边界返工：统一认证网关随组合根装配并暴露给 server 入口。
+        # 统一认证网关随组合根装配并暴露给 server 入口。
         assert isinstance(system.access_gateway, ActorAuthenticationGateway)
 
     def test_server_deps_return_api_services(self, passive_config):

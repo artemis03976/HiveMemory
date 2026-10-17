@@ -1,6 +1,6 @@
-"""A2-P MVL-3：完整历史构建、必需版本存储与顺序失败传播的行为测试。
+"""完整历史构建、必需版本存储与顺序失败传播的行为测试。
 
-验证契约（A2-P §5.1/§5.3、MVL-0 M0.3）：
+验证契约：
 - 捕获时点：版本快照在版本/内容时间分配之后、追加自身 refs/events 之前
   生成，不含本次版本记录自身的引用与事件；
 - 版本记录是内容提交成功的前置条件：版本存储不可用或写入失败时，
@@ -244,7 +244,7 @@ async def test_update_snapshot_captures_versioned_atom_before_own_refs(tmp_path)
     """快照捕获时点：含分配后的版本/内容时间，不含自身 ref 与 VERSIONED 事件。"""
     identity_scope = make_memory_identity_scope()
     before = _atom("v1 content")
-    # 预置一条创建期事件：§5.1 要求快照保留既有 refs/events。
+    # 预置一条创建期事件：快照必须保留既有 refs/events。
     before.payload.artifacts.events.append(
         MemoryEventLog(event_type=MemoryEventType.CREATED, at=FIXED_NOW)
     )
@@ -275,7 +275,7 @@ async def test_update_snapshot_captures_versioned_atom_before_own_refs(tmp_path)
     assert version_data["version_number"] == 2
     assert version_data["snapshot_after"]["meta"]["version"] == 2
     assert version_data["snapshot_after"]["payload"]["content"] == "v2 content"
-    # 快照不含本次 VERSIONED 事件（捕获先于自身事件追加，§5.1），
+    # 快照不含本次 VERSIONED 事件（捕获先于自身事件追加），
     # 但保留捕获时点已有的创建期事件。
     snapshot_events = version_data["snapshot_after"]["payload"]["artifacts"]["events"]
     assert not any(e["event_type"] == "versioned" for e in snapshot_events)
@@ -416,7 +416,7 @@ async def test_noop_version_store_fails_content_creation(tmp_path):
 
 @pytest.mark.asyncio
 async def test_update_external_without_changes_does_not_bump_version(tmp_path):
-    """无变化更新不增版本、不产生版本记录（A2-P §3.2/§9）。"""
+    """无变化更新不增版本、不产生版本记录。"""
     identity_scope = make_memory_identity_scope()
     before = _atom("stable content")
     mid_term = _InMemoryMidTermPort()
@@ -434,7 +434,7 @@ async def test_update_external_without_changes_does_not_bump_version(tmp_path):
         tags=None,
         agent_config=None,
     )
-    # 传入与当前值完全相同的值同样视为无变化（§3.2 值相等语义）。
+    # 传入与当前值完全相同的值同样视为无变化（按值相等判断）。
     result = await familiar.update_external_memory(
         before.id,
         belong_to=identity_scope.workspace_identity,

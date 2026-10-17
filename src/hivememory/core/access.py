@@ -1,4 +1,4 @@
-"""依赖中立的访问值类型与端口协议（A1 访问模型）。
+"""依赖中立的访问值类型与端口协议。
 
 - ``WorkspaceOperation``：Actor→Workspace 的行为目录；
 - ``WorkspaceAccessContext``：统一认证后签发的密封访问凭据，签发时写入
@@ -49,8 +49,7 @@ class AccessRunType(str, Enum):
 
     任务进程 context 在注册时签发并绑定 ``process_id``，随进程关闭失效；
     执行线程 context 从进程 context 派生，随 CPU 执行结束失效；
-    请求级 context 由入口在请求开始时签发并绑定本次请求，请求结束失效
-    （P-6、P-9b、P-9c）。
+    请求级 context 由入口在请求开始时签发并绑定本次请求，请求结束失效。
     """
 
     TASK_PROCESS = "task_process"
@@ -120,7 +119,7 @@ class AccessGrant:
     """访问 context 密封的授予内容：第 2 阶段 Workspace 认证的结果。
 
     回答"这个 actor 驻留在哪个 workspace、经由哪个来源接入、属于哪一次
-    运行"（身份与访问体系 Idea 第 5 节）。``workspace`` 是驻留 workspace，
+    运行"。``workspace`` 是驻留 workspace，
     不是某次操作的目标；第 3 阶段的操作授权读取它，再按目标 workspace
     组装 ``IdentityScope``。
     """
@@ -134,8 +133,7 @@ class AccessGrant:
 class WorkspaceAccessContext:
     """密封的 Workspace 访问凭据：签发时写入授予内容，对外没有公开字段。
 
-    调用侧经统一认证网关取得，只把它作为凭据交给授权点（I-1，I-10 的
-    2026-10-04 补充）。凭据上的三个私有接口由架构测试限定调用方所在的
+    调用侧经统一认证网关取得，只把它作为凭据交给授权点。凭据上的三个私有接口由架构测试限定调用方所在的
     模块：
 
     - :meth:`_seal`：签发，只由 ``WorkspaceAuthenticator`` 调用；

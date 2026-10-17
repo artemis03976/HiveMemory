@@ -43,7 +43,7 @@ _MAX_FORM_PARTS = 8
 async def _parse_upload_form(request: Request) -> list[UploadFile]:
     """解析 multipart 表单并执行单文件契约校验。
 
-    契约（计划 A1 节）：文件字段名为 ``file``，一个请求只处理一个文件；
+    契约：文件字段名为 ``file``，一个请求只处理一个文件；
     重复的 ``file`` part、多文件 part 或额外业务字段按非法请求拒绝，
     不能只取第一份文件而忽略其余内容。所有拒绝路径都会关闭已解析的
     上传流及框架临时文件。
@@ -101,7 +101,7 @@ async def upload_workspace_asset(
     和同一逻辑资产的当前快照。上传成功只表示 RAW 已注册，不把附件自动
     加入当前 Chat run。上传经 root API：请求经统一认证网关取得保留的
     system actor 访问 context，注册使用的 scope 由授权者组装，调用方不能
-    另行传入（P-1 缺陷的结构性修复，A1 访问边界返工第 4.5 节）。
+    另行传入，自报的 scope 无法越过授权。
     """
     operation_id = idempotency_key.strip() if idempotency_key else ""
     if not operation_id:

@@ -1,6 +1,6 @@
 """附件解析交接测试的可控替身与有界等待辅助构造器。
 
-供 W1-C 解析交接的单元/集成验收使用：``ScriptedAttachmentParser`` 是
+供解析交接（解析结果提交 Store）的单元与集成测试使用：``ScriptedAttachmentParser`` 是
 兼容 ``AttachmentParser`` 协议的可控替身，可记录输入、观察 Store 快照、
 用事件门控解析线程；``wait_until_condition`` 提供有界轮询等待。
 """
@@ -49,7 +49,7 @@ def make_upload_service(
 ) -> RootWorkspaceAssetService:
     """用同一 Store 和配置装配真实上传用例，仅允许替换解析算法。
 
-    A1 访问边界返工：上传服务在自己公共入口执行 root API
+    上传服务在自己公共入口执行 root API
     授权；注入的操作授权者与签发上传 access 的认证一侧来自同一组合，
     读取同一份访问登记（与生产装配一致）；``access_composition`` 缺省为
     :func:`make_upload_access` 的本地登记组合。

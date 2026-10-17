@@ -10,18 +10,18 @@ from typing import Any
 
 from pydantic import BaseModel, Field
 
-# MTP 定界符 (Section 2.1)
+# MTP 定界符
 MTP_LEFT_DELIMITER = "\u27ea"  # ⟪
 MTP_RIGHT_DELIMITER = "\u27eb"  # ⟫
 MTP_SEPARATOR = "|"
 
-# Stop Sequence: 在调用 LLM API 时设置 stop=["⟫"] (Section 3.1.1)
+# Stop Sequence: 在调用 LLM API 时设置 stop=["⟫"]
 MTP_STOP_SEQUENCE = MTP_RIGHT_DELIMITER
 
 
 class MTPVerb(str, Enum):
     """
-    MTP 指令动词枚举 (Section 2.2)。
+    MTP 指令动词枚举。
 
     核心能力:
         SEARCH - 检索候选记忆
@@ -42,7 +42,7 @@ class MTPVerb(str, Enum):
 
 class MTPResponseStatus(str, Enum):
     """
-    MTP 响应状态枚举 (Section 3.3.2)。
+    MTP 响应状态枚举。
 
     SUCCESS - 执行成功
     ERROR   - 执行失败

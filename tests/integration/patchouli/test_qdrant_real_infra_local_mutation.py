@@ -1,10 +1,10 @@
-"""真实 Qdrant 服务上的受控局部更新与向量保留证据（A2-P MVL-4 待验收项）。
+"""真实 Qdrant 服务上的受控局部更新与向量保留证据。
 
 需要独立 Qdrant 服务（开发环境经 ``scripts/hivememory-dev.sh start`` 拉起，
 默认 ``http://127.0.0.1:6333``；可用 ``HIVEMEMORY_TEST_QDRANT_URL`` 覆盖）。
 服务不可达时整文件跳过，不影响 CI。
 
-锁定契约（A2-P §4.1/§9）：
+锁定契约：
 - ``patch_payload``：Qdrant 局部 payload 更新只改 ``meta.lifecycle`` /
   ``meta.access_policy``，向量与其余字段原样保留，不改内容版本；
 - ``upsert(recompute_vectors=False)``：embedding 不重算，向量逐位一致，

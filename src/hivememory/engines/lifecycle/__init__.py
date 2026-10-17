@@ -9,8 +9,6 @@ HiveMemory - 记忆生命周期管理模块 (MemoryLifeCycleManagement)
 - GarbageCollector: 垃圾回收器
 - LifecycleEngine: 统一协调层
 
-对应设计文档: PROJECT.md 第 6 章
-
 状态: Stage 3 实现
 作者: HiveMemory Team
 版本: 0.2.0

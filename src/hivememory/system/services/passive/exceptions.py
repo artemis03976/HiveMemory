@@ -1,6 +1,6 @@
 """被动接入的失败分类。
 
-设计 §6 只允许 **可恢复失败** 走降级路径：Gateway/retrieval 的可恢复失败
+只允许 **可恢复失败** 走降级路径：Gateway/retrieval 的可恢复失败
 不得阻止当前 user 进入 buffer，passive ingress 返回无 memory context 的降级
 响应，并继续在 turn 完成后提交原始交互。
 
@@ -34,9 +34,9 @@ NON_RECOVERABLE_INGRESS_ERRORS: tuple[type[Exception], ...] = (
 
 
 def is_recoverable_ingress_error(error: BaseException) -> bool:
-    """判定 Gateway/retrieval 失败是否可走 §6 降级路径。
+    """判定 Gateway/retrieval 失败是否可走降级路径。
 
-    采用「默认可恢复 + 窄不可恢复名单」：设计 §6 的首要不变量是当前 user 事件
+    采用「默认可恢复 + 窄不可恢复名单」：降级路径的首要不变量是当前 user 事件
     必须进入 buffer，因此未知的下游异常类型应当降级而不是丢掉这一轮交互。
     降级本身通过 warning 日志与 `PassiveMemoryContextPrepared(degraded=True)`
     暴露，不是静默回退。

@@ -1,4 +1,4 @@
-"""ChatRequest 附件选择字段的严格契约测试（计划 9.2 节）。
+"""ChatRequest 附件选择字段的严格契约测试。
 
 HTTP 层只校验字段类型与数组结构：同一 asset_ref 重复即冲突、未知字段
 拒绝、空数组与缺省等价；ref/READY/版本一致性由 Patchouli prepare 校验。

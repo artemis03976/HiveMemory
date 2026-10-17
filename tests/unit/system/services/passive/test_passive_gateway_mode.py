@@ -200,6 +200,6 @@ async def test_passive_rejects_impossible_command_outcome() -> None:
         bus,
         interaction_queue=_SubmissionQueueRecorder(),
     )
-    # 契约违约不走 §6 降级路径，必须向上抛出
+    # 契约违约不走降级路径，必须向上抛出
     with pytest.raises(PassiveIngressContractError, match="不得返回 command"):
         await ingressor.route_event(_event("user", "/clear"), ActorIdentity(user_id="u1"))

@@ -1,4 +1,4 @@
-"""ResolvedAgentProfile 源原子关联一致性的单元测试（A2 §8 D-3）。
+"""ResolvedAgentProfile 源原子关联一致性的单元测试。
 
 被测对象：Profile 读取 backing 结果模型。源原子的 policy 依据与 UUID/版本
 要么完整（atom 来源）要么全缺（builtin），Profile 解析缓存据此区分可缓存

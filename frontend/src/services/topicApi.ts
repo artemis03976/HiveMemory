@@ -3,7 +3,7 @@
  *
  * Handles HTTP requests to the backend topic management API.
  *
- * 身份约定（v0.6.2 收敛）：Topic 请求统一携带 `user_id + workspace_id`
+ * 身份约定：Topic 请求统一携带 `user_id + workspace_id`
  * 基础选择（x-user-id / x-workspace-id 请求头）；旧 `?user_id=` query
  * 兼容入口已不再由前端使用。
  */

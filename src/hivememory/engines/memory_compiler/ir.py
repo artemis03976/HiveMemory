@@ -1,4 +1,4 @@
-"""Memory IR — Phase 2A 最小单元中间表示。"""
+"""Memory IR — 最小单元中间表示。"""
 
 from __future__ import annotations
 

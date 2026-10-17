@@ -86,7 +86,7 @@ class TestLifecycleEngineVitality:
         await self.engine.refresh_vitality(mem, persist=True)
 
         assert mem.meta.lifecycle.vitality_score == pytest.approx(72.0)
-        # MVL-2: persist 经受限 patch 提交，只含 vitality_score 一个授权字段
+        # persist 经受限 patch 提交，只含 vitality_score 一个授权字段
         expected_key = WorkspaceMemoryKey(
             workspace_identity=mem.workspace_identity, memory_id=mem.id
         )
@@ -106,7 +106,7 @@ class TestLifecycleEngineVitality:
 
         assert m1.meta.lifecycle.vitality_score == pytest.approx(30.0)
         assert m2.meta.lifecycle.vitality_score == pytest.approx(80.0)
-        # MVL-2: batch persist 逐条 patch，按顺序提交到各自 key
+        # batch persist 逐条 patch，按顺序提交到各自 key
         patch_calls = [
             (call.args[0], call.args[1])
             for call in self.mock_mid_term.patch_payload.await_args_list
@@ -202,7 +202,7 @@ class TestLifecycleEngineDelegation:
         await self.engine.run_garbage_collection(force=True)
 
         self.mock_mid_term.list_all_for_maintenance.assert_awaited_once_with(limit=10000)
-        # MVL-2: GC 前的活力刷新经逐条受限 patch 持久化，不整原子 upsert
+        # GC 前的活力刷新经逐条受限 patch 持久化，不整原子 upsert
         assert self.mock_mid_term.patch_payload.await_count == 2
         assert self.mock_mid_term.upsert.await_count == 0
         patched = {

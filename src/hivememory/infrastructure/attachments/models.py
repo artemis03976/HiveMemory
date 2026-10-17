@@ -1,8 +1,8 @@
-"""W1-B 共享解析结果模型（计划 7.5 节）。
+"""确定性解析的共享结果模型。
 
 正文与 locator 校验、大小累计和 canonical hash 只在本模块实现一次；
 TXT/Markdown 与 DOCX 解析器在返回前通过 :class:`AttachmentContentBuilder`
-完成构造，W1-C 复用结果并核对来源，不再次解释附件正文。
+完成构造，提交 Store 时复用结果并核对来源，不再次解释附件正文。
 
 content_object 首轮约定（schema_version=1）：
 
@@ -45,7 +45,7 @@ def canonical_content_bytes(content_object: Mapping[str, Any]) -> bytes:
     """完整 content_object 的 canonical JSON UTF-8 编码。
 
     键排序、紧凑分隔符、非 ASCII 字符直接编码、无额外换行；数组顺序由
-    各解析器的固定规则保证。W1-E/W1-F 复用该 hash 时必须使用同一规则。
+    各解析器的固定规则保证。附件编译与 Topic binding 复用该 hash 时必须使用同一规则。
     """
     return json.dumps(
         content_object,

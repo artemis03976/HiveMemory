@@ -118,7 +118,7 @@ class PassiveIngressService:
         公共响应只包含外部调用方实际需要的接收状态与 memory context，
         不暴露 Gateway 内部 execution state、runtime event 或 fallback 细节。
 
-        身份入口约定（v0.6.2 收敛）：connector 侧的 ``user_id + agent_id``
+        身份入口约定：connector 侧的 ``user_id + agent_id``
         选择由 server 边界一次性冻结为 ``identity_scope``，本层不再解析。
         """
         outcome = await self._ingressor.route_event_scoped(

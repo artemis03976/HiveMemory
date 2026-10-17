@@ -34,7 +34,7 @@ class FrameFactory:
     """无状态创建普通 ExecutionFrame 的工厂。
 
     不表达主/子拓扑：父子关系只记录在 RunSession 的 frame registry 与
-    CallRecord 中（见 docs/alice/orchestration.md §2）。
+    CallRecord 中。
     """
 
     def create(self, spec: FrameSpec) -> ExecutionFrame:

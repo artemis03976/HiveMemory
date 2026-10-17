@@ -1,4 +1,4 @@
-"""附件编译的输出契约模型（计划 10.2 / 10.5 节），由 engines 的 AttachmentCompiler 产出。
+"""附件编译的输出契约模型，由 engines 的 AttachmentCompiler 产出。
 
 ``AttachmentCompileResult`` 只保留三类信息：prompt-ready 的
 ``attachment_context``、实际进入上下文的 ``used_attachments`` bound refs、以及

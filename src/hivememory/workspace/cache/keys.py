@@ -1,4 +1,4 @@
-"""派生缓存的显式资源 key 类型（A2 §3）。
+"""派生缓存的显式资源 key 类型。
 
 两个 cache 的资源 key 只由 Workspace 归属坐标与资源引用组成，不包含
 Actor 的 user/agent/team/session 投影：同一 Workspace 的多个 Actor 复用

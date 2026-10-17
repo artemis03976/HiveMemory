@@ -9,8 +9,6 @@ System Prompt 总构建器
 
 各层的内容由外部传入，本模块只负责按正确顺序拼装。
 
-对应设计文档: MultiAgentSystem.md Section 4.1
-
 作者: HiveMemory Team
 版本: 1.0
 """
@@ -76,7 +74,7 @@ class SystemPromptBuilder:
         return self
 
     def with_shared_context(self, shared_context: str) -> "SystemPromptBuilder":
-        """注入共享上下文 (Phase 2: 来自父 Agent 的 context_refs)"""
+        """注入共享上下文（来自父 Agent 的 context_refs）"""
         if shared_context:
             self._sections.append(shared_context)
         return self

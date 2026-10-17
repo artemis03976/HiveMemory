@@ -253,7 +253,7 @@ class PendingAtom(BaseModel):
     process_id: str | None = None
     created_at: datetime = Field(default_factory=datetime.now)
 
-    # Phase 2：结算跟踪
+    # 结算跟踪
     settlement: PendingAtomSettlement | None = None
 
 

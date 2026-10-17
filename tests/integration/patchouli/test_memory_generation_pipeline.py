@@ -422,7 +422,7 @@ class _InMemoryMidTermPort(MidTermStoragePort):
 class _StubGenerationEngine:
     """真实接口的 stub：process 返回预设 GenerationOutcome，不触达 LLM。
 
-    MVL-2 引擎纯化后 Familiar 会把提交边界时点作为 ``now`` 传入；stub 与真实
+    Familiar 会把提交边界时点作为 ``now`` 传入；stub 与真实
     引擎保持同签名，时间戳断言由落库结果承载。
     """
 
@@ -439,7 +439,7 @@ class _StubGenerationEngine:
 def artifact_engine(tmp_path) -> ArtifactEngine:
     """真实 ArtifactEngine：版本记录写入 tmp_path 下的文件系统 Artifact 仓库。
 
-    MVL-2 起版本记录是内容提交成功的前置条件（NoOp memory builder 会被
+    版本记录是内容提交成功的前置条件（NoOp memory builder 会被
     Familiar 以 RuntimeError 拒绝），数据面用例必须装配会真实写版本的 builder。
     """
     store = ArtifactStore(FilesystemArtifactStorageAdapter(root_dir=str(tmp_path / "artifacts")))

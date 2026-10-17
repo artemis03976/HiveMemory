@@ -64,8 +64,8 @@ class LLMUserQueryAnalysisResolver:
     """第一代 Resolver：规则前置 + 单次共享 LLM 调用 + 纯函数派生。
 
     技术债说明：意图识别、query rewrite、记忆价值初判与意图分解当前共享
-    一次 LLM 调用（QueryUnderstandingEngine）；记忆价值判断未来需要重新
-    设计，详见第一代技术债文档。
+    一次 LLM 调用（QueryUnderstandingEngine）；记忆价值判断与意图识别耦合在同一次调用中，
+    后者的提示或模型调整会连带影响前者。
     """
 
     _WRITE_INTENT_PATTERNS: tuple[str, ...] = (

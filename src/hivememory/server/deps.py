@@ -33,7 +33,7 @@ logger = logging.getLogger(__name__)
 _system: HiveMemorySystem | None = None
 _ws_manager: WebSocketConnectionManager | None = None
 
-#: server 作为 system actor 的 adapter 接入统一认证网关（A1 访问边界返工 4.1）。
+#: server 作为 system actor 的 adapter 接入统一认证网关。
 HTTP_ADAPTER = "http"
 
 
@@ -167,7 +167,7 @@ def _resolve_identity_coordinates(
 ) -> tuple[str, str]:
     """解析 user_id 与 agent_id 两项声明坐标（含 workspace 取值校验与冲突检测）。
 
-    解析规则（v0.6.2 身份收敛）：
+    解析规则：
 
     1. ``user_id``：body/query 显式值与 header 选择同时出现且不一致时
        返回 409；全部缺省时在此唯一回退到 :data:`DEFAULT_USER_ID`。
@@ -220,9 +220,9 @@ def _resolve_identity_coordinates(
 
 @dataclass(frozen=True)
 class RequestIdentityClaims:
-    """认证前的请求身份声明（A1 访问边界返工第 4.1 节）。
+    """认证前的请求身份声明。
 
-    server 在认证前只持有 actor 声明与请求进入的 workspace（不变量 1）；
+    server 在认证前只持有 actor 声明与请求进入的 workspace；
     ``IdentityScope`` 在两阶段认证通过之后才由授权点组装，不由入口预先
     冻结。外部会话信息不属于 ActorIdentity，也不进入认证声明。
     """
@@ -277,12 +277,11 @@ def resolve_request_identity_scope(
     explicit_user_id: str | None = None,
     explicit_workspace_id: str | None = None,
 ) -> IdentityScope:
-    """认证前一次性组装完整 ``IdentityScope``（不变量 1 的已知例外）。
+    """认证前一次性组装完整 ``IdentityScope``（“IdentityScope 只由授权点组装”的已知例外）。
 
     **只供 ``/ingest``（Import Bus）使用**：被动摄入不在现有系统内、不经
     认证网关，维持认证前组装 scope 的既有行为；经网关的请求不得使用本
-    函数，应改用 :func:`resolve_request_identity_claims`（A1 访问边界返工
-    第 3 节非目标）。
+    函数，应改用 :func:`resolve_request_identity_claims`。
     """
     user_id, resolved_agent_id = _resolve_identity_coordinates(
         selection,
@@ -301,7 +300,7 @@ def resolve_request_identity_scope(
 
 
 # ---------------------------------------------------------------------------
-# 统一认证网关接入（A1 访问边界返工第 4.1/4.3 节）
+# 统一认证网关接入
 #
 # server 是一个登记过的调用来源：以自身 principal 与 ``http`` adapter 对
 # 每个与 workspace 相关的请求经网关取得 context。请求头中的用户身份不做
@@ -339,8 +338,7 @@ async def authenticate_request_access(
     """以 server 自身 principal 经统一认证网关取得请求级访问 context。
 
     ``claims`` 是 :func:`resolve_request_identity_claims` 解析的请求身份
-    声明，只在这里作为认证输入使用；运行绑定为本次请求的标识
-    （P-9b/P-9c）。网关认证失败（未登记 principal、adapter 不匹配、未获
+    声明，只在这里作为认证输入使用；运行绑定为本次请求的标识。网关认证失败（未登记 principal、adapter 不匹配、未获
     准入）以 ``AdmissionDeniedError`` 拒绝，由访问错误映射转为 HTTP 状态码。
     """
     return await gateway.authenticate(
@@ -358,8 +356,7 @@ class RequestAccess:
 
     声明只作为认证输入：路由处理函数只取得 ``access`` 与
     ``target_workspace``（这次操作的参数，当前取请求进入的 workspace），
-    不接触声明、认证后的身份或任何预先组装的 ``IdentityScope``（A1 访问
-    边界返工第 4.1/4.3 节）。
+    不接触声明、认证后的身份或任何预先组装的 ``IdentityScope``。
     """
 
     access: WorkspaceAccessContext
@@ -394,7 +391,7 @@ async def get_request_access(
     """FastAPI yield 依赖 — 管理员请求的请求级访问凭据与目标 workspace。
 
     以 (user, ``system``) 声明经网关认证取得 context，一次请求一个；
-    请求结束（含失败）时失效（A1 访问边界返工第 4.8 节）。供 memories、
+    请求结束（含失败）时失效。供 memories、
     agents、memory-tasks、workspace assets 等管理路由使用；身份解析带
     body/query 冲突检测的路由改用 :func:`request_access_for_claims`。
     """

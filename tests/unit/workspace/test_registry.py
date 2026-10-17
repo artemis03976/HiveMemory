@@ -1,9 +1,9 @@
 """WorkspaceActorAccessRegistry 的单元测试。
 
-被测对象：workspace.registry 模块（A1 访问边界设计）。保护的契约：
+被测对象：workspace.registry 模块。保护的契约：
 键使用完整 Workspace 坐标 + Actor 坐标（两 owner 相同 workspace_id 不串扰）、
 缺失记录查无结果、重复键与跨 owner 记录在装载期显式失败、空白名单与
-禁用记录的配置语义；用户级记录（v0.7.0 简化）覆盖该用户的所有具体
+禁用记录的配置语义；用户级记录覆盖该用户的所有具体
 Agent 但不覆盖保留 ``system``，精确记录优先、禁用即拒绝不回落。
 """
 
@@ -22,7 +22,7 @@ from tests.helpers.workspace import (
 
 
 def test_record_lookup_requires_full_coordinate_key():
-    """键包含 owner_user_id：两 owner 使用相同 workspace_id 时记录不串扰（证据 2）。"""
+    """键包含 owner_user_id：两 owner 使用相同 workspace_id 时记录不串扰。"""
     registry = WorkspaceActorAccessRegistry(
         [
             make_actor_access_record(owner_user_id="u1", workspace_id="shared_ws", agent_id="a1"),
@@ -68,7 +68,7 @@ def test_duplicate_record_key_rejected_at_load():
 
 
 def test_cross_owner_record_rejected_at_load():
-    """W0 兼容基线：跨 owner 成员记录在成员模型落地前不可表达。"""
+    """跨 owner 成员记录在成员模型落地前不可表达。"""
     with pytest.raises(ValueError):
         WorkspaceActorAccessRegistry(
             [make_actor_access_record(owner_user_id="u1", user_id="u2", agent_id="a1")]
@@ -91,7 +91,7 @@ def test_disabled_record_with_whitelist_rejected_at_load():
 
 
 def test_empty_whitelist_record_is_admissible():
-    """空 allowed_operations 合法：可进入但未获准执行资源操作（第 2.2 节）。"""
+    """空 allowed_operations 合法：可进入但未获准执行资源操作。"""
     record = make_actor_access_record(owner_user_id="u1", allowed_operations=frozenset())
     registry = WorkspaceActorAccessRegistry([record])
 
@@ -104,7 +104,7 @@ def test_empty_whitelist_record_is_admissible():
 
 
 # ---------------------------------------------------------------------------
-# 用户级记录（A1 访问边界返工第 4.2 节）
+# 用户级记录
 # ---------------------------------------------------------------------------
 
 

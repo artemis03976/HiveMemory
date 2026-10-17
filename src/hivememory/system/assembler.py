@@ -185,8 +185,8 @@ class SystemAssembler:
         global_bus = GlobalSystemBus()
         # WorkspaceAsset 是 System-owned working set；整个进程只装配一个 Store。
         workspace_asset_store = InMemoryWorkspaceAssetStore()
-        # workspace 读取能力与派生缓存（A2）：由组合根持有，L2 冷读经全局
-        # 总线调用 Patchouli backing 路由（宪章 §4.4），不持有 Patchouli 对象。
+        # workspace 读取能力与派生缓存：由组合根持有，L2 冷读经全局
+        # 总线调用 Patchouli backing 路由，不持有 Patchouli 对象。
         cache_config = self._config.workspace.cache
         workspace_runtime = WorkspaceRuntime(
             backing=BusCanonicalReadBackend(global_bus),
@@ -260,18 +260,18 @@ class SystemAssembler:
         )
 
     # ------------------------------------------------------------------
-    # 层二点五：访问控制（A1 统一认证网关 + 两类访问注册表）
+    # 层二点五：访问控制（统一认证网关 + 两类访问注册表）
     # ------------------------------------------------------------------
 
     def _build_access_control(self) -> _AccessControlBundle:
-        """装载两类访问登记并构造认证与授权两侧（A1 访问边界返工第 4.2/4.7 节）。
+        """装载两类访问登记并构造认证与授权两侧。
 
         System composition 负责"装载和注入配置"：接入登记从
         ``configs/system_principals.yaml`` 装载转入 System 注册表，
         Workspace Actor 访问登记从 ``configs/workspace_actors.yaml`` 装载
         转入 Workspace 注册表，operation 枚举值在装载期校验（未知值显式
         失败，不静默丢弃）。缺省空登记即 fail closed——网关拒绝一切认证。
-        认证与操作授权分属两个类（I-10 及其补充）：认证一侧签发与撤销
+        认证与操作授权分属两个类：认证一侧签发与撤销
         密封的 context，操作授权者读取其授予内容，两者互不依赖、都只读
         访问注册表；组合根把操作授权者注入各授权点，运行持有者只经认证
         网关接触认证一侧。
@@ -398,7 +398,7 @@ class SystemAssembler:
             # Patchouli runtime：供 Artifact promotion 在生成时自行取得内容。
             workspace_asset_reader=AssetMaterializationReader(runtime.workspace_asset_store),
             # Patchouli 是授权点以下的资源 owner：不注入共享操作授权，
-            # 公开路由只接收授权点组装的 IdentityScope（A1 访问边界返工 4.6）。
+            # 公开路由只接收授权点组装的 IdentityScope。
             shared_config=self._config.shared,
             scheduler_config=self._config.scheduler,
         )
@@ -425,7 +425,7 @@ class SystemAssembler:
         access_control: _AccessControlBundle,
     ) -> _ServicesBundle:
         # 任务进程的编排依赖只交给执行器（四阶段骨架，所有进程共用）；
-        # 注册入口只持有生命周期依赖（任务进程 Idea Q-3）。
+        # 注册入口只持有生命周期依赖。
         allocator = CPUAllocator(
             operation_authorizer=access_control.operation_authorizer,
             # Profile 阶段读取直接使用读取视图，不经过 actor 能力的操作检查。
@@ -455,7 +455,7 @@ class SystemAssembler:
             process_table=access_control.process_table,
             sessions=runtime.sessions,
             shutdown_wait_seconds=self._config.workspace.process.shutdown_wait_seconds,
-            # 注册入口是进程 context 的运行持有者（A1 访问边界返工 4.4）：
+            # 注册入口是进程 context 的运行持有者：
             # 认证经网关，进程控制授权经操作授权者。
             access_gateway=access_control.access_gateway,
             operation_authorizer=access_control.operation_authorizer,

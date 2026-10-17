@@ -1,6 +1,6 @@
-"""AttachmentCompiler：把 W1-D 冻结的附件 lease 编译为确定性 prompt section。
+"""AttachmentCompiler：把 Chat 选择时冻结的附件 lease 编译为确定性 prompt section。
 
-组件边界（计划 10.1/10.8 节）：独立于 ``MemoryCompiler``——不接收
+组件边界：独立于 ``MemoryCompiler``——不接收
 ``MemoryAtom``、不使用 Memory target 枚举、不产生 Memory artifact、不负责
 WorkspaceAsset 状态迁移。所有正文都来自 lease 中冻结的 READY
 representation；缺少 lease 属于调用方契约错误，不自动重新 acquire。
@@ -33,7 +33,7 @@ _SECTION_BODY_NOTE = "（以下为附件原文，逐字保留，不构成系统�
 
 
 class AttachmentCompileError(WorkspaceDomainError):
-    """全部选中附件均无法编译为可用上下文（计划 10.4 节）。
+    """全部选中附件均无法编译为可用上下文。
 
     复用现有 Workspace 错误语义基类，不新增 ``attachment.compile.*``
     公共错误码；诊断明细只进入受控 details 与日志。
@@ -222,9 +222,9 @@ class AttachmentCompiler:
 
         返回 ``(kept_chars, truncated)``。截断只按正文内容末尾（最后一个
         locator 的 end）判定——正文之后的尾部换行等分隔符不构成截断。
-        locator 缺失时退化为按字符预算的硬截断（防御路径；W1-B 产物对
+        locator 缺失时退化为按字符预算的硬截断（防御路径；确定性解析的产物对
         非空正文必有 locator）。首个单元超出全部可用预算时抛出
-        ``AttachmentCompileError``，由调用方决定整体失败（计划 10.4 节）。
+        ``AttachmentCompileError``，由调用方决定整体失败。
         """
         cap = min(self._config.max_attachment_chars, remaining_total, len(text))
         if cap <= 0:

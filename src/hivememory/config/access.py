@@ -1,6 +1,6 @@
 """访问控制配置：System 接入登记与 Workspace Actor 访问登记的文件声明与装载。
 
-两类登记各用一个单独的 YAML 文件（v0.7.0 A1 访问边界返工第 4.7 节），
+两类登记各用一个单独的 YAML 文件，
 对应各自的配置所有者，``config.yaml`` 不再承载 access 段：
 
 - ``configs/system_principals.yaml``：调用来源的接入登记（System 所有）；
@@ -91,7 +91,7 @@ class WorkspaceActorAccessEntry(BaseModel):
 
     ``allowed_operations`` 使用 ``WorkspaceOperation`` 的枚举值字符串
     （如 ``"memory.read"``）；允许为空——代表可进入但未获准执行资源
-    操作。W0 兼容基线要求 ``user_id == owner_user_id``。
+    操作。成员模型落地前，准入要求 ``user_id == owner_user_id``。
 
     ``agent_id`` 省略（``None``）表示用户级记录：覆盖该用户的所有具体
     Agent，但不覆盖保留的 ``system``（system 单独显式登记）。
@@ -99,7 +99,7 @@ class WorkspaceActorAccessEntry(BaseModel):
 
     owner_user_id: str = Field(description="Workspace 归属 owner 用户 ID")
     workspace_id: str = Field(description="Workspace 标识")
-    user_id: str = Field(description="Actor 用户 ID（W0 基线：等于 owner_user_id）")
+    user_id: str = Field(description="Actor 用户 ID（成员模型落地前必须等于 owner_user_id）")
     agent_id: str | None = Field(
         default=None,
         description="Actor Agent ID；省略表示用户级记录（覆盖所有具体 Agent）",

@@ -301,7 +301,7 @@ class ActorMemoryService:
         """语义检索（``memory.search``）：保持领域排序，结果协作预热缓存。
 
         调用方只提交检索参数：检索请求由本层用授权返回的可信 scope 构造，
-        ``IdentityScope`` 不进入调用方输入（A1 访问边界返工第 4.5 节），
+        ``IdentityScope`` 不进入调用方输入，
         不能据请求体重新选择 Workspace。
         """
         scope = self._authorize(access, WorkspaceOperation.MEMORY_SEARCH)

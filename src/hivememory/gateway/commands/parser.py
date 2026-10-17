@@ -62,7 +62,7 @@ def validate_command_args(
     args: dict[str, Any],
     argument_schema: dict[str, Any],
 ) -> str | None:
-    """执行最小 schema 校验，避免 Phase 2.0 引入完整 JSON Schema 依赖。"""
+    """执行最小 schema 校验，避免引入完整 JSON Schema 依赖。"""
 
     if not argument_schema:
         return None

@@ -1,4 +1,4 @@
-"""ProfileCache 的单元测试（A2 §2.3 Profile 解析结果缓存）。
+"""ProfileCache（Profile 解析结果缓存）的单元测试。
 
 被测对象：``(Workspace, agent_alias)`` 寻址、源原子反向索引（失效事件按
 memory_id 定位条目）与 LRU 淘汰的一致性，以及条目的引用隔离。

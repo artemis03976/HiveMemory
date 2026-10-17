@@ -6,8 +6,6 @@
 预留接口:
 - NoopReranker: 透传，不做任何处理
 - CrossEncoderReranker: 使用 Infrastructure 层服务进行精排
-
-对应设计文档: PROJECT.md 5.1 节
 """
 
 import logging

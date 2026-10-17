@@ -41,7 +41,7 @@ def compile_envelope_from_ir(
     """
     opts = options or MemoryCompileOptions()
 
-    # A2: 如果 section 有 units，按策略编译为 artifacts
+    # 如果 section 有 units，按策略编译为 artifacts
     resolved_sections = [_resolve_section_units(s, opts) for s in bundle.sections]
 
     if bundle.purpose == MemoryEnvelopeTarget.RETRIEVAL_CONTEXT:
@@ -65,7 +65,7 @@ def compile_envelope_from_ir(
     )
 
 
-# ========== A2: 策略编译 ==========
+# ========== 策略编译 ==========
 
 
 def _resolve_section_units(

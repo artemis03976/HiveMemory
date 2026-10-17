@@ -2,8 +2,6 @@
 QdrantStorageAdapter — MidTermStoragePort 的 Qdrant 实现
 
 包装现有 QdrantMemoryStore，使中期存储操作通过 Port 接口发起。
-
-实现阶段: Phase 1
 """
 
 from __future__ import annotations
@@ -49,7 +47,7 @@ class QdrantStorageAdapter(MidTermStoragePort):
             memory, use_sparse=self._use_sparse, recompute_vectors=recompute_vectors
         )
 
-    # patch_payload 允许的 canonical dotted 字段白名单（A2-P §4.1 / MVL-0 M0.1）。
+    # patch_payload 允许的 canonical dotted 字段白名单。
     _PATCH_ALLOWED_PATHS = frozenset(
         {
             "meta.lifecycle.access_count",

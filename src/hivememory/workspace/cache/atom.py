@@ -1,8 +1,7 @@
-"""Workspace 共享的完整原子缓存（AtomCache，A2 §3）。
+"""Workspace 共享的完整原子缓存（AtomCache）。
 
-迁移源为 Alice 侧 ``agent_runtime/aliases/cache.py``（``KoakumaAtomCache``）：
-所有权按边界宪章 §6.1 翻转为 workspace runtime 持有，唯一读者是 alias
-resolver；库对缓存的唯一接触是出向失效事件（A2-2）。
+缓存由 workspace runtime 持有，唯一读者是 alias resolver；记忆库对缓存的
+唯一接触是出向的失效事件，库不读取也不写入缓存。
 
 本模块只提供存取、索引与容量淘汰，不做授权、不接收全局路由、不自行
 回源：交付边界的逐次授权、epoch 守护回填与冷读都由 resolver 负责。

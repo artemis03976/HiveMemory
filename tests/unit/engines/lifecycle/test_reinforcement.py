@@ -33,7 +33,7 @@ from tests.helpers.workspace import make_identity_scope
 # 评分决策时刻：注入计算器的固定时钟。
 FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
 
-#: 每个事件都提交的基础 lifecycle 字段（MVL-2 受限 patch）。
+#: 每个事件都提交的基础 lifecycle 字段（受限 patch）。
 _BASE_PATCH_FIELDS = {
     "meta.lifecycle.access_count",
     "meta.lifecycle.last_accessed_at",
@@ -84,7 +84,7 @@ class TestDynamicReinforcementEngine:
         )
 
     def _submitted_patch(self) -> dict:
-        """取 reinforce 提交给 mid_term.patch_payload 的 patch mapping（MVL-2 契约）。"""
+        """取 reinforce 提交给 mid_term.patch_payload 的 patch mapping。"""
         assert (
             self.mock_mid_term.patch_payload.call_count == 1
         ), "reinforce 应恰好提交一次 patch_payload（不再整原子 upsert）"
@@ -140,7 +140,7 @@ class TestDynamicReinforcementEngine:
 
         assert result.event_type == EventType.CITATION
 
-        # A2-P 契约: CITATION 推进 meta.lifecycle.decay_anchor_at，不再更新 updated_at
+        # CITATION 推进 meta.lifecycle.decay_anchor_at，不再更新 updated_at
         patch = self._submitted_patch()
         assert set(patch) == _BASE_PATCH_FIELDS | {"meta.lifecycle.decay_anchor_at"}
         assert patch["meta.lifecycle.decay_anchor_at"] > original_decay_anchor_at

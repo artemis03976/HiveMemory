@@ -1,10 +1,10 @@
 """附件上传公开入口的集成测试：HTTP 路由 + 上传应用服务 + 真实 Store + 真实 parser。
 
-覆盖计划 A 门/B/C 门验收：HTTP 上传结果与同一 Workspace 的 Store 快照及
+覆盖：HTTP 上传结果与同一 Workspace 的 Store 快照及
 资产列表一致；上传响应在请求内到达 READY/FAILED 终态；幂等重放不重复
 解析；Workspace 隔离与各错误路径都有稳定的 HTTP 状态。
 
-访问边界（A1 访问边界返工第 4.3/4.5 节）：上传路由经统一认证网关取得
+访问边界：上传路由经统一认证网关取得
 请求级 context（真实网关 + 测试登记组合），注册使用的 scope 只由授权点
 在授权时组装——测试以真实网关依赖覆盖替代 ``deps.get_system``。
 """
@@ -163,7 +163,7 @@ def test_upload_returns_201_with_terminal_summary_matching_store_snapshot(upload
     assert (raw["kind"], raw["revision"], raw["state"]) == ("raw", 1, "ready")
     assert raw["content_hash"] == "9e8b62f81ea5c66fa06ee53da032751386b37702153070c0e14dd1d316282fa7"
     assert (raw["producer"], raw["producer_version"]) == ("upload", "1")
-    # W1-C：请求内解析完成，required representation 与 asset 同响应到达终态。
+    # 请求内解析完成，required representation 与 asset 同响应到达终态。
     required = body["required_representation"]
     assert (required["kind"], required["revision"], required["state"]) == (
         "extracted_text",

@@ -1,8 +1,8 @@
 /**
  * 用户导向身份选择类型定义
  *
- * 与计划文档 v0.6.2-identity-projection-cleanup.md 中的 IdentitySelection
- * 传输形状对应；后端将其一次性冻结为唯一的 IdentityScope。
+ * 与后端入口接收的 IdentitySelection 传输形状对应；后端将其一次性冻结为
+ * 唯一的 IdentityScope。
  *
  * @module types/identity
  */

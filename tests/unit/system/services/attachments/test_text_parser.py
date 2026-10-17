@@ -1,6 +1,6 @@
-"""TXT/Markdown 确定性文本解码器的单元测试（计划 15.4 节）。
+"""TXT/Markdown 确定性文本解码器的单元测试。
 
-被测对象：``system/services/attachments/text_parser.py``。正文与 locator
+被测对象：``infrastructure/attachments/text_parser.py``。正文与 locator
 采用独立确认的期望值；码点区间不得误用 UTF-16 下标。
 """
 
@@ -162,7 +162,7 @@ def test_markdown_syntax_is_preserved_verbatim() -> None:
 
 
 def test_raw_input_over_limit_fails_before_decoding() -> None:
-    """捕获 RAW 输入上限未在 W1-B 复核。"""
+    """捕获 RAW 输入上限未在解析阶段复核。"""
     with pytest.raises(AttachmentParseError) as error:
         _parse(b"x" * 11, max_raw_bytes=10)
     assert (error.value.category, error.value.params["reason"]) == (

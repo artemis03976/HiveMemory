@@ -1,8 +1,8 @@
 """附件上传与解析的受控失败类型。
 
 解析器只返回内容或受控失败；失败类别是供日志、RuntimeEvent 与前端文案
-选择的内部分类，不作为客户端机器分支的稳定错误码（计划 7.7 节）。
-W1-C 提交 Store 时统一投影为公共终态 ``workspace.asset.failed``。
+选择的内部分类，不作为客户端机器分支的稳定错误码。
+解析结果提交 Store 时统一投影为公共终态 ``workspace.asset.failed``。
 """
 
 from __future__ import annotations

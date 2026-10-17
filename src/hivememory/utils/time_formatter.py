@@ -3,7 +3,7 @@ HiveMemory 时间格式化工具。
 
 提供多语言支持的相对时间格式化。
 
-输入契约（A2-P 时间边界）：``format`` 的 ``dt`` 与显式 ``reference`` 必须是
+输入契约：``format`` 的 ``dt`` 与显式 ``reference`` 必须是
 timezone-aware datetime，并在入口经 :func:`require_utc` 规范化为 UTC；naive
 值不再猜测时区，直接抛出 ``ValueError``。需要确定性结果的调用方（如
 MemoryCompiler 与测试）应显式传入同一 ``reference``。本工具是纯展示组件：

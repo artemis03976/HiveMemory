@@ -2,8 +2,6 @@
 结果融合模块 (Fusion)
 
 合并多路检索结果。
-
-对应设计文档: PROJECT.md 5.1.5 节
 """
 
 import logging

@@ -1,8 +1,5 @@
 """
-Artifact 数据模型 - v0.5.0 数据持久化与溯源层
-
-当前设计见 docs/patchouli/artifacts.md；历史实施稿见
-docs/archive/plans/implementation/v0.5.0-data-durability-and-async-cold-path.md。
+Artifact 数据模型 - 数据持久化与溯源层
 
 Memory 相关 Artifact（memory_creation / memory_version）自 schema "2" 起使用
 结构化 ``MemoryProvenance`` 与完整原子 JSON 快照；旧 schema "1" 记录只读保留，
@@ -33,7 +30,7 @@ class ArtifactType(str, Enum):
     MEMORY_VERSION = "memory_version"
 
 
-# 完整 MemoryAtom canonical JSON 快照必须携带的顶层键（A2-P §5.1）。
+# 完整 MemoryAtom canonical JSON 快照必须携带的顶层键。
 _MEMORY_SNAPSHOT_REQUIRED_KEYS = ("schema_version", "id", "meta", "index", "payload", "relations")
 
 
@@ -96,7 +93,7 @@ def _require_snapshot_identity(
     workspace_identity: WorkspaceIdentity,
     field: str,
 ) -> None:
-    """版本记录与内嵌原子必须同属一个 memory ID 与 Workspace（A2-P §5.3）。"""
+    """版本记录与内嵌原子必须同属一个 memory ID 与 Workspace。"""
     if str(atom.id) != memory_id:
         raise ValueError(f"{field}.id={atom.id} 与版本记录 memory_id={memory_id!r} 不一致")
     if atom.workspace_identity != workspace_identity:
@@ -106,7 +103,7 @@ def _require_snapshot_identity(
 def snapshot_memory_atom(memory: "MemoryAtom") -> dict[str, Any]:
     """生成完整 MemoryAtom 的 canonical JSON 快照。
 
-    快照即捕获时点的完整原子序列化结果（A2-P §5.1），写入历史后不可变，
+    快照即捕获时点的完整原子序列化结果，写入历史后不可变，
     后续状态变化不回写快照。原子字段在构造与赋值时已由模型校验；快照 dict
     进入持久化历史时，再由 ``MemoryVersionArtifact`` 统一按
     :func:`validate_memory_atom_snapshot` 校验，此处不重复执行。
@@ -181,7 +178,7 @@ class BaseArtifact(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
-# ============ InteractionArtifact (Phase 2) ============
+# ============ InteractionArtifact ============
 
 
 class InteractionTurnSnapshot(BaseModel):
@@ -190,8 +187,8 @@ class InteractionTurnSnapshot(BaseModel):
     不包含任何记忆归属信息（memory_id / alias / source_intent / capture_policy），
     仅保留交互本身的内容真相。
 
-    执行者身份由单一 ``actor_identity`` 字段承载（W0 收敛后不再平铺
-    user_id / agent_id / team_id 三元组）；历史平铺 JSON 的读取升级分支已随
+    执行者身份由单一 ``actor_identity`` 字段承载，不平铺
+    user_id / agent_id / team_id 三元组；历史平铺 JSON 的读取升级分支已随
     legacy 数据迁移完成而删除，缺少 ``actor_identity`` 的旧记录 fail closed，
     由迁移工具的 canonical replacement 处理。
     """
@@ -361,7 +358,7 @@ class MemoryVersionArtifact(BaseArtifact):
     def _validate_snapshots(self) -> "MemoryVersionArtifact":
         """快照必须是完整原子 JSON 且与记录一致；v1 不允许携带 before。
 
-        ``version_number`` 等于 ``snapshot_after.meta.version``（A2-P §3.4），
+        ``version_number`` 等于 ``snapshot_after.meta.version``，
         前后快照与记录同属一个 memory ID 与 Workspace，before 早于本版本。
         """
         after = validate_memory_atom_snapshot(self.snapshot_after)

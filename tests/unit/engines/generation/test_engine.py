@@ -697,7 +697,7 @@ class TestGenerationEngineModeC:
         assert existing.meta.version == version_before
 
     def test_apply_update_degrades_to_touch_when_content_unchanged(self):
-        """§3.2：合并结果与现有内容一致时不创建新版本——降级为 TOUCH 纯决策。"""
+        """合并结果与现有内容一致时不创建新版本——降级为 TOUCH 纯决策。"""
         existing = _make_memory()
         existing.payload.content = "旧内容"
         existing.meta.lifecycle.access_count = 3

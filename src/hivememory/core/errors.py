@@ -130,7 +130,7 @@ class AdmissionDeniedError(WorkspaceDomainError):
     """调用来源或 Actor 未获准进入目标 Workspace。
 
     当前唯一签发方是 System 统一认证网关
-    （``system.access.ActorAuthenticationGateway``，A1 计划第 3.1 节）：
+    （``system.access.ActorAuthenticationGateway``）：
     接入未登记/禁用、adapter 不匹配、owner 约束或 Workspace Actor 访问
     记录缺失等第一、二层认证失败均以本错误抛出，并以稳定 ``reason``
     区分阶段；请求体中的身份声明字符串不构成准入依据。
@@ -189,7 +189,7 @@ class MemoryAliasConflictError(WorkspaceDomainError):
     """同一 Workspace 中期库内的 Memory alias 唯一性不变量被破坏。
 
     alias 是 Memory 与 Agent Profile 的 actor 面向身份，也是派生缓存
-    ``(WorkspaceIdentity, alias)`` 资源 key 的唯一性前提（A2 §8 D-4）。
+    ``(WorkspaceIdentity, alias)`` 资源 key 的唯一性前提。
     ``details["reason"]`` 区分三种来源：
 
     - ``alias_occupied``：写入前校验发现 alias 已被同 Workspace 的其他

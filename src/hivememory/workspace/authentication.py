@@ -1,13 +1,12 @@
 """Workspace 认证入口：统一 Actor Authentication 网关与第 2 阶段认证者。
 
-认证与操作授权分属两个类（A1 访问边界返工第 4.2 节，身份与访问体系
-Idea I-10）：
+认证与操作授权分属两个类：
 
 - :class:`ActorAuthenticationGateway` 是唯一对外的认证入口：依次调用
   ``PrincipalAuthenticator``（第 1 阶段）与 :class:`WorkspaceAuthenticator`
   （第 2 阶段），转交 context 的撤销与诊断查询，并负责关闭（拒绝新认证）；
 - :class:`WorkspaceAuthenticator` 负责第 2 阶段准入，签发写有授予内容的
-  密封 context，并负责撤销（I-10 的 2026-10-04 补充）。
+  密封 context，并负责撤销。
 
 授予内容密封在 context 内，操作授权者
 （``workspace.authorization.WorkspaceOperationAuthorizer``）直接读取，不依赖
@@ -22,7 +21,7 @@ Idea I-10）：
 - 接入未登记/禁用（不区分，避免泄漏配置）→ ``unknown_principal``；
 - adapter 不匹配 → ``adapter_mismatch``；
 - principal 身份解析规则不允许该用户 → ``actor_not_allowed_for_principal``；
-- actor user ≠ 要进入的 workspace 的 owner（W0 兼容基线，第 2 阶段检查）
+- actor user ≠ 要进入的 workspace 的 owner（成员模型落地前的准入约束，第 2 阶段检查）
   → ``actor_not_owner``；
 - Workspace 无有效 Actor 访问记录 → ``actor_not_admitted``。
 
@@ -98,7 +97,7 @@ class WorkspaceAuthenticator:
     ) -> WorkspaceAccessContext:
         """第 2 阶段认证：确认 Workspace 准入，签发写有授予内容的 context。
 
-        owner 约束（W0 基线）在本阶段检查：actor 用户必须等于要进入的
+        owner 约束（成员模型落地前的准入约束）在本阶段检查：actor 用户必须等于要进入的
         workspace 的 owner。不检查 principal，也不重复校验入参类型与关闭
         状态——认证网关已验证来源与声明；子线程派生则复用有效进程的来源
         与驻留目标，只替换同一用户的 agent。两条调用链均无 await，不存在
@@ -198,7 +197,7 @@ class WorkspaceAuthenticator:
         self._issued.discard(access)
 
     def revoke_all(self) -> None:
-        """System 停止时撤销全部已签发 context（P-6 的收尾步骤）。
+        """System 停止时撤销全部已签发 context，不留下仍可使用的凭据。
 
         撤销后 context 不再能通过授权（``context_not_issued``）；操作授权者
         无状态，不需要随之关闭。
@@ -235,13 +234,13 @@ class ActorAuthenticationGateway:
     一次 :meth:`authenticate` 调用编排两项认证——Principal
     authentication（第 1 阶段，经端口委托 System）与 Workspace
     authentication（第 2 阶段，委托 :class:`WorkspaceAuthenticator`）；
-    两项均通过才签发 ``WorkspaceAccessContext``，签发时写入运行绑定
-    （I-3）：任务进程 context 绑定本进程的 ``process_id``，请求级
+    两项均通过才签发 ``WorkspaceAccessContext``，签发时写入运行绑定：
+    任务进程 context 绑定本进程的 ``process_id``，请求级
     context 绑定入口为本次请求生成的标识。网关是唯一对外的认证入口：
     context 的撤销与诊断查询都经这里转交认证一侧，运行持有者不
     直接接触 ``WorkspaceAuthenticator``。
 
-    生命周期（v0.7.0 A1 访问边界返工第 4.8 节）：context 不设固定有效期，
+    生命周期：context 不设固定有效期，
     随绑定的任务进程关闭、CPU 执行结束、请求结束或 System 停止而失效。
     :meth:`close` 关闭网关并拒绝新的认证，已签发 context 照常
     可用；任务进程收尾后经 :meth:`revoke_all_contexts` 撤销全部已签发

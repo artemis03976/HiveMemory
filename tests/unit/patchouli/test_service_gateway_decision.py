@@ -42,7 +42,7 @@ def _decision(
 
 def _prepare_bus() -> tuple[PatchouliBus, AsyncMock, AsyncMock]:
     bus = PatchouliBus()
-    # 检索 backing 的正式返回形状：原子列表（A2 §2.1）。prepare 不再解析
+    # 检索 backing 的正式返回形状：原子列表。prepare 不解析
     # Profile——该项已迁到任务进程的 CPU 分配边界。
     retrieve = AsyncMock(return_value=[])
     submit = AsyncMock(return_value="topic-1")

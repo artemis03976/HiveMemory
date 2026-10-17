@@ -59,7 +59,7 @@ def make_ready_text_asset(
         for item in processing.representations
         if item.representation_id == target_id
     )
-    # 按 W1-B 产物契约构造 content_object（compiler 依赖映射结构与 locator）。
+    # 按确定性解析的产物契约构造 content_object（compiler 依赖映射结构与 locator）。
     store.complete_representation(
         scope,
         receipt.handle.asset_ref,

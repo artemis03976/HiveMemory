@@ -1,4 +1,4 @@
-"""TXT 与 Markdown 的确定性文本解码器（计划 7.3 节）。
+"""TXT 与 Markdown 的确定性文本解码器。
 
 两种格式共用同一条解码链路，仅在 content_object 的 ``format`` 字段上
 区分：Markdown 保留标题、列表、代码围栏、表格、链接、frontmatter 和

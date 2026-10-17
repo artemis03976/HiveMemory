@@ -5,8 +5,6 @@ MTP 协议解析器与格式化器单元测试
 - MTPParser: 5 种 VERB 解析、3 种 TARGET 形态、2 种 ARGS 格式
 - MTPFormatter: XML 响应容器格式化、回填文本生成
 - 边界情况: 不完整指令补全、ARGS 内部管道符、解析错误
-
-对应设计文档: MemoryToolProtocol.md Chapter 2 & 3.3
 """
 
 import pytest
@@ -63,21 +61,21 @@ class TestMTPParser:
         assert cmd.target.is_list is False
 
     def test_parse_read_list(self, parser: MTPParser):
-        """测试 READ 列表目标解析 (Section 2.4 场景1)"""
+        """测试 READ 列表目标解析"""
         cmd = parser.parse("⟪ READ | [fact_api_spec, tool_db_connector] | ⟫")
         assert cmd.verb == MTPVerb.READ
         assert cmd.target.is_list is True
         assert cmd.target.aliases == ["fact_api_spec", "tool_db_connector"]
 
     def test_parse_run_sys_tool(self, parser: MTPParser):
-        """测试 RUN 系统工具解析 (Section 2.4 场景2)"""
+        """测试 RUN 系统工具解析"""
         cmd = parser.parse('⟪ RUN | sys_read_file | path="./config/settings.yaml" ⟫')
         assert cmd.verb == MTPVerb.RUN
         assert cmd.target.single_alias == "sys_read_file"
         assert cmd.args["path"] == "./config/settings.yaml"
 
     def test_parse_run_mem_tool(self, parser: MTPParser):
-        """测试 RUN 记忆工具解析 (Section 2.4 场景3)"""
+        """测试 RUN 记忆工具解析"""
         cmd = parser.parse('⟪ RUN | tool_deploy_script | env="production" retries="3" ⟫')
         assert cmd.verb == MTPVerb.RUN
         assert cmd.target.single_alias == "tool_deploy_script"
@@ -85,7 +83,7 @@ class TestMTPParser:
         assert cmd.args["retries"] == "3"
 
     def test_parse_write(self, parser: MTPParser):
-        """测试 WRITE 指令解析 (Section 2.4 场景4)"""
+        """测试 WRITE 指令解析"""
         text = '⟪ WRITE | * | title="Login Auth Logic" content=`\ndef login(user):\n    pass\n` ⟫'
         cmd = parser.parse(text)
         assert cmd.verb == MTPVerb.WRITE
@@ -160,7 +158,7 @@ class TestMTPParser:
     # --- 边界情况 ---
 
     def test_parse_pipe_in_args(self, parser: MTPParser):
-        """测试 ARGS 内部的管道符不被误分割 (Section 2.1)"""
+        """测试 ARGS 内部的管道符不被误分割"""
         cmd = parser.parse("⟪ WRITE | * | content=`a | b | c` ⟫")
         assert cmd.args["content"] == "a | b | c"
 
@@ -220,7 +218,7 @@ class TestMTPParserCompleteAndDetect:
     """测试 MTP 指令补全与检测"""
 
     def test_complete_and_parse(self, parser: MTPParser):
-        """测试不完整指令补全 (Section 3.1.2 Stop Sequence)"""
+        """测试不完整指令补全（Stop Sequence 截断）"""
         # 模拟 LLM 在 ⟫ 处被截断
         incomplete = "⟪ READ | fact_api_spec |"
         cmd = parser.complete_and_parse(incomplete)

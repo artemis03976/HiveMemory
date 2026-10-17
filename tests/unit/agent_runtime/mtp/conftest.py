@@ -73,7 +73,7 @@ class MockAsyncBus(AsyncSystemBus):
             )
             if atom is not None:
                 memories.append(atom)
-        # alias 批量读取路由返回实际可读的完整原子列表（A2 §2.1）。
+        # alias 批量读取路由返回实际可读的完整原子列表。
         return memories
 
     async def _handle_retrieve(self, *args, **kwargs):

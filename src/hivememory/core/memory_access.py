@@ -1,6 +1,6 @@
 """Memory ownership 硬边界与 Workspace 内 actor 读取策略（授权谓词唯一实现）。
 
-A2 §5.1 / §8.2：授权谓词上收 core，Patchouli 存储边界与 workspace 读取
+授权谓词放在 core，Patchouli 存储边界与 workspace 读取
 resolver 共用同一份实现，杜绝两侧对 ``MemoryAccessPolicy`` 的解释分叉。
 谓词只依赖原子自身的 policy 与可信身份坐标，结论逐次评估、不缓存。
 """

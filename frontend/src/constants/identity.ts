@@ -3,7 +3,7 @@
  *
  * 必须与后端 src/hivememory/core/constants.py 保持一致
  *
- * 身份选择约定（v0.6.2 收敛）：
+ * 身份选择约定：
  * - 前端维护并传递 `user_id + workspace_id` 基础选择；
  *   只有 Chat、Agent run 等由具体 Agent 执行的操作才附加 `agent_id`。
  * - 保留值 `system`（非 Agent action 的来源标记）由后端注入，

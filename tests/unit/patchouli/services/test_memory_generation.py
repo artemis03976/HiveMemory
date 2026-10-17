@@ -8,7 +8,7 @@ MemoryGenerationFamiliar 单元测试
 - _attach_memory_artifact: CREATE/UPDATE artifact 挂载（版本记录强制）
 - create/update_external_memory: 外部编辑的提交边界语义
 
-A2-P MVL-2 契约：
+提交边界契约：
 - 引擎纯计算；版本/内容时间/置信度在 Familiar 提交边界用注入的 now 赋值。
 - 版本记录是提交成功的前置条件：builder 失败或 NoOp builder 直接传播错误。
 - TOUCH 不走 upsert，走受限 patch_payload 推进访问统计。
@@ -599,7 +599,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
     @pytest.mark.asyncio
     async def test_run_generation_propagates_version_builder_failure(self):
-        """版本记录 builder 失败直接传播，内容不提交（M0.3：无历史不提交）"""
+        """版本记录 builder 失败直接传播，内容不提交：没有版本历史就不提交内容"""
         atom = _make_memory_atom()
         gen_engine = Mock()
         gen_engine.process = AsyncMock(

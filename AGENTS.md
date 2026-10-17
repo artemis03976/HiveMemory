@@ -98,6 +98,7 @@
 - 配置模型位于 `src/hivememory/config/`（按子系统分段）；组件只接收并导入自己的配置段，不持有根配置 `HiveMemoryConfig`，也不自行调用 `load_app_config`，缺配置时显式失败。
 - 版本唯一来源是 `src/hivememory/_version.py`；涉及版本时运行 `python scripts/check_version_consistency.py`。
 - 改动公共模型、route 名称、事件名、配置键或错误语义时，先更新对应契约和所有消费者，再运行跨边界测试。
+- 代码注释、docstring 与字段 `description`（含测试与前端代码）直接写出行为、不变量与理由，不指向任何文档：不写 `docs/` 路径、文档章节号与编号条目，不写计划与批次代号、决定编号或依赖计划进度的“暂时/下一批”，迁移来源与版本历史交给版本控制；代码目录不放 README。引用只能从文档指向代码；规则见[文档治理规范](docs/DOCUMENTATION.md)第 11.2 节，由 `tests/unit/architecture/test_self_contained_comments.py` 守护。
 
 ## 6. 测试设计与选择
 
@@ -163,6 +164,7 @@ cd frontend && npm ci && npm run lint && npm run build
 - [ ] 新测试位于不变量的归属层，没有在其他层或文件重复已有覆盖；契约变更已同步删除或改写旧契约测试。
 - [ ] 已运行与改动匹配的定向测试、静态检查和必要的全量门槛。
 - [ ] 文档只陈述有证据的当前事实，计划仍留在正确的工作文档中。
+- [ ] 新写或改动的注释与 docstring 不引用文档、计划代号或决定编号，读者不打开文档也能理解。
 - [ ] `git diff --check` 和最终 `git diff` 已审阅。
 
 交付说明应简洁列出：改了什么、为什么、运行了哪些验证、哪些检查因环境或外部依赖未运行，以及任何仍需关注的风险。

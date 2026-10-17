@@ -4,7 +4,7 @@
 可恢复失败在此收敛为 `MemoryContextAttempt(degraded=True)`，
 不暴露给上层路由策略。
 
-设计 §6：Gateway 或 retrieval 的可恢复失败不得阻止当前 user 进入
+Gateway 或 retrieval 的可恢复失败不得阻止当前 user 进入
 buffer；契约违约与装配缺陷不降级，直接向上抛出。
 """
 
@@ -177,8 +177,8 @@ class MemoryContextProvider:
         if decision.retrieval_plan.mode == RetrievalMode.SKIP or decision.retrieval_plan.top_k == 0:
             return RetrievalResponse()
 
-        # 检索路由返回完整原子列表（A2 §2.1）；Passive 上下文仍消费旧协议
-        # envelope，由本 adapter 构造并测量调用耗时（A2 §2.4，A6 切换）。
+        # 检索路由返回完整原子列表；Passive 上下文仍消费旧协议
+        # envelope，由本 adapter 构造并测量调用耗时。
         started_at = time.perf_counter()
         memories = await self._bus.request(
             PatchouliRoutes.MEMORY_RETRIEVE,

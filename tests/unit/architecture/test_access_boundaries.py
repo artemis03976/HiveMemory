@@ -1,11 +1,11 @@
-"""A1 访问边界的架构级静态约束（AST 扫描，补充包分层泛化规则）。
+"""访问边界的架构级静态约束（AST 扫描，补充包分层泛化规则）。
 
 访问 context 是密封的进程内凭据：workspace 的认证一侧、授权点与运行持有者
 接触它；CPU 只持派生的线程 context，不持进程 context。Gateway、Patchouli
 等资源 owner 与引擎位于授权点以下，资源调用只流动授权点组装的
 ``IdentityScope``；AliceCPU 将线程 context 绑定为操作提交函数，Agent loop
-与执行适配器只持提交函数和观测标签（A1 访问边界返工第 4.1 节，
-身份与访问体系不变量 2/4）。包分层测试只能证明"子系统之间只导入
+与执行适配器只持提交函数和观测标签，不持有、也读不出访问 context。
+包分层测试只能证明"子系统之间只导入
 contracts"；本模块把认证与授权两侧的依赖方向固化为精确清单：
 
 - 认证与授权模块（``workspace.authentication`` / ``workspace.authorization``）
@@ -13,7 +13,7 @@ contracts"；本模块把认证与授权两侧的依赖方向固化为精确清�
 - 能力层、任务进程执行器（``TaskProcessRunner``）与 CPU 分配是操作授权者
   （``authorization``）的调用方，不导入认证网关与 ``WorkspaceAuthenticator``；
 - 操作授权者不导入任务进程与能力层；认证一侧与操作授权者互不导入，只经
-  context 这个类型发生联系（I-10 的 2026-10-04 补充）；
+  context 这个类型发生联系；
 - context 是密封凭据：签发（``_seal``）与撤销（``_revoke``）只在认证一侧
   调用，读取授予内容（``_unseal``）只在操作授权者与认证一侧的派生、
   撤销校验和诊断查询调用。

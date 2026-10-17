@@ -2,9 +2,8 @@
 
 被测对象：``core.access.WorkspaceAccessContext``（密封凭据）、
 ``workspace.authentication.WorkspaceAuthenticator``（认证一侧）与
-``workspace.authorization.WorkspaceOperationAuthorizer``（操作授权者）
-（A1 访问边界返工第 4.2 节，身份与访问体系 Idea I-10 及其 2026-10-04
-补充）。保护的契约：
+``workspace.authorization.WorkspaceOperationAuthorizer``（操作授权者）。
+保护的契约：
 
 - ``WorkspaceAccessContext`` 是密封凭据：没有公开字段，repr 不泄露内容；
   直接构造、复制、序列化与修改都被拒绝（副本不能逃过撤销）；
@@ -19,7 +18,7 @@
   workspace，目标非驻留（``target_workspace_not_resident``）、目标 owner
   不符（``target_owner_mismatch``）、白名单缺失（``operation_not_allowed``）
   分别拒绝；按授权者自己的访问登记判定准入（``actor_not_admitted``）；
-- 进程控制授权比对请求方与进程记录的驻留坐标（P-7）：请求方无效按
+- 进程控制授权比对请求方与进程记录的驻留坐标：请求方无效按
   ``ScopeRequiredError`` 拒绝，记录侧已撤销按 ``False``（不可控）呈现；
 - ``authorize_stage`` 只检查凭据、准入与目标，不要求 actor 操作白名单；
   返回 scope 仍保留进程 actor 身份，不切换成保留的 system actor；
@@ -133,7 +132,7 @@ async def test_context_cannot_be_modified():
 
 @pytest.mark.asyncio
 async def test_invalidate_revokes_single_context_and_keeps_others_usable():
-    """单个撤销（P-6）后该 context 不再能通过授权；其他凭据不受影响；幂等。"""
+    """单个撤销后该 context 不再能通过授权；其他凭据不受影响；幂等。"""
     composition = _composition()
     first = await composition.authenticate(agent_id="a1", user_id="u1")
     second = await composition.authenticate(agent_id="a1", user_id="u1")
@@ -148,7 +147,7 @@ async def test_invalidate_revokes_single_context_and_keeps_others_usable():
 
 @pytest.mark.asyncio
 async def test_revoke_all_revokes_every_issued_context_and_new_auth_still_works():
-    """System 停止时撤销全部（P-6 收尾）：已签发的 context 全部失效。
+    """System 停止时撤销全部：已签发的 context 全部失效。
 
     撤销全部不是关闭：之后重新认证仍可签发新的有效 context。
     """
@@ -222,7 +221,7 @@ async def test_authenticator_does_not_retain_unused_contexts():
 
 @pytest.mark.asyncio
 async def test_authorize_operation_returns_assembled_scope_for_whitelisted_operations():
-    """同一有效凭据可先后执行 read/search 等不同获准操作（A1 证据 6）。
+    """同一有效凭据可先后执行 read/search 等不同获准操作。
 
     返回的 ``IdentityScope`` 由授权者从 context 密封的授予内容组装：actor 与
     目标 workspace 坐标正确，与单次 operation 解耦。
@@ -280,7 +279,7 @@ async def test_authorize_operation_rejects_operation_out_of_whitelist():
 
 @pytest.mark.asyncio
 async def test_authorize_operation_rejects_foreign_owner_target():
-    """actor 用户不是目标 workspace owner 的目标被拒绝（W0 owner 约束，第 3 阶段）。
+    """actor 用户不是目标 workspace owner 的目标被拒绝（owner 准入约束，第 3 阶段）。
 
     owner 是 WorkspaceIdentity 坐标的一部分：跨 owner 的目标必然不等于
     驻留 workspace，因此稳定 reason 是 ``target_workspace_not_resident``；
@@ -466,7 +465,7 @@ async def test_authorize_stage_rejects_missing_context_and_invalid_target(method
 
 
 class TestAuthorizeProcessControl:
-    """进程控制授权（P-7）：比对请求方与进程记录的驻留坐标。"""
+    """进程控制授权：比对请求方与进程记录的驻留坐标。"""
 
     async def _issued_record_context(self, composition):
         """签发进程记录侧 context：驻留 MAIN 的 u1/a1。"""

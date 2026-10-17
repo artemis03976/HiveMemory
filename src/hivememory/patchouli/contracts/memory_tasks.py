@@ -2,7 +2,7 @@
 
 ``MemoryGenerationTask`` 及其状态/来源枚举是 Patchouli 向 System/workspace
 能力层公开的任务观察结果，按"共享 DTO 放在依赖中立契约"的规则上收到
-``patchouli.contracts``（A2 §8.2）：能力层只依赖本模块，不导入控制面实现。
+``patchouli.contracts``：能力层只依赖本模块，不导入控制面实现。
 由通用 work queue 结果投影快照的工厂逻辑依赖 ``WorkState`` / ``TaskOutcome``，
 留在 ``patchouli.control.memory_generation.models``。
 """

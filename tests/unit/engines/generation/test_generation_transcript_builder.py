@@ -1,7 +1,7 @@
 """
 GenerationTranscriptBuilder / GenerationContext 单测
 
-覆盖 Phase 3 实施方案清单 §16.11 要求的测试场景:
+覆盖以下场景:
 1. GenerationTranscriptBuilder.build_context() 基础构建
 2. trace_summaries 映射 (SEARCH / READ / RUN)
 3. assistant_final_text 优先于 clean_response

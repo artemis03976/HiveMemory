@@ -4,8 +4,6 @@ FileBasedStorageAdapter — LongTermStoragePort 的文件系统实现
 将 FileBasedArchiver 的冷存储读写逻辑映射到 LongTermStoragePort 接口。
 跨层操作（从 Qdrant 获取 / 写回 Qdrant）已上移至 MemoryLibrary，此适配器
 仅负责文件系统的读写和索引维护。
-
-实现阶段: Phase 1
 """
 
 from __future__ import annotations
@@ -51,7 +49,7 @@ class FileBasedStorageAdapter(LongTermStoragePort):
     ) -> None:
         self._archive_dir = Path(archive_dir)
         self._compress = compress
-        # 归档时间戳的局部注入（A2-P 时间边界）；默认当前 UTC。
+        # 归档时间戳的局部注入；默认当前 UTC。
         self._now = now or utc_now
         self._archive_dir.mkdir(parents=True, exist_ok=True)
         self._index_path = self._archive_dir / "archive_index.json"

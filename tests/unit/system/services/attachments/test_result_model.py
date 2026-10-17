@@ -1,6 +1,6 @@
-"""W1-B 共享结果模型与 canonical 编码的单元测试。
+"""确定性解析的共享结果模型与 canonical 编码的单元测试。
 
-被测对象：``system/services/attachments/models.py`` 的
+被测对象：``infrastructure/attachments/models.py`` 的
 ``AttachmentContentBuilder`` 与 ``canonical_content_bytes``。
 期望值采用独立确认的固定样例，不在测试中调用生产转换逻辑计算。
 """
