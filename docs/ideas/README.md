@@ -26,8 +26,8 @@ Idea 以 frontmatter 的 `horizon` 字段分为三类，规则见[文档治理�
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
-| [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md) | Session 全量历史、Topic page folding 与压缩技术调研 | v0.7.0 的 Alice compact 候选（工具结果减重、接力摘要与轮内预算守卫）与 AC-1/AC-2；Topic folding 优化另行排期；两边共享机制但独立维护视图 |
-| [Agent Harness 会话压缩技术调研](./agent-context-compaction-research.md) | Claude Code 官方资料，以及 Codex、Hermes、pi、OpenCode 的固定源码快照（2026-10-16） | 为 Alice 会话压缩 Plan 提供预算、覆盖边界、检查点、取消与恢复的技术依据；参数和 AC-1、AC-2 仍待收敛 |
+| [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md) | Session 全量历史、Topic page folding 与压缩技术调研 | v0.7.0 的 Alice compact 候选（工具结果减重、接力摘要与轮内预算守卫），AC-1/AC-2 已决定，已形成[计划](../plans/v0.7.0-alice-session-compaction.md)；Topic folding 优化另行排期；两边共享机制但独立维护视图 |
+| [Agent Harness 会话压缩技术调研](./agent-context-compaction-research.md) | Claude Code 官方资料，以及 Codex、Hermes、pi、OpenCode 的固定源码快照（2026-10-16） | 为 Alice 会话压缩 Plan 提供预算、覆盖边界、检查点、取消与恢复的技术依据；参数默认值待计划实施时按样本校准 |
 
 ## 候选方向（`candidate`）
 

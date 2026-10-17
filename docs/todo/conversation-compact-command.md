@@ -49,7 +49,7 @@ ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是�
 
 - 已完成的 ConversationSession 与前端会话模型；
 - 命令的运行位置（命令系统接回，Q-5a）；
-- Alice 的会话压缩算法（v0.7.0，外部会话计划之后；候选设计见[短期记忆 Idea 第 5 节](../ideas/short-term-memory-and-context-compaction.md#5-alice-会话-compact-候选机制)，`/compact` 是否同批实施见[AC-2](../ideas/short-term-memory-and-context-compaction.md#ac-2-compact-是否进入本计划)）；
+- Alice 的会话压缩算法（v0.7.0，外部会话计划之后；候选设计见[短期记忆 Idea 第 5 节](../ideas/short-term-memory-and-context-compaction.md#5-alice-会话-compact-候选机制)，首个压缩计划只做自动压缩，`/compact` 随命令系统接回实施，届时复用压缩入口的强制参数（[AC-2](../ideas/short-term-memory-and-context-compaction.md#ac-2-本计划只做自动压缩)，owner，2026-10-16；[计划](../plans/v0.7.0-alice-session-compaction.md)）；
 - 外部 harness 的 controller 模式接入（v0.7.1）。
 
 ## 待决问题
