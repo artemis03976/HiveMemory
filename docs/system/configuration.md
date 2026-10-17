@@ -8,6 +8,7 @@ code_paths:
   - src/hivememory/system/provider_registry.py
   - src/hivememory/system/model_registry.py
   - configs/config.yaml
+  - configs/models.yaml
   - configs/system_principals.yaml
   - configs/workspace_actors.yaml
 related_contracts:
@@ -15,7 +16,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-17
 ---
 
 # System 配置与注册表
@@ -50,7 +51,7 @@ last_reviewed: 2026-10-15
 
 升级注意（写入意图实时派发）：WRITE/UPDATE 的 ACK 现在等待生成队列接纳，可能在 ACK 前返回明确拒绝或未知结果；后续运行失败或取消不撤回已提交写入。SSE done 与 `chat.run.completed` 删除 `memory_task_ids`，消费者改用任务事件与 list/get。该次迁移删除了 payload 的 `materialize_tasks`（当前 codec 版本见下方会话升级说明）；当前队列为进程内队列，不提供旧版本重放。
 
-会话配置为 `workspace.sessions.max_sessions_per_workspace=128` 与 `max_turns_per_session=512`，均要求至少 1。达到上限时显式拒绝创建或进程认领，不清理历史。`gateway.context_preparation.session_turn_limit=3` 控制 Gateway 的近期会话轮数（至少 1）；Alice 始终接收全量历史，不受该项与 Topic 的 `context_block_limit` 影响。`workspace.process.shutdown_wait_seconds=10`（至少 0）是 System 关闭时等待在途任务进程由交付方自行收口的上限，超时后兜底关闭。
+会话配置为 `workspace.sessions.max_sessions_per_workspace=128` 与 `max_turns_per_session=512`，均要求至少 1。达到上限时显式拒绝创建或进程认领，不清理历史。`gateway.context_preparation.session_turn_limit=3` 控制 Gateway 的近期会话轮数（至少 1）；Alice 始终接收全量原文，自行按 `alice.compaction` 构建预算受限的视图，不受该项与 Topic 的 `context_block_limit` 影响。`workspace.process.shutdown_wait_seconds=10`（至少 0）是 System 关闭时等待在途任务进程由交付方自行收口的上限，超时后兜底关闭。
 
 会话升级后 `session_id` 实际绑定资源；缺省仍自动新建。SSE 首个事件回传会话 ID，done 以 `topic_id` 标注本轮材料归属；`topic_info` 与 `pool_topics` 已删除。Interaction codec 5 增加 `outcome`，旧版本不重放；会话仅在内存中，后端重启后前端需重新新建。
 
@@ -80,6 +81,29 @@ last_reviewed: 2026-10-15
 升级注意（执行线程层）：CALL 派生的子 Agent 以目标 Agent 的身份运行，需要目标在同一 Workspace 有准入记录，并按目标自己的白名单授权。随仓库发布的默认登记以用户级记录覆盖该用户的全部 Agent，行为不受影响；只为个别 Agent 配置精确记录的登记，需要为 CALL 目标补充记录，否则这些 CALL 以“agent 不可用”失败。内置图纸（未指定目标、`default` 或 `omni_doll`）以 `omni_doll` 身份运行。
 
 登记的字段语义、用户级记录规则、随仓库发布的默认登记与认证授权模型见 [Workspace 架构](../architecture/workspace.md)第 4.2 节。
+
+### 1.2 Alice 会话预算与压缩
+
+`ModelDefinition.context_window` 与解析后的 `LLMConfig.context_window` 是可选的正整数，单位为总窗口 token；模型登记在 `configs/models.yaml`，模型管理 API 支持读写，显式 null 清除登记。它不作为生成参数透传给提供商。Alice 按实际解析模型与请求覆盖后的 `max_tokens` 计算输入上限：总窗口减去生成上限和安全余量，未登记窗口时使用下表默认值。
+
+`alice.compaction` 的唯一配置模型是 `CompactionConfig`，默认值如下：
+
+| 字段 | 默认值 | 作用 |
+|:---|---:|:---|
+| `enabled` | `true` | 自动减重与摘要开关；关闭时忽略已有检查点，历史超出输入上限时以 `compaction_failed` 结束，输入守卫仍有效 |
+| `default_context_window` | `65536` | 未登记模型的保守总窗口，必须大于 0 |
+| `safety_margin` | `2048` | 估算误差预留 token，允许 0 |
+| `trigger_ratio` | `0.75` | 完整视图超过输入上限的此比例时压缩 |
+| `target_ratio` | `0.5` | 压缩后目标占输入上限的比例 |
+| `recent_raw_ratio` | `0.25` | 最近完整轮次原文预算占输入上限的比例，允许 0 |
+| `tool_result_excerpt_chars` | `2000` | RUN 摘录与其他保留型工具结果正文限长 |
+| `summary_max_tokens` | `1024` | 摘要正文估算 token 上限；生成另受模型输出上限约束 |
+| `summary_input_tool_chars` | `2000` | 摘要输入中每条工具消息字符上限 |
+| `summary_timeout_seconds` | `60` | 每次摘要调用超时秒数 |
+| `max_references` | `16` | 引用条数上限，允许 0 |
+| `reference_max_chars` | `256` | 单条引用字符上限，超长引用忽略，不截成错误地址 |
+
+比例上限均为 1，触发与目标比例必须大于 0；其余长度与超时必须大于 0。默认比例按固定样本做过预算校准，不代表对真实模型质量的保证。算法、回退与已知限制见 [Agent Runtime](../alice/agent-runtime.md#31-会话上下文视图)。摘要复用本轮模型，没有独立的辅助模型配置；这些参数修改后重启运行实例生效，不影响会话容量上限或原文保存规则。
 
 ## 2. 来源与优先级
 

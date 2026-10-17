@@ -59,6 +59,12 @@ class SessionCapacityError(WorkspaceDomainError):
     code = "workspace.session.capacity_exceeded"
 
 
+class SessionCheckpointError(WorkspaceDomainError):
+    """会话压缩检查点的覆盖边界不合法。"""
+
+    code = "workspace.session.checkpoint_invalid"
+
+
 class SessionClosedError(WorkspaceDomainError):
     """会话服务已关闭，拒绝继续读写。"""
 
@@ -215,6 +221,7 @@ __all__ = [
     "SessionBusyError",
     "SessionCapacityError",
     "SessionClosedError",
+    "SessionCheckpointError",
     "WorkspaceDomainError",
     "ScopeRequiredError",
     "ThreadContextRevokedError",

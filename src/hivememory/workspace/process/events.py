@@ -15,6 +15,7 @@ from hivememory.components.events.publisher import RuntimeEventPublisher, Severi
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import WorkspaceDomainError
 from hivememory.core.models import ExecutionLabels
+from hivememory.workspace.contracts import CPUFailureReason
 from hivememory.workspace.process.table import (
     CancelResult,
     ProcessOutcome,
@@ -161,13 +162,19 @@ class BoundProcessEvents:
             data={"close_reason": record.stop_reason or "stream_closed"},
         )
 
-    def failed(self, record: ProcessRecord, error: Exception | None = None) -> None:
+    def failed(
+        self,
+        record: ProcessRecord,
+        error: Exception | None = None,
+        *,
+        failure_reason: CPUFailureReason | None = None,
+    ) -> None:
         """进程失败；``error`` 为空表示 Actor 自行报告失败。
 
-        公共事件只携带 Workspace 领域错误的安全错误码，不写入异常正文。
+        公共事件只携带 CPU 失败原因码或 Workspace 安全错误码，不写入异常正文。
         """
         if error is None:
-            message = None
+            message = CPUFailureReason(failure_reason).value if failure_reason is not None else None
         elif isinstance(error, WorkspaceDomainError):
             message = error.code
         else:

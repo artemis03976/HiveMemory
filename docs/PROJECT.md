@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-17
 ---
 
 # HiveMemory 项目总览
@@ -147,7 +147,7 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 ### 5.1 入口与对话
 
 - 主动 chat：Gateway 决策后执行 Patchouli prepare（话题与检索）、任务进程 CPU 分配（Profile、附件与记忆编译）、Alice run、有输出时任务进程封口并追加会话、Patchouli finalize；
-- ConversationSession 的创建、列表、重命名、删除与历史恢复；会话属于 Workspace，逐轮选择 Agent，Alice 使用全量会话历史，Gateway 使用最近 N 轮；会话仅在进程内保存；
+- ConversationSession 的创建、列表、重命名、删除与历史恢复；会话属于 Workspace，逐轮选择 Agent，Alice 从全量原文构建带工具减重与接力摘要的预算视图，Gateway 使用最近 N 轮；原文与压缩检查点仅在进程内保存；
 - SSE 流式与非流式 Agent run；
 - 全局系统指令注册、解析、分发和 chat 短路；
 - Passive Ingress：外部离散事件去重、顺序缓冲、封口提交和失败重试；
@@ -219,7 +219,7 @@ Patchouli 拥有长期记忆、话题、Agent Profile、检索、感知、生成
 
 ### 7.3 Alice
 
-Alice 以 CPU 端口的实现接入任务进程，消费任务进程组装的输入清单（`CPUInputManifest`）执行 Agent run，拥有 frame、Agent loop、Koakuma MTP runtime、frame ACK alias 集合和 CALL 编排。写入意图登记与引用解析由 workspace 持有，Alice 经线程 context 绑定的提交函数发出操作请求。它不直接拥有长期记忆存储。
+Alice 以 CPU 端口的实现接入任务进程，消费任务进程组装的输入清单（`CPUInputManifest`）执行 Agent run，拥有 frame、Agent loop、Koakuma MTP runtime、frame ACK alias 集合和 CALL 编排。写入意图登记与引用解析由 workspace 持有，Alice 经线程 context 绑定的提交函数发出操作请求。它不直接拥有长期记忆存储。会话压缩算法与逐帧输入守卫见 [Agent Runtime](./alice/agent-runtime.md#31-会话上下文视图)，检查点由 workspace 会话资源接受和保存。
 
 代码入口：`src/hivememory/alice/system.py`、`runtime/`、`src/hivememory/agent_runtime/`。
 

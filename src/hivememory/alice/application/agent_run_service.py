@@ -21,8 +21,14 @@ import uuid
 from collections.abc import AsyncGenerator, Coroutine
 from dataclasses import dataclass
 from enum import Enum
+from time import perf_counter
 from typing import Any, Literal, cast, overload
 
+from hivememory.agent_runtime.context_budget import (
+    InputTooLargeError,
+    ModelContextWindowExceededError,
+    TurnContextBudgetExceededError,
+)
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
@@ -31,7 +37,9 @@ from hivememory.agent_runtime.models import (
 from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.application.operation_policy import mtp_verbs_for_operations
+from hivememory.alice.orchestration.context_view import CompactionFailedError, SessionContextView
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
+from hivememory.alice.orchestration.relay_summary import RelaySummarizer
 from hivememory.alice.orchestration.run_executor import RunExecutor
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent.call_coordinator import CallCoordinator
@@ -41,6 +49,8 @@ from hivememory.alice.runtime.runtime_events import (
     BoundAgentRunEvents,
 )
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
+from hivememory.config.alice import CompactionConfig
+from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
@@ -48,11 +58,13 @@ from hivememory.core.models import (
 )
 from hivememory.core.protocol.models import (
     AgentRunContext,
+    SessionCompactionCheckpoint,
 )
 from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
+    CPUFailureReason,
     CPUInputManifest,
     CPUResultSlot,
     OperationSubmitter,
@@ -113,6 +125,8 @@ class AgentRunService:
         prompt_assembler: AgentPromptAssembler,
         stream_adapter: AgentRunStreamAdapter,
         agent_run_events: AgentRunEventEmitter,
+        compaction_config: CompactionConfig,
+        summarizer: RelaySummarizer,
     ) -> None:
         self._agent_runtime = agent_runtime
         self._call_coordinator = call_coordinator
@@ -120,6 +134,8 @@ class AgentRunService:
         self._prompt_assembler = prompt_assembler
         self._stream_adapter = stream_adapter
         self._agent_run_events = agent_run_events
+        self._compaction_config = compaction_config
+        self._summarizer = summarizer
 
     # ========== 统一入口 ==========
 
@@ -194,26 +210,103 @@ class AgentRunService:
         executor: RunExecutor | None = None
         exit_reason = StreamExitReason.RUNNING
         executor_stream: AsyncGenerator[dict[str, Any], None] | None = None
+        new_checkpoint: SessionCompactionCheckpoint | None = None
+        if stream:
+            agent_stream = self._stream_adapter.create(preparation.session)
 
         try:
             executor = RunExecutor(
                 agent_runtime=self._agent_runtime,
                 session=preparation.session,
                 call_coordinator=self._call_coordinator,
+                run_events=run_events,
             )
-            messages = self._prompt_assembler.build_main_agent_messages(preparation.context)
-            if stream:
-                agent_stream = self._stream_adapter.create(preparation.session)
-                frame = self._create_root_frame(
-                    messages=messages,
-                    submit_operation=submit_operation,
-                    labels=preparation.context.labels,
-                    topic_id=preparation.context.topic_id,
-                    session=preparation.session,
-                    agent_profile=preparation.context.agent_profile,
-                    permitted_verbs=preparation.context.permitted_mtp_verbs,
+            # 解析与预算先于历史组装，根帧随后复用同一解析快照。
+            resolved_model = None
+            preparation_error: Exception | None = None
+            messages: list[dict[str, str]] = []
+            try:
+                resolved_model = self._agent_runtime.resolve_model(
+                    preparation.context.agent_profile or OMNI_DOLL_PROFILE,
+                    generation_options,
                 )
+                view = SessionContextView(
+                    context=preparation.context,
+                    prompt_assembler=self._prompt_assembler,
+                    checkpoint=input_manifest.compaction_checkpoint,
+                    input_token_limit=resolved_model.input_token_limit,
+                    config=self._compaction_config,
+                )
+                messages = view.messages
+                if view.should_compact():
+                    progress: dict[str, object] = {
+                        "layer": "reduction",
+                        "tokens_before": view.estimated_tokens,
+                        "tokens_after": view.estimated_tokens,
+                        "covered_turns": 0,
+                    }
+                    run_events.compaction(status="started", data=progress)
+                    if stream:
+                        yield agent_stream.output.make_event(
+                            "context_compaction", {**progress, "status": "started"}
+                        )
+                    started_at = perf_counter()
+                    compacted = await view.compact(
+                        summarizer=self._summarizer, model=resolved_model
+                    )
+                    messages = compacted.messages
+                    new_checkpoint = compacted.checkpoint
+                    progress = {
+                        "layer": compacted.layer,
+                        "summary_status": compacted.summary_status,
+                        "tokens_before": compacted.tokens_before,
+                        "tokens_after": compacted.tokens_after,
+                        "covered_turns": compacted.covered_turns,
+                        "summarized_turns": compacted.summarized_turns,
+                        "elapsed_ms": (perf_counter() - started_at) * 1000,
+                    }
+                    status = (
+                        "failed"
+                        if compacted.error
+                        else (
+                            "abandoned" if compacted.summary_status == "abandoned" else "completed"
+                        )
+                    )
+                    run_events.compaction(
+                        status=status,
+                        data=progress,
+                        reason=compacted.reason,
+                    )
+                    if stream:
+                        yield agent_stream.output.make_event(
+                            "context_compaction", {**progress, "status": status}
+                        )
+                    if compacted.error is not None:
+                        raise compacted.error
+            except (ModelNotFoundError, InputTooLargeError, CompactionFailedError) as error:
+                preparation_error = error
+
+            frame = self._create_root_frame(
+                messages=messages,
+                submit_operation=submit_operation,
+                labels=preparation.context.labels,
+                topic_id=preparation.context.topic_id,
+                session=preparation.session,
+                agent_profile=preparation.context.agent_profile,
+                permitted_verbs=preparation.context.permitted_mtp_verbs,
+            )
+            frame.resolved_model = resolved_model
+            if resolved_model is not None:
+                frame.progress.model_used = resolved_model.display_name
+            if stream:
                 event_metadata = self._event_metadata_for_frame(frame)
+
+            engine_result: FrameExecutionResult | None
+            if preparation_error is not None:
+                engine_result = FrameExecutionResult(
+                    status=FrameExecutionStatus.FAILED, error=preparation_error
+                )
+            elif stream:
                 executor_stream = agent_stream.events(
                     executor.run(
                         frame,
@@ -230,18 +323,9 @@ class AgentRunService:
                     run_events.failed(message="Agent stream ended without done event.")
                     raise RuntimeError("Agent stream ended without done event")
             else:
-                frame = self._create_root_frame(
-                    messages=messages,
-                    submit_operation=submit_operation,
-                    labels=preparation.context.labels,
-                    topic_id=preparation.context.topic_id,
-                    session=preparation.session,
-                    agent_profile=preparation.context.agent_profile,
-                    permitted_verbs=preparation.context.permitted_mtp_verbs,
-                )
                 engine_result = await executor.run(frame, generation_options=generation_options)
 
-            result = self._assemble_execution_result(frame, engine_result)
+            result = self._assemble_execution_result(frame, engine_result, new_checkpoint)
             if result_slot is not None:
                 result_slot.result = result
             self._publish_terminal(run_events, result, self._stats_for(frame))
@@ -250,7 +334,7 @@ class AgentRunService:
                 yield {
                     "event": "done",
                     "data": {
-                        **result.model_dump(),
+                        **result.model_dump(exclude={"compaction_checkpoint"}),
                         **event_metadata,
                         "stream_sequence": agent_stream.next_sequence,
                     },
@@ -291,7 +375,20 @@ class AgentRunService:
                 if result_slot is not None and frame is not None and executor is not None:
                     terminal = executor.terminal_result
                     if terminal is not None:
-                        result_slot.result = self._assemble_execution_result(frame, terminal)
+                        result_slot.result = self._assemble_execution_result(
+                            frame, terminal, new_checkpoint
+                        )
+                if (
+                    result_slot is not None
+                    and result_slot.result is None
+                    and new_checkpoint is not None
+                    and exit_reason == StreamExitReason.RUNNING
+                ):
+                    # 压缩结束事件交出后、根帧执行前停止，也须交回已完成的检查点。
+                    result_slot.result = CPUExecutionResult(
+                        status=CPUExecutionStatus.CANCELLED,
+                        compaction_checkpoint=new_checkpoint,
+                    )
 
     async def _collect_execution_result(
         self,
@@ -353,6 +450,7 @@ class AgentRunService:
     def _assemble_execution_result(
         frame: ExecutionFrame,
         engine_result: FrameExecutionResult,
+        checkpoint: SessionCompactionCheckpoint | None = None,
     ) -> CPUExecutionResult:
         """把执行层终态与轮次事件投影为 CPU 中立的执行结果。"""
         if engine_result.status == FrameExecutionStatus.CANCELLED:
@@ -361,9 +459,21 @@ class AgentRunService:
             run_status = CPUExecutionStatus.COMPLETED
         else:
             run_status = CPUExecutionStatus.FAILED
+        failure_reason = None
+        if run_status == CPUExecutionStatus.FAILED:
+            if isinstance(engine_result.error, InputTooLargeError):
+                failure_reason = CPUFailureReason.INPUT_TOO_LARGE
+            elif isinstance(engine_result.error, CompactionFailedError):
+                failure_reason = CPUFailureReason.COMPACTION_FAILED
+            elif isinstance(engine_result.error, TurnContextBudgetExceededError):
+                failure_reason = CPUFailureReason.TURN_CONTEXT_BUDGET_EXCEEDED
+            elif isinstance(engine_result.error, ModelContextWindowExceededError):
+                failure_reason = CPUFailureReason.MODEL_CONTEXT_WINDOW_EXCEEDED
         progress = frame.progress
         return CPUExecutionResult(
             status=run_status,
+            failure_reason=failure_reason,
+            compaction_checkpoint=checkpoint,
             final_text="".join(progress.text_segments),
             turn_events=progress.turn_events,
             model_used=progress.model_used,

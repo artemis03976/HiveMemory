@@ -11,7 +11,9 @@ from hivememory.agent_runtime.models import (
 )
 from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.agent_runtime.runtime import AgentRuntime
+from hivememory.config.alice import CompactionConfig
 from hivememory.config.app import HiveMemoryConfig
+from hivememory.config.shared import LLMConfig
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -35,6 +37,7 @@ def test_agent_runtime_builds_engine_facade():
     mtp_executor = MagicMock()
 
     runtime = AgentRuntime(
+        compaction_config=CompactionConfig(),
         mtp_executor=mtp_executor,
         runtime_config=config.alice.runtime,
     )
@@ -52,6 +55,7 @@ async def test_agent_runtime_uses_injected_loop_executor():
         execute_frame=AsyncMock(return_value=result),
     )
     runtime = AgentRuntime(
+        compaction_config=CompactionConfig(),
         mtp_executor=MagicMock(),
         runtime_config=MagicMock(),
         loop_executor=loop_executor,
@@ -76,6 +80,7 @@ async def test_run_frame_maps_missing_model_to_failed_outcome():
     error = ModelNotFoundError("missing")
     model_registry.resolve.side_effect = error
     runtime = AgentRuntime(
+        compaction_config=CompactionConfig(),
         mtp_executor=MagicMock(),
         runtime_config=MagicMock(),
         loop_executor=loop_executor,
@@ -95,7 +100,10 @@ async def test_run_frame_maps_missing_model_to_failed_outcome():
 def test_finalize_completed_frame_projects_only_acknowledged_aliases():
     """成功子帧只返回收到 ACK 的句柄，不把 UPDATE 基础 alias 当作新产物。"""
     runtime = AgentRuntime(
-        mtp_executor=MagicMock(), runtime_config=MagicMock(), loop_executor=MagicMock()
+        compaction_config=CompactionConfig(),
+        mtp_executor=MagicMock(),
+        runtime_config=MagicMock(),
+        loop_executor=MagicMock(),
     )
     frame = _frame()
     frame.add_harvested_alias("draft_accepted_1234")
@@ -119,7 +127,10 @@ def test_finalize_completed_frame_projects_only_acknowledged_aliases():
 def test_finalize_unsuccessful_frame_does_not_harvest_aliases():
     """失败子帧不把部分完成的产物回填 caller，登记状态由进程负责。"""
     runtime = AgentRuntime(
-        mtp_executor=MagicMock(), runtime_config=MagicMock(), loop_executor=MagicMock()
+        compaction_config=CompactionConfig(),
+        mtp_executor=MagicMock(),
+        runtime_config=MagicMock(),
+        loop_executor=MagicMock(),
     )
     frame = _frame()
     frame.add_harvested_alias("draft_partial_1234")
@@ -127,3 +138,55 @@ def test_finalize_unsuccessful_frame_does_not_harvest_aliases():
         frame, FrameExecutionResult(status=FrameExecutionStatus.FAILED)
     )
     assert products.artifact_aliases == ()
+
+
+@pytest.mark.parametrize(
+    ("window", "max_tokens", "expected_limit"),
+    [(10000, 2000, 7500), (None, 2000, 17500), (1000, 1000, -500)],
+)
+def test_resolved_model_budget_reserves_output_and_margin(window, max_tokens, expected_limit):
+    """窗口缺省时回落配置；生成预算挤满窗口时保留非正上限供输入检查拒绝。"""
+    resolver = MagicMock()
+    resolver.resolve.return_value = (
+        LLMConfig(model="provider/model", context_window=window, max_tokens=max_tokens),
+        "显示名称",
+    )
+    runtime = AgentRuntime(
+        mtp_executor=MagicMock(),
+        runtime_config=MagicMock(),
+        loop_executor=MagicMock(),
+        compaction_config=CompactionConfig(default_context_window=20000, safety_margin=500),
+        model_registry=resolver,
+    )
+    resolved = runtime.resolve_model(OMNI_DOLL_PROFILE, None)
+
+    assert resolved.input_token_limit == expected_limit
+    assert resolved.generation_options["model"] == "provider/model"
+    assert "context_window" not in resolved.generation_options
+    assert "input_token_limit" not in resolved.generation_options
+
+
+@pytest.mark.asyncio
+async def test_frame_reentry_keeps_resolved_model_and_budget():
+    """挂起恢复不重新读取注册表，以免预算与已经组装的请求发生漂移。"""
+    from hivememory.agent_runtime.models import GenerationResult
+
+    resolver = MagicMock()
+    resolver.resolve.return_value = (LLMConfig(model="model", max_tokens=100), "模型")
+    worker = MagicMock(generate_async=AsyncMock(return_value=GenerationResult(text="完成")))
+    runtime = AgentRuntime(
+        mtp_executor=MagicMock(),
+        runtime_config=MagicMock(),
+        loop_executor=AgentLoopExecutor(worker, MagicMock(), MagicMock(max_loop_iterations=3)),
+        compaction_config=CompactionConfig(),
+        model_registry=resolver,
+    )
+    frame = _frame()
+    frame.resolved_model = runtime.resolve_model(frame.agent_profile, None)
+    resolver.resolve.side_effect = ModelNotFoundError("模型已被移除")
+
+    result = await runtime.run_frame(frame, output_sink=NullFrameOutputSink())
+
+    assert result.status == FrameExecutionStatus.COMPLETED
+    assert frame.progress.text_segments == ["完成"]
+    assert frame.progress.model_used == "模型"

@@ -59,7 +59,7 @@
 
 关键所有权约束：
 
-- ConversationSession 是 workspace 的进程内资源，属于 Workspace、不属于 Agent；同一会话同时只允许一个任务进程。轮次中的 `agent_id` 仅用于历史角色展示，不是访问身份。会话管理只经 root API；Alice 使用全量会话历史，Gateway 使用最近 N 轮，Topic 继续作为记忆材料。容量用尽显式拒绝，System 关闭全部进程后清空会话。
+- ConversationSession 是 workspace 的进程内资源，属于 Workspace、不属于 Agent；同一会话同时只允许一个任务进程。轮次中的 `agent_id` 仅用于历史角色展示，不是访问身份。会话管理只经 root API；Alice 接收全量会话原文并构建预算受限的派生视图；会话持有 CPU 中立的压缩检查点，原文不删改。Gateway 使用最近 N 轮，Topic 继续作为记忆材料。容量用尽显式拒绝，System 关闭全部进程后清空会话。
 
 - Patchouli 是 Memory、Topic、Artifact、Interaction 和记忆任务的权威所有者。
 - Alice 只拥有本次 Agent run 的 frame、turn events、工具调用与 ACK 别名清单；写入意图登记、完整引用解析、引用记录副作用以及可失效的原子/Profile 缓存属于 workspace。Alice 不请求 Patchouli 公开路由。
@@ -76,7 +76,7 @@
 ## 4. 关键流程不变量
 
 - 主动链路：`Gateway process -> Patchouli prepare（话题与检索） -> 任务进程 CPU 分配 -> Actor 执行（经 CPU 端口，当前为 Alice run） -> (有输出的 completed/cancelled/failed) 任务进程封口交互记录并同步写入会话 -> Patchouli finalize`；附件租借由任务进程持有，进程结束时无论结局都释放。
-- 用户停止仍使用原生 `Task.cancel()`；CPU 通过 `CPURunHandle.result_slot` 回填部分输出。初始用户事件不算输出。进程封口后同步写入会话，在交出 `finalizing` 前持有提交任务；FINALIZE 后断连仍等待提交完成，不 cleanup 已接管交互。
+- 用户停止仍使用原生 `Task.cancel()`；CPU 通过 `CPURunHandle.result_slot` 回填部分输出。初始用户事件与压缩进度不算输出。CPU 流关闭、线程撤销后，进程同步接受已完成的旧历史检查点，再判断本轮丢弃或无输出；接受不依赖本轮封口，普通执行异常不接受槽中候选值。检查点不进入 done，失败原因以中立原因码投影。进程封口后同步写入会话，在交出 `finalizing` 前持有提交任务；FINALIZE 后断连仍等待提交完成，不 cleanup 已接管交互。
 - 被动链路：`PassiveIngressService -> Gateway PASSIVE_MEMORY -> buffer/seal -> InteractionSubmissionQueue -> Patchouli perception`；被动模式不运行 Alice、MTP、命令或回复生成。
 - prepare 失败、进程异常、finalize 前断连或 CPU 无输出时，不进入 finalize；任务进程可请求 Patchouli cleanup，但 cleanup 只补偿 prepare 新建且仍为空的临时话题，不是跨边界事务回滚。
 - `MTP WRITE/UPDATE` 的 ACK 表示意图已在 workspace 登记，并已被 Patchouli 生成队列接纳，不表示正式记忆已经持久化。actor API 在同步段复查线程 context、读取进程派发话题并登记为 MATERIALIZING；UPDATE 的基础冷读在同步段之前。派发开始后屏蔽调用方取消并持有提交任务直到完成，再传播取消；CPU 失败、取消、进程关闭或 CALL 子帧失败都不撤回已提交写入。CPU 返回终态并关闭输出流后、finalize 之前同步撤销全部线程 context，Actor 阶段提前结束时也在交付终态前撤销；进程关闭先于任何 await 兜底撤销线程 context。有输出的三种结局均封口交互记录，finalize 不派发写入；正式持久化由 Patchouli 生成链结算，不能在 Koakuma/Alice 内直接写正式 Memory。

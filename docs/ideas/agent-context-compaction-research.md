@@ -1,12 +1,11 @@
 ---
 title: Agent Harness Context Compaction Research
 status: idea
-horizon: current
-serves_version: v0.7.0
+horizon: candidate
 owner: alice
 scope: agent-harness-context-compaction-technical-research
 snapshot_at: 2026-10-16
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-17
 related_docs:
   - docs/ideas/short-term-memory-and-context-compaction.md
   - docs/ideas/external-session-and-topic-projection.md
@@ -24,6 +23,8 @@ code_paths:
 ---
 
 # Agent Harness 会话压缩技术调研
+
+> 2026-10-17 收尾：Alice 自动压缩已实施并[归档](../archive/plans/v0.7.0-alice-session-compaction.md)，当前事实见 [Agent Runtime](../alice/agent-runtime.md)。下文保留 2026-10-16 的调研快照和当时建议，供未排期扩展参考，不代表外部项目现状。
 
 Alice 的 v0.7.0 会话压缩可以建立在已经广泛采用的工程模式上：**保留原始会话，从历史前缀生成接力摘要，保留近期执行材料，再按当前模型预算重建上下文。** 真正需要设计的部分是覆盖边界、预算、失败提交和运行状态恢复；摘要提示词只是其中一环。
 
@@ -56,7 +57,7 @@ Alice 的 v0.7.0 会话压缩可以建立在已经广泛采用的工程模式上
 
 这些机制可以组合。Claude Code 官方说明先清理旧工具输出，再在需要时摘要；pi 将压缩结果追加为记录并重建模型投影；OpenCode V2 同时提供摘要与原生压缩模式。它们不能被合并成一个固定的“保留最后 N 条消息”算法。[Claude Code 运行机制][claude-how]、[pi 会话投影][pi-session]、[OpenCode V2 文档][oc-doc]
 
-还要区分**跨用户轮次压缩**与**同一轮工具循环中的压缩**。后者需要处理尚未结束的执行跨度、工具关联和恢复点。HiveMemory 当前候选范围仅覆盖根 frame 的历史轮次，不能由此推出任意长单轮任务都不会溢出。[现有候选范围](./short-term-memory-and-context-compaction.md#5-alice-会话-compact-候选机制)、[Turn 内折叠方向](./long-running-agent-intra-turn-context-folding.md)
+还要区分**跨用户轮次压缩**与**同一轮工具循环中的压缩**。后者需要处理尚未结束的执行跨度、工具关联和恢复点。HiveMemory 当前候选范围仅覆盖根 frame 的历史轮次，不能由此推出任意长单轮任务都不会溢出。[现有候选范围](./short-term-memory-and-context-compaction.md#5-alice-会话-compact-的已完成范围)、[Turn 内折叠方向](./long-running-agent-intra-turn-context-folding.md)
 
 ## 3. Claude Code
 
@@ -138,7 +139,7 @@ Hermes 对 live transcript 制作深快照，在候选压缩之外设置提交�
 
 ### 5.4 借鉴边界
 
-Hermes 的压缩器含较多兼容、恢复和防止无效重复压缩的分支。Alice 应提取预算与失败处理原则，避免将整套策略参数一次性引入。特别是任何通过丢弃中间材料求生的路径，都应与 HiveMemory 当前候选的“超窗时结构化失败、不静默截断”逐项比较，不能当作无条件 fallback。[压缩器入口][hermes-compressor]、[Alice 候选失败策略](./short-term-memory-and-context-compaction.md#5-alice-会话-compact-候选机制)
+Hermes 的压缩器含较多兼容、恢复和防止无效重复压缩的分支。Alice 应提取预算与失败处理原则，避免将整套策略参数一次性引入。特别是任何通过丢弃中间材料求生的路径，都应与 HiveMemory 当前候选的“超窗时结构化失败、不静默截断”逐项比较，不能当作无条件 fallback。[压缩器入口][hermes-compressor]、[Alice 候选失败策略](./short-term-memory-and-context-compaction.md#5-alice-会话-compact-的已完成范围)
 
 Hermes 另有默认关闭的轮后微压缩：周期性吸收最旧完整工具 exchange。它会改变缓存前缀，也必须同步持久化投影。Alice 当前没有必要同时引入轮前压缩、轮后微压缩与后台压缩三套触发机制。[微压缩实现][hermes-micro]
 

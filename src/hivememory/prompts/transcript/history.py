@@ -6,6 +6,7 @@ from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import ConversationTurn
 from hivememory.i18n import resolve_language
 from hivememory.i18n.mtp_runtime import get_mtp_info_text
+from hivememory.prompts.transcript.reduction import reduce_tool_result
 
 _SYSTEM_PREFIX_KEYS: dict[str, str] = {
     "system_tool_result": "mtp.loop.execution_result_title",
@@ -21,6 +22,10 @@ class HistoryTranscriptBuilder:
         turns: Sequence[ConversationTurn],
         current_agent_id: str = "default",
         language: str | None = None,
+        *,
+        reduced_through: str | None = None,
+        tool_result_excerpt_chars: int = 2000,
+        tool_result_max_chars: int | None = None,
     ) -> list[dict[str, str]]:
         """
         构建历史消息列表。
@@ -28,15 +33,31 @@ class HistoryTranscriptBuilder:
         Args:
             turns: 会话轮次列表（按时间正序）
             current_agent_id: 当前活跃 Agent 别名，用于多角色前缀判断
+            language: 结果线索与未完成轮次说明使用的提示词语言
+            reduced_through: 包含该轮次在内的工具结果减重边界
+            tool_result_excerpt_chars: 保留型工具结果的正文字符上限
+            tool_result_max_chars: 摘要输入可另限制完整工具消息，含参数与包装前缀
 
         Returns:
             OpenAI-style messages: List[{"role": str, "content": str}]
         """
         messages: list[dict[str, str]] = []
 
-        for turn in turns:
+        boundary = next(
+            (index for index, turn in enumerate(turns) if turn.interaction_id == reduced_through),
+            -1,
+        )
+        for index, turn in enumerate(turns):
             start = len(messages)
-            self._render_turn(turn, current_agent_id, messages)
+            self._render_turn(
+                turn,
+                current_agent_id,
+                messages,
+                reduce_results=index <= boundary,
+                language=language,
+                excerpt_chars=tool_result_excerpt_chars,
+                result_max_chars=tool_result_max_chars,
+            )
             note = self._outcome_note(turn.payload.outcome, language)
             if note and len(messages) > start:
                 # 结局说明附在本轮最后一条消息末尾，不在历史中间插入 system 消息：
@@ -70,6 +91,11 @@ class HistoryTranscriptBuilder:
         turn: ConversationTurn,
         current_agent_id: str,
         out: list[dict[str, str]],
+        *,
+        reduce_results: bool,
+        language: str | None,
+        excerpt_chars: int,
+        result_max_chars: int | None,
     ) -> None:
         """渲染单个会话轮次，追加到 out。"""
         payload = turn.payload
@@ -77,9 +103,23 @@ class HistoryTranscriptBuilder:
             # 结构化路径：按 sequence 重放事件流
             if payload.user_message and not self._has_user_message_event(payload.turn_events):
                 out.append({"role": "user", "content": payload.user_message})
+            calls: dict[str, TurnEvent] = {}
             for event in sorted(payload.turn_events, key=lambda e: e.sequence):
+                if event.kind == "tool_call" and event.action_id:
+                    calls[event.action_id] = event
+                if reduce_results and event.kind == "tool_result":
+                    # 参数只记录在调用事件中；以 action_id 关联，不能借用别的调用。
+                    content = reduce_tool_result(
+                        event,
+                        calls.get(event.action_id or ""),
+                        language=language,
+                        excerpt_chars=excerpt_chars,
+                    )
+                    event = event.model_copy(update={"content": content})
                 msg = self._render_event(event, turn, current_agent_id)
                 if msg is not None:
+                    if event.kind == "tool_result" and result_max_chars is not None:
+                        msg = {**msg, "content": msg["content"][:result_max_chars]}
                     out.append(msg)
         else:
             user_content = payload.user_message

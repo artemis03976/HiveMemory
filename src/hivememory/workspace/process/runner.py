@@ -243,6 +243,7 @@ class TaskProcessRunner:
             # 执行结果。每次拉取都经 _run_interruptible 包装，停止请求的
             # 响应点不变；输出流登记进工作集，由关闭流程兜底关闭（含断流与
             # 取消路径）。
+            execution_result: CPUExecutionResult | None = None
             try:
                 cpu_run = self._cpu.execute(
                     manifest,
@@ -252,7 +253,7 @@ class TaskProcessRunner:
                 )
                 cpu_output = cpu_run.output
                 working_set.cpu_output = cpu_output
-                execution_result: CPUExecutionResult | None = None
+                working_set.cpu_result_slot = cpu_run.result_slot
                 try:
                     while True:
                         try:
@@ -268,8 +269,6 @@ class TaskProcessRunner:
                 except _ProcessCancelled:
                     # 停止可能发生在两次拉取之间；先关闭流，CPU 才会同步回填结果槽。
                     await self._close_cpu_output(working_set)
-                    if record.discards_output:
-                        raise
                     # 沿用槽中的结局：CPU 在停止生效前已经完成时，结果仍是 completed。
                     execution_result = cpu_run.result_slot.result
                     if execution_result is None:
@@ -279,6 +278,15 @@ class TaskProcessRunner:
                         # 断连或异常先撤销，不能在等待 CPU 关闭时保留线程权限。
                         self._thread_contexts.revoke_threads(working_set)
                     await self._close_cpu_output(working_set)
+            except (asyncio.CancelledError, GeneratorExit):
+                # 拉取或关闭期间断连仍接受旧历史视图。已交付的终态优先于结果槽，
+                # CPU 可以只在取消时填写槽；普通执行异常不进入此路径。
+                self._thread_contexts.revoke_threads(working_set)
+                slot = working_set.cpu_result_slot
+                self._accept_checkpoint(
+                    process, execution_result or (slot.result if slot is not None else None)
+                )
+                raise
             finally:
                 # 输出流关闭与线程撤销先于封口，不让 finalize 持有 actor 权限。
                 self._thread_contexts.revoke_threads(working_set)
@@ -286,6 +294,8 @@ class TaskProcessRunner:
             if execution_result is None:
                 raise RuntimeError("CPU 输出流在没有终态执行结果的情况下结束")
 
+            # 检查点只覆盖旧轮次，接受不依赖本轮有输出或交付方仍在线。
+            self._accept_checkpoint(process, execution_result)
             # 交付方离开或系统关闭时丢弃本轮；用户停止晚于 CPU 终态时沿用 CPU
             # 的结局，不把完整回复改记为 cancelled。
             if record.discards_output:
@@ -338,6 +348,8 @@ class TaskProcessRunner:
             events.cancelled(record, phase=cancelled.phase)
             yield RunCancelled(reason=record.stop_reason or "user_requested")
         except Exception as exc:
+            # 进程异常没有可接受的 CPU 终态，不从关闭时的槽中补交检查点。
+            working_set.cpu_result_slot = None
             if isinstance(exc, WorkspaceDomainError):
                 logger.warning("任务进程领域错误: %s", exc.code)
             else:
@@ -394,7 +406,7 @@ class TaskProcessRunner:
             record.events.cancelled(record)
         elif result.status == CPUExecutionStatus.FAILED.value:
             record.mark_failed()
-            record.events.failed(record)
+            record.events.failed(record, failure_reason=result.failure_reason)
         else:
             record.mark_completed()
             record.events.completed(record)
@@ -435,6 +447,7 @@ class TaskProcessRunner:
         _require_prepared_workspace(prepared, request.target_workspace)
 
         # CPU 分配的其余部分（附件租借与编译、清单组装）仍在 PREPARE 阶段内完成。
+        session = self._sessions.get(request.target_workspace, request.session_id)
         manifest = self._allocator.allocate(
             working_set,
             process_id=record.process_id,
@@ -442,7 +455,8 @@ class TaskProcessRunner:
             user_message=request.message,
             agent_profile=agent_profile,
             selections=list(request.attachments),
-            session_history=self._sessions.get(request.target_workspace, request.session_id).turns,
+            session_history=session.turns,
+            compaction_checkpoint=session.compaction_checkpoint,
             access=record.access,
             target_workspace=request.target_workspace,
         )
@@ -452,6 +466,29 @@ class TaskProcessRunner:
         if record.outcome is ProcessOutcome.STOP_REQUESTED:
             raise _ProcessCancelled(ProcessPhase.PREPARE, record.stop_reason or "user_requested")
         return prepared, manifest
+
+    def _accept_checkpoint(self, process: TaskProcess, result: CPUExecutionResult | None) -> None:
+        """同步接受 CPU 的历史视图；领域拒绝仅记录告警，不影响本轮收尾。"""
+        if process.working_set.cpu_result_slot is None:
+            return
+        # 正常收尾、断流与兜底关闭可能先后到达，同一结果只尝试一次。
+        process.working_set.cpu_result_slot = None
+        if result is None or result.compaction_checkpoint is None:
+            return
+        try:
+            self._sessions.accept_checkpoint(
+                process.request.target_workspace,
+                process.request.session_id,
+                process_id=process.record.process_id,
+                checkpoint=result.compaction_checkpoint,
+            )
+        except WorkspaceDomainError:
+            logger.warning(
+                "拒绝会话压缩检查点：process_id=%s session_id=%s",
+                process.record.process_id,
+                process.request.session_id,
+                exc_info=True,
+            )
 
     def _authorize(self, process: TaskProcess) -> IdentityScope:
         """以进程记录绑定的 context 对任务目标 workspace 执行阶段授权。
@@ -497,6 +534,8 @@ class TaskProcessRunner:
         # 附件文本在 CPU 分配时已编译进清单，Actor 执行不再读取租借内容。
         self._allocator.release(working_set)
         await self._close_cpu_output(working_set)
+        if working_set.cpu_result_slot is not None:
+            self._accept_checkpoint(process, working_set.cpu_result_slot.result)
         if working_set.finalization_task is not None and not record.is_terminal:
             try:
                 await self._join_finalization(working_set.finalization_task)

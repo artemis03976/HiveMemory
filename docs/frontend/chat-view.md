@@ -19,7 +19,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/system/attachments.md
   - docs/frontend/state-and-transports.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-17
 ---
 
 # Chat 视图
@@ -64,6 +64,7 @@ OmniInput 在发送前组装：
 | `command_result` | 展示命令消息；当前内置命令暂时不可用（见 [Gateway 全局命令](../gateway/commands.md)） |
 | `process_id` | 建立取消请求所需的任务进程标识，并回填 `session_id` |
 | `run_status` | 驱动准备、流式、取消、收尾和失败状态 |
+| `context_compaction` | 显示压缩进度，不生成消息或工具卡片 |
 | `done` | 写入结局、可选最终文本和本轮 `topic_id`；不携带话题池或记忆任务 ID。无输出时移除本轮消息并把用户输入放回草稿 |
 | `error` | 结束本地流并显示错误 |
 
@@ -77,9 +78,15 @@ ChatLayout 挂载时加载会话列表，并按浏览器保存的 `currentSessio
 
 历史以 `ConversationTurn.payload` 为来源，按事件顺序恢复正文、MTP 和 CALL 卡片，WRITE/UPDATE 的 ACK 表示成功接纳；未配对的动作显示未完成，不继续转圈。CALL 只恢复根帧记录的结果，不编造子帧内部轨迹。每条回复显示本轮 Topic 标注，cancelled/failed 轮次带结局标记。
 
+会话读取同时恢复服务端已接受的压缩检查点。消息以 `interaction_id` 匹配摘要与减重边界，在对应回复之后标记覆盖位置；摘要可展开，摘要与引用以纯文本展示，完整原文仍然可见。未知产生方或格式版本不展示标记。压缩开始时显示“正在压缩较早的上下文”，不会插入正文，也不会使无输出轮次变成已保存轮次。
+
+收到压缩结束事件后，流关闭时另读会话取得检查点；done 不携带它，前端不把进度当作提交成功。此读取只更新检查点，保留当前回复的流式内容与失败提示；切换会话、清空或开始新一轮会使旧读取失效。取消后无输出也可读取旧历史的新检查点。读取失败提示重新选择会话刷新。
+
 流式运行与历史加载期间禁止切换或删除当前会话；服务端仍负责跨窗口的会话互斥。读取历史返回 404 时清除失效选择并刷新列表；其他错误保留错误状态并禁止基于未加载的历史继续发送，允许重选重试。没有本地会话 ID 时仍可直接发送，由首个事件回填新会话。
 
 `topic_info` 与 `pool_topics` 已删除。本轮话题由 `done.topic_id` 给出，恢复时读会话轮次的 `topic_id`；Topic 不决定聊天历史。MemoryLibrary 经 Topic 列表接口读取短期话题池，保留 `settle` 与 `delete`：前者把内容交给记忆生成并结束 Topic 生命周期，后者结束生命周期而不触发记忆写入。失败时 Topic store 回滚乐观移除；Memory Library 的 `archive` 仍指中期记忆归档。
+
+本轮 failed done 的 `failure_reason` 映射为四类提示：缩短当前输入或附件、历史无法压缩进预算时重试或新建会话、工具结果超预算后继续对话或缩小任务、提供商超窗后减少输入或选择更大窗口。稳定原因定义见[错误模型](../contracts/error-model.md#22-agent-run)，未知原因使用通用失败提示。已有部分回复保留并标记未完成；无输出时移除本轮消息、回填草稿，同时展示原因。失败码只存在本次前端运行状态，不写入会话 payload，重载历史后显示通用 failed 结局。
 
 ## 5. Workspace Vision
 
@@ -105,7 +112,7 @@ ChatLayout 挂载时加载会话列表，并按浏览器保存的 `currentSessio
 - 记忆预检索开关；
 - 单轮模型/采样参数覆盖；
 - Enter 发送、Shift+Enter 换行；
-- 会话管理、历史恢复与逐轮 Topic 标注；
+- 会话管理、历史恢复、逐轮 Topic 标注、压缩进度与可展开摘要边界；
 - 流式状态、停止生成；finalizing 期间停止按钮禁用，等待提交完成；
 - MTP 与子 Agent 卡片；
 - 引用记忆、memory task 和 Workspace Terminal 日志面板；
@@ -132,4 +139,4 @@ ChatLayout 挂载时加载会话列表，并按浏览器保存的 `currentSessio
 主要入口为 `frontend/src/services/sessionApi.ts`、`frontend/src/services/chatApi.ts`、`stores/chat/`、`components/chat/`、`stores/workspace/` 和 `stores/topic/`；后端契约与路由测试位于 `tests/unit/server/routers/test_chat.py`、`test_topics.py`、`test_runtime_events.py`、`test_logs.py`。
 附件上传与选择的入口为 `services/attachmentApi.ts`、`stores/attachment/`、`components/chat/AttachmentQueue.tsx` 和 `hooks/useAttachmentUpload.ts`；链路事实见[Chat 附件链路](../system/attachments.md)。
 
-会话行为测试位于 `frontend/tests/conversation-session.test.mjs`（`npm run test:session`），覆盖历史重建、服务端恢复、404、加载失败、发送绑定、无输出回填、晚到停止响应，以及 finalizing 前后断连的不同处理；确定性 HTTP 链路见 `tests/e2e/system/test_chat_session.py`。会话没有跨后端重启持久化，也没有 SSE 断线续传；多窗口日志选举在浏览器挂起/崩溃情形下的可靠性仍未全面验证。状态所有权的完整矩阵见[状态、持久化与传输](./state-and-transports.md)。
+会话行为测试位于 `frontend/tests/conversation-session.test.mjs`（`npm run test:session`），覆盖历史重建、服务端恢复、404、加载失败、发送绑定、无输出回填、晚到停止响应，以及 finalizing 前后断连、压缩后刷新检查点、晚到读取隔离、失败原因提示与摘要纯文本展示；确定性 HTTP 链路见 `tests/e2e/system/test_chat_session.py`。会话没有跨后端重启持久化，也没有 SSE 断线续传；多窗口日志选举在浏览器挂起/崩溃情形下的可靠性仍未全面验证。状态所有权的完整矩阵见[状态、持久化与传输](./state-and-transports.md)。

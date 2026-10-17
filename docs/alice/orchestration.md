@@ -11,6 +11,7 @@ code_paths:
   - src/hivememory/alice/orchestration/sub_agent/call_context_provider.py
   - src/hivememory/alice/orchestration/sub_agent/call_record.py
   - src/hivememory/alice/orchestration/frame_factory.py
+  - src/hivememory/alice/orchestration/context_view.py
   - src/hivememory/alice/orchestration/run_output.py
   - src/hivememory/alice/runtime/streaming.py
   - src/hivememory/alice/runtime/runtime_events.py
@@ -21,7 +22,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-17
 ---
 
 # 多 Agent 编排
@@ -35,7 +36,7 @@ Alice 的多 Agent 能力当前不是一个会自主拆解任务图的“超级�
 ```text
 AliceSystem
   ├─ AliceCPU
-  │    └─ workspace CPUPort 的实现：选择 RUN_AGENT / RUN_AGENT_STREAM，done -> CPUExecutionResult
+  │    └─ workspace CPUPort 的实现：选择 RUN_AGENT / RUN_AGENT_STREAM，done + result_slot checkpoint -> CPUExecutionResult
   ├─ AgentRunService
   │    ├─ unified run API (stream 参数) / root frame bootstrap / CPUExecutionResult / stream done
   │    ├─ RunSession
@@ -81,7 +82,9 @@ AliceSystem
 - `ExecutionLabels` 来自输入清单（经 `AgentRunContext` 转换），只保存注册时绑定的 agent/workspace 观测标签，不参与资源授权；
 - 线程 context 绑定的 `submit_operation` 是资源请求的唯一交付入口，不暴露访问 context 或目标选择；
 - `agent_profile` 是本次主 Agent 图纸；
-- `working_history` 已由 PromptAssembler 组装。
+- `working_history` 来自 `SessionContextView` 组装的预算内视图，预算与生成参数来自同一个 `ResolvedFrameModel`。
+
+根 frame 创建前只构建一次会话视图：先解析模型，再检查固定输入、复用已有检查点并按需减重/摘要。算法见 [Agent Runtime](./agent-runtime.md#31-会话上下文视图)。Alice 不拥有跨 run 的检查点存储；完整压缩结束才保存本次产物，由 CPU 结果交回会话服务。CALL 子 frame 不接收会话历史或检查点，只按自身模型执行轮内守卫；caller 重入复用原解析快照。
 
 FrameFactory 会把当前 user message 插入 `TurnEvent` 序列首位，使最终事件流拥有完整的一轮事实。随后 `RunExecutor._execute_frame()` 调用 `AgentRuntime.run_frame(frame)`：`SUSPENDED` 进入 CALL 事务并递归求值派生 frame；`COMPLETED/CANCELLED/FAILED/BUDGET_EXHAUSTED` 返回上一层。最外层入口 frame 的终态由 Alice 映射为 CPU 结果，任务进程据此封口交互或跳过 finalize，已提交写入不受影响。
 
@@ -203,7 +206,7 @@ caller 与 callee 各自使用自己线程的提交函数：callee 登记的意�
 
 frame 的展示 `agent_id` 优先取 `AgentProfile.agent_id`（源 alias，内置图纸为 `omni_doll`），空值回退注册标签；`agent.run.*` 的 agent/workspace 字段始终取注册标签，不从 Profile 或子帧重新推导身份。
 
-交互输出不会自动转发到 RuntimeEventBus。后者只通过 `AgentRunEventEmitter` 记录主 `agent.run.*` 生命周期，采用 best-effort、可回放且允许慢订阅者丢失的语义；前者具有背压与断流取消语义。即使二者包含相同的 `agent_run_id/process_id` 关联字段，也不能把 RuntimeEvent 当作 token/CALL 流的备份或业务控制输入。
+交互输出不会自动转发到 RuntimeEventBus。后者通过 `AgentRunEventEmitter` 记录主 `agent.run.*` 生命周期、压缩统计与逐帧预算守卫拦截，采用 best-effort、可回放且允许慢订阅者丢失的语义；前者具有背压与断流取消语义。即使二者包含相同的 `agent_run_id/process_id` 关联字段，也不能把 RuntimeEvent 当作 token/CALL 流的备份或业务控制输入。
 
 ## 8. 失败、取消与降级
 
@@ -215,7 +218,8 @@ frame 的展示 `agent_id` 优先取 `AgentProfile.agent_id`（源 alias，内�
 - Chat application 不向主/子 AgentRuntime 传递取消 token。用户 stop 取消当前 Alice task；RunExecutor 捕获 `CancelledError` 做本地 unwind，活跃 CALL 只清理 callee frame 和 record，不伪造 caller response，最外层收尾整个 run 一次，并保留原生异常传播；
 - 流生成器提前关闭时，`AgentRunStream` 取消并 join 自己创建的 runner；`CancelledError` 沿递归协程栈展开，各层清理尚未 apply 的 CALL，且不再向关闭的 consumer 阻塞发送事件；
 - RunExecutor、Agent loop 与 Worker 的 unwind/close 都是 best effort：清理异常记录日志，但不能替换正在传播的 `CancelledError`；
-- CPU 驱动把 `CPUResultSlot` 经运行路由传给服务；RunExecutor 同步落定 CANCELLED 后，服务在收尾中把根帧文字/事件投影为 `CPUExecutionResult` 写槽，再传播原生取消。若 stop 落在两次拉取间隙，关闭输出流也完成相同回填。
+- CPU 驱动把 `CPUResultSlot` 经运行路由传给服务；RunExecutor 同步落定 CANCELLED 后，服务在收尾中把根帧文字/事件及已完成的压缩检查点投影为 `CPUExecutionResult` 写槽，再传播原生取消。若 stop 落在两次拉取间隙，关闭输出流也完成相同回填。
+- 压缩期间取消不交回本次局部检查点；压缩结束后即使根 frame 尚无输出，结果槽也可交回检查点。done 不携带检查点，AliceCPU 从结果槽合入中立执行结果；
 - CALL 子帧取消时不伪造 caller response；根帧只保留未完成的 CALL，子帧半截正文不混入根帧结果或会话历史。
 - 子 Agent 没有独立的公开取消句柄、重试策略或超时配置，生命周期依附于父 run。
 

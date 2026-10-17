@@ -32,7 +32,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.workspace_asset import RepresentationLease
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
-from hivememory.core.protocol.models import ConversationTurn
+from hivememory.core.protocol.models import ConversationTurn, SessionCompactionCheckpoint
 from hivememory.engines.attachment_compiler import AttachmentCompiler
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
@@ -119,6 +119,7 @@ class CPUAllocator:
         agent_profile: AgentProfile,
         selections: list[AttachmentSelectionRequest],
         session_history: tuple[ConversationTurn, ...] = (),
+        compaction_checkpoint: SessionCompactionCheckpoint | None = None,
         access: WorkspaceAccessContext,
         target_workspace: WorkspaceIdentity,
     ) -> CPUInputManifest:
@@ -184,6 +185,7 @@ class CPUAllocator:
             storage_available=prepared.storage_available,
             topic_id=prepared.topic_id,
             session_history=session_history,
+            compaction_checkpoint=compaction_checkpoint,
         )
         working_set.dispatch_topic_id = manifest.topic_id
         return manifest

@@ -133,6 +133,16 @@ class QueueAgentRunOutput(AgentRunOutput):
         *,
         metadata: Mapping[str, Any] | None = None,
     ) -> None:
+        await self._queue.put(self.make_event(event, data, metadata=metadata))
+
+    def make_event(
+        self,
+        event: str,
+        data: Mapping[str, Any],
+        *,
+        metadata: Mapping[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        """统一编排进度与帧输出的序号；执行前的进度可直接交给消费方。"""
         payload = {
             "agent_run_id": self._agent_run_id,
             **dict(metadata or {}),
@@ -140,7 +150,7 @@ class QueueAgentRunOutput(AgentRunOutput):
             "stream_sequence": self._sequence,
         }
         self._sequence += 1
-        await self._queue.put({"event": event, "data": payload})
+        return {"event": event, "data": payload}
 
     async def receive(self) -> dict[str, Any] | None:
         return await self._queue.get()

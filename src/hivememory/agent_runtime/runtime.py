@@ -4,18 +4,20 @@ import logging
 from typing import TYPE_CHECKING, Any
 
 from hivememory.agent_runtime.execution import AgentLoopExecutor, WorkerAgentService
+from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import FrameOutputSink
 from hivememory.agent_runtime.products import FrameProducts
+from hivememory.core.constants import DEFAULT_MAX_TOKENS
 from hivememory.core.errors import ModelNotFoundError
-from hivememory.core.models import TurnEvent
+from hivememory.core.models import AgentProfile, TurnEvent
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.model_resolution import ModelResolver
     from hivememory.agent_runtime.models import ExecutionFrame
     from hivememory.agent_runtime.mtp import MTPExecutor
-    from hivememory.config.alice import AgentRuntimeConfig
+    from hivememory.config.alice import AgentRuntimeConfig, CompactionConfig
 
 logger = logging.getLogger(__name__)
 
@@ -36,17 +38,19 @@ class AgentRuntime:
         *,
         mtp_executor: MTPExecutor,
         runtime_config: AgentRuntimeConfig,
+        compaction_config: CompactionConfig,
         loop_executor: AgentLoopExecutor | None = None,
         model_registry: ModelResolver | None = None,
     ) -> None:
         # 模型注册表：在每个 frame 开始时根据 agent_profile.model_name 解析实际模型。
         # 若未提供，generation_options 中必须已包含 model，否则 WorkerAgentService 会报错。
         self._model_registry = model_registry
+        self._compaction_config = compaction_config
         if loop_executor is not None:
             self._loop_executor = loop_executor
         else:
             # WorkerAgentService 是无状态服务，不依赖任何实例级 LLM 配置。
-            # 所有 LLM 参数均在运行时由 _resolve_model_for_frame 注入。
+            # 所有 LLM 参数均在运行时由 resolve_model 注入。
             worker_agent = WorkerAgentService()
             self._loop_executor = AgentLoopExecutor(
                 worker_agent=worker_agent,
@@ -71,7 +75,10 @@ class AgentRuntime:
     ) -> FrameExecutionResult:
         """跑一个 frame 到自然收敛或命中 CALL（非流式）。"""
         try:
-            generation_options = self._resolve_model_for_frame(frame, generation_options)
+            if frame.resolved_model is None:
+                frame.resolved_model = self.resolve_model(frame.agent_profile, generation_options)
+            frame.progress.model_used = frame.resolved_model.display_name
+            generation_options = frame.resolved_model.generation_options
         except ModelNotFoundError as error:
             logger.error("Frame model resolution failed: %s", error)
             return FrameExecutionResult(
@@ -148,14 +155,14 @@ class AgentRuntime:
         for alias in response.artifact_aliases:
             frame.add_harvested_alias(alias)
 
-    def _resolve_model_for_frame(
+    def resolve_model(
         self,
-        frame: ExecutionFrame,
+        profile: AgentProfile,
         generation_options: dict[str, Any] | None,
-    ) -> dict[str, Any]:
+    ) -> ResolvedFrameModel:
         """
         根据 agent_profile 从注册表解析 LLM 参数，注入到 generation_options
-        供 WorkerAgentService 使用，并把展示名写入 frame.progress.model_used。
+        供 WorkerAgentService 使用；输入预算与展示名独立返回，不传给模型 SDK。
 
         参数覆盖优先级（从高到低）：
             会话请求 (generation_options) > Agent Profile > 模型注册表定义
@@ -170,11 +177,15 @@ class AgentRuntime:
           直接传 model；WorkerAgentService 缺 model 时会抛出明确错误。
         - 注册表解析失败由 run_frame 稳定投影为 FAILED，不静默降级到其他模型。
         """
+        session_opts = dict(generation_options or {})
         if self._model_registry is None:
-            return generation_options or {}
-
-        profile = frame.agent_profile
-        session_opts = generation_options or {}
+            max_tokens = session_opts.get("max_tokens")
+            if max_tokens is None:
+                max_tokens = DEFAULT_MAX_TOKENS
+            return ResolvedFrameModel(
+                generation_options=session_opts,
+                input_token_limit=self._input_token_limit(None, max_tokens),
+            )
 
         # 模型选择：会话传入的注册表 ID 优先，否则用 Agent Profile 的 model_name。
         # 二者语义一致（都是注册表 ID / 'default'），resolve 统一解析。
@@ -200,9 +211,6 @@ class AgentRuntime:
             top_p_override=top_p_override,
         )
 
-        # 记录展示名，供编排组装 CPU 执行结果时读取
-        frame.progress.model_used = display_name
-
         # 用解析结果覆盖 generation_options 中的对应键——
         # resolve 已完成三级优先级合并，这里以其结果为准（包括把会话传入的
         # 注册表 ID 替换为 litellm 模型标识符，供 WorkerAgentService 使用）。
@@ -222,7 +230,18 @@ class AgentRuntime:
             f"litellm_model={llm_config.model!r}, display={display_name!r}, "
             f"temperature={llm_config.temperature}, top_p={llm_config.top_p}"
         )
-        return resolved
+        return ResolvedFrameModel(
+            generation_options=resolved,
+            input_token_limit=self._input_token_limit(
+                llm_config.context_window, llm_config.max_tokens
+            ),
+            display_name=display_name,
+        )
+
+    def _input_token_limit(self, context_window: int | None, max_tokens: int) -> int:
+        """生成预算和安全余量从总窗口扣除；非正预算保留给输入检查明确拒绝。"""
+        window = context_window or self._compaction_config.default_context_window
+        return window - max_tokens - self._compaction_config.safety_margin
 
     def finalize_frame(
         self,

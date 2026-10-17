@@ -36,6 +36,7 @@ def _make_model(
     is_default: bool = False,
     temperature: float = 0.7,
     max_tokens: int = 4096,
+    context_window: int | None = None,
     top_p: float = 1.0,
     api_key: str | None = None,
     api_base: str | None = None,
@@ -48,6 +49,7 @@ def _make_model(
         is_default=is_default,
         temperature=temperature,
         max_tokens=max_tokens,
+        context_window=context_window,
         top_p=top_p,
         api_key=api_key,
         api_base=api_base,
@@ -299,11 +301,14 @@ class TestCredentialResolution:
 
     def test_no_credentials_returns_none(self, tmp_path):
         """既无 model key 又无 provider 凭证时，返回 None（litellm 自行从环境变量读取）。"""
-        model = _make_model("m1", litellm_model="deepseek/deepseek-chat", api_key=None)
+        model = _make_model(
+            "m1", litellm_model="deepseek/deepseek-chat", api_key=None, context_window=8000
+        )
         registry = _make_registry(tmp_path, models=[model])
 
         llm_config = registry.to_llm_config("m1")
         assert llm_config.api_key is None
+        assert llm_config.context_window == 8000
         assert llm_config.api_base is None
 
     def test_provider_registry_injected(self, tmp_path):
@@ -331,12 +336,13 @@ class TestCredentialResolution:
 
 class TestResolve:
     def test_resolve_by_id(self, tmp_path):
-        model = _make_model("m1", temperature=0.8, max_tokens=2048, top_p=0.9)
+        model = _make_model("m1", temperature=0.8, max_tokens=2048, top_p=0.9, context_window=16000)
         registry = _make_registry(tmp_path, models=[model])
 
         llm_config, display_name = registry.resolve("m1")
         assert llm_config.model == model.litellm_model
         assert llm_config.temperature == 0.8
+        assert llm_config.context_window == 16000
         assert llm_config.max_tokens == 2048
         assert llm_config.top_p == 0.9
         assert display_name == model.display_name
@@ -350,7 +356,7 @@ class TestResolve:
 
     def test_resolve_with_overrides(self, tmp_path):
         """temperature/max_tokens/top_p 覆盖参数优先于模型默认值。"""
-        model = _make_model("m1", temperature=0.7, max_tokens=4096, top_p=1.0)
+        model = _make_model("m1", temperature=0.7, max_tokens=4096, top_p=1.0, context_window=8000)
         registry = _make_registry(tmp_path, models=[model])
 
         llm_config, _ = registry.resolve(
@@ -361,6 +367,7 @@ class TestResolve:
         )
         assert llm_config.temperature == 0.1
         assert llm_config.max_tokens == 512
+        assert llm_config.context_window == 8000
         assert llm_config.top_p == 0.5
 
     def test_resolve_not_found_raises(self, tmp_path):
@@ -375,7 +382,7 @@ class TestResolve:
 
     def test_resolve_for_llm_config_with_model_id(self, tmp_path):
         """model_id 存在时补齐 model/api_key/api_base，保留组件的 temperature/max_tokens。"""
-        model = _make_model("m1", litellm_model="deepseek/deepseek-chat")
+        model = _make_model("m1", litellm_model="deepseek/deepseek-chat", context_window=32000)
         creds = {
             "deepseek": ProviderCredentials(api_key="sk-test", api_base="https://api.deepseek.com")
         }
@@ -390,6 +397,7 @@ class TestResolve:
         # 组件的 temperature/max_tokens 被保留
         assert llm_out.temperature == 0.1
         assert llm_out.max_tokens == 512
+        assert llm_out.context_window == 32000
 
     def test_resolve_for_llm_config_passthrough_when_no_model_id(self, tmp_path):
         """model_id 为空时直接返回原 LLMConfig（向后兼容路径）。"""

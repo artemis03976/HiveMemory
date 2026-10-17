@@ -171,3 +171,93 @@ test('finalizing 之前断连仍按未保存处理', async () => {
   assert.equal(state.lastRunReason, '连接提前结束，本轮未保存');
   assert.equal(state.isStreaming, false);
 });
+
+test('压缩进度不成为正文，停止后从会话读取已接受的检查点', async () => {
+  const checkpoint = { producer: 'alice', format_version: 1, reduced_through: 'p1', summarized_through: 'p1', summary: '较早的决定', references: ['memory:a'], created_at: '2026-10-17T00:00:00Z' };
+  reset({ currentSessionId: 's1', messages: sessionMessages({ ...summary, turns: [turn] }) });
+  let output;
+  const encoder = new TextEncoder();
+  const started = new Promise(resolve => {
+    const unsubscribe = useChatStore.subscribe(state => {
+      if (state.compactionProgress?.status === 'started') { unsubscribe(); resolve(); }
+    });
+  });
+  globalThis.fetch = async url => {
+    if (url === '/api/v1/sessions') return new Response('[]');
+    if (url === '/api/v1/sessions/s1') return new Response(JSON.stringify({ ...summary, turns: [turn], compaction_checkpoint: checkpoint }));
+    return new Response(new ReadableStream({ start(controller) {
+      output = controller;
+      controller.enqueue(encoder.encode('event: context_compaction\ndata: {"status":"started","layer":"reduction","tokens_before":900,"tokens_after":900,"covered_turns":0}\n\n'));
+    } }));
+  };
+  const run = useChatStore.getState().sendMessage('本轮没有输出');
+  await started;
+  assert.equal(useChatStore.getState().messages.at(-1).content, '');
+  assert.equal(useChatStore.getState().compactionCheckpoint, null);
+  output.enqueue(encoder.encode('event: context_compaction\ndata: {"status":"completed","layer":"summary","tokens_before":900,"tokens_after":400,"covered_turns":1}\n\nevent: done\ndata: {"status":"cancelled"}\n\n'));
+  output.close();
+  await run;
+  const state = useChatStore.getState();
+  assert.equal(state.compactionProgress, null);
+  assert.equal(state.compactionCheckpoint.summary, '较早的决定');
+  assert.deepEqual(state.messages.map(m => m.content), ['继续', '半截答案']);
+  assert.equal(state.messages[1].interactionId, 'p1');
+  assert.equal(state.draft, '本轮没有输出');
+  assert.deepEqual(Object.keys(JSON.parse(stored.get('chat-store')).state).sort(), ['currentAgentId', 'currentSessionId']);
+});
+
+test('晚到的检查点读取不能覆盖已切换会话', async () => {
+  reset({ currentSessionId: 's1' });
+  let release, requested;
+  const reading = new Promise(resolve => { requested = resolve; });
+  globalThis.fetch = async url => {
+    if (url === '/api/v1/sessions') return new Response('[]');
+    if (url === '/api/v1/sessions/s1') {
+      requested();
+      return await new Promise(resolve => { release = () => resolve(new Response(JSON.stringify({ ...summary, turns: [turn], compaction_checkpoint: { producer: 'alice', format_version: 1, summary: '旧会话摘要' } }))); });
+    }
+    if (url === '/api/v1/sessions/s2') return new Response(JSON.stringify({ ...summary, session_id: 's2', turns: [] }));
+    return new Response('event: context_compaction\ndata: {"status":"completed","layer":"reduction"}\n\nevent: done\ndata: {"status":"cancelled"}\n\n');
+  };
+  const run = useChatStore.getState().sendMessage('问题');
+  await reading;
+  await useChatStore.getState().selectSession('s2');
+  release(); await run;
+  assert.equal(useChatStore.getState().currentSessionId, 's2');
+  assert.equal(useChatStore.getState().compactionCheckpoint, null);
+});
+
+for (const [reason, expected] of [
+  ['input_too_large', '本轮输入过大，请缩短消息或减少附件与检索材料。'],
+  ['compaction_failed', '较早的对话无法压缩进上下文预算，请重试或新建会话。'],
+  ['turn_context_budget_exceeded', '本轮工具结果超出上下文预算，回复未完成，可继续对话或缩小任务。'],
+  ['model_context_window_exceeded', '模型拒绝了过长的上下文，请减少输入或选择窗口更大的模型。'],
+  ['__proto__', '本轮执行失败'],
+]) {
+  test(`失败终态按 ${reason} 提示，保留已收到的部分回复`, async () => {
+    reset();
+    globalThis.fetch = async url => url === '/api/v1/sessions' ? new Response('[]') : new Response(
+      `event: done\ndata: ${JSON.stringify({ status: 'failed', reason: 'agent_run_failed', failure_reason: reason, final_text: '已完成部分' })}\n\n`);
+    await useChatStore.getState().sendMessage('问题');
+    assert.equal(useChatStore.getState().connection.error, expected);
+    assert.equal(useChatStore.getState().messages[1].failureReason, reason);
+    assert.equal(useChatStore.getState().messages[1].content, '已完成部分');
+  });
+}
+
+test('历史边界可展开摘要，摘要中的 HTML 不作为可执行内容', async () => {
+  const { createElement } = await import('react');
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const { default: Boundary } = await vite.ssrLoadModule('/src/components/chat/SessionCompactionBoundary.tsx');
+  const { sessionCheckpoint } = await vite.ssrLoadModule('/src/stores/chat/sessionHistory.ts');
+  const checkpoint = { producer: 'alice', format_version: 1, summarized_through: 'p1', reduced_through: 'p2', summary: '<script>bad()</script>', references: ['file:a.py'] };
+  const html = renderToStaticMarkup(createElement(Boundary, { interactionId: 'p1', checkpoint }));
+  assert.match(html, /<details>/);
+  assert.match(html, /以上对话已纳入摘要/);
+  assert.match(html, /&lt;script&gt;/);
+  assert.doesNotMatch(html, /<script>/);
+  const reduced = renderToStaticMarkup(createElement(Boundary, { interactionId: 'p2', checkpoint }));
+  assert.match(reduced, /工具结果已精简/);
+  assert.equal(renderToStaticMarkup(createElement(Boundary, { interactionId: 'p3', checkpoint })), '');
+  assert.equal(sessionCheckpoint({ compaction_checkpoint: { ...checkpoint, format_version: 99 } }), null);
+});

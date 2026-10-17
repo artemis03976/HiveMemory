@@ -27,7 +27,7 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 - `POST /api/v1/chat` 支持在请求体中携带 `generation_options`（`model` / `temperature` / `top_p` / `max_tokens`）作为单次对话覆盖参数，不会写入全局配置文件
 - **被动模式（Passive mode）**：通过 `POST /api/v1/ingest` 接收外部框架的离散事件，由 System 层 `PassiveIngressService` 负责编排 Gateway 决策、缓冲、检索和 Patchouli 提交
 
-- **会话**：支持新建、恢复、重命名与删除；Alice 使用当前会话的完整历史，有输出的取消与失败轮次保留结局。会话仅在后端进程内保存，重启后消失；Topic 独立作为记忆材料。
+- **会话**：支持新建、恢复、重命名与删除；Alice 按模型预算自动精简旧工具结果并生成接力摘要，原始对话完整保留，可查看摘要与压缩边界；有输出的取消与失败轮次保留结局。会话与检查点仅在后端进程内保存，重启后消失；Topic 独立作为记忆材料。
 
 ### Workspace 与 Chat 附件
 

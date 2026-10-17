@@ -16,6 +16,7 @@ System Prompt 总构建器
 import logging
 
 from hivememory.i18n import get_system_prompt_text
+from hivememory.prompts.session_compaction import render_session_summary
 
 logger = logging.getLogger(__name__)
 
@@ -56,6 +57,15 @@ class SystemPromptBuilder:
         return self
 
     # === Bottom 层: 工作区状态 ===
+
+    def with_session_summary(
+        self, summary: str, references: tuple[str, ...] = ()
+    ) -> "SystemPromptBuilder":
+        """在工作区材料之前放入明确标注为历史资料的会话摘要。"""
+        section = render_session_summary(summary, references, language=self._language)
+        if section:
+            self._sections.append(section)
+        return self
 
     def with_memory_context(self, rendered_memory: str) -> "SystemPromptBuilder":
         """注入预检索记忆上下文 (来自 RetrievalResponse)"""

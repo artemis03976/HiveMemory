@@ -23,6 +23,7 @@ import type {
   ProcessIdEvent,
   ChatRunStatusEvent,
   CommandResultEvent,
+  ContextCompactionEvent,
 } from '@/types';
 
 export class ChatSSEClient {
@@ -147,6 +148,10 @@ export class ChatSSEClient {
 
       case 'run_status':
         callbacks.onRunStatus(data as ChatRunStatusEvent);
+        break;
+
+      case 'context_compaction':
+        callbacks.onContextCompaction(data as ContextCompactionEvent);
         break;
 
       default:

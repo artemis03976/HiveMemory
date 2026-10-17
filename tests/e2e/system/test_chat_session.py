@@ -261,3 +261,200 @@ async def test_text_only_cpu_output_is_structured_before_patchouli_submission(
         await service.shutdown()
         access.gateway.close()
         access.gateway.revoke_all_contexts()
+
+
+@pytest.mark.asyncio
+async def test_http_long_session_reuses_compacted_history_and_seals_budget_failure(
+    monkeypatch, patchouli_chat_stack, tmp_path
+):
+    """多轮 HTTP 压缩后仍可恢复原文；后续大工具结果被守卫拦截并保存失败轮次。"""
+    from hivememory.components.events.publisher import RuntimeEventPublisher
+    from hivememory.config.alice import CompactionConfig
+    from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+    from tests.helpers.memory import make_memory_metadata
+
+    stack = patchouli_chat_stack
+    access = make_access_composition(
+        [make_actor_access_record(agent_id=agent) for agent in ("omni_doll", "system")],
+        adapters=("http",),
+    )
+    workspace = access.default_workspace
+    runtime = make_workspace_runtime(stack.bus)
+    runtime.subscribe(stack.bus)
+    entry = WorkspaceOperationEntry(
+        ActorMemoryService(
+            stack.bus,
+            operation_authorizer=access.authorizer,
+            memory_reader=runtime.aliases,
+            dispatch_topics=access.thread_spawner,
+        ),
+        agent=ActorAgentService(
+            operation_authorizer=access.authorizer,
+            thread_spawner=access.thread_spawner,
+            profile_reader=runtime.profiles,
+        ),
+        operation_authorizer=access.authorizer,
+    )
+    for alias, size in (("fact_context", 4000),):
+        await stack.mid_term.upsert(
+            MemoryAtom(
+                meta=make_memory_metadata(
+                    user_id=workspace.owner_user_id, source_agent_id="omni_doll"
+                ),
+                index=IndexLayer(
+                    title="可重取资料", summary="检索材料", alias=alias, memory_type=MemoryType.FACT
+                ),
+                payload=PayloadLayer(content="EVIDENCE:" + "z" * size),
+            )
+        )
+    answers = [f"第 {index} 轮结论：" + "a" * 4000 for index in range(5)]
+    script = iter(
+        [item for answer in answers for item in ("⟪ READ | fact_context | ⟫", answer)]
+        + ["继续依据历史完成", '⟪ RUN | sys_read_file | path="large.txt" ⟫']
+    )
+    generation_inputs = []
+    summary_inputs = []
+
+    async def completion(*, messages, stream=False, **_kwargs):
+        """只替换提供商协议；实际摘要校验、MTP、预算和会话提交都通过生产路径。"""
+        if not stream:
+            summary_inputs.append(messages)
+            return SimpleNamespace(
+                choices=[
+                    SimpleNamespace(
+                        message=SimpleNamespace(
+                            content="omni_doll 已检索前序资料；继续验证未完成事项。"
+                        ),
+                        finish_reason="stop",
+                    )
+                ]
+            )
+        generation_inputs.append([dict(item) for item in messages])
+        text = next(script)
+
+        async def chunks():
+            yield SimpleNamespace(
+                choices=[SimpleNamespace(delta=SimpleNamespace(content=text), finish_reason="stop")]
+            )
+
+        return chunks()
+
+    monkeypatch.setattr("hivememory.agent_runtime.execution.worker.litellm.acompletion", completion)
+    config = HiveMemoryConfig().alice
+    config.koakuma.workspace_path = str(tmp_path)
+    (tmp_path / "large.txt").write_text("z" * 100000)
+    config.compaction = CompactionConfig(
+        default_context_window=14000,
+        safety_margin=0,
+        trigger_ratio=0.65,
+        target_ratio=0.45,
+        recent_raw_ratio=0.15,
+        summary_max_tokens=128,
+    )
+    publisher = RuntimeEventPublisher(stack.events)
+    sessions = ConversationSessionService(WorkspaceSessionConfig())
+    alice = AliceSystem(
+        config=config, global_bus=stack.bus, operation_entry=entry, event_publisher=publisher
+    )
+    service = make_task_process_service(
+        stack.bus,
+        cpu=alice.cpu_port,
+        sessions=sessions,
+        access_gateway=access.gateway,
+        operation_authorizer=access.authorizer,
+        process_table=access.process_table,
+        workspace_runtime=runtime,
+        operation_entry=entry,
+        event_publisher=publisher,
+    )
+    app = FastAPI()
+    app.include_router(chat_router, prefix="/api/v1")
+    app.include_router(sessions_router, prefix="/api/v1")
+    app.dependency_overrides[deps.get_process_service] = lambda: service
+    app.dependency_overrides[deps.get_access_gateway] = lambda: access.gateway
+    app.dependency_overrides[deps.get_server_principal_id] = lambda: access.principal.principal_id
+    root = RootSessionService(sessions, operation_authorizer=access.authorizer)
+    app.dependency_overrides[deps.get_root_session_service] = lambda: root
+    await alice.start()
+    try:
+        async with AsyncClient(
+            transport=ASGITransport(app=app),
+            base_url="http://test",
+            headers={
+                "X-User-ID": workspace.owner_user_id,
+                "X-Workspace-ID": workspace.workspace_id,
+            },
+        ) as client:
+            created = await client.post("/api/v1/sessions", json={"title": "长会话"})
+            assert created.status_code == 201
+            session_id = created.json()["session_id"]
+
+            async def chat(message):
+                response = await client.post(
+                    "/api/v1/chat",
+                    json={
+                        "message": message,
+                        "session_id": session_id,
+                        "agent_id": "omni_doll",
+                        "enable_memory_retrieval": False,
+                        "generation_options": {"model": "fake-test-model", "max_tokens": 1000},
+                    },
+                )
+                assert response.status_code == 200
+                return events_from_text(response.text)
+
+            rounds = [await chat(f"轮次 {index}：" + "u" * 4000) for index in range(5)]
+            assert [events[-1][1]["status"] for events in rounds] == ["completed"] * 5
+            compacted = (await client.get(f"/api/v1/sessions/{session_id}")).json()
+            checkpoint = compacted["compaction_checkpoint"]
+            assert checkpoint["summary"] == "omni_doll 已检索前序资料；继续验证未完成事项。"
+            assert checkpoint["references"] == ["memory:fact_context"]
+            assert [
+                turn["payload"]["assistant_final_text"] for turn in compacted["turns"]
+            ] == answers
+            old_results = [
+                event["content"]
+                for turn in compacted["turns"]
+                for event in turn["payload"]["turn_events"]
+                if event["kind"] == "tool_result"
+            ]
+            assert len(old_results) == 5
+            assert old_results == [
+                generation_inputs[index][-1]["content"] for index in (1, 3, 5, 7, 9)
+            ]
+            progress = [
+                data for events in rounds for name, data in events if name == "context_compaction"
+            ]
+            assert [data["status"] for data in progress] == ["started", "completed"]
+            assert progress[-1]["layer"] == "summary"
+            assert len(summary_inputs) == 1
+
+            resumed = await chat("继续")
+            assert resumed[-1][1]["status"] == "completed"
+            prompt = "\n".join(item["content"] for item in generation_inputs[-1])
+            assert "[较早对话摘要]" in prompt
+            assert checkpoint["summary"] in prompt
+            assert "可重新 READ" in prompt
+            assert "轮次 0：" not in prompt
+            assert "轮次 4：" in prompt
+            assert "compaction_checkpoint" not in resumed[-1][1]
+
+            failed = await chat("读取大资料")
+            assert failed[-1][1]["status"] == "failed"
+            assert failed[-1][1]["failure_reason"] == "turn_context_budget_exceeded"
+            assert len(generation_inputs) == 12
+            loaded = (await client.get(f"/api/v1/sessions/{session_id}")).json()
+            assert len(loaded["turns"]) == 7
+            assert loaded["turns"][-1]["payload"]["outcome"] == "failed"
+            assert loaded["active_process_id"] is None
+            (guard,) = [
+                e for e in stack.events.events if e.event_type == "agent.context.budget_exceeded"
+            ]
+            assert guard.process_id == failed[-1][1]["process_id"]
+            assert guard.data["input_token_limit"] == 13000
+    finally:
+        await service.shutdown()
+        await alice.stop()
+        runtime.close()
+        access.gateway.close()
+        access.gateway.revoke_all_contexts()

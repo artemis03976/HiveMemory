@@ -13,6 +13,7 @@
 #   api_base      - 留空则回落到 provider 凭证或提供商默认地址
 #   temperature   - 默认推理温度（0.0 ~ 2.0）
 #   max_tokens    - 默认最大生成 token 数
+#   context_window - 模型总上下文窗口 token 数，留空时使用 Alice 的默认窗口
 #   is_default    - 是否为系统默认模型（有且仅有一条记录应为 true）
 #
 # 密钥不写入本文件，改由环境变量注入（见 .env）：
@@ -28,4 +29,5 @@ models:
     api_base: null
     temperature: 0.7
     max_tokens: 4096
+    context_window: 1000000
     is_default: true

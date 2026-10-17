@@ -185,13 +185,15 @@ def stream_events(
     raise TypeError(f"没有流式投影的阶段产出: {type(output).__name__}")
 
 
-# 只服务于封口交互记录的执行结果字段，不下发给流式交付方。
-_SEALING_ONLY_FIELDS = frozenset({"turn_events"})
+# 只用于进程内部的交互封口或检查点接受，不下发给流式交付方。
+_INTERNAL_RESULT_FIELDS = frozenset({"turn_events", "compaction_checkpoint"})
 
 
 def _done_result_fields(result: CPUExecutionResult) -> dict[str, Any]:
-    """``done`` 事件携带的执行结果字段（不含封口专用字段）。"""
-    fields = result.model_dump(exclude=set(_SEALING_ONLY_FIELDS))
+    """``done`` 只携带可交付字段，交互原始事件与检查点留在进程内部。"""
+    fields = result.model_dump(exclude=set(_INTERNAL_RESULT_FIELDS))
+    if result.status != "failed" or result.failure_reason is None:
+        fields.pop("failure_reason", None)
     if not result.has_output:
         fields.pop("final_text", None)
     return fields

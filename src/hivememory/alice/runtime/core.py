@@ -31,6 +31,7 @@ class AliceRuntime:
         self._agent_runtime = AgentRuntime(
             mtp_executor=self._mtp_executor,
             runtime_config=alice_config.runtime,
+            compaction_config=alice_config.compaction,
             model_registry=model_registry,
         )
 

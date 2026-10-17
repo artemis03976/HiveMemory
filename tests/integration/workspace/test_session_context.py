@@ -5,8 +5,11 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hivememory.alice.orchestration.context_view import SessionContextView
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.config.alice import CompactionConfig
 from hivememory.config.gateway import SystemGatewayConfig
+from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
@@ -25,9 +28,11 @@ from hivememory.gateway.service import GatewayService
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.prompts.assembler import AgentPromptAssembler
+from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.process import make_task_process_service
+from tests.helpers.sessions import make_compaction_checkpoint
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -68,12 +73,14 @@ async def test_interleaved_sessions_share_topic_but_not_cpu_or_gateway_history()
     ]:
         bus.register(route, handler)
     cpu = ScriptedCPU(result=make_cpu_result(final_text="回复"))
+    session_store = ConversationSessionService(WorkspaceSessionConfig())
     service = make_task_process_service(
         bus,
         cpu=cpu,
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
         gateway_session_turn_limit=2,
+        sessions=session_store,
     )
     sessions = {"A": None, "B": None}
     for i, name in enumerate(["A", "A", "B", "A", "A", "A", "A", "A"]):
@@ -86,6 +93,13 @@ async def test_interleaved_sessions_share_topic_but_not_cpu_or_gateway_history()
             message=f"{name}{i}",
             session_id=sessions[name],
         )
+        if i == 7:
+            session_store.accept_checkpoint(
+                access.default_workspace,
+                handle.session_id,
+                process_id=handle.process_id,
+                checkpoint=make_compaction_checkpoint(reduced_through="p1"),
+            )
         sessions[name] = handle.session_id
         await service.run_process(handle, stream=False)
     manifest = cpu.calls[-1].manifest
@@ -99,15 +113,19 @@ async def test_interleaved_sessions_share_topic_but_not_cpu_or_gateway_history()
     ]
     assert [t.user_message for t in gateway_history[-1]] == ["A5", "A6"]
     assert gateway_history[2] == ()
-    messages = AgentPromptAssembler(SimpleNamespace(enabled=False)).build_main_agent_messages(
-        AgentRunContext(
+    messages = SessionContextView(
+        context=AgentRunContext(
             labels=manifest.labels,
             agent_profile=manifest.agent_profile,
             user_message=manifest.user_message,
             session_history=manifest.session_history,
             permitted_mtp_verbs=frozenset({"RUN"}),
-        )
-    )
+        ),
+        prompt_assembler=AgentPromptAssembler(SimpleNamespace(enabled=False)),
+        checkpoint=manifest.compaction_checkpoint,
+        input_token_limit=100000,
+        config=CompactionConfig(),
+    ).messages
     assert [m["content"] for m in messages if m["role"] == "user"] == [
         "A0",
         "A1",
@@ -118,6 +136,7 @@ async def test_interleaved_sessions_share_topic_but_not_cpu_or_gateway_history()
         "A7",
     ]
     assert manifest.topic_id == "shared-topic"
+    assert manifest.compaction_checkpoint.reduced_through == "p1"
 
 
 @pytest.mark.asyncio

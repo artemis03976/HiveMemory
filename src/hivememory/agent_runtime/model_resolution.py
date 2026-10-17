@@ -7,9 +7,19 @@
 
 from __future__ import annotations
 
-from typing import Protocol
+from dataclasses import dataclass
+from typing import Any, Protocol
 
 from hivememory.config.shared import LLMConfig
+
+
+@dataclass(frozen=True)
+class ResolvedFrameModel:
+    """一次解析得到的生成参数与独立输入预算，供同一帧恢复时复用。"""
+
+    generation_options: dict[str, Any]
+    input_token_limit: int
+    display_name: str = ""
 
 
 class ModelResolver(Protocol):
@@ -26,4 +36,4 @@ class ModelResolver(Protocol):
         ...
 
 
-__all__ = ["ModelResolver"]
+__all__ = ["ModelResolver", "ResolvedFrameModel"]

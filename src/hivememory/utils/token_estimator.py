@@ -92,8 +92,15 @@ class TokenEstimator:
             return 0
 
         cjk_chars = TokenEstimator.count_cjk_chars(text)
-        other_chars = len(text) - cjk_chars
+        return TokenEstimator.estimate_from_counts(cjk_chars, len(text) - cjk_chars)
 
+    @staticmethod
+    def estimate_from_counts(cjk_chars: int, other_chars: int) -> int:
+        """按已统计的字符数估算。
+
+        估算只取决于两类字符的总数，因此拼接文本可以先把各段计数相加再估算，
+        结果与对整段文本调用 :meth:`estimate` 相同，不必重复扫描。
+        """
         return (cjk_chars // 2) + (other_chars // 4)
 
     @staticmethod

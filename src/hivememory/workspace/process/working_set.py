@@ -25,7 +25,7 @@ from hivememory.core.models.workspace_asset import (
     WorkspaceAssetRef,
 )
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.workspace.contracts import CPUExecutionResult, CPUOutput
+from hivememory.workspace.contracts import CPUExecutionResult, CPUOutput, CPUResultSlot
 
 
 @dataclass
@@ -47,6 +47,8 @@ class ProcessWorkingSet:
     attachment_leases: list[RepresentationLease] = field(default_factory=list)
     used_attachments: tuple[WorkspaceAssetRef, ...] = ()
     cpu_output: AsyncGenerator[CPUOutput, None] | None = None
+    # 交付方停止拉取后，关闭流程仍能接收 CPU 已完成的历史检查点。
+    cpu_result_slot: CPUResultSlot | None = None
     # 封口后持有提交任务，交付流提前关闭仍等待 Patchouli 接管。
     finalization_task: asyncio.Task[None] | None = None
     execution_result: CPUExecutionResult | None = None

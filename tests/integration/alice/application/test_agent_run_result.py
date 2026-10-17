@@ -11,6 +11,8 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.agent_runtime.execution.worker import WorkerAgentService
+from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
@@ -20,11 +22,13 @@ from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.products import FrameProducts
 from hivememory.alice.application.agent_run_service import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
+from hivememory.alice.orchestration.relay_summary import RelaySummarizer
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.config.alice import CompactionConfig
 from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.workspace.contracts import CPUExecutionStatus
 from tests.helpers.chat_handoff import make_input_manifest
@@ -69,10 +73,14 @@ def _runtime_for_frame(
         ),
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
+    resolved_agent_runtime.resolve_model = lambda *_args: ResolvedFrameModel(
+        generation_options={}, input_token_limit=65536
+    )
     factory = MagicMock(spec=FrameFactory)
     factory.scope.side_effect = FrameFactory.scope
     factory.create.return_value = frame
     service = AgentRunService(
+        summarizer=RelaySummarizer(WorkerAgentService()),
         agent_runtime=resolved_agent_runtime,
         call_coordinator=MagicMock(),
         frame_factory=factory,
@@ -80,6 +88,7 @@ def _runtime_for_frame(
             build_main_agent_messages=MagicMock(return_value=frame.working_history)
         ),
         stream_adapter=AgentRunStreamAdapter(),
+        compaction_config=CompactionConfig(),
         agent_run_events=AgentRunEventEmitter(RuntimeEventPublisher(NullRuntimeEventSink())),
     )
     run_session = session or RunSession(agent_run_id="run-1", process_id="process-1")

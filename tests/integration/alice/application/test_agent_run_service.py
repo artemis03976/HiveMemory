@@ -10,10 +10,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.agent_runtime.execution.worker import WorkerAgentService
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import TokenDelta
 from hivememory.alice.application.agent_run_service import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory
+from hivememory.alice.orchestration.relay_summary import RelaySummarizer
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
 from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
@@ -39,6 +41,124 @@ from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.sessions import make_conversation_turn
 from tests.helpers.workspace import make_execution_labels
+
+
+@pytest.mark.asyncio
+async def test_session_model_and_output_override_control_budget_and_provider_request(
+    tmp_path, monkeypatch
+):
+    """会话覆盖模型与输出上限后，预检预算和实际模型请求使用同一次解析。"""
+    from hivememory.agent_runtime.execution.worker import WorkerAgentService
+    from hivememory.agent_runtime.models import GenerationResult
+    from hivememory.core.models.model_definition import ModelDefinition
+    from hivememory.system.model_registry import ModelRegistry
+
+    registry = ModelRegistry(registry_path=tmp_path / "models.yaml")
+    registry.add_model(
+        ModelDefinition(
+            id="small",
+            display_name="小窗口",
+            litellm_model="provider/small",
+            max_tokens=900,
+            context_window=1000,
+        )
+    )
+    config = HiveMemoryConfig()
+    config.alice.koakuma.enabled = False
+    config.alice.compaction.safety_margin = 100
+    _, service = _build_service(config=config, model_registry=registry)
+    profile = AgentProfile(model_name="unavailable-profile-model", persona="", temperature=0.2)
+    manifest = make_input_manifest(agent_profile=profile, user_message="x" * 2000)
+    requests = []
+
+    async def generate(_self, messages, **kwargs):
+        requests.append(kwargs)
+        return GenerationResult(text="完成")
+
+    monkeypatch.setattr(WorkerAgentService, "generate_async", generate)
+    rejected = await service.run_agent(
+        manifest, {"model": "small"}, stream=False, submit_operation=MagicMock()
+    )
+    assert rejected.failure_reason == "input_too_large"
+    assert requests == []
+
+    completed = await service.run_agent(
+        manifest,
+        {"model": "small", "max_tokens": 100},
+        stream=False,
+        submit_operation=MagicMock(),
+    )
+    assert completed.status == "completed"
+    assert completed.final_text == "完成"
+    assert completed.model_used == "小窗口"
+    assert requests == [
+        {
+            "model": "provider/small",
+            "max_tokens": 100,
+            "temperature": 0.2,
+            "top_p": 1.0,
+            "api_key": None,
+            "api_base": None,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(
+    tmp_path, monkeypatch
+):
+    """子帧按自己的小窗口被拦截，父帧收到 CALL 错误后继续完成。"""
+    from hivememory.agent_runtime.execution.worker import WorkerAgentService
+    from hivememory.agent_runtime.models import GenerationResult
+    from hivememory.core.models.model_definition import ModelDefinition
+    from hivememory.system.model_registry import ModelRegistry
+    from tests.helpers.call import StubOperationSubmitter, make_callee
+
+    registry = ModelRegistry(registry_path=tmp_path / "models.yaml")
+    for name, window in [("parent", 10000), ("child", 200)]:
+        registry.add_model(
+            ModelDefinition(
+                id=name,
+                display_name=name,
+                litellm_model=f"provider/{name}",
+                context_window=window,
+                max_tokens=100,
+            )
+        )
+    config = HiveMemoryConfig()
+    config.alice.koakuma.mtp_prompt.enabled = False
+    config.alice.compaction.safety_margin = 0
+    recorder = RecordingRuntimeEventSink()
+    _, service = _build_service(config=config, model_registry=registry, runtime_events=recorder)
+    requests = []
+
+    async def generate(_self, messages, **kwargs):
+        requests.append(kwargs["model"])
+        if len(requests) == 1:
+            text = '⟪ CALL | helper | task="总结" ⟫'
+            return GenerationResult(text=text, was_mtp_interrupted=True, mtp_fragment=text)
+        return GenerationResult(text="父帧完成")
+
+    async def derive(_request):
+        return make_callee(AgentProfile(model_name="child", persona="x" * 1000))
+
+    monkeypatch.setattr(WorkerAgentService, "generate_async", generate)
+    result = await service.run_agent(
+        make_input_manifest(
+            agent_profile=AgentProfile(model_name="parent", persona=""),
+            allowed_operations=frozenset({WorkspaceOperation.AGENT_CALL}),
+        ),
+        stream=False,
+        submit_operation=StubOperationSubmitter(derive=derive),
+    )
+    assert (result.status, result.final_text) == ("completed", "父帧完成")
+    call_result = next(e for e in result.turn_events if e.kind == "tool_result")
+    assert call_result.status == "error"
+    assert 'code="mtp.call_response.sub_agent_error"' in call_result.content
+    assert requests == ["provider/parent", "provider/parent"]
+    (guard,) = [e for e in recorder.events if e.event_type == "agent.context.budget_exceeded"]
+    assert guard.data["input_token_limit"] == 100
+    assert recorder.events[-1].event_type == "agent.run.completed"
 
 
 def _build_memory_atom() -> MemoryAtom:
@@ -79,11 +199,14 @@ def _build_input_manifest(
     )
 
 
-def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunService]:
-    config = HiveMemoryConfig()
+def _build_service(
+    *, runtime_events=None, config=None, model_registry=None
+) -> tuple[AliceRuntime, AgentRunService]:
+    config = config or HiveMemoryConfig()
     runtime = AliceRuntime(
         alice_config=config.alice,
         memory_compiler_config=config.memory_compiler,
+        model_registry=model_registry,
     )
     frame_factory = FrameFactory()
     prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
@@ -94,11 +217,13 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
         prompt_assembler=prompt_assembler,
     )
     service = AgentRunService(
+        summarizer=RelaySummarizer(WorkerAgentService()),
         agent_runtime=runtime.agent_runtime,
         call_coordinator=coordinator,
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
         stream_adapter=AgentRunStreamAdapter(),
+        compaction_config=config.alice.compaction,
         agent_run_events=AgentRunEventEmitter(
             RuntimeEventPublisher(runtime_events or NullRuntimeEventSink())
         ),
@@ -526,14 +651,25 @@ async def test_native_cancellation_fills_slot_with_delivered_partial_text(monkey
             raise
 
     monkeypatch.setattr(WorkerAgentService, "generate_stream", generate_stream)
-    _runtime, service = _build_service()
+    from hivememory.agent_runtime.models import GenerationResult
+
+    monkeypatch.setattr(
+        WorkerAgentService,
+        "generate_async",
+        AsyncMock(return_value=GenerationResult(text="Accepted summary")),
+    )
+    config, manifest = _summary_inputs()
+    manifest = manifest.model_copy(update={"user_message": "hello"})
+    _runtime, service = _build_service(config=config)
     slot = CPUResultSlot()
     stream = service.run_agent(
-        _build_input_manifest(_build_memory_atom()),
+        manifest,
         stream=True,
         submit_operation=MagicMock(),
         result_slot=slot,
     )
+    assert (await anext(stream))["data"]["status"] == "started"
+    assert (await anext(stream))["data"]["status"] == "completed"
     assert (await anext(stream))["data"]["content"] == "半截答案"
     await entered.wait()
     if during_pull:
@@ -547,6 +683,8 @@ async def test_native_cancellation_fills_slot_with_delivered_partial_text(monkey
     assert cancelled.is_set()
     assert slot.result.status == "cancelled"
     assert slot.result.final_text == "半截答案"
+    assert slot.result.compaction_checkpoint.summary == "Accepted summary"
+    assert slot.result.compaction_checkpoint.summarized_through == "t2"
     assert [(e.kind, e.content, e.status) for e in slot.result.turn_events] == [
         ("user_message", "hello", None),
         ("assistant_message", "半截答案", "cancelled"),
@@ -606,3 +744,262 @@ async def test_cancel_in_call_keeps_root_call_without_child_partial_text(monkeyp
         ("tool_call", "CALL"),
     ]
     assert slot.result.has_output is True
+
+
+def _compaction_inputs(*, compressible=True):
+    """小预算和超阈值旧历史，用真实渲染触发压缩。"""
+    from hivememory.config.alice import CompactionConfig
+    from hivememory.core.models import TurnEvent
+
+    config = HiveMemoryConfig()
+    config.alice.koakuma.enabled = False
+    config.alice.compaction = CompactionConfig(
+        default_context_window=33768, safety_margin=0, summary_max_tokens=64
+    )
+    turn = make_conversation_turn(
+        interaction_id="old",
+        user_message="old" if compressible else "x" * 6000,
+        turn_events=(
+            [
+                TurnEvent(
+                    kind="tool_result",
+                    sequence=0,
+                    role="user",
+                    content="x" * 6000,
+                    tool_kind="READ",
+                    target="mem_a",
+                    status="success",
+                )
+            ]
+            if compressible
+            else []
+        ),
+    )
+    manifest = make_input_manifest(
+        agent_profile=AgentProfile(persona="", language="en"),
+        user_message="next",
+        session_history=(turn,),
+    )
+    return config, manifest
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_compaction_reaches_generation_and_returns_checkpoint_without_recording_progress(
+    monkeypatch, stream
+):
+    """减重不调用辅助模型；正常生成消费缩小后的视图，进度不进入交互载荷。"""
+    from hivememory.agent_runtime.execution.worker import WorkerAgentService
+    from hivememory.agent_runtime.models import GenerationResult, StreamChunk
+    from hivememory.workspace.contracts import CPUResultSlot
+
+    requests = []
+
+    async def generate(_self, messages, **_kwargs):
+        requests.append(messages)
+        return GenerationResult(text="完成")
+
+    async def generate_stream(_self, messages, **_kwargs):
+        yield StreamChunk(is_final=True, result=await generate(_self, messages))
+
+    monkeypatch.setattr(WorkerAgentService, "generate_async", generate)
+    monkeypatch.setattr(WorkerAgentService, "generate_stream", generate_stream)
+    config, manifest = _compaction_inputs()
+    recorder = RecordingRuntimeEventSink()
+    _, service = _build_service(config=config, runtime_events=recorder)
+    slot = CPUResultSlot()
+    if stream:
+        events = [
+            event
+            async for event in service.run_agent(
+                manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
+            )
+        ]
+        progress = [event for event in events if event["event"] == "context_compaction"]
+        assert [event["data"]["status"] for event in progress] == ["started", "completed"]
+        assert [event["data"]["stream_sequence"] for event in events] == list(range(len(events)))
+        assert "compaction_checkpoint" not in events[-1]["data"]
+        result = slot.result
+    else:
+        result = await service.run_agent(
+            manifest, stream=False, submit_operation=MagicMock(), result_slot=slot
+        )
+    assert result.status == "completed"
+    assert result.compaction_checkpoint.reduced_through == "old"
+    assert [(event.kind, event.content) for event in result.turn_events] == [
+        ("user_message", "next"),
+        ("assistant_message", "完成"),
+    ]
+    assert len(requests) == 1
+    assert "READ again" in requests[0][1]["content"]
+    assert all("x" * 6000 not in message["content"] for message in requests[0])
+    observed = [
+        event
+        for event in recorder.events
+        if event.event_type == RuntimeEventType.AGENT_CONTEXT_COMPACTION
+    ]
+    assert [event.status for event in observed] == ["started", "completed"]
+    assert observed[-1].data["covered_turns"] == 1
+    assert observed[-1].data["tokens_after"] < observed[-1].data["tokens_before"]
+    assert set(observed[-1].data) == {
+        "layer",
+        "tokens_before",
+        "tokens_after",
+        "covered_turns",
+        "elapsed_ms",
+        "summary_status",
+        "summarized_turns",
+    }
+
+
+@pytest.mark.asyncio
+async def test_uncompressible_history_fails_without_output_and_keeps_reduction_checkpoint(
+    monkeypatch,
+):
+    """用户原文不能减重，仍超限时不调用生成模型；进度本身不构成输出。"""
+    from hivememory.agent_runtime.execution.worker import WorkerAgentService
+    from hivememory.workspace.contracts import CPUResultSlot
+
+    generate = AsyncMock(side_effect=AssertionError("超限不应调用模型"))
+    monkeypatch.setattr(WorkerAgentService, "generate_async", generate)
+    config, manifest = _compaction_inputs(compressible=False)
+    recorder = RecordingRuntimeEventSink()
+    _, service = _build_service(config=config, runtime_events=recorder)
+    slot = CPUResultSlot()
+    events = [
+        event
+        async for event in service.run_agent(
+            manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
+        )
+    ]
+    assert [event["event"] for event in events] == [
+        "context_compaction",
+        "context_compaction",
+        "done",
+    ]
+    assert events[1]["data"]["status"] == "failed"
+    assert slot.result.failure_reason == "compaction_failed"
+    assert slot.result.has_output is False
+    assert slot.result.compaction_checkpoint.reduced_through == "old"
+    generate.assert_not_awaited()
+    failed_compaction = [
+        event
+        for event in recorder.events
+        if event.event_type == RuntimeEventType.AGENT_CONTEXT_COMPACTION
+        and event.status == "failed"
+    ]
+    assert [event.reason for event in failed_compaction] == ["summary_input_too_large"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("after_completion", [False, True])
+async def test_closing_at_compaction_progress_only_returns_completed_checkpoint(after_completion):
+    """压缩开始时关闭不产生新检查点，结束事件交出后关闭则交回已完成视图。"""
+    from hivememory.workspace.contracts import CPUResultSlot
+
+    config, manifest = _compaction_inputs()
+    _, service = _build_service(config=config)
+    slot = CPUResultSlot()
+    stream = service.run_agent(
+        manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
+    )
+    assert (await anext(stream))["data"]["status"] == "started"
+    if after_completion:
+        assert (await anext(stream))["data"]["status"] == "completed"
+    await stream.aclose()
+    if after_completion:
+        assert slot.result.status == "cancelled"
+        assert slot.result.compaction_checkpoint.reduced_through == "old"
+        assert slot.result.has_output is False
+    else:
+        assert slot.result is None
+
+
+def _summary_inputs():
+    """使用需要接力摘要的多轮纯文本历史，保持生成请求在小预算内。"""
+    config, manifest = _compaction_inputs()
+    turns = tuple(
+        make_conversation_turn(
+            interaction_id=f"t{i}", user_message="x" * 400, assistant_final_text="y" * 400
+        )
+        for i in range(4)
+    )
+    return config, manifest.model_copy(update={"session_history": turns})
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_summary_propagates_without_new_checkpoint(monkeypatch):
+    """减重已完成但摘要仍在等待时取消，不能交回本次任何局部检查点。"""
+    from hivememory.workspace.contracts import CPUResultSlot
+
+    entered = asyncio.Event()
+    closed = asyncio.Event()
+
+    async def summarize(_self, messages, **kwargs):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    monkeypatch.setattr(WorkerAgentService, "generate_async", summarize)
+    config, manifest = _summary_inputs()
+    _, service = _build_service(config=config)
+    slot = CPUResultSlot()
+    stream = service.run_agent(
+        manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
+    )
+    assert (await anext(stream))["data"]["status"] == "started"
+    pull = asyncio.create_task(anext(stream))
+    await entered.wait()
+    pull.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await pull
+    await stream.aclose()
+    assert closed.is_set()
+    assert slot.result is None
+
+
+@pytest.mark.asyncio
+async def test_abandoned_summary_still_generates_from_reduced_view_if_it_fits(monkeypatch):
+    """摘要被拒绝但减重视图可执行时继续生成，摘要失败不会变成本轮输出。"""
+    from hivememory.agent_runtime.models import GenerationResult, StreamChunk
+    from hivememory.workspace.contracts import CPUResultSlot
+
+    monkeypatch.setattr(
+        WorkerAgentService,
+        "generate_async",
+        AsyncMock(return_value=GenerationResult(text="", finish_reason="stop")),
+    )
+    prompts = []
+
+    async def generate(_self, messages, **kwargs):
+        prompts.append(messages)
+        yield StreamChunk(is_final=True, result=GenerationResult(text="继续完成"))
+
+    monkeypatch.setattr(WorkerAgentService, "generate_stream", generate)
+    config, manifest = _summary_inputs()
+    recorder = RecordingRuntimeEventSink()
+    _, service = _build_service(config=config, runtime_events=recorder)
+    slot = CPUResultSlot()
+    events = [
+        event
+        async for event in service.run_agent(
+            manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
+        )
+    ]
+    assert events[1]["data"]["status"] == "abandoned"
+    assert events[1]["data"]["layer"] == "summary"
+    assert slot.result.status == "completed"
+    assert slot.result.compaction_checkpoint.summary == ""
+    assert [event.kind for event in slot.result.turn_events] == [
+        "user_message",
+        "assistant_message",
+    ]
+    assert len(prompts) == 1
+    assert all("Earlier conversation summary" not in message["content"] for message in prompts[0])
+    assert [
+        event.reason
+        for event in recorder.events
+        if event.event_type == RuntimeEventType.AGENT_CONTEXT_COMPACTION
+    ] == [None, "summary_empty"]

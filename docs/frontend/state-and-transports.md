@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-17
 ---
 
 # 前端状态、持久化与传输
@@ -39,6 +39,8 @@ Chat tokens / logs / RuntimeEvents
 
 `chat-store` 的 persist 版本为 4，`partialize` 只保存 `currentSessionId` 与 `currentAgentId`。启动后从服务端读取会话历史；旧版本状态不会复活消息或旧 Topic 指针。读取 404 时清除选择，其他失败保留错误并阻止发送，直到成功加载或新建会话。会话历史的权威副本仅在后端进程内，浏览器不保存消息正文。
 
+压缩进度是 SSE 的运行期投影，检查点是会话 GET 的快照，两者都不写入 localStorage。压缩结束后从服务端刷新检查点，不根据 token 或进度合成本地摘要；历史视图代次隔离晚到的读取，选择会话、清空和新一轮都会使旧读取失效。原始历史和边界标记的展示见 [Chat 视图](./chat-view.md#4-会话恢复与-topic-标注)。
+
 浏览器的 localStorage 也应被视为一个需要版本治理的本地契约，而不是“随手缓存”。当前持久化 store 已采用 `name`、`version`、`migrate` 或 `partialize` 的组合来清理旧结构、缩小写入面并恢复可解释的小状态；新增 store 或改变字段时也必须遵循同一规则。优先保存主题、tab、折叠、筛选和短小的运行偏好，谨慎保存可重新解释的草稿，避免把过期的 Agent ID、Topic 指针、消息块或后端实体整棵复活。
 
 ## 2. 本地持久化矩阵
@@ -47,7 +49,7 @@ Chat tokens / logs / RuntimeEvents
 |:---|:---|:---|
 | `chat-ui-store` | 主导航、主题、左右面板折叠、侧栏 tab、Settings 分类、记忆预检索开关 | toast、页面业务数据 |
 | `chat-runtime-config-store` | model override、temperature/top_p/max_tokens、是否覆盖参数 | 某次请求终态 |
-| `chat-store` | 当前 Session ID 与 Agent ID | messages、会话列表/历史、输入草稿、引用记忆、连接、process ID、run status |
+| `chat-store` | 当前 Session ID 与 Agent ID | messages、会话列表/历史、输入草稿、引用记忆、连接、process ID、run status、压缩进度/检查点、本轮失败码 |
 | `memory-view-store` | search mode、类型、status filter、排序、grid/list | search query、selected tags、Memory 数据 |
 | `memory-task-store` | 是否显示 terminal tasks | task、选中 task、请求状态 |
 | `workspace-store` | filters、trace/span UI | logs、trace groups、RuntimeEvents、连接、主窗口状态 |

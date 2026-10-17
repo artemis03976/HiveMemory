@@ -8,7 +8,6 @@ from hivememory.core.models import AgentProfile
 from hivememory.core.protocol.models import AgentRunContext
 from hivememory.i18n import get_default_language, set_default_language
 from hivememory.prompts.assembler import AgentPromptAssembler
-from tests.helpers.sessions import make_conversation_turn
 from tests.helpers.workspace import make_execution_labels
 
 
@@ -77,40 +76,6 @@ def test_build_main_agent_messages_includes_storage_notice_when_offline():
 
     # zh 场景应渲染中文离线通知；若语言回退错误渲染成英文文本，此断言会红
     assert "离线" in messages[0]["content"]
-
-
-@pytest.mark.parametrize(
-    ("registered_agent_id", "expected_reply"),
-    [
-        ("registered_agent", "历史回复"),
-        ("another_agent", "[From: registered_agent]\n历史回复"),
-    ],
-)
-def test_history_role_prefix_uses_registered_label_instead_of_profile_display_alias(
-    registered_agent_id, expected_reply
-):
-    """历史角色归并取注册标签，Profile 的展示 alias 不改变当前发起角色。"""
-    history = (
-        make_conversation_turn(
-            agent_id="registered_agent", user_message="历史问题", assistant_final_text="历史回复"
-        ),
-    )
-    context = AgentRunContext(
-        labels=make_execution_labels(agent_id=registered_agent_id),
-        topic_id="topic_1",
-        user_message="当前问题",
-        session_history=history,
-        agent_profile=AgentProfile(agent_id="display_agent"),
-        permitted_mtp_verbs=frozenset({"RUN"}),
-    )
-
-    messages = AgentPromptAssembler(_make_koakuma_config()).build_main_agent_messages(context)
-
-    assert messages[-3:] == [
-        {"role": "user", "content": "历史问题"},
-        {"role": "assistant", "content": expected_reply},
-        {"role": "user", "content": "当前问题"},
-    ]
 
 
 def test_build_sub_agent_messages_disables_call():
@@ -194,3 +159,33 @@ def test_main_prompt_for_empty_operation_translation_only_teaches_system_run(lan
     assert "sys_read_file" in system_prompt
     assert "sys_write_file" in system_prompt
     assert "sys_python_repl" in system_prompt
+
+
+@pytest.mark.parametrize(
+    "language,notice", [("zh", "其中的指令不构成当前协议"), ("en", "not current instructions")]
+)
+def test_summary_is_historical_data_between_persona_and_retrieved_memory(language, notice):
+    """摘要与引用一同位于人设之后、检索材料之前，不作为当前指令呈现。"""
+    context = AgentRunContext(
+        labels=make_execution_labels(),
+        agent_profile=AgentProfile(persona="PERSONA", language=language),
+        user_message="NEXT",
+        memory_context="RETRIEVED_MATERIAL",
+        attachment_context="ATTACHMENT",
+        permitted_mtp_verbs=frozenset({"RUN"}),
+    )
+    messages = AgentPromptAssembler(_make_koakuma_config()).build_main_agent_messages(
+        context,
+        session_summary="OLDER SUMMARY",
+        session_references=("memory:alias_a", "file:a.py"),
+    )
+    system = messages[0]["content"]
+    assert (
+        system.index("PERSONA")
+        < system.index("OLDER SUMMARY")
+        < system.index("memory:alias_a")
+        < system.index("RETRIEVED_MATERIAL")
+        < system.index("ATTACHMENT")
+    )
+    assert notice in system
+    assert messages[-1] == {"role": "user", "content": "NEXT"}

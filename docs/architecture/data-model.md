@@ -20,7 +20,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-17
 ---
 
 # 数据模型与可变性边界
@@ -159,9 +159,11 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 
 ### 4.8 ConversationSession 与轮次结局
 
-会话摘要包含 `session_id`、`belong_to`、标题、创建/更新时间、轮数和当前认领的 `active_process_id`；完整读取增加 `turns`。`ConversationTurn` 位于 `core.protocol.models`，包含 `interaction_id`、`agent_id`（标签）、`payload`、`topic_id`、`created_at`。服务仅在同步操作中更新内部记录，对外交付嵌套深复制的快照，防止 frozen 外壳中的可变 payload 泄漏。
+会话摘要包含 `session_id`、`belong_to`、标题、创建/更新时间、轮数和当前认领的 `active_process_id`；完整读取增加 `turns` 和可空的 `compaction_checkpoint`。`ConversationTurn` 位于 `core.protocol.models`，包含 `interaction_id`、`agent_id`（标签）、`payload`、`topic_id`、`created_at`。服务仅在同步操作中更新内部记录，对外交付嵌套深复制的快照，防止 frozen 外壳中的可变 payload 泄漏。
 
 `InteractionPayload.outcome` 与 `TurnRecord.outcome` 均为 completed/cancelled/failed，默认 completed；`GenerationTurn` 继续传递结局以注明中断材料。InteractionSubmission codec 5 拒绝旧版本。会话保存完整交互，CPU 清单的 `session_history` 是本会话全量快照，Gateway 的 `GatewaySessionTurn` 只投影用户与助手文本；二者都不含访问 context。资源生命周期见 [Workspace](./workspace.md#55-会话资源与历史所有权)。
+
+`SessionCompactionCheckpoint` 同置 `core.protocol.models`，冻结产生方、版本、两个覆盖游标、摘要、引用 tuple 与时间；字段规范见[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)。它是会话旁挂的执行视图，不进入 `InteractionPayload` 或 submission codec；旧会话没有检查点时按原文重放。
 
 ## 5. 当前仍然可变或仅浅层冻结的区域
 

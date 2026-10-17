@@ -6,11 +6,13 @@ from fastapi import FastAPI
 
 from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.errors import SessionBusyError, SessionNotFoundError
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.server.app import session_error_handler
 from hivememory.server.deps import get_root_session_service
 from hivememory.server.routers.sessions import router
 from hivememory.workspace.capability.root.session import RootSessionService
 from hivememory.workspace.sessions import ConversationSessionService
+from tests.helpers.sessions import make_compaction_checkpoint
 from tests.helpers.workspace import make_server_access_overrides
 
 
@@ -39,6 +41,22 @@ async def test_http_session_crud_and_busy_error():
         listed = await client.get("/api/v1/sessions")
         assert [(s["session_id"], s["title"]) for s in listed.json()] == [(session_id, "新标题")]
         store.claim(access.default_workspace, session_id, "p")
+        store.append(
+            access.default_workspace,
+            session_id,
+            process_id="p",
+            agent_id="a",
+            payload=InteractionPayload(user_message="问题", assistant_final_text="原文"),
+            topic_id="t",
+        )
+        checkpoint = make_compaction_checkpoint(reduced_through="p")
+        store.accept_checkpoint(
+            access.default_workspace, session_id, process_id="p", checkpoint=checkpoint
+        )
+        restored = await client.get(f"/api/v1/sessions/{session_id}")
+        assert restored.json()["compaction_checkpoint"] == checkpoint.model_dump(mode="json")
+        assert restored.json()["turns"][0]["payload"]["assistant_final_text"] == "原文"
+        assert "compaction_checkpoint" not in (await client.get("/api/v1/sessions")).json()[0]
         busy = await client.delete(f"/api/v1/sessions/{session_id}")
         assert busy.status_code == 409
         assert busy.json()["error"] == "workspace.session.busy"

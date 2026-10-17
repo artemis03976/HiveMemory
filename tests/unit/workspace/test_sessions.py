@@ -6,11 +6,13 @@ from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.errors import (
     SessionBusyError,
     SessionCapacityError,
+    SessionCheckpointError,
     SessionClosedError,
     SessionNotFoundError,
 )
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.workspace.sessions import ConversationSessionService
+from tests.helpers.sessions import make_compaction_checkpoint
 from tests.helpers.workspace import make_workspace_identity
 
 
@@ -110,3 +112,116 @@ def test_closed_service_rejects_reads_and_writes(operation):
     }[operation]
     with pytest.raises(SessionClosedError):
         getattr(service, operation)(workspace, *arguments)
+
+
+@pytest.fixture
+def checkpoint_session():
+    """两轮旧历史与一个持有认领的后继进程。"""
+    service = ConversationSessionService(WorkspaceSessionConfig())
+    workspace = make_workspace_identity()
+    session_id = service.create(workspace).session_id
+    for process in ("old-1", "old-2"):
+        service.claim(workspace, session_id, process)
+        service.append(
+            workspace,
+            session_id,
+            process_id=process,
+            agent_id="alice",
+            payload=InteractionPayload(user_message=process),
+            topic_id="topic",
+        )
+        service.release(workspace, session_id, process)
+    service.claim(workspace, session_id, "current")
+    return service, workspace, session_id
+
+
+@pytest.mark.parametrize(
+    "reduced,summarized",
+    [
+        ("foreign-turn", None),
+        ("old-2", "foreign-turn"),
+        ("old-1", "old-2"),
+        ("old-1", "old-1"),
+        ("old-2", None),
+    ],
+    ids=["unknown-reduction", "unknown-summary", "summary-ahead", "reduction-back", "summary-back"],
+)
+def test_invalid_checkpoint_preserves_previous_view(checkpoint_session, reduced, summarized):
+    """游标存在性、覆盖顺序与两个独立的单调约束都在会话所有者处拒绝。"""
+    service, workspace, session_id = checkpoint_session
+    previous = make_compaction_checkpoint(reduced_through="old-2", summarized_through="old-1")
+    service.accept_checkpoint(workspace, session_id, process_id="current", checkpoint=previous)
+    with pytest.raises(SessionCheckpointError):
+        service.accept_checkpoint(
+            workspace,
+            session_id,
+            process_id="current",
+            checkpoint=make_compaction_checkpoint(
+                reduced_through=reduced, summarized_through=summarized
+            ),
+        )
+    assert service.get(workspace, session_id).compaction_checkpoint == previous
+
+
+def test_checkpoint_of_another_format_rebuilds_from_earlier_cursors(checkpoint_session):
+    """单调约束只在同一产生方与格式版本内成立，新格式的重建视图可以替换旧视图。"""
+    service, workspace, session_id = checkpoint_session
+    service.accept_checkpoint(
+        workspace,
+        session_id,
+        process_id="current",
+        checkpoint=make_compaction_checkpoint(
+            reduced_through="old-2", summarized_through="old-1", summary="旧格式摘要"
+        ),
+    )
+    rebuilt = make_compaction_checkpoint(format_version=2, reduced_through="old-1")
+    service.accept_checkpoint(workspace, session_id, process_id="current", checkpoint=rebuilt)
+    assert service.get(workspace, session_id).compaction_checkpoint == rebuilt
+
+
+def test_checkpoint_requires_claim_and_workspace_ownership(checkpoint_session):
+    """不同 Workspace 或非认领进程不能改变检查点。"""
+    service, workspace, session_id = checkpoint_session
+    checkpoint = make_compaction_checkpoint(reduced_through="old-1")
+    with pytest.raises(SessionNotFoundError):
+        service.accept_checkpoint(
+            make_workspace_identity(owner_user_id="other"),
+            session_id,
+            process_id="current",
+            checkpoint=checkpoint,
+        )
+    with pytest.raises(SessionBusyError):
+        service.accept_checkpoint(workspace, session_id, process_id="stale", checkpoint=checkpoint)
+    assert service.get(workspace, session_id).compaction_checkpoint is None
+
+
+def test_checkpoint_advances_without_mutating_history_and_follows_session_lifetime(
+    checkpoint_session,
+):
+    """检查点可同位更新或前进，列表保持轻量，删除与关闭使其不可再读取。"""
+    service, workspace, session_id = checkpoint_session
+    original_turns = service.get(workspace, session_id).turns
+    first = make_compaction_checkpoint(reduced_through="old-1")
+    advanced = make_compaction_checkpoint(
+        reduced_through="old-2",
+        summarized_through="old-1",
+        summary="已完成分析",
+        references=("mem_a",),
+    )
+    for checkpoint in (first, first, advanced):
+        service.accept_checkpoint(
+            workspace, session_id, process_id="current", checkpoint=checkpoint
+        )
+    saved = service.get(workspace, session_id)
+    assert saved.compaction_checkpoint == advanced
+    assert saved.turns == original_turns
+    assert "compaction_checkpoint" not in service.list_sessions(workspace)[0].model_dump()
+    service.release(workspace, session_id, "current")
+    service.delete(workspace, session_id)
+    with pytest.raises(SessionNotFoundError):
+        service.get(workspace, session_id)
+    new_id = service.create(workspace).session_id
+    assert service.get(workspace, new_id).compaction_checkpoint is None
+    service.close_and_clear()
+    with pytest.raises(SessionClosedError):
+        service.accept_checkpoint(workspace, new_id, process_id="current", checkpoint=first)

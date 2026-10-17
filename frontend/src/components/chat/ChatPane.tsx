@@ -1,13 +1,14 @@
-import { useRef, useState } from 'react';
+import { Fragment, useRef, useState } from 'react';
 import { FileUp } from 'lucide-react';
 import TopBar from './TopBar';
 import ChatMessage from './ChatMessage';
 import OmniInput from './OmniInput';
+import SessionCompactionBoundary from './SessionCompactionBoundary';
 import { useChatStore } from '@/stores';
 import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
 
 export default function ChatPane() {
-  const { messages } = useChatStore();
+  const { messages, compactionCheckpoint, compactionProgress, runStatus } = useChatStore();
   const { enqueueFiles } = useAttachmentUpload();
   const [isDragActive, setIsDragActive] = useState(false);
   // 拖拽进入子元素会连续触发 dragenter/dragleave，用计数判断是否真正离开对话区
@@ -59,7 +60,10 @@ export default function ChatPane() {
 
       <div className="flex-1 overflow-y-auto p-8 space-y-8 max-w-4xl mx-auto w-full scrollbar-hide">
         {messages.map((msg) => (
-          <ChatMessage key={msg.id} message={msg} />
+          <Fragment key={msg.id}>
+            <ChatMessage message={msg} />
+            <SessionCompactionBoundary interactionId={msg.interactionId} checkpoint={compactionCheckpoint} />
+          </Fragment>
         ))}
         {messages.length === 0 && (
           <div className="flex items-center justify-center h-full text-slate-500 text-sm">
@@ -68,6 +72,11 @@ export default function ChatPane() {
         )}
       </div>
 
+      {compactionProgress?.status === 'started' && runStatus !== 'cancelling' && (
+        <div role="status" aria-live="polite" className="px-8 py-3 text-sm text-primary/80">
+          正在压缩较早的上下文… 原始对话会保留
+        </div>
+      )}
       <OmniInput />
 
       {/* 拖入文件时的 drop 状态提示；pointer-events-none 保证 drop 命中对话区 */}

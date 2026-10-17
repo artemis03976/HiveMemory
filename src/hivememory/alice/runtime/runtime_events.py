@@ -59,11 +59,34 @@ class BoundAgentRunEvents:
             status="started",
         )
 
+    def compaction(
+        self, *, status: str, data: dict[str, object], reason: str | None = None
+    ) -> None:
+        """只记录压缩统计，摘要与历史正文不得进入观测事件。"""
+        self._publisher.emit(
+            RuntimeEventType.AGENT_CONTEXT_COMPACTION,
+            status=status,
+            reason=reason,
+            data=data,
+        )
+
     def completed(self, stats: AgentRunStats) -> None:
         self._publisher.emit(
             RuntimeEventType.AGENT_RUN_COMPLETED,
             status="completed",
             data=self._terminal_data(stats),
+        )
+
+    def budget_exceeded(
+        self, *, frame_id: str, agent_id: str, estimated_tokens: int, input_token_limit: int
+    ) -> None:
+        """逐帧记录守卫拦截；只携带预算与观测坐标，不暴露消息正文。"""
+        self._publisher.bind(frame_id=frame_id, agent_id=agent_id).emit(
+            RuntimeEventType.AGENT_CONTEXT_BUDGET_EXCEEDED,
+            status="blocked",
+            severity="warning",
+            reason="turn_context_budget_exceeded",
+            data={"estimated_tokens": estimated_tokens, "input_token_limit": input_token_limit},
         )
 
     def cancelled(
