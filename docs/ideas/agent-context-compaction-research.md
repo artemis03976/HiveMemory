@@ -267,7 +267,7 @@ flowchart LR
 | AC-1：检查点存放位置 | pi、Codex、OpenCode 都将检查点绑定会话历史；harness 自持会话的项目同时拥有清理生命周期 | 在 HiveMemory 现有边界下，可优先评估由会话携带 CPU 中立检查点、Alice 负责生成和消费的方案；若选择 Alice 自持，必须补会话标识、删除/关闭清理和一致性协议 |
 | AC-2：手动 `/compact` 范围 | 手动/自动入口可以共享算法，但命令接受、安全执行点与最终完成分开 | 先确定命令执行归属与 CPU 能力契约，再决定是否同批交付；不要为手动压缩复制一套算法 |
 
-这两项仍由 owner 决定。外部实现只能说明需要哪些语义，不能替代 HiveMemory 的所有权选择。详细选项继续由[短期记忆 Idea 的 AC-1/AC-2](./short-term-memory-and-context-compaction.md#8-阻塞-alice-会话压缩计划的问题)和[命令 Todo](../todo/conversation-compact-command.md)维护。
+这两项仍由 owner 决定。外部实现只能说明需要哪些语义，不能替代 HiveMemory 的所有权选择。详细选项继续由[短期记忆 Idea 的 AC-1/AC-2](./short-term-memory-and-context-compaction.md#8-alice-会话压缩计划的决定owner2026-10-16)和[命令 Todo](../todo/conversation-compact-command.md)维护。（2026-10-16 补注：owner 已决定 AC-1 存入会话资源、AC-2 只做自动压缩，见链接处。）
 
 ## 10. 形成 Plan 前的验证重点
 
