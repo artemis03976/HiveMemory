@@ -260,7 +260,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 | `references` | 不可变字符串 tuple，默认空；HTTP JSON 序列化为数组 |
 | `created_at` | 生成时间，默认当前 UTC 时间 |
 
-游标只覆盖该会话已有的完整轮次；摘要边界不晚于减重边界，已接受的两个游标分别单调前进。会话服务同步校验 Workspace、认领与游标后接受，完整规则见 [Workspace](../architecture/workspace.md#55-会话资源与历史所有权)。进程在关闭 CPU 流、撤销线程后接受，不以本轮输出或是否追加新轮次为条件；检查点不进入 `InteractionPayload` 或记忆生成。未知产生方/版本由 CPU 自行选择忽略，外部 CPU 可以完全不消费、不产生检查点。
+游标只覆盖该会话已有的完整轮次；摘要边界不晚于减重边界；同一产生方与格式版本内，已接受的两个游标分别单调前进，换用其他格式的 CPU 可以从头重建并替换旧值。会话服务同步校验 Workspace、认领与游标后接受，完整规则见 [Workspace](../architecture/workspace.md#55-会话资源与历史所有权)。进程在关闭 CPU 流、撤销线程后接受，不以本轮输出或是否追加新轮次为条件；检查点不进入 `InteractionPayload` 或记忆生成。未知产生方/版本由 CPU 自行选择忽略，外部 CPU 可以完全不消费、不产生检查点。
 
 ### 4.3 Alice 的执行入口
 

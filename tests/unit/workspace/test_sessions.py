@@ -163,6 +163,22 @@ def test_invalid_checkpoint_preserves_previous_view(checkpoint_session, reduced,
     assert service.get(workspace, session_id).compaction_checkpoint == previous
 
 
+def test_checkpoint_of_another_format_rebuilds_from_earlier_cursors(checkpoint_session):
+    """单调约束只在同一产生方与格式版本内成立，新格式的重建视图可以替换旧视图。"""
+    service, workspace, session_id = checkpoint_session
+    service.accept_checkpoint(
+        workspace,
+        session_id,
+        process_id="current",
+        checkpoint=make_compaction_checkpoint(
+            reduced_through="old-2", summarized_through="old-1", summary="旧格式摘要"
+        ),
+    )
+    rebuilt = make_compaction_checkpoint(format_version=2, reduced_through="old-1")
+    service.accept_checkpoint(workspace, session_id, process_id="current", checkpoint=rebuilt)
+    assert service.get(workspace, session_id).compaction_checkpoint == rebuilt
+
+
 def test_checkpoint_requires_claim_and_workspace_ownership(checkpoint_session):
     """不同 Workspace 或非认领进程不能改变检查点。"""
     service, workspace, session_id = checkpoint_session

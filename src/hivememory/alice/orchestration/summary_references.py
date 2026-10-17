@@ -37,7 +37,11 @@ def extend_references(
 
 
 def _turn_references(turn: ConversationTurn) -> Iterable[str]:
-    """只提取结构化目标、文件参数与明确 ACK 中的别名。"""
+    """只提取结构化目标、文件参数与明确 ACK 中的别名。
+
+    失败的 READ 或 RUN 没有可重新取得的资源（目标不存在、无权限或文件未写成），
+    不作为线索，避免把错误地址带进后续轮次。
+    """
     calls: dict[str, TurnEvent] = {}
     for event in sorted(turn.payload.turn_events, key=lambda item: item.sequence):
         if event.kind == "tool_call" and event.action_id:
@@ -47,12 +51,12 @@ def _turn_references(turn: ConversationTurn) -> Iterable[str]:
         call = calls.get(event.action_id or "")
         verb = (event.tool_kind or (call.tool_kind if call else "") or "").upper()
         target = event.target or (call.target if call else None)
-        if verb == "READ" and target:
+        if verb == "READ" and target and event.status == "success":
             yield f"memory:{target}"
         elif verb in {"WRITE", "UPDATE"} and event.status == "ack":
             for alias in _ACK_ALIAS.findall(event.content):
                 yield f"memory:{alias}"
-        elif verb == "RUN":
+        elif verb == "RUN" and event.status == "success":
             args = (
                 event.tool_args
                 if event.tool_args is not None

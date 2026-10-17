@@ -198,9 +198,16 @@ class ConversationSessionService:
         if reduced < summarized:
             raise SessionCheckpointError("减重边界不能早于摘要覆盖")
         previous = session.compaction_checkpoint
-        if previous is not None and (
-            reduced < position(previous.reduced_through)
-            or summarized < position(previous.summarized_through)
+        # 游标只在同一产生方、同一格式版本之间可比：换用新格式的 CPU 会忽略旧视图并
+        # 从头重建，若仍要求不回退，新视图会被永久拒绝。
+        if (
+            previous is not None
+            and (previous.producer, previous.format_version)
+            == (checkpoint.producer, checkpoint.format_version)
+            and (
+                reduced < position(previous.reduced_through)
+                or summarized < position(previous.summarized_through)
+            )
         ):
             raise SessionCheckpointError("检查点游标不能后退")
         self._sessions[session_id] = session.model_copy(

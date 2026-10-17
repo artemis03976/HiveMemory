@@ -70,6 +70,12 @@ class SessionContextView:
             raise InputTooLargeError("Fixed input exceeds the model input budget.")
         self.messages = self._render(self._reduced_count, self._checkpoint)
         self.estimated_tokens = estimate_context_tokens(self.messages)
+        if not config.enabled and self.estimated_tokens > input_token_limit:
+            # 关闭压缩时超限的历史不会自行缩小；按历史放不下结束，而不是在首次生成前
+            # 被轮内守卫拦截、误报为本轮工具结果超出预算。
+            raise CompactionFailedError(
+                "History exceeds the input budget with compaction disabled."
+            )
 
     def _position(self, cursor: str | None) -> int:
         return self._positions.get(cursor, 0) if cursor is not None else 0
@@ -223,7 +229,6 @@ class SessionContextView:
     def _fixed(self, summary: str = "", references: tuple[str, ...] = ()) -> list[dict[str, str]]:
         return self._assembler.build_main_agent_messages(
             self._context,
-            include_history=False,
             session_summary=summary,
             session_references=references,
         )

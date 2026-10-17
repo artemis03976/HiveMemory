@@ -115,7 +115,10 @@ class RunExecutor:
                 generation_options=generation_options,
                 output_sink=frame_output,
             )
-            if isinstance(result.error, TurnContextBudgetExceededError) and self._run_events:
+            if (
+                isinstance(result.error, TurnContextBudgetExceededError)
+                and self._run_events is not None
+            ):
                 self._run_events.budget_exceeded(
                     frame_id=frame.runtime_scope.frame_id,
                     agent_id=frame.runtime_scope.labels.agent_id,

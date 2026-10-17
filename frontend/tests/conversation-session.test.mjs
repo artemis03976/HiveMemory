@@ -229,7 +229,7 @@ test('晚到的检查点读取不能覆盖已切换会话', async () => {
 
 for (const [reason, expected] of [
   ['input_too_large', '本轮输入过大，请缩短消息或减少附件与检索材料。'],
-  ['compaction_failed', '较早的对话压缩失败，请重试或新建会话。'],
+  ['compaction_failed', '较早的对话无法压缩进上下文预算，请重试或新建会话。'],
   ['turn_context_budget_exceeded', '本轮工具结果超出上下文预算，回复未完成，可继续对话或缩小任务。'],
   ['model_context_window_exceeded', '模型拒绝了过长的上下文，请减少输入或选择窗口更大的模型。'],
   ['__proto__', '本轮执行失败'],

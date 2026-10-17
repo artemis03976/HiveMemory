@@ -4,7 +4,7 @@ export function chatFailureMessage(reason?: string | null): string {
     case 'input_too_large':
       return '本轮输入过大，请缩短消息或减少附件与检索材料。';
     case 'compaction_failed':
-      return '较早的对话压缩失败，请重试或新建会话。';
+      return '较早的对话无法压缩进上下文预算，请重试或新建会话。';
     case 'turn_context_budget_exceeded':
       return '本轮工具结果超出上下文预算，回复未完成，可继续对话或缩小任务。';
     case 'model_context_window_exceeded':

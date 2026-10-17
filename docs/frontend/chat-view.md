@@ -86,7 +86,7 @@ ChatLayout 挂载时加载会话列表，并按浏览器保存的 `currentSessio
 
 `topic_info` 与 `pool_topics` 已删除。本轮话题由 `done.topic_id` 给出，恢复时读会话轮次的 `topic_id`；Topic 不决定聊天历史。MemoryLibrary 经 Topic 列表接口读取短期话题池，保留 `settle` 与 `delete`：前者把内容交给记忆生成并结束 Topic 生命周期，后者结束生命周期而不触发记忆写入。失败时 Topic store 回滚乐观移除；Memory Library 的 `archive` 仍指中期记忆归档。
 
-本轮 failed done 的 `failure_reason` 映射为四类提示：缩短当前输入或附件、压缩失败后重试或新建会话、工具结果超预算后继续对话或缩小任务、提供商超窗后减少输入或选择更大窗口。稳定原因定义见[错误模型](../contracts/error-model.md#22-agent-run)，未知原因使用通用失败提示。已有部分回复保留并标记未完成；无输出时移除本轮消息、回填草稿，同时展示原因。失败码只存在本次前端运行状态，不写入会话 payload，重载历史后显示通用 failed 结局。
+本轮 failed done 的 `failure_reason` 映射为四类提示：缩短当前输入或附件、历史无法压缩进预算时重试或新建会话、工具结果超预算后继续对话或缩小任务、提供商超窗后减少输入或选择更大窗口。稳定原因定义见[错误模型](../contracts/error-model.md#22-agent-run)，未知原因使用通用失败提示。已有部分回复保留并标记未完成；无输出时移除本轮消息、回填草稿，同时展示原因。失败码只存在本次前端运行状态，不写入会话 payload，重载历史后显示通用 failed 结局。
 
 ## 5. Workspace Vision
 

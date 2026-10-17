@@ -84,9 +84,38 @@ def test_reference_count_and_length_limits_never_turn_a_long_path_into_a_false_a
                 role="user",
                 tool_kind="RUN",
                 content="ok",
+                status="success",
                 tool_args={"paths": ["a.py", "b.py", "x" * 300]},
             )
         ],
     )
     assert extend_references((), turn, limit=1, max_chars=30) == ("file:b.py",)
     assert extend_references(("memory:old",), turn, limit=0, max_chars=30) == ()
+
+
+def test_failed_read_and_run_do_not_become_retrieval_clues():
+    """目标不存在、无权限或文件未写成时没有可重取的资源，不能留下错误地址。"""
+    turn = make_conversation_turn(
+        user_message="task",
+        turn_events=[
+            TurnEvent(
+                kind="tool_result",
+                sequence=0,
+                role="user",
+                tool_kind="READ",
+                target="missing",
+                status="error",
+                content="not found",
+            ),
+            TurnEvent(
+                kind="tool_result",
+                sequence=1,
+                role="user",
+                tool_kind="RUN",
+                status="error",
+                content="permission denied",
+                tool_args={"path": "unwritten.md"},
+            ),
+        ],
+    )
+    assert extend_references(("memory:a",), turn, limit=4, max_chars=100) == ("memory:a",)

@@ -90,7 +90,7 @@ last_reviewed: 2026-10-17
 
 | 字段 | 默认值 | 作用 |
 |:---|---:|:---|
-| `enabled` | `true` | 自动减重与摘要开关；关闭时忽略已有检查点，输入守卫仍有效 |
+| `enabled` | `true` | 自动减重与摘要开关；关闭时忽略已有检查点，历史超出输入上限时以 `compaction_failed` 结束，输入守卫仍有效 |
 | `default_context_window` | `65536` | 未登记模型的保守总窗口，必须大于 0 |
 | `safety_margin` | `2048` | 估算误差预留 token，允许 0 |
 | `trigger_ratio` | `0.75` | 完整视图超过输入上限的此比例时压缩 |

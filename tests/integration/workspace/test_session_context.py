@@ -5,7 +5,9 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hivememory.alice.orchestration.context_view import SessionContextView
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.config.alice import CompactionConfig
 from hivememory.config.gateway import SystemGatewayConfig
 from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.models import (
@@ -111,15 +113,19 @@ async def test_interleaved_sessions_share_topic_but_not_cpu_or_gateway_history()
     ]
     assert [t.user_message for t in gateway_history[-1]] == ["A5", "A6"]
     assert gateway_history[2] == ()
-    messages = AgentPromptAssembler(SimpleNamespace(enabled=False)).build_main_agent_messages(
-        AgentRunContext(
+    messages = SessionContextView(
+        context=AgentRunContext(
             labels=manifest.labels,
             agent_profile=manifest.agent_profile,
             user_message=manifest.user_message,
             session_history=manifest.session_history,
             permitted_mtp_verbs=frozenset({"RUN"}),
-        )
-    )
+        ),
+        prompt_assembler=AgentPromptAssembler(SimpleNamespace(enabled=False)),
+        checkpoint=manifest.compaction_checkpoint,
+        input_token_limit=100000,
+        config=CompactionConfig(),
+    ).messages
     assert [m["content"] for m in messages if m["role"] == "user"] == [
         "A0",
         "A1",

@@ -10,7 +10,6 @@ from hivememory.core.protocol.models import AgentRunContext
 from hivememory.i18n import resolve_language
 from hivememory.prompts.mtp import MTPPromptBuilder
 from hivememory.prompts.system_prompt import SystemPromptBuilder
-from hivememory.prompts.transcript import HistoryTranscriptBuilder
 
 
 class AgentPromptAssembler:
@@ -23,11 +22,14 @@ class AgentPromptAssembler:
         self,
         context: AgentRunContext,
         *,
-        include_history: bool = True,
         session_summary: str = "",
         session_references: tuple[str, ...] = (),
     ) -> list[dict[str, str]]:
-        """组装根帧消息；可先仅组装固定输入，以判断历史压缩是否有意义。"""
+        """组装根帧的固定输入：系统提示词与本轮用户消息。
+
+        会话历史不在这里重放：Alice 的会话上下文视图按预算把历史插在两者之间，
+        避免绕过视图得到不受预算约束的全量历史。
+        """
         messages: list[dict[str, str]] = []
 
         language = self._prompt_language(context.agent_profile)
@@ -56,13 +58,6 @@ class AgentPromptAssembler:
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
 
-        if include_history:
-            history_messages = HistoryTranscriptBuilder().build_messages(
-                turns=context.session_history,
-                language=language,
-                current_agent_id=context.labels.agent_id,
-            )
-            messages.extend(history_messages)
         messages.append({"role": "user", "content": context.user_message})
         return messages
 

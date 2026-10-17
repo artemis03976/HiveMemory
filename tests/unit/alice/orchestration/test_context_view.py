@@ -29,11 +29,11 @@ def _read_turn(name, size):
     )
 
 
-def _view(turns, *, checkpoint=None, config=None, limit=1000):
+def _view(turns, *, checkpoint=None, config=None, limit=1000, labels=None, profile=None):
     return SessionContextView(
         context=AgentRunContext(
-            labels=make_execution_labels(),
-            agent_profile=AgentProfile(persona="", language="en"),
+            labels=labels or make_execution_labels(),
+            agent_profile=profile or AgentProfile(persona="", language="en"),
             user_message="next",
             permitted_mtp_verbs=frozenset({"RUN"}),
             session_history=turns,
@@ -43,6 +43,34 @@ def _view(turns, *, checkpoint=None, config=None, limit=1000):
         input_token_limit=limit,
         config=config or CompactionConfig(),
     )
+
+
+@pytest.mark.parametrize(
+    ("registered_agent_id", "expected_reply"),
+    [
+        ("registered_agent", "历史回复"),
+        ("another_agent", "[From: registered_agent]\n历史回复"),
+    ],
+)
+def test_history_role_prefix_uses_registered_label_instead_of_profile_display_alias(
+    registered_agent_id, expected_reply
+):
+    """历史角色归并取注册标签，Profile 的展示 alias 不改变当前发起角色。"""
+    history = (
+        make_conversation_turn(
+            agent_id="registered_agent", user_message="历史问题", assistant_final_text="历史回复"
+        ),
+    )
+    view = _view(
+        history,
+        labels=make_execution_labels(agent_id=registered_agent_id),
+        profile=AgentProfile(agent_id="display_agent", language="zh"),
+    )
+    assert view.messages[-3:] == [
+        {"role": "user", "content": "历史问题"},
+        {"role": "assistant", "content": expected_reply},
+        {"role": "user", "content": "next"},
+    ]
 
 
 def test_threshold_is_strict_and_internal_force_skips_it():
@@ -107,9 +135,22 @@ def test_disabled_compaction_ignores_checkpoint_and_force():
         turns,
         checkpoint=make_compaction_checkpoint(reduced_through="old"),
         config=CompactionConfig(enabled=False),
+        limit=2000,
     )
     assert view.messages[1]["content"] == "x" * 6000
     assert view.should_compact(force=True) is False
+
+
+def test_disabled_compaction_reports_history_overflow_as_compaction_failure():
+    """关闭压缩时历史超限不交给轮内守卫，避免误报为本轮工具结果超出预算。"""
+    turns = (_read_turn("old", 6000),)
+    with pytest.raises(CompactionFailedError):
+        _view(
+            turns,
+            checkpoint=make_compaction_checkpoint(reduced_through="old"),
+            config=CompactionConfig(enabled=False),
+            limit=1000,
+        )
 
 
 def _summary_dependencies(limit=1000, results=None):
