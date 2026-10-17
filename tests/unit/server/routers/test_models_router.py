@@ -12,12 +12,14 @@ Models 路由单元测试
 
 from unittest.mock import MagicMock
 
+import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models.model_definition import ModelDefinition
 from hivememory.server import deps
+from hivememory.server.models.model_registry import ModelUpdateRequest
 from hivememory.server.routers.models import router
 from hivememory.system.model_registry import DuplicateModelIdError
 
@@ -121,12 +123,14 @@ class TestCreateModel:
             "display_name": "New Model",
             "litellm_model": "openai/gpt-4o",
             "is_default": False,
+            "context_window": 16000,
         }
         resp = client.post("/api/v1/models", json=payload)
         assert resp.status_code == 201
         data = resp.json()
         assert data["id"] == "new-model"
         assert data["display_name"] == "New Model"
+        assert data["context_window"] == 16000
         registry.add_model.assert_called_once()
 
     def test_create_duplicate_returns_409(self):
@@ -190,6 +194,18 @@ class TestGetModel:
 
 
 class TestUpdateModel:
+    @pytest.mark.parametrize(
+        ("payload", "expected"),
+        [
+            ({}, {}),
+            ({"context_window": 8000}, {"context_window": 8000}),
+            ({"context_window": None}, {"context_window": None}),
+        ],
+    )
+    def test_window_update_distinguishes_omitted_value_and_explicit_reset(self, payload, expected):
+        """未传窗口不覆盖原值；显式 null 必须交给注册表恢复默认预算。"""
+        assert ModelUpdateRequest(**payload).to_updates_dict() == expected
+
     def test_update_success(self):
         updated = _make_model("m1", display_name="Updated Name")
         registry = MagicMock()

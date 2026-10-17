@@ -233,3 +233,7 @@ alice:
 
   runtime:
     max_loop_iterations: 10
+
+  compaction:
+    default_context_window: 65536  # 未登记模型窗口时使用的保守总窗口
+    safety_margin: 2048           # 为字符估算误差预留的 token 数

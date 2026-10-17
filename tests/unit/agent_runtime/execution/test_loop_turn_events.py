@@ -13,7 +13,9 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.agent_runtime.context_budget import TurnContextBudgetExceededError
 from hivememory.agent_runtime.execution.loop import AgentLoopExecutor
+from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionStatus,
@@ -25,7 +27,7 @@ from hivememory.alice.orchestration.frame_factory import FrameFactory
 from hivememory.alice.orchestration.run_executor import RunExecutor
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
-from hivememory.config.alice import AgentRuntimeConfig
+from hivememory.config.alice import AgentRuntimeConfig, CompactionConfig
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     TurnEvent,
@@ -160,6 +162,39 @@ async def test_iteration_limit_returns_budget_exhausted():
 
     assert engine_result.status == FrameExecutionStatus.BUDGET_EXHAUSTED
     assert frame.progress.iteration == 1
+
+
+@pytest.mark.asyncio
+async def test_tool_result_growth_stops_before_next_generation():
+    """巨大工具结果保留在事件中，但不会再发送已经超预算的模型请求。"""
+    frame = _make_frame()
+    frame.resolved_model = ResolvedFrameModel({}, input_token_limit=40)
+    executor = _build_executor([_mtp_result("正在读取", "<< READ | alias_x >>")])
+    tool_result = _mtp_exec_result("READ")
+    tool_result.formatted_response = "x" * 400
+    executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=tool_result)
+
+    result = await executor.execute_frame(frame, max_iterations=3)
+
+    assert result.status == FrameExecutionStatus.FAILED
+    assert isinstance(result.error, TurnContextBudgetExceededError)
+    assert frame.progress.iteration == 1
+    assert frame.progress.turn_events[-1].content == "x" * 400
+    executor.worker_agent.generate_async.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(("limit", "status"), [(5, "completed"), (4, "failed")])
+async def test_context_guard_counts_message_overhead_and_allows_exact_budget(limit, status):
+    """文本一 token 加消息开销，恰好等于上限时允许生成。"""
+    frame = _make_frame()
+    frame.resolved_model = ResolvedFrameModel({}, input_token_limit=limit)
+    executor = _build_executor([_natural_result("完成")])
+
+    result = await executor.execute_frame(frame, max_iterations=2)
+
+    assert result.status == status
+    assert frame.progress.text_segments == (["完成"] if status == "completed" else [])
 
 
 @pytest.mark.asyncio
@@ -400,7 +435,10 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
         raise AssertionError(f"本场景不应提交其他资源操作: {request}")
 
     agent_runtime = AgentRuntime(
-        mtp_executor=MagicMock(), runtime_config=MagicMock(), loop_executor=executor
+        compaction_config=CompactionConfig(),
+        mtp_executor=MagicMock(),
+        runtime_config=MagicMock(),
+        loop_executor=executor,
     )
     frame_factory = FrameFactory()
     prompt_assembler = MagicMock()

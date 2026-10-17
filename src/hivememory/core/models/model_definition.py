@@ -62,6 +62,7 @@ class ModelDefinition(BaseModel):
         description="默认推理温度，Agent Profile 或会话请求可以覆盖此值",
     )
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, gt=0, description="默认最大生成 token 数")
+    context_window: int | None = Field(default=None, gt=0, description="模型总上下文窗口 token 数")
     top_p: float = Field(
         default=DEFAULT_TOP_P,
         ge=0.0,

@@ -22,7 +22,10 @@ class AgentPromptAssembler:
     def build_main_agent_messages(
         self,
         context: AgentRunContext,
+        *,
+        include_history: bool = True,
     ) -> list[dict[str, str]]:
+        """组装根帧消息；可先仅组装固定输入，以判断历史压缩是否有意义。"""
         messages: list[dict[str, str]] = []
 
         language = self._prompt_language(context.agent_profile)
@@ -50,12 +53,13 @@ class AgentPromptAssembler:
         if system_prompt:
             messages.append({"role": "system", "content": system_prompt})
 
-        history_messages = HistoryTranscriptBuilder().build_messages(
-            turns=context.session_history,
-            language=language,
-            current_agent_id=context.labels.agent_id,
-        )
-        messages.extend(history_messages)
+        if include_history:
+            history_messages = HistoryTranscriptBuilder().build_messages(
+                turns=context.session_history,
+                language=language,
+                current_agent_id=context.labels.agent_id,
+            )
+            messages.extend(history_messages)
         messages.append({"role": "user", "content": context.user_message})
         return messages
 

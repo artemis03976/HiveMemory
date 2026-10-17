@@ -19,6 +19,10 @@ import asyncio
 import logging
 from typing import TYPE_CHECKING, Any
 
+from hivememory.agent_runtime.context_budget import (
+    TurnContextBudgetExceededError,
+    estimate_context_tokens,
+)
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
@@ -150,6 +154,15 @@ class AgentLoopExecutor:
         sink = output_sink or NullFrameOutputSink()
 
         while p.iteration < max_iterations:
+            # 工具结果与 CALL 回填都可能扩大历史；必须在下一次生成前重新检查。
+            if frame.resolved_model is not None:
+                estimated_tokens = estimate_context_tokens(frame.working_history)
+                limit = frame.resolved_model.input_token_limit
+                if estimated_tokens > limit:
+                    return FrameExecutionResult(
+                        status=FrameExecutionStatus.FAILED,
+                        error=TurnContextBudgetExceededError(estimated_tokens, limit),
+                    )
             p.iteration += 1
 
             try:

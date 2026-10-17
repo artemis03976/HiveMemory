@@ -46,6 +46,7 @@ def create_model(
         api_base=body.api_base,
         temperature=body.temperature,
         max_tokens=body.max_tokens,
+        context_window=body.context_window,
         top_p=body.top_p,
         is_default=body.is_default,
     )

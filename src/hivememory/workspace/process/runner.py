@@ -394,7 +394,7 @@ class TaskProcessRunner:
             record.events.cancelled(record)
         elif result.status == CPUExecutionStatus.FAILED.value:
             record.mark_failed()
-            record.events.failed(record)
+            record.events.failed(record, failure_reason=result.failure_reason)
         else:
             record.mark_completed()
             record.events.completed(record)

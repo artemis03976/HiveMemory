@@ -23,6 +23,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import Any, Literal, cast, overload
 
+from hivememory.agent_runtime.context_budget import (
+    InputTooLargeError,
+    ModelContextWindowExceededError,
+    TurnContextBudgetExceededError,
+    estimate_context_tokens,
+)
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
@@ -41,6 +47,7 @@ from hivememory.alice.runtime.runtime_events import (
     BoundAgentRunEvents,
 )
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
+from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
@@ -53,6 +60,7 @@ from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
+    CPUFailureReason,
     CPUInputManifest,
     CPUResultSlot,
     OperationSubmitter,
@@ -201,19 +209,47 @@ class AgentRunService:
                 session=preparation.session,
                 call_coordinator=self._call_coordinator,
             )
-            messages = self._prompt_assembler.build_main_agent_messages(preparation.context)
+            # 解析与预算先于历史组装，根帧随后复用同一解析快照。
+            resolved_model = None
+            preparation_error: Exception | None = None
+            messages: list[dict[str, str]] = []
+            try:
+                resolved_model = self._agent_runtime.resolve_model(
+                    preparation.context.agent_profile or OMNI_DOLL_PROFILE,
+                    generation_options,
+                )
+                messages = self._prompt_assembler.build_main_agent_messages(
+                    preparation.context, include_history=False
+                )
+                if estimate_context_tokens(messages) > resolved_model.input_token_limit:
+                    raise InputTooLargeError("Fixed input exceeds the model input budget.")
+                if preparation.context.session_history:
+                    messages = self._prompt_assembler.build_main_agent_messages(preparation.context)
+            except (ModelNotFoundError, InputTooLargeError) as error:
+                preparation_error = error
+
+            frame = self._create_root_frame(
+                messages=messages,
+                submit_operation=submit_operation,
+                labels=preparation.context.labels,
+                topic_id=preparation.context.topic_id,
+                session=preparation.session,
+                agent_profile=preparation.context.agent_profile,
+                permitted_verbs=preparation.context.permitted_mtp_verbs,
+            )
+            frame.resolved_model = resolved_model
+            if resolved_model is not None:
+                frame.progress.model_used = resolved_model.display_name
             if stream:
                 agent_stream = self._stream_adapter.create(preparation.session)
-                frame = self._create_root_frame(
-                    messages=messages,
-                    submit_operation=submit_operation,
-                    labels=preparation.context.labels,
-                    topic_id=preparation.context.topic_id,
-                    session=preparation.session,
-                    agent_profile=preparation.context.agent_profile,
-                    permitted_verbs=preparation.context.permitted_mtp_verbs,
-                )
                 event_metadata = self._event_metadata_for_frame(frame)
+
+            engine_result: FrameExecutionResult | None
+            if preparation_error is not None:
+                engine_result = FrameExecutionResult(
+                    status=FrameExecutionStatus.FAILED, error=preparation_error
+                )
+            elif stream:
                 executor_stream = agent_stream.events(
                     executor.run(
                         frame,
@@ -230,15 +266,6 @@ class AgentRunService:
                     run_events.failed(message="Agent stream ended without done event.")
                     raise RuntimeError("Agent stream ended without done event")
             else:
-                frame = self._create_root_frame(
-                    messages=messages,
-                    submit_operation=submit_operation,
-                    labels=preparation.context.labels,
-                    topic_id=preparation.context.topic_id,
-                    session=preparation.session,
-                    agent_profile=preparation.context.agent_profile,
-                    permitted_verbs=preparation.context.permitted_mtp_verbs,
-                )
                 engine_result = await executor.run(frame, generation_options=generation_options)
 
             result = self._assemble_execution_result(frame, engine_result)
@@ -361,9 +388,18 @@ class AgentRunService:
             run_status = CPUExecutionStatus.COMPLETED
         else:
             run_status = CPUExecutionStatus.FAILED
+        failure_reason = None
+        if run_status == CPUExecutionStatus.FAILED:
+            if isinstance(engine_result.error, InputTooLargeError):
+                failure_reason = CPUFailureReason.INPUT_TOO_LARGE
+            elif isinstance(engine_result.error, TurnContextBudgetExceededError):
+                failure_reason = CPUFailureReason.TURN_CONTEXT_BUDGET_EXCEEDED
+            elif isinstance(engine_result.error, ModelContextWindowExceededError):
+                failure_reason = CPUFailureReason.MODEL_CONTEXT_WINDOW_EXCEEDED
         progress = frame.progress
         return CPUExecutionResult(
             status=run_status,
+            failure_reason=failure_reason,
             final_text="".join(progress.text_segments),
             turn_events=progress.turn_events,
             model_used=progress.model_used,

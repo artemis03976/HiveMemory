@@ -16,6 +16,7 @@ from hivememory.core.access import WorkspaceAccessContext
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
+    CPUFailureReason,
     CPUInputManifest,
     CPUOutput,
     CPUResultSlot,
@@ -129,6 +130,7 @@ def make_cpu_result(
     final_text: str = "完成",
     turn_events: list | None = None,
     model_used: str = "glm-4",
+    failure_reason: CPUFailureReason | None = None,
 ) -> CPUExecutionResult:
     """构造一条默认完成的 CPU 执行结果，字段可覆盖。"""
     return CPUExecutionResult(
@@ -136,4 +138,5 @@ def make_cpu_result(
         final_text=final_text,
         turn_events=list(turn_events or []),
         model_used=model_used,
+        failure_reason=failure_reason,
     )

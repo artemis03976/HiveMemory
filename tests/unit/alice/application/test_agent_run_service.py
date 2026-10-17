@@ -1,15 +1,13 @@
-"""
-AgentRunService 单元测试（unit 保留集）
-
-真实装配链协作测试已迁移至 tests/integration/alice/application/
-test_agent_run_service.py。本文件保留防御路径测试：
-- test_run_agent_stream_without_executor_terminal_fails_cleanly
-"""
+"""AgentRunService 的固定输入预算、失败原因投影与缺失执行终态防御。"""
 
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from hivememory.agent_runtime.context_budget import (
+    ModelContextWindowExceededError,
+    TurnContextBudgetExceededError,
+)
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.alice.application.agent_run_service import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory
@@ -113,3 +111,58 @@ async def test_run_agent_stream_without_executor_terminal_fails_cleanly():
 
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
     assert recorder.events[-1].message == "Agent stream ended without done event."
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stream", [False, True])
+async def test_fixed_input_over_budget_fails_without_calling_model(stream):
+    """固定用户输入已装不下时两种交付均明确失败，初始用户事件不算输出。"""
+    runtime, service = _build_service()
+    manifest = _build_input_manifest(_build_memory_atom()).model_copy(
+        update={"user_message": "x" * 140000}
+    )
+    runtime.agent_runtime.run_frame = AsyncMock(side_effect=AssertionError("不应调用模型"))
+    from hivememory.workspace.contracts import CPUExecutionResult, CPUResultSlot
+
+    slot = CPUResultSlot()
+    if stream:
+        events = [
+            event
+            async for event in service.run_agent(
+                manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
+            )
+        ]
+        result = CPUExecutionResult(**events[-1]["data"])
+        assert [event["event"] for event in events] == ["done"]
+    else:
+        result = await service.run_agent(
+            manifest, stream=False, submit_operation=MagicMock(), result_slot=slot
+        )
+    assert result.status == "failed"
+    assert result.failure_reason == "input_too_large"
+    assert result.has_output is False
+    assert slot.result == result
+    runtime.agent_runtime.run_frame.assert_not_awaited()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (TurnContextBudgetExceededError(100, 90), "turn_context_budget_exceeded"),
+        (ModelContextWindowExceededError("private detail"), "model_context_window_exceeded"),
+        (RuntimeError("private detail"), None),
+    ],
+)
+async def test_frame_error_maps_only_stable_cpu_reason(error, reason):
+    """只有已知的上下文失败产生公开原因码，内部异常正文不进入执行结果。"""
+    runtime, service = _build_service()
+    runtime.agent_runtime.run_frame = AsyncMock(
+        return_value=FrameExecutionResult(status=FrameExecutionStatus.FAILED, error=error)
+    )
+    result = await service.run_agent(
+        _build_input_manifest(_build_memory_atom()), stream=False, submit_operation=MagicMock()
+    )
+    assert result.status == "failed"
+    assert result.failure_reason == reason
+    assert "private detail" not in result.model_dump_json()

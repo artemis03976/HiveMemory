@@ -10,8 +10,10 @@ WorkerAgentService 单元测试
 import asyncio
 from unittest.mock import Mock, patch
 
+import litellm
 import pytest
 
+from hivememory.agent_runtime.context_budget import ModelContextWindowExceededError
 from hivememory.agent_runtime.execution.worker import WorkerAgentService
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER, MTP_STOP_SEQUENCE
 
@@ -28,6 +30,39 @@ def _make_response(text="hello", finish_reason="stop", has_usage=True):
     else:
         resp.usage = None
     return resp
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("path", ["async", "stream_start", "stream_pull"])
+async def test_context_window_error_is_typed_without_retry(path):
+    """建立请求与拉取流时的超窗统一映射，关闭已取得的流且不重试。"""
+    provider_error = litellm.ContextWindowExceededError(
+        message="private provider detail", model="test-model", llm_provider="openai"
+    )
+    closed = []
+
+    async def failing_stream():
+        try:
+            raise provider_error
+            yield  # 保持异步生成器协议，首次拉取即失败。
+        finally:
+            closed.append(True)
+
+    with patch("hivememory.agent_runtime.execution.worker.litellm.acompletion") as completion:
+        if path == "stream_pull":
+            completion.return_value = failing_stream()
+        else:
+            completion.side_effect = provider_error
+        service = WorkerAgentService()
+        with pytest.raises(ModelContextWindowExceededError, match="Model context window exceeded"):
+            if path == "async":
+                await service.generate_async([], model="test-model")
+            else:
+                async for _ in service.generate_stream([], model="test-model"):
+                    pass
+
+        completion.assert_awaited_once()
+    assert closed == ([True] if path == "stream_pull" else [])
 
 
 @pytest.mark.asyncio

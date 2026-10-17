@@ -41,6 +41,7 @@ class ModelResponse(BaseModel):
     api_base: str | None = None
     temperature: float
     max_tokens: int
+    context_window: int | None = None
     top_p: float
     is_default: bool
 
@@ -55,6 +56,7 @@ class ModelResponse(BaseModel):
             api_base=model.api_base,
             temperature=model.temperature,
             max_tokens=model.max_tokens,
+            context_window=model.context_window,
             top_p=model.top_p,
             is_default=model.is_default,
         )
@@ -73,6 +75,7 @@ class ModelCreateRequest(BaseModel):
     api_base: str | None = Field(default=None, description="自定义 API 地址，留空使用默认")
     temperature: float = Field(default=DEFAULT_TEMPERATURE, ge=0.0, le=2.0)
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, gt=0)
+    context_window: int | None = Field(default=None, gt=0, description="模型总上下文窗口 token 数")
     top_p: float = Field(default=DEFAULT_TOP_P, ge=0.0, le=1.0)
     is_default: bool = Field(default=False, description="设为系统默认模型")
 
@@ -91,6 +94,9 @@ class ModelUpdateRequest(BaseModel):
     api_base: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_tokens: int | None = Field(default=None, gt=0)
+    context_window: int | None = Field(
+        default=None, gt=0, description="总窗口；显式 null 恢复默认预算"
+    )
     top_p: float | None = Field(default=None, ge=0.0, le=1.0)
     is_default: bool | None = None
 
@@ -100,6 +106,7 @@ class ModelUpdateRequest(BaseModel):
         防止把未设置的字段误覆盖为 None。
 
         特殊处理：api_key="" 表示"清除密钥"，转换为 None 存储。
+        context_window 显式传 null 时清除登记值，使 Alice 使用配置的默认窗口。
         """
         result: dict[str, Any] = {}
         for field_name, value in self.model_dump(exclude_none=True).items():
@@ -107,4 +114,6 @@ class ModelUpdateRequest(BaseModel):
                 result[field_name] = None
             else:
                 result[field_name] = value
+        if "context_window" in self.model_fields_set:
+            result["context_window"] = self.context_window
         return result

@@ -9,6 +9,7 @@
 from hivememory.workspace.contracts.cpu import (
     CPUExecutionResult,
     CPUExecutionStatus,
+    CPUFailureReason,
     CPUOutput,
     CPUPort,
     CPUResultSlot,
@@ -36,6 +37,7 @@ __all__ = [
     "CPUResultSlot",
     "CPUExecutionResult",
     "CPUExecutionStatus",
+    "CPUFailureReason",
     "CPUInputManifest",
     "CPUPort",
     "CPUOutput",

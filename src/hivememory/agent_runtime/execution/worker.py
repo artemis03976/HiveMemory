@@ -15,6 +15,7 @@ from typing import Any
 
 import litellm
 
+from hivememory.agent_runtime.context_budget import ModelContextWindowExceededError
 from hivememory.agent_runtime.models import GenerationResult, StreamChunk
 from hivememory.core.constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TOP_P
 from hivememory.core.mtp.models import (
@@ -83,6 +84,8 @@ class WorkerAgentService:
                 top_p=runtime_params["top_p"],
                 **kwargs,
             )
+        except litellm.ContextWindowExceededError as error:
+            raise ModelContextWindowExceededError("Model context window exceeded.") from error
         except Exception as error:
             logger.error("LLM 异步生成失败: %s", error)
             raise
@@ -131,6 +134,8 @@ class WorkerAgentService:
                 stream=True,
                 **kwargs,
             )
+        except litellm.ContextWindowExceededError as error:
+            raise ModelContextWindowExceededError("Model context window exceeded.") from error
         except Exception as error:
             logger.error("LLM 流式生成启动失败: %s", error)
             raise
@@ -210,6 +215,9 @@ class WorkerAgentService:
                 result=result,
                 mtp_detected=mtp_detected,
             )
+        except litellm.ContextWindowExceededError as error:
+            # 超窗也可能在拉取响应时出现，与建立请求时采用同一错误语义。
+            raise ModelContextWindowExceededError("Model context window exceeded.") from error
         finally:
             close = getattr(response, "aclose", None)
             if callable(close):

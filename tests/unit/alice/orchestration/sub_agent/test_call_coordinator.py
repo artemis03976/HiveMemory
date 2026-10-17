@@ -28,6 +28,7 @@ from hivememory.alice.orchestration.sub_agent.call_coordinator import (
     ResumeCaller,
 )
 from hivememory.alice.orchestration.sub_agent.call_record import CallRecord, CallRecordStatus
+from hivememory.config.alice import CompactionConfig
 from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
 from hivememory.core.mtp.exceptions import PermissionDeniedError, SystemFault
@@ -129,6 +130,7 @@ class _RecordingRunOutput:
 
 def test_apply_call_response_is_exactly_once_and_updates_call_pair():
     runtime = AgentRuntime(
+        compaction_config=CompactionConfig(),
         mtp_executor=MagicMock(),
         runtime_config=MagicMock(),
         loop_executor=MagicMock(),
@@ -156,6 +158,7 @@ def test_apply_call_response_is_exactly_once_and_updates_call_pair():
 @pytest.mark.parametrize("action_id", ["wrong", None])
 def test_apply_call_response_rejects_wrong_or_missing_action(action_id):
     runtime = AgentRuntime(
+        compaction_config=CompactionConfig(),
         mtp_executor=MagicMock(),
         runtime_config=MagicMock(),
         loop_executor=MagicMock(),

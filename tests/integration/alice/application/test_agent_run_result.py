@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
     FrameExecutionResult,
@@ -68,6 +69,9 @@ def _runtime_for_frame(
             return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
         ),
         finalize_frame=MagicMock(return_value=FrameProducts()),
+    )
+    resolved_agent_runtime.resolve_model = lambda *_args: ResolvedFrameModel(
+        generation_options={}, input_token_limit=65536
     )
     factory = MagicMock(spec=FrameFactory)
     factory.scope.side_effect = FrameFactory.scope

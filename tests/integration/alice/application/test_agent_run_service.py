@@ -41,6 +41,120 @@ from tests.helpers.sessions import make_conversation_turn
 from tests.helpers.workspace import make_execution_labels
 
 
+@pytest.mark.asyncio
+async def test_session_model_and_output_override_control_budget_and_provider_request(
+    tmp_path, monkeypatch
+):
+    """会话覆盖模型与输出上限后，预检预算和实际模型请求使用同一次解析。"""
+    from hivememory.agent_runtime.execution.worker import WorkerAgentService
+    from hivememory.agent_runtime.models import GenerationResult
+    from hivememory.core.models.model_definition import ModelDefinition
+    from hivememory.system.model_registry import ModelRegistry
+
+    registry = ModelRegistry(registry_path=tmp_path / "models.yaml")
+    registry.add_model(
+        ModelDefinition(
+            id="small",
+            display_name="小窗口",
+            litellm_model="provider/small",
+            max_tokens=900,
+            context_window=1000,
+        )
+    )
+    config = HiveMemoryConfig()
+    config.alice.koakuma.enabled = False
+    config.alice.compaction.safety_margin = 100
+    _, service = _build_service(config=config, model_registry=registry)
+    profile = AgentProfile(model_name="unavailable-profile-model", persona="", temperature=0.2)
+    manifest = make_input_manifest(agent_profile=profile, user_message="x" * 2000)
+    requests = []
+
+    async def generate(_self, messages, **kwargs):
+        requests.append(kwargs)
+        return GenerationResult(text="完成")
+
+    monkeypatch.setattr(WorkerAgentService, "generate_async", generate)
+    rejected = await service.run_agent(
+        manifest, {"model": "small"}, stream=False, submit_operation=MagicMock()
+    )
+    assert rejected.failure_reason == "input_too_large"
+    assert requests == []
+
+    completed = await service.run_agent(
+        manifest,
+        {"model": "small", "max_tokens": 100},
+        stream=False,
+        submit_operation=MagicMock(),
+    )
+    assert completed.status == "completed"
+    assert completed.final_text == "完成"
+    assert completed.model_used == "小窗口"
+    assert requests == [
+        {
+            "model": "provider/small",
+            "max_tokens": 100,
+            "temperature": 0.2,
+            "top_p": 1.0,
+            "api_key": None,
+            "api_base": None,
+        }
+    ]
+
+
+@pytest.mark.asyncio
+async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(
+    tmp_path, monkeypatch
+):
+    """子帧按自己的小窗口被拦截，父帧收到 CALL 错误后继续完成。"""
+    from hivememory.agent_runtime.execution.worker import WorkerAgentService
+    from hivememory.agent_runtime.models import GenerationResult
+    from hivememory.core.models.model_definition import ModelDefinition
+    from hivememory.system.model_registry import ModelRegistry
+    from tests.helpers.call import StubOperationSubmitter, make_callee
+
+    registry = ModelRegistry(registry_path=tmp_path / "models.yaml")
+    for name, window in [("parent", 10000), ("child", 200)]:
+        registry.add_model(
+            ModelDefinition(
+                id=name,
+                display_name=name,
+                litellm_model=f"provider/{name}",
+                context_window=window,
+                max_tokens=100,
+            )
+        )
+    config = HiveMemoryConfig()
+    config.alice.koakuma.mtp_prompt.enabled = False
+    config.alice.compaction.safety_margin = 0
+    _, service = _build_service(config=config, model_registry=registry)
+    requests = []
+
+    async def generate(_self, messages, **kwargs):
+        requests.append(kwargs["model"])
+        if len(requests) == 1:
+            text = '⟪ CALL | helper | task="总结" ⟫'
+            return GenerationResult(text=text, was_mtp_interrupted=True, mtp_fragment=text)
+        return GenerationResult(text="父帧完成")
+
+    async def derive(_request):
+        return make_callee(AgentProfile(model_name="child", persona="x" * 1000))
+
+    monkeypatch.setattr(WorkerAgentService, "generate_async", generate)
+    result = await service.run_agent(
+        make_input_manifest(
+            agent_profile=AgentProfile(model_name="parent", persona=""),
+            allowed_operations=frozenset({WorkspaceOperation.AGENT_CALL}),
+        ),
+        stream=False,
+        submit_operation=StubOperationSubmitter(derive=derive),
+    )
+    assert (result.status, result.final_text) == ("completed", "父帧完成")
+    call_result = next(e for e in result.turn_events if e.kind == "tool_result")
+    assert call_result.status == "error"
+    assert 'code="mtp.call_response.sub_agent_error"' in call_result.content
+    assert requests == ["provider/parent", "provider/parent"]
+
+
 def _build_memory_atom() -> MemoryAtom:
     return MemoryAtom(
         meta=make_memory_metadata(
@@ -79,11 +193,14 @@ def _build_input_manifest(
     )
 
 
-def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunService]:
-    config = HiveMemoryConfig()
+def _build_service(
+    *, runtime_events=None, config=None, model_registry=None
+) -> tuple[AliceRuntime, AgentRunService]:
+    config = config or HiveMemoryConfig()
     runtime = AliceRuntime(
         alice_config=config.alice,
         memory_compiler_config=config.memory_compiler,
+        model_registry=model_registry,
     )
     frame_factory = FrameFactory()
     prompt_assembler = AgentPromptAssembler(config.alice.koakuma)

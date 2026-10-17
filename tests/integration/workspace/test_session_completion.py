@@ -137,6 +137,52 @@ async def test_output_with_each_outcome_is_submitted_before_terminal(status):
 
 
 @pytest.mark.asyncio
+async def test_alice_context_guard_seals_tool_output_as_failed_turn(tmp_path, monkeypatch):
+    """真实 Alice 读入大文件后由守卫结束，经 CPU 端口保留 failed 会话和工具原文。"""
+    from hivememory.agent_runtime.execution.worker import WorkerAgentService
+    from hivememory.agent_runtime.models import GenerationResult, StreamChunk
+    from hivememory.alice.system import AliceSystem
+    from hivememory.config.alice import AliceConfig, CompactionConfig
+    from tests.helpers.operations import OperationsHarness
+
+    content = "x" * 20000
+    (tmp_path / "large.txt").write_text(content)
+    config = AliceConfig(compaction=CompactionConfig(default_context_window=36000, safety_margin=0))
+    config.koakuma.workspace_path = str(tmp_path)
+    config.koakuma.mtp_prompt.enabled = False
+    calls = []
+
+    async def generate(_self, _messages, **_kwargs):
+        calls.append(True)
+        text = '⟪ RUN | sys_read_file | path="large.txt" ⟫'
+        yield StreamChunk(
+            is_final=True,
+            result=GenerationResult(text=text, was_mtp_interrupted=True, mtp_fragment=text),
+        )
+
+    monkeypatch.setattr(WorkerAgentService, "generate_stream", generate)
+    alice = AliceSystem(config, GlobalSystemBus(), operation_entry=OperationsHarness().entry)
+    await alice.start()
+    try:
+        service, handle, sessions, workspace, probe = await completion_chain(alice.cpu_port)
+        events = [event async for event in service.run_process(handle, stream=True)]
+        done = events[-1]["data"]
+        assert (done["status"], done["failure_reason"]) == (
+            "failed",
+            "turn_context_budget_exceeded",
+        )
+        turns = sessions.get(workspace, handle.session_id).turns
+        assert len(turns) == 1
+        assert turns[0].payload.outcome == "failed"
+        assert content in turns[0].payload.turn_events[-1].content
+        assert probe.submitted == [turns[0].payload]
+        assert probe.cleaned == []
+        assert calls == [True]
+    finally:
+        await alice.stop()
+
+
+@pytest.mark.asyncio
 async def test_empty_terminal_does_not_create_turn_and_done_omits_text():
     """无输出结果不能污染历史；空 final_text 不得覆盖客户端已显示的内容。
 

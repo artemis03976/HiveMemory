@@ -28,6 +28,14 @@ class CPUExecutionStatus(str, Enum):
     FAILED = "failed"
 
 
+class CPUFailureReason(str, Enum):
+    """执行者可选上报的稳定失败原因，禁止携带内部异常正文。"""
+
+    INPUT_TOO_LARGE = "input_too_large"
+    TURN_CONTEXT_BUDGET_EXCEEDED = "turn_context_budget_exceeded"
+    MODEL_CONTEXT_WINDOW_EXCEEDED = "model_context_window_exceeded"
+
+
 class CPUExecutionResult(BaseModel):
     """一次 CPU 执行的终态产出（CPU 中立，取代 Alice 专属的运行结果模型）。
 
@@ -36,6 +44,7 @@ class CPUExecutionResult(BaseModel):
         final_text        → 用户可见回复 / InteractionPayload.assistant_final_text
         turn_events       → 封口归约 MTP 轨迹 → 感知层
         model_used        → 本次 run 实际使用的模型展示名；空字符串表示未解析
+        failure_reason    → failed 终态的公开原因码；外部 CPU 可以不填
 
     端口语义：终态结果由 ``execute`` 迭代器恰好产出一次且是最后一项；
     非流式时它是唯一一项。迭代器在没有终态结果时结束属于协议错误，
@@ -45,6 +54,7 @@ class CPUExecutionResult(BaseModel):
     model_config = ConfigDict(frozen=True, use_enum_values=True)
 
     status: CPUExecutionStatus = Field(default=CPUExecutionStatus.COMPLETED)
+    failure_reason: CPUFailureReason | None = Field(default=None)
     final_text: str = Field(default="")
     turn_events: list[TurnEvent] = Field(default_factory=list)
     model_used: str = Field(
@@ -111,6 +121,7 @@ class CPUPort(Protocol):
 
 
 __all__ = [
+    "CPUFailureReason",
     "CPURunHandle",
     "CPUResultSlot",
     "CPUExecutionResult",

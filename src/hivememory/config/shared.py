@@ -18,6 +18,7 @@ class LLMConfig(BaseModel):
     api_base: str | None = Field(default=None)
     temperature: float = Field(default=DEFAULT_TEMPERATURE)
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS)
+    context_window: int | None = Field(default=None, gt=0, description="模型总上下文窗口 token 数")
     top_p: float = Field(default=DEFAULT_TOP_P)
 
     model_config = ConfigDict(extra="ignore")

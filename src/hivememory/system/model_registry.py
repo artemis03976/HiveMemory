@@ -298,6 +298,7 @@ class ModelRegistry:
         api_key, api_base = self._resolve_credentials(model)
         return LLMConfig(
             model=model.litellm_model,
+            context_window=model.context_window,
             api_key=api_key,
             api_base=api_base,
             temperature=model.temperature,
@@ -341,6 +342,7 @@ class ModelRegistry:
         return LLMConfig(
             # 模型名和凭证来自注册表
             model=model.litellm_model,
+            context_window=model.context_window,
             api_key=api_key,
             api_base=api_base,
             # temperature / max_tokens / top_p 以组件自身配置为准（覆盖注册表默认值）
@@ -386,6 +388,7 @@ class ModelRegistry:
         api_key, api_base = self._resolve_credentials(model)
         config = LLMConfig(
             model=model.litellm_model,
+            context_window=model.context_window,
             api_key=api_key,
             api_base=api_base,
             temperature=(

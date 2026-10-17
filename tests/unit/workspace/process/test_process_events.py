@@ -36,6 +36,7 @@ from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
+from hivememory.workspace.contracts import CPUFailureReason
 from hivememory.workspace.process import NonStreamingAgentOutcome, TaskProcessService
 from hivememory.workspace.process.service import ProcessHandle
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
@@ -307,6 +308,27 @@ async def test_failed_event_does_not_expose_exception_text() -> None:
     assert failed.event_type == RuntimeEventType.CHAT_RUN_FAILED
     assert failed.message == "Task process failed."
     assert "internal-secret-detail" not in failed.model_dump_json()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("reason", [None, CPUFailureReason.TURN_CONTEXT_BUDGET_EXCEEDED])
+async def test_cpu_failure_reason_reaches_done_and_runtime_event(reason):
+    """CPU 自报失败透传稳定原因码，未填写时保留既有 done 与观测语义。"""
+    bus = _bus_until_actor()
+    sink = RecordingRuntimeEventSink()
+    cpu = ScriptedCPU(result=make_cpu_result(status="failed", final_text="", failure_reason=reason))
+    service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=cpu)
+    handle = await _register(composition, service, "问题", process_id="cpu-failure")
+
+    events = [event async for event in service.run_process(handle, stream=True)]
+
+    done = events[-1]["data"]
+    assert done["status"] == "failed"
+    assert done["reason"] == "agent_run_failed"
+    assert done.get("failure_reason") == reason
+    failed = _chat_events(sink)[-1]
+    assert failed.event_type == RuntimeEventType.CHAT_RUN_FAILED
+    assert failed.message == reason
 
 
 @pytest.mark.asyncio
