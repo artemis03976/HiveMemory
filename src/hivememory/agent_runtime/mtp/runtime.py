@@ -9,13 +9,13 @@
     - 别名解析
 
 架构定位：
-    Koakuma 是 AliceRuntime 持有的 MTP / 工具执行运行时，
+    Koakuma 是单帧执行内核装配的 MTP / 工具执行运行时，
     负责处理 Worker Agent 生成的 MTP 指令。它不管理 Agent
     运行循环，也不保存交互 trace；frame 策略、观测标签与操作提交函数由
     AgentRuntime 在执行时通过 MTPExecutionContext 传入。
 
-    AliceRuntime
-    ├── AgentRuntime (Agent 运行循环)
+    AgentRuntime
+    ├── AgentLoopExecutor (Agent 运行循环)
     └── KoakumaRuntime (MTP / 工具执行)
 
 作者: HiveMemory Team

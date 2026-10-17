@@ -5,7 +5,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
-from hivememory.alice.orchestration.context_view import SessionContextView
+from hivememory.alice.context.view import SessionContextView
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.alice import CompactionConfig
 from hivememory.config.gateway import SystemGatewayConfig

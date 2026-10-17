@@ -23,10 +23,10 @@ from hivememory.agent_runtime.models import (
     MTPExecutionContext,
 )
 from hivememory.agent_runtime.runtime import AgentRuntime
-from hivememory.alice.orchestration.frame_factory import FrameFactory
-from hivememory.alice.orchestration.run_executor import RunExecutor
-from hivememory.alice.orchestration.run_session import RunSession
-from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
+from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
+from hivememory.alice.orchestration.executor import RunExecutor
+from hivememory.alice.orchestration.frames import FrameFactory
+from hivememory.alice.orchestration.session import RunSession
 from hivememory.config.alice import AgentRuntimeConfig, CompactionConfig
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,

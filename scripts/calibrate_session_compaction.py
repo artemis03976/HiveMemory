@@ -11,8 +11,8 @@ from hivememory.agent_runtime.context_budget import estimate_context_tokens
 from hivememory.agent_runtime.execution.worker import WorkerAgentService
 from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
 from hivememory.agent_runtime.models import GenerationResult
-from hivememory.alice.orchestration.context_view import SessionContextView
-from hivememory.alice.orchestration.relay_summary import RelaySummarizer
+from hivememory.alice.context.summarizer import RelaySummarizer
+from hivememory.alice.context.view import SessionContextView
 from hivememory.config.alice import CompactionConfig, KoakumaConfig
 from hivememory.core.models import AgentProfile, ExecutionLabels, TurnEvent
 from hivememory.core.protocol.models import AgentRunContext, ConversationTurn, InteractionPayload

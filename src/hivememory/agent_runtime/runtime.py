@@ -6,6 +6,8 @@ from typing import TYPE_CHECKING, Any
 from hivememory.agent_runtime.execution import AgentLoopExecutor, WorkerAgentService
 from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
+from hivememory.agent_runtime.mtp import KoakumaMTPExecutor
+from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.output import FrameOutputSink
 from hivememory.agent_runtime.products import FrameProducts
 from hivememory.core.constants import DEFAULT_MAX_TOKENS
@@ -17,7 +19,8 @@ if TYPE_CHECKING:
     from hivememory.agent_runtime.model_resolution import ModelResolver
     from hivememory.agent_runtime.models import ExecutionFrame
     from hivememory.agent_runtime.mtp import MTPExecutor
-    from hivememory.config.alice import AgentRuntimeConfig, CompactionConfig
+    from hivememory.config.alice import AgentRuntimeConfig, CompactionConfig, KoakumaConfig
+    from hivememory.config.memory_compiler import MemoryCompilerConfig
 
 logger = logging.getLogger(__name__)
 
@@ -27,10 +30,10 @@ class AgentRuntime:
 
     封装执行引擎（loop_executor + worker_agent + mtp_executor）与
     对外提供 "跑一个 frame" 与 "收割成功子帧产物" 的 API。
-    它把底层引擎组件收拢成一个聚合，编排层（AliceRuntime / RunExecutor）
+    它把底层引擎组件收拢成一个聚合，编排层（RunExecutor）
     只拿这个门面操作，不直接接触引擎细节。
 
-    迭代上限由门面内部从 config.agent_runtime 消化，编排不再传 max_iterations。
+    帧策略未指定迭代上限时，使用运行时配置中的 max_loop_iterations。
     """
 
     def __init__(
@@ -203,7 +206,7 @@ class AgentRuntime:
 
         max_tokens_override = session_opts.get("max_tokens")
 
-        # 解析失败由 run_frame 转为 frame FAILED，由 Scheduler 按 root/callee 关系解释。
+        # 解析失败由 run_frame 转为 frame FAILED，由编排执行器按 root/callee 关系解释。
         llm_config, display_name = self._model_registry.resolve(
             effective_model_name,
             temperature_override=temperature_override,
@@ -248,14 +251,44 @@ class AgentRuntime:
         frame: ExecutionFrame,
         result: FrameExecutionResult,
     ) -> FrameProducts:
-        """只收割成功子帧收到 ACK 的 alias；失败子帧的意图由 CALL 编排撤回。"""
+        """只回填成功子帧收到 ACK 的 alias；失败子帧的写入保持已提交。"""
         if result.status != FrameExecutionStatus.COMPLETED:
             return FrameProducts()
         return FrameProducts(artifact_aliases=tuple(frame.harvested_aliases))
 
     def health(self) -> dict[str, Any]:
         """返回运行时的静态健康状态（依赖的活跃性由业务层探测）。"""
-        return {"loop_executor": "ok", "worker_agent": "ok"}
+        return {
+            "agent_runtime": {"loop_executor": "ok", "worker_agent": "ok"},
+            "koakuma_runtime": {"status": "ok"},
+        }
 
 
-__all__ = ["AgentRuntime"]
+def build_agent_runtime(
+    *,
+    runtime_config: AgentRuntimeConfig,
+    koakuma_config: KoakumaConfig,
+    memory_compiler_config: MemoryCompilerConfig,
+    compaction_config: CompactionConfig,
+    model_registry: ModelResolver | None = None,
+) -> AgentRuntime:
+    """装配单帧执行内核，编排层只取得运行时门面。
+
+    Koakuma 与执行循环共享内核生命周期；Profile 与引用的派生缓存由
+    workspace 持有，资源操作通过每帧的提交函数进入。
+    """
+    koakuma = KoakumaRuntime(
+        config=koakuma_config,
+        memory_compiler_config=memory_compiler_config,
+    )
+    runtime = AgentRuntime(
+        mtp_executor=KoakumaMTPExecutor(koakuma),
+        runtime_config=runtime_config,
+        compaction_config=compaction_config,
+        model_registry=model_registry,
+    )
+    logger.info("AgentRuntime 初始化完成")
+    return runtime
+
+
+__all__ = ["AgentRuntime", "build_agent_runtime"]

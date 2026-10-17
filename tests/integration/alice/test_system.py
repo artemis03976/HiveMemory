@@ -1,7 +1,7 @@
 """
 AliceSystem 集成测试 — 真实 System + GlobalSystemBus 协作
 
-驱动真实 AliceSystem（内部真实装配 AliceRuntime/AliceBridge/AgentRunService）
+驱动真实 AliceSystem（内部真实装配 AgentRuntime/AliceBridge/AgentRunService）
 + 真实 GlobalSystemBus，零 mock；验证系统 facade start()/stop() 对全局总线的
 路由挂载与卸载副作用。
 """

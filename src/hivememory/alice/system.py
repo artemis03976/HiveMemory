@@ -1,7 +1,7 @@
 """
 AliceSystem - 多智能体编排与计算子系统
 
-SubsystemProtocol 实现，装配 AliceRuntime、AgentRunService、AliceCPU 与
+SubsystemProtocol 实现，装配 AgentRuntime、AgentRunService、AliceCPU 与
 AliceBridge。
 """
 
@@ -12,14 +12,15 @@ from typing import Any
 
 from hivememory.agent_runtime.execution.worker import WorkerAgentService
 from hivememory.agent_runtime.model_resolution import ModelResolver
-from hivememory.alice.application import AgentRunService, AliceCPU
-from hivememory.alice.orchestration.frame_factory import FrameFactory
-from hivememory.alice.orchestration.relay_summary import RelaySummarizer
-from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
-from hivememory.alice.runtime.bridge import AliceBridge, AlicePublicApi
-from hivememory.alice.runtime.core import AliceRuntime
-from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
-from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
+from hivememory.agent_runtime.runtime import AgentRuntime, build_agent_runtime
+from hivememory.alice.context.summarizer import RelaySummarizer
+from hivememory.alice.events import AgentRunEventEmitter
+from hivememory.alice.interface.bridge import AliceBridge, AlicePublicApi
+from hivememory.alice.interface.cpu import AliceCPU
+from hivememory.alice.interface.stream import AgentRunStreamAdapter
+from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
+from hivememory.alice.orchestration.frames import FrameFactory
+from hivememory.alice.run.service import AgentRunService
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
@@ -37,7 +38,7 @@ class AliceSystem(SubsystemProtocol):
     Alice 子系统 - 多智能体编排与计算子系统宿主
 
     职责：
-    - 装配 AliceRuntime 与 AgentRunService
+    - 装配 AgentRuntime 与 AgentRunService
     - 提供统一的 run_agent 用例入口与 CPUPort 端口实现
     - 将公开路由注册到全局总线
     - 实现 SubsystemProtocol 生命周期
@@ -56,8 +57,10 @@ class AliceSystem(SubsystemProtocol):
         self._config = config
         publisher = event_publisher or RuntimeEventPublisher(NullRuntimeEventSink())
 
-        self._runtime = AliceRuntime(
-            alice_config=config,
+        self._runtime = build_agent_runtime(
+            runtime_config=config.runtime,
+            koakuma_config=config.koakuma,
+            compaction_config=config.compaction,
             memory_compiler_config=memory_compiler_config or MemoryCompilerConfig(),
             model_registry=model_registry,
         )
@@ -66,14 +69,14 @@ class AliceSystem(SubsystemProtocol):
         prompt_assembler = AgentPromptAssembler(config.koakuma)
         call_context_provider = CallContextProvider()
         call_coordinator = CallCoordinator(
-            self._runtime.agent_runtime,
+            self._runtime,
             call_context_provider,
             frame_factory=frame_factory,
             prompt_assembler=prompt_assembler,
         )
         self._service = AgentRunService(
             summarizer=RelaySummarizer(WorkerAgentService()),
-            agent_runtime=self._runtime.agent_runtime,
+            agent_runtime=self._runtime,
             call_coordinator=call_coordinator,
             frame_factory=frame_factory,
             prompt_assembler=prompt_assembler,
@@ -109,7 +112,7 @@ class AliceSystem(SubsystemProtocol):
         return self._cpu
 
     @property
-    def runtime(self) -> AliceRuntime:
+    def runtime(self) -> AgentRuntime:
         return self._runtime
 
     async def start(self) -> None:

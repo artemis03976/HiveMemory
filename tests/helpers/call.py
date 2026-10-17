@@ -1,6 +1,6 @@
 """CALL 编排单元测试的端口替身；不模拟 workspace 内部派生与授权。"""
 
-from hivememory.alice.orchestration.sub_agent.call_context_provider import CallContext
+from hivememory.alice.orchestration.call.context import CallContext
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import OMNI_DOLL_PROFILE
 from hivememory.workspace.contracts import Callee, DeriveCallThreadRequest

@@ -1,0 +1,375 @@
+from __future__ import annotations
+
+import logging
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Any
+
+from hivememory.agent_runtime.models import (
+    ExecutionFrame,
+    FrameExecutionResult,
+    FrameExecutionStatus,
+)
+from hivememory.agent_runtime.policy import FrameExecutionPolicy
+from hivememory.agent_runtime.products import FrameProducts
+from hivememory.alice.orchestration.call.context import CallContextProvider
+from hivememory.alice.orchestration.call.record import CallRecord, CallRecordStatus
+from hivememory.alice.orchestration.call.response import (
+    preparation_error_response,
+    response_for_frame_result,
+)
+from hivememory.alice.orchestration.frames import FrameFactory, FrameSpec
+from hivememory.alice.orchestration.output import (
+    AgentRunOutput,
+    CallOutputFinished,
+    CallOutputStarted,
+    NullAgentRunOutput,
+)
+from hivememory.alice.orchestration.verbs import mtp_verbs_for_operations
+from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
+from hivememory.core.mtp.exceptions import MTPError, SystemFault
+
+if TYPE_CHECKING:
+    from hivememory.agent_runtime.runtime import AgentRuntime
+    from hivememory.alice.orchestration.session import RunSession
+    from hivememory.core.models import AgentProfile
+    from hivememory.prompts.assembler import AgentPromptAssembler
+
+logger = logging.getLogger(__name__)
+
+
+@dataclass(frozen=True)
+class DispatchCallee:
+    """CALL 已准备好 callee，由执行器递归运行该 frame。"""
+
+    frame: ExecutionFrame
+
+
+@dataclass(frozen=True)
+class ResumeCaller:
+    """CALL 已完成回填，执行器可以重入原 caller。"""
+
+
+type CallStartResult = DispatchCallee | ResumeCaller
+type CallCompletionResult = ResumeCaller
+type _PreparationResult = ExecutionFrame | MTPCallResponse
+
+
+class CallCoordinator:
+    """把 CALL suspension 转换为 callee dispatch 或 caller resume。"""
+
+    def __init__(
+        self,
+        agent_runtime: AgentRuntime,
+        call_context_provider: CallContextProvider,
+        *,
+        frame_factory: FrameFactory,
+        prompt_assembler: AgentPromptAssembler,
+    ) -> None:
+        self._agent_runtime = agent_runtime
+        self._call_context_provider = call_context_provider
+        self._frame_factory = frame_factory
+        self._prompt_assembler = prompt_assembler
+
+    async def begin_call(
+        self,
+        caller_frame: ExecutionFrame,
+        suspension: FrameExecutionResult,
+        *,
+        session: RunSession,
+        run_output: AgentRunOutput | None = None,
+    ) -> CallStartResult:
+        """同步登记 CALL 后准备 callee；准备失败时直接恢复 caller。"""
+
+        output = run_output or NullAgentRunOutput()
+
+        call = suspension.require_call_suspension()
+        action_id = call.action_id
+        call_request = call.call_request
+
+        session.require_frame(caller_frame)
+
+        record = session.register_call(caller_frame, action_id)
+        record.begin_resolution()
+
+        logger.info(
+            "CALL suspend: target=%s, task=%r",
+            call_request.target_alias,
+            call_request.task[:80],
+        )
+
+        prepared = await self._prepare_callee(caller_frame, call_request)
+
+        match prepared:
+            case ExecutionFrame() as callee_frame:
+                # 会话绑定失败属于编排不变量违规。
+                session.register_callee_frame(callee_frame, record)
+                await output.call_started(
+                    CallOutputStarted(
+                        agent_id=call_request.target_alias,
+                        task=call_request.task,
+                        iteration=caller_frame.progress.iteration,
+                        action_id=action_id,
+                        frame_id=callee_frame.runtime_scope.frame_id,
+                    )
+                )
+                return DispatchCallee(callee_frame)
+            case MTPCallResponse() as response:
+                return await self._commit_response(
+                    caller_frame,
+                    suspension,
+                    response,
+                    record=record,
+                    callee_frame=None,
+                    callee_result=None,
+                    run_output=output,
+                )
+            case _:
+                raise AssertionError(f"Unhandled CALL preparation result: {prepared!r}")
+
+    async def _prepare_callee(
+        self,
+        caller_frame: ExecutionFrame,
+        call_request: MTPCallRequest,
+    ) -> _PreparationResult:
+        try:
+            call_context = await self._call_context_provider.provide(
+                caller_frame,
+                call_request,
+            )
+        except MTPError as error:
+            if isinstance(error, SystemFault):
+                logger.error(
+                    "CALL context preparation failed for %r: %s",
+                    call_request.target_alias,
+                    error.code,
+                    exc_info=True,
+                )
+            else:
+                logger.warning(
+                    "CALL target resolution rejected for %r: %s",
+                    call_request.target_alias,
+                    error.code,
+                )
+            return preparation_error_response(call_request.target_alias, error)
+        except Exception as error:
+            logger.error(
+                "CALL context preparation failed for %r: %s",
+                call_request.target_alias,
+                error,
+                exc_info=True,
+            )
+            return preparation_error_response(call_request.target_alias, error)
+
+        try:
+            callee = call_context.callee
+            sub_profile: AgentProfile = callee.agent_profile
+            # 子帧按被调用方的操作快照生成策略；仍禁止递归 CALL。
+            policy = FrameExecutionPolicy.from_verbs(
+                mtp_verbs_for_operations(callee.allowed_operations),
+                max_iterations=getattr(self._agent_runtime, "max_iterations", None),
+                denied_verbs={"CALL"},
+            )
+            messages = self._prompt_assembler.build_sub_agent_messages(
+                profile=sub_profile,
+                task=call_request.task,
+                shared_context=call_context.shared_context,
+                permitted_verbs=policy.permitted_verbs,
+            )
+            scope = self._frame_factory.scope(
+                labels=caller_frame.runtime_scope.labels,
+                run_id=caller_frame.runtime_scope.run_id,
+            )
+            return self._frame_factory.create(
+                FrameSpec(
+                    runtime_scope=scope,
+                    profile=sub_profile,
+                    messages=messages,
+                    topic_id=None,
+                    execution_policy=policy,
+                    submit_operation=callee.submit_operation,
+                )
+            )
+        except Exception as error:
+            logger.error(
+                "Sub-agent frame preparation failed for %r: %s",
+                call_request.target_alias,
+                error,
+                exc_info=True,
+            )
+            return preparation_error_response(call_request.target_alias, error)
+
+    async def complete_call(
+        self,
+        caller_frame: ExecutionFrame,
+        suspension: FrameExecutionResult,
+        callee_frame: ExecutionFrame,
+        callee_result: FrameExecutionResult,
+        *,
+        session: RunSession,
+        generation_options: dict[str, Any] | None = None,
+        run_output: AgentRunOutput | None = None,
+    ) -> CallCompletionResult:
+        """把 callee outcome 收口为 caller 可消费的 CALL response。"""
+        output = run_output or NullAgentRunOutput()
+        call = suspension.require_call_suspension()
+        call_request = call.call_request
+        action_id = call.action_id
+
+        session.require_frame(caller_frame)
+        session.require_frame(callee_frame)
+
+        record = session.call_for_callee(callee_frame.runtime_scope.frame_id)
+
+        if record.caller_frame_id != caller_frame.runtime_scope.frame_id:
+            raise ValueError("Callee CALL record does not belong to the supplied caller frame.")
+        if record.action_id != action_id:
+            raise ValueError("Callee CALL record action does not match the suspension.")
+        if callee_result.status == FrameExecutionStatus.SUSPENDED:
+            raise ValueError("CallCoordinator.complete_call requires a terminal callee result.")
+
+        effective_result, frame_products = self._finalize_callee(
+            callee_frame,
+            callee_result,
+        )
+        response = response_for_frame_result(
+            call_request.target_alias,
+            effective_result,
+            reply="".join(callee_frame.progress.text_segments),
+            artifact_aliases=frame_products.artifact_aliases,
+            profile=callee_frame.agent_profile,
+            generation_options=generation_options,
+        )
+
+        return await self._commit_response(
+            caller_frame,
+            suspension,
+            response,
+            record=record,
+            callee_frame=callee_frame,
+            callee_result=effective_result,
+            run_output=output,
+        )
+
+    def cancel_call(
+        self,
+        caller_frame: ExecutionFrame,
+        suspension: FrameExecutionResult,
+        *,
+        session: RunSession,
+    ) -> None:
+        """协程取消时收尾未 apply 的 CALL，并回填 cancelled response。"""
+        action_id = suspension.require_call_suspension().action_id
+        record = session.require_call(caller_frame, action_id)
+        if record.status in {CallRecordStatus.APPLIED, CallRecordStatus.CANCELLED}:
+            return
+
+        # RESOLVED 表示 callee 已完成逻辑收尾；只在仍为 RESOLVING 时清理 frame。
+        if record.status == CallRecordStatus.SUSPENDED:
+            record.begin_resolution()
+
+        if record.status == CallRecordStatus.RESOLVING and record.callee_frame_id is not None:
+            callee_frame = session.frames[record.callee_frame_id]
+            try:
+                self._agent_runtime.finalize_frame(
+                    callee_frame,
+                    FrameExecutionResult(status=FrameExecutionStatus.CANCELLED),
+                )
+            except Exception:
+                logger.exception("Failed to finalize cancelled sub-agent frame")
+        if record.status == CallRecordStatus.RESOLVING:
+            record.mark_resolved()
+        record.cancel()
+
+    async def _commit_response(
+        self,
+        caller_frame: ExecutionFrame,
+        suspension: FrameExecutionResult,
+        response: MTPCallResponse,
+        *,
+        record: CallRecord,
+        callee_frame: ExecutionFrame | None,
+        callee_result: FrameExecutionResult | None,
+        run_output: AgentRunOutput,
+    ) -> CallCompletionResult:
+        """在发布完成输出前，先提交调用方可消费的响应。"""
+        call = suspension.require_call_suspension()
+        call_request = call.call_request
+        action_id = call.action_id
+
+        record.mark_resolved()
+
+        self._agent_runtime.apply_call_response(caller_frame, suspension, response)
+        record.mark_applied()
+
+        await self._emit_call_end(
+            caller_frame,
+            action_id=action_id,
+            agent_alias=call_request.target_alias,
+            response=response,
+            callee_frame=callee_frame,
+            callee_result=callee_result,
+            run_output=run_output,
+        )
+        return ResumeCaller()
+
+    def _finalize_callee(
+        self,
+        callee_frame: ExecutionFrame,
+        callee_result: FrameExecutionResult,
+    ) -> tuple[FrameExecutionResult, FrameProducts]:
+        try:
+            frame_products = self._agent_runtime.finalize_frame(
+                callee_frame,
+                callee_result,
+            )
+            return callee_result, frame_products
+        except Exception as error:
+            logger.error("Failed to finalize sub-agent frame: %s", error, exc_info=True)
+            if callee_result.status == FrameExecutionStatus.CANCELLED:
+                return callee_result, FrameProducts()
+
+            failed_result = FrameExecutionResult(
+                status=FrameExecutionStatus.FAILED,
+                error=error,
+            )
+            if callee_result.status == FrameExecutionStatus.COMPLETED:
+                try:
+                    self._agent_runtime.finalize_frame(callee_frame, failed_result)
+                except Exception:
+                    logger.exception("Failed to clean up sub-agent frame after harvest error")
+            return failed_result, FrameProducts()
+
+    async def _emit_call_end(
+        self,
+        caller_frame: ExecutionFrame,
+        *,
+        action_id: str,
+        agent_alias: str,
+        response: MTPCallResponse,
+        callee_frame: ExecutionFrame | None,
+        callee_result: FrameExecutionResult | None,
+        run_output: AgentRunOutput,
+    ) -> None:
+        await run_output.call_finished(
+            CallOutputFinished(
+                status=response.status.value,
+                final_text=(response.reply if response.status == MTPResponseStatus.SUCCESS else ""),
+                iteration=caller_frame.progress.iteration,
+                action_id=action_id,
+                frame_id=(
+                    callee_frame.runtime_scope.frame_id if callee_frame is not None else None
+                ),
+                agent_id=agent_alias,
+                terminal_status=(callee_result.status.value if callee_result is not None else None),
+                error_code=(response.error.code if response.error is not None else None),
+            )
+        )
+
+
+__all__ = [
+    "CallCompletionResult",
+    "CallCoordinator",
+    "CallStartResult",
+    "DispatchCallee",
+    "ResumeCaller",
+]
