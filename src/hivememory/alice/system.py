@@ -10,9 +10,11 @@ from __future__ import annotations
 import logging
 from typing import Any
 
+from hivememory.agent_runtime.execution.worker import WorkerAgentService
 from hivememory.agent_runtime.model_resolution import ModelResolver
 from hivememory.alice.application import AgentRunService, AliceCPU
 from hivememory.alice.orchestration.frame_factory import FrameFactory
+from hivememory.alice.orchestration.relay_summary import RelaySummarizer
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
 from hivememory.alice.runtime.bridge import AliceBridge, AlicePublicApi
 from hivememory.alice.runtime.core import AliceRuntime
@@ -70,6 +72,7 @@ class AliceSystem(SubsystemProtocol):
             prompt_assembler=prompt_assembler,
         )
         self._service = AgentRunService(
+            summarizer=RelaySummarizer(WorkerAgentService()),
             agent_runtime=self._runtime.agent_runtime,
             call_coordinator=call_coordinator,
             frame_factory=frame_factory,

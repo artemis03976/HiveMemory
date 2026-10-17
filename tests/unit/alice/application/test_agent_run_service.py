@@ -8,9 +8,11 @@ from hivememory.agent_runtime.context_budget import (
     ModelContextWindowExceededError,
     TurnContextBudgetExceededError,
 )
+from hivememory.agent_runtime.execution.worker import WorkerAgentService
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.alice.application.agent_run_service import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory
+from hivememory.alice.orchestration.relay_summary import RelaySummarizer
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
 from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
@@ -78,6 +80,7 @@ def _build_service(*, runtime_events=None) -> tuple[AliceRuntime, AgentRunServic
         prompt_assembler=prompt_assembler,
     )
     service = AgentRunService(
+        summarizer=RelaySummarizer(WorkerAgentService()),
         agent_runtime=runtime.agent_runtime,
         call_coordinator=coordinator,
         frame_factory=frame_factory,

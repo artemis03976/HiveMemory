@@ -10,10 +10,12 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.agent_runtime.execution.worker import WorkerAgentService
 from hivememory.agent_runtime.models import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import TokenDelta
 from hivememory.alice.application.agent_run_service import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory
+from hivememory.alice.orchestration.relay_summary import RelaySummarizer
 from hivememory.alice.orchestration.sub_agent import CallContextProvider, CallCoordinator
 from hivememory.alice.runtime.core import AliceRuntime
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
@@ -211,6 +213,7 @@ def _build_service(
         prompt_assembler=prompt_assembler,
     )
     service = AgentRunService(
+        summarizer=RelaySummarizer(WorkerAgentService()),
         agent_runtime=runtime.agent_runtime,
         call_coordinator=coordinator,
         frame_factory=frame_factory,
@@ -644,7 +647,14 @@ async def test_native_cancellation_fills_slot_with_delivered_partial_text(monkey
             raise
 
     monkeypatch.setattr(WorkerAgentService, "generate_stream", generate_stream)
-    config, manifest = _compaction_inputs()
+    from hivememory.agent_runtime.models import GenerationResult
+
+    monkeypatch.setattr(
+        WorkerAgentService,
+        "generate_async",
+        AsyncMock(return_value=GenerationResult(text="Accepted summary")),
+    )
+    config, manifest = _summary_inputs()
     manifest = manifest.model_copy(update={"user_message": "hello"})
     _runtime, service = _build_service(config=config)
     slot = CPUResultSlot()
@@ -669,7 +679,8 @@ async def test_native_cancellation_fills_slot_with_delivered_partial_text(monkey
     assert cancelled.is_set()
     assert slot.result.status == "cancelled"
     assert slot.result.final_text == "半截答案"
-    assert slot.result.compaction_checkpoint.reduced_through == "old"
+    assert slot.result.compaction_checkpoint.summary == "Accepted summary"
+    assert slot.result.compaction_checkpoint.summarized_through == "t2"
     assert [(e.kind, e.content, e.status) for e in slot.result.turn_events] == [
         ("user_message", "hello", None),
         ("assistant_message", "半截答案", "cancelled"),
@@ -738,7 +749,9 @@ def _compaction_inputs(*, compressible=True):
 
     config = HiveMemoryConfig()
     config.alice.koakuma.enabled = False
-    config.alice.compaction = CompactionConfig(default_context_window=33768, safety_margin=0)
+    config.alice.compaction = CompactionConfig(
+        default_context_window=33768, safety_margin=0, summary_max_tokens=64
+    )
     turn = make_conversation_turn(
         interaction_id="old",
         user_message="old" if compressible else "x" * 6000,
@@ -830,6 +843,8 @@ async def test_compaction_reaches_generation_and_returns_checkpoint_without_reco
         "tokens_after",
         "covered_turns",
         "elapsed_ms",
+        "summary_status",
+        "summarized_turns",
     }
 
 
@@ -869,7 +884,7 @@ async def test_uncompressible_history_fails_without_output_and_keeps_reduction_c
         if event.event_type == RuntimeEventType.AGENT_CONTEXT_COMPACTION
         and event.status == "failed"
     ]
-    assert [event.reason for event in failed_compaction] == ["compaction_failed"]
+    assert [event.reason for event in failed_compaction] == ["summary_input_too_large"]
 
 
 @pytest.mark.asyncio
@@ -894,3 +909,93 @@ async def test_closing_at_compaction_progress_only_returns_completed_checkpoint(
         assert slot.result.has_output is False
     else:
         assert slot.result is None
+
+
+def _summary_inputs():
+    """使用需要接力摘要的多轮纯文本历史，保持生成请求在小预算内。"""
+    config, manifest = _compaction_inputs()
+    turns = tuple(
+        make_conversation_turn(
+            interaction_id=f"t{i}", user_message="x" * 400, assistant_final_text="y" * 400
+        )
+        for i in range(4)
+    )
+    return config, manifest.model_copy(update={"session_history": turns})
+
+
+@pytest.mark.asyncio
+async def test_cancellation_during_summary_propagates_without_new_checkpoint(monkeypatch):
+    """减重已完成但摘要仍在等待时取消，不能交回本次任何局部检查点。"""
+    from hivememory.workspace.contracts import CPUResultSlot
+
+    entered = asyncio.Event()
+    closed = asyncio.Event()
+
+    async def summarize(_self, messages, **kwargs):
+        entered.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            closed.set()
+
+    monkeypatch.setattr(WorkerAgentService, "generate_async", summarize)
+    config, manifest = _summary_inputs()
+    _, service = _build_service(config=config)
+    slot = CPUResultSlot()
+    stream = service.run_agent(
+        manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
+    )
+    assert (await anext(stream))["data"]["status"] == "started"
+    pull = asyncio.create_task(anext(stream))
+    await entered.wait()
+    pull.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await pull
+    await stream.aclose()
+    assert closed.is_set()
+    assert slot.result is None
+
+
+@pytest.mark.asyncio
+async def test_abandoned_summary_still_generates_from_reduced_view_if_it_fits(monkeypatch):
+    """摘要被拒绝但减重视图可执行时继续生成，摘要失败不会变成本轮输出。"""
+    from hivememory.agent_runtime.models import GenerationResult, StreamChunk
+    from hivememory.workspace.contracts import CPUResultSlot
+
+    monkeypatch.setattr(
+        WorkerAgentService,
+        "generate_async",
+        AsyncMock(return_value=GenerationResult(text="", finish_reason="stop")),
+    )
+    prompts = []
+
+    async def generate(_self, messages, **kwargs):
+        prompts.append(messages)
+        yield StreamChunk(is_final=True, result=GenerationResult(text="继续完成"))
+
+    monkeypatch.setattr(WorkerAgentService, "generate_stream", generate)
+    config, manifest = _summary_inputs()
+    recorder = RecordingRuntimeEventSink()
+    _, service = _build_service(config=config, runtime_events=recorder)
+    slot = CPUResultSlot()
+    events = [
+        event
+        async for event in service.run_agent(
+            manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
+        )
+    ]
+    assert events[1]["data"]["status"] == "abandoned"
+    assert events[1]["data"]["layer"] == "summary"
+    assert slot.result.status == "completed"
+    assert slot.result.compaction_checkpoint.summary == ""
+    assert [event.kind for event in slot.result.turn_events] == [
+        "user_message",
+        "assistant_message",
+    ]
+    assert len(prompts) == 1
+    assert all("Earlier conversation summary" not in message["content"] for message in prompts[0])
+    assert [
+        event.reason
+        for event in recorder.events
+        if event.event_type == RuntimeEventType.AGENT_CONTEXT_COMPACTION
+    ] == [None, "summary_empty"]

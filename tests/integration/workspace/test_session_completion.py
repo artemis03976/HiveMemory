@@ -405,7 +405,9 @@ async def test_shutdown_closes_registered_process_that_never_ran():
 @pytest.mark.parametrize("close_mode", ["stream", "direct", "shutdown", "cancel"])
 async def test_closing_cpu_accepts_old_history_checkpoint_before_releasing_claim(close_mode):
     """断流、直接关闭、关停与用户取消均保存旧轮次视图，且不新增空轮次。"""
-    checkpoint = make_compaction_checkpoint(reduced_through="old")
+    checkpoint = make_compaction_checkpoint(
+        reduced_through="old", summarized_through="old", summary="已完成的接力摘要"
+    )
     cpu = ScriptedCPU(
         events=[{"event": "context_compaction", "data": {"status": "completed"}}],
         cancelled_result=make_cpu_result(

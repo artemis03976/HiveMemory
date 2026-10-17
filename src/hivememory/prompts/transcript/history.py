@@ -25,6 +25,7 @@ class HistoryTranscriptBuilder:
         *,
         reduced_through: str | None = None,
         tool_result_excerpt_chars: int = 2000,
+        tool_result_max_chars: int | None = None,
     ) -> list[dict[str, str]]:
         """
         构建历史消息列表。
@@ -35,6 +36,7 @@ class HistoryTranscriptBuilder:
             language: 结果线索与未完成轮次说明使用的提示词语言
             reduced_through: 包含该轮次在内的工具结果减重边界
             tool_result_excerpt_chars: 保留型工具结果的正文字符上限
+            tool_result_max_chars: 摘要输入可另限制完整工具消息，含参数与包装前缀
 
         Returns:
             OpenAI-style messages: List[{"role": str, "content": str}]
@@ -54,6 +56,7 @@ class HistoryTranscriptBuilder:
                 reduce_results=index <= boundary,
                 language=language,
                 excerpt_chars=tool_result_excerpt_chars,
+                result_max_chars=tool_result_max_chars,
             )
             note = self._outcome_note(turn.payload.outcome, language)
             if note and len(messages) > start:
@@ -92,6 +95,7 @@ class HistoryTranscriptBuilder:
         reduce_results: bool,
         language: str | None,
         excerpt_chars: int,
+        result_max_chars: int | None,
     ) -> None:
         """渲染单个会话轮次，追加到 out。"""
         payload = turn.payload
@@ -114,6 +118,8 @@ class HistoryTranscriptBuilder:
                     event = event.model_copy(update={"content": content})
                 msg = self._render_event(event, turn, current_agent_id)
                 if msg is not None:
+                    if event.kind == "tool_result" and result_max_chars is not None:
+                        msg = {**msg, "content": msg["content"][:result_max_chars]}
                     out.append(msg)
         else:
             user_content = payload.user_message

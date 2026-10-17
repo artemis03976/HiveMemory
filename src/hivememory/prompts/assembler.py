@@ -24,6 +24,8 @@ class AgentPromptAssembler:
         context: AgentRunContext,
         *,
         include_history: bool = True,
+        session_summary: str = "",
+        session_references: tuple[str, ...] = (),
     ) -> list[dict[str, str]]:
         """组装根帧消息；可先仅组装固定输入，以判断历史压缩是否有意义。"""
         messages: list[dict[str, str]] = []
@@ -43,6 +45,7 @@ class AgentPromptAssembler:
         if context.agent_profile and context.agent_profile.persona:
             builder.with_persona(context.agent_profile.persona)
 
+        builder.with_session_summary(session_summary, session_references)
         builder.with_memory_context(context.memory_context)
         # 附件 section 固定位于 memory_context 之后；
         # 只消费任务进程编译好的 attachment_context 文本，不接触 Store/lease。

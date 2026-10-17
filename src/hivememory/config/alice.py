@@ -42,6 +42,14 @@ class CompactionConfig(BaseModel):
     tool_result_excerpt_chars: int = Field(
         default=2000, gt=0, description="RUN 摘录及保留型工具结果的最大正文字符数"
     )
+    target_ratio: float = Field(default=0.5, gt=0, le=1, description="压缩后的目标输入预算比例")
+    summary_max_tokens: int = Field(default=1024, gt=0, description="接力摘要正文的 token 上限")
+    summary_input_tool_chars: int = Field(
+        default=2000, gt=0, description="摘要请求中每条工具结果的最大字符数"
+    )
+    summary_timeout_seconds: float = Field(default=60, gt=0, description="每次摘要调用的超时秒数")
+    max_references: int = Field(default=16, ge=0, description="摘要引用线索的最大条数")
+    reference_max_chars: int = Field(default=256, gt=0, description="单条引用线索的最大字符数")
 
     model_config = ConfigDict(extra="ignore")
 

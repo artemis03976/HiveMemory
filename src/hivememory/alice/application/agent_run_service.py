@@ -28,7 +28,6 @@ from hivememory.agent_runtime.context_budget import (
     InputTooLargeError,
     ModelContextWindowExceededError,
     TurnContextBudgetExceededError,
-    estimate_context_tokens,
 )
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
@@ -40,6 +39,7 @@ from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.application.operation_policy import mtp_verbs_for_operations
 from hivememory.alice.orchestration.context_view import CompactionFailedError, SessionContextView
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
+from hivememory.alice.orchestration.relay_summary import RelaySummarizer
 from hivememory.alice.orchestration.run_executor import RunExecutor
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.orchestration.sub_agent.call_coordinator import CallCoordinator
@@ -126,6 +126,7 @@ class AgentRunService:
         stream_adapter: AgentRunStreamAdapter,
         agent_run_events: AgentRunEventEmitter,
         compaction_config: CompactionConfig,
+        summarizer: RelaySummarizer,
     ) -> None:
         self._agent_runtime = agent_runtime
         self._call_coordinator = call_coordinator
@@ -134,6 +135,7 @@ class AgentRunService:
         self._stream_adapter = stream_adapter
         self._agent_run_events = agent_run_events
         self._compaction_config = compaction_config
+        self._summarizer = summarizer
 
     # ========== 统一入口 ==========
 
@@ -227,56 +229,59 @@ class AgentRunService:
                     preparation.context.agent_profile or OMNI_DOLL_PROFILE,
                     generation_options,
                 )
-                messages = self._prompt_assembler.build_main_agent_messages(
-                    preparation.context, include_history=False
+                view = SessionContextView(
+                    context=preparation.context,
+                    prompt_assembler=self._prompt_assembler,
+                    checkpoint=input_manifest.compaction_checkpoint,
+                    input_token_limit=resolved_model.input_token_limit,
+                    config=self._compaction_config,
                 )
-                if estimate_context_tokens(messages) > resolved_model.input_token_limit:
-                    raise InputTooLargeError("Fixed input exceeds the model input budget.")
-                if preparation.context.session_history:
-                    view = SessionContextView(
-                        context=preparation.context,
-                        fixed_messages=messages,
-                        checkpoint=input_manifest.compaction_checkpoint,
-                        input_token_limit=resolved_model.input_token_limit,
-                        config=self._compaction_config,
-                    )
-                    messages = view.messages
-                    if view.should_compact():
-                        progress: dict[str, object] = {
-                            "layer": "reduction",
-                            "tokens_before": view.estimated_tokens,
-                            "tokens_after": view.estimated_tokens,
-                            "covered_turns": 0,
-                        }
-                        run_events.compaction(status="started", data=progress)
-                        if stream:
-                            yield agent_stream.output.make_event(
-                                "context_compaction", {**progress, "status": "started"}
-                            )
-                        started_at = perf_counter()
-                        compacted = view.compact()
-                        messages = compacted.messages
-                        new_checkpoint = compacted.checkpoint
-                        exceeded = compacted.tokens_after > resolved_model.input_token_limit
-                        progress = {
-                            "layer": "reduction",
-                            "tokens_before": compacted.tokens_before,
-                            "tokens_after": compacted.tokens_after,
-                            "covered_turns": compacted.covered_turns,
-                            "elapsed_ms": (perf_counter() - started_at) * 1000,
-                        }
-                        status = "failed" if exceeded else "completed"
-                        run_events.compaction(
-                            status=status,
-                            data=progress,
-                            reason=CPUFailureReason.COMPACTION_FAILED.value if exceeded else None,
+                messages = view.messages
+                if view.should_compact():
+                    progress: dict[str, object] = {
+                        "layer": "reduction",
+                        "tokens_before": view.estimated_tokens,
+                        "tokens_after": view.estimated_tokens,
+                        "covered_turns": 0,
+                    }
+                    run_events.compaction(status="started", data=progress)
+                    if stream:
+                        yield agent_stream.output.make_event(
+                            "context_compaction", {**progress, "status": "started"}
                         )
-                        if stream:
-                            yield agent_stream.output.make_event(
-                                "context_compaction", {**progress, "status": status}
-                            )
-                        if exceeded:
-                            raise CompactionFailedError("Compacted history exceeds input budget.")
+                    started_at = perf_counter()
+                    compacted = await view.compact(
+                        summarizer=self._summarizer, model=resolved_model
+                    )
+                    messages = compacted.messages
+                    new_checkpoint = compacted.checkpoint
+                    progress = {
+                        "layer": compacted.layer,
+                        "summary_status": compacted.summary_status,
+                        "tokens_before": compacted.tokens_before,
+                        "tokens_after": compacted.tokens_after,
+                        "covered_turns": compacted.covered_turns,
+                        "summarized_turns": compacted.summarized_turns,
+                        "elapsed_ms": (perf_counter() - started_at) * 1000,
+                    }
+                    status = (
+                        "failed"
+                        if compacted.error
+                        else (
+                            "abandoned" if compacted.summary_status == "abandoned" else "completed"
+                        )
+                    )
+                    run_events.compaction(
+                        status=status,
+                        data=progress,
+                        reason=compacted.reason,
+                    )
+                    if stream:
+                        yield agent_stream.output.make_event(
+                            "context_compaction", {**progress, "status": status}
+                        )
+                    if compacted.error is not None:
+                        raise compacted.error
             except (ModelNotFoundError, InputTooLargeError, CompactionFailedError) as error:
                 preparation_error = error
 

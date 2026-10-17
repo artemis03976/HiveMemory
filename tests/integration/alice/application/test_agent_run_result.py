@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
+from hivememory.agent_runtime.execution.worker import WorkerAgentService
 from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
 from hivememory.agent_runtime.models import (
     ExecutionFrame,
@@ -21,6 +22,7 @@ from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.agent_runtime.products import FrameProducts
 from hivememory.alice.application.agent_run_service import AgentRunService
 from hivememory.alice.orchestration.frame_factory import FrameFactory, FrameSpec
+from hivememory.alice.orchestration.relay_summary import RelaySummarizer
 from hivememory.alice.orchestration.run_session import RunSession
 from hivememory.alice.runtime.runtime_events import AgentRunEventEmitter
 from hivememory.alice.runtime.streaming import AgentRunStreamAdapter
@@ -78,6 +80,7 @@ def _runtime_for_frame(
     factory.scope.side_effect = FrameFactory.scope
     factory.create.return_value = frame
     service = AgentRunService(
+        summarizer=RelaySummarizer(WorkerAgentService()),
         agent_runtime=resolved_agent_runtime,
         call_coordinator=MagicMock(),
         frame_factory=factory,
