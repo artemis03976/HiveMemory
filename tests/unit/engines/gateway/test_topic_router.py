@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import asyncio
 from unittest.mock import AsyncMock
 
+import litellm
 import pytest
 
 from hivememory.config.gateway import TopicRouterConfig
@@ -89,3 +91,28 @@ async def test_topic_router_reports_missing_capability() -> None:
 
     with pytest.raises(TopicRouterError, match="未配置"):
         await router.route("问题", topic_snapshots=())
+
+
+@pytest.mark.asyncio
+async def test_topic_router_classifies_provider_failure():
+    """保留 SDK 根因，但能力错误不复制提供商正文。"""
+    failure = litellm.ServiceUnavailableError("private", llm_provider="test", model="test")
+    llm = AsyncMock()
+    llm.acomplete_json.side_effect = failure
+    router = TopicRouterEngine(config=TopicRouterConfig(), llm_service=llm)
+    with pytest.raises(TopicRouterError, match="提供商调用失败") as caught:
+        await router.route("问题", topic_snapshots=())
+    assert caught.value.__cause__ is failure
+    assert "private" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [TypeError("broken adapter"), asyncio.CancelledError()])
+async def test_topic_router_propagates_program_errors_and_cancellation(failure):
+    """程序缺陷与取消不能伪装为模型格式无效。"""
+    llm = AsyncMock()
+    llm.acomplete_json.side_effect = failure
+    router = TopicRouterEngine(config=TopicRouterConfig(), llm_service=llm)
+    with pytest.raises(type(failure)) as caught:
+        await router.route("问题", topic_snapshots=())
+    assert caught.value is failure

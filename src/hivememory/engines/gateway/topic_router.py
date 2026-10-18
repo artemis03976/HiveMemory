@@ -11,8 +11,9 @@ from hivememory.core.protocol.gateway import GatewaySessionTurn
 from hivememory.engines.gateway.models import TopicRoutingResult
 from hivememory.i18n import resolve_language
 from hivememory.infrastructure.llm.base import BaseLLMService
+from hivememory.infrastructure.llm.errors import LLM_PROVIDER_ERRORS
 from hivememory.prompts.gateway import get_topic_router_system_prompt, session_history_messages
-from hivememory.utils.json_parser import parse_llm_json
+from hivememory.utils.json_parser import JSONParseError, parse_llm_json
 
 
 class TopicRouterError(RuntimeError):
@@ -62,12 +63,15 @@ class TopicRouterEngine:
                 ],
                 **kwargs,
             )
+        except LLM_PROVIDER_ERRORS as exc:
+            raise TopicRouterError("Topic Router 提供商调用失败") from exc
+
+        # 只转换模型文本解析失败；投影中的程序缺陷继续向上传播。
+        try:
             payload = parse_llm_json(content)
-            return self._validate_result(payload, topic_snapshots)
-        except TopicRouterError:
-            raise
-        except Exception as exc:
-            raise TopicRouterError(f"Topic Router 调用失败: {exc}") from exc
+        except JSONParseError as exc:
+            raise TopicRouterError("Topic Router 返回无效 JSON") from exc
+        return self._validate_result(payload, topic_snapshots)
 
     @staticmethod
     def _render_topics(topic_snapshots: Sequence[TopicSnapshot]) -> str:

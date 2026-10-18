@@ -111,6 +111,16 @@ def test_domain_errors_keep_http_categories_without_diagnostics(error_type, stat
         ),
         (AssetOperationConflictError(details={"reason": "store_closed"}), 503, "store_closed"),
         (ScopeRequiredError(details={"reason": "actor_not_admitted"}), 500, "actor_not_admitted"),
+        (
+            OperationDeniedError(details={"reason": "target_workspace_not_resident"}),
+            403,
+            "target_workspace_not_resident",
+        ),
+        (
+            OperationDeniedError(details={"reason": "target_owner_mismatch"}),
+            403,
+            "target_owner_mismatch",
+        ),
         (OperationDeniedError(details={"reason": "secret-token"}), 403, None),
     ],
 )

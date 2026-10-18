@@ -13,7 +13,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-18
 ---
 
 # Gateway 话题与查询分析
@@ -44,7 +44,7 @@ Gateway 不拥有话题数据。`GlobalBusGatewayContextProvider` 通过 Patchou
 1. `prepare_candidate_topics()` 获取不可变 `TopicSnapshot` tuple，用于候选菜单和路由；
 2. `prepare_routed_topic()` 只为最终选中的已有话题获取 `TopicData`；`NEW_TOPIC` 直接返回 `None`。
 
-Provider 负责读取和类型验证，不做决策。Patchouli 若返回非 tuple、非 `TopicSnapshot` 或非 `TopicData`，属于契约违约并直接失败；route 不可用等能力失败则转换为 `RecoverableGatewayError`，由 workflow 决定是否降级。
+Provider 负责读取和类型验证，不做决策。Patchouli 若返回非 tuple、非 `TopicSnapshot` 或非 `TopicData`，属于契约违约并直接失败；中立存储/资源不可用才转换为 `RecoverableGatewayError`，由 workflow 决定是否降级。缺失 route、授权拒绝和 handler 程序错误原样传播，不能当作没有话题。
 
 这种设计避免 Gateway 缓存第二份权威话题状态，也避免把所有活跃话题的完整 transcript 送入模型。代价是路由后可能多一次读取，但失败可以局部降级为“没有 routed topic context”，而不必推翻已经完成的话题选择。
 
@@ -57,7 +57,7 @@ Provider 负责读取和类型验证，不做决策。Patchouli 若返回非 tup
 - 候选列表中的一个 `topic_id`；
 - `NEW_TOPIC`，并在模型成功响应时同时提供非空 title 与 summary。
 
-模型返回候选列表外 ID、非 object、缺少 target 或 `NEW_TOPIC` 缺少标题/摘要时，Engine 抛出 `TopicRouterError`。调用和解析异常也统一转为该预期能力错误，再由 workflow 作为 recoverable failure 降级到 `NEW_TOPIC`。
+模型返回候选列表外 ID、非 object、缺少 target 或 `NEW_TOPIC` 缺少标题/摘要时，Engine 抛出 `TopicRouterError`。已知提供商失败和模型 JSON 解析失败也转为该能力错误，再由 workflow 降级到 `NEW_TOPIC`；未知程序错误、投影失败与取消继续传播。QueryUnderstanding 使用同样的窄分类，不把全部 Exception 当作模型不可用。
 
 当 Topic Router 配置为禁用时，Engine 不调用模型并返回默认 `NEW_TOPIC`。当它启用但没有 LLM service 时，Engine 报告能力不可用，workflow 同样降级。两条路径的业务结果接近，但观测原因不同。
 

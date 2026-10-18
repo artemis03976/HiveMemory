@@ -165,7 +165,14 @@ _REASON_ALLOWLIST: dict[type[Exception], frozenset[str]] = {
             "system_actor_not_allowed",
         }
     ),
-    OperationDeniedError: frozenset({"operation_not_allowed", "root_required"}),
+    OperationDeniedError: frozenset(
+        {
+            "operation_not_allowed",
+            "root_required",
+            "target_workspace_not_resident",
+            "target_owner_mismatch",
+        }
+    ),
     ScopeRequiredError: frozenset({"context_not_issued", "actor_not_admitted"}),
     WorkspaceMismatchError: frozenset({"target_workspace_not_resident", "target_owner_mismatch"}),
     ResourceUnavailableError: frozenset({"lifecycle_unavailable"}),

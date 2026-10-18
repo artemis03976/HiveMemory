@@ -265,8 +265,8 @@ async def test_call_context_refs_record_citations_for_delivered_formal_atoms():
 
 
 @pytest.mark.asyncio
-async def test_call_permission_without_read_dispatches_child_without_shared_memory():
-    """只有 CALL 许可仍能创建子帧，缺少 READ 时 context_refs 不交付记忆或记录引用。"""
+async def test_call_context_refs_without_read_returns_permission_error():
+    """共享引用缺少 READ 许可时回填权限错误，不启动子帧或记录引用。"""
     harness = OperationsHarness()
     atom = MemoryAtom(
         meta=make_memory_metadata(source_agent_id="parent", user_id="test_user"),
@@ -287,11 +287,12 @@ async def test_call_permission_without_read_dispatches_child_without_shared_memo
 
     transition, session, _ = await _begin_call(caller, "omni_doll", context_refs=[atom.get_alias()])
 
-    assert isinstance(transition, DispatchCallee)
-    assert set(session.frames) == {"caller", transition.frame.runtime_scope.frame_id}
-    assert transition.frame.agent_profile == OMNI_DOLL_PROFILE
-    assert atom.payload.content not in str(transition.frame.working_history)
-    assert atom.get_alias() not in str(transition.frame.working_history)
+    assert isinstance(transition, ResumeCaller)
+    assert set(session.frames) == {"caller"}
+    response = caller.progress.turn_events[-1]
+    assert response.status == "error"
+    assert "mtp.permission.denied" in response.content
+    assert atom.payload.content not in str(caller.working_history)
     assert harness.runtime.stats()["atom_size"] == 0
     assert harness.citations == []
 

@@ -479,6 +479,8 @@ async def test_capacity_rejection_is_explicit_and_observable() -> None:
 
     assert (await runtime.get("work-1")).state == WorkState.QUEUED  # type: ignore[union-attr]
     assert sink.events[-1].event_type == RuntimeEventType.WORK_REJECTED
+    assert sink.events[-1].reason == "capacity_rejected"
+    assert sink.events[-1].data["error_class"] == "WorkQueueCapacityError"
 
 
 @pytest.mark.asyncio
@@ -822,3 +824,46 @@ async def test_runtime_event_failure_does_not_change_work_result() -> None:
 
     assert terminal is not None and terminal.state == WorkState.SUCCEEDED
     await runtime.stop()
+
+
+@pytest.mark.asyncio
+async def test_enqueue_unknown_failure_keeps_uncertainty_in_event() -> None:
+    """接纳后的故障不能在观测中声称确定拒绝，也不能泄露异常正文。"""
+    failure = ValueError("private store detail")
+
+    class UncertainStore(InMemoryWorkStore):
+        async def enqueue(self, item):
+            await super().enqueue(item)
+            raise failure
+
+    sink = RecordingRuntimeEventSink()
+    runtime = WorkQueueRuntime(
+        store=UncertainStore(), payload_codecs=_TEST_PAYLOAD_CODECS, runtime_events=sink
+    )
+    runtime.register_lane(
+        "lane", handler=_ImmediateHandler(), policy=QueuePolicy(capacity=4, max_concurrency=1)
+    )
+    with pytest.raises(ValueError) as caught:
+        await runtime.enqueue(_item("uncertain", lane="lane"))
+    assert caught.value is failure
+    assert (await runtime.get("uncertain")).state == WorkState.QUEUED
+    assert sink.events[-1].reason == "admission_unknown"
+    assert sink.events[-1].data["error_class"] == "ValueError"
+    assert "private store detail" not in sink.events[-1].model_dump_json()
+
+
+@pytest.mark.asyncio
+async def test_duplicate_enqueue_reports_stable_reason() -> None:
+    """重复 work ID 保留具名拒绝，不把 Python 类名当作原因码。"""
+    from hivememory.components.work_queue import DuplicateWorkItemError
+
+    sink = RecordingRuntimeEventSink()
+    runtime = _runtime(runtime_events=sink)
+    runtime.register_lane(
+        "lane", handler=_ImmediateHandler(), policy=QueuePolicy(capacity=4, max_concurrency=1)
+    )
+    item = _item("same", lane="lane")
+    await runtime.enqueue(item)
+    with pytest.raises(DuplicateWorkItemError):
+        await runtime.enqueue(item)
+    assert sink.events[-1].reason == "duplicate_work_item"

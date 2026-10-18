@@ -8,11 +8,12 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.contracts.subsystem import SubsystemProtocol
-from hivememory.core.errors import ScopeRequiredError
+from hivememory.core.errors import ScopeRequiredError, StorageReadError
 from hivememory.core.protocol.gateway import GatewayIngressMode, IntentType
 from hivememory.gateway import GatewaySystem
 from hivememory.gateway.contracts import GatewayLocalRoutes, GatewayPublicRoutes
 from hivememory.gateway.service import GatewayService
+from hivememory.patchouli.contracts import PatchouliRoutes
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -41,6 +42,10 @@ async def test_gateway_system_mount_and_unmount_are_idempotent() -> None:
 @pytest.mark.asyncio
 async def test_gateway_service_runs_fallback_workflow() -> None:
     global_bus = GlobalSystemBus()
+    global_bus.register(
+        PatchouliRoutes.TOPIC_LIST_ACTIVE,
+        AsyncMock(side_effect=StorageReadError("storage temporarily unavailable")),
+    )
     system = GatewaySystem(HiveMemoryConfig().gateway, global_bus)
     await system.start()
 

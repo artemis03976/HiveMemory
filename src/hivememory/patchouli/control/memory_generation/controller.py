@@ -17,7 +17,10 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.work_queue import (
     QueuePolicy,
     TaskOutcome,
-    WorkQueueError,
+    UnknownWorkLaneError,
+    UnknownWorkPayloadCodecError,
+    WorkPayloadEncodeError,
+    WorkQueueCapacityError,
     WorkQueueShutdownSummary,
     WorkQueueStoppedError,
     WorkState,
@@ -235,7 +238,13 @@ class MemoryGenerationTaskController:
                     )
                     admissions.append(MemoryGenerationAdmission.unknown())
                     continue
-                except (TypeError, ValueError, WorkQueueError) as exc:
+                except (
+                    WorkPayloadEncodeError,
+                    WorkQueueCapacityError,
+                    WorkQueueStoppedError,
+                    UnknownWorkLaneError,
+                    UnknownWorkPayloadCodecError,
+                ) as exc:
                     logger.warning(
                         "Memory generation admission rejected: "
                         "pending_alias=%s, intent_id=%s, err=%s",

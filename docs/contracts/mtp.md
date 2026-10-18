@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # Memory Tool Protocol (MTP)
@@ -217,6 +217,8 @@ Warning 放在 `<warnings><warning>...</warning></warnings>` 中。`pending_alia
 Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视为原始 Unicode 文本，并独占 XML 结构构造权。正文包含 `<`、`>` 或 `&` 时使用 CDATA，`]]>` 会拆成相邻 CDATA 段；因此已编码实体和嵌套 XML 样式 payload 会按字面文本保留，不会成为协议子节点。XML 属性单独执行实体转义。正文换行统一为 LF，XML 1.0 禁止的控制字符替换为 `U+FFFD`。
 
 空 `content` 不产生正文，无 warnings 时不产生 `<warnings>`；成功 CALL 的空 reply 仍保留 reply label 和空正文。上述规则覆盖成功 content、MemoryCompiler 编译出的可选摘要、CALL reply、artifact alias、warning 和 error reason，不要求各 verb handler 自行转义。
+
+普通 MTP 与 CALL 各有唯一的错误投影入口；存储、资源与 Profile 生产者不依赖 MTP 异常。错误 params 按允许项构造，内部 cause/details 不进入 XML。写入结果未知时优先 READ 已有句柄（须具备 READ 能力），否则说明无法确认，不能重复提交；线程已撤销时停止原线程操作。severity 不单独授予重试许可。
 
 错误结构详见[error-model.md](./error-model.md)。
 

@@ -217,3 +217,50 @@ def test_importing_core_layer_loads_no_higher_layer_package():
     )
     loaded = set(result.stdout.split())
     assert {package for package in loaded if LAYERS[package] > 0} == set()
+
+
+def test_neutral_producers_do_not_depend_on_mtp_exceptions():
+    """中立服务可以编译 MTP 模型，但不得抛出或捕获协议出口的异常。"""
+    exception_module = "hivememory.core.mtp.exceptions"
+    exception_tree = ast.parse((SRC_ROOT / "core/mtp/exceptions.py").read_text(encoding="utf-8"))
+    exception_names = {node.name for node in exception_tree.body if isinstance(node, ast.ClassDef)}
+    producer_packages = {"infrastructure", "engines", "workspace", "patchouli", "gateway"}
+    violations = []
+    for path in _source_files():
+        if _top_package(path) not in producer_packages:
+            continue
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        bindings = {}
+        references = []
+        for node in ast.walk(tree):
+            if isinstance(node, ast.Import):
+                for alias in node.names:
+                    bindings[alias.asname or alias.name.split(".")[0]] = (
+                        alias.name if alias.asname else alias.name.split(".")[0]
+                    )
+                    references.append(alias.name)
+            elif isinstance(node, ast.ImportFrom):
+                base = _resolve_relative(path, node) if node.level else node.module
+                for alias in node.names:
+                    target = f"{base}.{alias.name}"
+                    bindings[alias.asname or alias.name] = target
+                    references.append(target)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.Attribute):
+                continue
+            parts = []
+            current = node
+            while isinstance(current, ast.Attribute):
+                parts.append(current.attr)
+                current = current.value
+            if isinstance(current, ast.Name) and current.id in bindings:
+                references.append(".".join([bindings[current.id], *reversed(parts)]))
+        for target in references:
+            if (
+                target == exception_module
+                or target.startswith(exception_module + ".")
+                or target in {f"hivememory.core.mtp.{name}" for name in exception_names}
+                or target == "hivememory.core.mtp.*"
+            ):
+                violations.append(f"{path.relative_to(SRC_ROOT)}: {target}")
+    assert violations == []

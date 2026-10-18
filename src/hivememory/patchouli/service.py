@@ -222,7 +222,8 @@ class PatchouliService:
             raise ActiveInteractionFinalizationError(
                 interaction_id=prepared_run.interaction_id,
                 stage="interaction_admission",
-                reason=type(error).__name__,
+                reason="admission_unknown",
+                error_class=type(error).__name__,
             ) from error
 
         return receipt

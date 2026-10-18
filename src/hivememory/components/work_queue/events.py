@@ -56,13 +56,14 @@ class WorkQueueEventEmitter:
         snapshot: WorkLaneSnapshot | None = None,
         severity: Severity = "info",
         reason: str | None = None,
+        error_class: str | None = None,
     ) -> None:
         state = record.state if record is not None else None
         attempt_count = record.attempt_count if record is not None else 0
         error_class = (
             record.last_error.error_class
             if record is not None and record.last_error is not None
-            else None
+            else error_class
         )
         next_retry_at = (
             record.available_at if record is not None and state == WorkState.RETRY_WAIT else None

@@ -16,9 +16,11 @@ from hivememory.components.events.publisher import Severity
 from hivememory.components.work_queue.cancellation import WorkCancellationToken
 from hivememory.components.work_queue.events import WorkQueueEventEmitter
 from hivememory.components.work_queue.exceptions import (
+    DuplicateWorkItemError,
     DuplicateWorkLaneError,
     UnknownWorkLaneError,
     WorkPayloadCodecError,
+    WorkQueueCapacityError,
     WorkQueueStoppedError,
 )
 from hivememory.components.work_queue.models import (
@@ -151,7 +153,20 @@ class WorkQueueRuntime:
         except Exception as exc:
             await self._emit_rejected(
                 item,
-                reason=type(exc).__name__,
+                reason=(
+                    "capacity_rejected"
+                    if isinstance(exc, WorkQueueCapacityError)
+                    else (
+                        "duplicate_work_item"
+                        if isinstance(exc, DuplicateWorkItemError)
+                        else (
+                            "unknown_lane"
+                            if isinstance(exc, UnknownWorkLaneError)
+                            else "admission_unknown"
+                        )
+                    )
+                ),
+                error_class=type(exc).__name__,
                 policy=binding.lane.policy,
             )
             raise
@@ -442,6 +457,7 @@ class WorkQueueRuntime:
         *,
         reason: str,
         policy: QueuePolicy | None = None,
+        error_class: str | None = None,
     ) -> None:
         snapshot = None
         if policy is not None:
@@ -456,6 +472,7 @@ class WorkQueueRuntime:
             snapshot=snapshot,
             severity="warning",
             reason=reason,
+            error_class=error_class,
         )
 
     @staticmethod

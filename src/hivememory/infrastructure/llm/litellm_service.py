@@ -213,11 +213,10 @@ class LiteLLMService(SingletonLLMService):
                 **llm_params,
                 response_format={"type": "json_object"},
             )
-        except Exception as e:
+        except litellm.UnsupportedParamsError:
             logger.warning(
-                "LLM JSON mode failed for model=%s, falling back to prompt-only JSON: %s",
+                "LLM JSON 参数不受支持，回退为提示词 JSON: model=%s",
                 self.model,
-                e,
             )
             response = await litellm.acompletion(**llm_params)
 

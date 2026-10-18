@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # Archived Plans
@@ -13,6 +13,8 @@ last_reviewed: 2026-10-17
 本目录保存已经完成或被替代、且当前事实已经合并进规范文档的实施计划。每篇归档计划必须标明归档日期、实现版本或 PR，以及替代它的当前文档。
 
 当前记录：
+
+- [v0.7.0 异常体系与边界错误呈现收敛](./v0.7.0-error-model-convergence.md)：2026-10-18 四阶段实现、验收与 code review 后归档。阶段一 `fd8875ce`、阶段二 `e01edde7`、阶段三 `64ab6be4`，阶段四与事实文档收尾随后提交，未发布；后端 2941 passed、覆盖率 93.79%，前端 32 passed。当前事实与兼容变化见[错误模型](../../contracts/error-model.md)。
 
 - [v0.7.0 提示词编译前移至任务进程](./v0.7.0-cpu-prompt-compilation.md)：2026-10-17 两阶段验收与 code review 后归档；进程编译中立提示词，Alice 原样布局固定文本并直接组装 CALL 子帧，删除重复上下文与旧组装器。根帧 288 组迁移检查仅有约定离线通知差异，子帧 144 组逐字一致；后端 2830 passed、2 skipped，覆盖率 93.55%，HTTP E2E 9 passed。阶段一 `66d9f93f`，阶段二与事实文档收尾 `789054f4`，收尾审查修正随后提交，未发布；当前事实见[CPU 契约](../../contracts/subsystem-contracts.md#41-cpu-端口)、[System 应用服务](../../system/application-services.md#31-非流式链路)与[Agent Runtime](../../alice/agent-runtime.md#3-输入上下文与-prompt-组装)。
 

@@ -18,11 +18,12 @@ from hivememory.core.protocol.gateway import GatewaySessionTurn, IntentType, Mem
 from hivememory.engines.gateway.models import QueryUnderstandingResult
 from hivememory.i18n import resolve_language
 from hivememory.infrastructure.llm.base import BaseLLMService
+from hivememory.infrastructure.llm.errors import LLM_PROVIDER_ERRORS
 from hivememory.prompts.gateway import (
     get_query_understanding_system_prompt,
     session_history_messages,
 )
-from hivememory.utils.json_parser import parse_llm_json
+from hivememory.utils.json_parser import JSONParseError, parse_llm_json
 
 
 class QueryUnderstandingError(RuntimeError):
@@ -70,12 +71,15 @@ class QueryUnderstandingEngine:
                 ],
                 **kwargs,
             )
+        except LLM_PROVIDER_ERRORS as exc:
+            raise QueryUnderstandingError("Query Understanding 提供商调用失败") from exc
+
+        # 只转换模型文本解析失败；投影中的程序缺陷继续向上传播。
+        try:
             payload = parse_llm_json(content)
-            return self._validate_result(payload)
-        except QueryUnderstandingError:
-            raise
-        except Exception as exc:
-            raise QueryUnderstandingError(f"Query Understanding 调用失败: {exc}") from exc
+        except JSONParseError as exc:
+            raise QueryUnderstandingError("Query Understanding 返回无效 JSON") from exc
+        return self._validate_result(payload)
 
     def _render_topic_context(self, topic_data: TopicData | None) -> str:
         if topic_data is None:

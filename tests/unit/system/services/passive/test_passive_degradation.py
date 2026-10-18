@@ -17,6 +17,7 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.core.contracts.runtime_events import RuntimeEventType
+from hivememory.core.errors import ResourceUnavailableError, StorageOfflineError, StorageReadError
 from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     CommandParseResult,
@@ -24,6 +25,7 @@ from hivememory.core.protocol.gateway import (
     GatewayCommandOutcome,
     GatewayDecision,
     GatewayDecisionOutcome,
+    GatewayTimeoutError,
     IntentType,
     MemoryWriteSignal,
     RetrievalMode,
@@ -214,7 +216,7 @@ async def test_degraded_turn_does_not_block_next_turn() -> None:
 async def test_retrieval_failure_preserves_decision() -> None:
     """retrieval 失败保留 decision，topic 路由与写入预判不丢。"""
     recorder = _Recorder()
-    recorder.retrieval_error = ConnectionError("qdrant unreachable")
+    recorder.retrieval_error = StorageOfflineError("qdrant unreachable")
     ingressor, _ = _build(recorder)
 
     outcome = await ingressor.route_event(_event("user", "u1"), IDENTITY)
@@ -274,13 +276,21 @@ async def test_cancellation_propagates() -> None:
         await ingressor.route_event(_event("user", "u1"), IDENTITY)
 
 
-def test_recoverable_classification() -> None:
-    assert is_recoverable_ingress_error(TimeoutError("t"))
-    assert is_recoverable_ingress_error(ConnectionError("c"))
-    assert is_recoverable_ingress_error(RuntimeError("downstream blew up"))
-    assert not is_recoverable_ingress_error(PassiveIngressContractError("x"))
-    assert not is_recoverable_ingress_error(KeyError("route"))
-    assert not is_recoverable_ingress_error(asyncio.CancelledError())
+@pytest.mark.parametrize(
+    "error, recoverable",
+    [
+        (TimeoutError("t"), True),
+        (GatewayTimeoutError("t"), True),
+        (StorageOfflineError("offline"), True),
+        (StorageReadError("read failed"), True),
+        (ResourceUnavailableError("unavailable"), True),
+        (RuntimeError("defect"), False),
+        (asyncio.CancelledError(), False),
+    ],
+)
+def test_recoverable_classification(error, recoverable):
+    """明确依赖失败允许降级，未知异常与取消默认拒绝降级。"""
+    assert is_recoverable_ingress_error(error) is recoverable
 
 
 # ========== 降级只经 sink 观测 ==========
@@ -297,6 +307,7 @@ async def test_gateway_degradation_publishes_warning_event() -> None:
     context = _context_event(sink)
     assert context.data["degraded"] is True
     assert context.data["failed_stage"] == "gateway"
+    assert context.reason == "gateway_unavailable"
     assert context.data["error_class"] == "TimeoutError"
     assert context.data["memory_ref_count"] == 0
     assert context.severity == "warning"
@@ -307,14 +318,15 @@ async def test_gateway_degradation_publishes_warning_event() -> None:
 @pytest.mark.asyncio
 async def test_retrieval_degradation_publishes_stage_and_topic() -> None:
     recorder = _Recorder()
-    recorder.retrieval_error = ConnectionError("qdrant unreachable")
+    recorder.retrieval_error = StorageOfflineError("qdrant unreachable")
     ingressor, sink = _build(recorder)
 
     await ingressor.route_event(_event("user", "u1"), IDENTITY)
 
     context = _context_event(sink)
     assert context.data["failed_stage"] == "retrieval"
-    assert context.data["error_class"] == "ConnectionError"
+    assert context.reason == "retrieval_unavailable"
+    assert context.data["error_class"] == "StorageOfflineError"
     # decision 已获得，topic 关联仍可观测
     assert context.topic_id == "topic-1"
 
@@ -340,7 +352,25 @@ async def test_successful_path_reports_not_degraded() -> None:
     await ingressor.route_event(_event("user", "u1"), IDENTITY)
 
     context = _context_event(sink)
+    assert context.reason is None
     assert context.data["degraded"] is False
     assert context.data["failed_stage"] is None
     assert context.data["error_class"] is None
     assert context.severity == "info"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("stage", ["gateway", "retrieval"])
+async def test_program_error_propagates_without_prepared_event(stage):
+    """任一阶段的未知故障都不能伪造已准备或成功降级。"""
+    recorder = _Recorder()
+    failure = TypeError("private defect")
+    setattr(recorder, f"{stage}_error", failure)
+    ingressor, sink = _build(recorder)
+    with pytest.raises(TypeError) as caught:
+        await ingressor.route_event(_event("user", "u1"), IDENTITY)
+    assert caught.value is failure
+    assert all(
+        event.event_type != RuntimeEventType.PASSIVE_MEMORY_CONTEXT_PREPARED
+        for event in sink.events
+    )

@@ -176,11 +176,14 @@ class TestMemoryGenerationTaskController:
             await controller.stop()
 
     @pytest.mark.asyncio
-    async def test_submit_generation_many_keeps_unknown_admission_pending(self):
+    @pytest.mark.parametrize(
+        "failure", [ConnectionError("response lost"), ValueError("after admission")]
+    )
+    async def test_submit_generation_many_keeps_unknown_admission_pending(self, failure):
         queue = Mock()
         queue.start = AsyncMock()
         queue.started = True
-        queue.submit = AsyncMock(side_effect=ConnectionError("response lost"))
+        queue.submit = AsyncMock(side_effect=failure)
         bus = Mock(publish=AsyncMock())
         controller = MemoryGenerationTaskController(bus=bus, memory_queue=queue)
 

@@ -7,7 +7,10 @@ import pytest
 from hivememory.agent_runtime.frame import ExecutionFrame, FrameExecutionPolicy
 from hivememory.alice.orchestration.call import CallContextProvider
 from hivememory.core.errors import (
+    OperationDeniedError,
     ResourceNotFoundError,
+    StorageOfflineError,
+    ThreadContextRevokedError,
 )
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -141,7 +144,7 @@ async def test_provide_keeps_resolvable_refs_when_one_resolution_fails():
         atom=_atom("Fact B", "usable context"),
     )
     provider, submit_operation = _provider(
-        alias_results=[RuntimeError("storage unavailable"), resolved]
+        alias_results=[StorageOfflineError("storage unavailable"), resolved]
     )
 
     context = await provider.provide(
@@ -189,13 +192,18 @@ async def test_profile_failure_propagates_before_resolving_context_refs():
 
 
 @pytest.mark.asyncio
-async def test_revoked_thread_stops_shared_context_resolution():
-    """生命周期拒绝必须离开引用的 best-effort 分支，不能再读取下一项。"""
-    from hivememory.core.errors import ThreadContextRevokedError
-
-    failure = ThreadContextRevokedError("thread ended")
+@pytest.mark.parametrize(
+    "failure",
+    [
+        ThreadContextRevokedError("thread ended"),
+        OperationDeniedError("read denied"),
+        TypeError("resolver defect"),
+    ],
+)
+async def test_nonrecoverable_error_stops_shared_context_resolution(failure):
+    """生命周期、授权与程序错误不能被当作单条引用缺失而跳过。"""
     provider, submit_operation = _provider(alias_results=[failure])
-    with pytest.raises(ThreadContextRevokedError) as caught:
+    with pytest.raises(type(failure)) as caught:
         await provider.provide(
             _frame(submit_operation=submit_operation),
             MTPCallRequest(

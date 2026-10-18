@@ -23,31 +23,13 @@ from hivememory.core.mtp.models import (
     MTP_RIGHT_DELIMITER,
     MTP_STOP_SEQUENCE,
 )
+from hivememory.infrastructure.llm.errors import LLM_PROVIDER_ERRORS
 
 logger = logging.getLogger(__name__)
 
 
 class ModelProviderError(Exception):
     """模型提供商拒绝或未能完成请求；原始异常保留在 cause 链中。"""
-
-
-_PROVIDER_ERRORS = (
-    litellm.APIError,
-    litellm.OpenAIError,
-    litellm.BadGatewayError,
-    litellm.APIConnectionError,
-    litellm.APIResponseValidationError,
-    litellm.BadRequestError,
-    litellm.AuthenticationError,
-    litellm.PermissionDeniedError,
-    litellm.NotFoundError,
-    litellm.RateLimitError,
-    litellm.Timeout,
-    litellm.UnprocessableEntityError,
-    litellm.InternalServerError,
-    litellm.ServiceUnavailableError,
-    litellm.BudgetExceededError,
-)
 
 
 @dataclass
@@ -134,11 +116,8 @@ class LLMClient:
             )
         except litellm.ContextWindowExceededError as error:
             raise ModelContextWindowExceededError("Model context window exceeded.") from error
-        except _PROVIDER_ERRORS as error:
+        except LLM_PROVIDER_ERRORS as error:
             raise ModelProviderError("Model provider request failed.") from error
-        except Exception as error:
-            logger.error("LLM 异步生成失败: %s", error)
-            raise
 
         text = response.choices[0].message.content or ""
         finish_reason = response.choices[0].finish_reason or "stop"
@@ -186,11 +165,8 @@ class LLMClient:
             )
         except litellm.ContextWindowExceededError as error:
             raise ModelContextWindowExceededError("Model context window exceeded.") from error
-        except _PROVIDER_ERRORS as error:
+        except LLM_PROVIDER_ERRORS as error:
             raise ModelProviderError("Model provider request failed.") from error
-        except Exception as error:
-            logger.error("LLM 流式生成启动失败: %s", error)
-            raise
 
         full_text = ""
         mtp_detected = False
@@ -270,7 +246,7 @@ class LLMClient:
         except litellm.ContextWindowExceededError as error:
             # 超窗也可能在拉取响应时出现，与建立请求时采用同一错误语义。
             raise ModelContextWindowExceededError("Model context window exceeded.") from error
-        except _PROVIDER_ERRORS as error:
+        except LLM_PROVIDER_ERRORS as error:
             raise ModelProviderError("Model provider request failed.") from error
         finally:
             close = getattr(response, "aclose", None)

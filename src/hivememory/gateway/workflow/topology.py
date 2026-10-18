@@ -114,7 +114,7 @@ def build_gateway_workflow(
                 session_turns=selected.session_turns,
             )
         except TopicRouterError as exc:
-            raise RecoverableGatewayError(str(exc)) from exc
+            raise RecoverableGatewayError("话题路由不可用") from exc
 
     async def invoke_routed_topic(selected: RoutedTopicInput):
         if context_provider is None:

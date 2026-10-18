@@ -4,7 +4,7 @@ import logging
 from dataclasses import dataclass
 
 from hivememory.agent_runtime import ExecutionFrame
-from hivememory.core.errors import ThreadContextRevokedError
+from hivememory.core.errors import ResourceUnavailableError, StorageOfflineError, StorageReadError
 from hivememory.core.mtp import MTPCallRequest
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
@@ -73,11 +73,8 @@ class CallContextProvider:
                 resolved = (
                     await caller_frame.submit_operation(ResolveReferencesRequest((alias,)))
                 )[0]
-            except ThreadContextRevokedError:
-                # 线程结束不是单条引用缺失，必须交给 CALL 出口提示停止操作。
-                raise
-            except Exception as error:
-                logger.warning("Failed to resolve context_ref %s: %s", alias, error)
+            except (TimeoutError, StorageOfflineError, StorageReadError, ResourceUnavailableError):
+                logger.warning("Failed to read context_ref: %s", alias, exc_info=True)
                 continue
             # redirect 必须带有调用方可读的正式原子；不可读目标不交给编译器。
             if (resolved.kind == "pending" and resolved.pending is not None) or (

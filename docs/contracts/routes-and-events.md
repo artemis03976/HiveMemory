@@ -19,7 +19,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # 公开路由与事件
@@ -197,6 +197,20 @@ Alice CPU 端口的交互输出与 `/runtime-events/stream` 是两条独立通�
 ### 4.3 上下文预算观测
 
 `agent.context.compaction` 在压缩开始/结束记录与交互进度相同的统计（第 6.1 节），外层 `status` 表示阶段；结束可带 `reason`（摘要拒绝、超时或预算失败的稳定标识）。`agent.context.budget_exceeded` 在根或 CALL 子 frame 被轮内守卫拦截时发布：`status=blocked`、`severity=warning`、`reason=turn_context_budget_exceeded`，`data` 仅含 `estimated_tokens` 与 `input_token_limit`，关联字段包含 `frame_id`。两者均关联本次 process/run，不携带摘要、历史或异常正文，不决定检查点接受与业务终态。
+
+### 4.4 失败与降级观测
+
+| 事件/字段 | 公开值与含义 |
+|:---|:---|
+| `passive.memory.context.prepared.reason` | 降级阶段为 `gateway_unavailable` 或 `retrieval_unavailable`；成功为 None |
+| Gateway workflow failed 的 `reason` | `gateway_timeout`、`dependency_unavailable` 或 `workflow_failed`；message 为固定失败说明 |
+| Gateway step 的 `data.fallback_reason` | `request_deadline_exceeded`、`step_timeout` 或 `dependency_unavailable`；无 fallback 为 None |
+| 查询分析 capability 的 `data.error` | 失败为 `query_understanding_failed`，成功为 None |
+| Work Queue 接纳观测的 `reason` | `unknown_lane`、`runtime_stopped`、`unknown_payload_codec`、`capacity_rejected`、`duplicate_work_item`；未确认接纳为 `admission_unknown` |
+
+`data.error_class` 只作 Python 类型诊断，不是稳定机器分类或重试依据；上述事件不包含异常正文。`WORK_REJECTED` 的未知原因只说明 enqueue 没有确认成功，不证明 work 没有入库；调用方仍以返回值、异常和 Store 记录为准。编码失败在接纳前，已接纳 payload 解码失败仍进入 dead letter，执行重试仅由 lane 的 classifier 决定。
+
+API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、字段说明在 issues；SSE 开始后使用独立的流内 code/message 投影，保持事件名和终态顺序。结构与迁移见[错误模型](./error-model.md#7-http-api-与客户端呈现)。
 
 ## 5. `SystemEvent` 的状态
 

@@ -45,7 +45,7 @@ related_docs:
   - docs/patchouli/artifacts.md
   - docs/governance/security/identity-and-execution-safety.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # Workspace 架构
@@ -358,6 +358,8 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 ### 4.6 拒绝语义
 
 四个阶段的失败以稳定错误类型与 reason 区分：第 1、2 阶段的失败是 `AdmissionDeniedError`，第 3 阶段的失败是 `OperationDeniedError`，访问 context 无效（不是签发的或已撤销）是 `ScopeRequiredError`——生产入口经网关签发后不应出现，出现即为接线缺陷；把进程 context 或请求级 context 交给操作入口同样是接线缺陷。线程 context 已撤销是生命周期拒绝，以 `ThreadContextRevokedError` 区分：CPU 执行结束或进程关闭后迟到的 actor 请求得到它。reason、错误码与 HTTP 映射的完整表格只维护在[错误模型](../contracts/error-model.md)第 4.4 节。访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。
+
+会话和写入意图的异常定义由 `workspace.contracts.errors` 拥有；访问、共享资源与线程撤销类型仍在 `core.errors`。读取视图的缺失/不可见为中立资源失败，Profile 类型与配置失败消费 Patchouli 的公共错误。CALL 的共享引用需要 READ，授权拒绝不能静默跳过。线程撤销有稳定 code，Agent 出口明确提示停止操作；共同呈现与兼容规则见[错误模型](../contracts/error-model.md)。
 
 ### 4.7 装配
 
