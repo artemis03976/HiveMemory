@@ -32,13 +32,13 @@ class BaseMemoryExtractor(ABC):
         调用 LLM 将自然对话转换为结构化的记忆草稿。
 
     实现策略:
-        - LiteLLM 统一接口
+        - 经 LLM 服务接口异步调用，等待模型期间不阻塞事件循环
         - Pydantic 输出解析
-        - JSON 容错与重试
+        - JSON 容错与提供商失败重试
     """
 
     @abstractmethod
-    def extract(
+    async def extract(
         self, transcript: str, metadata: dict[str, Any]
     ) -> Optional["ExtractedMemoryDraft"]:
         """
@@ -50,14 +50,14 @@ class BaseMemoryExtractor(ABC):
                 身份归属一律由 WorkspaceIdentity 承载，不在此传递
 
         Returns:
-            ExtractedMemoryDraft: 提取的记忆草稿，失败时返回 None
+            ExtractedMemoryDraft: 提取的记忆草稿；模型输出为空或无法解析时返回 None
 
         Raises:
-            ExtractionError: LLM 调用失败或解析失败时抛出
+            ModelProviderError: 提供商失败且重试耗尽
 
         Examples:
-            >>> extractor = LLMMemoryExtractor(llm_config)
-            >>> draft = extractor.extract(
+            >>> extractor = LLMMemoryExtractor(config, llm_service, llm_params)
+            >>> draft = await extractor.extract(
             ...     transcript="User: 如何解析日期?\nAssistant: 使用 datetime...",
             ...     metadata={"mode": "B", "write_content": "待写入的记忆内容"}
             ... )
@@ -66,7 +66,7 @@ class BaseMemoryExtractor(ABC):
         """
         pass
 
-    def merge(
+    async def merge(
         self,
         old_content: str,
         metadata: dict[str, Any],
@@ -87,7 +87,10 @@ class BaseMemoryExtractor(ABC):
                 - transcript: 近期对话上下文
 
         Returns:
-            MergeResult: 合并结果，失败时返回 None
+            MergeResult: 合并结果；模型输出为空或无法解析时返回 None
+
+        Raises:
+            ModelProviderError: 提供商失败且重试耗尽
         """
         return None
 

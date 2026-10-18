@@ -293,7 +293,6 @@ class TestRuntimeRerankerAssembly:
         reranker_factory = Mock()
         with (
             patch("hivememory.infrastructure.storage.QdrantMemoryStore"),
-            patch("hivememory.infrastructure.llm.get_librarian_llm_service"),
             patch(
                 "hivememory.infrastructure.rerank.get_fast_embed_reranker_service",
                 reranker_factory,

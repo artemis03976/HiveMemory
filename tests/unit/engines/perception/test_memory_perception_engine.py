@@ -10,7 +10,7 @@
 纯单元测试：Engine 为唯一真实对象，RelayController 使用 mock。
 """
 
-from unittest.mock import Mock
+from unittest.mock import AsyncMock, Mock
 
 import pytest
 from pydantic import ValidationError
@@ -72,7 +72,7 @@ def _block(total_tokens=10) -> LogicalBlock:
 def _mock_relay():
     """创建 mock RelayController，用于不涉及摘要生成的测试。"""
     mock = Mock()
-    mock.generate_summary.return_value = "mocked summary"
+    mock.generate_summary = AsyncMock(return_value="mocked summary")
     return mock
 
 
@@ -266,7 +266,8 @@ class TestSelectBlocksToFold:
 
 
 class TestGenerateFoldSummary:
-    def test_delegates_to_relay_controller(self):
+    @pytest.mark.asyncio
+    async def test_delegates_to_relay_controller(self):
         mock_relay = _mock_relay()
         mock_relay.generate_summary.return_value = "summarized content"
         engine = MemoryPerceptionEngine(
@@ -274,10 +275,10 @@ class TestGenerateFoldSummary:
         )
         blocks = [_block(), _block()]
 
-        result = engine.generate_fold_summary(blocks, "previous summary")
+        result = await engine.generate_fold_summary(blocks, "previous summary")
 
         assert result == "summarized content"
-        mock_relay.generate_summary.assert_called_once_with(blocks, "previous summary")
+        mock_relay.generate_summary.assert_awaited_once_with(blocks, "previous summary")
 
 
 # ========== 配置契约 ==========

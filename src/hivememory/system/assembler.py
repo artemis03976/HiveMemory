@@ -4,6 +4,7 @@ HiveMemory 系统装配器
 将 HiveMemorySystem.build() 的关注层次拆分为独立方法：
   - _build_runtime     : 总线 / 事件 / 调度器 / WorkspaceAsset working set / workspace 读取运行时
   - _build_registries  : Provider & Model 注册表 + LLM 配置预解析
+  - _build_llm         : 共享 LLM 服务 + 组件请求参数
   - _build_capabilities: workspace 能力服务 / 操作入口
   - _build_subsystems  : Gateway + Patchouli + Alice
   - _build_services    : 任务进程与其他应用服务
@@ -28,8 +29,10 @@ from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceSc
 from hivememory.config.access import load_access_registration
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.config.runtime import RuntimeEventsConfig
+from hivememory.config.shared import LLMConfig
 from hivememory.core.access import WorkspaceOperation
 from hivememory.gateway import GatewaySystem
+from hivememory.infrastructure.llm import BaseLLMService, LiteLLMService, LLMRequestParams
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.access import (
     SystemActorAccessEntry,
@@ -95,6 +98,15 @@ class _RegistriesBundle:
 
 
 @dataclass
+class _LLMBundle:
+    """进程内唯一的 LLM 服务与各组件的请求参数；组件未配置模型时参数为 None。"""
+
+    service: BaseLLMService
+    gateway_params: LLMRequestParams | None
+    librarian_params: LLMRequestParams | None
+
+
+@dataclass
 class _AccessControlBundle:
     """访问控制产物：两类注册表、认证一侧、操作授权者与统一认证网关。"""
 
@@ -139,6 +151,28 @@ class _ServicesBundle:
 
 
 # ---------------------------------------------------------------------------
+# 组件 LLM 请求参数
+# ---------------------------------------------------------------------------
+
+
+def component_llm_params(config: LLMConfig) -> LLMRequestParams | None:
+    """把已解析的组件 LLM 配置转换为请求参数；未配置模型时返回 ``None``。
+
+    组件侧只发送模型、凭证、temperature 与 max_tokens：``top_p`` 与停止序列
+    不属于组件调参，交给提供商默认值。
+    """
+    if config.model is None:
+        return None
+    return LLMRequestParams(
+        model=config.model,
+        api_key=config.api_key,
+        api_base=config.api_base,
+        temperature=config.temperature,
+        max_tokens=config.max_tokens,
+    )
+
+
+# ---------------------------------------------------------------------------
 # SystemAssembler
 # ---------------------------------------------------------------------------
 
@@ -163,9 +197,10 @@ class SystemAssembler:
 
         runtime = self._build_runtime()
         registries = self._build_registries()
+        llm = self._build_llm()
         access_control = self._build_access_control()
         capabilities = self._build_capabilities(runtime, access_control)
-        subsystems = self._build_subsystems(runtime, registries, capabilities)
+        subsystems = self._build_subsystems(runtime, registries, llm, capabilities)
         services = self._build_services(runtime, subsystems, access_control)
 
         return HiveMemorySystem(
@@ -257,6 +292,18 @@ class SystemAssembler:
         return _RegistriesBundle(
             provider_registry=provider_registry,
             model_registry=model_registry,
+        )
+
+    def _build_llm(self) -> _LLMBundle:
+        """创建唯一的 LLM 服务，并把已预解析的组件配置各自转换为请求参数。
+
+        服务无状态、可被全部使用方共享；两个组件的模型、凭证与采样参数只由
+        各自的配置段决定，互不影响。
+        """
+        return _LLMBundle(
+            service=LiteLLMService(),
+            gateway_params=component_llm_params(self._config.shared.llm.gateway),
+            librarian_params=component_llm_params(self._config.shared.llm.librarian),
         )
 
     # ------------------------------------------------------------------
@@ -379,6 +426,7 @@ class SystemAssembler:
         self,
         runtime: _RuntimeBundle,
         registries: _RegistriesBundle,
+        llm: _LLMBundle,
         capabilities: _CapabilitiesBundle,
     ) -> _SubsystemBundle:
         # 组合根把根配置拆成各子系统自己的配置段注入，子系统不依赖根配置类型。
@@ -386,7 +434,8 @@ class SystemAssembler:
             config=self._config.gateway,
             global_bus=runtime.global_bus,
             runtime_events=runtime.event_sink.scoped("gateway"),
-            llm_config=self._config.get_gateway_llm_config(),
+            llm_service=llm.service,
+            llm_params=llm.gateway_params,
         )
 
         patchouli = PatchouliSystem(
@@ -401,6 +450,8 @@ class SystemAssembler:
             # 公开路由只接收授权点组装的 IdentityScope。
             shared_config=self._config.shared,
             scheduler_config=self._config.scheduler,
+            llm_service=llm.service,
+            llm_params=llm.librarian_params,
         )
 
         alice = AliceSystem(

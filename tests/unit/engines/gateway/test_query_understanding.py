@@ -4,18 +4,18 @@ from __future__ import annotations
 
 import asyncio
 import time
-from unittest.mock import AsyncMock
 
-import litellm
 import pytest
 
 from hivememory.config.gateway import UserQueryAnalysisConfig
+from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import ActorIdentity, LogicalBlock, TopicData, TurnRecord
 from hivememory.core.protocol.gateway import IntentType, MemoryWriteSignal
 from hivememory.engines.gateway.query_understanding import (
     QueryUnderstandingEngine,
     QueryUnderstandingError,
 )
+from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -42,8 +42,7 @@ def _build_topic_data() -> TopicData:
 
 @pytest.mark.asyncio
 async def test_analyze_parses_shared_result_and_renders_context() -> None:
-    llm = AsyncMock()
-    llm.acomplete_json.return_value = (
+    llm = ScriptedLLMService(
         '{"intent_type":"RAG",'
         '"rewritten_query":"Docker OOM 内存溢出报错的排查原因与修复方案",'
         '"search_keywords":["Docker","OOM","内存溢出"],'
@@ -51,7 +50,9 @@ async def test_analyze_parses_shared_result_and_renders_context() -> None:
         '"sub_intents":[],'
         '"reason":"技术问答"}'
     )
-    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
+    engine = QueryUnderstandingEngine(
+        config=UserQueryAnalysisConfig(), llm_service=llm, llm_params=DEFAULT_LLM_PARAMS
+    )
 
     result = await engine.analyze("那个报错怎么修？", topic_data=_build_topic_data())
 
@@ -61,39 +62,61 @@ async def test_analyze_parses_shared_result_and_renders_context() -> None:
     assert result.memory_write_signal == MemoryWriteSignal.WRITE
     assert result.sub_intents == ()
 
-    messages = llm.acomplete_json.await_args.kwargs["messages"]
+    messages = llm.calls[-1].messages
     system_prompt = messages[0]["content"]
     assert "Docker 部署" in system_prompt
     assert "那个报错怎么修？" in system_prompt
     assert messages[1] == {"role": "user", "content": "那个报错怎么修？"}
+    # 组件参数原样沿用，只追加 JSON 输出要求。
+    assert llm.calls[-1].params == DEFAULT_LLM_PARAMS.model_copy(update={"json_output": True})
+
+
+@pytest.mark.asyncio
+async def test_model_override_replaces_only_the_model() -> None:
+    """配置的模型覆盖只替换模型，凭证与采样参数沿用 Gateway 组件配置。"""
+    llm = ScriptedLLMService('{"intent_type":"RAG","rewritten_query":"重写结果"}')
+    params = DEFAULT_LLM_PARAMS.model_copy(update={"api_key": "gateway-key"})
+    engine = QueryUnderstandingEngine(
+        config=UserQueryAnalysisConfig(model_override="override-model"),
+        llm_service=llm,
+        llm_params=params,
+    )
+
+    await engine.analyze("查询")
+
+    assert llm.calls[-1].params == params.model_copy(
+        update={"model": "override-model", "json_output": True}
+    )
 
 
 @pytest.mark.asyncio
 async def test_analyze_without_topic_data_uses_empty_context() -> None:
-    llm = AsyncMock()
-    llm.acomplete_json.return_value = (
+    llm = ScriptedLLMService(
         '{"intent_type":"WRITE","rewritten_query":"用户偏好少盐饮食",'
         '"search_keywords":["少盐"],"memory_write_signal":"WRITE",'
         '"sub_intents":[],"reason":"偏好陈述"}'
     )
-    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
+    engine = QueryUnderstandingEngine(
+        config=UserQueryAnalysisConfig(), llm_service=llm, llm_params=DEFAULT_LLM_PARAMS
+    )
 
     result = await engine.analyze("以后做菜少放盐", topic_data=None)
 
     assert result.intent_type == IntentType.WRITE
-    messages = llm.acomplete_json.await_args.kwargs["messages"]
+    messages = llm.calls[-1].messages
     assert "{topic_context}" not in messages[0]["content"]
 
 
 @pytest.mark.asyncio
 async def test_analyze_applies_lenient_defaults_for_optional_fields() -> None:
-    llm = AsyncMock()
-    llm.acomplete_json.return_value = (
+    llm = ScriptedLLMService(
         '{"intent_type":"NOT_A_REAL_INTENT","rewritten_query":"重写结果",'
         '"search_keywords":"not-a-list","memory_write_signal":"BAD",'
         '"sub_intents":null}'
     )
-    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
+    engine = QueryUnderstandingEngine(
+        config=UserQueryAnalysisConfig(), llm_service=llm, llm_params=DEFAULT_LLM_PARAMS
+    )
 
     result = await engine.analyze("查询", topic_data=None)
 
@@ -105,20 +128,21 @@ async def test_analyze_applies_lenient_defaults_for_optional_fields() -> None:
 
 @pytest.mark.asyncio
 async def test_analyze_respects_configurable_context_limits() -> None:
-    llm = AsyncMock()
-    llm.acomplete_json.return_value = (
+    payload = (
         '{"intent_type":"RAG","rewritten_query":"重写结果",'
         '"search_keywords":[],"memory_write_signal":"UNKNOWN",'
         '"sub_intents":[],"reason":""}'
     )
+    llm = ScriptedLLMService(payload, payload)
     engine = QueryUnderstandingEngine(
         config=UserQueryAnalysisConfig(context_block_limit=0, context_text_limit=4),
         llm_service=llm,
+        llm_params=DEFAULT_LLM_PARAMS,
     )
 
     await engine.analyze("查询", topic_data=_build_topic_data())
 
-    system_prompt = llm.acomplete_json.await_args.kwargs["messages"][0]["content"]
+    system_prompt = llm.calls[-1].messages[0]["content"]
     # block_limit=0 时不渲染任何历史轮次
     assert "user: " not in system_prompt
     assert "assistant: " not in system_prompt
@@ -128,6 +152,7 @@ async def test_analyze_respects_configurable_context_limits() -> None:
     engine = QueryUnderstandingEngine(
         config=UserQueryAnalysisConfig(context_block_limit=1, context_text_limit=4),
         llm_service=llm,
+        llm_params=DEFAULT_LLM_PARAMS,
     )
 
     now = time.time()
@@ -149,7 +174,7 @@ async def test_analyze_respects_configurable_context_limits() -> None:
 
     await engine.analyze("查询", topic_data=topic_data)
 
-    system_prompt = llm.acomplete_json.await_args.kwargs["messages"][0]["content"]
+    system_prompt = llm.calls[-1].messages[0]["content"]
     # text_limit=4 时历史文本被截断
     assert "user: 上一轮用" in system_prompt
     assert "上一轮用户输入的很长内容" not in system_prompt
@@ -157,7 +182,9 @@ async def test_analyze_respects_configurable_context_limits() -> None:
 
 @pytest.mark.asyncio
 async def test_analyze_raises_without_llm_service() -> None:
-    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=None)
+    engine = QueryUnderstandingEngine(
+        config=UserQueryAnalysisConfig(), llm_service=None, llm_params=DEFAULT_LLM_PARAMS
+    )
 
     with pytest.raises(QueryUnderstandingError):
         await engine.analyze("查询", topic_data=None)
@@ -165,9 +192,10 @@ async def test_analyze_raises_without_llm_service() -> None:
 
 @pytest.mark.asyncio
 async def test_analyze_raises_on_missing_rewritten_query() -> None:
-    llm = AsyncMock()
-    llm.acomplete_json.return_value = '{"intent_type":"RAG","rewritten_query":"  "}'
-    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
+    llm = ScriptedLLMService('{"intent_type":"RAG","rewritten_query":"  "}')
+    engine = QueryUnderstandingEngine(
+        config=UserQueryAnalysisConfig(), llm_service=llm, llm_params=DEFAULT_LLM_PARAMS
+    )
 
     with pytest.raises(QueryUnderstandingError):
         await engine.analyze("查询", topic_data=None)
@@ -175,10 +203,11 @@ async def test_analyze_raises_on_missing_rewritten_query() -> None:
 
 @pytest.mark.asyncio
 async def test_analyze_wraps_llm_failure() -> None:
-    llm = AsyncMock()
-    failure = litellm.ServiceUnavailableError("provider-private", llm_provider="test", model="test")
-    llm.acomplete_json.side_effect = failure
-    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
+    failure = ModelProviderError("provider-private")
+    llm = ScriptedLLMService(failure)
+    engine = QueryUnderstandingEngine(
+        config=UserQueryAnalysisConfig(), llm_service=llm, llm_params=DEFAULT_LLM_PARAMS
+    )
 
     with pytest.raises(QueryUnderstandingError, match="提供商调用失败") as caught:
         await engine.analyze("查询", topic_data=None)
@@ -190,9 +219,10 @@ async def test_analyze_wraps_llm_failure() -> None:
 @pytest.mark.parametrize("failure", [TypeError("broken projection"), asyncio.CancelledError()])
 async def test_analyze_propagates_program_errors_and_cancellation(failure):
     """未知故障与取消不得成为可降级的能力失败。"""
-    llm = AsyncMock()
-    llm.acomplete_json.side_effect = failure
-    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
+    llm = ScriptedLLMService(failure)
+    engine = QueryUnderstandingEngine(
+        config=UserQueryAnalysisConfig(), llm_service=llm, llm_params=DEFAULT_LLM_PARAMS
+    )
     with pytest.raises(type(failure)) as caught:
         await engine.analyze("查询")
     assert caught.value is failure
@@ -201,8 +231,9 @@ async def test_analyze_propagates_program_errors_and_cancellation(failure):
 @pytest.mark.asyncio
 async def test_analyze_classifies_invalid_model_json():
     """模型格式无效是预期输出失败，仍可由 Gateway 保守降级。"""
-    llm = AsyncMock()
-    llm.acomplete_json.return_value = "not json"
-    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
+    llm = ScriptedLLMService("not json")
+    engine = QueryUnderstandingEngine(
+        config=UserQueryAnalysisConfig(), llm_service=llm, llm_params=DEFAULT_LLM_PARAMS
+    )
     with pytest.raises(QueryUnderstandingError, match="无效 JSON"):
         await engine.analyze("查询")

@@ -4,7 +4,7 @@
 定位：记忆域 Runtime 宿主 与 State Manager (状态管理器)
 职责：
     - 管理 Perception/Retrieval/Generation/Lifecycle 使魔与生成协调器
-    - 基础设施初始化（存储、Librarian LLM、Reranker）
+    - 基础设施初始化（存储、Reranker），持有组合根注入的 Librarian LLM
     - 引擎构建（Perception、Generation、Lifecycle、Retrieval）
     - 持有 Patchouli local bus 与内部能力路由
     - 提供 warmup / health / shutdown drain 等运行时能力
@@ -66,6 +66,7 @@ from hivememory.patchouli.runtime.shutdown_drain import (
 )
 
 if TYPE_CHECKING:
+    from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
     from hivememory.infrastructure.rerank import FastEmbedRerankerService
     from hivememory.patchouli.control.memory_generation import MemoryGenerationCoordinator
     from hivememory.patchouli.memory_library import MemoryLibrary
@@ -95,7 +96,7 @@ class PatchouliRuntime:
     记忆域运行时装配根，管理感知、检索、生成、生命周期等内部服务。
 
     职责:
-        - 基础设施初始化 (storage, LLM, embedding, reranker)
+        - 基础设施初始化 (storage, embedding, reranker)；LLM 由组合根注入
         - 引擎构建 (perception, generation, lifecycle, retrieval)
         - 服务注册与持有
         - 持有 Patchouli local bus 与内部能力路由
@@ -119,10 +120,17 @@ class PatchouliRuntime:
         shared_config: SharedConfig,
         runtime_events: RuntimeEventSink | None = None,
         workspace_asset_reader=None,
+        *,
+        llm_service: BaseLLMService | None = None,
+        llm_params: LLMRequestParams | None = None,
     ):
         self._patchouli_config = patchouli_config
         self._shared_config = shared_config
         self._runtime_events = runtime_events or NullRuntimeEventSink()
+        # Librarian LLM：共享服务与组件请求参数由组合根注入；缺少任一项时
+        # 记忆抽取以 No-Op 运行，Page Folding 回退为简单摘要。
+        self._llm_service = llm_service
+        self._llm_params = llm_params
         # 进程级唯一 WorkspaceAssetStore 的只读 reader：供记忆生成
         # 使魔在 promotion 时按 binding.asset_ref acquire 内容。
         self._workspace_asset_reader = workspace_asset_reader
@@ -311,19 +319,13 @@ class PatchouliRuntime:
         """
         初始化运行时基础设施组件（单例服务）
 
-        包含：存储层、Librarian LLM、Reranker、MemoryLibrary
+        包含：存储层、Reranker、MemoryLibrary
         """
         from hivememory.infrastructure.storage import QdrantMemoryStore
 
         self.storage = QdrantMemoryStore(
             qdrant_config=self._patchouli_config.storage,
             embedding_config=self._shared_config.embedding.default,
-        )
-
-        from hivememory.infrastructure.llm import get_librarian_llm_service
-
-        self.librarian_llm_service = get_librarian_llm_service(
-            config=self._shared_config.llm.librarian
         )
 
         from hivememory.infrastructure.rerank import get_fast_embed_reranker_service
@@ -441,7 +443,8 @@ class PatchouliRuntime:
         )
         relay_controller = create_relay_controller(
             config=relay_config,
-            llm_service=self.librarian_llm_service,
+            llm_service=self._llm_service,
+            llm_params=self._llm_params,
         )
         return MemoryPerceptionEngine(config=impl_config, relay_controller=relay_controller)
 
@@ -468,7 +471,8 @@ class PatchouliRuntime:
 
         extractor: BaseMemoryExtractor = create_extractor(
             config.extractor,
-            self.librarian_llm_service,
+            self._llm_service,
+            self._llm_params,
         )
 
         deduplicator: BaseDeduplicator = create_deduplicator(config.deduplicator)

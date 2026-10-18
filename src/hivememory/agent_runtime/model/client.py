@@ -16,8 +16,8 @@ from typing import Any
 
 import litellm
 
-from hivememory.agent_runtime.model.budget import ModelContextWindowExceededError
 from hivememory.core.constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE, DEFAULT_TOP_P
+from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
 from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
@@ -26,10 +26,6 @@ from hivememory.core.mtp.models import (
 from hivememory.infrastructure.llm.errors import LLM_PROVIDER_ERRORS
 
 logger = logging.getLogger(__name__)
-
-
-class ModelProviderError(Exception):
-    """模型提供商拒绝或未能完成请求；原始异常保留在 cause 链中。"""
 
 
 @dataclass
@@ -265,5 +261,4 @@ __all__ = [
     "GenerationResult",
     "StreamChunk",
     "LLMClient",
-    "ModelProviderError",
 ]

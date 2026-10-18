@@ -53,7 +53,7 @@ USER_HEADERS = {"x-user-id": "user-1"}
 class _Extractor:
     """LLM 提取端口的确定性替身，让真实生成链继续进入向量查询。"""
 
-    def extract(self, **_kwargs) -> ExtractedMemoryDraft:
+    async def extract(self, **_kwargs) -> ExtractedMemoryDraft:
         return ExtractedMemoryDraft(
             title="待取消的记忆",
             summary="等待外部向量查询",

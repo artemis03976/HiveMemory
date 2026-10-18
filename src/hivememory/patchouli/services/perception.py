@@ -286,7 +286,7 @@ class PerceptionFamiliar:
         )
         if not blocks_to_fold:
             return
-        summary = engine.generate_fold_summary(blocks_to_fold, topic.state_summary)
+        summary = await engine.generate_fold_summary(blocks_to_fold, topic.state_summary)
         retained = topic.blocks[len(blocks_to_fold) :]
         self._store.put(
             topic.model_copy(

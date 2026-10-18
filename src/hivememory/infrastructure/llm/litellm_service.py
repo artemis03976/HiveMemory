@@ -1,383 +1,167 @@
 """
 HiveMemory LiteLLM 服务实现
 
-封装 litellm.completion() 调用，支持重试机制。
+``BaseLLMService`` 的唯一实现：SDK 参数构造、响应解析、流的迭代与关闭、
+异常转换与 JSON 模式回退。服务无状态，不读取配置、不持有默认模型，可被
+全部使用方共享。
 """
 
+from __future__ import annotations
+
+import asyncio
+import inspect
 import logging
+from collections.abc import AsyncGenerator, Iterator
+from contextlib import contextmanager
 from typing import Any
 
 import litellm
 
-from hivememory.config.shared import LLMConfig
-from hivememory.infrastructure.llm.base import ConfiguredLLMService
+from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
+from hivememory.infrastructure.llm.base import (
+    BaseLLMService,
+    LLMCompletion,
+    LLMRequestParams,
+    LLMStreamChunk,
+    LLMUsage,
+)
+from hivememory.infrastructure.llm.errors import LLM_PROVIDER_ERRORS
 
 logger = logging.getLogger(__name__)
 
-
-def _response_text(response: Any, model: str | None) -> str:
-    """取出首个 choice 的文本内容；provider 未返回文本时显式失败。"""
-    content = response.choices[0].message.content
-    if not isinstance(content, str):
-        raise ValueError(f"LLM 响应缺少文本内容 (model={model})")
-    return content
+_JSON_RESPONSE_FORMAT = {"type": "json_object"}
 
 
-class LiteLLMService(ConfiguredLLMService):
+@contextmanager
+def _translate_provider_errors() -> Iterator[None]:
+    """把 SDK 的超窗与提供商失败转换为中立错误；其他异常与取消原样传播。
+
+    超窗在 SDK 中是请求错误的子类，必须先于提供商失败判断。
+    """
+    try:
+        yield
+    except litellm.ContextWindowExceededError as error:
+        raise ModelContextWindowExceededError("Model context window exceeded.") from error
+    except LLM_PROVIDER_ERRORS as error:
+        raise ModelProviderError("Model provider request failed.") from error
+
+
+def _sdk_arguments(messages: list[dict[str, str]], params: LLMRequestParams) -> dict[str, Any]:
+    """按请求参数逐项构造 SDK 参数，不补入请求未携带的项。"""
+    arguments: dict[str, Any] = {"model": params.model, "messages": messages}
+    optional = {
+        "api_key": params.api_key,
+        "api_base": params.api_base,
+        "temperature": params.temperature,
+        "top_p": params.top_p,
+        "max_tokens": params.max_tokens,
+    }
+    arguments.update({key: value for key, value in optional.items() if value is not None})
+    if params.stop:
+        arguments["stop"] = list(params.stop)
+    return arguments
+
+
+async def _request(arguments: dict[str, Any], *, json_output: bool) -> Any:
+    """发出一次 SDK 请求；JSON 模式只在 SDK 明确不支持该参数时退回普通补全。"""
+    if json_output:
+        try:
+            return await litellm.acompletion(**arguments, response_format=_JSON_RESPONSE_FORMAT)
+        except litellm.UnsupportedParamsError:
+            logger.warning("LLM JSON 参数不受支持，回退为提示词 JSON: model=%s", arguments["model"])
+    return await litellm.acompletion(**arguments)
+
+
+def _usage(response: Any) -> LLMUsage | None:
+    usage = getattr(response, "usage", None)
+    total_tokens = getattr(usage, "total_tokens", None) if usage else None
+    return LLMUsage(total_tokens=total_tokens) if isinstance(total_tokens, int) else None
+
+
+async def _close_response(response: Any) -> None:
+    """关闭底层流式响应；关闭失败只记录日志，不替换正在传播的异常或取消。"""
+    close = getattr(response, "aclose", None)
+    if not callable(close):
+        return
+    try:
+        close_result = close()
+        if inspect.isawaitable(close_result):
+            await close_result
+    except asyncio.CancelledError:
+        raise
+    except Exception:
+        logger.warning("关闭 LLM 流式响应失败", exc_info=True)
+
+
+class LiteLLMService(BaseLLMService):
     """
     LiteLLM 服务实现
 
-    使用 litellm 库统一调用各种 LLM 提供商。
-
-    特性:
-        - 统一的 API 接口
-        - 自动重试机制
-        - 可选的流式输出支持（未来扩展）
-        - 详细的日志记录
+    使用 litellm 库统一调用各种 LLM 提供商；组合根创建的同一实例由各使用方
+    共享，每次调用的模型与采样参数都来自请求参数。
     """
 
-    def complete(
+    async def _complete(
         self,
         messages: list[dict[str, str]],
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        **kwargs,
-    ) -> str:
-        """
-        生成聊天补全
+        params: LLMRequestParams,
+    ) -> LLMCompletion:
+        """执行一次完整调用；提供商没有返回文本时以提供商失败结束。"""
+        logger.debug("调用 LLM: %s, 消息数: %s", params.model, len(messages))
+        with _translate_provider_errors():
+            response = await _request(
+                _sdk_arguments(messages, params), json_output=params.json_output
+            )
 
-        Args:
-            messages: 消息列表
-            temperature: 温度参数（None 则使用实例默认值）
-            max_tokens: 最大 token 数（None 则使用实例默认值）
-            **kwargs: 传递给 litellm.completion 的额外参数
+        choice = response.choices[0] if response.choices else None
+        content = choice.message.content if choice is not None else None
+        if choice is None or not isinstance(content, str):
+            logger.warning("LLM 响应缺少文本内容 (model=%s)", params.model)
+            raise ModelProviderError("Model provider returned no text.")
 
-        Returns:
-            str: LLM 响应内容
-
-        Raises:
-            Exception: LLM 调用失败时抛出
-        """
-        logger.debug(f"调用 LLM: {self.model}, 消息数: {len(messages)}")
-
-        response = litellm.completion(
-            model=self.model,
-            messages=messages,
-            api_key=self.api_key,
-            api_base=self.api_base,
-            temperature=temperature if temperature is not None else self.temperature,
-            max_tokens=max_tokens if max_tokens is not None else self.max_tokens,
-            **kwargs,
+        completion = LLMCompletion(
+            text=content,
+            finish_reason=choice.finish_reason or None,
+            usage=_usage(response),
         )
-
-        content = _response_text(response, self.model)
-
-        # 记录 token 使用情况
-        if hasattr(response, "usage") and response.usage:
-            logger.info(
-                f"LLM 调用成功 (model={self.model}, " f"tokens={response.usage.total_tokens})"
-            )
-        else:
-            logger.info(f"LLM 调用成功 (model={self.model})")
-
-        logger.debug(f"LLM 响应长度: {len(content)} 字符")
-
-        return content
-
-    def complete_with_tools(
-        self,
-        messages: list[dict[str, str]],
-        tools: list[dict[str, Any]] | None = None,
-        tool_choice: dict[str, Any] | None = None,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        **kwargs,
-    ) -> Any:
-        """
-        生成聊天补全（支持 Function Calling）
-
-        用于 Global Gateway 等需要使用 Function Calling 的场景。
-        返回完整的响应对象，包含 tool_calls 等信息。
-
-        Args:
-            messages: 消息列表
-            tools: Function Calling 工具定义列表
-            tool_choice: 工具选择策略 (如 {"type": "function", "function": {"name": "..."}})
-            temperature: 温度参数（None 则使用实例默认值）
-            max_tokens: 最大 token 数（None 则使用实例默认值）
-            **kwargs: 其他传递给 litellm.completion 的参数
-
-        Returns:
-            Any: 完整的 litellm 响应对象
-
-        Raises:
-            Exception: LLM 调用失败时抛出
-
-        Examples:
-            >>> response = service.complete_with_tools(
-            ...     messages=[{"role": "user", "content": "What's the weather?"}],
-            ...     tools=[{"type": "function", "function": {...}}],
-            ...     tool_choice={"type": "function", "function": {"name": "get_weather"}},
-            ... )
-            >>> if response.choices[0].message.tool_calls:
-            ...     tool_call = response.choices[0].message.tool_calls[0]
-            ...     args = json.loads(tool_call.function.arguments)
-        """
-        logger.debug(
-            f"调用 LLM (with tools): {self.model}, "
-            f"消息数: {len(messages)}, 工具数: {len(tools) if tools else 0}"
+        logger.info(
+            "LLM 调用成功 (model=%s, tokens=%s, finish_reason=%s)",
+            params.model,
+            completion.usage.total_tokens if completion.usage else None,
+            completion.finish_reason,
         )
+        return completion
 
-        # 构建 litellm 参数
-        llm_params: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "api_key": self.api_key,
-            "api_base": self.api_base,
-            "temperature": temperature if temperature is not None else self.temperature,
-            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
-        }
-
-        # 添加 Function Calling 参数
-        if tools:
-            llm_params["tools"] = tools
-        if tool_choice:
-            llm_params["tool_choice"] = tool_choice
-
-        # 添加额外的 kwargs
-        llm_params.update(kwargs)
-
-        response = litellm.completion(**llm_params)
-
-        # 记录 token 使用情况
-        if hasattr(response, "usage") and response.usage:
-            logger.info(
-                f"LLM 调用成功 (model={self.model}, "
-                f"tokens={response.usage.total_tokens}, "
-                f"tool_calls={bool(response.choices[0].message.tool_calls) if response.choices else False})"
-            )
-        else:
-            logger.info(f"LLM 调用成功 (model={self.model})")
-
-        return response
-
-    async def acomplete_with_tools(
-        self, messages, tools=None, tool_choice=None, temperature=None, max_tokens=None, **kwargs
-    ):
-        llm_params: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "api_key": self.api_key,
-            "api_base": self.api_base,
-            "temperature": temperature if temperature is not None else self.temperature,
-            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
-        }
-        if tools:
-            llm_params["tools"] = tools
-        if tool_choice:
-            llm_params["tool_choice"] = tool_choice
-        llm_params.update(kwargs)
-
-        response = await litellm.acompletion(**llm_params)
-
-        if hasattr(response, "usage") and response.usage:
-            logger.info(
-                f"LLM 调用成功 (model={self.model}, "
-                f"tokens={response.usage.total_tokens}, "
-                f"tool_calls={bool(response.choices[0].message.tool_calls) if response.choices else False})"
-            )
-        else:
-            logger.info(f"LLM 调用成功 (model={self.model})")
-
-        return response
-
-    async def acomplete_json(
+    async def _stream(
         self,
         messages: list[dict[str, str]],
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        **kwargs,
-    ) -> str:
-        llm_params: dict[str, Any] = {
-            "model": self.model,
-            "messages": messages,
-            "api_key": self.api_key,
-            "api_base": self.api_base,
-            "temperature": temperature if temperature is not None else self.temperature,
-            "max_tokens": max_tokens if max_tokens is not None else self.max_tokens,
-        }
-        llm_params.update(kwargs)
+        params: LLMRequestParams,
+    ) -> AsyncGenerator[LLMStreamChunk, None]:
+        """流式调用；建立请求与每次拉取采用与完整调用相同的异常转换。"""
+        arguments = {**_sdk_arguments(messages, params), "stream": True}
+        with _translate_provider_errors():
+            response = await _request(arguments, json_output=params.json_output)
 
+        finish_reason: str | None = None
         try:
-            response = await litellm.acompletion(
-                **llm_params,
-                response_format={"type": "json_object"},
-            )
-        except litellm.UnsupportedParamsError:
-            logger.warning(
-                "LLM JSON 参数不受支持，回退为提示词 JSON: model=%s",
-                self.model,
-            )
-            response = await litellm.acompletion(**llm_params)
-
-        content = _response_text(response, self.model)
-
-        if hasattr(response, "usage") and response.usage:
-            logger.info(
-                f"LLM JSON 调用成功 (model={self.model}, " f"tokens={response.usage.total_tokens})"
-            )
-        else:
-            logger.info(f"LLM JSON 调用成功 (model={self.model})")
-
-        return content
-
-    def complete_with_retry(
-        self, messages: list[dict[str, str]], max_retries: int = 2, **kwargs
-    ) -> str | None:
-        """
-        带重试机制的补全（覆盖基类实现，添加更详细的日志）
-
-        Args:
-            messages: 消息列表
-            max_retries: 最大重试次数
-            **kwargs: 其他参数
-
-        Returns:
-            Optional[str]: LLM 响应内容，失败时返回 None
-        """
-        for attempt in range(max_retries):
-            try:
-                logger.debug(f"调用 LLM (尝试 {attempt + 1}/{max_retries})...")
-                result = self.complete(messages, **kwargs)
-                return result
-
-            except Exception as e:
-                logger.warning(f"LLM 调用失败 (尝试 {attempt + 1}/{max_retries}): {e}")
-
-                # 最后一次尝试失败时才记录警告
-                if attempt == max_retries - 1:
-                    logger.warning(f"LLM 调用失败，重试耗尽: {e}")
-
-        return None
-
-    async def acomplete(
-        self,
-        messages: list[dict[str, str]],
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        **kwargs,
-    ) -> str:
-        """
-        异步生成聊天补全
-
-        并发范式:
-            这是热链路 LLM 调用，使用 await 确保阻塞。
-
-        Args:
-            messages: 消息列表
-            temperature: 温度参数（None 则使用实例默认值）
-            max_tokens: 最大 token 数（None 则使用实例默认值）
-            **kwargs: 传递给 litellm.acompletion 的额外参数
-
-        Returns:
-            str: LLM 响应内容
-
-        Raises:
-            Exception: LLM 调用失败时抛出
-        """
-        logger.debug(f"调用 LLM (async): {self.model}, 消息数: {len(messages)}")
-
-        response = await litellm.acompletion(
-            model=self.model,
-            messages=messages,
-            api_key=self.api_key,
-            api_base=self.api_base,
-            temperature=temperature if temperature is not None else self.temperature,
-            max_tokens=max_tokens if max_tokens is not None else self.max_tokens,
-            **kwargs,
-        )
-        content = _response_text(response, self.model)
-
-        # 记录 token 使用情况
-        if hasattr(response, "usage") and response.usage:
-            logger.info(
-                f"LLM 调用成功 (model={self.model}, " f"tokens={response.usage.total_tokens})"
-            )
-        else:
-            logger.info(f"LLM 调用成功 (model={self.model})")
-
-        logger.debug(f"LLM 响应长度: {len(content)} 字符")
-
-        return content
-
-    async def acomplete_with_retry(
-        self, messages: list[dict[str, str]], max_retries: int = 2, **kwargs
-    ) -> str | None:
-        """
-        带重试机制的异步补全
-
-        Args:
-            messages: 消息列表
-            max_retries: 最大重试次数
-            **kwargs: 其他参数
-
-        Returns:
-            Optional[str]: LLM 响应内容，失败时返回 None
-        """
-        for attempt in range(max_retries):
-            try:
-                logger.debug(f"调用 LLM (async, 尝试 {attempt + 1}/{max_retries})...")
-                return await self.acomplete(messages, **kwargs)
-            except Exception as e:
-                logger.warning(f"LLM 调用失败 (async, 尝试 {attempt + 1}/{max_retries}): {e}")
-        return None
+            chunks = response.__aiter__()
+            while True:
+                try:
+                    with _translate_provider_errors():
+                        chunk = await anext(chunks)
+                except StopAsyncIteration:
+                    break
+                choice = chunk.choices[0] if chunk.choices else None
+                if choice is None:
+                    continue
+                if choice.finish_reason:
+                    finish_reason = choice.finish_reason
+                delta = choice.delta.content or ""
+                if delta:
+                    yield LLMStreamChunk(delta=delta)
+            yield LLMStreamChunk(finish_reason=finish_reason)
+        finally:
+            await _close_response(response)
 
 
-# ========== 工厂函数 ==========
-
-
-def get_gateway_llm_service(
-    config: LLMConfig,
-) -> LiteLLMService:
-    """
-    获取 Gateway LLM 服务实例
-
-    用于路由与指代消解等场景。
-
-    Args:
-        config: LLM 配置对象（必须提供）
-
-    Returns:
-        LiteLLMService: Gateway LLM 服务实例
-    """
-    if config is None:
-        raise ValueError("config is required for get_gateway_llm_service")
-
-    return LiteLLMService(config=config)
-
-
-def get_librarian_llm_service(
-    config: LLMConfig,
-) -> LiteLLMService:
-    """
-    获取 Librarian LLM 服务实例
-
-    用于记忆提取等任务。
-
-    Args:
-        config: LLM 配置对象（必须提供）
-
-    Returns:
-        LiteLLMService: Librarian LLM 服务实例
-    """
-    if config is None:
-        raise ValueError("config is required for get_librarian_llm_service")
-
-    return LiteLLMService(config=config)
-
-
-__all__ = [
-    "LiteLLMService",
-    "get_gateway_llm_service",
-    "get_librarian_llm_service",
-]
+__all__ = ["LiteLLMService"]

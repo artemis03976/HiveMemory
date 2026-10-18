@@ -13,8 +13,8 @@ from unittest.mock import Mock, patch
 import litellm
 import pytest
 
-from hivememory.agent_runtime.model.budget import ModelContextWindowExceededError
-from hivememory.agent_runtime.model.client import LLMClient, ModelProviderError
+from hivememory.agent_runtime.model.client import LLMClient
+from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER, MTP_STOP_SEQUENCE
 
 

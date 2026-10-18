@@ -10,15 +10,14 @@ Resolver 的私有实现细节，后续按观测数据决定是否拆分。
 
 from __future__ import annotations
 
-from typing import Any
-
 from hivememory.config.gateway import UserQueryAnalysisConfig
+from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import TopicData
 from hivememory.core.protocol.gateway import GatewaySessionTurn, IntentType, MemoryWriteSignal
+from hivememory.engines.gateway.llm import json_analysis_params
 from hivememory.engines.gateway.models import QueryUnderstandingResult
 from hivememory.i18n import resolve_language
-from hivememory.infrastructure.llm.base import BaseLLMService
-from hivememory.infrastructure.llm.errors import LLM_PROVIDER_ERRORS
+from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
 from hivememory.prompts.gateway import (
     get_query_understanding_system_prompt,
     session_history_messages,
@@ -38,9 +37,12 @@ class QueryUnderstandingEngine:
         *,
         config: UserQueryAnalysisConfig,
         llm_service: BaseLLMService | None,
+        llm_params: LLMRequestParams | None,
     ) -> None:
+        """``llm_params`` 来自 Gateway 的组件 LLM 配置，缺少服务或参数时能力不可用。"""
         self._config = config
         self._llm_service = llm_service
+        self._llm_params = json_analysis_params(llm_params, config.model_override)
         self._language = resolve_language().value
 
     async def analyze(
@@ -52,27 +54,23 @@ class QueryUnderstandingEngine:
     ) -> QueryUnderstandingResult:
         """完成一次共享查询分析，不执行检索、写入或话题选择。"""
 
-        if self._llm_service is None:
+        if self._llm_service is None or self._llm_params is None:
             raise QueryUnderstandingError("Query Understanding 未配置 LLM 服务")
 
         prompt = get_query_understanding_system_prompt(
             language=self._language,
             topic_context=self._render_topic_context(topic_data),
         )
-        kwargs: dict[str, Any] = {}
-        if self._config.model_override:
-            kwargs["model"] = self._config.model_override
+        messages = [
+            {"role": "system", "content": prompt},
+            *session_history_messages(session_turns),
+            {"role": "user", "content": message},
+        ]
         try:
-            content = await self._llm_service.acomplete_json(
-                messages=[
-                    {"role": "system", "content": prompt},
-                    *session_history_messages(session_turns),
-                    {"role": "user", "content": message},
-                ],
-                **kwargs,
-            )
-        except LLM_PROVIDER_ERRORS as exc:
+            completion = await self._llm_service.complete(messages, self._llm_params)
+        except ModelProviderError as exc:
             raise QueryUnderstandingError("Query Understanding 提供商调用失败") from exc
+        content = completion.text
 
         # 只转换模型文本解析失败；投影中的程序缺陷继续向上传播。
         try:

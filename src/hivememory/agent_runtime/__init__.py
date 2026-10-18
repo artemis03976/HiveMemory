@@ -13,14 +13,12 @@ from hivememory.agent_runtime.frame import (
 from hivememory.agent_runtime.model.budget import (
     MESSAGE_OVERHEAD_TOKENS,
     InputTooLargeError,
-    ModelContextWindowExceededError,
     TurnContextBudgetExceededError,
     estimate_context_tokens,
 )
 from hivememory.agent_runtime.model.client import (
     GenerationResult,
     LLMClient,
-    ModelProviderError,
     StreamChunk,
 )
 from hivememory.agent_runtime.model.resolution import (
@@ -40,6 +38,7 @@ from hivememory.agent_runtime.runtime import (
     AgentRuntime,
     build_agent_runtime,
 )
+from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
 
 __all__ = [
     "storage_error_info",

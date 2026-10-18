@@ -11,12 +11,11 @@ from hivememory.components.events.bus import (
     RuntimeEventSink,
 )
 from hivememory.config.gateway import SystemGatewayConfig
-from hivememory.config.shared import LLMConfig
 from hivememory.core.contracts.subsystem import SubsystemProtocol
 from hivememory.gateway.contracts.public_routes import GatewayPublicRoutes
 from hivememory.gateway.runtime import GatewayRuntime
 from hivememory.gateway.service import GatewayService
-from hivememory.infrastructure.llm import get_gateway_llm_service
+from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
 
 logger = logging.getLogger(__name__)
 
@@ -32,24 +31,21 @@ class GatewaySystem(SubsystemProtocol):
         global_bus: GlobalSystemBus,
         runtime_events: RuntimeEventSink | None = None,
         *,
-        llm_config: LLMConfig | None = None,
+        llm_service: BaseLLMService | None = None,
+        llm_params: LLMRequestParams | None = None,
     ) -> None:
         self._config = config
         self._global_bus = global_bus
         self._runtime_events = runtime_events or NullRuntimeEventSink()
 
-        # Gateway LLM 配置由组合根解析后注入；未配置模型时不创建 LLM 服务。
-        llm_service = (
-            get_gateway_llm_service(llm_config)
-            if llm_config is not None and llm_config.model is not None
-            else None
-        )
-
+        # 共享的 LLM 服务与由 Gateway 组件配置转换的请求参数都由组合根注入；
+        # 未配置模型时没有请求参数，分析能力按无 LLM 降级。
         self._runtime = GatewayRuntime(
             config=self._config,
             global_bus=global_bus,
             runtime_events=self._runtime_events,
             llm_service=llm_service,
+            llm_params=llm_params,
         )
 
         self._service = GatewayService(runtime=self._runtime)

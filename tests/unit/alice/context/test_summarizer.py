@@ -8,10 +8,11 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hivememory.agent_runtime.model.budget import estimate_context_tokens
-from hivememory.agent_runtime.model.client import GenerationResult, ModelProviderError
+from hivememory.agent_runtime.model.client import GenerationResult
 from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
 from hivememory.alice.context.summarizer import RelaySummarizer, SummaryRejectedError
 from hivememory.config.alice import CompactionConfig
+from hivememory.core.errors import ModelProviderError
 
 
 @pytest.mark.asyncio

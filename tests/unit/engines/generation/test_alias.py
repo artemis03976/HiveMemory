@@ -239,7 +239,7 @@ class _Extractor:
     def __init__(self, draft: ExtractedMemoryDraft) -> None:
         self._draft = draft
 
-    def extract(self, **kwargs):
+    async def extract(self, **kwargs):
         return self._draft
 
 

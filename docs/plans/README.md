@@ -32,7 +32,7 @@ last_reviewed: 2026-10-18
 | Alice 会话压缩之后（v0.7.0 收尾） | Alice 与 agent_runtime 结构重构 | 已完成（2026-10-17）：三阶段实现、验收与 code review 后归档；Alice 按依赖方向分层，内核收回装配并建立唯一公开接口，CPU 直接执行并交付类型化结果；未发布 | [归档计划](../archive/plans/v0.7.0-alice-agent-runtime-restructure.md)；当前事实：[Alice](../alice/README.md) |
 | Alice 与 agent_runtime 结构重构之后（v0.7.0 收尾） | 提示词编译前移至任务进程 | Completed（2026-10-17）：两阶段实现、验收、code review 与事实文档收尾完成，已归档 | [归档计划](../archive/plans/v0.7.0-cpu-prompt-compilation.md) |
 | 提示词编译前移之后（v0.7.0 收尾） | 异常体系与边界错误呈现收敛 | 已完成（2026-10-18）；四阶段实现、验收与 code review 完成，当前事实已晋升，未发布；完成收敛清单第 1.6、3.9 条 | [归档计划](../archive/plans/v0.7.0-error-model-convergence.md)；[错误模型](../contracts/error-model.md) |
-| 异常收敛之后（v0.7.0 收尾） | LLM 访问收敛到 infrastructure 端口 | Planned（2026-10-18）：core 定义中立异步 LLM 端口与模型错误，infrastructure 中唯一的 litellm 适配器实现它；Gateway、Patchouli 与 Alice 只依赖端口，Patchouli 的 LLM 调用改为异步；三阶段 | [计划](./v0.7.0-llm-access-port.md) |
+| 异常收敛之后（v0.7.0 收尾） | LLM 访问收敛到 infrastructure 服务接口 | In progress（2026-10-18，已修订为两阶段，阶段一完成）：infrastructure 的 LLM 服务基类改写为中立异步接口，以 `stream` 参数在唯一入口选择完整或流式调用，由唯一的 litellm 实现；Gateway、Patchouli 与 Alice 只依赖该基类，Patchouli 的 LLM 调用改为异步 | [计划](./v0.7.0-llm-access-port.md) |
 
 - Alice 会话压缩的技术调研见 [Agent Harness 会话压缩技术调研](../ideas/agent-context-compaction-research.md)（2026-10-16；历史调研快照，已为归档计划提供依据）。
 - 不在 v0.7.0：执行环境的选择（[执行单元 Idea](../ideas/execution-unit-thread-and-environment.md#2-开放问题) T-7、T-8）随后续版本实施，不一定是 v0.7.1（2026-10-06）；外部 Actor 的真实接入（[Idea](../ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)，原计划 B）分为两种接入模式，controller 模式在 v0.7.1（[ROADMAP](../ROADMAP.md) 第 4.4.2 节），plugin 模式在其后的 v0.7.x；Import Bus（现有 Passive Ingress 链路）逐步演进为独立功能，不在 v0.7.0 计划内；

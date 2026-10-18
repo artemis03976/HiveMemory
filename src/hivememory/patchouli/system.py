@@ -60,6 +60,7 @@ from hivememory.patchouli.service import PatchouliService
 
 if TYPE_CHECKING:
     from hivememory.components.scheduler.async_scheduler import AsyncMaintenanceScheduler
+    from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
 
 logger = logging.getLogger(__name__)
 
@@ -90,8 +91,11 @@ class PatchouliSystem(SubsystemProtocol):
         *,
         shared_config: SharedConfig | None = None,
         scheduler_config: SchedulerConfig | None = None,
+        llm_service: BaseLLMService | None = None,
+        llm_params: LLMRequestParams | None = None,
     ):
         # 各配置段由组合根从根配置中取出后注入；Patchouli 不依赖根配置类型。
+        # 共享的 LLM 服务与由 Librarian 组件配置转换的请求参数同样由组合根注入。
         self.config = config
         self._shared_config = shared_config or SharedConfig()
         self._scheduler_config = scheduler_config or SchedulerConfig()
@@ -104,6 +108,8 @@ class PatchouliSystem(SubsystemProtocol):
             shared_config=self._shared_config,
             runtime_events=self._runtime_events,
             workspace_asset_reader=workspace_asset_reader,
+            llm_service=llm_service,
+            llm_params=llm_params,
         )
 
         self._interaction_submission_queue = InteractionSubmissionQueue(

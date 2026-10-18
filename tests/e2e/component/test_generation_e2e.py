@@ -13,7 +13,7 @@ HiveMemory Generation Module E2E Tests
     pytest tests/e2e/component/test_generation_e2e.py -v -m e2e
 
 核心原则：
-    - 使用真实的 LiteLLMService（librarian 配置）
+    - 使用真实的 LiteLLMService（librarian 配置转换的请求参数）
     - 使用真实的 QdrantMemoryStore
     - 聚焦记忆提取、去重、合并机制
 
@@ -100,10 +100,11 @@ from hivememory.engines.generation.models import (
 )
 
 # 基础设施
-from hivememory.infrastructure.llm.litellm_service import get_librarian_llm_service
+from hivememory.infrastructure.llm import LiteLLMService
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.patchouli.memory_library import MidTermMemoryStore
 from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
+from hivememory.system.assembler import component_llm_params
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
 
@@ -201,7 +202,8 @@ def setup_test_env() -> MemoryGenerationEngine:
     )
     llm_config = model_registry.resolve_for_llm_config(app_config.get_librarian_llm_config())
     console.print(f"[dim]LLM 模型: {llm_config.model}[/dim]")
-    llm_service = get_librarian_llm_service(config=llm_config)
+    llm_params = component_llm_params(llm_config)
+    assert llm_params is not None, "Librarian 未配置可用模型"
 
     # 2. 创建 QdrantMemoryStore（使用测试集合）
     qdrant_config = app_config.patchouli.storage.model_copy(
@@ -219,7 +221,8 @@ def setup_test_env() -> MemoryGenerationEngine:
     # 3. 创建 LLMMemoryExtractor
     _shared_extractor = LLMMemoryExtractor(
         config=app_config.patchouli.generation.extractor,
-        llm_service=llm_service,
+        llm_service=LiteLLMService(),
+        llm_params=llm_params,
     )
 
     # 4. 创建 MemoryDeduplicator
@@ -409,13 +412,15 @@ class TestMemoryExtraction:
         transcript = self._format_transcript(test_case["messages"])
 
         # 调用提取器
-        draft = self.extractor.extract(
-            transcript=transcript,
-            metadata={
-                "user_id": self.identity.user_id,
-                "agent_id": self.identity.agent_id,
-                "timestamp": datetime.now(UTC).isoformat(),
-            },
+        draft = _run(
+            self.extractor.extract(
+                transcript=transcript,
+                metadata={
+                    "user_id": self.identity.user_id,
+                    "agent_id": self.identity.agent_id,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
         )
 
         # 验证结果
@@ -462,13 +467,15 @@ class TestMemoryExtraction:
         transcript = self._format_transcript(test_case["messages"])
 
         # 调用提取器
-        draft = self.extractor.extract(
-            transcript=transcript,
-            metadata={
-                "user_id": self.identity.user_id,
-                "agent_id": self.identity.agent_id,
-                "timestamp": datetime.now(UTC).isoformat(),
-            },
+        draft = _run(
+            self.extractor.extract(
+                transcript=transcript,
+                metadata={
+                    "user_id": self.identity.user_id,
+                    "agent_id": self.identity.agent_id,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
         )
 
         # 验证结果：应该返回 None 或 has_value=False
@@ -499,13 +506,15 @@ class TestMemoryExtraction:
         transcript = self._format_transcript(test_case["messages"])
 
         # 调用提取器
-        draft = self.extractor.extract(
-            transcript=transcript,
-            metadata={
-                "user_id": self.identity.user_id,
-                "agent_id": self.identity.agent_id,
-                "timestamp": datetime.now(UTC).isoformat(),
-            },
+        draft = _run(
+            self.extractor.extract(
+                transcript=transcript,
+                metadata={
+                    "user_id": self.identity.user_id,
+                    "agent_id": self.identity.agent_id,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
         )
 
         # 验证结果
@@ -558,13 +567,15 @@ class TestMemoryExtraction:
         transcript = self._format_transcript(test_case["messages"])
 
         # 调用提取器
-        draft = self.extractor.extract(
-            transcript=transcript,
-            metadata={
-                "user_id": self.identity.user_id,
-                "agent_id": self.identity.agent_id,
-                "timestamp": datetime.now(UTC).isoformat(),
-            },
+        draft = _run(
+            self.extractor.extract(
+                transcript=transcript,
+                metadata={
+                    "user_id": self.identity.user_id,
+                    "agent_id": self.identity.agent_id,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
         )
 
         # 验证结果
@@ -946,13 +957,15 @@ class TestSchemaValidation:
         transcript = self._format_transcript(test_case["messages"])
 
         # 调用提取器
-        draft = self.extractor.extract(
-            transcript=transcript,
-            metadata={
-                "user_id": self.identity.user_id,
-                "agent_id": self.identity.agent_id,
-                "timestamp": datetime.now(UTC).isoformat(),
-            },
+        draft = _run(
+            self.extractor.extract(
+                transcript=transcript,
+                metadata={
+                    "user_id": self.identity.user_id,
+                    "agent_id": self.identity.agent_id,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                },
+            )
         )
 
         # 验证 draft 不为空

@@ -100,10 +100,12 @@ def _accept_settlement_task(route, payload):
 def _folding_relay() -> Mock:
     """摘要记录每次折叠的块数并在旧摘要上累积，便于断言折叠次数。"""
     relay = Mock()
-    relay.generate_summary.side_effect = lambda blocks_to_fold, previous_summary=None: (
-        f"{previous_summary}|folded:{len(blocks_to_fold)}"
-        if previous_summary
-        else f"folded:{len(blocks_to_fold)}"
+    relay.generate_summary = AsyncMock(
+        side_effect=lambda blocks_to_fold, previous_summary=None: (
+            f"{previous_summary}|folded:{len(blocks_to_fold)}"
+            if previous_summary
+            else f"folded:{len(blocks_to_fold)}"
+        )
     )
     return relay
 
@@ -149,7 +151,7 @@ def _make_familiar(
     working_set = TopicWorkingSet(max_resident=max_resident, clock=clock)
     if relay is None:
         relay = Mock()
-        relay.generate_summary = Mock(return_value="test summary")
+        relay.generate_summary = AsyncMock(return_value="test summary")
     bus = bus or Mock()
     bus.request = AsyncMock(return_value=None)
     if engine == "default":
@@ -466,8 +468,9 @@ class TestCompact:
         )
         mock_relay = Mock()
         # 摘要在旧摘要之上累积（Relay 的 previous_summary 契约）
-        mock_relay.generate_summary.side_effect = (
-            lambda blocks_to_fold, previous_summary=None: (previous_summary or "") + "---folded"
+        mock_relay.generate_summary = AsyncMock(
+            side_effect=lambda blocks_to_fold, previous_summary=None: (previous_summary or "")
+            + "---folded"
         )
         familiar, store, _, bus, _ = _make_familiar(engine_config=engine_config, relay=mock_relay)
         scope = _identity_scope()
@@ -509,10 +512,12 @@ class TestCompact:
             fold_token_threshold=1, fold_retain_recent_blocks=1
         )
         mock_relay = Mock()
-        mock_relay.generate_summary.side_effect = [
-            TransientInteractionSubmissionError("caller missed apply result"),
-            "folded-summary",
-        ]
+        mock_relay.generate_summary = AsyncMock(
+            side_effect=[
+                TransientInteractionSubmissionError("caller missed apply result"),
+                "folded-summary",
+            ]
+        )
         familiar, store, _, _, journal = _make_familiar(
             engine_config=engine_config, relay=mock_relay
         )

@@ -17,6 +17,7 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -138,7 +139,7 @@ class TestGenerationEngineRouting:
         self.mock_storage.search = AsyncMock(return_value=[])
         self.mock_storage.list_alias_holders = AsyncMock(return_value=[])
         self.mock_storage.upsert = AsyncMock()
-        self.mock_extractor = Mock()
+        self.mock_extractor = AsyncMock()
         self.mock_deduplicator = Mock()
         self.mock_deduplicator.check_duplicate = Mock()
         self.engine = MemoryGenerationEngine(
@@ -242,7 +243,7 @@ class TestGenerationEngineModeA:
         self.mock_storage.search = AsyncMock(return_value=[])
         self.mock_storage.list_alias_holders = AsyncMock(return_value=[])
         self.mock_storage.upsert = AsyncMock()
-        self.mock_extractor = Mock()
+        self.mock_extractor = AsyncMock()
         self.mock_deduplicator = Mock()
         self.mock_deduplicator.check_duplicate = Mock()
         self.engine = MemoryGenerationEngine(
@@ -372,6 +373,23 @@ class TestGenerationEngineModeA:
 
         assert result == []
 
+    @pytest.mark.asyncio
+    async def test_mode_a_provider_failure_fails_instead_of_producing_nothing(self):
+        """被动结算的提供商失败向上传播，由生成任务按失败收尾，不记录为没有产出。"""
+        failure = ModelProviderError("provider down")
+        self.mock_extractor.extract.side_effect = failure
+
+        request = GenerationRequest(context=_make_context_from_messages(_make_messages()))
+        with pytest.raises(ModelProviderError) as raised:
+            await self.engine.process(
+                request,
+                belong_to=make_memory_identity_scope().workspace_identity,
+                from_actor=make_memory_identity_scope().actor_identity,
+            )
+
+        assert raised.value is failure
+        self.mock_deduplicator.check_duplicate.assert_not_called()
+
 
 class TestGenerationEngineModeB:
     """Mode B (WRITE 主动响应) 测试"""
@@ -381,7 +399,7 @@ class TestGenerationEngineModeB:
         self.mock_storage.search = AsyncMock(return_value=[])
         self.mock_storage.list_alias_holders = AsyncMock(return_value=[])
         self.mock_storage.upsert = AsyncMock()
-        self.mock_extractor = Mock()
+        self.mock_extractor = AsyncMock()
         self.mock_deduplicator = Mock()
         self.mock_deduplicator.check_duplicate = Mock()
         self.engine = MemoryGenerationEngine(
@@ -452,10 +470,15 @@ class TestGenerationEngineModeB:
         assert atom.meta.provenance.contributing_agent_ids == ("a1",)
 
     @pytest.mark.asyncio
-    async def test_mode_b_fallback_on_extract_failure(self):
-        """LLM 提取失败时启用 fallback"""
+    @pytest.mark.parametrize(
+        "extract_outcome",
+        [None, ModelProviderError("provider down")],
+        ids=["no-output", "provider-failure"],
+    )
+    async def test_mode_b_fallback_on_extract_failure(self, extract_outcome):
+        """没有产出或提供商失败时启用 fallback，明确的保存意图不丢失"""
         focus = WriteFocus(content="重要内容不能丢", reason="保存")
-        self.mock_extractor.extract.return_value = None
+        self.mock_extractor.extract.side_effect = [extract_outcome]
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
         self.mock_storage.upsert = AsyncMock()
 
@@ -469,6 +492,24 @@ class TestGenerationEngineModeB:
         # fallback 应保证内容不丢失
         assert len(result) == 1
         assert result[0].atom.payload.content == "重要内容不能丢"
+
+    @pytest.mark.asyncio
+    async def test_mode_b_program_error_is_not_replaced_by_fallback(self):
+        """程序错误不属于 LLM 失败，不能由 fallback 掩盖。"""
+        failure = TypeError("broken prompt wiring")
+        self.mock_extractor.extract.side_effect = failure
+
+        request = GenerationRequest(
+            context=GenerationContext(), write_focus=WriteFocus(content="内容", reason="保存")
+        )
+        with pytest.raises(TypeError) as raised:
+            await self.engine.process(
+                request,
+                belong_to=make_memory_identity_scope().workspace_identity,
+                from_actor=make_memory_identity_scope().actor_identity,
+            )
+
+        assert raised.value is failure
 
     def test_build_fallback_draft(self):
         """fallback 草稿构建逻辑"""
@@ -500,7 +541,7 @@ class TestGenerationEngineModeC:
         self.mock_storage.search = AsyncMock(return_value=[])
         self.mock_storage.list_alias_holders = AsyncMock(return_value=[])
         self.mock_storage.upsert = AsyncMock()
-        self.mock_extractor = Mock()
+        self.mock_extractor = AsyncMock()
         self.mock_deduplicator = Mock()
         self.mock_deduplicator.check_duplicate = Mock()
         self.engine = MemoryGenerationEngine(
@@ -606,9 +647,14 @@ class TestGenerationEngineModeC:
         self.mock_extractor.merge.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_mode_c_fallback_on_merge_failure(self):
-        """LLM 合并失败时以提交时点日期把新内容追加到旧内容之后"""
-        self.mock_extractor.merge.return_value = None
+    @pytest.mark.parametrize(
+        "merge_outcome",
+        [None, ModelProviderError("provider down")],
+        ids=["no-output", "provider-failure"],
+    )
+    async def test_mode_c_fallback_on_merge_failure(self, merge_outcome):
+        """没有产出或提供商失败时以提交时点日期把新内容追加到旧内容之后"""
+        self.mock_extractor.merge.side_effect = [merge_outcome]
         self.mock_storage.upsert = AsyncMock()
 
         request = self._make_update_request(content="追加内容")
@@ -738,7 +784,7 @@ class TestGenerationEngineDedup:
         self.mock_storage.search = AsyncMock(return_value=[])
         self.mock_storage.list_alias_holders = AsyncMock(return_value=[])
         self.mock_storage.upsert = AsyncMock()
-        self.mock_extractor = Mock()
+        self.mock_extractor = AsyncMock()
         self.mock_deduplicator = Mock()
         self.mock_deduplicator.check_duplicate = Mock()
         self.engine = MemoryGenerationEngine(

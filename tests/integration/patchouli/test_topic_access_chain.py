@@ -42,7 +42,7 @@ from tests.helpers.workspace import make_identity_scope
 class _DeterministicRelay:
     """隔离外部摘要模型，保持 compact 结果可重复。"""
 
-    def generate_summary(self, *, blocks_to_fold, previous_summary=None):
+    async def generate_summary(self, *, blocks_to_fold, previous_summary=None):
         prefix = f"{previous_summary}|" if previous_summary else ""
         return f"{prefix}folded:{len(blocks_to_fold)}"
 

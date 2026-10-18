@@ -95,13 +95,13 @@ class MemoryPerceptionEngine:
             return []
         return list(blocks[:-retain_recent])
 
-    def generate_fold_summary(
+    async def generate_fold_summary(
         self,
         blocks_to_fold: list[LogicalBlock],
         previous_summary: str,
     ) -> str:
         """生成 Page Folding 摘要，封装为 Engine 的算法能力。"""
-        return self._relay.generate_summary(blocks_to_fold, previous_summary)
+        return await self._relay.generate_summary(blocks_to_fold, previous_summary)
 
 
 __all__ = ["MemoryPerceptionEngine"]

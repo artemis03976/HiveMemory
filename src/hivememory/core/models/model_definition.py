@@ -22,7 +22,7 @@ class ModelDefinition(BaseModel):
     以及 litellm 调用所需的技术参数。
 
     与 LLMConfig 的关系：
-    - LLMConfig 是实际传给 LiteLLMService 的运行时配置
+    - LLMConfig 是解析后的运行时配置，再由使用方转换为每次 LLM 调用的请求参数
     - ModelDefinition 是持久化的"模型档案"，可以通过
       ModelRegistry.to_llm_config() 转换为 LLMConfig
 

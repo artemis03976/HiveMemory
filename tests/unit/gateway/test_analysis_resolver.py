@@ -31,6 +31,7 @@ from hivememory.gateway.errors import RecoverableGatewayError
 from hivememory.gateway.runtime import GatewayRuntime
 from hivememory.gateway.service import GatewayService
 from hivememory.patchouli.contracts import PatchouliRoutes
+from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -200,8 +201,7 @@ async def test_llm_resolver_converts_engine_error_to_recoverable() -> None:
 async def test_runtime_uses_topic_router_and_llm_resolver() -> None:
     bus = GlobalSystemBus()
     events = RecordingRuntimeEventSink()
-    llm_service = AsyncMock()
-    llm_service.acomplete_json.side_effect = [
+    llm_service = ScriptedLLMService(
         '{"target_topic":"NEW_TOPIC","new_topic_title":"查询分析",'
         '"new_topic_summary":"验证查询分析解析器","reason":"无匹配话题"}',
         '{"intent_type":"RAG",'
@@ -209,7 +209,7 @@ async def test_runtime_uses_topic_router_and_llm_resolver() -> None:
         '"search_keywords":["标准查询"],'
         '"memory_write_signal":"WRITE",'
         '"sub_intents":[],"reason":"技术问答"}',
-    ]
+    )
 
     async def list_active_topics(**_kwargs):
         return ()
@@ -220,6 +220,7 @@ async def test_runtime_uses_topic_router_and_llm_resolver() -> None:
         global_bus=bus,
         runtime_events=events,
         llm_service=llm_service,
+        llm_params=DEFAULT_LLM_PARAMS,
     )
 
     result = await GatewayService(runtime).process(
@@ -234,7 +235,7 @@ async def test_runtime_uses_topic_router_and_llm_resolver() -> None:
     assert result.decision.memory_write_signal == MemoryWriteSignal.WRITE
     assert result.decision.retrieval_plan.mode == RetrievalMode.HYBRID
     assert result.decision.retrieval_plan.top_k == 9
-    assert llm_service.acomplete_json.await_count == 2
+    assert len(llm_service.calls) == 2
     completed = [
         event
         for event in events.events
@@ -254,12 +255,11 @@ async def test_runtime_uses_topic_router_and_llm_resolver() -> None:
 @pytest.mark.asyncio
 async def test_runtime_falls_back_to_conservative_result_on_analysis_error() -> None:
     bus = GlobalSystemBus()
-    llm_service = AsyncMock()
-    llm_service.acomplete_json.side_effect = [
+    llm_service = ScriptedLLMService(
         '{"target_topic":"NEW_TOPIC","new_topic_title":"查询分析",'
         '"new_topic_summary":"验证查询分析兜底","reason":"无匹配话题"}',
         '{"intent_type":"RAG","rewritten_query":"  "}',
-    ]
+    )
 
     async def list_active_topics(**_kwargs):
         return ()
@@ -269,6 +269,7 @@ async def test_runtime_falls_back_to_conservative_result_on_analysis_error() -> 
         config=SystemGatewayConfig(user_query_analysis=UserQueryAnalysisConfig(default_top_k=9)),
         global_bus=bus,
         llm_service=llm_service,
+        llm_params=DEFAULT_LLM_PARAMS,
     )
 
     result = await GatewayService(runtime).process(

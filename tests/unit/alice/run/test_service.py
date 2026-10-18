@@ -5,10 +5,7 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus
-from hivememory.agent_runtime.model.budget import (
-    ModelContextWindowExceededError,
-    TurnContextBudgetExceededError,
-)
+from hivememory.agent_runtime.model.budget import TurnContextBudgetExceededError
 from hivememory.agent_runtime.model.client import LLMClient
 from hivememory.agent_runtime.runtime import AgentRuntime, build_agent_runtime
 from hivememory.alice.context.summarizer import RelaySummarizer
@@ -22,6 +19,7 @@ from hivememory.components.events.bus import (
 )
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
+from hivememory.core.errors import ModelContextWindowExceededError
 from hivememory.core.models import (
     AgentProfile,
 )
