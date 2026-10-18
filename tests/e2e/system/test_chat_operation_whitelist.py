@@ -357,12 +357,12 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
         # 端口输入同时保护检索结果与编译正文，不能只检查模型回复是否成功。
         (manifest,) = cpu.manifests
         assert {atom.index.alias for atom in manifest.memories} == {"fact_public", "fact_own"}
-        assert "本轮公共资料" in manifest.memory_context
-        assert "本轮专属资料" in manifest.memory_context
-        assert "他人的私有资料" not in manifest.memory_context
+        assert "本轮公共资料" in manifest.turn_context
+        assert "本轮专属资料" in manifest.turn_context
+        assert "他人的私有资料" not in manifest.turn_context
         assert manifest.agent_profile.agent_id == actor.agent_id
         assert manifest.agent_profile.persona == profile.payload.content
-        assert "本轮选中的附件正文" in manifest.attachment_context
+        assert "本轮选中的附件正文" in manifest.turn_context
         (messages,) = llm_messages
         assert profile.payload.content in messages[0]["content"]
         assert "他人的私有资料" not in "\n".join(item["content"] for item in messages)

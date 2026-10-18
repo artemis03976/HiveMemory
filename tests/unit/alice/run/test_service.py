@@ -23,6 +23,7 @@ from hivememory.components.events.bus import (
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.models import (
+    AgentProfile,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -59,12 +60,12 @@ def _build_input_manifest(memory: MemoryAtom):
         topic_id="topic_1",
         user_message="hello",
         memories=[memory],
-        memory_context="ctx",
+        turn_context="ctx",
     )
 
 
-def _build_service(*, runtime_events=None) -> tuple[AgentRuntime, AgentRunService]:
-    config = HiveMemoryConfig()
+def _build_service(*, runtime_events=None, config=None) -> tuple[AgentRuntime, AgentRunService]:
+    config = config or HiveMemoryConfig()
     runtime = build_agent_runtime(
         runtime_config=config.alice.runtime,
         koakuma_config=config.alice.koakuma,
@@ -83,13 +84,54 @@ def _build_service(*, runtime_events=None) -> tuple[AgentRuntime, AgentRunServic
         agent_runtime=runtime,
         call_coordinator=coordinator,
         frame_factory=frame_factory,
-        prompt_assembler=prompt_assembler,
+        koakuma_config=config.alice.koakuma,
         compaction_config=config.alice.compaction,
         agent_run_events=AgentRunEventEmitter(
             RuntimeEventPublisher(runtime_events or NullRuntimeEventSink())
         ),
     )
     return runtime, service
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mode,has_teaching",
+    [("enabled", True), ("koakuma_disabled", False), ("teaching_disabled", False)],
+)
+async def test_root_uses_compiled_blocks_and_language_with_its_own_teaching(mode, has_teaching):
+    """根帧直接采用清单文本与语言；工具开关只影响教学，不重渲染 Profile。"""
+    config = HiveMemoryConfig()
+    config.alice.koakuma.enabled = mode != "koakuma_disabled"
+    config.alice.koakuma.mtp_prompt.enabled = mode != "teaching_disabled"
+    runtime, service = _build_service(config=config)
+    runtime.run_frame = AsyncMock(
+        return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+    )
+    manifest = make_input_manifest(
+        agent_profile=AgentProfile(persona="DO NOT RENDER", language="zh"),
+        language="en",
+        instructions=" \nCOMPILED NOTICE AND PERSONA\n ",
+        turn_context="\nCOMPILED MATERIAL\n ",
+        allowed_operations=frozenset(),
+    )
+    result = await service.run_agent(
+        manifest,
+        run_output=NullRunOutput(),
+        submit_operation=MagicMock(),
+    )
+    frame = runtime.run_frame.await_args.args[0]
+    system = frame.working_history[0]["content"]
+    fixed = " \nCOMPILED NOTICE AND PERSONA\n \n\n\nCOMPILED MATERIAL\n "
+    assert result.status == "completed"
+    assert frame.execution_policy.permitted_verbs == frozenset({"RUN"})
+    assert frame.working_history[-1] == {"role": "user", "content": "hello"}
+    assert "DO NOT RENDER" not in system
+    assert system.endswith(fixed)
+    teaching = system.removesuffix(fixed)
+    assert ("You are an intelligent Agent running on HiveMemory" in teaching) == has_teaching
+    assert ("- RUN:" in teaching) == has_teaching
+    assert "- CALL:" not in teaching
+    assert bool(teaching) == has_teaching
 
 
 @pytest.mark.asyncio

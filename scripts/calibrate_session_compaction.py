@@ -15,10 +15,10 @@ from hivememory.agent_runtime import (
 )
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.context.view import SessionContextView
-from hivememory.config.alice import AgentRuntimeConfig, CompactionConfig, KoakumaConfig
-from hivememory.core.models import AgentProfile, ExecutionLabels, TurnEvent
-from hivememory.core.protocol.models import AgentRunContext, ConversationTurn, InteractionPayload
-from hivememory.prompts.assembler import AgentPromptAssembler
+from hivememory.config.alice import AgentRuntimeConfig, CompactionConfig
+from hivememory.core.models import AgentProfile, TurnEvent
+from hivememory.core.protocol.models import ConversationTurn, InteractionPayload
+from hivememory.prompts.compilation import compile_prompt_input
 
 
 class FixedSummaryWorker(LLMClient):
@@ -120,16 +120,20 @@ async def main() -> None:
         input_limit = runtime_config.default_context_window - 32768 - runtime_config.safety_margin
         for name, turns in fixed_samples().items():
             worker = FixedSummaryWorker()
-            context = AgentRunContext(
-                labels=ExecutionLabels(agent_id="coder", workspace_id="sample"),
+            prompt = compile_prompt_input(
                 agent_profile=AgentProfile(persona="分析并继续任务。", language="zh"),
-                user_message="继续；先说明还有哪些事项未完成。",
-                session_history=turns,
-                permitted_mtp_verbs=frozenset({"READ", "RUN"}),
+                storage_available=True,
+                memory_context="",
+                attachment_context="",
             )
             view = SessionContextView(
-                context=context,
-                prompt_assembler=AgentPromptAssembler(KoakumaConfig(enabled=False)),
+                instructions=prompt.instructions,
+                turn_context=prompt.turn_context,
+                user_message="继续；先说明还有哪些事项未完成。",
+                language=prompt.language,
+                mtp_prompt="",
+                session_history=turns,
+                current_agent_id="coder",
                 checkpoint=None,
                 input_token_limit=input_limit,
                 config=config,

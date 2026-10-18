@@ -1,7 +1,7 @@
 """
 模块间通信协议模型
 
-定义在子系统之间传递的检索请求与响应、Agent 运行上下文、MTP 执行结果与交互载荷。
+定义在子系统之间传递的检索请求与响应、MTP 执行结果与交互载荷。
 
 作者: HiveMemory Team
 版本: 3.0
@@ -16,8 +16,6 @@ from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models import (
-    AgentProfile,
-    ExecutionLabels,
     IdentityScope,
     MemoryAtom,
     TraceItem,
@@ -239,31 +237,6 @@ class ConversationTurn(BaseModel):
     model_config = ConfigDict(frozen=True)
 
 
-class AgentRunContext(BaseModel):
-    """供 Alice 组装 Agent run 的内容与观测上下文，不携带授权身份。"""
-
-    labels: ExecutionLabels
-    topic_id: str = Field(default="")
-    user_message: str = Field(default="")
-    session_history: tuple[ConversationTurn, ...] = Field(default_factory=tuple)
-
-    # 任务进程已编译的记忆上下文文本，用于注入 system prompt；未编译的
-    # 检索原子留在输入清单中，Alice 不再保留另一份。
-    memory_context: str = Field(default="")
-    agent_profile: AgentProfile
-    permitted_mtp_verbs: frozenset[str] = Field(
-        description="Alice 从操作快照翻译的 MTP 动词，只供提示词与 frame 执行策略使用",
-    )
-    storage_available: bool = Field(default=True)
-
-    # 进程编译好的附件 section 文本（AttachmentCompiler 产物）；未选择附件
-    # 时为空。实际使用的附件引用集合由任务进程交给 finalize，不进入
-    # 运行上下文。
-    attachment_context: str = Field(default="")
-
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
-
 __all__ = [
     "ConversationTurn",
     "SessionCompactionCheckpoint",
@@ -272,6 +245,5 @@ __all__ = [
     "QueryFilters",
     "RetrievalRequest",
     "RetrievalResponse",
-    "AgentRunContext",
     "InteractionPayload",
 ]

@@ -175,18 +175,20 @@ def _build_input_manifest(
     *,
     labels=None,
     agent_profile=None,
+    instructions: str = "",
     process_id: str = "process-test",
     allowed_operations: frozenset[WorkspaceOperation] = frozenset(WorkspaceOperation),
 ):
     return make_input_manifest(
         labels=labels or make_execution_labels(agent_id="omni_doll"),
         agent_profile=agent_profile,
+        instructions=instructions,
         allowed_operations=allowed_operations,
         process_id=process_id,
         topic_id="topic_1",
         user_message="hello",
         memories=[memory],
-        memory_context="ctx",
+        turn_context="ctx",
     )
 
 
@@ -267,6 +269,7 @@ async def test_root_policy_and_prompt_follow_manifest_operations(run_to_terminal
             {WorkspaceOperation.MEMORY_READ, WorkspaceOperation.AGENT_CALL}
         ),
         agent_profile=AgentProfile(persona="执行人设"),
+        instructions="### 角色设定 ###\n\n执行人设",
     )
     seen = []
 
@@ -681,6 +684,7 @@ def _compaction_inputs(*, compressible=True):
     )
     manifest = make_input_manifest(
         agent_profile=AgentProfile(persona="", language="en"),
+        language="en",
         user_message="next",
         session_history=(turn,),
     )

@@ -1,4 +1,4 @@
-"""Agent 提示词组装入口。"""
+"""CALL 子帧提示词组装入口。"""
 
 from __future__ import annotations
 
@@ -6,60 +6,16 @@ from typing import Any
 
 from hivememory.core.models import AgentProfile
 from hivememory.core.mtp.models import MTPVerb
-from hivememory.core.protocol.models import AgentRunContext
 from hivememory.i18n import resolve_language
 from hivememory.prompts.mtp import MTPPromptBuilder
 from hivememory.prompts.system_prompt import SystemPromptBuilder
 
 
 class AgentPromptAssembler:
-    """从准备好的上下文构建完整的 Worker Agent 消息。"""
+    """从被调用方配置与共享上下文构建 CALL 子帧消息。"""
 
     def __init__(self, koakuma_config: Any) -> None:
         self._koakuma_config = koakuma_config
-
-    def build_main_agent_messages(
-        self,
-        context: AgentRunContext,
-        *,
-        session_summary: str = "",
-        session_references: tuple[str, ...] = (),
-    ) -> list[dict[str, str]]:
-        """组装根帧的固定输入：系统提示词与本轮用户消息。
-
-        会话历史不在这里重放：Alice 的会话上下文视图按预算把历史插在两者之间，
-        避免绕过视图得到不受预算约束的全量历史。
-        """
-        messages: list[dict[str, str]] = []
-
-        language = self._prompt_language(context.agent_profile)
-        builder = SystemPromptBuilder(language=language)
-
-        mtp_prompt = self._build_mtp_prompt(
-            profile=context.agent_profile,
-            permitted_verbs=context.permitted_mtp_verbs,
-        )
-        builder.with_mtp_prompt(mtp_prompt)
-
-        if mtp_prompt and not context.storage_available:
-            builder.with_storage_offline_notice()
-
-        if context.agent_profile and context.agent_profile.persona:
-            builder.with_persona(context.agent_profile.persona)
-
-        builder.with_session_summary(session_summary, session_references)
-        builder.with_memory_context(context.memory_context)
-        # 附件 section 固定位于 memory_context 之后；
-        # 只消费任务进程编译好的 attachment_context 文本，不接触 Store/lease。
-        if context.attachment_context:
-            builder.with_attachment_context(context.attachment_context)
-
-        system_prompt = builder.build()
-        if system_prompt:
-            messages.append({"role": "system", "content": system_prompt})
-
-        messages.append({"role": "user", "content": context.user_message})
-        return messages
 
     def build_sub_agent_messages(
         self,

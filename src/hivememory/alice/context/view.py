@@ -8,9 +8,8 @@ from hivememory.agent_runtime import InputTooLargeError, ResolvedFrameModel, est
 from hivememory.alice.context.references import extend_references
 from hivememory.alice.context.summarizer import RelaySummarizer, SummaryRejectedError
 from hivememory.config.alice import CompactionConfig
-from hivememory.core.protocol.models import AgentRunContext, SessionCompactionCheckpoint
-from hivememory.i18n import resolve_language
-from hivememory.prompts.assembler import AgentPromptAssembler
+from hivememory.core.protocol.models import ConversationTurn, SessionCompactionCheckpoint
+from hivememory.prompts.session_compaction import render_session_summary
 from hivememory.prompts.transcript import HistoryTranscriptBuilder
 
 
@@ -40,22 +39,31 @@ class SessionContextView:
     def __init__(
         self,
         *,
-        context: AgentRunContext,
-        prompt_assembler: AgentPromptAssembler,
+        instructions: str,
+        turn_context: str,
+        user_message: str,
+        language: str,
+        mtp_prompt: str,
+        session_history: tuple[ConversationTurn, ...],
+        current_agent_id: str,
         checkpoint: SessionCompactionCheckpoint | None,
         input_token_limit: int,
         config: CompactionConfig,
         clock: Callable[[], datetime] = lambda: datetime.now(UTC),
     ) -> None:
-        self._context = context
-        self._assembler = prompt_assembler
+        self._instructions = instructions
+        self._turn_context = turn_context
+        self._user_message = user_message
+        self._mtp_prompt = mtp_prompt
+        self._history = session_history
+        self._current_agent_id = current_agent_id
         self._input_token_limit = input_token_limit
         self._config = config
         self._clock = clock
-        self._language = resolve_language(profile_language=context.agent_profile.language).value
+        self._language = language
         self._builder = HistoryTranscriptBuilder()
         self._positions = {
-            turn.interaction_id: index + 1 for index, turn in enumerate(context.session_history)
+            turn.interaction_id: index + 1 for index, turn in enumerate(session_history)
         }
         self._checkpoint = self._usable_checkpoint(checkpoint) if config.enabled else None
         self._reduced_count = (
@@ -100,7 +108,7 @@ class SessionContextView:
         """内部强制参数跳过阈值；空历史或关闭压缩时不生成检查点。"""
         return bool(
             self._config.enabled
-            and self._context.session_history
+            and self._history
             and (
                 force
                 or self.estimated_tokens > self._input_token_limit * self._config.trigger_ratio
@@ -109,7 +117,7 @@ class SessionContextView:
 
     def reduce(self) -> CompactionResult:
         """先将原文后缀缩到近期预算内，保留旧摘要与覆盖范围。"""
-        turns = self._context.session_history
+        turns = self._history
         recent_budget = self._input_token_limit * self._config.recent_raw_ratio
         recent_tokens = 0
         boundary = len(turns)
@@ -135,7 +143,7 @@ class SessionContextView:
         """减重后按需接力摘要；任一折叠失败都不提交局部摘要，取消不降级。"""
         reduced = self.reduce()
         target = self._input_token_limit * self._config.target_ratio
-        turns = self._context.session_history
+        turns = self._history
         if reduced.tokens_after <= target or self._summarized_count == len(turns):
             return self._guard(reduced)
 
@@ -226,19 +234,25 @@ class SessionContextView:
         return estimate_context_tokens(self._fixed(placeholder, references)) + 2
 
     def _fixed(self, summary: str = "", references: tuple[str, ...] = ()) -> list[dict[str, str]]:
-        return self._assembler.build_main_agent_messages(
-            self._context,
-            session_summary=summary,
-            session_references=references,
+        """只渲染 CPU 自有的摘要段，进程交付的固定块始终原样放置与计量。"""
+        sections = (
+            self._mtp_prompt,
+            self._instructions,
+            render_session_summary(summary, references, language=self._language),
+            self._turn_context,
         )
+        system_prompt = "\n\n".join(section for section in sections if section)
+        messages = [{"role": "system", "content": system_prompt}] if system_prompt else []
+        messages.append({"role": "user", "content": self._user_message})
+        return messages
 
     def _turn_messages(
         self, index: int, *, reduced: bool, for_summary: bool = False
     ) -> list[dict[str, str]]:
-        turn = self._context.session_history[index]
+        turn = self._history[index]
         return self._builder.build_messages(
             [turn],
-            current_agent_id=self._context.labels.agent_id,
+            current_agent_id=self._current_agent_id,
             language=self._language,
             reduced_through=turn.interaction_id if reduced else None,
             tool_result_excerpt_chars=self._config.tool_result_excerpt_chars,
@@ -257,7 +271,7 @@ class SessionContextView:
         )
         history = [
             message
-            for index in range(summarized, len(self._context.session_history))
+            for index in range(summarized, len(self._history))
             for message in self._turn_messages(index, reduced=index < reduced_count)
         ]
         return [*fixed[:-1], *history, *fixed[-1:]]

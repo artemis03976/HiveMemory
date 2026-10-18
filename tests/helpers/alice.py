@@ -68,7 +68,7 @@ def build_run_service(
         agent_runtime=runtime,
         call_coordinator=coordinator,
         frame_factory=frame_factory,
-        prompt_assembler=prompt_assembler,
+        koakuma_config=config.alice.koakuma,
         compaction_config=config.alice.compaction,
         agent_run_events=AgentRunEventEmitter(
             RuntimeEventPublisher(runtime_events or NullRuntimeEventSink())

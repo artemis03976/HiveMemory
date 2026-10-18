@@ -5,9 +5,7 @@ from hivememory.i18n.types import Language
 
 _SYSTEM_PROMPT_TEXT_ZH = {
     "storage_offline_notice": (
-        "[系统通知] 记忆存储当前离线。"
-        "依赖记忆存储的操作将失败。"
-        "请使用已有上下文继续对话；本地系统工具仍可使用。"
+        "[系统通知] 记忆存储当前离线。" "依赖记忆存储的操作将失败。" "请使用已有上下文继续对话。"
     ),
     "persona_header": "### 角色设定 ###",
     "topic_state_header": "[话题状态]",
@@ -17,7 +15,7 @@ _SYSTEM_PROMPT_TEXT_EN = {
     "storage_offline_notice": (
         "[SYSTEM NOTICE] Memory storage is currently OFFLINE. "
         "Operations that require memory storage will fail. "
-        "Continue using the available context; local system tools remain available."
+        "Continue using the available context."
     ),
     "persona_header": "### PERSONA ###",
     "topic_state_header": "[Topic State]",

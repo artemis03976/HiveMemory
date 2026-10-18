@@ -24,10 +24,8 @@ from hivememory.alice.orchestration.session import RunSession
 from hivememory.alice.orchestration.verbs import mtp_verbs_for_operations
 from hivememory.alice.run.output import RunOutput
 from hivememory.alice.run.result import assemble_execution_result, publish_terminal, stats_for
-from hivememory.config.alice import CompactionConfig
+from hivememory.config.alice import CompactionConfig, KoakumaConfig
 from hivememory.core.models import OMNI_DOLL_PROFILE, AgentProfile, ExecutionLabels
-from hivememory.core.protocol.models import AgentRunContext
-from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
@@ -45,32 +43,11 @@ class RunExitReason(str, Enum):
     FAILED = "failed"
 
 
-def _agent_run_context_from_manifest(manifest: CPUInputManifest) -> AgentRunContext:
-    """把 CPU 输入清单转换为提示词组装使用的内部运行上下文。
-
-    只取提示词组装与运行事件需要的字段：记忆以任务进程编译好的文本进入，
-    未编译的检索原子不复制。``AgentRunContext`` 不出现在任何公开路由上。
-    操作快照在 Alice 一侧翻译为 MTP 动词，提示词与 root frame 共享同一集合；
-    此转换只描述执行能力，不参与资源授权。
-    """
-    return AgentRunContext(
-        labels=manifest.labels,
-        topic_id=manifest.topic_id,
-        user_message=manifest.user_message,
-        session_history=manifest.session_history,
-        memory_context=manifest.memory_context,
-        agent_profile=manifest.agent_profile,
-        permitted_mtp_verbs=mtp_verbs_for_operations(manifest.allowed_operations),
-        storage_available=manifest.storage_available,
-        attachment_context=manifest.attachment_context,
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class _RunPreparation:
-    """单次运行的内部上下文、帧会话与已发布 started 的观测绑定。"""
+    """单次运行的动词快照、帧会话与已发布 started 的观测绑定。"""
 
-    context: AgentRunContext
+    permitted_verbs: frozenset[str]
     session: RunSession
     events: BoundAgentRunEvents
 
@@ -84,7 +61,7 @@ class AgentRunService:
         agent_runtime: AgentRuntime,
         call_coordinator: CallCoordinator,
         frame_factory: FrameFactory,
-        prompt_assembler: AgentPromptAssembler,
+        koakuma_config: KoakumaConfig,
         agent_run_events: AgentRunEventEmitter,
         compaction_config: CompactionConfig,
         summarizer: RelaySummarizer,
@@ -92,7 +69,7 @@ class AgentRunService:
         self._agent_runtime = agent_runtime
         self._call_coordinator = call_coordinator
         self._frame_factory = frame_factory
-        self._prompt_assembler = prompt_assembler
+        self._koakuma_config = koakuma_config
         self._agent_run_events = agent_run_events
         self._compaction_config = compaction_config
         self._summarizer = summarizer
@@ -111,7 +88,7 @@ class AgentRunService:
         events = preparation.events
         inputs = RootContextBuilder(
             runtime=self._agent_runtime,
-            prompt_assembler=self._prompt_assembler,
+            koakuma_config=self._koakuma_config,
             config=self._compaction_config,
             summarizer=self._summarizer,
         )
@@ -128,8 +105,8 @@ class AgentRunService:
                 run_events=events,
             )
             await inputs.build(
-                preparation.context,
-                checkpoint=input_manifest.compaction_checkpoint,
+                input_manifest,
+                permitted_verbs=preparation.permitted_verbs,
                 generation_options=generation_options,
                 events=events,
                 output=run_output,
@@ -137,11 +114,11 @@ class AgentRunService:
             frame = self._create_root_frame(
                 messages=inputs.messages,
                 submit_operation=submit_operation,
-                labels=preparation.context.labels,
-                topic_id=preparation.context.topic_id,
+                labels=input_manifest.labels,
+                topic_id=input_manifest.topic_id,
                 session=preparation.session,
-                agent_profile=preparation.context.agent_profile,
-                permitted_verbs=preparation.context.permitted_mtp_verbs,
+                agent_profile=input_manifest.agent_profile,
+                permitted_verbs=preparation.permitted_verbs,
             )
             frame.resolved_model = inputs.model
             if inputs.model is not None:
@@ -189,12 +166,12 @@ class AgentRunService:
                 result_slot.result = result
 
     def _prepare_run(self, input_manifest: CPUInputManifest) -> _RunPreparation:
-        """构造 run 上下文与会话，绑定 ``agent.run.*`` 事件并发布 started。"""
-        context = _agent_run_context_from_manifest(input_manifest)
+        """构造 run 会话与动词快照，绑定 ``agent.run.*`` 事件并发布 started。"""
+        permitted_verbs = mtp_verbs_for_operations(input_manifest.allowed_operations)
         session = self._create_run_session(process_id=input_manifest.process_id)
-        run_events = self._events_for_run(session, context)
+        run_events = self._events_for_run(session, input_manifest)
         run_events.started()
-        return _RunPreparation(context=context, session=session, events=run_events)
+        return _RunPreparation(permitted_verbs=permitted_verbs, session=session, events=run_events)
 
     def _create_root_frame(
         self,
@@ -241,14 +218,14 @@ class AgentRunService:
     def _events_for_run(
         self,
         session: RunSession,
-        agent_run_context: AgentRunContext,
+        manifest: CPUInputManifest,
     ) -> BoundAgentRunEvents:
         return self._agent_run_events.for_run(
             agent_run_id=session.agent_run_id,
             process_id=session.process_id,
-            topic_id=agent_run_context.topic_id,
-            agent_id=agent_run_context.labels.agent_id,
-            workspace_id=agent_run_context.labels.workspace_id,
+            topic_id=manifest.topic_id,
+            agent_id=manifest.labels.agent_id,
+            workspace_id=manifest.labels.workspace_id,
         )
 
 

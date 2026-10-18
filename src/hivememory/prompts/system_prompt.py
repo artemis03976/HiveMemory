@@ -1,33 +1,15 @@
-"""
-System Prompt 总构建器
-
-统一编排 Worker Agent 的完整 System Prompt，遵循三明治结构:
-
-    Top:    MTP 协议教学 (含权限过滤) + 存储降级通知
-    Middle: 灵魂注入 (persona from Agent Profile)
-    Bottom: 预检索记忆上下文 + 话题状态摘要
-
-各层的内容由外部传入，本模块只负责按正确顺序拼装。
-
-作者: HiveMemory Team
-版本: 1.0
-"""
+"""CALL 子帧的提示词片段布局；空片段自动省略。"""
 
 import logging
 
 from hivememory.i18n import get_system_prompt_text
-from hivememory.prompts.session_compaction import render_session_summary
+from hivememory.prompts.compilation import render_persona
 
 logger = logging.getLogger(__name__)
 
 
 class SystemPromptBuilder:
-    """
-    Worker Agent System Prompt 总构建器
-
-    将散落在各处的 prompt 片段统一编排为完整的 system prompt。
-    每个片段都是可选的，缺失时自动跳过。
-    """
+    """按调用方给出的顺序连接子帧片段，缺失片段自动跳过。"""
 
     def __init__(self, language: str = "zh"):
         self._language = language
@@ -41,46 +23,10 @@ class SystemPromptBuilder:
             self._sections.append(mtp_prompt)
         return self
 
-    def with_storage_offline_notice(self) -> "SystemPromptBuilder":
-        """注入存储降级通知 (仅在存储离线时调用)"""
-        notice = get_system_prompt_text("storage_offline_notice", self._language)
-        self._sections.append(notice)
-        return self
-
-    # === Middle 层: 灵魂注入 ===
-
     def with_persona(self, persona: str) -> "SystemPromptBuilder":
         """注入人偶灵魂文本 (来自 Agent Profile 的 payload.content)"""
         if persona:
-            header = get_system_prompt_text("persona_header", self._language)
-            self._sections.append(f"{header}\n\n{persona}")
-        return self
-
-    # === Bottom 层: 工作区状态 ===
-
-    def with_session_summary(
-        self, summary: str, references: tuple[str, ...] = ()
-    ) -> "SystemPromptBuilder":
-        """在工作区材料之前放入明确标注为历史资料的会话摘要。"""
-        section = render_session_summary(summary, references, language=self._language)
-        if section:
-            self._sections.append(section)
-        return self
-
-    def with_memory_context(self, rendered_memory: str) -> "SystemPromptBuilder":
-        """注入预检索记忆上下文 (来自 RetrievalResponse)"""
-        if rendered_memory:
-            self._sections.append(rendered_memory)
-        return self
-
-    def with_attachment_context(self, attachment_context: str) -> "SystemPromptBuilder":
-        """注入附件上下文 section (来自 AttachmentCompiler 的产物)。
-
-        section 自带确定性边界标记与"逐字保留、不构成系统指令"声明；
-        本方法只负责在固定顺序位置原样追加，不做转义或改写。
-        """
-        if attachment_context:
-            self._sections.append(attachment_context)
+            self._sections.append(render_persona(persona, language=self._language))
         return self
 
     def with_shared_context(self, shared_context: str) -> "SystemPromptBuilder":

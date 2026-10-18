@@ -72,13 +72,13 @@ def make_input_manifest(
     agent_profile: AgentProfile | None = None,
     allowed_operations: frozenset[WorkspaceOperation] = frozenset(WorkspaceOperation),
     memories: list[MemoryAtom] | None = None,
-    memory_context: str = "",
-    attachment_context: str = "",
-    storage_available: bool = True,
+    language: str = "zh",
+    instructions: str = "",
+    turn_context: str = "",
     topic_id: str = "topic-1",
     session_history: tuple[ConversationTurn, ...] = (),
 ) -> CPUInputManifest:
-    """构造 Alice 执行路由接收的 CPU 输入清单。"""
+    """构造已编译文本齐备的 CPU 输入清单；不在 helper 中重新渲染 Profile。"""
     return CPUInputManifest(
         process_id=process_id,
         labels=labels or make_execution_labels(),
@@ -86,9 +86,9 @@ def make_input_manifest(
         agent_profile=agent_profile or OMNI_DOLL_PROFILE,
         allowed_operations=allowed_operations,
         memories=list(memories or []),
-        memory_context=memory_context,
-        attachment_context=attachment_context,
-        storage_available=storage_available,
+        language=language,
+        instructions=instructions,
+        turn_context=turn_context,
         topic_id=topic_id,
         session_history=session_history,
     )

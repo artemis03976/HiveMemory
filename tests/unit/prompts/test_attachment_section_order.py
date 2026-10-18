@@ -1,97 +1,27 @@
-"""AgentPromptAssembler 附件 section 注入顺序的快照测试。
-
-冻结规则：system prompt 各 section 固定为 MTP/系统通知 → persona →
-memory_context → attachment_context；附件 section 只作为
-普通上下文注入，不改变 frame 动词集合或 MemoryCompiler target。
-"""
-
-from types import SimpleNamespace
+"""进程提示词中的记忆与附件顺序，以及空段省略与正文保真。"""
 
 import pytest
 
 from hivememory.core.models import AgentProfile
-from hivememory.core.protocol.models import AgentRunContext
-from hivememory.i18n import get_default_language, set_default_language
-from hivememory.prompts.assembler import AgentPromptAssembler
-from tests.helpers.workspace import make_execution_labels
+from hivememory.prompts.compilation import compile_prompt_input
 
 
-@pytest.fixture(autouse=True)
-def reset_i18n():
-    previous = get_default_language()
-    set_default_language("zh")
-    yield
-    set_default_language(previous)
-
-
-def _make_koakuma_config():
-    return SimpleNamespace(
-        enabled=True,
-        mtp_prompt=SimpleNamespace(
-            enabled=True,
-            include_demo=False,
-            include_error_handling=False,
-        ),
-    )
-
-
-def _context(attachment_context: str) -> AgentRunContext:
-    return AgentRunContext(
-        labels=make_execution_labels(agent_id="omni_doll"),
-        topic_id="topic_1",
-        user_message="hello",
-        memory_context="MEMORY-CONTEXT",
-        agent_profile=AgentProfile(persona="PERSONA", language="zh"),
-        permitted_mtp_verbs=frozenset({"RUN"}),
+@pytest.mark.parametrize(
+    "memory,attachment,expected",
+    [
+        ("MEMORY", " \nATTACHMENT\n ", "MEMORY\n\n \nATTACHMENT\n "),
+        ("MEMORY", "", "MEMORY"),
+        ("", "ATTACHMENT", "ATTACHMENT"),
+    ],
+)
+def test_turn_context_preserves_material_order_and_omits_empty_sections(
+    memory, attachment, expected
+):
+    """记忆总在附件前，空段不占位置；附件中的空白和边界文本不改写。"""
+    compiled = compile_prompt_input(
+        agent_profile=AgentProfile(),
         storage_available=True,
-        attachment_context=attachment_context,
+        memory_context=memory,
+        attachment_context=attachment,
     )
-
-
-def _koakuma_off():
-    return SimpleNamespace(enabled=False, mtp_prompt=None)
-
-
-def test_attachment_section_is_injected_after_memory() -> None:
-    """捕获附件 section 注入位置漂移或丢失。"""
-    assembler = AgentPromptAssembler(_koakuma_off())
-    system_prompt = assembler.build_main_agent_messages(
-        _context("ATTACHMENT-SECTION"),
-    )[
-        0
-    ]["content"]
-
-    memory_pos = system_prompt.index("MEMORY-CONTEXT")
-    attachment_pos = system_prompt.index("ATTACHMENT-SECTION")
-    persona_pos = system_prompt.index("PERSONA")
-
-    assert persona_pos < memory_pos < attachment_pos
-
-
-def test_empty_attachment_context_keeps_prompt_unchanged() -> None:
-    """捕获未选择附件（attachment_context 为空）时注入空附件 section 或占位符。"""
-    assembler = AgentPromptAssembler(_koakuma_off())
-    with_attachment = assembler.build_main_agent_messages(_context("ATTACHMENT-SECTION"))
-    without_attachment = assembler.build_main_agent_messages(_context(""))
-
-    assert "ATTACHMENT-SECTION" not in without_attachment[0]["content"]
-    # 移除附件 section（连同其前导连接符）后，其余内容与带附件版本一致。
-    with_content = with_attachment[0]["content"]
-    separator = "\n" + "\n"
-    assert with_content.replace(separator + "ATTACHMENT-SECTION", "") == (
-        without_attachment[0]["content"]
-    )
-
-
-def test_koakuma_prompt_precedes_attachment_section() -> None:
-    """捕获 MTP 教学片段被排到附件 section 之后。"""
-    assembler = AgentPromptAssembler(_make_koakuma_config())
-    system_prompt = assembler.build_main_agent_messages(
-        _context("ATTACHMENT-SECTION"),
-    )[
-        0
-    ]["content"]
-
-    assert system_prompt.index("ATTACHMENT-SECTION") > 0
-    # MTP prompt（含"工具"教学文本）必须出现在附件 section 之前。
-    assert system_prompt.find("MTP") < system_prompt.index("ATTACHMENT-SECTION")
+    assert compiled.turn_context == expected

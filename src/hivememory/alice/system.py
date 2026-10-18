@@ -60,20 +60,19 @@ class AliceSystem(SubsystemProtocol):
         )
 
         frame_factory = FrameFactory()
-        prompt_assembler = AgentPromptAssembler(config.koakuma)
         call_context_provider = CallContextProvider()
         call_coordinator = CallCoordinator(
             self._runtime,
             call_context_provider,
             frame_factory=frame_factory,
-            prompt_assembler=prompt_assembler,
+            prompt_assembler=AgentPromptAssembler(config.koakuma),
         )
         service = AgentRunService(
             summarizer=RelaySummarizer(LLMClient()),
             agent_runtime=self._runtime,
             call_coordinator=call_coordinator,
             frame_factory=frame_factory,
-            prompt_assembler=prompt_assembler,
+            koakuma_config=config.koakuma,
             agent_run_events=AgentRunEventEmitter(publisher.scoped(component="agent_run_service")),
             compaction_config=config.compaction,
         )

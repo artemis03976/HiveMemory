@@ -2,8 +2,8 @@
 
 CPU 分配由进程完成而不是交给 Actor：Profile 经注入的读取端口解析，
 附件租借经注入的 reader port 取得并登记进进程工作集，附件与记忆文本由
-进程调用共享编译引擎生成，最后组装与 CPU 无关的输入清单。Actor 只消费
-清单，不接触租借或编译配置。
+进程调用共享编译引擎生成，再定稿人格、环境通知与本轮材料并组装输入清单。
+Actor 只消费编译结果，不接触租借或编译配置。
 
 附件租借由本分配器取得，也由本分配器释放（:meth:`CPUAllocator.release`）：
 工作集只登记租借，不持有 reader。
@@ -39,6 +39,7 @@ from hivememory.engines.memory_compiler import (
     MemoryCompiler,
     MemoryEnvelopeTarget,
 )
+from hivememory.prompts.compilation import compile_prompt_input
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 from hivememory.workspace.contracts import CPUInputManifest
 from hivememory.workspace.process.working_set import ProcessWorkingSet
@@ -60,11 +61,11 @@ class _AgentProfileReader(Protocol):
 
 
 class CPUAllocator:
-    """解析 Profile、取得并编译附件、编译记忆并组装 CPU 输入清单。
+    """解析 Profile、租借附件并编译提示词，组装 CPU 输入清单。
 
     ``asset_reader`` 是进程级唯一 WorkspaceAssetStore 的只读 reader 端口；
-    两个编译配置段驱动进程侧的记忆/附件编译（与拆分前 Patchouli prepare
-    使用相同的引擎与配置段）。``operation_authorizer`` 是组合根注入的授权者：
+    两个编译配置段驱动进程侧的记忆/附件编译。
+    ``operation_authorizer`` 是组合根注入的授权者：
     Profile 解析与附件租借的阶段授权在本层、对应副作用前执行。
     """
 
@@ -150,8 +151,7 @@ class CPUAllocator:
                 selection,
             )
 
-        # 2. 编译：附件与记忆文本由进程生成，CPU 只消费成品。检索为空时
-        #    memory_context 为空字符串（与拆分前 prepare 的行为一致）。
+        # 2. 编译：附件与记忆文本由进程生成，检索为空时不产生记忆段。
         attachment_compile_result = self._attachment_compiler.compile(
             leases=tuple(working_set.attachment_leases),
         )
@@ -171,7 +171,15 @@ class CPUAllocator:
             else ""
         )
 
-        # 3. 清单：沿用注册时的只读标签，CPU 不接收身份或访问 context。
+        # 3. 提示词：在 CPU 边界前定稿环境通知、人格与本轮材料，语言只解析一次。
+        prompt = compile_prompt_input(
+            agent_profile=agent_profile,
+            storage_available=prepared.storage_available,
+            memory_context=memory_context,
+            attachment_context=attachment_compile_result.attachment_context,
+        )
+
+        # 4. 清单：沿用注册时的只读标签，CPU 不接收身份或访问 context。
         #    标签与资源授权分离；附件租借仍在各次 acquire 前独立授权。
         manifest = CPUInputManifest(
             process_id=process_id,
@@ -180,9 +188,9 @@ class CPUAllocator:
             agent_profile=agent_profile,
             allowed_operations=allowed_operations,
             memories=memories,
-            memory_context=memory_context,
-            attachment_context=attachment_compile_result.attachment_context,
-            storage_available=prepared.storage_available,
+            language=prompt.language,
+            instructions=prompt.instructions,
+            turn_context=prompt.turn_context,
             topic_id=prepared.topic_id,
             session_history=session_history,
             compaction_checkpoint=compaction_checkpoint,

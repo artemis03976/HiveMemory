@@ -7,11 +7,11 @@ from hivememory.agent_runtime import AgentRuntime, InputTooLargeError, ResolvedF
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.context.view import CompactionFailedError, SessionContextView
 from hivememory.alice.events import BoundAgentRunEvents
-from hivememory.config.alice import CompactionConfig
+from hivememory.config.alice import CompactionConfig, KoakumaConfig
 from hivememory.core.errors import ModelNotFoundError
-from hivememory.core.models import OMNI_DOLL_PROFILE
-from hivememory.core.protocol.models import AgentRunContext, SessionCompactionCheckpoint
-from hivememory.prompts.assembler import AgentPromptAssembler
+from hivememory.core.protocol.models import SessionCompactionCheckpoint
+from hivememory.prompts.mtp import MTPPromptBuilder
+from hivememory.workspace.contracts import CPUInputManifest
 
 
 class ContextProgressOutput(Protocol):
@@ -27,12 +27,12 @@ class RootContextBuilder:
         self,
         *,
         runtime: AgentRuntime,
-        prompt_assembler: AgentPromptAssembler,
+        koakuma_config: KoakumaConfig,
         config: CompactionConfig,
         summarizer: RelaySummarizer,
     ) -> None:
         self._runtime = runtime
-        self._prompt_assembler = prompt_assembler
+        self._koakuma_config = koakuma_config
         self._config = config
         self._summarizer = summarizer
         self.messages: list[dict[str, str]] = []
@@ -42,22 +42,37 @@ class RootContextBuilder:
 
     async def build(
         self,
-        context: AgentRunContext,
+        manifest: CPUInputManifest,
         *,
-        checkpoint: SessionCompactionCheckpoint | None,
+        permitted_verbs: frozenset[str],
         generation_options: dict[str, Any] | None,
         events: BoundAgentRunEvents,
         output: ContextProgressOutput,
     ) -> None:
         """模型与预算先于视图组装；可预期的输入失败留给运行层形成终态。"""
         try:
-            self.model = self._runtime.resolve_model(
-                context.agent_profile or OMNI_DOLL_PROFILE, generation_options
+            self.model = self._runtime.resolve_model(manifest.agent_profile, generation_options)
+            # 工具教学属于 Alice；语言沿用进程的解析结果，不能重新读取默认语言。
+            prompt_config = self._koakuma_config.mtp_prompt
+            mtp_prompt = (
+                MTPPromptBuilder(
+                    language=manifest.language,
+                    include_demo=prompt_config.include_demo,
+                    include_error_handling=prompt_config.include_error_handling,
+                    allowed_verbs=permitted_verbs,
+                ).build()
+                if self._koakuma_config.enabled and prompt_config.enabled
+                else ""
             )
             view = SessionContextView(
-                context=context,
-                prompt_assembler=self._prompt_assembler,
-                checkpoint=checkpoint,
+                instructions=manifest.instructions,
+                turn_context=manifest.turn_context,
+                user_message=manifest.user_message,
+                language=manifest.language,
+                mtp_prompt=mtp_prompt,
+                session_history=manifest.session_history,
+                current_agent_id=manifest.labels.agent_id,
+                checkpoint=manifest.compaction_checkpoint,
                 input_token_limit=self.model.input_token_limit,
                 config=self._config,
             )
