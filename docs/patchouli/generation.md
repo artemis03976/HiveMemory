@@ -5,6 +5,7 @@ owner: patchouli
 scope: memory-materialization-and-background-tasks
 code_paths:
   - src/hivememory/engines/generation/
+  - src/hivememory/infrastructure/llm/base.py
   - src/hivememory/prompts/transcript/generation.py
   - src/hivememory/patchouli/services/memory_generation.py
   - src/hivememory/patchouli/control/memory_generation/
@@ -14,7 +15,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-18
 ---
 
 # 记忆生成
@@ -80,6 +81,8 @@ GenerationContext
 
 GenerationEngine 渲染 transcript，调用 extractor 判断长期价值并生成 `ExtractedMemoryDraft`；没有草稿或 `has_value=false` 时不产生记忆。有效草稿随后进入 dense top-1 查重。
 
+Extractor 经组合根注入的共享 LLM 服务异步调用模型，请求参数由 `shared.llm.librarian` 转换而来，等待模型期间不阻塞事件循环；Librarian 未配置模型时 extractor 以 No-Op 运行。它区分两种结果：模型输出为空或无法解析为草稿是“没有产出”；提供商失败只重试一次，耗尽后抛出 `ModelProviderError`。Mode A 不捕获该错误，生成任务以 `memory_generation_failed` 失败收尾，不再把提供商故障记录成“对话没有价值”。超窗、程序错误与取消不重试，原样传播；分类见[错误模型](../contracts/error-model.md#46-模型调用错误)。
+
 Mode A 的“被动”指没有显式 WRITE/UPDATE focus，而不是同步发生在用户响应内。它仍作为 Patchouli 后台 memory task 执行。
 
 四种 settle 入口（manual / idle / LRU / shutdown）共享同一发起者裁定：Coordinator 按 `belong_to` 构造 `user_id=owner_user_id`、`agent_id=SYSTEM_AGENT_ID`、`team_id=None` 的 `from_actor`，不继承最后访问者或驱逐触发者。`system` 不属于 Team，也不能成为 PRIVATE policy 的目标，普通读取策略因此把 SETTLE 查重限定为本 Workspace 的 PUBLIC 记忆，避免后台结算触碰某个参与 Agent 才可见的 PRIVATE/TEAM 记忆。新建记忆使用 PUBLIC policy、`source_agent_id=SYSTEM_AGENT_ID` 与 `SYSTEM` creation intent；实际参与内容的 Agent 由 `contributing_agent_ids` 从 block identity 聚合（去重、保持首次出现顺序、不含 `system`）。
@@ -94,13 +97,13 @@ Alice 的 MTP WRITE 经线程 context 绑定的操作请求进入 workspace 能�
 
 Coordinator 使用话题的 `state_summary` 与过去 N 个 block 作为背景，以 `WriteFocus` 为保存核心。N 由 `patchouli.generation.active_recent_blocks` 配置（默认 5，允许 0），与感知折叠保留轮数无关。派发发生在交互封口前，当前轮不进入背景；新话题为空时只依赖 focus。话题不存在时按空材料生成，话题读取抛错时因尚无任务入队，逐项结算 FAILED 并拒绝。
 
-Extractor 失败时，Mode B 会直接从 WriteFocus 构建 fallback draft，保证明确保存意图不会因为 Librarian LLM 暂时失败而无声丢失。Fallback 仍要经过去重，因而最终可能 CREATE、UPDATE、TOUCH 或 DISCARD；ACK 从未承诺“一定新建一条独立记忆”。
+Extractor 遇到提供商失败（重试耗尽）或输出无法解析时，Mode B 会直接从 WriteFocus 构建 fallback draft，保证明确保存意图不会因为 Librarian LLM 暂时失败而无声丢失；程序错误不进入 fallback，任务按失败收尾。Fallback 仍要经过去重，因而最终可能 CREATE、UPDATE、TOUCH 或 DISCARD；ACK 从未承诺“一定新建一条独立记忆”。
 
 ### 3.3 Mode C：主动 UPDATE
 
 UPDATE spec 构建时，Coordinator 解析 `UpdateFocus.base_uuid` 并通过 local route 读取现有 MemoryAtom。UUID 非法或目标不存在只使该 active spec 失败，并发布对应 pending failure，不阻断同批其他任务。
 
-Engine 用 extractor merge 生成新正文与 changelog；merge 失败时：
+Engine 用 extractor merge 生成新正文与 changelog；merge 遇到提供商失败或输出无法解析时：
 
 - focus 携带 content：把内容作为带日期的更新段追加到旧正文；
 - 只有 instruction：保留旧正文，记录无内容变更的 fallback changelog。
@@ -146,7 +149,8 @@ artifact。因此 `TimeoutError`、`ConnectionError`、模型异常以及普通�
 `FAILED`，不会由 Memory Generation lane 自动重试。
 
 这不等于系统完全没有重试：通用 Work Queue Runtime 仍保留 retry 状态机，Interaction Submission 也只对
-明确标记的瞬态提交错误做有限重试；Generation extractor 内部的 LLM 边界重试属于另一层策略。当前
+明确标记的瞬态提交错误做有限重试；Generation extractor 内部的 LLM 边界重试属于另一层策略，只对提供商
+失败重试一次，超窗、程序错误与取消不重试。当前
 `FAILED` 只表示本次任务未完成，不保证没有任何外部副作用。Active WRITE/UPDATE 已使用 PendingAtom
 `intent_id` 派生稳定 task/work identity：进程内重复 dispatch 会复用已有任务，且相同 identity 携带不同
 spec 会被拒绝。跨重启结果记录、数据面内部副作用幂等和 reconciliation 仍留待后续持久化/I2 阶段处理。
@@ -214,7 +218,8 @@ Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任
 - memory work、typed result 与终态快照只存在于当前进程，重启后不可恢复；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
 - 终态快照与 Queue 使用同一 `terminal_retention` 上限；
 - Active spec 的 I/O 构建仍在 Coordinator 并行完成；批量 admission 本身按输入顺序串行，以维持确定的入队顺序；
-- 运行中的 extractor/merge 调用不能保证在任意阻塞点立即响应 cancel；
+- extractor/merge 的 LLM 调用没有独立超时，提供商长时间无响应时任务一直等待，只受取消与 shutdown drain 约束；
+- 后台抽取与 chat 共用提供商配额，限流表现为提供商失败：Mode A 按任务失败收尾，Mode B/C 使用 fallback；当前没有生成侧的并发控制；
 - Mode A/B 去重仍只取 dense top-1；检索调用链独立携带归属与发起者，Memory store/adapter 先强制 Workspace ownership hard filter，再重验 actor policy；其他去重策略限制仍待收敛；
 - Dedup UPDATE 是直接覆盖 draft content，不是强语义 merge；
 - Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；

@@ -1,172 +1,142 @@
 """
 HiveMemory LLM 基础模块
 
-包含 LLM 服务抽象接口和绑定配置的服务基类。
+LLM 服务的中立接口与请求参数、调用结果、流式分块模型；本模块不依赖任何
+提供商 SDK。
+
+请求参数逐次携带模型与采样设置，实现不持有默认模型、凭证或采样参数；
+使用方的固定配置在各自一侧转换为请求参数。提供商失败由实现在 SDK 边界
+转换为 ``core.errors`` 的中立错误：上下文超窗为
+``ModelContextWindowExceededError``，其他已知失败为 ``ModelProviderError``，
+原始异常保留在原因链；程序错误与取消原样传播。
 """
 
-import logging
+from __future__ import annotations
+
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
+from collections.abc import AsyncGenerator, Coroutine
+from typing import Any, Literal, overload
 
-if TYPE_CHECKING:
-    from hivememory.config.shared import LLMConfig
+from pydantic import BaseModel, ConfigDict, Field
 
-logger = logging.getLogger(__name__)
+
+class LLMRequestParams(BaseModel):
+    """一次 LLM 调用的模型参数；为 ``None`` 或为空的可选项不发给提供商。
+
+    ``api_key`` / ``api_base`` 为 ``None`` 是合法状态，由提供商 SDK 从环境变量
+    读取凭证；``api_key`` 不出现在 repr 中，日志与异常格式化参数时不泄露密钥。
+    ``json_output`` 要求提供商以 JSON 对象输出；提供商明确不支持该参数时，实现
+    退回普通补全，由调用方按文本解析。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    model: str = Field(min_length=1, description="提供商可执行的模型标识符")
+    api_key: str | None = Field(default=None, repr=False, description="本次调用的 API 密钥")
+    api_base: str | None = Field(default=None, description="本次调用的 API 地址")
+    temperature: float | None = Field(default=None, description="采样温度")
+    top_p: float | None = Field(default=None, description="Top-p 采样率")
+    max_tokens: int | None = Field(default=None, description="最大生成 token 数")
+    stop: tuple[str, ...] = Field(default=(), description="停止序列")
+    json_output: bool = Field(default=False, description="是否要求 JSON 对象输出")
+
+
+class LLMUsage(BaseModel):
+    """提供商报告的 token 用量。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    total_tokens: int = Field(description="本次调用消耗的总 token 数")
+
+
+class LLMCompletion(BaseModel):
+    """一次完整调用的结果；提供商没有返回文本时实现显式失败，不构造本结果。"""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    text: str = Field(description="首个候选的文本内容")
+    finish_reason: str | None = Field(
+        default=None, description="提供商报告的结束原因；未报告时为 None，由调用方解释"
+    )
+    usage: LLMUsage | None = Field(default=None, description="提供商报告的用量，可缺省")
+
+
+class LLMStreamChunk(BaseModel):
+    """流式调用的一项。
+
+    中间项只携带非空的文本增量；流正常耗尽时最后一项不带文本，携带提供商
+    报告的结束原因（提供商未报告时为 ``None``）。
+    """
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    delta: str = Field(default="", description="文本增量")
+    finish_reason: str | None = Field(default=None, description="结束原因，只出现在最后一项")
 
 
 class BaseLLMService(ABC):
     """
     LLM 服务抽象接口
 
-    定义所有 LLM 服务必须实现的方法。
+    调用方只面对唯一入口 :meth:`complete`，以 ``stream`` 参数选择完整调用或
+    流式调用；实现只提供两个受保护的钩子，不感知调用方是谁。
     """
 
-    @abstractmethod
+    @overload
     def complete(
         self,
         messages: list[dict[str, str]],
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        **kwargs,
-    ) -> str:
-        """
-        生成聊天补全
+        params: LLMRequestParams,
+        *,
+        stream: Literal[False] = False,
+    ) -> Coroutine[Any, Any, LLMCompletion]: ...
 
-        Args:
-            messages: 消息列表，格式 [{"role": "user", "content": "..."}]
-            temperature: 温度参数（覆盖默认值）
-            max_tokens: 最大 token 数（覆盖默认值）
-            **kwargs: 其他额外参数
-
-        Returns:
-            str: LLM 响应内容
-        """
-        pass
-
-    def complete_with_tools(
+    @overload
+    def complete(
         self,
         messages: list[dict[str, str]],
-        tools: list[dict[str, Any]] | None = None,
-        tool_choice: dict[str, Any] | None = None,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        **kwargs,
-    ) -> Any:
-        """
-        生成聊天补全（支持 Function Calling）
+        params: LLMRequestParams,
+        *,
+        stream: Literal[True],
+    ) -> AsyncGenerator[LLMStreamChunk, None]: ...
 
-        用于需要返回完整响应对象的场景（如 Function Calling）。
-
-        Args:
-            messages: 消息列表
-            tools: Function Calling 工具定义列表
-            tool_choice: 工具选择策略
-            temperature: 温度参数
-            max_tokens: 最大 token 数
-            **kwargs: 其他参数
-
-        Returns:
-            Any: 完整的 LLM 响应对象（包含 tool_calls 等信息）
-
-        Raises:
-            NotImplementedError: 子类未实现此方法时抛出
-        """
-        raise NotImplementedError(f"{self.__class__.__name__} does not support complete_with_tools")
-
-    async def acomplete_with_tools(
+    def complete(
         self,
         messages: list[dict[str, str]],
-        tools: list[dict[str, Any]] | None = None,
-        tool_choice: dict[str, Any] | None = None,
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        **kwargs,
-    ) -> Any:
-        """
-        异步生成聊天补全（支持 Function Calling）
+        params: LLMRequestParams,
+        *,
+        stream: bool = False,
+    ) -> Coroutine[Any, Any, LLMCompletion] | AsyncGenerator[LLMStreamChunk, None]:
+        """``stream=False``（默认）返回可 await 的完整结果，``stream=True`` 返回流。
 
-        Raises:
-            NotImplementedError: 子类未实现此方法时抛出
+        流首次拉取时才发出请求；流耗尽、被调用方关闭或在拉取时被取消，都会
+        关闭底层响应，关闭失败只记录日志，不替换正在传播的异常或取消。
         """
-        raise NotImplementedError(
-            f"{self.__class__.__name__} does not support acomplete_with_tools"
-        )
+        if stream:
+            return self._stream(messages, params)
+        return self._complete(messages, params)
 
-    async def acomplete_json(
+    @abstractmethod
+    async def _complete(
         self,
         messages: list[dict[str, str]],
-        temperature: float | None = None,
-        max_tokens: int | None = None,
-        **kwargs,
-    ) -> str:
-        """
-        异步生成 JSON 内容。
+        params: LLMRequestParams,
+    ) -> LLMCompletion:
+        """执行一次完整调用并返回首个候选的文本。"""
 
-        子类可使用 provider 的 JSON mode / structured output 能力实现；
-        不支持时应降级为普通 completion 并返回文本内容。
-        """
-        raise NotImplementedError(f"{self.__class__.__name__} does not support acomplete_json")
-
-    def complete_with_retry(
-        self, messages: list[dict[str, str]], max_retries: int = 2, **kwargs
-    ) -> str | None:
-        """
-        带重试机制的补全（默认实现，子类可覆盖）
-
-        Args:
-            messages: 消息列表
-            max_retries: 最大重试次数
-            **kwargs: 其他参数
-
-        Returns:
-            Optional[str]: LLM 响应内容，失败时返回 None
-        """
-        for attempt in range(max_retries):
-            try:
-                return self.complete(messages, **kwargs)
-            except Exception as e:
-                logger.warning(f"LLM 调用失败 (尝试 {attempt + 1}/{max_retries}): {e}")
-                if attempt == max_retries - 1:
-                    logger.warning(f"LLM 调用失败，重试耗尽: {e}")
-        return None
-
-
-class ConfiguredLLMService(BaseLLMService):
-    """
-    绑定一份 LLM 配置的服务基类。
-
-    每个实例只持有构造时的配置；不同组件（如 Gateway 与 Librarian）各自构造
-    实例，彼此的模型、凭证与采样参数互不影响。服务本身无状态，不需要共享实例。
-    """
-
-    def __init__(
+    @abstractmethod
+    def _stream(
         self,
-        config: "LLMConfig",
-    ):
-        """
-        初始化 LLM 服务配置
+        messages: list[dict[str, str]],
+        params: LLMRequestParams,
+    ) -> AsyncGenerator[LLMStreamChunk, None]:
+        """返回流式调用的异步生成器，语义见 :meth:`complete`。"""
 
-        Args:
-            config: LLM 配置对象
-        """
-        self.config = config
-        self.model = config.model
-        self.api_key = config.api_key
-        self.api_base = config.api_base
-        self.temperature = config.temperature
-        self.max_tokens = config.max_tokens
 
-        logger.info(
-            f"{self.__class__.__name__} 配置: "
-            f"model={self.model}, temperature={self.temperature}, max_tokens={self.max_tokens}"
-        )
-
-    def get_config(self) -> dict[str, Any]:
-        """获取当前配置"""
-        return {
-            "model": self.model,
-            "api_key": "***" if self.api_key else None,
-            "api_base": self.api_base,
-            "temperature": self.temperature,
-            "max_tokens": self.max_tokens,
-        }
+__all__ = [
+    "BaseLLMService",
+    "LLMCompletion",
+    "LLMRequestParams",
+    "LLMStreamChunk",
+    "LLMUsage",
+]

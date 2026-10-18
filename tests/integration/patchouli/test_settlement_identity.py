@@ -68,14 +68,14 @@ class _Clock:
 class _Relay:
     """LLM 折叠端口替身；本测试的阈值不触发折叠。"""
 
-    def generate_summary(self, _blocks, _previous_summary):
+    async def generate_summary(self, _blocks, _previous_summary):
         raise AssertionError("settlement identity test must not compact")
 
 
 class _Extractor:
     """LLM 提取边界的确定性草稿替身。"""
 
-    def extract(self, **_kwargs):
+    async def extract(self, **_kwargs):
         return ExtractedMemoryDraft(
             title="相似记忆",
             summary="新的总结",

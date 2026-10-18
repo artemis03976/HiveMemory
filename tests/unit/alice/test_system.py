@@ -9,12 +9,17 @@ import pytest
 
 from hivememory.alice.system import AliceSystem
 from hivememory.config.app import HiveMemoryConfig
+from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.operations import OperationsHarness
 
 
 @pytest.mark.asyncio
 async def test_health_reports_runtime_health():
-    system = AliceSystem(config=HiveMemoryConfig().alice, operation_entry=OperationsHarness().entry)
+    system = AliceSystem(
+        config=HiveMemoryConfig().alice,
+        operation_entry=OperationsHarness().entry,
+        llm_service=ScriptedLLMService(),
+    )
 
     health = await system.health()
 

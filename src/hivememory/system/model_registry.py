@@ -286,7 +286,7 @@ class ModelRegistry:
             model_id: 模型 ID
 
         Returns:
-            LLMConfig 实例，可直接传给 LiteLLMService
+            LLMConfig 实例，由使用方转换为 LLM 调用的请求参数
 
         Raises:
             ModelNotFoundError: 模型不存在

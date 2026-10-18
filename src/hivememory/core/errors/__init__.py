@@ -8,7 +8,7 @@ from .access import (
     WorkspaceMismatchError,
 )
 from .base import DomainError, WorkspaceDomainError
-from .model import ModelNotFoundError
+from .model import ModelContextWindowExceededError, ModelNotFoundError, ModelProviderError
 from .resources import (
     AssetExpiredError,
     AssetFailedError,
@@ -46,6 +46,8 @@ __all__ = [
     "ResourceUnavailableError",
     "MemoryAliasConflictError",
     "ModelNotFoundError",
+    "ModelProviderError",
+    "ModelContextWindowExceededError",
     "StorageOfflineError",
     "StorageReadError",
     "StorageWriteError",

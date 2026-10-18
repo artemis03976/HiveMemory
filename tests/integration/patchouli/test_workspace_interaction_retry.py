@@ -224,10 +224,12 @@ async def test_retry_resumes_pending_compact_without_duplicating_block() -> None
     store = ShortTermMemoryStore()
     journal = InMemoryInteractionApplyJournal()
     relay = Mock()
-    relay.generate_summary.side_effect = [
-        TransientInteractionSubmissionError("relay missed"),
-        "folded-summary",
-    ]
+    relay.generate_summary = AsyncMock(
+        side_effect=[
+            TransientInteractionSubmissionError("relay missed"),
+            "folded-summary",
+        ]
+    )
     engine = MemoryPerceptionEngine(
         config=SemanticFlowPerceptionConfig(fold_token_threshold=1, fold_retain_recent_blocks=1),
         relay_controller=relay,

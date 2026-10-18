@@ -4,12 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
-from typing import Any, Literal
+from typing import Literal
 
 from hivememory.agent_runtime import (
-    GenerationResult,
-    LLMClient,
+    MTPGenerator,
     ResolvedFrameModel,
     estimate_context_tokens,
 )
@@ -18,18 +18,24 @@ from hivememory.alice.context.view import SessionContextView
 from hivememory.config.alice import AgentRuntimeConfig, CompactionConfig
 from hivememory.core.models import AgentProfile, TurnEvent
 from hivememory.core.protocol.models import ConversationTurn, InteractionPayload
+from hivememory.infrastructure.llm.base import (
+    BaseLLMService,
+    LLMCompletion,
+    LLMRequestParams,
+    LLMStreamChunk,
+)
 from hivememory.prompts.compilation import compile_prompt_input
 
 
-class FixedSummaryWorker(LLMClient):
+class FixedSummaryService(BaseLLMService):
     """只保留样本首行事实，供人工检查预算和继续执行的材料；不评估模型质量。"""
 
     def __init__(self) -> None:
         self.requests: list[int] = []
 
-    async def generate_async(
-        self, messages: list[dict[str, str]], **options: Any
-    ) -> GenerationResult:
+    async def _complete(
+        self, messages: list[dict[str, str]], params: LLMRequestParams
+    ) -> LLMCompletion:
         self.requests.append(estimate_context_tokens(messages))
         request = json.loads(messages[1]["content"])
         facts = dict.fromkeys(request["previous_summary"].splitlines())
@@ -38,7 +44,14 @@ class FixedSummaryWorker(LLMClient):
             fact = f"{turn['agent_id']} / {turn['outcome']}: {first}"
             facts.pop(fact, None)
             facts[fact] = None
-        return GenerationResult(text="\n".join(tuple(facts)[-8:]).strip())
+        return LLMCompletion(text="\n".join(tuple(facts)[-8:]).strip(), finish_reason="stop")
+
+    async def _stream(
+        self, messages: list[dict[str, str]], params: LLMRequestParams
+    ) -> AsyncGenerator[LLMStreamChunk, None]:
+        # 摘要只使用完整调用；保持流的惰性契约，首次拉取时才报告不支持。
+        raise NotImplementedError("摘要只使用完整调用")
+        yield
 
 
 def fixed_samples() -> dict[str, tuple[ConversationTurn, ...]]:
@@ -119,7 +132,7 @@ async def main() -> None:
     ):
         input_limit = runtime_config.default_context_window - 32768 - runtime_config.safety_margin
         for name, turns in fixed_samples().items():
-            worker = FixedSummaryWorker()
+            service = FixedSummaryService()
             prompt = compile_prompt_input(
                 agent_profile=AgentProfile(persona="分析并继续任务。", language="zh"),
                 storage_available=True,
@@ -138,11 +151,11 @@ async def main() -> None:
                 input_token_limit=input_limit,
                 config=config,
             )
-            # 替身遵守 Worker 的文本生成接口，不创建任何网络客户端。
+            # 替身实现 LLM 服务接口，摘要仍经真实 MTP 生成器，不创建任何网络客户端。
             result = await view.compact(
-                summarizer=RelaySummarizer(worker),
+                summarizer=RelaySummarizer(MTPGenerator(service)),
                 model=ResolvedFrameModel(
-                    {"model": "fixed-sample", "max_tokens": 32768}, input_limit
+                    LLMRequestParams(model="fixed-sample", max_tokens=32768), input_limit
                 ),
             )
             rows.append(
@@ -154,8 +167,8 @@ async def main() -> None:
                     "after": result.tokens_after,
                     "reduced_turns": result.covered_turns,
                     "summarized_turns": result.summarized_turns,
-                    "summary_calls": len(worker.requests),
-                    "max_request": max(worker.requests, default=0),
+                    "summary_calls": len(service.requests),
+                    "max_request": max(service.requests, default=0),
                     "error": type(result.error).__name__ if result.error else None,
                     "summary": result.checkpoint.summary,
                 }

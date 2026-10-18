@@ -3,28 +3,29 @@
 from __future__ import annotations
 
 import asyncio
-from unittest.mock import AsyncMock
 
-import litellm
 import pytest
 
 from hivememory.config.gateway import TopicRouterConfig
+from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import TopicSnapshot
 from hivememory.engines.gateway.topic_router import (
     TopicRouterEngine,
     TopicRouterError,
 )
+from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
 from tests.helpers.workspace import make_identity_scope
 
 
 @pytest.mark.asyncio
 async def test_topic_router_only_returns_topic_routing_fields() -> None:
-    llm = AsyncMock()
-    llm.acomplete_json.return_value = (
+    llm = ScriptedLLMService(
         '{"target_topic":"topic-1","new_topic_title":"ignored",'
         '"new_topic_summary":"ignored","reason":"延续现有话题"}'
     )
-    router = TopicRouterEngine(config=TopicRouterConfig(), llm_service=llm)
+    router = TopicRouterEngine(
+        config=TopicRouterConfig(), llm_service=llm, llm_params=DEFAULT_LLM_PARAMS
+    )
 
     result = await router.route(
         "继续实现",
@@ -46,16 +47,19 @@ async def test_topic_router_only_returns_topic_routing_fields() -> None:
         "new_topic_summary",
         "reason",
     }
+    # 组件参数原样沿用，只追加 JSON 输出要求。
+    assert llm.calls[-1].params == DEFAULT_LLM_PARAMS.model_copy(update={"json_output": True})
 
 
 @pytest.mark.asyncio
 async def test_topic_router_accepts_new_topic_metadata() -> None:
-    llm = AsyncMock()
-    llm.acomplete_json.return_value = (
+    llm = ScriptedLLMService(
         '{"target_topic":"NEW_TOPIC","new_topic_title":"新问题",'
         '"new_topic_summary":"讨论新的问题","reason":"无候选匹配"}'
     )
-    router = TopicRouterEngine(config=TopicRouterConfig(), llm_service=llm)
+    router = TopicRouterEngine(
+        config=TopicRouterConfig(), llm_service=llm, llm_params=DEFAULT_LLM_PARAMS
+    )
 
     result = await router.route("新问题", topic_snapshots=())
 
@@ -77,9 +81,10 @@ async def test_topic_router_accepts_new_topic_metadata() -> None:
 async def test_topic_router_converts_invalid_output_to_recoverable_error(
     payload: str,
 ) -> None:
-    llm = AsyncMock()
-    llm.acomplete_json.return_value = payload
-    router = TopicRouterEngine(config=TopicRouterConfig(), llm_service=llm)
+    llm = ScriptedLLMService(payload)
+    router = TopicRouterEngine(
+        config=TopicRouterConfig(), llm_service=llm, llm_params=DEFAULT_LLM_PARAMS
+    )
 
     with pytest.raises(TopicRouterError):
         await router.route("问题", topic_snapshots=())
@@ -87,7 +92,9 @@ async def test_topic_router_converts_invalid_output_to_recoverable_error(
 
 @pytest.mark.asyncio
 async def test_topic_router_reports_missing_capability() -> None:
-    router = TopicRouterEngine(config=TopicRouterConfig(), llm_service=None)
+    router = TopicRouterEngine(
+        config=TopicRouterConfig(), llm_service=None, llm_params=DEFAULT_LLM_PARAMS
+    )
 
     with pytest.raises(TopicRouterError, match="未配置"):
         await router.route("问题", topic_snapshots=())
@@ -95,11 +102,12 @@ async def test_topic_router_reports_missing_capability() -> None:
 
 @pytest.mark.asyncio
 async def test_topic_router_classifies_provider_failure():
-    """保留 SDK 根因，但能力错误不复制提供商正文。"""
-    failure = litellm.ServiceUnavailableError("private", llm_provider="test", model="test")
-    llm = AsyncMock()
-    llm.acomplete_json.side_effect = failure
-    router = TopicRouterEngine(config=TopicRouterConfig(), llm_service=llm)
+    """保留提供商失败作为根因，但能力错误不复制其正文。"""
+    failure = ModelProviderError("private")
+    llm = ScriptedLLMService(failure)
+    router = TopicRouterEngine(
+        config=TopicRouterConfig(), llm_service=llm, llm_params=DEFAULT_LLM_PARAMS
+    )
     with pytest.raises(TopicRouterError, match="提供商调用失败") as caught:
         await router.route("问题", topic_snapshots=())
     assert caught.value.__cause__ is failure
@@ -110,9 +118,10 @@ async def test_topic_router_classifies_provider_failure():
 @pytest.mark.parametrize("failure", [TypeError("broken adapter"), asyncio.CancelledError()])
 async def test_topic_router_propagates_program_errors_and_cancellation(failure):
     """程序缺陷与取消不能伪装为模型格式无效。"""
-    llm = AsyncMock()
-    llm.acomplete_json.side_effect = failure
-    router = TopicRouterEngine(config=TopicRouterConfig(), llm_service=llm)
+    llm = ScriptedLLMService(failure)
+    router = TopicRouterEngine(
+        config=TopicRouterConfig(), llm_service=llm, llm_params=DEFAULT_LLM_PARAMS
+    )
     with pytest.raises(type(failure)) as caught:
         await router.route("问题", topic_snapshots=())
     assert caught.value is failure

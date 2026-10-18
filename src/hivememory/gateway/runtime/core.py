@@ -28,7 +28,7 @@ from hivememory.gateway.runtime.bus import GatewayBus
 from hivememory.gateway.runtime.route_bindings import build_gateway_route_bindings
 from hivememory.gateway.workflow import GatewayWorkflow
 from hivememory.gateway.workflow.topology import build_gateway_workflow
-from hivememory.infrastructure.llm.base import BaseLLMService
+from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
 
 
 class GatewayRuntime:
@@ -48,6 +48,7 @@ class GatewayRuntime:
         workflow: GatewayWorkflow | None = None,
         context_provider: GatewayContextProvider | None = None,
         llm_service: BaseLLMService | None = None,
+        llm_params: LLMRequestParams | None = None,
         topic_router: TopicRouterEngine | None = None,
         analysis_resolver: UserQueryAnalysisResolver | None = None,
     ) -> None:
@@ -67,14 +68,18 @@ class GatewayRuntime:
             topic_router = TopicRouterEngine(
                 config=config.topic_router,
                 llm_service=llm_service,
+                llm_params=llm_params,
             )
         if analysis_resolver is None:
-            if llm_service is not None and config.user_query_analysis.enabled:
+            # 服务与组件请求参数齐备才启用 LLM 查询分析，否则使用保守解析器。
+            llm_available = llm_service is not None and llm_params is not None
+            if llm_available and config.user_query_analysis.enabled:
                 analysis_resolver = LLMUserQueryAnalysisResolver(
                     config=config.user_query_analysis,
                     engine=QueryUnderstandingEngine(
                         config=config.user_query_analysis,
                         llm_service=llm_service,
+                        llm_params=llm_params,
                     ),
                     runtime_events=self._runtime_events,
                 )

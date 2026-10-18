@@ -62,7 +62,7 @@ class KoakumaRuntime:
     无状态计算服务，负责 MTP 协议的解析、路由和执行。
 
     职责:
-        1. 接收已由 LLMClient 归一化的 MTP 输出文本
+        1. 接收已由 MTP 生成器归一化的 MTP 输出文本
         2. 解析 MTP 指令
         3. 将资源操作请求提交给 workspace 能力层
         4. 格式化执行结果为 XML 响应容器
@@ -218,7 +218,7 @@ class KoakumaRuntime:
         3. 挂起 (Suspend): 暂停生成并执行指令
 
         Args:
-            assistant_text: 已由 LLMClient 补全右定界符的 LLM 输出文本
+            assistant_text: 已由 MTP 生成器补全右定界符的 LLM 输出文本
 
         Returns:
             MTPExecutionResult 如果检测到指令，否则 None

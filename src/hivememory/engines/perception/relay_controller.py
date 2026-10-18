@@ -14,12 +14,13 @@ import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import LogicalBlock
 from hivememory.i18n import get_relay_prompt_text
 
 if TYPE_CHECKING:
     from hivememory.config.patchouli import RelayControllerConfig
-    from hivememory.infrastructure.llm.base import BaseLLMService
+    from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
 
 logger = logging.getLogger(__name__)
 
@@ -33,7 +34,7 @@ class BaseRelayController(ABC):
     """
 
     @abstractmethod
-    def generate_summary(
+    async def generate_summary(
         self,
         blocks_to_fold: list[Any],
         previous_summary: str | None = None,
@@ -56,7 +57,7 @@ class SimpleRelayController(BaseRelayController):
         - 最近的查询片段
     """
 
-    def generate_summary(
+    async def generate_summary(
         self, blocks_to_fold: list[LogicalBlock], previous_summary: str | None = None
     ) -> str:
         """
@@ -139,19 +140,26 @@ class LLMRelayController(BaseRelayController):
     """
     LLM 接力控制器（基于 LLM 的智能摘要生成）
 
-    使用 LLM 生成更智能、更语义化的摘要。
+    使用 LLM 生成更智能、更语义化的摘要；没有可用 LLM 或提供商失败时回退为
+    简单摘要，程序错误与取消不降级。
     """
 
-    def __init__(self, summary_llm: "BaseLLMService | None" = None):
+    def __init__(
+        self,
+        summary_llm: "BaseLLMService | None" = None,
+        llm_params: "LLMRequestParams | None" = None,
+    ):
         """
         初始化 LLM 接力控制器
 
         Args:
             summary_llm: 用于生成摘要的 LLM 服务（可选）
+            llm_params: 由 Librarian 组件 LLM 配置转换的请求参数（可选）
         """
         self.summary_llm = summary_llm
+        self._llm_params = llm_params
 
-    def generate_summary(
+    async def generate_summary(
         self, blocks_to_fold: list[LogicalBlock], previous_summary: str | None = None
     ) -> str:
         """
@@ -168,7 +176,7 @@ class LLMRelayController(BaseRelayController):
             return previous_summary or ""
 
         # 生成新摘要（传入 previous_summary 供 LLM 参考）
-        new_summary = self._generate_llm_summary(blocks_to_fold, previous_summary)
+        new_summary = await self._generate_llm_summary(blocks_to_fold, previous_summary)
 
         return new_summary
 
@@ -209,7 +217,7 @@ class LLMRelayController(BaseRelayController):
 
         return "\n".join(lines)
 
-    def _generate_llm_summary(
+    async def _generate_llm_summary(
         self, blocks: list[LogicalBlock], previous_summary: str | None = None
     ) -> str:
         """
@@ -223,47 +231,45 @@ class LLMRelayController(BaseRelayController):
             str: 摘要文本
         """
         # 无 LLM 服务时的回退
-        if self.summary_llm is None:
+        if self.summary_llm is None or self._llm_params is None:
             logger.warning("summary_llm 未配置，回退到简单摘要")
             simple_controller = SimpleRelayController()
             return simple_controller._generate_simple_summary(blocks)
 
+        # 构建近期事件文本
+        recent_events = self._build_recent_events(blocks)
+
+        # 构建用户提示词
+        previous_summary_text = previous_summary or get_relay_prompt_text("previous_summary_empty")
+        user_prompt = get_relay_prompt_text("user_prompt").format(
+            previous_summary=previous_summary_text,
+            recent_events=recent_events,
+        )
+
+        # 获取系统提示词（默认回退到全局 i18n 兜底文案）
+        system_prompt = get_relay_prompt_text("system_prompt")
+
+        # 调用 LLM；只有提供商失败回退为简单摘要
+        messages = [
+            {"role": "system", "content": system_prompt},
+            {"role": "user", "content": user_prompt},
+        ]
         try:
-            # 构建近期事件文本
-            recent_events = self._build_recent_events(blocks)
-
-            # 构建用户提示词
-            previous_summary_text = previous_summary or get_relay_prompt_text(
-                "previous_summary_empty"
-            )
-            user_prompt = get_relay_prompt_text("user_prompt").format(
-                previous_summary=previous_summary_text,
-                recent_events=recent_events,
-            )
-
-            # 获取系统提示词（默认回退到全局 i18n 兜底文案）
-            system_prompt = get_relay_prompt_text("system_prompt")
-
-            # 调用 LLM
-            messages = [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt},
-            ]
-
-            summary = self.summary_llm.complete(messages)
-            logger.info(f"LLM 摘要生成成功，长度: {len(summary)} 字符")
-            return summary
-
-        except Exception as e:
+            completion = await self.summary_llm.complete(messages, self._llm_params)
+        except ModelProviderError as e:
             logger.error(f"LLM 摘要生成失败: {e}，回退到简单摘要")
             simple_controller = SimpleRelayController()
             return simple_controller._generate_simple_summary(blocks)
+
+        summary = completion.text
+        logger.info(f"LLM 摘要生成成功，长度: {len(summary)} 字符")
+        return summary
 
 
 class NoOpRelayController(BaseRelayController):
     """RelayController 的禁用实现。"""
 
-    def generate_summary(
+    async def generate_summary(
         self, blocks_to_fold: list[LogicalBlock], previous_summary: str | None = None
     ) -> str:
         return previous_summary or ""
@@ -273,7 +279,9 @@ class NoOpRelayController(BaseRelayController):
 
 
 def create_relay_controller(
-    config: "RelayControllerConfig", llm_service: "BaseLLMService | None" = None
+    config: "RelayControllerConfig",
+    llm_service: "BaseLLMService | None" = None,
+    llm_params: "LLMRequestParams | None" = None,
 ) -> BaseRelayController:
     """
     创建 RelayController 实例（工厂函数）
@@ -283,6 +291,7 @@ def create_relay_controller(
     Args:
         config: RelayControllerConfig 配置对象
         llm_service: LLM 服务（可选，用于 LLMRelayController）
+        llm_params: 摘要调用的请求参数（可选，用于 LLMRelayController）
 
     Returns:
         BaseRelayController 实例
@@ -308,7 +317,7 @@ def create_relay_controller(
         return SimpleRelayController()
 
     elif isinstance(impl_config, LLMRelayConfig):
-        return LLMRelayController(summary_llm=llm_service)
+        return LLMRelayController(summary_llm=llm_service, llm_params=llm_params)
 
     raise ValueError(f"未知的 RelayController 配置类型: {type(impl_config)}")
 

@@ -20,7 +20,7 @@ from hivememory.agent_runtime.frame import (
 )
 from hivememory.agent_runtime.loop import AgentLoopExecutor
 from hivememory.agent_runtime.model.budget import TurnContextBudgetExceededError
-from hivememory.agent_runtime.model.client import GenerationResult
+from hivememory.agent_runtime.model.generator import GenerationResult
 from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
 from hivememory.agent_runtime.mtp.context import MTPExecutionContext, MTPExecutionResult
 from hivememory.agent_runtime.runtime import AgentRuntime
@@ -37,6 +37,7 @@ from hivememory.core.models import (
 from hivememory.core.mtp import MTP_RIGHT_DELIMITER, MTPCallRequest
 from hivememory.workspace.contracts import DeriveCallThreadRequest
 from tests.helpers.call import StubOperationSubmitter, make_callee
+from tests.helpers.llm import DEFAULT_LLM_PARAMS
 from tests.helpers.workspace import make_runtime_scope
 
 
@@ -120,18 +121,19 @@ def _make_frame() -> ExecutionFrame:
         working_history=[{"role": "user", "content": "hello"}],
         topic_id="topic_1",
         language="zh",
+        resolved_model=ResolvedFrameModel(DEFAULT_LLM_PARAMS, input_token_limit=65536),
     )
 
 
-def _build_executor(generate_async_side_effect) -> AgentLoopExecutor:
+def _build_executor(generate_side_effect) -> AgentLoopExecutor:
     mtp_executor = MagicMock()
     mtp_executor.intercept_and_execute = AsyncMock(return_value=None)
 
     worker_agent = MagicMock()
-    worker_agent.generate_async = AsyncMock(side_effect=generate_async_side_effect)
+    worker_agent.generate = AsyncMock(side_effect=generate_side_effect)
 
     executor = AgentLoopExecutor(
-        llm_client=worker_agent,
+        generator=worker_agent,
         mtp_executor=mtp_executor,
         config=AgentRuntimeConfig(max_loop_iterations=10),
     )
@@ -174,7 +176,7 @@ async def test_iteration_limit_returns_budget_exhausted():
 async def test_tool_result_growth_stops_before_next_generation():
     """巨大工具结果保留在事件中，但不会再发送已经超预算的模型请求。"""
     frame = _make_frame()
-    frame.resolved_model = ResolvedFrameModel({}, input_token_limit=40)
+    frame.resolved_model = ResolvedFrameModel(DEFAULT_LLM_PARAMS, input_token_limit=40)
     executor = _build_executor([_mtp_result("正在读取", "<< READ | alias_x >>")])
     tool_result = _mtp_exec_result("READ")
     tool_result.formatted_response = "x" * 400
@@ -186,7 +188,7 @@ async def test_tool_result_growth_stops_before_next_generation():
     assert isinstance(result.error, TurnContextBudgetExceededError)
     assert frame.progress.iteration == 1
     assert frame.progress.turn_events[-1].content == "x" * 400
-    executor.llm_client.generate_async.assert_awaited_once()
+    executor.generator.generate.assert_awaited_once()
 
 
 @pytest.mark.asyncio
@@ -194,7 +196,7 @@ async def test_tool_result_growth_stops_before_next_generation():
 async def test_context_guard_counts_message_overhead_and_allows_exact_budget(limit, status):
     """文本一 token 加消息开销，恰好等于上限时允许生成。"""
     frame = _make_frame()
-    frame.resolved_model = ResolvedFrameModel({}, input_token_limit=limit)
+    frame.resolved_model = ResolvedFrameModel(DEFAULT_LLM_PARAMS, input_token_limit=limit)
     executor = _build_executor([_natural_result("完成")])
 
     result = await executor.execute_frame(frame, max_iterations=2)
@@ -220,7 +222,7 @@ async def test_generation_failure_returns_failed_frame_outcome():
     frame = _make_frame()
     executor = _build_executor([])
     error = RuntimeError("provider unavailable")
-    executor.llm_client.generate_async = AsyncMock(side_effect=error)
+    executor.generator.generate = AsyncMock(side_effect=error)
 
     result = await executor.execute_frame(frame, max_iterations=2)
 
@@ -245,7 +247,7 @@ async def test_stream_generation_failure_returns_failed_frame_outcome():
         async def send(self, _output):
             return None
 
-    executor.llm_client.generate_stream = fail_stream
+    executor.generator.generate = fail_stream
 
     result = await executor.execute_frame(
         frame,
@@ -261,7 +263,7 @@ async def test_stream_generation_failure_returns_failed_frame_outcome():
 async def test_generation_cancelled_error_is_not_converted_to_failed_outcome():
     frame = _make_frame()
     executor = _build_executor([])
-    executor.llm_client.generate_async = AsyncMock(side_effect=asyncio.CancelledError())
+    executor.generator.generate = AsyncMock(side_effect=asyncio.CancelledError())
 
     with pytest.raises(asyncio.CancelledError):
         await executor.execute_frame(frame, max_iterations=2)
@@ -340,7 +342,7 @@ async def test_task_cancellation_during_generation_propagates_before_mtp():
         await asyncio.Event().wait()
 
     executor = _build_executor([])
-    executor.llm_client.generate_async = slow_generate
+    executor.generator.generate = slow_generate
 
     task = asyncio.create_task(executor.execute_frame(frame, max_iterations=5))
     await started.wait()
@@ -432,8 +434,8 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
 
     executor = _build_executor([])
     worker_agent = MagicMock()
-    worker_agent.generate_async = AsyncMock(side_effect=gen_async_side)
-    executor.llm_client = worker_agent
+    worker_agent.generate = AsyncMock(side_effect=gen_async_side)
+    executor.generator = worker_agent
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_call_mtp_exec_result())
 
     async def submit_operation(request):
@@ -443,7 +445,6 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
         raise AssertionError(f"本场景不应提交其他资源操作: {request}")
 
     agent_runtime = AgentRuntime(
-        mtp_executor=MagicMock(),
         runtime_config=AgentRuntimeConfig(),
         loop_executor=executor,
     )
@@ -464,7 +465,10 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
         call_coordinator=coordinator,
     )
 
-    executor_result = await executor.run(frame, run_output=NullAgentRunOutput())
+    # 未注入模型注册表：被调用帧的模型由运行的生成参数直接给出。
+    executor_result = await executor.run(
+        frame, generation_options={"model": "test-model"}, run_output=NullAgentRunOutput()
+    )
 
     call_events = [
         ev

@@ -8,6 +8,7 @@ code_paths:
   - src/hivememory/alice/interface/stream.py
   - src/hivememory/alice/context/view.py
   - src/hivememory/alice/context/summarizer.py
+  - src/hivememory/infrastructure/llm/base.py
   - src/hivememory/prompts/
   - src/hivememory/core/protocol/models.py
 related_contracts:
@@ -16,7 +17,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # Agent Runtime
@@ -32,7 +33,7 @@ AgentRunService
   -> RunExecutor
        -> AgentRuntime facade
        -> AgentLoopExecutor
-       -> LLMClient
+       -> MTPGenerator -> BaseLLMService（组合根注入）
        -> MTPExecutor port -> KoakumaRuntime
        -> frame submit_operation -> WorkspaceOperationEntry -> workspace actor API
 ```
@@ -42,14 +43,14 @@ AgentRunService
 - 不实现 `SubsystemProtocol`，不注册 `GlobalSystemBus` route；
 - 不拥有独立启停；健康报告由门面汇总并供 AliceSystem 使用；
 - 不直接 import Alice 的 RunExecutor、CallCoordinator、CallContextProvider；
-- 只消费注入的 MTP port、配置、模型注册表和运行时状态；
+- 只消费注入的 MTP port、LLM 服务、配置、模型注册表和运行时状态；
 - WRITE/UPDATE、引用读取与 SEARCH 经 frame 的线程 context 绑定提交函数进入 workspace；CALL Profile 读取由 Alice 编排层提交请求，引用记录由 workspace 读取能力自动完成。
 
-`hivememory.agent_runtime` 包根是 Alice 与组合根唯一使用的公开接口，导出门面、工厂、帧模型、输出端口、模型解析与 LLM 客户端等契约。`runtime.py` 的 `build_agent_runtime` 接收运行、Koakuma 与记忆编译配置以及可选模型解析端口，装配内核并返回门面；`frame.py` 保存帧状态、策略与 `RuntimeScope`，`loop.py` 推进单帧，`model/` 负责解析、预算与调用，`mtp/` 负责分派与动词，`tools/` 提供系统工具和用户工具执行器。
+`hivememory.agent_runtime` 包根是 Alice 与组合根唯一使用的公开接口，导出门面、工厂、帧模型、输出端口、模型解析与 MTP 生成器等契约。`runtime.py` 的 `build_agent_runtime` 接收运行、Koakuma 与记忆编译配置、组合根注入的 LLM 服务（`infrastructure.llm.base.BaseLLMService`）以及可选模型解析端口，在服务之上建立 MTP 生成器并装配执行循环，返回门面；执行层不自行构造模型客户端，也不导入提供商 SDK。`frame.py` 保存帧状态、策略与 `RuntimeScope`，`loop.py` 推进单帧，`model/` 负责解析、预算与 MTP 生成，`mtp/` 负责分派与动词，`tools/` 提供系统工具和用户工具执行器。
 
 Koakuma 直接满足 `MTPExecutor` 协议。`ExecutionFrame`、`FrameSpec` 与 `MTPExecutionContext` 都要求显式提交函数和策略，`FrameExecutionPolicy` 要求显式动词集合；不存在缺省放行。帧未覆盖迭代上限时由门面从 runtime 配置统一取值。写入意图登记、完整引用解析、原子与 Profile 缓存由 workspace 持有，执行层只消费 CPU 驱动交付的提交函数。
 
-当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, generation_options, output_sink)`。非流式与流式调用分别注入 `NullFrameOutputSink` 和支持 token 的 frame output sink，但共享同一条 loop 与 `FrameExecutionResult` 语义；旧的 `run_frame_stream()`、`run_frame_emitting()` 与 callback adapter 已删除。Agent Runtime 不接收 Chat Run 取消句柄，也不轮询取消状态；外层 task cancellation 直接沿 await 传播。Agent Runtime 不接收额外的 generation mode，而是只读取 `output_sink.streams_tokens`：为 `false` 时调用完整生成，为 `true` 时调用 token stream。
+当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, generation_options, output_sink)`。非流式与流式调用分别注入 `NullFrameOutputSink` 和支持 token 的 frame output sink，但共享同一条 loop 与 `FrameExecutionResult` 语义；旧的 `run_frame_stream()`、`run_frame_emitting()` 与 callback adapter 已删除。Agent Runtime 不接收 Chat Run 取消句柄，也不轮询取消状态；外层 task cancellation 直接沿 await 传播。Agent Runtime 不接收额外的 generation mode，而是只读取 `output_sink.streams_tokens`，作为生成器唯一入口的 `stream` 参数：为 `false` 时完整生成，为 `true` 时流式生成。
 
 ## 2. ExecutionFrame：可恢复的运行 PCB
 
@@ -110,15 +111,17 @@ User    current user message
 
 `RelaySummarizer` 复用本次解析的模型快照，把上一份摘要与新覆盖的完整轮次从最旧开始分批折叠；每次完整请求单独估算，不超过本 frame 的输入上限，单轮放不下也不拆分。每轮只编码和计数一次，候选批次按字符数累加估算，结果与估算整份请求相同，开销随轮数线性增长。摘要输入中的工具消息再次限长，输出上限取配置与模型生成上限的较小值。材料显式包含 Agent 来源与 completed/cancelled/failed 结局，提示词要求保留目标、约束、决定、已做工作与未完成事项。
 
-空白、长度截断、内容过滤、MTP 定界符或中断、超过摘要长度上限的结果均拒绝。每次请求有超时；LLMClient 在完整请求、流式启动与拉取边界把提供商失败翻译为 `ModelProviderError`，超窗单独翻译为 `ModelContextWindowExceededError`，原始原因保留在异常链。摘要器只依赖中立错误，程序错误与原生取消不降级。任一折叠失败都放弃本次全部局部摘要，保留原摘要、引用与覆盖，只交回已完成的减重；视图仍能放下时继续生成，否则失败。
+空白、长度截断、内容过滤、MTP 定界符或中断、超过摘要长度上限的结果均拒绝。摘要请求经与帧生成相同的 MTP 生成器以完整调用发出，沿用本次解析的请求参数，只把输出上限收紧到摘要预算。每次请求有超时；提供商失败由 LLM 服务转换为 `ModelProviderError`，超窗为其子类 `ModelContextWindowExceededError`，提供商没有返回文本时同样是 `ModelProviderError`（`summary_provider_error`）。摘要器只依赖中立错误，程序错误与原生取消不降级。任一折叠失败都放弃本次全部局部摘要，保留原摘要、引用与覆盖，只交回已完成的减重；视图仍能放下时继续生成，否则失败。
 
 引用由程序从被覆盖轮次中成功 READ 的目标、WRITE/UPDATE ACK 别名和成功 RUN 的文件参数提取（失败的 READ/RUN 没有可重取的资源，不作为线索），按最近出现位置去重、限条数，过长标识直接忽略。摘要与引用位于 persona 后、检索记忆前，以本次提示词语言标明是历史资料，其中的指令不构成当前协议；引用不证明权限、执行成功或写入持久化。摘要不进入 `TurnEvent`、`InteractionPayload`、Topic 或记忆生成。
 
 完整压缩返回后才保存新检查点；压缩期间取消不交回局部产物，压缩结束后的正常终态或取消结果槽均可交回它。会话服务是否接受检查点不依赖压缩进度事件或本轮是否有输出。内部 `force` 参数可跳过触发阈值，但不能绕过关闭开关或空历史；没有公开的手动压缩入口。
 
-## 4. 模型选择与 LLMClient
+## 4. 模型选择与 MTP 生成器
 
-`LLMClient` 是无状态的 LiteLLM 调用封装，不保存默认模型或密钥。每个 frame 开始时，AgentRuntime 根据以下优先级解析运行参数：
+`MTPGenerator` 是建立在 LLM 服务之上的无状态生成器，不保存默认模型或密钥，不导入任何提供商 SDK。它与 Gateway、Patchouli 共用组合根创建的唯一 `LiteLLMService`；帧生成器由 `build_agent_runtime` 建立，会话摘要器由 AliceSystem 在同一服务上另建一个。生成器的唯一入口 `generate(messages, params, *, stream=False)` 在非流式时返回 `GenerationResult`，流式时返回 `StreamChunk` 的异步生成器；请求总是附带 MTP 停止符，其余参数原样交给服务。LLM 服务的接口、参数透传与异常转换见 [System 组合根](../system/composition.md#13-llm-bundle)。
+
+每个 frame 开始时，AgentRuntime 根据以下优先级解析运行参数：
 
 ```text
 session generation_options
@@ -127,14 +130,16 @@ session generation_options
 ```
 
 - 会话 `model` 与 Profile `model_name` 都被解释为注册表 ID；
-- api key/base 来自注册表解析结果，也可由 LiteLLM 使用环境变量；
+- api key/base 来自注册表解析结果，为空时由提供商 SDK 从环境变量读取；
 - session 可以覆盖 temperature、top_p 和 max_tokens；
 - 注册表解析失败在 `run_frame()` 边界形成 `FAILED`，不静默换成另一个模型；
-- 模型解析经 `agent_runtime.ModelResolver` 端口进行，System 的 ModelRegistry 实现该端口并由组合根注入；未注入时，调用方必须在 generation options 中直接提供可执行 model，否则 LLMClient 抛出 `ValueError`。
+- 模型解析经 `agent_runtime.ModelResolver` 端口进行，System 的 ModelRegistry 实现该端口并由组合根注入；未注入时，调用方必须在 generation options 中直接提供可执行 model，未给出的 temperature、top_p 与 max_tokens 取全局默认值，缺少 model 时以 `ModelNotFoundError` 在解析边界形成 `FAILED`，不调用模型。
 
-模型注册表启用时，frame 记录的是展示名，供执行结果的 `model_used` 与话题 UI 使用。未启用注册表的兼容路径可以正常生成，但当前不会把 LLMClient 返回的底层 model 名重新写入 frame，因此 `model_used` 可能为空。
+模型注册表启用时，frame 记录的是展示名，供执行结果的 `model_used` 与话题 UI 使用。未启用注册表的兼容路径可以正常生成，但当前不会把生成结果中的底层 model 名写入 frame，因此 `model_used` 可能为空。
 
-`AgentRuntime.resolve_model()` 返回 `ResolvedFrameModel`：固定实际生成参数、展示名与输入上限。根 frame 在上下文组装前解析，CALL 子 frame 按自身模型独立解析；同一 frame 从 CALL 恢复时复用快照，避免注册表变动导致预算与请求漂移。输入上限为总 `context_window` 减去解析后的 `max_tokens` 和安全余量，缺少窗口登记时采用保守默认；非正上限不会自动扩大。预算字段不透传给 LiteLLM。估算沿用 `TokenEstimator`，另计每条消息 4 token 开销；配置与默认值见 [System 配置](../system/configuration.md#12-alice-会话预算与压缩)。
+`AgentRuntime.resolve_model()` 返回 `ResolvedFrameModel`：固定本帧的请求参数（`LLMRequestParams`：模型、凭证、temperature、top_p 与 max_tokens，不含停止符）、展示名与输入上限。根 frame 在上下文组装前解析，CALL 子 frame 按自身模型独立解析；同一 frame 从 CALL 恢复时复用快照，避免注册表变动导致预算与请求漂移。输入上限为总 `context_window` 减去解析后的 `max_tokens` 和安全余量，缺少窗口登记时采用保守默认；非正上限不会自动扩大。预算与展示名不进入请求参数。
+
+完整调用中提供商没有返回文本时，LLM 服务以 `ModelProviderError` 结束，非流式 frame 因此形成 `FAILED`；流式调用没有文本增量时按空文本收敛。估算沿用 `TokenEstimator`，另计每条消息 4 token 开销；配置与默认值见 [System 配置](../system/configuration.md#12-alice-会话预算与压缩)。
 
 ## 5. 单帧执行循环
 
@@ -142,7 +147,7 @@ session generation_options
 
 ```text
 0. estimate complete working_history; exceed input_token_limit -> FAILED, no generation
-1. LLMClient generate with stop=["⟫"]
+1. MTPGenerator generate(stream = sink.streams_tokens) with stop=["⟫"]
 2. natural output?
      -> append assistant text/event -> complete
 3. MTP fragment?
@@ -157,13 +162,13 @@ session generation_options
      -> continue
 ```
 
-LLMClient 只识别 MTP 左定界符，并在 stop sequence 截断了右定界符时补齐文本；它不知道 SEARCH、WRITE 或 CALL 的业务含义。Koakuma 经窄 `MTPExecutor` port 负责真正解析与执行。这个分离使模型适配、协议解释和多 Agent 编排可以独立变化。
+MTP 生成器只识别 MTP 左定界符，并在 stop sequence 截断了右定界符时补齐文本；它不知道 SEARCH、WRITE 或 CALL 的业务含义。Koakuma 经窄 `MTPExecutor` port 负责真正解析与执行。这个分离使模型适配、协议解释和多 Agent 编排可以独立变化。
 
 自然语言正文和工具事实同时投影为 `TurnEvent`。每个 MTP action 使用 `action_{iteration}_{sequence}` 关联 `tool_call` 与 `tool_result`，下游用 core 的归约器从事件得到 action/trace（任务进程封口时归约 MTP trace，Perception 归约 action），而不需要解析已经格式化的响应字符串。
 
 CALL 是唯一会返回 `SUSPENDED` 的 MTP 路径。执行层不创建子 frame、不解析 Profile、不组装 IPC；这些动作属于 Alice 编排层。自然停止返回 `COMPLETED`，取消返回 `CANCELLED`，无法形成有效结果返回 `FAILED`，达到 `max_loop_iterations` 且尚未自然收敛返回 `BUDGET_EXHAUSTED`。只有 `COMPLETED` 表示本帧成功完成。
 
-轮内守卫检查包含所有新工具结果的完整 `working_history`，根帧与 CALL 子帧分别按自身预算执行。子帧被拦截沿现有 CALL error 回到父帧，父帧可以继续；根帧被拦截后已有的输出仍按 failed 封口。守卫不压缩未结束轮次。提供商仍报告超窗时，LLMClient 按 LiteLLM 异常类型映射，不按错误文本猜测，也不重试；稳定失败码见[错误模型](../contracts/error-model.md#22-agent-run)。
+轮内守卫检查包含所有新工具结果的完整 `working_history`，根帧与 CALL 子帧分别按自身预算执行。子帧被拦截沿现有 CALL error 回到父帧，父帧可以继续；根帧被拦截后已有的输出仍按 failed 封口。守卫不压缩未结束轮次。提供商仍报告超窗时，LLM 服务按 SDK 异常类型转换为 `ModelContextWindowExceededError`，不按错误文本猜测，也不重试；稳定失败码见[错误模型](../contracts/error-model.md#22-agent-run)。
 
 ## 6. 交互输出与流式执行
 
@@ -183,7 +188,7 @@ Agent Runtime 不再直接构造 SSE dict，也不依赖名为 EventBus/Sink 的
 
 交互输出流与 RuntimeEvent 是两条严格独立的数据面。前者面向当前调用方，参与背压和断流取消，不能丢弃，并保留 `token/mtp_start/mtp_result/sub_agent_start/sub_agent_end/context_compaction` 兼容事件名；后者是全局 best-effort 观测旁路，可以缓冲、回放和丢弃慢订阅者数据，记录 `agent.run.*` 生命周期与 `agent.context.*` 预算统计。FrameOutput 不会自动桥接到 RuntimeEventBus，RuntimeEvent 也不驱动 frame、CALL 或 run 状态。
 
-非流式 LiteLLM await、流式 async iterator 的每次 pull，以及 MTP await 都直接响应外层 task cancellation。Agent loop 在 `finally` 中关闭 LLMClient generator，LLMClient 再关闭 LiteLLM/provider response；各层 close 失败只记录日志，不能替换正在传播的 `CancelledError`。RunExecutor 的 CALL/run 收尾遵循同一优先级：先做 best-effort 本地清理，再原样重抛取消。同步 syscall 一旦开始执行，事件循环仍必须等待函数返回，这属于 Python task cancellation 无法解决的同步边界。
+非流式模型 await、流式 async iterator 的每次 pull，以及 MTP await 都直接响应外层 task cancellation。Agent loop 在 `finally` 中关闭生成器的流，生成器关闭 LLM 服务的流，服务再关闭提供商响应；各层 close 失败只记录日志，不能替换正在传播的 `CancelledError`。RunExecutor 的 CALL/run 收尾遵循同一优先级：先做 best-effort 本地清理，再原样重抛取消。同步 syscall 一旦开始执行，事件循环仍必须等待函数返回，这属于 Python task cancellation 无法解决的同步边界。
 
 LLM 流已交付的文字同步积累到 frame 的 `streaming_text`；正常结果到达后清空以避免重复，原生取消或模型失败时封为带状态的未完成 `assistant_message` 并加入正文。非流式没有 token 缓冲，只保留已完成迭代。
 
@@ -206,7 +211,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程
 
 - Agent Runtime 必须与 Agent 数量无关；若 loop 开始解析子 Agent Profile、决定拓扑或组 IPC，编排责任已经回流；
 - `ExecutionFrame` 是重入状态的唯一载体，不能在另一个 service 中并行维护 iteration、sequence 或 text accumulator；
-- LLMClient 只负责模型生成与 MTP 定界符检测，不执行权限或记忆语义；
+- MTP 生成器只负责 MTP 停止符与定界符检测，模型调用、参数透传与提供商失败的转换属于 LLM 服务；二者都不执行权限或记忆语义，执行层不导入提供商 SDK；
 - 输入清单是本轮只读消费的快照，定稿提示词作为不透明固定块使用，Alice 不在执行中取得话题或长期记忆的可变所有权；
 - 模型解析和 generation/provider 故障必须稳定形成 `FAILED`，不能为了可用性静默运行错误模型；
 - 取消不能被包装成普通 success，CPU 流也必须以 `CPUExecutionResult` 或异常明确结束；
@@ -222,7 +227,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程
 
 - `tests/unit/agent_runtime/test_loop_turn_events.py`；
 - `tests/unit/agent_runtime/test_loop_stream.py`；
-- `tests/unit/agent_runtime/model/test_client.py`；
+- `tests/unit/agent_runtime/model/test_generator.py`；`tests/unit/infrastructure/test_litellm_service.py`（LLM 服务的参数透传、异常转换与流关闭）；
 - `tests/unit/agent_runtime/test_runtime.py`；
 - `tests/unit/alice/context/test_view.py`、`test_summarizer.py`、`test_references.py`；
 - `tests/e2e/system/test_chat_session.py`（HTTP 长会话、检查点复用与守卫封口）；
@@ -236,9 +241,9 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程
 - frame、执行进度和消息历史只在内存中，进程重启、worker 崩溃或请求迁移后不能恢复；
 - `BUDGET_EXHAUSTED` 能区分循环预算耗尽，但当前没有动态扩容、自动任务分解或执行进度恢复策略；
 - 主 run 的失败和预算耗尽都由 Alice 组装为执行结果的 `failed`，它是可观察且稳定的常规终态，不应被改写为 `cancelled`；
-- 未使用 ModelRegistry 时 `model_used` 可能为空，即使 LLMClient 实际已经使用了调用方提供的模型；
+- 未使用 ModelRegistry 时 `model_used` 可能为空，即使生成实际已经使用了调用方提供的模型；
 - 资源操作的提交函数不提供访问 context、Workspace 选择或执行者重新绑定能力；CALL 子帧使用以被调用方身份派生的子线程提交函数；
-- 流式取消只能在 LiteLLM chunk 或 MTP checkpoint 处生效，不能保证立即中断同步 syscall；
+- 流式取消只能在提供商流的 chunk 或 MTP checkpoint 处生效，不能保证立即中断同步 syscall；
 - 输入预算使用字符估算，不能保证与提供商精确计数一致；没有每 run 的累计费用配额、并发限流或持久化执行检查点；
 - 摘要是有损历史视图，原文仍在会话内；固定样本与 HTTP 验证使用提供商替身，真实 LLM 的事实保留、延迟与成本尚未评估；
 - `health()` 只返回 loop/worker 固定 `ok`，不验证模型端点、正在运行的 frame 或迭代耗尽率。

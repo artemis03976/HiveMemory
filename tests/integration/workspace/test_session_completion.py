@@ -165,11 +165,12 @@ async def test_output_with_each_outcome_is_submitted_before_terminal(status):
 
 
 @pytest.mark.asyncio
-async def test_alice_context_guard_seals_tool_output_as_failed_turn(tmp_path, monkeypatch):
+async def test_alice_context_guard_seals_tool_output_as_failed_turn(tmp_path):
     """真实 Alice 读入大文件后由守卫结束，经 CPU 端口保留 failed 会话和工具原文。"""
-    from hivememory.agent_runtime.model.client import GenerationResult, LLMClient, StreamChunk
     from hivememory.alice.system import AliceSystem
     from hivememory.config.alice import AgentRuntimeConfig, AliceConfig
+    from tests.helpers.alice import StaticModelResolver
+    from tests.helpers.llm import CallbackLLMService
     from tests.helpers.operations import OperationsHarness
 
     content = "x" * 20000
@@ -177,18 +178,17 @@ async def test_alice_context_guard_seals_tool_output_as_failed_turn(tmp_path, mo
     config = AliceConfig(runtime=AgentRuntimeConfig(default_context_window=36000, safety_margin=0))
     config.koakuma.workspace_path = str(tmp_path)
     config.koakuma.mtp_prompt.enabled = False
-    calls = []
 
-    async def generate(_self, _messages, **_kwargs):
-        calls.append(True)
-        text = '⟪ RUN | sys_read_file | path="large.txt" ⟫'
-        yield StreamChunk(
-            is_final=True,
-            result=GenerationResult(text=text, was_mtp_interrupted=True, mtp_fragment=text),
-        )
+    async def read_large_file(_messages, _params):
+        yield '⟪ RUN | sys_read_file | path="large.txt" ⟫'
 
-    monkeypatch.setattr(LLMClient, "generate_stream", generate)
-    alice = AliceSystem(config, operation_entry=OperationsHarness().entry)
+    llm = CallbackLLMService(stream=read_large_file)
+    alice = AliceSystem(
+        config,
+        operation_entry=OperationsHarness().entry,
+        llm_service=llm,
+        model_registry=StaticModelResolver(),
+    )
     await alice.start()
     try:
         service, handle, sessions, workspace, probe = await completion_chain(alice.cpu_port)
@@ -204,7 +204,7 @@ async def test_alice_context_guard_seals_tool_output_as_failed_turn(tmp_path, mo
         assert content in turns[0].payload.turn_events[-1].content
         assert probe.submitted == [turns[0].payload]
         assert probe.cleaned == []
-        assert calls == [True]
+        assert len(llm.calls) == 1
     finally:
         await alice.stop()
 
@@ -507,9 +507,12 @@ async def test_unavailable_alice_fails_process_and_releases_prepared_resources()
     """CPU 未启动时执行失败仍补偿 prepare、释放会话，并且不提交交互。"""
     from hivememory.alice import AliceSystem
     from hivememory.config.alice import AliceConfig
+    from tests.helpers.llm import ScriptedLLMService
     from tests.helpers.operations import OperationsHarness
 
-    alice = AliceSystem(AliceConfig(), operation_entry=OperationsHarness().entry)
+    alice = AliceSystem(
+        AliceConfig(), operation_entry=OperationsHarness().entry, llm_service=ScriptedLLMService()
+    )
     service, handle, sessions, workspace, probe = await completion_chain(alice.cpu_port)
     events = [event async for event in service.run_process(handle, stream=True)]
     assert events[-1] == {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}

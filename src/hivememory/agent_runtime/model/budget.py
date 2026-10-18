@@ -29,7 +29,3 @@ class TurnContextBudgetExceededError(Exception):
         super().__init__(
             f"Frame context exceeds input budget: {estimated_tokens} > {input_token_limit}"
         )
-
-
-class ModelContextWindowExceededError(Exception):
-    """提供商报告上下文超窗；异常正文仅保留在内部异常链。"""

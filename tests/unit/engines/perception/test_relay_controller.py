@@ -2,21 +2,23 @@
 RelayController 单元测试
 
 测试覆盖:
-- Token 溢出检测逻辑
-- 摘要生成逻辑 (简单规则)
+- 摘要生成逻辑（简单规则与 LLM）
+- LLM 摘要只在没有可用 LLM 或提供商失败时回退为简单摘要
 - 摘要上下文注入格式
-
-Note:
-    v3.0 重构：should_trigger_relay() 改为 should_relay()，返回 Optional[FlushEvent]
 """
 
-from unittest.mock import Mock
+import pytest
 
+from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import AgentAction, TraceItem, TurnRecord
 from hivememory.engines.perception.models import (
     LogicalBlock,
 )
-from hivememory.engines.perception.relay_controller import SimpleRelayController
+from hivememory.engines.perception.relay_controller import (
+    LLMRelayController,
+    SimpleRelayController,
+)
+from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
 
 
 class TestRelayController:
@@ -25,7 +27,8 @@ class TestRelayController:
     def setup_method(self):
         self.controller = SimpleRelayController()
 
-    def test_generate_simple_summary(self):
+    @pytest.mark.asyncio
+    async def test_generate_simple_summary(self):
         """测试简单摘要生成"""
         # 构造 Block 链
         block1 = LogicalBlock(
@@ -45,7 +48,7 @@ class TestRelayController:
             )
         )
 
-        summary = self.controller.generate_summary([block1, block2])
+        summary = await self.controller.generate_summary([block1, block2])
 
         assert "处理了 1 个用户请求" in summary
         assert "weather_api" in summary
@@ -62,17 +65,12 @@ class TestRelayController:
 class TestLLMRelayController:
     """测试 LLM 接力控制器"""
 
-    def test_llm_summary_generation(self):
-        """测试 LLM 摘要生成"""
-        from hivememory.engines.perception.relay_controller import LLMRelayController
+    @pytest.mark.asyncio
+    async def test_llm_summary_generation(self):
+        """LLM 摘要以 system + user 双消息请求，近期事件包含用户消息与 MTP 轨迹。"""
+        llm = ScriptedLLMService("LLM 生成的摘要")
+        controller = LLMRelayController(summary_llm=llm, llm_params=DEFAULT_LLM_PARAMS)
 
-        # 确定性 fake LLM：返回 user 消息完整内容作为摘要（可观察数据流，非 mock 镜像）
-        fake_llm = Mock()
-        fake_llm.complete.side_effect = lambda messages: messages[-1]["content"]
-
-        controller = LLMRelayController(summary_llm=fake_llm)
-
-        # 构造带 semantic_traces 的 blocks
         block = LogicalBlock(
             turn=TurnRecord(
                 user_query="创建认证模块",
@@ -82,55 +80,64 @@ class TestLLMRelayController:
             total_tokens=50,
         )
 
-        summary = controller.generate_summary([block])
+        summary = await controller.generate_summary([block])
 
-        # messages 结构契约：system + user 双消息
-        call_args = fake_llm.complete.call_args[0][0]
-        assert len(call_args) == 2
-        assert call_args[0]["role"] == "system"
-        assert call_args[1]["role"] == "user"
+        assert summary == "LLM 生成的摘要"
+        call = llm.calls[-1]
+        assert [message["role"] for message in call.messages] == ["system", "user"]
+        assert "创建认证模块" in call.messages[1]["content"]
+        assert "sys_write_file" in call.messages[1]["content"]
+        assert call.params == DEFAULT_LLM_PARAMS
 
-        # 摘要来自真实传入的 recent_events 内容（含用户消息与 MTP 轨迹）
-        assert "创建认证模块" in summary
-        assert "sys_write_file" in summary
-
-    def test_llm_fallback_when_no_service(self):
+    @pytest.mark.asyncio
+    async def test_llm_fallback_when_no_service(self):
         """测试无 LLM 服务时回退到简单摘要"""
-        from hivememory.engines.perception.relay_controller import LLMRelayController
-
         controller = LLMRelayController(summary_llm=None)
 
         block = LogicalBlock(
             turn=TurnRecord(user_query="测试查询", assistant_final_text="测试响应"), total_tokens=50
         )
 
-        summary = controller.generate_summary([block])
+        summary = await controller.generate_summary([block])
 
         # 应该回退到简单摘要格式
         assert "处理了 1 个用户请求" in summary
 
-    def test_llm_fallback_on_error(self):
-        """测试 LLM 调用失败时回退"""
-        from hivememory.engines.perception.relay_controller import LLMRelayController
-
-        mock_llm = Mock()
-        mock_llm.complete.side_effect = Exception("LLM error")
-
-        controller = LLMRelayController(summary_llm=mock_llm)
+    @pytest.mark.asyncio
+    async def test_llm_fallback_on_provider_failure(self):
+        """提供商失败时回退到简单摘要"""
+        controller = LLMRelayController(
+            summary_llm=ScriptedLLMService(ModelProviderError("provider down")),
+            llm_params=DEFAULT_LLM_PARAMS,
+        )
 
         block = LogicalBlock(
             turn=TurnRecord(user_query="测试", assistant_final_text="响应"), total_tokens=50
         )
 
-        summary = controller.generate_summary([block])
+        summary = await controller.generate_summary([block])
 
-        # 应该回退到简单摘要
         assert "处理了 1 个用户请求" in summary
+
+    @pytest.mark.asyncio
+    async def test_program_error_is_not_masked_by_simple_summary(self):
+        """程序错误不属于提供商失败，原样传播而不回退。"""
+        failure = TypeError("broken prompt wiring")
+        controller = LLMRelayController(
+            summary_llm=ScriptedLLMService(failure), llm_params=DEFAULT_LLM_PARAMS
+        )
+
+        block = LogicalBlock(
+            turn=TurnRecord(user_query="测试", assistant_final_text="响应"), total_tokens=50
+        )
+
+        with pytest.raises(TypeError) as raised:
+            await controller.generate_summary([block])
+
+        assert raised.value is failure
 
     def test_build_recent_events_with_traces(self):
         """测试 recent_events 构建包含 MTP 轨迹"""
-        from hivememory.engines.perception.relay_controller import LLMRelayController
-
         controller = LLMRelayController()
 
         blocks = [

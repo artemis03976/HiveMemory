@@ -249,21 +249,21 @@ def test_disabled_compaction_reports_history_overflow_as_compaction_failure():
 
 
 def _summary_dependencies(limit=1000, results=None):
-    """摘要生成是唯一替身，选择、折叠与提示词组装使用真实实现。"""
-    from types import SimpleNamespace
-    from unittest.mock import AsyncMock
-
-    from hivememory.agent_runtime.model.client import GenerationResult
+    """LLM 服务是唯一替身，生成器、选择、折叠与提示词组装使用真实实现。"""
+    from hivememory.agent_runtime.model.generator import MTPGenerator
     from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
     from hivememory.alice.context.summarizer import RelaySummarizer
+    from hivememory.infrastructure.llm.base import LLMRequestParams
+    from tests.helpers.llm import CallbackLLMService, ScriptedLLMService
 
-    generate = AsyncMock(
-        return_value=GenerationResult(text="Agent preserved the decisions."), side_effect=results
-    )
+    async def preserved(_messages, _params):
+        return "Agent preserved the decisions."
+
+    llm = ScriptedLLMService(*results) if results else CallbackLLMService(complete=preserved)
     return (
-        RelaySummarizer(SimpleNamespace(generate_async=generate)),
-        ResolvedFrameModel({"model": "test/model", "max_tokens": 512}, limit),
-        generate,
+        RelaySummarizer(MTPGenerator(llm)),
+        ResolvedFrameModel(LLMRequestParams(model="test/model", max_tokens=512), limit),
+        llm,
     )
 
 
@@ -290,19 +290,19 @@ async def test_summary_covers_complete_prefix_and_next_compaction_only_folds_new
     assert result.tokens_after <= 500
     assert result.messages[-3:] == view.messages[-3:]
     assert "t0" not in result.messages[0]["content"]
-    requests = [json.loads(call.args[0][1]["content"]) for call in generate.await_args_list]
+    requests = [json.loads(call.messages[1]["content"]) for call in generate.calls]
     assert [turn["interaction_id"] for request in requests for turn in request["turns"]] == [
         "t0",
         "t1",
         "t2",
     ]
     assert _view(turns, checkpoint=result.checkpoint, config=config).messages == result.messages
-    generate.reset_mock()
+    generate.calls.clear()
     continued = _view(
         (*turns, _plain_turn("t4"), _plain_turn("t5")), config=config, checkpoint=result.checkpoint
     )
     second = await continued.compact(summarizer=summarizer, model=model)
-    request = json.loads(generate.await_args_list[0].args[0][1]["content"])
+    request = json.loads(generate.calls[0].messages[1]["content"])
     assert request["previous_summary"] == result.checkpoint.summary
     assert request["turns"][0]["interaction_id"] == "t3"
     assert second.checkpoint.summarized_through == "t4"
@@ -311,8 +311,6 @@ async def test_summary_covers_complete_prefix_and_next_compaction_only_folds_new
 @pytest.mark.asyncio
 async def test_later_fold_failure_keeps_previous_summary_and_only_advances_reduction():
     """局部折叠成功不代表整份摘要可以提交，后续失败必须整体回退。"""
-    from hivememory.agent_runtime.model.client import GenerationResult
-
     old = make_compaction_checkpoint(
         reduced_through="t0",
         summarized_through="t0",
@@ -321,16 +319,11 @@ async def test_later_fold_failure_keeps_previous_summary_and_only_advances_reduc
     )
     turns = tuple(_plain_turn(f"t{i}", 1100) for i in range(4))
     config = CompactionConfig(summary_max_tokens=64)
-    summarizer, model, generate = _summary_dependencies(
-        results=[
-            GenerationResult(text="Partial new summary"),
-            GenerationResult(text="", finish_reason="stop"),
-        ]
-    )
+    summarizer, model, generate = _summary_dependencies(results=["Partial new summary", ""])
     result = await _view(turns, config=config, checkpoint=old).compact(
         summarizer=summarizer, model=model
     )
-    assert generate.await_count == 2
+    assert len(generate.calls) == 2
     assert result.summary_status == "abandoned"
     assert result.reason == "summary_empty"
     assert (
@@ -356,7 +349,7 @@ async def test_large_fixed_reservation_avoids_paid_summary_when_view_still_fits(
     assert result.error is None
     assert result.summary_status == "not_needed"
     assert result.checkpoint.summarized_through is None
-    generate.assert_not_awaited()
+    assert generate.calls == []
 
 
 @pytest.mark.asyncio
@@ -371,7 +364,7 @@ async def test_large_reservation_uses_hard_limit_when_history_no_longer_fits():
     assert result.summary_status == "completed"
     assert result.checkpoint.summarized_through == "t3"
     assert result.tokens_after <= 1000
-    assert generate.await_count == 2
+    assert len(generate.calls) == 2
 
 
 @pytest.mark.asyncio
@@ -386,7 +379,7 @@ async def test_summary_reservation_exceeding_hard_limit_reports_input_too_large(
     )
     assert isinstance(result.error, InputTooLargeError)
     assert result.checkpoint.summarized_through is None
-    generate.assert_not_awaited()
+    assert generate.calls == []
 
 
 @pytest.mark.asyncio
@@ -414,7 +407,7 @@ async def test_summary_input_bounds_tool_messages_but_preserves_agent_and_failed
     config = CompactionConfig(summary_max_tokens=64, summary_input_tool_chars=100, target_ratio=0.2)
     summarizer, model, generate = _summary_dependencies()
     result = await _view((turn,), config=config).compact(summarizer=summarizer, model=model)
-    request = json.loads(generate.await_args.args[0][1]["content"])
+    request = json.loads(generate.calls[-1].messages[1]["content"])
     item = request["turns"][0]
     assert (item["agent_id"], item["outcome"]) == ("coder", "failed")
     assert "z" * 100 not in item["messages"][-1]["content"]
@@ -434,4 +427,4 @@ async def test_summary_reserves_only_references_from_the_selected_prefix():
     assert result.checkpoint.summarized_through == "old"
     assert result.checkpoint.references == ()
     assert result.messages[-2]["content"] == "x" * 40
-    assert generate.await_count == 1
+    assert len(generate.calls) == 1

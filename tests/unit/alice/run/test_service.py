@@ -5,11 +5,8 @@ from unittest.mock import AsyncMock, MagicMock
 import pytest
 
 from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus
-from hivememory.agent_runtime.model.budget import (
-    ModelContextWindowExceededError,
-    TurnContextBudgetExceededError,
-)
-from hivememory.agent_runtime.model.client import LLMClient
+from hivememory.agent_runtime.model.budget import TurnContextBudgetExceededError
+from hivememory.agent_runtime.model.generator import MTPGenerator
 from hivememory.agent_runtime.runtime import AgentRuntime, build_agent_runtime
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.events import AgentRunEventEmitter
@@ -22,10 +19,12 @@ from hivememory.components.events.bus import (
 )
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
+from hivememory.core.errors import ModelContextWindowExceededError
 from hivememory.core.models import (
     AgentProfile,
 )
 from tests.helpers.chat_handoff import make_input_manifest
+from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.workspace import make_execution_labels
 
 
@@ -39,12 +38,19 @@ def _build_input_manifest():
     )
 
 
+# 未注入模型注册表：生成参数直接给出可执行的模型。
+_GENERATION_OPTIONS = {"model": "test-model"}
+
+
 def _build_service(*, runtime_events=None, config=None) -> tuple[AgentRuntime, AgentRunService]:
     config = config or HiveMemoryConfig()
+    # 本文件替换运行时的执行层，不应触达模型；替身没有预置结果，被调用即失败。
+    llm = ScriptedLLMService()
     runtime = build_agent_runtime(
         runtime_config=config.alice.runtime,
         koakuma_config=config.alice.koakuma,
         memory_compiler_config=config.memory_compiler,
+        llm_service=llm,
     )
     frame_factory = FrameFactory()
     coordinator = CallCoordinator(
@@ -54,7 +60,7 @@ def _build_service(*, runtime_events=None, config=None) -> tuple[AgentRuntime, A
         koakuma_config=config.alice.koakuma,
     )
     service = AgentRunService(
-        summarizer=RelaySummarizer(LLMClient()),
+        summarizer=RelaySummarizer(MTPGenerator(llm)),
         agent_runtime=runtime,
         call_coordinator=coordinator,
         frame_factory=frame_factory,
@@ -90,6 +96,7 @@ async def test_root_uses_compiled_blocks_and_language_with_its_own_teaching(mode
     )
     result = await service.run_agent(
         manifest,
+        generation_options=_GENERATION_OPTIONS,
         run_output=NullRunOutput(),
         submit_operation=MagicMock(),
     )
@@ -120,7 +127,11 @@ async def test_fixed_input_over_budget_fails_without_calling_model():
 
     slot = CPUResultSlot()
     result = await service.run_agent(
-        manifest, run_output=NullRunOutput(), submit_operation=MagicMock(), result_slot=slot
+        manifest,
+        generation_options=_GENERATION_OPTIONS,
+        run_output=NullRunOutput(),
+        submit_operation=MagicMock(),
+        result_slot=slot,
     )
     assert result.status == "failed"
     assert result.failure_reason == "input_too_large"
@@ -146,6 +157,7 @@ async def test_frame_error_maps_only_stable_cpu_reason(error, reason):
     )
     result = await service.run_agent(
         _build_input_manifest(),
+        generation_options=_GENERATION_OPTIONS,
         run_output=NullRunOutput(),
         submit_operation=MagicMock(),
     )

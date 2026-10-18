@@ -29,7 +29,7 @@ from tests.helpers.workspace import make_identity_scope
 class _UnusedSummaryProvider:
     """本轮不达到折叠阈值，外部摘要模型不应执行。"""
 
-    def generate_summary(self, **kwargs):
+    async def generate_summary(self, **kwargs):
         raise AssertionError("short passive turn must not request a summary")
 
 

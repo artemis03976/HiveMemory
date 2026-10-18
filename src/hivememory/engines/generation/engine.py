@@ -18,7 +18,7 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from hivememory.core.errors import WorkspaceMismatchError
+from hivememory.core.errors import ModelProviderError, WorkspaceMismatchError
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -158,6 +158,9 @@ class MemoryGenerationEngine:
         从对话中被动提取有价值的记忆。当前唯一生产入口是话题 SETTLE：
         结算没有具体 Agent 作为操作来源主体，来源记录使用保留
         ``SYSTEM_AGENT_ID``，实际参与内容的 Agent 进入贡献者集合。
+
+        模型判断无价值或输出无法解析时没有产出；提取器的提供商失败向上
+        传播，由生成任务按失败收尾，不被记录为没有产出。
         """
         logger.info("[Mode A] 开始处理...")
 
@@ -166,7 +169,7 @@ class MemoryGenerationEngine:
         if not transcript:
             return []
 
-        draft = self.extractor.extract(transcript=transcript, metadata={})
+        draft = await self.extractor.extract(transcript=transcript, metadata={})
 
         if not draft or not draft.has_value:
             logger.info("[Mode A] LLM 判断对话无价值，跳过存储")
@@ -194,7 +197,8 @@ class MemoryGenerationEngine:
         Mode B: 主动响应模式 (WRITE 指令触发)
 
         Agent 明确要求保存，以 WriteFocus 为核心，对话历史为背景。
-        包含 fallback 机制：LLM 提取失败时直接从 WriteFocus 构建草稿。
+        包含 fallback 机制：提供商失败或输出无法解析时直接从 WriteFocus 构建
+        草稿，明确的保存意图不因 Librarian LLM 暂时失败而丢失；程序错误不降级。
         """
         logger.info(f"[Mode B] WRITE 主动响应: content='{focus.content[:50]}...'")
 
@@ -202,14 +206,18 @@ class MemoryGenerationEngine:
         transcript = self._render_transcript(request)
 
         # Step 1: LLM 提取 (Mode B prompt)
-        draft = self.extractor.extract(
-            transcript=transcript,
-            metadata={
-                "mode": "write",
-                "write_content": focus.content,
-                "write_reason": focus.reason or "(未提供)",
-            },
-        )
+        try:
+            draft = await self.extractor.extract(
+                transcript=transcript,
+                metadata={
+                    "mode": "write",
+                    "write_content": focus.content,
+                    "write_reason": focus.reason or "(未提供)",
+                },
+            )
+        except ModelProviderError as error:
+            logger.warning("[Mode B] LLM 提供商失败: %s", error)
+            draft = None
 
         # Fallback: LLM 失败时直接从 WriteFocus 构建草稿 (保底入库)
         if draft is None:
@@ -258,7 +266,7 @@ class MemoryGenerationEngine:
 
         Agent 请求修改已有记忆，以 UpdateFocus 为核心。
         LLM 执行智能合并，生成新内容和变更日志。
-        包含 fallback 机制：LLM 合并失败时直接拼接。
+        包含 fallback 机制：提供商失败或输出无法解析时直接拼接；程序错误不降级。
         """
         # 从内存索引中获取原始记忆
         existing = request.existing_memory
@@ -284,17 +292,21 @@ class MemoryGenerationEngine:
         transcript = self._render_transcript(request)
 
         # Step 1: 调用 extractor.merge() (Mode C Merge Prompt)
-        merge_result = self.extractor.merge(
-            old_content=existing.payload.content,
-            metadata={
-                "mode": "update",
-                "instruction": uf.instruction,
-                "new_content": uf.content or "",
-                "memory_title": existing.index.title,
-                "memory_alias": existing.index.alias or uf.base_alias,
-                "transcript": transcript,
-            },
-        )
+        try:
+            merge_result = await self.extractor.merge(
+                old_content=existing.payload.content,
+                metadata={
+                    "mode": "update",
+                    "instruction": uf.instruction,
+                    "new_content": uf.content or "",
+                    "memory_title": existing.index.title,
+                    "memory_alias": existing.index.alias or uf.base_alias,
+                    "transcript": transcript,
+                },
+            )
+        except ModelProviderError as error:
+            logger.warning("[Mode C] LLM 提供商失败: %s", error)
+            merge_result = None
 
         # Fallback: LLM 合并失败时直接拼接
         if merge_result is None:

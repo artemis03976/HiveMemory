@@ -1,7 +1,5 @@
 """会话、进程 CPU 分配、Alice 提示词与 Gateway 输入边界的协作。"""
 
-from unittest.mock import AsyncMock
-
 import pytest
 
 from hivememory.alice.context.view import SessionContextView
@@ -28,6 +26,7 @@ from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
+from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
 from tests.helpers.process import make_task_process_service
 from tests.helpers.sessions import make_compaction_checkpoint
 from tests.helpers.workspace import (
@@ -155,13 +154,17 @@ async def test_gateway_routes_and_rewrites_with_session_history_without_exportin
 
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, topics)
     bus.register(PatchouliRoutes.TOPIC_GET_DATA, get_topic)
-    llm = AsyncMock()
-    llm.acomplete_json.side_effect = [
+    llm = ScriptedLLMService(
         '{"target_topic":"topic-1","reason":"会话指代 Docker"}',
         '{"intent_type":"RAG","rewritten_query":"Docker 容器如何重启","search_keywords":["Docker"],"memory_write_signal":"WRITE"}',
-    ]
+    )
     service = GatewayService(
-        GatewayRuntime(config=SystemGatewayConfig(), global_bus=bus, llm_service=llm)
+        GatewayRuntime(
+            config=SystemGatewayConfig(),
+            global_bus=bus,
+            llm_service=llm,
+            llm_params=DEFAULT_LLM_PARAMS,
+        )
     )
     result = await service.process(
         "它怎么重启？",
@@ -173,11 +176,12 @@ async def test_gateway_routes_and_rewrites_with_session_history_without_exportin
     )
     assert result.decision.target_topic_id == "topic-1"
     assert result.decision.rewritten_query == "Docker 容器如何重启"
-    for call in llm.acomplete_json.await_args_list:
-        assert call.kwargs["messages"][1:] == [
+    assert len(llm.calls) == 2
+    for call in llm.calls:
+        assert call.messages[1:] == [
             {"role": "user", "content": "Docker 容器已启动"},
             {"role": "assistant", "content": "可以继续配置"},
             {"role": "user", "content": "它怎么重启？"},
         ]
-    assert "Docker" in llm.acomplete_json.await_args_list[0].kwargs["messages"][0]["content"]
+    assert "Docker" in llm.calls[0].messages[0]["content"]
     assert "session_turns" not in result.decision.model_dump()

@@ -28,7 +28,7 @@ from hivememory.agent_runtime.model.budget import (
     TurnContextBudgetExceededError,
     estimate_context_tokens,
 )
-from hivememory.agent_runtime.model.client import GenerationResult
+from hivememory.agent_runtime.model.generator import GenerationResult
 from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.output import (
     FrameOutputSink,
@@ -41,8 +41,9 @@ from hivememory.config.alice import AgentRuntimeConfig
 from hivememory.core.models import TurnEvent, freeze_mapping
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.model.client import LLMClient
+    from hivememory.agent_runtime.model.generator import MTPGenerator
     from hivememory.agent_runtime.mtp.runtime import MTPExecutor
+    from hivememory.infrastructure.llm.base import LLMRequestParams
 
 logger = logging.getLogger(__name__)
 
@@ -61,27 +62,24 @@ class AgentLoopExecutor:
 
     def __init__(
         self,
-        llm_client: "LLMClient",
+        generator: "MTPGenerator",
         mtp_executor: "MTPExecutor",
         config: AgentRuntimeConfig,
     ):
-        self.llm_client = llm_client
+        self.generator = generator
         self._mtp_executor = mtp_executor
         self.config = config
 
     async def _generate_turn(
         self,
         frame: ExecutionFrame,
-        generation_options: dict[str, Any] | None,
+        params: "LLMRequestParams",
         sink: FrameOutputSink,
     ) -> GenerationResult | FrameExecutionResult:
-        """执行一轮 LLM 生成：按 sink 是否输出 token 选择完整 / 流式路径。"""
+        """执行一轮 LLM 生成：按 sink 是否输出 token 选择 ``stream`` 参数。"""
         if not sink.streams_tokens:
             try:
-                return await self.llm_client.generate_async(
-                    frame.working_history,
-                    **(generation_options or {}),
-                )
+                return await self.generator.generate(frame.working_history, params)
             except asyncio.CancelledError:
                 raise
             except Exception as error:
@@ -92,10 +90,8 @@ class AgentLoopExecutor:
                 )
 
         result: GenerationResult | None = None
-        chunks = self.llm_client.generate_stream(
-            frame.working_history,
-            **(generation_options or {}),
-        ).__aiter__()
+        # 生成器负责关闭 LLM 服务的流，服务再关闭底层响应；本层只关闭生成器的流。
+        chunks = self.generator.generate(frame.working_history, params, stream=True)
 
         try:
             while True:
@@ -138,7 +134,6 @@ class AgentLoopExecutor:
         self,
         frame: ExecutionFrame,
         max_iterations: int,
-        generation_options: dict[str, Any] | None = None,
         output_sink: FrameOutputSink | None = None,
     ) -> FrameExecutionResult:
         """
@@ -146,27 +141,30 @@ class AgentLoopExecutor:
 
         累积产物写入 frame.progress；重入同一 frame 时续接。
         命中 CALL 时不 fork、不 resume、不组 CALL response，直接返回 SUSPENDED。
+        帧必须已解析模型：请求参数与输入预算都取自 ``frame.resolved_model``。
 
         Returns:
             FrameExecutionResult: 帧停止原因；只有自然收敛返回 COMPLETED。
         """
+        resolved_model = frame.resolved_model
+        if resolved_model is None:
+            raise ValueError("Frame model must be resolved before execution.")
         p = frame.progress  # PCB 累积器，重入时续接
         sink = output_sink or NullFrameOutputSink()
 
         while p.iteration < max_iterations:
             # 工具结果与 CALL 回填都可能扩大历史；必须在下一次生成前重新检查。
-            if frame.resolved_model is not None:
-                estimated_tokens = estimate_context_tokens(frame.working_history)
-                limit = frame.resolved_model.input_token_limit
-                if estimated_tokens > limit:
-                    return FrameExecutionResult(
-                        status=FrameExecutionStatus.FAILED,
-                        error=TurnContextBudgetExceededError(estimated_tokens, limit),
-                    )
+            estimated_tokens = estimate_context_tokens(frame.working_history)
+            limit = resolved_model.input_token_limit
+            if estimated_tokens > limit:
+                return FrameExecutionResult(
+                    status=FrameExecutionStatus.FAILED,
+                    error=TurnContextBudgetExceededError(estimated_tokens, limit),
+                )
             p.iteration += 1
 
             try:
-                result = await self._generate_turn(frame, generation_options, sink)
+                result = await self._generate_turn(frame, resolved_model.params, sink)
             except asyncio.CancelledError:
                 self._seal_partial_text(frame, "cancelled")
                 raise

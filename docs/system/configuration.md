@@ -16,7 +16,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # System 配置与注册表
@@ -27,7 +27,7 @@ last_reviewed: 2026-10-17
 
 - `config.app` 只供组合根（`system`）与入口（`server`、脚本）使用，由分层测试守护；
 - 组件只导入并接收自己的配置段，不持有根配置，也不自行调用 `load_app_config()`；子系统宿主的构造参数是对应配置段（例如 `PatchouliSystem(config=PatchouliConfig, shared_config=..., ...)`），由组合根从根配置中取出注入；
-- 基础设施工厂函数（LLM、Embedding 等）要求调用方显式传入配置，缺失时抛 `ValueError`，不回退读取全局配置。
+- 基础设施工厂函数（Embedding、Rerank 等）要求调用方显式传入配置，缺失时抛 `ValueError`，不回退读取全局配置；LLM 服务不接收配置，组件 LLM 配置由组合根转换为每次调用的请求参数（第 3 节）。
 
 ## 1. 配置树
 
@@ -143,9 +143,9 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 1. 用共享 provider 配置创建 `ProviderRegistry`；
 2. 创建引用该 registry 的 `ModelRegistry`；
 3. 解析 Gateway 和 Librarian 的 LLM config，把 `model_id` 对应的 model/provider/api key/api base 补齐；
-4. 将解析后的配置传入子系统。
+4. 把两份解析结果各自转换为 LLM 请求参数（模型、凭证、temperature 与 max_tokens；组件配置中的 `top_p` 不发送），与唯一的 LLM 服务一同注入 Gateway 与 Patchouli；未配置模型的组件得到空参数并按无 LLM 运行。
 
-这一步把凭证解析从业务请求热路径移开，也避免 Gateway 和 Patchouli 对同一模型引用各自得出不同结果。注册表提供模型和 provider 元数据，但不拥有某次请求的执行状态。
+这一步把凭证解析从业务请求热路径移开，也避免 Gateway 和 Patchouli 对同一模型引用各自得出不同结果；两个组件的模型、凭证与采样参数只来自各自的配置段，共享的 LLM 服务不持有任何一方的配置（[System 组合根](./composition.md#13-llm-bundle)）。Alice 的模型参数不经组件配置，由 Agent Profile、会话覆盖与注册表逐帧解析。注册表提供模型和 provider 元数据，但不拥有某次请求的执行状态。
 
 ## 4. 配置所有权与兼容边界
 

@@ -169,7 +169,7 @@ class FrameExecutionResult:
     # ---- status == SUSPENDED 时填充 ----
     # 触发 CALL 的派生请求（target_alias / task / context_refs）。
     call_request: MTPCallRequest | None = None
-    # LLMClient 已为被 stop sequence 截断的挂起文本补全右定界符。
+    # MTP 生成器已为被 stop sequence 截断的挂起文本补全右定界符。
     suspend_assistant_text: str | None = None
     # 供编排回填 tool_result TurnEvent 的 action_id。
     suspend_action_id: str | None = None

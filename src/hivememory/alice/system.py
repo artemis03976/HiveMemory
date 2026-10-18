@@ -10,7 +10,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hivememory.agent_runtime import LLMClient, ModelResolver, build_agent_runtime
+from hivememory.agent_runtime import ModelResolver, MTPGenerator, build_agent_runtime
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.events import AgentRunEventEmitter
 from hivememory.alice.interface.cpu import AliceCPU
@@ -23,6 +23,7 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.alice import AliceConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.core.contracts.subsystem import SubsystemProtocol
+from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.workspace.contracts import OperationEntry
 
 logger = logging.getLogger(__name__)
@@ -33,7 +34,8 @@ class AliceSystem(SubsystemProtocol):
     Alice 子系统 - 多智能体编排与计算子系统宿主
 
     职责：
-    - 装配 AgentRuntime 与 AgentRunService
+    - 装配 AgentRuntime 与 AgentRunService；帧生成与会话摘要共用组合根注入的
+      LLM 服务，Alice 不自行构造模型客户端
     - 交出 CPUPort 端口实现，作为 Alice 唯一的对外执行入口
     - 通过 CPU 端口的可用状态管理执行准入
     - 实现 SubsystemProtocol 生命周期
@@ -46,6 +48,7 @@ class AliceSystem(SubsystemProtocol):
         model_registry: ModelResolver | None = None,
         *,
         operation_entry: OperationEntry,
+        llm_service: BaseLLMService,
         memory_compiler_config: MemoryCompilerConfig | None = None,
     ) -> None:
         self._config = config
@@ -55,6 +58,7 @@ class AliceSystem(SubsystemProtocol):
             runtime_config=config.runtime,
             koakuma_config=config.koakuma,
             memory_compiler_config=memory_compiler_config or MemoryCompilerConfig(),
+            llm_service=llm_service,
             model_registry=model_registry,
         )
 
@@ -67,7 +71,7 @@ class AliceSystem(SubsystemProtocol):
             koakuma_config=config.koakuma,
         )
         service = AgentRunService(
-            summarizer=RelaySummarizer(LLMClient()),
+            summarizer=RelaySummarizer(MTPGenerator(llm_service)),
             agent_runtime=self._runtime,
             call_coordinator=call_coordinator,
             frame_factory=frame_factory,

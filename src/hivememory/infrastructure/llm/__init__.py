@@ -1,20 +1,23 @@
 """
 HiveMemory LLM 模块
 
-暴露 LLM 服务接口和工厂函数。
+暴露 LLM 服务接口、请求与结果模型，以及唯一的 litellm 实现。
 """
 
-from hivememory.infrastructure.llm.base import BaseLLMService, ConfiguredLLMService
-from hivememory.infrastructure.llm.litellm_service import (
-    LiteLLMService,
-    get_gateway_llm_service,
-    get_librarian_llm_service,
+from hivememory.infrastructure.llm.base import (
+    BaseLLMService,
+    LLMCompletion,
+    LLMRequestParams,
+    LLMStreamChunk,
+    LLMUsage,
 )
+from hivememory.infrastructure.llm.litellm_service import LiteLLMService
 
 __all__ = [
     "BaseLLMService",
-    "ConfiguredLLMService",
+    "LLMCompletion",
+    "LLMRequestParams",
+    "LLMStreamChunk",
+    "LLMUsage",
     "LiteLLMService",
-    "get_gateway_llm_service",
-    "get_librarian_llm_service",
 ]

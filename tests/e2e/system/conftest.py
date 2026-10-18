@@ -127,7 +127,7 @@ class _Extractor:
     def __init__(self) -> None:
         self.inputs: list[dict[str, Any]] = []
 
-    def extract(self, **_kwargs: Any) -> ExtractedMemoryDraft:
+    async def extract(self, **_kwargs: Any) -> ExtractedMemoryDraft:
         self.inputs.append(_kwargs)
         return ExtractedMemoryDraft(
             title="跨边界写入",
@@ -144,7 +144,7 @@ class _Extractor:
 class _Relay:
     """本轮不会达到折叠阈值；意外调用模型边界时直接令测试失败。"""
 
-    def generate_summary(self, *_args: Any) -> str:
+    async def generate_summary(self, *_args: Any) -> str:
         raise AssertionError("this chat must not compact")
 
 

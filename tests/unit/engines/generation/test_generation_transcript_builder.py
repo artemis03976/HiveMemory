@@ -278,7 +278,7 @@ class TestEngineWithGenerationContext:
         storage.search = AsyncMock(return_value=[])
         storage.upsert = AsyncMock()
         storage.list_alias_holders = AsyncMock(return_value=[])
-        extractor = MagicMock()
+        extractor = AsyncMock()
         deduplicator = MagicMock()
 
         if extractor_returns is not None:

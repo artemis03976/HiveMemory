@@ -2,21 +2,39 @@
 记忆提取器 (LLMMemoryExtractor) 单元测试
 
 测试覆盖:
-- LLM 消息格式转换
-- JSON 输出解析 (多种格式容错)
-- 提取流程逻辑
-- 错误处理与重试机制
+- LLM 消息格式与按语言选择的提示词
+- 提取结果解析与“没有产出”
+- 只对提供商失败重试，耗尽后显式失败
+- 等待 LLM 期间不阻塞事件循环
 """
 
+import asyncio
 import json
-from unittest.mock import Mock
 
 import pytest
 
 from hivememory.config.patchouli import ExtractorConfig
-from hivememory.config.shared import LLMConfig
+from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
 from hivememory.engines.generation.extractor import LLMMemoryExtractor
 from hivememory.i18n import set_default_language
+from hivememory.infrastructure.llm.base import (
+    BaseLLMService,
+    LLMCompletion,
+    LLMRequestParams,
+)
+from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
+
+_DRAFT_JSON = json.dumps(
+    {
+        "title": "Extracted",
+        "summary": "Summary",
+        "tags": ["t1"],
+        "memory_type": "FACT",
+        "content": "Content",
+        "confidence_score": 0.95,
+        "has_value": True,
+    }
+)
 
 
 @pytest.fixture(autouse=True)
@@ -26,100 +44,44 @@ def reset_i18n():
     set_default_language("zh")
 
 
-class TestLLMMemoryExtractor:
-    """测试 LLM 记忆提取器"""
+def _extractor(llm: BaseLLMService) -> LLMMemoryExtractor:
+    return LLMMemoryExtractor(
+        config=ExtractorConfig(), llm_service=llm, llm_params=DEFAULT_LLM_PARAMS
+    )
 
-    def setup_method(self):
-        """每个测试方法前执行"""
-        # 使用真实的 Pydantic 模型作为基础，并进行 Mock
-        self.mock_llm_config = LLMConfig(
-            model="test-model",
-            api_key="test-key",
-            api_base="https://api.test.com",
-            temperature=0.0,
-            max_tokens=1000,
-        )
-        self.mock_service = Mock()
-        self.mock_service.config = self.mock_llm_config
 
-        self.extractor_config = ExtractorConfig()
-        self.extractor = LLMMemoryExtractor(
-            config=self.extractor_config, llm_service=self.mock_service
-        )
+class TestLLMMemoryExtractorPrompts:
+    """提取与合并发送的消息与组件请求参数。"""
 
-    def test_extract_messages_are_litellm_format(self):
-        """测试提取流程发送 LiteLLM 标准消息"""
-        json_output = json.dumps(
-            {
-                "title": "Extracted",
-                "summary": "Summary",
-                "tags": ["t1"],
-                "memory_type": "FACT",
-                "content": "Content",
-                "confidence_score": 0.95,
-                "has_value": True,
-            }
-        )
-        self.mock_service.complete_with_retry.return_value = json_output
+    @pytest.mark.asyncio
+    async def test_extract_sends_system_and_user_messages_with_component_params(self):
+        llm = ScriptedLLMService(_DRAFT_JSON)
 
-        transcript = "User: Hi\nAssistant: Hello"
-        metadata = {"user_id": "u1"}
-        self.extractor.extract(transcript, metadata)
+        await _extractor(llm).extract("User: Hi\nAssistant: Hello", {})
 
-        _, kwargs = self.mock_service.complete_with_retry.call_args
-        messages = kwargs["messages"]
-        assert isinstance(messages, list)
-        assert messages[0]["role"] == "system"
-        assert messages[1]["role"] == "user"
+        call = llm.calls[-1]
+        assert [message["role"] for message in call.messages] == ["system", "user"]
+        assert call.params == DEFAULT_LLM_PARAMS
 
-    def test_default_language_selects_english_passive_prompts(self):
+    @pytest.mark.asyncio
+    async def test_default_language_selects_english_passive_prompts(self):
         """测试全局语言驱动被动提取模板"""
         set_default_language("en")
-        extractor = LLMMemoryExtractor(
-            config=ExtractorConfig(),
-            llm_service=self.mock_service,
-        )
-        json_output = json.dumps(
-            {
-                "title": "Extracted",
-                "summary": "Summary",
-                "tags": ["t1"],
-                "memory_type": "FACT",
-                "content": "Content",
-                "confidence_score": 0.95,
-                "has_value": True,
-            }
-        )
-        self.mock_service.complete_with_retry.return_value = json_output
+        llm = ScriptedLLMService(_DRAFT_JSON)
 
-        extractor.extract("User: Hi", {})
+        await _extractor(llm).extract("User: Hi", {})
 
-        _, kwargs = self.mock_service.complete_with_retry.call_args
-        messages = kwargs["messages"]
+        messages = llm.calls[-1].messages
         assert "memory manager" in messages[0]["content"]
         assert "Conversation" in messages[1]["content"]
 
-    def test_default_language_selects_english_write_prompts(self):
+    @pytest.mark.asyncio
+    async def test_default_language_selects_english_write_prompts(self):
         """测试全局语言驱动 WRITE 模板"""
         set_default_language("en")
-        extractor = LLMMemoryExtractor(
-            config=ExtractorConfig(),
-            llm_service=self.mock_service,
-        )
-        json_output = json.dumps(
-            {
-                "title": "Extracted",
-                "summary": "Summary",
-                "tags": ["t1"],
-                "memory_type": "FACT",
-                "content": "Content",
-                "confidence_score": 0.95,
-                "has_value": True,
-            }
-        )
-        self.mock_service.complete_with_retry.return_value = json_output
+        llm = ScriptedLLMService(_DRAFT_JSON)
 
-        extractor.extract(
+        await _extractor(llm).extract(
             "User: Save this",
             {
                 "mode": "write",
@@ -127,23 +89,20 @@ class TestLLMMemoryExtractor:
             },
         )
 
-        _, kwargs = self.mock_service.complete_with_retry.call_args
-        messages = kwargs["messages"]
+        messages = llm.calls[-1].messages
         assert "Active Response Mode" in messages[0]["content"]
         assert "Agent-submitted Memory Draft" in messages[1]["content"]
         assert "(Not provided)" in messages[1]["content"]
 
-    def test_default_language_selects_english_update_prompts(self):
+    @pytest.mark.asyncio
+    async def test_default_language_selects_english_update_prompts(self):
         """测试全局语言驱动 UPDATE 模板"""
         set_default_language("en")
-        extractor = LLMMemoryExtractor(
-            config=ExtractorConfig(),
-            llm_service=self.mock_service,
+        llm = ScriptedLLMService(
+            json.dumps({"new_content": "New content", "changelog": "Updated content"})
         )
-        json_output = json.dumps({"new_content": "New content", "changelog": "Updated content"})
-        self.mock_service.complete_with_retry.return_value = json_output
 
-        extractor.merge(
+        await _extractor(llm).merge(
             old_content="Old content",
             metadata={
                 "instruction": "Update it",
@@ -152,57 +111,97 @@ class TestLLMMemoryExtractor:
             },
         )
 
-        _, kwargs = self.mock_service.complete_with_retry.call_args
-        messages = kwargs["messages"]
+        messages = llm.calls[-1].messages
         assert "Editor Mode" in messages[0]["content"]
         assert "Target Memory" in messages[1]["content"]
         assert "No new material" in messages[1]["content"]
         assert "No background conversation" in messages[1]["content"]
 
-    # test_parse_json_* 系列测试已移除：它们测试的是内部实现细节，
-    # 或应通过 parse_llm_json 单元测试覆盖。
 
-    def test_extract_success(self):
-        """测试成功提取流程"""
-        # 模拟 LLM 响应
-        json_output = json.dumps(
-            {
-                "title": "Extracted",
-                "summary": "Summary",
-                "tags": ["t1"],
-                "memory_type": "FACT",
-                "content": "Content",
-                "confidence_score": 0.95,
-                "has_value": True,
-            }
-        )
-        self.mock_service.complete_with_retry.return_value = json_output
+class TestLLMMemoryExtractorResults:
+    """模型输出到草稿的解析，以及没有产出与提供商失败的区分。"""
 
-        transcript = "User: Hi\nAssistant: Hello"
-        metadata = {"user_id": "u1"}
+    @pytest.mark.asyncio
+    async def test_extract_parses_model_output_into_draft(self):
+        draft = await _extractor(ScriptedLLMService(_DRAFT_JSON)).extract("User: Hi", {})
 
-        draft = self.extractor.extract(transcript, metadata)
+        assert draft is not None
+        assert (draft.title, draft.content) == ("Extracted", "Content")
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("output", ["", "not json"], ids=["empty", "unparseable"])
+    async def test_empty_or_unparseable_output_is_no_output(self, output):
+        """模型给出空文本或无法解析的文本时没有产出，而不是失败。"""
+        assert await _extractor(ScriptedLLMService(output)).extract("User: Hi", {}) is None
+
+    @pytest.mark.asyncio
+    async def test_provider_failure_is_retried_once(self):
+        llm = ScriptedLLMService(ModelProviderError("transient"), _DRAFT_JSON)
+
+        draft = await _extractor(llm).extract("User: Hi", {})
 
         assert draft is not None
         assert draft.title == "Extracted"
-        self.mock_service.complete_with_retry.assert_called_once()
+        assert len(llm.calls) == 2
 
-    # test_extract_retry_logic 已移除：重试逻辑由 llm_service 处理
+    @pytest.mark.asyncio
+    async def test_exhausted_provider_retries_fail_explicitly(self):
+        """重试耗尽后抛出最后一次的提供商失败，不被记录为没有产出。"""
+        last_failure = ModelProviderError("still failing")
+        llm = ScriptedLLMService(ModelProviderError("transient"), last_failure)
 
-    def test_extract_all_retries_fail(self):
-        """测试 LLM 调用失败的情况"""
-        # 模拟 complete_with_retry 抛出异常
-        self.mock_service.complete_with_retry.side_effect = Exception("LLM Error")
+        with pytest.raises(ModelProviderError) as raised:
+            await _extractor(llm).merge("Old content", {"instruction": "Update it"})
 
-        transcript = "User: Hi"
-        metadata = {}
+        assert raised.value is last_failure
+        assert len(llm.calls) == 2
 
-        # 应该返回 None，并记录错误
-        draft = self.extractor.extract(transcript, metadata)
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "failure",
+        [ModelContextWindowExceededError("too long"), TypeError("broken prompt wiring")],
+        ids=["context-window", "program-error"],
+    )
+    async def test_non_retryable_failures_propagate_after_one_attempt(self, failure):
+        """超窗时同一请求必然再次失败，程序错误不属于提供商失败；两者都不重试。"""
+        llm = ScriptedLLMService(failure, _DRAFT_JSON)
 
-        assert draft is None
-        self.mock_service.complete_with_retry.assert_called_once()
+        with pytest.raises(type(failure)) as raised:
+            await _extractor(llm).extract("User: Hi", {})
+
+        assert raised.value is failure
+        assert len(llm.calls) == 1
 
 
-if __name__ == "__main__":
-    pytest.main([__file__, "-v"])
+class _GatedLLMService(BaseLLMService):
+    """在放行前一直挂起的完整调用，用于观察等待期间事件循环是否推进。"""
+
+    def __init__(self) -> None:
+        self.started = asyncio.Event()
+        self.release = asyncio.Event()
+
+    async def _complete(
+        self, messages: list[dict[str, str]], params: LLMRequestParams
+    ) -> LLMCompletion:
+        self.started.set()
+        await self.release.wait()
+        return LLMCompletion(text=_DRAFT_JSON)
+
+    def _stream(self, messages, params):
+        raise AssertionError("提取器不使用流式调用")
+
+
+@pytest.mark.asyncio
+async def test_waiting_for_llm_lets_the_event_loop_run_other_tasks():
+    llm = _GatedLLMService()
+    extraction = asyncio.create_task(_extractor(llm).extract("User: Hi", {}))
+
+    async with asyncio.timeout(5):
+        await llm.started.wait()
+    # 提取仍在等待模型时，测试协程照常推进并负责放行。
+    assert not extraction.done()
+    llm.release.set()
+    draft = await extraction
+
+    assert draft is not None
+    assert draft.title == "Extracted"
