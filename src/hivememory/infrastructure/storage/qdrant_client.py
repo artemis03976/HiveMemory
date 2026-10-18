@@ -9,6 +9,8 @@ import time
 from qdrant_client import AsyncQdrantClient
 
 from hivememory.config.patchouli import QdrantConfig
+from hivememory.core.errors import StorageOfflineError
+from hivememory.infrastructure.storage._errors import storage_operation
 
 logger = logging.getLogger(__name__)
 
@@ -45,15 +47,19 @@ async def wait_for_qdrant_ready(
 
     while True:
         try:
-            await client.info()
+            with storage_operation("info"):
+                await client.info()
             return
-        except Exception as exc:
+        except StorageOfflineError as exc:
             last_error = exc
             if time.monotonic() >= deadline:
                 break
             await asyncio.sleep(interval_seconds)
 
-    raise TimeoutError(f"Qdrant did not become ready within {timeout_seconds}s") from last_error
+    raise StorageOfflineError(
+        f"Qdrant did not become ready within {timeout_seconds}s",
+        details={"operation": "info"},
+    ) from last_error
 
 
 __all__ = [

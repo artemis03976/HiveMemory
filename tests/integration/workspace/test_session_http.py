@@ -5,12 +5,12 @@ import pytest
 from fastapi import FastAPI
 
 from hivememory.config.workspace import WorkspaceSessionConfig
-from hivememory.core.errors import SessionBusyError, SessionNotFoundError
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.server.app import session_error_handler
 from hivememory.server.deps import get_root_session_service
 from hivememory.server.routers.sessions import router
 from hivememory.workspace.capability.root.session import RootSessionService
+from hivememory.workspace.contracts.errors import SessionBusyError, SessionNotFoundError
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.sessions import make_compaction_checkpoint
 from tests.helpers.workspace import make_server_access_overrides

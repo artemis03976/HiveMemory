@@ -11,7 +11,12 @@ from pydantic import ValidationError
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceAccessContext
-from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
+from hivememory.core.errors import (
+    InvalidMemoryFieldError,
+    MemoryAliasConflictError,
+    ResourceNotFoundError,
+    ResourceUnavailableError,
+)
 from hivememory.core.memory_access import memory_belongs_to_workspace
 from hivememory.core.models import (
     IndexLayer,
@@ -143,7 +148,7 @@ class _MemoryManagementStub:
 
     async def record_feedback(self, memory_id, *, identity_scope, positive, source):
         if self.lifecycle_engine is None:
-            raise RuntimeError("Memory lifecycle engine is unavailable")
+            raise ResourceUnavailableError(details={"reason": "lifecycle_unavailable"})
         return self.lifecycle_engine.record_feedback(
             memory_id,
             positive=positive,
@@ -522,7 +527,7 @@ class TestMemoriesRouter:
     def test_record_memory_feedback_not_found(self):
         mid = uuid4()
         lifecycle = MagicMock()
-        lifecycle.record_feedback.side_effect = ValueError("memory not found")
+        lifecycle.record_feedback.side_effect = ResourceNotFoundError("memory not found")
         storage = MagicMock()
 
         app = _create_test_app(storage, lifecycle)

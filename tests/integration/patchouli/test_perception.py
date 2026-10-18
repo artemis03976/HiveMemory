@@ -22,7 +22,9 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
+from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueStoppedError
 from hivememory.config.patchouli import SemanticFlowPerceptionConfig
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     LogicalBlock,
     TurnEvent,
@@ -33,6 +35,7 @@ from hivememory.core.models import (
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.engines.perception.models import TriggerReason
+from hivememory.patchouli.contracts.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_apply_journal import (
     InMemoryInteractionApplyJournal,
@@ -45,7 +48,6 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
 )
-from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
@@ -258,7 +260,7 @@ class TestApplyInteraction:
     async def test_unknown_target_is_rejected(self):
         familiar, _, _, _, _ = _make_familiar()
 
-        with pytest.raises(KeyError, match="does not exist"):
+        with pytest.raises(ResourceNotFoundError):
             await familiar.apply_interaction(
                 _payload(),
                 belong_to=_identity_scope().workspace_identity,
@@ -631,7 +633,7 @@ class TestNamedUseCases:
     async def test_manual_settle_without_topic_or_active_history_raises(self):
         familiar, _, _, _, _ = _make_familiar()
 
-        with pytest.raises(ValueError, match="未指定"):
+        with pytest.raises(ResourceNotFoundError):
             await familiar.manual_settle_topic(_identity_scope().workspace_identity)
 
     @pytest.mark.asyncio
@@ -702,7 +704,12 @@ class TestNamedUseCases:
         assert store.get(scope.workspace_identity, topic_id) is not None
 
     @pytest.mark.asyncio
-    async def test_manual_settle_admission_failure_keeps_topic_intact_and_allows_retry(self):
+    @pytest.mark.parametrize(
+        "failure", [WorkQueueCapacityError("memory", 1), WorkQueueStoppedError("stopped")]
+    )
+    async def test_manual_settle_admission_failure_keeps_topic_intact_and_allows_retry(
+        self, failure
+    ):
         familiar, store, _, bus, _ = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
@@ -712,7 +719,7 @@ class TestNamedUseCases:
             target_topic_id="NEW_TOPIC",
         )
         before = store.get(scope.workspace_identity, topic_id)
-        bus.request = AsyncMock(side_effect=RuntimeError("admission boom"))
+        bus.request = AsyncMock(side_effect=failure)
 
         with pytest.raises(TopicSettleAdmissionError, match="可重试"):
             await familiar.manual_settle_topic(scope.workspace_identity, topic_id)
@@ -1041,3 +1048,29 @@ class TestDisabledPerception:
         assert replayed_topic_id == "NEW_TOPIC"
         assert store.list_all() == []
         assert journal.get("i-1") is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [KeyError("handler bug"), asyncio.CancelledError()])
+async def test_manual_settle_unknown_failure_keeps_topic_and_propagates(failure):
+    """未知接纳结果与取消不改判明确拒绝；保留材料并释放占用，供后续核实。"""
+    familiar, store, _, bus, _ = _make_familiar()
+    scope = _identity_scope()
+    topic_id = await familiar.apply_interaction(
+        _payload("question", "answer"),
+        belong_to=scope.workspace_identity,
+        from_actor=scope.actor_identity,
+        target_topic_id="NEW_TOPIC",
+    )
+    before = store.get(scope.workspace_identity, topic_id)
+    bus.request = AsyncMock(side_effect=failure)
+
+    with pytest.raises(type(failure)) as caught:
+        await familiar.manual_settle_topic(scope.workspace_identity, topic_id)
+
+    assert caught.value is failure
+    assert store.get(scope.workspace_identity, topic_id) == before
+    # 释放占用后仍可由拥有者操作话题；失败不能留下永久 busy 状态。
+    result = await familiar.evict_topic(scope.workspace_identity, topic_id)
+    assert result.removed is True
+    assert store.get(scope.workspace_identity, topic_id) is None

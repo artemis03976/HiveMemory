@@ -12,6 +12,7 @@ from hivememory.agent_runtime.mtp.context import (
     MTPExecutionContext,
     MTPExecutionResult,
 )
+from hivememory.agent_runtime.mtp.error_mapping import storage_error_info
 from hivememory.agent_runtime.mtp.verbs.call import handle_call
 from hivememory.agent_runtime.mtp.verbs.read import handle_read
 from hivememory.agent_runtime.mtp.verbs.run import handle_run
@@ -19,10 +20,11 @@ from hivememory.agent_runtime.mtp.verbs.search import handle_search
 from hivememory.agent_runtime.mtp.verbs.update import handle_update
 from hivememory.agent_runtime.mtp.verbs.write import handle_write
 from hivememory.core.errors import (
-    IntentDispatchRejectedError,
-    IntentDispatchUnknownError,
     OperationDeniedError,
     ResourceUnavailableError,
+    StorageOfflineError,
+    StorageReadError,
+    StorageWriteError,
 )
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
@@ -46,6 +48,10 @@ from hivememory.core.mtp.exceptions import (
 )
 from hivememory.engines.memory_compiler import (
     MemoryCompiler,
+)
+from hivememory.workspace.contracts.errors import (
+    IntentDispatchRejectedError,
+    IntentDispatchUnknownError,
 )
 
 if TYPE_CHECKING:
@@ -304,6 +310,12 @@ class KoakumaRuntime:
             dispatch_error = error_type(params=error.details, cause=error)
             return MTPResponse(
                 status=MTPResponseStatus.ERROR, content="", error=dispatch_error.to_error_info()
+            )
+
+        except (StorageOfflineError, StorageReadError, StorageWriteError) as error:
+            logger.error("Storage failure during %s", command.verb, exc_info=True)
+            return MTPResponse(
+                status=MTPResponseStatus.ERROR, content="", error=storage_error_info(error)
             )
 
         except ResourceUnavailableError as error:

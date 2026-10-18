@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from hivememory.core.errors import WorkspaceMismatchError
+from hivememory.core.errors import ResourceUnavailableError, WorkspaceMismatchError
 from hivememory.core.models import (
     IdentityScope,
     MemoryAtom,
@@ -149,6 +149,9 @@ class MemoryManagementService:
         source: str,
     ) -> Any:
         scope = require_identity_scope(identity_scope)
+        # 接线缺失在调用前判定；已注册 handler 的内部错误必须原样传播。
+        if PatchouliLocalRoutes.MEMORY_RECORD_FEEDBACK not in self._bus.list_routes():
+            raise ResourceUnavailableError(details={"reason": "lifecycle_unavailable"})
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_RECORD_FEEDBACK,
             normalize_uuid(memory_id),

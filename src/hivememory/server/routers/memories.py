@@ -4,7 +4,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
+from hivememory.core.errors import (
+    InvalidMemoryFieldError,
+    MemoryAliasConflictError,
+    ResourceNotFoundError,
+    ResourceUnavailableError,
+)
 from hivememory.server.deps import RequestAccess, get_request_access, get_root_memory_service
 from hivememory.server.models.memory import (
     MemoryCreateRequest,
@@ -14,11 +19,7 @@ from hivememory.server.models.memory import (
     MemoryResponse,
     MemoryUpdateRequest,
 )
-from hivememory.workspace.capability.root.memory import (
-    MemoryLifecycleUnavailableError,
-    MemoryNotFoundError,
-    RootMemoryService,
-)
+from hivememory.workspace.capability.root.memory import RootMemoryService
 
 router = APIRouter(tags=["memories"])
 
@@ -87,7 +88,7 @@ async def get_memory(
             target_workspace=request_access.target_workspace,
             access=request_access.access,
         )
-    except MemoryNotFoundError:
+    except ResourceNotFoundError:
         raise HTTPException(status_code=404, detail="记忆不存在")
     return MemoryResponse.from_atom(atom)
 
@@ -117,7 +118,7 @@ async def update_memory(
             agent_config=body.agent_config,
             access=request_access.access,
         )
-    except MemoryNotFoundError:
+    except ResourceNotFoundError:
         raise HTTPException(status_code=404, detail="记忆不存在")
     except InvalidMemoryFieldError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
@@ -147,9 +148,9 @@ async def record_memory_feedback(
             source=body.source,
             access=request_access.access,
         )
-    except MemoryLifecycleUnavailableError:
+    except ResourceUnavailableError:
         raise HTTPException(status_code=503, detail="Memory lifecycle engine is unavailable")
-    except MemoryNotFoundError as exc:
+    except ResourceNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc))
 
     return MemoryFeedbackResponse(

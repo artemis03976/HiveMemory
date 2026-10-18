@@ -86,12 +86,6 @@ class AliasNotFoundError(AgentFault):
     code = "mtp.alias.not_found"
 
 
-class MemoryNotFoundError(AgentFault):
-    """UUID/别名可解析但目标记忆不存在（已归档或删除）。"""
-
-    code = "mtp.memory.not_found"
-
-
 class MemoryTypeMismatchError(AgentFault):
     """记忆类型与操作不匹配（如对 FACT 执行 RUN）。"""
 
@@ -130,27 +124,6 @@ class MemoryIntentUnknownError(SystemFault):
 
     code = "mtp.memory.intent_unknown"
     default_message_key = "mtp.memory.intent_unknown"
-
-
-class StorageOfflineError(SystemFault):
-    """存储层离线（连接超时、拒绝连接等）。"""
-
-    code = "mtp.system.storage_offline"
-    default_message_key = "mtp.system.storage_offline"
-
-
-class StorageReadError(SystemFault):
-    """存储层读操作异常。"""
-
-    code = "mtp.system.storage_error"
-    default_message_key = "mtp.system.storage_error"
-
-
-class StorageWriteError(SystemFault):
-    """存储层写操作异常（写入、局部更新、删除未确认成功）。"""
-
-    code = "mtp.system.storage_write_error"
-    default_message_key = "mtp.system.storage_write_error"
 
 
 class BusRouteUnavailableError(SystemFault):
@@ -211,13 +184,6 @@ class SubAgentBudgetExhaustedError(SystemFault):
     default_message_key = "mtp.call_response.budget_exhausted"
 
 
-class SubAgentUnexpectedSuspendError(SystemFault):
-    """CALL 子代理违反单层拓扑约束并再次挂起。"""
-
-    code = "mtp.call_response.unexpected_suspend"
-    default_message_key = "mtp.call_response.unexpected_suspend"
-
-
 class AgentModelUnavailableError(SystemFault):
     """CALL 目标 Profile 引用的模型当前不可用。"""
 
@@ -231,14 +197,11 @@ __all__ = [
     "SystemFault",
     "MTPParseError",
     "AliasNotFoundError",
-    "MemoryNotFoundError",
     "MemoryTypeMismatchError",
     "InvalidArgumentError",
     "PermissionDeniedError",
     "MemoryIntentRejectedError",
     "MemoryIntentUnknownError",
-    "StorageOfflineError",
-    "StorageReadError",
     "BusRouteUnavailableError",
     "SyscallInternalError",
     "SyscallInvalidArgumentError",
@@ -248,6 +211,5 @@ __all__ = [
     "SyscallUnavailableError",
     "SubAgentExecutionError",
     "SubAgentBudgetExhaustedError",
-    "SubAgentUnexpectedSuspendError",
     "AgentModelUnavailableError",
 ]

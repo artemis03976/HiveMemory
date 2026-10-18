@@ -16,10 +16,6 @@ from hivememory.core.errors import (
     AdmissionDeniedError,
     OperationDeniedError,
     ScopeRequiredError,
-    SessionBusyError,
-    SessionCapacityError,
-    SessionClosedError,
-    SessionNotFoundError,
     WorkspaceDomainError,
     WorkspaceMismatchError,
 )
@@ -44,6 +40,12 @@ from hivememory.server.routers.runtime_events import router as runtime_events_ro
 from hivememory.server.routers.sessions import router as sessions_router
 from hivememory.server.routers.topics import router as topics_router
 from hivememory.server.routers.workspace_assets import router as workspace_assets_router
+from hivememory.workspace.contracts.errors import (
+    SessionBusyError,
+    SessionCapacityError,
+    SessionClosedError,
+    SessionNotFoundError,
+)
 
 logger = logging.getLogger(__name__)
 

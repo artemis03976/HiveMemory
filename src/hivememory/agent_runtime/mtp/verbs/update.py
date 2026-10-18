@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 
 from hivememory.agent_runtime.mtp.context import MTPExecutionContext
-from hivememory.core.errors import PendingUpdateNotAllowedError, ResourceNotFoundError
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.mtp import (
     MTPCommand,
     MTPResponse,
@@ -19,6 +19,7 @@ from hivememory.i18n.mtp_runtime import get_mtp_info_text
 from hivememory.workspace.contracts import (
     SubmitUpdateIntentRequest,
 )
+from hivememory.workspace.contracts.errors import PendingUpdateNotAllowedError
 
 logger = logging.getLogger(__name__)
 

@@ -8,13 +8,14 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import TopicLastTurn, TopicSnapshot
 from hivememory.patchouli.contracts import PatchouliRoutes
+from hivememory.patchouli.contracts.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
     TopicSettleResult,
 )
-from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.server.routers.topics import router
 from hivememory.workspace.capability.root.topic import RootTopicService
 from tests.helpers.workspace import (
@@ -169,7 +170,7 @@ class TestTopicsRouter:
         librarian_core = MagicMock()
 
         async def reject_missing_topic(*, identity_scope, topic_id=None):
-            raise KeyError(topic_id)
+            raise ResourceNotFoundError(details={"resource": "topic", "topic_id": topic_id})
 
         app = _create_test_app(
             librarian_core,
@@ -181,6 +182,19 @@ class TestTopicsRouter:
 
         assert response.status_code == 404
         assert response.json() == {"detail": "话题不存在"}
+
+    def test_settle_internal_key_error_returns_server_error(self):
+        """handler 的 KeyError 表示程序缺陷，不能被 HTTP 入口伪装成话题不存在。"""
+
+        async def broken_settlement(*, identity_scope, topic_id=None):
+            raise KeyError("internal state missing")
+
+        app = _create_test_app(MagicMock(), manual_settle_topic=broken_settlement)
+        client = TestClient(app, raise_server_exceptions=False)
+
+        response = client.post("/api/v1/topics/t1/settle")
+
+        assert response.status_code == 500
 
     def test_settle_topic_busy_returns_conflict(self):
         """手动结算与其他 Topic 写入冲突时应提供可重试的 HTTP 409。"""

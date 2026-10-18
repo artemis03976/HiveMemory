@@ -3,8 +3,13 @@ from __future__ import annotations
 from collections.abc import Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
-from hivememory.agent_runtime import FrameExecutionResult, FrameExecutionStatus
-from hivememory.core.errors import ModelNotFoundError
+from hivememory.agent_runtime import FrameExecutionResult, FrameExecutionStatus, storage_error_info
+from hivememory.core.errors import (
+    ModelNotFoundError,
+    StorageOfflineError,
+    StorageReadError,
+    StorageWriteError,
+)
 from hivememory.core.mtp.exceptions import (
     AgentModelUnavailableError,
     MTPError,
@@ -47,6 +52,8 @@ def error_response(agent_alias: str, error: MTPErrorInfo) -> MTPCallResponse:
 
 
 def preparation_error_response(agent_alias: str, error: Exception) -> MTPCallResponse:
+    if isinstance(error, (StorageOfflineError, StorageReadError, StorageWriteError)):
+        return error_response(agent_alias, storage_error_info(error))
     if isinstance(error, MTPError):
         return error_response(agent_alias, error.to_error_info())
     return error_response(

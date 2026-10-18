@@ -18,6 +18,8 @@ import logging
 from datetime import datetime
 from typing import TYPE_CHECKING
 
+from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueStoppedError
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     ActorIdentity,
     WorkspaceAssetRef,
@@ -27,6 +29,7 @@ from hivememory.core.models import (
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.engines.perception.models import TopicMaterializeTask, TriggerReason
+from hivememory.patchouli.contracts.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.topic_management import TopicEvictionResult, TopicSettleResult
 from hivememory.patchouli.control.interaction_apply_journal import (
@@ -35,7 +38,6 @@ from hivememory.patchouli.control.interaction_apply_journal import (
     compute_apply_digest,
 )
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
-from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
@@ -129,7 +131,7 @@ class PerceptionFamiliar:
             if apply_record is None:
                 topic = self._store.get(belong_to, topic_id)
                 if topic is None:
-                    raise KeyError(f"topic '{topic_id}' does not exist in requested Workspace")
+                    raise ResourceNotFoundError(details={"resource": "topic", "topic_id": topic_id})
                 self._store.put(
                     merge_interaction_into_topic(
                         topic, block, asset_refs, interaction_id, payload.model_used
@@ -237,15 +239,15 @@ class PerceptionFamiliar:
     ) -> TopicSettleResult:
         """手动结算指定话题（缺省为最近活跃话题）。
 
-        admission 失败抛出 :class:`TopicSettleAdmissionError`（话题内容保留
+        队列明确拒绝接纳时抛出 :class:`TopicSettleAdmissionError`（话题内容保留
         可重试）；目标正忙是瞬态冲突，保持 :class:`TopicBusyError` 语义。
         """
         scope_key = (belong_to.owner_user_id, belong_to.workspace_id)
         target_id = topic_id or self._last_active_topic_ids.get(scope_key)
         if not target_id:
-            raise ValueError("未指定 topic_id 且无活跃话题")
+            raise ResourceNotFoundError(details={"resource": "topic"})
         if self._store.get(belong_to, target_id) is None:
-            raise KeyError(f"话题 {target_id} 不存在")
+            raise ResourceNotFoundError(details={"resource": "topic", "topic_id": target_id})
         try:
             completed, task = await self._settle_topic(
                 belong_to,
@@ -253,14 +255,12 @@ class PerceptionFamiliar:
                 reason=TriggerReason.MANUAL_SETTLE,
                 raise_on_admission_failure=True,
             )
-        except TopicBusyError:
-            raise
-        except Exception as exc:
+        except (WorkQueueCapacityError, WorkQueueStoppedError) as exc:
             raise TopicSettleAdmissionError(
                 f"结算材料接纳失败，话题内容已保留，可重试: {target_id}"
             ) from exc
         if not completed:
-            raise KeyError(f"话题 {target_id} 不存在")
+            raise ResourceNotFoundError(details={"resource": "topic", "topic_id": target_id})
         return TopicSettleResult(
             topic_id=target_id, generation_task_id=task.task_id if task else None
         )
@@ -309,7 +309,9 @@ class PerceptionFamiliar:
         """
         if target_topic_id != "NEW_TOPIC":
             if self._store.get(belong_to, target_topic_id) is None:
-                raise KeyError(f"topic '{target_topic_id}' does not exist in requested Workspace")
+                raise ResourceNotFoundError(
+                    details={"resource": "topic", "topic_id": target_topic_id}
+                )
             return
         if not self._working_set.needs_eviction(belong_to):
             return
@@ -454,7 +456,7 @@ class PerceptionFamiliar:
             self._working_set.touch(belong_to, topic.topic_id)
             return topic.topic_id
         if self._store.get(belong_to, target_topic_id) is None:
-            raise KeyError(f"topic '{target_topic_id}' does not exist in requested Workspace")
+            raise ResourceNotFoundError(details={"resource": "topic", "topic_id": target_topic_id})
         return target_topic_id
 
     def _refresh_residency(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:

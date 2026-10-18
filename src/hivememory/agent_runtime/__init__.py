@@ -27,6 +27,7 @@ from hivememory.agent_runtime.model.resolution import (
     ModelResolver,
     ResolvedFrameModel,
 )
+from hivememory.agent_runtime.mtp.error_mapping import storage_error_info
 from hivememory.agent_runtime.output import (
     FrameOutput,
     FrameOutputSink,
@@ -41,6 +42,7 @@ from hivememory.agent_runtime.runtime import (
 )
 
 __all__ = [
+    "storage_error_info",
     "RuntimeScope",
     "ExecutionFrame",
     "ExecutionProgress",

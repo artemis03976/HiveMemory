@@ -2,7 +2,8 @@
 
 from fastapi import APIRouter, Depends, HTTPException, Query
 
-from hivememory.patchouli.errors import TopicBusyError, TopicSettleAdmissionError
+from hivememory.core.errors import ResourceNotFoundError
+from hivememory.patchouli.contracts.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.server.deps import (
     RequestIdentitySelection,
     get_access_gateway,
@@ -93,7 +94,7 @@ async def settle_topic(
             status_code=409,
             detail="话题正在处理，请稍后重试",
         ) from exc
-    except KeyError as exc:
+    except ResourceNotFoundError as exc:
         raise HTTPException(status_code=404, detail="话题不存在") from exc
     return TopicSettleResponse.from_domain(result)
 

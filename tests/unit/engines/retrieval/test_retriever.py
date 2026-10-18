@@ -21,6 +21,7 @@ from hivememory.config.patchouli import (
     ReciprocalRankFusionConfig,
     SparseRetrieverConfig,
 )
+from hivememory.core.errors import StorageOfflineError
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -28,7 +29,6 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.models.query import QueryFilters
-from hivememory.core.mtp.exceptions import StorageOfflineError
 from hivememory.engines.retrieval.models import (
     RetrievalQuery,
     SearchResult,
@@ -316,18 +316,17 @@ class TestHybridRetrieverParallelRecall:
         )
 
     @pytest.mark.asyncio
-    async def test_ordinary_failure_on_one_path_degrades_to_other_path(self):
+    async def test_programming_failure_on_one_path_propagates(self):
         self.mock_dense.retrieve = AsyncMock(side_effect=RuntimeError("dense index broken"))
         self._sparse_returns_memory()
 
-        results = await self.searcher.retrieve(self.query, top_k=5)
-
-        assert [r.memory.id for r in results.results] == [self.memory.id]
+        with pytest.raises(RuntimeError, match="dense index broken"):
+            await self.searcher.retrieve(self.query, top_k=5)
 
     @pytest.mark.asyncio
     async def test_storage_offline_on_one_path_propagates(self):
         self.mock_dense.retrieve = AsyncMock(
-            side_effect=StorageOfflineError(cause=ConnectionError("qdrant down"))
+            side_effect=StorageOfflineError(details={"operation": "search_memories"})
         )
         self._sparse_returns_memory()
 
@@ -453,3 +452,27 @@ class TestRecallThresholdAndCandidateCount:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("mode", ["dense", "sparse"])
+async def test_recall_programming_error_is_not_an_empty_result(mode):
+    """两种召回器都不能把代码缺陷转换成无命中，避免上层继续执行错误的空上下文。"""
+    from hivememory.engines.retrieval.retriever import SparseRetriever
+
+    mid_term = AsyncMock()
+    mid_term.search.side_effect = KeyError("invalid index")
+    retriever = (
+        DenseRetriever(mid_term=mid_term, config=DenseRetrieverConfig())
+        if mode == "dense"
+        else SparseRetriever(mid_term=mid_term, config=SparseRetrieverConfig())
+    )
+    scope = _make_identity_scope()
+    query = RetrievalQuery(
+        semantic_query="test",
+        belong_to=scope.workspace_identity,
+        from_actor=scope.actor_identity,
+    )
+
+    with pytest.raises(KeyError, match="invalid index"):
+        await retriever.retrieve(query)

@@ -7,18 +7,18 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict
 
 from hivememory.config.workspace import WorkspaceSessionConfig
-from hivememory.core.errors import (
-    SessionBusyError,
-    SessionCapacityError,
-    SessionCheckpointError,
-    SessionClosedError,
-    SessionNotFoundError,
-)
 from hivememory.core.models import WorkspaceIdentity
 from hivememory.core.protocol.models import (
     ConversationTurn,
     InteractionPayload,
     SessionCompactionCheckpoint,
+)
+from hivememory.workspace.contracts.errors import (
+    SessionBusyError,
+    SessionCapacityError,
+    SessionCheckpointError,
+    SessionClosedError,
+    SessionNotFoundError,
 )
 
 

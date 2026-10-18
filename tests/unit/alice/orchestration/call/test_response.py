@@ -97,3 +97,15 @@ def test_suspended_result_is_a_coordinator_invariant_violation():
             "helper",
             FrameExecutionResult(status=FrameExecutionStatus.SUSPENDED),
         )
+
+
+def test_preparation_storage_failure_keeps_storage_wire_category():
+    """CALL 准备的中立存储失败走共享映射，不变成通用子 Agent 执行错误。"""
+    from hivememory.core.errors import StorageReadError
+
+    response = preparation_error_response("helper", StorageReadError(details={"operation": "read"}))
+
+    assert response.status == MTPResponseStatus.ERROR
+    assert response.error.code == "mtp.system.storage_error"
+    assert response.error.params == {}
+    assert "cause" not in response.error.model_dump()

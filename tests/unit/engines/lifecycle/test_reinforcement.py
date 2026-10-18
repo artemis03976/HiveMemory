@@ -16,6 +16,7 @@ from uuid import uuid4
 import pytest
 
 from hivememory.config.patchouli import ReinforcementEngineConfig, VitalityCalculatorConfig
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -244,7 +245,7 @@ class TestDynamicReinforcementEngine:
 
         event = MemoryEvent(event_type=EventType.HIT, memory_id=uuid4(), source="test")
 
-        with pytest.raises(ValueError):
+        with pytest.raises(ResourceNotFoundError):
             await self.engine.reinforce(_identity_scope().workspace_identity, uuid4(), event)
 
     @pytest.mark.asyncio

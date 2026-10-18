@@ -8,7 +8,7 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import RunBinding, WorkspaceOperation
-from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
+from hivememory.core.errors import OperationDeniedError, ResourceNotFoundError, ScopeRequiredError
 from hivememory.core.models import (
     ActorIdentity,
     AgentProfile,
@@ -21,7 +21,6 @@ from hivememory.core.models import (
     UpdateFocus,
     WriteFocus,
 )
-from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.memory_intent import MemoryIntent
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
@@ -104,8 +103,8 @@ class _OperationHarness:
     async def _get_profile(self, agent_alias, *, identity_scope):
         self.owner_calls.append(PatchouliRoutes.GET_AGENT_PROFILE)
         if agent_alias != self.profile_source.index.alias:
-            raise AliasNotFoundError(
-                message_key="mtp.call.profile_not_found", params={"agent_alias": agent_alias}
+            raise ResourceNotFoundError(
+                details={"resource": "agent_profile", "agent_alias": agent_alias}
             )
         return ResolvedAgentProfile(
             profile=AgentProfile.from_atom(self.profile_source),

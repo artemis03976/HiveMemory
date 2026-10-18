@@ -7,11 +7,18 @@ from hivememory.agent_runtime import ExecutionFrame
 from hivememory.core.errors import (
     AdmissionDeniedError,
     OperationDeniedError,
+    ResourceNotFoundError,
     ResourceUnavailableError,
+    StorageOfflineError,
+    StorageReadError,
+    StorageWriteError,
 )
 from hivememory.core.mtp import MTPCallRequest
 from hivememory.core.mtp.exceptions import (
+    AliasNotFoundError,
     BusRouteUnavailableError,
+    InvalidArgumentError,
+    MemoryTypeMismatchError,
     MTPError,
     PermissionDeniedError,
     SystemFault,
@@ -21,6 +28,7 @@ from hivememory.engines.memory_compiler import (
     MemoryCompiler,
     MemoryEnvelopeTarget,
 )
+from hivememory.patchouli.contracts.errors import ProfileResolutionError
 from hivememory.workspace.contracts import (
     Callee,
     DeriveCallThreadRequest,
@@ -71,6 +79,27 @@ class CallContextProvider:
             ) from error
         except ResourceUnavailableError as error:
             raise BusRouteUnavailableError(cause=error) from error
+        except ResourceNotFoundError as error:
+            raise AliasNotFoundError(
+                message_key="mtp.call.profile_not_found",
+                params={"agent_alias": request.target_alias},
+                cause=error,
+            ) from error
+        except ProfileResolutionError as error:
+            if error.details["reason"] == "type_mismatch":
+                raise MemoryTypeMismatchError(
+                    message_key="mtp.call.profile_type_mismatch",
+                    params={"agent_alias": request.target_alias},
+                    cause=error,
+                ) from error
+            raise InvalidArgumentError(
+                message_key="mtp.call.profile_invalid",
+                params={"agent_alias": request.target_alias},
+                cause=error,
+            ) from error
+        except (StorageOfflineError, StorageReadError, StorageWriteError):
+            # 存储原因交给 CALL 响应边界投影，不能改成通用 Profile 加载失败。
+            raise
         except MTPError:
             raise
         except Exception as error:

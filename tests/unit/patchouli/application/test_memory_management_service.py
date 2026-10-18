@@ -199,3 +199,32 @@ def test_retrieve_splits_public_scope_into_internal_query():
     assert query.from_actor == request.identity_scope.actor_identity
     # 请求未给出 top_k：原样缺省转发，条数由检索引擎配置决定
     assert kwargs == {"top_k": None}
+
+
+def test_feedback_missing_lifecycle_route_is_explicitly_unavailable():
+    """生命周期路由未装配时由 owner 判定不可用，不能依赖异常正文猜测。"""
+    from hivememory.core.errors import ResourceUnavailableError
+    from hivememory.patchouli.runtime.bus import PatchouliBus
+
+    service = MemoryManagementService(bus=PatchouliBus())
+    with pytest.raises(ResourceUnavailableError) as caught:
+        _run(service.record_feedback(uuid4(), identity_scope=_scope(), positive=True, source="ui"))
+
+    assert caught.value.details == {"reason": "lifecycle_unavailable"}
+
+
+@pytest.mark.parametrize("error", [RuntimeError("broken handler"), KeyError("missing field")])
+def test_feedback_registered_handler_fault_propagates(error):
+    """路由已注册时保留 handler 的程序错误，不误报服务不可用或资源缺失。"""
+    from hivememory.patchouli.runtime.bus import PatchouliBus
+
+    async def broken(memory_id, *, belong_to, positive, source):
+        raise error
+
+    bus = PatchouliBus()
+    bus.register(PatchouliLocalRoutes.MEMORY_RECORD_FEEDBACK, broken)
+    service = MemoryManagementService(bus=bus)
+    with pytest.raises(type(error)) as caught:
+        _run(service.record_feedback(uuid4(), identity_scope=_scope(), positive=True, source="ui"))
+
+    assert caught.value is error

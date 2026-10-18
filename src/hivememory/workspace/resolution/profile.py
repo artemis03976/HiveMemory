@@ -16,9 +16,9 @@
 
 from __future__ import annotations
 
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.memory_access import access_policy_permits
 from hivememory.core.models import AgentProfile, IdentityScope
-from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.workspace.cache.profile import ProfileCache, ProfileCacheEntry
 from hivememory.workspace.resolution.backing import CanonicalReadBackend
 from hivememory.workspace.resolution.guard import ColdReadGuard
@@ -83,10 +83,7 @@ class ProfileResolver:
     def _deliver(entry: ProfileCacheEntry, alias: str, scope: IdentityScope) -> AgentProfile:
         """交付边界逐次授权：按条目随存的源原子 policy 判定当前 Actor。"""
         if not access_policy_permits(entry.access_policy, scope.actor_identity):
-            raise AliasNotFoundError(
-                message_key="mtp.call.profile_not_found",
-                params={"agent_alias": alias},
-            )
+            raise ResourceNotFoundError(details={"resource": "agent_profile", "agent_alias": alias})
         return entry.profile.model_copy(deep=True)
 
 

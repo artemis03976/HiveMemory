@@ -13,7 +13,7 @@ from pydantic import ValidationError
 
 from hivememory.core.errors import (
     InvalidMemoryFieldError,
-    WorkspaceDomainError,
+    ResourceNotFoundError,
 )
 from hivememory.core.models import (
     IndexLayer,
@@ -33,14 +33,6 @@ if TYPE_CHECKING:
     from hivememory.core.access import WorkspaceAccessContext
     from hivememory.core.models import WorkspaceIdentity
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
-
-
-class MemoryLifecycleUnavailableError(RuntimeError):
-    """生命周期反馈操作不可用时抛出。"""
-
-
-class MemoryNotFoundError(ValueError):
-    """请求的记忆不存在时抛出。"""
 
 
 class RootMemoryService:
@@ -151,7 +143,7 @@ class RootMemoryService:
             refresh_vitality=True,
         )
         if atom is None:
-            raise MemoryNotFoundError("记忆不存在")
+            raise ResourceNotFoundError("记忆不存在")
         return atom
 
     async def update_memory(
@@ -181,7 +173,7 @@ class RootMemoryService:
             agent_config=agent_config,
         )
         if atom is None:
-            raise MemoryNotFoundError("记忆不存在")
+            raise ResourceNotFoundError("记忆不存在")
         return atom
 
     async def record_feedback(
@@ -195,22 +187,13 @@ class RootMemoryService:
     ):
         """管理反馈入口（root 授权）：在目标 Workspace 中记录反馈。"""
         scope = self._authorizer.authorize_root(access, target_workspace)
-        try:
-            return await self._global_bus.request(
-                PatchouliRoutes.MEMORY_RECORD_FEEDBACK,
-                memory_id,
-                identity_scope=scope,
-                positive=positive,
-                source=source,
-            )
-        except WorkspaceDomainError:
-            # 访问/领域受控错误必须按原语义传播，
-            # 不得被通用 RuntimeError 分支包装成"服务不可用"。
-            raise
-        except RuntimeError as exc:
-            raise MemoryLifecycleUnavailableError("Memory lifecycle engine is unavailable") from exc
-        except ValueError as exc:
-            raise MemoryNotFoundError(str(exc)) from exc
+        return await self._global_bus.request(
+            PatchouliRoutes.MEMORY_RECORD_FEEDBACK,
+            memory_id,
+            identity_scope=scope,
+            positive=positive,
+            source=source,
+        )
 
     async def delete_memory(
         self,

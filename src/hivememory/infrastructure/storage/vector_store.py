@@ -26,17 +26,14 @@ from qdrant_client.models import (
 
 from hivememory.config.patchouli import QdrantConfig
 from hivememory.config.shared import EmbeddingConfig
-from hivememory.core.errors import MemoryAliasConflictError
-from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
-from hivememory.core.mtp.exceptions import (
-    StorageOfflineError,
-    StorageReadError,
-    StorageWriteError,
-    SystemFault,
+from hivememory.core.errors import (
+    MemoryAliasConflictError,
 )
+from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
 from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
 from hivememory.engines.retrieval.memory_codec import MemoryDecodeError, decode_memory_payload
 from hivememory.infrastructure.embedding import get_bge_m3_service
+from hivememory.infrastructure.storage._errors import storage_operation
 from hivememory.infrastructure.storage.qdrant_client import (
     create_async_qdrant_client,
     wait_for_qdrant_ready,
@@ -45,23 +42,6 @@ from hivememory.infrastructure.storage.qdrant_client import (
 logger = logging.getLogger(__name__)
 
 _compiler = MemoryCompiler()
-
-# 连接类异常表示存储不可达，与读写本身的失败分开归类。
-_OFFLINE_ERRORS = (ConnectionError, TimeoutError, OSError)
-
-
-def _storage_error(exc: Exception, *, operation: str, write: bool) -> SystemFault:
-    """把存储异常归类为结构化错误：连接类为离线，其余按读/写区分。
-
-    失败必须传播给调用方：读取失败不能伪装成"没有记忆"，写入/删除失败不能
-    伪装成已生效。
-    """
-    logger.error("Memory 存储操作失败: %s: %s", operation, exc, exc_info=True)
-    if isinstance(exc, _OFFLINE_ERRORS):
-        return StorageOfflineError(cause=exc)
-    if write:
-        return StorageWriteError(cause=exc)
-    return StorageReadError(cause=exc)
 
 
 def _key_of(memory: MemoryAtom) -> WorkspaceMemoryKey:
@@ -118,35 +98,36 @@ class QdrantMemoryStore:
         await self.create_collection(recreate=False)
 
     async def create_collection(self, recreate: bool = False) -> None:
-        try:
-            collections = (await self.client.get_collections()).collections
-            collection_exists = any(col.name == self.collection_name for col in collections)
+        """读取集合状态后按需创建；读取与变更失败保留各自的操作类别。"""
+        with storage_operation("get_collections"):
+            response = await self.client.get_collections()
+        collection_exists = any(col.name == self.collection_name for col in response.collections)
 
-            if collection_exists:
-                if recreate:
-                    logger.warning(f"删除已存在的集合: {self.collection_name}")
+        if collection_exists:
+            if recreate:
+                logger.warning(f"删除已存在的集合: {self.collection_name}")
+                with storage_operation("delete_collection", write=True):
                     await self.client.delete_collection(self.collection_name)
-                else:
-                    logger.info(f"集合已存在且有稀疏向量配置: {self.collection_name}")
-                    return
+            else:
+                logger.info(f"集合已存在且有稀疏向量配置: {self.collection_name}")
+                return
 
+        vectors_config = {
+            "dense_text": VectorParams(
+                size=self.vector_dimension,
+                distance=getattr(Distance, self.qdrant_config.distance_metric.upper()),
+            ),
+        }
+        sparse_config = {"sparse_text": SparseVectorParams(modifier=Modifier.IDF)}
+        with storage_operation("create_collection", write=True):
             await self.client.create_collection(
                 collection_name=self.collection_name,
-                vectors_config={
-                    "dense_text": VectorParams(
-                        size=self.vector_dimension,
-                        distance=getattr(Distance, self.qdrant_config.distance_metric.upper()),
-                    ),
-                },
-                sparse_vectors_config={"sparse_text": SparseVectorParams(modifier=Modifier.IDF)},
+                vectors_config=vectors_config,
+                sparse_vectors_config=sparse_config,
                 on_disk_payload=self.qdrant_config.on_disk_payload,
             )
 
-            logger.info(f"✓ 成功创建集合: {self.collection_name} (Dense + Sparse)")
-
-        except Exception as e:
-            logger.error(f"创建集合失败: {e}")
-            raise
+        logger.info(f"✓ 成功创建集合: {self.collection_name} (Dense + Sparse)")
 
     async def upsert_memory(
         self, memory: MemoryAtom, use_sparse: bool = True, recompute_vectors: bool = True
@@ -165,12 +146,24 @@ class QdrantMemoryStore:
             StorageOfflineError / StorageWriteError: 写入失败
         """
         point_id = self._point_id(_key_of(memory))
-        try:
+        payload = memory.to_qdrant_payload()
+        points = (
+            [
+                PointStruct(
+                    id=point_id,
+                    vector=self._encode_vectors(memory, use_sparse=use_sparse),
+                    payload=payload,
+                )
+            ]
+            if recompute_vectors
+            else []
+        )
+        with storage_operation("upsert_memory", write=True):
             if not recompute_vectors:
                 # embedding 输入未变化：set_payload 只替换 payload 顶层键，向量原样保留。
                 await self.client.set_payload(
                     collection_name=self.collection_name,
-                    payload=memory.to_qdrant_payload(),
+                    payload=payload,
                     points=[point_id],
                 )
                 logger.debug(f"✓ 已保留向量并替换 payload: {memory.id}")
@@ -178,17 +171,9 @@ class QdrantMemoryStore:
 
             await self.client.upsert(
                 collection_name=self.collection_name,
-                points=[
-                    PointStruct(
-                        id=point_id,
-                        vector=self._encode_vectors(memory, use_sparse=use_sparse),
-                        payload=memory.to_qdrant_payload(),
-                    )
-                ],
+                points=points,
             )
             logger.debug(f"✓ 成功存储记忆: {memory.id} - {memory.index.title}")
-        except Exception as e:
-            raise _storage_error(e, operation="upsert_memory", write=True) from e
 
     def _encode_vectors(self, memory: MemoryAtom, *, use_sparse: bool) -> dict[str, Any]:
         """编译 embedding 输入并生成命名向量：dense 必有，sparse 为 BM25 文本。"""
@@ -215,7 +200,7 @@ class QdrantMemoryStore:
         ``meta.access_policy``（整体替换）；由 adapter 的字段白名单保证调用
         方无法触达其他路径。
         """
-        try:
+        with storage_operation("patch_memory_payload", write=True):
             point_id = self._point_id(key)
             if lifecycle is not None:
                 await self.client.set_payload(
@@ -231,23 +216,19 @@ class QdrantMemoryStore:
                     points=[point_id],
                     key="meta.access_policy",
                 )
-        except Exception as e:
-            raise _storage_error(e, operation="patch_memory_payload", write=True) from e
 
     async def get_memory(self, key: WorkspaceMemoryKey) -> MemoryAtom | None:
         """按复合键读取单条 Memory；记录无法安全解码时整体失败。"""
-        try:
+        with storage_operation("get_memory", write=False):
             points = await self.client.retrieve(
                 collection_name=self.collection_name,
                 ids=[self._point_id(key)],
                 with_payload=True,
                 with_vectors=False,
             )
-            if not points:
-                return None
-            return decode_memory_payload(points[0].payload or {})
-        except Exception as e:
-            raise _storage_error(e, operation="get_memory", write=False) from e
+        if not points:
+            return None
+        return decode_memory_payload(points[0].payload or {})
 
     async def get_memory_by_alias(
         self,
@@ -272,7 +253,7 @@ class QdrantMemoryStore:
                 精确查询不按存储顺序任取其一，读取 fail closed。
         """
         alias_filter = FieldCondition(key="index.alias", match=MatchValue(value=alias))
-        try:
+        with storage_operation("get_memory_by_alias", write=False):
             # 取两条即可判定多义：唯一性成立时至多一条命中。
             points, _ = await self.client.scroll(
                 collection_name=self.collection_name,
@@ -281,8 +262,6 @@ class QdrantMemoryStore:
                 with_payload=True,
                 with_vectors=False,
             )
-        except Exception as e:
-            raise _storage_error(e, operation=f"get_memory_by_alias({alias})", write=False) from e
         if not points:
             return None
         if len(points) > 1:
@@ -290,10 +269,7 @@ class QdrantMemoryStore:
                 "alias 精确查询命中多条 Memory，解析结果不唯一",
                 details={"alias": alias, "reason": "ambiguous_alias"},
             )
-        try:
-            return decode_memory_payload(points[0].payload or {})
-        except Exception as e:
-            raise _storage_error(e, operation=f"get_memory_by_alias({alias})", write=False) from e
+        return decode_memory_payload(points[0].payload or {})
 
     async def get_memory_ids_by_alias(
         self,
@@ -308,7 +284,7 @@ class QdrantMemoryStore:
         ``query_filter`` 由调用方给出 Workspace 所有权边界。
         """
         alias_filter = FieldCondition(key="index.alias", match=MatchValue(value=alias))
-        try:
+        with storage_operation("get_memory_ids_by_alias", write=False):
             points, _ = await self.client.scroll(
                 collection_name=self.collection_name,
                 scroll_filter=Filter(must=[query_filter, alias_filter]),
@@ -316,11 +292,7 @@ class QdrantMemoryStore:
                 with_payload=["id"],
                 with_vectors=False,
             )
-            return [UUID(str((point.payload or {})["id"])) for point in points]
-        except Exception as e:
-            raise _storage_error(
-                e, operation=f"get_memory_ids_by_alias({alias})", write=False
-            ) from e
+        return [UUID(str((point.payload or {})["id"])) for point in points]
 
     async def search_memories(
         self,
@@ -343,13 +315,13 @@ class QdrantMemoryStore:
         Returns:
             检索结果列表: [{"memory": MemoryAtom, "score": float, "id": point_id}, ...]
         """
-        try:
-            if mode == "sparse":
-                query: Any = Document(text=query_text, model="qdrant/bm25")
-                using, threshold = "sparse_text", None
-            else:
-                query = self.embedding_service.encode(dense_texts=query_text)
-                using, threshold = "dense_text", score_threshold
+        if mode == "sparse":
+            query: Any = Document(text=query_text, model="qdrant/bm25")
+            using, threshold = "sparse_text", None
+        else:
+            query = self.embedding_service.encode(dense_texts=query_text)
+            using, threshold = "dense_text", score_threshold
+        with storage_operation("search_memories", write=False):
             response = await self.client.query_points(
                 collection_name=self.collection_name,
                 query=query,
@@ -359,8 +331,6 @@ class QdrantMemoryStore:
                 score_threshold=threshold,
                 with_payload=True,
             )
-        except Exception as e:
-            raise _storage_error(e, operation="search_memories", write=False) from e
         logger.debug("✓ %s 检索到 %d 条记忆", using, len(response.points))
 
         return [
@@ -370,13 +340,11 @@ class QdrantMemoryStore:
 
     async def delete_memory(self, key: WorkspaceMemoryKey) -> bool:
         """删除复合键对应的点；失败以结构化错误传播，不返回 False 掩盖。"""
-        try:
+        with storage_operation("delete_memory", write=True):
             await self.client.delete(
                 collection_name=self.collection_name,
                 points_selector=[self._point_id(key)],
             )
-        except Exception as e:
-            raise _storage_error(e, operation="delete_memory", write=True) from e
         logger.debug(f"✓ 成功删除记忆: {key.memory_id}")
         return True
 
@@ -417,7 +385,7 @@ class QdrantMemoryStore:
 
     async def _scroll(self, filters: Filter | None, *, limit: int, operation: str) -> list[Any]:
         """读取一页 payload（不含向量）；失败以结构化读取错误传播。"""
-        try:
+        with storage_operation(operation, write=False):
             points, _ = await self.client.scroll(
                 collection_name=self.collection_name,
                 scroll_filter=filters,
@@ -425,8 +393,6 @@ class QdrantMemoryStore:
                 with_payload=True,
                 with_vectors=False,
             )
-        except Exception as e:
-            raise _storage_error(e, operation=operation, write=False) from e
         return points
 
     @staticmethod

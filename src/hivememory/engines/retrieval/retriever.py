@@ -20,7 +20,6 @@ from hivememory.config.patchouli import (
     HybridRetrieverConfig,
     SparseRetrieverConfig,
 )
-from hivememory.core.mtp.exceptions import StorageOfflineError, StorageReadError
 from hivememory.engines.retrieval.fusion import create_fusion
 from hivememory.engines.retrieval.interfaces import BaseFusion, BaseMemoryRetriever
 from hivememory.engines.retrieval.models import (
@@ -87,21 +86,15 @@ class DenseRetriever(BaseMemoryRetriever):
         search_text = query.get_search_text()
         logger.info(f"Dense检索: '{search_text[:50]}...', filters={query.filters}")
 
-        try:
-            raw_results = await self.mid_term.search(
-                query.belong_to,
-                from_actor=query.from_actor,
-                query=search_text,
-                top_k=top_k,
-                filters=query.filters,
-                mode="dense",
-                score_threshold=self.config.score_threshold,
-            )
-        except (StorageOfflineError, StorageReadError):
-            raise
-        except Exception as e:
-            logger.error(f"Dense检索失败: {e}", exc_info=True)
-            return SearchResults(latency_ms=(time.time() - start_time) * 1000)
+        raw_results = await self.mid_term.search(
+            query.belong_to,
+            from_actor=query.from_actor,
+            query=search_text,
+            top_k=top_k,
+            filters=query.filters,
+            mode="dense",
+            score_threshold=self.config.score_threshold,
+        )
 
         # 转换结果并应用加权
         search_results = []
@@ -210,20 +203,14 @@ class SparseRetriever(BaseMemoryRetriever):
         search_text = query.get_search_text()
         logger.info(f"Sparse检索: '{search_text[:50]}...', filters={query.filters}")
 
-        try:
-            raw_results = await self.mid_term.search(
-                query.belong_to,
-                from_actor=query.from_actor,
-                query=search_text,
-                top_k=top_k,
-                filters=query.filters,
-                mode="sparse",
-            )
-        except (StorageOfflineError, StorageReadError):
-            raise
-        except Exception as e:
-            logger.error(f"Sparse检索失败: {e}", exc_info=True)
-            return SearchResults(latency_ms=(time.time() - start_time) * 1000)
+        raw_results = await self.mid_term.search(
+            query.belong_to,
+            from_actor=query.from_actor,
+            query=search_text,
+            top_k=top_k,
+            filters=query.filters,
+            mode="sparse",
+        )
 
         # 转换结果
         search_results = []
@@ -326,8 +313,8 @@ class HybridRetriever(BaseMemoryRetriever):
     async def _parallel_recall(self, query: RetrievalQuery) -> tuple[SearchResults, SearchResults]:
         """asyncio.gather 并行执行稠密和稀疏检索
 
-        单路的普通失败降级为空结果；存储离线/读取失败与取消等非 ``Exception``
-        的 ``BaseException`` 必须向上传播，不能被当作检索结果交给融合。
+        任一路失败或取消都必须传播；空结果只表示成功完成后没有命中。
+        等待两路结束再检查失败，避免留下无人持有的召回任务。
         """
         dense_outcome, sparse_outcome = await asyncio.gather(
             self.dense_retriever.retrieve(query),
@@ -335,18 +322,13 @@ class HybridRetriever(BaseMemoryRetriever):
             return_exceptions=True,
         )
         for outcome in (dense_outcome, sparse_outcome):
-            if isinstance(outcome, (StorageOfflineError, StorageReadError)):
+            if isinstance(outcome, asyncio.CancelledError):
                 raise outcome
-            if isinstance(outcome, BaseException) and not isinstance(outcome, Exception):
-                raise outcome
-
-        dense_results = (
-            SearchResults() if isinstance(dense_outcome, BaseException) else dense_outcome
-        )
-        sparse_results = (
-            SearchResults() if isinstance(sparse_outcome, BaseException) else sparse_outcome
-        )
-        return dense_results, sparse_results
+        if isinstance(dense_outcome, BaseException):
+            raise dense_outcome
+        if isinstance(sparse_outcome, BaseException):
+            raise sparse_outcome
+        return dense_outcome, sparse_outcome
 
     async def _sequential_recall(
         self, query: RetrievalQuery

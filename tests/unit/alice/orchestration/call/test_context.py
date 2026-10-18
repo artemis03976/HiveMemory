@@ -9,6 +9,7 @@ from hivememory.alice.orchestration.call import CallContextProvider
 from hivememory.core.errors import (
     AdmissionDeniedError,
     OperationDeniedError,
+    ResourceNotFoundError,
     ResourceUnavailableError,
 )
 from hivememory.core.models import (
@@ -24,9 +25,12 @@ from hivememory.core.mtp import MTPCallRequest
 from hivememory.core.mtp.exceptions import (
     AliasNotFoundError,
     BusRouteUnavailableError,
+    InvalidArgumentError,
+    MemoryTypeMismatchError,
     PermissionDeniedError,
     SystemFault,
 )
+from hivememory.patchouli.contracts.errors import ProfileResolutionError
 from hivememory.workspace.contracts import DeriveCallThreadRequest, ResolveReferencesRequest
 from tests.helpers.call import StubOperationSubmitter, make_callee
 from tests.helpers.memory import make_memory_metadata
@@ -206,10 +210,22 @@ async def test_provide_returns_empty_context_when_no_ref_can_be_rendered():
             "mtp.system.service_unavailable",
         ),
         (
-            AliasNotFoundError(message_key="mtp.call.profile_not_found"),
+            ResourceNotFoundError(details={"resource": "agent_profile"}),
             AliasNotFoundError,
             "mtp.alias.not_found",
             "mtp.call.profile_not_found",
+        ),
+        (
+            ProfileResolutionError(agent_alias="helper", reason="type_mismatch"),
+            MemoryTypeMismatchError,
+            "mtp.memory.type_mismatch",
+            "mtp.call.profile_type_mismatch",
+        ),
+        (
+            ProfileResolutionError(agent_alias="helper", reason="invalid_config"),
+            InvalidArgumentError,
+            "mtp.argument.invalid",
+            "mtp.call.profile_invalid",
         ),
         (
             RuntimeError("profile unavailable"),

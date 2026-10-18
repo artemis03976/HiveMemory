@@ -821,8 +821,7 @@ async def test_access_error_propagates_through_system_feedback_facade(wired):
     """访问错误沿 System 门面原语义传播，不被包装成服务不可用。"""
     read_context = await wired.access.authenticate(agent_id="a2", workspace=MAIN)
 
-    # System 门面的 record_feedback 曾把 RuntimeError 分支包装为
-    # MemoryLifecycleUnavailableError；行为授权拒绝必须以原错误冒出。
+    # root 反馈必须保留授权拒绝，不能误报生命周期服务不可用。
     with pytest.raises(OperationDeniedError) as exc_info:
         await wired.root_memory.record_feedback(
             uuid4(),
