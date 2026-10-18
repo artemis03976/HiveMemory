@@ -211,7 +211,7 @@ class SystemAssembler:
             config=self._config,
             runtime=runtime,
             registries=registries,
-            access_control=access_control,
+            access_gateway=access_control.access_gateway,
             subsystems=subsystems,
             services=services,
         )

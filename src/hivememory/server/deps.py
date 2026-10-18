@@ -293,11 +293,8 @@ def resolve_request_identity_scope(
 
 
 def get_access_gateway() -> ActorAuthenticationGateway:
-    """FastAPI Depends 注入 — 统一认证网关（未装配时显式失败）。"""
-    gateway = get_system().access_gateway
-    if gateway is None:
-        raise RuntimeError("统一认证网关未装配，无法完成请求认证")
-    return gateway
+    """FastAPI Depends 注入 — 统一认证网关。"""
+    return get_system().access_gateway
 
 
 def get_server_principal_id() -> str:

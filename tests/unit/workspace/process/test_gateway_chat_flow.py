@@ -20,18 +20,15 @@ from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
 from hivememory.core.errors import (
     AssetNotReadyError,
     ScopeRequiredError,
-    WorkspaceDomainError,
 )
 from hivememory.core.models import (
     ActorIdentity,
-    AttachmentSelectionRequest,
     IdentityScope,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
     TurnEvent,
-    WorkspaceAssetRef,
     WorkspaceIdentity,
     WriteFocus,
 )
@@ -1025,41 +1022,6 @@ async def test_completed_delivery_closes_process_and_invalidates_context() -> No
             _workspace(),
         )
     assert excinfo.value.details["reason"] == "context_not_issued"
-
-
-@pytest.mark.asyncio
-async def test_attachment_selection_without_reader_fails_allocation() -> None:
-    """捕获装配遗漏：有附件选择但 Store 未注入时，分配显式失败且不进入 CPU。"""
-    bus = GlobalSystemBus()
-    cleanup = AsyncMock(return_value=True)
-    cpu = ScriptedCPU(result=make_cpu_result())
-    prepared_holder: dict = {}
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(
-        PatchouliRoutes.PREPARE_AGENT_RUN,
-        _recording_prepared_route(prepared_holder),
-    )
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
-
-    service, composition = await _service(bus, cpu)
-    with pytest.raises(WorkspaceDomainError, match="附件读取能力"):
-        await _run_once(
-            composition,
-            service,
-            "问题",
-            process_id="process-no-reader",
-            attachments=[
-                AttachmentSelectionRequest(
-                    asset_ref=WorkspaceAssetRef(token="ref-a", asset_id="asset-a"),
-                ),
-            ],
-        )
-
-    assert cpu.calls == []
-    cleanup.assert_any_await(
-        prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
-    )
 
 
 @pytest.mark.asyncio

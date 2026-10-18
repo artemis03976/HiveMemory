@@ -19,6 +19,7 @@ from hivememory.system.assembler import (
 )
 from hivememory.system.system import HiveMemorySystem
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.process import TaskProcessService
 from hivememory.workspace.sessions import ConversationSessionService
@@ -116,6 +117,7 @@ def system(mock_patchouli):
         registries=registries,
         subsystems=subsystems,
         services=services,
+        access_gateway=MagicMock(spec=ActorAuthenticationGateway),
     )
     return system
 

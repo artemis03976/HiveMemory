@@ -87,20 +87,17 @@ class MemoryGenerationCoordinator:
 
     async def submit_active(
         self,
-        tasks: list[PendingAtomMaterializeTask],
+        task: PendingAtomMaterializeTask,
         topic_id: str,
         *,
         belong_to: WorkspaceIdentity,
-    ) -> list[MemoryGenerationAdmission]:
-        """将 WRITE/UPDATE 意图转为主动生成任务，返回与输入一一对应的接纳结果。
+    ) -> MemoryGenerationAdmission:
+        """将一个 WRITE/UPDATE 意图转为主动生成任务，返回它的接纳结果。
 
         材料是话题的 ``state_summary`` 与最近 ``recent_block_limit`` 个 block；
         话题不存在时按空材料生成。来源记录由 Patchouli 生成链内部维护；任务
         独立携带归属与发起者。
         """
-        if not tasks:
-            return []
-
         try:
             topic_data = await self._bus.request(
                 PatchouliLocalRoutes.TOPIC_GET,
@@ -110,17 +107,16 @@ class MemoryGenerationCoordinator:
         except asyncio.CancelledError:
             raise
         except Exception:
-            # 读取材料失败时没有任何意图进入生成队列：确定性地结算为失败，
+            # 读取材料失败时意图没有进入生成队列：确定性地结算为失败，
             # 不留下永远等不到结算的句柄。
             logger.warning(
-                "Active generation topic read failed: topic_id=%s, intents=%s",
+                "Active generation topic read failed: topic_id=%s, intent_id=%s",
                 topic_id,
-                [task.intent_id for task in tasks],
+                task.intent_id,
                 exc_info=True,
             )
-            for task in tasks:
-                await self._pending_atom_settler.failed(task.pending_alias, task.intent_id)
-            return [MemoryGenerationAdmission.rejected() for _ in tasks]
+            await self._pending_atom_settler.failed(task.pending_alias, task.intent_id)
+            return MemoryGenerationAdmission.rejected()
 
         blocks = (
             topic_data.recent_blocks(self._recent_block_limit) if topic_data is not None else ()
@@ -136,63 +132,35 @@ class MemoryGenerationCoordinator:
             topic_summary=topic_data.topic_summary if topic_data is not None else "",
             blocks=blocks,
         )
-
-        # 并行构建任务规范，防止 UPDATE 任务的 IO 操作阻塞
-        built = await asyncio.gather(
-            *[
-                self._try_build_active_spec(
-                    task,
-                    topic_id=topic_id,
-                    gen_context=gen_context,
-                    interaction_input=interaction_input,
-                    belong_to=belong_to,
-                )
-                for task in tasks
-            ]
+        built = await self._try_build_active_spec(
+            task,
+            topic_id=topic_id,
+            gen_context=gen_context,
+            interaction_input=interaction_input,
+            belong_to=belong_to,
         )
-        # 构建失败的意图已有结果；其余规范批量提交，再按原位置合并回去。
-        admissions: dict[int, MemoryGenerationAdmission] = {}
-        pending_specs: list[tuple[int, MemoryGenerationTaskSpec]] = []
-        for index, item in enumerate(built):
-            if isinstance(item, MemoryGenerationAdmission):
-                admissions[index] = item
-            else:
-                pending_specs.append((index, item))
-        if pending_specs:
-            batch = await self._submit_specs([spec for _, spec in pending_specs])
-            for (index, _), admission in zip(pending_specs, batch, strict=True):
-                admissions[index] = admission
-        return [admissions[index] for index in range(len(tasks))]
+        if isinstance(built, MemoryGenerationAdmission):
+            return built
+        return await self._admit_spec(built)
 
-    async def _submit_specs(
-        self, specs: list[MemoryGenerationTaskSpec]
-    ) -> list[MemoryGenerationAdmission]:
-        """批量提交规范；批量响应本身丢失或无效时，全部按结果未知处理。"""
+    async def _admit_spec(self, spec: MemoryGenerationTaskSpec) -> MemoryGenerationAdmission:
+        """提交规范；接纳请求本身失败时无法判断是否已接纳，按结果未知处理。"""
         try:
-            admissions = await self._bus.request(
-                PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY,
-                specs,
+            return await self._bus.request(
+                PatchouliLocalRoutes.MEMORY_TASK_ADMIT_GENERATION,
+                spec,
             )
         except asyncio.CancelledError:
             raise
         except Exception:
-            # 批量入口会在 Controller 内逐项隔离 admission；若连批量响应本身都
-            # 未返回，则无法判断哪些 intent 已被接纳，不能发布结算事件。
+            # Controller 已在接纳入口内分类拒绝与未知；连接纳结果都没有返回时，
+            # 无法判断 intent 是否已被接纳，不能发布结算事件。
             logger.warning(
-                "Active generation batch admission outcome unknown: intents=%s",
-                [spec.intent_id for spec in specs],
+                "Active generation admission outcome unknown: intent_id=%s",
+                spec.intent_id,
                 exc_info=True,
             )
-            return [MemoryGenerationAdmission.unknown() for _ in specs]
-
-        if (
-            not isinstance(admissions, list)
-            or len(admissions) != len(specs)
-            or not all(isinstance(item, MemoryGenerationAdmission) for item in admissions)
-        ):
-            logger.warning("Active generation batch admission returned invalid results")
-            return [MemoryGenerationAdmission.unknown() for _ in specs]
-        return admissions
+            return MemoryGenerationAdmission.unknown()
 
     async def _try_build_active_spec(
         self,

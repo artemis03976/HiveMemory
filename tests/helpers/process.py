@@ -17,6 +17,7 @@ from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.patchouli.contracts import PatchouliRoutes
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
@@ -83,7 +84,7 @@ def make_task_process_service(
     allocator = CPUAllocator(
         operation_authorizer=operation_authorizer,
         profile_reader=runtime.profiles,
-        asset_reader=asset_reader,
+        asset_reader=asset_reader or InMemoryWorkspaceAssetStore(),
         attachment_compiler_config=attachment_compiler_config,
     )
     sessions = sessions or ConversationSessionService(WorkspaceSessionConfig())

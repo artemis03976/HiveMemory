@@ -44,6 +44,7 @@ from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublic
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.cache import AtomCache, ProfileCache, ProfileCacheEntry, WorkspaceEpochs
 from hivememory.workspace.cache.invalidation import CacheInvalidator
 from hivememory.workspace.capability.actor import ActorAgentService, ActorMemoryService
@@ -257,6 +258,7 @@ async def test_profile_source_update_invalidates_profile_configuration(chain):
     allocator = CPUAllocator(
         operation_authorizer=chain.composition.authorizer,
         profile_reader=chain.runtime.profiles,
+        asset_reader=InMemoryWorkspaceAssetStore(),
     )
     first = await allocator.resolve_agent_profile(target_workspace=WORKSPACE, access=process_access)
     assert first.model_name == "old-model"
@@ -305,6 +307,7 @@ async def test_cpu_profile_without_actor_operations_rejects_other_agents_private
     allocator = CPUAllocator(
         operation_authorizer=composition.authorizer,
         profile_reader=chain.runtime.profiles,
+        asset_reader=InMemoryWorkspaceAssetStore(),
     )
 
     with pytest.raises(ResourceNotFoundError) as excinfo:

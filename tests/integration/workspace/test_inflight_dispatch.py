@@ -72,9 +72,7 @@ async def chain():
     harness.bus.register(PatchouliRoutes.MEMORY_INTENT_SUBMIT, dispatch)
     bus.register(PatchouliLocalRoutes.TOPIC_GET, topic)
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, coordinator.submit_active)
-    bus.register(
-        PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY, controller.submit_generation_many
-    )
+    bus.register(PatchouliLocalRoutes.MEMORY_TASK_ADMIT_GENERATION, controller.admit_generation)
     bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, execute)
     # 本边界验证结算载荷与句柄的对应；Bridge 的全局转发另由装配集成测试守护。
     bus.subscribe(PatchouliLocalEvents.PENDING_ATOM_SETTLED, harness.registry.on_settled)

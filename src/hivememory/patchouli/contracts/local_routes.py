@@ -153,9 +153,9 @@ class PatchouliLocalRoutes:
 
     @route("generation.submit_active")
     async def GENERATION_SUBMIT_ACTIVE(
-        tasks: list[PendingAtomMaterializeTask], topic_id: str, *, belong_to: WorkspaceIdentity
-    ) -> list[MemoryGenerationAdmission]:
-        """将 WRITE/UPDATE 意图转为主动生成任务，返回与输入一一对应的接纳结果。"""
+        task: PendingAtomMaterializeTask, topic_id: str, *, belong_to: WorkspaceIdentity
+    ) -> MemoryGenerationAdmission:
+        """将一个 WRITE/UPDATE 意图转为主动生成任务，返回它的接纳结果。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("generation.execute_spec")
@@ -172,11 +172,11 @@ class PatchouliLocalRoutes:
         """提交一个不可变工作定义，并返回其接纳快照。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
-    @route("memory_task.submit_generation_many")
-    async def MEMORY_TASK_SUBMIT_GENERATION_MANY(
-        specs: list[MemoryGenerationTaskSpec],
-    ) -> list[MemoryGenerationAdmission]:
-        """按输入顺序逐项接纳，返回与输入一一对应的接纳结果。"""
+    @route("memory_task.admit_generation")
+    async def MEMORY_TASK_ADMIT_GENERATION(
+        spec: MemoryGenerationTaskSpec,
+    ) -> MemoryGenerationAdmission:
+        """接纳一项生成任务，返回区分接纳、拒绝与结果未知的接纳结果。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("memory_task.list")
@@ -292,7 +292,7 @@ class PatchouliLocalRoutes:
         GENERATION_SUBMIT_ACTIVE,
         GENERATION_EXECUTE_SPEC,
         MEMORY_TASK_SUBMIT_GENERATION,
-        MEMORY_TASK_SUBMIT_GENERATION_MANY,
+        MEMORY_TASK_ADMIT_GENERATION,
         MEMORY_TASK_LIST,
         MEMORY_TASK_GET,
         MEMORY_TASK_CANCEL,

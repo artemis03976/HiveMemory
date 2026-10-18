@@ -63,8 +63,8 @@ def build_patchouli_route_bindings(
             runtime._task_controller.submit_generation,
         ),
         RouteBinding.of(
-            PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY,
-            runtime._task_controller.submit_generation_many,
+            PatchouliLocalRoutes.MEMORY_TASK_ADMIT_GENERATION,
+            runtime._task_controller.admit_generation,
         ),
         RouteBinding.of(PatchouliLocalRoutes.MEMORY_TASK_LIST, runtime._task_controller.list_tasks),
         RouteBinding.of(PatchouliLocalRoutes.MEMORY_TASK_GET, runtime._task_controller.get_task),

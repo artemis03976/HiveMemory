@@ -21,6 +21,7 @@ from hivememory.system.assembler import (
 )
 from hivememory.system.system import HiveMemorySystem
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
+from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.workspace import make_workspace_runtime
 
@@ -163,6 +164,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
             registries=registries,
             subsystems=subsystems,
             services=services,
+            access_gateway=MagicMock(spec=ActorAuthenticationGateway),
         )
 
     return _build
