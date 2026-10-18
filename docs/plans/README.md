@@ -29,7 +29,7 @@ last_reviewed: 2026-10-17
 | — | 总线路由类型化与 mypy 门禁 | 已完成：2026-10-12 三阶段实现、验收与 code review 后归档，分支 `fix/mypy-typing-baseline` 形成稳定基线；未发布 | [归档计划](../archive/plans/v0.7.0-typed-bus-routes.md)；当前事实见[运行时机制](../components/runtime-and-bus.md) |
 | 写入意图实时派发之后 | 外部会话消息的接收与 Topic 投影 | 已完成（2026-10-15，四阶段均经实现、验收与 code review 后归档）：会话资源、Alice 全量历史、Gateway 最近 N 轮、部分输出保存与 finalize 保护、前端会话模型 | [归档计划](../archive/plans/v0.7.0-conversation-session.md)；背景：[Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
 | 外部会话之后 | Alice 会话压缩 | 已完成（2026-10-17）：四阶段实现、确定性验收与 code review 后归档；自动减重/摘要、检查点、输入守卫、失败原因与前端展示已落地，真实 LLM 摘要质量未验证；未发布 | [归档计划](../archive/plans/v0.7.0-alice-session-compaction.md)；当前事实：[Agent Runtime](../alice/agent-runtime.md)；后续：[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md) |
-| Alice 会话压缩之后（v0.7.0 收尾） | Alice 与 agent_runtime 结构重构 | Active（2026-10-17）：阶段一、二已实现、验证并审查，阶段三待实施；三阶段——alice 内部按依赖方向分层并消除子包间的环、`agent_runtime` 收回内核装配并建立唯一公开接口、删除只被自身调用的 Alice 总线路由与 `done` 往返；行为与 CPU 端口契约不变；在 `refactor/v0.7.0-cleaning` 实施 | [计划](./v0.7.0-alice-agent-runtime-restructure.md)；相关：[v0.7.0 代码收敛清单](../todo/v0.7.0-code-convergence.md) |
+| Alice 会话压缩之后（v0.7.0 收尾） | Alice 与 agent_runtime 结构重构 | 已完成（2026-10-17）：三阶段实现、验收与 code review 后归档；Alice 按依赖方向分层，内核收回装配并建立唯一公开接口，CPU 直接执行并交付类型化结果；未发布 | [归档计划](../archive/plans/v0.7.0-alice-agent-runtime-restructure.md)；当前事实：[Alice](../alice/README.md) |
 | Alice 与 agent_runtime 结构重构整体验收之后（v0.7.0 收尾） | 异常体系与边界错误呈现收敛 | Planned（2026-10-17）；承接收敛清单第 1.6、3.9 条；前驱完成后依据稳定代码复核实施落点 | [计划](./v0.7.0-error-model-convergence.md) |
 
 - Alice 会话压缩的技术调研见 [Agent Harness 会话压缩技术调研](../ideas/agent-context-compaction-research.md)（2026-10-16；历史调研快照，已为归档计划提供依据）。

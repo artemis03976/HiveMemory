@@ -100,9 +100,7 @@ async def test_http_session_resume_after_partial_stop(monkeypatch, patchouli_cha
 
     monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
     sessions = ConversationSessionService(WorkspaceSessionConfig())
-    alice = AliceSystem(
-        config=HiveMemoryConfig().alice, global_bus=stack.bus, operation_entry=entry
-    )
+    alice = AliceSystem(config=HiveMemoryConfig().alice, operation_entry=entry)
     service = make_task_process_service(
         stack.bus,
         cpu=alice.cpu_port,
@@ -353,9 +351,7 @@ async def test_http_long_session_reuses_compacted_history_and_seals_budget_failu
     )
     publisher = RuntimeEventPublisher(stack.events)
     sessions = ConversationSessionService(WorkspaceSessionConfig())
-    alice = AliceSystem(
-        config=config, global_bus=stack.bus, operation_entry=entry, event_publisher=publisher
-    )
+    alice = AliceSystem(config=config, operation_entry=entry, event_publisher=publisher)
     service = make_task_process_service(
         stack.bus,
         cpu=alice.cpu_port,

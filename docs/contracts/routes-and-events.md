@@ -8,7 +8,8 @@ code_paths:
   - src/hivememory/core/contracts/route.py
   - src/hivememory/patchouli/contracts/public_routes.py
   - src/hivememory/gateway/contracts/public_routes.py
-  - src/hivememory/alice/contracts/public_routes.py
+  - src/hivememory/alice/interface/cpu.py
+  - src/hivememory/alice/interface/stream.py
   - src/hivememory/core/contracts/events.py
   - src/hivememory/core/contracts/runtime_events.py
   - src/hivememory/components/bus/
@@ -59,7 +60,7 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 ## 2. 规范路由名
 
-公开 route 的名称与签名由提供方 `contracts/public_routes.py` 中的 `PatchouliRoutes`、`GatewayPublicRoutes`、`AliceRoutes` 声明。调用方直接导入这些类型化 route；core 的 `Route` / `route` 只提供依赖中立的泛型原语。静态注册、调用与绑定表检查，以及运行时参数检查的分工见[运行时机制](../components/runtime-and-bus.md#1-globalsystembus)。
+公开 route 的名称与签名由提供方 `contracts/public_routes.py` 中的 `PatchouliRoutes`、`GatewayPublicRoutes` 声明。调用方直接导入这些类型化 route；core 的 `Route` / `route` 只提供依赖中立的泛型原语。静态注册、调用与绑定表检查，以及运行时参数检查的分工见[运行时机制](../components/runtime-and-bus.md#1-globalsystembus)。
 
 一个公开调用的契约由三部分共同构成：route 字符串确定能力身份，handler 参数名和调用形式确定交接方式，公共模型确定输入输出语义。只同步其中一项仍可能让注册方与调用方在运行时分叉，因此参数重命名、模型字段变化和 route 重命名都属于契约变更。
 
@@ -122,20 +123,13 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 | `patchouli.public.models.warmup` | `warmup_models` | 无 | `None` |
 | `patchouli.public.models.ready` | `is_models_ready` | 无 | `bool` |
 
-### 2.5 Alice
+### 2.5 CPU 端口与交互输出
 
-| Route | Handler | 输入摘要 | 输出 |
-|:---|:---|:---|:---|
-| `alice.public.run_agent` | `AliceBridge._run_agent_route` → `AgentRunService.run_agent(stream=False)` | `CPUInputManifest`（含 `process_id` 与只读 `labels`）、独立的 `submit_operation: OperationSubmitter`、generation options | `CPUExecutionResult` |
-| `alice.public.run_agent_stream` | `AliceBridge._run_agent_stream_route` → `AgentRunService.run_agent(stream=True)` | 同上 | 交互输出的 async generator 对象，最后一项为 `done` |
+Alice 经 [CPU 端口](./subsystem-contracts.md#4-cpu-端口与-alice-实现)交接，不注册全局执行路由。流式 CPU 输出先交付 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end`、`context_compaction` 交互事件，最后交付 `CPUExecutionResult`。每个交互事件带 run-local `stream_sequence`；frame/CALL 事件还带 `agent_run_id/frame_id/action_id` 等关联字段，类型化结果不附加交互元数据。
 
-Alice 两条运行路由均可接收 `result_slot: CPUResultSlot | None`，由 CPU 驱动传入；槽只回传 CPU 中立终态，不改变流式交互事件或原生取消传播。
+交互流的 Agent 展示优先使用当前 Profile 的来源 alias，空值才回退注册标签；`agent.run.*` 与 `chat.run.*` 观测中的 Agent/Workspace 则使用同一次注册的 `ExecutionLabels`。Profile 展示名不会改变授权身份或事件标签。
 
-两条 route 的参数相同，均不接收 `stream`；是否流式由所选 route 决定。任务进程经组合根注入的 CPU 端口调用执行者；端口实现 `AliceCPU` 选择对应 route 调用 Alice（[子系统公共契约](./subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节）。Alice 的资源操作经 workspace 公共 `OperationEntry` 与请求契约，不直接调用 Patchouli 路由；workspace 操作入口本身不注册全局总线路由。
-
-流式 route 返回当前 Agent run 的交互输出流。兼容事件名保持为 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end` 和 `done`；每个事件携带 run-local `stream_sequence`，frame/CALL 事件还携带 `agent_run_id/frame_id/action_id` 等关联字段。这条流使用有界队列和背压，调用方提前断开会取消当前 runner 并沿 task cancellation 收尾，因此它属于请求执行协议的一部分，不是 RuntimeEvent 观测 SSE 的别名。
-
-交互流的 Agent 展示优先使用当前 Profile 的来源 alias，空值才回退注册标签；`agent.run.*` 与 `chat.run.*` 观测中的 Agent/Workspace 则使用同一次注册的 `ExecutionLabels`。历史角色匹配使用注册的 `labels.agent_id`，Profile 展示名不会改变授权身份或事件标签。
+队列有界并保留背压；关闭输出流会取消并等待当前 runner，任务进程在 CPU 收尾后接收结果槽。客户端的 `done` 由任务进程从结果投影（第 6 节），不属于 Alice 的内部事件。Alice 的资源操作经 workspace 的公共 `OperationEntry` 与请求契约，操作入口本身不注册全局路由。
 
 ## 3. 全局业务事件
 
@@ -193,9 +187,9 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 ### 4.2 与 Agent 交互输出流的边界
 
-`alice.public.run_agent_stream` 的交互输出与 `/runtime-events/stream` 是两条独立通道：
+Alice CPU 端口的交互输出与 `/runtime-events/stream` 是两条独立通道：
 
-- 交互输出只属于一次 Agent run，承载 token、MTP、CALL 边界、压缩进度和最终 `done`，队列满时通过背压等待，断流会触发该 run 的取消；
+- 交互输出只属于一次 Agent run，承载 token、MTP、CALL 边界、压缩进度，最后交付类型化执行结果，队列满时通过背压等待，断流会触发该 run 的取消；
 - RuntimeEvent 是全局扁平观测流，承载 `agent.run.started/completed/cancelled/failed` 等生命周期摘要，允许缓冲、回放和慢订阅者丢弃旧事件；
 - 两条流可以通过 `process_id/agent_run_id` 关联展示，但不得自动互相桥接；
 - RuntimeEvent 的缺失或 transport 故障不能改变 Agent 结果，交互输出也不替代结构化 `TurnEvent` 与权威 run 状态。
@@ -265,4 +259,4 @@ failed done 保留 `reason=agent_run_failed`，CPU 有稳定原因时另带 `fai
 - 删除或重命名 route/event 前必须更新所有注册方、调用方、测试和本文；
 - local route 不记录在本规范中，也不得被外部模块直接引用。
 
-主要验证入口：`scripts/typecheck_bus_routes.py`、`tests/integration/alice/test_bus_routes.py`、`tests/unit/system/contracts/test_public_routes.py`、`tests/unit/components/events/test_bus.py`、`tests/unit/components/bus/test_async_bus.py`。
+主要验证入口：`scripts/typecheck_bus_routes.py`、`tests/unit/system/contracts/test_public_routes.py`、`tests/unit/components/events/test_bus.py`、`tests/unit/components/bus/test_async_bus.py`。

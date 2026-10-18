@@ -15,14 +15,14 @@ class RunSession:
     """
 
     agent_run_id: str
-    process_id: str | None = None
+    process_id: str
     frames: dict[str, ExecutionFrame] = field(default_factory=dict)
     root_frame_id: str | None = None
     call_records: dict[tuple[str, str], CallRecord] = field(default_factory=dict)
     call_records_by_callee: dict[str, CallRecord] = field(default_factory=dict)
 
-    def register_frame(self, frame: ExecutionFrame) -> None:
-        """兼容登记普通 frame；拓扑明确时应使用 root/callee 专用入口。"""
+    def _register_frame(self, frame: ExecutionFrame) -> None:
+        """登记根帧前校验运行归属与标识唯一性。"""
         frame_id = frame.runtime_scope.frame_id
         self._validate_frame_for_registration(frame)
         existing = self.frames.get(frame_id)
@@ -36,7 +36,7 @@ class RunSession:
         """登记本次 run 唯一的 root frame。"""
         if self.root_frame_id is not None:
             raise RuntimeError(f"RunSession already has a root frame: {self.root_frame_id!r}")
-        self.register_frame(frame)
+        self._register_frame(frame)
         self.root_frame_id = frame.runtime_scope.frame_id
 
     def register_callee_frame(self, frame: ExecutionFrame, record: CallRecord) -> None:

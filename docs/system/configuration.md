@@ -86,13 +86,18 @@ last_reviewed: 2026-10-17
 
 `ModelDefinition.context_window` 与解析后的 `LLMConfig.context_window` 是可选的正整数，单位为总窗口 token；模型登记在 `configs/models.yaml`，模型管理 API 支持读写，显式 null 清除登记。它不作为生成参数透传给提供商。Alice 按实际解析模型与请求覆盖后的 `max_tokens` 计算输入上限：总窗口减去生成上限和安全余量，未登记窗口时使用下表默认值。
 
-`alice.compaction` 的唯一配置模型是 `CompactionConfig`，默认值如下：
+输入预算由 `AgentRuntimeConfig`（`alice.runtime`）解释，独立于历史压缩：
+
+| 字段 | 默认值 | 作用 |
+|:---|---:|:---|
+| `default_context_window` | `65536` | 未登记模型的保守总窗口，必须大于 0 |
+| `safety_margin` | `2048` | 估算误差预留 token，允许 0 |
+
+这两个字段只从 `alice.runtime` 读取，不提供 `alice.compaction` 位置的别名。`alice.compaction` 的配置模型是 `CompactionConfig`，只控制视图压缩，默认值如下：
 
 | 字段 | 默认值 | 作用 |
 |:---|---:|:---|
 | `enabled` | `true` | 自动减重与摘要开关；关闭时忽略已有检查点，历史超出输入上限时以 `compaction_failed` 结束，输入守卫仍有效 |
-| `default_context_window` | `65536` | 未登记模型的保守总窗口，必须大于 0 |
-| `safety_margin` | `2048` | 估算误差预留 token，允许 0 |
 | `trigger_ratio` | `0.75` | 完整视图超过输入上限的此比例时压缩 |
 | `target_ratio` | `0.5` | 压缩后目标占输入上限的比例 |
 | `recent_raw_ratio` | `0.25` | 最近完整轮次原文预算占输入上限的比例，允许 0 |

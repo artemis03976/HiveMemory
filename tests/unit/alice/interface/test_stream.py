@@ -9,13 +9,12 @@ import pytest
 from hivememory.agent_runtime.frame import (
     ExecutionFrame,
     FrameExecutionPolicy,
-    FrameExecutionResult,
 )
 from hivememory.agent_runtime.output import MTPFinished, MTPStarted, TokenDelta
 from hivememory.alice.interface.stream import AgentRunStream, QueueAgentRunOutput
 from hivememory.alice.orchestration.output import CallOutputFinished, CallOutputStarted
-from hivememory.alice.orchestration.session import RunSession
 from hivememory.core.models import OMNI_DOLL_PROFILE
+from hivememory.workspace.contracts import CPUExecutionResult
 from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.workspace import make_runtime_scope
 
@@ -35,7 +34,8 @@ def _frame() -> ExecutionFrame:
 
 @pytest.mark.asyncio
 async def test_queue_output_projects_typed_frame_outputs_to_compatible_events() -> None:
-    output = QueueAgentRunOutput("run-1")
+    output = QueueAgentRunOutput()
+    output.bind_run("run-1")
     sink = output.for_frame(_frame(), action_id="call-1", scope="sub", depth=1)
 
     await sink.send(TokenDelta(content="hello"))
@@ -74,7 +74,8 @@ async def test_queue_output_projects_typed_frame_outputs_to_compatible_events() 
 
 @pytest.mark.asyncio
 async def test_queue_output_projects_call_boundaries_with_run_correlation() -> None:
-    output = QueueAgentRunOutput("run-1")
+    output = QueueAgentRunOutput()
+    output.bind_run("run-1")
 
     await output.call_started(
         CallOutputStarted(
@@ -114,10 +115,10 @@ async def test_queue_output_projects_call_boundaries_with_run_correlation() -> N
 
 @pytest.mark.asyncio
 async def test_agent_run_stream_propagates_runner_error_after_queued_outputs() -> None:
-    session = RunSession(agent_run_id="run-1")
-    stream = AgentRunStream(session.agent_run_id)
+    stream = AgentRunStream()
+    stream.output.bind_run("run-1")
 
-    async def runner() -> FrameExecutionResult:
+    async def runner() -> CPUExecutionResult:
         await stream.output.send_event("token", {"content": "before-error"})
         raise RuntimeError("runner failed")
 
@@ -130,10 +131,10 @@ async def test_agent_run_stream_propagates_runner_error_after_queued_outputs() -
 
 @pytest.mark.asyncio
 async def test_agent_run_stream_wakes_consumer_when_runner_is_cancelled() -> None:
-    session = RunSession(agent_run_id="run-1")
-    stream = AgentRunStream(session.agent_run_id)
+    stream = AgentRunStream()
+    stream.output.bind_run("run-1")
 
-    async def runner() -> FrameExecutionResult:
+    async def runner() -> CPUExecutionResult:
         raise asyncio.CancelledError
 
     events = stream.events(runner())
@@ -144,11 +145,11 @@ async def test_agent_run_stream_wakes_consumer_when_runner_is_cancelled() -> Non
 
 @pytest.mark.asyncio
 async def test_runner_cleanup_error_does_not_replace_consumer_cancellation() -> None:
-    session = RunSession(agent_run_id="run-1")
-    stream = AgentRunStream(session.agent_run_id)
+    stream = AgentRunStream()
+    stream.output.bind_run("run-1")
     runner_started = asyncio.Event()
 
-    async def runner() -> FrameExecutionResult:
+    async def runner() -> CPUExecutionResult:
         runner_started.set()
         try:
             await asyncio.Event().wait()
@@ -167,7 +168,8 @@ async def test_runner_cleanup_error_does_not_replace_consumer_cancellation() -> 
 @pytest.mark.asyncio
 async def test_queue_output_applies_backpressure_at_capacity() -> None:
     """队列满时发送方等待消费，不丢弃也不越过容量缓冲事件。"""
-    output = QueueAgentRunOutput("run-1", maxsize=1)
+    output = QueueAgentRunOutput(maxsize=1)
+    output.bind_run("run-1")
 
     await output.send_event("token", {"content": "first"})
     second_emit = asyncio.create_task(output.send_event("token", {"content": "second"}))

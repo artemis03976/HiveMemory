@@ -34,7 +34,7 @@
 | L4 | `system` | 组合根、门面与系统级能力；除入口外不被任何包导入 |
 | L5 | `server` | 入口（传输层 adapter） |
 
-根配置与加载（`config.app`）只供 `system` 与 `server` 使用；下层以端口协议声明对上层能力的需要（如 `core.access.PrincipalAuthenticator`、`agent_runtime.model_resolution.ModelResolver`），由组合根实现并注入。engines 对上层的少量既有导入登记为已知例外，不得新增。
+根配置与加载（`config.app`）只供 `system` 与 `server` 使用；下层以端口协议声明对上层能力的需要（如 `core.access.PrincipalAuthenticator`、`agent_runtime.ModelResolver`），由组合根实现并注入。engines 对上层的少量既有导入登记为已知例外，不得新增。
 
 | 边界 | 负责 | 不负责 |
 | --- | --- | --- |

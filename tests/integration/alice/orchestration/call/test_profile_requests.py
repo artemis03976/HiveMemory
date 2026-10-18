@@ -16,6 +16,7 @@ from hivememory.agent_runtime.runtime import build_agent_runtime
 from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
 from hivememory.alice.orchestration.call.coordinator import DispatchCallee, ResumeCaller
 from hivememory.alice.orchestration.frames import FrameFactory
+from hivememory.alice.orchestration.output import NullAgentRunOutput
 from hivememory.alice.orchestration.session import RunSession
 from hivememory.config.alice import AliceConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
@@ -91,7 +92,7 @@ async def _begin_call(caller, target_alias, *, context_refs=()):
         frame_factory=FrameFactory(),
         prompt_assembler=AgentPromptAssembler(config.koakuma),
     )
-    session = RunSession(agent_run_id=caller.runtime_scope.run_id)
+    session = RunSession(agent_run_id=caller.runtime_scope.run_id, process_id="process-1")
     session.register_root_frame(caller)
     suspension = FrameExecutionResult(
         status=FrameExecutionStatus.SUSPENDED,
@@ -100,7 +101,13 @@ async def _begin_call(caller, target_alias, *, context_refs=()):
         ),
         suspend_action_id="call-1",
     )
-    return await coordinator.begin_call(caller, suspension, session=session), session, coordinator
+    return (
+        await coordinator.begin_call(
+            caller, suspension, session=session, run_output=NullAgentRunOutput()
+        ),
+        session,
+        coordinator,
+    )
 
 
 def _profile_atom(*, visibility="PUBLIC", agent_config=None) -> MemoryAtom:
@@ -398,6 +405,7 @@ async def test_failed_child_preserves_dispatched_intents():
             child,
             FrameExecutionResult(status=status),
             session=session,
+            run_output=NullAgentRunOutput(),
         )
         assert [
             harness.registry.get(p.pending_alias, make_identity_scope().workspace_identity).status

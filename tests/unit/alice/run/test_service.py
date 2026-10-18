@@ -1,6 +1,6 @@
-"""AgentRunService 的固定输入预算、失败原因投影与缺失执行终态防御。"""
+"""AgentRunService 的固定输入预算、失败原因投影。"""
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
@@ -13,17 +13,15 @@ from hivememory.agent_runtime.model.client import LLMClient
 from hivememory.agent_runtime.runtime import AgentRuntime, build_agent_runtime
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.events import AgentRunEventEmitter
-from hivememory.alice.interface.stream import AgentRunStreamAdapter
 from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
 from hivememory.alice.orchestration.frames import FrameFactory
+from hivememory.alice.run.output import NullRunOutput
 from hivememory.alice.run.service import AgentRunService
 from hivememory.components.events.bus import (
     NullRuntimeEventSink,
-    RecordingRuntimeEventSink,
 )
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -86,7 +84,6 @@ def _build_service(*, runtime_events=None) -> tuple[AgentRuntime, AgentRunServic
         call_coordinator=coordinator,
         frame_factory=frame_factory,
         prompt_assembler=prompt_assembler,
-        stream_adapter=AgentRunStreamAdapter(),
         compaction_config=config.alice.compaction,
         agent_run_events=AgentRunEventEmitter(
             RuntimeEventPublisher(runtime_events or NullRuntimeEventSink())
@@ -96,53 +93,19 @@ def _build_service(*, runtime_events=None) -> tuple[AgentRuntime, AgentRunServic
 
 
 @pytest.mark.asyncio
-async def test_run_agent_stream_without_executor_terminal_fails_cleanly():
-    recorder = RecordingRuntimeEventSink()
-    _runtime, service = _build_service(runtime_events=recorder)
-    manifest = _build_input_manifest(_build_memory_atom())
-    executor = MagicMock()
-    executor.run = AsyncMock(
-        return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
-    )
-    executor.terminal_result = None
-    executor.runtime_products = None
-    with patch(
-        "hivememory.alice.run.service.RunExecutor",
-        return_value=executor,
-    ):
-        with pytest.raises(RuntimeError, match="ended without done"):
-            async for _ in service.run_agent(manifest, stream=True, submit_operation=MagicMock()):
-                pass
-
-    assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
-    assert recorder.events[-1].message == "Agent stream ended without done event."
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("stream", [False, True])
-async def test_fixed_input_over_budget_fails_without_calling_model(stream):
-    """固定用户输入已装不下时两种交付均明确失败，初始用户事件不算输出。"""
+async def test_fixed_input_over_budget_fails_without_calling_model():
+    """固定用户输入已装不下时明确失败，初始用户事件不算输出。"""
     runtime, service = _build_service()
     manifest = _build_input_manifest(_build_memory_atom()).model_copy(
         update={"user_message": "x" * 140000}
     )
     runtime.run_frame = AsyncMock(side_effect=AssertionError("不应调用模型"))
-    from hivememory.workspace.contracts import CPUExecutionResult, CPUResultSlot
+    from hivememory.workspace.contracts import CPUResultSlot
 
     slot = CPUResultSlot()
-    if stream:
-        events = [
-            event
-            async for event in service.run_agent(
-                manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
-            )
-        ]
-        result = CPUExecutionResult(**events[-1]["data"])
-        assert [event["event"] for event in events] == ["done"]
-    else:
-        result = await service.run_agent(
-            manifest, stream=False, submit_operation=MagicMock(), result_slot=slot
-        )
+    result = await service.run_agent(
+        manifest, run_output=NullRunOutput(), submit_operation=MagicMock(), result_slot=slot
+    )
     assert result.status == "failed"
     assert result.failure_reason == "input_too_large"
     assert result.has_output is False
@@ -166,7 +129,9 @@ async def test_frame_error_maps_only_stable_cpu_reason(error, reason):
         return_value=FrameExecutionResult(status=FrameExecutionStatus.FAILED, error=error)
     )
     result = await service.run_agent(
-        _build_input_manifest(_build_memory_atom()), stream=False, submit_operation=MagicMock()
+        _build_input_manifest(_build_memory_atom()),
+        run_output=NullRunOutput(),
+        submit_operation=MagicMock(),
     )
     assert result.status == "failed"
     assert result.failure_reason == reason

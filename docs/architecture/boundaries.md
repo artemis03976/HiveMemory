@@ -22,7 +22,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-17
 ---
 
 # 系统边界与所有权
@@ -172,7 +172,7 @@ Alice 是知识的使用者和行动者。它可以在一次 run 中读取记忆
 
 Alice 接收含只读 `ExecutionLabels` 的 `CPUInputManifest`，在内部转换为 `AgentRunContext`。CPU 端口的线程 context 独立于清单，`AliceCPU` 以 `workspace.contracts.ThreadOperationSubmitter` 把它与公共 `OperationEntry` 绑定为提交函数；CALL 经提交函数的派生方法取得以被调用方身份运行的子线程与它自己的提交函数；MTP 与 CALL 仅构造请求，READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取统一进入 workspace actor API，各自检查一项 actor 操作。主、子 frame 各自使用自己线程的提交函数并沿用注册标签，不持有访问 context 或 `IdentityScope`，也不能用标签改变资源授权目标；CPU 执行结束后全部线程 context 被撤销，提交函数随之失效。
 
-模型解析经 `agent_runtime.model_resolution.ModelResolver` 端口使用 System 的模型注册表，由组合根注入。
+模型解析经 `agent_runtime.ModelResolver` 端口使用 System 的模型注册表，由组合根注入。
 
 写入意图登记与完整引用解析由 workspace 唯一拥有。完整原子与主进程、CALL 目标 Profile 的派生缓存也归 workspace，按源 Workspace 键控并在交付时重新授权；Alice 不持有 Profile resolver 或缓存。
 

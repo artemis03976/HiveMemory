@@ -125,9 +125,7 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
         return chunks()
 
     monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
-    alice = AliceSystem(
-        config=HiveMemoryConfig().alice, global_bus=stack.bus, operation_entry=entry
-    )
+    alice = AliceSystem(config=HiveMemoryConfig().alice, operation_entry=entry)
     service = make_task_process_service(
         stack.bus,
         cpu=alice.cpu_port,
@@ -308,7 +306,6 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
     monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
     alice = AliceSystem(
         config=HiveMemoryConfig().alice,
-        global_bus=stack.bus,
         operation_entry=entry,
     )
     cpu = _RecordingCPU(alice.cpu_port)

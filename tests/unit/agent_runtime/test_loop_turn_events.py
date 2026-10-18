@@ -27,6 +27,7 @@ from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
 from hivememory.alice.orchestration.executor import RunExecutor
 from hivememory.alice.orchestration.frames import FrameFactory
+from hivememory.alice.orchestration.output import NullAgentRunOutput
 from hivememory.alice.orchestration.session import RunSession
 from hivememory.config.alice import AgentRuntimeConfig
 from hivememory.core.models import (
@@ -456,7 +457,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
     )
     frame = _make_frame()
     frame.submit_operation = StubOperationSubmitter(derive=submit_operation)
-    session = RunSession(agent_run_id="run_test_1")
+    session = RunSession(agent_run_id="run_test_1", process_id="process-1")
     session.register_root_frame(frame)
     executor = RunExecutor(
         agent_runtime,
@@ -464,7 +465,7 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
         call_coordinator=coordinator,
     )
 
-    executor_result = await executor.run(frame)
+    executor_result = await executor.run(frame, run_output=NullAgentRunOutput())
 
     call_events = [
         ev

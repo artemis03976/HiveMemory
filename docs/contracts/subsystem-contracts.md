@@ -7,7 +7,7 @@ code_paths:
   - src/hivememory/core/contracts/
   - src/hivememory/gateway/contracts/
   - src/hivememory/patchouli/contracts/
-  - src/hivememory/alice/contracts/
+  - src/hivememory/alice/interface/cpu.py
   - src/hivememory/workspace/contracts/
   - src/hivememory/core/protocol/
 related_contracts:
@@ -227,7 +227,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 - **输出顺序**：`execute` 返回 `CPURunHandle(output, result_slot)`；`output` 的异步生成器先产出交互事件（只在流式时），再产出唯一的终态结果 `CPUExecutionResult`；终态结果恰好出现一次，并且是最后一项，非流式时它是唯一一项。输出流在没有终态结果时结束属于协议错误，进程按失败处理。
 - **交互事件**：带 `event` 与 `data` 的字典，进程原样转交给流式交付，不做解释。
 - **结局**：执行者自报的结局经终态结果的 `status` 表达；执行者抛出异常，由进程按失败处理。
-- **结果槽**：`CPUResultSlot.result` 初始为 None；CPU 在取消收尾中同步填入 `CPUExecutionResult` 再传播原生取消，不暴露帧结果或控制器。正常终态也可以填槽；Alice 在交出 done 前填槽，用于交接不经事件传输的检查点。槽中结果的 `status` 如实描述 CPU 实际结局，进程不改写（取消生效前已完成时仍是 completed）。空槽按无输出处理，`has_output` 排除初始用户输入事件。
+- **结果槽**：`CPUResultSlot.result` 初始为 None；CPU 在取消收尾中同步填入 `CPUExecutionResult` 再传播原生取消，不暴露帧结果或控制器。正常终态也可以填槽；Alice 在返回类型化终态前填槽，正常检查点直接随结果交付。槽中结果的 `status` 如实描述 CPU 实际结局，进程不改写（取消生效前已完成时仍是 completed）。空槽按无输出处理，`has_output` 排除初始用户输入事件。
 - **取消与关闭**：用户停止时，进程取消正在拉取下一项的任务；进程在拿到终态结果后、以及在关闭流程中关闭输出流。实现必须传播 `asyncio.CancelledError`，并在输出流关闭时释放自己创建的资源。
 - **`generation_options`**：由各个执行者自行解释，进程原样传递。
 
@@ -264,22 +264,15 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 
 ### 4.3 Alice 的执行入口
 
-```python
-run_agent(
-    input_manifest: CPUInputManifest,
-    generation_options: dict[str, Any] | None = None,
-    *,
-    submit_operation: OperationSubmitter,
-    result_slot: CPUResultSlot | None = None,
-    stream: bool = True,
-) -> AsyncGenerator[dict[str, Any], None] | Coroutine[Any, Any, CPUExecutionResult]
-```
+Alice 通过上述 `CPUPort` 对外提供执行能力，唯一的端口实现为 `AliceCPU`。`AliceSystem.start()` / `stop()` 切换 CPU 执行准入；未启动或已停止时，`execute()` 仍返回 `CPURunHandle`，首次拉取输出抛出 `AliceUnavailableError`（异常上的 code 与 reason 只供诊断，见[错误模型](./error-model.md)）。任务进程按未分类的执行异常收尾，仍执行 prepare 清理与会话释放。
 
-`AgentRunService.run_agent` 是 Alice 唯一的执行入口，服务方法保留 `stream` 参数及对应的 overload。AliceBridge 为它提供两条类型化全局路由：`alice.public.run_agent` 返回 `CPUExecutionResult`，`alice.public.run_agent_stream` 返回事件流；两条路由均不接收 `stream` 参数。流式与非流式运行同一套执行骨架，`stream` 只决定是否产出交互事件：流式时返回事件的异步生成器，最后一项是 `done`（除检查点之外的执行结果字段加上运行元数据）；非流式时返回可 await 的 `CPUExecutionResult`。消费者关闭事件流时，Alice 取消并 join 自己创建的 runner。Alice 在内部把输入清单转换为提示词组装使用的 `AgentRunContext`；`AgentRunContext` 不出现在任何公开路由上。
+Alice 不注册执行总线路由，组合根构造 AliceSystem 时不传全局总线。启停只控制新执行的准入，运行中的进程由 workspace 取消和关闭；System 先关闭进程，再停止子系统。
 
 ### 4.4 Alice 的端口实现
 
-`AliceCPU`（`alice/application/cpu.py`）持有公共 `OperationEntry`，以 `ThreadOperationSubmitter` 将 execute 的线程 context 绑定为提交函数后，经全局总线选择执行路由：流式时调用 `AliceRoutes.RUN_AGENT_STREAM` 并原样转交交互事件，把 `done` 转换为 `CPUExecutionResult`，并从结果槽合入检查点（运行元数据不进入结果，检查点不经交互事件传输）；非流式时调用 `AliceRoutes.RUN_AGENT` 并产出返回的执行结果。端口输出流被关闭时，它一并关闭 Alice 的事件流。Alice 的运行时仍在公开路由之后，进程只持有端口对象。
+`AliceCPU`（`alice/interface/cpu.py`）持有公共 `OperationEntry`，以 `ThreadOperationSubmitter` 把线程 context 绑定为提交函数后直接调用内部运行服务。`AgentRunService` 接收清单、提交函数、生成参数、输出端口和可选结果槽，始终返回 `CPUExecutionResult`，不区分传输形态；输入清单在内部转换为提示词使用的 `AgentRunContext`。
+
+非流式只产出一个执行结果；流式由接口层管理有界队列与 runner，逐项交付交互事件，最后直接产出带检查点的 `CPUExecutionResult`。不存在 Alice 自己的 `done` 序列化；任务进程负责最终 HTTP 投影。输出流关闭时，CPU 关闭内层事件流，取消并等待 runner 收尾后才返回，使取消结果槽中的部分输出与已完成检查点可被进程读取。
 
 ### 4.5 Alice 不变量
 
@@ -400,4 +393,4 @@ Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 
 - 改变 CPU 端口的输出语义、执行结果终态和 finalize 资格；
 - 将 local route 或内部 workflow state 暴露为公共 API。
 
-验证入口：`tests/unit/system/contracts/`、`tests/unit/workspace/process/`、`tests/unit/system/application/`、`tests/unit/gateway/test_contracts.py`、`tests/unit/patchouli/test_service_gateway_decision.py`、`tests/unit/alice/application/test_agent_run_service.py`、`tests/unit/alice/application/test_alice_cpu.py`、`tests/unit/workspace/process/test_cpu_port.py`、`tests/unit/patchouli/application/`、`tests/integration/workspace/test_application_access_boundary.py`。
+验证入口：`tests/unit/system/contracts/`、`tests/unit/workspace/process/`、`tests/unit/system/application/`、`tests/unit/gateway/test_contracts.py`、`tests/unit/patchouli/test_service_gateway_decision.py`、`tests/unit/alice/run/test_service.py`、`tests/unit/alice/interface/test_cpu.py`、`tests/unit/workspace/process/test_cpu_port.py`、`tests/unit/patchouli/application/`、`tests/integration/workspace/test_application_access_boundary.py`。

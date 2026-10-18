@@ -6,16 +6,16 @@ scope: mtp
 code_paths:
   - src/hivememory/core/mtp/
   - src/hivememory/agent_runtime/mtp/runtime.py
-  - src/hivememory/alice/orchestration/run_executor.py
-  - src/hivememory/alice/orchestration/sub_agent/call_coordinator.py
-  - src/hivememory/alice/orchestration/sub_agent/call_context_provider.py
+  - src/hivememory/alice/orchestration/executor.py
+  - src/hivememory/alice/orchestration/call/coordinator.py
+  - src/hivememory/alice/orchestration/call/context.py
   - src/hivememory/core/models/agent.py
 related_contracts:
   - docs/contracts/error-model.md
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-17
 ---
 
 # Memory Tool Protocol (MTP)
@@ -59,7 +59,7 @@ MTP 是 Alice Agent 在生成循环中调用记忆、系统工具和子 Agent �
 
 Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格式化结果回填到消息历史，再继续生成。CALL 的 `suspend` 由 Alice `RunExecutor`/`CallCoordinator` 消费，不直接回填为空结果；Koakuma 只产出结构化 `MTPCallRequest`，目标 Profile 与 `context_refs` 由 `CallContextProvider` 在 Alice 编排边界解析。Executor 递归等待被调用 frame，完成后由 `AgentRuntime.apply_call_response()` 一次性写回 caller history 和 `tool_result`。
 
-每条指令的 `MTPExecutionContext` 从当前 frame 冻结得到，其中 `RuntimeScope` 只携带执行关联与只读 `ExecutionLabels`，不含 `IdentityScope`。任务进程进入 CPU 执行阶段时从进程 context 派生主线程的线程 context，CPU 驱动将它绑定为提交函数；CALL 派生的子 frame 得到以被调用方身份签发的子线程 context 与自己的提交函数，主、子 frame 沿用同一组注册标签。CPU 执行结束时全部线程 context 一起撤销，此后的提交被拒绝。请求不能自行指定目标或 process_id：actor API 的目标取线程的驻留 Workspace，意图的进程关联取自线程 context；READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别要求 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，各项互不隐含（RUN 不要求 READ，WRITE 不授予 UPDATE）；RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求；子帧的意图撤回是内部补偿，不检查 operation。资源归属与 actor policy 仍逐次校验。
+每条指令的 `MTPExecutionContext` 从当前 frame 冻结得到，其中 `RuntimeScope` 只携带执行关联与只读 `ExecutionLabels`，不含 `IdentityScope`。任务进程进入 CPU 执行阶段时从进程 context 派生主线程的线程 context，CPU 驱动将它绑定为提交函数；CALL 派生的子 frame 得到以被调用方身份签发的子线程 context 与自己的提交函数，主、子 frame 沿用同一组注册标签。CPU 执行结束时全部线程 context 一起撤销，此后的提交被拒绝。请求不能自行指定目标或 process_id：actor API 的目标取线程的驻留 Workspace，意图的进程关联取自线程 context；READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别要求 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，各项互不隐含（RUN 不要求 READ，WRITE 不授予 UPDATE）；RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求；CPU 或 CALL 子帧失败均不撤回已接纳写入。资源归属与 actor policy 仍逐次校验。
 
 ## 3. 动词契约
 
@@ -253,5 +253,5 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 - HTTP 单轮 SEARCH/READ/WRITE/CALL 与真实记忆结算：`tests/e2e/system/test_chat_mtp_operations.py`；
 - alias / PendingAtom：`tests/unit/workspace/intents/test_registry.py`、`tests/unit/workspace/resolution/test_alias_resolver.py` 与 `tests/integration/workspace/test_intent_registry_and_read_cache.py`；
 - CALL：`tests/unit/core/mtp/test_call_response_formatting.py`、Alice RunExecutor/CallContextProvider/CallCoordinator 测试；
-- syscall：`tests/unit/agent_runtime/mtp/syscalls/`；
+- syscall：`tests/unit/agent_runtime/tools/`；
 - i18n formatter：MTP formatter 和 i18n runtime 测试。

@@ -5,7 +5,7 @@ owner: system
 scope: cross-subsystem-contracts
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-17
 ---
 
 # Contracts
@@ -23,7 +23,7 @@ Workspace 是这些交接的资源归属坐标；本目录只记录契约需要�
 
 ## 使用规则
 
-- route 名称与签名由提供方 `patchouli/contracts/`、`gateway/contracts/`、`alice/contracts/` 声明；调用方导入对应类型化 route，core 仅提供 `Route` / `route` 泛型原语，事件常量仍在 core；
+- route 名称与签名由提供方 `patchouli/contracts/`、`gateway/contracts/` 声明；调用方导入对应类型化 route，core 仅提供 `Route` / `route` 泛型原语，事件常量仍在 core；Alice 执行使用 `workspace.contracts` 定义的 CPU 对象端口；
 - 协议模型以 `src/hivememory/core/protocol/` 和 `src/hivememory/core/mtp/` 为执行证据；
 - local bus、workflow state 和具体引擎对象不是公共契约；
 - 旧 `docs/protocols/` 已在逐篇审计后移入 `archive/legacy-docs/protocols/`，不得从 Archive 反向推断当前契约。

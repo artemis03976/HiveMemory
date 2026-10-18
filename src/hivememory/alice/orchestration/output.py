@@ -50,7 +50,7 @@ class AgentRunOutput(Protocol):
 
 
 class NullAgentRunOutput:
-    """非流式 run 使用的空输出实现。"""
+    """不产出 frame 与 CALL 交互事件的空输出实现。"""
 
     def __init__(self) -> None:
         self._frame_output = NullFrameOutputSink()

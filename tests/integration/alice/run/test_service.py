@@ -13,18 +13,11 @@ import pytest
 from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.model.client import LLMClient
 from hivememory.agent_runtime.output import TokenDelta
-from hivememory.agent_runtime.runtime import AgentRuntime, build_agent_runtime
-from hivememory.alice.context.summarizer import RelaySummarizer
-from hivememory.alice.events import AgentRunEventEmitter
-from hivememory.alice.interface.stream import AgentRunStreamAdapter
-from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
-from hivememory.alice.orchestration.frames import FrameFactory
-from hivememory.alice.run.service import AgentRunService
+from hivememory.agent_runtime.runtime import AgentRuntime
+from hivememory.alice.run.output import NullRunOutput
 from hivememory.components.events.bus import (
-    NullRuntimeEventSink,
     RecordingRuntimeEventSink,
 )
-from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.runtime_events import RuntimeEventType
@@ -35,8 +28,8 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
 )
-from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.contracts import CPUExecutionStatus
+from tests.helpers.alice import build_run_service, stream_run
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.sessions import make_conversation_turn
@@ -65,7 +58,7 @@ async def test_session_model_and_output_override_control_budget_and_provider_req
     config = HiveMemoryConfig()
     config.alice.koakuma.enabled = False
     config.alice.runtime.safety_margin = 100
-    _, service = _build_service(config=config, model_registry=registry)
+    _, service = build_run_service(config=config, model_registry=registry)
     profile = AgentProfile(model_name="unavailable-profile-model", persona="", temperature=0.2)
     manifest = make_input_manifest(agent_profile=profile, user_message="x" * 2000)
     requests = []
@@ -76,7 +69,7 @@ async def test_session_model_and_output_override_control_budget_and_provider_req
 
     monkeypatch.setattr(LLMClient, "generate_async", generate)
     rejected = await service.run_agent(
-        manifest, {"model": "small"}, stream=False, submit_operation=MagicMock()
+        manifest, {"model": "small"}, run_output=NullRunOutput(), submit_operation=MagicMock()
     )
     assert rejected.failure_reason == "input_too_large"
     assert requests == []
@@ -84,7 +77,7 @@ async def test_session_model_and_output_override_control_budget_and_provider_req
     completed = await service.run_agent(
         manifest,
         {"model": "small", "max_tokens": 100},
-        stream=False,
+        run_output=NullRunOutput(),
         submit_operation=MagicMock(),
     )
     assert completed.status == "completed"
@@ -127,7 +120,7 @@ async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(
     config.alice.koakuma.mtp_prompt.enabled = False
     config.alice.runtime.safety_margin = 0
     recorder = RecordingRuntimeEventSink()
-    _, service = _build_service(config=config, model_registry=registry, runtime_events=recorder)
+    _, service = build_run_service(config=config, model_registry=registry, runtime_events=recorder)
     requests = []
 
     async def generate(_self, messages, **kwargs):
@@ -146,7 +139,7 @@ async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(
             agent_profile=AgentProfile(model_name="parent", persona=""),
             allowed_operations=frozenset({WorkspaceOperation.AGENT_CALL}),
         ),
-        stream=False,
+        run_output=NullRunOutput(),
         submit_operation=StubOperationSubmitter(derive=derive),
     )
     assert (result.status, result.final_text) == ("completed", "父帧完成")
@@ -197,39 +190,6 @@ def _build_input_manifest(
     )
 
 
-def _build_service(
-    *, runtime_events=None, config=None, model_registry=None
-) -> tuple[AgentRuntime, AgentRunService]:
-    config = config or HiveMemoryConfig()
-    runtime = build_agent_runtime(
-        runtime_config=config.alice.runtime,
-        koakuma_config=config.alice.koakuma,
-        memory_compiler_config=config.memory_compiler,
-        model_registry=model_registry,
-    )
-    frame_factory = FrameFactory()
-    prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
-    coordinator = CallCoordinator(
-        runtime,
-        CallContextProvider(),
-        frame_factory=frame_factory,
-        prompt_assembler=prompt_assembler,
-    )
-    service = AgentRunService(
-        summarizer=RelaySummarizer(LLMClient()),
-        agent_runtime=runtime,
-        call_coordinator=coordinator,
-        frame_factory=frame_factory,
-        prompt_assembler=prompt_assembler,
-        stream_adapter=AgentRunStreamAdapter(),
-        compaction_config=config.alice.compaction,
-        agent_run_events=AgentRunEventEmitter(
-            RuntimeEventPublisher(runtime_events or NullRuntimeEventSink())
-        ),
-    )
-    return runtime, service
-
-
 def _stub_terminal_execution(
     runtime: AgentRuntime,
     status: FrameExecutionStatus = FrameExecutionStatus.COMPLETED,
@@ -242,7 +202,7 @@ def _stub_terminal_execution(
 @pytest.mark.asyncio
 async def test_run_agent_passes_input_and_submitter_to_root_frame():
     """CPU 交付的提交函数随 root frame 进入执行层，预检索内容仍进入提示词。"""
-    runtime, service = _build_service()
+    runtime, service = build_run_service()
     memory = _build_memory_atom()
     context = _build_input_manifest(memory).model_copy(
         update={
@@ -261,7 +221,9 @@ async def test_run_agent_passes_input_and_submitter_to_root_frame():
         return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
 
     runtime.run_frame = run_frame
-    result = await service.run_agent(context, stream=False, submit_operation=submit_operation)
+    result = await service.run_agent(
+        context, run_output=NullRunOutput(), submit_operation=submit_operation
+    )
     assert result.status == CPUExecutionStatus.COMPLETED.value
     (frame,) = seen
     assert frame.submit_operation is submit_operation
@@ -274,19 +236,18 @@ async def test_run_agent_passes_input_and_submitter_to_root_frame():
 
 async def _terminal_status_without_stream(service, manifest, submit_operation) -> str:
     """非流式入口直接返回终态结果。"""
-    result = await service.run_agent(manifest, stream=False, submit_operation=submit_operation)
+    result = await service.run_agent(
+        manifest, run_output=NullRunOutput(), submit_operation=submit_operation
+    )
     return result.status
 
 
 async def _terminal_status_from_stream(service, manifest, submit_operation) -> str:
     """流式入口以最后一个事件携带终态。"""
     events = [
-        event
-        async for event in service.run_agent(
-            manifest, stream=True, submit_operation=submit_operation
-        )
+        event async for event in stream_run(service, manifest, submit_operation=submit_operation)
     ]
-    return events[-1]["data"]["status"]
+    return events[-1].status
 
 
 @pytest.mark.asyncio
@@ -299,7 +260,7 @@ async def _terminal_status_from_stream(service, manifest, submit_operation) -> s
 )
 async def test_root_policy_and_prompt_follow_manifest_operations(run_to_terminal):
     """根 frame 的策略与教学由清单的操作快照翻译，系统工具菜单不受操作集合裁剪。"""
-    runtime, service = _build_service()
+    runtime, service = build_run_service()
     manifest = _build_input_manifest(
         _build_memory_atom(),
         allowed_operations=frozenset(
@@ -342,7 +303,7 @@ async def test_registered_labels_drive_runtime_events_and_profile_controls_strea
     from hivememory.core.models import AgentProfile
 
     recorder = RecordingRuntimeEventSink()
-    _runtime, service = _build_service(runtime_events=recorder)
+    _runtime, service = build_run_service(runtime_events=recorder)
     manifest = _build_input_manifest(
         _build_memory_atom(),
         labels=make_execution_labels(
@@ -367,17 +328,17 @@ async def test_registered_labels_drive_runtime_events_and_profile_controls_strea
     monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
     events = [
         event
-        async for event in service.run_agent(
+        async for event in stream_run(
+            service,
             manifest,
             {"model": "test-model"},
-            stream=True,
             submit_operation=MagicMock(),
         )
     ]
 
-    assert [event["event"] for event in events] == ["token", "done"]
-    assert [event["data"]["agent_id"] for event in events] == [display_agent_id, display_agent_id]
-    assert events[-1]["data"]["final_text"] == "标签保持一致"
+    assert [event["event"] for event in events[:-1]] == ["token"]
+    assert [event["data"]["agent_id"] for event in events[:-1]] == [display_agent_id]
+    assert events[-1].final_text == "标签保持一致"
     assert [event.event_type for event in recorder.events] == [
         RuntimeEventType.AGENT_RUN_STARTED,
         RuntimeEventType.AGENT_RUN_COMPLETED,
@@ -391,7 +352,7 @@ async def test_registered_labels_drive_runtime_events_and_profile_controls_strea
 @pytest.mark.asyncio
 async def test_run_agent_correlates_runtime_scope_and_process_id():
     recorder = RecordingRuntimeEventSink()
-    runtime, service = _build_service(runtime_events=recorder)
+    runtime, service = build_run_service(runtime_events=recorder)
     context = _build_input_manifest(_build_memory_atom(), process_id="process-1")
     _stub_terminal_execution(runtime)
     created_sessions = []
@@ -403,7 +364,7 @@ async def test_run_agent_correlates_runtime_scope_and_process_id():
         return session
 
     service._create_run_session = _capture_session
-    await service.run_agent(context, stream=False, submit_operation=MagicMock())
+    await service.run_agent(context, run_output=NullRunOutput(), submit_operation=MagicMock())
 
     session = created_sessions[0]
     assert session.process_id == "process-1"
@@ -414,11 +375,13 @@ async def test_run_agent_correlates_runtime_scope_and_process_id():
 @pytest.mark.asyncio
 async def test_run_agent_failed_result_emits_failed_runtime_event():
     recorder = RecordingRuntimeEventSink()
-    runtime, service = _build_service(runtime_events=recorder)
+    runtime, service = build_run_service(runtime_events=recorder)
     context = _build_input_manifest(_build_memory_atom())
     _stub_terminal_execution(runtime, FrameExecutionStatus.FAILED)
 
-    result = await service.run_agent(context, stream=False, submit_operation=MagicMock())
+    result = await service.run_agent(
+        context, run_output=NullRunOutput(), submit_operation=MagicMock()
+    )
 
     assert result.status == CPUExecutionStatus.FAILED.value
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
@@ -428,25 +391,21 @@ async def test_run_agent_failed_result_emits_failed_runtime_event():
 
 @pytest.mark.asyncio
 async def test_run_agent_stream_returns_completed_root_frame():
-    runtime, service = _build_service()
+    runtime, service = build_run_service()
     memory = _build_memory_atom()
     context = _build_input_manifest(memory)
     _stub_terminal_execution(runtime)
 
-    events = [
-        event
-        async for event in service.run_agent(context, stream=True, submit_operation=MagicMock())
-    ]
+    events = [event async for event in stream_run(service, context, submit_operation=MagicMock())]
 
-    assert [event["event"] for event in events] == ["done"]
-    assert events[0]["data"]["status"] == CPUExecutionStatus.COMPLETED.value
-    assert events[0]["data"]["scope"] == "main"
+    assert [event["event"] for event in events[:-1]] == []
+    assert events[0].status == CPUExecutionStatus.COMPLETED.value
 
 
 @pytest.mark.asyncio
 async def test_run_agent_stream_close_emits_cancelled_runtime_event():
     recorder = RecordingRuntimeEventSink()
-    runtime, service = _build_service(runtime_events=recorder)
+    runtime, service = build_run_service(runtime_events=recorder)
     context = _build_input_manifest(_build_memory_atom())
 
     async def _run_frame(_frame, *, output_sink, **_kwargs):
@@ -454,7 +413,7 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
         await asyncio.Event().wait()
 
     runtime.run_frame = _run_frame
-    stream = service.run_agent(context, stream=True, submit_operation=MagicMock())
+    stream = stream_run(service, context, submit_operation=MagicMock())
 
     assert (await anext(stream))["event"] == "token"
     await stream.aclose()
@@ -467,65 +426,14 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
 
 
 @pytest.mark.asyncio
-async def test_executor_stream_close_error_does_not_replace_task_cancellation():
-    recorder = RecordingRuntimeEventSink()
-    _runtime, service = _build_service(runtime_events=recorder)
-    context = _build_input_manifest(_build_memory_atom())
-
-    class CloseFailingExecutorStream:
-        def __init__(self) -> None:
-            self._emitted = False
-            self.pull_started = asyncio.Event()
-            self.close_calls = 0
-
-        def __aiter__(self):
-            return self
-
-        async def __anext__(self):
-            if self._emitted:
-                self.pull_started.set()
-                await asyncio.Event().wait()
-            self._emitted = True
-            return {"event": "token", "data": {"content": "hi"}}
-
-        async def aclose(self) -> None:
-            self.close_calls += 1
-            raise RuntimeError("executor stream close failed")
-
-    executor_stream = CloseFailingExecutorStream()
-    agent_stream = MagicMock()
-    agent_stream.output = MagicMock()
-
-    def events(runner):
-        runner.close()
-        return executor_stream
-
-    agent_stream.events.side_effect = events
-    service._stream_adapter.create = MagicMock(return_value=agent_stream)
-    stream = service.run_agent(context, stream=True, submit_operation=MagicMock())
-
-    assert (await anext(stream))["event"] == "token"
-    pull_task = asyncio.create_task(anext(stream))
-    await executor_stream.pull_started.wait()
-    pull_task.cancel()
-
-    with pytest.raises(asyncio.CancelledError):
-        await pull_task
-
-    assert executor_stream.close_calls == 1
-    assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_CANCELLED
-    assert RuntimeEventType.AGENT_RUN_FAILED not in {event.event_type for event in recorder.events}
-
-
-@pytest.mark.asyncio
 async def test_run_agent_stream_error_preserves_failed_runtime_event():
     recorder = RecordingRuntimeEventSink()
-    runtime, service = _build_service(runtime_events=recorder)
+    runtime, service = build_run_service(runtime_events=recorder)
     context = _build_input_manifest(_build_memory_atom())
     runtime.run_frame = AsyncMock(side_effect=RuntimeError("network unavailable"))
 
     with pytest.raises(RuntimeError, match="network unavailable"):
-        async for _ in service.run_agent(context, stream=True, submit_operation=MagicMock()):
+        async for _ in stream_run(service, context, submit_operation=MagicMock()):
             pass
 
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
@@ -534,7 +442,7 @@ async def test_run_agent_stream_error_preserves_failed_runtime_event():
 
 @pytest.mark.asyncio
 async def test_unified_entry_stream_and_once_agree_on_terminal_outcome():
-    """同一段脚本化运行：流式最后的 done 与非流式结果在终态、回复、轮次事件与
+    """同一段脚本化运行：流式最后的类型化结果与非流式结果在终态、回复、轮次事件与
     模型名上一致；两种模式都发布 started 与终态事件，终态载荷仍含两个统计字段。"""
     from hivememory.agent_runtime.frame import FrameExecutionResult
     from hivememory.core.models import TurnEvent
@@ -559,40 +467,39 @@ async def test_unified_entry_stream_and_once_agree_on_terminal_outcome():
         return _run()
 
     stream_recorder = RecordingRuntimeEventSink()
-    stream_runtime, stream_service = _build_service(runtime_events=stream_recorder)
+    stream_runtime, stream_service = build_run_service(runtime_events=stream_recorder)
     stream_runtime.run_frame = _scripted_run_frame
 
     stream_events = [
         event
-        async for event in stream_service.run_agent(
+        async for event in stream_run(
+            stream_service,
             _build_input_manifest(_build_memory_atom(), process_id="process-unified"),
-            stream=True,
             submit_operation=MagicMock(),
         )
     ]
-    done = next(event for event in stream_events if event["event"] == "done")
+    done = stream_events[-1]
 
     once_recorder = RecordingRuntimeEventSink()
-    once_runtime, once_service = _build_service(runtime_events=once_recorder)
+    once_runtime, once_service = build_run_service(runtime_events=once_recorder)
     once_runtime.run_frame = _scripted_run_frame
 
     result = await once_service.run_agent(
         _build_input_manifest(_build_memory_atom(), process_id="process-unified"),
-        stream=False,
+        run_output=NullRunOutput(),
         submit_operation=MagicMock(),
     )
 
     # 两种模式在终态、最终回复、轮次事件与模型名上一致。
-    assert result.status == done["data"]["status"] == CPUExecutionStatus.COMPLETED.value
-    assert result.final_text == done["data"]["final_text"] == "hello world"
+    assert result.status == done.status == CPUExecutionStatus.COMPLETED.value
+    assert result.final_text == done.final_text == "hello world"
     assert [event.kind for event in result.turn_events] == [
         "user_message",
         "assistant_message",
     ]
-    assert done["data"]["turn_events"] == [event.model_dump() for event in result.turn_events]
-    assert result.model_used == done["data"]["model_used"] == "glm-4"
+    assert done.turn_events == result.turn_events
+    assert result.model_used == done.model_used == "glm-4"
     # Alice 的迭代统计不进入执行结果，只保留在 agent.run.* 观测载荷中。
-    assert "mtp_iterations" not in done["data"]
     for recorder in (stream_recorder, once_recorder):
         types = [event.event_type for event in recorder.events]
         assert RuntimeEventType.AGENT_RUN_STARTED in types
@@ -606,7 +513,7 @@ async def test_unified_entry_stream_and_once_agree_on_terminal_outcome():
 async def test_non_streaming_cancellation_publishes_cancelled_runtime_event():
     """统一入口后，非流式被取消同样发布 agent.run.cancelled（观测语义与流式一致）。"""
     recorder = RecordingRuntimeEventSink()
-    runtime, service = _build_service(runtime_events=recorder)
+    runtime, service = build_run_service(runtime_events=recorder)
     context = _build_input_manifest(_build_memory_atom())
     started = asyncio.Event()
 
@@ -617,7 +524,7 @@ async def test_non_streaming_cancellation_publishes_cancelled_runtime_event():
     runtime.run_frame = _run_frame
 
     task = asyncio.create_task(
-        service.run_agent(context, stream=False, submit_operation=MagicMock())
+        service.run_agent(context, run_output=NullRunOutput(), submit_operation=MagicMock())
     )
     await started.wait()
     task.cancel()
@@ -658,11 +565,11 @@ async def test_native_cancellation_fills_slot_with_delivered_partial_text(monkey
     )
     config, manifest = _summary_inputs()
     manifest = manifest.model_copy(update={"user_message": "hello"})
-    _runtime, service = _build_service(config=config)
+    _runtime, service = build_run_service(config=config)
     slot = CPUResultSlot()
-    stream = service.run_agent(
+    stream = stream_run(
+        service,
         manifest,
-        stream=True,
         submit_operation=MagicMock(),
         result_slot=slot,
     )
@@ -722,11 +629,11 @@ async def test_cancel_in_call_keeps_root_call_without_child_partial_text(monkeyp
         return make_callee(AgentProfile(agent_id="helper"))
 
     monkeypatch.setattr(LLMClient, "generate_stream", generate_stream)
-    _runtime, service = _build_service()
+    _runtime, service = build_run_service()
     slot = CPUResultSlot()
-    stream = service.run_agent(
+    stream = stream_run(
+        service,
         _build_input_manifest(_build_memory_atom()),
-        stream=True,
         submit_operation=StubOperationSubmitter(derive=derive),
         result_slot=slot,
     )
@@ -802,23 +709,32 @@ async def test_compaction_reaches_generation_and_returns_checkpoint_without_reco
     monkeypatch.setattr(LLMClient, "generate_stream", generate_stream)
     config, manifest = _compaction_inputs()
     recorder = RecordingRuntimeEventSink()
-    _, service = _build_service(config=config, runtime_events=recorder)
+    _, service = build_run_service(config=config, runtime_events=recorder)
     slot = CPUResultSlot()
     if stream:
         events = [
             event
-            async for event in service.run_agent(
-                manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
+            async for event in stream_run(
+                service, manifest, submit_operation=MagicMock(), result_slot=slot
             )
         ]
-        progress = [event for event in events if event["event"] == "context_compaction"]
+        progress = [
+            event
+            for event in events
+            if isinstance(event, dict) and event["event"] == "context_compaction"
+        ]
         assert [event["data"]["status"] for event in progress] == ["started", "completed"]
-        assert [event["data"]["stream_sequence"] for event in events] == list(range(len(events)))
-        assert "compaction_checkpoint" not in events[-1]["data"]
+        assert [event["data"]["stream_sequence"] for event in events[:-1]] == list(
+            range(len(events) - 1)
+        )
+        assert events[-1] is slot.result
         result = slot.result
     else:
         result = await service.run_agent(
-            manifest, stream=False, submit_operation=MagicMock(), result_slot=slot
+            manifest,
+            run_output=NullRunOutput(),
+            submit_operation=MagicMock(),
+            result_slot=slot,
         )
     assert result.status == "completed"
     assert result.compaction_checkpoint.reduced_through == "old"
@@ -860,18 +776,17 @@ async def test_uncompressible_history_fails_without_output_and_keeps_reduction_c
     monkeypatch.setattr(LLMClient, "generate_async", generate)
     config, manifest = _compaction_inputs(compressible=False)
     recorder = RecordingRuntimeEventSink()
-    _, service = _build_service(config=config, runtime_events=recorder)
+    _, service = build_run_service(config=config, runtime_events=recorder)
     slot = CPUResultSlot()
     events = [
         event
-        async for event in service.run_agent(
-            manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
+        async for event in stream_run(
+            service, manifest, submit_operation=MagicMock(), result_slot=slot
         )
     ]
-    assert [event["event"] for event in events] == [
+    assert [event["event"] for event in events[:-1]] == [
         "context_compaction",
         "context_compaction",
-        "done",
     ]
     assert events[1]["data"]["status"] == "failed"
     assert slot.result.failure_reason == "compaction_failed"
@@ -894,11 +809,9 @@ async def test_closing_at_compaction_progress_only_returns_completed_checkpoint(
     from hivememory.workspace.contracts import CPUResultSlot
 
     config, manifest = _compaction_inputs()
-    _, service = _build_service(config=config)
+    _, service = build_run_service(config=config)
     slot = CPUResultSlot()
-    stream = service.run_agent(
-        manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
-    )
+    stream = stream_run(service, manifest, submit_operation=MagicMock(), result_slot=slot)
     assert (await anext(stream))["data"]["status"] == "started"
     if after_completion:
         assert (await anext(stream))["data"]["status"] == "completed"
@@ -940,11 +853,9 @@ async def test_cancellation_during_summary_propagates_without_new_checkpoint(mon
 
     monkeypatch.setattr(LLMClient, "generate_async", summarize)
     config, manifest = _summary_inputs()
-    _, service = _build_service(config=config)
+    _, service = build_run_service(config=config)
     slot = CPUResultSlot()
-    stream = service.run_agent(
-        manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
-    )
+    stream = stream_run(service, manifest, submit_operation=MagicMock(), result_slot=slot)
     assert (await anext(stream))["data"]["status"] == "started"
     pull = asyncio.create_task(anext(stream))
     await entered.wait()
@@ -976,12 +887,12 @@ async def test_abandoned_summary_still_generates_from_reduced_view_if_it_fits(mo
     monkeypatch.setattr(LLMClient, "generate_stream", generate)
     config, manifest = _summary_inputs()
     recorder = RecordingRuntimeEventSink()
-    _, service = _build_service(config=config, runtime_events=recorder)
+    _, service = build_run_service(config=config, runtime_events=recorder)
     slot = CPUResultSlot()
     events = [
         event
-        async for event in service.run_agent(
-            manifest, stream=True, submit_operation=MagicMock(), result_slot=slot
+        async for event in stream_run(
+            service, manifest, submit_operation=MagicMock(), result_slot=slot
         )
     ]
     assert events[1]["data"]["status"] == "abandoned"

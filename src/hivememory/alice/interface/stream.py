@@ -5,22 +5,20 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncGenerator, Awaitable, Mapping
+from dataclasses import dataclass
 from typing import Any, Literal
 
 from hivememory.agent_runtime import (
     ExecutionFrame,
-    FrameExecutionResult,
     FrameOutput,
     FrameOutputSink,
     MTPFinished,
     MTPStarted,
     TokenDelta,
 )
-from hivememory.alice.orchestration.output import (
-    AgentRunOutput,
-    CallOutputFinished,
-    CallOutputStarted,
-)
+from hivememory.alice.orchestration.output import CallOutputFinished, CallOutputStarted
+from hivememory.alice.run.output import RunOutput
+from hivememory.workspace.contracts import CPUExecutionResult, CPUOutput
 
 logger = logging.getLogger(__name__)
 
@@ -61,17 +59,38 @@ class _BoundFrameOutputSink:
         await self._output.send_event(event, data, metadata=self._metadata)
 
 
-class QueueAgentRunOutput(AgentRunOutput):
+@dataclass(frozen=True)
+class _PendingProgress:
+    """进度交出后等待消费方继续拉取，保留压缩开始与完成时的暂停点。"""
+
+    event: dict[str, Any]
+    acknowledged: asyncio.Future[None]
+
+
+class QueueAgentRunOutput(RunOutput):
     """单个 run 独占的有界交互输出队列。"""
 
-    def __init__(self, agent_run_id: str, *, maxsize: int = 256) -> None:
-        self._agent_run_id = agent_run_id
-        self._queue: asyncio.Queue[dict[str, Any] | None] = asyncio.Queue(maxsize=maxsize)
+    cancellation_message = "Agent stream closed before terminal event."
+    close_reason = "stream_closed"
+
+    def __init__(self, *, maxsize: int = 256) -> None:
+        self._agent_run_id = ""
+        self._queue: asyncio.Queue[dict[str, Any] | _PendingProgress | None] = asyncio.Queue(
+            maxsize=maxsize
+        )
         self._sequence = 0
 
-    @property
-    def next_sequence(self) -> int:
-        return self._sequence
+    def bind_run(self, agent_run_id: str) -> None:
+        self._agent_run_id = agent_run_id
+
+    async def context_compaction(self, *, status: str, data: dict[str, object]) -> None:
+        acknowledged: asyncio.Future[None] = asyncio.get_running_loop().create_future()
+        await self._queue.put(
+            _PendingProgress(
+                self.make_event("context_compaction", {"status": status, **data}), acknowledged
+            )
+        )
+        await acknowledged
 
     def for_frame(
         self,
@@ -142,7 +161,7 @@ class QueueAgentRunOutput(AgentRunOutput):
         *,
         metadata: Mapping[str, Any] | None = None,
     ) -> dict[str, Any]:
-        """统一编排进度与帧输出的序号；执行前的进度可直接交给消费方。"""
+        """统一编排进度与帧输出的序号。"""
         payload = {
             "agent_run_id": self._agent_run_id,
             **dict(metadata or {}),
@@ -152,7 +171,7 @@ class QueueAgentRunOutput(AgentRunOutput):
         self._sequence += 1
         return {"event": event, "data": payload}
 
-    async def receive(self) -> dict[str, Any] | None:
+    async def receive(self) -> dict[str, Any] | _PendingProgress | None:
         return await self._queue.get()
 
     async def finish(self) -> None:
@@ -162,24 +181,17 @@ class QueueAgentRunOutput(AgentRunOutput):
 class AgentRunStream:
     """管理一次流式 run 的 runner task、队列消费与断流取消。"""
 
-    def __init__(self, agent_run_id: str, *, queue_size: int = 256) -> None:
-        self.output = QueueAgentRunOutput(
-            agent_run_id,
-            maxsize=queue_size,
-        )
-
-    @property
-    def next_sequence(self) -> int:
-        return self.output.next_sequence
+    def __init__(self, *, queue_size: int = 256) -> None:
+        self.output = QueueAgentRunOutput(maxsize=queue_size)
 
     def events(
         self,
-        runner: Awaitable[FrameExecutionResult],
-    ) -> AsyncGenerator[dict[str, Any], None]:
-        async def _events() -> AsyncGenerator[dict[str, Any], None]:
+        runner: Awaitable[CPUExecutionResult],
+    ) -> AsyncGenerator[CPUOutput, None]:
+        async def _events() -> AsyncGenerator[CPUOutput, None]:
             consumer_closed = asyncio.Event()
 
-            async def _run() -> FrameExecutionResult:
+            async def _run() -> CPUExecutionResult:
                 try:
                     return await runner
                 except asyncio.CancelledError:
@@ -196,8 +208,14 @@ class AgentRunStream:
                     event = await self.output.receive()
                     if event is None:
                         break
-                    yield event
-                await task
+                    if isinstance(event, _PendingProgress):
+                        yield event.event
+                        # 只有继续拉取才允许推进；关闭流时由 finally 取消等待中的 runner。
+                        if not event.acknowledged.done():
+                            event.acknowledged.set_result(None)
+                    else:
+                        yield event
+                yield await task
             finally:
                 consumer_closed.set()
                 if not task.done():
@@ -217,8 +235,8 @@ class AgentRunStreamAdapter:
     def __init__(self, *, queue_size: int = 256) -> None:
         self._queue_size = queue_size
 
-    def create(self, agent_run_id: str) -> AgentRunStream:
-        return AgentRunStream(agent_run_id, queue_size=self._queue_size)
+    def create(self) -> AgentRunStream:
+        return AgentRunStream(queue_size=self._queue_size)
 
 
 def _project_frame_output(output: FrameOutput) -> tuple[str, dict[str, Any]]:

@@ -22,15 +22,16 @@ from hivememory.agent_runtime.model.client import LLMClient
 from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.events import AgentRunEventEmitter
-from hivememory.alice.interface.stream import AgentRunStreamAdapter
 from hivememory.alice.orchestration.frames import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.session import RunSession
+from hivememory.alice.run.output import NullRunOutput
 from hivememory.alice.run.service import AgentRunService
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.alice import CompactionConfig
 from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.workspace.contracts import CPUExecutionStatus
+from tests.helpers.alice import stream_run
 from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.workspace import make_runtime_scope
@@ -89,7 +90,6 @@ def _runtime_for_frame(
         prompt_assembler=MagicMock(
             build_main_agent_messages=MagicMock(return_value=frame.working_history)
         ),
-        stream_adapter=AgentRunStreamAdapter(),
         compaction_config=CompactionConfig(),
         agent_run_events=AgentRunEventEmitter(RuntimeEventPublisher(NullRuntimeEventSink())),
     )
@@ -121,7 +121,9 @@ async def test_run_agent_assembles_result_from_completed_frame():
     )
     service, session = _runtime_for_frame(frame, agent_runtime)
 
-    result = await service.run_agent(_context(frame), stream=False, submit_operation=MagicMock())
+    result = await service.run_agent(
+        _context(frame), run_output=NullRunOutput(), submit_operation=MagicMock()
+    )
 
     assert result.final_text == "hello world"
     assert [event.kind for event in result.turn_events] == ["user_message", "assistant_message"]
@@ -145,7 +147,7 @@ async def test_run_agent_cancellation_unwinds_and_propagates():
     service, _ = _runtime_for_frame(frame, agent_runtime)
 
     task = asyncio.create_task(
-        service.run_agent(_context(frame), stream=False, submit_operation=MagicMock())
+        service.run_agent(_context(frame), run_output=NullRunOutput(), submit_operation=MagicMock())
     )
     await started.wait()
     task.cancel()
@@ -166,13 +168,15 @@ async def test_run_agent_budget_exhaustion_maps_to_failed_run():
     )
     service, _ = _runtime_for_frame(frame, agent_runtime)
 
-    result = await service.run_agent(_context(frame), stream=False, submit_operation=MagicMock())
+    result = await service.run_agent(
+        _context(frame), run_output=NullRunOutput(), submit_operation=MagicMock()
+    )
 
     assert result.status == CPUExecutionStatus.FAILED.value
 
 
 @pytest.mark.asyncio
-async def test_run_agent_stream_done_preserves_failed_terminal_status():
+async def test_stream_preserves_failed_terminal_status():
     frame = _frame()
     agent_runtime = SimpleNamespace(
         max_iterations=5,
@@ -184,16 +188,11 @@ async def test_run_agent_stream_done_preserves_failed_terminal_status():
     service, _ = _runtime_for_frame(frame, agent_runtime)
 
     events = [
-        event
-        async for event in service.run_agent(
-            _context(frame), stream=True, submit_operation=MagicMock()
-        )
+        event async for event in stream_run(service, _context(frame), submit_operation=MagicMock())
     ]
 
-    done = next(event for event in events if event["event"] == "done")
-    assert done["data"]["status"] == CPUExecutionStatus.FAILED.value
-    assert done["data"]["agent_run_id"] == "run-1"
-    assert done["data"]["frame_id"] == "frame-main"
+    done = events[-1]
+    assert done.status == CPUExecutionStatus.FAILED.value
 
 
 @pytest.mark.asyncio
@@ -207,7 +206,9 @@ async def test_run_agent_preserves_factory_initialized_turn_events():
     frame = _frame(messages=messages)
     service, _ = _runtime_for_frame(frame)
 
-    result = await service.run_agent(_context(frame), stream=False, submit_operation=MagicMock())
+    result = await service.run_agent(
+        _context(frame), run_output=NullRunOutput(), submit_operation=MagicMock()
+    )
 
     assert [event.kind for event in result.turn_events] == ["user_message"]
     assert result.turn_events[0].content == "current"

@@ -17,14 +17,14 @@ related_contracts:
   - docs/alice/orchestration.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-17
 ---
 
 # MTP Runtime：从文本指令到受控执行
 
 Memory Tool Protocol 让 Agent 能在生成过程中主动发现、读取、执行、写入和修订记忆，也能把一项工作委派给子 Agent。协议选择文本形态，是为了不依赖某一家模型供应商的 function calling 接口，并让调用与回填自然保留在消息历史中；但文本可被模型随意生成，也可能残缺、越权或携带不可信参数，因此“看起来像 MTP”从来不等于“可以直接执行”。
 
-KoakumaRuntime 就是这道执行边界。它把 WorkerAgent 截止在 MTP 右定界符附近的文本解析为结构化命令，消费本次 frame 的观测标签、权限、操作提交函数与运行坐标，执行对应 handler，再把成功、warning、错误或控制流信号格式化为 Agent 可继续理解的本地化文本。它属于 Alice 消费的 Agent Runtime 执行层，不拥有多 Agent 拓扑，也不拥有长期记忆。
+KoakumaRuntime 就是这道执行边界。它把 LLMClient 截止在 MTP 右定界符附近的文本解析为结构化命令，消费本次 frame 的观测标签、权限、操作提交函数与运行坐标，执行对应 handler，再把成功、warning、错误或控制流信号格式化为 Agent 可继续理解的本地化文本。它属于 Alice 消费的 Agent Runtime 执行层，不拥有多 Agent 拓扑，也不拥有长期记忆。
 
 本文只解释当前 runtime 怎样兑现协议。`⟪ VERB | TARGET | ARGS ⟫` 的语法、六个动词的规范语义和响应状态只在 [MTP 契约](../contracts/mtp.md)维护，避免协议规范与实现说明形成两套真相源。
 
@@ -33,10 +33,10 @@ KoakumaRuntime 就是这道执行边界。它把 WorkerAgent 截止在 MTP 右�
 一次普通 MTP 迭代沿以下路径推进：
 
 ```text
-WorkerAgentService.generate(stop = MTP right delimiter)
+LLMClient.generate_async / generate_stream(stop = MTP right delimiter)
   -> AgentLoopExecutor detects the last MTP opening delimiter
-  -> KoakumaMTPExecutor.intercept_and_execute()
-  -> KoakumaRuntime
+  -> MTPExecutor port（KoakumaRuntime 直接满足协议）
+  -> KoakumaRuntime.intercept_and_execute()
        parse text -> MTPCommand
        resolve MTPExecutionContext(run_id, frame_id, action_id)
        check cancellation
@@ -47,7 +47,7 @@ WorkerAgentService.generate(stop = MTP right delimiter)
        format localized XML
   -> tool_call + tool_result TurnEvents
   -> formatted response enters working history
-  -> WorkerAgent continues generation
+  -> LLMClient continues generation
 ```
 
 如果文本中没有 MTP 左定界符，Koakuma 返回 `None`，Agent loop 把本次生成当作自然语言收敛。解析错误不会抛回模型适配层，而会形成结构化 `MTPErrorInfo` 并格式化回填，让 Agent 有机会修正语法或参数。
@@ -56,7 +56,7 @@ CALL 是唯一不在 handler 内完成业务动作的动词。Koakuma 只解析�
 
 ## 2. MTPExecutionContext
 
-Runtime 不从命令文本相信身份或权限。每次执行都由 frame 构造 `MTPExecutionContext`，主要包含：
+Runtime 不从命令文本相信身份或权限。执行上下文、提交函数与策略均为必填，策略没有默认放行动词集合。每次执行都由 frame 构造 `MTPExecutionContext`，主要包含：
 
 - `agent_profile`：语言等运行描述，不承载权限；
 - `runtime_scope`：run、frame 与 action 坐标及冻结的 `ExecutionLabels`；标签仅用于观测，不携带授权身份或 parent/depth 拓扑信息；
@@ -64,11 +64,11 @@ Runtime 不从命令文本相信身份或权限。每次执行都由 frame 构�
 - `execution_policy`：frame 的 MTP 动词集合、每帧预算与 CALL 等控制流硬限制；
 - `language`：错误、warning 与普通响应的本地化选择。
 
-资源操作统一提交冻结的 `OperationRequest`：READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别由 workspace actor API 逐次检查 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`；RUN 提交 `ResolveRunTargetRequest`，`sys_*` 系统工具在本地执行且不提交请求；子帧的意图撤回是操作入口内部的补偿，不检查 operation。身份与目标由 actor API 从线程 context 取得，Alice/agent_runtime 不请求 Patchouli 路由；引用记录由读取能力自动完成。frame 的动词集合与 CALL 控制流由 `FrameExecutionPolicy` 决定，观测标签不参与授权。
+资源操作统一提交冻结的 `OperationRequest`：READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别由 workspace actor API 逐次检查 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`；RUN 提交 `ResolveRunTargetRequest`，`sys_*` 系统工具在本地执行且不提交请求；CPU 或 CALL 子帧失败均不撤回已接纳写入。身份与目标由 actor API 从线程 context 取得，Alice/agent_runtime 不请求 Patchouli 路由；引用记录由读取能力自动完成。frame 的动词集合与 CALL 控制流由 `FrameExecutionPolicy` 决定，观测标签不参与授权。
 
 ## 3. 动词集合的三层检查
 
-Agent 的权限只由 Workspace 访问登记的 actor 操作白名单表达，Agent Profile 不承载权限。输入清单携带 CPU 分配时的操作快照 `allowed_operations`，Alice（`alice/application/operation_policy.py`）把它翻译为 frame 的 MTP 动词集合：每项 actor 操作对应一个动词，RUN 始终在集合中，因为 `sys_*` 系统工具不设权限（对应表见 [MTP 契约](../contracts/mtp.md#4-权限)第 4 节）。同一集合作用于三层：
+Agent 的权限只由 Workspace 访问登记的 actor 操作白名单表达，Agent Profile 不承载权限。输入清单携带 CPU 分配时的操作快照 `allowed_operations`，Alice（`alice/orchestration/verbs.py`）把它翻译为 frame 的 MTP 动词集合：每项 actor 操作对应一个动词，RUN 始终在集合中，因为 `sys_*` 系统工具不设权限（对应表见 [MTP 契约](../contracts/mtp.md#4-权限)第 4 节）。同一集合作用于三层：
 
 1. **提示层裁剪**：PromptBuilder 只教学集合内的动词，并裁剪提及集合外动词的行为准则、错误恢复与演示，降低模型生成不可用命令的概率；系统工具菜单始终完整；
 2. **执行层强制**：Koakuma 在分发前以 frame 的 `FrameExecutionPolicy` 检查动词，集合外的动词以 `agent_fault` 结构化错误回填，且不提交任何操作请求；模型不能通过改写 prompt 或手工生成 MTP 绕过；
@@ -137,7 +137,7 @@ Koakuma、MTPExecutor 和 Agent loop 不接收 Chat Run 取消句柄，也不定
 
 ## 8. 配置与实际接线
 
-Alice 配置当前分为两组：
+以下列出执行循环与工具配置；输入预算与压缩参数见 [System 配置](../system/configuration.md#12-alice-会话预算与压缩)：
 
 | 配置 | 默认值 | 当前作用 |
 |:---|:---:|:---|
@@ -174,15 +174,15 @@ Alice 配置当前分为两组：
 | 责任 | 当前入口 |
 |:---|:---|
 | parser、formatter 与协议模型 | `src/hivememory/core/mtp/` |
-| Koakuma 分发与六个 handler | `src/hivememory/agent_runtime/mtp/runtime.py` |
-| Agent Runtime 的窄 MTP port | `src/hivememory/agent_runtime/mtp/executor.py` |
+| Koakuma 分发与六个 handler | `src/hivememory/agent_runtime/mtp/runtime.py`、`mtp/verbs/` |
+| Agent Runtime 的窄 MTP port | `src/hivememory/agent_runtime/mtp/runtime.py` |
 | 操作请求与提交函数 | `src/hivememory/workspace/contracts/operations.py` |
 | 中立引用解析与缓存 | 见 [Workspace 架构](../architecture/workspace.md) |
-| syscall 注册与实现 | `src/hivememory/agent_runtime/mtp/syscalls/` |
+| syscall 注册与实现 | `src/hivememory/agent_runtime/tools/` |
 | MTP prompt | `src/hivememory/prompts/mtp.py`、`i18n/prompts.py` |
 | Alice 配置 | `src/hivememory/config/alice.py` |
 | parser / formatter 测试 | `tests/unit/core/mtp/` |
-| verb 与 syscall 链路测试 | `tests/unit/agent_runtime/mtp/` |
+| verb 与 syscall 链路测试 | `tests/unit/agent_runtime/mtp/`、`tests/unit/agent_runtime/tools/`、`tests/integration/mtp/` |
 
 ## 11. 当前限制与实现偏差
 
@@ -196,6 +196,6 @@ Alice 配置当前分为两组：
 - prompt 的默认工具菜单来自静态 `DEFAULT_RUNTIME_TOOLS`，不是从实际 syscall 注册表动态生成。注册表与提示词可能漂移；
 - RUN 的受限子进程不是面向敌对输入的安全沙箱，也没有来源签名、资源配额与 OS 级隔离；
 - Agent loop 达到 `max_loop_iterations` 后返回 `BUDGET_EXHAUSTED`，根 run 对外映射为执行结果的 `failed`，CALL callee 映射为稳定的 budget error；
-- Koakuma 的执行机制属于 Alice 组合根，写入意图登记、完整引用解析、原子与 Profile 缓存由 workspace 持有；frame registry、CALL ledger 与 stream sequence 按 run 隔离。
+- Koakuma 的执行机制由内核工厂装配并由 AliceSystem 持有，写入意图登记、完整引用解析、原子与 Profile 缓存由 workspace 持有；frame registry、CALL ledger 与 stream sequence 按 run 隔离。
 
 当前 MTP Runtime 已经形成“文本协议、结构化解析、双层权限、受控 handler 与可恢复错误”的完整闭环，但它仍是面向单进程可信部署的实验性执行层。文档和上层产品都不应把它包装成强隔离插件平台、持久化工作流引擎或任意代码安全沙箱。

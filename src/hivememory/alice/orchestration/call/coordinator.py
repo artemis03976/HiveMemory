@@ -22,7 +22,6 @@ from hivememory.alice.orchestration.output import (
     AgentRunOutput,
     CallOutputFinished,
     CallOutputStarted,
-    NullAgentRunOutput,
 )
 from hivememory.alice.orchestration.verbs import mtp_verbs_for_operations
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
@@ -76,11 +75,9 @@ class CallCoordinator:
         suspension: FrameExecutionResult,
         *,
         session: RunSession,
-        run_output: AgentRunOutput | None = None,
+        run_output: AgentRunOutput,
     ) -> CallStartResult:
         """同步登记 CALL 后准备 callee；准备失败时直接恢复 caller。"""
-
-        output = run_output or NullAgentRunOutput()
 
         call = suspension.require_call_suspension()
         action_id = call.action_id
@@ -103,7 +100,7 @@ class CallCoordinator:
             case ExecutionFrame() as callee_frame:
                 # 会话绑定失败属于编排不变量违规。
                 session.register_callee_frame(callee_frame, record)
-                await output.call_started(
+                await run_output.call_started(
                     CallOutputStarted(
                         agent_id=call_request.target_alias,
                         task=call_request.task,
@@ -121,7 +118,7 @@ class CallCoordinator:
                     record=record,
                     callee_frame=None,
                     callee_result=None,
-                    run_output=output,
+                    run_output=run_output,
                 )
             case _:
                 raise AssertionError(f"Unhandled CALL preparation result: {prepared!r}")
@@ -206,10 +203,9 @@ class CallCoordinator:
         *,
         session: RunSession,
         generation_options: dict[str, Any] | None = None,
-        run_output: AgentRunOutput | None = None,
+        run_output: AgentRunOutput,
     ) -> CallCompletionResult:
         """把 callee outcome 收口为 caller 可消费的 CALL response。"""
-        output = run_output or NullAgentRunOutput()
         call = suspension.require_call_suspension()
         call_request = call.call_request
         action_id = call.action_id
@@ -246,7 +242,7 @@ class CallCoordinator:
             record=record,
             callee_frame=callee_frame,
             callee_result=effective_result,
-            run_output=output,
+            run_output=run_output,
         )
 
     def cancel_call(

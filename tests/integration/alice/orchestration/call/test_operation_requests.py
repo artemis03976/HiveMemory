@@ -16,6 +16,7 @@ from hivememory.agent_runtime.runtime import build_agent_runtime
 from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
 from hivememory.alice.orchestration.call.coordinator import DispatchCallee
 from hivememory.alice.orchestration.frames import FrameFactory
+from hivememory.alice.orchestration.output import NullAgentRunOutput
 from hivememory.alice.orchestration.session import RunSession
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.alice import AliceConfig
@@ -70,7 +71,7 @@ async def test_callee_frame_uses_callee_verbs_without_call():
         frame_factory=FrameFactory(),
         prompt_assembler=AgentPromptAssembler(config.koakuma),
     )
-    session = RunSession(agent_run_id=scope.run_id)
+    session = RunSession(agent_run_id=scope.run_id, process_id="process-1")
     session.register_root_frame(caller)
 
     transition = await coordinator.begin_call(
@@ -81,6 +82,7 @@ async def test_callee_frame_uses_callee_verbs_without_call():
             suspend_action_id="call-inherit",
         ),
         session=session,
+        run_output=NullAgentRunOutput(),
     )
 
     assert isinstance(transition, DispatchCallee)
@@ -122,7 +124,7 @@ async def test_callee_submits_with_own_thread_context_and_keeps_callee_as_intent
         frame_factory=FrameFactory(),
         prompt_assembler=AgentPromptAssembler(config.koakuma),
     )
-    session = RunSession(agent_run_id=scope.run_id)
+    session = RunSession(agent_run_id=scope.run_id, process_id="process-1")
     session.register_root_frame(caller)
     suspension = FrameExecutionResult(
         status=FrameExecutionStatus.SUSPENDED,
@@ -130,7 +132,9 @@ async def test_callee_submits_with_own_thread_context_and_keeps_callee_as_intent
         suspend_action_id="call-1",
     )
 
-    transition = await coordinator.begin_call(caller, suspension, session=session)
+    transition = await coordinator.begin_call(
+        caller, suspension, session=session, run_output=NullAgentRunOutput()
+    )
 
     assert isinstance(transition, DispatchCallee)
     child = transition.frame

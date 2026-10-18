@@ -15,7 +15,6 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.alice.contracts import AliceRoutes
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
@@ -203,11 +202,11 @@ async def _stream_events(
     return [event async for event in service.run_process(handle, stream=True)]
 
 
-# ========== 测试 CPU 跑通完整进程（总线上无 Alice 路由） ==========
+# ========== 测试 CPU 跑通完整进程 ==========
 
 
 @pytest.mark.asyncio
-async def test_test_cpu_completes_non_streaming_process_without_alice_routes() -> None:
+async def test_test_cpu_completes_non_streaming_process_through_cpu_port() -> None:
     """测试 CPU 跑完非流式进程：finalize 收到的交互记录来自 CPU 执行结果。"""
     bus = GlobalSystemBus()
     turn_events = make_mtp_turn_events()
@@ -243,8 +242,6 @@ async def test_test_cpu_completes_non_streaming_process_without_alice_routes() -
     assert result.execution_result.final_text == "完成"
     assert result.execution_result.model_used == "glm-4"
     assert cpu.calls[0].stream is False
-    # 总线上只有 Gateway 与 Patchouli 的公开路由，没有任何 Alice 路由。
-    assert AliceRoutes.RUN_AGENT not in bus.list_routes()
 
     payload = finalize_kwargs["payload"]
     assert payload.assistant_final_text == "完成"

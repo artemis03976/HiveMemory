@@ -1,8 +1,8 @@
 """
 AliceSystem - 多智能体编排与计算子系统
 
-SubsystemProtocol 实现，装配 AgentRuntime、AgentRunService、AliceCPU 与
-AliceBridge。
+SubsystemProtocol 实现，装配 AgentRuntime、AgentRunService 与 AliceCPU；
+对外只交出 CPU 端口。
 """
 
 from __future__ import annotations
@@ -10,16 +10,14 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from hivememory.agent_runtime import AgentRuntime, LLMClient, ModelResolver, build_agent_runtime
+from hivememory.agent_runtime import LLMClient, ModelResolver, build_agent_runtime
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.events import AgentRunEventEmitter
-from hivememory.alice.interface.bridge import AliceBridge, AlicePublicApi
 from hivememory.alice.interface.cpu import AliceCPU
 from hivememory.alice.interface.stream import AgentRunStreamAdapter
 from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
 from hivememory.alice.orchestration.frames import FrameFactory
 from hivememory.alice.run.service import AgentRunService
-from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.alice import AliceConfig
@@ -37,15 +35,14 @@ class AliceSystem(SubsystemProtocol):
 
     职责：
     - 装配 AgentRuntime 与 AgentRunService
-    - 提供统一的 run_agent 用例入口与 CPUPort 端口实现
-    - 将公开路由注册到全局总线
+    - 交出 CPUPort 端口实现，作为 Alice 唯一的对外执行入口
+    - 通过 CPU 端口的可用状态管理执行准入
     - 实现 SubsystemProtocol 生命周期
     """
 
     def __init__(
         self,
         config: AliceConfig,
-        global_bus: GlobalSystemBus | None = None,
         event_publisher: RuntimeEventPublisher | None = None,
         model_registry: ModelResolver | None = None,
         *,
@@ -71,25 +68,17 @@ class AliceSystem(SubsystemProtocol):
             frame_factory=frame_factory,
             prompt_assembler=prompt_assembler,
         )
-        self._service = AgentRunService(
+        service = AgentRunService(
             summarizer=RelaySummarizer(LLMClient()),
             agent_runtime=self._runtime,
             call_coordinator=call_coordinator,
             frame_factory=frame_factory,
             prompt_assembler=prompt_assembler,
-            stream_adapter=AgentRunStreamAdapter(),
             agent_run_events=AgentRunEventEmitter(publisher.scoped(component="agent_run_service")),
             compaction_config=config.compaction,
         )
 
-        self._bridge = AliceBridge(
-            public_api=AlicePublicApi(agent=self._service),
-            global_bus=global_bus,
-        )
-
-        # 任务进程经 CPUPort 端口调用本子系统；端口实现由组合根注入进程，
-        # workspace 侧不出现 Alice 的路由名或结果类型。
-        self._cpu = AliceCPU(global_bus, operation_entry) if global_bus is not None else None
+        self._cpu = AliceCPU(service, operation_entry, stream_adapter=AgentRunStreamAdapter())
 
         logger.info("AliceSystem 初始化完成")
 
@@ -98,25 +87,15 @@ class AliceSystem(SubsystemProtocol):
         return "alice"
 
     @property
-    def service(self) -> AgentRunService:
-        return self._service
-
-    @property
     def cpu_port(self) -> AliceCPU:
-        """Alice 充当任务进程 CPU 的端口实现（要求装配了全局总线）。"""
-        if self._cpu is None:
-            raise RuntimeError("AliceSystem 未装配全局总线，无法提供 CPU 端口实现")
+        """Alice 充当任务进程 CPU 的端口实现；启停由宿主生命周期控制。"""
         return self._cpu
 
-    @property
-    def runtime(self) -> AgentRuntime:
-        return self._runtime
-
     async def start(self) -> None:
-        self._bridge.mount()
+        self._cpu.start()
 
     async def stop(self) -> None:
-        self._bridge.unmount()
+        self._cpu.stop()
 
     async def health(self) -> dict[str, Any]:
         return {

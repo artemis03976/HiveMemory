@@ -18,16 +18,13 @@ from tests.unit.architecture.test_package_layers import (
 ALICE_ROOT = SRC_ROOT / "alice"
 ALLOWED_ALICE_IMPORTS = {
     "__init__": {"system"},
-    "system": {"interface", "run", "context", "orchestration", "events", "contracts"},
-    "interface": {"interface", "run", "orchestration.output", "events", "contracts"},
+    "system": {"interface", "run", "context", "orchestration", "events"},
+    "interface": {"interface", "run", "orchestration.output", "events"},
     "run": {"run", "context", "orchestration", "events"},
     "context": {"context", "events"},
     "orchestration": {"orchestration", "events"},
     "events": {"events"},
-    "contracts": {"contracts"},
 }
-# 运行服务还负责创建流式适配器；只登记这一条具体依赖，不能放宽整个层。
-KNOWN_REVERSE_IMPORTS = {("run/service.py", "interface.stream")}
 
 
 def _package_imports(path: Path, package: str) -> set[str]:
@@ -68,8 +65,7 @@ def test_alice_layers_only_import_allowed_dependencies() -> None:
             if not any(target == prefix or target.startswith(f"{prefix}.") for prefix in allowed):
                 violations.add((relative.as_posix(), target))
 
-    # 精确比对使新增逆向依赖和已经消失的例外都需要显式审查。
-    assert violations == KNOWN_REVERSE_IMPORTS
+    assert violations == set()
 
 
 def test_alice_and_system_only_import_runtime_public_api() -> None:

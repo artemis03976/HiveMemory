@@ -16,7 +16,7 @@ from hivememory.alice.orchestration.call.coordinator import (
     ResumeCaller,
 )
 from hivememory.alice.orchestration.executor import RunExecutor
-from hivememory.alice.orchestration.output import CallOutputFinished
+from hivememory.alice.orchestration.output import CallOutputFinished, NullAgentRunOutput
 from hivememory.alice.orchestration.session import RunSession
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
@@ -25,7 +25,7 @@ from tests.helpers.workspace import make_runtime_scope
 
 
 def _session_with(frame) -> RunSession:
-    session = RunSession(agent_run_id=frame.runtime_scope.run_id)
+    session = RunSession(agent_run_id=frame.runtime_scope.run_id, process_id="process-1")
     session.register_root_frame(frame)
     return session
 
@@ -193,7 +193,7 @@ async def test_run_executor_cancellation_unwinds_each_nested_call_once():
         session=session,
         call_coordinator=coordinator,
     )
-    task = asyncio.create_task(executor.run(frame))
+    task = asyncio.create_task(executor.run(frame, run_output=NullAgentRunOutput()))
 
     await asyncio.wait_for(grandchild_started.wait(), timeout=1)
     task.cancel()
@@ -219,7 +219,7 @@ async def test_run_executor_preserves_cancellation_when_run_cleanup_fails():
         SimpleNamespace(run_frame=run_frame, finalize_run=finalize_run),
         session=_session_with(frame),
     )
-    task = asyncio.create_task(executor.run(frame))
+    task = asyncio.create_task(executor.run(frame, run_output=NullAgentRunOutput()))
 
     await started.wait()
     task.cancel()
@@ -247,7 +247,7 @@ async def test_run_executor_still_finalizes_when_call_record_cleanup_fails():
         SimpleNamespace(run_frame=run_frame, finalize_run=finalize_run),
         session=session,
     )
-    task = asyncio.create_task(executor.run(frame))
+    task = asyncio.create_task(executor.run(frame, run_output=NullAgentRunOutput()))
 
     await started.wait()
     task.cancel()
@@ -289,7 +289,7 @@ async def test_run_executor_preserves_cancellation_when_call_cleanup_fails():
         session=session,
         call_coordinator=coordinator,
     )
-    task = asyncio.create_task(executor.run(frame))
+    task = asyncio.create_task(executor.run(frame, run_output=NullAgentRunOutput()))
 
     await preparation_started.wait()
     task.cancel()
@@ -326,7 +326,7 @@ async def test_run_executor_accepts_call_resume_without_applying_response_itself
         call_coordinator=_CallCoordinatorStub(),
     )
 
-    result = await executor.run(frame)
+    result = await executor.run(frame, run_output=NullAgentRunOutput())
 
     assert result.status == FrameExecutionStatus.COMPLETED
     runtime.apply_call_response.assert_not_called()
@@ -352,7 +352,7 @@ async def test_run_executor_records_each_terminal_status(status):
     frame = _frame_stub("frame-1")
     executor = RunExecutor(runtime, session=_session_with(frame))
 
-    await executor.run(frame)
+    await executor.run(frame, run_output=NullAgentRunOutput())
     assert executor.terminal_result.status == status
 
 
@@ -368,7 +368,7 @@ async def test_run_executor_rejects_unsupported_frame_status():
     )
 
     with pytest.raises(RuntimeError, match="unsupported frame status: 'waiting_input'"):
-        await executor.run(frame)
+        await executor.run(frame, run_output=NullAgentRunOutput())
 
 
 @pytest.mark.asyncio
@@ -387,7 +387,7 @@ async def test_run_executor_rejects_malformed_call_before_entering_coordinator()
     )
 
     with pytest.raises(RuntimeError, match="missing its request"):
-        await executor.run(frame)
+        await executor.run(frame, run_output=NullAgentRunOutput())
 
     coordinator.begin_call.assert_not_called()
 
@@ -397,11 +397,11 @@ async def test_run_executor_rejects_unregistered_frame():
     frame = _frame_stub("frame-1")
     executor = RunExecutor(
         SimpleNamespace(run_frame=MagicMock()),
-        session=RunSession(agent_run_id="run-1"),
+        session=RunSession(agent_run_id="run-1", process_id="process-1"),
     )
 
     with pytest.raises(ValueError, match="not registered"):
-        await executor.run(frame)
+        await executor.run(frame, run_output=NullAgentRunOutput())
 
 
 @pytest.mark.asyncio
@@ -415,9 +415,9 @@ async def test_run_executor_rejects_a_second_run():
         session=_session_with(frame),
     )
 
-    await executor.run(frame)
+    await executor.run(frame, run_output=NullAgentRunOutput())
     with pytest.raises(RuntimeError, match="more than once"):
-        await executor.run(frame)
+        await executor.run(frame, run_output=NullAgentRunOutput())
 
 
 @pytest.mark.asyncio
@@ -437,7 +437,7 @@ async def test_budget_failure_emits_frame_statistics_without_changing_terminal_r
         session=_session_with(frame),
         run_events=BoundAgentRunEvents(RuntimeEventPublisher(sink)),
     )
-    result = await executor.run(frame)
+    result = await executor.run(frame, run_output=NullAgentRunOutput())
     assert result.status == FrameExecutionStatus.FAILED
     (event,) = sink.events
     assert event.event_type == "agent.context.budget_exceeded"

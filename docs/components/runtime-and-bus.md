@@ -22,7 +22,7 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-17
 ---
 
 # 运行时机制：总线、调度器与 Work Queue
@@ -63,7 +63,7 @@ mypy 在注册处检查 handler，在调用处检查参数名称、数量、类�
 
 检查对所有 `AsyncSystemBus` 子类生效，包括各子系统的本地总线。静态 API 的 `register` / `request` 只接受类型化 route；运行时仍兼容按字符串注册和调用的测试替身，且按替身 handler 的签名检查。检查不注入 route 声明中的默认值，实际默认值仍由 handler 决定。Pub/Sub 的订阅者不做参数检查。
 
-CI 的 typecheck job 使用锁定版本的 uv 与 setup action，以 `uv sync --frozen --extra dev` 安装 `uv.lock` 中的依赖，再运行 `uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py`。mypy 只覆盖源码与专用类型回归样例，不覆盖测试套件。样例中的误用以精确错误码标记；若某种误用不再报错，`unused-ignore` 使门禁失败；正例用 `assert_type` 验证推断结果。相关运行时验证见 `tests/unit/components/bus/test_typed_routes.py` 与 `tests/integration/alice/test_bus_routes.py`。
+CI 的 typecheck job 使用锁定版本的 uv 与 setup action，以 `uv sync --frozen --extra dev` 安装 `uv.lock` 中的依赖，再运行 `uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py`。mypy 只覆盖源码与专用类型回归样例，不覆盖测试套件。样例中的误用以精确错误码标记；若某种误用不再报错，`unused-ignore` 使门禁失败；正例用 `assert_type` 验证推断结果。相关运行时验证见 `tests/unit/components/bus/test_typed_routes.py`。
 
 ### Pub/Sub
 

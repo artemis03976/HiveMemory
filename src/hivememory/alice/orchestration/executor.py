@@ -16,7 +16,7 @@ from hivememory.alice.orchestration.call.coordinator import (
     ResumeCaller,
 )
 from hivememory.alice.orchestration.call.record import CallRecord
-from hivememory.alice.orchestration.output import AgentRunOutput, NullAgentRunOutput
+from hivememory.alice.orchestration.output import AgentRunOutput
 from hivememory.alice.orchestration.session import RunSession
 
 if TYPE_CHECKING:
@@ -69,7 +69,7 @@ class RunExecutor:
         frame: ExecutionFrame,
         *,
         generation_options: dict[str, Any] | None = None,
-        run_output: AgentRunOutput | None = None,
+        run_output: AgentRunOutput,
     ) -> FrameExecutionResult:
         self._require_root(frame)
         if self._started:
@@ -80,7 +80,7 @@ class RunExecutor:
             result = await self._execute_frame(
                 frame,
                 generation_options=generation_options,
-                run_output=run_output or NullAgentRunOutput(),
+                run_output=run_output,
                 output_context=_FrameOutputContext(),
             )
         except asyncio.CancelledError:

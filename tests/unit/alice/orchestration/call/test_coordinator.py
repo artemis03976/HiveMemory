@@ -27,7 +27,7 @@ from hivememory.alice.orchestration.call.coordinator import (
 )
 from hivememory.alice.orchestration.call.record import CallRecord, CallRecordStatus
 from hivememory.alice.orchestration.frames import FrameFactory
-from hivememory.alice.orchestration.output import CallOutputFinished
+from hivememory.alice.orchestration.output import CallOutputFinished, NullAgentRunOutput
 from hivememory.alice.orchestration.session import RunSession
 from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
@@ -104,8 +104,8 @@ def _coordinator(runtime, child: ExecutionFrame, *, context_provider=None) -> Ca
 
 
 def _session(caller: ExecutionFrame) -> RunSession:
-    session = RunSession(agent_run_id=caller.runtime_scope.run_id)
-    session.register_frame(caller)
+    session = RunSession(agent_run_id=caller.runtime_scope.run_id, process_id="process-1")
+    session.register_root_frame(caller)
     return session
 
 
@@ -186,7 +186,7 @@ def test_call_record_cancel_wins_before_apply():
 
 
 def test_call_record_callee_binding_requires_resolving_and_is_exactly_once() -> None:
-    session = RunSession(agent_run_id="run-1")
+    session = RunSession(agent_run_id="run-1", process_id="process-1")
     root = _frame("act-1")
     callee = _frame("act-child")
     callee.runtime_scope = callee.runtime_scope.model_copy(update={"frame_id": "frame-child"})
@@ -232,7 +232,9 @@ async def test_begin_and_complete_call_split_execution_from_coordination_phases(
     )
     suspension = _suspension()
 
-    begin = await coordinator.begin_call(caller, suspension, session=session)
+    begin = await coordinator.begin_call(
+        caller, suspension, session=session, run_output=NullAgentRunOutput()
+    )
 
     assert begin == DispatchCallee(child)
     runtime.run_frame.assert_not_awaited()
@@ -246,6 +248,7 @@ async def test_begin_and_complete_call_split_execution_from_coordination_phases(
         child,
         FrameExecutionResult(status=FrameExecutionStatus.COMPLETED),
         session=session,
+        run_output=NullAgentRunOutput(),
     )
 
     assert complete == ResumeCaller()
@@ -267,7 +270,9 @@ async def test_cancel_call_finalizes_bound_child_and_marks_record_once():
     )
     coordinator = _coordinator(runtime, child)
     suspension = _suspension()
-    begin = await coordinator.begin_call(caller, suspension, session=session)
+    begin = await coordinator.begin_call(
+        caller, suspension, session=session, run_output=NullAgentRunOutput()
+    )
     assert begin == DispatchCallee(child)
 
     coordinator.cancel_call(caller, suspension, session=session)
@@ -297,14 +302,12 @@ async def test_call_coordinator_finalizes_completed_child_without_finalizing_run
     session = _session(caller)
 
     suspension = _suspension()
-    begin = await coordinator.begin_call(caller, suspension, session=session)
+    begin = await coordinator.begin_call(
+        caller, suspension, session=session, run_output=NullAgentRunOutput()
+    )
     assert begin == DispatchCallee(child)
     transition = await coordinator.complete_call(
-        caller,
-        suspension,
-        child,
-        child_result,
-        session=session,
+        caller, suspension, child, child_result, session=session, run_output=NullAgentRunOutput()
     )
     response = runtime.apply_call_response.call_args.args[2]
 
@@ -333,13 +336,11 @@ async def test_cancelled_callee_resumes_caller_when_run_is_not_cancelled():
     session = _session(caller)
     suspension = _suspension()
 
-    await coordinator.begin_call(caller, suspension, session=session)
+    await coordinator.begin_call(
+        caller, suspension, session=session, run_output=NullAgentRunOutput()
+    )
     transition = await coordinator.complete_call(
-        caller,
-        suspension,
-        child,
-        child_result,
-        session=session,
+        caller, suspension, child, child_result, session=session, run_output=NullAgentRunOutput()
     )
 
     response = runtime.apply_call_response.call_args.args[2]
@@ -362,7 +363,9 @@ async def test_call_response_is_committed_before_finished_output_await():
     coordinator = _coordinator(runtime, child)
     session = _session(caller)
     suspension = _suspension()
-    await coordinator.begin_call(caller, suspension, session=session)
+    await coordinator.begin_call(
+        caller, suspension, session=session, run_output=NullAgentRunOutput()
+    )
     record = session.call_for_callee("frame-child")
 
     async def cancel_during_output(_output):
@@ -434,7 +437,9 @@ async def test_complete_call_rejects_a_nonterminal_callee_result():
     coordinator = _coordinator(runtime, child)
     session = _session(caller)
     suspension = _suspension()
-    await coordinator.begin_call(caller, suspension, session=session)
+    await coordinator.begin_call(
+        caller, suspension, session=session, run_output=NullAgentRunOutput()
+    )
 
     with pytest.raises(ValueError, match="terminal callee result"):
         await coordinator.complete_call(
@@ -443,6 +448,7 @@ async def test_complete_call_rejects_a_nonterminal_callee_result():
             child,
             FrameExecutionResult(status=FrameExecutionStatus.SUSPENDED),
             session=session,
+            run_output=NullAgentRunOutput(),
         )
 
     runtime.finalize_frame.assert_not_called()
@@ -461,7 +467,8 @@ async def test_call_coordinator_rejects_unregistered_caller():
         await coordinator.begin_call(
             caller,
             _suspension(),
-            session=RunSession(agent_run_id="run-1"),
+            session=RunSession(agent_run_id="run-1", process_id="process-1"),
+            run_output=NullAgentRunOutput(),
         )
 
     runtime.run_frame.assert_not_awaited()
@@ -490,9 +497,7 @@ async def test_child_frame_inherits_caller_observation_labels() -> None:
     session = _session(caller)
 
     result = await coordinator.begin_call(
-        caller,
-        _suspension(),
-        session=session,
+        caller, _suspension(), session=session, run_output=NullAgentRunOutput()
     )
 
     assert isinstance(result, DispatchCallee)
@@ -573,14 +578,12 @@ async def test_artifact_harvest_failure_becomes_stable_call_error_and_cleans_chi
 
     suspension = _suspension()
     session = _session(caller)
-    begin = await coordinator.begin_call(caller, suspension, session=session)
+    begin = await coordinator.begin_call(
+        caller, suspension, session=session, run_output=NullAgentRunOutput()
+    )
     assert begin == DispatchCallee(child)
     transition = await coordinator.complete_call(
-        caller,
-        suspension,
-        child,
-        child_result,
-        session=session,
+        caller, suspension, child, child_result, session=session, run_output=NullAgentRunOutput()
     )
     response = runtime.apply_call_response.call_args.args[2]
 

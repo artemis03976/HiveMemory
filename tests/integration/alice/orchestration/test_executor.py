@@ -25,11 +25,18 @@ from hivememory.alice.orchestration.executor import RunExecutor
 from hivememory.alice.orchestration.output import CallOutputFinished
 from hivememory.alice.orchestration.session import RunSession
 from hivememory.core.mtp import MTPCallRequest
+from hivememory.workspace.contracts import CPUExecutionResult
 from tests.helpers.workspace import make_runtime_scope
 
 
+async def _execute(executor, frame, stream) -> CPUExecutionResult:
+    """测试驱动将帧终态提升为接口层所需的运行终态；取消继续原样传播。"""
+    terminal = await executor.run(frame, run_output=stream.output)
+    return CPUExecutionResult(status=terminal.status.value)
+
+
 def _session_with(frame) -> RunSession:
-    session = RunSession(agent_run_id=frame.runtime_scope.run_id)
+    session = RunSession(agent_run_id=frame.runtime_scope.run_id, process_id="process-1")
     session.register_root_frame(frame)
     return session
 
@@ -122,15 +129,12 @@ async def test_run_executor_reenters_suspended_frame_with_continuous_stream_sequ
         session=session,
         call_coordinator=coordinator,
     )
-    agent_stream = AgentRunStream(session.agent_run_id)
-    events = [
-        event
-        async for event in agent_stream.events(executor.run(frame, run_output=agent_stream.output))
-    ]
+    agent_stream = AgentRunStream()
+    agent_stream.output.bind_run(session.agent_run_id)
+    events = [event async for event in agent_stream.events(_execute(executor, frame, agent_stream))]
 
-    assert [event["data"]["stream_sequence"] for event in events] == [0, 1, 2, 3]
-    assert [event["data"]["agent_run_id"] for event in events] == ["run-1"] * 4
-    assert agent_stream.next_sequence == 4
+    assert [event["data"]["stream_sequence"] for event in events[:-1]] == [0, 1, 2, 3]
+    assert [event["data"]["agent_run_id"] for event in events[:-1]] == ["run-1"] * 4
     assert executor.terminal_result is not None
     assert executor.terminal_result.status == FrameExecutionStatus.COMPLETED
     assert set(session.frames) == {"frame-1", "frame-child"}
@@ -151,8 +155,9 @@ async def test_run_executor_cancels_runner_when_stream_consumer_closes():
     frame = _frame_stub("frame-1")
     session = _session_with(frame)
     executor = RunExecutor(SimpleNamespace(run_frame=run_frame), session=session)
-    agent_stream = AgentRunStream(session.agent_run_id)
-    stream = agent_stream.events(executor.run(frame, run_output=agent_stream.output))
+    agent_stream = AgentRunStream()
+    agent_stream.output.bind_run(session.agent_run_id)
+    stream = agent_stream.events(_execute(executor, frame, agent_stream))
 
     first_event = await anext(stream)
     await stream.aclose()
@@ -189,8 +194,9 @@ async def test_run_executor_cleans_active_call_when_stream_consumer_closes():
         session=session,
         call_coordinator=coordinator,
     )
-    agent_stream = AgentRunStream(session.agent_run_id)
-    stream = agent_stream.events(executor.run(frame, run_output=agent_stream.output))
+    agent_stream = AgentRunStream()
+    agent_stream.output.bind_run(session.agent_run_id)
+    stream = agent_stream.events(_execute(executor, frame, agent_stream))
 
     assert (await anext(stream))["data"]["content"] == "root"
     assert (await anext(stream))["data"]["content"] == "child"
@@ -228,8 +234,9 @@ async def test_run_executor_cancels_record_during_call_preparation_await():
         session=session,
         call_coordinator=coordinator,
     )
-    agent_stream = AgentRunStream(session.agent_run_id)
-    stream = agent_stream.events(executor.run(frame, run_output=agent_stream.output))
+    agent_stream = AgentRunStream()
+    agent_stream.output.bind_run(session.agent_run_id)
+    stream = agent_stream.events(_execute(executor, frame, agent_stream))
 
     await anext(stream)
     await asyncio.wait_for(preparation_started.wait(), timeout=1)

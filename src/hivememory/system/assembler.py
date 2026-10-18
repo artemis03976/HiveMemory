@@ -405,7 +405,6 @@ class SystemAssembler:
 
         alice = AliceSystem(
             config=self._config.alice,
-            global_bus=runtime.global_bus,
             operation_entry=capabilities.operations,
             event_publisher=runtime.event_publisher.scoped(subsystem="alice"),
             model_registry=registries.model_registry,

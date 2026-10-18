@@ -6,7 +6,9 @@ scope: cross-subsystem-identity-authorization-and-execution-safety
 code_paths:
   - src/hivememory/core/models/identity.py
   - src/hivememory/agent_runtime/
-  - src/hivememory/alice/runtime/
+  - src/hivememory/alice/interface/
+  - src/hivememory/alice/run/
+  - src/hivememory/alice/orchestration/
   - src/hivememory/workspace/intents/
   - src/hivememory/workspace/capability/
   - src/hivememory/workspace/cache/
@@ -23,7 +25,7 @@ related_docs:
   - docs/todo/frontend-identity-ownership.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
   - docs/todo/workspace-asset-ownership-identity-split.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-17
 ---
 
 # 身份隔离与执行安全治理
@@ -131,7 +133,7 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 4. 对显式 Profile 解析失败、权限拒绝和未指定 Profile 分别返回稳定结果；
 5. 将失败 reason 和安全摘要写入可观察事件，但不泄漏不可见正文。
 
-Alice 操作请求与过渡执行身份删除的实现证据见[操作请求集成测试](../../../tests/integration/workspace/test_operation_requests.py)、[CALL Profile 集成测试](../../../tests/integration/alice/orchestration/test_call_profile_requests.py)、[访问边界测试](../../../tests/unit/architecture/test_access_boundaries.py)与 [HTTP 系统 E2E](../../../tests/e2e/system/)。实施历史保留于 [v0.7.0 Alice 能力迁移归档计划](../../archive/plans/v0.7.0-alice-capability-migration.md)。
+Alice 操作请求与过渡执行身份删除的实现证据见[操作请求集成测试](../../../tests/integration/workspace/test_operation_requests.py)、[CALL Profile 集成测试](../../../tests/integration/alice/orchestration/call/test_profile_requests.py)、[访问边界测试](../../../tests/unit/architecture/test_access_boundaries.py)与 [HTTP 系统 E2E](../../../tests/e2e/system/)。实施历史保留于 [v0.7.0 Alice 能力迁移归档计划](../../archive/plans/v0.7.0-alice-capability-migration.md)。
 
 能力层分为 root API 与 actor API（2026-10-10）：管理能力不再是可登记给 actor 的 operation，actor 操作对齐 MTP 的六项动词，任务进程的阶段调用不再借用 actor 操作。证据见 [root 授权集成测试](../../../tests/integration/workspace/test_root_api_authorization.py)、[阶段授权 HTTP E2E](../../../tests/e2e/system/test_chat_operation_whitelist.py) 与[访问边界测试](../../../tests/unit/architecture/test_access_boundaries.py)；实施历史见[能力层分层归档计划](../../archive/plans/v0.7.0-capability-surface-split.md)。
 

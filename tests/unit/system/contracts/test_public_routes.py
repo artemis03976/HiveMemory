@@ -5,8 +5,6 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.alice.contracts.public_routes import AliceRoutes
-from hivememory.alice.system import AliceSystem
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.events import GlobalEvents
 from hivememory.core.models import (
@@ -22,9 +20,6 @@ from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.runtime.bridge import PatchouliBridge, PatchouliPublicApi
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.operations import OperationsHarness
-
-# ========== Alice ==========
 
 
 def _make_memory(alias: str, content: str) -> MemoryAtom:
@@ -40,53 +35,6 @@ def _make_memory(alias: str, content: str) -> MemoryAtom:
         ),
         payload=PayloadLayer(content=content),
     )
-
-
-class TestAlicePublicRoutes:
-
-    def setup_method(self):
-        self.global_bus = GlobalSystemBus()
-        self.operation_entry = OperationsHarness().entry
-        self.config = MagicMock()
-        self.config.koakuma = MagicMock()
-        self.config.koakuma.enabled = False
-        self.config.llm = MagicMock()
-        self.config.llm.worker = MagicMock()
-
-    @pytest.mark.asyncio
-    async def test_start_registers_public_routes_on_global_bus(self):
-        """Alice 为两种输出形态各挂载一条执行路由。"""
-        system = AliceSystem(
-            config=self.config, global_bus=self.global_bus, operation_entry=self.operation_entry
-        )
-        await system.start()
-
-        routes = self.global_bus.list_routes()
-        assert AliceRoutes.RUN_AGENT in routes
-        assert AliceRoutes.RUN_AGENT_STREAM in routes
-
-    @pytest.mark.asyncio
-    async def test_stop_removes_public_routes_from_global_bus(self):
-        system = AliceSystem(
-            config=self.config, global_bus=self.global_bus, operation_entry=self.operation_entry
-        )
-        await system.start()
-        await system.stop()
-
-        routes = self.global_bus.list_routes()
-        assert AliceRoutes.RUN_AGENT not in routes
-        assert AliceRoutes.RUN_AGENT_STREAM not in routes
-
-    @pytest.mark.asyncio
-    async def test_alice_does_not_subscribe_to_intent_settlement_events(self):
-        """结算投影只由 workspace 登记订阅，Alice 生命周期不注册订阅者。"""
-        system = AliceSystem(
-            config=self.config, global_bus=self.global_bus, operation_entry=self.operation_entry
-        )
-        await system.start()
-        assert GlobalEvents.PENDING_ATOM_SETTLED not in self.global_bus.list_events()
-        assert GlobalEvents.PENDING_ATOM_CANCELLED not in self.global_bus.list_events()
-        await system.stop()
 
 
 # ========== Patchouli（轻量级 — 完整集成在 test_bootstrap 中测试） ==========

@@ -188,7 +188,7 @@ async def test_alice_context_guard_seals_tool_output_as_failed_turn(tmp_path, mo
         )
 
     monkeypatch.setattr(LLMClient, "generate_stream", generate)
-    alice = AliceSystem(config, GlobalSystemBus(), operation_entry=OperationsHarness().entry)
+    alice = AliceSystem(config, operation_entry=OperationsHarness().entry)
     await alice.start()
     try:
         service, handle, sessions, workspace, probe = await completion_chain(alice.cpu_port)
@@ -500,3 +500,22 @@ async def test_cancellation_while_closing_cpu_preserves_delivered_checkpoint_wit
     assert [turn.interaction_id for turn in saved.turns] == ["old"]
     assert saved.active_process_id is None
     assert probe.submitted == []
+
+
+@pytest.mark.asyncio
+async def test_unavailable_alice_fails_process_and_releases_prepared_resources():
+    """CPU 未启动时执行失败仍补偿 prepare、释放会话，并且不提交交互。"""
+    from hivememory.alice import AliceSystem
+    from hivememory.config.alice import AliceConfig
+    from tests.helpers.operations import OperationsHarness
+
+    alice = AliceSystem(AliceConfig(), operation_entry=OperationsHarness().entry)
+    service, handle, sessions, workspace, probe = await completion_chain(alice.cpu_port)
+    events = [event async for event in service.run_process(handle, stream=True)]
+    assert events[-1] == {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
+    saved = sessions.get(workspace, handle.session_id)
+    assert saved.turns == ()
+    assert saved.active_process_id is None
+    assert probe.cleaned == [handle.process_id]
+    assert probe.submitted == []
+    assert service.cancel_process(handle).status == "not_found"

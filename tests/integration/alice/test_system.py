@@ -1,31 +1,34 @@
-"""
-AliceSystem 集成测试 — 真实 System + GlobalSystemBus 协作
-
-驱动真实 AliceSystem（内部真实装配 AgentRuntime/AliceBridge/AgentRunService）
-+ 真实 GlobalSystemBus，零 mock；验证系统 facade start()/stop() 对全局总线的
-路由挂载与卸载副作用。
-"""
+"""AliceSystem 启停控制真实 CPU 端口准入；LLM 边界使用确定性替身。"""
 
 import pytest
 
-from hivememory.alice.contracts.public_routes import AliceRoutes
-from hivememory.alice.system import AliceSystem
-from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.config.app import HiveMemoryConfig
+from hivememory.agent_runtime import GenerationResult, LLMClient
+from hivememory.alice import AliceSystem
+from hivememory.alice.interface.cpu import AliceUnavailableError
+from hivememory.config.alice import AliceConfig
+from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.operations import OperationsHarness
+from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 
 @pytest.mark.asyncio
-async def test_start_registers_public_routes_and_stop_unregisters():
-    bus = GlobalSystemBus()
-    system = AliceSystem(
-        config=HiveMemoryConfig().alice, global_bus=bus, operation_entry=OperationsHarness().entry
-    )
+async def test_system_lifecycle_controls_cpu_execution(monkeypatch):
+    async def generate(_self, messages, **kwargs):
+        return GenerationResult(text="完成")
+
+    monkeypatch.setattr(LLMClient, "generate_async", generate)
+    operations = OperationsHarness()
+    system = AliceSystem(config=AliceConfig(), operation_entry=operations.entry)
+    access = await make_access_composition([make_actor_access_record()]).authenticate_thread()
+
+    def execute():
+        return system.cpu_port.execute(
+            make_input_manifest(), access=access, generation_options=None, stream=False
+        )
 
     await system.start()
-
-    assert bus.list_routes() == sorted(AliceRoutes.ALL)
-
+    result = [item async for item in execute().output]
+    assert [(item.status, item.final_text) for item in result] == [("completed", "完成")]
     await system.stop()
-
-    assert bus.list_routes() == []
+    with pytest.raises(AliceUnavailableError, match="not running"):
+        await anext(execute().output)
