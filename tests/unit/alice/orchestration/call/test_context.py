@@ -33,7 +33,9 @@ from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_runtime_scope
 
 
-def _frame(*, submit_operation, profile: AgentProfile = OMNI_DOLL_PROFILE) -> ExecutionFrame:
+def _frame(
+    *, submit_operation, profile: AgentProfile = OMNI_DOLL_PROFILE, language: str = "zh"
+) -> ExecutionFrame:
     return ExecutionFrame(
         execution_policy=FrameExecutionPolicy.from_verbs(
             {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
@@ -43,6 +45,7 @@ def _frame(*, submit_operation, profile: AgentProfile = OMNI_DOLL_PROFILE) -> Ex
         agent_profile=profile,
         working_history=[],
         topic_id="topic-1",
+        language=language,
     )
 
 
@@ -95,10 +98,8 @@ async def test_provide_compiles_atom_context_ref_for_callee():
         atom=_atom("Fact A", "context payload"),
     )
     provider, submit_operation = _provider(alias_results=[resolved])
-    caller = _frame(
-        submit_operation=submit_operation,
-        profile=OMNI_DOLL_PROFILE.model_copy(update={"language": "en"}),
-    )
+    # 共享上下文按调用方帧的语言编译，Profile 的语言设置不参与。
+    caller = _frame(submit_operation=submit_operation, language="en")
 
     context = await provider.provide(
         caller,

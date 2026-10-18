@@ -24,41 +24,17 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.models import (
     AgentProfile,
-    IndexLayer,
-    MemoryAtom,
-    MemoryType,
-    PayloadLayer,
 )
 from tests.helpers.chat_handoff import make_input_manifest
-from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_execution_labels
 
 
-def _build_memory_atom() -> MemoryAtom:
-    return MemoryAtom(
-        meta=make_memory_metadata(
-            source_agent_id="agent-1",
-            user_id="u1",
-            confidence_score=0.9,
-        ),
-        index=IndexLayer(
-            title="test memory",
-            summary="summary text",
-            tags=["tag"],
-            memory_type=MemoryType.FACT,
-            alias="mem_alias",
-        ),
-        payload=PayloadLayer(content="memory content"),
-    )
-
-
-def _build_input_manifest(memory: MemoryAtom):
+def _build_input_manifest():
     return make_input_manifest(
         labels=make_execution_labels(agent_id="omni_doll"),
         process_id="process-test",
         topic_id="topic_1",
         user_message="hello",
-        memories=[memory],
         turn_context="ctx",
     )
 
@@ -121,6 +97,8 @@ async def test_root_uses_compiled_blocks_and_language_with_its_own_teaching(mode
     system = frame.working_history[0]["content"]
     fixed = " \nCOMPILED NOTICE AND PERSONA\n \n\n\nCOMPILED MATERIAL\n "
     assert result.status == "completed"
+    # 执行期的 MTP 回填沿用清单语言，而不是 Profile 的语言设置。
+    assert frame.language == "en"
     assert frame.execution_policy.permitted_verbs == frozenset({"RUN"})
     assert frame.working_history[-1] == {"role": "user", "content": "hello"}
     assert "DO NOT RENDER" not in system
@@ -136,9 +114,7 @@ async def test_root_uses_compiled_blocks_and_language_with_its_own_teaching(mode
 async def test_fixed_input_over_budget_fails_without_calling_model():
     """固定用户输入已装不下时明确失败，初始用户事件不算输出。"""
     runtime, service = _build_service()
-    manifest = _build_input_manifest(_build_memory_atom()).model_copy(
-        update={"user_message": "x" * 140000}
-    )
+    manifest = _build_input_manifest().model_copy(update={"user_message": "x" * 140000})
     runtime.run_frame = AsyncMock(side_effect=AssertionError("不应调用模型"))
     from hivememory.workspace.contracts import CPUResultSlot
 
@@ -169,7 +145,7 @@ async def test_frame_error_maps_only_stable_cpu_reason(error, reason):
         return_value=FrameExecutionResult(status=FrameExecutionStatus.FAILED, error=error)
     )
     result = await service.run_agent(
-        _build_input_manifest(_build_memory_atom()),
+        _build_input_manifest(),
         run_output=NullRunOutput(),
         submit_operation=MagicMock(),
     )

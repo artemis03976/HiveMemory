@@ -186,8 +186,7 @@ class HarnessKoakumaRuntime(KoakumaRuntime):
         *,
         runtime_scope: RuntimeScope,
         execution_policy: FrameExecutionPolicy,
-        agent_profile=None,
-        language=None,
+        language: str = "zh",
     ) -> MTPExecutionContext:
         """用测试身份完成认证，再把真实线程提交函数交给 MTP 上下文。"""
         submit_operation = await self.harness.submitter(
@@ -197,6 +196,5 @@ class HarnessKoakumaRuntime(KoakumaRuntime):
             runtime_scope=runtime_scope,
             execution_policy=execution_policy,
             submit_operation=submit_operation,
-            agent_profile=agent_profile,
             language=language,
         )

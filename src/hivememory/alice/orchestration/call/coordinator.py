@@ -29,7 +29,7 @@ from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStat
 from hivememory.core.mtp.exceptions import MTPError, SystemFault
 from hivememory.i18n import resolve_language
 from hivememory.prompts.compilation import render_persona
-from hivememory.prompts.mtp import MTPPromptBuilder
+from hivememory.prompts.mtp import render_mtp_teaching
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime import AgentRuntime
@@ -168,8 +168,11 @@ class CallCoordinator:
                 mtp_verbs_for_operations(callee.allowed_operations),
                 denied_verbs={"CALL"},
             )
+            # 子帧语言只解析一次：提示词与执行期的 MTP 回填使用同一值。
+            language = resolve_language(profile_language=sub_profile.language).value
             messages = self._build_callee_messages(
                 profile=sub_profile,
+                language=language,
                 task=call_request.task,
                 shared_context=call_context.shared_context,
                 permitted_verbs=policy.permitted_verbs,
@@ -186,6 +189,7 @@ class CallCoordinator:
                     topic_id=None,
                     execution_policy=policy,
                     submit_operation=callee.submit_operation,
+                    language=language,
                 )
             )
         except Exception as error:
@@ -201,6 +205,7 @@ class CallCoordinator:
         self,
         *,
         profile: AgentProfile,
+        language: str,
         task: str,
         shared_context: str,
         permitted_verbs: frozenset[str],
@@ -208,19 +213,10 @@ class CallCoordinator:
         """按被调用方语言排列教学、人设与共享上下文，最后放置任务原文。
 
         动词集合直接沿用子帧策略；递归 CALL 已在策略构造时排除。
-        Profile 只提供人设与语言，不参与操作权限判断。
+        Profile 只提供人设，不参与操作权限判断。
         """
-        language = resolve_language(profile_language=profile.language).value
-        prompt_config = self._koakuma_config.mtp_prompt
-        mtp_prompt = (
-            MTPPromptBuilder(
-                language=language,
-                include_demo=prompt_config.include_demo,
-                include_error_handling=prompt_config.include_error_handling,
-                allowed_verbs=permitted_verbs,
-            ).build()
-            if self._koakuma_config.enabled and prompt_config.enabled
-            else ""
+        mtp_prompt = render_mtp_teaching(
+            self._koakuma_config, language=language, permitted_verbs=permitted_verbs
         )
         persona = render_persona(profile.persona, language=language)
         system_prompt = "\n\n".join(

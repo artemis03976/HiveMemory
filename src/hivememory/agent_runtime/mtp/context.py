@@ -9,7 +9,6 @@ from pydantic import BaseModel, Field
 
 from hivememory.agent_runtime.frame import FrameExecutionPolicy, RuntimeScope
 from hivememory.core.mtp.models import MTPCallRequest
-from hivememory.i18n.resolver import resolve_language
 
 if TYPE_CHECKING:
     from hivememory.workspace.contracts import OperationSubmitter
@@ -17,13 +16,12 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True)
 class MTPExecutionContext:
-    """单条 MTP 指令的观测坐标、显式动词策略与已绑定线程的操作提交函数。"""
+    """单条 MTP 指令的观测坐标、显式动词策略、已绑定线程的操作提交函数与回填语言。"""
 
     runtime_scope: RuntimeScope
     submit_operation: OperationSubmitter
     execution_policy: FrameExecutionPolicy
-    agent_profile: Any = None
-    language: str | None = None  # 显式语言覆盖；None 时由 runtime 从 agent_profile 派生
+    language: str
 
 
 class MTPExecutionResult(BaseModel):
@@ -37,11 +35,3 @@ class MTPExecutionResult(BaseModel):
     execution_time_ms: float = Field(default=0.0)
     pending_alias: str | None = Field(default=None)
     call_request: MTPCallRequest | None = Field(default=None)
-
-
-def resolve_context_language(context: MTPExecutionContext) -> str:
-    """优先使用指令语言，其次使用 Profile 语言，最后回落到系统语言。"""
-    return resolve_language(
-        explicit=context.language,
-        profile_language=getattr(context.agent_profile, "language", None),
-    ).value

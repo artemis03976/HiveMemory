@@ -125,7 +125,7 @@ class CallContextProvider:
         return compiler.compile(
             sources,
             MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
-            MemoryCompileOptions(language=caller_frame.agent_profile.language),
+            MemoryCompileOptions(language=caller_frame.language),
         ).text
 
 

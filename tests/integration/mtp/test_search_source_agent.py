@@ -142,6 +142,7 @@ async def _search(koakuma: KoakumaRuntime, filter_text: str | None = None) -> MT
             submit_operation=await koakuma.harness.submitter(
                 make_identity_scope(actor_identity=ACTOR)
             ),
+            language="zh",
         ),
     )
 

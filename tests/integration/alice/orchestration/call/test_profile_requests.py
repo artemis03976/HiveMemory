@@ -60,6 +60,7 @@ def _caller(submit_operation, *, agent_id="parent") -> ExecutionFrame:
         working_history=[],
         topic_id="topic-parent",
         submit_operation=submit_operation,
+        language="zh",
     )
     caller.progress.turn_events.append(
         TurnEvent(
@@ -316,8 +317,8 @@ async def test_callee_can_write_with_its_own_permission_even_when_caller_cannot(
                 {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
             ),
             runtime_scope=child.runtime_scope,
-            agent_profile=child.agent_profile,
             submit_operation=child.submit_operation,
+            language=child.language,
         ),
     )
 

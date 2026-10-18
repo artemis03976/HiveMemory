@@ -7,7 +7,6 @@ from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import (
-    AgentProfile,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -32,6 +31,7 @@ async def test_write_ack_can_be_read_in_next_process_and_redirect_after_settleme
         ),
         runtime_scope=first_scope,
         submit_operation=await harness.submitter(make_identity_scope(), "first"),
+        language="zh",
     )
     write = await koakuma.execute_mtp(
         '⟪ WRITE | * | title="跨轮草稿" content="共享的待定内容" ⟫', first
@@ -50,6 +50,7 @@ async def test_write_ack_can_be_read_in_next_process_and_redirect_after_settleme
         submit_operation=await harness.submitter(
             make_identity_scope(agent_id="another_agent"), "second"
         ),
+        language="zh",
     )
     read = await koakuma.execute_mtp(f"⟪ READ | {alias} | ⟫", next_context)
     assert read.response_status == "success"
@@ -92,6 +93,7 @@ async def test_revoked_thread_context_returns_mtp_system_fault_without_registeri
         ),
         runtime_scope=scope,
         submit_operation=submit_operation,
+        language="zh",
     )
     result = await KoakumaRuntime().execute_mtp('⟪ WRITE | * | content="关闭后不能写入" ⟫', context)
     assert result.response_status == "error"
@@ -110,6 +112,7 @@ async def test_update_pending_base_returns_existing_mtp_argument_error():
         ),
         runtime_scope=scope,
         submit_operation=await harness.submitter(make_identity_scope()),
+        language="zh",
     )
     koakuma = KoakumaRuntime()
     write = await koakuma.execute_mtp('⟪ WRITE | * | content="待定草稿" ⟫', context)
@@ -139,6 +142,7 @@ async def test_operation_denial_maps_to_mtp_permission_error(command):
         ),
         runtime_scope=scope,
         submit_operation=await harness.submitter(make_identity_scope(), allowed_operations=[]),
+        language="zh",
     )
     result = await KoakumaRuntime().execute_mtp(command, context)
     assert result.response_status == "error"
@@ -171,6 +175,7 @@ async def test_search_without_memory_search_grant_does_not_deliver_or_warm_memor
         submit_operation=await harness.submitter(
             make_identity_scope(), allowed_operations=[WorkspaceOperation.MEMORY_READ]
         ),
+        language="zh",
     )
 
     result = await KoakumaRuntime().execute_mtp('⟪ SEARCH | * | query="记忆" ⟫', context)
@@ -214,6 +219,7 @@ async def test_read_and_user_run_require_independent_operation_permissions(
         submit_operation=await harness.submitter(
             make_identity_scope(), allowed_operations={operation}
         ),
+        language="zh",
     )
     koakuma = KoakumaRuntime()
 
@@ -245,11 +251,9 @@ async def test_system_run_with_no_actor_operations_executes_without_submission()
 
     context = MTPExecutionContext(
         runtime_scope=make_runtime_scope(),
-        agent_profile=AgentProfile.model_validate(
-            {"allowed_mtp_verbs": [], "allowed_sys_tools": []}
-        ),
         execution_policy=FrameExecutionPolicy.from_verbs({"RUN"}),
         submit_operation=record_submission,
+        language="zh",
     )
 
     result = await KoakumaRuntime().execute_mtp(
@@ -278,6 +282,7 @@ async def test_memory_run_without_actor_grant_is_denied_despite_frame_run():
         runtime_scope=make_runtime_scope(),
         execution_policy=FrameExecutionPolicy.from_verbs({"RUN"}),
         submit_operation=await harness.submitter(make_identity_scope(), allowed_operations=[]),
+        language="zh",
     )
 
     result = await KoakumaRuntime().execute_mtp("⟪ RUN | tool_denied | ⟫", context)
@@ -302,6 +307,7 @@ async def test_write_observation_labels_cannot_replace_thread_context_actor_or_w
             agent_id="observed_other_agent", workspace_id="observed_other_workspace"
         ),
         submit_operation=await harness.submitter(scope),
+        language="zh",
     )
 
     result = await KoakumaRuntime().execute_mtp(

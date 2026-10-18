@@ -33,6 +33,7 @@ def _frame(*, run_id: str = "run-1", frame_id: str = "frame-1") -> ExecutionFram
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[],
         topic_id="topic-1",
+        language="zh",
     )
 
 

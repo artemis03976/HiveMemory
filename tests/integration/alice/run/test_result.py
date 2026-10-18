@@ -49,6 +49,7 @@ def _frame(
             messages=(messages if messages is not None else [{"role": "user", "content": "hello"}]),
             topic_id="topic-1",
             execution_policy=FrameExecutionPolicy(permitted_verbs=frozenset()),
+            language="zh",
         )
     )
 

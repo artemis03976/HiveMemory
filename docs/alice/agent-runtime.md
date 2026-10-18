@@ -63,6 +63,7 @@ ExecutionFrame
   ├─ resolved_model（生成参数、展示名、input_token_limit 的解析快照）
   ├─ topic_id | None
   ├─ submit_operation（本帧所属线程的提交函数）
+  ├─ language（已解析语言：根帧取自输入清单，子帧由 CALL 编排解析）
   ├─ harvested_aliases[]（本帧收到的 ACK alias）
   └─ ExecutionProgress
        ├─ text_segments[]
@@ -73,6 +74,8 @@ ExecutionFrame
 ```
 
 把执行进度放在 frame 而不是 `execute_frame()` 的局部变量中，是 CALL 能安全重入的前提。frame 运行到 CALL 时会返回 `SUSPENDED`；Alice 处理完被调用 frame 后把同一个 caller frame 再交给执行层。此前产生的正文、事件序号和迭代预算都留在 `ExecutionProgress` 中，因此不会因为 Python 函数返回而丢失，也不会在恢复时从第 0 次迭代重新开始。
+
+`language` 在创建 frame 时确定，循环把它交给每条指令的 `MTPExecutionContext`，CALL 响应回填同样使用它；执行层不再从 `AgentProfile` 或进程默认值推导语言，使回填文本与提示词始终一致。Profile 只提供模型参数与展示信息。
 
 `RuntimeScope` 的冻结 `ExecutionLabels(agent_id, workspace_id)` 仅用于展示和观测，不携带访问 context、操作身份或资源归属。frame 与 `MTPExecutionContext` 也不暴露 `identity` / `identity_scope` 派生属性。`RuntimeScope` 不表达主/子拓扑、`parent_frame_id` 或 `depth`。Alice 通过无状态 `FrameFactory` 创建普通 frame，并在 `RunSession` 的 frame registry 与 `CallRecord` 中保存调用关系；Agent Runtime 只根据传入 scope 执行该 frame。
 

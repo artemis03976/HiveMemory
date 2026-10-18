@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from hivememory.agent_runtime.mtp.context import MTPExecutionContext, resolve_context_language
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.core.models import WriteFocus
 from hivememory.core.mtp import (
     MTPCommand,
@@ -64,7 +64,7 @@ async def handle_write(
         content=get_mtp_info_text(
             "mtp.write.ack",
             {"pending_alias": pending.pending_alias},
-            resolve_context_language(context),
+            context.language,
         ),
         pending_alias=pending.pending_alias,
     )

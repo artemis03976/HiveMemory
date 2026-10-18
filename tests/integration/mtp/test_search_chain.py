@@ -268,6 +268,7 @@ class TestSearchRetrievalRequest:
             submit_operation=asyncio.run(
                 koakuma.harness.submitter(make_identity_scope(user_id="user_42"))
             ),
+            language="zh",
         )
 
         result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫', context=context)

@@ -10,7 +10,7 @@ from hivememory.alice.events import BoundAgentRunEvents
 from hivememory.config.alice import CompactionConfig, KoakumaConfig
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.protocol.models import SessionCompactionCheckpoint
-from hivememory.prompts.mtp import MTPPromptBuilder
+from hivememory.prompts.mtp import render_mtp_teaching
 from hivememory.workspace.contracts import CPUInputManifest
 
 
@@ -53,16 +53,10 @@ class RootContextBuilder:
         try:
             self.model = self._runtime.resolve_model(manifest.agent_profile, generation_options)
             # 工具教学属于 Alice；语言沿用进程的解析结果，不能重新读取默认语言。
-            prompt_config = self._koakuma_config.mtp_prompt
-            mtp_prompt = (
-                MTPPromptBuilder(
-                    language=manifest.language,
-                    include_demo=prompt_config.include_demo,
-                    include_error_handling=prompt_config.include_error_handling,
-                    allowed_verbs=permitted_verbs,
-                ).build()
-                if self._koakuma_config.enabled and prompt_config.enabled
-                else ""
+            mtp_prompt = render_mtp_teaching(
+                self._koakuma_config,
+                language=manifest.language,
+                permitted_verbs=permitted_verbs,
             )
             view = SessionContextView(
                 instructions=manifest.instructions,

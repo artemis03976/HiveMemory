@@ -119,6 +119,7 @@ def _make_frame() -> ExecutionFrame:
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "user", "content": "hello"}],
         topic_id="topic_1",
+        language="zh",
     )
 
 
@@ -311,6 +312,8 @@ async def test_single_mtp_produces_four_events():
 @pytest.mark.asyncio
 async def test_mtp_execution_receives_frame_context():
     frame = _make_frame()
+    # 帧语言与 Profile 语言不同，MTP 上下文只能取帧语言。
+    frame.language = "en"
     gen_results = [_mtp_result("", "READ alias_x"), _natural_result("done")]
     executor = _build_executor(gen_results)
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
@@ -321,7 +324,7 @@ async def test_mtp_execution_receives_frame_context():
     context = kwargs["context"]
     assert isinstance(context, MTPExecutionContext)
     assert context.runtime_scope.labels == frame.runtime_scope.labels
-    assert context.agent_profile is frame.agent_profile
+    assert context.language == "en"
     assert context.runtime_scope.run_id == frame.runtime_scope.run_id
     assert context.runtime_scope.frame_id == frame.runtime_scope.frame_id
     assert context.runtime_scope.action_id == "action_1_0"

@@ -20,6 +20,7 @@ import logging
 import re
 from collections.abc import Iterable
 
+from hivememory.config.alice import KoakumaConfig
 from hivememory.core.mtp.models import (
     MTP_LEFT_DELIMITER,
     MTP_RIGHT_DELIMITER,
@@ -209,8 +210,30 @@ def get_mtp_prompt(
     return builder.build()
 
 
+def render_mtp_teaching(
+    config: KoakumaConfig,
+    *,
+    language: str,
+    permitted_verbs: Iterable[str],
+) -> str:
+    """按 Koakuma 配置与帧的动词集合生成教学；Koakuma 或教学开关关闭时不教学。
+
+    根帧与 CALL 子帧共用这一规则，各自只传入自己的语言与动词集合。
+    """
+    prompt_config = config.mtp_prompt
+    if not (config.enabled and prompt_config.enabled):
+        return ""
+    return MTPPromptBuilder(
+        language=language,
+        include_demo=prompt_config.include_demo,
+        include_error_handling=prompt_config.include_error_handling,
+        allowed_verbs=permitted_verbs,
+    ).build()
+
+
 __all__ = [
     "MTPPromptBuilder",
     "get_mtp_prompt",
+    "render_mtp_teaching",
     "DEFAULT_RUNTIME_TOOLS",
 ]

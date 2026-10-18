@@ -208,10 +208,10 @@ class AgentLoopExecutor:
 
             action_id = f"action_{p.iteration}_{p.sequence}"
             mtp_context = MTPExecutionContext(
-                agent_profile=frame.agent_profile,
                 runtime_scope=frame.runtime_scope.with_action(action_id),
                 execution_policy=frame.execution_policy,
                 submit_operation=frame.submit_operation,
+                language=frame.language,
             )
             mtp_result = await self._mtp_executor.intercept_and_execute(
                 result.text,

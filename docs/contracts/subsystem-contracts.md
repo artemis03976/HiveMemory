@@ -220,13 +220,13 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 
 | 字段 | 语义 |
 |:---|:---|
-| `language: str` | 按 Profile 语言、进程默认值解析出的提示词语言；CPU 的教学与摘要沿用该值 |
+| `language: str` | 按 Profile 语言、进程默认值解析出的提示词语言；CPU 的教学、摘要与执行期回填（Alice 的 MTP 结果、错误与 CALL 响应）都沿用该值，不再从 Profile 重新推导 |
 | `instructions: str` | 环境通知、人设段，按此顺序连接；无内容时为空字符串 |
 | `turn_context: str` | 记忆段、附件段，按此顺序连接；无内容时为空字符串 |
 
 这两段文本是不透明的固定输入：CPU 决定放置位置，不解析或改写。分段使 Alice 可以在人设与本轮材料之间插入自己的历史摘要，也不要求其他 CPU 采用 Alice 的消息布局或历史管理方式。编译不读取 CPU 配置；存储不可用时总是附加中立离线通知，不取决于是否开启 MTP 教学。
 
-清单还携带 `process_id`、`labels: ExecutionLabels`、原样用户消息 `user_message`、已解析的 `agent_profile`（供模型参数与展示使用）、actor 操作快照 `allowed_operations`、未编译的检索原子 `memories`（进程另用于 `memory_refs` 投影）、只作挂载/观测的 `topic_id`、全量会话轮次 `session_history: tuple[ConversationTurn, ...]` 和可选 `compaction_checkpoint: SessionCompactionCheckpoint | None`（默认 None）。历史渲染与压缩由 CPU 自管；进程不知道执行模型的窗口，不在提示词编译时按模型预算裁剪材料。
+清单还携带 `process_id`、`labels: ExecutionLabels`、原样用户消息 `user_message`、已解析的 `agent_profile`（供模型参数与展示使用）、actor 操作快照 `allowed_operations`、只作挂载/观测的 `topic_id`、全量会话轮次 `session_history: tuple[ConversationTurn, ...]` 和可选 `compaction_checkpoint: SessionCompactionCheckpoint | None`（默认 None）。历史渲染与压缩由 CPU 自管；进程不知道执行模型的窗口，不在提示词编译时按模型预算裁剪材料。未编译的检索原子只在进程内使用：编译为 `turn_context`，并直接从 prepare 结果投影 `memory_refs` 事件，不进入清单。
 
 `allowed_operations` 是 CPU 分配时由阶段授权读取的、本进程 actor 在访问登记中的 actor 操作集合（`frozenset[WorkspaceOperation]`），空白名单得到空集合。它只描述执行者能做什么，供执行者生成提示词与执行策略（Alice 翻译为 MTP 动词，外部执行者的工具列表由其适配器翻译），不是授权依据：每个操作请求仍由 actor API 按访问登记即时授权。
 

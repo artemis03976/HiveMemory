@@ -187,7 +187,6 @@ class CPUAllocator:
             user_message=user_message,
             agent_profile=agent_profile,
             allowed_operations=allowed_operations,
-            memories=memories,
             language=prompt.language,
             instructions=prompt.instructions,
             turn_context=prompt.turn_context,

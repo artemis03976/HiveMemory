@@ -23,15 +23,10 @@ from hivememory.core.access import WorkspaceOperation
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import (
     AgentProfile,
-    IndexLayer,
-    MemoryAtom,
-    MemoryType,
-    PayloadLayer,
 )
 from hivememory.workspace.contracts import CPUExecutionStatus
 from tests.helpers.alice import build_run_service, stream_run
 from tests.helpers.chat_handoff import make_input_manifest
-from tests.helpers.memory import make_memory_metadata
 from tests.helpers.sessions import make_conversation_turn
 from tests.helpers.workspace import make_execution_labels
 
@@ -152,26 +147,7 @@ async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(
     assert recorder.events[-1].event_type == "agent.run.completed"
 
 
-def _build_memory_atom() -> MemoryAtom:
-    return MemoryAtom(
-        meta=make_memory_metadata(
-            source_agent_id="agent-1",
-            user_id="u1",
-            confidence_score=0.9,
-        ),
-        index=IndexLayer(
-            title="test memory",
-            summary="summary text",
-            tags=["tag"],
-            memory_type=MemoryType.FACT,
-            alias="mem_alias",
-        ),
-        payload=PayloadLayer(content="memory content"),
-    )
-
-
 def _build_input_manifest(
-    memory: MemoryAtom,
     *,
     labels=None,
     agent_profile=None,
@@ -187,7 +163,6 @@ def _build_input_manifest(
         process_id=process_id,
         topic_id="topic_1",
         user_message="hello",
-        memories=[memory],
         turn_context="ctx",
     )
 
@@ -205,8 +180,7 @@ def _stub_terminal_execution(
 async def test_run_agent_passes_input_and_submitter_to_root_frame():
     """CPU 交付的提交函数随 root frame 进入执行层，预检索内容仍进入提示词。"""
     runtime, service = build_run_service()
-    memory = _build_memory_atom()
-    context = _build_input_manifest(memory).model_copy(
+    context = _build_input_manifest().model_copy(
         update={
             "session_history": (
                 make_conversation_turn(
@@ -264,7 +238,6 @@ async def test_root_policy_and_prompt_follow_manifest_operations(run_to_terminal
     """根 frame 的策略与教学由清单的操作快照翻译，系统工具菜单不受操作集合裁剪。"""
     runtime, service = build_run_service()
     manifest = _build_input_manifest(
-        _build_memory_atom(),
         allowed_operations=frozenset(
             {WorkspaceOperation.MEMORY_READ, WorkspaceOperation.AGENT_CALL}
         ),
@@ -308,7 +281,6 @@ async def test_registered_labels_drive_runtime_events_and_profile_controls_strea
     recorder = RecordingRuntimeEventSink()
     _runtime, service = build_run_service(runtime_events=recorder)
     manifest = _build_input_manifest(
-        _build_memory_atom(),
         labels=make_execution_labels(
             agent_id="registered_agent", workspace_id="isolation_workspace"
         ),
@@ -356,7 +328,7 @@ async def test_registered_labels_drive_runtime_events_and_profile_controls_strea
 async def test_run_agent_correlates_runtime_scope_and_process_id():
     recorder = RecordingRuntimeEventSink()
     runtime, service = build_run_service(runtime_events=recorder)
-    context = _build_input_manifest(_build_memory_atom(), process_id="process-1")
+    context = _build_input_manifest(process_id="process-1")
     _stub_terminal_execution(runtime)
     created_sessions = []
     create_run_session = service._create_run_session
@@ -379,7 +351,7 @@ async def test_run_agent_correlates_runtime_scope_and_process_id():
 async def test_run_agent_failed_result_emits_failed_runtime_event():
     recorder = RecordingRuntimeEventSink()
     runtime, service = build_run_service(runtime_events=recorder)
-    context = _build_input_manifest(_build_memory_atom())
+    context = _build_input_manifest()
     _stub_terminal_execution(runtime, FrameExecutionStatus.FAILED)
 
     result = await service.run_agent(
@@ -395,8 +367,7 @@ async def test_run_agent_failed_result_emits_failed_runtime_event():
 @pytest.mark.asyncio
 async def test_run_agent_stream_returns_completed_root_frame():
     runtime, service = build_run_service()
-    memory = _build_memory_atom()
-    context = _build_input_manifest(memory)
+    context = _build_input_manifest()
     _stub_terminal_execution(runtime)
 
     events = [event async for event in stream_run(service, context, submit_operation=MagicMock())]
@@ -409,7 +380,7 @@ async def test_run_agent_stream_returns_completed_root_frame():
 async def test_run_agent_stream_close_emits_cancelled_runtime_event():
     recorder = RecordingRuntimeEventSink()
     runtime, service = build_run_service(runtime_events=recorder)
-    context = _build_input_manifest(_build_memory_atom())
+    context = _build_input_manifest()
 
     async def _run_frame(_frame, *, output_sink, **_kwargs):
         await output_sink.send(TokenDelta(content="hi"))
@@ -432,7 +403,7 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
 async def test_run_agent_stream_error_preserves_failed_runtime_event():
     recorder = RecordingRuntimeEventSink()
     runtime, service = build_run_service(runtime_events=recorder)
-    context = _build_input_manifest(_build_memory_atom())
+    context = _build_input_manifest()
     runtime.run_frame = AsyncMock(side_effect=RuntimeError("network unavailable"))
 
     with pytest.raises(RuntimeError, match="network unavailable"):
@@ -477,7 +448,7 @@ async def test_unified_entry_stream_and_once_agree_on_terminal_outcome():
         event
         async for event in stream_run(
             stream_service,
-            _build_input_manifest(_build_memory_atom(), process_id="process-unified"),
+            _build_input_manifest(process_id="process-unified"),
             submit_operation=MagicMock(),
         )
     ]
@@ -488,7 +459,7 @@ async def test_unified_entry_stream_and_once_agree_on_terminal_outcome():
     once_runtime.run_frame = _scripted_run_frame
 
     result = await once_service.run_agent(
-        _build_input_manifest(_build_memory_atom(), process_id="process-unified"),
+        _build_input_manifest(process_id="process-unified"),
         run_output=NullRunOutput(),
         submit_operation=MagicMock(),
     )
@@ -517,7 +488,7 @@ async def test_non_streaming_cancellation_publishes_cancelled_runtime_event():
     """统一入口后，非流式被取消同样发布 agent.run.cancelled（观测语义与流式一致）。"""
     recorder = RecordingRuntimeEventSink()
     runtime, service = build_run_service(runtime_events=recorder)
-    context = _build_input_manifest(_build_memory_atom())
+    context = _build_input_manifest()
     started = asyncio.Event()
 
     async def _run_frame(_frame, **_kwargs):
@@ -636,7 +607,7 @@ async def test_cancel_in_call_keeps_root_call_without_child_partial_text(monkeyp
     slot = CPUResultSlot()
     stream = stream_run(
         service,
-        _build_input_manifest(_build_memory_atom()),
+        _build_input_manifest(),
         submit_operation=StubOperationSubmitter(derive=derive),
         result_slot=slot,
     )

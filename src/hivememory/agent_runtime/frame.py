@@ -102,6 +102,9 @@ class ExecutionFrame:
 
     # 每帧使用所属线程的提交函数；线程 context 由 CPU 驱动绑定。
     submit_operation: OperationSubmitter
+    # 本帧的已解析语言：MTP 回填、错误与 CALL 响应沿用它，与提示词保持一致，
+    # 不在执行中从 Profile 或进程默认值重新推导。
+    language: str
 
     harvested_aliases: list[str] = field(default_factory=list)
 

@@ -14,7 +14,7 @@ last_reviewed: 2026-10-17
 
 当前记录：
 
-- [v0.7.0 提示词编译前移至任务进程](./v0.7.0-cpu-prompt-compilation.md)：2026-10-17 两阶段验收与 code review 后归档；进程编译中立提示词，Alice 原样布局固定文本并直接组装 CALL 子帧，删除重复上下文与旧组装器。根帧 288 组迁移检查仅有约定离线通知差异，子帧 144 组逐字一致；后端 2830 passed、2 skipped，覆盖率 93.55%，HTTP E2E 9 passed。阶段一 `66d9f93f`，阶段二与事实文档收尾随后一并提交，未发布；当前事实见[CPU 契约](../../contracts/subsystem-contracts.md#41-cpu-端口)、[System 应用服务](../../system/application-services.md#31-非流式链路)与[Agent Runtime](../../alice/agent-runtime.md#3-输入上下文与-prompt-组装)。
+- [v0.7.0 提示词编译前移至任务进程](./v0.7.0-cpu-prompt-compilation.md)：2026-10-17 两阶段验收与 code review 后归档；进程编译中立提示词，Alice 原样布局固定文本并直接组装 CALL 子帧，删除重复上下文与旧组装器。根帧 288 组迁移检查仅有约定离线通知差异，子帧 144 组逐字一致；后端 2830 passed、2 skipped，覆盖率 93.55%，HTTP E2E 9 passed。阶段一 `66d9f93f`，阶段二与事实文档收尾 `789054f4`，收尾审查修正随后提交，未发布；当前事实见[CPU 契约](../../contracts/subsystem-contracts.md#41-cpu-端口)、[System 应用服务](../../system/application-services.md#31-非流式链路)与[Agent Runtime](../../alice/agent-runtime.md#3-输入上下文与-prompt-组装)。
 
 - [v0.7.0 Alice 与 agent_runtime 结构重构](./v0.7.0-alice-agent-runtime-restructure.md)：2026-10-17 三阶段实现、验收与 code review 后归档；Alice 按依赖方向分层，内核工厂与包根公开接口统一，CPU 直接调用运行服务并交付类型化终态。阶段一、二提交为 `e5f6e349`、`d6ecaafb`，阶段三、收尾审查修正与事实文档收尾一并提交为 `b4f72840`；未发布。当前事实见 [Alice](../../alice/README.md)、[Agent Runtime](../../alice/agent-runtime.md)与[CPU 契约](../../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)。
 - [v0.7.0 Alice 会话压缩](./v0.7.0-alice-session-compaction.md)：2026-10-17 四阶段实现、确定性验收与 code review 完成；模型预算、工具减重、增量摘要、会话检查点、轮内守卫与前端标记；审阅后修复 RUN 减重变长、摘要分批开销、检查点格式衔接、关闭压缩时的失败原因与失败工具的引用线索。后端 2817 passed、2 skipped，覆盖率 93.51%；HTTP E2E 9 passed、前端会话测试 18 passed。真实 LLM 摘要质量未验证，未发布；当前事实见 [Agent Runtime](../../alice/agent-runtime.md)、[Workspace](../../architecture/workspace.md)和 [Chat 视图](../../frontend/chat-view.md)。

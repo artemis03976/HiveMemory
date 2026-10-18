@@ -125,10 +125,7 @@ class AgentRuntime:
         ):
             raise ValueError(f"CALL response was already applied: action_id={action_id}")
 
-        formatted_response = MTPFormatter.format_call_response(
-            response,
-            getattr(frame.agent_profile, "language", None),
-        )
+        formatted_response = MTPFormatter.format_call_response(response, frame.language)
         assistant_text = suspension.suspend_assistant_text or ""
         frame.working_history.append({"role": "assistant", "content": assistant_text})
         frame.working_history.append({"role": "user", "content": formatted_response})

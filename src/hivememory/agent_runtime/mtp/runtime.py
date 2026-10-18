@@ -11,7 +11,6 @@ from typing import TYPE_CHECKING, Protocol
 from hivememory.agent_runtime.mtp.context import (
     MTPExecutionContext,
     MTPExecutionResult,
-    resolve_context_language,
 )
 from hivememory.agent_runtime.mtp.verbs.call import handle_call
 from hivememory.agent_runtime.mtp.verbs.read import handle_read
@@ -166,7 +165,7 @@ class KoakumaRuntime:
         start_time = time.time()
 
         try:
-            language = resolve_context_language(context)
+            language = context.language
             # Step 1: 解析
             command = self._parser.parse(text)
 
@@ -193,7 +192,7 @@ class KoakumaRuntime:
 
         except MTPParseError as e:
             elapsed = (time.time() - start_time) * 1000
-            language = resolve_context_language(context)
+            language = context.language
             error_response = MTPResponse(
                 status=MTPResponseStatus.ERROR,
                 content="",

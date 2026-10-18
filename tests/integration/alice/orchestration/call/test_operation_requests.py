@@ -57,6 +57,7 @@ async def test_callee_frame_uses_callee_verbs_without_call():
             allowed_operations={WorkspaceOperation.MEMORY_READ, WorkspaceOperation.AGENT_CALL},
             callee_operations={WorkspaceOperation.MEMORY_WRITE, WorkspaceOperation.AGENT_CALL},
         ),
+        language="zh",
     )
     config = AliceConfig()
     runtime = build_agent_runtime(
@@ -110,6 +111,7 @@ async def test_callee_submits_with_own_thread_context_and_keeps_callee_as_intent
         working_history=[{"role": "user", "content": "委托写入"}],
         topic_id="topic-parent",
         submit_operation=submit_operation,
+        language="zh",
     )
     config = AliceConfig()
     runtime = build_agent_runtime(
@@ -147,6 +149,7 @@ async def test_callee_submits_with_own_thread_context_and_keeps_callee_as_intent
             ),
             runtime_scope=child.runtime_scope,
             submit_operation=child.submit_operation,
+            language="zh",
         ),
     )
     assert write.response_status == "ack"
@@ -161,6 +164,7 @@ async def test_callee_submits_with_own_thread_context_and_keeps_callee_as_intent
             ),
             runtime_scope=scope,
             submit_operation=caller.submit_operation,
+            language="zh",
         ),
     )
     assert read.response_status == "success"

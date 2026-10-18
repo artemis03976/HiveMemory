@@ -14,6 +14,7 @@ def test_frame_with_topic_is_not_transient() -> None:
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "system", "content": "test"}],
         topic_id="topic-123",
+        language="zh",
     )
 
     assert not frame.is_transient()
@@ -29,6 +30,7 @@ def test_transient_frame_is_a_normal_frame_without_parent_metadata() -> None:
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[{"role": "user", "content": "write tests"}],
         topic_id=None,
+        language="zh",
     )
 
     assert frame.is_transient()
@@ -44,6 +46,7 @@ def test_harvest_alias_deduplicates() -> None:
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[],
         topic_id=None,
+        language="zh",
     )
     frame.add_harvested_alias("mem-code-1")
     frame.add_harvested_alias("mem-code-2")

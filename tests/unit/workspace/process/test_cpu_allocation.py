@@ -338,7 +338,6 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
     assert profile.persona == "allocated-persona"
     assert manifest.user_message == "问题"
     assert manifest.topic_id == "topic-1"
-    assert manifest.memories == []
     assert manifest.language == "zh"
     assert manifest.instructions == (
         "[系统通知] 记忆存储当前离线。依赖记忆存储的操作将失败。"
@@ -398,7 +397,7 @@ async def test_manifest_labels_match_registration_and_process_event_labels() -> 
 
 @pytest.mark.asyncio
 async def test_manifest_turn_context_is_process_compiled_from_prepare_retrieval() -> None:
-    """记忆段由进程对 prepare 返回的原始原子编译得到，memories 保持原始。"""
+    """记忆段由进程对 prepare 返回的原始原子编译得到；原子本身不进入清单。"""
     bus = GlobalSystemBus()
     atoms = [_memory_atom("部署手册"), _memory_atom("发布记录")]
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
@@ -411,7 +410,6 @@ async def test_manifest_turn_context_is_process_compiled_from_prepare_retrieval(
     await _run_once(composition, service, "问题", process_id="process-compile")
 
     manifest = cpu.calls[0].manifest
-    assert manifest.memories == atoms
     assert "部署手册" in manifest.turn_context
     assert "发布记录" in manifest.turn_context
 

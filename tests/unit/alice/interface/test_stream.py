@@ -29,6 +29,7 @@ def _frame() -> ExecutionFrame:
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[],
         topic_id="topic-1",
+        language="zh",
     )
 
 

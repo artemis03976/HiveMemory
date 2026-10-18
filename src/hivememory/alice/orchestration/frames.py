@@ -27,6 +27,7 @@ class FrameSpec:
     topic_id: str | None
     execution_policy: FrameExecutionPolicy
     submit_operation: OperationSubmitter
+    language: str
 
 
 class FrameFactory:
@@ -44,6 +45,7 @@ class FrameFactory:
             topic_id=spec.topic_id,
             execution_policy=spec.execution_policy,
             submit_operation=spec.submit_operation,
+            language=spec.language,
             progress=self._initial_progress(spec.messages),
         )
 

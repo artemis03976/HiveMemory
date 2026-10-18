@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 
-from hivememory.agent_runtime.mtp.context import MTPExecutionContext, resolve_context_language
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.core.errors import PendingUpdateNotAllowedError, ResourceNotFoundError
 from hivememory.core.mtp import (
     MTPCommand,
@@ -79,7 +79,7 @@ async def handle_update(
         content=get_mtp_info_text(
             "mtp.update.ack",
             {"base_alias": alias, "pending_alias": pending.pending_alias},
-            resolve_context_language(context),
+            context.language,
         ),
         pending_alias=pending.pending_alias,
     )

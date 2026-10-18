@@ -21,6 +21,7 @@ def test_frame_factory_creates_root_frame_from_spec() -> None:
             messages=[{"role": "system", "content": "hello"}],
             topic_id="topic-1",
             execution_policy=FrameExecutionPolicy(permitted_verbs=frozenset()),
+            language="zh",
         )
     )
 
@@ -45,6 +46,7 @@ def test_frame_factory_creates_transient_frame_with_same_run_id() -> None:
                 {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"},
                 denied_verbs={"CALL"},
             ),
+            language="zh",
         )
     )
 
@@ -78,6 +80,7 @@ def test_frame_factory_records_only_latest_user_message() -> None:
             messages=messages,
             topic_id="topic-1",
             execution_policy=FrameExecutionPolicy(permitted_verbs=frozenset()),
+            language="zh",
         )
     )
 
@@ -104,6 +107,7 @@ def test_frame_factory_does_not_record_empty_latest_user_message() -> None:
             ],
             topic_id="topic-1",
             execution_policy=FrameExecutionPolicy(permitted_verbs=frozenset()),
+            language="zh",
         )
     )
 

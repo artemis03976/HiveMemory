@@ -15,6 +15,7 @@ def _context(*, allow_call: bool) -> MTPExecutionContext:
         submit_operation=StubOperationSubmitter(),
         runtime_scope=make_runtime_scope(run_id="run-1", frame_id="frame-1"),
         execution_policy=FrameExecutionPolicy.from_verbs({"CALL"} if allow_call else set()),
+        language="zh",
     )
 
 

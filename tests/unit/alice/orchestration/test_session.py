@@ -19,6 +19,7 @@ def _frame(run_id: str, frame_id: str, policy: FrameExecutionPolicy) -> Executio
             messages=[],
             topic_id=None,
             execution_policy=policy,
+            language="zh",
         )
     )
 

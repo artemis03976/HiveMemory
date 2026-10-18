@@ -231,7 +231,7 @@ class TaskProcessRunner:
 
             # ---- prepare 与 CPU 分配：不可中断，进入 Actor 前统一检查 stop ----
             prepared, manifest = await self._prepare_and_allocate(process, gateway_result.decision)
-            yield InputsAllocated(prepared=prepared, manifest=manifest)
+            yield InputsAllocated(prepared=prepared)
 
             # ---- Actor 执行：可被 stop 中断；流式逐条转交交互事件 ----
             record.enter_phase(ProcessPhase.ACTOR)

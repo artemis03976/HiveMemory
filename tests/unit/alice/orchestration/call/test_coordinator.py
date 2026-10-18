@@ -35,7 +35,11 @@ from hivememory.config.alice import KoakumaConfig, MTPPromptConfig
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import OMNI_DOLL_PROFILE, AgentProfile, TurnEvent
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
-from hivememory.core.mtp.exceptions import PermissionDeniedError, SystemFault
+from hivememory.core.mtp.exceptions import (
+    PermissionDeniedError,
+    SubAgentBudgetExhaustedError,
+    SystemFault,
+)
 from hivememory.i18n import get_default_language, set_default_language
 from tests.helpers.call import StubOperationSubmitter, make_call_context
 from tests.helpers.workspace import make_runtime_scope
@@ -61,6 +65,7 @@ def _frame(
         agent_profile=OMNI_DOLL_PROFILE,
         working_history=[],
         topic_id="topic-1",
+        language="zh",
     )
     frame.progress.turn_events.append(
         TurnEvent(
@@ -180,6 +185,8 @@ async def test_callee_prompt_uses_own_language_persona_and_policy(
         f"\n\n{persona_header}\n\n  子 Agent 人设\n\n\n\n[共享上下文]\n原文  "
     )
     assert frame.execution_policy.permitted_verbs == frozenset({"WRITE", "RUN"})
+    # 子帧执行期的 MTP 回填沿用提示词使用的同一语言。
+    assert frame.language == ("zh" if profile_language == "zh" else "en")
     assert "- WRITE:" in system_prompt
     assert "- RUN:" in system_prompt
     assert "CALL" not in system_prompt
@@ -256,6 +263,27 @@ def test_apply_call_response_is_exactly_once_and_updates_call_pair():
     assert frame.harvested_aliases == ["draft-1"]
     with pytest.raises(ValueError, match="already applied"):
         runtime.apply_call_response(frame, suspension, response)
+
+
+def test_apply_call_response_formats_with_frame_language_not_profile_language():
+    """CALL 响应按帧的已解析语言回填；Profile 的语言设置不再参与执行期渲染。"""
+    runtime = AgentRuntime(
+        mtp_executor=MagicMock(),
+        runtime_config=MagicMock(),
+        loop_executor=MagicMock(),
+    )
+    frame = _frame()
+    frame.language = "en"
+    response = MTPCallResponse(
+        status=MTPResponseStatus.ERROR,
+        agent_alias="helper",
+        error=SubAgentBudgetExhaustedError(params={"agent_alias": "helper"}).to_error_info(),
+    )
+
+    runtime.apply_call_response(frame, _suspension(), response)
+
+    assert frame.agent_profile.language == "zh"
+    assert "exhausted its iteration budget" in frame.working_history[-1]["content"]
 
 
 @pytest.mark.parametrize("action_id", ["wrong", None])

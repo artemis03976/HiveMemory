@@ -115,6 +115,7 @@ async def _write(chain):
             ),
             runtime_scope=make_runtime_scope(),
             submit_operation=chain.submit,
+            language="zh",
         ),
     )
 
@@ -303,6 +304,7 @@ async def test_update_base_disappearing_before_generation_returns_rejection(chai
             ),
             runtime_scope=make_runtime_scope(),
             submit_operation=chain.submit,
+            language="zh",
         ),
     )
     assert result.response_status == "error"

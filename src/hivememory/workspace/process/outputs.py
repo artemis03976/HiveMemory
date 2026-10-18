@@ -13,7 +13,7 @@ from typing import Any, Literal
 from hivememory.core.models import MemoryAtom
 from hivememory.core.protocol.gateway import CommandExecutionResult
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.workspace.contracts import CPUExecutionResult, CPUInputManifest
+from hivememory.workspace.contracts import CPUExecutionResult
 
 # ========== 阶段产出 ==========
 
@@ -25,10 +25,9 @@ class ProcessStarted:
 
 @dataclass(frozen=True, slots=True)
 class InputsAllocated:
-    """CPU 分配成功且进入 Actor 前未被停止。"""
+    """CPU 分配成功且进入 Actor 前未被停止；引用投影取自 prepare 的检索结果。"""
 
     prepared: PreparedAgentRun
-    manifest: CPUInputManifest
 
 
 @dataclass(frozen=True, slots=True)
@@ -125,13 +124,12 @@ def stream_events(
                     "data": {"process_id": process_id, "session_id": session_id},
                 }
             ]
-        case InputsAllocated(manifest=manifest):
+        case InputsAllocated(prepared=prepared):
+            memories = prepared.retrieval_result.memories
             return [
                 {
                     "event": "memory_refs",
-                    "data": {
-                        "memories": [_memory_ref_from_atom(memory) for memory in manifest.memories]
-                    },
+                    "data": {"memories": [_memory_ref_from_atom(memory) for memory in memories]},
                 },
             ]
         case ActorEvent(event=event):

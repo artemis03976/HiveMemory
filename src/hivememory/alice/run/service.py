@@ -25,7 +25,7 @@ from hivememory.alice.orchestration.verbs import mtp_verbs_for_operations
 from hivememory.alice.run.output import RunOutput
 from hivememory.alice.run.result import assemble_execution_result, publish_terminal, stats_for
 from hivememory.config.alice import CompactionConfig, KoakumaConfig
-from hivememory.core.models import OMNI_DOLL_PROFILE, AgentProfile, ExecutionLabels
+from hivememory.core.models import AgentProfile, ExecutionLabels
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
@@ -118,6 +118,7 @@ class AgentRunService:
                 topic_id=input_manifest.topic_id,
                 session=preparation.session,
                 agent_profile=input_manifest.agent_profile,
+                language=input_manifest.language,
                 permitted_verbs=preparation.permitted_verbs,
             )
             frame.resolved_model = inputs.model
@@ -180,12 +181,12 @@ class AgentRunService:
         submit_operation: OperationSubmitter,
         labels: ExecutionLabels,
         topic_id: str,
-        agent_profile: AgentProfile | None,
+        agent_profile: AgentProfile,
+        language: str,
         permitted_verbs: frozenset[str],
         session: RunSession,
     ) -> ExecutionFrame:
-        """按提示词使用的同一动词集合，创建并登记当前 run 的唯一 root frame。"""
-        profile = agent_profile or OMNI_DOLL_PROFILE
+        """按提示词使用的同一动词集合与语言，创建并登记当前 run 的唯一 root frame。"""
         policy = FrameExecutionPolicy.from_verbs(
             permitted_verbs,
         )
@@ -195,11 +196,12 @@ class AgentRunService:
                     labels=labels,
                     run_id=session.agent_run_id,
                 ),
-                profile=profile,
+                profile=agent_profile,
                 messages=messages,
                 topic_id=topic_id or "",
                 execution_policy=policy,
                 submit_operation=submit_operation,
+                language=language,
             )
         )
         session.register_root_frame(frame)

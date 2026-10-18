@@ -8,7 +8,6 @@ from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import (
     AgentProfile,
     ExecutionLabels,
-    MemoryAtom,
 )
 from hivememory.core.protocol.models import ConversationTurn, SessionCompactionCheckpoint
 
@@ -18,7 +17,8 @@ class CPUInputManifest(BaseModel):
 
     Profile 解析、附件租借与提示词编译都在进程侧完成。CPU 将人格、环境
     通知与本轮材料视为不透明文本，只负责布局与自身的工具教学、历史管理；
-    Profile 供模型参数与展示使用，检索原子供进程投影引用事件使用。
+    Profile 供模型参数与展示使用。检索原子只在进程内使用（编译与引用投影），
+    不进入清单。
 
     ``topic_id`` 只用于根帧挂载与观测；历史来自当前会话，Topic 不提供对话上下文。
     """
@@ -33,10 +33,6 @@ class CPUInputManifest(BaseModel):
     agent_profile: AgentProfile = Field(description="CPU 分配时经阶段授权与读取视图解析的 Profile")
     allowed_operations: frozenset[WorkspaceOperation] = Field(
         description="CPU 分配时的 actor 操作快照，只供提示词与执行策略使用，不作为授权依据",
-    )
-    memories: list[MemoryAtom] = Field(
-        default_factory=list,
-        description="未编译的检索结果原子（prepare 返回的原始列表）",
     )
     language: str = Field(description="进程解析好的提示词语言，CPU 的教学与摘要沿用此语言")
     instructions: str = Field(description="进程定稿的环境通知与人格段；无内容时为空字符串")
