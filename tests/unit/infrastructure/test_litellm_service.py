@@ -31,30 +31,16 @@ def _response(
     )
 
 
-@pytest.fixture(autouse=True)
-def _reset_litellm_singleton():
-    """单例类变量在测试间隔离，避免工厂测试互相污染。"""
-    LiteLLMService._instance = None
-    LiteLLMService._initialized = False
-    yield
-    LiteLLMService._instance = None
-    LiteLLMService._initialized = False
-
-
 def _service() -> LiteLLMService:
-    service = LiteLLMService.__new__(LiteLLMService)
-    service._initialized = False
-    LiteLLMService.__init__(
-        service,
+    return LiteLLMService(
         LLMConfig(
             model="mock-model",
             api_key="test-key",
             api_base="https://example.invalid",
             temperature=0.1,
             max_tokens=100,
-        ),
+        )
     )
-    return service
 
 
 def _config() -> LLMConfig:
@@ -493,6 +479,26 @@ class TestFactories:
     def test_librarian_service_requires_explicit_config(self):
         with pytest.raises(ValueError, match="config is required"):
             get_librarian_llm_service(None)
+
+    def test_gateway_and_librarian_services_keep_their_own_configuration(self):
+        """先构造的服务不能决定后构造服务的模型、凭证与采样参数。"""
+        gateway = get_gateway_llm_service(
+            LLMConfig(model="gateway-model", api_key="gateway-key", temperature=0.2)
+        )
+        librarian = get_librarian_llm_service(
+            LLMConfig(model="librarian-model", api_key="librarian-key", temperature=0.7)
+        )
+
+        assert (gateway.model, gateway.api_key, gateway.temperature) == (
+            "gateway-model",
+            "gateway-key",
+            0.2,
+        )
+        assert (librarian.model, librarian.api_key, librarian.temperature) == (
+            "librarian-model",
+            "librarian-key",
+            0.7,
+        )
 
 
 @pytest.mark.asyncio

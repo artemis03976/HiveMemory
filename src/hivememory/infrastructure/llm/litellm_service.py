@@ -10,7 +10,7 @@ from typing import Any
 import litellm
 
 from hivememory.config.shared import LLMConfig
-from hivememory.infrastructure.llm.base import SingletonLLMService
+from hivememory.infrastructure.llm.base import ConfiguredLLMService
 
 logger = logging.getLogger(__name__)
 
@@ -23,7 +23,7 @@ def _response_text(response: Any, model: str | None) -> str:
     return content
 
 
-class LiteLLMService(SingletonLLMService):
+class LiteLLMService(ConfiguredLLMService):
     """
     LiteLLM 服务实现
 
@@ -360,7 +360,7 @@ def get_librarian_llm_service(
     config: LLMConfig,
 ) -> LiteLLMService:
     """
-    获取 Librarian LLM 服务实例（单例）
+    获取 Librarian LLM 服务实例
 
     用于记忆提取等任务。
 
