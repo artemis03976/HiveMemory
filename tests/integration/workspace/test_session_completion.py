@@ -167,15 +167,14 @@ async def test_output_with_each_outcome_is_submitted_before_terminal(status):
 @pytest.mark.asyncio
 async def test_alice_context_guard_seals_tool_output_as_failed_turn(tmp_path, monkeypatch):
     """真实 Alice 读入大文件后由守卫结束，经 CPU 端口保留 failed 会话和工具原文。"""
-    from hivememory.agent_runtime.execution.worker import WorkerAgentService
-    from hivememory.agent_runtime.models import GenerationResult, StreamChunk
+    from hivememory.agent_runtime.model.client import GenerationResult, LLMClient, StreamChunk
     from hivememory.alice.system import AliceSystem
-    from hivememory.config.alice import AliceConfig, CompactionConfig
+    from hivememory.config.alice import AgentRuntimeConfig, AliceConfig
     from tests.helpers.operations import OperationsHarness
 
     content = "x" * 20000
     (tmp_path / "large.txt").write_text(content)
-    config = AliceConfig(compaction=CompactionConfig(default_context_window=36000, safety_margin=0))
+    config = AliceConfig(runtime=AgentRuntimeConfig(default_context_window=36000, safety_margin=0))
     config.koakuma.workspace_path = str(tmp_path)
     config.koakuma.mtp_prompt.enabled = False
     calls = []
@@ -188,8 +187,8 @@ async def test_alice_context_guard_seals_tool_output_as_failed_turn(tmp_path, mo
             result=GenerationResult(text=text, was_mtp_interrupted=True, mtp_fragment=text),
         )
 
-    monkeypatch.setattr(WorkerAgentService, "generate_stream", generate)
-    alice = AliceSystem(config, GlobalSystemBus(), operation_entry=OperationsHarness().entry)
+    monkeypatch.setattr(LLMClient, "generate_stream", generate)
+    alice = AliceSystem(config, operation_entry=OperationsHarness().entry)
     await alice.start()
     try:
         service, handle, sessions, workspace, probe = await completion_chain(alice.cpu_port)
@@ -501,3 +500,22 @@ async def test_cancellation_while_closing_cpu_preserves_delivered_checkpoint_wit
     assert [turn.interaction_id for turn in saved.turns] == ["old"]
     assert saved.active_process_id is None
     assert probe.submitted == []
+
+
+@pytest.mark.asyncio
+async def test_unavailable_alice_fails_process_and_releases_prepared_resources():
+    """CPU 未启动时执行失败仍补偿 prepare、释放会话，并且不提交交互。"""
+    from hivememory.alice import AliceSystem
+    from hivememory.config.alice import AliceConfig
+    from tests.helpers.operations import OperationsHarness
+
+    alice = AliceSystem(AliceConfig(), operation_entry=OperationsHarness().entry)
+    service, handle, sessions, workspace, probe = await completion_chain(alice.cpu_port)
+    events = [event async for event in service.run_process(handle, stream=True)]
+    assert events[-1] == {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
+    saved = sessions.get(workspace, handle.session_id)
+    assert saved.turns == ()
+    assert saved.active_process_id is None
+    assert probe.cleaned == [handle.process_id]
+    assert probe.submitted == []
+    assert service.cancel_process(handle).status == "not_found"

@@ -1,0 +1,115 @@
+from __future__ import annotations
+
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
+from hivememory.alice.orchestration.frames import FrameFactory, FrameSpec
+from hivememory.core.models import OMNI_DOLL_PROFILE
+from tests.helpers.call import StubOperationSubmitter
+from tests.helpers.workspace import make_execution_labels
+
+
+def test_frame_factory_creates_root_frame_from_spec() -> None:
+    factory = FrameFactory()
+    frame = factory.create(
+        FrameSpec(
+            submit_operation=StubOperationSubmitter(),
+            runtime_scope=factory.scope(
+                labels=make_execution_labels(),
+                run_id="run-1",
+                frame_id="frame-1",
+            ),
+            profile=OMNI_DOLL_PROFILE,
+            messages=[{"role": "system", "content": "hello"}],
+            topic_id="topic-1",
+            execution_policy=FrameExecutionPolicy(permitted_verbs=frozenset()),
+            language="zh",
+        )
+    )
+
+    assert frame.progress.turn_events == []
+    assert frame.progress.sequence == 0
+
+
+def test_frame_factory_creates_transient_frame_with_same_run_id() -> None:
+    factory = FrameFactory()
+    frame = factory.create(
+        FrameSpec(
+            submit_operation=StubOperationSubmitter(),
+            runtime_scope=factory.scope(
+                labels=make_execution_labels(),
+                run_id="run-1",
+                frame_id="frame-2",
+            ),
+            profile=OMNI_DOLL_PROFILE,
+            messages=[{"role": "user", "content": "task"}],
+            topic_id=None,
+            execution_policy=FrameExecutionPolicy.from_verbs(
+                {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"},
+                denied_verbs={"CALL"},
+            ),
+            language="zh",
+        )
+    )
+
+    assert frame.is_transient()
+    assert frame.execution_policy.allows("READ")
+    assert not frame.execution_policy.allows("CALL")
+    assert [event.kind for event in frame.progress.turn_events] == ["user_message"]
+    assert frame.progress.turn_events[0].content == "task"
+    assert frame.progress.turn_events[0].sequence == 0
+    assert frame.progress.sequence == 1
+
+
+def test_frame_factory_records_only_latest_user_message() -> None:
+    factory = FrameFactory()
+    messages = [
+        {"role": "system", "content": "constraints"},
+        {"role": "user", "content": "previous"},
+        {"role": "assistant", "content": "old answer"},
+        {"role": "user", "content": "current"},
+    ]
+
+    frame = factory.create(
+        FrameSpec(
+            submit_operation=StubOperationSubmitter(),
+            runtime_scope=factory.scope(
+                labels=make_execution_labels(),
+                run_id="run-1",
+                frame_id="frame-3",
+            ),
+            profile=OMNI_DOLL_PROFILE,
+            messages=messages,
+            topic_id="topic-1",
+            execution_policy=FrameExecutionPolicy(permitted_verbs=frozenset()),
+            language="zh",
+        )
+    )
+
+    assert len(frame.progress.turn_events) == 1
+    assert frame.progress.turn_events[0].content == "current"
+    assert frame.progress.turn_events[0].sequence == 0
+    assert frame.progress.sequence == 1
+
+
+def test_frame_factory_does_not_record_empty_latest_user_message() -> None:
+    factory = FrameFactory()
+    frame = factory.create(
+        FrameSpec(
+            submit_operation=StubOperationSubmitter(),
+            runtime_scope=factory.scope(
+                labels=make_execution_labels(),
+                run_id="run-1",
+                frame_id="frame-4",
+            ),
+            profile=OMNI_DOLL_PROFILE,
+            messages=[
+                {"role": "user", "content": "previous"},
+                {"role": "user", "content": ""},
+            ],
+            topic_id="topic-1",
+            execution_policy=FrameExecutionPolicy(permitted_verbs=frozenset()),
+            language="zh",
+        )
+    )
+
+    assert frame.progress.turn_events == []
+    assert frame.progress.sequence == 0

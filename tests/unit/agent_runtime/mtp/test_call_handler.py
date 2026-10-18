@@ -2,17 +2,20 @@
 
 import pytest
 
-from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.core.mtp import MTPCallRequest
+from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.workspace import make_runtime_scope
 
 
 def _context(*, allow_call: bool) -> MTPExecutionContext:
     return MTPExecutionContext(
+        submit_operation=StubOperationSubmitter(),
         runtime_scope=make_runtime_scope(run_id="run-1", frame_id="frame-1"),
         execution_policy=FrameExecutionPolicy.from_verbs({"CALL"} if allow_call else set()),
+        language="zh",
     )
 
 

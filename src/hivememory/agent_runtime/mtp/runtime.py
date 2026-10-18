@@ -1,47 +1,31 @@
-"""
-小恶魔 (Koakuma) - MTP Runtime Service
-
-定位：MTP 协议的运行时执行器
-职责：
-    - MTP 指令解析 (委托给 MTPParser)
-    - 指令路由与分发 (提交操作请求，由 workspace 能力层执行)
-    - 响应格式化与回填
-    - 别名解析
-
-架构定位：
-    Koakuma 是 AliceRuntime 持有的 MTP / 工具执行运行时，
-    负责处理 Worker Agent 生成的 MTP 指令。它不管理 Agent
-    运行循环，也不保存交互 trace；frame 策略、观测标签与操作提交函数由
-    AgentRuntime 在执行时通过 MTPExecutionContext 传入。
-
-    AliceRuntime
-    ├── AgentRuntime (Agent 运行循环)
-    └── KoakumaRuntime (MTP / 工具执行)
-
-作者: HiveMemory Team
-版本: 1.0
-"""
+"""MTP 指令的解析、策略检查、动词分派与统一错误回填。"""
 
 from __future__ import annotations
 
 import logging
 import time
-from typing import TYPE_CHECKING, Any
+from collections.abc import Awaitable, Callable
+from functools import partial
+from typing import TYPE_CHECKING, Protocol
 
-from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.mtp.context import (
+    MTPExecutionContext,
+    MTPExecutionResult,
+)
+from hivememory.agent_runtime.mtp.verbs.call import handle_call
+from hivememory.agent_runtime.mtp.verbs.read import handle_read
+from hivememory.agent_runtime.mtp.verbs.run import handle_run
+from hivememory.agent_runtime.mtp.verbs.search import handle_search
+from hivememory.agent_runtime.mtp.verbs.update import handle_update
+from hivememory.agent_runtime.mtp.verbs.write import handle_write
 from hivememory.core.errors import (
     IntentDispatchRejectedError,
     IntentDispatchUnknownError,
     OperationDeniedError,
-    PendingUpdateNotAllowedError,
-    ResourceNotFoundError,
     ResourceUnavailableError,
-    ScopeRequiredError,
 )
-from hivememory.core.models import MemoryType, WriteFocus
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
-    MTPCallRequest,
     MTPCommand,
     MTPFilterParser,
     MTPFormatter,
@@ -50,62 +34,34 @@ from hivememory.core.mtp import (
     MTPResponse,
     MTPResponseStatus,
     MTPVerb,
-    MTPWarningInfo,
 )
 from hivememory.core.mtp.exceptions import (
-    AliasNotFoundError,
     BusRouteUnavailableError,
     InvalidArgumentError,
     MemoryIntentRejectedError,
     MemoryIntentUnknownError,
-    MemoryTypeMismatchError,
     MTPError,
     PermissionDeniedError,
     SystemFault,
 )
-from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.engines.memory_compiler import (
-    MemoryCompileOptions,
     MemoryCompiler,
-    MemoryCompileTarget,
-    MemoryEnvelopeTarget,
-)
-from hivememory.i18n.mtp_runtime import get_mtp_info_text
-from hivememory.i18n.resolver import resolve_language
-from hivememory.workspace.contracts import (
-    OperationSubmitter,
-    ResolveReferencesRequest,
-    ResolveRunTargetRequest,
-    RetrieveRequest,
-    SubmitUpdateIntentRequest,
-    SubmitWriteIntentRequest,
 )
 
 if TYPE_CHECKING:
     from hivememory.config.alice import KoakumaConfig
     from hivememory.config.memory_compiler import MemoryCompilerConfig
-    from hivememory.core.models import MemoryAtom
+
 
 logger = logging.getLogger(__name__)
 
 
-def _resolve_context_language(
-    context: MTPExecutionContext | None,
-) -> str:
-    """从 MTPExecutionContext 派生运行时语言。
+class MTPExecutor(Protocol):
+    """执行循环消费的 MTP 端口，由 Koakuma 直接满足。"""
 
-    优先级：context.language > agent_profile.language > i18n default
-    """
-    explicit = context.language if context is not None else None
-    profile_language = (
-        getattr(context.agent_profile, "language", None)
-        if context is not None and context.agent_profile is not None
-        else None
-    )
-    return resolve_language(
-        explicit=explicit,
-        profile_language=profile_language,
-    ).value
+    async def intercept_and_execute(
+        self, assistant_text: str, context: MTPExecutionContext
+    ) -> MTPExecutionResult | None: ...
 
 
 class KoakumaRuntime:
@@ -115,7 +71,7 @@ class KoakumaRuntime:
     无状态计算服务，负责 MTP 协议的解析、路由和执行。
 
     职责:
-        1. 接收已由 WorkerAgent 归一化的 MTP 输出文本
+        1. 接收已由 LLMClient 归一化的 MTP 输出文本
         2. 解析 MTP 指令
         3. 将资源操作请求提交给 workspace 能力层
         4. 格式化执行结果为 XML 响应容器
@@ -148,7 +104,7 @@ class KoakumaRuntime:
 
         # 初始化 sys_* 系统工具的 syscall 注册表
         # 硬编码的 sys_ 工具集，随系统启动加载，Zero Latency
-        from hivememory.agent_runtime.mtp.syscalls import build_syscall_registry
+        from hivememory.agent_runtime.tools import build_syscall_registry
 
         self._syscall_registry = build_syscall_registry(
             python_repl_timeout=self._config.python_repl_timeout_seconds,
@@ -167,7 +123,7 @@ class KoakumaRuntime:
     def _check_verb_permission(
         self,
         verb: str,
-        context: MTPExecutionContext | None = None,
+        context: MTPExecutionContext,
     ) -> None:
         """
         校验 frame 的 MTP 动词集合；资源授权仍由 Workspace 逐次执行。
@@ -178,8 +134,7 @@ class KoakumaRuntime:
         Raises:
             PermissionDeniedError: 当前人偶无权执行此动词
         """
-        policy = context.execution_policy if context is not None else None
-        if policy is not None and not policy.allows(verb):
+        if not context.execution_policy.allows(verb):
             raise PermissionDeniedError(
                 message_key="mtp.permission.verb_denied",
                 params={"verb": verb},
@@ -190,7 +145,7 @@ class KoakumaRuntime:
     async def execute_mtp(
         self,
         text: str,
-        context: MTPExecutionContext | None = None,
+        context: MTPExecutionContext,
     ) -> MTPExecutionResult:
         """
         执行 MTP 指令 (主入口)
@@ -208,11 +163,9 @@ class KoakumaRuntime:
             MTPExecutionResult: 执行结果
         """
         start_time = time.time()
-        if context is None:
-            raise ScopeRequiredError("MTP 执行缺少运行上下文")
 
         try:
-            language = _resolve_context_language(context)
+            language = context.language
             # Step 1: 解析
             command = self._parser.parse(text)
 
@@ -239,7 +192,7 @@ class KoakumaRuntime:
 
         except MTPParseError as e:
             elapsed = (time.time() - start_time) * 1000
-            language = _resolve_context_language(context)
+            language = context.language
             error_response = MTPResponse(
                 status=MTPResponseStatus.ERROR,
                 content="",
@@ -260,7 +213,7 @@ class KoakumaRuntime:
     async def intercept_and_execute(
         self,
         assistant_text: str,
-        context: MTPExecutionContext | None = None,
+        context: MTPExecutionContext,
     ) -> MTPExecutionResult | None:
         """
         拦截检测 + 执行（Stop Sequence 场景）
@@ -274,7 +227,7 @@ class KoakumaRuntime:
         3. 挂起 (Suspend): 暂停生成并执行指令
 
         Args:
-            assistant_text: 已由 WorkerAgent 补全右定界符的 LLM 输出文本
+            assistant_text: 已由 LLMClient 补全右定界符的 LLM 输出文本
 
         Returns:
             MTPExecutionResult 如果检测到指令，否则 None
@@ -290,13 +243,6 @@ class KoakumaRuntime:
             mtp_fragment,
             context=context,
         )
-
-    @staticmethod
-    def _operation_submitter(context: MTPExecutionContext) -> OperationSubmitter:
-        """取得 CPU 交付的提交函数；缺失时显式拒绝资源操作。"""
-        if context.submit_operation is None:
-            raise ScopeRequiredError("MTP 执行缺少操作提交函数")
-        return context.submit_operation
 
     # ========== 内部路由 ==========
 
@@ -317,13 +263,24 @@ class KoakumaRuntime:
         Returns:
             MTPResponse: 执行响应
         """
-        handlers = {
-            MTPVerb.SEARCH: self._handle_search,
-            MTPVerb.READ: self._handle_read,
-            MTPVerb.RUN: self._handle_run,
-            MTPVerb.WRITE: self._handle_write,
-            MTPVerb.UPDATE: self._handle_update,
-            MTPVerb.CALL: self._handle_call,  # 子代理调用
+        handlers: dict[
+            MTPVerb, Callable[[MTPCommand, MTPExecutionContext], Awaitable[MTPResponse]]
+        ] = {
+            MTPVerb.SEARCH: partial(
+                handle_search,
+                filter_parser=self._filter_parser,
+                compiler=self._compiler,
+                compiler_config=self._memory_compiler_config,
+            ),
+            MTPVerb.READ: partial(handle_read, compiler=self._compiler),
+            MTPVerb.RUN: partial(
+                handle_run,
+                syscall_registry=self._syscall_registry,
+                timeout_seconds=self._config.python_repl_timeout_seconds,
+            ),
+            MTPVerb.WRITE: handle_write,
+            MTPVerb.UPDATE: handle_update,
+            MTPVerb.CALL: handle_call,  # 子代理调用
         }
 
         handler = handlers.get(command.verb)
@@ -385,469 +342,5 @@ class KoakumaRuntime:
                 error=fault.to_error_info(),
             )
 
-    # ========== 指令处理器 ==========
 
-    async def _handle_search(
-        self,
-        command: MTPCommand,
-        context: MTPExecutionContext,
-    ) -> MTPResponse:
-        """
-        处理 SEARCH 指令
-
-        提交检索请求，经 workspace 授权与缓存预热后，
-        再通过 MemoryCompiler 编译为 Agent 可读文本。
-
-        Type A 数据类响应
-
-        Args:
-            command: SEARCH 指令 (target=*, args: query="...", filter="...")
-
-        Returns:
-            MTPResponse: 检索到的完整原子经 MemoryCompiler 编译后的上下文
-        """
-        query = command.args.get("query", "")
-        if not query:
-            raise InvalidArgumentError(message_key="mtp.search.missing_query")
-
-        # 解析 filter 参数
-        # 例如 filter="type:CODE" → QueryFilters(memory_type=CODE_SNIPPET)
-        # 宽容解析: 非法 filter 降级为 None，但返回警告
-        filter_str = command.args.get("filter", "")
-        parsed_filters, filter_warnings = (
-            self._filter_parser.parse(filter_str) if filter_str else (None, [])
-        )
-
-        # 让 StorageOfflineError / StorageReadError 继续向上传播到 _route_and_execute 统一处理；
-        # 能力层返回完整原子列表，filter 翻译与 MTP 输出编译留在协议边界。
-        memories = await self._operation_submitter(context)(
-            RetrieveRequest(
-                semantic_query=query,
-                filters=parsed_filters,
-            ),
-        )
-
-        if not memories:
-            return MTPResponse(
-                status=MTPResponseStatus.SUCCESS,
-                content="",
-                warnings=[
-                    MTPWarningInfo(message_key="mtp.search.no_memories_found"),
-                    *filter_warnings,
-                ],
-            )
-
-        content = self._compiler.compile(
-            memories,
-            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
-            MemoryCompileOptions(
-                retrieval_strategy_config=(
-                    self._memory_compiler_config.retrieval_context.strategy
-                    if self._memory_compiler_config is not None
-                    else None
-                ),
-            ),
-        ).text
-        response_warnings = list(filter_warnings)
-
-        return MTPResponse(
-            status=MTPResponseStatus.SUCCESS,
-            content=content,
-            warnings=response_warnings,
-        )
-
-    async def _handle_read(
-        self,
-        command: MTPCommand,
-        context: MTPExecutionContext,
-    ) -> MTPResponse:
-        """
-        处理 READ 指令
-
-        获取记忆原子的 Payload 内容。支持列表并行读取。
-
-        Type A 数据类响应
-
-        Args:
-            command: READ 指令 (target=alias 或 [alias1, alias2])
-
-        Returns:
-            MTPResponse: 记忆内容
-        """
-        if command.target.is_wildcard:
-            raise InvalidArgumentError(message_key="mtp.read.wildcard_not_supported")
-
-        aliases = command.target.aliases
-        if not aliases:
-            raise InvalidArgumentError(message_key="mtp.read.missing_alias")
-
-        resolved: list[tuple[str, MemoryAtom]] = []  # (alias, atom)
-        resolved_pending: list[tuple[str, Any]] = []  # (alias, PendingAtom)
-        resolved_redirects: list[tuple[str, Any]] = []  # (alias, ReferenceResolution)
-        resolved_terminal: list[tuple[str, Any]] = []  # (alias, ReferenceResolution)
-        unresolved: list[str] = []
-        results = await self._operation_submitter(context)(
-            ResolveReferencesRequest(aliases=tuple(aliases))
-        )
-        for alias, result in zip(aliases, results, strict=True):
-            if result.kind == "pending" and result.pending is not None:
-                resolved_pending.append((alias, result.pending))
-            elif result.kind == "redirect" and result.atom is not None:
-                resolved_redirects.append((alias, result))
-            elif result.kind == "atom" and result.atom is not None:
-                resolved.append((alias, result.atom))
-            elif result.kind in {"discarded", "failed", "expired"}:
-                resolved_terminal.append((alias, result))
-            else:
-                unresolved.append(alias)
-
-        # 全部无效：直接返回错误
-        if (
-            not resolved
-            and not resolved_pending
-            and not resolved_redirects
-            and not resolved_terminal
-        ):
-            raise AliasNotFoundError(
-                message_key="mtp.read.alias_not_found",
-                params={"aliases": "\n".join(f"  {a}" for a in unresolved)},
-            )
-
-        # 组装输出 — 通过 MemoryCompiler 统一编译，局部未解析 alias 交给 warnings 渲染
-        output_lines: list[str] = []
-        warnings: list[MTPWarningInfo] = []
-        for alias, pending in resolved_pending:
-            artifact = self._compiler.compile(
-                pending,
-                MemoryCompileTarget.MTP_READ,
-            )
-            output_lines.append(artifact.text)
-        for alias, result in resolved_redirects:
-            artifact = self._compiler.compile(
-                result,
-                MemoryCompileTarget.MTP_READ,
-                MemoryCompileOptions(requested_alias=alias),
-            )
-            output_lines.append(artifact.text)
-        for alias, result in resolved_terminal:
-            artifact = self._compiler.compile(
-                result,
-                MemoryCompileTarget.MTP_READ,
-                MemoryCompileOptions(requested_alias=alias),
-            )
-            output_lines.append(artifact.text)
-        for alias, atom in resolved:
-            artifact = self._compiler.compile(
-                atom,
-                MemoryCompileTarget.MTP_READ,
-                MemoryCompileOptions(requested_alias=alias),
-            )
-            output_lines.append(artifact.text)
-        for alias in unresolved:
-            warnings.append(
-                MTPWarningInfo(
-                    message_key="mtp.read.partial_alias_not_found",
-                    params={"alias": alias},
-                )
-            )
-
-        # 正式原子的引用记录已由能力层在交付前完成，协议层只负责输出。
-        return MTPResponse(
-            status=MTPResponseStatus.SUCCESS,
-            content="\n".join(output_lines),
-            warnings=warnings,
-        )
-
-    async def _handle_run(
-        self,
-        command: MTPCommand,
-        context: MTPExecutionContext,
-    ) -> MTPResponse:
-        """
-        处理 RUN 指令
-
-        两层分发:
-        - 系统工具快速路径: 命中 syscall 注册表的 sys_* 工具在本地执行
-        - 用户工具路径: 经 ResolveRunTargetRequest 解析 CODE_SNIPPET 记忆 → 沙箱执行
-
-        Type B 动作类响应
-
-        Args:
-            command: RUN 指令 (target=tool_alias, args=key-value pairs)
-
-        Returns:
-            MTPResponse: 执行状态描述
-        """
-        alias = command.target.single_alias
-        if alias is None:
-            raise InvalidArgumentError(message_key="mtp.run.missing_single_target")
-
-        syscall = self._syscall_registry.get(alias)
-        if syscall is None and alias.startswith("sys_"):
-            raise AliasNotFoundError(
-                message_key="mtp.run.tool_not_found",
-                params={"alias": alias},
-            )
-        if syscall is not None:
-            # 系统工具不设 Agent 权限，在 Alice 本地执行。
-            result = syscall.handler(command.args)
-            return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
-
-        # 用户工具路径。RUN 以自己的操作请求进入读取视图，
-        # 与 READ 的许可独立；交付执行目标时仍由 workspace 记录正式引用。
-        # StorageOfflineError / BusRouteUnavailableError 会直接传播到 _route_and_execute
-        resolved = await self._operation_submitter(context)(ResolveRunTargetRequest(alias=alias))
-        warnings: list[MTPWarningInfo] = []
-        if resolved.kind == "pending":
-            raise InvalidArgumentError(
-                message_key="mtp.run.pending_not_runnable",
-                params={"alias": alias},
-            )
-        if resolved.kind == "redirect" and resolved.atom is not None:
-            canonical_alias = resolved.canonical_alias or resolved.atom.get_alias()
-            warnings.append(
-                MTPWarningInfo(
-                    message_key="mtp.run.alias_redirected",
-                    params={
-                        "requested_alias": alias,
-                        "canonical_alias": canonical_alias,
-                    },
-                )
-            )
-            alias = canonical_alias
-        elif resolved.kind in {"discarded", "failed", "expired"}:
-            raise AliasNotFoundError(
-                message_key="mtp.run.terminal_alias_not_runnable",
-                params={"alias": alias, "status": resolved.kind},
-            )
-        if resolved.kind not in {"atom", "redirect"} or resolved.atom is None:
-            raise AliasNotFoundError(
-                message_key="mtp.run.alias_not_found",
-                params={"alias": alias},
-            )
-        atom = resolved.atom
-
-        # 校验类型必须是 CODE_SNIPPET
-        if atom.index.memory_type != MemoryType.CODE_SNIPPET:
-            raise MemoryTypeMismatchError(
-                message_key="mtp.run.type_mismatch",
-                params={"alias": alias, "memory_type": atom.index.memory_type.value},
-            )
-
-        # 使用缓存的代码执行
-        code = atom.payload.content
-        logger.info(f"User tool executing: alias='{alias}', UUID={atom.id}")
-        response = self._execute_user_tool(alias, code, command.args)
-        if warnings:
-            response.warnings = [*warnings, *response.warnings]
-        return response
-
-    async def _handle_write(
-        self,
-        command: MTPCommand,
-        context: MTPExecutionContext,
-    ) -> MTPResponse:
-        """
-        处理 WRITE 指令
-
-        将 WRITE 内容打包为操作请求，经 workspace 登记并实时派发；
-        生成队列接纳后返回 ACK，正式记忆由 Patchouli 异步生成。
-
-        Type B 动作类响应
-
-        Args:
-            command: WRITE 指令 (target=*, args: content=`...`, reason="...", title="...")
-
-        Returns:
-            MTPResponse: ACK 确认
-        """
-        content = command.args.get("content", "")
-        if not content:
-            raise InvalidArgumentError(message_key="mtp.write.missing_content")
-
-        reason = command.args.get("reason", "")
-        title = command.args.get("title", "")
-
-        # 注册 pending atom 并生成 pending alias
-        pending = await self._operation_submitter(context)(
-            SubmitWriteIntentRequest(
-                focus=WriteFocus(content=content, title=title or None, reason=reason or None)
-            )
-        )
-
-        logger.info(
-            f"MTP WRITE admitted: content='{content[:50]}...', "
-            f"pending_alias='{pending.pending_alias}'"
-        )
-
-        return MTPResponse(
-            status=MTPResponseStatus.ACK,
-            content=get_mtp_info_text(
-                "mtp.write.ack",
-                {"pending_alias": pending.pending_alias},
-                _resolve_context_language(context),
-            ),
-            pending_alias=pending.pending_alias,
-        )
-
-    async def _handle_update(
-        self,
-        command: MTPCommand,
-        context: MTPExecutionContext,
-    ) -> MTPResponse:
-        """
-        处理 UPDATE 指令 (附录 C)
-
-        将 UPDATE 意图交给 workspace 验证、登记并实时派发；
-        生成队列接纳后返回 ACK，正式记忆由 Patchouli 异步更新。
-
-        Type B 动作类响应
-
-        Args:
-            command: UPDATE 指令 (target=alias, args: instruction="...", content=`...`)
-
-        Returns:
-            MTPResponse: ACK 确认或 ERROR
-        """
-        alias = command.target.single_alias
-        if alias is None:
-            raise InvalidArgumentError(message_key="mtp.update.missing_single_target")
-
-        instruction = command.args.get("instruction", "")
-        if not instruction:
-            raise InvalidArgumentError(message_key="mtp.update.missing_instruction")
-
-        # 能力层在操作授权后解析可信基线，并负责登记成功后的缓存失效。
-        try:
-            pending = await self._operation_submitter(context)(
-                SubmitUpdateIntentRequest(
-                    base_alias=alias,
-                    instruction=instruction,
-                    content=command.args.get("content"),
-                )
-            )
-        except PendingUpdateNotAllowedError as error:
-            raise InvalidArgumentError(
-                message_key="mtp.update.pending_not_updatable",
-                params={"alias": alias},
-            ) from error
-        except ResourceNotFoundError as error:
-            # 能力层把不可见与不存在合并为 not_found，UPDATE 不区分两者。
-            raise AliasNotFoundError(
-                message_key="mtp.update.alias_not_found",
-                params={"alias": alias},
-            ) from error
-
-        logger.info(
-            f"MTP UPDATE admitted: alias='{alias}', " f"pending_alias='{pending.pending_alias}'"
-        )
-
-        return MTPResponse(
-            status=MTPResponseStatus.ACK,
-            content=get_mtp_info_text(
-                "mtp.update.ack",
-                {"base_alias": alias, "pending_alias": pending.pending_alias},
-                _resolve_context_language(context),
-            ),
-            pending_alias=pending.pending_alias,
-        )
-
-    async def _handle_call(
-        self,
-        command: MTPCommand,
-        context: MTPExecutionContext | None = None,
-    ) -> MTPResponse:
-        """
-        处理 CALL 指令 - 触发子代理调用
-
-        此方法仅负责验证参数和权限，实际调用由 Alice 的 CallCoordinator 处理。
-        返回特殊的 SUSPEND 状态，通知运行时交还 frame 控制权。
-
-        Args:
-            command: CALL 指令 (target=agent_alias, args: task="...", context_refs=["..."])
-
-        Returns:
-            MTPResponse: SUSPEND 状态，携带 CALL 参数
-
-        Raises:
-            PermissionDeniedError: 如果当前 frame policy 禁止 CALL
-        """
-        import json
-
-        if context is not None and context.execution_policy is not None:
-            if not context.execution_policy.allows("CALL"):
-                raise PermissionDeniedError(
-                    message_key="mtp.permission.verb_denied",
-                    params={"verb": "CALL"},
-                )
-
-        # 1. 在 frame policy 检查之后校验 target 与 task。
-        target_alias = command.target.single_alias
-        if not target_alias:
-            raise InvalidArgumentError(message_key="mtp.call.missing_single_target")
-
-        task = command.args.get("task", "")
-        if not task:
-            raise InvalidArgumentError(message_key="mtp.call.missing_task")
-
-        # 4. 解析 context_refs (选填)
-        context_refs_str = command.args.get("context_refs", "")
-        context_refs = []
-        if context_refs_str:
-            try:
-                # context_refs 已被 MTPParser 序列化为 JSON 字符串
-                context_refs = json.loads(context_refs_str)
-                if not isinstance(context_refs, list):
-                    context_refs = [context_refs]
-            except json.JSONDecodeError:
-                logger.warning(f"Failed to parse context_refs: {context_refs_str}")
-                # 降级为逗号分隔
-                context_refs = [ref.strip() for ref in context_refs_str.split(",") if ref.strip()]
-
-        logger.info(
-            f"MTP CALL: target={target_alias}, task='{task[:50]}...', "
-            f"context_refs={context_refs}"
-        )
-
-        # 5. 返回 SUSPEND 信号
-        return MTPResponse(
-            status=MTPResponseStatus.SUSPEND,
-            content="",
-            call_request=MTPCallRequest(
-                target_alias=target_alias,
-                task=task,
-                context_refs=context_refs,
-            ),
-        )
-
-    # ========== 辅助方法 ==========
-
-    def _execute_user_tool(self, alias: str, code: str, args: dict[str, str]) -> MTPResponse:
-        """
-        在受限沙箱中执行用户工具
-
-        用户工具通过 params 字典接收 MTP 参数。
-        工具代码中可通过 params["key"] 访问传入的参数。
-
-        Args:
-            alias: 工具别名
-            code: 工具代码 (来自 CODE_SNIPPET 记忆原子的 payload.content)
-            args: MTP 指令参数 (key-value pairs)
-
-        Returns:
-            MTPResponse: 执行结果
-        """
-        from hivememory.agent_runtime.mtp.syscalls import execute_sandboxed
-
-        result = execute_sandboxed(
-            code,
-            namespace_extras={"params": dict(args)},
-            timeout_seconds=self._config.python_repl_timeout_seconds,
-        )
-
-        return MTPResponse(status=MTPResponseStatus.SUCCESS, content=result.content)
-
-
-__all__ = [
-    "KoakumaRuntime",
-]
+__all__ = ["KoakumaRuntime", "MTPExecutor"]

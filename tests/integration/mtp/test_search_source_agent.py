@@ -8,7 +8,8 @@ import pytest_asyncio
 from qdrant_client import AsyncQdrantClient
 from qdrant_client.models import Distance, VectorParams
 
-from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext, MTPExecutionResult
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.alice import KoakumaConfig
@@ -23,7 +24,6 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
-from hivememory.core.protocol.models import MTPExecutionResult
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.reranker import NoopReranker
 from hivememory.engines.retrieval.retriever import DenseRetriever
@@ -135,10 +135,14 @@ async def _search(koakuma: KoakumaRuntime, filter_text: str | None = None) -> MT
     return await koakuma.execute_mtp(
         f"{MTP_LEFT_DELIMITER} SEARCH | * | {arguments} {MTP_RIGHT_DELIMITER}",
         context=MTPExecutionContext(
+            execution_policy=FrameExecutionPolicy.from_verbs(
+                {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+            ),
             runtime_scope=make_runtime_scope(agent_id=ACTOR.agent_id),
             submit_operation=await koakuma.harness.submitter(
                 make_identity_scope(actor_identity=ACTOR)
             ),
+            language="zh",
         ),
     )
 

@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-17
 ---
 
 # Todo
@@ -12,6 +12,8 @@ last_reviewed: 2026-10-16
 
 当前事项：
 
+- [v0.7.0 代码收敛清单](./v0.7.0-code-convergence.md)（2026-10-17 对 `v0.6.2..239b1a7c` 的收敛审查，共 39 条；Alice 结构相关条目已由[归档计划](../archive/plans/v0.7.0-alice-agent-runtime-restructure.md)完成，提示词组装相关条目已由[提示词编译前移](../archive/plans/v0.7.0-cpu-prompt-compilation.md)完成，第 1.6、3.9 条由[异常体系收敛计划](../plans/v0.7.0-error-model-convergence.md)承接，其余按条目处理）；
+- [构造根配置会改写进程默认语言](./config-construction-resets-default-language.md)（2026-10-17 提示词编译收尾审查发现：`GET /config/defaults` 与 `POST /config` 构造配置对象时重置进程默认语言）；
 - [WorkspaceAsset 内部归属与操作身份拆分](./workspace-asset-ownership-identity-split.md)（身份第二批明确暂缓：Store/解析旧 scope 接口与 System 物化 reader 桥接）；
 - [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：无 alias 记忆的寻址、alias 查询索引）；
 - [会话 `/compact` 指令](./conversation-compact-command.md)（2026-10-01 由原 Topic `/compact` 系统指令接入重写：compact 归属前台的 CPU 会话上下文，依赖 ConversationSession、命令运行位置与 Alice 会话压缩）；

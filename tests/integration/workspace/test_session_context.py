@@ -1,11 +1,10 @@
 """会话、进程 CPU 分配、Alice 提示词与 Gateway 输入边界的协作。"""
 
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
 
-from hivememory.alice.orchestration.context_view import SessionContextView
+from hivememory.alice.context.view import SessionContextView
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.alice import CompactionConfig
 from hivememory.config.gateway import SystemGatewayConfig
@@ -21,13 +20,11 @@ from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     GatewaySessionTurn,
 )
-from hivememory.core.protocol.models import AgentRunContext
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.gateway.runtime import GatewayRuntime
 from hivememory.gateway.service import GatewayService
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
@@ -114,14 +111,13 @@ async def test_interleaved_sessions_share_topic_but_not_cpu_or_gateway_history()
     assert [t.user_message for t in gateway_history[-1]] == ["A5", "A6"]
     assert gateway_history[2] == ()
     messages = SessionContextView(
-        context=AgentRunContext(
-            labels=manifest.labels,
-            agent_profile=manifest.agent_profile,
-            user_message=manifest.user_message,
-            session_history=manifest.session_history,
-            permitted_mtp_verbs=frozenset({"RUN"}),
-        ),
-        prompt_assembler=AgentPromptAssembler(SimpleNamespace(enabled=False)),
+        instructions=manifest.instructions,
+        turn_context=manifest.turn_context,
+        user_message=manifest.user_message,
+        language=manifest.language,
+        mtp_prompt="",
+        session_history=manifest.session_history,
+        current_agent_id=manifest.labels.agent_id,
         checkpoint=manifest.compaction_checkpoint,
         input_token_limit=100000,
         config=CompactionConfig(),

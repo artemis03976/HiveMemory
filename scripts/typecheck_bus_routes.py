@@ -4,17 +4,14 @@
 每个 ignore 都对应故意写错的调用；若错误被 Any 或宽泛重载放行，门禁必须失败。
 """
 
-from collections.abc import AsyncGenerator
-from typing import Any, assert_type
+from typing import assert_type
 
-from hivememory.alice.contracts import AliceRoutes
 from hivememory.components.bus import AsyncSystemBus, RouteBinding
 from hivememory.core.contracts.route import route
 from hivememory.core.models import IdentityScope, MemoryAtom, WorkspaceIdentity
 from hivememory.core.protocol.gateway import GatewayIngressMode, GatewayProcessResult
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliLocalRoutes, PatchouliRoutes
-from hivememory.workspace.contracts import CPUExecutionResult, CPUInputManifest, OperationSubmitter
 
 
 @route("typecheck.prepare")
@@ -39,10 +36,8 @@ async def check_routes(
     bus: AsyncSystemBus,
     scope: IdentityScope,
     workspace: WorkspaceIdentity,
-    manifest: CPUInputManifest,
-    submit_operation: OperationSubmitter,
 ) -> None:
-    """正例验证精确推断；反例保护注册、调用、绑定与两种 Alice 输出形态。"""
+    """正例验证精确推断；反例保护注册、调用、绑定与返回值类型。"""
     bus.register(prepare_route, prepare_handler)
     RouteBinding.of(prepare_route, prepare_handler)
     assert_type(await bus.request(prepare_route, selected_attachments=[]), int)
@@ -80,14 +75,4 @@ async def check_routes(
             ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
         ),
         GatewayProcessResult,
-    )
-    assert_type(
-        await bus.request(AliceRoutes.RUN_AGENT, manifest, submit_operation=submit_operation),
-        CPUExecutionResult,
-    )
-    assert_type(
-        await bus.request(
-            AliceRoutes.RUN_AGENT_STREAM, manifest, submit_operation=submit_operation
-        ),
-        AsyncGenerator[dict[str, Any], None],
     )

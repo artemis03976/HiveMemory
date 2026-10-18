@@ -1,7 +1,7 @@
 """
 RUN 指令执行链路测试
 
-验证 MTP RUN 指令从 Koakuma._handle_run 的完整链路。
+验证 MTP RUN 指令从 Koakuma 的 RUN 分派 的完整链路。
 
 测试覆盖:
     1. Target 校验 (通配符/列表/空 target 拒绝)
@@ -21,8 +21,7 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.agent_runtime.models import MTPExecutionContext
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
 from hivememory.config.alice import KoakumaConfig
 from hivememory.core.models import (
     IndexLayer,
@@ -36,6 +35,7 @@ from hivememory.core.models import (
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.engines.generation.models import DuplicateDecision
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.operations import HarnessKoakumaRuntime
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope, make_workspace_identity
 
 MAIN = make_workspace_identity()
@@ -83,27 +83,43 @@ def _make_fact_memory(mem_id=None, alias: str = "fact_not_tool") -> MemoryAtom:
 
 
 @pytest.fixture
-def koakuma() -> KoakumaRuntime:
+def koakuma() -> HarnessKoakumaRuntime:
     from .conftest import make_koakuma_runtime, make_mock_bus
 
     bus = make_mock_bus()
     return make_koakuma_runtime(bus, KoakumaConfig())
 
 
-def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
+def _execute_mtp(koakuma: HarnessKoakumaRuntime, text: str, context=None):
     return asyncio.run(
         koakuma.execute_mtp(
             text,
-            context=context or MTPExecutionContext(runtime_scope=make_runtime_scope()),
+            context=context
+            or asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(),
+                )
+            ),
         )
     )
 
 
-def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
+def _intercept_and_execute(koakuma: HarnessKoakumaRuntime, assistant_text: str, context=None):
     return asyncio.run(
         koakuma.intercept_and_execute(
             assistant_text,
-            context=context or MTPExecutionContext(runtime_scope=make_runtime_scope()),
+            context=context
+            or asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(),
+                )
+            ),
         )
     )
 
@@ -427,8 +443,13 @@ class TestRunUserToolPath:
         result = _execute_mtp(
             koakuma,
             f"⟪ RUN | {pending.pending_alias} | ⟫",
-            context=MTPExecutionContext(
-                runtime_scope=make_runtime_scope(workspace_id="main_workspace")
+            context=asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(workspace_id="main_workspace"),
+                )
             ),
         )
 
@@ -468,8 +489,13 @@ class TestRunUserToolPath:
         result = _execute_mtp(
             koakuma,
             f"⟪ RUN | {pending.pending_alias} | ⟫",
-            context=MTPExecutionContext(
-                runtime_scope=make_runtime_scope(workspace_id="main_workspace")
+            context=asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(workspace_id="main_workspace"),
+                )
             ),
         )
 

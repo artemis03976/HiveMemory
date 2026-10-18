@@ -2,10 +2,9 @@
 
 import pytest
 
-from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.agent_runtime.policy import FrameExecutionPolicy
-from hivememory.core.models import AgentProfile
 from tests.helpers.workspace import make_runtime_scope
 
 
@@ -21,9 +20,9 @@ async def test_empty_frame_policy_rejects_verbs_before_submitting() -> None:
 
     context = MTPExecutionContext(
         runtime_scope=make_runtime_scope(),
-        agent_profile=AgentProfile(),
         execution_policy=FrameExecutionPolicy.from_verbs([]),
         submit_operation=record_submission,
+        language="zh",
     )
 
     result = await KoakumaRuntime().execute_mtp(command, context)

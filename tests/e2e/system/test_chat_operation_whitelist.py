@@ -124,10 +124,8 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
 
         return chunks()
 
-    monkeypatch.setattr("hivememory.agent_runtime.execution.worker.litellm.acompletion", completion)
-    alice = AliceSystem(
-        config=HiveMemoryConfig().alice, global_bus=stack.bus, operation_entry=entry
-    )
+    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
+    alice = AliceSystem(config=HiveMemoryConfig().alice, operation_entry=entry)
     service = make_task_process_service(
         stack.bus,
         cpu=alice.cpu_port,
@@ -305,10 +303,9 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
 
         return chunks()
 
-    monkeypatch.setattr("hivememory.agent_runtime.execution.worker.litellm.acompletion", completion)
+    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
     alice = AliceSystem(
         config=HiveMemoryConfig().alice,
-        global_bus=stack.bus,
         operation_entry=entry,
     )
     cpu = _RecordingCPU(alice.cpu_port)
@@ -357,15 +354,17 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
         assert done["status"] == "completed"
         assert done["final_text"] == "阶段授权验收完成"
 
-        # 端口输入同时保护检索结果与编译正文，不能只检查模型回复是否成功。
+        # 检索结果经引用事件公开，编译正文经端口输入交给 CPU；两者都要检查，
+        # 不能只看模型回复是否成功。
+        (memory_refs,) = [data for name, data in events if name == "memory_refs"]
+        assert {ref["alias"] for ref in memory_refs["memories"]} == {"fact_public", "fact_own"}
         (manifest,) = cpu.manifests
-        assert {atom.index.alias for atom in manifest.memories} == {"fact_public", "fact_own"}
-        assert "本轮公共资料" in manifest.memory_context
-        assert "本轮专属资料" in manifest.memory_context
-        assert "他人的私有资料" not in manifest.memory_context
+        assert "本轮公共资料" in manifest.turn_context
+        assert "本轮专属资料" in manifest.turn_context
+        assert "他人的私有资料" not in manifest.turn_context
         assert manifest.agent_profile.agent_id == actor.agent_id
         assert manifest.agent_profile.persona == profile.payload.content
-        assert "本轮选中的附件正文" in manifest.attachment_context
+        assert "本轮选中的附件正文" in manifest.turn_context
         (messages,) = llm_messages
         assert profile.payload.content in messages[0]["content"]
         assert "他人的私有资料" not in "\n".join(item["content"] for item in messages)

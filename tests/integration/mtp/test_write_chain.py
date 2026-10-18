@@ -3,11 +3,13 @@
 真实 parser、handler、workspace 操作入口、授权与读取视图协作；只有存储边界为替身。
 """
 
+import asyncio
+
 import pytest
 
-from hivememory.agent_runtime.models import MTPExecutionContext
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
 from hivememory.config.alice import KoakumaConfig
+from tests.helpers.operations import HarnessKoakumaRuntime
 from tests.helpers.workspace import make_runtime_scope, make_workspace_identity
 
 from .conftest import (
@@ -19,7 +21,7 @@ from .conftest import (
 MAIN = make_workspace_identity()
 
 
-async def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
+async def _intercept_and_execute(koakuma: HarnessKoakumaRuntime, assistant_text: str, context=None):
     return await koakuma.intercept_and_execute(
         normalize_worker_agent_mtp_output(assistant_text),
         context=context,
@@ -30,10 +32,17 @@ class TestKoakumaWriteChain:
     """通过 MTP 指令验证 Koakuma WRITE 完整链路"""
 
     @pytest.fixture
-    def write_koakuma(self) -> KoakumaRuntime:
+    def write_koakuma(self) -> HarnessKoakumaRuntime:
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        koakuma.context = MTPExecutionContext(runtime_scope=make_runtime_scope())
+        koakuma.context = asyncio.run(
+            koakuma.make_context(
+                execution_policy=FrameExecutionPolicy.from_verbs(
+                    {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                ),
+                runtime_scope=make_runtime_scope(),
+            )
+        )
         return koakuma
 
     @pytest.mark.asyncio
@@ -94,7 +103,10 @@ class TestKoakumaWriteChain:
         """v3.0 延迟捕获: WRITE 在 Koakuma 层始终返回 ACK，实际执行延迟到 payload 提交"""
         bus = make_mock_bus()
         koakuma = make_koakuma_runtime(bus, KoakumaConfig())
-        context = MTPExecutionContext(
+        context = await koakuma.make_context(
+            execution_policy=FrameExecutionPolicy.from_verbs(
+                {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+            ),
             runtime_scope=make_runtime_scope(
                 run_id="run_write_test",
                 frame_id="frame_main_write",

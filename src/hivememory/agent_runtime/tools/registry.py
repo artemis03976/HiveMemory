@@ -1,0 +1,60 @@
+"""
+syscall 注册表构建器。
+"""
+
+from functools import partial
+
+from hivememory.agent_runtime.tools.clock import sys_clock
+from hivememory.agent_runtime.tools.file_io import sys_read_file, sys_write_file
+from hivememory.agent_runtime.tools.repl import sys_python_repl
+from hivememory.agent_runtime.tools.types import Syscall
+from hivememory.agent_runtime.tools.web_search import sys_web_search
+
+
+def build_syscall_registry(
+    *,
+    python_repl_timeout: int = 10,
+    workspace_path: str = "./workspace",
+    file_read_max_bytes: int = 102400,
+    file_write_max_bytes: int = 102400,
+    web_search_timeout: int = 15,
+) -> dict[str, Syscall]:
+    """
+    构建 sys_* 系统工具的 syscall 注册表。
+    """
+    return {
+        "sys_clock": Syscall(
+            handler=sys_clock,
+            description="Get current date, time, and timezone.",
+        ),
+        "sys_python_repl": Syscall(
+            handler=partial(
+                sys_python_repl,
+                timeout_seconds=python_repl_timeout,
+            ),
+            description="Execute Python code for calculation or data processing.",
+        ),
+        "sys_web_search": Syscall(
+            handler=partial(
+                sys_web_search,
+                timeout_seconds=web_search_timeout,
+            ),
+            description="Search the internet for latest information.",
+        ),
+        "sys_read_file": Syscall(
+            handler=partial(
+                sys_read_file,
+                workspace=workspace_path,
+                max_bytes=file_read_max_bytes,
+            ),
+            description="Read a file from the workspace directory.",
+        ),
+        "sys_write_file": Syscall(
+            handler=partial(
+                sys_write_file,
+                workspace=workspace_path,
+                max_bytes=file_write_max_bytes,
+            ),
+            description="Write content to a file in the workspace directory.",
+        ),
+    }

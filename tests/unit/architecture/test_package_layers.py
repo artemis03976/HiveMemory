@@ -180,6 +180,26 @@ def test_root_package_only_imports_version():
     assert root_imports == ["hivememory._version"]
 
 
+def test_cpu_input_compilation_does_not_depend_on_alice_or_its_configuration():
+    """进程提示词编译不能导入具体 CPU 或其配置，任意执行者应共用同一产物。"""
+    forbidden = ("hivememory.alice", "hivememory.agent_runtime", "hivememory.config.alice")
+    paths = (SRC_ROOT / "workspace/process/allocation.py", SRC_ROOT / "prompts/compilation.py")
+    violations = []
+    for path in paths:
+        modules = _internal_imports(path)
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if isinstance(node, ast.ImportFrom):
+                base = _resolve_relative(path, node) if node.level else node.module
+                modules.extend(f"{base}.{alias.name}" for alias in node.names)
+        violations.extend(
+            f"{path.relative_to(SRC_ROOT)}: {module}"
+            for module in modules
+            if any(module == prefix or module.startswith(prefix + ".") for prefix in forbidden)
+        )
+    assert violations == []
+
+
 def test_importing_core_layer_loads_no_higher_layer_package():
     """导入 core 模型时，运行时加载的 hivememory 包都应位于 L0。"""
     script = (

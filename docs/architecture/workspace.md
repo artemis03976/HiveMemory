@@ -287,6 +287,8 @@ context 是**密封的**凭据：
 
 **执行标签与线程 context**：注册认证通过后，以该注册的 Agent 和 Workspace 创建一次冻结的 `ExecutionLabels(agent_id, workspace_id)`，由 `BoundProcessEvents` 持有。CPU 分配显式接收同一标签对象，传给 `CPUInputManifest.labels`；Alice 的运行上下文与主、子 frame 沿用它，不读取访问 context 组装身份。标签只服务历史角色匹配、展示回退与运行观测，不能授权或选择资源目标。Actor 阶段派生的线程 context 独立于输入清单交给 CPU；操作入口的职责与撤销边界见第 5.4 节。
 
+**CPU 输入编译**：`CPUAllocator` 在 prepare 前经阶段授权解析 Profile；prepare 后读取 actor 操作快照，按选择租借附件，编译附件与检索记忆，再以中立提示词编译定稿环境通知、人设与本轮材料，最后组装输入清单。提示词语言由进程解析，编译不依赖 Alice 配置；CPU 自行完成工具教学、历史布局与压缩。租借仍登记在进程工作集并由分配器释放。清单字段见[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)，编译归进程的理由见[System 应用服务](../system/application-services.md#31-非流式链路)。
+
 ### 4.5 三个调用面：actor API、root API 与任务进程的阶段调用
 
 能力层对外有两个互不导入的 API 面，任务进程另有自己的阶段调用。三者对应 `WorkspaceOperationAuthorizer` 的三种授权：

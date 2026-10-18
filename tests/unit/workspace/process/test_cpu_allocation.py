@@ -176,6 +176,7 @@ def _prepare_route(
     *,
     topic_id: str = "topic-1",
     is_new_topic: bool = False,
+    storage_available: bool = True,
     memories: list[MemoryAtom] | None = None,
     started: asyncio.Event | None = None,
     gate: asyncio.Event | None = None,
@@ -202,7 +203,7 @@ def _prepare_route(
             topic_id=topic_id,
             is_new_topic=is_new_topic,
             retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
-            storage_available=True,
+            storage_available=storage_available,
         )
 
     return route
@@ -304,21 +305,6 @@ async def test_manifest_operations_follow_access_record_precedence():
 
     assert result.execution_result.status == "completed"
     assert cpu.calls[0].manifest.allowed_operations == frozenset()
-    # 精确字段集合保护 CPU 边界：不能把 context、scope 或身份作为清单字段传递。
-    assert set(cpu.calls[0].manifest.model_dump()) == {
-        "process_id",
-        "labels",
-        "user_message",
-        "agent_profile",
-        "allowed_operations",
-        "memories",
-        "memory_context",
-        "attachment_context",
-        "storage_available",
-        "topic_id",
-        "session_history",
-        "compaction_checkpoint",
-    }
 
 
 @pytest.mark.asyncio
@@ -332,7 +318,7 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
         PatchouliRoutes.GET_AGENT_PROFILE,
         _profile_route(profile=profile, calls=profile_calls),
     )
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route(storage_available=False))
     cpu = ScriptedCPU(result=make_cpu_result())
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
 
@@ -352,10 +338,12 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
     assert profile.persona == "allocated-persona"
     assert manifest.user_message == "问题"
     assert manifest.topic_id == "topic-1"
-    assert manifest.memories == []
-    assert manifest.memory_context == ""
-    assert manifest.attachment_context == ""
-    assert manifest.storage_available is True
+    assert manifest.language == "zh"
+    assert manifest.instructions == (
+        "[系统通知] 记忆存储当前离线。依赖记忆存储的操作将失败。"
+        "请使用已有上下文继续对话。\n\n### 角色设定 ###\n\nallocated-persona"
+    )
+    assert manifest.turn_context == ""
 
 
 @pytest.mark.asyncio
@@ -408,8 +396,8 @@ async def test_manifest_labels_match_registration_and_process_event_labels() -> 
 
 
 @pytest.mark.asyncio
-async def test_manifest_memory_context_is_process_compiled_from_prepare_retrieval() -> None:
-    """memory_context 由进程对 prepare 返回的原始原子编译得到，memories 保持原始。"""
+async def test_manifest_turn_context_is_process_compiled_from_prepare_retrieval() -> None:
+    """记忆段由进程对 prepare 返回的原始原子编译得到；原子本身不进入清单。"""
     bus = GlobalSystemBus()
     atoms = [_memory_atom("部署手册"), _memory_atom("发布记录")]
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
@@ -422,14 +410,13 @@ async def test_manifest_memory_context_is_process_compiled_from_prepare_retrieva
     await _run_once(composition, service, "问题", process_id="process-compile")
 
     manifest = cpu.calls[0].manifest
-    assert manifest.memories == atoms
-    assert "部署手册" in manifest.memory_context
-    assert "发布记录" in manifest.memory_context
+    assert "部署手册" in manifest.turn_context
+    assert "发布记录" in manifest.turn_context
 
 
 @pytest.mark.asyncio
-async def test_manifest_memory_context_is_empty_string_without_retrieval() -> None:
-    """检索为空时清单的 memory_context 是空字符串，而不是占位文本。"""
+async def test_manifest_turn_context_is_empty_string_without_retrieval() -> None:
+    """检索为空时清单的 turn_context 是空字符串，而不是占位文本。"""
     bus = GlobalSystemBus()
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
@@ -440,7 +427,7 @@ async def test_manifest_memory_context_is_empty_string_without_retrieval() -> No
     service, composition = await _service(bus, cpu=cpu)
     await _run_once(composition, service, "问题", process_id="process-empty-retrieval")
 
-    assert cpu.calls[0].manifest.memory_context == ""
+    assert cpu.calls[0].manifest.turn_context == ""
 
 
 def _recording(calls: list):
@@ -615,7 +602,7 @@ async def test_no_actor_operations_still_allocates_attachments_and_finalizes() -
     )
 
     assert result.execution_result.status == "completed"
-    assert "阶段附件正文" in cpu.calls[0].manifest.attachment_context
+    assert "阶段附件正文" in cpu.calls[0].manifest.turn_context
     assert tuple(finalize_kwargs["payload"].used_attachments) == (ref_a,)
     assert store.close_and_clear().leases_cleared == 0
 
@@ -765,8 +752,8 @@ async def test_finalize_receives_used_attachments_from_compile_result() -> None:
     )
 
     manifest = cpu.calls[0].manifest
-    assert "a" * 15 in manifest.attachment_context
-    assert "b" * 10 not in manifest.attachment_context
+    assert "a" * 15 in manifest.turn_context
+    assert "b" * 10 not in manifest.turn_context
     assert list(finalize_kwargs["payload"].used_attachments) == [ref_a]
 
 

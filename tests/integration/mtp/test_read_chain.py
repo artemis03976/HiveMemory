@@ -1,7 +1,7 @@
 """
 READ 指令执行链路测试
 
-验证 MTP READ 指令从 Koakuma._handle_read 的完整链路。
+验证 MTP READ 指令从 Koakuma 公开入口到读取结果的完整链路。
 
 测试覆盖:
     1. 通配符拒绝
@@ -19,8 +19,7 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.agent_runtime.models import MTPExecutionContext
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
 from hivememory.config.alice import KoakumaConfig
 from hivememory.core.models import (
     IndexLayer,
@@ -34,6 +33,7 @@ from hivememory.core.models import (
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
 from hivememory.engines.generation.models import DuplicateDecision
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.operations import HarnessKoakumaRuntime
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope, make_workspace_identity
 
 MAIN = make_workspace_identity()
@@ -62,29 +62,45 @@ def _make_memory(
 
 
 @pytest.fixture
-def koakuma() -> KoakumaRuntime:
+def koakuma() -> HarnessKoakumaRuntime:
     from .conftest import make_koakuma_runtime, make_mock_bus
 
     bus = make_mock_bus()
     return make_koakuma_runtime(bus, KoakumaConfig())
 
 
-def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
+def _execute_mtp(koakuma: HarnessKoakumaRuntime, text: str, context=None):
     return asyncio.run(
         koakuma.execute_mtp(
             text,
-            context=context or MTPExecutionContext(runtime_scope=make_runtime_scope()),
+            context=context
+            or asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(),
+                )
+            ),
         )
     )
 
 
-def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
+def _intercept_and_execute(koakuma: HarnessKoakumaRuntime, assistant_text: str, context=None):
     from .conftest import normalize_worker_agent_mtp_output
 
     return asyncio.run(
         koakuma.intercept_and_execute(
             normalize_worker_agent_mtp_output(assistant_text),
-            context=context or MTPExecutionContext(runtime_scope=make_runtime_scope()),
+            context=context
+            or asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(),
+                )
+            ),
         )
     )
 
@@ -162,9 +178,14 @@ class TestReadAliasResolution:
         mem = _make_memory(content="valid content", alias="good_alias")
         koakuma.memories[mem.get_alias()] = mem
         koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = None
-        context = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(),
-            language="en",
+        context = asyncio.run(
+            koakuma.make_context(
+                execution_policy=FrameExecutionPolicy.from_verbs(
+                    {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                ),
+                runtime_scope=make_runtime_scope(),
+                language="en",
+            )
         )
 
         result = _execute_mtp(
@@ -504,8 +525,13 @@ class TestReadPendingScopeIsolation:
         result = _execute_mtp(
             koakuma,
             f"⟪ READ | {pending.pending_alias} | ⟫",
-            context=MTPExecutionContext(
-                runtime_scope=make_runtime_scope(workspace_id="main_workspace")
+            context=asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(workspace_id="main_workspace"),
+                )
             ),
         )
 
@@ -541,8 +567,13 @@ class TestReadPendingScopeIsolation:
         result = _execute_mtp(
             koakuma,
             f"⟪ READ | {pending.pending_alias} | ⟫",
-            context=MTPExecutionContext(
-                runtime_scope=make_runtime_scope(workspace_id="main_workspace")
+            context=asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(workspace_id="main_workspace"),
+                )
             ),
         )
 

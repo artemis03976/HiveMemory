@@ -21,7 +21,7 @@ last_reviewed: 2026-10-17
 
 Alice 是 HiveMemory 的 Agent 执行与多智能体编排子系统。若说 Gateway 决定一次输入应如何进入系统，Patchouli 决定哪些内容能够成为长期知识，那么 Alice 负责把已经准备好的本轮上下文变成行动：装载人偶图纸，驱动模型生成，在协议边界上调用记忆与工具，必要时派生一个瞬态子 Agent，最后交回结构化的运行结果。
 
-“爱丽丝·玛格特罗依德”与“人偶使”的隐喻强调的不是一个无所不知的超级 Agent，而是控制面与执行单元的分离。人偶图纸可以决定人格、模型和权限，单 Agent Runtime 可以把一帧运行到收敛，Koakuma 可以解释 MTP 指令；Alice 自己维护的是谁在运行、何时挂起、何时派生、如何回填，以及本轮临时状态在什么边界上结束。
+“爱丽丝·玛格特罗依德”与“人偶使”的隐喻强调的不是一个无所不知的超级 Agent，而是控制面与执行单元的分离。人偶图纸可以决定人格与模型，访问登记决定操作权限，单 Agent Runtime 可以把一帧运行到收敛，Koakuma 可以解释 MTP 指令；Alice 自己维护的是谁在运行、何时挂起、何时派生、如何回填，以及本轮临时状态在什么边界上结束。
 
 ## 1. 设计定位
 
@@ -29,15 +29,15 @@ Alice 是 HiveMemory 的 Agent 执行与多智能体编排子系统。若说 Gat
 
 Alice 当前拥有：
 
-- `CPUInputManifest -> CPUExecutionResult` 的执行边界：唯一的执行入口 `run_agent` 以 `stream` 参数控制是否流式，接收任务进程组装的输入清单（`workspace.contracts`），在内部转换为提示词组装使用的 `AgentRunContext`；Alice 以 `AliceCPU` 实现 workspace 定义的 CPU 端口，由组合根注入任务进程；
+- `CPUInputManifest -> CPUExecutionResult` 的执行边界：CPU 端口的 `execute` 以 `stream` 参数控制是否流式，接收任务进程组装的输入清单（`workspace.contracts`），直接消费其中已定稿的提示词文本与解析好的语言；Alice 以 `AliceCPU` 实现 workspace 定义的 CPU 端口，由组合根注入任务进程；
 - 主 Agent 与子 Agent 的 `ExecutionFrame`、帧进度、CALL 挂起与恢复；
 - 单 Agent generate -> MTP -> 回填循环的装配与调用；
-- 人格注入、模型选择和权限应用；主 Agent 的 Profile 由输入清单提供（任务进程在 CPU 分配时解析），CALL 子 Agent 的 Profile 随子线程派生由 workspace 能力层经操作请求读取；
+- 根帧固定文本布局、工具教学、历史视图与压缩，以及模型选择和权限应用；主 Agent 的 Profile 由输入清单提供（任务进程在 CPU 分配时解析），CALL 子 Agent 的 Profile 随子线程派生由 workspace 能力层经操作请求读取；
 - Koakuma MTP runtime、运行时 syscall registry 与格式化错误回填；
 - 经线程 context 绑定的 `submit_operation` 提交资源操作请求、消费中立结果与记录本帧收到的 ACK alias；
 - 共用一套执行骨架的非流式与流式 Agent run，以及 `agent.run.*` RuntimeEvent；
 
-这里的“拥有”主要指运行时语义，而不是所有代码都必须位于 `alice/`。chat 任务类型的编排与进程控制也不在 Alice：任务进程表与 `TaskProcessService` 位于 `workspace.process`，经公开路由调用 Gateway 与 Patchouli、经 CPU 端口调用 Alice，不参与 Agent loop。`agent_runtime/` 是 Alice 消费的单 Agent 执行层，`AgentProfile` 与 `PendingAtom` 等跨边界模型位于 `core`，CPU 端口、输入清单与执行结果位于 `workspace.contracts`，prompt 组装位于 `prompts`。Alice 决定这些部件如何组成一次 run，但不能因此取得长期记忆、入口决策或顶层 chat 用例的所有权。
+这里的“拥有”主要指运行时语义，而不是所有代码都必须位于 `alice/`。chat 任务类型的编排与进程控制也不在 Alice：任务进程表与 `TaskProcessService` 位于 `workspace.process`，经公开路由调用 Gateway 与 Patchouli、经 CPU 端口调用 Alice，不参与 Agent loop。`agent_runtime/` 是 Alice 消费的单 Agent 执行层，`AgentProfile` 与 `PendingAtom` 等跨边界模型位于 `core`，CPU 端口、输入清单与执行结果位于 `workspace.contracts`，中立提示词编译与片段渲染位于 `prompts`，根帧布局与 CALL 子帧组装归 Alice。Alice 决定这些部件如何组成一次 run，但不能因此取得长期记忆、入口决策或顶层 chat 用例的所有权。
 
 ### 1.2 Alice 不拥有什么
 
@@ -51,7 +51,7 @@ Alice 不负责：
 - 把 `WRITE` / `UPDATE` ACK 当作正式记忆落库成功；
 - 为不受信任代码提供强安全沙箱。
 
-chat 任务进程编排（`workspace.process`）拥有完整 chat 顺序和取消控制；Gateway 拥有入口解释；Patchouli 拥有 Profile 与 MemoryAtom 的持久化事实。Alice 通过公开 run route、公共模型与 `workspace.contracts.OperationSubmitter` 交接；资源请求由 `WorkspaceOperationEntry` 校验 CPU 附上的线程 context 后分派，写入意图登记、完整引用解析和全部原子/Profile 读取缓存属于 workspace。完整边界见[系统边界](../architecture/boundaries.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。
+chat 任务进程编排（`workspace.process`）拥有完整 chat 顺序和取消控制；Gateway 拥有入口解释；Patchouli 拥有 Profile 与 MemoryAtom 的持久化事实。Alice 通过 CPU 端口、公共模型与 `workspace.contracts.OperationSubmitter` 交接；资源请求由 `WorkspaceOperationEntry` 校验 CPU 附上的线程 context 后分派，写入意图登记、完整引用解析和全部原子/Profile 读取缓存属于 workspace。完整边界见[系统边界](../architecture/boundaries.md)与[子系统公共契约](../contracts/subsystem-contracts.md)。
 
 ## 2. Alice 与 AgentRuntime 为什么是两层
 
@@ -61,24 +61,27 @@ chat 任务进程编排（`workspace.process`）拥有完整 chat 顺序和取�
 
 ```text
 AliceSystem
-  ├─ AgentRunService                  public run / run_stream use case
-  │    -> RunExecutor + RunSession    recursive execution + run-local ledger
-  │         -> CallCoordinator + CallContextProvider + FrameFactory
-  │         -> AgentRuntime facade
-  ├─ AliceRuntime                     process-local execution resources
-  │    -> Koakuma + AgentRuntime
-  └─ AliceBridge                      public run route
+  ├─ AliceCPU                         CPU 端口、线程提交函数绑定与启停闸门
+  │    ├─ AgentRunStreamAdapter       队列、runner task 与类型化终态交付
+  │    └─ AgentRunService             同一运行用例，返回 CPUExecutionResult
+  │         ├─ RootContextBuilder    根帧输入、会话视图与压缩
+  │         └─ RunExecutor + RunSession
+  │              -> CallCoordinator + CallContextProvider + FrameFactory
+  │              -> AgentRuntime facade
+  └─ build_agent_runtime             内核工厂：Koakuma、循环与 LLMClient
 ```
 
 - `agent_runtime/` 是“CPU”：只关心把一个 `ExecutionFrame` 运行到自然收敛、取消或 CALL trap，不决定下一步该调度谁；
 - Alice 编排层是“进程调度器”：创建主帧，消费 CALL trap，通过 CallContextProvider 取得子 Agent Profile/共享上下文，派生子帧，收割结果并恢复主帧；
 - Patchouli 是长期存储与记忆域：Alice 可以提出物化请求，却不能自行确认长期事实已经成立。
 
+Alice 内部依赖方向为 `interface → run → {context, orchestration} → events`；`context` 与 `orchestration` 互不导入。运行服务不依赖接口层，输出差异通过窄端口注入，避免传输与调度成环。Alice 与组合根只从 `hivememory.agent_runtime` 包根导入公开符号。
+
 `agent_runtime/` 是顶层共享层，不是第四个子系统。它不实现 `SubsystemProtocol`，不注册全局公开路由，也不拥有独立启停；依赖的配置与模型注册表由 Alice 注入，线程 context 绑定的操作提交函数随 frame 传入。反向出现 `agent_runtime -> alice` 的领域依赖，或让执行循环重新决定子 Agent 拓扑，都意味着这道边界开始失效。
 
 ## 3. 人偶图纸：人格与权限分离
 
-Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投影。它延续“万物皆记忆”的设计：专业 Agent 不通过新增 Python 子类注册，而以可存储、可检索、可演化的图纸存在；Alice 在需要运行时把图纸解析为 `AgentProfile`。
+Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投影。它延续“万物皆记忆”的设计：专业 Agent 不通过新增 Python 子类注册，而以可存储、可检索、可演化的图纸存在；workspace 在主进程分配或 CALL 派生时读取解析结果 `AgentProfile`，再交给 Alice。
 
 一张图纸分为两部分：
 
@@ -86,6 +89,8 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 - “骨架”：模型名、temperature、top_p 与语言，来自结构化 `agent_config`。
 
 `AgentProfile.agent_id` 是 Profile 的身份，解析时取自源原子的 `index.alias`，覆盖 `agent_config` 中的同名键；builtin Profile 的 `agent_id` 为 `None`。由于 alias 在同一 Workspace 的中期库内唯一（见 [MemoryLibrary](../patchouli/memory-library.md)第 1.2 节），`agent_id` 在同一 Workspace 内同样唯一。可见性不进入 Profile 模型，仍由源原子的 `MemoryAccessPolicy` 表达。
+
+主帧的人格由任务进程编译到 `instructions`，Alice 原样放置，不从 Profile 重渲染；Profile 仍用于模型选择与展示。CALL 子帧是 Alice 内部的 harness 职责，`CallCoordinator` 按被调用方 Profile 渲染人格，复用与进程相同的中立渲染函数。
 
 图纸不承载权限。Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达：它与 Profile 原子是否存在、由谁编辑无关，也同样适用于没有 Profile 原子的外部 Actor。Alice 把输入清单携带的操作快照翻译为 frame 的 MTP 动词集合，用它裁剪 MTP 教学并在 Koakuma 执行前检查动词；资源操作仍由 actor API 逐次授权（[MTP Runtime](./mtp-runtime.md#3-动词集合的三层检查)第 3 节）。若把权限只写入自然语言人设，模型幻觉或 prompt injection 就可能绕过它，因此提示词层只降低误用概率，执行层与 workspace 授权才是闸门。`agent_config` 中残留的旧权限键（`allowed_mtp_verbs`、`allowed_sys_tools`）在解析时被忽略。
 
@@ -99,9 +104,8 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 
 ```text
 任务进程的 CPUInputManifest
-  -> 转换为 AgentRunContext（Alice 内部）
   -> attach thread-context-bound submit_operation to root frame
-  -> resolve model budget; build MTP + persona + summary + memory/attachments + session view
+  -> resolve model budget; lay out MTP + instructions + summary + turn_context + session view
   -> create root ExecutionFrame(topic_id=...)
   -> RunExecutor -> AgentRuntime.run_frame()
        -> LLM generate
@@ -143,13 +147,15 @@ Agent 使用 MTP 在生成过程中发现、读取和使用记忆，也可以提
 
 ## 6. 启停、公开能力与观测
 
-`AliceSystem.start()` 通过 AliceBridge 向 `GlobalSystemBus` 注册 `alice.public.run_agent` 与 `alice.public.run_agent_stream`，停止时一起卸载。两条路由都接收输入清单、`submit_operation`、generation options 与可选 `result_slot`，由路由名决定输出形态；Bridge 分别以 `stream=False/True` 调用同一个 `AgentRunService.run_agent`。Alice 和 agent_runtime 不持有 local bus，也不请求任何 Patchouli 公开路由；记忆检索、引用读取与 CALL Profile 读取均提交 workspace 操作请求。Alice 没有独立后台 worker 或 shutdown drain，运行中的 chat 取消和连接关闭由 workspace 任务进程持有的控制状态处理。
+`AliceSystem.start()` 打开 CPU 端口的执行闸门，`stop()` 关闭它。CPU 端口始终可取得；未启动或已停止时，`execute()` 仍返回句柄，首次拉取输出才以 `AliceUnavailableError` 失败，由任务进程按失败收尾；异常上的诊断标识见[错误模型](../contracts/error-model.md)。Alice 不注册执行总线路由，也不需要全局总线参数。
 
-AliceBridge 不订阅 PendingAtom 结算事件；这些事件由 workspace 登记消费。全部派生读取缓存由 `WorkspaceRuntime.close()` 清理，Alice 停止只卸载自己的运行入口。
+`AliceCPU` 直接调用 `AgentRunService`，非流式只交回结果，流式依次交回交互事件与最后一个 `CPUExecutionResult`。检查点直接随结果传递，取消时由结果槽回传；交互流关闭必须先取消并等待 runner 收尾。Alice 没有独立后台 worker 或 shutdown drain，运行中的 chat 取消和连接关闭由 workspace 任务进程处理，System 在停止子系统前关闭任务进程。
 
-`CPUInputManifest`、内部 `AgentRunContext` 与 `RuntimeScope` 只保留冻结的 `ExecutionLabels(agent_id, workspace_id)` 观测标签，不携带授权身份；清单的操作快照在 `AgentRunContext` 中被翻译为 `permitted_mtp_verbs`，只供提示词与 frame 执行策略使用。标签取自注册入口绑定的同一组值，子帧沿用；提示词历史归并与运行事件使用注册标签，流式 frame 展示优先使用 `AgentProfile.agent_id`（源 alias），空值回退标签。标签不参与资源授权。
+Alice 与 agent_runtime 不持有 local bus，也不请求 Patchouli 公开路由；检索、引用与 CALL Profile 读取均提交 workspace 操作请求。PendingAtom 结算由 workspace 登记消费，派生读取缓存由 `WorkspaceRuntime.close()` 清理。
 
-每次主 run 产生 `agent.run.started` 和 completed/cancelled/failed RuntimeEvent，终态事件载荷中的迭代统计从主 frame 进度取得。流式路径必须出现 `done` 才被视为正常终态；流式与非流式共用一套骨架，在终态前被关闭或取消时，两种模式都发出 cancelled 观测事件，失败时发出同一条 failed 事件。RuntimeEvent 是 best-effort 旁路，不参与业务成功判定。
+`CPUInputManifest` 与 `RuntimeScope` 只保留冻结的 `ExecutionLabels(agent_id, workspace_id)` 观测标签，不携带授权身份；运行服务把清单的操作快照翻译为根帧的 MTP 动词集合，只供提示词与 frame 执行策略使用。标签取自注册入口绑定的同一组值，子帧沿用；提示词历史归并与运行事件使用注册标签，流式 frame 展示优先使用 `AgentProfile.agent_id`（源 alias），空值回退标签。标签不参与资源授权。
+
+每次主 run 产生 `agent.run.started` 和 completed/cancelled/failed RuntimeEvent，终态事件载荷中的迭代统计从主 frame 进度取得。CPU 流以类型化执行结果标识正常终态；任务进程负责面向客户端的 `done` 投影。流式与非流式共用一套骨架，在终态前被关闭或取消时，两种模式都发出 cancelled 观测事件，失败时发出同一条 failed 事件。RuntimeEvent 是 best-effort 旁路，不参与业务成功判定。
 
 ## 7. 当前设计文档
 
@@ -165,15 +171,17 @@ AliceBridge 不订阅 PendingAtom 结算事件；这些事件由 workspace 登�
 | 责任 | 当前入口 |
 |:---|:---|
 | 子系统装配与生命周期 | `src/hivememory/alice/system.py` |
-| Agent run 应用用例 | `src/hivememory/alice/application/agent_run_service.py` |
-| Alice 进程级执行资源 | `src/hivememory/alice/runtime/core.py` |
-| 多 Agent 编排 | `src/hivememory/alice/orchestration/run_executor.py`、`src/hivememory/alice/orchestration/sub_agent/`、`src/hivememory/alice/orchestration/run_session.py` |
+| Agent run 应用用例 | `src/hivememory/alice/run/service.py` |
+| 内核工厂与门面 | `src/hivememory/agent_runtime/runtime.py` |
+| CPU 端口与交互输出 | `src/hivememory/alice/interface/` |
+| 根帧上下文与压缩 | `src/hivememory/alice/context/` |
+| 多 Agent 编排 | `src/hivememory/alice/orchestration/executor.py`、`src/hivememory/alice/orchestration/call/`、`src/hivememory/alice/orchestration/session.py` |
 | 单 Agent 执行层 | `src/hivememory/agent_runtime/`、`agent_runtime/runtime.py` |
-| Prompt 与历史视图 | `src/hivememory/prompts/`、`engines/perception/context_converter.py` |
-| 公共运行模型 | `src/hivememory/workspace/contracts/process.py`（输入清单）、`src/hivememory/core/protocol/models.py`、`core/models/{agent,pending}.py` |
-| Alice 应用与编排测试 | `tests/unit/alice/application/`、`tests/unit/alice/orchestration/` |
+| Prompt 与历史视图 | `src/hivememory/prompts/`、`prompts/transcript/history.py` |
+| 公共运行模型 | `src/hivememory/workspace/contracts/process.py`（输入清单）、`src/hivememory/core/protocol/models.py`、`core/models/agent.py`、`agent_runtime/frame.py` |
+| Alice 应用与编排测试 | `tests/unit/alice/run/`、`tests/unit/alice/orchestration/` |
 | 执行与 MTP 测试 | `tests/unit/agent_runtime/` |
-| 主动与 CALL 流程 | `tests/e2e/pipeline/test_agent_loop_e2e.py`、`test_chat_run_e2e.py`、`test_sub_agent_call_e2e.py`；CALL 子线程按被调用方授权与写入归属见 `tests/e2e/system/test_chat_mtp_operations.py`、`tests/integration/alice/orchestration/test_call_profile_requests.py` |
+| 主动与 CALL 流程 | `tests/e2e/pipeline/test_agent_loop_e2e.py`、`test_chat_run_e2e.py`、`test_sub_agent_call_e2e.py`；CALL 子线程按被调用方授权与写入归属见 `tests/e2e/system/test_chat_mtp_operations.py`、`tests/integration/alice/orchestration/call/test_profile_requests.py` |
 
 ## 9. 当前限制与设计张力
 

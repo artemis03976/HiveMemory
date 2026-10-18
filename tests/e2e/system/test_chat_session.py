@@ -98,11 +98,9 @@ async def test_http_session_resume_after_partial_stop(monkeypatch, patchouli_cha
 
         return chunks()
 
-    monkeypatch.setattr("hivememory.agent_runtime.execution.worker.litellm.acompletion", completion)
+    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
     sessions = ConversationSessionService(WorkspaceSessionConfig())
-    alice = AliceSystem(
-        config=HiveMemoryConfig().alice, global_bus=stack.bus, operation_entry=entry
-    )
+    alice = AliceSystem(config=HiveMemoryConfig().alice, operation_entry=entry)
     service = make_task_process_service(
         stack.bus,
         cpu=alice.cpu_port,
@@ -339,13 +337,13 @@ async def test_http_long_session_reuses_compacted_history_and_seals_budget_failu
 
         return chunks()
 
-    monkeypatch.setattr("hivememory.agent_runtime.execution.worker.litellm.acompletion", completion)
+    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
     config = HiveMemoryConfig().alice
     config.koakuma.workspace_path = str(tmp_path)
     (tmp_path / "large.txt").write_text("z" * 100000)
+    config.runtime.default_context_window = 14000
+    config.runtime.safety_margin = 0
     config.compaction = CompactionConfig(
-        default_context_window=14000,
-        safety_margin=0,
         trigger_ratio=0.65,
         target_ratio=0.45,
         recent_raw_ratio=0.15,
@@ -353,9 +351,7 @@ async def test_http_long_session_reuses_compacted_history_and_seals_budget_failu
     )
     publisher = RuntimeEventPublisher(stack.events)
     sessions = ConversationSessionService(WorkspaceSessionConfig())
-    alice = AliceSystem(
-        config=config, global_bus=stack.bus, operation_entry=entry, event_publisher=publisher
-    )
+    alice = AliceSystem(config=config, operation_entry=entry, event_publisher=publisher)
     service = make_task_process_service(
         stack.bus,
         cpu=alice.cpu_port,

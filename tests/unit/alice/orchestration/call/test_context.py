@@ -1,0 +1,239 @@
+"""CALL 上下文的编译与操作边界错误映射。"""
+
+from datetime import UTC, datetime
+
+import pytest
+
+from hivememory.agent_runtime.frame import ExecutionFrame, FrameExecutionPolicy
+from hivememory.alice.orchestration.call import CallContextProvider
+from hivememory.core.errors import (
+    AdmissionDeniedError,
+    OperationDeniedError,
+    ResourceUnavailableError,
+)
+from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
+    AgentProfile,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    PayloadLayer,
+)
+from hivememory.core.models.reference import ReferenceResolution
+from hivememory.core.mtp import MTPCallRequest
+from hivememory.core.mtp.exceptions import (
+    AliasNotFoundError,
+    BusRouteUnavailableError,
+    PermissionDeniedError,
+    SystemFault,
+)
+from hivememory.workspace.contracts import DeriveCallThreadRequest, ResolveReferencesRequest
+from tests.helpers.call import StubOperationSubmitter, make_callee
+from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_runtime_scope
+
+
+def _frame(
+    *, submit_operation, profile: AgentProfile = OMNI_DOLL_PROFILE, language: str = "zh"
+) -> ExecutionFrame:
+    return ExecutionFrame(
+        execution_policy=FrameExecutionPolicy.from_verbs(
+            {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+        ),
+        submit_operation=submit_operation,
+        runtime_scope=make_runtime_scope(run_id="run-1", frame_id="frame-1"),
+        agent_profile=profile,
+        working_history=[],
+        topic_id="topic-1",
+        language=language,
+    )
+
+
+def _atom(title: str, content: str) -> MemoryAtom:
+    return MemoryAtom(
+        index=IndexLayer(
+            title=title,
+            summary=f"{title} summary",
+            memory_type=MemoryType.FACT,
+            tags=["context"],
+        ),
+        payload=PayloadLayer(content=content),
+        meta=make_memory_metadata(
+            source_agent_id="caller",
+            user_id="user-1",
+            updated_at=datetime.now(UTC),
+            confidence_score=0.9,
+        ),
+    )
+
+
+def _provider(*, profile=OMNI_DOLL_PROFILE, alias_results=(), profile_error=None) -> tuple:
+    results = iter(alias_results)
+
+    async def submit_operation(request):
+        """只替代 workspace 操作边界，CALL 的请求构造与上下文编译保持真实。"""
+        if not isinstance(request, ResolveReferencesRequest):
+            raise TypeError(type(request))
+        result = next(results)
+        if isinstance(result, Exception):
+            raise result
+        assert request.aliases == (result.requested_alias,)
+        return [result]
+
+    async def derive(request):
+        if not isinstance(request, DeriveCallThreadRequest):
+            raise TypeError(type(request))
+        if profile_error is not None:
+            raise profile_error
+        return make_callee(profile)
+
+    return CallContextProvider(), StubOperationSubmitter(operation=submit_operation, derive=derive)
+
+
+@pytest.mark.asyncio
+async def test_provide_compiles_atom_context_ref_for_callee():
+    resolved = ReferenceResolution(
+        kind="atom",
+        requested_alias="fact_a",
+        atom=_atom("Fact A", "context payload"),
+    )
+    provider, submit_operation = _provider(alias_results=[resolved])
+    # 共享上下文按调用方帧的语言编译，Profile 的语言设置不参与。
+    caller = _frame(submit_operation=submit_operation, language="en")
+
+    context = await provider.provide(
+        caller,
+        MTPCallRequest(
+            target_alias="helper",
+            task="summarize",
+            context_refs=["fact_a"],
+        ),
+    )
+
+    assert context.shared_context.startswith("[Shared Context from Parent Agent]")
+    assert "Use READ" in context.shared_context
+    assert '<memory alias="' in context.shared_context
+    assert "Fact A" in context.shared_context
+    assert "context payload" in context.shared_context
+
+
+@pytest.mark.asyncio
+async def test_provide_compiles_redirected_context_ref_as_canonical_atom():
+    resolved = ReferenceResolution(
+        kind="redirect",
+        requested_alias="draft_ctx_1234",
+        canonical_alias="fact_canonical",
+        atom=_atom("Canonical Fact", "canonical context"),
+    )
+    provider, submit_operation = _provider(alias_results=[resolved])
+
+    context = await provider.provide(
+        _frame(submit_operation=submit_operation),
+        MTPCallRequest(
+            target_alias="helper",
+            task="summarize",
+            context_refs=["draft_ctx_1234"],
+        ),
+    )
+
+    assert "Canonical Fact" in context.shared_context
+    assert "canonical context" in context.shared_context
+    assert "<memory alias=" in context.shared_context
+
+
+@pytest.mark.asyncio
+async def test_provide_keeps_resolvable_refs_when_one_resolution_fails():
+    resolved = ReferenceResolution(
+        kind="atom",
+        requested_alias="fact_b",
+        atom=_atom("Fact B", "usable context"),
+    )
+    provider, submit_operation = _provider(
+        alias_results=[RuntimeError("storage unavailable"), resolved]
+    )
+
+    context = await provider.provide(
+        _frame(submit_operation=submit_operation),
+        MTPCallRequest(
+            target_alias="helper",
+            task="summarize",
+            context_refs=["fact_a", "fact_b"],
+        ),
+    )
+
+    assert "Fact B" in context.shared_context
+    assert "usable context" in context.shared_context
+
+
+@pytest.mark.asyncio
+async def test_provide_returns_empty_context_when_no_ref_can_be_rendered():
+    provider, submit_operation = _provider(
+        alias_results=[ReferenceResolution(kind="not_found", requested_alias="missing")]
+    )
+
+    context = await provider.provide(
+        _frame(submit_operation=submit_operation),
+        MTPCallRequest(
+            target_alias="helper",
+            task="summarize",
+            context_refs=["missing"],
+        ),
+    )
+
+    assert context.shared_context == ""
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("error", "expected_type", "expected_code", "expected_key"),
+    [
+        (
+            OperationDeniedError("agent.call 未获授权"),
+            PermissionDeniedError,
+            "mtp.permission.denied",
+            "mtp.permission.verb_denied",
+        ),
+        (
+            AdmissionDeniedError("目标没有准入", details={"reason": "actor_not_admitted"}),
+            PermissionDeniedError,
+            "mtp.permission.denied",
+            "mtp.call.agent_unavailable",
+        ),
+        (
+            ResourceUnavailableError("Profile 存储路由不可达"),
+            BusRouteUnavailableError,
+            "mtp.system.service_unavailable",
+            "mtp.system.service_unavailable",
+        ),
+        (
+            AliasNotFoundError(message_key="mtp.call.profile_not_found"),
+            AliasNotFoundError,
+            "mtp.alias.not_found",
+            "mtp.call.profile_not_found",
+        ),
+        (
+            RuntimeError("profile unavailable"),
+            SystemFault,
+            "mtp.system.fault",
+            "mtp.call.profile_load_failed",
+        ),
+    ],
+)
+async def test_profile_failure_maps_to_mtp_error_before_resolving_context_refs(
+    error, expected_type, expected_code, expected_key
+):
+    """Profile 准备失败保留具体错误语义，不继续读取 context_refs。"""
+    provider, submit_operation = _provider(profile_error=error)
+
+    with pytest.raises(expected_type) as exc_info:
+        await provider.provide(
+            _frame(submit_operation=submit_operation),
+            MTPCallRequest(
+                target_alias="helper",
+                task="summarize",
+                context_refs=["fact_a"],
+            ),
+        )
+
+    assert exc_info.value.code == expected_code
+    assert exc_info.value.message_key == expected_key

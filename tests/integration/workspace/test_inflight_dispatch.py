@@ -11,7 +11,8 @@ from types import SimpleNamespace
 import pytest
 import pytest_asyncio
 
-from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement, WriteFocus
@@ -108,7 +109,14 @@ async def _write(chain):
     """以真实 MTP handler 提交，错误和 ACK 都由运行时生成。"""
     return await KoakumaRuntime().execute_mtp(
         '⟪ WRITE | * | content="需要立即生成的内容" ⟫',
-        MTPExecutionContext(runtime_scope=make_runtime_scope(), submit_operation=chain.submit),
+        MTPExecutionContext(
+            execution_policy=FrameExecutionPolicy.from_verbs(
+                {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+            ),
+            runtime_scope=make_runtime_scope(),
+            submit_operation=chain.submit,
+            language="zh",
+        ),
     )
 
 
@@ -290,7 +298,14 @@ async def test_update_base_disappearing_before_generation_returns_rejection(chai
     chain.admit.set()
     result = await KoakumaRuntime().execute_mtp(
         '⟪ UPDATE | base | instruction="更新内容" ⟫',
-        MTPExecutionContext(runtime_scope=make_runtime_scope(), submit_operation=chain.submit),
+        MTPExecutionContext(
+            execution_policy=FrameExecutionPolicy.from_verbs(
+                {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+            ),
+            runtime_scope=make_runtime_scope(),
+            submit_operation=chain.submit,
+            language="zh",
+        ),
     )
     assert result.response_status == "error"
     assert "mtp.memory.intent_rejected" in result.formatted_response

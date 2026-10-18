@@ -4,18 +4,19 @@ status: current
 owner: alice
 scope: call-frame-scheduling-and-sub-agent-return
 code_paths:
-  - src/hivememory/alice/application/agent_run_service.py
-  - src/hivememory/alice/orchestration/run_executor.py
-  - src/hivememory/alice/orchestration/run_session.py
-  - src/hivememory/alice/orchestration/sub_agent/call_coordinator.py
-  - src/hivememory/alice/orchestration/sub_agent/call_context_provider.py
-  - src/hivememory/alice/orchestration/sub_agent/call_record.py
-  - src/hivememory/alice/orchestration/frame_factory.py
-  - src/hivememory/alice/orchestration/context_view.py
-  - src/hivememory/alice/orchestration/run_output.py
-  - src/hivememory/alice/runtime/streaming.py
-  - src/hivememory/alice/runtime/runtime_events.py
-  - src/hivememory/prompts/assembler.py
+  - src/hivememory/alice/run/service.py
+  - src/hivememory/alice/orchestration/executor.py
+  - src/hivememory/alice/orchestration/session.py
+  - src/hivememory/alice/orchestration/call/coordinator.py
+  - src/hivememory/alice/orchestration/call/context.py
+  - src/hivememory/alice/orchestration/call/record.py
+  - src/hivememory/alice/orchestration/frames.py
+  - src/hivememory/alice/context/view.py
+  - src/hivememory/alice/orchestration/output.py
+  - src/hivememory/alice/interface/stream.py
+  - src/hivememory/alice/events.py
+  - src/hivememory/prompts/compilation.py
+  - src/hivememory/prompts/mtp.py
 related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/subsystem-contracts.md
@@ -35,34 +36,22 @@ Alice 的多 Agent 能力当前不是一个会自主拆解任务图的“超级�
 
 ```text
 AliceSystem
-  ├─ AliceCPU
-  │    └─ workspace CPUPort 的实现：选择 RUN_AGENT / RUN_AGENT_STREAM，done + result_slot checkpoint -> CPUExecutionResult
-  ├─ AgentRunService
-  │    ├─ unified run API (stream 参数) / root frame bootstrap / CPUExecutionResult / stream done
-  │    ├─ RunSession
-  │    │    └─ frame registry / CallRecord ledger
-  │    ├─ RunExecutor
-  │    │    └─ recursive frame evaluation + root outcome recording
-  │    ├─ CallCoordinator
-  │    │    ├─ begin/complete CALL, frame preparation, response apply
-  │    │    └─ CallContextProvider -> target profile + context_refs -> CallContext
-  │    ├─ FrameFactory
-  │    │    └─ create ordinary ExecutionFrame from FrameSpec
-  │    ├─ AgentRunOutput / AgentRunStreamAdapter
-  │    │    └─ frame output binding + bounded streaming queue
-  │    └─ AgentRunEventEmitter
-  │         └─ global best-effort agent.run.* observability
-  └─ AliceRuntime
-       ├─ KoakumaRuntime -> frame submit_operation -> workspace 操作入口
-       └─ AgentRuntime facade -> execute one frame to a terminal/trap outcome
+  ├─ AliceCPU -> AgentRunStreamAdapter / NullRunOutput
+  │    └─ AgentRunService -> RootContextBuilder
+  │         ├─ RunSession（frame registry / CallRecord）
+  │         ├─ RunExecutor -> CallCoordinator -> CallContextProvider
+  │         │                -> FrameFactory / CALL response
+  │         └─ CPUExecutionResult + AgentRunEventEmitter
+  └─ build_agent_runtime -> AgentRuntime -> loop / LLMClient / Koakuma
+                                            -> frame submit_operation -> workspace
 ```
 
-- AgentRunService 是 Alice 的公开 run 用例入口：`run_agent` 以 `stream` 参数控制是否流式，内部只有一套执行骨架，负责创建入口 frame、为每次 run 构造 Executor、组装 CPU 中立的执行结果，并在流式终态后发出唯一 `done`。两种模式的 `agent.run.*` 终态事件语义一致：完成、失败与终态前被关闭或取消分别只发布一次；queue、runner task、stream sequence 与 RuntimeEvent envelope 实现均不放在 application 层；
-- AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程；它经全局总线按是否流式选择 Alice 的两条类型化执行路由，把任务进程交来的线程 context 绑定为提交函数，原样转交交互事件并把 `done` 转换为执行结果，端口输出流关闭时一并关闭 Alice 的事件流，因此 Alice 的运行时仍在公开路由之后；
-- AliceSystem 是子系统装配根；AliceRuntime 只持有进程级执行机制，Profile 读取与缓存归 workspace，不参与单次 run 的控制链；
+- AgentRunService 是内部运行用例：`run_agent` 面向运行层的 `RunOutput`，创建根 frame 与每次 run 的 Executor，返回 CPU 中立执行结果并发布终态观测；模型预算、视图与压缩交给独立的 `RootContextBuilder`，结果投影放在 `run/result.py`，结果槽在同一收尾段同步填写；
+- AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程。它绑定线程提交函数、检查宿主启停并选择输出端口，直接调用运行服务；流式队列、runner task 与关闭收尾属于 `interface`，最后一项直接交付类型化结果；
+- AliceSystem 是子系统装配根，通过内核工厂构造 AgentRuntime。Profile 读取与缓存归 workspace，内核不参与多帧调度；
 - RunSession 只拥有一次 run 的 frame registry 与 CALL record，不保存取消信号、活动 frame、frame 调度状态或传输层 stream sequence；
 - RunExecutor 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件。它以协程递归执行 CALL 派生 frame，并在根帧终态只记录一次 run 结果；意图收尾属于任务进程；
-- AgentRunOutput 是调度与当前请求交互输出之间的窄端口；非流式使用 null 实现，流式使用 Alice runtime 的 queue-backed 实现；
+- AgentRunOutput 是调度与当前请求交互输出之间的窄端口，只承载 frame 输出与 CALL 边界；上下文层的 `ContextProgressOutput` 只承载压缩进度。运行层的 `RunOutput` 合并两者并补充 run 绑定与取消观测信息，非流式使用 `NullRunOutput`，流式使用 `interface/stream.py` 的有界队列实现；
 - AgentRunStreamAdapter 只负责流式传输适配，AgentRunEventEmitter 只负责全局观测投影，两者不参与 frame 求值；
 - CallContextProvider 经 caller 的 `submit_operation` 取得被调用方 `Callee` 并读取 `context_refs`，返回由被调用方与共享上下文组成、不含 frame 或 CALL ledger 状态的 `CallContext`；
 - CallCoordinator 把 CALL 拆为 `begin_call()` 与 `complete_call()`：消费 `CallContext` 组装 callee、投影 outcome，并通过 `AgentRuntime.apply_call_response()` exactly-once 恢复 caller；它不解析 Profile/记忆，不运行 frame，也不收尾整个 run；
@@ -76,10 +65,10 @@ AliceSystem
 
 每次 `run_agent()` 创建一个新的主 frame：
 
-- `run_id=agent_run_<uuid>`，也是 `RunSession.agent_run_id`；任务进程的 `process_id` 随输入清单传入，作为外层关联值；
+- `run_id=agent_run_<uuid>`，也是 `RunSession.agent_run_id`；任务进程的必填 `process_id` 随输入清单传入，作为外层关联值；
 - 唯一且无拓扑含义的 `frame_id`；
 - `topic_id` 指向 Patchouli 已准备的话题；
-- `ExecutionLabels` 来自输入清单（经 `AgentRunContext` 转换），只保存注册时绑定的 agent/workspace 观测标签，不参与资源授权；
+- `ExecutionLabels` 直接来自输入清单，只保存注册时绑定的 agent/workspace 观测标签，不参与资源授权；
 - 线程 context 绑定的 `submit_operation` 是资源请求的唯一交付入口，不暴露访问 context 或目标选择；
 - `agent_profile` 是本次主 Agent 图纸；
 - `working_history` 来自 `SessionContextView` 组装的预算内视图，预算与生成参数来自同一个 `ResolvedFrameModel`。
@@ -123,6 +112,8 @@ current frame emits CALL
 未提供 alias 时使用内置 `OMNI_DOLL_PROFILE`；`default` 与 `omni_doll` 是对同一内置 Profile 的显式选择，不是加载失败后的降级。Omni-Doll 对当前 verb/tool 使用显式白名单，因此后续新增能力不会自动穿透 fallback 边界。
 
 所有 alias，包括未指定、`default` 与 `omni_doll`，都由 CallContextProvider 经调用方提交函数的 `derive_call_thread` 提交 `DeriveCallThreadRequest`，经 workspace actor API 的 `agent.call` 授权；任务进程随后以被调用方（Profile 的 `agent_id`，内置图纸为 `omni_doll`）做 Workspace 准入并派生子线程，CPU 驱动把子线程 context 绑定为子帧的提交函数，CallContextProvider 只拿到被调用方 `Callee`：目标 Profile、被调用方的操作快照与该提交函数。`context_refs` 另以调用方的 READ 请求逐项解析，需要调用方的 `memory.read`，解析失败的引用被跳过。读取视图统一承担 Profile 解析、Workspace/alias 坐标定位、当前 actor 命中重验与 canonical 源变更失效。Patchouli 作为 Profile atom 所有者执行 Workspace ownership 和资源 policy 校验，再解析 persona、模型与语言。Alice 不保存另一份 Profile cache；管理入口修改源原子后，下一次 CALL 会通过失效视图读取新配置。子 frame 的 `FrameExecutionPolicy` 按每次 CALL 由被调用方的操作快照翻译后去掉 CALL 得到，不从 Profile 派生，也不进入 cache。
+
+子帧消息由 `CallCoordinator` 直接组装：MTP 教学 → 被调用方人格 → 共享上下文，随后是原样任务用户消息；空片段省略，全部为空时不创建系统消息。语言取被调用方 Profile，缺省时回退进程默认值；人格复用 `prompts.compilation.render_persona`。教学读取 Alice 的 Koakuma 配置，直接使用子帧策略已排除 CALL 的动词集合，布局层不再过滤一次。子帧不继承根帧的固定输入或会话摘要；它是 Alice 的内部 harness 行为，根帧的进程侧编译不承担这项职责。
 
 显式失败通过 `MTPCallResponse.error` 回填，不再启动子 frame：
 
@@ -178,7 +169,7 @@ root frame
   └─ continue root frame
 ```
 
-软限制由 PromptAssembler 实现：被调用 frame 的 prompt 按被调用方的动词集合渲染，并始终移除 CALL 动词教学。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 消费 CallContext 后，以被调用方的操作快照（`mtp_verbs_for_operations` 翻译，RUN 始终可用）构造子帧策略并显式移除 CALL；被调用方 Profile 只提供 persona、模型与语言。动词集合只是提示与执行前检查，子帧的资源操作仍由 actor API 按被调用方的白名单授权（[Workspace 架构](../architecture/workspace.md)第 5.4 节）。Koakuma 以 frame policy 校验。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该 Agent，让它改用自然语言或其他获准能力继续。
+软限制由 CallCoordinator 组装子帧提示词时实现：MTP 教学按被调用方的动词集合渲染，CALL 已在构造策略时移除，因此不会出现在教学中。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 消费 CallContext 后，以被调用方的操作快照（`mtp_verbs_for_operations` 翻译，RUN 始终可用）构造子帧策略并显式移除 CALL；被调用方 Profile 只提供 persona、模型与语言。动词集合只是提示与执行前检查，子帧的资源操作仍由 actor API 按被调用方的白名单授权（[Workspace 架构](../architecture/workspace.md)第 5.4 节）。Koakuma 以 frame policy 校验。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该 Agent，让它改用自然语言或其他获准能力继续。
 
 这是能力策略，不是 RunExecutor 的结构限制：执行器对所有 frame 使用同一个递归入口，不包含 `RootTurn/CalleeTurn` 分支。未来允许嵌套 CALL 时可以沿用这条递归路径；并行 sibling CALL 可在一次 suspension 能表达多个请求后，于当前递归层使用结构化并发。持久化 DAG、跨进程恢复和 review loop 仍属于后置方向。
 
@@ -202,7 +193,7 @@ caller 与 callee 各自使用自己线程的提交函数：callee 登记的意�
 - 子帧自身的 token/MTP 事件：`scope=sub`，并带 depth/frame_id；
 - `sub_agent_end`：最终 success/error/cancelled、子帧 `terminal_status`、目标 alias 与 frame id；success 携带 reply，error 携带稳定 `error_code`。
 
-这些事件服务当前请求的实时 UI 与调试，不是业务结果来源。`AgentRunStreamAdapter` 为每次流式 run 创建容量为 256 的有界 FIFO queue，所有事件通过 `await put()` 施加背压；`QueueAgentRunOutput` 为事件补全 `agent_run_id/frame_id/action_id/stream_sequence`。`depth` 仅保留为兼容展示字段，不再是执行坐标。`sub_agent_start` 在 callee frame 创建后才发布，因此 `frame_id` 不为空。最终 `done` 携带的执行结果中的 `turn_events` 才是结构化的一轮事实，由任务进程封口后交给 Patchouli。
+这些事件服务当前请求的实时 UI 与调试，不是业务结果来源。`AgentRunStreamAdapter` 为每次流式 run 创建容量为 256 的有界 FIFO queue，所有事件通过 `await put()` 施加背压；`QueueAgentRunOutput` 为事件补全 `agent_run_id/frame_id/action_id/stream_sequence`。`depth` 仅保留为兼容展示字段，不再是执行坐标。`sub_agent_start` 在 callee frame 创建后才发布，因此 `frame_id` 不为空。最后一个 `CPUExecutionResult` 中的 `turn_events` 才是结构化的一轮事实，由任务进程封口后交给 Patchouli。
 
 frame 的展示 `agent_id` 优先取 `AgentProfile.agent_id`（源 alias，内置图纸为 `omni_doll`），空值回退注册标签；`agent.run.*` 的 agent/workspace 字段始终取注册标签，不从 Profile 或子帧重新推导身份。
 
@@ -229,7 +220,7 @@ frame 的展示 `agent_id` 优先取 `AgentProfile.agent_id`（源 alias，内�
 
 - CALL trap 必须由 Alice 恢复，不能由 Koakuma formatter 或 Agent loop 吞成普通响应；
 - 子帧只接收 task 与显式 shared context，不能默认复制主 frame 全部工作历史；
-- 主 Agent 最终负责用户回复，子 Agent 不直接写入主话题或向客户端产生第二个 done；
+- 主 Agent 最终负责用户回复，子 Agent 不直接写入主话题或向任务进程交出第二个 CPU 终态；
 - Profile 的 persona 不能提升结构化权限，调用方 task 也不能替被调用者改写白名单；
 - Pending alias 的 IPC 收割与能力层的意图实时派发是两条不同用途的数据流；
 - `context_refs` 必须经过操作请求的 workspace 引用解析与 MemoryCompiler，不能通过裸 UUID 或字符串拼接绕过 alias/状态语义；

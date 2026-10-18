@@ -76,7 +76,7 @@ HiveMemory 当前实现按依赖分层组织。顶层 System 负责组合、门�
 - **PatchouliSystem / PatchouliRuntime**：记忆子系统宿主与运行时，管理 retrieval、perception、generation、lifecycle 与 storage 能力
 - **Retrieval Familiar**：Hot Path 检索服务，负责混合检索、重排序、上下文渲染
 - **Librarian Core**：Cold Path 记忆服务，负责话题感知、记忆提取、生命周期维护
-- **AliceSystem / AliceRuntime**：Agent 运行时子系统，持有 Agent runtime 与 Koakuma 工具 runtime
+- **AliceSystem / AgentRuntime**：Agent 执行子系统，通过 CPU 端口交付运行结果，内核工厂装配 Agent loop 与 Koakuma 工具 runtime
 - **KoakumaRuntime**：Alice 在 Agent 生成过程中使用的 MTP/工具执行器
 
 ### 热路径 / 冷路径

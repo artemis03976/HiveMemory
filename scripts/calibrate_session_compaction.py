@@ -7,19 +7,21 @@ import json
 from datetime import UTC, datetime
 from typing import Any, Literal
 
-from hivememory.agent_runtime.context_budget import estimate_context_tokens
-from hivememory.agent_runtime.execution.worker import WorkerAgentService
-from hivememory.agent_runtime.model_resolution import ResolvedFrameModel
-from hivememory.agent_runtime.models import GenerationResult
-from hivememory.alice.orchestration.context_view import SessionContextView
-from hivememory.alice.orchestration.relay_summary import RelaySummarizer
-from hivememory.config.alice import CompactionConfig, KoakumaConfig
-from hivememory.core.models import AgentProfile, ExecutionLabels, TurnEvent
-from hivememory.core.protocol.models import AgentRunContext, ConversationTurn, InteractionPayload
-from hivememory.prompts.assembler import AgentPromptAssembler
+from hivememory.agent_runtime import (
+    GenerationResult,
+    LLMClient,
+    ResolvedFrameModel,
+    estimate_context_tokens,
+)
+from hivememory.alice.context.summarizer import RelaySummarizer
+from hivememory.alice.context.view import SessionContextView
+from hivememory.config.alice import AgentRuntimeConfig, CompactionConfig
+from hivememory.core.models import AgentProfile, TurnEvent
+from hivememory.core.protocol.models import ConversationTurn, InteractionPayload
+from hivememory.prompts.compilation import compile_prompt_input
 
 
-class FixedSummaryWorker(WorkerAgentService):
+class FixedSummaryWorker(LLMClient):
     """只保留样本首行事实，供人工检查预算和继续执行的材料；不评估模型质量。"""
 
     def __init__(self) -> None:
@@ -98,6 +100,7 @@ def fixed_samples() -> dict[str, tuple[ConversationTurn, ...]]:
 
 async def main() -> None:
     """输出请求大小、保留轮数和摘要线索，便于在同一材料上比较默认值。"""
+    runtime_config = AgentRuntimeConfig()
     rows = []
     for label, config in (
         (
@@ -114,19 +117,23 @@ async def main() -> None:
             ),
         ),
     ):
-        input_limit = config.default_context_window - 32768 - config.safety_margin
+        input_limit = runtime_config.default_context_window - 32768 - runtime_config.safety_margin
         for name, turns in fixed_samples().items():
             worker = FixedSummaryWorker()
-            context = AgentRunContext(
-                labels=ExecutionLabels(agent_id="coder", workspace_id="sample"),
+            prompt = compile_prompt_input(
                 agent_profile=AgentProfile(persona="分析并继续任务。", language="zh"),
-                user_message="继续；先说明还有哪些事项未完成。",
-                session_history=turns,
-                permitted_mtp_verbs=frozenset({"READ", "RUN"}),
+                storage_available=True,
+                memory_context="",
+                attachment_context="",
             )
             view = SessionContextView(
-                context=context,
-                prompt_assembler=AgentPromptAssembler(KoakumaConfig(enabled=False)),
+                instructions=prompt.instructions,
+                turn_context=prompt.turn_context,
+                user_message="继续；先说明还有哪些事项未完成。",
+                language=prompt.language,
+                mtp_prompt="",
+                session_history=turns,
+                current_agent_id="coder",
                 checkpoint=None,
                 input_token_limit=input_limit,
                 config=config,

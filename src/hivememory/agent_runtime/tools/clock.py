@@ -1,0 +1,35 @@
+"""
+时钟类 syscall。
+"""
+
+from datetime import datetime
+
+from hivememory.agent_runtime.tools.types import SyscallResult
+
+
+def sys_clock(args: dict[str, str]) -> SyscallResult:
+    """
+    获取当前系统时间
+
+    Args (MTP):
+        format: 输出格式 (可选)
+            - "default": "YYYY-MM-DD HH:MM:SS (UTC+X)"
+            - "iso": ISO 8601 格式
+            - "date": "YYYY-MM-DD"
+            - "time": "HH:MM:SS"
+    """
+    fmt = args.get("format", "default")
+    now = datetime.now().astimezone()
+
+    if fmt == "iso":
+        return SyscallResult(content=now.isoformat())
+    if fmt == "date":
+        return SyscallResult(content=now.strftime("%Y-%m-%d"))
+    if fmt == "time":
+        return SyscallResult(content=now.strftime("%H:%M:%S"))
+
+    offset = now.utcoffset()
+    assert offset is not None  # astimezone() 总是返回带本地时区的时间
+    utc_offset_hours = offset.total_seconds() / 3600
+    offset_int = int(utc_offset_hours)
+    return SyscallResult(content=f"{now.strftime('%Y-%m-%d %H:%M:%S')} (UTC{offset_int:+d})")

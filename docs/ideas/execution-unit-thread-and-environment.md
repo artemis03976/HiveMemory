@@ -3,11 +3,11 @@ title: 执行单元、执行线程与执行环境
 status: idea
 horizon: candidate
 owner: project
-scope: execution-environment-selection-and-cross-workspace-target
+scope: execution-environment-selection-cross-workspace-target-and-cpu-output-vocabulary
 code_paths:
   - src/hivememory/workspace/contracts/
   - src/hivememory/workspace/process/
-  - src/hivememory/alice/application/cpu.py
+  - src/hivememory/alice/interface/
   - src/hivememory/server/models/chat.py
 related_docs:
   - docs/ideas/fifth-generation-architecture.md
@@ -15,14 +15,14 @@ related_docs:
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-17
 ---
 
 # 执行单元、执行线程与执行环境
 
 ## 0. 文档性质
 
-本文收集执行一侧尚未决定的方向：agent 与执行环境的分别选择，以及执行线程表达跨 Workspace 目标的方式。不描述当前行为，也不代表排期。理念见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.3 节“执行者可以替换”，执行一侧的用语（CPU、CPU 驱动、harness 实例、执行线程、操作适配器、请求入口）见同文第 2 节；当前设计见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节与 [Workspace 架构](../architecture/workspace.md)第 4.3、5.4 节。前提与问题沿用原编号。
+本文收集执行一侧尚未决定的方向：agent 与执行环境的分别选择，执行线程表达跨 Workspace 目标的方式，以及 CPU 输出使用谁的词汇。不描述当前行为，也不代表排期。理念见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.3 节“执行者可以替换”，执行一侧的用语（CPU、CPU 驱动、harness 实例、执行线程、操作适配器、请求入口）见同文第 2 节；当前设计见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节与 [Workspace 架构](../architecture/workspace.md)第 4.3、5.4 节。前提与问题沿用原编号。
 
 本文于 2026-10-13 精简，删除了已实施的决定（执行线程的身份与访问 context、操作请求与单一操作入口、子线程的派生与撤销等）、实施记录与代码快照；删除前版本见 commit `a384688`。
 
@@ -73,6 +73,24 @@ last_reviewed: 2026-10-13
 - **T-8b 默认值**：系统默认的执行环境（当前为 Alice） / Agent Profile 中声明的偏好 / 用户设置 / 其他。影响：由 Profile 声明偏好会让 agent 与执行环境重新部分耦合（前提 9）。
 - **T-8c 系统层级控制的形态**：哪些执行环境可用、对哪些用户可用：由 System 在启动时随 harness 登记的执行侧面装载（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) 1.2、E-1），CPU 分配按用户的选择取得驱动 / 按用户登记可用的执行环境 / 其他。影响：向前端列出可选执行环境的接口属于 System 层面的 API，不经 workspace（[Workspace 架构](../architecture/workspace.md)第 4.5 节）。
 
+### T-10 CPU 输出与会话历史的词汇归属
+
+**背景**（2026-10-17，代码核对）：CPU 的输入侧已经中立：HiveMemory 的提示词内容在 CPU 边界前编译定稿，CPU 只负责布局与自身的工具教学、历史管理（[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)第 4.1 节）。输出侧仍以 Alice 的词汇为准，外部执行环境接入后没有自己的位置：
+
+- **交互事件**：`CPUOutput` 是 `dict[str, Any] | CPUExecutionResult`，进程把字典原样转交客户端 SSE，不做解释。前端依赖的 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end`、`context_compaction` 及其字段由 Alice 的流式适配器定义（[路由与事件契约](../contracts/routes-and-events.md#25-cpu-端口与交互输出)第 2.5 节），名称本身带着 MTP 与 CALL 的概念；
+- **失败原因**：`CPUFailureReason` 中的 `compaction_failed`、`turn_context_budget_exceeded` 描述 Alice 自己的会话压缩与轮内守卫。controller 模式下 harness 自管上下文与压缩（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1），这类原因无从产生，其他失败也没有对应的中立分类；
+- **会话历史**：`CPUExecutionResult.turn_events` 写入会话，再供 Patchouli 生成记忆与 Gateway 读取最近 N 轮。`TurnEvent` 按通用 Agent 事件设计，但 Alice 写入的工具调用内容是 MTP 原文，`tool_kind` 取 MTP 动词，`render_as` 是 Alice 重放历史时使用的提示。前提 10 使同一会话内不会切换执行环境，问题集中在不同执行环境写入的历史能否被同一套下游读取。
+
+进程封口、会话写入与 finalize 依赖的 `CPUExecutionResult` 字段（`status`、`final_text`、`turn_events` 的结构、`has_output`）已经是类型化契约，不在本问题范围内。
+
+- 选项：
+  - workspace 定义中立的交互事件、失败原因与历史事件内容（工具名、参数与结果，而非协议原文），各 CPU 驱动映射过去，进程把中立事件投影为 SSE；
+  - 把 Alice 现有的词汇定为公开契约，外部驱动翻译为同一词汇，无法提供的事件缺省，失败原因只使用适用的值；
+  - 各执行环境声明自己的词汇，进程透传并标注来源，前端与下游按执行环境分别解释；
+  - 其他。
+- 影响：第一项需要迁移 SSE 契约与前端，Alice 的流式适配器与结果组装改为产出中立类型，Alice 特有的信息（MTP 原文、CALL 边界、压缩阶段）要么进入中立模型的扩展字段，要么只留在 Alice 内部；第二项不改现有代码与前端，但事件名称与外部 harness 的概念不符，翻译规则按 harness 分别维护；第三项让前端、记忆生成与 Gateway 都要随每个新执行环境改动，与前提 9“更换执行环境不改变 agent 能看到什么”的取向相悖。server 层与 SSE 投影脱节的既有模型见 [v0.7.0 代码收敛清单](../todo/v0.7.0-code-convergence.md)第 1.5 条。
+- 不在 v0.7.0：只有 Alice 一个执行环境时，三项的可观察行为相同；需要在 v0.7.1 controller 模式的驱动计划之前决定。
+
 ## 3. 相关文档
 
 | 文档 | 关系 |
@@ -80,5 +98,5 @@ last_reviewed: 2026-10-13
 | [第五代架构 Idea](./fifth-generation-architecture.md) | 3.3 的理念、第 2 节的执行一侧用语；P-10a 与 T-7b 相互约束 |
 | [身份与访问体系 Idea](./identity-and-access-model.md) | 受限穿透访问的授权模型，T-5b 是它在执行一侧的表达 |
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | Profile 的解析时点（2.2）与 CPU 分配记入进程记录（2.3） |
-| [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | harness 登记的两个侧面（1.2）；外部执行单元不识别子线程（E-5）；外部 harness 是执行环境（E-6a） |
+| [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | harness 登记的两个侧面（1.2）；controller 模式下 harness 自管上下文，是 T-10 的背景（1.1）；外部执行单元不识别子线程（E-5）；外部 harness 是执行环境（E-6a） |
 | [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 会话模型，T-8a 的承载位置之一 |

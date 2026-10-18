@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-17
 ---
 
 # HiveMemory 当前系统架构
@@ -88,7 +88,8 @@ flowchart TB
 
     BUS --> GW["GatewaySystem"]
     BUS --> PA["PatchouliSystem"]
-    BUS --> AL["AliceSystem"]
+    CHAT --> CPU["CPUPort（workspace.contracts）"]
+    CPU --> AL["AliceSystem / AliceCPU"]
 
     FACADE --> PI["Passive Ingress（System）"]
     PI --> BUS
@@ -143,7 +144,7 @@ Patchouli 消费 Gateway 已形成的决策，不重新承担入口分析；它�
 
 Alice 是 Agent 执行与控制平面，拥有：
 
-- Agent Profile 驱动的运行参数与权限；
+- Agent Profile 驱动的运行参数与访问登记决定的操作策略；
 - 非流式和流式 Agent run；
 - Agent loop、ExecutionFrame 和有限深度的子 Agent 编排；
 - Koakuma MTP 解析、执行与回填；
@@ -193,7 +194,7 @@ TaskProcessService（workspace.process）
   -> workspace Profile 读取能力（CPU 分配的一部分，先于 prepare；按需经公开路由冷读）
   -> Patchouli PREPARE_AGENT_RUN（话题与检索）
   -> CPU 分配：附件租借与编译、记忆编译、组装 CPUInputManifest
-  -> Actor 执行：派生线程 context，经 CPU 端口（当前为 Alice，按流式选择 RUN_AGENT_STREAM 或 RUN_AGENT）
+  -> Actor 执行：派生线程 context，经 CPU 端口（当前为 Alice，直接调用运行服务）
   -> CPU 结束：同步撤销线程 context
   -> 任务进程封口交互记录（InteractionPayload）
   -> Patchouli FINALIZE_AGENT_RUN

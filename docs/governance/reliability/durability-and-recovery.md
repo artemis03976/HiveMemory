@@ -8,7 +8,9 @@ code_paths:
   - src/hivememory/patchouli/runtime/
   - src/hivememory/patchouli/control/
   - src/hivememory/agent_runtime/
-  - src/hivememory/alice/runtime/
+  - src/hivememory/alice/interface/
+  - src/hivememory/alice/run/
+  - src/hivememory/alice/orchestration/
   - src/hivememory/workspace/intents/
   - src/hivememory/workspace/cache/
   - src/hivememory/patchouli/memory_library/
@@ -21,7 +23,7 @@ related_docs:
   - docs/alice/pending-atom.md
   - docs/alice/agent-runtime.md
   - docs/components/observability.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-17
 ---
 
 # 运行时状态持久化与故障恢复治理

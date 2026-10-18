@@ -7,14 +7,14 @@ related_docs:
   - docs/alice/agent-runtime.md
   - docs/components/observability.md
   - docs/help/troubleshooting.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-10-17
 ---
 
 # 补齐 Alice Runtime 健康探针
 
 ## 问题与证据
 
-`AliceRuntime.health()` 当前主要返回 loop/worker 的固定装配状态，不验证模型端点、syscall 可用性、cache 隔离、正在运行的 frame 或迭代耗尽率。服务可能报告 `ok`，但实际 Agent run 已无法完成。
+`AliceSystem.health()`（汇总 `AgentRuntime.health()`） 当前主要返回 loop/worker 的固定装配状态，不验证模型端点、syscall 可用性、cache 隔离、正在运行的 frame 或迭代耗尽率。服务可能报告 `ok`，但实际 Agent run 已无法完成。
 
 ## 影响
 

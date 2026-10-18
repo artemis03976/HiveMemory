@@ -4,9 +4,9 @@ from dataclasses import replace
 
 import pytest
 
-from hivememory.agent_runtime.models import MTPExecutionContext
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.agent_runtime.policy import FrameExecutionPolicy
 from hivememory.core.models import AgentProfile
 from hivememory.prompts.mtp import MTPPromptBuilder
 from tests.helpers.operations import OperationsHarness
@@ -33,9 +33,9 @@ async def test_prompt_and_runtime_reject_verbs_outside_frame_without_submission(
     ).build()
     context = MTPExecutionContext(
         runtime_scope=make_runtime_scope(),
-        agent_profile=profile,
         execution_policy=policy,
         submit_operation=record_submission,
+        language=profile.language,
     )
 
     result = await KoakumaRuntime().execute_mtp(command, context)
@@ -55,15 +55,14 @@ async def test_prompt_and_runtime_reject_verbs_outside_frame_without_submission(
 
 
 @pytest.mark.asyncio
-async def test_shared_runtime_keeps_frame_policies_independent_of_profile() -> None:
-    """同一个 runtime 与 Profile 不持有权限状态，换 frame 策略才能改变动词可用性。"""
+async def test_shared_runtime_takes_verb_availability_from_frame_policy() -> None:
+    """同一个 runtime 不持有权限状态，只有换 frame 策略才改变动词可用性。"""
     harness = OperationsHarness()
-    profile = AgentProfile()
     context = MTPExecutionContext(
         runtime_scope=make_runtime_scope(),
-        agent_profile=profile,
         execution_policy=FrameExecutionPolicy.from_verbs({"READ", "RUN"}),
         submit_operation=await harness.submitter(make_identity_scope()),
+        language="zh",
     )
     runtime = KoakumaRuntime()
     command = '⟪ WRITE | * | content="另一个 frame 的意图" ⟫'
@@ -92,6 +91,7 @@ async def test_system_tool_alias_requires_exact_registration_without_resource_su
         runtime_scope=make_runtime_scope(),
         execution_policy=FrameExecutionPolicy.from_verbs({"RUN"}),
         submit_operation=await harness.submitter(make_identity_scope(), allowed_operations=[]),
+        language="zh",
     )
 
     result = await KoakumaRuntime().execute_mtp("⟪ RUN | sys_clock_evil | ⟫", context)

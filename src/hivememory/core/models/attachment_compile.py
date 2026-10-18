@@ -30,7 +30,7 @@ class AttachmentCompileResult(BaseModel):
 
     attachment_context: str = Field(
         default="",
-        description="供 AgentPromptAssembler 注入的确定性附件 section；仅未选择附件时为空",
+        description="供任务进程编译提示词的确定性附件 section；仅未选择附件时为空",
     )
     used_attachments: tuple[WorkspaceAssetRef, ...] = Field(default_factory=tuple)
     diagnostics: tuple[AttachmentCompileDiagnostic, ...] = Field(default_factory=tuple)

@@ -21,8 +21,8 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.agent_runtime.models import MTPExecutionContext
-from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
+from hivememory.agent_runtime.frame import FrameExecutionPolicy
+from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.config.alice import KoakumaConfig
 from hivememory.core.models import (
     IndexLayer,
@@ -34,6 +34,7 @@ from hivememory.core.mtp import (
     MTPFilterParser,
 )
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.operations import HarnessKoakumaRuntime
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope, make_workspace_identity
 
 MAIN = make_workspace_identity()
@@ -69,7 +70,7 @@ def _make_retrieval_response(memories=None) -> list[MemoryAtom]:
 
 
 @pytest.fixture
-def koakuma() -> KoakumaRuntime:
+def koakuma() -> HarnessKoakumaRuntime:
     from .conftest import make_koakuma_runtime, make_mock_bus
 
     mock_retrieval = MagicMock()
@@ -78,22 +79,38 @@ def koakuma() -> KoakumaRuntime:
     return make_koakuma_runtime(bus, KoakumaConfig())
 
 
-def _execute_mtp(koakuma: KoakumaRuntime, text: str, context=None):
+def _execute_mtp(koakuma: HarnessKoakumaRuntime, text: str, context=None):
     return asyncio.run(
         koakuma.execute_mtp(
             text,
-            context=context or MTPExecutionContext(runtime_scope=make_runtime_scope()),
+            context=context
+            or asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(),
+                )
+            ),
         )
     )
 
 
-def _intercept_and_execute(koakuma: KoakumaRuntime, assistant_text: str, context=None):
+def _intercept_and_execute(koakuma: HarnessKoakumaRuntime, assistant_text: str, context=None):
     from .conftest import normalize_worker_agent_mtp_output
 
     return asyncio.run(
         koakuma.intercept_and_execute(
             normalize_worker_agent_mtp_output(assistant_text),
-            context=context or MTPExecutionContext(runtime_scope=make_runtime_scope()),
+            context=context
+            or asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(),
+                )
+            ),
         )
     )
 
@@ -242,12 +259,16 @@ class TestSearchRetrievalRequest:
             _make_retrieval_response([mem])
         )
         context = MTPExecutionContext(
+            execution_policy=FrameExecutionPolicy.from_verbs(
+                {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+            ),
             runtime_scope=make_runtime_scope(
                 agent_id="display_agent", workspace_id="display_workspace"
             ),
             submit_operation=asyncio.run(
                 koakuma.harness.submitter(make_identity_scope(user_id="user_42"))
             ),
+            language="zh",
         )
 
         result = _execute_mtp(koakuma, '⟪ SEARCH | * | query="test" ⟫', context=context)
@@ -334,7 +355,15 @@ class TestSearchResultRendering:
         result = _execute_mtp(
             koakuma,
             '⟪ SEARCH | * | query="test" filter="unknown:value" ⟫',
-            context=MTPExecutionContext(runtime_scope=make_runtime_scope(), language="en"),
+            context=asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(),
+                    language="en",
+                )
+            ),
         )
 
         assert result.response_status == "success"
@@ -412,9 +441,14 @@ class TestKoakumaSearchExecution:
         result = _execute_mtp(
             koakuma,
             '⟪ SEARCH | * | query="nonexistent" ⟫',
-            context=MTPExecutionContext(
-                runtime_scope=make_runtime_scope(),
-                language="en",
+            context=asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(),
+                    language="en",
+                )
             ),
         )
 
@@ -426,9 +460,14 @@ class TestKoakumaSearchExecution:
         koakuma.harness.backing.bus._mock_retrieval.retrieve.return_value = (
             _make_retrieval_response([])
         )
-        context = MTPExecutionContext(
-            runtime_scope=make_runtime_scope(),
-            language="zh",
+        context = asyncio.run(
+            koakuma.make_context(
+                execution_policy=FrameExecutionPolicy.from_verbs(
+                    {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                ),
+                runtime_scope=make_runtime_scope(),
+                language="zh",
+            )
         )
 
         result = _execute_mtp(
@@ -449,9 +488,14 @@ class TestKoakumaSearchExecution:
         result = _execute_mtp(
             koakuma,
             '⟪ SEARCH | * | query="nonexistent" ⟫',
-            context=MTPExecutionContext(
-                runtime_scope=make_runtime_scope(),
-                language="en",
+            context=asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(),
+                    language="en",
+                )
             ),
         )
 
@@ -469,9 +513,14 @@ class TestKoakumaSearchExecution:
         result = _execute_mtp(
             koakuma,
             '⟪ SEARCH | * | query="test" ⟫',
-            context=MTPExecutionContext(
-                runtime_scope=make_runtime_scope(),
-                language="en",
+            context=asyncio.run(
+                koakuma.make_context(
+                    execution_policy=FrameExecutionPolicy.from_verbs(
+                        {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
+                    ),
+                    runtime_scope=make_runtime_scope(),
+                    language="en",
+                )
             ),
         )
 

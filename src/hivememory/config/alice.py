@@ -24,16 +24,18 @@ class KoakumaConfig(BaseModel):
 
 
 class AgentRuntimeConfig(BaseModel):
+    """单帧循环上限与模型输入预算；未知模型窗口时使用保守默认值。"""
+
+    default_context_window: int = Field(default=65536, gt=0, description="默认总窗口 token 数")
+    safety_margin: int = Field(default=2048, ge=0, description="为估算误差预留的 token 数")
     max_loop_iterations: int = Field(default=10)
 
     model_config = ConfigDict(extra="ignore")
 
 
 class CompactionConfig(BaseModel):
-    """会话上下文预算；未知模型窗口时使用保守默认值。"""
+    """历史压缩的触发阈值、保留比例与摘要生成参数。"""
 
-    default_context_window: int = Field(default=65536, gt=0, description="默认总窗口 token 数")
-    safety_margin: int = Field(default=2048, ge=0, description="为估算误差预留的 token 数")
     enabled: bool = Field(default=True, description="启用历史压缩，不影响轮内预算守卫")
     trigger_ratio: float = Field(default=0.75, gt=0, le=1, description="触发压缩的输入预算比例")
     recent_raw_ratio: float = Field(
