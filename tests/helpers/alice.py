@@ -14,7 +14,6 @@ from hivememory.alice.run.service import AgentRunService
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.contracts import (
     CPUInputManifest,
     CPUOutput,
@@ -56,12 +55,11 @@ def build_run_service(
         model_registry=model_registry,
     )
     frame_factory = FrameFactory()
-    prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
     coordinator = CallCoordinator(
         runtime,
         CallContextProvider(),
         frame_factory=frame_factory,
-        prompt_assembler=prompt_assembler,
+        koakuma_config=config.alice.koakuma,
     )
     service = AgentRunService(
         summarizer=RelaySummarizer(LLMClient()),

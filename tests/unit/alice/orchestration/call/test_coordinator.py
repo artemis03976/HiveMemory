@@ -1,11 +1,13 @@
 """CallCoordinator 单元测试。
 
 Coordinator 与其持有的 RunSession 调用记录属于同一内聚单元，均使用真实对象；
-context provider、frame factory、prompt assembler 与 runtime 的 frame 执行为替身。
+上下文 provider 与 runtime 的 frame 执行为替身；提示词与布局使用真实实现。
+仅调用状态测试替代 frame factory，提示词测试保留真实帧创建。
 """
 
 import asyncio
 import logging
+from dataclasses import replace
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -29,9 +31,12 @@ from hivememory.alice.orchestration.call.record import CallRecord, CallRecordSta
 from hivememory.alice.orchestration.frames import FrameFactory
 from hivememory.alice.orchestration.output import CallOutputFinished, NullAgentRunOutput
 from hivememory.alice.orchestration.session import RunSession
-from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
+from hivememory.config.alice import KoakumaConfig, MTPPromptConfig
+from hivememory.core.access import WorkspaceOperation
+from hivememory.core.models import OMNI_DOLL_PROFILE, AgentProfile, TurnEvent
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
 from hivememory.core.mtp.exceptions import PermissionDeniedError, SystemFault
+from hivememory.i18n import get_default_language, set_default_language
 from tests.helpers.call import StubOperationSubmitter, make_call_context
 from tests.helpers.workspace import make_runtime_scope
 
@@ -89,9 +94,6 @@ def _coordinator(runtime, child: ExecutionFrame, *, context_provider=None) -> Ca
         scope=MagicMock(return_value=child.runtime_scope),
         create=MagicMock(return_value=child),
     )
-    prompt_assembler = SimpleNamespace(
-        build_sub_agent_messages=MagicMock(return_value=child.working_history)
-    )
     return CallCoordinator(
         runtime,
         context_provider
@@ -99,7 +101,7 @@ def _coordinator(runtime, child: ExecutionFrame, *, context_provider=None) -> Ca
             provide=AsyncMock(return_value=make_call_context(agent_profile=OMNI_DOLL_PROFILE))
         ),
         frame_factory=frame_factory,
-        prompt_assembler=prompt_assembler,
+        koakuma_config=KoakumaConfig(enabled=False),
     )
 
 
@@ -113,6 +115,104 @@ def _child() -> ExecutionFrame:
     child = _frame()
     child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
     return child
+
+
+async def _prepare_prompt_frame(
+    profile: AgentProfile,
+    config: KoakumaConfig,
+    *,
+    shared_context: str = "",
+) -> ExecutionFrame:
+    """从公共 CALL 入口取得真实子帧，只替代已授权的上下文解析端口。"""
+    caller = _frame()
+    context = replace(
+        make_call_context(
+            agent_profile=profile,
+            allowed_operations=frozenset(
+                {WorkspaceOperation.MEMORY_WRITE, WorkspaceOperation.AGENT_CALL}
+            ),
+        ),
+        shared_context=shared_context,
+    )
+    coordinator = CallCoordinator(
+        SimpleNamespace(),
+        SimpleNamespace(provide=AsyncMock(return_value=context)),
+        frame_factory=FrameFactory(),
+        koakuma_config=config,
+    )
+    result = await coordinator.begin_call(
+        caller, _suspension(), session=_session(caller), run_output=NullAgentRunOutput()
+    )
+    assert isinstance(result, DispatchCallee)
+    return result.frame
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("profile_language", "persona_header", "teaching_intro"),
+    [
+        ("zh", "### 角色设定 ###", "你是运行在 HiveMemory 上的智能 Agent"),
+        ("en", "### PERSONA ###", "You are an intelligent Agent running on HiveMemory"),
+        ("", "### PERSONA ###", "You are an intelligent Agent running on HiveMemory"),
+    ],
+)
+async def test_callee_prompt_uses_own_language_persona_and_policy(
+    profile_language: str, persona_header: str, teaching_intro: str
+) -> None:
+    """子帧按自身 Profile 与操作快照组装，语言缺省时回退到进程默认值。"""
+    previous = get_default_language()
+    set_default_language("en")
+    try:
+        frame = await _prepare_prompt_frame(
+            AgentProfile(persona="  子 Agent 人设\n", language=profile_language),
+            KoakumaConfig(
+                mtp_prompt=MTPPromptConfig(include_demo=False, include_error_handling=False)
+            ),
+            shared_context="\n[共享上下文]\n原文  ",
+        )
+    finally:
+        set_default_language(previous)
+
+    assert [message["role"] for message in frame.working_history] == ["system", "user"]
+    system_prompt = frame.working_history[0]["content"]
+    assert teaching_intro in system_prompt
+    assert system_prompt.endswith(
+        f"\n\n{persona_header}\n\n  子 Agent 人设\n\n\n\n[共享上下文]\n原文  "
+    )
+    assert frame.execution_policy.permitted_verbs == frozenset({"WRITE", "RUN"})
+    assert "- WRITE:" in system_prompt
+    assert "- RUN:" in system_prompt
+    assert "CALL" not in system_prompt
+    assert "READ" not in system_prompt
+    assert frame.working_history[-1] == {"role": "user", "content": "summarize"}
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("enabled,teaching_enabled", [(False, True), (True, False)])
+async def test_callee_prompt_without_teaching_keeps_persona_and_shared_context(
+    enabled: bool, teaching_enabled: bool
+) -> None:
+    """任一教学开关关闭时仍保留子帧人设、共享上下文与任务。"""
+    frame = await _prepare_prompt_frame(
+        AgentProfile(persona="子 Agent", language="zh"),
+        KoakumaConfig(enabled=enabled, mtp_prompt=MTPPromptConfig(enabled=teaching_enabled)),
+        shared_context="[共享上下文]",
+    )
+
+    assert frame.working_history == [
+        {"role": "system", "content": "### 角色设定 ###\n\n子 Agent\n\n[共享上下文]"},
+        {"role": "user", "content": "summarize"},
+    ]
+
+
+@pytest.mark.asyncio
+async def test_callee_prompt_omits_empty_system_message() -> None:
+    """系统片段全部为空时只发送任务，不创建空系统消息。"""
+    frame = await _prepare_prompt_frame(
+        AgentProfile(persona="", language="zh"), KoakumaConfig(enabled=False)
+    )
+
+    assert frame.working_history == [{"role": "user", "content": "summarize"}]
 
 
 class _RecordingRunOutput:
@@ -488,11 +588,7 @@ async def test_child_frame_inherits_caller_observation_labels() -> None:
             provide=AsyncMock(return_value=make_call_context(agent_profile=OMNI_DOLL_PROFILE))
         ),
         frame_factory=FrameFactory(),
-        prompt_assembler=SimpleNamespace(
-            build_sub_agent_messages=MagicMock(
-                return_value=[{"role": "user", "content": "summarize"}]
-            )
-        ),
+        koakuma_config=KoakumaConfig(enabled=False),
     )
     session = _session(caller)
 

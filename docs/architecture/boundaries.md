@@ -141,7 +141,7 @@ Patchouli 是长期知识事实的核心。检索、话题、Profile、Interacti
 
 ### 6.2 Prepare / Finalize 边界
 
-`prepare_agent_run` 把 Gateway 决策转换为 `PreparedAgentRun`：准备真实话题、读取话题上下文与话题池，并按检索计划检索记忆，返回未编译的检索原子。Agent Profile 解析、附件租借与编译、记忆编译和输入清单组装属于 workspace 任务进程的 CPU 分配，不在 Patchouli 边界内完成。
+`prepare_agent_run` 把 Gateway 决策转换为 `PreparedAgentRun`：准备真实话题、读取话题上下文与话题池，并按检索计划检索记忆，返回未编译的检索原子。Agent Profile 解析、附件租借与编译、记忆与中立提示词编译、输入清单组装属于 workspace 任务进程的 CPU 分配，不在 Patchouli 边界内完成。
 
 `PreparedAgentRun` 只保存 prepare 的资源归属。`finalize_agent_run` 接收它、任务进程封口的 `InteractionPayload` 和当次阶段授权的 `IdentityScope`；归属不一致时在交互接纳前抛 `WorkspaceMismatchError`，一致时以当次 scope 的发起者创建 submission，原样提交感知链、等待 applied 并记录命中；主动写入经独立的意图路由实时派发。交互记录由提交方封口（主动链路是任务进程，被动链路是 System 的 turn buffer），Patchouli 的公开路由因此不接收任何执行者专属的运行结果；trace 归约规则只有 core 中的一份，由封口方调用。
 
@@ -164,13 +164,13 @@ Alice 是知识的使用者和行动者。它可以在一次 run 中读取记忆
 
 - 一次 Agent run 的 frame、消息、turn events 和终态；
 - Agent loop 的迭代与流式执行资源；task cancellation 的业务裁决属于任务进程编排（`workspace.process`），Agent 执行只负责原生传播与本地 unwind；
-- Koakuma 的 MTP parser、Profile 权限检查与 syscall registry；
+- Koakuma 的 MTP parser、frame 动词检查与 syscall registry；
 - 当前 frame 收到的 WRITE/UPDATE ACK 别名清单；
 - CALL 的父子 frame 调度。
 
 ### 7.2 依赖方向
 
-Alice 接收含只读 `ExecutionLabels` 的 `CPUInputManifest`，在内部转换为 `AgentRunContext`。CPU 端口的线程 context 独立于清单，`AliceCPU` 以 `workspace.contracts.ThreadOperationSubmitter` 把它与公共 `OperationEntry` 绑定为提交函数；CALL 经提交函数的派生方法取得以被调用方身份运行的子线程与它自己的提交函数；MTP 与 CALL 仅构造请求，READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取统一进入 workspace actor API，各自检查一项 actor 操作。主、子 frame 各自使用自己线程的提交函数并沿用注册标签，不持有访问 context 或 `IdentityScope`，也不能用标签改变资源授权目标；CPU 执行结束后全部线程 context 被撤销，提交函数随之失效。
+Alice 直接消费含只读 `ExecutionLabels`、已解析语言与定稿提示词文本的 `CPUInputManifest`，负责工具教学、历史视图与固定文本布局。CPU 端口的线程 context 独立于清单，`AliceCPU` 以 `workspace.contracts.ThreadOperationSubmitter` 把它与公共 `OperationEntry` 绑定为提交函数；CALL 经提交函数的派生方法取得以被调用方身份运行的子线程与它自己的提交函数；MTP 与 CALL 仅构造请求，READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取统一进入 workspace actor API，各自检查一项 actor 操作。主、子 frame 各自使用自己线程的提交函数并沿用注册标签，不持有访问 context 或 `IdentityScope`，也不能用标签改变资源授权目标；CPU 执行结束后全部线程 context 被撤销，提交函数随之失效。
 
 模型解析经 `agent_runtime.ModelResolver` 端口使用 System 的模型注册表，由组合根注入。
 
@@ -192,9 +192,8 @@ Patchouli 结算意图后，经全局事件更新 workspace 登记；canonical �
 | `GatewayExecutionState` | Gateway | 不公开；只投影 `GatewayProcessResult` |
 | `GatewayDecision` | Gateway 形成，调用链只读消费 | frozen 公共模型 |
 | `PreparedAgentRun` | Patchouli | `patchouli.contracts.prepare` 中的 frozen dataclass，只保留 `belong_to`；任务进程读取话题与检索结果，并携当次阶段 scope 交回 finalize/cleanup |
-| `CPUInputManifest` | workspace 任务进程组装，CPU 消费 | `workspace.contracts` 中的 frozen Pydantic 模型 |
+| `CPUInputManifest` | workspace 任务进程编译提示词并组装，CPU 原样消费固定文本、自管历史与工具教学 | `workspace.contracts` 中的 frozen Pydantic 模型 |
 | `CPUPort` | workspace 定义，CPU 实现（当前为 Alice 的 `AliceCPU`），组合根注入任务进程 | `workspace.contracts` 中的协议；任务进程只经它调用 CPU |
-| `AgentRunContext` | Alice 由输入清单转换，供提示词组装 | Pydantic 模型，不出现在 Patchouli 路由上 |
 | `CPUExecutionResult` | CPU 组装（当前为 Alice），任务进程消费 | `workspace.contracts` 中的 frozen Pydantic 模型，不含执行者专属的统计 |
 | `InteractionPayload` | 提交方组装并封口（主动：任务进程；被动：System turn buffer），Patchouli 消费 | 公共协议模型，不由 router 拼装，finalize 不改写 |
 | `InteractionSubmission` / `MemoryGenerationTaskSpec` / `MemoryGenerationTask` | Patchouli | 独立保存必需的 `belong_to` 与 `from_actor`；scope 不进入记录或队列 |

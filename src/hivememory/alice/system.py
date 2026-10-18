@@ -23,7 +23,6 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.alice import AliceConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.core.contracts.subsystem import SubsystemProtocol
-from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.contracts import OperationEntry
 
 logger = logging.getLogger(__name__)
@@ -65,7 +64,7 @@ class AliceSystem(SubsystemProtocol):
             self._runtime,
             call_context_provider,
             frame_factory=frame_factory,
-            prompt_assembler=AgentPromptAssembler(config.koakuma),
+            koakuma_config=config.koakuma,
         )
         service = AgentRunService(
             summarizer=RelaySummarizer(LLMClient()),

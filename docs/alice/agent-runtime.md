@@ -78,20 +78,20 @@ ExecutionFrame
 
 ## 3. 输入上下文与 Prompt 组装
 
-Agent Runtime 不接收原始 Gateway 输入，而消费 `AgentRunContext` 已准备好的事实：`ExecutionLabels`、话题、当前用户消息、全量会话 `session_history`、检索 atoms、已编译 memory context、已编译附件文本、Agent Profile 和 storage availability。`AgentRunContext` 由 `AgentRunService` 从任务进程交来的 `CPUInputManifest` 转换而来：Profile 由进程解析，记忆与附件由进程编译，Alice 只决定这些文本在提示词中的位置。
+`AgentRunService` 直接消费任务进程交来的 `CPUInputManifest`（完整字段见[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)），在创建 ExecutionFrame 后交给 Agent Runtime。进程已解析 Profile 与提示词语言，并把环境通知、人设编译为 `instructions`，把记忆与附件编译为 `turn_context`。Alice 不从 Profile 或原子重新渲染这些内容，只决定两段不透明文本的放置位置；Profile 在主帧仍用于模型参数与展示。
 
 Alice 在创建主帧前按“三明治”顺序组装消息：
 
 ```text
-Top     MTP protocol + permitted verbs/tools + storage-offline notice
-Middle  Agent Profile persona
-        earlier conversation summary + reference hints (when available)
-Bottom  compiled memory context + compiled attachment context
+Top     MTP protocol + permitted verbs/tools（Alice 生成）
+        instructions（进程定稿：storage-offline notice + persona）
+Middle  earlier conversation summary + reference hints（Alice 生成，有摘要时）
+Bottom  turn_context（进程定稿：memory + attachments）
 History complete turns after summary coverage, reduced or raw by checkpoint
 User    current user message
 ```
 
-这种层次不是为了依赖某种 prompt 技巧，而是让机器约束、角色偏好和工作状态拥有不同来源。MTP 教学从结构化权限生成，persona 不得暗中扩张权限，memory context 也只是本轮工作视图；三者不能拼成一段后再由 Runtime 反向解析。
+这种层次不是为了依赖某种 prompt 技巧，而是让机器约束、角色偏好和工作状态拥有不同来源。MTP 教学从结构化权限生成，persona 不得暗中扩张权限，memory context 也只是本轮工作视图；各段不能拼成一段后再由 Runtime 反向解析。两段进程输入分别放在摘要前后，保留这层顺序，也让历史压缩无需识别人设或材料格式。MTP 教学与摘要沿用清单的 `language`，不重新读取进程默认语言；离线通知由进程按存储可用性生成，与教学开关无关。
 
 历史消息由结构化 `TurnEvent` 重放，`current_agent_id` 使用输入清单的注册标签。若历史轮次来自另一个 Agent，assistant 消息会增加 `[From: agent_id]` 前缀，避免当前 Agent 把同事的旧输出误认成自己曾经作出的承诺。工具结果则按 `render_as` 添加本地化系统前缀。会话 payload 缺少事件时回退到用户/助手文本；cancelled/failed 轮次的本地化未完成说明附在该轮最后一条消息末尾，不在历史中间插入 system 消息（部分模型适配会把 system 消息合并到开头，或要求角色严格交替）。Topic 状态摘要与 block 不进入 Alice 的上下文。Alice 接收全量会话原文，再按以下规则构建预算内的派生视图，不改写会话原文。
 
@@ -99,7 +99,7 @@ User    current user message
 
 `RootContextBuilder` 属于 Alice 的 `context` 层，每次 run 独立解析模型、构建 `SessionContextView` 并报告压缩进度，在创建根 frame 前完成。会话服务持有检查点、Alice 解释其格式：当前接受 `producer=alice`、`format_version=1`，未知格式、无法匹配原文的游标或摘要与覆盖不一致时回退到全量重放。关闭压缩时忽略检查点；全量历史超出输入上限时以 `compaction_failed` 结束，不交给轮内守卫误报为工具结果超预算。检查点结构见[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)，接受与生命周期见 [Workspace](../architecture/workspace.md#55-会话资源与历史所有权)。
 
-先估算协议、人设、检索记忆、附件与本轮用户消息；固定输入已超过输入上限时直接失败。已有摘要覆盖的前缀不再重放，其后到减重边界的轮次只精简工具结果，再后的完整轮次保留原文。两次压缩之间边界不逐轮滑动；整个消息视图超过触发比例才压缩，压缩顺序如下：
+`SessionContextView` 接收 MTP 教学、`instructions`、`turn_context`、用户消息、语言和会话历史，按不透明固定块估算预算；带摘要的估算只替换 Alice 自己的摘要段，不重渲染或裁剪进程文本。固定输入已超过输入上限时以 `input_too_large` 失败，摘要预留仍按同一固定块计量。已有摘要覆盖的前缀不再重放，其后到减重边界的轮次只精简工具结果，再后的完整轮次保留原文。两次压缩之间边界不逐轮滑动；整个消息视图超过触发比例才压缩，压缩顺序如下：
 
 1. **工具结果减重**：向前推进边界，直到最近完整轮次后缀可放入近期原文预算，允许后缀为空。READ/SEARCH 成功结果保留目标或查询、状态与重取提示；RUN 保留工具名、状态与有界摘录，参数只在原样重放的调用消息中出现一次，结果里不再重复；ACK、错误和 CALL 结果保留有界原文。缺少重取线索时同样保留有界原文；改写结果不短于原文时也保留原文，减重不会让历史变长。用户消息、助手回复和工具调用不改。
 2. **增量接力摘要**：减重后仍高于目标时，保留能放入“固定输入 + 完整摘要预留 + 该前缀引用 + 后缀”目标预算的最长完整后缀；更早的轮次进入摘要。目标不可达但视图仍在硬上限内时跳过摘要，避免反复付费；已超限时改按硬上限选择，仍放不下完整摘要预留则以 `input_too_large` 结束。
@@ -204,7 +204,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程
 - Agent Runtime 必须与 Agent 数量无关；若 loop 开始解析子 Agent Profile、决定拓扑或组 IPC，编排责任已经回流；
 - `ExecutionFrame` 是重入状态的唯一载体，不能在另一个 service 中并行维护 iteration、sequence 或 text accumulator；
 - LLMClient 只负责模型生成与 MTP 定界符检测，不执行权限或记忆语义；
-- 输入清单与由它转换的 AgentRunContext 是本轮只读快照，Alice 不在执行中取得话题或长期记忆的可变所有权；
+- 输入清单是本轮只读消费的快照，定稿提示词作为不透明固定块使用，Alice 不在执行中取得话题或长期记忆的可变所有权；
 - 模型解析和 generation/provider 故障必须稳定形成 `FAILED`，不能为了可用性静默运行错误模型；
 - 取消不能被包装成普通 success，CPU 流也必须以 `CPUExecutionResult` 或异常明确结束；
 - 引擎事件必须保持 sequence 单调、tool_call/tool_result action_id 对齐，不能只保留用户可见正文。

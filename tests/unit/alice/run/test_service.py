@@ -29,7 +29,6 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
 )
-from hivememory.prompts.assembler import AgentPromptAssembler
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_execution_labels
@@ -72,12 +71,11 @@ def _build_service(*, runtime_events=None, config=None) -> tuple[AgentRuntime, A
         memory_compiler_config=config.memory_compiler,
     )
     frame_factory = FrameFactory()
-    prompt_assembler = AgentPromptAssembler(config.alice.koakuma)
     coordinator = CallCoordinator(
         runtime,
         CallContextProvider(),
         frame_factory=frame_factory,
-        prompt_assembler=prompt_assembler,
+        koakuma_config=config.alice.koakuma,
     )
     service = AgentRunService(
         summarizer=RelaySummarizer(LLMClient()),

@@ -216,7 +216,17 @@ class CPUPort(Protocol):
 
 CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接口：端口由 workspace 定义，执行者实现，组合根注入 `TaskProcessService`。进程只依赖端口与本节的中立模型，因此执行者可以替换而不改动进程与入口；当前唯一的实现是 Alice 的 `AliceCPU`（4.4），测试中的 `ScriptedCPU` 同样能跑完整个任务进程。端口采用对象而不是总线路由，是因为外部 harness 的驱动多数不是子系统：按路由契约接入，每种驱动都要新增路由常量，或在总线之后再建一层分派。
 
-`CPUInputManifest` 是任务进程在分配 CPU 时组装的输入清单，与具体执行者无关：`process_id`、`labels: ExecutionLabels`、用户消息、已解析的 Agent Profile、actor 操作快照 `allowed_operations`、未编译的检索原子 `memories`、进程编译的记忆文本 `memory_context` 与附件文本 `attachment_context`、存储可用性，以及只作挂载/观测的 `topic_id` 与全量会话轮次 `session_history: tuple[ConversationTurn, ...]`，以及可选的 `compaction_checkpoint: SessionCompactionCheckpoint | None`（默认 None）。
+`CPUInputManifest` 是任务进程在分配 CPU 时组装的输入清单，与具体执行者无关。提示词内容在跨越 CPU 边界前已定稿，以下三项都是必填字段：
+
+| 字段 | 语义 |
+|:---|:---|
+| `language: str` | 按 Profile 语言、进程默认值解析出的提示词语言；CPU 的教学与摘要沿用该值 |
+| `instructions: str` | 环境通知、人设段，按此顺序连接；无内容时为空字符串 |
+| `turn_context: str` | 记忆段、附件段，按此顺序连接；无内容时为空字符串 |
+
+这两段文本是不透明的固定输入：CPU 决定放置位置，不解析或改写。分段使 Alice 可以在人设与本轮材料之间插入自己的历史摘要，也不要求其他 CPU 采用 Alice 的消息布局或历史管理方式。编译不读取 CPU 配置；存储不可用时总是附加中立离线通知，不取决于是否开启 MTP 教学。
+
+清单还携带 `process_id`、`labels: ExecutionLabels`、原样用户消息 `user_message`、已解析的 `agent_profile`（供模型参数与展示使用）、actor 操作快照 `allowed_operations`、未编译的检索原子 `memories`（进程另用于 `memory_refs` 投影）、只作挂载/观测的 `topic_id`、全量会话轮次 `session_history: tuple[ConversationTurn, ...]` 和可选 `compaction_checkpoint: SessionCompactionCheckpoint | None`（默认 None）。历史渲染与压缩由 CPU 自管；进程不知道执行模型的窗口，不在提示词编译时按模型预算裁剪材料。
 
 `allowed_operations` 是 CPU 分配时由阶段授权读取的、本进程 actor 在访问登记中的 actor 操作集合（`frozenset[WorkspaceOperation]`），空白名单得到空集合。它只描述执行者能做什么，供执行者生成提示词与执行策略（Alice 翻译为 MTP 动词，外部执行者的工具列表由其适配器翻译），不是授权依据：每个操作请求仍由 actor API 按访问登记即时授权。
 
@@ -270,7 +280,7 @@ Alice 不注册执行总线路由，组合根构造 AliceSystem 时不传全局�
 
 ### 4.4 Alice 的端口实现
 
-`AliceCPU`（`alice/interface/cpu.py`）持有公共 `OperationEntry`，以 `ThreadOperationSubmitter` 把线程 context 绑定为提交函数后直接调用内部运行服务。`AgentRunService` 接收清单、提交函数、生成参数、输出端口和可选结果槽，始终返回 `CPUExecutionResult`，不区分传输形态；输入清单在内部转换为提示词使用的 `AgentRunContext`。
+`AliceCPU`（`alice/interface/cpu.py`）持有公共 `OperationEntry`，以 `ThreadOperationSubmitter` 把线程 context 绑定为提交函数后直接调用内部运行服务。`AgentRunService` 接收清单、提交函数、生成参数、输出端口和可选结果槽，始终返回 `CPUExecutionResult`，不区分传输形态；运行服务直接消费输入清单，根帧布局与历史压缩由 Alice 的上下文层完成。
 
 非流式只产出一个执行结果；流式由接口层管理有界队列与 runner，逐项交付交互事件，最后直接产出带检查点的 `CPUExecutionResult`。不存在 Alice 自己的 `done` 序列化；任务进程负责最终 HTTP 投影。输出流关闭时，CPU 关闭内层事件流，取消并等待 runner 收尾后才返回，使取消结果槽中的部分输出与已完成检查点可被进程读取。
 

@@ -38,7 +38,7 @@ related_docs:
   - docs/patchouli/artifacts.md
 related_plans:
   - docs/archive/plans/v0.6.2-w1-chat-attachments.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-17
 ---
 
 # Chat 附件链路
@@ -61,7 +61,8 @@ last_reviewed: 2026-10-15
 Chat 请求 attachments（bound ref + 可选版本摘要）
   -> 任务进程 CPU 分配：逐项 acquire READY representation + 版本核对，lease 登记进进程工作集
   -> AttachmentCompiler（进程调用）：确定性 section + used refs + 诊断
-  -> CPUInputManifest.attachment_context（经 CPU 端口交给 CPU）
+  -> 中立提示词编译：附件 section 置于记忆段之后，写入 CPUInputManifest.turn_context
+  -> 经 CPU 端口交给 CPU，固定文本原样放置
 
 任务进程封口交互记录
   -> InteractionPayload.used_attachments（不可变 transport snapshot）

@@ -24,14 +24,17 @@ from hivememory.alice.orchestration.output import (
     CallOutputStarted,
 )
 from hivememory.alice.orchestration.verbs import mtp_verbs_for_operations
+from hivememory.config.alice import KoakumaConfig
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
 from hivememory.core.mtp.exceptions import MTPError, SystemFault
+from hivememory.i18n import resolve_language
+from hivememory.prompts.compilation import render_persona
+from hivememory.prompts.mtp import MTPPromptBuilder
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime import AgentRuntime
     from hivememory.alice.orchestration.session import RunSession
     from hivememory.core.models import AgentProfile
-    from hivememory.prompts.assembler import AgentPromptAssembler
 
 logger = logging.getLogger(__name__)
 
@@ -62,12 +65,12 @@ class CallCoordinator:
         call_context_provider: CallContextProvider,
         *,
         frame_factory: FrameFactory,
-        prompt_assembler: AgentPromptAssembler,
+        koakuma_config: KoakumaConfig,
     ) -> None:
         self._agent_runtime = agent_runtime
         self._call_context_provider = call_context_provider
         self._frame_factory = frame_factory
-        self._prompt_assembler = prompt_assembler
+        self._koakuma_config = koakuma_config
 
     async def begin_call(
         self,
@@ -165,7 +168,7 @@ class CallCoordinator:
                 mtp_verbs_for_operations(callee.allowed_operations),
                 denied_verbs={"CALL"},
             )
-            messages = self._prompt_assembler.build_sub_agent_messages(
+            messages = self._build_callee_messages(
                 profile=sub_profile,
                 task=call_request.task,
                 shared_context=call_context.shared_context,
@@ -193,6 +196,41 @@ class CallCoordinator:
                 exc_info=True,
             )
             return preparation_error_response(call_request.target_alias, error)
+
+    def _build_callee_messages(
+        self,
+        *,
+        profile: AgentProfile,
+        task: str,
+        shared_context: str,
+        permitted_verbs: frozenset[str],
+    ) -> list[dict[str, str]]:
+        """按被调用方语言排列教学、人设与共享上下文，最后放置任务原文。
+
+        动词集合直接沿用子帧策略；递归 CALL 已在策略构造时排除。
+        Profile 只提供人设与语言，不参与操作权限判断。
+        """
+        language = resolve_language(profile_language=profile.language).value
+        prompt_config = self._koakuma_config.mtp_prompt
+        mtp_prompt = (
+            MTPPromptBuilder(
+                language=language,
+                include_demo=prompt_config.include_demo,
+                include_error_handling=prompt_config.include_error_handling,
+                allowed_verbs=permitted_verbs,
+            ).build()
+            if self._koakuma_config.enabled and prompt_config.enabled
+            else ""
+        )
+        persona = render_persona(profile.persona, language=language)
+        system_prompt = "\n\n".join(
+            section for section in (mtp_prompt, persona, shared_context) if section
+        )
+        messages: list[dict[str, str]] = []
+        if system_prompt:
+            messages.append({"role": "system", "content": system_prompt})
+        messages.append({"role": "user", "content": task})
+        return messages
 
     async def complete_call(
         self,

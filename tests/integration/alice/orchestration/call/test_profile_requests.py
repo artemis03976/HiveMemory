@@ -35,7 +35,6 @@ from hivememory.core.models import (
 )
 from hivememory.core.mtp import MTPCallRequest
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.prompts.assembler import AgentPromptAssembler
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import SubmitWriteIntentRequest, ThreadOperationSubmitter
 from tests.helpers.memory import make_memory_metadata
@@ -90,7 +89,7 @@ async def _begin_call(caller, target_alias, *, context_refs=()):
         runtime,
         CallContextProvider(),
         frame_factory=FrameFactory(),
-        prompt_assembler=AgentPromptAssembler(config.koakuma),
+        koakuma_config=config.koakuma,
     )
     session = RunSession(agent_run_id=caller.runtime_scope.run_id, process_id="process-1")
     session.register_root_frame(caller)

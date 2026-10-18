@@ -14,7 +14,7 @@ related_docs:
   - docs/governance/baselines/durability-d0-state-inventory.md
   - docs/governance/baselines/idempotency-i0-operations-inventory.md
   - docs/governance/baselines/identity-s0-threat-model-inventory.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-17
 ---
 
 # 数据模型可变性治理
@@ -48,7 +48,7 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 
 1. MemoryAtom 及其嵌套层仍是可变模型；workspace 原子/Profile 缓存的保存和读取交付独立深副本，但其他领域调用点的合法更新入口尚未统一；
 2. PendingAtom 状态迁移已收敛到 workspace `WriteIntentRegistry`，登记与读取均交付独立副本，派发按公共意图字段构造任务；这不是对全部公共 DTO 的递归不可变保证；
-3. `RetrievalResponse`、`AgentRunContext/Result` 等公共 DTO 仍包含可变容器；
+3. `RetrievalResponse`、`CPUInputManifest` 与 `CPUExecutionResult` 等公共 DTO 仍含可变容器或嵌套模型；清单中的定稿提示词是不可变字符串，不使其他字段递归不可变；
 4. 多个 frozen 应用服务 outcome 只冻结外壳；
 5. `FrozenDict` 不处理任意自定义对象，`MappingProxyType` 只冻结顶层；
 6. `model_copy(update=...)` 的业务使用缺少统一验证边界；

@@ -29,15 +29,15 @@ Alice 是 HiveMemory 的 Agent 执行与多智能体编排子系统。若说 Gat
 
 Alice 当前拥有：
 
-- `CPUInputManifest -> CPUExecutionResult` 的执行边界：CPU 端口的 `execute` 以 `stream` 参数控制是否流式，接收任务进程组装的输入清单（`workspace.contracts`），在内部转换为提示词组装使用的 `AgentRunContext`；Alice 以 `AliceCPU` 实现 workspace 定义的 CPU 端口，由组合根注入任务进程；
+- `CPUInputManifest -> CPUExecutionResult` 的执行边界：CPU 端口的 `execute` 以 `stream` 参数控制是否流式，接收任务进程组装的输入清单（`workspace.contracts`），直接消费其中已定稿的提示词文本与解析好的语言；Alice 以 `AliceCPU` 实现 workspace 定义的 CPU 端口，由组合根注入任务进程；
 - 主 Agent 与子 Agent 的 `ExecutionFrame`、帧进度、CALL 挂起与恢复；
 - 单 Agent generate -> MTP -> 回填循环的装配与调用；
-- 人格注入、模型选择和权限应用；主 Agent 的 Profile 由输入清单提供（任务进程在 CPU 分配时解析），CALL 子 Agent 的 Profile 随子线程派生由 workspace 能力层经操作请求读取；
+- 根帧固定文本布局、工具教学、历史视图与压缩，以及模型选择和权限应用；主 Agent 的 Profile 由输入清单提供（任务进程在 CPU 分配时解析），CALL 子 Agent 的 Profile 随子线程派生由 workspace 能力层经操作请求读取；
 - Koakuma MTP runtime、运行时 syscall registry 与格式化错误回填；
 - 经线程 context 绑定的 `submit_operation` 提交资源操作请求、消费中立结果与记录本帧收到的 ACK alias；
 - 共用一套执行骨架的非流式与流式 Agent run，以及 `agent.run.*` RuntimeEvent；
 
-这里的“拥有”主要指运行时语义，而不是所有代码都必须位于 `alice/`。chat 任务类型的编排与进程控制也不在 Alice：任务进程表与 `TaskProcessService` 位于 `workspace.process`，经公开路由调用 Gateway 与 Patchouli、经 CPU 端口调用 Alice，不参与 Agent loop。`agent_runtime/` 是 Alice 消费的单 Agent 执行层，`AgentProfile` 与 `PendingAtom` 等跨边界模型位于 `core`，CPU 端口、输入清单与执行结果位于 `workspace.contracts`，prompt 组装位于 `prompts`。Alice 决定这些部件如何组成一次 run，但不能因此取得长期记忆、入口决策或顶层 chat 用例的所有权。
+这里的“拥有”主要指运行时语义，而不是所有代码都必须位于 `alice/`。chat 任务类型的编排与进程控制也不在 Alice：任务进程表与 `TaskProcessService` 位于 `workspace.process`，经公开路由调用 Gateway 与 Patchouli、经 CPU 端口调用 Alice，不参与 Agent loop。`agent_runtime/` 是 Alice 消费的单 Agent 执行层，`AgentProfile` 与 `PendingAtom` 等跨边界模型位于 `core`，CPU 端口、输入清单与执行结果位于 `workspace.contracts`，中立提示词编译与片段渲染位于 `prompts`，根帧布局与 CALL 子帧组装归 Alice。Alice 决定这些部件如何组成一次 run，但不能因此取得长期记忆、入口决策或顶层 chat 用例的所有权。
 
 ### 1.2 Alice 不拥有什么
 
@@ -81,7 +81,7 @@ Alice 内部依赖方向为 `interface → run → {context, orchestration} → 
 
 ## 3. 人偶图纸：人格与权限分离
 
-Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投影。它延续“万物皆记忆”的设计：专业 Agent 不通过新增 Python 子类注册，而以可存储、可检索、可演化的图纸存在；Alice 在需要运行时把图纸解析为 `AgentProfile`。
+Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投影。它延续“万物皆记忆”的设计：专业 Agent 不通过新增 Python 子类注册，而以可存储、可检索、可演化的图纸存在；workspace 在主进程分配或 CALL 派生时读取解析结果 `AgentProfile`，再交给 Alice。
 
 一张图纸分为两部分：
 
@@ -89,6 +89,8 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 - “骨架”：模型名、temperature、top_p 与语言，来自结构化 `agent_config`。
 
 `AgentProfile.agent_id` 是 Profile 的身份，解析时取自源原子的 `index.alias`，覆盖 `agent_config` 中的同名键；builtin Profile 的 `agent_id` 为 `None`。由于 alias 在同一 Workspace 的中期库内唯一（见 [MemoryLibrary](../patchouli/memory-library.md)第 1.2 节），`agent_id` 在同一 Workspace 内同样唯一。可见性不进入 Profile 模型，仍由源原子的 `MemoryAccessPolicy` 表达。
+
+主帧的人格由任务进程编译到 `instructions`，Alice 原样放置，不从 Profile 重渲染；Profile 仍用于模型选择与展示。CALL 子帧是 Alice 内部的 harness 职责，`CallCoordinator` 按被调用方 Profile 渲染人格，复用与进程相同的中立渲染函数。
 
 图纸不承载权限。Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达：它与 Profile 原子是否存在、由谁编辑无关，也同样适用于没有 Profile 原子的外部 Actor。Alice 把输入清单携带的操作快照翻译为 frame 的 MTP 动词集合，用它裁剪 MTP 教学并在 Koakuma 执行前检查动词；资源操作仍由 actor API 逐次授权（[MTP Runtime](./mtp-runtime.md#3-动词集合的三层检查)第 3 节）。若把权限只写入自然语言人设，模型幻觉或 prompt injection 就可能绕过它，因此提示词层只降低误用概率，执行层与 workspace 授权才是闸门。`agent_config` 中残留的旧权限键（`allowed_mtp_verbs`、`allowed_sys_tools`）在解析时被忽略。
 
@@ -102,9 +104,8 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 
 ```text
 任务进程的 CPUInputManifest
-  -> 转换为 AgentRunContext（Alice 内部）
   -> attach thread-context-bound submit_operation to root frame
-  -> resolve model budget; build MTP + persona + summary + memory/attachments + session view
+  -> resolve model budget; lay out MTP + instructions + summary + turn_context + session view
   -> create root ExecutionFrame(topic_id=...)
   -> RunExecutor -> AgentRuntime.run_frame()
        -> LLM generate
@@ -152,7 +153,7 @@ Agent 使用 MTP 在生成过程中发现、读取和使用记忆，也可以提
 
 Alice 与 agent_runtime 不持有 local bus，也不请求 Patchouli 公开路由；检索、引用与 CALL Profile 读取均提交 workspace 操作请求。PendingAtom 结算由 workspace 登记消费，派生读取缓存由 `WorkspaceRuntime.close()` 清理。
 
-`CPUInputManifest`、内部 `AgentRunContext` 与 `RuntimeScope` 只保留冻结的 `ExecutionLabels(agent_id, workspace_id)` 观测标签，不携带授权身份；清单的操作快照在 `AgentRunContext` 中被翻译为 `permitted_mtp_verbs`，只供提示词与 frame 执行策略使用。标签取自注册入口绑定的同一组值，子帧沿用；提示词历史归并与运行事件使用注册标签，流式 frame 展示优先使用 `AgentProfile.agent_id`（源 alias），空值回退标签。标签不参与资源授权。
+`CPUInputManifest` 与 `RuntimeScope` 只保留冻结的 `ExecutionLabels(agent_id, workspace_id)` 观测标签，不携带授权身份；运行服务把清单的操作快照翻译为根帧的 MTP 动词集合，只供提示词与 frame 执行策略使用。标签取自注册入口绑定的同一组值，子帧沿用；提示词历史归并与运行事件使用注册标签，流式 frame 展示优先使用 `AgentProfile.agent_id`（源 alias），空值回退标签。标签不参与资源授权。
 
 每次主 run 产生 `agent.run.started` 和 completed/cancelled/failed RuntimeEvent，终态事件载荷中的迭代统计从主 frame 进度取得。CPU 流以类型化执行结果标识正常终态；任务进程负责面向客户端的 `done` 投影。流式与非流式共用一套骨架，在终态前被关闭或取消时，两种模式都发出 cancelled 观测事件，失败时发出同一条 failed 事件。RuntimeEvent 是 best-effort 旁路，不参与业务成功判定。
 

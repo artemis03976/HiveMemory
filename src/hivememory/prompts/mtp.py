@@ -59,7 +59,7 @@ class MTPPromptBuilder:
     MTP 协议 System Prompt 构建器
 
     仅负责生成 MTP 协议教学片段。不包含角色设定（persona）、
-    预检索记忆或话题状态 — 这些由上层 SystemPromptBuilder 编排。
+    预检索记忆。根帧的人格与本轮材料由任务进程编译，子帧由 CALL 编排组装。
 
     使用示例:
         >>> builder = MTPPromptBuilder(language="en")

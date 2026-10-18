@@ -30,7 +30,6 @@ from hivememory.core.models import (
 )
 from hivememory.core.mtp import MTPCallRequest
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.prompts.assembler import AgentPromptAssembler
 from tests.helpers.operations import OperationsHarness
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
@@ -69,7 +68,7 @@ async def test_callee_frame_uses_callee_verbs_without_call():
         runtime,
         CallContextProvider(),
         frame_factory=FrameFactory(),
-        prompt_assembler=AgentPromptAssembler(config.koakuma),
+        koakuma_config=config.koakuma,
     )
     session = RunSession(agent_run_id=scope.run_id, process_id="process-1")
     session.register_root_frame(caller)
@@ -122,7 +121,7 @@ async def test_callee_submits_with_own_thread_context_and_keeps_callee_as_intent
         runtime,
         CallContextProvider(),
         frame_factory=FrameFactory(),
-        prompt_assembler=AgentPromptAssembler(config.koakuma),
+        koakuma_config=config.koakuma,
     )
     session = RunSession(agent_run_id=scope.run_id, process_id="process-1")
     session.register_root_frame(caller)

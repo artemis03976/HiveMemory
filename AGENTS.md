@@ -39,7 +39,7 @@
 | 边界 | 负责 | 不负责 |
 | --- | --- | --- |
 | System | 组合根与门面、配置加载、生命周期、模型/Provider 注册表、接入登记与 Principal authentication、Passive Ingress、就绪检查 | 记忆算法、Gateway 分析、Agent loop、MTP 具体执行、Workspace 准入与行为授权、运行时机制实现 |
-| Workspace | 认证入口（两阶段认证编排与 Workspace 准入）、逐次行为授权、能力层（只供 `system` 的 root API 与供 actor 的 actor API）、会话资源（ConversationSession）、写入意图登记、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`，含 CPU 分配：Profile 解析、附件租借与编译、记忆编译与输入清单组装；经组合根注入的 CPU 端口调用 Actor；Actor 完成后封口交互记录） | 记忆算法与 canonical 存储、接入登记、Agent loop |
+| Workspace | 认证入口（两阶段认证编排与 Workspace 准入）、逐次行为授权、能力层（只供 `system` 的 root API 与供 actor 的 actor API）、会话资源（ConversationSession）、写入意图登记、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`，含 CPU 分配：Profile 解析、附件租借与编译、记忆与中立提示词编译、输入清单组装；经组合根注入的 CPU 端口调用 Actor；Actor 完成后封口交互记录） | 记忆算法与 canonical 存储、接入登记、Agent loop |
 | Gateway | 入口拦截、命令解析、话题/查询分析、检索计划和保守降级 | 命令执行、记忆存储、检索执行、回复生成、Interaction 提交 |
 | Patchouli | Memory/Topic/Profile、检索、感知、生成、生命周期、prepare（话题与检索）/finalize 和长期状态 | 顶层 chat 编排、入口命令、Agent 生成循环、附件租借与执行上下文编译 |
 | Alice | Agent run、frame、MTP/工具和 CALL 编排 | 长期记忆所有权、Gateway 分析、chat 任务进程编排、HTTP 生命周期 |
@@ -66,7 +66,7 @@
 - System 拥有 passive 控制状态，以及总线、调度器等共享设施实例的装配与关闭（机制实现在 `components`）；chat 任务进程的控制状态由 workspace 的进程表（`workspace.process`）持有；`WorkspaceAssetStore` 的进程内 working set 属于 workspace，由组合根装配并在关闭时最后清理。
 - Gateway 只产生 `GatewayDecision`；它可以读取辅助上下文，但不取得记忆所有权。
 - RuntimeEvent 只用于 best-effort 观测，不能决定业务成功、替代 RPC 返回值或充当可靠命令。
-- 身份数据按形态区分，不得互相代替：访问 context 只由运行持有者与 workspace 授权点持有（线程 context 的运行是 CPU 执行阶段，由 CPU 驱动持有，CPU 读不出其内容，也不持有进程 context）；`IdentityScope`（发起者 + 目标 Workspace）只由授权点组装，只在一次操作的调用链内经公共 route 到达资源 owner 与 Gateway，不写入记录、事件或后台任务。Import Bus 的 `/ingest` 仍在认证前组装，是既有例外（[Workspace 架构](docs/architecture/workspace.md)第 3.2 节）。Alice/CPU 的 `RuntimeScope`、`AgentRunContext`、`CPUInputManifest` 只携带注册认证后绑定的 `ExecutionLabels`（`agent_id`、`workspace_id`）作为身份数据；标签用于观测与提示词，不参与授权，不得据此重建访问身份。输入清单另带 CPU 分配时的 actor 操作快照（`allowed_operations`），只用于提示词与 frame 执行策略，同样不是授权依据。
+- 身份数据按形态区分，不得互相代替：访问 context 只由运行持有者与 workspace 授权点持有（线程 context 的运行是 CPU 执行阶段，由 CPU 驱动持有，CPU 读不出其内容，也不持有进程 context）；`IdentityScope`（发起者 + 目标 Workspace）只由授权点组装，只在一次操作的调用链内经公共 route 到达资源 owner 与 Gateway，不写入记录、事件或后台任务。Import Bus 的 `/ingest` 仍在认证前组装，是既有例外（[Workspace 架构](docs/architecture/workspace.md)第 3.2 节）。Alice/CPU 的 `RuntimeScope`、`CPUInputManifest` 只携带注册认证后绑定的 `ExecutionLabels`（`agent_id`、`workspace_id`）作为身份数据；标签用于观测与提示词，不参与授权，不得据此重建访问身份。输入清单另带 CPU 分配时的 actor 操作快照（`allowed_operations`），只用于提示词与 frame 执行策略，同样不是授权依据。
 - 资源 owner 在公共边界把 `IdentityScope` 拆为资源归属（`WorkspaceIdentity`）与发起者（`ActorIdentity`），内部分开传递，不再传递或重新组装 `IdentityScope`。交互记录与后台任务以独立字段携带归属与（需要时）发起者；非主动生成路径的发起者是保留的 `system`，参与内容的 Agent 只记入贡献者；这种用法只按普通可见性读取，与 `system` 作为 root（只在 root API 生效）分属不同入口。
 - 身份第二批的暂缓边界：`WorkspaceAssetStore`、解析服务与既有资产 Reader/Command 端口仍使用旧 `IdentityScope` 做归属检查；System 的 `AssetMaterializationReader` 在一次 representation 租借内以归属和保留 `system` actor 组装旧接口所需 scope，Patchouli 只使用归属读取端口，不保存该 scope。此例外仅限该适配器，不得扩散，后续拆分见 [WorkspaceAsset 归属拆分 Todo](docs/todo/workspace-asset-ownership-identity-split.md)。
 - 资源授权在资源 owner 处进行：先校验资源归属等于目标 Workspace（硬边界，任何读取视角都不跳过），再按资源 policy 判断发起者的可见性；资源上的来源字段不参与授权。

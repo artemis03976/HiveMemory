@@ -29,7 +29,7 @@ from hivememory.alice.orchestration.executor import RunExecutor
 from hivememory.alice.orchestration.frames import FrameFactory
 from hivememory.alice.orchestration.output import NullAgentRunOutput
 from hivememory.alice.orchestration.session import RunSession
-from hivememory.config.alice import AgentRuntimeConfig
+from hivememory.config.alice import AgentRuntimeConfig, KoakumaConfig
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     TurnEvent,
@@ -445,15 +445,11 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
         loop_executor=executor,
     )
     frame_factory = FrameFactory()
-    prompt_assembler = MagicMock()
-    prompt_assembler.build_sub_agent_messages.return_value = [
-        {"role": "user", "content": "sub task"}
-    ]
     coordinator = CallCoordinator(
         agent_runtime,
         CallContextProvider(),
         frame_factory=frame_factory,
-        prompt_assembler=prompt_assembler,
+        koakuma_config=KoakumaConfig(enabled=False),
     )
     frame = _make_frame()
     frame.submit_operation = StubOperationSubmitter(derive=submit_operation)

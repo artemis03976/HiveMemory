@@ -8,7 +8,6 @@ _SYSTEM_PROMPT_TEXT_ZH = {
         "[系统通知] 记忆存储当前离线。" "依赖记忆存储的操作将失败。" "请使用已有上下文继续对话。"
     ),
     "persona_header": "### 角色设定 ###",
-    "topic_state_header": "[话题状态]",
 }
 
 _SYSTEM_PROMPT_TEXT_EN = {
@@ -18,7 +17,6 @@ _SYSTEM_PROMPT_TEXT_EN = {
         "Continue using the available context."
     ),
     "persona_header": "### PERSONA ###",
-    "topic_state_header": "[Topic State]",
 }
 
 _MTP_VERB_TEXT_ZH = {
@@ -715,7 +713,7 @@ Output JSON: {{ "new_content": "...", "changelog": "..." }}
 
 
 def get_system_prompt_text(key: str, language: str | Language | None = None) -> str:
-    """返回 SystemPromptBuilder 文案片段。"""
+    """返回指定语言的系统提示词文案片段。"""
     resolved = resolve_language(explicit=language)
     texts = _SYSTEM_PROMPT_TEXT_EN if resolved == Language.EN else _SYSTEM_PROMPT_TEXT_ZH
     return texts[key]
