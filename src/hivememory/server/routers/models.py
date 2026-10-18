@@ -1,21 +1,21 @@
 """模型注册表路由 — 管理可用的 LLM 模型"""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models.model_definition import ModelDefinition
 from hivememory.server.deps import get_model_registry
+from hivememory.server.error_handlers import APIError, error_responses
 from hivememory.server.models.model_registry import (
     ModelCreateRequest,
     ModelResponse,
     ModelUpdateRequest,
 )
 from hivememory.system.model_registry import (
-    DuplicateModelIdError,
     ModelRegistry,
 )
 
-router = APIRouter(tags=["models"])
+router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["models"])
 
 
 # ------------------------------------------------------------------
@@ -50,12 +50,7 @@ def create_model(
         top_p=body.top_p,
         is_default=body.is_default,
     )
-    try:
-        registry.add_model(model)
-    except DuplicateModelIdError as e:
-        raise HTTPException(status_code=409, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    registry.add_model(model)
 
     return ModelResponse.from_definition(model)
 
@@ -68,7 +63,7 @@ def get_model(
     """获取指定模型的详情（API 密钥已脱敏）"""
     model = registry.get_model(model_id)
     if model is None:
-        raise HTTPException(status_code=404, detail=f"模型 '{model_id}' 不存在")
+        raise ModelNotFoundError()
     return ModelResponse.from_definition(model)
 
 
@@ -86,14 +81,9 @@ def update_model(
     """
     updates = body.to_updates_dict()
     if not updates:
-        raise HTTPException(status_code=400, detail="请求体中没有需要更新的字段")
+        raise APIError("request.empty_update")
 
-    try:
-        updated = registry.update_model(model_id, updates)
-    except ModelNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    updated = registry.update_model(model_id, updates)
 
     return ModelResponse.from_definition(updated)
 
@@ -104,9 +94,4 @@ def delete_model(
     registry: ModelRegistry = Depends(get_model_registry),
 ):
     """从注册表中删除指定模型"""
-    try:
-        registry.delete_model(model_id)
-    except ModelNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    registry.delete_model(model_id)

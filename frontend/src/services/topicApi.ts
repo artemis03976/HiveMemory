@@ -7,6 +7,7 @@
  * 基础选择（x-user-id / x-workspace-id 请求头）；旧 `?user_id=` query
  * 兼容入口已不再由前端使用。
  */
+import { apiErrorMessage } from '@/services/apiError';
 
 import { identityHeaders } from '@/services/identity';
 import type { Topic } from '@/types';
@@ -48,7 +49,7 @@ export async function fetchTopics(): Promise<Topic[]> {
   const res = await fetch('/api/v1/topics', {
     headers: identityHeaders(),
   });
-  if (!res.ok) throw new Error(`fetchTopics failed: ${res.status}`);
+  if (!res.ok) throw new Error(await apiErrorMessage(res, 'fetchTopics failed'));
   const data: ActiveTopicListResponse = await res.json();
   return data.topics.map((topic) => mapTopic(topic));
 }
@@ -58,7 +59,7 @@ export async function settleTopic(topicId: string): Promise<void> {
     method: 'POST',
     headers: identityHeaders(),
   });
-  if (!res.ok) throw new Error(`settleTopic failed: ${res.status}`);
+  if (!res.ok) throw new Error(await apiErrorMessage(res, 'settleTopic failed'));
 }
 
 export async function deleteTopic(topicId: string): Promise<void> {
@@ -66,5 +67,5 @@ export async function deleteTopic(topicId: string): Promise<void> {
     method: 'DELETE',
     headers: identityHeaders(),
   });
-  if (!res.ok) throw new Error(`deleteTopic failed: ${res.status}`);
+  if (!res.ok) throw new Error(await apiErrorMessage(res, 'deleteTopic failed'));
 }

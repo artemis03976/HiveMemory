@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '@/services/apiError';
 import { identityHeaders } from '@/services/identity';
 import type { MemoryAtom, MemoryListResponse } from '@/types/memory';
 
@@ -13,7 +14,7 @@ export async function fetchMemories(limit = 100): Promise<MemoryListResponse> {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to fetch memories: ${response.statusText}`);
+    throw new Error(await apiErrorMessage(response, 'Failed to fetch memories'));
   }
 
   return response.json();
@@ -38,8 +39,7 @@ export async function createMemory(payload: CreateMemoryPayload): Promise<Memory
     body: JSON.stringify(payload),
   });
   if (!response.ok) {
-    const text = await response.text();
-    throw new Error(text || `Failed to create memory: ${response.statusText}`);
+    throw new Error(await apiErrorMessage(response, 'Failed to create memory'));
   }
   return response.json();
 }
@@ -58,7 +58,7 @@ export async function updateMemory(
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to update memory: ${response.statusText}`);
+    throw new Error(await apiErrorMessage(response, 'Failed to update memory'));
   }
 
   return response.json();
@@ -71,7 +71,7 @@ export async function deleteMemory(id: string): Promise<void> {
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to delete memory: ${response.statusText}`);
+    throw new Error(await apiErrorMessage(response, 'Failed to delete memory'));
   }
 }
 
@@ -100,7 +100,7 @@ export async function recordMemoryFeedback(
   });
 
   if (!response.ok) {
-    throw new Error(`Failed to record memory feedback: ${response.statusText}`);
+    throw new Error(await apiErrorMessage(response, 'Failed to record memory feedback'));
   }
 
   return response.json();

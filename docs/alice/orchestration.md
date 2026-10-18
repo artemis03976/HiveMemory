@@ -23,7 +23,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # 多 Agent 编排
@@ -111,7 +111,7 @@ current frame emits CALL
 
 未提供 alias 时使用内置 `OMNI_DOLL_PROFILE`；`default` 与 `omni_doll` 是对同一内置 Profile 的显式选择，不是加载失败后的降级。Omni-Doll 对当前 verb/tool 使用显式白名单，因此后续新增能力不会自动穿透 fallback 边界。
 
-所有 alias，包括未指定、`default` 与 `omni_doll`，都由 CallContextProvider 经调用方提交函数的 `derive_call_thread` 提交 `DeriveCallThreadRequest`，经 workspace actor API 的 `agent.call` 授权；任务进程随后以被调用方（Profile 的 `agent_id`，内置图纸为 `omni_doll`）做 Workspace 准入并派生子线程，CPU 驱动把子线程 context 绑定为子帧的提交函数，CallContextProvider 只拿到被调用方 `Callee`：目标 Profile、被调用方的操作快照与该提交函数。`context_refs` 另以调用方的 READ 请求逐项解析，需要调用方的 `memory.read`，解析失败的引用被跳过。读取视图统一承担 Profile 解析、Workspace/alias 坐标定位、当前 actor 命中重验与 canonical 源变更失效。Patchouli 作为 Profile atom 所有者执行 Workspace ownership 和资源 policy 校验，再解析 persona、模型与语言。Alice 不保存另一份 Profile cache；管理入口修改源原子后，下一次 CALL 会通过失效视图读取新配置。子 frame 的 `FrameExecutionPolicy` 按每次 CALL 由被调用方的操作快照翻译后去掉 CALL 得到，不从 Profile 派生，也不进入 cache。
+所有 alias，包括未指定、`default` 与 `omni_doll`，都由 CallContextProvider 经调用方提交函数的 `derive_call_thread` 提交 `DeriveCallThreadRequest`，经 workspace actor API 的 `agent.call` 授权；任务进程随后以被调用方（Profile 的 `agent_id`，内置图纸为 `omni_doll`）做 Workspace 准入并派生子线程，CPU 驱动把子线程 context 绑定为子帧的提交函数，CallContextProvider 只拿到被调用方 `Callee`：目标 Profile、被调用方的操作快照与该提交函数。`context_refs` 另以调用方的 READ 请求逐项解析，需要调用方的 `memory.read`，仅缺失引用或明确的冷读依赖故障被跳过，授权、线程撤销与程序错误传播到 CALL 出口。读取视图统一承担 Profile 解析、Workspace/alias 坐标定位、当前 actor 命中重验与 canonical 源变更失效。Patchouli 作为 Profile atom 所有者执行 Workspace ownership 和资源 policy 校验，再解析 persona、模型与语言。Alice 不保存另一份 Profile cache；管理入口修改源原子后，下一次 CALL 会通过失效视图读取新配置。子 frame 的 `FrameExecutionPolicy` 按每次 CALL 由被调用方的操作快照翻译后去掉 CALL 得到，不从 Profile 派生，也不进入 cache。
 
 子帧消息由 `CallCoordinator` 直接组装：MTP 教学 → 被调用方人格 → 共享上下文，随后是原样任务用户消息；空片段省略，全部为空时不创建系统消息。语言取被调用方 Profile，缺省时回退进程默认值；人格复用 `prompts.compilation.render_persona`。教学读取 Alice 的 Koakuma 配置，直接使用子帧策略已排除 CALL 的动词集合，布局层不再过滤一次。子帧不继承根帧的固定输入或会话摘要；它是 Alice 的内部 harness 行为，根帧的进程侧编译不承担这项职责。
 
@@ -124,6 +124,8 @@ current frame emits CALL
 | alias 类型不符 / Profile 配置无效 | `mtp.memory.type_mismatch` / `mtp.argument.invalid` | `mtp.call.profile_type_mismatch` / `mtp.call.profile_invalid` |
 | Profile route 或读取失败 | 对应 `mtp.system.*` | `mtp.call.profile_load_failed` 或底层稳定 key |
 | Profile 引用的模型不可用 | `mtp.system.service_unavailable` | `mtp.call_response.model_unavailable` |
+
+Profile 生产者和读取视图只抛中立错误。`preparation_error_response()` 负责上下文/装配失败的唯一呈现，最终子帧结果通过具名函数构造 `MTPErrorInfo`，不再为已确定的预算耗尽或模型不可用创建只供序列化的异常对象。参数逐项筛选，分类与恢复动作见[错误模型](../contracts/error-model.md)。
 
 CALL 的 `tool_call` 与 `tool_result` 使用同一个最终 success/error/cancelled 状态；内部 cause 只进入日志，不回填给 Agent。
 
@@ -140,7 +142,7 @@ Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARC
 
 有效 sources 交给 MemoryCompiler 的 `SHARED_CONTEXT_INJECTION` target，形成子 Agent system prompt 中的受控视图。这样父子进程共享的是明确引用，而不是一段无法追踪来源的任意拼接历史。
 
-解析失败采用逐项 best effort：单个 ref 失败不阻断其他 ref 或整个 CALL；全部失败时子 Agent 仍只带 task 运行；`CancelledError` 原样传播。交付正式 atom 或可读 redirect 时，workspace 在返回前自动记录引用，READ 后再次作为 context ref 共享会形成另一次读取记录。当前 CALL response 不把这些跳过项作为结构化 warning 返回给主 Agent，只能从日志观察。
+逐项 best effort 只覆盖超时、存储离线/读取失败和资源暂不可用；单个冷读失败不会丢弃其余已命中引用，全部不可用时可以只带 task 运行。READ 授权拒绝、线程撤销、解析结果违约与程序错误结束 CALL 准备并回填错误；`CancelledError` 原样传播。交付正式 atom 或可读 redirect 时，workspace 在返回前自动记录引用，READ 后再次作为 context ref 共享会形成另一次读取记录。当前 CALL response 不把这些跳过项作为结构化 warning 返回给主 Agent，只能从日志观察。
 
 ## 4. 瞬态子帧
 
@@ -181,7 +183,7 @@ root frame
 
 自然语言 reply 与 alias 列表组成 success `MTPCallResponse`。CallCoordinator 不直接操作 history 容器，而把 success/error/cancelled 终态响应交给 `AgentRuntime.apply_call_response()` 一次性加入 caller working history，并形成与原 CALL action_id 对应的 `tool_result`。caller 随后可以 READ pending alias、把它作为另一个 CALL 的 context ref，或直接根据子 Agent reply 继续任务。
 
-CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：`call_response.py` 仅将 `COMPLETED` 映射为 success，将 `CANCELLED` 映射为 cancelled，将 `FAILED`、`BUDGET_EXHAUSTED` 映射为带稳定 error code 的 error；`SUSPENDED` 不属于可映射终态。
+CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：`alice/orchestration/call/response.py` 仅将 `COMPLETED` 映射为 success，将 `CANCELLED` 映射为 cancelled，将 `FAILED`、`BUDGET_EXHAUSTED` 映射为带稳定 error code 的 error；`SUSPENDED` 不属于可映射终态。
 
 caller 与 callee 各自使用自己线程的提交函数：callee 登记的意图发起者是被调用方，进程关联与 caller 相同，操作内立即派发到相同的进程话题。子线程 context 在 CPU 执行结束前一直有效，CALL 返回时不提前撤销；callee 未成功结束不回填 IPC alias，也不撤回已经提交的写入。IPC alias 服务于 caller 当前认知，正式生成由能力层提交后独立运行；CPU 结果不携带物化任务，Alice 不管理 run 级登记收尾。
 

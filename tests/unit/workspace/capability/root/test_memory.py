@@ -7,6 +7,7 @@ import pytest
 import pytest_asyncio
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -15,11 +16,7 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.workspace.capability.root.memory import (
-    MemoryLifecycleUnavailableError,
-    MemoryNotFoundError,
-    RootMemoryService,
-)
+from hivememory.workspace.capability.root.memory import RootMemoryService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     make_access_composition,
@@ -121,20 +118,20 @@ class TestRootMemoryService:
     ):
         mock_global_bus.request.return_value = None
 
-        with pytest.raises(MemoryNotFoundError):
+        with pytest.raises(ResourceNotFoundError):
             await service.get_memory(uuid4(), target_workspace=workspace, access=access)
 
     @pytest.mark.asyncio
-    async def test_record_feedback_without_lifecycle_raises_domain_error(
+    async def test_record_feedback_does_not_reclassify_programming_errors(
         self,
         service,
         mock_global_bus,
         workspace,
         access,
     ):
-        mock_global_bus.request.side_effect = RuntimeError("Memory lifecycle engine is unavailable")
+        mock_global_bus.request.side_effect = RuntimeError("feedback handler broken")
 
-        with pytest.raises(MemoryLifecycleUnavailableError):
+        with pytest.raises(RuntimeError, match="feedback handler broken"):
             await service.record_feedback(
                 uuid4(),
                 target_workspace=workspace,

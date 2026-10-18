@@ -176,11 +176,14 @@ class TestMemoryGenerationTaskController:
             await controller.stop()
 
     @pytest.mark.asyncio
-    async def test_submit_generation_many_keeps_unknown_admission_pending(self):
+    @pytest.mark.parametrize(
+        "failure", [ConnectionError("response lost"), ValueError("after admission")]
+    )
+    async def test_submit_generation_many_keeps_unknown_admission_pending(self, failure):
         queue = Mock()
         queue.start = AsyncMock()
         queue.started = True
-        queue.submit = AsyncMock(side_effect=ConnectionError("response lost"))
+        queue.submit = AsyncMock(side_effect=failure)
         bus = Mock(publish=AsyncMock())
         controller = MemoryGenerationTaskController(bus=bus, memory_queue=queue)
 
@@ -251,7 +254,7 @@ class TestMemoryGenerationTaskController:
         failed = await controller.get_task(memory_task.task_id)
 
         assert failed.status == MemoryGenerationTaskStatus.FAILED
-        assert "generation error" in failed.error
+        assert failed.error == "记忆生成失败，请检查服务状态"
 
     @pytest.mark.asyncio
     async def test_active_success_publishes_settlement_and_runtime_events(self):

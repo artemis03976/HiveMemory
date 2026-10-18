@@ -14,8 +14,9 @@ from hivememory.server.models.chat import (
     MTPStartEvent,
     TopicInfoEvent,
 )
-from hivememory.server.models.common import ErrorResponse, HealthResponse
+from hivememory.server.models.common import HealthResponse
 from hivememory.server.models.config import ConfigResponse
+from hivememory.server.models.errors import ErrorResponse
 from hivememory.server.models.ingest import (
     PassiveIngressRequest,
     PassiveIngressResponse,

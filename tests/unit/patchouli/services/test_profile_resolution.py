@@ -16,6 +16,7 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     IndexLayer,
@@ -24,11 +25,7 @@ from hivememory.core.models import (
     MemoryVisibility,
     PayloadLayer,
 )
-from hivememory.core.mtp.exceptions import (
-    AliasNotFoundError,
-    InvalidArgumentError,
-    MemoryTypeMismatchError,
-)
+from hivememory.patchouli.contracts.errors import ProfileResolutionError
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
@@ -84,7 +81,7 @@ def test_builtin_alias_returns_builtin_profile_without_source():
     familiar = RetrievalFamiliar(engine=Mock(), memory_library=_make_library_with_atom(None))
     scope = make_identity_scope()
 
-    for alias in ("default", "omni_doll", ""):
+    for alias in (None, "   ", "default", "omni_doll"):
         resolved = _run(
             familiar.get_agent_profile(
                 alias, belong_to=scope.workspace_identity, from_actor=scope.actor_identity
@@ -142,45 +139,65 @@ def test_resolved_profile_is_isolated_from_stored_atom():
     )
 
     assert again.profile.model_name == "gpt-test"
+    assert again.profile.temperature == pytest.approx(0.1)
+    assert again.profile.persona == "persona"
     assert again.access_policy.target_agent_id == "a1"
 
 
-def test_resolution_failure_semantics_are_explicit():
-    """缺失/类型不匹配/配置损坏均显式失败，不降级为默认配置。"""
+def test_missing_profile_does_not_fallback():
+    """自定义 alias 缺失时显式失败，不回退到内置 Profile。"""
     scope = make_identity_scope()
+    familiar = RetrievalFamiliar(engine=Mock(), memory_library=_make_library_with_atom(None))
 
-    missing = RetrievalFamiliar(engine=Mock(), memory_library=_make_library_with_atom(None))
-    with pytest.raises(AliasNotFoundError):
+    with pytest.raises(ResourceNotFoundError) as caught:
         _run(
-            missing.get_agent_profile(
+            familiar.get_agent_profile(
                 "ghost", belong_to=scope.workspace_identity, from_actor=scope.actor_identity
             )
         )
 
-    fact_atom = _profile_atom()[1].model_copy(
-        update={
-            "index": IndexLayer(
-                title="fact",
-                summary="not a profile summary",
-                tags=[],
-                memory_type=MemoryType.FACT,
-                alias=PROFILE_ALIAS,
-            )
-        }
-    )
-    wrong_type = RetrievalFamiliar(engine=Mock(), memory_library=_make_library_with_atom(fact_atom))
-    with pytest.raises(MemoryTypeMismatchError):
+    assert caught.value.details == {"resource": "agent_profile", "agent_alias": "ghost"}
+
+
+@pytest.mark.parametrize(
+    ("memory_type", "config", "reason"),
+    [
+        (MemoryType.FACT, {}, "type_mismatch"),
+        (MemoryType.AGENT_PROFILE, {"top_p": 2.0}, "invalid_config"),
+    ],
+)
+def test_invalid_profile_has_constrained_resolution_reason(memory_type, config, reason):
+    """类型和配置失败有不同的中立原因，不把坏 Profile 当作默认配置继续执行。"""
+    scope = make_identity_scope()
+    _, atom = _profile_atom(agent_config=config)
+    atom.index.memory_type = memory_type
+    familiar = RetrievalFamiliar(engine=Mock(), memory_library=_make_library_with_atom(atom))
+
+    with pytest.raises(ProfileResolutionError) as caught:
         _run(
-            wrong_type.get_agent_profile(
+            familiar.get_agent_profile(
                 PROFILE_ALIAS, belong_to=scope.workspace_identity, from_actor=scope.actor_identity
             )
         )
 
-    broken = _profile_atom(agent_config=None)[1]
-    invalid = RetrievalFamiliar(engine=Mock(), memory_library=_make_library_with_atom(broken))
-    with pytest.raises(InvalidArgumentError):
+    assert caught.value.details == {"agent_alias": PROFILE_ALIAS, "reason": reason}
+
+
+def test_storage_failure_is_not_converted_to_profile_fallback():
+    """Profile 冷读失败保留存储原因，不返回内置配置或报告资源缺失。"""
+    from hivememory.core.errors import StorageReadError
+
+    failure = StorageReadError(details={"operation": "get_memory_by_alias"})
+    library = _make_library_with_atom(None)
+    library.mid_term.get_by_alias.side_effect = failure
+    familiar = RetrievalFamiliar(engine=Mock(), memory_library=library)
+    scope = make_identity_scope()
+
+    with pytest.raises(StorageReadError) as caught:
         _run(
-            invalid.get_agent_profile(
+            familiar.get_agent_profile(
                 PROFILE_ALIAS, belong_to=scope.workspace_identity, from_actor=scope.actor_identity
             )
         )
+
+    assert caught.value is failure

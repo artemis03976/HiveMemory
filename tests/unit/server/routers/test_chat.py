@@ -25,8 +25,8 @@ from sse_starlette.sse import AppStatus
 from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.errors import AdmissionDeniedError
 from hivememory.server import deps
-from hivememory.server.app import admission_denied_handler
 from hivememory.server.deps import RequestIdentitySelection
+from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.models.chat import ChatRequest
 from hivememory.server.routers.chat import _cancel_and_join, chat, router
 from tests.helpers.workspace import make_server_access_overrides
@@ -40,12 +40,13 @@ def _registered_process(*, process_id: str):
 def _create_test_app(mock_service, access=None):
     """创建测试用 FastAPI 应用；``access`` 为可选共享的 (overrides, composition)。"""
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
 
     app.dependency_overrides[deps.get_process_service] = lambda: mock_service
     # /chat 与 /chat/stop 经统一认证网关取得访问 context（进程绑定/请求级）；
     # 注册失败的 403 映射复用生产异常处理器。
-    app.add_exception_handler(AdmissionDeniedError, admission_denied_handler)
+
     if access is None:
         access = make_server_access_overrides()
     overrides, composition = access

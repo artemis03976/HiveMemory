@@ -216,3 +216,29 @@ async def test_finalize_uses_current_submission_actor_instead_of_prepare_actor()
     assert applied == [
         ("问题", prepared.belong_to, ActorIdentity(user_id="u1", agent_id="submit-actor"))
     ]
+
+
+@pytest.mark.asyncio
+async def test_finalize_unknown_admission_preserves_cause_and_uncertainty() -> None:
+    """队列提交异常不证明没有接纳，finalize 只记录阶段与稳定的未知原因。"""
+    from hivememory.patchouli.contracts.errors import ActiveInteractionFinalizationError
+
+    bus, _, submit = _prepare_bus()
+    service = _service(bus, submit)
+    scope = make_identity_scope(user_id="u1", agent_id="omni_doll")
+    prepared = await service.prepare_agent_run(
+        identity_scope=scope, interaction_id="uncertain", gateway_decision=_decision()
+    )
+    failure = ValueError("private admission detail")
+    queue = AsyncMock(spec=InteractionSubmissionQueue)
+    queue.submit.side_effect = failure
+    finalizer = PatchouliService(bus, interaction_queue=queue)
+    with pytest.raises(ActiveInteractionFinalizationError) as caught:
+        await finalizer.finalize_agent_run(
+            prepared, InteractionPayload(user_message="q"), identity_scope=scope
+        )
+    assert caught.value.stage == "interaction_admission"
+    assert caught.value.reason == "admission_unknown"
+    assert caught.value.error_class == "ValueError"
+    assert caught.value.__cause__ is failure
+    assert "private admission detail" not in str(caught.value)

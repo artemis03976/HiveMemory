@@ -12,6 +12,7 @@ from fastapi.testclient import TestClient
 
 from hivememory.config.shared import ProviderCredentials
 from hivememory.server import deps
+from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.providers import router
 from hivememory.system.provider_registry import ProviderRegistry
 
@@ -22,6 +23,7 @@ from hivememory.system.provider_registry import ProviderRegistry
 
 def _create_app(registry: ProviderRegistry) -> TestClient:
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[deps.get_provider_registry] = lambda: registry
     return TestClient(app)

@@ -29,11 +29,11 @@ from hivememory.components.work_queue import (
 from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.infrastructure.work_queue import InMemoryWorkStore
+from hivememory.patchouli.contracts.errors import TopicBusyError
 from hivememory.patchouli.contracts.interaction_submission import (
     InteractionOrigin,
     InteractionSubmissionResult,
 )
-from hivememory.patchouli.errors import TopicBusyError
 
 
 def _require_text(value: str, *, field_name: str) -> None:

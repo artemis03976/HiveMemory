@@ -14,6 +14,7 @@ import logging
 from typing import Any
 from uuid import UUID
 
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
@@ -27,13 +28,9 @@ from hivememory.core.models import (
     WorkspaceMemoryKey,
 )
 from hivememory.core.models.query import QueryFilters
-from hivememory.core.mtp.exceptions import (
-    AliasNotFoundError,
-    InvalidArgumentError,
-    MemoryTypeMismatchError,
-)
 from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import RetrievalQuery
+from hivememory.patchouli.contracts.errors import ProfileResolutionError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -209,22 +206,15 @@ class RetrievalFamiliar:
             from_actor=from_actor,
         )
         if atom is None:
-            raise AliasNotFoundError(
-                message_key="mtp.call.profile_not_found",
-                params={"agent_alias": normalized_alias},
+            raise ResourceNotFoundError(
+                details={"resource": "agent_profile", "agent_alias": normalized_alias}
             )
         if atom.index.memory_type != MemoryType.AGENT_PROFILE:
-            raise MemoryTypeMismatchError(
-                message_key="mtp.call.profile_type_mismatch",
-                params={"agent_alias": normalized_alias},
-            )
+            raise ProfileResolutionError(agent_alias=normalized_alias, reason="type_mismatch")
 
         profile = AgentProfile.from_atom(atom)
         if profile is None:
-            raise InvalidArgumentError(
-                message_key="mtp.call.profile_invalid",
-                params={"agent_alias": normalized_alias},
-            )
+            raise ProfileResolutionError(agent_alias=normalized_alias, reason="invalid_config")
         return ResolvedAgentProfile(
             profile=profile.model_copy(deep=True),
             access_policy=atom.meta.access_policy.model_copy(deep=True),

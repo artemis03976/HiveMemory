@@ -267,7 +267,7 @@ async def test_non_actor_phase_rejects_before_registration(chain, phase):
 @pytest.mark.asyncio
 async def test_invalid_payload_is_rejected_without_stranding_a_handle(chain):
     """操作请求绕过 MTP 参数检查时，本地校验失败也必须是确定性拒绝。"""
-    from hivememory.core.errors import IntentDispatchRejectedError
+    from hivememory.workspace.contracts.errors import IntentDispatchRejectedError
 
     with pytest.raises(IntentDispatchRejectedError) as exc_info:
         await chain.submit(SubmitWriteIntentRequest(WriteFocus(content="")))

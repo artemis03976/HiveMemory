@@ -8,6 +8,7 @@ from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayDecisionOutcome,
+    IntentType,
     MemoryWriteSignal,
     RetrievalMode,
     RetrievalPlan,
@@ -58,6 +59,7 @@ async def test_passive_submission_applies_split_identity_once_in_target_workspac
             decision=GatewayDecision(
                 target_topic_id="NEW_TOPIC",
                 rewritten_query="passive question",
+                intent_type=IntentType.RAG,
                 memory_write_signal=MemoryWriteSignal.WRITE,
                 retrieval_plan=RetrievalPlan(mode=RetrievalMode.SKIP, top_k=0),
             )

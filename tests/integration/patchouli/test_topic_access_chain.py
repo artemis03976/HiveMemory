@@ -14,6 +14,7 @@ from unittest.mock import Mock
 import pytest
 
 from hivememory.config.patchouli import SemanticFlowPerceptionConfig
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import TurnEvent, system_actor_for_workspace
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
@@ -224,7 +225,7 @@ async def test_cross_workspace_topic_management_rejects_without_side_effects():
     assert before_main.topic_id == main_topic_id
     assert before_isolated.topic_id == isolated_topic_id
 
-    with pytest.raises(KeyError):
+    with pytest.raises(ResourceNotFoundError):
         await service.settle_topic(identity_scope=isolated, topic_id=main_topic_id)
 
     delete_result = await service.evict_topic(
@@ -256,7 +257,7 @@ async def test_cross_workspace_topic_prepare_is_not_projected_to_a_new_topic():
     main_topic = store.create(main.workspace_identity, topic_title="同名话题")
     before_isolated = store.list_by_workspace(isolated.workspace_identity, include_empty=True)
 
-    with pytest.raises(KeyError):
+    with pytest.raises(ResourceNotFoundError):
         await service.prepare_topic(
             main_topic.topic_id,
             "不应创建",
@@ -301,7 +302,7 @@ async def test_unknown_cross_workspace_topic_does_not_evict_local_lru_before_rej
     )
     main_topic = store.create(main.workspace_identity, topic_title="main")
 
-    with pytest.raises(KeyError):
+    with pytest.raises(ResourceNotFoundError):
         await service.prepare_topic(
             main_topic.topic_id,
             "不应创建",

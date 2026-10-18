@@ -16,6 +16,7 @@ from hivememory.config.gateway import (
     UserQueryAnalysisConfig,
 )
 from hivememory.core.contracts.runtime_events import RuntimeEventType
+from hivememory.core.errors import StorageReadError
 from hivememory.core.models import (
     TopicLastTurn,
     TopicSnapshot,
@@ -84,10 +85,10 @@ async def test_provider_new_topic_does_not_issue_bus_request() -> None:
 
 
 @pytest.mark.asyncio
-async def test_provider_converts_bus_unavailable_to_recoverable_error() -> None:
+async def test_provider_does_not_degrade_missing_route() -> None:
     provider = GlobalBusGatewayContextProvider(global_bus=GlobalSystemBus())
 
-    with pytest.raises(RecoverableGatewayError, match="candidate topics"):
+    with pytest.raises(KeyError):
         await provider.prepare_candidate_topics(identity_scope=make_identity_scope(user_id="u1"))
 
 
@@ -240,3 +241,46 @@ async def test_routed_topic_preparation_has_independent_timeout_fallback() -> No
         and event.data["is_fallback"]
     ]
     assert fallback_steps == ["routed_topic_preparation"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("routed", [False, True])
+async def test_provider_converts_declared_read_failure(routed):
+    """候选与已路由话题都只把明确的依赖故障交给局部 fallback。"""
+    bus = GlobalSystemBus()
+    failure = StorageReadError("private read failure")
+
+    async def unavailable(**kwargs):
+        raise failure
+
+    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, unavailable)
+    bus.register(PatchouliRoutes.TOPIC_GET_DATA, unavailable)
+    provider = GlobalBusGatewayContextProvider(global_bus=bus)
+    with pytest.raises(RecoverableGatewayError) as caught:
+        if routed:
+            await provider.prepare_routed_topic(identity_scope=make_identity_scope(), topic_id="t")
+        else:
+            await provider.prepare_candidate_topics(identity_scope=make_identity_scope())
+    assert caught.value.__cause__ is failure
+    assert "private" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("routed", [False, True])
+async def test_provider_propagates_dependency_program_error(routed):
+    """路由 handler 的程序错误不能被包装成读取暂不可用。"""
+    bus = GlobalSystemBus()
+    failure = TypeError("handler defect")
+
+    async def broken(**kwargs):
+        raise failure
+
+    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, broken)
+    bus.register(PatchouliRoutes.TOPIC_GET_DATA, broken)
+    provider = GlobalBusGatewayContextProvider(global_bus=bus)
+    with pytest.raises(TypeError) as caught:
+        if routed:
+            await provider.prepare_routed_topic(identity_scope=make_identity_scope(), topic_id="t")
+        else:
+            await provider.prepare_candidate_topics(identity_scope=make_identity_scope())
+    assert caught.value is failure

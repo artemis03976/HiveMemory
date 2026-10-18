@@ -13,7 +13,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-18
 ---
 
 # 记忆检索
@@ -138,9 +138,9 @@ Retrieval 只返回 atoms。当前主要调用者分别编译：
 
 ## 8. 失败与降级
 
-普通检索对 storage offline/read error 保持结构化异常；取消始终向上传播；其他未知异常记录日志并返回空 response。Profile 精确解析更严格：显式 alias 的任何加载异常都不得转为空结果或 Omni-Doll fallback。这个边界让系统可以对“书库离线”禁用记忆能力，而不会把配置或授权失败伪装成一次成功的 Agent 选择。
+普通检索传播中立的存储故障、未知程序异常与取消；dense/sparse/hybrid 的失败不伪装为空成功。Profile 缺失/不可见使用 `ResourceNotFoundError`，已找到但类型或配置无效使用 `ProfileResolutionError`，由 CALL 或 CPU 分配边界各自处理，不回退 Omni-Doll。这个边界让调用方区分书库离线、配置损坏与真正无命中；分类见[错误模型](../contracts/error-model.md)。
 
-空 response 因而有两种可能：确实无结果，或某个被 Familiar 吸收的普通异常。RuntimeEvent/日志仍是定位后者的必要证据，业务层不能把空列表当作完整健康证明。
+空 response 表示成功读取后没有命中，或调用策略显式跳过检索；健康判断使用独立的 health 契约，不能从一次空结果推断依赖状态。
 
 ## 9. 当前限制
 

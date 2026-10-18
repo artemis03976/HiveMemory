@@ -1068,7 +1068,7 @@ async def test_streaming_workspace_domain_error_yields_safe_code() -> None:
     bus = GlobalSystemBus()
 
     async def prepare(**_kwargs):
-        raise AssetNotReadyError("附件尚未完成解析，不能在本轮使用")
+        raise AssetNotReadyError("secret-token@internal-host 附件尚未完成解析")
 
     bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
     _register_profile(bus)
@@ -1082,4 +1082,4 @@ async def test_streaming_workspace_domain_error_yields_safe_code() -> None:
     errors = [event for event in events if event["event"] == "error"]
     assert len(errors) == 1
     assert errors[0]["data"]["code"] == "workspace.asset.not_ready"
-    assert "附件" in errors[0]["data"]["message"]
+    assert errors[0]["data"]["message"] == "请求未能完成，请检查权限、资源和会话状态"

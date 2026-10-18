@@ -148,7 +148,7 @@ class PassiveIngressEventEmitter:
             workspace_id=workspace_id,
             severity="warning" if degraded else "info",
             status="degraded" if degraded else "prepared",
-            reason=error_class,
+            reason=f"{failed_stage}_unavailable" if degraded else None,
             data={
                 "external_event_id": external_event_id,
                 "turn_id": turn_id,

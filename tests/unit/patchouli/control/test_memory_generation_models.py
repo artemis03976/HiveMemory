@@ -183,7 +183,9 @@ def test_memory_generation_task_projects_result_and_cancel_metadata():
     assert cancelled.cancel_reason == "user_requested"
 
 
-def test_memory_generation_task_uses_failed_outcome_error_fallback():
+@pytest.mark.parametrize("diagnostic", [None, "secret-token@internal-host traceback"])
+def test_memory_generation_task_projects_safe_failure_message(diagnostic):
+    """公开快照独立于队列原始诊断；缺失诊断同样保持明确的失败文本。"""
     created = memory_task_from_spec(
         "j1",
         _spec(),
@@ -192,11 +194,11 @@ def test_memory_generation_task_uses_failed_outcome_error_fallback():
 
     snapshot = memory_task_from_outcome(
         created,
-        _outcome(WorkState.FAILED),
+        _outcome(WorkState.FAILED, error=diagnostic),
         expose_terminal=True,
     )
 
-    assert snapshot.error == "memory generation work failed"
+    assert snapshot.error == "记忆生成失败，请检查服务状态"
 
 
 def test_memory_generation_task_is_a_read_only_snapshot():

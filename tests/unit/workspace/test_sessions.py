@@ -3,14 +3,14 @@
 import pytest
 
 from hivememory.config.workspace import WorkspaceSessionConfig
-from hivememory.core.errors import (
+from hivememory.core.protocol.models import InteractionPayload
+from hivememory.workspace.contracts.errors import (
     SessionBusyError,
     SessionCapacityError,
     SessionCheckpointError,
     SessionClosedError,
     SessionNotFoundError,
 )
-from hivememory.core.protocol.models import InteractionPayload
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.sessions import make_compaction_checkpoint
 from tests.helpers.workspace import make_workspace_identity

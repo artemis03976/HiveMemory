@@ -28,6 +28,7 @@ from hivememory.alice.orchestration.call.coordinator import (
     ResumeCaller,
 )
 from hivememory.alice.orchestration.call.record import CallRecord, CallRecordStatus
+from hivememory.alice.orchestration.call.response import sub_agent_budget_exhausted_info
 from hivememory.alice.orchestration.frames import FrameFactory
 from hivememory.alice.orchestration.output import CallOutputFinished, NullAgentRunOutput
 from hivememory.alice.orchestration.session import RunSession
@@ -37,7 +38,6 @@ from hivememory.core.models import OMNI_DOLL_PROFILE, AgentProfile, TurnEvent
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
 from hivememory.core.mtp.exceptions import (
     PermissionDeniedError,
-    SubAgentBudgetExhaustedError,
     SystemFault,
 )
 from hivememory.i18n import get_default_language, set_default_language
@@ -277,7 +277,7 @@ def test_apply_call_response_formats_with_frame_language_not_profile_language():
     response = MTPCallResponse(
         status=MTPResponseStatus.ERROR,
         agent_alias="helper",
-        error=SubAgentBudgetExhaustedError(params={"agent_alias": "helper"}).to_error_info(),
+        error=sub_agent_budget_exhausted_info("helper"),
     )
 
     runtime.apply_call_response(frame, _suspension(), response)

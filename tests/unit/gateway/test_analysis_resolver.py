@@ -182,7 +182,7 @@ async def test_llm_resolver_converts_engine_error_to_recoverable() -> None:
         runtime_events=events,
     )
 
-    with pytest.raises(RecoverableGatewayError, match="解析失败"):
+    with pytest.raises(RecoverableGatewayError, match="查询分析不可用"):
         await resolver.resolve(_build_context("查询"))
 
     capability_events = [
@@ -191,7 +191,9 @@ async def test_llm_resolver_converts_engine_error_to_recoverable() -> None:
         if event.event_type == RuntimeEventType.GATEWAY_ANALYSIS_CAPABILITY_COMPLETED.value
     ]
     assert len(capability_events) == 1
-    assert capability_events[0].data["error"] == "解析失败"
+    assert capability_events[0].data["error"] == "query_understanding_failed"
+    assert capability_events[0].data["error_class"] == "QueryUnderstandingError"
+    assert "解析失败" not in capability_events[0].model_dump_json()
 
 
 @pytest.mark.asyncio

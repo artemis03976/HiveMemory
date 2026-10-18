@@ -7,9 +7,10 @@ import pytest
 from hivememory.agent_runtime.frame import ExecutionFrame, FrameExecutionPolicy
 from hivememory.alice.orchestration.call import CallContextProvider
 from hivememory.core.errors import (
-    AdmissionDeniedError,
     OperationDeniedError,
-    ResourceUnavailableError,
+    ResourceNotFoundError,
+    StorageOfflineError,
+    ThreadContextRevokedError,
 )
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -21,12 +22,6 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.reference import ReferenceResolution
 from hivememory.core.mtp import MTPCallRequest
-from hivememory.core.mtp.exceptions import (
-    AliasNotFoundError,
-    BusRouteUnavailableError,
-    PermissionDeniedError,
-    SystemFault,
-)
 from hivememory.workspace.contracts import DeriveCallThreadRequest, ResolveReferencesRequest
 from tests.helpers.call import StubOperationSubmitter, make_callee
 from tests.helpers.memory import make_memory_metadata
@@ -149,7 +144,7 @@ async def test_provide_keeps_resolvable_refs_when_one_resolution_fails():
         atom=_atom("Fact B", "usable context"),
     )
     provider, submit_operation = _provider(
-        alias_results=[RuntimeError("storage unavailable"), resolved]
+        alias_results=[StorageOfflineError("storage unavailable"), resolved]
     )
 
     context = await provider.provide(
@@ -184,56 +179,35 @@ async def test_provide_returns_empty_context_when_no_ref_can_be_rendered():
 
 
 @pytest.mark.asyncio
+async def test_profile_failure_propagates_before_resolving_context_refs():
+    """派生子线程失败保留原始原因，不继续共享引用读取。"""
+    error = ResourceNotFoundError("missing profile")
+    provider, submit_operation = _provider(profile_error=error)
+    with pytest.raises(ResourceNotFoundError) as caught:
+        await provider.provide(
+            _frame(submit_operation=submit_operation),
+            MTPCallRequest(target_alias="helper", task="summarize", context_refs=["fact_a"]),
+        )
+    assert caught.value is error
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("error", "expected_type", "expected_code", "expected_key"),
+    "failure",
     [
-        (
-            OperationDeniedError("agent.call 未获授权"),
-            PermissionDeniedError,
-            "mtp.permission.denied",
-            "mtp.permission.verb_denied",
-        ),
-        (
-            AdmissionDeniedError("目标没有准入", details={"reason": "actor_not_admitted"}),
-            PermissionDeniedError,
-            "mtp.permission.denied",
-            "mtp.call.agent_unavailable",
-        ),
-        (
-            ResourceUnavailableError("Profile 存储路由不可达"),
-            BusRouteUnavailableError,
-            "mtp.system.service_unavailable",
-            "mtp.system.service_unavailable",
-        ),
-        (
-            AliasNotFoundError(message_key="mtp.call.profile_not_found"),
-            AliasNotFoundError,
-            "mtp.alias.not_found",
-            "mtp.call.profile_not_found",
-        ),
-        (
-            RuntimeError("profile unavailable"),
-            SystemFault,
-            "mtp.system.fault",
-            "mtp.call.profile_load_failed",
-        ),
+        ThreadContextRevokedError("thread ended"),
+        OperationDeniedError("read denied"),
+        TypeError("resolver defect"),
     ],
 )
-async def test_profile_failure_maps_to_mtp_error_before_resolving_context_refs(
-    error, expected_type, expected_code, expected_key
-):
-    """Profile 准备失败保留具体错误语义，不继续读取 context_refs。"""
-    provider, submit_operation = _provider(profile_error=error)
-
-    with pytest.raises(expected_type) as exc_info:
+async def test_nonrecoverable_error_stops_shared_context_resolution(failure):
+    """生命周期、授权与程序错误不能被当作单条引用缺失而跳过。"""
+    provider, submit_operation = _provider(alias_results=[failure])
+    with pytest.raises(type(failure)) as caught:
         await provider.provide(
             _frame(submit_operation=submit_operation),
             MTPCallRequest(
-                target_alias="helper",
-                task="summarize",
-                context_refs=["fact_a"],
+                target_alias="helper", task="summarize", context_refs=["first", "second"]
             ),
         )
-
-    assert exc_info.value.code == expected_code
-    assert exc_info.value.message_key == expected_key
+    assert caught.value is failure

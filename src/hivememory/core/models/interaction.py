@@ -7,10 +7,10 @@ HiveMemory 核心数据模型 - 交互与流转领域
 from collections.abc import Sequence
 from datetime import datetime
 from enum import Enum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator
 
 from hivememory.core.models.identity import ActorIdentity
 from hivememory.core.models.immutable import FrozenDict, freeze_mapping
@@ -103,7 +103,13 @@ class TurnEvent(BaseModel):
     # 通用工具调用元数据
     tool_name: str | None = None
     tool_kind: str | None = None
-    tool_args: FrozenDict[str, Any] | None = None
+    # 运行时保持递归冻结，HTTP/JSON schema 按实际序列化结果声明为普通对象。
+    tool_args: (
+        Annotated[
+            FrozenDict[str, Any], WithJsonSchema({"type": "object", "additionalProperties": True})
+        ]
+        | None
+    ) = None
     target: str | None = None
     status: str | None = None
 
@@ -141,7 +147,13 @@ class AgentAction(BaseModel):
     thought: str = ""
     tool_name: str = ""
     tool_kind: str = ""
-    tool_args: FrozenDict[str, Any] | None = None
+    # 运行时保持递归冻结，HTTP/JSON schema 按实际序列化结果声明为普通对象。
+    tool_args: (
+        Annotated[
+            FrozenDict[str, Any], WithJsonSchema({"type": "object", "additionalProperties": True})
+        ]
+        | None
+    ) = None
     results: tuple[TurnEvent, ...] = Field(default_factory=tuple)
     status: str | None = None
 

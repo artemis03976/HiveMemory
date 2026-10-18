@@ -1,11 +1,19 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 from uuid import uuid4
 
+import httpx
 import pytest
+from grpc import StatusCode
+from grpc.aio import AioRpcError, Metadata
+from pydantic import ValidationError
+from qdrant_client.common.client_exceptions import ResourceExhaustedResponse
+from qdrant_client.http.exceptions import ResponseHandlingException, UnexpectedResponse
 from qdrant_client.models import Document
 
 from hivememory.config.patchouli import QdrantConfig
 from hivememory.config.shared import EmbeddingConfig
+from hivememory.core.errors import StorageOfflineError, StorageReadError, StorageWriteError
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -14,13 +22,10 @@ from hivememory.core.models import (
     WorkspaceMemoryKey,
 )
 from hivememory.core.models.query import QueryFilters
-from hivememory.core.mtp.exceptions import (
-    StorageOfflineError,
-    StorageReadError,
-    StorageWriteError,
-)
 from hivememory.engines.retrieval.filter_adapter import QdrantFilterConverter
+from hivememory.engines.retrieval.memory_codec import MemoryDecodeError
 from hivememory.infrastructure.storage import QdrantMemoryStore
+from hivememory.infrastructure.storage.qdrant_client import wait_for_qdrant_ready
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -33,6 +38,11 @@ def _alias_filter(identity_scope):
     return QdrantFilterConverter().convert(
         QueryFilters(), identity_scope.workspace_identity, from_actor=identity_scope.actor_identity
     )
+
+
+def _sdk_rejection():
+    """SDK 已收到错误响应，与本地代码的 RuntimeError 区分。"""
+    return UnexpectedResponse(500, "Internal Server Error", b"storage failure", httpx.Headers())
 
 
 class TestQdrantMemoryStore:
@@ -363,7 +373,7 @@ class TestQdrantMemoryStore:
     @pytest.mark.asyncio
     async def test_get_memory_by_alias_exception(self, storage):
         """storage 异常时抛出 StorageReadError"""
-        storage.client.scroll = AsyncMock(side_effect=Exception("Connection refused"))
+        storage.client.scroll = AsyncMock(side_effect=_sdk_rejection())
 
         with pytest.raises(StorageReadError):
             identity_scope = _identity_scope()
@@ -384,7 +394,7 @@ class TestQdrantMemoryStore:
     async def test_delete_failure_raises_storage_write_error(self, storage):
         """删除失败必须传播，不能返回 False 让归档等调用方误判为已处理。"""
         storage.client.retrieve = AsyncMock(return_value=[])
-        storage.client.delete = AsyncMock(side_effect=RuntimeError("delete rejected"))
+        storage.client.delete = AsyncMock(side_effect=_sdk_rejection())
 
         with pytest.raises(StorageWriteError):
             await storage.delete_memory(self._key())
@@ -415,7 +425,7 @@ class TestQdrantMemoryStore:
     @pytest.mark.asyncio
     async def test_write_failure_raises_storage_write_error(self, storage, write_call):
         """写入与局部更新失败以结构化写入错误传播，不泄漏 Qdrant 客户端异常类型。"""
-        failure = AsyncMock(side_effect=RuntimeError("write rejected"))
+        failure = AsyncMock(side_effect=_sdk_rejection())
         storage.client.upsert = failure
         storage.client.set_payload = failure
 
@@ -437,7 +447,103 @@ class TestQdrantMemoryStore:
         self, storage, list_call
     ):
         """列表读取失败不能伪装成"没有记忆"的空列表。"""
-        storage.client.scroll = AsyncMock(side_effect=RuntimeError("scroll failed"))
+        storage.client.scroll = AsyncMock(side_effect=_sdk_rejection())
 
         with pytest.raises(StorageReadError):
             await list_call(storage)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("failure", "expected_type"),
+        [
+            (ResponseHandlingException(httpx.ConnectError("refused")), StorageOfflineError),
+            (httpx.ReadTimeout("timed out"), StorageOfflineError),
+            (AioRpcError(StatusCode.UNAVAILABLE, Metadata(), Metadata()), StorageOfflineError),
+            (
+                AioRpcError(StatusCode.DEADLINE_EXCEEDED, Metadata(), Metadata()),
+                StorageOfflineError,
+            ),
+            (AioRpcError(StatusCode.PERMISSION_DENIED, Metadata(), Metadata()), StorageReadError),
+            (ResourceExhaustedResponse("busy", 1), StorageReadError),
+            (
+                ResponseHandlingException(
+                    ValidationError.from_exception_data(
+                        "response", [{"type": "missing", "loc": ("result",), "input": {}}]
+                    )
+                ),
+                StorageReadError,
+            ),
+        ],
+    )
+    async def test_sdk_failures_preserve_operation_and_cause(self, storage, failure, expected_type):
+        """HTTP、gRPC 与响应校验失败按真实 SDK 形态分类，并保留内部因果链。"""
+        storage.client.retrieve = AsyncMock(side_effect=failure)
+
+        with pytest.raises(expected_type) as caught:
+            await storage.get_memory(self._key())
+
+        assert caught.value.details == {"operation": "get_memory"}
+        assert caught.value.__cause__ is failure
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("wrapped", [False, True], ids=["direct", "sdk-wrapper"])
+    async def test_programming_error_is_not_reclassified_as_storage_failure(self, storage, wrapped):
+        """SDK 包装器也可能包含程序错误，不能让它变成可恢复的存储故障。"""
+        error = KeyError("invalid client state")
+        storage.client.retrieve = AsyncMock(
+            side_effect=ResponseHandlingException(error) if wrapped else error
+        )
+
+        with pytest.raises(KeyError) as caught:
+            await storage.get_memory(self._key())
+
+        assert caught.value is error
+
+    @pytest.mark.asyncio
+    async def test_single_record_decode_failure_remains_a_decode_failure(self, storage):
+        """成功读取但领域 payload 损坏时保留解码错误，不能伪装为存储读取失败。"""
+        storage.client.retrieve = AsyncMock(return_value=[MagicMock(payload={})])
+
+        with pytest.raises(MemoryDecodeError):
+            await storage.get_memory(self._key())
+
+    @pytest.mark.asyncio
+    async def test_embedding_failure_does_not_enter_storage_write_boundary(self, storage):
+        """Embedding 不可达不等于 Qdrant 离线，且尚未发送任何写入。"""
+        storage.embedding_service.encode.side_effect = OSError("embedding unavailable")
+        storage.client.upsert = AsyncMock()
+
+        with pytest.raises(OSError, match="embedding unavailable"):
+            await storage.upsert_memory(self._make_memory())
+
+        storage.client.upsert.assert_not_awaited()
+
+    @pytest.mark.asyncio
+    async def test_cancelled_write_propagates_cancellation(self, storage):
+        """调用方取消仍是原生取消，不包装成写入失败。"""
+        storage.client.delete = AsyncMock(side_effect=asyncio.CancelledError())
+
+        with pytest.raises(asyncio.CancelledError):
+            await storage.delete_memory(self._key())
+
+    @pytest.mark.asyncio
+    async def test_readiness_timeout_reports_offline_with_sdk_cause(self, storage):
+        """就绪期限耗尽保留连接失败原因，不把失败当作就绪成功。"""
+        failure = ResponseHandlingException(httpx.ConnectError("refused"))
+        storage.client.info = AsyncMock(side_effect=failure)
+
+        with pytest.raises(StorageOfflineError) as caught:
+            await wait_for_qdrant_ready(storage.client, timeout_seconds=0)
+
+        assert caught.value.details == {"operation": "info"}
+        assert caught.value.__cause__.__cause__ is failure
+
+    @pytest.mark.asyncio
+    async def test_readiness_programming_error_fails_immediately(self, storage):
+        """就绪检查遇到接线错误不重试至超时，也不改判离线。"""
+        storage.client.info = AsyncMock(side_effect=TypeError("invalid client"))
+
+        with pytest.raises(TypeError, match="invalid client"):
+            await wait_for_qdrant_ready(storage.client)
+
+        storage.client.info.assert_awaited_once()

@@ -13,7 +13,7 @@ from fastapi.testclient import TestClient
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.errors import OperationDeniedError, ResourceNotFoundError
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import ActorIdentity
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.control.memory_generation.models import (
@@ -22,7 +22,7 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTaskStatus,
 )
 from hivememory.server import deps
-from hivememory.server.app import operation_denied_handler
+from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.memory_tasks import router
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 from tests.helpers.workspace import (
@@ -35,9 +35,9 @@ from tests.helpers.workspace import (
 
 def _create_test_app(service):
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
     # 403 映射复用生产的访问错误处理器。
-    app.add_exception_handler(OperationDeniedError, operation_denied_handler)
 
     app.dependency_overrides[deps.get_root_memory_task_service] = lambda: service
     # memory-tasks 路由经统一认证网关取得请求级 context。
@@ -169,7 +169,10 @@ def test_cancel_memory_task_missing_projection_returns_404():
     response = client.post("/api/v1/memory-tasks/task_1/cancel")
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "task not found"}
+    assert response.json() == {
+        "error": "workspace.resource.not_found",
+        "detail": "资源不存在或不可访问",
+    }
 
 
 def _create_authorized_task_app(*, request_agent_id: str = SYSTEM_AGENT_ID):
@@ -197,8 +200,10 @@ def _create_authorized_task_app(*, request_agent_id: str = SYSTEM_AGENT_ID):
     )
 
     app = FastAPI()
+
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
-    app.add_exception_handler(OperationDeniedError, operation_denied_handler)
+
     app.dependency_overrides[deps.get_root_memory_task_service] = lambda: service
     app.dependency_overrides[deps.get_access_gateway] = lambda: composition.gateway
     app.dependency_overrides[deps.get_server_principal_id] = lambda: (

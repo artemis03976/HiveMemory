@@ -4,7 +4,7 @@ import asyncio
 import logging
 import time
 from functools import partial
-from typing import Any, Literal
+from typing import Any
 from uuid import UUID
 
 from hivememory.components.work_queue import (
@@ -28,6 +28,7 @@ from hivememory.core.protocol.models import (
     RetrievalResponse,
 )
 from hivememory.engines.retrieval.models import RetrievalQuery
+from hivememory.patchouli.contracts.errors import ActiveInteractionFinalizationError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.patchouli.control.interaction_submission import (
@@ -38,31 +39,6 @@ from hivememory.patchouli.control.interaction_submission import (
 from hivememory.patchouli.runtime.bus import PatchouliBus
 
 logger = logging.getLogger(__name__)
-
-ActiveFinalizationStage = Literal[
-    "interaction_admission",
-    "interaction_apply",
-]
-
-
-class ActiveInteractionFinalizationError(RuntimeError):
-    """Active interaction 未能跨过 admission/apply 硬成功边界。"""
-
-    def __init__(
-        self,
-        *,
-        interaction_id: str,
-        stage: ActiveFinalizationStage,
-        reason: str,
-        work_state: WorkState | None = None,
-        error_class: str | None = None,
-    ) -> None:
-        self.interaction_id = interaction_id
-        self.stage = stage
-        self.reason = reason
-        self.work_state = work_state
-        self.error_class = error_class
-        super().__init__(f"Active interaction finalization failed at {stage}: {reason}")
 
 
 class PatchouliService:
@@ -246,7 +222,8 @@ class PatchouliService:
             raise ActiveInteractionFinalizationError(
                 interaction_id=prepared_run.interaction_id,
                 stage="interaction_admission",
-                reason=type(error).__name__,
+                reason="admission_unknown",
+                error_class=type(error).__name__,
             ) from error
 
         return receipt

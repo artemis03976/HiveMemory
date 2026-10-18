@@ -1,13 +1,14 @@
 """提供商凭证路由 — 管理 LLM 提供商的 API 密钥与地址"""
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 
 from hivememory.config.shared import ProviderCredentials
 from hivememory.server.deps import get_provider_registry
+from hivememory.server.error_handlers import error_responses
 from hivememory.server.models.provider import ProviderResponse, ProviderUpsertRequest
-from hivememory.system.provider_registry import ProviderNotFoundError, ProviderRegistry
+from hivememory.system.provider_registry import ProviderRegistry
 
-router = APIRouter(tags=["providers"])
+router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["providers"])
 
 
 # ------------------------------------------------------------------
@@ -68,10 +69,7 @@ def upsert_provider(
         resolved_key = body.api_key
 
     cred = ProviderCredentials(api_key=resolved_key, api_base=body.api_base)
-    try:
-        registry.upsert(lower, cred)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    registry.upsert(lower, cred)
 
     # 返回合并后的凭证（env 层可能优先）
     final_cred = registry.get(lower) or cred
@@ -92,9 +90,4 @@ def delete_provider(
     """
     删除指定提供商的凭证（仅可删除 yaml 层；环境变量层无法通过 API 删除）。
     """
-    try:
-        registry.delete(provider_name.lower())
-    except ProviderNotFoundError as e:
-        raise HTTPException(status_code=404, detail=str(e))
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
+    registry.delete(provider_name.lower())

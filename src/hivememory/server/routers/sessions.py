@@ -15,11 +15,12 @@ from hivememory.server.deps import (
     request_access_for_claims,
     resolve_request_identity_claims,
 )
+from hivememory.server.error_handlers import error_responses
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.capability.root.session import RootSessionService
 from hivememory.workspace.sessions import ConversationSession, SessionSummary
 
-router = APIRouter(tags=["sessions"])
+router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["sessions"])
 
 
 class SessionTitleRequest(BaseModel):

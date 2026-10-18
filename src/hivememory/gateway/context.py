@@ -7,6 +7,7 @@ from typing import Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.errors import ResourceUnavailableError, StorageOfflineError, StorageReadError
 from hivememory.core.models import IdentityScope, TopicData, TopicSnapshot
 from hivememory.gateway.errors import RecoverableGatewayError
 from hivememory.gateway.topic_context import render_topic_snapshots
@@ -26,7 +27,7 @@ class GatewayContextProvider(Protocol):
     """只负责读取 Gateway 所需上下文，不参与业务决策（也不做授权判断）。
 
     ``identity_scope`` 是调用方冻结的执行坐标，原样传给 Patchouli 读取
-    路由；Gateway 不接收访问 context，读取失败由步骤 fallback 保守降级。
+    路由；Gateway 不接收访问 context，仅明确的依赖读取失败由步骤 fallback 保守降级。
     """
 
     async def prepare_candidate_topics(
@@ -66,8 +67,8 @@ class GlobalBusGatewayContextProvider:
                 identity_scope=identity_scope,
                 include_empty=self._include_empty_topics,
             )
-        except Exception as exc:
-            raise RecoverableGatewayError(f"Patchouli candidate topics 不可用: {exc}") from exc
+        except (StorageOfflineError, StorageReadError, ResourceUnavailableError) as exc:
+            raise RecoverableGatewayError("Patchouli candidate topics 不可用") from exc
 
         if not isinstance(snapshots, tuple) or not all(
             isinstance(snapshot, TopicSnapshot) for snapshot in snapshots
@@ -92,8 +93,8 @@ class GlobalBusGatewayContextProvider:
                 identity_scope=identity_scope,
                 topic_id=topic_id,
             )
-        except Exception as exc:
-            raise RecoverableGatewayError(f"Patchouli routed topic 不可用: {exc}") from exc
+        except (StorageOfflineError, StorageReadError, ResourceUnavailableError) as exc:
+            raise RecoverableGatewayError("Patchouli routed topic 不可用") from exc
 
         if topic_data is not None and not isinstance(topic_data, TopicData):
             raise TypeError("Patchouli TOPIC_GET_DATA 违反 TopicData 契约")

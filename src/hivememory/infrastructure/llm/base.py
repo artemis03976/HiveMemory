@@ -1,11 +1,10 @@
 """
 HiveMemory LLM 基础模块
 
-包含 LLM 服务抽象接口和单例模式基类。
+包含 LLM 服务抽象接口和绑定配置的服务基类。
 """
 
 import logging
-import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
@@ -132,26 +131,13 @@ class BaseLLMService(ABC):
         return None
 
 
-class SingletonLLMService(BaseLLMService):
+class ConfiguredLLMService(BaseLLMService):
     """
-    单例 LLM 服务基类
+    绑定一份 LLM 配置的服务基类。
 
-    封装了通用的单例模式、线程安全和配置管理。
-    注意: LLM 服务是无状态的，不需要像 Embedding 那样的延迟加载模型。
+    每个实例只持有构造时的配置；不同组件（如 Gateway 与 Librarian）各自构造
+    实例，彼此的模型、凭证与采样参数互不影响。服务本身无状态，不需要共享实例。
     """
-
-    _instance = None
-    _lock = threading.Lock()
-    _initialized = False
-
-    def __new__(cls, *args, **kwargs):
-        """单例模式，确保全局只有一个实例"""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
-        return cls._instance
 
     def __init__(
         self,
@@ -163,9 +149,6 @@ class SingletonLLMService(BaseLLMService):
         Args:
             config: LLM 配置对象
         """
-        if self._initialized:
-            return
-
         self.config = config
         self.model = config.model
         self.api_key = config.api_key
@@ -173,16 +156,10 @@ class SingletonLLMService(BaseLLMService):
         self.temperature = config.temperature
         self.max_tokens = config.max_tokens
 
-        self._initialized = True
-
         logger.info(
             f"{self.__class__.__name__} 配置: "
             f"model={self.model}, temperature={self.temperature}, max_tokens={self.max_tokens}"
         )
-
-    def is_loaded(self) -> bool:
-        """检查服务是否已初始化"""
-        return self._initialized
 
     def get_config(self) -> dict[str, Any]:
         """获取当前配置"""

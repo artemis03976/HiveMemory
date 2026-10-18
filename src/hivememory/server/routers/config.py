@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Any
 
 import yaml
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import ValidationError
 
 from hivememory.config.app import (
@@ -15,12 +15,13 @@ from hivememory.config.app import (
     get_config_file_path,
 )
 from hivememory.server.deps import get_system
+from hivememory.server.error_handlers import APIError, error_responses, validation_issues
 from hivememory.server.models.config import ConfigResponse
 from hivememory.system import HiveMemorySystem
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["config"])
+router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["config"])
 
 
 def _build_config_without_path_override(
@@ -78,13 +79,9 @@ async def get_config(
 
     返回当前运行时的完整配置，包括所有模块的参数设置。
     """
-    try:
-        config = system.config
-        config_dict = config.model_dump(mode="json")
-        return ConfigResponse(**config_dict)
-    except Exception as e:
-        logger.error(f"获取配置失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to get configuration: {str(e)}")
+    config = system.config
+    config_dict = config.model_dump(mode="json")
+    return ConfigResponse(**config_dict)
 
 
 @router.post("/config")
@@ -105,27 +102,15 @@ async def update_config(
         更新后的配置
     """
     try:
-        try:
-            validated_config = _build_config_without_path_override(new_config)
-        except ValidationError as e:
-            logger.warning(f"配置验证失败: {e}")
-            raise HTTPException(
-                status_code=400, detail=f"Configuration validation failed: {e.errors()}"
-            )
-
-        _persist_config_atomically(validated_config)
-        system.config = validated_config
-
-        logger.info("配置已更新")
-
-        config_dict = validated_config.model_dump(mode="json")
-        return ConfigResponse(**config_dict)
-
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"更新配置失败: {e}", exc_info=True)
-        raise HTTPException(status_code=500, detail=f"Failed to update configuration: {str(e)}")
+        validated_config = _build_config_without_path_override(new_config)
+    except ValidationError as e:
+        # 校验异常含完整 input；响应与常规日志均不复制该输入。
+        raise APIError("request.validation_failed", issues=validation_issues(e.errors())) from e
+    _persist_config_atomically(validated_config)
+    system.config = validated_config
+    logger.info("配置已更新")
+    config_dict = validated_config.model_dump(mode="json")
+    return ConfigResponse(**config_dict)
 
 
 @router.get("/config/defaults", response_model=ConfigResponse)
@@ -136,12 +121,6 @@ async def get_default_config():
     返回系统的默认配置值，不包含任何环境变量或YAML文件的覆盖。
     可用于重置配置或查看默认值。
     """
-    try:
-        default_config = _build_config_without_path_override()
-        config_dict = default_config.model_dump(mode="json")
-        return ConfigResponse(**config_dict)
-    except Exception as e:
-        logger.error(f"获取默认配置失败: {e}", exc_info=True)
-        raise HTTPException(
-            status_code=500, detail=f"Failed to get default configuration: {str(e)}"
-        )
+    default_config = _build_config_without_path_override()
+    config_dict = default_config.model_dump(mode="json")
+    return ConfigResponse(**config_dict)

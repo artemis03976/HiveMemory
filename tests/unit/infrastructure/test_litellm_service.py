@@ -1,6 +1,8 @@
+import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
+import litellm
 import pytest
 
 from hivememory.config.shared import LLMConfig
@@ -29,30 +31,16 @@ def _response(
     )
 
 
-@pytest.fixture(autouse=True)
-def _reset_litellm_singleton():
-    """单例类变量在测试间隔离，避免工厂测试互相污染。"""
-    LiteLLMService._instance = None
-    LiteLLMService._initialized = False
-    yield
-    LiteLLMService._instance = None
-    LiteLLMService._initialized = False
-
-
 def _service() -> LiteLLMService:
-    service = LiteLLMService.__new__(LiteLLMService)
-    service._initialized = False
-    LiteLLMService.__init__(
-        service,
+    return LiteLLMService(
         LLMConfig(
             model="mock-model",
             api_key="test-key",
             api_base="https://example.invalid",
             temperature=0.1,
             max_tokens=100,
-        ),
+        )
     )
-    return service
 
 
 def _config() -> LLMConfig:
@@ -263,7 +251,9 @@ class TestACompleteJson:
     async def test_falls_back_when_response_format_fails(self, monkeypatch):
         acompletion = AsyncMock(
             side_effect=[
-                RuntimeError("unsupported response_format"),
+                litellm.UnsupportedParamsError(
+                    "unsupported response_format", model="test", llm_provider="test"
+                ),
                 _response('{"ok": true}'),
             ]
         )
@@ -489,3 +479,44 @@ class TestFactories:
     def test_librarian_service_requires_explicit_config(self):
         with pytest.raises(ValueError, match="config is required"):
             get_librarian_llm_service(None)
+
+    def test_gateway_and_librarian_services_keep_their_own_configuration(self):
+        """先构造的服务不能决定后构造服务的模型、凭证与采样参数。"""
+        gateway = get_gateway_llm_service(
+            LLMConfig(model="gateway-model", api_key="gateway-key", temperature=0.2)
+        )
+        librarian = get_librarian_llm_service(
+            LLMConfig(model="librarian-model", api_key="librarian-key", temperature=0.7)
+        )
+
+        assert (gateway.model, gateway.api_key, gateway.temperature) == (
+            "gateway-model",
+            "gateway-key",
+            0.2,
+        )
+        assert (librarian.model, librarian.api_key, librarian.temperature) == (
+            "librarian-model",
+            "librarian-key",
+            0.7,
+        )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "failure",
+    [
+        TypeError("adapter bug"),
+        litellm.ServiceUnavailableError("unavailable", model="test", llm_provider="test"),
+        asyncio.CancelledError(),
+    ],
+)
+async def test_json_mode_does_not_repeat_unrelated_failures(monkeypatch, failure):
+    """只有明确的参数不受支持才允许第二次请求；故障和取消原样传播。"""
+    acompletion = AsyncMock(side_effect=failure)
+    monkeypatch.setattr(
+        "hivememory.infrastructure.llm.litellm_service.litellm.acompletion", acompletion
+    )
+    with pytest.raises(type(failure)) as caught:
+        await _service().acomplete_json([{"role": "user", "content": "json"}])
+    assert caught.value is failure
+    assert acompletion.await_count == 1

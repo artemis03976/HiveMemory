@@ -28,7 +28,7 @@ _SYSCALL_ERROR_TEXT_ZH: dict[str, str] = {
         "Suggestion: 请读取文本文件，或使用适合二进制内容的工具。"
     ),
     "syscall.file_read.read_failed": (
-        "[Tool Error] 无法读取文件 '{path}'：{detail}\n" "Suggestion: 不要用相同输入重试该工具。"
+        "[Tool Error] 无法读取文件 '{path}'。\n" "Suggestion: 不要用相同输入重试该工具。"
     ),
     "syscall.file_write.missing_path": (
         '[Invalid Argument] file_write 缺少 "{arg}" 参数。\n'
@@ -50,7 +50,7 @@ _SYSCALL_ERROR_TEXT_ZH: dict[str, str] = {
         "Suggestion: 请使用工作区内的相对路径。"
     ),
     "syscall.file_write.write_failed": (
-        "[Tool Error] 无法写入文件 '{path}'：{detail}\n" "Suggestion: 不要用相同输入重试该工具。"
+        "[Tool Error] 无法写入文件 '{path}'。\n" "Suggestion: 不要用相同输入重试该工具。"
     ),
     "syscall.repl.missing_code": (
         '[Invalid Argument] python_repl 缺少 "{arg}" 参数。\n'
@@ -64,7 +64,7 @@ _SYSCALL_ERROR_TEXT_ZH: dict[str, str] = {
         "Suggestion: 不要用相同输入重试该工具。"
     ),
     "syscall.repl.execution_failed": (
-        "[Tool Error] Python 执行失败：{detail}\n" "Suggestion: 请检查代码中的运行时错误。"
+        "[Tool Error] Python 执行失败。\n" "Suggestion: 请检查代码中的运行时错误。"
     ),
     "syscall.web_search.missing_query": (
         '[Invalid Argument] web_search 缺少 "{arg}" 参数。\n' "Suggestion: 请提供搜索 query。"
@@ -73,7 +73,7 @@ _SYSCALL_ERROR_TEXT_ZH: dict[str, str] = {
         "[Service Unavailable] 当前系统不可用 Web 搜索。\n" "Suggestion: 请改用其他方式完成任务。"
     ),
     "syscall.web_search.failed": (
-        "[Tool Error] Web 搜索失败：{detail}\n" "Suggestion: 不要用相同输入重试该工具。"
+        "[Tool Error] Web 搜索失败。\n" "Suggestion: 不要用相同输入重试该工具。"
     ),
 }
 
@@ -98,7 +98,7 @@ _SYSCALL_ERROR_TEXT_EN: dict[str, str] = {
         "Suggestion: Read a text file, or use a tool suited for binary content."
     ),
     "syscall.file_read.read_failed": (
-        "[Tool Error] Cannot read file '{path}': {detail}\n"
+        "[Tool Error] Cannot read file '{path}'.\n"
         "Suggestion: Do NOT retry this tool with the same input."
     ),
     "syscall.file_write.missing_path": (
@@ -122,7 +122,7 @@ _SYSCALL_ERROR_TEXT_EN: dict[str, str] = {
         "Suggestion: Use a workspace-relative path."
     ),
     "syscall.file_write.write_failed": (
-        "[Tool Error] Cannot write file '{path}': {detail}\n"
+        "[Tool Error] Cannot write file '{path}'.\n"
         "Suggestion: Do NOT retry this tool with the same input."
     ),
     "syscall.repl.missing_code": (
@@ -138,8 +138,7 @@ _SYSCALL_ERROR_TEXT_EN: dict[str, str] = {
         "Suggestion: Do NOT retry this tool with the same input."
     ),
     "syscall.repl.execution_failed": (
-        "[Tool Error] Python execution failed: {detail}\n"
-        "Suggestion: Check your code for runtime errors."
+        "[Tool Error] Python execution failed.\n" "Suggestion: Check your code for runtime errors."
     ),
     "syscall.web_search.missing_query": (
         '[Invalid Argument] web_search requires a "{arg}" argument.\n'
@@ -150,7 +149,7 @@ _SYSCALL_ERROR_TEXT_EN: dict[str, str] = {
         "Suggestion: Use a different approach."
     ),
     "syscall.web_search.failed": (
-        "[Tool Error] Web search failed: {detail}\n"
+        "[Tool Error] Web search failed.\n"
         "Suggestion: Do NOT retry this tool with the same input."
     ),
 }

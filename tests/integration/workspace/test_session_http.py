@@ -5,10 +5,9 @@ import pytest
 from fastapi import FastAPI
 
 from hivememory.config.workspace import WorkspaceSessionConfig
-from hivememory.core.errors import SessionBusyError, SessionNotFoundError
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.server.app import session_error_handler
 from hivememory.server.deps import get_root_session_service
+from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.sessions import router
 from hivememory.workspace.capability.root.session import RootSessionService
 from hivememory.workspace.sessions import ConversationSessionService
@@ -23,11 +22,11 @@ async def test_http_session_crud_and_busy_error():
     store = ConversationSessionService(WorkspaceSessionConfig())
     root = RootSessionService(store, operation_authorizer=access.authorizer)
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides.update(overrides)
     app.dependency_overrides[get_root_session_service] = lambda: root
-    app.add_exception_handler(SessionBusyError, session_error_handler)
-    app.add_exception_handler(SessionNotFoundError, session_error_handler)
+
     async with httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://test"
     ) as client:

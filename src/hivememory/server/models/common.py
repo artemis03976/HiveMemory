@@ -5,11 +5,6 @@ from pydantic import BaseModel
 from hivememory._version import __version__
 
 
-class ErrorResponse(BaseModel):
-    error: str
-    detail: str | None = None
-
-
 class HealthResponse(BaseModel):
     status: str = "ok"
     version: str = __version__

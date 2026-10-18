@@ -20,7 +20,6 @@ from hivememory.core.protocol.gateway import (
     RetrievalMode,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.system.services.passive import (
@@ -86,7 +85,7 @@ def _key(identity: ActorIdentity) -> PassiveConversationKey:
 async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
     bus = GlobalSystemBus()
     gateway = AsyncMock(return_value=_decision_outcome())
-    retrieve = AsyncMock(return_value=RetrievalResponse())
+    retrieve = AsyncMock(return_value=[])
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
     bus.register(PatchouliRoutes.MEMORY_RETRIEVE, retrieve)
     submitted = []
@@ -125,7 +124,7 @@ async def test_scoped_passive_seam_keeps_workspace_only_in_payload() -> None:
     bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
     bus.register(
         PatchouliRoutes.MEMORY_RETRIEVE,
-        AsyncMock(return_value=RetrievalResponse()),
+        AsyncMock(return_value=[]),
     )
     submitted = []
     ingressor = PassiveMessageIngressor(

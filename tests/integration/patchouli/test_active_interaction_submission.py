@@ -24,6 +24,7 @@ from hivememory.core.protocol.models import (
     InteractionPayload,
     RetrievalResponse,
 )
+from hivememory.patchouli.contracts.errors import ActiveInteractionFinalizationError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.patchouli.control.interaction_submission import (
@@ -31,10 +32,7 @@ from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.patchouli.service import (
-    ActiveInteractionFinalizationError,
-    PatchouliService,
-)
+from hivememory.patchouli.service import PatchouliService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 

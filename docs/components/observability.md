@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # 运行时事件与可观测性
@@ -39,6 +39,8 @@ HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么
 - 来源：`source`、`subsystem`、`component`、`severity`；
 - 关联：process、agent run、task、agent、frame、topic、atom；
 - 结果：`status`、`reason`、`message`、摘要化 `data`。
+
+失败 reason 使用稳定原因码，message 使用可公开的说明；异常类名只放在诊断字段 `data.error_class`，不用于恢复决策。Gateway、Passive 与队列的具体分类由[事件契约](../contracts/routes-and-events.md#44-失败与降级观测)维护，事件不承载原始异常正文。
 
 `workspace_id` 是可选的观测关联字段，用于把事件按资源归属域展示或筛选。它不代表完整的 `IdentityScope`，也不参与 EventBus 路由、订阅、sequence、授权、幂等判断或任何业务状态迁移；需要作出业务决定时必须回到领域返回值、异常或 Store 状态。
 

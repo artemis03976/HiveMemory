@@ -107,7 +107,7 @@ class LLMUserQueryAnalysisResolver:
             )
         except QueryUnderstandingError as exc:
             self._emit_capability(started_at, error=exc)
-            raise RecoverableGatewayError(str(exc)) from exc
+            raise RecoverableGatewayError("查询分析不可用") from exc
         self._emit_capability(started_at, error=None)
 
         intent_type = rule_intent or analysis.intent_type
@@ -187,7 +187,8 @@ class LLMUserQueryAnalysisResolver:
                     data={
                         "capability_id": "query_understanding",
                         "duration_ms": (perf_counter() - started_at) * 1000,
-                        "error": str(error) if error is not None else None,
+                        "error": "query_understanding_failed" if error is not None else None,
+                        "error_class": type(error).__name__ if error is not None else None,
                     },
                 )
             )

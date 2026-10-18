@@ -151,9 +151,18 @@ class GatewayWorkflow:
                 RuntimeEventType.GATEWAY_WORKFLOW_FAILED,
                 workspace_id=workspace_id,
                 severity="error",
-                reason=type(exc).__name__,
-                message=str(exc),
+                reason=(
+                    "gateway_timeout"
+                    if isinstance(exc, (TimeoutError, GatewayTimeoutError))
+                    else (
+                        "dependency_unavailable"
+                        if isinstance(exc, RecoverableGatewayError)
+                        else "workflow_failed"
+                    )
+                ),
+                message="Gateway 处理失败",
                 data={
+                    "error_class": type(exc).__name__,
                     "step_id": current_step_id,
                     "completed_steps": completed_steps,
                     "duration_ms": _elapsed_ms(started_at),
@@ -186,7 +195,7 @@ class GatewayWorkflow:
             updates = step.fallback(selected_input, timeout_error)
             flow_end_reason = None
             is_fallback = True
-            fallback_reason = "GatewayTimeoutError"
+            fallback_reason = "request_deadline_exceeded"
             state._apply_step_result(
                 GatewayStepResult(
                     updates=updates,
@@ -233,9 +242,9 @@ class GatewayWorkflow:
             flow_end_reason = None
             is_fallback = True
             fallback_reason = (
-                "GatewayTimeoutError"
+                "request_deadline_exceeded"
                 if isinstance(exc, TimeoutError) and deadline_limited
-                else type(exc).__name__
+                else "step_timeout" if isinstance(exc, TimeoutError) else "dependency_unavailable"
             )
         else:
             updates = step.project(output)
@@ -260,7 +269,7 @@ class GatewayWorkflow:
             flow_end_reason=flow_end_reason,
             workspace_id=state.identity_scope.workspace_identity.workspace_id,
         )
-        return is_fallback and fallback_reason == "GatewayTimeoutError"
+        return is_fallback and fallback_reason == "request_deadline_exceeded"
 
     @staticmethod
     def _remaining_seconds(deadline: float | None) -> float | None:

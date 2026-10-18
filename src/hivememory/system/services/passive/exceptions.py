@@ -11,6 +11,9 @@
 
 from __future__ import annotations
 
+from hivememory.core.errors import ResourceUnavailableError, StorageOfflineError, StorageReadError
+from hivememory.core.protocol.gateway import GatewayTimeoutError
+
 
 class PassiveIngressError(Exception):
     """被动接入错误基类。"""
@@ -24,33 +27,21 @@ class PassiveIngressContractError(PassiveIngressError):
     """
 
 
-# 不可恢复失败：不降级，直接向上抛出。
-#   - PassiveIngressContractError: 下游契约违约
-#   - KeyError: 总线路由未注册，属于装配缺陷
-NON_RECOVERABLE_INGRESS_ERRORS: tuple[type[Exception], ...] = (
-    PassiveIngressContractError,
-    KeyError,
-)
-
-
 def is_recoverable_ingress_error(error: BaseException) -> bool:
-    """判定 Gateway/retrieval 失败是否可走降级路径。
-
-    采用「默认可恢复 + 窄不可恢复名单」：降级路径的首要不变量是当前 user 事件
-    必须进入 buffer，因此未知的下游异常类型应当降级而不是丢掉这一轮交互。
-    降级本身通过 warning 日志与 `PassiveMemoryContextPrepared(degraded=True)`
-    暴露，不是静默回退。
-
-    `asyncio.CancelledError` 等 `BaseException` 不在此列——调用方只捕获
-    `Exception`，取消信号自然向上传播。
-    """
-    if not isinstance(error, Exception):
-        return False
-    return not isinstance(error, NON_RECOVERABLE_INGRESS_ERRORS)
+    """只对超时和明确的只读依赖故障降级；未知异常、授权拒绝与取消传播。"""
+    return isinstance(
+        error,
+        (
+            TimeoutError,
+            GatewayTimeoutError,
+            StorageOfflineError,
+            StorageReadError,
+            ResourceUnavailableError,
+        ),
+    )
 
 
 __all__ = [
-    "NON_RECOVERABLE_INGRESS_ERRORS",
     "PassiveIngressContractError",
     "PassiveIngressError",
     "is_recoverable_ingress_error",

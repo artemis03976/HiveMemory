@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # 前端状态、持久化与传输
@@ -71,6 +71,10 @@ Settings 草稿使用组件 state/useDraft；OmniInput 草稿使用 chat store �
 Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送请求体。RuntimeEvent 是 GET 流，使用 EventSource。日志需要双向 ping/pong 和持续推送，使用 WebSocket。
 
 身份选择传输约定：Session、Memory、Agent、Topic、Chat 与 stop 请求统一携带 `x-user-id`/`x-workspace-id` 基础选择；Topic 旧的 `?user_id=` query 已不再由前端使用（后端保留兼容并与 header 做冲突检测）；Chat/stop 请求体不携带身份字段。管理请求（Session/Memory/Agent/Topic）默认依赖统一请求头，不需要额外参数。
+
+### 3.1 HTTP 错误解析
+
+`services/apiError.ts` 的 `readApiError()` / `apiErrorMessage()` 供 HTTP services 与 SSE 握手共用。后端 `error/detail/reason/issues` 以安全 detail 展示、code/reason 分支；兼容旧 detail 字符串、message 字符串、detail.message 与 422 校验列表。旧校验列表只读取字段位置和受控类别，不展示 input/ctx/validator 原文。未知对象、HTML 和空体使用带 HTTP status 的默认提示，正文读取的 AbortError 继续抛出。Session 等服务保留原有状态异常，RuntimeEvent disabled 503 仍按业务 DTO 处理。后端信封与迁移说明见[错误模型](../contracts/error-model.md#7-http-api-与客户端呈现)。
 
 ## 4. Origin 与代理
 

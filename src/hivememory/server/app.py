@@ -12,17 +12,6 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from hivememory import __version__
-from hivememory.core.errors import (
-    AdmissionDeniedError,
-    OperationDeniedError,
-    ScopeRequiredError,
-    SessionBusyError,
-    SessionCapacityError,
-    SessionClosedError,
-    SessionNotFoundError,
-    WorkspaceDomainError,
-    WorkspaceMismatchError,
-)
 from hivememory.server.deps import (
     get_system,
     init_system,
@@ -30,6 +19,7 @@ from hivememory.server.deps import (
     shutdown_system,
     shutdown_websocket_log_broadcasting,
 )
+from hivememory.server.error_handlers import APIError, install_error_handlers
 from hivememory.server.models.common import HealthResponse, ReadinessResponse
 from hivememory.server.routers.agents import router as agents_router
 from hivememory.server.routers.chat import router as chat_router
@@ -118,71 +108,7 @@ async def log_requests(request: Request, call_next):
     return response
 
 
-# 全局异常处理
-@app.exception_handler(Exception)
-async def global_exception_handler(request: Request, exc: Exception):
-    logger.error(f"未处理异常: {exc}", exc_info=True)
-    return JSONResponse(
-        status_code=500,
-        content={"error": "Internal Server Error", "detail": str(exc)},
-    )
-
-
-# ---------------------------------------------------------------------------
-# 访问错误的稳定 HTTP 映射
-#
-# 响应保留稳定机器码与 details.reason，不暴露接入凭据。
-# ---------------------------------------------------------------------------
-
-
-def _access_error_payload(exc) -> dict:
-    """访问领域错误的统一响应体：机器码 + 细节 + reason。"""
-    reason = exc.details.get("reason") if getattr(exc, "details", None) else None
-    payload = {"error": exc.code, "detail": str(exc)}
-    if reason is not None:
-        payload["reason"] = reason
-    return payload
-
-
-@app.exception_handler(AdmissionDeniedError)
-async def admission_denied_handler(request: Request, exc: AdmissionDeniedError):
-    """准入拒绝 → 403；认证网关已关闭（停机中）→ 503。"""
-    if exc.details.get("reason") == "authentication_gateway_closed":
-        return JSONResponse(status_code=503, content=_access_error_payload(exc))
-    return JSONResponse(status_code=403, content=_access_error_payload(exc))
-
-
-@app.exception_handler(OperationDeniedError)
-async def operation_denied_handler(request: Request, exc: OperationDeniedError):
-    """行为未获准 → 403。"""
-    return JSONResponse(status_code=403, content=_access_error_payload(exc))
-
-
-@app.exception_handler(WorkspaceMismatchError)
-async def workspace_mismatch_handler(request: Request, exc: WorkspaceMismatchError):
-    """请求 scope 与可信 context 不一致（或资源越域）→ 409。"""
-    return JSONResponse(status_code=409, content=_access_error_payload(exc))
-
-
-@app.exception_handler(SessionNotFoundError)
-@app.exception_handler(SessionBusyError)
-@app.exception_handler(SessionCapacityError)
-@app.exception_handler(SessionClosedError)
-async def session_error_handler(request: Request, exc: WorkspaceDomainError):
-    """会话不存在返回 404，冲突/容量返回 409，关闭返回 503。"""
-    code = (
-        404
-        if isinstance(exc, SessionNotFoundError)
-        else 503 if isinstance(exc, SessionClosedError) else 409
-    )
-    return JSONResponse(status_code=code, content=_access_error_payload(exc))
-
-
-@app.exception_handler(ScopeRequiredError)
-async def scope_required_handler(request: Request, exc: ScopeRequiredError):
-    """生产入口经网关后不应出现 scope 缺失；出现即为接线缺陷，按 500 返回并记录。"""
-    logger.error(f"访问接线缺陷（scope_required）: {exc}", exc_info=True)
-    return JSONResponse(status_code=500, content=_access_error_payload(exc))
+install_error_handlers(app)
 
 
 # 健康检查 (Liveness)
@@ -252,7 +178,7 @@ if SERVE_FRONTEND:
         @app.get("/{catchall:path}")
         async def serve_spa(catchall: str):
             if catchall == "api" or catchall.startswith("api/"):
-                return JSONResponse(status_code=404, content={"error": "Not Found"})
+                raise APIError("request.not_found")
 
             dist_root = os.path.realpath(FRONTEND_DIST_DIR)
             requested_path = os.path.realpath(os.path.join(dist_root, catchall))

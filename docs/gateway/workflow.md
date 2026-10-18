@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-18
 ---
 
 # Gateway 固定工作流
@@ -98,7 +98,7 @@ state.snapshot()
 
 `raw_message`、`identity_scope` 和 `ingress_mode` 是初始化字段，任何 Step 都不能覆盖。未知字段会被拒绝；`flow_end_reason` 只能设置一次；状态完成后不允许继续提交。这不是数据库事务或跨子系统 rollback，而是请求内的单写入口：它防止 Engine 在调用途中留下半份 Gateway 状态。
 
-`GatewayStepResult.is_fallback` 与 `fallback_reason` 只用于观测本次提交，不进入公共 `GatewayDecision`。下游不应通过猜测 fallback 原因改变业务行为。
+`GatewayStepResult.is_fallback` 与 `fallback_reason` 只用于观测本次提交，不进入公共 `GatewayDecision`。reason 使用请求 deadline、步骤 timeout 或依赖不可用的稳定码，失败事件使用固定说明，异常类名仅作诊断；取值见[事件契约](../contracts/routes-and-events.md#44-失败与降级观测)。下游不应通过猜测 fallback 原因改变业务行为。
 
 ## 4. 终态投影
 

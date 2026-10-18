@@ -27,6 +27,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 from hivememory.config.patchouli import ReinforcementEngineConfig
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import MemoryAtom, WorkspaceIdentity, WorkspaceMemoryKey
 from hivememory.engines.lifecycle.models import (
     EventType,
@@ -108,7 +109,10 @@ class DynamicReinforcementEngine:
         )
         if memory is None:
             logger.warning(f"Memory not found for reinforcement: {memory_id}")
-            raise ValueError(f"Memory {memory_id} not found")
+            raise ResourceNotFoundError(
+                f"Memory {memory_id} not found",
+                details={"resource": "memory", "memory_id": str(memory_id)},
+            )
 
         # 一次事件只取一个提交时点，全部字段共享。
         current = self._now()

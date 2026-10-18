@@ -10,10 +10,7 @@ import pytest_asyncio
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import RunBinding, WorkspaceAccessContext
 from hivememory.core.contracts.events import GlobalEvents
-from hivememory.core.errors import (
-    PendingUpdateNotAllowedError,
-    ResourceNotFoundError,
-)
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     AgentProfile,
     IndexLayer,
@@ -28,7 +25,6 @@ from hivememory.core.models import (
     WorkspaceMemoryKey,
     WriteFocus,
 )
-from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.patchouli.application.agent_profile_management_service import (
     AgentProfileManagementService,
@@ -57,6 +53,7 @@ from hivememory.workspace.contracts import (
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
 )
+from hivememory.workspace.contracts.errors import PendingUpdateNotAllowedError
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.runtime import WorkspaceRuntime
 from tests.helpers.intent_dispatch import install_intent_admission
@@ -310,11 +307,10 @@ async def test_cpu_profile_without_actor_operations_rejects_other_agents_private
         profile_reader=chain.runtime.profiles,
     )
 
-    with pytest.raises(AliasNotFoundError) as excinfo:
+    with pytest.raises(ResourceNotFoundError) as excinfo:
         await allocator.resolve_agent_profile(target_workspace=WORKSPACE, access=access)
 
-    assert excinfo.value.message_key == "mtp.call.profile_not_found"
-    assert excinfo.value.params == {"agent_alias": "custom_agent"}
+    assert excinfo.value.details == {"resource": "agent_profile", "agent_alias": "custom_agent"}
 
 
 @pytest.mark.asyncio

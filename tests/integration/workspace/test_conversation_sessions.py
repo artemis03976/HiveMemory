@@ -4,7 +4,7 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.workspace import WorkspaceSessionConfig
-from hivememory.core.errors import OperationDeniedError, SessionBusyError, SessionNotFoundError
+from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, ResolvedAgentProfile
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.core.protocol.models import RetrievalResponse
@@ -12,6 +12,7 @@ from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.capability.root.session import RootSessionService
+from hivememory.workspace.contracts.errors import SessionBusyError, SessionNotFoundError
 from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision

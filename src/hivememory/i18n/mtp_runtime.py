@@ -22,13 +22,21 @@ from hivememory.i18n.types import Language
 # ---------------------------------------------------------------------------
 
 _ERROR_TEXT_ZH: dict[str, str] = {
+    "mtp.memory.intent_unknown_without_read": (
+        "[Intent Unknown] 无法确认写入意图 '{pending_alias}' 是否已被接纳。\n"
+        "Suggestion: 当前没有 READ 能力，无法核实结果；请明确告知结果未知，不要重复提交 WRITE/UPDATE。"
+    ),
+    "mtp.system.thread_context_revoked": (
+        "[Thread Ended] 原线程已结束，请停止当前线程的操作。\n"
+        "Suggestion: 不要重试或尝试重新获取身份。"
+    ),
     "mtp.memory.intent_rejected": (
         "[Intent Rejected] 写入意图 '{pending_alias}' 未被生成队列接纳。\n"
         "Suggestion: 本次意图已失败，请调整请求或稍后重试。"
     ),
     "mtp.memory.intent_unknown": (
         "[Intent Unknown] 无法确认写入意图 '{pending_alias}' 是否已被接纳。\n"
-        "Suggestion: 该意图可能仍会完成生成，立即重复写入可能产生重复记忆；确需重试请稍后再写。"
+        "Suggestion: 请用 READ 回读原句柄以核实状态；该意图仍可能完成，不要重复提交 WRITE/UPDATE。"
     ),
     # ---- 通用权限 ----
     "mtp.permission.verb_denied": (
@@ -169,7 +177,7 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "Suggestion: 请勿重试相同指令，并继续正常对话。"
     ),
     "mtp.system.tool_error": (
-        "[Tool Error] 工具 '{alias}' 执行时发生内部错误：{detail}\n"
+        "[Tool Error] 工具 '{alias}' 执行时发生内部错误。\n"
         "Suggestion: 请勿使用相同输入重试该工具。"
     ),
     "mtp.call_response.sub_agent_error": (
@@ -191,14 +199,23 @@ _ERROR_TEXT_ZH: dict[str, str] = {
 }
 
 _ERROR_TEXT_EN: dict[str, str] = {
+    "mtp.memory.intent_unknown_without_read": (
+        "[Intent Unknown] Admission of intent '{pending_alias}' could not be confirmed.\n"
+        "Suggestion: READ is unavailable, so you cannot verify the result. Report the uncertainty; "
+        "do not submit another WRITE/UPDATE."
+    ),
+    "mtp.system.thread_context_revoked": (
+        "[Thread Ended] The original thread has ended. Stop operations on this thread.\n"
+        "Suggestion: Do not retry or attempt to reacquire an identity."
+    ),
     "mtp.memory.intent_rejected": (
         "[Intent Rejected] Intent '{pending_alias}' was not admitted to generation.\n"
         "Suggestion: This intent failed; revise the request or retry later."
     ),
     "mtp.memory.intent_unknown": (
         "[Intent Unknown] Admission of intent '{pending_alias}' could not be confirmed.\n"
-        "Suggestion: It may still be generated; rewriting now may create duplicates. "
-        "Retry later only if needed."
+        "Suggestion: READ the existing handle to check its status. It may still complete; "
+        "do not submit another WRITE/UPDATE."
     ),
     # ---- 通用权限 ----
     "mtp.permission.verb_denied": (
@@ -347,7 +364,7 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "Suggestion: Do NOT retry this command. Continue the conversation normally."
     ),
     "mtp.system.tool_error": (
-        "[Tool Error] Tool '{alias}' encountered an internal error: {detail}\n"
+        "[Tool Error] Tool '{alias}' encountered an internal error.\n"
         "Suggestion: Do NOT retry this tool with the same input."
     ),
     "mtp.call_response.sub_agent_error": (

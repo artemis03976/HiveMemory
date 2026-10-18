@@ -401,4 +401,9 @@ async def test_invariant_failure_emits_workflow_failed_event() -> None:
             ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
         )
 
-    assert events.events[-1].event_type == (RuntimeEventType.GATEWAY_WORKFLOW_FAILED.value)
+    failure = events.events[-1]
+    assert failure.event_type == RuntimeEventType.GATEWAY_WORKFLOW_FAILED.value
+    assert failure.reason == "workflow_failed"
+    assert failure.message == "Gateway 处理失败"
+    assert failure.data["error_class"] == "ValueError"
+    assert "未知字段" not in failure.model_dump_json()

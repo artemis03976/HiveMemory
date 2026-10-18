@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-10-12
+last_reviewed: 2026-10-18
 ---
 
 # 被动对话摄入
@@ -61,13 +61,13 @@ assistant / tool_call / tool_result
   -> 不调用 Gateway，不执行工具
 ```
 
-Gateway 与 retrieval 的可恢复失败由 `MemoryContextProvider` 收敛为降级结果：
+Gateway 与 retrieval 只对超时和明确的中立只读依赖故障降级，允许类型由 `is_recoverable_ingress_error()` 判定，公共语义见[错误模型](../contracts/error-model.md#43-passive-ingress)。`MemoryContextProvider` 保持以下结果：
 
 - Gateway 失败：当前 user 仍进入 accumulator，但没有 topic/检索上下文；
 - retrieval 失败：保留已获得的 Gateway decision，只缺少 memory context；
-- route 缺失、类型违约等契约问题不降级，直接向上抛出。
+- route 缺失、类型违约、权限拒绝、程序错误和取消不降级，直接向上抛出。
 
-公共响应仍只使用 `accepted`、`buffered`、`duplicate`、`ignored` 以及可选 memory context；降级细节只进入安全摘要化的 RuntimeEvent。
+公共响应仍只使用 `accepted`、`buffered`、`duplicate`、`ignored` 以及可选 memory context；降级细节只进入安全摘要化的 RuntimeEvent：reason 区分 `gateway_unavailable` 与 `retrieval_unavailable`，error_class 仅为诊断类名，成功时两者为空。
 
 ## 3. Accumulator 与 submission queue
 

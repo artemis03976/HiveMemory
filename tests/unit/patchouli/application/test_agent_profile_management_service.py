@@ -103,3 +103,14 @@ async def test_list_agent_profiles_filters_by_profile_type_with_owner_semantics(
     assert kwargs["belong_to"] == identity_scope.workspace_identity
     assert (kwargs["filters"], kwargs["limit"]) == ({"index.memory_type": "AGENT_PROFILE"}, 100)
     assert kwargs["enforce_actor_visibility"] is False
+
+
+@pytest.mark.asyncio
+async def test_profile_read_without_scope_does_not_enter_resolver(bus):
+    """公开读取入口拒绝缺失 scope，且不继续执行内部 Profile 解析。"""
+    service = AgentProfileManagementService(bus=bus)
+
+    with pytest.raises(ScopeRequiredError):
+        await service.get_agent_profile("custom_agent", identity_scope=None)
+
+    bus.request.assert_not_awaited()

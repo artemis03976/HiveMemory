@@ -8,12 +8,7 @@ from typing import TYPE_CHECKING
 from uuid import UUID
 
 from hivememory.core.access import WorkspaceOperation
-from hivememory.core.errors import (
-    IntentDispatchRejectedError,
-    IntentDispatchUnknownError,
-    PendingUpdateNotAllowedError,
-    ResourceNotFoundError,
-)
+from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     MemoryAtom,
     PendingAtom,
@@ -25,6 +20,11 @@ from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.memory_intent import MemoryIntent
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationAdmissionStatus
+from hivememory.workspace.contracts.errors import (
+    IntentDispatchRejectedError,
+    IntentDispatchUnknownError,
+    PendingUpdateNotAllowedError,
+)
 from hivememory.workspace.contracts.operations import (
     ResolveReferencesRequest,
     ResolveRunTargetRequest,

@@ -16,7 +16,7 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.core.errors import ResourceUnavailableError
+from hivememory.core.errors import ResourceNotFoundError, ResourceUnavailableError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
@@ -24,7 +24,6 @@ from hivememory.core.models import (
     MemoryVisibility,
     ResolvedAgentProfile,
 )
-from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.workspace.cache.epoch import WorkspaceEpochs
 from hivememory.workspace.cache.profile import ProfileCache
 from hivememory.workspace.resolution.guard import ColdReadGuard
@@ -66,7 +65,7 @@ class _FakeProfileBacking:
             return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE.model_copy(deep=True))
         resolved = self.profiles.get(agent_alias)
         if resolved is None:
-            raise AliasNotFoundError(message_key="mtp.call.profile_not_found")
+            raise ResourceNotFoundError()
         return resolved.model_copy(deep=True)
 
 
@@ -108,7 +107,7 @@ async def test_cached_profile_is_authorized_per_actor_by_source_policy():
     resolver, _, _ = _resolver(backing)
     await resolver.get("private_doll", scope=A1)
 
-    with pytest.raises(AliasNotFoundError):
+    with pytest.raises(ResourceNotFoundError):
         await resolver.get("private_doll", scope=A2)
     owner = await resolver.get("private_doll", scope=A1)
 
@@ -202,7 +201,7 @@ async def test_missing_profile_is_reloaded_after_it_becomes_available():
     """缺失结果不驻留缓存，创建同名图纸后可以重新解析。"""
     backing = _FakeProfileBacking()
     resolver, _, _ = _resolver(backing)
-    with pytest.raises(AliasNotFoundError):
+    with pytest.raises(ResourceNotFoundError):
         await resolver.get("coder_doll", scope=A1)
     backing.profiles["coder_doll"] = _resolved("coder_doll", persona="newly created")
 

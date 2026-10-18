@@ -26,6 +26,7 @@ from hivememory.core.errors import (
     AssetNotFoundError,
     AssetOperationConflictError,
     AssetRemovedError,
+    ResourceNotFoundError,
 )
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -41,7 +42,6 @@ from hivememory.core.models import (
     WorkspaceAssetRef,
     WorkspaceIdentity,
 )
-from hivememory.core.mtp.exceptions import AliasNotFoundError
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.gateway.contracts import GatewayPublicRoutes
@@ -467,13 +467,12 @@ async def test_no_actor_operations_still_allocates_execution_profile() -> None:
 async def test_profile_resolution_failure_fails_stream_before_prepare() -> None:
     """Profile 解析失败：流式路径在 prepare 之前以错误结束，不发出前导事件。
 
-    Profile 暂时在 prepare 之前解析（中间态），失败的请求不触发 prepare，
+    Profile 在 prepare 之前解析，失败的请求不触发 prepare，
     因此不会预建 Topic、不会 LRU 结算已有话题，也不需要 cleanup。
     """
     bus = GlobalSystemBus()
-    failure = AliasNotFoundError(
-        message_key="mtp.call.profile_not_found",
-        params={"agent_alias": "omni_doll"},
+    failure = ResourceNotFoundError(
+        details={"resource": "agent_profile", "agent_alias": "omni_doll"},
     )
     prepare_calls: list = []
     cleanup_calls: list = []
@@ -496,9 +495,8 @@ async def test_profile_resolution_failure_fails_stream_before_prepare() -> None:
 async def test_profile_resolution_failure_propagates_before_prepare() -> None:
     """非流式路径：Profile 解析失败沿异常上抛，prepare 与 cleanup 均未调用。"""
     bus = GlobalSystemBus()
-    failure = AliasNotFoundError(
-        message_key="mtp.call.profile_not_found",
-        params={"agent_alias": "omni_doll"},
+    failure = ResourceNotFoundError(
+        details={"resource": "agent_profile", "agent_alias": "omni_doll"},
     )
     prepare_calls: list = []
     cleanup_calls: list = []
@@ -508,7 +506,7 @@ async def test_profile_resolution_failure_propagates_before_prepare() -> None:
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _recording(cleanup_calls))
 
     service, composition = await _service(bus)
-    with pytest.raises(AliasNotFoundError):
+    with pytest.raises(ResourceNotFoundError):
         await _run_once(composition, service, "问题", process_id="process-profile-fail-ns")
 
     assert prepare_calls == []

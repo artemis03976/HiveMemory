@@ -17,7 +17,7 @@ related_contracts:
   - docs/alice/orchestration.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -127,7 +127,7 @@ Koakuma 把可预期失败统一转换为 `MTPResponse`：
 
 READ、RUN 的记忆目标和 CALL `context_refs` 共用 workspace 引用读取：能力层在返回前为正式 atom、带可读原子的 redirect 自动请求 Patchouli 记录引用，同批按 UUID 去重、缓存命中也记录，来源统一为 `workspace.reference_read`。pending、缺失/失败/丢弃/过期及不可读 redirect 不记录，UPDATE 基础解析也不触发。记录失败只记日志，不改变读取结果；取消原样传播，已经成功记录的引用不回滚。Alice 不持有引用计数逻辑。
 
-完整错误分类和稳定 error code 见[错误模型](../contracts/error-model.md)。修改 handler 时应新增或复用结构化异常，而不是把 Python 异常文本直接交给 Agent。
+完整错误分类和稳定 error code 见[错误模型](../contracts/error-model.md)。普通 handler 失败由 `agent_runtime.mtp.error_mapping.mtp_error_info()` 统一转换；内部业务终态使用具名信息构造，异常只承担真正的传播职责。协议异常的参数也经过白名单筛选；不能把 Python 异常正文或内部 details 直接交给 Agent。
 
 ## 7. 取消边界
 

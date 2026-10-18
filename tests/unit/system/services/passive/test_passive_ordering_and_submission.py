@@ -18,7 +18,6 @@ from hivememory.core.protocol.gateway import (
     RetrievalMode,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.system.services.passive import (
@@ -83,7 +82,7 @@ class _Recorder:
 
     async def retrieve(self, **kwargs):
         self.calls.append("retrieve")
-        return RetrievalResponse()
+        return []
 
     async def submit(self, submission):
         self.calls.append("submit")
@@ -295,7 +294,7 @@ async def test_gateway_failure_does_not_block_previous_turn_submit() -> None:
     bus.unregister(GatewayPublicRoutes.PROCESS)
     bus.register(
         GatewayPublicRoutes.PROCESS,
-        AsyncMock(side_effect=RuntimeError("gateway down")),
+        AsyncMock(side_effect=TimeoutError("gateway down")),
     )
 
     outcome = await ingressor.route_event(_event("user", "u2"), IDENTITY)

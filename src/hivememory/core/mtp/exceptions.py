@@ -6,7 +6,7 @@ MTP 异常定义。
     每个异常应具备:
         - 稳定的 code (dotted-path)
         - message_key (i18n 文本 key)
-        - 归因严重度（AGENT_FAULT 可重试 / SYSTEM_FAULT 不可重试）
+        - 归因严重度（调用请求问题或系统故障）；是否重试由具体操作和文案说明
 """
 
 from typing import Any
@@ -86,12 +86,6 @@ class AliasNotFoundError(AgentFault):
     code = "mtp.alias.not_found"
 
 
-class MemoryNotFoundError(AgentFault):
-    """UUID/别名可解析但目标记忆不存在（已归档或删除）。"""
-
-    code = "mtp.memory.not_found"
-
-
 class MemoryTypeMismatchError(AgentFault):
     """记忆类型与操作不匹配（如对 FACT 执行 RUN）。"""
 
@@ -116,41 +110,6 @@ class SystemFault(MTPError):  # noqa: N818 -- MTP 契约术语
     code = "mtp.system.fault"
     default_message_key = "mtp.system.unexpected_error"
     severity = MTPErrorSeverity.SYSTEM_FAULT
-
-
-class MemoryIntentRejectedError(AgentFault):
-    """本次写入未被接纳，Agent 可根据原因调整请求或稍后重试。"""
-
-    code = "mtp.memory.intent_rejected"
-    default_message_key = "mtp.memory.intent_rejected"
-
-
-class MemoryIntentUnknownError(SystemFault):
-    """写入结果未知，盲目重试可能重复生成，优先回读句柄。"""
-
-    code = "mtp.memory.intent_unknown"
-    default_message_key = "mtp.memory.intent_unknown"
-
-
-class StorageOfflineError(SystemFault):
-    """存储层离线（连接超时、拒绝连接等）。"""
-
-    code = "mtp.system.storage_offline"
-    default_message_key = "mtp.system.storage_offline"
-
-
-class StorageReadError(SystemFault):
-    """存储层读操作异常。"""
-
-    code = "mtp.system.storage_error"
-    default_message_key = "mtp.system.storage_error"
-
-
-class StorageWriteError(SystemFault):
-    """存储层写操作异常（写入、局部更新、删除未确认成功）。"""
-
-    code = "mtp.system.storage_write_error"
-    default_message_key = "mtp.system.storage_write_error"
 
 
 class BusRouteUnavailableError(SystemFault):
@@ -197,48 +156,15 @@ class SyscallUnavailableError(SystemFault):
     code = "mtp.syscall.unavailable"
 
 
-class SubAgentExecutionError(SystemFault):
-    """CALL 子代理执行异常。"""
-
-    code = "mtp.call_response.sub_agent_error"
-    default_message_key = "mtp.call_response.sub_agent_error"
-
-
-class SubAgentBudgetExhaustedError(SystemFault):
-    """CALL 子代理耗尽循环预算但未自然收敛。"""
-
-    code = "mtp.call_response.budget_exhausted"
-    default_message_key = "mtp.call_response.budget_exhausted"
-
-
-class SubAgentUnexpectedSuspendError(SystemFault):
-    """CALL 子代理违反单层拓扑约束并再次挂起。"""
-
-    code = "mtp.call_response.unexpected_suspend"
-    default_message_key = "mtp.call_response.unexpected_suspend"
-
-
-class AgentModelUnavailableError(SystemFault):
-    """CALL 目标 Profile 引用的模型当前不可用。"""
-
-    code = "mtp.system.service_unavailable"
-    default_message_key = "mtp.call_response.model_unavailable"
-
-
 __all__ = [
     "MTPError",
     "AgentFault",
     "SystemFault",
     "MTPParseError",
     "AliasNotFoundError",
-    "MemoryNotFoundError",
     "MemoryTypeMismatchError",
     "InvalidArgumentError",
     "PermissionDeniedError",
-    "MemoryIntentRejectedError",
-    "MemoryIntentUnknownError",
-    "StorageOfflineError",
-    "StorageReadError",
     "BusRouteUnavailableError",
     "SyscallInternalError",
     "SyscallInvalidArgumentError",
@@ -246,8 +172,4 @@ __all__ = [
     "SyscallExecutionError",
     "SyscallTimeoutError",
     "SyscallUnavailableError",
-    "SubAgentExecutionError",
-    "SubAgentBudgetExhaustedError",
-    "SubAgentUnexpectedSuspendError",
-    "AgentModelUnavailableError",
 ]

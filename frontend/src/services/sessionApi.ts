@@ -1,4 +1,5 @@
 /** 会话管理客户端：正文只来自后端历史，浏览器只保存当前会话选择。 */
+import { apiErrorMessage } from '@/services/apiError';
 import { identityHeaders } from '@/services/identity';
 
 export type TurnOutcome = 'completed' | 'cancelled' | 'failed';
@@ -57,8 +58,7 @@ async function request<T>(path = '', method = 'GET', title?: string): Promise<T>
     ...(title !== undefined ? { body: JSON.stringify({ title }) } : {}),
   });
   if (!response.ok) {
-    const data = await response.json().catch(() => ({}));
-    throw new SessionApiError(response.status, data.message || data.detail?.message || `会话操作失败 (${response.status})`);
+    throw new SessionApiError(response.status, await apiErrorMessage(response, '会话操作失败'));
   }
   return response.status === 204 ? undefined as T : response.json();
 }

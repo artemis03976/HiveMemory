@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 import time
 from unittest.mock import AsyncMock
 
+import litellm
 import pytest
 
 from hivememory.config.gateway import UserQueryAnalysisConfig
@@ -174,8 +176,33 @@ async def test_analyze_raises_on_missing_rewritten_query() -> None:
 @pytest.mark.asyncio
 async def test_analyze_wraps_llm_failure() -> None:
     llm = AsyncMock()
-    llm.acomplete_json.side_effect = RuntimeError("boom")
+    failure = litellm.ServiceUnavailableError("provider-private", llm_provider="test", model="test")
+    llm.acomplete_json.side_effect = failure
     engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
 
-    with pytest.raises(QueryUnderstandingError, match="boom"):
+    with pytest.raises(QueryUnderstandingError, match="提供商调用失败") as caught:
         await engine.analyze("查询", topic_data=None)
+    assert caught.value.__cause__ is failure
+    assert "provider-private" not in str(caught.value)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("failure", [TypeError("broken projection"), asyncio.CancelledError()])
+async def test_analyze_propagates_program_errors_and_cancellation(failure):
+    """未知故障与取消不得成为可降级的能力失败。"""
+    llm = AsyncMock()
+    llm.acomplete_json.side_effect = failure
+    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
+    with pytest.raises(type(failure)) as caught:
+        await engine.analyze("查询")
+    assert caught.value is failure
+
+
+@pytest.mark.asyncio
+async def test_analyze_classifies_invalid_model_json():
+    """模型格式无效是预期输出失败，仍可由 Gateway 保守降级。"""
+    llm = AsyncMock()
+    llm.acomplete_json.return_value = "not json"
+    engine = QueryUnderstandingEngine(config=UserQueryAnalysisConfig(), llm_service=llm)
+    with pytest.raises(QueryUnderstandingError, match="无效 JSON"):
+        await engine.analyze("查询")

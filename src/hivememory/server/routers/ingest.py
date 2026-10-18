@@ -8,6 +8,7 @@ from hivememory.server.deps import (
     get_ingress_service,
     resolve_request_identity_scope,
 )
+from hivememory.server.error_handlers import error_responses
 from hivememory.server.models.ingest import (
     PassiveFlushRequest,
     PassiveFlushResponse,
@@ -17,7 +18,7 @@ from hivememory.server.models.ingest import (
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.services.passive import PassiveIngressEvent
 
-router = APIRouter(tags=["ingest"])
+router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["ingest"])
 
 
 @router.post("/ingest", response_model=PassiveIngressResponse)
