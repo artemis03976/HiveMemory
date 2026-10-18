@@ -331,7 +331,7 @@ class TestPendingAtomCompilation:
         return PendingAtom(
             pending_alias="draft_001",
             intent_id="intent_001",
-            status=PendingAtomStatus.PENDING,
+            status=PendingAtomStatus.MATERIALIZING,
             source_verb="WRITE",
             focus=WriteFocus(content="Hello world", title="Test Write"),
             belong_to=make_identity_scope().workspace_identity,
@@ -345,7 +345,7 @@ class TestPendingAtomCompilation:
         return PendingAtom(
             pending_alias="rev_001",
             intent_id="intent_002",
-            status=PendingAtomStatus.PENDING,
+            status=PendingAtomStatus.MATERIALIZING,
             source_verb="UPDATE",
             focus=UpdateFocus(
                 base_alias="fact_api",
@@ -362,7 +362,7 @@ class TestPendingAtomCompilation:
         assert artifact.source_kind == "pending"
         assert "draft_001" in artifact.text
         assert "Hello world" in artifact.text
-        assert "pending" in artifact.text.lower()
+        assert "materializing" in artifact.text
 
     def test_materializing_mtp_read_draft(self, compiler, write_pending):
         from hivememory.core.models import PendingAtomStatus
@@ -613,7 +613,7 @@ class TestReferenceResolutionCompilation:
         pending = PendingAtom(
             pending_alias="draft_002",
             intent_id="intent_003",
-            status=PendingAtomStatus.PENDING,
+            status=PendingAtomStatus.MATERIALIZING,
             source_verb="WRITE",
             focus=WriteFocus(content="Pending content", title="Pending"),
             belong_to=make_identity_scope().workspace_identity,

@@ -15,7 +15,7 @@ from datetime import datetime
 from enum import Enum
 from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models.identity import ActorIdentity, WorkspaceIdentity
 
@@ -25,9 +25,13 @@ from hivememory.core.models.identity import ActorIdentity, WorkspaceIdentity
 
 
 class PendingAtomStatus(str, Enum):
-    """PendingAtom 生命周期阶段。"""
+    """PendingAtom 生命周期阶段。
 
-    PENDING = "pending"
+    登记即进入 MATERIALIZING：意图在 actor 操作内被提交给生成队列，之后由
+    结算推进为 SETTLED、FAILED 或 CANCELLED。EXPIRED 是三者共同的永久终态；
+    当前没有转入它的触发，结算后的句柄保留到进程重启。
+    """
+
     MATERIALIZING = "materializing"
     SETTLED = "settled"
     FAILED = "failed"
@@ -41,11 +45,8 @@ class PendingAtomStatus(str, Enum):
 
     @property
     def is_in_flight(self) -> bool:
-        """非终态：仍在生命周期内流转。"""
-        return self in {
-            PendingAtomStatus.PENDING,
-            PendingAtomStatus.MATERIALIZING,
-        }
+        """在途：已登记并提交，等待生成链结算。"""
+        return self == PendingAtomStatus.MATERIALIZING
 
 
 class PendingAtomResolution(str, Enum):
@@ -64,13 +65,6 @@ class PendingAtomResolution(str, Enum):
 
 
 _TRANSITIONS: dict[PendingAtomStatus, frozenset[PendingAtomStatus]] = {
-    PendingAtomStatus.PENDING: frozenset(
-        {
-            PendingAtomStatus.MATERIALIZING,
-            PendingAtomStatus.EXPIRED,
-            PendingAtomStatus.CANCELLED,
-        }
-    ),
     PendingAtomStatus.MATERIALIZING: frozenset(
         {
             PendingAtomStatus.SETTLED,
@@ -91,16 +85,6 @@ def is_legal_transition(
 ) -> bool:
     """检查从 from_status 到 to_status 是否为合法迁移。"""
     return to_status in _TRANSITIONS[from_status]
-
-
-def allowed_transitions(from_status: PendingAtomStatus) -> frozenset[PendingAtomStatus]:
-    """返回 from_status 的所有合法目标状态。"""
-    return _TRANSITIONS[from_status]
-
-
-# 契约命名：PendingAtom 状态机术语，不加 Error 后缀
-class InvalidStateTransition(RuntimeError):  # noqa: N818
-    """PendingAtom 生命周期迁移违反状态机时抛出。"""
 
 
 # ===========================================================================
@@ -207,18 +191,6 @@ class PendingAtomMaterializeTask(BaseModel):
     focus: WriteFocus | UpdateFocus
     model_config = ConfigDict(frozen=True)
 
-    @classmethod
-    def from_pending_atom(cls, pa: PendingAtom) -> PendingAtomMaterializeTask:
-        """从登记记录投影物化任务，归属与发起者独立携带。"""
-        return cls(
-            pending_alias=pa.pending_alias,
-            intent_id=pa.intent_id,
-            source_verb=pa.source_verb,
-            belong_to=pa.belong_to,
-            from_actor=pa.from_actor,
-            focus=pa.focus.model_copy(deep=True),
-        )
-
 
 class PendingAtom(BaseModel):
     """
@@ -243,61 +215,11 @@ class PendingAtom(BaseModel):
     settlement: PendingAtomSettlement | None = None
 
 
-# ===========================================================================
-# PendingAtom 运行期视图
-# ===========================================================================
-
-
-class PendingAtomSnapshot(BaseModel):
-    """
-    PendingAtom 的运行期视图。
-
-    作为写入意图的状态投影，以强类型携带
-    (status, resolution, canonical_*) 四元组。所有外部消费者
-    （compiler / resolver / 视图层）都应以此为输入，而不是自己解析旧字符串。
-
-    不变量：
-    - status != SETTLED 时 resolution 必须为 None
-    - status == SETTLED 时 resolution 必须非空
-    - resolution.has_canonical 时 canonical_uuid 必须非空
-    - resolution == DISCARDED 时 canonical_uuid / canonical_alias 必须为空
-    """
-
-    pending_alias: str
-    status: PendingAtomStatus
-    resolution: PendingAtomResolution | None = None
-    canonical_alias: str | None = None
-    canonical_uuid: str | None = None
-
-    @model_validator(mode="after")
-    def _check_invariants(self) -> PendingAtomSnapshot:
-        if self.status == PendingAtomStatus.SETTLED:
-            if self.resolution is None:
-                raise ValueError("SETTLED status requires a resolution")
-        else:
-            if self.resolution is not None:
-                raise ValueError(f"status={self.status.value} must not carry a resolution")
-
-        if self.resolution is not None:
-            if self.resolution.has_canonical:
-                if self.canonical_uuid is None:
-                    raise ValueError(f"resolution={self.resolution.value} requires canonical_uuid")
-            else:
-                if self.canonical_uuid is not None or self.canonical_alias is not None:
-                    raise ValueError("DISCARDED resolution must not carry canonical refs")
-        return self
-
-    model_config = ConfigDict(frozen=True)
-
-
 __all__ = [
     # 状态体系
     "PendingAtomStatus",
     "PendingAtomResolution",
-    "PendingAtomSnapshot",
     "is_legal_transition",
-    "allowed_transitions",
-    "InvalidStateTransition",
     # Focus 相关字段
     "WriteFocus",
     "UpdateFocus",

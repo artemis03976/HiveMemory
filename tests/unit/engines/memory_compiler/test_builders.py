@@ -64,7 +64,7 @@ def test_build_pending_atom_ir_for_write_focus():
     pending = PendingAtom(
         pending_alias="draft_1",
         intent_id="intent-1",
-        status=PendingAtomStatus.PENDING,
+        status=PendingAtomStatus.MATERIALIZING,
         source_verb="WRITE",
         focus=WriteFocus(title="Title", content="Body"),
         belong_to=make_identity_scope().workspace_identity,
@@ -77,7 +77,7 @@ def test_build_pending_atom_ir_for_write_focus():
     assert unit.identity.alias == "draft_1"
     assert unit.content.title == "Title"
     assert unit.content.content == "Body"
-    assert unit.status.source_state == "pending"
+    assert unit.status.source_state == "materializing"
     assert unit.status.source_verb == "WRITE"
     assert unit.status.is_terminal is False
 

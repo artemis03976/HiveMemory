@@ -77,7 +77,7 @@ def test_compile_shared_context_renders_pending_unit():
     pending = MemoryUnitIR(
         identity=MemoryIdentityIR(source_kind="pending", alias="draft_1"),
         content=MemoryContentIR(title="Draft", content="Draft content"),
-        status=MemoryStatusIR(source_state="pending", source_verb="WRITE"),
+        status=MemoryStatusIR(source_state="materializing", source_verb="WRITE"),
     )
 
     artifact = compile_shared_context(
@@ -95,7 +95,7 @@ def test_compile_prompt_full_rejects_pending_source():
     pending = MemoryUnitIR(
         identity=MemoryIdentityIR(source_kind="pending", alias="draft_1"),
         content=MemoryContentIR(content="Draft content"),
-        status=MemoryStatusIR(source_state="pending", source_verb="WRITE"),
+        status=MemoryStatusIR(source_state="materializing", source_verb="WRITE"),
     )
 
     with pytest.raises(ValueError, match="Unsupported source"):
