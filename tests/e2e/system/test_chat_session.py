@@ -2,7 +2,6 @@
 
 import asyncio
 import json
-from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -19,6 +18,7 @@ from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.capability.root.session import RootSessionService
 from hivememory.workspace.sessions import ConversationSessionService
+from tests.helpers.llm import CallbackLLMService
 from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
     make_access_composition,
@@ -41,7 +41,7 @@ def events_from_text(text):
 
 
 @pytest.mark.asyncio
-async def test_http_session_resume_after_partial_stop(monkeypatch, patchouli_chat_stack):
+async def test_http_session_resume_after_partial_stop(patchouli_chat_stack):
     """三轮中第二轮流出半截后停止；第三轮真实模型输入和读取历史都保留中断轮。"""
     stack = patchouli_chat_stack
     access = make_access_composition(
@@ -70,37 +70,26 @@ async def test_http_session_resume_after_partial_stop(monkeypatch, patchouli_cha
     stopped_native = asyncio.Event()
     observed_process = []
 
-    async def completion(*, messages, **_kwargs):
+    async def completion(messages, _params):
         history_inputs.append([dict(message) for message in messages])
         round_number = len(history_inputs)
+        yield (
+            "第一轮答案" if round_number == 1 else "只完成一半" if round_number == 2 else "继续完成"
+        )
+        if round_number == 2:
+            # 第二轮停在半截，等待用户停止的原生取消。
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                stopped_native.set()
+                raise
 
-        async def chunks():
-            yield SimpleNamespace(
-                choices=[
-                    SimpleNamespace(
-                        delta=SimpleNamespace(
-                            content=(
-                                "第一轮答案"
-                                if round_number == 1
-                                else "只完成一半" if round_number == 2 else "继续完成"
-                            )
-                        ),
-                        finish_reason=None if round_number == 2 else "stop",
-                    )
-                ]
-            )
-            if round_number == 2:
-                try:
-                    await asyncio.Event().wait()
-                except asyncio.CancelledError:
-                    stopped_native.set()
-                    raise
-
-        return chunks()
-
-    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
     sessions = ConversationSessionService(WorkspaceSessionConfig())
-    alice = AliceSystem(config=HiveMemoryConfig().alice, operation_entry=entry)
+    alice = AliceSystem(
+        config=HiveMemoryConfig().alice,
+        operation_entry=entry,
+        llm_service=CallbackLLMService(stream=completion),
+    )
     service = make_task_process_service(
         stack.bus,
         cpu=alice.cpu_port,
@@ -263,7 +252,7 @@ async def test_text_only_cpu_output_is_structured_before_patchouli_submission(
 
 @pytest.mark.asyncio
 async def test_http_long_session_reuses_compacted_history_and_seals_budget_failure(
-    monkeypatch, patchouli_chat_stack, tmp_path
+    patchouli_chat_stack, tmp_path
 ):
     """多轮 HTTP 压缩后仍可恢复原文；后续大工具结果被守卫拦截并保存失败轮次。"""
     from hivememory.components.events.publisher import RuntimeEventPublisher
@@ -313,31 +302,16 @@ async def test_http_long_session_reuses_compacted_history_and_seals_budget_failu
     generation_inputs = []
     summary_inputs = []
 
-    async def completion(*, messages, stream=False, **_kwargs):
-        """只替换提供商协议；实际摘要校验、MTP、预算和会话提交都通过生产路径。"""
-        if not stream:
-            summary_inputs.append(messages)
-            return SimpleNamespace(
-                choices=[
-                    SimpleNamespace(
-                        message=SimpleNamespace(
-                            content="omni_doll 已检索前序资料；继续验证未完成事项。"
-                        ),
-                        finish_reason="stop",
-                    )
-                ]
-            )
+    async def summarize(messages, _params):
+        """只替换 LLM 服务；实际摘要校验、MTP、预算和会话提交都通过生产路径。"""
+        summary_inputs.append(messages)
+        return "omni_doll 已检索前序资料；继续验证未完成事项。"
+
+    async def generate(messages, _params):
         generation_inputs.append([dict(item) for item in messages])
-        text = next(script)
+        yield next(script)
 
-        async def chunks():
-            yield SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(content=text), finish_reason="stop")]
-            )
-
-        return chunks()
-
-    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
+    llm = CallbackLLMService(complete=summarize, stream=generate)
     config = HiveMemoryConfig().alice
     config.koakuma.workspace_path = str(tmp_path)
     (tmp_path / "large.txt").write_text("z" * 100000)
@@ -351,7 +325,9 @@ async def test_http_long_session_reuses_compacted_history_and_seals_budget_failu
     )
     publisher = RuntimeEventPublisher(stack.events)
     sessions = ConversationSessionService(WorkspaceSessionConfig())
-    alice = AliceSystem(config=config, operation_entry=entry, event_publisher=publisher)
+    alice = AliceSystem(
+        config=config, operation_entry=entry, event_publisher=publisher, llm_service=llm
+    )
     service = make_task_process_service(
         stack.bus,
         cpu=alice.cpu_port,

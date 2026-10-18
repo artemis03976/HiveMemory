@@ -99,7 +99,11 @@ class _RegistriesBundle:
 
 @dataclass
 class _LLMBundle:
-    """进程内唯一的 LLM 服务与各组件的请求参数；组件未配置模型时参数为 None。"""
+    """进程内唯一的 LLM 服务与组件的请求参数。
+
+    服务由 Gateway、Patchouli 与 Alice 共享；Gateway 与 Librarian 的请求参数来自
+    各自的组件配置，未配置模型时为 None；Alice 的请求参数逐帧由模型解析得到。
+    """
 
     service: BaseLLMService
     gateway_params: LLMRequestParams | None
@@ -459,6 +463,7 @@ class SystemAssembler:
             operation_entry=capabilities.operations,
             event_publisher=runtime.event_publisher.scoped(subsystem="alice"),
             model_registry=registries.model_registry,
+            llm_service=llm.service,
             memory_compiler_config=self._config.memory_compiler,
         )
 

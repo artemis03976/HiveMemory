@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -38,6 +37,7 @@ from hivememory.workspace.contracts import (
     CPUPort,
     CPURunHandle,
 )
+from tests.helpers.llm import CallbackLLMService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
@@ -53,7 +53,7 @@ pytestmark = pytest.mark.e2e
 
 @pytest.mark.asyncio
 async def test_http_read_search_agent_rejects_model_write_without_registering_intent(
-    monkeypatch, patchouli_chat_stack
+    patchouli_chat_stack,
 ):
     """HTTP 白名单贯穿清单、提示词和真实 MTP；模型越权 WRITE 不登记任何意图。"""
     stack = patchouli_chat_stack
@@ -107,25 +107,17 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
     llm_messages = []
     responses = iter(['⟪ WRITE | * | content="越权写入" ⟫', "权限拒绝后正常回答"])
 
-    async def completion(*, messages, **_kwargs):
+    async def completion(messages, _params):
         """只替换 LLM 协议；MTP 解析、策略、操作入口和 finalize 都走真实链路。"""
         llm_messages.append([dict(item) for item in messages])
         text = next(responses)
+        yield text
 
-        async def chunks():
-            yield SimpleNamespace(
-                choices=[
-                    SimpleNamespace(
-                        delta=SimpleNamespace(content=text),
-                        finish_reason="stop",
-                    )
-                ]
-            )
-
-        return chunks()
-
-    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
-    alice = AliceSystem(config=HiveMemoryConfig().alice, operation_entry=entry)
+    alice = AliceSystem(
+        config=HiveMemoryConfig().alice,
+        operation_entry=entry,
+        llm_service=CallbackLLMService(stream=completion),
+    )
     service = make_task_process_service(
         stack.bus,
         cpu=alice.cpu_port,
@@ -212,7 +204,7 @@ class _RecordingCPU:
 
 @pytest.mark.asyncio
 async def test_http_chat_without_actor_operations_completes_with_actor_visible_inputs(
-    monkeypatch, patchouli_chat_stack
+    patchouli_chat_stack,
 ):
     """空白名单不阻断阶段，Profile、附件和预检索仍按进程 actor 校验归属与可见性。"""
     stack = patchouli_chat_stack
@@ -288,25 +280,15 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
     )
     llm_messages = []
 
-    async def completion(*, messages, **_kwargs):
+    async def completion(messages, _params):
         """替换外部 LLM 流式协议；输入编译、Alice 循环与交互封口仍走真实组件。"""
         llm_messages.append([dict(item) for item in messages])
+        yield "阶段授权验收完成"
 
-        async def chunks():
-            yield SimpleNamespace(
-                choices=[
-                    SimpleNamespace(
-                        delta=SimpleNamespace(content="阶段授权验收完成"), finish_reason="stop"
-                    )
-                ]
-            )
-
-        return chunks()
-
-    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
     alice = AliceSystem(
         config=HiveMemoryConfig().alice,
         operation_entry=entry,
+        llm_service=CallbackLLMService(stream=completion),
     )
     cpu = _RecordingCPU(alice.cpu_port)
     service = make_task_process_service(

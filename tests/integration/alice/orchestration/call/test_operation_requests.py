@@ -30,6 +30,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.mtp import MTPCallRequest
 from hivememory.patchouli.contracts import PatchouliRoutes
+from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.operations import OperationsHarness
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
@@ -64,6 +65,8 @@ async def test_callee_frame_uses_callee_verbs_without_call():
         runtime_config=config.runtime,
         koakuma_config=config.koakuma,
         memory_compiler_config=MemoryCompilerConfig(),
+        # CALL 准备不调用模型；替身没有预置结果，被调用即失败。
+        llm_service=ScriptedLLMService(),
     )
     coordinator = CallCoordinator(
         runtime,
@@ -118,6 +121,8 @@ async def test_callee_submits_with_own_thread_context_and_keeps_callee_as_intent
         runtime_config=config.runtime,
         koakuma_config=config.koakuma,
         memory_compiler_config=MemoryCompilerConfig(),
+        # CALL 准备不调用模型；替身没有预置结果，被调用即失败。
+        llm_service=ScriptedLLMService(),
     )
     coordinator = CallCoordinator(
         runtime,

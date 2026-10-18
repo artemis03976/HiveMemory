@@ -5,9 +5,9 @@ from typing import Any
 
 from hivememory.agent_runtime import (
     MESSAGE_OVERHEAD_TOKENS,
-    LLMClient,
     ModelContextWindowExceededError,
     ModelProviderError,
+    MTPGenerator,
     ResolvedFrameModel,
     estimate_context_tokens,
 )
@@ -27,10 +27,14 @@ class SummaryRejectedError(Exception):
 
 
 class RelaySummarizer:
-    """摘要只生成文本，不创建 frame、执行工具或写入长期记忆。"""
+    """摘要只生成文本，不创建 frame、执行工具或写入长期记忆。
 
-    def __init__(self, worker: LLMClient) -> None:
-        self._worker = worker
+    摘要经与帧生成相同的 MTP 生成器调用，沿用本次解析的模型参数，只把输出
+    上限收紧到摘要预算；输出含 MTP 指令时拒绝该摘要。
+    """
+
+    def __init__(self, generator: MTPGenerator) -> None:
+        self._generator = generator
 
     async def fold(
         self,
@@ -46,9 +50,9 @@ class RelaySummarizer:
         cursor = 0
         output_limit = min(
             config.summary_max_tokens,
-            model.generation_options.get("max_tokens") or DEFAULT_MAX_TOKENS,
+            model.params.max_tokens or DEFAULT_MAX_TOKENS,
         )
-        options = {**model.generation_options, "max_tokens": output_limit}
+        params = model.params.model_copy(update={"max_tokens": output_limit})
         # 每轮只编码、计数一次；候选批次的估算按字符数累加，开销随轮数线性增长。
         encoded = [encode_summary_turn(turn) for turn in turns]
         turn_counts = [_char_counts(text) for text in encoded]
@@ -76,7 +80,7 @@ class RelaySummarizer:
             messages = request.messages(encoded[cursor:end])
             try:
                 async with asyncio.timeout(config.summary_timeout_seconds):
-                    result = await self._worker.generate_async(messages, **options)
+                    result = await self._generator.generate(messages, params)
             except TimeoutError as error:
                 raise SummaryRejectedError("summary_timeout") from error
             except ModelContextWindowExceededError as error:

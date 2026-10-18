@@ -25,9 +25,27 @@ from hivememory.infrastructure.llm.base import (
     LLMStreamChunk,
     LLMUsage,
 )
-from hivememory.infrastructure.llm.errors import LLM_PROVIDER_ERRORS
 
 logger = logging.getLogger(__name__)
+
+# SDK 确认的提供商失败；程序异常不属于提供商失败，不在此列。
+_PROVIDER_ERRORS = (
+    litellm.APIError,
+    litellm.OpenAIError,
+    litellm.BadGatewayError,
+    litellm.APIConnectionError,
+    litellm.APIResponseValidationError,
+    litellm.BadRequestError,
+    litellm.AuthenticationError,
+    litellm.PermissionDeniedError,
+    litellm.NotFoundError,
+    litellm.RateLimitError,
+    litellm.Timeout,
+    litellm.UnprocessableEntityError,
+    litellm.InternalServerError,
+    litellm.ServiceUnavailableError,
+    litellm.BudgetExceededError,
+)
 
 _JSON_RESPONSE_FORMAT = {"type": "json_object"}
 
@@ -42,7 +60,7 @@ def _translate_provider_errors() -> Iterator[None]:
         yield
     except litellm.ContextWindowExceededError as error:
         raise ModelContextWindowExceededError("Model context window exceeded.") from error
-    except LLM_PROVIDER_ERRORS as error:
+    except _PROVIDER_ERRORS as error:
         raise ModelProviderError("Model provider request failed.") from error
 
 

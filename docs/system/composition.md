@@ -6,6 +6,7 @@ scope: composition-root-and-lifecycle
 code_paths:
   - src/hivememory/system/assembler.py
   - src/hivememory/system/system.py
+  - src/hivememory/infrastructure/llm/
   - src/hivememory/core/contracts/subsystem.py
   - src/hivememory/config/app.py
   - src/hivememory/components/
@@ -16,7 +17,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-18
 ---
 
 # System 组合根与生命周期
@@ -27,7 +28,7 @@ last_reviewed: 2026-10-15
 
 ## 1. 组合结构
 
-`SystemAssembler.assemble()` 按六步生成中间产物，最后交给 `HiveMemorySystem`：
+`SystemAssembler.assemble()` 按七步生成中间产物，最后交给 `HiveMemorySystem`：
 
 ```text
 HiveMemorySystem.build(config)
@@ -40,6 +41,9 @@ HiveMemorySystem.build(config)
        -> registries bundle
             ProviderRegistry
             ModelRegistry
+       -> llm bundle（在注册表预解析组件 LLM 配置之后）
+            LiteLLMService（infrastructure.llm；进程级唯一，Gateway / Patchouli / Alice 共享）
+            Gateway 与 Librarian 的请求参数（component_llm_params）
        -> access-control bundle（两类登记分别从 configs/system_principals.yaml、configs/workspace_actors.yaml 装载）
             SystemActorAccessRegistry / WorkspaceActorAccessRegistry
             WorkspaceAuthenticator（workspace.authentication；准入、签发、主线程与子线程 context 的派生与撤销）
@@ -51,7 +55,7 @@ HiveMemorySystem.build(config)
             actor API：ActorMemoryService / ActorAgentService（workspace.capability.actor；注入操作授权者与统一读取视图，ActorAgentService 另注入 ProcessThreads 作为子线程派生端口）
             WorkspaceOperationEntry（workspace.capability；注入 actor API、操作授权者与写入意图登记；只接受线程 context，按请求类型直接分派到 actor API）
        -> subsystem bundle
-            GatewaySystem / PatchouliSystem / AliceSystem（各自只接收自己的配置段；Alice 注入操作入口）
+            GatewaySystem / PatchouliSystem / AliceSystem（各自只接收自己的配置段与共享 LLM 服务；Alice 注入操作入口）
        -> service bundle
             CPUAllocator（workspace.process；注入操作授权者、Profile 读取端口（读取视图的 ProfileResolver）、AssetStore 只读 reader 与 memory_compiler / attachment_compiler 配置段）
             TaskProcessRunner（workspace.process，四阶段骨架；注入全局总线、CPU 端口（AliceSystem.cpu_port）、CPUAllocator、ProcessThreads、写入意图登记、操作授权者与 Gateway 请求超时）
@@ -60,7 +64,7 @@ HiveMemorySystem.build(config)
             root API：RootMemoryService / RootAgentProfileService / RootTopicService / RootMemoryTaskService / RootWorkspaceAssetService（workspace.capability.root；注入操作授权者，不接触读取视图）
 ```
 
-六个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，访问控制装载两类登记并组装认证网关与操作授权者，随后先构建 actor API 与操作入口，Alice 构建时即可注入入口；root API 在服务阶段构建，只交给门面；子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。认证网关注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server，另以只含派生与撤销线程 context 的 `ThreadContextLifecycle` 端口注入进程线程管理 `ProcessThreads`；进程表在访问控制阶段创建，`ProcessThreads` 因此能在 actor API 之前构建，注入执行器（主线程）与 actor API（子线程派生），无需延迟绑定；操作授权者注入 root API（root 授权）、actor API（actor 操作授权）、操作入口（线程 context 校验与进程关联）、任务进程的执行器与 CPU 分配（阶段授权），以及注册入口（进程控制授权）；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[System 应用服务](./application-services.md)第 3 节）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。
+七个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，LLM 服务随后创建并取得组件请求参数，访问控制装载两类登记并组装认证网关与操作授权者，随后先构建 actor API 与操作入口，Alice 构建时即可注入入口；root API 在服务阶段构建，只交给门面；子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。认证网关注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server，另以只含派生与撤销线程 context 的 `ThreadContextLifecycle` 端口注入进程线程管理 `ProcessThreads`；进程表在访问控制阶段创建，`ProcessThreads` 因此能在 actor API 之前构建，注入执行器（主线程）与 actor API（子线程派生），无需延迟绑定；操作授权者注入 root API（root 授权）、actor API（actor 操作授权）、操作入口（线程 context 校验与进程关联）、任务进程的执行器与 CPU 分配（阶段授权），以及注册入口（进程控制授权）；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[System 应用服务](./application-services.md)第 3 节）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。
 
 ### 1.1 Runtime bundle
 
@@ -81,19 +85,34 @@ HiveMemorySystem.build(config)
 
 ### 1.2 Registry bundle
 
-`ProviderRegistry` 保存 provider 凭证与环境配置的合并结果；`ModelRegistry` 根据模型引用解析 Gateway/Librarian 的 LLM 配置。System 在子系统构建前完成这一步，使 Gateway 和 Patchouli 使用已经解析过的配置，而不是在请求路径里各自重新读取凭证。
+`ProviderRegistry` 保存 provider 凭证与环境配置的合并结果；`ModelRegistry` 根据模型引用解析 Gateway/Librarian 的 LLM 配置。System 在子系统构建前完成这一步，解析结果随后转换为请求参数（第 1.3 节），使 Gateway 和 Patchouli 使用已经解析过的配置，而不是在请求路径里各自重新读取凭证。
 
 注册表是 System 的全局资源，但它不拥有模型调用，也不决定某次请求使用哪条业务流程。具体运行时仍由 Gateway、Patchouli 或 Alice 按各自契约消费。
 
-### 1.3 Subsystem bundle
+### 1.3 LLM bundle
+
+System 只创建一个 `LiteLLMService`，它是 `infrastructure.llm.base.BaseLLMService` 的唯一实现，注入 Gateway、Patchouli 与 Alice。服务无状态：不读取配置、不持有默认模型或凭证，每次调用的模型、凭证与采样参数都由请求参数 `LLMRequestParams` 携带。服务不绑定配置是为了让共享实例不可能串用参数：按配置绑定实例再以单例共享时，后构造的组件会静默拿到先构造组件的模型与凭证；逐次携带参数从结构上排除这种情况。
+
+`component_llm_params` 把注册表解析后的 `shared.llm.gateway` 与 `shared.llm.librarian` 各自转换为请求参数，只含模型、凭证、temperature 与 max_tokens；`top_p` 与停止序列不属于组件调参，由提供商取默认值。组件未配置模型时参数为 `None`：Gateway 按无 LLM 降级，Patchouli 的记忆抽取器以 No-Op 运行，Page Folding 回退为规则摘要。Alice 的请求参数逐帧由模型解析得到，见 [Agent Runtime](../alice/agent-runtime.md#4-模型选择与-mtp-生成器)。
+
+服务接口只有一个入口 `complete(messages, params, *, stream=False)`：
+
+- 完整调用返回 `LLMCompletion`（首个候选的文本、提供商报告的 finish_reason 与可缺省用量）；提供商没有返回文本时以 `ModelProviderError` 结束，空字符串仍是文本；
+- 流式调用返回可关闭的异步生成器，首次拉取时才发出请求；中间项是非空文本增量，正常耗尽时最后一项携带 finish_reason。流在耗尽、被关闭或拉取时被取消都会关闭提供商响应，关闭失败只记录日志，不替换正在传播的异常或取消；
+- 请求参数逐项传给 SDK，为 `None` 或为空的项不发送，凭证缺省时由 SDK 从环境变量读取；JSON 输出要求只在 SDK 明确报告不支持该参数时退回普通补全；
+- SDK 异常只在实现中转换为 `core.errors` 的中立错误，完整调用、流式启动与流式拉取采用同一转换，程序错误与取消原样传播，见[错误模型](../contracts/error-model.md#46-模型调用错误)。
+
+提供商 SDK 只在 `infrastructure/llm/` 中导入，接口模块 `base.py` 不依赖 SDK；除组合根外，引擎与子系统从 LLM 包只导入接口模块，不导入实现模块或包根。这三条由分层架构测试守护，使更换 SDK 或加入其他实现时，使用方不需要随之修改。
+
+### 1.4 Subsystem bundle
 
 三个子系统以平级宿主装配：
 
 | 子系统 | System 负责的部分 | 子系统自己负责的部分 |
 |:---|:---|:---|
-| Gateway | 注入 `gateway` 配置段、已解析的 Gateway LLM 配置、全局总线和观测 sink | GatewayRuntime、命令、上下文、workflow 与公共 process route |
-| Patchouli | 注入 `patchouli` / `shared` / `scheduler` 配置段、全局总线、维护调度器、观测 sink、AssetStore 只读 reader（供 Artifact promotion） | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
-| Alice | 注入 `alice` / `memory_compiler` 配置段、全局总线、模型解析端口（`ModelRegistry` 实现 `ModelResolver`）、操作入口（`WorkspaceOperationEntry` 实现 `OperationEntry`）和观测 sink | Agent run、frame、MTP、工具与 ACK alias 集合 |
+| Gateway | 注入 `gateway` 配置段、共享 LLM 服务与 Gateway 请求参数、全局总线和观测 sink | GatewayRuntime、命令、上下文、workflow 与公共 process route |
+| Patchouli | 注入 `patchouli` / `shared` / `scheduler` 配置段、共享 LLM 服务与 Librarian 请求参数、全局总线、维护调度器、观测 sink、AssetStore 只读 reader（供 Artifact promotion） | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
+| Alice | 注入 `alice` / `memory_compiler` 配置段、共享 LLM 服务、全局总线、模型解析端口（`ModelRegistry` 实现 `ModelResolver`）、操作入口（`WorkspaceOperationEntry` 实现 `OperationEntry`）和观测 sink | Agent run、frame、MTP 生成与执行、工具与 ACK alias 集合 |
 
 System 不通过这些宿主的具体 Runtime 互相串联；跨边界链路由服务（chat 编排、被动摄入、能力层）通过 `GlobalSystemBus` 发起。
 
@@ -173,7 +192,8 @@ System 作为门面对外暴露服务属性和 registry/sink 查询，例如 `pr
 - `src/hivememory/system/system.py`
 - `tests/unit/system/test_hivememory_system.py`
 - `tests/unit/system/test_lifecycle.py`
-- `tests/unit/architecture/test_package_layers.py`
+- `tests/unit/system/test_assembler.py`（组件 LLM 请求参数各自独立）
+- `tests/unit/architecture/test_package_layers.py`（含 LLM SDK 与实现模块的导入边界）
 - `tests/unit/workspace/assets/test_store.py`
 - `tests/integration/system/test_workspace_asset_runtime.py`（对象图与停止顺序）
 - `tests/unit/system/contracts/test_contracts.py`

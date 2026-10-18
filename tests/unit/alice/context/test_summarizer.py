@@ -1,33 +1,43 @@
-"""接力摘要请求预算与输出校验，模型边界使用确定性替身。"""
+"""接力摘要请求预算与输出校验；摘要经真实 MTP 生成器调用，LLM 服务使用确定性替身。"""
 
 import asyncio
 import json
-from types import SimpleNamespace
-from unittest.mock import AsyncMock
 
 import pytest
 
 from hivememory.agent_runtime.model.budget import estimate_context_tokens
-from hivememory.agent_runtime.model.client import GenerationResult
+from hivememory.agent_runtime.model.generator import MTPGenerator
 from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
 from hivememory.alice.context.summarizer import RelaySummarizer, SummaryRejectedError
 from hivememory.config.alice import CompactionConfig
 from hivememory.core.errors import ModelProviderError
+from hivememory.core.mtp import MTP_STOP_SEQUENCE
+from hivememory.infrastructure.llm.base import BaseLLMService, LLMCompletion, LLMRequestParams
+from tests.helpers.llm import CallbackLLMService, ScriptedLLMService
+
+
+def _model(limit: int, **params) -> ResolvedFrameModel:
+    return ResolvedFrameModel(LLMRequestParams(model="provider/resolved", **params), limit)
+
+
+def _summarizer(llm: BaseLLMService) -> RelaySummarizer:
+    return RelaySummarizer(MTPGenerator(llm))
+
+
+async def _summary(_messages, _params) -> str:
+    return "summary"
 
 
 @pytest.mark.asyncio
 async def test_fold_splits_complete_turns_and_uses_previous_fold_with_same_model():
     """长历史分次请求，后一次继承前次摘要，所有请求都遵守同一输入预算。"""
-    generate = AsyncMock(
-        side_effect=[GenerationResult(text="first summary"), GenerationResult(text="final summary")]
-    )
-    options = {"model": "provider/resolved", "max_tokens": 512, "temperature": 0.3}
-    model = ResolvedFrameModel(options, 600)
+    llm = ScriptedLLMService("first summary", "final summary")
+    model = _model(600, max_tokens=512, temperature=0.3)
     turns = [
         {"interaction_id": name, "messages": [{"role": "user", "content": name + "x" * 1200}]}
         for name in ("a", "b")
     ]
-    result = await RelaySummarizer(SimpleNamespace(generate_async=generate)).fold(
+    result = await _summarizer(llm).fold(
         "old summary",
         turns,
         model=model,
@@ -35,7 +45,7 @@ async def test_fold_splits_complete_turns_and_uses_previous_fold_with_same_model
         language="en",
     )
     assert result == "final summary"
-    requests = [call.args[0] for call in generate.await_args_list]
+    requests = [call.messages for call in llm.calls]
     assert [json.loads(messages[1]["content"])["previous_summary"] for messages in requests] == [
         "old summary",
         "first summary",
@@ -45,10 +55,10 @@ async def test_fold_splits_complete_turns_and_uses_previous_fold_with_same_model
         for messages in requests
     ] == [["a"], ["b"]]
     assert all(estimate_context_tokens(messages) <= 600 for messages in requests)
-    assert [call.kwargs for call in generate.await_args_list] == [
-        {"model": "provider/resolved", "max_tokens": 64, "temperature": 0.3}
+    # 沿用本次解析的模型参数，只把输出上限收紧到摘要预算。
+    assert [call.params for call in llm.calls] == [
+        model.params.model_copy(update={"max_tokens": 64, "stop": (MTP_STOP_SEQUENCE,)})
     ] * 2
-    assert options["max_tokens"] == 512
 
 
 @pytest.mark.asyncio
@@ -60,15 +70,15 @@ async def test_batch_boundary_matches_the_estimate_of_the_assembled_request():
     ]
 
     async def fold(limit):
-        generate = AsyncMock(return_value=GenerationResult(text="summary"))
-        await RelaySummarizer(SimpleNamespace(generate_async=generate)).fold(
+        llm = CallbackLLMService(complete=_summary)
+        await _summarizer(llm).fold(
             "旧摘要",
             turns,
-            model=ResolvedFrameModel({}, limit),
+            model=_model(limit),
             config=CompactionConfig(summary_max_tokens=64),
             language="zh",
         )
-        return [call.args[0] for call in generate.await_args_list]
+        return [call.messages for call in llm.calls]
 
     (combined,) = await fold(100000)
     exact = estimate_context_tokens(combined)
@@ -87,67 +97,69 @@ async def test_batch_boundary_matches_the_estimate_of_the_assembled_request():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "result,reason",
+    "completion,reason",
     [
-        (GenerationResult(text="  "), "summary_empty"),
-        (GenerationResult(text="truncated", finish_reason="length"), "summary_length"),
+        (LLMCompletion(text="  ", finish_reason="stop"), "summary_empty"),
+        (LLMCompletion(text="truncated", finish_reason="length"), "summary_length"),
         (
-            GenerationResult(text="filtered", finish_reason="content_filter"),
+            LLMCompletion(text="filtered", finish_reason="content_filter"),
             "summary_content_filter",
         ),
-        (GenerationResult(text="⟪ READ | private"), "summary_contains_mtp"),
-        (GenerationResult(text="unexpected ⟫"), "summary_contains_mtp"),
-        (GenerationResult(text="x" * 400), "summary_output_too_large"),
+        (LLMCompletion(text="⟪ READ | private", finish_reason="stop"), "summary_contains_mtp"),
+        (LLMCompletion(text="unexpected ⟫", finish_reason="stop"), "summary_contains_mtp"),
+        (LLMCompletion(text="x" * 400, finish_reason="stop"), "summary_output_too_large"),
     ],
 )
-async def test_invalid_summary_is_rejected_without_retry(result, reason):
+async def test_invalid_summary_is_rejected_without_retry(completion, reason):
     """空白、截断、过滤、工具语法和超长正文均不能成为检查点摘要。"""
-    generate = AsyncMock(return_value=result)
+    llm = ScriptedLLMService(completion)
     with pytest.raises(SummaryRejectedError, match=reason):
-        await RelaySummarizer(SimpleNamespace(generate_async=generate)).fold(
+        await _summarizer(llm).fold(
             "",
             [{"text": "history"}],
-            model=ResolvedFrameModel({}, 1000),
+            model=_model(1000),
             config=CompactionConfig(summary_max_tokens=32),
             language="zh",
         )
-    assert generate.await_count == 1
+    assert len(llm.calls) == 1
 
 
 @pytest.mark.asyncio
 async def test_oversized_single_turn_is_rejected_before_model_call():
     """不能放下的完整轮次不被任意切开，也不提交必然超限的请求。"""
-    generate = AsyncMock()
+    llm = ScriptedLLMService()
     with pytest.raises(SummaryRejectedError, match="summary_input_too_large"):
-        await RelaySummarizer(SimpleNamespace(generate_async=generate)).fold(
+        await _summarizer(llm).fold(
             "",
             [{"text": "x" * 8000}],
-            model=ResolvedFrameModel({}, 1000),
+            model=_model(1000),
             config=CompactionConfig(),
             language="en",
         )
-    generate.assert_not_awaited()
+    assert llm.calls == []
 
 
 @pytest.mark.asyncio
 async def test_provider_failure_is_typed_but_programming_errors_propagate():
     """提供商错误允许回退，错误接线不能被伪装成可用摘要。"""
-    generate = AsyncMock(side_effect=ModelProviderError("Model provider request failed."))
-    summarizer = RelaySummarizer(SimpleNamespace(generate_async=generate))
+    summarizer = _summarizer(
+        ScriptedLLMService(
+            ModelProviderError("Model provider request failed."), TypeError("bad wiring")
+        )
+    )
     with pytest.raises(SummaryRejectedError, match="summary_provider_error"):
         await summarizer.fold(
             "",
             [{"text": "history"}],
-            model=ResolvedFrameModel({}, 1000),
+            model=_model(1000),
             config=CompactionConfig(),
             language="en",
         )
-    generate.side_effect = TypeError("bad wiring")
     with pytest.raises(TypeError, match="bad wiring"):
         await summarizer.fold(
             "",
             [{"text": "history"}],
-            model=ResolvedFrameModel({}, 1000),
+            model=_model(1000),
             config=CompactionConfig(),
             language="en",
         )
@@ -158,17 +170,17 @@ async def test_summary_deadline_cancels_worker_and_returns_typed_timeout():
     """超时由调用方截止时间控制，等待中的模型协程被取消并完成清理。"""
     closed = asyncio.Event()
 
-    async def generate(*args, **kwargs):
+    async def generate(_messages, _params):
         try:
             await asyncio.Event().wait()
         finally:
             closed.set()
 
     with pytest.raises(SummaryRejectedError, match="summary_timeout"):
-        await RelaySummarizer(SimpleNamespace(generate_async=generate)).fold(
+        await _summarizer(CallbackLLMService(complete=generate)).fold(
             "",
             [{"text": "history"}],
-            model=ResolvedFrameModel({}, 1000),
+            model=_model(1000),
             config=CompactionConfig(summary_timeout_seconds=0.001),
             language="en",
         )
@@ -181,7 +193,7 @@ async def test_summary_task_cancellation_propagates_after_worker_cleanup():
     started = asyncio.Event()
     closed = asyncio.Event()
 
-    async def generate(*args, **kwargs):
+    async def generate(_messages, _params):
         started.set()
         try:
             await asyncio.Event().wait()
@@ -189,10 +201,10 @@ async def test_summary_task_cancellation_propagates_after_worker_cleanup():
             closed.set()
 
     task = asyncio.create_task(
-        RelaySummarizer(SimpleNamespace(generate_async=generate)).fold(
+        _summarizer(CallbackLLMService(complete=generate)).fold(
             "",
             [{"text": "history"}],
-            model=ResolvedFrameModel({}, 1000),
+            model=_model(1000),
             config=CompactionConfig(),
             language="en",
         )

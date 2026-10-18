@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from types import SimpleNamespace
 
 import pytest
 from fastapi import FastAPI
@@ -44,6 +43,7 @@ from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import SubmitWriteIntentRequest
 from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
+from tests.helpers.llm import CallbackLLMService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.operations import OperationsHarness
 from tests.helpers.process import make_task_process_service
@@ -71,7 +71,7 @@ def _events(response):
 
 @pytest.mark.asyncio
 async def test_http_chat_search_read_write_and_call_dispatches_intent_and_records_shared_citations(
-    monkeypatch, patchouli_chat_stack
+    patchouli_chat_stack,
 ):
     """完整 HTTP 链路保留正式引用、CALL 共享读取和本进程 WRITE 的结算归属。"""
     stack = patchouli_chat_stack
@@ -122,23 +122,17 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
     )
     llm_messages = []
 
-    async def completion(*, messages, **_kwargs):
+    async def completion(messages, _params):
         """只替换外部 LLM 流协议，MTP 解析、帧编排和结果回填保持真实。"""
         llm_messages.append([dict(message) for message in messages])
         text = script[len(llm_messages) - 1]
+        yield text
 
-        async def chunks():
-            yield SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(content=text), finish_reason="stop")]
-            )
-
-        return chunks()
-
-    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
     alice = AliceSystem(
         config=HiveMemoryConfig().alice,
         event_publisher=publisher,
         operation_entry=entry,
+        llm_service=CallbackLLMService(stream=completion),
     )
     service = make_task_process_service(
         stack.bus,
@@ -272,7 +266,7 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
 
 @pytest.mark.asyncio
 async def test_http_call_uses_callee_permissions_private_memory_and_write_ownership(
-    monkeypatch, patchouli_chat_stack
+    patchouli_chat_stack,
 ):
     """HTTP CALL 子线程独立授权，完成后 WRITE 以被调用方身份进入真实 finalize。"""
     from hivememory.core.access import WorkspaceOperation
@@ -352,19 +346,16 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
     )
     messages_seen = []
 
-    async def completion(*, messages, **_kwargs):
+    async def completion(messages, _params):
         messages_seen.append([dict(message) for message in messages])
         text = script[len(messages_seen) - 1]
+        yield text
 
-        async def chunks():
-            yield SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(content=text), finish_reason="stop")]
-            )
-
-        return chunks()
-
-    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
-    alice = AliceSystem(config=HiveMemoryConfig().alice, operation_entry=entry)
+    alice = AliceSystem(
+        config=HiveMemoryConfig().alice,
+        operation_entry=entry,
+        llm_service=CallbackLLMService(stream=completion),
+    )
     service = make_task_process_service(
         stack.bus,
         cpu=alice.cpu_port,
@@ -426,7 +417,7 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
 
 
 @pytest.mark.asyncio
-async def test_next_http_chat_reads_pending_alias_from_previous_completed_process(monkeypatch):
+async def test_next_http_chat_reads_pending_alias_from_previous_completed_process():
     """第一轮 WRITE 保留 MATERIALIZING，第二轮真实 MTP READ 取得草稿内容。"""
     workspace = make_workspace_identity(owner_user_id="u1")
     access = make_access_composition(
@@ -459,7 +450,7 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
     async def topics(**_kwargs):
         return []
 
-    async def completion(**_kwargs):
+    async def completion(_messages, _params):
         nonlocal completions
         turn = completions
         completions += 1
@@ -469,15 +460,8 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
             text = f"⟪ READ | {harness.admission.submissions[0][0].pending_alias} | ⟫"
         else:
             text = "完成"
+        yield text
 
-        async def chunks():
-            yield SimpleNamespace(
-                choices=[SimpleNamespace(delta=SimpleNamespace(content=text), finish_reason="stop")]
-            )
-
-        return chunks()
-
-    monkeypatch.setattr("hivememory.agent_runtime.model.client.litellm.acompletion", completion)
     for route, handler in (
         (GatewayPublicRoutes.PROCESS, gateway),
         (PatchouliRoutes.PREPARE_AGENT_RUN, prepare),
@@ -486,7 +470,11 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
         (PatchouliRoutes.TOPIC_LIST_ACTIVE, topics),
     ):
         bus.register(route, handler)
-    alice = AliceSystem(config=HiveMemoryConfig().alice, operation_entry=entry)
+    alice = AliceSystem(
+        config=HiveMemoryConfig().alice,
+        operation_entry=entry,
+        llm_service=CallbackLLMService(stream=completion),
+    )
     service = make_task_process_service(
         bus,
         cpu=alice.cpu_port,

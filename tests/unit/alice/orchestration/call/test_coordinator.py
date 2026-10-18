@@ -241,7 +241,6 @@ class _RecordingRunOutput:
 
 def test_apply_call_response_is_exactly_once_and_updates_call_pair():
     runtime = AgentRuntime(
-        mtp_executor=MagicMock(),
         runtime_config=MagicMock(),
         loop_executor=MagicMock(),
     )
@@ -268,7 +267,6 @@ def test_apply_call_response_is_exactly_once_and_updates_call_pair():
 def test_apply_call_response_formats_with_frame_language_not_profile_language():
     """CALL 响应按帧的已解析语言回填；Profile 的语言设置不再参与执行期渲染。"""
     runtime = AgentRuntime(
-        mtp_executor=MagicMock(),
         runtime_config=MagicMock(),
         loop_executor=MagicMock(),
     )
@@ -289,7 +287,6 @@ def test_apply_call_response_formats_with_frame_language_not_profile_language():
 @pytest.mark.parametrize("action_id", ["wrong", None])
 def test_apply_call_response_rejects_wrong_or_missing_action(action_id):
     runtime = AgentRuntime(
-        mtp_executor=MagicMock(),
         runtime_config=MagicMock(),
         loop_executor=MagicMock(),
     )

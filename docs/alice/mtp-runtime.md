@@ -24,7 +24,7 @@ last_reviewed: 2026-10-18
 
 Memory Tool Protocol 让 Agent 能在生成过程中主动发现、读取、执行、写入和修订记忆，也能把一项工作委派给子 Agent。协议选择文本形态，是为了不依赖某一家模型供应商的 function calling 接口，并让调用与回填自然保留在消息历史中；但文本可被模型随意生成，也可能残缺、越权或携带不可信参数，因此“看起来像 MTP”从来不等于“可以直接执行”。
 
-KoakumaRuntime 就是这道执行边界。它把 LLMClient 截止在 MTP 右定界符附近的文本解析为结构化命令，消费本次 frame 的观测标签、权限、操作提交函数与运行坐标，执行对应 handler，再把成功、warning、错误或控制流信号格式化为 Agent 可继续理解的本地化文本。它属于 Alice 消费的 Agent Runtime 执行层，不拥有多 Agent 拓扑，也不拥有长期记忆。
+KoakumaRuntime 就是这道执行边界。它把 MTP 生成器截止在 MTP 右定界符附近的文本解析为结构化命令，消费本次 frame 的观测标签、权限、操作提交函数与运行坐标，执行对应 handler，再把成功、warning、错误或控制流信号格式化为 Agent 可继续理解的本地化文本。它属于 Alice 消费的 Agent Runtime 执行层，不拥有多 Agent 拓扑，也不拥有长期记忆。
 
 本文只解释当前 runtime 怎样兑现协议。`⟪ VERB | TARGET | ARGS ⟫` 的语法、六个动词的规范语义和响应状态只在 [MTP 契约](../contracts/mtp.md)维护，避免协议规范与实现说明形成两套真相源。
 
@@ -33,7 +33,7 @@ KoakumaRuntime 就是这道执行边界。它把 LLMClient 截止在 MTP 右定�
 一次普通 MTP 迭代沿以下路径推进：
 
 ```text
-LLMClient.generate_async / generate_stream(stop = MTP right delimiter)
+MTPGenerator.generate(stream = sink.streams_tokens, stop = MTP right delimiter)
   -> AgentLoopExecutor detects the last MTP opening delimiter
   -> MTPExecutor port（KoakumaRuntime 直接满足协议）
   -> KoakumaRuntime.intercept_and_execute()
@@ -47,7 +47,7 @@ LLMClient.generate_async / generate_stream(stop = MTP right delimiter)
        format localized XML
   -> tool_call + tool_result TurnEvents
   -> formatted response enters working history
-  -> LLMClient continues generation
+  -> MTPGenerator continues generation
 ```
 
 如果文本中没有 MTP 左定界符，Koakuma 返回 `None`，Agent loop 把本次生成当作自然语言收敛。解析错误不会抛回模型适配层，而会形成结构化 `MTPErrorInfo` 并格式化回填，让 Agent 有机会修正语法或参数。

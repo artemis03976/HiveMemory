@@ -18,7 +18,7 @@ from hivememory.agent_runtime.frame import (
     FrameExecutionStatus,
     FrameProducts,
 )
-from hivememory.agent_runtime.model.client import LLMClient
+from hivememory.agent_runtime.model.generator import MTPGenerator
 from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.events import AgentRunEventEmitter
@@ -34,6 +34,7 @@ from hivememory.workspace.contracts import CPUExecutionStatus
 from tests.helpers.alice import stream_run
 from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.chat_handoff import make_input_manifest
+from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
 from tests.helpers.workspace import make_runtime_scope
 
 
@@ -78,13 +79,13 @@ def _runtime_for_frame(
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
     resolved_agent_runtime.resolve_model = lambda *_args: ResolvedFrameModel(
-        generation_options={}, input_token_limit=65536
+        params=DEFAULT_LLM_PARAMS, input_token_limit=65536
     )
     factory = MagicMock(spec=FrameFactory)
     factory.scope.side_effect = FrameFactory.scope
     factory.create.return_value = frame
     service = AgentRunService(
-        summarizer=RelaySummarizer(LLMClient()),
+        summarizer=RelaySummarizer(MTPGenerator(ScriptedLLMService())),
         agent_runtime=resolved_agent_runtime,
         call_coordinator=MagicMock(),
         frame_factory=factory,

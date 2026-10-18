@@ -37,6 +37,7 @@ from hivememory.core.mtp import MTPCallRequest
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import SubmitWriteIntentRequest, ThreadOperationSubmitter
+from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.operations import OperationsHarness
 from tests.helpers.workspace import (
@@ -85,6 +86,8 @@ async def _begin_call(caller, target_alias, *, context_refs=()):
         runtime_config=config.runtime,
         koakuma_config=config.koakuma,
         memory_compiler_config=MemoryCompilerConfig(),
+        # CALL 准备不调用模型；替身没有预置结果，被调用即失败。
+        llm_service=ScriptedLLMService(),
     )
     coordinator = CallCoordinator(
         runtime,

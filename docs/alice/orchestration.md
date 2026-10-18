@@ -42,7 +42,7 @@ AliceSystem
   │         ├─ RunExecutor -> CallCoordinator -> CallContextProvider
   │         │                -> FrameFactory / CALL response
   │         └─ CPUExecutionResult + AgentRunEventEmitter
-  └─ build_agent_runtime -> AgentRuntime -> loop / LLMClient / Koakuma
+  └─ build_agent_runtime -> AgentRuntime -> loop / MTPGenerator / Koakuma
                                             -> frame submit_operation -> workspace
 ```
 

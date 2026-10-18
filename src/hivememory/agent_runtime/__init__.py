@@ -16,9 +16,9 @@ from hivememory.agent_runtime.model.budget import (
     TurnContextBudgetExceededError,
     estimate_context_tokens,
 )
-from hivememory.agent_runtime.model.client import (
+from hivememory.agent_runtime.model.generator import (
     GenerationResult,
-    LLMClient,
+    MTPGenerator,
     StreamChunk,
 )
 from hivememory.agent_runtime.model.resolution import (
@@ -56,7 +56,7 @@ __all__ = [
     "estimate_context_tokens",
     "TurnContextBudgetExceededError",
     "InputTooLargeError",
-    "LLMClient",
+    "MTPGenerator",
     "GenerationResult",
     "StreamChunk",
     "ModelProviderError",

@@ -14,6 +14,7 @@ from hivememory.alice.interface.stream import AgentRunStreamAdapter
 from hivememory.workspace.contracts import CPUExecutionResult
 from tests.helpers.alice import build_run_service
 from tests.helpers.chat_handoff import make_input_manifest
+from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.operations import OperationsHarness
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
@@ -21,7 +22,7 @@ from tests.helpers.workspace import make_access_composition, make_actor_access_r
 @pytest.mark.asyncio
 async def test_cpu_stream_delivers_events_then_result_from_real_service():
     """真实执行服务的帧输出与类型化结果经 CPU 端口按序到达消费方。"""
-    runtime, service = build_run_service()
+    runtime, service = build_run_service(llm_service=ScriptedLLMService())
 
     async def complete(frame, *, output_sink, **_kwargs):
         await output_sink.send(TokenDelta(content="执行完成"))
@@ -51,7 +52,7 @@ async def test_cpu_stream_delivers_events_then_result_from_real_service():
 @pytest.mark.asyncio
 async def test_closing_cpu_stream_cancels_and_joins_runner():
     """消费者关闭CPU 输出流时，返回前已执行 runner 的异步清理。"""
-    runtime, service = build_run_service()
+    runtime, service = build_run_service(llm_service=ScriptedLLMService())
     closed = asyncio.Event()
 
     async def running(frame, *, output_sink, **_kwargs):

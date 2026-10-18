@@ -5,7 +5,7 @@ from typing import TYPE_CHECKING, Any
 
 from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus, FrameProducts
 from hivememory.agent_runtime.loop import AgentLoopExecutor
-from hivememory.agent_runtime.model.client import LLMClient
+from hivememory.agent_runtime.model.generator import MTPGenerator
 from hivememory.agent_runtime.model.resolution import ResolvedFrameModel, resolve_frame_model
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.output import FrameOutputSink
@@ -16,9 +16,9 @@ from hivememory.core.mtp import MTPCallResponse, MTPFormatter
 if TYPE_CHECKING:
     from hivememory.agent_runtime.frame import ExecutionFrame
     from hivememory.agent_runtime.model.resolution import ModelResolver
-    from hivememory.agent_runtime.mtp.runtime import MTPExecutor
     from hivememory.config.alice import AgentRuntimeConfig, KoakumaConfig
     from hivememory.config.memory_compiler import MemoryCompilerConfig
+    from hivememory.infrastructure.llm.base import BaseLLMService
 
 logger = logging.getLogger(__name__)
 
@@ -26,7 +26,7 @@ logger = logging.getLogger(__name__)
 class AgentRuntime:
     """单 Agent 运行时门面。
 
-    封装执行引擎（loop_executor + llm_client + mtp_executor）与
+    封装执行引擎（loop_executor，其内持有 MTP 生成器与 MTP 执行器）与
     对外提供 "跑一个 frame" 与 "收割成功子帧产物" 的 API。
     它把底层引擎组件收拢成一个聚合，编排层（RunExecutor）
     只拿这个门面操作，不直接接触引擎细节。
@@ -37,26 +37,15 @@ class AgentRuntime:
     def __init__(
         self,
         *,
-        mtp_executor: MTPExecutor,
         runtime_config: AgentRuntimeConfig,
-        loop_executor: AgentLoopExecutor | None = None,
+        loop_executor: AgentLoopExecutor,
         model_registry: ModelResolver | None = None,
     ) -> None:
         # 模型注册表：在每个 frame 开始时根据 agent_profile.model_name 解析实际模型。
-        # 若未提供，generation_options 中必须已包含 model，否则 LLMClient 会报错。
+        # 若未提供，generation_options 中必须已包含可执行的 model，否则帧解析失败。
         self._model_registry = model_registry
         self._config = runtime_config
-        if loop_executor is not None:
-            self._loop_executor = loop_executor
-        else:
-            # LLMClient 是无状态服务，不依赖任何实例级 LLM 配置。
-            # 所有 LLM 参数均在运行时由 resolve_model 注入。
-            llm_client = LLMClient()
-            self._loop_executor = AgentLoopExecutor(
-                llm_client=llm_client,
-                mtp_executor=mtp_executor,
-                config=runtime_config,
-            )
+        self._loop_executor = loop_executor
 
     @property
     def max_iterations(self) -> int:
@@ -75,7 +64,6 @@ class AgentRuntime:
             if frame.resolved_model is None:
                 frame.resolved_model = self.resolve_model(frame.agent_profile, generation_options)
             frame.progress.model_used = frame.resolved_model.display_name
-            generation_options = frame.resolved_model.generation_options
         except ModelNotFoundError as error:
             logger.error("Frame model resolution failed: %s", error)
             return FrameExecutionResult(
@@ -86,7 +74,6 @@ class AgentRuntime:
         return await self._loop_executor.execute_frame(
             frame=frame,
             max_iterations=max_iterations,
-            generation_options=generation_options,
             output_sink=output_sink,
         )
 
@@ -182,20 +169,26 @@ def build_agent_runtime(
     runtime_config: AgentRuntimeConfig,
     koakuma_config: KoakumaConfig,
     memory_compiler_config: MemoryCompilerConfig,
+    llm_service: BaseLLMService,
     model_registry: ModelResolver | None = None,
 ) -> AgentRuntime:
     """装配单帧执行内核，编排层只取得运行时门面。
 
     Koakuma 与执行循环共享内核生命周期；Profile 与引用的派生缓存由
-    workspace 持有，资源操作通过每帧的提交函数进入。
+    workspace 持有，资源操作通过每帧的提交函数进入。LLM 服务由组合根注入，
+    内核只在其上建立 MTP 生成器，不自行构造模型客户端。
     """
     koakuma = KoakumaRuntime(
         config=koakuma_config,
         memory_compiler_config=memory_compiler_config,
     )
     runtime = AgentRuntime(
-        mtp_executor=koakuma,
         runtime_config=runtime_config,
+        loop_executor=AgentLoopExecutor(
+            generator=MTPGenerator(llm_service),
+            mtp_executor=koakuma,
+            config=runtime_config,
+        ),
         model_registry=model_registry,
     )
     logger.info("AgentRuntime 初始化完成")

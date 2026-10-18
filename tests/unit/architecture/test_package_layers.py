@@ -264,3 +264,87 @@ def test_neutral_producers_do_not_depend_on_mtp_exceptions():
             ):
                 violations.append(f"{path.relative_to(SRC_ROOT)}: {target}")
     assert violations == []
+
+
+LLM_PACKAGE = "hivememory.infrastructure.llm"
+LLM_INTERFACE_MODULE = f"{LLM_PACKAGE}.base"
+LLM_PACKAGE_DIR = SRC_ROOT / "infrastructure" / "llm"
+
+
+def _absolute_import_targets(path: Path) -> list[str]:
+    """返回文件导入的全部模块与 ``from x import y`` 形式的 ``x.y``，相对导入已解析。"""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    targets: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            targets.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = _resolve_relative(path, node) if node.level else node.module
+            if base is None:
+                continue
+            targets.append(base)
+            targets.extend(f"{base}.{alias.name}" for alias in node.names)
+    return targets
+
+
+def test_litellm_is_only_imported_inside_the_llm_package():
+    """提供商 SDK 只在 LLM 服务的实现中出现，引擎与子系统看不到 SDK 类型。"""
+    violations = [
+        f"{path.relative_to(SRC_ROOT).as_posix()}: {target}"
+        for path in _source_files()
+        if LLM_PACKAGE_DIR not in path.parents
+        for target in _absolute_import_targets(path)
+        if target == "litellm" or target.startswith("litellm.")
+    ]
+    assert violations == []
+
+
+def test_llm_interface_module_depends_on_no_sdk():
+    """LLM 服务接口只依赖标准库与 pydantic，不导入 SDK 或同包的实现模块。"""
+    path = LLM_PACKAGE_DIR / "base.py"
+    violations = []
+    for target in _absolute_import_targets(path):
+        top = target.split(".")[0]
+        if top == "hivememory":
+            if target.startswith(LLM_PACKAGE + ".") and target != LLM_INTERFACE_MODULE:
+                violations.append(target)
+        elif top not in sys.stdlib_module_names and top != "pydantic":
+            violations.append(target)
+    assert violations == []
+
+
+def _llm_implementation_imports(path: Path) -> list[str]:
+    """逐条判断导入语句：只允许接口模块本身，包根与其他子模块都算实现。"""
+    tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+    imported: list[str] = []
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Import):
+            imported.extend(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            base = _resolve_relative(path, node) if node.level else node.module
+            if base == LLM_PACKAGE:
+                # ``from hivememory.infrastructure.llm import base`` 只取接口模块。
+                imported.extend(f"{base}.{alias.name}" for alias in node.names)
+            elif base == "hivememory.infrastructure":
+                imported.extend(
+                    f"{base}.{alias.name}" for alias in node.names if alias.name == "llm"
+                )
+            elif base is not None:
+                imported.append(base)
+    return [
+        module
+        for module in imported
+        if (module == LLM_PACKAGE or module.startswith(LLM_PACKAGE + "."))
+        and not (module == LLM_INTERFACE_MODULE or module.startswith(LLM_INTERFACE_MODULE + "."))
+    ]
+
+
+def test_only_composition_root_imports_the_llm_implementation():
+    """除组合根外，从 LLM 包只能导入接口模块；实现模块与包根只供组合根装配。"""
+    violations = [
+        f"{path.relative_to(SRC_ROOT).as_posix()}: {module}"
+        for path in _source_files()
+        if _top_package(path) != "system" and LLM_PACKAGE_DIR not in path.parents
+        for module in _llm_implementation_imports(path)
+    ]
+    assert violations == []

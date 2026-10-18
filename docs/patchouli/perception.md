@@ -5,6 +5,7 @@ owner: patchouli
 scope: structured-ingestion-and-short-term-topics
 code_paths:
   - src/hivememory/engines/perception/
+  - src/hivememory/infrastructure/llm/base.py
   - src/hivememory/patchouli/services/perception.py
   - src/hivememory/patchouli/services/topic_working_set.py
   - src/hivememory/patchouli/memory_library/stores.py
@@ -13,7 +14,7 @@ related_contracts:
   - docs/system/passive-ingress.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-18
 ---
 
 # 感知与短期话题
@@ -142,14 +143,14 @@ Page Folding 是 Patchouli 的内部 topic working-set compaction，主动与被
 - `build_block`: 把 `InteractionPayload` 转化为不可变 `LogicalBlock`，归并结构化事件为 actions、估算 token；
 - `should_compact`: 判断话题总 token 是否超过折叠阈值；
 - `select_blocks_to_fold`: 选择待折叠的旧 blocks 前缀（保留最近 N 个）；
-- `generate_fold_summary`: 生成 Page Folding 摘要（委托给持有的 `RelayController`）。
+- `generate_fold_summary`: 异步生成 Page Folding 摘要（委托给持有的 `RelayController`）。
 
 Engine 持有 `RelayController`，封装了完整的 compact 算法能力。`PerceptionFamiliar` 通过 Engine 的 `generate_fold_summary()` 获取摘要，不再直接持有 Relay 组件。
 
 RelayController 有三种实现：
 
 - **SimpleRelayController**: 以确定性规则形成简要接力摘要；
-- **LLMRelayController**: 可调用 Librarian LLM 生成更丰富摘要；
+- **LLMRelayController**: 经组合根注入的共享 LLM 服务，以 `shared.llm.librarian` 转换的请求参数异步生成更丰富摘要；只在没有可用 LLM（Librarian 未配置模型）或提供商失败（`ModelProviderError`，含超窗）时回退为规则摘要，程序错误不被规则摘要掩盖，沿 compact 路径传播；
 - **NoOpRelayController**: 用于关闭折叠能力。
 
 Relay 控制器由 Runtime 按配置创建并注入 Engine 构造。关闭 perception（`engine.enable=false`）时 Runtime 注入 `engine=None`，Familiar 的摄入路径变为无副作用 no-op（原 NullPerceptionLayer 语义），维护用例对空存储自然空转。
@@ -169,7 +170,7 @@ Engine 不持有 Store / Journal / Queue，也不导入 `hivememory.patchouli.*`
 - `fold_retain_recent_blocks` 只限制 block 数量，不保证保留后缀的 token 总量低于阈值；单个超大 block 也可能超过软水位线；
 - 所有 compact 配置与 Engine 的折叠选择都拒绝小于 1 的 retain 值，至少保留一个最新 block；summary-only Topic 可被列出、路由并免于空 Topic 误删，但当前 generation 仍以 `state_summary + 至少一个 recent block` 作为可结算材料，独立的 summary-only memory/artifact 生成能力未定义；
 - overflow 不产生 settlement/artifact，被折叠旧前缀目前只进入有损 `state_summary`；
-- Relay 的摘要调用位于 compact 路径内（lease 持有期间），LLM relay 可能增加该操作的同步等待；
+- Relay 的摘要调用位于 compact 路径内（lease 持有期间）：LLM relay 等待模型时不阻塞事件循环，但该话题一直被占用，并发的 apply 或 settle 会遇到忙碌；调用没有独立超时；
 - `worth_saving=False` 在 settlement 时过滤，但原始 block 在此之前仍存在于短期话题中；
 - WorkingSet 的容量检查与候选选择运行在单事件循环内（方法同步、不内部 await），跨线程使用需调用方先行串行化；两个并发 NEW_TOPIC 的容量检查存在与旧实现等价的短暂竞态窗口；
 - flush 触发器的历史 e2e 用例随感知层删除而移除，重建需要真实 LLM/Qdrant 栈；当前回归由 Familiar 集成测试（tests/integration/patchouli/test_perception.py）覆盖；

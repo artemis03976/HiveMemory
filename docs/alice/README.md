@@ -14,7 +14,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # Alice
@@ -68,7 +68,7 @@ AliceSystem
   │         └─ RunExecutor + RunSession
   │              -> CallCoordinator + CallContextProvider + FrameFactory
   │              -> AgentRuntime facade
-  └─ build_agent_runtime             内核工厂：Koakuma、循环与 LLMClient
+  └─ build_agent_runtime             内核工厂：Koakuma、循环与 MTP 生成器（建立在注入的 LLM 服务上）
 ```
 
 - `agent_runtime/` 是“CPU”：只关心把一个 `ExecutionFrame` 运行到自然收敛、取消或 CALL trap，不决定下一步该调度谁；

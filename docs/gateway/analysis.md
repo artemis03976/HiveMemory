@@ -8,6 +8,7 @@ code_paths:
   - src/hivememory/gateway/context.py
   - src/hivememory/gateway/topic_context.py
   - src/hivememory/engines/gateway/
+  - src/hivememory/infrastructure/llm/base.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/architecture/boundaries.md
@@ -57,9 +58,9 @@ Provider 负责读取和类型验证，不做决策。Patchouli 若返回非 tup
 - 候选列表中的一个 `topic_id`；
 - `NEW_TOPIC`，并在模型成功响应时同时提供非空 title 与 summary。
 
-模型返回候选列表外 ID、非 object、缺少 target 或 `NEW_TOPIC` 缺少标题/摘要时，Engine 抛出 `TopicRouterError`。已知提供商失败和模型 JSON 解析失败也转为该能力错误，再由 workflow 降级到 `NEW_TOPIC`；未知程序错误、投影失败与取消继续传播。QueryUnderstanding 使用同样的窄分类，不把全部 Exception 当作模型不可用。
+模型返回候选列表外 ID、非 object、缺少 target 或 `NEW_TOPIC` 缺少标题/摘要时，Engine 抛出 `TopicRouterError`。LLM 服务报告的提供商失败（`ModelProviderError`，含超窗与提供商没有返回文本）和模型 JSON 解析失败也转为该能力错误，再由 workflow 降级到 `NEW_TOPIC`；未知程序错误、投影失败与取消继续传播。QueryUnderstanding 使用同样的窄分类，不把全部 Exception 当作模型不可用；两个 Engine 都不识别提供商 SDK 的异常类型。
 
-当 Topic Router 配置为禁用时，Engine 不调用模型并返回默认 `NEW_TOPIC`。当它启用但没有 LLM service 时，Engine 报告能力不可用，workflow 同样降级。两条路径的业务结果接近，但观测原因不同。
+当 Topic Router 配置为禁用时，Engine 不调用模型并返回默认 `NEW_TOPIC`。当它启用但没有 LLM 服务或 Gateway 请求参数（组件未配置模型）时，Engine 报告能力不可用，workflow 同样降级。两条路径的业务结果接近，但观测原因不同。
 
 Topic Router 不生成关键词、不判断意图、不读完整 `TopicData`，也不决定是否检索。否则它会重新退化为旧的一步 router。
 
@@ -101,7 +102,7 @@ Tier 2：纯函数派生 retrieval plan
 
 Tier 0 只覆盖低成本、高确定性的规则，并在与模型结果冲突时覆盖对应字段。重复检测会移除空白并忽略大小写，但只比较当前会话的最后一轮用户输入；没有会话轮次时不回退到 Topic。
 
-Topic Router 与 QueryUnderstanding 的模型消息均按 system、最近会话轮次、当前输入组装。Tier 1 的 `QueryUnderstandingEngine` 共享一次 LLM 调用，同时产生意图、重写、关键词和记忆初判。这是第一代实现的成本/延迟取舍，不是永久规定。Engine 还能解析 `sub_intents`，但 Resolver 当前没有把它投影到公共 `UserQueryAnalysisResult`，因此没有下游消费者，也不能被描述为已支持复合意图执行。
+Topic Router 与 QueryUnderstanding 的模型消息均按 system、最近会话轮次、当前输入组装，经组合根注入的共享 LLM 服务以完整调用发出。请求参数来自由 `shared.llm.gateway` 转换的组件参数，两个 Engine 都追加 JSON 输出要求；配置了各自的 `model_override` 时只替换模型，凭证与采样参数沿用组件参数（[System 组合根](../system/composition.md#13-llm-bundle)）。Tier 1 的 `QueryUnderstandingEngine` 共享一次 LLM 调用，同时产生意图、重写、关键词和记忆初判。这是第一代实现的成本/延迟取舍，不是永久规定。Engine 还能解析 `sub_intents`，但 Resolver 当前没有把它投影到公共 `UserQueryAnalysisResult`，因此没有下游消费者，也不能被描述为已支持复合意图执行。
 
 Tier 2 不再调用模型。检索模式是 Gateway 根据已提交分析派生的提示，不代表 Patchouli 已经执行检索。
 

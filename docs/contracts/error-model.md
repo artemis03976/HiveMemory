@@ -5,6 +5,8 @@ owner: system
 scope: cross-boundary-errors-and-degradation
 code_paths:
   - src/hivememory/core/errors/
+  - src/hivememory/infrastructure/llm/litellm_service.py
+  - src/hivememory/engines/generation/extractor.py
   - src/hivememory/workspace/contracts/errors.py
   - src/hivememory/patchouli/contracts/errors.py
   - src/hivememory/agent_runtime/mtp/error_mapping.py
@@ -53,7 +55,7 @@ HiveMemory 在产生失败的边界保留中立类型，在 HTTP、普通 MTP �
 
 ### 1.1 定义归属与类型粒度
 
-`core.errors` 提供 L0 的访问、资源、存储与模型查找错误；`DomainError` 只携带稳定 `code` 和内部 `details`，不包含 HTTP status、MTP severity 或自动重试开关。会话与写入意图错误归 `workspace.contracts.errors`，Profile、Topic 与交互提交错误归 `patchouli.contracts.errors`。子系统只导入提供方公共契约；队列、codec、预算与私有控制异常保留在其机制或算法所有者处。
+`core.errors` 提供 L0 的访问、资源、存储与模型错误（模型查找、提供商失败与上下文超窗）；`DomainError` 只携带稳定 `code` 和内部 `details`，不包含 HTTP status、MTP severity 或自动重试开关。会话与写入意图错误归 `workspace.contracts.errors`，Profile、Topic 与交互提交错误归 `patchouli.contracts.errors`。子系统只导入提供方公共契约；队列、codec、预算与私有控制异常保留在其机制或算法所有者处。
 
 新增类型需要独立的处理分支、必需上下文、不变量或公共兼容义务。仅诊断原因不同、处理和上下文相同的失败使用受约束的 reason；已有业务终态直接构造响应，不为序列化再创建异常对象。容量不足、停止接纳、状态冲突，编码前拒绝与接纳后解码失败，以及写入拒绝与结果未知都有不同恢复语义，不能为减少类型而合并。
 
@@ -84,7 +86,7 @@ CPU 执行结果（`CPUExecutionResult`）的 `status` 为 `completed`、`cancel
 | `input_too_large` | 固定输入本身超限，或必须压缩时连固定输入与完整摘要预留都无法容纳 |
 | `compaction_failed` | 历史压缩后仍超出输入上限，包括摘要拒绝后无法用减重视图继续；关闭压缩时历史超限也使用此码，不交给轮内守卫 |
 | `turn_context_budget_exceeded` | frame 每次生成前的预算守卫拦截，不再调用模型；CALL 子帧沿 CALL error 返回父帧 |
-| `model_context_window_exceeded` | 提供商仍报告上下文超窗；按具体异常类型识别，不重试 |
+| `model_context_window_exceeded` | 提供商仍报告上下文超窗；LLM 服务在 SDK 边界转换为 `ModelContextWindowExceededError`，Alice 按该类型识别，不重试 |
 
 任务进程的 failed done 保留 `reason=agent_run_failed`，另投影非空 `failure_reason`；`chat.run.failed.message` 使用相同原因码。原因不含异常正文，不写入交互原文。可用的历史检查点可以随 failed 或无输出结果交回，接受与本轮是否封口独立；原生取消仍传播 `CancelledError`。
 
@@ -182,7 +184,7 @@ Formatter 把 content、CALL reply、artifact alias、本地化 error reason 和
 
 局部 invoke 的 timeout 或 `RecoverableGatewayError` 可以使用该 step 声明的 fallback。其他异常、投影错误和状态不变量错误不属于可恢复调用失败。
 
-Gateway Context Provider 只包装 `StorageOfflineError`、`StorageReadError`、`ResourceUnavailableError`；超时直接交给 workflow。两个分析 Engine 只把 SDK 的已知提供商异常与 `JSONParseError`/显式输出校验失败转换为能力错误。SDK 分类由 `infrastructure.llm.errors` 与现有模型客户端共享，未新增一套提供商异常树。JSON mode 只在 `UnsupportedParamsError` 时去掉格式参数再请求一次，其他失败直接传播。缺失 route、参数接线、投影和未知程序错误不会进入局部 fallback。
+Gateway Context Provider 只包装 `StorageOfflineError`、`StorageReadError`、`ResourceUnavailableError`；超时直接交给 workflow。两个分析 Engine 只把 `ModelProviderError`（含超窗）与 `JSONParseError`/显式输出校验失败转换为能力错误；SDK 异常由 LLM 服务在边界转换（第 4.6 节），引擎不识别 SDK 类型。JSON 输出要求只在 SDK 明确报告不支持该参数时去掉格式参数再请求一次，其他失败直接传播。缺失 route、参数接线、投影和未知程序错误不会进入局部 fallback。
 
 ### 4.3 Passive Ingress
 
@@ -274,6 +276,19 @@ Profile 缺失和不可见统一隐藏为 `ResourceNotFoundError`；已找到但
 
 Topic 缺失使用 `ResourceNotFoundError`，忙碌使用 `TopicBusyError`，明确的容量/停止接纳使用 `TopicSettleAdmissionError`。Active finalize 以 `ActiveInteractionFinalizationError` 保留 admission/apply 阶段；未知提交失败为 `admission_unknown`，类名放在诊断字段 `error_class`，不能据此声称可安全重试。生成任务的明确拒绝仅覆盖接纳前 codec、lane、容量与停止错误；任意 TypeError/ValueError、重复任务或未知队列失败保留 UNKNOWN 与原句柄结算权。
 
+### 4.6 模型调用错误
+
+`ModelProviderError` 与其子类 `ModelContextWindowExceededError` 定义在 `core.errors.model`，与 `ModelNotFoundError` 同处。它们只由 LLM 服务的实现（`LiteLLMService`）在 SDK 边界产生：完整调用、流式启动与流式拉取采用同一转换，超窗先于其他请求错误识别；由 SDK 异常转换而来时原始异常保留在原因链，异常文本是固定说明。提供商没有返回文本时同样抛出 `ModelProviderError`，此时没有原始异常。程序错误与取消不转换，原样传播。超窗作为提供商失败的子类，与 SDK 中超窗属于请求错误一致：按提供商失败处理的调用方无需单独捕获，需要区分超窗的调用方先判断子类。
+
+| 使用方 | 处理 |
+|:---|:---|
+| Gateway 查询理解与话题路由 | 转为各自的能力错误，由 workflow 保守降级（第 4.2 节） |
+| Patchouli 记忆抽取与合并 | 只对提供商失败重试，一次提取或合并最多两次请求；超窗与程序错误不重试。重试耗尽后抛出最后一次的 `ModelProviderError`；模型输出为空或无法解析是“没有产出”，不是失败 |
+| Patchouli 生成引擎 | Mode A 不捕获提供商失败，生成任务以 `memory_generation_failed` 失败收尾，不再记录为没有产出；Mode B/C 对提供商失败使用既有 fallback，保证明确的保存与更新意图不因 Librarian LLM 暂时失败而丢失；程序错误不降级 |
+| Page Folding 摘要 | 只在提供商失败时回退为规则摘要，程序错误沿 compact 路径传播 |
+| Alice 帧生成 | frame 形成 `FAILED`；超窗投影为 `model_context_window_exceeded`，其他提供商失败不填原因码（第 2.2 节） |
+| Alice 会话摘要器 | 以 `summary_model_context_exceeded` / `summary_provider_error` 拒绝本次摘要并保守回退 |
+
 ## 5. 观测失败与业务失败
 
 RuntimeEventSink 是 best-effort：
@@ -340,7 +355,7 @@ SSE 开始后由进程流内投影输出安全 code/message，不能改 HTTP sta
 5. 为重试/取消/降级边界增加测试；
 6. 同步更新[MTP 契约](./mtp.md)和调用方文档。
 
-验证入口：`tests/unit/core/mtp/`、`tests/unit/agent_runtime/mtp/`、`tests/unit/gateway/test_workflow.py`、`tests/unit/system/services/passive/`、`tests/unit/components/events/test_bus.py`、`tests/unit/workspace/test_access.py`、`tests/unit/system/access/`、`tests/integration/workspace/test_application_access_boundary.py`。
+验证入口：`tests/unit/core/mtp/`、`tests/unit/agent_runtime/mtp/`、`tests/unit/infrastructure/test_litellm_service.py`、`tests/unit/engines/generation/test_extractor.py`、`tests/unit/gateway/test_workflow.py`、`tests/unit/system/services/passive/`、`tests/unit/components/events/test_bus.py`、`tests/unit/workspace/test_access.py`、`tests/unit/system/access/`、`tests/integration/workspace/test_application_access_boundary.py`。
 
 
 ## 10. v0.7.0 兼容迁移
@@ -356,5 +371,7 @@ SSE 开始后由进程流内投影输出安全 code/message，不能改 HTTP sta
 | MTP MemoryIntentRejectedError/UnknownError | `agent_runtime.mtp.error_mapping` 的具名信息构造；内部控制流消费 Workspace 意图错误 |
 | SubAgentExecutionError/SubAgentBudgetExhaustedError/AgentModelUnavailableError | `alice.orchestration.call.response` 的具名信息构造，子帧终态无需异常对象 |
 | MTP MemoryNotFoundError/SubAgentUnexpectedSuspendError | 删除无生产用途的 Python 类型；原 wire code 仅保留为兼容类别 |
+| `agent_runtime` 的 ModelProviderError/ModelContextWindowExceededError | `core.errors`；`agent_runtime` 包根继续导出，超窗改为提供商失败的子类 |
+| `infrastructure.llm.errors.LLM_PROVIDER_ERRORS` | 删除；SDK 分类是 `LiteLLMService` 的私有细节，调用方只捕获 `core.errors` 的中立错误 |
 
 请求校验旧 `detail` 列表改为字符串，字段级说明位于 `issues`。未知异常及 HTTP detail 不再原样公开；客户端应依据 status/error/reason 分支。原 Passive 默认允许未知异常降级、Gateway 包装缺失路由、CALL 跳过 READ 授权失败的行为均已收窄。未建立无实际消费者的兼容异常别名；版本发布和仓库外调用方升级须显式采用这些入口。
