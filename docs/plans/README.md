@@ -30,7 +30,8 @@ last_reviewed: 2026-10-17
 | 写入意图实时派发之后 | 外部会话消息的接收与 Topic 投影 | 已完成（2026-10-15，四阶段均经实现、验收与 code review 后归档）：会话资源、Alice 全量历史、Gateway 最近 N 轮、部分输出保存与 finalize 保护、前端会话模型 | [归档计划](../archive/plans/v0.7.0-conversation-session.md)；背景：[Idea](../ideas/external-session-and-topic-projection.md)（原 A3） |
 | 外部会话之后 | Alice 会话压缩 | 已完成（2026-10-17）：四阶段实现、确定性验收与 code review 后归档；自动减重/摘要、检查点、输入守卫、失败原因与前端展示已落地，真实 LLM 摘要质量未验证；未发布 | [归档计划](../archive/plans/v0.7.0-alice-session-compaction.md)；当前事实：[Agent Runtime](../alice/agent-runtime.md)；后续：[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md) |
 | Alice 会话压缩之后（v0.7.0 收尾） | Alice 与 agent_runtime 结构重构 | 已完成（2026-10-17）：三阶段实现、验收与 code review 后归档；Alice 按依赖方向分层，内核收回装配并建立唯一公开接口，CPU 直接执行并交付类型化结果；未发布 | [归档计划](../archive/plans/v0.7.0-alice-agent-runtime-restructure.md)；当前事实：[Alice](../alice/README.md) |
-| Alice 与 agent_runtime 结构重构整体验收之后（v0.7.0 收尾） | 异常体系与边界错误呈现收敛 | Planned（2026-10-17）；承接收敛清单第 1.6、3.9 条；前驱完成后依据稳定代码复核实施落点 | [计划](./v0.7.0-error-model-convergence.md) |
+| Alice 与 agent_runtime 结构重构之后（v0.7.0 收尾） | 提示词编译前移至任务进程 | Planned（2026-10-17）：HiveMemory 的提示词内容由任务进程编译为 CPU 中立文本，Alice 只负责 MTP 教学、历史、压缩与 CALL 子帧提示词；删除 `AgentRunContext` 与提示词组装器；承接收敛清单第 1.2 条及第 1.3、3.6、4.2 条的相应部分 | [计划](./v0.7.0-cpu-prompt-compilation.md) |
+| 提示词编译前移之后（v0.7.0 收尾） | 异常体系与边界错误呈现收敛 | Planned（2026-10-17）；承接收敛清单第 1.6、3.9 条；前驱完成后依据稳定代码复核实施落点 | [计划](./v0.7.0-error-model-convergence.md) |
 
 - Alice 会话压缩的技术调研见 [Agent Harness 会话压缩技术调研](../ideas/agent-context-compaction-research.md)（2026-10-16；历史调研快照，已为归档计划提供依据）。
 - 不在 v0.7.0：执行环境的选择（[执行单元 Idea](../ideas/execution-unit-thread-and-environment.md#2-开放问题) T-7、T-8）随后续版本实施，不一定是 v0.7.1（2026-10-06）；外部 Actor 的真实接入（[Idea](../ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)，原计划 B）分为两种接入模式，controller 模式在 v0.7.1（[ROADMAP](../ROADMAP.md) 第 4.4.2 节），plugin 模式在其后的 v0.7.x；Import Bus（现有 Passive Ingress 链路）逐步演进为独立功能，不在 v0.7.0 计划内；
