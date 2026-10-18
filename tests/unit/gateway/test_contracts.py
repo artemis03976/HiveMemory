@@ -73,6 +73,7 @@ def test_canonical_topic_object_graph_is_recursively_immutable() -> None:
 def test_topic_snapshot_last_turn_and_identity_are_frozen() -> None:
     identity = ActorIdentity(user_id="user-1")
     snapshot = TopicSnapshot(
+        last_update=1_700_000_000.0,
         topic_id="topic-1",
         topic_title="Gateway",
         workspace_identity=make_identity_scope(user_id="user-1").workspace_identity,
@@ -115,6 +116,7 @@ def test_private_context_contracts_do_not_duplicate_identity() -> None:
     candidates = CandidateTopics(
         topic_snapshots=[
             TopicSnapshot(
+                last_update=1_700_000_000.0,
                 topic_id="topic-1",
                 topic_title="Gateway",
                 workspace_identity=make_identity_scope(user_id="user-1").workspace_identity,

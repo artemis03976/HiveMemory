@@ -70,7 +70,7 @@ class TopicManagementService:
         self,
         *,
         identity_scope: IdentityScope,
-        topic_id: str | None = None,
+        topic_id: str,
     ) -> TopicSettleResult:
         """通过本地总线结算 Topic（生命周期变更授权在能力层），返回稳定业务结果。"""
         scope = require_identity_scope(identity_scope)

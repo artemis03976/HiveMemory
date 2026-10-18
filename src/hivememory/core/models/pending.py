@@ -189,8 +189,9 @@ class PendingAtomSettlement(BaseModel):
 class PendingAtomMaterializeTask(BaseModel):
     """跨子系统的不可变物化请求。
 
-    workspace 任务进程在 completed 收尾时从写入意图登记投影产出，进入 finalize 后
-    patchouli 解析。与 PendingAtomSettlement 构成请求/应答对偶。
+    actor API 登记 WRITE/UPDATE 意图后立即提交，Patchouli 的意图提交服务从
+    ``MemoryIntent`` 构造本任务并交给生成队列；finalize 不派发写入。与
+    PendingAtomSettlement 构成请求/应答对偶。
 
     字段下游流向（不相交）：
         pending_alias / intent_id / source_verb → patchouli 组装 Settlement、分发 mode b/c

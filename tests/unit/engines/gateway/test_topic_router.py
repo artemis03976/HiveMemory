@@ -31,6 +31,7 @@ async def test_topic_router_only_returns_topic_routing_fields() -> None:
         "继续实现",
         topic_snapshots=(
             TopicSnapshot(
+                last_update=1_700_000_000.0,
                 topic_id="topic-1",
                 topic_title="Gateway",
                 workspace_identity=make_identity_scope(user_id="u1").workspace_identity,

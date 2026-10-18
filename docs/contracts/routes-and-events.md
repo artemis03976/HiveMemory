@@ -118,7 +118,7 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 | `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、必需的 `IdentityScope`（builtin 同样需要） | `ResolvedAgentProfile`（`AgentProfile` + 源原子 policy 依据与 source 关联，builtin 无源原子）；显式缺失/越权/无效时抛结构化 MTP error |
 | `patchouli.public.topic.list_active` | `list_active_topics` | `identity_scope`、`include_empty` | `tuple[TopicSnapshot, ...]` |
 | `patchouli.public.topic.get_data` | `get_topic_data` | `identity_scope`、topic id | `TopicData | None`（越域目标隐藏） |
-| `patchouli.public.manual_settle_topic` | `settle_topic` | `identity_scope`、可选 topic id | `TopicSettleResult` |
+| `patchouli.public.manual_settle_topic` | `settle_topic` | `identity_scope`、`topic_id` | `TopicSettleResult` |
 | `patchouli.public.evict_topic` | `evict_topic` | `identity_scope`、topic id | `TopicEvictionResult` |
 | `patchouli.public.models.warmup` | `warmup_models` | 无 | `None` |
 | `patchouli.public.models.ready` | `is_models_ready` | 无 | `bool` |
@@ -138,13 +138,13 @@ Alice 经 [CPU 端口](./subsystem-contracts.md#4-cpu-端口与-alice-实现)交
 | Event | Publisher | Subscriber | Payload |
 |:---|:---|:---|:---|
 | `patchouli.events.memory.changed` | PatchouliBridge | workspace CacheInvalidator | `payload: MemoryChangeEvent`（`belong_to`、`memory_id`、`operation: upsert/patch/delete`） |
-| `alice.events.pending_atom.settled` | PatchouliBridge | workspace WriteIntentRegistry | `settlement`（含 intent_id） |
-| `alice.events.pending_atom.failed` | PatchouliBridge | workspace WriteIntentRegistry | `pending_alias` |
-| `alice.events.pending_atom.cancelled` | PatchouliBridge | workspace WriteIntentRegistry | `pending_alias` |
+| `patchouli.events.pending_atom.settled` | PatchouliBridge | workspace WriteIntentRegistry | `settlement`（含 `pending_alias`、`intent_id`） |
+| `patchouli.events.pending_atom.failed` | PatchouliBridge | workspace WriteIntentRegistry | `pending_alias`、`intent_id` |
+| `patchouli.events.pending_atom.cancelled` | PatchouliBridge | workspace WriteIntentRegistry | `pending_alias`、`intent_id` |
 
 中期库的 upsert、patch_payload、delete 与 delete_by_key 在提交调用的 finally 中各内联发布一次变更通知，包括 primary/secondary 失败与删除未命中；只改 `meta.lifecycle` 动态状态的 patch_payload 不发布；通知不证明提交成功。store 只依赖注入发布端口，本地发布器与 bridge 顺序 await 转发，写入返回前失效订阅者已执行。订阅者先清原子及 alias、清源 Profile，再推进 Workspace 代次，之后不回填值；普通订阅异常由总线记录，不反向改变存储结果。首版不补齐未送达或重试。
 
-结算的权威发布方仍为 Patchouli，由 bridge 转发到 workspace 登记；`alice.events` 前缀保持历史兼容，不再表示当前消费方。settled 严格匹配 intent_id 后迁移状态；failed/cancelled 保持只带永不复用 pending_alias 的载荷，处理器仅在可选 intent_id 被提供时追加校验。登记不回填 canonical 缓存，正式物化写入触发上述失效。
+结算的权威发布方是 Patchouli，事件名使用发布方的命名空间，由 bridge 从 Patchouli 本地总线以同名转发到全局总线、交给 workspace 登记。三个事件都携带 `pending_alias` 与 `intent_id`：alias 永不复用，intent_id 再区分过时事件，登记只在两者都匹配时迁移状态。主动生成任务规范中的两者总是同时出现，缺一即构造失败。登记不回填 canonical 缓存，正式物化写入触发上述失效。
 
 ## 4. RuntimeEvent 观测契约
 

@@ -214,6 +214,7 @@ def _memory_atom(scope, *, title: str) -> MemoryAtom:
 def _topic_snapshot(scope, *, topic_id: str) -> TopicSnapshot:
     """按授权 scope 构造活跃话题池替身快照。"""
     return TopicSnapshot(
+        last_update=1_700_000_000.0,
         topic_id=topic_id,
         workspace_identity=scope.workspace_identity,
         topic_title="published topic",

@@ -45,6 +45,7 @@ async def test_provider_prepares_candidate_topics_and_menu() -> None:
     calls = []
     snapshots = (
         TopicSnapshot(
+            last_update=1_700_000_000.0,
             topic_id="topic-1",
             topic_title="Gateway",
             state_summary="正在实现 Phase 3D",
@@ -198,6 +199,7 @@ async def test_routed_topic_preparation_has_independent_timeout_fallback() -> No
     async def list_topics(**_kwargs):
         return (
             TopicSnapshot(
+                last_update=1_700_000_000.0,
                 topic_id="topic-1",
                 topic_title="Gateway",
                 workspace_identity=make_identity_scope(user_id="u1").workspace_identity,

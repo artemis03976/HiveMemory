@@ -217,7 +217,7 @@ class MemoryGenerationTaskController:
         """
 
         admissions: list[MemoryGenerationAdmission] = []
-        rejected_aliases: list[str] = []
+        rejected_intents: list[tuple[str, str]] = []
         # 整批持有 admission 锁，保证同一批规范不会与并发提交交错；实际执行仍
         # 由队列异步调度，本方法只串行化轻量的接纳阶段。
         async with self._submission_lock:
@@ -252,8 +252,8 @@ class MemoryGenerationTaskController:
                         spec.intent_id,
                         exc,
                     )
-                    if spec.pending_alias:
-                        rejected_aliases.append(spec.pending_alias)
+                    if spec.pending_alias is not None and spec.intent_id is not None:
+                        rejected_intents.append((spec.pending_alias, spec.intent_id))
                     admissions.append(MemoryGenerationAdmission.rejected())
                     continue
                 except Exception:
@@ -269,8 +269,8 @@ class MemoryGenerationTaskController:
                 admissions.append(MemoryGenerationAdmission.accepted(task))
 
         # 功能事件发布不占用 admission 锁，避免慢订阅者阻塞其他提交方。
-        for pending_alias in rejected_aliases:
-            await self._pending_atom_settler.failed(pending_alias)
+        for pending_alias, intent_id in rejected_intents:
+            await self._pending_atom_settler.failed(pending_alias, intent_id)
         return admissions
 
     async def _execute_generation(
@@ -556,11 +556,12 @@ class MemoryGenerationTaskController:
         """以 best-effort 方式发布领域终态及关联 PendingAtom 事件。"""
 
         pending_alias = entry.spec.pending_alias
-        if pending_alias is not None:
+        intent_id = entry.spec.intent_id
+        if pending_alias is not None and intent_id is not None:
             if snapshot.status == MemoryGenerationTaskStatus.CANCELLED:
-                await self._pending_atom_settler.cancelled(pending_alias)
+                await self._pending_atom_settler.cancelled(pending_alias, intent_id)
             elif snapshot.status == MemoryGenerationTaskStatus.FAILED:
-                await self._pending_atom_settler.failed(pending_alias)
+                await self._pending_atom_settler.failed(pending_alias, intent_id)
 
         self._task_events.terminal(
             snapshot,

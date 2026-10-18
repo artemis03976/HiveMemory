@@ -21,6 +21,9 @@ class GlobalEvents:
     """GlobalSystemBus 的全局 pub/sub 事件名。"""
 
     PATCHOULI_MEMORY_CHANGED = "patchouli.events.memory.changed"
-    PENDING_ATOM_SETTLED = "alice.events.pending_atom.settled"
-    PENDING_ATOM_FAILED = "alice.events.pending_atom.failed"
-    PENDING_ATOM_CANCELLED = "alice.events.pending_atom.cancelled"
+    # 写入意图的终态由 Patchouli 发布、workspace 写入意图登记订阅。settled 的
+    # settlement 与 failed/cancelled 的载荷都带 pending_alias 与 intent_id，
+    # 登记按两者严格匹配。
+    PENDING_ATOM_SETTLED = "patchouli.events.pending_atom.settled"
+    PENDING_ATOM_FAILED = "patchouli.events.pending_atom.failed"
+    PENDING_ATOM_CANCELLED = "patchouli.events.pending_atom.cancelled"

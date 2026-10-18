@@ -37,7 +37,7 @@ class WriteIntentRegistry:
 
     def __init__(self) -> None:
         self._atoms: dict[str, PendingAtom] = {}
-        self._intent_aliases: dict[str, str] = {}
+        self._intent_ids: set[str] = set()
         self._bus: AsyncSystemBus | None = None
 
     def register_write(
@@ -76,7 +76,7 @@ class WriteIntentRegistry:
         while alias in self._atoms:
             alias = f"{prefix}_{uuid4().hex[:4]}"
         intent_id = f"intent_{uuid4().hex[:12]}"
-        while intent_id in self._intent_aliases:
+        while intent_id in self._intent_ids:
             intent_id = f"intent_{uuid4().hex[:12]}"
         atom = PendingAtom(
             pending_alias=alias,
@@ -89,7 +89,7 @@ class WriteIntentRegistry:
             process_id=process_id,
         )
         self._atoms[alias] = atom
-        self._intent_aliases[intent_id] = alias
+        self._intent_ids.add(intent_id)
         return atom.model_copy(deep=True)
 
     def get(self, alias: str, workspace_identity: WorkspaceIdentity) -> PendingAtom | None:
@@ -132,23 +132,22 @@ class WriteIntentRegistry:
         atom.settlement = settlement.model_copy(deep=True)
         atom.status = PendingAtomStatus.SETTLED
 
-    async def on_failed(self, *, pending_alias: str, intent_id: str | None = None) -> None:
-        """应用失败事件；旧载荷只有不可重用 alias，提供 intent_id 时追加匹配。"""
+    async def on_failed(self, *, pending_alias: str, intent_id: str) -> None:
+        """严格匹配 intent_id 后应用失败事件；重复事件不能覆盖已经结算的终态。"""
         atom = self._matching(pending_alias, intent_id)
         if atom is not None and is_legal_transition(atom.status, PendingAtomStatus.FAILED):
             atom.status = PendingAtomStatus.FAILED
 
-    async def on_cancelled(self, *, pending_alias: str, intent_id: str | None = None) -> None:
-        """应用取消事件，保持既有 in-flight 状态机语义。"""
+    async def on_cancelled(self, *, pending_alias: str, intent_id: str) -> None:
+        """严格匹配 intent_id 后应用取消事件，保持既有 in-flight 状态机语义。"""
         atom = self._matching(pending_alias, intent_id)
         if atom is not None and is_legal_transition(atom.status, PendingAtomStatus.CANCELLED):
             atom.status = PendingAtomStatus.CANCELLED
 
-    def _matching(self, alias: str, intent_id: str | None) -> PendingAtom | None:
+    def _matching(self, alias: str, intent_id: str) -> PendingAtom | None:
+        """alias 永不复用，intent_id 再区分过时事件；两者都匹配才返回登记。"""
         atom = self._atoms.get(alias)
-        if atom is None and intent_id:
-            atom = self._atoms.get(self._intent_aliases.get(intent_id, ""))
-        if atom is not None and intent_id is not None and atom.intent_id != intent_id:
+        if atom is not None and atom.intent_id != intent_id:
             logger.warning("写入意图事件的 intent_id 不匹配，已忽略: alias=%s", alias)
             return None
         return atom

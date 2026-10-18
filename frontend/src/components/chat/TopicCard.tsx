@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { BookmarkCheck, Trash2 } from 'lucide-react';
 import type { Topic } from '@/types';
+import { formatTimeAgo } from '@/utils/timeAgo';
 
 interface TopicCardProps {
   topic: Topic;
@@ -99,7 +100,7 @@ export default function TopicCard({
         }`}>
           <span>{topic.messageCount || 0} msgs</span>
           <span>•</span>
-          <span>{topic.activeNow ? '在线' : topic.timeAgo}</span>
+          <span>{formatTimeAgo(topic.lastActive)}</span>
           <span>•</span>
           <span>{topic.model}</span>
         </div>

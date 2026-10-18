@@ -45,6 +45,7 @@ class _Provider:
             return_value=CandidateTopics(
                 topic_snapshots=(
                     TopicSnapshot(
+                        last_update=1_700_000_000.0,
                         topic_id="topic-1",
                         topic_title="Gateway",
                         workspace_identity=make_identity_scope(user_id="u1").workspace_identity,

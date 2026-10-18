@@ -119,7 +119,7 @@ class MemoryGenerationCoordinator:
                 exc_info=True,
             )
             for task in tasks:
-                await self._pending_atom_settler.failed(task.pending_alias)
+                await self._pending_atom_settler.failed(task.pending_alias, task.intent_id)
             return [MemoryGenerationAdmission.rejected() for _ in tasks]
 
         blocks = (
@@ -216,7 +216,7 @@ class MemoryGenerationCoordinator:
             logger.error(
                 f"Active spec build failed, skipping task: pending_alias={task.pending_alias}, err={exc}",
             )
-            await self._pending_atom_settler.failed(task.pending_alias)
+            await self._pending_atom_settler.failed(task.pending_alias, task.intent_id)
             return MemoryGenerationAdmission.rejected()
         except Exception:
             logger.exception(

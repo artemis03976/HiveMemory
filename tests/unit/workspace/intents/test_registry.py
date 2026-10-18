@@ -70,7 +70,7 @@ async def test_settlement_matches_intent_id_and_keeps_terminal_handle():
     correct = wrong.model_copy(update={"intent_id": atom.intent_id})
     await registry.on_settled(settlement=correct)
     correct.message = "caller mutation"
-    await registry.on_failed(pending_alias=atom.pending_alias)
+    await registry.on_failed(pending_alias=atom.pending_alias, intent_id=atom.intent_id)
     await registry.on_settled(settlement=wrong)
 
     stored = registry.get(atom.pending_alias, WORKSPACE)
@@ -86,15 +86,15 @@ async def test_settlement_matches_intent_id_and_keeps_terminal_handle():
     ("event", "status"),
     [("on_failed", PendingAtomStatus.FAILED), ("on_cancelled", PendingAtomStatus.CANCELLED)],
 )
-async def test_alias_terminal_event_checks_optional_intent_id(event, status):
-    """失败、取消保持旧 alias 载荷，并校验调用方附加的 intent_id。"""
+async def test_alias_terminal_event_requires_matching_intent_id(event, status):
+    """失败、取消事件只在 alias 与 intent_id 都匹配时生效。"""
     registry = WriteIntentRegistry()
     atom = _write(registry)
     callback = getattr(registry, event)
     await callback(pending_alias=atom.pending_alias, intent_id="wrong")
     assert registry.get(atom.pending_alias, WORKSPACE).status == PendingAtomStatus.MATERIALIZING
 
-    await callback(pending_alias=atom.pending_alias)
+    await callback(pending_alias=atom.pending_alias, intent_id=atom.intent_id)
 
     assert registry.get(atom.pending_alias, WORKSPACE).status == status
 

@@ -151,7 +151,7 @@ class TestMemoryGenerationTaskController:
             result = await controller.submit_generation_many(
                 [
                     _spec(label="first"),
-                    _spec(label="", pending_alias="draft-failed"),
+                    _spec(label="", intent_id="intent-failed", pending_alias="draft-failed"),
                     _spec(label="third"),
                 ]
             )
@@ -168,6 +168,7 @@ class TestMemoryGenerationTaskController:
             bus.publish.assert_awaited_once_with(
                 PatchouliLocalEvents.PENDING_ATOM_FAILED,
                 pending_alias="draft-failed",
+                intent_id="intent-failed",
             )
             completed = await controller.wait_all(timeout=1)
             assert len(completed) == 2
@@ -283,6 +284,7 @@ class TestMemoryGenerationTaskController:
                 topic_id="topic_active",
                 label="draft_matrix",
                 source=MemoryGenerationSource.WRITE,
+                intent_id="intent_draft_matrix",
                 pending_alias="draft_matrix",
             )
         )
@@ -339,6 +341,7 @@ class TestMemoryGenerationTaskController:
         memory_task = await controller.submit_generation(
             _spec(
                 source=MemoryGenerationSource.WRITE,
+                intent_id="intent_early_cancel",
                 pending_alias="draft_early_cancel",
             )
         )
@@ -353,6 +356,7 @@ class TestMemoryGenerationTaskController:
         bus.publish.assert_any_await(
             PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
             pending_alias="draft_early_cancel",
+            intent_id="intent_early_cancel",
         )
 
     @pytest.mark.asyncio

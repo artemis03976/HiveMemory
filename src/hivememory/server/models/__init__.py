@@ -4,16 +4,7 @@ from hivememory.server.models.agent import (
     AgentCreateRequest,
     AgentProfileResponse,
 )
-from hivememory.server.models.chat import (
-    ChatDoneEvent,
-    ChatErrorEvent,
-    ChatRequest,
-    ChatTokenEvent,
-    CommandResultEvent,
-    MTPResultEvent,
-    MTPStartEvent,
-    TopicInfoEvent,
-)
+from hivememory.server.models.chat import ChatRequest
 from hivememory.server.models.common import HealthResponse
 from hivememory.server.models.config import ConfigResponse
 from hivememory.server.models.errors import ErrorResponse
@@ -52,13 +43,6 @@ __all__ = [
     "ErrorResponse",
     "HealthResponse",
     "ChatRequest",
-    "ChatTokenEvent",
-    "MTPStartEvent",
-    "MTPResultEvent",
-    "TopicInfoEvent",
-    "ChatDoneEvent",
-    "CommandResultEvent",
-    "ChatErrorEvent",
     "PassiveIngressRequest",
     "PassiveIngressResponse",
     "MemoryResponse",

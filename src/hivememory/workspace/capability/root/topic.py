@@ -46,7 +46,7 @@ class RootTopicService:
         self,
         *,
         target_workspace: WorkspaceIdentity,
-        topic_id: str | None = None,
+        topic_id: str,
         access: WorkspaceAccessContext,
     ) -> TopicSettleResult:
         """结算 Topic（root 授权），并原样返回 Patchouli 的业务结果。"""

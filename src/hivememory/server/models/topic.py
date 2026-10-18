@@ -40,6 +40,7 @@ class ActiveTopicResponse(BaseModel):
         default="",
         description="最近 run 使用的模型展示名，空字符串表示尚未运行",
     )
+    last_update: float = Field(description="话题最近一次写入的 Unix 时间戳（秒）")
 
     @classmethod
     def from_domain(cls, snapshot: TopicSnapshot) -> ActiveTopicResponse:
@@ -54,6 +55,7 @@ class ActiveTopicResponse(BaseModel):
             block_count=snapshot.block_count,
             total_tokens=snapshot.total_tokens,
             model_used=snapshot.model_used,
+            last_update=snapshot.last_update,
         )
 
 

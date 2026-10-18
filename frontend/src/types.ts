@@ -15,11 +15,10 @@ export interface Topic {
   id: string;
   title: string;
   summary?: string;
-  activeNow?: boolean;
-  timeAgo?: string;
   model: string;
   messageCount?: number;
-  lastActive?: number;
+  /** 最近一次写入的毫秒时间戳，由后端的写入时间换算。 */
+  lastActive: number;
   totalTokens?: number;
 }
 

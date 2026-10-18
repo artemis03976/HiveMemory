@@ -33,6 +33,7 @@ class TopicSnapshot(BaseModel):
     total_tokens: int = 0
     block_count: int = 0
     model_used: str = ""
+    last_update: float = Field(description="话题最近一次写入的 Unix 时间戳（秒）")
 
     model_config = ConfigDict(frozen=True, use_enum_values=True)
 
@@ -156,6 +157,7 @@ class TopicData(BaseModel):
             total_tokens=self.total_tokens,
             block_count=self.block_count,
             model_used=self.model_used,
+            last_update=self.last_update,
         )
 
 

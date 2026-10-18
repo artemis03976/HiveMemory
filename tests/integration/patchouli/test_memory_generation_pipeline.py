@@ -289,7 +289,7 @@ async def test_active_batch_skips_missing_update_and_runs_valid_write():
     spec = execute_spec.await_args.args[0]
     assert spec.source == MemoryGenerationSource.WRITE
     assert spec.pending_alias == "draft_write"
-    assert failed == [{"pending_alias": "draft_update"}]
+    assert failed == [{"pending_alias": "draft_update", "intent_id": "intent_draft_update"}]
 
 
 # ========== 真实 Familiar + stub engine + 真实 mid_term（数据面补档） ==========

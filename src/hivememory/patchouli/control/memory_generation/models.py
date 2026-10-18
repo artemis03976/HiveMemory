@@ -58,6 +58,9 @@ class MemoryGenerationTaskSpec:
 
     ``belong_to`` 与 ``from_actor`` 分别保存归属与发起者；来源记录由
     Patchouli 内部生成链维护，不在任务规范中重复保存。
+
+    ``intent_id`` 与 ``pending_alias`` 只属于主动写入，二者同时出现：写入意图的
+    终态事件携带两者，由 workspace 登记严格匹配；被动生成两者都缺省。
     """
 
     belong_to: WorkspaceIdentity
@@ -69,6 +72,10 @@ class MemoryGenerationTaskSpec:
     interaction_input: InteractionArtifactInput | None = None
     intent_id: str | None = None
     pending_alias: str | None = None
+
+    def __post_init__(self) -> None:
+        if (self.intent_id is None) != (self.pending_alias is None):
+            raise ValueError("intent_id 与 pending_alias 必须同时提供或同时缺省")
 
 
 @dataclass(frozen=True)

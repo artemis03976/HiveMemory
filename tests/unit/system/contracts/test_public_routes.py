@@ -114,9 +114,12 @@ class TestPatchouliPublicRoutes:
         await bridge._test_local_bus.publish(
             PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
             pending_alias="draft_cancelled",
+            intent_id="intent_cancelled",
         )
 
-        subscriber.assert_awaited_once_with(pending_alias="draft_cancelled")
+        subscriber.assert_awaited_once_with(
+            pending_alias="draft_cancelled", intent_id="intent_cancelled"
+        )
 
     @pytest.mark.asyncio
     async def test_patchouli_bridge_keeps_pending_atom_internal_to_function_bus(self):

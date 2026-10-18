@@ -199,10 +199,6 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
     topic = store.get(scope.workspace_identity, outcome.topic_id)
     assert topic is not None
     assert topic.block_count == 1
-    # 行为断言：缺省 manual settle 命中的正是本次写入的最近活跃话题
-    settle_result = await familiar.manual_settle_topic(scope.workspace_identity)
-    assert settle_result.topic_id == outcome.topic_id
-    assert store.get(scope.workspace_identity, outcome.topic_id) is None
 
     # retry 已全部完成（COMPLETED），幂等返回同一话题且不重复写块
     replayed_topic = await asyncio.wait_for(
@@ -216,6 +212,7 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
         timeout=1,
     )
     assert replayed_topic == outcome.topic_id
+    assert store.get(scope.workspace_identity, outcome.topic_id).block_count == 1
 
 
 @pytest.mark.asyncio

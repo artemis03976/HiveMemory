@@ -71,7 +71,6 @@ class PerceptionFamiliar:
         self._working_set = working_set
         self._bus = bus
         self._idle_timeout_seconds = config.idle_timeout_seconds
-        self._last_active_topic_ids: dict[tuple[str, str], str] = {}
         self._interaction_journal = interaction_journal
 
     # ========== Interaction 摄入 ==========
@@ -208,7 +207,6 @@ class PerceptionFamiliar:
             if task is None:  # 无可保存材料：正常结束生命周期，不触发生成
                 self._store.delete(belong_to, topic_id)
                 self._working_set.remove(belong_to, topic_id)
-                self._forget_active_topic(belong_to, topic_id)
                 return True, None
 
             # admission：lease 持有期间等待 Generation queue 接纳。
@@ -229,40 +227,35 @@ class PerceptionFamiliar:
 
             self._store.delete(belong_to, topic_id)
             self._working_set.remove(belong_to, topic_id)
-            self._forget_active_topic(belong_to, topic_id)
             return True, generation_task
         finally:
             self._working_set.release(lease)
 
     async def manual_settle_topic(
-        self, belong_to: WorkspaceIdentity, topic_id: str | None = None
+        self, belong_to: WorkspaceIdentity, topic_id: str
     ) -> TopicSettleResult:
-        """手动结算指定话题（缺省为最近活跃话题）。
+        """手动结算指定话题；话题不存在时抛出 :class:`ResourceNotFoundError`。
 
         队列明确拒绝接纳时抛出 :class:`TopicSettleAdmissionError`（话题内容保留
         可重试）；目标正忙是瞬态冲突，保持 :class:`TopicBusyError` 语义。
         """
-        scope_key = (belong_to.owner_user_id, belong_to.workspace_id)
-        target_id = topic_id or self._last_active_topic_ids.get(scope_key)
-        if not target_id:
-            raise ResourceNotFoundError(details={"resource": "topic"})
-        if self._store.get(belong_to, target_id) is None:
-            raise ResourceNotFoundError(details={"resource": "topic", "topic_id": target_id})
+        if self._store.get(belong_to, topic_id) is None:
+            raise ResourceNotFoundError(details={"resource": "topic", "topic_id": topic_id})
         try:
             completed, task = await self._settle_topic(
                 belong_to,
-                target_id,
+                topic_id,
                 reason=TriggerReason.MANUAL_SETTLE,
                 raise_on_admission_failure=True,
             )
         except (WorkQueueCapacityError, WorkQueueStoppedError) as exc:
             raise TopicSettleAdmissionError(
-                f"结算材料接纳失败，话题内容已保留，可重试: {target_id}"
+                f"结算材料接纳失败，话题内容已保留，可重试: {topic_id}"
             ) from exc
         if not completed:
-            raise ResourceNotFoundError(details={"resource": "topic", "topic_id": target_id})
+            raise ResourceNotFoundError(details={"resource": "topic", "topic_id": topic_id})
         return TopicSettleResult(
-            topic_id=target_id, generation_task_id=task.task_id if task else None
+            topic_id=topic_id, generation_task_id=task.task_id if task else None
         )
 
     # ========== Compact（页面折叠） ==========
@@ -344,7 +337,6 @@ class PerceptionFamiliar:
             removed = self._store.delete(belong_to, topic_id)
             if removed:
                 self._working_set.remove(belong_to, topic_id)
-                self._forget_active_topic(belong_to, topic_id)
             return TopicEvictionResult(topic_id=topic_id, removed=removed)
         finally:
             self._working_set.release(lease)
@@ -460,26 +452,14 @@ class PerceptionFamiliar:
         return target_topic_id
 
     def _refresh_residency(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
-        """更新驻留与活跃记录；话题已不存在时不复活陈旧条目。
+        """更新驻留记录；话题已不存在时不复活陈旧条目。
 
-        retry 的失败窗口内话题可能已被 settle 删除，此时以 Store 为准清理
-        活跃记录，避免 idle/LRU 扫描空转或缺省 manual settle 寻址到死话题。
+        retry 的失败窗口内话题可能已被 settle 删除，此时以 Store 为准跳过
+        touch，避免 idle/LRU 扫描空转。
         """
         if self._store.get(belong_to, topic_id) is None:
-            self._forget_active_topic(belong_to, topic_id)
             return
         self._working_set.touch(belong_to, topic_id)
-        self._remember_active_topic(belong_to, topic_id)
-
-    def _remember_active_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
-        """记录 Workspace 最近活跃话题，供缺省 manual settle 寻址。"""
-        self._last_active_topic_ids[(belong_to.owner_user_id, belong_to.workspace_id)] = topic_id
-
-    def _forget_active_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
-        """话题生命周期结束时清理最近活跃记录。"""
-        scope_key = (belong_to.owner_user_id, belong_to.workspace_id)
-        if self._last_active_topic_ids.get(scope_key) == topic_id:
-            self._last_active_topic_ids.pop(scope_key, None)
 
 
 __all__ = ["PerceptionFamiliar"]
