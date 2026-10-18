@@ -16,6 +16,7 @@ from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
     TopicSettleResult,
 )
+from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.topics import router
 from hivememory.workspace.capability.root.topic import RootTopicService
 from tests.helpers.workspace import (
@@ -26,6 +27,7 @@ from tests.helpers.workspace import (
 
 def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=None):
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
 
     from hivememory.server import deps
@@ -163,7 +165,10 @@ class TestTopicsRouter:
         response = client.post("/api/v1/topics/t1/settle")
 
         assert response.status_code == 503
-        assert response.json() == {"detail": "结算材料暂未被生成队列接纳，话题内容已保留，可重试"}
+        assert response.json() == {
+            "error": "patchouli.topic.settle_rejected",
+            "detail": "结算材料暂未被生成队列接纳，话题内容已保留，可重试",
+        }
 
     def test_settle_topic_missing_returns_not_found(self):
         """不存在的 Topic 应在 HTTP 边界映射为 404。"""
@@ -181,7 +186,10 @@ class TestTopicsRouter:
         response = client.post("/api/v1/topics/missing/settle")
 
         assert response.status_code == 404
-        assert response.json() == {"detail": "话题不存在"}
+        assert response.json() == {
+            "error": "workspace.resource.not_found",
+            "detail": "资源不存在或不可访问",
+        }
 
     def test_settle_internal_key_error_returns_server_error(self):
         """handler 的 KeyError 表示程序缺陷，不能被 HTTP 入口伪装成话题不存在。"""
@@ -212,7 +220,10 @@ class TestTopicsRouter:
         response = client.post("/api/v1/topics/t1/settle")
 
         assert response.status_code == 409
-        assert response.json() == {"detail": "话题正在处理，请稍后重试"}
+        assert response.json() == {
+            "error": "patchouli.topic.busy",
+            "detail": "话题正在处理，请稍后重试",
+        }
 
     def test_delete_topic(self):
         librarian_core = MagicMock()
@@ -249,4 +260,7 @@ class TestTopicsRouter:
         response = client.delete("/api/v1/topics/t1")
 
         assert response.status_code == 409
-        assert response.json() == {"detail": "话题正在处理，请稍后重试"}
+        assert response.json() == {
+            "error": "patchouli.topic.busy",
+            "detail": "话题正在处理，请稍后重试",
+        }

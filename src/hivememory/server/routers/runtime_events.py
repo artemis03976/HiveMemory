@@ -9,13 +9,16 @@ from fastapi.responses import JSONResponse, StreamingResponse
 
 from hivememory.core.contracts.runtime_events import RuntimeEvent
 from hivememory.server.deps import get_system
+from hivememory.server.error_handlers import error_responses
 from hivememory.server.models.runtime_event import (
     RuntimeEventDisabledResponse,
     RuntimeEventResponse,
     RuntimeEventStatusResponse,
 )
 
-router = APIRouter(prefix="/runtime-events", tags=["runtime-events"])
+router = APIRouter(
+    responses=error_responses(422, 500), prefix="/runtime-events", tags=["runtime-events"]
+)
 
 
 def _format_sse(event: RuntimeEvent) -> str:
@@ -35,7 +38,7 @@ async def runtime_events_status(system=Depends(get_system)) -> RuntimeEventStatu
     )
 
 
-@router.get("/stream")
+@router.get("/stream", responses={503: {"model": RuntimeEventDisabledResponse}})
 async def stream_runtime_events(
     request: Request,
     last_event_id_query: str | None = Query(default=None, alias="last_event_id"),

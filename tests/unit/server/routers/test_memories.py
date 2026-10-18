@@ -27,6 +27,7 @@ from hivememory.core.models import (
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.server import deps
+from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.memories import router
 from hivememory.workspace.capability.root.memory import RootMemoryService
 from tests.helpers.memory import make_memory_metadata
@@ -35,11 +36,9 @@ from tests.helpers.workspace import make_server_access_overrides
 
 def _create_test_app(storage, lifecycle_engine=None):
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
     # 生产入口的未处理异常由全局处理器按 500 返回；测试 app 复用同一处理器。
-    from hivememory.server.app import global_exception_handler
-
-    app.add_exception_handler(Exception, global_exception_handler)
 
     bus = GlobalSystemBus()
     management = _MemoryManagementStub(storage, lifecycle_engine)
@@ -250,7 +249,10 @@ class TestMemoriesRouter:
         )
 
         assert response.status_code == 422
-        assert "title" in response.json()["detail"]
+        assert response.json() == {
+            "error": "memory.field.invalid",
+            "detail": "记忆字段不符合要求，请检查输入",
+        }
         storage.upsert_memory.assert_not_called()
 
     def test_create_memory_accepts_empty_summary(self):
@@ -284,7 +286,7 @@ class TestMemoriesRouter:
         )
 
         assert response.status_code == 422
-        assert "summary" in response.json()["detail"]
+        assert response.json()["error"] == "memory.field.invalid"
         storage.upsert_memory.assert_not_called()
 
     def test_create_memory_alias_conflict_returns_409(self):
@@ -308,7 +310,7 @@ class TestMemoriesRouter:
         )
 
         assert response.status_code == 409
-        assert "alias" in response.json()["detail"]
+        assert response.json()["error"] == "workspace.memory.alias_conflict"
 
     def test_update_memory_alias_conflict_returns_409(self):
         """编辑改绑到已占用 alias 时返回 409。"""
@@ -344,7 +346,10 @@ class TestMemoriesRouter:
         )
 
         assert response.status_code == 500
-        assert response.json()["detail"] == "storage unavailable"
+        assert response.json() == {
+            "error": "server.internal_error",
+            "detail": "服务器内部错误，请稍后再试",
+        }
 
     def test_list_memories_no_query(self):
         atom = _make_atom()
@@ -575,6 +580,8 @@ class TestRouterCapabilityContract:
         service.create_memory = AsyncMock(return_value=atom)
 
         app = FastAPI()
+
+        install_error_handlers(app)
         app.include_router(router, prefix="/api/v1")
         app.dependency_overrides[deps.get_root_memory_service] = lambda: service
         overrides, _ = make_server_access_overrides(users=["u1"])

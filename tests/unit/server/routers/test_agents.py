@@ -12,6 +12,7 @@ from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.errors import MemoryAliasConflictError
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.server import deps
+from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.agents import router
 from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
 from tests.helpers.workspace import make_server_access_overrides
@@ -19,6 +20,7 @@ from tests.helpers.workspace import make_server_access_overrides
 
 def _create_test_app(storage):
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
 
     bus = GlobalSystemBus()
@@ -84,7 +86,10 @@ def test_create_agent_rejects_blank_title_with_422():
     )
 
     assert response.status_code == 422
-    assert "title" in response.json()["detail"]
+    assert response.json() == {
+        "error": "memory.field.invalid",
+        "detail": "记忆字段不符合要求，请检查输入",
+    }
     storage.upsert_memory.assert_not_called()
 
 
@@ -111,6 +116,8 @@ def test_list_agents_passes_target_workspace_and_access():
     service.list_agent_profiles = AsyncMock(return_value=[])
 
     app = FastAPI()
+
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[deps.get_root_agent_service] = lambda: service
     overrides, _ = make_server_access_overrides(users=["u1"])

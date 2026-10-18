@@ -150,7 +150,7 @@ def memory_task_from_outcome(
             if expose_terminal and record.state == WorkState.SUCCEEDED
             else None
         ),
-        error=(outcome.error or "memory generation work failed") if failed else None,
+        error="记忆生成失败，请检查服务状态" if failed else None,
         started_at=record.started_at,
         finished_at=record.finished_at if expose_terminal else None,
         cancel_requested=cancel_reason is not None,

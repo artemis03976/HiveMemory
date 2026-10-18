@@ -41,6 +41,7 @@ from hivememory.patchouli.memory_library.stores import (
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from hivememory.server import deps
+from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.memory_tasks import router
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 from tests.helpers.workspace import make_server_access_overrides, make_workspace_identity
@@ -162,6 +163,7 @@ def task_api_stack(tmp_path) -> Iterator[_TaskApiStack]:
             access.gateway.revoke_all_contexts()
 
     app = FastAPI(lifespan=lifespan)
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides.update(overrides)
     app.dependency_overrides[deps.get_root_memory_task_service] = lambda: service
@@ -224,7 +226,10 @@ def test_http_foreign_task_is_hidden_without_cancelling_queue(
     assert listed.status_code == 200
     assert listed.json() == {"tasks": []}
     assert response.status_code == 404
-    assert response.json() == {"detail": "task not found"}
+    assert response.json() == {
+        "error": "workspace.resource.not_found",
+        "detail": "资源不存在或不可访问",
+    }
     current = stack.portal.call(stack.controller.get_task, task.task_id)
     assert current.status == MemoryGenerationTaskStatus.RUNNING
     assert current.cancel_requested is False
@@ -244,4 +249,7 @@ def test_http_missing_task_matches_foreign_task_not_found(
     )
 
     assert response.status_code == 404
-    assert response.json() == {"detail": "task not found"}
+    assert response.json() == {
+        "error": "workspace.resource.not_found",
+        "detail": "资源不存在或不可访问",
+    }

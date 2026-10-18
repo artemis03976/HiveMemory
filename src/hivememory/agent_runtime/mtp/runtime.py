@@ -12,23 +12,17 @@ from hivememory.agent_runtime.mtp.context import (
     MTPExecutionContext,
     MTPExecutionResult,
 )
-from hivememory.agent_runtime.mtp.error_mapping import storage_error_info
+from hivememory.agent_runtime.mtp.error_mapping import mtp_error_info
 from hivememory.agent_runtime.mtp.verbs.call import handle_call
 from hivememory.agent_runtime.mtp.verbs.read import handle_read
 from hivememory.agent_runtime.mtp.verbs.run import handle_run
 from hivememory.agent_runtime.mtp.verbs.search import handle_search
 from hivememory.agent_runtime.mtp.verbs.update import handle_update
 from hivememory.agent_runtime.mtp.verbs.write import handle_write
-from hivememory.core.errors import (
-    OperationDeniedError,
-    ResourceUnavailableError,
-    StorageOfflineError,
-    StorageReadError,
-    StorageWriteError,
-)
 from hivememory.core.mtp import (
     MTP_LEFT_DELIMITER,
     MTPCommand,
+    MTPErrorSeverity,
     MTPFilterParser,
     MTPFormatter,
     MTPParseError,
@@ -38,20 +32,11 @@ from hivememory.core.mtp import (
     MTPVerb,
 )
 from hivememory.core.mtp.exceptions import (
-    BusRouteUnavailableError,
     InvalidArgumentError,
-    MemoryIntentRejectedError,
-    MemoryIntentUnknownError,
-    MTPError,
     PermissionDeniedError,
-    SystemFault,
 )
 from hivememory.engines.memory_compiler import (
     MemoryCompiler,
-)
-from hivememory.workspace.contracts.errors import (
-    IntentDispatchRejectedError,
-    IntentDispatchUnknownError,
 )
 
 if TYPE_CHECKING:
@@ -202,7 +187,7 @@ class KoakumaRuntime:
             error_response = MTPResponse(
                 status=MTPResponseStatus.ERROR,
                 content="",
-                error=e.to_error_info(),
+                error=mtp_error_info(e),
                 execution_time_ms=elapsed,
             )
             formatted = self._formatter.format_response(error_response, language)
@@ -301,58 +286,19 @@ class KoakumaRuntime:
             self._check_verb_permission(command.verb.value, context=context)
             return await handler(command, context)
 
-        except (IntentDispatchRejectedError, IntentDispatchUnknownError) as error:
-            error_type = (
-                MemoryIntentRejectedError
-                if isinstance(error, IntentDispatchRejectedError)
-                else MemoryIntentUnknownError
+        except Exception as error:
+            # 取消是 BaseException，不进入协议错误回填；未知失败保留内部原因链。
+            info = mtp_error_info(
+                error,
+                verb=command.verb.value,
+                alias=command.target.single_alias or "",
+                can_read=context.execution_policy.allows("READ"),
             )
-            dispatch_error = error_type(params=error.details, cause=error)
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR, content="", error=dispatch_error.to_error_info()
-            )
-
-        except (StorageOfflineError, StorageReadError, StorageWriteError) as error:
-            logger.error("Storage failure during %s", command.verb, exc_info=True)
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR, content="", error=storage_error_info(error)
-            )
-
-        except ResourceUnavailableError as error:
-            unavailable = BusRouteUnavailableError(cause=error)
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR, content="", error=unavailable.to_error_info()
-            )
-
-        except OperationDeniedError as error:
-            denied = PermissionDeniedError(
-                message_key="mtp.permission.verb_denied",
-                params={"verb": command.verb.value},
-                cause=error,
-            )
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR, content="", error=denied.to_error_info()
-            )
-
-        except MTPError as e:
-            if isinstance(e, SystemFault):
-                logger.error(f"System fault during {command.verb}: {e}", exc_info=True)
+            if info.severity == MTPErrorSeverity.SYSTEM_FAULT:
+                logger.error("MTP execution failed: %s", info.code, exc_info=True)
             else:
-                logger.info(f"Agent fault during {command.verb}: {e}")
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content="",
-                error=e.to_error_info(),
-            )
-
-        except Exception as e:
-            logger.error(f"Unexpected error during {command.verb}: {e}", exc_info=True)
-            fault = SystemFault(cause=e)
-            return MTPResponse(
-                status=MTPResponseStatus.ERROR,
-                content="",
-                error=fault.to_error_info(),
-            )
+                logger.info("MTP request rejected: %s", info.code)
+            return MTPResponse(status=MTPResponseStatus.ERROR, content="", error=info)
 
 
 __all__ = ["KoakumaRuntime", "MTPExecutor"]

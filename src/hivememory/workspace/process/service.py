@@ -533,7 +533,10 @@ def _not_found(process_id: str, reason: str) -> CancelResult:
 def _stream_error(error: Exception) -> dict[str, Any]:
     """编排异常的 SSE 翻译：Workspace 领域错误携带安全文案，其余统一为系统错误。"""
     if isinstance(error, WorkspaceDomainError):
-        return {"event": "error", "data": {"message": str(error), "code": error.code}}
+        return {
+            "event": "error",
+            "data": {"message": "请求未能完成，请检查权限、资源和会话状态", "code": error.code},
+        }
     return {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
 
 

@@ -1,22 +1,28 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
-from hivememory.agent_runtime import FrameExecutionResult, FrameExecutionStatus, storage_error_info
+from hivememory.agent_runtime import FrameExecutionResult, FrameExecutionStatus, mtp_error_info
 from hivememory.core.errors import (
+    AdmissionDeniedError,
     ModelNotFoundError,
+    OperationDeniedError,
+    ResourceNotFoundError,
+    ResourceUnavailableError,
     StorageOfflineError,
     StorageReadError,
     StorageWriteError,
+    ThreadContextRevokedError,
 )
-from hivememory.core.mtp.exceptions import (
-    AgentModelUnavailableError,
-    MTPError,
-    SubAgentBudgetExhaustedError,
-    SubAgentExecutionError,
+from hivememory.core.mtp.exceptions import MTPError
+from hivememory.core.mtp.models import (
+    MTPCallResponse,
+    MTPErrorInfo,
+    MTPErrorSeverity,
+    MTPResponseStatus,
 )
-from hivememory.core.mtp.models import MTPCallResponse, MTPErrorInfo, MTPResponseStatus
+from hivememory.patchouli.contracts.errors import ProfileResolutionError
 
 if TYPE_CHECKING:
     from hivememory.core.models import AgentProfile
@@ -51,17 +57,93 @@ def error_response(agent_alias: str, error: MTPErrorInfo) -> MTPCallResponse:
     )
 
 
-def preparation_error_response(agent_alias: str, error: Exception) -> MTPCallResponse:
-    if isinstance(error, (StorageOfflineError, StorageReadError, StorageWriteError)):
-        return error_response(agent_alias, storage_error_info(error))
-    if isinstance(error, MTPError):
-        return error_response(agent_alias, error.to_error_info())
+def sub_agent_error_info(agent_alias: str, error: Exception | None = None) -> MTPErrorInfo:
+    """子帧失败只向调用方透露任务未完成，内部根因不参与模板参数。"""
+    return MTPErrorInfo(
+        code="mtp.call_response.sub_agent_error",
+        message_key="mtp.call_response.sub_agent_error",
+        severity=MTPErrorSeverity.SYSTEM_FAULT,
+        params={"agent_alias": agent_alias},
+        cause=str(error) if error is not None else None,
+    )
+
+
+def sub_agent_budget_exhausted_info(agent_alias: str) -> MTPErrorInfo:
+    """预算终态直接形成响应，不构造不会被抛出的异常。"""
+    return MTPErrorInfo(
+        code="mtp.call_response.budget_exhausted",
+        message_key="mtp.call_response.budget_exhausted",
+        severity=MTPErrorSeverity.SYSTEM_FAULT,
+        params={"agent_alias": agent_alias},
+    )
+
+
+def agent_model_unavailable_info(agent_alias: str, model_name: str) -> MTPErrorInfo:
+    """只公开配置中声明的模型名称，不包含 Provider 诊断或凭据。"""
+    return MTPErrorInfo(
+        code="mtp.system.service_unavailable",
+        message_key="mtp.call_response.model_unavailable",
+        severity=MTPErrorSeverity.SYSTEM_FAULT,
+        params={"agent_alias": agent_alias, "model_name": model_name},
+    )
+
+
+def preparation_error_response(
+    agent_alias: str,
+    error: Exception,
+    *,
+    stage: Literal["context", "frame"] = "frame",
+) -> MTPCallResponse:
+    """CALL 准备失败的唯一映射；上下文解析与子帧装配保留各自协议类别。"""
+    if isinstance(
+        error,
+        (
+            StorageOfflineError,
+            StorageReadError,
+            StorageWriteError,
+            ThreadContextRevokedError,
+            OperationDeniedError,
+            ResourceUnavailableError,
+            MTPError,
+        ),
+    ):
+        return error_response(agent_alias, mtp_error_info(error, verb="CALL"))
+    params = {"agent_alias": agent_alias}
+    code, key, severity = (
+        "mtp.system.fault",
+        "mtp.call.profile_load_failed",
+        MTPErrorSeverity.SYSTEM_FAULT,
+    )
+    if isinstance(error, AdmissionDeniedError):
+        code, key, severity = (
+            "mtp.permission.denied",
+            "mtp.call.agent_unavailable",
+            MTPErrorSeverity.AGENT_FAULT,
+        )
+    elif isinstance(error, ResourceNotFoundError):
+        code, key, severity = (
+            "mtp.alias.not_found",
+            "mtp.call.profile_not_found",
+            MTPErrorSeverity.AGENT_FAULT,
+        )
+    elif isinstance(error, ProfileResolutionError):
+        code, key = (
+            ("mtp.memory.type_mismatch", "mtp.call.profile_type_mismatch")
+            if error.details["reason"] == "type_mismatch"
+            else ("mtp.argument.invalid", "mtp.call.profile_invalid")
+        )
+        severity = MTPErrorSeverity.AGENT_FAULT
+    elif stage == "frame":
+        return error_response(agent_alias, sub_agent_error_info(agent_alias, error))
     return error_response(
         agent_alias,
-        SubAgentExecutionError(
-            params={"agent_alias": agent_alias},
-            cause=error,
-        ).to_error_info(),
+        MTPErrorInfo(
+            code=code,
+            message_key=key,
+            severity=severity,
+            params=params,
+            cause=str(error),
+        ),
     )
 
 
@@ -87,31 +169,22 @@ def response_for_frame_result(
         case FrameExecutionStatus.BUDGET_EXHAUSTED:
             return error_response(
                 agent_alias,
-                SubAgentBudgetExhaustedError(
-                    params={"agent_alias": agent_alias},
-                ).to_error_info(),
+                sub_agent_budget_exhausted_info(agent_alias),
             )
         case FrameExecutionStatus.FAILED:
+            if isinstance(result.error, ThreadContextRevokedError):
+                return error_response(agent_alias, mtp_error_info(result.error, verb="CALL"))
             if isinstance(result.error, ModelNotFoundError):
                 model_name = (generation_options or {}).get("model") or getattr(
                     profile, "model_name", "unknown"
                 )
                 return error_response(
                     agent_alias,
-                    AgentModelUnavailableError(
-                        params={
-                            "agent_alias": agent_alias,
-                            "model_name": model_name,
-                        },
-                        cause=result.error,
-                    ).to_error_info(),
+                    agent_model_unavailable_info(agent_alias, str(model_name)),
                 )
             return error_response(
                 agent_alias,
-                SubAgentExecutionError(
-                    params={"agent_alias": agent_alias},
-                    cause=result.error,
-                ).to_error_info(),
+                sub_agent_error_info(agent_alias, result.error),
             )
         case FrameExecutionStatus.SUSPENDED:
             raise ValueError("A suspended callee result cannot be mapped to a CALL response.")
@@ -120,6 +193,9 @@ def response_for_frame_result(
 
 
 __all__ = [
+    "agent_model_unavailable_info",
+    "sub_agent_budget_exhausted_info",
+    "sub_agent_error_info",
     "cancelled_response",
     "error_response",
     "preparation_error_response",

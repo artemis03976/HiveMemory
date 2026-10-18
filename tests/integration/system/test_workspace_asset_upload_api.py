@@ -17,14 +17,9 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.config.attachments import AttachmentParserConfig
-from hivememory.core.errors import (
-    AdmissionDeniedError,
-    OperationDeniedError,
-    ScopeRequiredError,
-    WorkspaceMismatchError,
-)
 from hivememory.core.models import WorkspaceAssetRef
 from hivememory.server import deps
+from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.workspace_assets import router
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.attachment_parsing import make_upload_service
@@ -95,12 +90,6 @@ def upload_stack():
     由该组合签发，授权按同一份访问登记判定（与生产装配一致）。测试应用另挂载生产访问错误处理器，验证
     准入拒绝的稳定 403 映射。
     """
-    from hivememory.server.app import (
-        admission_denied_handler,
-        operation_denied_handler,
-        scope_required_handler,
-        workspace_mismatch_handler,
-    )
 
     store = InMemoryWorkspaceAssetStore()
     overrides, composition = make_server_access_overrides(users=["user-1", "user-2"])
@@ -110,13 +99,11 @@ def upload_stack():
         access_composition=composition,
     )
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[deps.get_root_workspace_asset_service] = lambda: service
     app.dependency_overrides.update(overrides)
-    app.add_exception_handler(AdmissionDeniedError, admission_denied_handler)
-    app.add_exception_handler(OperationDeniedError, operation_denied_handler)
-    app.add_exception_handler(WorkspaceMismatchError, workspace_mismatch_handler)
-    app.add_exception_handler(ScopeRequiredError, scope_required_handler)
+
     return TestClient(app), store
 
 
@@ -362,6 +349,7 @@ def test_oversized_file_returns_413() -> None:
         access_composition=composition,
     )
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[deps.get_root_workspace_asset_service] = lambda: service
     app.dependency_overrides.update(overrides)

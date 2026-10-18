@@ -2,15 +2,13 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Depends, Query
 
 from hivememory.core.errors import (
-    InvalidMemoryFieldError,
-    MemoryAliasConflictError,
     ResourceNotFoundError,
-    ResourceUnavailableError,
 )
 from hivememory.server.deps import RequestAccess, get_request_access, get_root_memory_service
+from hivememory.server.error_handlers import APIError, error_responses
 from hivememory.server.models.memory import (
     MemoryCreateRequest,
     MemoryFeedbackRequest,
@@ -21,7 +19,7 @@ from hivememory.server.models.memory import (
 )
 from hivememory.workspace.capability.root.memory import RootMemoryService
 
-router = APIRouter(tags=["memories"])
+router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["memories"])
 
 
 @router.post("/memories", response_model=MemoryResponse, status_code=201)
@@ -31,22 +29,16 @@ async def create_memory(
     request_access: RequestAccess = Depends(get_request_access),
 ):
     """创建新的记忆（管理用例，actor 为保留 system）"""
-    try:
-        atom = await service.create_memory(
-            target_workspace=request_access.target_workspace,
-            title=body.title,
-            summary=body.summary,
-            content=body.content,
-            memory_type=body.memory_type,
-            tags=body.tags,
-            alias=body.alias,
-            access=request_access.access,
-        )
-    except InvalidMemoryFieldError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except MemoryAliasConflictError as exc:
-        # alias 在同一 Workspace 内已被占用：资源状态冲突，不是输入格式错误。
-        raise HTTPException(status_code=409, detail=str(exc))
+    atom = await service.create_memory(
+        target_workspace=request_access.target_workspace,
+        title=body.title,
+        summary=body.summary,
+        content=body.content,
+        memory_type=body.memory_type,
+        tags=body.tags,
+        alias=body.alias,
+        access=request_access.access,
+    )
     return MemoryResponse.from_atom(atom)
 
 
@@ -80,16 +72,13 @@ async def get_memory(
     try:
         uid = UUID(memory_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="无效的记忆 ID 格式")
+        raise APIError("request.invalid_memory_id")
 
-    try:
-        atom = await service.get_memory(
-            uid,
-            target_workspace=request_access.target_workspace,
-            access=request_access.access,
-        )
-    except ResourceNotFoundError:
-        raise HTTPException(status_code=404, detail="记忆不存在")
+    atom = await service.get_memory(
+        uid,
+        target_workspace=request_access.target_workspace,
+        access=request_access.access,
+    )
     return MemoryResponse.from_atom(atom)
 
 
@@ -104,26 +93,19 @@ async def update_memory(
     try:
         uid = UUID(memory_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="无效的记忆 ID 格式")
+        raise APIError("request.invalid_memory_id")
 
-    try:
-        atom = await service.update_memory(
-            uid,
-            target_workspace=request_access.target_workspace,
-            title=body.title,
-            summary=body.summary,
-            content=body.content,
-            alias=body.alias,
-            tags=body.tags,
-            agent_config=body.agent_config,
-            access=request_access.access,
-        )
-    except ResourceNotFoundError:
-        raise HTTPException(status_code=404, detail="记忆不存在")
-    except InvalidMemoryFieldError as exc:
-        raise HTTPException(status_code=422, detail=str(exc))
-    except MemoryAliasConflictError as exc:
-        raise HTTPException(status_code=409, detail=str(exc))
+    atom = await service.update_memory(
+        uid,
+        target_workspace=request_access.target_workspace,
+        title=body.title,
+        summary=body.summary,
+        content=body.content,
+        alias=body.alias,
+        tags=body.tags,
+        agent_config=body.agent_config,
+        access=request_access.access,
+    )
     return MemoryResponse.from_atom(atom)
 
 
@@ -138,20 +120,15 @@ async def record_memory_feedback(
     try:
         uid = UUID(memory_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="无效的记忆 ID 格式")
+        raise APIError("request.invalid_memory_id")
 
-    try:
-        result = await service.record_feedback(
-            uid,
-            target_workspace=request_access.target_workspace,
-            positive=body.positive,
-            source=body.source,
-            access=request_access.access,
-        )
-    except ResourceUnavailableError:
-        raise HTTPException(status_code=503, detail="Memory lifecycle engine is unavailable")
-    except ResourceNotFoundError as exc:
-        raise HTTPException(status_code=404, detail=str(exc))
+    result = await service.record_feedback(
+        uid,
+        target_workspace=request_access.target_workspace,
+        positive=body.positive,
+        source=body.source,
+        access=request_access.access,
+    )
 
     return MemoryFeedbackResponse(
         success=True,
@@ -179,7 +156,7 @@ async def delete_memory(
     try:
         uid = UUID(memory_id)
     except ValueError:
-        raise HTTPException(status_code=400, detail="无效的记忆 ID 格式")
+        raise APIError("request.invalid_memory_id")
 
     success = await service.delete_memory(
         uid,
@@ -187,6 +164,6 @@ async def delete_memory(
         access=request_access.access,
     )
     if not success:
-        raise HTTPException(status_code=404, detail="记忆不存在或删除失败")
+        raise ResourceNotFoundError()
 
     return {"success": True, "id": memory_id}

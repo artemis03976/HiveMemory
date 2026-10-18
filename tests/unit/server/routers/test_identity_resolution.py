@@ -12,7 +12,7 @@ from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.core.access import AccessRunType, WorkspaceAccessContext
@@ -25,6 +25,7 @@ from hivememory.server.deps import (
     resolve_request_identity_claims,
     resolve_request_identity_scope,
 )
+from hivememory.server.error_handlers import APIError, install_error_handlers
 from hivememory.server.routers.chat import router as chat_router
 from hivememory.server.routers.topics import router as topics_router
 from tests.helpers.workspace import (
@@ -97,7 +98,7 @@ class TestResolveRequestIdentityClaims:
         assert scope.workspace_identity.workspace_id == "main_workspace"
 
     def test_header_body_conflict_rejected(self):
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             resolve_request_identity_claims(
                 RequestIdentitySelection(user_id="header-user", workspace_id=None),
                 explicit_user_id="body-user",
@@ -105,7 +106,7 @@ class TestResolveRequestIdentityClaims:
         assert exc_info.value.status_code == 409
 
     def test_workspace_conflict_rejected(self):
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             resolve_request_identity_claims(
                 RequestIdentitySelection(user_id="u1", workspace_id="main_workspace"),
                 explicit_workspace_id="other_workspace",
@@ -113,7 +114,7 @@ class TestResolveRequestIdentityClaims:
         assert exc_info.value.status_code == 409
 
     def test_unknown_workspace_rejected(self):
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             resolve_request_identity_claims(
                 RequestIdentitySelection(user_id="u1", workspace_id="ghost_workspace"),
             )
@@ -128,7 +129,7 @@ class TestResolveRequestIdentityClaims:
         assert claims.actor.agent_id == "omni_doll"
 
     def test_agent_action_missing_agent_rejected(self):
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             resolve_request_identity_claims(
                 RequestIdentitySelection(user_id="u1", workspace_id=None),
                 require_agent=True,
@@ -137,7 +138,7 @@ class TestResolveRequestIdentityClaims:
         assert exc_info.value.status_code == 400
 
     def test_agent_action_blank_agent_rejected(self):
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             resolve_request_identity_claims(
                 RequestIdentitySelection(user_id="u1", workspace_id=None),
                 require_agent=True,
@@ -150,7 +151,7 @@ class TestResolveRequestIdentityClaims:
 
         注册入口保留同一检查（由 chat 路由测试覆盖）；此处钉住声明解析层的契约。
         """
-        with pytest.raises(HTTPException) as exc_info:
+        with pytest.raises(APIError) as exc_info:
             resolve_request_identity_claims(
                 RequestIdentitySelection(user_id="u1", workspace_id=None),
                 require_agent=True,
@@ -174,6 +175,7 @@ def _create_chat_app(mock_service, access=None):
     ``make_server_access_overrides()`` 都是新网关）。
     """
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(chat_router, prefix="/api/v1")
     app.dependency_overrides[deps.get_process_service] = lambda: mock_service
     # /chat 与 /chat/stop 经统一认证网关认证：覆盖注入真实组合的网关。
@@ -186,6 +188,7 @@ def _create_chat_app(mock_service, access=None):
 
 def _create_topics_app():
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(topics_router, prefix="/api/v1")
 
     app.dependency_overrides[deps.get_root_topic_service] = lambda: _TopicServiceStub()
@@ -388,6 +391,8 @@ class TestRequestAccessResolvedOncePerRequest:
         captured: list[SimpleNamespace] = []
 
         app = FastAPI()
+
+        install_error_handlers(app)
         app.include_router(topics_router, prefix="/api/v1")
 
         class AccessCapturingStub:

@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '@/services/apiError';
 import type { RegisteredProvider, ProviderUpsertPayload } from '@/types/provider';
 
 const BASE = '/api/v1';
@@ -5,7 +6,7 @@ const BASE = '/api/v1';
 /** 获取所有已配置的提供商（API 密钥已脱敏） */
 export async function fetchProviders(): Promise<RegisteredProvider[]> {
   const res = await fetch(`${BASE}/providers`);
-  if (!res.ok) throw new Error(`获取提供商列表失败: ${res.status}`);
+  if (!res.ok) throw new Error(await apiErrorMessage(res, '获取提供商列表失败'));
   return res.json();
 }
 
@@ -20,8 +21,7 @@ export async function upsertProvider(
     body: JSON.stringify(payload),
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail ?? `保存提供商失败: ${res.status}`);
+    throw new Error(await apiErrorMessage(res, '保存提供商失败'));
   }
   return res.json();
 }
@@ -32,7 +32,6 @@ export async function deleteProvider(name: string): Promise<void> {
     method: 'DELETE',
   });
   if (!res.ok) {
-    const err = await res.json().catch(() => ({}));
-    throw new Error(err.detail ?? `删除提供商失败: ${res.status}`);
+    throw new Error(await apiErrorMessage(res, '删除提供商失败'));
   }
 }

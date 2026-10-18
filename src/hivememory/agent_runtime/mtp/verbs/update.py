@@ -5,21 +5,18 @@ from __future__ import annotations
 import logging
 
 from hivememory.agent_runtime.mtp.context import MTPExecutionContext
-from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.mtp import (
     MTPCommand,
     MTPResponse,
     MTPResponseStatus,
 )
 from hivememory.core.mtp.exceptions import (
-    AliasNotFoundError,
     InvalidArgumentError,
 )
 from hivememory.i18n.mtp_runtime import get_mtp_info_text
 from hivememory.workspace.contracts import (
     SubmitUpdateIntentRequest,
 )
-from hivememory.workspace.contracts.errors import PendingUpdateNotAllowedError
 
 logger = logging.getLogger(__name__)
 
@@ -51,25 +48,13 @@ async def handle_update(
         raise InvalidArgumentError(message_key="mtp.update.missing_instruction")
 
     # 能力层在操作授权后解析可信基线，并负责登记成功后的缓存失效。
-    try:
-        pending = await context.submit_operation(
-            SubmitUpdateIntentRequest(
-                base_alias=alias,
-                instruction=instruction,
-                content=command.args.get("content"),
-            )
+    pending = await context.submit_operation(
+        SubmitUpdateIntentRequest(
+            base_alias=alias,
+            instruction=instruction,
+            content=command.args.get("content"),
         )
-    except PendingUpdateNotAllowedError as error:
-        raise InvalidArgumentError(
-            message_key="mtp.update.pending_not_updatable",
-            params={"alias": alias},
-        ) from error
-    except ResourceNotFoundError as error:
-        # 能力层把不可见与不存在合并为 not_found，UPDATE 不区分两者。
-        raise AliasNotFoundError(
-            message_key="mtp.update.alias_not_found",
-            params={"alias": alias},
-        ) from error
+    )
 
     logger.info(
         f"MTP UPDATE admitted: alias='{alias}', " f"pending_alias='{pending.pending_alias}'"

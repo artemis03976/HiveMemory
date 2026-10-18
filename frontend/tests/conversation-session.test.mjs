@@ -38,7 +38,7 @@ test('恢复历史保留顺序、Agent、话题、中断标记和未完成 CALL'
 
 test('后端重启后的 404 清空失效选择，并刷新会话列表', async () => {
   reset({ currentSessionId: 'gone' });
-  globalThis.fetch = async url => new Response(JSON.stringify(url.endsWith('/gone') ? { message: '不存在' } : []), { status: url.endsWith('/gone') ? 404 : 200 });
+  globalThis.fetch = async url => new Response(JSON.stringify(url.endsWith('/gone') ? { error: 'workspace.session.not_found', detail: '会话不存在' } : []), { status: url.endsWith('/gone') ? 404 : 200 });
   await useChatStore.getState().selectSession('gone');
   assert.equal(useChatStore.getState().currentSessionId, null);
   assert.deepEqual(useChatStore.getState().messages, []);

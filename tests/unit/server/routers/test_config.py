@@ -7,11 +7,13 @@ from fastapi.testclient import TestClient
 import hivememory.server.routers.config as config_router_module
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.server import deps
+from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.config import router
 
 
 def _create_test_app(mock_system):
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[deps.get_system] = lambda: mock_system
     return app
@@ -25,7 +27,7 @@ def test_update_config_persists_to_local_file(tmp_path, monkeypatch):
     mock_system.config = old_config
 
     app = _create_test_app(mock_system)
-    client = TestClient(app)
+    client = TestClient(app, raise_server_exceptions=False)
 
     payload = old_config.model_dump(mode="json")
     payload["system"]["debug"] = not payload["system"]["debug"]
@@ -53,12 +55,23 @@ def test_update_config_validation_error_does_not_persist(tmp_path, monkeypatch):
     mock_system.config = old_config
 
     app = _create_test_app(mock_system)
-    client = TestClient(app)
+    client = TestClient(app, raise_server_exceptions=False)
 
     response = client.post(
         "/api/v1/config", json={"patchouli": {"storage": {"port": "invalid-port"}}}
     )
     assert response.status_code == 400
+    assert response.json() == {
+        "error": "request.validation_failed",
+        "detail": "配置输入不符合要求",
+        "issues": [
+            {
+                "loc": ["patchouli", "storage", "port"],
+                "type": "int_parsing",
+                "message": "应提供整数",
+            }
+        ],
+    }
     assert mock_system.config is old_config
     with open(config_path, encoding="utf-8") as f:
         persisted = yaml.safe_load(f)
@@ -78,11 +91,15 @@ def test_update_config_write_failure_keeps_runtime_config(tmp_path, monkeypatch)
     monkeypatch.setattr(config_router_module.os, "replace", _raise_replace)
 
     app = _create_test_app(mock_system)
-    client = TestClient(app)
+    client = TestClient(app, raise_server_exceptions=False)
 
     payload = old_config.model_dump(mode="json")
     payload["system"]["debug"] = not payload["system"]["debug"]
 
     response = client.post("/api/v1/config", json=payload)
     assert response.status_code == 500
+    assert response.json() == {
+        "error": "server.internal_error",
+        "detail": "服务器内部错误，请稍后再试",
+    }
     assert mock_system.config is old_config

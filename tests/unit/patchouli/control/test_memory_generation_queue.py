@@ -434,7 +434,7 @@ async def test_non_retryable_failure_fails_once() -> None:
         await controller.stop()
 
     assert result.status == MemoryGenerationTaskStatus.FAILED
-    assert result.error == "invalid generation spec"
+    assert result.error == "记忆生成失败，请检查服务状态"
     assert bus.request.await_count == 1
 
 
@@ -461,7 +461,7 @@ async def test_timeout_fails_without_retry() -> None:
         await controller.stop()
 
     assert result.status == MemoryGenerationTaskStatus.FAILED
-    assert result.error == "TimeoutError"
+    assert result.error == "记忆生成失败，请检查服务状态"
     assert record is not None
     assert record.state == WorkState.FAILED
     assert bus.request.await_count == 1

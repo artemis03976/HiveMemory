@@ -1,3 +1,4 @@
+import { apiErrorMessage } from '@/services/apiError';
 import { identityHeaders } from '@/services/identity';
 import type { AgentData } from '@/types';
 
@@ -26,7 +27,7 @@ export async function createAgent(agent: AgentData) {
     },
     body: JSON.stringify(toPayload(agent)),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await apiErrorMessage(res, 'Agent 操作失败'));
   return res.json();
 }
 
@@ -39,7 +40,7 @@ export async function saveAgent(agent: AgentData) {
     },
     body: JSON.stringify(toPayload(agent)),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await apiErrorMessage(res, 'Agent 操作失败'));
 }
 
 export async function deleteAgent(agentId: string) {
@@ -47,5 +48,5 @@ export async function deleteAgent(agentId: string) {
     method: 'DELETE',
     headers: identityHeaders(),
   });
-  if (!res.ok) throw new Error(await res.text());
+  if (!res.ok) throw new Error(await apiErrorMessage(res, 'Agent 操作失败'));
 }

@@ -7,6 +7,7 @@ from unittest.mock import AsyncMock, MagicMock
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.ingest import router
 
 SOURCE = "claude_code"
@@ -15,6 +16,7 @@ CONVERSATION = "sess-1"
 
 def _create_test_app(mock_service):
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
 
     from hivememory.server import deps

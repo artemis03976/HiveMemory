@@ -6,7 +6,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from uuid import uuid4
 
-from fastapi import Depends, Header, HTTPException, status
+from fastapi import Depends, Header
 
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.access import CallerPrincipal, RunBinding, WorkspaceAccessContext
@@ -15,6 +15,7 @@ from hivememory.core.models import ActorIdentity, IdentityScope, WorkspaceIdenti
 from hivememory.core.models.workspace import MAIN_WORKSPACE_ID, resolve_default_workspace_identity
 from hivememory.infrastructure.log_handler import WebSocketLogHandler
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
+from hivememory.server.error_handlers import APIError
 from hivememory.system import HiveMemorySystem
 from hivememory.system.application.passive_ingress_service import PassiveIngressService
 from hivememory.system.model_registry import ModelRegistry
@@ -141,19 +142,10 @@ def _merge_identity_field(
     header = header_value.strip() if header_value else None
     explicit = explicit_value.strip() if explicit_value else None
     if header is not None and explicit is not None and header != explicit:
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail=(
-                f"身份选择冲突：header 与请求参数提供了不一致的 {field_name}，"
-                "请在同一请求中只表达一种选择"
-            ),
-        )
+        raise APIError("request.identity_conflict")
     value = explicit if explicit is not None else header
     if value is not None and not value:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"身份字段 {field_name} 不能为空",
-        )
+        raise APIError("request.identity_empty")
     return value
 
 
@@ -196,19 +188,11 @@ def _resolve_identity_coordinates(
         field_name="workspace_id",
     )
     if workspace_id is not None and workspace_id != MAIN_WORKSPACE_ID:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail=(
-                f"Workspace '{workspace_id}' 不存在：公共入口当前只开放 " f"'{MAIN_WORKSPACE_ID}'"
-            ),
-        )
+        raise APIError("request.workspace_not_found")
     if require_agent:
         concrete_agent_id = (agent_id or "").strip() if agent_id else None
         if not concrete_agent_id:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="该操作由具体 Agent 执行，必须显式提供 agent_id",
-            )
+            raise APIError("request.agent_required")
         resolved_agent_id = concrete_agent_id
     else:
         # 非 Agent action：actor 只表达"没有具体 Agent 作为操作来源主体"，
@@ -256,10 +240,7 @@ def resolve_request_identity_claims(
         explicit_workspace_id=explicit_workspace_id,
     )
     if require_agent and resolved_agent_id == SYSTEM_AGENT_ID:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="该操作由具体 Agent 执行，不能使用保留的 system 作为 agent_id",
-        )
+        raise APIError("request.agent_reserved")
     return RequestIdentityClaims(
         actor=ActorIdentity(
             user_id=user_id,

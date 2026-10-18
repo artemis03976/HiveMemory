@@ -5,33 +5,26 @@
 上传用例由应用服务编排，输入校验与解析交给附件服务。
 """
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response, status
+from fastapi import APIRouter, Depends, Header, Request, Response, status
 from starlette.datastructures import UploadFile
+from starlette.exceptions import HTTPException
 from starlette.formparsers import MultiPartException
 
-from hivememory.core.errors import (
-    AssetNotFoundError,
-    AssetOperationConflictError,
-    AssetRemovedError,
-    StaleAssetResultError,
-)
-from hivememory.infrastructure.attachments import UnsupportedAttachmentFormatError
-from hivememory.infrastructure.attachments.errors import (
-    AttachmentTooLargeError,
-    EmptyAttachmentError,
-    InvalidAttachmentNameError,
-)
 from hivememory.server.deps import (
     RequestAccess,
     get_request_access,
     get_root_workspace_asset_service,
 )
+from hivememory.server.error_handlers import APIError, error_responses
 from hivememory.server.models.workspace_asset import WorkspaceAssetUploadResponse
 from hivememory.workspace.capability.root.assets import (
     RootWorkspaceAssetService,
 )
 
-router = APIRouter(tags=["workspace-assets"])
+router = APIRouter(
+    responses=error_responses(400, 403, 404, 409, 410, 413, 415, 422, 500, 503),
+    tags=["workspace-assets"],
+)
 
 #: operation identity 的长度上限；与 Store 的幂等索引键长度约束一致。
 _MAX_OPERATION_ID_LENGTH = 200
@@ -51,38 +44,28 @@ async def _parse_upload_form(request: Request) -> list[UploadFile]:
     try:
         form = await request.form(max_files=_MAX_FORM_PARTS, max_fields=_MAX_FORM_PARTS)
     except MultiPartException as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=f"multipart 表单解析失败：{exc}",
-        ) from exc
+        raise APIError("request.multipart_invalid") from exc
+    except HTTPException as exc:
+        # Request 已把表单解析失败翻译为 HTTP 400；此处仍使用具名传输类别。
+        if exc.status_code != 400:
+            raise
+        raise APIError("request.multipart_invalid") from exc
 
     file_parts = form.getlist("file")
     uploads = [part for part in file_parts if isinstance(part, UploadFile)]
     extra_fields = sorted({key for key in form.keys() if key != "file"})
     try:
         if not file_parts:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="缺少 file 文件字段",
-            )
+            raise APIError("request.file_required")
         if len(file_parts) > 1:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="一个上传请求只能包含一个 file 文件部分，多文件请逐个上传",
-            )
+            raise APIError("request.single_file_required")
         if extra_fields:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"上传请求包含未知的业务字段：{', '.join(extra_fields)}",
-            )
+            raise APIError("request.upload_fields_invalid")
         if not uploads:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="file 字段必须携带文件内容",
-            )
+            raise APIError("request.file_content_required")
     except Exception:
-        for upload in uploads:
-            await upload.close()
+        # 未知字段也可能是文件；关闭整个表单才能释放全部临时文件。
+        await form.close()
         raise
     return uploads
 
@@ -105,15 +88,9 @@ async def upload_workspace_asset(
     """
     operation_id = idempotency_key.strip() if idempotency_key else ""
     if not operation_id:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="缺少 Idempotency-Key 请求头；同一文件重试必须沿用同一取值",
-        )
+        raise APIError("request.idempotency_key_required")
     if len(operation_id) > _MAX_OPERATION_ID_LENGTH:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Idempotency-Key 过长",
-        )
+        raise APIError("request.idempotency_key_too_long")
 
     uploads = await _parse_upload_form(request)
     try:
@@ -126,52 +103,6 @@ async def upload_workspace_asset(
             client_operation_id=operation_id,
             access=request_access.access,
         )
-    except EmptyAttachmentError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=exc.message,
-        ) from exc
-    except InvalidAttachmentNameError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail=exc.message,
-        ) from exc
-    except AttachmentTooLargeError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_413_CONTENT_TOO_LARGE,
-            detail=exc.message,
-        ) from exc
-    except UnsupportedAttachmentFormatError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_415_UNSUPPORTED_MEDIA_TYPE,
-            detail=exc.args[0],
-        ) from exc
-    except AssetRemovedError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_410_GONE,
-            detail="原上传操作对应的资产已被移除，请重新上传",
-        ) from exc
-    except StaleAssetResultError as exc:
-        # complete/fail 与 remove 等竞态中已有有效提交决定终态；结束本次请求。
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="上传结果提交冲突，请重新上传",
-        ) from exc
-    except AssetNotFoundError as exc:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="附件不存在或已失效",
-        ) from exc
-    except AssetOperationConflictError as exc:
-        if exc.details.get("reason") == "store_closed":
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="附件存储当前不可用，请稍后重试",
-            ) from exc
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="同一 Idempotency-Key 携带了不一致的文件内容或元数据",
-        ) from exc
     finally:
         # 所有路径（含成功与拒绝）都关闭上传流及框架临时文件。
         for upload in uploads:

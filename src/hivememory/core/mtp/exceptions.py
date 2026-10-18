@@ -6,7 +6,7 @@ MTP 异常定义。
     每个异常应具备:
         - 稳定的 code (dotted-path)
         - message_key (i18n 文本 key)
-        - 归因严重度（AGENT_FAULT 可重试 / SYSTEM_FAULT 不可重试）
+        - 归因严重度（调用请求问题或系统故障）；是否重试由具体操作和文案说明
 """
 
 from typing import Any
@@ -112,20 +112,6 @@ class SystemFault(MTPError):  # noqa: N818 -- MTP 契约术语
     severity = MTPErrorSeverity.SYSTEM_FAULT
 
 
-class MemoryIntentRejectedError(AgentFault):
-    """本次写入未被接纳，Agent 可根据原因调整请求或稍后重试。"""
-
-    code = "mtp.memory.intent_rejected"
-    default_message_key = "mtp.memory.intent_rejected"
-
-
-class MemoryIntentUnknownError(SystemFault):
-    """写入结果未知，盲目重试可能重复生成，优先回读句柄。"""
-
-    code = "mtp.memory.intent_unknown"
-    default_message_key = "mtp.memory.intent_unknown"
-
-
 class BusRouteUnavailableError(SystemFault):
     """内部总线路由缺失。"""
 
@@ -170,27 +156,6 @@ class SyscallUnavailableError(SystemFault):
     code = "mtp.syscall.unavailable"
 
 
-class SubAgentExecutionError(SystemFault):
-    """CALL 子代理执行异常。"""
-
-    code = "mtp.call_response.sub_agent_error"
-    default_message_key = "mtp.call_response.sub_agent_error"
-
-
-class SubAgentBudgetExhaustedError(SystemFault):
-    """CALL 子代理耗尽循环预算但未自然收敛。"""
-
-    code = "mtp.call_response.budget_exhausted"
-    default_message_key = "mtp.call_response.budget_exhausted"
-
-
-class AgentModelUnavailableError(SystemFault):
-    """CALL 目标 Profile 引用的模型当前不可用。"""
-
-    code = "mtp.system.service_unavailable"
-    default_message_key = "mtp.call_response.model_unavailable"
-
-
 __all__ = [
     "MTPError",
     "AgentFault",
@@ -200,8 +165,6 @@ __all__ = [
     "MemoryTypeMismatchError",
     "InvalidArgumentError",
     "PermissionDeniedError",
-    "MemoryIntentRejectedError",
-    "MemoryIntentUnknownError",
     "BusRouteUnavailableError",
     "SyscallInternalError",
     "SyscallInvalidArgumentError",
@@ -209,7 +172,4 @@ __all__ = [
     "SyscallExecutionError",
     "SyscallTimeoutError",
     "SyscallUnavailableError",
-    "SubAgentExecutionError",
-    "SubAgentBudgetExhaustedError",
-    "AgentModelUnavailableError",
 ]

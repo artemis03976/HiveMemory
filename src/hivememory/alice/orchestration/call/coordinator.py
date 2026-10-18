@@ -26,7 +26,7 @@ from hivememory.alice.orchestration.output import (
 from hivememory.alice.orchestration.verbs import mtp_verbs_for_operations
 from hivememory.config.alice import KoakumaConfig
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
-from hivememory.core.mtp.exceptions import MTPError, SystemFault
+from hivememory.core.mtp.models import MTPErrorSeverity
 from hivememory.i18n import resolve_language
 from hivememory.prompts.compilation import render_persona
 from hivememory.prompts.mtp import render_mtp_teaching
@@ -136,29 +136,16 @@ class CallCoordinator:
                 caller_frame,
                 call_request,
             )
-        except MTPError as error:
-            if isinstance(error, SystemFault):
-                logger.error(
-                    "CALL context preparation failed for %r: %s",
-                    call_request.target_alias,
-                    error.code,
-                    exc_info=True,
-                )
-            else:
-                logger.warning(
-                    "CALL target resolution rejected for %r: %s",
-                    call_request.target_alias,
-                    error.code,
-                )
-            return preparation_error_response(call_request.target_alias, error)
         except Exception as error:
-            logger.error(
-                "CALL context preparation failed for %r: %s",
-                call_request.target_alias,
-                error,
-                exc_info=True,
-            )
-            return preparation_error_response(call_request.target_alias, error)
+            response = preparation_error_response(call_request.target_alias, error, stage="context")
+            if (
+                response.error is not None
+                and response.error.severity == MTPErrorSeverity.AGENT_FAULT
+            ):
+                logger.warning("CALL target resolution rejected: %s", response.error.code)
+            else:
+                logger.error("CALL context preparation failed", exc_info=True)
+            return response
 
         try:
             callee = call_context.callee

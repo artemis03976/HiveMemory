@@ -19,6 +19,7 @@ from fastapi.testclient import TestClient
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models.model_definition import ModelDefinition
 from hivememory.server import deps
+from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.models.model_registry import ModelUpdateRequest
 from hivememory.server.routers.models import router
 from hivememory.system.model_registry import DuplicateModelIdError
@@ -30,6 +31,7 @@ from hivememory.system.model_registry import DuplicateModelIdError
 
 def _create_app(registry: MagicMock) -> TestClient:
     app = FastAPI()
+    install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[deps.get_model_registry] = lambda: registry
     return TestClient(app)

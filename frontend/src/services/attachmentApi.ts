@@ -7,6 +7,7 @@
  *
  * 注意：不手工设置 multipart 的 Content-Type，由浏览器生成 boundary。
  */
+import { apiErrorMessage } from '@/services/apiError';
 
 import { identityHeaders } from '@/services/identity';
 import type {
@@ -52,7 +53,7 @@ function friendlyStatusMessage(status: number): string {
     case 503:
       return '附件存储当前不可用，请稍后重试';
     default:
-      return `上传失败 (${status})`;
+      return '上传失败';
   }
 }
 
@@ -84,14 +85,9 @@ export async function uploadAttachment(
   }
 
   if (!res.ok) {
-    let detail = '';
-    try {
-      const body = (await res.json()) as { detail?: string };
-      detail = typeof body.detail === 'string' ? body.detail : '';
-    } catch {
-      // 非 JSON 错误响应时回退到状态码文案
-    }
-    throw new AttachmentApiError(detail || friendlyStatusMessage(res.status), res.status);
+    throw new AttachmentApiError(
+      await apiErrorMessage(res, friendlyStatusMessage(res.status)), res.status,
+    );
   }
 
   return (await res.json()) as ApiAttachmentUploadResponse;

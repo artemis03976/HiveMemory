@@ -4,31 +4,13 @@ import logging
 from dataclasses import dataclass
 
 from hivememory.agent_runtime import ExecutionFrame
-from hivememory.core.errors import (
-    AdmissionDeniedError,
-    OperationDeniedError,
-    ResourceNotFoundError,
-    ResourceUnavailableError,
-    StorageOfflineError,
-    StorageReadError,
-    StorageWriteError,
-)
+from hivememory.core.errors import ThreadContextRevokedError
 from hivememory.core.mtp import MTPCallRequest
-from hivememory.core.mtp.exceptions import (
-    AliasNotFoundError,
-    BusRouteUnavailableError,
-    InvalidArgumentError,
-    MemoryTypeMismatchError,
-    MTPError,
-    PermissionDeniedError,
-    SystemFault,
-)
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
     MemoryCompiler,
     MemoryEnvelopeTarget,
 )
-from hivememory.patchouli.contracts.errors import ProfileResolutionError
 from hivememory.workspace.contracts import (
     Callee,
     DeriveCallThreadRequest,
@@ -57,57 +39,12 @@ class CallContextProvider:
         """经调用方提交函数派生子线程，再以调用方权限编译共享上下文。
 
         内置 Profile 同样提交 CALL 目标请求，不能绕过 ``agent.call`` 授权；
-        context_refs 另提交 READ 请求，仍需要 ``memory.read``。Alice 只保留
-        MTP 错误映射，不持有另一份 Profile 缓存。
+        context_refs 另提交 READ 请求，仍需要 ``memory.read``。错误交给 CALL 响应边界统一呈现，
+        此处不持有另一份 Profile 缓存。
         """
-        try:
-            callee = await caller_frame.submit_operation.derive_call_thread(
-                DeriveCallThreadRequest(agent_alias=request.target_alias)
-            )
-        except OperationDeniedError as error:
-            raise PermissionDeniedError(
-                message_key="mtp.permission.verb_denied",
-                params={"verb": "CALL"},
-                cause=error,
-            ) from error
-        except AdmissionDeniedError as error:
-            # 调用方有 CALL 许可；目标没有本 Workspace 的准入，对模型表现为该 agent 不可用。
-            raise PermissionDeniedError(
-                message_key="mtp.call.agent_unavailable",
-                params={"agent_alias": request.target_alias},
-                cause=error,
-            ) from error
-        except ResourceUnavailableError as error:
-            raise BusRouteUnavailableError(cause=error) from error
-        except ResourceNotFoundError as error:
-            raise AliasNotFoundError(
-                message_key="mtp.call.profile_not_found",
-                params={"agent_alias": request.target_alias},
-                cause=error,
-            ) from error
-        except ProfileResolutionError as error:
-            if error.details["reason"] == "type_mismatch":
-                raise MemoryTypeMismatchError(
-                    message_key="mtp.call.profile_type_mismatch",
-                    params={"agent_alias": request.target_alias},
-                    cause=error,
-                ) from error
-            raise InvalidArgumentError(
-                message_key="mtp.call.profile_invalid",
-                params={"agent_alias": request.target_alias},
-                cause=error,
-            ) from error
-        except (StorageOfflineError, StorageReadError, StorageWriteError):
-            # 存储原因交给 CALL 响应边界投影，不能改成通用 Profile 加载失败。
-            raise
-        except MTPError:
-            raise
-        except Exception as error:
-            raise SystemFault(
-                message_key="mtp.call.profile_load_failed",
-                params={"agent_alias": request.target_alias},
-                cause=error,
-            ) from error
+        callee = await caller_frame.submit_operation.derive_call_thread(
+            DeriveCallThreadRequest(agent_alias=request.target_alias)
+        )
         shared_context = await self._resolve_shared_context(
             aliases=request.context_refs,
             caller_frame=caller_frame,
@@ -136,6 +73,9 @@ class CallContextProvider:
                 resolved = (
                     await caller_frame.submit_operation(ResolveReferencesRequest((alias,)))
                 )[0]
+            except ThreadContextRevokedError:
+                # 线程结束不是单条引用缺失，必须交给 CALL 出口提示停止操作。
+                raise
             except Exception as error:
                 logger.warning("Failed to resolve context_ref %s: %s", alias, error)
                 continue

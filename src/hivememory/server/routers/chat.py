@@ -22,11 +22,12 @@ from hivememory.server.deps import (
     request_access_for_claims,
     resolve_request_identity_claims,
 )
+from hivememory.server.error_handlers import error_responses
 from hivememory.server.models.chat import ChatRequest, StopChatRequest
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.process.service import TaskProcessService
 
-router = APIRouter(tags=["chat"])
+router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["chat"])
 logger = logging.getLogger(__name__)
 
 

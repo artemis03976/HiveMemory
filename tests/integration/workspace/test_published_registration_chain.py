@@ -53,10 +53,7 @@ from hivememory.core.access import (
 from hivememory.core.constants import DEFAULT_USER_ID
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import (
-    AdmissionDeniedError,
     OperationDeniedError,
-    ScopeRequiredError,
-    WorkspaceMismatchError,
 )
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -84,13 +81,8 @@ from hivememory.patchouli.contracts.memory_tasks import (
 )
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.server import deps
-from hivememory.server.app import (
-    admission_denied_handler,
-    operation_denied_handler,
-    scope_required_handler,
-    workspace_mismatch_handler,
-)
 from hivememory.server.deps import RequestIdentitySelection
+from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.models.chat import StopChatRequest
 from hivememory.server.routers import chat as chat_router_module
 from hivememory.server.routers.chat import router as chat_router
@@ -323,15 +315,12 @@ async def published_stack():
     )
 
     app = FastAPI()
+    # 生产访问错误映射：认证/授权拒绝在这里转为稳定 HTTP 状态。
+    install_error_handlers(app)
     app.include_router(memories_router, prefix="/api/v1")
     app.include_router(topics_router, prefix="/api/v1")
     app.include_router(memory_tasks_router, prefix="/api/v1")
     app.include_router(chat_router, prefix="/api/v1")
-    # 生产访问错误映射：认证/授权拒绝在这里转为稳定 HTTP 状态。
-    app.add_exception_handler(AdmissionDeniedError, admission_denied_handler)
-    app.add_exception_handler(OperationDeniedError, operation_denied_handler)
-    app.add_exception_handler(WorkspaceMismatchError, workspace_mismatch_handler)
-    app.add_exception_handler(ScopeRequiredError, scope_required_handler)
     # server 依赖只覆盖访问侧：网关、server principal 与四个能力/编排服务；
     # 管理路由的请求级 context 由真实 get_request_access 依赖经网关取得。
     app.dependency_overrides[deps.get_access_gateway] = lambda: registration.gateway

@@ -251,7 +251,7 @@ class TestMemoryGenerationTaskController:
         failed = await controller.get_task(memory_task.task_id)
 
         assert failed.status == MemoryGenerationTaskStatus.FAILED
-        assert "generation error" in failed.error
+        assert failed.error == "记忆生成失败，请检查服务状态"
 
     @pytest.mark.asyncio
     async def test_active_success_publishes_settlement_and_runtime_events(self):

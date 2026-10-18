@@ -81,7 +81,8 @@ class TestSyscallViaMTP:
         result = simulate_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="1/0"')
         assert result.success is False
         assert result.response_content == ""
-        assert "runtime errors" in result.formatted_response.lower()
+        assert "请检查代码中的运行时错误" in result.formatted_response
+        assert "division by zero" not in result.formatted_response
 
     def test_repl_no_output_via_mtp(self, koakuma):
         result = simulate_loop_single(koakuma, '⟪ RUN | sys_python_repl | code="x = 42"')
