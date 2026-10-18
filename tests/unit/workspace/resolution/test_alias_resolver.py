@@ -435,8 +435,10 @@ async def test_reference_results_cover_terminal_states_and_canonical_atom():
             resolution=PendingAtomResolution.DISCARDED,
         )
     )
-    await resolver.intents.on_failed(pending_alias=failed.pending_alias)
-    await resolver.intents.on_cancelled(pending_alias=cancelled.pending_alias)
+    await resolver.intents.on_failed(pending_alias=failed.pending_alias, intent_id=failed.intent_id)
+    await resolver.intents.on_cancelled(
+        pending_alias=cancelled.pending_alias, intent_id=cancelled.intent_id
+    )
 
     results = await resolver.resolve_references(
         [discarded.pending_alias, failed.pending_alias, cancelled.pending_alias, "canonical"],

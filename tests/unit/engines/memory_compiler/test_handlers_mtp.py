@@ -46,7 +46,7 @@ def test_compile_mtp_read_renders_pending_update():
     unit = MemoryUnitIR(
         identity=MemoryIdentityIR(source_kind="pending", alias="rev_1"),
         content=MemoryContentIR(instruction="Revise title", content="Updated content"),
-        status=MemoryStatusIR(source_state="pending", source_verb="UPDATE"),
+        status=MemoryStatusIR(source_state="materializing", source_verb="UPDATE"),
         metadata={"base_alias": "fact_api"},
     )
 
@@ -85,7 +85,7 @@ def test_compile_mtp_read_rejects_unknown_source_kind():
     unit = MemoryUnitIR(
         identity=MemoryIdentityIR(source_kind="pending", alias="draft_1"),
         content=MemoryContentIR(),
-        status=MemoryStatusIR(source_state="pending", source_verb=None),
+        status=MemoryStatusIR(source_state="materializing", source_verb=None),
     )
     unit.identity.source_kind = "unknown"
 

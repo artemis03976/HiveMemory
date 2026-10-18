@@ -1,6 +1,6 @@
 """WorkspaceAsset 进程内工作集的只读领域模型。
 
-本模块只描述 System-owned AssetStore 对外返回的稳定快照。资产内容、引用和
+本模块只描述 workspace 拥有的 AssetStore 对外返回的稳定快照。资产内容、引用和
 lease 均只在当前 Store 存活期内有效，不提供持久化或重启恢复语义。
 """
 

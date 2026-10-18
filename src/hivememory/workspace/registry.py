@@ -14,7 +14,7 @@
 - ``team_id`` 由可信身份关系提供给资源 policy，不进入本注册表；
 - 首版为进程内不可变本地配置（``configs/workspace_actors.yaml``），
   配置修改经重启生效，不提供热更新、持久化或管理 API；System composition
-  负责装载配置并注入给统一认证网关与共享行为检查。
+  负责装载配置并注入给统一认证网关与操作授权者。
 
 用户级记录：``agent_id`` 为 ``None`` 的记录覆盖该用户的
 所有具体 Agent，但不覆盖保留的 ``system``——system 必须单独显式登记。

@@ -516,14 +516,22 @@ async def test_registry_unsubscribe_stops_terminal_events_and_resubscribe_is_ide
         access=chain.writer,
     )
     chain.runtime.unsubscribe()
-    await chain.bus.publish(GlobalEvents.PENDING_ATOM_FAILED, pending_alias=pending.pending_alias)
+    await chain.bus.publish(
+        GlobalEvents.PENDING_ATOM_FAILED,
+        pending_alias=pending.pending_alias,
+        intent_id=pending.intent_id,
+    )
     assert (
         chain.runtime.intents.get(pending.pending_alias, WORKSPACE).status
         == PendingAtomStatus.MATERIALIZING
     )
     chain.runtime.subscribe(chain.bus)
     chain.runtime.subscribe(chain.bus)
-    await chain.bus.publish(GlobalEvents.PENDING_ATOM_FAILED, pending_alias=pending.pending_alias)
+    await chain.bus.publish(
+        GlobalEvents.PENDING_ATOM_FAILED,
+        pending_alias=pending.pending_alias,
+        intent_id=pending.intent_id,
+    )
 
     assert (
         chain.runtime.intents.get(pending.pending_alias, WORKSPACE).status

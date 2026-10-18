@@ -56,10 +56,10 @@ class PendingAtomSettler:
                 pending_alias,
                 exc_info=True,
             )
-            await self._fallback_failed(pending_alias)
+            await self._fallback_failed(pending_alias, settlement.intent_id)
 
-    async def failed(self, pending_alias: str) -> None:
-        """为指定 pending alias 发布一次 best-effort 失败事件。"""
+    async def failed(self, pending_alias: str, intent_id: str) -> None:
+        """为指定写入意图发布一次 best-effort 失败事件。"""
 
         if not await self._reserve(pending_alias, "failed"):
             return
@@ -67,10 +67,11 @@ class PendingAtomSettler:
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             terminal="FAILED",
             pending_alias=pending_alias,
+            intent_id=intent_id,
         )
 
-    async def cancelled(self, pending_alias: str) -> None:
-        """为指定 pending alias 发布一次 best-effort 取消事件。"""
+    async def cancelled(self, pending_alias: str, intent_id: str) -> None:
+        """为指定写入意图发布一次 best-effort 取消事件。"""
 
         if not await self._reserve(pending_alias, "cancelled"):
             return
@@ -78,6 +79,7 @@ class PendingAtomSettler:
             PatchouliLocalEvents.PENDING_ATOM_CANCELLED,
             terminal="CANCELLED",
             pending_alias=pending_alias,
+            intent_id=intent_id,
         )
 
     async def _reserve(self, pending_alias: str, terminal: str) -> bool:
@@ -100,7 +102,7 @@ class PendingAtomSettler:
             self._remember(pending_alias, terminal)
             return True
 
-    async def _fallback_failed(self, pending_alias: str) -> None:
+    async def _fallback_failed(self, pending_alias: str, intent_id: str) -> None:
         async with self._lock:
             if self._terminals.get(pending_alias) != "settled":
                 return
@@ -110,6 +112,7 @@ class PendingAtomSettler:
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             terminal="FAILED",
             pending_alias=pending_alias,
+            intent_id=intent_id,
         )
 
     async def _publish_alias_event(
@@ -118,9 +121,10 @@ class PendingAtomSettler:
         *,
         terminal: str,
         pending_alias: str,
+        intent_id: str,
     ) -> None:
         try:
-            await self._bus.publish(event, pending_alias=pending_alias)
+            await self._bus.publish(event, pending_alias=pending_alias, intent_id=intent_id)
         except asyncio.CancelledError:
             logger.warning(
                 "PendingAtom %s event publish cancelled: pending_alias=%s",

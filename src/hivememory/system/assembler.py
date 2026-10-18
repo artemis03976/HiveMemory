@@ -222,7 +222,8 @@ class SystemAssembler:
 
     def _build_runtime(self) -> _RuntimeBundle:
         global_bus = GlobalSystemBus()
-        # WorkspaceAsset 是 System-owned working set；整个进程只装配一个 Store。
+        # WorkspaceAsset working set 属于 workspace，由组合根装配、关闭时最后清理；
+        # 整个进程只装配一个 Store。
         workspace_asset_store = InMemoryWorkspaceAssetStore()
         # workspace 读取能力与派生缓存：由组合根持有，L2 冷读经全局
         # 总线调用 Patchouli backing 路由，不持有 Patchouli 对象。

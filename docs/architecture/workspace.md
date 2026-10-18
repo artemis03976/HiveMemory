@@ -58,7 +58,7 @@ Workspace 在 W0 中是资源归属和访问硬边界，不是一组按 Workspac
 
 HiveMemory 引入 Workspace，不是为了给现有对象再增加一个筛选字段，而是为了回答同一个问题的三个部分：谁在执行、资源归属于哪个稳定边界、一次后台或重试操作应当沿用哪一份身份事实。操作、记录与后台任务分别携带符合其寿命的身份数据，Topic、Memory、Artifact、WorkspaceAsset 以及它们的 binding/ref 生命周期才能在共享进程运行时中保持稳定归属。
 
-Workspace 的架构意义是一个稳定的资源归属与访问边界，而不是 Agent 的永久身份。Agent、一次 Chat Run、子 Frame 和后台任务都只是暂时进入 Workspace 的执行者；资源所有权、访问硬边界和结算后的长期归属仍由 Workspace 及其领域 Store 负责。与此同时，Workspace 不会把所有基础设施复制成多套实例：queue、registry、scheduler、runtime 和 EventBus 继续共享——它们是不拥有领域状态的处理管道，谈不上按 Workspace 分区。缓存按所有权分两类：跨子系统事实源（WorkspaceAssetStore）由 System 持有并在最终寻址处校验；完整原子与主进程、CALL 目标 Profile 的派生视图由 workspace 读取视图持有；Alice 不维护资源读取缓存。已经裁定为 Workspace-owned 的资源在最终寻址和授权处使用 WorkspaceIdentity。
+Workspace 的架构意义是一个稳定的资源归属与访问边界，而不是 Agent 的永久身份。Agent、一次 Chat Run、子 Frame 和后台任务都只是暂时进入 Workspace 的执行者；资源所有权、访问硬边界和结算后的长期归属仍由 Workspace 及其领域 Store 负责。与此同时，Workspace 不会把所有基础设施复制成多套实例：queue、registry、scheduler、runtime 和 EventBus 继续共享——它们是不拥有领域状态的处理管道，谈不上按 Workspace 分区。缓存按所有权分两类：跨子系统事实源（WorkspaceAssetStore）属于 workspace，由组合根装配、关闭时最后清理，并在最终寻址处校验；完整原子与主进程、CALL 目标 Profile 的派生视图由 workspace 读取视图持有；Alice 不维护资源读取缓存。已经裁定为 Workspace-owned 的资源在最终寻址和授权处使用 WorkspaceIdentity。
 
 在这个意义上，当前 Workspace 已经形成一个初步的“ME 网络”概念。这里的“ME 网络”是借用 AE2 的架构隐喻，不是代码中的独立类、网络进程或完整运行时；它指的是一片能够被稳定寻址、由同一资源归属边界约束、并通过明确交接承载执行结果的最小资源网络：
 
@@ -428,7 +428,7 @@ canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.l
 
 CPU 分配把与输入清单相同的真实 `topic_id` 写入 `ProcessWorkingSet.dispatch_topic_id`。`ProcessThreads` 经 `IntentDispatchTopicReader` 提供读取：进程必须处于 Actor 阶段且仍在运行，传入的线程 context 必须是本进程登记的对象，话题必须已准备；否则在登记前拒绝。CALL 子线程共享该话题，请求与 CPU 不能指定派发目标。能力层与进程互不导入，由组合根注入端口。
 
-确定性拒绝同步以 `mark_failed` 把句柄推进为 FAILED，并向 agent 返回结构化错误；结果未知保持 MATERIALIZING。结算事件仍由 Patchouli 发布，同步失败与随后失败通知幂等；settled 必带且匹配 intent_id，failed/cancelled 保持只带不可复用 pending_alias 的载荷，登记处理器在可选 intent_id 被提供时追加校验。状态终结后不再被晚到通知重写。
+确定性拒绝同步以 `mark_failed` 把句柄推进为 FAILED，并向 agent 返回结构化错误；结果未知保持 MATERIALIZING。结算事件仍由 Patchouli 发布，同步失败与随后失败通知幂等；三个结算事件都携带 pending_alias 与 intent_id，登记只在两者都匹配时迁移状态。状态终结后不再被晚到通知重写。
 
 ### 5.5 会话资源与历史所有权
 
@@ -515,26 +515,9 @@ WorkspaceAssetStore 在 System 装配阶段创建，但在启动阶段不单独�
 
 ### 9.2 停止
 
-停止顺序为：
+停止顺序的逐步列表只由 [System 组合根](../system/composition.md#3-停止顺序)维护；本节说明其中与 workspace 资源相关的约束。
 
-```text
-AccessGateway.close（拒绝新认证）
-  -> Scheduler.stop
-  -> PassiveIngress.shutdown_drain
-  -> Alice.stop
-  -> Patchouli.stop
-       -> Interaction submission drain
-       -> Active finalize drain
-       -> Perception Topic settlement / generation drain
-       -> Memory generation queue stop
-  -> Gateway.stop
-  -> WorkspaceRuntime.close
-  -> WorkspaceAssetStore.close_and_clear
-  -> 撤销全部已签发的访问 context
-  -> SYSTEM_STOPPED
-```
-
-认证网关最先关闭，此后不再签发新的访问 context，已签发的 context 照常可用，使在途请求与任务进程能完成各自的授权；全部已签发 context 在最后一步撤销。先停调度器和被动入口，避免 shutdown 期间继续接纳新的维护或摄入；Alice 卸载运行入口、Patchouli 完成已接纳工作的 drain 后，先解除 workspace 的 canonical 变更与意图结算订阅、关闭读取视图（停止新读、清理派生缓存，不触碰 canonical 数据），再清空 WorkspaceAssetStore。这样 settlement consumer 可以在 drain 期间按既有交接约定用 task 中的 asset ref 反查 Store、持有 lease 并在完成后 release；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。`close_and_clear()` 幂等，重复 stop 不会重新打开或恢复任何状态。Patchouli 内部的 drain 顺序见[System 组合根与生命周期](../system/composition.md)。
+认证网关最先关闭，此后不再签发新的访问 context，已签发的 context 照常可用，使在途请求与任务进程能完成各自的授权；全部已签发 context 在最后一步撤销。先停调度器和被动入口，避免 shutdown 期间继续接纳新的维护或摄入；任务进程全部关闭后才清空会话，会话认领随进程关闭释放。Alice 卸载运行入口、Patchouli 完成已接纳工作的 drain 后，先解除 workspace 的 canonical 变更与意图结算订阅、关闭读取视图（停止新读、清理派生缓存，不触碰 canonical 数据），再清空 WorkspaceAssetStore。这样 settlement consumer 可以在 drain 期间按既有交接约定用 task 中的 asset ref 反查 Store、持有 lease 并在完成后 release；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。`close_and_clear()` 幂等，重复 stop 不会重新打开或恢复任何状态。Patchouli 内部的 drain 顺序见[System 组合根与生命周期](../system/composition.md)。
 
 ### 9.3 失败边界
 

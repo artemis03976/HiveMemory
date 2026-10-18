@@ -1,8 +1,12 @@
 /**
  * Chat API Type Definitions
  *
- * SSE event types matching backend models from:
- * - src/hivememory/server/models/chat.py
+ * SSE event payloads of POST /api/v1/chat. The backend has no shared schema
+ * module for them: process-level events (process_id, memory_refs, run_status,
+ * command_result, done, error) are projected by the task process
+ * (src/hivememory/workspace/process/), the chat route adds the same error event
+ * when the stream itself fails, and agent output events are projected by
+ * Alice's stream adapter (src/hivememory/alice/interface/stream.py).
  */
 
 import type { MemoryAtom } from './memory';
@@ -59,7 +63,6 @@ export interface ChatRunStatusEvent {
 export interface ChatDoneEvent {
   final_text?: string;
   topic_id?: string;
-  mtp_commands_executed?: string[];
   process_id?: string | null;
   status?: Exclude<ChatRunStatus, 'idle' | 'preparing' | 'streaming' | 'cancelling' | 'finalizing'>;
   stopped?: boolean;

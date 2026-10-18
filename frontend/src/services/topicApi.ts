@@ -20,7 +20,8 @@ export interface ApiTopicSnapshot {
   state_summary?: string;
   last_turn?: { user: string; assistant: string } | null;
   block_count?: number;
-  last_accessed_at?: number;
+  /** 话题最近一次写入的 Unix 时间戳（秒）。 */
+  last_update: number;
   total_tokens?: number;
   model_used?: string;
 }
@@ -29,17 +30,16 @@ interface ActiveTopicListResponse {
   topics: ApiTopicSnapshot[];
 }
 
-export function mapTopic(raw: ApiTopicSnapshot, activeTopicId?: string): Topic {
+export function mapTopic(raw: ApiTopicSnapshot): Topic {
   const title = raw.topic_title || raw.title || raw.topic_id;
 
   return {
     id: raw.topic_id,
     title,
     summary: raw.state_summary || raw.topic_summary || undefined,
-    activeNow: activeTopicId ? raw.topic_id === activeTopicId : true,
     // 从后端 model_used 字段读取真实使用的模型名，未设置时回落到默认文本
     model: raw.model_used || 'Unknown',
-    lastActive: raw.last_accessed_at ? raw.last_accessed_at * 1000 : Date.now(),
+    lastActive: raw.last_update * 1000,
     messageCount: raw.block_count ?? 0,
     totalTokens: raw.total_tokens ?? 0,
   };
@@ -51,7 +51,7 @@ export async function fetchTopics(): Promise<Topic[]> {
   });
   if (!res.ok) throw new Error(await apiErrorMessage(res, 'fetchTopics failed'));
   const data: ActiveTopicListResponse = await res.json();
-  return data.topics.map((topic) => mapTopic(topic));
+  return data.topics.map(mapTopic);
 }
 
 export async function settleTopic(topicId: string): Promise<void> {

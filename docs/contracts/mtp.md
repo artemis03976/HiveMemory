@@ -89,7 +89,7 @@ SEARCH 返回可继续消费的检索上下文，而不是把“没有找到”�
 ```
 
 - 不支持 wildcard；
-- alias 经 workspace 读取视图解析为正式 atom、pending、redirect 或 discarded/failed 终态；模型与编译器保留 expired 兼容种类，但登记不再产生它；
+- alias 经 workspace 读取视图解析为正式 atom、pending、redirect 或 discarded/failed 终态；模型与编译器保留 expired 终态种类，当前登记不产生它；
 - 每类结果均经 MemoryCompiler 的 `MTP_READ` target 编译；
 - 全部 alias 未命中时返回 error；
 - 部分未命中时返回已解析内容，并把缺失 alias 放入 warnings；

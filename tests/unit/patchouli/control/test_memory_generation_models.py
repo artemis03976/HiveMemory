@@ -99,6 +99,25 @@ def _outcome(
 
 
 @pytest.mark.parametrize(
+    "correlation",
+    [{"intent_id": "intent-only"}, {"pending_alias": "draft-only"}],
+)
+def test_task_spec_rejects_half_of_the_write_intent_correlation(correlation):
+    """写入意图的终态事件同时携带 alias 与 intent_id，规范不能只带其中一个。"""
+    scope = make_memory_identity_scope()
+    with pytest.raises(ValueError, match="intent_id 与 pending_alias"):
+        MemoryGenerationTaskSpec(
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+            topic_id="t1",
+            label="task",
+            source=MemoryGenerationSource.WRITE,
+            request=GenerationRequest(context=GenerationContext()),
+            **correlation,
+        )
+
+
+@pytest.mark.parametrize(
     ("work_state", "task_status"),
     [
         (WorkState.QUEUED, MemoryGenerationTaskStatus.PENDING),
@@ -156,6 +175,7 @@ def test_memory_generation_task_projects_result_and_cancel_metadata():
         request=GenerationRequest(
             context=GenerationContext(),
         ),
+        intent_id="intent-target",
         pending_alias="draft-target",
     )
     created = memory_task_from_spec(

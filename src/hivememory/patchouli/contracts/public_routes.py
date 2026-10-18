@@ -213,7 +213,7 @@ class PatchouliRoutes:
 
     @route("patchouli.public.manual_settle_topic")
     async def MANUAL_SETTLE_TOPIC(
-        *, identity_scope: IdentityScope, topic_id: str | None = None
+        *, identity_scope: IdentityScope, topic_id: str
     ) -> TopicSettleResult:
         """通过本地总线结算 Topic（生命周期变更授权在能力层），返回稳定业务结果。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。

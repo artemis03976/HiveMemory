@@ -245,10 +245,8 @@ class PatchouliLocalRoutes:
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("topic.manual_settle")
-    async def TOPIC_MANUAL_SETTLE(
-        belong_to: WorkspaceIdentity, topic_id: str | None = None
-    ) -> TopicSettleResult:
-        """手动结算指定话题（缺省为最近活跃话题）。"""
+    async def TOPIC_MANUAL_SETTLE(belong_to: WorkspaceIdentity, topic_id: str) -> TopicSettleResult:
+        """手动结算指定话题。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("topic.evict")

@@ -22,8 +22,8 @@ class ChatRequest(BaseModel):
 
     ``attachments`` 是用户显式选择的附件数组：空数组与缺少
     字段等价；同一 ``asset_ref`` 只能出现一次，重复即请求冲突；顺序属于
-    用户输入，保留进请求 canonical 表示。ref 归属与版本校验在 Patchouli
-    prepare 边界完成，HTTP 层只校验字段类型与数组结构。
+    用户输入，保留进请求 canonical 表示。ref 归属与版本校验在任务进程的
+    CPU 分配中随附件租借完成，HTTP 层只校验字段类型与数组结构。
     """
 
     message: str = Field(..., description="用户消息")
@@ -53,85 +53,10 @@ class ChatRequest(BaseModel):
 class StopChatRequest(BaseModel):
     """Stop 请求体。
 
-    取消不是 Agent action：不携带 agent_id，取消与事件发布使用进程创建时
-    冻结在进程表里的原始 scope。基础身份选择同样只来自统一请求头，由
-    server 用于 owner/workspace 校验。
+    取消不是 Agent action：不携带 agent_id。基础身份选择同样只来自统一
+    请求头，认证后得到请求级访问 context；进程控制授权以它比对进程记录
+    持有的访问 context 的驻留坐标，不匹配与进程不存在一样返回
+    ``not_found``。找到进程时，取消事件使用进程注册时绑定的观测标签。
     """
 
     process_id: str = Field(..., description="要停止的任务进程 ID")
-
-
-# ========== SSE 事件数据模型 ==========
-
-
-class StreamNamespace(BaseModel):
-    """流式事件命名空间：用于区分主/子 Agent 输出来源。"""
-
-    scope: str | None = Field(default=None, description="事件作用域：main 或 sub")
-    depth: int | None = Field(default=None, description="当前执行深度，主帧通常为 0")
-    agent_id: str | None = Field(default=None, description="当前输出的 agent 标识")
-    frame_id: str | None = Field(default=None, description="当前执行帧 ID")
-
-
-class ChatTokenEvent(StreamNamespace):
-    """token 事件: LLM 生成的文本增量"""
-
-    content: str
-
-
-class MTPStartEvent(StreamNamespace):
-    """mtp_start 事件: MTP 指令被拦截"""
-
-    verb: str
-    target: str = ""
-    args: dict = Field(default_factory=dict)
-    raw_text: str = ""
-    iteration: int
-
-
-class MTPResultEvent(StreamNamespace):
-    """mtp_result 事件: MTP 执行完成"""
-
-    verb: str
-    target: str = ""
-    args: dict = Field(default_factory=dict)
-    raw_text: str = ""
-    status: str
-    iteration: int
-
-
-class TopicInfoEvent(BaseModel):
-    """topic_info 事件: 话题路由结果"""
-
-    topic_id: str
-    is_new: bool
-    pool_topics: list[dict] = Field(default_factory=list)
-
-
-class ChatDoneEvent(BaseModel):
-    """done 事件: 生成完成"""
-
-    final_text: str
-    process_id: str | None = None
-    status: str = "completed"
-    stopped: bool = False
-    reason: str | None = None
-    pool_topics: list[dict] = Field(default_factory=list)
-
-
-class CommandResultEvent(BaseModel):
-    """command_result 事件：Gateway 系统指令执行结果。"""
-
-    command_id: str
-    status: str
-    message: str
-    data: dict = Field(default_factory=dict)
-    client_action: dict | None = None
-    error_code: str | None = None
-
-
-class ChatErrorEvent(BaseModel):
-    """error 事件: 错误发生"""
-
-    message: str
-    detail: str | None = None

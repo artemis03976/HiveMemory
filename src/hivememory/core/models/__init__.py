@@ -56,15 +56,12 @@ from .memory_change import MemoryChangeEvent
 from .model_definition import ModelDefinition
 from .pending import (
     ExecutionLabels,
-    InvalidStateTransition,
     PendingAtom,
     PendingAtomResolution,
     PendingAtomSettlement,
-    PendingAtomSnapshot,
     PendingAtomStatus,
     UpdateFocus,
     WriteFocus,
-    allowed_transitions,
     is_legal_transition,
 )
 from .projections import (
@@ -167,10 +164,7 @@ __all__ = [
     "ReferenceResolution",
     "PendingAtomStatus",
     "PendingAtomResolution",
-    "PendingAtomSnapshot",
     "is_legal_transition",
-    "allowed_transitions",
-    "InvalidStateTransition",
     "WriteFocus",
     "UpdateFocus",
     "ExecutionLabels",

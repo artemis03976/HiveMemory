@@ -260,20 +260,22 @@ class PatchouliBridge:
             settlement=settlement,
         )
 
-    async def _forward_pending_atom_failed(self, *, pending_alias: str) -> None:
+    async def _forward_pending_atom_failed(self, *, pending_alias: str, intent_id: str) -> None:
         if self._global_bus is None:
             return
         await self._global_bus.publish(
             GlobalEvents.PENDING_ATOM_FAILED,
             pending_alias=pending_alias,
+            intent_id=intent_id,
         )
 
-    async def _forward_pending_atom_cancelled(self, *, pending_alias: str) -> None:
+    async def _forward_pending_atom_cancelled(self, *, pending_alias: str, intent_id: str) -> None:
         if self._global_bus is None:
             return
         await self._global_bus.publish(
             GlobalEvents.PENDING_ATOM_CANCELLED,
             pending_alias=pending_alias,
+            intent_id=intent_id,
         )
 
 

@@ -319,22 +319,6 @@ class TestApplyInteraction:
         assert store.get(scope.workspace_identity, "t1").block_count == 1
 
     @pytest.mark.asyncio
-    async def test_default_manual_settle_targets_last_active_topic(self):
-        familiar, store, _, bus, _ = _make_familiar()
-        scope = _identity_scope()
-        topic_id = await familiar.apply_interaction(
-            _payload(),
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            interaction_id="i-1",
-        )
-
-        result = await familiar.manual_settle_topic(scope.workspace_identity)
-
-        assert result.topic_id == topic_id
-        assert store.get(scope.workspace_identity, topic_id) is None
-
-    @pytest.mark.asyncio
     async def test_interaction_retry_rejects_same_content_from_another_workspace(self):
         """同一 interaction_id 不能跨 Workspace 复用已完成的 apply 记录。"""
         familiar, store, _, _, _ = _make_familiar()
@@ -635,11 +619,11 @@ class TestNamedUseCases:
         assert store.get(scope.workspace_identity, topic_id) is not None
 
     @pytest.mark.asyncio
-    async def test_manual_settle_without_topic_or_active_history_raises(self):
+    async def test_manual_settle_unknown_topic_raises_not_found(self):
         familiar, _, _, _, _ = _make_familiar()
 
         with pytest.raises(ResourceNotFoundError):
-            await familiar.manual_settle_topic(_identity_scope().workspace_identity)
+            await familiar.manual_settle_topic(_identity_scope().workspace_identity, "missing")
 
     @pytest.mark.asyncio
     async def test_evict_topic_removes_without_settlement(self):

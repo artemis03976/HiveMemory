@@ -32,8 +32,8 @@ class WorkspaceOperation(str, Enum):
     隐含：RUN 不要求 READ，WRITE 不授予 UPDATE，CALL 的共享上下文
     仍需单独执行 READ。WRITE/UPDATE 的 ACK 只表示意图已登记。
 
-    root 管理、任务进程阶段调用与执行单元的意图撤回补偿不属于 actor
-    操作，不在本目录登记；新增操作不会自动加入既有访问白名单。
+    root 管理与任务进程阶段调用不属于 actor 操作，不在本目录登记；
+    新增操作不会自动加入既有访问白名单。
     """
 
     MEMORY_READ = "memory.read"
@@ -104,7 +104,7 @@ class CallerPrincipal:
     回答"哪个已登记的调用来源在发起请求"；请求体中的
     ``user_id``/``agent_id``/``role`` 字符串只是待验证的 claim，不能自封
     principal，也不能把 ``system`` 标记当作认证结论。``principal_id``
-    使用稳定的带命名空间标识（如 ``local-process:alice-runtime``）。
+    使用稳定的带命名空间标识（如 ``hivememory:http-server``）。
     """
 
     principal_id: str

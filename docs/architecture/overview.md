@@ -243,14 +243,9 @@ POST /api/v1/ingest
 Gateway -> Patchouli -> Alice -> Scheduler -> Passive Ingress
 ```
 
-停止顺序：
+启动时先让入口决策可用，再挂载记忆和执行能力，最后接受后台维护与外部摄入。
 
-```text
-Scheduler -> Passive Ingress drain -> Alice -> Patchouli -> Gateway
-  -> WorkspaceRuntime.close -> WorkspaceAssetStore.close_and_clear
-```
-
-启动时先让入口决策可用，再挂载记忆和执行能力，最后接受后台维护与外部摄入。停止时先阻止新的维护和外部事件，排空仍可安全提交的消息，再撤销执行、记忆和入口能力，随后关闭 workspace 读取视图（停止新读并清理派生缓存，不触碰 canonical 数据），最后清空进程级 WorkspaceAssetStore。这个顺序避免系统在半关闭状态继续创建需要下游处理的新工作，并保持当前 settlement ref 交接约定在 Patchouli drain 期间仍有可用的 Store。
+停止顺序的逐步列表与各步约束只由 [System 组合根](../system/composition.md#3-停止顺序)维护，这里只说明它遵循的原则：先拒绝新的认证、维护与外部事件，排空仍可安全提交的消息；再关闭在途任务进程并清空会话，随后撤销执行、记忆和入口能力；最后关闭 workspace 读取视图（停止新读并清理派生缓存，不触碰 canonical 数据）、清空进程级 WorkspaceAssetStore，并撤销全部已签发的访问 context。这个顺序避免系统在半关闭状态继续创建需要下游处理的新工作，并保持当前 settlement ref 交接约定在 Patchouli drain 期间仍有可用的 Store。
 
 ## 8. 当前不变量
 
@@ -283,7 +278,7 @@ Scheduler -> Passive Ingress drain -> Alice -> Patchouli -> Gateway
 
 ## 10. 已知限制
 
-- `v0.6.1` 已发布；复合意图的下游消费和自定义入口规则属于后续 Unscheduled 方向，不是当前能力；
+- 复合意图的下游消费和自定义入口规则不是当前能力；
 - RuntimeEvent 只有进程内有界缓冲，不是耐久审计日志；
 - MTP RUN 的用户代码执行还没有强隔离沙箱；
 - 通用持久化 Job Queue、Document Ingestion 与 Deep Research 尚未实现；

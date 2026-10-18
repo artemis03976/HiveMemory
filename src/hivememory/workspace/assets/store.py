@@ -82,7 +82,7 @@ class _LeaseEntry:
 
 
 class InMemoryWorkspaceAssetStore:
-    """System-owned WorkspaceAsset 状态与可用性真相源。
+    """workspace 拥有的 WorkspaceAsset 状态与可用性真相源；组合根装配，系统关闭时最后清理。
 
     所有命名命令和 ``close_and_clear`` 共用一把 RLock。required representation
     的状态更新、asset 聚合更新及 REMOVED 检查因此形成同一次线性化提交。

@@ -20,7 +20,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # 数据模型与可变性边界
@@ -110,7 +110,7 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 ### 4.4 PendingAtom 状态机
 
-`PendingAtom` 是 workspace 登记持有的可变记录，分开保存 `belong_to: WorkspaceIdentity`、`from_actor: ActorIdentity` 与只作观测关联的 `process_id`；不再保存 `identity` 或 Alice 的 `runtime_scope`。登记即进入 MATERIALIZING，随后推进为 SETTLED、FAILED 或 CANCELLED；模型保留 PENDING、EXPIRED 枚举，但新登记不产生它们，终态句柄保留到进程重启。
+`PendingAtom` 是 workspace 登记持有的可变记录，分开保存 `belong_to: WorkspaceIdentity`、`from_actor: ActorIdentity` 与只作观测关联的 `process_id`；不再保存 `identity` 或 Alice 的 `runtime_scope`。登记即进入 MATERIALIZING，随后推进为 SETTLED、FAILED 或 CANCELLED；EXPIRED 是三者共同的永久终态，当前没有转入它的触发，终态句柄保留到进程重启。
 
 登记与解析器均交付深复制结果，调用方修改返回对象不会改写权威登记或缓存。`ReferenceResolution` 是 core 中立 dataclass，携带逐项状态、独立的 pending/atom 与结算视图；redirect 目标不可读时清空引用并省略 pending，避免 UPDATE focus 泄露基础 UUID。actor API 提交携带登记标识与内容的 `MemoryIntent`，物化任务由 Patchouli 意图服务内部构造，独立携带归属与发起者。
 

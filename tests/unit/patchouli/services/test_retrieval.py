@@ -373,5 +373,10 @@ class TestRetrievalFamiliarShortTermTopics:
         self.mock_library.short_term.list_by_workspace.assert_called_once_with(
             identity_scope.workspace_identity, include_empty=False
         )
-        # 真正空 Topic 被排除；summary-only 与有 blocks 的 Topic 保留，按最近写入排序
-        assert [s.topic_id for s in snapshots] == ["summary-only", "new", "old"]
+        # 真正空 Topic 被排除；summary-only 与有 blocks 的 Topic 保留，按最近写入排序，
+        # 快照携带排序所依据的写入时间供话题池显示
+        assert [(s.topic_id, s.last_update) for s in snapshots] == [
+            ("summary-only", 4.0),
+            ("new", 2.0),
+            ("old", 1.0),
+        ]

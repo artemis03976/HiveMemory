@@ -352,6 +352,7 @@ class TestMemoryGenerationCoordinator:
         bus.publish.assert_awaited_once_with(
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             pending_alias="draft_update",
+            intent_id="intent_draft_update",
         )
 
     @pytest.mark.asyncio
@@ -393,6 +394,7 @@ class TestMemoryGenerationCoordinator:
         bus.publish.assert_awaited_once_with(
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             pending_alias="draft_update",
+            intent_id="intent_draft_update",
         )
 
     @pytest.mark.asyncio
@@ -463,6 +465,7 @@ class TestMemoryGenerationCoordinator:
         bus.publish.assert_awaited_once_with(
             PatchouliLocalEvents.PENDING_ATOM_FAILED,
             pending_alias="draft_update",
+            intent_id="intent_draft_update",
         )
 
     @pytest.mark.asyncio
