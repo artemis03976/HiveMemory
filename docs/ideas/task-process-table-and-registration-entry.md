@@ -11,9 +11,9 @@ related_docs:
   - docs/system/application-services.md
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
-  - docs/ideas/execution-unit-thread-and-environment.md
+  - docs/ideas/execution-environment.md
   - docs/ideas/import-bus.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-19
 ---
 
 # 任务进程表与任务请求唯一注册入口
@@ -64,7 +64,7 @@ Profile 属于 CPU 分配，但现在提前到 prepare 之前解析，因为 pre
 
 owner（2026-09-28）为进程记录与工作集定下的内容中，以下部分尚未成为槽位：
 
-- 进程记录：请求方式（主动或被动）、CPU 分配（所用的执行环境，见[执行单元 Idea](./execution-unit-thread-and-environment.md) T-8）；
+- 进程记录：请求方式（主动或被动）、CPU 分配（所用的执行环境，见[执行环境 Idea](./execution-environment.md) T-8）；
 - 工作集中的值：GatewayDecision、执行记录。
 
 约束：槽位可以动态，值必须有类型，每个槽位都有声明的类型与所有者，不使用 `dict[str, Any]` 这类无类型载体；工作集中的资源在进程关闭时必须释放或补偿，无论从哪个阶段结束。
@@ -132,7 +132,7 @@ Alice 在进程内运行，进程能取消它，也知道它何时结束。外�
 | 文档 | 关系 |
 |:---|:---|
 | [第五代架构 Idea](./fifth-generation-architecture.md) | 3.2 的理念与检验问题；架构级开放问题 P-4a、P-5、P-7、P-9d |
-| [执行单元 Idea](./execution-unit-thread-and-environment.md) | 执行环境的选择（T-8）决定 CPU 分配记入进程记录的内容 |
+| [执行环境 Idea](./execution-environment.md) | 执行环境的选择（T-8）决定 CPU 分配记入进程记录的内容 |
 | [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 会话承载对话连续性；2.1、2.2 随它与流式同步的设计决定 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | controller 模式使用本文的进程模型（Q-3b、Q-8），plugin 模式不建进程 |
 | [Import Bus Idea](./import-bus.md) | Q-5b 的前提 |

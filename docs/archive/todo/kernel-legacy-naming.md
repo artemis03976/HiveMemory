@@ -13,7 +13,7 @@ related_docs:
   - docs/frontend/chat-view.md
   - docs/frontend/management-views.md
   - docs/help/troubleshooting.md
-  - docs/ideas/execution-unit-thread-and-environment.md
+  - docs/ideas/execution-environment.md
 last_reviewed: 2026-10-12
 ---
 

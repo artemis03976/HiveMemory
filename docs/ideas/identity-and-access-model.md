@@ -13,11 +13,12 @@ code_paths:
 related_docs:
   - docs/ideas/fifth-generation-architecture.md
   - docs/architecture/workspace.md
-  - docs/ideas/execution-unit-thread-and-environment.md
+  - docs/ideas/execution-thread-definition.md
+  - docs/ideas/execution-environment.md
   - docs/ideas/ae2-hivememory-architecture-analogy.md
   - docs/ideas/pending-intent-migration.md
   - docs/todo/workspace-asset-ownership-identity-split.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-19
 ---
 
 # 身份与访问体系
@@ -38,9 +39,26 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 
 - **授予模型**：谁能对哪个非驻留 Workspace 做什么。分析（2026-10-10）：一次跨 Workspace 的操作要同时满足 agent 自身的白名单与目标一侧的授予；
 - **agent 的身份**：Agent Profile 是某个 Workspace 中的记忆原子，`agent_id` 即其 alias，只在该 Workspace 内唯一，不同 Workspace 中的同名 agent 是两条独立的原子。“同一 agent 在不同 Workspace 有不同能力”只会出现在穿透访问中，那时 actor 身份需要带上驻留 Workspace（分析，2026-10-10）；
-- **目标的表达**：执行一侧如何给出目标，见[执行单元 Idea](./execution-unit-thread-and-environment.md) T-5b；
+- **目标的表达**：执行一侧如何给出目标，见本节末尾的 T-5b；
 - **资源边界**：资源 owner 仍按目标 Workspace 校验归属；同一进程内会同时出现多个目标 Workspace 的资源，派生缓存按派生源坐标键控，不能从 scope 的存在推导隔离；
 - **与子网的关系**：Mount、Bridge 与能力子网是更完整的形态（[AE2 Idea](./ae2-hivememory-architecture-analogy.md)），穿透访问的授予模型应能向它扩展。
+
+以下前提与问题于 2026-10-19 从原《执行单元、执行线程与执行环境》Idea（现[执行环境 Idea](./execution-environment.md)）移入，沿用原编号。
+
+**前提 2**（owner，2026-10-05）：一次操作的发起者与目标分开看待。
+
+- **发起者**是客观事实，由执行单元一侧补全，agent 不在工具调用中声明；当前由发起操作的执行线程给出，见[执行线程 Idea](./execution-thread-definition.md)。
+- **目标 Workspace** 是 agent 的意图：现在由补全的一层给出，只接受驻留 Workspace；实现跨 Workspace 的受限穿透访问后，agent 需要能够自己带上操作目标（T-5b）。
+
+### T-5b 跨 Workspace 目标的表达形式
+
+受限穿透访问不在 v0.7.0；授权点已显式接收目标 Workspace（见本节开头）。
+
+- **选项**：按指令给出目标，一条指令一个目标 / 按引用限定，alias 带上 Workspace 限定 / 其他。
+- **影响**：
+  - alias 按 (Workspace, alias) 分区，跨 Workspace 的引用必须带限定；
+  - agent 只能给出 Workspace key 一类名称，`WorkspaceIdentity` 中的 owner 由补全的一层解析，解析失败与无权访问需要对 agent 表现一致；
+  - （分析）MTP 文本不能指定 Workspace 的现有约束，随穿透访问设计另行评审；发起者不能由工具调用指定（前提 2）长期成立。
 
 ## 2. 资源授权的扩展
 
@@ -70,6 +88,7 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 |:---|:---|
 | [第五代架构 Idea](./fifth-generation-architecture.md) | 3.5、3.6 的理念；架构级开放问题 P-1、P-4a、P-7、P-8、P-9 |
 | [Workspace 架构](../architecture/workspace.md) | 身份模型与访问边界的当前事实 |
-| [执行单元 Idea](./execution-unit-thread-and-environment.md) | 跨 Workspace 目标在执行一侧的表达（T-5b） |
+| [执行线程 Idea](./execution-thread-definition.md) | 操作的发起者由执行线程给出；线程的目标现为驻留 Workspace，跨 Workspace 目标的表达见第 1 节 T-5b |
+| [执行环境 Idea](./execution-environment.md) | 前提 2 与 T-5b 的原所在（2026-10-19 移入本文） |
 | [AE2 Idea](./ae2-hivememory-architecture-analogy.md) | 子网与跨 Workspace 的更完整形态 |
 | [写入意图后续方向 Idea](./pending-intent-migration.md) | 意图可见性与 policy |

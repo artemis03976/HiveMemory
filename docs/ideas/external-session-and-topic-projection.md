@@ -14,7 +14,7 @@ related_docs:
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/todo/conversation-compact-command.md
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-19
 ---
 
 # 外部会话消息的接收与 Topic 投影
@@ -75,7 +75,7 @@ last_reviewed: 2026-10-16
 仍待实施的方向：
 
 - **会话压缩的后续入口**：已迁入[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)，本文仅保留外部会话与 CPU 能力之间的关联，不维护压缩方案。
-- **执行环境与外部 harness**：外部会话恢复和压缩依赖 harness 能力；会话绑定执行环境的选择见[执行单元 Idea](./execution-unit-thread-and-environment.md) T-8a，同一 harness 会话切换 Agent 是尽力应用另一份 Profile（第五代架构 P-10a）。面向外部输入的模型演进、流式同步与交互接纳后关闭进程留给 controller 模式。
+- **执行环境与外部 harness**：外部会话恢复和压缩依赖 harness 能力；会话绑定执行环境的选择见[执行环境 Idea](./execution-environment.md) T-8a，同一 harness 会话切换 Agent 是尽力应用另一份 Profile（第五代架构 P-10a）。面向外部输入的模型演进、流式同步与交互接纳后关闭进程留给 controller 模式。
 - **会话持久化**：当前仅进程内保存，跨后端重启恢复需另行立项。
 - **Gateway 会话提示**：向用户提议新建或恢复会话属于后续版本。最近 N 轮与每轮 Topic 关联可为此提供输入，但尚未实现提示判断；不需要让会话 ID 进入 Patchouli。应避免用上一轮 Topic 强制偏置路由，否则不利于识别属于另一个会话的内容；提议本身不改变用户的上下文。
 
