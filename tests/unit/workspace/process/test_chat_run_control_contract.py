@@ -10,6 +10,9 @@
 事件，句柄形式不经进程控制授权，错误的参数组合被拒绝；认证成功后登记
 失败使已签发 context 失效。跨 workspace 请求方的控制请求统一按 not_found
 呈现；context 失效的请求方以 ScopeRequiredError 拒绝。
+
+另覆盖进程的执行所有权：输出通道的容量与离开语义、订阅者暂停时进程仍自行
+推进，以及五种结局共用的唯一退出路径——交付方离开只退订，不等待进程关闭。
 """
 
 from __future__ import annotations
@@ -23,6 +26,7 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import NullRuntimeEventSink, RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.access import (
     CallerPrincipal,
     RunBinding,
@@ -34,11 +38,13 @@ from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import (
     AdmissionDeniedError,
     ScopeRequiredError,
+    ThreadContextRevokedError,
     WorkspaceDomainError,
 )
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
+    AttachmentSelectionRequest,
     ExecutionLabels,
     IdentityScope,
     ResolvedAgentProfile,
@@ -48,8 +54,16 @@ from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
+from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.authentication import AccessGrantSummary
+from hivememory.workspace.contracts.cpu import CPUResultSlot, CPURunHandle
 from hivememory.workspace.process.events import BoundProcessEvents
+from hivememory.workspace.process.outputs import (
+    OUTPUT_CHANNEL_CAPACITY,
+    ActorEvent,
+    ProcessOutputChannel,
+    RunCancelled,
+)
 from hivememory.workspace.process.runner import _run_interruptible
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from hivememory.workspace.process.table import (
@@ -59,15 +73,21 @@ from hivememory.workspace.process.table import (
     ProcessRecord,
     ProcessTable,
 )
+from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.process import make_task_process_service, process_state
+from tests.helpers.process import (
+    make_task_process_service,
+    process_state,
+    wait_for_process_exit,
+)
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
     make_actor_access_record,
     make_workspace_identity,
 )
+from tests.helpers.workspace_assets import make_ready_text_asset
 
 _USER = "u1"
 _AGENT = "omni_doll"
@@ -169,8 +189,8 @@ async def _register(
     )
 
 
-def _bus_until_finalize() -> GlobalSystemBus:
-    """Gateway → Profile → prepare → finalize 的替身总线：交付到 completed。"""
+def _bus_until_finalize(cleanup: AsyncMock | None = None) -> GlobalSystemBus:
+    """Gateway → Profile → prepare → cleanup 的替身总线；finalize 由调用方登记。"""
     bus = GlobalSystemBus()
 
     async def gateway(**_kwargs):
@@ -190,7 +210,9 @@ def _bus_until_finalize() -> GlobalSystemBus:
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, profile)
     bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
+    bus.register(
+        PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup or AsyncMock(return_value=True)
+    )
     return bus
 
 
@@ -301,6 +323,7 @@ def test_stop_after_bound_task_finished_is_accepted_without_second_cancel() -> N
 
 @pytest.mark.asyncio
 async def test_owner_task_cancellation_is_not_translated_to_chat_run_cancelled() -> None:
+    """进程 task 自身被取消（系统关闭的硬取消）原样传播，不翻译为停止。"""
     run = _record("process-8")
     blocker = asyncio.Event()
 
@@ -702,69 +725,253 @@ async def test_handle_cancel_skips_process_control_authorization() -> None:
     assert stop_result.reason == "client_disconnected"
 
 
-# ========== 交付结束自动收口：context 随任何结局失效 ==========
+# ========== 输出通道 ==========
+
+
+def _token(content: str) -> ActorEvent:
+    return ActorEvent({"event": "token", "data": {"content": content}})
 
 
 @pytest.mark.asyncio
-async def test_completed_delivery_invalidates_bound_context() -> None:
-    """completed 结局：交付结束自动 close_process，绑定 context 失效、进程注销。"""
-    bus = _bus_until_finalize()
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
-    table = ProcessTable()
-    service, composition = await _service(bus, process_table=table)
-    issued = _capture_issued_contexts(composition)
-    handle = await _register(composition, service, process_id="process-end-completed")
+async def test_output_channel_blocks_interaction_event_until_subscriber_reads() -> None:
+    """订阅者在线且交互事件已满容量：写入阻塞，读取一项后放行，顺序不变。"""
+    channel = ProcessOutputChannel(capacity=1)
+    await channel.send(_token("一"))
+    blocked = asyncio.create_task(channel.send(_token("二")))
+    await asyncio.sleep(0)
 
-    result = await service.run_process(handle, stream=False)
-
-    assert result.kind == "agent"
-    _assert_context_invalidated(composition, issued[0])
-    assert table.get("process-end-completed") is None
+    assert blocked.done() is False
+    assert await channel.receive() == _token("一")
+    await asyncio.wait_for(blocked, timeout=1)
+    assert await channel.receive() == _token("二")
 
 
 @pytest.mark.asyncio
-async def test_failed_delivery_invalidates_bound_context() -> None:
-    """失败结局（编排异常沿非流式上抛）：交付结束仍收口，绑定 context 失效。"""
+async def test_output_channel_terminal_and_end_marker_bypass_capacity() -> None:
+    """交互事件占满容量时，终态产出与结束标记仍立即写入，订阅者按顺序读到。"""
+    channel = ProcessOutputChannel(capacity=1)
+    await channel.send(_token("一"))
+    terminal = RunCancelled(reason="user_requested")
+
+    await asyncio.wait_for(channel.send(terminal), timeout=1)
+    channel.end()
+
+    assert [await channel.receive() for _ in range(3)] == [_token("一"), terminal, None]
+
+
+@pytest.mark.asyncio
+async def test_output_channel_detach_releases_blocked_writer_and_drops_later_outputs() -> None:
+    """订阅者离开：阻塞的写入被唤醒，缓存与此后的写入都被丢弃。"""
+    channel = ProcessOutputChannel(capacity=1)
+    await channel.send(_token("一"))
+    blocked = asyncio.create_task(channel.send(_token("二")))
+    await asyncio.sleep(0)
+
+    channel.detach()
+    await asyncio.wait_for(blocked, timeout=1)
+    await channel.send(RunCancelled(reason="stream_closed"))
+    channel.end()
+
+    assert await channel.receive() is None
+
+
+# ========== 执行所有权与唯一退出路径 ==========
+
+
+@pytest.mark.asyncio
+async def test_paused_subscriber_does_not_hold_back_process_within_channel_capacity() -> None:
+    """订阅者读到 process_id 后暂停：进程照常推进到 finalize 并关闭，交互事件缓存在通道中。"""
     bus = _bus_until_finalize()
+    finalize = AsyncMock(return_value=[])
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    token = {"event": "token", "data": {"content": "字"}}
     table = ProcessTable()
     service, composition = await _service(
-        bus, cpu=ScriptedCPU(error=RuntimeError("cpu exploded")), process_table=table
+        bus,
+        cpu=ScriptedCPU(events=[token] * OUTPUT_CHANNEL_CAPACITY, result=make_cpu_result()),
+        process_table=table,
     )
-    issued = _capture_issued_contexts(composition)
-    handle = await _register(composition, service, process_id="process-end-failed")
+    handle = await _register(composition, service, process_id="process-paused")
+    stream = service.run_process(handle, stream=True)
 
-    with pytest.raises(RuntimeError, match="cpu exploded"):
-        await service.run_process(handle, stream=False)
+    first = await anext(stream)
+    await wait_for_process_exit(table, "process-paused")
 
-    _assert_context_invalidated(composition, issued[0])
-    assert table.get("process-end-failed") is None
+    finalize.assert_awaited_once()
+    assert table.get("process-paused") is None
+    events = [first, *[event async for event in stream]]
+    assert [event["event"] for event in events] == [
+        "process_id",
+        "memory_refs",
+        *["token"] * OUTPUT_CHANNEL_CAPACITY,
+        "run_status",
+        "done",
+    ]
+    assert events[-1]["data"]["status"] == "completed"
+
+
+_STOPPING_OUTCOMES = {"user_stop", "delivery_left", "hard_cancel"}
+
+
+async def _drive_to_exit(
+    outcome: str,
+    service: TaskProcessService,
+    handle: ProcessHandle,
+    *,
+    cpu: ScriptedCPU,
+    table: ProcessTable,
+) -> list[dict]:
+    """以给定结局驱动进程直到进程 task 结束，返回交付方读到的事件。"""
+    stream = service.run_process(handle, stream=True)
+    events = [await anext(stream)]
+    if outcome in _STOPPING_OUTCOMES:
+        await asyncio.wait_for(cpu.hang_entered.wait(), timeout=2)
+    if outcome == "user_stop":
+        assert service.cancel_process(handle).cancelled is True
+    elif outcome == "delivery_left":
+        await stream.aclose()
+        await wait_for_process_exit(table, handle.process_id)
+        return events
+    elif outcome == "hard_cancel":
+        await service.shutdown()
+    # 结束标记在进程关闭之后写入：读到它时进程 task 已经完成退出路径。
+    events.extend([event async for event in stream])
+    return events
+
+
+def _thread_revoked(composition: AccessTestComposition, cpu: ScriptedCPU) -> bool:
+    """CPU 收到的主线程 context 是否已撤销、不能再提交 actor 操作。"""
+    try:
+        composition.authorizer.validate_thread_context(cpu.calls[0].access)
+    except ThreadContextRevokedError:
+        return True
+    return False
 
 
 @pytest.mark.asyncio
-async def test_cancelled_delivery_invalidates_bound_context() -> None:
-    """取消结局：以句柄取消后进程以取消收口，绑定 context 失效。"""
-    gateway_started = asyncio.Event()
-    bus = GlobalSystemBus()
-
-    async def gateway(**_kwargs):
-        gateway_started.set()
-        await asyncio.Event().wait()
-
-    bus.register(GatewayPublicRoutes.PROCESS, gateway)
-    table = ProcessTable()
-    service, composition = await _service(bus, process_table=table)
+@pytest.mark.parametrize(
+    ("outcome", "last_event"),
+    [
+        ("completed", "done"),
+        ("user_stop", "done"),
+        ("delivery_left", "process_id"),
+        ("failed", "error"),
+        ("hard_cancel", "token"),
+    ],
+)
+async def test_every_outcome_exits_through_single_close_path(outcome: str, last_event: str) -> None:
+    """五种结局都经唯一退出路径：线程 context 已撤销，租借、进程 context、
+    进程登记与会话认领各释放一次，输出通道在关闭后结束（硬取消时没有终态）。"""
+    store = InMemoryWorkspaceAssetStore()
+    composition = _composition()
+    requestor = await composition.authenticate(agent_id=_AGENT)
+    asset_scope = composition.authorizer.authorize_operation(
+        requestor, WorkspaceOperation.MEMORY_READ, _workspace()
+    )
+    asset = make_ready_text_asset(store, asset_scope, operation_id="op-exit", content="附件正文")
     issued = _capture_issued_contexts(composition)
-    handle = await _register(composition, service, process_id="process-end-cancelled")
-    task = asyncio.create_task(service.run_process(handle, stream=False))
-    await gateway_started.wait()
+    invalidated: list[WorkspaceAccessContext] = []
+    invalidate = composition.gateway.invalidate_context
 
-    stop_result = service.cancel_process(handle, reason="user_requested")
-    result = await task
+    def recording_invalidate(context: WorkspaceAccessContext) -> None:
+        invalidated.append(context)
+        invalidate(context)
 
-    assert stop_result.cancelled is True
-    assert result.execution_result.status == "cancelled"
+    composition.gateway.invalidate_context = recording_invalidate  # type: ignore[method-assign]
+    sessions = ConversationSessionService(WorkspaceSessionConfig())
+    released: list[str] = []
+    release = sessions.release
+
+    def recording_release(belong_to, session_id, process_id) -> None:
+        released.append(process_id)
+        release(belong_to, session_id, process_id)
+
+    sessions.release = recording_release  # type: ignore[method-assign]
+    bus = _bus_until_finalize()
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    cpu = ScriptedCPU(
+        events=[{"event": "token", "data": {"content": "一"}}],
+        result=make_cpu_result(),
+        error=RuntimeError("cpu exploded") if outcome == "failed" else None,
+        hang_before_result=outcome in _STOPPING_OUTCOMES,
+        linger_on_cancel=outcome == "hard_cancel",
+    )
+    table = ProcessTable()
+    service = make_task_process_service(
+        bus,
+        cpu=cpu,
+        access_gateway=composition.gateway,
+        operation_authorizer=composition.authorizer,
+        asset_reader=store,
+        process_table=table,
+        sessions=sessions,
+        shutdown_wait_seconds=0,
+    )
+    handle = await service.register_process(
+        adapter="local",
+        principal=composition.principal,
+        actor=_actor(),
+        workspace=_workspace(),
+        process_id="process-exit",
+        message="问题",
+        attachments=[AttachmentSelectionRequest(asset_ref=asset)],
+    )
+
+    events = await _drive_to_exit(outcome, service, handle, cpu=cpu, table=table)
+
+    assert events[-1]["event"] == last_event
+    assert _thread_revoked(composition, cpu) is True
+    assert store.close_and_clear().leases_cleared == 0
+    assert [context is issued[0] for context in invalidated] == [True]
     _assert_context_invalidated(composition, issued[0])
-    assert table.get("process-end-cancelled") is None
+    assert table.get("process-exit") is None
+    assert released == ["process-exit"]
+    assert sessions.get(_workspace(), handle.session_id).active_process_id is None
+
+
+class _SlowClosingCPU:
+    """产出一条交互事件后挂起；被取消时在收尾处挂起，直到测试放行。"""
+
+    def __init__(self) -> None:
+        self.close_entered = asyncio.Event()
+        self.release_close = asyncio.Event()
+
+    def execute(self, manifest, *, access, generation_options):
+        return CPURunHandle(self._iterate(), CPUResultSlot())
+
+    async def _iterate(self):
+        try:
+            yield {"event": "token", "data": {"content": "一"}}
+            await asyncio.Event().wait()
+        finally:
+            self.close_entered.set()
+            await self.release_close.wait()
+
+
+@pytest.mark.asyncio
+async def test_delivery_leaving_does_not_wait_for_process_close() -> None:
+    """交付方离开只退订并请求停止：CPU 收尾挂起时交付立即结束，进程放行后自行 cleanup 并注销。"""
+    cleanup = AsyncMock(return_value=True)
+    bus = _bus_until_finalize(cleanup)
+    cpu = _SlowClosingCPU()
+    table = ProcessTable()
+    service, composition = await _service(bus, cpu=cpu, process_table=table)  # type: ignore[arg-type]
+    handle = await _register(composition, service, process_id="process-detached")
+    stream = service.run_process(handle, stream=True)
+    while (await anext(stream))["event"] != "token":
+        pass
+
+    await asyncio.wait_for(stream.aclose(), timeout=1)
+    await asyncio.wait_for(cpu.close_entered.wait(), timeout=1)
+
+    assert process_state(table, "process-detached") == ("actor", "stop_requested", "stream_closed")
+    cleanup.assert_not_awaited()
+    cpu.release_close.set()
+    await wait_for_process_exit(table, "process-detached")
+    assert table.get("process-detached") is None
+    assert [call.kwargs["prepared_run"].interaction_id for call in cleanup.await_args_list] == [
+        "process-detached"
+    ]
 
 
 # ========== 控制面：请求方与进程记录的驻留坐标比对 ==========

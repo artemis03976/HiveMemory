@@ -49,9 +49,12 @@ class ProcessOutcome(str, Enum):
 #: System 关闭时经进程记录送达的停止原因。
 SYSTEM_SHUTDOWN_STOP_REASON = "system_shutdown"
 
+#: 交付方离开时默认的停止原因；HTTP 交付在客户端断连时改用 ``client_disconnected``。
+STREAM_CLOSED_STOP_REASON = "stream_closed"
+
 #: 不是用户决定的停止：交付方已离开或系统关闭，部分输出不写入会话、不提交。
 DISCARDING_STOP_REASONS = frozenset(
-    {"client_disconnected", "stream_closed", SYSTEM_SHUTDOWN_STOP_REASON}
+    {"client_disconnected", STREAM_CLOSED_STOP_REASON, SYSTEM_SHUTDOWN_STOP_REASON}
 )
 
 
@@ -99,9 +102,9 @@ class ProcessRecord:
     def is_terminal(self) -> bool:
         """进程是否已记录终态（completed / cancelled / failed）。
 
-        编排骨架每次记录终态后紧接着交出终态产出，中间没有 ``await``，
-        因此它同时表示“终态产出已经交出”；关闭流程据此判断是否需要按
-        断流收口。
+        编排骨架每次记录终态后紧接着写入终态产出，中间没有会挂起的
+        ``await``，因此它同时表示“终态产出已经写入”；交付方离开时据此判断
+        是否还需要请求停止，关闭流程据此判断是否需要终态兜底。
         """
         return self.phase is ProcessPhase.TERMINAL
 
@@ -226,5 +229,7 @@ __all__ = [
     "ProcessPhase",
     "ProcessRecord",
     "ProcessTable",
+    "STREAM_CLOSED_STOP_REASON",
+    "SYSTEM_SHUTDOWN_STOP_REASON",
     "StopResult",
 ]

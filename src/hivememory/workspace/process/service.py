@@ -2,22 +2,23 @@
 TaskProcessService — 任务请求的唯一注册入口与进程控制面
 
 位于 workspace：完成任务请求的两阶段认证（注册步骤），签发即绑定并立即
-创建进程、登记到进程表，返回不透明的进程句柄；已注册的
-:class:`TaskProcess`（状态容器）经句柄交给组合根注入的执行器
-:class:`TaskProcessRunner`（四阶段编排骨架）运行，交付为流式事件或非流式
-结果，并经进程表提供取消。本入口只管理任务进程的生命周期：
-不持有总线、CPU 端口、CPU 分配器、asset reader
-与编译配置等编排依赖，它们只由执行器持有。
+创建进程、登记到进程表，返回不透明的进程句柄；交付方首次运行进程时，
+本入口为它创建进程 task，在其中由组合根注入的执行器
+:class:`TaskProcessRunner`（四阶段编排骨架）推进各阶段。交付方只订阅
+进程的输出通道（流式），或等待进程 task 交出终态（非流式），并经进程表
+提供取消。本入口只管理任务进程的生命周期：不持有总线、CPU 端口、CPU
+分配器、asset reader 与编译配置等编排依赖，它们只由执行器持有。
 
-注册入口的生命周期职责：未通过两阶段认证不
-创建进程；注册成功即登记，进程以任何结局关闭后由本入口使 context 失效
-并从进程表注销——执行器的关闭流程只释放进程自身的资源。进程表是唯一的进程
-注册表，登记 ``process_id → TaskProcess``。进程记录与 ``TaskProcess`` 都不
-离开本入口：入口 adapter（server）只持有 :class:`ProcessHandle`；句柄按
-对象身份判定有效，持有有效句柄即为该进程生命周期的所有者，运行与关闭以
-句柄为参数，取消以句柄或 ``process_id`` 加请求级 context 为依据。
-注册成功但流一直没有开始时（例如关停信号在注册期间到达），调用方经
-:meth:`close_process` 触发同一关闭路径。
+注册入口的生命周期职责：未通过两阶段认证不创建进程；注册成功即登记；
+进程只有一条退出路径——进程 task 在执行器完成关闭流程后，由本入口使
+context 失效、从进程表注销并释放会话认领，最后结束输出通道。交付方离开
+只退订并以交付方给出的原因请求停止，不在自己的取消上下文中执行关闭。
+进程表是唯一的进程注册表，登记 ``process_id → TaskProcess``。进程记录与
+``TaskProcess`` 都不离开本入口：入口 adapter（server）只持有
+:class:`ProcessHandle`；句柄按对象身份判定有效，持有有效句柄即为该进程
+生命周期的所有者，运行与关闭以句柄为参数，取消以句柄或 ``process_id``
+加请求级 context 为依据。注册成功但交付一直没有开始时（例如关停信号在
+注册期间到达），调用方经 :meth:`close_process` 关闭进程。
 """
 
 from __future__ import annotations
@@ -25,7 +26,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncGenerator, Coroutine
-from contextlib import aclosing
 from typing import Any, Literal, overload
 
 from hivememory.components.events.bus import NullRuntimeEventSink
@@ -46,24 +46,19 @@ from hivememory.core.models import (
 )
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
-from hivememory.workspace.contracts import (
-    CPUExecutionResult,
-    CPUExecutionStatus,
-)
 from hivememory.workspace.process.events import TaskProcessEventEmitter
 from hivememory.workspace.process.outputs import (
-    CommandCompleted,
     NonStreamingAgentOutcome,
     NonStreamingCommandOutcome,
     NonStreamingResult,
     ProcessFailed,
-    RunCancelled,
-    RunCompleted,
-    RunFailed,
+    TerminalOutput,
+    non_streaming_result,
     stream_events,
 )
 from hivememory.workspace.process.runner import TaskProcessRunner
 from hivememory.workspace.process.table import (
+    STREAM_CLOSED_STOP_REASON,
     SYSTEM_SHUTDOWN_STOP_REASON,
     CancelResult,
     ProcessRecord,
@@ -123,7 +118,7 @@ class TaskProcessService:
     进程以任何结局关闭时由本入口经认证网关使绑定 context 失效；
     ``operation_authorizer`` 只用于进程控制授权（阶段授权由执行器执行）；
     ``event_publisher`` 驱动 ``chat.run.*`` 观测事件；``shutdown_wait_seconds``
-    是 System 关闭时等待交付方自行收口的上限。
+    是 System 关闭时请求停止后等待进程 task 结束的上限，超时后硬取消。
     """
 
     def __init__(
@@ -242,6 +237,7 @@ class TaskProcessService:
         handle: ProcessHandle,
         *,
         stream: Literal[True] = True,
+        detach_reason: str = STREAM_CLOSED_STOP_REASON,
     ) -> AsyncGenerator[dict[str, Any], None]: ...
 
     @overload
@@ -250,6 +246,7 @@ class TaskProcessService:
         handle: ProcessHandle,
         *,
         stream: Literal[False],
+        detach_reason: str = STREAM_CLOSED_STOP_REASON,
     ) -> Coroutine[Any, Any, NonStreamingResult]: ...
 
     def run_process(
@@ -257,142 +254,174 @@ class TaskProcessService:
         handle: ProcessHandle,
         *,
         stream: bool = True,
+        detach_reason: str = STREAM_CLOSED_STOP_REASON,
     ) -> AsyncGenerator[dict[str, Any], None] | Coroutine[Any, Any, NonStreamingResult]:
         """运行句柄对应的已注册进程：``stream=True``（默认）返回流式事件的
         异步生成器，``stream=False`` 返回可 await 的非流式结果。
 
-        两种形态只负责运行，认证与登记已在 :meth:`register_process` 完成；
-        交付结束（含提前关闭）后由本服务收口：使绑定 context 失效并从
-        进程表注销。
+        认证与登记已在 :meth:`register_process` 完成；首次迭代生成器或
+        await 结果时才创建进程 task，每个进程只运行一次。``detach_reason``
+        是交付方离开（生成器被关闭或取消、等待被取消）时请求停止的原因，
+        HTTP 交付在客户端断连时传入 ``client_disconnected``。
         """
         process = self._resolve(handle)
         if stream:
-            return self._deliver_stream(process)
-        return self._deliver_once(process)
+            return self._deliver_stream(process, detach_reason)
+        return self._deliver_once(process, detach_reason)
 
     async def shutdown(self) -> None:
-        """停止全部在途进程，并在返回前完成关闭；会话设施只能在本方法之后清空。
+        """停止全部进程，等待进程 task 结束，超时后硬取消；返回前全部进程已关闭。
 
-        驱动进程的 task 不固定（SSE 交付每次拉取都在新 task 中进行），因此这里
-        不取消某个 task，也不在交付方仍在驱动时并发关闭：停止经进程记录送达，
-        交付方照常收尾并经注册入口关闭进程。系统关闭不是用户的停止，已产生的
-        部分输出不写入会话、不提交；已进入 finalize 的进程照常等待提交完成。
-        从未开始运行的进程没有交付方，直接关闭；等待超过
-        ``shutdown_wait_seconds`` 仍未关闭的进程由本方法兜底关闭。
+        从未运行的进程直接关闭；已启动的进程以 ``system_shutdown`` 请求停止。
+        系统关闭不是用户的停止，已产生的部分输出不写入会话、不提交；已进入
+        finalize 的进程拒绝停止，照常等待提交完成。超过
+        ``shutdown_wait_seconds`` 仍未结束的进程 task 被取消并等待结束：进程
+        照常在自己的 task 中收尾，finalize 中的提交仍要等它结束。会话设施
+        只能在本方法之后清空。
         """
-        driven: list[TaskProcess] = []
+        tasks: list[asyncio.Task[TerminalOutput | None]] = []
         for process in self._process_table.snapshot():
-            if process.owner_task is None:
-                await self._close(process)
+            if process.task is None:
+                tasks.append(self._close_unstarted(process, SYSTEM_SHUTDOWN_STOP_REASON))
                 continue
             process.record.request_stop(SYSTEM_SHUTDOWN_STOP_REASON)
-            driven.append(process)
-        if driven:
-            waiters = [asyncio.create_task(process.closed.wait()) for process in driven]
-            try:
-                await asyncio.wait(waiters, timeout=self._shutdown_wait_seconds)
-            finally:
-                for waiter in waiters:
-                    waiter.cancel()
-                await asyncio.gather(*waiters, return_exceptions=True)
-        for process in driven:
-            if not process.closed.is_set():
-                logger.warning(
-                    "任务进程未在关闭等待内由交付方收口，兜底关闭: %s",
-                    process.record.process_id,
-                )
-                await self._close(process)
+            tasks.append(process.task)
+        if not tasks:
+            return
+        _, pending = await asyncio.wait(tasks, timeout=self._shutdown_wait_seconds)
+        for task in pending:
+            logger.warning("任务进程未在关闭等待内结束，硬取消: %s", task.get_name())
+            task.cancel()
+        if pending:
+            await asyncio.wait(pending)
 
     async def close_process(self, handle: ProcessHandle) -> None:
-        """注册入口的关闭路径：经执行器释放进程资源，使绑定 context 失效并注销。
+        """注册入口的关闭路径：关闭句柄对应的进程，并等待进程 task 结束。
 
-        进程正常交付结束、以任何结局终态化、或注册成功但流一直没有开始
-        （例如关停信号在注册期间到达），都经本路径收口；幂等，重复调用
-        或句柄已失效（进程已关闭、句柄不是本入口签发的）是空操作。
+        进程从未运行（例如关停信号在注册期间到达）时，创建只执行关闭流程的
+        进程 task；进程仍在运行时以 ``stream_closed`` 请求停止。等待可以被
+        调用方取消，取消不影响进程自身的收尾。句柄已失效（进程已关闭、句柄
+        不是本入口签发的）时是空操作。
         """
         process = self._lookup(handle)
         if process is None:
             return
-        await self._close(process)
+        task = process.task
+        if task is None:
+            task = self._close_unstarted(process, STREAM_CLOSED_STOP_REASON)
+        elif not process.record.is_terminal:
+            self._request_stop(process, STREAM_CLOSED_STOP_REASON)
+        await asyncio.wait((task,))
 
-    async def _close(self, process: TaskProcess) -> None:
-        """关闭一个已登记的进程（幂等）。
+    def _start(
+        self, process: TaskProcess, *, subscribe: bool
+    ) -> asyncio.Task[TerminalOutput | None]:
+        """首次运行时创建进程 task；每个进程只运行一次，只允许一个交付方。
 
-        context 失效与进程注销放在内层 ``finally``：关闭子流被取消中断时
-        收口仍要完成，不留已失效却仍登记的进程。
+        交付对象可能在进程关闭之后才开始迭代，因此这里重新确认进程仍在登记。
+        ``subscribe`` 为假时输出通道从一开始就处于无订阅者状态。
         """
         if self._process_table.get(process.record.process_id) is not process:
-            return
-        record = process.record
+            raise _unknown_handle_error(process.record.process_id)
+        if process.task is not None:
+            raise RuntimeError("任务进程已经开始运行或正在关闭：每个进程只允许一个交付方")
+        if not subscribe:
+            process.outputs.detach()
+        process.task = asyncio.create_task(
+            self._drive(process, run=True), name=f"task-process:{process.record.process_id}"
+        )
+        return process.task
+
+    def _close_unstarted(
+        self, process: TaskProcess, reason: str
+    ) -> asyncio.Task[TerminalOutput | None]:
+        """关闭从未运行的进程：记下停止原因，由只执行关闭流程的进程 task 收尾。"""
+        process.record.request_stop(reason)
+        process.task = asyncio.create_task(
+            self._drive(process, run=False), name=f"task-process:{process.record.process_id}"
+        )
+        return process.task
+
+    async def _drive(self, process: TaskProcess, *, run: bool) -> TerminalOutput | None:
+        """进程 task 的驱动协程：唯一的退出路径。
+
+        ``run`` 为真时由执行器推进各阶段并在收尾中完成关闭流程，返回终态
+        产出；为假时进程从未运行，只执行关闭流程。无论以终态还是硬取消
+        结束，``finally`` 都撤销进程 context、从进程表注销、释放会话认领，
+        最后结束输出通道：订阅者读到结束标记时，进程已经关闭。
+        """
         try:
+            if run:
+                return await self._runner.run(process)
             await self._runner.close(process)
+            return None
         finally:
-            # 绑定 context 随进程关闭失效：无论 completed、失败、
-            # 取消还是断流，进程结束后该凭据不再可用。
-            self._access_gateway.invalidate_context(record.access)
-            # 并发关闭的后到者不重复释放；会话此时可能已被删除或重新认领。
-            if self._process_table.get(record.process_id) is process:
-                self._process_table.close(process)
-                self._sessions.release(
-                    process.request.target_workspace, process.request.session_id, record.process_id
-                )
-                process.closed.set()
+            try:
+                self._release(process)
+            finally:
+                process.outputs.end()
+
+    def _release(self, process: TaskProcess) -> None:
+        """进程关闭后的收口：撤销进程 context、注销进程，再释放会话认领。"""
+        record = process.record
+        # 绑定 context 随进程关闭失效：无论 completed、失败、取消还是
+        # 硬取消，进程结束后该凭据不再可用。
+        self._access_gateway.invalidate_context(record.access)
+        self._process_table.close(process)
+        # 只释放本进程的认领，会话不会被误交给后继进程。
+        self._sessions.release(
+            process.request.target_workspace, process.request.session_id, record.process_id
+        )
 
     async def _deliver_stream(
         self,
         process: TaskProcess,
+        detach_reason: str,
     ) -> AsyncGenerator[dict[str, Any], None]:
-        """流式交付：阶段产出逐项投影为流式事件；编排异常翻译为 error 事件。"""
-        try:
-            async with aclosing(self._runner.run(process)) as outputs:
-                async for output in outputs:
-                    if isinstance(output, ProcessFailed):
-                        yield _stream_error(output.error)
-                        continue
-                    for event in stream_events(
-                        output,
-                        process_id=process.record.process_id,
-                        session_id=process.request.session_id,
-                    ):
-                        yield event
-        finally:
-            await self._close(process)
+        """流式交付：订阅输出通道，把阶段产出投影为流式事件；编排异常翻译为 error 事件。
 
-    async def _deliver_once(self, process: TaskProcess) -> NonStreamingResult:
-        """非流式交付：丢弃交互事件、只取终态产出；编排异常在进程关闭后原样上抛。
-
-        结果只含终态执行结果与会话 ID，不含流式 ``done`` 的 ``topic_id``、
-        停止原因与记忆引用。
+        生成器被关闭或被取消时只退订，进程尚未记录终态时以 ``detach_reason``
+        请求停止；交付方不等待进程 task，也不执行任何关闭步骤。正常结束时
+        结束标记在进程关闭之后才到达，流随之结束。
         """
+        self._start(process, subscribe=True)
         try:
-            result: NonStreamingResult | None = None
-            async with aclosing(self._runner.run(process)) as outputs:
-                async for output in outputs:
-                    match output:
-                        case CommandCompleted(command_result=command_result):
-                            result = NonStreamingCommandOutcome(
-                                command_execution_result=command_result,
-                                session_id=process.request.session_id,
-                            )
-                        case RunCompleted(execution_result=execution_result) | RunFailed(
-                            execution_result=execution_result
-                        ):
-                            result = NonStreamingAgentOutcome(
-                                execution_result=execution_result,
-                                session_id=process.request.session_id,
-                            )
-                        case RunCancelled(execution_result=execution_result):
-                            result = NonStreamingAgentOutcome(
-                                execution_result=_cancelled_execution_result(execution_result),
-                                session_id=process.request.session_id,
-                            )
-                        case ProcessFailed(error=error):
-                            raise error
-            if result is None:
-                raise RuntimeError("任务进程结束时没有终态产出")
-            return result
+            while (output := await process.outputs.receive()) is not None:
+                if isinstance(output, ProcessFailed):
+                    yield _stream_error(output.error)
+                    continue
+                for event in stream_events(
+                    output,
+                    process_id=process.record.process_id,
+                    session_id=process.request.session_id,
+                ):
+                    yield event
         finally:
-            await self._close(process)
+            self._detach(process, detach_reason)
+
+    async def _deliver_once(self, process: TaskProcess, detach_reason: str) -> NonStreamingResult:
+        """非流式交付：不订阅输出通道，等待进程 task 交出终态产出。
+
+        进程 task 结束时进程已经关闭；编排异常随后原样上抛。调用方在等待中
+        被取消时，以 ``detach_reason`` 请求停止后传播取消，进程在自己的 task
+        中收尾。进程 task 被系统关闭硬取消时没有终态产出，取消同样传给调用方。
+        """
+        task = self._start(process, subscribe=False)
+        try:
+            terminal = await asyncio.shield(task)
+        except asyncio.CancelledError:
+            if not task.done():
+                self._detach(process, detach_reason)
+            raise
+        if terminal is None:
+            raise RuntimeError("任务进程结束时没有终态产出")
+        return non_streaming_result(terminal, session_id=process.request.session_id)
+
+    def _detach(self, process: TaskProcess, reason: str) -> None:
+        """交付方离开：退订输出通道；进程尚未记录终态时，以交付方给出的原因请求停止。"""
+        process.outputs.detach()
+        if not process.record.is_terminal:
+            self._request_stop(process, reason)
 
     # ========== 进程控制 ==========
 
@@ -422,7 +451,7 @@ class TaskProcessService:
     ) -> CancelResult:
         """唯一的幂等取消方法：取消的依据作为参数。
 
-        - 传入句柄：调用方是进程的所有者（例如 chat 路由在客户端断开时），
+        - 传入句柄：调用方是进程的所有者（交付方离开时的停止也经同一实现），
           不经进程控制授权，不接受另传的 ``access``；句柄已失效时返回
           ``not_found``，不发布事件。
         - 传入 ``process_id`` 与请求级 ``access``：控制请求（``/chat/stop``），
@@ -468,10 +497,7 @@ class TaskProcessService:
         """把句柄解析为已登记的进程；句柄无效时显式失败（``process_handle_unknown``）。"""
         process = self._lookup(handle)
         if process is None:
-            raise WorkspaceDomainError(
-                "进程句柄无效：不是本入口签发的句柄，或对应进程已关闭",
-                details={"reason": "process_handle_unknown", "process_id": handle.process_id},
-            )
+            raise _unknown_handle_error(handle.process_id)
         return process
 
     def _lookup(self, handle: ProcessHandle) -> TaskProcess | None:
@@ -508,6 +534,14 @@ class TaskProcessService:
             )
 
 
+def _unknown_handle_error(process_id: str) -> WorkspaceDomainError:
+    """句柄无效：不是本入口签发的句柄，或对应进程已关闭。"""
+    return WorkspaceDomainError(
+        "进程句柄无效：不是本入口签发的句柄，或对应进程已关闭",
+        details={"reason": "process_handle_unknown", "process_id": process_id},
+    )
+
+
 def _not_found(process_id: str, reason: str) -> CancelResult:
     """取消找不到可控进程时的统一结果。"""
     return CancelResult(
@@ -526,13 +560,6 @@ def _stream_error(error: Exception) -> dict[str, Any]:
             "data": {"message": "请求未能完成，请检查权限、资源和会话状态", "code": error.code},
         }
     return {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
-
-
-def _cancelled_execution_result(result: CPUExecutionResult | None) -> CPUExecutionResult:
-    """把 Actor 自报的执行结果归一为取消终态；无结果时构造纯取消结果。"""
-    if result is None:
-        return CPUExecutionResult(status=CPUExecutionStatus.CANCELLED)
-    return result.model_copy(update={"status": CPUExecutionStatus.CANCELLED.value})
 
 
 __all__ = [

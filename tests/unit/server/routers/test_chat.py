@@ -7,8 +7,9 @@ Chat 路由单元测试
     2. 正常对话 — SSE 事件序列: token → done
     3. MTP 对话 — SSE 事件序列: token → mtp_start → mtp_result → token → done
     4. 异常处理 — SSE error 事件
-    5. 断连/断流 — cancel_process(handle, reason="client_disconnected") 取消
-       自己注册的进程（不经进程控制授权），close_process(handle) 收口
+    5. 断连 — 交付以 detach_reason="client_disconnected" 运行，响应被取消时
+       交付生成器随之关闭（退订并请求停止由注册入口负责）；生成器从未开始
+       迭代时经 close_process(handle) 关闭进程
 """
 
 import asyncio
@@ -187,10 +188,10 @@ class TestChatRegistration:
             "top_p": 0.8,
             "max_tokens": 1024,
         }
-        # run_process 收到注册返回的不透明进程句柄与 stream=True
+        # run_process 收到注册返回的不透明进程句柄；交付以断连原因订阅
         run_args, run_kwargs = mock_service.run_process.call_args
         assert run_args[0].process_id == register_kwargs["process_id"]
-        assert run_kwargs == {"stream": True}
+        assert run_kwargs == {"stream": True, "detach_reason": "client_disconnected"}
 
     def test_registration_precedes_stream_run(self):
         """正常路径先完成注册（认证+登记），再开始流式运行。"""
@@ -200,7 +201,7 @@ class TestChatRegistration:
             order.append("register")
             return _registered_process(process_id=kwargs["process_id"])
 
-        def fake_run(handle, *, stream=True):
+        def fake_run(handle, **_kwargs):
             order.append("run")
 
             async def gen():
@@ -231,7 +232,7 @@ class TestChatRegistration:
             captured.append(kwargs["process_id"])
             return _registered_process(process_id=kwargs["process_id"])
 
-        def fake_run(handle, *, stream=True):
+        def fake_run(handle, **_kwargs):
             async def gen():
                 yield {"event": "done", "data": {"final_text": "ok"}}
 
@@ -352,8 +353,6 @@ class TestChatRouter:
         error_events = [e for e in events if e["event"] == "error"]
         assert len(error_events) == 1
         assert "系统错误" in error_events[0]["data"]["message"]
-        # 异常终态同样经注册入口收口
-        mock_service.close_process.assert_awaited_once()
 
     def test_command_result_sse_event_is_forwarded_as_own_event(self):
         mock_service = _wired_chat_service(
@@ -464,7 +463,7 @@ def _simple_stream(*events, exc: Exception | None = None):
 
 class TestChatDisconnect:
     @staticmethod
-    def _direct_call(mock_service, request):
+    def _direct_call(mock_service):
         """绕过 HTTP 栈直接调用 chat 路由（使用真实网关组合完成认证）。
 
         chat 路由只声明 service 与 principal_id 依赖：注册入口的认证在
@@ -472,171 +471,53 @@ class TestChatDisconnect:
         """
         _, composition = make_server_access_overrides()
         return chat(
-            request=request,
             body=ChatRequest(message="hello", agent_id="test_agent"),
             selection=RequestIdentitySelection(user_id=None, workspace_id=None),
             service=mock_service,
             principal_id=composition.principal.principal_id,
         )
 
-    @staticmethod
-    def _blocking_stream(blocker: asyncio.Event, first_event: dict | None):
-        async def gen(**kwargs):
-            try:
-                if first_event is not None:
-                    yield first_event
-                await blocker.wait()
-            finally:
-                blocker.set()
-
-        return gen
-
     @pytest.mark.asyncio
-    async def test_disconnect_while_waiting_for_next_event_cancels_process(self):
-        blocker = asyncio.Event()
-        stream_factory = self._blocking_stream(blocker, {"event": "process_id", "data": {}})
-        mock_service = _wired_chat_service(lambda *args, **kw: stream_factory(**kw))
-        mock_service.cancel_process = MagicMock()
+    @pytest.mark.parametrize("cancelled_while", ["awaiting_event", "awaiting_send"])
+    async def test_disconnect_closes_delivery_subscribed_with_client_disconnected(
+        self, cancelled_while
+    ):
+        """客户端断连：以断连原因订阅的交付生成器被关闭，路由不调用关闭路径。
 
-        disconnect_checks = 0
+        两种取消时机：响应在等待下一项时被取消（取消直接穿过生成器），以及
+        在等待 send 时被取消（生成器停在 yield，由响应收尾关闭）。
+        """
+        delivery_closed = asyncio.Event()
 
-        class FakeRequest:
-            async def is_disconnected(self):
-                nonlocal disconnect_checks
-                disconnect_checks += 1
-                return disconnect_checks >= 3
-
-        response = await self._direct_call(mock_service, FakeRequest())
-
-        first_chunk = await response.body_iterator.__anext__()
-        assert first_chunk["event"] == "process_id"
-        with pytest.raises(StopAsyncIteration):
-            await response.body_iterator.__anext__()
-
-        process_id = mock_service.register_process.call_args.kwargs["process_id"]
-        assert process_id.startswith("process_")
-        # 客户端断开经句柄停止自己注册的进程（不经进程控制授权，无 access）
-        handle = mock_service.cancel_process.call_args.args[0]
-        assert handle.process_id == process_id
-        assert mock_service.cancel_process.call_args.kwargs == {"reason": "client_disconnected"}
-        mock_service.close_process.assert_awaited_once()
-        assert mock_service.close_process.await_args.args[0] is handle
-
-    @pytest.mark.asyncio
-    async def test_disconnect_before_process_id_event_cancels_process(self):
-        stream_started = asyncio.Event()
-        blocker = asyncio.Event()
-
-        async def fake_stream(handle, *, stream=True):
-            stream_started.set()
+        async def delivery():
             try:
-                await blocker.wait()
-                yield {"event": "process_id", "data": {"process_id": handle.process_id}}
-            finally:
-                blocker.set()
-
-        mock_service = _wired_chat_service(lambda *args, **kw: fake_stream(*args, **kw))
-        mock_service.cancel_process = MagicMock()
-
-        disconnect_checks = 0
-
-        class FakeRequest:
-            async def is_disconnected(self):
-                nonlocal disconnect_checks
-                disconnect_checks += 1
-                return disconnect_checks >= 2
-
-        response = await self._direct_call(mock_service, FakeRequest())
-
-        with pytest.raises(StopAsyncIteration):
-            await response.body_iterator.__anext__()
-
-        assert stream_started.is_set()
-        process_id = mock_service.register_process.call_args.kwargs["process_id"]
-        handle = mock_service.cancel_process.call_args.args[0]
-        assert handle.process_id == process_id
-        assert mock_service.cancel_process.call_args.kwargs == {"reason": "client_disconnected"}
-        mock_service.close_process.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_asgi_cancellation_joins_pending_pull_before_closing_stream(self):
-        pull_started = asyncio.Event()
-        stream_closed = asyncio.Event()
-        pull_task = None
-
-        async def fake_stream(handle, *, stream=True):
-            nonlocal pull_task
-            yield {"event": "process_id", "data": {"process_id": handle.process_id}}
-            pull_task = asyncio.current_task()
-            pull_started.set()
-            try:
+                yield {"event": "process_id", "data": {}}
                 await asyncio.Event().wait()
             finally:
-                stream_closed.set()
+                delivery_closed.set()
 
-        mock_service = _wired_chat_service(lambda *args, **kw: fake_stream(*args, **kw))
-        mock_service.cancel_process = MagicMock()
+        mock_service = _wired_chat_service(lambda *args, **kw: delivery())
+        response = await self._direct_call(mock_service)
+        first_chunk_sent = asyncio.Event()
 
-        class FakeRequest:
-            async def is_disconnected(self):
-                return False
+        async def send(message):
+            if message["type"] == "http.response.body" and message.get("body"):
+                first_chunk_sent.set()
+                if cancelled_while == "awaiting_send":
+                    await asyncio.Event().wait()
 
-        response = await self._direct_call(mock_service, FakeRequest())
+        async def receive():
+            await first_chunk_sent.wait()
+            return {"type": "http.disconnect"}
 
-        first_chunk = await response.body_iterator.__anext__()
-        assert first_chunk["event"] == "process_id"
+        await asyncio.wait_for(response({"type": "http"}, receive, send), timeout=2)
 
-        next_chunk = asyncio.create_task(response.body_iterator.__anext__())
-        await pull_started.wait()
-        next_chunk.cancel()
-
-        with pytest.raises(asyncio.CancelledError):
-            await next_chunk
-
-        assert stream_closed.is_set()
-        assert pull_task is not None
-        assert pull_task.done()
-        assert pull_task.cancelled()
-        # ASGI 取消同样走句柄的停止入口（不经进程控制授权 + 断连原因）
-        process_id = mock_service.register_process.call_args.kwargs["process_id"]
-        handle = mock_service.cancel_process.call_args.args[0]
-        assert handle.process_id == process_id
-        assert mock_service.cancel_process.call_args.kwargs == {"reason": "client_disconnected"}
-        mock_service.close_process.assert_awaited_once()
-
-    @pytest.mark.asyncio
-    async def test_sse_iterator_close_closes_chat_stream(self):
-        """SSE 迭代器被关闭时，路由经注册入口的关闭路径收口。
-
-        新入口不再直接 ``aclose`` 内层流：``close_process`` 负责关闭进程
-        流、失效绑定 context 并从进程表注销（真实服务行为由 process 服务
-        测试覆盖）；本测试验证路由在断流时调用了它。
-        """
-
-        async def fake_stream(handle, *, stream=True):
-            yield {"event": "process_id", "data": {"process_id": handle.process_id}}
-            yield {"event": "token", "data": {"content": "late"}}
-
-        mock_service = _wired_chat_service(lambda *args, **kw: fake_stream(*args, **kw))
-
-        class FakeRequest:
-            async def is_disconnected(self):
-                return False
-
-        response = await self._direct_call(mock_service, FakeRequest())
-
-        first_chunk = await response.body_iterator.__anext__()
-        assert first_chunk["event"] == "process_id"
-
-        await response.body_iterator.aclose()
-
-        # 断流经注册入口的关闭路径收口（close_process 幂等）
-        mock_service.close_process.assert_awaited_once()
-        assert mock_service.close_process.await_args.args[0] is (
-            mock_service.run_process.call_args.args[0]
-        )
-        with pytest.raises(StopAsyncIteration):
-            await response.body_iterator.__anext__()
+        assert delivery_closed.is_set()
+        assert mock_service.run_process.call_args.kwargs == {
+            "stream": True,
+            "detach_reason": "client_disconnected",
+        }
+        mock_service.close_process.assert_not_awaited()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("trigger", ["shutdown_before_streaming", "send_raises_on_disconnect"])
@@ -651,12 +532,7 @@ class TestChatDisconnect:
         允许的行为）。
         """
         mock_service = _wired_chat_service(lambda *args, **kw: _simple_stream())
-
-        class FakeRequest:
-            async def is_disconnected(self):
-                return False
-
-        response = await self._direct_call(mock_service, FakeRequest())
+        response = await self._direct_call(mock_service)
 
         async def receive():
             # 客户端不发送断开消息：响应只由触发条件结束。

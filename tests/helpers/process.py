@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
@@ -117,4 +118,16 @@ def process_state(table: ProcessTable, process_id: str) -> tuple[str, str, str |
     return record.phase.value, record.outcome.value, record.stop_reason
 
 
-__all__ = ["make_task_process_service", "process_state"]
+async def wait_for_process_exit(
+    table: ProcessTable, process_id: str, *, timeout: float = 2.0
+) -> None:
+    """等待已启动进程的进程 task 结束，不请求停止；进程已注销时立即返回。"""
+    process = table.get(process_id)
+    if process is None:
+        return
+    if process.task is None:
+        raise AssertionError(f"进程尚未启动: {process_id}")
+    await asyncio.wait_for(asyncio.wait((process.task,)), timeout)
+
+
+__all__ = ["make_task_process_service", "process_state", "wait_for_process_exit"]

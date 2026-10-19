@@ -316,6 +316,8 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
             while (await anext(stream))["event"] != "token":
                 pass
         await stream.aclose()
+        # 交付方离开只请求停止；等待进程在自己的 task 中撤销线程并关闭。
+        await service.close_process(handle)
         (task,) = update_tasks
         assert task.cancelling() == 0
         assert runtime.intents.size == 0

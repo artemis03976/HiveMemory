@@ -40,7 +40,7 @@ from hivememory.workspace.process import NonStreamingAgentOutcome, TaskProcessSe
 from hivememory.workspace.process.service import ProcessHandle
 from hivememory.workspace.process.table import ProcessTable
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.process import make_task_process_service
+from tests.helpers.process import make_task_process_service, wait_for_process_exit
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -332,32 +332,96 @@ async def test_cpu_failure_reason_reaches_done_and_runtime_event(reason):
     assert failed.message == reason
 
 
+def _hanging_gateway_bus() -> tuple[GlobalSystemBus, asyncio.Event]:
+    """Gateway 调用挂起的总线，返回 Gateway 已进入的事件。"""
+    bus = GlobalSystemBus()
+    started = asyncio.Event()
+
+    async def gateway(**_kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
+    return bus, started
+
+
 @pytest.mark.asyncio
-async def test_stream_closed_before_terminal_publishes_cancelled_with_close_reason() -> None:
-    """交付方在终态前关闭流：进程按断流取消收口并发布关闭原因。"""
+@pytest.mark.parametrize("delivery", ["stream", "once"])
+async def test_delivery_leaving_before_terminal_stops_process_with_its_reason(
+    delivery: str,
+) -> None:
+    """交付方在终态前离开（流被关闭或等待被取消）：以交付方给出的原因走普通停止路径，
+    发布停止请求与带生效阶段的 cancelled 事件。"""
+    bus, gateway_started = _hanging_gateway_bus()
     sink = RecordingRuntimeEventSink()
     table = ProcessTable()
-    service, composition = await _service(
-        GlobalSystemBus(),
-        RuntimeEventPublisher(sink),
-        cpu=ScriptedCPU(result=make_cpu_result()),
-        process_table=table,
+    service, composition = await _service(bus, RuntimeEventPublisher(sink), process_table=table)
+    handle = await _register(composition, service, "问题", process_id="process-left")
+
+    if delivery == "stream":
+        stream = service.run_process(handle, stream=True, detach_reason="client_disconnected")
+        assert (await anext(stream))["event"] == "process_id"
+        await gateway_started.wait()
+        await stream.aclose()
+    else:
+        waiter = asyncio.create_task(
+            service.run_process(handle, stream=False, detach_reason="client_disconnected")
+        )
+        await gateway_started.wait()
+        waiter.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await waiter
+    await wait_for_process_exit(table, "process-left")
+
+    events = _chat_events(sink)
+    assert [(event.event_type, event.status, event.reason, event.data) for event in events[2:]] == [
+        (
+            RuntimeEventType.CHAT_RUN_CANCEL_REQUESTED,
+            "stop_requested",
+            "client_disconnected",
+            {"cancelled": True},
+        ),
+        (RuntimeEventType.CHAT_RUN_STATUS, "stop_requested", "client_disconnected", {}),
+        (
+            RuntimeEventType.CHAT_RUN_CANCELLED,
+            "cancelled",
+            "client_disconnected",
+            {"phase": "gateway"},
+        ),
+    ]
+    assert table.get("process-left") is None
+
+
+@pytest.mark.asyncio
+async def test_hard_cancelled_process_publishes_cancelled_with_close_reason() -> None:
+    """停止后未能在关闭等待内结束、被系统关闭硬取消的进程：按“终态前关闭”形态收口。"""
+    sink = RecordingRuntimeEventSink()
+    cpu = ScriptedCPU(hang_before_result=True, linger_on_cancel=True)
+    composition = _composition()
+    service = make_task_process_service(
+        _bus_until_actor(),
+        event_publisher=RuntimeEventPublisher(sink),
+        cpu=cpu,
+        access_gateway=composition.gateway,
+        operation_authorizer=composition.authorizer,
+        shutdown_wait_seconds=0,
     )
-    handle = await _register(composition, service, "问题", process_id="process-closed")
+    handle = await _register(composition, service, "问题", process_id="process-hard-cancel")
     stream = service.run_process(handle, stream=True)
+    await anext(stream)
+    await asyncio.wait_for(cpu.hang_entered.wait(), timeout=1)
 
-    first = await stream.__anext__()
-    await stream.aclose()
+    await service.shutdown()
 
-    assert first["event"] == "process_id"
     cancelled = _chat_events(sink)[-1]
-    assert cancelled.event_type == RuntimeEventType.CHAT_RUN_CANCELLED
-    assert (cancelled.status, cancelled.reason, cancelled.data) == (
+    assert (cancelled.event_type, cancelled.status, cancelled.reason) == (
+        RuntimeEventType.CHAT_RUN_CANCELLED,
         "cancelled",
-        "stream_closed",
-        {"close_reason": "stream_closed"},
+        "system_shutdown",
     )
-    assert table.get("process-closed") is None
+    assert cancelled.message == "Task process closed before terminal event."
+    assert cancelled.data == {"close_reason": "system_shutdown"}
+    assert [event["event"] async for event in stream] == ["memory_refs"]
 
 
 class _RaisingSink(RecordingRuntimeEventSink):

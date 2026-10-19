@@ -2,7 +2,8 @@
 
 任务进程测试以本替身替换 Alice：总线上不注册任何 Alice 路由，进程与入口
 代码不为此做任何改动。可配置项覆盖以下场景：交互事件、终态
-结果、拉取时挂起（取消测试）、抛出异常与不产出终态。
+结果、终态前挂起（取消测试）、取消后迟迟不收尾（硬取消测试）、抛出异常与
+不产出终态。
 """
 
 from __future__ import annotations
@@ -43,7 +44,9 @@ class ScriptedCPU:
     ``events`` 是终态结果前逐项产出的交互事件；``result`` 是唯一的终态
     执行结果（为 ``None`` 时迭代器不产出终态即结束，模拟协议错误）；
     ``error`` 在事件产出后抛出；``hang_before_result`` 在产出终态前永久
-    挂起，用于停止请求与断流的取消测试。
+    挂起，用于停止请求与交付方离开的取消测试；``linger_on_cancel`` 让取消
+    收尾在回填结果槽后继续挂起，直到再次被取消，模拟停止后不能及时结束、
+    只能由系统关闭硬取消的 CPU。
 
     调用入参记录在 ``calls``；``closed`` 记录输出迭代器是否已终结（被
     ``aclose`` 关闭、被取消终止或自然耗尽均算）。
@@ -57,6 +60,7 @@ class ScriptedCPU:
         error: Exception | None = None,
         cancelled_result: CPUExecutionResult | None = None,
         hang_before_result: bool = False,
+        linger_on_cancel: bool = False,
         operation_script: Callable[[OperationSubmitter], Awaitable[None]] | None = None,
     ) -> None:
         self._events = list(events or [])
@@ -64,12 +68,15 @@ class ScriptedCPU:
         self._error = error
         self._cancelled_result = cancelled_result
         self._hang_before_result = hang_before_result
+        self._linger_on_cancel = linger_on_cancel
         self._operation_script = operation_script
         self._operation_entry: OperationEntry | None = None
         self.calls: list[CPUCall] = []
         self.closed = False
         #: 挂起点被进入时置位；取消测试据此同步停止请求的注入时机。
         self.hang_entered = asyncio.Event()
+        #: 最后一条交互事件即将交出时置位；背压测试据此确认进程停在通道写入上。
+        self.last_event_entered = asyncio.Event()
 
     @property
     def operation_entry(self) -> OperationEntry:
@@ -101,7 +108,9 @@ class ScriptedCPU:
         try:
             if self._operation_script is not None:
                 await self._operation_script(ThreadOperationSubmitter(self.operation_entry, access))
-            for event in self._events:
+            for index, event in enumerate(self._events, start=1):
+                if index == len(self._events):
+                    self.last_event_entered.set()
                 yield dict(event)
             if self._hang_before_result:
                 self.hang_entered.set()
@@ -113,6 +122,8 @@ class ScriptedCPU:
                 yield self._result
         except (asyncio.CancelledError, GeneratorExit):
             slot.result = self._cancelled_result
+            if self._linger_on_cancel:
+                await asyncio.Event().wait()
             raise
         finally:
             self.closed = True

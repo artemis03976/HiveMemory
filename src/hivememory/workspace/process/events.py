@@ -17,6 +17,7 @@ from hivememory.core.errors import WorkspaceDomainError
 from hivememory.core.models import ExecutionLabels
 from hivememory.workspace.contracts import CPUFailureReason
 from hivememory.workspace.process.table import (
+    SYSTEM_SHUTDOWN_STOP_REASON,
     CancelResult,
     ProcessOutcome,
     ProcessPhase,
@@ -154,12 +155,17 @@ class BoundProcessEvents:
         )
 
     def closed_before_terminal(self, record: ProcessRecord) -> None:
-        """交付方在进程发布终态前关闭（如客户端断流），按取消收口。"""
+        """进程在记录终态之前就被关闭，按取消收口。
+
+        只有两种来源：进程从未运行就被关闭，以及系统关闭等待超时后硬取消
+        进程 task。交付方离开走普通的停止路径，不使用这种形态。硬取消只来自
+        系统关闭，停止原因缺失时（拒绝停止的 finalize 阶段）按系统关闭记录。
+        """
         self._emit(
             record,
             RuntimeEventType.CHAT_RUN_CANCELLED,
-            message="Task process stream closed before terminal event.",
-            data={"close_reason": record.stop_reason or "stream_closed"},
+            message="Task process closed before terminal event.",
+            data={"close_reason": record.stop_reason or SYSTEM_SHUTDOWN_STOP_REASON},
         )
 
     def failed(
