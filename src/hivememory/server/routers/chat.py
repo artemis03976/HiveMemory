@@ -15,17 +15,16 @@ from hivememory.components.cancellation import cancel_and_join
 from hivememory.core.access import CallerPrincipal
 from hivememory.server.deps import (
     HTTP_ADAPTER,
+    RequestAccess,
     RequestIdentitySelection,
-    get_access_gateway,
     get_identity_selection,
     get_process_service,
+    get_request_access,
     get_server_principal_id,
-    request_access_for_claims,
     resolve_request_identity_claims,
 )
 from hivememory.server.error_handlers import error_responses
 from hivememory.server.models.chat import ChatRequest, StopChatRequest
-from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.process.service import TaskProcessService
 
 router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["chat"])
@@ -178,10 +177,8 @@ async def chat(
 @router.post("/chat/stop")
 async def stop_chat(
     request: StopChatRequest,
-    selection: RequestIdentitySelection = Depends(get_identity_selection),
+    access: RequestAccess = Depends(get_request_access),
     service: TaskProcessService = Depends(get_process_service),
-    gateway: ActorAuthenticationGateway = Depends(get_access_gateway),
-    principal_id: str = Depends(get_server_principal_id),
 ):
     """Idempotently cancel an active streaming generation.
 
@@ -192,11 +189,7 @@ async def stop_chat(
     （不新增 operation），不可控与不存在统一按 ``not_found`` 返回，context
     在请求结束时失效。
     """
-    claims = resolve_request_identity_claims(selection)
-    async with request_access_for_claims(
-        claims, gateway=gateway, principal_id=principal_id
-    ) as request_access:
-        result = service.cancel_process(request.process_id, access=request_access.access)
+    result = service.cancel_process(request.process_id, access=access.access)
     return {
         "process_id": result.process_id,
         "cancelled": result.cancelled,

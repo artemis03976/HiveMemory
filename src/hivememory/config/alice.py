@@ -6,13 +6,11 @@ class MTPPromptConfig(BaseModel):
     include_demo: bool = Field(default=True)
     include_error_handling: bool = Field(default=True)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class KoakumaConfig(BaseModel):
     enabled: bool = Field(default=True)
-    execution_timeout_seconds: int = Field(default=30)
-    tool_cache_size: int = Field(default=64)
     python_repl_timeout_seconds: int = Field(default=10)
     workspace_path: str = Field(default="./workspace")
     file_read_max_bytes: int = Field(default=102400)
@@ -20,7 +18,7 @@ class KoakumaConfig(BaseModel):
     web_search_timeout_seconds: int = Field(default=15)
     mtp_prompt: MTPPromptConfig = Field(default_factory=MTPPromptConfig)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class AgentRuntimeConfig(BaseModel):
@@ -30,7 +28,7 @@ class AgentRuntimeConfig(BaseModel):
     safety_margin: int = Field(default=2048, ge=0, description="为估算误差预留的 token 数")
     max_loop_iterations: int = Field(default=10)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class CompactionConfig(BaseModel):
@@ -53,7 +51,7 @@ class CompactionConfig(BaseModel):
     max_references: int = Field(default=16, ge=0, description="摘要引用线索的最大条数")
     reference_max_chars: int = Field(default=256, gt=0, description="单条引用线索的最大字符数")
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class AliceConfig(BaseModel):
@@ -61,4 +59,4 @@ class AliceConfig(BaseModel):
     runtime: AgentRuntimeConfig = Field(default_factory=AgentRuntimeConfig)
     compaction: CompactionConfig = Field(default_factory=CompactionConfig)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")

@@ -172,7 +172,7 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 | 区域 | 代表对象 | 当前风险/理由 |
 |:---|:---|:---|
 | 记忆领域 | `MemoryAtom` 及 meta/index/payload/artifacts/relations | 多层 list/dict 与模型仍可直接修改；写入口已收敛（完整提交经 Familiar、动态状态经 patch 白名单），但读取方拿到的仍是可变对象，依赖调用方不改写 |
-| 通用协议 | `RetrievalResponse`、`CPUInputManifest`、`CPUExecutionResult`、`InteractionPayload` | 公共 DTO 与运行结果仍含可变 list/model；冻结的 `ExecutionLabels` 不使整个清单递归不可变 |
+| 通用协议 | `RetrievalRequest`、`CPUInputManifest`、`CPUExecutionResult`、`InteractionPayload` | 公共 DTO 与运行结果仍含可变 list/model；冻结的 `ExecutionLabels` 不使整个清单递归不可变 |
 | 操作请求 | frozen `OperationRequest[R]` 及六种具体请求 | 请求外壳不可重新赋值，tuple 参数只读；`RetrieveRequest.filters` 等嵌套模型仍按自身可变性处理 |
 | Alice Runtime | frame、progress、generation result | 请求级累积状态有意可变，但所有权标记不统一 |
 | 应用服务结果 | `PreparedAgentRun`、`PassiveIngressOutcome` 等 | frozen 外壳包裹可变模型、list 或 dict |

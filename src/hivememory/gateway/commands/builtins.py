@@ -1,12 +1,6 @@
 from __future__ import annotations
 
-from hivememory.gateway.commands.models import (
-    CommandCategory,
-    CommandDefinition,
-    CommandPermissionPolicy,
-    CommandRouteTarget,
-    CommandRouteTargetKind,
-)
+from hivememory.gateway.commands.models import CommandCategory, CommandDefinition
 from hivememory.gateway.commands.registry import CommandRegistry
 
 
@@ -35,9 +29,8 @@ def create_builtin_command_registry(
 
 
 def _builtin_definitions() -> list[CommandDefinition]:
-    """内置指令只声明能力与路由目标，不在 registry 阶段执行副作用。"""
+    """内置指令只声明名称与展示信息，不在 registry 阶段执行副作用。"""
 
-    public = CommandPermissionPolicy(visibility="public")
     return [
         CommandDefinition(
             command_id="system.help",
@@ -45,11 +38,6 @@ def _builtin_definitions() -> list[CommandDefinition]:
             primary_name="/help",
             aliases=("/start",),
             summary="显示可用系统指令。",
-            route_target=CommandRouteTarget(
-                kind=CommandRouteTargetKind.LOCAL_HANDLER,
-                name="system.help",
-            ),
-            permission=public,
             priority=10,
         ),
         CommandDefinition(
@@ -57,11 +45,6 @@ def _builtin_definitions() -> list[CommandDefinition]:
             category=CommandCategory.SYSTEM,
             primary_name="/commands",
             summary="列出系统指令。",
-            route_target=CommandRouteTarget(
-                kind=CommandRouteTargetKind.LOCAL_HANDLER,
-                name="system.commands",
-            ),
-            permission=public,
             priority=20,
         ),
         CommandDefinition(
@@ -70,11 +53,6 @@ def _builtin_definitions() -> list[CommandDefinition]:
             primary_name="/clear",
             aliases=("/reset", "/restart"),
             summary="清空当前聊天客户端状态。",
-            route_target=CommandRouteTarget(
-                kind=CommandRouteTargetKind.CLIENT_ACTION,
-                name="clear_chat",
-            ),
-            permission=public,
             priority=30,
         ),
         CommandDefinition(
@@ -82,11 +60,6 @@ def _builtin_definitions() -> list[CommandDefinition]:
             category=CommandCategory.RUNTIME,
             primary_name="/status",
             summary="显示运行时状态。",
-            route_target=CommandRouteTarget(
-                kind=CommandRouteTargetKind.LOCAL_HANDLER,
-                name="runtime.status",
-            ),
-            permission=public,
             priority=40,
         ),
     ]

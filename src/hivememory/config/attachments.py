@@ -45,7 +45,7 @@ class AttachmentParserConfig(BaseModel):
     # 单次解析预算秒数（可注入单调时钟检查）。
     parse_budget_seconds: float = Field(default=5.0, gt=0)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class AttachmentCompilerConfig(BaseModel):
@@ -65,4 +65,4 @@ class AttachmentCompilerConfig(BaseModel):
     # 全部附件 section 合计的最大字符数。
     max_total_context_chars: int = Field(default=48_000, ge=1)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")

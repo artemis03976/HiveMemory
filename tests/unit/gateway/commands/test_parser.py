@@ -3,12 +3,7 @@
 import pytest
 
 from hivememory.core.protocol.gateway import CommandParseStatus
-from hivememory.gateway.commands.models import (
-    CommandCategory,
-    CommandDefinition,
-    CommandRouteTarget,
-    CommandRouteTargetKind,
-)
+from hivememory.gateway.commands.models import CommandCategory, CommandDefinition
 from hivememory.gateway.commands.parser import (
     CommandParseError,
     build_parse_result,
@@ -107,10 +102,6 @@ class TestBuildParseResult:
             primary_name="/test",
             summary="test",
             argument_schema={"required": ["q"]},
-            route_target=CommandRouteTarget(
-                kind=CommandRouteTargetKind.LOCAL_HANDLER,
-                name="test.cmd",
-            ),
         )
 
     def _definition_without_required(self) -> CommandDefinition:

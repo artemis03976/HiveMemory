@@ -130,7 +130,7 @@ Workspace 只在资源所有者需要它的地方生效。Patchouli 在公共边
 
 HTTP 层的用户导向身份选择（`user_id + workspace_id`）由统一请求头 `x-user-id` / `x-workspace-id` 承载，并在 `server/deps.py` 的 `resolve_request_identity_claims` 解析为**身份声明**：actor 声明与请求进入的 Workspace。声明不是身份结论——认证之前 server 只持有声明，`IdentityScope` 要到第 4 节的第 3 阶段才由授权点组装。该函数是默认身份解析的唯一入口：
 
-1. 同一请求的 header 与 body/query 携带同一身份字段且不一致时显式拒绝（409），不静默择一；
+1. 身份选择只取自请求头，路由不接受 body 或 query 中的身份字段；`/ingest` 的请求体身份字段是既有例外（见本节末），与 header 不一致时显式拒绝（409），不静默择一；
 2. `workspace_id` 只允许已声明的公共入口 `main_workspace`，其余值按不存在拒绝（404）；全部缺省时在此唯一回退 `DEFAULT_USER_ID` 与默认 Workspace；
 3. Chat 等由具体 Agent 执行的 Agent action 必须显式提供 `agent_id`，缺失或显式给出保留的 `system` 都返回 400；非 Agent action（管理操作、Topic 管理、取消等）由 server 使用保留 `SYSTEM_AGENT_ID = "system"`，其语义是"没有具体 Agent 作为操作来源主体"。`system` 是 root API 唯一接受的 actor（第 4.5 节），但它不是 Agent：不持有任何 actor 操作、不能执行任务进程、不是前端可选 Agent，也不得写入 `MemoryAccessPolicy.target_agent_id`。
 

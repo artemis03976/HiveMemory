@@ -174,8 +174,7 @@ async def test_passive_simple_chat_skips_retrieval() -> None:
         ActorIdentity(user_id="u1"),
     )
 
-    assert outcome.retrieval_result is not None
-    assert outcome.retrieval_result.is_empty()
+    assert outcome.memories == ()
 
 
 @pytest.mark.asyncio

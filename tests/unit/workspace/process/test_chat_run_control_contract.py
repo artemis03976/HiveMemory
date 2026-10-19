@@ -45,7 +45,6 @@ from hivememory.core.models import (
     WorkspaceIdentity,
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
-from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
@@ -185,7 +184,6 @@ def _bus_until_finalize() -> GlobalSystemBus:
             interaction_id=interaction_id,
             topic_id="topic-control",
             is_new_topic=False,
-            retrieval_result=RetrievalResponse(),
         )
 
     bus.register(GatewayPublicRoutes.PROCESS, gateway)

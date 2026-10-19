@@ -1,5 +1,3 @@
-from typing import Literal
-
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -8,7 +6,7 @@ class RuleInterceptorConfig(BaseModel):
     enable_system: bool = Field(default=True)
     enable_chat: bool = Field(default=True)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class SystemCommandConfig(BaseModel):
@@ -20,10 +18,9 @@ class SystemCommandConfig(BaseModel):
     """
 
     enabled: bool = Field(default=True)
-    unknown_command_policy: Literal["reject", "ignore"] = Field(default="reject")
     builtin: dict[str, bool] = Field(default_factory=dict)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class GatewayWorkflowConfig(BaseModel):
@@ -80,7 +77,7 @@ class SystemGatewayConfig(BaseModel):
     topic_router: TopicRouterConfig = Field(default_factory=TopicRouterConfig)
     user_query_analysis: UserQueryAnalysisConfig = Field(default_factory=UserQueryAnalysisConfig)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 __all__ = [

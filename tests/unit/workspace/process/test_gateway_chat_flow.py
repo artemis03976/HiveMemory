@@ -43,7 +43,6 @@ from hivememory.core.protocol.gateway import (
     MemoryWriteSignal,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
@@ -237,7 +236,7 @@ def _scoped_prepared_route(
             interaction_id=interaction_id,
             topic_id=topic_id,
             is_new_topic=is_new_topic,
-            retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
+            memories=tuple(memories or ()),
             storage_available=True,
         )
 

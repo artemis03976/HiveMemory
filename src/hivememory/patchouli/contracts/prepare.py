@@ -6,17 +6,16 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
-from hivememory.core.models import WorkspaceIdentity
-from hivememory.core.protocol.models import RetrievalResponse
+from hivememory.core.models import MemoryAtom, WorkspaceIdentity
 
 
 @dataclass(frozen=True)
 class PreparedAgentRun:
     """Patchouli prepare 的结果，也是 finalize 与 cleanup 的输入句柄。
 
-    只承载 Patchouli 自己的内容（Topic 准备与未编译检索结果）：Profile
+    只承载 Patchouli 自己的内容（Topic 准备与未编译的检索记忆）：Profile
     解析、附件租借与记忆/附件编译由 chat 任务进程在 CPU 分配时完成；用户
     消息与 Gateway 决定由进程自己持有，不经此回传。句柄不进入序列化载荷。
     句柄只保存 Workspace 归属；finalize/cleanup 的发起者由
@@ -27,7 +26,7 @@ class PreparedAgentRun:
     interaction_id: str
     topic_id: str
     is_new_topic: bool
-    retrieval_result: RetrievalResponse = field(default_factory=RetrievalResponse)
+    memories: tuple[MemoryAtom, ...] = ()
     storage_available: bool = True
 
 

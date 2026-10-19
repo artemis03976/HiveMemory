@@ -156,7 +156,7 @@ class CPUAllocator:
             leases=tuple(working_set.attachment_leases),
         )
         working_set.used_attachments = attachment_compile_result.used_attachments
-        memories = list(prepared.retrieval_result.memories)
+        memories = list(prepared.memories)
         memory_context = (
             self._memory_compiler.compile(
                 memories,

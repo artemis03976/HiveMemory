@@ -6,7 +6,7 @@ from uuid import uuid4
 from hivememory.components.events.bus import RuntimeEventSink
 from hivememory.components.scheduler.models import MaintenanceTaskSpec
 from hivememory.config.memory_compiler import FullContextStrategyConfig
-from hivememory.core.models import IdentityScope
+from hivememory.core.models import IdentityScope, MemoryAtom
 from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
     MemoryCompiler,
@@ -138,7 +138,7 @@ class PassiveIngressService:
             return {
                 "status": "accepted",
                 "external_event_id": event.external_event_id,
-                "memory": self._compile_memory_context(outcome.retrieval_result),
+                "memory": self._compile_memory_context(outcome.memories),
             }
 
         if outcome.kind == "buffered":
@@ -154,13 +154,13 @@ class PassiveIngressService:
             "memory": None,
         }
 
-    def _compile_memory_context(self, retrieval_result) -> str | None:
-        if retrieval_result is None or not retrieval_result.memories:
+    def _compile_memory_context(self, memories: tuple[MemoryAtom, ...] | None) -> str | None:
+        if not memories:
             return None
         return (
             MemoryCompiler()
             .compile(
-                retrieval_result.memories,
+                list(memories),
                 MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
                 MemoryCompileOptions(retrieval_strategy_config=FullContextStrategyConfig()),
             )

@@ -1,5 +1,41 @@
+import importlib
+import inspect
+import pkgutil
+
+from pydantic import BaseModel
+
+import hivememory.config as config_package
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.config.memory_compiler import CascadeContextStrategyConfig
+
+
+def _config_section_models() -> list[type[BaseModel]]:
+    models = []
+    for module_info in pkgutil.iter_modules(config_package.__path__):
+        module = importlib.import_module(f"{config_package.__name__}.{module_info.name}")
+        models.extend(
+            obj
+            for obj in vars(module).values()
+            if inspect.isclass(obj)
+            and issubclass(obj, BaseModel)
+            and obj.__module__ == module.__name__
+            and obj is not HiveMemoryConfig
+        )
+    return models
+
+
+def test_every_config_section_rejects_unknown_keys():
+    """写错或已删除的键必须让装配失败，而不是被静默丢弃。
+
+    根配置除外：它同时接收环境变量与 .env，其中有不属于配置树的变量。
+    """
+    lenient = [
+        model.__qualname__
+        for model in _config_section_models()
+        if model.model_config.get("extra") != "forbid"
+    ]
+
+    assert lenient == []
 
 
 def test_memory_compiler_config_accepts_cascade_strategy():

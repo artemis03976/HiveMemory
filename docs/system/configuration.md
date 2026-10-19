@@ -35,7 +35,7 @@ last_reviewed: 2026-10-18
 
 | 区域 | 模块 | 主要内容 | 责任边界 |
 |:---|:---|:---|:---|
-| `system` / `logging` / `i18n` | `config.app` | 名称、调试标志、server 自身的 principal 标识 `server_principal_id`、日志输出；默认语言、fallback 字段、支持语言列表 | System / 全局文本解析 |
+| `system` / `logging` / `i18n` | `config.app` | 名称、调试标志、server 自身的 principal 标识 `server_principal_id`；日志级别、格式与输出（尚未生效，见下文第 5 节）及 WebSocket 日志广播；默认语言 | System / 全局文本解析 |
 | `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待、observer/perception/GC 任务开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
 | `shared` | `config.shared` | LLM、embedding、provider credentials | Registry 与共享模型能力 |
 | `gateway` | `config.gateway` | interceptor、commands、workflow、topic router、query analysis | Gateway |
@@ -54,6 +54,8 @@ last_reviewed: 2026-10-18
 会话配置为 `workspace.sessions.max_sessions_per_workspace=128` 与 `max_turns_per_session=512`，均要求至少 1。达到上限时显式拒绝创建或进程认领，不清理历史。`gateway.context_preparation.session_turn_limit=3` 控制 Gateway 的近期会话轮数（至少 1）；Alice 始终接收全量原文，自行按 `alice.compaction` 构建预算受限的视图，不受该项与 Topic 的 `context_block_limit` 影响。`workspace.process.shutdown_wait_seconds=10`（至少 0）是 System 关闭时等待在途任务进程由交付方自行收口的上限，超时后兜底关闭。
 
 会话升级后 `session_id` 实际绑定资源；缺省仍自动新建。SSE 首个事件回传会话 ID，done 以 `topic_id` 标注本轮材料归属；`topic_info` 与 `pool_topics` 已删除。Interaction codec 5 增加 `outcome`，旧版本不重放；会话仅在内存中，后端重启后前端需重新新建。
+
+升级注意（配置未知键）：各配置段改为拒绝未知键，存量 YAML 或 `HIVEMEMORY__*` 环境变量中写错的键会让启动失败。同时删除了从未生效的键：`i18n.fallback_language`、`i18n.supported_languages`、`shared.embedding.*.batch_size`、`normalize_embeddings`、`dimension`（集合向量维度由 `patchouli.storage.vector_dimension` 决定，须与嵌入模型的输出一致）、`patchouli.storage.deployment`、`data_dir`、`binary_path`（及旧环境变量 `QDRANT__DEPLOYMENT`、`QDRANT__DATA_DIR`、`QDRANT__BINARY_PATH`）、`patchouli.perception.scan_interval_seconds`（扫描间隔由 `scheduler.tasks.perception_idle_flush_interval_seconds` 决定）、`patchouli.generation.deduplicator.enable_vitality_tracking`、`patchouli.lifecycle.vitality_calculator.max_access_boost`、`points_per_access`、`alice.koakuma.execution_timeout_seconds`、`tool_cache_size` 与 `gateway.commands.unknown_command_policy`，需要从配置中移除。示例配置中位置写错的 `patchouli.perception.engine.idle_timeout_seconds` 已移到 `patchouli.perception.idle_timeout_seconds`（此前该值被忽略、按默认 900 秒运行），残留的 `gateway.analyzer` 段已删除。
 
 ### 1.1 访问登记文件
 
@@ -154,7 +156,7 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 - RuntimeEvent 的 buffer/queue 配置只影响观测容量，不改变业务状态；
 - 项目版本属于构建事实，不是运行配置；`system.version` 已从配置模型和示例 YAML 中移除，版本唯一来源是 `src/hivememory/_version.py`；
 - 配置模型只声明已有消费者的运行时控制；
-- 上述子模型仍使用 `extra="ignore"` 保持旧配置兼容，因此历史输入中的冗余键会在校验和下一次配置持久化时被裁掉，但不会重新获得运行时语义；
+- 各配置段拒绝未知键（`extra="forbid"`）：写错或已删除的键让配置校验失败，启动与 `POST /config` 都显式报错，不会被静默丢弃后让人误以为生效；根配置 `HiveMemoryConfig` 例外，忽略未知的顶层键，因为它同时接收环境变量与 `.env`，其中有不属于配置树的变量（如 `HIVEMEMORY_CONFIG_PATH`）；
 - `i18n.default_language` 在配置校验后同步到进程级 resolver，但请求级显式语言仍由调用方或 Profile 传递。
 
 配置扩展必须先判断它属于哪一个所有者；不能为了方便在 `HiveMemoryConfig` 添加一个字段，然后让多个子系统各自解释不同含义。
@@ -162,9 +164,8 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 ## 5. 当前限制
 
 - 部分历史环境变量仍保留兼容映射，清理前不能假设只有嵌套新格式；
-- `ConfigDict(extra="ignore")` 在多个顶层子模型上保持兼容，未知字段不一定立即暴露为配置错误；
 - registry 只在进程装配时形成解析结果，运行中 provider/model 配置变更不会自动热重载；
-- `I18nConfig.fallback_language` 当前没有被统一传入 `resolve_language()`，相关限制见[i18n 文档](./i18n.md)。
+- `logging` 段的 `level`、`format`、`file_path`、`console_output` 没有读取方，日志级别与格式由入口写死或沿用 uvicorn 的日志配置，见 [Todo](../todo/logging-config-not-applied.md)；只有 `websocket_*` 生效。
 
 ## 6. 配置变更检查
 

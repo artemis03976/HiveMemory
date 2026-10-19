@@ -48,9 +48,6 @@ LEGACY_ENV_ALIASES: dict[str, tuple[str, ...]] = {
     "QDRANT__GRPC_PORT": ("patchouli", "storage", "grpc_port"),
     "QDRANT__PREFER_GRPC": ("patchouli", "storage", "prefer_grpc"),
     "QDRANT__TIMEOUT": ("patchouli", "storage", "timeout"),
-    "QDRANT__DEPLOYMENT": ("patchouli", "storage", "deployment"),
-    "QDRANT__DATA_DIR": ("patchouli", "storage", "data_dir"),
-    "QDRANT__BINARY_PATH": ("patchouli", "storage", "binary_path"),
     "QDRANT__STARTUP_TIMEOUT_SECONDS": ("patchouli", "storage", "startup_timeout_seconds"),
     "QDRANT__API_KEY": ("patchouli", "storage", "api_key"),
     "QDRANT__COLLECTION_NAME": ("patchouli", "storage", "collection_name"),
@@ -183,7 +180,7 @@ class SystemConfig(BaseModel):
     # 必须与 configs/system_principals.yaml 中的接入登记一致。
     server_principal_id: str = Field(default="hivememory:http-server")
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class LoggingConfig(BaseModel):
@@ -197,15 +194,13 @@ class LoggingConfig(BaseModel):
     websocket_buffer_size: int = Field(default=100)
     websocket_max_rate: int = Field(default=100)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class I18nConfig(BaseModel):
     default_language: str = Field(default="zh")
-    fallback_language: str = Field(default="en")
-    supported_languages: list[str] = Field(default_factory=lambda: ["zh", "en"])
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 # ========== 根配置 ==========

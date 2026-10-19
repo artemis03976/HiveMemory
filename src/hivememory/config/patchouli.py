@@ -11,9 +11,6 @@ class QdrantConfig(BaseModel):
     grpc_port: int = Field(default=6334)
     prefer_grpc: bool = Field(default=True)
     timeout: int = Field(default=60)
-    deployment: Literal["external", "sidecar"] = Field(default="external")
-    data_dir: str | None = Field(default=None)
-    binary_path: str | None = Field(default=None)
     startup_timeout_seconds: int = Field(default=30)
     api_key: str | None = Field(default=None)
     collection_name: str = Field(default="hivememory_main")
@@ -21,7 +18,7 @@ class QdrantConfig(BaseModel):
     distance_metric: str = Field(default="Cosine")
     on_disk_payload: bool = Field(default=False)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 # ========== 感知 ==========
@@ -30,13 +27,13 @@ class QdrantConfig(BaseModel):
 class SimpleRelayConfig(BaseModel):
     type: Literal["simple"] = Field(default="simple")
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class LLMRelayConfig(BaseModel):
     type: Literal["llm"] = Field(default="llm")
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class RelayControllerConfig(BaseModel):
@@ -46,7 +43,7 @@ class RelayControllerConfig(BaseModel):
         discriminator="type",
     )
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class SemanticFlowPerceptionConfig(BaseModel):
@@ -56,15 +53,14 @@ class SemanticFlowPerceptionConfig(BaseModel):
     max_resident_topics: int = Field(default=5)
     relay: RelayControllerConfig = Field(default_factory=RelayControllerConfig)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class MemoryPerceptionConfig(BaseModel):
     idle_timeout_seconds: int = Field(default=900)
-    scan_interval_seconds: int = Field(default=30)
     engine: SemanticFlowPerceptionConfig = Field(default_factory=SemanticFlowPerceptionConfig)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 # ========== 生成 ==========
@@ -73,7 +69,7 @@ class MemoryPerceptionConfig(BaseModel):
 class ExtractorConfig(BaseModel):
     enabled: bool = Field(default=True)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class DeduplicatorConfig(BaseModel):
@@ -81,9 +77,8 @@ class DeduplicatorConfig(BaseModel):
     high_similarity_threshold: float = Field(default=0.95)
     low_similarity_threshold: float = Field(default=0.75)
     content_similarity_threshold: float = Field(default=0.9)
-    enable_vitality_tracking: bool = Field(default=True)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class MemoryGenerationConfig(BaseModel):
@@ -96,7 +91,7 @@ class MemoryGenerationConfig(BaseModel):
     # 意图在本轮交互封口之前提交，当前一轮不在材料中。
     active_recent_blocks: int = Field(default=5, ge=0)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 # ========== 检索 ==========
@@ -122,7 +117,7 @@ class ReciprocalRankFusionConfig(BaseModel):
     dense_weight: float = Field(default=1.0)
     sparse_weight: float = Field(default=1.0)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="before")
     @classmethod
@@ -142,7 +137,7 @@ class RetrievalModeConfig(BaseModel):
     vitality_low_threshold: float = Field(default=30.0)
     vitality_low_factor: float = Field(default=0.8)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class AdaptiveWeightedFusionConfig(BaseModel):
@@ -173,7 +168,7 @@ class AdaptiveWeightedFusionConfig(BaseModel):
         )
     )
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="before")
     @classmethod
@@ -191,7 +186,7 @@ class RerankerConfig(BaseModel):
     top_k: int = Field(default=20)
     normalize_scores: bool = Field(default=True)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class DenseRetrieverConfig(BaseModel):
@@ -204,7 +199,7 @@ class DenseRetrieverConfig(BaseModel):
     time_decay_days: int = Field(default=30)
     enable_confidence_boost: bool = Field(default=True)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class SparseRetrieverConfig(BaseModel):
@@ -212,7 +207,7 @@ class SparseRetrieverConfig(BaseModel):
     enabled: bool = Field(default=True)
     top_k: int = Field(default=50)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="before")
     @classmethod
@@ -237,7 +232,7 @@ class HybridRetrieverConfig(BaseModel):
         discriminator="type",
     )
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="before")
     @classmethod
@@ -270,7 +265,7 @@ class MemoryRetrievalConfig(BaseModel):
     # 请求未给出 top_k 时的结果条数；最终截取只在重排阶段之后进行一次。
     default_top_k: int = Field(default=5, ge=1)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
     @model_validator(mode="before")
     @classmethod
@@ -310,11 +305,7 @@ class VitalityCalculatorConfig(BaseModel):
     # 初始强度 V_0：固定高值，与 confidence 解耦
     base_vitality: float = Field(default=100.0)
 
-    # 兼容旧配置：保留但不再使用 (已弃用)
-    max_access_boost: float = Field(default=20.0)
-    points_per_access: float = Field(default=2.0)
-
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class ReinforcementEngineConfig(BaseModel):
@@ -326,21 +317,21 @@ class ReinforcementEngineConfig(BaseModel):
     negative_feedback_penalty: float = Field(default=-50.0)
     negative_confidence_multiplier: float = Field(default=0.5)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class ArchiverConfig(BaseModel):
     archive_dir: str = Field(default="data/archived")
     compression: bool = Field(default=True)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class GarbageCollectorConfig(BaseModel):
     low_watermark: float = Field(default=20.0)
     batch_size: int = Field(default=10)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class MemoryLifecycleConfig(BaseModel):
@@ -349,7 +340,7 @@ class MemoryLifecycleConfig(BaseModel):
     archiver: ArchiverConfig = Field(default_factory=ArchiverConfig)
     garbage_collector: GarbageCollectorConfig = Field(default_factory=GarbageCollectorConfig)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 # ========== Artifacts ==========
@@ -358,7 +349,7 @@ class MemoryLifecycleConfig(BaseModel):
 class ArtifactComponentConfig(BaseModel):
     enabled: bool = Field(default=True)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class ArtifactConfig(BaseModel):
@@ -370,7 +361,7 @@ class ArtifactConfig(BaseModel):
     memory: ArtifactComponentConfig = Field(default_factory=ArtifactComponentConfig)
     document: ArtifactComponentConfig = Field(default_factory=ArtifactComponentConfig)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 # ========== 关停 ==========
@@ -379,7 +370,7 @@ class ArtifactConfig(BaseModel):
 class PatchouliShutdownConfig(BaseModel):
     generation_wait_timeout_seconds: float = Field(default=30.0, ge=0)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 # ========== PatchouliConfig ==========
@@ -394,4 +385,4 @@ class PatchouliConfig(BaseModel):
     artifacts: ArtifactConfig = Field(default_factory=ArtifactConfig)
     shutdown: PatchouliShutdownConfig = Field(default_factory=PatchouliShutdownConfig)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")

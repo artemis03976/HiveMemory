@@ -14,13 +14,7 @@ from hivememory.config.gateway import RuleInterceptorConfig
 from hivememory.core.protocol.gateway import CommandParseResult, CommandParseStatus
 from hivememory.engines.gateway.interfaces import BaseInterceptor
 from hivememory.engines.gateway.models import GatewayIntent, InterceptorResult
-from hivememory.gateway.commands import (
-    CommandCategory,
-    CommandDefinition,
-    CommandRegistry,
-    CommandRouteTarget,
-    CommandRouteTargetKind,
-)
+from hivememory.gateway.commands import CommandRegistry
 
 logger = logging.getLogger(__name__)
 
@@ -128,28 +122,6 @@ class RuleInterceptor(BaseInterceptor):
                     )
 
         return None
-
-    def add_system_command(self, name: str, command_id: str | None = None) -> None:
-        """
-        动态注册系统指令；用于运行期扩展 command registry。
-        """
-
-        command_id = command_id or f"runtime.dynamic.{name.lstrip('/').replace(' ', '.')}"
-        if self.command_registry is None:
-            self.command_registry = CommandRegistry()
-        self.command_registry.register(
-            CommandDefinition(
-                command_id=command_id,
-                category=CommandCategory.SYSTEM,
-                primary_name=name,
-                summary=f"动态系统指令 {name}",
-                route_target=CommandRouteTarget(
-                    kind=CommandRouteTargetKind.FUTURE_JOB,
-                    name=command_id,
-                ),
-                hidden=True,
-            )
-        )
 
     @staticmethod
     def _command_reason(query: str, status: CommandParseStatus | str) -> str:

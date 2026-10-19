@@ -61,7 +61,7 @@ Settings 草稿使用组件 state/useDraft；OmniInput 草稿使用 chat store �
 
 | 能力 | 传输 | 当前入口 | 终态/恢复语义 |
 |:---|:---|:---|:---|
-| 统一身份上下文 | HTTP 请求头 | `x-user-id` / `x-workspace-id`（`services/identity.ts`） | 所有身份相关请求统一携带；body/query 与 header 冲突时后端 409 |
+| 统一身份上下文 | HTTP 请求头 | `x-user-id` / `x-workspace-id`（`services/identity.ts`） | 所有身份相关请求统一携带；后端只从请求头读取身份选择 |
 | Chat | fetch-based SSE | `POST /api/v1/chat` | `done` / `error`；无断线续传 |
 | Stop | HTTP | `POST /api/v1/chat/stop` | best-effort 请求，等待流终态确认 |
 | Sessions / Topics / Memories / Agents / Config / Registries / Tasks | HTTP JSON | 相对 `/api/v1/...` | 请求级成功失败；页面按能力 refetch 或乐观更新 |
@@ -70,7 +70,7 @@ Settings 草稿使用组件 state/useDraft；OmniInput 草稿使用 chat store �
 
 Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送请求体。RuntimeEvent 是 GET 流，使用 EventSource。日志需要双向 ping/pong 和持续推送，使用 WebSocket。
 
-身份选择传输约定：Session、Memory、Agent、Topic、Chat 与 stop 请求统一携带 `x-user-id`/`x-workspace-id` 基础选择；Topic 旧的 `?user_id=` query 已不再由前端使用（后端保留兼容并与 header 做冲突检测）；Chat/stop 请求体不携带身份字段。管理请求（Session/Memory/Agent/Topic）默认依赖统一请求头，不需要额外参数。
+身份选择传输约定：Session、Memory、Agent、Topic、Chat 与 stop 请求统一携带 `x-user-id`/`x-workspace-id` 基础选择；后端不接受 Topic 等管理路由的 `?user_id=` query；Chat/stop 请求体不携带身份字段。管理请求（Session/Memory/Agent/Topic）默认依赖统一请求头，不需要额外参数。
 
 ### 3.1 HTTP 错误解析
 

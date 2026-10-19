@@ -7,7 +7,6 @@ from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, ResolvedAgentProfile
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
-from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
@@ -116,7 +115,6 @@ async def test_completed_turn_is_saved_before_finalize_and_agents_can_switch():
             interaction_id=interaction_id,
             topic_id="shared-topic",
             is_new_topic=False,
-            retrieval_result=RetrievalResponse.from_memories([]),
         )
 
     async def finalize(*, payload, prepared_run, **kwargs):

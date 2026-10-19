@@ -5,6 +5,7 @@ import pytest
 from fastapi import FastAPI
 
 from hivememory.config.workspace import WorkspaceSessionConfig
+from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.server.deps import get_root_session_service
 from hivememory.server.error_handlers import install_error_handlers
@@ -17,7 +18,7 @@ from tests.helpers.workspace import make_server_access_overrides
 
 @pytest.mark.asyncio
 async def test_http_session_crud_and_busy_error():
-    """HTTP 返回可恢复历史的稳定形状，忙会话不能被删除。"""
+    """HTTP 只投影恢复历史所需的字段，不含 Workspace 归属；忙会话不能被删除。"""
     overrides, access = make_server_access_overrides()
     store = ConversationSessionService(WorkspaceSessionConfig())
     root = RootSessionService(store, operation_authorizer=access.authorizer)
@@ -32,6 +33,7 @@ async def test_http_session_crud_and_busy_error():
     ) as client:
         created = await client.post("/api/v1/sessions", json={"title": "旧标题"})
         assert created.status_code == 201
+        assert "belong_to" not in created.json()
         session_id = created.json()["session_id"]
         renamed = await client.patch(f"/api/v1/sessions/{session_id}", json={"title": "新标题"})
         assert renamed.json()["title"] == "新标题"
@@ -45,7 +47,23 @@ async def test_http_session_crud_and_busy_error():
             session_id,
             process_id="p",
             agent_id="a",
-            payload=InteractionPayload(user_message="问题", assistant_final_text="原文"),
+            payload=InteractionPayload(
+                user_message="问题",
+                assistant_final_text="原文",
+                turn_events=[
+                    TurnEvent(
+                        kind="tool_call",
+                        sequence=1,
+                        role="assistant",
+                        content="READ m1",
+                        action_id="act-1",
+                        tool_name="read",
+                        tool_kind="READ",
+                        tool_args={"ids": ["m1"]},
+                        target="m1",
+                    )
+                ],
+            ),
             topic_id="t",
         )
         checkpoint = make_compaction_checkpoint(reduced_through="p")
@@ -54,7 +72,24 @@ async def test_http_session_crud_and_busy_error():
         )
         restored = await client.get(f"/api/v1/sessions/{session_id}")
         assert restored.json()["compaction_checkpoint"] == checkpoint.model_dump(mode="json")
-        assert restored.json()["turns"][0]["payload"]["assistant_final_text"] == "原文"
+        restored_payload = restored.json()["turns"][0]["payload"]
+        assert restored_payload == {
+            "outcome": "completed",
+            "user_message": "问题",
+            "assistant_final_text": "原文",
+            "turn_events": [
+                {
+                    "kind": "tool_call",
+                    "sequence": 1,
+                    "content": "READ m1",
+                    "action_id": "act-1",
+                    "tool_kind": "READ",
+                    "target": "m1",
+                    "tool_args": {"ids": ["m1"]},
+                    "status": None,
+                }
+            ],
+        }
         assert "compaction_checkpoint" not in (await client.get("/api/v1/sessions")).json()[0]
         busy = await client.delete(f"/api/v1/sessions/{session_id}")
         assert busy.status_code == 409

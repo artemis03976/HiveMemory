@@ -1,8 +1,8 @@
 """server 入口层统一身份解析测试。
 
-覆盖 ``resolve_request_identity_claims`` 的合并/冲突规则与各 HTTP 入口的
-身份上下文行为：user_id + workspace_id 构造认证前声明（不产出
-``IdentityScope``）、body/query/header 冲突显式失败、未知 Workspace 拒绝、
+覆盖 ``resolve_request_identity_claims`` 的解析规则与各 HTTP 入口的
+身份上下文行为：请求头的 user_id + workspace_id 构造认证前声明（不产出
+``IdentityScope``）、/ingest 的 body 与 header 冲突显式失败、未知 Workspace 拒绝、
 非 Agent action 注入 system actor、Chat 缺失具体 Agent 显式失败；
 ``resolve_request_identity_scope`` 作为 /ingest 已知例外仍产出完整 scope。
 """
@@ -97,17 +97,17 @@ class TestResolveRequestIdentityClaims:
         assert scope.actor_identity.user_id == "u1"
         assert scope.workspace_identity.workspace_id == "main_workspace"
 
-    def test_header_body_conflict_rejected(self):
+    def test_ingest_header_body_conflict_rejected(self):
         with pytest.raises(APIError) as exc_info:
-            resolve_request_identity_claims(
+            resolve_request_identity_scope(
                 RequestIdentitySelection(user_id="header-user", workspace_id=None),
                 explicit_user_id="body-user",
             )
         assert exc_info.value.status_code == 409
 
-    def test_workspace_conflict_rejected(self):
+    def test_ingest_workspace_conflict_rejected(self):
         with pytest.raises(APIError) as exc_info:
-            resolve_request_identity_claims(
+            resolve_request_identity_scope(
                 RequestIdentitySelection(user_id="u1", workspace_id="main_workspace"),
                 explicit_workspace_id="other_workspace",
             )
@@ -184,23 +184,6 @@ def _create_chat_app(mock_service, access=None):
     overrides, composition = access
     app.dependency_overrides.update(overrides)
     return app, composition
-
-
-def _create_topics_app():
-    app = FastAPI()
-    install_error_handlers(app)
-    app.include_router(topics_router, prefix="/api/v1")
-
-    app.dependency_overrides[deps.get_root_topic_service] = lambda: _TopicServiceStub()
-    # topics 路由经统一认证网关取得请求级 context：覆盖注入真实组合的网关。
-    overrides, _ = make_server_access_overrides(users=["u1", "query-user", "header-user"])
-    app.dependency_overrides.update(overrides)
-    return app
-
-
-class _TopicServiceStub:
-    async def list_active_topics(self, *, target_workspace, access):
-        return []
 
 
 class TestChatEntryIdentity:
@@ -330,28 +313,6 @@ class TestStopEntryIdentity:
         assert composition.gateway.describe_context(access) is None
 
 
-class TestTopicsEntryIdentity:
-    def test_query_user_id_without_header_is_respected(self):
-        app = _create_topics_app()
-        client = TestClient(app)
-
-        response = client.get("/api/v1/topics", params={"user_id": "query-user"})
-
-        assert response.status_code == 200
-
-    def test_query_user_id_conflicting_with_header_rejected(self):
-        app = _create_topics_app()
-        client = TestClient(app)
-
-        response = client.get(
-            "/api/v1/topics",
-            params={"user_id": "query-user"},
-            headers={"x-user-id": "header-user"},
-        )
-
-        assert response.status_code == 409
-
-
 class TestAuthenticateRequestAccess:
     """请求级认证经网关签发：授予内容携带 server principal 与请求运行类型。"""
 
@@ -365,8 +326,7 @@ class TestAuthenticateRequestAccess:
             adapters=("http",),
         )
         claims = deps.resolve_request_identity_claims(
-            deps.RequestIdentitySelection(user_id=None, workspace_id=None),
-            explicit_user_id="u1",
+            deps.RequestIdentitySelection(user_id="u1", workspace_id=None),
         )
 
         access = await deps.authenticate_request_access(

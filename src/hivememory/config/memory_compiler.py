@@ -11,7 +11,7 @@ class FullContextStrategyConfig(BaseModel):
     max_content_length: int = Field(default=500)
     stale_days: int = Field(default=90)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class CascadeContextStrategyConfig(BaseModel):
@@ -23,7 +23,7 @@ class CascadeContextStrategyConfig(BaseModel):
     max_content_length: int = Field(default=500)
     index_max_summary_length: int = Field(default=100)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class CompactContextStrategyConfig(BaseModel):
@@ -33,7 +33,7 @@ class CompactContextStrategyConfig(BaseModel):
     max_memory_tokens: int = Field(default=2000)
     index_max_summary_length: int = Field(default=100)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 RetrievalContextStrategyConfig = Annotated[
@@ -47,7 +47,7 @@ class RetrievalContextCompileConfig(BaseModel):
         default_factory=CompactContextStrategyConfig,
     )
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class MemoryCompilerConfig(BaseModel):
@@ -55,4 +55,4 @@ class MemoryCompilerConfig(BaseModel):
         default_factory=RetrievalContextCompileConfig
     )
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")

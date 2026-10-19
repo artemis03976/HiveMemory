@@ -43,10 +43,6 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Permission Denied] 你没有权限使用 '{verb}' 指令。\n"
         "Suggestion: 请使用你当前角色允许的指令和工具。"
     ),
-    "mtp.permission.call_depth_exceeded": (
-        "[Permission Denied] 子代理不允许调用 CALL 指令，只有主代理可以调用子代理。\n"
-        "Suggestion: 请使用你当前角色允许的指令和工具。"
-    ),
     # ---- MTP 解析错误 ----
     "mtp.parse.unknown_verb": (
         "[Syntax Error] 未知指令动词：{verb}。合法动词：{valid_verbs}。\n"
@@ -136,10 +132,6 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Agent Profile Not Found] 未找到子代理 Profile '{agent_alias}'。\n"
         "Suggestion: 请从可用子代理列表中选择有效的 alias。"
     ),
-    "mtp.call.profile_permission_denied": (
-        "[Permission Denied] 当前身份无权访问子代理 Profile '{agent_alias}'。\n"
-        "Suggestion: 请改用当前身份可见的子代理。"
-    ),
     "mtp.call.agent_unavailable": (
         "[Agent Unavailable] 子代理 '{agent_alias}' 当前不可用。\n"
         "Suggestion: 请改用其他子代理，或不调用子代理继续完成任务。"
@@ -220,11 +212,6 @@ _ERROR_TEXT_EN: dict[str, str] = {
     # ---- 通用权限 ----
     "mtp.permission.verb_denied": (
         "[Permission Denied] You do not have permission to use the '{verb}' command.\n"
-        "Suggestion: Try a different approach using only your authorized tools and commands."
-    ),
-    "mtp.permission.call_depth_exceeded": (
-        "[Permission Denied] Sub-agents are not allowed to invoke CALL. "
-        "Only the main agent can call sub-agents.\n"
         "Suggestion: Try a different approach using only your authorized tools and commands."
     ),
     # ---- MTP 解析错误 ----
@@ -319,11 +306,6 @@ _ERROR_TEXT_EN: dict[str, str] = {
     "mtp.call.profile_not_found": (
         "[Agent Profile Not Found] Sub-agent profile '{agent_alias}' was not found.\n"
         "Suggestion: Choose a valid alias from the available sub-agent list."
-    ),
-    "mtp.call.profile_permission_denied": (
-        "[Permission Denied] The current identity cannot access sub-agent profile "
-        "'{agent_alias}'.\n"
-        "Suggestion: Use a sub-agent visible to the current identity."
     ),
     "mtp.call.agent_unavailable": (
         "[Agent Unavailable] Sub-agent '{agent_alias}' is not available.\n"

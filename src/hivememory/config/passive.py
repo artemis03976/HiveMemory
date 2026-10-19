@@ -30,7 +30,7 @@ class PassiveIngressConfig(BaseModel):
         default=256,
         description="单个 turn 允许累计的最大事件数，超出丢弃并记录",
     )
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 __all__ = ["PassiveIngressConfig"]

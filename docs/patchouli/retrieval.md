@@ -38,7 +38,7 @@ RetrievalRequest
        -> 重排：Reranker（CrossEncoderReranker；关闭时 NoopReranker）
        -> 截取：请求的 top_k，缺省为 retrieval.default_top_k（只在这里进行一次）
   -> RetrievalResult
-  -> RetrievalResponse(MemoryAtom[])
+  -> MemoryAtom[]（公共路由返回列表，prepare 交出 PreparedAgentRun.memories）
   -> caller-owned MemoryCompiler
 ```
 

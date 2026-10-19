@@ -20,10 +20,7 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask
-from hivememory.core.protocol.models import (
-    InteractionPayload,
-    RetrievalResponse,
-)
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.contracts.errors import ActiveInteractionFinalizationError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
@@ -79,7 +76,7 @@ def _prepared(
         interaction_id=interaction_id,
         topic_id="topic-1",
         is_new_topic=is_new,
-        retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
+        memories=tuple(memories or ()),
     )
 
 

@@ -18,15 +18,11 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.core.protocol.models import (
     InteractionPayload,
-    MessageType,
-    ProtocolMessage,
     RetrievalRequest,
 )
 
 __all__ = [
     "InteractionPayload",
-    "MessageType",
-    "ProtocolMessage",
     "RetrievalRequest",
     "CommandExecutionResult",
     "CommandExecutionStatus",

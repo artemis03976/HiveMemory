@@ -33,7 +33,6 @@ from hivememory.core.models import (
     WriteFocus,
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
-from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
@@ -126,7 +125,6 @@ async def _prepare_route(
         interaction_id=interaction_id,
         topic_id="topic-1",
         is_new_topic=False,
-        retrieval_result=RetrievalResponse(),
         storage_available=True,
     )
 

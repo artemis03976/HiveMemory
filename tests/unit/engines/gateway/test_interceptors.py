@@ -6,7 +6,6 @@ from hivememory.gateway.commands import (
     CommandCategory,
     CommandDefinition,
     CommandRegistry,
-    CommandRouteTarget,
     create_builtin_command_registry,
 )
 
@@ -76,19 +75,6 @@ class TestRuleInterceptor:
         assert result is not None
         assert result.intent == GatewayIntent.CHAT
 
-    def test_add_system_command_dynamically(self):
-        """动态注册系统指令入口替代旧 regex 扩展。"""
-        interceptor = RuleInterceptor(config=RuleInterceptorConfig())
-        interceptor.add_system_command("/restart", command_id="system.restart")
-
-        result = interceptor.intercept("/restart")
-
-        assert result is not None
-        assert result.intent == GatewayIntent.SYSTEM
-        assert result.command is not None
-        assert result.command.command_id == "system.restart"
-        assert result.command.parse_status == CommandParseStatus.MATCHED
-
     def test_unknown_slash_command_intercepts_with_unknown_command(self):
         """注入 registry 时，未知 slash 指令同样被过滤为 UNKNOWN。"""
         interceptor = RuleInterceptor(
@@ -112,7 +98,6 @@ class TestRuleInterceptor:
                 category=CommandCategory.SYSTEM,
                 primary_name="/custom",
                 summary="自定义指令",
-                route_target=CommandRouteTarget(name="system.custom"),
             )
         )
         interceptor = RuleInterceptor(

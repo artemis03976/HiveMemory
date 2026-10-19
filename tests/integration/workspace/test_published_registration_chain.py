@@ -71,7 +71,6 @@ from hivememory.core.models.workspace import (
     resolve_default_workspace_identity,
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
-from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.memory_tasks import (
@@ -242,7 +241,6 @@ def _prepared_run(scope) -> PreparedAgentRun:
         interaction_id="interaction-published",
         topic_id="topic-1",
         is_new_topic=True,
-        retrieval_result=RetrievalResponse.from_memories([]),
         storage_available=True,
     )
 
@@ -543,13 +541,19 @@ async def test_chat_stop_cancels_running_process_through_published_registration(
     run_task = asyncio.create_task(drive_stream())
     await asyncio.wait_for(hang_cpu.hang_entered.wait(), timeout=2)
 
-    result = await stop_chat(
-        request=StopChatRequest(process_id="process-published-stop"),
-        selection=RequestIdentitySelection(user_id=DEFAULT_USER_ID, workspace_id=None),
-        service=process_service,
+    claims = deps.resolve_request_identity_claims(
+        RequestIdentitySelection(user_id=DEFAULT_USER_ID, workspace_id=None)
+    )
+    async with deps.request_access_for_claims(
+        claims,
         gateway=stack.registration.gateway,
         principal_id=stack.registration.principal_id,
-    )
+    ) as request_access:
+        result = await stop_chat(
+            request=StopChatRequest(process_id="process-published-stop"),
+            access=request_access,
+            service=process_service,
+        )
     assert (result["process_id"], result["cancelled"], result["status"]) == (
         "process-published-stop",
         True,

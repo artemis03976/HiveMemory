@@ -1,7 +1,7 @@
 """
 模块间通信协议模型
 
-定义在子系统之间传递的检索请求与响应、MTP 执行结果与交互载荷。
+定义在子系统之间传递的检索请求、交互载荷与会话轮次。
 
 作者: HiveMemory Team
 版本: 3.0
@@ -9,15 +9,12 @@
 
 from __future__ import annotations
 
-import uuid
 from datetime import UTC, datetime
-from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models import (
     IdentityScope,
-    MemoryAtom,
     TraceItem,
     TurnEvent,
     WorkspaceAssetRef,
@@ -26,48 +23,9 @@ from hivememory.core.models.interaction import InteractionOutcome
 from hivememory.core.models.query import QueryFilters
 
 
-class MessageType(str, Enum):
+class RetrievalRequest(BaseModel):
     """
-    消息类型枚举
-
-    协议消息（ProtocolMessage 子类）的类型标识。
-    """
-
-    # 检索请求：RetrievalRequest 的消息类型
-    RETRIEVAL_REQUEST = "retrieval_request"
-
-    # 检索结果：RetrievalResponse 的消息类型
-    RETRIEVAL_RESPONSE = "retrieval_response"
-
-
-class ProtocolMessage(BaseModel):
-    """
-    协议消息基类
-
-    RetrievalRequest 与 RetrievalResponse 的公共基类，提供：
-    - 消息类型标识
-    - 唯一消息 ID
-    - 时间戳
-
-    Attributes:
-        msg_type: 消息类型
-        msg_id: 唯一消息标识符
-        timestamp: 消息创建时间
-    """
-
-    # 消息类型
-    msg_type: MessageType
-
-    # 唯一消息标识符（自动生成）
-    msg_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-
-    # 消息创建时间
-    timestamp: datetime = Field(default_factory=datetime.now)
-
-
-class RetrievalRequest(ProtocolMessage):
-    """
-    检索请求协议消息
+    检索请求
 
     语义检索公共路由 ``patchouli.public.memory.retrieve`` 的输入，用于热路径的
     实时记忆检索。由授权点（能力层的 ``memory.search``、Passive 记忆上下文）
@@ -79,7 +37,6 @@ class RetrievalRequest(ProtocolMessage):
     - MTP SEARCH 指令可通过 filters 字段叠加额外过滤维度 (如 type:CODE)
 
     Attributes:
-        msg_type: 固定为 RETRIEVAL_REQUEST
         semantic_query: 指代消解后的完整查询，用于语义检索
         keywords: 稀疏检索关键词列表（BM25）
         identity_scope: 请求者身份与 Workspace hard boundary
@@ -92,8 +49,6 @@ class RetrievalRequest(ProtocolMessage):
         ...     identity_scope=scope,  # 授权点返回的 scope
         ... )
     """
-
-    msg_type: MessageType = MessageType.RETRIEVAL_REQUEST
 
     # 指代消解后的完整查询（用于语义检索）
     semantic_query: str = Field(..., description="指代消解后的查询")
@@ -110,47 +65,6 @@ class RetrievalRequest(ProtocolMessage):
     top_k: int | None = Field(
         default=None, ge=0, description="本次检索结果条数；缺省时使用检索引擎配置的默认条数"
     )
-
-
-class RetrievalResponse(ProtocolMessage):
-    """
-    检索结果包装（调用侧 envelope）
-
-    语义检索路由返回 ``list[MemoryAtom]``；本模型由调用侧 adapter 包装检索原子
-    并测量耗时，供 Patchouli prepare 的 ``PreparedAgentRun.retrieval_result`` 与
-    Passive 记忆上下文使用，不是 Patchouli 公共路由的返回类型。
-    """
-
-    msg_type: MessageType = MessageType.RETRIEVAL_RESPONSE
-
-    # 检索到的记忆
-    memories: list[MemoryAtom] = Field(default_factory=list)
-
-    # 元信息
-    latency_ms: float = 0.0  # adapter 测量的调用耗时
-    memories_count: int = 0  # 检索到的数量（adapter 对列表计数）
-
-    @classmethod
-    def from_memories(
-        cls,
-        memories: list[MemoryAtom],
-        *,
-        latency_ms: float = 0.0,
-    ) -> RetrievalResponse:
-        """由检索路由返回的原子列表构造包装。
-
-        ``memories_count`` 取列表长度；``latency_ms`` 由调用侧 adapter 测量
-        并传入。不重新实现检索、授权或缓存。
-        """
-        return cls(
-            memories=list(memories),
-            memories_count=len(memories),
-            latency_ms=latency_ms,
-        )
-
-    def is_empty(self) -> bool:
-        """检查是否没有检索到任何记忆"""
-        return len(self.memories) == 0
 
 
 class InteractionPayload(BaseModel):
@@ -240,10 +154,7 @@ class ConversationTurn(BaseModel):
 __all__ = [
     "ConversationTurn",
     "SessionCompactionCheckpoint",
-    "MessageType",
-    "ProtocolMessage",
     "QueryFilters",
     "RetrievalRequest",
-    "RetrievalResponse",
     "InteractionPayload",
 ]
