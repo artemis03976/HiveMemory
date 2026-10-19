@@ -23,6 +23,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.cancellation import join_shielded
 from hivememory.components.trace_context import (
     reset_trace_context,
     set_trace_context,
@@ -329,7 +330,9 @@ class TaskProcessRunner:
                 )
                 events.status(record)
                 yield Finalizing()
-                await self._join_finalization(working_set.finalization_task)
+                # 交付方取消不中断已开始的提交：等到提交结束再传播取消，
+                # 关闭流程仍按同一任务的结果收尾。
+                await join_shielded(working_set.finalization_task)
 
             topic_id = prepared.topic_id if has_output else None
             self._mark_execution_terminal(process, execution_result)
@@ -375,25 +378,6 @@ class TaskProcessRunner:
             identity_scope=self._authorize(process),
         )
         process.working_set.hand_off_prepared()
-
-    @staticmethod
-    async def _join_finalization(task: asyncio.Task[None]) -> None:
-        """屏蔽交付方取消直到提交结束，再传播取消；不留下脱离进程的后台任务。"""
-        cancelled = False
-        while not task.done():
-            try:
-                await asyncio.shield(task)
-            except asyncio.CancelledError:
-                if task.cancelled():
-                    raise
-                cancelled = True
-            except Exception:
-                break
-        if cancelled:
-            # 取出异常以免未观察告警；关闭流程仍会按同一任务的结果收尾。
-            task.exception()
-            raise asyncio.CancelledError
-        task.result()
 
     @staticmethod
     def _mark_execution_terminal(process: TaskProcess, result: CPUExecutionResult) -> None:
@@ -538,7 +522,7 @@ class TaskProcessRunner:
             self._accept_checkpoint(process, working_set.cpu_result_slot.result)
         if working_set.finalization_task is not None and not record.is_terminal:
             try:
-                await self._join_finalization(working_set.finalization_task)
+                await join_shielded(working_set.finalization_task)
             except Exception as exc:
                 if not record.is_terminal:
                     record.mark_failed()

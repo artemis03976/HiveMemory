@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Request
 from sse_starlette.sse import EventSourceResponse
 from starlette.types import Receive, Scope, Send
 
+from hivememory.components.cancellation import cancel_and_join
 from hivememory.core.access import CallerPrincipal
 from hivememory.server.deps import (
     HTTP_ADAPTER,
@@ -31,18 +32,13 @@ router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503),
 logger = logging.getLogger(__name__)
 
 
-async def _cancel_and_join(task: asyncio.Task) -> None:
-    """取消并结算一次进行中的 Chat 流式拉取。"""
-    owner = asyncio.current_task()
-    entry_cancelling = owner.cancelling() if owner is not None else 0
+async def _cancel_pull(task: asyncio.Task) -> None:
+    """取消并结算一次进行中的 Chat 流式拉取。
 
-    if not task.done():
-        task.cancel()
+    流结束或拉取失败已由循环处理，收尾时再次取回的同一结果只记录调试日志。
+    """
     try:
-        await task
-    except asyncio.CancelledError:
-        if owner is not None and owner.cancelling() > entry_cancelling:
-            raise
+        await cancel_and_join(task)
     except StopAsyncIteration:
         pass
     except Exception:
@@ -160,7 +156,7 @@ async def chat(
                     service.cancel_process(handle, reason="client_disconnected")
                     raise
                 finally:
-                    await _cancel_and_join(pull_task)
+                    await _cancel_pull(pull_task)
 
         except Exception:
             logger.exception("chat route stream error")

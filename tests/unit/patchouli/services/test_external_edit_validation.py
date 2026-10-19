@@ -1,4 +1,4 @@
-"""外部编辑的字段校验：非法值拒绝且不提交，合法空值与规范化不误伤。
+"""外部创建与编辑的字段校验：非法值拒绝且不提交，合法空值与规范化不误伤。
 
 使用真实 ``MemoryArtifactBuilder`` + ``ArtifactStore``（临时目录）与内存版
 中期存储（复用历史一致性测试的替身），不 mock 被测提交链。
@@ -58,6 +58,30 @@ async def test_invalid_edit_is_rejected_without_commit(tmp_path, edit, field):
 
     assert len(mid_term.upsert_calls) == upserts_before
     assert await _version_artifacts(tmp_path, identity_scope, atom.id) == []
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("materials", "field"),
+    [
+        ({"memory_type": MemoryType.FACT, "title": "   "}, "title"),
+        ({"memory_type": MemoryType.FACT, "title": "t", "summary": "x" * 501}, "summary"),
+        ({"memory_type": MemoryType.AGENT_PROFILE, "title": "t"}, "alias"),
+    ],
+)
+async def test_invalid_creation_is_rejected_without_commit(tmp_path, materials, field):
+    """创建材料不满足模型或类型约束时以 InvalidMemoryFieldError 拒绝，不写入任何记录。"""
+    identity_scope = make_memory_identity_scope()
+    familiar, mid_term = _familiar([], _artifact_engine(tmp_path))
+
+    with pytest.raises(InvalidMemoryFieldError, match=field):
+        await familiar.create_external_memory(
+            identity_scope.workspace_identity,
+            from_actor=identity_scope.actor_identity,
+            **materials,
+        )
+
+    assert mid_term.upsert_calls == []
 
 
 @pytest.mark.asyncio

@@ -3,7 +3,10 @@ from __future__ import annotations
 from typing import Any
 from uuid import UUID
 
-from hivememory.core.errors import ResourceUnavailableError, WorkspaceMismatchError
+from hivememory.core.errors import (
+    InvalidMemoryFieldError,
+    ResourceUnavailableError,
+)
 from hivememory.core.models import (
     IdentityScope,
     MemoryAtom,
@@ -14,6 +17,7 @@ from hivememory.core.models.query import QueryFilters
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.engines.retrieval.models import RetrievalQuery
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.memory_management import MemoryCreation, MemoryEdit
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.utils.uuid import normalize_uuid
 
@@ -35,17 +39,23 @@ class MemoryManagementService:
     async def create_memory(
         self,
         identity_scope: IdentityScope,
-        atom: MemoryAtom | None = None,
+        creation: MemoryCreation,
     ) -> MemoryAtom:
-        if atom is None:
-            raise ValueError("create_memory 需要 atom 载荷")
+        """以提交的材料在目标 Workspace 中创建记忆，来源记录取自本次发起者。"""
         scope = require_identity_scope(identity_scope)
-        if atom.workspace_identity != scope.workspace_identity:
-            raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
+        if creation.memory_type is MemoryType.AGENT_PROFILE:
+            # Profile 只经 Profile 创建入口创建，记忆入口不能借道绕开 Profile 的约束。
+            raise InvalidMemoryFieldError("AGENT_PROFILE 只能经 Agent Profile 创建入口创建")
         return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_CREATE,
             scope.workspace_identity,
-            atom,
+            from_actor=scope.actor_identity,
+            memory_type=creation.memory_type,
+            title=creation.title,
+            summary=creation.summary,
+            content=creation.content,
+            tags=list(creation.tags),
+            alias=creation.alias,
         )
 
     async def list_memories(
@@ -106,12 +116,7 @@ class MemoryManagementService:
         memory_id: UUID | str,
         *,
         identity_scope: IdentityScope,
-        title: str | None = None,
-        summary: str | None = None,
-        content: str | None = None,
-        alias: str | None = None,
-        tags: list[str] | None = None,
-        agent_config: dict | None = None,
+        edit: MemoryEdit,
     ) -> MemoryAtom | None:
         """管理操作已在能力层授权；内部编辑只按目标归属定位记忆。"""
         scope = require_identity_scope(identity_scope)
@@ -119,12 +124,12 @@ class MemoryManagementService:
             PatchouliLocalRoutes.MEMORY_UPDATE,
             normalize_uuid(memory_id),
             belong_to=scope.workspace_identity,
-            title=title,
-            summary=summary,
-            content=content,
-            alias=alias,
-            tags=tags,
-            agent_config=agent_config,
+            title=edit.title,
+            summary=edit.summary,
+            content=edit.content,
+            alias=edit.alias,
+            tags=list(edit.tags) if edit.tags is not None else None,
+            agent_config=edit.agent_config,
         )
 
     async def delete_memory(

@@ -7,9 +7,11 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.errors import AdmissionDeniedError
+from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
 from scripts import inject_profiles
+from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 
@@ -31,7 +33,19 @@ class _ScriptSystems:
         async def list_profiles(**_kwargs):
             return list(self.atoms.values())
 
-        async def create_profile(scope, atom):
+        async def create_profile(identity_scope, creation):
+            atom = MemoryAtom(
+                meta=make_memory_metadata(
+                    user_id=identity_scope.workspace_identity.owner_user_id,
+                    source_agent_id=identity_scope.actor_identity.agent_id,
+                ),
+                index=IndexLayer(
+                    title=creation.title,
+                    memory_type=MemoryType.AGENT_PROFILE,
+                    alias=creation.alias,
+                ),
+                payload=PayloadLayer(content=creation.content, agent_config=creation.agent_config),
+            )
             self.atoms[atom.index.alias] = atom
             return atom
 

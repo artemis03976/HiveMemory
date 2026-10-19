@@ -255,8 +255,9 @@ async def published_stack():
     seen = _BusRecordings()
     created_atoms: dict[str, MemoryAtom] = {}
 
-    async def memory_create(scope, atom):
-        seen.memory_create_scopes.append(scope)
+    async def memory_create(identity_scope, creation):
+        seen.memory_create_scopes.append(identity_scope)
+        atom = _memory_atom(identity_scope, title=creation.title)
         created_atoms[atom.index.title] = atom
         return atom
 

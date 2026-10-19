@@ -62,7 +62,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 | `PassiveIngressService`（`system.application`） | 外部事件摄入、idle maintenance 注册、显式 flush、shutdown drain | Passive Ingressor、Gateway/Patchouli public routes、scheduler |
 | `RootMemoryService`（`workspace.capability.root`） | Memory 管理 CRUD、feedback 和查询参数转换（root 授权） | 操作授权者；Patchouli memory routes |
 | `RootMemoryTaskService`（`workspace.capability.root`） | 查询/取消 Patchouli 拥有的 memory generation task（root 授权） | 操作授权者；Patchouli task routes |
-| `RootAgentProfileService`（`workspace.capability.root`） | 构造 Agent Profile atom 并调用 Patchouli profile routes 创建与列出（root 授权）；列出按 owner-management 语义返回 Workspace 内全部 Profile，不按 Agent 可见性过滤 | 操作授权者；Patchouli profile routes |
+| `RootAgentProfileService`（`workspace.capability.root`） | 以创建材料调用 Patchouli profile routes 创建、并列出 Profile（root 授权）；列出按 owner-management 语义返回 Workspace 内全部 Profile，不按 Agent 可见性过滤 | 操作授权者；Patchouli profile routes |
 | `RootSessionService`（`workspace.capability.root`） | 会话创建、列表、全量历史、重命名、删除（root 授权） | 操作授权者；共享会话服务 |
 | `RootTopicService`（`workspace.capability.root`） | 活跃话题列表、手动 settle、evict（root 授权） | 操作授权者；Patchouli topic routes |
 | `RootWorkspaceAssetService`（`workspace.capability.root`） | 编排 Chat 附件的接收、原子注册和请求内解析，保留首次创建/重放回执语义；在接收与注册副作用之前执行 root 授权，注册只使用授权返回的 scope | workspace 的 WorkspaceAssetStore（命令端口）、附件接收函数、AttachmentParseService、上传串行门、操作授权者；链路事实见[Chat 附件链路](./attachments.md) |
@@ -214,9 +214,9 @@ CPU 关闭与线程撤销后，进程先同步接受执行结果中的历史检�
 
 管理类应用服务都属于 root API：只接受保留的 `system`，任何具体 Agent 即使持有全部 actor 操作也以 `root_required` 被拒绝，`system` 也不需要（不能配置）白名单。
 
-`RootMemoryService` 用授权返回的 `IdentityScope` 将 API 字段构造成 `MemoryAtom`，再通过 Patchouli public route 执行 create/list/get/update/delete/feedback。列表查询会显式排除 `AGENT_PROFILE`，避免普通记忆管理 API 与 Profile 资产混为一类；不存在的 get/update 使用共享的 `ResourceNotFoundError`。管理读写按 owner-management 语义执行：在 Workspace ownership hard boundary 之内访问该 Workspace 的全部 Memory，不执行 Agent 级 `MemoryAccessPolicy` 可见性过滤（见[Workspace 架构](../architecture/workspace.md)与[MemoryLibrary](../patchouli/memory-library.md)）。
+`RootMemoryService` 以授权返回的 `IdentityScope` 通过 Patchouli public route 执行 create/list/get/update/delete/feedback；创建与编辑只提交 API 字段，原子由 Patchouli 构造与校验，root API 不组装 `MemoryAtom`。列表查询会显式排除 `AGENT_PROFILE`，避免普通记忆管理 API 与 Profile 资产混为一类；不存在的 get/update 使用共享的 `ResourceNotFoundError`。管理读写按 owner-management 语义执行：在 Workspace ownership hard boundary 之内访问该 Workspace 的全部 Memory，不执行 Agent 级 `MemoryAccessPolicy` 可见性过滤（见[Workspace 架构](../architecture/workspace.md)与[MemoryLibrary](../patchouli/memory-library.md)）。
 
-`RootAgentProfileService` 用同样的 atom 结构创建与列出 `AGENT_PROFILE`，Profile 的实际持久化和可见性仍由 Patchouli 负责。这里的 `agent_config` 是资产内容，不是 System 直接解释的运行时权限。Profile 注入脚本（`scripts/inject_profiles.py`）以登记的本地来源 `hivememory:profile-injector` 和 `system` 声明经认证网关取得请求级 context，再调用同一 root API，结束时撤销 context。
+`RootAgentProfileService` 同样只提交创建材料并列出 `AGENT_PROFILE`，Profile 原子的构造、持久化和可见性都由 Patchouli 负责。这里的 `agent_config` 是资产内容，不是 System 直接解释的运行时权限。Profile 注入脚本（`scripts/inject_profiles.py`）以登记的本地来源 `hivememory:profile-injector` 和 `system` 声明经认证网关取得请求级 context，再调用同一 root API，结束时撤销 context。
 
 ### 5.2 Task、Topic 与 Readiness
 

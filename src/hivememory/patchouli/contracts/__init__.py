@@ -6,6 +6,11 @@ from hivememory.patchouli.contracts.interaction_submission import (
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_intent import MemoryIntent, MemoryIntentSubmissionResult
+from hivememory.patchouli.contracts.memory_management import (
+    AgentProfileCreation,
+    MemoryCreation,
+    MemoryEdit,
+)
 from hivememory.patchouli.contracts.memory_tasks import (
     MemoryGenerationAdmission,
     MemoryGenerationAdmissionStatus,
@@ -21,6 +26,9 @@ from hivememory.patchouli.contracts.topic_management import (
 )
 
 __all__ = [
+    "AgentProfileCreation",
+    "MemoryCreation",
+    "MemoryEdit",
     "MemoryIntent",
     "MemoryIntentSubmissionResult",
     "InteractionOrigin",

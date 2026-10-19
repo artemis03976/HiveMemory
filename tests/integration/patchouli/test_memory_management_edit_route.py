@@ -21,6 +21,7 @@ from hivememory.engines.artifacts import ArtifactEngine
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.patchouli.application.memory_management_service import MemoryManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.memory_management import MemoryEdit
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
 from hivememory.patchouli.memory_library import (
     ArtifactStore,
@@ -120,8 +121,7 @@ async def test_public_memory_edit_persists_content_through_real_route_handlers(e
         PatchouliRoutes.MEMORY_UPDATE,
         str(memory.id),
         identity_scope=scope,
-        title="Edited title",
-        content="edited content",
+        edit=MemoryEdit(title="Edited title", content="edited content", tags=("edited",)),
     )
     persisted = await mid_term.get_by_key(
         WorkspaceMemoryKey(workspace_identity=scope.workspace_identity, memory_id=memory.id)
@@ -129,6 +129,7 @@ async def test_public_memory_edit_persists_content_through_real_route_handlers(e
 
     assert persisted.index.title == "Edited title"
     assert persisted.payload.content == "edited content"
+    assert persisted.index.tags == ["edited"]
     assert persisted.meta.version == 2
     assert persisted.meta.updated_at == COMMIT_NOW
     assert persisted.meta.access_policy == policy

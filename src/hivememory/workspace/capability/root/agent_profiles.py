@@ -8,21 +8,10 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Any
 
-from pydantic import ValidationError
-
-from hivememory.core.errors import InvalidMemoryFieldError
 from hivememory.core.models import (
-    IndexLayer,
-    MemoryAccessPolicy,
     MemoryAtom,
-    MemoryLifecycleState,
-    MemoryType,
-    MetaData,
-    PayloadLayer,
 )
-from hivememory.core.models.provenance import MemoryProvenance
-from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.utils.time import utc_now
+from hivememory.patchouli.contracts import AgentProfileCreation, PatchouliRoutes
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
@@ -55,42 +44,23 @@ class RootAgentProfileService:
         agent_config: dict[str, Any] | None = None,
         access: WorkspaceAccessContext,
     ) -> MemoryAtom:
-        """在目标 Workspace 中创建 Agent Profile（root 管理用例）。"""
+        """在目标 Workspace 中创建 Agent Profile（root 管理用例）。
+
+        只提交创建材料，原子由 Patchouli 构造；字段非法时 Patchouli 以
+        ``InvalidMemoryFieldError`` 拒绝。
+        """
         scope = self._authorizer.authorize_root(access, target_workspace)
-        # 只包装调用方提交字段的构造：输入不合法是 422，不是程序错误。
-        try:
-            index = IndexLayer(
-                title=title,
-                summary=summary,
-                tags=tags,
-                memory_type=MemoryType.AGENT_PROFILE,
-                alias=alias,
-            )
-            payload = PayloadLayer(content=content, agent_config=agent_config)
-        except ValidationError as exc:
-            raise InvalidMemoryFieldError.from_validation_error(exc) from exc
-        # 创建时点在提交边界取一次 now，created/updated/decay anchor 同值，
-        # 统一由 Patchouli 完整写入路径赋值。
-        now = utc_now()
-        atom = MemoryAtom(
-            meta=MetaData(
-                workspace_identity=scope.workspace_identity,
-                provenance=MemoryProvenance(
-                    source_agent_id=scope.actor_identity.agent_id,
-                    source_team_id=scope.actor_identity.team_id,
-                ),
-                access_policy=MemoryAccessPolicy.public(),
-                created_at=now,
-                updated_at=now,
-                lifecycle=MemoryLifecycleState(decay_anchor_at=now),
-            ),
-            index=index,
-            payload=payload,
-        )
         return await self._global_bus.request(
             PatchouliRoutes.AGENT_PROFILE_CREATE,
-            scope,
-            atom,
+            identity_scope=scope,
+            creation=AgentProfileCreation(
+                title=title,
+                alias=alias,
+                summary=summary,
+                content=content,
+                tags=tuple(tags),
+                agent_config=agent_config,
+            ),
         )
 
     async def list_agent_profiles(

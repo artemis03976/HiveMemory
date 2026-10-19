@@ -16,8 +16,14 @@ from hivememory.core.errors import (
     WorkspaceMismatchError,
 )
 from hivememory.core.models import (
+    ActorIdentity,
+    IndexLayer,
+    MemoryAccessPolicy,
     MemoryAtom,
+    MemoryLifecycleState,
     MemoryType,
+    MetaData,
+    PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
     WorkspaceIdentity,
@@ -30,6 +36,7 @@ from hivememory.core.models.artifact import (
     MemoryEventType,
     snapshot_memory_atom,
 )
+from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.core.models.workspace_asset import TopicAssetBinding
 from hivememory.core.ports.workspace_assets import WorkspaceAssetMaterializationReaderPort
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
@@ -139,18 +146,50 @@ class MemoryGenerationFamiliar:
     async def create_external_memory(
         self,
         belong_to: WorkspaceIdentity,
-        atom: MemoryAtom,
+        *,
+        from_actor: ActorIdentity,
+        memory_type: MemoryType,
+        title: str,
+        summary: str = "",
+        content: str = "",
+        tags: list[str] | None = None,
+        alias: str | None = None,
+        agent_config: dict[str, Any] | None = None,
     ) -> MemoryAtom:
+        """以外部提交的材料创建记忆原子并持久化。
+
+        原子的身份、时间戳、来源记录、默认访问策略与生命周期都在这里确定：
+        创建时点取提交边界的同一时刻（created/updated/decay 同值），来源记录
+        取本次发起者，只作展示、不参与可见性授权。字段非法以
+        ``InvalidMemoryFieldError`` 拒绝。
         """
-        对外部创建的记忆原子进行持久化处理。
-        """
-        if atom.workspace_identity != belong_to:
-            raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
+        try:
+            index = IndexLayer(
+                title=title,
+                summary=summary,
+                tags=tags or [],
+                memory_type=memory_type,
+                alias=alias,
+            )
+            payload = PayloadLayer(content=content, agent_config=agent_config)
+        except ValidationError as exc:
+            raise InvalidMemoryFieldError.from_validation_error(exc) from exc
         commit_now = require_utc(self._now())
-        # 提交边界决定创建时点：created/updated/decay 同值。
-        atom.meta.created_at = commit_now
-        atom.meta.updated_at = commit_now
-        atom.meta.lifecycle.decay_anchor_at = commit_now
+        atom = MemoryAtom(
+            meta=MetaData(
+                workspace_identity=belong_to,
+                provenance=MemoryProvenance(
+                    source_agent_id=from_actor.agent_id,
+                    source_team_id=from_actor.team_id,
+                ),
+                access_policy=MemoryAccessPolicy.public(),
+                created_at=commit_now,
+                updated_at=commit_now,
+                lifecycle=MemoryLifecycleState(decay_anchor_at=commit_now),
+            ),
+            index=index,
+            payload=payload,
+        )
         await self._attach_memory_artifact(
             atom=atom,
             decision=DuplicateDecision.CREATE,

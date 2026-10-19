@@ -274,17 +274,22 @@ async def test_external_create_conflict_fails_before_version_artifact(qdrant_mid
     scope = _scope()
     artifact_store = _artifact_store(tmp_path)
     familiar = _familiar(store, artifact_store)
-    await store.upsert(_memory(scope, alias="fact_manual"))
-    duplicate = _memory(scope, alias="fact_manual")
+    original = _memory(scope, alias="fact_manual")
+    await store.upsert(original)
 
     with pytest.raises(MemoryAliasConflictError):
-        await familiar.create_external_memory(scope.workspace_identity, duplicate)
+        await familiar.create_external_memory(
+            scope.workspace_identity,
+            from_actor=scope.actor_identity,
+            memory_type=MemoryType.FACT,
+            title="Duplicate",
+            content="content",
+            alias="fact_manual",
+        )
 
-    assert await artifact_store.list_by_memory(scope.workspace_identity, str(duplicate.id)) == []
-    assert (
-        await store.get(scope.workspace_identity, duplicate.id, from_actor=scope.actor_identity)
-        is None
-    )
+    # 既有记忆直接写入中期库、不产生 artifact：目录为空说明冲突的创建没有留下版本记录。
+    assert not any((tmp_path / "artifacts").rglob("*.json"))
+    assert await store.list_alias_holders(scope.workspace_identity, "fact_manual") == [original.id]
 
 
 @pytest.mark.asyncio

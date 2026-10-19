@@ -9,24 +9,14 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from pydantic import ValidationError
-
 from hivememory.core.errors import (
-    InvalidMemoryFieldError,
     ResourceNotFoundError,
 )
 from hivememory.core.models import (
-    IndexLayer,
-    MemoryAccessPolicy,
     MemoryAtom,
-    MemoryLifecycleState,
     MemoryType,
-    MetaData,
-    PayloadLayer,
 )
-from hivememory.core.models.provenance import MemoryProvenance
-from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.utils.time import utc_now
+from hivememory.patchouli.contracts import MemoryCreation, MemoryEdit, PatchouliRoutes
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
@@ -54,51 +44,30 @@ class RootMemoryService:
         title: str,
         summary: str,
         content: str,
-        memory_type: str,
+        memory_type: MemoryType,
         tags: list[str],
         alias: str | None = None,
         access: WorkspaceAccessContext,
     ) -> MemoryAtom:
         """管理创建入口（root 授权）：在目标 Workspace 中创建 Memory。
 
-        ``provenance.source_agent_id`` 记录来源 actor（管理入口为保留
-        ``system``），只作 provenance 展示，不参与可见性授权。
+        只提交创建材料：原子的身份、时间戳、来源记录与默认策略由 Patchouli
+        确定。来源记录中的 actor 是管理入口的保留 ``system``，只作展示，
+        不参与可见性授权；字段非法时 Patchouli 以 ``InvalidMemoryFieldError``
+        拒绝。
         """
         scope = self._authorizer.authorize_root(access, target_workspace)
-        # 只包装调用方提交字段的构造：输入不合法是 422，不是程序错误。
-        try:
-            index = IndexLayer(
-                title=title,
-                summary=summary,
-                tags=tags,
-                memory_type=MemoryType(memory_type),
-                alias=alias,
-            )
-            payload = PayloadLayer(content=content)
-        except ValidationError as exc:
-            raise InvalidMemoryFieldError.from_validation_error(exc) from exc
-        # 创建时点在提交边界取一次 now，created/updated/decay anchor 同值，
-        # 统一由 Patchouli 完整写入路径赋值。
-        now = utc_now()
-        atom = MemoryAtom(
-            meta=MetaData(
-                workspace_identity=scope.workspace_identity,
-                provenance=MemoryProvenance(
-                    source_agent_id=scope.actor_identity.agent_id,
-                    source_team_id=scope.actor_identity.team_id,
-                ),
-                access_policy=MemoryAccessPolicy.public(),
-                created_at=now,
-                updated_at=now,
-                lifecycle=MemoryLifecycleState(decay_anchor_at=now),
-            ),
-            index=index,
-            payload=payload,
-        )
         return await self._global_bus.request(
             PatchouliRoutes.MEMORY_CREATE,
-            scope,
-            atom,
+            identity_scope=scope,
+            creation=MemoryCreation(
+                title=title,
+                summary=summary,
+                content=content,
+                memory_type=memory_type,
+                tags=tuple(tags),
+                alias=alias,
+            ),
         )
 
     async def list_memories(
@@ -165,12 +134,14 @@ class RootMemoryService:
             PatchouliRoutes.MEMORY_UPDATE,
             memory_id,
             identity_scope=scope,
-            title=title,
-            summary=summary,
-            content=content,
-            alias=alias,
-            tags=tags,
-            agent_config=agent_config,
+            edit=MemoryEdit(
+                title=title,
+                summary=summary,
+                content=content,
+                alias=alias,
+                tags=tuple(tags) if tags is not None else None,
+                agent_config=agent_config,
+            ),
         )
         if atom is None:
             raise ResourceNotFoundError("记忆不存在")

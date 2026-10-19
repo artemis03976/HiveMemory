@@ -10,12 +10,13 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     ActorIdentity,
+    IdentityScope,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
 )
-from hivememory.patchouli.contracts import PatchouliRoutes
+from hivememory.patchouli.contracts import MemoryCreation, PatchouliRoutes
 from hivememory.workspace.capability.root.memory import RootMemoryService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
@@ -91,26 +92,28 @@ class TestRootMemoryService:
             title="Created memory",
             summary="A sufficiently long memory summary",
             content="Created memory content",
-            memory_type="FACT",
+            memory_type=MemoryType.FACT,
             tags=["created", "ui"],
             alias="created-memory",
             access=access,
         )
 
-        mock_global_bus.request.assert_awaited_once()
-        route, bus_scope, payload = mock_global_bus.request.await_args.args
-        assert route == PatchouliRoutes.MEMORY_CREATE
-        # 传给 Patchouli 的 scope 来自 guard：已认证 actor + 目标 workspace
-        assert bus_scope.actor_identity == ActorIdentity(user_id="u1", agent_id="system")
-        assert bus_scope.workspace_identity == workspace
-        # context 不向下游传递，Patchouli 路由不接收 access
-        assert "access" not in mock_global_bus.request.await_args.kwargs
-        # 管理 actor（保留 system）作为 provenance 来源透传，不参与授权
-        assert payload.meta.provenance.source_agent_id == "system"
-        assert payload.workspace_identity == bus_scope.workspace_identity
-        assert payload.workspace_identity.owner_user_id == "u1"
-        assert payload.index.memory_type == MemoryType.FACT
-        assert payload.index.alias == "created-memory"
+        # 只提交创建材料：原子由 Patchouli 构造，scope 来自 root 授权，access 不向下游传递
+        mock_global_bus.request.assert_awaited_once_with(
+            PatchouliRoutes.MEMORY_CREATE,
+            identity_scope=IdentityScope(
+                actor_identity=ActorIdentity(user_id="u1", agent_id="system"),
+                workspace_identity=workspace,
+            ),
+            creation=MemoryCreation(
+                title="Created memory",
+                summary="A sufficiently long memory summary",
+                content="Created memory content",
+                memory_type=MemoryType.FACT,
+                tags=("created", "ui"),
+                alias="created-memory",
+            ),
+        )
 
     @pytest.mark.asyncio
     async def test_get_memory_not_found_raises_domain_error(

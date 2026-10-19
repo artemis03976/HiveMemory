@@ -99,12 +99,14 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `patchouli.public.memory.create` | `create_memory` | `identity_scope`、`MemoryAtom` | `MemoryAtom` |
+| `patchouli.public.memory.create` | `create_memory` | `identity_scope`、`MemoryCreation`（创建材料；类型不得为 `AGENT_PROFILE`） | 持久化后的 `MemoryAtom` |
 | `patchouli.public.memory.list` | `list_memories` | `identity_scope`、query、filters、limit、exclude、refresh | `list[MemoryAtom]` |
 | `patchouli.public.memory.get` | `get_memory` | memory id、`identity_scope`、refresh | `MemoryAtom | None` |
-| `patchouli.public.memory.update` | `update_memory` | memory id、`identity_scope` 与可选字段 | `MemoryAtom | None` |
+| `patchouli.public.memory.update` | `update_memory` | memory id、`identity_scope`、`MemoryEdit`（部分编辑，`None` 表示不修改） | `MemoryAtom | None` |
 | `patchouli.public.memory.delete` | `delete_memory` | `identity_scope`、memory id | `bool` |
 | `patchouli.public.memory.record_feedback` | `record_feedback` | memory id、`identity_scope`、positive、source | 记录结果 |
+
+创建与编辑路由只接收材料（`patchouli.contracts.memory_management`），原子由 Patchouli 构造或修改：记忆 ID、时间戳、来源记录（取发起者）、默认访问策略与生命周期都在提交边界确定，字段非法以 `InvalidMemoryFieldError` 拒绝。
 
 ### 2.4 Patchouli Tasks / Profiles / Topics / Readiness
 
@@ -113,7 +115,7 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 | `patchouli.public.memory_task.list` | `list_memory_tasks` | `identity_scope` | 本 Workspace 的 task 列表 |
 | `patchouli.public.memory_task.get` | `get_memory_task` | task id、`identity_scope` | task；越域与不存在统一抛 `ResourceNotFoundError` |
 | `patchouli.public.memory_task.cancel` | `cancel_memory_task` | task id、`identity_scope` | `bool`；越域与不存在统一抛 `ResourceNotFoundError` |
-| `patchouli.public.agent_profile.create` | `create_agent_profile` | `identity_scope`、`MemoryAtom` | `MemoryAtom` |
+| `patchouli.public.agent_profile.create` | `create_agent_profile` | `identity_scope`、`AgentProfileCreation`（创建材料，alias 必填） | 持久化后的 `MemoryAtom` |
 | `patchouli.public.agent_profile.list` | `list_agent_profiles` | `identity_scope`、limit | profile atom 列表 |
 | `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、必需的 `IdentityScope`（builtin 同样需要） | `ResolvedAgentProfile`（`AgentProfile` + 源原子 policy 依据与 source 关联，builtin 无源原子）；显式缺失/越权/无效时抛结构化 MTP error |
 | `patchouli.public.topic.list_active` | `list_active_topics` | `identity_scope`、`include_empty` | `tuple[TopicSnapshot, ...]` |

@@ -41,7 +41,7 @@ async def _seed_memory(
             title=title,
             summary=summary,
             content=content,
-            memory_type=MemoryType.FACT.value,
+            memory_type=MemoryType.FACT,
             tags=["e2e"],
             access=access,
         )

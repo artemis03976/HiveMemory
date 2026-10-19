@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from hivememory.core.models import (
         ActorIdentity,
         MemoryAtom,
+        MemoryType,
         ResolvedAgentProfile,
         TopicData,
         TopicSnapshot,
@@ -46,8 +47,19 @@ class PatchouliLocalRoutes:
     """
 
     @route("memory.create")
-    async def MEMORY_CREATE(belong_to: WorkspaceIdentity, atom: MemoryAtom) -> MemoryAtom:
-        """对外部创建的记忆原子进行持久化处理。"""
+    async def MEMORY_CREATE(
+        belong_to: WorkspaceIdentity,
+        *,
+        from_actor: ActorIdentity,
+        memory_type: MemoryType,
+        title: str,
+        summary: str = "",
+        content: str = "",
+        tags: list[str] | None = None,
+        alias: str | None = None,
+        agent_config: dict[str, Any] | None = None,
+    ) -> MemoryAtom:
+        """以外部提交的材料创建记忆原子并持久化，原子的身份、时间与默认策略在此确定。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("memory.list")

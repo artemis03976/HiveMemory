@@ -59,7 +59,7 @@ _ROUTED_CASES = [
             ("title", "记忆"),
             ("summary", "管理创建"),
             ("content", "正文"),
-            ("memory_type", "FACT"),
+            ("memory_type", MemoryType.FACT),
             ("tags", []),
         ),
     ),
@@ -129,9 +129,9 @@ class _OwnerBoundary:
             if route in {
                 PatchouliRoutes.MEMORY_CREATE,
                 PatchouliRoutes.AGENT_PROFILE_CREATE,
+                PatchouliRoutes.MEMORY_GET,
+                PatchouliRoutes.MEMORY_UPDATE,
             }:
-                return args[1]
-            if route in {PatchouliRoutes.MEMORY_GET, PatchouliRoutes.MEMORY_UPDATE}:
                 return MemoryAtom(
                     id=_MEMORY_ID,
                     meta=make_memory_metadata(user_id="u1", source_agent_id="writer"),
