@@ -134,9 +134,7 @@ def _profile_atom(*, visibility="PUBLIC", agent_config=None) -> MemoryAtom:
 async def _profile_submitter(chain):
     """操作入口与管理服务共用同一读取视图，线程 context 绑定主线程身份。"""
     entry = WorkspaceOperationEntry(
-        chain.memories,
-        agent=chain.profiles,
-        operation_authorizer=chain.composition.authorizer,
+        chain.memories, agent=chain.profiles, threads=chain.composition.threads
     )
     workspace = make_identity_scope(user_id="u1", agent_id="reader").workspace_identity
     thread_access = await chain.composition.authenticate_thread(
@@ -359,7 +357,7 @@ async def test_unadmitted_call_target_returns_structured_error_without_creating_
         agent_id="parent", process_id="call-process", register_process=True
     )
     submit = ThreadOperationSubmitter(
-        harness.make_entry(access.authorizer, access.thread_spawner), context
+        harness.make_entry(access.authorizer, access.threads), context
     )
     caller = _caller(submit)
     try:
@@ -369,7 +367,8 @@ async def test_unadmitted_call_target_returns_structured_error_without_creating_
         response = caller.progress.turn_events[-1].content
         assert 'code="mtp.permission.denied"' in response
         assert "[Agent Unavailable]" in response
-        assert set(access.process_table.get("call-process").working_set.thread_contexts) == {"main"}
+        process = access.process_table.get("call-process")
+        assert [thread.thread_id for thread in process.threads.snapshot()] == ["main"]
     finally:
         access.gateway.revoke_all_contexts()
         harness.runtime.close()

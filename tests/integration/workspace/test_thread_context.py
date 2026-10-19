@@ -6,7 +6,7 @@ from hivememory.core.access import RunBinding, WorkspaceOperation
 from hivememory.core.errors import (
     AdmissionDeniedError,
     ScopeRequiredError,
-    ThreadContextRevokedError,
+    ThreadEndedError,
 )
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
@@ -32,7 +32,9 @@ async def test_derivation_preserves_identity_and_binds_main_thread(composition):
     assert composition.authorizer.authorize_thread_operation(
         thread, WorkspaceOperation.MEMORY_READ
     ) == composition.authorizer.authorize_stage(process, composition.default_workspace)
-    assert composition.authorizer.get_thread_process_id(thread) == "process-1"
+    assert composition.authorizer.get_thread_binding(thread) == RunBinding.for_execution_thread(
+        "process-1", "main"
+    )
     summary = composition.gateway.describe_context(thread)
     assert summary.principal_id == composition.principal.principal_id
     assert (summary.run_type, summary.run_id, summary.thread_id) == (
@@ -82,8 +84,8 @@ async def test_thread_revocation_keeps_process_stage_authorization(composition):
     composition.gateway.revoke_thread_context(thread)
     composition.gateway.revoke_thread_context(thread)
 
-    with pytest.raises(ThreadContextRevokedError, match="revoked"):
-        composition.authorizer.validate_thread_context(thread)
+    with pytest.raises(ThreadEndedError, match="revoked"):
+        composition.authorizer.get_thread_binding(thread)
     assert (
         composition.authorizer.authorize_stage(process, composition.default_workspace) == expected
     )
@@ -95,12 +97,12 @@ async def test_closed_gateway_allows_derivation_but_shutdown_revokes_both(compos
     process = await process_context(composition)
     composition.gateway.close()
     thread = composition.gateway.derive_thread_context(process)
-    assert composition.authorizer.get_thread_process_id(thread) == "process-1"
+    assert composition.authorizer.get_thread_binding(thread).run_id == "process-1"
 
     composition.gateway.revoke_all_contexts()
 
-    with pytest.raises(ThreadContextRevokedError):
-        composition.authorizer.get_thread_process_id(thread)
+    with pytest.raises(ThreadEndedError):
+        composition.authorizer.get_thread_binding(thread)
     with pytest.raises(ScopeRequiredError):
         composition.authorizer.authorize_stage(process, composition.default_workspace)
 
@@ -108,12 +110,10 @@ async def test_closed_gateway_allows_derivation_but_shutdown_revokes_both(compos
 @pytest.mark.asyncio
 @pytest.mark.parametrize("binding", [RunBinding.for_request("r"), RunBinding.for_task_process("p")])
 async def test_thread_queries_reject_other_run_types(composition, binding):
-    """入口检查与进程关联查询均不能把非线程 context 当作线程使用。"""
+    """运行绑定查询与线程撤销均不能把非线程 context 当作线程使用。"""
     context = await composition.authenticate(binding=binding)
     with pytest.raises(ScopeRequiredError, match="线程 context"):
-        composition.authorizer.validate_thread_context(context)
-    with pytest.raises(ScopeRequiredError, match="线程 context"):
-        composition.authorizer.get_thread_process_id(context)
+        composition.authorizer.get_thread_binding(context)
     with pytest.raises(ScopeRequiredError, match="线程 context"):
         composition.gateway.revoke_thread_context(context)
     assert composition.gateway.describe_context(context).run_id == binding.run_id
@@ -155,8 +155,8 @@ async def test_child_derivation_uses_callee_admission_and_preserves_process_coor
         "child-1",
     )
     composition.gateway.revoke_all_contexts()
-    with pytest.raises(ThreadContextRevokedError):
-        composition.authorizer.validate_thread_context(child)
+    with pytest.raises(ThreadEndedError):
+        composition.authorizer.get_thread_binding(child)
 
 
 @pytest.mark.asyncio

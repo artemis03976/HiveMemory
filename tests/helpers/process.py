@@ -1,7 +1,7 @@
 """任务进程测试的装配辅助。
 
 与生产组合根同构：编排依赖（总线、CPU 端口、CPU 分配器、阶段授权、
-线程 context 生命周期端口、Gateway 超时）只交给执行器 ``TaskProcessRunner``；CPU
+线程管理、Gateway 超时）只交给执行器 ``TaskProcessRunner``；CPU
 持有真实操作入口，以每次执行收到的线程 context 绑定提交函数。注册入口
 ``TaskProcessService`` 只持有执行器与生命周期依赖（认证网关、进程控制
 授权、事件发布器）。
@@ -68,18 +68,14 @@ def make_task_process_service(
         global_bus,
         operation_authorizer=operation_authorizer,
         memory_reader=runtime.aliases,
-        dispatch_topics=threads,
+        threads=threads,
     )
     agent = ActorAgentService(
         operation_authorizer=operation_authorizer,
         profile_reader=runtime.profiles,
-        thread_spawner=threads,
+        threads=threads,
     )
-    entry = operation_entry or WorkspaceOperationEntry(
-        memory,
-        agent=agent,
-        operation_authorizer=operation_authorizer,
-    )
+    entry = operation_entry or WorkspaceOperationEntry(memory, agent=agent, threads=threads)
     if isinstance(cpu, ScriptedCPU):
         cpu.bind_operation_entry(entry)
     allocator = CPUAllocator(
@@ -95,7 +91,7 @@ def make_task_process_service(
         sessions=sessions,
         allocator=allocator,
         operation_authorizer=operation_authorizer,
-        thread_contexts=threads,
+        threads=threads,
         gateway_session_turn_limit=gateway_session_turn_limit,
     )
     return TaskProcessService(

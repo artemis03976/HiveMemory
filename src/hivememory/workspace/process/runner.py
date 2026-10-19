@@ -176,7 +176,7 @@ class TaskProcessRunner:
         sessions: ConversationSessionService,
         allocator: CPUAllocator,
         operation_authorizer: WorkspaceOperationAuthorizer,
-        thread_contexts: ProcessThreads,
+        threads: ProcessThreads,
         gateway_request_timeout_ms: int = 8000,
         gateway_session_turn_limit: int = 3,
     ) -> None:
@@ -185,7 +185,7 @@ class TaskProcessRunner:
         self._cpu = cpu
         self._allocator = allocator
         self._authorizer = operation_authorizer
-        self._thread_contexts = thread_contexts
+        self._threads = threads
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
         self._gateway_session_turn_limit = gateway_session_turn_limit
 
@@ -314,16 +314,17 @@ class TaskProcessRunner:
         以它为准，不再按停止标志改写为取消；CPU 原样传播取消、没有结果时按
         无输出的取消传播。
 
-        线程 context 只在本阶段的 ``finally`` 中撤销（关闭流程只是兜底），
-        检查点也只在这里接受一次：撤销之后、判断丢弃与有无输出之前。普通
-        执行异常没有可接受的结果。进程 task 被硬取消而 CPU 把取消转换为
-        返回值时，先撤销线程、接受其中已完成的检查点，再重新抛出取消。
+        全部线程只在本阶段的 ``finally`` 中兜底结束一次（关闭流程只是再兜底），
+        结束即撤销线程 context；停止被接受时线程已随之结束，迟到的提交在此之前
+        就被拒绝。检查点也只在这里接受一次：结束线程之后、判断丢弃与有无输出
+        之前。普通执行异常没有可接受的结果。进程 task 被硬取消而 CPU 把取消
+        转换为返回值时，先结束线程、接受其中已完成的检查点，再重新抛出取消。
         """
         record = process.record
         record.enter_phase(ProcessPhase.ACTOR)
         record.events.status(record)
-        # CPU 只持有派生线程 context；进程 context 留给全部阶段的授权。
-        access = self._thread_contexts.derive_main_thread(process)
+        # CPU 只持有主线程的线程 context；进程 context 留给全部阶段的授权。
+        access = self._threads.derive_main(process)
         returned = _ReturnedResult()
 
         async def publish(event: dict[str, Any]) -> None:
@@ -346,9 +347,9 @@ class TaskProcessRunner:
                 raise
             return returned.result
         finally:
-            # 先撤销线程 context，再接受检查点；两者都先于封口、finalize 与
-            # 终态交付，硬取消时先于重新抛出取消。
-            self._thread_contexts.revoke_threads(process.working_set)
+            # 先结束全部线程（撤销线程 context），再接受检查点；两者都先于
+            # 封口、finalize 与终态交付，硬取消时先于重新抛出取消。
+            self._threads.end_all(process)
             self._accept_checkpoint(process, returned.result)
         # drive 正常结束时已经写入 CPU 返回的结果。
         assert returned.result is not None
@@ -524,14 +525,14 @@ class TaskProcessRunner:
     # ========== 关闭流程 ==========
 
     async def close(self, process: TaskProcess) -> None:
-        """进程关闭：终态兜底、撤销线程 context、释放租借、补偿 prepare。
+        """进程关闭：终态兜底、结束线程、释放租借、补偿 prepare。
 
         只在进程 task 中执行：:meth:`run` 的收尾，或进程从未运行就被关闭时
         由注册入口的进程 task 直接调用。终态兜底只在进程仍无终态时执行，即
-        硬取消与“从未运行就被关闭”两种情形。线程 context 的撤销与租借释放都
-        先于任何 await 同步执行：硬取消打断后续 cleanup 时，也不留下有效的
-        线程凭据或未释放的租借；线程 context 正常由 Actor 阶段撤销，这里只是
-        兜底。context 失效与进程注销由注册入口在本流程之后执行。工作集中的
+        硬取消与“从未运行就被关闭”两种情形。结束线程与租借释放都先于任何
+        await 同步执行：硬取消打断后续 cleanup 时，也不留下有效的线程凭据或
+        未释放的租借；线程正常由 Actor 阶段结束，这里只是兜底，重复结束是
+        空操作。context 失效与进程注销由注册入口在本流程之后执行。工作集中的
         每项资源只取出一次，本方法即使重复执行也不会重复释放。
         """
         record = process.record
@@ -540,7 +541,7 @@ class TaskProcessRunner:
             record.mark_cancelled()
             record.events.closed_before_terminal(record)
 
-        self._thread_contexts.revoke_threads(working_set)
+        self._threads.end_all(process)
         # 附件文本在 CPU 分配时已编译进清单，Actor 执行不再读取租借内容。
         self._allocator.release(working_set)
         # 只要 prepare 成功但 finalize 未成功，就清理可能的新建空 Topic。

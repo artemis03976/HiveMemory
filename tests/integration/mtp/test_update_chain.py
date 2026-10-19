@@ -212,6 +212,7 @@ class TestKoakumaUpdateValidation:
             belong_to=make_identity_scope().workspace_identity,
             from_actor=make_identity_scope().actor_identity,
             process_id=validation_koakuma.context.runtime_scope.run_id,
+            thread_id="main",
         )
 
         agent_text = f'⟪ UPDATE | {pending.pending_alias} | instruction="test"'

@@ -38,7 +38,6 @@ from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import (
     AdmissionDeniedError,
     ScopeRequiredError,
-    ThreadContextRevokedError,
     WorkspaceDomainError,
 )
 from hivememory.core.models import (
@@ -840,11 +839,7 @@ async def _drive_to_exit(
 
 def _thread_revoked(composition: AccessTestComposition, cpu: ScriptedCPU) -> bool:
     """CPU 收到的主线程 context 是否已撤销、不能再提交 actor 操作。"""
-    try:
-        composition.authorizer.validate_thread_context(cpu.calls[0].access)
-    except ThreadContextRevokedError:
-        return True
-    return False
+    return composition.gateway.describe_context(cpu.calls[0].access) is None
 
 
 @pytest.mark.asyncio

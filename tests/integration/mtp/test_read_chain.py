@@ -239,6 +239,7 @@ class TestReadAliasResolution:
             belong_to=make_identity_scope().workspace_identity,
             from_actor=make_identity_scope().actor_identity,
             process_id=make_runtime_scope().run_id,
+            thread_id="main",
         )
         canonical = _make_memory(
             content="canonical content",
@@ -277,6 +278,7 @@ class TestReadAliasResolution:
             belong_to=make_identity_scope().workspace_identity,
             from_actor=make_identity_scope().actor_identity,
             process_id=make_runtime_scope().run_id,
+            thread_id="main",
         )
         asyncio.run(
             koakuma.registry.on_settled(
@@ -303,6 +305,7 @@ class TestReadAliasResolution:
             belong_to=make_identity_scope().workspace_identity,
             from_actor=make_identity_scope().actor_identity,
             process_id=make_runtime_scope().run_id,
+            thread_id="main",
         )
         asyncio.run(
             koakuma.registry.on_failed(
@@ -505,6 +508,7 @@ class TestReadPendingScopeIsolation:
             belong_to=make_identity_scope().workspace_identity,
             from_actor=make_identity_scope().actor_identity,
             process_id=make_runtime_scope().run_id,
+            thread_id="main",
         )
 
         result = _execute_mtp(koakuma, f"⟪ READ | {pending.pending_alias} | ⟫")
@@ -519,6 +523,7 @@ class TestReadPendingScopeIsolation:
             belong_to=make_identity_scope(workspace_id="isolation_workspace").workspace_identity,
             from_actor=make_identity_scope(workspace_id="isolation_workspace").actor_identity,
             process_id=make_runtime_scope(workspace_id="isolation_workspace").run_id,
+            thread_id="main",
         )
         koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.return_value = None
 
@@ -548,6 +553,7 @@ class TestReadPendingScopeIsolation:
             belong_to=make_identity_scope(workspace_id="isolation_workspace").workspace_identity,
             from_actor=make_identity_scope(workspace_id="isolation_workspace").actor_identity,
             process_id=make_runtime_scope(workspace_id="isolation_workspace").run_id,
+            thread_id="main",
         )
         canonical = _make_memory(content="canonical content", alias="fact_canonical")
         koakuma.memories[canonical.get_alias()] = canonical

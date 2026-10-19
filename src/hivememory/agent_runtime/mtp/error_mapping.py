@@ -9,7 +9,7 @@ from hivememory.core.errors import (
     StorageOfflineError,
     StorageReadError,
     StorageWriteError,
-    ThreadContextRevokedError,
+    ThreadEndedError,
 )
 from hivememory.core.mtp.exceptions import MTPError
 from hivememory.core.mtp.models import MTPErrorInfo, MTPErrorSeverity
@@ -116,8 +116,8 @@ def mtp_error_info(
         "mtp.system.unexpected_error",
         MTPErrorSeverity.SYSTEM_FAULT,
     )
-    if isinstance(error, ThreadContextRevokedError):
-        key = "mtp.system.thread_context_revoked"
+    if isinstance(error, ThreadEndedError):
+        key = "mtp.system.thread_ended"
     elif isinstance(error, OperationDeniedError):
         code, key, severity = (
             "mtp.permission.denied",

@@ -44,7 +44,7 @@ from hivememory.core.errors import (
     OperationDeniedError,
     ResourceNotFoundError,
     ScopeRequiredError,
-    ThreadContextRevokedError,
+    ThreadEndedError,
 )
 from hivememory.core.models import (
     ActorIdentity,
@@ -294,7 +294,7 @@ async def wired():
         global_bus=global_bus,
         operation_authorizer=access.authorizer,
         memory_reader=runtime.aliases,
-        dispatch_topics=access.thread_spawner,
+        threads=access.threads,
     )
     root_memory = RootMemoryService(global_bus=global_bus, operation_authorizer=access.authorizer)
     root_profiles = RootAgentProfileService(
@@ -872,7 +872,7 @@ async def test_invalidated_context_rejected_and_reauthentication_restores_access
 
     wired.access.gateway.invalidate_context(context)
 
-    with pytest.raises(ThreadContextRevokedError, match="revoked"):
+    with pytest.raises(ThreadEndedError, match="revoked"):
         (
             await wired.actor_memory.resolve_references(
                 ResolveReferencesRequest((public_atom.index.alias,)), access=context

@@ -56,14 +56,14 @@ async def test_http_session_resume_after_partial_stop(patchouli_chat_stack):
             stack.bus,
             operation_authorizer=access.authorizer,
             memory_reader=runtime.aliases,
-            dispatch_topics=access.thread_spawner,
+            threads=access.threads,
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
-            thread_spawner=access.thread_spawner,
+            threads=access.threads,
             profile_reader=runtime.profiles,
         ),
-        operation_authorizer=access.authorizer,
+        threads=access.threads,
     )
     history_inputs = []
     partial_sent = asyncio.Event()
@@ -273,14 +273,14 @@ async def test_http_long_session_reuses_compacted_history_and_seals_budget_failu
             stack.bus,
             operation_authorizer=access.authorizer,
             memory_reader=runtime.aliases,
-            dispatch_topics=access.thread_spawner,
+            threads=access.threads,
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
-            thread_spawner=access.thread_spawner,
+            threads=access.threads,
             profile_reader=runtime.profiles,
         ),
-        operation_authorizer=access.authorizer,
+        threads=access.threads,
     )
     for alias, size in (("fact_context", 4000),):
         await stack.mid_term.upsert(

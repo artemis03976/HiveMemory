@@ -1,4 +1,4 @@
-"""workspace 操作入口：校验线程 context，直接分派请求。"""
+"""workspace 操作入口：经线程表判定线程存活，直接分派请求。"""
 
 from __future__ import annotations
 
@@ -6,7 +6,6 @@ from collections.abc import Awaitable, Callable
 from typing import Any, cast
 
 from hivememory.core.access import WorkspaceAccessContext
-from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.contracts.operations import (
@@ -18,19 +17,20 @@ from hivememory.workspace.contracts.operations import (
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
 )
+from hivememory.workspace.thread_ports import ExecutionThreadTable
 
 
 class WorkspaceOperationEntry:
-    """入口不拆业务参数，身份与进程关联均经授权者从线程 context 取得。"""
+    """入口不拆业务参数；身份由 actor API 经授权者从线程 context 取得。"""
 
     def __init__(
         self,
         memory: ActorMemoryService,
         *,
         agent: ActorAgentService,
-        operation_authorizer: WorkspaceOperationAuthorizer,
+        threads: ExecutionThreadTable,
     ) -> None:
-        self._authorizer = operation_authorizer
+        self._threads = threads
         # 泛型结果由公开契约约束；异构表只在此擦除类型，直接指向 actor 方法。
         self._handlers: dict[type[OperationRequest[Any]], Callable[..., Awaitable[Any]]] = {
             SubmitWriteIntentRequest: memory.submit_write_intent,
@@ -44,8 +44,12 @@ class WorkspaceOperationEntry:
     async def execute[R](
         self, request: OperationRequest[R], *, access: WorkspaceAccessContext
     ) -> R:
-        """线程有效才分派；写入的登记前复查与派发由 actor API 负责。"""
-        self._authorizer.validate_thread_context(access)
+        """线程存活才分派；写入的登记前复查与派发由 actor API 负责。
+
+        全部 actor 操作在此共用线程表的同一个存活判定：线程已结束或进程已
+        收到停止时以 ``ThreadEndedError`` 拒绝，拒绝时没有任何副作用。
+        """
+        self._threads.resolve(access)
         handler = self._handlers.get(type(request))
         if handler is None:
             raise TypeError(f"Unsupported operation request: {type(request).__name__}")

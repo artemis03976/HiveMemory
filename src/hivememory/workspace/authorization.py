@@ -18,6 +18,7 @@ from __future__ import annotations
 from hivememory.core.access import (
     AccessGrant,
     AccessRunType,
+    RunBinding,
     WorkspaceAccessContext,
     WorkspaceOperation,
 )
@@ -25,7 +26,7 @@ from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import (
     OperationDeniedError,
     ScopeRequiredError,
-    ThreadContextRevokedError,
+    ThreadEndedError,
 )
 from hivememory.core.models import IdentityScope, WorkspaceIdentity
 from hivememory.workspace.registry import (
@@ -74,13 +75,14 @@ class WorkspaceOperationAuthorizer:
             )
         return IdentityScope(actor_identity=grant.actor, workspace_identity=target_workspace)
 
-    def validate_thread_context(self, access: WorkspaceAccessContext) -> None:
-        """入口分派前检查线程 context 的类型与寿命，不代替逐次操作授权。"""
-        self._thread_grant(access)
+    def get_thread_binding(self, access: WorkspaceAccessContext) -> RunBinding:
+        """读出有效线程 context 的运行绑定，供线程表定位所属进程与线程。
 
-    def get_thread_process_id(self, access: WorkspaceAccessContext) -> str:
-        """只为能力层读取有效线程的进程关联，调用方不能自行指定关联。"""
-        return self._thread_grant(access).binding.run_id
+        只读查询，不代替逐次操作授权：凭据已撤销以 ``ThreadEndedError``
+        拒绝，不是线程 context 以 ``ScopeRequiredError`` 拒绝。线程与进程的
+        存活由线程表判定；生产调用面限定在 ``workspace.process`` 的线程管理。
+        """
+        return self._thread_grant(access).binding
 
     def authorize_thread_operation(
         self, access: WorkspaceAccessContext, operation: WorkspaceOperation
@@ -91,12 +93,12 @@ class WorkspaceOperationAuthorizer:
 
     @staticmethod
     def _thread_grant(access: WorkspaceAccessContext) -> AccessGrant:
-        """线程已撤销属于生命周期拒绝，类型或运行种类错误属于接线缺陷。"""
+        """凭据已撤销表示线程已结束，类型或运行种类错误属于接线缺陷。"""
         if type(access) is not WorkspaceAccessContext:
             raise ScopeRequiredError("actor 操作需要线程 context")
         grant = access._unseal()
         if grant is None:
-            raise ThreadContextRevokedError("Thread context is revoked")
+            raise ThreadEndedError("Thread context is revoked")
         if grant.binding.run_type is not AccessRunType.EXECUTION_THREAD:
             raise ScopeRequiredError("actor 操作需要线程 context")
         return grant

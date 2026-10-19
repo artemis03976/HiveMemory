@@ -11,7 +11,7 @@ from dataclasses import dataclass
 from typing import Protocol
 
 from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
-from hivememory.core.errors import ThreadContextRevokedError
+from hivememory.core.errors import ThreadEndedError
 from hivememory.core.models.agent import AgentProfile
 from hivememory.core.models.memory import MemoryAtom
 from hivememory.core.models.pending import PendingAtom, WriteFocus
@@ -131,7 +131,7 @@ class ThreadOperationSubmitter:
 
 __all__ = [
     "Callee",
-    "ThreadContextRevokedError",
+    "ThreadEndedError",
     "OperationEntry",
     "OperationRequest",
     "OperationSubmitter",

@@ -23,7 +23,7 @@ async def test_call_target_without_operation_denied_before_backing():
     service = ActorAgentService(
         operation_authorizer=composition.authorizer,
         profile_reader=make_workspace_runtime(global_bus=bus).profiles,
-        thread_spawner=composition.thread_spawner,
+        threads=composition.threads,
     )
     access = await composition.authenticate_thread()
 

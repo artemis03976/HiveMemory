@@ -10,7 +10,7 @@ from hivememory.core.errors import (
     OperationDeniedError,
     ResourceNotFoundError,
     StorageOfflineError,
-    ThreadContextRevokedError,
+    ThreadEndedError,
 )
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -195,7 +195,7 @@ async def test_profile_failure_propagates_before_resolving_context_refs():
 @pytest.mark.parametrize(
     "failure",
     [
-        ThreadContextRevokedError("thread ended"),
+        ThreadEndedError("thread ended"),
         OperationDeniedError("read denied"),
         TypeError("resolver defect"),
     ],

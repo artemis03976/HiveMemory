@@ -4,7 +4,7 @@ from .access import (
     AdmissionDeniedError,
     OperationDeniedError,
     ScopeRequiredError,
-    ThreadContextRevokedError,
+    ThreadEndedError,
     WorkspaceMismatchError,
 )
 from .base import DomainError, WorkspaceDomainError
@@ -29,7 +29,7 @@ __all__ = [
     "DomainError",
     "WorkspaceDomainError",
     "ScopeRequiredError",
-    "ThreadContextRevokedError",
+    "ThreadEndedError",
     "WorkspaceMismatchError",
     "AdmissionDeniedError",
     "OperationDeniedError",

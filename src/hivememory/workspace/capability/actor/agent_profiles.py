@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 from hivememory.core.access import WorkspaceOperation
 from hivememory.workspace.contracts.operations import DeriveCallThreadRequest
 from hivememory.workspace.contracts.threads import ExecutionThread
-from hivememory.workspace.thread_ports import ChildThreadSpawner
+from hivememory.workspace.thread_ports import ExecutionThreadTable
 
 if TYPE_CHECKING:
     from hivememory.core.access import WorkspaceAccessContext
@@ -23,11 +23,11 @@ class ActorAgentService:
         *,
         operation_authorizer: WorkspaceOperationAuthorizer,
         profile_reader: ProfileResolver,
-        thread_spawner: ChildThreadSpawner,
+        threads: ExecutionThreadTable,
     ) -> None:
         self._authorizer = operation_authorizer
         self._profile_reader = profile_reader
-        self._thread_spawner = thread_spawner
+        self._threads = threads
 
     async def derive_call_thread(
         self,
@@ -39,12 +39,9 @@ class ActorAgentService:
 
         未指定 alias 或显式选择 ``default`` / ``omni_doll`` 时返回内置 Profile；
         自定义 alias 缺失、不可见、类型不符或配置损坏均显式失败，不降级为
-        默认配置。Profile 冷读返回后重新确认线程寿命，再由进程校验主线程
-        与阶段；被调用方的准入、签发与操作快照均由进程侧处理。
+        默认配置。Profile 冷读返回后由线程表重新判定调用方存活并确认它是
+        主线程；被调用方的准入、签发、操作快照与登记均由线程表处理。
         """
         scope = self._authorizer.authorize_thread_operation(access, WorkspaceOperation.AGENT_CALL)
         profile = await self._profile_reader.get(request.agent_alias, scope=scope)
-        process_id = self._authorizer.get_thread_process_id(access)
-        return self._thread_spawner.derive_child_thread(
-            access=access, process_id=process_id, profile=profile
-        )
+        return self._threads.derive_child(parent=access, profile=profile)

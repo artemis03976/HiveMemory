@@ -155,8 +155,8 @@ class AccessTestComposition:
     process_table: ProcessTable = field(default_factory=ProcessTable)
 
     @property
-    def thread_spawner(self) -> ProcessThreads:
-        """能力测试复用真实进程表与派生边界，只有显式登记的主线程可派生。"""
+    def threads(self) -> ProcessThreads:
+        """能力测试复用真实进程表与线程管理，只有显式登记的线程可解析与派生。"""
         return ProcessThreads(
             self.process_table, lifecycle=self.gateway, authorizer=self.authorizer
         )
@@ -189,7 +189,7 @@ class AccessTestComposition:
         task.working_set.dispatch_topic_id = "test-topic"
         task.record.enter_phase(ProcessPhase.ACTOR)
         self.process_table.register(task)
-        return self.thread_spawner.derive_main_thread(task)
+        return self.threads.derive_main(task)
 
     async def authenticate_thread(
         self, *, process_id: str = "test_run", register_process: bool = False, **kwargs

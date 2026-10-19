@@ -148,12 +148,9 @@ def test_stage_operation_snapshot_is_only_read_by_task_process():
     }
 
 
-def test_thread_process_binding_queries_stay_inside_capability():
-    """线程的进程关联只供意图派发与子线程派生，不能扩散到 CPU 或资源 owner。"""
-    assert _private_call_sites("get_thread_process_id") == {
-        "workspace/capability/actor/memory.py",
-        "workspace/capability/actor/agent_profiles.py",
-    }
+def test_thread_binding_query_is_only_used_by_process_threads():
+    """线程的运行绑定只供线程表定位线程；能力层经线程表的一次解析取得进程关联。"""
+    assert _private_call_sites("get_thread_binding") == {"workspace/process/threads.py"}
 
 
 def test_thread_lifecycle_is_only_consumed_by_process_threads():
@@ -170,10 +167,6 @@ def test_thread_authorization_is_only_used_by_actor_api():
     assert _private_call_sites("authorize_thread_operation") == {
         "workspace/capability/actor/memory.py",
         "workspace/capability/actor/agent_profiles.py",
-    }
-    assert _private_call_sites("validate_thread_context") == {
-        "workspace/capability/operations.py",
-        "workspace/process/threads.py",
     }
 
 

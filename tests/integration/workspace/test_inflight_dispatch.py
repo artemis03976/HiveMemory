@@ -14,7 +14,6 @@ import pytest_asyncio
 from hivememory.agent_runtime.frame import FrameExecutionPolicy
 from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
-from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement, WriteFocus
 from hivememory.core.models.pending import PendingAtomStatus
 from hivememory.patchouli.application.memory_intent_submission_service import (
@@ -28,7 +27,6 @@ from hivememory.patchouli.control.memory_generation.coordinator import MemoryGen
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationResult
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.workspace.contracts import SubmitWriteIntentRequest
-from hivememory.workspace.process.table import ProcessPhase
 from tests.helpers.operations import OperationsHarness
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope
 
@@ -149,14 +147,34 @@ async def test_ack_waits_for_admission_and_settlement_reaches_registered_handle(
     )
 
 
+def _end_threads(chain):
+    """Actor 阶段收尾：结束测试进程的全部线程。"""
+    chain.harness.revoke()
+
+
+def _stop_process(chain):
+    """进程收到停止：线程随之结束，凭据仍待 Actor 阶段收尾撤销。"""
+    composition = chain.harness.compositions["test_run"][0]
+    composition.process_table.get("test_run").record.request_stop()
+
+
 @pytest.mark.asyncio
-@pytest.mark.parametrize("cancel_caller", [False, True])
-async def test_revocation_during_dispatch_preserves_submission(chain, cancel_caller):
-    """派发中撤销线程或重复取消调用方，都不能取消生成接纳。"""
+@pytest.mark.parametrize(
+    "interrupt, cancel_caller",
+    [
+        pytest.param(_end_threads, False, id="threads-ended"),
+        pytest.param(_end_threads, True, id="threads-ended-caller-cancelled"),
+        pytest.param(_stop_process, False, id="process-stopped"),
+    ],
+)
+async def test_thread_end_or_stop_during_dispatch_preserves_submission(
+    chain, interrupt, cancel_caller
+):
+    """派发开始后线程结束、进程收到停止或调用方被重复取消，都不能撤回生成接纳。"""
     task = asyncio.create_task(_write(chain))
     async with asyncio.timeout(2):
         await chain.reading.wait()
-        chain.harness.revoke()
+        interrupt(chain)
         if cancel_caller:
             task.cancel()
             # 以事件循环回调交付第二次取消，不靠固定 sleep 推进。
@@ -248,18 +266,6 @@ async def test_unknown_dispatch_logs_root_cause_hidden_from_agent(chain, caplog)
     ]
     assert [(record.levelno, record.exc_info[1]) for record in logged] == [(logging.ERROR, failure)]
     assert chain.intents[0].pending_alias in logged[0].getMessage()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("phase", [ProcessPhase.PREPARE, ProcessPhase.FINALIZE])
-async def test_non_actor_phase_rejects_before_registration(chain, phase):
-    """有效线程仍不能越过进程阶段检查，拒绝发生在登记和公共派发之前。"""
-    composition = chain.harness.compositions["test_run"][0]
-    composition.process_table.get("test_run").record.enter_phase(phase)
-    with pytest.raises(ScopeRequiredError, match="Actor"):
-        await chain.submit(SubmitWriteIntentRequest(WriteFocus(content="禁止派发")))
-    assert chain.harness.registry.size == 0
-    assert chain.intents == []
 
 
 @pytest.mark.asyncio
