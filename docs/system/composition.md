@@ -17,7 +17,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # System 组合根与生命周期
@@ -143,7 +143,7 @@ Gateway.start
 ActorAuthenticationGateway.close
   -> GlobalMaintenanceScheduler.stop
   -> PassiveIngressService.shutdown_drain
-  -> TaskProcessService.shutdown（停止在途进程并等待交付方收口，超时兜底关闭；释放会话认领）
+  -> TaskProcessService.shutdown（关闭未启动的进程，以 system_shutdown 停止已启动的进程并等待进程 task 结束，超时后硬取消；进程在自己的 task 中收尾并释放会话认领）
   -> ConversationSessionService.close_and_clear
   -> Alice.stop
   -> Patchouli.stop

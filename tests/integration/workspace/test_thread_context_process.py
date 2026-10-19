@@ -71,7 +71,7 @@ def process_chain():
         chain.stages.append(stage)
 
     async def finalize(*, identity_scope, **_kwargs):
-        assert chain.cpu.closed
+        assert chain.cpu.finished
         await after_cpu("finalize", identity_scope)
         return []
 
@@ -171,8 +171,7 @@ class DerivingCPU(ScriptedCPU):
         super().__init__(**kwargs)
         self.chain = chain
 
-    def execute(self, manifest, *, access, generation_options):
-        source = super().execute(manifest, access=access, generation_options=generation_options)
+    async def execute(self, manifest, *, access, **kwargs):
         for agent_id in ("worker", "reviewer"):
             child = self.chain.threads.derive_child_thread(
                 access=access,
@@ -180,7 +179,7 @@ class DerivingCPU(ScriptedCPU):
                 profile=AgentProfile(agent_id=agent_id),
             )
             self.chain.children.append(child.access)
-        return source
+        return await super().execute(manifest, access=access, **kwargs)
 
 
 async def start_hanging_process(chain):

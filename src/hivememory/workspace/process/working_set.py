@@ -6,7 +6,7 @@ Patchouli 公开契约）、本轮取得的附件租借、CPU 分配写入的派
 编译冻结的实际使用引用与 Actor 阶段签发的线程 context。资源由取得它的一方
 释放——附件租借由 ``CPUAllocator`` 释放，线程 context 撤销与 prepare 结果的
 cleanup 由编排骨架（``TaskProcessRunner``）处理；工作集不持有任何跨进程
-共享的依赖。CPU 的输出流、结果与 finalize 提交任务只存在于阶段内的局部
+共享的依赖。CPU 返回的执行结果与 finalize 提交任务只存在于阶段内的局部
 状态，不进入工作集。
 
 每项待释放的资源都只能取出一次（``take_*``）：关闭流程即使重复执行，

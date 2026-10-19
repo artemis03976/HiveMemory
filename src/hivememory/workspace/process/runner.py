@@ -5,7 +5,7 @@
 的公开路由完成，Actor 执行经组合根注入的 CPU 端口（``workspace.contracts``
 的 :class:`CPUPort`）完成。骨架运行在进程自己的 task 中，只把类型化的阶段
 产出写入进程的输出通道（见 ``workspace.process.outputs``），不区分交付
-形态：CPU 总是逐项产出交互事件，订阅通道的流式交付逐条转交，不订阅的
+形态：CPU 总是逐项推送交互事件，订阅通道的流式交付逐条转交，不订阅的
 非流式交付只取终态；两种交付共用同一条阶段顺序、同一组取消响应点与同一个
 关闭流程。
 
@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -42,7 +42,6 @@ from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
     CPUInputManifest,
-    CPUOutput,
     CPUPort,
 )
 from hivememory.workspace.process.allocation import CPUAllocator
@@ -90,7 +89,9 @@ async def _run_interruptible(
 
     停止请求只取消这个 child task，在此翻译为 :class:`_ProcessCancelled`；
     进程 task 自身被取消（系统关闭的硬取消）时按进入时记录的
-    ``cancelling()`` 识别，原样向上传播。
+    ``cancelling()`` 识别，原样向上传播。child task 可能把取消转换为返回值
+    （CPU 在最外层这样做），这时等待方的取消请求会随之丢失，因此 child task
+    正常结束后同样按 ``cancelling()`` 判断，重新抛出硬取消。
     """
     owner_task = asyncio.current_task()
     if owner_task is None:
@@ -107,6 +108,8 @@ async def _run_interruptible(
     control.bind_phase(phase, task)
     try:
         result = await task
+        if owner_task.cancelling() > entry_cancelling:
+            raise asyncio.CancelledError
         if control.outcome is ProcessOutcome.STOP_REQUESTED:
             raise _ProcessCancelled(
                 phase,
@@ -142,18 +145,14 @@ def _require_prepared_workspace(
 
 
 @dataclass
-class _DeliveredResult:
-    """Actor 子 task 与阶段函数共享的局部状态：CPU 在输出流中交回的终态。
+class _ReturnedResult:
+    """Actor 子 task 与阶段函数共享的局部状态：CPU 返回的终态结果。
 
-    停止可能晚于 CPU 交回终态才被识别（子 task 已结束、进程 task 尚未恢复），
-    此时子 task 的返回值随停止分支丢失，阶段函数改从这里取回。
+    子 task 结束后，停止（晚于 CPU 返回才被识别）与硬取消都会以异常离开
+    ``_run_interruptible``，子 task 的返回值随之丢失；阶段函数改从这里取回。
     """
 
     result: CPUExecutionResult | None = None
-
-    def or_else(self, fallback: CPUExecutionResult | None) -> CPUExecutionResult | None:
-        """CPU 交回的终态优先；没有时采用 ``fallback``（结果槽中的结果）。"""
-        return self.result if self.result is not None else fallback
 
 
 class TaskProcessRunner:
@@ -307,67 +306,53 @@ class TaskProcessRunner:
     async def _run_actor(
         self, process: TaskProcess, manifest: CPUInputManifest
     ) -> CPUExecutionResult:
-        """Actor 阶段：在一个可中断子 task 中驱动 CPU，返回本轮采用的执行结果。
+        """Actor 阶段：在一个可中断子 task 中等待 CPU，返回本轮采用的执行结果。
 
-        子 task 一次性迭代 CPU 的输出流，把交互事件写入输出通道，取得终态
-        结果即结束；停止取消子 task 时，无论它在等 CPU 的下一项还是阻塞在
-        通道写入上，都立即生效。输出流在子 task 结束之后由本阶段关闭：停止
-        或硬取消时促使 CPU 同步回填结果槽，正常结束时让 CPU 在 finalize 之前
-        释放资源；停止不会打断这次关闭。
-
-        结果的取舍：CPU 在输出流中交回的终态优先，其次是关闭后结果槽中的
-        结果；停止后两者都没有时按无输出的取消传播。正常结束却没有终态属于
-        端口语义错误，按进程失败处理。
+        子 task 直接等待 CPU 端口的 ``execute``，交互事件经 sink 写入输出
+        通道；停止取消子 task 时，无论 CPU 在等模型还是阻塞在通道写入上，
+        都立即生效。结果的取舍：CPU 以返回值表达停止后的结局，返回之后进程
+        以它为准，不再按停止标志改写为取消；CPU 原样传播取消、没有结果时按
+        无输出的取消传播。
 
         线程 context 只在本阶段的 ``finally`` 中撤销（关闭流程只是兜底），
         检查点也只在这里接受一次：撤销之后、判断丢弃与有无输出之前。普通
-        执行异常不接受候选值；硬取消在接受已完成的检查点后原样传播。
+        执行异常没有可接受的结果。进程 task 被硬取消而 CPU 把取消转换为
+        返回值时，先撤销线程、接受其中已完成的检查点，再重新抛出取消。
         """
         record = process.record
         record.enter_phase(ProcessPhase.ACTOR)
         record.events.status(record)
         # CPU 只持有派生线程 context；进程 context 留给全部阶段的授权。
         access = self._thread_contexts.derive_main_thread(process)
-        delivered = _DeliveredResult()
-        accepted: CPUExecutionResult | None = None
-        try:
-            cpu_run = self._cpu.execute(
+        returned = _ReturnedResult()
+
+        async def publish(event: dict[str, Any]) -> None:
+            await process.outputs.send(ActorEvent(event))
+
+        async def drive() -> None:
+            returned.result = await self._cpu.execute(
                 manifest,
                 access=access,
                 generation_options=process.request.generation_options,
+                events=publish,
             )
 
-            async def drive() -> None:
-                async for item in cpu_run.output:
-                    if isinstance(item, CPUExecutionResult):
-                        delivered.result = item
-                        return
-                    await process.outputs.send(ActorEvent(item))
-
-            try:
-                try:
-                    await _run_interruptible(record, ProcessPhase.ACTOR, drive)
-                finally:
-                    await self._close_cpu_output(cpu_run.output)
-            except _ProcessCancelled:
-                # 停止：沿用 CPU 已交回或回填进槽的结局（CPU 在停止生效前已经
-                # 完成时仍是 completed）；都没有时按无输出取消。
-                accepted = delivered.or_else(cpu_run.result_slot.result)
-                if accepted is None:
-                    raise
-                return accepted
-            except asyncio.CancelledError:
-                # 硬取消：仍接受 CPU 已完成的检查点，再原样传播。
-                accepted = delivered.or_else(cpu_run.result_slot.result)
+        try:
+            await _run_interruptible(record, ProcessPhase.ACTOR, drive)
+        except _ProcessCancelled:
+            # 停止：CPU 返回的结局优先（停止晚于 CPU 终态时仍是 CPU 的结局）；
+            # CPU 没有返回结果时按无输出取消。
+            if returned.result is None:
                 raise
-            if delivered.result is None:
-                raise RuntimeError("CPU 输出流在没有终态执行结果的情况下结束")
-            accepted = delivered.result
-            return accepted
+            return returned.result
         finally:
-            # 先撤销线程 context，再接受检查点；两者都先于封口、finalize 与终态交付。
+            # 先撤销线程 context，再接受检查点；两者都先于封口、finalize 与
+            # 终态交付，硬取消时先于重新抛出取消。
             self._thread_contexts.revoke_threads(process.working_set)
-            self._accept_checkpoint(process, accepted)
+            self._accept_checkpoint(process, returned.result)
+        # drive 正常结束时已经写入 CPU 返回的结果。
+        assert returned.result is not None
+        return returned.result
 
     async def _seal_and_finalize(
         self,
@@ -570,14 +555,6 @@ class TaskProcessRunner:
                 )
             except Exception:
                 logger.warning("清理 prepared run 失败", exc_info=True)
-
-    @staticmethod
-    async def _close_cpu_output(cpu_output: AsyncGenerator[CPUOutput, None]) -> None:
-        """关闭 CPU 输出流（已关闭时是空操作），关闭失败只记录警告。"""
-        try:
-            await cpu_output.aclose()
-        except Exception:
-            logger.warning("关闭 CPU 输出流失败", exc_info=True)
 
 
 __all__ = ["TaskProcessRunner"]

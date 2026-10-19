@@ -5,6 +5,7 @@ import pytest
 from hivememory.alice import AliceSystem
 from hivememory.alice.interface.cpu import AliceUnavailableError
 from hivememory.config.alice import AliceConfig
+from tests.helpers.alice import CollectedEvents
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.operations import OperationsHarness
@@ -21,16 +22,17 @@ async def test_system_lifecycle_controls_cpu_execution():
     )
     access = await make_access_composition([make_actor_access_record()]).authenticate_thread()
 
-    def execute():
-        return system.cpu_port.execute(
+    async def execute():
+        return await system.cpu_port.execute(
             make_input_manifest(),
             access=access,
             generation_options={"model": "test-model"},
+            events=CollectedEvents(),
         )
 
     await system.start()
-    *_events, terminal = [item async for item in execute().output]
+    terminal = await execute()
     assert (terminal.status, terminal.final_text) == ("completed", "完成")
     await system.stop()
     with pytest.raises(AliceUnavailableError, match="not running"):
-        await anext(execute().output)
+        await execute()

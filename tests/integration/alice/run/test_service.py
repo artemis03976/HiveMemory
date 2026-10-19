@@ -25,7 +25,7 @@ from hivememory.core.models import (
 from hivememory.core.mtp import MTP_STOP_SEQUENCE
 from hivememory.infrastructure.llm.base import LLMCompletion, LLMRequestParams
 from hivememory.workspace.contracts import CPUExecutionStatus
-from tests.helpers.alice import build_run_service, stream_run
+from tests.helpers.alice import CollectedEvents, build_run_service, run_with_events
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.llm import CallbackLLMService, ScriptedLLMService
 from tests.helpers.outputs import NullRunOutput
@@ -197,31 +197,8 @@ async def test_run_agent_passes_input_and_submitter_to_root_frame():
     ]
 
 
-async def _terminal_status_without_stream(service, manifest, submit_operation) -> str:
-    """非流式入口直接返回终态结果。"""
-    result = await service.run_agent(
-        manifest, run_output=NullRunOutput(), submit_operation=submit_operation
-    )
-    return result.status
-
-
-async def _terminal_status_from_stream(service, manifest, submit_operation) -> str:
-    """流式入口以最后一个事件携带终态。"""
-    events = [
-        event async for event in stream_run(service, manifest, submit_operation=submit_operation)
-    ]
-    return events[-1].status
-
-
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "run_to_terminal",
-    [
-        pytest.param(_terminal_status_without_stream, id="non-stream"),
-        pytest.param(_terminal_status_from_stream, id="stream"),
-    ],
-)
-async def test_root_policy_and_prompt_follow_manifest_operations(run_to_terminal):
+async def test_root_policy_and_prompt_follow_manifest_operations():
     """根 frame 的策略与教学由清单的操作快照翻译，系统工具菜单不受操作集合裁剪。"""
     runtime, service = build_run_service()
     manifest = _build_input_manifest(
@@ -241,7 +218,10 @@ async def test_root_policy_and_prompt_follow_manifest_operations(run_to_terminal
         raise AssertionError("本场景不应提交资源操作")
 
     runtime.run_frame = run_frame
-    assert await run_to_terminal(service, manifest, submit_operation) == "completed"
+    result = await service.run_agent(
+        manifest, run_output=NullRunOutput(), submit_operation=submit_operation
+    )
+    assert result.status == "completed"
 
     (frame,) = seen
     assert frame.execution_policy.permitted_verbs == {"READ", "RUN", "CALL"}
@@ -278,19 +258,13 @@ async def test_registered_labels_drive_runtime_events_and_profile_controls_strea
         process_id="interaction-isolation",
     )
 
-    events = [
-        event
-        async for event in stream_run(
-            service,
-            manifest,
-            {"model": "test-model"},
-            submit_operation=MagicMock(),
-        )
-    ]
+    result, events = await run_with_events(
+        service, manifest, {"model": "test-model"}, submit_operation=MagicMock()
+    )
 
-    assert [event["event"] for event in events[:-1]] == ["token"]
-    assert [event["data"]["agent_id"] for event in events[:-1]] == [display_agent_id]
-    assert events[-1].final_text == "标签保持一致"
+    assert [event["event"] for event in events] == ["token"]
+    assert [event["data"]["agent_id"] for event in events] == [display_agent_id]
+    assert result.final_text == "标签保持一致"
     assert [event.event_type for event in recorder.events] == [
         RuntimeEventType.AGENT_RUN_STARTED,
         RuntimeEventType.AGENT_RUN_COMPLETED,
@@ -342,19 +316,8 @@ async def test_run_agent_failed_result_emits_failed_runtime_event():
 
 
 @pytest.mark.asyncio
-async def test_run_agent_stream_returns_completed_root_frame():
-    runtime, service = build_run_service()
-    context = _build_input_manifest()
-    _stub_terminal_execution(runtime)
-
-    events = [event async for event in stream_run(service, context, submit_operation=MagicMock())]
-
-    assert [event["event"] for event in events[:-1]] == []
-    assert events[0].status == CPUExecutionStatus.COMPLETED.value
-
-
-@pytest.mark.asyncio
-async def test_run_agent_stream_close_emits_cancelled_runtime_event():
+async def test_cancelled_run_returns_cancelled_result_and_publishes_cancelled_event():
+    """原生取消在最外层转换为 cancelled 结果返回；agent.run.cancelled 的载荷保持关闭原因。"""
     recorder = RecordingRuntimeEventSink()
     runtime, service = build_run_service(runtime_events=recorder)
     context = _build_input_manifest()
@@ -364,37 +327,41 @@ async def test_run_agent_stream_close_emits_cancelled_runtime_event():
         await asyncio.Event().wait()
 
     runtime.run_frame = _run_frame
-    stream = stream_run(service, context, submit_operation=MagicMock())
+    events = CollectedEvents()
+    run = asyncio.create_task(
+        run_with_events(service, context, submit_operation=MagicMock(), events=events)
+    )
+    await events.wait_for(lambda event: event["event"] == "token")
+    run.cancel()
+    result, _ = await run
 
-    assert (await anext(stream))["event"] == "token"
-    await stream.aclose()
-
-    runtime_event_types = [event.event_type for event in recorder.events]
-    assert RuntimeEventType.AGENT_RUN_STARTED in runtime_event_types
-    assert RuntimeEventType.AGENT_RUN_CANCELLED in runtime_event_types
+    assert result.status == CPUExecutionStatus.CANCELLED.value
+    assert [event.event_type for event in recorder.events] == [
+        RuntimeEventType.AGENT_RUN_STARTED,
+        RuntimeEventType.AGENT_RUN_CANCELLED,
+    ]
     assert recorder.events[-1].status == "cancelled"
     assert recorder.events[-1].data["close_reason"] == "stream_closed"
 
 
 @pytest.mark.asyncio
-async def test_run_agent_stream_error_preserves_failed_runtime_event():
+async def test_run_agent_error_publishes_failed_runtime_event():
+    """普通异常不被转换为结果：照常抛出，并发布 agent.run.failed。"""
     recorder = RecordingRuntimeEventSink()
     runtime, service = build_run_service(runtime_events=recorder)
     context = _build_input_manifest()
     runtime.run_frame = AsyncMock(side_effect=RuntimeError("network unavailable"))
 
     with pytest.raises(RuntimeError, match="network unavailable"):
-        async for _ in stream_run(service, context, submit_operation=MagicMock()):
-            pass
+        await run_with_events(service, context, submit_operation=MagicMock())
 
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
     assert recorder.events[-1].status == "failed"
 
 
 @pytest.mark.asyncio
-async def test_unified_entry_stream_and_once_agree_on_terminal_outcome():
-    """同一段脚本化运行：流式最后的类型化结果与非流式结果在终态、回复、轮次事件与
-    模型名上一致；两种模式都发布 started 与终态事件，终态载荷仍含两个统计字段。"""
+async def test_terminal_result_carries_turn_facts_and_event_keeps_iteration_stats():
+    """终态结果携带回复、轮次事件与模型名；迭代统计只留在 agent.run.* 终态载荷中。"""
     from hivememory.agent_runtime.frame import FrameExecutionResult
     from hivememory.core.models import TurnEvent
 
@@ -417,82 +384,32 @@ async def test_unified_entry_stream_and_once_agree_on_terminal_outcome():
 
         return _run()
 
-    stream_recorder = RecordingRuntimeEventSink()
-    stream_runtime, stream_service = build_run_service(runtime_events=stream_recorder)
-    stream_runtime.run_frame = _scripted_run_frame
+    recorder = RecordingRuntimeEventSink()
+    runtime, service = build_run_service(runtime_events=recorder)
+    runtime.run_frame = _scripted_run_frame
 
-    stream_events = [
-        event
-        async for event in stream_run(
-            stream_service,
-            _build_input_manifest(process_id="process-unified"),
-            submit_operation=MagicMock(),
-        )
-    ]
-    done = stream_events[-1]
-
-    once_recorder = RecordingRuntimeEventSink()
-    once_runtime, once_service = build_run_service(runtime_events=once_recorder)
-    once_runtime.run_frame = _scripted_run_frame
-
-    result = await once_service.run_agent(
-        _build_input_manifest(process_id="process-unified"),
-        run_output=NullRunOutput(),
-        submit_operation=MagicMock(),
+    result, _ = await run_with_events(
+        service, _build_input_manifest(process_id="process-unified"), submit_operation=MagicMock()
     )
 
-    # 两种模式在终态、最终回复、轮次事件与模型名上一致。
-    assert result.status == done.status == CPUExecutionStatus.COMPLETED.value
-    assert result.final_text == done.final_text == "hello world"
+    assert result.status == CPUExecutionStatus.COMPLETED.value
+    assert result.final_text == "hello world"
     assert [event.kind for event in result.turn_events] == [
         "user_message",
         "assistant_message",
     ]
-    assert done.turn_events == result.turn_events
-    assert result.model_used == done.model_used == "glm-4"
-    # Alice 的迭代统计不进入执行结果，只保留在 agent.run.* 观测载荷中。
-    for recorder in (stream_recorder, once_recorder):
-        types = [event.event_type for event in recorder.events]
-        assert RuntimeEventType.AGENT_RUN_STARTED in types
-        terminal = recorder.events[-1]
-        assert terminal.event_type == RuntimeEventType.AGENT_RUN_COMPLETED
-        assert terminal.data["mtp_iterations"] == 2
-        assert terminal.data["total_iterations"] == 3
+    assert result.model_used == "glm-4"
+    assert [event.event_type for event in recorder.events] == [
+        RuntimeEventType.AGENT_RUN_STARTED,
+        RuntimeEventType.AGENT_RUN_COMPLETED,
+    ]
+    assert recorder.events[-1].data["mtp_iterations"] == 2
+    assert recorder.events[-1].data["total_iterations"] == 3
 
 
 @pytest.mark.asyncio
-async def test_non_streaming_cancellation_publishes_cancelled_runtime_event():
-    """统一入口后，非流式被取消同样发布 agent.run.cancelled（观测语义与流式一致）。"""
-    recorder = RecordingRuntimeEventSink()
-    runtime, service = build_run_service(runtime_events=recorder)
-    context = _build_input_manifest()
-    started = asyncio.Event()
-
-    async def _run_frame(_frame, **_kwargs):
-        started.set()
-        await asyncio.Event().wait()
-
-    runtime.run_frame = _run_frame
-
-    task = asyncio.create_task(
-        service.run_agent(context, run_output=NullRunOutput(), submit_operation=MagicMock())
-    )
-    await started.wait()
-    task.cancel()
-
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-    assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_CANCELLED
-    assert recorder.events[-1].status == "cancelled"
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("during_pull", [True, False])
-async def test_native_cancellation_fills_slot_with_delivered_partial_text(during_pull):
-    """真实 AgentLoop/RunExecutor 收口半截文字；关闭与取消都在异常传播前回填结果槽。"""
-    from hivememory.workspace.contracts import CPUResultSlot
-
+async def test_native_cancellation_returns_partial_text_and_completed_checkpoint():
+    """真实 AgentLoop/RunExecutor 收口半截文字；取消后返回带部分输出与已完成检查点的结果。"""
     entered = asyncio.Event()
     cancelled = asyncio.Event()
 
@@ -513,31 +430,22 @@ async def test_native_cancellation_fills_slot_with_delivered_partial_text(during
     _runtime, service = build_run_service(
         config=config, llm_service=CallbackLLMService(complete=summarize, stream=partial_answer)
     )
-    slot = CPUResultSlot()
-    stream = stream_run(
-        service,
-        manifest,
-        submit_operation=MagicMock(),
-        result_slot=slot,
-    )
-    assert (await anext(stream))["data"]["status"] == "started"
-    assert (await anext(stream))["data"]["status"] == "completed"
-    assert (await anext(stream))["data"]["content"] == "半截答案"
+    run = asyncio.create_task(run_with_events(service, manifest, submit_operation=MagicMock()))
     await entered.wait()
-    if during_pull:
-        pull = asyncio.create_task(anext(stream))
-        # 下一次事件拉取开始后注入原生取消；不依赖固定 sleep。
-        asyncio.get_running_loop().call_soon(pull.cancel)
-        with pytest.raises(asyncio.CancelledError):
-            await pull
-    else:
-        await stream.aclose()
+    run.cancel()
+    result, events = await run
+
+    assert [event["data"].get("status", event["data"].get("content")) for event in events] == [
+        "started",
+        "completed",
+        "半截答案",
+    ]
     assert cancelled.is_set()
-    assert slot.result.status == "cancelled"
-    assert slot.result.final_text == "半截答案"
-    assert slot.result.compaction_checkpoint.summary == "Accepted summary"
-    assert slot.result.compaction_checkpoint.summarized_through == "t2"
-    assert [(e.kind, e.content, e.status) for e in slot.result.turn_events] == [
+    assert result.status == "cancelled"
+    assert result.final_text == "半截答案"
+    assert result.compaction_checkpoint.summary == "Accepted summary"
+    assert result.compaction_checkpoint.summarized_through == "t2"
+    assert [(e.kind, e.content, e.status) for e in result.turn_events] == [
         ("user_message", "hello", None),
         ("assistant_message", "半截答案", "cancelled"),
     ]
@@ -546,7 +454,6 @@ async def test_native_cancellation_fills_slot_with_delivered_partial_text(during
 @pytest.mark.asyncio
 async def test_cancel_in_call_keeps_root_call_without_child_partial_text():
     """子帧中断时只保存根帧的不完整 CALL，不把尚未回填的子回复写成根回复。"""
-    from hivememory.workspace.contracts import CPUResultSlot
     from tests.helpers.call import StubOperationSubmitter, make_callee
 
     calls = 0
@@ -566,24 +473,23 @@ async def test_cancel_in_call_keeps_root_call_without_child_partial_text():
         return make_callee(AgentProfile(agent_id="helper"))
 
     _runtime, service = build_run_service(llm_service=CallbackLLMService(stream=generate_stream))
-    slot = CPUResultSlot()
-    stream = stream_run(
-        service,
-        _build_input_manifest(),
-        submit_operation=StubOperationSubmitter(derive=derive),
-        result_slot=slot,
+    run = asyncio.create_task(
+        run_with_events(
+            service,
+            _build_input_manifest(),
+            submit_operation=StubOperationSubmitter(derive=derive),
+        )
     )
-    while (await anext(stream))["event"] != "token":
-        pass
     await child_entered.wait()
-    await stream.aclose()
-    assert slot.result.status == "cancelled"
-    assert slot.result.final_text == ""
-    assert [(e.kind, e.tool_kind) for e in slot.result.turn_events] == [
+    run.cancel()
+    result, _ = await run
+    assert result.status == "cancelled"
+    assert result.final_text == ""
+    assert [(e.kind, e.tool_kind) for e in result.turn_events] == [
         ("user_message", None),
         ("tool_call", "CALL"),
     ]
-    assert slot.result.has_output is True
+    assert result.has_output is True
 
 
 def _compaction_inputs(*, compressible=True):
@@ -625,12 +531,8 @@ def _compaction_inputs(*, compressible=True):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("stream", [False, True])
-async def test_compaction_reaches_generation_and_returns_checkpoint_without_recording_progress(
-    stream,
-):
-    """减重不调用辅助模型；正常生成消费缩小后的视图，进度不进入交互载荷。"""
-    from hivememory.workspace.contracts import CPUResultSlot
+async def test_compaction_reaches_generation_and_returns_checkpoint_without_recording_progress():
+    """减重不调用辅助模型；正常生成消费缩小后的视图，进度只作为交互事件推送、不进入轮次事件。"""
 
     async def complete(_messages, _params):
         return "完成"
@@ -642,32 +544,10 @@ async def test_compaction_reaches_generation_and_returns_checkpoint_without_reco
     config, manifest = _compaction_inputs()
     recorder = RecordingRuntimeEventSink()
     _, service = build_run_service(config=config, runtime_events=recorder, llm_service=llm)
-    slot = CPUResultSlot()
-    if stream:
-        events = [
-            event
-            async for event in stream_run(
-                service, manifest, submit_operation=MagicMock(), result_slot=slot
-            )
-        ]
-        progress = [
-            event
-            for event in events
-            if isinstance(event, dict) and event["event"] == "context_compaction"
-        ]
-        assert [event["data"]["status"] for event in progress] == ["started", "completed"]
-        assert [event["data"]["stream_sequence"] for event in events[:-1]] == list(
-            range(len(events) - 1)
-        )
-        assert events[-1] is slot.result
-        result = slot.result
-    else:
-        result = await service.run_agent(
-            manifest,
-            run_output=NullRunOutput(),
-            submit_operation=MagicMock(),
-            result_slot=slot,
-        )
+    result, events = await run_with_events(service, manifest, submit_operation=MagicMock())
+    progress = [event for event in events if event["event"] == "context_compaction"]
+    assert [event["data"]["status"] for event in progress] == ["started", "completed"]
+    assert [event["data"]["stream_sequence"] for event in events] == list(range(len(events)))
     assert result.status == "completed"
     assert result.compaction_checkpoint.reduced_through == "old"
     assert [(event.kind, event.content) for event in result.turn_events] == [
@@ -699,27 +579,19 @@ async def test_compaction_reaches_generation_and_returns_checkpoint_without_reco
 @pytest.mark.asyncio
 async def test_uncompressible_history_fails_without_output_and_keeps_reduction_checkpoint():
     """用户原文不能减重，仍超限时不调用生成模型；进度本身不构成输出。"""
-    from hivememory.workspace.contracts import CPUResultSlot
-
     llm = ScriptedLLMService()
     config, manifest = _compaction_inputs(compressible=False)
     recorder = RecordingRuntimeEventSink()
     _, service = build_run_service(config=config, runtime_events=recorder, llm_service=llm)
-    slot = CPUResultSlot()
-    events = [
-        event
-        async for event in stream_run(
-            service, manifest, submit_operation=MagicMock(), result_slot=slot
-        )
-    ]
-    assert [event["event"] for event in events[:-1]] == [
+    result, events = await run_with_events(service, manifest, submit_operation=MagicMock())
+    assert [event["event"] for event in events] == [
         "context_compaction",
         "context_compaction",
     ]
     assert events[1]["data"]["status"] == "failed"
-    assert slot.result.failure_reason == "compaction_failed"
-    assert slot.result.has_output is False
-    assert slot.result.compaction_checkpoint.reduced_through == "old"
+    assert result.failure_reason == "compaction_failed"
+    assert result.has_output is False
+    assert result.compaction_checkpoint.reduced_through == "old"
     assert llm.calls == []
     failed_compaction = [
         event
@@ -731,25 +603,30 @@ async def test_uncompressible_history_fails_without_output_and_keeps_reduction_c
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("after_completion", [False, True])
-async def test_closing_at_compaction_progress_only_returns_completed_checkpoint(after_completion):
-    """压缩开始时关闭不产生新检查点，结束事件交出后关闭则交回已完成视图。"""
-    from hivememory.workspace.contracts import CPUResultSlot
-
+@pytest.mark.parametrize("cancelled_at", ["started", "completed"])
+async def test_cancel_at_compaction_progress_returns_only_completed_checkpoint(cancelled_at):
+    """推送压缩开始进度时被取消没有可交回的结果，取消原样传播；推送完成进度时被取消
+    以 cancelled 结果交回已完成的视图。"""
     config, manifest = _compaction_inputs()
     _, service = build_run_service(config=config)
-    slot = CPUResultSlot()
-    stream = stream_run(service, manifest, submit_operation=MagicMock(), result_slot=slot)
-    assert (await anext(stream))["data"]["status"] == "started"
-    if after_completion:
-        assert (await anext(stream))["data"]["status"] == "completed"
-    await stream.aclose()
-    if after_completion:
-        assert slot.result.status == "cancelled"
-        assert slot.result.compaction_checkpoint.reduced_through == "old"
-        assert slot.result.has_output is False
-    else:
-        assert slot.result is None
+    events = CollectedEvents(
+        pause_on=lambda event: event["event"] == "context_compaction"
+        and event["data"]["status"] == cancelled_at
+    )
+    run = asyncio.create_task(
+        run_with_events(service, manifest, submit_operation=MagicMock(), events=events)
+    )
+    await events.wait_for(lambda event: event["data"].get("status") == cancelled_at)
+    run.cancel()
+    if cancelled_at == "started":
+        # 还没有可交回的内容：取消原样传播，进程按无输出取消处理。
+        with pytest.raises(asyncio.CancelledError):
+            await run
+        return
+    result, _ = await run
+    assert result.status == "cancelled"
+    assert result.has_output is False
+    assert result.compaction_checkpoint.reduced_through == "old"
 
 
 def _summary_inputs():
@@ -765,10 +642,8 @@ def _summary_inputs():
 
 
 @pytest.mark.asyncio
-async def test_cancellation_during_summary_propagates_without_new_checkpoint():
-    """减重已完成但摘要仍在等待时取消，不能交回本次任何局部检查点。"""
-    from hivememory.workspace.contracts import CPUResultSlot
-
+async def test_cancellation_during_summary_propagates_without_partial_checkpoint():
+    """减重已完成但摘要仍在等待时取消，不交回本次任何局部检查点；没有可交回的内容，取消原样传播。"""
     entered = asyncio.Event()
     closed = asyncio.Event()
 
@@ -783,23 +658,21 @@ async def test_cancellation_during_summary_propagates_without_new_checkpoint():
     _, service = build_run_service(
         config=config, llm_service=CallbackLLMService(complete=summarize)
     )
-    slot = CPUResultSlot()
-    stream = stream_run(service, manifest, submit_operation=MagicMock(), result_slot=slot)
-    assert (await anext(stream))["data"]["status"] == "started"
-    pull = asyncio.create_task(anext(stream))
+    events = CollectedEvents()
+    run = asyncio.create_task(
+        run_with_events(service, manifest, submit_operation=MagicMock(), events=events)
+    )
     await entered.wait()
-    pull.cancel()
+    run.cancel()
     with pytest.raises(asyncio.CancelledError):
-        await pull
-    await stream.aclose()
+        await run
+    assert [event["data"]["status"] for event in events.events] == ["started"]
     assert closed.is_set()
-    assert slot.result is None
 
 
 @pytest.mark.asyncio
 async def test_abandoned_summary_still_generates_from_reduced_view_if_it_fits():
     """摘要被拒绝但减重视图可执行时继续生成，摘要失败不会变成本轮输出。"""
-    from hivememory.workspace.contracts import CPUResultSlot
 
     async def empty_summary(_messages, _params):
         return LLMCompletion(text="", finish_reason="stop")
@@ -811,18 +684,12 @@ async def test_abandoned_summary_still_generates_from_reduced_view_if_it_fits():
     config, manifest = _summary_inputs()
     recorder = RecordingRuntimeEventSink()
     _, service = build_run_service(config=config, runtime_events=recorder, llm_service=llm)
-    slot = CPUResultSlot()
-    events = [
-        event
-        async for event in stream_run(
-            service, manifest, submit_operation=MagicMock(), result_slot=slot
-        )
-    ]
+    result, events = await run_with_events(service, manifest, submit_operation=MagicMock())
     assert events[1]["data"]["status"] == "abandoned"
     assert events[1]["data"]["layer"] == "summary"
-    assert slot.result.status == "completed"
-    assert slot.result.compaction_checkpoint.summary == ""
-    assert [event.kind for event in slot.result.turn_events] == [
+    assert result.status == "completed"
+    assert result.compaction_checkpoint.summary == ""
+    assert [event.kind for event in result.turn_events] == [
         "user_message",
         "assistant_message",
     ]

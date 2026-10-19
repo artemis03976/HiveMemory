@@ -1,10 +1,10 @@
-"""Alice 运行用例：准备输入、驱动根帧与 CALL，并同步交回终态结果。"""
+"""Alice 运行用例：准备输入、驱动根帧与 CALL，并以返回值交回终态结果。"""
 
 from __future__ import annotations
 
+import asyncio
 import uuid
 from dataclasses import dataclass
-from enum import Enum
 from typing import Any
 
 from hivememory.agent_runtime import (
@@ -26,21 +26,13 @@ from hivememory.alice.run.output import RunOutput
 from hivememory.alice.run.result import assemble_execution_result, publish_terminal, stats_for
 from hivememory.config.alice import CompactionConfig, KoakumaConfig
 from hivememory.core.models import AgentProfile, ExecutionLabels
+from hivememory.core.protocol.models import SessionCompactionCheckpoint
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
     CPUInputManifest,
-    CPUResultSlot,
     OperationSubmitter,
 )
-
-
-class RunExitReason(str, Enum):
-    """运行收尾原因；既未形成终态也未发生普通异常时按任务取消收口。"""
-
-    RUNNING = "running"
-    TERMINAL = "terminal"
-    FAILED = "failed"
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +45,7 @@ class _RunPreparation:
 
 
 class AgentRunService:
-    """运行服务只消费输出端口；队列、任务与交互流由接口层管理。"""
+    """运行服务只消费输出端口，交互事件的传输由接口层的端口实现决定。"""
 
     def __init__(
         self,
@@ -81,9 +73,15 @@ class AgentRunService:
         *,
         submit_operation: OperationSubmitter,
         run_output: RunOutput,
-        result_slot: CPUResultSlot | None = None,
     ) -> CPUExecutionResult:
-        """执行一次 run 并返回终态；交互输出只经端口发出，取消前同步保存已完成检查点与部分输出。"""
+        """执行一次 run 并返回终态；交互输出只经端口发出。
+
+        本方法是 Alice 作为 CPU 的最外层：内部各层原样传播取消并完成收尾，
+        这里收到原生取消后不再传播，而是把已产生的部分输出与已完成的检查点
+        组装为 cancelled 结果返回；还没有任何可交回的内容时（执行器尚未开始
+        且没有完成的检查点）原样传播取消，由任务进程按无输出的取消处理。
+        普通异常照常抛出。
+        """
         preparation = self._prepare_run(input_manifest)
         events = preparation.events
         inputs = RootContextBuilder(
@@ -94,8 +92,6 @@ class AgentRunService:
         )
         frame: ExecutionFrame | None = None
         executor: RunExecutor | None = None
-        result: CPUExecutionResult | None = None
-        exit_reason = RunExitReason.RUNNING
         try:
             run_output.bind_run(preparation.session.agent_run_id)
             executor = RunExecutor(
@@ -134,37 +130,19 @@ class AgentRunService:
                 )
             result = assemble_execution_result(frame, terminal, inputs.checkpoint)
             publish_terminal(events, result, stats_for(frame))
-            exit_reason = RunExitReason.TERMINAL
             return result
+        except asyncio.CancelledError:
+            events.cancelled(
+                message=run_output.cancellation_message, close_reason=run_output.close_reason
+            )
+            # executor 的递归取消已经收尾；这里只同步投影结果，不再 await。
+            cancelled = _cancelled_result(frame, executor, inputs.checkpoint)
+            if cancelled is None:
+                raise
+            return cancelled
         except Exception:
-            exit_reason = RunExitReason.FAILED
             events.failed(message="Agent run failed.")
             raise
-        finally:
-            if exit_reason == RunExitReason.RUNNING:
-                events.cancelled(
-                    message=run_output.cancellation_message, close_reason=run_output.close_reason
-                )
-            # executor 的递归取消已经收尾；只在这里同步投影结果，不能用 await 吞掉原取消。
-            if (
-                result is None
-                and frame is not None
-                and executor is not None
-                and executor.terminal_result is not None
-            ):
-                result = assemble_execution_result(
-                    frame, executor.terminal_result, inputs.checkpoint
-                )
-            elif (
-                result is None
-                and inputs.checkpoint is not None
-                and exit_reason == RunExitReason.RUNNING
-            ):
-                result = CPUExecutionResult(
-                    status=CPUExecutionStatus.CANCELLED, compaction_checkpoint=inputs.checkpoint
-                )
-            if result_slot is not None and result is not None:
-                result_slot.result = result
 
     def _prepare_run(self, input_manifest: CPUInputManifest) -> _RunPreparation:
         """构造 run 会话与动词快照，绑定 ``agent.run.*`` 事件并发布 started。"""
@@ -229,6 +207,22 @@ class AgentRunService:
             agent_id=manifest.labels.agent_id,
             workspace_id=manifest.labels.workspace_id,
         )
+
+
+def _cancelled_result(
+    frame: ExecutionFrame | None,
+    executor: RunExecutor | None,
+    checkpoint: SessionCompactionCheckpoint | None,
+) -> CPUExecutionResult | None:
+    """取消收尾后可交回的结果：执行器已收口的帧终态携带部分输出；尚未进入
+    执行时只携带已完成的检查点；两者都没有时没有可交回的结果。"""
+    if frame is not None and executor is not None and executor.terminal_result is not None:
+        return assemble_execution_result(frame, executor.terminal_result, checkpoint)
+    if checkpoint is not None:
+        return CPUExecutionResult(
+            status=CPUExecutionStatus.CANCELLED, compaction_checkpoint=checkpoint
+        )
+    return None
 
 
 __all__ = ["AgentRunService"]

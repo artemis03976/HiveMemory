@@ -13,7 +13,8 @@ code_paths:
   - src/hivememory/alice/orchestration/frames.py
   - src/hivememory/alice/context/view.py
   - src/hivememory/alice/orchestration/output.py
-  - src/hivememory/alice/interface/stream.py
+  - src/hivememory/alice/interface/output.py
+  - src/hivememory/alice/interface/cpu.py
   - src/hivememory/alice/events.py
   - src/hivememory/prompts/compilation.py
   - src/hivememory/prompts/mtp.py
@@ -23,7 +24,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 多 Agent 编排
@@ -36,7 +37,7 @@ Alice 的多 Agent 能力当前不是一个会自主拆解任务图的“超级�
 
 ```text
 AliceSystem
-  ├─ AliceCPU -> AgentRunStreamAdapter
+  ├─ AliceCPU -> SinkRunOutput（推送到任务进程的事件 sink）
   │    └─ AgentRunService -> RootContextBuilder
   │         ├─ RunSession（frame registry / CallRecord）
   │         ├─ RunExecutor -> CallCoordinator -> CallContextProvider
@@ -46,13 +47,13 @@ AliceSystem
                                             -> frame submit_operation -> workspace
 ```
 
-- AgentRunService 是内部运行用例：`run_agent` 面向运行层的 `RunOutput`，创建根 frame 与每次 run 的 Executor，返回 CPU 中立执行结果并发布终态观测；模型预算、视图与压缩交给独立的 `RootContextBuilder`，结果投影放在 `run/result.py`，结果槽在同一收尾段同步填写；
-- AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程。它绑定线程提交函数、检查宿主启停，每次执行都经流式适配器调用运行服务，不区分交付形态；流式队列、runner task 与关闭收尾属于 `interface`，最后一项直接交付类型化结果；
+- AgentRunService 是内部运行用例：`run_agent` 面向运行层的 `RunOutput`，创建根 frame 与每次 run 的 Executor，返回 CPU 中立执行结果并发布终态观测；模型预算、视图与压缩交给独立的 `RootContextBuilder`，结果投影放在 `run/result.py`；它是 Alice 作为 CPU 的最外层，被取消时把已产生的输出与已完成检查点组装为 cancelled 结果返回，不再传播取消，没有可交回的内容时才原样传播；
+- AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程。它绑定线程提交函数、检查宿主启停，每次执行都以 `SinkRunOutput` 直接等待运行服务，交互事件推送给进程的 sink，类型化结果作为返回值交回，不区分交付形态；
 - AliceSystem 是子系统装配根，通过内核工厂构造 AgentRuntime。Profile 读取与缓存归 workspace，内核不参与多帧调度；
 - RunSession 只拥有一次 run 的 frame registry 与 CALL record，不保存取消信号、活动 frame、frame 调度状态或传输层 stream sequence；
 - RunExecutor 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件。它以协程递归执行 CALL 派生 frame，并在根帧终态只记录一次 run 结果；意图收尾属于任务进程；
-- AgentRunOutput 是调度与当前请求交互输出之间的窄端口，只承载 frame 输出与 CALL 边界；上下文层的 `ContextProgressOutput` 只承载压缩进度。运行层的 `RunOutput` 合并两者并补充 run 绑定与取消观测信息，生产实现只有 `interface/stream.py` 的有界队列；
-- AgentRunStreamAdapter 只负责流式传输适配，AgentRunEventEmitter 只负责全局观测投影，两者不参与 frame 求值；
+- AgentRunOutput 是调度与当前请求交互输出之间的窄端口，只承载 frame 输出与 CALL 边界；上下文层的 `ContextProgressOutput` 只承载压缩进度。运行层的 `RunOutput` 合并两者并补充 run 绑定与取消观测信息，生产实现只有 `interface/output.py` 的 `SinkRunOutput`，不缓存事件；
+- SinkRunOutput 只负责把输出投影为交互事件并推送，AgentRunEventEmitter 只负责全局观测投影，两者不参与 frame 求值；
 - CallContextProvider 经 caller 的 `submit_operation` 取得被调用方 `Callee` 并读取 `context_refs`，返回由被调用方与共享上下文组成、不含 frame 或 CALL ledger 状态的 `CallContext`；
 - CallCoordinator 把 CALL 拆为 `begin_call()` 与 `complete_call()`：消费 `CallContext` 组装 callee、投影 outcome，并通过 `AgentRuntime.apply_call_response()` exactly-once 恢复 caller；它不解析 Profile/记忆，不运行 frame，也不收尾整个 run；
 - FrameFactory 无状态地创建普通 frame，不表达主/子拓扑；
@@ -195,11 +196,11 @@ caller 与 callee 各自使用自己线程的提交函数：callee 登记的意�
 - 子帧自身的 token/MTP 事件：`scope=sub`，并带 depth/frame_id；
 - `sub_agent_end`：最终 success/error/cancelled、子帧 `terminal_status`、目标 alias 与 frame id；success 携带 reply，error 携带稳定 `error_code`。
 
-这些事件服务当前请求的实时 UI 与调试，不是业务结果来源。`AgentRunStreamAdapter` 为每次流式 run 创建容量为 256 的有界 FIFO queue，所有事件通过 `await put()` 施加背压；`QueueAgentRunOutput` 为事件补全 `agent_run_id/frame_id/action_id/stream_sequence`。`depth` 仅保留为兼容展示字段，不再是执行坐标。`sub_agent_start` 在 callee frame 创建后才发布，因此 `frame_id` 不为空。最后一个 `CPUExecutionResult` 中的 `turn_events` 才是结构化的一轮事实，由任务进程封口后交给 Patchouli。
+这些事件服务当前请求的实时 UI 与调试，不是业务结果来源。每次 run 独占的 `SinkRunOutput` 为事件补全 `agent_run_id/frame_id/action_id/stream_sequence`，逐项 `await` 任务进程的事件 sink；背压由进程的输出通道施加，通道写满时 sink 等待。`depth` 仅保留为兼容展示字段，不再是执行坐标。`sub_agent_start` 在 callee frame 创建后才发布，因此 `frame_id` 不为空。运行服务返回的 `CPUExecutionResult` 中的 `turn_events` 才是结构化的一轮事实，由任务进程封口后交给 Patchouli。
 
 frame 的展示 `agent_id` 优先取 `AgentProfile.agent_id`（源 alias，内置图纸为 `omni_doll`），空值回退注册标签；`agent.run.*` 的 agent/workspace 字段始终取注册标签，不从 Profile 或子帧重新推导身份。
 
-交互输出不会自动转发到 RuntimeEventBus。后者通过 `AgentRunEventEmitter` 记录主 `agent.run.*` 生命周期、压缩统计与逐帧预算守卫拦截，采用 best-effort、可回放且允许慢订阅者丢失的语义；前者具有背压与断流取消语义。即使二者包含相同的 `agent_run_id/process_id` 关联字段，也不能把 RuntimeEvent 当作 token/CALL 流的备份或业务控制输入。
+交互输出不会自动转发到 RuntimeEventBus。后者通过 `AgentRunEventEmitter` 记录主 `agent.run.*` 生命周期、压缩统计与逐帧预算守卫拦截，采用 best-effort、可回放且允许慢订阅者丢失的语义；前者具有背压，交付方离开时经停止请求取消本次 run。即使二者包含相同的 `agent_run_id/process_id` 关联字段，也不能把 RuntimeEvent 当作 token/CALL 流的备份或业务控制输入。
 
 ## 8. 失败、取消与降级
 
@@ -208,11 +209,10 @@ frame 的展示 `agent_id` 优先取 `AgentProfile.agent_id`（源 alias，内�
 - CallContextProvider 的 Profile/共享上下文解析错误，以及后续模型调用或执行异常，会在 CALL 边界形成 error `MTPCallResponse`，主 Agent 得到错误后可以调整方案；
 - 子帧预算耗尽映射为 `mtp.call_response.budget_exhausted`，子帧取消保持 cancelled 终态；生产 policy 会在 Agent loop 内拒绝被调用 frame 的 CALL，因此不会形成第二层 suspension；若未来开放该权限，RunExecutor 会直接递归执行，而不需要增加 root/callee 状态分支；
 - 无法解析的单个 context ref 只跳过，不使 CALL 失败；
-- Chat application 不向主/子 AgentRuntime 传递取消 token。用户 stop 取消当前 Alice task；RunExecutor 捕获 `CancelledError` 做本地 unwind，活跃 CALL 只清理 callee frame 和 record，不伪造 caller response，最外层收尾整个 run 一次，并保留原生异常传播；
-- 流生成器提前关闭时，`AgentRunStream` 取消并 join 自己创建的 runner；`CancelledError` 沿递归协程栈展开，各层清理尚未 apply 的 CALL，且不再向关闭的 consumer 阻塞发送事件；
+- 任务进程不向主/子 AgentRuntime 传递取消 token。用户 stop 与交付方离开都以原生取消到达等待 CPU 的子 task，可能落在模型调用上，也可能落在等待事件 sink 的推送上；RunExecutor 捕获 `CancelledError` 做本地 unwind，活跃 CALL 只清理 callee frame 和 record，不伪造 caller response，收尾整个 run 一次，并保留原生异常传播；`CancelledError` 沿递归协程栈展开，各层清理尚未 apply 的 CALL；
 - RunExecutor、Agent loop 与 Worker 的 unwind/close 都是 best effort：清理异常记录日志，但不能替换正在传播的 `CancelledError`；
-- CPU 驱动把 `CPUResultSlot` 经运行路由传给服务；RunExecutor 同步落定 CANCELLED 后，服务在收尾中把根帧文字/事件及已完成的压缩检查点投影为 `CPUExecutionResult` 写槽，再传播原生取消。若 stop 落在两次拉取间隙，关闭输出流也完成相同回填。
-- 压缩期间取消不交回本次局部检查点；压缩结束后即使根 frame 尚无输出，结果槽也可交回检查点。done 不携带检查点，AliceCPU 从结果槽合入中立执行结果；
+- 运行服务是取消唯一被转换的地方：RunExecutor 同步落定 CANCELLED 后，服务把根帧文字/事件及已完成的压缩检查点投影为 cancelled 的 `CPUExecutionResult` 并返回，内部各层仍原样传播取消；执行器尚未开始且没有完成的检查点时没有可交回的内容，服务原样传播取消；
+- 压缩期间取消不交回本次局部检查点；压缩结束后即使根 frame 尚无输出，取消后返回的结果也可携带检查点。done 不携带检查点，检查点由任务进程从返回结果中接受；
 - CALL 子帧取消时不伪造 caller response；根帧只保留未完成的 CALL，子帧半截正文不混入根帧结果或会话历史。
 - 子 Agent 没有独立的公开取消句柄、重试策略或超时配置，生命周期依附于父 run。
 
@@ -232,7 +232,7 @@ frame 的展示 `agent_id` 优先取 `AgentProfile.agent_id`（源 alias，内�
 ## 10. 当前限制
 
 - 能否 CALL 某个 Agent 只取决于调用方的 `agent.call`、目标 Profile 对调用方可见与被调用方的准入，没有“谁能调用谁”的细粒度策略；被调用方读到的 PRIVATE 记忆可能经 CALL 返回值交给调用方；
-- frame registry 与 CallRecord 由每次 run 新建的 `RunSession` 持有；执行位置由 RunExecutor 的协程调用栈表达；stream sequence 由每次流式 run 独占的 `QueueAgentRunOutput` 持有，当前没有共享 frame stack、活动 frame 状态机或共享输出队列；
+- frame registry 与 CallRecord 由每次 run 新建的 `RunSession` 持有；执行位置由 RunExecutor 的协程调用栈表达；stream sequence 由每次 run 独占的 `SinkRunOutput` 持有，当前没有共享 frame stack、活动 frame 状态机或共享输出队列；
 - context ref 跳过只写日志，CALL response 没有 partial warning 列表；
 - 子任务没有持久化 task id、独立 timeout/retry、并发额度、结果 artifact 或恢复机制；
 - 当前产品 policy 只允许串行单层 CALL；RunExecutor 已能递归求值 frame，但尚未开放嵌套 CALL，也没有 parallel fan-out、动态 DAG、review loop 或 Alice 自主规划。

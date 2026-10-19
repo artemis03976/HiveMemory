@@ -2,8 +2,8 @@
 
 被测边界：进程只经组合根注入的 ``CPUPort`` 调用 CPU，总线上不注册任何
 Alice 路由；没有 actor 操作权限仍能完成系统阶段调用。测试 CPU
-（``tests.helpers.cpu``）覆盖完成、自报取消/失败、协议错误与执行异常；
-停止响应点与交付方离开由流程与控制契约测试覆盖。子系统路由用
+（``tests.helpers.cpu``）覆盖完成、自报取消/失败与执行异常；停止响应点、
+取消结果与交付方离开由流程、控制契约与会话完成测试覆盖。子系统路由用
 GlobalSystemBus 上的替身隔离。
 """
 
@@ -254,7 +254,7 @@ async def test_test_cpu_completes_streaming_process_and_relays_events() -> None:
     assert done["data"]["final_text"] == "完成"
     assert "mtp_iterations" not in done["data"]
     assert "total_iterations" not in done["data"]
-    assert cpu.closed is True
+    assert cpu.finished is True
 
 
 @pytest.mark.asyncio
@@ -282,35 +282,6 @@ async def test_test_cpu_receives_generation_options_and_manifest() -> None:
     assert call.generation_options == {"temperature": 0.3}
 
 
-@pytest.mark.asyncio
-@pytest.mark.parametrize("stream", [False, True])
-async def test_cpu_iterator_is_closed_before_finalize(stream: bool) -> None:
-    """拿到终态结果后立即关闭 CPU 输出流：finalize 执行时 CPU 已释放自己的资源。"""
-    bus = GlobalSystemBus()
-    cpu = ScriptedCPU(result=make_cpu_result())
-    closed_at_finalize: list[bool] = []
-
-    async def finalize(**_kwargs):
-        closed_at_finalize.append(cpu.closed)
-        return []
-
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
-    service, composition = await _service(bus, cpu)
-
-    if stream:
-        await _stream_events(
-            composition, service, "问题", process_id="process-cpu-close-early-stream"
-        )
-    else:
-        await _run_once(composition, service, "问题", process_id="process-cpu-close-early-once")
-
-    assert closed_at_finalize == [True]
-
-
 # ========== 进入 Actor 前的阶段授权 ==========
 
 
@@ -336,7 +307,7 @@ async def test_no_actor_operations_still_executes_cpu_and_finalizes() -> None:
     assert result.execution_result.status == "completed"
     assert result.execution_result.final_text == "无操作权限也完成"
     assert submitted_texts == ["无操作权限也完成"]
-    assert cpu.closed is True
+    assert cpu.finished is True
 
 
 # ========== CPU 自报取消与失败 ==========
@@ -373,40 +344,7 @@ async def test_cpu_self_reported_terminal_ends_process_without_finalize(
     )
 
 
-# ========== 协议错误与执行异常 ==========
-
-
-@pytest.mark.asyncio
-async def test_cpu_stream_without_terminal_result_fails_process_with_error_event() -> None:
-    """测试 CPU 没有产出终态结果即结束（流式）：进程以失败结束，交付发出 error。"""
-    bus = GlobalSystemBus()
-    cpu = ScriptedCPU(events=[{"event": "token", "data": {"content": "半"}}])
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
-
-    service, composition = await _service(bus, cpu)
-    events = await _stream_events(composition, service, "问题", process_id="process-cpu-no-done")
-
-    assert [event for event in events if event["event"] == "error"] == [
-        {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
-    ]
-
-
-@pytest.mark.asyncio
-async def test_cpu_once_without_terminal_result_raises_protocol_error() -> None:
-    """测试 CPU 没有产出终态结果即结束（非流式）：协议错误沿异常上抛。"""
-    bus = GlobalSystemBus()
-    cpu = ScriptedCPU()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
-
-    service, composition = await _service(bus, cpu)
-    with pytest.raises(RuntimeError, match="终态执行结果"):
-        await _run_once(composition, service, "问题", process_id="process-cpu-no-done-ns")
+# ========== 执行异常 ==========
 
 
 @pytest.mark.asyncio

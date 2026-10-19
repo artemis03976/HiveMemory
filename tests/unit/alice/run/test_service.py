@@ -123,20 +123,15 @@ async def test_fixed_input_over_budget_fails_without_calling_model():
     runtime, service = _build_service()
     manifest = _build_input_manifest().model_copy(update={"user_message": "x" * 140000})
     runtime.run_frame = AsyncMock(side_effect=AssertionError("不应调用模型"))
-    from hivememory.workspace.contracts import CPUResultSlot
-
-    slot = CPUResultSlot()
     result = await service.run_agent(
         manifest,
         generation_options=_GENERATION_OPTIONS,
         run_output=NullRunOutput(),
         submit_operation=MagicMock(),
-        result_slot=slot,
     )
     assert result.status == "failed"
     assert result.failure_reason == "input_too_large"
     assert result.has_output is False
-    assert slot.result == result
     runtime.run_frame.assert_not_awaited()
 
 

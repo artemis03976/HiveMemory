@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # Archived Plans
@@ -13,6 +13,8 @@ last_reviewed: 2026-10-18
 本目录保存已经完成或被替代、且当前事实已经合并进规范文档的实施计划。每篇归档计划必须标明归档日期、实现版本或 PR，以及替代它的当前文档。
 
 当前记录：
+
+- [v0.7.0 任务进程拥有执行流](./v0.7.0-task-process-owned-execution.md)：2026-10-19 两阶段实现、验收与 code review 后归档。任务进程持有自己的 task 与单订阅者输出通道，交付改为订阅或等待终态，断连与用户停止走同一条路径，进程只在自己的 task 中收尾，系统关闭改为停止、等待、硬取消；CPU 端口改为推送交互事件、返回终态结果，结果槽、运行句柄与 Alice 的队列适配器删除。阶段一 `cab1d081`，阶段二与事实文档收尾随后提交，未发布；后端 2936 passed、2 skipped，覆盖率 93.92%，确定性 E2E 9 passed。当前事实见 [System 应用服务](../../system/application-services.md)第 3、4 节与[子系统契约](../../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节。
 
 - [v0.7.0 异常体系与边界错误呈现收敛](./v0.7.0-error-model-convergence.md)：2026-10-18 四阶段实现、验收与 code review 后归档。阶段一 `fd8875ce`、阶段二 `e01edde7`、阶段三 `64ab6be4`，阶段四与事实文档收尾随后提交，未发布；后端 2941 passed、覆盖率 93.79%，前端 32 passed。当前事实与兼容变化见[错误模型](../../contracts/error-model.md)。
 

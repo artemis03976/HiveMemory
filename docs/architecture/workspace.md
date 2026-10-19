@@ -45,7 +45,7 @@ related_docs:
   - docs/patchouli/artifacts.md
   - docs/governance/security/identity-and-execution-safety.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # Workspace 架构
@@ -422,7 +422,7 @@ canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.l
 
 主线程的线程 context 是 CPU `execute` 的独立 `access` 参数，不进入输入清单。CPU 驱动以 `workspace.contracts.ThreadOperationSubmitter` 把它与入口绑定为提交函数，读不出其中的内容，也不持有进程 context；提交函数的泛型调用拒绝派生请求，派生只经 `derive_call_thread`，后者把结果中的子线程 context 绑定成子帧的提交函数，只把被调用方 `Callee`（目标 Profile、操作快照与该函数，不含 context）交给 CALL 编排。MTP 与 CALL 只提交操作参数，不能另选目标 Workspace 或 process_id。六项 actor 请求的参数与结果契约见[子系统公共契约](../contracts/subsystem-contracts.md#46-操作请求与线程-context)。Alice 不再直接请求 Patchouli，也不维护 CALL Profile 缓存。子线程 context 在 CPU 执行结束前一直有效，CALL 返回时不提前撤销；子 frame 的结果只影响 reply 与 alias 回填，不取消已提交的写入。
 
-执行器在 CPU 返回终态结果、关闭 CPU 输出流之后立即同步撤销本进程登记的全部线程 context（主线程与子线程），再进入 finalize；Actor 阶段因异常、停止、调用方取消或断流提前结束时，也在交付终态之前同步撤销。关闭流程先于任何 await 兜底撤销线程 context 并释放附件租借，再等待输出流关闭与 cleanup；进程 context 最后由注册入口撤销。撤销不取消操作调用方任务，在途只读请求可以自然完成，后续提交明确拒绝。WRITE/UPDATE 在基础校验之后，以无挂起点的同步段复查线程、读取话题并登记；UPDATE 的基础冷读跨越撤销时直接拒绝，不产生意图。派发开始后由 actor API 持有 shield 保护的任务直到完成，再传播调用方取消，不因撤销、进程终态或 CALL 子帧失败回滚。
+执行器在 Actor 阶段结束时同步撤销本进程登记的全部线程 context（主线程与子线程），且只在这里撤销一次：CPU 返回终态结果（含停止后返回的取消结果）之后、finalize 之前；Actor 阶段因异常、停止、交付方离开或硬取消提前结束时，也在交付终态（硬取消为传播取消）之前撤销。关闭流程先于任何 await 兜底撤销线程 context 并释放附件租借，再等待 cleanup；进程 context 最后由注册入口撤销。撤销不取消操作调用方任务，在途只读请求可以自然完成，后续提交明确拒绝。WRITE/UPDATE 在基础校验之后，以无挂起点的同步段复查线程、读取话题并登记；UPDATE 的基础冷读跨越撤销时直接拒绝，不产生意图。派发开始后由 actor API 持有 shield 保护的任务直到完成，再传播调用方取消，不因撤销、进程终态或 CALL 子帧失败回滚。
 
 引用读取的副作用也由 actor API 拥有：READ（`resolve_references`）与 RUN（`resolve_run_target`）共享同一解析与引用记录路径，对实际交付的可读正式 atom 或 redirect 目标记录 `source="workspace.reference_read"` 的 citation，同次请求按正式 UUID 去重，缓存命中仍计数；pending、failed、discarded、not_found 与无可读目标的 redirect 不计数。RUN 在类型检查和工具执行前已交付目标，所以后续执行失败仍计数；CALL context_refs 经 READ 请求，是一次独立读取。UPDATE 基础校验与 SEARCH 不属于引用交付，不因此记录 citation。引用记录的普通失败只记录日志，不改变读取结果；取消继续传播，已经完成的 citation 不回滚。
 
@@ -438,13 +438,13 @@ CPU 分配把与输入清单相同的真实 `topic_id` 写入 `ProcessWorkingSet
 
 认证通过后注册入口同步创建或查找会话并认领，再登记进程；同一会话同时只允许一个进程，运行中不能删除，任何结局关闭后均释放认领。容量达到 `workspace.sessions` 上限时显式拒绝，不淘汰旧数据；失败注册回滚本次认领及自动创建的空会话。System 先关闭全部进程，再 `close_and_clear()`，此后读写拒绝。会话只在本进程内保存，不提供跨重启恢复或并发多进程存储。
 
-有输出的 completed/cancelled/failed 交互在关闭 CPU 流、撤销线程后封口，同步追加会话，再进入 finalize；无输出、进程异常与 finalize 前断连不追加。提交失败不回滚已经封口的会话事实，也不回滚已接纳写入。取消收口与 finalize 的任务所有权见[应用服务](../system/application-services.md)。
+有输出的 completed/cancelled/failed 交互在 Actor 阶段结束、撤销线程后封口，同步追加会话，再进入 finalize；无输出、进程异常与 finalize 前交付方离开不追加。提交失败不回滚已经封口的会话事实，也不回滚已接纳写入。取消收口与 finalize 的任务所有权见[应用服务](../system/application-services.md)。
 
 会话另持有至多一份 CPU 中立的压缩检查点，结构见[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)。摘要与工具减重属于执行视图，不替代或删除原始 `ConversationTurn`；Workspace 只负责存储和接受，不解释 CPU 的摘要算法。这使 CPU 可以替换，也避免 Alice 建立第二份跨 run 的会话状态。
 
 `accept_checkpoint()` 是同步操作：校验完整 Workspace 归属、当前进程认领、两个非空游标都指向本会话已有轮次、减重边界不早于摘要覆盖，以及相对同一产生方与格式版本的旧检查点两个游标各自不回退。游标只在同一格式内可比：CPU 忽略无法解释的旧检查点并从头重建时，新检查点可以替换旧值，不会因游标更早而被永久拒绝。拒绝不改变已有值；进程记录告警后继续收尾。完整会话读取返回检查点、列表不返回，删除与关闭随会话清除。
 
-进程在 CPU 输出流关闭、线程 context 撤销之后，判断丢弃或无输出之前接受检查点；接受到正常封口、会话追加之间没有 await。检查点只覆盖旧轮次，因此无输出、取消或交付关闭导致本轮不保存时仍可接受已完成的压缩。普通执行异常不把结果槽中的候选值当成成功交接；终态结果优先，关闭路径只消费一次结果槽。压缩进度与 RuntimeEvent 都不是接受依据。
+进程在 Actor 阶段结束、线程 context 撤销之后，判断丢弃或无输出之前接受 CPU 返回结果中的检查点，同一次执行只接受一次；接受到正常封口、会话追加之间没有 await。检查点只覆盖旧轮次，因此无输出、取消或交付方离开导致本轮不保存时仍可接受已完成的压缩；CPU 在停止后返回的取消结果同样可以携带它。普通执行异常没有返回结果，不接受任何候选值；进程 task 被硬取消而 CPU 把取消转为返回值时，先接受检查点再传播取消。压缩进度与 RuntimeEvent 都不是接受依据。
 
 ## 6. WorkspaceAssetStore
 
@@ -535,7 +535,7 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 - Patchouli 的交互提交与主动记忆意图提交路由只接收 `IdentityScope`、不做操作授权。交互提交路由没有生产调用方；意图提交路由唯一的生产调用方是 actor API，在 `memory.write`/`memory.update` 授权之后调用。新的调用方必须在自己的授权点先完成操作授权；
 - `/ingest` 不经认证网关，在认证前组装 `IdentityScope`（第 3.2 节）；
 - WorkspaceAssetStore、解析流程与原 `WorkspaceAssetReaderPort` 仍接收 `IdentityScope`，身份拆分留待[WorkspaceAsset 归属身份拆分](../todo/workspace-asset-ownership-identity-split.md)。System 的 `AssetMaterializationReader` 兼容适配器接收 Patchouli 提交的 `belong_to`，仅在一次租借调用内构造旧端口所需的 system scope，不保存到后台任务、不返回给 Patchouli；
-- 进程控制授权只比对驻留的 owner 与 Workspace：同一 Workspace 下的请求方可以查询或停止其他请求方的进程；任务进程由注册入口在交付结束时关闭，System 停止时经进程记录停止在途进程，等待交付方收口，超时后兜底关闭；
+- 进程控制授权只比对驻留的 owner 与 Workspace：同一 Workspace 下的请求方可以查询或停止其他请求方的进程；任务进程在自己的 task 中关闭，交付方离开只退订并请求停止；System 停止时以 `system_shutdown` 停止在途进程，等待进程 task 结束，超时后硬取消；断连后的 SSE 响应可能早于进程关闭结束，其间对同一会话的重发按会话忙碌规则拒绝；
 - WorkspaceAssetStore、opaque ref 和 lease 只承诺当前进程生命周期，不提供跨重启恢复；已持久化的 Memory/Artifact 按各自存储契约存在；
 - workspace 读取视图与写入意图登记均为进程内状态；失效通知不处理未送达补齐，意图句柄不回收也不跨重启恢复，实时派发的结果未知时可能长期保持 MATERIALIZING；
 - 写入意图不设 policy，同 Workspace 内持有别名即可回读；别名由标题或内容片段（UPDATE 为基础 alias）加 4 位十六进制后缀组成，不能充当访问控制。结算对账、句柄保留期、意图 policy 与外部提交契约等后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)；

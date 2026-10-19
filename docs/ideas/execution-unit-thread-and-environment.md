@@ -15,7 +15,7 @@ related_docs:
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-19
 ---
 
 # 执行单元、执行线程与执行环境
@@ -77,7 +77,7 @@ last_reviewed: 2026-10-17
 
 **背景**（2026-10-17，代码核对）：CPU 的输入侧已经中立：HiveMemory 的提示词内容在 CPU 边界前编译定稿，CPU 只负责布局与自身的工具教学、历史管理（[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)第 4.1 节）。输出侧仍以 Alice 的词汇为准，外部执行环境接入后没有自己的位置：
 
-- **交互事件**：`CPUOutput` 是 `dict[str, Any] | CPUExecutionResult`，进程把字典原样转交客户端 SSE，不做解释。前端依赖的 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end`、`context_compaction` 及其字段由 Alice 的流式适配器定义（[路由与事件契约](../contracts/routes-and-events.md#25-cpu-端口与交互输出)第 2.5 节），名称本身带着 MTP 与 CALL 的概念；
+- **交互事件**：CPU 经事件 sink 推送 `dict[str, Any]`（2026-10-19 起，此前为输出流中的 `CPUOutput` 项），进程把字典原样转交客户端 SSE，不做解释。前端依赖的 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end`、`context_compaction` 及其字段由 Alice 的交互输出端口定义（[路由与事件契约](../contracts/routes-and-events.md#25-cpu-端口与交互输出)第 2.5 节），名称本身带着 MTP 与 CALL 的概念；
 - **失败原因**：`CPUFailureReason` 中的 `compaction_failed`、`turn_context_budget_exceeded` 描述 Alice 自己的会话压缩与轮内守卫。controller 模式下 harness 自管上下文与压缩（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1），这类原因无从产生，其他失败也没有对应的中立分类；
 - **会话历史**：`CPUExecutionResult.turn_events` 写入会话，再供 Patchouli 生成记忆与 Gateway 读取最近 N 轮。`TurnEvent` 按通用 Agent 事件设计，但 Alice 写入的工具调用内容是 MTP 原文，`tool_kind` 取 MTP 动词，`render_as` 是 Alice 重放历史时使用的提示。前提 10 使同一会话内不会切换执行环境，问题集中在不同执行环境写入的历史能否被同一套下游读取。
 

@@ -303,9 +303,9 @@ async def test_non_streaming_decision_uses_one_prepare_cpu_finalize_sequence() -
     calls: list[str] = []
 
     class _RecordingCPU(ScriptedCPU):
-        def execute(self, manifest, *, access, generation_options=None):
+        async def execute(self, manifest, **kwargs):
             calls.append("cpu")
-            return super().execute(manifest, access=access, generation_options=generation_options)
+            return await super().execute(manifest, **kwargs)
 
     async def gateway(**_kwargs):
         calls.append("gateway")
@@ -666,7 +666,7 @@ async def test_finalize_reauthorizes_and_revoked_admission_closes_completed_cpu_
 
     assert error.value.details == {"reason": "actor_not_admitted"}
     assert len(cpu.calls) == 1
-    assert cpu.closed is True
+    assert cpu.finished is True
     assert finalized == []
     assert cleaned == []
     assert composition.gateway.describe_context(issued[0]) is None
@@ -953,7 +953,7 @@ async def test_actor_stop_takes_effect_while_waiting_on_cpu_or_channel(blocked_o
     events = [first, *[event async for event in stream]]
 
     assert stop_result.cancelled is True
-    assert cpu.closed is True
+    assert cpu.finished is True
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "cancelled"
     finalize.assert_not_awaited()

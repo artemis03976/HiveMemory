@@ -14,7 +14,6 @@ from hivememory.agent_runtime import ModelResolver, MTPGenerator, build_agent_ru
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.events import AgentRunEventEmitter
 from hivememory.alice.interface.cpu import AliceCPU
-from hivememory.alice.interface.stream import AgentRunStreamAdapter
 from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
 from hivememory.alice.orchestration.frames import FrameFactory
 from hivememory.alice.run.service import AgentRunService
@@ -80,7 +79,7 @@ class AliceSystem(SubsystemProtocol):
             compaction_config=config.compaction,
         )
 
-        self._cpu = AliceCPU(service, operation_entry, stream_adapter=AgentRunStreamAdapter())
+        self._cpu = AliceCPU(service, operation_entry)
 
         logger.info("AliceSystem 初始化完成")
 

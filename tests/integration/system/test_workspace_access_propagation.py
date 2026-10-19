@@ -26,7 +26,6 @@ from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUExecutionResult
-from hivememory.workspace.contracts.cpu import CPUResultSlot, CPURunHandle
 from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.chat_handoff import make_prepared_run
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
@@ -110,13 +109,8 @@ async def _register(service, composition, *, workspace, process_id: str, message
 class _WorkspaceEchoCPU:
     """按清单回显 workspace_id 的最小 CPU 实现：验证并发 run 的上下文隔离。"""
 
-    def execute(self, manifest, *, access, generation_options=None):
-        async def _run():
-            yield CPUExecutionResult(
-                final_text=manifest.labels.workspace_id,
-            )
-
-        return CPURunHandle(_run(), CPUResultSlot())
+    async def execute(self, manifest, *, access, generation_options=None, events):
+        return CPUExecutionResult(final_text=manifest.labels.workspace_id)
 
 
 @pytest.mark.asyncio

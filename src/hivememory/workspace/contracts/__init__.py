@@ -7,13 +7,11 @@
 """
 
 from hivememory.workspace.contracts.cpu import (
+    CPUEventSink,
     CPUExecutionResult,
     CPUExecutionStatus,
     CPUFailureReason,
-    CPUOutput,
     CPUPort,
-    CPUResultSlot,
-    CPURunHandle,
 )
 from hivememory.workspace.contracts.operations import (
     Callee,
@@ -33,14 +31,12 @@ from hivememory.workspace.contracts.process import CPUInputManifest
 from hivememory.workspace.contracts.threads import ExecutionThread
 
 __all__ = [
-    "CPURunHandle",
-    "CPUResultSlot",
+    "CPUEventSink",
     "CPUExecutionResult",
     "CPUExecutionStatus",
     "CPUFailureReason",
     "CPUInputManifest",
     "CPUPort",
-    "CPUOutput",
     "Callee",
     "ExecutionThread",
     "ThreadContextRevokedError",

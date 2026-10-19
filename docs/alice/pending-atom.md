@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/patchouli/generation.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # PendingAtom：Alice 的写入意图适配与回读
@@ -51,7 +51,7 @@ Agent loop 只在收到 WRITE/UPDATE ACK 时把 alias 去重记入当前 frame �
 
 CALL 的 alias 回填只服务于父 Agent 的当前认知。物化任务不从这些 alias 反推：workspace actor API 在每次 WRITE/UPDATE 内登记并提交 `MemoryIntent`，Patchouli 意图服务构造内部生成任务。`CPUExecutionResult` 与 `InteractionPayload` 都不承载物化任务，AgentRuntime 与 RunExecutor 不管理登记收尾。
 
-CPU 执行结束时任务进程同步撤销全部线程 context；进程关闭先兜底撤销并释放附件租借，再等待 CPU 输出流关闭与 prepare cleanup。WRITE/UPDATE 在登记前同步复查线程；UPDATE 基础冷读跨越撤销时不登记。开始派发后，actor API 屏蔽调用方取消并持有提交任务至结束，再传播取消。主、子帧以各自提交函数授权，但都使用同一进程的真实话题，CPU 或 CALL 失败均不撤回已派发写入。明确拒绝得到结构化错误并标为 FAILED，未知结果保持 MATERIALIZING；结算事件由 workspace 登记订阅，Alice 不订阅它们。Patchouli 的生成、结算与持久化边界见[生成与物化](../patchouli/generation.md)。
+CPU 执行结束时任务进程同步撤销全部线程 context；进程关闭先兜底撤销并释放附件租借，再等待 prepare cleanup。WRITE/UPDATE 在登记前同步复查线程；UPDATE 基础冷读跨越撤销时不登记。开始派发后，actor API 屏蔽调用方取消并持有提交任务至结束，再传播取消。主、子帧以各自提交函数授权，但都使用同一进程的真实话题，CPU 或 CALL 失败均不撤回已派发写入。明确拒绝得到结构化错误并标为 FAILED，未知结果保持 MATERIALIZING；结算事件由 workspace 登记订阅，Alice 不订阅它们。Patchouli 的生成、结算与持久化边界见[生成与物化](../patchouli/generation.md)。
 
 ## 4. 不变量与限制
 

@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # Todo
@@ -12,7 +12,7 @@ last_reviewed: 2026-10-18
 
 当前事项：
 
-- [v0.7.0 代码收敛清单](./v0.7.0-code-convergence.md)（2026-10-17 对 `v0.6.2..239b1a7c` 的收敛审查，共 39 条；Alice 结构相关条目已由[归档计划](../archive/plans/v0.7.0-alice-agent-runtime-restructure.md)完成，提示词组装相关条目已由[提示词编译前移](../archive/plans/v0.7.0-cpu-prompt-compilation.md)完成，第 1.6、3.9 条已由[异常体系收敛](../archive/plans/v0.7.0-error-model-convergence.md)完成，其余按条目处理；2026-10-18 在 `4c7151a6` 复核后 8 条完成、7 条部分完成、24 条未处理；随后第 1 节 P1 与第 2.1–2.3、2.7–2.14 条完成（第 2.9 条改为 P1），现为 26 条完成、3 条部分完成、10 条未处理）；
+- [v0.7.0 代码收敛清单](./v0.7.0-code-convergence.md)（2026-10-17 对 `v0.6.2..239b1a7c` 的收敛审查，共 39 条；Alice 结构相关条目已由[归档计划](../archive/plans/v0.7.0-alice-agent-runtime-restructure.md)完成，提示词组装相关条目已由[提示词编译前移](../archive/plans/v0.7.0-cpu-prompt-compilation.md)完成，第 1.6、3.9 条已由[异常体系收敛](../archive/plans/v0.7.0-error-model-convergence.md)完成，其余按条目处理；2026-10-18 在 `4c7151a6` 复核后 8 条完成、7 条部分完成、24 条未处理；随后第 1 节 P1 与第 2.1–2.3、2.7–2.14 条完成（第 2.9 条改为 P1），第 3.1 条由[任务进程拥有执行流](../archive/plans/v0.7.0-task-process-owned-execution.md)完成，现为 27 条完成、3 条部分完成、9 条未处理）；
 - [日志配置段的级别、格式与输出没有生效](./logging-config-not-applied.md)（2026-10-18 清理不生效配置键时发现：`logging` 段只有 WebSocket 广播被读取，两种启动方式都不按配置设置日志）；
 - [记忆编辑可以给非 Profile 记忆写入 agent_config](./memory-edit-agent-config-type-check.md)（2026-10-18 引入 `MemoryEdit` 时发现：编辑链不按类型限制 `agent_config`，普通记忆被写入无效配置并生成版本）；
 - [构造根配置会改写进程默认语言](./config-construction-resets-default-language.md)（2026-10-17 提示词编译收尾审查发现：`GET /config/defaults` 与 `POST /config` 构造配置对象时重置进程默认语言）；

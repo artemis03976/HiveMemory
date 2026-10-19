@@ -56,7 +56,6 @@ from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.authentication import AccessGrantSummary
-from hivememory.workspace.contracts.cpu import CPUResultSlot, CPURunHandle
 from hivememory.workspace.process.events import BoundProcessEvents
 from hivememory.workspace.process.outputs import (
     OUTPUT_CHANNEL_CAPACITY,
@@ -929,23 +928,20 @@ async def test_every_outcome_exits_through_single_close_path(outcome: str, last_
     assert sessions.get(_workspace(), handle.session_id).active_process_id is None
 
 
-class _SlowClosingCPU:
-    """产出一条交互事件后挂起；被取消时在收尾处挂起，直到测试放行。"""
+class _SlowStoppingCPU:
+    """推送一条交互事件后挂起；被取消时在收尾处挂起，直到测试放行后传播取消。"""
 
     def __init__(self) -> None:
-        self.close_entered = asyncio.Event()
-        self.release_close = asyncio.Event()
+        self.cancel_entered = asyncio.Event()
+        self.release_cancel = asyncio.Event()
 
-    def execute(self, manifest, *, access, generation_options):
-        return CPURunHandle(self._iterate(), CPUResultSlot())
-
-    async def _iterate(self):
+    async def execute(self, manifest, *, access, generation_options, events):
+        await events({"event": "token", "data": {"content": "一"}})
         try:
-            yield {"event": "token", "data": {"content": "一"}}
             await asyncio.Event().wait()
         finally:
-            self.close_entered.set()
-            await self.release_close.wait()
+            self.cancel_entered.set()
+            await self.release_cancel.wait()
 
 
 @pytest.mark.asyncio
@@ -953,7 +949,7 @@ async def test_delivery_leaving_does_not_wait_for_process_close() -> None:
     """交付方离开只退订并请求停止：CPU 收尾挂起时交付立即结束，进程放行后自行 cleanup 并注销。"""
     cleanup = AsyncMock(return_value=True)
     bus = _bus_until_finalize(cleanup)
-    cpu = _SlowClosingCPU()
+    cpu = _SlowStoppingCPU()
     table = ProcessTable()
     service, composition = await _service(bus, cpu=cpu, process_table=table)  # type: ignore[arg-type]
     handle = await _register(composition, service, process_id="process-detached")
@@ -962,11 +958,11 @@ async def test_delivery_leaving_does_not_wait_for_process_close() -> None:
         pass
 
     await asyncio.wait_for(stream.aclose(), timeout=1)
-    await asyncio.wait_for(cpu.close_entered.wait(), timeout=1)
+    await asyncio.wait_for(cpu.cancel_entered.wait(), timeout=1)
 
     assert process_state(table, "process-detached") == ("actor", "stop_requested", "stream_closed")
     cleanup.assert_not_awaited()
-    cpu.release_close.set()
+    cpu.release_cancel.set()
     await wait_for_process_exit(table, "process-detached")
     assert table.get("process-detached") is None
     assert [call.kwargs["prepared_run"].interaction_id for call in cleanup.await_args_list] == [

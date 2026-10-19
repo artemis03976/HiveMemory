@@ -1,11 +1,11 @@
 """
-AgentRunService 结果组装集成测试 — 真实 RunExecutor/RunSession/StreamAdapter 协作
+AgentRunService 结果组装集成测试 — 真实 RunExecutor/RunSession 协作
 
-驱动 AgentRunService + service 内部真实构造的 RunExecutor + 真实 RunSession +
-真实 AgentRunStreamAdapter 协作；仅 stub LLM 执行端口与 FrameFactory 边界。
+驱动 AgentRunService + service 内部真实构造的 RunExecutor + 真实 RunSession
+协作；仅 stub LLM 执行端口与 FrameFactory 边界。取消转换为结果的行为由运行
+服务的集成测试覆盖。
 """
 
-import asyncio
 from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
@@ -30,7 +30,6 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.alice import CompactionConfig, KoakumaConfig
 from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from hivememory.workspace.contracts import CPUExecutionStatus
-from tests.helpers.alice import stream_run
 from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
@@ -131,32 +130,6 @@ async def test_run_agent_assembles_result_from_completed_frame():
 
 
 @pytest.mark.asyncio
-async def test_run_agent_cancellation_unwinds_and_propagates():
-    frame = _frame()
-    started = asyncio.Event()
-
-    async def run_frame(*_args, **_kwargs):
-        started.set()
-        await asyncio.Event().wait()
-
-    agent_runtime = SimpleNamespace(
-        max_iterations=5,
-        run_frame=run_frame,
-        finalize_frame=MagicMock(return_value=FrameProducts()),
-    )
-    service, _ = _runtime_for_frame(frame, agent_runtime)
-
-    task = asyncio.create_task(
-        service.run_agent(_context(frame), run_output=NullRunOutput(), submit_operation=MagicMock())
-    )
-    await started.wait()
-    task.cancel()
-
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-
-@pytest.mark.asyncio
 async def test_run_agent_budget_exhaustion_maps_to_failed_run():
     frame = _frame()
     agent_runtime = SimpleNamespace(
@@ -173,26 +146,6 @@ async def test_run_agent_budget_exhaustion_maps_to_failed_run():
     )
 
     assert result.status == CPUExecutionStatus.FAILED.value
-
-
-@pytest.mark.asyncio
-async def test_stream_preserves_failed_terminal_status():
-    frame = _frame()
-    agent_runtime = SimpleNamespace(
-        max_iterations=5,
-        run_frame=AsyncMock(
-            return_value=FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
-        ),
-        finalize_frame=MagicMock(return_value=FrameProducts()),
-    )
-    service, _ = _runtime_for_frame(frame, agent_runtime)
-
-    events = [
-        event async for event in stream_run(service, _context(frame), submit_operation=MagicMock())
-    ]
-
-    done = events[-1]
-    assert done.status == CPUExecutionStatus.FAILED.value
 
 
 @pytest.mark.asyncio

@@ -28,7 +28,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 跨边界错误模型
@@ -90,7 +90,7 @@ CPU 执行结果（`CPUExecutionResult`）的 `status` 为 `completed`、`cancel
 
 任务进程的 failed done 保留 `reason=agent_run_failed`，另投影非空 `failure_reason`；`chat.run.failed.message` 使用相同原因码。原因不含异常正文，不写入交互原文。可用的历史检查点可以随 failed 或无输出结果交回，接受与本轮是否封口独立；原生取消仍传播 `CancelledError`。
 
-Alice CPU 宿主未启动或已停止时，在首次拉取输出抛出 `AliceUnavailableError`（`RuntimeError`）。这是执行准入异常，任务进程按失败清理，不投影为四类预算原因。该类型定义在 Alice 接口层，不属于跨子系统可导入的契约类型；异常上的 `code=alice.unavailable`、`details.reason=not_running` 只供日志诊断，任务进程不据此分支，SSE 与 `chat.run.failed` 仍按未分类的进程异常投影。生命周期与交付边界见[CPU 契约](./subsystem-contracts.md#43-alice-的执行入口)。
+Alice CPU 宿主未启动或已停止时，await `execute()` 抛出 `AliceUnavailableError`（`RuntimeError`）。这是执行准入异常，任务进程按失败清理，不投影为四类预算原因。该类型定义在 Alice 接口层，不属于跨子系统可导入的契约类型；异常上的 `code=alice.unavailable`、`details.reason=not_running` 只供日志诊断，任务进程不据此分支，SSE 与 `chat.run.failed` 仍按未分类的进程异常投影。生命周期与交付边界见[CPU 契约](./subsystem-contracts.md#43-alice-的执行入口)。
 
 ### 2.3 Passive Ingress
 

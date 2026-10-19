@@ -1,13 +1,14 @@
-"""Alice 运行服务与真实流适配器的测试装配。"""
+"""Alice 运行服务与真实交互输出端口的测试装配。"""
 
-from collections.abc import AsyncGenerator
+import asyncio
+from collections.abc import Callable
 from typing import Any
 
 from hivememory.agent_runtime.model.generator import MTPGenerator
 from hivememory.agent_runtime.runtime import AgentRuntime, build_agent_runtime
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.events import AgentRunEventEmitter
-from hivememory.alice.interface.stream import AgentRunStream
+from hivememory.alice.interface.output import SinkRunOutput
 from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
 from hivememory.alice.orchestration.frames import FrameFactory
 from hivememory.alice.run.service import AgentRunService
@@ -17,33 +18,58 @@ from hivememory.config.app import HiveMemoryConfig
 from hivememory.config.shared import LLMConfig
 from hivememory.infrastructure.llm.base import BaseLLMService
 from hivememory.workspace.contracts import (
+    CPUExecutionResult,
     CPUInputManifest,
-    CPUOutput,
-    CPUResultSlot,
     OperationSubmitter,
 )
 from tests.helpers.llm import ScriptedLLMService
 
 
-def stream_run(
+class CollectedEvents:
+    """CPU 事件 sink 替身：按到达顺序记录交互事件，测试可以等待某条事件到达。
+
+    ``pause_on`` 命中的事件记录后，推送方停在 sink 中直到被取消，模拟暂停
+    读取的订阅者，用于把取消注入到指定的交互输出处。
+    """
+
+    def __init__(self, *, pause_on: Callable[[dict[str, Any]], bool] | None = None) -> None:
+        self.events: list[dict[str, Any]] = []
+        self._pause_on = pause_on
+        self._arrived = asyncio.Event()
+
+    async def __call__(self, event: dict[str, Any]) -> None:
+        self.events.append(event)
+        self._arrived.set()
+        if self._pause_on is not None and self._pause_on(event):
+            await asyncio.Event().wait()
+
+    async def wait_for(self, predicate: Callable[[dict[str, Any]], bool]) -> dict[str, Any]:
+        """等待第一条满足条件的事件（已经到达的也算）并返回它。"""
+        while True:
+            for event in self.events:
+                if predicate(event):
+                    return event
+            self._arrived.clear()
+            await self._arrived.wait()
+
+
+async def run_with_events(
     service: AgentRunService,
     manifest: CPUInputManifest,
     generation_options: dict[str, Any] | None = None,
     *,
     submit_operation: OperationSubmitter,
-    result_slot: CPUResultSlot | None = None,
-) -> AsyncGenerator[CPUOutput, None]:
-    """直接组合执行服务与接口层，保持事件和类型化终态原样交付。"""
-    stream = AgentRunStream()
-    return stream.events(
-        service.run_agent(
-            manifest,
-            generation_options=generation_options,
-            submit_operation=submit_operation,
-            result_slot=result_slot,
-            run_output=stream.output,
-        )
+    events: CollectedEvents | None = None,
+) -> tuple[CPUExecutionResult, list[dict[str, Any]]]:
+    """经真实交互输出端口运行一次，返回终态结果与推送到 sink 的交互事件。"""
+    sink = events or CollectedEvents()
+    result = await service.run_agent(
+        manifest,
+        generation_options=generation_options,
+        submit_operation=submit_operation,
+        run_output=SinkRunOutput(sink),
     )
+    return result, sink.events
 
 
 class StaticModelResolver:

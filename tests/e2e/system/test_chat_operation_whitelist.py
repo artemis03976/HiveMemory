@@ -33,9 +33,10 @@ from hivememory.workspace.capability.actor.agent_profiles import ActorAgentServi
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
+    CPUEventSink,
+    CPUExecutionResult,
     CPUInputManifest,
     CPUPort,
-    CPURunHandle,
 )
 from tests.helpers.llm import CallbackLLMService
 from tests.helpers.memory import make_memory_metadata
@@ -185,18 +186,20 @@ class _RecordingCPU:
         self._delegate = delegate
         self.manifests: list[CPUInputManifest] = []
 
-    def execute(
+    async def execute(
         self,
         manifest: CPUInputManifest,
         *,
         access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
-    ) -> CPURunHandle:
+        events: CPUEventSink,
+    ) -> CPUExecutionResult:
         self.manifests.append(manifest)
-        return self._delegate.execute(
+        return await self._delegate.execute(
             manifest,
             access=access,
             generation_options=generation_options,
+            events=events,
         )
 
 

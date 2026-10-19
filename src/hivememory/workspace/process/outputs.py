@@ -90,7 +90,7 @@ type ProcessOutput = ProcessStarted | InputsAllocated | ActorEvent | Finalizing 
 
 # ========== 输出通道 ==========
 
-#: 订阅者在线时通道最多缓存的交互事件数，与 Alice 运行输出队列的容量相同。
+#: 订阅者在线时通道最多缓存的交互事件数；写满后进程等待订阅者读取。
 OUTPUT_CHANNEL_CAPACITY = 256
 
 

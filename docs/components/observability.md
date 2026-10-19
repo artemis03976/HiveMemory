@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 运行时事件与可观测性
@@ -85,7 +85,7 @@ System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopp
 
 事件 `data` 必须摘要化：不把完整 Passive 消息、tool args、memory context、traceback、密钥或绝对路径放入公共观测信封。需要调试原始 cause 时应使用受保护的日志或专用诊断入口。
 
-Agent token/MTP/CALL 交互输出不属于 RuntimeEvent。它由 Alice 的 `FrameOutputSink -> AgentRunOutput -> AgentRunStreamAdapter` 链路投递，具有请求级背压和断流取消语义；RuntimeEventBus 则面向全局观测，允许慢订阅者丢弃旧事件。两者只共享 correlation ID，不自动桥接，也不把 token 或完整 tool args 复制进观测信封。
+Agent token/MTP/CALL 交互输出不属于 RuntimeEvent。它由 Alice 的 `FrameOutputSink -> AgentRunOutput -> SinkRunOutput` 链路推送到任务进程的输出通道，再由交付方订阅，具有请求级背压；交付方离开时以停止请求取消本次 run；RuntimeEventBus 则面向全局观测，允许慢订阅者丢弃旧事件。两者只共享 correlation ID，不自动桥接，也不把 token 或完整 tool args 复制进观测信封。
 
 ## 6. 设计矛盾检查
 
