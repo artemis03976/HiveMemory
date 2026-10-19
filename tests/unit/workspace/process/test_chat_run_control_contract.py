@@ -274,6 +274,18 @@ def test_repeated_stop_keeps_first_reason_and_does_not_cancel_again() -> None:
     task.cancel.assert_called_once_with()
 
 
+def test_stop_after_cancelled_terminal_returns_first_reason_instead_of_terminal() -> None:
+    """已以取消结束的进程仍按已接受的 stop 应答首次原因，而不是 already_terminal。"""
+    run = _record("process-cancelled")
+    run.request_stop("first_reason")
+    run.mark_cancelled()
+
+    result = run.request_stop("second_reason")
+
+    assert (result.accepted, result.reason) == (True, "first_reason")
+    assert run.outcome is ProcessOutcome.CANCELLED
+
+
 def test_stop_after_bound_task_finished_is_accepted_without_second_cancel() -> None:
     run = _record("process-7")
     task = MagicMock()

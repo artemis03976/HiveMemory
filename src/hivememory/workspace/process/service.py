@@ -189,8 +189,13 @@ class TaskProcessService:
         created = False
         try:
             # 认证成功后同步认领；后续登记失败时还原会话与凭据。
+            # 进程表登记时还会再查一次；这里先于会话检查，使重复的 process_id
+            # 不创建或认领会话，也不被会话忙碌、容量等错误掩盖。
             if self._process_table.get(process_id) is not None:
-                raise WorkspaceDomainError("process_id 已被注册，拒绝覆盖现有任务进程")
+                raise WorkspaceDomainError(
+                    "process_id 已被注册，拒绝覆盖现有任务进程",
+                    details={"process_id": process_id},
+                )
             if session_id is None:
                 session_id = self._sessions.create(workspace).session_id
                 created = True

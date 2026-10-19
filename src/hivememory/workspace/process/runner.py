@@ -269,13 +269,9 @@ class TaskProcessRunner:
                         self._thread_contexts.revoke_threads(working_set)
                     await self._close_cpu_output(working_set)
             except (asyncio.CancelledError, GeneratorExit):
-                # 拉取或关闭期间断连仍接受旧历史视图。已交付的终态优先于结果槽，
-                # CPU 可以只在取消时填写槽；普通执行异常不进入此路径。
+                # 拉取或关闭期间断连仍接受旧历史视图；普通执行异常不进入此路径。
                 self._thread_contexts.revoke_threads(working_set)
-                slot = working_set.cpu_result_slot
-                self._accept_checkpoint(
-                    process, execution_result or (slot.result if slot is not None else None)
-                )
+                self._accept_checkpoint(process, execution_result)
                 raise
             finally:
                 # 输出流关闭与线程撤销先于封口，不让 finalize 持有 actor 权限。
@@ -440,12 +436,21 @@ class TaskProcessRunner:
             raise _ProcessCancelled(ProcessPhase.PREPARE, record.stop_reason or "user_requested")
         return prepared, manifest
 
-    def _accept_checkpoint(self, process: TaskProcess, result: CPUExecutionResult | None) -> None:
-        """同步接受 CPU 的历史视图；领域拒绝仅记录告警，不影响本轮收尾。"""
-        if process.working_set.cpu_result_slot is None:
+    def _accept_checkpoint(
+        self, process: TaskProcess, result: CPUExecutionResult | None = None
+    ) -> None:
+        """同步接受 CPU 的历史视图；领域拒绝仅记录告警，不影响本轮收尾。
+
+        已交付的终态优先；没有时取工作集结果槽中的结果，CPU 可以只在取消
+        时填写槽。正常收尾、断流与兜底关闭可能先后到达，同一次执行只尝试
+        一次，之后结果槽从工作集移除。
+        """
+        slot = process.working_set.cpu_result_slot
+        if slot is None:
             return
-        # 正常收尾、断流与兜底关闭可能先后到达，同一结果只尝试一次。
         process.working_set.cpu_result_slot = None
+        if result is None:
+            result = slot.result
         if result is None or result.compaction_checkpoint is None:
             return
         try:
@@ -507,8 +512,7 @@ class TaskProcessRunner:
         # 附件文本在 CPU 分配时已编译进清单，Actor 执行不再读取租借内容。
         self._allocator.release(working_set)
         await self._close_cpu_output(working_set)
-        if working_set.cpu_result_slot is not None:
-            self._accept_checkpoint(process, working_set.cpu_result_slot.result)
+        self._accept_checkpoint(process)
         if working_set.finalization_task is not None and not record.is_terminal:
             try:
                 await join_shielded(working_set.finalization_task)

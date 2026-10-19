@@ -110,8 +110,11 @@ class ActorMemoryService:
         return await self._dispatch(pending, topic_id=topic_id, scope=scope)
 
     def _dispatch_coordinates(self, access: WorkspaceAccessContext) -> tuple[str, str]:
-        """冷读之后重新校验线程；到登记结束不挂起，撤销不能插入同步段。"""
-        self._authorizer.validate_thread_context(access)
+        """冷读之后重新取得进程关联与派发话题；到登记结束不挂起，撤销不能插入同步段。
+
+        读取进程关联本身拒绝已撤销的线程，进程侧读取话题时再按阶段与线程
+        登记校验一次，这里不另做线程校验。
+        """
         process_id = self._authorizer.get_thread_process_id(access)
         topic_id = self._dispatch_topics.get_dispatch_topic(access=access, process_id=process_id)
         return process_id, topic_id

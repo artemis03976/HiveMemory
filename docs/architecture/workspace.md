@@ -353,7 +353,7 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 
 **注册入口**：注册时完成两阶段认证，并拒绝以保留的 `system` 注册任务进程；按 `process_id` 的取消经进程控制授权（[应用服务](../system/application-services.md)第 4 节）。
 
-**结构守护**：架构测试限定 `authorize_stage` 只在 `workspace/process/` 的 runner 与 CPU 分配中出现、`get_stage_operations` 只在 CPU 分配与进程线程管理中出现、`authorize_root` 只在 root API 中出现、`authorize_thread_operation` 只在 actor API 中出现、`validate_thread_context` 只在操作入口、actor API 与进程线程管理中出现、`get_thread_process_id` 只在 actor API 中出现，派生与撤销线程 context 只由进程线程管理调用；Alice 除 CPU 驱动与组合入口外不引用访问 context、派生原始结果或操作入口；入口的分派表直接指向 actor API 方法，没有拆参 handler；两个 API 目录互不导入，capability 父包只导出共享的读取 backing；server 只导入 root API，操作入口只导入 actor API；actor API 的公开方法、操作目录与请求类型保持一一对应。
+**结构守护**：架构测试限定 `authorize_stage` 只在 `workspace/process/` 的 runner 与 CPU 分配中出现、`get_stage_operations` 只在 CPU 分配与进程线程管理中出现、`authorize_root` 只在 root API 中出现、`authorize_thread_operation` 只在 actor API 中出现、`validate_thread_context` 只在操作入口与进程线程管理中出现、`get_thread_process_id` 只在 actor API 中出现，派生与撤销线程 context 只由进程线程管理调用；Alice 除 CPU 驱动与组合入口外不引用访问 context、派生原始结果或操作入口；入口的分派表直接指向 actor API 方法，没有拆参 handler；两个 API 目录互不导入，capability 父包只导出共享的读取 backing；server 只导入 root API，操作入口只导入 actor API；actor API 的公开方法、操作目录与请求类型保持一一对应。
 
 ### 4.6 拒绝语义
 

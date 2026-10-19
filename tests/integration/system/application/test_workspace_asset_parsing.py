@@ -25,7 +25,6 @@ from hivememory.infrastructure.attachments import (
     CONTENT_UNREADABLE,
     AttachmentParseError,
 )
-from hivememory.workspace.assets.parse_service import ASSET_FAILED_CODE
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.attachment_parsing import (
     ChunkedSource,
@@ -132,7 +131,7 @@ async def test_expected_parse_failure_commits_failed_terminal_with_safe_error() 
 
     assert (asset.state, asset.safe_error_code) == (
         WorkspaceAssetState.FAILED,
-        ASSET_FAILED_CODE,
+        AssetFailedError.code,
     )
     assert asset.safe_error_message == (
         "附件不是有效的 UTF-8/UTF-16 文本，请转存为 UTF-8 后重新上传"
@@ -160,7 +159,7 @@ async def test_unexpected_parser_exception_commits_generic_failure_without_leak(
     asset = receipt.handle.asset
     assert (asset.state, asset.safe_error_code) == (
         WorkspaceAssetState.FAILED,
-        ASSET_FAILED_CODE,
+        AssetFailedError.code,
     )
     assert asset.safe_error_message == "附件解析失败，请重新上传"
     assert "boom-secret-internal" not in asset.safe_error_message
@@ -249,7 +248,7 @@ async def test_resource_limit_boundary_fails_without_silent_truncation() -> None
 
     assert (asset.state, asset.safe_error_code) == (
         WorkspaceAssetState.FAILED,
-        ASSET_FAILED_CODE,
+        AssetFailedError.code,
     )
     assert asset.safe_error_message == "提取的正文超过大小上限，请缩小文件后重新上传"
     assert (extracted.state, extracted.content_object) == (
