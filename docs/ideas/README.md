@@ -24,7 +24,7 @@ Idea 以 frontmatter 的 `horizon` 字段分为三类，规则见[文档治理�
 
 | Idea | 服务版本 | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|:---|
-| [执行线程的正式定义](./execution-thread-definition.md) | v0.7.0 | 每个线程一份线程 context、经进程派生的 CALL 子线程、进程持有执行流已落地，当前事实见 [Workspace 架构](../architecture/workspace.md)第 4.3、5.4 节；本文是执行线程设计的 Idea 来源 | 线程表与一次解析的合并方向；已决定 Alice 子线程随 CALL 返回结束、子帧观测标签取自己的身份、停止时先停止生成且线程随停止结束；待建立计划 |
+| [执行线程的正式定义](./execution-thread-definition.md) | v0.7.0 | 每个线程一份线程 context、经进程派生的 CALL 子线程、进程持有执行流已落地，当前事实见 [Workspace 架构](../architecture/workspace.md)第 4.3、5.4 节；本文是执行线程设计的 Idea 来源 | 线程表与一次解析的合并方向；已决定 Alice 子线程随 CALL 返回结束、子帧观测标签取自己的身份、停止时先停止生成且线程随停止结束；已形成[计划](../plans/v0.7.0-execution-thread-definition.md)（Planned） |
 
 版本内状态见 [Plans 导航](../plans/README.md#v070)。
 

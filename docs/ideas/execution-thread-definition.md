@@ -36,6 +36,8 @@ last_reviewed: 2026-10-19
 
 本文是执行线程设计的 Idea 来源，也是当前版本的设计讨论，为下一份计划供料：把执行线程定义为任务进程中的正式概念。本文不描述当前行为，当前事实见 [Workspace 架构](../architecture/workspace.md)第 4.3、5.4 节。
 
+**计划**：已据本文建立 [v0.7.0 执行线程的正式定义](../plans/v0.7.0-execution-thread-definition.md)（2026-10-19，Planned），第 2 节的合并方向与第 3 节各项候选设计在计划中取定。
+
 **演变**：执行线程此前的方向与决定，原在《执行单元、执行线程与执行环境》Idea 中，包括执行单元认识其全部线程、每个线程一份 context、派生必须到达进程、子线程以被调用方身份运行等。这些决定实施后晋升为事实，已于 2026-10-13 从该 Idea 删除，删除前版本见 commit `a384688`。该 Idea 于 2026-10-19 改名为[执行环境 Idea](./execution-environment.md)，只保留执行环境的选择与输出词汇；执行线程的后续设计以本文为准。
 
 **来由**：执行线程是为 actor 的操作权限引入的，目的是让每个执行者各持一份可撤销的访问凭据，见[执行线程层](../archive/plans/v0.7.0-execution-thread-layer.md)（历史）。之后任务进程改为[持有自己的执行流](../archive/plans/v0.7.0-task-process-owned-execution.md)（历史），线程反而成了进程内“谁在执行”的天然单位，但这个概念从未被正式定义。成因调查见[代码结构成因基线](../governance/baselines/v0.7.0-code-structure-causes-2026-10-18.md)第 3.3、3.4 节。
