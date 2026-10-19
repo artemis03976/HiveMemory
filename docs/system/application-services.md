@@ -15,7 +15,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/boundaries.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 应用服务
@@ -90,7 +90,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 
 CPU 分配（Profile 解析、附件租借与编译、记忆与中立提示词编译、清单组装）由 `CPUAllocator`（`workspace/process/allocation.py`）完成，它取得的附件租借也由它在进程关闭时释放；`chat.run.*` 观测事件由领域 emitter `TaskProcessEventEmitter`（`workspace/process/events.py`）投影。
 
-Actor 执行经 CPU 端口完成：执行器由组合根注入一个 `CPUPort`（`workspace.contracts`，当前唯一的实现是 Alice 的 `AliceCPU`），进程只调用端口的 `execute(manifest, *, access, generation_options, stream)`，不出现任何具体 CPU 的路由名或结果类型。端口返回的异步生成器先逐项产出交互事件，最后产出唯一的终态结果 `CPUExecutionResult`；Actor 阶段只有一个拉取循环，每次拉取都可被停止请求中断。进程拿到终态结果后立即关闭这条输出流，让 CPU 在 finalize 之前释放自己的资源；关闭流程中的再次关闭只作兜底。端口与结果的契约见[子系统公共契约](../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节。端口定义在 workspace、由 CPU 实现，是为了让 CPU 可以替换而不改动进程：Alice 之外的 CPU（测试中的 `ScriptedCPU`）能跑完整个任务进程。
+Actor 执行经 CPU 端口完成：执行器由组合根注入一个 `CPUPort`（`workspace.contracts`，当前唯一的实现是 Alice 的 `AliceCPU`），进程只调用端口的 `execute(manifest, *, access, generation_options)`，不出现任何具体 CPU 的路由名或结果类型。端口返回的异步生成器先逐项产出交互事件，最后产出唯一的终态结果 `CPUExecutionResult`；Actor 阶段只有一个拉取循环，每次拉取都可被停止请求中断。进程拿到终态结果后立即关闭这条输出流，让 CPU 在 finalize 之前释放自己的资源；关闭流程中的再次关闭只作兜底。端口与结果的契约见[子系统公共契约](../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节。端口定义在 workspace、由 CPU 实现，是为了让 CPU 可以替换而不改动进程：Alice 之外的 CPU（测试中的 `ScriptedCPU`）能跑完整个任务进程。
 
 进入 Actor 阶段时，runner 经 `ProcessThreads` 从进程 context 派生主线程的线程 context，登记进工作集，并作为 `execute` 的独立 `access` 参数交给 CPU，输入清单不携带它。CPU 驱动以 `workspace.contracts.ThreadOperationSubmitter` 将它绑定为主帧的提交函数。CALL 的派生请求经操作入口到达 actor API，再经 `ChildThreadSpawner` 端口回到 `ProcessThreads`：按进程关联找到进程，确认处于 Actor 阶段、仍在运行且调用方是登记的主线程，然后以被调用方准入后派生子线程 context、登记进工作集并读取被调用方的操作快照；CPU 驱动把子线程 context 绑定为子帧的提交函数。`WorkspaceOperationEntry` 先确认它是未撤销的线程 context，再把请求对象直接交给对应的 actor API 方法，逐次授权仍在 actor API。请求不携带身份、目标或进程选择。runner 不持有能力服务，也不导入认证一侧；进程 context 留给全部阶段的阶段授权。
 
