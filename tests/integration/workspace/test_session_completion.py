@@ -275,7 +275,7 @@ class SlowCloseCPU:
         self.closing = asyncio.Event()
         self.release = asyncio.Event()
 
-    def execute(self, manifest, *, access, generation_options, stream):
+    def execute(self, manifest, *, access, generation_options):
         slot = CPUResultSlot()
         return CPURunHandle(output=self._iterate(slot), result_slot=slot)
 
@@ -464,7 +464,7 @@ async def test_cpu_exception_does_not_accept_checkpoint_from_unreturned_result()
     class FailingCPU:
         """模拟先填结果槽、尚未交付终态就抛错的 CPU。"""
 
-        def execute(self, manifest, *, access, generation_options, stream):
+        def execute(self, manifest, *, access, generation_options):
             slot = CPUResultSlot()
 
             async def output():

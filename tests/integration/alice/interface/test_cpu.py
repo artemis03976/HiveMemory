@@ -37,7 +37,6 @@ async def test_cpu_stream_delivers_events_then_result_from_real_service():
         make_input_manifest(),
         access=await make_access_composition([make_actor_access_record()]).authenticate_thread(),
         generation_options=None,
-        stream=True,
     )
     items = [item async for item in handle.output]
     assert [item["event"] for item in items[:-1]] == ["token"]
@@ -77,7 +76,6 @@ async def test_closing_cpu_stream_cancels_and_joins_runner():
                 [make_actor_access_record()]
             ).authenticate_thread(),
             generation_options=None,
-            stream=True,
         )
         assert (await anext(handle.output))["data"]["content"] == "开始"
         await handle.output.aclose()

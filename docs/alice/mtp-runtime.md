@@ -33,7 +33,7 @@ KoakumaRuntime 就是这道执行边界。它把 MTP 生成器截止在 MTP 右�
 一次普通 MTP 迭代沿以下路径推进：
 
 ```text
-MTPGenerator.generate(stream = sink.streams_tokens, stop = MTP right delimiter)
+MTPGenerator.generate(stream=True, stop = MTP right delimiter)
   -> AgentLoopExecutor detects the last MTP opening delimiter
   -> MTPExecutor port（KoakumaRuntime 直接满足协议）
   -> KoakumaRuntime.intercept_and_execute()

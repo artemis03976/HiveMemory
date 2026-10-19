@@ -57,12 +57,11 @@ from hivememory.workspace.process.table import (
     ProcessOutcome,
     ProcessPhase,
     ProcessRecord,
-    ProcessStatusSnapshot,
     ProcessTable,
 )
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.process import make_task_process_service
+from tests.helpers.process import make_task_process_service, process_state
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -134,6 +133,7 @@ async def _service(
     composition: AccessTestComposition | None = None,
     cpu: ScriptedCPU | None = None,
     event_publisher: RuntimeEventPublisher | None = None,
+    process_table: ProcessTable | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
     """构造被测服务与配套认证组合：注册与控制授权使用同一网关/授权者实例。"""
     bus = bus or GlobalSystemBus()
@@ -144,6 +144,7 @@ async def _service(
         cpu=cpu or ScriptedCPU(result=make_cpu_result()),
         access_gateway=composition.gateway,
         operation_authorizer=composition.authorizer,
+        process_table=process_table,
     )
     return service, composition
 
@@ -353,8 +354,8 @@ def test_table_close_only_removes_the_same_process_object() -> None:
 @pytest.mark.asyncio
 async def test_register_rejects_system_actor_without_registering_process() -> None:
     """任务进程必须由具体 Agent 执行：保留 system 声明在认证前被拒绝且不登记。"""
-    service, composition = await _service()
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    table = ProcessTable()
+    service, composition = await _service(process_table=table)
 
     with pytest.raises(WorkspaceDomainError) as excinfo:
         await _register(
@@ -365,14 +366,14 @@ async def test_register_rejects_system_actor_without_registering_process() -> No
         )
 
     assert excinfo.value.details == {"agent_id": SYSTEM_AGENT_ID}
-    assert service.process_status("process-system-actor", access=requestor) is None
+    assert table.get("process-system-actor") is None
 
 
 @pytest.mark.asyncio
 async def test_register_authentication_failure_does_not_create_or_register_process() -> None:
     """认证失败（actor 与 workspace owner 不一致）：抛 AdmissionDeniedError，不创建、不登记。"""
-    service, composition = await _service()
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    table = ProcessTable()
+    service, composition = await _service(process_table=table)
 
     with pytest.raises(AdmissionDeniedError) as excinfo:
         await _register(
@@ -383,26 +384,21 @@ async def test_register_authentication_failure_does_not_create_or_register_proce
         )
 
     assert excinfo.value.details["reason"] == "actor_not_owner"
-    assert service.process_status("process-auth-fail", access=requestor) is None
+    assert table.get("process-auth-fail") is None
 
 
 @pytest.mark.asyncio
 async def test_register_success_returns_handle_and_binds_issued_context_to_process() -> None:
     """注册成功：返回句柄，签发 context 绑定本进程并已登记到表内。"""
-    service, composition = await _service()
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    table = ProcessTable()
+    service, composition = await _service(process_table=table)
     issued = _capture_issued_contexts(composition)
 
     await _register(composition, service, process_id="process-registered")
 
     assert [context is not None for context in issued] == [True]
     bound_context = issued[0]
-    assert service.process_status("process-registered", access=requestor) == ProcessStatusSnapshot(
-        process_id="process-registered",
-        phase="created",
-        status="running",
-        reason=None,
-    )
+    assert process_state(table, "process-registered") == ("created", "running", None)
     # 绑定 context 经操作授权者按注册声明组装可信 scope。
     scope = composition.authorizer.authorize_operation(
         bound_context, WorkspaceOperation.MEMORY_READ, _workspace()
@@ -439,7 +435,8 @@ async def test_process_handle_exposes_only_process_and_session_ids() -> None:
 @pytest.mark.asyncio
 async def test_close_process_before_stream_invalidates_context_and_deregisters() -> None:
     """流从未开始：close_process 撤销 context（授权被拒）并从表中注销。"""
-    service, composition = await _service()
+    table = ProcessTable()
+    service, composition = await _service(process_table=table)
     requestor = await composition.authenticate(agent_id=_AGENT)
     issued = _capture_issued_contexts(composition)
     handle = await _register(composition, service, process_id="process-never-run")
@@ -450,20 +447,20 @@ async def test_close_process_before_stream_invalidates_context_and_deregisters()
     cancel_result = service.cancel_process("process-never-run", access=requestor)
     assert cancel_result.cancelled is False
     assert cancel_result.status == "not_found"
-    assert service.process_status("process-never-run", access=requestor) is None
+    assert table.get("process-never-run") is None
 
 
 @pytest.mark.asyncio
 async def test_close_process_is_idempotent() -> None:
     """close_process 幂等：重复调用是空操作，不改变收口后的可见状态。"""
-    service, composition = await _service()
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    table = ProcessTable()
+    service, composition = await _service(process_table=table)
     handle = await _register(composition, service, process_id="process-close-twice")
 
     await service.close_process(handle)
     await service.close_process(handle)
 
-    assert service.process_status("process-close-twice", access=requestor) is None
+    assert table.get("process-close-twice") is None
 
 
 # ========== 注册入口：认证成功后登记失败的 context 失效 ==========
@@ -472,8 +469,8 @@ async def test_close_process_is_idempotent() -> None:
 @pytest.mark.asyncio
 async def test_registration_failure_after_authentication_invalidates_issued_context() -> None:
     """认证通过后、登记完成前失败（重复 process_id）：已签发 context 失效，无半注册记录。"""
-    service, composition = await _service()
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    table = ProcessTable()
+    service, composition = await _service(process_table=table)
     issued = _capture_issued_contexts(composition)
     await _register(composition, service, process_id="process-dup")
 
@@ -492,12 +489,7 @@ async def test_registration_failure_after_authentication_invalidates_issued_cont
         run_type="task_process",
         run_id="process-dup",
     )
-    assert service.process_status("process-dup", access=requestor) == ProcessStatusSnapshot(
-        process_id="process-dup",
-        phase="created",
-        status="running",
-        reason=None,
-    )
+    assert process_state(table, "process-dup") == ("created", "running", None)
 
 
 # ========== 句柄 API：有效性、运行、取消与关闭 ==========
@@ -529,8 +521,10 @@ async def test_run_process_with_closed_handle_raises_domain_error() -> None:
 async def test_reconstructed_handle_cannot_run_cancel_or_close_the_process() -> None:
     """按 process_id 重新构造的句柄无效：不能运行、取消或关闭进程，进程不受影响。"""
     sink = RecordingRuntimeEventSink()
-    service, composition = await _service(event_publisher=RuntimeEventPublisher(sink))
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    table = ProcessTable()
+    service, composition = await _service(
+        event_publisher=RuntimeEventPublisher(sink), process_table=table
+    )
     await _register(composition, service, process_id="process-forged")
     # 入口 adapter 拿不到进程对象：只能用一个 process_id 相同的替身去构造句柄。
     forged = ProcessHandle(SimpleNamespace(record=SimpleNamespace(process_id="process-forged")))
@@ -547,19 +541,14 @@ async def test_reconstructed_handle_cannot_run_cancel_or_close_the_process() -> 
     await service.close_process(forged)
 
     assert _cancel_requested_events(sink) == []
-    assert service.process_status("process-forged", access=requestor) == ProcessStatusSnapshot(
-        process_id="process-forged",
-        phase="created",
-        status="running",
-        reason=None,
-    )
+    assert process_state(table, "process-forged") == ("created", "running", None)
 
 
 @pytest.mark.asyncio
 async def test_stale_handle_cannot_control_a_reregistered_process() -> None:
     """进程关闭后同一 process_id 重新登记：旧句柄不能取消或关闭新进程。"""
-    service, composition = await _service()
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    table = ProcessTable()
+    service, composition = await _service(process_table=table)
     stale = await _register(composition, service, process_id="process-reused-id")
     await service.close_process(stale)
     await _register(composition, service, process_id="process-reused-id")
@@ -568,12 +557,7 @@ async def test_stale_handle_cannot_control_a_reregistered_process() -> None:
     await service.close_process(stale)
 
     assert result.status == "not_found"
-    assert service.process_status("process-reused-id", access=requestor) == ProcessStatusSnapshot(
-        process_id="process-reused-id",
-        phase="created",
-        status="running",
-        reason=None,
-    )
+    assert process_state(table, "process-reused-id") == ("created", "running", None)
 
 
 @pytest.mark.asyncio
@@ -714,8 +698,8 @@ async def test_completed_delivery_invalidates_bound_context() -> None:
     """completed 结局：交付结束自动 close_process，绑定 context 失效、进程注销。"""
     bus = _bus_until_finalize()
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
-    service, composition = await _service(bus)
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    table = ProcessTable()
+    service, composition = await _service(bus, process_table=table)
     issued = _capture_issued_contexts(composition)
     handle = await _register(composition, service, process_id="process-end-completed")
 
@@ -723,15 +707,17 @@ async def test_completed_delivery_invalidates_bound_context() -> None:
 
     assert result.kind == "agent"
     _assert_context_invalidated(composition, issued[0])
-    assert service.process_status("process-end-completed", access=requestor) is None
+    assert table.get("process-end-completed") is None
 
 
 @pytest.mark.asyncio
 async def test_failed_delivery_invalidates_bound_context() -> None:
     """失败结局（编排异常沿非流式上抛）：交付结束仍收口，绑定 context 失效。"""
     bus = _bus_until_finalize()
-    service, composition = await _service(bus, cpu=ScriptedCPU(error=RuntimeError("cpu exploded")))
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    table = ProcessTable()
+    service, composition = await _service(
+        bus, cpu=ScriptedCPU(error=RuntimeError("cpu exploded")), process_table=table
+    )
     issued = _capture_issued_contexts(composition)
     handle = await _register(composition, service, process_id="process-end-failed")
 
@@ -739,7 +725,7 @@ async def test_failed_delivery_invalidates_bound_context() -> None:
         await service.run_process(handle, stream=False)
 
     _assert_context_invalidated(composition, issued[0])
-    assert service.process_status("process-end-failed", access=requestor) is None
+    assert table.get("process-end-failed") is None
 
 
 @pytest.mark.asyncio
@@ -753,8 +739,8 @@ async def test_cancelled_delivery_invalidates_bound_context() -> None:
         await asyncio.Event().wait()
 
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
-    service, composition = await _service(bus)
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    table = ProcessTable()
+    service, composition = await _service(bus, process_table=table)
     issued = _capture_issued_contexts(composition)
     handle = await _register(composition, service, process_id="process-end-cancelled")
     task = asyncio.create_task(service.run_process(handle, stream=False))
@@ -766,7 +752,7 @@ async def test_cancelled_delivery_invalidates_bound_context() -> None:
     assert stop_result.cancelled is True
     assert result.execution_result.status == "cancelled"
     _assert_context_invalidated(composition, issued[0])
-    assert service.process_status("process-end-cancelled", access=requestor) is None
+    assert table.get("process-end-cancelled") is None
 
 
 # ========== 控制面：请求方与进程记录的驻留坐标比对 ==========
@@ -774,7 +760,7 @@ async def test_cancelled_delivery_invalidates_bound_context() -> None:
 
 @pytest.mark.asyncio
 async def test_control_requests_from_other_workspace_are_not_found() -> None:
-    """跨 workspace 请求方：取消与状态查询统一 not_found，不泄露进程存在性。"""
+    """跨 workspace 请求方：取消统一 not_found，不泄露进程存在性，进程照常保持运行。"""
     composition = make_access_composition(
         [
             make_actor_access_record(owner_user_id=_USER, agent_id=_AGENT),
@@ -785,7 +771,8 @@ async def test_control_requests_from_other_workspace_are_not_found() -> None:
             ),
         ]
     )
-    service, composition = await _service(composition=composition)
+    table = ProcessTable()
+    service, composition = await _service(composition=composition, process_table=table)
     await _register(composition, service, process_id="process-shared")
     foreign_requestor = await composition.authenticate(
         agent_id="other_agent",
@@ -797,23 +784,13 @@ async def test_control_requests_from_other_workspace_are_not_found() -> None:
     assert rejected.cancelled is False
     assert rejected.status == "not_found"
     assert rejected.process_id == "process-shared"
-    assert service.process_status("process-shared", access=foreign_requestor) is None
-
-    # 同驻留坐标的请求方仍可控：状态可读（not_found 不等于进程不存在）。
-    owner_requestor = await composition.authenticate(agent_id=_AGENT)
-    assert service.process_status(
-        "process-shared", access=owner_requestor
-    ) == ProcessStatusSnapshot(
-        process_id="process-shared",
-        phase="created",
-        status="running",
-        reason=None,
-    )
+    # not_found 不等于进程不存在：进程仍登记且未被停止。
+    assert process_state(table, "process-shared") == ("created", "running", None)
 
 
 @pytest.mark.asyncio
 async def test_control_requests_with_invalidated_requestor_context_raise_scope_required() -> None:
-    """context 失效的请求方：取消与状态查询以 ScopeRequiredError（context_not_issued）拒绝。"""
+    """context 失效的请求方：取消以 ScopeRequiredError（context_not_issued）拒绝。"""
     service, composition = await _service()
     await _register(composition, service, process_id="process-controlled")
     requestor = await composition.authenticate(agent_id=_AGENT)
@@ -822,7 +799,3 @@ async def test_control_requests_with_invalidated_requestor_context_raise_scope_r
     with pytest.raises(ScopeRequiredError) as cancel_excinfo:
         service.cancel_process("process-controlled", access=requestor)
     assert cancel_excinfo.value.details["reason"] == "context_not_issued"
-
-    with pytest.raises(ScopeRequiredError) as status_excinfo:
-        service.process_status("process-controlled", access=requestor)
-    assert status_excinfo.value.details["reason"] == "context_not_issued"

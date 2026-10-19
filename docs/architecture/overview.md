@@ -145,7 +145,7 @@ Patchouli 消费 Gateway 已形成的决策，不重新承担入口分析；它�
 Alice 是 Agent 执行与控制平面，拥有：
 
 - Agent Profile 驱动的运行参数与访问登记决定的操作策略；
-- 非流式和流式 Agent run；
+- 流式执行的 Agent run（交付形态由任务进程决定）；
 - Agent loop、ExecutionFrame 和有限深度的子 Agent 编排；
 - Koakuma MTP 解析、执行与回填；
 - 当前 frame 的 ACK 别名清单与 CALL 父子 frame 调度。

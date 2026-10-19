@@ -73,16 +73,6 @@ class CancelResult:
     reason: str
 
 
-@dataclass(frozen=True)
-class ProcessStatusSnapshot:
-    """通过 scoped control plane 暴露的任务进程状态。"""
-
-    process_id: str
-    phase: str
-    status: str
-    reason: str | None
-
-
 @dataclass
 class ProcessRecord:
     """一次任务进程的阶段引用、访问 context 与终态事实（与进程同寿）。
@@ -239,7 +229,6 @@ __all__ = [
     "ProcessOutcome",
     "ProcessPhase",
     "ProcessRecord",
-    "ProcessStatusSnapshot",
     "ProcessTable",
     "StopResult",
 ]

@@ -49,9 +49,8 @@ class CPUExecutionResult(BaseModel):
         failure_reason    → failed 终态的公开原因码；外部 CPU 可以不填
         compaction_checkpoint → 会话接受的旧历史派生视图，不进入本轮封口或 done
 
-    端口语义：终态结果由 ``execute`` 迭代器恰好产出一次且是最后一项；
-    非流式时它是唯一一项。迭代器在没有终态结果时结束属于协议错误，
-    由进程按失败处理。
+    端口语义：终态结果由 ``execute`` 迭代器恰好产出一次且是最后一项。
+    迭代器在没有终态结果时结束属于协议错误，由进程按失败处理。
     """
 
     model_config = ConfigDict(frozen=True, use_enum_values=True)
@@ -99,9 +98,9 @@ class CPURunHandle:
 class CPUPort(Protocol):
     """任务进程调用 CPU 的对象端口。
 
-    ``execute`` 是以 ``stream`` 参数控制是否流式的统一入口，返回一个异步
-    run 句柄：输出流先产出交互事件、再产出唯一终态；非流式只产出终态。
-    取消收尾时 CPU 同步写入结果槽，再传播原生 CancelledError。进程在关闭流程中
+    ``execute`` 返回一个异步 run 句柄：输出流先逐项产出交互事件、再产出
+    唯一终态。交付形态由进程决定，CPU 不区分：非流式交付只取终态，交互事件
+    照常产出后被丢弃。取消收尾时 CPU 同步写入结果槽，再传播原生 CancelledError。进程在关闭流程中
     以 ``aclose`` 关闭它（含断流与取消路径）。端口的取消、异常与关闭语义：
 
     - 进程取消正在拉取下一项的任务（用户停止），并在关闭流程中关闭迭代器；
@@ -122,7 +121,6 @@ class CPUPort(Protocol):
         *,
         access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
-        stream: bool,
     ) -> CPURunHandle: ...
 
 

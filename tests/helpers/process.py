@@ -108,4 +108,13 @@ def make_task_process_service(
     )
 
 
-__all__ = ["make_task_process_service"]
+def process_state(table: ProcessTable, process_id: str) -> tuple[str, str, str | None] | None:
+    """读取已登记进程的 (阶段, 结局, 停止原因)；未登记或已注销时为 ``None``。"""
+    process = table.get(process_id)
+    if process is None:
+        return None
+    record = process.record
+    return record.phase.value, record.outcome.value, record.stop_reason
+
+
+__all__ = ["make_task_process_service", "process_state"]

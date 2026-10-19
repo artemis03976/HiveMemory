@@ -212,7 +212,6 @@ class CPUPort(Protocol):
         *,
         access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
-        stream: bool,
     ) -> CPURunHandle: ...
 ```
 
@@ -236,8 +235,8 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 
 端口语义：
 
-- **输出顺序**：`execute` 返回 `CPURunHandle(output, result_slot)`；`output` 的异步生成器先产出交互事件（只在流式时），再产出唯一的终态结果 `CPUExecutionResult`；终态结果恰好出现一次，并且是最后一项，非流式时它是唯一一项。输出流在没有终态结果时结束属于协议错误，进程按失败处理。
-- **交互事件**：带 `event` 与 `data` 的字典，进程原样转交给流式交付，不做解释。
+- **输出顺序**：`execute` 返回 `CPURunHandle(output, result_slot)`；`output` 的异步生成器先逐项产出交互事件，再产出唯一的终态结果 `CPUExecutionResult`；终态结果恰好出现一次，并且是最后一项。端口不区分交付形态：进程的非流式交付丢弃交互事件、只取终态，CPU 照常产出。输出流在没有终态结果时结束属于协议错误，进程按失败处理。
+- **交互事件**：带 `event` 与 `data` 的字典，进程原样转交给流式交付、非流式交付丢弃，不做解释。
 - **结局**：执行者自报的结局经终态结果的 `status` 表达；执行者抛出异常，由进程按失败处理。
 - **结果槽**：`CPUResultSlot.result` 初始为 None；CPU 在取消收尾中同步填入 `CPUExecutionResult` 再传播原生取消，不暴露帧结果或控制器。正常终态也可以填槽；Alice 在返回类型化终态前填槽，正常检查点直接随结果交付。槽中结果的 `status` 如实描述 CPU 实际结局，进程不改写（取消生效前已完成时仍是 completed）。空槽按无输出处理，`has_output` 排除初始用户输入事件。
 - **取消与关闭**：用户停止时，进程取消正在拉取下一项的任务；进程在拿到终态结果后、以及在关闭流程中关闭输出流。实现必须传播 `asyncio.CancelledError`，并在输出流关闭时释放自己创建的资源。
@@ -284,7 +283,7 @@ Alice 不注册执行总线路由，组合根构造 AliceSystem 时不传全局�
 
 `AliceCPU`（`alice/interface/cpu.py`）持有公共 `OperationEntry`，以 `ThreadOperationSubmitter` 把线程 context 绑定为提交函数后直接调用内部运行服务。`AgentRunService` 接收清单、提交函数、生成参数、输出端口和可选结果槽，始终返回 `CPUExecutionResult`，不区分传输形态；运行服务直接消费输入清单，根帧布局与历史压缩由 Alice 的上下文层完成。
 
-非流式只产出一个执行结果；流式由接口层管理有界队列与 runner，逐项交付交互事件，最后直接产出带检查点的 `CPUExecutionResult`。不存在 Alice 自己的 `done` 序列化；任务进程负责最终 HTTP 投影。输出流关闭时，CPU 关闭内层事件流，取消并等待 runner 收尾后才返回，使取消结果槽中的部分输出与已完成检查点可被进程读取。
+每次执行都由接口层管理有界队列与 runner，逐项交付交互事件，最后直接产出带检查点的 `CPUExecutionResult`；Alice 不区分交付形态。不存在 Alice 自己的 `done` 序列化；任务进程负责最终 HTTP 投影。输出流关闭时，CPU 关闭内层事件流，取消并等待 runner 收尾后才返回，使取消结果槽中的部分输出与已完成检查点可被进程读取。
 
 ### 4.5 Alice 不变量
 

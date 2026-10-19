@@ -13,7 +13,6 @@ import pytest
 from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import TokenDelta
 from hivememory.agent_runtime.runtime import AgentRuntime
-from hivememory.alice.run.output import NullRunOutput
 from hivememory.components.events.bus import (
     RecordingRuntimeEventSink,
 )
@@ -29,6 +28,7 @@ from hivememory.workspace.contracts import CPUExecutionStatus
 from tests.helpers.alice import build_run_service, stream_run
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.llm import CallbackLLMService, ScriptedLLMService
+from tests.helpers.outputs import NullRunOutput
 from tests.helpers.sessions import make_conversation_turn
 from tests.helpers.workspace import make_execution_labels
 

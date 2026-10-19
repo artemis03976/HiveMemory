@@ -8,7 +8,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal, Protocol
 
-from hivememory.agent_runtime import ExecutionFrame, FrameOutputSink, NullFrameOutputSink
+from hivememory.agent_runtime import ExecutionFrame, FrameOutputSink
 
 
 @dataclass(frozen=True, slots=True)
@@ -49,33 +49,8 @@ class AgentRunOutput(Protocol):
     async def call_finished(self, output: CallOutputFinished) -> None: ...
 
 
-class NullAgentRunOutput:
-    """不产出 frame 与 CALL 交互事件的空输出实现。"""
-
-    def __init__(self) -> None:
-        self._frame_output = NullFrameOutputSink()
-
-    def for_frame(
-        self,
-        frame: ExecutionFrame,
-        *,
-        action_id: str | None,
-        scope: Literal["main", "sub"],
-        depth: int,
-    ) -> FrameOutputSink:
-        del frame, action_id, scope, depth
-        return self._frame_output
-
-    async def call_started(self, output: CallOutputStarted) -> None:
-        del output
-
-    async def call_finished(self, output: CallOutputFinished) -> None:
-        del output
-
-
 __all__ = [
     "AgentRunOutput",
     "CallOutputFinished",
     "CallOutputStarted",
-    "NullAgentRunOutput",
 ]

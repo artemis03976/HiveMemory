@@ -91,7 +91,7 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 上表两条路由只接收调用方授权点组装的 `IdentityScope`，本身不做操作授权。`memory_intent.submit` 的生产调用方是 workspace actor API 的 WRITE/UPDATE：`MemoryIntent.intent_id` 与 `pending_alias` 必填，沿用登记值；话题由任务进程提供。Patchouli 在内部构造物化任务，唯一调用 local `GENERATION_SUBMIT_ACTIVE`，每次一个意图，返回接纳、明确拒绝或未知结果。明确拒绝结算 FAILED；未知结果不提前结算，既有任务保留结算权。
 
-`interaction.submit` 仍没有生产调用方。chat finalize 与被动摄入直接构造 `InteractionSubmission` 并提交共享 lane，handler 调用 `PerceptionFamiliar.apply_interaction()`。`InteractionPayload` 不携带物化任务；submission 的 `belong_to/from_actor` 分别是归属与发起者来源，调用方不能从 payload 或 topic id 反推作用域。`chat.run.completed` 和 SSE `done` 都不携带记忆任务 ID；任务通过 `memory.task.*` 事件及 list/get 查询观察。
+`interaction.submit` 仍没有生产调用方，只有测试调用。chat finalize 与被动摄入直接构造 `InteractionSubmission` 并提交共享 lane，handler 调用 `PerceptionFamiliar.apply_interaction()`。`InteractionPayload` 不携带物化任务；submission 的 `belong_to/from_actor` 分别是归属与发起者来源，调用方不能从 payload 或 topic id 反推作用域。`chat.run.completed` 和 SSE `done` 都不携带记忆任务 ID；任务通过 `memory.task.*` 事件及 list/get 查询观察。
 
 Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与存储只接收 `belong_to` 和需要的 `from_actor`。`PreparedAgentRun` 只保留 prepare 的归属；任务进程在调用 finalize 前重新执行阶段授权并传入当次 scope；cleanup 同样重新执行阶段授权，授权被拒时记录警告并完成关闭；资源 owner 拒绝删除越域 prepared 或已被提交链接管的话题。
 
@@ -236,7 +236,7 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 
 会话 HTTP 由 `server/routers/sessions.py` 经门面取得 `RootSessionService`，沿用请求认证与 root 授权。POST/GET `/api/v1/sessions` 创建（201）/列出摘要；GET/PATCH/DELETE `/api/v1/sessions/{session_id}` 读取全量历史/以 `{title}` 重命名/删除（204）。创建体同为 `{title}`，允许空标题，首轮写入时自动取用户消息前 80 字。标题最多 200 字。会话不属于 Agent，不增加 actor 操作。响应是 `server/models/session.py` 的投影，不含 Workspace 归属：摘要为 `session_id`、`title`、`created_at`、`updated_at`、`turn_count` 与 `active_process_id`（非空表示正被任务进程占用）；完整读取另含 `turns` 与可空的 `compaction_checkpoint`（结构见[子系统契约](./subsystem-contracts.md#421-会话压缩检查点)）。每轮只返回 `interaction_id`、`agent_id`（仅用于历史展示）、`topic_id`、`created_at` 与载荷中的 `outcome`、`user_message`、`assistant_final_text`、`turn_events`；轮次事件只含 `kind`、`sequence`、`content`、`action_id`、`tool_kind`、`target`、`tool_args`、`status`。列表摘要不含轮次或检查点。
 
-Chat 首个 `process_id` SSE 事件携带 `{process_id, session_id}`；非流式结果也含 `session_id`。`memory_refs` 保留；不再发布 `topic_info`。有输出的 completed/cancelled/failed 的 done 包含 `topic_id`，对应会话本轮标注；没有 `pool_topics`。无输出的 done 不含 `final_text` 与 `topic_id`。前端通过独立 Topic 列表接口管理短期话题。取消、失败有输出时先 finalize 再交付终态，详见[应用服务](../system/application-services.md#33-部分输出与交付关闭)。
+Chat 首个 `process_id` SSE 事件携带 `{process_id, session_id}`；非流式交付的结果也含 `session_id`，但不含 `topic_id`、停止原因与记忆引用。`memory_refs` 保留；不再发布 `topic_info`。有输出的 completed/cancelled/failed 的 done 包含 `topic_id`，对应会话本轮标注；没有 `pool_topics`。无输出的 done 不含 `final_text` 与 `topic_id`。前端通过独立 Topic 列表接口管理短期话题。取消、失败有输出时先 finalize 再交付终态，详见[应用服务](../system/application-services.md#33-部分输出与交付关闭)。
 
 failed done 保留 `reason=agent_run_failed`，CPU 有稳定原因时另带 `failure_reason`；`chat.run.failed.message` 使用该码，不下发异常正文。四类预算原因见[错误模型](./error-model.md#22-agent-run)。done 不包含 `turn_events` 或 `compaction_checkpoint`；检查点以会话读取结果为准，压缩结束事件不代表会话已接受。
 
@@ -252,7 +252,7 @@ failed done 保留 `reason=agent_run_failed`，CPU 有稳定原因时另带 `fai
 | `summary_status` | 结束时为 `not_needed`、`completed` 或 `abandoned` |
 | `elapsed_ms` | 结束时的压缩耗时 |
 
-事件沿用 run 的 `stream_sequence`，开始时 `layer=reduction`、覆盖轮数为 0；正常完成压缩产出开始和结束，取消或程序异常可只有开始。它不进入 `turn_events`，不构成本轮输出，也不单独触发封口。非流式不产出交互进度事件，但可产生上述 RuntimeEvent。
+事件沿用 run 的 `stream_sequence`，开始时 `layer=reduction`、覆盖轮数为 0；正常完成压缩产出开始和结束，取消或程序异常可只有开始。它不进入 `turn_events`，不构成本轮输出，也不单独触发封口。非流式交付丢弃交互进度事件，上述 RuntimeEvent 照常发布。
 
 ## 7. 设计矛盾检查
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Protocol
 
 from hivememory.alice.context.builder import ContextProgressOutput
-from hivememory.alice.orchestration.output import AgentRunOutput, NullAgentRunOutput
+from hivememory.alice.orchestration.output import AgentRunOutput
 
 
 class RunOutput(AgentRunOutput, ContextProgressOutput, Protocol):
@@ -20,17 +20,4 @@ class RunOutput(AgentRunOutput, ContextProgressOutput, Protocol):
     def close_reason(self) -> str | None: ...
 
 
-class NullRunOutput(NullAgentRunOutput):
-    """非流式 run 的空输出：不交付交互事件，取消观测不带关闭原因。"""
-
-    cancellation_message = "Agent run cancelled before terminal event."
-    close_reason = None
-
-    def bind_run(self, agent_run_id: str) -> None:
-        del agent_run_id
-
-    async def context_compaction(self, *, status: str, data: dict[str, object]) -> None:
-        del status, data
-
-
-__all__ = ["NullRunOutput", "RunOutput"]
+__all__ = ["RunOutput"]

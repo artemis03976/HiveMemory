@@ -5,7 +5,7 @@ TaskProcessService — 任务请求的唯一注册入口与进程控制面
 创建进程、登记到进程表，返回不透明的进程句柄；已注册的
 :class:`TaskProcess`（状态容器）经句柄交给组合根注入的执行器
 :class:`TaskProcessRunner`（四阶段编排骨架）运行，交付为流式事件或非流式
-结果，并经进程表提供取消与状态查询。本入口只管理任务进程的生命周期：
+结果，并经进程表提供取消。本入口只管理任务进程的生命周期：
 不持有总线、CPU 端口、CPU 分配器、asset reader
 与编译配置等编排依赖，它们只由执行器持有。
 
@@ -67,7 +67,6 @@ from hivememory.workspace.process.table import (
     SYSTEM_SHUTDOWN_STOP_REASON,
     CancelResult,
     ProcessRecord,
-    ProcessStatusSnapshot,
     ProcessTable,
 )
 from hivememory.workspace.process.task_process import ProcessRequest, TaskProcess
@@ -340,7 +339,7 @@ class TaskProcessService:
     ) -> AsyncGenerator[dict[str, Any], None]:
         """流式交付：阶段产出逐项投影为流式事件；编排异常翻译为 error 事件。"""
         try:
-            async with aclosing(self._runner.run(process, stream=True)) as outputs:
+            async with aclosing(self._runner.run(process)) as outputs:
                 async for output in outputs:
                     if isinstance(output, ProcessFailed):
                         yield _stream_error(output.error)
@@ -355,10 +354,14 @@ class TaskProcessService:
             await self._close(process)
 
     async def _deliver_once(self, process: TaskProcess) -> NonStreamingResult:
-        """非流式交付：只取终态产出；编排异常在进程关闭后原样上抛。"""
+        """非流式交付：丢弃交互事件、只取终态产出；编排异常在进程关闭后原样上抛。
+
+        结果只含终态执行结果与会话 ID，不含流式 ``done`` 的 ``topic_id``、
+        停止原因与记忆引用。
+        """
         try:
             result: NonStreamingResult | None = None
-            async with aclosing(self._runner.run(process, stream=False)) as outputs:
+            async with aclosing(self._runner.run(process)) as outputs:
                 async for output in outputs:
                     match output:
                         case CommandCompleted(command_result=command_result):
@@ -453,26 +456,6 @@ class TaskProcessService:
             )
             return result
         return self._request_stop(process, reason)
-
-    def process_status(
-        self,
-        process_id: str,
-        *,
-        access: WorkspaceAccessContext,
-    ) -> ProcessStatusSnapshot | None:
-        """返回 scoped 进程状态；不可控与不存在统一为 ``None``。"""
-        process = self._process_table.get(process_id)
-        if process is None or not self._authorizer.authorize_process_control(
-            access, process.record.access
-        ):
-            return None
-        record = process.record
-        return ProcessStatusSnapshot(
-            process_id=record.process_id,
-            phase=record.phase.value,
-            status=record.outcome.value,
-            reason=record.stop_reason,
-        )
 
     # ========== 内部辅助 ==========
 

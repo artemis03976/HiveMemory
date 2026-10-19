@@ -43,10 +43,6 @@ class _BoundFrameOutputSink:
         self._output = output
         self._metadata = dict(metadata)
 
-    @property
-    def streams_tokens(self) -> bool:
-        return True
-
     async def send(self, output: FrameOutput) -> None:
         event, data = _project_frame_output(output)
         await self._output.send_event(event, data, metadata=self._metadata)

@@ -191,14 +191,12 @@ class _RecordingCPU:
         *,
         access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
-        stream: bool,
     ) -> CPURunHandle:
         self.manifests.append(manifest)
         return self._delegate.execute(
             manifest,
             access=access,
             generation_options=generation_options,
-            stream=stream,
         )
 
 

@@ -36,7 +36,7 @@ Alice 的多 Agent 能力当前不是一个会自主拆解任务图的“超级�
 
 ```text
 AliceSystem
-  ├─ AliceCPU -> AgentRunStreamAdapter / NullRunOutput
+  ├─ AliceCPU -> AgentRunStreamAdapter
   │    └─ AgentRunService -> RootContextBuilder
   │         ├─ RunSession（frame registry / CallRecord）
   │         ├─ RunExecutor -> CallCoordinator -> CallContextProvider
@@ -47,11 +47,11 @@ AliceSystem
 ```
 
 - AgentRunService 是内部运行用例：`run_agent` 面向运行层的 `RunOutput`，创建根 frame 与每次 run 的 Executor，返回 CPU 中立执行结果并发布终态观测；模型预算、视图与压缩交给独立的 `RootContextBuilder`，结果投影放在 `run/result.py`，结果槽在同一收尾段同步填写；
-- AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程。它绑定线程提交函数、检查宿主启停并选择输出端口，直接调用运行服务；流式队列、runner task 与关闭收尾属于 `interface`，最后一项直接交付类型化结果；
+- AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程。它绑定线程提交函数、检查宿主启停，每次执行都经流式适配器调用运行服务，不区分交付形态；流式队列、runner task 与关闭收尾属于 `interface`，最后一项直接交付类型化结果；
 - AliceSystem 是子系统装配根，通过内核工厂构造 AgentRuntime。Profile 读取与缓存归 workspace，内核不参与多帧调度；
 - RunSession 只拥有一次 run 的 frame registry 与 CALL record，不保存取消信号、活动 frame、frame 调度状态或传输层 stream sequence；
 - RunExecutor 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件。它以协程递归执行 CALL 派生 frame，并在根帧终态只记录一次 run 结果；意图收尾属于任务进程；
-- AgentRunOutput 是调度与当前请求交互输出之间的窄端口，只承载 frame 输出与 CALL 边界；上下文层的 `ContextProgressOutput` 只承载压缩进度。运行层的 `RunOutput` 合并两者并补充 run 绑定与取消观测信息，非流式使用 `NullRunOutput`，流式使用 `interface/stream.py` 的有界队列实现；
+- AgentRunOutput 是调度与当前请求交互输出之间的窄端口，只承载 frame 输出与 CALL 边界；上下文层的 `ContextProgressOutput` 只承载压缩进度。运行层的 `RunOutput` 合并两者并补充 run 绑定与取消观测信息，生产实现只有 `interface/stream.py` 的有界队列；
 - AgentRunStreamAdapter 只负责流式传输适配，AgentRunEventEmitter 只负责全局观测投影，两者不参与 frame 求值；
 - CallContextProvider 经 caller 的 `submit_operation` 取得被调用方 `Callee` 并读取 `context_refs`，返回由被调用方与共享上下文组成、不含 frame 或 CALL ledger 状态的 `CallContext`；
 - CallCoordinator 把 CALL 拆为 `begin_call()` 与 `complete_call()`：消费 `CallContext` 组装 callee、投影 outcome，并通过 `AgentRuntime.apply_call_response()` exactly-once 恢复 caller；它不解析 Profile/记忆，不运行 frame，也不收尾整个 run；

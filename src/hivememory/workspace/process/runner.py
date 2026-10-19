@@ -4,9 +4,9 @@
 有输出时封口交互记录并 finalize，对子系统的一切调用都经全局总线
 的公开路由完成，Actor 执行经组合根注入的 CPU 端口（``workspace.contracts``
 的 :class:`CPUPort`）完成。骨架只产出类型化的阶段产出（见
-``workspace.process.outputs``），流式与非流式交付共用同一条阶段顺序、
-同一组取消响应点与同一个关闭流程；两者的执行差异只有 CPU 以流式还是
-非流式产出（流式逐条转交交互事件）。
+``workspace.process.outputs``），执行不区分交付形态：CPU 总是逐项产出
+交互事件，流式交付逐条转交，非流式交付只取终态；两种交付共用同一条阶段
+顺序、同一组取消响应点与同一个关闭流程。
 
 执行器跨进程共享、不持有任何进程的状态：它只持有编排依赖，每次运行与
 关闭都以 :class:`TaskProcess` 为参数，进程的全部状态（进程记录、任务参数、
@@ -138,9 +138,9 @@ class TaskProcessRunner:
     """任务进程执行器：四阶段编排骨架与关闭流程，跨进程共享。
 
     :meth:`run` 是唯一的编排骨架，:meth:`close` 是唯一的关闭流程；两者都
-    以进程为参数，执行器自身不保存任何进程的状态。``run`` 的 ``stream``
-    参数只决定 CPU 以流式还是非流式产出。执行器与 ``CPUAllocator`` 由组合根
-    构建并注入注册入口。
+    以进程为参数，执行器自身不保存任何进程的状态，也不区分交付形态：CPU
+    总是逐项产出交互事件，由交付方决定转交还是只取终态。执行器与
+    ``CPUAllocator`` 由组合根构建并注入注册入口。
 
     阶段调用由进程编排负责，每次调用前校验准入与任务目标 Workspace，
     不检查 actor 操作白名单。授权返回的 ``IdentityScope`` 保留进程 actor，
@@ -170,12 +170,7 @@ class TaskProcessRunner:
 
     # ========== 编排骨架 ==========
 
-    async def run(
-        self,
-        process: TaskProcess,
-        *,
-        stream: bool,
-    ) -> AsyncGenerator[ProcessOutput, None]:
+    async def run(self, process: TaskProcess) -> AsyncGenerator[ProcessOutput, None]:
         """按四阶段顺序产出阶段产出，结束时（含提前关闭）执行 :meth:`close`。
 
         进程每记录一次终态（``record.mark_*``）就紧接着交出终态产出，中间
@@ -188,11 +183,7 @@ class TaskProcessRunner:
         process.owner_task = asyncio.current_task()
         trace_tokens = None
         try:
-            trace_tokens = set_trace_context(
-                process.trace_id,
-                "TaskProcess.Stream" if stream else "TaskProcess.NonStreaming",
-                "foreground",
-            )
+            trace_tokens = set_trace_context(process.trace_id, "TaskProcess", "foreground")
             yield ProcessStarted()
 
             # ---- Gateway：可被 stop 中断 ----
@@ -239,8 +230,7 @@ class TaskProcessRunner:
             events.status(record)
             # CPU 只持有派生线程 context；进程 context 留给全部阶段的授权。
             access = self._thread_contexts.derive_main_thread(process)
-            # Actor 阶段只剩一个循环：流式与非流式都经 CPU 端口逐项拉取
-            # （非流式只拉取一次），交互事件产出为 ActorEvent、终态结果作为
+            # 经 CPU 端口逐项拉取：交互事件产出为 ActorEvent、终态结果作为
             # 执行结果。每次拉取都经 _run_interruptible 包装，停止请求的
             # 响应点不变；输出流登记进工作集，由关闭流程兜底关闭（含断流与
             # 取消路径）。
@@ -250,7 +240,6 @@ class TaskProcessRunner:
                     manifest,
                     access=access,
                     generation_options=request.generation_options,
-                    stream=stream,
                 )
                 cpu_output = cpu_run.output
                 working_set.cpu_output = cpu_output
