@@ -1,30 +1,12 @@
-"""asyncio 任务的取消收尾：取消并等待子任务，或屏蔽调用方取消直到任务完成。
+"""asyncio 任务的取消收尾：屏蔽调用方的取消，直到任务完成。
 
-两种收尾都不留下无人等待的后台任务，并区分两种取消：任务自己被取消是收尾
-的一部分，调用方在等待期间收到的取消必须继续向调用方传播。
+收尾不留下无人等待的后台任务，并区分两种取消：任务自己被取消时立即传播；
+调用方在等待期间收到的取消要等任务结束后，再继续向调用方传播。
 """
 
 from __future__ import annotations
 
 import asyncio
-from typing import Any
-
-
-async def cancel_and_join(task: asyncio.Task[Any]) -> None:
-    """取消任务并等待它结束；只把调用方在等待期间收到的取消继续传播。
-
-    任务因本次取消结束视为正常收尾，不抛出。任务以其他异常结束时原样抛出，
-    由调用方决定如何记录；任务已经结束时不再取消，只取回结果。
-    """
-    owner = asyncio.current_task()
-    entry_cancelling = owner.cancelling() if owner is not None else 0
-    if not task.done():
-        task.cancel()
-    try:
-        await task
-    except asyncio.CancelledError:
-        if owner is not None and owner.cancelling() > entry_cancelling:
-            raise
 
 
 async def join_shielded[T](task: asyncio.Task[T]) -> T:
@@ -52,4 +34,4 @@ async def join_shielded[T](task: asyncio.Task[T]) -> T:
     return task.result()
 
 
-__all__ = ["cancel_and_join", "join_shielded"]
+__all__ = ["join_shielded"]

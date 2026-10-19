@@ -23,7 +23,7 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 运行时机制：总线、调度器与 Work Queue
@@ -239,10 +239,7 @@ chat run 的阶段、停止原因与可中断阶段 task 由 workspace 任务进
 
 ## 7. 取消收尾辅助
 
-[`cancellation.py`](../../src/hivememory/components/cancellation.py) 提供两种 asyncio 任务的收尾。两者都区分任务自己的取消与调用方在等待期间收到的取消，且不留下无人等待的后台任务：
-
-- `cancel_and_join(task)`：取消子任务并等待它结束。本次请求的取消视为正常收尾；调用方在等待期间自己被取消时继续向上传播；任务以其他异常结束时原样抛出，由调用方决定如何记录。chat 路由收尾 SSE 拉取任务、Alice 流式适配器关闭 runner 时使用。
-- `join_shielded(task)`：等待任务完成，期间屏蔽调用方的取消（可以反复收到），任务结束后再传播取消；调用方被取消时取走任务的异常，任务的错误由任务自身记录；任务自己被取消时立即传播。任务进程等待 finalize 提交、actor API 等待写入意图派发时使用，使调用方取消不中断已经开始的提交。
+[`cancellation.py`](../../src/hivememory/components/cancellation.py) 提供 `join_shielded(task)`：等待任务完成，期间屏蔽调用方的取消（可以反复收到），任务结束后再传播取消；调用方被取消时取走任务的异常，任务的错误由任务自身记录；任务自己被取消时立即传播。它区分任务自己的取消与调用方在等待期间收到的取消，且不留下无人等待的后台任务。任务进程等待 finalize 提交、actor API 等待写入意图派发时使用，使调用方取消不中断已经开始的提交。
 
 ## 8. 调度、队列与总线的边界
 

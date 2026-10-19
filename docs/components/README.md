@@ -11,7 +11,7 @@ related_contracts:
 related_docs:
   - docs/architecture/overview.md
   - docs/system/composition.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # Components
@@ -38,7 +38,7 @@ last_reviewed: 2026-10-18
 | `events/` | `RuntimeEventBus` 与 sink、Publisher、操作观测器 | 事件信封模型（`core.contracts`）；业务成功判断 |
 | `serial_gate.py` | 按 key 串行化的 `KeyedSerialGate` | key 的业务含义与分区授权 |
 | `trace_context.py` | 基于 contextvars 的 trace id / span / task type 注入 | 跨进程追踪传播 |
-| `cancellation.py` | asyncio 任务的取消收尾：`cancel_and_join` 与 `join_shielded` | 任务的业务含义与错误记录 |
+| `cancellation.py` | asyncio 任务的取消收尾：`join_shielded` 屏蔽调用方取消直到任务完成 | 任务的业务含义与错误记录 |
 
 `workspace_id` 等观测标签在这些机制中只是标签，不等于授权或分区；Workspace 准入与资源校验不在本包。前台 chat run 的阶段与停止控制属于 chat 编排，同样不在本包。
 
