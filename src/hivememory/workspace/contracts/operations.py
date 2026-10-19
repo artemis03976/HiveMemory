@@ -131,7 +131,6 @@ class ThreadOperationSubmitter:
 
 __all__ = [
     "Callee",
-    "ExecutionThread",
     "ThreadContextRevokedError",
     "OperationEntry",
     "OperationRequest",

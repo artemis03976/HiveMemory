@@ -33,7 +33,7 @@ from hivememory.workspace.contracts.operations import (
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
 )
-from hivememory.workspace.contracts.threads import IntentDispatchTopicReader
+from hivememory.workspace.thread_ports import IntentDispatchTopicReader
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus

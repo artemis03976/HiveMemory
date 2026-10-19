@@ -5,6 +5,8 @@ HiveMemory 系统装配器
   - _build_runtime     : 总线 / 事件 / 调度器 / WorkspaceAsset working set / workspace 读取运行时
   - _build_registries  : Provider & Model 注册表 + LLM 配置预解析
   - _build_llm         : 共享 LLM 服务 + 组件请求参数
+  - _build_access_control: 访问登记装载 + 认证一侧 / 操作授权者 / 认证网关
+  - _build_process_facilities: 任务进程表 + 进程线程管理
   - _build_capabilities: workspace 能力服务 / 操作入口
   - _build_subsystems  : Gateway + Patchouli + Alice
   - _build_services    : 任务进程与其他应用服务
@@ -119,6 +121,16 @@ class _AccessControlBundle:
     authenticator: WorkspaceAuthenticator
     operation_authorizer: WorkspaceOperationAuthorizer
     access_gateway: ActorAuthenticationGateway
+
+
+@dataclass
+class _ProcessFacilitiesBundle:
+    """任务进程的共享设施：进程表与进程线程管理。
+
+    进程表同时交给注册入口与线程管理；线程管理在能力层之前构建，作为 CALL
+    子线程派生与派发话题读取的端口注入 actor API。
+    """
+
     process_table: ProcessTable
     process_threads: ProcessThreads
 
@@ -203,9 +215,10 @@ class SystemAssembler:
         registries = self._build_registries()
         llm = self._build_llm()
         access_control = self._build_access_control()
-        capabilities = self._build_capabilities(runtime, access_control)
+        processes = self._build_process_facilities(access_control)
+        capabilities = self._build_capabilities(runtime, access_control, processes)
         subsystems = self._build_subsystems(runtime, registries, llm, capabilities)
-        services = self._build_services(runtime, subsystems, access_control)
+        services = self._build_services(runtime, subsystems, access_control, processes)
 
         return HiveMemorySystem(
             config=self._config,
@@ -364,7 +377,6 @@ class SystemAssembler:
         # （无状态，读取 context 密封的授予内容）。两者互不依赖，都只读
         # 同一份 Workspace 访问登记。
         authenticator = WorkspaceAuthenticator(workspace_registry)
-        process_table = ProcessTable()
         operation_authorizer = WorkspaceOperationAuthorizer(workspace_registry)
         # Principal authentication 归 System（接入登记），经端口注入认证
         # 网关；Workspace 准入与签发归认证一侧。
@@ -378,9 +390,18 @@ class SystemAssembler:
             authenticator=authenticator,
             operation_authorizer=operation_authorizer,
             access_gateway=access_gateway,
+        )
+
+    @staticmethod
+    def _build_process_facilities(access_control: _AccessControlBundle) -> _ProcessFacilitiesBundle:
+        """进程线程管理经认证网关派生与撤销线程 context，经操作授权者读取操作快照。"""
+        process_table = ProcessTable()
+        return _ProcessFacilitiesBundle(
             process_table=process_table,
             process_threads=ProcessThreads(
-                process_table, lifecycle=access_gateway, authorizer=operation_authorizer
+                process_table,
+                lifecycle=access_control.access_gateway,
+                authorizer=access_control.operation_authorizer,
             ),
         )
 
@@ -403,18 +424,19 @@ class SystemAssembler:
         self,
         runtime: _RuntimeBundle,
         access_control: _AccessControlBundle,
+        processes: _ProcessFacilitiesBundle,
     ) -> _CapabilitiesBundle:
         """能力服务仅依赖共享运行时，先于需要操作入口的 Alice 装配。"""
         memory = ActorMemoryService(
             global_bus=runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
             memory_reader=runtime.workspace_runtime.aliases,
-            dispatch_topics=access_control.process_threads,
+            dispatch_topics=processes.process_threads,
         )
         agent = ActorAgentService(
             operation_authorizer=access_control.operation_authorizer,
             profile_reader=runtime.workspace_runtime.profiles,
-            thread_spawner=access_control.process_threads,
+            thread_spawner=processes.process_threads,
         )
         operations = WorkspaceOperationEntry(
             memory,
@@ -479,6 +501,7 @@ class SystemAssembler:
         runtime: _RuntimeBundle,
         subsystems: _SubsystemBundle,
         access_control: _AccessControlBundle,
+        processes: _ProcessFacilitiesBundle,
     ) -> _ServicesBundle:
         # 任务进程的编排依赖只交给执行器（四阶段骨架，所有进程共用）；
         # 注册入口只持有生命周期依赖。
@@ -502,13 +525,13 @@ class SystemAssembler:
             allocator=allocator,
             # 阶段授权在执行器内、每次阶段调用前执行。
             operation_authorizer=access_control.operation_authorizer,
-            thread_contexts=access_control.process_threads,
+            thread_contexts=processes.process_threads,
             gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
             gateway_session_turn_limit=self._config.gateway.context_preparation.session_turn_limit,
         )
         process = TaskProcessService(
             runner,
-            process_table=access_control.process_table,
+            process_table=processes.process_table,
             sessions=runtime.sessions,
             shutdown_wait_seconds=self._config.workspace.process.shutdown_wait_seconds,
             # 注册入口是进程 context 的运行持有者：

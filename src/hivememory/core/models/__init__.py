@@ -24,6 +24,7 @@ from .artifact import (
     WorkspaceArtifactKey,
     validate_memory_atom_snapshot,
 )
+from .execution import ExecutionLabels
 from .identity import system_actor_for_workspace
 from .immutable import FrozenDict, freeze_mapping, freeze_value
 from .interaction import (
@@ -55,7 +56,6 @@ from .memory import (
 from .memory_change import MemoryChangeEvent
 from .model_definition import ModelDefinition
 from .pending import (
-    ExecutionLabels,
     PendingAtom,
     PendingAtomResolution,
     PendingAtomSettlement,

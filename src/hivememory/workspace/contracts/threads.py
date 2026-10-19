@@ -1,7 +1,6 @@
-"""执行线程契约：任务进程派生的执行线程，以及能力层交给进程的派生端口。"""
+"""执行线程契约：任务进程派生的执行线程，经操作入口交给 CPU 驱动。"""
 
 from dataclasses import dataclass
-from typing import Protocol
 
 from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
 from hivememory.core.models.agent import AgentProfile
@@ -20,19 +19,4 @@ class ExecutionThread:
     access: WorkspaceAccessContext
 
 
-class ChildThreadSpawner(Protocol):
-    """actor API 交给进程的派生请求；进程关联由授权者读取。"""
-
-    def derive_child_thread(
-        self, *, access: WorkspaceAccessContext, process_id: str, profile: AgentProfile
-    ) -> ExecutionThread:
-        """确认主线程仍在 Actor 阶段，再以图纸的 Agent 派生、登记并读取其操作快照。"""
-        ...
-
-
-class IntentDispatchTopicReader(Protocol):
-    """能力层读取本进程的派发话题；只接受仍在 Actor 阶段的已登记线程。"""
-
-    def get_dispatch_topic(self, *, access: WorkspaceAccessContext, process_id: str) -> str:
-        """同步校验进程与线程关联，返回 CPU 分配时冻结的真实话题 ID。"""
-        ...
+__all__ = ["ExecutionThread"]

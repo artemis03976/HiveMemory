@@ -18,7 +18,6 @@ from hivememory.workspace.contracts.cpu import (
 from hivememory.workspace.contracts.operations import (
     Callee,
     DeriveCallThreadRequest,
-    ExecutionThread,
     OperationEntry,
     OperationRequest,
     OperationSubmitter,
@@ -31,6 +30,7 @@ from hivememory.workspace.contracts.operations import (
     ThreadOperationSubmitter,
 )
 from hivememory.workspace.contracts.process import CPUInputManifest
+from hivememory.workspace.contracts.threads import ExecutionThread
 
 __all__ = [
     "CPURunHandle",

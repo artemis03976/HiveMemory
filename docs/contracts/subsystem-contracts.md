@@ -315,7 +315,7 @@ RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求。
 
 `WorkspaceOperationEntry` 只接受线程 context：分派前经操作授权者确认它是未撤销的执行线程 context，再按请求类型把请求对象与线程 context 直接交给对应的 actor API 方法（`method(request, *, access)`），入口不拆参数，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验；入口不持有 root API。actor API 的目标取线程的驻留 Workspace，意图登记的 process_id 取自线程 context 的运行绑定。未知请求类型抛 `TypeError`；进程 context、请求级 context 或其他对象抛 `ScopeRequiredError`；已撤销的线程 context 抛 `ThreadContextRevokedError`（`core.errors`，由 `workspace.contracts` 重新导出）。拒绝都发生在任何副作用之前。
 
-CALL 的派生由 actor API 经 `workspace.contracts.ChildThreadSpawner` 端口交给任务进程，进程只接受本进程主线程在 Actor 阶段内发起的派生，以被调用方准入后签发、登记子线程并读取被调用方的操作快照（[Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)第 5.4 节）。被调用方未准入或为保留的 `system` 时抛 `AdmissionDeniedError`，进程侧前置检查失败抛 `ScopeRequiredError`，均不登记子线程。
+CALL 的派生由 actor API 经 workspace 内部端口 `ChildThreadSpawner`（`workspace/thread_ports.py`，不属于公共契约）交给任务进程，进程只接受本进程主线程在 Actor 阶段内发起的派生，以被调用方准入后签发、登记子线程并读取被调用方的操作快照（[Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)第 5.4 节）。被调用方未准入或为保留的 `system` 时抛 `AdmissionDeniedError`，进程侧前置检查失败抛 `ScopeRequiredError`，均不登记子线程。
 
 CPU 执行结束时执行器同步撤销本进程的全部线程 context，关闭流程兜底；撤销不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。WRITE/UPDATE 在基础校验之后同步复查线程、读取派发话题并登记为 MATERIALIZING；UPDATE 冷读跨越撤销时不登记。派发开始后持有 shield 保护的提交任务直到结束，再传播调用方取消。`IntentDispatchTopicReader` 由进程实现并由组合根注入 actor API，只接受仍处于 Actor 阶段且运行中的已登记线程；主、子线程共享 CPU 输入清单的话题。完整生命周期见 [Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)。
 

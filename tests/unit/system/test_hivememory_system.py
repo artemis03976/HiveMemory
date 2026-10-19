@@ -70,7 +70,7 @@ def system(mock_patchouli):
     agent_service = MagicMock()
     runtime_events = RecordingRuntimeEventSink()
     # 访问控制组合：Topic 能力服务的操作授权经共享操作授权者完成；
-    # 门面未注入 access_control（None），网关相关路径按未装配处理。
+    # 门面的认证网关以替身注入。
     access_composition = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="system")]
     )
