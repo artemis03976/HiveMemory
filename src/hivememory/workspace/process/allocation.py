@@ -74,7 +74,7 @@ class CPUAllocator:
         *,
         operation_authorizer: WorkspaceOperationAuthorizer,
         profile_reader: _AgentProfileReader,
-        asset_reader: WorkspaceAssetReaderPort | None = None,
+        asset_reader: WorkspaceAssetReaderPort,
         memory_compiler_config: MemoryCompilerConfig | None = None,
         attachment_compiler_config: AttachmentCompilerConfig | None = None,
     ) -> None:
@@ -156,7 +156,7 @@ class CPUAllocator:
             leases=tuple(working_set.attachment_leases),
         )
         working_set.used_attachments = attachment_compile_result.used_attachments
-        memories = list(prepared.retrieval_result.memories)
+        memories = list(prepared.memories)
         memory_context = (
             self._memory_compiler.compile(
                 memories,
@@ -212,11 +212,6 @@ class CPUAllocator:
         lease，无需先做 resolve_asset。取得的 lease 先登记进工作集；版本
         摘要不一致时立即移出工作集并释放该租借，拒绝整轮，不留游离租借。
         """
-        if self._asset_reader is None:
-            raise WorkspaceDomainError(
-                "当前系统未装配附件读取能力，不能处理附件选择",
-                details={"reason": "asset_reader_unavailable"},
-            )
         scope = self._authorizer.authorize_stage(access, target_workspace)
         lease = self._asset_reader.acquire_ready_representation(
             scope,
@@ -261,8 +256,6 @@ class CPUAllocator:
             self._release_lease(lease)
 
     def _release_lease(self, lease: RepresentationLease) -> None:
-        if self._asset_reader is None:
-            return
         try:
             self._asset_reader.release_representation_lease(lease.lease_id)
         except WorkspaceDomainError as exc:

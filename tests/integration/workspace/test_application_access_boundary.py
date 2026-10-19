@@ -236,8 +236,8 @@ async def wired():
         controller.wait_task,
     )
     local_bus.register(
-        PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY,
-        controller.submit_generation_many,
+        PatchouliLocalRoutes.MEMORY_TASK_ADMIT_GENERATION,
+        controller.admit_generation,
     )
     local_bus.register(
         PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,

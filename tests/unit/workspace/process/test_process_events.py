@@ -32,13 +32,13 @@ from hivememory.core.protocol.gateway import (
     MemoryWriteSignal,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUFailureReason
 from hivememory.workspace.process import NonStreamingAgentOutcome, TaskProcessService
 from hivememory.workspace.process.service import ProcessHandle
+from hivememory.workspace.process.table import ProcessTable
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
@@ -86,7 +86,6 @@ async def _prepare(*, identity_scope, interaction_id, **_kwargs):
         interaction_id=interaction_id,
         topic_id=_TOPIC_ID,
         is_new_topic=False,
-        retrieval_result=RetrievalResponse(),
     )
 
 
@@ -109,6 +108,7 @@ async def _service(
     cpu=None,
     *,
     composition: AccessTestComposition | None = None,
+    process_table: ProcessTable | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
     """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
     composition = composition or _composition()
@@ -118,6 +118,7 @@ async def _service(
         cpu=cpu or ScriptedCPU(result=make_cpu_result()),
         access_gateway=composition.gateway,
         operation_authorizer=composition.authorizer,
+        process_table=process_table,
     )
     return service, composition
 
@@ -335,12 +336,13 @@ async def test_cpu_failure_reason_reaches_done_and_runtime_event(reason):
 async def test_stream_closed_before_terminal_publishes_cancelled_with_close_reason() -> None:
     """交付方在终态前关闭流：进程按断流取消收口并发布关闭原因。"""
     sink = RecordingRuntimeEventSink()
+    table = ProcessTable()
     service, composition = await _service(
         GlobalSystemBus(),
         RuntimeEventPublisher(sink),
         cpu=ScriptedCPU(result=make_cpu_result()),
+        process_table=table,
     )
-    requestor = await composition.authenticate(agent_id=_AGENT)
     handle = await _register(composition, service, "问题", process_id="process-closed")
     stream = service.run_process(handle, stream=True)
 
@@ -355,7 +357,7 @@ async def test_stream_closed_before_terminal_publishes_cancelled_with_close_reas
         "stream_closed",
         {"close_reason": "stream_closed"},
     )
-    assert service.process_status("process-closed", access=requestor) is None
+    assert table.get("process-closed") is None
 
 
 class _RaisingSink(RecordingRuntimeEventSink):

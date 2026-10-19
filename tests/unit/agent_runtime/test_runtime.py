@@ -10,7 +10,6 @@ from hivememory.agent_runtime.frame import (
     FrameExecutionStatus,
 )
 from hivememory.agent_runtime.loop import AgentLoopExecutor
-from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.config.alice import AgentRuntimeConfig
 from hivememory.config.shared import LLMConfig
@@ -23,6 +22,7 @@ from hivememory.core.models import (
 from hivememory.infrastructure.llm.base import LLMRequestParams
 from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.llm import CallbackLLMService
+from tests.helpers.outputs import NullFrameOutputSink
 from tests.helpers.workspace import make_runtime_scope
 
 
@@ -51,13 +51,13 @@ async def test_built_runtime_uses_config_budget_unless_frame_overrides(
     from hivememory.config.memory_compiler import MemoryCompilerConfig
 
     async def always_run_clock(_messages, _params):
-        return "⟪ RUN | sys_clock | ⟫"
+        yield "⟪ RUN | sys_clock | ⟫"
 
     runtime = build_agent_runtime(
         runtime_config=AgentRuntimeConfig(max_loop_iterations=2),
         koakuma_config=KoakumaConfig(),
         memory_compiler_config=MemoryCompilerConfig(),
-        llm_service=CallbackLLMService(complete=always_run_clock),
+        llm_service=CallbackLLMService(stream=always_run_clock),
     )
     frame = _frame()
     frame.execution_policy = FrameExecutionPolicy.from_verbs({"RUN"}, max_iterations=frame_limit)
@@ -247,11 +247,14 @@ async def test_run_frame_without_registry_or_model_fails_resolution():
 @pytest.mark.asyncio
 async def test_frame_reentry_keeps_resolved_model_and_budget():
     """挂起恢复不重新读取注册表，以免预算与已经组装的请求发生漂移。"""
-    from hivememory.agent_runtime.model.generator import GenerationResult
+    from hivememory.agent_runtime.model.generator import GenerationResult, StreamChunk
+
+    async def generate_done(*_args, **_kwargs):
+        yield StreamChunk(is_final=True, result=GenerationResult(text="完成"))
 
     resolver = MagicMock()
     resolver.resolve.return_value = (LLMConfig(model="model", max_tokens=100), "模型")
-    worker = MagicMock(generate=AsyncMock(return_value=GenerationResult(text="完成")))
+    worker = MagicMock(generate=generate_done)
     runtime = AgentRuntime(
         runtime_config=AgentRuntimeConfig(),
         loop_executor=AgentLoopExecutor(worker, MagicMock(), MagicMock(max_loop_iterations=3)),

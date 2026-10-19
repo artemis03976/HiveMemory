@@ -30,6 +30,11 @@ if TYPE_CHECKING:
         MemoryIntent,
         MemoryIntentSubmissionResult,
     )
+    from hivememory.patchouli.contracts.memory_management import (
+        AgentProfileCreation,
+        MemoryCreation,
+        MemoryEdit,
+    )
     from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationTask
     from hivememory.patchouli.contracts.prepare import PreparedAgentRun
     from hivememory.patchouli.contracts.topic_management import (
@@ -42,10 +47,8 @@ class PatchouliRoutes:
     """由 Patchouli 提供的全局 RPC 名称与签名。"""
 
     @route("patchouli.public.memory.create")
-    async def MEMORY_CREATE(
-        identity_scope: IdentityScope, atom: MemoryAtom | None = None
-    ) -> MemoryAtom:
-        """创建属于目标 Workspace 的记忆。"""
+    async def MEMORY_CREATE(identity_scope: IdentityScope, creation: MemoryCreation) -> MemoryAtom:
+        """以调用方提交的材料创建属于目标 Workspace 的记忆，返回持久化后的原子。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.memory.list")
@@ -70,17 +73,9 @@ class PatchouliRoutes:
 
     @route("patchouli.public.memory.update")
     async def MEMORY_UPDATE(
-        memory_id: UUID | str,
-        *,
-        identity_scope: IdentityScope,
-        title: str | None = None,
-        summary: str | None = None,
-        content: str | None = None,
-        alias: str | None = None,
-        tags: list[str] | None = None,
-        agent_config: dict | None = None,
+        memory_id: UUID | str, *, identity_scope: IdentityScope, edit: MemoryEdit
     ) -> MemoryAtom | None:
-        """管理操作已在能力层授权；内部编辑只按目标归属定位记忆。"""
+        """以调用方提交的部分编辑修改目标归属下的记忆；记忆不存在时返回 None。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.memory.delete")
@@ -114,9 +109,9 @@ class PatchouliRoutes:
 
     @route("patchouli.public.agent_profile.create")
     async def AGENT_PROFILE_CREATE(
-        identity_scope: IdentityScope, atom: MemoryAtom | None = None
+        identity_scope: IdentityScope, creation: AgentProfileCreation
     ) -> MemoryAtom:
-        """创建目标 Workspace 的 Agent Profile 记忆原子。"""
+        """以调用方提交的材料创建目标 Workspace 的 Agent Profile，返回持久化后的原子。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.agent_profile.list")

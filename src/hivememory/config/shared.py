@@ -21,7 +21,7 @@ class LLMConfig(BaseModel):
     context_window: int | None = Field(default=None, gt=0, description="模型总上下文窗口 token 数")
     top_p: float = Field(default=DEFAULT_TOP_P)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class ProviderCredentials(BaseModel):
@@ -35,7 +35,7 @@ class ProviderCredentials(BaseModel):
     api_key: str | None = Field(default=None)
     api_base: str | None = Field(default=None)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class LLMGlobalConfig(BaseModel):
@@ -48,24 +48,21 @@ class LLMGlobalConfig(BaseModel):
         default_factory=lambda: LLMConfig(model_id="default", temperature=0.0, max_tokens=512)
     )
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
 
 class EmbeddingConfig(BaseModel):
     model_name: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
     device: str = Field(default="cpu")
     cache_dir: str | None = Field(default=None)
-    batch_size: int = Field(default=32)
-    normalize_embeddings: bool = Field(default=True)
-    dimension: int = Field(default=384)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class EmbeddingGlobalConfig(BaseModel):
     default: EmbeddingConfig = Field(default_factory=EmbeddingConfig)
 
-    model_config = ConfigDict(extra="allow")
+    model_config = ConfigDict(extra="forbid")
 
 
 class SharedConfig(BaseModel):
@@ -75,4 +72,4 @@ class SharedConfig(BaseModel):
     # 供 ModelRegistry 按模型的 provider 字段解析 api_key / api_base。
     providers: dict[str, ProviderCredentials] = Field(default_factory=dict)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")

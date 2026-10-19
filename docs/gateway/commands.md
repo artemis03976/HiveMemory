@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/system/application-services.md
-last_reviewed: 2026-10-01
+last_reviewed: 2026-10-18
 ---
 
 # Gateway 全局命令
@@ -35,7 +35,7 @@ CommandDefinition
                       -> 任务进程：command_terminal -> CommandExecutionResult（命令终态）
 ```
 
-- `CommandDefinition` 声明名称、别名、参数、路由目标、权限和展示信息；
+- `CommandDefinition` 声明名称、别名、参数 schema 和展示信息；
 - `CommandRegistry` 负责注册、冲突检查、列表和匹配，不产生副作用；
 - Parser 负责 token 与最小参数 schema，不执行 shell；
 - `RuleInterceptor` 只把解析结果放入 Gateway state；
@@ -92,22 +92,22 @@ Registry 在 Gateway Runtime 装配时创建并注册内置命令；`gateway.com
 | `matched` | `not_implemented` | `command.unavailable` | “系统指令 <命令名> 暂不可用。” |
 | `unknown`、`invalid_args`、`ambiguous` | `rejected` | `command.parse.<解析状态>` | 解析错误 |
 
-`command_id` 取解析结果中的 `command_id`；解析失败时为空，回退为解析出的命令名。命令终态不携带客户端动作。流式交付仍发出 `command_result` 与 `done`，非流式返回 `NonStreamingCommandOutcome`；`chat.run.completed` 与 `gateway.workflow.completed` 事件都带 `command_id`。
+`command_id` 取解析结果的 `effective_command_id`：解析成功时为定义的 `command_id`；解析失败时 `command_id` 为空，回退为解析出的命令名，切分失败连命令名都没有时为 `unknown`。命令终态不携带客户端动作。流式交付仍发出 `command_result` 与 `done`，非流式返回 `NonStreamingCommandOutcome`；`chat.run.completed` 与 `gateway.workflow.completed` 事件都带 `command_id`。
 
 命令不可用是命令自身的终态，不是进程失败，也不会回退到普通 chat。
 
-## 6. 定义中保留的执行字段
+## 6. 定义不含执行字段
 
-`CommandDefinition` 仍声明路由目标（`local_handler`、`global_route`、`client_action`、`future_job`）与权限策略（`visibility`、用户与 Agent allowlist、`requires_confirmation`、`destructive`）。解析不使用这些字段；它们只在命令定义中保留，将来命令系统接回时随运行位置重新设计。因为命令不执行，当前不存在需要按这些字段授权的副作用。
+`CommandDefinition` 只描述解析与展示需要的信息，不声明命令在哪里运行（路由目标）、谁可以运行（权限与可见性策略）或运行前是否需要确认。命令不执行，这些字段没有读取方；保留它们会让定义看起来已经约定了执行语义。它们与命令的运行位置互相依赖，命令系统接回时一并设计。
 
 ## 7. 当前内置命令
 
-| 命令 | 别名 | 定义中的路由目标 | 当前结果 |
+| 命令 | `command_id` | 别名 | 当前结果 |
 |:---|:---|:---|:---|
-| `/help` | `/start` | `local_handler: system.help` | 暂不可用 |
-| `/commands` | 无 | `local_handler: system.commands` | 暂不可用 |
-| `/clear` | `/reset`、`/restart` | `client_action: clear_chat` | 暂不可用；不返回 `clear_chat` |
-| `/status` | 无 | `local_handler: runtime.status` | 暂不可用 |
+| `/help` | `system.help` | `/start` | 暂不可用 |
+| `/commands` | `system.commands` | 无 | 暂不可用 |
+| `/clear` | `system.clear` | `/reset`、`/restart` | 暂不可用；不返回 `clear_chat` |
+| `/status` | `runtime.status` | 无 | 暂不可用 |
 
 `/clear` 不再返回 `clear_chat`，前端也就不再因它清空聊天；前端目前没有其他清空入口。
 
@@ -120,10 +120,9 @@ Registry 在 Gateway Runtime 装配时创建并注册内置命令；`gateway.com
 ## 9. 当前限制
 
 - 内置命令全部暂时不可用；命令在任务进程中何时、由谁运行尚未决定；
-- Registry 与动态定义是进程内状态，重启后不会恢复，也没有配置热重载；
-- `RuleInterceptor.add_system_command()` 只能注册隐藏的 `future_job` 目标的定义；
+- Registry 是进程内状态，内置命令在 Gateway Runtime 装配时注册，没有配置热重载；
 - 最小 schema 不提供完整类型转换、互斥参数、嵌套校验或未知字段拒绝；
-- 定义中的权限与确认字段当前没有执行方；destructive 命令接回前必须补齐确认协议。
+- 定义不声明执行权限与确认要求；命令接回前必须随运行位置设计权限与确认协议，破坏性命令尤其如此。
 
 ## 10. 设计矛盾检查
 
@@ -140,6 +139,7 @@ Registry 在 Gateway Runtime 装配时创建并注册内置命令；`gateway.com
 ## 11. 验证入口
 
 - `tests/unit/gateway/commands/test_registry.py`、`tests/unit/gateway/commands/test_parser.py`
+- `tests/unit/core/protocol/test_gateway.py`
 - `tests/unit/engines/gateway/test_interceptors.py`
 - `tests/unit/gateway/test_contracts.py`
 - `tests/unit/gateway/test_workflow.py`

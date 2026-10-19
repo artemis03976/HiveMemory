@@ -9,7 +9,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from hivememory.config.attachments import AttachmentParserConfig
-from hivememory.core.errors import WorkspaceDomainError
+from hivememory.core.errors import AssetFailedError, WorkspaceDomainError
 from hivememory.core.models.identity import IdentityScope
 from hivememory.core.models.workspace_asset import (
     AssetRepresentationKind,
@@ -30,7 +30,6 @@ from hivememory.infrastructure.attachments.errors import (
 from hivememory.infrastructure.attachments.models import ParsedAttachmentContent
 from hivememory.infrastructure.attachments.parser import AttachmentParser, resolve_parser
 
-ASSET_FAILED_CODE = "workspace.asset.failed"
 _GENERIC_PARSE_FAILURE_MESSAGE = "附件解析失败，请重新上传"
 logger = logging.getLogger(__name__)
 
@@ -151,7 +150,7 @@ class AttachmentParseService:
             asset_ref,
             representation_id,
             operation_id,
-            safe_error=AssetSafeError(code=ASSET_FAILED_CODE, message=message),
+            safe_error=AssetSafeError(code=AssetFailedError.code, message=message),
         )
 
 
@@ -211,4 +210,4 @@ def _verify_result_source(
         )
 
 
-__all__ = ["ASSET_FAILED_CODE", "AttachmentParseService"]
+__all__ = ["AttachmentParseService"]

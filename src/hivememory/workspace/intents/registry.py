@@ -46,7 +46,7 @@ class WriteIntentRegistry:
         *,
         belong_to: WorkspaceIdentity,
         from_actor: ActorIdentity,
-        process_id: str | None,
+        process_id: str,
     ) -> PendingAtom:
         """登记 WRITE 并进入 MATERIALIZING；返回独立副本，调用方不能改写登记中的状态。"""
         prefix = f"draft_{_slugify(focus.title or focus.content[:20])}"
@@ -58,7 +58,7 @@ class WriteIntentRegistry:
         *,
         belong_to: WorkspaceIdentity,
         from_actor: ActorIdentity,
-        process_id: str | None,
+        process_id: str,
     ) -> PendingAtom:
         """登记 UPDATE；基础原子的可读性由能力层先行验证。"""
         return self._register(f"rev_{focus.base_alias}", focus, belong_to, from_actor, process_id)
@@ -69,7 +69,7 @@ class WriteIntentRegistry:
         focus: WriteFocus | UpdateFocus,
         belong_to: WorkspaceIdentity,
         from_actor: ActorIdentity,
-        process_id: str | None,
+        process_id: str,
     ) -> PendingAtom:
         # alias 永不复用；短后缀冲突时重新生成，不能覆盖已结算的旧句柄。
         alias = f"{prefix}_{uuid4().hex[:4]}"

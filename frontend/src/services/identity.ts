@@ -44,8 +44,8 @@ export function setIdentitySelection(selection: Partial<IdentitySelection>): voi
 /**
  * 构造统一请求上下文请求头（x-user-id / x-workspace-id）。
  *
- * 后端 server 边界以该请求头为用户导向基础选择，body/query 携带同一
- * 字段且不一致时会被显式拒绝（HTTP 409）。
+ * 后端 server 边界只从该请求头读取用户导向基础选择，管理与 Chat 路由
+ * 不接受 body 或 query 中的身份字段。
  */
 export function identityHeaders(): Record<string, string> {
   const { user_id, workspace_id } = getIdentitySelection();

@@ -205,73 +205,63 @@ class MemoryGenerationTaskController:
             return f"active:{spec.intent_id}"
         return str(uuid.uuid4())
 
-    async def submit_generation_many(
+    async def admit_generation(
         self,
-        specs: list[MemoryGenerationTaskSpec],
-    ) -> list[MemoryGenerationAdmission]:
-        """按输入顺序逐项接纳，返回与输入一一对应的接纳结果。
+        spec: MemoryGenerationTaskSpec,
+    ) -> MemoryGenerationAdmission:
+        """接纳一项生成任务并分类结果，供需要区分拒绝与结果未知的提交方使用。
 
-        一项确定性拒绝不会阻断后续任务，并由 Controller 以 FAILED 结算关联的
-        ``PendingAtom``；无法判断是否接纳的异常与 intent 载荷冲突都是结果未知，
-        不发布结算事件：冲突时既有任务仍拥有该 intent 的结算权。
+        确定性拒绝由 Controller 以 FAILED 结算关联的 ``PendingAtom``，不伪造 FAILED
+        任务；无法判断是否接纳的异常与 intent 载荷冲突都是结果未知，不发布结算事件：
+        冲突时既有任务仍拥有该 intent 的结算权。
         """
 
-        admissions: list[MemoryGenerationAdmission] = []
-        rejected_intents: list[tuple[str, str]] = []
-        # 整批持有 admission 锁，保证同一批规范不会与并发提交交错；实际执行仍
-        # 由队列异步调度，本方法只串行化轻量的接纳阶段。
         async with self._submission_lock:
-            for spec in specs:
-                try:
-                    task = await self._submit_generation_locked(spec)
-                except asyncio.CancelledError:
-                    raise
-                except _MemoryGenerationIntentConflictError as exc:
-                    # 已有任务仍拥有该 intent 的最终结算权；冲突重放不能抢先把
-                    # 同一个 PendingAtom 标记为失败。
-                    logger.warning(
-                        "Memory generation intent payload conflict: "
-                        "pending_alias=%s, intent_id=%s, err=%s",
-                        spec.pending_alias,
-                        spec.intent_id,
-                        exc,
-                    )
-                    admissions.append(MemoryGenerationAdmission.unknown())
-                    continue
-                except (
-                    WorkPayloadEncodeError,
-                    WorkQueueCapacityError,
-                    WorkQueueStoppedError,
-                    UnknownWorkLaneError,
-                    UnknownWorkPayloadCodecError,
-                ) as exc:
-                    logger.warning(
-                        "Memory generation admission rejected: "
-                        "pending_alias=%s, intent_id=%s, err=%s",
-                        spec.pending_alias,
-                        spec.intent_id,
-                        exc,
-                    )
-                    if spec.pending_alias is not None and spec.intent_id is not None:
-                        rejected_intents.append((spec.pending_alias, spec.intent_id))
-                    admissions.append(MemoryGenerationAdmission.rejected())
-                    continue
-                except Exception:
-                    logger.warning(
-                        "Memory generation admission outcome unknown: "
-                        "pending_alias=%s, intent_id=%s",
-                        spec.pending_alias,
-                        spec.intent_id,
-                        exc_info=True,
-                    )
-                    admissions.append(MemoryGenerationAdmission.unknown())
-                    continue
-                admissions.append(MemoryGenerationAdmission.accepted(task))
+            try:
+                task = await self._submit_generation_locked(spec)
+            except asyncio.CancelledError:
+                raise
+            except _MemoryGenerationIntentConflictError as exc:
+                # 已有任务仍拥有该 intent 的最终结算权；冲突重放不能抢先把
+                # 同一个 PendingAtom 标记为失败。
+                logger.warning(
+                    "Memory generation intent payload conflict: "
+                    "pending_alias=%s, intent_id=%s, err=%s",
+                    spec.pending_alias,
+                    spec.intent_id,
+                    exc,
+                )
+                return MemoryGenerationAdmission.unknown()
+            except (
+                WorkPayloadEncodeError,
+                WorkQueueCapacityError,
+                WorkQueueStoppedError,
+                UnknownWorkLaneError,
+                UnknownWorkPayloadCodecError,
+            ) as exc:
+                logger.warning(
+                    "Memory generation admission rejected: "
+                    "pending_alias=%s, intent_id=%s, err=%s",
+                    spec.pending_alias,
+                    spec.intent_id,
+                    exc,
+                )
+            except Exception:
+                logger.warning(
+                    "Memory generation admission outcome unknown: "
+                    "pending_alias=%s, intent_id=%s",
+                    spec.pending_alias,
+                    spec.intent_id,
+                    exc_info=True,
+                )
+                return MemoryGenerationAdmission.unknown()
+            else:
+                return MemoryGenerationAdmission.accepted(task)
 
         # 功能事件发布不占用 admission 锁，避免慢订阅者阻塞其他提交方。
-        for pending_alias, intent_id in rejected_intents:
-            await self._pending_atom_settler.failed(pending_alias, intent_id)
-        return admissions
+        if spec.pending_alias is not None and spec.intent_id is not None:
+            await self._pending_atom_settler.failed(spec.pending_alias, spec.intent_id)
+        return MemoryGenerationAdmission.rejected()
 
     async def _execute_generation(
         self,

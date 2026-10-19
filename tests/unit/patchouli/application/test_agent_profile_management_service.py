@@ -11,7 +11,7 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.core.errors import ScopeRequiredError, WorkspaceMismatchError
+from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -20,6 +20,7 @@ from hivememory.core.models import (
 )
 from hivememory.patchouli.application import AgentProfileManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.memory_management import AgentProfileCreation
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -46,36 +47,36 @@ def bus():
 
 
 @pytest.mark.asyncio
-async def test_create_agent_profile_forces_profile_type_and_requests_memory_create(bus):
+async def test_create_agent_profile_fixes_profile_type_and_passes_materials_with_actor(bus):
+    """Profile 入口固定类型，材料与本次发起者原样交给创建原语，返回其持久化结果。"""
     service = AgentProfileManagementService(bus=bus)
-    atom = _make_memory_atom()
     identity_scope = make_identity_scope(user_id="u1")
+    created = _make_memory_atom()
+    bus.request = AsyncMock(return_value=created)
 
-    result = await service.create_agent_profile(identity_scope, atom)
+    result = await service.create_agent_profile(
+        identity_scope,
+        AgentProfileCreation(
+            title="Worker",
+            alias="worker",
+            tags=("ops",),
+            agent_config={"model": "m"},
+        ),
+    )
 
-    assert atom.index.memory_type == MemoryType.AGENT_PROFILE
-    assert result is atom
+    assert result is created
     bus.request.assert_awaited_once_with(
         PatchouliLocalRoutes.MEMORY_CREATE,
         identity_scope.workspace_identity,
-        atom,
+        from_actor=identity_scope.actor_identity,
+        memory_type=MemoryType.AGENT_PROFILE,
+        title="Worker",
+        summary="",
+        content="",
+        tags=["ops"],
+        alias="worker",
+        agent_config={"model": "m"},
     )
-
-
-@pytest.mark.asyncio
-async def test_create_agent_profile_rejects_foreign_workspace_atom(bus):
-    """捕获 profile 创建在下游前篡改异域 Memory 类型的缺陷。"""
-    service = AgentProfileManagementService(bus=bus)
-    foreign_atom = _make_memory_atom(user_id="u2")
-
-    with pytest.raises(WorkspaceMismatchError, match="workspace.mismatch"):
-        await service.create_agent_profile(
-            make_identity_scope(user_id="u1"),
-            foreign_atom,
-        )
-
-    assert foreign_atom.index.memory_type == MemoryType.FACT
-    bus.request.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -84,7 +85,7 @@ async def test_create_agent_profile_requires_identity_scope(bus):
     service = AgentProfileManagementService(bus=bus)
 
     with pytest.raises(ScopeRequiredError, match="workspace.scope_required"):
-        await service.create_agent_profile(None, _make_memory_atom())
+        await service.create_agent_profile(None, AgentProfileCreation(title="W", alias="w"))
 
     bus.request.assert_not_awaited()
 

@@ -8,8 +8,8 @@ code_paths:
   - src/hivememory/workspace/process/runner.py
   - src/hivememory/workspace/process/table.py
   - src/hivememory/patchouli/service.py
-  - src/hivememory/alice/application/agent_run_service.py
-  - src/hivememory/alice/runtime/streaming.py
+  - src/hivememory/alice/run/service.py
+  - src/hivememory/alice/interface/stream.py
   - src/hivememory/server/routers/chat.py
   - frontend/src/stores/chat/
 related_docs:
@@ -19,7 +19,7 @@ related_docs:
   - docs/components/observability.md
   - docs/contracts/routes-and-events.md
   - docs/ideas/task-process-table-and-registration-entry.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-10-19
 ---
 
 # Chat Run 取消与生命周期后续设计
@@ -35,6 +35,13 @@ last_reviewed: 2026-10-15
 **2026-10-01 核对**：chat 编排已迁入 workspace 的任务进程（[任务进程 Idea](./task-process-table-and-registration-entry.md)），本文沿用的旧名按以下对应理解：`chat_stream()` 与 `chat_service` 对应执行器的 `TaskProcessRunner.run(process)`（`workspace/process/runner.py`；2026-10-04 起四阶段骨架从进程容器 `TaskProcess` 拆出），Chat Run 注册表对应进程表 `ProcessTable`（`workspace/process/table.py`），`generation_id` 对应 `process_id`，Alice 阶段对应经 CPU 端口执行的 Actor 阶段。候选 F 的前提已经变化，见第 8 节。
 
 **2026-10-15**：[会话计划](../archive/plans/v0.7.0-conversation-session.md)已完成并归档，原候选 D 和第 3.4 节问题移出本文：有输出的取消/失败轮次可恢复，finalizing 处关闭也等待提交完成。当前事实见 [System 应用服务](../system/application-services.md#33-部分输出与交付关闭)，原候选全文见 commit `c7e912a9` 中的本文。停止仍只经 `Task.cancel()` 与原生 `CancelledError`。
+
+**2026-10-19**：候选 A 中“执行所有权从 SSE 移到进程”的部分已形成[任务进程拥有执行流计划](../plans/v0.7.0-task-process-owned-execution.md)，触发条件见[代码结构成因基线](../governance/baselines/v0.7.0-code-structure-causes-2026-10-18.md)第 3.1 节。该计划的内容是：
+- 进程持有自己的 task 与输出通道，交付改为订阅；
+- 断连仍按现行策略停止并丢弃本轮；
+- CPU 端口改为推送事件、返回终态。
+
+第 2 节的基线全部保留。候选 A 的产品部分（断连后继续运行、重连、多订阅者、状态查询）与候选 B 的输出保留策略，仍按本文各节的启用条件处理。
 
 本文覆盖：
 

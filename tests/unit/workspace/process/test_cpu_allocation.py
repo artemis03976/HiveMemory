@@ -43,13 +43,13 @@ from hivememory.core.models import (
     WorkspaceIdentity,
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
-from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.contracts import CPUExecutionStatus
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
+from hivememory.workspace.process.table import ProcessTable
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
@@ -202,7 +202,7 @@ def _prepare_route(
             interaction_id=interaction_id,
             topic_id=topic_id,
             is_new_topic=is_new_topic,
-            retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
+            memories=tuple(memories or ()),
             storage_available=storage_available,
         )
 
@@ -216,6 +216,7 @@ async def _service(
     attachment_compiler_config: AttachmentCompilerConfig | None = None,
     cpu: ScriptedCPU | None = None,
     composition: AccessTestComposition | None = None,
+    process_table: ProcessTable | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
     """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
     composition = composition or _composition()
@@ -226,6 +227,7 @@ async def _service(
         attachment_compiler_config=attachment_compiler_config,
         access_gateway=composition.gateway,
         operation_authorizer=composition.authorizer,
+        process_table=process_table,
     )
     return service, composition
 
@@ -852,8 +854,8 @@ async def test_cancel_during_cleanup_still_releases_leases_and_closes_process() 
     )
     cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
 
-    service, composition = await _service(bus, store=store, cpu=cpu)
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    table = ProcessTable()
+    service, composition = await _service(bus, store=store, cpu=cpu, process_table=table)
     handle = await _register(
         composition,
         service,
@@ -868,7 +870,7 @@ async def test_cancel_during_cleanup_still_releases_leases_and_closes_process() 
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert service.process_status("process-cancel-during-cleanup", access=requestor) is None
+    assert table.get("process-cancel-during-cleanup") is None
     assert store.close_and_clear().leases_cleared == 0
 
 
@@ -892,8 +894,8 @@ async def test_stream_cancel_during_cleanup_still_releases_leases_and_closes_pro
         _blocking_cleanup(cleanup_started, release_cleanup),
     )
 
-    service, composition = await _service(bus, store=store, cpu=cpu)
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    table = ProcessTable()
+    service, composition = await _service(bus, store=store, cpu=cpu, process_table=table)
     handle = await _register(
         composition,
         service,
@@ -908,7 +910,7 @@ async def test_stream_cancel_during_cleanup_still_releases_leases_and_closes_pro
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    assert service.process_status("process-stream-cancel-during-cleanup", access=requestor) is None
+    assert table.get("process-stream-cancel-during-cleanup") is None
     assert store.close_and_clear().leases_cleared == 0
 
 

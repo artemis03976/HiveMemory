@@ -7,6 +7,7 @@ import logging
 from typing import TYPE_CHECKING
 from uuid import UUID
 
+from hivememory.components.cancellation import join_shielded
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
@@ -32,7 +33,7 @@ from hivememory.workspace.contracts.operations import (
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
 )
-from hivememory.workspace.contracts.threads import IntentDispatchTopicReader
+from hivememory.workspace.thread_ports import IntentDispatchTopicReader
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
@@ -109,8 +110,11 @@ class ActorMemoryService:
         return await self._dispatch(pending, topic_id=topic_id, scope=scope)
 
     def _dispatch_coordinates(self, access: WorkspaceAccessContext) -> tuple[str, str]:
-        """冷读之后重新校验线程；到登记结束不挂起，撤销不能插入同步段。"""
-        self._authorizer.validate_thread_context(access)
+        """冷读之后重新取得进程关联与派发话题；到登记结束不挂起，撤销不能插入同步段。
+
+        读取进程关联本身拒绝已撤销的线程，进程侧读取话题时再按阶段与线程
+        登记校验一次，这里不另做线程校验。
+        """
         process_id = self._authorizer.get_thread_process_id(access)
         topic_id = self._dispatch_topics.get_dispatch_topic(access=access, process_id=process_id)
         return process_id, topic_id
@@ -120,30 +124,12 @@ class ActorMemoryService:
     ) -> PendingAtom:
         """持有派发任务直到提交完成；取消只影响调用方，不撤回已开始的提交。
 
-        等待过程中可能反复收到取消，始终屏蔽到任务结束并取走异常，避免留下
-        无人持有的后台协程。取消优先返回调用方，登记仍按真实接纳结果结算。
+        等待过程中可能反复收到取消，始终屏蔽到任务结束，避免留下无人持有的
+        后台协程。取消优先返回调用方，登记仍按真实接纳结果结算；提交失败的
+        根因由提交任务自身记录。
         """
         task = asyncio.create_task(self._submit_intent(pending, topic_id=topic_id, scope=scope))
-        cancelled = False
-        while not task.done():
-            try:
-                await asyncio.shield(task)
-            except asyncio.CancelledError:
-                if task.cancelled():
-                    raise
-                cancelled = True
-            except Exception:
-                # 统一在下方读取任务结果，调用方取消不会掩盖登记状态的处理。
-                break
-        if cancelled:
-            # 取走异常避免未检索告警；错误根因已由提交任务记录。
-            if not task.cancelled() and task.exception() is not None:
-                logger.warning(
-                    "Intent dispatch finished with an error after caller cancellation: %s",
-                    pending.intent_id,
-                )
-            raise asyncio.CancelledError
-        task.result()
+        await join_shielded(task)
         return pending
 
     async def _submit_intent(

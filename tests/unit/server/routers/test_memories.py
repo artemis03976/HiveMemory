@@ -66,8 +66,27 @@ class _MemoryManagementStub:
         self.storage = storage
         self.lifecycle_engine = lifecycle_engine
 
-    # 对齐 Patchouli 路由当前契约：只接收操作授权者返回的 scope，不接收 access。
-    async def create_memory(self, identity_scope, atom):
+    # 对齐 Patchouli 路由当前契约：只接收操作授权者返回的 scope 与创建材料，不接收 access。
+    async def create_memory(self, identity_scope, creation):
+        # 与 Familiar 相同的契约：以材料构造原子，来源取发起者，非法输入以 InvalidMemoryFieldError 拒绝。
+        try:
+            index = IndexLayer(
+                title=creation.title,
+                summary=creation.summary,
+                tags=list(creation.tags),
+                memory_type=creation.memory_type,
+                alias=creation.alias,
+            )
+        except ValidationError as exc:
+            raise InvalidMemoryFieldError.from_validation_error(exc) from exc
+        atom = MemoryAtom(
+            meta=make_memory_metadata(
+                source_agent_id=identity_scope.actor_identity.agent_id,
+                user_id=identity_scope.workspace_identity.owner_user_id,
+            ),
+            index=index,
+            payload=PayloadLayer(content=creation.content),
+        )
         self.storage.upsert_memory(atom)
         return atom
 
@@ -116,13 +135,13 @@ class _MemoryManagementStub:
             self.lifecycle_engine.refresh_vitality_batch([atom], persist=False)
         return atom
 
-    async def update_memory(self, memory_id, *, identity_scope, **updates):
+    async def update_memory(self, memory_id, *, identity_scope, edit):
         atom = self.storage.get_memory(memory_id)
         if atom is None or atom.workspace_identity != identity_scope.workspace_identity:
             return None
         # 与 Familiar 相同的契约：非法输入以 InvalidMemoryFieldError 拒绝。
         try:
-            for key, value in updates.items():
+            for key, value in vars(edit).items():
                 if value is None:
                     continue
                 if key == "title":

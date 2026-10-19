@@ -26,7 +26,6 @@ from hivememory.workspace.process.table import (
     ProcessOutcome,
     ProcessPhase,
     ProcessRecord,
-    ProcessStatusSnapshot,
     ProcessTable,
     StopResult,
 )
@@ -41,7 +40,6 @@ __all__ = [
     "ProcessOutcome",
     "ProcessPhase",
     "ProcessRecord",
-    "ProcessStatusSnapshot",
     "ProcessTable",
     "ProcessWorkingSet",
     "StopResult",

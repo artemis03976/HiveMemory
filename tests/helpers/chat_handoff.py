@@ -24,7 +24,7 @@ from hivememory.core.protocol.gateway import (
     MemoryWriteSignal,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import ConversationTurn, RetrievalResponse
+from hivememory.core.protocol.models import ConversationTurn
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUInputManifest
 from tests.helpers.memory import make_memory_identity_scope
@@ -59,7 +59,7 @@ def make_prepared_run(
         interaction_id=interaction_id,
         topic_id=topic_id,
         is_new_topic=is_new_topic,
-        retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
+        memories=tuple(memories or ()),
         storage_available=storage_available,
     )
 

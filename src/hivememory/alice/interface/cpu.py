@@ -7,7 +7,6 @@ from contextlib import aclosing
 from typing import Any
 
 from hivememory.alice.interface.stream import AgentRunStreamAdapter
-from hivememory.alice.run.output import NullRunOutput
 from hivememory.alice.run.service import AgentRunService
 from hivememory.core.access import WorkspaceAccessContext
 from hivememory.workspace.contracts import (
@@ -31,7 +30,11 @@ class AliceUnavailableError(RuntimeError):
 
 
 class AliceCPU:
-    """以 Alice Agent run 充当任务进程 CPU；访问凭据只绑定到提交函数。"""
+    """以 Alice Agent run 充当任务进程 CPU；访问凭据只绑定到提交函数。
+
+    每次执行都经流式适配器运行，逐项交出交互事件再交出终态；交付方只要
+    终态时由它丢弃事件，Alice 不区分交付形态。
+    """
 
     def __init__(
         self,
@@ -57,7 +60,6 @@ class AliceCPU:
         *,
         access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
-        stream: bool,
     ) -> CPURunHandle:
         slot = CPUResultSlot()
         return CPURunHandle(
@@ -65,7 +67,6 @@ class AliceCPU:
                 manifest,
                 access=access,
                 generation_options=generation_options,
-                stream=stream,
                 result_slot=slot,
             ),
             result_slot=slot,
@@ -77,36 +78,26 @@ class AliceCPU:
         *,
         access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
-        stream: bool,
         result_slot: CPUResultSlot,
     ) -> AsyncGenerator[CPUOutput, None]:
         # 在首次拉取时检查，错误由任务进程的 CPU 执行阶段统一收尾。
         if not self._running:
             raise AliceUnavailableError()
         submit_operation = ThreadOperationSubmitter(self._operation_entry, access)
-        if stream:
-            adapter = self._stream_adapter.create()
-            outputs = adapter.events(
-                self._service.run_agent(
-                    manifest,
-                    generation_options=generation_options,
-                    submit_operation=submit_operation,
-                    run_output=adapter.output,
-                    result_slot=result_slot,
-                )
-            )
-            # 断流或拉取取消必须关闭内层流，等待 runner 收尾后才交回结果槽。
-            async with aclosing(outputs):
-                async for output in outputs:
-                    yield output
-        else:
-            yield await self._service.run_agent(
+        adapter = self._stream_adapter.create()
+        outputs = adapter.events(
+            self._service.run_agent(
                 manifest,
                 generation_options=generation_options,
                 submit_operation=submit_operation,
-                run_output=NullRunOutput(),
+                run_output=adapter.output,
                 result_slot=result_slot,
             )
+        )
+        # 断流或拉取取消必须关闭内层流，等待 runner 收尾后才交回结果槽。
+        async with aclosing(outputs):
+            async for output in outputs:
+                yield output
 
 
 __all__ = ["AliceCPU", "AliceUnavailableError"]

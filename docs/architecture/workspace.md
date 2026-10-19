@@ -130,7 +130,7 @@ Workspace 只在资源所有者需要它的地方生效。Patchouli 在公共边
 
 HTTP 层的用户导向身份选择（`user_id + workspace_id`）由统一请求头 `x-user-id` / `x-workspace-id` 承载，并在 `server/deps.py` 的 `resolve_request_identity_claims` 解析为**身份声明**：actor 声明与请求进入的 Workspace。声明不是身份结论——认证之前 server 只持有声明，`IdentityScope` 要到第 4 节的第 3 阶段才由授权点组装。该函数是默认身份解析的唯一入口：
 
-1. 同一请求的 header 与 body/query 携带同一身份字段且不一致时显式拒绝（409），不静默择一；
+1. 身份选择只取自请求头，路由不接受 body 或 query 中的身份字段；`/ingest` 的请求体身份字段是既有例外（见本节末），与 header 不一致时显式拒绝（409），不静默择一；
 2. `workspace_id` 只允许已声明的公共入口 `main_workspace`，其余值按不存在拒绝（404）；全部缺省时在此唯一回退 `DEFAULT_USER_ID` 与默认 Workspace；
 3. Chat 等由具体 Agent 执行的 Agent action 必须显式提供 `agent_id`，缺失或显式给出保留的 `system` 都返回 400；非 Agent action（管理操作、Topic 管理、取消等）由 server 使用保留 `SYSTEM_AGENT_ID = "system"`，其语义是"没有具体 Agent 作为操作来源主体"。`system` 是 root API 唯一接受的 actor（第 4.5 节），但它不是 Agent：不持有任何 actor 操作、不能执行任务进程、不是前端可选 Agent，也不得写入 `MemoryAccessPolicy.target_agent_id`。
 
@@ -283,11 +283,11 @@ context 是**密封的**凭据：
 
 三种授权共用前三步：读取 context 的授予内容并确认未撤销、准入记录仍然有效；目标 Workspace 等于驻留 Workspace；actor 用户等于目标 Workspace 的 owner。此后 `authorize_operation` 检查访问登记的白名单包含该 operation，`authorize_root` 检查 actor 是保留的 `system`，`authorize_stage` 不再检查；全部通过才返回 `IdentityScope(actor, target)`，发起者始终是 context 中的 actor。owner 检查因此分在两处：第 2 阶段检查要进入的 Workspace，第 3 阶段检查操作的目标。三种授权的调用面与设计理由见第 4.5 节。
 
-**进程控制授权**：取消与状态查询比对请求方 context 与进程记录中的 context，两者驻留在同一 owner 与 Workspace 时允许；请求方 context 无效以 `ScopeRequiredError` 拒绝；进程记录侧的 context 已撤销时按不可控处理，呈现为 `not_found`，不泄露进程是否存在。
+**进程控制授权**：取消比对请求方 context 与进程记录中的 context，两者驻留在同一 owner 与 Workspace 时允许；请求方 context 无效以 `ScopeRequiredError` 拒绝；进程记录侧的 context 已撤销时按不可控处理，呈现为 `not_found`，不泄露进程是否存在。
 
 **执行标签与线程 context**：注册认证通过后，以该注册的 Agent 和 Workspace 创建一次冻结的 `ExecutionLabels(agent_id, workspace_id)`，由 `BoundProcessEvents` 持有。CPU 分配显式接收同一标签对象，传给 `CPUInputManifest.labels`；Alice 的运行上下文与主、子 frame 沿用它，不读取访问 context 组装身份。标签只服务历史角色匹配、展示回退与运行观测，不能授权或选择资源目标。Actor 阶段派生的线程 context 独立于输入清单交给 CPU；操作入口的职责与撤销边界见第 5.4 节。
 
-**CPU 输入编译**：`CPUAllocator` 在 prepare 前经阶段授权解析 Profile；prepare 后读取 actor 操作快照，按选择租借附件，编译附件与检索记忆，再以中立提示词编译定稿环境通知、人设与本轮材料，最后组装输入清单。提示词语言由进程解析，编译不依赖 Alice 配置；CPU 自行完成工具教学、历史布局与压缩。租借仍登记在进程工作集并由分配器释放。清单字段见[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)，编译归进程的理由见[System 应用服务](../system/application-services.md#31-非流式链路)。
+**CPU 输入编译**：`CPUAllocator` 在 prepare 前经阶段授权解析 Profile；prepare 后读取 actor 操作快照，按选择租借附件，编译附件与检索记忆，再以中立提示词编译定稿环境通知、人设与本轮材料，最后组装输入清单。提示词语言由进程解析，编译不依赖 Alice 配置；CPU 自行完成工具教学、历史布局与压缩。租借仍登记在进程工作集并由分配器释放。清单字段见[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)，编译归进程的理由见[System 应用服务](../system/application-services.md#31-主动链路)。
 
 ### 4.5 三个调用面：actor API、root API 与任务进程的阶段调用
 
@@ -351,9 +351,9 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 
 **操作快照**：CPU 分配另以 `get_stage_operations` 读取本进程 actor 在访问登记中的 actor 操作集合（与阶段授权相同的准入与目标检查，空白名单得到空集合），写入 `CPUInputManifest.allowed_operations`。快照只描述执行者能做什么，供 CPU 生成提示词与执行策略（Alice 翻译为 MTP 动词，见 [MTP 契约](../contracts/mtp.md#4-权限)第 4 节）；它不是身份，也不是授权依据，每个操作请求仍由 actor API 即时授权。登记在运行实例内不可变，快照与即时检查因此一致。
 
-**注册入口**：注册时完成两阶段认证，并拒绝以保留的 `system` 注册任务进程；取消与状态查询经进程控制授权（[应用服务](../system/application-services.md)第 4 节）。
+**注册入口**：注册时完成两阶段认证，并拒绝以保留的 `system` 注册任务进程；按 `process_id` 的取消经进程控制授权（[应用服务](../system/application-services.md)第 4 节）。
 
-**结构守护**：架构测试限定 `authorize_stage` 只在 `workspace/process/` 的 runner 与 CPU 分配中出现、`get_stage_operations` 只在 CPU 分配与进程线程管理中出现、`authorize_root` 只在 root API 中出现、`authorize_thread_operation` 只在 actor API 中出现、`validate_thread_context` 只在操作入口、actor API 与进程线程管理中出现、`get_thread_process_id` 只在 actor API 中出现，派生与撤销线程 context 只由进程线程管理调用；Alice 除 CPU 驱动与组合入口外不引用访问 context、派生原始结果或操作入口；入口的分派表直接指向 actor API 方法，没有拆参 handler；两个 API 目录互不导入，capability 父包只导出共享的读取 backing；server 只导入 root API，操作入口只导入 actor API；actor API 的公开方法、操作目录与请求类型保持一一对应。
+**结构守护**：架构测试限定 `authorize_stage` 只在 `workspace/process/` 的 runner 与 CPU 分配中出现、`get_stage_operations` 只在 CPU 分配与进程线程管理中出现、`authorize_root` 只在 root API 中出现、`authorize_thread_operation` 只在 actor API 中出现、`validate_thread_context` 只在操作入口与进程线程管理中出现、`get_thread_process_id` 只在 actor API 中出现，派生与撤销线程 context 只由进程线程管理调用；Alice 除 CPU 驱动与组合入口外不引用访问 context、派生原始结果或操作入口；入口的分派表直接指向 actor API 方法，没有拆参 handler；两个 API 目录互不导入，capability 父包只导出共享的读取 backing；server 只导入 root API，操作入口只导入 actor API；actor API 的公开方法、操作目录与请求类型保持一一对应。
 
 ### 4.6 拒绝语义
 

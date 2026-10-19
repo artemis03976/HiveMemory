@@ -20,18 +20,15 @@ from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
 from hivememory.core.errors import (
     AssetNotReadyError,
     ScopeRequiredError,
-    WorkspaceDomainError,
 )
 from hivememory.core.models import (
     ActorIdentity,
-    AttachmentSelectionRequest,
     IdentityScope,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
     TurnEvent,
-    WorkspaceAssetRef,
     WorkspaceIdentity,
     WriteFocus,
 )
@@ -46,20 +43,19 @@ from hivememory.core.protocol.gateway import (
     MemoryWriteSignal,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUExecutionStatus, SubmitWriteIntentRequest
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
-from hivememory.workspace.process.table import ProcessStatusSnapshot
+from hivememory.workspace.process.table import ProcessTable
 from tests.helpers.chat_handoff import (
     expected_mtp_traces,
     make_mtp_turn_events,
 )
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.process import make_task_process_service
+from tests.helpers.process import make_task_process_service, process_state
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -108,6 +104,7 @@ def _capture_issued_contexts(composition: AccessTestComposition) -> list[Workspa
 async def _service(
     bus: GlobalSystemBus,
     cpu: ScriptedCPU | None = None,
+    process_table: ProcessTable | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
     """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
     composition = _composition()
@@ -116,6 +113,7 @@ async def _service(
         cpu=cpu or ScriptedCPU(result=make_cpu_result()),
         access_gateway=composition.gateway,
         operation_authorizer=composition.authorizer,
+        process_table=process_table,
     )
     return service, composition
 
@@ -240,7 +238,7 @@ def _scoped_prepared_route(
             interaction_id=interaction_id,
             topic_id=topic_id,
             is_new_topic=is_new_topic,
-            retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
+            memories=tuple(memories or ()),
             storage_available=True,
         )
 
@@ -299,14 +297,9 @@ async def test_non_streaming_decision_uses_one_prepare_cpu_finalize_sequence() -
     calls: list[str] = []
 
     class _RecordingCPU(ScriptedCPU):
-        def execute(self, manifest, *, access, generation_options=None, stream=False):
+        def execute(self, manifest, *, access, generation_options=None):
             calls.append("cpu")
-            return super().execute(
-                manifest,
-                access=access,
-                generation_options=generation_options,
-                stream=stream,
-            )
+            return super().execute(manifest, access=access, generation_options=generation_options)
 
     async def gateway(**_kwargs):
         calls.append("gateway")
@@ -996,23 +989,18 @@ async def test_completed_delivery_closes_process_and_invalidates_context() -> No
     _register_profile(bus)
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
 
-    service, composition = await _service(bus)
+    table = ProcessTable()
+    service, composition = await _service(bus, process_table=table)
     requestor = await composition.authenticate(agent_id=_AGENT)
     issued = _capture_issued_contexts(composition)
     handle = await _register(composition, service, "问题", process_id="process-autoclose")
 
-    snapshot = service.process_status("process-autoclose", access=requestor)
-    assert snapshot == ProcessStatusSnapshot(
-        process_id="process-autoclose",
-        phase="created",
-        status="running",
-        reason=None,
-    )
+    assert process_state(table, "process-autoclose") == ("created", "running", None)
 
     result = await service.run_process(handle, stream=False)
     assert result.kind == "agent"
 
-    assert service.process_status("process-autoclose", access=requestor) is None
+    assert table.get("process-autoclose") is None
     cancel_result = service.cancel_process("process-autoclose", access=requestor)
     assert cancel_result.cancelled is False
     assert cancel_result.status == "not_found"
@@ -1025,41 +1013,6 @@ async def test_completed_delivery_closes_process_and_invalidates_context() -> No
             _workspace(),
         )
     assert excinfo.value.details["reason"] == "context_not_issued"
-
-
-@pytest.mark.asyncio
-async def test_attachment_selection_without_reader_fails_allocation() -> None:
-    """捕获装配遗漏：有附件选择但 Store 未注入时，分配显式失败且不进入 CPU。"""
-    bus = GlobalSystemBus()
-    cleanup = AsyncMock(return_value=True)
-    cpu = ScriptedCPU(result=make_cpu_result())
-    prepared_holder: dict = {}
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(
-        PatchouliRoutes.PREPARE_AGENT_RUN,
-        _recording_prepared_route(prepared_holder),
-    )
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
-
-    service, composition = await _service(bus, cpu)
-    with pytest.raises(WorkspaceDomainError, match="附件读取能力"):
-        await _run_once(
-            composition,
-            service,
-            "问题",
-            process_id="process-no-reader",
-            attachments=[
-                AttachmentSelectionRequest(
-                    asset_ref=WorkspaceAssetRef(token="ref-a", asset_id="asset-a"),
-                ),
-            ],
-        )
-
-    assert cpu.calls == []
-    cleanup.assert_any_await(
-        prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
-    )
 
 
 @pytest.mark.asyncio

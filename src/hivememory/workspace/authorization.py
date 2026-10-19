@@ -1,7 +1,7 @@
 """Workspace 授权：actor 操作、root 管理、系统阶段与进程控制。
 
 :class:`WorkspaceOperationAuthorizer` 是授权点（能力层、任务进程的阶段
-检查、注册入口的取消与状态查询）使用的操作授权者：它无状态，只
+检查、注册入口的取消）使用的操作授权者：它无状态，只
 依赖 Workspace Actor 访问登记——每次授权都读取 context 密封的授予内容，
 再校验目标 workspace 与 owner，按调用面检查 actor 操作白名单或保留的
 system 身份；任务进程阶段不检查操作白名单。授权成功后组装并返回

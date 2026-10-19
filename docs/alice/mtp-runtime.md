@@ -33,7 +33,7 @@ KoakumaRuntime 就是这道执行边界。它把 MTP 生成器截止在 MTP 右�
 一次普通 MTP 迭代沿以下路径推进：
 
 ```text
-MTPGenerator.generate(stream = sink.streams_tokens, stop = MTP right delimiter)
+MTPGenerator.generate(stream=True, stop = MTP right delimiter)
   -> AgentLoopExecutor detects the last MTP opening delimiter
   -> MTPExecutor port（KoakumaRuntime 直接满足协议）
   -> KoakumaRuntime.intercept_and_execute()
@@ -151,8 +151,6 @@ Koakuma、MTPExecutor 和 Agent loop 不接收 Chat Run 取消句柄，也不定
 | `koakuma.file_read_max_bytes` | `102400` | 单次读取上限 |
 | `koakuma.file_write_max_bytes` | `102400` | 单次写入上限 |
 | `koakuma.web_search_timeout_seconds` | `15` | 传入 web search 注册函数，但当前实现忽略 |
-| `koakuma.execution_timeout_seconds` | `30` | 当前未接入 MTP 总执行 timeout |
-| `koakuma.tool_cache_size` | `64` | 当前未用于 syscall 注册表或 atom cache 容量 |
 
 `koakuma.enabled=false` 目前不会阻止 Runtime 解析和执行模型自行生成的 MTP 文本。若它被当作安全关闭开关，会形成错误预期；访问登记的操作白名单只能拒绝资源操作，`sys_*` 系统工具不设权限、RUN 始终可用，真正禁用执行面仍需后续补齐 runtime gate。
 
@@ -187,7 +185,7 @@ Koakuma、MTPExecutor 和 Agent loop 不接收 Chat Run 取消句柄，也不定
 ## 11. 当前限制与实现偏差
 
 - `koakuma.enabled=false` 只移除 prompt 教学，不关闭 runtime 执行；它不是 kill switch；
-- `execution_timeout_seconds` 没有包住 `execute_mtp()`，`tool_cache_size` 也未接入任何 cache；配置存在不代表能力已实现；
+- `execute_mtp()` 没有整体超时；只有 REPL 与 code snippet 子进程按 `python_repl_timeout_seconds` 超时；
 - `web_search_timeout_seconds` 虽被传进 syscall registry，但 `sys_web_search()` 明确忽略该参数；底层调用可能超过配置时间；
 - 系统工具的 syscall 是同步函数，并在 async handler 中直接执行。文件、搜索和 subprocess 等工作会阻塞当前事件循环；
 - MTP 调用不携带 Chat Run 取消参数；取消边界由拥有该 await 的外层 task 负责；

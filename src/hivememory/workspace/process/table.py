@@ -73,16 +73,6 @@ class CancelResult:
     reason: str
 
 
-@dataclass(frozen=True)
-class ProcessStatusSnapshot:
-    """通过 scoped control plane 暴露的任务进程状态。"""
-
-    process_id: str
-    phase: str
-    status: str
-    reason: str | None
-
-
 @dataclass
 class ProcessRecord:
     """一次任务进程的阶段引用、访问 context 与终态事实（与进程同寿）。
@@ -167,7 +157,11 @@ class ProcessRecord:
         self.active_task = None
 
     def request_stop(self, reason: str = "user_requested") -> StopResult:
-        """同步记录 stop，并取消当前唯一的可中断阶段 task。"""
+        """同步记录 stop，并取消当前唯一的可中断阶段 task。
+
+        判定顺序：进入 finalize 后一律拒绝；已经接受过的 stop 返回首次原因
+        （含已以取消结束的进程）；其他已终态化的进程拒绝。
+        """
         if self.phase is ProcessPhase.FINALIZE:
             return StopResult(accepted=False, reason="already_finalizing")
         if self.outcome in {ProcessOutcome.STOP_REQUESTED, ProcessOutcome.CANCELLED}:
@@ -175,16 +169,8 @@ class ProcessRecord:
                 accepted=True,
                 reason=self.stop_reason or reason,
             )
-
-        if self.phase in {ProcessPhase.FINALIZE, ProcessPhase.TERMINAL}:
-            return StopResult(
-                accepted=False,
-                reason=(
-                    "already_finalizing"
-                    if self.phase is ProcessPhase.FINALIZE
-                    else "already_terminal"
-                ),
-            )
+        if self.phase is ProcessPhase.TERMINAL:
+            return StopResult(accepted=False, reason="already_terminal")
 
         self.outcome = ProcessOutcome.STOP_REQUESTED
         self.stop_reason = reason
@@ -239,7 +225,6 @@ __all__ = [
     "ProcessOutcome",
     "ProcessPhase",
     "ProcessRecord",
-    "ProcessStatusSnapshot",
     "ProcessTable",
     "StopResult",
 ]

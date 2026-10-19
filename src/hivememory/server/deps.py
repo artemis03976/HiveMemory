@@ -107,7 +107,7 @@ class RequestIdentitySelection:
     """用户导向身份选择 — 从统一请求头提取的顶层身份上下文。
 
     基础选择为 ``user_id + workspace_id``；Agent 选择（``agent_id``）
-    由具体请求的 body/query 提供。外部会话字段不参与身份选择。
+    由具体请求的 body 提供。外部会话字段不参与身份选择。
     ``workspace_id`` 为 ``None`` 表示请求未显式选择 Workspace，由解析器
     在唯一回退点解析到公共默认 Workspace。
     """
@@ -134,7 +134,7 @@ def _merge_identity_field(
     explicit_value: str | None,
     field_name: str,
 ) -> str | None:
-    """合并 header 与 body/query 携带的同一身份字段。
+    """合并 header 与请求 body 携带的同一身份字段。
 
     两个来源同时出现且不一致时显式拒绝，不静默选择其中一个；
     空白值视为非法输入，同样显式失败。
@@ -161,8 +161,8 @@ def _resolve_identity_coordinates(
 
     解析规则：
 
-    1. ``user_id``：body/query 显式值与 header 选择同时出现且不一致时
-       返回 409；全部缺省时在此唯一回退到 :data:`DEFAULT_USER_ID`。
+    1. ``user_id``：body 显式值（只有 ``/ingest`` 提供）与 header 选择同时
+       出现且不一致时返回 409；全部缺省时在此唯一回退到 :data:`DEFAULT_USER_ID`。
     2. ``workspace_id``：同样做冲突检测；公共产品入口只允许声明的
        ``main_workspace``，其余值返回 404；全部缺省时解析默认 Workspace。
     3. Agent action（``require_agent=True``，如 Chat）必须显式给出具体
@@ -220,13 +220,11 @@ def resolve_request_identity_claims(
     *,
     require_agent: bool = False,
     agent_id: str | None = None,
-    explicit_user_id: str | None = None,
-    explicit_workspace_id: str | None = None,
 ) -> RequestIdentityClaims:
     """server 边界唯一声明解析入口 — 只产出 actor 声明与请求进入的 workspace。
 
-    身份选择与冲突检测规则见 :func:`_resolve_identity_coordinates`。经
-    认证网关的请求一律使用本函数；声明只作为认证输入，认证通过后经过
+    身份只取自统一请求头的选择，默认回退与 Workspace 取值规则见
+    :func:`_resolve_identity_coordinates`。经认证网关的请求一律使用本函数；声明只作为认证输入，认证通过后经过
     验证的身份只存在于密封的 context 中，server 不把声明当作已确认
     的身份继续使用。Agent action（``require_agent=True``）显式给出保留的
     :data:`SYSTEM_AGENT_ID` 时返回 400：它表示"没有具体 Agent"，不能作为
@@ -236,8 +234,8 @@ def resolve_request_identity_claims(
         selection,
         require_agent=require_agent,
         agent_id=agent_id,
-        explicit_user_id=explicit_user_id,
-        explicit_workspace_id=explicit_workspace_id,
+        explicit_user_id=None,
+        explicit_workspace_id=None,
     )
     if require_agent and resolved_agent_id == SYSTEM_AGENT_ID:
         raise APIError("request.agent_reserved")
@@ -293,11 +291,8 @@ def resolve_request_identity_scope(
 
 
 def get_access_gateway() -> ActorAuthenticationGateway:
-    """FastAPI Depends 注入 — 统一认证网关（未装配时显式失败）。"""
-    gateway = get_system().access_gateway
-    if gateway is None:
-        raise RuntimeError("统一认证网关未装配，无法完成请求认证")
-    return gateway
+    """FastAPI Depends 注入 — 统一认证网关。"""
+    return get_system().access_gateway
 
 
 def get_server_principal_id() -> str:
@@ -353,9 +348,8 @@ async def request_access_for_claims(
 ) -> AsyncIterator[RequestAccess]:
     """以给定声明取得请求级访问凭据；退出时使 context 失效。
 
-    供身份解析带 body/query 冲突检测的路由（topics、chat/stop）与
-    :func:`get_request_access` 共用：取得 context、以
-    :class:`RequestAccess` 交出凭据与目标 workspace，声明不越过认证边界。
+    取得 context、以 :class:`RequestAccess` 交出凭据与目标 workspace，声明
+    不越过认证边界。路由经 :func:`get_request_access` 以请求头声明调用。
     """
     access = await authenticate_request_access(claims, gateway=gateway, principal_id=principal_id)
     try:
@@ -372,9 +366,7 @@ async def get_request_access(
     """FastAPI yield 依赖 — 管理员请求的请求级访问凭据与目标 workspace。
 
     以 (user, ``system``) 声明经网关认证取得 context，一次请求一个；
-    请求结束（含失败）时失效。供 memories、
-    agents、memory-tasks、workspace assets 等管理路由使用；身份解析带
-    body/query 冲突检测的路由改用 :func:`request_access_for_claims`。
+    请求结束（含失败）时失效。全部管理路由与取消入口共用这一依赖。
     """
     claims = resolve_request_identity_claims(selection)
     async with request_access_for_claims(

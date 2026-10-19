@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from typing import Any
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -32,7 +33,6 @@ from hivememory.core.ports.workspace_assets import (
 )
 from hivememory.system.assembler import (
     SystemAssembler,
-    _AccessControlBundle,
     _RegistriesBundle,
     _RuntimeBundle,
     _ServicesBundle,
@@ -40,8 +40,7 @@ from hivememory.system.assembler import (
 )
 from hivememory.system.system import HiveMemorySystem
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
-from hivememory.workspace.process.table import ProcessTable
-from hivememory.workspace.process.threads import ProcessThreads
+from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.workspace import (
     make_access_composition,
@@ -206,7 +205,7 @@ def _build_system(
     asset_ref: Any,
     *,
     failing_subsystem: str | None = None,
-    access_control: Any | None = None,
+    access_gateway: ActorAuthenticationGateway | None = None,
 ) -> tuple[
     HiveMemorySystem,
     list[str],
@@ -215,8 +214,8 @@ def _build_system(
 ]:
     """组合真实 System+Store，并以 fake 隔离本测试边界外的子系统。
 
-    ``access_control`` 供访问生命周期用例注入 ``_AccessControlBundle`` 形状
-    的产物；缺省 ``None`` 表示未装配访问控制（构造兼容路径）。
+    ``access_gateway`` 供访问生命周期用例注入真实认证网关；其余用例不关心
+    访问控制，使用只记录调用的替身。
     """
     calls: list[str] = []
     sink = RecordingRuntimeEventSink()
@@ -265,7 +264,7 @@ def _build_system(
             alice=subsystems["alice"],  # type: ignore[arg-type]
         ),
         services=services,
-        access_control=access_control,
+        access_gateway=access_gateway or MagicMock(spec=ActorAuthenticationGateway),
     )
     return system, calls, subsystems, sink
 
@@ -476,6 +475,7 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
             alice=reader_consumers["alice"],  # type: ignore[arg-type]
         ),
         services=services,
+        access_gateway=MagicMock(spec=ActorAuthenticationGateway),
     )
 
     await system.start()
@@ -512,20 +512,8 @@ async def test_system_stop_rejects_new_authentication_and_invalidates_issued_con
         default_workspace=make_workspace_identity(owner_user_id="user-1"),
     )
     context = await composition.authenticate(agent_id="agent-1")
-    process_table = ProcessTable()
-    access_control = _AccessControlBundle(
-        system_registry=object(),  # type: ignore[arg-type]
-        workspace_registry=object(),  # type: ignore[arg-type]
-        authenticator=composition.authenticator,
-        operation_authorizer=composition.authorizer,
-        access_gateway=composition.gateway,
-        process_table=process_table,
-        process_threads=ProcessThreads(
-            process_table, lifecycle=composition.gateway, authorizer=composition.authorizer
-        ),
-    )
     system, _, _, sink = _build_system(
-        store, scope, handle.asset_ref, access_control=access_control
+        store, scope, handle.asset_ref, access_gateway=composition.gateway
     )
 
     await system.start()

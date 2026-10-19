@@ -34,7 +34,6 @@ from hivememory.agent_runtime.output import (
     FrameOutputSink,
     MTPFinished,
     MTPStarted,
-    NullFrameOutputSink,
     TokenDelta,
 )
 from hivememory.config.alice import AgentRuntimeConfig
@@ -76,19 +75,11 @@ class AgentLoopExecutor:
         params: "LLMRequestParams",
         sink: FrameOutputSink,
     ) -> GenerationResult | FrameExecutionResult:
-        """执行一轮 LLM 生成：按 sink 是否输出 token 选择 ``stream`` 参数。"""
-        if not sink.streams_tokens:
-            try:
-                return await self.generator.generate(frame.working_history, params)
-            except asyncio.CancelledError:
-                raise
-            except Exception as error:
-                logger.error("Frame generation failed: %s", error, exc_info=True)
-                return FrameExecutionResult(
-                    status=FrameExecutionStatus.FAILED,
-                    error=error,
-                )
+        """执行一轮流式 LLM 生成：自然语言增量逐条送达 sink，并缓冲到帧进度。
 
+        生成总是流式，停止时已送达的文字可以封为未完成回复；交付方不需要
+        增量时由 sink 自行丢弃。
+        """
         result: GenerationResult | None = None
         # 生成器负责关闭 LLM 服务的流，服务再关闭底层响应；本层只关闭生成器的流。
         chunks = self.generator.generate(frame.working_history, params, stream=True)
@@ -134,7 +125,7 @@ class AgentLoopExecutor:
         self,
         frame: ExecutionFrame,
         max_iterations: int,
-        output_sink: FrameOutputSink | None = None,
+        output_sink: FrameOutputSink,
     ) -> FrameExecutionResult:
         """
         执行单个帧的循环，直到自然收敛、命中 CALL 或进入其他明确终态。
@@ -150,7 +141,6 @@ class AgentLoopExecutor:
         if resolved_model is None:
             raise ValueError("Frame model must be resolved before execution.")
         p = frame.progress  # PCB 累积器，重入时续接
-        sink = output_sink or NullFrameOutputSink()
 
         while p.iteration < max_iterations:
             # 工具结果与 CALL 回填都可能扩大历史；必须在下一次生成前重新检查。
@@ -164,7 +154,7 @@ class AgentLoopExecutor:
             p.iteration += 1
 
             try:
-                result = await self._generate_turn(frame, resolved_model.params, sink)
+                result = await self._generate_turn(frame, resolved_model.params, output_sink)
             except asyncio.CancelledError:
                 self._seal_partial_text(frame, "cancelled")
                 raise
@@ -236,7 +226,7 @@ class AgentLoopExecutor:
             p.turn_events.append(command_event)
             p.sequence += 1
 
-            await sink.send(
+            await output_sink.send(
                 MTPStarted(
                     verb=verb_hint,
                     target=target_hint,
@@ -263,7 +253,7 @@ class AgentLoopExecutor:
                     )
                 )
                 p.sequence += 1
-                await sink.send(
+                await output_sink.send(
                     MTPFinished(
                         verb=verb_hint,
                         target=target_hint,
@@ -283,7 +273,7 @@ class AgentLoopExecutor:
                 # CALL 陷入：引擎把控制权交还编排，自己不 fork / resume / 组 CALL response。
                 # 编排负责：append 已归一化的 CALL 文本 → fork子帧 → 跑子帧
                 # → resume → harvest → 组 CALL response → append 回填 → 重入本帧。
-                await sink.send(
+                await output_sink.send(
                     MTPFinished(
                         verb=verb_hint,
                         target=target_hint,
@@ -311,7 +301,7 @@ class AgentLoopExecutor:
             p.turn_events[-1] = command_event.model_copy(
                 update={"status": mtp_result.response_status}
             )
-            await sink.send(
+            await output_sink.send(
                 MTPFinished(
                     verb=verb_hint,
                     target=target_hint,

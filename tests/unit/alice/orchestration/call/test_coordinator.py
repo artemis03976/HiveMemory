@@ -20,7 +20,6 @@ from hivememory.agent_runtime.frame import (
     FrameExecutionStatus,
     FrameProducts,
 )
-from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.call.coordinator import (
     CallCoordinator,
@@ -30,7 +29,7 @@ from hivememory.alice.orchestration.call.coordinator import (
 from hivememory.alice.orchestration.call.record import CallRecord, CallRecordStatus
 from hivememory.alice.orchestration.call.response import sub_agent_budget_exhausted_info
 from hivememory.alice.orchestration.frames import FrameFactory
-from hivememory.alice.orchestration.output import CallOutputFinished, NullAgentRunOutput
+from hivememory.alice.orchestration.output import CallOutputFinished
 from hivememory.alice.orchestration.session import RunSession
 from hivememory.config.alice import KoakumaConfig, MTPPromptConfig
 from hivememory.core.access import WorkspaceOperation
@@ -42,6 +41,7 @@ from hivememory.core.mtp.exceptions import (
 )
 from hivememory.i18n import get_default_language, set_default_language
 from tests.helpers.call import StubOperationSubmitter, make_call_context
+from tests.helpers.outputs import NullAgentRunOutput, NullFrameOutputSink
 from tests.helpers.workspace import make_runtime_scope
 
 

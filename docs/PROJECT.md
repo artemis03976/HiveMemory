@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # HiveMemory 项目总览
@@ -148,7 +148,7 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 
 - 主动 chat：Gateway 决策后执行 Patchouli prepare（话题与检索）、任务进程 CPU 分配（Profile、附件与记忆编译）、Alice run、有输出时任务进程封口并追加会话、Patchouli finalize；
 - ConversationSession 的创建、列表、重命名、删除与历史恢复；会话属于 Workspace，逐轮选择 Agent，Alice 从全量原文构建带工具减重与接力摘要的预算视图，Gateway 使用最近 N 轮；原文与压缩检查点仅在进程内保存；
-- SSE 流式与非流式 Agent run；
+- SSE 流式 Agent run（另有只取终态的非流式交付，当前只供测试驱动）；
 - 全局系统指令注册、解析、分发和 chat 短路；
 - Passive Ingress：外部离散事件去重、顺序缓冲、封口提交和失败重试；
 - Gateway 的话题路由、查询分析、请求取消、总超时和局部保守降级。
@@ -235,7 +235,7 @@ message
   -> [command short-circuit] 或 GatewayDecision
   -> Patchouli prepare（话题与检索）
   -> 任务进程 CPU 分配（Profile、附件租借与编译、记忆编译、输入清单）
-  -> Actor 执行：CPU 端口（当前为 Alice run，流式或非流式）
+  -> Actor 执行：CPU 端口（当前为 Alice run）
   -> 有输出时封口交互记录（InteractionPayload，含结局）并追加会话
   -> Patchouli finalize
   -> response + background memory tasks

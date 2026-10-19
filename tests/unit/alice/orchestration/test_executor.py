@@ -9,18 +9,18 @@ import pytest
 
 from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.model.budget import TurnContextBudgetExceededError
-from hivememory.agent_runtime.output import NullFrameOutputSink
 from hivememory.alice.events import BoundAgentRunEvents
 from hivememory.alice.orchestration.call.coordinator import (
     DispatchCallee,
     ResumeCaller,
 )
 from hivememory.alice.orchestration.executor import RunExecutor
-from hivememory.alice.orchestration.output import CallOutputFinished, NullAgentRunOutput
+from hivememory.alice.orchestration.output import CallOutputFinished
 from hivememory.alice.orchestration.session import RunSession
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.mtp import MTPCallRequest
+from tests.helpers.outputs import NullAgentRunOutput, NullFrameOutputSink
 from tests.helpers.workspace import make_runtime_scope
 
 

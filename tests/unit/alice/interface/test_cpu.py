@@ -56,9 +56,8 @@ async def _access():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("stream", [False, True])
-async def test_cpu_delivers_typed_result_and_checkpoint_without_serialization(stream):
-    """两种输出模式交回同一结果对象，检查点与轮次事件无需序列化还原。"""
+async def test_cpu_delivers_typed_result_and_checkpoint_without_serialization():
+    """终态交回运行服务的同一结果对象，检查点与轮次事件无需序列化还原。"""
     expected = CPUExecutionResult(
         final_text="完成",
         model_used="glm-4",
@@ -76,7 +75,6 @@ async def test_cpu_delivers_typed_result_and_checkpoint_without_serialization(st
     handle = _cpu(run_agent).execute(
         make_input_manifest(process_id="process-1"),
         generation_options={"temperature": 0.5},
-        stream=stream,
         access=await _access(),
     )
     items = [item async for item in handle.output]
@@ -101,9 +99,7 @@ async def test_unavailable_cpu_fails_at_first_pull_without_entering_service(stop
     if stopped:
         cpu.start()
         cpu.stop()
-    handle = cpu.execute(
-        make_input_manifest(), generation_options=None, stream=True, access=await _access()
-    )
+    handle = cpu.execute(make_input_manifest(), generation_options=None, access=await _access())
     with pytest.raises(AliceUnavailableError, match="Alice CPU is not running") as caught:
         await anext(handle.output)
     assert caught.value.code == "alice.unavailable"
@@ -138,7 +134,6 @@ async def test_cpu_binds_each_thread_context_to_its_operation_submitter() -> Non
                     make_input_manifest(),
                     access=access,
                     generation_options=None,
-                    stream=False,
                 ).output
             ]
         )

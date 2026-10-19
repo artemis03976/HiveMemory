@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # HiveMemory 当前系统架构
@@ -67,7 +67,7 @@ HiveMemory 因而保留了原项目“双系统”的核心思想：热路径负
 | 层 | 包 | 职责 |
 |:---|:---|:---|
 | L0 | `core` / `config` / `utils` / `i18n` | 依赖中立的模型、Route 泛型原语、事件常量、错误类型、访问值类型与端口协议；配置段模型 |
-| L1 | `components` | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context |
+| L1 | `components` | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context、取消收尾 |
 | L2 | `engines` / `infrastructure` / `prompts` | 算法与外部技术适配器 |
 | L3 | `workspace` / `patchouli` / `gateway` / `alice` + `agent_runtime` | 各子系统与 workspace 设施；彼此只导入对方公开的 `contracts` 子包 |
 | L4 | `system` | 组合根、门面与系统级能力；除入口外不被任何包导入 |
@@ -145,7 +145,7 @@ Patchouli 消费 Gateway 已形成的决策，不重新承担入口分析；它�
 Alice 是 Agent 执行与控制平面，拥有：
 
 - Agent Profile 驱动的运行参数与访问登记决定的操作策略；
-- 非流式和流式 Agent run；
+- 流式执行的 Agent run（交付形态由任务进程决定）；
 - Agent loop、ExecutionFrame 和有限深度的子 Agent 编排；
 - Koakuma MTP 解析、执行与回填；
 - 当前 frame 的 ACK 别名清单与 CALL 父子 frame 调度。

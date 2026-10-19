@@ -16,13 +16,13 @@ from dataclasses import dataclass
 from typing import Literal
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.models import IdentityScope
+from hivememory.core.models import IdentityScope, MemoryAtom
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayIngressMode,
     RetrievalMode,
 )
-from hivememory.core.protocol.models import RetrievalRequest, RetrievalResponse
+from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.system.services.passive.events import PassiveIngressEventEmitter
@@ -45,11 +45,12 @@ class MemoryContextAttempt:
     """一次 memory context 准备的结果。
 
     `degraded=True` 表示 Gateway 或 retrieval 发生可恢复失败：本轮没有
-    memory context，但 user 事件仍必须进入 buffer 并在 turn 完成后提交。
+    memory context（``memories`` 为 None），但 user 事件仍必须进入 buffer
+    并在 turn 完成后提交。决策跳过检索时 ``memories`` 为空元组。
     """
 
     decision: GatewayDecision | None = None
-    retrieval_result: RetrievalResponse | None = None
+    memories: tuple[MemoryAtom, ...] | None = None
     failed_stage: MemoryContextStage | None = None
     error_class: str | None = None
 
@@ -59,9 +60,7 @@ class MemoryContextAttempt:
 
     @property
     def memory_ref_count(self) -> int:
-        if self.retrieval_result is None:
-            return 0
-        return len(self.retrieval_result.memories)
+        return len(self.memories or ())
 
 
 class MemoryContextProvider:
@@ -134,7 +133,7 @@ class MemoryContextProvider:
             )
 
         try:
-            retrieval_result = await self._retrieve_for_decision(decision, identity_scope)
+            memories = await self._retrieve_for_decision(decision, identity_scope)
         except Exception as exc:
             if not is_recoverable_ingress_error(exc):
                 raise
@@ -151,7 +150,7 @@ class MemoryContextProvider:
                 error_class=type(exc).__name__,
             )
 
-        return MemoryContextAttempt(decision=decision, retrieval_result=retrieval_result)
+        return MemoryContextAttempt(decision=decision, memories=memories)
 
     async def _request_gateway_decision(
         self,
@@ -173,13 +172,10 @@ class MemoryContextProvider:
         self,
         decision: GatewayDecision,
         identity_scope: IdentityScope,
-    ) -> RetrievalResponse:
+    ) -> tuple[MemoryAtom, ...]:
         if decision.retrieval_plan.mode == RetrievalMode.SKIP or decision.retrieval_plan.top_k == 0:
-            return RetrievalResponse()
+            return ()
 
-        # 检索路由返回完整原子列表；Passive 上下文仍消费旧协议
-        # envelope，由本 adapter 构造并测量调用耗时。
-        started_at = time.perf_counter()
         memories = await self._bus.request(
             PatchouliRoutes.MEMORY_RETRIEVE,
             request=RetrievalRequest(
@@ -189,10 +185,7 @@ class MemoryContextProvider:
                 top_k=decision.retrieval_plan.top_k,
             ),
         )
-        return RetrievalResponse.from_memories(
-            memories,
-            latency_ms=(time.perf_counter() - started_at) * 1000,
-        )
+        return tuple(memories)
 
 
 __all__ = ["MemoryContextAttempt", "MemoryContextProvider", "MemoryContextStage"]

@@ -9,7 +9,7 @@ HiveMemory - 记忆生成模块 (MemoryGeneration)
 - MemoryGenerationOrchestrator: 编排器，协调所有组件
 
 跨域共享类型（``WriteFocus`` / ``UpdateFocus`` / ``PendingAtomSettlement``）
-已上移到 ``hivememory.core.models``。
+位于 ``hivememory.core.models``，本模块不转出。
 
 作者: HiveMemory Team
 版本: 0.3.0

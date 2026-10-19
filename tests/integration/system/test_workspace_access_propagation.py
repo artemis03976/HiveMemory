@@ -110,7 +110,7 @@ async def _register(service, composition, *, workspace, process_id: str, message
 class _WorkspaceEchoCPU:
     """按清单回显 workspace_id 的最小 CPU 实现：验证并发 run 的上下文隔离。"""
 
-    def execute(self, manifest, *, access, generation_options=None, stream=False):
+    def execute(self, manifest, *, access, generation_options=None):
         async def _run():
             yield CPUExecutionResult(
                 final_text=manifest.labels.workspace_id,
@@ -176,12 +176,7 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
         )
     )
 
-    # 请求级 context 由同一认证一侧签发：进程控制授权比对驻留坐标。
-    main_request_access = await composition.authenticate(agent_id="a1", workspace=main_ws)
-    isolation_request_access = await composition.authenticate(agent_id="a1", workspace=isolation_ws)
     await asyncio.wait_for(both_gateway_calls_started.wait(), timeout=1)
-    assert service.process_status("process-main", access=isolation_request_access) is None
-    assert service.process_status("process-isolation", access=main_request_access) is None
 
     release_gateway.set()
     main_result, isolation_result = await asyncio.wait_for(
@@ -303,7 +298,6 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
     )
 
     main_request_access = await composition.authenticate(agent_id="a1", workspace=main_ws)
-    isolated_request_access = await composition.authenticate(agent_id="a1", workspace=isolation_ws)
     try:
         await asyncio.wait_for(both_gateway_calls_started.wait(), timeout=1)
         cross_scope_cancel = service.cancel_process(
@@ -313,18 +307,6 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
 
         assert cross_scope_cancel.cancelled is False
         assert cross_scope_cancel.status == "not_found"
-        isolated_status = service.process_status(
-            "process-run-isolated",
-            access=isolated_request_access,
-        )
-        assert isolated_status.status == "running"
-        assert (
-            service.process_status(
-                "process-run-isolated",
-                access=main_request_access,
-            )
-            is None
-        )
     finally:
         release_gateway.set()
         await asyncio.wait_for(asyncio.gather(main_task, isolated_task), timeout=1)

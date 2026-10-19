@@ -33,7 +33,6 @@ from hivememory.core.models import (
     WriteFocus,
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
-from hivememory.core.protocol.models import RetrievalResponse
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
@@ -41,6 +40,7 @@ from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.contracts import CPUExecutionStatus, SubmitWriteIntentRequest
 from hivememory.workspace.contracts.cpu import CPUResultSlot, CPURunHandle
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
+from hivememory.workspace.process.table import ProcessTable
 from tests.helpers.chat_handoff import (
     expected_mtp_traces,
     make_gateway_decision,
@@ -126,7 +126,6 @@ async def _prepare_route(
         interaction_id=interaction_id,
         topic_id="topic-1",
         is_new_topic=False,
-        retrieval_result=RetrievalResponse(),
         storage_available=True,
     )
 
@@ -144,6 +143,7 @@ async def _service(
     event_publisher: RuntimeEventPublisher | None = None,
     store: InMemoryWorkspaceAssetStore | None = None,
     composition: AccessTestComposition | None = None,
+    process_table: ProcessTable | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
     """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
     composition = composition or _composition()
@@ -154,6 +154,7 @@ async def _service(
         asset_reader=store,
         access_gateway=composition.gateway,
         operation_authorizer=composition.authorizer,
+        process_table=process_table,
     )
     return service, composition
 
@@ -207,7 +208,7 @@ async def _stream_events(
 
 @pytest.mark.asyncio
 async def test_test_cpu_completes_non_streaming_process_through_cpu_port() -> None:
-    """测试 CPU 跑完非流式进程：finalize 收到的交互记录来自 CPU 执行结果。"""
+    """测试 CPU 跑完非流式进程：交互事件被丢弃，结果与 finalize 的交互记录来自 CPU 执行结果。"""
     bus = GlobalSystemBus()
     turn_events = make_mtp_turn_events()
     submitted = []
@@ -219,6 +220,7 @@ async def test_test_cpu_completes_non_streaming_process_through_cpu_port() -> No
 
     finalize_kwargs: dict = {}
     cpu = ScriptedCPU(
+        events=[{"event": "token", "data": {"content": "完成"}}],
         result=make_cpu_result(
             turn_events=turn_events,
         ),
@@ -241,7 +243,6 @@ async def test_test_cpu_completes_non_streaming_process_through_cpu_port() -> No
     assert result.execution_result.status == CPUExecutionStatus.COMPLETED.value
     assert result.execution_result.final_text == "完成"
     assert result.execution_result.model_used == "glm-4"
-    assert cpu.calls[0].stream is False
 
     payload = finalize_kwargs["payload"]
     assert payload.assistant_final_text == "完成"
@@ -268,7 +269,6 @@ async def test_test_cpu_completes_streaming_process_and_relays_events() -> None:
     service, composition = await _service(bus, cpu)
     events = await _stream_events(composition, service, "问题", process_id="process-cpu-stream")
 
-    assert cpu.calls[0].stream is True
     assert [event["event"] for event in events] == [
         "process_id",
         "memory_refs",
@@ -543,7 +543,7 @@ class _SlowClosingCPU:
         self.close_entered = asyncio.Event()
         self.release_close = asyncio.Event()
 
-    def execute(self, manifest, *, access, generation_options, stream):
+    def execute(self, manifest, *, access, generation_options):
         return CPURunHandle(self._iterate(), CPUResultSlot())
 
     async def _iterate(self):
@@ -571,8 +571,8 @@ async def test_close_interrupted_while_closing_cpu_output_still_requests_prepare
     bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route)
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
-    service, composition = await _service(bus, cpu)
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    table = ProcessTable()
+    service, composition = await _service(bus, cpu, process_table=table)
     handle = await _register(composition, service, "问题", process_id="process-close-interrupted")
     stream = service.run_process(handle, stream=True)
     seen: list[dict[str, Any]] = [await stream.__anext__()]
@@ -587,4 +587,4 @@ async def test_close_interrupted_while_closing_cpu_output_still_requests_prepare
 
     assert cleanup.await_count == 1
     assert cleanup.await_args.kwargs["prepared_run"].interaction_id == "process-close-interrupted"
-    assert service.process_status("process-close-interrupted", access=requestor) is None
+    assert table.get("process-close-interrupted") is None

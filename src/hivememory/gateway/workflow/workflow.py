@@ -323,9 +323,7 @@ class GatewayWorkflow:
                 }
             )
         else:
-            # 解析失败时 command_id 为空，回退到解析出的命令名。
-            parse = outcome.command_parse_result
-            data["command_id"] = parse.command_id or parse.name or "unknown"
+            data["command_id"] = outcome.command_parse_result.effective_command_id
         self._emit(
             RuntimeEventType.GATEWAY_WORKFLOW_COMPLETED,
             workspace_id=workspace_id,

@@ -46,21 +46,9 @@ type FrameOutput = TokenDelta | MTPStarted | MTPFinished
 
 
 class FrameOutputSink(Protocol):
-    """Agent Runtime 依赖的最窄输出端口。"""
-
-    @property
-    def streams_tokens(self) -> bool: ...
+    """Agent Runtime 依赖的最窄输出端口；生成总是流式，token 增量逐条送达。"""
 
     async def send(self, output: FrameOutput) -> None: ...
-
-
-class NullFrameOutputSink:
-    @property
-    def streams_tokens(self) -> bool:
-        return False
-
-    async def send(self, output: FrameOutput) -> None:
-        del output
 
 
 __all__ = [
@@ -68,6 +56,5 @@ __all__ = [
     "FrameOutputSink",
     "MTPFinished",
     "MTPStarted",
-    "NullFrameOutputSink",
     "TokenDelta",
 ]

@@ -276,7 +276,7 @@ class PassiveMessageIngressor:
         return PassiveIngressOutcome(
             kind="user",
             gateway_decision=attempt.decision,
-            retrieval_result=attempt.retrieval_result,
+            memories=attempt.memories,
         )
 
     async def _handle_buffered(

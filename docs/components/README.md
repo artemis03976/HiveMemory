@@ -11,12 +11,12 @@ related_contracts:
 related_docs:
   - docs/architecture/overview.md
   - docs/system/composition.md
-last_reviewed: 2026-09-26
+last_reviewed: 2026-10-18
 ---
 
 # Components
 
-本目录是 `hivememory.components` 包当前设计的入口。`components` 提供进程内运行时机制：总线、维护调度器、work queue、运行时事件、串行门与 trace context。它们解决“多个所有者如何交接、何时获得执行资源、如何旁路观测”，不承载任何业务状态或业务判断。
+本目录是 `hivememory.components` 包当前设计的入口。`components` 提供进程内运行时机制：总线、维护调度器、work queue、运行时事件、串行门、trace context 与取消收尾。它们解决“多个所有者如何交接、何时获得执行资源、如何旁路观测”，不承载任何业务状态或业务判断。
 
 ## 1. 层级位置与依赖方向
 
@@ -38,6 +38,7 @@ last_reviewed: 2026-09-26
 | `events/` | `RuntimeEventBus` 与 sink、Publisher、操作观测器 | 事件信封模型（`core.contracts`）；业务成功判断 |
 | `serial_gate.py` | 按 key 串行化的 `KeyedSerialGate` | key 的业务含义与分区授权 |
 | `trace_context.py` | 基于 contextvars 的 trace id / span / task type 注入 | 跨进程追踪传播 |
+| `cancellation.py` | asyncio 任务的取消收尾：`cancel_and_join` 与 `join_shielded` | 任务的业务含义与错误记录 |
 
 `workspace_id` 等观测标签在这些机制中只是标签，不等于授权或分区；Workspace 准入与资源校验不在本包。前台 chat run 的阶段与停止控制属于 chat 编排，同样不在本包。
 

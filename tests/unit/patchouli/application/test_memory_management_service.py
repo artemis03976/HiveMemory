@@ -19,11 +19,15 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.core.errors import ScopeRequiredError, WorkspaceMismatchError
+from hivememory.core.errors import (
+    InvalidMemoryFieldError,
+    ScopeRequiredError,
+)
 from hivememory.core.models import IdentityScope, IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.patchouli.application import MemoryManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.memory_management import MemoryCreation
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 
@@ -79,20 +83,52 @@ def test_identity_scope_wrong_type_rejected_as_scope_required():
     assert bus.calls == []
 
 
-def test_create_memory_forwards_only_atoms_owned_by_scope_workspace():
-    """归属与 scope 一致的 atom 交给 MEMORY_CREATE；异域 atom 按 WorkspaceMismatchError 拒绝且不触达后端。"""
+def test_create_memory_passes_materials_and_actor_to_creation_primitive():
+    """材料与本次发起者原样交给 MEMORY_CREATE，归属取自 scope。"""
     bus = RecordingBus()
     service = MemoryManagementService(bus=bus)
     scope = _scope()
-    owned = _make_memory_atom()
 
-    _run(service.create_memory(scope, owned))
-    with pytest.raises(WorkspaceMismatchError, match="workspace.mismatch"):
-        _run(service.create_memory(scope, _make_memory_atom(user_id="u2")))
+    _run(
+        service.create_memory(
+            scope,
+            MemoryCreation(
+                title="API", content="Use /api", memory_type=MemoryType.FACT, tags=("api",)
+            ),
+        )
+    )
 
-    assert [(route, args) for route, args, _ in bus.calls] == [
-        (PatchouliLocalRoutes.MEMORY_CREATE, (scope.workspace_identity, owned))
+    assert bus.calls == [
+        (
+            PatchouliLocalRoutes.MEMORY_CREATE,
+            (scope.workspace_identity,),
+            {
+                "from_actor": scope.actor_identity,
+                "memory_type": MemoryType.FACT,
+                "title": "API",
+                "summary": "",
+                "content": "Use /api",
+                "tags": ["api"],
+                "alias": None,
+            },
+        )
     ]
+
+
+def test_create_memory_rejects_agent_profile_type_before_backend():
+    """Profile 只经 Profile 入口创建：记忆入口按字段错误拒绝且不触达后端。"""
+    bus = RecordingBus()
+    service = MemoryManagementService(bus=bus)
+
+    with pytest.raises(InvalidMemoryFieldError, match="AGENT_PROFILE"):
+        _run(
+            service.create_memory(
+                _scope(),
+                MemoryCreation(title="W", content="c", memory_type=MemoryType.AGENT_PROFILE),
+            )
+        )
+
+    assert bus.calls == []
 
 
 # ---- 管理读取与 actor 读取的可见性语义 ----

@@ -4,8 +4,7 @@
  * Handles HTTP requests to the backend topic management API.
  *
  * 身份约定：Topic 请求统一携带 `user_id + workspace_id`
- * 基础选择（x-user-id / x-workspace-id 请求头）；旧 `?user_id=` query
- * 兼容入口已不再由前端使用。
+ * 基础选择（x-user-id / x-workspace-id 请求头），后端不接受 query 中的身份字段。
  */
 import { apiErrorMessage } from '@/services/apiError';
 

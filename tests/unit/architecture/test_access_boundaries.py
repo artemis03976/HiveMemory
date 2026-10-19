@@ -172,7 +172,6 @@ def test_thread_authorization_is_only_used_by_actor_api():
         "workspace/capability/actor/agent_profiles.py",
     }
     assert _private_call_sites("validate_thread_context") == {
-        "workspace/capability/actor/memory.py",
         "workspace/capability/operations.py",
         "workspace/process/threads.py",
     }

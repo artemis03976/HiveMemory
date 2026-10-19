@@ -96,6 +96,11 @@ class CommandParseResult(BaseModel):
     def _freeze_args(cls, value: Any) -> FrozenDict[str, Any]:
         return freeze_mapping(value)
 
+    @property
+    def effective_command_id(self) -> str:
+        """对外报告的命令标识；解析失败时 ``command_id`` 为空，回退到解析出的命令名。"""
+        return self.command_id or self.name or "unknown"
+
 
 class CommandExecutionStatus(str, Enum):
     """系统指令执行终态。"""

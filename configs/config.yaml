@@ -1,7 +1,8 @@
 # HiveMemory 主配置文件
 #
 # 环境变量格式: HIVEMEMORY__<SECTION>__<FIELD> (双下划线分隔)
-# 示例: HIVEMEMORY__PATCHOULI__PERCEPTION__ENGINE__IDLE_TIMEOUT_SECONDS=900
+# 示例: HIVEMEMORY__PATCHOULI__PERCEPTION__IDLE_TIMEOUT_SECONDS=900
+# 各配置段拒绝未知键：键名写错或使用已删除的键时启动失败。
 
 # ========== 系统配置 ==========
 system:
@@ -14,10 +15,6 @@ system:
 # ========== 国际化配置 ==========
 i18n:
   default_language: "zh"
-  fallback_language: "en"
-  supported_languages:
-    - "zh"
-    - "en"
 
 # ========== 日志配置 ==========
 logging:
@@ -61,9 +58,6 @@ shared:
       model_name: "Xenova/bge-m3"
       device: "cpu"
       cache_dir: "data/model_cache"
-      batch_size: 32
-      normalize_embeddings: true
-      dimension: 1024
 
   # ========== 模型提供商凭证 ==========
   # 供模型注册表（configs/models.yaml）按 provider 补齐 api_key / api_base。
@@ -92,8 +86,6 @@ gateway:
     enabled: true
     enable_system: true
     enable_chat: true
-  analyzer:
-    enabled: true
 
 patchouli:
   storage:
@@ -102,9 +94,6 @@ patchouli:
     grpc_port: 6334
     prefer_grpc: true
     timeout: 60
-    deployment: "external"
-    data_dir: null
-    binary_path: null
     startup_timeout_seconds: 30
     api_key: null  # 通过环境变量 HIVEMEMORY__PATCHOULI__STORAGE__API_KEY 设置
     collection_name: "hivememory_main"
@@ -113,10 +102,9 @@ patchouli:
     on_disk_payload: false
 
   perception:
+    idle_timeout_seconds: 900
     engine:
       enable: true
-      idle_timeout_seconds: 900
-      scan_interval_seconds: 30
       fold_token_threshold: 32768
       fold_retain_recent_blocks: 2
       max_resident_topics: 5
@@ -135,7 +123,6 @@ patchouli:
       high_similarity_threshold: 0.95
       low_similarity_threshold: 0.75
       content_similarity_threshold: 0.9
-      enable_vitality_tracking: true
 
   retrieval:
     # 请求未给出 top_k 时的结果条数；最终截取只在重排阶段之后进行一次
@@ -182,8 +169,6 @@ patchouli:
       user_profile_weight: 0.6
       work_in_progress_weight: 0.5
       default_weight: 0.5
-      max_access_boost: 20.0
-      points_per_access: 2.0
       decay_lambda: 0.01
     reinforcement:
       enable_event_history: true
@@ -224,7 +209,6 @@ workspace:
 alice:
   koakuma:
     enabled: true
-    execution_timeout_seconds: 30
     workspace_path: "./workspace"
     mtp_prompt:
       enabled: true

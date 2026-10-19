@@ -24,7 +24,6 @@ from hivememory.engines.generation.models import DuplicateDecision, GenerationOu
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationAdmissionStatus
 from hivememory.patchouli.control.memory_generation.controller import (
     MemoryGenerationTaskController,
 )
@@ -145,8 +144,8 @@ def _wire_generation_pipeline(
         controller.submit_generation,
     )
     bus.register(
-        PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY,
-        controller.submit_generation_many,
+        PatchouliLocalRoutes.MEMORY_TASK_ADMIT_GENERATION,
+        controller.admit_generation,
     )
     return coordinator, controller
 
@@ -205,13 +204,13 @@ async def test_active_write_routes_to_generation_and_publishes_settlement():
         lambda **kwargs: _capture_event(published, **kwargs),
     )
 
-    admissions = await coordinator.submit_active(
-        [_write_task("draft_write")],
+    admission = await coordinator.submit_active(
+        _write_task("draft_write"),
         "topic_1",
         belong_to=_identity_scope().workspace_identity,
     )
-    await controller.wait_task(admissions[0].task.task_id)
-    completed = await controller.get_task(admissions[0].task.task_id)
+    await controller.wait_task(admission.task.task_id)
+    completed = await controller.get_task(admission.task.task_id)
 
     assert completed.status == MemoryGenerationTaskStatus.COMPLETED
     assert completed.canonical_alias == "memory_alias"
@@ -235,12 +234,12 @@ async def test_active_update_fetches_existing_memory_before_generation():
     bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
     bus.register(PatchouliLocalRoutes.MEMORY_GET, memory_get)
 
-    admissions = await coordinator.submit_active(
-        [_update_task(str(existing.id), "draft_update")],
+    admission = await coordinator.submit_active(
+        _update_task(str(existing.id), "draft_update"),
         "topic_1",
         belong_to=_identity_scope().workspace_identity,
     )
-    await controller.wait_task(admissions[0].task.task_id)
+    await controller.wait_task(admission.task.task_id)
 
     memory_get.assert_awaited_once_with(
         existing.id,
@@ -253,43 +252,6 @@ async def test_active_update_fetches_existing_memory_before_generation():
     assert spec.request.is_update is True
     assert spec.request.existing_memory is not existing
     assert spec.request.existing_memory.model_dump(mode="json") == existing.model_dump(mode="json")
-
-
-@pytest.mark.asyncio
-async def test_active_batch_skips_missing_update_and_runs_valid_write():
-    bus = PatchouliBus()
-    coordinator, controller = _wire_generation_pipeline(bus)
-    await controller.start()
-    failed = []
-    execute_spec = AsyncMock(return_value=_settlement_result("draft_write"))
-    bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, execute_spec)
-    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
-    bus.register(PatchouliLocalRoutes.MEMORY_GET, AsyncMock(return_value=None))
-    bus.subscribe(
-        PatchouliLocalEvents.PENDING_ATOM_FAILED,
-        lambda **kwargs: _capture_event(failed, **kwargs),
-    )
-
-    admissions = await coordinator.submit_active(
-        [
-            _write_task("draft_write"),
-            _update_task(str(uuid4()), "draft_update"),
-        ],
-        "topic_1",
-        belong_to=_identity_scope().workspace_identity,
-    )
-    await controller.wait_task(admissions[0].task.task_id)
-    completed = await controller.get_task(admissions[0].task.task_id)
-
-    assert [admission.status for admission in admissions] == [
-        MemoryGenerationAdmissionStatus.ACCEPTED,
-        MemoryGenerationAdmissionStatus.REJECTED,
-    ]
-    assert completed.status == MemoryGenerationTaskStatus.COMPLETED
-    spec = execute_spec.await_args.args[0]
-    assert spec.source == MemoryGenerationSource.WRITE
-    assert spec.pending_alias == "draft_write"
-    assert failed == [{"pending_alias": "draft_update", "intent_id": "intent_draft_update"}]
 
 
 # ========== 真实 Familiar + stub engine + 真实 mid_term（数据面补档） ==========
@@ -542,13 +504,13 @@ async def test_active_write_lands_in_real_mid_term(memory_library, artifact_engi
         lambda **kwargs: _capture_event(published, **kwargs),
     )
 
-    admissions = await coordinator.submit_active(
-        [_write_task("draft_write")],
+    admission = await coordinator.submit_active(
+        _write_task("draft_write"),
         "topic_1",
         belong_to=_identity_scope().workspace_identity,
     )
-    await controller.wait_task(admissions[0].task.task_id)
-    completed = await controller.get_task(admissions[0].task.task_id)
+    await controller.wait_task(admission.task.task_id)
+    completed = await controller.get_task(admission.task.task_id)
 
     assert completed.status == MemoryGenerationTaskStatus.COMPLETED
     assert completed.canonical_alias == "memory_alias"

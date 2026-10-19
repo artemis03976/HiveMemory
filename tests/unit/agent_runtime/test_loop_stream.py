@@ -34,7 +34,6 @@ def _frame() -> ExecutionFrame:
 
 
 class RecordingFrameOutputSink:
-    streams_tokens = True
 
     def __init__(self) -> None:
         self.outputs: list[FrameOutput] = []
@@ -106,7 +105,6 @@ async def test_stream_sink_receives_typed_token_outputs_in_order() -> None:
 @pytest.mark.asyncio
 async def test_stream_is_closed_when_output_sink_fails() -> None:
     class FailingFrameOutputSink:
-        streams_tokens = True
 
         async def send(self, output: FrameOutput) -> None:
             raise RuntimeError("sink failed")

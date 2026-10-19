@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Query
 from hivememory.core.errors import (
     ResourceNotFoundError,
 )
+from hivememory.core.models import MemoryType
 from hivememory.server.deps import RequestAccess, get_request_access, get_root_memory_service
 from hivememory.server.error_handlers import APIError, error_responses
 from hivememory.server.models.memory import (
@@ -34,7 +35,7 @@ async def create_memory(
         title=body.title,
         summary=body.summary,
         content=body.content,
-        memory_type=body.memory_type,
+        memory_type=MemoryType(body.memory_type),
         tags=body.tags,
         alias=body.alias,
         access=request_access.access,

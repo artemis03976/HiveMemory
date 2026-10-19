@@ -172,10 +172,8 @@ class DerivingCPU(ScriptedCPU):
         super().__init__(**kwargs)
         self.chain = chain
 
-    def execute(self, manifest, *, access, generation_options, stream):
-        source = super().execute(
-            manifest, access=access, generation_options=generation_options, stream=stream
-        )
+    def execute(self, manifest, *, access, generation_options):
+        source = super().execute(manifest, access=access, generation_options=generation_options)
         for agent_id in ("worker", "reviewer"):
             child = self.chain.threads.derive_child_thread(
                 access=access,
@@ -194,10 +192,8 @@ class ClosingCPU(DerivingCPU):
         self.close_entered = asyncio.Event()
         self.release_close = asyncio.Event()
 
-    def execute(self, manifest, *, access, generation_options, stream):
-        source = super().execute(
-            manifest, access=access, generation_options=generation_options, stream=stream
-        )
+    def execute(self, manifest, *, access, generation_options):
+        source = super().execute(manifest, access=access, generation_options=generation_options)
         return CPURunHandle(self.output(source.output), source.result_slot)
 
     async def output(self, source):

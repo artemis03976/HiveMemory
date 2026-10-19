@@ -117,10 +117,10 @@ def test_submit_memory_intent_uses_registered_alias_and_intent_id():
     bus = PatchouliBus()
     captured = {}
 
-    async def _submit_active(tasks, topic_id, *, belong_to):
-        captured["task"] = tasks[0]
+    async def _submit_active(task, topic_id, *, belong_to):
+        captured["task"] = task
         captured["topic_id"] = topic_id
-        return [_accepted_admission(tasks[0])]
+        return _accepted_admission(task)
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
     service = MemoryIntentSubmissionService(bus=bus)
@@ -146,9 +146,9 @@ def test_submit_memory_intent_update_maps_update_focus():
     bus = PatchouliBus()
     captured = {}
 
-    async def _submit_active(tasks, topic_id, *, belong_to):
-        captured["task"] = tasks[0]
-        return [MemoryGenerationAdmission.rejected()]
+    async def _submit_active(task, topic_id, *, belong_to):
+        captured["task"] = task
+        return MemoryGenerationAdmission.rejected()
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
     service = MemoryIntentSubmissionService(bus=bus)
@@ -185,8 +185,8 @@ def test_unaccepted_submission_reports_status_without_task(admission):
     """拒绝与结果未知分开报告，都不携带任务标识。"""
     bus = PatchouliBus()
 
-    async def _submit_active(tasks, topic_id, *, belong_to):
-        return [admission]
+    async def _submit_active(task, topic_id, *, belong_to):
+        return admission
 
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, _submit_active)
     service = MemoryIntentSubmissionService(bus=bus)

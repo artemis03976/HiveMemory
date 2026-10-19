@@ -31,7 +31,6 @@ from hivememory.agent_runtime.output import (
     FrameOutputSink,
     MTPFinished,
     MTPStarted,
-    NullFrameOutputSink,
     TokenDelta,
 )
 from hivememory.agent_runtime.runtime import (
@@ -67,7 +66,6 @@ __all__ = [
     "MTPFinished",
     "FrameOutputSink",
     "FrameOutput",
-    "NullFrameOutputSink",
     "AgentRuntime",
     "build_agent_runtime",
 ]

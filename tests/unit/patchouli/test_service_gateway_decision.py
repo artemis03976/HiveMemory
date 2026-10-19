@@ -106,7 +106,7 @@ async def test_prepare_skips_retrieval_for_simple_chat_decision() -> None:
     )
 
     retrieve.assert_not_awaited()
-    assert prepared.retrieval_result.is_empty()
+    assert prepared.memories == ()
 
 
 @pytest.mark.asyncio

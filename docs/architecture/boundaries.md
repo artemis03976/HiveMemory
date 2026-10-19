@@ -22,7 +22,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-18
 ---
 
 # 系统边界与所有权
@@ -75,7 +75,7 @@ local bus 则是一个子系统内部的组合机制。它允许所有者替换�
 | Patchouli | 记忆/话题/Profile、检索、感知、生成、生命周期、prepare/finalize | 入口命令、顶层 chat 编排、Agent 生成循环 |
 | Alice | Agent run、frame 编排、MTP/工具执行与 CALL 编排 | 长期记忆所有权、Gateway 分析、chat 任务进程编排、HTTP 生命周期 |
 | Core contracts | 依赖中立的数据模型、协议枚举、稳定常量、访问值类型与端口协议 | 业务编排、I/O 与运行时状态 |
-| Components | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context | 业务状态与业务判断 |
+| Components | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context、取消收尾 | 业务状态与业务判断 |
 
 ## 4. System 边界
 

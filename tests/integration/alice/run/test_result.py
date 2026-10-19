@@ -24,7 +24,6 @@ from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.events import AgentRunEventEmitter
 from hivememory.alice.orchestration.frames import FrameFactory, FrameSpec
 from hivememory.alice.orchestration.session import RunSession
-from hivememory.alice.run.output import NullRunOutput
 from hivememory.alice.run.service import AgentRunService
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
@@ -35,6 +34,7 @@ from tests.helpers.alice import stream_run
 from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
+from tests.helpers.outputs import NullRunOutput
 from tests.helpers.workspace import make_runtime_scope
 
 

@@ -4,12 +4,7 @@ import pytest
 
 from hivememory.core.protocol.gateway import CommandParseStatus
 from hivememory.gateway.commands.builtins import create_builtin_command_registry
-from hivememory.gateway.commands.models import (
-    CommandCategory,
-    CommandDefinition,
-    CommandRouteTarget,
-    CommandRouteTargetKind,
-)
+from hivememory.gateway.commands.models import CommandCategory, CommandDefinition
 from hivememory.gateway.commands.registry import CommandRegistry
 
 
@@ -28,10 +23,6 @@ def _definition(
         primary_name=primary_name,
         aliases=aliases,
         summary="test",
-        route_target=CommandRouteTarget(
-            kind=CommandRouteTargetKind.LOCAL_HANDLER,
-            name=command_id,
-        ),
         priority=priority,
         enabled=enabled,
         hidden=hidden,

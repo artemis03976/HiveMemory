@@ -34,7 +34,6 @@ class CPUCall:
 
     manifest: CPUInputManifest
     generation_options: dict[str, Any] | None
-    stream: bool
     access: WorkspaceAccessContext
 
 
@@ -89,15 +88,9 @@ class ScriptedCPU:
         *,
         access: WorkspaceAccessContext,
         generation_options: dict[str, Any] | None,
-        stream: bool,
     ) -> CPURunHandle:
         self.calls.append(
-            CPUCall(
-                manifest=manifest,
-                generation_options=generation_options,
-                stream=stream,
-                access=access,
-            )
+            CPUCall(manifest=manifest, generation_options=generation_options, access=access)
         )
         slot = CPUResultSlot()
         return CPURunHandle(output=self._iterate(access, slot), result_slot=slot)

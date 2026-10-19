@@ -20,14 +20,13 @@ from hivememory.agent_runtime.frame import (
 )
 from hivememory.agent_runtime.loop import AgentLoopExecutor
 from hivememory.agent_runtime.model.budget import TurnContextBudgetExceededError
-from hivememory.agent_runtime.model.generator import GenerationResult
+from hivememory.agent_runtime.model.generator import GenerationResult, StreamChunk
 from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
 from hivememory.agent_runtime.mtp.context import MTPExecutionContext, MTPExecutionResult
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
 from hivememory.alice.orchestration.executor import RunExecutor
 from hivememory.alice.orchestration.frames import FrameFactory
-from hivememory.alice.orchestration.output import NullAgentRunOutput
 from hivememory.alice.orchestration.session import RunSession
 from hivememory.config.alice import AgentRuntimeConfig, KoakumaConfig
 from hivememory.core.models import (
@@ -38,6 +37,7 @@ from hivememory.core.mtp import MTP_RIGHT_DELIMITER, MTPCallRequest
 from hivememory.workspace.contracts import DeriveCallThreadRequest
 from tests.helpers.call import StubOperationSubmitter, make_callee
 from tests.helpers.llm import DEFAULT_LLM_PARAMS
+from tests.helpers.outputs import NullAgentRunOutput, NullFrameOutputSink
 from tests.helpers.workspace import make_runtime_scope
 
 
@@ -125,15 +125,39 @@ def _make_frame() -> ExecutionFrame:
     )
 
 
-def _build_executor(generate_side_effect) -> AgentLoopExecutor:
+class _ScriptedGenerator:
+    """按顺序把预置结果作为流的终态 chunk 交出；元素为异常时在拉取时抛出。
+
+    预置结果用尽后交出 ``fallback``（未提供时显式失败）。
+    """
+
+    def __init__(self, results, *, fallback: GenerationResult | None = None) -> None:
+        self._results = list(results)
+        self._fallback = fallback
+        self.calls = 0
+
+    def generate(self, messages, params, *, stream: bool = False):
+        assert stream, "帧生成总是流式"
+        self.calls += 1
+        if self._results:
+            return self._chunks(self._results.pop(0))
+        if self._fallback is None:
+            raise AssertionError("_ScriptedGenerator 没有剩余的预置结果")
+        return self._chunks(self._fallback)
+
+    @staticmethod
+    async def _chunks(result):
+        if isinstance(result, BaseException):
+            raise result
+        yield StreamChunk(is_final=True, result=result)
+
+
+def _build_executor(results, *, fallback: GenerationResult | None = None) -> AgentLoopExecutor:
     mtp_executor = MagicMock()
     mtp_executor.intercept_and_execute = AsyncMock(return_value=None)
 
-    worker_agent = MagicMock()
-    worker_agent.generate = AsyncMock(side_effect=generate_side_effect)
-
     executor = AgentLoopExecutor(
-        generator=worker_agent,
+        generator=_ScriptedGenerator(results, fallback=fallback),
         mtp_executor=mtp_executor,
         config=AgentRuntimeConfig(max_loop_iterations=10),
     )
@@ -146,7 +170,9 @@ async def test_natural_stop_produces_one_assistant_message_event():
     frame = _make_frame()
     executor = _build_executor([_natural_result("Hello world")])
 
-    engine_result = await executor.execute_frame(frame, max_iterations=5)
+    engine_result = await executor.execute_frame(
+        frame, max_iterations=5, output_sink=NullFrameOutputSink()
+    )
 
     assert engine_result.status == FrameExecutionStatus.COMPLETED
     assert "".join(frame.progress.text_segments) == "Hello world"
@@ -166,7 +192,9 @@ async def test_iteration_limit_returns_budget_exhausted():
     executor = _build_executor([_mtp_result("", "<< READ | alias_x >>")])
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
 
-    engine_result = await executor.execute_frame(frame, max_iterations=1)
+    engine_result = await executor.execute_frame(
+        frame, max_iterations=1, output_sink=NullFrameOutputSink()
+    )
 
     assert engine_result.status == FrameExecutionStatus.BUDGET_EXHAUSTED
     assert frame.progress.iteration == 1
@@ -182,13 +210,15 @@ async def test_tool_result_growth_stops_before_next_generation():
     tool_result.formatted_response = "x" * 400
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=tool_result)
 
-    result = await executor.execute_frame(frame, max_iterations=3)
+    result = await executor.execute_frame(
+        frame, max_iterations=3, output_sink=NullFrameOutputSink()
+    )
 
     assert result.status == FrameExecutionStatus.FAILED
     assert isinstance(result.error, TurnContextBudgetExceededError)
     assert frame.progress.iteration == 1
     assert frame.progress.turn_events[-1].content == "x" * 400
-    executor.generator.generate.assert_awaited_once()
+    assert executor.generator.calls == 1
 
 
 @pytest.mark.asyncio
@@ -199,7 +229,9 @@ async def test_context_guard_counts_message_overhead_and_allows_exact_budget(lim
     frame.resolved_model = ResolvedFrameModel(DEFAULT_LLM_PARAMS, input_token_limit=limit)
     executor = _build_executor([_natural_result("完成")])
 
-    result = await executor.execute_frame(frame, max_iterations=2)
+    result = await executor.execute_frame(
+        frame, max_iterations=2, output_sink=NullFrameOutputSink()
+    )
 
     assert result.status == status
     assert frame.progress.text_segments == (["完成"] if status == "completed" else [])
@@ -210,24 +242,13 @@ async def test_missing_mtp_result_returns_failed():
     frame = _make_frame()
     executor = _build_executor([_mtp_result("", "<< READ | alias_x >>")])
 
-    engine_result = await executor.execute_frame(frame, max_iterations=2)
+    engine_result = await executor.execute_frame(
+        frame, max_iterations=2, output_sink=NullFrameOutputSink()
+    )
 
     assert engine_result.status == FrameExecutionStatus.FAILED
     assert isinstance(engine_result.error, RuntimeError)
     assert frame.progress.turn_events[-1].status == "failed"
-
-
-@pytest.mark.asyncio
-async def test_generation_failure_returns_failed_frame_outcome():
-    frame = _make_frame()
-    executor = _build_executor([])
-    error = RuntimeError("provider unavailable")
-    executor.generator.generate = AsyncMock(side_effect=error)
-
-    result = await executor.execute_frame(frame, max_iterations=2)
-
-    assert result.status == FrameExecutionStatus.FAILED
-    assert result.error is error
 
 
 @pytest.mark.asyncio
@@ -242,7 +263,6 @@ async def test_stream_generation_failure_returns_failed_frame_outcome():
         raise error
 
     class StreamingSink:
-        streams_tokens = True
 
         async def send(self, _output):
             return None
@@ -262,11 +282,10 @@ async def test_stream_generation_failure_returns_failed_frame_outcome():
 @pytest.mark.asyncio
 async def test_generation_cancelled_error_is_not_converted_to_failed_outcome():
     frame = _make_frame()
-    executor = _build_executor([])
-    executor.generator.generate = AsyncMock(side_effect=asyncio.CancelledError())
+    executor = _build_executor([asyncio.CancelledError()])
 
     with pytest.raises(asyncio.CancelledError):
-        await executor.execute_frame(frame, max_iterations=2)
+        await executor.execute_frame(frame, max_iterations=2, output_sink=NullFrameOutputSink())
 
 
 @pytest.mark.asyncio
@@ -280,7 +299,7 @@ async def test_single_mtp_produces_four_events():
     executor = _build_executor(gen_results)
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
 
-    await executor.execute_frame(frame, max_iterations=5)
+    await executor.execute_frame(frame, max_iterations=5, output_sink=NullFrameOutputSink())
 
     assert "".join(frame.progress.text_segments) == "查找中找到了"
     events = frame.progress.turn_events
@@ -320,7 +339,7 @@ async def test_mtp_execution_receives_frame_context():
     executor = _build_executor(gen_results)
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
 
-    await executor.execute_frame(frame, max_iterations=5)
+    await executor.execute_frame(frame, max_iterations=5, output_sink=NullFrameOutputSink())
 
     _, kwargs = executor._mtp_executor.intercept_and_execute.await_args
     context = kwargs["context"]
@@ -340,11 +359,14 @@ async def test_task_cancellation_during_generation_propagates_before_mtp():
     async def slow_generate(*args, **kwargs):
         started.set()
         await asyncio.Event().wait()
+        yield StreamChunk()
 
     executor = _build_executor([])
     executor.generator.generate = slow_generate
 
-    task = asyncio.create_task(executor.execute_frame(frame, max_iterations=5))
+    task = asyncio.create_task(
+        executor.execute_frame(frame, max_iterations=5, output_sink=NullFrameOutputSink())
+    )
     await started.wait()
     task.cancel()
 
@@ -366,7 +388,9 @@ async def test_task_cancellation_during_mtp_propagates():
 
     executor._mtp_executor.intercept_and_execute = slow_execute
 
-    task = asyncio.create_task(executor.execute_frame(frame, max_iterations=5))
+    task = asyncio.create_task(
+        executor.execute_frame(frame, max_iterations=5, output_sink=NullFrameOutputSink())
+    )
     await started.wait()
     task.cancel()
 
@@ -393,7 +417,7 @@ async def test_sequence_is_monotonically_increasing_across_iterations():
         ]
     )
 
-    await executor.execute_frame(frame, max_iterations=10)
+    await executor.execute_frame(frame, max_iterations=10, output_sink=NullFrameOutputSink())
 
     seqs = [ev.sequence for ev in frame.progress.turn_events]
     assert seqs == sorted(seqs), "sequence 必须单调递增"
@@ -411,7 +435,7 @@ async def test_empty_prefix_text_not_recorded():
     executor = _build_executor(gen_results)
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("READ"))
 
-    await executor.execute_frame(frame, max_iterations=5)
+    await executor.execute_frame(frame, max_iterations=5, output_sink=NullFrameOutputSink())
 
     # prefix 为空：不产生前缀 assistant_message，只保留 tool_call/tool_result/最终回复
     kinds = [ev.kind for ev in frame.progress.turn_events]
@@ -424,18 +448,10 @@ async def test_empty_prefix_text_not_recorded():
 @pytest.mark.asyncio
 async def test_call_path_produces_mtp_result_event_with_call_verb():
     """CALL 路径: 编排侧产出 kind=tool_result, tool_kind=CALL, role=user"""
-    call_counter = {"n": 0}
-
-    async def gen_async_side(*args, **kwargs):
-        call_counter["n"] += 1
-        if call_counter["n"] == 1:
-            return _mtp_result("正在调用", '<< CALL | sub_agent | task="do work" >>')
-        return _natural_result("完成")
-
-    executor = _build_executor([])
-    worker_agent = MagicMock()
-    worker_agent.generate = AsyncMock(side_effect=gen_async_side)
-    executor.generator = worker_agent
+    executor = _build_executor(
+        [_mtp_result("正在调用", '<< CALL | sub_agent | task="do work" >>')],
+        fallback=_natural_result("完成"),
+    )
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_call_mtp_exec_result())
 
     async def submit_operation(request):
@@ -505,7 +521,7 @@ async def test_run_command_event_carries_execution_status_for_reducer():
     executor = _build_executor(gen_results)
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("RUN"))
 
-    await executor.execute_frame(frame, max_iterations=5)
+    await executor.execute_frame(frame, max_iterations=5, output_sink=NullFrameOutputSink())
 
     run_commands = [
         ev for ev in frame.progress.turn_events if ev.kind == "tool_call" and ev.tool_kind == "RUN"

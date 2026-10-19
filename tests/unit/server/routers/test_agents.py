@@ -6,15 +6,18 @@ from unittest.mock import AsyncMock, MagicMock
 
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
+from pydantic import ValidationError
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceAccessContext
-from hivememory.core.errors import MemoryAliasConflictError
+from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
+from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.server import deps
 from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.agents import router
 from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
+from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_server_access_overrides
 
 
@@ -50,8 +53,27 @@ class _AgentProfileManagementStub:
     def __init__(self, storage):
         self.storage = storage
 
-    # 对齐 Patchouli 路由当前契约：只接收操作授权者返回的 scope，不接收 access。
-    async def create_agent_profile(self, identity_scope, atom):
+    # 对齐 Patchouli 路由当前契约：只接收操作授权者返回的 scope 与创建材料，不接收 access。
+    async def create_agent_profile(self, identity_scope, creation):
+        # 与 Familiar 相同的契约：以材料构造 Profile 原子，非法输入以 InvalidMemoryFieldError 拒绝。
+        try:
+            index = IndexLayer(
+                title=creation.title,
+                summary=creation.summary,
+                tags=list(creation.tags),
+                memory_type=MemoryType.AGENT_PROFILE,
+                alias=creation.alias,
+            )
+        except ValidationError as exc:
+            raise InvalidMemoryFieldError.from_validation_error(exc) from exc
+        atom = MemoryAtom(
+            meta=make_memory_metadata(
+                source_agent_id=identity_scope.actor_identity.agent_id,
+                user_id=identity_scope.workspace_identity.owner_user_id,
+            ),
+            index=index,
+            payload=PayloadLayer(content=creation.content, agent_config=creation.agent_config),
+        )
         self.storage.upsert_memory(atom)
         return atom
 

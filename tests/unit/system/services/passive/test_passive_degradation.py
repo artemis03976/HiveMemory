@@ -160,7 +160,7 @@ async def test_gateway_failure_returns_no_memory_context() -> None:
     outcome = await ingressor.route_event(_event("user", "u1"), IDENTITY)
 
     assert outcome.gateway_decision is None
-    assert outcome.retrieval_result is None
+    assert outcome.memories is None
     # Gateway 失败后不应继续请求 retrieval
     assert "retrieve" not in recorder.calls
 
@@ -223,7 +223,7 @@ async def test_retrieval_failure_preserves_decision() -> None:
 
     assert outcome.gateway_decision is not None
     assert outcome.gateway_decision.target_topic_id == "topic-1"
-    assert outcome.retrieval_result is None
+    assert outcome.memories is None
 
     await ingressor.route_event(_event("assistant", "a1"), IDENTITY)
     await ingressor.flush_conversation(_key())

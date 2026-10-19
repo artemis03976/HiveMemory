@@ -49,9 +49,9 @@ class MemoryIntentSubmissionService:
         scope = require_identity_scope(identity_scope)
 
         task = self._build_materialize_task(intent, scope.workspace_identity, scope.actor_identity)
-        (admission,) = await self._bus.request(
+        admission = await self._bus.request(
             PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
-            tasks=[task],
+            task=task,
             topic_id=intent.topic_id,
             belong_to=scope.workspace_identity,
         )

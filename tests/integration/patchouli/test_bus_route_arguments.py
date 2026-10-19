@@ -12,6 +12,8 @@ from unittest.mock import MagicMock
 import pytest
 
 from hivememory.components.bus import GlobalSystemBus, RouteArgumentError
+from hivememory.core.models import WriteFocus
+from hivememory.core.models.pending import PendingAtomMaterializeTask
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
     InteractionSubmissionService,
@@ -62,10 +64,10 @@ def test_public_route_handlers_have_resolvable_annotations():
 
 @pytest.mark.asyncio
 async def test_identity_scope_passed_as_ownership_to_real_local_handler_is_rejected():
-    """未迁移的调用方把 IdentityScope 当作归属传给真实本地 handler 时，请求被拒绝。
+    """未迁移的调用方把 IdentityScope 当作归属传给真实本地 handler 时，总线在调用前拒绝。
 
-    协调器在没有物化任务时直接返回空列表、不读取归属；没有总线参数检查时，
-    这样的调用会静默成功。
+    协调器只把归属透传给话题读取与规范构建；没有总线参数检查时，错误的归属
+    类型会进入生成链，直到更深处才暴露。
     """
     local_bus = PatchouliBus()
     coordinator = MemoryGenerationCoordinator(bus=local_bus, recent_block_limit=5)
@@ -75,7 +77,14 @@ async def test_identity_scope_passed_as_ownership_to_real_local_handler_is_rejec
     with pytest.raises(RouteArgumentError, match="'belong_to' expects WorkspaceIdentity"):
         await local_bus.request(
             PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE,
-            [],
+            PendingAtomMaterializeTask(
+                pending_alias="draft_1",
+                intent_id="intent_1",
+                source_verb="WRITE",
+                belong_to=scope.workspace_identity,
+                from_actor=scope.actor_identity,
+                focus=WriteFocus(content="remember"),
+            ),
             "topic-1",
             belong_to=scope,
         )

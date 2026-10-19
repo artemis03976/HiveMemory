@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     IdentityScope,
     MemoryAtom,
@@ -9,6 +8,7 @@ from hivememory.core.models import (
     require_identity_scope,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.memory_management import AgentProfileCreation
 from hivememory.patchouli.runtime.bus import PatchouliBus
 
 
@@ -27,20 +27,22 @@ class AgentProfileManagementService:
     async def create_agent_profile(
         self,
         identity_scope: IdentityScope,
-        atom: MemoryAtom | None = None,
+        creation: AgentProfileCreation,
     ) -> MemoryAtom:
-        if atom is None:
-            raise ValueError("create_agent_profile 需要 atom 载荷")
+        """以提交的材料在目标 Workspace 中创建 Agent Profile，类型由本入口固定。"""
         scope = require_identity_scope(identity_scope)
-        if atom.workspace_identity != scope.workspace_identity:
-            raise WorkspaceMismatchError(details={"memory_id": str(atom.id)})
-        atom.index.memory_type = MemoryType.AGENT_PROFILE
-        await self._bus.request(
+        return await self._bus.request(
             PatchouliLocalRoutes.MEMORY_CREATE,
             scope.workspace_identity,
-            atom,
+            from_actor=scope.actor_identity,
+            memory_type=MemoryType.AGENT_PROFILE,
+            title=creation.title,
+            summary=creation.summary,
+            content=creation.content,
+            tags=list(creation.tags),
+            alias=creation.alias,
+            agent_config=creation.agent_config,
         )
-        return atom
 
     async def list_agent_profiles(
         self,

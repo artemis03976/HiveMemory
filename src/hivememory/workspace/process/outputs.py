@@ -125,7 +125,7 @@ def stream_events(
                 }
             ]
         case InputsAllocated(prepared=prepared):
-            memories = prepared.retrieval_result.memories
+            memories = prepared.memories
             return [
                 {
                     "event": "memory_refs",

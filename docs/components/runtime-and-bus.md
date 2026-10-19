@@ -2,7 +2,7 @@
 title: Runtime Mechanisms — Bus, Scheduler and Work Queue
 status: current
 owner: components
-scope: global-bus-maintenance-scheduler-work-queue-and-serial-gate
+scope: global-bus-maintenance-scheduler-work-queue-serial-gate-and-cancellation
 code_paths:
   - src/hivememory/components/bus/
   - src/hivememory/components/scheduler/
@@ -10,6 +10,7 @@ code_paths:
   - src/hivememory/infrastructure/work_queue/
   - src/hivememory/components/events/operations.py
   - src/hivememory/components/serial_gate.py
+  - src/hivememory/components/cancellation.py
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
@@ -236,7 +237,14 @@ chat run 的阶段、停止原因与可中断阶段 task 由 workspace 任务进
 
 因此业务代码应先决定结果，再让 observer 记录结果；不能通过“是否成功 emit completed”来决定事务是否提交，也不能让 observer 捕获异常后替调用方吞掉原异常。
 
-## 7. 调度、队列与总线的边界
+## 7. 取消收尾辅助
+
+[`cancellation.py`](../../src/hivememory/components/cancellation.py) 提供两种 asyncio 任务的收尾。两者都区分任务自己的取消与调用方在等待期间收到的取消，且不留下无人等待的后台任务：
+
+- `cancel_and_join(task)`：取消子任务并等待它结束。本次请求的取消视为正常收尾；调用方在等待期间自己被取消时继续向上传播；任务以其他异常结束时原样抛出，由调用方决定如何记录。chat 路由收尾 SSE 拉取任务、Alice 流式适配器关闭 runner 时使用。
+- `join_shielded(task)`：等待任务完成，期间屏蔽调用方的取消（可以反复收到），任务结束后再传播取消；调用方被取消时取走任务的异常，任务的错误由任务自身记录；任务自己被取消时立即传播。任务进程等待 finalize 提交、actor API 等待写入意图派发时使用，使调用方取消不中断已经开始的提交。
+
+## 8. 调度、队列与总线的边界
 
 ```text
 应用服务（chat 编排 / 被动摄入 / 能力层） -> GlobalSystemBus RPC -> subsystem owner
@@ -255,7 +263,7 @@ Chat cancel -> ProcessTable（任务进程表，workspace.process，不属于本
 - 用 RuntimeEvent 触发业务重试、finalize 或 cleanup；
 - 让 scheduler 直接修改 Patchouli、Gateway 或 Alice 的内部状态。
 
-## 8. 设计矛盾检查
+## 9. 设计矛盾检查
 
 评审新 runtime 组件时，检查：
 
@@ -267,7 +275,7 @@ Chat cancel -> ProcessTable（任务进程表，workspace.process，不属于本
 6. stop 是否仅停止调度，还是误承诺可以回滚已执行的业务副作用？
 7. 一个 work 的状态真相是否仍只有 WorkStore，还是 controller、旁路索引和事件各自维护了一份？
 
-## 9. 验证入口
+## 10. 验证入口
 
 - `tests/unit/components/bus/test_async_bus.py`
 - `tests/unit/components/bus/test_route_arguments.py`
@@ -280,4 +288,5 @@ Chat cancel -> ProcessTable（任务进程表，workspace.process，不属于本
 - `tests/integration/patchouli/test_active_interaction_submission.py`
 - `tests/unit/components/events/test_operations.py`
 - `tests/unit/components/test_serial_gate.py`
+- `tests/unit/components/test_cancellation.py`
 - `tests/unit/workspace/process/test_chat_run_control_contract.py`

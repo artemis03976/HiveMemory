@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import asyncio
 import logging
-import time
 from functools import partial
 from typing import Any
 from uuid import UUID
@@ -16,6 +15,7 @@ from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     ActorIdentity,
     IdentityScope,
+    MemoryAtom,
     WorkspaceIdentity,
     require_identity_scope,
 )
@@ -23,10 +23,7 @@ from hivememory.core.protocol.gateway import (
     GatewayDecision,
     RetrievalMode,
 )
-from hivememory.core.protocol.models import (
-    InteractionPayload,
-    RetrievalResponse,
-)
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.retrieval.models import RetrievalQuery
 from hivememory.patchouli.contracts.errors import ActiveInteractionFinalizationError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -97,7 +94,7 @@ class PatchouliService:
                 new_topic_summary=gateway_decision.new_topic_summary,
                 belong_to=belong_to,
             )
-            retrieval_result = await self.retrieve_for_decision(
+            memories = await self.retrieve_for_decision(
                 gateway_decision,
                 belong_to=belong_to,
                 from_actor=identity_scope.actor_identity,
@@ -109,7 +106,7 @@ class PatchouliService:
                 interaction_id=interaction_id,
                 topic_id=real_topic_id,
                 is_new_topic=is_new,
-                retrieval_result=retrieval_result,
+                memories=memories,
                 storage_available=await self._local_bus.request(
                     PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH,
                 ),
@@ -364,11 +361,10 @@ class PatchouliService:
         belong_to: WorkspaceIdentity,
         from_actor: ActorIdentity,
         enable_retrieval: bool = True,
-    ) -> RetrievalResponse:
-        """按 GatewayDecision 派生 Patchouli 检索请求。
+    ) -> tuple[MemoryAtom, ...]:
+        """按 GatewayDecision 派生 Patchouli 检索请求，返回按领域排序的原始记忆。
 
-        检索路由返回完整原子列表；运行上下文仍消费旧协议
-        envelope，由本 adapter 构造并测量调用耗时。
+        检索模式为跳过、要求零条或调用方关闭检索时不发起请求，返回空元组。
         """
 
         if (
@@ -376,7 +372,7 @@ class PatchouliService:
             or decision.retrieval_plan.mode == RetrievalMode.SKIP
             or decision.retrieval_plan.top_k == 0
         ):
-            return RetrievalResponse()
+            return ()
 
         query = RetrievalQuery(
             semantic_query=decision.rewritten_query,
@@ -384,21 +380,16 @@ class PatchouliService:
             belong_to=belong_to,
             from_actor=from_actor,
         )
-        started_at = time.monotonic()
         memories = await self._local_bus.request(
             PatchouliLocalRoutes.MEMORY_RETRIEVE,
             query,
             top_k=decision.retrieval_plan.top_k,
         )
-        return RetrievalResponse.from_memories(
-            memories,
-            latency_ms=(time.monotonic() - started_at) * 1000,
-        )
+        return tuple(memories)
 
     async def _record_retrieval_hits(self, prepared_run: PreparedAgentRun) -> None:
-        memories = prepared_run.retrieval_result.memories
         seen: set[str] = set()
-        for memory in memories:
+        for memory in prepared_run.memories:
             memory_id = getattr(memory, "id", None)
             if memory_id is None:
                 continue

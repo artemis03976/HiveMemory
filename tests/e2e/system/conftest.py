@@ -243,8 +243,8 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
         (PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, coordinator.submit_active),
         (PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, generation.execute),
         (
-            PatchouliLocalRoutes.MEMORY_TASK_SUBMIT_GENERATION_MANY,
-            controller.submit_generation_many,
+            PatchouliLocalRoutes.MEMORY_TASK_ADMIT_GENERATION,
+            controller.admit_generation,
         ),
     ):
         local_bus.register(route, handler)

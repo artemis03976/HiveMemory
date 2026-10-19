@@ -12,7 +12,8 @@ from hivememory.infrastructure.llm.base import (
     LLMStreamChunk,
 )
 
-# 一项预置结果：文本即一次完整调用的结果，异常在调用时抛出，分块序列供流式调用回放。
+# 一项预置结果：文本或 LLMCompletion 是一次调用的完整输出（流式调用回放为单个增量与
+# 结束项），异常在调用时抛出，分块序列只供流式调用逐项回放。
 type ScriptedResult = str | LLMCompletion | BaseException | Sequence[LLMStreamChunk]
 
 
@@ -59,8 +60,13 @@ class ScriptedLLMService(BaseLLMService):
         params: LLMRequestParams,
     ) -> AsyncGenerator[LLMStreamChunk, None]:
         result = self._next(messages, params, stream=True)
-        if isinstance(result, str | LLMCompletion):
-            raise AssertionError("流式调用的预置结果必须是分块序列")
+        if isinstance(result, str):
+            result = LLMCompletion(text=result, finish_reason="stop")
+        if isinstance(result, LLMCompletion):
+            if result.text:
+                yield LLMStreamChunk(delta=result.text)
+            yield LLMStreamChunk(finish_reason=result.finish_reason)
+            return
         for chunk in result:
             yield chunk
 

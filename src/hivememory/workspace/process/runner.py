@@ -4,9 +4,9 @@
 有输出时封口交互记录并 finalize，对子系统的一切调用都经全局总线
 的公开路由完成，Actor 执行经组合根注入的 CPU 端口（``workspace.contracts``
 的 :class:`CPUPort`）完成。骨架只产出类型化的阶段产出（见
-``workspace.process.outputs``），流式与非流式交付共用同一条阶段顺序、
-同一组取消响应点与同一个关闭流程；两者的执行差异只有 CPU 以流式还是
-非流式产出（流式逐条转交交互事件）。
+``workspace.process.outputs``），执行不区分交付形态：CPU 总是逐项产出
+交互事件，流式交付逐条转交，非流式交付只取终态；两种交付共用同一条阶段
+顺序、同一组取消响应点与同一个关闭流程。
 
 执行器跨进程共享、不持有任何进程的状态：它只持有编排依赖，每次运行与
 关闭都以 :class:`TaskProcess` 为参数，进程的全部状态（进程记录、任务参数、
@@ -23,6 +23,7 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from typing import Any
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.cancellation import join_shielded
 from hivememory.components.trace_context import (
     reset_trace_context,
     set_trace_context,
@@ -137,9 +138,9 @@ class TaskProcessRunner:
     """任务进程执行器：四阶段编排骨架与关闭流程，跨进程共享。
 
     :meth:`run` 是唯一的编排骨架，:meth:`close` 是唯一的关闭流程；两者都
-    以进程为参数，执行器自身不保存任何进程的状态。``run`` 的 ``stream``
-    参数只决定 CPU 以流式还是非流式产出。执行器与 ``CPUAllocator`` 由组合根
-    构建并注入注册入口。
+    以进程为参数，执行器自身不保存任何进程的状态，也不区分交付形态：CPU
+    总是逐项产出交互事件，由交付方决定转交还是只取终态。执行器与
+    ``CPUAllocator`` 由组合根构建并注入注册入口。
 
     阶段调用由进程编排负责，每次调用前校验准入与任务目标 Workspace，
     不检查 actor 操作白名单。授权返回的 ``IdentityScope`` 保留进程 actor，
@@ -169,12 +170,7 @@ class TaskProcessRunner:
 
     # ========== 编排骨架 ==========
 
-    async def run(
-        self,
-        process: TaskProcess,
-        *,
-        stream: bool,
-    ) -> AsyncGenerator[ProcessOutput, None]:
+    async def run(self, process: TaskProcess) -> AsyncGenerator[ProcessOutput, None]:
         """按四阶段顺序产出阶段产出，结束时（含提前关闭）执行 :meth:`close`。
 
         进程每记录一次终态（``record.mark_*``）就紧接着交出终态产出，中间
@@ -187,11 +183,7 @@ class TaskProcessRunner:
         process.owner_task = asyncio.current_task()
         trace_tokens = None
         try:
-            trace_tokens = set_trace_context(
-                process.trace_id,
-                "TaskProcess.Stream" if stream else "TaskProcess.NonStreaming",
-                "foreground",
-            )
+            trace_tokens = set_trace_context(process.trace_id, "TaskProcess", "foreground")
             yield ProcessStarted()
 
             # ---- Gateway：可被 stop 中断 ----
@@ -238,8 +230,7 @@ class TaskProcessRunner:
             events.status(record)
             # CPU 只持有派生线程 context；进程 context 留给全部阶段的授权。
             access = self._thread_contexts.derive_main_thread(process)
-            # Actor 阶段只剩一个循环：流式与非流式都经 CPU 端口逐项拉取
-            # （非流式只拉取一次），交互事件产出为 ActorEvent、终态结果作为
+            # 经 CPU 端口逐项拉取：交互事件产出为 ActorEvent、终态结果作为
             # 执行结果。每次拉取都经 _run_interruptible 包装，停止请求的
             # 响应点不变；输出流登记进工作集，由关闭流程兜底关闭（含断流与
             # 取消路径）。
@@ -249,7 +240,6 @@ class TaskProcessRunner:
                     manifest,
                     access=access,
                     generation_options=request.generation_options,
-                    stream=stream,
                 )
                 cpu_output = cpu_run.output
                 working_set.cpu_output = cpu_output
@@ -279,13 +269,9 @@ class TaskProcessRunner:
                         self._thread_contexts.revoke_threads(working_set)
                     await self._close_cpu_output(working_set)
             except (asyncio.CancelledError, GeneratorExit):
-                # 拉取或关闭期间断连仍接受旧历史视图。已交付的终态优先于结果槽，
-                # CPU 可以只在取消时填写槽；普通执行异常不进入此路径。
+                # 拉取或关闭期间断连仍接受旧历史视图；普通执行异常不进入此路径。
                 self._thread_contexts.revoke_threads(working_set)
-                slot = working_set.cpu_result_slot
-                self._accept_checkpoint(
-                    process, execution_result or (slot.result if slot is not None else None)
-                )
+                self._accept_checkpoint(process, execution_result)
                 raise
             finally:
                 # 输出流关闭与线程撤销先于封口，不让 finalize 持有 actor 权限。
@@ -329,7 +315,9 @@ class TaskProcessRunner:
                 )
                 events.status(record)
                 yield Finalizing()
-                await self._join_finalization(working_set.finalization_task)
+                # 交付方取消不中断已开始的提交：等到提交结束再传播取消，
+                # 关闭流程仍按同一任务的结果收尾。
+                await join_shielded(working_set.finalization_task)
 
             topic_id = prepared.topic_id if has_output else None
             self._mark_execution_terminal(process, execution_result)
@@ -375,25 +363,6 @@ class TaskProcessRunner:
             identity_scope=self._authorize(process),
         )
         process.working_set.hand_off_prepared()
-
-    @staticmethod
-    async def _join_finalization(task: asyncio.Task[None]) -> None:
-        """屏蔽交付方取消直到提交结束，再传播取消；不留下脱离进程的后台任务。"""
-        cancelled = False
-        while not task.done():
-            try:
-                await asyncio.shield(task)
-            except asyncio.CancelledError:
-                if task.cancelled():
-                    raise
-                cancelled = True
-            except Exception:
-                break
-        if cancelled:
-            # 取出异常以免未观察告警；关闭流程仍会按同一任务的结果收尾。
-            task.exception()
-            raise asyncio.CancelledError
-        task.result()
 
     @staticmethod
     def _mark_execution_terminal(process: TaskProcess, result: CPUExecutionResult) -> None:
@@ -467,12 +436,21 @@ class TaskProcessRunner:
             raise _ProcessCancelled(ProcessPhase.PREPARE, record.stop_reason or "user_requested")
         return prepared, manifest
 
-    def _accept_checkpoint(self, process: TaskProcess, result: CPUExecutionResult | None) -> None:
-        """同步接受 CPU 的历史视图；领域拒绝仅记录告警，不影响本轮收尾。"""
-        if process.working_set.cpu_result_slot is None:
+    def _accept_checkpoint(
+        self, process: TaskProcess, result: CPUExecutionResult | None = None
+    ) -> None:
+        """同步接受 CPU 的历史视图；领域拒绝仅记录告警，不影响本轮收尾。
+
+        已交付的终态优先；没有时取工作集结果槽中的结果，CPU 可以只在取消
+        时填写槽。正常收尾、断流与兜底关闭可能先后到达，同一次执行只尝试
+        一次，之后结果槽从工作集移除。
+        """
+        slot = process.working_set.cpu_result_slot
+        if slot is None:
             return
-        # 正常收尾、断流与兜底关闭可能先后到达，同一结果只尝试一次。
         process.working_set.cpu_result_slot = None
+        if result is None:
+            result = slot.result
         if result is None or result.compaction_checkpoint is None:
             return
         try:
@@ -534,11 +512,10 @@ class TaskProcessRunner:
         # 附件文本在 CPU 分配时已编译进清单，Actor 执行不再读取租借内容。
         self._allocator.release(working_set)
         await self._close_cpu_output(working_set)
-        if working_set.cpu_result_slot is not None:
-            self._accept_checkpoint(process, working_set.cpu_result_slot.result)
+        self._accept_checkpoint(process)
         if working_set.finalization_task is not None and not record.is_terminal:
             try:
-                await self._join_finalization(working_set.finalization_task)
+                await join_shielded(working_set.finalization_task)
             except Exception as exc:
                 if not record.is_terminal:
                     record.mark_failed()

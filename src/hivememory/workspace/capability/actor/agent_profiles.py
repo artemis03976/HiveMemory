@@ -6,7 +6,8 @@ from typing import TYPE_CHECKING
 
 from hivememory.core.access import WorkspaceOperation
 from hivememory.workspace.contracts.operations import DeriveCallThreadRequest
-from hivememory.workspace.contracts.threads import ChildThreadSpawner, ExecutionThread
+from hivememory.workspace.contracts.threads import ExecutionThread
+from hivememory.workspace.thread_ports import ChildThreadSpawner
 
 if TYPE_CHECKING:
     from hivememory.core.access import WorkspaceAccessContext

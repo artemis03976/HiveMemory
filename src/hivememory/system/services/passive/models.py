@@ -21,9 +21,8 @@ from uuid import uuid4
 
 from pydantic import BaseModel, Field
 
-from hivememory.core.models import IdentityScope, TurnEventRenderAs
+from hivememory.core.models import IdentityScope, MemoryAtom, TurnEventRenderAs
 from hivememory.core.protocol.gateway import GatewayDecision
-from hivememory.core.protocol.models import RetrievalResponse
 
 
 @dataclass(frozen=True)
@@ -162,7 +161,7 @@ class PassiveIngressOutcome:
 
     kind: Literal["user", "buffered", "duplicate", "ignored"]
     gateway_decision: GatewayDecision | None = None
-    retrieval_result: RetrievalResponse | None = None
+    memories: tuple[MemoryAtom, ...] | None = None
 
 
 __all__ = [

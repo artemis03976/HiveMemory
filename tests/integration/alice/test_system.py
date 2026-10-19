@@ -26,12 +26,11 @@ async def test_system_lifecycle_controls_cpu_execution():
             make_input_manifest(),
             access=access,
             generation_options={"model": "test-model"},
-            stream=False,
         )
 
     await system.start()
-    result = [item async for item in execute().output]
-    assert [(item.status, item.final_text) for item in result] == [("completed", "完成")]
+    *_events, terminal = [item async for item in execute().output]
+    assert (terminal.status, terminal.final_text) == ("completed", "完成")
     await system.stop()
     with pytest.raises(AliceUnavailableError, match="not running"):
         await anext(execute().output)

@@ -23,6 +23,7 @@ import pytest
 from hivememory.core.models import (
     IndexLayer,
     LogicalBlock,
+    MemoryAccessPolicy,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
@@ -979,7 +980,7 @@ class TestMemoryGenerationFamiliarArtifacts:
 
     @pytest.mark.asyncio
     async def test_create_external_memory_builds_manual_creation_artifacts(self):
-        atom = _make_memory_atom()
+        """以提交材料构造原子：归属、来源、默认策略与提交时刻都由创建入口确定。"""
         memory_bundle = _creation_bundle()
 
         artifact_engine = Mock()
@@ -991,10 +992,25 @@ class TestMemoryGenerationFamiliarArtifacts:
             mid_term=mid_term,
             artifact_engine=artifact_engine,
         )
+        scope = _identity_scope()
 
-        result = await familiar.create_external_memory(_identity_scope().workspace_identity, atom)
+        atom = await familiar.create_external_memory(
+            scope.workspace_identity,
+            from_actor=scope.actor_identity,
+            memory_type=MemoryType.FACT,
+            title="API",
+            summary="endpoint",
+            content="Use /api",
+            tags=["api"],
+            alias="fact_api",
+        )
 
-        assert result is atom
+        assert atom.workspace_identity == scope.workspace_identity
+        assert atom.meta.provenance.source_agent_id == scope.actor_identity.agent_id
+        assert atom.meta.access_policy == MemoryAccessPolicy.public()
+        assert (atom.index.title, atom.index.alias, atom.index.tags) == ("API", "fact_api", ["api"])
+        assert atom.index.memory_type == MemoryType.FACT
+        assert atom.payload.content == "Use /api"
         artifact_engine.memory.build_for_create.assert_awaited_once()
         call = artifact_engine.memory.build_for_create.await_args.kwargs
         assert call["memory"] is atom
@@ -1006,7 +1022,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         event = atom.payload.artifacts.events[-1]
         assert event.event_type == MemoryEventType.CREATED
         assert event.at == FIXED_NOW
-        # 提交边界用注入 now 重打创建时间三兄弟
+        # 创建时点只取提交边界的同一时刻
         assert atom.meta.created_at == FIXED_NOW
         assert atom.meta.updated_at == FIXED_NOW
         assert atom.meta.lifecycle.decay_anchor_at == FIXED_NOW

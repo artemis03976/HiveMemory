@@ -135,7 +135,7 @@ class TestMemoryGenerationTaskController:
         first = await controller.submit_generation(first_spec)
         with pytest.raises(ValueError, match="different spec"):
             await controller.submit_generation(conflicting_spec)
-        (conflict,) = await controller.submit_generation_many([conflicting_spec])
+        conflict = await controller.admit_generation(conflicting_spec)
         # 既有任务仍拥有该 intent 的结算权：冲突按结果未知处理，不发布失败。
         assert conflict.status is MemoryGenerationAdmissionStatus.UNKNOWN
         bus.publish.assert_not_awaited()
@@ -143,36 +143,24 @@ class TestMemoryGenerationTaskController:
         await controller.wait_task(first.task_id)
 
     @pytest.mark.asyncio
-    async def test_submit_generation_many_isolates_one_admission_failure(self):
+    async def test_admit_generation_settles_deterministic_rejection_as_failed(self):
+        """确定性拒绝结算关联的 PendingAtom 为失败，不伪造 FAILED 任务。"""
         bus = Mock(request=AsyncMock(return_value=[]), publish=AsyncMock())
         controller = MemoryGenerationTaskController(bus=bus)
         await controller.start()
         try:
-            result = await controller.submit_generation_many(
-                [
-                    _spec(label="first"),
-                    _spec(label="", intent_id="intent-failed", pending_alias="draft-failed"),
-                    _spec(label="third"),
-                ]
+            admission = await controller.admit_generation(
+                _spec(label="", intent_id="intent-failed", pending_alias="draft-failed")
             )
 
-            assert [admission.status for admission in result] == [
-                MemoryGenerationAdmissionStatus.ACCEPTED,
-                MemoryGenerationAdmissionStatus.REJECTED,
-                MemoryGenerationAdmissionStatus.ACCEPTED,
-            ]
-            assert [admission.task.label for admission in result if admission.task] == [
-                "first",
-                "third",
-            ]
+            assert admission.status is MemoryGenerationAdmissionStatus.REJECTED
+            assert admission.task is None
+            assert await controller.list_tasks() == []
             bus.publish.assert_awaited_once_with(
                 PatchouliLocalEvents.PENDING_ATOM_FAILED,
                 pending_alias="draft-failed",
                 intent_id="intent-failed",
             )
-            completed = await controller.wait_all(timeout=1)
-            assert len(completed) == 2
-            assert all(task.status == MemoryGenerationTaskStatus.COMPLETED for task in completed)
         finally:
             await controller.stop()
 
@@ -180,7 +168,7 @@ class TestMemoryGenerationTaskController:
     @pytest.mark.parametrize(
         "failure", [ConnectionError("response lost"), ValueError("after admission")]
     )
-    async def test_submit_generation_many_keeps_unknown_admission_pending(self, failure):
+    async def test_admit_generation_keeps_unknown_admission_pending(self, failure):
         queue = Mock()
         queue.start = AsyncMock()
         queue.started = True
@@ -188,19 +176,15 @@ class TestMemoryGenerationTaskController:
         bus = Mock(publish=AsyncMock())
         controller = MemoryGenerationTaskController(bus=bus, memory_queue=queue)
 
-        result = await controller.submit_generation_many(
-            [
-                _spec(
-                    label="unknown",
-                    intent_id="intent-unknown",
-                    pending_alias="draft-unknown",
-                ),
-            ]
+        admission = await controller.admit_generation(
+            _spec(
+                label="unknown",
+                intent_id="intent-unknown",
+                pending_alias="draft-unknown",
+            )
         )
 
-        assert [admission.status for admission in result] == [
-            MemoryGenerationAdmissionStatus.UNKNOWN
-        ]
+        assert admission.status is MemoryGenerationAdmissionStatus.UNKNOWN
         bus.publish.assert_not_awaited()
 
     @pytest.mark.asyncio

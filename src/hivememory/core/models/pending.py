@@ -2,11 +2,8 @@
 HiveMemory 核心数据模型 - Pending / Settlement 领域
 
 PendingAtom 由 workspace 的写入意图登记拥有，结算视图供生成引擎与登记共同使用。
-状态枚举与 Focus 是供写入登记和记忆生成共同使用的跨域模型。
-
-新代码应直接从本模块或 ``hivememory.core.models`` 导入。生成域 facade
-``hivememory.engines.generation.models`` 仍 re-export 一份 PendingAtomSettlement /
-WriteFocus / UpdateFocus，作为生成流水线域内的稳定面，调用方按业务直觉选择即可。
+状态枚举与 Focus 是供写入登记和记忆生成共同使用的跨域模型，只从本模块或
+``hivememory.core.models`` 导入。
 """
 
 from __future__ import annotations
@@ -120,24 +117,6 @@ class UpdateFocus(BaseModel):
 
 
 # ===========================================================================
-# 执行坐标
-# ===========================================================================
-
-
-class ExecutionLabels(BaseModel):
-    """注册时绑定的执行观测标签，只用于提示词、展示与事件关联。
-
-    标签不含发起者或资源归属，不能组装授权身份、访问资源或切换 Workspace。
-    主线程与 CALL 子帧继承同一组标签，操作始终以线程 context 逐次授权。
-    """
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    agent_id: str
-    workspace_id: str
-
-
-# ===========================================================================
 # Settlement 结算视图
 # ===========================================================================
 
@@ -223,8 +202,6 @@ __all__ = [
     # Focus 相关字段
     "WriteFocus",
     "UpdateFocus",
-    # 执行坐标
-    "ExecutionLabels",
     # 主体
     "PendingAtom",
     "PendingAtomSettlement",

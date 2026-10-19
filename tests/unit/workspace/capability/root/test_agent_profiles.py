@@ -9,12 +9,13 @@ import pytest_asyncio
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.models import (
     ActorIdentity,
+    IdentityScope,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
 )
-from hivememory.patchouli.contracts import PatchouliRoutes
+from hivememory.patchouli.contracts import AgentProfileCreation, PatchouliRoutes
 from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
@@ -96,21 +97,22 @@ class TestRootAgentProfileService:
             access=access,
         )
 
-        mock_global_bus.request.assert_awaited_once()
-        route, bus_scope, payload = mock_global_bus.request.await_args.args
-        assert route == PatchouliRoutes.AGENT_PROFILE_CREATE
-        # 传给 Patchouli 的 scope 来自 guard：已认证 actor + 目标 workspace
-        assert bus_scope.actor_identity == ActorIdentity(user_id="u1", agent_id="system")
-        assert bus_scope.workspace_identity == workspace
-        # context 不向下游传递，Patchouli 路由不接收 access
-        assert "access" not in mock_global_bus.request.await_args.kwargs
-        assert payload.workspace_identity == bus_scope.workspace_identity
-        assert payload.index.memory_type == MemoryType.AGENT_PROFILE
-        # 空摘要是合法值：原样保留，不再由标题拼凑默认摘要。
-        assert payload.index.summary == ""
-        assert payload.index.alias == "worker"
-        assert payload.payload.content == "persona"
-        assert payload.payload.agent_config == {"allowed_mtp_verbs": ["SEARCH"]}
+        # 只提交创建材料：原子由 Patchouli 构造，scope 来自 root 授权，access 不向下游传递
+        mock_global_bus.request.assert_awaited_once_with(
+            PatchouliRoutes.AGENT_PROFILE_CREATE,
+            identity_scope=IdentityScope(
+                actor_identity=ActorIdentity(user_id="u1", agent_id="system"),
+                workspace_identity=workspace,
+            ),
+            creation=AgentProfileCreation(
+                title="Worker",
+                alias="worker",
+                summary="",
+                content="persona",
+                tags=("agent",),
+                agent_config={"allowed_mtp_verbs": ["SEARCH"]},
+            ),
+        )
 
     @pytest.mark.asyncio
     async def test_list_agent_profiles_uses_public_route(

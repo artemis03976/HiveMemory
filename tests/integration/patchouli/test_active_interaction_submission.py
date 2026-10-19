@@ -20,10 +20,7 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask
-from hivememory.core.protocol.models import (
-    InteractionPayload,
-    RetrievalResponse,
-)
+from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.contracts.errors import ActiveInteractionFinalizationError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
@@ -79,7 +76,7 @@ def _prepared(
         interaction_id=interaction_id,
         topic_id="topic-1",
         is_new_topic=is_new,
-        retrieval_result=RetrievalResponse.from_memories(list(memories or [])),
+        memories=tuple(memories or ()),
     )
 
 
@@ -112,10 +109,9 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
         calls.append("apply")
         return target_topic_id
 
-    async def materialize(tasks, **_kwargs):
-        dispatched_tasks.extend(tasks)
+    async def materialize(task, **_kwargs):
+        dispatched_tasks.append(task)
         calls.append("materialize")
-        return []
 
     bus = PatchouliBus()
     bus.register(PatchouliLocalRoutes.GENERATION_SUBMIT_ACTIVE, materialize)
@@ -356,7 +352,7 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
         return target_topic_id
 
     discard = AsyncMock(return_value=True)
-    materialize = AsyncMock(return_value=[])
+    materialize = AsyncMock()
     record_hit = AsyncMock()
     bus = PatchouliBus()
     bus.register(PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY, discard)

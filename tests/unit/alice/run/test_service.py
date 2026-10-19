@@ -12,7 +12,6 @@ from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.events import AgentRunEventEmitter
 from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
 from hivememory.alice.orchestration.frames import FrameFactory
-from hivememory.alice.run.output import NullRunOutput
 from hivememory.alice.run.service import AgentRunService
 from hivememory.components.events.bus import (
     NullRuntimeEventSink,
@@ -25,6 +24,7 @@ from hivememory.core.models import (
 )
 from tests.helpers.chat_handoff import make_input_manifest
 from tests.helpers.llm import ScriptedLLMService
+from tests.helpers.outputs import NullRunOutput
 from tests.helpers.workspace import make_execution_labels
 
 

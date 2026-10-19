@@ -12,7 +12,7 @@ class MaintenanceTasksConfig(BaseModel):
     lifecycle_gc_interval_hours: int = Field(default=24)
     enable_lifecycle_gc: bool = Field(default=True)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class SchedulerConfig(BaseModel):
@@ -21,7 +21,7 @@ class SchedulerConfig(BaseModel):
     shutdown_wait_seconds: float = Field(default=5.0)
     tasks: MaintenanceTasksConfig = Field(default_factory=MaintenanceTasksConfig)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 class RuntimeEventsConfig(BaseModel):
@@ -29,7 +29,7 @@ class RuntimeEventsConfig(BaseModel):
     buffer_size: int = Field(default=1000)
     subscriber_queue_size: int = Field(default=100)
 
-    model_config = ConfigDict(extra="ignore")
+    model_config = ConfigDict(extra="forbid")
 
 
 __all__ = [

@@ -15,7 +15,6 @@ from hivememory.core.contracts.runtime_events import (
 )
 from hivememory.system.assembler import (
     SystemAssembler,
-    _AccessControlBundle,
     _RegistriesBundle,
     _RuntimeBundle,
     _ServicesBundle,
@@ -54,7 +53,7 @@ class HiveMemorySystem:
         registries: _RegistriesBundle,
         subsystems: _SubsystemBundle,
         services: _ServicesBundle,
-        access_control: _AccessControlBundle | None = None,
+        access_gateway: ActorAuthenticationGateway,
     ) -> None:
         self._config = config
 
@@ -88,10 +87,9 @@ class HiveMemorySystem:
         self._provider_registry = registries.provider_registry
 
         # 访问控制：统一认证网关是唯一对外认证入口，生产 HTTP 入口经它
-        # 认证。缺省 None 仅兼容旧装配调用，正常构建由
-        # assembler 注入。签发与撤销归认证一侧（经网关转交），操作授权者
-        # 无状态、不需要关闭。
-        self._access_gateway = access_control.access_gateway if access_control else None
+        # 认证。签发与撤销归认证一侧（经网关转交），操作授权者无状态、
+        # 不需要关闭，门面只持有网关以在停止时先关闭、最后撤销。
+        self._access_gateway = access_gateway
 
         self._started = False
         self._scheduler_stopped = False
@@ -228,8 +226,7 @@ class HiveMemorySystem:
         try:
             # 先关闭统一认证网关、拒绝新认证：已签发
             # context 由各自所有者在收尾时撤销；任务进程收尾后经网关撤销全部。
-            if self._access_gateway is not None:
-                self._access_gateway.close()
+            self._access_gateway.close()
             completed_steps.append("access_gateway.close")
             await self._stop_scheduler()
             scheduler_stopped = self._scheduler_stopped
@@ -245,8 +242,7 @@ class HiveMemorySystem:
                 completed_steps.append("workspace_runtime.close")
                 self._workspace_asset_store.close_and_clear()
                 completed_steps.append("workspace_asset_store.close_and_clear")
-                if self._access_gateway is not None:
-                    self._access_gateway.revoke_all_contexts()
+                self._access_gateway.revoke_all_contexts()
                 completed_steps.append("workspace_access_contexts.revoke")
                 self._emit_lifecycle_event(
                     RuntimeEventType.SYSTEM_STOPPED,
@@ -279,8 +275,7 @@ class HiveMemorySystem:
             # 最后经认证网关撤销全部已签发 context：在途任务进程与请求收尾
             # 仍需用各自持有的 context 通过授权；此后它们不再能通过授权
             # （操作授权者无状态，不需要关闭）。
-            if self._access_gateway is not None:
-                self._access_gateway.revoke_all_contexts()
+            self._access_gateway.revoke_all_contexts()
             completed_steps.append("workspace_access_contexts.revoke")
             self._started = False
         except Exception as exc:
@@ -459,6 +454,6 @@ class HiveMemorySystem:
         return self._provider_registry
 
     @property
-    def access_gateway(self) -> ActorAuthenticationGateway | None:
-        """统一 Actor Authentication 网关；未装配时为 ``None``。"""
+    def access_gateway(self) -> ActorAuthenticationGateway:
+        """统一 Actor Authentication 网关。"""
         return self._access_gateway

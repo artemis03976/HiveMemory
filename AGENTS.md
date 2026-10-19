@@ -28,7 +28,7 @@
 | 层 | 包 | 职责 |
 | --- | --- | --- |
 | L0 | `core` / `config` / `utils` / `i18n` | 依赖中立的模型、Route 泛型原语、事件常量、错误类型、访问值类型与端口协议；配置段模型 |
-| L1 | `components` | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context |
+| L1 | `components` | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context、取消收尾 |
 | L2 | `engines` / `infrastructure` / `prompts` | 算法与外部技术适配器 |
 | L3 | `workspace` / `patchouli` / `gateway` / `alice` + `agent_runtime` | 子系统；彼此只能导入对方公开的 `contracts` 子包 |
 | L4 | `system` | 组合根、门面与系统级能力；除入口外不被任何包导入 |
@@ -44,7 +44,7 @@
 | Patchouli | Memory/Topic/Profile、检索、感知、生成、生命周期、prepare（话题与检索）/finalize 和长期状态 | 顶层 chat 编排、入口命令、Agent 生成循环、附件租借与执行上下文编译 |
 | Alice | Agent run、frame、MTP/工具和 CALL 编排 | 长期记忆所有权、Gateway 分析、chat 任务进程编排、HTTP 生命周期 |
 | Core/Contracts | 依赖中立的模型、协议枚举、Route 泛型原语、事件常量、访问值类型与端口协议 | 业务编排、I/O、可变运行时状态 |
-| Components | 进程内运行时机制（总线、调度器、work queue、运行时事件、串行门、trace context） | 业务状态与业务判断 |
+| Components | 进程内运行时机制（总线、调度器、work queue、运行时事件、串行门、trace context、取消收尾） | 业务状态与业务判断 |
 
 必须保持以下方向：`server -> 经门面取得的服务（workspace 能力层与任务进程编排 / System 被动摄入） -> Global public routes -> 子系统`。route 名称与签名由提供方 `contracts` 声明，调用方直接导入提供方的类型化 route；core 只提供 `Route` / `route` 原语，事件常量仍在 core。跨子系统使用公共 route、公共模型或全局事件；不要持有对方 Runtime、Service、Controller、存储客户端或 local bus。
 

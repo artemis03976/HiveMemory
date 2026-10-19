@@ -16,7 +16,6 @@ from hivememory.agent_runtime.runtime import build_agent_runtime
 from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
 from hivememory.alice.orchestration.call.coordinator import DispatchCallee, ResumeCaller
 from hivememory.alice.orchestration.frames import FrameFactory
-from hivememory.alice.orchestration.output import NullAgentRunOutput
 from hivememory.alice.orchestration.session import RunSession
 from hivememory.config.alice import AliceConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
@@ -40,6 +39,7 @@ from hivememory.workspace.contracts import SubmitWriteIntentRequest, ThreadOpera
 from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.operations import OperationsHarness
+from tests.helpers.outputs import NullAgentRunOutput
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,

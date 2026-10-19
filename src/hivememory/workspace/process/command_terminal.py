@@ -27,8 +27,7 @@ def command_terminal(parse_result: CommandParseResult) -> CommandExecutionResult
     - 终态不携带客户端动作：``/clear`` 的 ``clear_chat`` 随执行一起后置。
     """
 
-    # 解析失败时 command_id 为空，回退到解析出的命令名。
-    command_id = parse_result.command_id or parse_result.name or "unknown"
+    command_id = parse_result.effective_command_id
     if parse_result.parse_status == CommandParseStatus.MATCHED:
         return CommandExecutionResult(
             command_id=command_id,
