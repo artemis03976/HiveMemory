@@ -78,6 +78,11 @@ def make_identity_scope(
     )
 
 
+def make_actor_identity(*, user_id: str = "user-1", agent_id: str = "agent-1") -> ActorIdentity:
+    """构造测试用的 actor 身份；身份模型没有默认值，测试显式给出。"""
+    return ActorIdentity(user_id=user_id, agent_id=agent_id)
+
+
 def make_execution_labels(
     *,
     agent_id: str = "test_agent",
@@ -251,7 +256,7 @@ def make_access_composition(
 
     context 不设固定有效期，只随进程关闭、请求结束与撤销全部失效；
     需要验证单个 context 失效时经组合的网关调用
-    ``gateway.invalidate_context(context)``。
+    ``gateway.revoke_context(context)``。
     """
     principal = CallerPrincipal(principal_id)
     system_registry = SystemActorAccessRegistry(
@@ -281,13 +286,15 @@ def make_access_composition(
     )
 
 
-def make_workspace_runtime(global_bus=None, *, atom_capacity: int = 16, profile_capacity: int = 16):
-    """构造经全局总线访问 Patchouli backing 的 WorkspaceRuntime（测试装配）。"""
+def make_workspace_read_view(
+    global_bus=None, *, atom_capacity: int = 16, profile_capacity: int = 16
+):
+    """构造经全局总线访问 Patchouli backing 的 WorkspaceReadView（测试装配）。"""
     from hivememory.components.bus.global_bus import GlobalSystemBus
     from hivememory.workspace.capability.backing import BusCanonicalReadBackend
-    from hivememory.workspace.runtime import WorkspaceRuntime
+    from hivememory.workspace.read_view import WorkspaceReadView
 
-    return WorkspaceRuntime(
+    return WorkspaceReadView(
         backing=BusCanonicalReadBackend(global_bus or GlobalSystemBus()),
         atom_capacity=atom_capacity,
         profile_capacity=profile_capacity,

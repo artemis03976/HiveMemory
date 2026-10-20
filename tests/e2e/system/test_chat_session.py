@@ -23,7 +23,7 @@ from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
-    make_workspace_runtime,
+    make_workspace_read_view,
 )
 
 pytestmark = pytest.mark.e2e
@@ -49,13 +49,13 @@ async def test_http_session_resume_after_partial_stop(patchouli_chat_stack):
         adapters=("http",),
     )
     workspace = access.default_workspace
-    runtime = make_workspace_runtime(stack.bus)
+    runtime = make_workspace_read_view(stack.bus)
     runtime.subscribe(stack.bus)
     entry = WorkspaceOperationEntry(
         ActorMemoryService(
             stack.bus,
             operation_authorizer=access.authorizer,
-            memory_reader=runtime.aliases,
+            memory_reader=runtime.memory,
             threads=access.threads,
         ),
         agent=ActorAgentService(
@@ -96,7 +96,7 @@ async def test_http_session_resume_after_partial_stop(patchouli_chat_stack):
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
         process_table=access.process_table,
-        workspace_runtime=runtime,
+        workspace_read_view=runtime,
         operation_entry=entry,
     )
     app = FastAPI()
@@ -265,13 +265,13 @@ async def test_http_long_session_reuses_compacted_history_and_seals_budget_failu
         adapters=("http",),
     )
     workspace = access.default_workspace
-    runtime = make_workspace_runtime(stack.bus)
+    runtime = make_workspace_read_view(stack.bus)
     runtime.subscribe(stack.bus)
     entry = WorkspaceOperationEntry(
         ActorMemoryService(
             stack.bus,
             operation_authorizer=access.authorizer,
-            memory_reader=runtime.aliases,
+            memory_reader=runtime.memory,
             threads=access.threads,
         ),
         agent=ActorAgentService(
@@ -333,7 +333,7 @@ async def test_http_long_session_reuses_compacted_history_and_seals_budget_failu
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
         process_table=access.process_table,
-        workspace_runtime=runtime,
+        workspace_read_view=runtime,
         operation_entry=entry,
         event_publisher=publisher,
     )

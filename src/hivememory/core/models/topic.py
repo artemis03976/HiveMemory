@@ -42,7 +42,7 @@ class LogicalBlock(BaseModel):
     """感知层写入短期话题的不可变逻辑块。"""
 
     block_id: str = Field(default_factory=lambda: uuid4().hex)
-    turn: TurnRecord = Field(default_factory=TurnRecord)
+    turn: TurnRecord
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
     total_tokens: int = 0
     gateway_intent: str | None = None

@@ -15,9 +15,6 @@ HiveMemory - 生命力分数计算器
     - 时间衰退由 D(t) 主导，高价值记忆衰退更慢 (λ_eff 调制)
     - 命中/反馈事件通过 B 项累积，不会因公式重算而丢失
     - confidence 影响"是否容易遗忘" (TODO: 未来可纳入 λ_eff 调制)，而非压低起点
-
-作者: HiveMemory Team
-版本: 0.2.0
 """
 
 import math

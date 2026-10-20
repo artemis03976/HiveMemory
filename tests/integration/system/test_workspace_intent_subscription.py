@@ -29,7 +29,7 @@ async def test_composition_subscribes_before_start_and_unsubscribes_after_stop(m
     bus = GlobalSystemBus()
     monkeypatch.setattr("hivememory.system.assembler.GlobalSystemBus", lambda: bus)
     system = HiveMemorySystem.build(config=HiveMemoryConfig(runtime_events={"enabled": False}))
-    runtime = system.workspace_runtime
+    runtime = system.workspace_read_view
     scope = make_identity_scope()
     atom = MemoryAtom(
         meta=make_memory_metadata(
@@ -46,7 +46,7 @@ async def test_composition_subscribes_before_start_and_unsubscribes_after_stop(m
 
     bus.register(PatchouliRoutes.MEMORY_READ, backing)
     try:
-        first = await runtime.aliases.read(atom.id, scope=scope)
+        first = await runtime.memory.read(atom.id, scope=scope)
         assert first.payload.content == "old"
         atom.payload.content = "new"
         await bus.publish(
@@ -55,8 +55,7 @@ async def test_composition_subscribes_before_start_and_unsubscribes_after_stop(m
                 belong_to=scope.workspace_identity, memory_id=atom.id, operation="patch"
             ),
         )
-        assert runtime.stats()["atom_size"] == 0
-        second = await runtime.aliases.read(atom.id, scope=scope)
+        second = await runtime.memory.read(atom.id, scope=scope)
         assert second.payload.content == "new"
 
         pending = runtime.intents.register_write(

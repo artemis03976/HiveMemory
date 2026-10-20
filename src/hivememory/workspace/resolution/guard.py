@@ -27,9 +27,6 @@ class ColdReadGuard:
         self._epochs = epochs
         self._max_stale_retries = max_stale_retries
         self._closed = False
-        # 可观测统计：冷读次数与因代次变化拒绝的旧值次数
-        self._cold_reads = 0
-        self._stale_rejects = 0
 
     @property
     def is_closed(self) -> bool:
@@ -44,7 +41,7 @@ class ColdReadGuard:
         if self._closed:
             raise ResourceUnavailableError(
                 "workspace 读取能力已关闭",
-                details={"reason": "workspace_runtime_closed"},
+                details={"reason": "workspace_read_view_closed"},
             )
 
     async def load(
@@ -63,13 +60,11 @@ class ColdReadGuard:
         for _ in range(self._max_stale_retries + 1):
             self.ensure_open()
             epoch = self._epochs.current(workspace)
-            self._cold_reads += 1
             value = await fetch()
             if self._closed:
                 return value, False
             if self._epochs.current(workspace) == epoch:
                 return value, True
-            self._stale_rejects += 1
             if not retry_on_stale:
                 return value, False
         raise ResourceUnavailableError(
@@ -80,16 +75,6 @@ class ColdReadGuard:
                 "attempts": self._max_stale_retries + 1,
             },
         )
-
-    @property
-    def cold_reads(self) -> int:
-        """累计冷读次数。"""
-        return self._cold_reads
-
-    @property
-    def stale_rejects(self) -> int:
-        """因代次变化拒绝回填的累计次数。"""
-        return self._stale_rejects
 
 
 __all__ = ["ColdReadGuard"]

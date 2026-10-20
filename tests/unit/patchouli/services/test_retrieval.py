@@ -20,6 +20,7 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
     TopicData,
+    TurnRecord,
 )
 from hivememory.core.models.query import QueryFilters
 from hivememory.engines.retrieval.models import (
@@ -31,7 +32,7 @@ from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_actor_identity, make_identity_scope
 
 
 def _make_memory(title="测试记忆") -> MemoryAtom:
@@ -354,7 +355,7 @@ class TestRetrievalFamiliarShortTermTopics:
         self.familiar = RetrievalFamiliar(engine=Mock(), memory_library=self.mock_library)
 
     def test_list_active_topics_excludes_empty_and_sorts_by_recency(self):
-        block = LogicalBlock()
+        block = LogicalBlock(turn=TurnRecord(identity=make_actor_identity()))
         old_topic = _make_topic_data("old", blocks=[block], last_update=1.0)
         empty_topic = _make_topic_data("empty", blocks=[], last_update=3.0)
         empty_topic = empty_topic.model_copy(update={"state_summary": ""})

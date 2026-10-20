@@ -295,13 +295,13 @@ class TaskProcessRunner:
 
         topic_id = prepared.topic_id if has_output else None
         self._mark_execution_terminal(process, execution_result)
-        if execution_result.status == CPUExecutionStatus.CANCELLED.value:
+        if execution_result.status is CPUExecutionStatus.CANCELLED:
             return RunCancelled(
                 reason=record.stop_reason or "user_requested",
                 execution_result=execution_result,
                 topic_id=topic_id,
             )
-        if execution_result.status == CPUExecutionStatus.FAILED.value:
+        if execution_result.status is CPUExecutionStatus.FAILED:
             return RunFailed(execution_result, topic_id=topic_id)
         return RunCompleted(execution_result=execution_result, topic_id=topic_id)
 
@@ -384,7 +384,7 @@ class TaskProcessRunner:
             turn_events=execution_result.turn_events,
             model_used=execution_result.model_used,
             used_attachments=process.working_set.used_attachments,
-            outcome=CPUExecutionStatus(execution_result.status).value,
+            outcome=execution_result.status.value,
         )
         self._sessions.append(
             request.target_workspace,
@@ -427,10 +427,10 @@ class TaskProcessRunner:
         record = process.record
         if record.is_terminal:
             return
-        if result.status == CPUExecutionStatus.CANCELLED.value:
+        if result.status is CPUExecutionStatus.CANCELLED:
             record.mark_cancelled()
             record.events.cancelled(record)
-        elif result.status == CPUExecutionStatus.FAILED.value:
+        elif result.status is CPUExecutionStatus.FAILED:
             record.mark_failed()
             record.events.failed(record, failure_reason=result.failure_reason)
         else:

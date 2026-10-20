@@ -26,9 +26,6 @@
     │      ├── GenerationCoordinator          │
     │      └── LifecycleFamiliar              │
     └─────────────────────────────────────────┘
-
-作者: HiveMemory Team
-版本: 4.0
 """
 
 from __future__ import annotations

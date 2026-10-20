@@ -30,7 +30,6 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.config.access import load_access_registration
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.config.runtime import RuntimeEventsConfig
 from hivememory.config.shared import LLMConfig
 from hivememory.core.access import WorkspaceOperation
 from hivememory.gateway import GatewaySystem
@@ -65,11 +64,11 @@ from hivememory.workspace.process.runner import TaskProcessRunner
 from hivememory.workspace.process.service import TaskProcessService
 from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.process.threads import ProcessThreads
+from hivememory.workspace.read_view import WorkspaceReadView
 from hivememory.workspace.registry import (
     WorkspaceActorAccessRecord,
     WorkspaceActorAccessRegistry,
 )
-from hivememory.workspace.runtime import WorkspaceRuntime
 from hivememory.workspace.sessions import ConversationSessionService
 
 if TYPE_CHECKING:
@@ -86,7 +85,7 @@ class _RuntimeBundle:
     global_bus: GlobalSystemBus
     scheduler: GlobalMaintenanceScheduler
     workspace_asset_store: InMemoryWorkspaceAssetStore
-    workspace_runtime: WorkspaceRuntime
+    workspace_read_view: WorkspaceReadView
     sessions: ConversationSessionService
     event_bus: RuntimeEventBus | None
     event_sink: RuntimeEventSink
@@ -241,18 +240,16 @@ class SystemAssembler:
         # workspace 读取能力与派生缓存：由组合根持有，L2 冷读经全局
         # 总线调用 Patchouli backing 路由，不持有 Patchouli 对象。
         cache_config = self._config.workspace.cache
-        workspace_runtime = WorkspaceRuntime(
+        workspace_read_view = WorkspaceReadView(
             backing=BusCanonicalReadBackend(global_bus),
             atom_capacity=cache_config.atom_capacity,
             profile_capacity=cache_config.profile_capacity,
         )
         # 先订阅失效与结算事件，再装配可能产生 canonical 写入的子系统；
         # 首个请求进入之前，workspace 的唯一意图登记与读取缓存已就绪。
-        workspace_runtime.subscribe(global_bus)
+        workspace_read_view.subscribe(global_bus)
 
-        runtime_events_config = getattr(self._config, "runtime_events", None)
-        if not isinstance(runtime_events_config, RuntimeEventsConfig):
-            runtime_events_config = RuntimeEventsConfig()
+        runtime_events_config = self._config.runtime_events
 
         event_bus = (
             RuntimeEventBus(
@@ -278,7 +275,7 @@ class SystemAssembler:
             global_bus=global_bus,
             scheduler=scheduler,
             workspace_asset_store=workspace_asset_store,
-            workspace_runtime=workspace_runtime,
+            workspace_read_view=workspace_read_view,
             sessions=ConversationSessionService(self._config.workspace.sessions),
             event_bus=event_bus,
             event_sink=event_sink,
@@ -430,12 +427,12 @@ class SystemAssembler:
         memory = ActorMemoryService(
             global_bus=runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
-            memory_reader=runtime.workspace_runtime.aliases,
+            memory_reader=runtime.workspace_read_view.memory,
             threads=processes.process_threads,
         )
         agent = ActorAgentService(
             operation_authorizer=access_control.operation_authorizer,
-            profile_reader=runtime.workspace_runtime.profiles,
+            profile_reader=runtime.workspace_read_view.profiles,
         )
         operations = WorkspaceOperationEntry(
             memory,
@@ -507,11 +504,11 @@ class SystemAssembler:
         allocator = CPUAllocator(
             operation_authorizer=access_control.operation_authorizer,
             # Profile 阶段读取直接使用读取视图，不经过 actor 能力的操作检查。
-            profile_reader=runtime.workspace_runtime.profiles,
+            profile_reader=runtime.workspace_read_view.profiles,
             # 进程级唯一 WorkspaceAssetStore 以只读 reader 形态交给 CPU 分配：
             # 附件租借在 CPU 分配边界 acquire，随进程关闭由分配器释放。
             asset_reader=runtime.workspace_asset_store,
-            # 记忆/附件编译已从 Patchouli prepare 迁入进程 CPU 分配。
+            # 记忆与附件在 CPU 分配时编译，两段编译配置随分配器注入。
             memory_compiler_config=self._config.memory_compiler,
             attachment_compiler_config=self._config.attachment_compiler,
         )
@@ -551,7 +548,7 @@ class SystemAssembler:
             ),
         )
         # root API 独立于 actor 读取视图，只供保留的 system actor 管理资源。
-        # 管理读取直接走资源所有者路由，门面不再暴露 actor 能力服务。
+        # 管理读取直接走资源所有者路由；actor 能力服务只经操作入口，不经门面。
         root_memory = RootMemoryService(
             global_bus=runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,

@@ -15,6 +15,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models.identity import ActorIdentity, WorkspaceIdentity
+from hivememory.utils.time import utc_now
 
 # ===========================================================================
 # 生命周期状态体系
@@ -93,7 +94,7 @@ class WriteFocus(BaseModel):
     """WRITE 指令的 Agent 提交参数（纯 DTO，不含关联键）。
 
     关联键（pending_alias / intent_id / belong_to / from_actor）由 PendingAtom 持有，
-    通过 PendingAtomMaterializeTask 出境，不再穿透 Focus。
+    通过 PendingAtomMaterializeTask 出境；Focus 只承载 Agent 提交的参数。
     """
 
     content: str
@@ -106,7 +107,7 @@ class UpdateFocus(BaseModel):
     """UPDATE 指令的 Agent 提交参数（纯 DTO，不含关联键）。
 
     关联键（pending_alias / intent_id / belong_to / from_actor）由 PendingAtom 持有，
-    通过 PendingAtomMaterializeTask 出境，不再穿透 Focus。
+    通过 PendingAtomMaterializeTask 出境；Focus 只承载 Agent 提交的参数。
     """
 
     instruction: str
@@ -173,8 +174,11 @@ class PendingAtomMaterializeTask(BaseModel):
 
 class PendingAtom(BaseModel):
     """
-    运行时待物化记忆句柄。
+    运行时待物化记忆句柄，即写入意图。
 
+    ``PendingAtom`` 与 ``WriteIntentRegistry`` 所说的“写入意图”是同一概念：
+    前者是句柄的类型名，也用在 ``patchouli.events.pending_atom.*`` 结算
+    事件名中；后者是登记它的唯一状态机。
     不是正式 MemoryAtom，不承诺最终落库。
     同一 Workspace 的 Agent 可通过 pending_alias 回读。``process_id`` 与
     ``thread_id`` 记录发起写入的任务进程与执行线程，只作观测归因（同一进程
@@ -191,7 +195,7 @@ class PendingAtom(BaseModel):
     from_actor: ActorIdentity
     process_id: str | None = None
     thread_id: str | None = None
-    created_at: datetime = Field(default_factory=datetime.now)
+    created_at: datetime = Field(default_factory=utc_now)
 
     # 结算跟踪
     settlement: PendingAtomSettlement | None = None

@@ -42,7 +42,7 @@ class PatchouliService:
     """Patchouli 对外能力门面，承载 Agent prepare/finalize 与交互接纳编排。
 
     prepare 只做 Topic 与检索：Profile 解析、附件租借与记忆/附件编译由
-    chat 任务进程在 CPU 分配时完成，不再出现在 Patchouli 公开路由上。
+    chat 任务进程在 CPU 分配时完成，不属于 Patchouli 公开路由。
 
     访问边界：本门面是授权点以下的资源
     owner，阶段路由只接收任务进程在阶段授权后组装的 ``IdentityScope``，
@@ -319,7 +319,7 @@ class PatchouliService:
     ) -> bool:
         """清理已 prepare 但未 finalize 的预创建空话题。
 
-        附件租借由持有它的任务进程随进程关闭统一释放，cleanup 不再负责。
+        附件租借由持有它的任务进程随进程关闭统一释放，cleanup 不涉及租借。
         调用方重新通过任务进程阶段授权。本边界校验待清理结果的归属，
         越域结果不会进入补偿流程。
         """
@@ -390,9 +390,7 @@ class PatchouliService:
     async def _record_retrieval_hits(self, prepared_run: PreparedAgentRun) -> None:
         seen: set[str] = set()
         for memory in prepared_run.memories:
-            memory_id = getattr(memory, "id", None)
-            if memory_id is None:
-                continue
+            memory_id = memory.id
             memory_key = str(memory_id)
             if memory_key in seen:
                 continue

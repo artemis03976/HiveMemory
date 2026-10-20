@@ -40,11 +40,7 @@ class MemoryResponse(BaseModel):
             id=str(atom.id),
             title=atom.index.title,
             summary=atom.index.summary,
-            memory_type=(
-                atom.index.memory_type.value
-                if hasattr(atom.index.memory_type, "value")
-                else str(atom.index.memory_type)
-            ),
+            memory_type=atom.index.memory_type.value,
             tags=atom.index.tags,
             alias=atom.index.alias,
             content=atom.payload.content,

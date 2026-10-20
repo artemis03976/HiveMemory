@@ -51,7 +51,7 @@ from hivememory.patchouli.control.memory_generation.models import (
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_actor_identity, make_identity_scope
 
 
 def _identity_scope(user_id="u1", agent_id="a1"):
@@ -113,7 +113,7 @@ def _folding_relay() -> Mock:
 def _filtered_block() -> LogicalBlock:
     """worth_saving=False 的块：保留在工作集，但不进入结算材料。"""
     return LogicalBlock(
-        turn=TurnRecord(user_query="q", assistant_final_text="a"),
+        turn=TurnRecord(identity=make_actor_identity(), user_query="q", assistant_final_text="a"),
         worth_saving=False,
     )
 

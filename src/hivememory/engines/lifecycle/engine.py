@@ -2,9 +2,6 @@
 HiveMemory - 生命周期管理器
 
 协调所有生命周期组件，提供统一操作接口。
-
-作者: HiveMemory Team
-版本: 1.0.0
 """
 
 import logging

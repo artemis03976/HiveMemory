@@ -242,7 +242,7 @@ class MidTermMemoryStore:
     ) -> MemoryAtom | None:
         """受限局部更新：primary 提交并返回结果，同一 patch 沿顺序同步 secondary。
 
-        任一存储失败按顺序直接传播，不回滚已成功的写入（首版串行假设）。只改
+        任一存储失败按顺序直接传播，不回滚已成功的写入（存储按顺序提交，没有跨存储事务）。只改
         ``meta.lifecycle`` 动态状态的 patch 不发布变更通知；涉及其他路径（如
         ``meta.access_policy``）时与其他提交入口一样在 finally 中通知。
         """

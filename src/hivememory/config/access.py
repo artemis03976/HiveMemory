@@ -91,7 +91,7 @@ class WorkspaceActorAccessEntry(BaseModel):
 
     ``allowed_operations`` 使用 ``WorkspaceOperation`` 的枚举值字符串
     （如 ``"memory.read"``）；允许为空——代表可进入但未获准执行资源
-    操作。成员模型落地前，准入要求 ``user_id == owner_user_id``。
+    操作。准入要求 ``user_id == owner_user_id``，跨 owner 的访问不可表达。
 
     ``agent_id`` 省略（``None``）表示用户级记录：覆盖该用户的所有具体
     Agent，但不覆盖保留的 ``system``（system 单独显式登记）。
@@ -99,7 +99,7 @@ class WorkspaceActorAccessEntry(BaseModel):
 
     owner_user_id: str = Field(description="Workspace 归属 owner 用户 ID")
     workspace_id: str = Field(description="Workspace 标识")
-    user_id: str = Field(description="Actor 用户 ID（成员模型落地前必须等于 owner_user_id）")
+    user_id: str = Field(description="Actor 用户 ID（必须等于 owner_user_id）")
     agent_id: str | None = Field(
         default=None,
         description="Actor Agent ID；省略表示用户级记录（覆盖所有具体 Agent）",

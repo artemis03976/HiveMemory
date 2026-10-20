@@ -37,7 +37,7 @@ HiveMemorySystem.build(config)
              GlobalSystemBus / GlobalMaintenanceScheduler（components）
              RuntimeEventBus / NullRuntimeEventSink（components）
              InMemoryWorkspaceAssetStore（workspace.assets；进程级唯一）
-             WorkspaceRuntime（写入意图登记与读取视图；子系统构建前订阅全局事件）
+             WorkspaceReadView（写入意图登记与读取视图；子系统构建前订阅全局事件）
        -> registries bundle
             ProviderRegistry
             ModelRegistry
@@ -75,7 +75,7 @@ HiveMemorySystem.build(config)
 - `RuntimeEventBus`：启用时保存有界观测事件和订阅队列；
 - `NullRuntimeEventSink`：观测关闭时的无副作用替代实现；
 - `InMemoryWorkspaceAssetStore`：workspace 的进程内 WorkspaceAsset working set，保存当前资产、representation、opaque ref 和 lease；不按 Workspace 复制实例，由组合根创建并在关闭时最后清理；
-- `WorkspaceRuntime`：共享写入意图登记与读取视图（完整原子缓存、Profile 解析缓存、失效代次与 alias/Profile resolver），L2 冷读经 `GlobalSystemBus` 调用 Patchouli backing 路由；Alice 全部资源读取（含 SEARCH、CALL Profile）经 actor API 使用该视图，CPU 分配的 Profile 读取在阶段授权后直接使用该视图的 `ProfileResolver`。组合根创建后立即订阅 canonical 变更与三种写入意图结算事件，早于子系统构建及请求接收。
+- `WorkspaceReadView`：共享写入意图登记与读取视图（完整原子缓存、Profile 解析缓存、失效代次，以及记忆与 Profile 两个读取器），L2 冷读经 `GlobalSystemBus` 调用 Patchouli backing 路由；Alice 全部资源读取（含 SEARCH、CALL Profile）经 actor API 使用该视图，CPU 分配的 Profile 读取在阶段授权后直接使用该视图的 `ProfileResolver`。组合根创建后立即订阅 canonical 变更与三种写入意图结算事件，早于子系统构建及请求接收。
 
 写入意图登记、完整引用解析、原子与 Profile 读取缓存由 workspace 唯一持有；Alice 不持有自己的资源缓存或 resolver。CPUAllocator 只依赖 Profile 读取协议，runner 与 actor API 只经 `ProcessThreads` 派生与撤销线程 context，不导入认证一侧，能力层与任务进程仍互不导入；CPU 驱动绑定线程 context 形成操作提交函数，入口与 runner 使用同一份意图登记。WorkspaceAsset 命令端口由上传应用服务直接持有，附件上传不经过全局总线。
 
@@ -148,7 +148,7 @@ ActorAuthenticationGateway.close
   -> Alice.stop
   -> Patchouli.stop
   -> Gateway.stop
-  -> WorkspaceRuntime.close
+  -> WorkspaceReadView.close
   -> WorkspaceAssetStore.close_and_clear
   -> 撤销全部已签发的访问 context（ActorAuthenticationGateway.revoke_all_contexts）
   -> SYSTEM_STOPPED
@@ -181,7 +181,7 @@ System 作为门面对外暴露服务属性和 registry/sink 查询，例如 `pr
 - `SYSTEM_READY` 只在所有启动步骤完成后发布，RuntimeEvent 失败不能改变这个判断；
 - `SYSTEM_STOPPED` 的观测摘要不等于 submission 已跨进程持久化，必须结合 queue store 能力与 `passive_shutdown_drain` 判断；
 - `WorkspaceAssetStore.close_and_clear()` 必须晚于 Patchouli drain；失败时不得发布伪装成正常完成的 `SYSTEM_STOPPED`；
-- 全进程只存在一个 WorkspaceAssetStore 与一个 WorkspaceRuntime；写入意图登记、完整引用解析与原子/Profile 读取缓存由 workspace 持有，结算订阅保留到 Patchouli drain 完成后才撤销；
+- 全进程只存在一个 WorkspaceAssetStore 与一个 WorkspaceReadView；写入意图登记、完整引用解析与原子/Profile 读取缓存由 workspace 持有，结算订阅保留到 Patchouli drain 完成后才撤销；
 - registry 解析失败、子系统启停失败和业务请求失败不能被统一降级成健康 `ok`。
 
 评审新的组合代码时，优先检查是否出现第二个 GlobalSystemBus、应用层直连子系统 Runtime、启动失败后仍接受请求，或把 RuntimeEvent 当作控制信号的情况。

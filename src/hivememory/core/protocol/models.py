@@ -2,9 +2,6 @@
 模块间通信协议模型
 
 定义在子系统之间传递的检索请求、交互载荷与会话轮次。
-
-作者: HiveMemory Team
-版本: 3.0
 """
 
 from __future__ import annotations

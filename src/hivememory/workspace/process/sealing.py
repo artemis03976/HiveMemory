@@ -34,7 +34,7 @@ def seal_interaction(
 ) -> InteractionPayload:
     """把进程各阶段的产出封口为提交给 finalize 的交互记录。
 
-    字段来源（与拆分前 Patchouli finalize 内组装的结果逐字段一致）：
+    字段来源：
     ``user_message`` 是入口消息，``rewritten_query``/``worth_saving`` 来自
     Gateway 决定，回复、轮次事件与模型名来自 Actor 执行结果，
     ``used_attachments`` 是附件编译冻结的实际使用引用。``turn_events``

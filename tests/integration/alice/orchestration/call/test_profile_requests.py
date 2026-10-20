@@ -177,16 +177,16 @@ async def test_call_reloads_profile_after_management_updates_source_atom(profile
 async def test_builtin_call_uses_workspace_profile_read_and_keeps_builtin_configuration(
     profile_chain,
 ):
-    """显式内置 alias 经真实 backing 解析，交付内置能力配置且不进缓存。
+    """显式内置 alias 经真实 backing 解析，交付内置能力配置。
 
-    空 alias 与 default 的归一化由 Patchouli 的 Profile 读取单测覆盖。
+    内置图纸不进缓存由 Profile 读取器的单测覆盖，空 alias 与 default 的归一化
+    由 Patchouli 的 Profile 读取单测覆盖。
     """
     submit_operation, _ = await _profile_submitter(profile_chain)
     transition, _, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), "omni_doll")
 
     assert isinstance(transition, DispatchCallee)
     assert transition.frame.agent_profile == OMNI_DOLL_PROFILE
-    assert profile_chain.runtime.stats()["profile_size"] == 0
 
 
 @pytest.mark.asyncio
@@ -211,7 +211,7 @@ async def test_call_without_call_permission_returns_permission_error_without_dis
     response = caller.progress.turn_events[-1]
     assert response.status == "error"
     assert 'code="mtp.permission.denied"' in response.content
-    assert (harness.runtime.stats()["cold_reads"], harness.registry.size) == (0, 0)
+    assert (harness.backing.reads, harness.registry.size) == ([], 0)
 
 
 @pytest.mark.asyncio
@@ -233,7 +233,6 @@ async def test_unusable_custom_profile_returns_preparation_error_without_fallbac
     response = caller.progress.turn_events[-1]
     assert response.status == "error"
     assert f'code="{expected_code}"' in response.content
-    assert profile_chain.runtime.stats()["profile_size"] == 0
 
 
 @pytest.mark.asyncio
@@ -294,7 +293,7 @@ async def test_call_context_refs_without_read_returns_permission_error():
     assert response.status == "error"
     assert "mtp.permission.denied" in response.content
     assert atom.payload.content not in str(caller.working_history)
-    assert harness.runtime.stats()["atom_size"] == 0
+    assert "retrieve_by_aliases" not in harness.backing.reads
     assert harness.citations == []
 
 

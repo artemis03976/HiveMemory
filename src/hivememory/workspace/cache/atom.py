@@ -1,6 +1,6 @@
 """Workspace 共享的完整原子缓存（AtomCache）。
 
-缓存由 workspace runtime 持有，唯一读者是 alias resolver；记忆库对缓存的
+缓存由读取视图持有，唯一读者是记忆读取器；记忆库对缓存的
 唯一接触是出向的失效事件，库不读取也不写入缓存。
 
 本模块只提供存取、索引与容量淘汰，不做授权、不接收全局路由、不自行
@@ -33,27 +33,20 @@ class AtomCache:
         self._atoms: OrderedDict[AtomIdKey, MemoryAtom] = OrderedDict()
         self._alias_to_id: dict[AtomAliasKey, UUID] = {}
         self._id_to_alias: dict[AtomIdKey, str] = {}
-        # 可观测统计：命中/未命中与容量淘汰次数
-        self._hits = 0
-        self._misses = 0
-        self._evictions = 0
 
     def get_by_id(self, workspace: WorkspaceIdentity, memory_id: UUID) -> MemoryAtom | None:
         """按 Workspace 分区内的 UUID 读取原子副本，未命中返回 None。"""
         key = AtomIdKey(workspace, memory_id)
         atom = self._atoms.get(key)
         if atom is None:
-            self._misses += 1
             return None
         self._atoms.move_to_end(key)
-        self._hits += 1
         return atom.model_copy(deep=True)
 
     def get_by_alias(self, workspace: WorkspaceIdentity, alias: str) -> MemoryAtom | None:
         """按 Workspace 分区内的 alias 读取原子副本，未命中返回 None。"""
         memory_id = self._alias_to_id.get(AtomAliasKey(workspace, alias))
         if memory_id is None:
-            self._misses += 1
             return None
         return self.get_by_id(workspace, memory_id)
 
@@ -79,7 +72,6 @@ class AtomCache:
         while len(self._atoms) > self._capacity:
             evicted_key, _ = self._atoms.popitem(last=False)
             self._unlink_alias(evicted_key)
-            self._evictions += 1
 
     def evict(self, workspace: WorkspaceIdentity, memory_id: UUID) -> bool:
         """移除一条原子及其 alias 索引；返回是否确有条目被移除。"""
@@ -88,7 +80,7 @@ class AtomCache:
         return self._atoms.pop(key, None) is not None
 
     def clear(self) -> int:
-        """清空全部条目与索引（统计计数保持累计），返回清理的条目数。"""
+        """清空全部条目与索引，返回清理的条目数。"""
         size = len(self._atoms)
         self._atoms.clear()
         self._alias_to_id.clear()
@@ -107,21 +99,6 @@ class AtomCache:
     def size(self) -> int:
         """当前缓存的原子数量。"""
         return len(self._atoms)
-
-    @property
-    def hits(self) -> int:
-        """读取路径的累计命中次数。"""
-        return self._hits
-
-    @property
-    def misses(self) -> int:
-        """读取路径的累计未命中次数。"""
-        return self._misses
-
-    @property
-    def evictions(self) -> int:
-        """LRU 容量淘汰的累计次数。"""
-        return self._evictions
 
 
 __all__ = ["AtomCache"]

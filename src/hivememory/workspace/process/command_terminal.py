@@ -3,8 +3,8 @@
 命令解析与执行解耦：Gateway 的命令结果只携带
 解析产物，命令不执行：进程在 Gateway 阶段短路时，由本模块把解析结果
 转换为用户可见的命令终态（``CommandExecutionResult``），不进入
-prepare、CPU 分配与 Actor 执行。命令在进程内何时、由谁运行尚未决定，
-随命令系统接回时重新设计。
+prepare、CPU 分配与 Actor 执行。命令不在进程内运行，本模块只把解析
+结果转换为终态。
 """
 
 from __future__ import annotations

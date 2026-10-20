@@ -1,4 +1,4 @@
-"""AliasResolver（workspace memory read 能力）的单元测试。
+"""MemoryReader（workspace memory read 能力）的单元测试。
 
 被测对象：L1 命中不回源且逐次授权、L2 冷读受 Workspace 代次守护（代次变化
 拒绝旧值回填与成功返回）、归属纵深防御、不写负缓存、alias 批读的顺序与
@@ -34,8 +34,8 @@ from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.workspace.cache.atom import AtomCache
 from hivememory.workspace.cache.epoch import WorkspaceEpochs
 from hivememory.workspace.intents import WriteIntentRegistry
-from hivememory.workspace.resolution.alias import AliasResolver
 from hivememory.workspace.resolution.guard import ColdReadGuard
+from hivememory.workspace.resolution.memory import MemoryReader
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -124,10 +124,10 @@ class _FakeBacking:
         raise AssertionError("alias resolver 不读取 Profile")
 
 
-def _resolver(backing: _FakeBacking) -> tuple[AliasResolver, WorkspaceEpochs, ColdReadGuard]:
+def _resolver(backing: _FakeBacking) -> tuple[MemoryReader, WorkspaceEpochs, ColdReadGuard]:
     epochs = WorkspaceEpochs()
     guard = ColdReadGuard(epochs, max_stale_retries=2)
-    resolver = AliasResolver(
+    resolver = MemoryReader(
         cache=AtomCache(capacity=16), guard=guard, backing=backing, intents=WriteIntentRegistry()
     )
     return resolver, epochs, guard
@@ -333,7 +333,7 @@ async def test_closed_resolver_rejects_new_reads_explicitly():
 
     with pytest.raises(ResourceUnavailableError) as exc_info:
         await resolver.read(atom.id, scope=A1)
-    assert exc_info.value.details["reason"] == "workspace_runtime_closed"
+    assert exc_info.value.details["reason"] == "workspace_read_view_closed"
 
 
 @pytest.mark.asyncio
@@ -344,7 +344,7 @@ async def test_read_in_flight_at_close_returns_result_without_backfill():
     epochs = WorkspaceEpochs()
     guard = ColdReadGuard(epochs)
     cache = AtomCache(capacity=16)
-    resolver = AliasResolver(
+    resolver = MemoryReader(
         cache=cache, guard=guard, backing=backing, intents=WriteIntentRegistry()
     )
     backing.on_fetch = guard.close
@@ -354,7 +354,7 @@ async def test_read_in_flight_at_close_returns_result_without_backfill():
     assert (result.id, cache.size) == (atom.id, 0)
 
 
-def _pending(resolver: AliasResolver, process_id: str = "writer_process"):
+def _pending(resolver: MemoryReader, process_id: str = "writer_process"):
     """在 resolver 持有的共享登记中创建 WRITE 意图。"""
     return resolver.intents.register_write(
         WriteFocus(content="shared pending content"),
@@ -454,7 +454,7 @@ async def test_reference_results_cover_terminal_states_and_canonical_atom():
     ].atom.payload.content == "content"
 
 
-def _update_by_a1(resolver: AliasResolver, base: MemoryAtom):
+def _update_by_a1(resolver: MemoryReader, base: MemoryAtom):
     """a1 对基础原子登记 UPDATE；focus 含修改内容与基础坐标。"""
     return resolver.intents.register_update(
         UpdateFocus(

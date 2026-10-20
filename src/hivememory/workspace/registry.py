@@ -12,7 +12,7 @@
   Actor 的 ``user_id + agent_id``；外部会话、run/frame 和调用协议
   不进入权限键；
 - ``team_id`` 由可信身份关系提供给资源 policy，不进入本注册表；
-- 首版为进程内不可变本地配置（``configs/workspace_actors.yaml``），
+- 是进程内不可变的本地配置（``configs/workspace_actors.yaml``），
   配置修改经重启生效，不提供热更新、持久化或管理 API；System composition
   负责装载配置并注入给统一认证网关与操作授权者。
 
@@ -21,9 +21,8 @@
 匹配时精确记录优先；精确记录禁用即拒绝，不回落到用户级记录；每个
 (owner, workspace, user) 至多一条用户级记录，重复在装载期失败。
 
-成员模型落地前，``actor.user_id == workspace.owner_user_id`` 仍是准入前提，
-因此本注册表在装载期拒绝跨 owner 的访问记录（跨 owner 成员模型不在
-当前范围内）；相同 owner 也不表示自动获准——缺失记录即准入失败。
+``actor.user_id == workspace.owner_user_id`` 是准入前提，因此本注册表在
+装载期拒绝跨 owner 的访问记录（跨 owner 的访问不可表达）；相同 owner 也不表示自动获准——缺失记录即准入失败。
 """
 
 from __future__ import annotations
@@ -94,10 +93,9 @@ class WorkspaceActorAccessRegistry:
                 raise ValueError(f"Workspace Actor 访问记录已禁用却配置了行为白名单: {record.key}")
             if record.user_id != record.owner_user_id:
                 # 准入要求 actor user 等于 workspace owner；
-                # 跨 owner 成员记录在成员模型落地前不可表达。
+                # 跨 owner 的成员记录不可表达。
                 raise ValueError(
-                    "Workspace Actor 访问记录的 user 必须等于 workspace owner"
-                    f"（W0 兼容基线）: {record.key}"
+                    f"Workspace Actor 访问记录的 user 必须等于 workspace owner: {record.key}"
                 )
             if record.key in by_key:
                 # 用户级记录键以 ``agent_id=None`` 收敛：同一 (owner,

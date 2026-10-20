@@ -10,7 +10,7 @@
 """
 
 from hivememory.core.models import LogicalBlock, TopicData, TurnRecord
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_actor_identity, make_identity_scope
 
 
 def _make_topic(blocks=None, state_summary=""):
@@ -27,7 +27,9 @@ def _make_topic(blocks=None, state_summary=""):
 
 
 def _make_block():
-    return LogicalBlock(turn=TurnRecord(user_query="q", assistant_final_text="a"))
+    return LogicalBlock(
+        turn=TurnRecord(identity=make_actor_identity(), user_query="q", assistant_final_text="a")
+    )
 
 
 class TestTopicDataContentEmptiness:

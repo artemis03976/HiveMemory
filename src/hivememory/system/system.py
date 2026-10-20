@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from hivememory.workspace.capability.root.session import RootSessionService
     from hivememory.workspace.capability.root.topic import RootTopicService
     from hivememory.workspace.process.service import TaskProcessService
-    from hivememory.workspace.runtime import WorkspaceRuntime
+    from hivememory.workspace.read_view import WorkspaceReadView
 
 
 class HiveMemorySystem:
@@ -61,7 +61,7 @@ class HiveMemorySystem:
         self._global_bus = runtime.global_bus
         self._scheduler = runtime.scheduler
         self._workspace_asset_store = runtime.workspace_asset_store
-        self._workspace_runtime = runtime.workspace_runtime
+        self._workspace_read_view = runtime.workspace_read_view
         self._sessions = runtime.sessions
         self._runtime_events = runtime.event_bus
         self._runtime_event_sink = runtime.event_sink
@@ -207,7 +207,7 @@ class HiveMemorySystem:
             "alice.stop",
             "patchouli.stop",
             "gateway.stop",
-            "workspace_runtime.close",
+            "workspace_read_view.close",
             "workspace_asset_store.close_and_clear",
             "workspace_access_contexts.revoke",
         ]
@@ -238,8 +238,8 @@ class HiveMemorySystem:
             self._sessions.close_and_clear()
             completed_steps.append("sessions.close_and_clear")
             if not was_started:
-                self._workspace_runtime.close()
-                completed_steps.append("workspace_runtime.close")
+                self._workspace_read_view.close()
+                completed_steps.append("workspace_read_view.close")
                 self._workspace_asset_store.close_and_clear()
                 completed_steps.append("workspace_asset_store.close_and_clear")
                 self._access_gateway.revoke_all_contexts()
@@ -268,8 +268,8 @@ class HiveMemorySystem:
             # Alice 已卸载运行入口；workspace 继续保持
             # 结算/失效订阅直到 Patchouli drain 完成，随后停止新读、取消订阅
             # 并清理派生缓存（不触碰 canonical），最后收尾 AssetStore。
-            self._workspace_runtime.close()
-            completed_steps.append("workspace_runtime.close")
+            self._workspace_read_view.close()
+            completed_steps.append("workspace_read_view.close")
             self._workspace_asset_store.close_and_clear()
             completed_steps.append("workspace_asset_store.close_and_clear")
             # 最后经认证网关撤销全部已签发 context：在途任务进程与请求收尾
@@ -417,9 +417,9 @@ class HiveMemorySystem:
         return self._root_workspace_asset_service
 
     @property
-    def workspace_runtime(self) -> WorkspaceRuntime:
+    def workspace_read_view(self) -> WorkspaceReadView:
         """workspace 读取能力与派生缓存的运行时聚合。"""
-        return self._workspace_runtime
+        return self._workspace_read_view
 
     @property
     def gateway(self) -> GatewaySystem:

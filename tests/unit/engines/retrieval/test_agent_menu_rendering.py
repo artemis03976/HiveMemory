@@ -9,9 +9,6 @@
     5. CALL response payload 渲染
     6. 星型拓扑约束 (depth=1)
     7. RAG 菜单渲染 (AGENT_PROFILE 分离)
-
-作者: HiveMemory Team
-版本: 1.0
 """
 
 from hivememory.core.models import (

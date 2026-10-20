@@ -3,8 +3,6 @@ MTP 链路测试共享 Fixtures
 
 提供存储边界的异步总线替身，资源操作通过测试装配的提交函数执行。
 KoakumaRuntime 不持有总线，协议解析与输出仍使用生产实现。
-
-作者: HiveMemory Team
 """
 
 from unittest.mock import MagicMock

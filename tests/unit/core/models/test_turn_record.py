@@ -43,7 +43,7 @@ def test_logical_block_rejects_flat_turn_fields():
     action = AgentAction(action_id="a1", tool_kind="READ", tool_name="alias_x")
     trace = TraceItem(action="READ", action_id="a1", target="alias_x")
 
-    with pytest.raises(ValidationError):
+    with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         LogicalBlock(
             identity=_identity(),
             user_query="问题",

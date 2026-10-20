@@ -51,7 +51,7 @@ from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
     make_workspace_identity,
-    make_workspace_runtime,
+    make_workspace_read_view,
 )
 
 pytestmark = pytest.mark.e2e
@@ -96,13 +96,13 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
     stack.vector_store.search_matches["HTTP formal context"] = (formal.index.alias,)
     sink = RecordingRuntimeEventSink()
     publisher = RuntimeEventPublisher(sink)
-    runtime = make_workspace_runtime(stack.bus)
+    runtime = make_workspace_read_view(stack.bus)
     runtime.subscribe(stack.bus)
     entry = WorkspaceOperationEntry(
         ActorMemoryService(
             stack.bus,
             operation_authorizer=access.authorizer,
-            memory_reader=runtime.aliases,
+            memory_reader=runtime.memory,
             threads=access.threads,
         ),
         agent=ActorAgentService(
@@ -140,7 +140,7 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
         operation_authorizer=access.authorizer,
         event_publisher=publisher,
         process_table=access.process_table,
-        workspace_runtime=runtime,
+        workspace_read_view=runtime,
         operation_entry=entry,
     )
     app = FastAPI()
@@ -215,7 +215,6 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
         assert cited.meta.lifecycle.access_count == 2
         history = stack.lifecycle.lifecycle_engine.get_event_history(formal.id)
         assert [event.event_type for event in history] == [EventType.CITATION, EventType.CITATION]
-        assert runtime.stats()["atom_hits"] == 2
 
         # 执行期间派发的任务最终经真实结算事件反馈到 workspace 登记，不会随关闭取消。
         (created,) = await stack.controller.list_tasks()
@@ -317,13 +316,13 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
                 payload=PayloadLayer(content=f"{actor.agent_id} 的私有正文"),
             )
         )
-    runtime = make_workspace_runtime(stack.bus)
+    runtime = make_workspace_read_view(stack.bus)
     runtime.subscribe(stack.bus)
     entry = WorkspaceOperationEntry(
         ActorMemoryService(
             stack.bus,
             operation_authorizer=access.authorizer,
-            memory_reader=runtime.aliases,
+            memory_reader=runtime.memory,
             threads=access.threads,
         ),
         agent=ActorAgentService(
@@ -359,7 +358,7 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
         cpu=alice.cpu_port,
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
-        workspace_runtime=runtime,
+        workspace_read_view=runtime,
         operation_entry=entry,
         process_table=access.process_table,
     )
@@ -478,7 +477,7 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
         cpu=alice.cpu_port,
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
-        workspace_runtime=harness.runtime,
+        workspace_read_view=harness.runtime,
         process_table=access.process_table,
         operation_entry=entry,
     )
@@ -541,7 +540,7 @@ async def test_http_write_survives_cancelled_cpu_and_process_close(patchouli_cha
     from hivememory.components.events.publisher import RuntimeEventPublisher
     from hivememory.core.contracts.runtime_events import RuntimeEventType
     from hivememory.core.models import PendingAtomStatus
-    from tests.helpers.workspace import make_workspace_runtime
+    from tests.helpers.workspace import make_workspace_read_view
 
     stack = patchouli_chat_stack
     stack.vector_store.write_allowed.clear()
@@ -552,7 +551,7 @@ async def test_http_write_survives_cancelled_cpu_and_process_close(patchouli_cha
         adapters=("http",),
         default_workspace=workspace,
     )
-    runtime = make_workspace_runtime(stack.bus)
+    runtime = make_workspace_read_view(stack.bus)
     runtime.subscribe(stack.bus)
     submitted = []
 
@@ -574,7 +573,7 @@ async def test_http_write_survives_cancelled_cpu_and_process_close(patchouli_cha
         cpu=cpu,
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
-        workspace_runtime=runtime,
+        workspace_read_view=runtime,
         event_publisher=RuntimeEventPublisher(stack.events),
     )
     app = FastAPI()

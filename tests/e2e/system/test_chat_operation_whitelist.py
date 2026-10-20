@@ -47,7 +47,7 @@ from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
     make_workspace_identity,
-    make_workspace_runtime,
+    make_workspace_read_view,
 )
 from tests.helpers.workspace_assets import make_ready_text_asset
 
@@ -92,12 +92,12 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
             ),
         )
     )
-    runtime = make_workspace_runtime(stack.bus)
+    runtime = make_workspace_read_view(stack.bus)
     entry = WorkspaceOperationEntry(
         ActorMemoryService(
             stack.bus,
             operation_authorizer=access.authorizer,
-            memory_reader=runtime.aliases,
+            memory_reader=runtime.memory,
             threads=access.threads,
         ),
         agent=ActorAgentService(
@@ -126,7 +126,7 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
         process_table=access.process_table,
-        workspace_runtime=runtime,
+        workspace_read_view=runtime,
         operation_entry=entry,
     )
     app = FastAPI()
@@ -267,12 +267,12 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
         operation_id="stage-chat-attachment",
         content="本轮选中的附件正文",
     )
-    runtime = make_workspace_runtime(stack.bus)
+    runtime = make_workspace_read_view(stack.bus)
     entry = WorkspaceOperationEntry(
         ActorMemoryService(
             stack.bus,
             operation_authorizer=access.authorizer,
-            memory_reader=runtime.aliases,
+            memory_reader=runtime.memory,
             threads=access.threads,
         ),
         agent=ActorAgentService(
@@ -301,7 +301,7 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
         operation_authorizer=access.authorizer,
         asset_reader=assets,
         process_table=access.process_table,
-        workspace_runtime=runtime,
+        workspace_read_view=runtime,
         operation_entry=entry,
     )
     app = FastAPI()

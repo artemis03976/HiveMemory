@@ -124,7 +124,7 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 
 | 载体 | 保存的身份事实 | 寿命与用途 |
 |:---|:---|:---|
-| `ActorIdentity` | `user_id`、`agent_id`、可选 `team_id` | 不含 session 或运行关联 ID |
+| `ActorIdentity` | `user_id`、`agent_id`（必填）、可选 `team_id` | 不含 session 或运行关联 ID；模型没有默认身份，`TurnRecord`、`GenerationTurn` 等携带它的模型也由构造方显式给出 |
 | `IdentityScope` | 操作发起者 + 目标 Workspace | 一次操作调用链；不写入记录或后台任务 |
 | `ExecutionLabels` | 只有 `agent_id` 与 `workspace_id` 两个观测字符串；拒绝额外字段 | 进程级标签在注册认证通过后创建一次，CPU 清单与运行事件共享；线程描述携带线程自己的标签（主线程与注册标签相同，CALL 子线程为被调用方与注册时的 workspace），frame 取所属线程的标签；不用于授权 |
 | 线程描述（`ThreadDescriptor`） | `thread_id`、观测标签、图纸 `AgentProfile` 与操作快照；不含访问 context | 线程表在派生时生成并冻结，随执行线程交给 CPU；快照只供提示词与执行策略 |
@@ -218,7 +218,7 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 
 - `tests/unit/gateway/test_contracts.py`；
 - `tests/unit/patchouli/memory_library/test_memory_library.py`；
-- `tests/unit/workspace/intents/test_registry.py`、`tests/unit/workspace/resolution/test_alias_resolver.py`；
+- `tests/unit/workspace/intents/test_registry.py`、`tests/unit/workspace/resolution/test_memory_reader.py`；
 - `src/hivememory/core/models/immutable.py`、`interaction.py`、`topic.py`、`memory.py`、`pending.py`；
 - `src/hivememory/core/protocol/models.py`；
 - `src/hivememory/gateway/workflow/state.py`、`steps.py`。

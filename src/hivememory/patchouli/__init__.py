@@ -14,9 +14,6 @@ HiveMemory 的分布式智能架构 v3.0。
 装配:
     PatchouliSystem 由 System 组合根按配置段装配（``config`` 为 PatchouliConfig，
     shared / memory_compiler / attachment_compiler / scheduler 配置显式注入）。
-
-作者: HiveMemory Team
-版本: 3.0
 """
 
 from hivememory.config.patchouli import (

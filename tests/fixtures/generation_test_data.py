@@ -7,9 +7,6 @@ HiveMemory Generation Module Test Data Fixtures
     - 覆盖记忆提取的各种场景（标准信息、噪音、代码片段）
     - 覆盖去重决策的各种情况（CREATE、UPDATE、TOUCH）
     - 覆盖记忆合并的各种策略
-
-作者: HiveMemory Team
-版本: 1.0.0
 """
 
 from typing import Any

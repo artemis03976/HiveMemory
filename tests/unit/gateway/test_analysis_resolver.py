@@ -38,7 +38,7 @@ from tests.helpers.workspace import make_identity_scope
 def _build_context(raw_message: str, **overrides) -> UserQueryAnalysisContext:
     kwargs = {
         "raw_message": raw_message,
-        "identity": ActorIdentity(user_id="u1"),
+        "identity": ActorIdentity(agent_id="omni_doll", user_id="u1"),
         "candidate_topics": CandidateTopics(),
         "topic_id": "NEW_TOPIC",
     }
@@ -56,7 +56,7 @@ def _build_topic_data(last_user_query: str = "") -> TopicData:
             (
                 LogicalBlock(
                     turn=TurnRecord(
-                        identity=ActorIdentity(user_id="u1"),
+                        identity=ActorIdentity(agent_id="omni_doll", user_id="u1"),
                         user_query=last_user_query,
                         assistant_final_text="好的",
                     )

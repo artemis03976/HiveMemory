@@ -2,7 +2,8 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass, replace
-from datetime import UTC, datetime
+from datetime import datetime
+from typing import Literal
 
 from hivememory.agent_runtime import InputTooLargeError, ResolvedFrameModel, estimate_context_tokens
 from hivememory.alice.context.references import extend_references
@@ -11,6 +12,21 @@ from hivememory.config.alice import CompactionConfig
 from hivememory.core.protocol.models import ConversationTurn, SessionCompactionCheckpoint
 from hivememory.prompts.session_compaction import render_session_summary
 from hivememory.prompts.transcript import HistoryTranscriptBuilder
+from hivememory.utils.time import utc_now
+
+#: 压缩到达的层：只减重工具结果，或进一步把旧轮次折叠为摘要。
+type CompactionLayer = Literal["reduction", "summary"]
+
+#: 摘要的结局：本次不需要摘要、摘要已覆盖旧轮次、摘要被拒绝而只保留减重。
+type SummaryStatus = Literal["not_needed", "completed", "abandoned"]
+
+#: 一次压缩对外报告的进度状态，与交互事件 ``context_compaction`` 的取值一致。
+type CompactionEventStatus = Literal["started", "completed", "abandoned", "failed"]
+
+#: 检查点的产生方与格式版本。会话可能持有其他 CPU 写入的检查点，Alice 只接受
+#: 自己产生、且格式版本相同的检查点，其余回退到全量历史。
+CHECKPOINT_PRODUCER = "alice"
+CHECKPOINT_FORMAT_VERSION = 1
 
 
 class CompactionFailedError(Exception):
@@ -27,10 +43,19 @@ class CompactionResult:
     tokens_after: int
     covered_turns: int
     summarized_turns: int = 0
-    layer: str = "reduction"
-    summary_status: str = "not_needed"
+    layer: CompactionLayer = "reduction"
+    summary_status: SummaryStatus = "not_needed"
     reason: str | None = None
     error: InputTooLargeError | CompactionFailedError | None = None
+
+    @property
+    def event_status(self) -> CompactionEventStatus:
+        """压缩结束时报告的状态：仍超出预算为失败，摘要被拒绝为放弃，其余为完成。"""
+        if self.error is not None:
+            return "failed"
+        if self.summary_status == "abandoned":
+            return "abandoned"
+        return "completed"
 
 
 class SessionContextView:
@@ -49,7 +74,7 @@ class SessionContextView:
         checkpoint: SessionCompactionCheckpoint | None,
         input_token_limit: int,
         config: CompactionConfig,
-        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self._instructions = instructions
         self._turn_context = turn_context
@@ -91,7 +116,11 @@ class SessionContextView:
         self, checkpoint: SessionCompactionCheckpoint | None
     ) -> SessionCompactionCheckpoint | None:
         """未知格式或无法匹配原文的视图回退到全量历史，不能静默丢失轮次。"""
-        if checkpoint is None or checkpoint.producer != "alice" or checkpoint.format_version != 1:
+        if (
+            checkpoint is None
+            or checkpoint.producer != CHECKPOINT_PRODUCER
+            or checkpoint.format_version != CHECKPOINT_FORMAT_VERSION
+        ):
             return None
         for cursor in (checkpoint.reduced_through, checkpoint.summarized_through):
             if cursor is not None and cursor not in self._positions:
@@ -128,7 +157,10 @@ class SessionContextView:
             recent_tokens += turn_tokens
             boundary = index
         checkpoint = (
-            self._checkpoint or SessionCompactionCheckpoint(producer="alice", format_version=1)
+            self._checkpoint
+            or SessionCompactionCheckpoint(
+                producer=CHECKPOINT_PRODUCER, format_version=CHECKPOINT_FORMAT_VERSION
+            )
         ).model_copy(
             update={
                 "reduced_through": turns[boundary - 1].interaction_id if boundary else None,
@@ -230,7 +262,7 @@ class SessionContextView:
 
     def _reserved_tokens(self, references: tuple[str, ...]) -> int:
         """预留完整摘要段；中英文两组字符分别取整，拼接最多多出两个 token。"""
-        placeholder = "x" * (self._config.summary_max_tokens * 4)
+        placeholder = _summary_placeholder(self._config.summary_max_tokens)
         return estimate_context_tokens(self._fixed(placeholder, references)) + 2
 
     def _fixed(self, summary: str = "", references: tuple[str, ...] = ()) -> list[dict[str, str]]:
@@ -287,3 +319,12 @@ class SessionContextView:
             covered_turns=boundary,
             summarized_turns=self._position(checkpoint.summarized_through),
         )
+
+
+def _summary_placeholder(max_tokens: int) -> str:
+    """估算值恰为 ``max_tokens`` 的占位文本，用于在摘要生成之前预留它的位置。
+
+    估算器把非 CJK 字符按每 4 个字符 1 token 计；用 ASCII 字符填满上限，
+    预留的就是一段最长摘要的估算值。
+    """
+    return "x" * (max_tokens * 4)

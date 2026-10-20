@@ -222,7 +222,7 @@ class TaskProcessService:
             record.events.created(record)
         except BaseException:
             # 登记前失败：使已签发的 context 失效，不留悬挂凭据。
-            self._access_gateway.invalidate_context(access)
+            self._access_gateway.revoke_context(access)
             if claimed and session_id is not None:
                 self._sessions.release(workspace, session_id, process_id)
             if created and session_id is not None:
@@ -366,7 +366,7 @@ class TaskProcessService:
         record = process.record
         # 绑定 context 随进程关闭失效：无论 completed、失败、取消还是
         # 硬取消，进程结束后该凭据不再可用。
-        self._access_gateway.invalidate_context(record.access)
+        self._access_gateway.revoke_context(record.access)
         self._process_table.close(process)
         # 只释放本进程的认领，会话不会被误交给后继进程。
         self._sessions.release(

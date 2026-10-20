@@ -194,7 +194,7 @@ async def test_principal_identity_rule_rejects_foreign_user():
 
 @pytest.mark.asyncio
 async def test_owner_mismatch_rejected_as_admission_failure():
-    """actor user ≠ workspace owner 按准入失败拒绝（成员模型落地前的准入约束，第 2 阶段）。"""
+    """actor user ≠ workspace owner 按准入失败拒绝（准入约束，第 2 阶段）。"""
     composition = make_access_composition(
         [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
         default_workspace=MAIN,

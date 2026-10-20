@@ -68,7 +68,7 @@ def test_duplicate_record_key_rejected_at_load():
 
 
 def test_cross_owner_record_rejected_at_load():
-    """跨 owner 成员记录在成员模型落地前不可表达。"""
+    """跨 owner 的成员记录不可表达，装载期拒绝。"""
     with pytest.raises(ValueError):
         WorkspaceActorAccessRegistry(
             [make_actor_access_record(owner_user_id="u1", user_id="u2", agent_id="a1")]

@@ -13,7 +13,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 写入意图（PendingAtom）的后续方向
@@ -51,7 +51,7 @@ EXPIRED 是设计中的永久终态，SETTLED、FAILED、CANCELLED 都可以迁�
 
 读取侧的现状（2026-10-18 核对）与下方约束有两处出入，过期机制需要一并决定：
 
-- 读取视图把 EXPIRED 与 CANCELLED 都按不存在交付（`workspace/resolution/alias.py` 的 `_resolve_pending`），而引用解析结果的 `expired` 种类、MTP READ/RUN 与编译器中对应的分支和文案都已存在、只是走不到；
+- 读取视图把 EXPIRED 与 CANCELLED 都按不存在交付（`workspace/resolution/memory.py` 的 `_resolve_pending`），而引用解析结果的 `expired` 种类、MTP READ/RUN 与编译器中对应的分支和文案都已存在、只是走不到；
 - 读取视图只把在途意图原样交给编译器，终态改由引用解析结果表达，因此编译器中终态写入意图的渲染分支（`pending_read_settled`、`pending_read_failed`、`pending_read_cancelled` 等）在生产中走不到；终态的交付形态确定后再决定这些分支的去留。
 
 可能路径：结算后保留期满转为 EXPIRED；登记设容量上限，满时拒绝新登记，与生成队列的容量拒绝一致；或与第 4 节的持久化一起设计。

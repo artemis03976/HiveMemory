@@ -1,13 +1,13 @@
 """workspace memory read 能力：canonical 引用的多级解析与交付授权。
 
-resolver 归 workspace runtime 持有。解析顺序：
+读取器归读取视图（``WorkspaceReadView``）持有。解析顺序：
 
 - L0 写入意图登记：在 Workspace 归属边界内交付 pending 与结算状态；
 - L1 ``AtomCache``：按原子自身 policy 对当前 Actor 授权，有效命中不回源；
 - L2 backing 冷读：受 Workspace 代次守护，代次未变才回填，库侧资源归属与
   policy 校验独立成立（纵深防御）。
 
-resolver 不做检索排序、内容解释或任何写入；只缓存 Workspace 共享的完整
+读取器不做检索排序、内容解释或任何写入；只缓存 Workspace 共享的完整
 原子，不缓存 Actor 不可见/缺失结果，也不缓存任何 Actor 的授权结论。
 """
 
@@ -33,7 +33,7 @@ from hivememory.workspace.resolution.guard import ColdReadGuard
 logger = logging.getLogger(__name__)
 
 
-class AliasResolver:
+class MemoryReader:
     """canonical alias/UUID 的 L0/L1/L2 解析器，交付完整原子独立副本。"""
 
     def __init__(
@@ -262,4 +262,4 @@ def _normalize_aliases(aliases: list[str]) -> list[str]:
     return normalized
 
 
-__all__ = ["AliasResolver"]
+__all__ = ["MemoryReader"]

@@ -151,7 +151,7 @@ Agent 使用 MTP 在生成过程中发现、读取和使用记忆，也可以提
 
 `AliceCPU` 直接等待 `AgentRunService`：交互事件经 `SinkRunOutput` 推送给任务进程的事件 sink，`CPUExecutionResult` 作为返回值交回；任务进程的非流式交付只取终态，Alice 不区分交付形态。检查点随结果传递，被取消时同样随返回的 cancelled 结果传递。Alice 没有独立后台 worker、runner task、队列或 shutdown drain，运行中的 chat 取消与交付方离开由 workspace 任务进程处理，System 在停止子系统前关闭任务进程。
 
-Alice 与 agent_runtime 不持有 local bus，也不请求 Patchouli 公开路由；检索、引用与 CALL Profile 读取均提交 workspace 操作请求。PendingAtom 结算由 workspace 登记消费，派生读取缓存由 `WorkspaceRuntime.close()` 清理。
+Alice 与 agent_runtime 不持有 local bus，也不请求 Patchouli 公开路由；检索、引用与 CALL Profile 读取均提交 workspace 操作请求。PendingAtom 结算由 workspace 登记消费，派生读取缓存由 `WorkspaceReadView.close()` 清理。
 
 `CPUInputManifest` 与 `RuntimeScope` 只保留冻结的 `ExecutionLabels(agent_id, workspace_id)` 观测标签，不携带授权身份；运行服务把清单的操作快照翻译为根帧的 MTP 动词集合，只供提示词与 frame 执行策略使用。标签取自注册入口绑定的同一组值，子帧沿用；提示词历史归并与运行事件使用注册标签，流式 frame 展示优先使用 `AgentProfile.agent_id`（源 alias），空值回退标签。标签不参与资源授权。
 

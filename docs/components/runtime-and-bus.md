@@ -212,7 +212,7 @@ Codec 编码失败在接纳前拒绝，解码失败在已接纳 work 的 attempt
 
 ### 3.6 Workspace 与共享运行时
 
-`WorkspaceAssetStore` 不属于通用 Work Queue Runtime；它是 workspace 的进程级唯一 working set（`workspace.assets`），由 System 装配。`WorkspaceAssetRef` 只在当前 Store 生命周期内可反查，带有 asset binding 的 settlement/generation payload 通过 `belong_to` 和 ref 遵守窄化 Asset port 交接约定。System 在 Scheduler、Passive Ingress、Alice、Patchouli 和 Gateway 完成停止后，最后清空 AssetStore；该 Store 不调用 Patchouli 的等待控制器，也不参与 queue 的状态机。写入意图登记、引用读取和主/子帧使用的 Profile 派生缓存均属于 workspace；组合根在 Patchouli drain 后关闭 `WorkspaceRuntime`、撤销结算/失效订阅并清空派生缓存。Alice 不持有资源读取缓存。这些资源状态不属于通用 Work Queue Runtime。
+`WorkspaceAssetStore` 不属于通用 Work Queue Runtime；它是 workspace 的进程级唯一 working set（`workspace.assets`），由 System 装配。`WorkspaceAssetRef` 只在当前 Store 生命周期内可反查，带有 asset binding 的 settlement/generation payload 通过 `belong_to` 和 ref 遵守窄化 Asset port 交接约定。System 在 Scheduler、Passive Ingress、Alice、Patchouli 和 Gateway 完成停止后，最后清空 AssetStore；该 Store 不调用 Patchouli 的等待控制器，也不参与 queue 的状态机。写入意图登记、引用读取和主/子帧使用的 Profile 派生缓存均属于 workspace；组合根在 Patchouli drain 后关闭 `WorkspaceReadView`、撤销结算/失效订阅并清空派生缓存。Alice 不持有资源读取缓存。这些资源状态不属于通用 Work Queue Runtime。
 
 同理，`RuntimeEvent.workspace_id` 只是可选观测标签，不参与 EventBus 路由、订阅、sequence、授权、幂等键或缓存分组。
 

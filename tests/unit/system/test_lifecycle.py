@@ -23,7 +23,7 @@ from hivememory.system.system import HiveMemorySystem
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.sessions import ConversationSessionService
-from tests.helpers.workspace import make_workspace_runtime
+from tests.helpers.workspace import make_workspace_read_view
 
 
 def _build_runtime_with_local_bus():
@@ -132,7 +132,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
             global_bus=global_bus,
             scheduler=scheduler,
             workspace_asset_store=InMemoryWorkspaceAssetStore(),
-            workspace_runtime=make_workspace_runtime(),
+            workspace_read_view=make_workspace_read_view(),
             sessions=ConversationSessionService(WorkspaceSessionConfig()),
             event_bus=None,
             event_sink=runtime_event_sink,

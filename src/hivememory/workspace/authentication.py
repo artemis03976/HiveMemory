@@ -21,7 +21,7 @@
 - 接入未登记/禁用（不区分，避免泄漏配置）→ ``unknown_principal``；
 - adapter 不匹配 → ``adapter_mismatch``；
 - principal 身份解析规则不允许该用户 → ``actor_not_allowed_for_principal``；
-- actor user ≠ 要进入的 workspace 的 owner（成员模型落地前的准入约束，第 2 阶段检查）
+- actor user ≠ 要进入的 workspace 的 owner（准入约束，第 2 阶段检查）
   → ``actor_not_owner``；
 - Workspace 无有效 Actor 访问记录 → ``actor_not_admitted``。
 
@@ -75,7 +75,7 @@ class AccessGrantSummary:
 class WorkspaceAuthenticator:
     """第 2 阶段 Workspace 认证：准入、签发与撤销（认证一侧）。
 
-    准入 :meth:`admit` 由认证网关与本类的子线程派生调用；撤销（:meth:`invalidate`、
+    准入 :meth:`admit` 由认证网关与本类的子线程派生调用；撤销（:meth:`revoke`、
     :meth:`revoke_all`）与诊断查询（:meth:`describe`）只经认证网关转交。
     签发的 context 自带密封的授予内容，本类只记住"签发过哪些仍可能存活
     的 context"，用于 System 停止时撤销全部；没有自身的关闭状态——关闭
@@ -97,7 +97,7 @@ class WorkspaceAuthenticator:
     ) -> WorkspaceAccessContext:
         """第 2 阶段认证：确认 Workspace 准入，签发写有授予内容的 context。
 
-        owner 约束（成员模型落地前的准入约束）在本阶段检查：actor 用户必须等于要进入的
+        owner 约束在本阶段检查：actor 用户必须等于要进入的
         workspace 的 owner。不检查 principal，也不重复校验入参类型与关闭
         状态——认证网关已验证来源与声明；子线程派生则复用有效进程的来源
         与驻留目标，只替换同一用户的 agent。两条调用链均无 await，不存在
@@ -182,9 +182,9 @@ class WorkspaceAuthenticator:
         grant = access._unseal()
         if grant is not None and grant.binding.run_type is not AccessRunType.EXECUTION_THREAD:
             raise ScopeRequiredError("撤销线程需要线程 context")
-        self.invalidate(access)
+        self.revoke(access)
 
-    def invalidate(self, access: WorkspaceAccessContext) -> None:
+    def revoke(self, access: WorkspaceAccessContext) -> None:
         """撤销单个 context（进程关闭或请求结束时调用）。
 
         撤销必须由 context 的绑定所有者触发：任务进程以任何结局关闭时
@@ -192,7 +192,7 @@ class WorkspaceAuthenticator:
         幂等空操作。
         """
         if type(access) is not WorkspaceAccessContext:
-            raise TypeError("invalidate 只接受 WorkspaceAccessContext")
+            raise TypeError("revoke 只接受 WorkspaceAccessContext")
         access._revoke()
         self._issued.discard(access)
 
@@ -245,7 +245,7 @@ class ActorAuthenticationGateway:
     :meth:`close` 关闭网关并拒绝新的认证，已签发 context 照常
     可用；任务进程收尾后经 :meth:`revoke_all_contexts` 撤销全部已签发
     context。本类不提供配置热更新——
-    首版本地配置在运行实例内不可变，修改经重启生效。
+    本地配置在运行实例内不可变，修改经重启生效。
     """
 
     def __init__(
@@ -267,9 +267,9 @@ class ActorAuthenticationGateway:
         """关闭网关：拒绝新的认证请求，不影响已签发 context 的剩余生命周期。"""
         self._closed = True
 
-    def invalidate_context(self, access: WorkspaceAccessContext) -> None:
+    def revoke_context(self, access: WorkspaceAccessContext) -> None:
         """撤销单个已签发 context；转交认证一侧（进程关闭或请求结束）。"""
-        self._authenticator.invalidate(access)
+        self._authenticator.revoke(access)
 
     def derive_thread_context(self, access: WorkspaceAccessContext) -> WorkspaceAccessContext:
         """实现执行器的派生端口；关闭网关只拒绝新认证，不禁止已有进程派生。"""

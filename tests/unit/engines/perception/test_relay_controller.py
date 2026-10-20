@@ -19,6 +19,7 @@ from hivememory.engines.perception.relay_controller import (
     SimpleRelayController,
 )
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
+from tests.helpers.workspace import make_actor_identity
 
 
 class TestRelayController:
@@ -32,11 +33,12 @@ class TestRelayController:
         """测试简单摘要生成"""
         # 构造 Block 链
         block1 = LogicalBlock(
-            turn=TurnRecord(user_query="查询天气"),
+            turn=TurnRecord(identity=make_actor_identity(), user_query="查询天气"),
         )
 
         block2 = LogicalBlock(
             turn=TurnRecord(
+                identity=make_actor_identity(),
                 actions=[
                     AgentAction(
                         action_id="action_1",
@@ -44,7 +46,7 @@ class TestRelayController:
                         results=[],
                         status="success",
                     )
-                ]
+                ],
             )
         )
 
@@ -73,6 +75,7 @@ class TestLLMRelayController:
 
         block = LogicalBlock(
             turn=TurnRecord(
+                identity=make_actor_identity(),
                 user_query="创建认证模块",
                 assistant_final_text="已创建 auth.py",
                 semantic_traces=[TraceItem(action="RUN", tool="sys_write_file", status="success")],
@@ -95,7 +98,12 @@ class TestLLMRelayController:
         controller = LLMRelayController(summary_llm=None)
 
         block = LogicalBlock(
-            turn=TurnRecord(user_query="测试查询", assistant_final_text="测试响应"), total_tokens=50
+            turn=TurnRecord(
+                identity=make_actor_identity(),
+                user_query="测试查询",
+                assistant_final_text="测试响应",
+            ),
+            total_tokens=50,
         )
 
         summary = await controller.generate_summary([block])
@@ -112,7 +120,10 @@ class TestLLMRelayController:
         )
 
         block = LogicalBlock(
-            turn=TurnRecord(user_query="测试", assistant_final_text="响应"), total_tokens=50
+            turn=TurnRecord(
+                identity=make_actor_identity(), user_query="测试", assistant_final_text="响应"
+            ),
+            total_tokens=50,
         )
 
         summary = await controller.generate_summary([block])
@@ -128,7 +139,10 @@ class TestLLMRelayController:
         )
 
         block = LogicalBlock(
-            turn=TurnRecord(user_query="测试", assistant_final_text="响应"), total_tokens=50
+            turn=TurnRecord(
+                identity=make_actor_identity(), user_query="测试", assistant_final_text="响应"
+            ),
+            total_tokens=50,
         )
 
         with pytest.raises(TypeError) as raised:
@@ -143,6 +157,7 @@ class TestLLMRelayController:
         blocks = [
             LogicalBlock(
                 turn=TurnRecord(
+                    identity=make_actor_identity(),
                     user_query="搜索代码",
                     assistant_final_text="找到了",
                     semantic_traces=[

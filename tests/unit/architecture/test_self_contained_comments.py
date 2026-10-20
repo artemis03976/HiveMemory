@@ -28,7 +28,9 @@ CODE_ROOTS = (*(REPO_ROOT / root for root in PYTHON_ROOTS), FRONTEND_ROOT)
 FORBIDDEN_PATTERNS: dict[str, re.Pattern[str]] = {
     "文档路径或文件名": re.compile(r"(?<![\w.])docs/|\b[\w-]+\.md\b"),
     "章节号": re.compile(r"§\s*\d|第\s*\d+(?:\.\d+)*\s*节|\b\d+(?:\.\d+)+\s*节|\bSection\s+\d"),
-    "决定或问题编号": re.compile(r"\b(?:Q|D|S|W|T|P|E|I|AC)-\d+[a-z]?\b"),
+    "决定或问题编号": re.compile(
+        r"\b(?:Q|D|S|W|T|P|E|I|AC)-\d+[a-z]?\b|[（(](?:Q|D|S|W|T|P|E|I|AC)\d+[a-z]?[）)]"
+    ),
     "计划代号": re.compile(
         r"\bA[1-6](?:-[A-Za-z0-9]+)?\b|\bW[01](?:-[A-F])?\b|\bM-3\b|\bMVL-\d|\bM\d\.\d\b"
     ),

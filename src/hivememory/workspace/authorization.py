@@ -9,8 +9,9 @@ system 身份；任务进程阶段不检查操作白名单。授权成功后组�
 
 认证与授权互不依赖：本模块不导入认证一侧（``workspace.authentication``），
 只经 context 这个类型与它发生联系；也不导入任务进程与能力层。授权点
-显式接收目标 workspace：它是这次操作的参数，不是身份；当前只
-接受等于驻留 workspace 的目标，受限穿透访问落地后在此放宽。
+显式接收目标 workspace：它是这次操作的参数，不是身份。目标只能等于
+驻留 workspace，跨 Workspace 的访问不可表达；目标作为参数单独传入，
+放宽这条规则时授权点的签名不变。
 """
 
 from __future__ import annotations
@@ -214,9 +215,8 @@ class WorkspaceOperationAuthorizer:
     ) -> None:
         """操作授权的目标 workspace 与 owner 检查。
 
-        目标检查当前只接受等于驻留 workspace 的目标，受限穿透访问
-        落地后在此放宽；owner 约束（成员模型落地前的准入约束）在第 3 阶段检查，身份类型
-        不承担授权规则。
+        目标只接受等于驻留 workspace 的目标；owner 约束在第 3 阶段同样检查，
+        身份类型不承担授权规则。
         """
         if not isinstance(target_workspace, WorkspaceIdentity):
             raise TypeError("target_workspace 必须是 WorkspaceIdentity")

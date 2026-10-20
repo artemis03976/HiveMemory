@@ -22,7 +22,7 @@ from hivememory.workspace.contracts import (
     OperationSubmitter,
     ThreadOperationSubmitter,
 )
-from hivememory.workspace.runtime import WorkspaceRuntime
+from hivememory.workspace.read_view import WorkspaceReadView
 from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.workspace import (
     make_access_composition,
@@ -37,13 +37,18 @@ class MemoryBackend:
     def __init__(self, bus=None) -> None:
         self.memories: dict[str, MemoryAtom] = {}
         self.bus = bus
+        # 持久化边界依次收到的读取（点读、alias 批量读、检索与 Profile 读取），
+        # 用来观察读取视图是否回源。
+        self.reads: list[str] = []
 
     async def read(self, memory_id, *, scope):
+        self.reads.append("read")
         return next((atom for atom in self.memories.values() if atom.id == memory_id), None)
 
     async def retrieve_by_aliases(self, aliases, *, scope):
         from hivememory.patchouli.contracts import PatchouliRoutes
 
+        self.reads.append("retrieve_by_aliases")
         found = [self.memories[alias] for alias in aliases if alias in self.memories]
         missing = [alias for alias in aliases if alias not in self.memories]
         if self.bus is not None and missing:
@@ -60,6 +65,7 @@ class MemoryBackend:
         return found
 
     async def retrieve(self, request):
+        self.reads.append("retrieve")
         if self.bus is not None:
             return await self.bus.request(PatchouliRoutes.MEMORY_RETRIEVE, request=request)
         return list(self.memories.values())
@@ -67,6 +73,7 @@ class MemoryBackend:
     async def get_agent_profile(self, alias, *, scope):
         # 内存 backing 沿用 Patchouli 的内置图纸规则；入口仍必须先执行
         # agent.call 授权，测试不在 Alice 内另设默认配置回退。
+        self.reads.append("get_agent_profile")
         if alias is None or alias.strip() in ("", "default", "omni_doll"):
             return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE.model_copy(deep=True))
         if self.bus is None:
@@ -88,7 +95,9 @@ class OperationsHarness:
         if bus is None:
             self.bus.register(PatchouliRoutes.RECORD_MEMORY_CITATION, self._record_citation)
         self.backing = MemoryBackend(bus)
-        self.runtime = WorkspaceRuntime(backing=self.backing, atom_capacity=32, profile_capacity=16)
+        self.runtime = WorkspaceReadView(
+            backing=self.backing, atom_capacity=32, profile_capacity=16
+        )
         self.registry = self.runtime.intents
         self.memories = self.backing.memories
         self.compositions = {}
@@ -110,7 +119,7 @@ class OperationsHarness:
             ActorMemoryService(
                 self.bus,
                 operation_authorizer=operation_authorizer,
-                memory_reader=self.runtime.aliases,
+                memory_reader=self.runtime.memory,
                 threads=threads,
             ),
             agent=ActorAgentService(
@@ -166,7 +175,7 @@ class OperationsHarness:
         for composition in self.compositions.pop(process_id, []):
             process = composition.process_table.get(process_id)
             composition.threads.end_all(process)
-            composition.gateway.invalidate_context(process.record.access)
+            composition.gateway.revoke_context(process.record.access)
             composition.process_table.close(process)
 
 

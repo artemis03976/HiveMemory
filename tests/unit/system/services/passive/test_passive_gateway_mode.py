@@ -94,7 +94,7 @@ async def test_passive_user_requests_gateway_then_patchouli_retrieval() -> None:
         interaction_queue=_SubmissionQueueRecorder(submitted),
         gateway_request_timeout_ms=123,
     )
-    identity = ActorIdentity(user_id="u1")
+    identity = ActorIdentity(agent_id="omni_doll", user_id="u1")
 
     outcome = await ingressor.route_event(_event("user", "被动原问题"), identity)
 
@@ -171,7 +171,7 @@ async def test_passive_simple_chat_skips_retrieval() -> None:
 
     outcome = await ingressor.route_event(
         _event("user", "你好"),
-        ActorIdentity(user_id="u1"),
+        ActorIdentity(agent_id="omni_doll", user_id="u1"),
     )
 
     assert outcome.memories == ()
@@ -200,4 +200,6 @@ async def test_passive_rejects_impossible_command_outcome() -> None:
     )
     # 契约违约不走降级路径，必须向上抛出
     with pytest.raises(PassiveIngressContractError, match="不得返回 command"):
-        await ingressor.route_event(_event("user", "/clear"), ActorIdentity(user_id="u1"))
+        await ingressor.route_event(
+            _event("user", "/clear"), ActorIdentity(agent_id="omni_doll", user_id="u1")
+        )

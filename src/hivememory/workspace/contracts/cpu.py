@@ -38,7 +38,7 @@ class CPUFailureReason(str, Enum):
 
 
 class CPUExecutionResult(BaseModel):
-    """一次 CPU 执行的终态产出（CPU 中立，取代 Alice 专属的运行结果模型）。
+    """一次 CPU 执行的终态产出（CPU 中立，不含任何执行者专属的字段）。
 
     字段不变量：每个字段由 CPU 组装，且有完全明确的下游消费者。
         status            → 任务进程按此判定 Actor 阶段结局；有输出的三种结局均进入 finalize
@@ -52,7 +52,7 @@ class CPUExecutionResult(BaseModel):
     表达（``status`` 为 cancelled，携带已产生的输出与已完成的检查点）。
     """
 
-    model_config = ConfigDict(frozen=True, use_enum_values=True)
+    model_config = ConfigDict(frozen=True)
 
     status: CPUExecutionStatus = Field(default=CPUExecutionStatus.COMPLETED)
     failure_reason: CPUFailureReason | None = Field(default=None)

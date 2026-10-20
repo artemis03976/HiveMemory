@@ -51,7 +51,7 @@ async def test_prompt_and_runtime_reject_verbs_outside_frame_without_submission(
     assert result.response_content == ""
     assert requests == []
     assert harness.registry.size == 0
-    assert harness.runtime.stats()["cold_reads"] == 0
+    assert len(harness.backing.reads) == 0
 
 
 @pytest.mark.asyncio
@@ -98,5 +98,5 @@ async def test_system_tool_alias_requires_exact_registration_without_resource_su
 
     assert result.response_status == "error"
     assert 'code="mtp.alias.not_found"' in result.formatted_response
-    assert harness.runtime.stats()["cold_reads"] == 0
+    assert len(harness.backing.reads) == 0
     assert harness.citations == []

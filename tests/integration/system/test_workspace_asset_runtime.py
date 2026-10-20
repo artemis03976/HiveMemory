@@ -46,7 +46,7 @@ from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
     make_workspace_identity,
-    make_workspace_runtime,
+    make_workspace_read_view,
 )
 
 
@@ -234,7 +234,7 @@ def _build_system(
         global_bus=GlobalSystemBus(),
         scheduler=_Scheduler(calls),  # type: ignore[arg-type]
         workspace_asset_store=store,
-        workspace_runtime=make_workspace_runtime(),
+        workspace_read_view=make_workspace_read_view(),
         sessions=ConversationSessionService(WorkspaceSessionConfig()),
         event_bus=None,
         event_sink=sink,
@@ -445,7 +445,7 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
         global_bus=GlobalSystemBus(),
         scheduler=_Scheduler(calls),  # type: ignore[arg-type]
         workspace_asset_store=store,
-        workspace_runtime=make_workspace_runtime(),
+        workspace_read_view=make_workspace_read_view(),
         sessions=ConversationSessionService(WorkspaceSessionConfig()),
         event_bus=None,
         event_sink=sink,
