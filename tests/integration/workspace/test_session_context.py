@@ -136,7 +136,7 @@ async def test_interleaved_sessions_share_topic_but_not_cpu_or_gateway_history()
 
 @pytest.mark.asyncio
 async def test_gateway_routes_and_rewrites_with_session_history_without_exporting_it():
-    """真实 workflow 将同一会话历史交给两个 Engine，菜单保留，公共决定不携带历史。"""
+    """真实 workflow 将同一会话历史嵌入两个 Engine 的 system 提示词，菜单保留，公共决定不携带历史。"""
     bus = GlobalSystemBus()
     scope = make_identity_scope()
     topic = TopicSnapshot(
@@ -179,10 +179,11 @@ async def test_gateway_routes_and_rewrites_with_session_history_without_exportin
     assert result.decision.rewritten_query == "Docker 容器如何重启"
     assert len(llm.calls) == 2
     for call in llm.calls:
-        assert call.messages[1:] == [
-            {"role": "user", "content": "Docker 容器已启动"},
-            {"role": "assistant", "content": "可以继续配置"},
-            {"role": "user", "content": "它怎么重启？"},
-        ]
+        # 会话历史只作参考材料出现在 system 提示词里，不作为对话消息发送。
+        assert [message["role"] for message in call.messages] == ["system", "user"]
+        assert call.messages[1]["content"] == "它怎么重启？"
+        assert (
+            "1. User: Docker 容器已启动\n   Assistant: 可以继续配置" in call.messages[0]["content"]
+        )
     assert "Docker" in llm.calls[0].messages[0]["content"]
     assert "session_turns" not in result.decision.model_dump()
