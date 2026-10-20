@@ -95,7 +95,7 @@ class OperationsHarness:
         empty_access = make_access_composition([])
         self.entry = self.make_entry(
             operation_authorizer or empty_access.authorizer,
-            empty_access.thread_spawner,
+            empty_access.threads,
         )
 
     async def _record_citation(self, *, memory_id, source, identity_scope):
@@ -104,21 +104,20 @@ class OperationsHarness:
             {"memory_id": memory_id, "source": source, "identity_scope": identity_scope}
         )
 
-    def make_entry(self, operation_authorizer, thread_spawner) -> WorkspaceOperationEntry:
+    def make_entry(self, operation_authorizer, threads) -> WorkspaceOperationEntry:
         """入口与所有测试线程 context 共享同一份登记，替身仅位于持久化边界。"""
         return WorkspaceOperationEntry(
             ActorMemoryService(
                 self.bus,
                 operation_authorizer=operation_authorizer,
                 memory_reader=self.runtime.aliases,
-                dispatch_topics=thread_spawner,
+                threads=threads,
             ),
             agent=ActorAgentService(
                 operation_authorizer=operation_authorizer,
                 profile_reader=self.runtime.profiles,
-                thread_spawner=thread_spawner,
             ),
-            operation_authorizer=operation_authorizer,
+            threads=threads,
         )
 
     async def submitter(
@@ -159,15 +158,14 @@ class OperationsHarness:
             binding=RunBinding.for_task_process(process_id),
         )
         self.compositions.setdefault(process_id, []).append(composition)
-        entry = self.make_entry(composition.authorizer, composition.thread_spawner)
-        thread_access = composition.register_main_thread(access)
-        return ThreadOperationSubmitter(entry, thread_access)
+        entry = self.make_entry(composition.authorizer, composition.threads)
+        return ThreadOperationSubmitter(entry, composition.register_main_thread(access))
 
     def revoke(self, process_id: str = "test_run") -> None:
-        """同步撤销测试进程的全部线程 context，不取消调用方任务。"""
+        """同步结束测试进程的全部线程并撤销进程 context，不取消调用方任务。"""
         for composition in self.compositions.pop(process_id, []):
             process = composition.process_table.get(process_id)
-            composition.thread_spawner.revoke_threads(process.working_set)
+            composition.threads.end_all(process)
             composition.gateway.invalidate_context(process.record.access)
             composition.process_table.close(process)
 

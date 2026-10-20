@@ -1,9 +1,9 @@
 """
-RunExecutor 集成测试 — 真实执行器/会话/流式三组件协作
+RunExecutor 集成测试 — 真实执行器/会话/交互输出端口三组件协作
 
-验证 RunExecutor + RunSession + AgentRunStream/QueueAgentRunOutput 的真实协作：
-SUSPENDED 重入的流式序列连续性、断流取消时执行器/会话/流式的协同清理。
-仅 stub LLM 执行端口（run_frame）与 call_coordinator（_CallCoordinatorStub）。
+验证 RunExecutor + RunSession + SinkRunOutput 的真实协作：SUSPENDED 重入的
+交互事件序号连续性、run 被取消时执行器与会话的协同清理。仅 stub LLM 执行
+端口（run_frame）与 call_coordinator（_CallCoordinatorStub）。
 """
 
 from __future__ import annotations
@@ -16,7 +16,7 @@ import pytest
 
 from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import TokenDelta
-from hivememory.alice.interface.stream import AgentRunStream
+from hivememory.alice.interface.output import SinkRunOutput
 from hivememory.alice.orchestration.call.coordinator import (
     DispatchCallee,
     ResumeCaller,
@@ -25,14 +25,16 @@ from hivememory.alice.orchestration.executor import RunExecutor
 from hivememory.alice.orchestration.output import CallOutputFinished
 from hivememory.alice.orchestration.session import RunSession
 from hivememory.core.mtp import MTPCallRequest
-from hivememory.workspace.contracts import CPUExecutionResult
+from tests.helpers.alice import CollectedEvents
 from tests.helpers.workspace import make_runtime_scope
 
 
-async def _execute(executor, frame, stream) -> CPUExecutionResult:
-    """测试驱动将帧终态提升为接口层所需的运行终态；取消继续原样传播。"""
-    terminal = await executor.run(frame, run_output=stream.output)
-    return CPUExecutionResult(status=terminal.status.value)
+def _start(executor, frame, session) -> tuple[asyncio.Task, CollectedEvents]:
+    """在独立 task 中运行执行器，交互事件经真实输出端口推送到收集用的 sink。"""
+    events = CollectedEvents()
+    output = SinkRunOutput(events)
+    output.bind_run(session.agent_run_id)
+    return asyncio.create_task(executor.run(frame, run_output=output)), events
 
 
 def _session_with(frame) -> RunSession:
@@ -129,12 +131,12 @@ async def test_run_executor_reenters_suspended_frame_with_continuous_stream_sequ
         session=session,
         call_coordinator=coordinator,
     )
-    agent_stream = AgentRunStream()
-    agent_stream.output.bind_run(session.agent_run_id)
-    events = [event async for event in agent_stream.events(_execute(executor, frame, agent_stream))]
+    run, collected = _start(executor, frame, session)
+    await run
+    events = collected.events
 
-    assert [event["data"]["stream_sequence"] for event in events[:-1]] == [0, 1, 2, 3]
-    assert [event["data"]["agent_run_id"] for event in events[:-1]] == ["run-1"] * 4
+    assert [event["data"]["stream_sequence"] for event in events] == [0, 1, 2, 3]
+    assert [event["data"]["agent_run_id"] for event in events] == ["run-1"] * 4
     assert executor.terminal_result is not None
     assert executor.terminal_result.status == FrameExecutionStatus.COMPLETED
     assert set(session.frames) == {"frame-1", "frame-child"}
@@ -142,7 +144,7 @@ async def test_run_executor_reenters_suspended_frame_with_continuous_stream_sequ
 
 
 @pytest.mark.asyncio
-async def test_run_executor_cancels_runner_when_stream_consumer_closes():
+async def test_run_executor_cancellation_unwinds_runner_and_records_cancelled_terminal():
     runner_cancelled = asyncio.Event()
 
     async def run_frame(_frame, *, output_sink, **_kwargs):
@@ -155,21 +157,21 @@ async def test_run_executor_cancels_runner_when_stream_consumer_closes():
     frame = _frame_stub("frame-1")
     session = _session_with(frame)
     executor = RunExecutor(SimpleNamespace(run_frame=run_frame), session=session)
-    agent_stream = AgentRunStream()
-    agent_stream.output.bind_run(session.agent_run_id)
-    stream = agent_stream.events(_execute(executor, frame, agent_stream))
+    run, events = _start(executor, frame, session)
 
-    first_event = await anext(stream)
-    await stream.aclose()
-    await asyncio.wait_for(runner_cancelled.wait(), timeout=1)
+    first_event = await events.wait_for(lambda event: event["event"] == "token")
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run
 
-    assert first_event["event"] == "token"
+    assert first_event["data"]["content"] == "started"
+    assert runner_cancelled.is_set()
     assert executor.terminal_result is not None
     assert executor.terminal_result.status == FrameExecutionStatus.CANCELLED
 
 
 @pytest.mark.asyncio
-async def test_run_executor_cleans_active_call_when_stream_consumer_closes():
+async def test_run_executor_cancellation_cleans_active_call():
     root_calls = 0
 
     async def run_frame(frame, *, output_sink, **_kwargs):
@@ -194,14 +196,14 @@ async def test_run_executor_cleans_active_call_when_stream_consumer_closes():
         session=session,
         call_coordinator=coordinator,
     )
-    agent_stream = AgentRunStream()
-    agent_stream.output.bind_run(session.agent_run_id)
-    stream = agent_stream.events(_execute(executor, frame, agent_stream))
+    run, events = _start(executor, frame, session)
 
-    assert (await anext(stream))["data"]["content"] == "root"
-    assert (await anext(stream))["data"]["content"] == "child"
-    await stream.aclose()
+    await events.wait_for(lambda event: event["data"].get("content") == "child")
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run
 
+    assert [event["data"]["content"] for event in events.events] == ["root", "child"]
     assert coordinator.cancel_calls == 1
     assert session.call_records[("frame-1", "act-1")].status.value == "cancelled"
 
@@ -234,13 +236,12 @@ async def test_run_executor_cancels_record_during_call_preparation_await():
         session=session,
         call_coordinator=coordinator,
     )
-    agent_stream = AgentRunStream()
-    agent_stream.output.bind_run(session.agent_run_id)
-    stream = agent_stream.events(_execute(executor, frame, agent_stream))
+    run, _events = _start(executor, frame, session)
 
-    await anext(stream)
     await asyncio.wait_for(preparation_started.wait(), timeout=1)
-    await stream.aclose()
+    run.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await run
 
     assert coordinator.cancel_calls == 1
     assert session.call_records[("frame-1", "act-1")].status.value == "cancelled"

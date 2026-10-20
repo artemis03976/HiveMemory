@@ -301,7 +301,7 @@ async def published_stack():
         global_bus=bus,
         operation_authorizer=registration.authorizer,
         memory_reader=make_workspace_runtime(bus).aliases,
-        dispatch_topics=ProcessThreads(
+        threads=ProcessThreads(
             ProcessTable(), lifecycle=registration.gateway, authorizer=registration.authorizer
         ),
     )

@@ -26,7 +26,7 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Intent Unknown] 无法确认写入意图 '{pending_alias}' 是否已被接纳。\n"
         "Suggestion: 当前没有 READ 能力，无法核实结果；请明确告知结果未知，不要重复提交 WRITE/UPDATE。"
     ),
-    "mtp.system.thread_context_revoked": (
+    "mtp.system.thread_ended": (
         "[Thread Ended] 原线程已结束，请停止当前线程的操作。\n"
         "Suggestion: 不要重试或尝试重新获取身份。"
     ),
@@ -196,7 +196,7 @@ _ERROR_TEXT_EN: dict[str, str] = {
         "Suggestion: READ is unavailable, so you cannot verify the result. Report the uncertainty; "
         "do not submit another WRITE/UPDATE."
     ),
-    "mtp.system.thread_context_revoked": (
+    "mtp.system.thread_ended": (
         "[Thread Ended] The original thread has ended. Stop operations on this thread.\n"
         "Suggestion: Do not retry or attempt to reacquire an identity."
     ),

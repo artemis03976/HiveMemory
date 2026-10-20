@@ -15,7 +15,6 @@ from hivememory.core.protocol.models import InteractionPayload
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.workspace.contracts import CPUResultSlot, CPURunHandle
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
@@ -109,31 +108,28 @@ async def completion_chain(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("during_pull", [True, False])
-async def test_user_stop_seals_partial_slot_even_between_pulls(during_pull):
-    """正在拉取和两次拉取之间的 stop 都交回半截结果，并在 done 前接管交互。"""
+@pytest.mark.parametrize(
+    ("reported", "final_text"), [("cancelled", "只说到这里"), ("completed", "完整答案")]
+)
+async def test_user_stop_seals_outcome_returned_by_cpu(reported, final_text):
+    """用户停止时沿用 CPU 取消后返回的结局：部分输出按 cancelled、停止前已完成按
+    completed，在 done 前封口、写入会话并由 Patchouli 接管。"""
     cpu = ScriptedCPU(
-        events=[{"event": "token", "data": {"content": "只说到这里"}}],
+        events=[{"event": "token", "data": {"content": final_text}}],
         hang_before_result=True,
-        cancelled_result=make_cpu_result(status="cancelled", final_text="只说到这里"),
+        cancelled_result=make_cpu_result(status=reported, final_text=final_text),
     )
     service, handle, sessions, workspace, probe = await completion_chain(cpu)
     stream = service.run_process(handle, stream=True)
-    while (await anext(stream))["event"] != "token":
-        pass
-    pending = None
-    if during_pull:
-        pending = asyncio.create_task(anext(stream))
-        await cpu.hang_entered.wait()
+    first = await anext(stream)
+    await asyncio.wait_for(cpu.hang_entered.wait(), timeout=2)
     assert service.cancel_process(handle).cancelled is True
-    if pending is not None:
-        assert (await pending)["data"]["status"] == "finalizing"
-    events = [event async for event in stream]
+    events = [first, *[event async for event in stream]]
     done = events[-1]["data"]
-    assert (done["status"], done["final_text"]) == ("cancelled", "只说到这里")
+    assert (done["status"], done["final_text"]) == (reported, final_text)
     history = sessions.get(workspace, handle.session_id)
     assert [(t.payload.outcome, t.payload.assistant_final_text) for t in history.turns] == [
-        ("cancelled", "只说到这里")
+        (reported, final_text)
     ]
     assert probe.submitted == [history.turns[0].payload]
     assert probe.cleaned == []
@@ -240,9 +236,8 @@ async def test_empty_terminal_does_not_create_turn_and_done_omits_text():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("cancel_close", [False, True])
-async def test_close_at_finalizing_drains_submission_and_never_cleans_prepared(cancel_close):
-    """finalizing 事件刚交出就关闭交付，甚至再取消关闭任务，也不能丢失提交。"""
+async def test_delivery_leaving_after_finalizing_never_skips_submission():
+    """交付方在 finalizing 之后离开：退订立即返回，提交照常完成，已接管的交互不被 cleanup。"""
     service, handle, sessions, workspace, probe = await completion_chain(
         ScriptedCPU(result=make_cpu_result()), block_finalize=True
     )
@@ -250,54 +245,25 @@ async def test_close_at_finalizing_drains_submission_and_never_cleans_prepared(c
     while (await anext(stream))["event"] != "run_status":
         pass
     assert service.cancel_process(handle).reason == "already_finalizing"
-    closing = asyncio.create_task(stream.aclose())
+    await stream.aclose()
     await probe.entered.wait()
+    assert probe.submitted == []
     assert sessions.get(workspace, handle.session_id).active_process_id == handle.process_id
-    if cancel_close:
-        closing.cancel()
     probe.release.set()
-    if cancel_close:
-        with pytest.raises(asyncio.CancelledError):
-            await closing
-    else:
-        await closing
+    await service.close_process(handle)
     assert [p.outcome for p in probe.submitted] == ["completed"]
     assert probe.cleaned == []
     assert sessions.get(workspace, handle.session_id).active_process_id is None
 
 
-class SlowCloseCPU:
-    """交出 completed 终态后，关闭输出流要等待测试放行，用于在此窗口注入停止。"""
-
-    def __init__(self, *, result=None, fill_slot=True) -> None:
-        self.result = result or make_cpu_result(final_text="完整答案")
-        self.fill_slot = fill_slot
-        self.closing = asyncio.Event()
-        self.release = asyncio.Event()
-
-    def execute(self, manifest, *, access, generation_options):
-        slot = CPUResultSlot()
-        return CPURunHandle(output=self._iterate(slot), result_slot=slot)
-
-    async def _iterate(self, slot):
-        if self.fill_slot:
-            slot.result = self.result
-        try:
-            yield self.result
-        finally:
-            self.closing.set()
-            await self.release.wait()
-
-
 @pytest.mark.asyncio
 async def test_stop_after_cpu_terminal_keeps_completed_outcome():
-    """CPU 已交出 completed 后才到达的停止不把完整回复改记为中断。"""
-    cpu = SlowCloseCPU()
+    """CPU 已返回 completed、进程尚未恢复时到达的停止，不把完整回复改记为中断。"""
+    cpu = ScriptedCPU(result=make_cpu_result(final_text="完整答案"))
     service, handle, sessions, workspace, probe = await completion_chain(cpu)
     run = asyncio.create_task(_collect(service.run_process(handle, stream=True)))
-    await cpu.closing.wait()
+    await asyncio.wait_for(cpu.result_returning.wait(), timeout=2)
     assert service.cancel_process(handle).cancelled is True
-    cpu.release.set()
     done = (await run)[-1]["data"]
     assert (done["status"], done["final_text"]) == ("completed", "完整答案")
     turns = sessions.get(workspace, handle.session_id).turns
@@ -306,85 +272,112 @@ async def test_stop_after_cpu_terminal_keeps_completed_outcome():
 
 
 @pytest.mark.asyncio
-async def test_stop_between_pulls_keeps_completed_slot_outcome():
-    """停止落在两次拉取之间而 CPU 已完成时，沿用结果槽中的 completed。"""
-    cpu = ScriptedCPU(
-        events=[{"event": "token", "data": {"content": "完整答案"}}],
-        hang_before_result=True,
-        cancelled_result=make_cpu_result(final_text="完整答案"),
-    )
-    service, handle, sessions, workspace, probe = await completion_chain(cpu)
+async def test_delivery_leaving_after_cpu_terminal_discards_turn_but_accepts_checkpoint():
+    """CPU 已返回带检查点的终态后交付方离开：本轮丢弃不写会话，检查点仍被接受。"""
+    checkpoint = make_compaction_checkpoint(reduced_through="old")
+    cpu = ScriptedCPU(result=make_cpu_result(compaction_checkpoint=checkpoint))
+    service, handle, sessions, workspace, probe = await completion_chain(cpu, seed_history=True)
     stream = service.run_process(handle, stream=True)
-    while (await anext(stream))["event"] != "token":
-        pass
-    assert service.cancel_process(handle).cancelled is True
-    done = [event async for event in stream][-1]["data"]
-    assert done["status"] == "completed"
-    assert [t.payload.outcome for t in sessions.get(workspace, handle.session_id).turns] == [
-        "completed"
-    ]
-    assert [p.outcome for p in probe.submitted] == ["completed"]
+    await anext(stream)
+    await asyncio.wait_for(cpu.result_returning.wait(), timeout=2)
+    await stream.aclose()
+    await service.close_process(handle)
+    saved = sessions.get(workspace, handle.session_id)
+    assert saved.compaction_checkpoint == checkpoint
+    assert [turn.interaction_id for turn in saved.turns] == ["old"]
+    assert saved.active_process_id is None
+    assert probe.submitted == []
+    assert probe.cleaned == [handle.process_id]
 
 
 async def _collect(stream):
     return [event async for event in stream]
 
 
-async def _drive_like_sse(service, handle):
-    """与 SSE 路由相同：每次拉取都在新 task 中进行，结束后经注册入口关闭。"""
-    stream = service.run_process(handle, stream=True)
-    events = []
-    try:
-        while True:
-            try:
-                events.append(await asyncio.create_task(anext(stream)))
-            except StopAsyncIteration:
-                return events
-    finally:
-        await service.close_process(handle)
+class _HardCancelSignal(logging.Handler):
+    """系统关闭记录硬取消告警时置位，用于在进程 task 被取消之后再放行提交。"""
+
+    def __init__(self) -> None:
+        super().__init__(logging.WARNING)
+        self.hard_cancelled = asyncio.Event()
+
+    def emit(self, record: logging.LogRecord) -> None:
+        if "硬取消" in record.getMessage():
+            self.hard_cancelled.set()
 
 
 @pytest.mark.asyncio
-async def test_shutdown_stops_sse_driven_process_and_waits_for_its_own_close(caplog):
-    """关闭不与仍在拉取的交付方并发收口；部分输出不入会话、不提交。"""
+async def test_shutdown_stops_streaming_process_and_discards_partial_output(caplog):
+    """关闭以 system_shutdown 停止进程并等待它在自己的 task 中收尾；部分输出不入会话、不提交。"""
     cpu = ScriptedCPU(
         events=[{"event": "token", "data": {"content": "半截"}}],
         hang_before_result=True,
         cancelled_result=make_cpu_result(status="cancelled", final_text="半截"),
     )
     service, handle, sessions, workspace, probe = await completion_chain(cpu)
-    driver = asyncio.create_task(_drive_like_sse(service, handle))
-    await cpu.hang_entered.wait()
+    subscriber = asyncio.create_task(_collect(service.run_process(handle, stream=True)))
+    await asyncio.wait_for(cpu.hang_entered.wait(), timeout=2)
     with caplog.at_level(logging.WARNING):
         await service.shutdown()
     session = sessions.get(workspace, handle.session_id)
     assert (session.active_process_id, session.turns) == (None, ())
-    done = (await driver)[-1]["data"]
+    done = (await subscriber)[-1]["data"]
     assert (done["status"], done["reason"]) == ("cancelled", "system_shutdown")
     assert "final_text" not in done
     assert probe.submitted == []
     assert probe.cleaned == [handle.process_id]
-    assert cpu.closed is True
+    assert cpu.finished is True
     assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
 
 
 @pytest.mark.asyncio
-async def test_shutdown_force_closes_process_whose_driver_stopped_pulling(caplog):
-    """交付方停在两次拉取之间不再拉取时，等待超时后兜底关闭并释放会话认领。"""
-    cpu = ScriptedCPU(events=[{"event": "token", "data": {"content": "半截"}}])
+async def test_shutdown_hard_cancels_process_that_does_not_stop_in_time(caplog):
+    """停止后未在等待上限内结束的进程被硬取消，照常收尾、补偿 prepare 并释放会话认领。"""
+    cpu = ScriptedCPU(
+        events=[{"event": "token", "data": {"content": "半截"}}],
+        hang_before_result=True,
+        linger_on_cancel=True,
+    )
     service, handle, sessions, workspace, probe = await completion_chain(
         cpu, shutdown_wait_seconds=0
     )
-    stream = service.run_process(handle, stream=True)
-    while (await anext(stream))["event"] != "token":
-        pass
+    subscriber = asyncio.create_task(_collect(service.run_process(handle, stream=True)))
+    await asyncio.wait_for(cpu.hang_entered.wait(), timeout=2)
     with caplog.at_level(logging.WARNING):
         await service.shutdown()
     assert sessions.get(workspace, handle.session_id).active_process_id is None
     assert probe.cleaned == [handle.process_id]
-    assert cpu.closed is True
+    assert cpu.finished is True
     assert service.cancel_process(handle).status == "not_found"
-    assert any("兜底关闭" in r.getMessage() for r in caplog.records)
+    assert any("硬取消" in r.getMessage() for r in caplog.records)
+    assert [event["event"] for event in await subscriber] == ["process_id", "memory_refs", "token"]
+
+
+@pytest.mark.asyncio
+async def test_shutdown_hard_cancel_still_waits_for_finalize_submission():
+    """进入 finalize 的进程拒绝停止；被硬取消后仍等提交结束，不 cleanup 已接管交互。"""
+    service, handle, sessions, workspace, probe = await completion_chain(
+        ScriptedCPU(result=make_cpu_result()), block_finalize=True, shutdown_wait_seconds=0
+    )
+    stream = service.run_process(handle, stream=True)
+    while (await anext(stream))["event"] != "run_status":
+        pass
+    await probe.entered.wait()
+    signal = _HardCancelSignal()
+    service_logger = logging.getLogger("hivememory.workspace.process.service")
+    service_logger.addHandler(signal)
+    try:
+        shutdown = asyncio.create_task(service.shutdown())
+        await asyncio.wait_for(signal.hard_cancelled.wait(), timeout=2)
+        probe.release.set()
+        await asyncio.wait_for(shutdown, timeout=2)
+    finally:
+        service_logger.removeHandler(signal)
+    assert [p.outcome for p in probe.submitted] == ["completed"]
+    assert probe.cleaned == []
+    saved = sessions.get(workspace, handle.session_id)
+    assert [t.payload.outcome for t in saved.turns] == ["completed"]
+    assert saved.active_process_id is None
     await stream.aclose()
 
 
@@ -401,14 +394,20 @@ async def test_shutdown_closes_registered_process_that_never_ran():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("close_mode", ["stream", "direct", "shutdown", "cancel"])
+@pytest.mark.parametrize("close_mode", ["delivery_left", "user_stop", "hard_cancel"])
 async def test_closing_cpu_accepts_old_history_checkpoint_before_releasing_claim(close_mode):
-    """断流、直接关闭、关停与用户取消均保存旧轮次视图，且不新增空轮次。"""
+    """交付方离开、用户停止与硬取消都保存 CPU 返回的旧轮次视图，且不新增空轮次。
+
+    硬取消时 CPU 在最外层把取消转换为返回值：进程仍接受其中的检查点，并把
+    取消继续向上传播，不交付终态。
+    """
     checkpoint = make_compaction_checkpoint(
         reduced_through="old", summarized_through="old", summary="已完成的接力摘要"
     )
     cpu = ScriptedCPU(
         events=[{"event": "context_compaction", "data": {"status": "completed"}}],
+        hang_before_result=True,
+        linger_on_cancel=close_mode == "hard_cancel",
         cancelled_result=make_cpu_result(
             status="cancelled", final_text="", compaction_checkpoint=checkpoint
         ),
@@ -419,14 +418,13 @@ async def test_closing_cpu_accepts_old_history_checkpoint_before_releasing_claim
     stream = service.run_process(handle, stream=True)
     while (await anext(stream))["event"] != "context_compaction":
         pass
-    if close_mode == "stream":
+    await asyncio.wait_for(cpu.hang_entered.wait(), timeout=2)
+    if close_mode == "delivery_left":
         await stream.aclose()
-    elif close_mode == "direct":
         await service.close_process(handle)
-        await stream.aclose()
-    elif close_mode == "shutdown":
+    elif close_mode == "hard_cancel":
         await service.shutdown()
-        await stream.aclose()
+        assert [event["event"] async for event in stream] == []
     else:
         service.cancel_process(handle)
         events = [event async for event in stream]
@@ -455,51 +453,6 @@ async def test_rejected_checkpoint_does_not_prevent_current_turn_submission(capl
     assert [turn.interaction_id for turn in saved.turns] == ["old", "partial"]
     assert probe.submitted == [saved.turns[-1].payload]
     assert any("拒绝会话压缩检查点" in record.message for record in caplog.records)
-
-
-@pytest.mark.asyncio
-async def test_cpu_exception_does_not_accept_checkpoint_from_unreturned_result():
-    """异常发生在返回结果前时，关闭流程不能把候选结果当成已完成压缩。"""
-
-    class FailingCPU:
-        """模拟先填结果槽、尚未交付终态就抛错的 CPU。"""
-
-        def execute(self, manifest, *, access, generation_options):
-            slot = CPUResultSlot()
-
-            async def output():
-                slot.result = make_cpu_result(
-                    compaction_checkpoint=make_compaction_checkpoint(reduced_through="old")
-                )
-                yield {"event": "context_compaction", "data": {"status": "completed"}}
-                raise RuntimeError("cpu failed")
-
-            return CPURunHandle(output=output(), result_slot=slot)
-
-    cpu = FailingCPU()
-    service, handle, sessions, workspace, probe = await completion_chain(cpu, seed_history=True)
-    events = [event async for event in service.run_process(handle, stream=True)]
-    assert events[-1] == {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
-    assert sessions.get(workspace, handle.session_id).compaction_checkpoint is None
-    assert probe.submitted == []
-
-
-@pytest.mark.asyncio
-async def test_cancellation_while_closing_cpu_preserves_delivered_checkpoint_without_slot():
-    """已取得的终态不能因关闭期间取消而丢失，CPU 正常返回时无需填写结果槽。"""
-    checkpoint = make_compaction_checkpoint(reduced_through="old")
-    cpu = SlowCloseCPU(result=make_cpu_result(compaction_checkpoint=checkpoint), fill_slot=False)
-    service, handle, sessions, workspace, probe = await completion_chain(cpu, seed_history=True)
-    driver = asyncio.create_task(_collect(service.run_process(handle, stream=True)))
-    await cpu.closing.wait()
-    driver.cancel()
-    with pytest.raises(asyncio.CancelledError):
-        await driver
-    saved = sessions.get(workspace, handle.session_id)
-    assert saved.compaction_checkpoint == checkpoint
-    assert [turn.interaction_id for turn in saved.turns] == ["old"]
-    assert saved.active_process_id is None
-    assert probe.submitted == []
 
 
 @pytest.mark.asyncio

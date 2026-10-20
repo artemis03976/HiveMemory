@@ -2,13 +2,14 @@
 
 任务进程是运行时的状态容器：只持有本进程独有的东西
 ——进程记录（控制面：访问 context、阶段与终态、绑定了本进程观测标签的
-事件通道，CPU 输入清单沿用其中的只读标签）、任务参数、工作集（阶段产出与
-待释放资源）、``trace_id`` 与
-驱动本进程的 owner task。跨进程共享的编排依赖（总线、CPU 端口、CPU
-分配器、操作授权者、Gateway 超时配置）只由四阶段骨架
-（``workspace.process.runner`` 的 ``TaskProcessRunner``）持有；进程的登记、
-注销与 context 失效由注册入口（``workspace.process.service``）负责。进程
-记录与 ``TaskProcess`` 都不离开注册入口。
+事件通道，CPU 输入清单沿用其中的只读标签）、任务参数、工作集（待释放与
+待补偿的资源）、线程表（Actor 阶段内的执行线程）、``trace_id``、进程 task
+与输出通道。跨进程共享的编排依赖
+（总线、CPU 端口、CPU 分配器、操作授权者、Gateway 超时配置）只由四阶段
+骨架（``workspace.process.runner`` 的 ``TaskProcessRunner``）持有；进程
+task 的创建、进程的登记、注销与 context 失效由注册入口
+（``workspace.process.service``）负责。进程记录与 ``TaskProcess`` 都不
+离开注册入口。
 """
 
 from __future__ import annotations
@@ -18,7 +19,9 @@ from dataclasses import dataclass, field
 from typing import Any
 
 from hivememory.core.models import AttachmentSelectionRequest, WorkspaceIdentity
+from hivememory.workspace.process.outputs import ProcessOutputChannel, TerminalOutput
 from hivememory.workspace.process.table import ProcessRecord
+from hivememory.workspace.process.threads import ProcessThreadTable
 from hivememory.workspace.process.working_set import ProcessWorkingSet
 
 
@@ -42,22 +45,25 @@ class ProcessRequest:
 
 @dataclass(eq=False, kw_only=True)
 class TaskProcess:
-    """一次任务进程：进程记录、任务参数与工作集的容器。
+    """一次任务进程：进程记录、任务参数、工作集、线程表、进程 task 与输出通道的容器。
 
     由注册入口创建并登记到进程表，按对象身份识别（进程表注销与进程句柄
-    都比较对象身份）。``owner_task`` 是驱动本进程编排的 task，由骨架在
-    运行开始时写入；关闭流程据此区分“交付方提前关闭”与“驱动方正在被
-    取消”。交付方可以在不同 task 中逐项拉取（SSE），因此它只说明进程
-    是否已经开始运行，不一定是此刻正在驱动的 task。``closed`` 在注册入口
-    完成关闭（注销并释放会话认领）后置位，System 关闭据此等待交付方收口。
+    都比较对象身份）。``task`` 是进程自己的执行流，由注册入口在交付方首次
+    运行进程时创建：阶段推进、关闭与注销都在其中完成，不依赖交付方读取；
+    进程从未运行就被关闭时，它只执行关闭流程，结果为 ``None``。``task``
+    为 ``None`` 表示进程尚未启动。``outputs`` 是进程写入阶段产出的通道，
+    只允许一个订阅者，结束标记在进程关闭完成之后写入。``threads`` 登记本
+    进程的全部执行线程，只经线程管理（``workspace.process.threads`` 的
+    ``ProcessThreads``）读写。
     """
 
     record: ProcessRecord
     request: ProcessRequest
     trace_id: str
     working_set: ProcessWorkingSet = field(default_factory=ProcessWorkingSet)
-    owner_task: asyncio.Task[Any] | None = None
-    closed: asyncio.Event = field(default_factory=asyncio.Event)
+    threads: ProcessThreadTable = field(default_factory=ProcessThreadTable)
+    outputs: ProcessOutputChannel = field(default_factory=ProcessOutputChannel)
+    task: asyncio.Task[TerminalOutput | None] | None = None
 
 
 __all__ = ["ProcessRequest", "TaskProcess"]

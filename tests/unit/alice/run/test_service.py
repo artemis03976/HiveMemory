@@ -1,6 +1,6 @@
 """AgentRunService 的固定输入预算、失败原因投影。"""
 
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -22,7 +22,8 @@ from hivememory.core.errors import ModelContextWindowExceededError
 from hivememory.core.models import (
     AgentProfile,
 )
-from tests.helpers.chat_handoff import make_input_manifest
+from tests.helpers.call import StubOperationSubmitter
+from tests.helpers.chat_handoff import make_input_manifest, make_thread_descriptor
 from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.outputs import NullRunOutput
 from tests.helpers.workspace import make_execution_labels
@@ -79,7 +80,7 @@ def _build_service(*, runtime_events=None, config=None) -> tuple[AgentRuntime, A
     [("enabled", True), ("koakuma_disabled", False), ("teaching_disabled", False)],
 )
 async def test_root_uses_compiled_blocks_and_language_with_its_own_teaching(mode, has_teaching):
-    """根帧直接采用清单文本与语言；工具开关只影响教学，不重渲染 Profile。"""
+    """根帧直接采用清单文本与语言，动词取主线程的操作快照；工具开关只影响教学，不重渲染 Profile。"""
     config = HiveMemoryConfig()
     config.alice.koakuma.enabled = mode != "koakuma_disabled"
     config.alice.koakuma.mtp_prompt.enabled = mode != "teaching_disabled"
@@ -88,17 +89,18 @@ async def test_root_uses_compiled_blocks_and_language_with_its_own_teaching(mode
         return_value=FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
     )
     manifest = make_input_manifest(
-        agent_profile=AgentProfile(persona="DO NOT RENDER", language="zh"),
         language="en",
         instructions=" \nCOMPILED NOTICE AND PERSONA\n ",
         turn_context="\nCOMPILED MATERIAL\n ",
-        allowed_operations=frozenset(),
+    )
+    thread = make_thread_descriptor(
+        AgentProfile(persona="DO NOT RENDER", language="zh"), allowed_operations=frozenset()
     )
     result = await service.run_agent(
         manifest,
         generation_options=_GENERATION_OPTIONS,
         run_output=NullRunOutput(),
-        submit_operation=MagicMock(),
+        submit_operation=StubOperationSubmitter(thread=thread),
     )
     frame = runtime.run_frame.await_args.args[0]
     system = frame.working_history[0]["content"]
@@ -123,20 +125,15 @@ async def test_fixed_input_over_budget_fails_without_calling_model():
     runtime, service = _build_service()
     manifest = _build_input_manifest().model_copy(update={"user_message": "x" * 140000})
     runtime.run_frame = AsyncMock(side_effect=AssertionError("不应调用模型"))
-    from hivememory.workspace.contracts import CPUResultSlot
-
-    slot = CPUResultSlot()
     result = await service.run_agent(
         manifest,
         generation_options=_GENERATION_OPTIONS,
         run_output=NullRunOutput(),
-        submit_operation=MagicMock(),
-        result_slot=slot,
+        submit_operation=StubOperationSubmitter(),
     )
     assert result.status == "failed"
     assert result.failure_reason == "input_too_large"
     assert result.has_output is False
-    assert slot.result == result
     runtime.run_frame.assert_not_awaited()
 
 
@@ -159,7 +156,7 @@ async def test_frame_error_maps_only_stable_cpu_reason(error, reason):
         _build_input_manifest(),
         generation_options=_GENERATION_OPTIONS,
         run_output=NullRunOutput(),
-        submit_operation=MagicMock(),
+        submit_operation=StubOperationSubmitter(),
     )
     assert result.status == "failed"
     assert result.failure_reason == reason

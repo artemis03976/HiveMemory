@@ -15,8 +15,7 @@ from hivememory.core.models import (
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.workspace.contracts import ResolveReferencesRequest, ThreadContextRevokedError
-from hivememory.workspace.contracts.cpu import CPURunHandle
+from hivememory.workspace.contracts import ResolveReferencesRequest, ThreadEndedError
 from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.process.threads import ProcessThreads
 from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
@@ -60,19 +59,19 @@ def process_chain():
         # 这些真实阶段调用能到达 owner，说明进程 context 仍可授权；CPU 令牌已不可用。
         assert identity_scope.actor_identity == ActorIdentity(user_id="u1", agent_id="omni_doll")
         assert identity_scope.workspace_identity == access.default_workspace
-        with pytest.raises(ThreadContextRevokedError):
+        with pytest.raises(ThreadEndedError):
             await chain.cpu.operation_entry.execute(
-                ResolveReferencesRequest(("missing",)), access=chain.cpu.calls[0].access
+                ResolveReferencesRequest(("missing",)), access=chain.cpu.calls[0].thread.access
             )
         for child in chain.children:
-            with pytest.raises(ThreadContextRevokedError):
+            with pytest.raises(ThreadEndedError):
                 await chain.cpu.operation_entry.execute(
                     ResolveReferencesRequest(("missing",)), access=child
                 )
         chain.stages.append(stage)
 
     async def finalize(*, identity_scope, **_kwargs):
-        assert chain.cpu.closed
+        assert chain.cpu.finished
         await after_cpu("finalize", identity_scope)
         return []
 
@@ -144,7 +143,7 @@ async def test_cpu_end_revokes_thread_before_terminal_and_keeps_stage_authorizat
     observed = []
 
     async def inspect_thread(_submit):
-        summary = chain.access.gateway.describe_context(chain.cpu.calls[0].access)
+        summary = chain.access.gateway.describe_context(chain.cpu.calls[0].thread.access)
         observed.append((summary.run_type, summary.run_id, summary.thread_id))
 
     cpu = DerivingCPU(chain, **cpu_outcome, operation_script=inspect_thread)
@@ -154,8 +153,7 @@ async def test_cpu_end_revokes_thread_before_terminal_and_keeps_stage_authorizat
         async with asyncio.timeout(2):
             while (await anext(stream))["event"] not in {"done", "error", "cancelled"}:
                 pass
-        with pytest.raises(ThreadContextRevokedError):
-            chain.access.authorizer.validate_thread_context(cpu.calls[0].access)
+        assert chain.access.gateway.describe_context(cpu.calls[0].thread.access) is None
         # 终态交付后继续耗尽，确保注册入口的关闭与 cleanup 也执行完成。
         assert [event async for event in stream] == []
     finally:
@@ -172,73 +170,13 @@ class DerivingCPU(ScriptedCPU):
         super().__init__(**kwargs)
         self.chain = chain
 
-    def execute(self, manifest, *, access, generation_options):
-        source = super().execute(manifest, access=access, generation_options=generation_options)
+    async def execute(self, manifest, *, thread, **kwargs):
         for agent_id in ("worker", "reviewer"):
-            child = self.chain.threads.derive_child_thread(
-                access=access,
-                process_id=manifest.process_id,
-                profile=AgentProfile(agent_id=agent_id),
+            child = self.chain.threads.derive_child(
+                parent=thread.access, profile=AgentProfile(agent_id=agent_id)
             )
             self.chain.children.append(child.access)
-        return source
-
-
-class ClosingCPU(DerivingCPU):
-    """让输出流的异步关闭挂起，以便观察关闭流程的第一个 await 之前的状态。"""
-
-    def __init__(self, chain):
-        super().__init__(chain, events=[{"event": "token", "data": {"content": "一"}}])
-        self.close_entered = asyncio.Event()
-        self.release_close = asyncio.Event()
-
-    def execute(self, manifest, *, access, generation_options):
-        source = super().execute(manifest, access=access, generation_options=generation_options)
-        return CPURunHandle(self.output(source.output), source.result_slot)
-
-    async def output(self, source):
-        try:
-            async for item in source:
-                yield item
-        finally:
-            self.close_entered.set()
-            await self.release_close.wait()
-            await source.aclose()
-
-
-@pytest.mark.asyncio
-async def test_disconnect_revokes_thread_before_awaiting_cpu_close(process_chain):
-    """交付方断流时先同步撤销，CPU 输出关闭挂起也不能继续提交 actor 请求。"""
-    chain = process_chain
-    cpu = ClosingCPU(chain)
-    handle = await register(chain, cpu)
-    stream = chain.service.run_process(handle, stream=True)
-    close_task = None
-    try:
-        async with asyncio.timeout(2):
-            while (await anext(stream))["event"] != "token":
-                pass
-        close_task = asyncio.create_task(stream.aclose())
-        await asyncio.wait_for(cpu.close_entered.wait(), timeout=2)
-        reads_before_request = chain.runtime.stats()["cold_reads"]
-        with pytest.raises(ThreadContextRevokedError):
-            await cpu.operation_entry.execute(
-                ResolveReferencesRequest(("missing",)), access=cpu.calls[0].access
-            )
-        for child in chain.children:
-            with pytest.raises(ThreadContextRevokedError):
-                await cpu.operation_entry.execute(
-                    ResolveReferencesRequest(("missing",)), access=child
-                )
-        assert chain.runtime.stats()["cold_reads"] == reads_before_request
-        cpu.release_close.set()
-        await asyncio.wait_for(close_task, timeout=2)
-        assert chain.stages == ["cleanup"]
-    finally:
-        cpu.release_close.set()
-        if close_task is not None:
-            await asyncio.wait_for(close_task, timeout=2)
-        await stream.aclose()
+        return await super().execute(manifest, thread=thread, **kwargs)
 
 
 async def start_hanging_process(chain):
@@ -260,32 +198,9 @@ async def test_user_stop_revokes_thread_and_keeps_cleanup_authorized(process_cha
         terminal = await asyncio.wait_for(task, timeout=2)
 
         assert terminal.execution_result.status == "cancelled"
-        with pytest.raises(ThreadContextRevokedError):
+        with pytest.raises(ThreadEndedError):
             await cpu.operation_entry.execute(
-                ResolveReferencesRequest(("missing",)), access=cpu.calls[0].access
-            )
-        assert chain.stages == ["cleanup"]
-    finally:
-        task.cancel()
-        await asyncio.gather(task, return_exceptions=True)
-
-
-@pytest.mark.asyncio
-async def test_owner_task_cancellation_revokes_thread_and_keeps_cleanup_authorized(
-    process_chain,
-):
-    """调用方取消撤销线程，cleanup 仍以尚有效的进程 context 执行。"""
-    chain = process_chain
-    cpu, task = await start_hanging_process(chain)
-    try:
-        await asyncio.wait_for(cpu.hang_entered.wait(), timeout=2)
-        task.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await task
-
-        with pytest.raises(ThreadContextRevokedError):
-            await cpu.operation_entry.execute(
-                ResolveReferencesRequest(("missing",)), access=cpu.calls[0].access
+                ResolveReferencesRequest(("missing",)), access=cpu.calls[0].thread.access
             )
         assert chain.stages == ["cleanup"]
     finally:

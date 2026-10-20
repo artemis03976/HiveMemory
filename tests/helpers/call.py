@@ -2,50 +2,62 @@
 
 from hivememory.alice.orchestration.call.context import CallContext
 from hivememory.core.access import WorkspaceOperation
-from hivememory.core.models import OMNI_DOLL_PROFILE
-from hivememory.workspace.contracts import Callee, DeriveCallThreadRequest
+from hivememory.core.models import OMNI_DOLL_PROFILE, ExecutionLabels
+from tests.helpers.chat_handoff import make_thread_descriptor
+from tests.helpers.workspace import make_execution_labels
 
 
 class StubOperationSubmitter:
-    """只在测试边界之外按脚本返回结果，缺失脚本时显式失败。"""
+    """线程句柄替身：按脚本返回结果，缺失脚本时显式失败；记录派生出的子线程与结束次数。"""
 
-    def __init__(self, *, operation=None, derive=None):
+    def __init__(self, *, thread=None, operation=None, derive=None):
+        self.thread = thread or make_thread_descriptor()
         self.operation = operation
         self.derive = derive
+        self.children = []
+        self.end_calls = 0
 
     async def __call__(self, request):
-        if isinstance(request, DeriveCallThreadRequest):
-            raise TypeError("派生请求必须通过 derive_call_thread 提交")
         if self.operation is None:
             raise AssertionError(f"意外的操作请求: {request}")
         return await self.operation(request)
 
-    async def derive_call_thread(self, request):
+    async def derive_child(self, request):
         if self.derive is None:
             raise AssertionError(f"意外的派生请求: {request}")
-        return await self.derive(request)
+        child = await self.derive(request)
+        self.children.append(child)
+        return child
+
+    def end(self):
+        self.end_calls += 1
+
+
+def make_callee(
+    profile=OMNI_DOLL_PROFILE,
+    *,
+    allowed_operations=frozenset(WorkspaceOperation),
+    operation=None,
+):
+    """以端口结果替代边界外的子线程派生：子线程描述的标签取被调用方身份。"""
+    workspace_id = make_execution_labels().workspace_id
+    return StubOperationSubmitter(
+        thread=make_thread_descriptor(
+            profile,
+            thread_id="child-1",
+            labels=ExecutionLabels(
+                agent_id=profile.agent_id or "callee", workspace_id=workspace_id
+            ),
+            allowed_operations=allowed_operations,
+        ),
+        operation=operation,
+    )
 
 
 def make_call_context(
     *,
     agent_profile=OMNI_DOLL_PROFILE,
     allowed_operations=frozenset(WorkspaceOperation),
-    submit_operation=None,
 ):
     """只供 Coordinator 单元边界注入已完成派生的上下文。"""
-    return CallContext(
-        callee=Callee(
-            agent_profile=agent_profile,
-            allowed_operations=allowed_operations,
-            submit_operation=submit_operation or StubOperationSubmitter(),
-        )
-    )
-
-
-def make_callee(profile=OMNI_DOLL_PROFILE, *, submit_operation=None):
-    """Provider 单元测试以端口结果替代边界外的线程派生。"""
-    return Callee(
-        agent_profile=profile,
-        allowed_operations=frozenset(WorkspaceOperation),
-        submit_operation=submit_operation or StubOperationSubmitter(),
-    )
+    return CallContext(callee=make_callee(agent_profile, allowed_operations=allowed_operations))

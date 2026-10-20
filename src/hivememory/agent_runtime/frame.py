@@ -18,7 +18,7 @@ if TYPE_CHECKING:
 
 
 class RuntimeScope(BaseModel):
-    """单次 run/frame/action 坐标与注册时绑定的观测标签。"""
+    """单次 run/frame/action 坐标与所属执行线程的观测标签。"""
 
     labels: ExecutionLabels
     run_id: str

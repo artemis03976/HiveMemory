@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 子系统公共契约
@@ -205,14 +205,18 @@ Patchouli 提交与生成链沿用自身既有来源记录，公开 API 不接�
 ### 4.1 CPU 端口
 
 ```python
+type CPUEventSink = Callable[[dict[str, Any]], Awaitable[None]]
+
+
 class CPUPort(Protocol):
-    def execute(
+    async def execute(
         self,
         manifest: CPUInputManifest,
         *,
-        access: WorkspaceAccessContext,
+        thread: ExecutionThread,
         generation_options: dict[str, Any] | None,
-    ) -> CPURunHandle: ...
+        events: CPUEventSink,
+    ) -> CPUExecutionResult: ...
 ```
 
 CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接口：端口由 workspace 定义，执行者实现，组合根注入 `TaskProcessService`。进程只依赖端口与本节的中立模型，因此执行者可以替换而不改动进程与入口；当前唯一的实现是 Alice 的 `AliceCPU`（4.4），测试中的 `ScriptedCPU` 同样能跑完整个任务进程。端口采用对象而不是总线路由，是因为外部 harness 的驱动多数不是子系统：按路由契约接入，每种驱动都要新增路由常量，或在总线之后再建一层分派。
@@ -227,19 +231,26 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 
 这两段文本是不透明的固定输入：CPU 决定放置位置，不解析或改写。分段使 Alice 可以在人设与本轮材料之间插入自己的历史摘要，也不要求其他 CPU 采用 Alice 的消息布局或历史管理方式。编译不读取 CPU 配置；存储不可用时总是附加中立离线通知，不取决于是否开启 MTP 教学。
 
-清单还携带 `process_id`、`labels: ExecutionLabels`、原样用户消息 `user_message`、已解析的 `agent_profile`（供模型参数与展示使用）、actor 操作快照 `allowed_operations`、只作挂载/观测的 `topic_id`、全量会话轮次 `session_history: tuple[ConversationTurn, ...]` 和可选 `compaction_checkpoint: SessionCompactionCheckpoint | None`（默认 None）。历史渲染与压缩由 CPU 自管；进程不知道执行模型的窗口，不在提示词编译时按模型预算裁剪材料。未编译的检索原子只在进程内使用：编译为 `turn_context`，并直接从 prepare 结果投影 `memory_refs` 事件，不进入清单。
+清单还携带 `process_id`、进程级观测标签 `labels: ExecutionLabels`、原样用户消息 `user_message`、只作挂载/观测的 `topic_id`、全量会话轮次 `session_history: tuple[ConversationTurn, ...]` 和可选 `compaction_checkpoint: SessionCompactionCheckpoint | None`（默认 None）。历史渲染与压缩由 CPU 自管；进程不知道执行模型的窗口，不在提示词编译时按模型预算裁剪材料。未编译的检索原子只在进程内使用：编译为 `turn_context`，并直接从 prepare 结果投影 `memory_refs` 事件，不进入清单。清单的 `labels` 注册认证成功后创建一次，与进程事件沿用同一对象，供运行级观测与历史归属使用，与主线程的标签相同；标签只有 `agent_id` 与 `workspace_id` 两个只读字符串，不含 actor、owner 或访问 context，也不能改变授权或资源目标。
 
-`allowed_operations` 是 CPU 分配时由阶段授权读取的、本进程 actor 在访问登记中的 actor 操作集合（`frozenset[WorkspaceOperation]`），空白名单得到空集合。它只描述执行者能做什么，供执行者生成提示词与执行策略（Alice 翻译为 MTP 动词，外部执行者的工具列表由其适配器翻译），不是授权依据：每个操作请求仍由 actor API 按访问登记即时授权。
+清单回答“处理什么”，执行线程回答“谁来处理”。`thread` 是本次执行的主线程 `ExecutionThread`（`workspace.contracts`）：线程描述 `descriptor` 与主线程 context `access`，是 execute 的独立参数，不进入冻结清单。线程描述 `ThreadDescriptor` 是冻结、CPU 可见的值：
 
-`access` 是本次执行主线程的线程 context（密封的 `WorkspaceAccessContext`，进入 CPU 执行阶段时从进程 context 派生），是 execute 的独立参数，不进入冻结清单。CPU 驱动以公共 `OperationEntry` 把它绑定为提交函数（通用实现 `ThreadOperationSubmitter`，见 4.6），执行适配器只提交操作请求；CPU 读不出 context 的内容，也不持有进程 context。CPU 执行结束（拿到终态结果并关闭输出流，或提前结束）后，主线程与 CALL 派生的全部子线程 context 即被撤销，此后的提交以 `ThreadContextRevokedError` 拒绝。清单的 `ExecutionLabels` 只有 `agent_id` 与 `workspace_id` 两个只读字符串，注册认证成功后创建一次并与进程事件沿用同一对象；标签不含 actor、owner 或访问 context，也不能改变授权或资源目标。
+| 字段 | 语义 |
+|:---|:---|
+| `thread_id: str` | 线程标识：主线程为 `main`，CALL 子线程按派生顺序为 `child-1`、`child-2`…… |
+| `labels: ExecutionLabels` | 线程自己的观测标签：主线程为注册标签，子线程为被调用方与注册时的 workspace；由线程表生成，CPU 不从图纸推导 |
+| `agent_profile: AgentProfile` | 本线程运行的图纸，供模型参数、人设与展示使用；主线程的图纸是进程在 prepare 之前经阶段授权与读取视图解析的 Profile |
+| `allowed_operations: frozenset[WorkspaceOperation]` | 派生时以本线程 context 读取的 actor 操作快照，空白名单得到空集合 |
+
+操作快照只描述执行者能做什么，供执行者生成提示词与执行策略（Alice 翻译为 MTP 动词，外部执行者的工具列表由其适配器翻译），不是授权依据：每个操作请求仍由 actor API 按访问登记即时授权。CPU 驱动以公共 `OperationEntry` 把执行线程绑定为线程句柄（通用实现 `ThreadOperationSubmitter`，见 4.6），执行适配器只提交操作请求；CPU 读不出 context 的内容，也不持有进程 context。Actor 阶段结束（`execute` 返回终态结果，或提前结束）时主线程与 CALL 派生的全部子线程即被结束，子线程也可能已随 CALL 返回结束；此后的提交以 `ThreadEndedError` 拒绝。
 
 端口语义：
 
-- **输出顺序**：`execute` 返回 `CPURunHandle(output, result_slot)`；`output` 的异步生成器先逐项产出交互事件，再产出唯一的终态结果 `CPUExecutionResult`；终态结果恰好出现一次，并且是最后一项。端口不区分交付形态：进程的非流式交付丢弃交互事件、只取终态，CPU 照常产出。输出流在没有终态结果时结束属于协议错误，进程按失败处理。
-- **交互事件**：带 `event` 与 `data` 的字典，进程原样转交给流式交付、非流式交付丢弃，不做解释。
-- **结局**：执行者自报的结局经终态结果的 `status` 表达；执行者抛出异常，由进程按失败处理。
-- **结果槽**：`CPUResultSlot.result` 初始为 None；CPU 在取消收尾中同步填入 `CPUExecutionResult` 再传播原生取消，不暴露帧结果或控制器。正常终态也可以填槽；Alice 在返回类型化终态前填槽，正常检查点直接随结果交付。槽中结果的 `status` 如实描述 CPU 实际结局，进程不改写（取消生效前已完成时仍是 completed）。空槽按无输出处理，`has_output` 排除初始用户输入事件。
-- **取消与关闭**：用户停止时，进程取消正在拉取下一项的任务；进程在拿到终态结果后、以及在关闭流程中关闭输出流。实现必须传播 `asyncio.CancelledError`，并在输出流关闭时释放自己创建的资源。
+- **推送与返回**：执行过程中，CPU 经 `events` 逐项推送交互事件；结束时返回唯一的终态结果 `CPUExecutionResult`。端口不区分交付形态：进程的非流式交付丢弃交互事件、只取终态，CPU 照常推送。
+- **交互事件**：带 `event` 与 `data` 的字典，进程写入输出通道后原样转交给流式交付，不做解释。sink 由进程定义：订阅者暂停、通道写满时等待（背压），停止时在等待处抛出 `asyncio.CancelledError`。
+- **结局**：执行者自报的结局经终态结果的 `status` 表达；执行者抛出普通异常，由进程按失败处理，不接受任何候选结果。
+- **取消**：用户停止时，进程以原生 `asyncio.CancelledError` 取消正在执行的协程。CPU 内部各层原样传播取消并完成收尾，只在最外层把取消转换为返回值：返回 cancelled 结果，携带已产生的输出与已完成的检查点，`status` 如实描述 CPU 的结局。没有转换、直接传播取消的 CPU 按无输出的取消处理，`has_output` 排除初始用户输入事件。CPU 返回之后到达的停止不改写这个结局（停止晚于终态时仍是 completed）。
+- **取消后的收尾**：停止被接受时全部线程即已结束，此后的提交都以线程已结束拒绝；CPU 收到取消后的收尾不得依赖 actor 操作，只能用已经产生的内容组装结果。
 - **`generation_options`**：由各个执行者自行解释，进程原样传递。
 
 ### 4.2 执行结果
@@ -251,7 +262,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 - `turn_events`：结构化运行事实（`TurnEvent`）；
 - `model_used`：执行者实际使用的模型展示名，空字符串表示未解析；
 - `failure_reason: CPUFailureReason | None`：可选的稳定失败原因，仅 failed 时有意义，外部 CPU 可不填，取值见[错误模型](./error-model.md#22-agent-run)；
-- `compaction_checkpoint: SessionCompactionCheckpoint | None`：默认 None，本次完成的旧历史压缩检查点，正常结果与取消结果槽都可携带。它不令 `has_output` 为真。
+- `compaction_checkpoint: SessionCompactionCheckpoint | None`：默认 None，本次完成的旧历史压缩检查点，正常结果与取消后返回的结果都可携带。它不令 `has_output` 为真。
 
 执行结果与交互记录均不携带物化任务；WRITE/UPDATE 在操作内提交 `MemoryIntent`，由 Patchouli 的意图提交服务构造内部生成任务。
 
@@ -271,19 +282,19 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 | `references` | 不可变字符串 tuple，默认空；HTTP JSON 序列化为数组 |
 | `created_at` | 生成时间，默认当前 UTC 时间 |
 
-游标只覆盖该会话已有的完整轮次；摘要边界不晚于减重边界；同一产生方与格式版本内，已接受的两个游标分别单调前进，换用其他格式的 CPU 可以从头重建并替换旧值。会话服务同步校验 Workspace、认领与游标后接受，完整规则见 [Workspace](../architecture/workspace.md#55-会话资源与历史所有权)。进程在关闭 CPU 流、撤销线程后接受，不以本轮输出或是否追加新轮次为条件；检查点不进入 `InteractionPayload` 或记忆生成。未知产生方/版本由 CPU 自行选择忽略，外部 CPU 可以完全不消费、不产生检查点。
+游标只覆盖该会话已有的完整轮次；摘要边界不晚于减重边界；同一产生方与格式版本内，已接受的两个游标分别单调前进，换用其他格式的 CPU 可以从头重建并替换旧值。会话服务同步校验 Workspace、认领与游标后接受，完整规则见 [Workspace](../architecture/workspace.md#55-会话资源与历史所有权)。进程在 Actor 阶段结束、撤销线程后接受，不以本轮输出或是否追加新轮次为条件；检查点不进入 `InteractionPayload` 或记忆生成。未知产生方/版本由 CPU 自行选择忽略，外部 CPU 可以完全不消费、不产生检查点。
 
 ### 4.3 Alice 的执行入口
 
-Alice 通过上述 `CPUPort` 对外提供执行能力，唯一的端口实现为 `AliceCPU`。`AliceSystem.start()` / `stop()` 切换 CPU 执行准入；未启动或已停止时，`execute()` 仍返回 `CPURunHandle`，首次拉取输出抛出 `AliceUnavailableError`（异常上的 code 与 reason 只供诊断，见[错误模型](./error-model.md)）。任务进程按未分类的执行异常收尾，仍执行 prepare 清理与会话释放。
+Alice 通过上述 `CPUPort` 对外提供执行能力，唯一的端口实现为 `AliceCPU`。`AliceSystem.start()` / `stop()` 切换 CPU 执行准入；未启动或已停止时，await `execute()` 抛出 `AliceUnavailableError`（异常上的 code 与 reason 只供诊断，见[错误模型](./error-model.md)）。任务进程按未分类的执行异常收尾，仍执行 prepare 清理与会话释放。
 
 Alice 不注册执行总线路由，组合根构造 AliceSystem 时不传全局总线。启停只控制新执行的准入，运行中的进程由 workspace 取消和关闭；System 先关闭进程，再停止子系统。
 
 ### 4.4 Alice 的端口实现
 
-`AliceCPU`（`alice/interface/cpu.py`）持有公共 `OperationEntry`，以 `ThreadOperationSubmitter` 把线程 context 绑定为提交函数后直接调用内部运行服务。`AgentRunService` 接收清单、提交函数、生成参数、输出端口和可选结果槽，始终返回 `CPUExecutionResult`，不区分传输形态；运行服务直接消费输入清单，根帧布局与历史压缩由 Alice 的上下文层完成。
+`AliceCPU`（`alice/interface/cpu.py`）持有公共 `OperationEntry`，以 `ThreadOperationSubmitter` 把主线程绑定为线程句柄后直接调用内部运行服务。`AgentRunService` 接收清单、主线程句柄、生成参数与输出端口，始终返回 `CPUExecutionResult`，不区分传输形态：图纸与操作快照取自句柄交出的主线程描述，用于模型解析、根帧与 MTP 动词；注册标签取自清单，用于 `agent.run.*` 与历史中的当前 Agent；根帧布局与历史压缩由 Alice 的上下文层完成。
 
-每次执行都由接口层管理有界队列与 runner，逐项交付交互事件，最后直接产出带检查点的 `CPUExecutionResult`；Alice 不区分交付形态。不存在 Alice 自己的 `done` 序列化；任务进程负责最终 HTTP 投影。输出流关闭时，CPU 关闭内层事件流，取消并等待 runner 收尾后才返回，使取消结果槽中的部分输出与已完成检查点可被进程读取。
+每次执行由 `AliceCPU.execute` 直接等待运行服务；接口层的 `SinkRunOutput`（`alice/interface/output.py`）把帧输出、CALL 起止与压缩进度投影为交互事件，补全 run 关联与 `stream_sequence` 后推送给进程的 sink，不缓存事件。运行服务是 Alice 作为 CPU 的最外层：内部各层原样传播取消，执行器递归收尾后，运行服务把根帧的部分文字、轮次事件与已完成的检查点组装为 cancelled 结果返回，不再传播取消；执行器尚未开始且没有完成的检查点时没有可交回的内容，原样传播取消。不存在 Alice 自己的 `done` 序列化；任务进程负责最终 HTTP 投影。
 
 ### 4.5 Alice 不变量
 
@@ -291,12 +302,13 @@ Alice 不注册执行总线路由，组合根构造 AliceSystem 时不传全局�
 - Alice 不直接请求 Patchouli；检索、引用交付与 Profile 读取经 workspace 操作请求完成，Alice 不持有资源缓存或 resolver；
 - WRITE/UPDATE 经操作请求登记 workspace 意图并实时派发，生成队列接纳后返回 ACK；Alice 不持有登记；
 - 有输出的 completed/cancelled/failed 都封口并进入 Patchouli finalize；无输出或进程异常不提交；
-- Agent Profile 不承载权限；frame 的 MTP 动词集合由输入清单的 `allowed_operations` 翻译而来（RUN 始终可用，`sys_*` 系统工具不设权限），提交到 workspace 的请求仍由 actor API 逐次授权；
-- CALL 仅允许根 frame 发起；子 frame 是以被调用方身份运行的子线程，动词集合由被调用方的操作快照翻译并去掉 CALL，不能继续递归 CALL；被调用方 Profile 只提供人设、模型与语言。
+- Agent Profile 不承载权限；frame 的 MTP 动词集合由所属线程描述的 `allowed_operations` 翻译而来（RUN 始终可用，`sys_*` 系统工具不设权限），提交到 workspace 的请求仍由 actor API 逐次授权；
+- CALL 仅允许根 frame 发起；子 frame 是以被调用方身份运行的子线程，动词集合由被调用方的操作快照翻译并去掉 CALL，不能继续递归 CALL；被调用方 Profile 只提供人设、模型与语言，子 frame 的观测标签取子线程描述；
+- 子线程随 CALL 返回结束：子帧以任何终态收尾、取消沿递归栈清理 CALL，以及派生之后子帧开始运行之前的失败，都经子线程句柄同步结束子线程；Alice 不结束主线程。
 
 ### 4.6 操作请求与线程 context
 
-`OperationRequest[R]` 是 frozen dataclass 结果类型契约；具体请求只携带业务参数，不接收访问 context、`IdentityScope`、目标 Workspace 或 process_id。六项 actor 请求与 actor 操作一一对应，每种请求恰好检查一项操作：
+`OperationRequest[R]` 是 frozen dataclass 结果类型契约；具体请求只携带业务参数，不接收访问 context、`IdentityScope`、目标 Workspace 或 process_id。六项 actor 请求与 actor 操作一一对应，每种请求恰好检查一项操作；五项记忆请求是 `OperationRequest`，CALL 的派生请求只经入口的生命周期方法提交：
 
 | 请求 | MTP 动词 | 参数 | 结果 `R` | actor 操作 |
 |:---|:---|:---|:---|:---|
@@ -305,19 +317,25 @@ Alice 不注册执行总线路由，组合根构造 AliceSystem 时不传全局�
 | `ResolveRunTargetRequest` | RUN（记忆中的用户工具） | `alias: str` | `ReferenceResolution` | `memory.run` |
 | `SubmitWriteIntentRequest` | WRITE | `focus: WriteFocus` | `PendingAtom` | `memory.write` |
 | `SubmitUpdateIntentRequest` | UPDATE | `base_alias`、`instruction`、`content=None` | `PendingAtom` | `memory.update` |
-| `DeriveCallThreadRequest` | CALL（只有 Alice 使用） | `agent_alias=None` | `ExecutionThread`：目标 `AgentProfile`、被调用方的操作快照与子线程 context（只交付 CPU 驱动） | `agent.call`（内置同样需要） |
+| `DeriveCallThreadRequest`（不是 `OperationRequest`） | CALL（只有 Alice 使用） | `agent_alias=None` | 经 `derive_child_thread` 得到子线程的 `ExecutionThread`：线程描述（目标 `AgentProfile`、被调用方的操作快照与标签）与子线程 context，只交付 CPU 驱动 | `agent.call`（内置同样需要） |
 
 RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求。
 
-公共入口为 `OperationEntry.execute[R](request: OperationRequest[R], *, access: WorkspaceAccessContext) -> R`。提交函数协议 `OperationSubmitter` 有两个方法：`__call__[R](request: OperationRequest[R]) -> R` 提交普通请求，遇到派生请求以 `TypeError` 拒绝；`derive_call_thread(request: DeriveCallThreadRequest) -> Callee` 提交派生请求，把执行线程 `ExecutionThread` 中的子线程 context 绑定为新的提交函数，只交出被调用方 `Callee`（目标 Profile、操作快照与子帧的提交函数，没有线程或 context 概念）。`ThreadOperationSubmitter(entry, access)` 是 `workspace.contracts` 提供的通用实现，任何 CPU 驱动都用它绑定线程，执行适配器、frame 与 CALL 编排因此不接触 context。每个 frame 使用自己线程的提交函数。新增资源操作应扩展请求与入口，而不增加 workspace 总线路由或让适配器切换资源目标。
+公共入口 `OperationEntry` 有三个方法：
+
+- `execute[R](request: OperationRequest[R], *, access: WorkspaceAccessContext) -> R`：分派五项记忆请求；
+- `derive_child_thread(request: DeriveCallThreadRequest, *, access) -> ExecutionThread`：以调用方的线程授权 `agent.call`、解析目标图纸并派生子线程；
+- `end_thread(*, access) -> None`：同步结束子线程；已结束的线程是空操作，主线程以 `ScopeRequiredError` 拒绝。
+
+线程句柄协议 `OperationSubmitter` 是 CPU 侧唯一的线程句柄：`thread` 属性交出线程描述；`__call__[R](request: OperationRequest[R]) -> R` 以本线程提交记忆请求；`derive_child(request: DeriveCallThreadRequest) -> OperationSubmitter` 以本线程提交 CALL 派生，返回子线程的句柄；`end() -> None` 同步结束本线程，可以在取消收尾中调用，不引入新的挂起点。`ThreadOperationSubmitter(entry, thread)` 是 `workspace.contracts` 提供的通用实现，任何 CPU 驱动都用它绑定执行线程，执行适配器、frame 与 CALL 编排因此不接触 context。每个 frame 持有所属线程的句柄。新增资源操作应扩展请求与入口，而不增加 workspace 总线路由或让适配器切换资源目标。
 
 这一形态来自“绑定”与“调用面”的拆分：绑定（谁发起、属于哪个进程与线程）随线程变化，由线程 context 承载；调用面（能调用哪些能力）是稳定的，由请求类型与 actor API 各分类拥有。入口只按请求类型分派，接口不随能力增加而增长；执行适配器只把协议请求解析为请求对象，不持有能力层，也不持有身份。workspace 的调用方只有执行单元与 HTTP 管理入口两类，因此不为它另建总线路由。
 
-`WorkspaceOperationEntry` 只接受线程 context：分派前经操作授权者确认它是未撤销的执行线程 context，再按请求类型把请求对象与线程 context 直接交给对应的 actor API 方法（`method(request, *, access)`），入口不拆参数，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验；入口不持有 root API。actor API 的目标取线程的驻留 Workspace，意图登记的 process_id 取自线程 context 的运行绑定。未知请求类型抛 `TypeError`；进程 context、请求级 context 或其他对象抛 `ScopeRequiredError`；已撤销的线程 context 抛 `ThreadContextRevokedError`（`core.errors`，由 `workspace.contracts` 重新导出）。拒绝都发生在任何副作用之前。
+`WorkspaceOperationEntry` 只接受存活线程的 context：`execute` 在分派前经 workspace 内部的线程端口 `ExecutionThreadTable`（`workspace/thread_ports.py`，不属于公共契约）向线程表做一次存活判定——线程未结束且进程仍在运行，再按请求类型把请求对象与线程 context 直接交给对应的 actor API 方法（`method(request, *, access)`）；入口不拆参数，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验；入口不持有 root API。actor API 的目标取线程的驻留 Workspace，意图登记的进程关联、线程标识与派发话题取自线程表的一次解析。未知请求类型抛 `TypeError`；进程 context、请求级 context、未登记的线程或其他对象抛 `ScopeRequiredError`；线程已结束（凭据已撤销、线程已结束或进程已收到停止）抛 `ThreadEndedError`（`core.errors`，由 `workspace.contracts` 重新导出）。拒绝都发生在任何副作用之前。
 
-CALL 的派生由 actor API 经 workspace 内部端口 `ChildThreadSpawner`（`workspace/thread_ports.py`，不属于公共契约）交给任务进程，进程只接受本进程主线程在 Actor 阶段内发起的派生，以被调用方准入后签发、登记子线程并读取被调用方的操作快照（[Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)第 5.4 节）。被调用方未准入或为保留的 `system` 时抛 `AdmissionDeniedError`，进程侧前置检查失败抛 `ScopeRequiredError`，均不登记子线程。
+`derive_child_thread` 在一次提交内依次完成：确认调用方存活；actor API 的 `resolve_call_target` 授权 `agent.call` 并以调用方的可见性读取图纸（只交回图纸）；线程表在冷读之后重新判定调用方存活、确认调用方是主线程，以被调用方准入后签发子线程、读取被调用方的操作快照并登记（[Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)第 5.4 节）。被调用方的身份因此只来自 workspace 自己的解析，CPU 不能交回一份图纸来自报子线程的身份。被调用方未准入或为保留的 `system` 时抛 `AdmissionDeniedError`，子线程试图派生抛 `ScopeRequiredError`，冷读期间调用方结束或进程收到停止抛 `ThreadEndedError`，均不登记子线程。
 
-CPU 执行结束时执行器同步撤销本进程的全部线程 context，关闭流程兜底；撤销不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。WRITE/UPDATE 在基础校验之后同步复查线程、读取派发话题并登记为 MATERIALIZING；UPDATE 冷读跨越撤销时不登记。派发开始后持有 shield 保护的提交任务直到结束，再传播调用方取消。`IntentDispatchTopicReader` 由进程实现并由组合根注入 actor API，只接受仍处于 Actor 阶段且运行中的已登记线程；主、子线程共享 CPU 输入清单的话题。完整生命周期见 [Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)。
+Actor 阶段结束时执行器同步结束本进程仍在运行的全部线程，关闭流程兜底；子线程也可以先随 CALL 返回结束。结束不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。WRITE/UPDATE 在基础校验之后的同步段只解析一次线程，取得进程关联、线程标识与派发话题并登记为 MATERIALIZING；UPDATE 冷读跨越线程结束或停止时不登记。派发开始后持有 shield 保护的提交任务直到结束，再传播调用方取消；主、子线程共享 CPU 输入清单的话题。完整生命周期见 [Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)。
 
 ## 5. 顶层主动链路契约
 
@@ -330,15 +348,15 @@ Gateway decision outcome
   -> 解析 Agent Profile（阶段授权后经 workspace 的 Profile 读取视图）
   -> Patchouli prepare（Topic 与检索）
   -> CPU 分配：附件租借、附件与记忆编译、组装输入清单
-  -> Actor 执行：从进程 context 派生主线程 context，经 CPU 端口（当前为 Alice）
+  -> Actor 执行：从进程 context 派生主线程 context，等待 CPU 端口（当前为 Alice）返回
        -> CALL：经操作入口派生子线程（被调用方准入），进程登记
-       -> CPU 终态结果后关闭输出流，同步撤销全部线程 context
+       -> CPU 返回终态结果后，同步撤销全部线程 context
   -> 有输出的 completed/cancelled/failed：封口交互记录（含结局和实际使用附件）
        -> 同步追加会话 -> 持有 finalize 任务 -> Patchouli finalize
-  -> 无输出/exception/finalize 前断连：不提交，转入关闭补偿
-  -> 进程结束：先同步撤销仍登记的线程 context（兜底）、释放附件租借
-       -> 关闭输出流；prepare 成功但 finalize 未成功时请求 Patchouli cleanup
-       -> 注册入口最后撤销进程 context
+  -> 无输出/exception/finalize 前交付方离开：不提交，转入关闭补偿
+  -> 进程结束（在进程 task 中）：先同步撤销仍登记的线程 context（兜底）、释放附件租借
+       -> prepare 成功但 finalize 未成功时请求 Patchouli cleanup
+       -> 注册入口最后撤销进程 context、注销进程并释放会话认领
 ```
 
 Agent Profile 属于 CPU 分配，但当前在 prepare 之前解析：prepare 可能新建 Topic 或按 LRU 结算已有话题，Profile 缺失的请求应在这些副作用发生前失败。

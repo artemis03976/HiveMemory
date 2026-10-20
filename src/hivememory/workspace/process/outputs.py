@@ -1,19 +1,22 @@
-"""任务进程的阶段产出与两种交付形态。
+"""任务进程的阶段产出、输出通道与两种交付形态。
 
-编排骨架只产出类型化的阶段产出（:data:`ProcessOutput`），不关心调用方是
-流式还是非流式：流式交付由 :func:`stream_events` 把产出投影为 SSE 事件，
-非流式交付只取终态产出组装 :data:`NonStreamingResult`。
+编排骨架只产出类型化的阶段产出（:data:`ProcessOutput`），写入进程持有的
+输出通道（:class:`ProcessOutputChannel`），不关心调用方是流式还是非流式：
+流式交付订阅通道，由 :func:`stream_events` 把产出投影为 SSE 事件；非流式
+交付不订阅，只等待进程 task 交出的终态产出组装 :data:`NonStreamingResult`。
 """
 
 from __future__ import annotations
 
+import asyncio
+from collections import deque
 from dataclasses import dataclass
 from typing import Any, Literal
 
 from hivememory.core.models import MemoryAtom
 from hivememory.core.protocol.gateway import CommandExecutionResult
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.workspace.contracts import CPUExecutionResult
+from hivememory.workspace.contracts import CPUExecutionResult, CPUExecutionStatus
 
 # ========== 阶段产出 ==========
 
@@ -85,6 +88,78 @@ type TerminalOutput = CommandCompleted | RunCompleted | RunCancelled | RunFailed
 type ProcessOutput = ProcessStarted | InputsAllocated | ActorEvent | Finalizing | TerminalOutput
 
 
+# ========== 输出通道 ==========
+
+#: 订阅者在线时通道最多缓存的交互事件数；写满后进程等待订阅者读取。
+OUTPUT_CHANNEL_CAPACITY = 256
+
+
+class ProcessOutputChannel:
+    """进程的输出通道：进程 task 写入阶段产出，唯一的订阅者按顺序读取。
+
+    通道由进程持有：流式交付订阅它，非流式交付从一开始就让它处于无订阅者
+    状态。订阅者看到的顺序是阶段产出 → 终态产出 → 结束标记（:meth:`receive`
+    返回 ``None``）；结束标记在进程关闭完成之后才写入。
+
+    只有交互事件（:class:`ActorEvent`）受容量限制：订阅者在线而缓存的交互
+    事件已满时，进程的写入阻塞，背压一直传到 CPU。其余阶段产出、终态产出与
+    结束标记只有常数个，从不阻塞，订阅者再慢也不会卡住进程收尾。订阅者离开
+    （:meth:`detach`）时通道唤醒阻塞的写入，此后的写入直接丢弃。
+    """
+
+    def __init__(self, capacity: int = OUTPUT_CHANNEL_CAPACITY) -> None:
+        self._capacity = capacity
+        self._items: deque[ProcessOutput] = deque()
+        # 缓存中尚未被读取的交互事件数；其余产出不计入容量。
+        self._buffered_events = 0
+        self._attached = True
+        self._ended = False
+        self._readable = asyncio.Event()
+        self._writable = asyncio.Event()
+        self._writable.set()
+
+    async def send(self, output: ProcessOutput) -> None:
+        """写入一项阶段产出；交互事件在订阅者在线且缓存已满时阻塞，离开后丢弃。"""
+        if self._ended:
+            raise RuntimeError("输出通道已结束，不能再写入阶段产出")
+        if isinstance(output, ActorEvent):
+            while self._attached and self._buffered_events >= self._capacity:
+                self._writable.clear()
+                await self._writable.wait()
+        if not self._attached:
+            return
+        if isinstance(output, ActorEvent):
+            self._buffered_events += 1
+        self._items.append(output)
+        self._readable.set()
+
+    def end(self) -> None:
+        """写入结束标记：进程关闭完成后由进程 task 调用，之后不再写入。"""
+        self._ended = True
+        self._readable.set()
+
+    def detach(self) -> None:
+        """订阅者离开：丢弃缓存并唤醒阻塞的写入；可重复调用。"""
+        self._attached = False
+        self._items.clear()
+        self._buffered_events = 0
+        self._writable.set()
+        self._readable.set()
+
+    async def receive(self) -> ProcessOutput | None:
+        """按写入顺序取出下一项；读到结束标记或订阅者已离开时返回 ``None``。"""
+        while not self._items:
+            if self._ended or not self._attached:
+                return None
+            self._readable.clear()
+            await self._readable.wait()
+        output = self._items.popleft()
+        if isinstance(output, ActorEvent):
+            self._buffered_events -= 1
+            self._writable.set()
+        return output
+
+
 # ========== 非流式交付 ==========
 
 
@@ -107,6 +182,37 @@ class NonStreamingAgentOutcome:
 
 
 type NonStreamingResult = NonStreamingCommandOutcome | NonStreamingAgentOutcome
+
+
+def non_streaming_result(terminal: TerminalOutput, *, session_id: str) -> NonStreamingResult:
+    """把进程 task 交出的终态产出组装为非流式结果；编排异常原样上抛。
+
+    结果只含终态执行结果与会话 ID，不含流式 ``done`` 的 ``topic_id``、
+    停止原因与记忆引用。停止生效时没有 CPU 结果，构造纯取消结果；CPU 自报
+    的结果被停止改记为取消时，结局归一为 cancelled。
+    """
+    match terminal:
+        case CommandCompleted(command_result=command_result):
+            return NonStreamingCommandOutcome(
+                command_execution_result=command_result, session_id=session_id
+            )
+        case RunCompleted(execution_result=execution_result) | RunFailed(
+            execution_result=execution_result
+        ):
+            return NonStreamingAgentOutcome(
+                execution_result=execution_result, session_id=session_id
+            )
+        case RunCancelled(execution_result=execution_result):
+            if execution_result is None:
+                cancelled = CPUExecutionResult(status=CPUExecutionStatus.CANCELLED)
+            else:
+                cancelled = execution_result.model_copy(
+                    update={"status": CPUExecutionStatus.CANCELLED.value}
+                )
+            return NonStreamingAgentOutcome(execution_result=cancelled, session_id=session_id)
+        case ProcessFailed(error=error):
+            raise error
+    raise TypeError(f"不是终态产出: {type(terminal).__name__}")
 
 
 # ========== 流式交付 ==========
@@ -258,12 +364,15 @@ __all__ = [
     "NonStreamingAgentOutcome",
     "NonStreamingCommandOutcome",
     "NonStreamingResult",
+    "OUTPUT_CHANNEL_CAPACITY",
     "ProcessFailed",
     "ProcessOutput",
+    "ProcessOutputChannel",
     "ProcessStarted",
     "RunCancelled",
     "RunCompleted",
     "RunFailed",
     "TerminalOutput",
+    "non_streaming_result",
     "stream_events",
 ]

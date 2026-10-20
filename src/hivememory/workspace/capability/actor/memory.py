@@ -33,7 +33,7 @@ from hivememory.workspace.contracts.operations import (
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
 )
-from hivememory.workspace.thread_ports import IntentDispatchTopicReader
+from hivememory.workspace.thread_ports import ExecutionThreadTable, ResolvedThread
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
@@ -54,12 +54,12 @@ class ActorMemoryService:
         *,
         operation_authorizer: WorkspaceOperationAuthorizer,
         memory_reader: AliasResolver,
-        dispatch_topics: IntentDispatchTopicReader,
+        threads: ExecutionThreadTable,
     ) -> None:
         self._global_bus = global_bus
         self._authorizer = operation_authorizer
         self._reader = memory_reader
-        self._dispatch_topics = dispatch_topics
+        self._threads = threads
         # 提交与 L0 回读必须是同一份登记：只经读取视图取得，不另行注入。
         self._intents = memory_reader.intents
 
@@ -71,14 +71,15 @@ class ActorMemoryService:
     ) -> PendingAtom:
         """提交 WRITE（``memory.write``），生成队列接纳后才返回 ACK。"""
         scope = self._authorize(access, WorkspaceOperation.MEMORY_WRITE)
-        process_id, topic_id = self._dispatch_coordinates(access)
+        thread = self._resolve_for_dispatch(access)
         pending = self._intents.register_write(
             request.focus,
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
-            process_id=process_id,
+            process_id=thread.process_id,
+            thread_id=thread.thread_id,
         )
-        return await self._dispatch(pending, topic_id=topic_id, scope=scope)
+        return await self._dispatch(pending, topic_id=thread.dispatch_topic_id, scope=scope)
 
     async def submit_update_intent(
         self,
@@ -94,7 +95,7 @@ class ActorMemoryService:
         if result.kind != "atom" or result.atom is None:
             raise ResourceNotFoundError(details={"alias": request.base_alias})
         atom = result.atom
-        process_id, topic_id = self._dispatch_coordinates(access)
+        thread = self._resolve_for_dispatch(access)
         pending = self._intents.register_update(
             UpdateFocus(
                 base_alias=atom.index.alias or request.base_alias,
@@ -104,20 +105,19 @@ class ActorMemoryService:
             ),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
-            process_id=process_id,
+            process_id=thread.process_id,
+            thread_id=thread.thread_id,
         )
         self._reader.evict(scope.workspace_identity, atom.id)
-        return await self._dispatch(pending, topic_id=topic_id, scope=scope)
+        return await self._dispatch(pending, topic_id=thread.dispatch_topic_id, scope=scope)
 
-    def _dispatch_coordinates(self, access: WorkspaceAccessContext) -> tuple[str, str]:
-        """冷读之后重新取得进程关联与派发话题；到登记结束不挂起，撤销不能插入同步段。
+    def _resolve_for_dispatch(self, access: WorkspaceAccessContext) -> ResolvedThread:
+        """登记前的同步段只解析一次线程：进程关联、线程标识与派发话题都取自结果。
 
-        读取进程关联本身拒绝已撤销的线程，进程侧读取话题时再按阶段与线程
-        登记校验一次，这里不另做线程校验。
+        从这里到登记结束不挂起，线程结束与停止都不能插入同步段；UPDATE 的
+        基础冷读在此之前，冷读跨越线程结束或停止时在这里拒绝，不产生意图。
         """
-        process_id = self._authorizer.get_thread_process_id(access)
-        topic_id = self._dispatch_topics.get_dispatch_topic(access=access, process_id=process_id)
-        return process_id, topic_id
+        return self._threads.resolve(access)
 
     async def _dispatch(
         self, pending: PendingAtom, *, topic_id: str, scope: IdentityScope

@@ -1,7 +1,7 @@
 """主动聊天任务进程的 Gateway 编排测试。
 
 被测边界：``TaskProcessService`` 注册入口与四阶段编排在命令短路、完成、
-取消、失败与断流路径上的行为。注册经真实认证网关完成两阶段认证（组合内
+取消与失败路径上的行为，以及各阶段停止的响应点。注册经真实认证网关完成两阶段认证（组合内
 显式登记）并返回进程句柄；停止请求经句柄 stop 入口注入；Actor 阶段以
 测试 CPU 替换 Alice（总线上不注册 Alice 路由），子系统路由用
 GlobalSystemBus 上的替身隔离。
@@ -16,7 +16,10 @@ from uuid import uuid4
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.core.access import WorkspaceAccessContext
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import (
     AssetNotReadyError,
     ScopeRequiredError,
@@ -47,6 +50,7 @@ from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUExecutionStatus, SubmitWriteIntentRequest
+from hivememory.workspace.process.outputs import OUTPUT_CHANNEL_CAPACITY
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from hivememory.workspace.process.table import ProcessTable
 from tests.helpers.chat_handoff import (
@@ -55,7 +59,7 @@ from tests.helpers.chat_handoff import (
 )
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.process import make_task_process_service, process_state
+from tests.helpers.process import make_task_process_service, wait_for_process_exit
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -105,6 +109,7 @@ async def _service(
     bus: GlobalSystemBus,
     cpu: ScriptedCPU | None = None,
     process_table: ProcessTable | None = None,
+    event_publisher: RuntimeEventPublisher | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
     """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
     composition = _composition()
@@ -114,6 +119,7 @@ async def _service(
         access_gateway=composition.gateway,
         operation_authorizer=composition.authorizer,
         process_table=process_table,
+        event_publisher=event_publisher,
     )
     return service, composition
 
@@ -297,9 +303,9 @@ async def test_non_streaming_decision_uses_one_prepare_cpu_finalize_sequence() -
     calls: list[str] = []
 
     class _RecordingCPU(ScriptedCPU):
-        def execute(self, manifest, *, access, generation_options=None):
+        async def execute(self, manifest, **kwargs):
             calls.append("cpu")
-            return super().execute(manifest, access=access, generation_options=generation_options)
+            return await super().execute(manifest, **kwargs)
 
     async def gateway(**_kwargs):
         calls.append("gateway")
@@ -660,7 +666,7 @@ async def test_finalize_reauthorizes_and_revoked_admission_closes_completed_cpu_
 
     assert error.value.details == {"reason": "actor_not_admitted"}
     assert len(cpu.calls) == 1
-    assert cpu.closed is True
+    assert cpu.finished is True
     assert finalized == []
     assert cleaned == []
     assert composition.gateway.describe_context(issued[0]) is None
@@ -757,10 +763,9 @@ async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
 
     assert result.kind == "agent"
     assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
-    # cleanup 只补偿本进程 prepare 的结果，scope 来自关闭前阶段再授权。
-    # 注：交付收口会经 close_process 再次 close，cleanup 补偿当前会重复发布
-    # （疑似生产缺陷，见迁移报告），这里固定补偿以本进程 prepared_run 发生。
-    cleanup.assert_any_await(
+    # cleanup 只在唯一的关闭流程中补偿一次本进程 prepare 的结果，scope 来自
+    # 关闭前的阶段再授权。
+    cleanup.assert_awaited_once_with(
         prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
     )
 
@@ -904,14 +909,20 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_cpu_and_finalize
 
 
 @pytest.mark.asyncio
-async def test_stream_stop_cancels_current_cpu_pull_and_closes_cpu_iterator() -> None:
+@pytest.mark.parametrize("blocked_on", ["cpu", "channel"])
+async def test_actor_stop_takes_effect_while_waiting_on_cpu_or_channel(blocked_on: str) -> None:
+    """Actor 中的停止立即生效：子 task 在等 CPU 的下一项，或因订阅者暂停阻塞在通道写入上。
+
+    订阅者读到 process_id 后不再读取；通道写满时 CPU 不会被继续推进（背压），
+    停止仍取消子 task、关闭 CPU 输出流，并按 Actor 阶段以取消收口。
+    """
     bus = GlobalSystemBus()
+    token = {"event": "token", "data": {"content": "late"}}
     cpu = ScriptedCPU(
-        events=[{"event": "token", "data": {"content": "late"}}],
+        events=[token] * (1 if blocked_on == "cpu" else OUTPUT_CHANNEL_CAPACITY + 1),
         result=make_cpu_result(),
         hang_before_result=True,
     )
-
     finalize = AsyncMock()
     cleanup = AsyncMock(return_value=True)
     prepared_holder: dict = {}
@@ -923,26 +934,36 @@ async def test_stream_stop_cancels_current_cpu_pull_and_closes_cpu_iterator() ->
     _register_profile(bus)
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
-    service, composition = await _service(bus, cpu)
-    handle = await _register(composition, service, "问题", process_id="process-stream-cancel")
+    sink = RecordingRuntimeEventSink()
+    table = ProcessTable()
+    service, composition = await _service(
+        bus, cpu, process_table=table, event_publisher=RuntimeEventPublisher(sink)
+    )
+    handle = await _register(composition, service, "问题", process_id="process-actor-stop")
+    stream = service.run_process(handle, stream=True)
+    first = await anext(stream)
 
-    task = asyncio.create_task(_collect_stream(service.run_process(handle, stream=True)))
-    await asyncio.wait_for(cpu.hang_entered.wait(), timeout=1)
+    if blocked_on == "cpu":
+        await asyncio.wait_for(cpu.hang_entered.wait(), timeout=1)
+    else:
+        await asyncio.wait_for(cpu.last_event_entered.wait(), timeout=1)
+        assert cpu.hang_entered.is_set() is False
     stop_result = service.cancel_process(handle, reason="user_requested")
-    events = await task
+    await wait_for_process_exit(table, "process-actor-stop")
+    events = [first, *[event async for event in stream]]
 
     assert stop_result.cancelled is True
-    assert cpu.closed is True
+    assert cpu.finished is True
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "cancelled"
     finalize.assert_not_awaited()
-    cleanup.assert_any_await(
+    cleanup.assert_awaited_once_with(
         prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
     )
-
-
-async def _collect_stream(stream) -> list[dict]:
-    return [event async for event in stream]
+    cancelled = [
+        event for event in sink.events if event.event_type == RuntimeEventType.CHAT_RUN_CANCELLED
+    ]
+    assert [event.data for event in cancelled] == [{"phase": "actor"}]
 
 
 @pytest.mark.asyncio
@@ -978,41 +999,6 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
     assert stop_result.reason == "already_finalizing"
     assert result.execution_result.status == CPUExecutionStatus.COMPLETED.value
     cleanup.assert_not_awaited()
-
-
-@pytest.mark.asyncio
-async def test_completed_delivery_closes_process_and_invalidates_context() -> None:
-    """交付结束自动收口：绑定 context 撤销（授权被拒），进程从表中注销。"""
-    bus = GlobalSystemBus()
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
-
-    table = ProcessTable()
-    service, composition = await _service(bus, process_table=table)
-    requestor = await composition.authenticate(agent_id=_AGENT)
-    issued = _capture_issued_contexts(composition)
-    handle = await _register(composition, service, "问题", process_id="process-autoclose")
-
-    assert process_state(table, "process-autoclose") == ("created", "running", None)
-
-    result = await service.run_process(handle, stream=False)
-    assert result.kind == "agent"
-
-    assert table.get("process-autoclose") is None
-    cancel_result = service.cancel_process("process-autoclose", access=requestor)
-    assert cancel_result.cancelled is False
-    assert cancel_result.status == "not_found"
-    assert cancel_result.process_id == "process-autoclose"
-    assert composition.gateway.describe_context(issued[0]) is None
-    with pytest.raises(ScopeRequiredError) as excinfo:
-        composition.authorizer.authorize_operation(
-            issued[0],
-            WorkspaceOperation.MEMORY_READ,
-            _workspace(),
-        )
-    assert excinfo.value.details["reason"] == "context_not_issued"
 
 
 @pytest.mark.asyncio

@@ -184,13 +184,12 @@ async def chain(tmp_path):
             bus,
             operation_authorizer=composition.authorizer,
             memory_reader=runtime.aliases,
-            dispatch_topics=composition.thread_spawner,
+            threads=composition.threads,
         ),
         root_memories=RootMemoryService(bus, operation_authorizer=composition.authorizer),
         profiles=ActorAgentService(
             operation_authorizer=composition.authorizer,
             profile_reader=runtime.profiles,
-            thread_spawner=composition.thread_spawner,
         ),
         writer=await composition.authenticate_thread(
             agent_id="writer", process_id="writer_process", register_process=True

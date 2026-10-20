@@ -127,7 +127,8 @@ class CPUAllocator:
         """取得附件租借并编译附件与记忆，组装输入清单。
 
         在 prepare 之后执行，读取工作集中的 prepare 结果；Profile 已由
-        :meth:`resolve_agent_profile` 提前解析。附件租借执行阶段授权，
+        :meth:`resolve_agent_profile` 提前解析，只用于编译人格段，图纸与操作
+        快照随主线程交给 CPU，不进入清单。附件租借执行阶段授权，
         授权检查在租借副作用前执行（``_acquire_selected_attachment``）。
         ``labels`` 由注册入口认证成功后绑定，只供 CPU 的提示词与观测使用；
         阶段调用仍凭访问 context 逐次授权。stop 请求不打断分配，由调用方在
@@ -137,9 +138,6 @@ class CPUAllocator:
         prepared = working_set.prepared
         if prepared is None:
             raise RuntimeError("CPU 分配必须在 prepare 结果写入工作集之后执行")
-
-        # 即使没有附件也重新确认准入与目标；操作快照只供 CPU 描述执行能力。
-        allowed_operations = self._authorizer.get_stage_operations(access, target_workspace)
 
         # 1. 附件：按用户选择顺序 acquire READY representation 并核对版本摘要。
         #    取得的 lease 由 _acquire_selected_attachment 直接登记进工作集。
@@ -185,8 +183,6 @@ class CPUAllocator:
             process_id=process_id,
             labels=labels,
             user_message=user_message,
-            agent_profile=agent_profile,
-            allowed_operations=allowed_operations,
             language=prompt.language,
             instructions=prompt.instructions,
             turn_context=prompt.turn_context,

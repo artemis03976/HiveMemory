@@ -9,13 +9,15 @@ class ScopeRequiredError(WorkspaceDomainError):
     code = "workspace.scope_required"
 
 
-class ThreadContextRevokedError(DomainError):
-    """线程 context 已撤销，CPU 结束后的迟到操作不能继续分派。
+class ThreadEndedError(DomainError):
+    """执行线程已结束，迟到的 actor 操作不能继续分派。
 
-    与缺少上下文的接线错误区分；执行适配器仍按既有系统错误路径回填。
+    线程的凭据已撤销、线程本身已结束或所属进程已收到停止，都属于线程已
+    结束；与表示接线缺陷的 ``ScopeRequiredError`` 区分。执行适配器仍按既有
+    系统错误路径回填。
     """
 
-    code = "workspace.thread_context.revoked"
+    code = "workspace.thread.ended"
 
 
 class WorkspaceMismatchError(WorkspaceDomainError):
@@ -44,7 +46,7 @@ class OperationDeniedError(WorkspaceDomainError):
 
 __all__ = [
     "ScopeRequiredError",
-    "ThreadContextRevokedError",
+    "ThreadEndedError",
     "WorkspaceMismatchError",
     "AdmissionDeniedError",
     "OperationDeniedError",

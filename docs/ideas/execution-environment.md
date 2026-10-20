@@ -1,9 +1,9 @@
 ---
-title: 执行单元、执行线程与执行环境
+title: 执行环境
 status: idea
 horizon: candidate
 owner: project
-scope: execution-environment-selection-cross-workspace-target-and-cpu-output-vocabulary
+scope: agent-and-execution-environment-selection-combination-validity-and-cpu-output-vocabulary
 code_paths:
   - src/hivememory/workspace/contracts/
   - src/hivememory/workspace/process/
@@ -11,27 +11,29 @@ code_paths:
   - src/hivememory/server/models/chat.py
 related_docs:
   - docs/ideas/fifth-generation-architecture.md
-  - docs/ideas/identity-and-access-model.md
+  - docs/archive/ideas/execution-thread-definition.md
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-19
 ---
 
-# 执行单元、执行线程与执行环境
+# 执行环境
 
 ## 0. 文档性质
 
-本文收集执行一侧尚未决定的方向：agent 与执行环境的分别选择，执行线程表达跨 Workspace 目标的方式，以及 CPU 输出使用谁的词汇。不描述当前行为，也不代表排期。理念见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.3 节“执行者可以替换”，执行一侧的用语（CPU、CPU 驱动、harness 实例、执行线程、操作适配器、请求入口）见同文第 2 节；当前设计见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节与 [Workspace 架构](../architecture/workspace.md)第 4.3、5.4 节。前提与问题沿用原编号。
+本文收集执行环境一侧尚未决定的方向：agent 与执行环境的分别选择（前提 9、10，T-7、T-8），以及不同执行环境交回的输出使用谁的词汇（T-10）。本文不描述当前行为，也不代表排期。
 
-本文于 2026-10-13 精简，删除了已实施的决定（执行线程的身份与访问 context、操作请求与单一操作入口、子线程的派生与撤销等）、实施记录与代码快照；删除前版本见 commit `a384688`。
+- **理念与用语**：理念见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.3 节“执行者可以替换”；执行一侧的用语（CPU、CPU 驱动、harness 实例、执行线程、操作适配器、请求入口）见同文第 2 节。
+- **当前设计**：见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节。
+- **编号**：前提与问题沿用原编号。
+
+**演变**：
+- **原名**：本文原为《执行单元、执行线程与执行环境》（`execution-unit-thread-and-environment.md`），2026-10-19 改为现名。
+- **执行线程**：执行线程的身份与访问 context、操作请求与单一操作入口、子线程的派生与撤销等已实施的决定，在 2026-10-13 精简时删除，删除前版本见 commit `a384688`。执行线程的正式定义已实施，当前事实见 [Workspace 架构](../architecture/workspace.md#43-访问-context密封的运行时凭据)第 4.3、5.4 节，设计推导见已归档的[执行线程 Idea](../archive/ideas/execution-thread-definition.md)。
+- **跨 Workspace 目标**：前提 2 与 T-5b 移入[身份与访问体系 Idea](./identity-and-access-model.md)第 1 节。
 
 ## 1. 前提（owner 提出）
-
-**前提 2**（2026-10-05）：一次操作的发起者与目标分开看待。
-
-- **发起者**是客观事实，由执行单元一侧补全，agent 不在工具调用中声明；
-- **目标 Workspace** 是 agent 的意图：现在由补全的一层给出（只接受驻留 Workspace）；实现跨 Workspace 的受限穿透访问后，agent 需要能够自己带上操作目标（T-5b）。
 
 **前提 9**（2026-10-06）：**agent 与执行环境解耦**。外部 harness 最初被视为一个单独的 agent，现在它是一个执行环境（执行单元的 backend）。理论上可以在外部 harness 之上再应用 Agent Profile（例如作为系统提示词），外部协议是否支持另当别论。用户在前端或任何交互环境中分别选择要使用的 agent 与执行环境。
 
@@ -49,14 +51,6 @@ last_reviewed: 2026-10-17
 ## 2. 开放问题
 
 每个问题只列出选项及其影响，选项顺序不代表倾向。T-7、T-8 不在 v0.7.0（owner，2026-10-06）：只有 Alice 一个执行环境时，选择机制没有可验收的对象；前提 9、10 已确定执行环境与 agent 的关系，之后接入外部执行环境不需要再改动拓扑。
-
-### T-5b 跨 Workspace 目标的表达形式
-
-受限穿透访问不在 v0.7.0；授权点已显式接收目标 Workspace（[身份与访问体系 Idea](./identity-and-access-model.md)第 1 节）。
-
-- 选项：按指令给出目标，一条指令一个目标 / 按引用限定，alias 带上 Workspace 限定 / 其他。
-- 影响：alias 按 (Workspace, alias) 分区，跨 Workspace 的引用必须带限定；agent 只能给出 Workspace key 一类名称，`WorkspaceIdentity` 中的 owner 由补全的一层解析，解析失败与无权访问需要对 agent 表现一致。
-- 影响（分析）：MTP 文本不能指定 Workspace 的现有约束，随穿透访问设计另行评审；发起者不能由工具调用指定（前提 2）长期成立。
 
 ### T-7 agent 与执行环境组合的有效性
 
@@ -77,7 +71,7 @@ last_reviewed: 2026-10-17
 
 **背景**（2026-10-17，代码核对）：CPU 的输入侧已经中立：HiveMemory 的提示词内容在 CPU 边界前编译定稿，CPU 只负责布局与自身的工具教学、历史管理（[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)第 4.1 节）。输出侧仍以 Alice 的词汇为准，外部执行环境接入后没有自己的位置：
 
-- **交互事件**：`CPUOutput` 是 `dict[str, Any] | CPUExecutionResult`，进程把字典原样转交客户端 SSE，不做解释。前端依赖的 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end`、`context_compaction` 及其字段由 Alice 的流式适配器定义（[路由与事件契约](../contracts/routes-and-events.md#25-cpu-端口与交互输出)第 2.5 节），名称本身带着 MTP 与 CALL 的概念；
+- **交互事件**：CPU 经事件 sink 推送 `dict[str, Any]`（2026-10-19 起，此前为输出流中的 `CPUOutput` 项），进程把字典原样转交客户端 SSE，不做解释。前端依赖的 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end`、`context_compaction` 及其字段由 Alice 的交互输出端口定义（[路由与事件契约](../contracts/routes-and-events.md#25-cpu-端口与交互输出)第 2.5 节），名称本身带着 MTP 与 CALL 的概念；
 - **失败原因**：`CPUFailureReason` 中的 `compaction_failed`、`turn_context_budget_exceeded` 描述 Alice 自己的会话压缩与轮内守卫。controller 模式下 harness 自管上下文与压缩（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1），这类原因无从产生，其他失败也没有对应的中立分类；
 - **会话历史**：`CPUExecutionResult.turn_events` 写入会话，再供 Patchouli 生成记忆与 Gateway 读取最近 N 轮。`TurnEvent` 按通用 Agent 事件设计，但 Alice 写入的工具调用内容是 MTP 原文，`tool_kind` 取 MTP 动词，`render_as` 是 Alice 重放历史时使用的提示。前提 10 使同一会话内不会切换执行环境，问题集中在不同执行环境写入的历史能否被同一套下游读取。
 
@@ -96,7 +90,8 @@ last_reviewed: 2026-10-17
 | 文档 | 关系 |
 |:---|:---|
 | [第五代架构 Idea](./fifth-generation-architecture.md) | 3.3 的理念、第 2 节的执行一侧用语；P-10a 与 T-7b 相互约束 |
-| [身份与访问体系 Idea](./identity-and-access-model.md) | 受限穿透访问的授权模型，T-5b 是它在执行一侧的表达 |
+| [Workspace 架构](../architecture/workspace.md#43-访问-context密封的运行时凭据)第 4.3 节（已归档的[执行线程 Idea](../archive/ideas/execution-thread-definition.md)） | 执行线程的定义与生命周期（当前事实）；执行环境只决定线程在哪个 CPU 中运行，不改变线程的身份与能力（前提 9） |
+| [身份与访问体系 Idea](./identity-and-access-model.md) | 受限穿透访问；原本文的前提 2 与 T-5b（跨 Workspace 目标的表达）已移入其第 1 节 |
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | Profile 的解析时点（2.2）与 CPU 分配记入进程记录（2.3） |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | harness 登记的两个侧面（1.2）；controller 模式下 harness 自管上下文，是 T-10 的背景（1.1）；外部执行单元不识别子线程（E-5）；外部 harness 是执行环境（E-6a） |
 | [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 会话模型，T-8a 的承载位置之一 |

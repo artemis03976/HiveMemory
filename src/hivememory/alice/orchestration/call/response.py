@@ -13,7 +13,7 @@ from hivememory.core.errors import (
     StorageOfflineError,
     StorageReadError,
     StorageWriteError,
-    ThreadContextRevokedError,
+    ThreadEndedError,
 )
 from hivememory.core.mtp.exceptions import MTPError
 from hivememory.core.mtp.models import (
@@ -101,7 +101,7 @@ def preparation_error_response(
             StorageOfflineError,
             StorageReadError,
             StorageWriteError,
-            ThreadContextRevokedError,
+            ThreadEndedError,
             OperationDeniedError,
             ResourceUnavailableError,
             MTPError,
@@ -172,7 +172,7 @@ def response_for_frame_result(
                 sub_agent_budget_exhausted_info(agent_alias),
             )
         case FrameExecutionStatus.FAILED:
-            if isinstance(result.error, ThreadContextRevokedError):
+            if isinstance(result.error, ThreadEndedError):
                 return error_response(agent_alias, mtp_error_info(result.error, verb="CALL"))
             if isinstance(result.error, ModelNotFoundError):
                 model_name = (generation_options or {}).get("model") or getattr(

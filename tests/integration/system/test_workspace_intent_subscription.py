@@ -64,6 +64,7 @@ async def test_composition_subscribes_before_start_and_unsubscribes_after_stop(m
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
             process_id="before-start",
+            thread_id="main",
         )
         await bus.publish(
             GlobalEvents.PENDING_ATOM_FAILED,
@@ -79,6 +80,7 @@ async def test_composition_subscribes_before_start_and_unsubscribes_after_stop(m
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
             process_id="after-stop",
+            thread_id="main",
         )
         await system.stop()
         await bus.publish(

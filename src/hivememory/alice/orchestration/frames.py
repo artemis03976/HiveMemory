@@ -78,7 +78,7 @@ class FrameFactory:
         run_id: str,
         frame_id: str | None = None,
     ) -> RuntimeScope:
-        """生成继承观测标签的唯一 run/frame 坐标，不携带授权身份。"""
+        """以所属线程的观测标签生成唯一 run/frame 坐标，不携带授权身份。"""
         return RuntimeScope(
             labels=labels,
             run_id=run_id,

@@ -282,7 +282,7 @@ def test_actor_capability_surface_only_contains_six_public_methods():
         "ActorMemoryService.resolve_run_target",
         "ActorMemoryService.submit_write_intent",
         "ActorMemoryService.submit_update_intent",
-        "ActorAgentService.derive_call_thread",
+        "ActorAgentService.resolve_call_target",
     }
 
 
@@ -299,7 +299,11 @@ def test_workspace_operation_catalog_only_contains_six_actor_operations():
 
 
 def test_operation_requests_only_expose_six_actor_requests():
-    """请求只携带六项 actor 操作参数，不能指定身份、进程或派发话题。"""
+    """请求只携带六项 actor 操作参数，不能指定身份、进程或派发话题。
+
+    五项记忆请求经 ``execute`` 分派；CALL 的派生请求不是 ``OperationRequest``，
+    只经入口的生命周期方法提交。
+    """
     requests = {
         name: value
         for name, value in vars(operation_contracts).items()
@@ -315,10 +319,12 @@ def test_operation_requests_only_expose_six_actor_requests():
         "ResolveRunTargetRequest": {"alias"},
         "SubmitWriteIntentRequest": {"focus"},
         "SubmitUpdateIntentRequest": {"base_alias", "instruction", "content"},
-        "DeriveCallThreadRequest": {"agent_alias"},
     }
+    derive = operation_contracts.DeriveCallThreadRequest
+    assert not issubclass(derive, OperationRequest)
+    assert {field.name for field in fields(derive)} == {"agent_alias"}
 
     # 公开面同时包含声明与导出，避免请求留在源文件却从契约入口悄然消失。
-    expected_exports = {*requests, "OperationRequest"}
+    expected_exports = {*requests, "DeriveCallThreadRequest", "OperationRequest"}
     for module in (operation_contracts, workspace_contracts):
         assert {name for name in module.__all__ if name.endswith("Request")} == expected_exports

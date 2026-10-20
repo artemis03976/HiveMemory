@@ -8,17 +8,16 @@
 
 from __future__ import annotations
 
-from collections.abc import AsyncGenerator
-from dataclasses import dataclass
+from collections.abc import Awaitable, Callable
 from enum import Enum
 from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import SessionCompactionCheckpoint
 from hivememory.workspace.contracts.process import CPUInputManifest
+from hivememory.workspace.contracts.threads import ExecutionThread
 
 
 class CPUExecutionStatus(str, Enum):
@@ -49,8 +48,8 @@ class CPUExecutionResult(BaseModel):
         failure_reason    → failed 终态的公开原因码；外部 CPU 可以不填
         compaction_checkpoint → 会话接受的旧历史派生视图，不进入本轮封口或 done
 
-    端口语义：终态结果由 ``execute`` 迭代器恰好产出一次且是最后一项。
-    迭代器在没有终态结果时结束属于协议错误，由进程按失败处理。
+    端口语义：终态结果是 ``execute`` 的返回值；停止后的结局同样以返回值
+    表达（``status`` 为 cancelled，携带已产生的输出与已完成的检查点）。
     """
 
     model_config = ConfigDict(frozen=True, use_enum_values=True)
@@ -75,61 +74,49 @@ class CPUExecutionResult(BaseModel):
         )
 
 
-#: CPU 输出流的单项：交互事件（带 ``event`` 与 ``data`` 的字典，进程原样
-#: 转交流式交付、不做解释）或唯一的终态执行结果。
-type CPUOutput = dict[str, Any] | CPUExecutionResult
-
-
-@dataclass
-class CPUResultSlot:
-    """CPU 同步写入的终态结果槽；取消传播时仍可交回已产生的输出，结局如实填写、进程不改写。"""
-
-    result: CPUExecutionResult | None = None
-
-
-@dataclass(frozen=True)
-class CPURunHandle:
-    """一次 CPU 执行的输出流与结果槽；不暴露具体执行器或进程控制。"""
-
-    output: AsyncGenerator[CPUOutput, None]
-    result_slot: CPUResultSlot
+#: 交互事件 sink：CPU 逐项推送带 ``event`` 与 ``data`` 的字典，进程原样
+#: 转交流式交付、不做解释。sink 可能因订阅者暂停而等待（背压），停止时
+#: 在等待处抛出 ``asyncio.CancelledError``。
+type CPUEventSink = Callable[[dict[str, Any]], Awaitable[None]]
 
 
 class CPUPort(Protocol):
-    """任务进程调用 CPU 的对象端口。
+    """任务进程调用 CPU 的对象端口：推送交互事件，返回终态结果。
 
-    ``execute`` 返回一个异步 run 句柄：输出流先逐项产出交互事件、再产出
-    唯一终态。交付形态由进程决定，CPU 不区分：非流式交付只取终态，交互事件
-    照常产出后被丢弃。取消收尾时 CPU 同步写入结果槽，再传播原生 CancelledError。进程在关闭流程中
-    以 ``aclose`` 关闭它（含断流与取消路径）。端口的取消、异常与关闭语义：
+    ``execute`` 在执行过程中经 ``events`` 推送交互事件，结束时返回唯一的
+    终态结果。交付形态由进程决定，CPU 不区分：非流式交付时进程照常接收
+    事件后丢弃。端口的取消、异常与参数语义：
 
-    - 进程取消正在拉取下一项的任务（用户停止），并在关闭流程中关闭迭代器；
-      实现必须传播 ``asyncio.CancelledError``，并在迭代器被关闭时释放自己
-      创建的资源。
-    - CPU 自报的结局经终态结果的 ``status`` 表达；实现抛出异常时由进程
-      按失败处理。
+    - 进程以原生 ``asyncio.CancelledError`` 取消正在执行的协程（停止请求）。
+      CPU 内部各层原样传播取消并完成收尾，只在最外层把取消转换为返回值：
+      返回 cancelled 结果，携带已产生的输出与已完成的检查点。没有转换、
+      直接传播取消的 CPU 按无输出的取消处理。
+    - 收到取消后的收尾不得依赖 actor 操作，只能用已经产生的内容组装结果：
+      停止被接受时全部线程已经结束，此后的提交都以线程已结束拒绝。
+    - CPU 自报的结局经终态结果的 ``status`` 表达；实现抛出普通异常时由进程
+      按失败处理，不接受任何候选结果。
     - ``generation_options`` 由各个 CPU 自行解释，进程原样传递。
 
-    ``access`` 是本次主线程的密封线程 context，独立于冻结输入清单。
-    CPU 驱动将它绑定到操作提交函数；操作适配器只构造请求，不取得访问
-    context 或目标 Workspace。CPU 执行结束后同步撤销，后续提交明确拒绝。
+    ``thread`` 是本次的主线程：输入清单回答“处理什么”，线程描述回答“谁来
+    处理”（标识、观测标签、图纸与操作快照）。CPU 驱动把它绑定为主线程的
+    提交函数，执行适配器只经提交函数构造请求，不取得访问 context 或目标
+    Workspace。Actor 阶段结束时全部线程同步结束，后续提交明确拒绝。
     """
 
-    def execute(
+    async def execute(
         self,
         manifest: CPUInputManifest,
         *,
-        access: WorkspaceAccessContext,
+        thread: ExecutionThread,
         generation_options: dict[str, Any] | None,
-    ) -> CPURunHandle: ...
+        events: CPUEventSink,
+    ) -> CPUExecutionResult: ...
 
 
 __all__ = [
-    "CPUFailureReason",
-    "CPURunHandle",
-    "CPUResultSlot",
+    "CPUEventSink",
     "CPUExecutionResult",
     "CPUExecutionStatus",
+    "CPUFailureReason",
     "CPUPort",
-    "CPUOutput",
 ]

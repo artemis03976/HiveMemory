@@ -1,7 +1,7 @@
 """任务进程测试的装配辅助。
 
 与生产组合根同构：编排依赖（总线、CPU 端口、CPU 分配器、阶段授权、
-线程 context 生命周期端口、Gateway 超时）只交给执行器 ``TaskProcessRunner``；CPU
+线程管理、Gateway 超时）只交给执行器 ``TaskProcessRunner``；CPU
 持有真实操作入口，以每次执行收到的线程 context 绑定提交函数。注册入口
 ``TaskProcessService`` 只持有执行器与生命周期依赖（认证网关、进程控制
 授权、事件发布器）。
@@ -9,6 +9,7 @@
 
 from __future__ import annotations
 
+import asyncio
 from typing import Any
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
@@ -67,18 +68,13 @@ def make_task_process_service(
         global_bus,
         operation_authorizer=operation_authorizer,
         memory_reader=runtime.aliases,
-        dispatch_topics=threads,
+        threads=threads,
     )
     agent = ActorAgentService(
         operation_authorizer=operation_authorizer,
         profile_reader=runtime.profiles,
-        thread_spawner=threads,
     )
-    entry = operation_entry or WorkspaceOperationEntry(
-        memory,
-        agent=agent,
-        operation_authorizer=operation_authorizer,
-    )
+    entry = operation_entry or WorkspaceOperationEntry(memory, agent=agent, threads=threads)
     if isinstance(cpu, ScriptedCPU):
         cpu.bind_operation_entry(entry)
     allocator = CPUAllocator(
@@ -94,7 +90,7 @@ def make_task_process_service(
         sessions=sessions,
         allocator=allocator,
         operation_authorizer=operation_authorizer,
-        thread_contexts=threads,
+        threads=threads,
         gateway_session_turn_limit=gateway_session_turn_limit,
     )
     return TaskProcessService(
@@ -117,4 +113,16 @@ def process_state(table: ProcessTable, process_id: str) -> tuple[str, str, str |
     return record.phase.value, record.outcome.value, record.stop_reason
 
 
-__all__ = ["make_task_process_service", "process_state"]
+async def wait_for_process_exit(
+    table: ProcessTable, process_id: str, *, timeout: float = 2.0
+) -> None:
+    """等待已启动进程的进程 task 结束，不请求停止；进程已注销时立即返回。"""
+    process = table.get(process_id)
+    if process is None:
+        return
+    if process.task is None:
+        raise AssertionError(f"进程尚未启动: {process_id}")
+    await asyncio.wait_for(asyncio.wait((process.task,)), timeout)
+
+
+__all__ = ["make_task_process_service", "process_state", "wait_for_process_exit"]

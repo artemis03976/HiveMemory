@@ -176,7 +176,9 @@ class PendingAtom(BaseModel):
     运行时待物化记忆句柄。
 
     不是正式 MemoryAtom，不承诺最终落库。
-    同一 Workspace 的 Agent 可通过 pending_alias 回读，进程关联不参与授权。
+    同一 Workspace 的 Agent 可通过 pending_alias 回读。``process_id`` 与
+    ``thread_id`` 记录发起写入的任务进程与执行线程，只作观测归因（同一进程
+    两次 CALL 同一个 Agent 时以线程区分），不参与回读或授权。
     """
 
     pending_alias: str
@@ -188,6 +190,7 @@ class PendingAtom(BaseModel):
     belong_to: WorkspaceIdentity
     from_actor: ActorIdentity
     process_id: str | None = None
+    thread_id: str | None = None
     created_at: datetime = Field(default_factory=datetime.now)
 
     # 结算跟踪

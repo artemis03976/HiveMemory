@@ -103,14 +103,13 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
             stack.bus,
             operation_authorizer=access.authorizer,
             memory_reader=runtime.aliases,
-            dispatch_topics=access.thread_spawner,
+            threads=access.threads,
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
-            thread_spawner=access.thread_spawner,
             profile_reader=runtime.profiles,
         ),
-        operation_authorizer=access.authorizer,
+        threads=access.threads,
     )
     script = (
         '⟪ SEARCH | * | query="HTTP formal context" ⟫',
@@ -325,14 +324,13 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
             stack.bus,
             operation_authorizer=access.authorizer,
             memory_reader=runtime.aliases,
-            dispatch_topics=access.thread_spawner,
+            threads=access.threads,
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
             profile_reader=runtime.profiles,
-            thread_spawner=access.thread_spawner,
         ),
-        operation_authorizer=access.authorizer,
+        threads=access.threads,
     )
     script = (
         '⟪ CALL | worker | task="读取自己的私有资料并写入" ⟫',
@@ -427,7 +425,7 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
     )
     bus = GlobalSystemBus()
     harness = OperationsHarness(bus, operation_authorizer=access.authorizer)
-    entry = harness.make_entry(access.authorizer, access.thread_spawner)
+    entry = harness.make_entry(access.authorizer, access.threads)
     payloads = []
     completions = 0
 
@@ -625,7 +623,7 @@ async def test_http_write_survives_cancelled_cpu_and_process_close(patchouli_cha
         (extraction,) = stack.extractor.inputs
         assert "当前一轮不应进入生成背景" not in extraction["transcript"]
         assert extraction["metadata"]["write_content"] == "保留失败轮的写入"
-        assert cpu.closed is True
+        assert cpu.finished is True
         assert [
             event.event_type
             for event in stack.events.events

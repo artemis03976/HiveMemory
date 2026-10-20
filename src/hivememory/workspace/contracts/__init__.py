@@ -7,16 +7,13 @@
 """
 
 from hivememory.workspace.contracts.cpu import (
+    CPUEventSink,
     CPUExecutionResult,
     CPUExecutionStatus,
     CPUFailureReason,
-    CPUOutput,
     CPUPort,
-    CPUResultSlot,
-    CPURunHandle,
 )
 from hivememory.workspace.contracts.operations import (
-    Callee,
     DeriveCallThreadRequest,
     OperationEntry,
     OperationRequest,
@@ -26,24 +23,22 @@ from hivememory.workspace.contracts.operations import (
     RetrieveRequest,
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
-    ThreadContextRevokedError,
+    ThreadEndedError,
     ThreadOperationSubmitter,
 )
 from hivememory.workspace.contracts.process import CPUInputManifest
-from hivememory.workspace.contracts.threads import ExecutionThread
+from hivememory.workspace.contracts.threads import ExecutionThread, ThreadDescriptor
 
 __all__ = [
-    "CPURunHandle",
-    "CPUResultSlot",
+    "CPUEventSink",
     "CPUExecutionResult",
     "CPUExecutionStatus",
     "CPUFailureReason",
     "CPUInputManifest",
     "CPUPort",
-    "CPUOutput",
-    "Callee",
     "ExecutionThread",
-    "ThreadContextRevokedError",
+    "ThreadDescriptor",
+    "ThreadEndedError",
     "ThreadOperationSubmitter",
     "OperationEntry",
     "OperationRequest",

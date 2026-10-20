@@ -13,20 +13,21 @@ SCOPE = make_identity_scope(user_id="u1", agent_id="writer")
 WORKSPACE = SCOPE.workspace_identity
 
 
-def _write(registry: WriteIntentRegistry, process_id: str = "process_a"):
+def _write(registry: WriteIntentRegistry, process_id: str = "process_a", thread_id: str = "main"):
     """通过公共登记入口构造待物化意图。"""
     return registry.register_write(
         WriteFocus(title="Fact title", content="original intent"),
         belong_to=WORKSPACE,
         from_actor=SCOPE.actor_identity,
         process_id=process_id,
+        thread_id=thread_id,
     )
 
 
 def test_read_is_workspace_wide_and_foreign_workspace_looks_missing():
-    """进程、发起者不限制同 Workspace 回读，越界读取与不存在相同。"""
+    """进程、线程与发起者不限制同 Workspace 回读，越界读取与不存在相同。"""
     registry = WriteIntentRegistry()
-    atom = _write(registry)
+    atom = _write(registry, thread_id="child-1")
     other_actor_scope = make_identity_scope(user_id="u1", agent_id="reader")
     foreign_scope = make_identity_scope(user_id="u1", workspace_id="other_workspace")
 
@@ -34,7 +35,11 @@ def test_read_is_workspace_wide_and_foreign_workspace_looks_missing():
     foreign = registry.get(atom.pending_alias, foreign_scope.workspace_identity)
 
     assert own.focus.content == "original intent"
-    assert own.from_actor.agent_id == "writer"
+    assert (own.from_actor.agent_id, own.process_id, own.thread_id) == (
+        "writer",
+        "process_a",
+        "child-1",
+    )
     assert (foreign, registry.get("missing", foreign_scope.workspace_identity)) == (None, None)
 
 
@@ -123,6 +128,7 @@ def test_update_registration_keeps_authorized_base_focus():
         belong_to=WORKSPACE,
         from_actor=SCOPE.actor_identity,
         process_id="process_a",
+        thread_id="main",
     )
 
     assert (task.source_verb, task.focus.base_alias, task.focus.base_uuid) == (

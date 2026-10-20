@@ -22,7 +22,7 @@ related_contracts:
 related_docs:
   - docs/architecture/workspace.md
   - docs/architecture/data-model.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 系统边界与所有权
@@ -170,7 +170,7 @@ Alice 是知识的使用者和行动者。它可以在一次 run 中读取记忆
 
 ### 7.2 依赖方向
 
-Alice 直接消费含只读 `ExecutionLabels`、已解析语言与定稿提示词文本的 `CPUInputManifest`，负责工具教学、历史视图与固定文本布局。CPU 端口的线程 context 独立于清单，`AliceCPU` 以 `workspace.contracts.ThreadOperationSubmitter` 把它与公共 `OperationEntry` 绑定为提交函数；CALL 经提交函数的派生方法取得以被调用方身份运行的子线程与它自己的提交函数；MTP 与 CALL 仅构造请求，READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取统一进入 workspace actor API，各自检查一项 actor 操作。主、子 frame 各自使用自己线程的提交函数并沿用注册标签，不持有访问 context 或 `IdentityScope`，也不能用标签改变资源授权目标；CPU 执行结束后全部线程 context 被撤销，提交函数随之失效。
+Alice 直接消费含只读 `ExecutionLabels`、已解析语言与定稿提示词文本的 `CPUInputManifest`，负责工具教学、历史视图与固定文本布局。CPU 端口的主线程（线程描述与线程 context）独立于清单交给 CPU：清单回答“处理什么”，线程描述回答“谁来处理”（图纸、操作快照与观测标签）。`AliceCPU` 以 `workspace.contracts.ThreadOperationSubmitter` 把它与公共 `OperationEntry` 绑定为线程句柄；CALL 经句柄的 `derive_child` 取得以被调用方身份运行的子线程句柄；MTP 与 CALL 仅构造请求，READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取统一进入 workspace actor API，各自检查一项 actor 操作。主、子 frame 各自持有所属线程的句柄，标签取各自线程的描述，不持有访问 context 或 `IdentityScope`，也不能用标签改变资源授权目标；子线程随 CALL 返回结束，Actor 阶段结束后全部线程结束，句柄随之失效。
 
 模型解析经 `agent_runtime.ModelResolver` 端口使用 System 的模型注册表，由组合根注入。
 
@@ -203,7 +203,7 @@ Patchouli 结算意图后，经全局事件更新 workspace 登记；canonical �
 | `WorkspaceIdentity` / `ActorIdentity` / `IdentityScope` | Core value object；授权点组装操作 scope，资源 owner 拆分归属与发起者 | 不可变公共模型，不构成独立运行时状态；scope 不随记录或后台任务保存 |
 | PendingAtom 运行时状态 | Workspace 写入意图登记 | 分开保存归属、发起者与进程关联；Patchouli 结算事件回传 |
 | `ReferenceResolution` | Workspace 读取视图投影 | core 中立结果；意图与原子交付独立副本 |
-| 线程 context | workspace 认证一侧派生与撤销，任务进程的线程管理经生命周期端口调用并登记 | 独立交给 CPU 并绑定为提交函数；子线程以被调用方准入后派生；只有操作授权者能读取内容，CPU 执行结束时全部撤销 |
+| 线程 context | workspace 认证一侧派生与撤销，任务进程的线程管理经生命周期端口调用，登记在进程的线程表中 | 与线程描述一起作为执行线程交给 CPU 并绑定为线程句柄；子线程以被调用方准入后派生；只有操作授权者能读取内容；随线程结束撤销（子线程随 CALL 返回，Actor 阶段收尾兜底结束全部线程） |
 | `OperationRequest[R]` / `OperationEntry` / `OperationSubmitter` | workspace 定义，actor API 执行，CPU 驱动绑定提交函数 | 只传操作参数与类型化结果，资源授权保持在 actor API 和资源 owner |
 | `ExecutionLabels` | 注册认证通过后创建，进程事件绑定载体持有 | CPU 清单、主子 frame 与运行事件共享只读标签，不携带授权身份 |
 | 任务进程控制（chat run 的 phase/outcome/stop reason/active_task） | Workspace 任务进程表（`workspace.process`） | 编排内部状态与 RuntimeEvent 投影 |

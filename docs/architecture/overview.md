@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # HiveMemory 当前系统架构
@@ -199,7 +199,7 @@ TaskProcessService（workspace.process）
   -> 任务进程封口交互记录（InteractionPayload）
   -> Patchouli FINALIZE_AGENT_RUN
   -> 释放附件租借（已接纳写入继续生成）
-  -> 关闭输出流与进程，返回 Agent 结果（记忆任务独立经事件观察）
+  -> 在进程自己的 task 中关闭进程，交付 Agent 结果（记忆任务独立经事件观察）
 ```
 
 这条三段式链路刻意把“准备知识”“执行工作”“沉淀结果”分开。若把 finalize 藏进 Alice，执行者就必须承担交互提交与 cleanup 的领域责任；若把 run 藏进 Patchouli，记忆域又会重新拥有模型执行。显式交接让每一步都可以单独失败、观测和补偿。

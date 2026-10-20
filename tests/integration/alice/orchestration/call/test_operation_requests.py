@@ -1,4 +1,4 @@
-"""CALL 子帧与真实 workspace 操作入口协作，验证被调用方的独立授权与记账。"""
+"""CALL 子帧与真实 workspace 操作入口协作，验证被调用方的独立授权、记账与子线程的结束。"""
 
 from __future__ import annotations
 
@@ -195,10 +195,8 @@ async def test_child_reads_only_callee_private_memory_and_records_callee_citatio
     submit = await harness.submitter(make_identity_scope(agent_id="parent"))
     try:
         parent_reads = await submit(ResolveReferencesRequest(("parent", "omni_doll")))
-        child = await submit.derive_call_thread(DeriveCallThreadRequest())
-        child_reads = await child.submit_operation(
-            ResolveReferencesRequest(("parent", "omni_doll"))
-        )
+        child = await submit.derive_child(DeriveCallThreadRequest())
+        child_reads = await child(ResolveReferencesRequest(("parent", "omni_doll")))
         assert [item.kind for item in parent_reads] == ["atom", "not_found"]
         assert [item.kind for item in child_reads] == ["not_found", "atom"]
         assert child_reads[1].atom.payload.content == "omni_doll 的私有正文"
@@ -224,12 +222,12 @@ async def test_callee_permissions_do_not_inherit_caller_read_and_cannot_recursiv
         callee_operations={WorkspaceOperation.AGENT_CALL},
     )
     try:
-        child = await submit.derive_call_thread(DeriveCallThreadRequest())
+        child = await submit.derive_child(DeriveCallThreadRequest())
         with pytest.raises(OperationDeniedError) as denied:
-            await child.submit_operation(ResolveReferencesRequest(("missing",)))
+            await child(ResolveReferencesRequest(("missing",)))
         assert denied.value.details["operation"] == "memory.read"
         with pytest.raises(ScopeRequiredError, match="主线程"):
-            await child.submit_operation.derive_call_thread(DeriveCallThreadRequest())
+            await child.derive_child(DeriveCallThreadRequest())
         assert harness.runtime.stats()["cold_reads"] == 2
     finally:
         harness.revoke()
@@ -237,16 +235,81 @@ async def test_callee_permissions_do_not_inherit_caller_read_and_cannot_recursiv
 
 
 @pytest.mark.asyncio
-async def test_generic_submission_cannot_deliver_child_context():
-    """普通提交拒绝派生请求，既不读取图纸也不交付含凭据的结果。"""
-    from hivememory.workspace.contracts import DeriveCallThreadRequest
+async def test_completed_call_ends_child_thread_but_keeps_its_dispatched_write():
+    """CALL 收尾结束子线程：之后以子线程句柄提交按线程已结束拒绝，子线程已派发的写入保留。
+
+    调用方的主线程不受影响，仍可回读子线程登记的意图。
+    """
+    from hivememory.core.errors import ThreadEndedError
+    from hivememory.core.models import PendingAtomStatus, TurnEvent, WriteFocus
+    from hivememory.workspace.contracts import ResolveReferencesRequest, SubmitWriteIntentRequest
 
     harness = OperationsHarness()
-    submit = await harness.submitter(make_identity_scope(agent_id="parent"))
+    scope = make_runtime_scope(agent_id="parent", run_id="process-ended-child")
+    identity_scope = make_identity_scope(agent_id="parent")
+    caller = ExecutionFrame(
+        execution_policy=FrameExecutionPolicy.from_verbs({"READ", "WRITE", "CALL"}),
+        runtime_scope=scope,
+        agent_profile=OMNI_DOLL_PROFILE,
+        working_history=[{"role": "user", "content": "委托写入"}],
+        topic_id="topic-parent",
+        submit_operation=await harness.submitter(identity_scope, scope.run_id),
+        language="zh",
+    )
+    caller.progress.turn_events.append(
+        TurnEvent(
+            kind="tool_call",
+            sequence=0,
+            role="assistant",
+            content="<CALL omni_doll>",
+            action_id="call-1",
+            tool_kind="CALL",
+            tool_name="omni_doll",
+            status="pending",
+        )
+    )
+    config = AliceConfig()
+    runtime = build_agent_runtime(
+        runtime_config=config.runtime,
+        koakuma_config=config.koakuma,
+        memory_compiler_config=MemoryCompilerConfig(),
+        llm_service=ScriptedLLMService(),
+    )
+    coordinator = CallCoordinator(
+        runtime, CallContextProvider(), frame_factory=FrameFactory(), koakuma_config=config.koakuma
+    )
+    session = RunSession(agent_run_id=scope.run_id, process_id="process-1")
+    session.register_root_frame(caller)
+    suspension = FrameExecutionResult(
+        status=FrameExecutionStatus.SUSPENDED,
+        call_request=MTPCallRequest(target_alias="omni_doll", task="写入后返回"),
+        suspend_action_id="call-1",
+    )
     try:
-        with pytest.raises(TypeError, match="derive_call_thread"):
-            await submit(DeriveCallThreadRequest())
-        assert harness.runtime.stats()["cold_reads"] == 0
+        transition = await coordinator.begin_call(
+            caller, suspension, session=session, run_output=NullAgentRunOutput()
+        )
+        assert isinstance(transition, DispatchCallee)
+        child = transition.frame
+        pending = await child.submit_operation(
+            SubmitWriteIntentRequest(WriteFocus(content="子线程的写入"))
+        )
+
+        await coordinator.complete_call(
+            caller,
+            suspension,
+            child,
+            FrameExecutionResult(status=FrameExecutionStatus.COMPLETED),
+            session=session,
+            run_output=NullAgentRunOutput(),
+        )
+
+        with pytest.raises(ThreadEndedError):
+            await child.submit_operation(ResolveReferencesRequest((pending.pending_alias,)))
+        stored = harness.registry.get(pending.pending_alias, identity_scope.workspace_identity)
+        assert (stored.status, stored.thread_id) == (PendingAtomStatus.MATERIALIZING, "child-1")
+        (read,) = await caller.submit_operation(ResolveReferencesRequest((pending.pending_alias,)))
+        assert read.kind == "pending"
     finally:
-        harness.revoke()
+        harness.revoke(scope.run_id)
         harness.runtime.close()

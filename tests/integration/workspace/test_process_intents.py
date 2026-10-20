@@ -1,7 +1,7 @@
 """任务进程、真实能力层与意图登记的生命周期协作测试。
 
 Gateway/prepare/finalize 位于本边界之外，由公开路由替身提供；CPU 经真实
-操作入口提交请求，验证实时派发、终态不撤回与 CPU 结束后的线程 context 拒绝。
+操作入口提交请求，验证实时派发、终态不撤回、意图的线程归因与线程结束后的拒绝。
 """
 
 from __future__ import annotations
@@ -11,10 +11,12 @@ import asyncio
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
+    AgentProfile,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -27,10 +29,11 @@ from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.contracts import (
+    DeriveCallThreadRequest,
     ResolveReferencesRequest,
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
-    ThreadContextRevokedError,
+    ThreadEndedError,
 )
 from hivememory.workspace.runtime import WorkspaceRuntime
 from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
@@ -66,6 +69,7 @@ async def test_process_terminal_status_preserves_dispatched_intents(status):
         belong_to=workspace,
         from_actor=actor,
         process_id="other",
+        thread_id="main",
     )
     submitted = []
     finalized = []
@@ -131,15 +135,99 @@ async def test_process_terminal_status_preserves_dispatched_intents(status):
             == PendingAtomStatus.MATERIALIZING
         )
         assert [payload.outcome for payload in finalized] == [status]
-        # completed 同样关闭主线程 context，全部请求类型均拒绝继续执行。
+        # completed 同样结束主线程，全部请求类型均拒绝继续执行。
         for request in (
             SubmitWriteIntentRequest(focus=WriteFocus(content="关闭后")),
             SubmitUpdateIntentRequest(base_alias="base", instruction="关闭后"),
             ResolveReferencesRequest(aliases=(other.pending_alias,)),
         ):
-            with pytest.raises(ThreadContextRevokedError):
-                await cpu.operation_entry.execute(request, access=cpu.calls[0].access)
+            with pytest.raises(ThreadEndedError):
+                await cpu.operation_entry.execute(request, access=cpu.calls[0].thread.access)
         assert runtime.intents.size == 2
+    finally:
+        runtime.close()
+        access.gateway.close()
+        access.gateway.revoke_all_contexts()
+
+
+@pytest.mark.asyncio
+async def test_main_and_child_thread_writes_record_their_own_thread_ids():
+    """同一进程中主线程与 CALL 子线程的写入分别记录各自的线程标识与发起者，共用进程关联。"""
+    actor = ActorIdentity(user_id="u1", agent_id="omni_doll")
+    access = make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id="u1",
+                agent_id="omni_doll",
+                allowed_operations=[WorkspaceOperation.MEMORY_WRITE, WorkspaceOperation.AGENT_CALL],
+            ),
+            make_actor_access_record(
+                owner_user_id="u1",
+                agent_id="worker",
+                allowed_operations=[WorkspaceOperation.MEMORY_WRITE],
+            ),
+        ]
+    )
+    bus = GlobalSystemBus()
+    install_intent_admission(bus)
+    runtime = WorkspaceRuntime(
+        backing=BusCanonicalReadBackend(bus), atom_capacity=8, profile_capacity=8
+    )
+    submitted = []
+
+    async def write_from_both_threads(submit):
+        submitted.append(await submit(SubmitWriteIntentRequest(focus=WriteFocus(content="主线程"))))
+        callee = await submit.derive_child(DeriveCallThreadRequest("worker"))
+        submitted.append(await callee(SubmitWriteIntentRequest(focus=WriteFocus(content="子线程"))))
+
+    async def gateway(**_kwargs):
+        return GatewayDecisionOutcome(decision=make_gateway_decision())
+
+    async def profile(agent_alias, **_kwargs):
+        if agent_alias == "worker":
+            return ResolvedAgentProfile(profile=AgentProfile(agent_id="worker"))
+        return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+
+    async def prepare(*, interaction_id, identity_scope, **_kwargs):
+        return make_prepared_run(interaction_id=interaction_id, identity_scope=identity_scope)
+
+    async def finalize(**_kwargs):
+        return []
+
+    for route, handler in (
+        (GatewayPublicRoutes.PROCESS, gateway),
+        (PatchouliRoutes.GET_AGENT_PROFILE, profile),
+        (PatchouliRoutes.PREPARE_AGENT_RUN, prepare),
+        (PatchouliRoutes.FINALIZE_AGENT_RUN, finalize),
+    ):
+        bus.register(route, handler)
+    service = make_task_process_service(
+        bus,
+        cpu=ScriptedCPU(
+            result=make_cpu_result(status="completed"), operation_script=write_from_both_threads
+        ),
+        access_gateway=access.gateway,
+        operation_authorizer=access.authorizer,
+        workspace_runtime=runtime,
+    )
+    handle = await service.register_process(
+        adapter="local",
+        principal=access.principal,
+        actor=actor,
+        workspace=access.default_workspace,
+        process_id="attributed",
+        message="归因",
+    )
+    try:
+        await service.run_process(handle, stream=False)
+        stored = [
+            runtime.intents.get(pending.pending_alias, access.default_workspace)
+            for pending in submitted
+        ]
+        assert [(item.process_id, item.thread_id, item.from_actor.agent_id) for item in stored] == [
+            ("attributed", "main", "omni_doll"),
+            ("attributed", "child-1", "worker"),
+        ]
     finally:
         runtime.close()
         access.gateway.close()
@@ -316,17 +404,19 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
             while (await anext(stream))["event"] != "token":
                 pass
         await stream.aclose()
+        # 交付方离开只请求停止；等待进程在自己的 task 中撤销线程并关闭。
+        await service.close_process(handle)
         (task,) = update_tasks
         assert task.cancelling() == 0
         assert runtime.intents.size == 0
         release.set()
-        with pytest.raises(ThreadContextRevokedError):
+        with pytest.raises(ThreadEndedError):
             await asyncio.wait_for(task, timeout=1)
         assert task.cancelled() is False
         assert runtime.intents.size == 0
-        with pytest.raises(ThreadContextRevokedError):
+        with pytest.raises(ThreadEndedError):
             await cpu.operation_entry.execute(
-                ResolveReferencesRequest(aliases=("base",)), access=cpu.calls[0].access
+                ResolveReferencesRequest(aliases=("base",)), access=cpu.calls[0].thread.access
             )
     finally:
         await stream.aclose()

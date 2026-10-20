@@ -20,7 +20,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 数据模型与可变性边界
@@ -110,7 +110,7 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 ### 4.4 PendingAtom 状态机
 
-`PendingAtom` 是 workspace 登记持有的可变记录，分开保存 `belong_to: WorkspaceIdentity`、`from_actor: ActorIdentity` 与只作观测关联的 `process_id`；不再保存 `identity` 或 Alice 的 `runtime_scope`。登记即进入 MATERIALIZING，随后推进为 SETTLED、FAILED 或 CANCELLED；EXPIRED 是三者共同的永久终态，当前没有转入它的触发，终态句柄保留到进程重启。
+`PendingAtom` 是 workspace 登记持有的可变记录，分开保存 `belong_to: WorkspaceIdentity`、`from_actor: ActorIdentity` 与只作观测关联的 `process_id`、`thread_id`（发起写入的任务进程与执行线程，回读与授权不读取它们）；不再保存 `identity` 或 Alice 的 `runtime_scope`。登记即进入 MATERIALIZING，随后推进为 SETTLED、FAILED 或 CANCELLED；EXPIRED 是三者共同的永久终态，当前没有转入它的触发，终态句柄保留到进程重启。
 
 登记与解析器均交付深复制结果，调用方修改返回对象不会改写权威登记或缓存。`ReferenceResolution` 是 core 中立 dataclass，携带逐项状态、独立的 pending/atom 与结算视图；redirect 目标不可读时清空引用并省略 pending，避免 UPDATE focus 泄露基础 UUID。actor API 提交携带登记标识与内容的 `MemoryIntent`，物化任务由 Patchouli 意图服务内部构造，独立携带归属与发起者。
 
@@ -126,8 +126,9 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 |:---|:---|:---|
 | `ActorIdentity` | `user_id`、`agent_id`、可选 `team_id` | 不含 session 或运行关联 ID |
 | `IdentityScope` | 操作发起者 + 目标 Workspace | 一次操作调用链；不写入记录或后台任务 |
-| `ExecutionLabels` | 只有 `agent_id` 与 `workspace_id` 两个观测字符串；拒绝额外字段 | 注册认证通过后创建一次，CPU 清单、主子 frame 与运行事件共享；不用于授权 |
-| 线程 context（`WorkspaceAccessContext`，运行绑定为执行线程） | 密封的授予内容：沿用进程 context 的驻留 Workspace 与 principal；主线程沿用进程的 actor，CALL 子线程的 actor 是同一用户的被调用方；运行绑定为所属进程的 `process_id` 加线程标识（`main` 或 `child-N`） | 主线程在进入 CPU 执行阶段时、子线程在 CALL 派生时从进程 context 派生，独立于 CPU 清单交给 CPU；进程工作集登记全部线程，CPU 执行结束时一起撤销；不复制或序列化 |
+| `ExecutionLabels` | 只有 `agent_id` 与 `workspace_id` 两个观测字符串；拒绝额外字段 | 进程级标签在注册认证通过后创建一次，CPU 清单与运行事件共享；线程描述携带线程自己的标签（主线程与注册标签相同，CALL 子线程为被调用方与注册时的 workspace），frame 取所属线程的标签；不用于授权 |
+| 线程描述（`ThreadDescriptor`） | `thread_id`、观测标签、图纸 `AgentProfile` 与操作快照；不含访问 context | 线程表在派生时生成并冻结，随执行线程交给 CPU；快照只供提示词与执行策略 |
+| 线程 context（`WorkspaceAccessContext`，运行绑定为执行线程） | 密封的授予内容：沿用进程 context 的驻留 Workspace 与 principal；主线程沿用进程的 actor，CALL 子线程的 actor 是同一用户的被调用方；运行绑定为所属进程的 `process_id` 加线程标识（`main` 或 `child-N`） | 主线程在进入 Actor 阶段时、子线程在 CALL 派生时从进程 context 派生，与线程描述一起作为执行线程交给 CPU 驱动；登记在进程的线程表中，随线程结束撤销（子线程随 CALL 返回，其余至迟在 Actor 阶段收尾）；不复制或序列化 |
 | `PreparedAgentRun` | `belong_to` | prepare 结果；finalize/cleanup 另接当次阶段授权的 scope |
 | `InteractionSubmission` | 必需的 `belong_to`、`from_actor` | 交互提交与重试；内容由 payload 保存 |
 | `MemoryGenerationTaskSpec` / `MemoryGenerationTask` | 必需的 `belong_to`、`from_actor` | 生成输入与对外任务快照；归属用于观察与取消检查 |

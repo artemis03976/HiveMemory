@@ -1,17 +1,16 @@
 """聊天路由 — POST /api/v1/chat 与 /api/v1/chat/stop。"""
 
-import asyncio
 import json
 import logging
 import uuid
 from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import aclosing
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
 from starlette.types import Receive, Scope, Send
 
-from hivememory.components.cancellation import cancel_and_join
 from hivememory.core.access import CallerPrincipal
 from hivememory.server.deps import (
     HTTP_ADAPTER,
@@ -30,27 +29,18 @@ from hivememory.workspace.process.service import TaskProcessService
 router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["chat"])
 logger = logging.getLogger(__name__)
 
-
-async def _cancel_pull(task: asyncio.Task) -> None:
-    """取消并结算一次进行中的 Chat 流式拉取。
-
-    流结束或拉取失败已由循环处理，收尾时再次取回的同一结果只记录调试日志。
-    """
-    try:
-        await cancel_and_join(task)
-    except StopAsyncIteration:
-        pass
-    except Exception:
-        logger.debug("SSE pull task cleanup failed", exc_info=True)
+#: 客户端断连时交付方离开的停止原因。
+CLIENT_DISCONNECTED_REASON = "client_disconnected"
 
 
 class _RegisteredProcessResponse(EventSourceResponse):
-    """已注册进程的 SSE 响应：响应收尾时兜底执行进程的关闭路径。
+    """已注册进程的 SSE 响应：响应收尾时执行交付的收尾回调。
 
-    生成器体从未开始执行时，其中的 ``finally`` 不会运行：例如关停信号在
-    注册期间到达，sse_starlette 在开始迭代前就取消了响应；或服务器对已
-    断开连接的 send 抛出 ``OSError``。因此进程的关闭挂在响应自身的收尾
-    上，不依赖生成器是否开始迭代。
+    生成器体从未开始执行时，其中的代码与 ``finally`` 都不会运行：例如关停
+    信号在注册期间到达，sse_starlette 在开始迭代前就取消了响应；或服务器
+    对已断开连接的 send 抛出 ``OSError``。生成器在等待 send 时被取消，也会
+    停在 ``yield`` 处而不运行 ``finally``。因此收尾挂在响应自身上，不依赖
+    生成器是否开始迭代。
     """
 
     def __init__(
@@ -71,7 +61,6 @@ class _RegisteredProcessResponse(EventSourceResponse):
 
 @router.post("/chat")
 async def chat(
-    request: Request,
     body: ChatRequest,
     selection: RequestIdentitySelection = Depends(get_identity_selection),
     service: TaskProcessService = Depends(get_process_service),
@@ -84,12 +73,13 @@ async def chat(
     前不组装 ``IdentityScope``，声明只作为注册入口的认证输入）。注册入口
     以 server 自身 principal 完成两阶段认证并立即创建、登记任务进程（签发
     即绑定，运行类型为本进程），返回不透明的进程句柄；注册失败直接抛出、
-    返回 HTTP 403 且不创建进程，注册成功后才开始流式响应。客户端断开以
-    句柄形式的 :meth:`cancel_process` 取消进程（不经进程控制授权），取消
-    先于关闭；进程经
-    :meth:`close_process` 关闭（context 失效并从进程表注销），关闭路径只执行一次：生成器开始迭代过时由其
-    ``finally`` 收口；生成器从未开始时（例如关停信号在注册期间到达）由
-    响应收尾兜底。
+    返回 HTTP 403 且不创建进程，注册成功后才开始流式响应。
+
+    进程在自己的 task 中运行，路由只订阅它的流式交付。客户端断连时
+    sse_starlette 取消响应，交付生成器随之以 ``client_disconnected`` 退订并
+    请求停止，进程自行收尾，响应不等待进程关闭。生成器从未开始迭代时
+    （例如关停信号在注册期间到达），响应收尾经 :meth:`close_process`
+    关闭进程。
     """
     process_id = f"process_{uuid.uuid4().hex}"
     claims = resolve_request_identity_claims(
@@ -114,49 +104,21 @@ async def chat(
         ),
         attachments=body.attachments,
     )
-    process_closed = False
-
-    async def close_registered_process() -> None:
-        # 生成器的 finally 与响应收尾都会到达这里，先到者执行关闭。
-        nonlocal process_closed
-        if process_closed:
-            return
-        process_closed = True
-        await service.close_process(handle)
+    started = False
 
     async def event_generator():
+        nonlocal started
+        started = True
         try:
-            stream = service.run_process(handle, stream=True)
-            while True:
-                pull_task = asyncio.create_task(stream.__anext__())
-                try:
-                    while not pull_task.done():
-                        if await request.is_disconnected():
-                            # 客户端断开是一次取消：持有句柄即为进程生命
-                            # 周期的所有者，句柄形式的取消不经进程控制授权；
-                            # 取消先于关闭，保留断开原因与对应的终态事件。
-                            service.cancel_process(handle, reason="client_disconnected")
-                            return
-                        await asyncio.sleep(0.1)
-
-                    event = await pull_task
-
+            # aclosing 保证本生成器被关闭时，交付生成器也随之退订。
+            async with aclosing(
+                service.run_process(handle, stream=True, detach_reason=CLIENT_DISCONNECTED_REASON)
+            ) as events:
+                async for event in events:
                     yield {
                         "event": event["event"],
                         "data": json.dumps(event["data"], ensure_ascii=False, default=str),
                     }
-
-                    if await request.is_disconnected():
-                        service.cancel_process(handle, reason="client_disconnected")
-                        break
-                except StopAsyncIteration:
-                    break
-                except asyncio.CancelledError:
-                    service.cancel_process(handle, reason="client_disconnected")
-                    raise
-                finally:
-                    await _cancel_pull(pull_task)
-
         except Exception:
             logger.exception("chat route stream error")
             yield {
@@ -166,12 +128,19 @@ async def chat(
                     ensure_ascii=False,
                 ),
             }
-        finally:
-            # 注册入口的关闭路径：正常终态与断流都在此收口，使绑定 context
-            # 失效并从进程表注销。
-            await close_registered_process()
 
-    return _RegisteredProcessResponse(event_generator(), on_close=close_registered_process)
+    stream = event_generator()
+
+    async def finish_response() -> None:
+        if started:
+            # 响应在生成器停于 yield 时被取消，生成器体的 finally 不会自行
+            # 运行：关闭它，交付方以断连原因退订。已经结束的生成器关闭是空操作。
+            await stream.aclose()
+        else:
+            # 生成器体从未执行，进程也从未运行：经注册入口的关闭路径关闭。
+            await service.close_process(handle)
+
+    return _RegisteredProcessResponse(stream, on_close=finish_response)
 
 
 @router.post("/chat/stop")

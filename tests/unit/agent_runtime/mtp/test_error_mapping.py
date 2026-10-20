@@ -13,7 +13,7 @@ from hivememory.core.errors import (
     StorageOfflineError,
     StorageReadError,
     StorageWriteError,
-    ThreadContextRevokedError,
+    ThreadEndedError,
 )
 from hivememory.core.mtp.exceptions import InvalidArgumentError, SyscallExecutionError
 from hivememory.core.mtp.models import MTPErrorSeverity
@@ -164,7 +164,7 @@ def test_unknown_intent_recommends_verification_only_when_read_is_allowed(
     ("language", "expected"), [("zh", "原线程已结束"), ("en", "The original thread has ended")]
 )
 def test_revoked_thread_uses_stop_message_with_existing_system_code(language, expected):
-    info = mtp_error_info(ThreadContextRevokedError("secret"))
+    info = mtp_error_info(ThreadEndedError("secret"))
     assert (info.code, info.severity) == ("mtp.system.fault", MTPErrorSeverity.SYSTEM_FAULT)
     assert expected in get_mtp_error_text(info.message_key, info.params, language)
     assert info.params == {}

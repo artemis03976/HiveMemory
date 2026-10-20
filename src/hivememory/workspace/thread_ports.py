@@ -1,9 +1,10 @@
-"""能力层交给任务进程的线程端口：CALL 子线程派生与写入意图的派发话题读取。
+"""能力层交给任务进程的线程端口：一次解析执行线程，以及 CALL 子线程的派生与结束。
 
-两个端口只在 workspace 内部使用：actor API 依赖它们，进程线程管理实现它们，
-组合根注入。放在能力层与进程之外，使能力层不必导入进程子包。
+端口只在 workspace 内部使用：操作入口与 actor API 依赖它，进程线程管理实现
+它，组合根注入。放在能力层与进程之外，使能力层不必导入进程子包。
 """
 
+from dataclasses import dataclass
 from typing import Protocol
 
 from hivememory.core.access import WorkspaceAccessContext
@@ -11,22 +12,41 @@ from hivememory.core.models.agent import AgentProfile
 from hivememory.workspace.contracts.threads import ExecutionThread
 
 
-class ChildThreadSpawner(Protocol):
-    """actor API 交给进程的派生请求；进程关联由授权者读取。"""
+@dataclass(frozen=True, slots=True)
+class ResolvedThread:
+    """线程表对一个存活线程的一次解析结果：进程关联、线程标识与派发话题。
 
-    def derive_child_thread(
-        self, *, access: WorkspaceAccessContext, process_id: str, profile: AgentProfile
+    只在 workspace 内部、一次操作的调用链内使用，不进入 CPU 可见的对象、
+    记录或事件；身份仍只在线程 context 中，由授权者逐次授权时读取。
+    """
+
+    process_id: str
+    thread_id: str
+    # CPU 分配冻结的真实话题，主线程与 CALL 子线程共享，actor 请求不能指定。
+    dispatch_topic_id: str
+
+
+class ExecutionThreadTable(Protocol):
+    """执行线程的唯一入口：解析、派生与结束都只经过所属进程的线程表。"""
+
+    def resolve(self, access: WorkspaceAccessContext) -> ResolvedThread:
+        """同步判定线程存活并返回解析结果。
+
+        线程已结束（凭据已撤销、线程已结束或进程已收到停止）以
+        ``ThreadEndedError`` 拒绝；context 不对、线程或进程未登记属于接线
+        缺陷，以 ``ScopeRequiredError`` 拒绝。
+        """
+        ...
+
+    def derive_child(
+        self, *, parent: WorkspaceAccessContext, profile: AgentProfile
     ) -> ExecutionThread:
-        """确认主线程仍在 Actor 阶段，再以图纸的 Agent 派生、登记并读取其操作快照。"""
+        """重新判定调用方存活且是主线程，再以图纸的 Agent 派生、读取操作快照并登记。"""
+        ...
+
+    def end_child(self, access: WorkspaceAccessContext) -> None:
+        """同步结束一个子线程并撤销其凭据；已结束的线程是空操作，主线程以接线缺陷拒绝。"""
         ...
 
 
-class IntentDispatchTopicReader(Protocol):
-    """能力层读取本进程的派发话题；只接受仍在 Actor 阶段的已登记线程。"""
-
-    def get_dispatch_topic(self, *, access: WorkspaceAccessContext, process_id: str) -> str:
-        """同步校验进程与线程关联，返回 CPU 分配时冻结的真实话题 ID。"""
-        ...
-
-
-__all__ = ["ChildThreadSpawner", "IntentDispatchTopicReader"]
+__all__ = ["ExecutionThreadTable", "ResolvedThread"]

@@ -8,8 +8,10 @@ code_paths:
   - src/hivememory/workspace/process/runner.py
   - src/hivememory/workspace/process/table.py
   - src/hivememory/patchouli/service.py
+  - src/hivememory/workspace/process/service.py
+  - src/hivememory/workspace/process/outputs.py
   - src/hivememory/alice/run/service.py
-  - src/hivememory/alice/interface/stream.py
+  - src/hivememory/alice/interface/output.py
   - src/hivememory/server/routers/chat.py
   - frontend/src/stores/chat/
 related_docs:
@@ -36,12 +38,12 @@ last_reviewed: 2026-10-19
 
 **2026-10-15**：[会话计划](../archive/plans/v0.7.0-conversation-session.md)已完成并归档，原候选 D 和第 3.4 节问题移出本文：有输出的取消/失败轮次可恢复，finalizing 处关闭也等待提交完成。当前事实见 [System 应用服务](../system/application-services.md#33-部分输出与交付关闭)，原候选全文见 commit `c7e912a9` 中的本文。停止仍只经 `Task.cancel()` 与原生 `CancelledError`。
 
-**2026-10-19**：候选 A 中“执行所有权从 SSE 移到进程”的部分已形成[任务进程拥有执行流计划](../plans/v0.7.0-task-process-owned-execution.md)，触发条件见[代码结构成因基线](../governance/baselines/v0.7.0-code-structure-causes-2026-10-18.md)第 3.1 节。该计划的内容是：
-- 进程持有自己的 task 与输出通道，交付改为订阅；
-- 断连仍按现行策略停止并丢弃本轮；
-- CPU 端口改为推送事件、返回终态。
+**2026-10-19**：候选 A 中“执行所有权从 SSE 移到进程”的部分已经落地，[任务进程拥有执行流计划](../archive/plans/v0.7.0-task-process-owned-execution.md)已归档，触发条件见[代码结构成因基线](../governance/baselines/v0.7.0-code-structure-causes-2026-10-18.md)第 3.1 节。现在：
+- 进程持有自己的 task 与单订阅者输出通道，交付方只订阅或等待终态，进程只在自己的 task 中收尾；
+- 断连按现行策略以 `client_disconnected` 停止并丢弃本轮，与用户停止走同一条路径；
+- CPU 端口推送交互事件、返回终态结果，Alice 的队列适配器与结果槽已删除。
 
-第 2 节的基线全部保留。候选 A 的产品部分（断连后继续运行、重连、多订阅者、状态查询）与候选 B 的输出保留策略，仍按本文各节的启用条件处理。
+当前事实见 [System 应用服务](../system/application-services.md)第 3、4 节。第 2 节的基线全部保留。候选 A 的产品部分（断连后继续运行、重连、多订阅者、状态查询）与候选 B 的输出保留策略，仍按本文各节的启用条件处理，它们的前提已在第 3、4 节随之更新。
 
 本文覆盖：
 
@@ -74,6 +76,8 @@ last_reviewed: 2026-10-19
 ## 3. 候选 A：独立 `ChatRunJob` 与 SSE 所有权解耦
 
 ### 3.1 解决的问题
+
+**2026-10-19 前提更新**：执行所有权部分已经落地：任务进程（对应下文的 Job）由注册入口创建并持有自己的 task，进程表对应 Registry，进程的输出通道对应 `ChatOutputChannel`；交付方离开只退订，并按现行策略请求停止。下文仍未实现的只有产品部分：断连后继续运行并保存本轮、重新订阅、多订阅者与状态查询。原问题描述保留如下，`chat_stream()` 的所有权描述已不是现状。
 
 最小方案继续由 `chat_stream()` async generator 拥有编排。客户端断开时，ASGI 关闭
 generator，当前 Chat Run 也随之结束。这在短链路中可以接受，但无法表达：
@@ -121,13 +125,15 @@ flowchart TD
 - 非流式和流式入口因所有权不同持续产生状态分叉；
 - Chat Run 需要独立状态查询或后台观察。
 
-在此之前，独立 Job 只增加 registry、task、队列和关闭协议，不应实现。
+进程 task、进程表、输出通道与关闭协议已经存在（2026-10-19），以上条件现在只约束产品部分：改变“断连即停止并丢弃”的策略、支持重新订阅与多订阅者、提供状态查询。
 
 ---
 
 ## 4. 候选 B：`ChatOutputChannel` 与输出背压
 
 ### 4.1 职责
+
+**2026-10-19 前提更新**：进程的输出通道已经存在，只允许一个订阅者：交互事件有界（256 项），订阅者在线时写满即阻塞进程；终态产出与结束标记不受容量限制；订阅者离开后丢弃此后的全部产出。RuntimeEvent 独立发布。下表与问题清单仍对应产品部分：无订阅者时是否保留输出、重连如何重放、是否允许多订阅者。
 
 独立 Job 启用后，输出通道需要区分三类消息：
 
@@ -145,7 +151,9 @@ flowchart TD
 - producer 在队列满时等待、丢弃还是断开慢消费者；
 - 一个 Job 是否允许多个订阅者。
 
-### 4.2 Alice 队列与 Chat 通道的边界
+### 4.2 Alice 输出与 Chat 通道的边界
+
+**2026-10-19 前提更新**：Alice 内部的队列与 runner task 已删除，Alice 经 CPU 端口的事件 sink 直接写入进程的输出通道，停止后以 cancelled 结果交回部分输出；路由的 stream-pull task 也已删除。下文关于队列 drain 与 pull 延迟的讨论只保留作背景。
 
 Alice 的 `done` 是子系统内部终态，Chat Job 必须消费但不得直接转发为 Chat `done`。
 Chat 对外只能发布一次 Chat-level `done`。

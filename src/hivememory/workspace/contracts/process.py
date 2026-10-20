@@ -4,21 +4,18 @@ from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.core.access import WorkspaceOperation
-from hivememory.core.models import (
-    AgentProfile,
-    ExecutionLabels,
-)
+from hivememory.core.models import ExecutionLabels
 from hivememory.core.protocol.models import ConversationTurn, SessionCompactionCheckpoint
 
 
 class CPUInputManifest(BaseModel):
     """任务进程在分配 CPU 时组装的、与 CPU 无关的输入清单。
 
-    Profile 解析、附件租借与提示词编译都在进程侧完成。CPU 将人格、环境
-    通知与本轮材料视为不透明文本，只负责布局与自身的工具教学、历史管理；
-    Profile 供模型参数与展示使用。检索原子只在进程内使用（编译与引用投影），
-    不进入清单。
+    清单回答“处理什么”：本轮材料、语言与会话历史；“谁来处理”由主线程的
+    线程描述回答（图纸与操作快照随主线程交给 CPU）。Profile 解析、附件租借
+    与提示词编译都在进程侧完成。CPU 将人格、环境通知与本轮材料视为不透明
+    文本，只负责布局与自身的工具教学、历史管理。检索原子只在进程内使用
+    （编译与引用投影），不进入清单。
 
     ``topic_id`` 只用于根帧挂载与观测；历史来自当前会话，Topic 不提供对话上下文。
     """
@@ -28,12 +25,10 @@ class CPUInputManifest(BaseModel):
     process_id: str = Field(
         description="任务进程唯一标识；同时充当本次 Interaction 的稳定关联 ID",
     )
-    labels: ExecutionLabels = Field(description="注册时绑定的只读观测标签，不用于行为授权")
-    user_message: str = Field(description="原始用户消息")
-    agent_profile: AgentProfile = Field(description="CPU 分配时经阶段授权与读取视图解析的 Profile")
-    allowed_operations: frozenset[WorkspaceOperation] = Field(
-        description="CPU 分配时的 actor 操作快照，只供提示词与执行策略使用，不作为授权依据",
+    labels: ExecutionLabels = Field(
+        description="注册时绑定的进程级观测标签，供运行级观测与历史归属使用，不用于行为授权"
     )
+    user_message: str = Field(description="原始用户消息")
     language: str = Field(description="进程解析好的提示词语言，CPU 的教学与摘要沿用此语言")
     instructions: str = Field(description="进程定稿的环境通知与人格段；无内容时为空字符串")
     turn_context: str = Field(description="进程定稿的记忆与附件段；无内容时为空字符串")

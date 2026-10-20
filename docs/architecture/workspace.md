@@ -45,7 +45,7 @@ related_docs:
   - docs/patchouli/artifacts.md
   - docs/governance/security/identity-and-execution-safety.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # Workspace 架构
@@ -174,23 +174,24 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 | 层 | 持有 | 不持有 |
 |:---|:---|:---|
 | server（入口 adapter） | 认证前的声明（只作为认证输入）；自身的 principal 与 adapter；管理操作的请求级 context 与目标 Workspace；chat 的不透明进程句柄 | 认证前组装的 `IdentityScope`；认证后的身份；进程记录及其中的 context |
-| 授权点：注册入口、能力层、任务进程的阶段检查 | 访问 context、操作授权者（注册入口作为进程 context 的运行持有者，另持认证网关；执行器另经线程 context 生命周期端口派生与撤销线程 context） | 调用方另行传入的 `IdentityScope` |
+| 授权点：注册入口、能力层、任务进程的阶段检查 | 访问 context、操作授权者（注册入口作为进程 context 的运行持有者，另持认证网关；进程线程管理另经线程 context 生命周期端口派生与撤销线程 context） | 调用方另行传入的 `IdentityScope` |
 | Gateway 与 Patchouli 公共边界 | 授权点组装后传入的 `IdentityScope`；Patchouli 立即拆分归属与发起者 | 访问 context、认证网关、操作授权者 |
 | Patchouli 内部、引擎、存储 | 独立的 `WorkspaceIdentity` 与需要时的 `ActorIdentity` | `IdentityScope`、访问 context、认证网关、操作授权者 |
-| 进程记录 | 进程 context 与进程元数据；事件绑定载体中的只读观测标签；工作集登记 CPU 执行阶段的线程 context，只用于撤销 | 身份字段副本 |
-| CPU 驱动（`AliceCPU`） | 本次执行的主线程与 CALL 派生的子线程 context，各自与操作入口绑定为提交函数（`workspace.contracts.ThreadOperationSubmitter`） | 进程 context、`IdentityScope`、读取 context 内容的能力 |
-| Alice 运行（frame、Agent loop、MTP、CALL 编排）与 agent_runtime | `ExecutionLabels`、每个 frame 自己线程的 `OperationSubmitter` | 访问 context、`ExecutionThread` 及其中的 context、`IdentityScope`、可用于授权的 actor / Workspace 身份 |
+| 进程记录 | 进程 context 与进程元数据；事件绑定载体中的只读观测标签 | 身份字段副本 |
+| 进程的线程表（`TaskProcess.threads`） | Actor 阶段内本进程的执行线程：线程 context、状态、父线程与线程描述 | 身份字段副本；线程的身份只在线程 context 中 |
+| CPU 驱动（`AliceCPU`） | 本次执行的主线程与 CALL 派生的子线程（`ExecutionThread`：线程描述与线程 context），各自与操作入口绑定为线程句柄（`workspace.contracts.ThreadOperationSubmitter`） | 进程 context、`IdentityScope`、读取 context 内容的能力 |
+| Alice 运行（frame、Agent loop、MTP、CALL 编排）与 agent_runtime | `ExecutionLabels`、线程描述 `ThreadDescriptor`、每个 frame 所属线程的句柄 `OperationSubmitter` | 访问 context、`ExecutionThread` 及其中的 context、`IdentityScope`、可用于授权的 actor / Workspace 身份 |
 
 必须持续成立的不变量：
 
 1. 第 3 阶段之前不存在 `IdentityScope`：入口在认证前只持有 actor 声明与请求进入的 Workspace（`/ingest` 是已知例外，第 3.2 节）。
-2. 访问 context 只出现在本次运行的持有者和授权点（线程 context 的运行是该线程在 CPU 执行阶段内的执行，持有者是 CPU 驱动）；不进入资源 owner、Gateway、引擎或存储，不写入任何记录、事件、交互记录或 DTO。
+2. 访问 context 只出现在本次运行的持有者和授权点（线程 context 的运行是该执行线程从派生到结束的一段，持有者是 CPU 驱动）；不进入资源 owner、Gateway、引擎或存储，不写入任何记录、事件、交互记录或 DTO。
 3. 运行结束后不再读取访问 context。交互记录与后台任务独立保存资源归属和需要的发起者，不保存操作 scope。
 4. 授权点只接收访问 context 与目标 Workspace，`IdentityScope` 只由操作授权者组装，不由调用方另行传入；公共 route 接收 scope，Patchouli 公共边界以下只接收拆分后的归属与发起者。没有函数同时接收 `identity_scope` 与 `access`（`/ingest` 除外）。
 5. 资源 owner 先校验目标 Workspace 等于资源归属，再按资源 policy 检查发起者；管理视角也不跳过 Workspace 硬边界，资源来源不能充当权限依据。归属检查常以分区键或查询预过滤的形式完成、看似多余，但缓存与资产索引是进程级共享设施，存储的预过滤也不是授权事实，因此不能省略。
 6. 授权规则不是身份类型的约束：“actor 用户等于 Workspace owner”属于第 2、3 阶段，`IdentityScope` 不校验它。
 
-不变量 2、4 由架构测试守护：认证与授权模块只允许 workspace、组合根与 server 导入；能力层、任务进程的执行器 `TaskProcessRunner` 与 CPU 分配不导入认证一侧，执行器只经线程 context 生命周期端口派生与撤销线程 context；Gateway、Patchouli 不导入两者。身份拆分边界测试另限定 Patchouli 的 scope 引用只能出现在公共 handler，五个引擎与记录/任务模型不保留 scope。
+不变量 2、4 由架构测试守护：认证与授权模块只允许 workspace、组合根与 server 导入；能力层、任务进程的执行器 `TaskProcessRunner`、CPU 分配与进程线程管理不导入认证一侧，线程 context 的派生与撤销只由进程线程管理经生命周期端口调用；Gateway、Patchouli 不导入两者。身份拆分边界测试另限定 Patchouli 的 scope 引用只能出现在公共 handler，五个引擎与记录/任务模型不保留 scope。
 
 ### 4.2 两类访问登记
 
@@ -247,27 +248,46 @@ context 是**密封的**凭据：
 | | 进程 context | 主线程的线程 context | 子线程的线程 context |
 |:---|:---|:---|:---|
 | actor | 进程的 Agent | 进程的 Agent | CALL 的目标 Agent（同一用户） |
-| 签发 | 注册时认证签发 | 进入 CPU 执行阶段时从进程 context 派生 | 主线程的 CALL 派生请求到达进程时，以被调用方准入后从进程 context 派生 |
+| 签发 | 注册时认证签发 | 进入 Actor 阶段时由线程表从进程 context 派生 | 主线程的 CALL 派生到达线程表时，以被调用方准入后从进程 context 派生 |
 | 运行绑定 | 任务进程，`process_id` | 所属进程的 `process_id` 加线程标识 `main` | 所属进程的 `process_id` 加进程分配的线程标识（`child-N`） |
-| 持有者 | 进程记录 | CPU 驱动，绑定为主帧的提交函数 | CPU 驱动，绑定为子帧的提交函数 |
+| 持有者 | 进程记录 | 线程表登记；CPU 驱动绑定为主帧的线程句柄 | 线程表登记；CPU 驱动绑定为子帧的线程句柄 |
 | 用途 | 全部四个阶段的阶段授权、操作快照读取与进程控制比对 | 主线程发起的 actor 操作 | 子线程发起的 actor 操作，按被调用方的白名单与可见性授权 |
-| 撤销 | 进程以任何结局关闭时由注册入口最后撤销 | CPU 执行结束时与全部线程一起撤销，关闭流程兜底（第 5.4 节） | 同左 |
-
-进程工作集登记本进程的全部线程 context，用于统一撤销。
+| 撤销 | 进程以任何结局关闭时由注册入口最后撤销 | 线程结束时：Actor 阶段收尾兜底结束全部线程，关闭流程再兜底（第 5.4 节） | 线程结束时：CALL 返回时由 CPU 经操作入口结束；否则同主线程 |
 
 **派生**：两种派生都只接受未撤销的进程 context，沿用其中的驻留 Workspace 与 principal，运行绑定换为执行线程；新 context 记入已签发集合，可以单独撤销。请求级、线程级与已撤销的 context 不能派生，认证入口也拒绝直接签发执行线程绑定。派生不是认证：不重新检查接入登记，也不受网关关闭影响；准入与白名单仍由每次授权即时检查。
 
 - `WorkspaceAuthenticator.derive_thread_context` 派生主线程：复制原 actor，不改变身份。
 - `derive_child_thread_context(access, agent_id=..., thread_id=...)` 派生子线程：actor 换为同一用户的被调用方，签发前做被调用方的第 2 阶段准入（owner 与准入记录），准入失败以 `AdmissionDeniedError`（`actor_not_admitted`）拒绝；被调用方不能是保留的 `system`（`system_actor_not_allowed`），线程标识不能是 `main`。
 
-进程侧经 `core.access` 的 `ThreadContextLifecycle` 端口使用这两项派生与线程撤销（撤销拒绝非线程 context），组合根注入认证网关的实现；这些调用集中在任务进程的线程管理 `ProcessThreads`（`workspace/process/threads.py`），执行器与 CPU 分配仍不导入认证一侧。子线程的派生流程见第 5.4 节。
+进程侧经 `core.access` 的 `ThreadContextLifecycle` 端口使用这两项派生与线程撤销（撤销拒绝非线程 context），组合根注入认证网关的实现；这些调用只由任务进程的线程管理 `ProcessThreads`（`workspace/process/threads.py`）发出，执行器与 CPU 分配仍不导入认证一侧。子线程的派生流程见第 5.4 节。
 
-为什么分成两类：context 本身已是密封、可撤销的凭据，线程身份的令牌就是线程 context，不另设一层指向进程 context 的执行凭据；两类 context 各自撤销，CPU 执行结束后迟到的 actor 请求即被拒绝，而 finalize、话题池读取与 cleanup 仍以进程 context 完成。线程 context 于 v0.7.0 取代执行凭据与凭据表（[归档计划](../archive/plans/v0.7.0-thread-context.md)）。
+为什么分成两类：context 本身已是密封、可撤销的凭据，线程身份的令牌就是线程 context，不另设一层指向进程 context 的执行凭据；两类 context 各自撤销，线程结束后迟到的 actor 请求即被拒绝，而 finalize、话题池读取与 cleanup 仍以进程 context 完成。线程 context 于 v0.7.0 取代执行凭据与凭据表（[归档计划](../archive/plans/v0.7.0-thread-context.md)）。
+
+**执行线程与线程表**：执行线程是任务进程在 Actor 阶段内的执行主体，回答“这一步是谁在执行”。它恰好属于一个进程，共享进程的资源（驻留 Workspace 与 principal 在进程 context 中，派发话题在工作集中，会话属于会话服务），有自己的身份（在线程 context 中）、能力（操作快照）与生命周期；CPU 在内部把它对应到自己的执行上下文（Alice 的帧）。
+
+| | 进程 | 线程 |
+|:---|:---|:---|
+| 登记表 | `ProcessTable`：全系统一份，按 `process_id` 登记全部进程 | `ProcessThreadTable`：每个进程一份（`TaskProcess.threads`），按 `thread_id` 登记本进程的线程 |
+| 被登记的对象 | `TaskProcess`：进程容器，不离开注册入口 | `ProcessThread`：可变的控制状态（线程 context、状态 `RUNNING`/`ENDED`、父线程）与冻结的线程描述，不离开线程管理 |
+| 交给外部的视图 | `ProcessHandle`：交付方持有 | `ExecutionThread`：CPU 驱动持有，即线程描述与线程 context；`ResolvedThread`：能力层的一次解析结果 |
+
+线程表只登记派生成功的线程：派生的各步（签发线程 context、读取操作快照）全部成功后才登记，失败时撤销刚签发的 context，不留下登记，也不消耗编号。子线程标识按派生顺序分配（`child-1`、`child-2`……）；已结束的线程留在表中直到进程关闭，标识不复用。线程表不登记进程的资源、CPU 一侧的执行状态（帧与线程句柄归 CPU 驱动）或写入意图（意图只以 `thread_id` 归因）。线程表随进程创建，只在 Actor 阶段内有登记，随进程一起丢弃。
+
+线程的生命周期是“派生 → 运行 → 结束”，结束即同步撤销线程 context 并记为 `ENDED`，重复结束是空操作，没有“停止中”状态。结束有三个时点：子线程随 CALL 返回结束（CPU 经操作入口提交，第 5.4 节）；进程的停止被接受时全部线程即已结束；Actor 阶段结束时全部兜底结束，关闭流程再兜底。停止路径不通知线程表：存活判定直接读取进程结局，停止被接受到 Actor 阶段收尾撤销凭据之间的提交按线程已结束拒绝。
+
+存活只有一个判定，由 `ProcessThreads.resolve` 一次完成：线程 context 未撤销且运行绑定是执行线程；进程在进程表中、线程登记在它的线程表中，且登记的就是这个 context（按对象身份比较）；线程状态为 `RUNNING`，且进程结局为 `RUNNING`。判定不读取阶段，因为线程只在 Actor 阶段内存在。`ProcessThreads` 是派生、结束与解析的唯一入口，线程表与线程对象的写方法只由它调用；执行器、CPU 分配与能力层都不直接读写线程表。
+
+为什么这样设计：
+
+- **线程不另设记录一层**：进程单独设 `ProcessRecord`，是因为停止请求、事件发布、阶段 task 绑定与进程控制授权只读写控制状态，而容器还要容纳生命周期各不相同的任务参数、工作集、task 与输出通道。线程只有可变的控制状态与冻结的描述两部分，也没有只需要控制状态的使用方，所以由 `ProcessThread` 一个对象承担，它冻结的部分就是线程描述。
+- **停止即结束**：停止被接受后 Actor 子 task 立即被取消，CPU 只用已经产生的内容组装结果。如果停止之后读取仍放行、写入与派生却被拒绝，拒绝就只能借用表示接线缺陷的错误；把停止并入“线程已结束”，六项 actor 操作得到同一种生命周期拒绝。
+- **子线程随 CALL 返回结束**：子线程的凭据只为一次委派存在，CALL 返回后仍保留它，迟到的子帧操作就能在主线程继续运行期间以被调用方的身份执行。
+- **一次解析**：能力层需要线程的进程关联、线程标识与派发话题，这些都属于线程；由线程表一次解析给出，能力层就不必先读进程关联、再回到进程表查话题。
 
 **生命周期**：context 只属于一次运行，没有固定有效期，只在以下时点失效：
 
 - 任务进程的进程 context 在注册时签发并绑定本进程，由进程记录持有，进程以任何结局关闭时由注册入口撤销；
-- 线程 context 在 CPU 执行结束时由执行器撤销，进程关闭流程兜底；
+- 线程 context 随线程结束撤销：子线程随 CALL 返回由 CPU 结束，其余在 Actor 阶段收尾时由执行器兜底结束，进程关闭流程再兜底；
 - 请求级 context 在请求开始时签发并绑定本次请求，请求结束（含失败）时撤销；
 - System 停止时先关闭认证网关、拒绝新认证，停止流程最后撤销全部已签发 context（包括派生的线程 context）。关闭网关不影响已签发的 context。
 
@@ -277,7 +297,7 @@ context 是**密封的**凭据：
 |:---|:---|:---|:---|
 | `ActorAuthenticationGateway` | 唯一对外的认证入口：`authenticate(adapter, principal, actor, workspace, binding)` 依次完成第 1、2 阶段并签发 context；转交单个撤销、撤销全部与诊断查询；实现进程侧的线程 context 生命周期端口（派生主线程与子线程、撤销线程 context）；关闭（拒绝新认证） | `PrincipalAuthenticator` 端口、`WorkspaceAuthenticator` | 运行持有者：server（请求级 context）、注册入口（进程 context）；System；进程线程管理只经生命周期端口 |
 | `WorkspaceAuthenticator` | 第 2 阶段：检查 actor 用户等于要进入的 Workspace 的 owner，准入记录存在且启用；签发写有授予内容的 context；从进程 context 派生主线程与（经被调用方准入的）子线程 context；撤销（单个、只限线程 context 的撤销、全部）；诊断查询（授予内容摘要，只用于日志与观测标签） | Workspace Actor 访问注册表 | 只有认证网关 |
-| `WorkspaceOperationAuthorizer` | 第 3 阶段：actor 操作授权 `authorize_operation(access, operation, target_workspace)` 及其线程形式 `authorize_thread_operation(access, operation)`（目标取线程的驻留 Workspace）、root 授权 `authorize_root(access, target_workspace)`、阶段授权 `authorize_stage(access, target_workspace)`；任务进程读取操作快照的 `get_stage_operations(access, target_workspace)`；操作入口的线程校验 `validate_thread_context(access)` 与意图登记使用的进程关联查询 `get_thread_process_id(access)`；进程控制授权；无状态 | Workspace Actor 访问注册表 | 授权点 |
+| `WorkspaceOperationAuthorizer` | 第 3 阶段：actor 操作授权 `authorize_operation(access, operation, target_workspace)` 及其线程形式 `authorize_thread_operation(access, operation)`（目标取线程的驻留 Workspace）、root 授权 `authorize_root(access, target_workspace)`、阶段授权 `authorize_stage(access, target_workspace)`；线程表派生线程时读取操作快照的 `get_stage_operations(access, target_workspace)`；线程表定位线程使用的运行绑定查询 `get_thread_binding(access)`（凭据已撤销以 `ThreadEndedError` 拒绝，不是线程 context 以 `ScopeRequiredError` 拒绝）；进程控制授权；无状态 | Workspace Actor 访问注册表 | 授权点 |
 
 认证与授权互不依赖：两者都只读同一份访问注册表，经 context 这个类型发生联系；认证网关是唯一对外的认证入口，运行持有者不直接持有 `WorkspaceAuthenticator`。
 
@@ -285,9 +305,9 @@ context 是**密封的**凭据：
 
 **进程控制授权**：取消比对请求方 context 与进程记录中的 context，两者驻留在同一 owner 与 Workspace 时允许；请求方 context 无效以 `ScopeRequiredError` 拒绝；进程记录侧的 context 已撤销时按不可控处理，呈现为 `not_found`，不泄露进程是否存在。
 
-**执行标签与线程 context**：注册认证通过后，以该注册的 Agent 和 Workspace 创建一次冻结的 `ExecutionLabels(agent_id, workspace_id)`，由 `BoundProcessEvents` 持有。CPU 分配显式接收同一标签对象，传给 `CPUInputManifest.labels`；Alice 的运行上下文与主、子 frame 沿用它，不读取访问 context 组装身份。标签只服务历史角色匹配、展示回退与运行观测，不能授权或选择资源目标。Actor 阶段派生的线程 context 独立于输入清单交给 CPU；操作入口的职责与撤销边界见第 5.4 节。
+**执行标签与线程描述**：注册认证通过后，以该注册的 Agent 和 Workspace 创建一次冻结的 `ExecutionLabels(agent_id, workspace_id)`，由 `BoundProcessEvents` 持有。CPU 分配把同一标签对象传给 `CPUInputManifest.labels`，供运行级观测（Alice 的 `agent.run.*`）与历史角色匹配使用。执行线程的标签取线程自己的身份，由线程表在派生时放进线程描述：主线程就是注册标签，CALL 子线程为 `ExecutionLabels(被调用方, 注册时的 workspace_id)`；Alice 的根帧与子帧各取所属线程描述中的标签，不读取访问 context 组装身份，也不从图纸推导。标签只服务历史角色匹配、展示回退与观测，不能授权或选择资源目标。Actor 阶段派生的执行线程独立于输入清单交给 CPU；操作入口的职责与线程的结束见第 5.4 节。
 
-**CPU 输入编译**：`CPUAllocator` 在 prepare 前经阶段授权解析 Profile；prepare 后读取 actor 操作快照，按选择租借附件，编译附件与检索记忆，再以中立提示词编译定稿环境通知、人设与本轮材料，最后组装输入清单。提示词语言由进程解析，编译不依赖 Alice 配置；CPU 自行完成工具教学、历史布局与压缩。租借仍登记在进程工作集并由分配器释放。清单字段见[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)，编译归进程的理由见[System 应用服务](../system/application-services.md#31-主动链路)。
+**CPU 输入编译**：`CPUAllocator` 在 prepare 前经阶段授权解析 Profile；prepare 后按选择租借附件，编译附件与检索记忆，再以中立提示词编译定稿环境通知、人设与本轮材料，最后组装输入清单。图纸只用于编译人设，它与操作快照随主线程的线程描述交给 CPU，不进入清单。提示词语言由进程解析，编译不依赖 Alice 配置；CPU 自行完成工具教学、历史布局与压缩。租借仍登记在进程工作集并由分配器释放。清单字段见[子系统契约](../contracts/subsystem-contracts.md#41-cpu-端口)，编译归进程的理由见[System 应用服务](../system/application-services.md#31-主动链路)。
 
 ### 4.5 三个调用面：actor API、root API 与任务进程的阶段调用
 
@@ -316,7 +336,7 @@ context 是**密封的**凭据：
 | `memory.run` | RUN 的记忆中用户工具 | `ResolveRunTargetRequest` | `ActorMemoryService.resolve_run_target` | 交付执行目标时记录引用；`sys_*` 系统工具在 Alice 本地执行，不经能力层 |
 | `memory.write` | WRITE | `SubmitWriteIntentRequest` | `ActorMemoryService.submit_write_intent` | ACK 表示已登记并被生成队列接纳 |
 | `memory.update` | UPDATE | `SubmitUpdateIntentRequest` | `ActorMemoryService.submit_update_intent` | 基础原子按正式原子 policy 验证；不记录引用 |
-| `agent.call` | CALL（只有 Alice 使用） | `DeriveCallThreadRequest` | `ActorAgentService.derive_call_thread` | 读取 CALL 目标 Profile 并派生子线程（第 5.4 节），内置 Profile 同样授权 |
+| `agent.call` | CALL（只有 Alice 使用） | `DeriveCallThreadRequest` | `ActorAgentService.resolve_call_target` | 以调用方的可见性解析 CALL 目标 Profile，只交回图纸；子线程由操作入口在同一次提交内交给线程表派生（第 5.4 节）；内置 Profile 同样授权 |
 
 RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor 能创建子帧，但没有 `memory.read` 时 `context_refs` 解析失败并被跳过，共享上下文中不出现这些记忆。子帧的操作按被调用方自己的白名单授权，与调用方是否持有对应操作无关。
 
@@ -339,7 +359,7 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 
 | | actor 读取（actor API） | 管理读取（root API） |
 |:---|:---|:---|
-| 方法 | `resolve_references`、`resolve_run_target`、`retrieve`、`derive_call_thread`（读取目标 Profile） | `get_memory`、`list_memories`、`list_agent_profiles`、`list_active_topics` |
+| 方法 | `resolve_references`、`resolve_run_target`、`retrieve`、`resolve_call_target`（读取目标 Profile） | `get_memory`、`list_memories`、`list_agent_profiles`、`list_active_topics` |
 | 可见性 | 按原子的 `MemoryAccessPolicy` 对当前 actor 授权，不可见与不存在都按不存在处理 | owner 管理语义：整个 Workspace 可见，只校验 Workspace 归属 |
 | 读取路径 | workspace 读取视图（L0 意图登记、L1 原子/Profile 缓存、L2 冷读回填） | 经 Patchouli 公开路由直接读取，不进入缓存 |
 
@@ -349,17 +369,17 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 
 **任务进程的阶段调用**：Gateway 话题读取、prepare（话题与检索）、cleanup 补偿、CPU 分配中的 Profile 解析与附件租借、finalize 与结算后的话题池读取，每次调用前都以任务参数中的目标 Workspace 执行阶段授权，再把返回的 `IdentityScope` 传给对应路由或端口。CPU 分配的 Profile 解析经组合根注入的 Profile 读取端口（workspace 读取视图）完成，不经能力层；任务进程不导入能力层。`PreparedAgentRun` 只冻结 prepare 的 `belong_to`；finalize 的授权在封口交互记录之前执行，归属不一致时在接纳交互前抛 `WorkspaceMismatchError`。cleanup 重新执行阶段授权，拒绝时记录警告并完成进程关闭；资源 owner 对越域 prepared 返回 `False`，不执行删除。阶段授权的 scope 只交给紧随的阶段调用，不进入 CPU 输入清单、线程 context 或任何 CPU 可见的对象。
 
-**操作快照**：CPU 分配另以 `get_stage_operations` 读取本进程 actor 在访问登记中的 actor 操作集合（与阶段授权相同的准入与目标检查，空白名单得到空集合），写入 `CPUInputManifest.allowed_operations`。快照只描述执行者能做什么，供 CPU 生成提示词与执行策略（Alice 翻译为 MTP 动词，见 [MTP 契约](../contracts/mtp.md#4-权限)第 4 节）；它不是身份，也不是授权依据，每个操作请求仍由 actor API 即时授权。登记在运行实例内不可变，快照与即时检查因此一致。
+**操作快照**：线程表派生每个线程时，以该线程刚签发的 context 经 `get_stage_operations` 读取线程 actor 在访问登记中的 actor 操作集合（与阶段授权相同的准入与目标检查，空白名单得到空集合），写入线程描述的 `allowed_operations`。主线程的快照因此在进入 Actor 阶段时读取：准入在 prepare 与进入 Actor 之间被撤销时，主线程派生失败，进程在 Actor 阶段以失败收口。快照只描述执行者能做什么，供 CPU 生成提示词与执行策略（Alice 翻译为 MTP 动词，见 [MTP 契约](../contracts/mtp.md#4-权限)第 4 节）；它不是身份，也不是授权依据，每个操作请求仍由 actor API 即时授权。登记在运行实例内不可变，快照与即时检查因此一致。
 
 **注册入口**：注册时完成两阶段认证，并拒绝以保留的 `system` 注册任务进程；按 `process_id` 的取消经进程控制授权（[应用服务](../system/application-services.md)第 4 节）。
 
-**结构守护**：架构测试限定 `authorize_stage` 只在 `workspace/process/` 的 runner 与 CPU 分配中出现、`get_stage_operations` 只在 CPU 分配与进程线程管理中出现、`authorize_root` 只在 root API 中出现、`authorize_thread_operation` 只在 actor API 中出现、`validate_thread_context` 只在操作入口与进程线程管理中出现、`get_thread_process_id` 只在 actor API 中出现，派生与撤销线程 context 只由进程线程管理调用；Alice 除 CPU 驱动与组合入口外不引用访问 context、派生原始结果或操作入口；入口的分派表直接指向 actor API 方法，没有拆参 handler；两个 API 目录互不导入，capability 父包只导出共享的读取 backing；server 只导入 root API，操作入口只导入 actor API；actor API 的公开方法、操作目录与请求类型保持一一对应。
+**结构守护**：架构测试限定 `authorize_stage` 只在 `workspace/process/` 的 runner 与 CPU 分配中出现、`get_stage_operations` 与 `get_thread_binding` 只在进程线程管理中出现、`authorize_root` 只在 root API 中出现、`authorize_thread_operation` 只在 actor API 中出现，派生与撤销线程 context 只由进程线程管理调用；Alice 除 CPU 驱动与组合入口外不引用访问 context、执行线程或操作入口；CPU 可见的对象（输入清单、线程描述、线程句柄交出的描述）不含访问 context；入口的 `execute` 只把五项记忆请求直接分派到 actor API 方法，没有拆参 handler，CALL 的派生与结束是入口的两个生命周期方法；两个 API 目录互不导入，capability 父包只导出共享的读取 backing；server 只导入 root API，操作入口只导入 actor API；actor API 的公开方法、操作目录与请求类型保持一一对应。
 
 ### 4.6 拒绝语义
 
-四个阶段的失败以稳定错误类型与 reason 区分：第 1、2 阶段的失败是 `AdmissionDeniedError`，第 3 阶段的失败是 `OperationDeniedError`，访问 context 无效（不是签发的或已撤销）是 `ScopeRequiredError`——生产入口经网关签发后不应出现，出现即为接线缺陷；把进程 context 或请求级 context 交给操作入口同样是接线缺陷。线程 context 已撤销是生命周期拒绝，以 `ThreadContextRevokedError` 区分：CPU 执行结束或进程关闭后迟到的 actor 请求得到它。reason、错误码与 HTTP 映射的完整表格只维护在[错误模型](../contracts/error-model.md)第 4.4 节。访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。
+四个阶段的失败以稳定错误类型与 reason 区分：第 1、2 阶段的失败是 `AdmissionDeniedError`，第 3 阶段的失败是 `OperationDeniedError`，访问 context 无效（不是签发的或已撤销）是 `ScopeRequiredError`——生产入口经网关签发后不应出现，出现即为接线缺陷；把进程 context 或请求级 context 交给操作入口同样是接线缺陷。线程已结束是生命周期拒绝，以 `ThreadEndedError` 区分：线程的凭据已撤销、线程已结束或进程已收到停止时，actor 请求与 CALL 派生得到它；线程未登记、context 类型或运行绑定不对、子线程试图派生或 CPU 结束主线程，仍属接线缺陷，以 `ScopeRequiredError` 拒绝。reason、错误码与 HTTP 映射的完整表格只维护在[错误模型](../contracts/error-model.md)第 4.4 节。访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。
 
-会话和写入意图的异常定义由 `workspace.contracts.errors` 拥有；访问、共享资源与线程撤销类型仍在 `core.errors`。读取视图的缺失/不可见为中立资源失败，Profile 类型与配置失败消费 Patchouli 的公共错误。CALL 的共享引用需要 READ，授权拒绝不能静默跳过。线程撤销有稳定 code，Agent 出口明确提示停止操作；共同呈现与兼容规则见[错误模型](../contracts/error-model.md)。
+会话和写入意图的异常定义由 `workspace.contracts.errors` 拥有；访问、共享资源与线程结束类型仍在 `core.errors`。读取视图的缺失/不可见为中立资源失败，Profile 类型与配置失败消费 Patchouli 的公共错误。CALL 的共享引用需要 READ，授权拒绝不能静默跳过。线程结束有稳定 code，Agent 出口明确提示停止操作；共同呈现与兼容规则见[错误模型](../contracts/error-model.md)。
 
 ### 4.7 装配
 
@@ -367,8 +387,8 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 
 - 认证网关注入任务进程的注册入口，并经 `HiveMemorySystem.access_gateway` 暴露给 server；
 - 操作授权者注入 root API 与 actor API 的各服务、操作入口、注册入口、执行器与 CPU 分配；CPU 分配另注入读取视图的 Profile 读取端口；
-- 进程表由组合根在构建 actor API 之前创建，同时交给注册入口与进程线程管理 `ProcessThreads`；`ProcessThreads` 以认证网关作为线程 context 生命周期端口、以操作授权者读取快照，注入执行器（主线程）与 actor API（子线程派生端口 `workspace.contracts.ChildThreadSpawner` 与派发话题读取端口 `IntentDispatchTopicReader`），能力层与任务进程仍互不导入；
-- `WorkspaceOperationEntry` 由组合根以 actor API 与操作授权者装配，公共 `OperationEntry` 注入 `AliceCPU`；actor API 只由操作入口持有，门面只向 server 暴露 root API 与任务进程服务；
+- 进程表由组合根在构建 actor API 之前创建，同时交给注册入口与进程线程管理 `ProcessThreads`；`ProcessThreads` 以认证网关作为线程 context 生命周期端口、以操作授权者读取运行绑定与快照，注入执行器（主线程的派生与兜底结束）、操作入口与 actor API（线程端口 `ExecutionThreadTable`，位于 `workspace/thread_ports.py`，不属于公共契约），能力层与任务进程仍互不导入；
+- `WorkspaceOperationEntry` 由组合根以 actor API 与线程端口装配，公共 `OperationEntry` 注入 `AliceCPU`；actor API 只由操作入口持有，门面只向 server 暴露 root API 与任务进程服务；
 - Patchouli 与 Gateway 不注入任何认证或授权对象。
 
 依赖方向为 `system → workspace → core`；workspace 不导入 System，Patchouli 不依赖 workspace 的认证与授权实现。停止顺序见第 9.2 节。
@@ -408,25 +428,29 @@ canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.l
 
 写入意图在正式落库之前，是 Actor 回读刚写内容的唯一句柄，由 workspace 持有。它是尚未被书库接收的要约：没有入库承诺，也从未进入记忆库的管护，按 [ADR-0006](decisions/0006-memory-library-custody-criteria-and-independence-contract.md) 的管护判据不归 Patchouli；它又必须活得过单次 run，供同 Workspace 的其他 Actor 与后续任务进程回读，所以也不归 Alice 的 run/frame 或任务进程的工作集。生成链只是消费意图的异步任务，不因消费取得所有权。两侧互相透明：Patchouli 只接收带登记标识的 `MemoryIntent`，不知道登记的存在；workspace 只看到接纳结果与结算事件，不参与生成决策。登记与读取视图同在 workspace，pending 引用在 resolver 内本地查表，系统只有这一个意图状态机。登记中的意图既不是 canonical Memory，也不是可淘汰的缓存。
 
-`WriteIntentRegistry` 是进程级唯一登记，记录 `belong_to`、`from_actor` 与只作关联的 `process_id`。同 Workspace 的其他 Agent 可经 `memory.read` 回读；越界与不存在相同。UPDATE 意图携带基础原子的修改内容与坐标，回读跟随基础原子的可读性：读不到基础的 Actor 在任何状态下都得到 not_found。WRITE 经 `memory.write`、UPDATE 经 `memory.update` 分别授权后登记为 MATERIALIZING，并经 `PatchouliRoutes.MEMORY_INTENT_SUBMIT` 派发；生成队列接纳后才返回 ACK；UPDATE 只接受可读的正式 atom，pending 与 redirect 句柄不能作为基础，登记成功后失效基础原子。
+`WriteIntentRegistry` 是进程级唯一登记，记录 `belong_to`、`from_actor` 与只作观测关联的 `process_id`、`thread_id`（同一进程两次 CALL 同一个 Agent 时以线程区分）。同 Workspace 的其他 Agent 可经 `memory.read` 回读；越界与不存在相同。UPDATE 意图携带基础原子的修改内容与坐标，回读跟随基础原子的可读性：读不到基础的 Actor 在任何状态下都得到 not_found。WRITE 经 `memory.write`、UPDATE 经 `memory.update` 分别授权后登记为 MATERIALIZING，并经 `PatchouliRoutes.MEMORY_INTENT_SUBMIT` 派发；生成队列接纳后才返回 ACK；UPDATE 只接受可读的正式 atom，pending 与 redirect 句柄不能作为基础，登记成功后失效基础原子。
 
 `AliasResolver` 统一产出 core 的 `ReferenceResolution`：pending、redirect、discarded、failed、atom 与 not_found。SETTLED redirect 的正式目标仍按原子 policy 授权；不可读时清空 canonical 字段与结算视图中的引用，并不交付 pending 记录，避免 UPDATE focus 泄露基础身份。意图和原子结果都是独立副本。新登记不产生 expired，终态句柄保留到重启。
 
 登记中存在的别名只按意图解析：取消、对当前 Actor 不可见或缺少结算载荷都得到 not_found，不回落为同名的正式原子。redirect 优先按结算的 `canonical_uuid` 读取，alias 被重新绑定后旧意图不会跟随到另一份资源，只有缺少 UUID 的结算载荷才按 `canonical_alias` 查找。读取正式原子始终返回已提交版本，进行中的 UPDATE 修订只经它自己的 pending 句柄可见。
 
-`WorkspaceOperationEntry` 实现公共 `OperationEntry`，入口只接受线程 context：分派前经操作授权者确认请求附带的是未撤销的执行线程 context，进程 context 与请求级 context 以 `ScopeRequiredError` 拒绝，已撤销的以 `ThreadContextRevokedError` 拒绝，均没有副作用。随后入口只按请求类型把请求对象与线程 context 直接交给对应的 actor API 方法，不拆参数；actor API 逐次授权并组装该次调用的 `IdentityScope`，资源 owner 仍执行归属与 actor policy 检查。意图登记的 `process_id` 取自线程 context 的运行绑定（操作授权者的只读查询，只对线程 context 有效），请求不能指定。线程 context 的派生不授予操作许可：`system` 的进程即使派生出线程 context，也因白名单为空而在每个 actor 请求上被拒绝。
+`WorkspaceOperationEntry` 实现公共 `OperationEntry`，入口只接受存活线程的 context：`execute` 在分派前调用线程表的 `resolve`，全部 actor 操作因此共用同一个存活判定（第 4.3 节）；线程已结束以 `ThreadEndedError` 拒绝，进程 context、请求级 context 或未登记的线程以 `ScopeRequiredError` 拒绝，均没有副作用。随后 `execute` 只按请求类型把五项记忆请求与线程 context 直接交给对应的 actor API 方法，不拆参数；actor API 逐次授权并组装该次调用的 `IdentityScope`，资源 owner 仍执行归属与 actor policy 检查。意图登记的 `process_id` 与 `thread_id` 取自线程表的解析结果，请求不能指定。线程 context 的派生不授予操作许可：`system` 的进程即使派生出线程 context，也因白名单为空而在每个 actor 请求上被拒绝。
 
-**CALL 派生子线程**：CALL 提交的 `DeriveCallThreadRequest(agent_alias)` 是 actor 操作 `agent.call`。actor API 先以调用方的线程 context 授权，再以调用方的 scope 读取目标 Profile（对调用方不可见与不存在相同），读取之后重新确认调用方线程未撤销，再以 Profile 的 `agent_id`（内置图纸为 `omni_doll`）经 `ChildThreadSpawner` 交给进程。进程侧依次确认：进程存在且处于 Actor 阶段、仍在运行，调用方就是本进程登记的主线程 context（按对象身份比较，不读取内容），否则以 `ScopeRequiredError` 拒绝——只有主线程能派生，派生只发生在 CPU 执行阶段。随后分配线程标识，以被调用方准入后派生子线程 context，再以子线程 context 读取被调用方的操作快照；快照读取失败时撤销刚签发的 context，不登记。成功后子线程登记进工作集，结果是执行线程 `ExecutionThread`（`workspace.contracts`：目标 Profile、操作快照与子线程 context），只返回给 CPU 驱动。派生必须到达进程：线程 context 只能由认证一侧签发，执行单元能认出发起派生的是哪个线程，但被调用方是谁、能否进入 Workspace 由进程确定，执行单元因此不能自报子线程的身份。
+**CALL 派生与子线程的结束**：`agent.call` 与派生分开。actor API 的 `resolve_call_target` 只负责 actor 操作：以调用方的线程 context 授权 `agent.call`，再以调用方的 scope 读取目标 Profile（对调用方不可见与不存在相同），结果只有图纸、不含凭据。派生是线程的生命周期动作，由入口的 `derive_child_thread(request, *, access)` 在一次提交内依次完成：`resolve` 确认调用方存活；`resolve_call_target` 解析图纸；线程表的 `derive_child` 在冷读之后重新判定调用方存活，确认调用方是主线程（子线程派生以 `ScopeRequiredError` 拒绝），再分配线程标识，以图纸的 `agent_id`（内置图纸为 `omni_doll`）做被调用方准入后派生子线程 context，以它读取被调用方的操作快照，生成线程描述并登记；快照读取失败时撤销刚签发的 context，不登记。结果是执行线程 `ExecutionThread`（线程描述与子线程 context），只返回给 CPU 驱动。`DeriveCallThreadRequest` 因此不是 `OperationRequest`，`execute` 不接受它。
 
-子线程以被调用方的身份运行：每个 actor 请求按被调用方的白名单检查，`IdentityScope` 的发起者是被调用方，资源 owner 按被调用方的可见性过滤；写入意图的 `from_actor` 是被调用方，进程关联不变，在操作内立即派发到与主线程相同的话题。调用方持有 `agent.call` 即可让被调用方读取它自己的 PRIVATE 记忆，并经 CALL 的返回值交给调用方；这是委派的本义，闸门是 `agent.call` 与被调用方的准入。
+派生必须在入口内组合：线程 context 只能由认证一侧签发，被调用方是谁、能否进入 Workspace 必须来自 workspace 自己的解析。如果拆成“先取图纸、再凭图纸派生”两次提交，CPU 就能交回一份伪造的图纸，等于自报子线程的身份；入口依次调用 actor 操作与生命周期动作，两者在代码上分开，但在一次提交内完成。
 
-主线程的线程 context 是 CPU `execute` 的独立 `access` 参数，不进入输入清单。CPU 驱动以 `workspace.contracts.ThreadOperationSubmitter` 把它与入口绑定为提交函数，读不出其中的内容，也不持有进程 context；提交函数的泛型调用拒绝派生请求，派生只经 `derive_call_thread`，后者把结果中的子线程 context 绑定成子帧的提交函数，只把被调用方 `Callee`（目标 Profile、操作快照与该函数，不含 context）交给 CALL 编排。MTP 与 CALL 只提交操作参数，不能另选目标 Workspace 或 process_id。六项 actor 请求的参数与结果契约见[子系统公共契约](../contracts/subsystem-contracts.md#46-操作请求与线程-context)。Alice 不再直接请求 Patchouli，也不维护 CALL Profile 缓存。子线程 context 在 CPU 执行结束前一直有效，CALL 返回时不提前撤销；子 frame 的结果只影响 reply 与 alias 回填，不取消已提交的写入。
+入口的 `end_thread(*, access)` 同步调用线程表的 `end_child`：撤销子线程凭据并记为结束，不检查进程是否仍在运行；已结束的线程是空操作，主线程与未登记的 context 以 `ScopeRequiredError` 拒绝，主线程只由 Actor 阶段收尾结束。Alice 在 CALL 收尾时经子线程句柄提交结束（[Alice 编排](../alice/orchestration.md#8-失败取消与降级)第 8 节），之后以子线程提交的请求按线程已结束拒绝。
 
-执行器在 CPU 返回终态结果、关闭 CPU 输出流之后立即同步撤销本进程登记的全部线程 context（主线程与子线程），再进入 finalize；Actor 阶段因异常、停止、调用方取消或断流提前结束时，也在交付终态之前同步撤销。关闭流程先于任何 await 兜底撤销线程 context 并释放附件租借，再等待输出流关闭与 cleanup；进程 context 最后由注册入口撤销。撤销不取消操作调用方任务，在途只读请求可以自然完成，后续提交明确拒绝。WRITE/UPDATE 在基础校验之后，以无挂起点的同步段复查线程、读取话题并登记；UPDATE 的基础冷读跨越撤销时直接拒绝，不产生意图。派发开始后由 actor API 持有 shield 保护的任务直到完成，再传播调用方取消，不因撤销、进程终态或 CALL 子帧失败回滚。
+子线程以被调用方的身份运行：每个 actor 请求按被调用方的白名单检查，`IdentityScope` 的发起者是被调用方，资源 owner 按被调用方的可见性过滤；写入意图的 `from_actor` 是被调用方、`thread_id` 是子线程，进程关联不变，在操作内立即派发到与主线程相同的话题。调用方持有 `agent.call` 即可让被调用方读取它自己的 PRIVATE 记忆，并经 CALL 的返回值交给调用方；这是委派的本义，闸门是 `agent.call` 与被调用方的准入。
+
+主线程以执行线程交给 CPU：执行器把 prepare 之前解析的图纸交给 `ProcessThreads.derive_main(process, profile)`，后者派生主线程 context、以它读取操作快照、生成线程描述并登记，返回的 `ExecutionThread` 作为 CPU `execute` 的独立 `thread` 参数，不进入输入清单。线程描述 `ThreadDescriptor`（`workspace.contracts`）携带标识、观测标签、图纸与操作快照，CPU 可见；输入清单回答“处理什么”，线程描述回答“谁来处理”。CPU 驱动以 `workspace.contracts.ThreadOperationSubmitter` 把执行线程与入口绑定为线程句柄：句柄交出线程描述，以泛型调用提交记忆请求，以 `derive_child` 返回子线程的句柄，以 `end` 同步结束本线程；它读不出其中的 context，CPU 驱动也不持有进程 context。帧持有所属线程的句柄，帧与线程的对应关系由此建立。MTP 与 CALL 只提交操作参数，不能另选目标 Workspace 或 process_id。六项 actor 请求的参数与结果契约见[子系统公共契约](../contracts/subsystem-contracts.md#46-操作请求与线程-context)。Alice 不直接请求 Patchouli，也不维护 CALL Profile 缓存。子 frame 的结果只影响 reply 与 alias 回填，不取消已提交的写入。
+
+执行器在 Actor 阶段结束时同步结束本进程仍在运行的全部线程（`end_all`），且只在这里执行一次：CPU 返回终态结果（含停止后返回的取消结果）之后、finalize 之前；Actor 阶段因异常、停止、交付方离开或硬取消提前结束时，也在交付终态（硬取消为传播取消）之前执行。关闭流程先于任何 await 兜底结束线程并释放附件租借，再等待 cleanup；进程 context 最后由注册入口撤销。停止被接受时线程即已结束，到收尾撤销凭据之间的提交在存活判定处拒绝；CPU 内的在途读取随 Actor 子 task 的取消中断。结束不取消其他操作调用方的任务，在途只读请求可以自然完成，后续提交明确拒绝。WRITE/UPDATE 在基础校验之后，以无挂起点的同步段只调用一次 `resolve`，从结果取得进程关联、线程标识与派发话题并登记；UPDATE 的基础冷读在同步段之前，冷读跨越线程结束或停止时在同步段拒绝，不产生意图。派发开始后由 actor API 持有 shield 保护的任务直到完成，再传播调用方取消，不因线程结束、停止、进程终态或 CALL 子帧失败回滚。
 
 引用读取的副作用也由 actor API 拥有：READ（`resolve_references`）与 RUN（`resolve_run_target`）共享同一解析与引用记录路径，对实际交付的可读正式 atom 或 redirect 目标记录 `source="workspace.reference_read"` 的 citation，同次请求按正式 UUID 去重，缓存命中仍计数；pending、failed、discarded、not_found 与无可读目标的 redirect 不计数。RUN 在类型检查和工具执行前已交付目标，所以后续执行失败仍计数；CALL context_refs 经 READ 请求，是一次独立读取。UPDATE 基础校验与 SEARCH 不属于引用交付，不因此记录 citation。引用记录的普通失败只记录日志，不改变读取结果；取消继续传播，已经完成的 citation 不回滚。
 
-CPU 分配把与输入清单相同的真实 `topic_id` 写入 `ProcessWorkingSet.dispatch_topic_id`。`ProcessThreads` 经 `IntentDispatchTopicReader` 提供读取：进程必须处于 Actor 阶段且仍在运行，传入的线程 context 必须是本进程登记的对象，话题必须已准备；否则在登记前拒绝。CALL 子线程共享该话题，请求与 CPU 不能指定派发目标。能力层与进程互不导入，由组合根注入端口。
+CPU 分配把与输入清单相同的真实 `topic_id` 写入 `ProcessWorkingSet.dispatch_topic_id`，先于派生主线程；`resolve` 在存活判定之后从工作集读取它，进程没有派发话题属于接线缺陷。CALL 子线程共享该话题，请求与 CPU 不能指定派发目标。能力层与进程互不导入，由组合根注入线程端口。
 
 确定性拒绝同步以 `mark_failed` 把句柄推进为 FAILED，并向 agent 返回结构化错误；结果未知保持 MATERIALIZING。结算事件仍由 Patchouli 发布，同步失败与随后失败通知幂等；三个结算事件都携带 pending_alias 与 intent_id，登记只在两者都匹配时迁移状态。状态终结后不再被晚到通知重写。
 
@@ -438,13 +462,13 @@ CPU 分配把与输入清单相同的真实 `topic_id` 写入 `ProcessWorkingSet
 
 认证通过后注册入口同步创建或查找会话并认领，再登记进程；同一会话同时只允许一个进程，运行中不能删除，任何结局关闭后均释放认领。容量达到 `workspace.sessions` 上限时显式拒绝，不淘汰旧数据；失败注册回滚本次认领及自动创建的空会话。System 先关闭全部进程，再 `close_and_clear()`，此后读写拒绝。会话只在本进程内保存，不提供跨重启恢复或并发多进程存储。
 
-有输出的 completed/cancelled/failed 交互在关闭 CPU 流、撤销线程后封口，同步追加会话，再进入 finalize；无输出、进程异常与 finalize 前断连不追加。提交失败不回滚已经封口的会话事实，也不回滚已接纳写入。取消收口与 finalize 的任务所有权见[应用服务](../system/application-services.md)。
+有输出的 completed/cancelled/failed 交互在 Actor 阶段结束、撤销线程后封口，同步追加会话，再进入 finalize；无输出、进程异常与 finalize 前交付方离开不追加。提交失败不回滚已经封口的会话事实，也不回滚已接纳写入。取消收口与 finalize 的任务所有权见[应用服务](../system/application-services.md)。
 
 会话另持有至多一份 CPU 中立的压缩检查点，结构见[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)。摘要与工具减重属于执行视图，不替代或删除原始 `ConversationTurn`；Workspace 只负责存储和接受，不解释 CPU 的摘要算法。这使 CPU 可以替换，也避免 Alice 建立第二份跨 run 的会话状态。
 
 `accept_checkpoint()` 是同步操作：校验完整 Workspace 归属、当前进程认领、两个非空游标都指向本会话已有轮次、减重边界不早于摘要覆盖，以及相对同一产生方与格式版本的旧检查点两个游标各自不回退。游标只在同一格式内可比：CPU 忽略无法解释的旧检查点并从头重建时，新检查点可以替换旧值，不会因游标更早而被永久拒绝。拒绝不改变已有值；进程记录告警后继续收尾。完整会话读取返回检查点、列表不返回，删除与关闭随会话清除。
 
-进程在 CPU 输出流关闭、线程 context 撤销之后，判断丢弃或无输出之前接受检查点；接受到正常封口、会话追加之间没有 await。检查点只覆盖旧轮次，因此无输出、取消或交付关闭导致本轮不保存时仍可接受已完成的压缩。普通执行异常不把结果槽中的候选值当成成功交接；终态结果优先，关闭路径只消费一次结果槽。压缩进度与 RuntimeEvent 都不是接受依据。
+进程在 Actor 阶段结束、线程 context 撤销之后，判断丢弃或无输出之前接受 CPU 返回结果中的检查点，同一次执行只接受一次；接受到正常封口、会话追加之间没有 await。检查点只覆盖旧轮次，因此无输出、取消或交付方离开导致本轮不保存时仍可接受已完成的压缩；CPU 在停止后返回的取消结果同样可以携带它。普通执行异常没有返回结果，不接受任何候选值；进程 task 被硬取消而 CPU 把取消转为返回值时，先接受检查点再传播取消。压缩进度与 RuntimeEvent 都不是接受依据。
 
 ## 6. WorkspaceAssetStore
 
@@ -528,14 +552,14 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 - W0 只支持默认 `main_workspace` 的公开入口和内部 `isolation_workspace` 测试 seam，不提供用户可见的 Workspace 创建、切换、Mount、Bridge、Grant 或跨 Workspace sharing；
 - 访问登记只有进程内本地配置：无远程凭据协议、通用 IAM、管理 API 或热更新；HTTP 请求头中的用户身份不做证明，只适用于本地单用户部署；
 - 用户级访问记录让同一用户的所有具体 Agent 共享一份白名单；按 Agent 区分需要逐个登记精确记录；
-- Agent 操作白名单只能通过修改 `workspace_actors.yaml` 并重启来变更，前端没有权限编辑入口；运行时编辑并入[ROADMAP](../ROADMAP.md)的“配置热更新”，届时需要处理输入清单快照与即时检查之间的差异；
+- Agent 操作白名单只能通过修改 `workspace_actors.yaml` 并重启来变更，前端没有权限编辑入口；运行时编辑并入[ROADMAP](../ROADMAP.md)的“配置热更新”，届时需要处理线程描述中的快照与即时检查之间的差异；
 - `sys_*` 系统工具不设 Agent 权限，所有 Agent 都可使用全部已注册系统工具（含文件写入与 Python 执行），执行安全的缺口见[身份与执行安全治理](../governance/security/identity-and-execution-safety.md)；
-- 能否 CALL 某个 Agent 只取决于调用方的 `agent.call`、目标 Profile 对调用方可见以及被调用方的准入，没有“谁能调用谁”的细粒度策略；子线程不能再 CALL，CALL 返回时子线程 context 不提前撤销；
+- 能否 CALL 某个 Agent 只取决于调用方的 `agent.call`、目标 Profile 对调用方可见以及被调用方的准入，没有“谁能调用谁”的细粒度策略；子线程不能再 CALL；
 - root 只由 actor 是否为保留的 `system` 判定，认证网关只限制 principal 可代表的用户，不限制谁可以声明 `system`：任何已登记且可代表该用户的来源都能进入 root API。当前登记的来源都是本地受信进程；
 - Patchouli 的交互提交与主动记忆意图提交路由只接收 `IdentityScope`、不做操作授权。交互提交路由没有生产调用方；意图提交路由唯一的生产调用方是 actor API，在 `memory.write`/`memory.update` 授权之后调用。新的调用方必须在自己的授权点先完成操作授权；
 - `/ingest` 不经认证网关，在认证前组装 `IdentityScope`（第 3.2 节）；
 - WorkspaceAssetStore、解析流程与原 `WorkspaceAssetReaderPort` 仍接收 `IdentityScope`，身份拆分留待[WorkspaceAsset 归属身份拆分](../todo/workspace-asset-ownership-identity-split.md)。System 的 `AssetMaterializationReader` 兼容适配器接收 Patchouli 提交的 `belong_to`，仅在一次租借调用内构造旧端口所需的 system scope，不保存到后台任务、不返回给 Patchouli；
-- 进程控制授权只比对驻留的 owner 与 Workspace：同一 Workspace 下的请求方可以查询或停止其他请求方的进程；任务进程由注册入口在交付结束时关闭，System 停止时经进程记录停止在途进程，等待交付方收口，超时后兜底关闭；
+- 进程控制授权只比对驻留的 owner 与 Workspace：同一 Workspace 下的请求方可以查询或停止其他请求方的进程；任务进程在自己的 task 中关闭，交付方离开只退订并请求停止；System 停止时以 `system_shutdown` 停止在途进程，等待进程 task 结束，超时后硬取消；断连后的 SSE 响应可能早于进程关闭结束，其间对同一会话的重发按会话忙碌规则拒绝；
 - WorkspaceAssetStore、opaque ref 和 lease 只承诺当前进程生命周期，不提供跨重启恢复；已持久化的 Memory/Artifact 按各自存储契约存在；
 - workspace 读取视图与写入意图登记均为进程内状态；失效通知不处理未送达补齐，意图句柄不回收也不跨重启恢复，实时派发的结果未知时可能长期保持 MATERIALIZING；
 - 写入意图不设 policy，同 Workspace 内持有别名即可回读；别名由标题或内容片段（UPDATE 为基础 alias）加 4 位十六进制后缀组成，不能充当访问控制。结算对账、句柄保留期、意图 policy 与外部提交契约等后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)；
@@ -553,7 +577,7 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 运行时和生命周期：
 
 - [`InMemoryWorkspaceAssetStore`](../../src/hivememory/workspace/assets/store.py)、[`workspace ports`](../../src/hivememory/core/ports/workspace_assets.py)；
-- 任务进程与公共契约：[`workspace/process/`](../../src/hivememory/workspace/process/)（注册入口与进程表、进程状态容器、四阶段骨架 `TaskProcessRunner` 与交付、CPU 分配、线程管理 `ProcessThreads`、`chat.run.*` 事件投影与工作集）、[`workspace/contracts/`](../../src/hivememory/workspace/contracts/)（CPU 输入与结果、操作请求、入口与提交函数协议、通用的线程提交函数与子线程派生端口）；
+- 任务进程与公共契约：[`workspace/process/`](../../src/hivememory/workspace/process/)（注册入口与进程表、进程状态容器、四阶段骨架 `TaskProcessRunner` 与交付、CPU 分配、线程表与线程管理 `ProcessThreads`、`chat.run.*` 事件投影与工作集）、[`workspace/contracts/`](../../src/hivememory/workspace/contracts/)（CPU 输入与结果、线程描述与执行线程、操作请求、入口与线程句柄协议、通用的线程句柄 `ThreadOperationSubmitter`）、[`workspace/thread_ports.py`](../../src/hivememory/workspace/thread_ports.py)（能力层的线程端口与解析结果）；
 - 能力层与读取视图：[`workspace/capability/root/`](../../src/hivememory/workspace/capability/root/)（root API）、[`workspace/capability/actor/`](../../src/hivememory/workspace/capability/actor/)（actor API）、[`WorkspaceRuntime`](../../src/hivememory/workspace/runtime.py)（[`cache/`](../../src/hivememory/workspace/cache/)、[`resolution/`](../../src/hivememory/workspace/resolution/)）；
 - 写入意图与操作入口：[`WriteIntentRegistry`](../../src/hivememory/workspace/intents/registry.py)、[`WorkspaceOperationEntry`](../../src/hivememory/workspace/capability/operations.py)；Profile 读取统一使用 [`ProfileResolver`](../../src/hivememory/workspace/resolution/profile.py)；
 - [`SystemAssembler`](../../src/hivememory/system/assembler.py)、[`HiveMemorySystem`](../../src/hivememory/system/system.py)；
@@ -565,7 +589,7 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 - 访问边界：[`tests/unit/workspace/test_access.py`](../../tests/unit/workspace/test_access.py)、[`tests/unit/workspace/test_registry.py`](../../tests/unit/workspace/test_registry.py)、[`tests/unit/system/access/test_gateway.py`](../../tests/unit/system/access/test_gateway.py)、[`tests/unit/architecture/test_access_boundaries.py`](../../tests/unit/architecture/test_access_boundaries.py)、[`tests/unit/architecture/test_workspace_boundaries.py`](../../tests/unit/architecture/test_workspace_boundaries.py)、[`tests/unit/architecture/test_package_layers.py`](../../tests/unit/architecture/test_package_layers.py)、[`tests/integration/workspace/test_application_access_boundary.py`](../../tests/integration/workspace/test_application_access_boundary.py)、[`test_root_api_authorization.py`](../../tests/integration/workspace/test_root_api_authorization.py)（逐方法的 root 授权）、[`test_registration_configuration.py`](../../tests/integration/workspace/test_registration_configuration.py)（旧 operation 与 `system` 白名单的装载失败）、[`tests/integration/workspace/test_published_registration_chain.py`](../../tests/integration/workspace/test_published_registration_chain.py)（随仓库发布的登记文件驱动的 HTTP 链路）；
 - [`tests/unit/core/models/test_workspace.py`](../../tests/unit/core/models/test_workspace.py)；
 - [`tests/unit/workspace/assets/test_store.py`](../../tests/unit/workspace/assets/test_store.py)；
-- 线程 context：[`tests/integration/workspace/test_thread_context.py`](../../tests/integration/workspace/test_thread_context.py)（主线程与子线程的派生、被调用方准入、单独撤销与运行绑定）、[`test_process_threads.py`](../../tests/integration/workspace/test_process_threads.py)（进程侧派生只接受 Actor 阶段的主线程，统一撤销）、[`test_thread_context_process.py`](../../tests/integration/workspace/test_thread_context_process.py)（CPU 执行结束即撤销，阶段收尾仍以进程 context 授权）、[`tests/unit/core/test_access_binding.py`](../../tests/unit/core/test_access_binding.py)；
+- 线程 context：[`tests/integration/workspace/test_thread_context.py`](../../tests/integration/workspace/test_thread_context.py)（主线程与子线程的派生、被调用方准入、单独撤销与运行绑定）、[`test_process_threads.py`](../../tests/integration/workspace/test_process_threads.py)（线程表的登记与标识、唯一的存活判定、子线程结束与兜底结束、线程描述的标签与快照）、[`test_thread_context_process.py`](../../tests/integration/workspace/test_thread_context_process.py)（Actor 阶段结束即撤销全部线程，阶段收尾仍以进程 context 授权）、[`tests/unit/core/test_access_binding.py`](../../tests/unit/core/test_access_binding.py)；
 - 操作请求与引用交付：[`tests/integration/workspace/test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)、[`test_reference_citations.py`](../../tests/integration/workspace/test_reference_citations.py)、[`tests/e2e/system/test_chat_mtp_operations.py`](../../tests/e2e/system/test_chat_mtp_operations.py)（含 CALL 子线程按被调用方授权与写入归属）、[`test_chat_operation_whitelist.py`](../../tests/e2e/system/test_chat_operation_whitelist.py)（没有 actor 操作的 Agent 完成 chat，预检索仍按 actor 过滤；只授予 READ 与 SEARCH 的 Agent 输出 WRITE 时被拒绝且不登记意图）；
 - 写入意图与读取失效：[`tests/unit/workspace/intents/test_registry.py`](../../tests/unit/workspace/intents/test_registry.py)、[`tests/integration/workspace/test_intent_registry_and_read_cache.py`](../../tests/integration/workspace/test_intent_registry_and_read_cache.py)；
 - [`tests/integration/patchouli/test_memory_workspace_isolation.py`](../../tests/integration/patchouli/test_memory_workspace_isolation.py)、[`test_topic_access_chain.py`](../../tests/integration/patchouli/test_topic_access_chain.py)；
@@ -573,4 +597,4 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 - cache 串扰与授权重验：[`tests/unit/workspace/resolution/test_alias_resolver.py`](../../tests/unit/workspace/resolution/test_alias_resolver.py)、[`tests/unit/workspace/resolution/test_profile_resolver.py`](../../tests/unit/workspace/resolution/test_profile_resolver.py)；
 - 附件链路：[`tests/integration/workspace/capability/test_assets.py`](../../tests/integration/workspace/capability/test_assets.py)、[`tests/integration/system/test_workspace_asset_upload_api.py`](../../tests/integration/system/test_workspace_asset_upload_api.py)、[`test_workspace_asset_chat_selection.py`](../../tests/integration/system/test_workspace_asset_chat_selection.py)；完整入口见[Chat 附件链路](../system/attachments.md)。
 
-相关入口：[总体架构](./overview.md)、[系统边界与所有权](./boundaries.md)、[数据模型与可变性边界](./data-model.md)、[System 组合根与生命周期](../system/composition.md)、[MemoryLibrary](../patchouli/memory-library.md)、[Perception 与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)、[Chat 附件链路](../system/attachments.md)、[归档的 A1 访问边界计划](../archive/plans/v0.7.0-a1-workspace-access-boundary.md)、[归档的 Alice 能力层迁移](../archive/plans/v0.7.0-alice-capability-migration.md)、[归档的能力层分层](../archive/plans/v0.7.0-capability-surface-split.md)、[归档的线程 context 计划](../archive/plans/v0.7.0-thread-context.md)、[归档的执行线程层计划](../archive/plans/v0.7.0-execution-thread-layer.md)和[Workspace 文档收口历史审计](../archive/plans/documentation-migration-finalization-audit.md)。
+相关入口：[总体架构](./overview.md)、[系统边界与所有权](./boundaries.md)、[数据模型与可变性边界](./data-model.md)、[System 组合根与生命周期](../system/composition.md)、[MemoryLibrary](../patchouli/memory-library.md)、[Perception 与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)、[Chat 附件链路](../system/attachments.md)、[归档的 A1 访问边界计划](../archive/plans/v0.7.0-a1-workspace-access-boundary.md)、[归档的 Alice 能力层迁移](../archive/plans/v0.7.0-alice-capability-migration.md)、[归档的能力层分层](../archive/plans/v0.7.0-capability-surface-split.md)、[归档的线程 context 计划](../archive/plans/v0.7.0-thread-context.md)、[归档的执行线程层计划](../archive/plans/v0.7.0-execution-thread-layer.md)、[归档的执行线程正式定义计划](../archive/plans/v0.7.0-execution-thread-definition.md)和[Workspace 文档收口历史审计](../archive/plans/documentation-migration-finalization-audit.md)。

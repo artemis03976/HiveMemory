@@ -15,7 +15,7 @@ from httpx import ASGITransport, AsyncClient
 
 from hivememory.alice.system import AliceSystem
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.core.access import WorkspaceAccessContext, WorkspaceOperation
+from hivememory.core.access import WorkspaceOperation
 from hivememory.core.models import (
     ActorIdentity,
     AttachmentSelectionRequest,
@@ -33,9 +33,12 @@ from hivememory.workspace.capability.actor.agent_profiles import ActorAgentServi
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
+    CPUEventSink,
+    CPUExecutionResult,
     CPUInputManifest,
     CPUPort,
-    CPURunHandle,
+    ExecutionThread,
+    ThreadDescriptor,
 )
 from tests.helpers.llm import CallbackLLMService
 from tests.helpers.memory import make_memory_metadata
@@ -95,14 +98,13 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
             stack.bus,
             operation_authorizer=access.authorizer,
             memory_reader=runtime.aliases,
-            dispatch_topics=access.thread_spawner,
+            threads=access.threads,
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
-            thread_spawner=access.thread_spawner,
             profile_reader=runtime.profiles,
         ),
-        operation_authorizer=access.authorizer,
+        threads=access.threads,
     )
     llm_messages = []
     responses = iter(['⟪ WRITE | * | content="越权写入" ⟫', "权限拒绝后正常回答"])
@@ -179,24 +181,28 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
 
 
 class _RecordingCPU:
-    """记录公开 CPU 端口的输入，全部执行仍交给真实 Alice CPU。"""
+    """记录公开 CPU 端口的输入与主线程描述，全部执行仍交给真实 Alice CPU。"""
 
     def __init__(self, delegate: CPUPort) -> None:
         self._delegate = delegate
         self.manifests: list[CPUInputManifest] = []
+        self.threads: list[ThreadDescriptor] = []
 
-    def execute(
+    async def execute(
         self,
         manifest: CPUInputManifest,
         *,
-        access: WorkspaceAccessContext,
+        thread: ExecutionThread,
         generation_options: dict[str, Any] | None,
-    ) -> CPURunHandle:
+        events: CPUEventSink,
+    ) -> CPUExecutionResult:
         self.manifests.append(manifest)
-        return self._delegate.execute(
+        self.threads.append(thread.descriptor)
+        return await self._delegate.execute(
             manifest,
-            access=access,
+            thread=thread,
             generation_options=generation_options,
+            events=events,
         )
 
 
@@ -267,14 +273,13 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
             stack.bus,
             operation_authorizer=access.authorizer,
             memory_reader=runtime.aliases,
-            dispatch_topics=access.thread_spawner,
+            threads=access.threads,
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
-            thread_spawner=access.thread_spawner,
             profile_reader=runtime.profiles,
         ),
-        operation_authorizer=access.authorizer,
+        threads=access.threads,
     )
     llm_messages = []
 
@@ -342,8 +347,11 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
         assert "本轮公共资料" in manifest.turn_context
         assert "本轮专属资料" in manifest.turn_context
         assert "他人的私有资料" not in manifest.turn_context
-        assert manifest.agent_profile.agent_id == actor.agent_id
-        assert manifest.agent_profile.persona == profile.payload.content
+        # 图纸与操作快照随主线程的描述交给 CPU，空白名单原样交出。
+        (main_thread,) = cpu.threads
+        assert main_thread.agent_profile.agent_id == actor.agent_id
+        assert main_thread.agent_profile.persona == profile.payload.content
+        assert main_thread.allowed_operations == frozenset()
         assert "本轮选中的附件正文" in manifest.turn_context
         (messages,) = llm_messages
         assert profile.payload.content in messages[0]["content"]

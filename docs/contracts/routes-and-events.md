@@ -9,7 +9,8 @@ code_paths:
   - src/hivememory/patchouli/contracts/public_routes.py
   - src/hivememory/gateway/contracts/public_routes.py
   - src/hivememory/alice/interface/cpu.py
-  - src/hivememory/alice/interface/stream.py
+  - src/hivememory/alice/interface/output.py
+  - src/hivememory/server/routers/chat.py
   - src/hivememory/core/contracts/events.py
   - src/hivememory/core/contracts/runtime_events.py
   - src/hivememory/components/bus/
@@ -19,7 +20,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 公开路由与事件
@@ -127,11 +128,11 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 
 ### 2.5 CPU 端口与交互输出
 
-Alice 经 [CPU 端口](./subsystem-contracts.md#4-cpu-端口与-alice-实现)交接，不注册全局执行路由。流式 CPU 输出先交付 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end`、`context_compaction` 交互事件，最后交付 `CPUExecutionResult`。每个交互事件带 run-local `stream_sequence`；frame/CALL 事件还带 `agent_run_id/frame_id/action_id` 等关联字段，类型化结果不附加交互元数据。
+Alice 经 [CPU 端口](./subsystem-contracts.md#4-cpu-端口与-alice-实现)交接，不注册全局执行路由。执行过程中，Alice 经进程给出的事件 sink 推送 `token`、`mtp_start`、`mtp_result`、`sub_agent_start`、`sub_agent_end`、`context_compaction` 交互事件，结束时以返回值交回 `CPUExecutionResult`。每个交互事件带 run-local `stream_sequence`；frame/CALL 事件还带 `agent_run_id/frame_id/action_id` 等关联字段，类型化结果不附加交互元数据。
 
 交互流的 Agent 展示优先使用当前 Profile 的来源 alias，空值才回退注册标签；`agent.run.*` 与 `chat.run.*` 观测中的 Agent/Workspace 则使用同一次注册的 `ExecutionLabels`。Profile 展示名不会改变授权身份或事件标签。
 
-队列有界并保留背压；关闭输出流会取消并等待当前 runner，任务进程在 CPU 收尾后接收结果槽。客户端的 `done` 由任务进程从结果投影（第 6 节），不属于 Alice 的内部事件。Alice 的资源操作经 workspace 的公共 `OperationEntry` 与请求契约，操作入口本身不注册全局路由。
+Alice 不缓存交互事件，背压由进程的输出通道施加：通道写满时 sink 等待，Alice 随之暂停。停止以原生取消到达 Alice，Alice 收尾后返回带部分输出与已完成检查点的 cancelled 结果。客户端的 `done` 由任务进程从结果投影（第 6 节），不属于 Alice 的内部事件。Alice 的资源操作经 workspace 的公共 `OperationEntry` 与请求契约，操作入口本身不注册全局路由。
 
 ## 3. 全局业务事件
 
@@ -191,7 +192,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 Alice CPU 端口的交互输出与 `/runtime-events/stream` 是两条独立通道：
 
-- 交互输出只属于一次 Agent run，承载 token、MTP、CALL 边界、压缩进度，最后交付类型化执行结果，队列满时通过背压等待，断流会触发该 run 的取消；
+- 交互输出只属于一次 Agent run，承载 token、MTP、CALL 边界、压缩进度，执行结果以返回值交回；进程的输出通道写满时通过背压等待，交付方离开会以停止请求取消该 run；
 - RuntimeEvent 是全局扁平观测流，承载 `agent.run.started/completed/cancelled/failed` 等生命周期摘要，允许缓冲、回放和慢订阅者丢弃旧事件；
 - 两条流可以通过 `process_id/agent_run_id` 关联展示，但不得自动互相桥接；
 - RuntimeEvent 的缺失或 transport 故障不能改变 Agent 结果，交互输出也不替代结构化 `TurnEvent` 与权威 run 状态。
@@ -236,11 +237,13 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 
 会话 HTTP 由 `server/routers/sessions.py` 经门面取得 `RootSessionService`，沿用请求认证与 root 授权。POST/GET `/api/v1/sessions` 创建（201）/列出摘要；GET/PATCH/DELETE `/api/v1/sessions/{session_id}` 读取全量历史/以 `{title}` 重命名/删除（204）。创建体同为 `{title}`，允许空标题，首轮写入时自动取用户消息前 80 字。标题最多 200 字。会话不属于 Agent，不增加 actor 操作。响应是 `server/models/session.py` 的投影，不含 Workspace 归属：摘要为 `session_id`、`title`、`created_at`、`updated_at`、`turn_count` 与 `active_process_id`（非空表示正被任务进程占用）；完整读取另含 `turns` 与可空的 `compaction_checkpoint`（结构见[子系统契约](./subsystem-contracts.md#421-会话压缩检查点)）。每轮只返回 `interaction_id`、`agent_id`（仅用于历史展示）、`topic_id`、`created_at` 与载荷中的 `outcome`、`user_message`、`assistant_final_text`、`turn_events`；轮次事件只含 `kind`、`sequence`、`content`、`action_id`、`tool_kind`、`target`、`tool_args`、`status`。列表摘要不含轮次或检查点。
 
+Chat SSE 订阅任务进程的输出通道：进程在自己的 task 中运行，客户端断连时交付以 `client_disconnected` 退订并请求停止，与用户停止走同一条路径，发布 `chat.run.cancel_requested` 与带生效阶段的 `chat.run.cancelled`，本轮输出被丢弃；进入 finalize 后的断连不影响提交。响应不等待进程关闭，详见[应用服务](../system/application-services.md#32-流式链路)。
+
 Chat 首个 `process_id` SSE 事件携带 `{process_id, session_id}`；非流式交付的结果也含 `session_id`，但不含 `topic_id`、停止原因与记忆引用。`memory_refs` 保留；不再发布 `topic_info`。有输出的 completed/cancelled/failed 的 done 包含 `topic_id`，对应会话本轮标注；没有 `pool_topics`。无输出的 done 不含 `final_text` 与 `topic_id`。前端通过独立 Topic 列表接口管理短期话题。取消、失败有输出时先 finalize 再交付终态，详见[应用服务](../system/application-services.md#33-部分输出与交付关闭)。
 
 failed done 保留 `reason=agent_run_failed`，CPU 有稳定原因时另带 `failure_reason`；`chat.run.failed.message` 使用该码，不下发异常正文。四类预算原因见[错误模型](./error-model.md#22-agent-run)。done 不包含 `turn_events` 或 `compaction_checkpoint`；检查点以会话读取结果为准，压缩结束事件不代表会话已接受。
 
-流式 Alice 在创建根 frame 前可发出 `context_compaction`，经 CPU 输出流与任务进程原样交付：
+Alice 在创建根 frame 前可推送 `context_compaction`，经 CPU 事件 sink 与任务进程原样交付；它与其他交互事件一样只受通道背压，不等待交付方确认：
 
 | 字段 | 含义 |
 |:---|:---|

@@ -127,8 +127,8 @@ class _AccessControlBundle:
 class _ProcessFacilitiesBundle:
     """任务进程的共享设施：进程表与进程线程管理。
 
-    进程表同时交给注册入口与线程管理；线程管理在能力层之前构建，作为 CALL
-    子线程派生与派发话题读取的端口注入 actor API。
+    进程表同时交给注册入口与线程管理；线程管理在能力层之前构建，作为执行
+    线程的唯一入口（解析、CALL 子线程的派生与结束）注入操作入口与 actor API。
     """
 
     process_table: ProcessTable
@@ -394,7 +394,7 @@ class SystemAssembler:
 
     @staticmethod
     def _build_process_facilities(access_control: _AccessControlBundle) -> _ProcessFacilitiesBundle:
-        """进程线程管理经认证网关派生与撤销线程 context，经操作授权者读取操作快照。"""
+        """进程线程管理经认证网关派生与撤销线程 context，经操作授权者读取运行绑定与操作快照。"""
         process_table = ProcessTable()
         return _ProcessFacilitiesBundle(
             process_table=process_table,
@@ -431,17 +431,16 @@ class SystemAssembler:
             global_bus=runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
             memory_reader=runtime.workspace_runtime.aliases,
-            dispatch_topics=processes.process_threads,
+            threads=processes.process_threads,
         )
         agent = ActorAgentService(
             operation_authorizer=access_control.operation_authorizer,
             profile_reader=runtime.workspace_runtime.profiles,
-            thread_spawner=processes.process_threads,
         )
         operations = WorkspaceOperationEntry(
             memory,
             agent=agent,
-            operation_authorizer=access_control.operation_authorizer,
+            threads=processes.process_threads,
         )
         return _CapabilitiesBundle(memory=memory, agent=agent, operations=operations)
 
@@ -525,7 +524,7 @@ class SystemAssembler:
             allocator=allocator,
             # 阶段授权在执行器内、每次阶段调用前执行。
             operation_authorizer=access_control.operation_authorizer,
-            thread_contexts=processes.process_threads,
+            threads=processes.process_threads,
             gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
             gateway_session_turn_limit=self._config.gateway.context_preparation.session_turn_limit,
         )

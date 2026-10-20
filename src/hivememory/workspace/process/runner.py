@@ -3,23 +3,25 @@
 骨架依次驱动 Gateway 分析 → Patchouli prepare → CPU 分配 → Actor 执行 →
 有输出时封口交互记录并 finalize，对子系统的一切调用都经全局总线
 的公开路由完成，Actor 执行经组合根注入的 CPU 端口（``workspace.contracts``
-的 :class:`CPUPort`）完成。骨架只产出类型化的阶段产出（见
-``workspace.process.outputs``），执行不区分交付形态：CPU 总是逐项产出
-交互事件，流式交付逐条转交，非流式交付只取终态；两种交付共用同一条阶段
-顺序、同一组取消响应点与同一个关闭流程。
+的 :class:`CPUPort`）完成。骨架运行在进程自己的 task 中，只把类型化的阶段
+产出写入进程的输出通道（见 ``workspace.process.outputs``），不区分交付
+形态：CPU 总是逐项推送交互事件，订阅通道的流式交付逐条转交，不订阅的
+非流式交付只取终态；两种交付共用同一条阶段顺序、同一组取消响应点与同一个
+关闭流程。
 
 执行器跨进程共享、不持有任何进程的状态：它只持有编排依赖，每次运行与
 关闭都以 :class:`TaskProcess` 为参数，进程的全部状态（进程记录、任务参数、
-工作集）都在进程上。执行器经进程记录使用绑定的访问 context 与事件发布器；
-进程的登记、注销与 context 失效由注册入口（``workspace.process.service``）
-负责。
+工作集、输出通道）都在进程上。执行器经进程记录使用绑定的访问 context 与
+事件发布器；进程 task 的创建、进程的登记、注销与 context 失效由注册入口
+（``workspace.process.service``）负责。
 """
 
 from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import AsyncGenerator, Awaitable, Callable
+from collections.abc import Awaitable, Callable
+from dataclasses import dataclass
 from typing import Any
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
@@ -29,7 +31,7 @@ from hivememory.components.trace_context import (
     set_trace_context,
 )
 from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
-from hivememory.core.models import IdentityScope, WorkspaceIdentity
+from hivememory.core.models import AgentProfile, IdentityScope, WorkspaceIdentity
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode, GatewaySessionTurn
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.gateway.contracts import GatewayPublicRoutes
@@ -50,11 +52,11 @@ from hivememory.workspace.process.outputs import (
     Finalizing,
     InputsAllocated,
     ProcessFailed,
-    ProcessOutput,
     ProcessStarted,
     RunCancelled,
     RunCompleted,
     RunFailed,
+    TerminalOutput,
 )
 from hivememory.workspace.process.sealing import seal_interaction
 from hivememory.workspace.process.table import (
@@ -64,7 +66,6 @@ from hivememory.workspace.process.table import (
 )
 from hivememory.workspace.process.task_process import TaskProcess
 from hivememory.workspace.process.threads import ProcessThreads
-from hivememory.workspace.process.working_set import ProcessWorkingSet
 from hivememory.workspace.sessions import ConversationSessionService
 
 logger = logging.getLogger(__name__)
@@ -84,7 +85,14 @@ async def _run_interruptible(
     phase: ProcessPhase,
     operation_factory: Callable[[], Awaitable[Any]],
 ) -> Any:
-    """用进程编排自有 child task 包装一个可中断阶段。"""
+    """用进程编排自有 child task 包装一个可中断阶段。
+
+    停止请求只取消这个 child task，在此翻译为 :class:`_ProcessCancelled`；
+    进程 task 自身被取消（系统关闭的硬取消）时按进入时记录的
+    ``cancelling()`` 识别，原样向上传播。child task 可能把取消转换为返回值
+    （CPU 在最外层这样做），这时等待方的取消请求会随之丢失，因此 child task
+    正常结束后同样按 ``cancelling()`` 判断，重新抛出硬取消。
+    """
     owner_task = asyncio.current_task()
     if owner_task is None:
         raise RuntimeError("_run_interruptible 必须运行在 asyncio task 中")
@@ -100,6 +108,8 @@ async def _run_interruptible(
     control.bind_phase(phase, task)
     try:
         result = await task
+        if owner_task.cancelling() > entry_cancelling:
+            raise asyncio.CancelledError
         if control.outcome is ProcessOutcome.STOP_REQUESTED:
             raise _ProcessCancelled(
                 phase,
@@ -134,13 +144,24 @@ def _require_prepared_workspace(
         )
 
 
+@dataclass
+class _ReturnedResult:
+    """Actor 子 task 与阶段函数共享的局部状态：CPU 返回的终态结果。
+
+    子 task 结束后，停止（晚于 CPU 返回才被识别）与硬取消都会以异常离开
+    ``_run_interruptible``，子 task 的返回值随之丢失；阶段函数改从这里取回。
+    """
+
+    result: CPUExecutionResult | None = None
+
+
 class TaskProcessRunner:
     """任务进程执行器：四阶段编排骨架与关闭流程，跨进程共享。
 
     :meth:`run` 是唯一的编排骨架，:meth:`close` 是唯一的关闭流程；两者都
-    以进程为参数，执行器自身不保存任何进程的状态，也不区分交付形态：CPU
-    总是逐项产出交互事件，由交付方决定转交还是只取终态。执行器与
-    ``CPUAllocator`` 由组合根构建并注入注册入口。
+    以进程为参数、都运行在进程 task 中，执行器自身不保存任何进程的状态，
+    也不区分交付形态：CPU 总是逐项产出交互事件，由交付方决定订阅还是只取
+    终态。执行器与 ``CPUAllocator`` 由组合根构建并注入注册入口。
 
     阶段调用由进程编排负责，每次调用前校验准入与任务目标 Workspace，
     不检查 actor 操作白名单。授权返回的 ``IdentityScope`` 保留进程 actor，
@@ -155,7 +176,7 @@ class TaskProcessRunner:
         sessions: ConversationSessionService,
         allocator: CPUAllocator,
         operation_authorizer: WorkspaceOperationAuthorizer,
-        thread_contexts: ProcessThreads,
+        threads: ProcessThreads,
         gateway_request_timeout_ms: int = 8000,
         gateway_session_turn_limit: int = 3,
     ) -> None:
@@ -164,193 +185,229 @@ class TaskProcessRunner:
         self._cpu = cpu
         self._allocator = allocator
         self._authorizer = operation_authorizer
-        self._thread_contexts = thread_contexts
+        self._threads = threads
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
         self._gateway_session_turn_limit = gateway_session_turn_limit
 
     # ========== 编排骨架 ==========
 
-    async def run(self, process: TaskProcess) -> AsyncGenerator[ProcessOutput, None]:
-        """按四阶段顺序产出阶段产出，结束时（含提前关闭）执行 :meth:`close`。
+    async def run(self, process: TaskProcess) -> TerminalOutput:
+        """在进程 task 中按四阶段顺序推进，返回终态产出；结束时执行 :meth:`close`。
 
-        进程每记录一次终态（``record.mark_*``）就紧接着交出终态产出，中间
-        没有 ``await``：终态是否已经交出因此由进程记录的终态推出。
+        阶段产出写入进程的输出通道，终态产出既写入通道、也作为返回值交给
+        等待进程 task 的一方。停止与普通异常都收口为终态产出，只有硬取消以
+        ``CancelledError`` 结束；无论哪种结局，关闭流程都在 ``finally`` 中
+        执行一次。
+        """
+        trace_tokens = set_trace_context(process.trace_id, "TaskProcess", "foreground")
+        try:
+            terminal = await self._execute(process)
+            await process.outputs.send(terminal)
+            return terminal
+        finally:
+            try:
+                await self.close(process)
+            finally:
+                reset_trace_context(trace_tokens)
+
+    async def _execute(self, process: TaskProcess) -> TerminalOutput:
+        """推进各阶段，把停止与普通异常收口为终态产出；硬取消原样传播。
+
+        进程每记录一次终态（``record.mark_*``）都紧接着返回终态产出，返回
+        之后直到写入通道都没有会挂起的 ``await``：终态是否已经写入因此由
+        进程记录的终态推出。
         """
         record = process.record
-        request = process.request
-        working_set = process.working_set
         events = record.events
-        process.owner_task = asyncio.current_task()
-        trace_tokens = None
         try:
-            trace_tokens = set_trace_context(process.trace_id, "TaskProcess", "foreground")
-            yield ProcessStarted()
-
-            # ---- Gateway：可被 stop 中断 ----
-            record.enter_phase(ProcessPhase.GATEWAY)
-            events.status(record)
-            # 阶段授权只校验准入与目标；Gateway 沿用进程 actor 的 scope
-            # 读取话题，actor 是否持有 READ 不影响这次系统编排。
-            gateway_scope = self._authorize(process)
-            gateway_result = await _run_interruptible(
-                record,
-                ProcessPhase.GATEWAY,
-                lambda: self._bus.request(
-                    GatewayPublicRoutes.PROCESS,
-                    message=request.message,
-                    identity_scope=gateway_scope,
-                    ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
-                    session_turns=tuple(
-                        GatewaySessionTurn(
-                            user_message=t.payload.user_message,
-                            assistant_text=t.payload.assistant_final_text or "",
-                        )
-                        for t in self._sessions.get(
-                            request.target_workspace, request.session_id
-                        ).turns[-self._gateway_session_turn_limit :]
-                    ),
-                    request_timeout_ms=self._gateway_request_timeout_ms,
-                ),
-            )
-            if gateway_result.kind == "command":
-                # 命令只解析不执行：解析结果在这里转换为命令终态，命令不可用
-                # 是命令自身的终态，进程仍按 completed 结局收口。
-                command_result = command_terminal(gateway_result.command_parse_result)
-                record.mark_completed()
-                events.command_completed(record, command_id=command_result.command_id)
-                yield CommandCompleted(command_result)
-                return
-
-            # ---- prepare 与 CPU 分配：不可中断，进入 Actor 前统一检查 stop ----
-            prepared, manifest = await self._prepare_and_allocate(process, gateway_result.decision)
-            yield InputsAllocated(prepared=prepared)
-
-            # ---- Actor 执行：可被 stop 中断；流式逐条转交交互事件 ----
-            record.enter_phase(ProcessPhase.ACTOR)
-            events.status(record)
-            # CPU 只持有派生线程 context；进程 context 留给全部阶段的授权。
-            access = self._thread_contexts.derive_main_thread(process)
-            # 经 CPU 端口逐项拉取：交互事件产出为 ActorEvent、终态结果作为
-            # 执行结果。每次拉取都经 _run_interruptible 包装，停止请求的
-            # 响应点不变；输出流登记进工作集，由关闭流程兜底关闭（含断流与
-            # 取消路径）。
-            execution_result: CPUExecutionResult | None = None
-            try:
-                cpu_run = self._cpu.execute(
-                    manifest,
-                    access=access,
-                    generation_options=request.generation_options,
-                )
-                cpu_output = cpu_run.output
-                working_set.cpu_output = cpu_output
-                working_set.cpu_result_slot = cpu_run.result_slot
-                try:
-                    while True:
-                        try:
-                            item = await _run_interruptible(
-                                record, ProcessPhase.ACTOR, lambda: anext(cpu_output)
-                            )
-                        except StopAsyncIteration:
-                            break
-                        if isinstance(item, CPUExecutionResult):
-                            execution_result = item
-                            break
-                        yield ActorEvent(item)
-                except _ProcessCancelled:
-                    # 停止可能发生在两次拉取之间；先关闭流，CPU 才会同步回填结果槽。
-                    await self._close_cpu_output(working_set)
-                    # 沿用槽中的结局：CPU 在停止生效前已经完成时，结果仍是 completed。
-                    execution_result = cpu_run.result_slot.result
-                    if execution_result is None:
-                        raise
-                finally:
-                    if execution_result is None:
-                        # 断连或异常先撤销，不能在等待 CPU 关闭时保留线程权限。
-                        self._thread_contexts.revoke_threads(working_set)
-                    await self._close_cpu_output(working_set)
-            except (asyncio.CancelledError, GeneratorExit):
-                # 拉取或关闭期间断连仍接受旧历史视图；普通执行异常不进入此路径。
-                self._thread_contexts.revoke_threads(working_set)
-                self._accept_checkpoint(process, execution_result)
-                raise
-            finally:
-                # 输出流关闭与线程撤销先于封口，不让 finalize 持有 actor 权限。
-                self._thread_contexts.revoke_threads(working_set)
-            # 迭代器在没有终态结果时结束属于端口语义错误，按进程失败处理。
-            if execution_result is None:
-                raise RuntimeError("CPU 输出流在没有终态执行结果的情况下结束")
-
-            # 检查点只覆盖旧轮次，接受不依赖本轮有输出或交付方仍在线。
-            self._accept_checkpoint(process, execution_result)
-            # 交付方离开或系统关闭时丢弃本轮；用户停止晚于 CPU 终态时沿用 CPU
-            # 的结局，不把完整回复改记为 cancelled。
-            if record.discards_output:
-                raise _ProcessCancelled(record.phase, record.stop_reason or "stream_closed")
-            working_set.execution_result = execution_result
-            has_output = execution_result.has_output
-            if has_output:
-                # 封口、会话追加、进入 finalize 与登记提交任务之间没有 await/yield。
-                # finalizing 一旦交给客户端，提交任务就已由进程持有。
-                payload = seal_interaction(
-                    user_message=request.message,
-                    gateway_decision=gateway_result.decision,
-                    assistant_final_text=execution_result.final_text,
-                    turn_events=execution_result.turn_events,
-                    model_used=execution_result.model_used,
-                    used_attachments=working_set.used_attachments,
-                    outcome=CPUExecutionStatus(execution_result.status).value,
-                )
-                self._sessions.append(
-                    request.target_workspace,
-                    request.session_id,
-                    process_id=record.process_id,
-                    agent_id=record.events.labels.agent_id,
-                    payload=payload,
-                    topic_id=prepared.topic_id,
-                )
-                if not record.try_enter_finalizing():
-                    raise _ProcessCancelled(record.phase, record.stop_reason or "user_requested")
-                working_set.finalization_task = asyncio.create_task(
-                    self._finalize(process, prepared, payload)
-                )
-                events.status(record)
-                yield Finalizing()
-                # 交付方取消不中断已开始的提交：等到提交结束再传播取消，
-                # 关闭流程仍按同一任务的结果收尾。
-                await join_shielded(working_set.finalization_task)
-
-            topic_id = prepared.topic_id if has_output else None
-            self._mark_execution_terminal(process, execution_result)
-            if execution_result.status == CPUExecutionStatus.CANCELLED.value:
-                yield RunCancelled(
-                    reason=record.stop_reason or "user_requested",
-                    execution_result=execution_result,
-                    topic_id=topic_id,
-                )
-            elif execution_result.status == CPUExecutionStatus.FAILED.value:
-                yield RunFailed(execution_result, topic_id=topic_id)
-            else:
-                yield RunCompleted(execution_result=execution_result, topic_id=topic_id)
+            return await self._run_stages(process)
         except _ProcessCancelled as cancelled:
             record.mark_cancelled()
             events.cancelled(record, phase=cancelled.phase)
-            yield RunCancelled(reason=record.stop_reason or "user_requested")
+            return RunCancelled(reason=record.stop_reason or "user_requested")
         except Exception as exc:
-            # 进程异常没有可接受的 CPU 终态，不从关闭时的槽中补交检查点。
-            working_set.cpu_result_slot = None
             if isinstance(exc, WorkspaceDomainError):
                 logger.warning("任务进程领域错误: %s", exc.code)
             else:
                 logger.exception("任务进程异常")
             record.mark_failed()
             events.failed(record, exc)
-            yield ProcessFailed(exc)
+            return ProcessFailed(exc)
+
+    async def _run_stages(self, process: TaskProcess) -> TerminalOutput:
+        """四阶段的主路径：停止以 :class:`_ProcessCancelled` 结束，异常原样抛出。"""
+        record = process.record
+        request = process.request
+        events = record.events
+        await process.outputs.send(ProcessStarted())
+
+        # ---- Gateway：可被 stop 中断 ----
+        record.enter_phase(ProcessPhase.GATEWAY)
+        events.status(record)
+        # 阶段授权只校验准入与目标；Gateway 沿用进程 actor 的 scope
+        # 读取话题，actor 是否持有 READ 不影响这次系统编排。
+        gateway_scope = self._authorize(process)
+        gateway_result = await _run_interruptible(
+            record,
+            ProcessPhase.GATEWAY,
+            lambda: self._bus.request(
+                GatewayPublicRoutes.PROCESS,
+                message=request.message,
+                identity_scope=gateway_scope,
+                ingress_mode=GatewayIngressMode.ACTIVE_CHAT,
+                session_turns=tuple(
+                    GatewaySessionTurn(
+                        user_message=t.payload.user_message,
+                        assistant_text=t.payload.assistant_final_text or "",
+                    )
+                    for t in self._sessions.get(request.target_workspace, request.session_id).turns[
+                        -self._gateway_session_turn_limit :
+                    ]
+                ),
+                request_timeout_ms=self._gateway_request_timeout_ms,
+            ),
+        )
+        if gateway_result.kind == "command":
+            # 命令只解析不执行：解析结果在这里转换为命令终态，命令不可用
+            # 是命令自身的终态，进程仍按 completed 结局收口。
+            command_result = command_terminal(gateway_result.command_parse_result)
+            record.mark_completed()
+            events.command_completed(record, command_id=command_result.command_id)
+            return CommandCompleted(command_result)
+
+        # ---- prepare 与 CPU 分配：不可中断，进入 Actor 前统一检查 stop ----
+        prepared, agent_profile, manifest = await self._prepare_and_allocate(
+            process, gateway_result.decision
+        )
+        await process.outputs.send(InputsAllocated(prepared=prepared))
+
+        # ---- Actor 执行：可被 stop 中断；交互事件经输出通道逐条转交 ----
+        execution_result = await self._run_actor(process, manifest, agent_profile)
+        # 交付方离开或系统关闭时丢弃本轮；用户停止晚于 CPU 终态时沿用 CPU
+        # 的结局，不把完整回复改记为 cancelled。
+        if record.discards_output:
+            raise _ProcessCancelled(record.phase, record.stop_reason or "stream_closed")
+        has_output = execution_result.has_output
+        if has_output:
+            await self._seal_and_finalize(
+                process, prepared, gateway_result.decision, execution_result
+            )
+
+        topic_id = prepared.topic_id if has_output else None
+        self._mark_execution_terminal(process, execution_result)
+        if execution_result.status == CPUExecutionStatus.CANCELLED.value:
+            return RunCancelled(
+                reason=record.stop_reason or "user_requested",
+                execution_result=execution_result,
+                topic_id=topic_id,
+            )
+        if execution_result.status == CPUExecutionStatus.FAILED.value:
+            return RunFailed(execution_result, topic_id=topic_id)
+        return RunCompleted(execution_result=execution_result, topic_id=topic_id)
+
+    async def _run_actor(
+        self, process: TaskProcess, manifest: CPUInputManifest, agent_profile: AgentProfile
+    ) -> CPUExecutionResult:
+        """Actor 阶段：派生主线程，在一个可中断子 task 中等待 CPU，返回本轮采用的结果。
+
+        子 task 直接等待 CPU 端口的 ``execute``，交互事件经 sink 写入输出
+        通道；停止取消子 task 时，无论 CPU 在等模型还是阻塞在通道写入上，
+        都立即生效。结果的取舍：CPU 以返回值表达停止后的结局，返回之后进程
+        以它为准，不再按停止标志改写为取消；CPU 原样传播取消、没有结果时按
+        无输出的取消传播。
+
+        主线程以 prepare 之前解析的图纸派生，派生时以主线程 context 读取操作
+        快照；准入此时已被撤销则派生失败，进程按失败收口。子线程随 CALL 返回
+        由 CPU 结束；全部线程只在本阶段的 ``finally`` 中兜底结束一次（关闭
+        流程只是再兜底），结束即撤销线程 context；停止被接受时线程已随之结束，
+        迟到的提交在此之前就被拒绝。检查点也只在这里接受一次：结束线程之后、
+        判断丢弃与有无输出之前。普通执行异常没有可接受的结果。进程 task 被
+        硬取消而 CPU 把取消转换为返回值时，先结束线程、接受其中已完成的
+        检查点，再重新抛出取消。
+        """
+        record = process.record
+        record.enter_phase(ProcessPhase.ACTOR)
+        record.events.status(record)
+        # CPU 只持有主线程的执行线程；进程 context 留给全部阶段的授权。
+        thread = self._threads.derive_main(process, agent_profile)
+        returned = _ReturnedResult()
+
+        async def publish(event: dict[str, Any]) -> None:
+            await process.outputs.send(ActorEvent(event))
+
+        async def drive() -> None:
+            returned.result = await self._cpu.execute(
+                manifest,
+                thread=thread,
+                generation_options=process.request.generation_options,
+                events=publish,
+            )
+
+        try:
+            await _run_interruptible(record, ProcessPhase.ACTOR, drive)
+        except _ProcessCancelled:
+            # 停止：CPU 返回的结局优先（停止晚于 CPU 终态时仍是 CPU 的结局）；
+            # CPU 没有返回结果时按无输出取消。
+            if returned.result is None:
+                raise
+            return returned.result
         finally:
-            try:
-                await self.close(process)
-            finally:
-                if trace_tokens is not None:
-                    reset_trace_context(trace_tokens)
+            # 先结束全部线程（撤销线程 context），再接受检查点；两者都先于
+            # 封口、finalize 与终态交付，硬取消时先于重新抛出取消。
+            self._threads.end_all(process)
+            self._accept_checkpoint(process, returned.result)
+        # drive 正常结束时已经写入 CPU 返回的结果。
+        assert returned.result is not None
+        return returned.result
+
+    async def _seal_and_finalize(
+        self,
+        process: TaskProcess,
+        prepared: PreparedAgentRun,
+        decision: GatewayDecision,
+        execution_result: CPUExecutionResult,
+    ) -> None:
+        """封口交互记录并同步写入会话，再把提交交给 Patchouli 并等待它完成。
+
+        封口、会话追加、进入 finalize 与创建提交任务之间没有 await：提交任务
+        在写入 ``Finalizing`` 之前创建，交付方一旦收到 finalizing，提交就已由
+        进程持有。交付方离开打断不了提交；提交以 ``join_shielded`` 等待，只有
+        硬取消会遇到它，而硬取消也要等提交结束，提交成功时照常记录 CPU 的
+        结局，再传播取消。
+        """
+        record = process.record
+        request = process.request
+        payload = seal_interaction(
+            user_message=request.message,
+            gateway_decision=decision,
+            assistant_final_text=execution_result.final_text,
+            turn_events=execution_result.turn_events,
+            model_used=execution_result.model_used,
+            used_attachments=process.working_set.used_attachments,
+            outcome=CPUExecutionStatus(execution_result.status).value,
+        )
+        self._sessions.append(
+            request.target_workspace,
+            request.session_id,
+            process_id=record.process_id,
+            agent_id=record.events.labels.agent_id,
+            payload=payload,
+            topic_id=prepared.topic_id,
+        )
+        if not record.try_enter_finalizing():
+            raise _ProcessCancelled(record.phase, record.stop_reason or "user_requested")
+        finalization = asyncio.create_task(self._finalize(process, prepared, payload))
+        record.events.status(record)
+        await process.outputs.send(Finalizing())
+        try:
+            await join_shielded(finalization)
+        except asyncio.CancelledError:
+            if not finalization.cancelled():
+                if finalization.exception() is None:
+                    self._mark_execution_terminal(process, execution_result)
+                else:
+                    logger.warning("硬取消期间 finalize 失败", exc_info=finalization.exception())
+            raise
 
     async def _finalize(
         self, process: TaskProcess, prepared: PreparedAgentRun, payload: InteractionPayload
@@ -366,7 +423,7 @@ class TaskProcessRunner:
 
     @staticmethod
     def _mark_execution_terminal(process: TaskProcess, result: CPUExecutionResult) -> None:
-        """仅在提交完成后发布对应终态，重复关闭不重复发布。"""
+        """仅在提交完成后发布对应终态；进程已有终态时不重复发布。"""
         record = process.record
         if record.is_terminal:
             return
@@ -384,12 +441,12 @@ class TaskProcessRunner:
         self,
         process: TaskProcess,
         decision: GatewayDecision,
-    ) -> tuple[PreparedAgentRun, CPUInputManifest]:
+    ) -> tuple[PreparedAgentRun, AgentProfile, CPUInputManifest]:
         """Profile 解析、Patchouli prepare 与 CPU 分配，最后检查一次停止请求。
 
         Profile 解析与附件租借由 CPUAllocator 在副作用前执行阶段授权；
         prepare 同样只检查准入与目标。finalize 在调用前再次校验，不要求
-        actor 持有交互提交操作。
+        actor 持有交互提交操作。解析出的图纸随主线程交给 CPU，不进入输入清单。
         """
         record = process.record
         request = process.request
@@ -434,23 +491,14 @@ class TaskProcessRunner:
         # 期间收到的 stop 请求都在此生效，已取得的租借由关闭流程释放。
         if record.outcome is ProcessOutcome.STOP_REQUESTED:
             raise _ProcessCancelled(ProcessPhase.PREPARE, record.stop_reason or "user_requested")
-        return prepared, manifest
+        return prepared, agent_profile, manifest
 
-    def _accept_checkpoint(
-        self, process: TaskProcess, result: CPUExecutionResult | None = None
-    ) -> None:
+    def _accept_checkpoint(self, process: TaskProcess, result: CPUExecutionResult | None) -> None:
         """同步接受 CPU 的历史视图；领域拒绝仅记录告警，不影响本轮收尾。
 
-        已交付的终态优先；没有时取工作集结果槽中的结果，CPU 可以只在取消
-        时填写槽。正常收尾、断流与兜底关闭可能先后到达，同一次执行只尝试
-        一次，之后结果槽从工作集移除。
+        检查点只覆盖已封口的旧轮次，接受不依赖本轮有输出或交付方仍在线；
+        只由 Actor 阶段调用一次。
         """
-        slot = process.working_set.cpu_result_slot
-        if slot is None:
-            return
-        process.working_set.cpu_result_slot = None
-        if result is None:
-            result = slot.result
         if result is None or result.compaction_checkpoint is None:
             return
         try:
@@ -482,48 +530,25 @@ class TaskProcessRunner:
     # ========== 关闭流程 ==========
 
     async def close(self, process: TaskProcess) -> None:
-        """进程关闭：终态兜底、释放租借、关闭 CPU 输出流、补偿 prepare。
+        """进程关闭：终态兜底、结束线程、释放租借、补偿 prepare。
 
-        无论完成、取消、失败、断流还是分配失败，都经此关闭。租借释放必须先于
-        任何 await 同步执行：owner task 在关闭子流或 cleanup 期间被取消时，
-        释放不能依赖这些 await 完成。context 失效与进程注销由注册入口在
-        本流程之后执行。本方法可重复调用——
-        run() 的收尾与注册入口的关闭路径都会调用它：终态兜底只在进程尚无
-        终态时执行，工作集中的每项资源只取出一次，已经释放的不会再次释放。
+        只在进程 task 中执行：:meth:`run` 的收尾，或进程从未运行就被关闭时
+        由注册入口的进程 task 直接调用。终态兜底只在进程仍无终态时执行，即
+        硬取消与“从未运行就被关闭”两种情形。结束线程与租借释放都先于任何
+        await 同步执行：硬取消打断后续 cleanup 时，也不留下有效的线程凭据或
+        未释放的租借；线程正常由 Actor 阶段结束，这里只是兜底，重复结束是
+        空操作。context 失效与进程注销由注册入口在本流程之后执行。工作集中的
+        每项资源只取出一次，本方法即使重复执行也不会重复释放。
         """
         record = process.record
         working_set = process.working_set
-        # 分支：交付方提前关闭（如客户端断流），且此前没有交出终态。
-        owner_task = process.owner_task
-        owner_is_cancelling = owner_task is not None and owner_task.cancelling() > 0
-        if (
-            working_set.finalization_task is None
-            and not record.is_terminal
-            and not owner_is_cancelling
-        ):
-            if record.outcome is ProcessOutcome.RUNNING:
-                record.request_stop("stream_closed")
+        if not record.is_terminal:
             record.mark_cancelled()
             record.events.closed_before_terminal(record)
 
-        # 撤销线程 context 与租借释放都先于任何 await：即使后续
-        # CPU 输出流关闭被取消，也不能留下有效线程 context 或未释放租借。
-        self._thread_contexts.revoke_threads(working_set)
+        self._threads.end_all(process)
         # 附件文本在 CPU 分配时已编译进清单，Actor 执行不再读取租借内容。
         self._allocator.release(working_set)
-        await self._close_cpu_output(working_set)
-        self._accept_checkpoint(process)
-        if working_set.finalization_task is not None and not record.is_terminal:
-            try:
-                await join_shielded(working_set.finalization_task)
-            except Exception as exc:
-                if not record.is_terminal:
-                    record.mark_failed()
-                    record.events.failed(record, exc)
-                logger.warning("关闭期间 finalize 失败", exc_info=True)
-            else:
-                if working_set.execution_result is not None:
-                    self._mark_execution_terminal(process, working_set.execution_result)
         # 只要 prepare 成功但 finalize 未成功，就清理可能的新建空 Topic。
         prepared = working_set.take_prepared_for_cleanup()
         if prepared is not None:
@@ -536,17 +561,6 @@ class TaskProcessRunner:
                 )
             except Exception:
                 logger.warning("清理 prepared run 失败", exc_info=True)
-
-    @staticmethod
-    async def _close_cpu_output(working_set: ProcessWorkingSet) -> None:
-        """关闭工作集登记的 CPU 输出流（只取出一次），关闭失败只记录警告。"""
-        cpu_output = working_set.take_cpu_output()
-        if cpu_output is None:
-            return
-        try:
-            await cpu_output.aclose()
-        except Exception:
-            logger.warning("关闭 CPU 输出流失败", exc_info=True)
 
 
 __all__ = ["TaskProcessRunner"]

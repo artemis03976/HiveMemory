@@ -101,7 +101,7 @@ class TestActorMemoryService:
             global_bus=global_bus,
             operation_authorizer=composition.authorizer,
             memory_reader=CapturingReader(),
-            dispatch_topics=composition.thread_spawner,
+            threads=composition.threads,
         )
 
         result = await service.retrieve(
@@ -159,7 +159,7 @@ class TestActorMemoryService:
             global_bus=CitationBus(),
             operation_authorizer=composition.authorizer,
             memory_reader=ReferenceReader(),
-            dispatch_topics=composition.thread_spawner,
+            threads=composition.threads,
         )
 
         (result,) = await service.resolve_references(

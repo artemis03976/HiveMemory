@@ -174,10 +174,10 @@ def test_context_failure_maps_to_safe_call_error(error, expected_code, expected_
 @pytest.mark.parametrize("stage", ["context", "result"])
 def test_revoked_call_thread_uses_stop_message_instead_of_profile_retry_advice(stage):
     """CALL 共享线程撤销的安全提示，不把迟到操作误报为 Profile 不可用。"""
-    from hivememory.core.errors import ThreadContextRevokedError
+    from hivememory.core.errors import ThreadEndedError
     from hivememory.core.mtp import MTPFormatter
 
-    error = ThreadContextRevokedError("secret")
+    error = ThreadEndedError("secret")
     response = (
         preparation_error_response("helper", error, stage="context")
         if stage == "context"

@@ -15,6 +15,7 @@ from hivememory.core.access import (
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
     ActorIdentity,
+    AgentProfile,
     ExecutionLabels,
     IdentityScope,
     WorkspaceIdentity,
@@ -34,6 +35,7 @@ from hivememory.workspace.authentication import (
     WorkspaceAuthenticator,
 )
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
+from hivememory.workspace.contracts import ExecutionThread
 from hivememory.workspace.process.events import TaskProcessEventEmitter
 from hivememory.workspace.process.table import ProcessPhase, ProcessRecord, ProcessTable
 from hivememory.workspace.process.task_process import ProcessRequest, TaskProcess
@@ -155,14 +157,20 @@ class AccessTestComposition:
     process_table: ProcessTable = field(default_factory=ProcessTable)
 
     @property
-    def thread_spawner(self) -> ProcessThreads:
-        """能力测试复用真实进程表与派生边界，只有显式登记的主线程可派生。"""
+    def threads(self) -> ProcessThreads:
+        """能力测试复用真实进程表与线程管理，只有显式登记的线程可解析与派生。"""
         return ProcessThreads(
             self.process_table, lifecycle=self.gateway, authorizer=self.authorizer
         )
 
-    def register_main_thread(self, process: WorkspaceAccessContext) -> WorkspaceAccessContext:
-        """测试组合根登记已认证进程，以真实进程管理器派生主线程。"""
+    def register_main_thread(
+        self, process: WorkspaceAccessContext, *, profile: AgentProfile | None = None
+    ) -> ExecutionThread:
+        """测试组合根登记已认证进程，以真实线程管理派生主线程。
+
+        ``profile`` 缺省为只带进程 Agent 身份的图纸；主线程的操作快照按访问
+        登记读取。
+        """
         summary = self.gateway.describe_context(process)
         if summary is None:
             raise ValueError("进程 context 已失效")
@@ -189,7 +197,14 @@ class AccessTestComposition:
         task.working_set.dispatch_topic_id = "test-topic"
         task.record.enter_phase(ProcessPhase.ACTOR)
         self.process_table.register(task)
-        return self.thread_spawner.derive_main_thread(task)
+        return self.threads.derive_main(task, profile or AgentProfile(agent_id=summary.agent_id))
+
+    async def authenticate_main_thread(
+        self, *, process_id: str = "test_run", **kwargs
+    ) -> ExecutionThread:
+        """先认证进程再登记进程并派生主线程，返回交给 CPU 驱动的执行线程。"""
+        process = await self.authenticate(binding=RunBinding.for_task_process(process_id), **kwargs)
+        return self.register_main_thread(process)
 
     async def authenticate_thread(
         self, *, process_id: str = "test_run", register_process: bool = False, **kwargs
@@ -197,7 +212,7 @@ class AccessTestComposition:
         """先认证进程再派生主线程，actor API 测试不自行构造或解封 context。"""
         process = await self.authenticate(binding=RunBinding.for_task_process(process_id), **kwargs)
         if register_process:
-            return self.register_main_thread(process)
+            return self.register_main_thread(process).access
         return self.gateway.derive_thread_context(process)
 
     async def authenticate(

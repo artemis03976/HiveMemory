@@ -361,6 +361,7 @@ def _pending(resolver: AliasResolver, process_id: str = "writer_process"):
         belong_to=MAIN,
         from_actor=A1.actor_identity,
         process_id=process_id,
+        thread_id="main",
     )
 
 
@@ -465,6 +466,7 @@ def _update_by_a1(resolver: AliasResolver, base: MemoryAtom):
         belong_to=MAIN,
         from_actor=A1.actor_identity,
         process_id="writer_process",
+        thread_id="main",
     )
 
 

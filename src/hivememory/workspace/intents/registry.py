@@ -1,4 +1,4 @@
-"""进程级写入意图登记、派发与结算；只保存归属、发起者和进程关联。"""
+"""进程级写入意图登记、派发与结算；只保存归属、发起者以及进程与线程关联。"""
 
 from __future__ import annotations
 
@@ -31,7 +31,7 @@ def _slugify(text: str, max_len: int = 30) -> str:
 class WriteIntentRegistry:
     """全 Workspace 可回读的登记，同步操作在单个事件循环内原子完成。
 
-    ``process_id`` 仅供观测关联，不限制回读。结算后句柄保留到重启，
+    ``process_id`` 与 ``thread_id`` 仅供观测关联，不限制回读。结算后句柄保留到重启，
     不产生 EXPIRED，也不回填 canonical 缓存。
     """
 
@@ -47,10 +47,11 @@ class WriteIntentRegistry:
         belong_to: WorkspaceIdentity,
         from_actor: ActorIdentity,
         process_id: str,
+        thread_id: str,
     ) -> PendingAtom:
         """登记 WRITE 并进入 MATERIALIZING；返回独立副本，调用方不能改写登记中的状态。"""
         prefix = f"draft_{_slugify(focus.title or focus.content[:20])}"
-        return self._register(prefix, focus, belong_to, from_actor, process_id)
+        return self._register(prefix, focus, belong_to, from_actor, process_id, thread_id)
 
     def register_update(
         self,
@@ -59,9 +60,12 @@ class WriteIntentRegistry:
         belong_to: WorkspaceIdentity,
         from_actor: ActorIdentity,
         process_id: str,
+        thread_id: str,
     ) -> PendingAtom:
         """登记 UPDATE；基础原子的可读性由能力层先行验证。"""
-        return self._register(f"rev_{focus.base_alias}", focus, belong_to, from_actor, process_id)
+        return self._register(
+            f"rev_{focus.base_alias}", focus, belong_to, from_actor, process_id, thread_id
+        )
 
     def _register(
         self,
@@ -70,6 +74,7 @@ class WriteIntentRegistry:
         belong_to: WorkspaceIdentity,
         from_actor: ActorIdentity,
         process_id: str,
+        thread_id: str,
     ) -> PendingAtom:
         # alias 永不复用；短后缀冲突时重新生成，不能覆盖已结算的旧句柄。
         alias = f"{prefix}_{uuid4().hex[:4]}"
@@ -87,13 +92,14 @@ class WriteIntentRegistry:
             belong_to=belong_to,
             from_actor=from_actor,
             process_id=process_id,
+            thread_id=thread_id,
         )
         self._atoms[alias] = atom
         self._intent_ids.add(intent_id)
         return atom.model_copy(deep=True)
 
     def get(self, alias: str, workspace_identity: WorkspaceIdentity) -> PendingAtom | None:
-        """只交付目标 Workspace 的记录；发起者和进程均不参与授权。"""
+        """只交付目标 Workspace 的记录；发起者、进程与线程均不参与授权。"""
         atom = self._atoms.get(alias)
         if atom is None or atom.belong_to != workspace_identity:
             return None

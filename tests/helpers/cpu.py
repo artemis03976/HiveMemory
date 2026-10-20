@@ -1,27 +1,27 @@
 """测试专用 CPU — 实现 ``CPUPort`` 的脚本化替身。
 
 任务进程测试以本替身替换 Alice：总线上不注册任何 Alice 路由，进程与入口
-代码不为此做任何改动。可配置项覆盖以下场景：交互事件、终态
-结果、拉取时挂起（取消测试）、抛出异常与不产出终态。
+代码不为此做任何改动。可配置项覆盖以下场景：交互事件、终态结果、终态前
+挂起（取消测试）、取消时返回结果或原样传播、取消后迟迟不收尾（硬取消
+测试）与抛出异常。
 """
 
 from __future__ import annotations
 
 import asyncio
-from collections.abc import AsyncGenerator, Awaitable, Callable
+import contextlib
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.protocol.models import SessionCompactionCheckpoint
 from hivememory.workspace.contracts import (
+    CPUEventSink,
     CPUExecutionResult,
     CPUExecutionStatus,
     CPUFailureReason,
     CPUInputManifest,
-    CPUOutput,
-    CPUResultSlot,
-    CPURunHandle,
+    ExecutionThread,
     OperationEntry,
     OperationSubmitter,
     ThreadOperationSubmitter,
@@ -30,23 +30,27 @@ from hivememory.workspace.contracts import (
 
 @dataclass(frozen=True)
 class CPUCall:
-    """一次 ``execute`` 调用的入参快照。"""
+    """一次 ``execute`` 调用的入参快照；``thread`` 是进程交来的主线程。"""
 
     manifest: CPUInputManifest
     generation_options: dict[str, Any] | None
-    access: WorkspaceAccessContext
+    thread: ExecutionThread
 
 
 class ScriptedCPU:
-    """按脚本产出 CPU 输出的测试 CPU。
+    """按脚本推送交互事件并返回终态结果的测试 CPU。
 
-    ``events`` 是终态结果前逐项产出的交互事件；``result`` 是唯一的终态
-    执行结果（为 ``None`` 时迭代器不产出终态即结束，模拟协议错误）；
-    ``error`` 在事件产出后抛出；``hang_before_result`` 在产出终态前永久
-    挂起，用于停止请求与断流的取消测试。
+    ``events`` 是返回终态前逐项推送的交互事件；``result`` 是正常结束时
+    返回的终态结果；``error`` 在事件推送后抛出；``hang_before_result`` 在
+    返回终态前永久挂起，用于停止请求与交付方离开的取消测试。
 
-    调用入参记录在 ``calls``；``closed`` 记录输出迭代器是否已终结（被
-    ``aclose`` 关闭、被取消终止或自然耗尽均算）。
+    收到取消时：配置了 ``cancelled_result`` 就把取消转换为返回值，否则原样
+    传播取消（不交回任何结果）。``linger_on_cancel`` 让取消收尾先挂起，直到
+    再次被取消，模拟停止后不能及时结束、只能由系统关闭硬取消的 CPU；硬取消
+    到达后仍按 ``cancelled_result`` 决定返回还是传播。
+
+    调用入参记录在 ``calls``；``finished`` 记录执行是否已经结束（返回、
+    抛出或传播取消均算）。
     """
 
     def __init__(
@@ -57,6 +61,7 @@ class ScriptedCPU:
         error: Exception | None = None,
         cancelled_result: CPUExecutionResult | None = None,
         hang_before_result: bool = False,
+        linger_on_cancel: bool = False,
         operation_script: Callable[[OperationSubmitter], Awaitable[None]] | None = None,
     ) -> None:
         self._events = list(events or [])
@@ -64,58 +69,65 @@ class ScriptedCPU:
         self._error = error
         self._cancelled_result = cancelled_result
         self._hang_before_result = hang_before_result
+        self._linger_on_cancel = linger_on_cancel
         self._operation_script = operation_script
         self._operation_entry: OperationEntry | None = None
         self.calls: list[CPUCall] = []
-        self.closed = False
+        self.finished = False
         #: 挂起点被进入时置位；取消测试据此同步停止请求的注入时机。
         self.hang_entered = asyncio.Event()
+        #: 最后一条交互事件即将推送时置位；背压测试据此确认进程停在通道写入上。
+        self.last_event_entered = asyncio.Event()
+        #: 即将返回配置的终态结果时置位；用于在 CPU 终态之后注入停止。
+        self.result_returning = asyncio.Event()
 
     @property
     def operation_entry(self) -> OperationEntry:
-        """测试组合根注入的真实入口，供线程 context 撤销后的拒绝断言。"""
+        """测试组合根注入的真实入口，供线程结束后的拒绝断言。"""
         if self._operation_entry is None:
             raise RuntimeError("ScriptedCPU 的操作入口尚未装配")
         return self._operation_entry
 
     def bind_operation_entry(self, entry: OperationEntry) -> None:
-        """以共享入口装配 CPU；每次执行只绑定该次进程的线程 context。"""
+        """以共享入口装配 CPU；每次执行只绑定该次进程的主线程。"""
         self._operation_entry = entry
 
-    def execute(
+    async def execute(
         self,
         manifest: CPUInputManifest,
         *,
-        access: WorkspaceAccessContext,
+        thread: ExecutionThread,
         generation_options: dict[str, Any] | None,
-    ) -> CPURunHandle:
+        events: CPUEventSink,
+    ) -> CPUExecutionResult:
         self.calls.append(
-            CPUCall(manifest=manifest, generation_options=generation_options, access=access)
+            CPUCall(manifest=manifest, generation_options=generation_options, thread=thread)
         )
-        slot = CPUResultSlot()
-        return CPURunHandle(output=self._iterate(access, slot), result_slot=slot)
-
-    async def _iterate(
-        self, access: WorkspaceAccessContext, slot: CPUResultSlot
-    ) -> AsyncGenerator[CPUOutput, None]:
         try:
             if self._operation_script is not None:
-                await self._operation_script(ThreadOperationSubmitter(self.operation_entry, access))
-            for event in self._events:
-                yield dict(event)
+                await self._operation_script(ThreadOperationSubmitter(self.operation_entry, thread))
+            for index, event in enumerate(self._events, start=1):
+                if index == len(self._events):
+                    self.last_event_entered.set()
+                await events(dict(event))
             if self._hang_before_result:
                 self.hang_entered.set()
                 await asyncio.Event().wait()
             if self._error is not None:
                 raise self._error
-            if self._result is not None:
-                slot.result = self._result
-                yield self._result
-        except (asyncio.CancelledError, GeneratorExit):
-            slot.result = self._cancelled_result
-            raise
+            if self._result is None:
+                raise AssertionError("ScriptedCPU 没有配置终态结果")
+            self.result_returning.set()
+            return self._result
+        except asyncio.CancelledError:
+            if self._linger_on_cancel:
+                with contextlib.suppress(asyncio.CancelledError):
+                    await asyncio.Event().wait()
+            if self._cancelled_result is None:
+                raise
+            return self._cancelled_result
         finally:
-            self.closed = True
+            self.finished = True
 
 
 def make_cpu_result(

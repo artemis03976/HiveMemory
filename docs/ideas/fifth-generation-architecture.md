@@ -12,13 +12,14 @@ related_docs:
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
   - docs/ideas/ae2-hivememory-architecture-analogy.md
   - docs/ideas/task-process-table-and-registration-entry.md
-  - docs/ideas/execution-unit-thread-and-environment.md
+  - docs/archive/ideas/execution-thread-definition.md
+  - docs/ideas/execution-environment.md
   - docs/ideas/identity-and-access-model.md
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/pending-intent-migration.md
   - docs/ideas/import-bus.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-19
 ---
 
 # 第五代架构：Workspace 网络
@@ -194,7 +195,7 @@ flowchart TB
 - 换一个执行单元（测试替身即可），能否跑完整个任务进程而不改动进程与入口的代码？
 - 新能力是否假设了 Alice 的 MTP 或 frame 结构？
 
-**落地入口**：[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；[Workspace 架构](../architecture/workspace.md)第 5.4 节；[执行单元 Idea](./execution-unit-thread-and-environment.md)。
+**落地入口**：[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；[Workspace 架构](../architecture/workspace.md)第 5.4 节；[执行线程 Idea](../archive/ideas/execution-thread-definition.md)（已归档）；[执行环境 Idea](./execution-environment.md)。
 
 ### 3.4 库内与库外
 
@@ -319,7 +320,7 @@ flowchart TB
 
 - **外部会话与 Topic 投影**（3.9）：会话模型、workspace 共享的 Topic 池、前端回归会话模型，见[外部会话 Idea](./external-session-and-topic-projection.md)。
 - **外部 Actor 接入**（3.1、3.3）：controller 模式下外部 harness 是进程中的执行单元；plugin 模式下 HiveMemory 挂载在外部 harness 中，只有接入侧面，对话经 Import Bus 回流。见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md)与 [Import Bus Idea](./import-bus.md)。
-- **执行基座与执行环境**（3.3）：用户在对话开始前分别选择 agent 与执行环境，见[执行单元 Idea](./execution-unit-thread-and-environment.md)。
+- **执行基座与执行环境**（3.3）：用户在对话开始前分别选择 agent 与执行环境，见[执行环境 Idea](./execution-environment.md)。
 - **被动请求**（3.2）：定时与队列触发创建任务进程，见[任务进程 Idea](./task-process-table-and-registration-entry.md)与第 5 节 P-5。
 - **流式同步与 turn 内上下文折叠**（3.8、3.9）：交互以更原子的结构流式同步到 Patchouli，生成材料包含当前轮已接收的消息，见[长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md)。
 - **写入意图的后续**（3.7、3.8）：结算对账、句柄寿命、意图 policy 与外部提交契约，见[写入意图后续方向 Idea](./pending-intent-migration.md)。
@@ -385,7 +386,7 @@ RUN 与 CALL 已是 actor 操作，授权进入能力层；系统工具暂不设
 
 同一个 Agent Profile 可以在不同执行环境中运行，persona、模型、采样参数与语言在外部 harness 上只能尽力应用。
 
-- 需要承载：由 CPU 驱动报告应用结果（已应用、部分支持、拒绝），随执行结果交回进程，或在 CPU 分配时预先判定（[执行单元 Idea](./execution-unit-thread-and-environment.md) T-7）；
+- 需要承载：由 CPU 驱动报告应用结果（已应用、部分支持、拒绝），随执行结果交回进程，或在 CPU 分配时预先判定（[执行环境 Idea](./execution-environment.md) T-7）；
 - 不需要承载：用户无法得知所选 agent 的 persona 或模型是否真正生效。
 
 ### C core 的内容整理
@@ -407,7 +408,8 @@ C 与 [engines 对上层的既有导入](../todo/engines-upward-imports.md)相�
 | 文档 | 承担的理念与方向 |
 |:---|:---|
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | 3.2：请求方分类、进程结构、阶段与取消、被动请求 |
-| [执行单元 Idea](./execution-unit-thread-and-environment.md) | 3.3：执行单元、执行线程与执行环境 |
+| [Workspace 架构](../architecture/workspace.md#43-访问-context密封的运行时凭据)第 4.3 节（已归档的[执行线程 Idea](../archive/ideas/execution-thread-definition.md)） | 3.3 与第 2 节用语中的执行线程：定义、生命周期与观测（当前事实） |
+| [执行环境 Idea](./execution-environment.md) | 3.3：agent 与执行环境的分别选择、不同执行环境的输出词汇 |
 | [身份与访问体系 Idea](./identity-and-access-model.md) | 3.5、3.6：身份数据的形态与流向 |
 | [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 3.9：会话模型与 Topic 池 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | 3.1、3.3：接入侧面、操作适配器与两种接入模式 |

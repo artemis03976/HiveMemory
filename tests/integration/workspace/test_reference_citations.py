@@ -103,16 +103,15 @@ async def chain():
         bus,
         operation_authorizer=composition.authorizer,
         memory_reader=runtime.aliases,
-        dispatch_topics=composition.thread_spawner,
+        threads=composition.threads,
     )
     entry = WorkspaceOperationEntry(
         memory,
         agent=ActorAgentService(
             operation_authorizer=composition.authorizer,
             profile_reader=runtime.profiles,
-            thread_spawner=composition.thread_spawner,
         ),
-        operation_authorizer=composition.authorizer,
+        threads=composition.threads,
     )
     try:
         yield _ReferenceChain(bus, backing, runtime, entry, composition, access)
