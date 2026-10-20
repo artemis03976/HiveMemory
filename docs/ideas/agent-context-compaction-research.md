@@ -12,7 +12,7 @@ related_docs:
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/todo/conversation-compact-command.md
   - docs/alice/agent-runtime.md
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 code_paths:
   - src/hivememory/alice/application/agent_run_service.py
   - src/hivememory/prompts/assembler.py

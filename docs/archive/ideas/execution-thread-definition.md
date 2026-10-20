@@ -3,7 +3,7 @@ title: 执行线程的正式定义
 status: archived
 archived_at: 2026-10-19
 implemented_by: v0.7.0 执行线程的正式定义（archive/plans/v0.7.0-execution-thread-definition.md）
-superseded_by: docs/architecture/workspace.md
+superseded_by: docs/workspace/execution-threads.md
 owner: workspace
 scope: execution-thread-as-task-process-execution-subject-definition-lifecycle-and-observation
 code_paths:
@@ -20,7 +20,7 @@ code_paths:
   - src/hivememory/alice/orchestration/call/
   - src/hivememory/alice/orchestration/executor.py
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/ideas/execution-environment.md
   - docs/ideas/identity-and-access-model.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
@@ -35,7 +35,7 @@ last_reviewed: 2026-10-19
 
 ## 0. 文档性质
 
-> **已归档**（2026-10-19）：本文的设计已由 [v0.7.0 执行线程的正式定义](../plans/v0.7.0-execution-thread-definition.md)（已归档计划）实施，当前事实见 [Workspace 架构](../../architecture/workspace.md)第 4.3、5.4 节。本文只保留设计推导供追溯，不描述当前行为；外部 harness 的子线程由[外部 Actor Idea](../../ideas/external-actor-registration-and-runtime-access.md#e-5-外部执行单元的执行线程) E-5 的后续说明承接。
+> **已归档**（2026-10-19）：本文的设计已由 [v0.7.0 执行线程的正式定义](../plans/v0.7.0-execution-thread-definition.md)（已归档计划）实施，当前事实见 [执行线程](../../workspace/execution-threads.md)。本文只保留设计推导供追溯，不描述当前行为；外部 harness 的子线程由[外部 Actor Idea](../../ideas/external-actor-registration-and-runtime-access.md#e-5-外部执行单元的执行线程) E-5 的后续说明承接。
 
 本文曾是执行线程设计的 Idea 来源与当前版本的设计讨论：把执行线程定义为任务进程中的正式概念。第 2 节的合并方向与第 3 节各项候选设计在计划中取定。
 
@@ -170,7 +170,7 @@ last_reviewed: 2026-10-19
 
 | 文档 | 关系 |
 |:---|:---|
-| [Workspace 架构](../../architecture/workspace.md) | 第 4.3 节线程 context、第 5.4 节操作入口与 CALL 派生的当前事实 |
+| [Workspace](../../workspace/README.md) | 第 4.3 节线程 context、第 5.4 节操作入口与 CALL 派生的当前事实 |
 | [执行环境 Idea](../../ideas/execution-environment.md) | agent 与执行环境的分别选择、不同执行环境的输出词汇；原《执行单元、执行线程与执行环境》Idea，执行线程部分以本文为准 |
 | [身份与访问体系 Idea](../../ideas/identity-and-access-model.md) | 前提 2 与 T-5b：操作的发起者与目标分开看待，跨 Workspace 目标的表达 |
 | [外部 Actor Idea](../../ideas/external-actor-registration-and-runtime-access.md) | E-5：外部执行单元不识别子线程；第 3.1、3.3 节的外部 harness 部分随接入一并考虑 |

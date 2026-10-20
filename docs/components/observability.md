@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/components/runtime-and-bus.md
 last_reviewed: 2026-10-19
 ---

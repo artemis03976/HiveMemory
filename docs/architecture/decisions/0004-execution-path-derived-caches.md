@@ -11,7 +11,7 @@ last_reviewed: 2026-09-27
 
 # ADR-0004：执行路径派生缓存的所有权与键控
 
-> **已失效（2026-09-27）**：owner 判定本文所讨论问题的形式已完全改变，本 ADR 失效且没有替代 ADR，不再作为任何设计依据；缓存的当前归属与键控以 [Workspace 架构](../workspace.md)、[System 组合根与生命周期](../../system/composition.md)与 [Alice](../../alice/README.md) 的事实描述为准。正文保留 2026-09-13 的决定与理由，仅供追溯。
+> **已失效（2026-09-27）**：owner 判定本文所讨论问题的形式已完全改变，本 ADR 失效且没有替代 ADR，不再作为任何设计依据；缓存的当前归属与键控以 [Workspace](../../workspace/README.md)、[System 组合根与生命周期](../../system/composition.md)与 [Alice](../../alice/README.md) 的事实描述为准。正文保留 2026-09-13 的决定与理由，仅供追溯。
 
 ## Context
 
@@ -59,6 +59,6 @@ Deprecated（2026-09-27）：问题形式已完全改变，本决定失效且没
 
 ## Related documents
 
-- [Workspace 架构](../workspace.md)：§4.3 共享基础设施与派生缓存的键控规则；
+- [Workspace](../../workspace/README.md)：§4.3 共享基础设施与派生缓存的键控规则；
 - [System 组合根与生命周期](../../system/composition.md)、[Alice](../../alice/README.md)：所有权与生命周期的当前事实；
 - [v0.6.2 Workspace Runtime 聚合与缓存所有权迁移（归档 Plan）](../../archive/plans/v0.6.2-workspace-runtime-cache-migration.md)：第一阶段聚合设计与回退的实施历史。

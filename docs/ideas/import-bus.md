@@ -32,7 +32,7 @@ last_reviewed: 2026-10-13
 - **Topic 落位**：[turn buffer](../../src/hivememory/system/services/passive/turn_buffer.py) 保存 Gateway 决策，提交时以决策的目标话题作为请求话题；Gateway 路由时会读取 Patchouli 的候选话题；
 - **价值信号**：`rewritten_query` 与 `worth_saving` 取自 Gateway 决策，感知冻结生成材料时排除 `worth_saving=False` 的 block（[`engines/perception/models.py`](../../src/hivememory/engines/perception/models.py)）。
 
-此外，`/ingest` 不经统一认证网关，在认证前为当前用户组装默认 Workspace 的 `IdentityScope`，是 Workspace 访问模型的已知例外（[Workspace 架构](../architecture/workspace.md)第 3.2 节）。
+此外，`/ingest` 不经统一认证网关，在认证前为当前用户组装默认 Workspace 的 `IdentityScope`，是 Workspace 访问模型的已知例外（[身份与授权](../workspace/identity-and-authorization.md#12-默认入口和内部-seam)第 1.2 节）。
 
 ## 2. owner 的前提
 

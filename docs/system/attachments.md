@@ -32,7 +32,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/system/application-services.md
   - docs/frontend/chat-view.md
   - docs/patchouli/artifacts.md
@@ -43,7 +43,7 @@ last_reviewed: 2026-10-19
 
 # Chat 附件链路
 
-本文是 Chat 附件从上传、确定性解析、Chat 选择、上下文编译到 Topic binding 与 Artifact promotion 的当前事实入口。它描述一条横跨 workspace（上传应用服务、WorkspaceAssetStore，以及任务进程的附件租借与编译）、Patchouli（finalize 与 binding）和前端（上传队列与选择状态）的完整链路；WorkspaceAssetStore 本身的两级状态机、READY-only 使用、删除与 lease 底层语义以[Workspace 架构](../architecture/workspace.md)为准，跨子系统身份与 interaction 时序以[子系统公共契约](../contracts/subsystem-contracts.md)为准。
+本文是 Chat 附件从上传、确定性解析、Chat 选择、上下文编译到 Topic binding 与 Artifact promotion 的当前事实入口。它描述一条横跨 workspace（上传应用服务、WorkspaceAssetStore，以及任务进程的附件租借与编译）、Patchouli（finalize 与 binding）和前端（上传队列与选择状态）的完整链路；WorkspaceAssetStore 本身的两级状态机、READY-only 使用、删除与 lease 底层语义以[Workspace](../workspace/README.md)为准，跨子系统身份与 interaction 时序以[子系统公共契约](../contracts/subsystem-contracts.md)为准。
 
 链路的核心不变量只有一条：**Interaction 载荷只携带一份附件事实——AttachmentCompiler 确认实际进入上下文的使用引用**。用户选择只作为任务进程 CPU 分配与 compiler 的短期输入，上传、选择或编译跳过本身不产生任何长期关系。
 

@@ -23,7 +23,7 @@ last_reviewed: 2026-10-19
 
 > 2026-10-13：文中的“总 Idea”指《Workspace 网络与任务进程架构》Idea，所引节号与问题编号对应其 commit `6add90f` 版本；该 Idea 已重写为[第五代架构 Idea](./fifth-generation-architecture.md)，仍开放的架构级问题（P-1、P-3、P-4a、P-5、P-7–P-10a）保留原编号。
 >
-> 2026-10-13：文中引用的任务进程 Idea、执行单元 Idea 与身份 Idea 的节号和已决定问题对应 commit `a384688` 版本；三文已精简为后续方向，仍开放的问题（Q-3b、Q-5a、Q-5b、Q-7、Q-8、T-5b、T-7、T-8）保留原编号，已实施的决定见 [Workspace 架构](../architecture/workspace.md)与 [System 应用服务](../system/application-services.md)。
+> 2026-10-13：文中引用的任务进程 Idea、执行单元 Idea 与身份 Idea 的节号和已决定问题对应 commit `a384688` 版本；三文已精简为后续方向，仍开放的问题（Q-3b、Q-5a、Q-5b、Q-7、Q-8、T-5b、T-7、T-8）保留原编号，已实施的决定见 [Workspace](../workspace/README.md)与[任务进程](../workspace/task-process.md)。
 
 本文由原 v0.7.0 A3 计划（Conversation Session 与 Topic 投影边界）于 2026-09-27 退回 Idea：删除了阶段划分、交付切片、验收门禁、跨计划依赖与文档更新清单，设计内容保留。计划的最后版本见 commit `dda9d9d` 中的 `docs/plans/v0.7.0-a3-conversation-session-and-topic-projection.md`。
 
@@ -34,10 +34,10 @@ last_reviewed: 2026-10-19
 - **对话上下文由 Session 提供**（owner，2026-09-28）：实际使用的对话上下文由 ConversationSession 提供，原样积累，不再由外界干涉；Topic 作为内部记忆生成的资料，Gateway 话题路由与 Topic 只为记忆生成服务。Session 提供历史，CPU 管理派生视图的预算与压缩，详见[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)。
 - **会话模型与 Topic 池**（owner，2026-09-28）：见 0.1。
 - **后续讨论归属**（owner，2026-10-16）：Alice compact、Topic page folding 及两者关系迁入[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)，包含原 0.3 和 AC-1/AC-2；原始资料沿 ConversationSession → Topic 完整资料 → 来源 Artifact 保存的规划见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)。Session 可以承载原始记录，Patchouli 通过接收到的交互组织材料，不在生成时反向读取 Session 或 CPU 上下文；会话持久化另行计划。
-- **会话与 Alice 迁移已完成**（2026-10-15）：四阶段实施与验收见[归档计划](../archive/plans/v0.7.0-conversation-session.md)，当前事实见 [Workspace 架构](../architecture/workspace.md)第 5.5 节。原 0.2、0.3 的已落地内容移出本文；后续方向见下方 0.2。
+- **会话与 Alice 迁移已完成**（2026-10-15）：四阶段实施与验收见[归档计划](../archive/plans/v0.7.0-conversation-session.md)，当前事实见 [会话资源](../workspace/sessions.md)。原 0.2、0.3 的已落地内容移出本文；后续方向见下方 0.2。
 - 原计划中的“决定”“冻结”在本文中均为候选设计，不是已采纳的方案；原计划留待 A3-0 冻结的外部输入事项汇总为第 8 节；Alice 压缩的候选设计与阻塞问题已迁入独立 Idea。例外：第 2.2 节的 `InteractionPayload` 是 owner 提出的共用提交模型，不是待选方案（owner，2026-09-28）；字段细节仍按第 8 节待定。
 - 本文的 `ConversationSession` 是[任务进程 Idea](./task-process-table-and-registration-entry.md) Q-9 选项 B（保留独立的会话记录）的一种形态。2026-09-28 Q-9 已选 B：实际使用的对话上下文由 ConversationSession 提供；模型字段等细节仍是候选设计；主动进程的交互记录去向见同文 Q-14，Import Bus（现有 Passive Ingress 链路）交互的 Topic 落位见 [Import Bus Idea](./import-bus.md) Q-11，该链路不在 v0.7.0 范围。
-- 文中“A1”指已归档的 A1 访问边界（当前事实见 [Workspace 架构](../architecture/workspace.md)第 4 节）；原文提到的 A2、A5、A6 计划已作废删除，相关表述改为中性描述。
+- 文中“A1”指已归档的 A1 访问边界（当前事实见 [身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）；原文提到的 A2、A5、A6 计划已作废删除，相关表述改为中性描述。
 
 外部 harness 通常拥有确定性的 session/conversation，而 Patchouli 需要根据内容把交互分配到 Topic，以便组织记忆生成资料。两者都是有意义的分桶，但回答不同问题：Session 负责对外会话连续性、顺序和展示；Topic 负责记忆侧的相关性划分和短期工作集。本文讨论会话、交互输入与 Topic 的关联和交接；压缩机制见[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)，完整资料保存见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)，流式输入与长 turn 见[专项 Idea](./long-running-agent-intra-turn-context-folding.md)。
 
@@ -129,11 +129,11 @@ Session 不在事务上拥有 Topic，也不把 `session_id` 塞进 `ActorIdenti
 
 2026-09-23 归属确认（原边界宪章 §6.3，判据见 [ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)）：本节的 Session/Topic 切分即为宪章确认的归属——Session 是 workspace 归属的会话连续性真相源，Topic 是库对已提交素材的管护；短期记忆库的管辖权语义是"库已接收素材的接入暂存（intake buffer）"，不是 actor 可见记忆分层（命名是否随之调整待定）。由此得到四点确认：① 提交可靠性是过线契约，active finalize 的“Interaction applied 硬成功边界”与被动链的 InteractionSubmissionQueue 是该契约的现状形态，只指认、不重建（2026-09-28：任务进程在交互被提交队列接纳后即结束，不再等待 applied，见[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1）；② 结算触发（idle/LRU/shutdown）是库管理自身接入积压的库内事务，不改为由会话生命周期驱动，关闭 Session 不级联 Topic/Memory；③ Session 持封口 payload、Topic 持路由 blocks 的双份内容是接受的成本，不新增第三份；④ 短期库的管辖权语义如上。
 
-对外能力上，会话相关操作可归为三类：session 管理/读取、`interaction.submit`（InteractionPayload 提交）与 topic 资料读取；领域行为只在 Patchouli 领域实现维护，能力层不复制。原计划把这三类方法接入 `workspace/capability`，排在 A2 能力层骨架之后。现状（2026-10-12 核对）：能力层已分为只供 `system` 的 root API 与只有六项 actor 操作的 actor API，任务进程的阶段调用另经阶段授权（[Workspace 架构](../architecture/workspace.md)第 4.5 节）；交互提交目前是任务进程结算阶段经 Patchouli finalize 完成的阶段调用，被动链路由 System 直接提交到交互提交队列，都不是独立的能力层方法。会话管理已经进入 root API；外部交互提交面的后续设计仍未实施。
+对外能力上，会话相关操作可归为三类：session 管理/读取、`interaction.submit`（InteractionPayload 提交）与 topic 资料读取；领域行为只在 Patchouli 领域实现维护，能力层不复制。原计划把这三类方法接入 `workspace/capability`，排在 A2 能力层骨架之后。现状（2026-10-12 核对）：能力层已分为只供 `system` 的 root API 与只有六项 actor 操作的 actor API，任务进程的阶段调用另经阶段授权（[能力层](../workspace/capability.md#1-三个调用面)第 1 节）；交互提交目前是任务进程结算阶段经 Patchouli finalize 完成的阶段调用，被动链路由 System 直接提交到交互提交队列，都不是独立的能力层方法。会话管理已经进入 root API；外部交互提交面的后续设计仍未实施。
 
 ### 2.2 InteractionPayload：共同封口交互
 
-`InteractionPayload` 是 owner 提出的共用提交模型（2026-09-28 确认）。controller 模式下，任务进程在结算阶段提交它，`interaction_id` 字段始终取 `process_id` 的值；有输出的 completed/cancelled/failed 都带结局提交（[System 应用服务](../system/application-services.md)第 3 节）。下列外部输入字段草案仍不代表当前 schema。
+`InteractionPayload` 是 owner 提出的共用提交模型（2026-09-28 确认）。controller 模式下，任务进程在结算阶段提交它，`interaction_id` 字段始终取 `process_id` 的值；有输出的 completed/cancelled/failed 都带结局提交（[任务进程](../workspace/task-process.md)）。下列外部输入字段草案仍不代表当前 schema。
 
 ```text
 InteractionPayload（演进现有模型）
@@ -293,7 +293,7 @@ Topic 身份、prepare handle、路由关联和资料快照分别交接。主动
 
 资料读取与绑定须固定本次任务的来源，后续 Session 路由或 handle 状态变化不能让同一任务重试悄悄切换 Topic。若处理需要继续访问活 Topic，应明确保护何时取得和释放；若已取得独立资料快照，则按快照保留约定处理，不靠临时 handle 充当无限期资料保留。选择哪种绑定、取样时点、Topic 内容变化后的重试行为以及可用版本证据待定（第 8 节），不假定现有 Topic 已有可持久化 revision 或通用 pin 能力。
 
-本节涉及资料身份、全部可用内容的读取/绑定和保留/释放；生成侧的预算编译与 Pending 状态不在本文范围，见[写入意图后续方向](./pending-intent-migration.md)第 8 节与 [Workspace 架构](../architecture/workspace.md)第 5.4 节。资料为空、原文已经折叠而不可恢复、读取失败和无权读取必须区分。
+本节涉及资料身份、全部可用内容的读取/绑定和保留/释放；生成侧的预算编译与 Pending 状态不在本文范围，见[写入意图后续方向](./pending-intent-migration.md)第 8 节与 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)。资料为空、原文已经折叠而不可恢复、读取失败和无权读取必须区分。
 
 ### 4.5 实现复用方向（候选）
 

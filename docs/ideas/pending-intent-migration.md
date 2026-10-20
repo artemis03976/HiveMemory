@@ -5,7 +5,7 @@ horizon: candidate
 owner: project
 scope: pending-intent-reconciliation-retention-visibility-and-external-contract
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/alice/pending-atom.md
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
@@ -20,7 +20,7 @@ last_reviewed: 2026-10-19
 
 ## 0. 文档性质
 
-本文收集写入意图体系尚未决定的方向，不描述当前行为，也不代表排期。登记、派发、回读与结算的当前设计见 [Workspace 架构](../architecture/workspace.md)第 5.4 节、[PendingAtom](../alice/pending-atom.md)、[Patchouli 生成](../patchouli/generation.md)与 [MTP 契约](../contracts/mtp.md)。耐久性与幂等的成熟度、缺口和工作包由[耐久性与故障恢复](../governance/reliability/durability-and-recovery.md)与[幂等与重试](../governance/reliability/idempotency-and-retry.md)治理文档维护，本文只讨论设计路径。
+本文收集写入意图体系尚未决定的方向，不描述当前行为，也不代表排期。登记、派发、回读与结算的当前设计见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)、[PendingAtom](../alice/pending-atom.md)、[Patchouli 生成](../patchouli/generation.md)与 [MTP 契约](../contracts/mtp.md)。耐久性与幂等的成熟度、缺口和工作包由[耐久性与故障恢复](../governance/reliability/durability-and-recovery.md)与[幂等与重试](../governance/reliability/idempotency-and-retry.md)治理文档维护，本文只讨论设计路径。
 
 ## 1. 问题背景
 

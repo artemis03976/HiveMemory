@@ -9,7 +9,7 @@ code_paths:
   - src/hivememory/core/ports/workspace_assets.py
   - src/hivememory/system/services/asset_materialization_reader.py
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/system/attachments.md
   - docs/contracts/subsystem-contracts.md
   - docs/archive/plans/v0.7.0-identity-access-batch-2.md

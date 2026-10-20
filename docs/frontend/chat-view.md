@@ -16,7 +16,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/error-model.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/system/attachments.md
   - docs/frontend/state-and-transports.md
 last_reviewed: 2026-10-17

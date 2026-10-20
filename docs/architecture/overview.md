@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
@@ -76,7 +76,7 @@ HiveMemory 因而保留了原项目“双系统”的核心思想：热路径负
 下层需要上层能力时以端口协议声明，由组合根实现并注入；根配置与加载（`config.app`）只供 `system` 与 `server` 使用，各组件只接收自己的配置段。
 
 Workspace 的资源归属、IdentityScope 传播、Topic/Asset 边界和 shutdown 清理顺序见
-[Workspace 架构](./workspace.md)；本文只保留总体组件关系和跨子系统生命周期概览。
+[Workspace](../workspace/README.md)；本文只保留总体组件关系和跨子系统生命周期概览。
 
 ```mermaid
 flowchart TB

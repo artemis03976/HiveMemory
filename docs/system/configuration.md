@@ -16,7 +16,7 @@ related_contracts:
   - docs/architecture/boundaries.md
   - docs/contracts/subsystem-contracts.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-19
 ---
 
@@ -46,7 +46,7 @@ last_reviewed: 2026-10-19
 | `workspace` | `config.workspace` | 读取视图缓存容量与会话容量 | workspace |
 | `patchouli` / `alice` | `config.patchouli` / `config.alice` | 各自运行时和存储配置 | 对应子系统 |
 
-访问登记不在 `HiveMemoryConfig` 中，见下文“访问登记文件”。System 只直接拥有顶层设施、接入登记和 passive ingress 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。当前没有用于创建、切换或复制 Workspace 的配置项；默认 `main_workspace` 由入口按用户身份解析，Workspace 资源边界和 AssetStore 生命周期见 [Workspace 架构](../architecture/workspace.md)。
+访问登记不在 `HiveMemoryConfig` 中，见下文“访问登记文件”。System 只直接拥有顶层设施、接入登记和 passive ingress 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。当前没有用于创建、切换或复制 Workspace 的配置项；默认 `main_workspace` 由入口按用户身份解析，Workspace 资源边界和 AssetStore 生命周期见 [Workspace](../workspace/README.md)。
 
 主动写入的背景轮数由 `patchouli.generation.active_recent_blocks` 控制，默认 5、最小 0；即话题过去 N 个 block 与 `state_summary`，不含当前轮。该项与 `patchouli.perception.fold_retain_recent_blocks` 的折叠保留轮数独立，见[Patchouli 生成](../patchouli/generation.md)。
 
@@ -83,7 +83,7 @@ last_reviewed: 2026-10-19
 
 升级注意（执行线程层）：CALL 派生的子 Agent 以目标 Agent 的身份运行，需要目标在同一 Workspace 有准入记录，并按目标自己的白名单授权。随仓库发布的默认登记以用户级记录覆盖该用户的全部 Agent，行为不受影响；只为个别 Agent 配置精确记录的登记，需要为 CALL 目标补充记录，否则这些 CALL 以“agent 不可用”失败。内置图纸（未指定目标、`default` 或 `omni_doll`）以 `omni_doll` 身份运行。
 
-登记的字段语义、用户级记录规则、随仓库发布的默认登记与认证授权模型见 [Workspace 架构](../architecture/workspace.md)第 4.2 节。
+登记的字段语义、用户级记录规则、随仓库发布的默认登记与认证授权模型见 [认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节。
 
 ### 1.2 Alice 会话预算与压缩
 

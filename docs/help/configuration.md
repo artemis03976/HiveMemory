@@ -127,7 +127,7 @@ ProviderRegistry 和 ModelRegistry 自身支持运行时 CRUD；Provider 凭证�
 - 登记文件缺失时按空登记处理，所有 Workspace 请求都会被拒绝；
 - 请求头中的用户身份不做证明，只适用于本地单用户部署。
 
-字段说明与规则见 [System 配置](../system/configuration.md)第 1.1 节与 [Workspace 架构](../architecture/workspace.md)第 4.2 节。
+字段说明与规则见 [System 配置](../system/configuration.md)第 1.1 节与 [认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节。
 
 ### 5.2 Alice 会话压缩
 

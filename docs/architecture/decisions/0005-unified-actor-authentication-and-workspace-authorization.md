@@ -13,7 +13,7 @@ last_reviewed: 2026-09-27
 
 > **已失效（2026-09-27）**：owner 判定本 ADR 失效且没有替代 ADR，不再作为任何设计依据。正文保留 2026-09-19 的决定与理由，仅供追溯。
 >
-> 本文记录 v0.7.0 A1 落地的访问边界决策及理由。访问边界的当前事实见 [Workspace 架构](../workspace.md)第 4 节、[错误模型](../../contracts/error-model.md)第 4.4 节与 [System 应用服务](../../system/application-services.md)；实施历史见[归档的 A1 计划](../../archive/plans/v0.7.0-a1-workspace-access-boundary.md)。
+> 本文记录 v0.7.0 A1 落地的访问边界决策及理由。访问边界的当前事实见 [身份与授权](../../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节、[错误模型](../../contracts/error-model.md)第 4.4 节与[认证与访问登记](../../workspace/authentication.md)；实施历史见[归档的 A1 计划](../../archive/plans/v0.7.0-a1-workspace-access-boundary.md)。
 
 ## Context
 
@@ -57,7 +57,7 @@ Deprecated（2026-09-27）：本决定失效且没有替代 ADR，见文首说�
 
 ## Related documents
 
-- [Workspace 架构](../workspace.md)第 4 节（当前事实）
+- [身份与授权](../../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节（当前事实）
 - [错误模型](../../contracts/error-model.md)第 4.4 节（阶段拒绝语义）
 - [子系统公共契约](../../contracts/subsystem-contracts.md)第 3.5 节（访问上下文契约）
 - [归档的 A1 计划](../../archive/plans/v0.7.0-a1-workspace-access-boundary.md)（实施历史与约束承接清单）

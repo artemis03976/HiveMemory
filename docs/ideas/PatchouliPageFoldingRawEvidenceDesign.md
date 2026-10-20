@@ -7,7 +7,7 @@ owner:
   - patchouli
 scope: session-topic-artifact-raw-evidence-lifecycle
 related_current:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/patchouli/perception.md
   - docs/patchouli/artifacts.md
   - docs/patchouli/generation.md
@@ -23,7 +23,7 @@ last_reviewed: 2026-10-16
 
 本文是一项未排期的开放设计。2026-10-16 按 owner 的方向，将原先围绕 page folding 的证据旁路扩展为完整资料链：**ConversationSession 保存完整对话，Topic 保存已交接的完整资料，记忆生成阶段冻结相应来源 Artifact，再由 Memory 引用。** 会话原始数据是否持久化另行计划；本文不以新增独立原始记录仓库为前提。
 
-当前能力仍以 [Workspace 架构](../architecture/workspace.md)、[感知与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)和[记忆生成](../patchouli/generation.md)为准。Alice compact、Topic page folding 的算法、预算与检查点集中在[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)。本文维护原始资料的保存、交接与来源生命周期。
+当前能力仍以 [Workspace](../workspace/README.md)、[感知与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)和[记忆生成](../patchouli/generation.md)为准。Alice compact、Topic page folding 的算法、预算与检查点集中在[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)。本文维护原始资料的保存、交接与来源生命周期。
 
 ## 1. 问题与范围
 

@@ -13,7 +13,7 @@ code_paths:
   - src/hivememory/workspace/capability/root/memory.py
 related_docs:
   - ../frontend/management-views.md
-  - ../architecture/workspace.md
+  - docs/workspace/README.md
   - ../archive/todo/memory-provenance-vs-authorship.md
 last_reviewed: 2026-10-12
 ---

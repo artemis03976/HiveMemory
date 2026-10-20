@@ -16,7 +16,7 @@ related_contracts:
   - docs/alice/pending-atom.md
   - docs/alice/orchestration.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-19
 ---
 
@@ -175,7 +175,7 @@ Koakuma、MTPExecutor 和 Agent loop 不接收 Chat Run 取消句柄，也不定
 | Koakuma 分发与六个 handler | `src/hivememory/agent_runtime/mtp/runtime.py`、`mtp/verbs/` |
 | Agent Runtime 的窄 MTP port | `src/hivememory/agent_runtime/mtp/runtime.py` |
 | 操作请求与提交函数 | `src/hivememory/workspace/contracts/operations.py` |
-| 中立引用解析与缓存 | 见 [Workspace 架构](../architecture/workspace.md) |
+| 中立引用解析与缓存 | 见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md) |
 | syscall 注册与实现 | `src/hivememory/agent_runtime/tools/` |
 | MTP prompt | `src/hivememory/prompts/mtp.py`、`i18n/prompts.py` |
 | Alice 配置 | `src/hivememory/config/alice.py` |

@@ -8,7 +8,7 @@ related_current:
   - docs/alice/agent-runtime.md
   - docs/patchouli/perception.md
   - docs/patchouli/generation.md
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/contracts/subsystem-contracts.md
 related_ideas:
   - docs/ideas/external-session-and-topic-projection.md
@@ -64,7 +64,7 @@ Alice 基线于 2026-10-17 更新；Patchouli 缺口沿用 2026-10-16 的核对�
 
 ### 3.1 Alice
 
-工具结果减重、增量接力摘要、会话检查点、逐帧输入守卫与失败原因已落地，原文保持完整；职责、接受与取消规则分别由 [Agent Runtime](../alice/agent-runtime.md)、[Workspace](../architecture/workspace.md#55-会话资源与历史所有权)和[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)维护。固定样本与 HTTP 链路使用提供商替身，真实 LLM 的摘要事实保留、继续执行质量和成本仍待评估。
+工具结果减重、增量接力摘要、会话检查点、逐帧输入守卫与失败原因已落地，原文保持完整；职责、接受与取消规则分别由 [Agent Runtime](../alice/agent-runtime.md)、[会话资源](../workspace/sessions.md)和[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)维护。固定样本与 HTTP 链路使用提供商替身，真实 LLM 的摘要事实保留、继续执行质量和成本仍待评估。
 
 命令当前只解析不执行，没有 `/compact` 入口；后续手动触发由[命令 Todo](../todo/conversation-compact-command.md)承接，轮内压缩由[长 Turn Idea](./long-running-agent-intra-turn-context-folding.md)承接。
 
@@ -137,7 +137,7 @@ flowchart LR
 
 ### AC-1 压缩检查点存入会话资源
 
-已实现，当前所有权理由与接受规则见 [Workspace](../architecture/workspace.md#55-会话资源与历史所有权)。
+已实现，当前所有权理由与接受规则见 [会话资源](../workspace/sessions.md)。
 
 ### AC-2 本计划只做自动压缩
 

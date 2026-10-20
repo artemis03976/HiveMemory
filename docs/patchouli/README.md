@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-13
 ---
 
@@ -27,7 +27,7 @@ Patchouli 是 HiveMemory 的记忆与知识子系统。若说 Gateway 决定一�
 
 Patchouli 在公共边界接收授权点组装的 `IdentityScope`，随即拆为资源归属 `belong_to: WorkspaceIdentity` 与发起者 `from_actor: ActorIdentity`。内部领域服务、存储和后台任务分别携带需要的身份字段，不继续传递或重组 scope；Topic、Memory、Artifact 的 Workspace 归属最终由各自的 Store 校验，Memory 读取再检查资源自身的 actor policy。来源与贡献者只表达 provenance，不参与授权。
 
-Patchouli 不拥有 `WorkspaceAssetStore`；它只在成功 Interaction 后接收 `TopicAssetBinding` 这类真实使用事实，并在需要时把不透明的 asset ref 作为领域输入继续交接。Workspace 身份、资源复合键和 AssetStore 生命周期见[Workspace 架构](../architecture/workspace.md)；Store 自身的归属与访问接口拆分见[后续待办](../todo/workspace-asset-ownership-identity-split.md)，本文只描述 Patchouli 自己的领域责任。
+Patchouli 不拥有 `WorkspaceAssetStore`；它只在成功 Interaction 后接收 `TopicAssetBinding` 这类真实使用事实，并在需要时把不透明的 asset ref 作为领域输入继续交接。Workspace 身份、资源复合键和 AssetStore 生命周期见[Workspace](../workspace/README.md)；Store 自身的归属与访问接口拆分见[后续待办](../todo/workspace-asset-ownership-identity-split.md)，本文只描述 Patchouli 自己的领域责任。
 
 项目借用“帕秋莉大图书馆”的形象，不是为了把所有记忆逻辑集中进一个万能馆长，而是为了强调知识所有权必须稳定。检索使魔可以找书，感知层可以整理尚未成册的交互，生成链可以提出新书或修订稿，生命周期能力可以决定何时移入冷藏库；但所有会改变长期记忆事实的路径，最终都必须回到 Patchouli 自己的存储、任务和版本边界内完成。
 

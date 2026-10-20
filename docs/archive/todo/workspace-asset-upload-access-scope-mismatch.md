@@ -3,7 +3,7 @@ title: WorkspaceAsset 上传的认证上下文与 scope 不一致
 status: archived
 archived_at: 2026-10-04
 implemented_by: v0.7.0 A1 访问边界返工（37f800e–1dc16ca）
-superseded_by: docs/architecture/workspace.md、docs/system/application-services.md
+superseded_by: docs/workspace/capability.md、docs/workspace/assets.md
 owner: system-workspace
 scope: workspace-asset-upload-access-scope-consistency
 priority: P1
@@ -21,7 +21,7 @@ last_reviewed: 2026-10-04
 
 ## 状态与处理决定
 
-> **已修复并归档（2026-10-04）**：由 [v0.7.0 A1 访问边界返工](../plans/v0.7.0-a1-access-boundary-rework.md)结构性修复。上传方法 `upload_asset` 只接收访问 context 与目标 Workspace，先经操作授权者授权（`management.asset`），串行门分区、资产注册与解析交接一律使用授权返回的 `IdentityScope`；调用方不再能另传 scope，无 access 的兼容入口已随兼容分支删除。完成条件的对应证据：目标不等于驻留 Workspace 时在副作用前拒绝且不产生资产（`test_upload_target_outside_resident_workspace_is_denied_before_side_effects`）；缺少 `management.asset` 时拒绝且不注册任何资产（`test_upload_without_management_asset_operation_denied_and_registers_nothing`）；未获准入的用户经 HTTP 上传返回 403（`test_unadmitted_user_upload_returns_403_with_stable_reason`）；以上均使用真实网关、操作授权者、上传服务与内存 Store。当前事实见 [Workspace 架构](../../architecture/workspace.md)第 4.5 节与 [System 应用服务](../../system/application-services.md)第 2 节；以下内容保留原始记录。
+> **已修复并归档（2026-10-04）**：由 [v0.7.0 A1 访问边界返工](../plans/v0.7.0-a1-access-boundary-rework.md)结构性修复。上传方法 `upload_asset` 只接收访问 context 与目标 Workspace，先经操作授权者授权（`management.asset`），串行门分区、资产注册与解析交接一律使用授权返回的 `IdentityScope`；调用方不再能另传 scope，无 access 的兼容入口已随兼容分支删除。完成条件的对应证据：目标不等于驻留 Workspace 时在副作用前拒绝且不产生资产（`test_upload_target_outside_resident_workspace_is_denied_before_side_effects`）；缺少 `management.asset` 时拒绝且不注册任何资产（`test_upload_without_management_asset_operation_denied_and_registers_nothing`）；未获准入的用户经 HTTP 上传返回 403（`test_unadmitted_user_upload_returns_403_with_stable_reason`）；以上均使用真实网关、操作授权者、上传服务与内存 Store。当前事实见 [能力层](../../workspace/capability.md#1-三个调用面)第 1 节与 [System 应用服务](../../system/application-services.md)第 2 节；以下内容保留原始记录。
 
 **排期（2026-10-02）**：由 [v0.7.0 A1 访问边界返工](../plans/v0.7.0-a1-access-boundary-rework.md)修复（该计划第 4.5 节）；2026-10-02 复核，`workspace/capability/assets.py` 的 `upload_asset` 仍未校验传入 scope 与 context 一致。修复验收后本记录归档。
 

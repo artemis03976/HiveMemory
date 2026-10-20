@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/architecture/boundaries.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-19
 ---
 

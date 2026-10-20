@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # HiveMemory 项目总览
@@ -162,7 +162,7 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 - MemoryCompiler 的统一检索上下文与 MTP READ 渲染；
 - 可查询、可取消、可观测的记忆生成任务。
 
-Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX 经上传、确定性解析、READY 选择和 AttachmentCompiler 进入 Chat；成功 Interaction 才形成 TopicAssetBinding，后续 Memory CREATE/UPDATE 按需生成来源 Artifact。WorkspaceAsset 仍是进程内 working set，事实入口见 [Workspace](./architecture/workspace.md) 与 [Chat 附件](./system/attachments.md)。
+Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX 经上传、确定性解析、READY 选择和 AttachmentCompiler 进入 Chat；成功 Interaction 才形成 TopicAssetBinding，后续 Memory CREATE/UPDATE 按需生成来源 Artifact。WorkspaceAsset 仍是进程内 working set，事实入口见 [Workspace](./workspace/README.md) 与 [Chat 附件](./system/attachments.md)。
 
 ### 5.3 Agent Runtime
 
@@ -199,7 +199,7 @@ HiveMemorySystem（组合根与门面）
 
 代码按层组织（core/config → components → engines/infrastructure → workspace/gateway/patchouli/alice → system → server），依赖只能指向同层或更低层。详细组件图、分层规则、主动/被动数据流和启停顺序见[系统架构概览](./architecture/overview.md)。职责和状态所有权见[系统边界](./architecture/boundaries.md)。顶层装配、应用服务、配置与 i18n 的内部设计从 [System 当前文档](./system/README.md)进入；总线、调度器、work queue 与运行时事件等机制从 [Components 当前文档](./components/README.md)进入。
 
-## 7. 三个子系统
+## 7. 子系统
 
 ### 7.1 Gateway
 
@@ -224,6 +224,14 @@ Alice 以 CPU 端口的实现接入任务进程，消费任务进程组装的输
 代码入口：`src/hivememory/alice/system.py`、`runtime/`、`src/hivememory/agent_runtime/`。
 
 当前设计入口：[Alice 总览](./alice/README.md)、[Agent Runtime](./alice/agent-runtime.md)、[多 Agent 编排](./alice/orchestration.md)、[PendingAtom](./alice/pending-atom.md)与 [MTP Runtime](./alice/mtp-runtime.md)。
+
+### 7.4 Workspace
+
+Workspace 是与上述三个子系统同层的包，没有独立的生命周期宿主，由组合根装配。它负责认证入口与访问检查、能力层（只供 `system` 的 root API 与只经操作入口供 actor 使用的 actor API）、任务进程表与 chat 任务进程编排（含 Actor 阶段内的执行线程）、会话资源、读取视图与写入意图登记，以及 WorkspaceAsset。Topic、Memory 与 Artifact 的领域所有权仍在 Patchouli。
+
+代码入口：`src/hivememory/workspace/`。
+
+当前设计入口：[Workspace 总览](./workspace/README.md)、[身份与授权](./workspace/identity-and-authorization.md)、[认证与访问登记](./workspace/authentication.md)、[能力层](./workspace/capability.md)、[任务进程](./workspace/task-process.md)、[执行线程](./workspace/execution-threads.md)、[会话资源](./workspace/sessions.md)、[读取视图与写入意图](./workspace/read-view-and-write-intents.md)与 [WorkspaceAsset](./workspace/assets.md)。
 
 ## 8. 关键协作流程
 
@@ -277,7 +285,6 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 - [系统架构概览](./architecture/overview.md)
 - [系统边界与所有权](./architecture/boundaries.md)
 - [数据模型与可变性边界](./architecture/data-model.md)
-- [Workspace 架构](./architecture/workspace.md)
 - [Architecture 索引](./architecture/README.md)
 - [架构决策记录](./architecture/decisions/README.md)
 
@@ -290,13 +297,14 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 
 ### 9.4 子系统与系统模块
 
-System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当前文档重建：
+各子系统与系统模块的当前文档入口：
 
 - [System](./system/README.md)：组合根、应用服务、Passive Ingress、配置与 i18n；
 - [Components](./components/README.md)：总线、维护调度器、Local Work Queue、串行门与运行时事件等进程内机制；
 - [Gateway](./gateway/README.md)：固定 workflow、话题/查询分析与全局命令；
 - [Patchouli](./patchouli/README.md)：MemoryLibrary、Artifacts、Perception、Generation、Retrieval、Lifecycle 与 MemoryCompiler；
-- [Alice](./alice/README.md)：Agent Runtime、CALL 编排、Agent Profile、写入意图端口的消费与 MTP Runtime。
+- [Alice](./alice/README.md)：Agent Runtime、CALL 编排、Agent Profile、写入意图端口的消费与 MTP Runtime；
+- [Workspace](./workspace/README.md)：身份与授权、认证与访问登记、能力层、任务进程与执行线程、会话资源、读取视图与写入意图、WorkspaceAsset。
 
 ### 9.5 其他文档类型
 

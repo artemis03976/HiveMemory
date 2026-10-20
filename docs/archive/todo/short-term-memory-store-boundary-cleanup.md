@@ -13,7 +13,7 @@ related_docs:
   - docs/archive/plans/short-term-memory-store-boundary-cleanup.md
   - docs/patchouli/memory-library.md
   - docs/patchouli/perception.md
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/architecture/decisions/0001-data-model-mutability-and-boundary-projection.md
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
 last_reviewed: 2026-09-05
@@ -236,6 +236,6 @@ Store 返回的应是不可变 `TopicData`/`TopicSnapshot` 或明确的副本；
 
 - [Patchouli MemoryLibrary](../patchouli/memory-library.md)：短期、中期、长期及 Artifact Store 的当前职责入口；
 - [Patchouli Perception](../patchouli/perception.md)：Topic 状态、摄入、Compact、settle 和 evict 的领域责任入口；
-- [Workspace 架构](../architecture/workspace.md)：Workspace 身份与资源隔离边界；
+- [Workspace](../../workspace/README.md)：Workspace 身份与资源隔离边界；
 - [ADR-0001：按语义选择可变性，跨边界使用只读投影](../architecture/decisions/0001-data-model-mutability-and-boundary-projection.md)：快照与可变对象边界；
 - [ADR-0002：全局唯一身份与按需并发保护](../architecture/decisions/0002-unique-identities-and-minimal-concurrency.md)：全局 ID 和按证据添加并发保护的原则。

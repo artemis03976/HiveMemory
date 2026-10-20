@@ -3,7 +3,7 @@ title: TaskProcess 容器的职责与依赖方向
 status: archived
 archived_at: 2026-10-04
 implemented_by: 1de4066（任务进程编排骨架拆分）
-superseded_by: docs/system/application-services.md
+superseded_by: docs/workspace/task-process.md
 owner: workspace
 scope: task-process-container-registration-lifecycle-and-dependencies
 priority: unscheduled
@@ -24,7 +24,7 @@ last_reviewed: 2026-10-04
 
 # TaskProcess 容器的职责与依赖方向
 
-> **已归档（2026-10-04）**：按下方处理决定实施完成，三个完成条件均已满足。当前事实见 [System 应用服务](../../system/application-services.md)第 3 节（注册入口、进程状态容器与执行器的分工，工作集与关闭流程）与 [System 组合根](../../system/composition.md)（执行器与 `CPUAllocator` 的装配）。本文保留为问题、调查与决定的历史记录。
+> **已归档（2026-10-04）**：按下方处理决定实施完成，三个完成条件均已满足。当前事实见 [任务进程](../../workspace/task-process.md)（注册入口、进程状态容器与执行器的分工，工作集与关闭流程）与 [System 组合根](../../system/composition.md)（执行器与 `CPUAllocator` 的装配）。本文保留为问题、调查与决定的历史记录。
 
 ## 状态与处理决定
 
@@ -80,4 +80,4 @@ last_reviewed: 2026-10-04
 
 - [x] 明确 `TaskProcess` 作为容器的职责，以及它对共享依赖（总线、CPU 端口、分配器、操作授权者、Gateway 超时配置）的持有方式：`TaskProcess`（`workspace/process/task_process.py`）只持有进程记录、任务参数、工作集、`trace_id` 与 owner task；共享依赖只由 `TaskProcessRunner`（`workspace/process/runner.py`）持有；`TaskProcessService` 的构造参数收窄为执行器、认证网关、操作授权者与事件发布器；组合根构建 `CPUAllocator` 与执行器（`system/assembler.py`）。
 - [x] 取消、状态查询、关闭时释放资源与运行时事件的现有行为测试保持通过：测试只改了构造方式（`tests/helpers/process.py`），断言未改；后端 CI 等价门槛 2679 passed、2 skipped，覆盖率 93%；新增 `test_close_interrupted_while_closing_cpu_output_still_requests_prepare_cleanup` 覆盖唯一的行为变化——第一次关闭在等待 CPU 输出流关闭时被取消，注册入口的再次关闭仍会请求尚未执行的 cleanup（原实现以关闭标志使再次关闭成为空操作，cleanup 因此丢失）。
-- [x] 若改动影响 [System 应用服务](../../system/application-services.md)中任务进程的事实描述，按最终代码更新：已更新该文第 1、3 节，以及 [System 组合根](../../system/composition.md)、[Chat 附件链路](../../system/attachments.md)与 [Workspace 架构](../../architecture/workspace.md)中的对应描述。
+- [x] 若改动影响 [System 应用服务](../../system/application-services.md)中任务进程的事实描述，按最终代码更新：已更新该文第 1、3 节，以及 [System 组合根](../../system/composition.md)、[Chat 附件链路](../../system/attachments.md)与 [Workspace](../../workspace/README.md)中的对应描述。

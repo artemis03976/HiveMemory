@@ -18,7 +18,7 @@ related_docs:
   - docs/components/runtime-and-bus.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
   - docs/governance/reliability/idempotency-and-retry.md
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/patchouli/artifacts.md
   - docs/alice/pending-atom.md
   - docs/alice/agent-runtime.md

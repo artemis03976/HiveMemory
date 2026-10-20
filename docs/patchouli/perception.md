@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/system/passive-ingress.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-18
 ---
 

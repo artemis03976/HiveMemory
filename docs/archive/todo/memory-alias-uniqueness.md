@@ -16,7 +16,7 @@ last_reviewed: 2026-09-27
 
 # Memory Alias 重名缺陷
 
-> **归档说明（2026-09-27）**：两层修复随 PR #103（`dda9d9d`）合并，下文“A2-U 分支实现，待合并”均已合入。当前事实见 [MemoryLibrary](../../patchouli/memory-library.md)第 1.2 节、[生成](../../patchouli/generation.md)第 4 节与[错误模型](../../contracts/error-model.md)第 4.5 节。文中引用的 A2 计划已作废删除、计划 A 边界宪章已拆分删除（缓存键的当前规则见 [Workspace 架构](../../architecture/workspace.md)第 5.3 节），引用改为纯文本，删除前最后版本见 commit `dda9d9d`。“A2-U 实现时的补充决定与后续事项”中的两项后续事项转入 [Memory alias 后续事项](../../todo/memory-alias-follow-ups.md)。
+> **归档说明（2026-09-27）**：两层修复随 PR #103（`dda9d9d`）合并，下文“A2-U 分支实现，待合并”均已合入。当前事实见 [MemoryLibrary](../../patchouli/memory-library.md)第 1.2 节、[生成](../../patchouli/generation.md)第 4 节与[错误模型](../../contracts/error-model.md)第 4.5 节。文中引用的 A2 计划已作废删除、计划 A 边界宪章已拆分删除（缓存键的当前规则见 [读取视图与写入意图](../../workspace/read-view-and-write-intents.md#11-派生缓存的键控)第 1.1 节），引用改为纯文本，删除前最后版本见 commit `dda9d9d`。“A2-U 实现时的补充决定与后续事项”中的两项后续事项转入 [Memory alias 后续事项](../../todo/memory-alias-follow-ups.md)。
 
 ## 问题与证据
 

@@ -32,7 +32,7 @@ See [docs/architecture/overview.md](docs/architecture/overview.md) for the curre
 - Memories, topics, and attachments carry explicit Workspace ownership; ingress uses IdentityScope and checks access across Workspaces.
 - TXT, Markdown, and DOCX uploads support deterministic parsing; only READY representations can be selected for Chat.
 - AttachmentCompiler applies a context budget; successful interactions record use, and Memory CREATE/UPDATE can promote sources into Artifacts.
-- WorkspaceAsset availability remains process-local, and derived caches remain owned by AliceRuntime. See [Workspace Architecture](docs/architecture/workspace.md) and [Chat Attachments](docs/system/attachments.md) for the implemented boundaries.
+- WorkspaceAsset availability remains process-local, and derived caches remain owned by AliceRuntime. See [Workspace](docs/workspace/README.md) and [Chat Attachments](docs/system/attachments.md) for the implemented boundaries.
 
 ### Memory and Topic Management
 

@@ -23,7 +23,7 @@ related_docs:
   - ../../ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - ../../patchouli/perception.md
   - ../../patchouli/artifacts.md
-  - ../../architecture/workspace.md
+  - docs/workspace/README.md
   - ../../architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
 last_reviewed: 2026-09-06
 completed_at: 2026-09-06

@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-18
 ---
 
@@ -20,7 +20,7 @@ last_reviewed: 2026-10-18
 
 Retrieval 的职责是从当前可检索书库中找出候选记忆，而不是把候选直接写进 prompt，也不是替 Agent 判断哪条事实最终正确。它返回 `MemoryAtom[]` 与搜索元信息；MemoryCompiler 再根据主动 chat、MTP READ、子 Agent 共享或 embedding 等用途编译文本视图。
 
-每个公共 `RetrievalRequest` 必须携带授权点组装的 `IdentityScope`。Patchouli 在公共应用服务边界把它转换为内部 `RetrievalQuery`，独立保存 `belong_to: WorkspaceIdentity` 与 `from_actor: ActorIdentity`；Familiar、Engine、Retriever 和 MemoryLibrary 不再传递 scope。读取先限定请求 Workspace 的资源归属，再应用记忆自身的 actor read policy；身份坐标与资源寻址以[Workspace 架构](../architecture/workspace.md)为准。
+每个公共 `RetrievalRequest` 必须携带授权点组装的 `IdentityScope`。Patchouli 在公共应用服务边界把它转换为内部 `RetrievalQuery`，独立保存 `belong_to: WorkspaceIdentity` 与 `from_actor: ActorIdentity`；Familiar、Engine、Retriever 和 MemoryLibrary 不再传递 scope。读取先限定请求 Workspace 的资源归属，再应用记忆自身的 actor read policy；身份坐标与资源寻址以[Workspace](../workspace/README.md)为准。
 
 这个分离修正了旧设计中的一个根本混淆：检索器应该优化“找什么、排多高”，编译器应该决定“给谁看、展示多少、用何种语言”。若 Retrieval 同时持有 renderer，任何 prompt 变化都会污染排序接口，其他消费者也只能重复实现一套记忆格式。
 

@@ -16,7 +16,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/architecture/boundaries.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-19
 ---
 
@@ -64,7 +64,7 @@ HiveMemorySystem.build(config)
             root API：RootMemoryService / RootAgentProfileService / RootTopicService / RootMemoryTaskService / RootWorkspaceAssetService（workspace.capability.root；注入操作授权者，不接触读取视图）
 ```
 
-七个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，LLM 服务随后创建并取得组件请求参数，访问控制装载两类登记并组装认证网关与操作授权者，随后先构建 actor API 与操作入口，Alice 构建时即可注入入口；root API 在服务阶段构建，只交给门面；子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。认证网关注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server，另以只含派生与撤销线程 context 的 `ThreadContextLifecycle` 端口注入进程线程管理 `ProcessThreads`；进程表在访问控制阶段创建，`ProcessThreads` 因此能在 actor API 之前构建，注入执行器（主线程）与 actor API（子线程派生），无需延迟绑定；操作授权者注入 root API（root 授权）、actor API（actor 操作授权）、操作入口（线程 context 校验与进程关联）、任务进程的执行器与 CPU 分配（阶段授权），以及注册入口（进程控制授权）；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[System 应用服务](./application-services.md)第 3 节）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。
+七个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，LLM 服务随后创建并取得组件请求参数，访问控制装载两类登记并组装认证网关与操作授权者，随后先构建 actor API 与操作入口，Alice 构建时即可注入入口；root API 在服务阶段构建，只交给门面；子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。认证网关注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server，另以只含派生与撤销线程 context 的 `ThreadContextLifecycle` 端口注入进程线程管理 `ProcessThreads`；进程表在访问控制阶段创建，`ProcessThreads` 因此能在 actor API 之前构建，注入执行器（主线程）与 actor API（子线程派生），无需延迟绑定；操作授权者注入 root API（root 授权）、actor API（actor 操作授权）、操作入口（线程 context 校验与进程关联）、任务进程的执行器与 CPU 分配（阶段授权），以及注册入口（进程控制授权）；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[任务进程](../workspace/task-process.md)）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。
 
 ### 1.1 Runtime bundle
 

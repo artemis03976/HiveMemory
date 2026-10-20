@@ -19,7 +19,7 @@ related_docs:
   - docs/components/README.md
   - docs/system/composition.md
   - docs/system/passive-ingress.md
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
@@ -75,7 +75,7 @@ CI 的 typecheck job 使用锁定版本的 uv 与 setup action，以 `uv sync --
 
 RPC 用于需要确定交接结果的 prepare、retrieve、run、finalize 和管理操作；Pub/Sub 只用于通知。总线不提供持久化、跨进程传输、自动重试、版本协商或 exactly-once。
 
-Workspace 不会改变 route 的全局注册语义。身份声明经认证形成访问 context，授权点在每次操作时组装 scope，再作为公开 route 参数传递；总线只负责交接，不解析、缓存或授权 Workspace。Import Bus 的认证前 scope 是已知例外，见[Workspace 架构](../architecture/workspace.md)。
+Workspace 不会改变 route 的全局注册语义。身份声明经认证形成访问 context，授权点在每次操作时组装 scope，再作为公开 route 参数传递；总线只负责交接，不解析、缓存或授权 Workspace。Import Bus 的认证前 scope 是已知例外，见[身份与授权](../workspace/identity-and-authorization.md#12-默认入口和内部-seam)。
 
 ## 2. GlobalMaintenanceScheduler
 
@@ -221,7 +221,7 @@ Codec 编码失败在接纳前拒绝，解码失败在已接纳 work 的 attempt
 
 ## 4. 前台运行控制不属于本包
 
-chat run 的阶段、停止原因与可中断阶段 task 由 workspace 任务进程编排的 `ProcessTable`（`workspace/process/table.py`）持有，它是用例级控制状态，不是通用运行时机制。其结构、取消传播与不承诺的范围统一维护在[应用服务](../system/application-services.md)第 4 节。本包只提供它所依赖的通用机制：总线 RPC、原生 `asyncio.CancelledError` 传播路径上的 work queue 取消语义，以及观测旁路。
+chat run 的阶段、停止原因与可中断阶段 task 由 workspace 任务进程编排的 `ProcessTable`（`workspace/process/table.py`）持有，它是用例级控制状态，不是通用运行时机制。其结构、取消传播与不承诺的范围统一维护在[任务进程](../workspace/task-process.md)。本包只提供它所依赖的通用机制：总线 RPC、原生 `asyncio.CancelledError` 传播路径上的 work queue 取消语义，以及观测旁路。
 
 ## 5. KeyedSerialGate
 
