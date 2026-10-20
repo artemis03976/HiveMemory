@@ -33,6 +33,7 @@ from hivememory.config.app import HiveMemoryConfig
 from hivememory.config.shared import LLMConfig
 from hivememory.core.access import WorkspaceOperation
 from hivememory.gateway import GatewaySystem
+from hivememory.i18n import set_default_language
 from hivememory.infrastructure.llm import BaseLLMService, LiteLLMService, LLMRequestParams
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.access import (
@@ -210,6 +211,9 @@ class SystemAssembler:
     def assemble(self) -> HiveMemorySystem:
         from hivememory.system.system import HiveMemorySystem
 
+        # 进程默认语言只在装配运行配置时设置一次，并先于在构造时读取默认语言的
+        # 组件；运行中构造的配置对象（默认值查询、提交校验）不改变它。
+        set_default_language(self._config.i18n.default_language)
         runtime = self._build_runtime()
         registries = self._build_registries()
         llm = self._build_llm()

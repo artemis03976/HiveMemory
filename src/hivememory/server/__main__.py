@@ -6,15 +6,6 @@ import threading
 import uvicorn
 
 
-def _configure_logging() -> None:
-    logging.basicConfig(
-        level=logging.INFO,
-        format="%(asctime)s [%(levelname)s] %(name)s: %(message)s",
-        force=True,
-    )
-    logging.getLogger("hivememory").setLevel(logging.INFO)
-
-
 def _install_thread_exception_hook() -> None:
     def _handle_thread_exception(args: threading.ExceptHookArgs) -> None:
         exc_info = (
@@ -31,7 +22,6 @@ def _install_thread_exception_hook() -> None:
 
 
 def main():
-    _configure_logging()
     _install_thread_exception_hook()
     uvicorn.run(
         "hivememory.server.app:app",

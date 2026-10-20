@@ -1,24 +1,13 @@
-"""Tests for HiveMemoryConfig i18n 集成。"""
-
-import pytest
+"""构造根配置不改变进程默认语言。"""
 
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.i18n import get_default_language, set_default_language
 
 
-@pytest.fixture(autouse=True)
-def _reset_default_language():
-    set_default_language("zh")
-    yield
-    set_default_language("zh")
+def test_constructing_config_keeps_process_default_language():
+    set_default_language("en")
 
+    config = HiveMemoryConfig(i18n={"default_language": "zh"})
 
-class TestHiveMemoryConfigI18n:
-    def test_syncs_default_language_to_global_resolver(self):
-        config = HiveMemoryConfig(i18n={"default_language": "en"})
-        assert get_default_language() == "en"
-        assert config.i18n.default_language == "en"
-
-    def test_keeps_default_language_zh(self):
-        HiveMemoryConfig()
-        assert get_default_language() == "zh"
+    assert config.i18n.default_language == "zh"
+    assert get_default_language() == "en"

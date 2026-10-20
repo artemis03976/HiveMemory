@@ -10,6 +10,8 @@ last_reviewed: 2026-10-19
 
 本目录保存已完成的修复与技术债处置历史；当前行为从对应事实文档进入，活动待办见 [Todo](../../todo/README.md)。
 
+- [日志配置段的级别、格式与输出没有生效](./logging-config-not-applied.md)：2026-10-19 在 v0.7.0 收尾分支修复，server 生命周期在装配系统前按 `logging` 段设置根 logger 的级别、格式、控制台与文件输出，两种启动方式一致，只替换入口自己装上的 handler；当前事实见 [System 配置](../../system/configuration.md)第 4 节。
+- [构造根配置会改写进程默认语言](./config-construction-resets-default-language.md)：2026-10-19 在 v0.7.0 收尾分支修复，删除配置模型上的同步校验器，进程默认语言只在组合根装配运行配置时设置，配置路由构造的临时对象不再改变它；当前事实见 [i18n](../../system/i18n.md)第 2 节。
 - [v0.7.0 代码收敛清单](./v0.7.0-code-convergence.md)：2026-10-19 归档。2026-10-17 对 `v0.6.2..239b1a7c` 的发布前收敛审查，共 39 条，覆盖与顶层设计不一致、结构冗余与死代码、可读性与注释卫生三类问题；38 条完成，第 2.15 条中 `PatchouliService` 的改名移位与公开路由命名按 owner 意见不处理。实现经 PR #130、#131、#133 与分支 `refactor/v0.7.0-convergence-p3` 合入，其中第 1.6、3.9 条随[异常体系收敛](../plans/v0.7.0-error-model-convergence.md)、第 3.1 条随[任务进程拥有执行流](../plans/v0.7.0-task-process-owned-execution.md)完成；现行规则见 [AGENTS.md](../../../AGENTS.md)与[文档治理规范](../../DOCUMENTATION.md)第 11.2 节。
 - [Profile 管理列表的可见性语义](./agent-profile-management-list-visibility.md)：2026-10-16 修复，root Profile 列表补齐 owner-management 语义（`enforce_actor_visibility=False`），不再只列出 PUBLIC Profile；当前事实见[路由与事件契约](../../contracts/routes-and-events.md)与 [System 应用服务](../../system/application-services.md)。
 - [测试套件冗余收敛后续](./test-suite-redundancy-follow-ups.md)：2026-10-16 完成，按[冻结调查基线](../../governance/baselines/test-suite-redundancy-2026-10-16.md)收敛参数化矩阵、测试随归属迁入 owner、退役类型层测试与 `_e2e` 命名，生命周期评分与强化组并入 owner 并补充重算顺序用例；现行规则见[测试设计规范](../../governance/testing/test-design-standards.md)第 4 节。

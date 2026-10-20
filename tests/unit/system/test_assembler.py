@@ -1,9 +1,19 @@
-"""组合根的 LLM 装配：共享服务与各组件独立的请求参数。"""
+"""组合根的装配：进程默认语言，以及共享 LLM 服务与各组件独立的请求参数。"""
 
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.config.shared import LLMConfig
+from hivememory.i18n import get_default_language, set_default_language
 from hivememory.infrastructure.llm.base import LLMRequestParams
 from hivememory.system.assembler import SystemAssembler, component_llm_params
+
+
+def test_assemble_sets_process_default_language_from_runtime_config():
+    set_default_language("zh")
+    config = HiveMemoryConfig(runtime_events={"enabled": False}, i18n={"default_language": "en"})
+
+    SystemAssembler(config).assemble()
+
+    assert get_default_language() == "en"
 
 
 def test_gateway_and_librarian_get_request_params_from_their_own_config():

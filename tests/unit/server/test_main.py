@@ -16,19 +16,6 @@ def _hook_args(thread):
     )
 
 
-def test_configure_logging_sets_levels():
-    root_level = logging.getLogger().level
-    hivememory_level = logging.getLogger("hivememory").level
-    try:
-        server_main._configure_logging()
-        assert logging.getLogger().level == logging.INFO
-        assert logging.getLogger("hivememory").level == logging.INFO
-    finally:
-        # 恢复日志级别，避免 basicConfig(force=True) 污染同进程后续测试
-        logging.getLogger().setLevel(root_level)
-        logging.getLogger("hivememory").setLevel(hivememory_level)
-
-
 def test_thread_exception_hook_logs_error(caplog):
     server_main._install_thread_exception_hook()
 
@@ -62,7 +49,6 @@ def test_main_runs_uvicorn_with_expected_args(monkeypatch):
         calls.append((args, kwargs))
 
     monkeypatch.setattr("hivememory.server.__main__.uvicorn.run", fake_run)
-    monkeypatch.setattr("hivememory.server.__main__._configure_logging", lambda: None)
     monkeypatch.setattr("hivememory.server.__main__._install_thread_exception_hook", lambda: None)
 
     server_main.main()
@@ -75,7 +61,7 @@ def test_main_runs_uvicorn_with_expected_args(monkeypatch):
     assert kwargs["log_level"] == "info"
 
 
-def test_main_runs_setup_helpers_in_order(monkeypatch):
+def test_main_installs_thread_hook_before_running_uvicorn(monkeypatch):
     calls = []
 
     def fake_run(*args, **kwargs):
@@ -83,14 +69,10 @@ def test_main_runs_setup_helpers_in_order(monkeypatch):
 
     monkeypatch.setattr("hivememory.server.__main__.uvicorn.run", fake_run)
     monkeypatch.setattr(
-        "hivememory.server.__main__._configure_logging",
-        lambda: calls.append("logging"),
-    )
-    monkeypatch.setattr(
         "hivememory.server.__main__._install_thread_exception_hook",
         lambda: calls.append("hook"),
     )
 
     server_main.main()
 
-    assert calls == ["logging", "hook", "uvicorn"]
+    assert calls == ["hook", "uvicorn"]
