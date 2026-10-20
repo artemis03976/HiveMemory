@@ -10,8 +10,6 @@ HiveMemory - 记忆生命周期管理模块 (MemoryLifeCycleManagement)
 - LifecycleEngine: 统一协调层
 
 状态: Stage 3 实现
-作者: HiveMemory Team
-版本: 0.2.0
 """
 
 import logging

@@ -8,8 +8,6 @@ HiveMemory - 查重与演化管理器 (Deduplicator)
     - 相似度 > 0.95 + 内容一致 → TOUCH (仅更新访问时间)
     - 0.75 < 相似度 < 0.95 → UPDATE (知识演化)
     - 相似度 < 0.75 → CREATE (创建新记忆)
-
-作者: HiveMemory Team
 """
 
 import logging

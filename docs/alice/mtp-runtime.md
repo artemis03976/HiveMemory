@@ -17,7 +17,7 @@ related_contracts:
   - docs/alice/orchestration.md
 related_docs:
   - docs/architecture/workspace.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -81,7 +81,7 @@ CALL 子帧的动词集合由被调用方的操作快照翻译并显式移除 CA
 | Verb | 当前 Runtime 行为 | 主要交接边界 |
 |:---|:---|:---|
 | `SEARCH` | 解析 query/filter，提交 `RetrieveRequest`；能力层授权检索并在代次未变时预热 workspace 原子缓存，MemoryCompiler 编译结果 | Patchouli 拥有检索，Alice 拥有本帧回填 |
-| `READ` | 提交 `ResolveReferencesRequest` 解析一个或多个 alias；编译 pending、redirect、atom 与终态 | alias 与缓存语义由 workspace 统一 |
+| `READ` | 提交 `ResolveReferencesRequest` 解析一个或多个 alias；按请求顺序逐项编译 pending、redirect、atom 与终态 | alias 与缓存语义由 workspace 统一 |
 | `RUN` | 先匹配 syscall 注册表；否则提交 `ResolveRunTargetRequest` 解析 MemoryAtom，仅允许执行 `CODE_SNIPPET` | 系统工具不设权限，记忆目标要求 `memory.run`；受限子进程不等于 OS 沙箱 |
 | `WRITE` | 校验 content，提交 `SubmitWriteIntentRequest(WriteFocus)`，返回 `ack + draft_*` | 能力层立即派发，生成队列接纳后 ACK |
 | `UPDATE` | 校验参数，提交 `SubmitUpdateIntentRequest` 让能力层解析正式基础、登记 revision、失效基础缓存并派发，接纳后返回 `ack + rev_*` | 不在 Koakuma 内原地覆盖记忆 |

@@ -31,14 +31,14 @@ from hivememory.workspace.contracts import (
     ResolveReferencesRequest,
     SubmitWriteIntentRequest,
 )
-from hivememory.workspace.runtime import WorkspaceRuntime
+from hivememory.workspace.read_view import WorkspaceReadView
 from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
     make_actor_access_record,
-    make_workspace_runtime,
+    make_workspace_read_view,
 )
 
 
@@ -79,7 +79,7 @@ class _ReferenceChain:
 
     bus: GlobalSystemBus
     backing: _MemoryBacking
-    runtime: WorkspaceRuntime
+    runtime: WorkspaceReadView
     entry: WorkspaceOperationEntry
     composition: AccessTestComposition
     access: WorkspaceAccessContext
@@ -95,14 +95,14 @@ async def chain():
     bus.register(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES, backing.retrieve_by_aliases)
     bus.register(PatchouliRoutes.MEMORY_RETRIEVE, backing.retrieve)
     bus.register(PatchouliRoutes.RECORD_MEMORY_CITATION, backing.record_citation)
-    runtime = make_workspace_runtime(global_bus=bus)
+    runtime = make_workspace_read_view(global_bus=bus)
     runtime.subscribe(bus)
     composition = make_access_composition([make_actor_access_record()])
     access = await composition.authenticate_thread(process_id="references", register_process=True)
     memory = ActorMemoryService(
         bus,
         operation_authorizer=composition.authorizer,
-        memory_reader=runtime.aliases,
+        memory_reader=runtime.memory,
         threads=composition.threads,
     )
     entry = WorkspaceOperationEntry(
@@ -244,7 +244,7 @@ async def test_pending_reference_read_does_not_record_citation(chain):
 async def test_unreadable_redirect_hides_target_and_does_not_record_citation(chain):
     """结算目标对当前 Actor 不可读时不交付、脱敏坐标，也不记引用。
 
-    冷读的缺失、归属越界与 policy 拒绝三个判断由 AliasResolver 单测逐一覆盖，
+    冷读的缺失、归属越界与 policy 拒绝三个判断由 MemoryReader 单测逐一覆盖，
     这里取 policy 拒绝代表证明引用链经过该判断。
     """
     atom = _add_atom(chain, visibility="PRIVATE")

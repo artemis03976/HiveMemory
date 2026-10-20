@@ -11,9 +11,6 @@ MTP System Prompt 构建器
 4. 运行时工具列表 (Runtime Tools, optional)
 5. 高密度演示 (Dense Demo, optional)
 6. 错误恢复 (Error Recovery, optional)
-
-作者: HiveMemory Team
-版本: 2.1
 """
 
 import logging

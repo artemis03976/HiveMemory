@@ -355,7 +355,7 @@ async def request_access_for_claims(
     try:
         yield RequestAccess(access=access, target_workspace=claims.workspace)
     finally:
-        gateway.invalidate_context(access)
+        gateway.revoke_context(access)
 
 
 async def get_request_access(

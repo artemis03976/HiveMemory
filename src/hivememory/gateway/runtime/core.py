@@ -86,8 +86,7 @@ class GatewayRuntime:
             else:
                 analysis_resolver = FallbackUserQueryAnalysisResolver(config.user_query_analysis)
 
-        # 命令只解析不执行：runtime 只装配命令注册表供入口拦截识别，
-        # 分发与执行随命令系统接回时在新的运行位置重新设计。
+        # 命令只解析不执行：runtime 只装配命令注册表供入口拦截识别，不装配分发与执行。
         registry = create_builtin_command_registry(config.commands.builtin)
         interceptor = create_interceptor(config.interceptor, registry)
         self.workflow = workflow or build_gateway_workflow(

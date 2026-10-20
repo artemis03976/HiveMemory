@@ -45,7 +45,7 @@ class StreamMessage(BaseModel):
     timestamp: float = Field(default_factory=lambda: datetime.now().timestamp())
 
     # 身份标识
-    identity: ActorIdentity = Field(default_factory=ActorIdentity, description="身份标识")
+    identity: ActorIdentity = Field(description="身份标识")
 
     # 工具调用相关字段（可选）
     tool_name: str | None = None
@@ -233,7 +233,8 @@ class TurnRecord(BaseModel):
 
     outcome: InteractionOutcome = "completed"
     turn_id: str = Field(default_factory=lambda: str(uuid4()))
-    identity: ActorIdentity = Field(default_factory=ActorIdentity)
+    # 产出本轮的 actor；没有可以代替的默认身份，由构造方显式给出。
+    identity: ActorIdentity
 
     user_query: str = Field(default="", description="原始用户问题")
     rewritten_query: str | None = Field(

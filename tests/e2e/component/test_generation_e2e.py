@@ -16,9 +16,6 @@ HiveMemory Generation Module E2E Tests
     - 使用真实的 LiteLLMService（librarian 配置转换的请求参数）
     - 使用真实的 QdrantMemoryStore
     - 聚焦记忆提取、去重、合并机制
-
-作者: HiveMemory Team
-版本: 1.0.0
 """
 
 import asyncio

@@ -710,7 +710,7 @@ async def test_handle_cancel_skips_process_control_authorization() -> None:
 
     # 控制请求形式需要有效的请求级 context：已撤销的凭据被拒绝。
     revoked = await composition.authenticate(agent_id=_AGENT)
-    composition.gateway.invalidate_context(revoked)
+    composition.gateway.revoke_context(revoked)
     with pytest.raises(ScopeRequiredError) as excinfo:
         service.cancel_process("process-handle-stop", access=revoked)
     assert excinfo.value.details["reason"] == "context_not_issued"
@@ -864,14 +864,14 @@ async def test_every_outcome_exits_through_single_close_path(outcome: str, last_
     )
     asset = make_ready_text_asset(store, asset_scope, operation_id="op-exit", content="附件正文")
     issued = _capture_issued_contexts(composition)
-    invalidated: list[WorkspaceAccessContext] = []
-    invalidate = composition.gateway.invalidate_context
+    revoked_contexts: list[WorkspaceAccessContext] = []
+    revoke = composition.gateway.revoke_context
 
-    def recording_invalidate(context: WorkspaceAccessContext) -> None:
-        invalidated.append(context)
-        invalidate(context)
+    def recording_revoke(context: WorkspaceAccessContext) -> None:
+        revoked_contexts.append(context)
+        revoke(context)
 
-    composition.gateway.invalidate_context = recording_invalidate  # type: ignore[method-assign]
+    composition.gateway.revoke_context = recording_revoke  # type: ignore[method-assign]
     sessions = ConversationSessionService(WorkspaceSessionConfig())
     released: list[str] = []
     release = sessions.release
@@ -916,7 +916,7 @@ async def test_every_outcome_exits_through_single_close_path(outcome: str, last_
     assert events[-1]["event"] == last_event
     assert _thread_revoked(composition, cpu) is True
     assert store.close_and_clear().leases_cleared == 0
-    assert [context is issued[0] for context in invalidated] == [True]
+    assert [context is issued[0] for context in revoked_contexts] == [True]
     _assert_context_invalidated(composition, issued[0])
     assert table.get("process-exit") is None
     assert released == ["process-exit"]
@@ -1004,7 +1004,7 @@ async def test_control_requests_with_invalidated_requestor_context_raise_scope_r
     service, composition = await _service()
     await _register(composition, service, process_id="process-controlled")
     requestor = await composition.authenticate(agent_id=_AGENT)
-    composition.gateway.invalidate_context(requestor)
+    composition.gateway.revoke_context(requestor)
 
     with pytest.raises(ScopeRequiredError) as cancel_excinfo:
         service.cancel_process("process-controlled", access=requestor)

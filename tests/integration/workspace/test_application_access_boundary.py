@@ -95,8 +95,9 @@ from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
     make_actor_access_record,
+    make_actor_identity,
     make_workspace_identity,
-    make_workspace_runtime,
+    make_workspace_read_view,
 )
 
 MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
@@ -159,7 +160,15 @@ class _FakeTopicData:
     state_summary = "boundary state summary"
 
     def recent_blocks(self, limit):
-        return [LogicalBlock(turn=TurnRecord(user_query="question", assistant_final_text="answer"))]
+        return [
+            LogicalBlock(
+                turn=TurnRecord(
+                    identity=make_actor_identity(),
+                    user_query="question",
+                    assistant_final_text="answer",
+                )
+            )
+        ]
 
 
 class _FakeRetrievalEngine:
@@ -289,11 +298,11 @@ async def wired():
     bridge.mount()
 
     # actor 读取走共享读取视图；root 管理直接经同一全局总线访问资源 owner。
-    runtime = make_workspace_runtime(global_bus)
+    runtime = make_workspace_read_view(global_bus)
     actor_memory = ActorMemoryService(
         global_bus=global_bus,
         operation_authorizer=access.authorizer,
-        memory_reader=runtime.aliases,
+        memory_reader=runtime.memory,
         threads=access.threads,
     )
     root_memory = RootMemoryService(global_bus=global_bus, operation_authorizer=access.authorizer)
@@ -722,7 +731,7 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
 
     # 绑定所有者经认证网关使 context 失效（进程关闭/请求结束的等价物）：
     # 后续授权按 context_not_issued 拒绝，不能把新工作送入队列。
-    wired.access.gateway.invalidate_context(context)
+    wired.access.gateway.revoke_context(context)
     with pytest.raises(ScopeRequiredError) as exc_info:
         wired.access.authorizer.authorize_stage(context, MAIN)
     assert exc_info.value.details["reason"] == "context_not_issued"
@@ -762,7 +771,7 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
 async def test_invalidated_context_cannot_create_a_generation_task(wired):
     """context 失效后授权点拿不到可信 scope：意图不会进入生成链。"""
     context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
-    wired.access.gateway.invalidate_context(context)
+    wired.access.gateway.revoke_context(context)
 
     with pytest.raises(ScopeRequiredError) as exc_info:
         wired.access.authorizer.authorize_operation(context, INTENT, MAIN)
@@ -870,7 +879,7 @@ async def test_invalidated_context_rejected_and_reauthentication_restores_access
     )[0].atom
     assert first.payload.content == "ttl"
 
-    wired.access.gateway.invalidate_context(context)
+    wired.access.gateway.revoke_context(context)
 
     with pytest.raises(ThreadEndedError, match="revoked"):
         (

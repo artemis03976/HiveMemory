@@ -11,9 +11,6 @@ HiveMemory Retrieval Module E2E Tests
 
 运行方式：
     pytest tests/components/test_retrieval_e2e.py -v
-
-作者: HiveMemory Team
-版本: 1.0.0
 """
 
 import asyncio

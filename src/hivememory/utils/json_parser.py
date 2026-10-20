@@ -9,8 +9,6 @@ HiveMemory - JSON 解析工具 (JSON Parser Utility)
     - 容错处理: 支持 Python 字典风格（单引号、True/False/None）
     - 括号匹配: 智能提取完整的 JSON 对象
     - 类型推断: 自动返回 dict 或 list
-
-作者: HiveMemory Team
 """
 
 import ast

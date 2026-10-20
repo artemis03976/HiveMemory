@@ -186,7 +186,7 @@ async def root_access(
     try:
         yield access
     finally:
-        gateway.invalidate_context(access)
+        gateway.revoke_context(access)
 
 
 async def wait_for_workspace_memories(

@@ -4,7 +4,6 @@ HiveMemory - Lifecycle 模块接口抽象层
 定义了记忆生命周期管理模块的核心接口。
 
 状态: 已实现
-作者: HiveMemory Team
 """
 
 from abc import ABC, abstractmethod

@@ -5,6 +5,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from hivememory.config.passive import PassiveIngressConfig
+from hivememory.config.runtime import RuntimeEventsConfig
 from hivememory.config.workspace import WorkspaceConfig
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.system import HiveMemorySystem
@@ -33,6 +34,7 @@ def passive_config():
     config.scheduler = scheduler
     config.passive_ingress = PassiveIngressConfig()
     config.workspace = WorkspaceConfig()
+    config.runtime_events = RuntimeEventsConfig()
     return config
 
 

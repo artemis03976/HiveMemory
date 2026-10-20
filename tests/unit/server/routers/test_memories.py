@@ -111,7 +111,7 @@ class _MemoryManagementStub:
             atoms = self.storage.get_all_memories(filters=filters, limit=limit)
         if refresh_vitality and self.lifecycle_engine is not None:
             self.lifecycle_engine.refresh_vitality_batch(atoms, persist=False)
-        # 对齐生产管理语义（D4）：ownership hard boundary 之内不过滤 actor 可见性
+        # 对齐生产的 owner 管理读取：ownership hard boundary 之内不过滤 actor 可见性
         return [
             atom
             for atom in atoms

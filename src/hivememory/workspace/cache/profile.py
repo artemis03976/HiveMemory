@@ -1,9 +1,8 @@
 """Workspace 共享的 Profile 解析结果缓存（ProfileCache）。
 
-迁移源为 Alice 侧 ``alice/runtime/profile_cache.py``（``AgentProfileCache``）。
-旧实现按完整 Actor 授权坐标分区并缓存"已通过授权的裸 AgentProfile"；这里
-改为按 ``(Workspace, agent_alias)`` 寻址，条目随存源原子的 policy 依据，命中
-时由 resolver 对当前 Actor 逐次授权，不缓存任何 Actor 的授权结论。
+按 ``(Workspace, agent_alias)`` 寻址，条目随存源原子的 policy 依据，命中时由
+Profile 读取器对当前 Actor 逐次授权；不按 Actor 分区，也不缓存任何 Actor 的
+授权结论，同一 Workspace 的不同 Actor 共享一份解析结果。
 
 - 条目只来自 atom 来源的解析结果；builtin Profile 无源原子，不进缓存；
 - 反向索引 ``(Workspace, source_memory_id) → agent_alias`` 供失效事件按
@@ -52,20 +51,14 @@ class ProfileCache:
         self._capacity = capacity
         self._entries: OrderedDict[ProfileKey, ProfileCacheEntry] = OrderedDict()
         self._source_to_alias: dict[AtomIdKey, str] = {}
-        # 可观测统计：命中/未命中与容量淘汰次数
-        self._hits = 0
-        self._misses = 0
-        self._evictions = 0
 
     def get(self, workspace: WorkspaceIdentity, agent_alias: str) -> ProfileCacheEntry | None:
         """读取条目副本，未命中返回 None。"""
         key = ProfileKey(workspace, agent_alias)
         entry = self._entries.get(key)
         if entry is None:
-            self._misses += 1
             return None
         self._entries.move_to_end(key)
-        self._hits += 1
         return entry.isolated()
 
     def put(
@@ -87,7 +80,6 @@ class ProfileCache:
         while len(self._entries) > self._capacity:
             evicted_key, evicted_entry = self._entries.popitem(last=False)
             self._drop_source_link(evicted_key, evicted_entry)
-            self._evictions += 1
 
     def evict_source(self, workspace: WorkspaceIdentity, memory_id: UUID) -> bool:
         """移除由指定源原子解析出的条目；返回是否确有条目被移除。"""
@@ -97,7 +89,7 @@ class ProfileCache:
         return self._remove(ProfileKey(workspace, alias))
 
     def clear(self) -> int:
-        """清空全部条目与索引（统计计数保持累计），返回清理的条目数。"""
+        """清空全部条目与索引，返回清理的条目数。"""
         size = len(self._entries)
         self._entries.clear()
         self._source_to_alias.clear()
@@ -119,21 +111,6 @@ class ProfileCache:
     def size(self) -> int:
         """当前缓存的条目数量。"""
         return len(self._entries)
-
-    @property
-    def hits(self) -> int:
-        """读取路径的累计命中次数。"""
-        return self._hits
-
-    @property
-    def misses(self) -> int:
-        """读取路径的累计未命中次数。"""
-        return self._misses
-
-    @property
-    def evictions(self) -> int:
-        """LRU 容量淘汰的累计次数。"""
-        return self._evictions
 
 
 __all__ = ["ProfileCache", "ProfileCacheEntry"]

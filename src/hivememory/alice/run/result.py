@@ -61,9 +61,9 @@ def publish_terminal(
     result: CPUExecutionResult,
     stats: AgentRunStats,
 ) -> None:
-    if result.status == CPUExecutionStatus.CANCELLED.value:
+    if result.status is CPUExecutionStatus.CANCELLED:
         run_events.cancelled(stats)
-    elif result.status == CPUExecutionStatus.FAILED.value:
+    elif result.status is CPUExecutionStatus.FAILED:
         run_events.failed(stats)
     else:
         run_events.completed(stats)

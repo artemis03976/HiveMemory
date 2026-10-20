@@ -77,7 +77,7 @@ class MemoryManagementService:
             query=query,
             filters=filters,
             limit=limit,
-            # owner-management 语义（D4）：ownership hard boundary 之内
+            # owner 管理读取：ownership hard boundary 之内
             # 读取该 Workspace 全部 Memory，不执行 Agent 可见性过滤；
             # 该语义只供经 root API 授权的管理读取使用。
             enforce_actor_visibility=False,
@@ -104,7 +104,7 @@ class MemoryManagementService:
             normalize_uuid(memory_id),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
-            # owner-management 语义（D4），同 list_memories。
+            # owner 管理读取：归属硬边界内不按 Agent 可见性过滤，同 list_memories。
             enforce_actor_visibility=False,
         )
         if atom is not None and refresh_vitality:

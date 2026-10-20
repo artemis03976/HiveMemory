@@ -2,9 +2,6 @@
 HiveMemory 测试共享 Fixtures
 
 提供跨测试文件的共享 fixtures 和辅助函数。
-
-作者: HiveMemory Team
-版本: 2.0.0
 """
 
 import os

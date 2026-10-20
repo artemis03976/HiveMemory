@@ -11,9 +11,6 @@ RUN 指令执行链路测试
 与 test_syscall_chain.py 的区别:
     - test_syscall_chain.py: 聚焦 syscall 函数本身的行为正确性
     - 本文件: 聚焦 RUN 指令的 _handle_run 链路 (target 校验、快速路径分发、用户工具路径)
-
-作者: HiveMemory Team
-版本: 3.0
 """
 
 import asyncio

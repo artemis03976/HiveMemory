@@ -136,7 +136,7 @@ class GenerationTurn(BaseModel):
     user_query: str
     assistant_final_text: str = ""
     trace_summaries: list[str] = Field(default_factory=list)
-    identity: ActorIdentity = Field(default_factory=ActorIdentity)
+    identity: ActorIdentity
 
 
 class GenerationContext(BaseModel):

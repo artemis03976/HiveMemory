@@ -9,17 +9,11 @@ HiveMemory 核心常量定义
 DEFAULT_USER_ID = "default"
 """默认用户 ID - 用于未登录/匿名场景。
 
-使用边界：该回退值只允许出现在两处——
-1. ``server/deps.py`` 的 ``_resolve_identity_coordinates``（声明解析
-   ``resolve_request_identity_claims`` 与 /ingest 例外路径
-   ``resolve_request_identity_scope`` 共用的唯一缺省回退点）；
-2. ``ActorIdentity.user_id`` 字段默认值（``core/models/identity.py``）。
-应用服务与引擎层不得再次解析或回退默认身份；新增使用位置前先确认
-不属于上述边界（由 tests/unit/core/models/test_identity_model_guard.py
-的导入边界守卫约束）。"""
-
-DEFAULT_AGENT_ID = "omni_doll"
-"""默认 Agent ID - 全能人偶，拥有完整权限"""
+使用边界：该回退值只允许出现在 ``server/deps.py`` 的
+``_resolve_identity_coordinates``，它是声明解析 ``resolve_request_identity_claims``
+与 /ingest 例外路径 ``resolve_request_identity_scope`` 共用的唯一缺省回退点。
+身份模型不带默认值，应用服务与引擎层不得再次解析或回退默认身份
+（由 tests/unit/architecture/test_identity_fields.py 的边界守卫约束）。"""
 
 SYSTEM_AGENT_ID = "system"
 """非 Agent action 的保留 actor。
@@ -28,9 +22,6 @@ SYSTEM_AGENT_ID = "system"
 无具体 Agent 的操作冻结 IdentityScope 时（管理读取、Topic 管理等），是
 actor/provenance 的保留值。
 """
-
-DEFAULT_TEAM_ID = None
-"""默认团队 ID - None 表示个人作用域"""
 
 
 # ============ 测试专用身份标识 ============

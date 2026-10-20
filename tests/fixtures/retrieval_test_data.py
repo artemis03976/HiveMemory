@@ -7,9 +7,6 @@ HiveMemory Retrieval 模块测试数据 Fixtures
     - 覆盖混合检索的各种场景（纯语义、纯关键词、混合冲突）
     - 覆盖重排序的各种情况（精排优化、阈值过滤）
     - 覆盖检索上下文编译的各种策略（Full、Compact、Cascade）
-
-作者: HiveMemory Team
-版本: 1.0.0
 """
 
 from typing import Any

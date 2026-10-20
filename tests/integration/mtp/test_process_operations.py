@@ -148,7 +148,7 @@ async def test_operation_denial_maps_to_mtp_permission_error(command):
     assert result.response_status == "error"
     assert 'code="mtp.permission.denied"' in result.formatted_response
     assert harness.registry.size == 0
-    assert harness.runtime.stats()["cold_reads"] == 0
+    assert len(harness.backing.reads) == 0
 
 
 @pytest.mark.asyncio
@@ -183,7 +183,7 @@ async def test_search_without_memory_search_grant_does_not_deliver_or_warm_memor
     assert result.response_status == "error"
     assert 'code="mtp.permission.denied"' in result.formatted_response
     assert result.response_content == ""
-    assert harness.runtime.stats()["atom_size"] == 0
+    assert len(harness.backing.reads) == 0
     assert harness.citations == []
 
 
@@ -227,7 +227,7 @@ async def test_read_and_user_run_require_independent_operation_permissions(
 
     assert denied.response_status == "error"
     assert 'code="mtp.permission.denied"' in denied.formatted_response
-    assert harness.runtime.stats()["cold_reads"] == 0
+    assert len(harness.backing.reads) == 0
     assert harness.citations == []
 
     allowed = await koakuma.execute_mtp(f"⟪ {allowed_verb} | {atom.get_alias()} | ⟫", context)
@@ -290,7 +290,7 @@ async def test_memory_run_without_actor_grant_is_denied_despite_frame_run():
     assert result.response_status == "error"
     assert 'code="mtp.permission.denied"' in result.formatted_response
     assert result.response_content == ""
-    assert harness.runtime.stats()["cold_reads"] == 0
+    assert len(harness.backing.reads) == 0
     assert harness.citations == []
 
 

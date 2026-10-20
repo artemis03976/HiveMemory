@@ -20,8 +20,7 @@ class CommandCategory(str, Enum):
 class CommandDefinition(BaseModel):
     """全局系统指令定义：名称、别名、参数 schema 与展示信息。
 
-    命令只解析不执行，定义不声明运行位置与执行权限；命令系统接回时随运行
-    位置一并设计。
+    命令只解析不执行，定义不声明运行位置与执行权限。
     """
 
     command_id: str

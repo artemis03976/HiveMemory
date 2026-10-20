@@ -37,7 +37,7 @@ from hivememory.gateway.workflow import (
     GatewayExecutionState,
     GatewayStepResult,
 )
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_actor_identity, make_identity_scope
 
 
 def test_canonical_topic_object_graph_is_recursively_immutable() -> None:
@@ -49,7 +49,7 @@ def test_canonical_topic_object_graph_is_recursively_immutable() -> None:
         tool_args={"filters": {"tags": ["gateway"]}},
     )
     block = LogicalBlock(
-        turn=TurnRecord(user_query="继续", turn_events=(event,)),
+        turn=TurnRecord(identity=make_actor_identity(), user_query="继续", turn_events=(event,)),
     )
     topic = TopicData(
         topic_id="topic-1",
@@ -71,7 +71,7 @@ def test_canonical_topic_object_graph_is_recursively_immutable() -> None:
 
 
 def test_topic_snapshot_last_turn_and_identity_are_frozen() -> None:
-    identity = ActorIdentity(user_id="user-1")
+    identity = ActorIdentity(agent_id="omni_doll", user_id="user-1")
     snapshot = TopicSnapshot(
         last_update=1_700_000_000.0,
         topic_id="topic-1",
@@ -126,7 +126,7 @@ def test_private_context_contracts_do_not_duplicate_identity() -> None:
     )
     context = UserQueryAnalysisContext(
         raw_message="原问题",
-        identity=ActorIdentity(user_id="user-1"),
+        identity=ActorIdentity(agent_id="omni_doll", user_id="user-1"),
         candidate_topics=candidates,
         topic_id="topic-1",
     )

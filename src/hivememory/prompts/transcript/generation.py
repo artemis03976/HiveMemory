@@ -23,8 +23,6 @@ GenerationTranscriptBuilder — 记忆生成视图构建器
     - SEARCH: "query text"
     - READ: alias_name
     - RUN: tool_name (status)
-
-作者: HiveMemory Team
 """
 
 from collections.abc import Sequence

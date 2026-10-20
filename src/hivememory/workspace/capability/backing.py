@@ -3,7 +3,7 @@
 实现 ``workspace.resolution.CanonicalReadBackend``：resolver 的 L2 冷读经
 ``GlobalSystemBus`` 调用 Patchouli 公共 backing 路由（第二层 client-server），
 不形成递归，也不持有 Patchouli 的 Runtime、Service 或存储对象。它不是 API，
-由组合根注入 ``WorkspaceRuntime``；actor API 的读取与任务进程阶段调用中的
+由组合根注入 ``WorkspaceReadView``；actor API 的读取与任务进程阶段调用中的
 Profile 解析都经读取视图到达这里。
 
 放在 ``capability`` 而不是 ``resolution``：读取本体按导入边界只依赖 core 与

@@ -189,8 +189,8 @@ async def test_completed_stream_events_share_process_correlation_and_bind_topic(
             _workspace().workspace_id,
             _AGENT,
             "foreground",
-            "system",
-            "chat_application_service",
+            "workspace",
+            "task_process",
         )
     }
     assert events[0].trace_id.startswith("task-")

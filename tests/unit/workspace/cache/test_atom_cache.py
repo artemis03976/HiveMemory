@@ -92,7 +92,7 @@ def test_lru_eviction_drops_least_recent_atom_and_alias():
 
     assert cache.get_by_alias(MAIN, "fact_second") is None
     assert cache.get_by_alias(MAIN, "fact_first").id == first.id
-    assert cache.evictions == 1
+    assert cache.size == 2
 
 
 def test_cache_isolates_stored_and_returned_objects():

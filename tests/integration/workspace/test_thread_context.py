@@ -47,7 +47,7 @@ async def test_derivation_preserves_identity_and_binds_main_thread(composition):
 async def revoked_process_context(composition):
     """进程关闭后撤销的进程 context。"""
     context = await process_context(composition)
-    composition.gateway.invalidate_context(context)
+    composition.gateway.revoke_context(context)
     return context
 
 

@@ -53,7 +53,7 @@ def memory_is_readable(
 ) -> bool:
     """按固定顺序组合 ownership hard filter 与 actor read policy。
 
-    ``enforce_actor_visibility=False`` 仅用于 owner-management 读取（D4）：
+    ``enforce_actor_visibility=False`` 仅用于 owner 管理读取：
     ownership hard boundary 仍然生效，Workspace 内 actor 可见性策略被跳过，
     因此管理入口可以读取该 Workspace 的 PRIVATE/TEAM/PUBLIC 全部 Memory；
     Agent retrieval、运行上下文与 workspace 读取 resolver 必须保持默认 True。

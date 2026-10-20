@@ -39,11 +39,9 @@ def _class_level_user_id_fields(path: Path) -> list[str]:
 
 # DEFAULT_USER_ID / normalize_user_id 的合法使用边界：
 # 1. core/constants.py —— 定义处；
-# 2. core/models/identity.py —— ActorIdentity 字段默认值；
-# 3. server/deps.py —— HTTP 顶层身份解析的唯一缺省回退点。
+# 2. server/deps.py —— HTTP 顶层身份解析的唯一缺省回退点。
 _DEFAULT_USER_ID_ALLOWED = {
     "src/hivememory/core/constants.py",
-    "src/hivememory/core/models/identity.py",
     "src/hivememory/server/deps.py",
 }
 

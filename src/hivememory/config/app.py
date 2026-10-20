@@ -93,7 +93,7 @@ def _load_dotenv_sources() -> dict[str, str]:
 
 
 def legacy_env_alias_settings_source() -> dict[str, Any]:
-    """把配置拆分前的环境变量映射到当前的嵌套配置结构。"""
+    """把 ``LEGACY_ENV_ALIASES`` 中的扁平环境变量名映射到嵌套配置结构，已有部署无需改名。"""
     raw_values = _load_dotenv_sources()
     raw_values.update(os.environ)
     normalized = {key.upper(): value for key, value in raw_values.items()}

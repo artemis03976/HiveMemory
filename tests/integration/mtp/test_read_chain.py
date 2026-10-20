@@ -9,9 +9,6 @@ READ 指令执行链路测试
     3. Koakuma READ E2E
     4. 参数校验
     5. L2 冷检索回退
-
-作者: HiveMemory Team
-版本: 2.0
 """
 
 import asyncio

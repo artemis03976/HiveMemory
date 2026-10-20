@@ -35,7 +35,7 @@ from hivememory.workspace.contracts import (
     SubmitWriteIntentRequest,
     ThreadEndedError,
 )
-from hivememory.workspace.runtime import WorkspaceRuntime
+from hivememory.workspace.read_view import WorkspaceReadView
 from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.intent_dispatch import install_intent_admission
@@ -61,7 +61,7 @@ async def test_process_terminal_status_preserves_dispatched_intents(status):
     actor = ActorIdentity(user_id="u1", agent_id="omni_doll")
     bus = GlobalSystemBus()
     admission = install_intent_admission(bus)
-    runtime = WorkspaceRuntime(
+    runtime = WorkspaceReadView(
         backing=BusCanonicalReadBackend(bus), atom_capacity=8, profile_capacity=8
     )
     other = runtime.intents.register_write(
@@ -112,7 +112,7 @@ async def test_process_terminal_status_preserves_dispatched_intents(status):
         cpu=cpu,
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
-        workspace_runtime=runtime,
+        workspace_read_view=runtime,
     )
     handle = await service.register_process(
         adapter="local",
@@ -170,7 +170,7 @@ async def test_main_and_child_thread_writes_record_their_own_thread_ids():
     )
     bus = GlobalSystemBus()
     install_intent_admission(bus)
-    runtime = WorkspaceRuntime(
+    runtime = WorkspaceReadView(
         backing=BusCanonicalReadBackend(bus), atom_capacity=8, profile_capacity=8
     )
     submitted = []
@@ -208,7 +208,7 @@ async def test_main_and_child_thread_writes_record_their_own_thread_ids():
         ),
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
-        workspace_runtime=runtime,
+        workspace_read_view=runtime,
     )
     handle = await service.register_process(
         adapter="local",
@@ -259,7 +259,7 @@ async def test_finalize_authorization_failure_preserves_dispatched_intents():
     workspace = access.default_workspace
     actor = ActorIdentity(user_id="u1", agent_id="omni_doll")
     bus = GlobalSystemBus()
-    runtime = WorkspaceRuntime(
+    runtime = WorkspaceReadView(
         backing=BusCanonicalReadBackend(bus), atom_capacity=8, profile_capacity=8
     )
     authorizer = _RevokeAdmissionAtFinalize(access.authorizer)
@@ -299,7 +299,7 @@ async def test_finalize_authorization_failure_preserves_dispatched_intents():
         cpu=ScriptedCPU(result=make_cpu_result(status="completed"), operation_script=write),
         access_gateway=access.gateway,
         operation_authorizer=authorizer,
-        workspace_runtime=runtime,
+        workspace_read_view=runtime,
     )
     handle = await service.register_process(
         adapter="local",
@@ -345,7 +345,7 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
         return [atom]
 
     bus.register(PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES, read)
-    runtime = WorkspaceRuntime(
+    runtime = WorkspaceReadView(
         backing=BusCanonicalReadBackend(bus), atom_capacity=8, profile_capacity=8
     )
     update_tasks = []
@@ -388,7 +388,7 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
         cpu=cpu,
         access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
-        workspace_runtime=runtime,
+        workspace_read_view=runtime,
     )
     handle = await service.register_process(
         adapter="local",

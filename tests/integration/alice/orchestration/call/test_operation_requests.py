@@ -228,7 +228,7 @@ async def test_callee_permissions_do_not_inherit_caller_read_and_cannot_recursiv
         assert denied.value.details["operation"] == "memory.read"
         with pytest.raises(ScopeRequiredError, match="主线程"):
             await child.derive_child(DeriveCallThreadRequest())
-        assert harness.runtime.stats()["cold_reads"] == 2
+        assert len(harness.backing.reads) == 2
     finally:
         harness.revoke()
         harness.runtime.close()

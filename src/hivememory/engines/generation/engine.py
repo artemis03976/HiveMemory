@@ -9,9 +9,6 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
     Step 2: 查重检测 → CREATE/UPDATE/TOUCH
     Step 3: 记忆原子构建 → MemoryAtom
     Step 4: 返回 GenerationOutcome，外围 Familiar 负责持久化
-
-作者: HiveMemory Team
-版本: 0.2.0
 """
 
 import logging

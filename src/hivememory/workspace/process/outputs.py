@@ -207,7 +207,7 @@ def non_streaming_result(terminal: TerminalOutput, *, session_id: str) -> NonStr
                 cancelled = CPUExecutionResult(status=CPUExecutionStatus.CANCELLED)
             else:
                 cancelled = execution_result.model_copy(
-                    update={"status": CPUExecutionStatus.CANCELLED.value}
+                    update={"status": CPUExecutionStatus.CANCELLED}
                 )
             return NonStreamingAgentOutcome(execution_result=cancelled, session_id=session_id)
         case ProcessFailed(error=error):
@@ -295,8 +295,8 @@ _INTERNAL_RESULT_FIELDS = frozenset({"turn_events", "compaction_checkpoint"})
 
 def _done_result_fields(result: CPUExecutionResult) -> dict[str, Any]:
     """``done`` 只携带可交付字段，交互原始事件与检查点留在进程内部。"""
-    fields = result.model_dump(exclude=set(_INTERNAL_RESULT_FIELDS))
-    if result.status != "failed" or result.failure_reason is None:
+    fields = result.model_dump(mode="json", exclude=set(_INTERNAL_RESULT_FIELDS))
+    if result.status is not CPUExecutionStatus.FAILED or result.failure_reason is None:
         fields.pop("failure_reason", None)
     if not result.has_output:
         fields.pop("final_text", None)
@@ -338,12 +338,11 @@ def _command_done(process_id: str, command_result: CommandExecutionResult) -> di
 def _memory_ref_from_atom(memory: MemoryAtom) -> dict[str, Any]:
     """把 MemoryAtom 投影为前端引用列表使用的扁平结构。"""
 
-    memory_type = memory.index.memory_type
     return {
         "id": str(memory.id),
         "title": memory.index.title,
         "summary": memory.index.summary,
-        "memory_type": (memory_type.value if hasattr(memory_type, "value") else str(memory_type)),
+        "memory_type": memory.index.memory_type.value,
         "tags": list(memory.index.tags),
         "alias": memory.index.alias,
         "content": memory.payload.content,

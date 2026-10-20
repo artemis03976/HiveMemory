@@ -30,6 +30,7 @@ from hivememory.patchouli.application.agent_profile_management_service import (
     AgentProfileManagementService,
 )
 from hivememory.patchouli.application.memory_management_service import MemoryManagementService
+from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_change_publisher import MemoryChangePublisher
 from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
@@ -56,7 +57,7 @@ from hivememory.workspace.contracts import (
 )
 from hivememory.workspace.contracts.errors import PendingUpdateNotAllowedError
 from hivememory.workspace.process.allocation import CPUAllocator
-from hivememory.workspace.runtime import WorkspaceRuntime
+from hivememory.workspace.read_view import WorkspaceReadView
 from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
@@ -65,7 +66,7 @@ from tests.helpers.workspace import (
     make_actor_access_record,
     make_identity_scope,
     make_workspace_identity,
-    make_workspace_runtime,
+    make_workspace_read_view,
 )
 
 WORKSPACE = make_workspace_identity(owner_user_id="u1")
@@ -116,7 +117,7 @@ class _Chain:
 
     bus: GlobalSystemBus
     store: MidTermMemoryStore
-    runtime: WorkspaceRuntime
+    runtime: WorkspaceReadView
     memories: ActorMemoryService
     profiles: ActorAgentService
     root_memories: RootMemoryService
@@ -132,7 +133,7 @@ async def chain(tmp_path):
     local_bus = PatchouliBus()
     bus = GlobalSystemBus()
     install_intent_admission(bus)
-    runtime = make_workspace_runtime(global_bus=bus)
+    runtime = make_workspace_read_view(global_bus=bus)
     runtime.subscribe(bus)
     store = MidTermMemoryStore(
         QdrantStorageAdapter(_VectorStore()), change_publisher=MemoryChangePublisher(local_bus)
@@ -183,7 +184,7 @@ async def chain(tmp_path):
         memories=ActorMemoryService(
             bus,
             operation_authorizer=composition.authorizer,
-            memory_reader=runtime.aliases,
+            memory_reader=runtime.memory,
             threads=composition.threads,
         ),
         root_memories=RootMemoryService(bus, operation_authorizer=composition.authorizer),
@@ -237,7 +238,6 @@ async def test_management_update_invalidates_actor_atom_read_before_return(chain
     await chain.root_memories.update_memory(
         atom.id, content="new content", target_workspace=WORKSPACE, access=chain.manager
     )
-    assert chain.runtime.stats()["atom_size"] == 0
     second = await chain.memories.resolve_references(
         ResolveReferencesRequest(("canonical",)), access=chain.reader
     )
@@ -268,7 +268,6 @@ async def test_profile_source_update_invalidates_profile_configuration(chain):
         target_workspace=WORKSPACE,
         access=chain.manager,
     )
-    assert chain.runtime.stats()["profile_size"] == 0
     next_process_access = await chain.composition.authenticate(
         agent_id="custom_agent", binding=RunBinding.for_task_process("next_profile_process")
     )
@@ -404,7 +403,7 @@ async def test_update_intent_on_private_base_is_indistinguishable_from_missing(c
 
 
 @pytest.mark.asyncio
-async def test_update_success_invalidates_base_and_claims_canonical_uuid(chain):
+async def test_update_success_invalidates_base_and_claims_canonical_uuid(chain, monkeypatch):
     """UPDATE 基础由能力层确定 UUID，ACK 后基础缓存失效且物化请求引用该原子。"""
     atom = _atom()
     await chain.store.upsert(atom)
@@ -416,7 +415,20 @@ async def test_update_success_invalidates_base_and_claims_canonical_uuid(chain):
         SubmitUpdateIntentRequest("canonical", "revise", "replacement"),
         access=chain.writer,
     )
-    assert chain.runtime.stats()["atom_size"] == 0
+    # 基础缓存已失效：首次解析预热了缓存，再次解析同一 alias 必须回到存储冷读。
+    cold_reads: list[list[str]] = []
+    request = chain.bus.request
+
+    async def recording_request(route, *args, **kwargs):
+        if route == PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES:
+            cold_reads.append(list(args[0]))
+        return await request(route, *args, **kwargs)
+
+    monkeypatch.setattr(chain.bus, "request", recording_request)
+    await chain.memories.resolve_references(
+        ResolveReferencesRequest(("canonical",)), access=chain.writer
+    )
+    assert cold_reads == [["canonical"]]
     task = pending
 
     assert (task.pending_alias, task.focus.base_uuid, task.focus.content) == (

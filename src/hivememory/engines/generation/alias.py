@@ -10,9 +10,6 @@ HiveMemory - 记忆别名生成器 (Alias Generator)
       路径不触碰冲突错误；
     - 第二层（``MidTermMemoryStore.upsert``）: 写入前兜底校验，覆盖手工
       编辑、Profile 管理创建、revive 等不经生成器的路径。
-
-作者: HiveMemory Team
-版本: 0.1.0
 """
 
 from __future__ import annotations

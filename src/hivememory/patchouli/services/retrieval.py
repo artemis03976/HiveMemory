@@ -6,8 +6,6 @@
     - 混合检索 (Dense + Sparse + RRF)
     - 重排序 (Reranking)
     - 访问统计更新
-
-版本: 3.0 (Phase C — 编译解耦)
 """
 
 import logging
@@ -131,8 +129,8 @@ class RetrievalFamiliar:
         """
         根据记忆 ID 读取中期记忆原子。
 
-        ``enforce_actor_visibility=False`` 供 owner-management 管理入口使用
-        （D4）：ownership hard boundary 仍生效，跳过 Workspace 内 actor
+        ``enforce_actor_visibility=False`` 供 owner 管理入口使用：管理读取要看到
+        Workspace 内的全部记忆，ownership hard boundary 仍生效，只跳过 actor
         可见性过滤；Agent retrieval 不得使用该开关。
         """
         normalized_id = memory_id if isinstance(memory_id, UUID) else UUID(str(memory_id))
@@ -156,8 +154,8 @@ class RetrievalFamiliar:
         """
         根据查询和过滤条件列出中期记忆原子。
 
-        ``enforce_actor_visibility=False`` 供 owner-management 管理入口使用
-        （D4）：ownership hard boundary 仍生效，跳过 Workspace 内 actor
+        ``enforce_actor_visibility=False`` 供 owner 管理入口使用：管理读取要看到
+        Workspace 内的全部记忆，ownership hard boundary 仍生效，只跳过 actor
         可见性过滤；Agent retrieval 不得使用该开关。
         """
         query_filters = self._build_business_filters(filters)

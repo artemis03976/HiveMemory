@@ -10,9 +10,6 @@ SEARCH 指令执行链路测试
     4. 结果预热 workspace 原子缓存，后续 READ 命中
     5. Koakuma SEARCH 执行入口
     6. 参数校验
-
-作者: HiveMemory Team
-版本: 1.0
 """
 
 import asyncio
@@ -391,7 +388,6 @@ class TestSearchReferences:
         )
         search = _execute_mtp(koakuma, '⟪ SEARCH | * | query="api" ⟫')
         assert "fact_api" in search.response_content
-        assert koakuma.harness.runtime.stats()["atom_size"] == 1
         assert koakuma.harness.backing.bus._memory_citations == []
         result = _execute_mtp(koakuma, "⟪ READ | fact_api | ⟫")
         assert result.response_status == "success"

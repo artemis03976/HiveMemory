@@ -4,8 +4,8 @@
 ``tests/unit/architecture/test_package_layers.py`` 统一守护；本文件只保护
 workspace 包内更严格的约束：
 
-1. 认证、准入、读取能力（cache / resolution / runtime）与配置模块只依赖
-   core 与 workspace 自身——resolver 经 backing 协议冷读，不导入总线、
+1. 认证、准入、读取能力（cache / resolution / read_view）与配置模块只依赖
+   core、workspace 自身与业务时间入口 ``utils.time``——读取器经 backing 协议冷读，不导入总线、
    路由常量或任何子系统实现；运行时装配与失效订阅者仅另依赖总线机制；
 2. ``intents`` 作为共享登记只可另依赖 ``components``；
    ``capability`` / ``assets`` / ``process`` 作为能力层、资产设施与进程
@@ -39,10 +39,11 @@ UNRESTRICTED_SUBPACKAGES = (
     WORKSPACE_PACKAGE / "process",
 )
 SHARED_EVENT_SUBSCRIBERS = {
-    WORKSPACE_PACKAGE / "runtime.py",
+    WORKSPACE_PACKAGE / "read_view.py",
     WORKSPACE_PACKAGE / "cache" / "invalidation.py",
 }
-ALLOWED_INTERNAL = ("hivememory.core", "hivememory.workspace")
+# utils.time 是生产代码取得业务时间的唯一入口，与 core 一样不依赖任何子系统。
+ALLOWED_INTERNAL = ("hivememory.core", "hivememory.workspace", "hivememory.utils.time")
 PROCESS_PACKAGE_MODULE = "hivememory.workspace.process"
 
 
@@ -83,7 +84,7 @@ def _sources_excluding_unrestricted() -> list[Path]:
 
 
 def test_workspace_access_and_read_modules_depend_only_on_core():
-    """读取本体只依赖 core / workspace，共享事件装配仅另依赖 components。"""
+    """读取本体只依赖 core / workspace / utils.time，共享事件装配仅另依赖 components。"""
     violations = [
         f"{path}: {module}"
         for path in _sources_excluding_unrestricted()

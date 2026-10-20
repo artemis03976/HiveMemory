@@ -7,8 +7,6 @@ HiveMemory - Generation 模块接口抽象层
 - ValueGater: 价值评估器接口
 - MemoryExtractor: 记忆提取器接口
 - Deduplicator: 查重与演化器接口
-
-作者: HiveMemory Team
 """
 
 from abc import ABC, abstractmethod

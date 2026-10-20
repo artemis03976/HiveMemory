@@ -34,7 +34,7 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTask,
 )
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_actor_identity, make_identity_scope
 
 
 def _identity_scope():
@@ -85,7 +85,9 @@ def _update_task(base_uuid: str, alias="draft_update"):
 
 
 def _topic_block(query: str = "q"):
-    return LogicalBlock(turn=TurnRecord(user_query=query, assistant_final_text="a"))
+    return LogicalBlock(
+        turn=TurnRecord(identity=make_actor_identity(), user_query=query, assistant_final_text="a")
+    )
 
 
 def _accepted(task_id="j1", source=MemoryGenerationSource.WRITE):

@@ -37,7 +37,7 @@ from hivememory.workspace.contracts import (
     SubmitWriteIntentRequest,
     ThreadEndedError,
 )
-from hivememory.workspace.runtime import WorkspaceRuntime
+from hivememory.workspace.read_view import WorkspaceReadView
 from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
@@ -63,7 +63,9 @@ class _OperationHarness:
         self.citations: list[dict] = []
         self.owner_calls: list[str] = []
         self.backing = BusCanonicalReadBackend(self.bus)
-        self.runtime = WorkspaceRuntime(backing=self.backing, atom_capacity=32, profile_capacity=16)
+        self.runtime = WorkspaceReadView(
+            backing=self.backing, atom_capacity=32, profile_capacity=16
+        )
         self.registry = self.runtime.intents
         for route, handler in (
             (PatchouliRoutes.MEMORY_READ, self._read),
@@ -77,7 +79,7 @@ class _OperationHarness:
             ActorMemoryService(
                 self.bus,
                 operation_authorizer=operation_authorizer,
-                memory_reader=self.runtime.aliases,
+                memory_reader=self.runtime.memory,
                 threads=access.threads,
             ),
             agent=ActorAgentService(
@@ -118,6 +120,21 @@ class _OperationHarness:
         self.citations.append(
             {"memory_id": memory_id, "source": source, "identity_scope": identity_scope}
         )
+
+
+_READ_ROUTES = frozenset(
+    {
+        PatchouliRoutes.MEMORY_READ,
+        PatchouliRoutes.MEMORY_RETRIEVE_BY_ALIASES,
+        PatchouliRoutes.MEMORY_RETRIEVE,
+        PatchouliRoutes.GET_AGENT_PROFILE,
+    }
+)
+
+
+def _cold_reads(harness) -> int:
+    """持久化边界收到的读取次数，不含引用记录；用来观察读取视图是否回源。"""
+    return sum(route in _READ_ROUTES for route in harness.owner_calls)
 
 
 def _seed_base(harness) -> None:
@@ -322,7 +339,7 @@ async def test_write_with_only_memory_write_registers_without_reading(single_ope
     assert stored.from_actor == ActorIdentity(user_id="test_user", agent_id="test_agent")
     assert stored.belong_to == access.default_workspace
     assert harness.registry.size == 1
-    assert harness.runtime.stats()["cold_reads"] == 0
+    assert _cold_reads(harness) == 0
     assert harness.citations == []
 
 
@@ -347,7 +364,7 @@ async def test_update_with_only_memory_update_resolves_base_without_citation(
     assert stored.process_id == "process"
     assert stored.from_actor == ActorIdentity(user_id="test_user", agent_id="test_agent")
     assert harness.registry.size == 1
-    assert harness.runtime.stats()["cold_reads"] == 1
+    assert _cold_reads(harness) == 1
     assert harness.citations == []
 
 
@@ -362,7 +379,7 @@ async def test_read_with_only_memory_read_delivers_and_records_citation(single_o
     assert results[0].atom.payload.content == "正式基础内容"
     assert [item["memory_id"] for item in harness.citations] == [harness.memories["base"].id]
     assert harness.registry.size == 0
-    assert harness.runtime.stats()["cold_reads"] == 1
+    assert _cold_reads(harness) == 1
 
 
 @pytest.mark.asyncio
@@ -378,7 +395,7 @@ async def test_run_with_only_memory_run_delivers_target_and_records_citation(
     assert result.atom.payload.content == "正式基础内容"
     assert [item["memory_id"] for item in harness.citations] == [harness.memories["base"].id]
     assert harness.registry.size == 0
-    assert harness.runtime.stats()["cold_reads"] == 1
+    assert _cold_reads(harness) == 1
 
 
 @pytest.mark.asyncio
@@ -393,7 +410,7 @@ async def test_search_with_only_memory_search_delivers_without_citation(single_o
     ]
     assert harness.citations == []
     assert harness.registry.size == 0
-    assert harness.runtime.stats()["cold_reads"] == 1
+    assert _cold_reads(harness) == 1
 
 
 @pytest.mark.asyncio
@@ -413,7 +430,7 @@ async def test_call_target_with_only_agent_call_delivers_profile(single_operatio
     )
     assert harness.citations == []
     assert harness.registry.size == 0
-    assert harness.runtime.stats()["cold_reads"] == 1
+    assert _cold_reads(harness) == 1
 
 
 @pytest.mark.asyncio
@@ -460,7 +477,7 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
             harness.registry.get(prior.pending_alias, access.default_workspace).status
             == PendingAtomStatus.MATERIALIZING
         )
-        assert harness.runtime.stats()["cold_reads"] == 0
+        assert _cold_reads(harness) == 0
         assert harness.citations == []
         assert harness.owner_calls == []
     finally:
@@ -538,7 +555,7 @@ async def test_revoked_thread_context_rejects_request_before_dispatch_without_si
             SubmitWriteIntentRequest(WriteFocus(content="请求正文")), access=context
         )
     assert harness.registry.size == 0
-    assert harness.runtime.stats()["cold_reads"] == 0
+    assert _cold_reads(harness) == 0
     assert harness.citations == []
     assert harness.owner_calls == []
 
@@ -551,7 +568,7 @@ async def test_unknown_request_type_is_programming_error(operation_setup):
     with pytest.raises(TypeError, match="Unsupported operation request: OperationRequest"):
         await harness.entry.execute(OperationRequest[None](), access=thread_access)
     assert harness.registry.size == 0
-    assert harness.runtime.stats()["cold_reads"] == 0
+    assert _cold_reads(harness) == 0
 
 
 @pytest.mark.asyncio
@@ -637,7 +654,7 @@ async def test_write_returning_after_revocation_preserves_admitted_intent(
         _WriteAwaitingBeforeReturn(
             harness.bus,
             operation_authorizer=access.authorizer,
-            memory_reader=harness.runtime.aliases,
+            memory_reader=harness.runtime.memory,
             threads=access.threads,
             started=started,
             release=release,
@@ -778,7 +795,7 @@ async def test_every_actor_request_is_rejected_after_stop_without_side_effects(
         with pytest.raises(ThreadEndedError):
             await _submit(harness.entry, operation_request, access=thread_access)
         assert harness.registry.size == 0
-        assert harness.runtime.stats()["cold_reads"] == 0
+        assert _cold_reads(harness) == 0
         assert harness.owner_calls == []
         assert [t.thread_id for t in process.threads.snapshot()] == ["main"]
     finally:

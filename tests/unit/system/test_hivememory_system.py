@@ -26,7 +26,7 @@ from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
-    make_workspace_runtime,
+    make_workspace_read_view,
 )
 
 
@@ -84,7 +84,7 @@ def system(mock_patchouli):
         global_bus=global_bus,
         scheduler=scheduler,
         workspace_asset_store=InMemoryWorkspaceAssetStore(),
-        workspace_runtime=make_workspace_runtime(),
+        workspace_read_view=make_workspace_read_view(),
         sessions=ConversationSessionService(WorkspaceSessionConfig()),
         event_bus=None,
         event_sink=runtime_events,
@@ -226,11 +226,11 @@ class TestHiveMemorySystem:
             "alice.stop",
             "patchouli.stop",
             "gateway.stop",
-            "workspace_runtime.close",
+            "workspace_read_view.close",
             "workspace_asset_store.close_and_clear",
             "workspace_access_contexts.revoke",
         ]
-        assert system.workspace_runtime.is_closed is True
+        assert system.workspace_read_view.is_closed is True
         assert stopped.data["scheduler_stopped"] is True
         assert stopped.data["passive_shutdown_drain"] == {"success": True}
         assert isinstance(stopped.data["duration_ms"], float)
@@ -254,11 +254,11 @@ class TestHiveMemorySystem:
             "passive_ingress.shutdown_drain",
             "process_service.shutdown",
             "sessions.close_and_clear",
-            "workspace_runtime.close",
+            "workspace_read_view.close",
             "workspace_asset_store.close_and_clear",
             "workspace_access_contexts.revoke",
         ]
-        assert system.workspace_runtime.is_closed is True
+        assert system.workspace_read_view.is_closed is True
         assert stopped.data["scheduler_stopped"] is False
         assert stopped.data["passive_shutdown_drain"] == {"success": True}
         system._alice.stop.assert_not_called()

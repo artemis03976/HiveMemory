@@ -24,7 +24,7 @@ from tests.helpers.process import make_task_process_service
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
-    make_workspace_runtime,
+    make_workspace_read_view,
 )
 
 
@@ -33,7 +33,7 @@ def process_chain():
     """仅替换阶段 RPC 的资源 owner，认证、授权、执行器和入口均为真实对象。"""
     access = make_access_composition([make_actor_access_record(owner_user_id="u1", agent_id=None)])
     bus = GlobalSystemBus()
-    runtime = make_workspace_runtime(bus)
+    runtime = make_workspace_read_view(bus)
     table = ProcessTable()
     threads = ProcessThreads(table, lifecycle=access.gateway, authorizer=access.authorizer)
     chain = SimpleNamespace(
@@ -106,7 +106,7 @@ async def register(chain, cpu):
         cpu=cpu,
         access_gateway=chain.access.gateway,
         operation_authorizer=chain.access.authorizer,
-        workspace_runtime=chain.runtime,
+        workspace_read_view=chain.runtime,
         process_table=chain.table,
     )
     return await chain.service.register_process(

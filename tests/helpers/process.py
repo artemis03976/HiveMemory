@@ -31,7 +31,7 @@ from hivememory.workspace.process.runner import TaskProcessRunner
 from hivememory.workspace.process.service import TaskProcessService
 from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.process.threads import ProcessThreads
-from hivememory.workspace.runtime import WorkspaceRuntime
+from hivememory.workspace.read_view import WorkspaceReadView
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.cpu import ScriptedCPU
 from tests.helpers.intent_dispatch import install_intent_admission
@@ -46,7 +46,7 @@ def make_task_process_service(
     event_publisher: RuntimeEventPublisher | None = None,
     asset_reader: WorkspaceAssetReaderPort | None = None,
     attachment_compiler_config: AttachmentCompilerConfig | None = None,
-    workspace_runtime: WorkspaceRuntime | None = None,
+    workspace_read_view: WorkspaceReadView | None = None,
     operation_entry: OperationEntry | None = None,
     process_table: ProcessTable | None = None,
     sessions: ConversationSessionService | None = None,
@@ -59,7 +59,7 @@ def make_task_process_service(
         and PatchouliRoutes.MEMORY_INTENT_SUBMIT not in global_bus.list_routes()
     ):
         install_intent_admission(global_bus)
-    runtime = workspace_runtime or WorkspaceRuntime(
+    runtime = workspace_read_view or WorkspaceReadView(
         backing=BusCanonicalReadBackend(global_bus), atom_capacity=64, profile_capacity=32
     )
     table = process_table if process_table is not None else ProcessTable()
@@ -67,7 +67,7 @@ def make_task_process_service(
     memory = ActorMemoryService(
         global_bus,
         operation_authorizer=operation_authorizer,
-        memory_reader=runtime.aliases,
+        memory_reader=runtime.memory,
         threads=threads,
     )
     agent = ActorAgentService(

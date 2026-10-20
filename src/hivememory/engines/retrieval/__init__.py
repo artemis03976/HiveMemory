@@ -10,8 +10,6 @@ HiveMemory - 记忆检索模块 (MemoryRetrieval)
 - ReciprocalRankFusion: RRF 结果融合
 - AdaptiveWeightedFusion: 自适应加权融合
 - RetrievalEngine: 统一入口门面 (接口)
-
-作者: HiveMemory Team
 """
 
 from __future__ import annotations

@@ -1,7 +1,7 @@
 """会话服务：同步管理容量、认领与历史，不依赖任务进程或资源库。"""
 
 from collections.abc import Callable
-from datetime import UTC, datetime
+from datetime import datetime
 from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict
@@ -13,6 +13,7 @@ from hivememory.core.protocol.models import (
     InteractionPayload,
     SessionCompactionCheckpoint,
 )
+from hivememory.utils.time import utc_now
 from hivememory.workspace.contracts.errors import (
     SessionBusyError,
     SessionCapacityError,
@@ -54,7 +55,7 @@ class ConversationSessionService:
         self,
         config: WorkspaceSessionConfig,
         *,
-        clock: Callable[[], datetime] = lambda: datetime.now(UTC),
+        clock: Callable[[], datetime] = utc_now,
     ) -> None:
         self._config = config
         self._clock = clock

@@ -16,12 +16,7 @@ from typing import Any, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from hivememory.core.constants import (
-    DEFAULT_AGENT_ID,
-    DEFAULT_TEAM_ID,
-    DEFAULT_USER_ID,
-    SYSTEM_AGENT_ID,
-)
+from hivememory.core.constants import SYSTEM_AGENT_ID
 
 
 def _validate_non_empty(value: str, field_name: str) -> str:
@@ -44,11 +39,9 @@ class ActorIdentity(BaseModel):
         team_id: 团队标识符（用于执行者可见性策略）
     """
 
-    user_id: str = Field(default=DEFAULT_USER_ID, description="用户 ID")
-    agent_id: str = Field(default=DEFAULT_AGENT_ID, description="Agent ID")
-    team_id: str | None = Field(
-        default=DEFAULT_TEAM_ID, description="团队 ID（用于执行者可见性策略）"
-    )
+    user_id: str = Field(description="用户 ID")
+    agent_id: str = Field(description="Agent ID")
+    team_id: str | None = Field(default=None, description="团队 ID（用于执行者可见性策略）")
 
     model_config = ConfigDict(
         frozen=True,

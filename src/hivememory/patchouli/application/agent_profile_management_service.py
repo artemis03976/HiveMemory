@@ -57,7 +57,7 @@ class AgentProfileManagementService:
             from_actor=scope.actor_identity,
             filters={"index.memory_type": "AGENT_PROFILE"},
             limit=limit,
-            # owner-management 语义（D4），同 Memory 管理读取：root 列表在归属硬边界内
+            # owner 管理读取，同 Memory 管理读取：root 列表在归属硬边界内
             # 列出全部 Profile，不按 system 的 Agent 可见性过滤 PRIVATE/TEAM。
             enforce_actor_visibility=False,
         )

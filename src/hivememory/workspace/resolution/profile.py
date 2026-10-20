@@ -1,8 +1,7 @@
 """Profile 读取 resolver：解析结果缓存与交付授权。
 
-迁移源为 Alice 侧 ``alice/runtime/profile_resolver.py``（``AgentProfileResolver``）
-的缓存与交付授权部分；Profile 解析能力（builtin 规则、``from_atom``、类型
-检查）留在 Patchouli。流程：
+这里只负责缓存与交付授权；Profile 解析能力（builtin 规则、``from_atom``、
+类型检查）归 Patchouli。流程：
 
 - L1 命中 ``(Workspace, agent_alias)``：按条目随存的源原子 policy 对当前
   Actor 授权，通过则交付 AgentProfile 独立副本，不回源；

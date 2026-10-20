@@ -7,7 +7,7 @@
 
 - ``WorkspaceAccessContext`` 是密封凭据：没有公开字段，repr 不泄露内容；
   直接构造、复制、序列化与修改都被拒绝（副本不能逃过撤销）；
-- 认证一侧的撤销：单个撤销（``invalidate``，幂等）与 System 停止时的
+- 认证一侧的撤销：单个撤销（``revoke``，幂等）与 System 停止时的
   撤销全部（``revoke_all``）之后，context 不再能通过授权
   （``context_not_issued``）；撤销全部不影响之后的新认证；网关关闭只拒绝
   新认证，已签发的 context 照常可用；诊断查询（``describe``）返回
@@ -118,7 +118,7 @@ async def test_context_cannot_be_modified():
     """密封凭据不能修改：已撤销的 context 不能被改回有效状态。"""
     composition = _composition()
     context = await composition.authenticate(agent_id="a1", user_id="u1")
-    composition.gateway.invalidate_context(context)
+    composition.gateway.revoke_context(context)
 
     with pytest.raises(AttributeError, match="密封"):
         context._revoked = False  # type: ignore[attr-defined]
@@ -137,11 +137,11 @@ async def test_invalidate_revokes_single_context_and_keeps_others_usable():
     first = await composition.authenticate(agent_id="a1", user_id="u1")
     second = await composition.authenticate(agent_id="a1", user_id="u1")
 
-    composition.authenticator.invalidate(first)
+    composition.authenticator.revoke(first)
 
     _assert_revoked(composition, first)
     assert composition.authorizer.authorize_operation(second, READ, MAIN).workspace_identity == MAIN
-    composition.authenticator.invalidate(first)
+    composition.authenticator.revoke(first)
     _assert_revoked(composition, first)
 
 
@@ -383,7 +383,7 @@ async def test_authorize_stage_rejects_revoked_context(method):
     """阶段授权兑现已撤销凭据时拒绝，空白名单不能绕过签发有效性检查。"""
     composition = _composition(allowed_operations=frozenset())
     context = await composition.authenticate(agent_id="a1", user_id="u1")
-    composition.gateway.invalidate_context(context)
+    composition.gateway.revoke_context(context)
 
     with pytest.raises(ScopeRequiredError) as exc_info:
         getattr(composition.authorizer, method)(context, MAIN)
@@ -533,7 +533,7 @@ class TestAuthorizeProcessControl:
         )
         requestor = await composition.authenticate(agent_id="a1", user_id="u1", workspace=MAIN)
         record_access = await self._issued_record_context(composition)
-        composition.gateway.invalidate_context(requestor)
+        composition.gateway.revoke_context(requestor)
 
         with pytest.raises(ScopeRequiredError) as exc_info:
             composition.authorizer.authorize_process_control(requestor, record_access)
@@ -550,7 +550,7 @@ class TestAuthorizeProcessControl:
         requestor = await composition.authenticate(agent_id="a1", user_id="u1", workspace=MAIN)
 
         revoked = await self._issued_record_context(composition)
-        composition.gateway.invalidate_context(revoked)
+        composition.gateway.revoke_context(revoked)
         assert composition.authorizer.authorize_process_control(requestor, revoked) is False
 
 
@@ -584,7 +584,7 @@ async def test_root_authorization_rejects_revoked_context():
         default_workspace=MAIN,
     )
     context = await composition.authenticate(agent_id="system")
-    composition.gateway.invalidate_context(context)
+    composition.gateway.revoke_context(context)
     with pytest.raises(ScopeRequiredError) as error:
         composition.authorizer.authorize_root(context, MAIN)
     assert error.value.details == {"reason": "context_not_issued"}

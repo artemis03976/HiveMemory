@@ -30,7 +30,7 @@ def _build_topic_data() -> TopicData:
         blocks=(
             LogicalBlock(
                 turn=TurnRecord(
-                    identity=ActorIdentity(user_id="u1"),
+                    identity=ActorIdentity(agent_id="omni_doll", user_id="u1"),
                     user_query="那个报错怎么修？",
                     assistant_final_text="可以增加内存限制",
                 )
@@ -163,7 +163,7 @@ async def test_analyze_respects_configurable_context_limits() -> None:
         blocks=(
             LogicalBlock(
                 turn=TurnRecord(
-                    identity=ActorIdentity(user_id="u1"),
+                    identity=ActorIdentity(agent_id="omni_doll", user_id="u1"),
                     user_query="上一轮用户输入的很长内容",
                     assistant_final_text="",
                 )

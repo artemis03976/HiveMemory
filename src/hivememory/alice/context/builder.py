@@ -100,11 +100,7 @@ class RootContextBuilder:
                 "summarized_turns": compacted.summarized_turns,
                 "elapsed_ms": (perf_counter() - started_at) * 1000,
             }
-            status = (
-                "failed"
-                if compacted.error
-                else ("abandoned" if compacted.summary_status == "abandoned" else "completed")
-            )
+            status = compacted.event_status
             events.compaction(status=status, data=progress, reason=compacted.reason)
             await output.context_compaction(status=status, data=progress)
             if compacted.error is not None:

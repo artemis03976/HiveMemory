@@ -4,7 +4,7 @@ from collections.abc import Sequence
 
 from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import ConversationTurn
-from hivememory.i18n import resolve_language
+from hivememory.i18n import get_compaction_prompt_text
 from hivememory.i18n.mtp_runtime import get_mtp_info_text
 from hivememory.prompts.transcript.reduction import reduce_tool_result
 
@@ -74,17 +74,8 @@ class HistoryTranscriptBuilder:
         """未正常完成的轮次给出结局说明；completed 不加说明。"""
         if outcome == "completed":
             return ""
-        if resolve_language(explicit=language).value == "zh":
-            return (
-                "[本轮已中断，回复未完成。]"
-                if outcome == "cancelled"
-                else "[本轮执行失败，回复可能不完整。]"
-            )
-        return (
-            "[This turn was interrupted; the response is incomplete.]"
-            if outcome == "cancelled"
-            else "[This turn failed; the response may be incomplete.]"
-        )
+        key = "outcome_cancelled" if outcome == "cancelled" else "outcome_failed"
+        return get_compaction_prompt_text(key, language)
 
     def _render_turn(
         self,

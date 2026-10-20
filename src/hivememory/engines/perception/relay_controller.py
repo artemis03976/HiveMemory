@@ -5,9 +5,6 @@ HiveMemory Token 溢出接力控制器 / Page Folding 摘要生成器
     - 检测即将溢出的 Buffer (should_relay)
     - 为 Page Folding 生成 state_summary (generate_summary)
     - 生成中间态摘要以维持跨 Block 的上下文连贯性
-
-作者: HiveMemory Team
-版本: 4.6.0
 """
 
 import logging

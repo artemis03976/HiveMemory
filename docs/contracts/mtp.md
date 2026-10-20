@@ -90,7 +90,7 @@ SEARCH 返回可继续消费的检索上下文，而不是把“没有找到”�
 
 - 不支持 wildcard；
 - alias 经 workspace 读取视图解析为正式 atom、pending、redirect 或 discarded/failed 终态；模型与编译器保留 expired 终态种类，当前登记不产生它；
-- 每类结果均经 MemoryCompiler 的 `MTP_READ` target 编译；
+- 每类结果均经 MemoryCompiler 的 `MTP_READ` target 编译，输出按请求中 alias 的顺序逐项排列；
 - 全部 alias 未命中时返回 error；
 - 部分未命中时返回已解析内容，并把缺失 alias 放入 warnings；
 - 提交 `ResolveReferencesRequest`；workspace 对交付的正式 atom 与可读 redirect 目标自动记录 `workspace.reference_read` citation，同次请求按正式 UUID 去重，缓存命中同样计数。
@@ -254,7 +254,7 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 - parser / filter：`tests/unit/core/mtp/`；
 - verb 链路：`tests/integration/mtp/`；操作入口、引用计数与撤销边界：`tests/integration/workspace/test_operation_requests.py`、`test_reference_citations.py`；
 - HTTP 单轮 SEARCH/READ/WRITE/CALL 与真实记忆结算：`tests/e2e/system/test_chat_mtp_operations.py`；
-- alias / PendingAtom：`tests/unit/workspace/intents/test_registry.py`、`tests/unit/workspace/resolution/test_alias_resolver.py` 与 `tests/integration/workspace/test_intent_registry_and_read_cache.py`；
+- alias / PendingAtom：`tests/unit/workspace/intents/test_registry.py`、`tests/unit/workspace/resolution/test_memory_reader.py` 与 `tests/integration/workspace/test_intent_registry_and_read_cache.py`；
 - CALL：`tests/unit/core/mtp/test_call_response_formatting.py`、Alice RunExecutor/CallContextProvider/CallCoordinator 测试；
 - syscall：`tests/unit/agent_runtime/tools/`；
 - i18n formatter：MTP formatter 和 i18n runtime 测试。

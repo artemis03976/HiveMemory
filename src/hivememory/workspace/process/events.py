@@ -45,10 +45,10 @@ class TaskProcessEventEmitter:
     """把任务进程的生命周期投影为 ``chat.run.*`` 可观测事件（事件类型沿用既有 wire 名称）。"""
 
     def __init__(self, publisher: RuntimeEventPublisher) -> None:
-        # 来源标签沿用迁移前的 wire 取值，前端展示不受生产端迁移影响。
+        # 来源标签标明事件由 workspace 的任务进程产生。
         self._publisher = publisher.scoped(
-            subsystem="system",
-            component="chat_application_service",
+            subsystem="workspace",
+            component="task_process",
         )
 
     def for_process(
@@ -180,7 +180,7 @@ class BoundProcessEvents:
         公共事件只携带 CPU 失败原因码或 Workspace 安全错误码，不写入异常正文。
         """
         if error is None:
-            message = CPUFailureReason(failure_reason).value if failure_reason is not None else None
+            message = failure_reason.value if failure_reason is not None else None
         elif isinstance(error, WorkspaceDomainError):
             message = error.code
         else:

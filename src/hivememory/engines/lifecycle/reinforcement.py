@@ -15,9 +15,6 @@ HiveMemory - 动态强化引擎
 HIT 不推进 decay_anchor_at —— 让时间衰减在遗忘曲线上持续作用，符合艾宾浩斯语义；
 只有 CITATION (主动复习) 才推进 decay_anchor_at，对应"主动回忆重置遗忘曲线"。
 内容时间 (updated_at) 属于内容事实，任何强化事件都不得改写。
-
-作者: HiveMemory Team
-版本: 0.2.0
 """
 
 import logging

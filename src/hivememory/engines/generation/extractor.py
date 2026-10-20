@@ -9,8 +9,6 @@ HiveMemory - 记忆提取器 (Memory Extractor)
     - Pydantic 输出解析
     - JSON 容错；只对提供商失败重试
     - 支持自定义 Prompt
-
-作者: HiveMemory Team
 """
 
 import json

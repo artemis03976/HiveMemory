@@ -2,8 +2,6 @@
 HiveMemory - Retrieval 模块数据模型
 
 定义了记忆检索模块的所有数据模型和配置类。
-
-作者: HiveMemory Team
 """
 
 from pydantic import BaseModel, Field

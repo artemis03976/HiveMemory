@@ -113,7 +113,7 @@ from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.process import make_task_process_service
-from tests.helpers.workspace import make_workspace_runtime
+from tests.helpers.workspace import make_workspace_read_view
 
 #: 发布 principals 登记中 server 的接入标识（adapter http）；测试断言它与
 #: ``HiveMemoryConfig`` 的 ``system.server_principal_id`` 对齐。
@@ -300,7 +300,7 @@ async def published_stack():
     memory_service = ActorMemoryService(
         global_bus=bus,
         operation_authorizer=registration.authorizer,
-        memory_reader=make_workspace_runtime(bus).aliases,
+        memory_reader=make_workspace_read_view(bus).memory,
         threads=ProcessThreads(
             ProcessTable(), lifecycle=registration.gateway, authorizer=registration.authorizer
         ),

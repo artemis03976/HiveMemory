@@ -14,7 +14,7 @@ related_docs:
   - docs/governance/baselines/durability-d0-state-inventory.md
   - docs/governance/baselines/idempotency-i0-operations-inventory.md
   - docs/governance/baselines/identity-s0-threat-model-inventory.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # 数据模型可变性治理
@@ -54,7 +54,7 @@ HiveMemory 已在 Gateway 决策、Turn/Topic 快照和 PendingAtom 读取模型
 6. `model_copy(update=...)` 的业务使用缺少统一验证边界；
 7. workspace registry、原子/Profile 缓存已有持有副本与交付副本的回归；全项目实体引用泄漏、快照脱钩和嵌套可变字段尚未系统覆盖。
 
-2026-10-07 的读取边界以 core `ReferenceResolution` 表达 pending、canonical 与终态，不再向 MemoryCompiler 输出 Alice 私有解析模型。该结果及其资源值保持可变 DTO 形态，隔离依靠 owner 交付独立副本；`MemoryChangeEvent` 是仅含归属、UUID 与 operation 的 frozen 事件，不传播 MemoryAtom。实现证据见[registry 单元测试](../../../tests/unit/workspace/intents/test_registry.py)、[引用解析测试](../../../tests/unit/workspace/resolution/test_alias_resolver.py)与[意图/读取缓存集成测试](../../../tests/integration/workspace/test_intent_registry_and_read_cache.py)。这些局部边界收口不代表以下 Phase II–VI 已整体完成。
+2026-10-07 的读取边界以 core `ReferenceResolution` 表达 pending、canonical 与终态，不再向 MemoryCompiler 输出 Alice 私有解析模型。该结果及其资源值保持可变 DTO 形态，隔离依靠 owner 交付独立副本；`MemoryChangeEvent` 是仅含归属、UUID 与 operation 的 frozen 事件，不传播 MemoryAtom。实现证据见[registry 单元测试](../../../tests/unit/workspace/intents/test_registry.py)、[引用解析测试](../../../tests/unit/workspace/resolution/test_memory_reader.py)与[意图/读取缓存集成测试](../../../tests/integration/workspace/test_intent_registry_and_read_cache.py)。这些局部边界收口不代表以下 Phase II–VI 已整体完成。
 
 ## 5. 未排期治理工作包
 

@@ -7,8 +7,6 @@ HiveMemory - Lifecycle 模块数据模型定义
 - ReinforcementResult: 强化结果模型
 - ArchiveStatus: 归档状态枚举
 - ArchiveRecord: 归档记录模型
-
-作者: HiveMemory Team
 """
 
 from datetime import datetime

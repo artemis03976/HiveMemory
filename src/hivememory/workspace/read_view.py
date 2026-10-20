@@ -1,7 +1,7 @@
-"""WorkspaceRuntime：workspace 读取能力与派生缓存的进程内聚合。
+"""WorkspaceReadView：workspace 读取能力与派生缓存的进程内聚合。
 
 由 System 组合根装配并持有，延续 ``WorkspaceAssetStore`` 的既有归属事实。
-聚合写入意图登记、失效代次、双缓存与 resolver；L2 冷读端口由组合根注入。
+聚合写入意图登记、失效代次、双缓存与记忆、Profile 两个读取器；L2 冷读端口由组合根注入。
 结算与 canonical 变更订阅由组合根在接受请求前装配，不导入 Patchouli 实现。
 
 独立工作：库不可达时 L1 命中与交付授权照常，L2 冷读显式失败，
@@ -18,9 +18,9 @@ from hivememory.workspace.cache.epoch import WorkspaceEpochs
 from hivememory.workspace.cache.invalidation import CacheInvalidator
 from hivememory.workspace.cache.profile import ProfileCache
 from hivememory.workspace.intents import WriteIntentRegistry
-from hivememory.workspace.resolution.alias import AliasResolver
 from hivememory.workspace.resolution.backing import CanonicalReadBackend
 from hivememory.workspace.resolution.guard import ColdReadGuard
+from hivememory.workspace.resolution.memory import MemoryReader
 from hivememory.workspace.resolution.profile import ProfileResolver
 
 if TYPE_CHECKING:
@@ -29,8 +29,8 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-class WorkspaceRuntime:
-    """workspace 读取能力的运行时聚合：代次、双 cache 与 alias/Profile resolver。"""
+class WorkspaceReadView:
+    """workspace 的读取视图：写入意图登记、失效代次、双缓存，以及记忆与 Profile 两个读取器。"""
 
     def __init__(
         self,
@@ -48,7 +48,7 @@ class WorkspaceRuntime:
         self._invalidator = CacheInvalidator(
             atom_cache=self._atom_cache, profile_cache=self._profile_cache, epochs=self._epochs
         )
-        self._aliases = AliasResolver(
+        self._memory = MemoryReader(
             cache=self._atom_cache,
             guard=self._guard,
             backing=backing,
@@ -76,9 +76,9 @@ class WorkspaceRuntime:
         self._intents.unsubscribe()
 
     @property
-    def aliases(self) -> AliasResolver:
-        """canonical alias/UUID 读取与语义检索协作预热。"""
-        return self._aliases
+    def memory(self) -> MemoryReader:
+        """记忆读取器：canonical alias/UUID 读取、引用解析与语义检索协作预热。"""
+        return self._memory
 
     @property
     def profiles(self) -> ProfileResolver:
@@ -101,23 +101,8 @@ class WorkspaceRuntime:
         self._guard.close()
         atoms = self._atom_cache.clear()
         profiles = self._profile_cache.clear()
-        logger.info("WorkspaceRuntime 已关闭（清理 %s atoms, %s profiles）", atoms, profiles)
+        logger.info("WorkspaceReadView 已关闭（清理 %s atoms, %s profiles）", atoms, profiles)
         return atoms, profiles
 
-    def stats(self) -> dict[str, int]:
-        """缓存与冷读的可观测计数（不承诺 Workspace 独立配额）。"""
-        return {
-            "atom_size": self._atom_cache.size,
-            "atom_hits": self._atom_cache.hits,
-            "atom_misses": self._atom_cache.misses,
-            "atom_evictions": self._atom_cache.evictions,
-            "profile_size": self._profile_cache.size,
-            "profile_hits": self._profile_cache.hits,
-            "profile_misses": self._profile_cache.misses,
-            "profile_evictions": self._profile_cache.evictions,
-            "cold_reads": self._guard.cold_reads,
-            "stale_rejects": self._guard.stale_rejects,
-        }
 
-
-__all__ = ["WorkspaceRuntime"]
+__all__ = ["WorkspaceReadView"]

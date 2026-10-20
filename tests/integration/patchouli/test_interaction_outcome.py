@@ -17,7 +17,7 @@ def test_outcome_survives_perception_and_transcript_projection(outcome, note):
         user_message="问题", assistant_final_text="半截回答", outcome=outcome
     )
     engine = MemoryPerceptionEngine(config=SemanticFlowPerceptionConfig(), relay_controller=None)
-    block = engine.build_block(turn.payload, ActorIdentity(agent_id="default"))
+    block = engine.build_block(turn.payload, ActorIdentity(user_id="default", agent_id="default"))
     assert block.turn.outcome == outcome
     generation = GenerationTranscriptBuilder()
     transcript = generation.build_transcript(generation.build_context([block]))

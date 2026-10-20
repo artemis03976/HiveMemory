@@ -124,7 +124,7 @@ async def main(user_id: str, principal_id: str = "hivememory:profile-injector") 
             logger.info(f"Injected profile: {alias} (id={atom.id})")
     finally:
         if access is not None:
-            system.access_gateway.invalidate_context(access)
+            system.access_gateway.revoke_context(access)
         await system.stop()
 
     logger.info("Agent profile injection finished.")

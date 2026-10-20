@@ -12,7 +12,7 @@ from hivememory.workspace.contracts import DeriveCallThreadRequest
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
-    make_workspace_runtime,
+    make_workspace_read_view,
 )
 
 
@@ -25,7 +25,7 @@ async def test_call_target_without_operation_denied_before_backing():
     )
     service = ActorAgentService(
         operation_authorizer=composition.authorizer,
-        profile_reader=make_workspace_runtime(global_bus=bus).profiles,
+        profile_reader=make_workspace_read_view(global_bus=bus).profiles,
     )
     access = await composition.authenticate_thread()
 
@@ -52,7 +52,7 @@ async def test_call_target_resolution_returns_only_the_visible_profile():
     )
     service = ActorAgentService(
         operation_authorizer=composition.authorizer,
-        profile_reader=make_workspace_runtime(global_bus=bus).profiles,
+        profile_reader=make_workspace_read_view(global_bus=bus).profiles,
     )
     access = await composition.authenticate_thread()
 

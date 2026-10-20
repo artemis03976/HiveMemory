@@ -50,7 +50,7 @@ from hivememory.patchouli.memory_library.stores import (
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_actor_identity, make_identity_scope
 
 
 def _identity_scope():
@@ -66,6 +66,7 @@ class _TopicData:
         self._blocks = [
             LogicalBlock(
                 turn=TurnRecord(
+                    identity=make_actor_identity(),
                     user_query="question",
                     assistant_final_text="answer",
                 )
@@ -170,6 +171,7 @@ async def test_passive_settlement_routes_settle_spec_through_task_controller():
             blocks=[
                 LogicalBlock(
                     turn=TurnRecord(
+                        identity=make_actor_identity(),
                         user_query="question",
                         assistant_final_text="answer",
                     )
@@ -462,6 +464,7 @@ async def test_passive_settlement_lands_in_real_mid_term(memory_library, artifac
             blocks=[
                 LogicalBlock(
                     turn=TurnRecord(
+                        identity=make_actor_identity(),
                         user_query="question",
                         assistant_final_text="answer",
                     )

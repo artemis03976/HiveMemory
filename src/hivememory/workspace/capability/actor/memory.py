@@ -40,7 +40,7 @@ if TYPE_CHECKING:
     from hivememory.core.access import WorkspaceAccessContext
     from hivememory.core.models import IdentityScope
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
-    from hivememory.workspace.resolution.alias import AliasResolver
+    from hivememory.workspace.resolution.memory import MemoryReader
 
 logger = logging.getLogger(__name__)
 
@@ -53,7 +53,7 @@ class ActorMemoryService:
         global_bus: GlobalSystemBus,
         *,
         operation_authorizer: WorkspaceOperationAuthorizer,
-        memory_reader: AliasResolver,
+        memory_reader: MemoryReader,
         threads: ExecutionThreadTable,
     ) -> None:
         self._global_bus = global_bus
