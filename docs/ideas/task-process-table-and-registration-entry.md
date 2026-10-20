@@ -119,7 +119,7 @@ Alice 在进程内运行，进程能取消它，也知道它何时结束。外�
 - **Q-8a 回收方式**：请求方显式关闭 / TTL / 心跳 / 组合；
 - **Q-8b 取消语义**：网络对外部执行单元的取消能做到什么程度（例如吊销访问、通知外部方），各项分别是否纳入；
 - **Q-8c 粒度**：外部 harness 的一轮对应一个进程 / 一个外部会话对应一个进程 / 由接入适配层决定。
-  - 影响（分析，2026-10-20）：粒度同时决定 HiveMemory 会话与 harness 自身会话的对应。harness 自管历史与上下文压缩（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）：跨轮复用同一个 harness 会话时，harness 会话的存续超出单个进程，需要有持有者与关闭时点；每轮新建 harness 会话时，要由 HiveMemory 把会话历史重新交给 harness，harness 自己的压缩无从发挥。
+  - 影响（分析，2026-10-20）：harness 自身的会话是否跨轮保留，属于外部执行单元内部的实现，网络不感知。会话原文由网络持有，是唯一的事实来源；执行单元内部的任何状态都只是缓存，丢失后可以从会话重建（[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节的 2026-10-20 修订）。跨轮保留可以让 harness 自己维持上下文与压缩，代价是执行单元需要管理闲置的会话；每轮重建则需要 harness 能接收注入的历史，长对话的压缩由谁承担随之成为问题（[外部 harness 接口调研需求](./harness-interface-survey.md) B2、B4）。
 
 ### plugin 模式与进程模型的交界
 

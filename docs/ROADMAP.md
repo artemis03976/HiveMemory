@@ -127,7 +127,7 @@ last_reviewed: 2026-10-20
 
 - **版本目标**：controller 模式的真实外部 harness 接入，把 Codex、Claude Code、pi 一类成熟的 agent harness 作为执行环境与 CPU 类型纳入兼容范围（第 4.4 节）。它直接检验 v0.7.0 “之后的 adapter 不需要再大改系统拓扑”的验收口径。
 - **排序依据**：plugin 模式需要另行设计不建进程的 actor 访问与 Import Bus（Topic 落位、价值信号、接入认证），并依赖记忆价值策略的最小切片（第 4.8 节）；controller 模式沿用任务进程、线程 context 与能力层。两种模式共用的 MCP 操作适配器先以绑定线程的形式建立，plugin 模式在其后的 v0.7.x 补充不绑定进程的访问。
-- **分步实施**：版本目标按小步分别建立计划。首份计划的方向为首个外部驱动的纯文本闭环（owner，2026-10-20）：一个 harness 的 CPU 驱动回传正文，提供最小的执行环境选择，以被动注入检索记忆形成跨会话闭环；阻塞问题为驱动方式（E-2a）、外部执行单元的进程（Q-8）、执行环境的选择与组合有效性（T-7、T-8）以及 harness 自身工具的权限应答与工作目录（T-11）。harness 主动使用记忆（操作适配器、回调身份与 CPU 输出词汇）以及 Profile 应用结果的报告是候选的后续步骤。各步的范围与问题见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。
+- **分步实施**：版本目标按小步分别建立计划。首份计划的方向为首个外部驱动的纯文本闭环（owner，2026-10-20）：第一个外部执行单元回传正文，提供最小的执行环境选择，以被动注入检索记忆形成跨会话闭环；阻塞问题为驱动方式（E-2a）、外部执行单元的进程（Q-8）、执行环境的选择与组合有效性（T-7、T-8）以及 harness 自身工具的权限应答与工作目录（T-11）。harness 主动使用记忆（操作适配器、回调身份与 CPU 输出词汇）以及 Profile 应用结果的报告是候选的后续步骤。各步的范围与问题见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。
 - **执行基座与沙箱基线**：原排期在 v0.7.1，暂不考虑（owner，2026-10-20），见第 5.4 节。controller 模式不强依赖本地沙箱，harness 用自己的工具执行，权限应答与工作目录见[执行环境 Idea](./ideas/execution-environment.md) T-11。
 
 ### 4.4 v0.7.1：首个真实外部 harness 接入（controller 模式）

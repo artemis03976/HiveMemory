@@ -32,13 +32,13 @@ v0.7.1 的版本目标是 controller 模式的真实外部 harness 接入，首�
 
 调研同时为纯文本闭环的其他阻塞问题收集材料：外部执行单元的进程（[任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) Q-8）、执行环境的组合有效性与选择（[执行环境 Idea](./execution-environment.md) T-7、T-8）、harness 自身工具的权限应答与工作目录（同文 T-11）。后续步骤用到的接口（MCP 注入、事件类型、Profile 应用结果）在同一轮里一并记录，避免再做一次调研。
 
-### 1.1 驱动需要满足的接口
+### 1.1 执行单元需要满足的接口
 
-驱动是 workspace 定义的 CPU 端口的一个实现（[子系统契约](../contracts/subsystem-contracts.md)第 4 节），运行在 Python 3.12 的单进程 asyncio 后端中。判断一个 harness 是否适合时，以下列契约为准：
+外部执行单元是 CPU 端口的一个常驻实现，由驱动代码配出（[子系统契约](../contracts/subsystem-contracts.md)第 4 节；用语见[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节），运行在 Python 3.12 的单进程 asyncio 后端中。判断一个 harness 是否适合时，以下列契约为准：
 
 - 输入：任务进程交来的输入清单，其中有已经定稿的环境通知与人格段（`instructions`）、记忆与附件段（`turn_context`）、原始用户消息、提示词语言，以及本会话的全量原文历史；另有逐轮的生成参数（模型、temperature、top_p、max_tokens），由各 CPU 自行解释。
 - 输出：执行中推送交互事件（纯文本闭环只需要正文），结束时返回终态结果：结局（completed / cancelled / failed）、最终正文、本轮事件，失败原因可以不填。
-- 取消：进程以 asyncio 原生取消打断执行，驱动在最外层把取消转换为 cancelled 结果，交回已经产生的输出。
+- 取消：进程以 asyncio 原生取消打断执行，执行单元在最外层把取消转换为 cancelled 结果，交回已经产生的输出。
 - 并发：同一后端可能同时运行多个会话的任务进程。
 
 ## 2. 调研对象
