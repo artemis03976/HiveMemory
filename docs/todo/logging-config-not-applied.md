@@ -13,7 +13,7 @@ code_paths:
 related_docs:
   - docs/system/configuration.md
   - docs/frontend/management-views.md
-  - docs/todo/v0.7.0-code-convergence.md
+  - docs/archive/todo/v0.7.0-code-convergence.md
 last_reviewed: 2026-10-18
 ---
 
@@ -35,7 +35,7 @@ last_reviewed: 2026-10-18
 - 日志级别、格式、文件输出与控制台开关无法通过配置调整；
 - 两种启动方式的日志行为不同，开发脚本下看不到 `hivememory` 的 INFO 日志。
 
-[v0.7.0 代码收敛清单](./v0.7.0-code-convergence.md)第 2.11 条清理不生效的配置键时，按接线处理这一段，没有删除。可能的处理：在入口加载配置后按 `logging` 段配置根 logger（两种启动方式一致），文件输出与控制台输出由 `file_path`、`console_output` 决定；注意不要用 `force=True` 移除测试框架或 WebSocket 广播挂上的 handler。`POST /config` 是否热更新日志配置，与配置热更新的范围一致。
+[v0.7.0 代码收敛清单](../archive/todo/v0.7.0-code-convergence.md)第 2.11 条清理不生效的配置键时，按接线处理这一段，没有删除。可能的处理：在入口加载配置后按 `logging` 段配置根 logger（两种启动方式一致），文件输出与控制台输出由 `file_path`、`console_output` 决定；注意不要用 `force=True` 移除测试框架或 WebSocket 广播挂上的 handler。`POST /config` 是否热更新日志配置，与配置热更新的范围一致。
 
 ## 完成条件
 

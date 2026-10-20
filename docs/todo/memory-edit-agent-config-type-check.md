@@ -11,7 +11,7 @@ code_paths:
 related_docs:
   - docs/patchouli/generation.md
   - docs/contracts/routes-and-events.md
-  - docs/todo/v0.7.0-code-convergence.md
+  - docs/archive/todo/v0.7.0-code-convergence.md
 last_reviewed: 2026-10-18
 ---
 
@@ -40,4 +40,4 @@ last_reviewed: 2026-10-18
 
 ## 追踪
 
-- 2026-10-18：为记忆编辑引入 `MemoryEdit` 材料类型时发现（[v0.7.0 代码收敛清单](./v0.7.0-code-convergence.md)第 2.9 条），属于行为变更，不随该条处理；未绑定版本或 Issue。
+- 2026-10-18：为记忆编辑引入 `MemoryEdit` 材料类型时发现（[v0.7.0 代码收敛清单](../archive/todo/v0.7.0-code-convergence.md)第 2.9 条），属于行为变更，不随该条处理；未绑定版本或 Issue。
