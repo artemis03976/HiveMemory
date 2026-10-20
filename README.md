@@ -7,13 +7,12 @@
 
 HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是解决长上下文遗忘、跨会话知识无法复用、以及多 Agent 协作中的信息孤岛问题。系统会将对话中的高价值信息沉淀为可检索、可更新、可使用的记忆，并通过统一协议将这些记忆重新注入到后续任务中。
 
-当前仓库已经提供可运行的 Python 后端、前端开发界面、向量存储与缓存基础设施，以及由顶层 HiveMemory System 装配 workspace、Gateway、Patchouli 与 Alice 的 v0.7.0 内容基线。向 Workspace 网络与任务进程架构的演进已收尾：任务请求经唯一注册入口登记为任务进程，Agent 的资源操作经 workspace 能力层逐次授权，执行者经 CPU 端口接入、可以替换。
+当前仓库已经提供可运行的 Python 后端、前端开发界面、向量存储与缓存基础设施，以及由顶层 HiveMemory System 装配 workspace、Gateway、Patchouli 与 Alice 的 v0.7.0 发布基线。v0.7.0 完成了向 Workspace 网络与任务进程架构的演进：任务请求经唯一注册入口登记为任务进程，Agent 的资源操作经 workspace 能力层逐次授权，执行者经 CPU 端口接入、可以替换。
 
 ## 发布状态
 
-- 本次发布标签：`v0.7.0`（合并后创建）
-- 最近已发布基线：`v0.6.2`
-- 当前内容基线：`v0.7.0`（已收尾，见[收尾审计](docs/archive/plans/v0.7.0-release-closeout-audit.md)）
+- 最近已发布基线：`v0.7.0`（见[收尾审计](docs/archive/plans/v0.7.0-release-closeout-audit.md)）
+- 当前开发版本：`v0.7.1`（版本目标：controller 模式的真实外部 harness 接入，见 [ROADMAP](docs/ROADMAP.md)）
 - 代码与包版本：`0.7.0`
 - Python 要求：`>=3.12`
 - 许可证：Apache-2.0
@@ -343,7 +342,7 @@ HiveMemory/
 
 ## 贡献
 
-欢迎提交 Issue 和 Pull Request。v0.7.0 内容已收尾，本次发布标签为 v0.7.0（合并后创建）；提交行为变更时请遵守文档治理门禁，在开发工作明确收尾后再更新对应当前设计或契约文档，避免把仍在演进的设计稿或历史方案写入主干事实文档。
+欢迎提交 Issue 和 Pull Request。v0.7.0 已发布，当前主干正在进行 v0.7.1 开发；提交行为变更时请遵守文档治理门禁，在开发工作明确收尾后再更新对应当前设计或契约文档，避免把仍在演进的设计稿或历史方案写入主干事实文档。
 
 ## 许可证
 

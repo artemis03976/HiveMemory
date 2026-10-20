@@ -7,13 +7,12 @@
 
 HiveMemory is a persistent memory system for LLM agent workflows. It is designed to address long-context forgetting, lack of cross-session knowledge reuse, and information silos in multi-agent collaboration. The system turns high-value conversational information into searchable, updatable, reusable memories and injects them back into future tasks through a unified protocol.
 
-The repository includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and the v0.7.0 content baseline where the top-level HiveMemory System assembles workspace, Gateway, Patchouli, and Alice. The move to the Workspace network and task-process architecture has completed closeout: every task request is registered as a task process through a single registration entry, agent resource operations are authorized one by one by the workspace capability layer, and executors plug in through a CPU port so they can be replaced.
+The repository includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and the v0.7.0 release baseline where the top-level HiveMemory System assembles workspace, Gateway, Patchouli, and Alice. v0.7.0 completed the move to the Workspace network and task-process architecture: every task request is registered as a task process through a single registration entry, agent resource operations are authorized one by one by the workspace capability layer, and executors plug in through a CPU port so they can be replaced.
 
 ## Release Status
 
-- Release tag for this closeout: `v0.7.0` (created after merge)
-- Latest published baseline: `v0.6.2`
-- Current content baseline: `v0.7.0` (closed out; see the [closeout audit](docs/archive/plans/v0.7.0-release-closeout-audit.md))
+- Latest published baseline: `v0.7.0` (see the [closeout audit](docs/archive/plans/v0.7.0-release-closeout-audit.md))
+- Current development version: `v0.7.1` (goal: real external harness integration in controller mode; see the [Roadmap](docs/ROADMAP.md))
 - Code and package version: `0.7.0`
 - Python requirement: `>=3.12`
 - License: Apache-2.0
@@ -343,7 +342,7 @@ HiveMemory/
 
 ## Contributing
 
-Issues and pull requests are welcome. v0.7.0 content has completed closeout, and the release tag for it is v0.7.0 (created after merge). Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
+Issues and pull requests are welcome. v0.7.0 has been released, and the main branch is under v0.7.1 development. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
 
 ## License
 

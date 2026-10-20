@@ -13,7 +13,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/execution-environment.md
   - docs/ideas/import-bus.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # 任务进程表与任务请求唯一注册入口
@@ -119,6 +119,7 @@ Alice 在进程内运行，进程能取消它，也知道它何时结束。外�
 - **Q-8a 回收方式**：请求方显式关闭 / TTL / 心跳 / 组合；
 - **Q-8b 取消语义**：网络对外部执行单元的取消能做到什么程度（例如吊销访问、通知外部方），各项分别是否纳入；
 - **Q-8c 粒度**：外部 harness 的一轮对应一个进程 / 一个外部会话对应一个进程 / 由接入适配层决定。
+  - 影响（分析，2026-10-20）：粒度同时决定 HiveMemory 会话与 harness 自身会话的对应。harness 自管历史与上下文压缩（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）：跨轮复用同一个 harness 会话时，harness 会话的存续超出单个进程，需要有持有者与关闭时点；每轮新建 harness 会话时，要由 HiveMemory 把会话历史重新交给 harness，harness 自己的压缩无从发挥。
 
 ### plugin 模式与进程模型的交界
 

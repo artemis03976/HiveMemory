@@ -1,7 +1,8 @@
 ---
 title: 执行环境
 status: idea
-horizon: candidate
+horizon: current
+serves_version: v0.7.1
 owner: project
 scope: agent-and-execution-environment-selection-combination-validity-and-cpu-output-vocabulary
 code_paths:
@@ -15,7 +16,7 @@ related_docs:
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # 执行环境
@@ -50,7 +51,7 @@ last_reviewed: 2026-10-19
 
 ## 2. 开放问题
 
-每个问题只列出选项及其影响，选项顺序不代表倾向。T-7、T-8 不在 v0.7.0（owner，2026-10-06）：只有 Alice 一个执行环境时，选择机制没有可验收的对象；前提 9、10 已确定执行环境与 agent 的关系，之后接入外部执行环境不需要再改动拓扑。
+每个问题只列出选项及其影响，选项顺序不代表倾向。T-7、T-8 不在 v0.7.0（owner，2026-10-06）：只有 Alice 一个执行环境时，选择机制没有可验收的对象；前提 9、10 已确定执行环境与 agent 的关系，之后接入外部执行环境不需要再改动拓扑。v0.7.1 的版本目标定为 controller 模式的真实外部 harness 接入（owner，2026-10-20），T-7、T-8、T-10 需要在它的计划之前决定。
 
 ### T-7 agent 与执行环境组合的有效性
 
