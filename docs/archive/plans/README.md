@@ -14,6 +14,7 @@ last_reviewed: 2026-10-19
 
 当前记录：
 
+- [v0.7.0 版本收尾审计](./v0.7.0-release-closeout-audit.md)：2026-10-19 归档。记录版本目标的逐条判定、PR #100–#134 与收尾分支的内容核对、收尾时搁置的事项、验证结果与版本声明；代码版本与本次发布标签为 0.7.0（标签在合并后创建）。
 - [v0.7.0 执行线程的正式定义](./v0.7.0-execution-thread-definition.md)：2026-10-19 两阶段实现、验收与 code review 后归档。进程以线程表（`TaskProcess.threads`）登记全部执行线程，`ProcessThreads` 是派生、结束与解析的唯一入口；每个 actor 操作只按“线程未结束且进程仍在运行”判定，停止被接受时全部线程结束，拒绝统一为 `ThreadEndedError`；能力层的两个回流端口合并为一个，写入意图记录 `thread_id`。`agent.call` 只解析目标图纸，派生与结束由操作入口的生命周期方法提交；主线程与子线程以同一种线程描述交给 CPU，CPU 端口改为 `thread` 参数，输入清单删除图纸与操作快照，`Callee` 删除；Alice 的子线程随 CALL 返回结束，子帧观测标签取被调用方。阶段一 `2764eebf`，阶段二与事实文档收尾随后提交，未发布；后端 2957 passed、2 skipped，覆盖率 93.97%，确定性 E2E 9 passed。当前事实见 [执行线程](../../workspace/execution-threads.md)与[子系统契约](../../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节。
 
 - [v0.7.0 任务进程拥有执行流](./v0.7.0-task-process-owned-execution.md)：2026-10-19 两阶段实现、验收与 code review 后归档。任务进程持有自己的 task 与单订阅者输出通道，交付改为订阅或等待终态，断连与用户停止走同一条路径，进程只在自己的 task 中收尾，系统关闭改为停止、等待、硬取消；CPU 端口改为推送交互事件、返回终态结果，结果槽、运行句柄与 Alice 的队列适配器删除。阶段一 `cab1d081`，阶段二与事实文档收尾随后提交，未发布；后端 2936 passed、2 skipped，覆盖率 93.92%，确定性 E2E 9 passed。当前事实见 [任务进程](../../workspace/task-process.md)与[子系统契约](../../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节。

@@ -14,7 +14,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-19
 ---
 
 # Artifacts 与来源追踪
@@ -63,7 +63,7 @@ DocumentArtifact 表达某一时点的外源文档引用，可保存 source/cano
 
 当前已经有 model、builder 和 filesystem persistence，但完整 Document Ingestion 尚未接入当前主流程。因此它是已落地的数据基础，不等于系统已经能够抓取、切分、审核和生成文档记忆。
 
-DocumentArtifact 是完整来源快照；某条 Memory 精确使用了哪些页码、行号或 quote，长期更适合由 Memory/Artifact 之间的细粒度 `SourceEvidenceRef` 表达。该 locator 归属会在 `v0.7.0` provenance contract 中最终裁定，当前模型字段保持兼容。
+DocumentArtifact 是完整来源快照；某条 Memory 精确使用了哪些页码、行号或 quote，长期更适合由 Memory/Artifact 之间的细粒度 `SourceEvidenceRef` 表达。该 locator 的归属尚未裁定，排期见 [ROADMAP](../ROADMAP.md)第 4.5 节；当前模型字段保持兼容。
 
 ### 2.3 MemoryCreationArtifact
 

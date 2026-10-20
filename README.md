@@ -7,13 +7,14 @@
 
 HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是解决长上下文遗忘、跨会话知识无法复用、以及多 Agent 协作中的信息孤岛问题。系统会将对话中的高价值信息沉淀为可检索、可更新、可使用的记忆，并通过统一协议将这些记忆重新注入到后续任务中。
 
-当前仓库已经提供可运行的 Python 后端、前端开发界面、向量存储与缓存基础设施，以及由顶层 HiveMemory System 编排 Gateway、Patchouli 和 Alice 三个同级子系统的 v0.6.2 内容基线。Workspace 身份隔离、Chat 附件和 MTP 缓存作用域修复已收尾。
+当前仓库已经提供可运行的 Python 后端、前端开发界面、向量存储与缓存基础设施，以及由顶层 HiveMemory System 装配 workspace、Gateway、Patchouli 与 Alice 的 v0.7.0 内容基线。向 Workspace 网络与任务进程架构的演进已收尾：任务请求经唯一注册入口登记为任务进程，Agent 的资源操作经 workspace 能力层逐次授权，执行者经 CPU 端口接入、可以替换。
 
 ## 发布状态
 
+- 本次发布标签：`v0.7.0`（合并后创建）
 - 最近已发布基线：`v0.6.2`
-- 当前开发版本：`v0.7.0`（部分内容已合入，整体范围已按新架构重新划定，见 [ROADMAP](docs/ROADMAP.md)）
-- 代码与包版本：`0.6.2`
+- 当前内容基线：`v0.7.0`（已收尾，见[收尾审计](docs/archive/plans/v0.7.0-release-closeout-audit.md)）
+- 代码与包版本：`0.7.0`
 - Python 要求：`>=3.12`
 - 许可证：Apache-2.0
 
@@ -23,41 +24,44 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 
 ### 对话与接入模式
 
-- **主动模式（Active mode）**：通过 `POST /api/v1/chat` 提供 SSE 流式对话，由 `TaskProcessService`（workspace 任务进程编排）驱动 Gateway 分析、Patchouli prepare/finalize 与 Alice Agent 执行
+- **主动模式（Active mode）**：通过 `POST /api/v1/chat` 提供 SSE 流式对话。每次请求经 workspace 的唯一注册入口认证并登记为任务进程，由 `TaskProcessService` 驱动 Gateway 分析、Patchouli prepare/finalize 与经 CPU 端口的 Alice Agent 执行；`POST /api/v1/chat/stop` 停止进程，客户端断连按停止处理
 - `POST /api/v1/chat` 支持在请求体中携带 `generation_options`（`model` / `temperature` / `top_p` / `max_tokens`）作为单次对话覆盖参数，不会写入全局配置文件
-- **被动模式（Passive mode）**：通过 `POST /api/v1/ingest` 接收外部框架的离散事件，由 System 层 `PassiveIngressService` 负责编排 Gateway 决策、缓冲、检索和 Patchouli 提交
-
+- **被动模式（Passive mode）**：通过 `POST /api/v1/ingest` 接收外部框架的离散事件，由 System 层 `PassiveIngressService` 负责编排 Gateway 决策、缓冲、检索和 Patchouli 提交；`POST /api/v1/ingest/flush` 显式封口
 - **会话**：支持新建、恢复、重命名与删除；Alice 按模型预算自动精简旧工具结果并生成接力摘要，原始对话完整保留，可查看摘要与压缩边界；有输出的取消与失败轮次保留结局。会话与检查点仅在后端进程内保存，重启后消失；Topic 独立作为记忆材料。
+- **系统指令**：Gateway 只解析命令，识别为命令的消息以命令终态结束、不进入普通对话；当前版本不执行内置命令。
 
-### Workspace 与 Chat 附件
+### Workspace 与访问
 
-- Memory、Topic 和附件携带明确的 Workspace 归属，入口统一 IdentityScope，并校验跨 Workspace 访问；
-- 支持 TXT、Markdown、DOCX 上传与确定性解析，READY 表示可显式选择进入 Chat；
+- 两类访问登记（`configs/system_principals.yaml` 与 `configs/workspace_actors.yaml`）经两阶段认证，决定谁能以哪个 Agent 进入哪个 Workspace；Agent 的操作权限只由访问登记的 actor 操作白名单表达，Agent Profile 不承载权限；
+- Agent 的资源操作（MTP 的 SEARCH、READ、RUN、WRITE、UPDATE、CALL）经 workspace 能力层逐次授权；CALL 派生的子 Agent 作为执行线程，以被调用方身份运行；
+- Memory、Topic 和附件携带明确的 Workspace 归属，资源 owner 先校验归属，再按资源 policy 判断可见性；
+- 写入意图登记与引用读取缓存由 workspace 持有，正式记忆变更会失效原子与 Profile 解析缓存；完整边界见 [Workspace](docs/workspace/README.md)。
+
+### Chat 附件
+
+- 通过 `POST /api/v1/workspace/assets` 上传 TXT、Markdown、DOCX，确定性解析后 READY 表示可显式选择进入 Chat；
 - AttachmentCompiler 按预算编译上下文，成功 Interaction 记录使用关系，Memory CREATE/UPDATE 按需生成来源 Artifact；
-- WorkspaceAsset 仅承诺当前进程内可用；写入意图登记与引用读取缓存由 workspace 持有，正式记忆变更会失效原子与 Profile 解析缓存；完整边界见 [Workspace](docs/workspace/README.md)和 [Chat 附件链路](docs/system/attachments.md)。
+- WorkspaceAsset 仅承诺当前进程内可用；完整链路见 [Chat 附件链路](docs/system/attachments.md)。
 
-### 记忆与话题管理
+### 记忆、话题与 Agent 管理
 
-- 语义搜索与记忆列表：`GET /api/v1/memories`
-- 单条记忆查询：`GET /api/v1/memories/{memory_id}`
-- 记忆删除：`DELETE /api/v1/memories/{memory_id}`
-- 活跃话题列表：`GET /api/v1/topics`
-- 手动触发话题结算：`POST /api/v1/topics/{topic_id}/trigger`
-- 从活跃池驱逐话题：`DELETE /api/v1/topics/{topic_id}`
+- 记忆的创建、语义搜索与列表、读取、编辑、反馈与删除：`/api/v1/memories`
+- 记忆生成任务的查询与取消：`/api/v1/memory-tasks`
+- 活跃话题列表、手动结算与驱逐：`/api/v1/topics`
+- Agent Profile 的创建与列表：`/api/v1/agents`
 
 ### 配置与可观测性
 
-- 当前运行时配置：`GET /api/v1/config`
-- 更新并持久化运行时配置：`POST /api/v1/config`
-- 查看默认配置：`GET /api/v1/config/defaults`
+- 运行时配置的读取、更新与默认值：`/api/v1/config`
+- 模型与 Provider 注册表：`/api/v1/models`、`/api/v1/providers`
+- 运行时事件状态与 SSE 流：`/api/v1/runtime-events`
 - WebSocket 日志流：`WS /api/v1/ws/logs`
-- 健康检查：`GET /health`
-- 就绪检查：`GET /health/ready`
+- 健康检查与就绪检查：`GET /health`、`GET /health/ready`
 
 ### 核心能力
 
-- v0.6 子系统架构：顶层 `HiveMemorySystem` 与同级 Gateway、Patchouli、Alice
-- Gateway 系统入口：命令、话题路由、查询分析、取消/超时和保守降级
+- 分层架构：顶层 `HiveMemorySystem` 装配同层的 workspace、Gateway、Patchouli 与 Alice
+- Gateway 系统入口：命令解析、话题路由、查询分析、取消/超时和保守降级
 - 进程内运行时总线：AsyncSystemBus / GlobalSystemBus / 子系统私有 bus
 - MTP（Memory Tool Protocol）协议，支持 `SEARCH / READ / RUN / WRITE / UPDATE / CALL`
 - 基于 Qdrant 的持久化记忆存储
@@ -71,8 +75,9 @@ HiveMemory 当前实现按依赖分层组织。顶层 System 负责组合、门�
 ### 主要运行时组成
 
 - **HiveMemorySystem**：组合根与门面，装配共享运行时、workspace 设施、应用服务、Gateway、Patchouli 与 Alice
-- **TaskProcessService**：workspace 任务进程编排服务（`workspace.process`），持有进程表并以 `process_id` 统一进程标识，负责 `Gateway -> prepare -> Alice run -> finalize` 四阶段编排
-- **GatewaySystem / GatewayRuntime**：入口决策子系统，负责系统指令、话题路由、查询分析与稳定决策投影
+- **Workspace 设施**：认证网关与访问登记、能力层（root API 与 actor API）、会话资源、读取视图与写入意图登记、WorkspaceAsset
+- **TaskProcessService**：任务请求的唯一注册入口（`workspace.process`），认证后登记任务进程并以 `process_id` 统一进程标识，按 `Gateway -> prepare -> Actor 执行（经 CPU 端口，当前为 Alice） -> finalize` 四阶段编排；进程持有自己的 task 与输出通道，Actor 阶段内的执行线程由进程的线程表登记
+- **GatewaySystem / GatewayRuntime**：入口决策子系统，负责系统指令解析、话题路由、查询分析与稳定决策投影
 - **PatchouliSystem / PatchouliRuntime**：记忆子系统宿主与运行时，管理 retrieval、perception、generation、lifecycle 与 storage 能力
 - **Retrieval Familiar**：Hot Path 检索服务，负责混合检索、重排序、上下文渲染
 - **Librarian Core**：Cold Path 记忆服务，负责话题感知、记忆提取、生命周期维护
@@ -110,21 +115,38 @@ HiveMemory 提供一套进程内协议，让 Worker Agent 可以在生成过程�
 
 ## API 概览
 
-| 接口路径                                | 方法         | 用途           |
-| ----------------------------------- | ---------- | ------------ |
-| `/health`                           | GET        | 存活检查         |
-| `/health/ready`                     | GET        | 模型预热完成后的就绪检查 |
-| `/api/v1/chat`                      | POST       | SSE 流式主动对话   |
-| `/api/v1/ingest`                    | POST       | 被动消息摄入       |
-| `/api/v1/memories`                  | GET        | 语义搜索 / 列出记忆  |
-| `/api/v1/memories/{memory_id}`      | GET        | 获取单条记忆       |
-| `/api/v1/memories/{memory_id}`      | DELETE     | 删除单条记忆       |
-| `/api/v1/topics`                    | GET        | 获取活跃话题       |
-| `/api/v1/topics/{topic_id}/trigger` | POST       | 手动触发话题结算     |
-| `/api/v1/topics/{topic_id}`         | DELETE     | 从活跃池删除话题     |
-| `/api/v1/config`                    | GET / POST | 读取 / 更新运行时配置 |
-| `/api/v1/config/defaults`           | GET        | 获取默认配置       |
-| `/api/v1/ws/logs`                   | WS         | 获取实时日志流      |
+| 接口路径 | 方法 | 用途 |
+|:---|:---|:---|
+| `/health` | GET | 存活检查 |
+| `/health/ready` | GET | 模型预热完成后的就绪检查 |
+| `/api/v1/chat` | POST | SSE 流式主动对话 |
+| `/api/v1/chat/stop` | POST | 停止运行中的任务进程 |
+| `/api/v1/sessions` | GET / POST | 列出 / 新建会话 |
+| `/api/v1/sessions/{session_id}` | GET / PATCH / DELETE | 读取全量历史 / 重命名 / 删除会话 |
+| `/api/v1/ingest` | POST | 被动消息摄入 |
+| `/api/v1/ingest/flush` | POST | 显式封口被动会话 |
+| `/api/v1/memories` | GET / POST | 语义搜索或列出记忆 / 创建记忆 |
+| `/api/v1/memories/{memory_id}` | GET / PATCH / DELETE | 读取 / 编辑 / 删除单条记忆 |
+| `/api/v1/memories/{memory_id}/feedback` | POST | 提交记忆反馈 |
+| `/api/v1/memory-tasks` | GET | 列出记忆生成任务 |
+| `/api/v1/memory-tasks/{task_id}` | GET | 查询单个任务 |
+| `/api/v1/memory-tasks/{task_id}/cancel` | POST | 取消任务 |
+| `/api/v1/topics` | GET | 获取活跃话题 |
+| `/api/v1/topics/{topic_id}/settle` | POST | 手动结算话题 |
+| `/api/v1/topics/{topic_id}` | DELETE | 从活跃池驱逐话题 |
+| `/api/v1/agents` | GET / POST | 列出 / 创建 Agent Profile |
+| `/api/v1/workspace/assets` | POST | 上传附件 |
+| `/api/v1/models` | GET / POST | 列出 / 注册模型 |
+| `/api/v1/models/{model_id}` | GET / PUT / DELETE | 读取 / 更新 / 删除模型 |
+| `/api/v1/providers` | GET | 列出 Provider |
+| `/api/v1/providers/{provider_name}` | PUT / DELETE | 更新 / 删除 Provider |
+| `/api/v1/config` | GET / POST | 读取 / 更新运行时配置 |
+| `/api/v1/config/defaults` | GET | 获取默认配置 |
+| `/api/v1/runtime-events/status` | GET | 运行时事件状态 |
+| `/api/v1/runtime-events/stream` | GET | 运行时事件 SSE 流 |
+| `/api/v1/ws/logs` | WS | 获取实时日志流 |
+
+请求身份经 `x-user-id` / `x-workspace-id` 请求头选择，Agent action 另带 `agent_id`；交接规则见[路由与事件契约](docs/contracts/routes-and-events.md#6-http-入口的身份交接与管理读取边界)。
 
 ## 环境要求
 
@@ -271,7 +293,7 @@ HiveMemory 当前采用“环境变量 + YAML”分层配置：
 
 它提供两种主要接入方式：
 
-- `process_service.run_process()`（默认 `stream=True` 流式，`stream=False` 非流式）：主动模式，由 `TaskProcessService` 协调 Gateway 分析、Patchouli 记忆准备、Alice Agent 执行与 Patchouli 后处理
+- `process_service.register_process()` 与 `run_process()`：主动模式。先由注册入口完成认证并登记任务进程，取得进程句柄；再以 `run_process()`（默认 `stream=True` 流式，`stream=False` 非流式）运行，由 `TaskProcessService` 协调 Gateway 分析、Patchouli 记忆准备、Alice Agent 执行与 Patchouli 后处理
 - `ingress_service.ingest_event()` / `flush_conversation()`：被动模式，适合接入 Discord Bot、微信机器人或其他外部框架
 
 如果你只需要 HTTP 接口，可直接使用 FastAPI 服务；如果你要把 HiveMemory 嵌入已有 Agent 框架，通常从 passive ingest 模式开始会更自然。
@@ -321,7 +343,7 @@ HiveMemory/
 
 ## 贡献
 
-欢迎提交 Issue 和 Pull Request。v0.6.2 已发布，当前主干正在进行 v0.7.0 开发；提交行为变更时请遵守文档治理门禁，在开发工作明确收尾后再更新对应当前设计或契约文档，避免把仍在演进的设计稿或历史方案写入主干事实文档。
+欢迎提交 Issue 和 Pull Request。v0.7.0 内容已收尾，本次发布标签为 v0.7.0（合并后创建）；提交行为变更时请遵守文档治理门禁，在开发工作明确收尾后再更新对应当前设计或契约文档，避免把仍在演进的设计稿或历史方案写入主干事实文档。
 
 ## 许可证
 

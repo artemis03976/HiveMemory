@@ -50,10 +50,10 @@ HiveMemory 因而保留了原项目“双系统”的核心思想：热路径负
 
 ## 2. 当前基线
 
-- 最新已发布 Git 标签：`v0.6.2`；
-- 当前发布基线：`v0.6.2`；
-- 当前代码、构建与运行时版本：`0.6.2`，唯一声明位于 `src/hivememory/_version.py`；
-- 当前发布基线已经包含独立 Gateway、全局命令、Gateway workflow、Passive Ingress 与 Local Work Queue Runtime；
+- 最新已发布 Git 标签：`v0.6.2`；本次发布标签 `v0.7.0` 在合并后创建；
+- 当前内容基线：`v0.7.0`，已收尾；
+- 当前代码、构建与运行时版本：`0.7.0`，唯一声明位于 `src/hivememory/_version.py`；
+- 当前内容基线在 v0.6.x 的独立 Gateway、Gateway workflow、Passive Ingress 与 Local Work Queue Runtime 之上，完成了 workspace 体系：任务请求的唯一注册入口与任务进程、两阶段认证与授权、能力层、执行线程、会话资源与写入意图登记；全局命令只解析、不执行；
 - Python 包、FastAPI/OpenAPI、health 响应和前端包清单保持同一版本；Git tag 仍是“已经发布”的唯一判断依据。
 
 版本规划与完成度以[路线图](../ROADMAP.md)为准，系统当前由什么组件组成则以本文和代码为准。
