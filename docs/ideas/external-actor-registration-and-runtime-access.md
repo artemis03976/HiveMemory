@@ -48,7 +48,7 @@ last_reviewed: 2026-10-20
 - 本文只保留这个问题以及仍然成立的设计材料。没有保留的内容：阶段划分（EMS-0–6）、交付与验收出口、A/B 交接与依赖顺序、测试矩阵、代码落点与迁移切片、文档收口清单；以 Passive Ingress 返回记忆 context 为前提的实时被动模式；以“System 应用服务 → GlobalSystemBus → Patchouli application”为主干的目标结构（已被总 Idea 第 12 节“能力层是 Actor 唯一可见的 API”这一前提取代）。
 - 现状事实按 2026-09-27 的代码核对。
 - 待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。
-- **版本归属**（owner，2026-09-27）：外部 Actor 的真实接入（真正的 adapter 接口与外部服务身份等）不在 v0.7.0。v0.7.0 不对外部 Actor 所需的基建作承诺，只验证 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构（[ROADMAP](../ROADMAP.md) 的 v0.7.0 范围）。外部 Actor 分为两种接入模式（1.1）：先做 controller 模式，作为 v0.7.1 的首个真实外部 harness 接入；plugin 模式在 v0.7.1 之后的 v0.7.x 版本完善。2026-10-20 起本文的 horizon 为 `current`，服务 v0.7.1（见 1.1 的版本安排），目标窗口见 [ROADMAP](../ROADMAP.md) 第 4.2 与 4.4.2 节。
+- **版本归属**（owner，2026-09-27）：外部 Actor 的真实接入（真正的 adapter 接口与外部服务身份等）不在 v0.7.0。v0.7.0 不对外部 Actor 所需的基建作承诺，只验证 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构（[ROADMAP](../ROADMAP.md) 的 v0.7.0 范围）。外部 Actor 分为两种接入模式（1.1）：先做 controller 模式，作为 v0.7.1 的首个真实外部 harness 接入；plugin 模式在 v0.7.1 之后的 v0.7.x 版本完善。2026-10-20 起本文的 horizon 为 `current`，服务 v0.7.1（见 1.1 的版本安排），目标窗口见 [ROADMAP](../ROADMAP.md) 第 4.3 与 4.4 节。
 - **术语**（owner，2026-10-06）：本文的 adapter 即**操作适配器**（operation adapter），定义见 3.4；1.2 中执行侧面的实现，即 CPU 端口的实现，称 **CPU 驱动**。两者的分层见[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节的执行一侧用语。
 
 ## 1. 问题
@@ -74,7 +74,8 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 - **与现有实现的关系**：plugin 模式很像一直以来的 Passive Ingress 模式；controller 模式本质上就是如今的 Alice。任务进程表与注册入口更偏向 controller 模式，这与现有 chat 链路服务 Alice 同源。
 - **共同基建**：两种模式对进程的控制能力不同，但都使用 workspace 能力层。到能力层为止是真正的 workspace 架构基建，再往上两种模式各有各的样式。
 - **版本安排**：v0.7.0 不能同时完成两者，先做 controller 模式，作为 v0.7.1 的首个真实外部 harness 接入；plugin 模式已有一定代码基础，在 v0.7.1 之后的 v0.7.x 版本完善，不在 v0.7.1 中完成。
-  - **owner 决定（2026-10-20）**：v0.7.1 的版本目标定为 controller 模式的真实外部 harness 接入：把 Codex、Claude Code、pi 一类成熟的 agent harness 作为执行环境与 CPU 类型纳入兼容范围。plugin 模式（恢复 Passive Ingress 并晋升为 plugin 模式下的输入流）放在其后。立项前需要决定的问题见第 4 节开头。
+  - **owner 决定（2026-10-20）**：v0.7.1 的版本目标定为 controller 模式的真实外部 harness 接入：把 Codex、Claude Code、pi 一类成熟的 agent harness 作为执行环境与 CPU 类型纳入兼容范围。plugin 模式（恢复 Passive Ingress 并晋升为 plugin 模式下的输入流）放在其后。这是整个版本的目标，按小步分别建立计划。
+  - **owner 决定（2026-10-20）**：首份计划的方向为首个外部驱动的纯文本闭环，范围与阻塞问题见第 4 节的“v0.7.1 的步骤与各步的阻塞问题”。
 
 两种模式在各层的对应如下（分析，不是已决定的设计）：
 
@@ -284,7 +285,23 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 每个问题只列出选项及其影响，不作选择；选项顺序不代表倾向。
 
-v0.7.1 的 controller 模式计划建立之前需要决定的问题（2026-10-20 汇总，问题本身仍在各自位置）：本文的 E-2（含 E-2a）与 E-3b；[任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) Q-8；[执行环境 Idea](./execution-environment.md) T-7、T-8、T-10；[第五代架构 Idea](./fifth-generation-architecture.md) P-1b、P-1c、P-10a；以及[身份与授权](../workspace/identity-and-authorization.md#8-已知限制)第 8 节的已知限制“任何已登记来源都能声明保留的 `system`”，登记外部 harness 的 principal 之前需要规则。Q-3b 只在外部协议直接发起任务时才需要，P-3 随执行基座考虑；首个接入的任务仍经 HiveMemory 自己的请求入口，harness 用自己的工具执行。
+### v0.7.1 的步骤与各步的阻塞问题
+
+问题本身仍在各自的位置，这里只按步骤汇总。
+
+**第一步：首个外部驱动的纯文本闭环**（首份计划的方向，owner，2026-10-20）
+
+- 范围：选一个 harness 编写 CPU 驱动。驱动把输入清单中已经编译好的提示词（人设、检索记忆与附件材料、环境通知）连同用户消息交给 harness，把正文流式回传，结束时返回最终正文；停止转为对 harness 的取消。同时提供最小的执行环境选择：harness 登记的执行侧面从配置装载（1.2、E-1），组合根装配多个 CPU，用户在新建会话时选择执行环境。
+- 验收方向：在 HiveMemory 前端选择该 harness 完成多轮对话，停止有效，交互封口后进入记忆生成；新会话中 prepare 检索到的记忆作为材料交给 harness，形成被动注入的跨会话闭环。
+- 不包含：harness 主动调用记忆（操作适配器）、工具调用的事件呈现、Profile 应用结果的报告、harness 的子 agent、第二个 harness。
+- 阻塞问题：本文 E-2a；[任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) Q-8；[执行环境 Idea](./execution-environment.md) T-7、T-8、T-11。选择 harness 之前需要核对候选 harness 的程序化接口（是否支持 ACP、SDK 或非交互 CLI，流式输出、取消、会话恢复、MCP server 注入、权限请求与模型、系统提示词的配置方式），作为 E-2a 的依据；这次调研单独进行，需求见[外部 harness 接口调研需求](./harness-interface-survey.md)。
+- 不阻塞本步（分析）：harness 不回调 HiveMemory，也不需要登记外部来源，E-2 主问题、E-3b、[第五代架构 Idea](./fifth-generation-architecture.md) P-1b 与 P-1c、[身份与授权](../workspace/identity-and-authorization.md#8-已知限制)第 8 节的 `system` 声明规则都不涉及；只回传正文与终态字段时，T-10 的三个选项行为相同。
+
+**后续步骤**（候选顺序，未决定）
+
+- harness 主动使用记忆：harness 经绑定线程的操作适配器调用能力层，检索记忆并提交写入意图，达到 [ROADMAP](../ROADMAP.md) 第 4.4 节的验收。需要 E-2 主问题、E-3b、P-1b、P-1c 与 `system` 声明规则；能力层操作出现在交互事件中，T-10 需要在此之前决定。
+- 呈现与收口：Profile 应用结果的报告（第五代架构 Idea P-10a，与 T-7b 相互约束）与前端呈现；E-2a 若选通用协议，接入第二个 harness 验证驱动的通用性。
+- Q-3b 只在外部协议直接发起任务时才需要；P-3 随执行基座考虑（暂不考虑，见 ROADMAP 第 5.4 节）。首个接入的任务仍经 HiveMemory 自己的请求入口，harness 用自己的工具执行。
 
 ### E-1 接入登记的来源与生效时点
 

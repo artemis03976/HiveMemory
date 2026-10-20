@@ -4,7 +4,7 @@ status: idea
 horizon: current
 serves_version: v0.7.1
 owner: project
-scope: agent-and-execution-environment-selection-combination-validity-and-cpu-output-vocabulary
+scope: agent-and-execution-environment-selection-combination-validity-harness-tool-permissions-and-cpu-output-vocabulary
 code_paths:
   - src/hivememory/workspace/contracts/
   - src/hivememory/workspace/process/
@@ -23,7 +23,7 @@ last_reviewed: 2026-10-20
 
 ## 0. 文档性质
 
-本文收集执行环境一侧尚未决定的方向：agent 与执行环境的分别选择（前提 9、10，T-7、T-8），以及不同执行环境交回的输出使用谁的词汇（T-10）。本文不描述当前行为，也不代表排期。
+本文收集执行环境一侧尚未决定的方向：agent 与执行环境的分别选择（前提 9、10，T-7、T-8），不同执行环境交回的输出使用谁的词汇（T-10），以及外部 harness 自身工具的权限应答与工作目录（T-11）。本文不描述当前行为，也不代表排期。
 
 - **理念与用语**：理念见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.3 节“执行者可以替换”；执行一侧的用语（CPU、CPU 驱动、harness 实例、执行线程、操作适配器、请求入口）见同文第 2 节。
 - **当前设计**：见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节。
@@ -51,7 +51,7 @@ last_reviewed: 2026-10-20
 
 ## 2. 开放问题
 
-每个问题只列出选项及其影响，选项顺序不代表倾向。T-7、T-8 不在 v0.7.0（owner，2026-10-06）：只有 Alice 一个执行环境时，选择机制没有可验收的对象；前提 9、10 已确定执行环境与 agent 的关系，之后接入外部执行环境不需要再改动拓扑。v0.7.1 的版本目标定为 controller 模式的真实外部 harness 接入（owner，2026-10-20），T-7、T-8、T-10 需要在它的计划之前决定。
+每个问题只列出选项及其影响，选项顺序不代表倾向。T-7、T-8 不在 v0.7.0（owner，2026-10-06）：只有 Alice 一个执行环境时，选择机制没有可验收的对象；前提 9、10 已确定执行环境与 agent 的关系，之后接入外部执行环境不需要再改动拓扑。v0.7.1 的版本目标定为 controller 模式的真实外部 harness 接入（owner，2026-10-20），首份计划的方向为首个外部驱动的纯文本闭环：T-7、T-8、T-11 阻塞这份计划，T-10 在出现工具事件的步骤之前决定（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)）。
 
 ### T-7 agent 与执行环境组合的有效性
 
@@ -84,7 +84,14 @@ last_reviewed: 2026-10-20
   - 各执行环境声明自己的词汇，进程透传并标注来源，前端与下游按执行环境分别解释；
   - 其他。
 - 影响：第一项需要迁移 SSE 契约与前端，Alice 的流式适配器与结果组装改为产出中立类型，Alice 特有的信息（MTP 原文、CALL 边界、压缩阶段）要么进入中立模型的扩展字段，要么只留在 Alice 内部；第二项不改现有代码与前端，但事件名称与外部 harness 的概念不符，翻译规则按 harness 分别维护；第三项让前端、记忆生成与 Gateway 都要随每个新执行环境改动，与前提 9“更换执行环境不改变 agent 能看到什么”的取向相悖。server 层与 SSE 投影脱节的既有模型见 [v0.7.0 代码收敛清单](../archive/todo/v0.7.0-code-convergence.md)第 1.5 条。
-- 不在 v0.7.0：只有 Alice 一个执行环境时，三项的可观察行为相同；需要在 v0.7.1 controller 模式的驱动计划之前决定。
+- 不在 v0.7.0：只有 Alice 一个执行环境时，三项的可观察行为相同；需要在 v0.7.1 controller 模式的驱动计划之前决定。纯文本闭环只回传正文与终态字段，三项的行为仍然相同；harness 主动使用记忆后，能力层操作出现在交互事件中，届时需要决定。
+
+### T-11 harness 自身工具的权限应答与工作目录
+
+**背景**（2026-10-20）：controller 模式下外部 harness 继续使用自己的工具和执行环境（[ROADMAP](../ROADMAP.md) 第 4.4 节），编码类 harness 的工具会修改文件、执行命令，作用于工作目录。harness 在执行这类工具前可能请求授权，例如 ACP 的 `session/request_permission` 由客户端应答（外部 Actor Idea E-5 的依据）；由 CPU 驱动无人值守地驱动时，没有人直接回答这些请求。这关系到 HiveMemory 把宿主机的哪些部分交给 harness。
+
+- **T-11a 权限请求的应答**：驱动一律拒绝 / 按 harness 登记中配置的策略自动应答 / 转交 HiveMemory 前端由用户确认 / 其他。影响：一律拒绝最保守，但编码类任务可能无法完成；自动允许等于把宿主机交给 harness 的工具，需要与[执行安全治理](../governance/security/identity-and-execution-safety.md)中受信任执行与强隔离的区分一致；转交用户需要新的交互事件和等待语义，与 T-10 以及停止时的取消（任务进程 Idea Q-8b）相关。
+- **T-11b 工作目录**：在 harness 登记中固定一个目录 / 按 Workspace 或会话分配独立目录 / 用户选择执行环境时指定 / 其他。影响：工作目录是 T-7 中组合有效性的条件之一，指定位置与 T-8a 的承载位置相关；按会话分配需要定义目录的创建、保留与清理。
 
 ## 3. 相关文档
 

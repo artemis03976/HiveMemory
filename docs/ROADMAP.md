@@ -102,7 +102,7 @@ last_reviewed: 2026-10-20
 | `v0.7.0` Document Ingestion & Provenance | `v0.7.2`，Candidate | 建立在新资源边界上，并纳入冷启动、历史对话导入和证据资产化 |
 | `v0.7.1` MTP READ Provenance | `v0.7.3`，Candidate | 消费已经稳定的文档表示、来源和版本契约 |
 | `v0.7.2` Deep Research MVP | `v0.7.4`，Candidate | 等待资源、证据、读取编译和可靠执行的闭环 |
-| 整体后置的 Executable Asset Sandbox | `v0.7.1` 执行基座前置；完整强隔离继续按条件推进 | 先解决 MTP RUN 可复现的可靠性问题和可兑现的能力边界 |
+| 整体后置的 Executable Asset Sandbox | 曾前置为 `v0.7.1` 执行基座；2026-10-20 起暂不考虑（第 5.4 节） | 原意是先解决 MTP RUN 可复现的可靠性问题和可兑现的能力边界；v0.7.1 改以 controller 模式接入为目标 |
 
 旧 Idea、W1 实施记录及历史材料中出现的上述旧版本号，按本表解释其后续排期；不重写历史使其看起来曾采用新顺序。新建 Plan 必须使用新目标版本。
 
@@ -112,7 +112,6 @@ last_reviewed: 2026-10-20
 
 | 目标版本或工作流 | 状态 | 目标结果 | 依赖与实施入口 |
 |:---|:---:|:---|:---|
-| `v0.7.1` Execution Substrate & Sandbox Baseline | Candidate | MTP RUN 可靠执行、工具 provider、超时取消、显式文件/网络/进程能力边界 | v0.7.0 的访问契约与工具执行适配边界；[MTP 当前设计](./alice/mtp-runtime.md)、[执行安全治理](./governance/security/identity-and-execution-safety.md)；正式 Plan 待建立 |
 | `v0.7.1` 首个真实外部 harness 接入（controller 模式） | Planned / v0.7.1 版本目标（2026-10-20） | 用户在对话开始前分别选择 agent 与执行环境，外部 harness 作为执行环境运行所选 agent；请求登记为任务进程并交给该 harness 执行；外部 harness 实际使用记忆并把结果送回 Patchouli，验证执行者可替换与无 Alice 的跨会话闭环 | v0.7.0 的任务进程表与唯一注册入口；外部 Actor 的接入与运行时访问契约（[Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)，原计划 B）；正式 Plan 待建立 |
 | `v0.7.2` Cold Start, Historical Import & Document Ingestion | Candidate | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | v0.7.0 的资源边界、外部 Actor 接入契约的身份/来源/提交语义、记忆价值策略最小切片；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md)；导入与文档分别建 Plan |
 | `v0.7.3` MTP READ 专项编译与来源表达 | Candidate | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | [v0.7.0 A2-P 完整记忆历史](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、v0.7.2 provenance；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md)；正式 Plan 待建立 |
@@ -126,24 +125,14 @@ last_reviewed: 2026-10-20
 
 状态：Planned（owner，2026-10-20），正式 Plan 待建立。
 
-- **版本目标**：controller 模式的真实外部 harness 接入，把 Codex、Claude Code、pi 一类成熟的 agent harness 作为执行环境与 CPU 类型纳入兼容范围（第 4.4.2 节）。它直接检验 v0.7.0 “之后的 adapter 不需要再大改系统拓扑”的验收口径。
+- **版本目标**：controller 模式的真实外部 harness 接入，把 Codex、Claude Code、pi 一类成熟的 agent harness 作为执行环境与 CPU 类型纳入兼容范围（第 4.4 节）。它直接检验 v0.7.0 “之后的 adapter 不需要再大改系统拓扑”的验收口径。
 - **排序依据**：plugin 模式需要另行设计不建进程的 actor 访问与 Import Bus（Topic 落位、价值信号、接入认证），并依赖记忆价值策略的最小切片（第 4.8 节）；controller 模式沿用任务进程、线程 context 与能力层。两种模式共用的 MCP 操作适配器先以绑定线程的形式建立，plugin 模式在其后的 v0.7.x 补充不绑定进程的访问。
-- **立项前需要决定的问题**：汇总在[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md)第 4 节开头，包括驱动与回调方式、操作适配器的位置、外部执行单元的进程、执行环境的选择与组合有效性、CPU 输出词汇、外部来源的身份证明与 `system` 声明规则，以及 Profile 应用结果的承载。
-- **执行基座与沙箱基线**（第 4.4.1 节）仍为 Candidate；controller 模式不强依赖本地沙箱，它是否留在 v0.7.1 待定。
+- **分步实施**：版本目标按小步分别建立计划。首份计划的方向为首个外部驱动的纯文本闭环（owner，2026-10-20）：一个 harness 的 CPU 驱动回传正文，提供最小的执行环境选择，以被动注入检索记忆形成跨会话闭环；阻塞问题为驱动方式（E-2a）、外部执行单元的进程（Q-8）、执行环境的选择与组合有效性（T-7、T-8）以及 harness 自身工具的权限应答与工作目录（T-11）。harness 主动使用记忆（操作适配器、回调身份与 CPU 输出词汇）以及 Profile 应用结果的报告是候选的后续步骤。各步的范围与问题见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。
+- **执行基座与沙箱基线**：原排期在 v0.7.1，暂不考虑（owner，2026-10-20），见第 5.4 节。controller 模式不强依赖本地沙箱，harness 用自己的工具执行，权限应答与工作目录见[执行环境 Idea](./ideas/execution-environment.md) T-11。
 
-### 4.4 v0.7.1：执行基座与 controller 模式外部 Actor
+### 4.4 v0.7.1：首个真实外部 harness 接入（controller 模式）
 
-#### 4.4.1 执行基座与沙箱基线
-
-状态：Candidate。用户实测 MTP RUN 经常失败是启动调查的依据，正式 Plan 首先收集复现样例，区分协议解析、alias/权限、参数编译、环境、依赖、工具进程与取消链路的问题；不预设所有故障都由缺少沙箱引起。
-
-目标是统一执行 provider 的环境绑定、stdout/stderr、退出码、结构化结果、超时、取消和清理语义。Workspace 声明资源和可用能力，执行 provider 兑现文件、网络、进程与资源限制，Actor 选择调用；工具执行不能反向占有资源系统。
-
-验收覆盖正常结束、工具异常、启动失败、超时、取消、子进程清理和不同 Workspace 环境隔离。受信任执行、工具 API 限制和 OS 级强隔离必须明确区分：工作目录、prompt 或 Python 包装层不足以限制任意代码。若第一版无法实施相应隔离，不接纳要求该隔离等级的任务。完整不可信代码沙箱保留独立的实现与验证门槛。
-
-#### 4.4.2 首个真实外部 harness 接入（controller 模式）
-
-状态：Planned，v0.7.1 的版本目标（owner，2026-10-20）：把 Codex、Claude Code、pi 一类成熟的 agent harness 作为执行环境与 CPU 类型纳入兼容范围；正式 Plan 待建立，立项前需要决定的问题汇总在[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md)第 4 节开头。外部 Actor 分为 plugin 与 controller 两种接入模式（[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1，2026-09-27 决定），首个真实接入采用 controller 模式：用户在对话开始前分别选择 agent 与执行环境（[执行环境 Idea](./ideas/execution-environment.md)前提 9、10；外部 Actor Idea E-6a），外部 harness 作为执行环境运行所选 agent，请求经唯一注册入口登记为任务进程，处理后交给该 harness 执行。它建立在 v0.7.0 的任务进程表与注册入口之上，消费外部 Actor 的接入与运行时访问契约（原计划 B），不强依赖 HiveMemory 本地沙箱；外部 harness 继续使用自己的工具和执行环境。优先选一个用户实际使用、并提供可被程序驱动方式的 harness；采用 ACP 一类的通用协议还是各 harness 的 SDK 或非交互 CLI，见 Idea 的 E-2a。
+状态：Planned，v0.7.1 的版本目标（owner，2026-10-20）：把 Codex、Claude Code、pi 一类成熟的 agent harness 作为执行环境与 CPU 类型纳入兼容范围；按小步分别建立计划，各步的范围与阻塞问题见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。本节的验收针对整个版本目标，首份计划只覆盖其中被动注入记忆的部分（第 4.3 节）。外部 Actor 分为 plugin 与 controller 两种接入模式（[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1，2026-09-27 决定），首个真实接入采用 controller 模式：用户在对话开始前分别选择 agent 与执行环境（[执行环境 Idea](./ideas/execution-environment.md)前提 9、10；外部 Actor Idea E-6a），外部 harness 作为执行环境运行所选 agent，请求经唯一注册入口登记为任务进程，处理后交给该 harness 执行。它建立在 v0.7.0 的任务进程表与注册入口之上，消费外部 Actor 的接入与运行时访问契约（原计划 B），不强依赖 HiveMemory 本地沙箱；外部 harness 继续使用自己的工具和执行环境。优先选一个用户实际使用、并提供可被程序驱动方式的 harness；采用 ACP 一类的通用协议还是各 harness 的 SDK 或非交互 CLI，见 Idea 的 E-2a。选择前先对 Codex、Claude Code、pi 做一次接口调研，调研需求见[外部 harness 接口调研需求](./ideas/harness-interface-survey.md)。
 
 验收必须形成真实闭环：请求登记为任务进程并由外部 harness 执行；外部 harness 经能力层检索已有记忆并实际用于任务，写入/修订意图经能力层提交；进程的交互记录进入记忆库（去向见 [任务进程](./workspace/task-process.md)）；下一次会话能召回新形成的知识并定位来源。取消、失败与进程回收按外部执行单元的进程问题（[任务进程 Idea](./ideas/task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) Q-8）的决定呈现。仅转发请求、仅采集日志、仅发送事件或仅返回 memory context 均不足以证明 Actor 接入完成。
 
@@ -153,7 +142,7 @@ last_reviewed: 2026-10-20
 
 ### 4.5 v0.7.2：冷启动、历史导入与外源文档资产化
 
-状态：Candidate，建议拆成两个可独立验收的 Plan，共享资源归属、来源和物化策略；确定性解析可在 v0.7.1 执行基座建设期间并行验证。
+状态：Candidate，建议拆成两个可独立验收的 Plan，共享资源归属、来源和物化策略；确定性解析可以提前并行验证。
 
 **冷启动与历史对话导入**解决“空库如何首次产生价值”和“既有会话如何保真迁入”。冷启动允许用户显式选择少量项目事实、偏好、Profile 或资料作为种子；不得自动把默认示例当作用户事实。历史导入保留 source、conversation/turn 标识、发生时间、说话者及分支/编辑关系；助手的推测或旧结论不能直接升级成用户当前事实。
 
@@ -229,7 +218,6 @@ v0.6.2 已实现基础 -> v0.7.0：Workspace 网络与任务进程（已发布�
                           |       |          (不强依赖本地沙箱)
                           |       +-> v0.7.x plugin 模式
                           |       +-> v0.7.2 历史导入契约与批次能力
-                          +-> v0.7.1 本地执行基座
                           +-> v0.7.2 冷启动 / 文档资源与证据
 
 v0.7.0 A2-P 完整记忆历史 + v0.7.2 来源 / 文档版本 -> v0.7.3 READ 专项编译
@@ -240,7 +228,7 @@ v0.7.0 A2-P 完整记忆历史 + v0.7.2 来源 / 文档版本 -> v0.7.3 READ 专
 服务生命周期 / 传输 / 数据升级稳定 -> Electron 产品化
 ```
 
-各版本的计划顺序见 [Plans 导航](./plans/README.md)。确定性导入可与执行基座并行，依赖复杂获取或转换的切片需等对应 provider。真实外部接入越早形成样本，越能帮助价值策略和导入计划减少猜测。
+各版本的计划顺序见 [Plans 导航](./plans/README.md)。确定性导入可以提前并行，依赖复杂获取或转换的切片需等对应 provider。真实外部接入越早形成样本，越能帮助价值策略和导入计划减少猜测。
 
 每项候选进入实施前必须冻结范围、权威状态、数据来源、失败/取消/恢复承诺、幂等边界和观察指标。任何跨重启恢复、强隔离或 Actor 替换承诺都必须有对应实现证据。仍未具备的能力不能通过 UI、accepted 响应或事件日志伪装成完成。
 
@@ -266,9 +254,17 @@ Electron renderer 使用公开资源 API，main process 只持有必要的原生
 
 状态：Deferred，保留 `v0.9.0+` 方向。Memory split/merge、完整 rollback、branch invalidation、provenance reverse index 和 L3 复活等待真实演化与恢复需求。记忆价值策略的最小重设计不等于提前实现全部生命周期能力。
 
-### 5.4 完整不可信代码沙箱
+### 5.4 执行基座与不可信代码沙箱
 
-状态：Deferred 的剩余工作包；v0.7.1 已提取执行可靠性和可实施的限制基线。后续按实际威胁与负载选择隔离机制，验证宿主文件、网络、进程、资源配额、子进程终止和跨 Workspace 逃逸边界。不以目录配置或工具包装宣称强隔离。
+状态：Deferred。执行基座与沙箱基线原排期在 v0.7.1，2026-10-20 起暂不考虑（owner）；完整不可信代码沙箱是其后的剩余工作包。
+
+**执行基座与沙箱基线**：用户实测 MTP RUN 经常失败是启动调查的依据，正式 Plan 首先收集复现样例，区分协议解析、alias/权限、参数编译、环境、依赖、工具进程与取消链路的问题；不预设所有故障都由缺少沙箱引起。
+
+目标是统一执行 provider 的环境绑定、stdout/stderr、退出码、结构化结果、超时、取消和清理语义。Workspace 声明资源和可用能力，执行 provider 兑现文件、网络、进程与资源限制，Actor 选择调用；工具执行不能反向占有资源系统。
+
+验收覆盖正常结束、工具异常、启动失败、超时、取消、子进程清理和不同 Workspace 环境隔离。受信任执行、工具 API 限制和 OS 级强隔离必须明确区分：工作目录、prompt 或 Python 包装层不足以限制任意代码。若第一版无法实施相应隔离，不接纳要求该隔离等级的任务。完整不可信代码沙箱保留独立的实现与验证门槛。
+
+**完整不可信代码沙箱**：按实际威胁与负载选择隔离机制，验证宿主文件、网络、进程、资源配额、子进程终止和跨 Workspace 逃逸边界。不以目录配置或工具包装宣称强隔离。
 
 ### 5.5 未排期的其他工作包
 

@@ -22,12 +22,13 @@ Idea 以 frontmatter 的 `horizon` 字段分为三类，规则见[文档治理�
 
 ## 当前版本的设计讨论（`current`）
 
-v0.7.1 的版本目标定为 controller 模式的真实外部 harness 接入（owner，2026-10-20），下列 Idea 为它的计划供料；立项前需要决定的问题汇总在外部 Actor Idea 第 4 节开头。
+v0.7.1 的版本目标定为 controller 模式的真实外部 harness 接入（owner，2026-10-20），首份计划的方向为首个外部驱动的纯文本闭环，下列 Idea 为它供料；各步的范围与阻塞问题见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
 | [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两类接入登记（配置装载）、统一认证网关（HTTP 与进程注册已接入；外部 harness 尚未接入）、ingest HTTP 入口与能力层 | 原计划 B 退回：外部 Actor 分为 plugin 与 controller 两种接入模式（controller 模式为 v0.7.1 的首个真实接入，plugin 模式在其后的 v0.7.x 完善）；外部 Actor 如何登记进系统、运行时如何访问系统，以及操作适配器的接口边界（E-1 已决定维持配置装载；E-3a 已决定以归一化定义操作适配器；E-5 已决定外部执行单元不识别子线程、所有 actor 共享主线程的 context；E-6a 已决定外部 harness 是执行环境、与 agent 分别选择；E-6b 已决定不允许 CALL 的目标位于另一个执行单元；E-2、E-3b、E-4 待决） |
-| [执行环境](./execution-environment.md) | Alice 是唯一的执行环境；CPU 端口与中立输入清单已落地，当前事实见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；2026-10-19 由《执行单元、执行线程与执行环境》改名，执行线程部分以[执行线程 Idea](../archive/ideas/execution-thread-definition.md)为准，跨 Workspace 目标（T-5b）移入身份 Idea | agent 与执行环境分别选择（前提 9、10）；组合的有效性（T-7）、选择的承载与系统层级控制（T-8）、CPU 输出与会话历史的词汇归属（T-10） |
+| [执行环境](./execution-environment.md) | Alice 是唯一的执行环境；CPU 端口与中立输入清单已落地，当前事实见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；2026-10-19 由《执行单元、执行线程与执行环境》改名，执行线程部分以[执行线程 Idea](../archive/ideas/execution-thread-definition.md)为准，跨 Workspace 目标（T-5b）移入身份 Idea | agent 与执行环境分别选择（前提 9、10）；组合的有效性（T-7）、选择的承载与系统层级控制（T-8）、CPU 输出与会话历史的词汇归属（T-10）、harness 自身工具的权限应答与工作目录（T-11） |
+| [外部 harness 接口调研需求](./harness-interface-survey.md) | 调研需求已写定（2026-10-20），调研单独进行；外部 Actor Idea 2026-10-06 对 ACP 的核对是已有材料 | Codex、Claude Code、pi 与 ACP 的程序化接口、会话与取消、输入注入、工具权限与工作目录、MCP 注入和使用条款，作为 E-2a 与首个 harness 选择的依据 |
 
 执行线程的正式定义已于 2026-10-19 实施，Idea 移入[归档](../archive/ideas/README.md)，当前事实见 [执行线程](../workspace/execution-threads.md)。版本内状态见 [Plans 导航](../plans/README.md#v071)。
 

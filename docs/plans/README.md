@@ -12,11 +12,11 @@ last_reviewed: 2026-10-20
 
 ## v0.7.1
 
-版本目标已决定（owner，2026-10-20）：controller 模式的真实外部 harness 接入，把 Codex、Claude Code、pi 一类成熟的 agent harness 作为执行环境与 CPU 类型纳入兼容范围；plugin 模式放在其后。目标结果与验收方向见 [ROADMAP](../ROADMAP.md) 第 4.4.2 节。
+版本目标已决定（owner，2026-10-20）：controller 模式的真实外部 harness 接入，按小步分别建立计划，把 Codex、Claude Code、pi 一类成熟的 agent harness 作为执行环境与 CPU 类型纳入兼容范围；plugin 模式放在其后。目标结果与验收方向见 [ROADMAP](../ROADMAP.md) 第 4.4 节。
 
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
-| 1 | controller 模式的真实外部 harness 接入 | 计划尚未建立；立项前需要决定的问题汇总在外部 Actor Idea 第 4 节开头 | 背景：[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md)、[执行环境 Idea](../ideas/execution-environment.md) |
+| 1 | 首个外部驱动的纯文本闭环 | 首份计划的方向已决定（owner，2026-10-20），计划尚未建立；阻塞问题与后续候选步骤见外部 Actor Idea | 背景：[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)、[执行环境 Idea](../ideas/execution-environment.md)；先行调研：[外部 harness 接口调研需求](../ideas/harness-interface-survey.md) |
 
 ## v0.7.0
 
