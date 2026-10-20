@@ -1,5 +1,6 @@
-"""CALL 上下文的编译与操作边界错误映射。"""
+"""CALL 上下文的编译、操作边界错误映射与派生后失败时的子线程结束。"""
 
+import asyncio
 from datetime import UTC, datetime
 
 import pytest
@@ -110,6 +111,9 @@ async def test_provide_compiles_atom_context_ref_for_callee():
     assert '<memory alias="' in context.shared_context
     assert "Fact A" in context.shared_context
     assert "context payload" in context.shared_context
+    # 子线程交给子帧继续运行，准备成功时不结束。
+    assert context.callee is submit_operation.children[0]
+    assert context.callee.end_calls == 0
 
 
 @pytest.mark.asyncio
@@ -201,7 +205,7 @@ async def test_profile_failure_propagates_before_resolving_context_refs():
     ],
 )
 async def test_nonrecoverable_error_stops_shared_context_resolution(failure):
-    """生命周期、授权与程序错误不能被当作单条引用缺失而跳过。"""
+    """生命周期、授权与程序错误不能被当作单条引用缺失而跳过；已派生的子线程随之结束。"""
     provider, submit_operation = _provider(alias_results=[failure])
     with pytest.raises(type(failure)) as caught:
         await provider.provide(
@@ -211,3 +215,36 @@ async def test_nonrecoverable_error_stops_shared_context_resolution(failure):
             ),
         )
     assert caught.value is failure
+    (child,) = submit_operation.children
+    assert child.end_calls == 1
+
+
+@pytest.mark.asyncio
+async def test_cancelled_shared_context_read_ends_child_thread():
+    """共享上下文读取被取消时子帧不会运行：同步结束已派生的子线程，取消照常传播。"""
+    entered = asyncio.Event()
+
+    async def hanging_read(_request):
+        entered.set()
+        await asyncio.Event().wait()
+
+    submit_operation = StubOperationSubmitter(
+        operation=hanging_read, derive=lambda _request: _derived(make_callee())
+    )
+    task = asyncio.create_task(
+        CallContextProvider().provide(
+            _frame(submit_operation=submit_operation),
+            MTPCallRequest(target_alias="helper", task="summarize", context_refs=["fact_a"]),
+        )
+    )
+    await asyncio.wait_for(entered.wait(), timeout=2)
+    task.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await task
+    (child,) = submit_operation.children
+    assert child.end_calls == 1
+
+
+async def _derived(child):
+    """派生替身：立即交回已准备好的子线程句柄。"""
+    return child

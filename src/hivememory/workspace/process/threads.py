@@ -8,9 +8,12 @@ context 中，派发话题在工作集中，会话属于会话服务），有自
 是派生、结束与解析的唯一入口，线程表与线程对象的写方法只由它调用。
 
 线程的生命周期是“派生 → 运行 → 结束”，结束即同步撤销线程 context，没有
-“停止中”状态。存活只有一个判定：线程未结束，且进程仍在运行。进程收到停止
-即视为全部线程已结束，停止路径不需要通知线程表；凭据仍在 Actor 阶段收尾时
-统一撤销，两者之间的提交按线程已结束拒绝。
+“停止中”状态。三个结束时点：子线程随 CALL 返回由 CPU 经操作入口结束；进程
+收到停止即视为全部线程已结束，停止路径不需要通知线程表；Actor 阶段结束时
+全部兜底结束。存活只有一个判定：线程未结束，且进程仍在运行。
+
+主线程与子线程以同一种线程描述交给 CPU：描述由线程表在派生时生成，观测
+标签取线程自己的身份，操作快照以该线程自己的 context 读取。
 """
 
 from __future__ import annotations
@@ -19,11 +22,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import TYPE_CHECKING
 
-from hivememory.core.access import ThreadContextLifecycle, WorkspaceAccessContext
+from hivememory.core.access import RunBinding, ThreadContextLifecycle, WorkspaceAccessContext
 from hivememory.core.errors import ScopeRequiredError, ThreadEndedError
+from hivememory.core.models import ExecutionLabels
 from hivememory.core.models.agent import AgentProfile
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
-from hivememory.workspace.contracts.threads import ExecutionThread
+from hivememory.workspace.contracts.threads import ExecutionThread, ThreadDescriptor
 from hivememory.workspace.process.table import ProcessOutcome, ProcessTable
 from hivememory.workspace.thread_ports import ResolvedThread
 
@@ -45,17 +49,23 @@ class ThreadState(str, Enum):
 
 @dataclass(eq=False, kw_only=True)
 class ProcessThread:
-    """一个执行线程：标识、父线程、线程 context 与状态。
+    """一个执行线程：可变的控制状态（线程 context、状态、父线程）与冻结的描述。
 
-    线程的身份只在线程 context 中，线程对象不另存 actor 字段。``parent_id``
-    主线程为空、子线程为主线程的标识。线程对象按对象身份识别，不离开
+    线程的身份只在线程 context 中，线程对象不另存 actor 字段；标识、观测
+    标签、图纸与操作快照在交给 CPU 的线程描述里。``parent_id`` 主线程为空、
+    子线程为主线程的标识。线程对象按对象身份识别，不离开
     :class:`ProcessThreads`。
     """
 
-    thread_id: str
+    descriptor: ThreadDescriptor
     parent_id: str | None
     access: WorkspaceAccessContext
     state: ThreadState = ThreadState.RUNNING
+
+    @property
+    def thread_id(self) -> str:
+        """线程标识，由线程描述携带。"""
+        return self.descriptor.thread_id
 
     @property
     def is_running(self) -> bool:
@@ -124,15 +134,23 @@ class ProcessThreads:
         self._lifecycle = lifecycle
         self._authorizer = authorizer
 
-    def derive_main(self, process: TaskProcess) -> WorkspaceAccessContext:
-        """进入 Actor 阶段时派生并登记唯一主线程，返回交给 CPU 的线程 context。"""
+    def derive_main(self, process: TaskProcess, profile: AgentProfile) -> ExecutionThread:
+        """进入 Actor 阶段时以进程的图纸派生并登记唯一主线程，返回交给 CPU 的执行线程。
+
+        主线程的观测标签是注册标签；操作快照以主线程 context 读取，读取同时
+        重新确认准入与目标。读取失败时撤销刚签发的 context，不留下登记。
+        """
         if process.threads.snapshot():
             raise ScopeRequiredError("进程已经登记执行线程")
         access = self._lifecycle.derive_thread_context(process.record.access)
-        process.threads.register(
-            ProcessThread(thread_id=MAIN_THREAD_ID, parent_id=None, access=access)
+        return self._register(
+            process,
+            access=access,
+            thread_id=MAIN_THREAD_ID,
+            parent_id=None,
+            labels=process.record.events.labels,
+            profile=profile,
         )
-        return access
 
     def derive_child(
         self, *, parent: WorkspaceAccessContext, profile: AgentProfile
@@ -140,8 +158,9 @@ class ProcessThreads:
         """只接受存活的主线程派生；同步完成全部检查、签发、快照读取与登记。
 
         调用方在 Profile 冷读之后才到达这里，存活在此重新判定。被调用方的
-        Workspace 准入由认证一侧在签发时检查；签发之后的快照读取或登记失败时
-        撤销刚签发的 context，不留下凭据或登记，异常沿原类型传播。
+        Workspace 准入由认证一侧在签发时检查；子线程的观测标签取被调用方与
+        注册时的 workspace。签发之后的快照读取或登记失败时撤销刚签发的
+        context，不留下凭据或登记，异常沿原类型传播。
         """
         process, caller = self._resolve(parent)
         if caller.parent_id is not None:
@@ -152,17 +171,18 @@ class ProcessThreads:
         child = self._lifecycle.derive_child_thread_context(
             process.record.access, agent_id=profile.agent_id, thread_id=thread_id
         )
-        try:
-            operations = self._authorizer.get_stage_operations(
-                child, process.request.target_workspace
-            )
-            process.threads.register(
-                ProcessThread(thread_id=thread_id, parent_id=caller.thread_id, access=child)
-            )
-        except BaseException:
-            self._lifecycle.revoke_thread_context(child)
-            raise
-        return ExecutionThread(agent_profile=profile, allowed_operations=operations, access=child)
+        labels = ExecutionLabels(
+            agent_id=profile.agent_id,
+            workspace_id=process.record.events.labels.workspace_id,
+        )
+        return self._register(
+            process,
+            access=child,
+            thread_id=thread_id,
+            parent_id=caller.thread_id,
+            labels=labels,
+            profile=profile,
+        )
 
     def resolve(self, access: WorkspaceAccessContext) -> ResolvedThread:
         """唯一的存活判定：线程未结束且进程仍在运行时，返回一次解析结果。
@@ -180,10 +200,54 @@ class ProcessThreads:
             dispatch_topic_id=topic_id,
         )
 
+    def end_child(self, access: WorkspaceAccessContext) -> None:
+        """CPU 在 CALL 收尾时结束子线程：同步撤销凭据，不检查进程是否仍在运行。
+
+        凭据已撤销的线程已经结束，是空操作；主线程只由 Actor 阶段收尾结束，
+        CPU 结束主线程、context 不对或未登记都属于接线缺陷。
+        """
+        try:
+            binding = self._authorizer.get_thread_binding(access)
+        except ThreadEndedError:
+            return
+        _process, thread = self._locate(binding, access)
+        if thread.parent_id is None:
+            raise ScopeRequiredError("主线程只由任务进程结束")
+        self._end(thread)
+
     def end_all(self, process: TaskProcess) -> None:
         """结束进程的全部线程：Actor 阶段收尾与关闭兜底共用，同步且幂等。"""
         for thread in process.threads.snapshot():
             self._end(thread)
+
+    def _register(
+        self,
+        process: TaskProcess,
+        *,
+        access: WorkspaceAccessContext,
+        thread_id: str,
+        parent_id: str | None,
+        labels: ExecutionLabels,
+        profile: AgentProfile,
+    ) -> ExecutionThread:
+        """以刚签发的 context 读取操作快照，生成线程描述并登记；任一步失败都撤销 context。"""
+        try:
+            operations = self._authorizer.get_stage_operations(
+                access, process.request.target_workspace
+            )
+            descriptor = ThreadDescriptor(
+                thread_id=thread_id,
+                labels=labels,
+                agent_profile=profile,
+                allowed_operations=operations,
+            )
+            process.threads.register(
+                ProcessThread(descriptor=descriptor, parent_id=parent_id, access=access)
+            )
+        except BaseException:
+            self._lifecycle.revoke_thread_context(access)
+            raise
+        return ExecutionThread(descriptor=descriptor, access=access)
 
     def _end(self, thread: ProcessThread) -> None:
         """先撤销凭据再记录结束，已结束的线程是空操作；不等待任何外部操作。"""
@@ -193,23 +257,33 @@ class ProcessThreads:
         thread.mark_ended()
 
     def _resolve(self, access: WorkspaceAccessContext) -> tuple[TaskProcess, ProcessThread]:
-        """依次判定凭据、登记与存活；context 按对象身份比较，不读取密封内容。
+        """依次判定凭据、登记与存活。
 
         凭据已撤销（授权者拒绝）、线程已结束或进程已不在运行，都以
-        ``ThreadEndedError`` 拒绝；不是线程 context、进程或线程未登记、登记的
-        不是这一个 context，属于接线缺陷，以 ``ScopeRequiredError`` 拒绝。
+        ``ThreadEndedError`` 拒绝；登记缺失由 :meth:`_locate` 以接线缺陷拒绝。
         """
         binding = self._authorizer.get_thread_binding(access)
+        process, thread = self._locate(binding, access)
+        if not thread.is_running:
+            raise ThreadEndedError("Thread has ended")
+        if process.record.outcome is not ProcessOutcome.RUNNING:
+            raise ThreadEndedError("Process is no longer running")
+        return process, thread
+
+    def _locate(
+        self, binding: RunBinding, access: WorkspaceAccessContext
+    ) -> tuple[TaskProcess, ProcessThread]:
+        """按运行绑定找到所属进程与线程；context 按对象身份比较，不读取密封内容。
+
+        进程或线程未登记、登记的不是这一个 context，属于接线缺陷，以
+        ``ScopeRequiredError`` 拒绝。
+        """
         process = self._table.get(binding.run_id)
         thread = None
         if process is not None and binding.thread_id is not None:
             thread = process.threads.get(binding.thread_id)
         if process is None or thread is None or thread.access is not access:
             raise ScopeRequiredError("执行线程未登记在所属进程的线程表中")
-        if not thread.is_running:
-            raise ThreadEndedError("Thread has ended")
-        if process.record.outcome is not ProcessOutcome.RUNNING:
-            raise ThreadEndedError("Process is no longer running")
         return process, thread
 
 

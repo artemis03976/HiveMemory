@@ -14,7 +14,6 @@ from hivememory.workspace.contracts.cpu import (
     CPUPort,
 )
 from hivememory.workspace.contracts.operations import (
-    Callee,
     DeriveCallThreadRequest,
     OperationEntry,
     OperationRequest,
@@ -28,7 +27,7 @@ from hivememory.workspace.contracts.operations import (
     ThreadOperationSubmitter,
 )
 from hivememory.workspace.contracts.process import CPUInputManifest
-from hivememory.workspace.contracts.threads import ExecutionThread
+from hivememory.workspace.contracts.threads import ExecutionThread, ThreadDescriptor
 
 __all__ = [
     "CPUEventSink",
@@ -37,8 +36,8 @@ __all__ = [
     "CPUFailureReason",
     "CPUInputManifest",
     "CPUPort",
-    "Callee",
     "ExecutionThread",
+    "ThreadDescriptor",
     "ThreadEndedError",
     "ThreadOperationSubmitter",
     "OperationEntry",

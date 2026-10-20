@@ -115,7 +115,7 @@ cause        内部原因，只供调试，序列化时排除
 - `agent_fault`：语法、参数、alias、类型或权限等调用侧可修正问题，允许 Agent 修正后重试；
 - `system_fault`：存储、总线路由、工具内部依赖或意外错误，同参数重试通常无意义，Agent 应继续完成不依赖该能力的回答。
 
-严重度表达归因，不单独决定重试、日志等级或数据安全等级。参数错误可以修正；权限拒绝必须停止被拒操作；写入结果未知和线程撤销遵循各自的停止/查询指导。
+严重度表达归因，不单独决定重试、日志等级或数据安全等级。参数错误可以修正；权限拒绝必须停止被拒操作；写入结果未知和线程结束遵循各自的停止/查询指导。
 
 区分两者的目的，是给生成循环一个保守的重试边界。`agent_fault` 意味着改变请求有机会成功；`system_fault` 意味着继续用相同参数试探大多只会重复失败或放大负载。它不宣称系统故障永远不可恢复，也不授权 Agent 对权限错误持续换写法绕过。
 
@@ -228,7 +228,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 | 第 3 阶段：actor 用户不是目标 Workspace 的 owner | `OperationDeniedError` | `target_owner_mismatch` | 403 |
 | 第 3 阶段（actor API）：白名单不含该 actor 操作 | `OperationDeniedError` | `operation_not_allowed` | 403 |
 | 第 3 阶段（root API）：actor 不是保留的 `system` | `OperationDeniedError` | `root_required` | 403 |
-| 访问 context 无效：不是访问 context，或已撤销（已撤销的线程 context 见下文）；授权时准入记录已不存在；把进程 context 或请求级 context 交给操作入口；从非进程 context 派生线程 context；以非主线程、在 Actor 阶段之外派生 CALL 子线程 | `ScopeRequiredError` | 无 / `context_not_issued` / `actor_not_admitted` | 500：生产入口经网关签发后不应出现，出现即为接线缺陷 |
+| 访问 context 无效：不是访问 context，或已撤销（线程已结束见下文）；授权时准入记录已不存在；把进程 context、请求级 context 或未登记在线程表中的线程 context 交给操作入口；从非进程 context 派生线程 context；以子线程派生 CALL 子线程；CPU 结束主线程 | `ScopeRequiredError` | 无 / `context_not_issued` / `actor_not_admitted` | 500：生产入口经网关签发后不应出现，出现即为接线缺陷 |
 | 资源与请求 Workspace 不一致 | `WorkspaceMismatchError` | —— | 409 |
 
 - 缺少行为许可属于授权失败，不是身份认证失败；空白名单可以进入，但所有 actor 操作都被拒绝。未知 operation 在访问登记装载期失败。`operation_not_allowed` 的 `details.operation` 给出被拒绝的 actor 操作；root 授权与任务进程的阶段授权不检查 operation，它们的目标拒绝与 `root_required` 不附带 `operation`。阶段授权只校验准入与目标，因此不会出现 `operation_not_allowed`。
@@ -240,9 +240,9 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 
 actor API 与操作入口的错误保持各自边界：每种 actor 请求缺少对应操作时抛 `OperationDeniedError`（`operation_not_allowed`）——READ 与 CALL 的 `context_refs` 缺少 `memory.read`、SEARCH 缺少 `memory.search`、RUN 的记忆目标缺少 `memory.run`、WRITE 缺少 `memory.write`、UPDATE 缺少 `memory.update`、CALL 目标读取缺少 `agent.call`（包括内置目标）；UPDATE 基础为 pending 时抛 `PendingUpdateNotAllowedError`，不存在、不可读或不是正式 atom 时抛 `ResourceNotFoundError`。Koakuma 分别映射为现有 `mtp.permission.denied`、`mtp.argument.invalid` 与 `mtp.alias.not_found`，provider 不可用映射为 `mtp.system.service_unavailable`，不暴露内部 cause。
 
-CALL 派生子线程时，被调用方在本 Workspace 没有准入或为保留的 `system`，认证一侧抛 `AdmissionDeniedError`（`actor_not_admitted` / `system_actor_not_allowed`），不签发、不登记子线程；Alice 映射为 `mtp.permission.denied`，文案键 `mtp.call.agent_unavailable`（目标 agent 不可用），与调用方缺少 `agent.call` 时的 `mtp.permission.verb_denied` 区分。进程侧前置检查失败（非主线程发起、不在 Actor 阶段）抛 `ScopeRequiredError`，属于接线缺陷，Koakuma 呈现为 `mtp.system.fault`。
+CALL 派生子线程时，被调用方在本 Workspace 没有准入或为保留的 `system`，认证一侧抛 `AdmissionDeniedError`（`actor_not_admitted` / `system_actor_not_allowed`），不签发、不登记子线程；Alice 映射为 `mtp.permission.denied`，文案键 `mtp.call.agent_unavailable`（目标 agent 不可用），与调用方缺少 `agent.call` 时的 `mtp.permission.verb_denied` 区分。子线程试图再派生抛 `ScopeRequiredError`，属于接线缺陷，Koakuma 呈现为 `mtp.system.fault`；冷读期间调用方结束或进程收到停止抛 `ThreadEndedError`（见下文）。
 
-已撤销的线程 context 在操作入口与 actor API 抛 `ThreadContextRevokedError`（`core.errors`，继承 `DomainError`，由 `workspace.contracts` 重新导出，code 为 `workspace.thread_context.revoked`），未知请求类型抛 `TypeError`；前者是生命周期拒绝（CPU 执行结束或进程关闭后迟到的请求），后者是接线违规，与表示接线缺陷的 `ScopeRequiredError` 区分。它们没有独立 HTTP API，不新增 HTTP 映射。普通 MTP 与 CALL 将线程撤销呈现为 `mtp.system.fault` 配专用文案：原线程已结束，停止操作，不重试或重新获取身份。未知入口异常使用固定系统故障文案，不暴露 cause。CPU 执行结束时同步撤销线程 context，不取消在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 在基础校验之后、登记之前同步复查线程，跨越撤销时拒绝登记；派发开始后持有提交任务直到完成，再传播调用方取消。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
+线程已结束时，操作入口、CALL 派生与 actor API 的同步段抛 `ThreadEndedError`（`core.errors`，继承 `DomainError`，由 `workspace.contracts` 重新导出，code 为 `workspace.thread.ended`）：线程的凭据已撤销、线程已结束（子线程随 CALL 返回，或 Actor 阶段收尾），或所属进程已收到停止，都属于这一种生命周期拒绝，六项 actor 操作得到同一种错误。未知请求类型抛 `TypeError`，是接线违规；两者都与表示接线缺陷的 `ScopeRequiredError` 区分。它们没有独立 HTTP API，不新增 HTTP 映射。普通 MTP 与 CALL 将线程结束呈现为 `mtp.system.fault`，文案键 `mtp.system.thread_ended`：原线程已结束，停止操作，不重试或重新获取身份。未知入口异常使用固定系统故障文案，不暴露 cause。线程结束同步撤销线程 context，不取消其他在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 在基础校验之后、登记之前的同步段解析线程，跨越线程结束或停止时拒绝登记；派发开始后持有提交任务直到完成，再传播调用方取消。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
 
 WRITE/UPDATE 登记后的派发错误携带 `pending_alias` 与 `intent_id`，不暴露内部 cause：
 

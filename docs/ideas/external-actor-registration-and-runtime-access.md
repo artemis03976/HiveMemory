@@ -22,7 +22,7 @@ related_docs:
   - docs/architecture/workspace.md
   - docs/VISION.md
   - docs/ideas/execution-environment.md
-  - docs/ideas/execution-thread-definition.md
+  - docs/archive/ideas/execution-thread-definition.md
 last_reviewed: 2026-10-19
 ---
 
@@ -39,7 +39,7 @@ last_reviewed: 2026-10-19
 >
 > 2026-10-13：文中引用的任务进程 Idea、执行单元 Idea 与身份 Idea 的节号和已决定问题对应 commit `a384688` 版本；三文已精简为后续方向，仍开放的问题（Q-3b、Q-5a、Q-5b、Q-7、Q-8、T-5b、T-7、T-8）保留原编号，已实施的决定见 [Workspace 架构](../architecture/workspace.md)与 [System 应用服务](../system/application-services.md)。
 >
-> 2026-10-19：执行单元 Idea 改名为[执行环境 Idea](./execution-environment.md)，只保留执行环境的选择与输出词汇；文中引用的执行线程相关前提与问题（前提 1、3、4、7，T-1、T-3 等）以 commit `a384688` 版本为准，执行线程的后续设计见[执行线程 Idea](./execution-thread-definition.md)。
+> 2026-10-19：执行单元 Idea 改名为[执行环境 Idea](./execution-environment.md)，只保留执行环境的选择与输出词汇；文中引用的执行线程相关前提与问题（前提 1、3、4、7，T-1、T-3 等）以 commit `a384688` 版本为准，执行线程的正式定义已实施，当前事实见 [Workspace 架构](../architecture/workspace.md#43-访问-context密封的运行时凭据)第 4.3 节，设计推导见已归档的[执行线程 Idea](../archive/ideas/execution-thread-definition.md)。
 
 本文由原 v0.7.0 计划 B（外部记忆服务与 Actor 交互契约）于 2026-09-27 退回 Idea。计划的最后版本见 commit `dda9d9d` 中的 `docs/plans/v0.7.0-external-memory-service-and-actor-interaction.md`。
 
@@ -355,7 +355,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
   - 在 HiveMemory 看来，外部执行单元只有主线程一个 actor，身份 Idea 第 2 节“一份 context 只属于一个 actor”仍然成立；执行单元 Idea T-1a、T-1b、T-2a 只涉及 Alice。
   - 外部执行单元不经过派生授权（执行单元 Idea T-3）；子 agent 能做什么只受主线程 actor 的白名单与资源 policy 约束。
   - 失效条件：出现能在协议中可靠标识派生调用、并允许子 agent 使用独立端点的 harness 或协议版本，且接入它的收益足够时，重新讨论。
-- **后续**（2026-10-19）：Alice 的子线程随 CALL 返回结束；外部 harness 既无法探测子 agent 的结束时点，也不一定能取得创建时点，子线程可能根本不会创建，这一点与停止时它在收到取消通知前的行为一起，留到接入外部 harness 时考虑，见[执行线程 Idea](./execution-thread-definition.md)第 3.1、3.3 节。
+- **后续**（2026-10-19）：Alice 的子线程随 CALL 返回结束；外部 harness 既无法探测子 agent 的结束时点，也不一定能取得创建时点，子线程可能根本不会创建，这一点与停止时它在收到取消通知前的行为一起，留到接入外部 harness 时考虑，见已归档的[执行线程 Idea](../archive/ideas/execution-thread-definition.md)第 3.1、3.3 节；Alice 一侧的现状见 [Alice 编排](../alice/orchestration.md#8-失败取消与降级)第 8 节。
 
 与[任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) Q-8（外部 CPU 的进程，尤其 Q-8c 的粒度）相关。
 

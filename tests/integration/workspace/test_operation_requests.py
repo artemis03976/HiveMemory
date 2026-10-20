@@ -83,7 +83,6 @@ class _OperationHarness:
             agent=ActorAgentService(
                 operation_authorizer=operation_authorizer,
                 profile_reader=self.runtime.profiles,
-                threads=access.threads,
             ),
             threads=access.threads,
         )
@@ -144,12 +143,19 @@ def operation_setup():
     access.gateway.revoke_all_contexts()
 
 
+async def _submit(entry, request, *, access):
+    """CPU 侧的提交面：CALL 派生走入口的生命周期方法，记忆请求走统一分派。"""
+    if isinstance(request, DeriveCallThreadRequest):
+        return await entry.derive_child_thread(request, access=access)
+    return await entry.execute(request, access=access)
+
+
 async def _derive_thread(access, process_id="process", *, agent_id="test_agent"):
     """入口身份来自真实认证，不能由请求构造者指定。"""
     context = await access.authenticate(
         agent_id=agent_id, binding=RunBinding.for_task_process(process_id)
     )
-    return access.register_main_thread(context)
+    return access.register_main_thread(context).access
 
 
 @pytest.mark.asyncio
@@ -395,11 +401,11 @@ async def test_call_target_with_only_agent_call_delivers_profile(single_operatio
     """CALL 目标读取只需 agent.call：经 Profile 读取视图交付目标图纸，不记录记忆引用。"""
     harness, _access, thread_access = await single_operation_setup(WorkspaceOperation.AGENT_CALL)
 
-    child = await harness.entry.execute(
+    child = await harness.entry.derive_child_thread(
         DeriveCallThreadRequest("call_target"), access=thread_access
     )
 
-    profile = child.agent_profile
+    profile = child.descriptor.agent_profile
     assert (profile.agent_id, profile.persona, profile.model_name) == (
         "call_target",
         "CALL 目标人设",
@@ -408,6 +414,21 @@ async def test_call_target_with_only_agent_call_delivers_profile(single_operatio
     assert harness.citations == []
     assert harness.registry.size == 0
     assert harness.runtime.stats()["cold_reads"] == 1
+
+
+@pytest.mark.asyncio
+async def test_child_thread_ended_through_entry_rejects_later_submissions(single_operation_setup):
+    """入口的生命周期方法派生并结束子线程：结束之后以子线程提交的请求按线程已结束拒绝。"""
+    harness, _access, thread_access = await single_operation_setup(WorkspaceOperation.AGENT_CALL)
+    child = await harness.entry.derive_child_thread(
+        DeriveCallThreadRequest("call_target"), access=thread_access
+    )
+
+    harness.entry.end_thread(access=child.access)
+
+    with pytest.raises(ThreadEndedError):
+        await harness.entry.execute(ResolveReferencesRequest(("base",)), access=child.access)
+    assert harness.owner_calls == [PatchouliRoutes.GET_AGENT_PROFILE]
 
 
 @pytest.mark.asyncio
@@ -431,7 +452,7 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
     )
     try:
         with pytest.raises(OperationDeniedError) as error:
-            await harness.entry.execute(operation_request, access=thread_access)
+            await _submit(harness.entry, operation_request, access=thread_access)
         assert error.value.details["operation"] == operation.value
         assert error.value.details["reason"] == "operation_not_allowed"
         assert harness.registry.size == 1
@@ -624,7 +645,6 @@ async def test_write_returning_after_revocation_preserves_admitted_intent(
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
             profile_reader=harness.runtime.profiles,
-            threads=access.threads,
         ),
         threads=access.threads,
     )
@@ -686,7 +706,7 @@ async def test_call_finishing_profile_load_after_thread_end_cannot_register_chil
 
     harness.backing.get_agent_profile = delayed
     task = asyncio.create_task(
-        harness.entry.execute(DeriveCallThreadRequest("call_target"), access=thread)
+        harness.entry.derive_child_thread(DeriveCallThreadRequest("call_target"), access=thread)
     )
     try:
         await asyncio.wait_for(entered.wait(), timeout=2)
@@ -756,7 +776,7 @@ async def test_every_actor_request_is_rejected_after_stop_without_side_effects(
     try:
         process.record.request_stop()
         with pytest.raises(ThreadEndedError):
-            await harness.entry.execute(operation_request, access=thread_access)
+            await _submit(harness.entry, operation_request, access=thread_access)
         assert harness.registry.size == 0
         assert harness.runtime.stats()["cold_reads"] == 0
         assert harness.owner_calls == []

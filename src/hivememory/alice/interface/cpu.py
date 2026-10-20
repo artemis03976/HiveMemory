@@ -1,4 +1,4 @@
-"""Alice 的 CPU 端口：绑定线程操作入口、检查生命周期并把交互输出接到进程的事件 sink。"""
+"""Alice 的 CPU 端口：把主线程绑定为提交函数、检查生命周期并把交互输出接到进程的事件 sink。"""
 
 from __future__ import annotations
 
@@ -6,11 +6,11 @@ from typing import Any
 
 from hivememory.alice.interface.output import SinkRunOutput
 from hivememory.alice.run.service import AgentRunService
-from hivememory.core.access import WorkspaceAccessContext
 from hivememory.workspace.contracts import (
     CPUEventSink,
     CPUExecutionResult,
     CPUInputManifest,
+    ExecutionThread,
     OperationEntry,
     ThreadOperationSubmitter,
 )
@@ -27,11 +27,12 @@ class AliceUnavailableError(RuntimeError):
 
 
 class AliceCPU:
-    """以 Alice Agent run 充当任务进程 CPU；访问凭据只绑定到提交函数。
+    """以 Alice Agent run 充当任务进程 CPU；执行线程只绑定到提交函数。
 
-    每次执行直接等待运行服务：交互事件经输出端口推送给进程的 sink，终态
-    （含停止后的 cancelled 结果）作为返回值交回；交付方只要终态时由进程
-    丢弃事件，Alice 不区分交付形态。
+    每次执行把主线程绑定为它的提交函数后直接等待运行服务：运行层只经提交
+    函数读到线程描述，读不出 context。交互事件经输出端口推送给进程的 sink，
+    终态（含停止后的 cancelled 结果）作为返回值交回；交付方只要终态时由
+    进程丢弃事件，Alice 不区分交付形态。
     """
 
     def __init__(self, service: AgentRunService, operation_entry: OperationEntry) -> None:
@@ -49,7 +50,7 @@ class AliceCPU:
         self,
         manifest: CPUInputManifest,
         *,
-        access: WorkspaceAccessContext,
+        thread: ExecutionThread,
         generation_options: dict[str, Any] | None,
         events: CPUEventSink,
     ) -> CPUExecutionResult:
@@ -59,7 +60,7 @@ class AliceCPU:
         return await self._service.run_agent(
             manifest,
             generation_options=generation_options,
-            submit_operation=ThreadOperationSubmitter(self._operation_entry, access),
+            submit_operation=ThreadOperationSubmitter(self._operation_entry, thread),
             run_output=SinkRunOutput(events),
         )
 

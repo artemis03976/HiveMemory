@@ -1,4 +1,4 @@
-"""能力层交给任务进程的线程端口：一次解析执行线程，以及 CALL 子线程的派生。
+"""能力层交给任务进程的线程端口：一次解析执行线程，以及 CALL 子线程的派生与结束。
 
 端口只在 workspace 内部使用：操作入口与 actor API 依赖它，进程线程管理实现
 它，组合根注入。放在能力层与进程之外，使能力层不必导入进程子包。
@@ -27,7 +27,7 @@ class ResolvedThread:
 
 
 class ExecutionThreadTable(Protocol):
-    """执行线程的唯一入口：解析与派生都只经过所属进程的线程表。"""
+    """执行线程的唯一入口：解析、派生与结束都只经过所属进程的线程表。"""
 
     def resolve(self, access: WorkspaceAccessContext) -> ResolvedThread:
         """同步判定线程存活并返回解析结果。
@@ -42,6 +42,10 @@ class ExecutionThreadTable(Protocol):
         self, *, parent: WorkspaceAccessContext, profile: AgentProfile
     ) -> ExecutionThread:
         """重新判定调用方存活且是主线程，再以图纸的 Agent 派生、读取操作快照并登记。"""
+        ...
+
+    def end_child(self, access: WorkspaceAccessContext) -> None:
+        """同步结束一个子线程并撤销其凭据；已结束的线程是空操作，主线程以接线缺陷拒绝。"""
         ...
 
 

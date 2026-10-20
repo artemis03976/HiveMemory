@@ -73,7 +73,6 @@ def make_task_process_service(
     agent = ActorAgentService(
         operation_authorizer=operation_authorizer,
         profile_reader=runtime.profiles,
-        threads=threads,
     )
     entry = operation_entry or WorkspaceOperationEntry(memory, agent=agent, threads=threads)
     if isinstance(cpu, ScriptedCPU):

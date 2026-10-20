@@ -839,7 +839,7 @@ async def _drive_to_exit(
 
 def _thread_revoked(composition: AccessTestComposition, cpu: ScriptedCPU) -> bool:
     """CPU 收到的主线程 context 是否已撤销、不能再提交 actor 操作。"""
-    return composition.gateway.describe_context(cpu.calls[0].access) is None
+    return composition.gateway.describe_context(cpu.calls[0].thread.access) is None
 
 
 @pytest.mark.asyncio
@@ -930,7 +930,7 @@ class _SlowStoppingCPU:
         self.cancel_entered = asyncio.Event()
         self.release_cancel = asyncio.Event()
 
-    async def execute(self, manifest, *, access, generation_options, events):
+    async def execute(self, manifest, *, thread, generation_options, events):
         await events({"event": "token", "data": {"content": "一"}})
         try:
             await asyncio.Event().wait()

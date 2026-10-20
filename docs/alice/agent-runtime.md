@@ -22,7 +22,7 @@ last_reviewed: 2026-10-19
 
 # Agent Runtime
 
-Agent Runtime 负责把一个 Agent 的一帧运行到自然收敛、取消或控制流陷入。它是 Alice 所使用的执行层，却刻意不知道“主 Agent”“子 Agent 团队”或“下一步应该调度谁”：给它一个包含观测标签、图纸、消息、操作提交函数和执行坐标的 `ExecutionFrame`，它负责生成、解释本帧 MTP、回填结果并持续推进；一旦遇到 CALL，就把控制权交还 Alice。
+Agent Runtime 负责把一个 Agent 的一帧运行到自然收敛、取消或控制流陷入。它是 Alice 所使用的执行层，却刻意不知道“主 Agent”“子 Agent 团队”或“下一步应该调度谁”：给它一个包含观测标签、图纸、消息、所属线程的句柄和执行坐标的 `ExecutionFrame`，它负责生成、解释本帧 MTP、回填结果并持续推进；一旦遇到 CALL，就把控制权交还 Alice。
 
 这个边界来自一个很朴素的判断：执行一条指令与决定派生哪个进程不是同一种责任。若单 Agent loop 自己递归创建子 Agent，它就同时成为 CPU 和调度器，Alice 无法再拥有真实的编排语义；若每次工具调用都让编排层介入，执行循环又会被切碎。当前设计以 frame 作为两层之间的稳定货币，让执行层可以独立重入，让编排层只在 CALL trap 上接管。
 
@@ -44,11 +44,11 @@ AgentRunService
 - 不拥有独立启停；健康报告由门面汇总并供 AliceSystem 使用；
 - 不直接 import Alice 的 RunExecutor、CallCoordinator、CallContextProvider；
 - 只消费注入的 MTP port、LLM 服务、配置、模型注册表和运行时状态；
-- WRITE/UPDATE、引用读取与 SEARCH 经 frame 的线程 context 绑定提交函数进入 workspace；CALL Profile 读取由 Alice 编排层提交请求，引用记录由 workspace 读取能力自动完成。
+- WRITE/UPDATE、引用读取与 SEARCH 经 frame 所属线程的句柄进入 workspace；CALL Profile 读取由 Alice 编排层提交请求，引用记录由 workspace 读取能力自动完成。
 
 `hivememory.agent_runtime` 包根是 Alice 与组合根唯一使用的公开接口，导出门面、工厂、帧模型、输出端口、模型解析与 MTP 生成器等契约。`runtime.py` 的 `build_agent_runtime` 接收运行、Koakuma 与记忆编译配置、组合根注入的 LLM 服务（`infrastructure.llm.base.BaseLLMService`）以及可选模型解析端口，在服务之上建立 MTP 生成器并装配执行循环，返回门面；执行层不自行构造模型客户端，也不导入提供商 SDK。`frame.py` 保存帧状态、策略与 `RuntimeScope`，`loop.py` 推进单帧，`model/` 负责解析、预算与 MTP 生成，`mtp/` 负责分派与动词，`tools/` 提供系统工具和用户工具执行器。
 
-Koakuma 直接满足 `MTPExecutor` 协议。`ExecutionFrame`、`FrameSpec` 与 `MTPExecutionContext` 都要求显式提交函数和策略，`FrameExecutionPolicy` 要求显式动词集合；不存在缺省放行。帧未覆盖迭代上限时由门面从 runtime 配置统一取值。写入意图登记、完整引用解析、原子与 Profile 缓存由 workspace 持有，执行层只消费 CPU 驱动交付的提交函数。
+Koakuma 直接满足 `MTPExecutor` 协议。`ExecutionFrame`、`FrameSpec` 与 `MTPExecutionContext` 都要求显式提交函数和策略，`FrameExecutionPolicy` 要求显式动词集合；不存在缺省放行。帧未覆盖迭代上限时由门面从 runtime 配置统一取值。写入意图登记、完整引用解析、原子与 Profile 缓存由 workspace 持有，执行层只消费 CPU 驱动交付的线程句柄（提交函数）。
 
 当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, generation_options, output_sink)`，`output_sink` 必填。帧生成总是流式：自然语言增量逐条送达 sink，不需要增量的调用方由 sink 自行丢弃；Agent Runtime 不接收 generation mode。这样同一帧只有一种模型调用形态，模型无文本、停止时的部分输出等语义不随调用方变化。Agent Runtime 不接收 Chat Run 取消句柄，也不轮询取消状态；外层 task cancellation 直接沿 await 传播。
 
@@ -63,7 +63,7 @@ ExecutionFrame
   ├─ working_history[]
   ├─ resolved_model（生成参数、展示名、input_token_limit 的解析快照）
   ├─ topic_id | None
-  ├─ submit_operation（本帧所属线程的提交函数）
+  ├─ submit_operation（本帧所属线程的句柄：线程描述与提交函数）
   ├─ language（已解析语言：根帧取自输入清单，子帧由 CALL 编排解析）
   ├─ harvested_aliases[]（本帧收到的 ACK alias）
   └─ ExecutionProgress
@@ -78,7 +78,7 @@ ExecutionFrame
 
 `language` 在创建 frame 时确定，循环把它交给每条指令的 `MTPExecutionContext`，CALL 响应回填同样使用它；执行层不再从 `AgentProfile` 或进程默认值推导语言，使回填文本与提示词始终一致。Profile 只提供模型参数与展示信息。
 
-`RuntimeScope` 的冻结 `ExecutionLabels(agent_id, workspace_id)` 仅用于展示和观测，不携带访问 context、操作身份或资源归属。frame 与 `MTPExecutionContext` 也不暴露 `identity` / `identity_scope` 派生属性。`RuntimeScope` 不表达主/子拓扑、`parent_frame_id` 或 `depth`。Alice 通过无状态 `FrameFactory` 创建普通 frame，并在 `RunSession` 的 frame registry 与 `CallRecord` 中保存调用关系；Agent Runtime 只根据传入 scope 执行该 frame。
+`RuntimeScope` 的冻结 `ExecutionLabels(agent_id, workspace_id)` 取自本帧所属线程的描述（主帧为注册标签，CALL 子帧为被调用方），仅用于展示和观测，不携带访问 context、操作身份或资源归属。frame 与 `MTPExecutionContext` 也不暴露 `identity` / `identity_scope` 派生属性。`RuntimeScope` 不表达主/子拓扑、`parent_frame_id` 或 `depth`。Alice 通过无状态 `FrameFactory` 创建普通 frame，并在 `RunSession` 的 frame registry 与 `CallRecord` 中保存调用关系；Agent Runtime 只根据传入 scope 执行该 frame。
 
 ## 3. 输入上下文与 Prompt 组装
 
@@ -178,7 +178,7 @@ Agent Runtime 不再直接构造 SSE dict，也不依赖名为 EventBus/Sink 的
 - `mtp_start`：Runtime 已识别并准备执行一条指令；
 - `mtp_result`：指令的 success/error/ack/suspend 等状态；
 - 被调用 frame 事件仍使用相同类型，通过 `scope/frame_id/action_id/agent_id` 命名空间区分；为兼容既有 SSE 客户端，Alice 仍可提供 `depth` 展示字段，但它不再参与 Runtime 控制流；
-- frame 展示的 `agent_id` 优先取 Profile 的来源 alias（`AgentProfile.agent_id`），空值回退 `RuntimeScope.labels.agent_id`；
+- frame 展示的 `agent_id` 优先取 Profile 的来源 alias（`AgentProfile.agent_id`），空值回退 `RuntimeScope.labels.agent_id`，即所属线程的标签：子帧回退到被调用方；
 - `context_compaction`：根 frame 创建前的压缩开始与结束统计，不属于帧输出或轮次事实；
 - 终态是 `AgentRunService` 返回的 `CPUExecutionResult`，包括完整检查点，作为 CPU 端口 `execute` 的返回值交回；Alice 不把结果序列化成 `done`。面向 HTTP 的 `done` 由任务进程投影。
 
@@ -242,7 +242,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程
 - `BUDGET_EXHAUSTED` 能区分循环预算耗尽，但当前没有动态扩容、自动任务分解或执行进度恢复策略；
 - 主 run 的失败和预算耗尽都由 Alice 组装为执行结果的 `failed`，它是可观察且稳定的常规终态，不应被改写为 `cancelled`；
 - 未使用 ModelRegistry 时 `model_used` 可能为空，即使生成实际已经使用了调用方提供的模型；
-- 资源操作的提交函数不提供访问 context、Workspace 选择或执行者重新绑定能力；CALL 子帧使用以被调用方身份派生的子线程提交函数；
+- 资源操作的提交函数不提供访问 context、Workspace 选择或执行者重新绑定能力；CALL 子帧持有以被调用方身份派生的子线程句柄，子线程随 CALL 返回结束；
 - 流式取消只能在提供商流的 chunk 或 MTP checkpoint 处生效，不能保证立即中断同步 syscall；
 - 输入预算使用字符估算，不能保证与提供商精确计数一致；没有每 run 的累计费用配额、并发限流或持久化执行检查点；
 - 摘要是有损历史视图，原文仍在会话内；固定样本与 HTTP 验证使用提供商替身，真实 LLM 的事实保留、延迟与成本尚未评估；

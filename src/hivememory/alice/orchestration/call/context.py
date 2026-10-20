@@ -12,8 +12,8 @@ from hivememory.engines.memory_compiler import (
     MemoryEnvelopeTarget,
 )
 from hivememory.workspace.contracts import (
-    Callee,
     DeriveCallThreadRequest,
+    OperationSubmitter,
     ResolveReferencesRequest,
 )
 
@@ -22,9 +22,13 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, slots=True)
 class CallContext:
-    """CALL 的编排上下文：被调用方与调用方共享的上下文，不包含 frame 或 CALL ledger 状态。"""
+    """CALL 的编排上下文：被调用方与调用方共享的上下文，不包含 frame 或 CALL ledger 状态。
 
-    callee: Callee
+    ``callee`` 是子线程的句柄：图纸、操作快照与观测标签都取自它的线程描述，
+    子帧持有它提交操作，CALL 收尾时经它结束子线程。
+    """
+
+    callee: OperationSubmitter
     shared_context: str = ""
 
 
@@ -38,17 +42,22 @@ class CallContextProvider:
     ) -> CallContext:
         """经调用方提交函数派生子线程，再以调用方权限编译共享上下文。
 
-        内置 Profile 同样提交 CALL 目标请求，不能绕过 ``agent.call`` 授权；
+        内置 Profile 同样提交 CALL 派生，不能绕过 ``agent.call`` 授权；
         context_refs 另提交 READ 请求，仍需要 ``memory.read``。错误交给 CALL 响应边界统一呈现，
-        此处不持有另一份 Profile 缓存。
+        此处不持有另一份 Profile 缓存。派生成功之后共享上下文读取失败或被
+        取消时，子帧不会运行，先同步结束子线程再传播。
         """
-        callee = await caller_frame.submit_operation.derive_call_thread(
+        callee = await caller_frame.submit_operation.derive_child(
             DeriveCallThreadRequest(agent_alias=request.target_alias)
         )
-        shared_context = await self._resolve_shared_context(
-            aliases=request.context_refs,
-            caller_frame=caller_frame,
-        )
+        try:
+            shared_context = await self._resolve_shared_context(
+                aliases=request.context_refs,
+                caller_frame=caller_frame,
+            )
+        except BaseException:
+            callee.end()
+            raise
         return CallContext(callee=callee, shared_context=shared_context)
 
     async def _resolve_shared_context(

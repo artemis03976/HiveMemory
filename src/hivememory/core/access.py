@@ -48,7 +48,8 @@ class AccessRunType(str, Enum):
     """访问 context 绑定的运行类型：context 只在绑定的一次运行内有效。
 
     任务进程 context 在注册时签发并绑定 ``process_id``，随进程关闭失效；
-    执行线程 context 从进程 context 派生，随 CPU 执行结束失效；
+    执行线程 context 从进程 context 派生，随线程结束失效（子线程随 CALL 返回，
+    全部线程至迟随 Actor 阶段结束）；
     请求级 context 由入口在请求开始时签发并绑定本次请求，请求结束失效。
     """
 

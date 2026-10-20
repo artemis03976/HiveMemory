@@ -60,7 +60,6 @@ async def test_http_session_resume_after_partial_stop(patchouli_chat_stack):
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
-            threads=access.threads,
             profile_reader=runtime.profiles,
         ),
         threads=access.threads,
@@ -277,7 +276,6 @@ async def test_http_long_session_reuses_compacted_history_and_seals_budget_failu
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
-            threads=access.threads,
             profile_reader=runtime.profiles,
         ),
         threads=access.threads,

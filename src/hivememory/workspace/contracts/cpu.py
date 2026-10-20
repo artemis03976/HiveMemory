@@ -14,10 +14,10 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import SessionCompactionCheckpoint
 from hivememory.workspace.contracts.process import CPUInputManifest
+from hivememory.workspace.contracts.threads import ExecutionThread
 
 
 class CPUExecutionStatus(str, Enum):
@@ -91,20 +91,23 @@ class CPUPort(Protocol):
       CPU 内部各层原样传播取消并完成收尾，只在最外层把取消转换为返回值：
       返回 cancelled 结果，携带已产生的输出与已完成的检查点。没有转换、
       直接传播取消的 CPU 按无输出的取消处理。
+    - 收到取消后的收尾不得依赖 actor 操作，只能用已经产生的内容组装结果：
+      停止被接受时全部线程已经结束，此后的提交都以线程已结束拒绝。
     - CPU 自报的结局经终态结果的 ``status`` 表达；实现抛出普通异常时由进程
       按失败处理，不接受任何候选结果。
     - ``generation_options`` 由各个 CPU 自行解释，进程原样传递。
 
-    ``access`` 是本次主线程的密封线程 context，独立于冻结输入清单。
-    CPU 驱动将它绑定到操作提交函数；操作适配器只构造请求，不取得访问
-    context 或目标 Workspace。CPU 执行结束后同步撤销，后续提交明确拒绝。
+    ``thread`` 是本次的主线程：输入清单回答“处理什么”，线程描述回答“谁来
+    处理”（标识、观测标签、图纸与操作快照）。CPU 驱动把它绑定为主线程的
+    提交函数，执行适配器只经提交函数构造请求，不取得访问 context 或目标
+    Workspace。Actor 阶段结束时全部线程同步结束，后续提交明确拒绝。
     """
 
     async def execute(
         self,
         manifest: CPUInputManifest,
         *,
-        access: WorkspaceAccessContext,
+        thread: ExecutionThread,
         generation_options: dict[str, Any] | None,
         events: CPUEventSink,
     ) -> CPUExecutionResult: ...

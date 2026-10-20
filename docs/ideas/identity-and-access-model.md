@@ -13,7 +13,7 @@ code_paths:
 related_docs:
   - docs/ideas/fifth-generation-architecture.md
   - docs/architecture/workspace.md
-  - docs/ideas/execution-thread-definition.md
+  - docs/archive/ideas/execution-thread-definition.md
   - docs/ideas/execution-environment.md
   - docs/ideas/ae2-hivememory-architecture-analogy.md
   - docs/ideas/pending-intent-migration.md
@@ -47,7 +47,7 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 
 **前提 2**（owner，2026-10-05）：一次操作的发起者与目标分开看待。
 
-- **发起者**是客观事实，由执行单元一侧补全，agent 不在工具调用中声明；当前由发起操作的执行线程给出，见[执行线程 Idea](./execution-thread-definition.md)。
+- **发起者**是客观事实，由执行单元一侧补全，agent 不在工具调用中声明；当前由发起操作的执行线程给出，见 [Workspace 架构](../architecture/workspace.md#43-访问-context密封的运行时凭据)第 4.3 节。
 - **目标 Workspace** 是 agent 的意图：现在由补全的一层给出，只接受驻留 Workspace；实现跨 Workspace 的受限穿透访问后，agent 需要能够自己带上操作目标（T-5b）。
 
 ### T-5b 跨 Workspace 目标的表达形式
@@ -88,7 +88,7 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 |:---|:---|
 | [第五代架构 Idea](./fifth-generation-architecture.md) | 3.5、3.6 的理念；架构级开放问题 P-1、P-4a、P-7、P-8、P-9 |
 | [Workspace 架构](../architecture/workspace.md) | 身份模型与访问边界的当前事实 |
-| [执行线程 Idea](./execution-thread-definition.md) | 操作的发起者由执行线程给出；线程的目标现为驻留 Workspace，跨 Workspace 目标的表达见第 1 节 T-5b |
+| [Workspace 架构](../architecture/workspace.md#43-访问-context密封的运行时凭据)第 4.3 节（已归档的[执行线程 Idea](../archive/ideas/execution-thread-definition.md)） | 操作的发起者由执行线程给出；线程的目标现为驻留 Workspace，跨 Workspace 目标的表达见第 1 节 T-5b |
 | [执行环境 Idea](./execution-environment.md) | 前提 2 与 T-5b 的原所在（2026-10-19 移入本文） |
 | [AE2 Idea](./ae2-hivememory-architecture-analogy.md) | 子网与跨 Workspace 的更完整形态 |
 | [写入意图后续方向 Idea](./pending-intent-migration.md) | 意图可见性与 policy |

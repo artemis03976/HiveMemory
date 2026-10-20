@@ -6,7 +6,7 @@ AgentRunService 集成测试 — 真实 AgentRuntime 装配链协作
 """
 
 import asyncio
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -26,11 +26,32 @@ from hivememory.core.mtp import MTP_STOP_SEQUENCE
 from hivememory.infrastructure.llm.base import LLMCompletion, LLMRequestParams
 from hivememory.workspace.contracts import CPUExecutionStatus
 from tests.helpers.alice import CollectedEvents, build_run_service, run_with_events
-from tests.helpers.chat_handoff import make_input_manifest
+from tests.helpers.call import StubOperationSubmitter
+from tests.helpers.chat_handoff import make_input_manifest, make_thread_descriptor
 from tests.helpers.llm import CallbackLLMService, ScriptedLLMService
 from tests.helpers.outputs import NullRunOutput
 from tests.helpers.sessions import make_conversation_turn
 from tests.helpers.workspace import make_execution_labels
+
+
+def _main(
+    profile=None,
+    *,
+    labels=None,
+    allowed_operations=frozenset(WorkspaceOperation),
+    derive=None,
+    operation=None,
+):
+    """主线程句柄替身：线程描述携带图纸、操作快照与注册标签，缺省与清单的注册标签一致。"""
+    return StubOperationSubmitter(
+        thread=make_thread_descriptor(
+            profile,
+            labels=labels or make_execution_labels(agent_id="omni_doll"),
+            allowed_operations=allowed_operations,
+        ),
+        derive=derive,
+        operation=operation,
+    )
 
 
 @pytest.mark.asyncio
@@ -57,10 +78,10 @@ async def test_session_model_and_output_override_control_budget_and_provider_req
     llm = ScriptedLLMService("完成")
     _, service = build_run_service(config=config, model_registry=registry, llm_service=llm)
     profile = AgentProfile(model_name="unavailable-profile-model", persona="", temperature=0.2)
-    manifest = make_input_manifest(agent_profile=profile, user_message="x" * 2000)
+    manifest = make_input_manifest(user_message="x" * 2000)
 
     rejected = await service.run_agent(
-        manifest, {"model": "small"}, run_output=NullRunOutput(), submit_operation=MagicMock()
+        manifest, {"model": "small"}, run_output=NullRunOutput(), submit_operation=_main(profile)
     )
     assert rejected.failure_reason == "input_too_large"
     assert llm.calls == []
@@ -69,7 +90,7 @@ async def test_session_model_and_output_override_control_budget_and_provider_req
         manifest,
         {"model": "small", "max_tokens": 100},
         run_output=NullRunOutput(),
-        submit_operation=MagicMock(),
+        submit_operation=_main(profile),
     )
     assert completed.status == "completed"
     assert completed.final_text == "完成"
@@ -88,10 +109,10 @@ async def test_session_model_and_output_override_control_budget_and_provider_req
 
 @pytest.mark.asyncio
 async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(tmp_path):
-    """子帧按自己的小窗口被拦截，父帧收到 CALL 错误后继续完成。"""
+    """子帧按自己的小窗口被拦截，父帧收到 CALL 错误后继续完成；拦截事件报告被调用方。"""
     from hivememory.core.models.model_definition import ModelDefinition
     from hivememory.system.model_registry import ModelRegistry
-    from tests.helpers.call import StubOperationSubmitter, make_callee
+    from tests.helpers.call import make_callee
 
     registry = ModelRegistry(registry_path=tmp_path / "models.yaml")
     for name, window in [("parent", 10000), ("child", 200)]:
@@ -114,15 +135,16 @@ async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(tm
     )
 
     async def derive(_request):
-        return make_callee(AgentProfile(model_name="child", persona="x" * 1000))
+        return make_callee(AgentProfile(agent_id="helper", model_name="child", persona="x" * 1000))
 
     result = await service.run_agent(
-        make_input_manifest(
-            agent_profile=AgentProfile(model_name="parent", persona=""),
-            allowed_operations=frozenset({WorkspaceOperation.AGENT_CALL}),
-        ),
+        make_input_manifest(),
         run_output=NullRunOutput(),
-        submit_operation=StubOperationSubmitter(derive=derive),
+        submit_operation=_main(
+            AgentProfile(model_name="parent", persona=""),
+            allowed_operations=frozenset({WorkspaceOperation.AGENT_CALL}),
+            derive=derive,
+        ),
     )
     assert (result.status, result.final_text) == ("completed", "父帧完成")
     call_result = next(e for e in result.turn_events if e.kind == "tool_result")
@@ -131,22 +153,19 @@ async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(tm
     assert [call.params.model for call in llm.calls] == ["provider/parent", "provider/parent"]
     (guard,) = [e for e in recorder.events if e.event_type == "agent.context.budget_exceeded"]
     assert guard.data["input_token_limit"] == 100
+    assert guard.agent_id == "helper"
     assert recorder.events[-1].event_type == "agent.run.completed"
 
 
 def _build_input_manifest(
     *,
     labels=None,
-    agent_profile=None,
     instructions: str = "",
     process_id: str = "process-test",
-    allowed_operations: frozenset[WorkspaceOperation] = frozenset(WorkspaceOperation),
 ):
     return make_input_manifest(
         labels=labels or make_execution_labels(agent_id="omni_doll"),
-        agent_profile=agent_profile,
         instructions=instructions,
-        allowed_operations=allowed_operations,
         process_id=process_id,
         topic_id="topic_1",
         user_message="hello",
@@ -177,7 +196,7 @@ async def test_run_agent_passes_input_and_submitter_to_root_frame():
         }
     )
     seen = []
-    submit_operation = MagicMock()
+    submit_operation = _main()
 
     async def run_frame(frame, **_kwargs):
         seen.append(frame)
@@ -198,28 +217,26 @@ async def test_run_agent_passes_input_and_submitter_to_root_frame():
 
 
 @pytest.mark.asyncio
-async def test_root_policy_and_prompt_follow_manifest_operations():
-    """根 frame 的策略与教学由清单的操作快照翻译，系统工具菜单不受操作集合裁剪。"""
+async def test_root_policy_and_prompt_follow_main_thread_operations():
+    """根 frame 的策略与教学由主线程描述的操作快照翻译，系统工具菜单不受操作集合裁剪。"""
     runtime, service = build_run_service()
-    manifest = _build_input_manifest(
-        allowed_operations=frozenset(
-            {WorkspaceOperation.MEMORY_READ, WorkspaceOperation.AGENT_CALL}
-        ),
-        agent_profile=AgentProfile(persona="执行人设"),
-        instructions="### 角色设定 ###\n\n执行人设",
-    )
+    manifest = _build_input_manifest(instructions="### 角色设定 ###\n\n执行人设")
     seen = []
 
     async def run_frame(frame, **_kwargs):
         seen.append(frame)
         return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
 
-    async def submit_operation(_request):
-        raise AssertionError("本场景不应提交资源操作")
-
     runtime.run_frame = run_frame
     result = await service.run_agent(
-        manifest, run_output=NullRunOutput(), submit_operation=submit_operation
+        manifest,
+        run_output=NullRunOutput(),
+        submit_operation=_main(
+            AgentProfile(persona="执行人设"),
+            allowed_operations=frozenset(
+                {WorkspaceOperation.MEMORY_READ, WorkspaceOperation.AGENT_CALL}
+            ),
+        ),
     )
     assert result.status == "completed"
 
@@ -250,16 +267,14 @@ async def test_registered_labels_drive_runtime_events_and_profile_controls_strea
     _runtime, service = build_run_service(
         runtime_events=recorder, llm_service=CallbackLLMService(stream=chunks)
     )
-    manifest = _build_input_manifest(
-        labels=make_execution_labels(
-            agent_id="registered_agent", workspace_id="isolation_workspace"
-        ),
-        agent_profile=AgentProfile(agent_id=profile_agent_id),
-        process_id="interaction-isolation",
-    )
+    labels = make_execution_labels(agent_id="registered_agent", workspace_id="isolation_workspace")
+    manifest = _build_input_manifest(labels=labels, process_id="interaction-isolation")
 
     result, events = await run_with_events(
-        service, manifest, {"model": "test-model"}, submit_operation=MagicMock()
+        service,
+        manifest,
+        {"model": "test-model"},
+        submit_operation=_main(AgentProfile(agent_id=profile_agent_id), labels=labels),
     )
 
     assert [event["event"] for event in events] == ["token"]
@@ -290,7 +305,7 @@ async def test_run_agent_correlates_runtime_scope_and_process_id():
         return session
 
     service._create_run_session = _capture_session
-    await service.run_agent(context, run_output=NullRunOutput(), submit_operation=MagicMock())
+    await service.run_agent(context, run_output=NullRunOutput(), submit_operation=_main())
 
     session = created_sessions[0]
     assert session.process_id == "process-1"
@@ -305,9 +320,7 @@ async def test_run_agent_failed_result_emits_failed_runtime_event():
     context = _build_input_manifest()
     _stub_terminal_execution(runtime, FrameExecutionStatus.FAILED)
 
-    result = await service.run_agent(
-        context, run_output=NullRunOutput(), submit_operation=MagicMock()
-    )
+    result = await service.run_agent(context, run_output=NullRunOutput(), submit_operation=_main())
 
     assert result.status == CPUExecutionStatus.FAILED.value
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
@@ -329,7 +342,7 @@ async def test_cancelled_run_returns_cancelled_result_and_publishes_cancelled_ev
     runtime.run_frame = _run_frame
     events = CollectedEvents()
     run = asyncio.create_task(
-        run_with_events(service, context, submit_operation=MagicMock(), events=events)
+        run_with_events(service, context, submit_operation=_main(), events=events)
     )
     await events.wait_for(lambda event: event["event"] == "token")
     run.cancel()
@@ -353,7 +366,7 @@ async def test_run_agent_error_publishes_failed_runtime_event():
     runtime.run_frame = AsyncMock(side_effect=RuntimeError("network unavailable"))
 
     with pytest.raises(RuntimeError, match="network unavailable"):
-        await run_with_events(service, context, submit_operation=MagicMock())
+        await run_with_events(service, context, submit_operation=_main())
 
     assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
     assert recorder.events[-1].status == "failed"
@@ -389,7 +402,7 @@ async def test_terminal_result_carries_turn_facts_and_event_keeps_iteration_stat
     runtime.run_frame = _scripted_run_frame
 
     result, _ = await run_with_events(
-        service, _build_input_manifest(process_id="process-unified"), submit_operation=MagicMock()
+        service, _build_input_manifest(process_id="process-unified"), submit_operation=_main()
     )
 
     assert result.status == CPUExecutionStatus.COMPLETED.value
@@ -430,7 +443,7 @@ async def test_native_cancellation_returns_partial_text_and_completed_checkpoint
     _runtime, service = build_run_service(
         config=config, llm_service=CallbackLLMService(complete=summarize, stream=partial_answer)
     )
-    run = asyncio.create_task(run_with_events(service, manifest, submit_operation=MagicMock()))
+    run = asyncio.create_task(run_with_events(service, manifest, submit_operation=_main()))
     await entered.wait()
     run.cancel()
     result, events = await run
@@ -454,7 +467,7 @@ async def test_native_cancellation_returns_partial_text_and_completed_checkpoint
 @pytest.mark.asyncio
 async def test_cancel_in_call_keeps_root_call_without_child_partial_text():
     """子帧中断时只保存根帧的不完整 CALL，不把尚未回填的子回复写成根回复。"""
-    from tests.helpers.call import StubOperationSubmitter, make_callee
+    from tests.helpers.call import make_callee
 
     calls = 0
     child_entered = asyncio.Event()
@@ -477,7 +490,7 @@ async def test_cancel_in_call_keeps_root_call_without_child_partial_text():
         run_with_events(
             service,
             _build_input_manifest(),
-            submit_operation=StubOperationSubmitter(derive=derive),
+            submit_operation=_main(derive=derive),
         )
     )
     await child_entered.wait()
@@ -490,6 +503,10 @@ async def test_cancel_in_call_keeps_root_call_without_child_partial_text():
         ("tool_call", "CALL"),
     ]
     assert result.has_output is True
+
+
+#: 压缩用例的执行图纸：英文、无人设；随主线程描述交给 CPU。
+_COMPACTION_PROFILE = AgentProfile(persona="", language="en")
 
 
 def _compaction_inputs(*, compressible=True):
@@ -522,7 +539,6 @@ def _compaction_inputs(*, compressible=True):
         ),
     )
     manifest = make_input_manifest(
-        agent_profile=AgentProfile(persona="", language="en"),
         language="en",
         user_message="next",
         session_history=(turn,),
@@ -544,7 +560,9 @@ async def test_compaction_reaches_generation_and_returns_checkpoint_without_reco
     config, manifest = _compaction_inputs()
     recorder = RecordingRuntimeEventSink()
     _, service = build_run_service(config=config, runtime_events=recorder, llm_service=llm)
-    result, events = await run_with_events(service, manifest, submit_operation=MagicMock())
+    result, events = await run_with_events(
+        service, manifest, submit_operation=_main(_COMPACTION_PROFILE)
+    )
     progress = [event for event in events if event["event"] == "context_compaction"]
     assert [event["data"]["status"] for event in progress] == ["started", "completed"]
     assert [event["data"]["stream_sequence"] for event in events] == list(range(len(events)))
@@ -583,7 +601,9 @@ async def test_uncompressible_history_fails_without_output_and_keeps_reduction_c
     config, manifest = _compaction_inputs(compressible=False)
     recorder = RecordingRuntimeEventSink()
     _, service = build_run_service(config=config, runtime_events=recorder, llm_service=llm)
-    result, events = await run_with_events(service, manifest, submit_operation=MagicMock())
+    result, events = await run_with_events(
+        service, manifest, submit_operation=_main(_COMPACTION_PROFILE)
+    )
     assert [event["event"] for event in events] == [
         "context_compaction",
         "context_compaction",
@@ -614,7 +634,9 @@ async def test_cancel_at_compaction_progress_returns_only_completed_checkpoint(c
         and event["data"]["status"] == cancelled_at
     )
     run = asyncio.create_task(
-        run_with_events(service, manifest, submit_operation=MagicMock(), events=events)
+        run_with_events(
+            service, manifest, submit_operation=_main(_COMPACTION_PROFILE), events=events
+        )
     )
     await events.wait_for(lambda event: event["data"].get("status") == cancelled_at)
     run.cancel()
@@ -660,7 +682,9 @@ async def test_cancellation_during_summary_propagates_without_partial_checkpoint
     )
     events = CollectedEvents()
     run = asyncio.create_task(
-        run_with_events(service, manifest, submit_operation=MagicMock(), events=events)
+        run_with_events(
+            service, manifest, submit_operation=_main(_COMPACTION_PROFILE), events=events
+        )
     )
     await entered.wait()
     run.cancel()
@@ -684,7 +708,9 @@ async def test_abandoned_summary_still_generates_from_reduced_view_if_it_fits():
     config, manifest = _summary_inputs()
     recorder = RecordingRuntimeEventSink()
     _, service = build_run_service(config=config, runtime_events=recorder, llm_service=llm)
-    result, events = await run_with_events(service, manifest, submit_operation=MagicMock())
+    result, events = await run_with_events(
+        service, manifest, submit_operation=_main(_COMPACTION_PROFILE)
+    )
     assert events[1]["data"]["status"] == "abandoned"
     assert events[1]["data"]["layer"] == "summary"
     assert result.status == "completed"

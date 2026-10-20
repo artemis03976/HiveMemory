@@ -57,7 +57,12 @@ type _PreparationResult = ExecutionFrame | MTPCallResponse
 
 
 class CallCoordinator:
-    """把 CALL suspension 转换为 callee dispatch 或 caller resume。"""
+    """把 CALL suspension 转换为 callee dispatch 或 caller resume。
+
+    子线程随 CALL 返回结束：子帧以任何终态收尾（:meth:`complete_call`）、
+    取消沿递归栈清理 CALL（:meth:`cancel_call`），以及派生成功之后、子帧开始
+    运行之前的任何失败，都经子线程句柄同步结束子线程。主线程不由 Alice 结束。
+    """
 
     def __init__(
         self,
@@ -101,8 +106,12 @@ class CallCoordinator:
 
         match prepared:
             case ExecutionFrame() as callee_frame:
-                # 会话绑定失败属于编排不变量违规。
-                session.register_callee_frame(callee_frame, record)
+                # 会话绑定失败属于编排不变量违规；子帧不会运行，先结束子线程。
+                try:
+                    session.register_callee_frame(callee_frame, record)
+                except BaseException:
+                    callee_frame.submit_operation.end()
+                    raise
                 await run_output.call_started(
                     CallOutputStarted(
                         agent_id=call_request.target_alias,
@@ -147,12 +156,13 @@ class CallCoordinator:
                 logger.error("CALL context preparation failed", exc_info=True)
             return response
 
+        callee = call_context.callee
         try:
-            callee = call_context.callee
-            sub_profile: AgentProfile = callee.agent_profile
+            thread = callee.thread
+            sub_profile: AgentProfile = thread.agent_profile
             # 子帧按被调用方的操作快照生成策略；仍禁止递归 CALL。
             policy = FrameExecutionPolicy.from_verbs(
-                mtp_verbs_for_operations(callee.allowed_operations),
+                mtp_verbs_for_operations(thread.allowed_operations),
                 denied_verbs={"CALL"},
             )
             # 子帧语言只解析一次：提示词与执行期的 MTP 回填使用同一值。
@@ -164,8 +174,9 @@ class CallCoordinator:
                 shared_context=call_context.shared_context,
                 permitted_verbs=policy.permitted_verbs,
             )
+            # 子帧的观测标签取子线程自己的身份，不沿用调用方。
             scope = self._frame_factory.scope(
-                labels=caller_frame.runtime_scope.labels,
+                labels=thread.labels,
                 run_id=caller_frame.runtime_scope.run_id,
             )
             return self._frame_factory.create(
@@ -175,7 +186,7 @@ class CallCoordinator:
                     messages=messages,
                     topic_id=None,
                     execution_policy=policy,
-                    submit_operation=callee.submit_operation,
+                    submit_operation=callee,
                     language=language,
                 )
             )
@@ -186,6 +197,7 @@ class CallCoordinator:
                 error,
                 exc_info=True,
             )
+            callee.end()
             return preparation_error_response(call_request.target_alias, error)
 
     def _build_callee_messages(
@@ -226,7 +238,12 @@ class CallCoordinator:
         generation_options: dict[str, Any] | None = None,
         run_output: AgentRunOutput,
     ) -> CallCompletionResult:
-        """把 callee outcome 收口为 caller 可消费的 CALL response。"""
+        """把 callee outcome 收口为 caller 可消费的 CALL response。
+
+        子帧已经结束运行，先同步结束子线程：此后以它的句柄提交都以线程已
+        结束拒绝，子线程已提交的写入不受影响。
+        """
+        callee_frame.submit_operation.end()
         call = suspension.require_call_suspension()
         call_request = call.call_request
         action_id = call.action_id
@@ -273,7 +290,11 @@ class CallCoordinator:
         *,
         session: RunSession,
     ) -> None:
-        """协程取消时收尾未 apply 的 CALL，并回填 cancelled response。"""
+        """协程取消时收尾未 apply 的 CALL，回填 cancelled response，并结束子线程。
+
+        子线程的结束是同步调用，不在取消收尾中引入新的挂起点；子帧的在途操作
+        已随取消中断，已登记的写入不受影响。
+        """
         action_id = suspension.require_call_suspension().action_id
         record = session.require_call(caller_frame, action_id)
         if record.status in {CallRecordStatus.APPLIED, CallRecordStatus.CANCELLED}:
@@ -295,6 +316,8 @@ class CallCoordinator:
         if record.status == CallRecordStatus.RESOLVING:
             record.mark_resolved()
         record.cancel()
+        if record.callee_frame_id is not None:
+            session.frames[record.callee_frame_id].submit_operation.end()
 
     async def _commit_response(
         self,

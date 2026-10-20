@@ -142,7 +142,7 @@ async def test_process_terminal_status_preserves_dispatched_intents(status):
             ResolveReferencesRequest(aliases=(other.pending_alias,)),
         ):
             with pytest.raises(ThreadEndedError):
-                await cpu.operation_entry.execute(request, access=cpu.calls[0].access)
+                await cpu.operation_entry.execute(request, access=cpu.calls[0].thread.access)
         assert runtime.intents.size == 2
     finally:
         runtime.close()
@@ -177,12 +177,8 @@ async def test_main_and_child_thread_writes_record_their_own_thread_ids():
 
     async def write_from_both_threads(submit):
         submitted.append(await submit(SubmitWriteIntentRequest(focus=WriteFocus(content="主线程"))))
-        callee = await submit.derive_call_thread(DeriveCallThreadRequest("worker"))
-        submitted.append(
-            await callee.submit_operation(
-                SubmitWriteIntentRequest(focus=WriteFocus(content="子线程"))
-            )
-        )
+        callee = await submit.derive_child(DeriveCallThreadRequest("worker"))
+        submitted.append(await callee(SubmitWriteIntentRequest(focus=WriteFocus(content="子线程"))))
 
     async def gateway(**_kwargs):
         return GatewayDecisionOutcome(decision=make_gateway_decision())
@@ -420,7 +416,7 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
         assert runtime.intents.size == 0
         with pytest.raises(ThreadEndedError):
             await cpu.operation_entry.execute(
-                ResolveReferencesRequest(aliases=("base",)), access=cpu.calls[0].access
+                ResolveReferencesRequest(aliases=("base",)), access=cpu.calls[0].thread.access
             )
     finally:
         await stream.aclose()

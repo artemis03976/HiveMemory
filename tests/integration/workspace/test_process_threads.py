@@ -8,7 +8,7 @@ from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.access import RunBinding, WorkspaceOperation
 from hivememory.core.errors import AdmissionDeniedError, ScopeRequiredError, ThreadEndedError
-from hivememory.core.models import AgentProfile
+from hivememory.core.models import AgentProfile, ExecutionLabels
 from hivememory.workspace.process.events import TaskProcessEventEmitter
 from hivememory.workspace.process.table import ProcessPhase, ProcessRecord, ProcessTable
 from hivememory.workspace.process.task_process import ProcessRequest, TaskProcess
@@ -67,7 +67,7 @@ async def make_process_threads():
     table = ProcessTable()
     process = await make_process(access, table)
     threads = ProcessThreads(table, lifecycle=access.gateway, authorizer=access.authorizer)
-    main = threads.derive_main(process)
+    main = threads.derive_main(process, profile_of("test_agent")).access
     return SimpleNamespace(access=access, table=table, process=process, threads=threads, main=main)
 
 
@@ -77,16 +77,28 @@ def registered(process):
 
 
 @pytest.mark.asyncio
-async def test_derivation_registers_threads_in_order_with_callee_snapshots():
-    """主线程与子线程依次登记；子线程标识按派生顺序分配，快照按被调用方的精确登记读取。"""
+async def test_derivation_registers_threads_in_order_with_their_own_descriptors():
+    """主线程与子线程依次登记，各自的线程描述取自己的身份。
+
+    子线程标识按派生顺序分配，快照按被调用方的精确登记读取；主线程标签是注册
+    标签，子线程标签是被调用方与注册时的 workspace。
+    """
     chain = await make_process_threads()
     process, threads, main = chain.process, chain.threads, chain.main
     first = threads.derive_child(parent=main, profile=profile_of("worker"))
     second = threads.derive_child(parent=main, profile=profile_of("other"))
 
-    assert first.agent_profile.agent_id == "worker"
-    assert first.allowed_operations == frozenset({WorkspaceOperation.MEMORY_WRITE})
-    assert second.allowed_operations == frozenset({WorkspaceOperation.MEMORY_READ})
+    main_descriptor = process.threads.get("main").descriptor
+    assert main_descriptor.labels == process.record.events.labels
+    assert main_descriptor.agent_profile == profile_of("test_agent")
+    assert main_descriptor.allowed_operations == frozenset({WorkspaceOperation.MEMORY_READ})
+    assert first.descriptor.thread_id == "child-1"
+    assert first.descriptor.agent_profile.agent_id == "worker"
+    assert first.descriptor.labels == ExecutionLabels(
+        agent_id="worker", workspace_id=main_descriptor.labels.workspace_id
+    )
+    assert first.descriptor.allowed_operations == frozenset({WorkspaceOperation.MEMORY_WRITE})
+    assert second.descriptor.allowed_operations == frozenset({WorkspaceOperation.MEMORY_READ})
     assert registered(process) == [
         ("main", None, ThreadState.RUNNING),
         ("child-1", "main", ThreadState.RUNNING),
@@ -128,7 +140,7 @@ async def test_main_thread_is_derived_only_once_per_process():
     chain = await make_process_threads()
     before = registered(chain.process)
     with pytest.raises(ScopeRequiredError, match="已经登记"):
-        chain.threads.derive_main(chain.process)
+        chain.threads.derive_main(chain.process, profile_of("test_agent"))
     assert registered(chain.process) == before
 
 
@@ -209,7 +221,7 @@ async def test_thread_of_another_process_cannot_derive_into_it():
     """线程只属于自己的进程：另一进程的主线程派生只登记到它自己的线程表。"""
     chain = await make_process_threads()
     other = await make_process(chain.access, chain.table, process_id="q")
-    other_main = chain.threads.derive_main(other)
+    other_main = chain.threads.derive_main(other, profile_of("test_agent")).access
 
     child = chain.threads.derive_child(parent=other_main, profile=profile_of("worker"))
 
@@ -257,3 +269,60 @@ async def test_failed_derivation_leaves_no_registration_or_valid_credential():
     assert access.gateway.describe_context(issued) is None
     threads.derive_child(parent=main, profile=profile_of("worker"))
     assert [t.thread_id for t in process.threads.snapshot()] == ["main", "child-1"]
+
+
+@pytest.mark.asyncio
+async def test_end_child_ends_only_that_child_idempotently():
+    """CALL 返回时结束子线程：撤销其凭据并记为结束，之后解析与重复结束分别拒绝与空操作。
+
+    主线程与其他子线程不受影响；标识不复用。
+    """
+    chain = await make_process_threads()
+    first = chain.threads.derive_child(parent=chain.main, profile=profile_of("worker"))
+    second = chain.threads.derive_child(parent=chain.main, profile=profile_of("other"))
+
+    chain.threads.end_child(first.access)
+    chain.threads.end_child(first.access)
+
+    assert registered(chain.process) == [
+        ("main", None, ThreadState.RUNNING),
+        ("child-1", "main", ThreadState.ENDED),
+        ("child-2", "main", ThreadState.RUNNING),
+    ]
+    assert chain.access.gateway.describe_context(first.access) is None
+    with pytest.raises(ThreadEndedError):
+        chain.threads.resolve(first.access)
+    assert chain.threads.resolve(second.access).thread_id == "child-2"
+    third = chain.threads.derive_child(parent=chain.main, profile=profile_of("worker"))
+    assert third.descriptor.thread_id == "child-3"
+
+
+@pytest.mark.asyncio
+async def test_end_child_after_stop_still_revokes_child_credential():
+    """停止被接受后线程已视为结束，CPU 的结束照常撤销子线程凭据，不按存活拒绝。"""
+    chain = await make_process_threads()
+    child = chain.threads.derive_child(parent=chain.main, profile=profile_of("worker"))
+    chain.process.record.request_stop()
+
+    chain.threads.end_child(child.access)
+
+    assert chain.access.gateway.describe_context(child.access) is None
+    assert chain.process.threads.get("child-1").state is ThreadState.ENDED
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "target",
+    [
+        pytest.param(lambda chain: chain.main, id="main-thread"),
+        pytest.param(unregistered_context, id="unregistered"),
+    ],
+)
+async def test_end_child_rejects_main_thread_and_unregistered_context(target):
+    """CPU 不能结束主线程，也不能结束未登记的 context：都属于接线缺陷，登记不变。"""
+    chain = await make_process_threads()
+    before = registered(chain.process)
+    with pytest.raises(ScopeRequiredError):
+        chain.threads.end_child(target(chain))
+    assert registered(chain.process) == before
+    assert chain.threads.resolve(chain.main).thread_id == "main"

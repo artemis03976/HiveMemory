@@ -22,18 +22,18 @@ last_reviewed: 2026-10-19
 
 MTP `WRITE` / `UPDATE` 已被生成队列接纳、正式记忆尚未完成提取、去重、合并与持久化时，Agent 仍需要能够检查或引用刚提出的内容。PendingAtom 保留写入意图，以 pending alias 提供可读句柄，使 Agent 无需等待完整生成即可继续推理。ACK 表示登记与队列接纳都已成功，正式记忆仍由 Patchouli 异步生成；后续运行失败或取消不撤回已接纳的写入。
 
-写入意图现在由 workspace 的进程级 `WriteIntentRegistry` 持有，正式 MemoryAtom 与物化决策由 Patchouli 持有。Alice 通过 CPU 驱动以线程 context 绑定的 `submit_operation` 提交和读取意图，负责把结果映射为 MTP 响应，不保存第二份登记、状态机、原子缓存或结算投影。登记模型、状态迁移、Workspace 回读范围、redirect 授权和缓存失效的唯一详细入口是 [Workspace 架构](../architecture/workspace.md)。
+写入意图现在由 workspace 的进程级 `WriteIntentRegistry` 持有，正式 MemoryAtom 与物化决策由 Patchouli 持有。Alice 通过 CPU 驱动绑定的线程句柄 `submit_operation` 提交和读取意图，负责把结果映射为 MTP 响应，不保存第二份登记、状态机、原子缓存或结算投影。登记模型、状态迁移、Workspace 回读范围、redirect 授权和缓存失效的唯一详细入口是 [Workspace 架构](../architecture/workspace.md)。
 
 ## 1. WRITE 与 UPDATE 的交付边界
 
-`AliceCPU.execute(..., access=...)` 在 CPU 驱动内绑定主线程的线程 context，把 `submit_operation(request)` 交给统一执行路由。AgentRunService 将它交给 root frame 与 root 的每条 `MTPExecutionContext`；CALL 子帧使用 CPU 驱动为子线程绑定的另一个提交函数。请求只携带操作参数；`WorkspaceOperationEntry` 只接受线程 context，actor API 以其驻留 Workspace 为目标逐次授权，意图的 process ID 取自线程 context 的运行绑定。执行者不能选择目标或另交访问 context。
+`AliceCPU.execute(..., thread=...)` 在 CPU 驱动内把主线程绑定为线程句柄，把 `submit_operation(request)` 交给统一执行路由。AgentRunService 将它交给 root frame 与 root 的每条 `MTPExecutionContext`；CALL 子帧使用子线程自己的句柄。请求只携带操作参数；`WorkspaceOperationEntry` 只接受存活线程的 context，actor API 以其驻留 Workspace 为目标逐次授权，意图的 process ID 与线程标识取自线程表的解析。执行者不能选择目标或另交访问 context。
 
 Koakuma 保留协议参数、frame 动词集合检查和错误格式化职责：
 
 - WRITE 校验内容并构造 `WriteFocus`，提交 `SubmitWriteIntentRequest`；生成队列接纳后返回的 alias 进入 `ack` 文案。
 - UPDATE 校验单 alias 与 instruction，提交 `SubmitUpdateIntentRequest`；可信基础 UUID 的解析、pending/缺失基础拒绝、登记、基础原子缓存失效与实时派发由能力层完成。
 - 能力层的 pending 基础拒绝与缺失基础分别映射为既有 MTP 参数错误和 alias 不存在错误；操作授权拒绝映射为 MTP 权限错误。
-- CPU 执行结束（或进程提前关闭）时同步撤销线程 context，后续请求以 `ThreadContextRevokedError` 拒绝，Alice 以结构化系统错误回填；task cancellation 继续原样传播。
+- 线程结束（子线程随 CALL 返回、进程收到停止、Actor 阶段结束或进程提前关闭）后，后续请求以 `ThreadEndedError` 拒绝，Alice 以结构化系统错误回填；task cancellation 继续原样传播。
 
 这些动作均不在 Koakuma 内创建、修订或持久化正式 MemoryAtom。完整响应语义见 [MTP 契约](../contracts/mtp.md)。
 
@@ -51,7 +51,7 @@ Agent loop 只在收到 WRITE/UPDATE ACK 时把 alias 去重记入当前 frame �
 
 CALL 的 alias 回填只服务于父 Agent 的当前认知。物化任务不从这些 alias 反推：workspace actor API 在每次 WRITE/UPDATE 内登记并提交 `MemoryIntent`，Patchouli 意图服务构造内部生成任务。`CPUExecutionResult` 与 `InteractionPayload` 都不承载物化任务，AgentRuntime 与 RunExecutor 不管理登记收尾。
 
-CPU 执行结束时任务进程同步撤销全部线程 context；进程关闭先兜底撤销并释放附件租借，再等待 prepare cleanup。WRITE/UPDATE 在登记前同步复查线程；UPDATE 基础冷读跨越撤销时不登记。开始派发后，actor API 屏蔽调用方取消并持有提交任务至结束，再传播取消。主、子帧以各自提交函数授权，但都使用同一进程的真实话题，CPU 或 CALL 失败均不撤回已派发写入。明确拒绝得到结构化错误并标为 FAILED，未知结果保持 MATERIALIZING；结算事件由 workspace 登记订阅，Alice 不订阅它们。Patchouli 的生成、结算与持久化边界见[生成与物化](../patchouli/generation.md)。
+Actor 阶段结束时任务进程同步结束全部线程，子线程也可能已随 CALL 返回结束；进程关闭先兜底结束线程并释放附件租借，再等待 prepare cleanup。WRITE/UPDATE 在登记前的同步段解析一次线程；UPDATE 基础冷读跨越线程结束或停止时不登记。开始派发后，actor API 屏蔽调用方取消并持有提交任务至结束，再传播取消。主、子帧以各自线程的句柄授权，但都使用同一进程的真实话题，CPU 或 CALL 失败、子线程结束均不撤回已派发写入。明确拒绝得到结构化错误并标为 FAILED，未知结果保持 MATERIALIZING；结算事件由 workspace 登记订阅，Alice 不订阅它们。Patchouli 的生成、结算与持久化边界见[生成与物化](../patchouli/generation.md)。
 
 ## 4. 不变量与限制
 

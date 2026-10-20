@@ -110,7 +110,6 @@ async def chain():
         agent=ActorAgentService(
             operation_authorizer=composition.authorizer,
             profile_reader=runtime.profiles,
-            threads=composition.threads,
         ),
         threads=composition.threads,
     )

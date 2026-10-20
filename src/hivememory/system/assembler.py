@@ -128,7 +128,7 @@ class _ProcessFacilitiesBundle:
     """任务进程的共享设施：进程表与进程线程管理。
 
     进程表同时交给注册入口与线程管理；线程管理在能力层之前构建，作为执行
-    线程的唯一入口（解析与 CALL 子线程派生）注入操作入口与 actor API。
+    线程的唯一入口（解析、CALL 子线程的派生与结束）注入操作入口与 actor API。
     """
 
     process_table: ProcessTable
@@ -436,7 +436,6 @@ class SystemAssembler:
         agent = ActorAgentService(
             operation_authorizer=access_control.operation_authorizer,
             profile_reader=runtime.workspace_runtime.profiles,
-            threads=processes.process_threads,
         )
         operations = WorkspaceOperationEntry(
             memory,

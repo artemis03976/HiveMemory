@@ -9,6 +9,7 @@ from hivememory.alice.context.view import CompactionFailedError, SessionContextV
 from hivememory.alice.events import BoundAgentRunEvents
 from hivememory.config.alice import CompactionConfig, KoakumaConfig
 from hivememory.core.errors import ModelNotFoundError
+from hivememory.core.models import AgentProfile
 from hivememory.core.protocol.models import SessionCompactionCheckpoint
 from hivememory.prompts.mtp import render_mtp_teaching
 from hivememory.workspace.contracts import CPUInputManifest
@@ -44,14 +45,19 @@ class RootContextBuilder:
         self,
         manifest: CPUInputManifest,
         *,
+        agent_profile: AgentProfile,
         permitted_verbs: frozenset[str],
         generation_options: dict[str, Any] | None,
         events: BoundAgentRunEvents,
         output: ContextProgressOutput,
     ) -> None:
-        """模型与预算先于视图组装；可预期的输入失败留给运行层形成终态。"""
+        """模型与预算先于视图组装；可预期的输入失败留给运行层形成终态。
+
+        ``agent_profile`` 是主线程描述中的图纸，只用于解析模型；历史中的当前
+        Agent 仍取清单的注册标签。
+        """
         try:
-            self.model = self._runtime.resolve_model(manifest.agent_profile, generation_options)
+            self.model = self._runtime.resolve_model(agent_profile, generation_options)
             # 工具教学属于 Alice；语言沿用进程的解析结果，不能重新读取默认语言。
             mtp_prompt = render_mtp_teaching(
                 self._koakuma_config,

@@ -107,7 +107,6 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
         ),
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
-            threads=access.threads,
             profile_reader=runtime.profiles,
         ),
         threads=access.threads,
@@ -330,7 +329,6 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
         agent=ActorAgentService(
             operation_authorizer=access.authorizer,
             profile_reader=runtime.profiles,
-            threads=access.threads,
         ),
         threads=access.threads,
     )

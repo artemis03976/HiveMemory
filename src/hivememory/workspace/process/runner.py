@@ -31,7 +31,7 @@ from hivememory.components.trace_context import (
     set_trace_context,
 )
 from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
-from hivememory.core.models import IdentityScope, WorkspaceIdentity
+from hivememory.core.models import AgentProfile, IdentityScope, WorkspaceIdentity
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode, GatewaySessionTurn
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.gateway.contracts import GatewayPublicRoutes
@@ -276,11 +276,13 @@ class TaskProcessRunner:
             return CommandCompleted(command_result)
 
         # ---- prepare 与 CPU 分配：不可中断，进入 Actor 前统一检查 stop ----
-        prepared, manifest = await self._prepare_and_allocate(process, gateway_result.decision)
+        prepared, agent_profile, manifest = await self._prepare_and_allocate(
+            process, gateway_result.decision
+        )
         await process.outputs.send(InputsAllocated(prepared=prepared))
 
         # ---- Actor 执行：可被 stop 中断；交互事件经输出通道逐条转交 ----
-        execution_result = await self._run_actor(process, manifest)
+        execution_result = await self._run_actor(process, manifest, agent_profile)
         # 交付方离开或系统关闭时丢弃本轮；用户停止晚于 CPU 终态时沿用 CPU
         # 的结局，不把完整回复改记为 cancelled。
         if record.discards_output:
@@ -304,9 +306,9 @@ class TaskProcessRunner:
         return RunCompleted(execution_result=execution_result, topic_id=topic_id)
 
     async def _run_actor(
-        self, process: TaskProcess, manifest: CPUInputManifest
+        self, process: TaskProcess, manifest: CPUInputManifest, agent_profile: AgentProfile
     ) -> CPUExecutionResult:
-        """Actor 阶段：在一个可中断子 task 中等待 CPU，返回本轮采用的执行结果。
+        """Actor 阶段：派生主线程，在一个可中断子 task 中等待 CPU，返回本轮采用的结果。
 
         子 task 直接等待 CPU 端口的 ``execute``，交互事件经 sink 写入输出
         通道；停止取消子 task 时，无论 CPU 在等模型还是阻塞在通道写入上，
@@ -314,17 +316,20 @@ class TaskProcessRunner:
         以它为准，不再按停止标志改写为取消；CPU 原样传播取消、没有结果时按
         无输出的取消传播。
 
-        全部线程只在本阶段的 ``finally`` 中兜底结束一次（关闭流程只是再兜底），
-        结束即撤销线程 context；停止被接受时线程已随之结束，迟到的提交在此之前
-        就被拒绝。检查点也只在这里接受一次：结束线程之后、判断丢弃与有无输出
-        之前。普通执行异常没有可接受的结果。进程 task 被硬取消而 CPU 把取消
-        转换为返回值时，先结束线程、接受其中已完成的检查点，再重新抛出取消。
+        主线程以 prepare 之前解析的图纸派生，派生时以主线程 context 读取操作
+        快照；准入此时已被撤销则派生失败，进程按失败收口。子线程随 CALL 返回
+        由 CPU 结束；全部线程只在本阶段的 ``finally`` 中兜底结束一次（关闭
+        流程只是再兜底），结束即撤销线程 context；停止被接受时线程已随之结束，
+        迟到的提交在此之前就被拒绝。检查点也只在这里接受一次：结束线程之后、
+        判断丢弃与有无输出之前。普通执行异常没有可接受的结果。进程 task 被
+        硬取消而 CPU 把取消转换为返回值时，先结束线程、接受其中已完成的
+        检查点，再重新抛出取消。
         """
         record = process.record
         record.enter_phase(ProcessPhase.ACTOR)
         record.events.status(record)
-        # CPU 只持有主线程的线程 context；进程 context 留给全部阶段的授权。
-        access = self._threads.derive_main(process)
+        # CPU 只持有主线程的执行线程；进程 context 留给全部阶段的授权。
+        thread = self._threads.derive_main(process, agent_profile)
         returned = _ReturnedResult()
 
         async def publish(event: dict[str, Any]) -> None:
@@ -333,7 +338,7 @@ class TaskProcessRunner:
         async def drive() -> None:
             returned.result = await self._cpu.execute(
                 manifest,
-                access=access,
+                thread=thread,
                 generation_options=process.request.generation_options,
                 events=publish,
             )
@@ -436,12 +441,12 @@ class TaskProcessRunner:
         self,
         process: TaskProcess,
         decision: GatewayDecision,
-    ) -> tuple[PreparedAgentRun, CPUInputManifest]:
+    ) -> tuple[PreparedAgentRun, AgentProfile, CPUInputManifest]:
         """Profile 解析、Patchouli prepare 与 CPU 分配，最后检查一次停止请求。
 
         Profile 解析与附件租借由 CPUAllocator 在副作用前执行阶段授权；
         prepare 同样只检查准入与目标。finalize 在调用前再次校验，不要求
-        actor 持有交互提交操作。
+        actor 持有交互提交操作。解析出的图纸随主线程交给 CPU，不进入输入清单。
         """
         record = process.record
         request = process.request
@@ -486,7 +491,7 @@ class TaskProcessRunner:
         # 期间收到的 stop 请求都在此生效，已取得的租借由关闭流程释放。
         if record.outcome is ProcessOutcome.STOP_REQUESTED:
             raise _ProcessCancelled(ProcessPhase.PREPARE, record.stop_reason or "user_requested")
-        return prepared, manifest
+        return prepared, agent_profile, manifest
 
     def _accept_checkpoint(self, process: TaskProcess, result: CPUExecutionResult | None) -> None:
         """同步接受 CPU 的历史视图；领域拒绝仅记录告警，不影响本轮收尾。

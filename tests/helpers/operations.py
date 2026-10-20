@@ -116,7 +116,6 @@ class OperationsHarness:
             agent=ActorAgentService(
                 operation_authorizer=operation_authorizer,
                 profile_reader=self.runtime.profiles,
-                threads=threads,
             ),
             threads=threads,
         )
@@ -160,8 +159,7 @@ class OperationsHarness:
         )
         self.compositions.setdefault(process_id, []).append(composition)
         entry = self.make_entry(composition.authorizer, composition.threads)
-        thread_access = composition.register_main_thread(access)
-        return ThreadOperationSubmitter(entry, thread_access)
+        return ThreadOperationSubmitter(entry, composition.register_main_thread(access))
 
     def revoke(self, process_id: str = "test_run") -> None:
         """同步结束测试进程的全部线程并撤销进程 context，不取消调用方任务。"""

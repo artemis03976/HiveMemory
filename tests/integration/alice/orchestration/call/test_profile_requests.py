@@ -137,11 +137,11 @@ async def _profile_submitter(chain):
         chain.memories, agent=chain.profiles, threads=chain.composition.threads
     )
     workspace = make_identity_scope(user_id="u1", agent_id="reader").workspace_identity
-    thread_access = await chain.composition.authenticate_thread(
-        agent_id="reader", process_id="call-process", register_process=True
+    thread = await chain.composition.authenticate_main_thread(
+        agent_id="reader", process_id="call-process"
     )
 
-    return ThreadOperationSubmitter(entry, thread_access), workspace
+    return ThreadOperationSubmitter(entry, thread), workspace
 
 
 @pytest.mark.asyncio
@@ -353,12 +353,8 @@ async def test_unadmitted_call_target_returns_structured_error_without_creating_
     harness = OperationsHarness()
     harness.bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_named_by_alias)
     harness.backing.bus = harness.bus
-    context = await access.authenticate_thread(
-        agent_id="parent", process_id="call-process", register_process=True
-    )
-    submit = ThreadOperationSubmitter(
-        harness.make_entry(access.authorizer, access.threads), context
-    )
+    thread = await access.authenticate_main_thread(agent_id="parent", process_id="call-process")
+    submit = ThreadOperationSubmitter(harness.make_entry(access.authorizer, access.threads), thread)
     caller = _caller(submit)
     try:
         transition, session, _ = await _begin_call(caller, target)
@@ -419,12 +415,6 @@ async def test_failed_child_preserves_dispatched_intents():
             PendingAtomStatus.MATERIALIZING,
             PendingAtomStatus.MATERIALIZING,
         ]
-        # CALL 返回并不提前撤销子线程，统一寿命仍以 CPU 执行结束为界。
-        later = await child.submit_operation(
-            SubmitWriteIntentRequest(WriteFocus(content="线程仍有效"))
-        )
-        assert later.from_actor.agent_id == "omni_doll"
-        assert later.process_id == "call-process"
     finally:
         harness.revoke("call-process")
         harness.revoke("other-process")

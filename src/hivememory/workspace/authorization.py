@@ -161,11 +161,12 @@ class WorkspaceOperationAuthorizer:
         access: WorkspaceAccessContext,
         target_workspace: WorkspaceIdentity,
     ) -> frozenset[WorkspaceOperation]:
-        """任务进程在 CPU 分配或子线程派生时读取对应 actor 的操作集合。
+        """线程表派生线程时，以该线程的 context 读取对应 actor 的操作集合。
 
         与阶段授权相同地兑现凭据、确认准入并校验目标；空白名单照常返回。
-        返回值只用于 CPU 提示词与执行策略，不授予权限，也不携带访问身份；
-        actor API 仍逐次授权。生产调用面限定在 ``workspace.process``。
+        返回值进入线程描述，只用于 CPU 提示词与执行策略，不授予权限，也不
+        携带访问身份；actor API 仍逐次授权。生产调用面限定在
+        ``workspace.process`` 的线程管理。
         """
         grant, record = self._redeem(access)
         self._check_target(grant, target_workspace)

@@ -25,7 +25,6 @@ from hivememory.alice.orchestration.verbs import mtp_verbs_for_operations
 from hivememory.alice.run.output import RunOutput
 from hivememory.alice.run.result import assemble_execution_result, publish_terminal, stats_for
 from hivememory.config.alice import CompactionConfig, KoakumaConfig
-from hivememory.core.models import AgentProfile, ExecutionLabels
 from hivememory.core.protocol.models import SessionCompactionCheckpoint
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
@@ -76,13 +75,17 @@ class AgentRunService:
     ) -> CPUExecutionResult:
         """执行一次 run 并返回终态；交互输出只经端口发出。
 
+        ``submit_operation`` 是主线程的句柄：图纸与操作快照取自它的线程描述，
+        用于模型解析、根帧与 MTP 动词；注册标签仍取自清单，用于
+        ``agent.run.*`` 与历史中的当前 Agent。
+
         本方法是 Alice 作为 CPU 的最外层：内部各层原样传播取消并完成收尾，
         这里收到原生取消后不再传播，而是把已产生的部分输出与已完成的检查点
         组装为 cancelled 结果返回；还没有任何可交回的内容时（执行器尚未开始
         且没有完成的检查点）原样传播取消，由任务进程按无输出的取消处理。
         普通异常照常抛出。
         """
-        preparation = self._prepare_run(input_manifest)
+        preparation = self._prepare_run(input_manifest, submit_operation)
         events = preparation.events
         inputs = RootContextBuilder(
             runtime=self._agent_runtime,
@@ -102,6 +105,7 @@ class AgentRunService:
             )
             await inputs.build(
                 input_manifest,
+                agent_profile=submit_operation.thread.agent_profile,
                 permitted_verbs=preparation.permitted_verbs,
                 generation_options=generation_options,
                 events=events,
@@ -110,10 +114,8 @@ class AgentRunService:
             frame = self._create_root_frame(
                 messages=inputs.messages,
                 submit_operation=submit_operation,
-                labels=input_manifest.labels,
                 topic_id=input_manifest.topic_id,
                 session=preparation.session,
-                agent_profile=input_manifest.agent_profile,
                 language=input_manifest.language,
                 permitted_verbs=preparation.permitted_verbs,
             )
@@ -144,9 +146,11 @@ class AgentRunService:
             events.failed(message="Agent run failed.")
             raise
 
-    def _prepare_run(self, input_manifest: CPUInputManifest) -> _RunPreparation:
-        """构造 run 会话与动词快照，绑定 ``agent.run.*`` 事件并发布 started。"""
-        permitted_verbs = mtp_verbs_for_operations(input_manifest.allowed_operations)
+    def _prepare_run(
+        self, input_manifest: CPUInputManifest, submit_operation: OperationSubmitter
+    ) -> _RunPreparation:
+        """以主线程的操作快照构造动词集合与 run 会话，绑定 ``agent.run.*`` 事件并发布 started。"""
+        permitted_verbs = mtp_verbs_for_operations(submit_operation.thread.allowed_operations)
         session = self._create_run_session(process_id=input_manifest.process_id)
         run_events = self._events_for_run(session, input_manifest)
         run_events.started()
@@ -157,24 +161,26 @@ class AgentRunService:
         *,
         messages: list[dict[str, str]],
         submit_operation: OperationSubmitter,
-        labels: ExecutionLabels,
         topic_id: str,
-        agent_profile: AgentProfile,
         language: str,
         permitted_verbs: frozenset[str],
         session: RunSession,
     ) -> ExecutionFrame:
-        """按提示词使用的同一动词集合与语言，创建并登记当前 run 的唯一 root frame。"""
+        """按提示词使用的同一动词集合与语言，创建并登记当前 run 的唯一 root frame。
+
+        根帧持有主线程的句柄，观测标签与图纸取自主线程的描述。
+        """
+        thread = submit_operation.thread
         policy = FrameExecutionPolicy.from_verbs(
             permitted_verbs,
         )
         frame = self._frame_factory.create(
             FrameSpec(
                 runtime_scope=self._frame_factory.scope(
-                    labels=labels,
+                    labels=thread.labels,
                     run_id=session.agent_run_id,
                 ),
-                profile=agent_profile,
+                profile=thread.agent_profile,
                 messages=messages,
                 topic_id=topic_id or "",
                 execution_policy=policy,

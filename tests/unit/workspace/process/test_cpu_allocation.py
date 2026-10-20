@@ -1,9 +1,10 @@
-"""任务进程 CPU 分配的行为测试。
+"""任务进程 CPU 分配与主线程交接的行为测试。
 
 被测边界：``TaskProcessService`` 在 prepare 之后、进入 Actor 执行之前完成
 Profile 解析、附件租借与编译，并组装 ``CPUInputManifest``；Profile 解析与
 附件租借的阶段授权在分配层、副作用前执行，不检查 actor 操作，CPU 清单只接收注册
-时绑定的观测标签。
+时绑定的观测标签。图纸与操作快照随主线程的线程描述交给 CPU，快照在进入
+Actor 阶段派生主线程时读取。
 Patchouli 以总线路由替身隔离；Actor 阶段以测试 CPU 替换 Alice（总线上不注册
 Alice 路由）；附件租借以真实 ``InMemoryWorkspaceAssetStore`` 的公开可观察状态
 验收，不断言私有字段。
@@ -27,6 +28,7 @@ from hivememory.core.errors import (
     AssetOperationConflictError,
     AssetRemovedError,
     ResourceNotFoundError,
+    ScopeRequiredError,
 )
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -280,10 +282,10 @@ async def _stream_events(
 
 
 @pytest.mark.asyncio
-async def test_manifest_operations_follow_access_record_precedence():
-    """清单取访问登记的实际白名单；精确空名单也不能回落到用户级记录。
+async def test_main_thread_operations_follow_access_record_precedence():
+    """主线程描述取访问登记的实际白名单；精确空名单也不能回落到用户级记录。
 
-    记录优先级由访问登记决定（见 registry 单测），分配器只原样转交，
+    记录优先级由访问登记决定（见 registry 单测），线程表只原样转交，
     这里以最容易被用户级许可覆盖或在传递中丢失的空精确名单作代表。
     """
     user_record = make_actor_access_record(
@@ -306,12 +308,12 @@ async def test_manifest_operations_follow_access_record_precedence():
     result = await _run_once(composition, service, "问题", process_id="process-operations")
 
     assert result.execution_result.status == "completed"
-    assert cpu.calls[0].manifest.allowed_operations == frozenset()
+    assert cpu.calls[0].thread.descriptor.allowed_operations == frozenset()
 
 
 @pytest.mark.asyncio
 async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manifest() -> None:
-    """清单中的 Profile 来自 PATCHOULI_GET_AGENT_PROFILE，基础字段由 prepare 冻结。"""
+    """主线程描述中的 Profile 来自 PATCHOULI_GET_AGENT_PROFILE，清单的基础字段由 prepare 冻结。"""
     bus = GlobalSystemBus()
     profile = AgentProfile(persona="allocated-persona", language="zh")
     profile_calls: list = []
@@ -333,10 +335,12 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
     assert profile_calls[0][1] == _expected_scope()
 
     manifest = cpu.calls[0].manifest
+    descriptor = cpu.calls[0].thread.descriptor
     assert manifest.process_id == "process-manifest"
-    # 读取视图交付独立副本，输入清单不持有读取缓存中的可变对象。
-    assert manifest.agent_profile == profile
-    manifest.agent_profile.persona = "只改变本轮"
+    assert descriptor.thread_id == "main"
+    # 读取视图交付独立副本，线程描述不持有读取缓存中的可变对象。
+    assert descriptor.agent_profile == profile
+    descriptor.agent_profile.persona = "只改变本轮"
     assert profile.persona == "allocated-persona"
     assert manifest.user_message == "问题"
     assert manifest.topic_id == "topic-1"
@@ -392,6 +396,8 @@ async def test_manifest_labels_match_registration_and_process_event_labels() -> 
         "agent_id": "registered_agent",
         "workspace_id": "labels_workspace",
     }
+    # 主线程的观测标签就是注册标签。
+    assert cpu.calls[0].thread.descriptor.labels == cpu.calls[0].manifest.labels
     assert {(event.agent_id, event.workspace_id) for event in sink.events} == {
         ("registered_agent", "labels_workspace")
     }
@@ -461,8 +467,54 @@ async def test_no_actor_operations_still_allocates_execution_profile() -> None:
     result = await _run_once(composition, service, "问题", process_id="process-no-actor-operations")
 
     assert result.execution_result.status == "completed"
-    assert cpu.calls[0].manifest.agent_profile.persona == "阶段读取配置"
+    assert cpu.calls[0].thread.descriptor.agent_profile.persona == "阶段读取配置"
     assert profile_calls == [("omni_doll", _expected_scope())]
+
+
+class _AdmissionRevokedAtActorEntry:
+    """真实授权者的代理：只有派生主线程时读取的操作快照遇到已撤销的准入。"""
+
+    def __init__(self, inner):
+        self._inner = inner
+        self._revoked = make_access_composition([]).authorizer
+
+    def __getattr__(self, name):
+        return getattr(self._inner, name)
+
+    def get_stage_operations(self, access, target_workspace):
+        return self._revoked.get_stage_operations(access, target_workspace)
+
+
+@pytest.mark.asyncio
+async def test_admission_revoked_before_actor_fails_main_thread_derivation() -> None:
+    """准入在 prepare 与进入 Actor 之间撤销：主线程派生时读取快照失败，进程在 Actor 阶段失败。
+
+    CPU 不会被调用，刚签发的主线程凭据随失败撤销，prepare 结果照常补偿。
+    """
+    bus = GlobalSystemBus()
+    cleaned: list = []
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _recording(cleaned))
+    cpu = ScriptedCPU(result=make_cpu_result())
+    composition = _composition()
+    sink = RecordingRuntimeEventSink()
+    service = make_task_process_service(
+        bus,
+        cpu=cpu,
+        access_gateway=composition.gateway,
+        operation_authorizer=_AdmissionRevokedAtActorEntry(composition.authorizer),
+        event_publisher=RuntimeEventPublisher(sink),
+    )
+
+    with pytest.raises(ScopeRequiredError) as error:
+        await _run_once(composition, service, "问题", process_id="process-admission-revoked")
+
+    assert error.value.details["reason"] == "actor_not_admitted"
+    assert cpu.calls == []
+    assert len(cleaned) == 1
+    assert [event.status for event in sink.events][-2:] == ["streaming", "failed"]
 
 
 @pytest.mark.asyncio

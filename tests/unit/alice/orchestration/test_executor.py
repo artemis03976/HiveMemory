@@ -31,9 +31,11 @@ def _session_with(frame) -> RunSession:
 
 
 def _frame_stub(frame_id: str, *, run_id: str = "run-1"):
+    """根帧标签为注册身份；子帧与生产相同，标签取被调用方的身份。"""
+    agent_id = "helper" if frame_id != "frame-1" else "main"
     return SimpleNamespace(
-        runtime_scope=make_runtime_scope(run_id=run_id, frame_id=frame_id),
-        agent_profile=SimpleNamespace(agent_id="helper" if frame_id != "frame-1" else "main"),
+        runtime_scope=make_runtime_scope(agent_id=agent_id, run_id=run_id, frame_id=frame_id),
+        agent_profile=SimpleNamespace(agent_id=agent_id),
     )
 
 
@@ -444,3 +446,39 @@ async def test_budget_failure_emits_frame_statistics_without_changing_terminal_r
     assert event.frame_id == "frame-1"
     assert event.reason == "turn_context_budget_exceeded"
     assert event.data == {"estimated_tokens": 1001, "input_token_limit": 1000}
+
+
+@pytest.mark.asyncio
+async def test_child_budget_failure_reports_callee_identity():
+    """子帧被预算拦截时，事件报告子帧自己的观测标签（被调用方），而不是调用方。"""
+
+    async def run_frame(frame, **_kwargs):
+        if frame.runtime_scope.frame_id == "frame-1" and not coordinator.callee_results:
+            return FrameExecutionResult(
+                status=FrameExecutionStatus.SUSPENDED,
+                call_request=MTPCallRequest(target_alias="helper", task="总结"),
+                suspend_action_id="act-root",
+            )
+        if frame.runtime_scope.frame_id == "frame-child":
+            return FrameExecutionResult(
+                status=FrameExecutionStatus.FAILED,
+                error=TurnContextBudgetExceededError(1001, 1000),
+            )
+        return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
+
+    sink = RecordingRuntimeEventSink()
+    frame = _frame_stub("frame-1")
+    coordinator = _CallCoordinatorStub()
+    executor = RunExecutor(
+        SimpleNamespace(run_frame=run_frame),
+        session=_session_with(frame),
+        call_coordinator=coordinator,
+        run_events=BoundAgentRunEvents(RuntimeEventPublisher(sink)),
+    )
+
+    result = await executor.run(frame, run_output=NullAgentRunOutput())
+
+    assert result.status == FrameExecutionStatus.COMPLETED
+    (event,) = sink.events
+    assert event.event_type == "agent.context.budget_exceeded"
+    assert (event.frame_id, event.agent_id) == ("frame-child", "helper")

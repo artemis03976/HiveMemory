@@ -60,7 +60,6 @@ def _context(frame: ExecutionFrame):
         process_id="interaction-test",
         topic_id=frame.topic_id,
         user_message="hello",
-        agent_profile=frame.agent_profile,
     )
 
 
@@ -121,7 +120,7 @@ async def test_run_agent_assembles_result_from_completed_frame():
     service, session = _runtime_for_frame(frame, agent_runtime)
 
     result = await service.run_agent(
-        _context(frame), run_output=NullRunOutput(), submit_operation=MagicMock()
+        _context(frame), run_output=NullRunOutput(), submit_operation=StubOperationSubmitter()
     )
 
     assert result.final_text == "hello world"
@@ -142,7 +141,7 @@ async def test_run_agent_budget_exhaustion_maps_to_failed_run():
     service, _ = _runtime_for_frame(frame, agent_runtime)
 
     result = await service.run_agent(
-        _context(frame), run_output=NullRunOutput(), submit_operation=MagicMock()
+        _context(frame), run_output=NullRunOutput(), submit_operation=StubOperationSubmitter()
     )
 
     assert result.status == CPUExecutionStatus.FAILED.value
@@ -160,7 +159,7 @@ async def test_run_agent_preserves_factory_initialized_turn_events():
     service, _ = _runtime_for_frame(frame)
 
     result = await service.run_agent(
-        _context(frame), run_output=NullRunOutput(), submit_operation=MagicMock()
+        _context(frame), run_output=NullRunOutput(), submit_operation=StubOperationSubmitter()
     )
 
     assert [event.kind for event in result.turn_events] == ["user_message"]

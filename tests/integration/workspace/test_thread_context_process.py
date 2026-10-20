@@ -61,7 +61,7 @@ def process_chain():
         assert identity_scope.workspace_identity == access.default_workspace
         with pytest.raises(ThreadEndedError):
             await chain.cpu.operation_entry.execute(
-                ResolveReferencesRequest(("missing",)), access=chain.cpu.calls[0].access
+                ResolveReferencesRequest(("missing",)), access=chain.cpu.calls[0].thread.access
             )
         for child in chain.children:
             with pytest.raises(ThreadEndedError):
@@ -143,7 +143,7 @@ async def test_cpu_end_revokes_thread_before_terminal_and_keeps_stage_authorizat
     observed = []
 
     async def inspect_thread(_submit):
-        summary = chain.access.gateway.describe_context(chain.cpu.calls[0].access)
+        summary = chain.access.gateway.describe_context(chain.cpu.calls[0].thread.access)
         observed.append((summary.run_type, summary.run_id, summary.thread_id))
 
     cpu = DerivingCPU(chain, **cpu_outcome, operation_script=inspect_thread)
@@ -153,7 +153,7 @@ async def test_cpu_end_revokes_thread_before_terminal_and_keeps_stage_authorizat
         async with asyncio.timeout(2):
             while (await anext(stream))["event"] not in {"done", "error", "cancelled"}:
                 pass
-        assert chain.access.gateway.describe_context(cpu.calls[0].access) is None
+        assert chain.access.gateway.describe_context(cpu.calls[0].thread.access) is None
         # 终态交付后继续耗尽，确保注册入口的关闭与 cleanup 也执行完成。
         assert [event async for event in stream] == []
     finally:
@@ -170,13 +170,13 @@ class DerivingCPU(ScriptedCPU):
         super().__init__(**kwargs)
         self.chain = chain
 
-    async def execute(self, manifest, *, access, **kwargs):
+    async def execute(self, manifest, *, thread, **kwargs):
         for agent_id in ("worker", "reviewer"):
             child = self.chain.threads.derive_child(
-                parent=access, profile=AgentProfile(agent_id=agent_id)
+                parent=thread.access, profile=AgentProfile(agent_id=agent_id)
             )
             self.chain.children.append(child.access)
-        return await super().execute(manifest, access=access, **kwargs)
+        return await super().execute(manifest, thread=thread, **kwargs)
 
 
 async def start_hanging_process(chain):
@@ -200,7 +200,7 @@ async def test_user_stop_revokes_thread_and_keeps_cleanup_authorized(process_cha
         assert terminal.execution_result.status == "cancelled"
         with pytest.raises(ThreadEndedError):
             await cpu.operation_entry.execute(
-                ResolveReferencesRequest(("missing",)), access=cpu.calls[0].access
+                ResolveReferencesRequest(("missing",)), access=cpu.calls[0].thread.access
             )
         assert chain.stages == ["cleanup"]
     finally:

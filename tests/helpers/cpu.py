@@ -14,7 +14,6 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
-from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.protocol.models import SessionCompactionCheckpoint
 from hivememory.workspace.contracts import (
     CPUEventSink,
@@ -22,6 +21,7 @@ from hivememory.workspace.contracts import (
     CPUExecutionStatus,
     CPUFailureReason,
     CPUInputManifest,
+    ExecutionThread,
     OperationEntry,
     OperationSubmitter,
     ThreadOperationSubmitter,
@@ -30,11 +30,11 @@ from hivememory.workspace.contracts import (
 
 @dataclass(frozen=True)
 class CPUCall:
-    """一次 ``execute`` 调用的入参快照。"""
+    """一次 ``execute`` 调用的入参快照；``thread`` 是进程交来的主线程。"""
 
     manifest: CPUInputManifest
     generation_options: dict[str, Any] | None
-    access: WorkspaceAccessContext
+    thread: ExecutionThread
 
 
 class ScriptedCPU:
@@ -83,29 +83,29 @@ class ScriptedCPU:
 
     @property
     def operation_entry(self) -> OperationEntry:
-        """测试组合根注入的真实入口，供线程 context 撤销后的拒绝断言。"""
+        """测试组合根注入的真实入口，供线程结束后的拒绝断言。"""
         if self._operation_entry is None:
             raise RuntimeError("ScriptedCPU 的操作入口尚未装配")
         return self._operation_entry
 
     def bind_operation_entry(self, entry: OperationEntry) -> None:
-        """以共享入口装配 CPU；每次执行只绑定该次进程的线程 context。"""
+        """以共享入口装配 CPU；每次执行只绑定该次进程的主线程。"""
         self._operation_entry = entry
 
     async def execute(
         self,
         manifest: CPUInputManifest,
         *,
-        access: WorkspaceAccessContext,
+        thread: ExecutionThread,
         generation_options: dict[str, Any] | None,
         events: CPUEventSink,
     ) -> CPUExecutionResult:
         self.calls.append(
-            CPUCall(manifest=manifest, generation_options=generation_options, access=access)
+            CPUCall(manifest=manifest, generation_options=generation_options, thread=thread)
         )
         try:
             if self._operation_script is not None:
-                await self._operation_script(ThreadOperationSubmitter(self.operation_entry, access))
+                await self._operation_script(ThreadOperationSubmitter(self.operation_entry, thread))
             for index, event in enumerate(self._events, start=1):
                 if index == len(self._events):
                     self.last_event_entered.set()

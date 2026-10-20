@@ -12,7 +12,7 @@ related_docs:
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
   - docs/ideas/ae2-hivememory-architecture-analogy.md
   - docs/ideas/task-process-table-and-registration-entry.md
-  - docs/ideas/execution-thread-definition.md
+  - docs/archive/ideas/execution-thread-definition.md
   - docs/ideas/execution-environment.md
   - docs/ideas/identity-and-access-model.md
   - docs/ideas/external-session-and-topic-projection.md
@@ -195,7 +195,7 @@ flowchart TB
 - 换一个执行单元（测试替身即可），能否跑完整个任务进程而不改动进程与入口的代码？
 - 新能力是否假设了 Alice 的 MTP 或 frame 结构？
 
-**落地入口**：[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；[Workspace 架构](../architecture/workspace.md)第 5.4 节；[执行线程 Idea](./execution-thread-definition.md)；[执行环境 Idea](./execution-environment.md)。
+**落地入口**：[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；[Workspace 架构](../architecture/workspace.md)第 5.4 节；[执行线程 Idea](../archive/ideas/execution-thread-definition.md)（已归档）；[执行环境 Idea](./execution-environment.md)。
 
 ### 3.4 库内与库外
 
@@ -408,7 +408,7 @@ C 与 [engines 对上层的既有导入](../todo/engines-upward-imports.md)相�
 | 文档 | 承担的理念与方向 |
 |:---|:---|
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | 3.2：请求方分类、进程结构、阶段与取消、被动请求 |
-| [执行线程 Idea](./execution-thread-definition.md) | 3.3 与第 2 节用语中的执行线程：定义、生命周期与观测 |
+| [Workspace 架构](../architecture/workspace.md#43-访问-context密封的运行时凭据)第 4.3 节（已归档的[执行线程 Idea](../archive/ideas/execution-thread-definition.md)） | 3.3 与第 2 节用语中的执行线程：定义、生命周期与观测（当前事实） |
 | [执行环境 Idea](./execution-environment.md) | 3.3：agent 与执行环境的分别选择、不同执行环境的输出词汇 |
 | [身份与访问体系 Idea](./identity-and-access-model.md) | 3.5、3.6：身份数据的形态与流向 |
 | [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 3.9：会话模型与 Topic 池 |

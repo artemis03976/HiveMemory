@@ -26,7 +26,7 @@ from __future__ import annotations
 
 import ast
 from pathlib import Path
-from typing import get_args
+from typing import get_args, get_type_hints
 
 from pydantic import BaseModel
 
@@ -141,11 +141,8 @@ def test_stage_authorization_is_only_called_by_task_processes():
 
 
 def test_stage_operation_snapshot_is_only_read_by_task_process():
-    """操作快照只供进程分配与派生读取，不能成为 actor API 或 CPU 的授权旁路。"""
-    assert _private_call_sites("get_stage_operations") == {
-        "workspace/process/allocation.py",
-        "workspace/process/threads.py",
-    }
+    """操作快照只在线程表派生线程时读取，不能成为 actor API 或 CPU 的授权旁路。"""
+    assert _private_call_sites("get_stage_operations") == {"workspace/process/threads.py"}
 
 
 def test_thread_binding_query_is_only_used_by_process_threads():
@@ -189,26 +186,38 @@ def _model_field_types(model: type[BaseModel]) -> list[tuple[str, object]]:
     return found
 
 
-def test_cpu_manifest_cannot_carry_access_context():
-    """输入清单（含嵌套模型）的身份只有观测标签，线程 context 必须走 CPU 的独立参数。"""
+def test_cpu_visible_objects_cannot_carry_access_context():
+    """CPU 可见的对象不含 context：输入清单（含嵌套模型）、线程描述与线程句柄交出的描述。
+
+    线程 context 只在执行线程中交给 CPU 驱动，由驱动绑定进句柄内部。
+    """
     from hivememory.core.access import WorkspaceAccessContext
     from hivememory.core.models import ExecutionLabels
-    from hivememory.workspace.contracts import CPUInputManifest
+    from hivememory.workspace.contracts import (
+        CPUInputManifest,
+        OperationSubmitter,
+        ThreadDescriptor,
+    )
 
     field_types = _model_field_types(CPUInputManifest)
-
     assert ("CPUInputManifest.labels", ExecutionLabels) in field_types
     assert [path for path, kind in field_types if kind is WorkspaceAccessContext] == []
 
+    descriptor_types = get_type_hints(ThreadDescriptor)
+    assert descriptor_types["labels"] is ExecutionLabels
+    assert WorkspaceAccessContext not in descriptor_types.values()
+    thread_property = OperationSubmitter.__dict__["thread"]
+    assert get_type_hints(thread_property.fget)["return"] is ThreadDescriptor
+
 
 def test_actor_dispatch_does_not_unpack_requests_into_handlers():
-    """操作入口仅保留统一 execute，六项 actor 请求直接分派到能力方法。"""
+    """入口的 execute 只把五项记忆请求直接分派到能力方法；派生与结束是专用的生命周期方法。"""
     path = SRC_ROOT / "workspace/capability/operations.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
     entry = next(n for n in tree.body if isinstance(n, ast.ClassDef))
     assert {
         n.name for n in entry.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-    } == {"__init__", "execute"}
+    } == {"__init__", "execute", "derive_child_thread", "end_thread"}
     dispatch = next(
         n.value
         for n in ast.walk(entry)
@@ -225,7 +234,6 @@ def test_actor_dispatch_does_not_unpack_requests_into_handlers():
         "ResolveReferencesRequest": "memory.resolve_references",
         "ResolveRunTargetRequest": "memory.resolve_run_target",
         "RetrieveRequest": "memory.retrieve",
-        "DeriveCallThreadRequest": "agent.derive_call_thread",
     }
 
 

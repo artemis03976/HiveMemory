@@ -30,7 +30,7 @@ last_reviewed: 2026-10-19
 
 # 身份隔离与执行安全治理
 
-HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agent Profile 和 MemoryLibrary 可见性边界，workspace 派生缓存（含 CALL 目标 Profile）已接入 canonical 变更失效，Alice 全部资源操作已经过线程 context 绑定的能力入口，CALL 子线程以被调用方身份独立授权；PendingAtom 的耐久隔离、“谁能调用谁”的委派策略、前端身份状态与 RUN 执行安全仍有缺口。`IdentityScope` 由 `ActorIdentity` 与 `WorkspaceIdentity` 组成，表达一次操作的发起者与目标 Workspace；它只沿该操作的公开调用链传播。Patchouli 在公开边界拆为 `belong_to` 与 `from_actor`，内部、交互记录和后台任务分开携带归属与必要的发起者。来源记录不参与资源授权。
+HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agent Profile 和 MemoryLibrary 可见性边界，workspace 派生缓存（含 CALL 目标 Profile）已接入 canonical 变更失效，Alice 全部资源操作已经过线程句柄绑定的能力入口，CALL 子线程以被调用方身份独立授权并随 CALL 返回结束；PendingAtom 的耐久隔离、“谁能调用谁”的委派策略、前端身份状态与 RUN 执行安全仍有缺口。`IdentityScope` 由 `ActorIdentity` 与 `WorkspaceIdentity` 组成，表达一次操作的发起者与目标 Workspace；它只沿该操作的公开调用链传播。Patchouli 在公开边界拆为 `belong_to` 与 `from_actor`，内部、交互记录和后台任务分开携带归属与必要的发起者。来源记录不参与资源授权。
 
 这不是单纯的登录页面工作，也不是给每个 handler 再加一个 `if user_id`。它需要统一回答：一次请求、一次 Agent run、一个 PendingAtom、一个 Profile、一个 MemoryAtom 和一段可执行资产分别属于谁；哪个组件拥有最终授权权；缓存、子帧、重试和后台任务如何继承或缩小权限。
 
@@ -43,7 +43,7 @@ HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agen
 | Agent Profile | Profile 作为 MemoryAtom，主线程 Profile 由任务进程 CPU 分配经阶段授权读取（不要求 actor 操作），CALL 目标经 actor API 的 `agent.call`；ProfileCache 按 Workspace/alias 定位，命中时以源 policy 对当前 actor 重验 | 主线程与 CALL 目标共用 workspace 读取视图，来源 UUID 失效与代次回填保护已生效；事件通知无持久重放或未送达补偿 |
 | 管理入口（root） | 能力层分为 root API 与 actor API：管理方法只经 root 授权，只接受保留的 `system`；`system` 的访问记录不得配置 operation，不能经操作入口执行 actor 操作；任务进程的阶段调用不检查 actor 操作，但仍以进程 Agent 为发起者过滤可见性 | root 只由 actor 是否为 `system` 判定，认证网关只限制 principal 可代表的用户，不限制谁可以声明 `system`；当前登记的来源（HTTP server、Profile 注入脚本）都是本地受信进程，登记外部来源前需要补上这条规则 |
 | Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy、任务进程 task、可中断阶段 task、进程输出通道与 `SinkRunOutput` | frame registry/CALL record、进程 task 与可中断阶段 task、输出通道和流序号均按进程或 run 隔离；执行模型只含观测标签；CALL 子帧以被调用方身份运行（独立的子线程 context，按被调用方的白名单与可见性授权），调用方持有 `agent.call` 即可经 CALL 返回值取得被调用方的 PRIVATE 内容，没有“谁能调用谁”的细粒度策略 |
-| MTP permission | Agent 权限只由访问登记的 actor 操作白名单表达，Profile 不承载权限；Alice 把输入清单的操作快照翻译为 frame 动词集合，同时驱动提示词与 Koakuma 执行前检查，资源操作由 actor API 逐次授权 | prompt 教学不是硬安全保证；`sys_*` 系统工具不设权限，所有 Agent 都可写文件与执行 Python；白名单只能改配置并重启；子 agent 按被调用方自己的白名单运行，被调用方须在本 Workspace 准入 |
+| MTP permission | Agent 权限只由访问登记的 actor 操作白名单表达，Profile 不承载权限；Alice 把所属线程描述的操作快照翻译为 frame 动词集合，同时驱动提示词与 Koakuma 执行前检查，资源操作由 actor API 逐次授权 | prompt 教学不是硬安全保证；`sys_*` 系统工具不设权限，所有 Agent 都可写文件与执行 Python；白名单只能改配置并重启；子 agent 按被调用方自己的白名单运行，被调用方须在本 Workspace 准入 |
 | MTP READ/RUN | READ 可访问记忆，RUN 可执行 memory code | RUN 没有强沙箱、资源限制、可信资产分级或强制审批边界 |
 | Frontend identity | 前端已统一用户导向身份选择上下文（`user_id + workspace_id` 基础选择经 `services/identity.ts` 以请求头携带） | UI 字段不是认证/授权边界；尚无登录/Workspace 切换 UI，切换时 cache/stream 清理仍待完整设计 |
 | Observability | RuntimeEvent 可携带 identity/run/frame/atom 关联 | 事件 payload 不能成为授权依据，也不能泄漏不应被当前身份看到的内容 |
@@ -80,19 +80,19 @@ HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agen
 ```text
 访问 context：本次运行的密封访问凭据，由运行持有者和 Workspace 授权点使用
   进程 context：任务进程注册时签发，服务全部阶段调用，进程关闭时撤销
-  线程 context：CPU 执行阶段从进程 context 派生，CPU 驱动绑定为操作提交函数，CPU 执行结束即撤销
+  线程 context：Actor 阶段由进程的线程表从进程 context 派生并登记，CPU 驱动绑定为线程句柄；线程结束即撤销（子线程随 CALL 返回，停止被接受时全部线程即已结束，Actor 阶段收尾兜底）
 IdentityScope：操作授权后组装的 ActorIdentity + 目标 WorkspaceIdentity
 ExecutionLabels：agent_id/workspace_id 字符串，仅用于提示词、展示与运行观测
 资源 owner 内部、交互记录与后台任务：belong_to + 必要的 from_actor
 ```
 
-CALL 子 Agent 以被调用方身份运行：任务进程在派生时对被调用方做 Workspace 准入，从进程 context 签发子线程 context，子帧的请求按被调用方的白名单与可见性授权，写入意图记在被调用方名下；子帧沿用父 run 的观测标签。显式 `context_refs` 由调用方以自己的 READ 读取，只选择共享内容，不签发更广的资源权限。Alice/CPU 的 `RuntimeScope` 与 `CPUInputManifest` 不携带 `IdentityScope`，frame 与 MTP 上下文没有 `identity` 派生。标签取自注册入口并冻结，不能还原成资源归属或授权身份；提示词历史归并和运行事件使用注册标签，frame 流式角色展示优先使用 Profile 的源 alias。`request/run/frame` 等关联坐标属于运行模型，`ActorIdentity` 只含 user/agent/team，不含 `session_id`。
+CALL 子 Agent 以被调用方身份运行：任务进程在派生时对被调用方做 Workspace 准入，从进程 context 签发子线程 context，子帧的请求按被调用方的白名单与可见性授权，写入意图记在被调用方名下并记录子线程标识；子帧的观测标签取子线程描述中的被调用方身份，由线程表生成，仍只用于观测。显式 `context_refs` 由调用方以自己的 READ 读取，只选择共享内容，不签发更广的资源权限。Alice/CPU 的 `RuntimeScope` 与 `CPUInputManifest` 不携带 `IdentityScope`，frame 与 MTP 上下文没有 `identity` 派生。标签由注册入口或线程表生成并冻结，不能还原成资源归属或授权身份；提示词历史归并和运行事件使用注册标签，frame 流式角色展示优先使用 Profile 的源 alias。线程描述携带的操作快照只用于提示词与执行策略，不是授权依据。`request/run/frame` 等关联坐标属于运行模型，`ActorIdentity` 只含 user/agent/team，不含 `session_id`。
 
 入口层现状：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_claims` 解析为身份声明，经统一认证网关认证后，由 workspace 授权点在操作授权时组装 `IdentityScope`（`/ingest` 仍在认证前组装，是既有例外；模型见[Workspace 架构](../../architecture/workspace.md)第 4 节），应用服务不再解析裸 `user_id`。非 Agent action 使用单独登记的保留 `system` actor，它也是 root API 唯一接受的 actor（root 授权不读取白名单）；Memory 管理读取按 owner-management 语义在归属硬边界内跳过 actor 可见性过滤，Agent retrieval 与 SETTLE 查重仍执行普通 `MemoryAccessPolicy`，后者以 `system` 为可见性主体。
 
 WorkspaceAsset 的 Store、解析服务与既有 Reader/Command 端口仍使用旧 `IdentityScope` 接口做归属检查；System 的 `AssetMaterializationReader` 只在一次 representation 租借内以归属和保留 `system` actor 组装适配所需 scope，Patchouli 使用归属读取端口，不保存该 scope。此例外不扩展到 Alice、CPU 或其他资源路径，内部拆分继续由 [WorkspaceAsset 归属 Todo](../../todo/workspace-asset-ownership-identity-split.md) 跟踪。
 
-线程 context 与其他访问 context 一样不能复制或序列化，CPU 读不出其内容；派生只复制已认证的 actor、驻留 Workspace 与 principal，不能改变身份或目标，准入与白名单仍在每次授权时即时检查。`WorkspaceOperationEntry` 只接受未撤销的线程 context，进程 context、请求级 context 与已撤销的线程 context 在分派前被拒绝，actor API 方法仍逐次授权；`system` 的白名单为空，即使派生出线程 context 也不能执行 actor 操作。CPU 执行结束即同步撤销线程 context；进程关闭兜底撤销与释放租借先于任何 await，在途只读可完成。WRITE/UPDATE 在基础校验之后同步复查线程、读取进程话题并登记；冷读跨越撤销时不登记。派发开始后持有受取消保护的提交任务直至结束，再传播取消；进程或 CALL 失败不撤回写入。新增副作用前有 await 的能力方法必须明确撤销与提交的边界。
+线程 context 与其他访问 context 一样不能复制或序列化，CPU 读不出其内容；派生只复制已认证的 actor、驻留 Workspace 与 principal，不能改变身份或目标，准入与白名单仍在每次授权时即时检查。`WorkspaceOperationEntry` 只接受存活线程的 context：分派前经线程表做唯一的存活判定（线程未结束且进程仍在运行），进程 context、请求级 context 与未登记的线程以接线缺陷拒绝，已结束的线程以生命周期错误拒绝，actor API 方法仍逐次授权；`system` 的白名单为空，即使派生出线程 context 也不能执行 actor 操作。CALL 的派生由入口在一次提交内组合：先以 `agent.call` 解析图纸，再由线程表以被调用方准入后派生，CPU 不能交回图纸来自报子线程的身份。线程结束即同步撤销线程 context；进程关闭兜底撤销与释放租借先于任何 await，在途只读可完成。WRITE/UPDATE 在基础校验之后的同步段只解析一次线程，取得进程关联、线程标识与进程话题并登记；冷读跨越线程结束或停止时不登记。派发开始后持有受取消保护的提交任务直至结束，再传播取消；进程或 CALL 失败不撤回写入。新增副作用前有 await 的能力方法必须明确撤销与提交的边界。
 
 ### 3.2 所有者重新校验
 

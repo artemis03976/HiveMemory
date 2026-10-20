@@ -1,4 +1,4 @@
-"""CPU 端口的执行准入、终态返回、事件推送与线程操作绑定。"""
+"""CPU 端口的执行准入、终态返回、事件推送与主线程的提交函数绑定。"""
 
 from types import SimpleNamespace
 from typing import Any, cast
@@ -10,10 +10,15 @@ from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.models.reference import ReferenceResolution
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
+    ExecutionThread,
     OperationRequest,
     ResolveReferencesRequest,
 )
-from tests.helpers.chat_handoff import make_input_manifest, make_mtp_turn_events
+from tests.helpers.chat_handoff import (
+    make_input_manifest,
+    make_mtp_turn_events,
+    make_thread_descriptor,
+)
 from tests.helpers.sessions import make_compaction_checkpoint
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
@@ -46,8 +51,10 @@ def _cpu(run_agent, entry=None):
     return cpu
 
 
-async def _access():
-    return await make_access_composition([make_actor_access_record()]).authenticate_thread()
+async def _thread(thread_id="main"):
+    """真实认证得到的线程 context 与线程描述组成的执行线程。"""
+    access = await make_access_composition([make_actor_access_record()]).authenticate_thread()
+    return ExecutionThread(descriptor=make_thread_descriptor(thread_id=thread_id), access=access)
 
 
 async def _discard(_event: dict[str, Any]) -> None:
@@ -79,7 +86,7 @@ async def test_cpu_returns_service_result_and_pushes_run_output_to_sink():
     result = await _cpu(run_agent).execute(
         make_input_manifest(process_id="process-1"),
         generation_options={"temperature": 0.5},
-        access=await _access(),
+        thread=await _thread(),
         events=sink,
     )
     assert result is expected
@@ -104,7 +111,7 @@ async def test_unavailable_cpu_fails_when_awaited_without_entering_service(stopp
         cpu.start()
         cpu.stop()
     execution = cpu.execute(
-        make_input_manifest(), generation_options=None, access=await _access(), events=_discard
+        make_input_manifest(), generation_options=None, thread=await _thread(), events=_discard
     )
     with pytest.raises(AliceUnavailableError, match="Alice CPU is not running") as caught:
         await execution
@@ -113,15 +120,15 @@ async def test_unavailable_cpu_fails_when_awaited_without_entering_service(stopp
 
 
 @pytest.mark.asyncio
-async def test_cpu_binds_each_thread_context_to_its_operation_submitter() -> None:
-    """每次执行的提交函数使用自己的线程 context，不能被下一次执行的线程 context 覆盖。"""
+async def test_cpu_binds_each_main_thread_to_its_operation_submitter() -> None:
+    """每次执行的提交函数绑定自己的主线程：交出该线程的描述，提交使用该线程的 context。
+
+    下一次执行的主线程不能覆盖前一次的绑定。
+    """
     entry = _ReferenceEntry()
-    first_access = await make_access_composition([make_actor_access_record()]).authenticate_thread()
-    second_access = await make_access_composition(
-        [make_actor_access_record()]
-    ).authenticate_thread()
-    entry.labels[first_access] = "first"
-    entry.labels[second_access] = "second"
+    first, second = await _thread("first-main"), await _thread("second-main")
+    entry.labels[first.access] = "first"
+    entry.labels[second.access] = "second"
     submitters = []
 
     async def route(_manifest, *, submit_operation, **_kwargs):
@@ -132,11 +139,15 @@ async def test_cpu_binds_each_thread_context_to_its_operation_submitter() -> Non
     cpu = _cpu(route, entry)
     results = [
         await cpu.execute(
-            make_input_manifest(), access=access, generation_options=None, events=_discard
+            make_input_manifest(), thread=thread, generation_options=None, events=_discard
         )
-        for access in (first_access, second_access)
+        for thread in (first, second)
     ]
 
     assert [result.final_text for result in results] == ["first:fact", "second:fact"]
+    assert [submitter.thread for submitter in submitters] == [
+        first.descriptor,
+        second.descriptor,
+    ]
     first_references = await submitters[0](ResolveReferencesRequest(("again",)))
     assert first_references[0].requested_alias == "first:again"

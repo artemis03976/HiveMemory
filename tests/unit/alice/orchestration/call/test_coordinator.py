@@ -21,6 +21,7 @@ from hivememory.agent_runtime.frame import (
     FrameProducts,
 )
 from hivememory.agent_runtime.runtime import AgentRuntime
+from hivememory.alice.orchestration.call.context import CallContext
 from hivememory.alice.orchestration.call.coordinator import (
     CallCoordinator,
     DispatchCallee,
@@ -40,7 +41,7 @@ from hivememory.core.mtp.exceptions import (
     SystemFault,
 )
 from hivememory.i18n import get_default_language, set_default_language
-from tests.helpers.call import StubOperationSubmitter, make_call_context
+from tests.helpers.call import StubOperationSubmitter, make_call_context, make_callee
 from tests.helpers.outputs import NullAgentRunOutput, NullFrameOutputSink
 from tests.helpers.workspace import make_runtime_scope
 
@@ -383,7 +384,8 @@ async def test_begin_and_complete_call_split_execution_from_coordination_phases(
 
 
 @pytest.mark.asyncio
-async def test_cancel_call_finalizes_bound_child_and_marks_record_once():
+async def test_cancel_call_finalizes_bound_child_ends_its_thread_and_marks_record_once():
+    """取消沿递归栈清理 CALL：收尾已绑定的子帧并结束子线程，重复取消是空操作。"""
     caller = _frame()
     child = _frame()
     child.runtime_scope = child.runtime_scope.model_copy(update={"frame_id": "frame-child"})
@@ -408,6 +410,7 @@ async def test_cancel_call_finalizes_bound_child_and_marks_record_once():
     assert runtime.finalize_frame.call_args.args[1].status == FrameExecutionStatus.CANCELLED
     runtime.apply_call_response.assert_not_called()
     assert session.call_for_callee("frame-child").status == CallRecordStatus.CANCELLED
+    assert child.submit_operation.end_calls == 1
 
 
 @pytest.mark.asyncio
@@ -444,6 +447,8 @@ async def test_call_coordinator_finalizes_completed_child_without_finalizing_run
     runtime.run_frame.assert_not_awaited()
     assert session.frames["frame-child"] is child
     assert session.call_for_callee("frame-child").status == CallRecordStatus.APPLIED
+    # 子帧以终态结束即结束子线程；各终态在收尾入口共用同一次结束。
+    assert child.submit_operation.end_calls == 1
 
 
 @pytest.mark.asyncio
@@ -600,18 +605,17 @@ async def test_call_coordinator_rejects_unregistered_caller():
 
 
 @pytest.mark.asyncio
-async def test_child_frame_inherits_caller_observation_labels() -> None:
-    """防止 CALL 派生子帧时丢失注册标签或切回默认 Workspace 展示。"""
+async def test_child_frame_holds_callee_thread_and_takes_its_labels() -> None:
+    """子帧持有子线程的句柄，观测标签取子线程描述中被调用方的身份，不沿用调用方。"""
     caller = _frame(agent_id="registered_agent", workspace_id="isolation_workspace")
+    callee = make_callee(AgentProfile(agent_id="helper"))
     runtime = SimpleNamespace(
         max_iterations=8,
         apply_call_response=MagicMock(),
     )
     coordinator = CallCoordinator(
         runtime,
-        SimpleNamespace(
-            provide=AsyncMock(return_value=make_call_context(agent_profile=OMNI_DOLL_PROFILE))
-        ),
+        SimpleNamespace(provide=AsyncMock(return_value=CallContext(callee=callee))),
         frame_factory=FrameFactory(),
         koakuma_config=KoakumaConfig(enabled=False),
     )
@@ -622,9 +626,68 @@ async def test_child_frame_inherits_caller_observation_labels() -> None:
     )
 
     assert isinstance(result, DispatchCallee)
-    assert result.frame.runtime_scope.labels == caller.runtime_scope.labels
+    assert result.frame.submit_operation is callee
+    assert result.frame.runtime_scope.labels == callee.thread.labels
+    assert result.frame.runtime_scope.labels.agent_id == "helper"
     assert result.frame.runtime_scope.run_id == caller.runtime_scope.run_id
     assert result.frame.runtime_scope.frame_id != caller.runtime_scope.frame_id
+    assert callee.end_calls == 0
+
+
+def _failing_frame_factory(caller, callee):
+    """子帧创建失败：派生已成功，子帧还没开始运行。"""
+    return SimpleNamespace(
+        scope=MagicMock(return_value=caller.runtime_scope),
+        create=MagicMock(side_effect=RuntimeError("frame build failed")),
+    )
+
+
+def _rebinding_frame_factory(caller, callee):
+    """创建出与调用方同一标识的子帧，会话绑定以编排不变量违规失败。"""
+    frame = _frame()
+    frame.submit_operation = callee
+    return SimpleNamespace(
+        scope=MagicMock(return_value=caller.runtime_scope),
+        create=MagicMock(return_value=frame),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "make_factory, raises",
+    [
+        pytest.param(_failing_frame_factory, False, id="frame-creation"),
+        pytest.param(_rebinding_frame_factory, True, id="session-binding"),
+    ],
+)
+async def test_failure_after_derivation_before_child_runs_ends_child_thread(make_factory, raises):
+    """派生成功之后、子帧开始运行之前失败：子帧不会运行，子线程随之结束。
+
+    子帧创建失败以准备错误回填调用方；会话绑定失败属于编排不变量违规，原样抛出。
+    """
+    caller = _frame()
+    callee = make_callee(AgentProfile(agent_id="helper"))
+    runtime = SimpleNamespace(max_iterations=8, apply_call_response=MagicMock())
+    coordinator = CallCoordinator(
+        runtime,
+        SimpleNamespace(provide=AsyncMock(return_value=CallContext(callee=callee))),
+        frame_factory=make_factory(caller, callee),
+        koakuma_config=KoakumaConfig(enabled=False),
+    )
+    session = _session(caller)
+
+    if raises:
+        with pytest.raises(RuntimeError, match="already exists"):
+            await coordinator.begin_call(
+                caller, _suspension(), session=session, run_output=NullAgentRunOutput()
+            )
+    else:
+        result = await coordinator.begin_call(
+            caller, _suspension(), session=session, run_output=NullAgentRunOutput()
+        )
+        assert result == ResumeCaller()
+        assert runtime.apply_call_response.call_args.args[2].status == MTPResponseStatus.ERROR
+    assert callee.end_calls == 1
 
 
 @pytest.mark.asyncio

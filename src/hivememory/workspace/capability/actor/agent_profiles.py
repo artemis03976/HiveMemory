@@ -1,4 +1,4 @@
-"""actor CALL API：操作授权后经 Profile 读取视图解析目标，保留资源可见性。"""
+"""actor CALL API：操作授权后经 Profile 读取视图解析目标图纸，保留资源可见性。"""
 
 from __future__ import annotations
 
@@ -6,11 +6,10 @@ from typing import TYPE_CHECKING
 
 from hivememory.core.access import WorkspaceOperation
 from hivememory.workspace.contracts.operations import DeriveCallThreadRequest
-from hivememory.workspace.contracts.threads import ExecutionThread
-from hivememory.workspace.thread_ports import ExecutionThreadTable
 
 if TYPE_CHECKING:
     from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.core.models.agent import AgentProfile
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
     from hivememory.workspace.resolution.profile import ProfileResolver
 
@@ -23,25 +22,22 @@ class ActorAgentService:
         *,
         operation_authorizer: WorkspaceOperationAuthorizer,
         profile_reader: ProfileResolver,
-        threads: ExecutionThreadTable,
     ) -> None:
         self._authorizer = operation_authorizer
         self._profile_reader = profile_reader
-        self._threads = threads
 
-    async def derive_call_thread(
+    async def resolve_call_target(
         self,
         request: DeriveCallThreadRequest,
         *,
         access: WorkspaceAccessContext,
-    ) -> ExecutionThread:
-        """CALL 派生（``agent.call``）：以调用方可见的图纸确定被调用方。
+    ) -> AgentProfile:
+        """CALL 的 actor 操作（``agent.call``）：以调用方可见的图纸确定被调用方。
 
-        未指定 alias 或显式选择 ``default`` / ``omni_doll`` 时返回内置 Profile；
-        自定义 alias 缺失、不可见、类型不符或配置损坏均显式失败，不降级为
-        默认配置。Profile 冷读返回后由线程表重新判定调用方存活并确认它是
-        主线程；被调用方的准入、签发、操作快照与登记均由线程表处理。
+        只做权限检查与图纸解析，结果只有图纸、不含凭据；子线程的派生与结束是
+        线程的生命周期动作，由操作入口在同一次提交内交给线程表。未指定 alias
+        或显式选择 ``default`` / ``omni_doll`` 时返回内置 Profile；自定义 alias
+        缺失、不可见、类型不符或配置损坏均显式失败，不降级为默认配置。
         """
         scope = self._authorizer.authorize_thread_operation(access, WorkspaceOperation.AGENT_CALL)
-        profile = await self._profile_reader.get(request.agent_alias, scope=scope)
-        return self._threads.derive_child(parent=access, profile=profile)
+        return await self._profile_reader.get(request.agent_alias, scope=scope)

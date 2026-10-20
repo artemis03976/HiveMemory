@@ -190,7 +190,6 @@ async def chain(tmp_path):
         profiles=ActorAgentService(
             operation_authorizer=composition.authorizer,
             profile_reader=runtime.profiles,
-            threads=composition.threads,
         ),
         writer=await composition.authenticate_thread(
             agent_id="writer", process_id="writer_process", register_process=True
