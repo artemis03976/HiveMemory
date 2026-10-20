@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/subsystem-contracts.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/patchouli/generation.md
 last_reviewed: 2026-10-19
 ---
@@ -22,7 +22,7 @@ last_reviewed: 2026-10-19
 
 MTP `WRITE` / `UPDATE` 已被生成队列接纳、正式记忆尚未完成提取、去重、合并与持久化时，Agent 仍需要能够检查或引用刚提出的内容。PendingAtom 保留写入意图，以 pending alias 提供可读句柄，使 Agent 无需等待完整生成即可继续推理。ACK 表示登记与队列接纳都已成功，正式记忆仍由 Patchouli 异步生成；后续运行失败或取消不撤回已接纳的写入。
 
-写入意图现在由 workspace 的进程级 `WriteIntentRegistry` 持有，正式 MemoryAtom 与物化决策由 Patchouli 持有。Alice 通过 CPU 驱动绑定的线程句柄 `submit_operation` 提交和读取意图，负责把结果映射为 MTP 响应，不保存第二份登记、状态机、原子缓存或结算投影。登记模型、状态迁移、Workspace 回读范围、redirect 授权和缓存失效的唯一详细入口是 [Workspace 架构](../architecture/workspace.md)。
+写入意图现在由 workspace 的进程级 `WriteIntentRegistry` 持有，正式 MemoryAtom 与物化决策由 Patchouli 持有。Alice 通过 CPU 驱动绑定的线程句柄 `submit_operation` 提交和读取意图，负责把结果映射为 MTP 响应，不保存第二份登记、状态机、原子缓存或结算投影。登记模型、状态迁移、Workspace 回读范围、redirect 授权和缓存失效的唯一详细入口是 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)。
 
 ## 1. WRITE 与 UPDATE 的交付边界
 

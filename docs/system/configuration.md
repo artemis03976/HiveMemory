@@ -7,6 +7,7 @@ code_paths:
   - src/hivememory/config/
   - src/hivememory/system/provider_registry.py
   - src/hivememory/system/model_registry.py
+  - src/hivememory/server/logging_setup.py
   - configs/config.yaml
   - configs/models.yaml
   - configs/system_principals.yaml
@@ -15,7 +16,7 @@ related_contracts:
   - docs/architecture/boundaries.md
   - docs/contracts/subsystem-contracts.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-19
 ---
 
@@ -35,7 +36,7 @@ last_reviewed: 2026-10-19
 
 | 区域 | 模块 | 主要内容 | 责任边界 |
 |:---|:---|:---|:---|
-| `system` / `logging` / `i18n` | `config.app` | 名称、调试标志、server 自身的 principal 标识 `server_principal_id`；日志级别、格式与输出（尚未生效，见下文第 5 节）及 WebSocket 日志广播；默认语言 | System / 全局文本解析 |
+| `system` / `logging` / `i18n` | `config.app` | 名称、调试标志、server 自身的 principal 标识 `server_principal_id`；日志级别、格式、控制台与文件输出及 WebSocket 日志广播（第 4 节）；默认语言 | System / 全局文本解析 |
 | `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待、observer/perception/GC 任务开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
 | `shared` | `config.shared` | LLM、embedding、provider credentials | Registry 与共享模型能力 |
 | `gateway` | `config.gateway` | interceptor、commands、workflow、topic router、query analysis | Gateway |
@@ -45,7 +46,7 @@ last_reviewed: 2026-10-19
 | `workspace` | `config.workspace` | 读取视图缓存容量与会话容量 | workspace |
 | `patchouli` / `alice` | `config.patchouli` / `config.alice` | 各自运行时和存储配置 | 对应子系统 |
 
-访问登记不在 `HiveMemoryConfig` 中，见下文“访问登记文件”。System 只直接拥有顶层设施、接入登记和 passive ingress 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。当前没有用于创建、切换或复制 Workspace 的配置项；默认 `main_workspace` 由入口按用户身份解析，Workspace 资源边界和 AssetStore 生命周期见 [Workspace 架构](../architecture/workspace.md)。
+访问登记不在 `HiveMemoryConfig` 中，见下文“访问登记文件”。System 只直接拥有顶层设施、接入登记和 passive ingress 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。当前没有用于创建、切换或复制 Workspace 的配置项；默认 `main_workspace` 由入口按用户身份解析，Workspace 资源边界和 AssetStore 生命周期见 [Workspace](../workspace/README.md)。
 
 主动写入的背景轮数由 `patchouli.generation.active_recent_blocks` 控制，默认 5、最小 0；即话题过去 N 个 block 与 `state_summary`，不含当前轮。该项与 `patchouli.perception.fold_retain_recent_blocks` 的折叠保留轮数独立，见[Patchouli 生成](../patchouli/generation.md)。
 
@@ -82,7 +83,7 @@ last_reviewed: 2026-10-19
 
 升级注意（执行线程层）：CALL 派生的子 Agent 以目标 Agent 的身份运行，需要目标在同一 Workspace 有准入记录，并按目标自己的白名单授权。随仓库发布的默认登记以用户级记录覆盖该用户的全部 Agent，行为不受影响；只为个别 Agent 配置精确记录的登记，需要为 CALL 目标补充记录，否则这些 CALL 以“agent 不可用”失败。内置图纸（未指定目标、`default` 或 `omni_doll`）以 `omni_doll` 身份运行。
 
-登记的字段语义、用户级记录规则、随仓库发布的默认登记与认证授权模型见 [Workspace 架构](../architecture/workspace.md)第 4.2 节。
+登记的字段语义、用户级记录规则、随仓库发布的默认登记与认证授权模型见 [认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节。
 
 ### 1.2 Alice 会话预算与压缩
 
@@ -157,15 +158,15 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 - 项目版本属于构建事实，不是运行配置；`system.version` 已从配置模型和示例 YAML 中移除，版本唯一来源是 `src/hivememory/_version.py`；
 - 配置模型只声明已有消费者的运行时控制；
 - 各配置段拒绝未知键（`extra="forbid"`）：写错或已删除的键让配置校验失败，启动与 `POST /config` 都显式报错，不会被静默丢弃后让人误以为生效；根配置 `HiveMemoryConfig` 例外，忽略未知的顶层键，因为它同时接收环境变量与 `.env`，其中有不属于配置树的变量（如 `HIVEMEMORY_CONFIG_PATH`）；
-- `i18n.default_language` 在配置校验后同步到进程级 resolver，但请求级显式语言仍由调用方或 Profile 传递。
+- `i18n.default_language` 由组合根在装配运行配置时设为进程默认语言，并先于在构造时读取默认语言的组件；构造配置对象本身没有全局副作用，`GET /config/defaults` 与 `POST /config` 的校验都不改变运行中的默认语言，`POST /config` 保存的新值在下次启动时生效。请求级显式语言仍由调用方或 Profile 传递；
+- `logging` 段由 server 生命周期在加载配置后、装配系统之前应用，模块入口与直接运行 uvicorn 的行为一致。`level` 只接受 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL`，决定根 logger 的级别与控制台、文件输出的下限；`format` 作用于这两项输出；`console_output` 控制 stderr 输出；`file_path` 非空时追加写入该文件（相对路径按工作目录解析，缺失的目录会创建），两项都关闭时不输出。开启 WebSocket 广播且 `websocket_level` 更低时，根 logger 放宽到广播级别，控制台与文件仍只输出 `level` 及以上。入口只替换自己装上的输出，不移除测试框架或 WebSocket 广播的 handler；uvicorn 自己的访问与错误日志沿用 uvicorn 的日志配置。`POST /config` 保存的日志配置在下次启动时生效。
 
 配置扩展必须先判断它属于哪一个所有者；不能为了方便在 `HiveMemoryConfig` 添加一个字段，然后让多个子系统各自解释不同含义。
 
 ## 5. 当前限制
 
 - 部分历史环境变量仍保留兼容映射，清理前不能假设只有嵌套新格式；
-- registry 只在进程装配时形成解析结果，运行中 provider/model 配置变更不会自动热重载；
-- `logging` 段的 `level`、`format`、`file_path`、`console_output` 没有读取方，日志级别与格式由入口写死或沿用 uvicorn 的日志配置，见 [Todo](../todo/logging-config-not-applied.md)；只有 `websocket_*` 生效。
+- registry 只在进程装配时形成解析结果，运行中 provider/model 配置变更不会自动热重载。
 
 ## 6. 配置变更检查
 

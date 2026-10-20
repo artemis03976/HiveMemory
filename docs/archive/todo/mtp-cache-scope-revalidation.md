@@ -15,7 +15,7 @@ related_docs:
   - docs/contracts/mtp.md
   - docs/alice/mtp-runtime.md
   - docs/alice/pending-atom.md
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-09-14
 ---
 

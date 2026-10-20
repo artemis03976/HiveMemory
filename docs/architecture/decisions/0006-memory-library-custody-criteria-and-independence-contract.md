@@ -102,4 +102,4 @@ Accepted（2026-09-27）。判据与独立工作契约最初于 2026-09-23 作�
 
 - [Patchouli](../../patchouli/README.md)：记忆库的当前职责；
 - [系统边界与所有权](../boundaries.md)；
-- [第五代架构 Idea](../../ideas/fifth-generation-architecture.md)第 3.4 节：库外一侧的理念与约束；库外状态的当前归属见 [Workspace 架构](../workspace.md)第 5 节。
+- [第五代架构 Idea](../../ideas/fifth-generation-architecture.md)第 3.4 节：库外一侧的理念与约束；库外状态的当前归属见 [身份与授权](../../workspace/identity-and-authorization.md#5-资源归属与寻址)第 5 节。

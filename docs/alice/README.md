@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-19
 ---
 
@@ -96,7 +96,7 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 
 未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`；显式选择 `default` / `omni_doll` 也会直接选择同一个内置 Profile，但不属于错误 fallback。Omni-Doll 无特定 persona、模型名为 `default`，verb/tool 使用当前内置能力的显式白名单，而不是 `None=未来所有能力也自动允许`。因此新增 MTP verb 或 syscall 时必须同步审查并更新白名单，不能悄悄扩大 fallback 权限。
 
-主 Agent 的 Profile 由任务进程在 prepare 之前经阶段授权读取，不要求任何 actor 操作，随主线程描述交给 Alice；CALL 目标（包括内置 Profile）通过派生请求 `DeriveCallThreadRequest` 读取，经 workspace actor API 的 `agent.call` 授权，再由线程表以被调用方准入后派生子线程。操作入口把请求与 CPU 附上的线程 context 交给 actor API，actor API 以线程的驻留 Workspace 为目标授权后，才把一次操作的 `IdentityScope` 交给读取视图和 Patchouli 公开边界；两条路径都由读取视图按当前 actor 检查源原子可见性。Patchouli 先检查 Workspace 归属，再检查资源可见性、MemoryType 与 `agent_config`。Profile 缓存由 workspace 按 Workspace/alias 坐标定位，条目保存源原子的 policy 与 UUID，命中时对当前 actor 重验；canonical 源变更失效与在途回填代次检查统一维护，详见 [Workspace 架构](../architecture/workspace.md)。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
+主 Agent 的 Profile 由任务进程在 prepare 之前经阶段授权读取，不要求任何 actor 操作，随主线程描述交给 Alice；CALL 目标（包括内置 Profile）通过派生请求 `DeriveCallThreadRequest` 读取，经 workspace actor API 的 `agent.call` 授权，再由线程表以被调用方准入后派生子线程。操作入口把请求与 CPU 附上的线程 context 交给 actor API，actor API 以线程的驻留 Workspace 为目标授权后，才把一次操作的 `IdentityScope` 交给读取视图和 Patchouli 公开边界；两条路径都由读取视图按当前 actor 检查源原子可见性。Patchouli 先检查 Workspace 归属，再检查资源可见性、MemoryType 与 `agent_config`。Profile 缓存由 workspace 按 Workspace/alias 坐标定位，条目保存源原子的 policy 与 UUID，命中时对当前 actor 重验；canonical 源变更失效与在途回填代次检查统一维护，详见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
 
 ## 4. 当前主流程
 
@@ -143,7 +143,7 @@ Agent 使用 MTP 在生成过程中发现、读取和使用记忆，也可以提
 
 `WRITE` / `UPDATE` 不同步修改 Qdrant。Koakuma 提交操作请求，在 workspace 登记意图并立即交给 Patchouli 意图路由；生成队列接纳后返回 ACK 与 `draft_*` 或 `rev_*` 句柄，供当前及后续进程 READ。结算事件更新 workspace 登记。
 
-这条写缓冲边界使 Agent 可以在同一 run 内读到自己的写意图，正式生成由 Patchouli 异步处理，随后执行失败或取消不撤回已接纳写入。Alice 的适配与 frame 产物见 [PendingAtom](./pending-atom.md)，登记状态和读取缓存的权威说明见 [Workspace 架构](../architecture/workspace.md)。
+这条写缓冲边界使 Agent 可以在同一 run 内读到自己的写意图，正式生成由 Patchouli 异步处理，随后执行失败或取消不撤回已接纳写入。Alice 的适配与 frame 产物见 [PendingAtom](./pending-atom.md)，登记状态和读取缓存的权威说明见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)。
 
 ## 6. 启停、公开能力与观测
 

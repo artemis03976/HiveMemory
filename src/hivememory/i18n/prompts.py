@@ -179,12 +179,21 @@ _GATEWAY_PROMPT_TEXT_ZH = {
 【活跃话题】
 {active_topics_menu}
 
+【当前会话最近轮次】
+{session_context}
+
+当前会话最近轮次只用于理解用户输入中的指代与省略，不要回答其中的问题，也不要回答用户输入。
 若输入属于某个活跃话题，target_topic 必须使用列表中的 topic_id；否则使用 NEW_TOPIC，并给出简短的新话题标题和一句话摘要。
 只返回 JSON object，字段固定为 target_topic、new_topic_title、new_topic_summary、reason。""",
     "query_understanding_prompt": """你是 HiveMemory 的查询分析器。用户输入已完成话题路由，你的任务是结合所属话题的上下文，完成意图识别、查询重写、检索关键词提取和记忆价值初判。你不负责选择话题。
 
 【所属话题上下文】
 {topic_context}
+
+【当前会话最近轮次】
+{session_context}
+
+当前会话最近轮次只用于理解用户输入中的指代与省略，不要回答其中的问题，也不要回答用户输入。
 
 【处理规则】
 1. 意图识别 intent_type：
@@ -193,7 +202,7 @@ _GATEWAY_PROMPT_TEXT_ZH = {
    - COMPOSITE：同一输入同时包含提问与需要记忆的陈述等多个意图。
 
 2. 检索优化重写 rewritten_query [关键]:
-   - 结合话题上下文消除指代（它/这个/那个/之前说的）。
+   - 结合话题上下文与当前会话最近轮次消除指代（它/这个/那个/之前说的）。
    - 禁止照抄用户的口语化提问（去掉"如何"、"帮我"、"怎么"等疑问/祈使词）。
    - 必须重写为"陈述句形态的知识点描述"或"假设性文档标题"，提取核心意图，补充潜在的上下文语境与相关领域术语。
    - 示例：
@@ -214,6 +223,7 @@ _GATEWAY_PROMPT_TEXT_ZH = {
 intent_type、rewritten_query、search_keywords、memory_write_signal、sub_intents、reason。""",
     "active_topics_empty": "无",
     "topic_context_empty": "无（新话题，暂无历史上下文）",
+    "session_context_empty": "无",
 }
 
 _GATEWAY_PROMPT_TEXT_EN = {
@@ -222,12 +232,21 @@ _GATEWAY_PROMPT_TEXT_EN = {
 Active topics:
 {active_topics_menu}
 
+Recent turns in the current session:
+{session_context}
+
+Use the recent session turns only to understand references and omissions in the user input. Do not answer them, and do not answer the user input.
 If the input belongs to an active topic, target_topic must be one of the listed topic IDs. Otherwise use NEW_TOPIC and provide a concise title and one-sentence summary.
 Return only one JSON object with target_topic, new_topic_title, new_topic_summary, and reason.""",
     "query_understanding_prompt": """You are HiveMemory's query analyzer. The user input has already been routed to a topic. Using the routed topic's context, perform intent classification, query rewriting, retrieval keyword extraction, and an initial memory-value judgment. You do not choose the topic.
 
 [Routed Topic Context]
 {topic_context}
+
+[Recent Turns in the Current Session]
+{session_context}
+
+Use the recent session turns only to understand references and omissions in the user input. Do not answer them, and do not answer the user input.
 
 [Rules]
 1. Intent classification intent_type:
@@ -236,7 +255,7 @@ Return only one JSON object with target_topic, new_topic_title, new_topic_summar
    - COMPOSITE: the input combines multiple intents, e.g. both a question and a statement worth remembering.
 
 2. Retrieval-optimized rewrite rewritten_query [CRITICAL]:
-   - Resolve coreferences (it/this/that/the previous one) using the topic context.
+   - Resolve coreferences (it/this/that/the previous one) using the topic context and the recent session turns.
    - FORBIDDEN to verbatim copy the user's colloquial question (remove interrogative/imperative words like "how to", "help me", "how do I").
    - MUST rewrite into a "declarative knowledge description" or a "hypothetical document title", extracting the core intent and supplementing potential context and related domain terminology.
    - Examples:
@@ -257,6 +276,7 @@ Return exactly one JSON object. Do not output markdown, code fences, or prose. T
 intent_type, rewritten_query, search_keywords, memory_write_signal, sub_intents, reason.""",
     "active_topics_empty": "None",
     "topic_context_empty": "None (new topic, no history yet)",
+    "session_context_empty": "None",
 }
 
 _RELAY_PROMPT_TEXT_ZH = {

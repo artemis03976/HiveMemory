@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/architecture/boundaries.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
@@ -50,10 +50,10 @@ HiveMemory 因而保留了原项目“双系统”的核心思想：热路径负
 
 ## 2. 当前基线
 
-- 最新已发布 Git 标签：`v0.6.2`；
-- 当前发布基线：`v0.6.2`；
-- 当前代码、构建与运行时版本：`0.6.2`，唯一声明位于 `src/hivememory/_version.py`；
-- 当前发布基线已经包含独立 Gateway、全局命令、Gateway workflow、Passive Ingress 与 Local Work Queue Runtime；
+- 最新已发布 Git 标签：`v0.6.2`；本次发布标签 `v0.7.0` 在合并后创建；
+- 当前内容基线：`v0.7.0`，已收尾；
+- 当前代码、构建与运行时版本：`0.7.0`，唯一声明位于 `src/hivememory/_version.py`；
+- 当前内容基线在 v0.6.x 的独立 Gateway、Gateway workflow、Passive Ingress 与 Local Work Queue Runtime 之上，完成了 workspace 体系：任务请求的唯一注册入口与任务进程、两阶段认证与授权、能力层、执行线程、会话资源与写入意图登记；全局命令只解析、不执行；
 - Python 包、FastAPI/OpenAPI、health 响应和前端包清单保持同一版本；Git tag 仍是“已经发布”的唯一判断依据。
 
 版本规划与完成度以[路线图](../ROADMAP.md)为准，系统当前由什么组件组成则以本文和代码为准。
@@ -76,7 +76,7 @@ HiveMemory 因而保留了原项目“双系统”的核心思想：热路径负
 下层需要上层能力时以端口协议声明，由组合根实现并注入；根配置与加载（`config.app`）只供 `system` 与 `server` 使用，各组件只接收自己的配置段。
 
 Workspace 的资源归属、IdentityScope 传播、Topic/Asset 边界和 shutdown 清理顺序见
-[Workspace 架构](./workspace.md)；本文只保留总体组件关系和跨子系统生命周期概览。
+[Workspace](../workspace/README.md)；本文只保留总体组件关系和跨子系统生命周期概览。
 
 ```mermaid
 flowchart TB

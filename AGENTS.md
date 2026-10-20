@@ -50,7 +50,7 @@
 
 执行者通过 `workspace.contracts` 的 `OperationRequest` 与线程句柄 `OperationSubmitter` 提交操作。任务进程内有两类访问 context：进程 context 服务于全部四个阶段的阶段调用，由进程记录持有、进程关闭时最后撤销；线程 context 属于执行线程，只服务于 Actor 阶段的 actor 操作。执行线程是任务进程在 Actor 阶段内的执行主体，登记在进程的线程表（`TaskProcess.threads`）中；`workspace.process` 的 `ProcessThreads` 是派生、结束与解析的唯一入口，经 `ThreadContextLifecycle` 端口进入认证一侧。主线程在进入 Actor 阶段时以 prepare 之前解析的图纸派生；CALL 由入口的 `derive_child_thread` 在一次提交内组合：actor API 的 `resolve_call_target`（actor 操作 `agent.call`）只解析目标图纸，线程表再确认调用方是存活的主线程，以被调用方做 Workspace 准入后派生子线程；`DeriveCallThreadRequest` 不是 `OperationRequest`。主线程与子线程以同一种执行线程交给 CPU 驱动：线程描述 `ThreadDescriptor`（标识、观测标签、图纸、操作快照）与线程 context；CPU 驱动以 `workspace.contracts.ThreadOperationSubmitter` 把它与 `WorkspaceOperationEntry` 绑定为该线程的句柄，句柄只交出线程描述，帧持有所属线程的句柄。线程结束即撤销线程 context：子线程随 CALL 返回由 CPU 经入口的 `end_thread` 结束，停止被接受时全部线程即已结束，Actor 阶段结束时全部兜底结束。存活只有一个判定（线程未结束且进程仍在运行），入口的 `execute` 在分派前经线程表判定，再按请求类型把五项记忆请求直接交给 actor API 方法；线程已结束以 `ThreadEndedError` 拒绝，接线缺陷仍是 `ScopeRequiredError`。请求只携带操作参数，不暴露访问 context，也不能切换目标 Workspace 或指定 process_id。
 
-能力层的三个调用面（详见 [Workspace 架构](docs/architecture/workspace.md)第 4.5 节）：
+能力层的三个调用面（详见 [能力层](docs/workspace/capability.md#1-三个调用面)第 1 节）：
 
 - **actor API**（`workspace/capability/actor/`）：六项 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，与 MTP 的 READ、SEARCH、RUN、WRITE、UPDATE、CALL 一一对应，每种请求只检查访问登记白名单中的对应一项。
 - **root API**（`workspace/capability/root/`）：全部管理方法，只接受保留的 `system`，不读取白名单；`system` 的访问记录不得配置 operation，也不能执行 actor 操作。HTTP 管理路由只调用 root API。
@@ -66,7 +66,7 @@
 - System 拥有 passive 控制状态，以及总线、调度器等共享设施实例的装配与关闭（机制实现在 `components`）；chat 任务进程的控制状态由 workspace 的进程表（`workspace.process`）持有；`WorkspaceAssetStore` 的进程内 working set 属于 workspace，由组合根装配并在关闭时最后清理。
 - Gateway 只产生 `GatewayDecision`；它可以读取辅助上下文，但不取得记忆所有权。
 - RuntimeEvent 只用于 best-effort 观测，不能决定业务成功、替代 RPC 返回值或充当可靠命令。
-- 身份数据按形态区分，不得互相代替：访问 context 只由运行持有者与 workspace 授权点持有（线程 context 的运行是该执行线程从派生到结束的一段，由 CPU 驱动持有，CPU 读不出其内容，也不持有进程 context）；`IdentityScope`（发起者 + 目标 Workspace）只由授权点组装，只在一次操作的调用链内经公共 route 到达资源 owner 与 Gateway，不写入记录、事件或后台任务。Import Bus 的 `/ingest` 仍在认证前组装，是既有例外（[Workspace 架构](docs/architecture/workspace.md)第 3.2 节）。Alice/CPU 的 `RuntimeScope`、`CPUInputManifest` 与线程描述只携带 `ExecutionLabels`（`agent_id`、`workspace_id`）作为身份数据：清单是注册认证后绑定的进程级标签，线程描述是线程自己的标签（主线程与注册标签相同，CALL 子线程为被调用方与注册时的 workspace），由线程表生成；标签用于观测与提示词，不参与授权，不得据此重建访问身份。线程描述另带线程表在派生时以该线程 context 读取的 actor 操作快照（`allowed_operations`），只用于提示词与 frame 执行策略，同样不是授权依据。
+- 身份数据按形态区分，不得互相代替：访问 context 只由运行持有者与 workspace 授权点持有（线程 context 的运行是该执行线程从派生到结束的一段，由 CPU 驱动持有，CPU 读不出其内容，也不持有进程 context）；`IdentityScope`（发起者 + 目标 Workspace）只由授权点组装，只在一次操作的调用链内经公共 route 到达资源 owner 与 Gateway，不写入记录、事件或后台任务。Import Bus 的 `/ingest` 仍在认证前组装，是既有例外（[身份与授权](docs/workspace/identity-and-authorization.md#12-默认入口和内部-seam)第 1.2 节）。Alice/CPU 的 `RuntimeScope`、`CPUInputManifest` 与线程描述只携带 `ExecutionLabels`（`agent_id`、`workspace_id`）作为身份数据：清单是注册认证后绑定的进程级标签，线程描述是线程自己的标签（主线程与注册标签相同，CALL 子线程为被调用方与注册时的 workspace），由线程表生成；标签用于观测与提示词，不参与授权，不得据此重建访问身份。线程描述另带线程表在派生时以该线程 context 读取的 actor 操作快照（`allowed_operations`），只用于提示词与 frame 执行策略，同样不是授权依据。
 - 资源 owner 在公共边界把 `IdentityScope` 拆为资源归属（`WorkspaceIdentity`）与发起者（`ActorIdentity`），内部分开传递，不再传递或重新组装 `IdentityScope`。交互记录与后台任务以独立字段携带归属与（需要时）发起者；非主动生成路径的发起者是保留的 `system`，参与内容的 Agent 只记入贡献者；这种用法只按普通可见性读取，与 `system` 作为 root（只在 root API 生效）分属不同入口。
 - 身份第二批的暂缓边界：`WorkspaceAssetStore`、解析服务与既有资产 Reader/Command 端口仍使用旧 `IdentityScope` 做归属检查；System 的 `AssetMaterializationReader` 在一次 representation 租借内以归属和保留 `system` actor 组装旧接口所需 scope，Patchouli 只使用归属读取端口，不保存该 scope。此例外仅限该适配器，不得扩散，后续拆分见 [WorkspaceAsset 归属拆分 Todo](docs/todo/workspace-asset-ownership-identity-split.md)。
 - 资源授权在资源 owner 处进行：先校验资源归属等于目标 Workspace（硬边界，任何读取视角都不跳过），再按资源 policy 判断发起者的可见性；资源上的来源字段不参与授权。
@@ -147,7 +147,7 @@ cd frontend && npm ci && npm run lint && npm run build
 
 ## 7. 文档与设计变更
 
-- 当前事实入口：`docs/PROJECT.md`、`docs/architecture/`、`docs/system/`、`docs/components/`、`docs/gateway/`、`docs/patchouli/`、`docs/alice/`、`docs/contracts/`、`docs/help/` 和 `docs/governance/`。
+- 当前事实入口：`docs/PROJECT.md`、`docs/architecture/`、`docs/system/`、`docs/components/`、`docs/workspace/`、`docs/gateway/`、`docs/patchouli/`、`docs/alice/`、`docs/contracts/`、`docs/help/` 和 `docs/governance/`。
 - `docs/ideas/` 是探索（以 `horizon` 区分当前版本讨论 `current`、候选方向 `candidate` 与长期方向 `long-term`），`docs/plans/` 是绑定版本/里程碑且可验收的实施计划，`docs/todo/` 是小范围缺陷/技术债，`docs/ROADMAP.md` 是明确标注状态的规划摘要，`docs/archive/` 只保存历史。
 - 计划不设总分结构：同一目标方向只有一份生效计划，不使用 `parent_plan`；计划正文只以事实文档、代码、ADR、已归档计划和背景 Idea 为依据，计划之间只有整份粒度的顺序依赖；未完成实施即作废的计划直接删除（入链与遗留事项的处理见 `docs/DOCUMENTATION.md` 第 10 节），方向保留但前提改变的未实施计划退回 Idea（第 8.4 节）。ADR 只叙述已做出的决定与事实，不依赖计划。
 - 开发分支尚未最终收尾时，不把候选模型、未稳定命名、目标接口、迁移步骤或“未来将支持”的设计写入当前事实文档。实现、测试、迁移、验收和代码审查完成后，才按最终代码晋升事实并归档 Plan。

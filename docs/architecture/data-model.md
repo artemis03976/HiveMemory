@@ -16,7 +16,7 @@ related_contracts:
 related_decisions:
   - docs/architecture/decisions/0001-data-model-mutability-and-boundary-projection.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
@@ -27,7 +27,7 @@ last_reviewed: 2026-10-19
 
 HiveMemory 的数据模型首先服务于一个长期目标：把记忆从对话日志中的片段变成可以检索、阅读、演化和追溯的知识资产。这个目标既要求模型表达语义，也要求系统知道谁有权修改一份状态、何时形成稳定快照，以及跨子系统传递的对象是否仍会被原所有者改写。
 
-因此，本项目不采用“所有模型一律冻结”的形式主义规则。MemoryAtom、话题 buffer、Gateway 请求状态和 Agent 执行进度处于不同生命周期；把它们都改成不可变对象，不会自动建立正确的所有权。当前设计按模型角色选择可变性：值对象、事件和读取快照倾向于递归不可变；实体、聚合与请求级运行状态可以受控可变；跨边界时则投影为与内部实体脱钩的 DTO 或快照。Workspace 的身份坐标遵循同一原则：`ActorIdentity`、`WorkspaceIdentity` 与 `IdentityScope` 是不可变值对象；操作 scope 只到资源 owner 的公共边界，记录与任务独立保存归属和需要的发起者。资源实体仍由各自领域 Store 所有，具体归属与寻址规则见 [Workspace 架构](./workspace.md)。
+因此，本项目不采用“所有模型一律冻结”的形式主义规则。MemoryAtom、话题 buffer、Gateway 请求状态和 Agent 执行进度处于不同生命周期；把它们都改成不可变对象，不会自动建立正确的所有权。当前设计按模型角色选择可变性：值对象、事件和读取快照倾向于递归不可变；实体、聚合与请求级运行状态可以受控可变；跨边界时则投影为与内部实体脱钩的 DTO 或快照。Workspace 的身份坐标遵循同一原则：`ActorIdentity`、`WorkspaceIdentity` 与 `IdentityScope` 是不可变值对象；操作 scope 只到资源 owner 的公共边界，记录与任务独立保存归属和需要的发起者。资源实体仍由各自领域 Store 所有，具体归属与寻址规则见 [身份与授权](../workspace/identity-and-authorization.md#5-资源归属与寻址)。
 
 本文描述当前已经成立的边界，并记录仍然存在的引用泄漏与冻结深度问题。后续规范化工作见[数据模型可变性治理](../governance/data-model/mutability.md)。
 
@@ -92,7 +92,7 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 `IdentityScope` 只表达一次操作中的 actor 和 Workspace 事实，不把请求、任务或 trace 状态塞入公共身份模型。Topic、Memory、Artifact 和 WorkspaceAsset 的资源访问在相应领域边界组合 WorkspaceIdentity 与资源 ID；其中 `topic_id` 仍按全局唯一身份生成和校验，Workspace 归属由底层存储边界校验。物理复合键本身不复制实体，也不改变由 Patchouli 或 System Store 负责的生命周期。
 
-`WorkspaceAssetStore` 是 workspace 的进程内唯一 working set，由 System 装配；资产的 opaque ref、representation 与 lease 只在该 Store 的生命周期内有效。它不属于通用缓存、队列或事件对象图；关闭时由 System 在 Patchouli drain 完成后清空。其旧 scope 端口是当前迁移例外（见 [Workspace 架构](./workspace.md#10-当前边界与限制)）。共享 runtime 的记录与后台工作 payload 携带独立身份字段，公开 route 参数仍可携带操作 scope；两者都不因模型中有 Workspace 字段而自动形成一套按 Workspace 分区的可变状态。
+`WorkspaceAssetStore` 是 workspace 的进程内唯一 working set，由 System 装配；资产的 opaque ref、representation 与 lease 只在该 Store 的生命周期内有效。它不属于通用缓存、队列或事件对象图；关闭时由 System 在 Patchouli drain 完成后清空。其旧 scope 端口是当前迁移例外（见 [WorkspaceAsset](../workspace/assets.md#3-身份与归属)）。共享 runtime 的记录与后台工作 payload 携带独立身份字段，公开 route 参数仍可携带操作 scope；两者都不因模型中有 Workspace 字段而自动形成一套按 Workspace 分区的可变状态。
 
 ### 4.2 Gateway 请求状态
 
@@ -162,7 +162,7 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 
 会话摘要包含 `session_id`、`belong_to`、标题、创建/更新时间、轮数和当前认领的 `active_process_id`；完整读取增加 `turns` 和可空的 `compaction_checkpoint`。`ConversationTurn` 位于 `core.protocol.models`，包含 `interaction_id`、`agent_id`（标签）、`payload`、`topic_id`、`created_at`。服务仅在同步操作中更新内部记录，对外交付嵌套深复制的快照，防止 frozen 外壳中的可变 payload 泄漏。
 
-`InteractionPayload.outcome` 与 `TurnRecord.outcome` 均为 completed/cancelled/failed，默认 completed；`GenerationTurn` 继续传递结局以注明中断材料。InteractionSubmission codec 5 拒绝旧版本。会话保存完整交互，CPU 清单的 `session_history` 是本会话全量快照，Gateway 的 `GatewaySessionTurn` 只投影用户与助手文本；二者都不含访问 context。资源生命周期见 [Workspace](./workspace.md#55-会话资源与历史所有权)。
+`InteractionPayload.outcome` 与 `TurnRecord.outcome` 均为 completed/cancelled/failed，默认 completed；`GenerationTurn` 继续传递结局以注明中断材料。InteractionSubmission codec 5 拒绝旧版本。会话保存完整交互，CPU 清单的 `session_history` 是本会话全量快照，Gateway 的 `GatewaySessionTurn` 只投影用户与助手文本；二者都不含访问 context。资源生命周期见 [会话资源](../workspace/sessions.md)。
 
 `SessionCompactionCheckpoint` 同置 `core.protocol.models`，冻结产生方、版本、两个覆盖游标、摘要、引用 tuple 与时间；字段规范见[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)。它是会话旁挂的执行视图，不进入 `InteractionPayload` 或 submission codec；旧会话没有检查点时按原文重放。
 

@@ -16,7 +16,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/error-model.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-19
 ---
 
@@ -101,7 +101,7 @@ User    current user message
 
 ### 3.1 会话上下文视图
 
-`RootContextBuilder` 属于 Alice 的 `context` 层，每次 run 独立解析模型、构建 `SessionContextView` 并报告压缩进度，在创建根 frame 前完成。会话服务持有检查点、Alice 解释其格式：当前接受 `producer=alice`、`format_version=1`，未知格式、无法匹配原文的游标或摘要与覆盖不一致时回退到全量重放。关闭压缩时忽略检查点；全量历史超出输入上限时以 `compaction_failed` 结束，不交给轮内守卫误报为工具结果超预算。检查点结构见[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)，接受与生命周期见 [Workspace](../architecture/workspace.md#55-会话资源与历史所有权)。
+`RootContextBuilder` 属于 Alice 的 `context` 层，每次 run 独立解析模型、构建 `SessionContextView` 并报告压缩进度，在创建根 frame 前完成。会话服务持有检查点、Alice 解释其格式：当前接受 `producer=alice`、`format_version=1`，未知格式、无法匹配原文的游标或摘要与覆盖不一致时回退到全量重放。关闭压缩时忽略检查点；全量历史超出输入上限时以 `compaction_failed` 结束，不交给轮内守卫误报为工具结果超预算。检查点结构见[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)，接受与生命周期见 [会话资源](../workspace/sessions.md)。
 
 `SessionContextView` 接收 MTP 教学、`instructions`、`turn_context`、用户消息、语言和会话历史，按不透明固定块估算预算；带摘要的估算只替换 Alice 自己的摘要段，不重渲染或裁剪进程文本。固定输入已超过输入上限时以 `input_too_large` 失败，摘要预留仍按同一固定块计量。已有摘要覆盖的前缀不再重放，其后到减重边界的轮次只精简工具结果，再后的完整轮次保留原文。两次压缩之间边界不逐轮滑动；整个消息视图超过触发比例才压缩，压缩顺序如下：
 

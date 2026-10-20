@@ -12,7 +12,7 @@ from hivememory.engines.gateway.llm import json_analysis_params
 from hivememory.engines.gateway.models import TopicRoutingResult
 from hivememory.i18n import resolve_language
 from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
-from hivememory.prompts.gateway import get_topic_router_system_prompt, session_history_messages
+from hivememory.prompts.gateway import get_topic_router_system_prompt, render_session_turns
 from hivememory.utils.json_parser import JSONParseError, parse_llm_json
 
 
@@ -53,10 +53,10 @@ class TopicRouterEngine:
         prompt = get_topic_router_system_prompt(
             language=self._language,
             active_topics_menu=self._render_topics(topic_snapshots),
+            session_context=render_session_turns(session_turns),
         )
         messages = [
             {"role": "system", "content": prompt},
-            *session_history_messages(session_turns),
             {"role": "user", "content": message},
         ]
         try:

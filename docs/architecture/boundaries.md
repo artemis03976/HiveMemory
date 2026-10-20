@@ -20,14 +20,14 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/architecture/data-model.md
 last_reviewed: 2026-10-19
 ---
 
 # 系统边界与所有权
 
-本文定义 System、Workspace、Gateway、Patchouli、Alice 之间当前生效的责任、状态所有权和依赖方向。Workspace 既是横跨这些边界的资源归属坐标，也是与三个子系统同层的包，承载认证入口、能力层（只供 `system` 的 root API 与供 actor 的 actor API）、读取视图与 WorkspaceAsset 设施；它没有独立生命周期宿主，由组合根装配。其完整当前语义见[Workspace 架构](./workspace.md)，包的分层规则见[系统架构概览](./overview.md)第 3 节。具体公开输入输出由[子系统契约](../contracts/subsystem-contracts.md)定义。
+本文定义 System、Workspace、Gateway、Patchouli、Alice 之间当前生效的责任、状态所有权和依赖方向。Workspace 既是横跨这些边界的资源归属坐标，也是与三个子系统同层的包，承载认证入口、能力层（只供 `system` 的 root API 与供 actor 的 actor API）、读取视图与 WorkspaceAsset 设施；它没有独立生命周期宿主，由组合根装配。其完整当前语义见[Workspace](../workspace/README.md)，包的分层规则见[系统架构概览](./overview.md)第 3 节。具体公开输入输出由[子系统契约](../contracts/subsystem-contracts.md)定义。
 
 这里的“边界”不是为了让目录看起来整齐，也不是把一套进程内实现包装成微服务。它要解决的是一个更直接的问题：当一次交互同时经过入口判断、记忆检索、Agent 执行和长期沉淀时，究竟由谁作决定、由谁保存状态、又由谁对失败负责。如果这个问题没有唯一答案，同一份状态就会在多个 Runtime 中出现副本，业务顺序会散落到 HTTP router、事件订阅者和领域对象里，局部修复最终会改变整条链路的语义。
 
@@ -57,11 +57,11 @@ last_reviewed: 2026-10-19
 
 `IdentityScope` 是一次操作携带的不可变 `ActorIdentity + WorkspaceIdentity`。它由授权点传到资源 owner 的公共边界与 Gateway，只在该操作的调用链内使用。Patchouli 在公共边界拆为资源归属 `belong_to: WorkspaceIdentity` 与发起者 `from_actor: ActorIdentity`，内部调用、引擎、存储、记录和后台任务分别携带所需字段，不继续传递或重建 scope；它不把 Gateway、Patchouli、Alice 或共享 runtime 复制成按 Workspace 分区的实例。
 
-当前资源所有权仍由领域 Store 分别维护：Topic、Memory、Artifact 属于 Patchouli，`WorkspaceAssetStore`（`workspace.assets`）是进程级唯一的运行时 working set，由组合根装配并在关闭时最后清空。Topic 的 `topic_id` 在领域上全局唯一，公共调用方通过 `IdentityScope + topic_id` 访问，内部使用 `belong_to + topic_id`；`WorkspaceTopicKey` 只在短期 adapter 内部将 owner/workspace 坐标与 ID 组合起来进行归属校验和物理索引。WorkspaceAssetStore 的旧身份端口与 System 兼容适配器是当前迁移例外（见 [Workspace 架构](./workspace.md#10-当前边界与限制)）。cache、queue、registry、scheduler、runtime 和 EventBus 继续保持进程级共享；其中 `RuntimeEvent.workspace_id` 只是可选观测标签。
+当前资源所有权仍由领域 Store 分别维护：Topic、Memory、Artifact 属于 Patchouli，`WorkspaceAssetStore`（`workspace.assets`）是进程级唯一的运行时 working set，由组合根装配并在关闭时最后清空。Topic 的 `topic_id` 在领域上全局唯一，公共调用方通过 `IdentityScope + topic_id` 访问，内部使用 `belong_to + topic_id`；`WorkspaceTopicKey` 只在短期 adapter 内部将 owner/workspace 坐标与 ID 组合起来进行归属校验和物理索引。WorkspaceAssetStore 的旧身份端口与 System 兼容适配器是当前迁移例外（见 [WorkspaceAsset](../workspace/assets.md#3-身份与归属)）。cache、queue、registry、scheduler、runtime 和 EventBus 继续保持进程级共享；其中 `RuntimeEvent.workspace_id` 只是可选观测标签。
 
 公共模型在这里相当于一张“交接单”：它应说明上一阶段已经确认了什么、下一阶段可以依赖什么，却不允许接收方通过模型继续操纵发送方的内部对象。将公共模型做成 frozen 或依赖中立结构，目的正是防止 workflow state、存储客户端和引擎实体沿调用链泄漏，最终形成无法辨认的共享内部状态。
 
-访问控制的所有权同样分属两处：System 持有调用来源接入登记与 Principal authentication（`system.access`，第 1 阶段）；workspace 持有统一认证网关与第 2 阶段的准入、签发与撤销（`workspace.authentication`）、第 3 阶段的操作授权（`workspace.authorization`）与访问注册表（`workspace.registry`）。访问值类型与端口协议（`WorkspaceOperation`、密封的 `WorkspaceAccessContext` 与授予内容、`CallerPrincipal`、`PrincipalAuthenticator`）位于 `core.access`。操作授权在 workspace 的授权点完成：actor API 检查 actor 操作白名单，root API 只接受保留的 `system`，任务进程的阶段调用只校验准入与目标、不检查 actor 操作；三者都把组装的 `IdentityScope` 交给公共 route；资源 owner 拆分身份后独立执行资源规则：先检查 Workspace 硬边界，再按 policy 判断发起者的可见性，来源字段不参与授权。Patchouli 与 Gateway 不接收访问 context，也不依赖 workspace 的认证与授权实现。依赖方向为 `system → workspace → core`；workspace 不导入 System。完整模型见[Workspace 架构](./workspace.md)第 4 节。
+访问控制的所有权同样分属两处：System 持有调用来源接入登记与 Principal authentication（`system.access`，第 1 阶段）；workspace 持有统一认证网关与第 2 阶段的准入、签发与撤销（`workspace.authentication`）、第 3 阶段的操作授权（`workspace.authorization`）与访问注册表（`workspace.registry`）。访问值类型与端口协议（`WorkspaceOperation`、密封的 `WorkspaceAccessContext` 与授予内容、`CallerPrincipal`、`PrincipalAuthenticator`）位于 `core.access`。操作授权在 workspace 的授权点完成：actor API 检查 actor 操作白名单，root API 只接受保留的 `system`，任务进程的阶段调用只校验准入与目标、不检查 actor 操作；三者都把组装的 `IdentityScope` 交给公共 route；资源 owner 拆分身份后独立执行资源规则：先检查 Workspace 硬边界，再按 policy 判断发起者的可见性，来源字段不参与授权。Patchouli 与 Gateway 不接收访问 context，也不依赖 workspace 的认证与授权实现。依赖方向为 `system → workspace → core`；workspace 不导入 System。完整模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节。
 
 local bus 则是一个子系统内部的组合机制。它允许所有者替换内部实现，却不承诺跨子系统稳定性。一旦其他子系统直接依赖 local route，所谓内部重构就会变成隐蔽的公共契约变更，因此跨边界能力必须显式提升为公共 route、公共模型或全局事件。
 

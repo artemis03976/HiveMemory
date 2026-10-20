@@ -108,9 +108,12 @@ class TestChatRun:
         )
         event_names = [e.get("event") for e in events]
 
-        # 序言：process_id / topic_info
-        assert "process_id" in event_names, f"缺少 process_id 事件。events={_event_summary(events)}"
-        assert "topic_info" in event_names, f"缺少 topic_info 事件。events={_event_summary(events)}"
+        # 序言：首个事件是 process_id，携带进程与会话标识
+        assert (
+            event_names[0] == "process_id"
+        ), f"首个事件应为 process_id。events={_event_summary(events)}"
+        prologue = events[0].get("data", {})
+        assert prologue.get("process_id") and prologue.get("session_id"), prologue
         # 运行期：至少 token 或 mtp 或子代理事件之一
         assert any(
             n in event_names for n in ("token", "mtp_start", "sub_agent_start")
@@ -120,6 +123,8 @@ class TestChatRun:
         done = next((e for e in events if e.get("event") == "done"), None)
         assert done is not None, f"缺少 done 事件。events={_event_summary(events)}"
         assert done.get("data", {}).get("final_text"), "done.final_text 应为空字符串之外的文本"
+        # 有输出的终态以 topic_id 标注本轮材料归属
+        assert done.get("data", {}).get("topic_id"), f"done 缺少 topic_id: {done}"
 
     async def test_chat_stream_retrieval_injection(self, e2e_system, e2e_user):
         """检索注入：预埋记忆 → chat 的 memory_refs 引用该记忆"""
@@ -152,7 +157,7 @@ class TestChatRun:
     ):
         """
         MTP WRITE 主动生成路径（确定性验证）：
-        显式 WRITE 指令 → PendingAtom → finalize 派发 submit_active → 真实生成落库。
+        显式 WRITE 指令 → actor 操作内登记并派发 memory_intent.submit → submit_active → 真实生成落库。
 
         本用例要求 agent 输出一次 WRITE 指令并得到 ACK，再经实际落库内容
         验证进程已认领并派发登记意图。

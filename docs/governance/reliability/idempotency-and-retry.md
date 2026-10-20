@@ -14,7 +14,7 @@ related_docs:
   - docs/components/runtime-and-bus.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
   - docs/governance/reliability/durability-and-recovery.md
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/contracts/subsystem-contracts.md
   - docs/patchouli/artifacts.md
 last_reviewed: 2026-10-13

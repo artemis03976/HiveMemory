@@ -20,7 +20,7 @@ last_reviewed: 2026-10-19
 
 ## 0. 文档性质
 
-本文收集任务进程模型尚未决定或尚未落地的方向，不描述当前行为，也不代表排期。理念见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.2 节“一切任务都是进程”；当前设计见 [System 应用服务](../system/application-services.md)第 3、4 节、[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节与 [Workspace 架构](../architecture/workspace.md)第 4.3、5.4 节。问题沿用原编号（Q-x）。
+本文收集任务进程模型尚未决定或尚未落地的方向，不描述当前行为，也不代表排期。理念见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.2 节“一切任务都是进程”；当前设计见 [任务进程](../workspace/task-process.md)、[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节与 [执行线程](../workspace/execution-threads.md)。问题沿用原编号（Q-x）。
 
 本文于 2026-10-13 精简，删除了已实施的决定、实施记录与迁移前的代码快照；删除前版本见 commit `a384688`。
 

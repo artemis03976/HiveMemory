@@ -3,7 +3,7 @@ title: HiveMemory Documentation Governance
 status: current
 owner: project
 scope: documentation-governance-and-maintenance
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-19
 ---
 
 # HiveMemory 文档治理与维护规范
@@ -76,6 +76,7 @@ HiveMemory 的文档库应当帮助读者可靠地回答以下问题：
 当前设计优先按照稳定的系统责任边界组织，而不是完全复制代码目录。
 
 - Patchouli、Alice、Gateway 是主要子系统；
+- Workspace 是与它们同层、没有独立生命周期宿主的包，负责访问边界、能力层、任务进程与库外资源；
 - System 负责顶层装配、应用服务和全局运行时能力；
 - Contracts 负责跨子系统的稳定交互边界；
 - Architecture 负责整个系统的结构、边界和重要决策。
@@ -129,7 +130,7 @@ HiveMemory 的文档库应当帮助读者可靠地回答以下问题：
 | Vision | 项目为什么存在、相信什么、如何取舍 | `VISION.md` |
 | Project Overview | 项目当前提供什么、如何理解整体系统 | `PROJECT.md` |
 | Architecture | 当前系统如何划分、核心边界和数据关系是什么 | `architecture/` |
-| System Design | 顶层系统、共享运行时机制和各子系统当前如何工作 | `system/`、`components/`、`patchouli/`、`alice/`、`gateway/` |
+| System Design | 顶层系统、共享运行时机制和各子系统当前如何工作 | `system/`、`components/`、`workspace/`、`patchouli/`、`alice/`、`gateway/` |
 | Protocol & Contract | 子系统如何稳定交互 | `contracts/` |
 | Product & Evidence | 为谁解决什么问题、怎样验证价值 | `applications/` 及评估文档 |
 | Help | 如何安装、配置、使用和排障 | `help/` |
@@ -162,7 +163,7 @@ README 不承担完整架构说明，不描述尚未实现的远期能力。
 1. 当前项目定位；
 2. 已经成立的工程事实和能力边界；
 3. 顶层架构图与关键数据流；
-4. System、Patchouli、Alice、Gateway 的职责摘要；
+4. System、Workspace、Patchouli、Alice、Gateway 的职责摘要；
 5. 当前开发阶段；
 6. 面向不同读者的推荐阅读路径；
 7. 当前设计、契约、帮助、计划和历史文档索引。
@@ -195,7 +196,7 @@ Roadmap 可以保留理解阶段关系所必需的模型边界和设计摘要；
 
 ### 4.5 子系统 README
 
-`system/`、`components/`、`patchouli/`、`alice/` 和 `gateway/` 下的 `README.md` 是各自的局部索引，负责说明：
+`system/`、`components/`、`workspace/`、`patchouli/`、`alice/` 和 `gateway/` 下的 `README.md` 是各自的局部索引，负责说明：
 
 - 子系统职责与非职责；
 - 对外提供的主要能力；
@@ -258,6 +259,17 @@ docs/
 │   ├── analysis.md
 │   ├── commands.md
 │   └── workflow.md
+│
+├── workspace/
+│   ├── README.md
+│   ├── identity-and-authorization.md
+│   ├── authentication.md
+│   ├── capability.md
+│   ├── task-process.md
+│   ├── execution-threads.md
+│   ├── sessions.md
+│   ├── read-view-and-write-intents.md
+│   └── assets.md
 │
 ├── contracts/
 │   ├── README.md
@@ -687,7 +699,7 @@ Governance work package
 文档体系重构在满足以下条件时可视为完成：
 
 - `PROJECT.md` 能作为全局入口找到所有当前设计；
-- System、Patchouli、Alice、Gateway 都有明确的职责说明和模块索引；
+- System、Workspace、Patchouli、Alice、Gateway 都有明确的职责说明和模块索引；
 - 跨子系统契约拥有唯一维护位置；
 - 主干文档只描述当前生效设计；
 - Plan、Idea、Todo、ADR 和 Archive 的状态不会混淆；

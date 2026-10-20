@@ -9,11 +9,11 @@ import logging
 import os
 from collections.abc import Callable
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 import yaml
 from dotenv import dotenv_values
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.fields import FieldInfo
 from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, SettingsConfigDict
 
@@ -183,14 +183,17 @@ class SystemConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+LogLevelName = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
+
+
 class LoggingConfig(BaseModel):
-    level: str = Field(default="INFO")
+    level: LogLevelName = Field(default="INFO")
     format: str = Field(default="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
     file_path: str | None = Field(default=None)
     console_output: bool = Field(default=True)
     websocket_enabled: bool = Field(default=False)
     websocket_namespaces: list[str] = Field(default_factory=lambda: ["hivememory.*"])
-    websocket_level: str = Field(default="INFO")
+    websocket_level: LogLevelName = Field(default="INFO")
     websocket_buffer_size: int = Field(default=100)
     websocket_max_rate: int = Field(default=100)
 
@@ -231,13 +234,6 @@ class HiveMemoryConfig(BaseSettings):
         env_nested_delimiter="__",
         env_prefix=HIVEMEMORY_ENV_PREFIX,
     )
-
-    @model_validator(mode="after")
-    def sync_i18n_default_language(self) -> "HiveMemoryConfig":
-        from hivememory.i18n.resolver import set_default_language
-
-        set_default_language(self.i18n.default_language)
-        return self
 
     @classmethod
     def settings_customise_sources(

@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from hivememory import __version__
+from hivememory.config.app import load_app_config
 from hivememory.server.deps import (
     get_system,
     init_system,
@@ -20,6 +21,7 @@ from hivememory.server.deps import (
     shutdown_websocket_log_broadcasting,
 )
 from hivememory.server.error_handlers import APIError, install_error_handlers
+from hivememory.server.logging_setup import configure_logging
 from hivememory.server.models.common import HealthResponse, ReadinessResponse
 from hivememory.server.routers.agents import router as agents_router
 from hivememory.server.routers.chat import router as chat_router
@@ -51,8 +53,12 @@ async def lifespan(app: FastAPI):
         logger.error(f"事件循环未处理异常: {context.get('message', 'unknown')}")
 
     loop.set_exception_handler(_loop_exception_handler)
+    # 两种启动方式（模块入口与直接运行 uvicorn）都经这里：先按配置设置日志，
+    # 装配期间的日志才按配置输出。
+    config = load_app_config()
+    configure_logging(config.logging)
     logger.info("正在初始化 HiveMemorySystem...")
-    system = init_system()
+    system = init_system(config)
     await system.start()
 
     # 初始化 WebSocket 日志广播

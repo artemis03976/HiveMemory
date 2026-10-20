@@ -20,7 +20,7 @@ from hivememory.i18n import resolve_language
 from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
 from hivememory.prompts.gateway import (
     get_query_understanding_system_prompt,
-    session_history_messages,
+    render_session_turns,
 )
 from hivememory.utils.json_parser import JSONParseError, parse_llm_json
 
@@ -60,10 +60,10 @@ class QueryUnderstandingEngine:
         prompt = get_query_understanding_system_prompt(
             language=self._language,
             topic_context=self._render_topic_context(topic_data),
+            session_context=render_session_turns(session_turns),
         )
         messages = [
             {"role": "system", "content": prompt},
-            *session_history_messages(session_turns),
             {"role": "user", "content": message},
         ]
         try:

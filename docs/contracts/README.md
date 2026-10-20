@@ -4,7 +4,7 @@ status: current
 owner: system
 scope: cross-subsystem-contracts
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-17
 ---
 
@@ -12,7 +12,7 @@ last_reviewed: 2026-10-17
 
 本目录是跨子系统稳定契约的唯一文档入口。它定义跨边界可观察的输入、输出、不变量、错误和兼容语义，也解释这些交接为何采用当前形式；它不复制各子系统内部实现，也不把函数目录当成契约说明。
 
-Workspace 是这些交接的资源归属坐标；本目录只记录契约需要携带的 scope、边界拒绝和观测标签，完整 Workspace 设计见[Workspace 架构](../architecture/workspace.md)。
+Workspace 是这些交接的资源归属坐标；本目录只记录契约需要携带的 scope、边界拒绝和观测标签，完整 Workspace 设计见[Workspace](../workspace/README.md)。
 
 ## 当前契约
 

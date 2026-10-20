@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-19
 ---
 
@@ -26,7 +26,7 @@ last_reviewed: 2026-10-19
 
 因此，公共模型倾向于使用 frozen、Pydantic 或依赖中立的 dataclass。不可变并不只是编码偏好，它要求上游先形成完整决定，再交给下游只读消费；依赖中立则阻止某个领域对象沿模型引用把存储、Runtime 或 Controller 一并泄漏出去。本文既记录字段和终态，也记录这些形态背后的所有权理由。
 
-Gateway 与资源 owner 公开操作的身份输入使用 `IdentityScope`：它表达一次操作的发起者与目标 Workspace，由 workspace 的授权点在操作授权通过后组装。Patchouli 在公共边界拆为 `belong_to: WorkspaceIdentity` 与 `from_actor: ActorIdentity`，内部服务、引擎、存储、交互记录和后台任务独立携带所需身份，不保留或重建 scope。领域所有者在最终读写处先检查 Workspace 归属，再按资源 policy 检查发起者；资源来源不参与授权。共享的 queue、registry 和 Runtime 不因此按 Workspace 复制或分区。Alice/CPU 的清单仅携带观测标签，资源请求经绑定线程 context 的 workspace 操作入口授权（第 4 节）。WorkspaceAsset 旧端口的当前例外见[Workspace 架构](../architecture/workspace.md#10-当前边界与限制)。
+Gateway 与资源 owner 公开操作的身份输入使用 `IdentityScope`：它表达一次操作的发起者与目标 Workspace，由 workspace 的授权点在操作授权通过后组装。Patchouli 在公共边界拆为 `belong_to: WorkspaceIdentity` 与 `from_actor: ActorIdentity`，内部服务、引擎、存储、交互记录和后台任务独立携带所需身份，不保留或重建 scope。领域所有者在最终读写处先检查 Workspace 归属，再按资源 policy 检查发起者；资源来源不参与授权。共享的 queue、registry 和 Runtime 不因此按 Workspace 复制或分区。Alice/CPU 的清单仅携带观测标签，资源请求经绑定线程 context 的 workspace 操作入口授权（第 4 节）。WorkspaceAsset 旧端口的当前例外见[WorkspaceAsset](../workspace/assets.md#3-身份与归属)。
 
 ## 1. 生命周期契约
 
@@ -192,7 +192,7 @@ Profile、Topic 与 Active finalize 的公共失败定义在 `patchouli.contract
 
 ### 3.5 访问 context 与操作授权
 
-Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService` 的阶段方法（prepare、finalize、cleanup）以 `IdentityScope` 接收操作身份，不接收访问 context，也不做操作授权。操作授权在调用方一侧的授权点完成，再把 `WorkspaceOperationAuthorizer` 返回的 `IdentityScope` 交给紧随的 Patchouli 路由：actor API 用 `authorize_thread_operation(access, operation)` 检查 actor 操作白名单（只接受未撤销的线程 context，目标取其驻留 Workspace）；root API 用 `authorize_root(access, target_workspace)`，只接受保留的 `system`；任务进程的阶段调用（Gateway 话题读取、prepare、finalize、cleanup、话题池读取）用 `authorize_stage(access, target_workspace)`，不检查 actor 操作，发起者仍是进程的 Agent。finalize 与 cleanup 各自重新授权，不复用 prepare 的 scope。公共 handler 拆分身份后，内部调用只传归属与需要的发起者（完整模型见[Workspace 架构](../architecture/workspace.md)第 4 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
+Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService` 的阶段方法（prepare、finalize、cleanup）以 `IdentityScope` 接收操作身份，不接收访问 context，也不做操作授权。操作授权在调用方一侧的授权点完成，再把 `WorkspaceOperationAuthorizer` 返回的 `IdentityScope` 交给紧随的 Patchouli 路由：actor API 用 `authorize_thread_operation(access, operation)` 检查 actor 操作白名单（只接受未撤销的线程 context，目标取其驻留 Workspace）；root API 用 `authorize_root(access, target_workspace)`，只接受保留的 `system`；任务进程的阶段调用（Gateway 话题读取、prepare、finalize、cleanup、话题池读取）用 `authorize_stage(access, target_workspace)`，不检查 actor 操作，发起者仍是进程的 Agent。finalize 与 cleanup 各自重新授权，不复用 prepare 的 scope。公共 handler 拆分身份后，内部调用只传归属与需要的发起者（完整模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
 
 Patchouli 一侧仍独立执行资源授权：资源归属与 `MemoryAccessPolicy` 可见性在最终读写处校验，越域目标按不存在处理，不因调用方已通过操作授权而放宽。
 
@@ -282,7 +282,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 | `references` | 不可变字符串 tuple，默认空；HTTP JSON 序列化为数组 |
 | `created_at` | 生成时间，默认当前 UTC 时间 |
 
-游标只覆盖该会话已有的完整轮次；摘要边界不晚于减重边界；同一产生方与格式版本内，已接受的两个游标分别单调前进，换用其他格式的 CPU 可以从头重建并替换旧值。会话服务同步校验 Workspace、认领与游标后接受，完整规则见 [Workspace](../architecture/workspace.md#55-会话资源与历史所有权)。进程在 Actor 阶段结束、撤销线程后接受，不以本轮输出或是否追加新轮次为条件；检查点不进入 `InteractionPayload` 或记忆生成。未知产生方/版本由 CPU 自行选择忽略，外部 CPU 可以完全不消费、不产生检查点。
+游标只覆盖该会话已有的完整轮次；摘要边界不晚于减重边界；同一产生方与格式版本内，已接受的两个游标分别单调前进，换用其他格式的 CPU 可以从头重建并替换旧值。会话服务同步校验 Workspace、认领与游标后接受，完整规则见 [会话资源](../workspace/sessions.md)。进程在 Actor 阶段结束、撤销线程后接受，不以本轮输出或是否追加新轮次为条件；检查点不进入 `InteractionPayload` 或记忆生成。未知产生方/版本由 CPU 自行选择忽略，外部 CPU 可以完全不消费、不产生检查点。
 
 ### 4.3 Alice 的执行入口
 
@@ -333,9 +333,9 @@ RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求。
 
 `WorkspaceOperationEntry` 只接受存活线程的 context：`execute` 在分派前经 workspace 内部的线程端口 `ExecutionThreadTable`（`workspace/thread_ports.py`，不属于公共契约）向线程表做一次存活判定——线程未结束且进程仍在运行，再按请求类型把请求对象与线程 context 直接交给对应的 actor API 方法（`method(request, *, access)`）；入口不拆参数，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验；入口不持有 root API。actor API 的目标取线程的驻留 Workspace，意图登记的进程关联、线程标识与派发话题取自线程表的一次解析。未知请求类型抛 `TypeError`；进程 context、请求级 context、未登记的线程或其他对象抛 `ScopeRequiredError`；线程已结束（凭据已撤销、线程已结束或进程已收到停止）抛 `ThreadEndedError`（`core.errors`，由 `workspace.contracts` 重新导出）。拒绝都发生在任何副作用之前。
 
-`derive_child_thread` 在一次提交内依次完成：确认调用方存活；actor API 的 `resolve_call_target` 授权 `agent.call` 并以调用方的可见性读取图纸（只交回图纸）；线程表在冷读之后重新判定调用方存活、确认调用方是主线程，以被调用方准入后签发子线程、读取被调用方的操作快照并登记（[Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)第 5.4 节）。被调用方的身份因此只来自 workspace 自己的解析，CPU 不能交回一份图纸来自报子线程的身份。被调用方未准入或为保留的 `system` 时抛 `AdmissionDeniedError`，子线程试图派生抛 `ScopeRequiredError`，冷读期间调用方结束或进程收到停止抛 `ThreadEndedError`，均不登记子线程。
+`derive_child_thread` 在一次提交内依次完成：确认调用方存活；actor API 的 `resolve_call_target` 授权 `agent.call` 并以调用方的可见性读取图纸（只交回图纸）；线程表在冷读之后重新判定调用方存活、确认调用方是主线程，以被调用方准入后签发子线程、读取被调用方的操作快照并登记（[执行线程](../workspace/execution-threads.md#6-call-派生与子线程)）。被调用方的身份因此只来自 workspace 自己的解析，CPU 不能交回一份图纸来自报子线程的身份。被调用方未准入或为保留的 `system` 时抛 `AdmissionDeniedError`，子线程试图派生抛 `ScopeRequiredError`，冷读期间调用方结束或进程收到停止抛 `ThreadEndedError`，均不登记子线程。
 
-Actor 阶段结束时执行器同步结束本进程仍在运行的全部线程，关闭流程兜底；子线程也可以先随 CALL 返回结束。结束不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。WRITE/UPDATE 在基础校验之后的同步段只解析一次线程，取得进程关联、线程标识与派发话题并登记为 MATERIALIZING；UPDATE 冷读跨越线程结束或停止时不登记。派发开始后持有 shield 保护的提交任务直到结束，再传播调用方取消；主、子线程共享 CPU 输入清单的话题。完整生命周期见 [Workspace 架构](../architecture/workspace.md#54-写入意图线程-context-与操作入口)。
+Actor 阶段结束时执行器同步结束本进程仍在运行的全部线程，关闭流程兜底；子线程也可以先随 CALL 返回结束。结束不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。WRITE/UPDATE 在基础校验之后的同步段只解析一次线程，取得进程关联、线程标识与派发话题并登记为 MATERIALIZING；UPDATE 冷读跨越线程结束或停止时不登记。派发开始后持有 shield 保护的提交任务直到结束，再传播调用方取消；主、子线程共享 CPU 输入清单的话题。完整生命周期见 [执行线程](../workspace/execution-threads.md#7-actor-阶段结束与停止)。
 
 ## 5. 顶层主动链路契约
 

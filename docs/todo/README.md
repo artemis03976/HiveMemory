@@ -12,9 +12,7 @@ last_reviewed: 2026-10-19
 
 当前事项：
 
-- [日志配置段的级别、格式与输出没有生效](./logging-config-not-applied.md)（2026-10-18 清理不生效配置键时发现：`logging` 段只有 WebSocket 广播被读取，两种启动方式都不按配置设置日志）；
 - [记忆编辑可以给非 Profile 记忆写入 agent_config](./memory-edit-agent-config-type-check.md)（2026-10-18 引入 `MemoryEdit` 时发现：编辑链不按类型限制 `agent_config`，普通记忆被写入无效配置并生成版本）；
-- [构造根配置会改写进程默认语言](./config-construction-resets-default-language.md)（2026-10-17 提示词编译收尾审查发现：`GET /config/defaults` 与 `POST /config` 构造配置对象时重置进程默认语言）；
 - [WorkspaceAsset 内部归属与操作身份拆分](./workspace-asset-ownership-identity-split.md)（身份第二批明确暂缓：Store/解析旧 scope 接口与 System 物化 reader 桥接）；
 - [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：无 alias 记忆的寻址、alias 查询索引）；
 - [会话 `/compact` 指令](./conversation-compact-command.md)（2026-10-01 由原 Topic `/compact` 系统指令接入重写：compact 归属前台的 CPU 会话上下文，依赖 ConversationSession、命令运行位置与 Alice 会话压缩）；

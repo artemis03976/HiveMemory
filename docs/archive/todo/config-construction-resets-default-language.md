@@ -1,6 +1,9 @@
 ---
 title: 构造根配置会改写进程默认语言
-status: todo
+status: archived
+archived_at: 2026-10-19
+implemented_by: 分支 release/v0.7.0（本归档提交）
+superseded_by: docs/system/i18n.md
 owner: system
 scope: process-default-language-side-effect-of-config-construction
 code_paths:
@@ -8,18 +11,21 @@ code_paths:
   - src/hivememory/server/routers/config.py
   - src/hivememory/i18n/resolver.py
   - src/hivememory/system/system.py
+  - src/hivememory/system/assembler.py
 related_docs:
   - docs/system/i18n.md
   - docs/system/configuration.md
   - docs/archive/plans/v0.7.0-cpu-prompt-compilation.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-19
 ---
 
 # 构造根配置会改写进程默认语言
 
+本 Todo 已于 2026-10-19 在 v0.7.0 收尾分支修复并归档。现行行为见 [i18n](../../system/i18n.md)第 2 节与 [System 配置](../../system/configuration.md)第 4 节。
+
 ## 问题与证据
 
-`HiveMemoryConfig` 的模型校验器 `sync_i18n_default_language`（`config/app.py`）在每次构造时调用 `set_default_language(self.i18n.default_language)`，把进程级默认语言改成该对象的值（[i18n](../system/i18n.md)第 42 行按现状记录了这一行为）。启动时加载运行配置需要这一步，但运行中构造的临时配置对象也会触发它：
+`HiveMemoryConfig` 的模型校验器 `sync_i18n_default_language`（`config/app.py`）在每次构造时调用 `set_default_language(self.i18n.default_language)`，把进程级默认语言改成该对象的值（[i18n](../../system/i18n.md)第 42 行按现状记录了这一行为）。启动时加载运行配置需要这一步，但运行中构造的临时配置对象也会触发它：
 
 - `GET /config/defaults` 经 `_build_config_without_path_override()` 构造一份不读取 YAML 的默认配置，只为返回默认值，却把进程默认语言重置为代码默认值（未设置环境变量时为 `zh`）；
 - `POST /config` 构造提交的配置用于校验与持久化，持久化之前进程默认语言已经改变，持久化失败也不会恢复。
@@ -42,8 +48,16 @@ last_reviewed: 2026-10-17
 
 - 构造 `HiveMemoryConfig` 不改变进程默认语言；运行中的默认语言只在启动加载运行配置时（以及明确的热更新步骤中）设置；
 - 回归覆盖：构造默认配置、调用 `GET /config/defaults` 与校验失败的 `POST /config` 之后，`resolve_language()` 保持原值；
-- [i18n](../system/i18n.md)与 [System 配置](../system/configuration.md)中关于默认语言同步时机的描述随实现更新。
+- [i18n](../../system/i18n.md)与 [System 配置](../../system/configuration.md)中关于默认语言同步时机的描述随实现更新。
+
+## 处理结果
+
+- 删除 `HiveMemoryConfig` 的模型校验器 `sync_i18n_default_language`，构造配置对象不再有全局副作用；
+- 组合根 `SystemAssembler.assemble()` 在装配运行配置的第一步设置进程默认语言，先于在构造时读取默认语言的组件；
+- `POST /config` 不另设热更新步骤：保存的新语言在下次启动时生效，与 Gateway、记忆抽取器等在构造时读取语言的组件保持一致，避免同一进程混用两种语言；
+- 回归测试：[配置构造](../../../tests/unit/i18n/test_config.py)不改变进程默认语言，取代原先断言同步行为的用例；[配置路由](../../../tests/unit/server/routers/test_config.py)覆盖 `GET /config/defaults` 与保存不同语言的 `POST /config` 之后默认语言不变；[组合根](../../../tests/unit/system/test_assembler.py)覆盖装配时按配置设置默认语言。恢复原校验器后，配置构造与两条配置路由测试都失败。完成条件中“校验失败的 `POST /config`”不能区分修复前后（校验失败时 after 校验器不会运行），改以保存成功的提交覆盖。
 
 ## 追踪
 
-- 2026-10-17：提示词编译前移收尾审查时发现（[归档计划](../archive/plans/v0.7.0-cpu-prompt-compilation.md)实施记录），不属于该计划范围；未绑定版本或 Issue。
+- 2026-10-17：提示词编译前移收尾审查时发现（[归档计划](../plans/v0.7.0-cpu-prompt-compilation.md)实施记录），不属于该计划范围；未绑定版本或 Issue。
+- 2026-10-19：在 v0.7.0 收尾分支 `release/v0.7.0` 修复并归档。

@@ -27,7 +27,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-19
 ---
 
@@ -214,7 +214,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 | `workspace.asset.stale_result` | revision 或 operation token 已过期 |
 | `workspace.asset.operation_conflict` | 相同幂等操作携带了不一致输入 |
 
-访问边界错误按两阶段认证与两阶段授权的阶段区分（模型见[Workspace 架构](../architecture/workspace.md)第 4 节）：
+访问边界错误按两阶段认证与两阶段授权的阶段区分（模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）：
 
 | 阶段与情形 | 错误 | `details.reason` | HTTP |
 |:---|:---|:---|:---|
@@ -236,7 +236,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 - HTTP 映射由 server 的异常处理器统一完成（`server/error_handlers.py`），响应体包含稳定机器码 `error`、安全 `detail` 与可选 `reason`，不暴露接入凭据。
 - 拒绝阶段可观测的最小记录为 principal 标识、Actor/Workspace 安全投影、operation、关联 ID 与拒绝阶段，不记录接入凭据和原始对话。
 
-这些错误表示跨边界拒绝或当前 WorkspaceAsset 生命周期状态，不改变 MTP error/warning 的表达规则；访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。Workspace 资源归属、认证/授权模型、opaque ref 和 shutdown 清理的完整语义见[Workspace 架构](../architecture/workspace.md)第 4 节。
+这些错误表示跨边界拒绝或当前 WorkspaceAsset 生命周期状态，不改变 MTP error/warning 的表达规则；访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。Workspace 资源归属、认证/授权模型、opaque ref 和 shutdown 清理的完整语义见[Workspace](../workspace/README.md)。
 
 actor API 与操作入口的错误保持各自边界：每种 actor 请求缺少对应操作时抛 `OperationDeniedError`（`operation_not_allowed`）——READ 与 CALL 的 `context_refs` 缺少 `memory.read`、SEARCH 缺少 `memory.search`、RUN 的记忆目标缺少 `memory.run`、WRITE 缺少 `memory.write`、UPDATE 缺少 `memory.update`、CALL 目标读取缺少 `agent.call`（包括内置目标）；UPDATE 基础为 pending 时抛 `PendingUpdateNotAllowedError`，不存在、不可读或不是正式 atom 时抛 `ResourceNotFoundError`。Koakuma 分别映射为现有 `mtp.permission.denied`、`mtp.argument.invalid` 与 `mtp.alias.not_found`，provider 不可用映射为 `mtp.system.service_unavailable`，不暴露内部 cause。
 

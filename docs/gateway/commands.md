@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/system/application-services.md
 last_reviewed: 2026-10-18
 ---

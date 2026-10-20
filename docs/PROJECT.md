@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-19
 ---
 
 # HiveMemory 项目总览
@@ -134,11 +134,12 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 
 | 口径 | 当前值 | 含义 |
 |:---|:---|:---|
+| 本次发布标签 | `v0.7.0` | 本次内容收尾对应的标签，合并后创建 |
 | 最近已发布基线 | `v0.6.2` | Git tag 创建于 2026-09-14；Workspace、Identity 收敛、W1 附件和 MTP scope 修复 |
-| 当前开发版本 | `v0.7.0` | Partially Landed：访问边界、记忆内容版本与 lifecycle、包分层已合入；整体范围已按新架构重新划定，见 [ROADMAP](./ROADMAP.md) |
-| 规范代码版本 | `0.6.2` | 由 `src/hivememory/_version.py` 唯一声明，Python 构建、运行时、HTTP API 与前端包清单保持一致 |
+| 当前内容基线 | `v0.7.0` | 向 Workspace 网络与任务进程架构的演进已收尾：任务进程与唯一注册入口、访问边界与身份体系、能力层、执行线程、会话与写入意图 |
+| 规范代码版本 | `0.7.0` | 由 `src/hivememory/_version.py` 唯一声明，Python 构建、运行时、HTTP API 与前端包清单保持一致 |
 
-版本号与发布状态是两个不同事实。`pyproject.toml` 通过 setuptools dynamic metadata 读取规范代码版本，FastAPI/OpenAPI 与 `/health` 直接复用运行时版本，前端清单由 CI 一致性检查约束。当前代码和前后端清单为 0.6.2，与最近已发布标签 v0.6.2 对应；v0.7.0 开发期间已合入的内容尚未升版。v0.6.2 的核对记录见 [v0.6.2 收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)。Python PEP 440 与 npm SemVer 对预发布后缀的规范化方式不同，因此当前门禁不发布预发布包；未来若需要 rc/beta，必须先为两种生态补充显式映射和构建产物校验，不能绕过一致性检查。
+版本号与发布状态是两个不同事实。`pyproject.toml` 通过 setuptools dynamic metadata 读取规范代码版本，FastAPI/OpenAPI 与 `/health` 直接复用运行时版本，前端清单由 CI 一致性检查约束。当前代码和前后端清单已同步为 0.7.0，本次发布标签为 v0.7.0，待合并后创建；最近已发布基线仍为 v0.6.2。版本目标判定与核对记录见 [v0.7.0 收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md)。Python PEP 440 与 npm SemVer 对预发布后缀的规范化方式不同，因此当前门禁不发布预发布包；未来若需要 rc/beta，必须先为两种生态补充显式映射和构建产物校验，不能绕过一致性检查。
 
 发布信息以 Git tag 为准，开发中的设计状态以本文、[当前架构](./architecture/overview.md)和[路线图](./ROADMAP.md)为准。
 
@@ -146,10 +147,11 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 
 ### 5.1 入口与对话
 
-- 主动 chat：Gateway 决策后执行 Patchouli prepare（话题与检索）、任务进程 CPU 分配（Profile、附件与记忆编译）、Alice run、有输出时任务进程封口并追加会话、Patchouli finalize；
+- 任务请求的唯一注册入口：chat 与命令经两阶段认证登记为任务进程，以 `process_id` 标识；进程持有自己的 task 与输出通道，用户停止、交付方断连与系统关闭都由进程在自己的 task 中收尾；
+- 主动 chat：Gateway 决策后执行 Patchouli prepare（话题与检索）、任务进程 CPU 分配（Profile、附件与记忆编译）、经 CPU 端口执行 Actor（当前为 Alice run）、有输出时任务进程封口并追加会话、Patchouli finalize；
 - ConversationSession 的创建、列表、重命名、删除与历史恢复；会话属于 Workspace，逐轮选择 Agent，Alice 从全量原文构建带工具减重与接力摘要的预算视图，Gateway 使用最近 N 轮；原文与压缩检查点仅在进程内保存；
 - SSE 流式 Agent run（另有只取终态的非流式交付，当前只供测试驱动）；
-- 全局系统指令注册、解析、分发和 chat 短路；
+- 全局系统指令的注册与解析：命令以命令终态结束、不进入普通 chat，当前不执行内置命令（[Gateway 全局命令](./gateway/commands.md)）；
 - Passive Ingress：外部离散事件去重、顺序缓冲、封口提交和失败重试；
 - Gateway 的话题路由、查询分析、请求取消、总超时和局部保守降级。
 
@@ -162,16 +164,16 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 - MemoryCompiler 的统一检索上下文与 MTP READ 渲染；
 - 可查询、可取消、可观测的记忆生成任务。
 
-Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX 经上传、确定性解析、READY 选择和 AttachmentCompiler 进入 Chat；成功 Interaction 才形成 TopicAssetBinding，后续 Memory CREATE/UPDATE 按需生成来源 Artifact。WorkspaceAsset 仍是进程内 working set，事实入口见 [Workspace](./architecture/workspace.md) 与 [Chat 附件](./system/attachments.md)。
+Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX 经上传、确定性解析、READY 选择和 AttachmentCompiler 进入 Chat；成功 Interaction 才形成 TopicAssetBinding，后续 Memory CREATE/UPDATE 按需生成来源 Artifact。WorkspaceAsset 仍是进程内 working set，事实入口见 [Workspace](./workspace/README.md) 与 [Chat 附件](./system/attachments.md)。
 
 ### 5.3 Agent Runtime
 
-- Agent Profile 驱动的模型、采样参数、语言和权限；
+- Agent Profile 驱动的模型、采样参数与语言；Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达；
 - Agent loop、结构化 turn events、取消与运行终态；
 - MTP `SEARCH / READ / RUN / WRITE / UPDATE / CALL`；
 - workspace 共享的 PendingAtom 登记、操作内实时派发与队列接纳、alias redirect 和结算通知；
 - MTP 引用读取统一经 workspace 读取视图：L0 意图按 Workspace 回读，L1/L2 正式记忆逐次检查 actor policy；原子与 Profile 解析缓存由 workspace 持有，canonical 变更同步失效；
-- 根 Agent 对子 Agent 的有限深度 CALL 编排。
+- 根 Agent 对子 Agent 的单层 CALL 编排：子 Agent 作为执行线程以被调用方身份运行，按其白名单与记忆可见性授权。
 
 ### 5.4 运行与观测
 
@@ -199,7 +201,7 @@ HiveMemorySystem（组合根与门面）
 
 代码按层组织（core/config → components → engines/infrastructure → workspace/gateway/patchouli/alice → system → server），依赖只能指向同层或更低层。详细组件图、分层规则、主动/被动数据流和启停顺序见[系统架构概览](./architecture/overview.md)。职责和状态所有权见[系统边界](./architecture/boundaries.md)。顶层装配、应用服务、配置与 i18n 的内部设计从 [System 当前文档](./system/README.md)进入；总线、调度器、work queue 与运行时事件等机制从 [Components 当前文档](./components/README.md)进入。
 
-## 7. 三个子系统
+## 7. 子系统
 
 ### 7.1 Gateway
 
@@ -225,6 +227,14 @@ Alice 以 CPU 端口的实现接入任务进程，消费任务进程组装的输
 
 当前设计入口：[Alice 总览](./alice/README.md)、[Agent Runtime](./alice/agent-runtime.md)、[多 Agent 编排](./alice/orchestration.md)、[PendingAtom](./alice/pending-atom.md)与 [MTP Runtime](./alice/mtp-runtime.md)。
 
+### 7.4 Workspace
+
+Workspace 是与上述三个子系统同层的包，没有独立的生命周期宿主，由组合根装配。它负责认证入口与访问检查、能力层（只供 `system` 的 root API 与只经操作入口供 actor 使用的 actor API）、任务进程表与 chat 任务进程编排（含 Actor 阶段内的执行线程）、会话资源、读取视图与写入意图登记，以及 WorkspaceAsset。Topic、Memory 与 Artifact 的领域所有权仍在 Patchouli。
+
+代码入口：`src/hivememory/workspace/`。
+
+当前设计入口：[Workspace 总览](./workspace/README.md)、[身份与授权](./workspace/identity-and-authorization.md)、[认证与访问登记](./workspace/authentication.md)、[能力层](./workspace/capability.md)、[任务进程](./workspace/task-process.md)、[执行线程](./workspace/execution-threads.md)、[会话资源](./workspace/sessions.md)、[读取视图与写入意图](./workspace/read-view-and-write-intents.md)与 [WorkspaceAsset](./workspace/assets.md)。
+
 ## 8. 关键协作流程
 
 ### 8.1 主动模式
@@ -232,7 +242,7 @@ Alice 以 CPU 端口的实现接入任务进程，消费任务进程组装的输
 ```text
 message
   -> Gateway PROCESS
-  -> [command short-circuit] 或 GatewayDecision
+  -> [命令终态（只解析，不执行）] 或 GatewayDecision
   -> Patchouli prepare（话题与检索）
   -> 任务进程 CPU 分配（Profile、附件租借与编译、记忆编译、输入清单）
   -> Actor 执行：CPU 端口（当前为 Alice run）
@@ -259,7 +269,7 @@ external event
 
 ### 8.3 MTP
 
-Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、执行、写入、更新记忆或调用子 Agent。资源操作统一经绑定线程 context 的操作请求进入 workspace 的 actor API，每个动词检查访问登记中对应的一项 actor 操作，Alice 只持有只读观测标签；READ 与 RUN 的引用交付统一记录 `workspace.reference_read` citation，CALL 目标 Profile 包括内置目标都要求 `agent.call`。WRITE/UPDATE 在操作内登记并实时派发，ACK 表示生成队列已接纳，正式持久化由 Patchouli 生成链处理。CPU 执行结束即撤销线程 context，此后的操作请求被拒绝；CPU 失败、取消、进程关闭或 CALL 子帧失败不撤回已提交写入。
+Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、执行、写入、更新记忆或调用子 Agent。资源操作统一经绑定线程 context 的操作请求进入 workspace 的 actor API，每个动词检查访问登记中对应的一项 actor 操作，Alice 只持有只读观测标签；READ 与 RUN 的引用交付统一记录 `workspace.reference_read` citation，CALL 目标 Profile 包括内置目标都要求 `agent.call`。WRITE/UPDATE 在操作内登记并实时派发，ACK 表示生成队列已接纳，正式持久化由 Patchouli 生成链处理。停止被接受或 Actor 阶段结束时全部执行线程结束、线程 context 撤销，此后的操作请求以线程已结束拒绝；CPU 失败、取消、进程关闭或 CALL 子帧失败不撤回已提交写入。
 
 完整规范见[MTP 契约](./contracts/mtp.md)。
 
@@ -277,7 +287,6 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 - [系统架构概览](./architecture/overview.md)
 - [系统边界与所有权](./architecture/boundaries.md)
 - [数据模型与可变性边界](./architecture/data-model.md)
-- [Workspace 架构](./architecture/workspace.md)
 - [Architecture 索引](./architecture/README.md)
 - [架构决策记录](./architecture/decisions/README.md)
 
@@ -290,13 +299,14 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 
 ### 9.4 子系统与系统模块
 
-System、Gateway、Patchouli 与 Alice 均已完成本轮 P1 事实核验和当前文档重建：
+各子系统与系统模块的当前文档入口：
 
 - [System](./system/README.md)：组合根、应用服务、Passive Ingress、配置与 i18n；
 - [Components](./components/README.md)：总线、维护调度器、Local Work Queue、串行门与运行时事件等进程内机制；
 - [Gateway](./gateway/README.md)：固定 workflow、话题/查询分析与全局命令；
 - [Patchouli](./patchouli/README.md)：MemoryLibrary、Artifacts、Perception、Generation、Retrieval、Lifecycle 与 MemoryCompiler；
-- [Alice](./alice/README.md)：Agent Runtime、CALL 编排、Agent Profile、写入意图端口的消费与 MTP Runtime。
+- [Alice](./alice/README.md)：Agent Runtime、CALL 编排、Agent Profile、写入意图端口的消费与 MTP Runtime；
+- [Workspace](./workspace/README.md)：身份与授权、认证与访问登记、能力层、任务进程与执行线程、会话资源、读取视图与写入意图、WorkspaceAsset。
 
 ### 9.5 其他文档类型
 

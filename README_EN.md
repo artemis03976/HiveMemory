@@ -7,13 +7,14 @@
 
 HiveMemory is a persistent memory system for LLM agent workflows. It is designed to address long-context forgetting, lack of cross-session knowledge reuse, and information silos in multi-agent collaboration. The system turns high-value conversational information into searchable, updatable, reusable memories and injects them back into future tasks through a unified protocol.
 
-The repository includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and the v0.6.2 implementation baseline where the top-level HiveMemory System orchestrates the peer Gateway, Patchouli, and Alice subsystems. Workspace identity isolation, Chat attachments, and MTP cache scope checks have completed closeout.
+The repository includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and the v0.7.0 content baseline where the top-level HiveMemory System assembles workspace, Gateway, Patchouli, and Alice. The move to the Workspace network and task-process architecture has completed closeout: every task request is registered as a task process through a single registration entry, agent resource operations are authorized one by one by the workspace capability layer, and executors plug in through a CPU port so they can be replaced.
 
 ## Release Status
 
+- Release tag for this closeout: `v0.7.0` (created after merge)
 - Latest published baseline: `v0.6.2`
-- Current development version: `v0.7.0` (partially merged; overall scope redefined for the new architecture, see the [Roadmap](docs/ROADMAP.md))
-- Code and package version: `0.6.2`
+- Current content baseline: `v0.7.0` (closed out; see the [closeout audit](docs/archive/plans/v0.7.0-release-closeout-audit.md))
+- Code and package version: `0.7.0`
 - Python requirement: `>=3.12`
 - License: Apache-2.0
 
@@ -23,39 +24,44 @@ See [docs/architecture/overview.md](docs/architecture/overview.md) for the curre
 
 ### Conversation and Integration Modes
 
-- **Active mode**: `POST /api/v1/chat` provides SSE streaming chat, driven by `TaskProcessService` (workspace task-process orchestration) through Gateway analysis, Patchouli prepare/finalize and Alice agent execution
+- **Active mode**: `POST /api/v1/chat` provides SSE streaming chat. Each request is authenticated by the workspace registration entry and registered as a task process; `TaskProcessService` drives Gateway analysis, Patchouli prepare/finalize, and Alice agent execution through the CPU port. `POST /api/v1/chat/stop` stops a process, and a client disconnect is handled as a stop
 - `POST /api/v1/chat` supports request-scoped `generation_options` (`model` / `temperature` / `top_p` / `max_tokens`) for per-turn overrides without persisting to global config files
-- **Passive mode**: `POST /api/v1/ingest` accepts discrete events from external frameworks; the System-layer `PassiveIngressService` orchestrates Gateway decisions, buffering, retrieval, and Patchouli submission
+- **Passive mode**: `POST /api/v1/ingest` accepts discrete events from external frameworks; the System-layer `PassiveIngressService` orchestrates Gateway decisions, buffering, retrieval, and Patchouli submission. `POST /api/v1/ingest/flush` seals a conversation explicitly
+- **Sessions**: create, resume, rename, and delete conversation sessions. Alice trims old tool results and writes relay summaries within the model budget while the original conversation is kept in full, and the summary and compaction boundary can be inspected; cancelled and failed turns that produced output keep their outcome. Sessions and checkpoints live only in the backend process and disappear on restart; topics remain separate memory material.
+- **System commands**: Gateway only parses commands. A message recognized as a command ends with a command terminal state and does not enter normal chat; this version does not execute built-in commands.
 
-### Workspaces and Chat Attachments
+### Workspaces and Access
 
-- Memories, topics, and attachments carry explicit Workspace ownership; ingress uses IdentityScope and checks access across Workspaces.
-- TXT, Markdown, and DOCX uploads support deterministic parsing; only READY representations can be selected for Chat.
+- Two access registrations (`configs/system_principals.yaml` and `configs/workspace_actors.yaml`) and two-phase authentication decide who may enter which Workspace as which agent. An agent's operation permissions come only from the actor-operation allowlist in the access registration; Agent Profiles carry no permissions.
+- Agent resource operations (MTP SEARCH, READ, RUN, WRITE, UPDATE, CALL) are authorized one by one by the workspace capability layer. A sub-agent spawned by CALL runs as an execution thread under the callee's identity.
+- Memories, topics, and attachments carry explicit Workspace ownership. Resource owners check ownership first, then visibility under the resource policy.
+- The write-intent registry and reference-read caches are owned by workspace, and canonical memory changes invalidate the atom and profile caches. See [Workspace](docs/workspace/README.md) for the full boundaries.
+
+### Chat Attachments
+
+- Upload TXT, Markdown, and DOCX through `POST /api/v1/workspace/assets`; after deterministic parsing, only READY representations can be selected for Chat.
 - AttachmentCompiler applies a context budget; successful interactions record use, and Memory CREATE/UPDATE can promote sources into Artifacts.
-- WorkspaceAsset availability remains process-local, and derived caches remain owned by AliceRuntime. See [Workspace Architecture](docs/architecture/workspace.md) and [Chat Attachments](docs/system/attachments.md) for the implemented boundaries.
+- WorkspaceAsset availability remains process-local. See [Chat Attachments](docs/system/attachments.md) for the full flow.
 
-### Memory and Topic Management
+### Memory, Topic, and Agent Management
 
-- Semantic search and memory listing: `GET /api/v1/memories`
-- Single memory lookup: `GET /api/v1/memories/{memory_id}`
-- Memory deletion: `DELETE /api/v1/memories/{memory_id}`
-- Active topic listing: `GET /api/v1/topics`
-- Manual topic settlement: `POST /api/v1/topics/{topic_id}/trigger`
-- Evict a topic from the active pool: `DELETE /api/v1/topics/{topic_id}`
+- Create, semantically search and list, read, edit, give feedback on, and delete memories: `/api/v1/memories`
+- Inspect and cancel memory generation tasks: `/api/v1/memory-tasks`
+- List, manually settle, and evict active topics: `/api/v1/topics`
+- Create and list Agent Profiles: `/api/v1/agents`
 
 ### Configuration and Observability
 
-- Current runtime config: `GET /api/v1/config`
-- Update and persist runtime config: `POST /api/v1/config`
-- View default config: `GET /api/v1/config/defaults`
+- Read, update, and view defaults of the runtime config: `/api/v1/config`
+- Model and provider registries: `/api/v1/models`, `/api/v1/providers`
+- Runtime event status and SSE stream: `/api/v1/runtime-events`
 - WebSocket log stream: `WS /api/v1/ws/logs`
-- Health check: `GET /health`
-- Readiness check: `GET /health/ready`
+- Health and readiness checks: `GET /health`, `GET /health/ready`
 
 ### Core Capabilities
 
-- v0.6 subsystem architecture: top-level `HiveMemorySystem` with peer Gateway, Patchouli, and Alice subsystems
-- System Gateway for commands, topic routing, query analysis, cancellation/timeouts, and conservative fallback
+- Layered architecture: the top-level `HiveMemorySystem` assembles the peer workspace, Gateway, Patchouli, and Alice packages
+- System Gateway for command parsing, topic routing, query analysis, cancellation/timeouts, and conservative fallback
 - In-process runtime buses: AsyncSystemBus / GlobalSystemBus / subsystem-local buses
 - MTP (Memory Tool Protocol) with `SEARCH / READ / RUN / WRITE / UPDATE / CALL`
 - Persistent memory storage backed by Qdrant
@@ -69,12 +75,13 @@ The current implementation is organized in dependency layers. The top-level Syst
 ### Main Runtime Components
 
 - **HiveMemorySystem**: the composition root and facade that assembles shared runtime, workspace facilities, application services, Gateway, Patchouli, and Alice
-- **TaskProcessService**: the workspace task-process orchestrator (`workspace.process`); it owns the process table, identifies every process by `process_id`, and runs the four stages `Gateway -> prepare -> Alice run -> finalize`
-- **GatewaySystem / GatewayRuntime**: the entry-decision subsystem for commands, topic routing, query analysis, and stable decision projection
+- **Workspace facilities**: the authentication gateway and access registrations, the capability layer (root API and actor API), conversation sessions, the read view and write-intent registry, and WorkspaceAsset
+- **TaskProcessService**: the single registration entry for task requests (`workspace.process`); it authenticates and registers task processes, identifies every process by `process_id`, and runs the four stages `Gateway -> prepare -> Actor execution (through the CPU port, currently Alice) -> finalize`. Each process owns its task and output channel, and the execution threads of the Actor stage are registered in the process's thread table
+- **GatewaySystem / GatewayRuntime**: the entry-decision subsystem for command parsing, topic routing, query analysis, and stable decision projection
 - **PatchouliSystem / PatchouliRuntime**: the memory subsystem host and runtime for retrieval, perception, generation, lifecycle, and storage capabilities
 - **Retrieval Familiar**: the Hot Path retrieval service for hybrid retrieval, reranking, and context rendering
 - **Librarian Core**: the Cold Path memory service for topic perception, memory extraction, and lifecycle management
-- **AliceSystem / AliceRuntime**: the agent runtime subsystem that owns the Agent runtime and Koakuma tool runtime
+- **AliceSystem / AgentRuntime**: the agent execution subsystem; it delivers run results through the CPU port, and its kernel factory assembles the agent loop and the Koakuma tool runtime
 - **KoakumaRuntime**: the MTP/tool executor used by Alice during agent generation
 
 ### Hot Path / Cold Path
@@ -108,21 +115,38 @@ See [docs/contracts/mtp.md](docs/contracts/mtp.md) for the current protocol and 
 
 ## API Overview
 
-| Endpoint | Method | Purpose |
-| --- | --- | --- |
+| Path | Method | Purpose |
+|:---|:---|:---|
 | `/health` | GET | Liveness check |
 | `/health/ready` | GET | Readiness check after model warmup |
 | `/api/v1/chat` | POST | SSE streaming active chat |
+| `/api/v1/chat/stop` | POST | Stop a running task process |
+| `/api/v1/sessions` | GET / POST | List / create sessions |
+| `/api/v1/sessions/{session_id}` | GET / PATCH / DELETE | Read full history / rename / delete a session |
 | `/api/v1/ingest` | POST | Passive message ingestion |
-| `/api/v1/memories` | GET | Semantic search / list memories |
-| `/api/v1/memories/{memory_id}` | GET | Get a single memory |
-| `/api/v1/memories/{memory_id}` | DELETE | Delete a single memory |
+| `/api/v1/ingest/flush` | POST | Seal a passive conversation explicitly |
+| `/api/v1/memories` | GET / POST | Semantic search or list memories / create a memory |
+| `/api/v1/memories/{memory_id}` | GET / PATCH / DELETE | Read / edit / delete a single memory |
+| `/api/v1/memories/{memory_id}/feedback` | POST | Submit memory feedback |
+| `/api/v1/memory-tasks` | GET | List memory generation tasks |
+| `/api/v1/memory-tasks/{task_id}` | GET | Get a single task |
+| `/api/v1/memory-tasks/{task_id}/cancel` | POST | Cancel a task |
 | `/api/v1/topics` | GET | List active topics |
-| `/api/v1/topics/{topic_id}/trigger` | POST | Manually settle a topic |
-| `/api/v1/topics/{topic_id}` | DELETE | Remove a topic from the active pool |
+| `/api/v1/topics/{topic_id}/settle` | POST | Manually settle a topic |
+| `/api/v1/topics/{topic_id}` | DELETE | Evict a topic from the active pool |
+| `/api/v1/agents` | GET / POST | List / create Agent Profiles |
+| `/api/v1/workspace/assets` | POST | Upload an attachment |
+| `/api/v1/models` | GET / POST | List / register models |
+| `/api/v1/models/{model_id}` | GET / PUT / DELETE | Read / update / delete a model |
+| `/api/v1/providers` | GET | List providers |
+| `/api/v1/providers/{provider_name}` | PUT / DELETE | Update / delete a provider |
 | `/api/v1/config` | GET / POST | Read / update runtime config |
 | `/api/v1/config/defaults` | GET | Get default config |
+| `/api/v1/runtime-events/status` | GET | Runtime event status |
+| `/api/v1/runtime-events/stream` | GET | Runtime event SSE stream |
 | `/api/v1/ws/logs` | WS | Stream runtime logs |
+
+The request identity is selected with the `x-user-id` / `x-workspace-id` headers, and agent actions also carry an `agent_id`; see the [routes and events contract](docs/contracts/routes-and-events.md#6-http-入口的身份交接与管理读取边界) for the handoff rules.
 
 ## Requirements
 
@@ -269,7 +293,7 @@ If you want to integrate the system directly in Python, the main entrypoint is:
 
 It exposes two primary integration modes:
 
-- `process_service.run_process()` (streaming by default with `stream=True`, non-streaming with `stream=False`): active mode, where `TaskProcessService` coordinates Gateway analysis, Patchouli memory preparation, Alice agent execution, and Patchouli finalization
+- `process_service.register_process()` and `run_process()`: active mode. The registration entry first authenticates and registers a task process and returns a process handle; `run_process()` (streaming by default with `stream=True`, non-streaming with `stream=False`) then runs it, with `TaskProcessService` coordinating Gateway analysis, Patchouli memory preparation, Alice agent execution, and Patchouli finalization
 - `ingress_service.ingest_event()` / `flush_conversation()`: passive mode, suitable for Discord bots, WeChat bots, or other external frameworks
 
 If you only need HTTP APIs, use the FastAPI service directly. If you want to embed HiveMemory into an existing agent framework, passive ingest mode is often the most natural starting point.
@@ -319,7 +343,7 @@ HiveMemory/
 
 ## Contributing
 
-Issues and pull requests are welcome. v0.6.2 has been released, and the main branch is under v0.7.0 development. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
+Issues and pull requests are welcome. v0.7.0 content has completed closeout, and the release tag for it is v0.7.0 (created after merge). Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
 
 ## License
 

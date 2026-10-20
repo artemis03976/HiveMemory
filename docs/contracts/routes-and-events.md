@@ -19,7 +19,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-19
 ---
 
@@ -162,7 +162,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 - 可选观测标签：`workspace_id`；
 - 描述：`status`、`reason`、`message`、`data`。
 
-`RuntimeEvent.workspace_id` 只帮助日志、UI 和运维按资源归属筛选观测，不参与 route、订阅、sequence、授权、幂等或缓存分区。Workspace 的完整身份与资源所有权仍由[Workspace 架构](../architecture/workspace.md)和领域所有者解释。
+`RuntimeEvent.workspace_id` 只帮助日志、UI 和运维按资源归属筛选观测，不参与 route、订阅、sequence、授权、幂等或缓存分区。Workspace 的完整身份与资源所有权仍由[身份与授权](../workspace/identity-and-authorization.md)和领域所有者解释。
 
 当前事件组：
 
@@ -221,7 +221,7 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 
 ## 6. HTTP 入口的身份交接与管理读取边界
 
-本节固化 HTTP 身份选择、会话管理与 Chat SSE 契约；身份选择转换为进入上述 route 的 `IdentityScope`，因为它是所有总线调用共享的前置契约。完整的认证与授权模型见[Workspace 架构](../architecture/workspace.md)第 4 节。
+本节固化 HTTP 身份选择、会话管理与 Chat SSE 契约；身份选择转换为进入上述 route 的 `IdentityScope`，因为它是所有总线调用共享的前置契约。完整的认证与授权模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节。
 
 - 用户导向身份选择为 `user_id + workspace_id` 基础选择，Agent action（Chat、被动接入）附加具体 `agent_id`；基础选择只经统一请求头 `x-user-id`/`x-workspace-id` 承载，Chat/stop 请求体与 Topic、会话等管理路由都不接受 body 或 query 中的身份字段；`/ingest` 的请求体身份字段是唯一例外。
 - `server/deps.py resolve_request_identity_claims` 是唯一解析入口，只产出身份声明（actor 声明与请求进入的 Workspace），不组装 `IdentityScope`；`/ingest` 的 body 身份字段与 header 冲突时显式拒绝（409）；未知 Workspace 拒绝（404）；Agent action 缺失具体 `agent_id` 或显式使用保留的 `system` 返回 400；非 Agent action 使用保留 `SYSTEM_AGENT_ID = "system"`（"没有具体 Agent 作为操作来源主体"，不得成为 `MemoryAccessPolicy` target）。
@@ -237,9 +237,9 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 
 会话 HTTP 由 `server/routers/sessions.py` 经门面取得 `RootSessionService`，沿用请求认证与 root 授权。POST/GET `/api/v1/sessions` 创建（201）/列出摘要；GET/PATCH/DELETE `/api/v1/sessions/{session_id}` 读取全量历史/以 `{title}` 重命名/删除（204）。创建体同为 `{title}`，允许空标题，首轮写入时自动取用户消息前 80 字。标题最多 200 字。会话不属于 Agent，不增加 actor 操作。响应是 `server/models/session.py` 的投影，不含 Workspace 归属：摘要为 `session_id`、`title`、`created_at`、`updated_at`、`turn_count` 与 `active_process_id`（非空表示正被任务进程占用）；完整读取另含 `turns` 与可空的 `compaction_checkpoint`（结构见[子系统契约](./subsystem-contracts.md#421-会话压缩检查点)）。每轮只返回 `interaction_id`、`agent_id`（仅用于历史展示）、`topic_id`、`created_at` 与载荷中的 `outcome`、`user_message`、`assistant_final_text`、`turn_events`；轮次事件只含 `kind`、`sequence`、`content`、`action_id`、`tool_kind`、`target`、`tool_args`、`status`。列表摘要不含轮次或检查点。
 
-Chat SSE 订阅任务进程的输出通道：进程在自己的 task 中运行，客户端断连时交付以 `client_disconnected` 退订并请求停止，与用户停止走同一条路径，发布 `chat.run.cancel_requested` 与带生效阶段的 `chat.run.cancelled`，本轮输出被丢弃；进入 finalize 后的断连不影响提交。响应不等待进程关闭，详见[应用服务](../system/application-services.md#32-流式链路)。
+Chat SSE 订阅任务进程的输出通道：进程在自己的 task 中运行，客户端断连时交付以 `client_disconnected` 退订并请求停止，与用户停止走同一条路径，发布 `chat.run.cancel_requested` 与带生效阶段的 `chat.run.cancelled`，本轮输出被丢弃；进入 finalize 后的断连不影响提交。响应不等待进程关闭，详见[任务进程](../workspace/task-process.md#111-流式交付)。
 
-Chat 首个 `process_id` SSE 事件携带 `{process_id, session_id}`；非流式交付的结果也含 `session_id`，但不含 `topic_id`、停止原因与记忆引用。`memory_refs` 保留；不再发布 `topic_info`。有输出的 completed/cancelled/failed 的 done 包含 `topic_id`，对应会话本轮标注；没有 `pool_topics`。无输出的 done 不含 `final_text` 与 `topic_id`。前端通过独立 Topic 列表接口管理短期话题。取消、失败有输出时先 finalize 再交付终态，详见[应用服务](../system/application-services.md#33-部分输出与交付关闭)。
+Chat 首个 `process_id` SSE 事件携带 `{process_id, session_id}`；非流式交付的结果也含 `session_id`，但不含 `topic_id`、停止原因与记忆引用。`memory_refs` 保留；不再发布 `topic_info`。有输出的 completed/cancelled/failed 的 done 包含 `topic_id`，对应会话本轮标注；没有 `pool_topics`。无输出的 done 不含 `final_text` 与 `topic_id`。前端通过独立 Topic 列表接口管理短期话题。取消、失败有输出时先 finalize 再交付终态，详见[任务进程](../workspace/task-process.md#8-封口部分输出与结算)。
 
 failed done 保留 `reason=agent_run_failed`，CPU 有稳定原因时另带 `failure_reason`；`chat.run.failed.message` 使用该码，不下发异常正文。四类预算原因见[错误模型](./error-model.md#22-agent-run)。done 不包含 `turn_events` 或 `compaction_checkpoint`；检查点以会话读取结果为准，压缩结束事件不代表会话已接受。
 

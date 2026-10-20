@@ -8,7 +8,7 @@ last_reviewed: 2026-09-02
 related_docs:
   - docs/architecture/overview.md
   - docs/architecture/boundaries.md
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/components/runtime-and-bus.md
   - docs/governance/reliability/idempotency-and-retry.md
   - docs/patchouli/perception.md
@@ -90,7 +90,7 @@ Accepted。该决策适用于当前单用户、单进程、低并发实现及其
 
 - [系统架构概览](../overview.md)
 - [系统边界与所有权](../boundaries.md)
-- [Workspace 架构](../workspace.md)
+- [Workspace](../../workspace/README.md)
 - [运行时机制：总线、调度器与 Work Queue](../../components/runtime-and-bus.md)
 - [跨子系统幂等性与重试治理](../../governance/reliability/idempotency-and-retry.md)
 - [Patchouli 感知](../../patchouli/perception.md)

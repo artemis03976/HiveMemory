@@ -8,7 +8,7 @@ related_docs:
   - docs/VISION.md
   - docs/architecture/overview.md
   - docs/architecture/boundaries.md
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
   - docs/ideas/ae2-hivememory-architecture-analogy.md
   - docs/ideas/task-process-table-and-registration-entry.md
@@ -32,7 +32,7 @@ last_reviewed: 2026-10-19
 |:---|:---|
 | [VISION](../VISION.md) | 项目为什么存在、产品定位与评估 |
 | 本文 | 第五代的概念模型、理念、约束与演进方向 |
-| 事实文档（[Workspace 架构](../architecture/workspace.md)、[系统边界](../architecture/boundaries.md)、[子系统公共契约](../contracts/subsystem-contracts.md)等） | 理念现在如何落地 |
+| 事实文档（[Workspace](../workspace/README.md)、[系统边界](../architecture/boundaries.md)、[子系统公共契约](../contracts/subsystem-contracts.md)等） | 理念现在如何落地 |
 | [ADR](../architecture/decisions/README.md) | 已经作出的决定及其理由 |
 | 子 Idea（第 6 节） | 具体方向的设计讨论与 owner 决定 |
 
@@ -154,7 +154,7 @@ flowchart TB
 
 **检验问题**：新功能是否让某个入口绕过能力层直接触达资源 owner？是否为某种执行者另开了一条能力路径？新的 actor 操作是否与协议动词对齐、能否由白名单表达？
 
-**落地入口**：[Workspace 架构](../architecture/workspace.md)第 4.5 节；[AGENTS.md](../../AGENTS.md) 第 3 节；操作适配器的定义见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#34-操作适配器的定义与边界) 3.4。
+**落地入口**：[能力层](../workspace/capability.md#1-三个调用面)第 1 节；[AGENTS.md](../../AGENTS.md) 第 3 节；操作适配器的定义见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#34-操作适配器的定义与边界) 3.4。
 
 ### 3.2 一切任务都是进程
 
@@ -174,7 +174,7 @@ flowchart TB
 - 命令、主动请求与被动请求是否经同一入口注册？
 - 新的任务类型是否复用四阶段骨架，而不是另写一套编排？
 
-**落地入口**：[System 应用服务](../system/application-services.md)第 3、4 节；[任务进程 Idea](./task-process-table-and-registration-entry.md)。
+**落地入口**：[任务进程](../workspace/task-process.md)；[任务进程 Idea](./task-process-table-and-registration-entry.md)。
 
 ### 3.3 执行者可以替换
 
@@ -195,7 +195,7 @@ flowchart TB
 - 换一个执行单元（测试替身即可），能否跑完整个任务进程而不改动进程与入口的代码？
 - 新能力是否假设了 Alice 的 MTP 或 frame 结构？
 
-**落地入口**：[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；[Workspace 架构](../architecture/workspace.md)第 5.4 节；[执行线程 Idea](../archive/ideas/execution-thread-definition.md)（已归档）；[执行环境 Idea](./execution-environment.md)。
+**落地入口**：[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；[执行线程](../workspace/execution-threads.md)；[执行线程 Idea](../archive/ideas/execution-thread-definition.md)（已归档）；[执行环境 Idea](./execution-environment.md)。
 
 ### 3.4 库内与库外
 
@@ -215,7 +215,7 @@ flowchart TB
 - 新增的状态属于已接收的资产，还是执行者的工作产物？它放在了对应的一侧吗？
 - 新的读取能力是否开始在库外解释记忆语义？
 
-**落地入口**：ADR-0006；[Workspace 架构](../architecture/workspace.md)第 5.3、5.4 节；[公开路由与事件](../contracts/routes-and-events.md)第 3 节。
+**落地入口**：ADR-0006；[读取视图与写入意图](../workspace/read-view-and-write-intents.md)；[公开路由与事件](../contracts/routes-and-events.md)第 3 节。
 
 ### 3.5 两阶段认证与两阶段授权
 
@@ -232,7 +232,7 @@ flowchart TB
 
 **检验问题**：新功能的授权点在哪一阶段、由谁负责？是否把权限写进了资源或身份类型？跨 Workspace 的操作是否同时满足驻留一侧与目标一侧的授予？
 
-**落地入口**：[Workspace 架构](../architecture/workspace.md)第 4 节；[MTP 契约](../contracts/mtp.md)第 4 节；[身份与访问体系 Idea](./identity-and-access-model.md)。
+**落地入口**：[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节；[MTP 契约](../contracts/mtp.md)第 4 节；[身份与访问体系 Idea](./identity-and-access-model.md)。
 
 ### 3.6 身份数据按形态区分
 
@@ -248,7 +248,7 @@ flowchart TB
 
 **检验问题**：新模型或新事件里的身份字段是哪种形态？它的寿命是否超出了这种形态允许的范围？
 
-**落地入口**：[Workspace 架构](../architecture/workspace.md)第 3、4.1 节；[AGENTS.md](../../AGENTS.md) 第 3 节；[身份与访问体系 Idea](./identity-and-access-model.md)。
+**落地入口**：[身份与授权](../workspace/identity-and-authorization.md)第 1、3 节；[AGENTS.md](../../AGENTS.md) 第 3 节；[身份与访问体系 Idea](./identity-and-access-model.md)。
 
 ### 3.7 调用与事件
 
@@ -280,7 +280,7 @@ flowchart TB
 
 **检验问题**：新的写入路径是否把“已确认”说成“已持久化”？是否让写入依赖进程完成？
 
-**落地入口**：[Workspace 架构](../architecture/workspace.md)第 5.4 节；[Patchouli 生成](../patchouli/generation.md)第 7 节；[写入意图后续方向 Idea](./pending-intent-migration.md)。
+**落地入口**：[读取视图与写入意图](../workspace/read-view-and-write-intents.md)；[Patchouli 生成](../patchouli/generation.md)第 7 节；[写入意图后续方向 Idea](./pending-intent-migration.md)。
 
 ### 3.9 上下文与记忆材料分离
 
@@ -334,7 +334,7 @@ flowchart TB
 
 ### P-1 经网络接入的执行者如何证明身份
 
-Principal 认证目前只检查声称的 principal 是否已登记、adapter 是否匹配，HTTP 入口的身份取自请求头（[Workspace 架构](../architecture/workspace.md)第 10 节）。
+Principal 认证目前只检查声称的 principal 是否已登记、adapter 是否匹配，HTTP 入口的身份取自请求头（[认证与访问登记](../workspace/authentication.md#8-已知限制)第 8 节）。
 
 - **P-1b 请求与进程的归属校验**：请求的 principal 必须与进程注册时一致 / 其他规则；
 - **P-1c 身份证明的实现位置**：各 adapter / 统一认证网关 / 其他。外部服务的身份随外部 Actor 接入一并设计，与[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) E-2（运行时访问的传输承载）相关。
@@ -408,7 +408,7 @@ C 与 [engines 对上层的既有导入](../todo/engines-upward-imports.md)相�
 | 文档 | 承担的理念与方向 |
 |:---|:---|
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | 3.2：请求方分类、进程结构、阶段与取消、被动请求 |
-| [Workspace 架构](../architecture/workspace.md#43-访问-context密封的运行时凭据)第 4.3 节（已归档的[执行线程 Idea](../archive/ideas/execution-thread-definition.md)） | 3.3 与第 2 节用语中的执行线程：定义、生命周期与观测（当前事实） |
+| [执行线程](../workspace/execution-threads.md)（已归档的[执行线程 Idea](../archive/ideas/execution-thread-definition.md)） | 3.3 与第 2 节用语中的执行线程：定义、生命周期与观测（当前事实） |
 | [执行环境 Idea](./execution-environment.md) | 3.3：agent 与执行环境的分别选择、不同执行环境的输出词汇 |
 | [身份与访问体系 Idea](./identity-and-access-model.md) | 3.5、3.6：身份数据的形态与流向 |
 | [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 3.9：会话模型与 Topic 池 |

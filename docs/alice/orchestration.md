@@ -23,7 +23,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
 related_docs:
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
 last_reviewed: 2026-10-19
 ---
 
@@ -172,7 +172,7 @@ root frame
   └─ continue root frame
 ```
 
-软限制由 CallCoordinator 组装子帧提示词时实现：MTP 教学按被调用方的动词集合渲染，CALL 已在构造策略时移除，因此不会出现在教学中。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 消费 CallContext 后，以被调用方的操作快照（`mtp_verbs_for_operations` 翻译，RUN 始终可用）构造子帧策略并显式移除 CALL；被调用方 Profile 只提供 persona、模型与语言。动词集合只是提示与执行前检查，子帧的资源操作仍由 actor API 按被调用方的白名单授权（[Workspace 架构](../architecture/workspace.md)第 5.4 节）。Koakuma 以 frame policy 校验。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该 Agent，让它改用自然语言或其他获准能力继续。
+软限制由 CallCoordinator 组装子帧提示词时实现：MTP 教学按被调用方的动词集合渲染，CALL 已在构造策略时移除，因此不会出现在教学中。硬限制由 `FrameExecutionPolicy` 实现：CallCoordinator 消费 CallContext 后，以被调用方的操作快照（`mtp_verbs_for_operations` 翻译，RUN 始终可用）构造子帧策略并显式移除 CALL；被调用方 Profile 只提供 persona、模型与语言。动词集合只是提示与执行前检查，子帧的资源操作仍由 actor API 按被调用方的白名单授权（[执行线程](../workspace/execution-threads.md#63-子线程以被调用方身份运行)）。Koakuma 以 frame policy 校验。即使模型仍输出 CALL，也返回 `PermissionDeniedError`，执行循环把错误回填给该 Agent，让它改用自然语言或其他获准能力继续。
 
 这是能力策略，不是 RunExecutor 的结构限制：执行器对所有 frame 使用同一个递归入口，不包含 `RootTurn/CalleeTurn` 分支。未来允许嵌套 CALL 时可以沿用这条递归路径；并行 sibling CALL 可在一次 suspension 能表达多个请求后，于当前递归层使用结构化并发。持久化 DAG、跨进程恢复和 review loop 仍属于后置方向。
 

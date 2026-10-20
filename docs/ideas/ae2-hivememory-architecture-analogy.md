@@ -15,7 +15,7 @@ related_contracts:
 related_documents:
   - docs/VISION.md
   - docs/architecture/overview.md
-  - docs/architecture/workspace.md
+  - docs/workspace/README.md
   - docs/patchouli/memory-library.md
   - docs/alice/orchestration.md
 last_reviewed: 2026-09-01
@@ -152,7 +152,7 @@ AE2 子网的两个核心用途是限制设备能访问哪些存储，以及把�
 当前代码已经通过 Workspace 建立了这一方向的最小资源网络边界：`IdentityScope` 提供
 不可变的访问坐标，Topic、Memory、Artifact 和 WorkspaceAsset 在各自 Store 中按
 Workspace ownership 进行最终寻址，System 的共享 runtime 则继续作为公共骨架。这个
-初步的“ME 网络”现状与具体代码入口见[Workspace 架构](../architecture/workspace.md)。
+初步的“ME 网络”现状与具体代码入口见[Workspace](../workspace/README.md)。
 这里的“ME 网络”仍是架构隐喻，不表示当前已经存在独立的网络控制器、节点发现或子网
 运行时；本节以下内容继续讨论尚未落地的完整主网/子网方向。
 
@@ -206,7 +206,7 @@ hard boundary、传播和部分生命周期基础，不拥有独立工具、执�
 系统。Memory v2 的 `PUBLIC / PRIVATE / TEAM` actor read policy 只在 owning Workspace
 内部生效；历史 `WORKSPACE` visibility 是按 `team_id` 解释的兼容语义，不等于当前
 WorkspaceIdentity 或子网。当前文件工具也使用 Alice 配置中的单一 `workspace_path`，
-不能解释成每个 Workspace 都有独立执行环境。当前事实见[Workspace 架构](../architecture/workspace.md)，
+不能解释成每个 Workspace 都有独立执行环境。当前事实见[Workspace](../workspace/README.md)，
 相关缺口和风险见[检索身份过滤](../patchouli/retrieval.md)与[身份隔离与执行安全治理](../governance/security/identity-and-execution-safety.md)。
 
 此外，AE2 的过滤首先是物流边界，不是面向恶意调用者的安全授权。HiveMemory 必须在读取、修改、执行、缓存命中、重试和后台恢复的**行为边界**上重新校验 Identity——策略真相归资源所有者，校验动作绑定交付边界（见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.4、3.5 节）——不能仅复制查询过滤器。
