@@ -25,7 +25,8 @@ See [docs/architecture/overview.md](docs/architecture/overview.md) for the curre
 
 - **Active mode**: `POST /api/v1/chat` provides SSE streaming chat. Each request is authenticated by the workspace registration entry and registered as a task process; `TaskProcessService` drives Gateway analysis, Patchouli prepare/finalize, and Alice agent execution through the CPU port. `POST /api/v1/chat/stop` stops a process, and a client disconnect is handled as a stop
 - `POST /api/v1/chat` supports request-scoped `generation_options` (`model` / `temperature` / `top_p` / `max_tokens`) for per-turn overrides without persisting to global config files
-- **Passive mode**: `POST /api/v1/ingest` accepts discrete events from external frameworks; the System-layer `PassiveIngressService` orchestrates Gateway decisions, buffering, retrieval, and Patchouli submission. `POST /api/v1/ingest/flush` seals a conversation explicitly
+- **Import Bus (external harness import)**: `POST /api/v1/import/turns` imports the complete record of one finished turn from an external harness (user message, replies, thoughts, external tool calls and results, outcome). The request goes through the unified authentication gateway and import authorization; the System-layer Import Bus orchestrates Gateway topic placement, shared sealing, and Patchouli perception submission, and confirms only after the interaction has been applied. It only feeds the memory network: it does not retrieve memories or return memory context
+- **Claude Code connector plugin**: `integrations/claude-code/` (plugin `hivememory-connector`, local marketplace `hivememory-local`, Python standard library only) imports finished turns from Claude Code transcripts when a turn ends and when a session starts or ends; network submission runs in a background process detached from Claude Code. It is configured with the environment variables `HIVEMEMORY_URL`, `HIVEMEMORY_USER_ID`, and `HIVEMEMORY_AGENT_ID` (default `claude_code`), and `configs/workspace_actors.yaml` already registers admission for `claude_code`
 - **Sessions**: create, resume, rename, and delete conversation sessions. Alice trims old tool results and writes relay summaries within the model budget while the original conversation is kept in full, and the summary and compaction boundary can be inspected; cancelled and failed turns that produced output keep their outcome. Sessions and checkpoints live only in the backend process and disappear on restart; topics remain separate memory material.
 - **System commands**: Gateway only parses commands. A message recognized as a command ends with a command terminal state and does not enter normal chat; this version does not execute built-in commands.
 
@@ -122,8 +123,7 @@ See [docs/contracts/mtp.md](docs/contracts/mtp.md) for the current protocol and 
 | `/api/v1/chat/stop` | POST | Stop a running task process |
 | `/api/v1/sessions` | GET / POST | List / create sessions |
 | `/api/v1/sessions/{session_id}` | GET / PATCH / DELETE | Read full history / rename / delete a session |
-| `/api/v1/ingest` | POST | Passive message ingestion |
-| `/api/v1/ingest/flush` | POST | Seal a passive conversation explicitly |
+| `/api/v1/import/turns` | POST | Import one finished turn from an external harness (Import Bus) |
 | `/api/v1/memories` | GET / POST | Semantic search or list memories / create a memory |
 | `/api/v1/memories/{memory_id}` | GET / PATCH / DELETE | Read / edit / delete a single memory |
 | `/api/v1/memories/{memory_id}/feedback` | POST | Submit memory feedback |
@@ -273,7 +273,7 @@ HiveMemory currently uses a layered **environment variables + YAML** configurati
 
 - `system`, `logging`, `scheduler`, `runtime_events`, and `i18n`
 - `shared`: Gateway/Librarian LLM references, embedding, and provider defaults
-- `gateway`, `passive_ingress`, and `memory_compiler`
+- `gateway`, `import_bus`, and `memory_compiler`
 - `patchouli`: storage, perception, generation, retrieval, lifecycle, and artifacts
 - `alice`: Agent Runtime and Koakuma
 
@@ -293,9 +293,9 @@ If you want to integrate the system directly in Python, the main entrypoint is:
 It exposes two primary integration modes:
 
 - `process_service.register_process()` and `run_process()`: active mode. The registration entry first authenticates and registers a task process and returns a process handle; `run_process()` (streaming by default with `stream=True`, non-streaming with `stream=False`) then runs it, with `TaskProcessService` coordinating Gateway analysis, Patchouli memory preparation, Alice agent execution, and Patchouli finalization
-- `ingress_service.ingest_event()` / `flush_conversation()`: passive mode, suitable for Discord bots, WeChat bots, or other external frameworks
+- `import_bus_service.import_turn()`: Import Bus, which imports the complete record of one finished turn from an external harness; the caller must first obtain a request-scoped access context from the unified authentication gateway (the HTTP entry `POST /api/v1/import/turns` does this for you)
 
-If you only need HTTP APIs, use the FastAPI service directly. If you want to embed HiveMemory into an existing agent framework, passive ingest mode is often the most natural starting point.
+If you only need HTTP APIs, use the FastAPI service directly. If you want the interactions of an existing agent harness to become HiveMemory memories, `POST /api/v1/import/turns` is usually the most natural starting point, and the Claude Code connector plugin (`integrations/claude-code/`) is a ready-made integration.
 
 ## Project Structure
 
@@ -305,6 +305,7 @@ HiveMemory/
 ├── docker/                  # Docker one-command deployment (backend app + Qdrant)
 ├── docs/                    # Project design and planning docs
 ├── frontend/                # React + Vite frontend development UI
+├── integrations/            # External harness connectors (Claude Code plugin and local marketplace)
 ├── scripts/                 # Startup and helper scripts
 ├── src/hivememory/
 │   ├── core/                # Core data models, contract constants, access value types, and ports
@@ -317,7 +318,7 @@ HiveMemory/
 │   ├── patchouli/           # Patchouli memory subsystem and runtime
 │   ├── alice/               # Alice agent execution subsystem
 │   ├── agent_runtime/       # Single-agent execution layer and Koakuma MTP/tool runtime
-│   ├── system/              # Composition root, facade, registries, and passive ingress
+│   ├── system/              # Composition root, facade, registries, and Import Bus
 │   ├── prompts/             # System prompts and prompt assembly
 │   └── server/              # FastAPI app entrypoint and routes
 └── tests/                   # Unit, integration, and end-to-end tests

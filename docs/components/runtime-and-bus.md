@@ -18,12 +18,12 @@ related_contracts:
 related_docs:
   - docs/components/README.md
   - docs/system/composition.md
-  - docs/system/passive-ingress.md
+  - docs/system/import-bus.md
   - docs/workspace/README.md
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-21
 ---
 
 # 运行时机制：总线、调度器与 Work Queue
@@ -75,13 +75,13 @@ CI 的 typecheck job 使用锁定版本的 uv 与 setup action，以 `uv sync --
 
 RPC 用于需要确定交接结果的 prepare、retrieve、run、finalize 和管理操作；Pub/Sub 只用于通知。总线不提供持久化、跨进程传输、自动重试、版本协商或 exactly-once。
 
-Workspace 不会改变 route 的全局注册语义。身份声明经认证形成访问 context，授权点在每次操作时组装 scope，再作为公开 route 参数传递；总线只负责交接，不解析、缓存或授权 Workspace。Import Bus 的认证前 scope 是已知例外，见[身份与授权](../workspace/identity-and-authorization.md#12-默认入口和内部-seam)。
+Workspace 不会改变 route 的全局注册语义。身份声明经认证形成访问 context，授权点在每次操作时组装 scope，再作为公开 route 参数传递；总线只负责交接，不解析、缓存或授权 Workspace。
 
 ## 2. GlobalMaintenanceScheduler
 
 `GlobalMaintenanceScheduler` 继承纯 `asyncio` 的 `AsyncMaintenanceScheduler`。它由 System 装配，运行在当前主 event loop，不创建线程或隐藏 event loop。
 
-统一调度来自一次具体的运行时教训：旧链路曾由线程式 `BackgroundScheduler` 触发，再经 SystemBus 调用 `asyncio.run()` / `create_task()`。任务可能被挂到临时 event loop，而 `asyncio.run()` 返回时该 loop 随即关闭，后台协程的完成、异常和 shutdown 都失去可靠所有者。当前方案统一的是运行时钟、event loop 与启停生命周期，不是把 observer idle flush、Patchouli perception、gardening 或 GC 合并成同一种业务语义。
+统一调度来自一次具体的运行时教训：旧链路曾由线程式 `BackgroundScheduler` 触发，再经 SystemBus 调用 `asyncio.run()` / `create_task()`。任务可能被挂到临时 event loop，而 `asyncio.run()` 返回时该 loop 随即关闭，后台协程的完成、异常和 shutdown 都失去可靠所有者。当前方案统一的是运行时钟、event loop 与启停生命周期，不是把 Patchouli perception idle flush、gardening 或 GC 合并成同一种业务语义。
 
 因此 scheduler 由 System 持有并提供基础设施，Patchouli 等业务所有者只注册 callback。旧设计中“由 Patchouli 持有系统调度器”的阶段性安排已经被纠正：Patchouli 拥有维护行为，System 拥有全局调度生命周期。
 
@@ -96,7 +96,7 @@ skip_if_running    -> 运行中是否跳过本轮
 jitter_seconds     -> 可选启动抖动
 ```
 
-当前任务状态包含 next run、开始/结束时间、运行次数、失败次数、跳过次数、最近错误和当前 asyncio task。任务 callback 必须是 async；scheduler 只负责到点触发和生命周期，不理解 observer、perception 或 GC 的业务规则。
+当前任务状态包含 next run、开始/结束时间、运行次数、失败次数、跳过次数、最近错误和当前 asyncio task。任务 callback 必须是 async；scheduler 只负责到点触发和生命周期，不理解 perception、gardening 或 GC 的业务规则。
 
 ### 2.1 调度与重入
 
@@ -104,9 +104,10 @@ jitter_seconds     -> 可选启动抖动
 
 当前 System 通过同一调度器承载：
 
-- `system.passive_ingress.observer_idle_flush`；
-- Patchouli 注册的维护任务；
+- Patchouli 注册的维护任务（perception idle flush 与 memory gardening）；
 - 其他已经实现的 subsystem maintenance callbacks。
+
+System 自身不注册维护任务：Import Bus 一次请求导入一轮完整记录，不在服务端累积待封口的轮次，因此没有需要定时冲刷的缓冲。
 
 这是一套运行时底座，不代表所有维护业务已经统一成一个算法。
 
@@ -181,14 +182,17 @@ retry-wait 与有限终态记录均不可恢复，因此当前入口只能声称
 
 ### 3.3 Interaction Submission
 
-Active 与 Passive 都通过唯一 `InteractionSubmissionQueue` 提交 versioned `InteractionSubmission`。
-稳定 `interaction_id` 同时用于 work identity 和幂等定位；同 ID 相同 payload 的进程内重放返回原 receipt，
-同 ID 不同 canonical payload 被拒绝。`topic:{topic_id}` ordering key 只保证成功 apply 的 topic-local
+主动链路与 Import Bus 都通过唯一 `InteractionSubmissionQueue` 提交 versioned `InteractionSubmission`：
+主动链路经 finalize 提交，Import Bus 经 Patchouli 公开的交互提交路由提交。稳定 `interaction_id`
+同时用于 work identity 和幂等定位；同 ID 相同 payload 的进程内重放返回原 receipt，等待中或已成功时
+同 ID 不同 canonical payload 被拒绝。应用失败（工作项终态未成功）的交互允许以同一 ID 重新提交，
+payload 可以不同，新提交以递增的尝试号区分工作项标识。为查重保留的旁路索引只存编码 payload 的摘要。
+`topic:{topic_id}` ordering key 只保证成功 apply 的 topic-local
 顺序，不代表 prepare snapshot 或 Agent 因果顺序。
 
-Passive 只在 queue admission 成功后 commit/reset accumulator；Active finalize 在 admission 后同步等待
-applied gate，只有 work `SUCCEEDED` 才继续 materialization 与 HIT 等后续副作用。客户端在 admission 后
-断开不会撤销已由 Patchouli 接管的 interaction。
+Active finalize 在 admission 后同步等待 applied gate，只有 work `SUCCEEDED` 才继续 materialization 与
+HIT 等后续副作用。Import Bus 在 admission 后经交互等待路由等待应用到终态或超时，成功才向调用方确认；
+它经交互状态查询判重，不持有队列。客户端在 admission 后断开不会撤销已由 Patchouli 接管的 interaction。
 
 ### 3.4 Memory Generation
 
@@ -212,7 +216,7 @@ Codec 编码失败在接纳前拒绝，解码失败在已接纳 work 的 attempt
 
 ### 3.6 Workspace 与共享运行时
 
-`WorkspaceAssetStore` 不属于通用 Work Queue Runtime；它是 workspace 的进程级唯一 working set（`workspace.assets`），由 System 装配。`WorkspaceAssetRef` 只在当前 Store 生命周期内可反查，带有 asset binding 的 settlement/generation payload 通过 `belong_to` 和 ref 遵守窄化 Asset port 交接约定。System 在 Scheduler、Passive Ingress、Alice、Patchouli 和 Gateway 完成停止后，最后清空 AssetStore；该 Store 不调用 Patchouli 的等待控制器，也不参与 queue 的状态机。写入意图登记、引用读取和主/子帧使用的 Profile 派生缓存均属于 workspace；组合根在 Patchouli drain 后关闭 `WorkspaceReadView`、撤销结算/失效订阅并清空派生缓存。Alice 不持有资源读取缓存。这些资源状态不属于通用 Work Queue Runtime。
+`WorkspaceAssetStore` 不属于通用 Work Queue Runtime；它是 workspace 的进程级唯一 working set（`workspace.assets`），由 System 装配。`WorkspaceAssetRef` 只在当前 Store 生命周期内可反查，带有 asset binding 的 settlement/generation payload 通过 `belong_to` 和 ref 遵守窄化 Asset port 交接约定。System 在 Scheduler、Import Bus、Alice、Patchouli 和 Gateway 完成停止后，最后清空 AssetStore；该 Store 不调用 Patchouli 的等待控制器，也不参与 queue 的状态机。写入意图登记、引用读取和主/子帧使用的 Profile 派生缓存均属于 workspace；组合根在 Patchouli drain 后关闭 `WorkspaceReadView`、撤销结算/失效订阅并清空派生缓存。Alice 不持有资源读取缓存。这些资源状态不属于通用 Work Queue Runtime。
 
 同理，`RuntimeEvent.workspace_id` 只是可选观测标签，不参与 EventBus 路由、订阅、sequence、授权、幂等键或缓存分组。
 
@@ -227,9 +231,9 @@ chat run 的阶段、停止原因与可中断阶段 task 由 workspace 任务进
 
 [`KeyedSerialGate`](../../src/hivememory/components/serial_gate.py) 是按可哈希 key 串行化异步操作的公共机制。`hold(key)` 负责互斥、取消/异常退出时释放和最后一人离开后的条目回收；`active_keys()` 返回当前持有者或等待者涉及的 key 快照，供调用方执行自己的收尾流程。它不保存幂等结果或业务状态。
 
-实例由需要协调的服务在初始化时创建并复用，key 的构造和持锁范围由业务所有者决定。附件上传应用服务使用 `(WorkspaceIdentity, client_operation_id)`，被动摄入使用 `PassiveConversationKey`；两者持有独立实例，同一 key 在不同实例之间也不会互斥。公共实现只在同一 event loop 内使用，不支持同 key 重入或跨线程协调；登记、回收与快照读取不含 `await`，不另加线程锁。
+实例由需要协调的服务在初始化时创建并复用，key 的构造和持锁范围由业务所有者决定。附件上传应用服务使用 `(WorkspaceIdentity, client_operation_id)`，Import Bus 使用 `ImportConversationKey`（认证通过的 user 与 Agent、外部来源与外部会话标识）；两者持有独立实例，同一 key 在不同实例之间也不会互斥。公共实现只在同一 event loop 内使用，不支持同 key 重入或跨线程协调；登记、回收与快照读取不含 `await`，不另加线程锁。
 
-`active_keys()` 只是调用时的快照，不会阻止后续操作进入。停止接纳和 shutdown 顺序继续由调用方负责，不能把空快照当作系统已经停止的证明。被动摄入的 drain 会将该快照与活动 buffer 的 key 合并，逐个取得同一实例的门，等待在途事件后再执行 finalize。
+`active_keys()` 只是调用时的快照，不会阻止后续操作进入。停止接纳和 shutdown 顺序继续由调用方负责，不能把空快照当作系统已经停止的证明。Import Bus 的关闭不依赖该快照：它先标记停止接收，门外等待的请求取得门后即以可重试错误拒绝，再按自己的在途计数等待每个会话正在处理的那一个导入结束。
 
 ## 6. RuntimeOperationObserver
 
@@ -244,7 +248,7 @@ chat run 的阶段、停止原因与可中断阶段 task 由 workspace 任务进
 ## 8. 调度、队列与总线的边界
 
 ```text
-应用服务（chat 编排 / 被动摄入 / 能力层） -> GlobalSystemBus RPC -> subsystem owner
+应用服务（chat 编排 / Import Bus / 能力层） -> GlobalSystemBus RPC -> subsystem owner
 Subsystem maintenance task -> GlobalMaintenanceScheduler callback
 Accepted local work -> WorkQueueRuntime -> business handler
 Any operation -> RuntimeEventSink (best-effort observation)

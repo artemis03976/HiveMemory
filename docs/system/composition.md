@@ -11,13 +11,15 @@ code_paths:
   - src/hivememory/config/app.py
   - src/hivememory/components/
   - src/hivememory/workspace/
+  - src/hivememory/system/services/import_bus/
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-19
+  - docs/system/import-bus.md
+last_reviewed: 2026-10-21
 ---
 
 # System 组合根与生命周期
@@ -60,11 +62,12 @@ HiveMemorySystem.build(config)
             CPUAllocator（workspace.process；注入操作授权者、Profile 读取端口（读取视图的 ProfileResolver）、AssetStore 只读 reader 与 memory_compiler / attachment_compiler 配置段）
             TaskProcessRunner（workspace.process，四阶段骨架；注入全局总线、CPU 端口（AliceSystem.cpu_port）、CPUAllocator、ProcessThreads、写入意图登记、操作授权者与 Gateway 请求超时）
             TaskProcessService（workspace.process，注册入口；注入 TaskProcessRunner、共享的进程表、认证网关、操作授权者与 root RuntimeEventPublisher）
-            PassiveIngressService / SystemReadinessService（system.application）
+            ImportBusService（system.application；注入操作授权者与编排器 ImportBusIngestor，后者只取得全局总线、Gateway 请求时限与最近轮数、等待应用的时限与观测 sink）
+            SystemReadinessService（system.application）
             root API：RootMemoryService / RootAgentProfileService / RootTopicService / RootMemoryTaskService / RootWorkspaceAssetService（workspace.capability.root；注入操作授权者，不接触读取视图）
 ```
 
-七个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，LLM 服务随后创建并取得组件请求参数，访问控制装载两类登记并组装认证网关与操作授权者，随后先构建 actor API 与操作入口，Alice 构建时即可注入入口；root API 在服务阶段构建，只交给门面；子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。认证网关注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server，另以只含派生与撤销线程 context 的 `ThreadContextLifecycle` 端口注入进程线程管理 `ProcessThreads`；进程表在访问控制阶段创建，`ProcessThreads` 因此能在 actor API 之前构建，注入执行器（主线程）与 actor API（子线程派生），无需延迟绑定；操作授权者注入 root API（root 授权）、actor API（actor 操作授权）、操作入口（线程 context 校验与进程关联）、任务进程的执行器与 CPU 分配（阶段授权），以及注册入口（进程控制授权）；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[任务进程](../workspace/task-process.md)）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。
+七个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，LLM 服务随后创建并取得组件请求参数，访问控制装载两类登记并组装认证网关与操作授权者，随后先构建 actor API 与操作入口，Alice 构建时即可注入入口；root API 在服务阶段构建，只交给门面；子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。认证网关注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server，另以只含派生与撤销线程 context 的 `ThreadContextLifecycle` 端口注入进程线程管理 `ProcessThreads`；进程表在访问控制阶段创建，`ProcessThreads` 因此能在 actor API 之前构建，注入执行器（主线程）与 actor API（子线程派生），无需延迟绑定；操作授权者注入 root API（root 授权）、actor API（actor 操作授权）、操作入口（线程 context 校验与进程关联）、任务进程的执行器与 CPU 分配（阶段授权）、注册入口（进程控制授权），以及 Import Bus 服务（导入授权）；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[任务进程](../workspace/task-process.md)）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。
 
 ### 1.1 Runtime bundle
 
@@ -114,7 +117,7 @@ System 只创建一个 `LiteLLMService`，它是 `infrastructure.llm.base.BaseLL
 | Patchouli | 注入 `patchouli` / `shared` / `scheduler` 配置段、共享 LLM 服务与 Librarian 请求参数、全局总线、维护调度器、观测 sink、AssetStore 只读 reader（供 Artifact promotion） | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
 | Alice | 注入 `alice` / `memory_compiler` 配置段、共享 LLM 服务、全局总线、模型解析端口（`ModelRegistry` 实现 `ModelResolver`）、操作入口（`WorkspaceOperationEntry` 实现 `OperationEntry`）和观测 sink | Agent run、frame、MTP 生成与执行、工具与 ACK alias 集合 |
 
-System 不通过这些宿主的具体 Runtime 互相串联；跨边界链路由服务（chat 编排、被动摄入、能力层）通过 `GlobalSystemBus` 发起。
+System 不通过这些宿主的具体 Runtime 互相串联；跨边界链路由服务（chat 编排、Import Bus、能力层）通过 `GlobalSystemBus` 发起。
 
 ## 2. 启动顺序
 
@@ -125,11 +128,10 @@ Gateway.start
   -> Patchouli.start
   -> Alice.start
   -> GlobalMaintenanceScheduler.start
-  -> PassiveIngressService.start
   -> SYSTEM_READY
 ```
 
-顺序背后的理由是：先挂载三个子系统的 route，使应用服务有可用的交接面；再启动调度器；最后让 Passive Ingress 注册自己的 idle flush 任务。`start()` 要求在运行中的 `asyncio` loop 内执行，因为维护调度器不创建隐藏 event loop。
+顺序背后的理由是：先挂载三个子系统的 route，使应用服务有可用的交接面；再启动调度器。Import Bus 没有维护任务，也没有启动步骤，组合根构建完成后即可接收导入。`start()` 要求在运行中的 `asyncio` loop 内执行，因为维护调度器不创建隐藏 event loop。
 
 重复 `start()` 不再重复挂载 route 或重启 scheduler，而是发布一次带 `already_started=true` 的生命周期观测并返回。启动失败会发布 `system.start_failed`，保留已完成步骤和第一个未完成步骤后继续抛出原异常。
 
@@ -142,7 +144,7 @@ Gateway.start
 ```text
 ActorAuthenticationGateway.close
   -> GlobalMaintenanceScheduler.stop
-  -> PassiveIngressService.shutdown_drain
+  -> ImportBusService.shutdown（停止接收，等待在途导入结束，含等待应用的时间；不排空提交队列）
   -> TaskProcessService.shutdown（关闭未启动的进程，以 system_shutdown 停止已启动的进程并等待进程 task 结束，超时后硬取消；进程在自己的 task 中收尾并释放会话认领）
   -> ConversationSessionService.close_and_clear
   -> Alice.stop
@@ -154,11 +156,11 @@ ActorAuthenticationGateway.close
   -> SYSTEM_STOPPED
 ```
 
-认证网关最先关闭：此后拒绝新的认证，已签发的访问 context 照常可用，在途请求与任务进程仍能完成各自的授权；全部已签发 context 在最后一步撤销。操作授权者无状态，不需要关闭。先停调度器是为了阻止新的维护 tick；随后 Passive Ingress 把当前 accumulator 移交 `InteractionSubmissionQueue`。全部任务进程关闭后清空会话，再停止 Alice；Alice 停止时卸载自己的 run route；此后 Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 关闭 workspace 运行时（停止新读、取消结算与 canonical 变更订阅、清理派生缓存，不触碰 canonical 数据），最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
+认证网关最先关闭：此后拒绝新的认证，已签发的访问 context 照常可用，在途请求与任务进程仍能完成各自的授权；全部已签发 context 在最后一步撤销。操作授权者无状态，不需要关闭。先停调度器是为了阻止新的维护 tick；随后 Import Bus 等待在途导入结束：认证网关已经关闭，新的导入以 503 拒绝，门外等待的导入以 `shutting_down` 拒绝，正在处理的导入继续到应用确认，因为 Patchouli 的提交队列要到 Patchouli 停止时才排空（[Import Bus](./import-bus.md#61-关闭)）。全部任务进程关闭后清空会话，再停止 Alice；Alice 停止时卸载自己的 run route；此后 Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 关闭 workspace 运行时（停止新读、取消结算与 canonical 变更订阅、清理派生缓存，不触碰 canonical 数据），最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
 
-重复 `stop()` 会保持幂等：scheduler 已停止时不重复等待，未启动的系统仍会执行必要的被动 drain 并发布 `already_stopped=true`。任一步骤失败都会发布 `system.stop_failed`，记录已完成步骤、scheduler 状态和被动 drain 摘要后抛出异常。
+重复 `stop()` 会保持幂等：scheduler 已停止时不重复等待，未启动的系统仍会等待 Import Bus 的在途导入并发布 `already_stopped=true`。`system.stopped` 与 `system.stop_failed` 的 `import_bus_shutdown` 字段报告 Import Bus 开始关闭时的在途请求数（`waited_requests`）。任一步骤失败都会发布 `system.stop_failed`，记录已完成步骤、失败步骤、scheduler 状态和 Import Bus 的等待结果后抛出异常。
 
-对于从未成功启动的 System，`stop()` 在关闭认证网关、完成必要的 Passive drain 后即可关闭读取视图、清空 AssetStore、撤销全部访问 context 并返回，不会伪造 Alice、Patchouli 或 Gateway 已完成停止；正常已启动实例才执行上面列出的完整逆序。
+对于从未成功启动的 System，`stop()` 在关闭认证网关、等待 Import Bus 在途导入、关闭任务进程并清空会话后，即可关闭读取视图、清空 AssetStore、撤销全部访问 context 并返回，不会伪造 Alice、Patchouli 或 Gateway 已完成停止；正常已启动实例才执行上面列出的完整逆序。
 
 ## 4. 健康状态与公共入口
 
@@ -170,16 +172,16 @@ ActorAuthenticationGateway.close
 
 健康状态是观测和管理入口，不替代业务契约。模型尚未 ready 不等于所有 route 都不存在；反过来，健康返回 `ok` 也不保证一次具体检索或生成调用一定成功。
 
-System 作为门面对外暴露服务属性和 registry/sink 查询，例如 `process_service`（workspace 任务进程编排）、`ingress_service`（被动摄入）、`root_memory_service` 等 root API 服务（actor API 只由操作入口持有，不经门面暴露）、`access_gateway`、`runtime_events`、`model_registry`。这些属性方便 HTTP 或其他 adapter 注入依赖，但 adapter 仍应调用服务，不应从属性继续下钻到子系统 Runtime。
+System 作为门面对外暴露服务属性和 registry/sink 查询，例如 `process_service`（workspace 任务进程编排）、`import_bus_service`（Import Bus）、`root_memory_service` 等 root API 服务（actor API 只由操作入口持有，不经门面暴露）、`access_gateway`、`runtime_events`、`model_registry`。这些属性方便 HTTP 或其他 adapter 注入依赖，但 adapter 仍应调用服务，不应从属性继续下钻到子系统 Runtime。
 
 ## 5. 生命周期不变量与矛盾检查
 
 - 所有 public route 的挂载和撤销必须由对应子系统宿主完成；
-- 服务（chat 编排、被动摄入、能力层）不直接持有 Gateway/Patchouli/Alice 实例；
+- 服务（chat 编排、Import Bus、能力层）不直接持有 Gateway/Patchouli/Alice 实例；
 - 除入口外没有包导入 `system`；组件只接收自己的配置段，不持有根配置；
 - 维护任务必须在 scheduler 注册，不能由业务组件偷偷创建第二个 interval loop；
 - `SYSTEM_READY` 只在所有启动步骤完成后发布，RuntimeEvent 失败不能改变这个判断；
-- `SYSTEM_STOPPED` 的观测摘要不等于 submission 已跨进程持久化，必须结合 queue store 能力与 `passive_shutdown_drain` 判断；
+- `SYSTEM_STOPPED` 的观测摘要不等于 submission 已跨进程持久化：`import_bus_shutdown` 只报告 Import Bus 等待的在途请求，交互提交队列是进程内队列，由 Patchouli 停止时排空；
 - `WorkspaceAssetStore.close_and_clear()` 必须晚于 Patchouli drain；失败时不得发布伪装成正常完成的 `SYSTEM_STOPPED`；
 - 全进程只存在一个 WorkspaceAssetStore 与一个 WorkspaceReadView；写入意图登记、完整引用解析与原子/Profile 读取缓存由 workspace 持有，结算订阅保留到 Patchouli drain 完成后才撤销；
 - registry 解析失败、子系统启停失败和业务请求失败不能被统一降级成健康 `ok`。

@@ -32,7 +32,7 @@ last_reviewed: 2026-08-16
 - [v0.5.1 Infrastructure Cleanup](./v0.5.1-infrastructure-cleanup.md)：当前入口为配置、Artifacts、Agent Runtime 与 MTP Runtime；
 - [v0.6.0 Gateway System](./v0.6.0-gateway-system.md)：当前入口为 Gateway 总览、workflow、analysis 与 commands；
 - [v0.6.0 Global Command System](./v0.6.0-global-command-system.md)：当前入口为 Gateway commands；
-- [v0.6.0 Passive Ingress](./v0.6.0-passive-ingress.md)：当前入口为 System Passive Ingress 与 Gateway workflow；
+- [v0.6.0 Passive Ingress](./v0.6.0-passive-ingress.md)：当前入口为 [System Import Bus](../../../system/import-bus.md)（2026-10-21 取代 Passive Ingress）与 Gateway workflow；
 - [User Query Analysis 第一代技术债](./v0.6.0-user-query-analysis-gen1-tech-debt.md)：当前入口为 Gateway analysis；第二代方向尚未形成独立排期。
 
 原三篇未来工作已重新分类：[RuntimeEvent 生产端发布抽象重构](../runtime-event-publishing-refactor.md)现已归档，[复合意图分解](../../../ideas/composite-intent-decomposition.md)进入 Ideas，[Local Work Queue Runtime](../v0.6.1-local-work-queue-runtime.md)已在 v0.6.1 完成并归档。逐篇分类依据见 [`docs/mod` 迁移审计](../documentation-migration-audit-docs-mod.md)。

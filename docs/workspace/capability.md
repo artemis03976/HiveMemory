@@ -16,12 +16,12 @@ related_docs:
   - docs/workspace/execution-threads.md
   - docs/workspace/read-view-and-write-intents.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-21
 ---
 
 # 能力层
 
-能力层是 workspace 对外提供资源能力的地方。它对外有两个互不导入的 API 面：只供保留 `system` 的 root API，与只经操作入口供 actor 使用的 actor API；任务进程另有自己的阶段调用。三者都是授权点，对应 `WorkspaceOperationAuthorizer` 的三种授权（[身份与授权](./identity-and-authorization.md#4-操作授权)）。
+能力层是 workspace 对外提供资源能力的地方。它对外有两个互不导入的 API 面：只供保留 `system` 的 root API，与只经操作入口供 actor 使用的 actor API；任务进程另有自己的阶段调用。三者都是授权点，对应 `WorkspaceOperationAuthorizer` 的三种授权（[身份与授权](./identity-and-authorization.md#4-操作授权)）。授权者另有的导入授权（`authorize_import`）不是能力层的调用面：它只供 System 的 Import Bus 服务把外部已经结束的交互提交给 Patchouli，不提供任何资源能力，也不能代替 actor 操作或 root 授权。
 
 ## 1. 三个调用面
 

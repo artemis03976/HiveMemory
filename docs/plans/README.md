@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-21
 ---
 
 # Plans
@@ -16,7 +16,8 @@ last_reviewed: 2026-10-20
 
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
-| 1 | [Import Bus 重设计：以 Claude Code 对话回流为第一条真实路径](./v0.7.1-import-bus-redesign.md) | In Progress（2026-10-21 起，阶段一至三已完成）；候选的下一步（记忆访问）见外部 Actor Idea | 背景：[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)、[Import Bus Idea](../ideas/import-bus.md) |
+| 1 | [Import Bus 重设计：以 Claude Code 对话回流为第一条真实路径](../archive/plans/v0.7.1-import-bus-redesign.md) | Archived（2026-10-21）；当前事实见 [Import Bus](../system/import-bus.md)；真实使用验收随日常使用持续观察（[Todo](../todo/import-bus-real-use-observation.md)） | —— |
+| 2 | 记忆访问：Claude Code 经 MCP 工具检索与读取记忆 | 候选的下一步，计划尚未建立；阻塞问题见外部 Actor Idea | 背景：[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题) |
 
 ## v0.7.0
 

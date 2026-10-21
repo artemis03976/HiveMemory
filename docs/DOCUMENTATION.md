@@ -230,7 +230,7 @@ docs/
 │   ├── README.md
 │   ├── composition.md
 │   ├── application-services.md
-│   ├── passive-ingress.md
+│   ├── import-bus.md
 │   ├── configuration.md
 │   └── i18n.md
 │

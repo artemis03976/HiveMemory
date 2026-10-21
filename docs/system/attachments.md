@@ -19,6 +19,7 @@ code_paths:
   - src/hivememory/workspace/process/allocation.py
   - src/hivememory/workspace/process/runner.py
   - src/hivememory/workspace/process/working_set.py
+  - src/hivememory/core/protocol/sealing.py
   - src/hivememory/patchouli/service.py
   - src/hivememory/patchouli/control/interaction_submission.py
   - src/hivememory/patchouli/services/memory_generation.py
@@ -38,7 +39,7 @@ related_docs:
   - docs/patchouli/artifacts.md
 related_plans:
   - docs/archive/plans/v0.6.2-w1-chat-attachments.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-21
 ---
 
 # Chat 附件链路
@@ -143,7 +144,7 @@ lease 登记在任务进程的工作集（`ProcessWorkingSet`）中，生命周�
 
 ## 6. Interaction binding
 
-任务进程封口交互记录时，把 `AttachmentCompileResult.used_attachments` 这份有序的实际使用引用快照写入 `InteractionPayload.used_attachments`，finalize 原样提交。进入 submission 后它是该输出的不可变 transport snapshot：retry 重放同一份引用，handler 把这份快照一次性作为 `asset_refs` 形参传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。
+任务进程封口交互记录时，把 `AttachmentCompileResult.used_attachments` 这份有序的实际使用引用快照写入 `InteractionPayload.used_attachments`，finalize 原样提交。进入 submission 后它是该输出的不可变 transport snapshot：retry 重放同一份引用，handler 把这份快照一次性作为 `asset_refs` 形参传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。封口函数由任务进程与 Import Bus 共用；Import Bus 导入的外部交互不携带附件，`used_attachments` 为空，不建立 binding。
 
 Perception 在 Interaction 成功 apply 的同一 Topic 快照更新中，把去重后的 `(asset_id, asset_ref)` 写入 `TopicAssetBinding`（按 `asset_id` 幂等，保留首次绑定时间语义）。编译跳过、预算未保留、admission/apply 失败与取消均不建立 binding；上传和解析本身同样不产生 binding。快照中的引用坐标可参与 interaction digest 以防 retry 替换 ref，但正文与 lease 不进入长期载荷。
 
@@ -168,7 +169,7 @@ ref 已 remove、Store 已关闭或写入失败时跳过该 binding 的 promotio
 
 - 上传路由与应用服务：[`server/routers/workspace_assets.py`](../../src/hivememory/server/routers/workspace_assets.py)、[`workspace/capability/root/assets.py`](../../src/hivememory/workspace/capability/root/assets.py)、[`server/models/workspace_asset.py`](../../src/hivememory/server/models/workspace_asset.py)；
 - 接收、解析交接与公共串行门：[`upload.py`](../../src/hivememory/workspace/assets/upload.py)、[`parse_service.py`](../../src/hivememory/workspace/assets/parse_service.py)、[`components/serial_gate.py`](../../src/hivememory/components/serial_gate.py)；确定性 parser、结果模型与受控错误同属 [`infrastructure/attachments/`](../../src/hivememory/infrastructure/attachments/)；
-- Chat 选择、租借与编译：[`workspace/process/allocation.py`](../../src/hivememory/workspace/process/allocation.py)、[`workspace/process/runner.py`](../../src/hivememory/workspace/process/runner.py)（租借随进程关闭释放）、[`workspace/process/working_set.py`](../../src/hivememory/workspace/process/working_set.py)、[`engines/attachment_compiler/`](../../src/hivememory/engines/attachment_compiler/)；封口写入快照：[`workspace/process/sealing.py`](../../src/hivememory/workspace/process/sealing.py)；finalize 原样提交：[`patchouli/service.py`](../../src/hivememory/patchouli/service.py)；
+- Chat 选择、租借与编译：[`workspace/process/allocation.py`](../../src/hivememory/workspace/process/allocation.py)、[`workspace/process/runner.py`](../../src/hivememory/workspace/process/runner.py)（租借随进程关闭释放）、[`workspace/process/working_set.py`](../../src/hivememory/workspace/process/working_set.py)、[`engines/attachment_compiler/`](../../src/hivememory/engines/attachment_compiler/)；封口写入快照：任务进程调用与 Import Bus 共用的封口函数 [`core/protocol/sealing.py`](../../src/hivememory/core/protocol/sealing.py)；finalize 原样提交：[`patchouli/service.py`](../../src/hivememory/patchouli/service.py)；
 - binding 投影与 promotion：[`patchouli/control/interaction_submission.py`](../../src/hivememory/patchouli/control/interaction_submission.py)、[`patchouli/services/memory_generation.py`](../../src/hivememory/patchouli/services/memory_generation.py)；
 - 配置：[`config/attachments.py`](../../src/hivememory/config/attachments.py)（`AttachmentParserConfig` / `AttachmentCompilerConfig`）。
 
@@ -182,7 +183,7 @@ ref 已 remove、Store 已关闭或写入失败时跳过该 binding 的 promotio
 - 上传服务与请求内解析：[`tests/integration/workspace/capability/test_assets.py`](../../tests/integration/workspace/capability/test_assets.py)、[`test_workspace_asset_parsing.py`](../../tests/integration/system/application/test_workspace_asset_parsing.py)；
 - 公开入口：[`tests/integration/system/test_workspace_asset_upload_api.py`](../../tests/integration/system/test_workspace_asset_upload_api.py)、[`test_workspace_asset_chat_selection.py`](../../tests/integration/system/test_workspace_asset_chat_selection.py)、[`test_workspace_asset_parse_acceptance.py`](../../tests/integration/system/test_workspace_asset_parse_acceptance.py)；
 - 解析器与编译器：[`tests/unit/system/services/attachments/`](../../tests/unit/system/services/attachments/)、[`tests/integration/system/services/attachments/`](../../tests/integration/system/services/attachments/)、[`tests/unit/engines/attachment_compiler/`](../../tests/unit/engines/attachment_compiler/)；
-- codec 与 binding/promotion：[`tests/unit/patchouli/control/test_interaction_submission.py`](../../tests/unit/patchouli/control/test_interaction_submission.py)、[`tests/unit/workspace/process/test_cpu_allocation.py`](../../tests/unit/workspace/process/test_cpu_allocation.py)（选择、租借释放与 used refs）、[`tests/unit/patchouli/services/test_memory_generation_promotion.py`](../../tests/unit/patchouli/services/test_memory_generation_promotion.py)。
+- codec 与 binding/promotion：[`tests/unit/core/protocol/test_seal_interaction.py`](../../tests/unit/core/protocol/test_seal_interaction.py)（封口原样写入使用引用）、[`tests/unit/patchouli/control/test_interaction_submission.py`](../../tests/unit/patchouli/control/test_interaction_submission.py)、[`tests/unit/workspace/process/test_cpu_allocation.py`](../../tests/unit/workspace/process/test_cpu_allocation.py)（选择、租借释放与 used refs）、[`tests/unit/patchouli/services/test_memory_generation_promotion.py`](../../tests/unit/patchouli/services/test_memory_generation_promotion.py)。
 
 ## 10. 当前边界与限制
 

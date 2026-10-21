@@ -24,7 +24,7 @@ related_docs:
   - docs/VISION.md
   - docs/ideas/execution-environment.md
   - docs/archive/ideas/execution-thread-definition.md
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-21
 ---
 
 # 外部 Actor 的接入登记与运行时访问
@@ -44,7 +44,7 @@ last_reviewed: 2026-10-20
 
 本文由原 v0.7.0 计划 B（外部记忆服务与 Actor 交互契约）于 2026-09-27 退回 Idea。计划的最后版本见 commit `dda9d9d` 中的 `docs/plans/v0.7.0-external-memory-service-and-actor-interaction.md`。
 
-- owner 判定计划 B 作为计划已经作废：原被动输入（现称 Import Bus）的设计已经更新（[Import Bus Idea](./import-bus.md)第 2 节：退化为与记忆系统零主动交互的纯输入），计划中的内容也大多过时；但它要解决的问题仍然存在。
+- owner 判定计划 B 作为计划已经作废：原被动输入（现称 Import Bus）的设计已经更新（[Import Bus Idea](./import-bus.md)第 1 节：退化为与记忆系统零主动交互的纯输入），计划中的内容也大多过时；但它要解决的问题仍然存在。
 - 本文只保留这个问题以及仍然成立的设计材料。没有保留的内容：阶段划分（EMS-0–6）、交付与验收出口、A/B 交接与依赖顺序、测试矩阵、代码落点与迁移切片、文档收口清单；以 Passive Ingress 返回记忆 context 为前提的实时被动模式；以“System 应用服务 → GlobalSystemBus → Patchouli application”为主干的目标结构（已被总 Idea 第 12 节“能力层是 Actor 唯一可见的 API”这一前提取代）。
 - 现状事实按 2026-09-27 的代码核对。
 - 待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。
@@ -87,10 +87,10 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 | 任务进程与注册入口 | 不使用：外部 harness 的任务对 HiveMemory 不可见 | 使用：外部 harness 与 Alice 同为进程中的 CPU |
 | 访问 context | 不绑定进程，形状与管理员直接通道相同（[能力层](../workspace/capability.md#1-三个调用面)第 1 节；[第五代架构 Idea](./fifth-generation-architecture.md) P-9） | 绑定进程 |
 | 记忆域访问 | 外部 harness 经 MCP 调用能力层 | 外部 harness 同样可经 MCP 调用能力层；例如 ACP 在创建会话时允许客户端提供 MCP server，HiveMemory 可以提供绑定进程的操作适配器端点（这类由执行单元回到进程的通道见执行单元 Idea T-4） |
-| 交互记录的回流 | 经 Import Bus（现有 Passive Ingress 链路；已排除在现有系统之外，随 plugin 模式另行设计） | 任务进程自行提交（[任务进程](../workspace/task-process.md)） |
+| 交互记录的回流 | 经 Import Bus（2026-10-21 实施，见 [Import Bus](../system/import-bus.md)） | 任务进程自行提交（[任务进程](../workspace/task-process.md)） |
 | HiveMemory 能否发起任务 | 不能 | 能；被动请求（定时任务、队列任务）只能在此模式下存在 |
 | 对外部 harness 的控制 | 无 | 任务边界：actor 选择、输入、生命周期与取消、执行轨迹回流；harness 内部的 loop、工具、上下文压缩与子 agent 派生仍由其自身管理（子 agent 不被识别为执行线程，见 E-5） |
-| 现有代码 | Passive Ingress 与 `/api/v1/ingest`、能力层 | Alice 的 chat 链路与 chat run 注册表（内部 CPU） |
+| 现有代码 | Import Bus 与 `/api/v1/import/turns`、Claude Code 连接器、能力层 | Alice 的 chat 链路与 chat run 注册表（内部 CPU） |
 | [VISION](../VISION.md) 中的对应 | 兼容轨（第 8.1 节）；四级对照基线的第 3 组“外部 harness + Patchouli”（第 13.1 节） | 以 Alice 为内部 CPU 时即原生轨（第 8.2 节）；以外部 harness 为 CPU 的形态在 VISION 中没有对应 |
 
 两种模式并存，对以下尚未决定的共用设计构成约束（分析，决定时一并考虑）：
@@ -148,6 +148,8 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 ### 2.3 HTTP 入口
 
+（2026-10-21：Import Bus 重设计删除了下述 `/ingest` 入口与记忆上下文的返回，现状见 [Import Bus](../system/import-bus.md)。）
+
 - `/api/v1/ingest` 与 `/api/v1/ingest/flush` 是现有的外部对话事件入口：要求显式 `agent_id`（参与外部会话命名空间），body 中的身份与请求头身份冲突时拒绝。
 - 其他资源路由的身份取自请求头 `x-user-id` / `x-workspace-id`，不经认证网关。
 - `PassiveIngressService.ingest_event` 在 user 事件上返回编译后的记忆 context，与 Import Bus 的新前提不一致（总 Idea 2.3、3.3）。
@@ -163,7 +165,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 | 路线 | 调用方需要什么 | 必须保留的差异 |
 |:---|:---|:---|
-| Import Bus（现有 Passive Ingress） | 外部 bot/harness 自己对话，把已发生的交互交给系统（完整记录或流式事件） | 实时 turn 边界、buffer、flush、背压与重发 |
+| Import Bus（原 Passive Ingress，2026-10-21 重设计） | 外部 bot/harness 自己对话，把已发生的交互交给系统（完整记录或流式事件） | 实时 turn 边界、buffer、flush、背压与重发 |
 | 主动资源交互 | 外部 Actor 按需搜索/读取、提交写入或修订意图、观察结果 | 结构化资源引用、显式授权、提交与结果语义；无需先发一条 user 消息 |
 | 历史对话导入 | 把已有消息与工具轨迹保真导入，再按策略形成记忆 | 批次、历史发生时间、来源、重复导入、分支/编辑与恢复，不重放实时副作用（与总 Idea Q-13 相关） |
 
@@ -290,22 +292,16 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 ### v0.7.1 的步骤与各步的阻塞问题
 
-问题本身仍在各自的位置，这里只按步骤汇总。v0.7.1 的版本目标为 plugin 模式接入 Claude Code（1.1，owner，2026-10-20），第一步为对话回流（owner，2026-10-20）。
+问题本身仍在各自的位置，这里只按步骤汇总。v0.7.1 的版本目标为 plugin 模式接入 Claude Code（1.1，owner，2026-10-20），第一步对话回流已于 2026-10-21 实施，记忆访问是候选的下一步。
 
 plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code 文档](https://code.claude.com/docs/en/hooks)核对）：插件可以把 hooks 与 MCP server 打包为一个单元；`UserPromptSubmit` hook 可以在模型处理用户消息之前追加上下文，默认时限 30 秒，超时后追加的上下文被丢弃、消息照常送达；`Stop` hook 的输入带有会话记录文件的路径。由此连接器有两条通路：对话回流由 hooks 在轮次结束时把交互交给 Import Bus；记忆访问经 MCP 工具，或者在用户提交消息时自动检索并注入（E-7）。
 
-**第一步：对话回流（Import Bus 重设计）**（首份计划的方向，owner，2026-10-20；计划：[Import Bus 重设计](../plans/v0.7.1-import-bus-redesign.md)）
-
-- 范围：按 [Import Bus Idea](./import-bus.md)的前提完成 Import Bus 的重设计，以 Claude Code 作为第一条真实路径：Claude Code 插件在轮次结束时把该轮的完整记录交给 Import Bus（流式监听推迟，Import Bus Idea 前提 5），经 Gateway 路由与交互提交队列进入 Patchouli 的感知与记忆生成；连接器的分层与游标见 Import Bus Idea 第 5 节；形成的记忆可在 HiveMemory 前端查看，Alice 的会话可以召回。不读取记忆，也不返回记忆上下文（[Import Bus Idea](./import-bus.md)前提 1）。
-- 验收方向：日常使用 Claude Code 一段时间后，记忆库中出现来自这些会话、来源可查的记忆；HiveMemory 服务不可用时不阻塞 Claude Code。
-- 阻塞问题：无，下列问题均已决定。
-- 已决定（owner，2026-10-20）：接收方式为轮次结束后的完整记录，Q-11 仍经 Gateway 路由、在收到记录后执行，Q-12 沿用 Gateway 现有的 `worth_saving`，Q-13 只接收实时或刚结束的交互，Q-15 接收的内容与任务进程封口的交互记录相同，D-8a 经统一认证网关（Import Bus Idea 前提 5 与第 4 节）；只有 HTTP 入口的管理访问能以 `system` 进入 root API（[身份与访问体系 Idea](./identity-and-access-model.md#4-已登记的暂缓与例外)第 4 节）；`interaction_id` 由服务端按 principal、来源、外部会话与连接器提供的该轮外部标识推导，路由之前先查重（[任务进程 Idea](./task-process-table-and-registration-entry.md#plugin-模式与进程模型的交界)）。
-- 不阻塞本步（分析）：不调用能力层，P-9c、P-1c、E-2、E-3b、E-7 都不涉及；只以 plugin 模式使用 Claude Code 时，同一交互被两种模式重复记录的情况不出现。
+**第一步：对话回流（Import Bus 重设计）**——已实施（2026-10-21，[归档计划](../archive/plans/v0.7.1-import-bus-redesign.md)）。Claude Code 插件在轮次结束时把该轮的完整记录交给 Import Bus，经统一认证网关与导入授权、Gateway 落位与共用封口进入 Patchouli，应用完成后才确认；不读取记忆，也不返回记忆上下文。当前事实见 [Import Bus](../system/import-bus.md)；真实使用验收随日常使用持续观察（[Todo](../todo/import-bus-real-use-observation.md)）。
 
 **候选的下一步：记忆访问**（未决定）
 
 - 范围：Claude Code 插件提供 MCP 工具，经能力层检索与读取记忆，访问不建进程、不绑定进程；结果带有可回查的记忆引用。
-- 验收方向：Claude Code 在会话中检索到已有记忆（包括第一步积累与 Alice 会话形成的记忆）并实际使用；访问按 Workspace 访问登记逐次授权，越权与跨 Workspace 的访问被拒绝。与第一步合起来达到 [ROADMAP](../ROADMAP.md) 第 4.4 节的验收闭环。
+- 验收方向：Claude Code 在会话中检索到已有记忆（包括对话回流积累与 Alice 会话形成的记忆）并实际使用；访问按 Workspace 访问登记逐次授权，越权与跨 Workspace 的访问被拒绝。与第一步合起来达到 [ROADMAP](../ROADMAP.md) 第 4.4 节的验收闭环。
 - 阻塞问题：[第五代架构 Idea](./fifth-generation-architecture.md) P-9c（不建进程的 actor 访问如何进入 actor API）、P-1c（身份证明的实现位置）；本文 E-2（传输承载）、E-3b（操作适配器的代码位置）、E-7（记忆到达 harness 的方式）。若这一步为连接器另行登记 principal，需先落实已决定的 root 声明范围（身份与访问体系 Idea 第 4 节）。
 - 不阻塞本步（分析）：只读取时没有异步结果需要观察，E-4 不涉及。
 
@@ -416,7 +412,7 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 
 ### E-7 plugin 模式下记忆到达 harness 的方式
 
-**背景**（2026-10-20）：plugin 模式下 HiveMemory 不控制对话，记忆只能经 harness 的扩展点到达模型。Import Bus 只向网络输入、不返回记忆上下文（[Import Bus Idea](./import-bus.md)前提 1），现有 `/ingest` 在 user 事件上返回记忆上下文的行为不作为读取路径（2.3）。本问题阻塞第 4 节中记忆访问一步。
+**背景**（2026-10-20）：plugin 模式下 HiveMemory 不控制对话，记忆只能经 harness 的扩展点到达模型。Import Bus 只向网络输入、不返回记忆上下文（[Import Bus Idea](./import-bus.md)前提 1，2026-10-21 已实施），原 `/ingest` 在 user 事件上返回记忆上下文的行为已删除。本问题阻塞第 4 节中记忆访问一步。
 
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|
@@ -434,5 +430,5 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 | P-9c 不建进程的 actor 访问如何进入 actor API | 同上 | plugin 模式的访问不建进程（1.1）；阻塞第 4 节中记忆访问一步 |
 | P-10 Agent Profile 的能力描述是否与 MTP 解耦 | 同上 | 外部 Actor 如何理解 Profile；已决定：allow 字段并入能力层的 operation 控制（总 Idea 15.4），P-10a 仍待决 |
 | Q-8 外部 CPU 的进程 | [任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) | 外部 Actor 的调用与进程的关系、回收与取消；只涉及 controller 模式（1.1） |
-| Q-11–Q-13 Import Bus | [Import Bus Idea](./import-bus.md)第 4 节 | Import Bus 路线的 Topic 落位、价值信号与历史导入；不在 v0.7.0 范围 |
+| Import Bus 后续方向 | [Import Bus Idea](./import-bus.md)第 2 节 | 流式监听、历史导入另设通道、第二个 harness 的连接器；完整交互记录的接收已实施 |
 | T-1–T-6 执行单元与执行线程 | [执行线程](../workspace/execution-threads.md) | T-1（子线程身份在派生时确定）、T-2（每个线程一份 context）与 T-6（只有接入侧面的参与者不称 CPU）已决定；外部执行单元不识别子线程，见 E-5；回调通道与操作适配器的绑定（T-4）关系到 E-3b；T-1a、T-1b、T-2a 只涉及 Alice |

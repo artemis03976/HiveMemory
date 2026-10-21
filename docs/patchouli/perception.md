@@ -9,12 +9,16 @@ code_paths:
   - src/hivememory/patchouli/services/perception.py
   - src/hivememory/patchouli/services/topic_working_set.py
   - src/hivememory/patchouli/memory_library/stores.py
+  - src/hivememory/patchouli/control/interaction_submission.py
+  - src/hivememory/patchouli/application/interaction_submission_service.py
+  - src/hivememory/core/protocol/sealing.py
+  - src/hivememory/prompts/transcript/actions.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md
-  - docs/system/passive-ingress.md
+  - docs/system/import-bus.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-21
 ---
 
 # 感知与短期话题
@@ -55,11 +59,15 @@ Perception 以 `TopicData` 快照作为话题工作视图，保存 blocks、展�
 
 ## 2. 结构化摄入
 
-`InteractionPayload` 是主动与被动入口共享的协议，当前主字段包括 user message、rewritten query、assistant final text、turn events、MTP traces、materialize tasks、worth_saving 与 model_used。它不重复保存本轮 Workspace 身份；主动和被动入口在资源 owner 边界拆分 `IdentityScope`，进入提交队列时由外层 `InteractionSubmission.belong_to` 与 `from_actor` 独立携带归属和本轮发起者。物化意图中的归属也必须与提交目标一致。
+`InteractionPayload` 是主动链路与 [Import Bus](../system/import-bus.md) 共享的协议，当前字段包括 outcome、user message、rewritten query、assistant final text、turn events、MTP traces、worth_saving、model_used 与实际使用的附件引用 `used_attachments`（Import Bus 的提交为空）。两条链路都由 `core.protocol.sealing` 中同一个封口函数 `seal_interaction` 组装它，交给 Patchouli 的载荷因此同形。它不重复保存本轮 Workspace 身份；两条链路在资源 owner 边界拆分 `IdentityScope`，进入提交队列时由外层 `InteractionSubmission.belong_to` 与 `from_actor` 独立携带归属和本轮发起者。
 
-`InteractionSubmissionCodec` 当前为 v5，只注册当前布局：缺失字段、额外字段、旧 `identity_scope` 布局及嵌套对象不能规范往返的载荷均被拒绝。队列使用 `InMemoryWorkStore`，提交快照与幂等收据只驻留于当前进程，不提供旧版本队列载荷迁移或重启恢复。相同 `interaction_id` 的相同载荷复用原收据，不同载荷明确冲突。
+`InteractionSubmission` 另外携带可选的 `new_topic_title` 与 `new_topic_summary`：只在 `requested_topic_id` 为 `NEW_TOPIC` 时允许非空，已有话题的标题与摘要由话题自身持有，提交不能借此改写。`InteractionSubmissionCodec` 当前为 v6，只注册当前布局：缺失字段、额外字段、旧 `identity_scope` 布局及嵌套对象不能规范往返的载荷均被拒绝。队列使用 `InMemoryWorkStore`，提交快照与幂等收据只驻留于当前进程，不提供旧版本队列载荷迁移或重启恢复。
 
-当前布局与幂等拒绝的回归入口为 [InteractionSubmission 测试](../../tests/unit/patchouli/control/test_interaction_submission.py)；被动入口经过真实队列与感知存储的身份交接见[被动摄入集成测试](../../tests/integration/system/test_passive_identity_submission.py)。
+队列按 `interaction_id` 幂等：等待中或已成功的交互以相同载荷重交时复用原收据，载荷不同明确冲突。为此保留的旁路索引只存编码载荷的摘要与归属，冲突比较不需要留住整份载荷。应用失败（工作项已到终态但没有成功）的交互允许以同一标识重新提交，载荷可以不同，例如原落点已被驱逐、提交方重新路由后再交；新提交以递增的尝试号作为工作项标识入队。这条例外只放开已经失败的交互：等待中的交互重交会被判为重复或冲突，已成功的交互不会被第二份载荷重复应用。
+
+公开路由 `patchouli.public.interaction.status` 把队列中的工作状态归为四种进度：`pending`、`succeeded`（附真实落点，`NEW_TOPIC` 已解析为实际话题）、`failed` 与 `unknown`（旁路索引仍在、工作记录已超出终态保留窗口，接纳过但结局不再可知），未被接纳时为空。`patchouli.public.interaction.wait` 在交互仍为 `pending` 时等待到终态或超时，超时时仍报告 `pending`，队列停止时返回停止那一刻的进度。两者都先校验归属，同名交互属于另一个 Workspace 时以 `WorkspaceMismatchError` 拒绝，不把其他 Workspace 的接纳当作重复。查询只覆盖队列的进程内保留窗口，窗口外的交互视为未接纳。公开提交路由在队列容量已满或已停止时以 `InteractionAdmissionUnavailableError` 拒绝，表示这次提交没有被接管，调用方可用同一标识重试。
+
+当前布局、幂等拒绝与失败后重交的回归入口为 [InteractionSubmission 测试](../../tests/unit/patchouli/control/test_interaction_submission.py)，进度查询与等待见[提交服务测试](../../tests/unit/patchouli/application/test_submission_services.py)；Import Bus 经过真实队列与感知存储的身份交接、查重与新话题标题见 [Import Bus 集成测试](../../tests/integration/system/test_import_bus_submission.py)。
 
 交互应用成功后，Perception 才会把用户明确使用的 `(asset_id, asset_ref)` 记录为 Topic 的 `TopicAssetBinding`。上传、候选列表或 UI 选择本身不会进入 Topic 事实。由此，感知层只接收已完成身份与资源前置校验的交接输入，不拥有 `WorkspaceAssetStore` 的生命周期。
 
@@ -74,11 +82,11 @@ InteractionPayload
   -> optional Page Folding
 ```
 
-主动流程由任务进程封口 payload、Patchouli finalize 原样提交；被动流程由 System 的 turn buffer 构建 payload。两者先进入同一 `InteractionSubmissionQueue`，再由 `PerceptionFamiliar.apply_interaction()` 编排 `MemoryPerceptionEngine.build_block()`（纯算法）、占用检查与 Store 写入，不存在被动专用的扁平文本主链，也不存在中间感知层。
+主动流程由任务进程封口 payload、Patchouli finalize 原样提交；Import Bus 以同一封口函数封口导入的整轮记录，经公开提交路由提交。两者先进入同一 `InteractionSubmissionQueue`，再由 `PerceptionFamiliar.apply_interaction()` 编排 `MemoryPerceptionEngine.build_block()`（纯算法）、占用检查与 Store 写入，不存在导入专用的扁平文本主链，也不存在中间感知层。
 
-结构化摄入的边界来自被动入口的真实事件形态：`MessageTurnBuffer` 接收 `user`、`assistant`、`tool_call`、`tool_result` 四类消息。只有自然语言 assistant 段落进入 `assistant_final_text`；工具调用与工具返回必须以 `TurnEvent` 保留，不能为了生成一段看似完整的 transcript 而提前丢弃。`ActionReducer`/`TraceReducer` 位于 core，是从这些事件派生 action/trace 的唯一规则：Perception 用它归约 action，主动链路的封口方（任务进程）用它归约 MTP trace。入口层不应另行构造第二套摘要，否则历史重放、主动生成与被动归档会拥有互相漂移的事实来源。
+结构化摄入的边界来自外部 harness 的真实事件形态：Import Bus 接收的一轮整轮记录中，用户消息由服务端写为序号 0 的事件，其后是 `assistant_message`、`thought`、`tool_call`、`tool_result` 四类事件。外部工具不设置 `tool_kind`（它只表示 MTP 动词），因此不产生 MTP trace，也不会被当作记忆操作。只有最终的自然语言回复进入 `assistant_final_text`；思考、工具调用与工具返回必须以 `TurnEvent` 保留，不能为了生成一段看似完整的 transcript 而提前丢弃。`ActionReducer`/`TraceReducer` 位于 core，是从这些事件派生 action/trace 的唯一规则：Perception 用它归约 action，封口函数用它归约 MTP trace，记忆生成视图的动作段也沿用它把事件归到动作。入口层不应另行构造第二套摘要，否则历史重放、主动生成与导入归档会拥有互相漂移的事实来源。
 
-`target_topic` 则属于 user 到达时的 Gateway route 决策，而不是 flush 时重新计算的感知结果。Buffer 在接收 user 时保存目标话题；下一轮 user 到来时，先 flush 旧轮并完成旧轮的 payload，再初始化新轮。这样 `user2` 的 gaze 不会污染 `user1` 的归档归属。System Passive Ingress 拥有 session、idle 计时与事件提交；TheEye/Gateway 只负责入口判断，不重新拥有话题 buffer 或被动分析状态。
+目标话题属于提交前的 Gateway 落位决定，而不是应用时重新计算的感知结果。任务进程在 Gateway 阶段取得落位，并在 prepare 时建立新话题；Import Bus 在提交前以 `PASSIVE_MEMORY` 为需要提交的每一轮调用 Gateway，把落位作为 `requested_topic_id` 提交。目标为 `NEW_TOPIC` 时，Perception 以提交携带的 `new_topic_title`/`new_topic_summary` 建立话题，缺省时使用默认标题“新建话题”与空摘要；后续轮次的落位依赖候选话题的标题与摘要，因此 Import Bus 新建话题时带上 Gateway 给出的标题与摘要。retry 依据 apply journal 路由回首次应用时记录的话题，不会再建一个话题。Import Bus 拥有外部会话的串行、查重与确认，Gateway 只负责入口判断，两者都不持有话题内容。
 
 Perception 只把 `worth_saving` 写入 block，不在普通 ingest 时删除它。真正形成 settlement payload 时，`worth_saving is False` 的 blocks 被过滤，`None` 与 `True` 保留。这种保守语义确保 Gateway 缺失判断时不会默认丢弃材料。
 
@@ -132,7 +140,7 @@ Topic 是否为空由 `blocks` 与 `state_summary` 共同决定：`has_content =
 
 Page Folding 的设计目标是把 context window 视为工作集，而不是无限日志：旧页可以折叠为接力摘要，新的交互继续发生在同一话题。摘要是工作视图，不应被误认为原始证据；需要长期保留的原始 turn 应由 settlement/artifact 链另行保存。
 
-Page Folding 是 Patchouli 的内部 topic working-set compaction，主动与被动入口共享同一语义。`state_summary` 与近期 blocks 服务于 Gateway 辅助分析、主动 WRITE/UPDATE 的生成背景与后续 settlement；Alice 的对话历史从 Session 重放。Passive Ingress 的公共响应当前只返回检索记忆，不把折叠上下文返回给外部 Agent。外部 harness 自行 compact 对话不会缩减 Patchouli 已摄入的 blocks，因此不能作为跳过内部 folding 的依据。
+Page Folding 是 Patchouli 的内部 topic working-set compaction，主动链路与 Import Bus 共享同一语义。`state_summary` 与近期 blocks 服务于 Gateway 辅助分析、主动 WRITE/UPDATE 的生成背景与后续 settlement；Alice 的对话历史从 Session 重放。Import Bus 的响应只报告这一轮的导入结果，不返回检索记忆或折叠上下文。外部 harness 自行 compact 对话不会缩减 Patchouli 已摄入的 blocks，因此不能作为跳过内部 folding 的依据。
 
 当前 overflow 仍不执行 Settle。被移除的旧前缀不会自动进入 InteractionArtifact 或长期记忆；开放的 raw-evidence folding 方案仍位于 Ideas，尚不能当作当前能力。当 blocks 数量不大于保留数时没有可折叠前缀，本轮 compact 会延后，因此阈值是工作集软水位线，而不是严格的模型 context 上限。
 
@@ -140,7 +148,7 @@ Page Folding 是 Patchouli 的内部 topic working-set compaction，主动与被
 
 `MemoryPerceptionEngine` 是无状态的短期记忆摄入与 compact 算法引擎，职责包括：
 
-- `build_block`: 把 `InteractionPayload` 转化为不可变 `LogicalBlock`，归并结构化事件为 actions、估算 token；
+- `build_block`: 把 `InteractionPayload` 转化为不可变 `LogicalBlock`，归并结构化事件为 actions、估算 token。块的 `total_tokens` 计入用户消息、回复、MTP trace 的查询与目标，以及动作段中的思考与外部工具动作；后者调用记忆生成转写的同一个渲染函数（`prompts/transcript/actions.py`），按 `patchouli.generation.transcript` 的同一组上限截断，折叠阈值因此反映生成实际看到的材料。MTP 动作的一行摘要不重复计入，只有用户消息、回复与 MTP 动作的轮次统计因此不受动作段影响；
 - `should_compact`: 判断话题总 token 是否超过折叠阈值；
 - `select_blocks_to_fold`: 选择待折叠的旧 blocks 前缀（保留最近 N 个）；
 - `generate_fold_summary`: 异步生成 Page Folding 摘要（委托给持有的 `RelayController`）。
@@ -166,7 +174,8 @@ Engine 不持有 Store / Journal / Queue，也不导入 `hivememory.patchouli.*`
 ## 8. 当前限制
 
 - 短期话题是进程内状态，异常退出可能丢失未结算 blocks；
-- token 统计只覆盖 user/final text 与部分 trace 字段，不是模型级精确 tokenizer 预算；
+- token 统计覆盖 user/final text、MTP trace 的查询与目标，以及截断后的思考与外部工具动作，不是模型级精确 tokenizer 预算；
+- 块的 token 统计计入思考与外部工具动作后，工具密集的轮次会更早触发折叠；接力摘要不含思考与工具结果（LLM relay 只渲染 MTP trace，规则摘要只列工具名），被折叠的块在结算前就失去这些材料；
 - `fold_retain_recent_blocks` 只限制 block 数量，不保证保留后缀的 token 总量低于阈值；单个超大 block 也可能超过软水位线；
 - 所有 compact 配置与 Engine 的折叠选择都拒绝小于 1 的 retain 值，至少保留一个最新 block；summary-only Topic 可被列出、路由并免于空 Topic 误删，但当前 generation 仍以 `state_summary + 至少一个 recent block` 作为可结算材料，独立的 summary-only memory/artifact 生成能力未定义；
 - overflow 不产生 settlement/artifact，被折叠旧前缀目前只进入有损 `state_summary`；
@@ -176,6 +185,6 @@ Engine 不持有 Store / Journal / Queue，也不导入 `hivememory.patchouli.*`
 - flush 触发器的历史 e2e 用例随感知层删除而移除，重建需要真实 LLM/Qdrant 栈；当前回归由 Familiar 集成测试（tests/integration/patchouli/test_perception.py）覆盖；
 - 旧文档中的 `assistant_message` fallback、扁平 `context_messages` 和 Perception 私有 `InteractionPayload` 均已退出主路径。
 
-调整这些语义时必须同时检查 Generation、Artifacts、Passive Ingress 与 shutdown drain，因为“何时清空 blocks”本质上是数据耐久性边界，而不只是一个摘要算法参数。
+调整这些语义时必须同时检查 Generation、Artifacts、Import Bus 与 shutdown drain，因为“何时清空 blocks”本质上是数据耐久性边界，而不只是一个摘要算法参数。
 
 token-aware 保留、summary-only Topic 与 Relay 优化等议题见[短期记忆与上下文压缩 Idea](../ideas/short-term-memory-and-context-compaction.md)第 6 节；完整资料与来源保存见 [Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md)第 9 节；长 turn 与跨入口专项见[Turn 内上下文折叠 Idea](../ideas/long-running-agent-intra-turn-context-folding.md)第 14 节。

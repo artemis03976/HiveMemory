@@ -27,7 +27,7 @@ Memory 域之外的时间使用仍是迁移前的旧状态，集中记录在 A2-
 
 ## 2. 观察到的问题
 
-1. **墙钟被用作相对时间**：`infrastructure/rate_limiter.py` 用 `time.time()` 做滑动窗口 TTL、`system/services/passive/turn_buffer.py` 用 naive epoch 判 idle——系统时钟回拨或 NTP 跳变会直接产生错误的等待/过期判定。
+1. **墙钟被用作相对时间**：`infrastructure/rate_limiter.py` 用 `time.time()` 做滑动窗口 TTL、`system/services/passive/turn_buffer.py` 用 naive epoch 判 idle（该模块已于 2026-10-21 随 Import Bus 重设计删除）——系统时钟回拨或 NTP 跳变会直接产生错误的等待/过期判定。
 2. **topic 域时间字段语义未分类**：`LogicalBlock.created_at`、`TopicData.last_update`、`TopicAssetBinding.bound_at` 与 perception 投影仍是 naive epoch 秒；它们是进程内状态（重启即失），但字段形态与业务时间无法区分。
 3. **耗时统计用墙钟**：检索、Server 中间件、MTP runtime、Patchouli runtime 的 `time.time()` 差值在时钟跳变时产生负耗时。
 4. **时间来源入口分散**：`utils.time.utc_now` 自称"唯一生产时间入口"，但仍有 16 处内联 `datetime.now(UTC)`；monotonic 侧 `time.monotonic`/`perf_counter` 以模块级直接引用散布在 scheduler、workspace access、ParseBudget 与 qdrant client。

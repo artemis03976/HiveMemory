@@ -10,12 +10,14 @@ code_paths:
   - src/hivememory/alice/interface/cpu.py
   - src/hivememory/workspace/contracts/
   - src/hivememory/core/protocol/
+  - src/hivememory/system/services/import_bus/
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-19
+  - docs/system/import-bus.md
+last_reviewed: 2026-10-21
 ---
 
 # 子系统公共契约
@@ -54,8 +56,11 @@ process(
     identity_scope: IdentityScope,
     ingress_mode: GatewayIngressMode,
     request_timeout_ms: int | None = None,
+    session_turns: tuple[GatewaySessionTurn, ...] = (),
 ) -> GatewayProcessResult
 ```
+
+`GatewaySessionTurn`（`core.protocol.gateway`）是交给 Gateway 的最近若干轮：`user_message`、`assistant_text` 与该轮实际落位的 `topic_id`（不知道时为空）。它不携带会话 ID 或授权身份；`topic_id` 不进入模型提示词，只在话题路由失败时使用：Gateway 续接最近一轮的话题（该话题仍在本次的候选话题中时），否则按新话题兜底。任务进程从会话轮次的话题标注取得落点，Import Bus 经 Patchouli 的交互状态查询取得上一轮应用成功后的真实落点（第 3.6 节）。
 
 `GatewayProcessResult` 是不可变判别联合：
 
@@ -87,7 +92,7 @@ Gateway 只解析命令，不执行命令：`CommandParseResult` 与 `CommandPar
 ### 2.3 模式不变量
 
 - `ACTIVE_CHAT` 可以识别（解析）系统指令，不执行；
-- `PASSIVE_MEMORY` 必须返回普通决策，绝不能返回 command outcome；
+- `PASSIVE_MEMORY` 必须返回普通决策，绝不能返回 command outcome；它的调用方 Import Bus 只使用决定中的话题落位、新话题元数据、`rewritten_query` 与 `worth_saving`，忽略检索计划、不检索；
 - `request_timeout_ms` 只能收紧配置的默认总超时，不能扩大它；
 - 局部可恢复失败可以降级，但最终结果仍必须满足完整终态不变量。
 
@@ -135,7 +140,7 @@ finalize_agent_run(
 ) -> None
 ```
 
-`payload` 是任务进程封口的本轮交互记录。进程在 Actor 有输出时、进入 finalize 之前组装它（`workspace/process/sealing.py`），材料全部来自进程自身：
+`payload` 是任务进程封口的本轮交互记录。进程在 Actor 有输出时、进入 finalize 之前以 core 的共用封口函数 `seal_interaction`（`core/protocol/sealing.py`）组装它，材料全部来自进程自身：
 
 | 字段 | 来源 |
 |:---|:---|
@@ -156,7 +161,7 @@ Finalize：
 
 任务进程对有输出的 completed/cancelled/failed 结果封口，同步写入会话，再创建 finalize 任务；提交时重新阶段授权，不能从 prepared 取回旧 scope。只有正文的 CPU 结果在封口处补成规范助手事件，感知侧仍只接收结构化事件。Finalize 已成功后不能再 cleanup；调用方取消等待时，Patchouli 已接管的 finalization continuation 继续完成，cleanup 也不能删除其话题。
 
-finalize 是执行事务与记忆事务的分界。交互记录由提交方封口：主动链路由任务进程封口，被动链路由 System 的 turn buffer 封口，两条链路的封口位置一致；Patchouli 的公开路由因此不必读懂任何执行者的运行结果，换一个 CPU 也不需要 Patchouli 随之改变。轨迹归约规则只有 core 中的一份，封口方调用它，不会形成第二套规则。Patchouli 负责判断已封口的交互如何进入长期知识（提交、感知、生成与 lifecycle）；有输出的三种结局都封口提交，无输出或 finalize 前断连不提交；显式写入始终按自己的派发结果独立生成。
+finalize 是执行事务与记忆事务的分界。交互记录由提交方封口：主动链路由任务进程封口，Import Bus 由 System 的 Import Bus 编排器封口，两者调用 core 中同一个 `seal_interaction`，交给 Patchouli 的载荷同形（Import Bus 没有附件，`used_attachments` 为空；没有 Gateway 决定时 `rewritten_query` 与 `worth_saving` 为空）；Patchouli 的公开路由因此不必读懂任何执行者的运行结果，换一个 CPU 也不需要 Patchouli 随之改变。轨迹归约规则只有 core 中的一份，封口方调用它，不会形成第二套规则。Patchouli 负责判断已封口的交互如何进入长期知识（提交、感知、生成与 lifecycle）；有输出的三种结局都封口提交，无输出或 finalize 前断连不提交；显式写入始终按自己的派发结果独立生成。
 
 ### 3.3 CleanupPreparedAgentRun
 
@@ -176,7 +181,7 @@ Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题，不负责附
 
 | 能力组 | 当前公开行为 |
 |:---|:---|
-| Interaction | 提交 `InteractionPayload` 到指定或新话题；进入 submission lane 时由 `InteractionSubmission.belong_to/from_actor` 独立携带归属与发起者 |
+| Interaction | 提交 `InteractionPayload` 到指定或新话题（新话题可附标题与摘要），查询交互进度与等待应用（第 3.6 节）；进入 submission lane 时由 `InteractionSubmission.belong_to/from_actor` 独立携带归属与发起者 |
 | Memory | 携带 `IdentityScope` 的 create/list/get/update/delete、feedback、retrieve、retrieve_by_aliases；create/update 在提交边界生成完整版本记录（无历史不成功），无变化的编辑不创建版本 |
 | Memory Task | 携带 `IdentityScope` 的 list/get/cancel；按 task 的 `belong_to` 检查归属，get/cancel 对越域与不存在统一抛 `ResourceNotFoundError` |
 | Agent Profile | 携带 `IdentityScope` 的 create/list/get |
@@ -196,9 +201,36 @@ Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService`
 
 Patchouli 一侧仍独立执行资源授权：资源归属与 `MemoryAccessPolicy` 可见性在最终读写处校验，越域目标按不存在处理，不因调用方已通过操作授权而放宽。
 
-Alice 的 READ、SEARCH、RUN 记忆目标、WRITE、UPDATE、CALL 目标 Profile 与 context_refs 均经 actor API 逐次操作授权；READ 与 RUN 的引用交付由 actor API 记录 `workspace.reference_read` citation。Patchouli 的公开交互提交与主动记忆意图提交路由只接收 `IdentityScope`，目前没有生产调用方，新的调用方须在自己的授权点先完成授权。
+Alice 的 READ、SEARCH、RUN 记忆目标、WRITE、UPDATE、CALL 目标 Profile 与 context_refs 均经 actor API 逐次操作授权；READ 与 RUN 的引用交付由 actor API 记录 `workspace.reference_read` citation。Patchouli 的公开交互路由（提交、状态查询与等待）与主动记忆意图提交路由只接收 `IdentityScope`：交互路由唯一的生产调用方是 Import Bus，在导入授权（`authorize_import`，校验准入与目标、不检查 actor 操作，拒绝保留的 `system`）之后调用；意图提交唯一的生产调用方是 actor API。新的调用方须在自己的授权点先完成授权。
 
 Patchouli 提交与生成链沿用自身既有来源记录，公开 API 不接收 `CallerPrincipal` 或其他来源字段。阶段拒绝语义见[错误模型](./error-model.md)第 4.4 节。
+
+### 3.6 交互提交、进度与等待
+
+主动链路的 finalize 在 Patchouli 内部构造 `InteractionSubmission` 并提交共享 lane；独立的交互提交经三条公开路由（`patchouli.contracts.interaction_submission`），当前调用方是 Import Bus：
+
+```python
+interaction.submit(
+    *,
+    identity_scope: IdentityScope,
+    payload: InteractionPayload,
+    requested_topic_id: str = "NEW_TOPIC",
+    interaction_id: str | None = None,
+    origin: InteractionOrigin = "workspace_port",
+    new_topic_title: str | None = None,
+    new_topic_summary: str | None = None,
+) -> InteractionSubmitResult
+
+interaction.status(*, identity_scope, interaction_id) -> InteractionStatus | None
+interaction.wait(*, identity_scope, interaction_id, timeout_seconds) -> InteractionStatus | None
+```
+
+- **提交**：公共 handler 把 scope 拆为 `InteractionSubmission.belong_to` 与 `from_actor`，按 `interaction_id` 幂等接纳；省略 `interaction_id` 时每次生成新标识，需要重发语义的调用方必须给出稳定标识。`new_topic_title`/`new_topic_summary` 只在 `requested_topic_id` 为 `NEW_TOPIC` 时允许非空（已有话题的标题与摘要由话题自身持有，提交不能借此改写），感知建立新话题时使用，缺省时使用默认标题。`origin` 为 `active_chat`、`import_bus` 或 `workspace_port`，只是观测标签，不驱动任何分支。队列容量已满或已停止表示这次提交没有被接管，以 `InteractionAdmissionUnavailableError`（`patchouli.interaction.admission_unavailable`，reason `capacity_rejected` / `queue_stopped`）拒绝，调用方可用同一标识重发。
+- **进度**：`InteractionStatus` 的 `state` 为 `pending`（尚未应用完成）、`succeeded`（已应用，`topic_id` 给出真实落点，`NEW_TOPIC` 已解析）、`failed`（到达终态但没有成功，不再重试）或 `unknown`（接纳过，但工作记录已超出队列的终态保留窗口）；未被接纳，或旁路索引与工作记录都已裁剪时返回 `None`。归属是硬边界：同名交互由另一个 Workspace 提交时以 `WorkspaceMismatchError` 拒绝，不把其他 Workspace 的接纳当作重复。
+- **等待**：`interaction.wait` 先按状态查询校验归属；仍为 `pending` 时等待交互应用到终态或超时，返回此时的进度，超时仍为 `pending`，队列停止时返回停止那一刻的进度。
+- **重发**：同一 `interaction_id` 在等待中或已成功时，相同载荷返回原收据，不同载荷报冲突；到达终态而未成功的交互允许以同一标识重新提交，载荷可以不同（例如落位的话题在应用前已被驱逐，提交方重新路由后再交），新提交以递增的尝试号作为工作项标识入队。为查重保留的旁路索引只存编码载荷的摘要，冲突比较不需要留住整份载荷。
+
+Interaction codec 为 v6，编码新话题的标题与摘要；当前进程内队列不注册旧版本。查重与进度都只覆盖进程内的保留窗口，不跨重启。
 
 ## 4. CPU 端口与 Alice 实现
 
@@ -365,28 +397,31 @@ Agent Profile 属于 CPU 分配，但当前在 prepare 之前解析：prepare �
 
 顺序本身就是契约的一部分：Gateway 先收敛入口语义，Patchouli 再准备长期知识的本轮视图，CPU 只执行，最后由 Patchouli 提交。让 transport adapter 复制这条链路，会很快产生“HTTP 可以、其他入口不可以”或两条 finalize 规则不一致的问题。
 
-## 6. 被动链路契约
+## 6. Import Bus 契约
 
-Passive Ingress 由 System 拥有并调用 Gateway `PASSIVE_MEMORY`。它可以读取 Patchouli 记忆上下文并最终提交 interaction，但不调用 Alice、不执行命令、不运行 MTP，也不生成 assistant reply。
+Import Bus 由 System 拥有：`ImportBusService` 做导入授权并委托编排器 `ImportBusIngestor`。它接收外部 harness 一轮已经结束的交互的完整记录，以 Gateway `PASSIVE_MEMORY` 模式只取话题落位与价值信号，以共用封口函数封口，经 Patchouli 的公开交互路由提交并等待应用完成（第 3.6 节）。它不调用 Alice、不执行命令、不运行 MTP、不生成回复，不检索记忆，也不返回记忆上下文。HTTP 入口与载荷字段见[公开路由与事件](./routes-and-events.md#62-import-bus-导入)，编排细节见 [Import Bus](../system/import-bus.md)。
 
-对外 `PassiveIngressOutcome` 只表达 accepted/buffered/duplicate/degraded 等业务结果；Gateway execution state、fallback 原因和 RuntimeEvent 不进入 API 响应。
+对外结果只有 `accepted`（本次提交且已应用）、`duplicate`（此前已应用）与 `skipped`（用户消息之外没有输出，与任务进程一样不封口），并带推导出的 `interaction_id`；Gateway 决定、话题、价值信号与 RuntimeEvent 不进入响应。`accepted` 与 `duplicate` 都表示这一轮已经应用，确认只在应用完成之后给出：可重试与不可重试的失败经错误区分（[错误模型](./error-model.md#43-import-bus)）。
 
-同一 `PassiveConversationKey` 在单进程内按服务接收顺序串行处理，串行范围包含 Gateway/retrieval、accumulator 修改与 submission queue admission；不同会话仍可并发。admission 成功前 accumulator 不会清空，也不会被下一 user 覆盖。connector 负责按会话因果顺序投递，`sequence` 当前只用于关联和观测，不承诺对已经乱序到达的事件进行重排。该契约不扩展为跨进程排序或持久化 mailbox。
+- **交互标识**：`import_` 加上对（principal、user、Agent、来源、外部会话、外部轮次）规范化序列取 SHA-256 的前 32 位十六进制。同一轮重发得到同一标识，队列据此幂等；纳入认证通过的 actor，使代表不同用户或 Agent 的连接器不会撞号。
+- **串行与查重**：同一（user、Agent、来源、外部会话）在单进程内按到达顺序串行，串行范围包含进度查询、Gateway、提交与等待应用；不同会话可以并发。门内先查询进度：已应用（`succeeded`）或接纳过但结局已超出保留窗口（`unknown`）时返回 `duplicate`；仍在应用（`pending`）只继续等待，不再路由与提交——Gateway 的结果写入载荷，重新路由可能得到不同载荷而被队列判为冲突；未提交或应用失败的轮次才调用 Gateway 并（再次）提交。该契约不扩展为跨进程排序或持久化 mailbox。
+- **落位**：`session_turns` 取请求中最近若干轮的最后 `gateway.context_preparation.session_turn_limit` 轮；最近一轮带外部标识时，Import Bus 推导它的交互标识并经状态查询取得应用成功后的真实落点，作为该轮的 `topic_id`。新话题以 Gateway 给出的标题与摘要提交。
+- **事件**：导入的事件不携带 `tool_kind`，外部工具调用因此不产生 MTP 轨迹，也不会被当作记忆操作；用户消息由服务端写成序号为 0 的事件。
 
-这条限制保护的是入口语义。Passive Memory 用于摄入已经发生的外部经历，并不等价于伪造一次用户与 Agent 的对话；如果它允许命令或 Alice 执行，外部内容便可能意外触发控制行为、工具调用和回复生成，也会让“谁发起了这次行动”失去可靠答案。
+这条限制保护的是入口语义。Import Bus 摄入的是已经在外部发生的经历，并不等价于伪造一次用户与 Agent 的对话；如果它允许命令或 Alice 执行，外部内容便可能意外触发控制行为、工具调用和回复生成，也会让“谁发起了这次行动”失去可靠答案。
 
 ## 7. Interaction 与 Topic 时序契约
 
-Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 Topic 追加 Interaction，因此共享同一组时序职责：
+主动链路与 Import Bus 的消息来源和入口流程不同，但二者最终都向 Topic 追加 Interaction，因此共享同一组时序职责：
 
-`InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：必需的 `belong_to` 与 `from_actor` 独立保存归属与发起者，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容，不嵌入操作 scope。Interaction codec v5 与 `schema_version="1.1"`（字符串）的 generation codec 分别 round-trip 两种身份；当前进程内队列不注册旧 codec，retry 恢复相同字段，不重跑身份解析、不重新组装 scope。apply journal 的摘要使用归属与包含 actor 的 TurnRecord，继续校验重放内容一致性。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
+`InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：必需的 `belong_to` 与 `from_actor` 独立保存归属与发起者，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容，不嵌入操作 scope。Interaction codec v6 与 `schema_version="1.1"`（字符串）的 generation codec 分别 round-trip 两种身份；当前进程内队列不注册旧 codec，retry 恢复相同字段，不重跑身份解析、不重新组装 scope。apply journal 的摘要使用归属与包含 actor 的 TurnRecord，继续校验重放内容一致性。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
 
 `InteractionPayload.used_attachments` 携带任务进程的 `AttachmentCompiler` 确认实际进入上下文的 bound ref 快照（由任务进程封口时写入）：submission handler 把这份快照以 `asset_refs` 形参一次性传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
 
 1. **Interaction 内全序由生产者冻结。** `TurnEvent.sequence` 只在所属 interaction 内有效；payload 一旦进入 submission queue，retry、dedup、cleanup 和 handler 都不得改写既有事件顺序或生成新的语义身份。
 2. **Topic append 顺序由 Patchouli 拥有。** 当前以成功 apply 的实际 append 顺序作为 topic-local 权威投影。若未来增加 `topic_position`，必须由 topic owner 在持久化提交时原子分配，调用方不能根据时间戳自行计算。
 3. **Queue FIFO 只是执行约束。** ordering key 只串行化已经入队的 work，不代表源事件发生时间，也不表达 Agent 因果关系。idempotency journal 只防止重复副作用，不参与排序。
-4. **Passive source sequence 不负责事后重排。** connector 应按会话因果顺序投递；源 `sequence` 当前用于关联和观测，不承诺缓存、等待或重排晚到消息。
+4. **外部轮次的先后由提交方保证。** Import Bus 只保证同一外部会话内按到达顺序接纳与应用；连接器按会话顺序提交、确认后才推进，Patchouli 不按外部时间缓存、等待或重排晚到的轮次。导入与主动链路落到同一话题时，由同一个按话题的排序键保证先后。
 5. **Active prepare 读取的是一个 topic snapshot。** finalize/apply 的先后位置只能证明提交顺序，不能证明某个 run 在生成 LLM input 时看见过中间提交。多个 run 可以基于同一 revision 并发执行。
 6. **多 Agent 并发优先表达因果偏序。** 未来应保存 `base_topic_revision`、causal parent 或等价的 run/frame 关系，再由 prompt/display 层按需要确定性线性化；不得仅按完成时间伪造语义先后。
 
@@ -398,7 +433,7 @@ Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 
 
 1. 这个模型是否只包含一次交接需要的稳定事实，还是暴露了可变 workflow state、引擎对象或回调？
 2. 接收方是否正在修改本应只读的决定，或重新推导一份与所有者可能分叉的状态？
-3. command outcome 是否仍能立即短路？Gateway 是否开始执行命令，或在公开结果中携带执行产物？Passive Memory 是否可能通过新分支触发命令、Alice、MTP 或回复生成？
+3. command outcome 是否仍能立即短路？Gateway 是否开始执行命令，或在公开结果中携带执行产物？`PASSIVE_MEMORY` 模式与 Import Bus 是否可能通过新分支触发命令、Alice、MTP 或回复生成？
 4. prepare、run、finalize 的顺序或资格是否被 transport、事件订阅者或兼容 fallback 悄悄改变？
 5. cleanup 是否仍是对空话题的有限补偿，还是被当成可以撤销长期状态的事务回滚？
 6. 执行结果、PendingAtom ACK 或流式片段是否被误认为 finalize 已成功？
@@ -418,8 +453,8 @@ Active 与 Passive 的消息来源和入口流程不同，但二者最终都向 
 - 修改判别联合的 `kind`；
 - 新增必填公共字段或改变字段语义；
 - 改变 prepare/finalize/cleanup 顺序；
-- 允许 Passive Memory 返回命令；
+- 允许 `PASSIVE_MEMORY` 模式返回命令；
 - 改变 CPU 端口的输出语义、执行结果终态和 finalize 资格；
 - 将 local route 或内部 workflow state 暴露为公共 API。
 
-验证入口：`tests/unit/system/contracts/`、`tests/unit/workspace/process/`、`tests/unit/system/application/`、`tests/unit/gateway/test_contracts.py`、`tests/unit/patchouli/test_service_gateway_decision.py`、`tests/unit/alice/run/test_service.py`、`tests/unit/alice/interface/test_cpu.py`、`tests/unit/workspace/process/test_cpu_port.py`、`tests/unit/patchouli/application/`、`tests/integration/workspace/test_application_access_boundary.py`。
+验证入口：`tests/unit/system/contracts/`、`tests/unit/workspace/process/`、`tests/unit/system/application/`、`tests/unit/gateway/test_contracts.py`、`tests/unit/patchouli/test_service_gateway_decision.py`、`tests/unit/alice/run/test_service.py`、`tests/unit/alice/interface/test_cpu.py`、`tests/unit/workspace/process/test_cpu_port.py`、`tests/unit/patchouli/application/`、`tests/unit/patchouli/control/test_interaction_submission.py`、`tests/unit/core/protocol/test_seal_interaction.py`、`tests/unit/system/services/import_bus/`、`tests/integration/system/test_import_bus_submission.py`、`tests/integration/workspace/test_application_access_boundary.py`。

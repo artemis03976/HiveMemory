@@ -10,6 +10,7 @@ code_paths:
   - src/hivememory/config/access.py
   - src/hivememory/system/access/
   - src/hivememory/server/deps.py
+  - src/hivememory/server/routers/import_bus.py
   - configs/system_principals.yaml
   - configs/workspace_actors.yaml
 related_contracts:
@@ -18,8 +19,9 @@ related_docs:
   - docs/workspace/identity-and-authorization.md
   - docs/workspace/execution-threads.md
   - docs/system/configuration.md
+  - docs/system/import-bus.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-21
 ---
 
 # 认证与访问登记
@@ -35,7 +37,15 @@ last_reviewed: 2026-10-19
 
 两个阶段由唯一对外的认证入口 `ActorAuthenticationGateway.authenticate(adapter, principal, actor, workspace, binding)` 依次完成，通过后签发绑定本次运行的访问 context。运行持有者是 server（请求级 context）与任务进程的注册入口（进程 context）；它们只面对认证网关，不直接持有 `WorkspaceAuthenticator`。第 1 阶段属于 System，是因为“哪个调用来源可以接入”是部署的配置，与任何 Workspace 无关；第 2 阶段属于 workspace，是因为“谁能进入哪个 Workspace”是 Workspace 的配置。workspace 以端口声明对第 1 阶段的需要，由组合根注入实现，因此不导入 System。
 
-HTTP 入口以自身登记的 principal 与 `http` adapter 调用认证网关；请求头中的用户身份不做证明，这是本地单用户部署的信任假设（第 8 节）。
+HTTP 入口以自身登记的 principal 与 `http` adapter 调用认证网关；请求头中的用户身份不做证明，这是本地单用户部署的信任假设（第 8 节）。与 Workspace 相关的 HTTP 入口都经网关认证，按声明分为三类：
+
+| 入口 | 声明 | 取得的 context |
+|:---|:---|:---|
+| Chat | (user, 请求体中的具体 Agent) | 注册入口认证并签发进程 context（[任务进程](./task-process.md#2-注册)） |
+| 管理路由与 `/chat/stop` | (user, `system`) | 请求级 context，经 `get_request_access` 依赖取得 |
+| 导入 `POST /api/v1/import/turns` | (user, 请求体中的具体 Agent) | 请求级 context，路由直接调用 `request_access_for_claims` 取得 |
+
+外部 harness 的连接器不另行登记 principal：导入请求经 server 自身的 principal 与 `http` adapter 认证，连接器代表的 Agent 只作为 actor 声明进入第 2 阶段准入。
 
 ## 2. 两类访问登记
 
@@ -57,8 +67,9 @@ HTTP 入口以自身登记的 principal 与 `http` adapter 调用认证网关；
 | principals | Profile 注入脚本的 principal `hivememory:profile-injector` | kind `local-process`，adapter `local`；脚本以它和 `system` 声明经认证网关取得请求级 context，再调用 root API |
 | workspace_actors | 用户 `default` 在 `main_workspace` 的用户级记录（所有具体 Agent） | 六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call` |
 | workspace_actors | 用户 `default` 的 `system` | 只登记准入，不配置 operation |
+| workspace_actors | 用户 `default` 的 `claude_code`（Claude Code 连接器经 Import Bus 导入时声明的 Agent） | 精确记录，`allowed_operations` 为空 |
 
-`system` 记录只回答“能否进入”：root 授权不读取白名单，`system` 也因白名单为空而不能经操作入口执行任何 actor 操作，管理员的直接通道不会走到带缓存的 actor 读取。
+`system` 记录只回答“能否进入”：root 授权不读取白名单，`system` 也因白名单为空而不能经操作入口执行任何 actor 操作，管理员的直接通道不会走到带缓存的 actor 读取。`claude_code` 的精确记录同样只承载准入：导入授权只校验准入与目标、不读取白名单（[身份与授权](./identity-and-authorization.md#4-操作授权)），而精确记录优先于用户级记录，空白名单使这个 Agent 不继承用户级的六项 actor 操作。
 
 ## 3. 访问 context：密封的运行时凭据
 
@@ -125,14 +136,14 @@ context 只属于一次运行，没有固定有效期，只在以下时点失效
 
 认证与授权互不依赖：两者都只读同一份访问注册表，经 context 这个类型发生联系；操作授权者见[身份与授权](./identity-and-authorization.md#4-操作授权)。
 
-管理操作与取消的请求级 context 由 server 的 `get_request_access` 依赖取得：以 `(user, system)` 声明经网关认证，一次请求一个，请求结束（含失败）时撤销。Profile 注入脚本以登记的本地来源与 `system` 声明经同一网关取得请求级 context，结束时撤销。
+管理操作与取消的请求级 context 由 server 的 `get_request_access` 依赖取得：以 `(user, system)` 声明经网关认证，一次请求一个，请求结束（含失败）时撤销。导入的 Agent 来自请求体，路由以 `resolve_request_identity_claims(require_agent=True)` 解析的 (user, 具体 Agent) 声明调用同一个 `request_access_for_claims`，生命周期相同；认证网关关闭后，新的导入请求以 `authentication_gateway_closed`（503）拒绝。Profile 注入脚本以登记的本地来源与 `system` 声明经同一网关取得请求级 context，结束时撤销。
 
 ## 7. 装配
 
 `SystemAssembler` 从两个登记文件装载两类注册表，构造 `WorkspaceAuthenticator` 与 `WorkspaceOperationAuthorizer`（两者都只接收 Workspace Actor 访问注册表），再以 `SystemPrincipalAuthenticator` 与 `WorkspaceAuthenticator` 组装认证网关：
 
 - 认证网关注入任务进程的注册入口，并经 `HiveMemorySystem.access_gateway` 暴露给 server；
-- 操作授权者注入 root API 与 actor API 的各服务、操作入口、注册入口、执行器与 CPU 分配；CPU 分配另注入读取视图的 Profile 读取端口；
+- 操作授权者注入 root API 与 actor API 的各服务、操作入口、注册入口、执行器、CPU 分配与 System 的 Import Bus 服务；CPU 分配另注入读取视图的 Profile 读取端口；
 - 进程表由组合根在构建 actor API 之前创建，同时交给注册入口与进程线程管理 `ProcessThreads`；`ProcessThreads` 以认证网关作为线程 context 生命周期端口、以操作授权者读取运行绑定与快照，注入执行器（主线程的派生与兜底结束）、操作入口与 actor API（线程端口 `ExecutionThreadTable`，位于 `workspace/thread_ports.py`，不属于公共契约），能力层与任务进程仍互不导入；
 - `WorkspaceOperationEntry` 由组合根以 actor API 与线程端口装配，公共 `OperationEntry` 注入 `AliceCPU`；actor API 只由操作入口持有，门面只向 server 暴露 root API 与任务进程服务；
 - Patchouli 与 Gateway 不注入任何认证或授权对象。
@@ -149,4 +160,4 @@ context 只属于一次运行，没有固定有效期，只在以下时点失效
 
 - 认证：[`workspace/authentication.py`](../../src/hivememory/workspace/authentication.py)（认证网关与 `WorkspaceAuthenticator`）、[`system/access/`](../../src/hivememory/system/access/)（接入登记与 Principal authentication）、[`core/access.py`](../../src/hivememory/core/access.py)（密封的访问 context、授予内容与运行绑定、端口）；
 - 登记：[`workspace/registry.py`](../../src/hivememory/workspace/registry.py)、[`config/access.py`](../../src/hivememory/config/access.py)；请求级访问：[`server/deps.py`](../../src/hivememory/server/deps.py)；
-- 测试：[`tests/unit/workspace/test_access.py`](../../tests/unit/workspace/test_access.py)、[`tests/unit/workspace/test_registry.py`](../../tests/unit/workspace/test_registry.py)、[`tests/unit/system/access/test_gateway.py`](../../tests/unit/system/access/test_gateway.py)、[`tests/unit/core/test_access_binding.py`](../../tests/unit/core/test_access_binding.py)、[`test_thread_context.py`](../../tests/integration/workspace/test_thread_context.py)（主线程与子线程的派生、被调用方准入、单独撤销与运行绑定）、[`test_registration_configuration.py`](../../tests/integration/workspace/test_registration_configuration.py)（旧 operation 与 `system` 白名单的装载失败）、[`test_published_registration_chain.py`](../../tests/integration/workspace/test_published_registration_chain.py)（随仓库发布的登记文件驱动的 HTTP 链路）。
+- 测试：[`tests/unit/workspace/test_access.py`](../../tests/unit/workspace/test_access.py)、[`tests/unit/workspace/test_registry.py`](../../tests/unit/workspace/test_registry.py)、[`tests/unit/system/access/test_gateway.py`](../../tests/unit/system/access/test_gateway.py)、[`tests/unit/core/test_access_binding.py`](../../tests/unit/core/test_access_binding.py)、[`test_thread_context.py`](../../tests/integration/workspace/test_thread_context.py)（主线程与子线程的派生、被调用方准入、单独撤销与运行绑定）、[`test_registration_configuration.py`](../../tests/integration/workspace/test_registration_configuration.py)（旧 operation 与 `system` 白名单的装载失败）、[`test_published_registration_chain.py`](../../tests/integration/workspace/test_published_registration_chain.py)（随仓库发布的登记文件驱动的 HTTP 链路）、[`test_import_bus.py`](../../tests/unit/server/routers/test_import_bus.py)（导入以具体 Agent 声明取得请求级 context、未准入与网关关闭的拒绝）、[`test_import_turns.py`](../../tests/e2e/system/test_import_turns.py)（白名单为空的 Agent 经 HTTP 导入一轮交互）。

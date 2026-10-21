@@ -9,7 +9,7 @@ related_current:
   - docs/patchouli/generation.md
   - docs/patchouli/artifacts.md
   - docs/alice/agent-runtime.md
-  - docs/system/passive-ingress.md
+  - docs/system/import-bus.md
 related_ideas:
   - docs/ideas/short-term-memory-and-context-compaction.md
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
@@ -434,7 +434,7 @@ summary 自身最终也会溢出，必须拥有独立预算、版本和再压缩
 5. 尚未完整封口的事件流如何表达 partial facts，并与已有 cancelled/failed 封口记录区分？
 6. 外部事件标识或 sequence 不稳定时，如何检出重放与缺口；外部 checkpoint 可以提供哪些辅助诊断而不替代接收事实？
 7. 多 Agent/child frame 的材料如何关联 parent interaction；CPU 各 frame 的执行检查点如何独立定位这些来源？
-8. managed-context API 是否属于 Passive Ingress 扩展，还是应成为独立的 conversation-context service？
+8. managed-context API 是否属于 Import Bus（原 Passive Ingress）扩展，还是应成为独立的 conversation-context service？
 9. 具体消费者的 token budget 在模型切换时如何重新验证；超大且尚未闭合的 segment 采用什么有界表示？
 10. 哪些真实使用指标足以证明该复杂度优于“外部 Agent 自行 compact，HiveMemory 只做 post-hoc 记忆生成”？
 
@@ -448,7 +448,7 @@ summary 自身最终也会溢出，必须拥有独立预算、版本和再压缩
 
 ### 14.1 已知缺口（代码核对，2026-07-30 记录）
 
-- **没有托管上下文能力**：Passive Ingress 默认由外部 harness 管理 prompt history，公共响应只返回 retrieval memory，不返回 `state_summary` 与 recent blocks。系统没有 `external | hivememory` 这类显式的上下文所有权能力，也没有带版本或覆盖游标的压缩后上下文输出。因此 Discord 等轻量 bot 不能把 HiveMemory 内部的折叠当作外部 prompt 压缩服务使用（对应第 8.3 节）。
+- **没有托管上下文能力**：Passive Ingress 默认由外部 harness 管理 prompt history，公共响应只返回 retrieval memory，不返回 `state_summary` 与 recent blocks（2026-10-21：取代它的 Import Bus 只向记忆网络输入，响应不再返回任何记忆上下文，见 [Import Bus](../system/import-bus.md)）。系统没有 `external | hivememory` 这类显式的上下文所有权能力，也没有带版本或覆盖游标的压缩后上下文输出。因此 Discord 等轻量 bot 不能把 HiveMemory 内部的折叠当作外部 prompt 压缩服务使用（对应第 8.3 节）。
 - 按开头的定位调整，前台上下文的压缩归 CPU。若要支持由 HiveMemory 托管的 bot 上下文，需要形成独立 Plan，定义上下文所有权、版本/覆盖游标、返回模型，以及调用方替换历史的幂等契约（候选，未决定；与第 13 节问题 8 相关）。
 
 ### 14.2 待设计范围（原占位计划的前台部分）

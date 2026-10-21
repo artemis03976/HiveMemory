@@ -6,11 +6,12 @@ scope: project-overview-and-index
 code_paths:
   - src/hivememory/system/
   - src/hivememory/server/
+  - integrations/claude-code/
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-21
 ---
 
 # HiveMemory 项目总览
@@ -125,7 +126,7 @@ HiveMemory 是面向 LLM Agent 的持久化记忆系统与实验性 Memory-Nativ
 
 项目当前同时验证两条互补路径：
 
-- **记忆基础设施**：通过 API 和 Passive Ingress 接收外部信息流，提供记忆存储、检索、话题、生成和生命周期能力；
+- **记忆基础设施**：通过 API 和 Import Bus 接收外部 harness 已经发生的交互，提供记忆存储、检索、话题、生成和生命周期能力；
 - **原生 Agent Runtime**：以 Alice 执行 Agent，以 MTP 访问记忆与工具，验证记忆作为运行时状态和控制输入的价值。
 
 HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。当前实现是单进程、异步、面向个人开发与实验验证的系统。
@@ -151,7 +152,7 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 - ConversationSession 的创建、列表、重命名、删除与历史恢复；会话属于 Workspace，逐轮选择 Agent，Alice 从全量原文构建带工具减重与接力摘要的预算视图，Gateway 使用最近 N 轮；原文与压缩检查点仅在进程内保存；
 - SSE 流式 Agent run（另有只取终态的非流式交付，当前只供测试驱动）；
 - 全局系统指令的注册与解析：命令以命令终态结束、不进入普通 chat，当前不执行内置命令（[Gateway 全局命令](./gateway/commands.md)）；
-- Passive Ingress：外部离散事件去重、顺序缓冲、封口提交和失败重试；
+- Import Bus：外部 harness 一轮已结束交互的整轮导入（`POST /api/v1/import/turns`），经统一认证与导入授权、Gateway 话题落位、共用封口后提交 Patchouli 感知，交互应用完成后才确认，不检索记忆、不返回记忆上下文；仓库附带 Claude Code 连接器插件（`integrations/claude-code/`），在轮次结束与会话开始、结束时把会话记录中已结束的轮次导入；
 - Gateway 的话题路由、查询分析、请求取消、总超时和局部保守降级。
 
 ### 5.2 记忆与知识
@@ -178,7 +179,7 @@ Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX �
 
 - `GlobalSystemBus` 公开 RPC / PubSub 和子系统 local bus；
 - Local Work Queue Runtime 的 lane、状态机、backpressure、retry、cancel、timeout 与 shutdown drain；
-- chat、Gateway、Agent、memory task、maintenance、passive ingress、system lifecycle 等 RuntimeEvent；
+- chat、Gateway、Agent、memory task、maintenance、Import Bus、system lifecycle 等 RuntimeEvent；
 - 有界事件回放与 stream gap 表达；
 - 全局维护调度器、模型 warmup、health/readiness；
 - Provider / Model 注册表和单次 generation options 覆盖。
@@ -189,7 +190,7 @@ Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX �
 HiveMemorySystem（组合根与门面）
   ├─ 门面提供的服务
   │    ├─ TaskProcessService      任务进程表与 chat 任务进程编排（workspace.process）
-  │    ├─ PassiveIngressService    被动摄入（System）
+  │    ├─ ImportBusService        外部交互导入（System 的 Import Bus）
   │    └─ Memory / Task / Profile / Topic / Asset 管理服务（workspace.capability 的 root API，只供 system）
   ├─ 共享运行时（components）：GlobalSystemBus / RuntimeEventBus / Scheduler / Local Work Queue
   ├─ Workspace 设施：认证网关、认证一侧与操作授权者、写入意图登记、读取视图与失效订阅、WorkspaceAssetStore
@@ -198,7 +199,7 @@ HiveMemorySystem（组合根与门面）
   └─ AliceSystem     Agent 执行与控制平面
 ```
 
-代码按层组织（core/config → components → engines/infrastructure → workspace/gateway/patchouli/alice → system → server），依赖只能指向同层或更低层。详细组件图、分层规则、主动/被动数据流和启停顺序见[系统架构概览](./architecture/overview.md)。职责和状态所有权见[系统边界](./architecture/boundaries.md)。顶层装配、应用服务、配置与 i18n 的内部设计从 [System 当前文档](./system/README.md)进入；总线、调度器、work queue 与运行时事件等机制从 [Components 当前文档](./components/README.md)进入。
+代码按层组织（core/config → components → engines/infrastructure → workspace/gateway/patchouli/alice → system → server），依赖只能指向同层或更低层。详细组件图、分层规则、主动链路与 Import Bus 的数据流和启停顺序见[系统架构概览](./architecture/overview.md)。职责和状态所有权见[系统边界](./architecture/boundaries.md)。顶层装配、应用服务、配置与 i18n 的内部设计从 [System 当前文档](./system/README.md)进入；总线、调度器、work queue 与运行时事件等机制从 [Components 当前文档](./components/README.md)进入。
 
 ## 7. 子系统
 
@@ -252,19 +253,20 @@ message
 
 有输出的 completed/cancelled/failed 均提交交互；无输出、进程异常与 finalize 前断连不追加会话、不提交。finalize 任务在交出 finalizing 事件前创建，交付关闭也等待提交结束；尚未交接的 prepare 结果才请求 cleanup，补偿仅限新建空 Topic。附件租借在进程结束时释放，已接纳的显式写入继续生成。
 
-### 8.2 被动模式
+### 8.2 Import Bus
 
 ```text
-external event
-  -> PassiveIngressService
-  -> Gateway PROCESS(PASSIVE_MEMORY)
-  -> optional memory context
-  -> turn buffer / seal
-  -> InteractionSubmissionQueue
-  -> PerceptionFamiliar.apply_interaction
+外部 harness 一轮已结束的交互（例如 Claude Code 连接器）
+  -> POST /api/v1/import/turns
+  -> 统一认证网关 + 导入授权
+  -> Import Bus 编排（按外部会话串行，查询交互进度）
+  -> Gateway PROCESS(PASSIVE_MEMORY)：话题落位与价值信号
+  -> 共用封口函数 seal_interaction
+  -> Patchouli interaction.submit -> 感知队列
+  -> 等待应用完成后确认（accepted / duplicate / skipped）
 ```
 
-被动模式不运行 Alice、MTP、命令或回复生成。
+Import Bus 不运行 Alice、MTP、命令或回复生成，不检索记忆，也不返回记忆上下文。完整设计见 [Import Bus](./system/import-bus.md)。
 
 ### 8.3 MTP
 
@@ -300,7 +302,7 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 
 各子系统与系统模块的当前文档入口：
 
-- [System](./system/README.md)：组合根、应用服务、Passive Ingress、配置与 i18n；
+- [System](./system/README.md)：组合根、应用服务、Import Bus、配置与 i18n；
 - [Components](./components/README.md)：总线、维护调度器、Local Work Queue、串行门与运行时事件等进程内机制；
 - [Gateway](./gateway/README.md)：固定 workflow、话题/查询分析与全局命令；
 - [Patchouli](./patchouli/README.md)：MemoryLibrary、Artifacts、Perception、Generation、Retrieval、Lifecycle 与 MemoryCompiler；

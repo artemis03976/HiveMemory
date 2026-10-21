@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-21
 ---
 
 # Archived Plans
@@ -14,6 +14,7 @@ last_reviewed: 2026-10-19
 
 当前记录：
 
+- [v0.7.1 Import Bus 重设计：以 Claude Code 对话回流为第一条真实路径](./v0.7.1-import-bus-redesign.md)：2026-10-21 实现、代码审查后归档。Passive Ingress 改为只向网络输入的 Import Bus：一次请求接收 harness 一轮已结束交互的完整记录，经统一认证网关与导入授权（认证前组装身份的例外消除），Gateway `PASSIVE_MEMORY` 只做落位与价值信号，载荷与任务进程共用封口函数，经 Patchouli 公开路由提交、在应用完成后才确认；话题路由失败时续接上一轮仍在候选中的话题（两条链路共用）；生成视图纳入思考与外部工具的三元组；Claude Code 连接器以插件形式提供。阶段一 `f995ea7f`、阶段二 `00766df9`、阶段三 `956d1d51`、审查修正 `92329640`、应用后确认 `03b9001e`，事实文档收尾随后提交，未发布；后端 3040 passed、2 skipped，确定性 E2E 10 passed。真实使用验收随日常使用持续观察（[Todo](../../todo/import-bus-real-use-observation.md)）。当前事实见 [Import Bus](../../system/import-bus.md)。
 - [v0.7.0 版本收尾审计](./v0.7.0-release-closeout-audit.md)：2026-10-19 归档。记录版本目标的逐条判定、PR #100–#134 与收尾分支的内容核对、收尾时搁置的事项、验证结果与版本声明；代码版本与本次发布标签为 0.7.0（标签在合并后创建）。
 - [v0.7.0 执行线程的正式定义](./v0.7.0-execution-thread-definition.md)：2026-10-19 两阶段实现、验收与 code review 后归档。进程以线程表（`TaskProcess.threads`）登记全部执行线程，`ProcessThreads` 是派生、结束与解析的唯一入口；每个 actor 操作只按“线程未结束且进程仍在运行”判定，停止被接受时全部线程结束，拒绝统一为 `ThreadEndedError`；能力层的两个回流端口合并为一个，写入意图记录 `thread_id`。`agent.call` 只解析目标图纸，派生与结束由操作入口的生命周期方法提交；主线程与子线程以同一种线程描述交给 CPU，CPU 端口改为 `thread` 参数，输入清单删除图纸与操作快照，`Callee` 删除；Alice 的子线程随 CALL 返回结束，子帧观测标签取被调用方。阶段一 `2764eebf`，阶段二与事实文档收尾随后提交，未发布；后端 2957 passed、2 skipped，覆盖率 93.97%，确定性 E2E 9 passed。当前事实见 [执行线程](../../workspace/execution-threads.md)与[子系统契约](../../contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现)第 4 节。
 

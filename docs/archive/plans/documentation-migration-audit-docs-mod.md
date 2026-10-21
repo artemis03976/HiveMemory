@@ -156,7 +156,7 @@ source_inventory: docs/archive/plans/documentation-migration-inventory.md
 
 **分类与动作：** 已完成主体、被当前模块文档拆分承接的 Gateway 实施稿，归档至 [`v0.6.0-gateway-system.md`](./implementation/v0.6.0-gateway-system.md)。
 
-**当前承接：** [Gateway 总览](../../gateway/README.md)、[固定工作流](../../gateway/workflow.md)、[分析](../../gateway/analysis.md)、[命令](../../gateway/commands.md)和 [System Passive Ingress](../../system/passive-ingress.md)覆盖子系统边界、固定 Step、冻结 state/outcome、deadline/cancel/fallback、上下文 Provider 与主动/被动入口。
+**当前承接：** [Gateway 总览](../../gateway/README.md)、[固定工作流](../../gateway/workflow.md)、[分析](../../gateway/analysis.md)、[命令](../../gateway/commands.md)和 [System Import Bus（原 Passive Ingress）](../../system/import-bus.md)覆盖子系统边界、固定 Step、冻结 state/outcome、deadline/cancel/fallback、上下文 Provider 与主动/被动入口。
 
 **保留理念：** Gateway 是入口“观察与判断”层，不是系统中枢神经；一次分析只能受限复用为入口投影，不能升级为检索结果或持久化真相；固定 workflow 让每个能力拥有局部 timeout/fallback，而不是引入自由 DAG。
 
@@ -176,7 +176,7 @@ source_inventory: docs/archive/plans/documentation-migration-inventory.md
 
 **分类与动作：** 已完成主体的实施稿，归档至 [`v0.6.0-passive-ingress.md`](./implementation/v0.6.0-passive-ingress.md)。
 
-**当前承接：** [System Passive Ingress](../../system/passive-ingress.md)承接外部事件、conversation key、去重、顺序 buffer、seal/outbox/retry、降级和 shutdown drain；Gateway workflow 承接 `PASSIVE_MEMORY` 入口策略。
+**当前承接：** [System Import Bus（原 Passive Ingress）](../../system/import-bus.md)承接外部事件、conversation key、去重、顺序 buffer、seal/outbox/retry、降级和 shutdown drain；Gateway workflow 承接 `PASSIVE_MEMORY` 入口策略。
 
 **保留理念：** Passive Ingress 是外部对话记忆中间件，不是第二套 active chat runtime，也不是通用 Document Ingestion；它可以复用 Gateway 决策和 Patchouli 记忆能力，但绝不执行 command、Alice、MTP 或回复生成；accepted 不能被伪装成已经持久化。
 

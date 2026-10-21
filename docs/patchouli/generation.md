@@ -7,6 +7,8 @@ code_paths:
   - src/hivememory/engines/generation/
   - src/hivememory/infrastructure/llm/base.py
   - src/hivememory/prompts/transcript/generation.py
+  - src/hivememory/prompts/transcript/actions.py
+  - src/hivememory/i18n/prompts.py
   - src/hivememory/patchouli/services/memory_generation.py
   - src/hivememory/patchouli/control/memory_generation/
 related_contracts:
@@ -15,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-21
 ---
 
 # 记忆生成
@@ -65,11 +67,34 @@ GenerationContext
        ├─ outcome（completed/cancelled/failed）
        ├─ user_query
        ├─ assistant_final_text
-       ├─ trace_summaries
+       ├─ action_entries（动作段，已按上限截断）
        └─ identity
 ```
 
-它保留对记忆提取有意义的语义，丢弃工具结果正文等执行噪音。Alice 历史从会话 payload 重放，记忆生成从 Topic 的 TurnRecord 取材，两者各自生成适合任务的视图；Generation 不能反向依赖 Alice 的消息渲染格式。
+它保留对记忆提取有意义的语义与过程材料，丢弃 MTP 动作的结果全文（READ、SEARCH 读回的已有记忆会被重复提取）与超出上限的部分。Alice 历史从会话 payload 重放，记忆生成从 Topic 的 TurnRecord 取材，两者各自生成适合任务的视图；Generation 不能反向依赖 Alice 的消息渲染格式。
+
+### 2.1 动作段
+
+动作段（`action_entries`）由 `prompts/transcript/actions.py` 统一渲染，按出现顺序包含三类条目：
+
+- **思考**：`action_id` 显式指向某个动作的思考紧排在该动作之前；未附属于动作的思考（例如第一次工具调用之前的推理）在其事件位置单独成条。事件到动作的归属沿用 `ActionReducer` 的同一条规则，但归约器会把未附属的思考吸附到最近的动作，生成视图不采用这种吸附，否则引出下一步的推理会排到上一个动作的结果之后。空白的思考（例如只有签名的思考块）不渲染。Alice 当前不产生思考事件，它的转写没有这类条目。
+- **外部工具动作**（`tool_kind` 为空的动作，例如经 Import Bus 导入的 harness 工具调用）：渲染工具名、参数摘要与各条结果，出错的结果标为 `RESULT (error)`。工具结果是对外部系统的观察，是记忆提取的重要事实来源。
+- **MTP 动作**（带 `tool_kind` 的动作）：维持一行摘要，SEARCH、READ、RUN 各一行，CALL、WRITE、UPDATE 与无法解析的动作不渲染；不渲染结果。READ、SEARCH 读回的是已有记忆，渲染进生成会把它们重复提取。
+
+截断保留首尾、省略中段并标出省略的字符数，长输出末尾的报错与推理的结论因此得以保留。上限来自 `patchouli.generation.transcript`：
+
+| 配置键 | 默认 | 约束对象 |
+|:---|:---|:---|
+| `max_thought_chars` | 1000 | 单条思考 |
+| `max_args_chars` | 300 | 工具参数摘要 |
+| `max_result_chars` | 800 | 单条工具结果 |
+| `max_turn_action_chars` | 8000 | 一轮动作段的总长度 |
+
+一轮动作段超过单轮上限时，先把外部工具动作全部降为工具名与参数摘要的一行，再按出错的动作优先、其余动作其次、各自由近及远的顺序恢复完整形态，放不下的跳过。全部降为一行后仍超出时，按较早的非出错外部工具动作、MTP 摘要、出错的外部工具动作、思考的顺序由远及近省略整条，并在段首以一行 `OMITTED` 标明省略的条目数。单轮上限是硬上限：只降级而不省略时，大量思考与一行动作仍可使转写远超上限。
+
+截断在构建 `GenerationContext` 时一次完成，渲染为提示词文本时不再截断，多行条目的后续行缩进到条目之下。Perception 估算块的 token 时调用同一个渲染函数、使用同一组上限（见[感知与短期话题](./perception.md)），折叠阈值因此反映生成实际看到的材料。
+
+Mode B/C 的背景同样经这个构建器生成，带有动作段。三种模式的提取提示词（中英文各一份）都说明动作段的含义：THOUGHT 是 Agent 的推理，不能作为事实依据（Mode A 中主要由它得出的内容降低置信度）；TOOL/RESULT 是外部工具的调用与返回，可以作为依据，`(error)` 表示调用出错；SEARCH/READ/RUN 是记忆系统内部操作的一行摘要，Mode A 另外提示读回的已有记忆不要重复提取；省略标记处的内容不要推测。提示词同时要求不把密钥、令牌、密码、证书或连接串中的凭据写入记忆，需要记录相关配置时只保留名称与用途。
 
 `GenerationTranscriptBuilder` 将 `TurnRecord.outcome` 传给 `GenerationTurn`；cancelled/failed 在转写中附 `[Outcome: ...]` 和未正常完成的说明，避免把半截回复视为完整结论。
 
@@ -83,7 +108,7 @@ GenerationEngine 渲染 transcript，调用 extractor 判断长期价值并生�
 
 Extractor 经组合根注入的共享 LLM 服务异步调用模型，请求参数由 `shared.llm.librarian` 转换而来，等待模型期间不阻塞事件循环；Librarian 未配置模型时 extractor 以 No-Op 运行。它区分两种结果：模型输出为空或无法解析为草稿是“没有产出”；提供商失败只重试一次，耗尽后抛出 `ModelProviderError`。Mode A 不捕获该错误，生成任务以 `memory_generation_failed` 失败收尾，不再把提供商故障记录成“对话没有价值”。超窗、程序错误与取消不重试，原样传播；分类见[错误模型](../contracts/error-model.md#46-模型调用错误)。
 
-Mode A 的“被动”指没有显式 WRITE/UPDATE focus，而不是同步发生在用户响应内。它仍作为 Patchouli 后台 memory task 执行。
+Mode A 的“被动”指没有显式 WRITE/UPDATE focus，而不是同步发生在用户响应内，也与 Import Bus 无关：导入的轮次与主动链路的轮次一样进入话题，之后经 settle 参与 Mode A。它仍作为 Patchouli 后台 memory task 执行。
 
 四种 settle 入口（manual / idle / LRU / shutdown）共享同一发起者裁定：Coordinator 按 `belong_to` 构造 `user_id=owner_user_id`、`agent_id=SYSTEM_AGENT_ID`、`team_id=None` 的 `from_actor`，不继承最后访问者或驱逐触发者。`system` 不属于 Team，也不能成为 PRIVATE policy 的目标，普通读取策略因此把 SETTLE 查重限定为本 Workspace 的 PUBLIC 记忆，避免后台结算触碰某个参与 Agent 才可见的 PRIVATE/TEAM 记忆。新建记忆使用 PUBLIC policy、`source_agent_id=SYSTEM_AGENT_ID` 与 `SYSTEM` creation intent；实际参与内容的 Agent 由 `contributing_agent_ids` 从 block identity 聚合（去重、保持首次出现顺序、不含 `system`）。
 
@@ -205,7 +230,7 @@ CPU 有输出（completed/cancelled/failed）-> 封口 InteractionPayload -> 同
 
 Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任务，也不返回任务列表。预检索 HIT 失败只记录 warning，不反向改写 Chat 终态。Finalization continuation 由 Patchouli 进程级持有，HTTP/SSE 调用方取消不会中止已经接管的提交与 post-apply 义务。CPU 失败、取消、进程关闭与失败 CALL 子帧都不撤回此前的显式写入。
 
-主动生成不等待当前交互 applied，不读取当前轮，也不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。有输出轮次的当前交互留在被动话题链中，之后可在 idle/LRU/shutdown 时参与 Mode A；主动保存与被动归档不能通过清空 buffer 相互替代。未完成进程的预建空话题仍可 cleanup，已派发任务保留该 topic_id 作观测，正式原子不保存 topic_id。
+主动生成不等待当前交互 applied，不读取当前轮，也不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。有输出轮次的当前交互留在话题中，之后可在 idle/LRU/shutdown 时参与 Mode A；主动保存与被动归档不能通过清空 buffer 相互替代。未完成进程的预建空话题仍可 cleanup，已派发任务保留该 topic_id 作观测，正式原子不保存 topic_id。
 
 这条解耦边界是对旧链路实际问题的回应。旧实现曾把 MTP WRITE/UPDATE 当作话题结算理由，执行 `archive + compact + clear`：连续两次 WRITE 时，第二次只能看到已经被压扁的 summary；每次主动写还会额外触发一次 summary，使原始细节在明确保存意图下反复丢失。当前实现直接使用 topic 最近 context，并以 `WriteFocus`/`UpdateFocus` 驱动 Mode B/C；主动生成与被动归档保持两条正交流，主动写入后的 blocks 仍可在之后进入 Mode A。
 

@@ -2,7 +2,7 @@
 title: Setup and Run HiveMemory
 status: current
 owner: project
-scope: installation-development-and-docker-startup
+scope: installation-development-docker-startup-and-claude-code-connector
 code_paths:
   - pyproject.toml
   - docker/Dockerfile
@@ -11,14 +11,19 @@ code_paths:
   - frontend/vite.config.ts
   - src/hivememory/server/__main__.py
   - src/hivememory/server/app.py
+  - integrations/.claude-plugin/marketplace.json
+  - integrations/claude-code/
+  - configs/workspace_actors.yaml
 related_contracts:
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-07-28
+related_docs:
+  - docs/system/import-bus.md
+last_reviewed: 2026-10-21
 ---
 
 # 安装与启动 HiveMemory
 
-HiveMemory 当前提供两条明确运行路径：Docker 将前端、后端与 Qdrant 组合为一套本地服务；开发模式则分别运行 Qdrant、Python 后端和 Vite 前端。请先选择一条路径，不要把两套端口和启动命令混用。
+HiveMemory 当前提供两条明确运行路径：Docker 将前端、后端与 Qdrant 组合为一套本地服务；开发模式则分别运行 Qdrant、Python 后端和 Vite 前端。请先选择一条路径，不要把两套端口和启动命令混用。服务运行起来之后，可以按第 9 节把 Claude Code 的对话接入 HiveMemory。
 
 ## 1. 前置条件
 
@@ -204,3 +209,63 @@ npm run build
 - [ ] 页面中的 Memory、Agent 和 Settings 数据已确认来自真实后端而不是 mock fallback。
 
 遇到问题时见[故障排查](./troubleshooting.md)。
+
+## 9. 接入 Claude Code
+
+仓库提供 Claude Code 插件 `hivememory-connector`：Claude Code 的每一轮对话结束后，插件把这一轮（用户消息、回复、Claude Code 本地记录的思考、工具调用与结果）导入 HiveMemory，记忆随日常使用积累。插件只向 HiveMemory 输入，不向 Claude Code 注入记忆；它的 hook 只做本地记录，网络提交在后台进程中完成，HiveMemory 未运行时 Claude Code 照常工作，未导入的轮次在之后被唤醒时按顺序补发。工作原理见 [Import Bus](../system/import-bus.md)。
+
+前置条件：
+
+- HiveMemory 后端已按第 3 节或第 4 节运行；
+- Claude Code 所在环境可以运行 `python3`。插件只用 Python 标准库，不需要安装依赖，也不需要安装 HiveMemory 包。
+
+### 9.1 安装插件
+
+`integrations/.claude-plugin/marketplace.json` 声明了一个本地 marketplace `hivememory-local`，只供本机安装。在 Claude Code 中执行（把路径换成本机仓库的实际位置）：
+
+```text
+/plugin marketplace add <HiveMemory 仓库路径>/integrations
+/plugin install hivememory-connector@hivememory-local
+```
+
+插件挂载 `Stop`、`StopFailure`、`SessionStart` 与 `SessionEnd` 四个 hook。安装时 Claude Code 保存的是插件的副本：仓库中的连接器更新后，需要在 `/plugin` 中更新该插件才会生效。
+
+### 9.2 配置连接器
+
+连接器从环境变量读取配置。hook 由 Claude Code 启动，因此在启动 Claude Code 的环境中设置：
+
+| 环境变量 | 默认值 | 说明 |
+|:---|:---|:---|
+| `HIVEMEMORY_URL` | `http://localhost:8000` | HiveMemory 后端地址。默认值对应 Docker 路径；本地开发路径的后端在 `8769`，需要设为 `http://localhost:8769` |
+| `HIVEMEMORY_USER_ID` | 不设置 | 以哪个用户导入；不设置时使用服务端的默认用户 `default` |
+| `HIVEMEMORY_AGENT_ID` | `claude_code` | 以哪个 Agent 导入；不能使用保留的 `system` |
+| `HIVEMEMORY_CONNECTOR_STATE_DIR` | 见第 9.4 节 | 连接器状态、日志与拒绝记录的目录 |
+
+例如本地开发路径：
+
+```bash
+export HIVEMEMORY_URL=http://localhost:8769
+```
+
+### 9.3 访问登记
+
+导入请求同样经统一认证网关，请求的用户与 Agent 必须在 `configs/workspace_actors.yaml` 中获准进入 Workspace。随仓库发布的登记已经为默认用户 `default` 登记了 `claude_code`，使用默认配置时不需要修改。这条记录的 `allowed_operations` 为空：导入只要求准入，不需要任何 actor 操作，空白名单也使这个 Agent 不继承默认用户的记忆操作权限。
+
+- `HIVEMEMORY_USER_ID` 设为 `default` 以外的用户时，需要为该用户登记记录，否则导入返回 403，连接器停止提交并保留进度；
+- 更换 `HIVEMEMORY_AGENT_ID` 时，默认的用户级记录会覆盖新的 Agent；如果希望它同样只能导入，按 `claude_code` 那条记录的写法为它增加精确记录；
+- 修改登记后重启 HiveMemory。登记规则见[配置指南](./configuration.md#51-访问登记)。
+
+### 9.4 确认导入与排查
+
+连接器的状态目录依次取 `HIVEMEMORY_CONNECTOR_STATE_DIR`、Claude Code 为插件提供的数据目录（`CLAUDE_PLUGIN_DATA`），都没有时使用 `~/.hivememory/claude-code-connector`。目录中：
+
+- `connector.log`：每一轮的确认（`confirmed turn=... status=accepted`）、停止与拒绝，只记录标识与状态，不记录对话内容；
+- `rejections.jsonl`：被放弃的轮次，记录会话与轮次标识、HTTP 状态码与错误码。
+
+使用中需要知道的行为：
+
+- 只导入插件首次运行之后开始的会话；安装前已存在的会话不回填，恢复这类会话后只导入新的轮次。
+- 一轮在结束后才导入：正常结束为 `completed`，因 API 错误结束为 `failed`，被用户中断、被下一条消息打断或随会话结束而结束的为 `cancelled`。
+- 连接器没有常驻进程，只在 hook 触发时被唤醒：一轮结束或会话结束时同步当前会话，会话开始（含恢复会话）时补发全部会话中积压的轮次。HiveMemory 停止期间积压的轮次，会在它恢复后的下一次唤醒时按顺序补发。
+- HiveMemory 暂不可用（连接失败、503）或连接器配置有误（400、403、404）时，连接器保留进度、停止提交，修正后在下一次唤醒时补发；配置有误时日志中的 `stopped` 行带有状态码与错误码。
+- 单轮内容超过服务端的请求体上限（413，默认 8 MiB）或格式被拒绝（422）时，这一轮写入 `rejections.jsonl` 后跳过，不阻塞后续轮次；同一轮连续三次得到 500 也会被跳过。

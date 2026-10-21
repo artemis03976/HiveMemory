@@ -5,11 +5,11 @@ owner: system
 scope: completed-passive-ingest-structure-refactor
 archived_at: 2026-07-28
 superseded_by:
-  - docs/system/passive-ingress.md
+  - docs/system/import-bus.md
   - docs/patchouli/perception.md
 ---
 
-> 本文保留被动摄入结构化改造的演化背景，已停止维护。当前 System 侧去重、缓冲、seal、retry 与降级以[被动摄入](../../../system/passive-ingress.md)为准，Patchouli 内部结构化摄入与话题语义以[感知与短期话题](../../../patchouli/perception.md)为准。
+> 本文保留被动摄入结构化改造的演化背景，已停止维护。被动摄入已于 2026-10-21 由 Import Bus 取代，当前 System 侧的接收、去重、封口与提交以 [Import Bus](../../../system/import-bus.md) 为准，Patchouli 内部结构化摄入与话题语义以[感知与短期话题](../../../patchouli/perception.md)为准。
 
 # Patchouli Passive Ingest 结构化改造方案
 

@@ -7,6 +7,7 @@ code_paths:
   - src/hivememory/gateway/analysis/
   - src/hivememory/gateway/context.py
   - src/hivememory/gateway/topic_context.py
+  - src/hivememory/gateway/workflow/topology.py
   - src/hivememory/engines/gateway/
   - src/hivememory/prompts/gateway.py
   - src/hivememory/infrastructure/llm/base.py
@@ -15,7 +16,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-21
 ---
 
 # Gateway 话题与查询分析
@@ -50,7 +51,7 @@ Provider 负责读取和类型验证，不做决策。Patchouli 若返回非 tup
 
 这种设计避免 Gateway 缓存第二份权威话题状态，也避免把所有活跃话题的完整 transcript 送入模型。代价是路由后可能多一次读取，但失败可以局部降级为“没有 routed topic context”，而不必推翻已经完成的话题选择。
 
-进程另传当前会话最近 `gateway.context_preparation.session_turn_limit` 轮（默认 3）的用户/助手文本。`GatewaySessionTurn` 不携带工具事件、身份或权限；Topic 菜单和路由后辅助背景仍按既有路径读取，会话文本才是指代消解的对话来源。该输入不进入 `GatewayDecision` 或 InteractionPayload；被动摄入不传会话。
+调用方另传最近 `gateway.context_preparation.session_turn_limit` 轮（默认 3）的用户/助手文本，即 `session_turns`。两个调用方各自取得这些轮次：任务进程取当前会话的最近轮次，每轮附上会话记录的落位话题；[Import Bus](../system/import-bus.md) 取请求 `recent_turns` 的最后若干轮，只有最近一轮带外部轮次标识时，才附上它经 Patchouli 交互状态查询得到的真实落点（该轮已应用成功时才有）。`GatewaySessionTurn` 不携带工具事件、身份或权限；其中的 `topic_id` 只供话题路由失败时续接上一轮（第 3 节），不渲染进模型提示词。Topic 菜单和路由后辅助背景仍按既有路径读取，会话文本才是指代消解的对话来源。该输入不进入 `GatewayDecision` 或 InteractionPayload。
 
 ## 3. Topic Router：只做选择
 
@@ -59,9 +60,11 @@ Provider 负责读取和类型验证，不做决策。Patchouli 若返回非 tup
 - 候选列表中的一个 `topic_id`；
 - `NEW_TOPIC`，并在模型成功响应时同时提供非空 title 与 summary。
 
-模型返回候选列表外 ID、非 object、缺少 target 或 `NEW_TOPIC` 缺少标题/摘要时，Engine 抛出 `TopicRouterError`。LLM 服务报告的提供商失败（`ModelProviderError`，含超窗与提供商没有返回文本）和模型 JSON 解析失败也转为该能力错误，再由 workflow 降级到 `NEW_TOPIC`；未知程序错误、投影失败与取消继续传播。QueryUnderstanding 使用同样的窄分类，不把全部 Exception 当作模型不可用；两个 Engine 都不识别提供商 SDK 的异常类型。
+模型返回候选列表外 ID、非 object、缺少 target 或 `NEW_TOPIC` 缺少标题/摘要时，Engine 抛出 `TopicRouterError`。LLM 服务报告的提供商失败（`ModelProviderError`，含超窗与提供商没有返回文本）和模型 JSON 解析失败也转为该能力错误，再由 workflow 按下文的兜底落位；未知程序错误、投影失败与取消继续传播。QueryUnderstanding 使用同样的窄分类，不把全部 Exception 当作模型不可用；两个 Engine 都不识别提供商 SDK 的异常类型。
 
-当 Topic Router 配置为禁用时，Engine 不调用模型并返回默认 `NEW_TOPIC`。当它启用但没有 LLM 服务或 Gateway 请求参数（组件未配置模型）时，Engine 报告能力不可用，workflow 同样降级。两条路径的业务结果接近，但观测原因不同。
+话题路由失败（能力错误、步骤超时或整次请求 deadline 在这一步耗尽）时，workflow 的兜底是续接上一轮：`session_turns` 最近一轮的 `topic_id` 仍在本次候选话题中时，落位到该话题，标题与摘要为空；会话的第一轮、上一轮落位未知、该话题已被驱逐或结算而不在候选中，或候选话题读取本身已降级为空时，按 `NEW_TOPIC`（标题与摘要为空）兜底。同一会话的相邻轮次大多仍在同一话题上，续接比每次失败都新建无标题话题归错的代价小；代价是用户恰在故障期间换话题时，这一轮会被归入旧话题。只认候选中的话题，保证兜底不会落到已经不存在的话题上。这一兜底在 Gateway 内实现，任务进程与 Import Bus 共用。
+
+当 Topic Router 配置为禁用时，Engine 不调用模型，正常返回默认 `NEW_TOPIC`；这不是失败，不走兜底，也就不续接上一轮。当它启用但没有 LLM 服务或 Gateway 请求参数（组件未配置模型）时，Engine 报告能力不可用，workflow 走上述兜底。两条路径的观测原因不同，业务结果也可能不同。
 
 Topic Router 不生成关键词、不判断意图、不读完整 `TopicData`，也不决定是否检索。否则它会重新退化为旧的一步 router。
 
@@ -173,6 +176,7 @@ WRITE 表达式和简单寒暄正则直接写在代码中，语言覆盖有限�
 ## 9. 验证入口
 
 - `tests/unit/gateway/test_context_provider.py`
+- `tests/unit/gateway/test_workflow.py`（话题路由失败时续接上一轮）
 - `tests/unit/gateway/test_analysis_resolver.py`
 - `tests/unit/engines/gateway/test_topic_router.py`
 - `tests/unit/engines/gateway/test_query_understanding.py`
