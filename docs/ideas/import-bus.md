@@ -22,7 +22,7 @@ last_reviewed: 2026-10-20
 
 本文为 Import Bus 的重新设计收集前提与开放问题，不描述当前行为，也不代表排期。现有的被动摄入链路见[被动对话摄入](../system/passive-ingress.md)。
 
-**版本归属**（owner，2026-10-20）：v0.7.1 的版本目标为 plugin 模式接入 Claude Code，对话经 Import Bus 回流（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。首份计划的方向为本文的重设计（owner，2026-10-20），以 Claude Code 的对话回流作为第一条真实路径，让记忆在真实使用中积累。接收方式与第 4 节的全部问题已于同日决定（前提 5，第 4 节），首份计划不再有阻塞问题（步骤汇总见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)第 4 节）。horizon 随之由 `candidate` 改为 `current`。
+**版本归属**（owner，2026-10-20）：v0.7.1 的版本目标为 plugin 模式接入 Claude Code，对话经 Import Bus 回流（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。首份计划的方向为本文的重设计（owner，2026-10-20），以 Claude Code 的对话回流作为第一条真实路径，让记忆在真实使用中积累。接收方式与第 4 节的全部问题已于同日决定（前提 5，第 4 节），首份计划不再有阻塞问题，已建立为 [Import Bus 重设计](../plans/v0.7.1-import-bus-redesign.md)（步骤汇总见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)第 4 节）。horizon 随之由 `candidate` 改为 `current`。
 
 **术语**（owner，2026-09-27）：“被动（Passive）”一词留给被动请求体系，即由条件触发创建任务进程的请求。原先称为“被动输入”的输入链路称 **Import Bus**，最终名称未定，功能可能逐步倾向对话导入。代码与事实文档中的现有名称（Passive Ingress、`PassiveIngressService`、Gateway `PASSIVE_MEMORY`）描述现状，保持不变。
 
@@ -115,6 +115,8 @@ flowchart LR
 | D | 其他 | —— |
 
 **owner 决定（2026-10-20）**：Import Bus 接收的内容与 controller 模式下任务进程封口的交互记录保持相同：同一份 `InteractionPayload`，轮次事件使用相同的 `TurnEvent` 词汇（用户消息、助手消息、思考、工具调用、工具结果），带本轮结局；连接器不做筛选。影响（分析）：相当于选项 B，感知与生成对两条链路的材料一视同仁；harness 的会话记录到 `TurnEvent` 的映射属于读取器（第 5 节）；工具结果带来的成本与噪声在真实使用中观察，样本供价值策略校准。`TurnEvent` 本来就为主动与被动两种链路提供相同的事件语义。
+
+**owner 决定（2026-10-21，生成视图）**：记忆生成的转写纳入思考与外部工具的三元组：两条链路都渲染思考；非 MTP 工具按思考、工具名、参数摘要与截断后的结果渲染，报错优先保留；MTP 动作维持现有的一行摘要；新增的渲染内容计入轮次的 token 统计。这项改动并入首份计划。背景（分析）：上一决定之后核对发现，感知以 `AgentAction` 保存思考、工具调用与结果的三元组并随交互 Artifact 持久化，但生成视图只渲染 SEARCH、READ、RUN 轨迹的一行摘要（[生成](../patchouli/generation.md)第 2 节）；外部工具不产生 MTP 轨迹，导入的轮次在生成时只剩用户消息与最终回复。截断上限、排序与提示词的细节见计划。
 
 ### D-8a 接入认证与目标 Workspace
 

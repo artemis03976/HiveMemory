@@ -29,7 +29,7 @@ v0.7.1 的版本目标为 plugin 模式的真实外部 harness 接入，首个�
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
 | [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两类接入登记（配置装载）、统一认证网关（HTTP 与进程注册已接入；外部 harness 尚未接入）、ingest HTTP 入口与能力层 | 原计划 B 退回：外部 Actor 分为 plugin 与 controller 两种接入模式（plugin 模式为 v0.7.1 的版本目标，首个接入 Claude Code；controller 模式退回候选方向）；外部 Actor 如何登记进系统、运行时如何访问系统，以及操作适配器的接口边界（E-1 已决定维持配置装载；E-3a 已决定以归一化定义操作适配器；E-5 已决定外部执行单元不识别子线程、所有 actor 共享主线程的 context；E-6a 已决定外部 harness 是执行环境、与 agent 分别选择；E-6b 已决定不允许 CALL 的目标位于另一个执行单元；E-2、E-3b、E-4、E-7 待决，E-7 为 plugin 模式下记忆到达 harness 的方式） |
-| [Import Bus：只向网络输入的记忆来源](./import-bus.md) | 现有 Passive Ingress 链路（`/ingest`、turn buffer、交互提交队列）；owner 前提：只向网络输入、两种接收方式、不在核心拓扑上 | plugin 模式对话回流的设计，首份计划的问题均已决定：接入经统一认证网关（D-8a）、接收方式（轮次结束后的完整记录）、Topic 落位（Q-11，经 Gateway 路由）、价值信号（Q-12，沿用 `worth_saving`）、接收范围（Q-13，只接收实时交互）与接收内容（Q-15，与任务进程封口的交互记录相同）已决定；连接器分层与游标的分析 |
+| [Import Bus：只向网络输入的记忆来源](./import-bus.md) | 现有 Passive Ingress 链路（`/ingest`、turn buffer、交互提交队列）；owner 前提：只向网络输入、两种接收方式、不在核心拓扑上 | plugin 模式对话回流的设计，首份计划的问题均已决定：接入经统一认证网关（D-8a）、接收方式（轮次结束后的完整记录）、Topic 落位（Q-11，经 Gateway 路由）、价值信号（Q-12，沿用 `worth_saving`）、接收范围（Q-13，只接收实时交互）与接收内容（Q-15，与任务进程封口的交互记录相同）与生成视图（纳入思考与外部工具三元组）已决定；连接器分层与游标的分析 |
 
 执行线程的正式定义已于 2026-10-19 实施，Idea 移入[归档](../archive/ideas/README.md)，当前事实见 [执行线程](../workspace/execution-threads.md)。版本内状态见 [Plans 导航](../plans/README.md#v071)。
 

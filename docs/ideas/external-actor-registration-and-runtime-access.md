@@ -294,7 +294,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code 文档](https://code.claude.com/docs/en/hooks)核对）：插件可以把 hooks 与 MCP server 打包为一个单元；`UserPromptSubmit` hook 可以在模型处理用户消息之前追加上下文，默认时限 30 秒，超时后追加的上下文被丢弃、消息照常送达；`Stop` hook 的输入带有会话记录文件的路径。由此连接器有两条通路：对话回流由 hooks 在轮次结束时把交互交给 Import Bus；记忆访问经 MCP 工具，或者在用户提交消息时自动检索并注入（E-7）。
 
-**第一步：对话回流（Import Bus 重设计）**（首份计划的方向，owner，2026-10-20）
+**第一步：对话回流（Import Bus 重设计）**（首份计划的方向，owner，2026-10-20；计划：[Import Bus 重设计](../plans/v0.7.1-import-bus-redesign.md)）
 
 - 范围：按 [Import Bus Idea](./import-bus.md)的前提完成 Import Bus 的重设计，以 Claude Code 作为第一条真实路径：Claude Code 插件在轮次结束时把该轮的完整记录交给 Import Bus（流式监听推迟，Import Bus Idea 前提 5），经 Gateway 路由与交互提交队列进入 Patchouli 的感知与记忆生成；连接器的分层与游标见 Import Bus Idea 第 5 节；形成的记忆可在 HiveMemory 前端查看，Alice 的会话可以召回。不读取记忆，也不返回记忆上下文（[Import Bus Idea](./import-bus.md)前提 1）。
 - 验收方向：日常使用 Claude Code 一段时间后，记忆库中出现来自这些会话、来源可查的记忆；HiveMemory 服务不可用时不阻塞 Claude Code。

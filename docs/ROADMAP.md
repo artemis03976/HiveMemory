@@ -35,7 +35,7 @@ last_reviewed: 2026-10-20
 当前版本事实如下：
 
 - 最近已发布基线：`v0.7.0`（Git tag，2026-10-20）；[收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
-- 当前开发版本：`v0.7.1`，版本目标为 plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code（owner，2026-10-20），状态为 Planned，正式 Plan 待建立（第 4.3 节）。
+- 当前开发版本：`v0.7.1`，版本目标为 plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code（owner，2026-10-20），状态为 Planned；首份计划 [Import Bus 重设计](./plans/v0.7.1-import-bus-redesign.md)已建立（第 4.3 节）。
 
 当前规范代码版本为 `0.7.0`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致，与最近已发布标签 `v0.7.0` 对应；v0.7.1 开发期间合入的内容在版本收尾时升版。
 
@@ -112,7 +112,7 @@ last_reviewed: 2026-10-20
 
 | 目标版本或工作流 | 状态 | 目标结果 | 依赖与实施入口 |
 |:---|:---:|:---|:---|
-| `v0.7.1` 外部 harness 的 plugin 模式（首个：Claude Code） | Planned / v0.7.1 版本目标（2026-10-20） | HiveMemory 以插件形式挂载在 Claude Code 中，不接管对话：对话经 Import Bus 回流进入记忆生成，Claude Code 经 MCP 工具检索与读取记忆；在用户的日常使用中形成“外部 harness + Patchouli”的跨会话闭环 | v0.7.0 的能力层；现有 [Passive Ingress](./system/passive-ingress.md) 与 ingest 入口为代码基础；[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)、[Import Bus Idea](./ideas/import-bus.md)；正式 Plan 待建立 |
+| `v0.7.1` 外部 harness 的 plugin 模式（首个：Claude Code） | Planned / v0.7.1 版本目标（2026-10-20） | HiveMemory 以插件形式挂载在 Claude Code 中，不接管对话：对话经 Import Bus 回流进入记忆生成，Claude Code 经 MCP 工具检索与读取记忆；在用户的日常使用中形成“外部 harness + Patchouli”的跨会话闭环 | v0.7.0 的能力层；现有 [Passive Ingress](./system/passive-ingress.md) 与 ingest 入口为代码基础；[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)、[Import Bus Idea](./ideas/import-bus.md)；首份计划：[Import Bus 重设计](./plans/v0.7.1-import-bus-redesign.md) |
 | `v0.7.2` Cold Start, Historical Import & Document Ingestion | Candidate | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | v0.7.0 的资源边界、外部 Actor 接入契约的身份/来源/提交语义、记忆价值策略最小切片；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md)；导入与文档分别建 Plan |
 | `v0.7.3` MTP READ 专项编译与来源表达 | Candidate | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | [v0.7.0 A2-P 完整记忆历史](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、v0.7.2 provenance；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md)；正式 Plan 待建立 |
 | `v0.7.4` Deep Research MVP | Candidate | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 资源边界、Document/READ、实际执行能力、明确恢复范围；正式 Plan 待建立 |
@@ -123,11 +123,11 @@ last_reviewed: 2026-10-20
 
 ### 4.3 v0.7.1：版本目标
 
-状态：Planned（owner，2026-10-20），正式 Plan 待建立。
+状态：Planned（owner，2026-10-20）；首份计划 [Import Bus 重设计](./plans/v0.7.1-import-bus-redesign.md)已建立（planned，2026-10-21）。
 
 - **版本目标**：plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code（第 4.4 节）。目的是让外部 harness 在用户真实的日常使用中使用 Patchouli 记忆，以此开始检验记忆系统的闭环；它对应 [VISION](./VISION.md) 的兼容轨，以及第 6 节评估中的“外部 harness + Patchouli”对照组。
 - **排序依据**（owner，2026-10-20）：同日先定的 controller 模式目标改为 plugin 模式。各家 harness 的程序化接口开放程度不一（[接口调研快照](./research/harness-interface-survey-snapshot.md)），controller 模式能达到的控制效果取决于被接入方；非侵入的 plugin 模式更容易得到各家生态的支持，用户也继续在 harness 自己的界面中工作，真实的日常使用才会发生。记忆系统的核心机制自 MVP 以来进展较少，当前优先以真实使用检验它。controller 模式退回候选方向（第 5.6 节）。
-- **分步实施**：版本目标按小步分别建立计划。plugin 模式由对话回流（经 Import Bus 进入记忆生成）与记忆访问（经 MCP 工具调用能力层）两部分组成。首份计划的方向为 Import Bus 的重设计（owner，2026-10-20）：以 Claude Code 的对话回流作为第一条真实路径，让记忆在真实使用中积累；记忆访问在其后。对话回流以 harness 一轮结束后的完整记录接收、仍经 Gateway 路由并沿用现有价值信号，接收内容与任务进程封口的交互记录相同，交互标识由服务端按连接器提供的外部标识推导，接入经统一认证网关（owner，2026-10-20），设计见 [Import Bus Idea](./ideas/import-bus.md)，首份计划已无阻塞问题；记忆访问的阻塞问题是不建进程的 actor 访问与连接方的身份证明（[第五代架构 Idea](./ideas/fifth-generation-architecture.md) P-9c、P-1c）、传输与操作适配器的位置（外部 Actor Idea E-2、E-3b）以及记忆到达 harness 的方式（E-7）。能以保留的 `system` 进入 root API 的只有 HTTP 入口的管理访问（owner，2026-10-20），登记外部来源之前在接入登记中落实（[身份与访问体系 Idea](./ideas/identity-and-access-model.md#4-已登记的暂缓与例外)第 4 节）。各步的范围见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。
+- **分步实施**：版本目标按小步分别建立计划。plugin 模式由对话回流（经 Import Bus 进入记忆生成）与记忆访问（经 MCP 工具调用能力层）两部分组成。首份计划的方向为 Import Bus 的重设计（owner，2026-10-20）：以 Claude Code 的对话回流作为第一条真实路径，让记忆在真实使用中积累，同时把思考与外部工具的三元组纳入记忆生成的转写（owner，2026-10-21）；记忆访问在其后。对话回流以 harness 一轮结束后的完整记录接收、仍经 Gateway 路由并沿用现有价值信号，接收内容与任务进程封口的交互记录相同，交互标识由服务端按连接器提供的外部标识推导，接入经统一认证网关（owner，2026-10-20），设计见 [Import Bus Idea](./ideas/import-bus.md)，首份计划已无阻塞问题；记忆访问的阻塞问题是不建进程的 actor 访问与连接方的身份证明（[第五代架构 Idea](./ideas/fifth-generation-architecture.md) P-9c、P-1c）、传输与操作适配器的位置（外部 Actor Idea E-2、E-3b）以及记忆到达 harness 的方式（E-7）。能以保留的 `system` 进入 root API 的只有 HTTP 入口的管理访问（owner，2026-10-20），登记外部来源之前在接入登记中落实（[身份与访问体系 Idea](./ideas/identity-and-access-model.md#4-已登记的暂缓与例外)第 4 节）。各步的范围见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。
 - **规模控制**（owner，2026-10-20）：v0.7.1 期间不新增只服务 controller 模式的机制；每份计划写明它针对的已观察问题或待验证的核心假设（[VISION](./VISION.md) 第 10.10 节）。真实使用开始后，后续主线转向由使用中观察到的问题驱动 Patchouli 核心机制的改进，样本同时供第 4.8 节的价值策略校准。
 - **执行基座与沙箱基线**：原排期在 v0.7.1，暂不考虑（owner，2026-10-20），见第 5.4 节。plugin 模式下 HiveMemory 不执行代码，harness 的工具由其自身管理。
 
