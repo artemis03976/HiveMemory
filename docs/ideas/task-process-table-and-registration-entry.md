@@ -13,7 +13,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/execution-environment.md
   - docs/ideas/import-bus.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # 任务进程表与任务请求唯一注册入口
@@ -100,7 +100,7 @@ owner（2026-10-01）决定这一阶段先不考虑被动请求，避免现在�
 
 ### Q-5b `PASSIVE_MEMORY` 模式的去留
 
-Gateway 的 `PASSIVE_MEMORY` 模式只服务于 Import Bus，它的去留取决于 [Import Bus Idea](./import-bus.md) 的 Q-11 与 Q-12。
+Gateway 的 `PASSIVE_MEMORY` 模式只服务于 Import Bus，它的去留取决于 [Import Bus Idea](./import-bus.md) 的 Q-11 与 Q-12。2026-10-20：随 Import Bus Idea 的 Q-11（仍经 Gateway 路由）与 Q-12（沿用现有 `worth_saving`）收口：该模式保留路由与价值信号，去掉检索。
 
 ### Q-7 进程表是否收录后台任务
 
@@ -119,6 +119,7 @@ Alice 在进程内运行，进程能取消它，也知道它何时结束。外�
 - **Q-8a 回收方式**：请求方显式关闭 / TTL / 心跳 / 组合；
 - **Q-8b 取消语义**：网络对外部执行单元的取消能做到什么程度（例如吊销访问、通知外部方），各项分别是否纳入；
 - **Q-8c 粒度**：外部 harness 的一轮对应一个进程 / 一个外部会话对应一个进程 / 由接入适配层决定。
+  - 影响（分析，2026-10-20）：harness 自身的会话是否跨轮保留，属于外部执行单元内部的实现，网络不感知。会话原文由网络持有，是唯一的事实来源；执行单元内部的任何状态都只是缓存，丢失后可以从会话重建（[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节的 2026-10-20 修订）。跨轮保留可以让 harness 自己维持上下文与压缩，代价是执行单元需要管理闲置的会话；每轮重建则需要 harness 能接收注入的历史，长对话的压缩由谁承担随之成为问题（[外部 harness 接口调研需求](../research/harness-interface-survey.md) B2、B4）。
 
 ### plugin 模式与进程模型的交界
 
@@ -126,6 +127,13 @@ Alice 在进程内运行，进程能取消它，也知道它何时结束。外�
 
 - plugin 模式不建进程，它提交的 `InteractionPayload` 中 `interaction_id` 如何取值（任务进程以 `process_id` 为值）；
 - 同一 harness 同时以 plugin 模式上报对话、又以 controller 模式运行任务进程时，交互记录如何避免重复。
+
+2026-10-20：v0.7.1 的版本目标为 plugin 模式接入 Claude Code，controller 模式退回候选方向（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。第一项阻塞首份计划的方向“对话回流（Import Bus 重设计）”（同文第 4 节）；现有 Passive Ingress 在每轮 user 事件开始时生成带 `passive_` 前缀的 `interaction_id`，重试时沿用（[被动对话摄入](../system/passive-ingress.md)）。第二项只在两种模式并存时出现，不阻塞 v0.7.1。
+
+**owner 决定（2026-10-20，第一项）**：由连接器为每一轮提供该轮在 harness 中的外部标识，同一轮重发时不变，优先从 harness 自己的轮次标识推导（例如 Codex hook 输入中的 `turn_id`），不在每次发送时随机生成。服务端按认证得到的 principal、来源、外部会话与该轮的外部标识推导 `interaction_id`，加上区别于 `process_id` 的命名空间；收到一轮时先以该标识查重，已被提交队列接纳的直接返回重复，不再路由。连接器与接收契约见 [Import Bus Idea](./import-bus.md#5-连接器的分层与游标分析2026-10-20)第 5 节。
+
+- 理由（分析）：提交队列以 `interaction_id` 作为工作项标识与幂等键，同一标识携带不同载荷时报错；Patchouli 的应用日志同样拒绝同一标识下不同的输入，而输入摘要包含 Workspace 归属。每次随机生成会让重发变成新的交互；直接采用外部给出的字符串，可能与其他来源或 `process_id` 撞号，导致合法提交被拒绝或被当作重复丢弃；纳入 principal 后，不同连接器无法互相占用标识。Gateway 路由在提交之前执行且结果写入载荷，重发时若重新路由，载荷可能不同而被判为冲突，所以查重必须先于路由。外部的幂等键与 `interaction_id` 由此合为一个，不再像现有 `/ingest` 那样以 `external_event_id` 去重、另由服务端生成 `interaction_id`。
+- 已知限制：去重记录只保存在进程内且有容量上限，接纳之后、确认送达之前服务重启，重发会形成重复的交互，与现有被动摄入不承诺跨进程恰好一次一致。同一外部标识携带不同内容（例如读取器升级后解析结果变化）应显式报冲突，检测需要另存原始记录的摘要；首份计划可以先把这种情况记为连接器缺陷。
 
 ## 4. 相关文档
 
@@ -135,5 +143,5 @@ Alice 在进程内运行，进程能取消它，也知道它何时结束。外�
 | [执行环境 Idea](./execution-environment.md) | 执行环境的选择（T-8）决定 CPU 分配记入进程记录的内容 |
 | [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 会话承载对话连续性；2.1、2.2 随它与流式同步的设计决定 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | controller 模式使用本文的进程模型（Q-3b、Q-8），plugin 模式不建进程 |
-| [Import Bus Idea](./import-bus.md) | Q-5b 的前提 |
+| [Import Bus Idea](./import-bus.md) | Q-5b 的前提（已随其 Q-11、Q-12 收口）；plugin 模式提交的 `interaction_id` 推导所在的接收契约 |
 | [Chat Run 生命周期后续候选](./chat-run-lifecycle-follow-ups.md) | 进程生命周期的其他候选改进 |

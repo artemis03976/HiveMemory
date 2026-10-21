@@ -3,7 +3,7 @@ title: 执行环境
 status: idea
 horizon: candidate
 owner: project
-scope: agent-and-execution-environment-selection-combination-validity-and-cpu-output-vocabulary
+scope: agent-and-execution-environment-selection-combination-validity-harness-tool-permissions-and-cpu-output-vocabulary
 code_paths:
   - src/hivememory/workspace/contracts/
   - src/hivememory/workspace/process/
@@ -15,16 +15,16 @@ related_docs:
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # 执行环境
 
 ## 0. 文档性质
 
-本文收集执行环境一侧尚未决定的方向：agent 与执行环境的分别选择（前提 9、10，T-7、T-8），以及不同执行环境交回的输出使用谁的词汇（T-10）。本文不描述当前行为，也不代表排期。
+本文收集执行环境一侧尚未决定的方向：agent 与执行环境的分别选择（前提 9、10，T-7、T-8），不同执行环境交回的输出使用谁的词汇（T-10），以及外部 harness 自身工具的权限应答与工作目录（T-11）。本文不描述当前行为，也不代表排期。
 
-- **理念与用语**：理念见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.3 节“执行者可以替换”；执行一侧的用语（CPU、CPU 驱动、harness 实例、执行线程、操作适配器、请求入口）见同文第 2 节。
+- **理念与用语**：理念见[第五代架构 Idea](./fifth-generation-architecture.md)第 3.3 节“执行者可以替换”；执行一侧的用语（CPU、执行单元、驱动、执行线程、操作适配器、请求入口）见同文第 2 节（2026-10-20 修订）。
 - **当前设计**：见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节。
 - **编号**：前提与问题沿用原编号。
 
@@ -35,7 +35,7 @@ last_reviewed: 2026-10-19
 
 ## 1. 前提（owner 提出）
 
-**前提 9**（2026-10-06）：**agent 与执行环境解耦**。外部 harness 最初被视为一个单独的 agent，现在它是一个执行环境（执行单元的 backend）。理论上可以在外部 harness 之上再应用 Agent Profile（例如作为系统提示词），外部协议是否支持另当别论。用户在前端或任何交互环境中分别选择要使用的 agent 与执行环境。
+**前提 9**（2026-10-06）：**agent 与执行环境解耦**。外部 harness 最初被视为一个单独的 agent，现在它是一个执行环境（2026-10-20 用语修订后，执行环境即执行单元面向用户的称呼）。理论上可以在外部 harness 之上再应用 Agent Profile（例如作为系统提示词），外部协议是否支持另当别论。用户在前端或任何交互环境中分别选择要使用的 agent 与执行环境。
 
 - 分析：agent 的身份、访问登记、记忆可见性与权限都只跟随 agent，由 HiveMemory 强制执行，与执行环境无关；更换执行环境不改变 agent 能看到什么、能做什么。
 - 分析：Profile 中的执行参数（persona、`model_name`、`temperature`、`top_p`、`language`）能否生效取决于执行环境，对外部 harness 只能尽力应用；应用结果的承载见第五代架构 Idea P-10a。按 ACP 仓库文档（2026-10-06 核对），`session/new` 的参数为 `cwd`、`mcpServers` 等，未见系统提示词字段；模型只能在 harness 自己声明的配置项（`configOptions` 中 `category` 为 `model` 的选项）中经 `session/set_config_option` 选择。persona 只能作为首轮 prompt 内容或各 harness 私有的扩展注入，约束力弱于系统提示词。
@@ -50,18 +50,18 @@ last_reviewed: 2026-10-19
 
 ## 2. 开放问题
 
-每个问题只列出选项及其影响，选项顺序不代表倾向。T-7、T-8 不在 v0.7.0（owner，2026-10-06）：只有 Alice 一个执行环境时，选择机制没有可验收的对象；前提 9、10 已确定执行环境与 agent 的关系，之后接入外部执行环境不需要再改动拓扑。
+每个问题只列出选项及其影响，选项顺序不代表倾向。T-7、T-8 不在 v0.7.0（owner，2026-10-06）：只有 Alice 一个执行环境时，选择机制没有可验收的对象；前提 9、10 已确定执行环境与 agent 的关系，之后接入外部执行环境不需要再改动拓扑。2026-10-20 v0.7.1 的版本目标曾定为 controller 模式的真实外部 harness 接入，同日改为 plugin 模式（owner）；controller 模式退回候选方向，本文的 horizon 随之由 `current` 改为 `candidate`。重新排期时，T-7、T-8、T-11 阻塞首个外部驱动的纯文本闭环，T-10 在出现工具事件的步骤之前决定（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#controller-模式的步骤分析退回候选方向)）。plugin 模式下 HiveMemory 不选择执行环境，本文的问题都不涉及。
 
 ### T-7 agent 与执行环境组合的有效性
 
 按前提 9，用户分别选择 agent 与执行环境，并非每个组合都有效。例如 Profile 指定的模型不在 harness 声明的模型配置项中；harness 无法注入 persona；执行环境要求的工作目录等条件不满足。
 
-- **T-7a 校验时点**：注册入口创建进程之前 / CPU 分配时，在 Patchouli prepare 之前（与 Profile 解析当前的时点相同） / 执行开始后由 CPU 驱动报告 / 其他。影响：Profile 提前到 prepare 之前解析，是因为 prepare 可能新建 Topic 或按 LRU 结算已有话题，这些副作用不可逆（[任务进程 Idea](./task-process-table-and-registration-entry.md) 2.2）；组合在 prepare 之后才被判定无效，会留下同样的副作用。
+- **T-7a 校验时点**：注册入口创建进程之前 / CPU 分配时，在 Patchouli prepare 之前（与 Profile 解析当前的时点相同） / 执行开始后由执行单元报告 / 其他。影响：Profile 提前到 prepare 之前解析，是因为 prepare 可能新建 Topic 或按 LRU 结算已有话题，这些副作用不可逆（[任务进程 Idea](./task-process-table-and-registration-entry.md) 2.2）；组合在 prepare 之后才被判定无效，会留下同样的副作用。
 - **T-7b 无法完全应用时的处理**：拒绝请求 / 降级运行并报告未生效的项（第五代架构 Idea P-10a） / 按 Profile 字段区分：模型不可用时拒绝，persona 无法注入时降级 / 其他。
 
 ### T-8 执行环境选择的承载与系统层级的控制
 
-前提 10 已决定只有用户能选择执行环境、只能在对话开始前选择，且不是 workspace 的能力；owner 倾向由系统层级控制。现在 chat 请求只携带 `agent_id`，组合根只注入 Alice 一个 CPU 驱动。
+前提 10 已决定只有用户能选择执行环境、只能在对话开始前选择，且不是 workspace 的能力；owner 倾向由系统层级控制。现在 chat 请求只携带 `agent_id`，组合根只注入 Alice 一个执行单元。
 
 - **T-8a 选择的承载位置**：作为会话的属性在对话开始时确定，此后各任务进程从会话取得 / 每次请求都携带，由入口校验它与对话开始时的选择一致 / 其他。影响：会话模型见[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md#01-会话模型与-topic-池owner2026-09-28) 0.1；无论哪一项，选择都要作为任务参数到达 CPU 分配，并记入进程记录（[任务进程 Idea](./task-process-table-and-registration-entry.md) 2.3）。
 - **T-8b 默认值**：系统默认的执行环境（当前为 Alice） / Agent Profile 中声明的偏好 / 用户设置 / 其他。影响：由 Profile 声明偏好会让 agent 与执行环境重新部分耦合（前提 9）。
@@ -78,12 +78,19 @@ last_reviewed: 2026-10-19
 进程封口、会话写入与 finalize 依赖的 `CPUExecutionResult` 字段（`status`、`final_text`、`turn_events` 的结构、`has_output`）已经是类型化契约，不在本问题范围内。
 
 - 选项：
-  - workspace 定义中立的交互事件、失败原因与历史事件内容（工具名、参数与结果，而非协议原文），各 CPU 驱动映射过去，进程把中立事件投影为 SSE；
+  - workspace 定义中立的交互事件、失败原因与历史事件内容（工具名、参数与结果，而非协议原文），各执行单元映射过去，进程把中立事件投影为 SSE；
   - 把 Alice 现有的词汇定为公开契约，外部驱动翻译为同一词汇，无法提供的事件缺省，失败原因只使用适用的值；
   - 各执行环境声明自己的词汇，进程透传并标注来源，前端与下游按执行环境分别解释；
   - 其他。
 - 影响：第一项需要迁移 SSE 契约与前端，Alice 的流式适配器与结果组装改为产出中立类型，Alice 特有的信息（MTP 原文、CALL 边界、压缩阶段）要么进入中立模型的扩展字段，要么只留在 Alice 内部；第二项不改现有代码与前端，但事件名称与外部 harness 的概念不符，翻译规则按 harness 分别维护；第三项让前端、记忆生成与 Gateway 都要随每个新执行环境改动，与前提 9“更换执行环境不改变 agent 能看到什么”的取向相悖。server 层与 SSE 投影脱节的既有模型见 [v0.7.0 代码收敛清单](../archive/todo/v0.7.0-code-convergence.md)第 1.5 条。
-- 不在 v0.7.0：只有 Alice 一个执行环境时，三项的可观察行为相同；需要在 v0.7.1 controller 模式的驱动计划之前决定。
+- 不在 v0.7.0：只有 Alice 一个执行环境时，三项的可观察行为相同；需要在 controller 模式的驱动计划之前决定。纯文本闭环只回传正文与终态字段，三项的行为仍然相同；harness 主动使用记忆后，能力层操作出现在交互事件中，届时需要决定。
+
+### T-11 harness 自身工具的权限应答与工作目录
+
+**背景**（2026-10-20）：controller 模式下外部 harness 继续使用自己的工具和执行环境（[ROADMAP](../ROADMAP.md) 第 5.6 节），编码类 harness 的工具会修改文件、执行命令，作用于工作目录。harness 在执行这类工具前可能请求授权，例如 ACP 的 `session/request_permission` 由客户端应答（外部 Actor Idea E-5 的依据）；由执行单元无人值守地驱动 harness 时，没有人直接回答这些请求。这关系到 HiveMemory 把宿主机的哪些部分交给 harness。
+
+- **T-11a 权限请求的应答**：驱动一律拒绝 / 按 harness 登记中配置的策略自动应答 / 转交 HiveMemory 前端由用户确认 / 其他。影响：一律拒绝最保守，但编码类任务可能无法完成；自动允许等于把宿主机交给 harness 的工具，需要与[执行安全治理](../governance/security/identity-and-execution-safety.md)中受信任执行与强隔离的区分一致；转交用户需要新的交互事件和等待语义，与 T-10 以及停止时的取消（任务进程 Idea Q-8b）相关。
+- **T-11b 工作目录**：在 harness 登记中固定一个目录 / 按 Workspace 或会话分配独立目录 / 用户选择执行环境时指定 / 其他。影响：工作目录是 T-7 中组合有效性的条件之一，指定位置与 T-8a 的承载位置相关；按会话分配需要定义目录的创建、保留与清理。
 
 ## 3. 相关文档
 

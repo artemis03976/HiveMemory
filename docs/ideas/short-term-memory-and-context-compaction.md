@@ -14,7 +14,8 @@ related_ideas:
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
-  - docs/ideas/agent-context-compaction-research.md
+related_docs:
+  - docs/research/agent-context-compaction-research.md
 related_todos:
   - docs/todo/conversation-compact-command.md
 last_reviewed: 2026-10-17
@@ -150,4 +151,4 @@ flowchart LR
 - Topic 优化需先确定完整资料交接与工作视图边界，再明确 Relay 语义、summary-only、生成证据与失败策略；不因复用 Alice 的估算或摘要机制而改变 Topic 的资料所有权。
 - 原始资料持久化、编辑/回退/分支后的来源版本与视图失效，由 Raw Evidence 及各自专项供料；不因本文引入摘要就承诺跨重启恢复。
 
-技术调研与固定源码证据见 [Agent Harness 会话压缩技术调研](./agent-context-compaction-research.md)。本文维护 HiveMemory 的候选设计；调研报告中的外部项目快照不在此复制，也不替代 owner 决定。
+技术调研与固定源码证据见 [Agent Harness 会话压缩技术调研](../research/agent-context-compaction-research.md)。本文维护 HiveMemory 的候选设计；调研报告中的外部项目快照不在此复制，也不替代 owner 决定。

@@ -19,7 +19,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/pending-intent-migration.md
   - docs/ideas/import-bus.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # 第五代架构：Workspace 网络
@@ -67,8 +67,8 @@ last_reviewed: 2026-10-19
 |:---|:---|:---|
 | ME 网络 | Workspace | 资源归属与访问的边界，承载认证、能力层、读取视图、写入意图登记与进程表等网络设施 |
 | 存储系统 | Patchouli | 只持有已接收的记忆资产，负责它们的生成、检索与维护 |
-| 合成 CPU | 执行单元（CPU） | Alice、外部 harness 等；一个执行单元内可以有多个执行线程（actor） |
-| 合成任务 | 任务进程 | 一次任务请求从注册到结束的全部工作状态 |
+| 合成 CPU | 执行单元 | CPU 的常驻实例，如 Alice、外部 harness；与任务的生命周期无关，任务进程把打包好的任务交给它，中间工作状态只在其内部；一个执行单元内可以有多个执行线程（actor） |
+| 合成任务 | 任务进程 | 网络一侧的一次任务：从注册到结束的打包、分配、权限、取消与结果接收；执行单元内部的工作状态不在其中 |
 | 玩家在合成终端下单 | 主动请求 | 用户的指令即时驱动任务进程 |
 | 合成卡、请求器等自动下单方 | 被动请求 | 条件满足时创建任务进程，如定时任务、队列任务 |
 | 玩家在 ME 终端直接存取 | root 直接通道 | 管理操作经 root API 直接执行，不建进程 |
@@ -77,17 +77,19 @@ last_reviewed: 2026-10-19
 
 两个维度要分开：**请求方**回答谁让网络做事（主动请求、被动请求），**执行者**回答谁来做（执行单元）。同一个外部 harness 可以有两个侧面：**执行侧面**是被进程经 CPU 端口驱动的执行单元，**接入侧面**是经操作适配器调用能力层的调用方。管理员与 plugin 模式的 harness 只有接入侧面，Alice 两个侧面都有。
 
-执行一侧的用语（owner，2026-10-06）：
+执行一侧的用语（owner，2026-10-06，2026-10-20 修订）：
 
 | 用语 | 含义 |
 |:---|:---|
-| CPU（执行单元） | 执行流程的顶层抽象；运行时即 CPU 驱动加上它驱动的 harness 实例 |
-| CPU 端口 | 任务进程调用执行单元的统一接口，由 workspace 定义 |
-| CPU 驱动 | CPU 端口的实现，按协议编写：把输入清单与控制翻译为 harness 的协议，把输出翻译回事件流与终态结果；一个驱动可以覆盖支持同一协议的多个 harness |
-| harness 实例 | 执行单元内部的 backend；面向用户称**执行环境**，与 agent 分别选择 |
+| CPU | 执行者的抽象：任务进程只经 CPU 端口与它交互，不依赖任何具体实现 |
+| CPU 端口 | 任务进程调用 CPU 的统一接口，由 workspace 定义 |
+| 执行单元 | CPU 的常驻实例，内含实际的 backend：常驻在网络中，与任务的生命周期无关；任务进程在 Actor 阶段把打包好的任务交给它，最后取回终态结果，中间的工作状态只存在于其内部。面向用户称**执行环境**，与 agent 分别选择。Alice（`AliceCPU`）是当前唯一的执行单元 |
+| 驱动 | 实现执行单元的代码，按协议或产品编写：把输入清单与控制翻译为 backend 的协议，把输出翻译回事件流与终态结果；同一份驱动可以配出多个执行单元，例如一个 ACP 驱动对应多个支持 ACP 的 harness |
 | 执行线程（actor） | 执行单元内的执行者：发起任务的 agent 是主线程，CALL 派生的子 agent 是子线程；一个线程对应一个 `ActorIdentity`，也是它所发起操作的发起者 |
-| 操作适配器 | 把外部协议的请求归一化为能力层的一次调用；执行单元内的适配器只产出操作请求，由执行单元附上线程 context 提交；属于接入侧面，不在 CPU 驱动之内 |
+| 操作适配器 | 把外部协议的请求归一化为能力层的一次调用；执行单元内的适配器只产出操作请求，由执行单元附上线程 context 提交；属于接入侧面，不在驱动之内 |
 | 请求入口 | 任务请求进入唯一注册入口的传输入口，例如 HTTP 的 `POST /chat` |
+
+2026-10-20 修订（owner）：执行单元原与 CPU 同义，现改指 CPU 的常驻实例，对应 AE2 中常驻在网络里的合成单元；原“执行单元内部的 backend（harness 实例）”并入执行单元；原“CPU 驱动”指 CPU 端口的实现，现在这个对象称执行单元，驱动只指实现它的代码。事实文档与代码中“CPU 驱动（`AliceCPU`）”的说法指的就是执行单元，命名随首份计划的实施修订。相应地，任务进程是网络一侧的一次任务：打包输入、分配、签发线程权限、取消与接收结果；“CPU 分配”在接入外部执行单元后同时包括选择执行单元。执行单元内部的任何状态（例如外部 harness 自己的会话）都只是缓存：会话原文由网络持有，是唯一的事实来源。AE2 中一个合成单元同时只处理一个任务；HiveMemory 的执行单元可以同时承担多个任务进程，各任务的工作状态在其内部隔离，容量是否设限另行考虑，容量不等于授权（[AE2 Idea](./ae2-hivememory-architecture-analogy.md) 6.4）。
 
 “kernel”是早期架构遗留的命名，不再作为概念使用。
 
@@ -105,7 +107,7 @@ flowchart TB
         SHARED["共享设施<br/>读取视图 / 写入意图登记 / 资产仓库 / 会话"]
     end
 
-    subgraph CPUS["执行单元（CPU）"]
+    subgraph CPUS["执行单元（CPU 的常驻实例）"]
         ALICE["Alice"]
         HARN["外部 harness<br/>controller 模式"]
     end
@@ -337,7 +339,7 @@ flowchart TB
 Principal 认证目前只检查声称的 principal 是否已登记、adapter 是否匹配，HTTP 入口的身份取自请求头（[认证与访问登记](../workspace/authentication.md#8-已知限制)第 8 节）。
 
 - **P-1b 请求与进程的归属校验**：请求的 principal 必须与进程注册时一致 / 其他规则；
-- **P-1c 身份证明的实现位置**：各 adapter / 统一认证网关 / 其他。外部服务的身份随外部 Actor 接入一并设计，与[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) E-2（运行时访问的传输承载）相关。
+- **P-1c 身份证明的实现位置**：各 adapter / 统一认证网关 / 其他。外部服务的身份随外部 Actor 接入一并设计，与[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) E-2（运行时访问的传输承载）相关；2026-10-20 起阻塞 v0.7.1 plugin 模式的记忆访问一步（同文第 4 节）。
 
 ### P-3 能力层是否覆盖执行本身
 
@@ -379,14 +381,15 @@ RUN 与 CALL 已是 actor 操作，授权进入能力层；系统工具暂不设
 
 ### P-9 不建进程的访问
 
-- **P-9c 不建进程的 actor 访问如何进入 actor API**：root API 只接受 root 的请求级 context，actor API 只接受线程 context；plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计；
+- **P-9c 不建进程的 actor 访问如何进入 actor API**：root API 只接受 root 的请求级 context，actor API 只接受线程 context；plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计；2026-10-20 起阻塞 v0.7.1 plugin 模式的记忆访问一步（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)第 4 节）；
 - **P-9d 进程的定义**：是否把“进程是由执行单元执行的一个任务”确立为定义，3.2 中“root 直接通道与不建进程的接入不是任务”依此成立。
+  - 分析（2026-10-20）：按第 2 节修订后的用语，Gateway、prepare 与 finalize 在网络一侧完成，只有 Actor 阶段交给执行单元；作为定义时宜表述为“进程的 Actor 阶段由一个执行单元执行”。
 
 ### P-10a 外部执行环境应用 Profile 的结果
 
 同一个 Agent Profile 可以在不同执行环境中运行，persona、模型、采样参数与语言在外部 harness 上只能尽力应用。
 
-- 需要承载：由 CPU 驱动报告应用结果（已应用、部分支持、拒绝），随执行结果交回进程，或在 CPU 分配时预先判定（[执行环境 Idea](./execution-environment.md) T-7）；
+- 需要承载：由执行单元报告应用结果（已应用、部分支持、拒绝），随执行结果交回进程，或在 CPU 分配时预先判定（[执行环境 Idea](./execution-environment.md) T-7）；
 - 不需要承载：用户无法得知所选 agent 的 persona 或模型是否真正生效。
 
 ### C core 的内容整理
