@@ -188,6 +188,16 @@ class PatchouliRoutes:
         """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
+    @route("patchouli.public.interaction.wait")
+    async def INTERACTION_WAIT(
+        *, identity_scope: IdentityScope, interaction_id: str, timeout_seconds: float
+    ) -> InteractionStatus | None:
+        """等待交互应用到终态或超时，返回此时的进度；未被接纳时返回 ``None``。
+
+        超时时进度仍为 ``pending``；归属校验与状态查询相同。
+        """
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
     @route("patchouli.public.memory_intent.submit")
     async def MEMORY_INTENT_SUBMIT(
         *, intent: MemoryIntent, identity_scope: IdentityScope
@@ -272,6 +282,7 @@ class PatchouliRoutes:
         MEMORY_READ,
         INTERACTION_SUBMIT,
         INTERACTION_STATUS,
+        INTERACTION_WAIT,
         MEMORY_INTENT_SUBMIT,
         PREPARE_AGENT_RUN,
         FINALIZE_AGENT_RUN,

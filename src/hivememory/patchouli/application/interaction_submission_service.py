@@ -111,6 +111,25 @@ class InteractionSubmissionService:
             topic_id=view.topic_id,
         )
 
+    async def wait_interaction(
+        self, *, identity_scope: IdentityScope, interaction_id: str, timeout_seconds: float
+    ) -> InteractionStatus | None:
+        """等待交互应用到终态或超时，返回此时的进度；未被接纳时返回 ``None``。
+
+        供需要“应用完成后才确认”的提交方使用：成功时进度带真实落点，超时
+        时仍为 ``pending``，队列停止时返回停止那一刻的进度。归属校验与
+        ``interaction_status`` 相同，先于等待完成。
+        """
+        status = await self.interaction_status(
+            identity_scope=identity_scope, interaction_id=interaction_id
+        )
+        if status is None or status.state != "pending":
+            return status
+        await self._queue.wait(interaction_id, timeout=timeout_seconds)
+        return await self.interaction_status(
+            identity_scope=identity_scope, interaction_id=interaction_id
+        )
+
 
 def _progress(state: WorkState | None) -> InteractionProgress:
     """把通用工作状态归为提交方关心的四种进度。"""

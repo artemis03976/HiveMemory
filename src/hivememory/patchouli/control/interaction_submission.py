@@ -16,6 +16,7 @@ from datetime import datetime
 
 from hivememory.components.events.bus import RuntimeEventSink
 from hivememory.components.work_queue import (
+    TERMINAL_WORK_STATES,
     FailureAction,
     FailureDecision,
     QueuePolicy,
@@ -268,6 +269,8 @@ class _StoredSubmission:
     receipt: InteractionSubmissionReceipt
     payload_digest: bytes
     belong_to: WorkspaceIdentity
+    # 第几次提交：应用失败后以同一标识重新提交时递增，决定新工作项的标识。
+    attempt: int = 0
 
 
 @dataclass(frozen=True)
@@ -285,6 +288,11 @@ class InteractionRecordView:
 
 def _digest(payload_bytes: bytes) -> bytes:
     return hashlib.sha256(payload_bytes).digest()
+
+
+def _ended_without_success(state: WorkState) -> bool:
+    """工作项已到终态但没有成功应用：只有这种交互允许以同一标识重新提交。"""
+    return state in TERMINAL_WORK_STATES and state is not WorkState.SUCCEEDED
 
 
 class InteractionSubmissionQueue:
@@ -352,7 +360,12 @@ class InteractionSubmissionQueue:
             self._stopped.set()
 
     async def submit(self, submission: InteractionSubmission) -> InteractionSubmissionReceipt:
-        """规范化并接受一次 submission；重复 interaction_id 只返回原收据。"""
+        """规范化并接受一次 submission；重复 interaction_id 只返回原收据。
+
+        已应用失败的交互允许以同一标识重新提交，载荷可以不同（例如落位的话题
+        已被驱逐，提交方重新路由后再交）：新的提交以递增的尝试号作为工作项
+        标识入队。等待中与已成功的交互仍按原规则幂等，载荷不同时报冲突。
+        """
         if not isinstance(submission, InteractionSubmission):
             raise TypeError("submission must be an InteractionSubmission")
 
@@ -361,21 +374,16 @@ class InteractionSubmissionQueue:
             InteractionSubmissionCodec.schema_version,
             submission,
         )
-        work_id = f"interaction:{submission.interaction_id}"
-        item = WorkItem(
-            work_id=work_id,
-            lane=self.LANE,
-            kind=InteractionSubmissionCodec.kind,
-            schema_version=InteractionSubmissionCodec.schema_version,
-            payload=payload_bytes,
-            ordering_key=submission.ordering_key,
-            correlation_id=submission.correlation.get("turn_id") or submission.interaction_id,
-            idempotency_key=submission.interaction_id,
-        )
+        base_work_id = f"interaction:{submission.interaction_id}"
 
         async with self._submit_lock:
             existing = self._submissions.get(submission.interaction_id)
             if existing is not None:
+                existing_state = await self._runtime.get(existing.receipt.work_id)
+                if existing_state is not None and _ended_without_success(existing_state.state):
+                    return await self._enqueue_locked(
+                        submission, payload_bytes, attempt=existing.attempt + 1
+                    )
                 if existing.payload_digest != _digest(payload_bytes):
                     raise ValueError(
                         f"interaction_id '{submission.interaction_id}' already belongs to another payload"
@@ -384,8 +392,10 @@ class InteractionSubmissionQueue:
 
             # 调用方可能在 store 已接纳、receipt 尚未投影时被取消。稳定 work ID 允许
             # 后续 finalize 恢复该 admission，而不是再次创建 interaction。
-            existing_record = await self._runtime.get(work_id)
+            existing_record = await self._runtime.get(base_work_id)
             if existing_record is not None:
+                if _ended_without_success(existing_record.state):
+                    return await self._enqueue_locked(submission, payload_bytes, attempt=1)
                 if existing_record.item.payload != payload_bytes:
                     raise ValueError(
                         f"interaction_id '{submission.interaction_id}' already belongs to another payload"
@@ -402,21 +412,41 @@ class InteractionSubmissionQueue:
                 await self._trim_submissions_locked()
                 return domain_receipt
 
-            receipt = await self._runtime.enqueue(item)
-            domain_receipt = InteractionSubmissionReceipt(
-                interaction_id=submission.interaction_id,
-                work_id=receipt.work_id,
-                ordering_key=submission.ordering_key,
-                state=receipt.state,
-                enqueued_at=receipt.enqueued_at,
-            )
-            self._submissions[submission.interaction_id] = _StoredSubmission(
-                receipt=domain_receipt,
-                payload_digest=_digest(payload_bytes),
-                belong_to=submission.belong_to,
-            )
-            await self._trim_submissions_locked()
-            return domain_receipt
+            return await self._enqueue_locked(submission, payload_bytes, attempt=0)
+
+    async def _enqueue_locked(
+        self, submission: InteractionSubmission, payload_bytes: bytes, *, attempt: int
+    ) -> InteractionSubmissionReceipt:
+        """入队一次提交并登记旁路索引；调用方持有提交锁。"""
+        work_id = f"interaction:{submission.interaction_id}"
+        if attempt > 0:
+            work_id = f"{work_id}#{attempt}"
+        item = WorkItem(
+            work_id=work_id,
+            lane=self.LANE,
+            kind=InteractionSubmissionCodec.kind,
+            schema_version=InteractionSubmissionCodec.schema_version,
+            payload=payload_bytes,
+            ordering_key=submission.ordering_key,
+            correlation_id=submission.correlation.get("turn_id") or submission.interaction_id,
+            idempotency_key=submission.interaction_id,
+        )
+        receipt = await self._runtime.enqueue(item)
+        domain_receipt = InteractionSubmissionReceipt(
+            interaction_id=submission.interaction_id,
+            work_id=receipt.work_id,
+            ordering_key=submission.ordering_key,
+            state=receipt.state,
+            enqueued_at=receipt.enqueued_at,
+        )
+        self._submissions[submission.interaction_id] = _StoredSubmission(
+            receipt=domain_receipt,
+            payload_digest=_digest(payload_bytes),
+            belong_to=submission.belong_to,
+            attempt=attempt,
+        )
+        await self._trim_submissions_locked()
+        return domain_receipt
 
     async def is_accepted(self, interaction_id: str) -> bool:
         """判断稳定 interaction ID 是否已经由 queue 接管。"""

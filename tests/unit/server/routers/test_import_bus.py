@@ -18,6 +18,7 @@ from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.import_bus import router
 from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.system.services.import_bus import (
+    ImportBusApplyFailedError,
     ImportBusUnavailableError,
     ImportedTurn,
     ImportTurnResult,
@@ -215,12 +216,23 @@ def test_closed_authentication_gateway_returns_retryable_unavailable():
     assert ingestor.calls == []
 
 
-def test_queue_congestion_returns_retryable_unavailable_with_reason():
-    """提交队列拥塞经稳定原因码返回 503，连接器据此保留该轮重发。"""
-    client, _ = _client(_RecordingIngestor(ImportBusUnavailableError(reason="queue_unavailable")))
+@pytest.mark.parametrize("reason", ["queue_unavailable", "apply_pending"])
+def test_retryable_unavailability_returns_503_with_its_reason(reason):
+    """提交队列拥塞与等待应用超时经稳定原因码返回 503，连接器据此保留该轮重发。"""
+    client, _ = _client(_RecordingIngestor(ImportBusUnavailableError(reason=reason)))
 
     response = client.post("/api/v1/import/turns", json=_body())
 
     assert response.status_code == 503
     assert response.json()["error"] == "import_bus.unavailable"
-    assert response.json()["reason"] == "queue_unavailable"
+    assert response.json()["reason"] == reason
+
+
+def test_apply_failure_returns_500_with_stable_error_code():
+    """应用失败返回 500 与稳定错误码：连接器有限次重发，重发时重新路由并再次提交。"""
+    client, _ = _client(_RecordingIngestor(ImportBusApplyFailedError()))
+
+    response = client.post("/api/v1/import/turns", json=_body())
+
+    assert response.status_code == 500
+    assert response.json()["error"] == "import_bus.apply_failed"

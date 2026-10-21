@@ -165,6 +165,10 @@ class PatchouliBridge:
                 self._public_api.interactions.interaction_status,
             ),
             RouteBinding.of(
+                PatchouliRoutes.INTERACTION_WAIT,
+                self._public_api.interactions.wait_interaction,
+            ),
+            RouteBinding.of(
                 PatchouliRoutes.MEMORY_INTENT_SUBMIT,
                 self._public_api.memory_intents.submit_memory_intent,
             ),

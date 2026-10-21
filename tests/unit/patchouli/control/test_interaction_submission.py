@@ -486,6 +486,39 @@ async def test_lookup_reports_real_topic_on_success_and_none_on_failure() -> Non
     ]
 
 
+@pytest.mark.asyncio
+async def test_failed_interaction_can_be_resubmitted_with_a_new_payload() -> None:
+    """应用失败的交互以同一标识重新提交（载荷可以不同），成功后报告新落点；
+    等待中或已成功的交互仍按原规则拒绝不同的载荷。"""
+    attempts: list[str] = []
+
+    async def apply(payload, *, target_topic_id, **_kwargs):
+        attempts.append(target_topic_id)
+        if len(attempts) == 1:
+            raise RuntimeError("target topic evicted")
+        return "topic-rerouted"
+
+    queue = InteractionSubmissionQueue(apply)
+    try:
+        await queue.start()
+        routed_to_old = replace(_submission("interaction-retry"), requested_topic_id="topic-old")
+        first = await queue.submit(routed_to_old)
+        await queue.wait(first, timeout=2)
+        failed = await queue.lookup("interaction-retry")
+        retry = await queue.submit(_submission("interaction-retry"))
+        await queue.wait(retry, timeout=2)
+        succeeded = await queue.lookup("interaction-retry")
+        with pytest.raises(ValueError, match="another payload"):
+            await queue.submit(routed_to_old)
+    finally:
+        await queue.stop()
+
+    assert failed.state == WorkState.FAILED
+    assert retry.work_id != first.work_id
+    assert attempts == ["topic-old", "NEW_TOPIC"]
+    assert (succeeded.state, succeeded.topic_id) == (WorkState.SUCCEEDED, "topic-rerouted")
+
+
 def test_codec_rejects_flattened_identity_projection() -> None:
     """捕获 work payload 同时接受嵌套 scope 与平铺 workspace_id 的缺陷。"""
     codec = InteractionSubmissionCodec()

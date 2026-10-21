@@ -65,6 +65,7 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
     bus = GlobalSystemBus()
     bus.register(PatchouliRoutes.INTERACTION_SUBMIT, submissions.submit_interaction)
     bus.register(PatchouliRoutes.INTERACTION_STATUS, submissions.interaction_status)
+    bus.register(PatchouliRoutes.INTERACTION_WAIT, submissions.wait_interaction)
 
     async def gateway(**kwargs):
         return GatewayDecisionOutcome(
@@ -94,6 +95,7 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
             bus,
             gateway_request_timeout_ms=config.gateway.workflow.default_request_timeout_ms,
             gateway_session_turn_limit=config.gateway.context_preparation.session_turn_limit,
+            apply_wait_seconds=config.import_bus.apply_wait_seconds,
         ),
         operation_authorizer=composition.authorizer,
     )

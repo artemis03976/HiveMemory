@@ -31,11 +31,13 @@ class ImportTurnRequest(ImportedTurn):
 class ImportTurnResponse(BaseModel):
     """导入结果：接纳、重复或因没有输出而跳过，并带推导出的交互标识。
 
-    不暴露 Gateway 决定、话题或记忆上下文；可重试与不可重试的失败经错误
-    信封的状态码区分。
+    ``accepted`` 与 ``duplicate`` 都表示这一轮已经应用；不暴露 Gateway 决定、
+    话题或记忆上下文；可重试与不可重试的失败经错误信封的状态码区分。
     """
 
-    status: ImportTurnStatus = Field(description="accepted、duplicate 或 skipped")
+    status: ImportTurnStatus = Field(
+        description="accepted（本次提交并已应用）、duplicate（此前已应用）或 skipped（没有输出）"
+    )
     interaction_id: str = Field(description="由认证结果与外部标识推导的稳定交互标识")
 
 

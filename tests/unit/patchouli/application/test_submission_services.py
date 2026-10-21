@@ -5,7 +5,7 @@
 - ``submit_interaction`` 经真实内存队列接纳并返回收据投影；队列容量已满或已停止
   以可重试的 ``InteractionAdmissionUnavailableError`` 拒绝；
 - ``interaction_status`` 未接纳时为空，接纳后报告等待中、成功（附真实落点）或失败，
-  同名交互归属其他 Workspace 时报冲突；
+  同名交互归属其他 Workspace 时报冲突；``wait_interaction`` 等到终态或超时；
 - ``submit_memory_intent`` 把中立意图转换为内部生成任务（出站载荷契约），
   确定性 alias 支持重试幂等；接纳后只携带独立归属与发起者。
 """
@@ -186,6 +186,45 @@ def test_interaction_status_gives_real_topic_on_success_and_none_on_failure():
 
     assert (succeeded.state, succeeded.topic_id) == ("succeeded", "topic-real")
     assert (failed.state, failed.topic_id) == ("failed", None)
+
+
+def test_wait_interaction_reports_pending_on_timeout_and_success_once_applied():
+    """等待超时时仍为等待中；应用完成后报告成功与真实落点；未接纳的交互为空。"""
+
+    async def scenario():
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def slow_apply(_payload, **_kwargs):
+            started.set()
+            await release.wait()
+            return "topic-real"
+
+        queue = InteractionSubmissionQueue(slow_apply)
+        service = InteractionSubmissionService(interaction_queue=queue)
+        await queue.start()
+        missing = await service.wait_interaction(
+            identity_scope=_scope(), interaction_id="interaction_missing", timeout_seconds=0.01
+        )
+        await service.submit_interaction(
+            identity_scope=_scope(), payload=_payload(), interaction_id="interaction_slow"
+        )
+        await started.wait()
+        timed_out = await service.wait_interaction(
+            identity_scope=_scope(), interaction_id="interaction_slow", timeout_seconds=0.01
+        )
+        release.set()
+        applied = await service.wait_interaction(
+            identity_scope=_scope(), interaction_id="interaction_slow", timeout_seconds=2
+        )
+        await queue.stop()
+        return missing, timed_out, applied
+
+    missing, timed_out, applied = _run(scenario())
+
+    assert missing is None
+    assert timed_out.state == "pending"
+    assert (applied.state, applied.topic_id) == ("succeeded", "topic-real")
 
 
 # ---- 意图提交 ----

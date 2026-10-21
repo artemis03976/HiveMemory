@@ -78,9 +78,10 @@ async def import_turn(
     声明、自身 principal 与 ``http`` adapter 经统一认证网关取得请求级
     context，请求结束时失效；认证前不组装 ``IdentityScope``。
 
-    状态码区分是否可重试：校验失败、Agent 缺失或为 ``system``、请求体过大
-    与准入失败不可重试；认证网关关闭、Gateway 暂不可用与提交队列拥塞
-    返回 503，连接器保留该轮稍后重发。
+    确认表示交互已经应用。状态码区分是否可重试：校验失败、Agent 缺失或为
+    ``system``、请求体过大与准入失败不可重试；认证网关关闭、Gateway 暂不
+    可用、提交队列拥塞与等待应用超时返回 503，连接器保留该轮稍后重发；
+    应用失败返回 500，连接器有限次重发，重发时重新路由并再次提交。
     """
     claims = resolve_request_identity_claims(selection, require_agent=True, agent_id=body.agent_id)
     async with request_access_for_claims(

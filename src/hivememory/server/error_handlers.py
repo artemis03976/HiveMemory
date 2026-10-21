@@ -42,7 +42,10 @@ from hivememory.patchouli.contracts.errors import TopicBusyError, TopicSettleAdm
 from hivememory.server.models.errors import ErrorResponse, ValidationIssue
 from hivememory.system.model_registry import DuplicateModelIdError
 from hivememory.system.provider_registry import ProviderNotFoundError
-from hivememory.system.services.import_bus import ImportBusUnavailableError
+from hivememory.system.services.import_bus import (
+    ImportBusApplyFailedError,
+    ImportBusUnavailableError,
+)
 from hivememory.workspace.contracts.errors import (
     SessionBusyError,
     SessionCapacityError,
@@ -135,6 +138,11 @@ _DOMAIN_ERRORS: dict[type[Exception], tuple[int, str, str]] = {
         "import_bus.unavailable",
         "导入暂时无法完成，请保留该轮并稍后重发",
     ),
+    ImportBusApplyFailedError: (
+        500,
+        "import_bus.apply_failed",
+        "导入的轮次在应用时失败，重发时会重新路由并再次提交",
+    ),
     AssetNotFoundError: (404, "workspace.asset.not_found", "附件不存在或已失效"),
     AssetExpiredError: (410, "workspace.asset.expired", "附件已失效，请重新上传"),
     AssetNotReadyError: (409, "workspace.asset.not_ready", "附件尚未就绪"),
@@ -188,7 +196,7 @@ _REASON_ALLOWLIST: dict[type[Exception], frozenset[str]] = {
     ),
     AssetOperationConflictError: frozenset({"store_closed"}),
     ImportBusUnavailableError: frozenset(
-        {"gateway_unavailable", "queue_unavailable", "shutting_down"}
+        {"gateway_unavailable", "queue_unavailable", "apply_pending", "shutting_down"}
     ),
 }
 

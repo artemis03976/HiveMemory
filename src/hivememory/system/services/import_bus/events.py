@@ -70,19 +70,19 @@ class ImportBusEventEmitter:
         turn: ImportedTurn,
         scope: IdentityScope,
         interaction_id: str,
-        target_topic_id: str,
+        topic_id: str | None,
         is_new_topic: bool,
         worth_saving: bool | None,
     ) -> None:
-        """交互已被提交队列接纳：报告落位的话题、是否新建与价值信号。"""
+        """交互已应用：报告实际落位的话题、是否新建与价值信号。"""
         self._emit(
             RuntimeEventType.IMPORT_TURN_ACCEPTED,
             turn=turn,
             scope=scope,
             interaction_id=interaction_id,
             status="accepted",
-            # 新建话题的真实标识在感知应用时才确定，接纳时只报告是否新建。
-            topic_id=None if is_new_topic else target_topic_id,
+            # 应用完成后才确认，新建话题的真实标识此时已经确定。
+            topic_id=topic_id,
             data={
                 "outcome": turn.outcome,
                 "is_new_topic": is_new_topic,
@@ -119,7 +119,7 @@ class ImportBusEventEmitter:
         scope: IdentityScope,
         interaction_id: str,
         reason: str,
-        error_class: str,
+        error_class: str | None,
     ) -> None:
         """可重试失败：只记录原因与异常类型名，不记录异常消息。"""
         self._emit(

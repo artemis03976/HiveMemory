@@ -16,6 +16,11 @@ class ImportBusConfig(BaseModel):
         gt=0,
         description="单次导入请求体的字节上限，超出以 413 拒绝且不可重试",
     )
+    apply_wait_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        description="提交后等待感知应用完成的时限；超时以可重试错误交回，连接器稍后重发",
+    )
 
     model_config = ConfigDict(extra="forbid")
 

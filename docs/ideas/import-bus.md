@@ -32,7 +32,7 @@ last_reviewed: 2026-10-20
 
 它对 Gateway 的依赖也不止于检索（流程见[被动对话摄入](../system/passive-ingress.md)第 2、3 节）：
 
-- **Topic 落位**：[turn buffer](../../src/hivememory/system/services/passive/turn_buffer.py) 保存 Gateway 决策，提交时以决策的目标话题作为请求话题；Gateway 路由时会读取 Patchouli 的候选话题；
+- **Topic 落位**：turn buffer（v0.7.0 的 `system/services/passive/turn_buffer.py`，已在 Import Bus 重设计中删除） 保存 Gateway 决策，提交时以决策的目标话题作为请求话题；Gateway 路由时会读取 Patchouli 的候选话题；
 - **价值信号**：`rewritten_query` 与 `worth_saving` 取自 Gateway 决策，感知冻结生成材料时排除 `worth_saving=False` 的 block（[`engines/perception/models.py`](../../src/hivememory/engines/perception/models.py)）。
 
 此外，`/ingest` 不经统一认证网关，在认证前为当前用户组装默认 Workspace 的 `IdentityScope`，是 Workspace 访问模型的已知例外（[身份与授权](../workspace/identity-and-authorization.md#12-默认入口和内部-seam)第 1.2 节）。
@@ -157,7 +157,7 @@ plugin 模式要面对多个 harness，Import Bus 不能依赖其中某一个。
 
 由于游标读的是会话记录，harness 的通知只用于唤醒；没有 hook 的 harness 可以改为监视会话目录或定时扫描，代价是延迟。harness 之间结束信号的差异（例如是否为被中断的轮次发出通知）也由游标抹平。
 
-**确认时点**：接收请求先以推导出的 `interaction_id` 查重，已接纳的直接返回重复，不再路由；未接纳的在请求内同步完成 Gateway 路由与提交队列的接纳，确认表示已被队列接纳，不另建待处理存储；路由需要一次模型调用，连接器以不阻塞 harness 的方式调用，调用被中止时由游标在下次补发。
+**确认时点**：接收请求先以推导出的 `interaction_id` 查重，已接纳的直接返回重复，不再路由；未接纳的在请求内同步完成 Gateway 路由与提交队列的接纳，确认表示已被队列接纳，不另建待处理存储；路由需要一次模型调用，连接器以不阻塞 harness 的方式调用，调用被中止时由游标在下次补发。（2026-10-21 实施中改为应用完成后才确认：等待感知应用完成，应用失败或等待超时都不确认，重发时失败的重新路由并再次提交，见[计划](../plans/v0.7.1-import-bus-redesign.md)第 4.4 节。）
 
 候选 harness 的现状（核对日期 2026-10-20）：
 

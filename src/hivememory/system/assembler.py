@@ -553,6 +553,7 @@ class SystemAssembler:
                 gateway_session_turn_limit=(
                     self._config.gateway.context_preparation.session_turn_limit
                 ),
+                apply_wait_seconds=self._config.import_bus.apply_wait_seconds,
                 runtime_events=runtime.event_sink.scoped(
                     "system",
                     component="import_bus",

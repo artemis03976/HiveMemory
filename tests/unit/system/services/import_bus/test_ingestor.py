@@ -1,13 +1,15 @@
 """Import Bus 编排器的单元测试。
 
-被测对象：``ImportBusIngestor`` 在串行门内的查重、跳过、Gateway 落位、
-封口与提交接纳，以及关闭时等待在途导入。Patchouli 的提交与接纳查询使用
-真实的 ``InteractionSubmissionService`` 与内存队列（只在进程内），Gateway
-是边界之外的协作者，以确定性的替身给出决定或失败。
+被测对象：``ImportBusIngestor`` 在串行门内的进度查询、跳过、Gateway 落位、
+封口、提交与等待应用，以及关闭时等待在途导入。Patchouli 的提交、进度查询
+与等待使用真实的 ``InteractionSubmissionService`` 与内存队列（只在进程内），
+Gateway 是边界之外的协作者，以确定性的替身给出决定或失败。
 
 保护的契约：
-- 已接纳的轮次返回 duplicate、不再调用 Gateway；没有输出的轮次返回 skipped；
-- Gateway 可恢复失败与队列拥塞是可重试错误，契约错误、程序错误与取消传播；
+- 只有应用完成后才确认；应用失败与等待超时不确认，重发时失败的重新路由并
+  再次提交、仍在应用的继续等待；
+- 已应用的轮次返回 duplicate、不再调用 Gateway；没有输出的轮次返回 skipped；
+- Gateway 整体的可恢复异常与队列拥塞是可重试错误，契约错误、程序错误与取消传播；
 - 最近轮次按上限截断后交给 Gateway；新话题携带 Gateway 的标题与摘要；
 - 同一外部会话串行、不同会话并发；
 - 事件不携带正文、工具参数与工具结果；
@@ -45,6 +47,7 @@ from hivememory.patchouli.application import InteractionSubmissionService
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.system.services.import_bus import (
+    ImportBusApplyFailedError,
     ImportBusContractError,
     ImportBusIngestor,
     ImportBusUnavailableError,
@@ -122,20 +125,28 @@ async def _harness(
     session_turn_limit: int = 3,
     start_queue: bool = True,
     queue_policy: QueuePolicy | None = None,
+    apply=None,
+    apply_wait_seconds: float = 2.0,
 ) -> AsyncIterator[_Harness]:
     """装配编排器、真实提交服务与内存队列；``gateway`` 缺省返回新话题决定。"""
     bus = GlobalSystemBus()
     events = RecordingRuntimeEventSink()
     harness_ref: list[_Harness] = []
 
-    async def apply(payload, **kwargs):
-        harness_ref[0].applied.append((payload, kwargs))
+    async def default_apply(payload, **kwargs):
         return "topic-applied"
 
-    queue = InteractionSubmissionQueue(apply, policy=queue_policy)
+    apply_handler = apply or default_apply
+
+    async def recording_apply(payload, **kwargs):
+        harness_ref[0].applied.append((payload, kwargs))
+        return await apply_handler(payload, **kwargs)
+
+    queue = InteractionSubmissionQueue(recording_apply, policy=queue_policy)
     submissions = InteractionSubmissionService(interaction_queue=queue)
     bus.register(PatchouliRoutes.INTERACTION_SUBMIT, submissions.submit_interaction)
     bus.register(PatchouliRoutes.INTERACTION_STATUS, submissions.interaction_status)
+    bus.register(PatchouliRoutes.INTERACTION_WAIT, submissions.wait_interaction)
 
     async def default_gateway(**kwargs):
         return GatewayDecisionOutcome(decision=_decision())
@@ -152,6 +163,7 @@ async def _harness(
             bus,
             gateway_request_timeout_ms=1234,
             gateway_session_turn_limit=session_turn_limit,
+            apply_wait_seconds=apply_wait_seconds,
             runtime_events=events,
         ),
         queue=queue,
@@ -195,6 +207,77 @@ async def test_accepted_turn_is_sealed_and_submitted_with_new_topic_title() -> N
         ("tool_result", 3),
         ("assistant_message", 4),
     ]
+
+
+@pytest.mark.asyncio
+async def test_turn_is_confirmed_only_after_it_is_applied() -> None:
+    """提交被接纳后仍等待感知应用；应用完成之前不返回确认。"""
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def slow_apply(payload, **kwargs):
+        started.set()
+        await release.wait()
+        return "topic-applied"
+
+    async with _harness(apply=slow_apply) as harness:
+        task = asyncio.create_task(harness.ingest(_turn()))
+        await started.wait()
+        confirmed_before_apply = task.done()
+        release.set()
+        result = await task
+
+    assert confirmed_before_apply is False
+    assert result.status == "accepted"
+
+
+@pytest.mark.asyncio
+async def test_apply_failure_is_not_confirmed_and_resend_reroutes_and_resubmits() -> None:
+    """应用失败不确认；重发时重新路由并以同一标识再次提交，应用成功后确认。"""
+    failures = [RuntimeError("topic evicted")]
+
+    async def flaky_apply(payload, **kwargs):
+        if failures:
+            raise failures.pop()
+        return "topic-applied"
+
+    async with _harness(apply=flaky_apply) as harness:
+        with pytest.raises(ImportBusApplyFailedError):
+            await harness.ingest(_turn())
+        resent = await harness.ingest(_turn())
+
+    assert resent.status == "accepted"
+    assert len(harness.gateway_calls) == 2
+    assert [kwargs["interaction_id"] for _, kwargs in harness.applied] == [
+        resent.interaction_id,
+        resent.interaction_id,
+    ]
+    deferred = harness.events.events[0]
+    assert (deferred.event_type, deferred.reason) == (
+        RuntimeEventType.IMPORT_TURN_DEFERRED.value,
+        "apply_failed",
+    )
+
+
+@pytest.mark.asyncio
+async def test_resend_while_still_applying_waits_without_rerouting() -> None:
+    """等待应用超时以 apply_pending 交回；重发时只继续等待，不再路由与提交。"""
+    release = asyncio.Event()
+
+    async def slow_apply(payload, **kwargs):
+        await release.wait()
+        return "topic-applied"
+
+    async with _harness(apply=slow_apply, apply_wait_seconds=0.05) as harness:
+        with pytest.raises(ImportBusUnavailableError) as pending:
+            await harness.ingest(_turn())
+        release.set()
+        resent = await harness.ingest(_turn())
+
+    assert pending.value.details == {"reason": "apply_pending"}
+    assert resent.status == "duplicate"
+    assert len(harness.gateway_calls) == 1
+    assert len(harness.applied) == 1
 
 
 @pytest.mark.asyncio
@@ -315,14 +398,22 @@ async def test_recoverable_gateway_failure_is_retryable_and_resend_is_accepted()
 
 @pytest.mark.asyncio
 async def test_queue_capacity_is_retryable_queue_unavailable() -> None:
-    """提交队列已满时没有接管提交，以 queue_unavailable 交回可重试错误。"""
+    """提交队列已满时没有接管提交，以 queue_unavailable 交回可重试错误。
+
+    队列不运行时第一轮被接纳但迟迟没有应用，等待超时以 apply_pending 交回；
+    它占满容量后，第二轮在提交时被拒绝。
+    """
     async with _harness(
-        start_queue=False, queue_policy=QueuePolicy(capacity=1, max_concurrency=1)
+        start_queue=False,
+        queue_policy=QueuePolicy(capacity=1, max_concurrency=1),
+        apply_wait_seconds=0.05,
     ) as harness:
-        await harness.ingest(_turn(external_turn_id="prompt-1"))
+        with pytest.raises(ImportBusUnavailableError) as pending:
+            await harness.ingest(_turn(external_turn_id="prompt-1"))
         with pytest.raises(ImportBusUnavailableError) as error:
             await harness.ingest(_turn(external_turn_id="prompt-2"))
 
+    assert pending.value.details == {"reason": "apply_pending"}
     assert error.value.details == {"reason": "queue_unavailable"}
     assert harness.events.events[-1].event_type == RuntimeEventType.IMPORT_TURN_DEFERRED.value
     assert harness.events.events[-1].reason == "queue_unavailable"
@@ -401,7 +492,8 @@ async def test_runtime_events_carry_identifiers_without_content() -> None:
     [accepted] = harness.events.events
     assert accepted.event_type == RuntimeEventType.IMPORT_TURN_ACCEPTED.value
     assert accepted.agent_id == "claude_code"
-    assert accepted.topic_id is None
+    # 应用完成后才确认：新建话题的真实落点此时已经确定。
+    assert accepted.topic_id == "topic-applied"
     assert accepted.data == {
         "source": "claude-code",
         "external_conversation_id": "session-1",
