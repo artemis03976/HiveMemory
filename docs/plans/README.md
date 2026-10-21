@@ -16,7 +16,7 @@ last_reviewed: 2026-10-20
 
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
-| 1 | 对话回流：Import Bus 重设计（第一条真实路径为 Claude Code） | 首份计划的方向已决定（owner，2026-10-20），计划尚未建立；阻塞问题与候选的下一步（记忆访问）见外部 Actor Idea | 背景：[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)、[Import Bus Idea](../ideas/import-bus.md) |
+| 1 | 对话回流：Import Bus 重设计（第一条真实路径为 Claude Code） | 首份计划的方向已决定（owner，2026-10-20），阻塞问题均已决定，计划尚未建立；设计见 Import Bus Idea，候选的下一步（记忆访问）见外部 Actor Idea | 背景：[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)、[Import Bus Idea](../ideas/import-bus.md) |
 
 ## v0.7.0
 

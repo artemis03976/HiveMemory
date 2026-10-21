@@ -296,16 +296,17 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 
 **第一步：对话回流（Import Bus 重设计）**（首份计划的方向，owner，2026-10-20）
 
-- 范围：按 [Import Bus Idea](./import-bus.md)的前提完成 Import Bus 的重设计，以 Claude Code 作为第一条真实路径：Claude Code 插件在轮次结束时把交互交给 Import Bus，经交互提交队列进入 Patchouli 的感知与记忆生成；形成的记忆可在 HiveMemory 前端查看，Alice 的会话可以召回。不读取记忆，也不返回记忆上下文（[Import Bus Idea](./import-bus.md)前提 1）。
+- 范围：按 [Import Bus Idea](./import-bus.md)的前提完成 Import Bus 的重设计，以 Claude Code 作为第一条真实路径：Claude Code 插件在轮次结束时把该轮的完整记录交给 Import Bus（流式监听推迟，Import Bus Idea 前提 5），经 Gateway 路由与交互提交队列进入 Patchouli 的感知与记忆生成；连接器的分层与游标见 Import Bus Idea 第 5 节；形成的记忆可在 HiveMemory 前端查看，Alice 的会话可以召回。不读取记忆，也不返回记忆上下文（[Import Bus Idea](./import-bus.md)前提 1）。
 - 验收方向：日常使用 Claude Code 一段时间后，记忆库中出现来自这些会话、来源可查的记忆；HiveMemory 服务不可用时不阻塞 Claude Code。
-- 阻塞问题：Import Bus Idea 的 Q-11（Topic 落位）、Q-12（价值信号）、D-8a（接入认证与目标 Workspace）、Q-15（回流内容的范围）；[任务进程 Idea](./task-process-table-and-registration-entry.md#plugin-模式与进程模型的交界)中不建进程时 `interaction_id` 的取值；D-8a 若选经统一认证网关，登记连接器的 principal 之前还需要[身份与授权](../workspace/identity-and-authorization.md#8-已知限制)第 8 节的 `system` 声明规则。
-- 不阻塞本步（分析）：只接收实时或刚结束的交互时，Q-13 的两个选项行为相同；不调用能力层，P-9c、P-1c、E-2、E-3b、E-7 都不涉及；只以 plugin 模式使用 Claude Code 时，同一交互被两种模式重复记录的情况不出现。
+- 阻塞问题：无，下列问题均已决定。
+- 已决定（owner，2026-10-20）：接收方式为轮次结束后的完整记录，Q-11 仍经 Gateway 路由、在收到记录后执行，Q-12 沿用 Gateway 现有的 `worth_saving`，Q-13 只接收实时或刚结束的交互，Q-15 接收的内容与任务进程封口的交互记录相同，D-8a 经统一认证网关（Import Bus Idea 前提 5 与第 4 节）；只有 HTTP 入口的管理访问能以 `system` 进入 root API（[身份与访问体系 Idea](./identity-and-access-model.md#4-已登记的暂缓与例外)第 4 节）；`interaction_id` 由服务端按 principal、来源、外部会话与连接器提供的该轮外部标识推导，路由之前先查重（[任务进程 Idea](./task-process-table-and-registration-entry.md#plugin-模式与进程模型的交界)）。
+- 不阻塞本步（分析）：不调用能力层，P-9c、P-1c、E-2、E-3b、E-7 都不涉及；只以 plugin 模式使用 Claude Code 时，同一交互被两种模式重复记录的情况不出现。
 
 **候选的下一步：记忆访问**（未决定）
 
 - 范围：Claude Code 插件提供 MCP 工具，经能力层检索与读取记忆，访问不建进程、不绑定进程；结果带有可回查的记忆引用。
 - 验收方向：Claude Code 在会话中检索到已有记忆（包括第一步积累与 Alice 会话形成的记忆）并实际使用；访问按 Workspace 访问登记逐次授权，越权与跨 Workspace 的访问被拒绝。与第一步合起来达到 [ROADMAP](../ROADMAP.md) 第 4.4 节的验收闭环。
-- 阻塞问题：[第五代架构 Idea](./fifth-generation-architecture.md) P-9c（不建进程的 actor 访问如何进入 actor API）、P-1c（身份证明的实现位置）；本文 E-2（传输承载）、E-3b（操作适配器的代码位置）、E-7（记忆到达 harness 的方式）；登记外部 principal 之前需要的 `system` 声明规则（身份与授权第 8 节）。
+- 阻塞问题：[第五代架构 Idea](./fifth-generation-architecture.md) P-9c（不建进程的 actor 访问如何进入 actor API）、P-1c（身份证明的实现位置）；本文 E-2（传输承载）、E-3b（操作适配器的代码位置）、E-7（记忆到达 harness 的方式）。若这一步为连接器另行登记 principal，需先落实已决定的 root 声明范围（身份与访问体系 Idea 第 4 节）。
 - 不阻塞本步（分析）：只读取时没有异步结果需要观察，E-4 不涉及。
 
 **后续步骤**（候选，未决定）
