@@ -339,7 +339,7 @@ flowchart TB
 Principal 认证目前只检查声称的 principal 是否已登记、adapter 是否匹配，HTTP 入口的身份取自请求头（[认证与访问登记](../workspace/authentication.md#8-已知限制)第 8 节）。
 
 - **P-1b 请求与进程的归属校验**：请求的 principal 必须与进程注册时一致 / 其他规则；
-- **P-1c 身份证明的实现位置**：各 adapter / 统一认证网关 / 其他。外部服务的身份随外部 Actor 接入一并设计，与[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) E-2（运行时访问的传输承载）相关。
+- **P-1c 身份证明的实现位置**：各 adapter / 统一认证网关 / 其他。外部服务的身份随外部 Actor 接入一并设计，与[外部 Actor Idea](./external-actor-registration-and-runtime-access.md) E-2（运行时访问的传输承载）相关；2026-10-20 起阻塞 v0.7.1 plugin 模式的记忆访问一步（同文第 4 节）。
 
 ### P-3 能力层是否覆盖执行本身
 
@@ -381,7 +381,7 @@ RUN 与 CALL 已是 actor 操作，授权进入能力层；系统工具暂不设
 
 ### P-9 不建进程的访问
 
-- **P-9c 不建进程的 actor 访问如何进入 actor API**：root API 只接受 root 的请求级 context，actor API 只接受线程 context；plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计；
+- **P-9c 不建进程的 actor 访问如何进入 actor API**：root API 只接受 root 的请求级 context，actor API 只接受线程 context；plugin 模式下不建进程的 actor 访问如何进入 actor API，随 plugin 模式设计；2026-10-20 起阻塞 v0.7.1 plugin 模式的记忆访问一步（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)第 4 节）；
 - **P-9d 进程的定义**：是否把“进程是由执行单元执行的一个任务”确立为定义，3.2 中“root 直接通道与不建进程的接入不是任务”依此成立。
   - 分析（2026-10-20）：按第 2 节修订后的用语，Gateway、prepare 与 finalize 在网络一侧完成，只有 Actor 阶段交给执行单元；作为定义时宜表述为“进程的 Actor 阶段由一个执行单元执行”。
 

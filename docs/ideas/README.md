@@ -10,6 +10,8 @@ last_reviewed: 2026-10-20
 
 本目录保存尚未形成项目承诺的开放设想、研究假设和候选方向。Idea 可以解释一项机会为什么值得探索，也可以保留暂时无法收敛的多种路径；它不能用未来类名、配置草案或阶段编号替代当前设计，更不能因为已有少量基础设施就被解释为功能已经排期。
 
+外部系统、论文与技术方案的独立调研需求和报告统一收录于 [Research](../research/README.md)；本目录保留 HiveMemory 的开放设计，通过链接引用调研资料。
+
 ## 分类
 
 Idea 以 frontmatter 的 `horizon` 字段分为三类，规则见[文档治理规范](../DOCUMENTATION.md)第 8.4 节。类别变化只修改该字段与本索引，不移动文件。
@@ -22,13 +24,12 @@ Idea 以 frontmatter 的 `horizon` 字段分为三类，规则见[文档治理�
 
 ## 当前版本的设计讨论（`current`）
 
-v0.7.1 的版本目标定为 controller 模式的真实外部 harness 接入（owner，2026-10-20），首份计划的方向为首个外部驱动的纯文本闭环，下列 Idea 为它供料；各步的范围与阻塞问题见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。
+v0.7.1 的版本目标为 plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code（owner，2026-10-20；同日先定的 controller 模式退回候选方向），下列 Idea 为它供料；首份计划的方向为 Import Bus 的重设计，以 Claude Code 的对话回流作为第一条真实路径（owner，2026-10-20）；各步的范围与阻塞问题见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
-| [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两类接入登记（配置装载）、统一认证网关（HTTP 与进程注册已接入；外部 harness 尚未接入）、ingest HTTP 入口与能力层 | 原计划 B 退回：外部 Actor 分为 plugin 与 controller 两种接入模式（controller 模式为 v0.7.1 的首个真实接入，plugin 模式在其后的 v0.7.x 完善）；外部 Actor 如何登记进系统、运行时如何访问系统，以及操作适配器的接口边界（E-1 已决定维持配置装载；E-3a 已决定以归一化定义操作适配器；E-5 已决定外部执行单元不识别子线程、所有 actor 共享主线程的 context；E-6a 已决定外部 harness 是执行环境、与 agent 分别选择；E-6b 已决定不允许 CALL 的目标位于另一个执行单元；E-2、E-3b、E-4 待决） |
-| [执行环境](./execution-environment.md) | Alice 是唯一的执行环境；CPU 端口与中立输入清单已落地，当前事实见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；2026-10-19 由《执行单元、执行线程与执行环境》改名，执行线程部分以[执行线程 Idea](../archive/ideas/execution-thread-definition.md)为准，跨 Workspace 目标（T-5b）移入身份 Idea | agent 与执行环境分别选择（前提 9、10）；组合的有效性（T-7）、选择的承载与系统层级控制（T-8）、CPU 输出与会话历史的词汇归属（T-10）、harness 自身工具的权限应答与工作目录（T-11） |
-| [外部 harness 接口调研需求](./harness-interface-survey.md) | 调研需求已写定（2026-10-20），调研单独进行；外部 Actor Idea 2026-10-06 对 ACP 的核对是已有材料 | Codex、Claude Code、pi 与 ACP 的程序化接口、会话与取消、输入注入、工具权限与工作目录、MCP 注入和使用条款，作为 E-2a 与首个 harness 选择的依据 |
+| [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两类接入登记（配置装载）、统一认证网关（HTTP 与进程注册已接入；外部 harness 尚未接入）、ingest HTTP 入口与能力层 | 原计划 B 退回：外部 Actor 分为 plugin 与 controller 两种接入模式（plugin 模式为 v0.7.1 的版本目标，首个接入 Claude Code；controller 模式退回候选方向）；外部 Actor 如何登记进系统、运行时如何访问系统，以及操作适配器的接口边界（E-1 已决定维持配置装载；E-3a 已决定以归一化定义操作适配器；E-5 已决定外部执行单元不识别子线程、所有 actor 共享主线程的 context；E-6a 已决定外部 harness 是执行环境、与 agent 分别选择；E-6b 已决定不允许 CALL 的目标位于另一个执行单元；E-2、E-3b、E-4、E-7 待决，E-7 为 plugin 模式下记忆到达 harness 的方式） |
+| [Import Bus：只向网络输入的记忆来源](./import-bus.md) | 现有 Passive Ingress 链路（`/ingest`、turn buffer、交互提交队列）；owner 前提：只向网络输入、两种接收方式、不在核心拓扑上 | plugin 模式对话回流的设计：Topic 落位（Q-11）、价值信号（Q-12）、回流内容的范围（Q-15）、接入认证与目标 Workspace（D-8a）；完整交互记录的接收范围（Q-13） |
 
 执行线程的正式定义已于 2026-10-19 实施，Idea 移入[归档](../archive/ideas/README.md)，当前事实见 [执行线程](../workspace/execution-threads.md)。版本内状态见 [Plans 导航](../plans/README.md#v071)。
 
@@ -36,13 +37,12 @@ v0.7.1 的版本目标定为 controller 模式的真实外部 harness 接入（o
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
+| [执行环境](./execution-environment.md) | Alice 是唯一的执行环境；CPU 端口与中立输入清单已落地，当前事实见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；2026-10-19 由《执行单元、执行线程与执行环境》改名，执行线程部分以[执行线程 Idea](../archive/ideas/execution-thread-definition.md)为准，跨 Workspace 目标（T-5b）移入身份 Idea | controller 模式退回候选方向后随之改为候选（2026-10-20）：agent 与执行环境分别选择（前提 9、10）；组合的有效性（T-7）、选择的承载与系统层级控制（T-8）、CPU 输出与会话历史的词汇归属（T-10）、harness 自身工具的权限应答与工作目录（T-11） |
 | [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md) | Alice 自动压缩已完成；Topic page folding 现有实现 | Topic folding 优化、真实模型摘要质量与成本评估；两边独立维护视图 |
-| [Agent Harness 会话压缩技术调研](./agent-context-compaction-research.md) | 2026-10-16 固定源码与资料快照，已为 Alice 归档计划提供依据 | 作为未排期的压缩扩展参考，不代表外部项目现状 |
 | [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | 会话与 Alice 迁移已于 2026-10-15 完成，当前事实见[归档计划](../archive/plans/v0.7.0-conversation-session.md)和[会话资源](../workspace/sessions.md) | 外部输入、流式交接、路由结果、会话持久化与 Gateway 会话提示；Alice compact 已迁入独立 Idea |
 | [任务进程表与任务请求唯一注册入口](./task-process-table-and-registration-entry.md) | 注册入口、进程表、四阶段骨架、CPU 分配与 CPU 端口已落地，当前事实见 [任务进程](../workspace/task-process.md) | 交互被接纳后即关闭进程与 Profile 解析时点（随话题是否预建决定）、进程记录与工作集的剩余槽位、四阶段骨架的失效条件、被动请求；Q-3b、Q-5a、Q-5b、Q-7、Q-8 |
 | [身份与访问体系](./identity-and-access-model.md) | 身份模型、两阶段认证与两阶段授权、密封的访问 context、资源归属与发起者的拆分已落地，当前事实见 [身份与授权](../workspace/identity-and-authorization.md)与[认证与访问登记](../workspace/authentication.md) | 受限穿透访问的授予模型与跨 Workspace 目标的表达（T-5b）、资源授权的扩展约束、访问 context 可能增加的内容；WorkspaceAsset 与 `/ingest` 两项已登记例外 |
 | [写入意图（PendingAtom）的后续方向](./pending-intent-migration.md) | workspace 唯一登记与统一引用解析，actor 操作内实时派发（生成队列接纳后 ACK），结算事件订阅；当前事实见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)与 [Patchouli 生成](../patchouli/generation.md) | 结算对账与结果未知、句柄寿命与过期、持久化、意图可见性与 policy、UPDATE 的基础版本、外部 Actor 的提交与回读契约、完整的生成材料 |
-| [Import Bus：只向网络输入的记忆来源](./import-bus.md) | 现有 Passive Ingress 链路（`/ingest`、turn buffer、交互提交队列）；owner 前提：只向网络输入、两种接收方式、不在核心拓扑上 | Topic 落位（Q-11）、价值信号（Q-12）、完整交互记录的接收范围（Q-13）、接入认证与目标 Workspace（D-8a），以及与 plugin 模式对话回流的关系 |
 | [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md) | TurnEvent、封口交互、运行时与被动事件接入 | 原子事件流、长 turn 分段、封口、跨入口与恢复；CPU 检查点与 Patchouli 摄入水位分别推进，通用压缩与证据保存见各自 Idea |
 | [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md) | ConversationSession、Topic 资料投影、InteractionArtifact 与 Generation | 贯通 Session → Topic 完整资料 → 来源 Artifact → Memory 引用；保留、交接、删除与未来编辑能力，会话持久化另行计划 |
 | [Chat Run 生命周期后续候选](./chat-run-lifecycle-follow-ups.md) | 已完成的取消最小闭环、SSE 与 run registry | 哪些候选具有独立收益，是否值得分别立项，而不是实施一次性大重构 |

@@ -6,7 +6,7 @@
 
 - 先理解边界，再修改实现。任何新行为都要先找到负责它的 System、子系统、公共契约和测试入口。
 - 采用最小、可审查的改动。不要顺手重命名、格式化或迁移无关文件，也不要覆盖用户已有的未提交修改。
-- 当前事实必须有证据。优先核对成熟代码、测试、配置和已完成基线；`docs/ideas/`、`docs/plans/`、`docs/todo/` 与 `docs/ROADMAP.md` 中的内容不能证明功能已经实现。
+- 当前事实必须有证据。优先核对成熟代码、测试、配置和已完成基线；`docs/ideas/`、`docs/plans/`、`docs/todo/` 与 `docs/ROADMAP.md` 中的内容不能证明功能已经实现，`docs/research/` 记录的外部能力也不能证明 HiveMemory 已实现对应功能。
 - 不猜测公共行为。路由、事件、错误、版本和配置字段必须从代码或当前契约文档确认。
 - 不把“测试通过”写成未执行的事实；最终说明实际运行过的命令及其结果。
 - 默认使用中文沟通和提交说明；代码、公共标识符、日志和错误信息遵循现有语言与命名。
@@ -148,8 +148,9 @@ cd frontend && npm ci && npm run lint && npm run build
 ## 7. 文档与设计变更
 
 - 当前事实入口：`docs/PROJECT.md`、`docs/architecture/`、`docs/system/`、`docs/components/`、`docs/workspace/`、`docs/gateway/`、`docs/patchouli/`、`docs/alice/`、`docs/contracts/`、`docs/help/` 和 `docs/governance/`。
+- `docs/research/` 集中保存外部 Memory、Agent 系统、论文和技术方案的独立调研需求与报告。需求编写时为 `draft`，有效时为 `current`，不表示调研或实测已完成；报告编写时为 `draft`，冻结证据后为 `baseline` 并记录 `snapshot_at`，区分外部事实、适配分析与待验证项。需求与报告相互链接，本项目开放设计仍归属 Idea/Plan，治理基线仍在 `docs/governance/baselines/`；详细规则见 `docs/DOCUMENTATION.md` 第 8.6 节。
 - `docs/ideas/` 是探索（以 `horizon` 区分当前版本讨论 `current`、候选方向 `candidate` 与长期方向 `long-term`），`docs/plans/` 是绑定版本/里程碑且可验收的实施计划，`docs/todo/` 是小范围缺陷/技术债，`docs/ROADMAP.md` 是明确标注状态的规划摘要，`docs/archive/` 只保存历史。
-- 计划不设总分结构：同一目标方向只有一份生效计划，不使用 `parent_plan`；计划正文只以事实文档、代码、ADR、已归档计划和背景 Idea 为依据，计划之间只有整份粒度的顺序依赖；未完成实施即作废的计划直接删除（入链与遗留事项的处理见 `docs/DOCUMENTATION.md` 第 10 节），方向保留但前提改变的未实施计划退回 Idea（第 8.4 节）。ADR 只叙述已做出的决定与事实，不依赖计划。
+- 计划不设总分结构：同一目标方向只有一份生效计划，不使用 `parent_plan`；计划正文只以事实文档、代码、ADR、已归档计划、已冻结的 Research 报告和背景 Idea 为依据，外部调研不能替代本项目的事实与设计决定；计划之间只有整份粒度的顺序依赖；未完成实施即作废的计划直接删除（入链与遗留事项的处理见 `docs/DOCUMENTATION.md` 第 10 节），方向保留但前提改变的未实施计划退回 Idea（第 8.4 节）。ADR 只叙述已做出的决定与事实，不依赖计划。
 - 开发分支尚未最终收尾时，不把候选模型、未稳定命名、目标接口、迁移步骤或“未来将支持”的设计写入当前事实文档。实现、测试、迁移、验收和代码审查完成后，才按最终代码晋升事实并归档 Plan。
 - 当前设计文档既要写可执行事实，也要保留仍然有效的问题背景、所有权理由、关键取舍、不变量和失败语义；不要把代码目录逐文件翻译成文档。
 - 新增/修改文档后检查相对链接、状态、owner、last_reviewed、相关代码入口和重复真相源；运行 `git diff --check`。

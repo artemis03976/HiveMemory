@@ -3,7 +3,7 @@ title: HiveMemory Documentation Governance
 status: current
 owner: project
 scope: documentation-governance-and-maintenance
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # HiveMemory 文档治理与维护规范
@@ -63,6 +63,7 @@ HiveMemory 的文档库应当帮助读者可靠地回答以下问题：
 文档必须明确区分：
 
 - **当前事实**：已经落地并正在生效的设计、契约和行为；
+- **调研**：对外部系统、论文、协议或技术方案的证据、比较与适配分析；
 - **计划**：目标较明确，但尚未完整进入当前事实的实现方案；
 - **设想**：仍在探索的问题、假设和可能路径；
 - **待办**：范围较小的缺陷、技术债或修复事项；
@@ -137,6 +138,7 @@ HiveMemory 的文档库应当帮助读者可靠地回答以下问题：
 | Roadmap | 接下来验证和交付什么、顺序如何 | `ROADMAP.md` |
 | Governance | 跨版本必须达到哪些质量门槛、当前成熟度和工作包是什么 | `governance/` |
 | Baseline | 某项治理判断建立在哪个时间点的调查证据上 | `governance/baselines/` |
+| Research | 调研要回答什么，外部 Memory、Agent 系统及相关技术如何设计、哪些经验可供借鉴 | `research/` |
 | Plan | 某项功能或重构准备如何落地 | `plans/` |
 | Idea | 哪些方向值得探索、尚有哪些开放问题 | `ideas/` |
 | Todo | 哪些小范围缺陷或技术债需要处理 | `todo/` |
@@ -298,6 +300,8 @@ docs/
 │   ├── security/
 │   ├── data-model/
 │   └── baselines/
+├── research/
+│   └── README.md
 ├── plans/
 ├── ideas/
 ├── todo/
@@ -363,6 +367,10 @@ last_reviewed: YYYY-MM-DD
 
 Idea 文档还应包含 `horizon`，取值与含义见第 8.4 节；`horizon: current` 的 Idea 同时用 `serves_version` 写明服务的版本。
 
+Research 报告编写时使用 `draft`，形成可引用的调研快照后使用 `baseline`，并填写 `snapshot_at`、`owner`、`scope`、`last_reviewed` 和相关文档入口；不使用 Idea 的 `horizon` 分类。`snapshot_at` 是证据日期，`last_reviewed` 可以记录后来的分类或链接维护，不代表重新核验过外部系统。引用历史 HiveMemory 代码时，以 `source_commit` 明确对应的本地代码基线。
+
+独立的调研需求与报告同存于 `research/`，编写中的需求使用 `draft`，当前有效的需求使用 `current`；需求不使用 Idea 的 `horizon`。需求的 `current` 仅表示范围、取证和交付要求有效，不表示报告、实测或验收已经完成。
+
 计划文档还应包含目标版本或阶段：
 
 ```yaml
@@ -422,7 +430,7 @@ superseded_by: docs/patchouli/retrieval.md
 - 与当前行为无关的大段探索性讨论；
 - 容易快速失效的逐文件目录快照，除非它确实帮助解释稳定边界。
 
-## 8. Governance、Baselines、Plans、Ideas 与 Todo
+## 8. Governance、Baselines、Plans、Ideas、Todo 与 Research
 
 ### 8.1 Governance
 
@@ -442,6 +450,8 @@ Governance 不描述某个版本的逐步实施方案，不替代当前设计或
 Baseline 是某个时间点的调研快照，记录代码入口、现状矩阵、风险证据和优先级。它必须包含 `snapshot_at`，并明确最新系统事实仍由当前设计、代码和测试定义。
 
 Baseline 原则上冻结；实现演进后不通过反复改写旧清单制造“永远当前”的调查文档。需要新一轮全量调研时建立新基线，并记录替代关系。
+
+`governance/baselines/` 保存针对 HiveMemory 自身治理问题的代码调查与风险基线；外部系统、论文和技术方案的调研报告放在 `research/`，按第 8.6 节管理。两者都可以使用 `baseline` 状态，但职责与索引分开。
 
 ### 8.3 Plans
 
@@ -473,7 +483,7 @@ Plan 是实施过程的工作依据，但在功能落地后不能继续承担当
 计划之间的关系必须满足以下三条约束。它们用于防止多份计划互相引用对方仍在变化的设计，使一处设计变更不得不联动修改一组计划：
 
 1. **同一目标方向只有一份生效计划，不设总分结构**：计划不使用 `parent_plan`，`plans/` 中不建立协调、冻结清单或宪章类文档；新工作的目标与现有计划重叠时，先改写或退役原计划，不另开并行计划。
-2. **设计依据只来自稳定来源**：计划正文只能以当前事实文档、代码、ADR、已归档计划以及作为背景的 Idea 为依据；不得以另一份活动计划的章节作为设计依据，也不得把自身事项交由另一份活动计划收口。
+2. **设计依据只来自稳定来源**：计划正文只能以当前事实文档、代码、ADR、已归档计划、已冻结的 Research 报告以及作为背景的 Idea 为依据；Research 只提供外部证据与当时的适配分析，不能证明 HiveMemory 已具备对应能力，也不能替代本项目的设计决定。不得以另一份活动计划的章节作为设计依据，也不得把自身事项交由另一份活动计划收口。
 3. **计划之间只允许顺序依赖**：`depends_on` 以整份计划为粒度，只表达先后；后继计划在前驱完成收尾、相关设计晋升为事实文档之后，依据事实文档编写或修订。
 
 `plans/README.md` 是版本内的计划导航：按版本列出计划的状态、顺序与链接，不记录设计决定；版本规划摘要由 `ROADMAP.md` 维护，设计讨论留在 Idea。
@@ -507,6 +517,23 @@ Idea 以 frontmatter 的 `horizon` 字段分为三类，`ideas/README.md` 按此
 Todo 只适用于范围较小、排期灵活的缺陷或技术债。大型功能和跨系统重构必须形成 Plan。
 
 如果项目 Issue 系统中已经存在对应事项，文档应链接 Issue，而不是重复维护两份详细状态。Todo 至少应包含影响范围、现象或证据、完成条件和追踪链接。
+
+### 8.6 Research
+
+`research/` 集中保存外部调研的独立需求与实际报告：包括 Memory 系统、Agent 与 harness 架构、论文与算法、接口协议、存储与检索技术的调研范围、取证要求、设计分析、横向比较和实验报告。目录入口是 [Research](./research/README.md)。
+
+每份报告至少说明：
+
+- 研究问题、对象、范围和取证方法；
+- 来源链接、版本或固定提交、访问日期与 `snapshot_at`；
+- 已确认的外部事实、比较结果与关键限制；
+- 文档声明、源码核对、实际运行分别验证了什么；未实测或无法确定的项明确标出；
+- 对 HiveMemory 的适配分析、可借鉴之处与不适用边界；
+- 仍需验证的问题，以及承接活动设计的 Idea、Plan 或其他相关文档。
+
+调研可以记录分析和建议，但必须与外部事实区分；它不代表路线图承诺、owner 决定或 HiveMemory 当前能力。持续演进的本项目候选设计、目标接口和实施步骤仍放在 Idea 或 Plan，不能借调研目录绕过第 2.7 节的晋升门禁。独立的调研需求与对应报告同存于 `research/` 并相互链接；发起调研的 Idea、Plan 或治理文档保留背景与入口。主要内容仍是开放假设或架构类比的文档继续归属 Idea。
+
+报告按主题使用英文小写 kebab-case 文件名；同一主题需要重新调查时，另建带日期的快照并注明替代关系，保留旧证据的时间边界。已冻结报告原则上只修复事实错误、断链和追溯元数据；外部项目发布新版本或本项目完成相应功能，不构成改写旧调研结论的理由。`baseline` 仅表示冻结已取得的证据与未知项，不表示所有实测均已完成。
 
 ## 9. 架构决策记录（ADR）
 
@@ -671,7 +698,7 @@ Governance work package
 
 本规范生效后，现有文档按照以下顺序整理：
 
-1. 建立现有文档清单，并将每篇标记为 `current`、`plan`、`idea`、`todo`、`decision`、`help`、`archive` 或 `merge`；
+1. 建立现有文档清单，并将每篇按职责归为当前设计、Plan、Idea、Todo、Research、Decision、Help、Archive 或待合并内容，再设置对应状态；
 2. 收敛 `PROJECT.md` 和总体架构，建立可信的全局入口；
 3. 整理跨子系统契约，确定协议、路由、事件和错误结构的唯一维护位置；
 4. 按 System、Patchouli、Alice、Gateway 的责任边界重建当前设计文档；

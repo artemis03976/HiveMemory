@@ -1,7 +1,8 @@
 ---
 title: Import Bus：只向网络输入的记忆来源
 status: idea
-horizon: candidate
+horizon: current
+serves_version: v0.7.1
 owner: project
 scope: import-bus-input-only-ingestion-redesign
 code_paths:
@@ -12,7 +13,7 @@ related_docs:
   - docs/ideas/fifth-generation-architecture.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ROADMAP.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-20
 ---
 
 # Import Bus：只向网络输入的记忆来源
@@ -20,6 +21,8 @@ last_reviewed: 2026-10-13
 ## 0. 文档性质
 
 本文为 Import Bus 的重新设计收集前提与开放问题，不描述当前行为，也不代表排期。现有的被动摄入链路见[被动对话摄入](../system/passive-ingress.md)。
+
+**版本归属**（owner，2026-10-20）：v0.7.1 的版本目标为 plugin 模式接入 Claude Code，对话经 Import Bus 回流（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。首份计划的方向为本文的重设计（owner，2026-10-20），以 Claude Code 的对话回流作为第一条真实路径，让记忆在真实使用中积累；Q-11、Q-12、Q-15 与 D-8a 是它的阻塞问题（步骤汇总见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)第 4 节）。Q-13 在只接收实时或刚结束的交互时两个选项行为相同，不阻塞（分析）；历史导入见 [ROADMAP](../ROADMAP.md) 第 4.5 节。horizon 随之由 `candidate` 改为 `current`。
 
 **术语**（owner，2026-09-27）：“被动（Passive）”一词留给被动请求体系，即由条件触发创建任务进程的请求。原先称为“被动输入”的输入链路称 **Import Bus**，最终名称未定，功能可能逐步倾向对话导入。代码与事实文档中的现有名称（Passive Ingress、`PassiveIngressService`、Gateway `PASSIVE_MEMORY`）描述现状，保持不变。
 
@@ -90,6 +93,17 @@ flowchart LR
 |:---|:---|:---|
 | A | 只接收实时或刚结束的交互，历史导入另设通道 | 两条通道语义分开 |
 | B | 同时作为历史导入入口 | 需要在该接收方式中承载历史时间、批次、去重与不重放等语义 |
+
+### Q-15 回流内容的范围
+
+**背景**（2026-10-20）：编码类 harness 的一轮交互通常包含大量工具调用与工具结果（读取的文件、命令的输出）。现有 Passive Ingress 接收 user、assistant、tool_call、tool_result 四种事件（[被动对话摄入](../system/passive-ingress.md)第 1 节），材料的多少直接影响感知与生成的成本和噪声。
+
+| 选项 | 内容 | 影响 |
+|:---|:---|:---|
+| A | 只回流用户消息与 assistant 的回复正文 | 材料最少；丢失工具过程中的事实，例如命令的报错与修复经过 |
+| B | 回流完整轨迹，包括工具调用与结果 | 生成材料量大幅增加，感知与生成的成本和噪声上升；与 Q-12 的价值信号相关 |
+| C | 回流正文，工具事件按类型筛选或只保留调用摘要 | 需要定义筛选规则，以及由连接器还是记忆库执行 |
+| D | 其他 | —— |
 
 ### D-8a 接入认证与目标 Workspace
 

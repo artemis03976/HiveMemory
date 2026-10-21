@@ -35,7 +35,7 @@ last_reviewed: 2026-10-20
 当前版本事实如下：
 
 - 最近已发布基线：`v0.7.0`（Git tag，2026-10-20）；[收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
-- 当前开发版本：`v0.7.1`，版本目标为 controller 模式的真实外部 harness 接入（owner，2026-10-20），状态为 Planned，正式 Plan 待建立（第 4.3 节）。
+- 当前开发版本：`v0.7.1`，版本目标为 plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code（owner，2026-10-20），状态为 Planned，正式 Plan 待建立（第 4.3 节）。
 
 当前规范代码版本为 `0.7.0`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致，与最近已发布标签 `v0.7.0` 对应；v0.7.1 开发期间合入的内容在版本收尾时升版。
 
@@ -79,8 +79,8 @@ last_reviewed: 2026-10-20
 
 ### 3.3 发布范围边界
 
-- 外部 Actor 的真实接入分为两种接入模式（[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）：controller 模式是 v0.7.1 的版本目标（第 4.3 节），plugin 模式在其后的 v0.7.x；执行环境的选择（用户在对话开始前分别选择 agent 与执行环境）随 controller 模式接入一并考虑；
-- Import Bus（现有 Passive Ingress 链路）排除在现有系统之外，随 plugin 模式另行设计；
+- 外部 Actor 的真实接入分为两种接入模式（[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）：plugin 模式是 v0.7.1 的版本目标（第 4.3 节），controller 模式退回候选方向（第 5.6 节）；执行环境的选择（用户在对话开始前分别选择 agent 与执行环境）随 controller 模式接入一并考虑；
+- Import Bus（现有 Passive Ingress 链路）排除在现有系统之外，随 plugin 模式另行设计（v0.7.1）；
 - 收尾时搁置的 Todo 与仍未决的 Gateway 路由上下文矛盾见收尾审计第 4 节；
 - 记忆库的归属判据与独立工作契约见 [ADR-0006](./architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)。
 
@@ -102,21 +102,21 @@ last_reviewed: 2026-10-20
 | `v0.7.0` Document Ingestion & Provenance | `v0.7.2`，Candidate | 建立在新资源边界上，并纳入冷启动、历史对话导入和证据资产化 |
 | `v0.7.1` MTP READ Provenance | `v0.7.3`，Candidate | 消费已经稳定的文档表示、来源和版本契约 |
 | `v0.7.2` Deep Research MVP | `v0.7.4`，Candidate | 等待资源、证据、读取编译和可靠执行的闭环 |
-| 整体后置的 Executable Asset Sandbox | 曾前置为 `v0.7.1` 执行基座；2026-10-20 起暂不考虑（第 5.4 节） | 原意是先解决 MTP RUN 可复现的可靠性问题和可兑现的能力边界；v0.7.1 改以 controller 模式接入为目标 |
+| 整体后置的 Executable Asset Sandbox | 曾前置为 `v0.7.1` 执行基座；2026-10-20 起暂不考虑（第 5.4 节） | 原意是先解决 MTP RUN 可复现的可靠性问题和可兑现的能力边界；v0.7.1 改以外部 harness 接入为目标 |
 
 旧 Idea、W1 实施记录及历史材料中出现的上述旧版本号，按本表解释其后续排期；不重写历史使其看起来曾采用新顺序。新建 Plan 必须使用新目标版本。
 
-除已定为 v0.7.1 版本目标的 controller 模式接入（Planned）外，下列新增工作仍为 Candidate，实施前分别建立范围、迁移、测试与验收方案。版本号表达交付顺序；互不依赖的小切片可以并行验证，不能以并行开发跳过契约冻结。
+除已定为 v0.7.1 版本目标的 plugin 模式接入（Planned）外，下列新增工作仍为 Candidate，实施前分别建立范围、迁移、测试与验收方案。版本号表达交付顺序；互不依赖的小切片可以并行验证，不能以并行开发跳过契约冻结。
 
 ### 4.2 目标总览
 
 | 目标版本或工作流 | 状态 | 目标结果 | 依赖与实施入口 |
 |:---|:---:|:---|:---|
-| `v0.7.1` 首个真实外部 harness 接入（controller 模式） | Planned / v0.7.1 版本目标（2026-10-20） | 用户在对话开始前分别选择 agent 与执行环境，外部 harness 作为执行环境运行所选 agent；请求登记为任务进程并交给该 harness 执行；外部 harness 实际使用记忆并把结果送回 Patchouli，验证执行者可替换与无 Alice 的跨会话闭环 | v0.7.0 的任务进程表与唯一注册入口；外部 Actor 的接入与运行时访问契约（[Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)，原计划 B）；正式 Plan 待建立 |
+| `v0.7.1` 外部 harness 的 plugin 模式（首个：Claude Code） | Planned / v0.7.1 版本目标（2026-10-20） | HiveMemory 以插件形式挂载在 Claude Code 中，不接管对话：对话经 Import Bus 回流进入记忆生成，Claude Code 经 MCP 工具检索与读取记忆；在用户的日常使用中形成“外部 harness + Patchouli”的跨会话闭环 | v0.7.0 的能力层；现有 [Passive Ingress](./system/passive-ingress.md) 与 ingest 入口为代码基础；[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)、[Import Bus Idea](./ideas/import-bus.md)；正式 Plan 待建立 |
 | `v0.7.2` Cold Start, Historical Import & Document Ingestion | Candidate | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | v0.7.0 的资源边界、外部 Actor 接入契约的身份/来源/提交语义、记忆价值策略最小切片；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md)；导入与文档分别建 Plan |
 | `v0.7.3` MTP READ 专项编译与来源表达 | Candidate | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | [v0.7.0 A2-P 完整记忆历史](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、v0.7.2 provenance；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md)；正式 Plan 待建立 |
 | `v0.7.4` Deep Research MVP | Candidate | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 资源边界、Document/READ、实际执行能力、明确恢复范围；正式 Plan 待建立 |
-| `v0.7.x` 外部 harness 的 plugin 模式 | Candidate / v0.7.1 之后，版本待定 | HiveMemory 以插件形式挂载在外部 harness 中：经 MCP 工具响应记忆域调用，对话经 Import Bus 回流，不接管对话 | v0.7.0 的能力层；现有 [Passive Ingress](./system/passive-ingress.md) 与 ingest 入口为代码基础；[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27)；正式 Plan 待建立 |
+| 外部 harness 的 controller 模式 | Candidate / 版本待定（2026-10-20 由 v0.7.1 版本目标退回） | 外部 harness 作为执行环境运行用户选择的 agent，请求登记为任务进程并交给该 harness 执行 | v0.7.0 的任务进程表与唯一注册入口；第 5.6 节；[接口调研快照](./research/harness-interface-survey-snapshot.md)；正式 Plan 待建立 |
 | 记忆价值策略重设计 | Candidate / 跨版本 | 先冻结入口信号与持久化决策边界，再用真实样本校准 | v0.7.1 起启动分析，v0.7.2 批量物化前交付最小策略；[Gateway](./gateway/analysis.md)、[Perception](./patchouli/perception.md)、[Lifecycle](./patchouli/lifecycle.md) |
 | Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 可与 v0.7 并行；[Frontend](./frontend/README.md)与第 4.9 节 Todo；正式 Plan 待建立 |
 | Electron 桌面客户端 | Candidate / `v0.8.x` 产品化窗口 | 单一客户端管理本地服务、数据目录、连接、升级与诊断 | 前端传输与资源生命周期稳定；[状态与传输](./frontend/state-and-transports.md)、[配置](./system/configuration.md)；正式 Plan 待建立 |
@@ -125,20 +125,21 @@ last_reviewed: 2026-10-20
 
 状态：Planned（owner，2026-10-20），正式 Plan 待建立。
 
-- **版本目标**：controller 模式的真实外部 harness 接入，把 Codex、Claude Code、pi 一类成熟的 agent harness 作为执行环境与 CPU 类型纳入兼容范围（第 4.4 节）。它直接检验 v0.7.0 “之后的 adapter 不需要再大改系统拓扑”的验收口径。
-- **排序依据**：plugin 模式需要另行设计不建进程的 actor 访问与 Import Bus（Topic 落位、价值信号、接入认证），并依赖记忆价值策略的最小切片（第 4.8 节）；controller 模式沿用任务进程、线程 context 与能力层。两种模式共用的 MCP 操作适配器先以绑定线程的形式建立，plugin 模式在其后的 v0.7.x 补充不绑定进程的访问。
-- **分步实施**：版本目标按小步分别建立计划。首份计划的方向为首个外部驱动的纯文本闭环（owner，2026-10-20）：第一个外部执行单元回传正文，提供最小的执行环境选择，以被动注入检索记忆形成跨会话闭环；阻塞问题为驱动方式（E-2a）、外部执行单元的进程（Q-8）、执行环境的选择与组合有效性（T-7、T-8）以及 harness 自身工具的权限应答与工作目录（T-11）。harness 主动使用记忆（操作适配器、回调身份与 CPU 输出词汇）以及 Profile 应用结果的报告是候选的后续步骤。各步的范围与问题见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。
-- **执行基座与沙箱基线**：原排期在 v0.7.1，暂不考虑（owner，2026-10-20），见第 5.4 节。controller 模式不强依赖本地沙箱，harness 用自己的工具执行，权限应答与工作目录见[执行环境 Idea](./ideas/execution-environment.md) T-11。
+- **版本目标**：plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code（第 4.4 节）。目的是让外部 harness 在用户真实的日常使用中使用 Patchouli 记忆，以此开始检验记忆系统的闭环；它对应 [VISION](./VISION.md) 的兼容轨，以及第 6 节评估中的“外部 harness + Patchouli”对照组。
+- **排序依据**（owner，2026-10-20）：同日先定的 controller 模式目标改为 plugin 模式。各家 harness 的程序化接口开放程度不一（[接口调研快照](./research/harness-interface-survey-snapshot.md)），controller 模式能达到的控制效果取决于被接入方；非侵入的 plugin 模式更容易得到各家生态的支持，用户也继续在 harness 自己的界面中工作，真实的日常使用才会发生。记忆系统的核心机制自 MVP 以来进展较少，当前优先以真实使用检验它。controller 模式退回候选方向（第 5.6 节）。
+- **分步实施**：版本目标按小步分别建立计划。plugin 模式由对话回流（经 Import Bus 进入记忆生成）与记忆访问（经 MCP 工具调用能力层）两部分组成。首份计划的方向为 Import Bus 的重设计（owner，2026-10-20）：以 Claude Code 的对话回流作为第一条真实路径，让记忆在真实使用中积累；记忆访问在其后。对话回流的阻塞问题是 [Import Bus Idea](./ideas/import-bus.md)中的 Topic 落位、价值信号、接入认证与目标 Workspace、回流内容的范围，以及不建进程时交互标识的取值（[任务进程 Idea](./ideas/task-process-table-and-registration-entry.md#plugin-模式与进程模型的交界)）；记忆访问的阻塞问题是不建进程的 actor 访问与连接方的身份证明（[第五代架构 Idea](./ideas/fifth-generation-architecture.md) P-9c、P-1c）、传输与操作适配器的位置（外部 Actor Idea E-2、E-3b）以及记忆到达 harness 的方式（E-7）。登记外部来源之前，两部分都需要先规定哪些 principal 可以声明保留的 `system`（[身份与授权](./workspace/identity-and-authorization.md#8-已知限制)第 8 节）。各步的范围见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。
+- **规模控制**（owner，2026-10-20）：v0.7.1 期间不新增只服务 controller 模式的机制；每份计划写明它针对的已观察问题或待验证的核心假设（[VISION](./VISION.md) 第 10.10 节）。真实使用开始后，后续主线转向由使用中观察到的问题驱动 Patchouli 核心机制的改进，样本同时供第 4.8 节的价值策略校准。
+- **执行基座与沙箱基线**：原排期在 v0.7.1，暂不考虑（owner，2026-10-20），见第 5.4 节。plugin 模式下 HiveMemory 不执行代码，harness 的工具由其自身管理。
 
-### 4.4 v0.7.1：首个真实外部 harness 接入（controller 模式）
+### 4.4 v0.7.1：plugin 模式接入 Claude Code
 
-状态：Planned，v0.7.1 的版本目标（owner，2026-10-20）：把 Codex、Claude Code、pi 一类成熟的 agent harness 作为执行环境与 CPU 类型纳入兼容范围；按小步分别建立计划，各步的范围与阻塞问题见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。本节的验收针对整个版本目标，首份计划只覆盖其中被动注入记忆的部分（第 4.3 节）。外部 Actor 分为 plugin 与 controller 两种接入模式（[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1，2026-09-27 决定），首个真实接入采用 controller 模式：用户在对话开始前分别选择 agent 与执行环境（[执行环境 Idea](./ideas/execution-environment.md)前提 9、10；外部 Actor Idea E-6a），外部 harness 作为执行环境运行所选 agent，请求经唯一注册入口登记为任务进程，处理后交给该 harness 执行。它建立在 v0.7.0 的任务进程表与注册入口之上，消费外部 Actor 的接入与运行时访问契约（原计划 B），不强依赖 HiveMemory 本地沙箱；外部 harness 继续使用自己的工具和执行环境。优先选一个用户实际使用、并提供可被程序驱动方式的 harness；采用 ACP 一类的通用协议还是各 harness 的 SDK 或非交互 CLI，见 Idea 的 E-2a。选择前先对 Codex、Claude Code、pi 做一次接口调研，调研需求见[外部 harness 接口调研需求](./ideas/harness-interface-survey.md)。
+状态：Planned，v0.7.1 的版本目标（owner，2026-10-20）；按小步分别建立计划，各步的范围与阻塞问题见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。本节的验收针对整个版本目标。
 
-验收必须形成真实闭环：请求登记为任务进程并由外部 harness 执行；外部 harness 经能力层检索已有记忆并实际用于任务，写入/修订意图经能力层提交；进程的交互记录进入记忆库（去向见 [任务进程](./workspace/task-process.md)）；下一次会话能召回新形成的知识并定位来源。取消、失败与进程回收按外部执行单元的进程问题（[任务进程 Idea](./ideas/task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) Q-8）的决定呈现。仅转发请求、仅采集日志、仅发送事件或仅返回 memory context 均不足以证明 Actor 接入完成。
+外部 Actor 分为 plugin 与 controller 两种接入模式（[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1，2026-09-27 决定）。plugin 模式下 HiveMemory 以插件形式挂载在外部 harness 中，用户直接使用该 harness，HiveMemory 不接管对话：对话经 Import Bus 回流，harness 经 MCP 工具响应记忆域调用；外部 harness 的任务对 HiveMemory 不可见，不建任务进程，记忆访问经能力层、不绑定进程。首个接入的 harness 为 Claude Code（owner，2026-10-20）：用户日常使用它，它的插件可以把 hooks 与 MCP server 打包为一个单元。现有 [Passive Ingress](./system/passive-ingress.md) 与 `/api/v1/ingest` 是对话回流的代码基础；按 [Import Bus Idea](./ideas/import-bus.md)第 2 节的前提，Import Bus 只向网络输入、不返回记忆上下文，现有入口在 user 事件上返回记忆上下文的行为不作为 plugin 模式的读取路径。
 
-接入需把具体平台的身份、事件顺序、重发、turn 结束和来源映射到外部 Actor 接入契约，验证平台能力不足时的失败披露。controller 模式下 HiveMemory 控制任务边界（actor 选择、输入、生命周期与取消、执行轨迹回流），不控制外部 harness 内部的 loop、工具与上下文压缩；外部 harness 默认保有自己的 prompt history，HiveMemory 不隐式接管上下文压缩。交互应用和记忆物化状态继续分开；adapter 不重写领域状态机，也不扩大已有幂等与持久化承诺。
+验收必须形成真实闭环：用户在 Claude Code 中的对话回流进入记忆生成，形成的记忆来源可查；Claude Code 在之后的会话中检索并实际使用这些记忆；记忆访问经能力层逐次授权，越权与跨 Workspace 的访问被拒绝。仅采集日志、仅发送事件，或者只有回流、只有读取，都不足以证明 plugin 模式接入完成。
 
-本版本不包括 plugin 模式（HiveMemory 以插件形式挂载在外部 harness 中，经 MCP 工具响应记忆域调用，对话经 Import Bus 回流，不接管对话）。plugin 模式已有一定代码基础，在 v0.7.1 之后的 v0.7.x 版本完善，具体版本待定；它对应 [VISION](./VISION.md) 的兼容轨，以及第 6 节评估中的“外部 harness + Patchouli”对照组。
+接入需把 Claude Code 的会话标识、轮次边界、重发与来源映射到 Import Bus 的接收语义；HiveMemory 服务不可用时不阻塞用户在 Claude Code 中的工作，并明确披露失败。HiveMemory 不控制 Claude Code 的 loop、工具与上下文压缩。交互应用和记忆物化状态继续分开；连接器与操作适配器不重写领域状态机，也不扩大已有幂等与持久化承诺。
 
 ### 4.5 v0.7.2：冷启动、历史导入与外源文档资产化
 
@@ -214,9 +215,9 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 v0.6.2 已实现基础 -> v0.7.0：Workspace 网络与任务进程（已发布）
                           |
                           +-> 外部 Actor 接入契约（Idea）
-                          |       +-> v0.7.1 controller 模式外部 harness 闭环
-                          |       |          (不强依赖本地沙箱)
-                          |       +-> v0.7.x plugin 模式
+                          |       +-> v0.7.1 plugin 模式（Claude Code）
+                          |       |          (Import Bus 回流 + 不绑定进程的能力层访问)
+                          |       +-> controller 模式（候选，版本待定）
                           |       +-> v0.7.2 历史导入契约与批次能力
                           +-> v0.7.2 冷启动 / 文档资源与证据
 
@@ -280,6 +281,16 @@ Electron renderer 使用公开资源 API，main process 只持有必要的原生
 | Conversation Branching | Unscheduled；依赖来源、生命周期和真实编辑需求 | [聊天运行后续 Idea](./ideas/chat-run-lifecycle-follow-ups.md) |
 | 配置热更新 | Unscheduled；包括接入登记的运行时登记、Workspace 访问登记中 Agent 操作白名单的运行时编辑（含前端开关，2026-10-10 决定并入）与其他配置文件的持久化与热更新，未来单独建立 Plan | [外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md) E-1；正式 Plan 待建立 |
 | 其他历史存储转换 | Unscheduled；若发现仍有未迁移存量，先列证据再建迁移 Plan | 已完成的 [V1 迁移历史](./archive/plans/v0.6.2-v1-memory-legacy-migration.md)不重新列为待办 |
+
+### 5.6 controller 模式的外部 harness 接入
+
+状态：Candidate，版本待定。2026-10-20 曾定为 v0.7.1 的版本目标，同日改为 plugin 模式（第 4.3 节）；首份计划的方向（首个外部驱动的纯文本闭环）随之撤回，计划未建立。步骤分析与阻塞问题保留在[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#controller-模式的步骤分析退回候选方向)，Codex、Claude Code、pi 与 ACP 的接口资料见[接口调研快照](./research/harness-interface-survey-snapshot.md)（2026-10-20，模型实测待验证）；重新排期时先复核其中的未知项与待实测项。
+
+controller 模式把 Codex、Claude Code、pi 一类成熟的 agent harness 作为执行环境与 CPU 类型纳入兼容范围：用户在对话开始前分别选择 agent 与执行环境（[执行环境 Idea](./ideas/execution-environment.md)前提 9、10；外部 Actor Idea E-6a），外部 harness 作为执行环境运行所选 agent，请求经唯一注册入口登记为任务进程，处理后交给该 harness 执行。它建立在 v0.7.0 的任务进程表与注册入口之上，消费外部 Actor 的接入与运行时访问契约（原计划 B），不强依赖 HiveMemory 本地沙箱；外部 harness 继续使用自己的工具和执行环境。采用 ACP 一类的通用协议还是各 harness 的 SDK 或非交互 CLI，见 Idea 的 E-2a。
+
+验收必须形成真实闭环：请求登记为任务进程并由外部 harness 执行；外部 harness 经能力层检索已有记忆并实际用于任务，写入/修订意图经能力层提交；进程的交互记录进入记忆库（去向见 [任务进程](./workspace/task-process.md)）；下一次会话能召回新形成的知识并定位来源。取消、失败与进程回收按外部执行单元的进程问题（[任务进程 Idea](./ideas/task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) Q-8）的决定呈现。仅转发请求、仅采集日志、仅发送事件或仅返回 memory context 均不足以证明 Actor 接入完成。
+
+controller 模式下 HiveMemory 控制任务边界（actor 选择、输入、生命周期与取消、执行轨迹回流），不控制外部 harness 内部的 loop、工具与上下文压缩；外部 harness 默认保有自己的 prompt history，HiveMemory 不隐式接管上下文压缩。
 
 ## 6. 长期方向与评估
 

@@ -135,7 +135,7 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 | 口径 | 当前值 | 含义 |
 |:---|:---|:---|
 | 最近已发布基线 | `v0.7.0` | Git tag 创建于 2026-10-20；Workspace 网络与任务进程：任务进程与唯一注册入口、访问边界与身份体系、能力层、执行线程、会话与写入意图 |
-| 当前开发版本 | `v0.7.1` | Planned：版本目标为 controller 模式的真实外部 harness 接入，见 [ROADMAP](./ROADMAP.md) |
+| 当前开发版本 | `v0.7.1` | Planned：版本目标为 plugin 模式的真实外部 harness 接入，首个接入 Claude Code，见 [ROADMAP](./ROADMAP.md) |
 | 规范代码版本 | `0.7.0` | 由 `src/hivememory/_version.py` 唯一声明，Python 构建、运行时、HTTP API 与前端包清单保持一致 |
 
 版本号与发布状态是两个不同事实。`pyproject.toml` 通过 setuptools dynamic metadata 读取规范代码版本，FastAPI/OpenAPI 与 `/health` 直接复用运行时版本，前端清单由 CI 一致性检查约束。当前代码和前后端清单为 0.7.0，与最近已发布标签 v0.7.0 对应；v0.7.1 开发期间合入的内容在版本收尾时升版。版本目标判定与核对记录见 [v0.7.0 收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md)。Python PEP 440 与 npm SemVer 对预发布后缀的规范化方式不同，因此当前门禁不发布预发布包；未来若需要 rc/beta，必须先为两种生态补充显式映射和构建产物校验，不能绕过一致性检查。
@@ -310,6 +310,7 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 ### 9.5 其他文档类型
 
 - [Governance](./governance/README.md)：跨版本可靠性、安全和数据模型治理主题及其阶段性基线；
+- [Research](./research/README.md)：外部 Memory、Agent 系统、论文与技术方案的调研需求、证据快照、设计比较和适配分析；
 - [Plans](./plans/README.md)：已经绑定版本或里程碑、可独立验收的功能与迁移；
 - [Ideas](./ideas/README.md)：未形成承诺的开放探索；
 - [Todo](./todo/README.md)：小范围缺陷和技术债；

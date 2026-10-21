@@ -12,7 +12,7 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 ## 发布状态
 
 - 最近已发布基线：`v0.7.0`（见[收尾审计](docs/archive/plans/v0.7.0-release-closeout-audit.md)）
-- 当前开发版本：`v0.7.1`（版本目标：controller 模式的真实外部 harness 接入，见 [ROADMAP](docs/ROADMAP.md)）
+- 当前开发版本：`v0.7.1`（版本目标：plugin 模式的真实外部 harness 接入，首个接入 Claude Code，见 [ROADMAP](docs/ROADMAP.md)）
 - 代码与包版本：`0.7.0`
 - Python 要求：`>=3.12`
 - 许可证：Apache-2.0

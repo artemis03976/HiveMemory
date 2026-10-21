@@ -11,7 +11,7 @@ related_docs:
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/gateway/commands.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-10-20
 ---
 
 # 会话 `/compact` 指令
@@ -50,7 +50,7 @@ ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是�
 - 已完成的 ConversationSession 与前端会话模型；
 - 命令的运行位置（命令系统接回，Q-5a）；
 - Alice 自动压缩已完成，见[归档计划](../archive/plans/v0.7.0-alice-session-compaction.md)；手动入口随命令系统接回，复用现有强制压缩参数，不另建摘要算法（owner，2026-10-16）；
-- 外部 harness 的 controller 模式接入（v0.7.1）。
+- 外部 harness 的 controller 模式接入（候选方向，版本待定）。
 
 ## 待决问题
 

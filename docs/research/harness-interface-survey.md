@@ -1,14 +1,13 @@
 ---
 title: 外部 harness 接口调研需求
-status: idea
-horizon: current
-serves_version: v0.7.1
+status: current
 owner: project
 scope: external-harness-programmatic-interface-survey-requirements
 code_paths:
   - src/hivememory/workspace/contracts/cpu.py
   - src/hivememory/workspace/contracts/process.py
 related_docs:
+  - docs/research/harness-interface-survey-snapshot.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/execution-environment.md
   - docs/ideas/task-process-table-and-registration-entry.md
@@ -16,25 +15,28 @@ related_docs:
   - docs/contracts/subsystem-contracts.md
   - docs/ROADMAP.md
 last_reviewed: 2026-10-20
+snapshot_at: 2026-10-20
 ---
 
 # 外部 harness 接口调研需求
 
 ## 0. 文档性质
 
-本文是一份调研需求：规定这次调研要回答哪些问题、如何取证、交付什么。它不包含调研结论，也不代表任何决定。调研单独进行，结果按第 5 节的形式交付到第 7 节。
+本文是一份当前有效的调研需求：规定这次调研要回答哪些问题、如何取证、交付什么。`current` 只表示需求有效，不表示调研或实测已经完成。它不包含调研结论，也不代表任何决定。调研单独进行，结果按第 5 节的形式交付到第 7 节。
 
-外部项目变化很快，调研结论只代表完成时的日期，完成时在 frontmatter 记录 `snapshot_at`。
+外部项目变化很快，调研结论只代表完成时的日期，形成报告快照时在报告 frontmatter 记录 `snapshot_at`。
 
 ## 1. 目的
 
-v0.7.1 的版本目标是 controller 模式的真实外部 harness 接入，首份计划的方向是首个外部驱动的纯文本闭环（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)第 4 节）。这份计划需要先选定第一个接入的 harness，并决定驱动它的方式（外部 Actor Idea E-2a）。目前对候选 harness 当前的程序化接口没有逐项核实，这次调研为这两件事提供依据。
+> 2026-10-20：调研完成后，owner 把 v0.7.1 的版本目标改为 plugin 模式接入 Claude Code，controller 模式退回候选方向，版本待定（[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。本需求与[资料快照](./harness-interface-survey-snapshot.md)保留为 controller 模式重新排期时的依据；下文按编写时的目标叙述，第 4 节要求的最小实测与第 8 节的完成标准随之暂缓。
 
-调研同时为纯文本闭环的其他阻塞问题收集材料：外部执行单元的进程（[任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) Q-8）、执行环境的组合有效性与选择（[执行环境 Idea](./execution-environment.md) T-7、T-8）、harness 自身工具的权限应答与工作目录（同文 T-11）。后续步骤用到的接口（MCP 注入、事件类型、Profile 应用结果）在同一轮里一并记录，避免再做一次调研。
+编写时，v0.7.1 的版本目标是 controller 模式的真实外部 harness 接入，首份计划的方向是首个外部驱动的纯文本闭环（[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#controller-模式的步骤分析退回候选方向)第 4 节）。这份计划需要先选定第一个接入的 harness，并决定驱动它的方式（外部 Actor Idea E-2a）。目前对候选 harness 当前的程序化接口没有逐项核实，这次调研为这两件事提供依据。
+
+调研同时为纯文本闭环的其他阻塞问题收集材料：外部执行单元的进程（[任务进程 Idea](../ideas/task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) Q-8）、执行环境的组合有效性与选择（[执行环境 Idea](../ideas/execution-environment.md) T-7、T-8）、harness 自身工具的权限应答与工作目录（同文 T-11）。后续步骤用到的接口（MCP 注入、事件类型、Profile 应用结果）在同一轮里一并记录，避免再做一次调研。
 
 ### 1.1 执行单元需要满足的接口
 
-外部执行单元是 CPU 端口的一个常驻实现，由驱动代码配出（[子系统契约](../contracts/subsystem-contracts.md)第 4 节；用语见[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节），运行在 Python 3.12 的单进程 asyncio 后端中。判断一个 harness 是否适合时，以下列契约为准：
+外部执行单元是 CPU 端口的一个常驻实现，由驱动代码配出（[子系统契约](../contracts/subsystem-contracts.md)第 4 节；用语见[第五代架构 Idea](../ideas/fifth-generation-architecture.md)第 2 节），运行在 Python 3.12 的单进程 asyncio 后端中。判断一个 harness 是否适合时，以下列契约为准：
 
 - 输入：任务进程交来的输入清单，其中有已经定稿的环境通知与人格段（`instructions`）、记忆与附件段（`turn_context`）、原始用户消息、提示词语言，以及本会话的全量原文历史；另有逐轮的生成参数（模型、temperature、top_p、max_tokens），由各 CPU 自行解释。
 - 输出：执行中推送交互事件（纯文本闭环只需要正文），结束时返回终态结果：结局（completed / cancelled / failed）、最终正文、本轮事件，失败原因可以不填。
@@ -125,7 +127,7 @@ v0.7.1 的版本目标是 controller 模式的真实外部 harness 接入，首�
 - 区分“文档声明”与“实测验证”。通过初筛的候选，对 A2、B1、C1、C2、D1、E1、F1、F2 做最小实测；初筛条件是 A1 至少有一种可用接口，且 H1 允许无人值守驱动。
 - 实测在仓库之外的临时目录进行，使用用户确认的凭据，不把凭据、日志或产物提交到仓库。
 - 无法确定的项标为“未知”并说明原因，不作推测。
-- 外部 Actor Idea 在 2026-10-06 按 ACP 仓库文档做过一次核对：`session/new` 的参数为 `cwd`、`mcpServers` 等，未见系统提示词字段；模型只能经 `session/set_config_option` 在 harness 声明的配置项中选择；`tool_call` 通知不标识所调用的工具；`session/request_permission` 在协议中为 MAY（[执行环境 Idea](./execution-environment.md)前提 9 的分析、[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#e-5-外部执行单元的执行线程) E-5）。本次重新核对这些结论，并注明是否已有变化。
+- 外部 Actor Idea 在 2026-10-06 按 ACP 仓库文档做过一次核对：`session/new` 的参数为 `cwd`、`mcpServers` 等，未见系统提示词字段；模型只能经 `session/set_config_option` 在 harness 声明的配置项中选择；`tool_call` 通知不标识所调用的工具；`session/request_permission` 在协议中为 MAY（[执行环境 Idea](../ideas/execution-environment.md)前提 9 的分析、[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#e-5-外部执行单元的执行线程) E-5）。本次重新核对这些结论，并注明是否已有变化。
 
 ## 5. 交付物
 
@@ -134,7 +136,7 @@ v0.7.1 的版本目标是 controller 模式的真实外部 harness 接入，首�
 3. **按问题汇总的发现**：对 E-2a、Q-8、T-7、T-8、T-11 各写一段“调研发现与影响”，后续步骤的问题（E-2、E-3b、P-1b、P-1c、T-10、P-10a）同样汇总。只列影响，不作选择。
 4. **首个 harness 的选择依据**：列出纯文本闭环的必需条件，以及每个候选是否满足；不作最终决定。
 
-结果写入本文第 7 节；篇幅过大时另立调研快照文档并在第 7 节链接。完成时在 frontmatter 记录 `snapshot_at`。
+结果报告统一写入 `docs/research/` 并加入该目录索引，本文第 7 节保留报告链接与验证状态。形成资料快照时在报告 frontmatter 记录 `snapshot_at`，未执行的实测单独标为待验证。
 
 ## 6. 不在范围
 
@@ -146,7 +148,9 @@ v0.7.1 的版本目标是 controller 模式的真实外部 harness 接入，首�
 
 ## 7. 调研结果
 
-尚未开始。
+2026-10-20 的资料调研结果见[外部 harness 程序化接口调研快照](./harness-interface-survey-snapshot.md)：包含 Codex、Claude Code、pi 的 A1–H2 对比矩阵、ACP 规范与适配器复核、候选说明、按待决问题汇总的发现，以及首个接入的选择依据；没有作出最终选型或设计决定。
+
+用户明确将本次范围限定为“仅完成资料调研，实测列为待验证”。本次仅执行版本、帮助与离线 schema 等本地检查，未使用凭据或调用模型。资料交付已完成；第 4 节要求的 A2、B1、C1、C2、D1、E1、F1、F2 最小实测均在快照第 7 节列为待验证，第 8 节的完整实测验收尚未完成。
 
 ## 8. 完成标准
 

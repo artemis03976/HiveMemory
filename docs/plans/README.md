@@ -12,11 +12,11 @@ last_reviewed: 2026-10-20
 
 ## v0.7.1
 
-版本目标已决定（owner，2026-10-20）：controller 模式的真实外部 harness 接入，按小步分别建立计划，把 Codex、Claude Code、pi 一类成熟的 agent harness 作为执行环境与 CPU 类型纳入兼容范围；plugin 模式放在其后。目标结果与验收方向见 [ROADMAP](../ROADMAP.md) 第 4.4 节。
+版本目标已决定（owner，2026-10-20）：plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code，按小步分别建立计划；同日先定的 controller 模式目标退回候选方向，其首份计划方向（首个外部驱动的纯文本闭环）随之撤回。目标结果与验收方向见 [ROADMAP](../ROADMAP.md) 第 4.4 节。
 
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
-| 1 | 首个外部驱动的纯文本闭环 | 首份计划的方向已决定（owner，2026-10-20），计划尚未建立；阻塞问题与后续候选步骤见外部 Actor Idea | 背景：[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)、[执行环境 Idea](../ideas/execution-environment.md)；先行调研：[外部 harness 接口调研需求](../ideas/harness-interface-survey.md) |
+| 1 | 对话回流：Import Bus 重设计（第一条真实路径为 Claude Code） | 首份计划的方向已决定（owner，2026-10-20），计划尚未建立；阻塞问题与候选的下一步（记忆访问）见外部 Actor Idea | 背景：[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)、[Import Bus Idea](../ideas/import-bus.md) |
 
 ## v0.7.0
 
@@ -49,7 +49,7 @@ last_reviewed: 2026-10-20
 
 - 必须填写明确 `target` 或在标题/范围中绑定当前版本；
 - 必须具有独立目标、非目标、迁移方式、测试和验收出口；
-- 计划之间的关系满足[文档治理规范](../DOCUMENTATION.md)第 8.3 节的三条约束：同一目标方向只有一份生效计划、不设总分结构；设计依据只来自事实文档、代码、ADR、已归档计划与背景 Idea；计划之间只有整份粒度的顺序依赖；
+- 计划之间的关系满足[文档治理规范](../DOCUMENTATION.md)第 8.3 节的三条约束：同一目标方向只有一份生效计划、不设总分结构；设计依据只来自事实文档、代码、ADR、已归档计划、已冻结的 Research 报告与背景 Idea；计划之间只有整份粒度的顺序依赖；
 - 本索引只做导航，不记录设计决定；
 - 未排期治理主题进入 [Governance](../governance/README.md)；尚需验证价值、样本或所有权的候选进入 [Ideas](../ideas/README.md)；范围较小的缺陷和技术债进入 [Todo](../todo/README.md)；
 - 已完成或被替代的实施稿进入 [Archived Plans](../archive/plans/README.md)；未完成实施即作废的计划直接删除，方向保留但前提改变的未实施计划退回 Idea，入链与遗留事项按文档治理规范第 8.4、10 节处理。

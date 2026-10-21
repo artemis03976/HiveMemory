@@ -14,7 +14,7 @@ related_docs:
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/todo/conversation-compact-command.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-20
 ---
 
 # 外部会话消息的接收与 Topic 投影
@@ -28,7 +28,7 @@ last_reviewed: 2026-10-19
 本文由原 v0.7.0 A3 计划（Conversation Session 与 Topic 投影边界）于 2026-09-27 退回 Idea：删除了阶段划分、交付切片、验收门禁、跨计划依赖与文档更新清单，设计内容保留。计划的最后版本见 commit `dda9d9d` 中的 `docs/plans/v0.7.0-a3-conversation-session-and-topic-projection.md`。
 
 - 要解决的问题：Topic 体系不能接收外部 Actor 的会话消息（owner 表述，2026-09-27）。
-- **版本归属**（owner，2026-09-27）：本方向在 v0.7.0 内完成，Alice 作为第一个使用者（[ROADMAP](../ROADMAP.md) 的 v0.7.0 范围）。外部 Actor 分为两种接入模式（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）：controller 模式在 v0.7.1，plugin 模式在其后的 v0.7.x。
+- **版本归属**（owner，2026-09-27）：本方向在 v0.7.0 内完成，Alice 作为第一个使用者（[ROADMAP](../ROADMAP.md) 的 v0.7.0 范围）。外部 Actor 分为两种接入模式（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）：2026-10-20 起 plugin 模式在 v0.7.1（首个接入 Claude Code），controller 模式退回候选方向，版本待定。
 - plugin 模式的会话归外部 harness 所有；Alice 与 controller 模式的会话由 HiveMemory 发起。本文最初面向外部 harness 自有的会话。
 - **Topic 与会话解耦**（owner，2026-09-28；预建部分 2026-10-13 改为保留，见本条末尾）：Topic 将与 conversation session 解耦，不再承担上下文，仍是记忆生成的历史材料组织方；任务进程不再预先创建临时话题，Gateway 的 Topic 路由决定跨阶段传递到结算，提交后依此按需创建 Topic（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1、Q-9）。本文第 3 节 Topic 的 working set 职责、第 4.3 节的 prepare 生命周期，以及第 8 节 Topic 生命周期事项中的预创建与条件清理，需要按此决定重新审视。（owner，2026-10-13）预建部分改为保留：将来对话流式同步到 Patchouli 时需要先有容器接收，话题是否预建随流式设计决定，“取消当前 Topic”与 `topic_info` 改为异步标注不依赖是否预建（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1）。
 - **对话上下文由 Session 提供**（owner，2026-09-28）：实际使用的对话上下文由 ConversationSession 提供，原样积累，不再由外界干涉；Topic 作为内部记忆生成的资料，Gateway 话题路由与 Topic 只为记忆生成服务。Session 提供历史，CPU 管理派生视图的预算与压缩，详见[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)。

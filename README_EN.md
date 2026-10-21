@@ -12,7 +12,7 @@ The repository includes a runnable Python backend, a frontend development UI, ve
 ## Release Status
 
 - Latest published baseline: `v0.7.0` (see the [closeout audit](docs/archive/plans/v0.7.0-release-closeout-audit.md))
-- Current development version: `v0.7.1` (goal: real external harness integration in controller mode; see the [Roadmap](docs/ROADMAP.md))
+- Current development version: `v0.7.1` (goal: real external harness integration in plugin mode, starting with Claude Code; see the [Roadmap](docs/ROADMAP.md))
 - Code and package version: `0.7.0`
 - Python requirement: `>=3.12`
 - License: Apache-2.0

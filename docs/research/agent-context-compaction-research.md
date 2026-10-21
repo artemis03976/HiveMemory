@@ -1,11 +1,11 @@
 ---
 title: Agent Harness Context Compaction Research
-status: idea
-horizon: candidate
+status: baseline
 owner: alice
 scope: agent-harness-context-compaction-technical-research
 snapshot_at: 2026-10-16
-last_reviewed: 2026-10-17
+source_commit: 6b44bc02a86d1e158efd3a8de7b7905be009c3d9
+last_reviewed: 2026-10-20
 related_docs:
   - docs/ideas/short-term-memory-and-context-compaction.md
   - docs/ideas/external-session-and-topic-projection.md
@@ -25,6 +25,8 @@ code_paths:
 # Agent Harness 会话压缩技术调研
 
 > 2026-10-17 收尾：Alice 自动压缩已实施并[归档](../archive/plans/v0.7.0-alice-session-compaction.md)，当前事实见 [Agent Runtime](../alice/agent-runtime.md)。下文保留 2026-10-16 的调研快照和当时建议，供未排期扩展参考，不代表外部项目现状。
+
+2026-10-20 迁入 Research，未重做技术调研。`source_commit` 与 `code_paths` 指向调研形成时的 HiveMemory 代码基线；正文中的本地源码引用固定到该提交，历史分析不随目录迁移改写为当前实现。
 
 Alice 的 v0.7.0 会话压缩可以建立在已经广泛采用的工程模式上：**保留原始会话，从历史前缀生成接力摘要，保留近期执行材料，再按当前模型预算重建上下文。** 真正需要设计的部分是覆盖边界、预算、失败提交和运行状态恢复；摘要提示词只是其中一环。
 
@@ -57,7 +59,7 @@ Alice 的 v0.7.0 会话压缩可以建立在已经广泛采用的工程模式上
 
 这些机制可以组合。Claude Code 官方说明先清理旧工具输出，再在需要时摘要；pi 将压缩结果追加为记录并重建模型投影；OpenCode V2 同时提供摘要与原生压缩模式。它们不能被合并成一个固定的“保留最后 N 条消息”算法。[Claude Code 运行机制][claude-how]、[pi 会话投影][pi-session]、[OpenCode V2 文档][oc-doc]
 
-还要区分**跨用户轮次压缩**与**同一轮工具循环中的压缩**。后者需要处理尚未结束的执行跨度、工具关联和恢复点。HiveMemory 当前候选范围仅覆盖根 frame 的历史轮次，不能由此推出任意长单轮任务都不会溢出。[现有候选范围](./short-term-memory-and-context-compaction.md#5-alice-会话-compact-的已完成范围)、[Turn 内折叠方向](./long-running-agent-intra-turn-context-folding.md)
+还要区分**跨用户轮次压缩**与**同一轮工具循环中的压缩**。后者需要处理尚未结束的执行跨度、工具关联和恢复点。HiveMemory 当前候选范围仅覆盖根 frame 的历史轮次，不能由此推出任意长单轮任务都不会溢出。[现有候选范围](../ideas/short-term-memory-and-context-compaction.md#5-alice-会话-compact-的已完成范围)、[Turn 内折叠方向](../ideas/long-running-agent-intra-turn-context-folding.md)
 
 ## 3. Claude Code
 
@@ -139,7 +141,7 @@ Hermes 对 live transcript 制作深快照，在候选压缩之外设置提交�
 
 ### 5.4 借鉴边界
 
-Hermes 的压缩器含较多兼容、恢复和防止无效重复压缩的分支。Alice 应提取预算与失败处理原则，避免将整套策略参数一次性引入。特别是任何通过丢弃中间材料求生的路径，都应与 HiveMemory 当前候选的“超窗时结构化失败、不静默截断”逐项比较，不能当作无条件 fallback。[压缩器入口][hermes-compressor]、[Alice 候选失败策略](./short-term-memory-and-context-compaction.md#5-alice-会话-compact-的已完成范围)
+Hermes 的压缩器含较多兼容、恢复和防止无效重复压缩的分支。Alice 应提取预算与失败处理原则，避免将整套策略参数一次性引入。特别是任何通过丢弃中间材料求生的路径，都应与 HiveMemory 当前候选的“超窗时结构化失败、不静默截断”逐项比较，不能当作无条件 fallback。[压缩器入口][hermes-compressor]、[Alice 候选失败策略](../ideas/short-term-memory-and-context-compaction.md#5-alice-会话-compact-的已完成范围)
 
 Hermes 另有默认关闭的轮后微压缩：周期性吸收最旧完整工具 exchange。它会改变缓存前缀，也必须同步持久化投影。Alice 当前没有必要同时引入轮前压缩、轮后微压缩与后台压缩三套触发机制。[微压缩实现][hermes-micro]
 
@@ -200,11 +202,11 @@ OpenCode 将摘要模式与 native 模式分开，原生检查点记录 Provider
 
 ## 9. 对 Alice v0.7.0 的候选建议
 
-本节是调研后的适配建议，具体设计由[短期记忆与上下文压缩 Idea](./short-term-memory-and-context-compaction.md)收敛并形成唯一 Plan。
+本节是调研后的适配建议，具体设计由[短期记忆与上下文压缩 Idea](../ideas/short-term-memory-and-context-compaction.md)收敛并形成唯一 Plan。
 
 ### 9.1 保持现有所有权，增加可复用的派生检查点
 
-当前 `AgentPromptAssembler.build_main_agent_messages` 重放全量 `session_history`；`FrameFactory` 复制为本次 frame 的 `working_history`。`ConversationSessionService` 属于 workspace，当前 CPU 端口只有执行入口。源码与[当前 Agent Runtime](../alice/agent-runtime.md)都未提供跨 run 的压缩检查点。[提示词组装](../../src/hivememory/prompts/assembler.py)、[frame 创建](../../src/hivememory/alice/orchestration/frame_factory.py)、[会话服务](../../src/hivememory/workspace/sessions/service.py)、[CPU 契约](../../src/hivememory/workspace/contracts/cpu.py)
+当前 `AgentPromptAssembler.build_main_agent_messages` 重放全量 `session_history`；`FrameFactory` 复制为本次 frame 的 `working_history`。`ConversationSessionService` 属于 workspace，当前 CPU 端口只有执行入口。源码与[当前 Agent Runtime](../alice/agent-runtime.md)都未提供跨 run 的压缩检查点。[提示词组装](https://github.com/artemis03976/HiveMemory/blob/6b44bc02a86d1e158efd3a8de7b7905be009c3d9/src/hivememory/prompts/assembler.py)、[frame 创建](https://github.com/artemis03976/HiveMemory/blob/6b44bc02a86d1e158efd3a8de7b7905be009c3d9/src/hivememory/alice/orchestration/frame_factory.py)、[会话服务](https://github.com/artemis03976/HiveMemory/blob/6b44bc02a86d1e158efd3a8de7b7905be009c3d9/src/hivememory/workspace/sessions/service.py)、[CPU 契约](https://github.com/artemis03976/HiveMemory/blob/6b44bc02a86d1e158efd3a8de7b7905be009c3d9/src/hivememory/workspace/contracts/cpu.py)
 
 建议以“摘要 + 明确覆盖边界 + 未覆盖近期轮次”构造 Alice 视图，Session 原文、Gateway 的最近 N 轮和 Topic 材料保持各自数据流。检查点不进入 `InteractionPayload`，避免摘要被当成用户或 Agent 新产生的事实再交给 Patchouli。
 
@@ -235,7 +237,7 @@ flowchart LR
 
 固定上下文包括协议/工具说明、人设、检索记忆和附件；不要只对 Session 文本计数。若模型定义区分总窗口与最大输入额度，还应分别取约束，避免对“已经扣除输出”的输入额度再次减去输出。切换模型或覆盖 `max_tokens` 后必须重新计算。
 
-当前 `TokenEstimator.estimate_messages` 只累计 content 的字符估算，没有计入消息封装开销，不能独立提供严格不溢出的保证。可以先复用估算工具并留余量；若未来采用 Provider usage，需补计最后一次计量之后新增的内容，并在上下文被替换后使旧计量失效。[现有估算器](../../src/hivememory/utils/token_estimator.py)、[模型解析端口](../../src/hivememory/agent_runtime/model_resolution.py)、[pi 的投影估算][pi-compact]
+当前 `TokenEstimator.estimate_messages` 只累计 content 的字符估算，没有计入消息封装开销，不能独立提供严格不溢出的保证。可以先复用估算工具并留余量；若未来采用 Provider usage，需补计最后一次计量之后新增的内容，并在上下文被替换后使旧计量失效。[现有估算器](https://github.com/artemis03976/HiveMemory/blob/6b44bc02a86d1e158efd3a8de7b7905be009c3d9/src/hivememory/utils/token_estimator.py)、[模型解析端口](https://github.com/artemis03976/HiveMemory/blob/6b44bc02a86d1e158efd3a8de7b7905be009c3d9/src/hivememory/agent_runtime/model_resolution.py)、[pi 的投影估算][pi-compact]
 
 当人设、附件或当前输入本身已经放不下时，继续压缩旧历史也不能解决。应返回可区分的结构化失败；针对单个巨大工具结果和 Turn 内增长的处理，留在相应方向中设计。
 
@@ -268,7 +270,7 @@ flowchart LR
 | AC-1：检查点存放位置 | pi、Codex、OpenCode 都将检查点绑定会话历史；harness 自持会话的项目同时拥有清理生命周期 | 在 HiveMemory 现有边界下，可优先评估由会话携带 CPU 中立检查点、Alice 负责生成和消费的方案；若选择 Alice 自持，必须补会话标识、删除/关闭清理和一致性协议 |
 | AC-2：手动 `/compact` 范围 | 手动/自动入口可以共享算法，但命令接受、安全执行点与最终完成分开 | 先确定命令执行归属与 CPU 能力契约，再决定是否同批交付；不要为手动压缩复制一套算法 |
 
-这两项仍由 owner 决定。外部实现只能说明需要哪些语义，不能替代 HiveMemory 的所有权选择。详细选项继续由[短期记忆 Idea 的 AC-1/AC-2](./short-term-memory-and-context-compaction.md#8-alice-会话压缩计划的决定owner2026-10-16)和[命令 Todo](../todo/conversation-compact-command.md)维护。（2026-10-16 补注：owner 已决定 AC-1 存入会话资源、AC-2 只做自动压缩，见链接处。）
+这两项仍由 owner 决定。外部实现只能说明需要哪些语义，不能替代 HiveMemory 的所有权选择。详细选项继续由[短期记忆 Idea 的 AC-1/AC-2](../ideas/short-term-memory-and-context-compaction.md#8-alice-会话压缩计划的决定owner2026-10-16)和[命令 Todo](../todo/conversation-compact-command.md)维护。（2026-10-16 补注：owner 已决定 AC-1 存入会话资源、AC-2 只做自动压缩，见链接处。）
 
 ## 10. 形成 Plan 前的验证重点
 
