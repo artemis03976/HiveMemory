@@ -61,10 +61,8 @@ def system(mock_patchouli):
     gateway.stop = AsyncMock()
     gateway.health = AsyncMock(return_value={"status": "ok"})
     process_service = MagicMock(spec=TaskProcessService)
-    ingress_service = MagicMock()
-    ingress_service.start = AsyncMock()
-    ingress_service.shutdown_drain = AsyncMock(return_value={"success": True})
-    ingress_service.ingest_event = AsyncMock(return_value={"buffered": True})
+    import_bus_service = MagicMock()
+    import_bus_service.shutdown = AsyncMock(return_value={"waited_requests": 0})
     memory_service = MagicMock()
     memory_task_service = MagicMock()
     agent_service = MagicMock()
@@ -101,7 +99,7 @@ def system(mock_patchouli):
     )
     services = _ServicesBundle(
         process=process_service,
-        ingress=ingress_service,
+        import_bus=import_bus_service,
         root_memory=memory_service,
         root_memory_task=memory_task_service,
         root_agent=agent_service,
@@ -144,7 +142,6 @@ class TestHiveMemorySystem:
             "patchouli.start",
             "alice.start",
             "scheduler.start",
-            "passive_ingress.start",
         ]
         assert isinstance(events[1].data["duration_ms"], float)
 
@@ -180,9 +177,9 @@ class TestHiveMemorySystem:
         async def scheduler_stop_side_effect():
             calls.append("stop_scheduler")
 
-        async def shutdown_drain_side_effect():
-            calls.append("shutdown_drain")
-            return {"success": True}
+        async def import_bus_shutdown_side_effect():
+            calls.append("import_bus_shutdown")
+            return {"waited_requests": 0}
 
         async def stop_subsystem_side_effect():
             calls.append("stop")
@@ -191,14 +188,14 @@ class TestHiveMemorySystem:
         system._scheduler.start = MagicMock()
         system._scheduler.stop = AsyncMock(side_effect=scheduler_stop_side_effect)
         system._patchouli.stop = AsyncMock(side_effect=stop_subsystem_side_effect)
-        system._ingress_service.shutdown_drain.side_effect = shutdown_drain_side_effect
+        system._import_bus_service.shutdown.side_effect = import_bus_shutdown_side_effect
 
         await system.start()
 
         await system.stop()
 
-        # 顺序契约：scheduler 停止 → drain → 子系统停止
-        assert calls == ["stop_scheduler", "shutdown_drain", "stop"]
+        # 顺序契约：scheduler 停止 → 等待在途导入 → 子系统停止
+        assert calls == ["stop_scheduler", "import_bus_shutdown", "stop"]
 
     @pytest.mark.asyncio
     async def test_stop_emits_system_lifecycle_events(self, system):
@@ -220,7 +217,7 @@ class TestHiveMemorySystem:
         assert stopped.data["completed_steps"] == [
             "access_gateway.close",
             "scheduler.stop",
-            "passive_ingress.shutdown_drain",
+            "import_bus.shutdown",
             "process_service.shutdown",
             "sessions.close_and_clear",
             "alice.stop",
@@ -232,7 +229,7 @@ class TestHiveMemorySystem:
         ]
         assert system.workspace_read_view.is_closed is True
         assert stopped.data["scheduler_stopped"] is True
-        assert stopped.data["passive_shutdown_drain"] == {"success": True}
+        assert stopped.data["import_bus_shutdown"] == {"waited_requests": 0}
         assert isinstance(stopped.data["duration_ms"], float)
 
     @pytest.mark.asyncio
@@ -251,7 +248,7 @@ class TestHiveMemorySystem:
         assert stopped.data["completed_steps"] == [
             "access_gateway.close",
             "scheduler.stop",
-            "passive_ingress.shutdown_drain",
+            "import_bus.shutdown",
             "process_service.shutdown",
             "sessions.close_and_clear",
             "workspace_read_view.close",
@@ -260,7 +257,7 @@ class TestHiveMemorySystem:
         ]
         assert system.workspace_read_view.is_closed is True
         assert stopped.data["scheduler_stopped"] is False
-        assert stopped.data["passive_shutdown_drain"] == {"success": True}
+        assert stopped.data["import_bus_shutdown"] == {"waited_requests": 0}
         system._alice.stop.assert_not_called()
         system._patchouli.stop.assert_not_called()
         system._scheduler.stop.assert_not_called()
@@ -297,13 +294,13 @@ class TestHiveMemorySystem:
         assert failed.data["completed_steps"] == [
             "access_gateway.close",
             "scheduler.stop",
-            "passive_ingress.shutdown_drain",
+            "import_bus.shutdown",
             "process_service.shutdown",
             "sessions.close_and_clear",
         ]
         assert failed.data["failed_step"] == "alice.stop"
         assert failed.data["scheduler_stopped"] is True
-        assert failed.data["passive_shutdown_drain"] == {"success": True}
+        assert failed.data["import_bus_shutdown"] == {"waited_requests": 0}
         assert failed.data["error"] == "stop boom"
 
     @pytest.mark.asyncio

@@ -2,6 +2,7 @@ import importlib
 import inspect
 import pkgutil
 
+import pytest
 from pydantic import BaseModel
 
 import hivememory.config as config_package
@@ -36,6 +37,16 @@ def test_every_config_section_rejects_unknown_keys():
     ]
 
     assert lenient == []
+
+
+def test_config_file_rejects_unknown_top_level_sections(tmp_path, monkeypatch):
+    """配置文件中已删除或写错的顶层段让加载失败，不随根配置的宽松规则被丢弃。"""
+    path = tmp_path / "stale.yaml"
+    path.write_text("passive_ingress:\n  dedup_ttl_seconds: 300\n", encoding="utf-8")
+    monkeypatch.setenv("HIVEMEMORY_CONFIG_PATH", str(path))
+
+    with pytest.raises(ValueError, match="passive_ingress"):
+        HiveMemoryConfig()
 
 
 def test_memory_compiler_config_accepts_cascade_strategy():

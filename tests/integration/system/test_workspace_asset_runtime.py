@@ -72,18 +72,15 @@ class _Scheduler:
         self.is_running = False
 
 
-class _Ingress:
-    """提供 System 生命周期所需的最小 ingress 边界。"""
+class _ImportBus:
+    """提供 System 生命周期所需的最小 Import Bus 边界。"""
 
     def __init__(self, calls: list[str]) -> None:
         self._calls = calls
 
-    async def start(self) -> None:
-        return None
-
-    async def shutdown_drain(self) -> dict[str, bool]:
-        self._calls.append("ingress")
-        return {"success": True}
+    async def shutdown(self) -> dict[str, int]:
+        self._calls.append("import_bus")
+        return {"waited_requests": 0}
 
 
 class _LeaseHoldingSubsystem:
@@ -242,7 +239,7 @@ def _build_system(
     )
     services = _ServicesBundle(
         process=_Processes(),  # type: ignore[arg-type]
-        ingress=_Ingress(calls),  # type: ignore[arg-type]
+        import_bus=_ImportBus(calls),  # type: ignore[arg-type]
         root_memory=object(),  # type: ignore[arg-type]
         root_memory_task=object(),  # type: ignore[arg-type]
         root_agent=object(),  # type: ignore[arg-type]
@@ -380,7 +377,7 @@ async def test_system_closes_store_only_after_all_asset_consumers_stop() -> None
     sink.events.clear()
     await system.stop()
 
-    assert calls == ["scheduler", "ingress", "alice", "patchouli", "gateway"]
+    assert calls == ["scheduler", "import_bus", "alice", "patchouli", "gateway"]
     assert {name: subsystem.asset_id_seen_on_stop for name, subsystem in subsystems.items()} == {
         "gateway": handle.asset.asset_id,
         "patchouli": handle.asset.asset_id,
@@ -418,7 +415,7 @@ async def test_upstream_stop_failure_does_not_clear_store_or_report_stopped() ->
     with pytest.raises(RuntimeError, match="patchouli stop failed"):
         await system.stop()
 
-    assert calls == ["scheduler", "ingress", "alice", "patchouli"]
+    assert calls == ["scheduler", "import_bus", "alice", "patchouli"]
     assert store.is_closed is False
     assert store.resolve_asset(scope, handle.asset_ref).asset_id == handle.asset.asset_id
     assert [event.event_type for event in sink.events] == [
@@ -453,7 +450,7 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
     )
     services = _ServicesBundle(
         process=_Processes(),  # type: ignore[arg-type]
-        ingress=_Ingress(calls),  # type: ignore[arg-type]
+        import_bus=_ImportBus(calls),  # type: ignore[arg-type]
         root_memory=object(),  # type: ignore[arg-type]
         root_memory_task=object(),  # type: ignore[arg-type]
         root_agent=object(),  # type: ignore[arg-type]
@@ -488,7 +485,7 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
     assert store.is_closed is True
     assert calls == [
         "scheduler",
-        "ingress",
+        "import_bus",
         "alice",
         "lease_consumer",
         "gateway",

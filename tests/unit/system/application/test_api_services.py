@@ -4,7 +4,8 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 
-from hivememory.config.passive import PassiveIngressConfig
+from hivememory.config.gateway import SystemGatewayConfig
+from hivememory.config.import_bus import ImportBusConfig
 from hivememory.config.runtime import RuntimeEventsConfig
 from hivememory.config.workspace import WorkspaceConfig
 from hivememory.system.application.readiness_service import SystemReadinessService
@@ -18,28 +19,23 @@ from hivememory.workspace.capability.root.topic import RootTopicService
 
 
 @pytest.fixture
-def passive_config():
-    scheduler_tasks = MagicMock()
-    scheduler_tasks.observer_idle_flush_timeout_seconds = 30.0
-    scheduler_tasks.observer_idle_flush_interval_seconds = 30.0
-    scheduler_tasks.enable_observer_idle_flush = True
-
+def system_config():
     scheduler = MagicMock()
     scheduler.tick_seconds = 0.01
     scheduler.shutdown_wait_seconds = 0.1
     scheduler.enabled = False
-    scheduler.tasks = scheduler_tasks
 
     config = MagicMock()
     config.scheduler = scheduler
-    config.passive_ingress = PassiveIngressConfig()
+    config.gateway = SystemGatewayConfig()
+    config.import_bus = ImportBusConfig()
     config.workspace = WorkspaceConfig()
     config.runtime_events = RuntimeEventsConfig()
     return config
 
 
 class TestApiApplicationServices:
-    def test_hivememory_system_build_exposes_api_services(self, passive_config):
+    def test_hivememory_system_build_exposes_api_services(self, system_config):
         with (
             patch("hivememory.system.assembler.GatewaySystem"),
             patch("hivememory.system.assembler.PatchouliSystem"),
@@ -49,7 +45,7 @@ class TestApiApplicationServices:
             # 注册表被替换后组件配置不再是真实 LLMConfig，转换一并替换。
             patch("hivememory.system.assembler.component_llm_params"),
         ):
-            system = HiveMemorySystem.build(config=passive_config)
+            system = HiveMemorySystem.build(config=system_config)
 
         assert isinstance(system.root_memory_service, RootMemoryService)
         assert isinstance(system.root_agent_service, RootAgentProfileService)
@@ -60,7 +56,7 @@ class TestApiApplicationServices:
         # 统一认证网关随组合根装配并暴露给 server 入口。
         assert isinstance(system.access_gateway, ActorAuthenticationGateway)
 
-    def test_server_deps_return_api_services(self, passive_config):
+    def test_server_deps_return_api_services(self, system_config):
         from hivememory.server import deps
 
         previous_system = deps._system
@@ -74,12 +70,13 @@ class TestApiApplicationServices:
                 # 注册表被替换后组件配置不再是真实 LLMConfig，转换一并替换。
                 patch("hivememory.system.assembler.component_llm_params"),
             ):
-                system = HiveMemorySystem.build(config=passive_config)
+                system = HiveMemorySystem.build(config=system_config)
             deps._system = system
 
             assert deps.get_root_memory_service() is system.root_memory_service
             assert deps.get_process_service() is system.process_service
-            assert deps.get_ingress_service() is system.ingress_service
+            assert deps.get_import_bus_service() is system.import_bus_service
+            assert deps.get_import_request_limit() == ImportBusConfig().max_request_bytes
             assert deps.get_root_agent_service() is system.root_agent_service
             assert deps.get_root_topic_service() is system.root_topic_service
             assert deps.get_root_memory_task_service() is system.root_memory_task_service

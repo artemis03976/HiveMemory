@@ -11,13 +11,13 @@ from fastapi import Depends, Header
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.access import CallerPrincipal, RunBinding, WorkspaceAccessContext
 from hivememory.core.constants import DEFAULT_USER_ID, SYSTEM_AGENT_ID
-from hivememory.core.models import ActorIdentity, IdentityScope, WorkspaceIdentity
+from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.core.models.workspace import MAIN_WORKSPACE_ID, resolve_default_workspace_identity
 from hivememory.infrastructure.log_handler import WebSocketLogHandler
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
 from hivememory.server.error_handlers import APIError
 from hivememory.system import HiveMemorySystem
-from hivememory.system.application.passive_ingress_service import PassiveIngressService
+from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
 from hivememory.workspace.authentication import ActorAuthenticationGateway
@@ -77,9 +77,14 @@ def get_process_service() -> TaskProcessService:
     return get_system().process_service
 
 
-def get_ingress_service() -> PassiveIngressService:
-    """FastAPI Depends 注入 — 获取被动接入应用服务。"""
-    return get_system().ingress_service
+def get_import_bus_service() -> ImportBusService:
+    """FastAPI Depends 注入 — 获取 Import Bus 应用服务。"""
+    return get_system().import_bus_service
+
+
+def get_import_request_limit() -> int:
+    """FastAPI Depends 注入 — 单次导入请求体的字节上限。"""
+    return get_system().config.import_bus.max_request_bytes
 
 
 def get_root_agent_service() -> RootAgentProfileService:
@@ -128,25 +133,14 @@ def get_identity_selection(
     return RequestIdentitySelection(user_id=x_user_id, workspace_id=x_workspace_id)
 
 
-def _merge_identity_field(
-    *,
-    header_value: str | None,
-    explicit_value: str | None,
-    field_name: str,
-) -> str | None:
-    """合并 header 与请求 body 携带的同一身份字段。
-
-    两个来源同时出现且不一致时显式拒绝，不静默选择其中一个；
-    空白值视为非法输入，同样显式失败。
-    """
-    header = header_value.strip() if header_value else None
-    explicit = explicit_value.strip() if explicit_value else None
-    if header is not None and explicit is not None and header != explicit:
-        raise APIError("request.identity_conflict")
-    value = explicit if explicit is not None else header
-    if value is not None and not value:
+def _normalize_identity_header(value: str | None) -> str | None:
+    """规范化请求头携带的身份字段：缺省或空串为 ``None``，只含空白显式失败。"""
+    if not value:
+        return None
+    normalized = value.strip()
+    if not normalized:
         raise APIError("request.identity_empty")
-    return value
+    return normalized
 
 
 def _resolve_identity_coordinates(
@@ -154,19 +148,17 @@ def _resolve_identity_coordinates(
     *,
     require_agent: bool,
     agent_id: str | None,
-    explicit_user_id: str | None,
-    explicit_workspace_id: str | None,
 ) -> tuple[str, str]:
-    """解析 user_id 与 agent_id 两项声明坐标（含 workspace 取值校验与冲突检测）。
+    """解析 user_id 与 agent_id 两项声明坐标（含 workspace 取值校验）。
 
     解析规则：
 
-    1. ``user_id``：body 显式值（只有 ``/ingest`` 提供）与 header 选择同时
-       出现且不一致时返回 409；全部缺省时在此唯一回退到 :data:`DEFAULT_USER_ID`。
-    2. ``workspace_id``：同样做冲突检测；公共产品入口只允许声明的
-       ``main_workspace``，其余值返回 404；全部缺省时解析默认 Workspace。
-    3. Agent action（``require_agent=True``，如 Chat）必须显式给出具体
-       ``agent_id``，缺失返回 400，不得回退到保留 ``system`` actor；
+    1. ``user_id``：只取统一请求头的选择；缺省时在此唯一回退到
+       :data:`DEFAULT_USER_ID`。
+    2. ``workspace_id``：公共产品入口只允许声明的 ``main_workspace``，其余值
+       返回 404；缺省时解析默认 Workspace。
+    3. Agent action（``require_agent=True``，如 Chat 与导入）必须显式给出
+       具体 ``agent_id``，缺失返回 400，不得回退到保留 ``system`` actor；
        非 Agent action 一律使用保留 :data:`SYSTEM_AGENT_ID`，表示"没有
        具体 Agent 作为操作来源主体"。
 
@@ -174,19 +166,8 @@ def _resolve_identity_coordinates(
     workspace 只校验取值合法性，不参与返回——调用方统一解析公共默认
     Workspace。
     """
-    user_id = (
-        _merge_identity_field(
-            header_value=selection.user_id,
-            explicit_value=explicit_user_id,
-            field_name="user_id",
-        )
-        or DEFAULT_USER_ID
-    )
-    workspace_id = _merge_identity_field(
-        header_value=selection.workspace_id,
-        explicit_value=explicit_workspace_id,
-        field_name="workspace_id",
-    )
+    user_id = _normalize_identity_header(selection.user_id) or DEFAULT_USER_ID
+    workspace_id = _normalize_identity_header(selection.workspace_id)
     if workspace_id is not None and workspace_id != MAIN_WORKSPACE_ID:
         raise APIError("request.workspace_not_found")
     if require_agent:
@@ -234,8 +215,6 @@ def resolve_request_identity_claims(
         selection,
         require_agent=require_agent,
         agent_id=agent_id,
-        explicit_user_id=None,
-        explicit_workspace_id=None,
     )
     if require_agent and resolved_agent_id == SYSTEM_AGENT_ID:
         raise APIError("request.agent_reserved")
@@ -245,36 +224,6 @@ def resolve_request_identity_claims(
             agent_id=resolved_agent_id,
         ),
         workspace=resolve_default_workspace_identity(user_id),
-    )
-
-
-def resolve_request_identity_scope(
-    selection: RequestIdentitySelection,
-    *,
-    require_agent: bool = False,
-    agent_id: str | None = None,
-    explicit_user_id: str | None = None,
-    explicit_workspace_id: str | None = None,
-) -> IdentityScope:
-    """认证前一次性组装完整 ``IdentityScope``（“IdentityScope 只由授权点组装”的已知例外）。
-
-    **只供 ``/ingest``（Import Bus）使用**：被动摄入不在现有系统内、不经
-    认证网关，维持认证前组装 scope 的既有行为；经网关的请求不得使用本
-    函数，应改用 :func:`resolve_request_identity_claims`。
-    """
-    user_id, resolved_agent_id = _resolve_identity_coordinates(
-        selection,
-        require_agent=require_agent,
-        agent_id=agent_id,
-        explicit_user_id=explicit_user_id,
-        explicit_workspace_id=explicit_workspace_id,
-    )
-    return IdentityScope(
-        actor_identity=ActorIdentity(
-            user_id=user_id,
-            agent_id=resolved_agent_id,
-        ),
-        workspace_identity=resolve_default_workspace_identity(user_id),
     )
 
 
@@ -328,7 +277,7 @@ async def authenticate_request_access(
 
 @dataclass(frozen=True)
 class RequestAccess:
-    """一次管理员请求的请求级访问凭据与目标 workspace。
+    """一次请求的请求级访问凭据与目标 workspace。
 
     声明只作为认证输入：路由处理函数只取得 ``access`` 与
     ``target_workspace``（这次操作的参数，当前取请求进入的 workspace），
@@ -349,7 +298,8 @@ async def request_access_for_claims(
     """以给定声明取得请求级访问凭据；退出时使 context 失效。
 
     取得 context、以 :class:`RequestAccess` 交出凭据与目标 workspace，声明
-    不越过认证边界。路由经 :func:`get_request_access` 以请求头声明调用。
+    不越过认证边界。管理路由经 :func:`get_request_access` 以 (user, ``system``)
+    声明调用；导入入口的 Agent 来自请求体，以 (user, 具体 Agent) 声明直接调用。
     """
     access = await authenticate_request_access(claims, gateway=gateway, principal_id=principal_id)
     try:

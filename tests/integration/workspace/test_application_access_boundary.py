@@ -262,7 +262,15 @@ async def wired():
     )
 
     async def _apply(
-        payload, *, belong_to, from_actor, target_topic_id, interaction_id=None, asset_refs=()
+        payload,
+        *,
+        belong_to,
+        from_actor,
+        target_topic_id,
+        interaction_id=None,
+        asset_refs=(),
+        new_topic_title=None,
+        new_topic_summary=None,
     ):
         return target_topic_id
 

@@ -16,7 +16,7 @@ last_reviewed: 2026-10-20
 
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
-| 1 | [Import Bus 重设计：以 Claude Code 对话回流为第一条真实路径](./v0.7.1-import-bus-redesign.md) | Planned（2026-10-21）；候选的下一步（记忆访问）见外部 Actor Idea | 背景：[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)、[Import Bus Idea](../ideas/import-bus.md) |
+| 1 | [Import Bus 重设计：以 Claude Code 对话回流为第一条真实路径](./v0.7.1-import-bus-redesign.md) | In Progress（2026-10-21 起，阶段一已完成）；候选的下一步（记忆访问）见外部 Actor Idea | 背景：[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)、[Import Bus Idea](../ideas/import-bus.md) |
 
 ## v0.7.0
 

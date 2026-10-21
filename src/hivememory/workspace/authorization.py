@@ -1,11 +1,11 @@
-"""Workspace 授权：actor 操作、root 管理、系统阶段与进程控制。
+"""Workspace 授权：actor 操作、root 管理、系统阶段、交互导入与进程控制。
 
 :class:`WorkspaceOperationAuthorizer` 是授权点（能力层、任务进程的阶段
-检查、注册入口的取消）使用的操作授权者：它无状态，只
+检查、注册入口的取消、Import Bus 的导入）使用的操作授权者：它无状态，只
 依赖 Workspace Actor 访问登记——每次授权都读取 context 密封的授予内容，
 再校验目标 workspace 与 owner，按调用面检查 actor 操作白名单或保留的
-system 身份；任务进程阶段不检查操作白名单。授权成功后组装并返回
-``IdentityScope``。
+system 身份；任务进程阶段与交互导入不检查操作白名单。授权成功后组装并
+返回 ``IdentityScope``。
 
 认证与授权互不依赖：本模块不导入认证一侧（``workspace.authentication``），
 只经 context 这个类型与它发生联系；也不导入任务进程与能力层。授权点
@@ -15,6 +15,8 @@ system 身份；任务进程阶段不检查操作白名单。授权成功后组�
 """
 
 from __future__ import annotations
+
+from dataclasses import dataclass
 
 from hivememory.core.access import (
     AccessGrant,
@@ -36,8 +38,22 @@ from hivememory.workspace.registry import (
 )
 
 __all__ = [
+    "ImportAuthorization",
     "WorkspaceOperationAuthorizer",
 ]
+
+
+@dataclass(frozen=True)
+class ImportAuthorization:
+    """导入授权的结果：本次请求内有效的 scope 与认证通过的 principal 标识。
+
+    ``identity_scope`` 只在这一次导入请求的调用链内经公共路由到达
+    Gateway 与 Patchouli，不写入记录、事件或后台任务；``principal_id``
+    只用于推导导入交互的稳定标识，使不同调用来源的同名外部轮次不会撞号。
+    """
+
+    identity_scope: IdentityScope
+    principal_id: str
 
 
 class WorkspaceOperationAuthorizer:
@@ -140,6 +156,29 @@ class WorkspaceOperationAuthorizer:
         grant, _ = self._redeem(access)
         self._check_target(grant, target_workspace)
         return IdentityScope(actor_identity=grant.actor, workspace_identity=target_workspace)
+
+    def authorize_import(
+        self,
+        access: WorkspaceAccessContext,
+        target_workspace: WorkspaceIdentity,
+    ) -> ImportAuthorization:
+        """交互导入授权：校验准入与目标，不检查 actor 操作白名单。
+
+        导入提交的是已经在外部 harness 发生的交互，与任务进程封口后提交
+        交互记录同类，不调用任何 actor 操作，因此空白名单的 Agent 也能
+        导入。发起者必须是具体 Agent：保留的 system 不代表任何交互的参与者，
+        以 ``agent_required`` 拒绝。生产调用面限定在 Import Bus 服务。
+        """
+        grant, _ = self._redeem(access)
+        self._check_target(grant, target_workspace)
+        if grant.actor.agent_id == SYSTEM_AGENT_ID:
+            raise OperationDeniedError(details={"reason": "agent_required"})
+        return ImportAuthorization(
+            identity_scope=IdentityScope(
+                actor_identity=grant.actor, workspace_identity=target_workspace
+            ),
+            principal_id=grant.principal.principal_id,
+        )
 
     def authorize_root(
         self,

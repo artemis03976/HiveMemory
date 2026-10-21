@@ -8,10 +8,7 @@ from hivememory.server.models.chat import ChatRequest
 from hivememory.server.models.common import HealthResponse
 from hivememory.server.models.config import ConfigResponse
 from hivememory.server.models.errors import ErrorResponse
-from hivememory.server.models.ingest import (
-    PassiveIngressRequest,
-    PassiveIngressResponse,
-)
+from hivememory.server.models.import_bus import ImportTurnRequest, ImportTurnResponse
 from hivememory.server.models.memory import MemoryListResponse, MemoryResponse
 from hivememory.server.models.memory_task import (
     MemoryTaskListResponse,
@@ -43,8 +40,8 @@ __all__ = [
     "ErrorResponse",
     "HealthResponse",
     "ChatRequest",
-    "PassiveIngressRequest",
-    "PassiveIngressResponse",
+    "ImportTurnRequest",
+    "ImportTurnResponse",
     "MemoryResponse",
     "MemoryListResponse",
     "MemoryTaskListResponse",

@@ -41,11 +41,12 @@ from hivememory.system.access import (
     SystemActorAccessRegistry,
     SystemPrincipalAuthenticator,
 )
-from hivememory.system.application.passive_ingress_service import PassiveIngressService
+from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.system.application.readiness_service import SystemReadinessService
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
 from hivememory.system.services.asset_materialization_reader import AssetMaterializationReader
+from hivememory.system.services.import_bus import ImportBusIngestor
 from hivememory.workspace.assets.parse_service import AttachmentParseService
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.authentication import ActorAuthenticationGateway, WorkspaceAuthenticator
@@ -156,7 +157,7 @@ class _ServicesBundle:
     """门面暴露的应用服务：root 管理能力与系统编排服务。"""
 
     process: TaskProcessService
-    ingress: PassiveIngressService
+    import_bus: ImportBusService
     root_memory: RootMemoryService
     root_memory_task: RootMemoryTaskService
     root_agent: RootAgentProfileService
@@ -541,15 +542,23 @@ class SystemAssembler:
             # chat.run.* 由任务进程的领域 emitter 投影，来源标签在 emitter 内统一。
             event_publisher=runtime.event_publisher,
         )
-        ingress = PassiveIngressService(
-            bus=runtime.global_bus,
-            config=self._config,
-            scheduler=runtime.scheduler,
-            interaction_queue=subsystems.patchouli.interaction_submission_queue,
-            runtime_events=runtime.event_sink.scoped(
-                "system",
-                component="passive_ingress_service",
+        # Import Bus 经公开路由查重与提交，不持有 Patchouli 的提交队列；
+        # 导入授权由同一操作授权者执行，Gateway 时限与最近轮数沿用 Gateway 配置。
+        import_bus = ImportBusService(
+            ingestor=ImportBusIngestor(
+                runtime.global_bus,
+                gateway_request_timeout_ms=(
+                    self._config.gateway.workflow.default_request_timeout_ms
+                ),
+                gateway_session_turn_limit=(
+                    self._config.gateway.context_preparation.session_turn_limit
+                ),
+                runtime_events=runtime.event_sink.scoped(
+                    "system",
+                    component="import_bus",
+                ),
             ),
+            operation_authorizer=access_control.operation_authorizer,
         )
         # root API 独立于 actor 读取视图，只供保留的 system actor 管理资源。
         # 管理读取直接走资源所有者路由；actor 能力服务只经操作入口，不经门面。
@@ -587,7 +596,7 @@ class SystemAssembler:
 
         return _ServicesBundle(
             process=process,
-            ingress=ingress,
+            import_bus=import_bus,
             root_memory=root_memory,
             root_memory_task=root_memory_task,
             root_agent=root_agent,

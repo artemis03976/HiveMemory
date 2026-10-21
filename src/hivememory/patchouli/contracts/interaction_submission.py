@@ -5,8 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Literal
 
-# 程序化提交与主动、被动摄入共用来源枚举，不把控制面实现暴露给契约。
-InteractionOrigin = Literal["active_chat", "passive_memory", "workspace_port"]
+# 程序化提交与主动链路、Import Bus 共用来源枚举，不把控制面实现暴露给契约。
+# 来源只是观测标签，不驱动任何分支。
+InteractionOrigin = Literal["active_chat", "import_bus", "workspace_port"]
 
 
 @dataclass(frozen=True)

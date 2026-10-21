@@ -12,21 +12,20 @@ System 业务能力提供者
 依赖方向单向：`application/` → `services/`，反向不允许。
 
 当前能力：
-    - `passive`  被动接入（外部会话事件观测、turn 累积与 submission queue 移交）
+    - `import_bus`  Import Bus（外部 harness 一轮完整交互的串行导入、查重、
+      Gateway 落位与经 Patchouli 公开路由的提交）
 """
 
-from hivememory.system.services.passive import (
-    MessageBufferState,
-    PassiveConversationKey,
-    PassiveIngressEvent,
-    PassiveIngressOutcome,
-    PassiveMessageIngressor,
+from hivememory.system.services.import_bus import (
+    ImportBusIngestor,
+    ImportConversationKey,
+    ImportedTurn,
+    ImportTurnResult,
 )
 
 __all__ = [
-    "MessageBufferState",
-    "PassiveConversationKey",
-    "PassiveIngressEvent",
-    "PassiveIngressOutcome",
-    "PassiveMessageIngressor",
+    "ImportBusIngestor",
+    "ImportConversationKey",
+    "ImportTurnResult",
+    "ImportedTurn",
 ]

@@ -2,9 +2,8 @@
 
 覆盖 ``resolve_request_identity_claims`` 的解析规则与各 HTTP 入口的
 身份上下文行为：请求头的 user_id + workspace_id 构造认证前声明（不产出
-``IdentityScope``）、/ingest 的 body 与 header 冲突显式失败、未知 Workspace 拒绝、
-非 Agent action 注入 system actor、Chat 缺失具体 Agent 显式失败；
-``resolve_request_identity_scope`` 作为 /ingest 已知例外仍产出完整 scope。
+``IdentityScope``）、只含空白的请求头显式失败、未知 Workspace 拒绝、
+非 Agent action 注入 system actor、Chat 缺失具体 Agent 显式失败。
 """
 
 import dataclasses
@@ -23,7 +22,6 @@ from hivememory.server.deps import (
     RequestIdentityClaims,
     RequestIdentitySelection,
     resolve_request_identity_claims,
-    resolve_request_identity_scope,
 )
 from hivememory.server.error_handlers import APIError, install_error_handlers
 from hivememory.server.routers.chat import router as chat_router
@@ -88,30 +86,13 @@ class TestResolveRequestIdentityClaims:
         }
         assert isinstance(claims.workspace, WorkspaceIdentity)
 
-    def test_resolve_request_identity_scope_still_builds_scope_for_ingest(self):
-        """/ingest 已知例外：scope 解析入口仍一次性组装完整 IdentityScope。"""
-        scope = resolve_request_identity_scope(
-            RequestIdentitySelection(user_id="u1", workspace_id=None),
-        )
-        assert isinstance(scope, IdentityScope)
-        assert scope.actor_identity.user_id == "u1"
-        assert scope.workspace_identity.workspace_id == "main_workspace"
-
-    def test_ingest_header_body_conflict_rejected(self):
+    def test_blank_header_selection_rejected(self):
+        """只含空白的请求头是非法输入，不回退到默认用户。"""
         with pytest.raises(APIError) as exc_info:
-            resolve_request_identity_scope(
-                RequestIdentitySelection(user_id="header-user", workspace_id=None),
-                explicit_user_id="body-user",
+            resolve_request_identity_claims(
+                RequestIdentitySelection(user_id="   ", workspace_id=None),
             )
-        assert exc_info.value.status_code == 409
-
-    def test_ingest_workspace_conflict_rejected(self):
-        with pytest.raises(APIError) as exc_info:
-            resolve_request_identity_scope(
-                RequestIdentitySelection(user_id="u1", workspace_id="main_workspace"),
-                explicit_workspace_id="other_workspace",
-            )
-        assert exc_info.value.status_code == 409
+        assert exc_info.value.payload.error == "request.identity_empty"
 
     def test_unknown_workspace_rejected(self):
         with pytest.raises(APIError) as exc_info:

@@ -108,7 +108,10 @@ def scheduler():
 @pytest.fixture
 def system_factory(mock_patchouli, global_bus, scheduler):
     def _build(**kwargs):
-        ingress_service = kwargs.pop("ingress_service", MagicMock())
+        import_bus_service = kwargs.pop(
+            "import_bus_service",
+            MagicMock(shutdown=AsyncMock(return_value={"waited_requests": 0})),
+        )
         process_service = kwargs.pop("process_service", MagicMock(shutdown=AsyncMock()))
         memory_service = kwargs.pop("memory_service", MagicMock())
         memory_task_service = kwargs.pop("memory_task_service", MagicMock())
@@ -149,7 +152,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
         )
         services = _ServicesBundle(
             process=process_service,
-            ingress=ingress_service,
+            import_bus=import_bus_service,
             root_memory=memory_service,
             root_memory_task=memory_task_service,
             root_agent=agent_service,
@@ -173,11 +176,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
 class TestHiveMemorySystemLifecycle:
     @pytest.mark.asyncio
     async def test_start_starts_global_scheduler(self, system_factory, scheduler):
-        ingress_service = MagicMock(
-            start=AsyncMock(),
-            shutdown_drain=AsyncMock(return_value={"success": True}),
-        )
-        system = system_factory(ingress_service=ingress_service)
+        system = system_factory()
 
         await system.start()
         try:
@@ -188,10 +187,7 @@ class TestHiveMemorySystemLifecycle:
 
     @pytest.mark.asyncio
     async def test_stop_stops_scheduler_and_runtime(self, system_factory, scheduler):
-        ingress_service = MagicMock()
-        ingress_service.start = AsyncMock()
-        ingress_service.shutdown_drain = AsyncMock(return_value={"success": True})
-        system = system_factory(ingress_service=ingress_service)
+        system = system_factory()
 
         await system.start()
         await system.stop()
@@ -200,9 +196,7 @@ class TestHiveMemorySystemLifecycle:
 
     @pytest.mark.asyncio
     async def test_stop_without_start_is_noop(self, system_factory, mock_patchouli):
-        ingress_service = MagicMock()
-        ingress_service.shutdown_drain = AsyncMock(return_value={"success": True})
-        system = system_factory(ingress_service=ingress_service)
+        system = system_factory()
         await system.stop()
         mock_patchouli.runtime.shutdown_drain.assert_not_called()
 

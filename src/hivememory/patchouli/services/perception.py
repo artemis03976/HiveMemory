@@ -84,11 +84,15 @@ class PerceptionFamiliar:
         target_topic_id: str = "NEW_TOPIC",
         interaction_id: str | None = None,
         asset_refs: tuple[WorkspaceAssetRef, ...] = (),
+        new_topic_title: str | None = None,
+        new_topic_summary: str | None = None,
     ) -> str:
         """应用一份已接纳的交互载荷并完成话题路由（核心用例）。
 
         retry 依据 journal 阶段幂等续跑（COMPLETED 直接返回；APPLIED 补跑
         compact），不重复写入 block；等价性校验在取得占用权之前完成。
+        目标为 ``NEW_TOPIC`` 时以提交携带的标题与摘要建立话题，后续落位
+        依赖候选话题的标题与摘要；缺省时使用默认标题。
         """
         if self._engine is None:  # 感知关闭：无任何存储与 journal 副作用
             return target_topic_id
@@ -108,7 +112,12 @@ class PerceptionFamiliar:
         topic_id = (
             apply_record.topic_id
             if apply_record is not None
-            else self._ensure_topic(belong_to, target_topic_id)
+            else self._ensure_topic(
+                belong_to,
+                target_topic_id,
+                topic_title=new_topic_title,
+                topic_summary=new_topic_summary,
+            )
         )
 
         # block 构造与 digest 是纯计算；retry 等价性校验在取得占用权之前完成。

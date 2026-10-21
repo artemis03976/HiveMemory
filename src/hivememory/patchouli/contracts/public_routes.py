@@ -167,8 +167,19 @@ class PatchouliRoutes:
         requested_topic_id: str = "NEW_TOPIC",
         interaction_id: str | None = None,
         origin: InteractionOrigin = "workspace_port",
+        new_topic_title: str | None = None,
+        new_topic_summary: str | None = None,
     ) -> InteractionSubmitResult:
-        """提交一份已发生的交互载荷；队列按 interaction_id 幂等接纳。"""
+        """提交一份已发生的交互载荷；队列按 interaction_id 幂等接纳。
+
+        目标为 ``NEW_TOPIC`` 时可携带新话题的标题与摘要；队列容量已满或已
+        停止以 ``InteractionAdmissionUnavailableError`` 拒绝，可用同一标识重试。
+        """
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
+    @route("patchouli.public.interaction.accepted")
+    async def INTERACTION_ACCEPTED(*, identity_scope: IdentityScope, interaction_id: str) -> bool:
+        """查询交互是否已被提交队列接纳；同名交互属于其他 Workspace 时报冲突。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.memory_intent.submit")
@@ -254,6 +265,7 @@ class PatchouliRoutes:
         GET_AGENT_PROFILE,
         MEMORY_READ,
         INTERACTION_SUBMIT,
+        INTERACTION_ACCEPTED,
         MEMORY_INTENT_SUBMIT,
         PREPARE_AGENT_RUN,
         FINALIZE_AGENT_RUN,

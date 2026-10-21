@@ -1,4 +1,4 @@
-"""Interaction Submission Queue 的 Q2 契约测试。"""
+"""Interaction Submission Queue 的契约测试。"""
 
 from __future__ import annotations
 
@@ -10,6 +10,7 @@ import pytest
 
 from hivememory.components.work_queue import (
     QueuePolicy,
+    WorkItem,
     WorkPayloadCodecRegistry,
     WorkPayloadDecodeError,
     WorkState,
@@ -47,6 +48,8 @@ def _submission(
     message: str | None = None,
     ordering_key: str = "conversation-1",
     payload: InteractionPayload | None = None,
+    new_topic_title: str | None = None,
+    new_topic_summary: str | None = None,
 ) -> InteractionSubmission:
     return InteractionSubmission(
         belong_to=make_identity_scope(user_id="u1", agent_id="a1").workspace_identity,
@@ -55,8 +58,10 @@ def _submission(
         payload=payload or _payload(message or interaction_id),
         requested_topic_id="NEW_TOPIC",
         ordering_key=ordering_key,
-        origin="passive_memory",
+        origin="import_bus",
         correlation={"turn_id": interaction_id},
+        new_topic_title=new_topic_title,
+        new_topic_summary=new_topic_summary,
     )
 
 
@@ -66,7 +71,15 @@ async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> 
     attempt_scopes = []
 
     async def submit(
-        payload, *, belong_to, from_actor, target_topic_id, interaction_id, asset_refs=()
+        payload,
+        *,
+        belong_to,
+        from_actor,
+        target_topic_id,
+        interaction_id,
+        asset_refs=(),
+        new_topic_title=None,
+        new_topic_summary=None,
     ):
         attempts.append(payload)
         attempt_scopes.append(belong_to)
@@ -112,7 +125,15 @@ async def test_same_ordering_key_keeps_fifo_during_retry() -> None:
     first_attempt = 0
 
     async def submit(
-        payload, *, belong_to, from_actor, target_topic_id, interaction_id, asset_refs=()
+        payload,
+        *,
+        belong_to,
+        from_actor,
+        target_topic_id,
+        interaction_id,
+        asset_refs=(),
+        new_topic_title=None,
+        new_topic_summary=None,
     ):
         nonlocal first_attempt
         calls.append(payload.user_message)
@@ -143,7 +164,15 @@ async def test_different_ordering_keys_can_execute_concurrently() -> None:
     release = asyncio.Event()
 
     async def submit(
-        payload, *, belong_to, from_actor, target_topic_id, interaction_id, asset_refs=()
+        payload,
+        *,
+        belong_to,
+        from_actor,
+        target_topic_id,
+        interaction_id,
+        asset_refs=(),
+        new_topic_title=None,
+        new_topic_summary=None,
     ):
         if payload.user_message == "first":
             first_started.set()
@@ -196,7 +225,15 @@ async def test_handler_timeout_is_not_retried() -> None:
     attempts = 0
 
     async def submit(
-        payload, *, belong_to, from_actor, target_topic_id, interaction_id, asset_refs=()
+        payload,
+        *,
+        belong_to,
+        from_actor,
+        target_topic_id,
+        interaction_id,
+        asset_refs=(),
+        new_topic_title=None,
+        new_topic_summary=None,
     ):
         nonlocal attempts
         attempts += 1
@@ -303,7 +340,7 @@ async def test_same_interaction_id_different_scope_is_one_conflicting_work() -> 
 
 
 def test_codec_roundtrip_preserves_split_identity_and_attachment_order() -> None:
-    """编码或解码丢失发起者、归属、结局或附件顺序时必须失败。"""
+    """编码或解码丢失发起者、归属、结局、附件顺序或新话题标题与摘要时必须失败。"""
     attachments = [
         WorkspaceAssetRef(asset_id="asset-a", token="ref-a"),
         WorkspaceAssetRef(asset_id="asset-b", token="ref-b"),
@@ -313,6 +350,8 @@ def test_codec_roundtrip_preserves_split_identity_and_attachment_order() -> None
         payload=InteractionPayload(
             user_message="带附件的消息", outcome="cancelled", used_attachments=attachments
         ),
+        new_topic_title="附件整理",
+        new_topic_summary="整理两份附件",
     )
     codec = InteractionSubmissionCodec()
 
@@ -322,6 +361,96 @@ def test_codec_roundtrip_preserves_split_identity_and_attachment_order() -> None
     assert decoded.payload.used_attachments == attachments
     assert decoded.belong_to == submission.belong_to
     assert decoded.from_actor == submission.from_actor
+    assert (decoded.new_topic_title, decoded.new_topic_summary) == ("附件整理", "整理两份附件")
+
+
+def test_codec_rejects_previous_schema_key_set() -> None:
+    """缺少新话题标题与摘要的旧版本键集不能被当作当前版本静默补默认值。"""
+    codec = InteractionSubmissionCodec()
+    encoded = codec.encode(_submission("interaction-previous-schema"))
+    del encoded["new_topic_title"]
+    del encoded["new_topic_summary"]
+
+    with pytest.raises(ValueError, match="schema mismatch"):
+        codec.decode(encoded)
+
+
+def test_new_topic_title_and_summary_require_new_topic_target() -> None:
+    """已有话题的标题与摘要由话题持有，提交不能借新话题字段改写它们。"""
+    with pytest.raises(ValueError, match="NEW_TOPIC"):
+        replace(
+            _submission("interaction-existing"),
+            requested_topic_id="topic-1",
+            new_topic_title="改写标题",
+        )
+
+
+@pytest.mark.asyncio
+async def test_new_topic_title_and_summary_reach_apply() -> None:
+    """handler 把提交携带的新话题标题与摘要原样交给感知应用。"""
+    received: dict[str, object] = {}
+
+    async def submit(payload, *, new_topic_title=None, new_topic_summary=None, **_kwargs):
+        received.update(title=new_topic_title, summary=new_topic_summary)
+        return "topic-new"
+
+    queue = InteractionSubmissionQueue(submit)
+    try:
+        await queue.start()
+        receipt = await queue.submit(
+            _submission(
+                "interaction-titled",
+                new_topic_title="部署贪吃蛇",
+                new_topic_summary="讨论部署步骤",
+            )
+        )
+        outcome = await queue.wait(receipt, timeout=2)
+    finally:
+        await queue.stop()
+
+    assert outcome is not None
+    assert outcome.state == WorkState.SUCCEEDED
+    assert received == {"title": "部署贪吃蛇", "summary": "讨论部署步骤"}
+
+
+@pytest.mark.asyncio
+async def test_accepted_workspace_reads_owner_from_index_and_from_work_record() -> None:
+    """接纳查询返回同名提交的归属；旁路索引缺失时从工作记录的规范载荷解码。"""
+    queue = InteractionSubmissionQueue(AsyncMock(return_value="topic-real"))
+    indexed = _submission("interaction-indexed")
+    record_only = _submission("interaction-record-only")
+    codecs = WorkPayloadCodecRegistry()
+    codecs.register(InteractionSubmissionCodec())
+
+    try:
+        await queue.submit(indexed)
+        # 调用方在 store 已接纳、旁路索引尚未写入时被取消，只留下工作记录。
+        await queue.runtime.enqueue(
+            WorkItem(
+                work_id="interaction:interaction-record-only",
+                lane=InteractionSubmissionQueue.LANE,
+                kind=InteractionSubmissionCodec.kind,
+                schema_version=InteractionSubmissionCodec.schema_version,
+                payload=codecs.encode(
+                    InteractionSubmissionCodec.kind,
+                    InteractionSubmissionCodec.schema_version,
+                    record_only,
+                ),
+                ordering_key=record_only.ordering_key,
+                correlation_id=record_only.interaction_id,
+                idempotency_key=record_only.interaction_id,
+            )
+        )
+
+        owners = [
+            await queue.accepted_workspace("interaction-indexed"),
+            await queue.accepted_workspace("interaction-record-only"),
+            await queue.accepted_workspace("interaction-missing"),
+        ]
+    finally:
+        await queue.stop()
+
+    assert owners == [indexed.belong_to, record_only.belong_to, None]
 
 
 def test_codec_rejects_flattened_identity_projection() -> None:

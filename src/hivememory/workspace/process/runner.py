@@ -34,6 +34,7 @@ from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
 from hivememory.core.models import AgentProfile, IdentityScope, WorkspaceIdentity
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode, GatewaySessionTurn
 from hivememory.core.protocol.models import InteractionPayload
+from hivememory.core.protocol.sealing import seal_interaction
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
@@ -58,7 +59,6 @@ from hivememory.workspace.process.outputs import (
     RunFailed,
     TerminalOutput,
 )
-from hivememory.workspace.process.sealing import seal_interaction
 from hivememory.workspace.process.table import (
     ProcessOutcome,
     ProcessPhase,
