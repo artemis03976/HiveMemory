@@ -1,8 +1,8 @@
 """无状态的短期记忆摄入算法引擎。
 
 ``MemoryPerceptionEngine`` 只承载纯算法：把 ``InteractionPayload`` 归并为
-不可变 ``LogicalBlock``、估算 token、判断折叠阈值、选择待折叠 blocks 并生成
-摘要。它不持有 Store / Journal / Queue，不实现话题路由与 settle 用例（那是
+不可变 ``LogicalBlock``、估算 token（与记忆生成转写共用动作段的截断规则）、
+判断折叠阈值、选择待折叠 blocks 并生成摘要。它不持有 Store / Journal / Queue，不实现话题路由与 settle 用例（那是
 ``PerceptionFamiliar`` 的编排职责），也不导入 ``hivememory.patchouli.*``，
 可被其他 runtime 复用、可纯单元测试。
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from hivememory.config.patchouli import SemanticFlowPerceptionConfig
+from hivememory.config.patchouli import GenerationTranscriptConfig, SemanticFlowPerceptionConfig
 from hivememory.core.models import (
     ActionReducer,
     ActorIdentity,
@@ -19,6 +19,7 @@ from hivememory.core.models import (
     TurnRecord,
 )
 from hivememory.core.protocol.models import InteractionPayload
+from hivememory.prompts.transcript.actions import render_action_entries
 from hivememory.utils.token_estimator import estimate_tokens
 
 if TYPE_CHECKING:
@@ -40,9 +41,12 @@ class MemoryPerceptionEngine:
         self,
         config: SemanticFlowPerceptionConfig,
         relay_controller: BaseRelayController,
+        transcript_config: GenerationTranscriptConfig | None = None,
     ) -> None:
         self.config = config
         self._relay = relay_controller
+        # 与记忆生成转写同一组上限：块的 token 统计按生成实际看到的材料计算。
+        self._transcript_config = transcript_config or GenerationTranscriptConfig()
 
     def build_block(
         self,
@@ -65,12 +69,19 @@ class MemoryPerceptionEngine:
             actions=tuple(actions),
             semantic_traces=tuple(payload.mtp_traces),
         )
+        # 思考与外部工具动作按生成转写的同一套截断规则计入；MTP 轨迹仍只计
+        # 查询与目标，只有用户消息、回复与 MTP 动作的轮次统计不变。
         total_tokens = (
             estimate_tokens(turn.user_query)
             + estimate_tokens(turn.assistant_final_text)
             + sum(
                 estimate_tokens(trace.query or "") + estimate_tokens(trace.target or "")
                 for trace in turn.semantic_traces
+            )
+            + sum(
+                estimate_tokens(entry.text)
+                for entry in render_action_entries(turn, self._transcript_config)
+                if entry.kind != "trace"
             )
         )
         return LogicalBlock(

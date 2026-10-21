@@ -3,41 +3,51 @@ GenerationTranscriptBuilder — 记忆生成视图构建器
 
 职责:
     从 LogicalBlock 列表构建"记忆生成视图"（GenerationContext）。
-    该视图保留语义摘要，丢弃 MTP 执行细节，供 GenerationEngine 提取记忆。
+    该视图保留语义摘要与过程中的事实材料，供 GenerationEngine 提取记忆。
 
 与 HistoryTranscriptBuilder 的区别:
     - HistoryTranscriptBuilder: 历史消息视图，还原模型当时看到的完整上下文
-    - GenerationTranscriptBuilder: 记忆生成视图，去噪后的语义摘要，适合记忆提取
+    - GenerationTranscriptBuilder: 记忆生成视图，按上限截断的过程材料，适合记忆提取
 
 保留内容:
     - state_summary（话题状态摘要）
     - user_query
-    - semantic_traces（动作摘要）
+    - 动作段：思考、外部工具动作（工具名、参数摘要与截断后的结果）与
+      MTP 动作的一行摘要，渲染规则见 ``prompts.transcript.actions``
     - assistant_final_text（最终自然语言回复）
 
 丢弃内容:
-    - mtp_result 全文（READ 返回正文、SEARCH 结果体、XML 回填文本）
-    - 完整的 turn_events 事件流
+    - MTP 动作的结果全文（READ 返回正文、SEARCH 结果体、XML 回填文本）
+    - 超出上限的思考、参数与工具结果中段
 
-动作摘要格式（trace_summaries）:
+动作段格式（action_entries）:
     - SEARCH: "query text"
     - READ: alias_name
     - RUN: tool_name (status)
+    - THOUGHT: reasoning
+    - TOOL: tool_name {"arg": "value"}
+      RESULT (error): output
 """
 
 from collections.abc import Sequence
 
-from hivememory.core.models import LogicalBlock, TraceItem
+from hivememory.config.patchouli import GenerationTranscriptConfig
+from hivememory.core.models import LogicalBlock
 from hivememory.engines.generation.models import GenerationContext, GenerationTurn
+from hivememory.prompts.transcript.actions import render_action_entries
 
 
 class GenerationTranscriptBuilder:
     """
     记忆生成视图构建器
 
-    无状态。将 LogicalBlock 列表 + state_summary 转换为 GenerationContext。
-    同时提供 build_transcript() 将 GenerationContext 渲染为 LLM 可用的文本。
+    无状态。将 LogicalBlock 列表 + state_summary 转换为 GenerationContext，
+    动作段按 ``config`` 的上限截断；同时提供 build_transcript() 将
+    GenerationContext 渲染为 LLM 可用的文本（渲染不再截断）。
     """
+
+    def __init__(self, config: GenerationTranscriptConfig | None = None) -> None:
+        self._config = config or GenerationTranscriptConfig()
 
     def build_context(
         self,
@@ -70,8 +80,10 @@ class GenerationTranscriptBuilder:
             [Turn 1]
             [User]: ...
             [Actions]:
+            - THOUGHT: ...
+            - TOOL: Bash {"command": "pytest -q"}
+              RESULT (error): ...
             - SEARCH: "..."
-            - READ: alias_x
             [Assistant]: ...
 
         Args:
@@ -86,49 +98,15 @@ class GenerationTranscriptBuilder:
 
     def _block_to_turn(self, block: LogicalBlock) -> GenerationTurn:
         """将单个 LogicalBlock 转换为 GenerationTurn。"""
-        user_query = block.user_query
-        final_text = block.assistant_final_text
-        identity = block.identity
-
-        # 动作摘要：优先从 semantic_traces 派生
-        trace_summaries = self._traces_to_summaries(block.semantic_traces)
-
         return GenerationTurn(
-            user_query=user_query,
+            user_query=block.user_query,
             outcome=block.turn.outcome,
-            assistant_final_text=final_text,
-            trace_summaries=trace_summaries,
-            identity=identity,
+            assistant_final_text=block.assistant_final_text,
+            action_entries=[
+                entry.text for entry in render_action_entries(block.turn, self._config)
+            ],
+            identity=block.identity,
         )
-
-    def _traces_to_summaries(self, traces: list[TraceItem]) -> list[str]:
-        """将 TraceItem 列表转换为可读的动作摘要字符串列表。"""
-        summaries = []
-        for trace in traces:
-            summary = self._trace_to_summary(trace)
-            if summary:
-                summaries.append(summary)
-        return summaries
-
-    def _trace_to_summary(self, trace: TraceItem) -> str | None:
-        """将单个 TraceItem 转换为动作摘要字符串。"""
-        action = trace.action.upper()
-
-        if action == "SEARCH":
-            query = trace.query or ""
-            return f'SEARCH: "{query}"'
-
-        if action == "READ":
-            target = trace.target or "(unknown)"
-            return f"READ: {target}"
-
-        if action == "RUN":
-            tool = trace.tool or "(unknown)"
-            status = trace.status or "unknown"
-            return f"RUN: {tool} ({status})"
-
-        # CALL / WRITE / UPDATE 保留在 semantic_traces 中，但不渲染进生成摘要。
-        return None
 
     def _format_context(self, context: GenerationContext) -> str:
         """将 GenerationContext 渲染为文本。"""
@@ -143,7 +121,7 @@ class GenerationTranscriptBuilder:
         return "\n\n".join(sections)
 
     def _format_turn(self, idx: int, turn: GenerationTurn) -> str:
-        """渲染单轮对话。"""
+        """渲染单轮对话；多行条目的后续行缩进到条目之下。"""
         lines = [f"[Turn {idx}]"]
         if turn.outcome != "completed":
             lines.append(f"[Outcome: {turn.outcome}] This turn did not complete normally.")
@@ -151,10 +129,12 @@ class GenerationTranscriptBuilder:
         if turn.user_query:
             lines.append(f"[User]: {turn.user_query}")
 
-        if turn.trace_summaries:
+        if turn.action_entries:
             lines.append("[Actions]:")
-            for summary in turn.trace_summaries:
-                lines.append(f"- {summary}")
+            for entry in turn.action_entries:
+                first, *rest = entry.split("\n")
+                lines.append(f"- {first}")
+                lines.extend(f"  {line}" for line in rest)
 
         if turn.assistant_final_text:
             lines.append(f"[Assistant]: {turn.assistant_final_text}")

@@ -311,7 +311,7 @@ class ActionReducer:
             if event.kind not in {"thought", "tool_call", "tool_result"}:
                 continue
 
-            action_id = cls._resolve_action_id(event, last_action_id)
+            action_id = cls.resolve_action_id(event, last_action_id)
             if action_id is None:
                 continue
 
@@ -360,8 +360,12 @@ class ActionReducer:
         return TurnEvent.model_validate(event.model_dump())
 
     @classmethod
-    def _resolve_action_id(cls, event: TurnEvent, last_action_id: str | None) -> str | None:
-        """解析事件应归属的 action_id。"""
+    def resolve_action_id(cls, event: TurnEvent, last_action_id: str | None) -> str | None:
+        """解析事件应归属的 action_id；需要按事件定位动作的视图共用这一条规则。
+
+        显式 ``action_id`` 优先；没有时 ``tool_call`` 以序号生成标识，思考与
+        工具结果吸附到 ``last_action_id`` 所指的最近动作。
+        """
         if event.action_id:
             return event.action_id
         if event.kind == "tool_call":

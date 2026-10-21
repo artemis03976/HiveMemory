@@ -3,7 +3,8 @@ GenerationTranscriptBuilder / GenerationContext 单测
 
 覆盖以下场景:
 1. GenerationTranscriptBuilder.build_context() 基础构建
-2. trace_summaries 映射 (SEARCH / READ / RUN)
+2. action_entries 中 MTP 轨迹的一行摘要 (SEARCH / READ / RUN)；思考与外部工具动作的
+   渲染规则由 tests/unit/prompts/test_generation_action_entries.py 覆盖
 3. assistant_final_text 优先于 clean_response
 4. state_summary 进入 GenerationContext
 5. build_transcript() 格式渲染
@@ -104,29 +105,29 @@ class TestFinalTextPriority:
         assert ctx.turns[0].assistant_final_text == ""
 
 
-# ============ 3. trace_summaries 映射 ============
+# ============ 3. action_entries 映射 ============
 
 
 class TestTraceSummaries:
     def test_search_trace(self):
         block = _block(traces=[_trace("SEARCH", query="docker deploy")])
         ctx = builder.build_context([block])
-        assert ctx.turns[0].trace_summaries == ['SEARCH: "docker deploy"']
+        assert ctx.turns[0].action_entries == ['SEARCH: "docker deploy"']
 
     def test_read_trace(self):
         block = _block(traces=[_trace("READ", target="fact_auth_flow")])
         ctx = builder.build_context([block])
-        assert ctx.turns[0].trace_summaries == ["READ: fact_auth_flow"]
+        assert ctx.turns[0].action_entries == ["READ: fact_auth_flow"]
 
     def test_run_trace(self):
         block = _block(traces=[_trace("RUN", tool="git_log", status="success")])
         ctx = builder.build_context([block])
-        assert ctx.turns[0].trace_summaries == ["RUN: git_log (success)"]
+        assert ctx.turns[0].action_entries == ["RUN: git_log (success)"]
 
     def test_run_trace_unknown_status(self):
         block = _block(traces=[_trace("RUN", tool="web_search")])
         ctx = builder.build_context([block])
-        assert ctx.turns[0].trace_summaries == ["RUN: web_search (unknown)"]
+        assert ctx.turns[0].action_entries == ["RUN: web_search (unknown)"]
 
     def test_multiple_traces_in_order(self):
         block = _block(
@@ -137,7 +138,7 @@ class TestTraceSummaries:
             ]
         )
         ctx = builder.build_context([block])
-        summaries = ctx.turns[0].trace_summaries
+        summaries = ctx.turns[0].action_entries
         assert len(summaries) == 3
         assert summaries[0].startswith("SEARCH")
         assert summaries[1].startswith("READ")
@@ -146,13 +147,13 @@ class TestTraceSummaries:
     def test_no_traces_produces_empty_summaries(self):
         block = _block(traces=[])
         ctx = builder.build_context([block])
-        assert ctx.turns[0].trace_summaries == []
+        assert ctx.turns[0].action_entries == []
 
     def test_call_trace_is_skipped(self):
         """CALL 类型 trace 不生成摘要"""
         block = _block(traces=[_trace("CALL", target="sub_agent")])
         ctx = builder.build_context([block])
-        assert ctx.turns[0].trace_summaries == []
+        assert ctx.turns[0].action_entries == []
 
 
 # ============ 4. build_transcript 格式渲染 ============
@@ -205,7 +206,7 @@ class TestBuildTranscript:
                 GenerationTurn(
                     user_query="q",
                     assistant_final_text="a",
-                    trace_summaries=['SEARCH: "auth flow"', "READ: fact_x"],
+                    action_entries=['SEARCH: "auth flow"', "READ: fact_x"],
                     identity=_identity(),
                 )
             ]
@@ -215,13 +216,39 @@ class TestBuildTranscript:
         assert '- SEARCH: "auth flow"' in result
         assert "- READ: fact_x" in result
 
+    def test_turn_without_actions_renders_only_user_and_assistant(self):
+        """只有用户消息与最终回复的轮次不出现动作段。"""
+        ctx = builder.build_context([_block("问题", assistant_final_text="答案")])
+
+        assert builder.build_transcript(ctx) == "[Turn 1]\n[User]: 问题\n[Assistant]: 答案"
+
+    def test_multiline_entries_indent_continuation_lines(self):
+        """多行条目的后续行缩进到条目之下，与下一个条目区分开。"""
+        ctx = GenerationContext(
+            turns=[
+                GenerationTurn(
+                    user_query="q",
+                    action_entries=["TOOL: Bash\nRESULT (error): line 1\nline 2", 'SEARCH: "x"'],
+                    identity=_identity(),
+                )
+            ]
+        )
+
+        assert builder.build_transcript(ctx).splitlines()[2:] == [
+            "[Actions]:",
+            "- TOOL: Bash",
+            "  RESULT (error): line 1",
+            "  line 2",
+            '- SEARCH: "x"',
+        ]
+
     def test_full_format_with_state_and_two_turns(self):
         ctx = GenerationContext(
             state_summary="重构进行中",
             turns=[
                 GenerationTurn(
                     user_query="问题1",
-                    trace_summaries=['SEARCH: "x"'],
+                    action_entries=['SEARCH: "x"'],
                     assistant_final_text="答案1",
                     identity=_identity(),
                 ),

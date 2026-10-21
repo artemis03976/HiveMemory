@@ -123,6 +123,14 @@ patchouli:
       high_similarity_threshold: 0.95
       low_similarity_threshold: 0.75
       content_similarity_threshold: 0.9
+    # 生成转写中思考与外部工具动作的字符上限；感知的 token 统计使用同一组上限。
+    # 一轮动作段超过 max_turn_action_chars 时，较早的非出错动作降为一行，
+    # 仍超出时按优先级省略整条。
+    transcript:
+      max_thought_chars: 1000
+      max_args_chars: 300
+      max_result_chars: 800
+      max_turn_action_chars: 8000
 
   retrieval:
     # 请求未给出 top_k 时的结果条数；最终截取只在重排阶段之后进行一次

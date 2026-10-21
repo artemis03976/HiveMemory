@@ -2,7 +2,8 @@
 
 测试覆盖:
 - build_block: turn_events 结构化路径（assistant_final_text 保留、事件归并为
-  actions、mtp_traces 直传）、token 估算（含 traces 贡献）
+  actions、mtp_traces 直传）、token 估算（含 traces 贡献；思考与外部工具动作
+  按生成转写的截断规则计入，MTP 动作不增加渲染统计）
 - should_compact: 阈值边界（严格大于）
 - select_blocks_to_fold: 最旧前缀选择、retain 边界、非法 retain 拒绝
 - generate_fold_summary: 委托给持有的 RelayController
@@ -15,7 +16,7 @@ from unittest.mock import AsyncMock, Mock
 import pytest
 from pydantic import ValidationError
 
-from hivememory.config.patchouli import SemanticFlowPerceptionConfig
+from hivememory.config.patchouli import GenerationTranscriptConfig, SemanticFlowPerceptionConfig
 from hivememory.core.models import ActorIdentity, LogicalBlock, TraceItem, TurnEvent, TurnRecord
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
@@ -199,6 +200,108 @@ class TestTokenEstimation:
         without_traces = engine.build_block(_payload("q", "a"), _scope().actor_identity)
 
         assert with_traces.total_tokens > without_traces.total_tokens
+
+
+def _external_tool_payload(result: str, *, thought: str = "先跑测试") -> InteractionPayload:
+    """一轮导入的外部工具交互：一条思考、一次 Bash 调用与它的结果。"""
+    return _payload(
+        "q",
+        "a",
+        turn_events=[
+            TurnEvent(kind="thought", sequence=1, role="assistant", content=thought),
+            TurnEvent(
+                kind="tool_call",
+                sequence=2,
+                role="assistant",
+                content="",
+                action_id="toolu-1",
+                tool_name="Bash",
+                tool_args={"command": "pytest -q"},
+            ),
+            TurnEvent(
+                kind="tool_result",
+                sequence=3,
+                role="system",
+                content=result,
+                action_id="toolu-1",
+            ),
+        ],
+    )
+
+
+class TestRenderedActionTokens:
+    def test_external_tool_output_counts_only_up_to_transcript_limits(self):
+        """工具结果按生成转写的单条上限计入：超出上限的部分不再增加统计。"""
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(),
+            relay_controller=_mock_relay(),
+            transcript_config=GenerationTranscriptConfig(max_result_chars=200),
+        )
+
+        long_output = engine.build_block(
+            _external_tool_payload("x" * 5_000), _scope().actor_identity
+        )
+        longer_output = engine.build_block(
+            _external_tool_payload("x" * 50_000), _scope().actor_identity
+        )
+        no_actions = engine.build_block(_payload("q", "a"), _scope().actor_identity)
+
+        assert long_output.total_tokens == longer_output.total_tokens
+        assert long_output.total_tokens > no_actions.total_tokens
+
+    def test_mtp_actions_do_not_add_rendered_tokens(self):
+        """MTP 动作只按轨迹的查询与目标计入，结果正文不进入统计。"""
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
+        )
+        trace = TraceItem(action="READ", action_id="a1", target="alias_x")
+        with_events = _payload(
+            "q",
+            "a",
+            traces=[trace],
+            turn_events=[
+                TurnEvent(
+                    kind="tool_call",
+                    sequence=1,
+                    role="assistant",
+                    content="",
+                    action_id="a1",
+                    tool_kind="READ",
+                    tool_name="alias_x",
+                ),
+                TurnEvent(
+                    kind="tool_result",
+                    sequence=2,
+                    role="system",
+                    content="已有记忆正文" * 200,
+                    action_id="a1",
+                    status="success",
+                ),
+            ],
+        )
+
+        assert (
+            engine.build_block(with_events, _scope().actor_identity).total_tokens
+            == engine.build_block(
+                _payload("q", "a", traces=[trace]), _scope().actor_identity
+            ).total_tokens
+        )
+
+    def test_fold_threshold_counts_rendered_thoughts_and_tool_results(self):
+        """折叠阈值按新统计触发：短问答加一段工具输出即可越过阈值。"""
+        engine = MemoryPerceptionEngine(
+            config=SemanticFlowPerceptionConfig(fold_token_threshold=100),
+            relay_controller=_mock_relay(),
+        )
+
+        with_output = engine.build_block(
+            _external_tool_payload("collected 120 items, 3 failed " * 20),
+            _scope().actor_identity,
+        )
+        messages_only = engine.build_block(_payload("q", "a"), _scope().actor_identity)
+
+        assert engine.should_compact(with_output.total_tokens) is True
+        assert engine.should_compact(messages_only.total_tokens) is False
 
 
 # ========== should_compact：阈值判断 ==========

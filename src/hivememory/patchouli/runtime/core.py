@@ -443,7 +443,11 @@ class PatchouliRuntime:
             llm_service=self._llm_service,
             llm_params=self._llm_params,
         )
-        return MemoryPerceptionEngine(config=impl_config, relay_controller=relay_controller)
+        return MemoryPerceptionEngine(
+            config=impl_config,
+            relay_controller=relay_controller,
+            transcript_config=self._patchouli_config.generation.transcript,
+        )
 
     def _build_perception_orchestration(self):
         """[私有构建器] 组装 Perception 的编排依赖：驻留工作集"""
@@ -583,6 +587,7 @@ class PatchouliRuntime:
             bus=self._local_bus,
             recent_block_limit=self._patchouli_config.generation.active_recent_blocks,
             pending_atom_settler=self._pending_atom_settler,
+            transcript_config=self._patchouli_config.generation.transcript,
         )
 
         self._task_controller = MemoryGenerationTaskController(
