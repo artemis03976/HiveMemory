@@ -19,8 +19,13 @@ class ImportTurnRequest(ImportedTurn):
     )
 
     def to_imported_turn(self) -> ImportedTurn:
-        """去掉认证声明，交出只含导入内容的记录。"""
-        return ImportedTurn.model_validate(self.model_dump(exclude={"agent_id"}))
+        """去掉认证声明，交出只含导入内容的记录。
+
+        字段已随请求完成校验，这里直接复用，不对可能很大的请求体再校验一遍。
+        """
+        return ImportedTurn.model_construct(
+            **{name: getattr(self, name) for name in ImportedTurn.model_fields}
+        )
 
 
 class ImportTurnResponse(BaseModel):

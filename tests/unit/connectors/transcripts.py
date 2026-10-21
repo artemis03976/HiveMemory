@@ -56,8 +56,14 @@ class TranscriptWriter:
         )
 
     def assistant(self, *blocks: dict[str, Any], message_id: str = "msg", **fields: Any) -> None:
-        """与 Claude Code 一样，一条 API 消息的每个内容块各写一个条目，带块位置。"""
+        """与 Claude Code 一样，一条 API 消息的每个内容块各写一个条目，带块位置。
+
+        每个条目带所属消息的停止原因：含工具调用的消息为 ``tool_use``，其余为
+        ``end_turn``；传入 ``stop_reason`` 可覆盖，例如写成 ``None`` 模拟尚未写完。
+        """
         model = fields.pop("model", "claude-test")
+        has_tool_use = any(block.get("type") == "tool_use" for block in blocks)
+        stop_reason = fields.pop("stop_reason", "tool_use" if has_tool_use else "end_turn")
         for block in blocks:
             index = self._block_index.get(message_id, 0)
             self._block_index[message_id] = index + 1
@@ -70,6 +76,7 @@ class TranscriptWriter:
                         "role": "assistant",
                         "model": model,
                         "content": [block],
+                        "stop_reason": stop_reason,
                     },
                     **fields,
                 )

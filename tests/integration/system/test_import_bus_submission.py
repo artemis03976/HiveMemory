@@ -64,7 +64,7 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
     submissions = InteractionSubmissionService(interaction_queue=queue)
     bus = GlobalSystemBus()
     bus.register(PatchouliRoutes.INTERACTION_SUBMIT, submissions.submit_interaction)
-    bus.register(PatchouliRoutes.INTERACTION_ACCEPTED, submissions.is_interaction_accepted)
+    bus.register(PatchouliRoutes.INTERACTION_STATUS, submissions.interaction_status)
 
     async def gateway(**kwargs):
         return GatewayDecisionOutcome(

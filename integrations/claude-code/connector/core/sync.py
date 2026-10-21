@@ -6,6 +6,9 @@
    记录（例如 hook 报告的正常结束或失败）或会话已结束时才算结束；会话记录
    末尾仍在进行的轮次不提交。没有会话结束通知的崩溃会话，末尾超过 30 分钟
    没有新条目时按中断结束。
+   末尾一轮已判定结束、但读到的内容还没有正常收尾时（结束通知先于最后几行
+   写入），短暂等待会话记录写完再提交；读取之后会话记录又有新内容时重新
+   读取，不以读取时的旧内容提交。
 2. **结局先于提交写入**：结局写入状态后才提交，发送失败后的重发沿用原结局。
 3. **游标只在确认后前进**：可重试错误（网络错误、服务暂不可用）与连接器配置
    错误停止处理这份会话记录并保留游标，等下次唤醒；因这一轮内容被拒绝的
@@ -48,6 +51,15 @@ from connector.core.transcript import (
 )
 
 STALE_SECONDS = 30 * 60
+# 末尾一轮已判定结束但内容尚未收尾时，等待会话记录写完的时限与轮询间隔；
+# 会话记录静止超过这个时限后，按读到的内容提交。
+FLUSH_GRACE_SECONDS = 10.0
+FLUSH_POLL_SECONDS = 0.5
+# 等待按轮询次数封顶，不依赖时钟前进。
+MAX_FLUSH_POLLS = int(FLUSH_GRACE_SECONDS / FLUSH_POLL_SECONDS)
+# 最近轮次只供 Gateway 理解上文，每段正文截断到这个长度，避免一轮过大的
+# 内容拖着后续轮次一起超过服务端的请求体上限。
+RECENT_TEXT_LIMIT = 2000
 MAX_SERVER_ERRORS = 3
 # 每轮同步结束后重新读取一次，接住同步期间新结束的轮次；有上限以免无限循环。
 MAX_ROUNDS = 10
@@ -60,6 +72,10 @@ class SyncReport:
     confirmed: int = 0
     rejected: int = 0
     stopped: str | None = None
+    # 末尾一轮已判定结束、内容尚未收尾，需要等会话记录写完后重新读取。
+    awaiting_flush: bool = False
+    # 读取之后会话记录有新内容，需要重新读取。
+    reread: bool = False
 
 
 class TranscriptSync:
@@ -73,12 +89,14 @@ class TranscriptSync:
         client: ImportClient,
         config: ConnectorConfig,
         clock: Callable[[], float] = time.time,
+        sleep: Callable[[float], None] = time.sleep,
     ) -> None:
         self._reader = reader
         self._store = store
         self._client = client
         self._config = config
         self._clock = clock
+        self._sleep = sleep
         self._log = ConnectorLog(store.state_dir)
 
     def register(self, path: str) -> None:
@@ -96,7 +114,9 @@ class TranscriptSync:
         """提交游标之后已经结束的轮次；同一份会话记录同时只有一个同步在运行。"""
         report = SyncReport()
         with self._store.sync_lock(path):
-            for _ in range(MAX_ROUNDS):
+            flush_polls = 0
+            rounds = 0
+            while rounds < MAX_ROUNDS:
                 state = self._store.load(path)
                 if state is None:
                     return report
@@ -112,10 +132,21 @@ class TranscriptSync:
                     if not self._relocate(path, state):
                         report.stopped = "blocked"
                         return report
+                    rounds += 1
                     continue
+                report.awaiting_flush = False
+                report.reread = False
                 progressed = self._submit_ended_turns(path, state, report)
-                if report.stopped is not None or not progressed:
+                if report.stopped is not None:
                     return report
+                if progressed or report.reread:
+                    rounds += 1
+                    continue
+                if report.awaiting_flush and flush_polls < MAX_FLUSH_POLLS:
+                    flush_polls += 1
+                    self._sleep(FLUSH_POLL_SECONDS)
+                    continue
+                return report
         return report
 
     # ------------------------------------------------------------------
@@ -123,6 +154,8 @@ class TranscriptSync:
     # ------------------------------------------------------------------
 
     def _submit_ended_turns(self, path: str, state: TranscriptState, report: SyncReport) -> bool:
+        # 先取得完整行的长度再读取：之后长度变化说明读取之后又写入了内容。
+        read_size = complete_size(path)
         turns = self._reader.read(path, state.read_offset)
         context = [turn for turn in turns if turn.start_offset < state.offset][-RECENT_TURNS:]
         pending = [turn for turn in turns if turn.start_offset >= state.offset]
@@ -130,6 +163,8 @@ class TranscriptSync:
         for index, turn in enumerate(pending):
             outcome = self._outcome(path, state, turn)
             if outcome is None:
+                break
+            if not self._content_settled(path, state, turn, read_size, report):
                 break
             # 先写入再提交，并以实际保存的结局提交：hook 可能已为这一轮写入结局。
             outcome = self._store.record_end(path, turn.turn_id, outcome)
@@ -147,6 +182,37 @@ class TranscriptSync:
                 return progressed
             state = refreshed
         return progressed
+
+    def _content_settled(
+        self,
+        path: str,
+        state: TranscriptState,
+        turn: TranscriptTurn,
+        read_size: int,
+        report: SyncReport,
+    ) -> bool:
+        """读到的内容是否就是该轮的全部内容，可以据此提交。
+
+        其后已有下一轮或中断标记的轮次，内容到下一行为止已经完整。末尾一轮
+        只在读取之后会话记录没有新内容、且该轮已经正常收尾或会话记录已静止
+        一段时间（会话已结束、超时或写入已停止）时才提交；否则交给调用方重新
+        读取或稍后再读。
+        """
+        if turn.closed_by_next_turn or turn.interrupted:
+            return True
+        if complete_size(path) != read_size:
+            report.reread = True
+            return False
+        if turn.looks_complete or state.session_ended or self._quiet_for(path, FLUSH_GRACE_SECONDS):
+            return True
+        report.awaiting_flush = True
+        return False
+
+    def _quiet_for(self, path: str, seconds: float) -> bool:
+        try:
+            return self._clock() - os.path.getmtime(path) > seconds
+        except OSError:
+            return False
 
     def _outcome(self, path: str, state: TranscriptState, turn: TranscriptTurn) -> Outcome | None:
         """一轮的结局；仍在进行时返回 ``None``。"""
@@ -299,8 +365,10 @@ class TranscriptSync:
             "model_used": turn.model_used,
             "recent_turns": [
                 {
-                    "user_message": previous.user_message,
-                    "assistant_text": previous.assistant_final_text or "",
+                    "user_message": previous.user_message[:RECENT_TEXT_LIMIT],
+                    "assistant_text": (previous.assistant_final_text or "")[:RECENT_TEXT_LIMIT],
+                    # 服务端据此查出上一轮实际落位的话题，话题路由失败时续接。
+                    "external_turn_id": previous.turn_id,
                 }
                 for previous in context
             ],

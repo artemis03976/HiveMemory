@@ -70,7 +70,8 @@ def test_turn_maps_thinking_tool_calls_results_and_final_text(tmp_path):
         {"kind": "assistant_message", "sequence": 7, "content": "已修复"},
         {"kind": "assistant_message", "sequence": 8, "content": "测试通过"},
     ]
-    assert turn.assistant_final_text == "已修复\n测试通过"
+    # 与 Alice 的最终正文一致：按顺序拼接全部助手正文，工具调用之间的叙述也保留。
+    assert turn.assistant_final_text == "我先运行测试。\n\n已修复\n\n测试通过"
     assert turn.model_used == "claude-opus"
 
 

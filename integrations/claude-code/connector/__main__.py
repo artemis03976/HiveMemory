@@ -47,6 +47,7 @@ def main(arguments: list[str]) -> int:
                 reader=reader,
                 store=store,
                 spawn=lambda command: _spawn_detached(command, config),
+                log=log,
             )
         elif arguments[:2] == ["sync", "--transcript"] and len(arguments) == 3:
             sync.sync(arguments[2])

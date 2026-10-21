@@ -259,6 +259,7 @@ class TaskProcessRunner:
                     GatewaySessionTurn(
                         user_message=t.payload.user_message,
                         assistant_text=t.payload.assistant_final_text or "",
+                        topic_id=t.topic_id,
                     )
                     for t in self._sessions.get(request.target_workspace, request.session_id).turns[
                         -self._gateway_session_turn_limit :

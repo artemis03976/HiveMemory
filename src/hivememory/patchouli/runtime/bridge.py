@@ -161,8 +161,8 @@ class PatchouliBridge:
                 self._public_api.interactions.submit_interaction,
             ),
             RouteBinding.of(
-                PatchouliRoutes.INTERACTION_ACCEPTED,
-                self._public_api.interactions.is_interaction_accepted,
+                PatchouliRoutes.INTERACTION_STATUS,
+                self._public_api.interactions.interaction_status,
             ),
             RouteBinding.of(
                 PatchouliRoutes.MEMORY_INTENT_SUBMIT,

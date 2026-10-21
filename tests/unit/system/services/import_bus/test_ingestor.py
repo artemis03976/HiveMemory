@@ -135,7 +135,7 @@ async def _harness(
     queue = InteractionSubmissionQueue(apply, policy=queue_policy)
     submissions = InteractionSubmissionService(interaction_queue=queue)
     bus.register(PatchouliRoutes.INTERACTION_SUBMIT, submissions.submit_interaction)
-    bus.register(PatchouliRoutes.INTERACTION_ACCEPTED, submissions.is_interaction_accepted)
+    bus.register(PatchouliRoutes.INTERACTION_STATUS, submissions.interaction_status)
 
     async def default_gateway(**kwargs):
         return GatewayDecisionOutcome(decision=_decision())
@@ -265,8 +265,34 @@ async def test_gateway_receives_passive_mode_and_truncated_recent_turns() -> Non
 
 
 @pytest.mark.asyncio
+async def test_last_recent_turn_carries_its_applied_topic_for_continuation() -> None:
+    """最近一轮带外部标识时，Gateway 收到它实际落位的话题，供路由失败时续接。"""
+    async with _harness() as harness:
+        first = await harness.ingest(_turn(external_turn_id="prompt-1"))
+        await harness.queue.wait(first.interaction_id, timeout=2)
+        await harness.ingest(
+            _turn(
+                external_turn_id="prompt-2",
+                recent_turns=[
+                    {"user_message": "更早", "assistant_text": "", "external_turn_id": "prompt-0"},
+                    {
+                        "user_message": "上一轮",
+                        "assistant_text": "",
+                        "external_turn_id": "prompt-1",
+                    },
+                ],
+            )
+        )
+
+    second_call = harness.gateway_calls[1]
+    assert [turn.topic_id for turn in second_call["session_turns"]] == [None, "topic-applied"]
+
+
+@pytest.mark.asyncio
 async def test_recoverable_gateway_failure_is_retryable_and_resend_is_accepted() -> None:
-    """Gateway 超时不降级为不带话题的提交，而是可重试错误；重发后正常接纳。"""
+    """Gateway 整体抛出可恢复异常（例如时限耗尽而入口步骤没有兜底）时不提交，
+    交回可重试错误；重发后正常接纳。步骤内的失败由 Gateway 自身兜底。
+    """
     failures = [GatewayTimeoutError("deadline")]
 
     async def gateway(**kwargs):

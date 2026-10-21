@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from hivememory.core.protocol.models import InteractionPayload, RetrievalRequest
     from hivememory.patchouli.contracts.interaction_submission import (
         InteractionOrigin,
+        InteractionStatus,
         InteractionSubmitResult,
     )
     from hivememory.patchouli.contracts.memory_intent import (
@@ -177,9 +178,14 @@ class PatchouliRoutes:
         """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
-    @route("patchouli.public.interaction.accepted")
-    async def INTERACTION_ACCEPTED(*, identity_scope: IdentityScope, interaction_id: str) -> bool:
-        """查询交互是否已被提交队列接纳；同名交互属于其他 Workspace 时报冲突。"""
+    @route("patchouli.public.interaction.status")
+    async def INTERACTION_STATUS(
+        *, identity_scope: IdentityScope, interaction_id: str
+    ) -> InteractionStatus | None:
+        """查询交互在提交队列中的进度；未被接纳时返回 ``None``。
+
+        同名交互属于其他 Workspace 时报冲突；成功时给出真实落点。
+        """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.memory_intent.submit")
@@ -265,7 +271,7 @@ class PatchouliRoutes:
         GET_AGENT_PROFILE,
         MEMORY_READ,
         INTERACTION_SUBMIT,
-        INTERACTION_ACCEPTED,
+        INTERACTION_STATUS,
         MEMORY_INTENT_SUBMIT,
         PREPARE_AGENT_RUN,
         FINALIZE_AGENT_RUN,

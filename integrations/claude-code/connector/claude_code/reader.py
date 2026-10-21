@@ -21,8 +21,11 @@
   消息标识与块位置去重（没有块位置时按块内容），工具调用与结果按调用标识去重。
 - 思考只有 Claude Code 写入本地记录的部分：较新的模型默认不返回思考正文，
   只有签名，没有正文的思考块跳过。
-- ``assistant_final_text`` 取最后一次工具结果之后的助手正文，``model_used``
-  取最后一条助手条目的模型（Claude Code 为合成消息标注的 ``<synthetic>`` 除外）。
+- ``assistant_final_text`` 按顺序拼接该轮全部助手正文，与 Alice 的最终正文
+  一致：工具调用之间的叙述（例如对故障原因的判断）也进入记忆生成。``model_used`` 取
+  最后一条助手条目的模型（Claude Code 为合成消息标注的 ``<synthetic>`` 除外）。
+- 最后一条助手条目的 ``message.stop_reason`` 不是 ``tool_use`` 时，该轮已经
+  正常收尾；末尾一轮据此判断内容是否已经写完。
 """
 
 from __future__ import annotations
@@ -53,6 +56,7 @@ class _TurnBuilder:
     events: list[dict[str, Any]] = field(default_factory=list)
     model_used: str | None = None
     interrupted: bool = False
+    last_stop_reason: str | None = None
     seen_blocks: set[str] = field(default_factory=set)
 
     def add_event(self, kind: str, content: str, **fields: Any) -> None:
@@ -72,17 +76,13 @@ class _TurnBuilder:
             model_used=self.model_used,
             closed_by_next_turn=closed_by_next_turn,
             interrupted=self.interrupted,
+            looks_complete=self.last_stop_reason not in (None, "tool_use"),
         )
 
     def _final_text(self) -> str | None:
-        """最后一次工具结果之后的助手正文；没有时为 ``None``。"""
-        texts: list[str] = []
-        for event in self.events:
-            if event["kind"] == "tool_result":
-                texts = []
-            elif event["kind"] == "assistant_message":
-                texts.append(event["content"])
-        return "\n".join(texts) if texts else None
+        """按顺序拼接该轮全部助手正文；没有正文时为 ``None``。"""
+        texts = [event["content"] for event in self.events if event["kind"] == "assistant_message"]
+        return "\n\n".join(texts) if texts else None
 
 
 class ClaudeCodeReader:
@@ -249,6 +249,8 @@ def _apply_entry(turn: _TurnBuilder, entry: dict[str, Any]) -> None:
         model = message.get("model") if isinstance(message, dict) else None
         if isinstance(model, str) and model and model != _SYNTHETIC_MODEL:
             turn.model_used = model
+        stop_reason = message.get("stop_reason") if isinstance(message, dict) else None
+        turn.last_stop_reason = stop_reason if isinstance(stop_reason, str) else None
         # 同一条 API 消息分成多个条目时共享消息标识；缺失时退回条目自身的标识。
         message_id = str(
             (message.get("id") if isinstance(message, dict) else None) or entry.get("uuid") or ""

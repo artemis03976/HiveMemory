@@ -414,8 +414,8 @@ async def test_new_topic_title_and_summary_reach_apply() -> None:
 
 
 @pytest.mark.asyncio
-async def test_accepted_workspace_reads_owner_from_index_and_from_work_record() -> None:
-    """接纳查询返回同名提交的归属；旁路索引缺失时从工作记录的规范载荷解码。"""
+async def test_lookup_reads_owner_from_index_and_from_work_record() -> None:
+    """记录投影返回同名提交的归属；旁路索引缺失时从工作记录的规范载荷解码。"""
     queue = InteractionSubmissionQueue(AsyncMock(return_value="topic-real"))
     indexed = _submission("interaction-indexed")
     record_only = _submission("interaction-record-only")
@@ -442,15 +442,48 @@ async def test_accepted_workspace_reads_owner_from_index_and_from_work_record() 
             )
         )
 
-        owners = [
-            await queue.accepted_workspace("interaction-indexed"),
-            await queue.accepted_workspace("interaction-record-only"),
-            await queue.accepted_workspace("interaction-missing"),
+        views = [
+            await queue.lookup("interaction-indexed"),
+            await queue.lookup("interaction-record-only"),
+        ]
+        missing = await queue.lookup("interaction-missing")
+    finally:
+        await queue.stop()
+
+    assert [(view.belong_to, view.state, view.topic_id) for view in views] == [
+        (indexed.belong_to, WorkState.QUEUED, None),
+        (record_only.belong_to, WorkState.QUEUED, None),
+    ]
+    assert missing is None
+
+
+@pytest.mark.asyncio
+async def test_lookup_reports_real_topic_on_success_and_none_on_failure() -> None:
+    """成功的交互给出真实落点（NEW_TOPIC 已解析）；应用失败的交互不给落点。"""
+
+    async def apply(payload, *, interaction_id, **_kwargs):
+        if interaction_id == "interaction-failing":
+            raise RuntimeError("apply failed")
+        return "topic-real"
+
+    queue = InteractionSubmissionQueue(apply)
+    try:
+        await queue.start()
+        succeeded = await queue.submit(_submission("interaction-ok"))
+        failed = await queue.submit(_submission("interaction-failing"))
+        await queue.wait(succeeded, timeout=2)
+        await queue.wait(failed, timeout=2)
+        views = [
+            await queue.lookup("interaction-ok"),
+            await queue.lookup("interaction-failing"),
         ]
     finally:
         await queue.stop()
 
-    assert owners == [indexed.belong_to, record_only.belong_to, None]
+    assert [(view.state, view.topic_id) for view in views] == [
+        (WorkState.SUCCEEDED, "topic-real"),
+        (WorkState.FAILED, None),
+    ]
 
 
 def test_codec_rejects_flattened_identity_projection() -> None:

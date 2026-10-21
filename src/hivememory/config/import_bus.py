@@ -1,6 +1,6 @@
 """Import Bus 配置段。
 
-Import Bus 属于 System 的被动摄入能力，不并入 Gateway 配置；Gateway 只
+Import Bus 属于 System 的导入能力，不并入 Gateway 配置；Gateway 只
 识别固定的 ``GatewayIngressMode``，请求时限与最近轮数沿用 Gateway 自己的
 配置段。
 """

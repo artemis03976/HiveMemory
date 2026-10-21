@@ -20,10 +20,15 @@ from connector.claude_code.reader import ClaudeCodeReader
 from connector.core.client import ImportClient
 from connector.core.config import ConnectorConfig
 from connector.core.state import StateStore
-from connector.core.sync import STALE_SECONDS, TranscriptSync
+from connector.core.sync import (
+    FLUSH_GRACE_SECONDS,
+    RECENT_TEXT_LIMIT,
+    STALE_SECONDS,
+    TranscriptSync,
+)
 from connector.core.transcript import complete_size
 
-from tests.unit.connectors.transcripts import TranscriptWriter
+from tests.unit.connectors.transcripts import TranscriptWriter, text, tool_use
 
 STARTED_AT = 1792569600.0  # 合成会话记录第一个条目的时间
 
@@ -72,6 +77,7 @@ def _harness(
         client=ImportClient(config, transport=transport),
         config=config,
         clock=clock or (lambda: os.path.getmtime(tmp_path) + 1),
+        sleep=lambda _seconds: None,
     )
     return sync, store
 
@@ -267,6 +273,83 @@ def test_in_progress_turn_waits_until_it_ends(tmp_path):
     ]
 
 
+def test_trailing_turn_ended_before_its_last_lines_are_written_waits_for_them(tmp_path):
+    """结束通知先于最后几行写入时不提交半截内容；写完后提交完整的一轮。"""
+    log = _log(tmp_path)
+    log.prompt("p1", "修一下登录")
+    log.assistant(text("我先看看"), tool_use("t1", "Read", {"path": "a.py"}), message_id="m1")
+    log.tool_result("t1", "源码")
+    transport = FakeTransport()
+    sync, store = _harness(tmp_path, transport, clock=lambda: os.path.getmtime(log.path) + 1)
+    sync.register(str(log.path))
+    store.record_end(str(log.path), "p1", "completed")
+
+    sync.sync(str(log.path))
+    submitted_early = list(transport.bodies)
+    log.assistant(text("修好了"), message_id="m2")
+    sync.sync(str(log.path))
+
+    assert submitted_early == []
+    [body] = transport.bodies
+    assert body["assistant_final_text"] == "我先看看\n\n修好了"
+
+
+def test_quiet_transcript_submits_ended_turn_without_a_clean_finish(tmp_path):
+    """已结束、内容没有正常收尾的一轮，在会话记录静止超过等待时限后按读到的内容提交。"""
+    log = _log(tmp_path)
+    log.prompt("p1", "跑测试")
+    log.assistant(tool_use("t1", "Bash", {"command": "pytest"}), message_id="m1")
+    transport = FakeTransport()
+    sync, store = _harness(
+        tmp_path,
+        transport,
+        clock=lambda: os.path.getmtime(log.path) + FLUSH_GRACE_SECONDS + 1,
+    )
+    sync.register(str(log.path))
+    store.record_end(str(log.path), "p1", "failed")
+
+    sync.sync(str(log.path))
+
+    assert [(body["external_turn_id"], body["outcome"]) for body in transport.bodies] == [
+        ("p1", "failed")
+    ]
+
+
+def test_turn_that_grows_while_the_previous_one_submits_is_reread(tmp_path):
+    """提交前一轮期间末尾一轮写完并收到结束记录：重新读取后提交完整内容，不用旧内容。"""
+    log = _log(tmp_path)
+    log.turn("p1")
+    log.prompt("p2", "加个测试")
+    log.assistant(text("开始写"), tool_use("t2", "Write", {"path": "t.py"}), message_id="m2")
+    sync_ref: list[StateStore] = []
+
+    class GrowingTransport(FakeTransport):
+        def __call__(self, url, body, headers, timeout):
+            if not self.bodies:
+                # p1 提交期间，p2 的剩余内容写入会话记录，Stop 写下结束记录。
+                log.tool_result("t2", "ok")
+                log.assistant(text("测试已加上"), message_id="m3")
+                sync_ref[0].record_end(str(log.path), "p2", "completed")
+            return super().__call__(url, body, headers, timeout)
+
+    transport = GrowingTransport()
+    sync, store = _harness(tmp_path, transport, clock=lambda: os.path.getmtime(log.path) + 1)
+    sync_ref.append(store)
+    sync.register(str(log.path))
+
+    sync.sync(str(log.path))
+
+    assert transport.turn_ids() == ["p1", "p2"]
+    second = transport.bodies[1]
+    assert second["assistant_final_text"] == "开始写\n\n测试已加上"
+    assert [event["kind"] for event in second["events"]] == [
+        "assistant_message",
+        "tool_call",
+        "tool_result",
+        "assistant_message",
+    ]
+
+
 def test_interrupted_and_stale_turns_end_as_cancelled(tmp_path):
     """中断标记立即结束一轮；没有会话结束通知的会话末尾超过 30 分钟未更新时按中断结束。"""
     interrupted = TranscriptWriter(tmp_path / "interrupted.jsonl")
@@ -323,13 +406,34 @@ def test_recent_turns_come_from_confirmed_turns_before_the_cursor(tmp_path):
 
     assert transport.turn_ids() == ["p1", "p2", "p3", "p4", "p5"]
     assert transport.bodies[3]["recent_turns"] == [
-        {"user_message": f"问题{index}", "assistant_text": f"回答{index}"} for index in (1, 2, 3)
+        {
+            "user_message": f"问题{index}",
+            "assistant_text": f"回答{index}",
+            "external_turn_id": f"p{index}",
+        }
+        for index in (1, 2, 3)
     ]
     assert [turn["user_message"] for turn in transport.bodies[4]["recent_turns"]] == [
         "问题2",
         "问题3",
         "问题4",
     ]
+
+
+def test_recent_turn_text_is_truncated_for_routing_context(tmp_path):
+    """最近轮次只供路由理解上文：过长的正文截断，避免拖着后续轮次超过请求体上限。"""
+    log = _log(tmp_path)
+    log.turn("p1", question="长" * (RECENT_TEXT_LIMIT + 100))
+    log.turn("p2")
+    log.turn("p3")
+    transport = FakeTransport()
+    sync, _ = _harness(tmp_path, transport)
+    sync.register(str(log.path))
+
+    sync.sync(str(log.path))
+
+    [recent] = transport.bodies[1]["recent_turns"]
+    assert recent["user_message"] == "长" * RECENT_TEXT_LIMIT
 
 
 def test_rewritten_transcript_resumes_after_last_confirmed_turn(tmp_path):
@@ -402,10 +506,14 @@ def test_concurrent_updates_keep_state_consistent(tmp_path):
     store = StateStore(tmp_path / "state")
     store.register(str(log.path), origin="new", offset=0)
 
+    unreadable: list[str] = []
+
     def record(worker: int) -> None:
         for turn in range(25):
             store.record_end(str(log.path), f"w{worker}-t{turn}", "completed")
-            assert store.load(str(log.path)) is not None
+            # 线程内的断言不会让测试失败：先收集，join 之后统一断言。
+            if store.load(str(log.path)) is None:
+                unreadable.append(f"w{worker}-t{turn}")
 
     threads = [threading.Thread(target=record, args=(worker,)) for worker in range(workers)]
     for thread in threads:
@@ -413,6 +521,7 @@ def test_concurrent_updates_keep_state_consistent(tmp_path):
     for thread in threads:
         thread.join()
 
+    assert unreadable == []
     assert len(store.load(str(log.path)).end_records) == workers * 25
 
 

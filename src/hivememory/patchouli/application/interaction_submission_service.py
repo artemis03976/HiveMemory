@@ -1,7 +1,7 @@
 """Patchouli 交互提交 application API（公开路由 ``patchouli.public.interaction.*``）。
 
 公开的独立交互提交入口：封装 ``InteractionSubmissionQueue`` 的接纳、收据
-与接纳查询。队列继续是 Patchouli 的内部协作者——Import Bus 等外部来源统一
+与进度查询。队列继续是 Patchouli 的内部协作者——Import Bus 等外部来源统一
 经本 API 提交，不直接持有 queue；单条事件接收、队列接纳、交互应用与
 Memory 物化是不同事实。
 
@@ -13,13 +13,20 @@ from __future__ import annotations
 
 from uuid import uuid4
 
-from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueStoppedError
+from hivememory.components.work_queue import (
+    TERMINAL_WORK_STATES,
+    WorkQueueCapacityError,
+    WorkQueueStoppedError,
+    WorkState,
+)
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import IdentityScope, require_identity_scope
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.contracts.errors import InteractionAdmissionUnavailableError
 from hivememory.patchouli.contracts.interaction_submission import (
     InteractionOrigin,
+    InteractionProgress,
+    InteractionStatus,
     InteractionSubmitResult,
 )
 from hivememory.patchouli.control.interaction_submission import (
@@ -29,7 +36,7 @@ from hivememory.patchouli.control.interaction_submission import (
 
 
 class InteractionSubmissionService:
-    """经 Patchouli 交互队列的公开提交与接纳查询 API。"""
+    """经 Patchouli 交互队列的公开提交与进度查询 API。"""
 
     def __init__(self, *, interaction_queue: InteractionSubmissionQueue) -> None:
         self._queue = interaction_queue
@@ -83,22 +90,37 @@ class InteractionSubmissionService:
             state=receipt.state.value,
         )
 
-    async def is_interaction_accepted(
+    async def interaction_status(
         self, *, identity_scope: IdentityScope, interaction_id: str
-    ) -> bool:
-        """回答该交互是否已被提交队列接纳，供提交方在重发前查重。
+    ) -> InteractionStatus | None:
+        """回答该交互在提交队列中的进度，供提交方在重发前查重、续接上一轮的落点。
 
         归属是硬边界：同名交互已由另一个 Workspace 提交时以
         ``WorkspaceMismatchError`` 拒绝，不把其他 Workspace 的接纳当作重复。
         查询只覆盖队列的保留窗口，窗口外的终态记录视为未接纳。
         """
         scope = require_identity_scope(identity_scope)
-        owner = await self._queue.accepted_workspace(interaction_id)
-        if owner is None:
-            return False
-        if owner != scope.workspace_identity:
+        view = await self._queue.lookup(interaction_id)
+        if view is None:
+            return None
+        if view.belong_to != scope.workspace_identity:
             raise WorkspaceMismatchError(details={"interaction_id": interaction_id})
-        return True
+        return InteractionStatus(
+            interaction_id=interaction_id,
+            state=_progress(view.state),
+            topic_id=view.topic_id,
+        )
+
+
+def _progress(state: WorkState | None) -> InteractionProgress:
+    """把通用工作状态归为提交方关心的四种进度。"""
+    if state is None:
+        return "unknown"
+    if state is WorkState.SUCCEEDED:
+        return "succeeded"
+    if state in TERMINAL_WORK_STATES:
+        return "failed"
+    return "pending"
 
 
 __all__ = [

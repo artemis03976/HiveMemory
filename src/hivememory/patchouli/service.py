@@ -126,7 +126,7 @@ class PatchouliService:
     ) -> None:
         """原样提交封口好的交互记录，并把 post-apply 工作交给 Patchouli 持有。
 
-        ``payload`` 由提交方（任务进程）组装并封口，与被动链路一致；finalize
+        ``payload`` 由提交方（任务进程）组装并封口，与 Import Bus 一致；finalize
         原样提交，不改写其内容；附件租借由进程持有并随进程关闭
         释放，finalize 不负责释放。``identity_scope`` 来自调用前的
         任务进程阶段授权；公共边界拆分后，后台 continuation

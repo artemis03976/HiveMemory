@@ -20,6 +20,7 @@ from collections.abc import Callable, Mapping
 from typing import Any
 
 from connector.claude_code.reader import ClaudeCodeReader
+from connector.core.log import ConnectorLog
 from connector.core.state import Outcome, StateStore
 from connector.core.sync import TranscriptSync
 
@@ -38,8 +39,13 @@ def handle_hook(
     reader: ClaudeCodeReader,
     store: StateStore,
     spawn: Spawn,
+    log: ConnectorLog | None = None,
 ) -> None:
-    """处理一个 hook 事件；没有会话记录路径或不认识的事件不做任何事。"""
+    """处理一个 hook 事件；没有会话记录路径或不认识的事件不做任何事。
+
+    结束通知找不到游标之后的轮次时（该轮已按超时或会话结束判定并提交），
+    通知被忽略并写入日志，以便追查结局与实际不符的轮次。
+    """
     transcript = payload.get("transcript_path")
     if event not in HOOK_EVENTS or not isinstance(transcript, str) or not transcript:
         return
@@ -49,6 +55,8 @@ def handle_hook(
         turn_id = reader.last_turn_id(transcript, state.offset if state is not None else 0)
         if turn_id is not None:
             store.record_end(transcript, turn_id, HOOK_OUTCOMES[event])
+        elif log is not None:
+            log.write(f"ignored {event}: no unsubmitted turn after cursor transcript={transcript}")
     elif event == "SessionEnd":
         store.set_session_ended(transcript, True)
     else:

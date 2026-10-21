@@ -19,6 +19,23 @@ class InteractionSubmitResult:
     state: str
 
 
+InteractionProgress = Literal["pending", "succeeded", "failed", "unknown"]
+
+
+@dataclass(frozen=True)
+class InteractionStatus:
+    """已被提交队列接纳的交互的进度。
+
+    ``pending`` 尚未应用完成，``succeeded`` 已应用，``failed`` 应用失败且不再
+    重试，``unknown`` 表示接纳过但结局已超出队列的保留窗口。``topic_id`` 只在
+    ``succeeded`` 时给出，是该交互的真实落点（``NEW_TOPIC`` 已解析）。
+    """
+
+    interaction_id: str
+    state: InteractionProgress
+    topic_id: str | None = None
+
+
 @dataclass(frozen=True)
 class InteractionSubmissionResult:
     """handler 成功后的业务结果；``topic_id`` 是 NEW_TOPIC 的真实落点。"""
@@ -31,4 +48,10 @@ class InteractionSubmissionResult:
         return self.topic_id
 
 
-__all__ = ["InteractionOrigin", "InteractionSubmitResult", "InteractionSubmissionResult"]
+__all__ = [
+    "InteractionOrigin",
+    "InteractionProgress",
+    "InteractionStatus",
+    "InteractionSubmitResult",
+    "InteractionSubmissionResult",
+]

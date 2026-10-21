@@ -21,7 +21,9 @@ class TranscriptTurn:
 
     ``start_offset`` 是开启该轮那一行的位置，``end_offset`` 是该轮最后一行之后
     的位置（下一轮的起点，或已读取的完整行的末尾）。``closed_by_next_turn``
-    表示其后已出现下一轮；``interrupted`` 表示 harness 写入了中断标记。
+    表示其后已出现下一轮；``interrupted`` 表示 harness 写入了中断标记；
+    ``looks_complete`` 表示读到的内容中该轮已经正常收尾（例如最后一条助手
+    消息不再等待工具结果），末尾一轮据此判断内容是否已经写完。
     ``events`` 是用户消息之后的导入事件，序号从 1 起递增。
     """
 
@@ -35,6 +37,7 @@ class TranscriptTurn:
     model_used: str | None = None
     closed_by_next_turn: bool = False
     interrupted: bool = False
+    looks_complete: bool = False
 
 
 class TranscriptReader(Protocol):

@@ -1,6 +1,10 @@
 """Import Bus 路由 — POST /api/v1/import/turns"""
 
-from fastapi import APIRouter, Depends, Request
+from collections.abc import Callable, Coroutine
+from typing import Any
+
+from fastapi import APIRouter, Depends, Request, Response
+from fastapi.routing import APIRoute
 
 from hivememory.server.deps import (
     RequestIdentitySelection,
@@ -17,29 +21,48 @@ from hivememory.server.models.import_bus import ImportTurnRequest, ImportTurnRes
 from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 
+
+class BodyLimitedRoute(APIRoute):
+    """在框架读取并解析请求体之前，按 ``import_bus.max_request_bytes`` 拒绝过大的请求。
+
+    声明的 Content-Length 超过上限时不读取请求体；没有声明长度时边读边计数，
+    超过上限即停止读取。两种情况都以 413 拒绝：过大的轮次重发也不会变小，
+    是不可重试的拒绝，连接器记录后继续处理后续轮次。读完的请求体交还给
+    框架，不再读取第二次。
+    """
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handler = super().get_route_handler()
+
+        async def limited_handler(request: Request) -> Response:
+            limit_provider = request.app.dependency_overrides.get(
+                get_import_request_limit, get_import_request_limit
+            )
+            limit = limit_provider()
+            declared = request.headers.get("content-length")
+            if declared is not None and declared.isdigit() and int(declared) > limit:
+                raise APIError("request.body_too_large")
+            received = bytearray()
+            async for chunk in request.stream():
+                received.extend(chunk)
+                if len(received) > limit:
+                    raise APIError("request.body_too_large")
+            request._body = bytes(received)
+            return await handler(request)
+
+        return limited_handler
+
+
 router = APIRouter(
     responses=error_responses(400, 403, 404, 413, 422, 500, 503),
     tags=["import"],
+    route_class=BodyLimitedRoute,
 )
-
-
-async def enforce_import_body_limit(
-    request: Request,
-    limit: int = Depends(get_import_request_limit),
-) -> None:
-    """请求体超过 ``import_bus.max_request_bytes`` 时以 413 拒绝。
-
-    过大的轮次重发也不会变小，因此是不可重试的拒绝：连接器记录后继续
-    处理后续轮次。请求体由框架读取并缓存，这里只按实际字节数判断。
-    """
-    if len(await request.body()) > limit:
-        raise APIError("request.body_too_large")
 
 
 @router.post(
     "/import/turns",
     response_model=ImportTurnResponse,
-    dependencies=[Depends(enforce_import_body_limit)],
 )
 async def import_turn(
     body: ImportTurnRequest,

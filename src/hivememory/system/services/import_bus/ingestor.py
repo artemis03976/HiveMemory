@@ -3,7 +3,7 @@
 Import Bus 只向记忆网络输入，不检索记忆、不返回记忆上下文：
 
     按外部会话串行 -> 推导 interaction_id -> 查重 -> 没有输出则跳过
-    -> Gateway PASSIVE_MEMORY（附最近轮次）-> 共用封口函数
+    -> Gateway PASSIVE_MEMORY（附最近轮次与上一轮的落位）-> 共用封口函数
     -> Patchouli 公开提交路由
 
 传入的 ``IdentityScope`` 只在这一次导入的调用链内经公共路由到达 Gateway
@@ -110,7 +110,9 @@ class ImportBusIngestor:
                     # 在门外等待时关闭开始：不再为它调用 Gateway，关闭只等待
                     # 每个会话正在处理的那一个请求。
                     raise ImportBusUnavailableError(reason="shutting_down")
-                return await self._ingest_serialized(turn, identity_scope, interaction_id)
+                return await self._ingest_serialized(
+                    turn, identity_scope, interaction_id, principal_id
+                )
         finally:
             self._leave()
 
@@ -131,18 +133,19 @@ class ImportBusIngestor:
     # ------------------------------------------------------------------
 
     async def _ingest_serialized(
-        self, turn: ImportedTurn, scope: IdentityScope, interaction_id: str
+        self, turn: ImportedTurn, scope: IdentityScope, interaction_id: str, principal_id: str
     ) -> ImportTurnResult:
-        accepted = await self._bus.request(
-            PatchouliRoutes.INTERACTION_ACCEPTED,
+        status = await self._bus.request(
+            PatchouliRoutes.INTERACTION_STATUS,
             identity_scope=scope,
             interaction_id=interaction_id,
         )
-        if accepted:
+        if status is not None:
             logger.info(
-                "Import Bus 忽略已接纳的轮次: source=%s, interaction_id=%s",
+                "Import Bus 忽略已接纳的轮次: source=%s, interaction_id=%s, state=%s",
                 turn.source,
                 interaction_id,
+                status.state,
             )
             self._events.duplicate(turn=turn, scope=scope, interaction_id=interaction_id)
             return ImportTurnResult(status="duplicate", interaction_id=interaction_id)
@@ -151,7 +154,7 @@ class ImportBusIngestor:
             self._events.skipped(turn=turn, scope=scope, interaction_id=interaction_id)
             return ImportTurnResult(status="skipped", interaction_id=interaction_id)
 
-        decision = await self._request_gateway_decision(turn, scope, interaction_id)
+        decision = await self._request_gateway_decision(turn, scope, interaction_id, principal_id)
         payload = seal_interaction(
             user_message=turn.user_message,
             gateway_decision=decision,
@@ -194,14 +197,24 @@ class ImportBusIngestor:
         return ImportTurnResult(status="accepted", interaction_id=interaction_id)
 
     async def _request_gateway_decision(
-        self, turn: ImportedTurn, scope: IdentityScope, interaction_id: str
+        self, turn: ImportedTurn, scope: IdentityScope, interaction_id: str, principal_id: str
     ) -> GatewayDecision:
-        """以 PASSIVE_MEMORY 模式只取得话题落位与价值信号，忽略检索计划。"""
+        """以 PASSIVE_MEMORY 模式只取得话题落位与价值信号，忽略检索计划。
+
+        最近一轮带外部标识时附上它实际落位的话题：话题路由失败时，Gateway
+        续接上一轮的话题，而不是新建无标题话题。
+        """
+        recent_turns = turn.recent_turns[-self._gateway_session_turn_limit :]
+        previous_topic_id = (
+            await self._previous_topic_id(turn, scope, principal_id) if recent_turns else None
+        )
         session_turns = tuple(
             GatewaySessionTurn(
-                user_message=recent.user_message, assistant_text=recent.assistant_text
+                user_message=recent.user_message,
+                assistant_text=recent.assistant_text,
+                topic_id=previous_topic_id if index == len(recent_turns) - 1 else None,
             )
-            for recent in turn.recent_turns[-self._gateway_session_turn_limit :]
+            for index, recent in enumerate(recent_turns)
         )
         try:
             result = await self._bus.request(
@@ -219,6 +232,27 @@ class ImportBusIngestor:
         if result.kind != "decision":
             raise ImportBusContractError("PASSIVE_MEMORY 不得返回命令结果")
         return result.decision
+
+    async def _previous_topic_id(
+        self, turn: ImportedTurn, scope: IdentityScope, principal_id: str
+    ) -> str | None:
+        """查出最近一轮实际落位的话题；该轮未带外部标识、未导入或尚未应用成功时为空。"""
+        previous = turn.recent_turns[-1]
+        if previous.external_turn_id is None:
+            return None
+        previous_interaction_id = derive_import_interaction_id(
+            principal_id=principal_id,
+            actor=scope.actor_identity,
+            source=turn.source,
+            external_conversation_id=turn.external_conversation_id,
+            external_turn_id=previous.external_turn_id,
+        )
+        status = await self._bus.request(
+            PatchouliRoutes.INTERACTION_STATUS,
+            identity_scope=scope,
+            interaction_id=previous_interaction_id,
+        )
+        return status.topic_id if status is not None else None
 
     def _defer(
         self,

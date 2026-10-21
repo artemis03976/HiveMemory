@@ -69,7 +69,7 @@ class InteractionPayload(BaseModel):
     提交方封口、交由 Perception 消费的原子交互传输包
 
     作为系统级数据传输协议存在，承载单轮交互在进入感知层前的完整结构化结果。
-    主动与被动链路一致：payload 由提交方组装并封口，Patchouli finalize 原样
+    主动链路与 Import Bus 一致：payload 由提交方组装并封口，Patchouli finalize 原样
     提交。
 
     Attributes:
@@ -98,7 +98,7 @@ class InteractionPayload(BaseModel):
     # 收集的结构化轮次事件列表
     turn_events: list[TurnEvent] = Field(
         default_factory=list,
-        description="结构化轮次事件列表（主动链路来自 Agent 执行循环，被动链路来自 turn buffer），有值时感知层优先走结构化路径",
+        description="结构化轮次事件列表（主动链路来自 Agent 执行循环，Import Bus 来自导入的整轮记录），有值时感知层优先走结构化路径",
     )
     mtp_traces: list[TraceItem] = Field(
         default_factory=list,
@@ -113,10 +113,10 @@ class InteractionPayload(BaseModel):
     )
 
     # 实际进入 attachment_context 的使用集合（唯一附件事实）：handler
-    # 据此一次性投影 bound refs 建立 binding。passive 提交投影为空数组。
+    # 据此一次性投影 bound refs 建立 binding。Import Bus 提交没有附件，投影为空数组。
     used_attachments: list[WorkspaceAssetRef] = Field(
         default_factory=list,
-        description="实际进入本轮上下文的附件使用引用快照；passive 提交投影为空数组",
+        description="实际进入本轮上下文的附件使用引用快照；Import Bus 提交投影为空数组",
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")

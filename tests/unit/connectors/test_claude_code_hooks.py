@@ -17,6 +17,7 @@ from connector.claude_code.hooks import handle_hook
 from connector.claude_code.reader import ClaudeCodeReader
 from connector.core.client import ImportClient
 from connector.core.config import ConnectorConfig
+from connector.core.log import ConnectorLog
 from connector.core.state import StateStore
 from connector.core.sync import TranscriptSync
 
@@ -67,6 +68,45 @@ def test_stop_events_record_the_last_turn_and_wake_its_sync(setup, event, outcom
 
     assert store.load(str(log.path)).end_records == {"p2": outcome}
     assert spawned == [["sync", "--transcript", str(log.path)]]
+
+
+def test_stop_without_an_unsubmitted_turn_is_ignored_and_logged(setup):
+    """末尾一轮已按超时或会话结束提交、游标已越过它时，结束通知被忽略并写入日志。"""
+    _hook, store, log, spawned = setup
+    log.turn("p1")
+    path = str(log.path)
+    store.register(path, origin="new", offset=0)
+    with store.update(path) as state:
+        state.offset = log.path.stat().st_size
+
+    config = ConnectorConfig(
+        url="http://hivememory.test",
+        agent_id="claude_code",
+        user_id=None,
+        state_dir=store.state_dir,
+    )
+    reader = ClaudeCodeReader()
+    sync = TranscriptSync(
+        reader=reader,
+        store=store,
+        client=ImportClient(config, transport=lambda *args: (200, b"{}")),
+        config=config,
+    )
+
+    handle_hook(
+        "Stop",
+        {"transcript_path": path},
+        sync=sync,
+        reader=reader,
+        store=store,
+        spawn=spawned.append,
+        log=ConnectorLog(store.state_dir),
+    )
+
+    assert store.load(path).end_records == {}
+    assert "ignored Stop: no unsubmitted turn after cursor" in (
+        store.state_dir / "connector.log"
+    ).read_text(encoding="utf-8")
 
 
 def test_session_end_and_start_toggle_the_session_state(setup):

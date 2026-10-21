@@ -6,7 +6,8 @@
     - 事件不携带 ``role``、``tool_kind``、``target`` 与 ``render_as``：``role``
       由服务端按事件种类填写；``tool_kind`` 只表示 MTP 动词，外部工具不设置，
       因此不会产生 MTP 轨迹，也不会被误当作记忆操作。
-    - ``recent_turns`` 只供 Gateway 落位，不进入交互载荷。
+    - ``recent_turns`` 只供 Gateway 落位，不进入交互载荷；最近一轮带外部标识
+      时，服务端查出它实际落位的话题，供话题路由失败时续接。
     - 交互标识由认证结果与外部标识推导，同一轮重发时不变，不同调用来源、
       actor 或外部来源的同名轮次不会撞号。
 """
@@ -57,6 +58,12 @@ class ImportedRecentTurn(BaseModel):
 
     user_message: str = Field(description="该轮的用户消息")
     assistant_text: str = Field(default="", description="该轮最终的回复正文")
+    external_turn_id: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=256,
+        description="该轮在 harness 中的标识；最近一轮带上它时，服务端查出它的落位，供话题路由失败时续接",
+    )
 
     model_config = ConfigDict(extra="forbid", frozen=True)
 

@@ -4,7 +4,8 @@
 调用方传入的 ``IdentityScope``）：
 - ``submit_interaction`` 经真实内存队列接纳并返回收据投影；队列容量已满或已停止
   以可重试的 ``InteractionAdmissionUnavailableError`` 拒绝；
-- ``is_interaction_accepted`` 区分已接纳与未接纳，同名交互归属其他 Workspace 时报冲突；
+- ``interaction_status`` 未接纳时为空，接纳后报告等待中、成功（附真实落点）或失败，
+  同名交互归属其他 Workspace 时报冲突；
 - ``submit_memory_intent`` 把中立意图转换为内部生成任务（出站载荷契约），
   确定性 alias 支持重试幂等；接纳后只携带独立归属与发起者。
 """
@@ -129,29 +130,62 @@ def test_submit_interaction_reports_unavailable_admission_as_retryable(stop_queu
     assert error.details == {"reason": reason}
 
 
-def test_interaction_accepted_distinguishes_admission_and_rejects_foreign_workspace():
-    """接纳前为 False、接纳后为 True；同名交互归属其他 Workspace 时报冲突。"""
+def test_interaction_status_reports_progress_and_rejects_foreign_workspace():
+    """未接纳时为空；接纳后先为等待中；同名交互归属其他 Workspace 时报冲突。"""
 
     async def scenario():
         service = InteractionSubmissionService(
             interaction_queue=InteractionSubmissionQueue(_never_applied)
         )
-        before = await service.is_interaction_accepted(
+        before = await service.interaction_status(
             identity_scope=_scope(), interaction_id="interaction_query"
         )
         await service.submit_interaction(
             identity_scope=_scope(), payload=_payload(), interaction_id="interaction_query"
         )
-        after = await service.is_interaction_accepted(
+        after = await service.interaction_status(
             identity_scope=_scope(), interaction_id="interaction_query"
         )
         with pytest.raises(WorkspaceMismatchError):
-            await service.is_interaction_accepted(
+            await service.interaction_status(
                 identity_scope=_scope("isolation_workspace"), interaction_id="interaction_query"
             )
         return before, after
 
-    assert _run(scenario()) == (False, True)
+    before, after = _run(scenario())
+
+    assert before is None
+    assert (after.state, after.topic_id) == ("pending", None)
+
+
+def test_interaction_status_gives_real_topic_on_success_and_none_on_failure():
+    """应用成功的交互报告真实落点；应用失败的交互报告失败、不给落点。"""
+
+    async def apply(_payload, *, interaction_id, **_kwargs):
+        if interaction_id == "interaction_failing":
+            raise RuntimeError("apply failed")
+        return "topic-real"
+
+    async def scenario():
+        queue = InteractionSubmissionQueue(apply)
+        service = InteractionSubmissionService(interaction_queue=queue)
+        await queue.start()
+        for interaction_id in ("interaction_ok", "interaction_failing"):
+            await service.submit_interaction(
+                identity_scope=_scope(), payload=_payload(), interaction_id=interaction_id
+            )
+            await queue.wait(interaction_id, timeout=2)
+        statuses = [
+            await service.interaction_status(identity_scope=_scope(), interaction_id=interaction_id)
+            for interaction_id in ("interaction_ok", "interaction_failing")
+        ]
+        await queue.stop()
+        return statuses
+
+    succeeded, failed = _run(scenario())
+
+    assert (succeeded.state, succeeded.topic_id) == ("succeeded", "topic-real")
+    assert (failed.state, failed.topic_id) == ("failed", None)
 
 
 # ---- 意图提交 ----

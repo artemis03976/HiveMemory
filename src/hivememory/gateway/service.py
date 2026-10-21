@@ -33,7 +33,8 @@ class GatewayService:
         """把一次 Gateway 请求完整委托给 Runtime 持有的 workflow。
 
         ``identity_scope`` 是调用方冻结的执行坐标：主动链路为任务进程通过
-        阶段授权后组装的可信 scope，被动链路为被动摄入身份。Gateway 不接收访问 context，也不做授权判断。
+        阶段授权后组装的可信 scope，Import Bus 为导入授权后组装的 scope。Gateway 不接收访问 context，
+        也不做授权判断。
         """
 
         configured_timeout_ms = self._runtime.config.workflow.default_request_timeout_ms

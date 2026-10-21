@@ -186,6 +186,22 @@ def test_oversized_body_is_rejected_as_not_retryable():
     assert ingestor.calls == []
 
 
+def test_oversized_body_is_rejected_before_it_is_parsed():
+    """声明的长度超过上限时不读取、不解析请求体：内容不是合法 JSON 也返回 413。"""
+    ingestor = _RecordingIngestor()
+    client, _ = _client(ingestor, limit=256)
+
+    response = client.post(
+        "/api/v1/import/turns",
+        content=b"{" * 512,
+        headers={"content-type": "application/json"},
+    )
+
+    assert response.status_code == 413
+    assert response.json()["error"] == "request.body_too_large"
+    assert ingestor.calls == []
+
+
 def test_closed_authentication_gateway_returns_retryable_unavailable():
     """服务关闭中认证网关拒绝新认证，返回可重试的 503。"""
     ingestor = _RecordingIngestor()

@@ -8,6 +8,7 @@ handler 的单次 attempt 中重新构造。这样提交方封口后，外部继
 from __future__ import annotations
 
 import asyncio
+import hashlib
 from collections import OrderedDict
 from collections.abc import Awaitable, Callable, Mapping
 from dataclasses import dataclass
@@ -262,9 +263,28 @@ class InteractionSubmissionHandler(
 
 @dataclass
 class _StoredSubmission:
+    """旁路索引条目：只保存载荷摘要，冲突比较不需要留住整份载荷。"""
+
     receipt: InteractionSubmissionReceipt
-    payload_bytes: bytes
+    payload_digest: bytes
     belong_to: WorkspaceIdentity
+
+
+@dataclass(frozen=True)
+class InteractionRecordView:
+    """提交队列对一个交互的记录投影：归属、工作状态与成功时的真实落点。
+
+    ``state`` 为空表示旁路索引仍在、工作记录已超出终态保留窗口，接纳过但
+    结局不再可知；``topic_id`` 只在成功时给出，``NEW_TOPIC`` 已解析为真实话题。
+    """
+
+    belong_to: WorkspaceIdentity
+    state: WorkState | None
+    topic_id: str | None
+
+
+def _digest(payload_bytes: bytes) -> bytes:
+    return hashlib.sha256(payload_bytes).digest()
 
 
 class InteractionSubmissionQueue:
@@ -356,7 +376,7 @@ class InteractionSubmissionQueue:
         async with self._submit_lock:
             existing = self._submissions.get(submission.interaction_id)
             if existing is not None:
-                if existing.payload_bytes != payload_bytes:
+                if existing.payload_digest != _digest(payload_bytes):
                     raise ValueError(
                         f"interaction_id '{submission.interaction_id}' already belongs to another payload"
                     )
@@ -376,7 +396,7 @@ class InteractionSubmissionQueue:
                 )
                 self._submissions[submission.interaction_id] = _StoredSubmission(
                     receipt=domain_receipt,
-                    payload_bytes=payload_bytes,
+                    payload_digest=_digest(payload_bytes),
                     belong_to=submission.belong_to,
                 )
                 await self._trim_submissions_locked()
@@ -392,7 +412,7 @@ class InteractionSubmissionQueue:
             )
             self._submissions[submission.interaction_id] = _StoredSubmission(
                 receipt=domain_receipt,
-                payload_bytes=payload_bytes,
+                payload_digest=_digest(payload_bytes),
                 belong_to=submission.belong_to,
             )
             await self._trim_submissions_locked()
@@ -400,26 +420,34 @@ class InteractionSubmissionQueue:
 
     async def is_accepted(self, interaction_id: str) -> bool:
         """判断稳定 interaction ID 是否已经由 queue 接管。"""
-        return await self.accepted_workspace(interaction_id) is not None
+        return await self.lookup(interaction_id) is not None
 
-    async def accepted_workspace(self, interaction_id: str) -> WorkspaceIdentity | None:
-        """返回已由 queue 接管的同名 submission 的归属；未接纳时返回 ``None``。
+    async def lookup(self, interaction_id: str) -> InteractionRecordView | None:
+        """返回已由 queue 接管的同名 submission 的记录投影；未接纳时返回 ``None``。
 
-        旁路索引缺失、工作记录仍在保留窗口内时（例如调用方在 store 已接纳、
-        索引尚未写入时被取消），从记录的规范载荷解码归属；两者都已裁剪的
-        交互视为未接纳。
+        归属优先取旁路索引；索引缺失、工作记录仍在保留窗口内时（例如调用方
+        在 store 已接纳、索引尚未写入时被取消），从记录的规范载荷解码。两者
+        都已裁剪的交互视为未接纳。
         """
         async with self._submit_lock:
             stored = self._submissions.get(interaction_id)
-            if stored is not None:
-                return stored.belong_to
-            record = await self._runtime.get(f"interaction:{interaction_id}")
-            if record is None:
-                return None
-            submission: InteractionSubmission = self._codecs.decode(
-                record.item.kind, record.item.schema_version, record.item.payload
+            work_id = (
+                stored.receipt.work_id if stored is not None else f"interaction:{interaction_id}"
             )
-            return submission.belong_to
+            record = await self._runtime.get(work_id)
+            if stored is not None:
+                belong_to = stored.belong_to
+            elif record is not None:
+                submission: InteractionSubmission = self._codecs.decode(
+                    record.item.kind, record.item.schema_version, record.item.payload
+                )
+                belong_to = submission.belong_to
+            else:
+                return None
+            if record is None:
+                return InteractionRecordView(belong_to=belong_to, state=None, topic_id=None)
+            topic_id = record.result_ref if record.state is WorkState.SUCCEEDED else None
+            return InteractionRecordView(belong_to=belong_to, state=record.state, topic_id=topic_id)
 
     async def _trim_submissions_locked(self) -> None:
         """保留全部活跃 submission，只淘汰超出窗口的终态旁路索引。"""
@@ -534,6 +562,7 @@ class InteractionSubmissionQueue:
 
 
 __all__ = [
+    "InteractionRecordView",
     "InteractionSubmission",
     "InteractionSubmissionCodec",
     "InteractionSubmissionHandler",
