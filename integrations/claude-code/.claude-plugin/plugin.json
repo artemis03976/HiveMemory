@@ -1,0 +1,7 @@
+{
+  "name": "hivememory-connector",
+  "description": "把 Claude Code 中已经结束的对话轮次导入 HiveMemory，使记忆在日常使用中积累。",
+  "author": {
+    "name": "HiveMemory"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "description": "轮次结束、会话开始与结束时登记会话记录并唤醒后台同步；网络提交在脱离 Claude Code 的进程中完成。",
+  "hooks": {
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hivememory_hook.py\" hook Stop",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hivememory_hook.py\" hook StopFailure",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hivememory_hook.py\" hook SessionStart",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/hivememory_hook.py\" hook SessionEnd",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
