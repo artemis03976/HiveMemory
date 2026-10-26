@@ -11,6 +11,8 @@ code_paths:
   - frontend/vite.config.ts
   - src/hivememory/server/__main__.py
   - src/hivememory/server/app.py
+  - scripts/hivememory-dev.sh
+  - scripts/hivememory-dev.env.example
   - integrations/.claude-plugin/marketplace.json
   - integrations/claude-code/
   - configs/workspace_actors.yaml
@@ -18,12 +20,12 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/system/import-bus.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-26
 ---
 
 # 安装与启动 HiveMemory
 
-HiveMemory 当前提供两条明确运行路径：Docker 将前端、后端与 Qdrant 组合为一套本地服务；开发模式则分别运行 Qdrant、Python 后端和 Vite 前端。请先选择一条路径，不要把两套端口和启动命令混用。服务运行起来之后，可以按第 9 节把 Claude Code 的对话接入 HiveMemory。
+HiveMemory 当前提供两条明确运行路径：Docker 将前端、后端与 Qdrant 组合为一套本地服务；开发模式则分别运行 Qdrant、Python 后端和 Vite 前端。在 WSL/Linux 上，开发模式也可以交给脚本管理，脚本另有不需要 Docker 的长期运行模式（第 4.5 节）。请先选择一条路径，不要把两套端口和启动命令混用。服务运行起来之后，可以按第 9 节把 Claude Code 的对话接入 HiveMemory。
 
 ## 1. 前置条件
 
@@ -162,16 +164,39 @@ npm run dev
 
 打开 `http://127.0.0.1:5173`。Vite 将相对 `/api` 请求和 WebSocket 代理到 `http://localhost:8769`。
 
+### 4.5 用脚本管理本机服务（WSL/Linux）
+
+`scripts/hivememory-dev.sh` 在 WSL/Linux 上管理 Qdrant、后端与前端三个进程，Qdrant 使用本机的可执行文件，不需要 Docker。首次使用前复制配置模板，并把 `QDRANT_BIN` 改为本机 Qdrant 可执行文件的路径：
+
+```bash
+cp scripts/hivememory-dev.env.example .hivememory/dev.env
+```
+
+脚本需要 `uv`、`curl` 与 `setsid`；前端由 nvm 提供的 Node 运行（版本见 `HIVEMEMORY_NODE_VERSION`）。
+
+脚本有两种模式，共用同一组进程与端口：
+
+| 命令 | 运行的服务 | 后端 | 前端 |
+|:---|:---|:---|:---|
+| `start [all\|qdrant\|backend\|frontend]` | 全部，或只启动指定的一个 | 开发模式：默认随代码改动自动重载 | Vite（`5173`） |
+| `serve [--build]` | Qdrant 与后端 | 不重载，单进程，与 Docker 镜像中的运行方式相同 | 由后端在 `8769` 提供 `frontend/dist` 的构建产物 |
+
+- `serve` 适合长期运行，例如让 Claude Code 连接器持续导入对话：自动重载会在每次代码改动时重启后端，内存中的短期话题随之结算，进程内的重复导入检查也会清空。`serve --build` 先构建前端再启动；不加 `--build` 时使用已有的构建产物，它可能早于当前代码。
+- 开发模式下，在 `.hivememory/dev.env` 中设置 `HIVEMEMORY_BACKEND_RELOAD=0` 可以关闭自动重载。
+- `stop` 与 `restart` 同样接受服务名，缺省为全部；`restart` 保持后端原来的模式。`status` 显示各服务的状态与后端的模式，`logs [服务]` 查看日志（位于 `.hivememory/logs`）。
+- 同一时间只运行一个后端：后端已以另一种模式运行时，脚本拒绝启动并提示先执行 `stop backend`；`8769` 上已有不由脚本启动的后端时同样拒绝。启动失败时只停止本次启动的服务，之前已在运行的服务不受影响。
+- 脚本只停止自己启动的进程；它发现 Qdrant 已在脚本之外运行时直接复用，`stop` 不会停止它。
+
 ## 5. 端口与进程对照
 
-| 端口 | 开发模式 | Docker 模式 |
-|:---:|:---|:---|
-| `5173` | Vite 前端 | 未使用 |
-| `8769` | `hivememory-server` 后端 | 未暴露 |
-| `8000` | 未使用 | FastAPI + 构建后的前端 |
-| `6333` | Qdrant HTTP | Qdrant HTTP |
-| `6334` | Qdrant gRPC | Qdrant gRPC |
-| `6335` | 可选 debug UI | 可选 debug UI |
+| 端口 | 开发模式 | 脚本的 `serve` 模式 | Docker 模式 |
+|:---:|:---|:---|:---|
+| `5173` | Vite 前端 | 未使用 | 未使用 |
+| `8769` | 后端 | FastAPI + 构建后的前端 | 未暴露 |
+| `8000` | 未使用 | 未使用 | FastAPI + 构建后的前端 |
+| `6333` | Qdrant HTTP | Qdrant HTTP | Qdrant HTTP |
+| `6334` | Qdrant gRPC | Qdrant gRPC | Qdrant gRPC |
+| `6335` | 可选 debug UI | 未使用 | 可选 debug UI |
 
 ## 6. 健康检查的含义
 
@@ -236,7 +261,7 @@ npm run build
 
 | 环境变量 | 默认值 | 说明 |
 |:---|:---|:---|
-| `HIVEMEMORY_URL` | `http://localhost:8000` | HiveMemory 后端地址。默认值对应 Docker 路径；本地开发路径的后端在 `8769`，需要设为 `http://localhost:8769` |
+| `HIVEMEMORY_URL` | `http://localhost:8000` | HiveMemory 后端地址。默认值对应 Docker 路径；本地开发路径（含脚本的 `serve` 模式）的后端在 `8769`，需要设为 `http://localhost:8769` |
 | `HIVEMEMORY_USER_ID` | 不设置 | 以哪个用户导入；不设置时使用服务端的默认用户 `default` |
 | `HIVEMEMORY_AGENT_ID` | `claude_code` | 以哪个 Agent 导入；不能使用保留的 `system` |
 | `HIVEMEMORY_CONNECTOR_STATE_DIR` | 见第 9.4 节 | 连接器状态、日志与拒绝记录的目录 |
