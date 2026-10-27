@@ -24,7 +24,7 @@ from tests.helpers.memory import make_memory_metadata
 class _DeterministicEmbedding:
     """只替换测试边界外的 embedding provider。"""
 
-    def encode(self, *, dense_texts, sparse_texts=None):
+    async def encode(self, *, dense_texts, sparse_texts=None):
         return [0.25, 0.75]
 
 

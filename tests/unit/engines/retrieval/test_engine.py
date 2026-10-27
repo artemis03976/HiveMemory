@@ -143,7 +143,7 @@ class TestRetrievalEngineRerankStage:
         )
         rerank_service = Mock()
         # 候选按召回顺序 [M1, M2] 送入重排；重排分数把 M2 提到首位
-        rerank_service.compute_score = Mock(return_value=[-5.0, 5.0])
+        rerank_service.compute_score = AsyncMock(return_value=[-5.0, 5.0])
         engine = RetrievalEngine(
             retriever=retriever_cls(storage, config),
             reranker=create_reranker(RerankerConfig(enabled=True, top_k=20), rerank_service),
@@ -166,7 +166,7 @@ class TestRetrievalEngineRerankStage:
         )
         rerank_service = Mock()
         # 重排把召回顺序完全反转
-        rerank_service.compute_score = Mock(return_value=[1.0, 2.0, 3.0, 4.0])
+        rerank_service.compute_score = AsyncMock(return_value=[1.0, 2.0, 3.0, 4.0])
         engine = RetrievalEngine(
             retriever=SparseRetriever(storage, SparseRetrieverConfig()),
             reranker=create_reranker(RerankerConfig(enabled=True, top_k=20), rerank_service),

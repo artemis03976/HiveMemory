@@ -60,7 +60,7 @@ pytestmark = [
 class _DeterministicEmbedding:
     """测试边界外的确定性 embedding provider（2 维，便于断言逐位一致）。"""
 
-    def encode(self, *, dense_texts, sparse_texts=None):
+    async def encode(self, *, dense_texts, sparse_texts=None):
         return [0.25, 0.75]
 
 

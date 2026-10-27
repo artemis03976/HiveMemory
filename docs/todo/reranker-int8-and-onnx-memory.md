@@ -16,7 +16,7 @@ related_docs:
   - docs/patchouli/retrieval.md
   - docs/system/configuration.md
   - docs/help/setup.md
-  - docs/todo/inference-off-event-loop.md
+  - docs/archive/todo/inference-off-event-loop.md
   - docs/plans/v0.7.1-model-idle-unload.md
 last_reviewed: 2026-10-27
 ---
@@ -78,6 +78,6 @@ Owner 决定（2026-10-27）：重排模型改用 int8 之前先做实验评估�
 
 ## 相关文档
 
-- [模型推理移出事件循环](./inference-off-event-loop.md)：同批登记、需要先完成的事项；
+- [模型推理移出事件循环](../archive/todo/inference-off-event-loop.md)：同批登记，已于 2026-10-27 完成；
 - [推理模型的空闲卸载与按需加载](../plans/v0.7.1-model-idle-unload.md)：模型加载生命周期；
 - [Patchouli 检索](../patchouli/retrieval.md)：重排阶段与分数语义。

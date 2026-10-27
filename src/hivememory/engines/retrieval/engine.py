@@ -42,7 +42,7 @@ class RetrievalEngine:
             top_k=self.reranker.candidate_count(result_count),
         )
         # 重排：重排分数不设阈值；最终截取只在这里进行一次
-        search_results = self.reranker.rerank(candidates, query)
+        search_results = await self.reranker.rerank(candidates, query)
         search_results.results = search_results.results[:result_count]
 
         memories = search_results.get_memories()

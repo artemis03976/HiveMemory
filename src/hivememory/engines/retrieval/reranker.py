@@ -38,7 +38,7 @@ class NoopReranker(BaseReranker):
         """
         self.config = config
 
-    def rerank(self, results: SearchResults, query: RetrievalQuery) -> SearchResults:
+    async def rerank(self, results: SearchResults, query: RetrievalQuery) -> SearchResults:
         """
         透传结果，不做重排序
 
@@ -98,7 +98,7 @@ class CrossEncoderReranker(BaseReranker):
 
         return 1 / (1 + math.exp(-score))
 
-    def rerank(self, results: SearchResults, query: RetrievalQuery) -> SearchResults:
+    async def rerank(self, results: SearchResults, query: RetrievalQuery) -> SearchResults:
         """
         使用 Cross-Encoder 模型重排序结果
 
@@ -139,7 +139,7 @@ class CrossEncoderReranker(BaseReranker):
 
         # 3. 批量计算 rerank 分数
         try:
-            raw_scores = self.service.compute_score(pairs)
+            raw_scores = await self.service.compute_score(pairs)
         except Exception as e:
             logger.warning(f"Reranker 计算失败，返回原始结果: {e}")
             return results

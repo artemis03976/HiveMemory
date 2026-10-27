@@ -9,6 +9,8 @@ import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
 
+from hivememory.infrastructure.inference_worker import InferenceWorker
+
 if TYPE_CHECKING:
     from hivememory.config.patchouli import RerankerConfig
 
@@ -23,7 +25,7 @@ class BaseRerankService(ABC):
     """
 
     @abstractmethod
-    def compute_score(
+    async def compute_score(
         self, pairs: list[list[str]], batch_size: int = 256, max_length: int = 512
     ) -> list[float]:
         """
@@ -45,6 +47,10 @@ class BaseRerankService(ABC):
 
     def warmup(self) -> None:
         """预热模型（默认无操作，子类可覆盖）"""
+        pass
+
+    async def close(self) -> None:
+        """释放推理所用的线程（默认无操作，子类可覆盖）"""
         pass
 
 
@@ -85,6 +91,8 @@ class SingletonModelService(BaseRerankService):
         self.use_fp16 = config.use_fp16
         self._model: Any = None
         self._lazy_load_lock = threading.Lock()
+        # 加载与推理都在这个线程中执行，不占用事件循环。
+        self._inference = InferenceWorker(self.model_name)
 
         self._initialized = True
 
@@ -121,3 +129,7 @@ class SingletonModelService(BaseRerankService):
             logger.info(f"{self.__class__.__name__} 开始预热模型: {self.model_name}")
             _ = self.model  # 触发 property 中的延迟加载
             logger.info(f"{self.__class__.__name__} 模型预热完成")
+
+    async def close(self) -> None:
+        """等待在途推理结束并释放推理线程；之后的推理重新创建线程。"""
+        await self._inference.close()

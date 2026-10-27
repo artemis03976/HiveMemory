@@ -44,7 +44,7 @@ COMMIT_NOW = datetime(2026, 10, 4, 12, tzinfo=UTC)
 class _DeterministicEmbedding:
     """只替换协作边界外的 embedding provider，避免下载与网络请求。"""
 
-    def encode(self, *, dense_texts, sparse_texts=None):
+    async def encode(self, *, dense_texts, sparse_texts=None):
         return [0.25, 0.75]
 
 

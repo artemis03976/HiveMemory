@@ -64,20 +64,20 @@ class BGEM3EmbeddingService(SingletonModelService):
     # 存储层的两种调用（单条 dense、单条 dense+sparse）有精确返回类型；
     # 其余组合按通用签名返回联合。
     @overload
-    def encode(self, dense_texts: str, sparse_texts: None = None) -> list[float]: ...
+    async def encode(self, dense_texts: str, sparse_texts: None = None) -> list[float]: ...
 
     @overload
-    def encode(self, dense_texts: str, sparse_texts: str) -> DenseSparseEncoding: ...
+    async def encode(self, dense_texts: str, sparse_texts: str) -> DenseSparseEncoding: ...
 
     @overload
-    def encode(
+    async def encode(
         self,
         dense_texts: str | list[str] | None = None,
         sparse_texts: str | list[str] | None = None,
         **kwargs: Any,
     ) -> EmbeddingOutput: ...
 
-    def encode(
+    async def encode(
         self,
         dense_texts: str | list[str] | None = None,
         sparse_texts: str | list[str] | None = None,
@@ -85,6 +85,8 @@ class BGEM3EmbeddingService(SingletonModelService):
     ) -> EmbeddingOutput:
         """
         编码文本为稠密向量，或返回 sparse 原始文本供 Qdrant BM25 使用。
+
+        稠密编码（含首次使用时的模型加载）在推理线程中执行。
 
         Returns:
             - dense only: List[float]
@@ -100,20 +102,22 @@ class BGEM3EmbeddingService(SingletonModelService):
             # sparse only：返回原文，由向量库计算 BM25
             return sparse_texts
 
-        single = isinstance(dense_texts, str)
-        input_list = [dense_texts] if isinstance(dense_texts, str) else dense_texts
-        dense_result: list[float] | list[list[float]]
-        try:
-            embeddings = list(self.model.embed(input_list))
-            dense_result = embeddings[0].tolist() if single else [e.tolist() for e in embeddings]
-        except Exception as e:
-            logger.warning(f"稠密向量编码失败: {e}")
-            empty_batch: list[list[float]] = [[] for _ in input_list]
-            dense_result = [] if single else empty_batch
-
+        dense_result = await self._inference.run(self._embed_dense, dense_texts)
         if sparse_texts is None:
             return dense_result
         return {"dense": dense_result, "sparse_text": sparse_texts}
+
+    def _embed_dense(self, dense_texts: str | list[str]) -> list[float] | list[list[float]]:
+        """在推理线程中计算稠密向量；模型失败时退化为空向量。"""
+        single = isinstance(dense_texts, str)
+        input_list = [dense_texts] if isinstance(dense_texts, str) else dense_texts
+        try:
+            embeddings = list(self.model.embed(input_list))
+            return embeddings[0].tolist() if single else [e.tolist() for e in embeddings]
+        except Exception as e:
+            logger.warning(f"稠密向量编码失败: {e}")
+            empty_batch: list[list[float]] = [[] for _ in input_list]
+            return [] if single else empty_batch
 
 
 _bge_m3_instance = None

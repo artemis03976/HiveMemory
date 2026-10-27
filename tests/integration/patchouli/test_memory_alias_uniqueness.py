@@ -61,7 +61,7 @@ FIXED_NOW = datetime(2026, 9, 25, 12, 0, 0, tzinfo=UTC)
 class _DeterministicEmbedding:
     """只替换测试边界外的 embedding provider。"""
 
-    def encode(self, *, dense_texts, sparse_texts=None):
+    async def encode(self, *, dense_texts, sparse_texts=None):
         return [0.25, 0.75]
 
 

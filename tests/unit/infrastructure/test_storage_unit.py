@@ -70,7 +70,7 @@ class TestQdrantMemoryStore:
                 # 仅 Dense
                 return [0.1] * 1024
 
-        store.embedding_service.encode.side_effect = side_effect
+        store.embedding_service.encode = AsyncMock(side_effect=side_effect)
 
         return store
 

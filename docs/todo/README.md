@@ -12,7 +12,6 @@ last_reviewed: 2026-10-27
 
 当前事项：
 
-- [模型推理移出事件循环](./inference-off-event-loop.md)（2026-10-27 排查常驻内存时发现：嵌入与重排推理和懒加载在事件循环上同步执行；owner 决定先于下一项和[空闲卸载计划](../plans/v0.7.1-model-idle-unload.md)完成）；
 - [重排模型 int8 与 ONNX 内存池](./reranker-int8-and-onnx-memory.md)（2026-10-27 排查常驻内存时登记：重排模型 int8 先做实验评估，另有 ONNX 内存池保留推理峰值、嵌入截断上限 8192 token、配置项不生效与 Docker 预下载落空）；
 - [话题折叠计入交互提交的处理时限](./topic-fold-in-interaction-apply.md)（2026-10-27 启用 LLM relay 时发现：折叠在交互应用内执行，耗时计入提交队列 30 秒时限与导入、finalize 的应用等待，超时使交互判为应用失败）；
 - [Import Bus 真实使用观察](./import-bus-real-use-observation.md)（2026-10-21 Import Bus 重设计收尾时登记：真实使用验收随日常使用持续观察，核对闭环、话题落位、生成质量与开销、凭据、导入耗时与连接器行为）；
@@ -29,6 +28,8 @@ last_reviewed: 2026-10-27
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
 - [engines 对上层的既有导入](./engines-upward-imports.md)（包分层登记的 10 处已知例外，原记录于 Workspace 网络与任务进程架构 Idea）；
 - [RUN 目标的可执行性检查](./run-target-executability-check.md)（能力层分层审查遗留：只有 `memory.run` 的 actor 可经 RUN 的错误探测可见记忆的类型与存在，不可执行目标也记录引用）；
+
+原“模型推理移出事件循环”于 2026-10-27 完成并归档（每个模型一个推理线程，加载与推理不再在事件循环上执行；onnxruntime 创建会话时持有 GIL，加载期间事件循环仍会停顿）：[归档记录](../archive/todo/inference-off-event-loop.md)；当前事实见 [Patchouli](../patchouli/README.md) 第 4 节。
 
 原“Profile 管理列表的可见性语义”于 2026-10-16 修复并归档（root Profile 列表改按 owner-management 语义列出 Workspace 内全部 Profile）：[归档记录](../archive/todo/agent-profile-management-list-visibility.md)；当前事实见[路由与事件契约](../contracts/routes-and-events.md)。
 

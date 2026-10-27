@@ -36,11 +36,13 @@ class FastEmbedRerankerService(SingletonModelService):
             logger.error(f"Reranker 模型加载失败: {e}")
             raise
 
-    def compute_score(
+    async def compute_score(
         self, pairs: list[list[str]], batch_size: int = 256, max_length: int = 512
     ) -> list[float]:
         """
         计算文本对的相似度分数
+
+        计算（含首次使用时的模型加载）在推理线程中执行。
 
         Args:
             pairs: [[query, doc], ...] 格式的文本对列表
@@ -52,7 +54,10 @@ class FastEmbedRerankerService(SingletonModelService):
         """
         if not pairs:
             return []
+        return await self._inference.run(self._score_pairs, pairs, batch_size)
 
+    def _score_pairs(self, pairs: list[list[str]], batch_size: int) -> list[float]:
+        """在推理线程中计算重排分数。"""
         try:
             query = pairs[0][0]
             documents = [p[1] for p in pairs]
