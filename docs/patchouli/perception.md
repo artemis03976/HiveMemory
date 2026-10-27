@@ -179,7 +179,7 @@ Engine 不持有 Store / Journal / Queue，也不导入 `hivememory.patchouli.*`
 - `fold_retain_recent_blocks` 只限制 block 数量，不保证保留后缀的 token 总量低于阈值；单个超大 block 也可能超过软水位线；
 - 所有 compact 配置与 Engine 的折叠选择都拒绝小于 1 的 retain 值，至少保留一个最新 block；summary-only Topic 可被列出、路由并免于空 Topic 误删，但当前 generation 仍以 `state_summary + 至少一个 recent block` 作为可结算材料，独立的 summary-only memory/artifact 生成能力未定义；
 - overflow 不产生 settlement/artifact，被折叠旧前缀目前只进入有损 `state_summary`；
-- Relay 的摘要调用位于 compact 路径内（lease 持有期间）：LLM relay 等待模型时不阻塞事件循环，但该话题一直被占用，并发的 apply 或 settle 会遇到忙碌；调用没有独立超时；
+- Relay 的摘要调用位于 compact 路径内（lease 持有期间）：LLM relay 等待模型时不阻塞事件循环，但该话题一直被占用，并发的 apply 或 settle 会遇到忙碌；调用没有独立超时，但计入交互提交队列的单次处理时限（30 秒），超时会使已写入话题的交互判为应用失败，见 [Todo](../todo/topic-fold-in-interaction-apply.md)；
 - `worth_saving=False` 在 settlement 时过滤，但原始 block 在此之前仍存在于短期话题中；
 - WorkingSet 的容量检查与候选选择运行在单事件循环内（方法同步、不内部 await），跨线程使用需调用方先行串行化；两个并发 NEW_TOPIC 的容量检查存在与旧实现等价的短暂竞态窗口；
 - flush 触发器的历史 e2e 用例随感知层删除而移除，重建需要真实 LLM/Qdrant 栈；当前回归由 Familiar 集成测试（tests/integration/patchouli/test_perception.py）覆盖；

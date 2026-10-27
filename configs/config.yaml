@@ -102,16 +102,16 @@ patchouli:
     on_disk_payload: false
 
   perception:
-    idle_timeout_seconds: 900
+    idle_timeout_seconds: 3600
     engine:
       enable: true
-      fold_token_threshold: 32768
+      fold_token_threshold: 131072
       fold_retain_recent_blocks: 2
       max_resident_topics: 5
       relay:
         enable: true
         engine:
-          type: "simple"
+          type: "llm"
 
   generation:
     # 主动生成（WRITE/UPDATE）取话题最近几个 block 与 state_summary 作为材料
