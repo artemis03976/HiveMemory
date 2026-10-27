@@ -19,6 +19,9 @@ logger = logging.getLogger(__name__)
 _CUSTOM_BGE_M3_MODEL = "Xenova/bge-m3"
 _CUSTOM_BGE_M3_FILE = "onnx/model_int8.onnx"
 _CUSTOM_BGE_M3_DIM = 1024
+# 存储写入的 dense 文本由标题（≤200 字符）、类型、标签与摘要（≤500 字符）组成，1024 token
+# 足以容纳；按模型自身的 8192 token 截断时，一条长输入的激活内存会瞬时升到数 GB。
+_MAX_INPUT_TOKENS = 1024
 
 
 class BGEM3EmbeddingService(SingletonModelService):
@@ -35,6 +38,7 @@ class BGEM3EmbeddingService(SingletonModelService):
         try:
             from fastembed import TextEmbedding
             from fastembed.common.model_description import ModelSource, PoolingType
+            from tokenizers import Tokenizer
         except ImportError:
             raise ImportError("fastembed 未安装。请运行: pip install fastembed")
 
@@ -52,10 +56,18 @@ class BGEM3EmbeddingService(SingletonModelService):
             pass
 
         try:
-            self._model = TextEmbedding(
+            # 关闭 ONNX Runtime 的 CPU 内存池：开启时推理的峰值分配在推理结束后仍留在进程内。
+            model = TextEmbedding(
                 model_name=self.model_name,
                 cache_dir=self.cache_dir,
+                enable_cpu_mem_arena=False,
             )
+            tokenizer = getattr(model.model, "tokenizer", None)
+            if not isinstance(tokenizer, Tokenizer):
+                raise RuntimeError("BGE-M3 模型没有可设置截断的分词器，无法限制输入长度")
+            tokenizer.enable_truncation(max_length=_MAX_INPUT_TOKENS)
+            # 截断设置完成后才对其他线程可见。
+            self._model = model
             logger.info("FastEmbed BGE-M3 模型加载完成")
         except Exception as e:
             logger.error(f"BGE-M3 模型加载失败: {e}")
@@ -134,6 +146,9 @@ def get_bge_m3_service(config: Optional["EmbeddingConfig"] = None) -> BGEM3Embed
                 # 配置由调用方（存储层装配）显式提供；基础设施层不读取全局配置。
                 if config is None:
                     raise ValueError("config is required for get_bge_m3_service")
+                if "bge-m3" not in config.model_name.lower():
+                    logger.info("Embedding 配置的模型不是 BGE-M3，存储层改用 Xenova/bge-m3")
+                    config = config.model_copy(update={"model_name": _CUSTOM_BGE_M3_MODEL})
 
                 _bge_m3_instance = BGEM3EmbeddingService(config=config)
 

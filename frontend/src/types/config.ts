@@ -31,11 +31,7 @@ export interface LLMsConfig {
 
 export interface EmbeddingConfig {
   model_name: string;
-  device: 'cpu' | 'cuda' | 'mps';
   cache_dir: string | null;
-  batch_size: number;
-  normalize_embeddings: boolean;
-  dimension: number;
 }
 
 export interface EmbeddingsConfig {
@@ -148,9 +144,7 @@ export interface FusionConfig {
 export interface RerankerConfig {
   enabled: boolean;
   model_name: string;
-  device: 'cpu' | 'cuda';
   cache_dir: string | null;
-  use_fp16: boolean;
   batch_size: number;
   top_k: number;
   normalize_scores: boolean;

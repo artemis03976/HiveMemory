@@ -80,12 +80,7 @@ class QdrantMemoryStore:
 
         logger.info("加载 BGE-M3 Embedding 服务")
 
-        bge_config = self.embedding_config
-        if "bge-m3" not in bge_config.model_name.lower():
-            logger.info("当前 Embedding 配置非 BGE-M3，自动调整模型名称以适配存储层")
-            bge_config = bge_config.model_copy(update={"model_name": "Xenova/bge-m3"})
-
-        self.embedding_service = get_bge_m3_service(config=bge_config)
+        self.embedding_service = get_bge_m3_service(config=self.embedding_config)
 
         self.collection_name = self.qdrant_config.collection_name
         self.vector_dimension = self.qdrant_config.vector_dimension

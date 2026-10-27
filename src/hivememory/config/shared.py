@@ -53,7 +53,6 @@ class LLMGlobalConfig(BaseModel):
 
 class EmbeddingConfig(BaseModel):
     model_name: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
-    device: str = Field(default="cpu")
     cache_dir: str | None = Field(default=None)
 
     model_config = ConfigDict(extra="forbid")

@@ -20,7 +20,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/system/import-bus.md
-last_reviewed: 2026-10-26
+last_reviewed: 2026-10-27
 ---
 
 # 安装与启动 HiveMemory
@@ -99,7 +99,7 @@ docker compose -f docker/docker-compose.yml --profile debug up -d
 
 随后访问 `http://localhost:6335`。Qdrant HTTP/gRPC 分别暴露在 `6333/6334`。
 
-Dockerfile 默认在镜像构建阶段预下载模型，因此首次 `--build` 可能耗时很长；运行容器仍会在后台完成模型 warmup。Compose healthcheck 当前检查 `/health`，它只证明 Web 服务存活，不代表模型已经 ready。
+Dockerfile 默认在镜像构建阶段预下载模型，经运行时同一套配置加载与模型服务完成，模型落在配置的 `cache_dir`（默认 `data/model_cache`），运行时直接使用，因此首次 `--build` 可能耗时很长；运行容器仍会在后台完成模型 warmup。Compose healthcheck 当前检查 `/health`，它只证明 Web 服务存活，不代表模型已经 ready。
 
 ## 4. 路径 B：本地开发
 

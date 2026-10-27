@@ -34,11 +34,7 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
   embedding: {
     default: {
       model_name: 'BAAI/bge-m3',
-      device: 'cpu',
       cache_dir: null,
-      batch_size: 32,
-      normalize_embeddings: true,
-      dimension: 1024,
     },
   },
   qdrant: {
@@ -131,9 +127,7 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
       reranker: {
         enabled: true,
         model_name: 'BAAI/bge-reranker-v2-m3',
-        device: 'cpu',
         cache_dir: 'data/model_cache',
-        use_fp16: false,
         batch_size: 16,
         top_k: 5,
         normalize_scores: true,

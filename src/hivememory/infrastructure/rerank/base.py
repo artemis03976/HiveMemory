@@ -25,16 +25,12 @@ class BaseRerankService(ABC):
     """
 
     @abstractmethod
-    async def compute_score(
-        self, pairs: list[list[str]], batch_size: int = 256, max_length: int = 512
-    ) -> list[float]:
+    async def compute_score(self, pairs: list[list[str]]) -> list[float]:
         """
         计算文本对的相似度分数
 
         Args:
             pairs: 文本对列表 [[query, passage], ...]
-            batch_size: 批处理大小
-            max_length: 最大长度
 
         Returns:
             分数列表
@@ -86,9 +82,7 @@ class SingletonModelService(BaseRerankService):
 
         self.config = config
         self.model_name = config.model_name
-        self.device = config.device
         self.cache_dir = config.cache_dir
-        self.use_fp16 = config.use_fp16
         self._model: Any = None
         self._lazy_load_lock = threading.Lock()
         # 加载与推理都在这个线程中执行，不占用事件循环。
@@ -96,9 +90,7 @@ class SingletonModelService(BaseRerankService):
 
         self._initialized = True
 
-        logger.info(
-            f"{self.__class__.__name__} 配置: " f"model={self.model_name}, device={self.device}"
-        )
+        logger.info(f"{self.__class__.__name__} 配置: model={self.model_name}")
 
     @property
     def model(self):

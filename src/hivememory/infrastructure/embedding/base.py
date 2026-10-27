@@ -75,7 +75,7 @@ class SingletonModelService(BaseEmbeddingService):
     单例模型服务基类 (支持多例模式 Multiton)
 
     封装了通用的单例/多例模式、线程安全和延迟加载逻辑。
-    基于配置的 model_name 和 device 区分实例。
+    基于配置的 model_name 区分实例。
     """
 
     _instances: ClassVar[dict[str, "SingletonModelService"]] = {}
@@ -84,10 +84,9 @@ class SingletonModelService(BaseEmbeddingService):
 
     def __new__(cls, config: "EmbeddingConfig", *args, **kwargs):
         """
-        Multiton 模式: 根据配置的 model_name 和 device 获取或创建实例
+        Multiton 模式: 根据配置的 model_name 获取或创建实例
         """
-        # 生成唯一键 (使用 model_name 和 device 作为键)
-        key = f"{config.model_name}:{config.device}"
+        key = config.model_name
 
         if key not in cls._instances:
             with cls._lock:
@@ -112,7 +111,6 @@ class SingletonModelService(BaseEmbeddingService):
 
         self.config = config
         self.model_name = self.config.model_name
-        self.device = self.config.device
         self.cache_dir = self.config.cache_dir
         self._model: Any = None
 
@@ -122,9 +120,7 @@ class SingletonModelService(BaseEmbeddingService):
 
         self._initialized = True
 
-        logger.info(
-            f"{self.__class__.__name__} 配置: " f"model={self.model_name}, device={self.device}"
-        )
+        logger.info(f"{self.__class__.__name__} 配置: model={self.model_name}")
 
     @property
     def model(self):

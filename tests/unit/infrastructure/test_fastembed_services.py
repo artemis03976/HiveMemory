@@ -1,68 +1,99 @@
 import threading
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import numpy as np
 import pytest
 import pytest_asyncio
+from tokenizers import Tokenizer
+from tokenizers.models import WordLevel
+from tokenizers.pre_tokenizers import Whitespace
 
 from hivememory.config.patchouli import RerankerConfig
 from hivememory.config.shared import EmbeddingConfig
+from hivememory.infrastructure.embedding import bge_m3
 from hivememory.infrastructure.embedding.base import SingletonModelService
-from hivememory.infrastructure.embedding.bge_m3 import BGEM3EmbeddingService
+from hivememory.infrastructure.embedding.bge_m3 import BGEM3EmbeddingService, get_bge_m3_service
 from hivememory.infrastructure.rerank.fast_embed_reranker import FastEmbedRerankerService
 
 
+def _word_tokenizer() -> Tokenizer:
+    """按空白切词的真实分词器，初始截断与 bge-m3 自带的 8192 token 一致。"""
+    tokenizer = Tokenizer(WordLevel({"[UNK]": 0, "word": 1}, unk_token="[UNK]"))
+    tokenizer.pre_tokenizer = Whitespace()
+    tokenizer.enable_truncation(max_length=8192)
+    return tokenizer
+
+
+@pytest.fixture
+def text_embedding_cls(monkeypatch):
+    """替换 fastembed 的 TextEmbedding；构造出的模型带一个真实分词器。"""
+    cls = MagicMock()
+    cls.return_value.model.tokenizer = _word_tokenizer()
+    monkeypatch.setattr("fastembed.TextEmbedding", cls)
+    return cls
+
+
+@pytest.fixture
+def unloaded_bge_m3(monkeypatch):
+    """进程级 multiton 实例；测试结束时恢复它原来的模型。"""
+    service = BGEM3EmbeddingService(config=EmbeddingConfig(model_name="Xenova/bge-m3"))
+    monkeypatch.setattr(service, "_model", None)
+    return service
+
+
 class TestBGEM3EmbeddingService:
-    def test_load_model_registers_custom_xenova_model(self):
-        config = EmbeddingConfig(model_name="Xenova/bge-m3")
-        service = BGEM3EmbeddingService(config=config)
-        service._model = None
+    def test_load_model_registers_custom_xenova_model_without_cpu_memory_arena(
+        self, text_embedding_cls, unloaded_bge_m3
+    ):
+        unloaded_bge_m3._load_model()
 
-        mock_text_embedding_cls = MagicMock()
-        mock_model_source = MagicMock()
-        mock_pooling_type = MagicMock()
-        mock_pooling_type.CLS = "CLS"
-
-        with (
-            patch("fastembed.TextEmbedding", mock_text_embedding_cls),
-            patch("fastembed.common.model_description.ModelSource", mock_model_source),
-            patch("fastembed.common.model_description.PoolingType", mock_pooling_type),
-        ):
-            service._load_model()
-
-        mock_text_embedding_cls.add_custom_model.assert_called_once()
-        kwargs = mock_text_embedding_cls.add_custom_model.call_args.kwargs
+        kwargs = text_embedding_cls.add_custom_model.call_args.kwargs
         assert kwargs["model"] == "Xenova/bge-m3"
         assert kwargs["model_file"] == "onnx/model_int8.onnx"
         assert kwargs["dim"] == 1024
         assert kwargs["normalization"] is True
-        mock_text_embedding_cls.assert_called_once_with(
+        text_embedding_cls.assert_called_once_with(
             model_name="Xenova/bge-m3",
-            cache_dir=config.cache_dir,
+            cache_dir=unloaded_bge_m3.cache_dir,
+            enable_cpu_mem_arena=False,
         )
 
-    def test_load_model_ignores_duplicate_custom_model_registration(self):
-        config = EmbeddingConfig(model_name="Xenova/bge-m3")
-        service = BGEM3EmbeddingService(config=config)
-        service._model = None
+    def test_load_model_ignores_duplicate_custom_model_registration(
+        self, text_embedding_cls, unloaded_bge_m3
+    ):
+        text_embedding_cls.add_custom_model.side_effect = ValueError("already exists")
 
-        mock_text_embedding_cls = MagicMock()
-        mock_text_embedding_cls.add_custom_model.side_effect = ValueError("already exists")
-        mock_model_source = MagicMock()
-        mock_pooling_type = MagicMock()
-        mock_pooling_type.CLS = "CLS"
+        unloaded_bge_m3._load_model()
 
-        with (
-            patch("fastembed.TextEmbedding", mock_text_embedding_cls),
-            patch("fastembed.common.model_description.ModelSource", mock_model_source),
-            patch("fastembed.common.model_description.PoolingType", mock_pooling_type),
-        ):
-            service._load_model()
+        assert unloaded_bge_m3.is_loaded() is True
 
-        mock_text_embedding_cls.assert_called_once_with(
-            model_name="Xenova/bge-m3",
-            cache_dir=config.cache_dir,
+    def test_loaded_model_truncates_input_to_1024_tokens(self, text_embedding_cls, unloaded_bge_m3):
+        """输入按 1024 token 截断，而不是模型自带的 8192 token。"""
+        unloaded_bge_m3._load_model()
+
+        tokenizer = text_embedding_cls.return_value.model.tokenizer
+        assert len(tokenizer.encode(" ".join(["word"] * 5000)).ids) == 1024
+
+    def test_load_model_without_tokenizer_fails_and_stays_unloaded(
+        self, text_embedding_cls, unloaded_bge_m3
+    ):
+        """无法设置截断时加载失败，不交出未截断的模型。"""
+        text_embedding_cls.return_value.model = object()
+
+        with pytest.raises(RuntimeError, match="分词器"):
+            unloaded_bge_m3._load_model()
+
+        assert unloaded_bge_m3.is_loaded() is False
+
+    def test_get_service_uses_bge_m3_when_configured_model_is_not_bge_m3(self, monkeypatch):
+        """存储层只支持 BGE-M3：配置为其他模型时改用 Xenova/bge-m3。"""
+        monkeypatch.setattr(bge_m3, "_bge_m3_instance", None)
+
+        service = get_bge_m3_service(
+            EmbeddingConfig(model_name="sentence-transformers/all-MiniLM-L6-v2")
         )
+
+        assert service.model_name == "Xenova/bge-m3"
 
 
 class _RecordingDenseModel:
@@ -96,7 +127,7 @@ async def make_encode_service():
     yield _make
     for service in services:
         await service.close()
-        SingletonModelService._instances.pop(f"{service.model_name}:{service.device}", None)
+        SingletonModelService._instances.pop(service.model_name, None)
 
 
 class TestBGEM3Encode:
@@ -193,23 +224,38 @@ async def reranker_service():
 
 
 class TestFastEmbedRerankerService:
-    def test_load_model_uses_configured_cache_dir(self):
-        config = RerankerConfig(
-            model_name="BAAI/bge-reranker-base",
-            cache_dir="data/model_cache",
+    def test_load_model_uses_configured_cache_dir_without_cpu_memory_arena(
+        self, reranker_service, monkeypatch
+    ):
+        cross_encoder_cls = MagicMock()
+        monkeypatch.setattr("fastembed.rerank.cross_encoder.TextCrossEncoder", cross_encoder_cls)
+        monkeypatch.setattr(reranker_service, "_model", None)
+
+        reranker_service._load_model()
+
+        cross_encoder_cls.assert_called_once_with(
+            model_name=reranker_service.model_name,
+            cache_dir=reranker_service.cache_dir,
+            enable_cpu_mem_arena=False,
         )
-        service = FastEmbedRerankerService(config=config)
-        service._model = None
 
-        mock_cross_encoder_cls = MagicMock()
+    @pytest.mark.asyncio
+    async def test_compute_score_sends_pairs_in_configured_batch_size(
+        self, reranker_service, monkeypatch
+    ):
+        batch_sizes: list[int] = []
 
-        with patch("fastembed.rerank.cross_encoder.TextCrossEncoder", mock_cross_encoder_cls):
-            service._load_model()
+        class _Model:
+            def rerank(self, query, documents, batch_size):
+                batch_sizes.append(batch_size)
+                return [0.0 for _ in documents]
 
-        mock_cross_encoder_cls.assert_called_once_with(
-            model_name="BAAI/bge-reranker-base",
-            cache_dir="data/model_cache",
-        )
+        monkeypatch.setattr(reranker_service, "config", RerankerConfig(batch_size=3))
+        monkeypatch.setattr(reranker_service, "_model", _Model())
+
+        await reranker_service.compute_score([["query", f"doc-{i}"] for i in range(7)])
+
+        assert batch_sizes == [3]
 
     @pytest.mark.asyncio
     async def test_compute_score_coerces_numpy_like_scores_to_float(

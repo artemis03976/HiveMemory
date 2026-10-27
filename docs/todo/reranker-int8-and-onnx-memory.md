@@ -31,6 +31,8 @@ plugin 模式下后端与 Qdrant 需要常驻，后端进程的常驻内存主�
 
 Owner 决定（2026-10-27）：重排模型改用 int8 之前先做实验评估，按结果决定是否采用。
 
+进度（2026-10-27）：不需要实验的四项（ONNX 内存池、嵌入截断、不生效的配置、Docker 预下载）已完成，见文末实施记录；int8 评估尚未开始，样本来源与采用门槛待 owner 确定。
+
 ## 证据
 
 2026-10-27 开发机实测，fastembed 0.8.0，onnxruntime 1.30.0。
@@ -69,15 +71,40 @@ Owner 决定（2026-10-27）：重排模型改用 int8 之前先做实验评估�
 
 - 完成评估并按结果决定是否采用 int8；
 - 采用时，重排模型改从 int8 文件加载，配置、Docker 预下载与模型缓存目录同步更新；
-- 两个模型的 ONNX 会话关闭 CPU 内存池；
-- 嵌入输入设截断上限，上限值依据 dense 文本的实际长度与检索质量确定；
-- `use_fp16`、`device`、`batch_size` 三项配置删除或接通。删除时，配置中残留的旧键会被 `extra="forbid"` 拒绝，需要像重排配置迁移那样给出明确提示；
-- Docker 预下载读取当前的配置路径，并写入运行时使用的缓存目录；
-- 归属层测试覆盖配置到会话选项、截断长度与模型文件的映射，不加载真实模型；
-- 更新 [Patchouli 检索](../patchouli/retrieval.md)、[配置](../system/configuration.md)与[安装指南](../help/setup.md)中受影响的模型、配置与下载说明。
+- 两个模型的 ONNX 会话关闭 CPU 内存池（已完成）；
+- 嵌入输入设截断上限，上限值依据 dense 文本的实际长度与检索质量确定（已完成，1024 token）；
+- `use_fp16`、`device`、`batch_size` 三项配置删除或接通（已完成：前两项删除，`batch_size` 接通）。删除的键按从未生效键的先例处理：残留时由所在配置段拒绝未知键而加载失败，[配置](../system/configuration.md)中写明升级注意；只有设置被迁到别处的键才给出专门的迁移提示；
+- Docker 预下载读取当前的配置路径，并写入运行时使用的缓存目录（已完成）；
+- 归属层测试覆盖配置到会话选项、截断长度与模型文件的映射，不加载真实模型（已完成前四项的部分）；
+- 更新 [Patchouli](../patchouli/README.md)、[配置](../system/configuration.md)与[安装指南](../help/setup.md)中受影响的模型、配置与下载说明（前四项已更新）。
 
 ## 相关文档
 
 - [模型推理移出事件循环](../archive/todo/inference-off-event-loop.md)：同批登记，已于 2026-10-27 完成；
 - [推理模型的空闲卸载与按需加载](../plans/v0.7.1-model-idle-unload.md)：模型加载生命周期；
 - [Patchouli 检索](../patchouli/retrieval.md)：重排阶段与分数语义。
+
+## 实施记录
+
+### 不需要实验的四项（2026-10-27）
+
+**实现**
+
+- 嵌入与重排的 ONNX 会话以 `enable_cpu_mem_arena=False` 创建（fastembed 0.8 暴露的会话选项）。
+- BGE-M3 加载后把分词器截断设为 1024 token；取不到可设置截断的分词器时加载失败，不交出未截断的模型；截断设置完成后才对其他线程可见。重排模型沿用分词器自带的 512 token。
+- 删除 `EmbeddingConfig.device`、`RerankerConfig.device` 与 `use_fp16`，随仓库发布的 `configs/config.yaml` 同步移除；嵌入服务的 multiton 实例只按模型名区分。`RerankerConfig.batch_size` 增加至少 1 的约束，`compute_score` 去掉未使用的 `batch_size`、`max_length` 参数，按配置的 `batch_size` 分批送入模型。
+- 存储层“配置的模型不是 BGE-M3 时改用 Xenova/bge-m3”的规则从 `QdrantMemoryStore` 移入 `get_bge_m3_service`，Docker 预下载与运行时因此加载同一个模型。
+- `docker/Dockerfile` 的预下载改为调用 `load_app_config`、`get_bge_m3_service` 与 `get_fast_embed_reranker_service` 后 `warmup()`，模型名、自定义模型注册与缓存目录都与运行时一致；重排关闭时不下载重排模型。
+
+**核对结论**
+
+- 用真实模型实测：一条约 8000 token 的输入被截断为 1024 token，嵌入耗时 0.45 秒，进程峰值约 1.14 GB，结束后回落到 0.98 GB（截断前为 25 秒、峰值 9.26 GB）；重排连续两次推理后常驻内存不再增长。
+- 预下载脚本在本地以 `configs/config.yaml` 运行，解析出 `Xenova/bge-m3` 与 `BAAI/bge-reranker-base`，缓存目录均为 `data/model_cache`；本机没有 Docker，镜像构建未实际验证。
+- 前端设置页的主配置仍是旧的扁平结构（顶层 `embedding`、`retrieval.retriever.reranker`），根配置忽略未知的顶层键，这些表单项此前就不生效（已知限制见[管理页面](../frontend/management-views.md)第 3.3 节）。前端类型、mock 配置、校验与内部引擎页随之删除后端已不存在的字段：嵌入的 `device`、`batch_size`、`normalize_embeddings`、`dimension`，重排的 `device`、`use_fp16`；结构对齐不在本项范围内。
+
+**验证**
+
+- `tests/unit/infrastructure/test_fastembed_services.py`：加载时关闭内存池（嵌入与重排各一）、分词器按 1024 token 截断、取不到分词器时加载失败且模型不可见、重排按配置的 `batch_size` 送入模型、非 BGE-M3 配置改用 Xenova/bge-m3。去掉内存池选项、去掉截断、先赋值再检查分词器、忽略 `batch_size`、去掉模型名改写五种改坏方式均使对应测试失败。原有加载测试改用 monkeypatch，不再把假模型留在进程级单例上。
+- `tests/integration/patchouli/test_qdrant_real_infra_local_mutation.py` 的两个测试原先共用固定集合名，本地 Qdrant 可达时在并行执行下创建冲突，改为每个测试独占一个集合。
+- `pytest tests/unit tests/integration -m "not live_llm and not e2e and not slow" -n auto` 连续三次 3053 passed。
+- 前端 `npm run lint`、`npm run build` 通过，`npm run test:session` 18 passed。

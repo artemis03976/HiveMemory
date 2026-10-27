@@ -27,16 +27,6 @@ export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
   validateTemperature(config.llm.gateway.temperature, 'llm.gateway.temperature');
   validateTemperature(config.llm.librarian.temperature, 'llm.librarian.temperature');
 
-  // Validate embedding device
-  const validDevices = ['cpu', 'cuda', 'mps'];
-  if (!validDevices.includes(config.embedding.default.device)) {
-    errors.push({
-      field: 'embedding.default.device',
-      message: `Device must be one of: ${validDevices.join(', ')}`,
-      severity: 'error',
-    });
-  }
-
   // Validate Qdrant distance metric
   const validMetrics = ['Cosine', 'Euclidean', 'Dot'];
   if (!validMetrics.includes(config.qdrant.distance_metric)) {
@@ -130,16 +120,6 @@ export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
 
   validateWeight(config.retrieval.retriever.fusion.dense_weight, 'retrieval.retriever.fusion.dense_weight');
   validateWeight(config.retrieval.retriever.fusion.sparse_weight, 'retrieval.retriever.fusion.sparse_weight');
-
-  // Validate reranker device
-  const validRerankerDevices = ['cpu', 'cuda'];
-  if (!validRerankerDevices.includes(config.retrieval.retriever.reranker.device)) {
-    errors.push({
-      field: 'retrieval.retriever.reranker.device',
-      message: `Reranker device must be one of: ${validRerankerDevices.join(', ')}`,
-      severity: 'error',
-    });
-  }
 
   // Validate vitality calculator weights (0-2)
   const vitality = config.lifecycle.vitality_calculator;

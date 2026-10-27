@@ -131,7 +131,7 @@ last_reviewed: 2026-10-27
 - **规模控制**（owner，2026-10-20）：v0.7.1 期间不新增只服务 controller 模式的机制；每份计划写明它针对的已观察问题或待验证的核心假设（[VISION](./VISION.md) 第 10.10 节）。真实使用开始后，后续主线转向由使用中观察到的问题驱动 Patchouli 核心机制的改进，样本同时供第 4.8 节的价值策略校准。
 - **常驻内存**（Planned，owner，2026-10-27）：plugin 模式下后端与 Qdrant 随日常使用常驻。观察到后端进程峰值常驻内存约 3.0 GB，主要来自启动后一直驻留的嵌入与重排模型，对 16 GB 内存的机器不友好。按以下顺序处理：
   1. 先把模型推理移出事件循环（已完成，2026-10-27，[归档记录](./archive/todo/inference-off-event-loop.md)）；
-  2. 重排模型 int8 先做实验评估，与 ONNX 内存池、截断长度一并处理（[Todo](./todo/reranker-int8-and-onnx-memory.md)）；
+  2. 重排模型 int8 先做实验评估，与 ONNX 内存池、截断长度一并处理（[Todo](./todo/reranker-int8-and-onnx-memory.md)；内存池、截断、不生效的配置与 Docker 预下载已于 2026-10-27 完成，int8 评估待开始）；
   3. 模型的空闲卸载、按需加载与预取单独建立计划（[计划](./plans/v0.7.1-model-idle-unload.md)）。
 - **执行基座与沙箱基线**：原排期在 v0.7.1，暂不考虑（owner，2026-10-20），见第 5.4 节。plugin 模式下 HiveMemory 不执行代码，harness 的工具由其自身管理。
 
