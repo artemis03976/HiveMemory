@@ -46,6 +46,11 @@ QDRANT_GRPC_PORT="${QDRANT_GRPC_PORT:-6334}"
 BACKEND_HOST="${HIVEMEMORY_BACKEND_HOST:-127.0.0.1}"
 BACKEND_PORT="${HIVEMEMORY_BACKEND_PORT:-8769}"
 BACKEND_RELOAD="${HIVEMEMORY_BACKEND_RELOAD:-1}"
+# Seconds a backend stop waits before SIGKILL. On shutdown the backend settles
+# in-memory topics into memories and waits for that generation (up to
+# patchouli.shutdown.generation_wait_timeout_seconds); killing it earlier loses
+# turns that import connectors already consider delivered.
+BACKEND_STOP_TIMEOUT="${HIVEMEMORY_BACKEND_STOP_TIMEOUT:-60}"
 FRONTEND_HOST="${HIVEMEMORY_FRONTEND_HOST:-127.0.0.1}"
 FRONTEND_PORT="${HIVEMEMORY_FRONTEND_PORT:-5173}"
 FRONTEND_DIST_DIR="$PROJECT_ROOT/frontend/dist"
@@ -60,6 +65,11 @@ FRONTEND_URL="http://$FRONTEND_HOST:$FRONTEND_PORT"
 QDRANT_STARTED_BY_SCRIPT=0
 BACKEND_STARTED_BY_SCRIPT=0
 FRONTEND_STARTED_BY_SCRIPT=0
+
+if [[ ! "$BACKEND_STOP_TIMEOUT" =~ ^[1-9][0-9]*$ ]]; then
+    echo "错误：HIVEMEMORY_BACKEND_STOP_TIMEOUT 必须是正整数秒数" >&2
+    exit 1
+fi
 
 mkdir -p "$RUN_DIR" "$LOG_DIR" "$QDRANT_STORAGE_PATH"
 
@@ -214,6 +224,11 @@ stop_managed_service() {
     local service="$1"
     local pid
     local child
+    local poll
+    local stop_timeout=5
+    if [[ "$service" == backend ]]; then
+        stop_timeout="$BACKEND_STOP_TIMEOUT"
+    fi
     pid="$(managed_pid "$service" || true)"
 
     if [[ -z "$pid" ]]; then
@@ -221,7 +236,7 @@ stop_managed_service() {
         return 0
     fi
 
-    echo "$service: stopping (pid=$pid)"
+    echo "$service: stopping (pid=$pid, waiting up to ${stop_timeout}s)"
     # Services are started with setsid above. Their recorded PID is therefore
     # also the process-group ID, allowing npm/Vite and uvicorn reload children
     # to be stopped together instead of leaving orphaned listeners behind.
@@ -230,7 +245,7 @@ stop_managed_service() {
         [[ -n "$child" ]] && kill -TERM "$child" 2>/dev/null || true
     done < <(pgrep -P "$pid" 2>/dev/null || true)
 
-    for _ in {1..20}; do
+    for (( poll = 0; poll < stop_timeout * 4; poll++ )); do
         if ! pid_is_running "$pid"; then
             break
         fi

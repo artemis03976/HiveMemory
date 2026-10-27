@@ -184,6 +184,7 @@ cp scripts/hivememory-dev.env.example .hivememory/dev.env
 - `serve` 适合长期运行，例如让 Claude Code 连接器持续导入对话：自动重载会在每次代码改动时重启后端，内存中的短期话题随之结算，进程内的重复导入检查也会清空。`serve --build` 先构建前端再启动；不加 `--build` 时使用已有的构建产物，它可能早于当前代码。
 - 开发模式下，在 `.hivememory/dev.env` 中设置 `HIVEMEMORY_BACKEND_RELOAD=0` 可以关闭自动重载。
 - `stop` 与 `restart` 同样接受服务名，缺省为全部；`restart` 保持后端原来的模式。`status` 显示各服务的状态与后端的模式，`logs [服务]` 查看日志（位于 `.hivememory/logs`）。
+- 停止后端时最多等待 60 秒才强制结束，可用 `HIVEMEMORY_BACKEND_STOP_TIMEOUT` 调整。后端关闭时要把内存中的短期话题结算为记忆；提前强制结束会丢失这些话题，其中包括连接器已得到确认、不会再重发的轮次。
 - 同一时间只运行一个后端：后端已以另一种模式运行时，脚本拒绝启动并提示先执行 `stop backend`；`8769` 上已有不由脚本启动的后端时同样拒绝。启动失败时只停止本次启动的服务，之前已在运行的服务不受影响。
 - 脚本只停止自己启动的进程；它发现 Qdrant 已在脚本之外运行时直接复用，`stop` 不会停止它。
 
