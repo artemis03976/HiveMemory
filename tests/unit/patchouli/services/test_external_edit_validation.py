@@ -136,6 +136,23 @@ async def test_clearing_agent_profile_alias_is_rejected(tmp_path):
 
 
 @pytest.mark.asyncio
+async def test_agent_config_edit_on_regular_memory_is_rejected(tmp_path):
+    """agent_config 只对 AGENT_PROFILE 有效：对普通记忆提交时拒绝且不提交版本。"""
+    identity_scope, atom, familiar, mid_term = await _setup(tmp_path)
+    upserts_before = len(mid_term.upsert_calls)
+
+    with pytest.raises(InvalidMemoryFieldError, match="agent_config"):
+        await familiar.update_external_memory(
+            atom.id,
+            belong_to=identity_scope.workspace_identity,
+            agent_config={"model_name": "x"},
+        )
+
+    assert len(mid_term.upsert_calls) == upserts_before
+    assert await _version_artifacts(tmp_path, identity_scope, atom.id) == []
+
+
+@pytest.mark.asyncio
 async def test_clearing_alias_of_regular_memory_is_allowed(tmp_path):
     """普通记忆的 alias 可选：清空后按未设置提交新版本。"""
     identity_scope, atom, familiar, mid_term = await _setup(tmp_path)

@@ -86,7 +86,9 @@ def _memory_artifact_engine() -> Mock:
     return engine
 
 
-def _make_memory_atom(title="test_memory", memory_id=None) -> MemoryAtom:
+def _make_memory_atom(
+    title="test_memory", memory_id=None, memory_type=MemoryType.FACT
+) -> MemoryAtom:
     return MemoryAtom(
         id=memory_id or uuid4(),
         meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
@@ -94,7 +96,7 @@ def _make_memory_atom(title="test_memory", memory_id=None) -> MemoryAtom:
             title=title,
             summary=f"This is a valid summary for {title} with enough chars",
             tags=["t1"],
-            memory_type=MemoryType.FACT,
+            memory_type=memory_type,
             alias=f"alias_{title}",
         ),
         payload=PayloadLayer(content="content"),
@@ -1048,7 +1050,8 @@ class TestMemoryGenerationFamiliarArtifacts:
 
     @pytest.mark.asyncio
     async def test_update_external_memory_builds_manual_version_artifact(self):
-        atom = _make_memory_atom()
+        # agent_config 只允许 Profile 设置；以 Profile 覆盖全部可编辑字段。
+        atom = _make_memory_atom(memory_type=MemoryType.AGENT_PROFILE)
         original_version = atom.meta.version
         version_ref = _artifact_ref("version_2", ArtifactType.MEMORY_VERSION)
 
@@ -1106,7 +1109,7 @@ class TestMemoryGenerationFamiliarArtifacts:
     @pytest.mark.asyncio
     async def test_update_external_memory_agent_config_only_skips_vector_recompute(self):
         """仅 agent_config 变化不属 embedding 输入，提交时保留既有向量"""
-        atom = _make_memory_atom()
+        atom = _make_memory_atom(memory_type=MemoryType.AGENT_PROFILE)
 
         artifact_engine = _memory_artifact_engine()
         mid_term = Mock()

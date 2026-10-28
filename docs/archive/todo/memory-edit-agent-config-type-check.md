@@ -1,6 +1,9 @@
 ---
 title: 记忆编辑可以给非 Profile 记忆写入 agent_config
-status: todo
+status: archived
+archived_at: 2026-10-27
+implemented_by: fix/memory-edit-agent-config-type-check
+superseded_by: docs/patchouli/generation.md
 owner: patchouli
 scope: memory-edit-agent-config-restricted-to-agent-profile
 code_paths:
@@ -12,10 +15,12 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/contracts/routes-and-events.md
   - docs/archive/todo/v0.7.0-code-convergence.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-27
 ---
 
 # 记忆编辑可以给非 Profile 记忆写入 agent_config
+
+> 已完成并归档（2026-10-27）。当前事实见 [Patchouli 生成](../../patchouli/generation.md)第 5 节的手工编辑约束；处理方式见文末实施记录。以下正文保留登记时的原文。
 
 ## 问题与证据
 
@@ -36,8 +41,18 @@ last_reviewed: 2026-10-18
 
 - 对非 `AGENT_PROFILE` 记忆提交 `agent_config` 的编辑被拒绝且不产生版本记录，Profile 的 `agent_config` 编辑照常生效；
 - 归属层测试覆盖两种类型；
-- [Patchouli 生成](../patchouli/generation.md)中手工编辑的约束描述随实现更新。
+- [Patchouli 生成](../../patchouli/generation.md)中手工编辑的约束描述随实现更新。
 
 ## 追踪
 
-- 2026-10-18：为记忆编辑引入 `MemoryEdit` 材料类型时发现（[v0.7.0 代码收敛清单](../archive/todo/v0.7.0-code-convergence.md)第 2.9 条），属于行为变更，不随该条处理；未绑定版本或 Issue。
+- 2026-10-18：为记忆编辑引入 `MemoryEdit` 材料类型时发现（[v0.7.0 代码收敛清单](./v0.7.0-code-convergence.md)第 2.9 条），属于行为变更，不随该条处理；未绑定版本或 Issue。
+
+## 实施记录
+
+2026-10-27 在分支 `fix/memory-edit-agent-config-type-check` 实施：
+
+- **约束位置**：采用登记时的候选处理，在 Familiar 的提交边界类型约束 `_require_content_invariants` 中拒绝非 `AGENT_PROFILE` 原子带 `agent_config`，以 `InvalidMemoryFieldError`（HTTP 422）拒绝。检查在写版本记录之前，被拒绝的编辑不产生版本。手工创建、手工编辑与生成提交都经过这一处，创建链目前没有入口会给普通记忆传入 `agent_config`，约束同样覆盖它。
+- **不拆 Profile 专用编辑入口**：前端保存 Agent 继续使用 `PATCH /api/v1/memories/{id}`，HTTP 请求模型与 `MemoryEdit` 仍接受 `agent_config`，类型差异只在提交边界区分。
+- **不清理存量数据**：owner 确认目前没有已写入普通记忆的 `agent_config`，不做迁移或清理。约束只作用于提交，不进入 Memory 模型，读取解码不受影响。
+
+验证：归属层测试位于 `tests/unit/patchouli/services/test_external_edit_validation.py`（普通记忆提交 `agent_config` 被拒绝，不写入、不留版本记录）与 `tests/unit/patchouli/services/test_memory_generation.py`（Profile 编辑 `agent_config` 照常生成版本，仅 `agent_config` 变化时不重算向量；这两条原先以 FACT 原子编辑 `agent_config`，改为 Profile 原子）。去掉类型约束或去掉类型条件的变异分别会使对应测试失败。

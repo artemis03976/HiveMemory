@@ -14,7 +14,6 @@ last_reviewed: 2026-10-27
 
 - [重排模型 int8 与 ONNX 内存池](./reranker-int8-and-onnx-memory.md)（2026-10-27 排查常驻内存时登记：重排模型 int8 先做实验评估，另有 ONNX 内存池保留推理峰值、嵌入截断上限 8192 token、配置项不生效与 Docker 预下载落空；后四项已于同日完成，int8 评估待开始）；
 - [Import Bus 真实使用观察](./import-bus-real-use-observation.md)（2026-10-21 Import Bus 重设计收尾时登记：真实使用验收随日常使用持续观察，核对闭环、话题落位、生成质量与开销、凭据、导入耗时与连接器行为）；
-- [记忆编辑可以给非 Profile 记忆写入 agent_config](./memory-edit-agent-config-type-check.md)（2026-10-18 引入 `MemoryEdit` 时发现：编辑链不按类型限制 `agent_config`，普通记忆被写入无效配置并生成版本）；
 - [WorkspaceAsset 内部归属与操作身份拆分](./workspace-asset-ownership-identity-split.md)（身份第二批明确暂缓：Store/解析旧 scope 接口与 System 物化 reader 桥接）；
 - [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：无 alias 记忆的寻址、alias 查询索引）；
 - [会话 `/compact` 指令](./conversation-compact-command.md)（2026-10-01 由原 Topic `/compact` 系统指令接入重写：compact 归属前台的 CPU 会话上下文，依赖 ConversationSession、命令运行位置与 Alice 会话压缩）；
@@ -27,6 +26,8 @@ last_reviewed: 2026-10-27
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
 - [engines 对上层的既有导入](./engines-upward-imports.md)（包分层登记的 10 处已知例外，原记录于 Workspace 网络与任务进程架构 Idea）；
 - [RUN 目标的可执行性检查](./run-target-executability-check.md)（能力层分层审查遗留：只有 `memory.run` 的 actor 可经 RUN 的错误探测可见记忆的类型与存在，不可执行目标也记录引用）；
+
+原“记忆编辑可以给非 Profile 记忆写入 agent_config”于 2026-10-27 完成并归档（提交边界的类型约束拒绝非 `AGENT_PROFILE` 记忆带 `agent_config`，被拒绝的编辑不产生版本，Profile 编辑照常经共用编辑入口生效）：[归档记录](../archive/todo/memory-edit-agent-config-type-check.md)；当前事实见 [Patchouli 生成](../patchouli/generation.md)第 5 节。
 
 原“话题折叠计入交互提交的处理时限”于 2026-10-27 完成并归档（折叠移出交互应用，作为提交队列中与话题提交共用排序键的独立工作项，折叠期间同话题的后续提交在队列中等待；LLM 摘要设独立时限并在回退时保留已有摘要；apply journal 随之移除，幂等收敛到提交队列）：[归档记录](../archive/todo/topic-fold-in-interaction-apply.md)；当前事实见[感知与短期话题](../patchouli/perception.md)第 5 节。
 
