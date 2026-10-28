@@ -13,7 +13,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-21
 ---
 
 # 记忆检索
@@ -109,7 +109,7 @@ Hybrid 融合 Dense/Sparse `SearchResults` 后，按调用方请求的候选数�
 - 融合分数不设阈值：RRF 只反映名次，无意义查询的第 1 名与相关查询的第 1 名得分相同；加权融合直接相加 cosine 与 BM25 原始分，尺度随查询变化；
 - 重排分数不设阈值：CrossEncoderReranker 用 sigmoid 把分数映射到 0–1，只用于排序与展示。
 
-阈值不由调用方传入，引擎与检索器接口都只接收条数。本次结果条数是请求的 `top_k`；未给出时（当前为 MTP SEARCH）使用 `patchouli.retrieval.default_top_k`（默认 5）。prepare 与被动链路的条数来自 Gateway 检索计划（`gateway.default_top_k`），不受该配置影响。引擎按结果条数向重排器索取候选池，并且只在重排之后截取一次。
+阈值不由调用方传入，引擎与检索器接口都只接收条数。本次结果条数是请求的 `top_k`；未给出时（当前为 MTP SEARCH）使用 `patchouli.retrieval.default_top_k`（默认 5）。prepare 的条数来自 Gateway 检索计划（`gateway.user_query_analysis.default_top_k`），不受该配置影响；Import Bus 不检索，忽略 Gateway 的检索计划。引擎按结果条数向重排器索取候选池，并且只在重排之后截取一次。
 
 已删除的配置键在出现时使配置加载显式失败，而不是被静默忽略：`retrieval.retriever.sparse.score_threshold`（以及 Sparse 检索器的 `score_threshold`）、Hybrid 顶层的 `score_threshold`、融合配置的 `final_top_k`（由 `retrieval.default_top_k` 取代）。
 
@@ -117,8 +117,7 @@ Hybrid 融合 Dense/Sparse `SearchResults` 后，按调用方请求的候选数�
 
 Retrieval 只返回 atoms。当前主要调用者分别编译：
 
-- Patchouli prepare：`RETRIEVAL_CONTEXT`；
-- Passive Ingress：`RETRIEVAL_CONTEXT`；
+- workspace 任务进程（编译 Patchouli prepare 返回的检索原子，prepare 本身不编译）：`RETRIEVAL_CONTEXT`；
 - Koakuma MTP SEARCH/READ：retrieval envelope 或 `MTP_READ`；
 - 子 Agent orchestration：`SHARED_CONTEXT_INJECTION`；
 - Qdrant 与 reranker：dense/sparse embedding targets。

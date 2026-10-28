@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-21
 ---
 
 # Todo
@@ -12,6 +12,8 @@ last_reviewed: 2026-10-19
 
 当前事项：
 
+- [话题折叠计入交互提交的处理时限](./topic-fold-in-interaction-apply.md)（2026-10-27 启用 LLM relay 时发现：折叠在交互应用内执行，耗时计入提交队列 30 秒时限与导入、finalize 的应用等待，超时使交互判为应用失败）；
+- [Import Bus 真实使用观察](./import-bus-real-use-observation.md)（2026-10-21 Import Bus 重设计收尾时登记：真实使用验收随日常使用持续观察，核对闭环、话题落位、生成质量与开销、凭据、导入耗时与连接器行为）；
 - [记忆编辑可以给非 Profile 记忆写入 agent_config](./memory-edit-agent-config-type-check.md)（2026-10-18 引入 `MemoryEdit` 时发现：编辑链不按类型限制 `agent_config`，普通记忆被写入无效配置并生成版本）；
 - [WorkspaceAsset 内部归属与操作身份拆分](./workspace-asset-ownership-identity-split.md)（身份第二批明确暂缓：Store/解析旧 scope 接口与 System 物化 reader 桥接）；
 - [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：无 alias 记忆的寻址、alias 查询索引）；

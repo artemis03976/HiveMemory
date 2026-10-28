@@ -15,7 +15,7 @@ last_reviewed: 2026-08-13
 
 - [当前系统架构](./architecture/overview.md)
 - [Memory Tool Protocol](./contracts/mtp.md)
-- [Passive Conversation Memory Ingress 当前设计](./system/passive-ingress.md)
+- [Import Bus 当前设计](./system/import-bus.md)
 - [三餐推荐助手产品规格](./applications/MealAssistantProductSpec.md)
 
 ---
@@ -30,7 +30,7 @@ HiveMemory 希望探索并构建的是：
 
 这一定位包含两个互补而非互斥的方向：
 
-1. **开放的记忆基础设施**：Patchouli 当前可以通过 passive ingress 和 API 服务外部信息流，并可在未来通过 MCP、skill 或其他适配层接入更多 harness，为现有生态提供独立的记忆价值。
+1. **开放的记忆基础设施**：Patchouli 当前可以通过 Import Bus 和 API 服务外部信息流（首个接入的 harness 为 Claude Code），并可在未来通过 MCP、skill 或其他适配层接入更多 harness，为现有生态提供独立的记忆价值。
 2. **原生的实验性运行时**：Alice 作为 HiveMemory 的 Agent Runtime，用于验证当记忆不再只是 prompt 中的一段参考文本，而成为运行时主状态与控制输入时，Agent 系统可以获得哪些新的能力。
 
 HiveMemory 不需要在通用编码、工具数量、UI 完整度或模型适配速度上全面战胜厂商原生 harness。它需要证明的是：在长期连续性、知识复用、状态演化、纠错收敛、来源追踪和持续自主性等问题上，memory-native 架构是否能够产生传统“无状态 loop + 外挂 RAG”难以自然获得的结构性优势。
@@ -385,7 +385,7 @@ MTP 当前承担 Agent 与记忆/工具 runtime 交互的协议角色。项目�
 ```text
 External Harness
   -> conversation / tool events
-  -> passive ingress
+  -> Import Bus
   -> Patchouli memory evolution
 
 External Harness
@@ -634,7 +634,7 @@ HiveMemory 更关心数天、数周甚至更长时间内的状态一致性、修
 
 ### 阶段 B：证明 Patchouli 的独立价值
 
-- 完善 passive ingress 与外部检索契约
+- 完善 Import Bus 与外部检索契约
 - 接入至少一个外部 harness 或真实信息流
 - 验证不使用 Alice 时仍能产生跨会话记忆价值
 - 建立来源、修正和冲突相关的基础评估

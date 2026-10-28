@@ -47,7 +47,7 @@ source_inventory: docs/archive/plans/documentation-migration-inventory.md
 - **已承接内容**：System Passive Ingress 文档承担 session、idle、事件提交、seal/retry 和降级；Patchouli Perception 文档承担 `InteractionPayload`、TurnRecord/TurnEvent、Action/Trace reducer、话题 buffer、settlement 与 Page Folding。
 - **补充的设计理由**：`MessageTurnBuffer` 接收 `user`、`assistant`、`tool_call`、`tool_result`；只有自然语言 assistant 段落写入 `assistant_final_text`，工具过程必须保留为 TurnEvent。`target_topic` 是 user 到达时的 Gateway route 决策，Buffer 在此时绑定并在下一轮 user 到来前先 flush 旧轮，避免下一轮 gaze 污染上一轮归属。System Passive Ingress 拥有被动会话与提交编排，TheEye/Gateway 不重新拥有 observer buffer。
 - **明确不继承**：旧 `system.ingest()` 的扁平 `user/assistant` 入口、`ObserverSessionBuffer`、`assistant_message` fallback 和 TheEye 私有被动主链均已退出。
-- **替代入口**：[被动摄入](../../system/passive-ingress.md)、[感知与短期话题](../../patchouli/perception.md)。
+- **替代入口**：[Import Bus（原被动摄入）](../../system/import-bus.md)、[感知与短期话题](../../patchouli/perception.md)。
 
 ### 2.4 `PatchouliTranscriptDualViewRefactor.md`
 

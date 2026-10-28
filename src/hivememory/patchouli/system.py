@@ -10,7 +10,7 @@
 
 数据流:
     Active: 任务进程 -> prepare_agent_run (Patchouli) -> CPU 端口 (Alice) -> finalize_agent_run (Patchouli)
-    Passive: PassiveIngressService -> ingest_event -> InteractionSubmissionQueue -> apply_interaction
+    Import: ImportBusService -> interaction.submit (公开路由) -> InteractionSubmissionQueue -> apply_interaction
 
     ┌─────────────────────────────────────────┐
     │  PatchouliSystem (The Facility)         │
@@ -117,7 +117,7 @@ class PatchouliSystem(SubsystemProtocol):
             ),
         )
 
-        # 2. Patchouli 对外能力门面。Active/Passive 共用同一条 interaction lane。
+        # 2. Patchouli 对外能力门面。主动链路与 Import Bus 共用同一条 interaction lane。
         # 访问边界：Patchouli 是授权点以下的
         # 资源 owner，公开方法与阶段路由只接收授权点组装的 IdentityScope，
         # 不接收访问 context，也不再注入共享操作授权。
@@ -134,8 +134,8 @@ class PatchouliSystem(SubsystemProtocol):
         self._agent_profile_management_service = AgentProfileManagementService(
             bus=self.runtime.local_bus,
         )
-        # 公开交互提交/意图提交用例（WRX-1）：封装内部 queue 与生成提交链，
-        # Passive/Alice/外部 adapter 统一经此提交，不直接持有内部协作者。
+        # 公开交互提交/意图提交用例：封装内部 queue 与生成提交链，
+        # Import Bus 等外部来源统一经此提交，不直接持有内部协作者。
         self._interaction_submission_service = InteractionSubmissionService(
             interaction_queue=self._interaction_submission_queue,
         )
@@ -172,11 +172,6 @@ class PatchouliSystem(SubsystemProtocol):
     def service(self) -> PatchouliService:
         """访问 Patchouli 对外能力门面。"""
         return self._service
-
-    @property
-    def interaction_submission_queue(self) -> InteractionSubmissionQueue:
-        """访问 active/passive 共用的 interaction submission queue。"""
-        return self._interaction_submission_queue
 
     @property
     def name(self) -> str:

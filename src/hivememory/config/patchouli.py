@@ -81,9 +81,29 @@ class DeduplicatorConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class GenerationTranscriptConfig(BaseModel):
+    """记忆生成转写中动作段的字符上限。
+
+    感知估算逻辑块的 token 时使用同一组上限，折叠阈值因此反映生成实际看到
+    的材料。上限只约束思考与外部工具动作的渲染，MTP 动作的一行摘要不截断。
+    """
+
+    max_thought_chars: int = Field(default=1000, ge=1, description="单条思考的字符上限")
+    max_args_chars: int = Field(default=300, ge=1, description="工具参数摘要的字符上限")
+    max_result_chars: int = Field(default=800, ge=1, description="单条工具结果的字符上限")
+    max_turn_action_chars: int = Field(
+        default=8000,
+        ge=1,
+        description="一轮动作段的字符上限，超出时较早的非出错动作降为一行",
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
 class MemoryGenerationConfig(BaseModel):
     extractor: ExtractorConfig = Field(default_factory=ExtractorConfig)
     deduplicator: DeduplicatorConfig = Field(default_factory=DeduplicatorConfig)
+    transcript: GenerationTranscriptConfig = Field(default_factory=GenerationTranscriptConfig)
     queue_capacity: int = Field(default=128, ge=1)
     queue_max_concurrency: int = Field(default=2, ge=1)
     queue_timeout_seconds: float | None = Field(default=300.0, gt=0)

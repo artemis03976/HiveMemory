@@ -101,7 +101,15 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
     release_apply = asyncio.Event()
 
     async def apply(
-        payload, *, belong_to, from_actor, target_topic_id, interaction_id, asset_refs=()
+        payload,
+        *,
+        belong_to,
+        from_actor,
+        target_topic_id,
+        interaction_id,
+        asset_refs=(),
+        new_topic_title=None,
+        new_topic_summary=None,
     ):
         calls.append("apply_started")
         apply_started.set()
@@ -275,7 +283,7 @@ async def test_queue_shutdown_returns_explicit_active_finalize_error() -> None:
 
 
 @pytest.mark.asyncio
-async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> None:
+async def test_import_backlog_capacity_rejects_active_before_side_effects() -> None:
     apply = AsyncMock(return_value="topic-1")
     materialize = AsyncMock()
     discard = AsyncMock(return_value=True)
@@ -300,15 +308,15 @@ async def test_passive_backlog_capacity_rejects_active_before_side_effects() -> 
                     agent_id="a1",
                 )
             ).actor_identity,
-            interaction_id="passive-pending",
+            interaction_id="import-pending",
             payload=InteractionPayload(
-                user_message="passive question",
-                assistant_final_text="passive answer",
+                user_message="imported question",
+                assistant_final_text="imported answer",
             ),
             requested_topic_id="topic-1",
             ordering_key="topic:topic-1",
-            origin="passive_memory",
-            correlation={"turn_id": "passive-turn"},
+            origin="import_bus",
+            correlation={"turn_id": "import-turn"},
         )
     )
 
@@ -345,7 +353,15 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
     release_apply = asyncio.Event()
 
     async def apply(
-        payload, *, belong_to, from_actor, target_topic_id, interaction_id, asset_refs=()
+        payload,
+        *,
+        belong_to,
+        from_actor,
+        target_topic_id,
+        interaction_id,
+        asset_refs=(),
+        new_topic_title=None,
+        new_topic_summary=None,
     ):
         apply_started.set()
         await release_apply.wait()
@@ -402,7 +418,15 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
     release_apply = asyncio.Event()
 
     async def apply(
-        payload, *, belong_to, from_actor, target_topic_id, interaction_id, asset_refs=()
+        payload,
+        *,
+        belong_to,
+        from_actor,
+        target_topic_id,
+        interaction_id,
+        asset_refs=(),
+        new_topic_title=None,
+        new_topic_summary=None,
     ):
         apply_started.set()
         await release_apply.wait()

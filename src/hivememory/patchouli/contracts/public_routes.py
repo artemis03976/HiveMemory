@@ -24,6 +24,7 @@ if TYPE_CHECKING:
     from hivememory.core.protocol.models import InteractionPayload, RetrievalRequest
     from hivememory.patchouli.contracts.interaction_submission import (
         InteractionOrigin,
+        InteractionStatus,
         InteractionSubmitResult,
     )
     from hivememory.patchouli.contracts.memory_intent import (
@@ -167,8 +168,34 @@ class PatchouliRoutes:
         requested_topic_id: str = "NEW_TOPIC",
         interaction_id: str | None = None,
         origin: InteractionOrigin = "workspace_port",
+        new_topic_title: str | None = None,
+        new_topic_summary: str | None = None,
     ) -> InteractionSubmitResult:
-        """提交一份已发生的交互载荷；队列按 interaction_id 幂等接纳。"""
+        """提交一份已发生的交互载荷；队列按 interaction_id 幂等接纳。
+
+        目标为 ``NEW_TOPIC`` 时可携带新话题的标题与摘要；队列容量已满或已
+        停止以 ``InteractionAdmissionUnavailableError`` 拒绝，可用同一标识重试。
+        """
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
+    @route("patchouli.public.interaction.status")
+    async def INTERACTION_STATUS(
+        *, identity_scope: IdentityScope, interaction_id: str
+    ) -> InteractionStatus | None:
+        """查询交互在提交队列中的进度；未被接纳时返回 ``None``。
+
+        同名交互属于其他 Workspace 时报冲突；成功时给出真实落点。
+        """
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
+    @route("patchouli.public.interaction.wait")
+    async def INTERACTION_WAIT(
+        *, identity_scope: IdentityScope, interaction_id: str, timeout_seconds: float
+    ) -> InteractionStatus | None:
+        """等待交互应用到终态或超时，返回此时的进度；未被接纳时返回 ``None``。
+
+        超时时进度仍为 ``pending``；归属校验与状态查询相同。
+        """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.memory_intent.submit")
@@ -254,6 +281,8 @@ class PatchouliRoutes:
         GET_AGENT_PROFILE,
         MEMORY_READ,
         INTERACTION_SUBMIT,
+        INTERACTION_STATUS,
+        INTERACTION_WAIT,
         MEMORY_INTENT_SUBMIT,
         PREPARE_AGENT_RUN,
         FINALIZE_AGENT_RUN,

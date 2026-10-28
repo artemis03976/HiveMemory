@@ -18,7 +18,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-21
 ---
 
 # Patchouli
@@ -54,7 +54,7 @@ Patchouli 不负责：
 
 - 解释原始入口消息、识别系统命令或形成 `GatewayDecision`；
 - 运行 Agent loop、控制模型生成、执行工具或编排子 Agent；
-- 拥有 workspace 的 chat 任务进程、System 的 passive ingress 用例、全局维护时钟或跨系统取消；
+- 拥有 workspace 的 chat 任务进程、System 的 Import Bus 用例、全局维护时钟或跨系统取消；
 - 解析执行所用的 Agent Profile、持有附件租借、编译附件或为执行者组装运行上下文（这些属于 workspace 任务进程的 CPU 分配）；
 - 把检索结果无条件解释为正确事实；
 - 把 `WRITE` / `UPDATE` 的队列接纳 ACK 当作正式记忆已经持久化；
@@ -112,12 +112,19 @@ Prepare 只准备话题与检索结果，不解析 Profile、不编译记忆、�
 
 `WRITE` / `UPDATE` 的 ACK 表示 workspace 已登记意图且生成队列已接纳。Alice 经线程 context 绑定的提交函数发出操作请求，actor API 在操作内经 `memory_intent.submit` 实时派发；这是主动生成的唯一生产入口。背景取过去 N 个 block 与摘要（`patchouli.generation.active_recent_blocks`，默认 5），不含当前轮；后续执行失败、取消或进程关闭都不撤回写入。Patchouli 完成生成、去重、artifact 挂载和中期存储写入后，才通过 settlement 通知 workspace registry 投影 canonical alias/UUID 或 discard/failure/cancel 终态。canonical 读取缓存由中期 Store 的独立变更事件失效，结算通知不回填原子；详情见[MemoryLibrary](./memory-library.md)与[PendingAtom](../alice/pending-atom.md)。
 
-### 3.2 被动摄入与话题结算
+### 3.2 Import Bus 与话题结算
 
-Passive Ingress 的去重、顺序缓冲、seal、retry 和降级属于 System。完成封口的一轮交互以结构化 `InteractionPayload` 进入 Patchouli 后，Perception 才负责将它变为 `TurnRecord` / `LogicalBlock`，加入目标话题并执行折叠或结算策略。
+Import Bus 是 System 的用例，把外部 harness 已经结束的一轮交互导入记忆网络；按外部会话串行、查重、Gateway 落位、封口、等待应用与可重试错误都由它负责。它以与任务进程共用的封口函数把整轮记录封口为结构化 `InteractionPayload`，只经 Patchouli 的公开交互路由交接，不持有提交队列：
+
+- `patchouli.public.interaction.status` 回答该交互在提交队列中的进度（`pending`、`succeeded` 附真实落点、`failed`、`unknown`，未接纳时为空），Import Bus 据此查重，并取上一轮的真实落点供 Gateway 话题路由失败时续接；
+- `patchouli.public.interaction.submit` 以来源 `import_bus` 提交，Gateway 判定新建话题时携带它给出的标题与摘要；
+- `patchouli.public.interaction.wait` 等待交互应用到终态或超时，Import Bus 只在应用成功后才确认这一轮。
+
+交互进入 Patchouli 后，Perception 才负责将它变为 `TurnRecord` / `LogicalBlock`，加入目标话题并执行折叠或结算策略。
 
 ```text
-System Passive Ingress
+System Import Bus
+  -> patchouli.public.interaction.submit
   -> InteractionSubmissionQueue
   -> PerceptionFamiliar.apply_interaction
        -> MemoryPerceptionEngine.build_block（纯算法）
@@ -127,7 +134,7 @@ System Passive Ingress
   -> background Generation task
 ```
 
-Patchouli 不为被动入口重新运行 Alice，也不重新分析 Gateway。完整入口语义见[被动摄入](../system/passive-ingress.md)，感知内部设计见[感知与短期话题](./perception.md)。
+Patchouli 不为 Import Bus 运行 Alice，也不重新分析 Gateway。完整入口语义见 [Import Bus](../system/import-bus.md)，提交队列与感知内部设计见[感知与短期话题](./perception.md)。
 
 四种话题结算统一由所属 Workspace 的保留 `system` actor 发起（`user_id` 为 owner、`team_id=None`），不继承最后访问者或驱逐触发者的读取权限。参与交互的 Agent 保留在 turn identity 与贡献者集合中；生成查重因此只消费本 Workspace 的 PUBLIC 记忆，主动 WRITE/UPDATE 则保留提交 actor 的可见性。
 

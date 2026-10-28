@@ -38,7 +38,10 @@ from tests.helpers.workspace import (
 
 @pytest.mark.asyncio
 async def test_interleaved_sessions_share_topic_but_not_cpu_or_gateway_history():
-    """同 Topic 的另一会话不能污染历史，Alice 全量保留，Gateway 只取配置的最近轮次。"""
+    """同 Topic 的另一会话不能污染历史，Alice 全量保留，Gateway 只取配置的最近轮次。
+
+    交给 Gateway 的轮次带各自落位的话题，话题路由失败时据此续接上一轮。
+    """
     access = make_access_composition([make_actor_access_record(agent_id="a")])
     bus = GlobalSystemBus()
     gateway_history = []
@@ -108,6 +111,7 @@ async def test_interleaved_sessions_share_topic_but_not_cpu_or_gateway_history()
         "A6",
     ]
     assert [t.user_message for t in gateway_history[-1]] == ["A5", "A6"]
+    assert [t.topic_id for t in gateway_history[-1]] == ["shared-topic", "shared-topic"]
     assert gateway_history[2] == ()
     messages = SessionContextView(
         instructions=manifest.instructions,

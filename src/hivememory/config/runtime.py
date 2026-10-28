@@ -4,9 +4,6 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 class MaintenanceTasksConfig(BaseModel):
-    observer_idle_flush_interval_seconds: float = Field(default=5.0)
-    observer_idle_flush_timeout_seconds: float = Field(default=30.0)
-    enable_observer_idle_flush: bool = Field(default=True)
     perception_idle_flush_interval_seconds: float = Field(default=30.0)
     enable_perception_idle_flush: bool = Field(default=True)
     lifecycle_gc_interval_hours: int = Field(default=24)

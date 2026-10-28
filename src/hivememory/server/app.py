@@ -26,7 +26,7 @@ from hivememory.server.models.common import HealthResponse, ReadinessResponse
 from hivememory.server.routers.agents import router as agents_router
 from hivememory.server.routers.chat import router as chat_router
 from hivememory.server.routers.config import router as config_router
-from hivememory.server.routers.ingest import router as ingest_router
+from hivememory.server.routers.import_bus import router as import_bus_router
 from hivememory.server.routers.logs import router as logs_router
 from hivememory.server.routers.memories import router as memories_router
 from hivememory.server.routers.memory_tasks import router as memory_tasks_router
@@ -141,7 +141,7 @@ app.include_router(agents_router, prefix="/api/v1")
 app.include_router(chat_router, prefix="/api/v1")
 app.include_router(sessions_router, prefix="/api/v1")
 app.include_router(config_router, prefix="/api/v1")
-app.include_router(ingest_router, prefix="/api/v1")
+app.include_router(import_bus_router, prefix="/api/v1")
 app.include_router(logs_router, prefix="/api/v1")
 app.include_router(memories_router, prefix="/api/v1")
 app.include_router(memory_tasks_router, prefix="/api/v1")

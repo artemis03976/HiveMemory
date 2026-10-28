@@ -17,14 +17,15 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-19
+  - docs/system/import-bus.md
+last_reviewed: 2026-10-21
 ---
 
 # System 配置与注册表
 
 配置是 System 的装配输入，不是另一套运行时控制 API。它需要同时满足两个现实：开发者希望通过 YAML 和环境变量管理整套服务，子系统又必须拥有自己那部分语义和默认值。当前做法是由 `HiveMemoryConfig` 统一加载和校验，再把各配置段注入对应宿主；System 不在请求路径里重新解释 Gateway、Patchouli 或 Alice 的内部配置。
 
-配置模型集中在顶层 `config` 包（依赖层级最低，只依赖 pydantic、core 常量与 i18n），按子系统和高聚合组件分段：`config.shared`、`config.patchouli`、`config.gateway`、`config.alice`、`config.memory_compiler`、`config.attachments`、`config.workspace`、`config.runtime`、`config.passive`、`config.access`；根配置 `HiveMemoryConfig` 与加载函数位于 `config.app`。使用规则：
+配置模型集中在顶层 `config` 包（依赖层级最低，只依赖 pydantic、core 常量与 i18n），按子系统和高聚合组件分段：`config.shared`、`config.patchouli`、`config.gateway`、`config.alice`、`config.memory_compiler`、`config.attachments`、`config.workspace`、`config.runtime`、`config.import_bus`、`config.access`；根配置 `HiveMemoryConfig` 与加载函数位于 `config.app`。使用规则：
 
 - `config.app` 只供组合根（`system`）与入口（`server`、脚本）使用，由分层测试守护；
 - 组件只导入并接收自己的配置段，不持有根配置，也不自行调用 `load_app_config()`；子系统宿主的构造参数是对应配置段（例如 `PatchouliSystem(config=PatchouliConfig, shared_config=..., ...)`），由组合根从根配置中取出注入；
@@ -37,22 +38,37 @@ last_reviewed: 2026-10-19
 | 区域 | 模块 | 主要内容 | 责任边界 |
 |:---|:---|:---|:---|
 | `system` / `logging` / `i18n` | `config.app` | 名称、调试标志、server 自身的 principal 标识 `server_principal_id`；日志级别、格式、控制台与文件输出及 WebSocket 日志广播（第 4 节）；默认语言 | System / 全局文本解析 |
-| `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待、observer/perception/GC 任务开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
+| `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待、perception idle flush 与 lifecycle GC 任务的开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
 | `shared` | `config.shared` | LLM、embedding、provider credentials | Registry 与共享模型能力 |
 | `gateway` | `config.gateway` | interceptor、commands、workflow、topic router、query analysis | Gateway |
-| `passive_ingress` | `config.passive` | dedup、turn accumulator 上限 | System passive ingress |
+| `import_bus` | `config.import_bus` | 导入请求体上限、提交后等待应用的时限 | System Import Bus |
 | `memory_compiler` | `config.memory_compiler` | 编译策略 | MemoryCompiler 所有者；由组合根注入 workspace 任务进程（检索结果编译）与 Alice（MTP 输出编译） |
 | `attachment_parser` / `attachment_compiler` | `config.attachments` | 附件解析资源限制；附件编译预算 | 附件解析器 / AttachmentCompiler；`attachment_compiler` 由组合根注入 workspace 任务进程 |
 | `workspace` | `config.workspace` | 读取视图缓存容量与会话容量 | workspace |
 | `patchouli` / `alice` | `config.patchouli` / `config.alice` | 各自运行时和存储配置 | 对应子系统 |
 
-访问登记不在 `HiveMemoryConfig` 中，见下文“访问登记文件”。System 只直接拥有顶层设施、接入登记和 passive ingress 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。当前没有用于创建、切换或复制 Workspace 的配置项；默认 `main_workspace` 由入口按用户身份解析，Workspace 资源边界和 AssetStore 生命周期见 [Workspace](../workspace/README.md)。
+访问登记不在 `HiveMemoryConfig` 中，见下文“访问登记文件”。System 只直接拥有顶层设施、接入登记和 Import Bus 配置；Gateway 的 workflow timeout、Patchouli 的 retrieval 和 Alice 的 MTP 权限仍由各自所有者解释。当前没有用于创建、切换或复制 Workspace 的配置项；默认 `main_workspace` 由入口按用户身份解析，Workspace 资源边界和 AssetStore 生命周期见 [Workspace](../workspace/README.md)。
 
 主动写入的背景轮数由 `patchouli.generation.active_recent_blocks` 控制，默认 5、最小 0；即话题过去 N 个 block 与 `state_summary`，不含当前轮。该项与 `patchouli.perception.fold_retain_recent_blocks` 的折叠保留轮数独立，见[Patchouli 生成](../patchouli/generation.md)。
 
+`patchouli.generation.transcript`（`GenerationTranscriptConfig`）约束记忆生成转写中动作段的字符长度；感知估算逻辑块 token 时使用同一组上限，折叠阈值因此反映生成实际看到的材料。上限只约束思考与外部工具动作的渲染，MTP 动作的一行摘要不截断。四项均要求至少 1：
+
+| 字段 | 默认值 | 作用 |
+|:---|---:|:---|
+| `max_thought_chars` | `1000` | 单条思考的字符上限 |
+| `max_args_chars` | `300` | 工具参数摘要的字符上限 |
+| `max_result_chars` | `800` | 单条工具结果的字符上限 |
+| `max_turn_action_chars` | `8000` | 一轮动作段的字符上限：超出时较早的非出错动作降为一行，仍超出时按优先级省略整条 |
+
+默认值写在 `configs/config.yaml` 中，渲染与省略规则见 [Patchouli 生成](../patchouli/generation.md)。
+
+`import_bus`（`ImportBusConfig`）只有两项：`max_request_bytes`（默认 8 MiB，即 `8388608`，大于 0）是单次导入请求体的字节上限，超出以 413 拒绝；`apply_wait_seconds`（默认 30，大于 0）是提交后等待感知应用完成的时限，超时以可重试的 503 交回。Import Bus 的 Gateway 请求时限与最近轮数沿用 Gateway 配置段。随仓库发布的 `configs/config.yaml` 不含该段，按默认值运行，语义见 [Import Bus](./import-bus.md#7-配置)。
+
+升级注意（Import Bus）：`passive_ingress` 配置段与 `scheduler.tasks` 的 `observer_idle_flush_interval_seconds`、`observer_idle_flush_timeout_seconds`、`enable_observer_idle_flush` 三项已删除，需要从配置中移除：配置文件中残留 `passive_ingress` 段时加载失败（第 2 节），残留的三项调度器键由 `scheduler.tasks` 拒绝未知键而失败。新增的 `import_bus` 段与 `patchouli.generation.transcript` 都有默认值，不需要补写。
+
 升级注意（写入意图实时派发）：WRITE/UPDATE 的 ACK 现在等待生成队列接纳，可能在 ACK 前返回明确拒绝或未知结果；后续运行失败或取消不撤回已提交写入。SSE done 与 `chat.run.completed` 删除 `memory_task_ids`，消费者改用任务事件与 list/get。该次迁移删除了 payload 的 `materialize_tasks`（当前 codec 版本见下方会话升级说明）；当前队列为进程内队列，不提供旧版本重放。
 
-会话配置为 `workspace.sessions.max_sessions_per_workspace=128` 与 `max_turns_per_session=512`，均要求至少 1。达到上限时显式拒绝创建或进程认领，不清理历史。`gateway.context_preparation.session_turn_limit=3` 控制 Gateway 的近期会话轮数（至少 1）；Alice 始终接收全量原文，自行按 `alice.compaction` 构建预算受限的视图，不受该项与 Topic 的 `context_block_limit` 影响。`workspace.process.shutdown_wait_seconds=10`（至少 0）是 System 关闭时以 `system_shutdown` 停止在途任务进程后、等待进程 task 结束的上限，超时后硬取消进程 task 并等待它收尾。
+会话配置为 `workspace.sessions.max_sessions_per_workspace=128` 与 `max_turns_per_session=512`，均要求至少 1。达到上限时显式拒绝创建或进程认领，不清理历史。`gateway.context_preparation.session_turn_limit=3` 控制 Gateway 的近期会话轮数（至少 1；任务进程从会话轮次截取，Import Bus 从请求的 `recent_turns` 截取）；Alice 始终接收全量原文，自行按 `alice.compaction` 构建预算受限的视图，不受该项与 Topic 的 `context_block_limit` 影响。`workspace.process.shutdown_wait_seconds=10`（至少 0）是 System 关闭时以 `system_shutdown` 停止在途任务进程后、等待进程 task 结束的上限，超时后硬取消进程 task 并等待它收尾。
 
 会话升级后 `session_id` 实际绑定资源；缺省仍自动新建。SSE 首个事件回传会话 ID，done 以 `topic_id` 标注本轮材料归属；`topic_info` 与 `pool_topics` 已删除。Interaction codec 5 增加 `outcome`，旧版本不重放；会话仅在内存中，后端重启后前端需重新新建。
 
@@ -71,7 +87,7 @@ last_reviewed: 2026-10-19
 - 登记在运行实例内不可变，修改经重启生效；登记中没有 context 有效期。
 - `system.server_principal_id`（默认 `hivememory:http-server`）是 server 经统一认证网关认证时使用的 principal，必须与 `system_principals.yaml` 中的登记一致。
 
-`allowed_operations` 只接受六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，分别对应 MTP 的 READ、SEARCH、RUN（记忆中的用户工具）、WRITE、UPDATE 与 CALL，互不隐含。默认用户级登记包含全部六项；内置 CALL Profile 同样要求 `agent.call`。chat 的阶段调用（Gateway、预检索、Profile 解析、附件租借、finalize）不检查 actor 操作，白名单为空的 Agent 也能完成对话，只是不能执行任何 MTP 资源操作。
+`allowed_operations` 只接受六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，分别对应 MTP 的 READ、SEARCH、RUN（记忆中的用户工具）、WRITE、UPDATE 与 CALL，互不隐含。默认用户级登记包含全部六项；内置 CALL Profile 同样要求 `agent.call`。chat 的阶段调用（Gateway、预检索、Profile 解析、附件租借、finalize）不检查 actor 操作，白名单为空的 Agent 也能完成对话，只是不能执行任何 MTP 资源操作。交互导入（`POST /api/v1/import/turns`）同样只校验准入与目标、不检查 actor 操作；随仓库发布的登记为 Claude Code 连接器使用的 `claude_code` 登记了 `allowed_operations` 为空的精确记录，精确记录优先于用户级记录，这个 Agent 因此只能准入、导入，不继承六项 actor 操作（[Import Bus](./import-bus.md#41-认证与导入授权)）。
 
 访问登记的白名单是 Agent 操作权限的唯一来源：Agent Profile 的 `agent_config` 不再承载权限，`sys_*` 系统工具不设权限。修改白名单需改本文件并重启，运行时编辑属于尚未排期的配置热更新。
 
@@ -137,7 +153,7 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 
 旧的 `LLM__...`、`QDRANT__...` 等形式仍通过显式 alias 映射兼容。动态 provider 名不能由静态 alias 枚举，因此由 `provider_credentials_settings_source()` 单独扫描并归入 `shared.providers`。
 
-默认配置文件不存在时使用默认值和环境变量；显式指定的 `HIVEMEMORY_CONFIG_PATH` 不存在会抛 `FileNotFoundError`。YAML 解析失败当前记录 error 并返回空配置源，最终由 Pydantic 默认值和其他来源继续构造。
+默认配置文件不存在时使用默认值和环境变量；显式指定的 `HIVEMEMORY_CONFIG_PATH` 不存在会抛 `FileNotFoundError`。YAML 解析失败当前记录 error 并返回空配置源，最终由 Pydantic 默认值和其他来源继续构造。解析成功后，配置文件的顶层键必须是 `HiveMemoryConfig` 已声明的配置段：出现写错或已删除的段（例如 `passive_ingress`）时以 `ValueError` 加载失败，并指出段名与文件路径，而不是被根配置的宽松规则静默丢弃。
 
 ## 3. Registry 解析
 
@@ -153,11 +169,11 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 ## 4. 配置所有权与兼容边界
 
 - Gateway timeout 由 `gateway.workflow.default_request_timeout_ms` 控制；Chat 应用只能传入更小的 request timeout，不能扩大系统默认 deadline；
-- Passive idle interval/timeout 由 `scheduler.tasks` 单一持有，`passive_ingress` 不重复定义同一事实；
+- Import Bus 的 Gateway 请求时限与最近轮数由 `gateway.workflow.default_request_timeout_ms` 与 `gateway.context_preparation.session_turn_limit` 单一持有，`import_bus` 不重复定义同一事实；
 - RuntimeEvent 的 buffer/queue 配置只影响观测容量，不改变业务状态；
 - 项目版本属于构建事实，不是运行配置；`system.version` 已从配置模型和示例 YAML 中移除，版本唯一来源是 `src/hivememory/_version.py`；
 - 配置模型只声明已有消费者的运行时控制；
-- 各配置段拒绝未知键（`extra="forbid"`）：写错或已删除的键让配置校验失败，启动与 `POST /config` 都显式报错，不会被静默丢弃后让人误以为生效；根配置 `HiveMemoryConfig` 例外，忽略未知的顶层键，因为它同时接收环境变量与 `.env`，其中有不属于配置树的变量（如 `HIVEMEMORY_CONFIG_PATH`）；
+- 各配置段拒绝未知键（`extra="forbid"`）：写错或已删除的键让配置校验失败，启动与 `POST /config` 都显式报错，不会被静默丢弃后让人误以为生效；根配置 `HiveMemoryConfig` 例外，模型本身忽略未知的顶层键，因为它同时接收环境变量与 `.env`，其中有不属于配置树的变量（如 `HIVEMEMORY_CONFIG_PATH`）；配置文件只承载配置树，未知的顶层段在装载配置文件时另行拒绝（第 2 节）；
 - `i18n.default_language` 由组合根在装配运行配置时设为进程默认语言，并先于在构造时读取默认语言的组件；构造配置对象本身没有全局副作用，`GET /config/defaults` 与 `POST /config` 的校验都不改变运行中的默认语言，`POST /config` 保存的新值在下次启动时生效。请求级显式语言仍由调用方或 Profile 传递；
 - `logging` 段由 server 生命周期在加载配置后、装配系统之前应用，模块入口与直接运行 uvicorn 的行为一致。`level` 只接受 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL`，决定根 logger 的级别与控制台、文件输出的下限；`format` 作用于这两项输出；`console_output` 控制 stderr 输出；`file_path` 非空时追加写入该文件（相对路径按工作目录解析，缺失的目录会创建），两项都关闭时不输出。开启 WebSocket 广播且 `websocket_level` 更低时，根 logger 放宽到广播级别，控制台与文件仍只输出 `level` 及以上。入口只替换自己装上的输出，不移除测试框架或 WebSocket 广播的 handler；uvicorn 自己的访问与错误日志沿用 uvicorn 的日志配置。`POST /config` 保存的日志配置在下次启动时生效。
 

@@ -25,7 +25,8 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 
 - **主动模式（Active mode）**：通过 `POST /api/v1/chat` 提供 SSE 流式对话。每次请求经 workspace 的唯一注册入口认证并登记为任务进程，由 `TaskProcessService` 驱动 Gateway 分析、Patchouli prepare/finalize 与经 CPU 端口的 Alice Agent 执行；`POST /api/v1/chat/stop` 停止进程，客户端断连按停止处理
 - `POST /api/v1/chat` 支持在请求体中携带 `generation_options`（`model` / `temperature` / `top_p` / `max_tokens`）作为单次对话覆盖参数，不会写入全局配置文件
-- **被动模式（Passive mode）**：通过 `POST /api/v1/ingest` 接收外部框架的离散事件，由 System 层 `PassiveIngressService` 负责编排 Gateway 决策、缓冲、检索和 Patchouli 提交；`POST /api/v1/ingest/flush` 显式封口
+- **Import Bus（外部 harness 导入）**：通过 `POST /api/v1/import/turns` 导入外部 harness 一轮已结束交互的完整记录（用户消息、回复、思考、外部工具的调用与结果、结局）。请求经统一认证网关与导入授权，由 System 层的 Import Bus 编排 Gateway 话题落位、共用封口与 Patchouli 感知提交，交互应用完成后才确认；它只向记忆网络输入，不检索记忆，也不返回记忆上下文
+- **Claude Code 连接器插件**：`integrations/claude-code/`（插件 `hivememory-connector`，本地 marketplace `hivememory-local`，只用 Python 标准库）在轮次结束与会话开始、结束时把 Claude Code 会话记录中已结束的轮次导入 HiveMemory，网络提交在脱离 Claude Code 的后台进程中完成；通过环境变量 `HIVEMEMORY_URL`、`HIVEMEMORY_USER_ID`、`HIVEMEMORY_AGENT_ID`（默认 `claude_code`）配置，`configs/workspace_actors.yaml` 已为 `claude_code` 登记准入
 - **会话**：支持新建、恢复、重命名与删除；Alice 按模型预算自动精简旧工具结果并生成接力摘要，原始对话完整保留，可查看摘要与压缩边界；有输出的取消与失败轮次保留结局。会话与检查点仅在后端进程内保存，重启后消失；Topic 独立作为记忆材料。
 - **系统指令**：Gateway 只解析命令，识别为命令的消息以命令终态结束、不进入普通对话；当前版本不执行内置命令。
 
@@ -122,8 +123,7 @@ HiveMemory 提供一套进程内协议，让 Worker Agent 可以在生成过程�
 | `/api/v1/chat/stop` | POST | 停止运行中的任务进程 |
 | `/api/v1/sessions` | GET / POST | 列出 / 新建会话 |
 | `/api/v1/sessions/{session_id}` | GET / PATCH / DELETE | 读取全量历史 / 重命名 / 删除会话 |
-| `/api/v1/ingest` | POST | 被动消息摄入 |
-| `/api/v1/ingest/flush` | POST | 显式封口被动会话 |
+| `/api/v1/import/turns` | POST | 导入外部 harness 一轮已结束的交互（Import Bus） |
 | `/api/v1/memories` | GET / POST | 语义搜索或列出记忆 / 创建记忆 |
 | `/api/v1/memories/{memory_id}` | GET / PATCH / DELETE | 读取 / 编辑 / 删除单条记忆 |
 | `/api/v1/memories/{memory_id}/feedback` | POST | 提交记忆反馈 |
@@ -273,7 +273,7 @@ HiveMemory 当前采用“环境变量 + YAML”分层配置：
 
 - `system`、`logging`、`scheduler`、`runtime_events` 与 `i18n`
 - `shared`：Gateway/Librarian LLM 引用、Embedding 与 Provider 默认值
-- `gateway`、`passive_ingress` 与 `memory_compiler`
+- `gateway`、`import_bus` 与 `memory_compiler`
 - `patchouli`：storage、perception、generation、retrieval、lifecycle 与 artifacts
 - `alice`：Agent Runtime 与 Koakuma
 
@@ -293,9 +293,9 @@ HiveMemory 当前采用“环境变量 + YAML”分层配置：
 它提供两种主要接入方式：
 
 - `process_service.register_process()` 与 `run_process()`：主动模式。先由注册入口完成认证并登记任务进程，取得进程句柄；再以 `run_process()`（默认 `stream=True` 流式，`stream=False` 非流式）运行，由 `TaskProcessService` 协调 Gateway 分析、Patchouli 记忆准备、Alice Agent 执行与 Patchouli 后处理
-- `ingress_service.ingest_event()` / `flush_conversation()`：被动模式，适合接入 Discord Bot、微信机器人或其他外部框架
+- `import_bus_service.import_turn()`：Import Bus，导入外部 harness 一轮已结束交互的完整记录；调用方需先经统一认证网关取得请求级访问 context（HTTP 入口 `POST /api/v1/import/turns` 已完成这一步）
 
-如果你只需要 HTTP 接口，可直接使用 FastAPI 服务；如果你要把 HiveMemory 嵌入已有 Agent 框架，通常从 passive ingest 模式开始会更自然。
+如果你只需要 HTTP 接口，可直接使用 FastAPI 服务；如果你要让已有 Agent harness 的交互沉淀为 HiveMemory 的记忆，通常从 `POST /api/v1/import/turns` 开始更自然，Claude Code 连接器插件（`integrations/claude-code/`）是现成的接入实现。
 
 ## 项目结构
 
@@ -305,6 +305,7 @@ HiveMemory/
 ├── docker/                  # Docker 一键部署（后端应用 + Qdrant）
 ├── docs/                    # 项目设计与规划文档
 ├── frontend/                # React + Vite 前端开发界面
+├── integrations/            # 外部 harness 连接器（Claude Code 插件与本地 marketplace）
 ├── scripts/                 # 启动与辅助脚本
 ├── src/hivememory/
 │   ├── core/                # 核心数据模型、契约常量、访问值类型与端口协议
@@ -317,7 +318,7 @@ HiveMemory/
 │   ├── patchouli/           # Patchouli 记忆子系统与运行时
 │   ├── alice/               # Alice Agent 执行子系统
 │   ├── agent_runtime/       # 单 Agent 执行层与 Koakuma MTP/工具 runtime
-│   ├── system/              # 组合根、门面、注册表与被动摄入
+│   ├── system/              # 组合根、门面、注册表与 Import Bus
 │   ├── prompts/             # System prompts 与 prompt 组装
 │   └── server/              # FastAPI 服务入口与路由
 └── tests/                   # 单元测试、集成测试、端到端测试

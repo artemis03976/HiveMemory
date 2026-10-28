@@ -4,7 +4,7 @@ status: governance
 owner: system
 scope: cross-subsystem-idempotency-retry-and-ambiguous-failure
 code_paths:
-  - src/hivememory/system/services/passive/
+  - src/hivememory/system/services/import_bus/
   - src/hivememory/patchouli/control/
   - src/hivememory/patchouli/services/
   - src/hivememory/patchouli/memory_library/
@@ -17,12 +17,12 @@ related_docs:
   - docs/workspace/README.md
   - docs/contracts/subsystem-contracts.md
   - docs/patchouli/artifacts.md
-last_reviewed: 2026-10-13
+last_reviewed: 2026-10-21
 ---
 
 # 跨子系统幂等性与重试治理
 
-HiveMemory 的后台任务、Artifact、MemoryAtom、Passive Ingress、PendingAtom 和生命周期状态转移都可能遇到“请求方不知道上一次是否成功”的情况。但这不意味着每一步都必须拥有 dedup、retry、终态记录和持久化恢复：如果把所有内部步骤和后置副作用都提升为可重放任务，控制代码会超过当前产品场景真正需要的可靠性。
+HiveMemory 的后台任务、Artifact、MemoryAtom、Import Bus、PendingAtom 和生命周期状态转移都可能遇到“请求方不知道上一次是否成功”的情况。但这不意味着每一步都必须拥有 dedup、retry、终态记录和持久化恢复：如果把所有内部步骤和后置副作用都提升为可重放任务，控制代码会超过当前产品场景真正需要的可靠性。
 
 本文统一定义跨边界的幂等性语言、可靠性分级和验证方式；它不承诺 exactly-once，也不把所有重复事件当作错误。幂等性优先用于会创建或结算业务事实的**接纳边界**；可重建投影从权威事实重新派生；统计和可观测信号采用 best-effort。只有被明确列为可恢复业务操作的入口，才要求 at-least-once delivery 下安全重放。具体工作只有在绑定版本、依赖和验收出口后才从本文提取为独立 Plan。
 
@@ -30,8 +30,8 @@ HiveMemory 的后台任务、Artifact、MemoryAtom、Passive Ingress、PendingAt
 
 | 操作 | 当前已有基础 | 当前缺口 |
 |:---|:---|:---|
-| Passive ingress | `source + external_event_id` 进程内去重，重复事件可忽略 | dedup 记录不耐久；重启后可能再次接受；submit apply 的跨进程幂等仍需定义 |
-| Interaction submission | Active/Passive 共享 apply、ordering key 与有限 retry；明确瞬态异常复用同一 `interaction_id`；apply journal 按 Workspace、interaction 与目标 Topic 判断重放或冲突 | retry 结果与跨重启 operation record 仍未耐久化；模糊失败 reconciliation 尚未完成 |
+| Import Bus | 同一轮重发得到同一 `interaction_id`（由认证通过的 principal、user、Agent 与 `source`、外部会话、外部轮次推导）；同一外部会话串行处理；经 Patchouli 交互状态查询判重：已应用返回 duplicate，仍在应用只继续等待，应用失败后重新路由并以同一标识再次提交；应用完成后才确认 | 判重依赖提交队列的进程内记录，终态记录与旁路索引都有保留上限；接纳之后、确认送达之前服务重启，或超出保留窗口后重发，会形成重复交互 |
+| Interaction submission | 主动链路与 Import Bus 共享 apply、ordering key 与有限 retry；明确瞬态异常复用同一 `interaction_id`；应用失败（终态未成功）的交互允许以同一 `interaction_id` 重新提交新 payload，以递增尝试号区分工作项，等待中与已成功的仍按原规则幂等；apply journal 按 Workspace、interaction 与目标 Topic 判断重放或冲突 | retry 结果与跨重启 operation record 仍未耐久化；模糊失败 reconciliation 尚未完成 |
 | Memory generation | TaskController 只写一次终态，lane 固定单次 attempt | 任务失败后的部分副作用仍可能无法确认；task id 是运行句柄，不自动等同业务幂等键 |
 | PendingAtom settlement | workspace `WriteIntentRegistry` 按 alias/intent_id 校验；登记生成唯一 intent_id，生成侧以 `active:{intent_id}` 幂等；同步拒绝与结算通知幂等，终态不再被后续通知重写 | registry 进程内，resolution 与重复 settlement 缺少耐久唯一约束、跨重启 replay 和通知未送达对账 |
 | Artifact | 随机 artifact id、hash 校验和 ref | `put()` 没有 compare-and-set，调用方仍需保证 id 一次性；artifact 写入和 atom upsert 不原子 |
@@ -43,7 +43,7 @@ HiveMemory 的后台任务、Artifact、MemoryAtom、Passive Ingress、PendingAt
 
 canonical 变更失效只清除派生缓存并推进 Workspace 代次，不回放资源值；重复或失败提交的通知可以保守多失效，当前不自动重试未送达事件。它不创建幂等操作记录，也不能证明写入完成，具体边界见[MemoryLibrary](../../patchouli/memory-library.md)。
 
-当前唯一较完整的例子是 Passive ingress 的 external event dedup。它不能被直接推广为所有业务的“全局去重表”：不同操作的重复输入可能代表重试、同一意图的新版本、合法的再次引用或必须拒绝的冲突。
+当前较完整的例子是 Import Bus 的轮次判重：外部标识推导稳定的 `interaction_id`，判重与重交都以 Patchouli 提交队列的状态为准，而不是另建一张去重表。它同样不能被直接推广为所有业务的“全局去重表”：不同操作的重复输入可能代表重试、同一意图的新版本、合法的再次引用或必须拒绝的冲突。
 
 ## 2. 术语与基本原则
 
@@ -83,13 +83,13 @@ at-least-once delivery
 
 幂等 key 需要根据业务包含 user、team、workspace、topic、memory、ordering key 或 source scope。这里的作用域由业务操作定义：操作 scope 只到公开资源边界，后台 payload 独立保存归属与发起者；共享 Work Queue、registry 和 cache 不因携带这些字段就自动按 Workspace 分区。一个全局短字符串可能把两个用户的合法操作错误合并；把随机 task id 当作幂等 key 又无法识别重试。
 
-Interaction apply 的 canonical 摘要使用 `belong_to` 与交互事实，actor 已在 turn 中。摘要排除随机 turn/block 标识与 block 创建、binding 绑定时点，使等价重试得到相同摘要，不同 Workspace 得到不同摘要。代码与回归见 [apply journal](../../../src/hivememory/patchouli/control/interaction_apply_journal.py) 和 [摘要测试](../../../tests/unit/patchouli/control/test_interaction_apply_journal.py)。Interaction Submission codec 为 v4，Memory Generation codec 的 `schema_version` 为字符串 `"1.1"`；旧 codec 不注册，旧版本解码显式拒绝。当前 Store 只有 `InMemoryWorkStore`，重启后无旧队列 payload，故此轮不提供旧载荷读升级；这不扩大跨重启恢复承诺。
+Interaction apply 的 canonical 摘要使用 `belong_to` 与交互事实，actor 已在 turn 中。摘要排除随机 turn/block 标识与 block 创建、binding 绑定时点，使等价重试得到相同摘要，不同 Workspace 得到不同摘要。代码与回归见 [apply journal](../../../src/hivememory/patchouli/control/interaction_apply_journal.py) 和 [摘要测试](../../../tests/unit/patchouli/control/test_interaction_apply_journal.py)。Interaction Submission codec 为 v6，Memory Generation codec 的 `schema_version` 为字符串 `"1.1"`；旧 codec 不注册，旧版本解码显式拒绝。当前 Store 只有 `InMemoryWorkStore`，重启后无旧队列 payload，故此轮不提供旧载荷读升级；这不扩大跨重启恢复承诺。
 
 ## 3. 初步幂等键目录
 
 | 业务操作 | 候选稳定 key | 重复语义 |
 |:---|:---|:---|
-| Passive external event | `source + external_event_id` | 返回 duplicate ignored，不重复追加 turn |
+| Import Bus 外部轮次 | 由 principal、actor、`source`、外部会话与外部轮次推导的 `interaction_id` | 已应用返回 duplicate，不再路由与提交；应用失败的轮次重新路由后以同一标识再次提交 |
 | Interaction apply | 当前 journal 以 `interaction_id` 索引；记录同时校验 `target_topic_id` 与包含 `belong_to` 的 canonical 摘要 | 等价重放返回已应用结果，不重复创建 block；目标或事实摘要冲突显式拒绝，不把跨 Workspace 输入合并为等价重试 |
 | Memory generation | `generation_intent_id` / `pending intent_id` + schema version | 返回原 task/settlement，不能重复 CREATE/UPDATE |
 | PendingAtom settlement | `intent_id + settlement_version` | 第一次终态胜出，后续同结果 no-op，冲突终态显式拒绝 |
@@ -106,7 +106,7 @@ Interaction apply 的 canonical 摘要使用 `belong_to` 与交互事实，actor
 
 ### 4.1 Producer 负责稳定身份，Consumer 负责安全副作用
 
-对于被列为可恢复业务操作的入口，Producer 生成 operation id 和幂等 key，Consumer 在自己的状态所有权内再次检查。不能只在 Gateway 或 Passive 入口去重，然后假设 Patchouli、Artifact 或 Qdrant 永远不会收到重复调用。best-effort 信号不套用这一要求，也不得仅为统一形式而增加空转的 operation record。
+对于被列为可恢复业务操作的入口，Producer 生成 operation id 和幂等 key，Consumer 在自己的状态所有权内再次检查。不能只在 Gateway 或 Import Bus 入口去重，然后假设 Patchouli、Artifact 或 Qdrant 永远不会收到重复调用。best-effort 信号不套用这一要求，也不得仅为统一形式而增加空转的 operation record。
 
 ### 4.2 Key 记录与副作用尽量同一事务
 
@@ -128,7 +128,7 @@ reconciliation，而不是无限重试。LLM client 在单次 generation attempt
 
 ### Phase I0：业务操作清单
 
-1. 枚举 Gateway、Passive、Alice、Patchouli、Artifact、Lifecycle 和 Server 的可重试入口；
+1. 枚举 Gateway、Import Bus、Alice、Patchouli、Artifact、Lifecycle 和 Server 的可重试入口；
 2. 为每个入口记录 operation identity、作用域、业务副作用、重复结果、并发冲突和模糊失败策略；
 3. 标记当前已经满足、只在进程内满足和完全缺失的 key；
 4. 明确哪些 API 的 accepted/completed 语言必须先修改。
@@ -157,7 +157,7 @@ reconciliation，而不是无限重试。LLM client 在单次 generation attempt
 ## 6. 治理成熟度目标
 
 - 每个明确列为可恢复的业务入口都有稳定 operation identity、作用域和 schema version；
-- Passive、Interaction、Memory Generation、PendingAtom、Artifact、MemoryAtom update 和 archive/revive 的重复语义均有测试；
+- Import Bus、Interaction、Memory Generation、PendingAtom、Artifact、MemoryAtom update 和 archive/revive 的重复语义均有测试；
 - 同一幂等 key 的重试不会创建重复 MemoryAtom、Artifact、settlement 或 archive copy；
 - 不同版本或不同身份的合法操作不会被错误 dedup；
 - 模糊失败会进入可查询的 retry/reconciliation/unknown 状态，不能直接伪装成普通 failed；

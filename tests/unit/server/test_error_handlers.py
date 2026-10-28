@@ -40,6 +40,7 @@ from hivememory.patchouli.contracts.errors import TopicBusyError, TopicSettleAdm
 from hivememory.server.error_handlers import install_error_handlers, project_error
 from hivememory.system.model_registry import DuplicateModelIdError
 from hivememory.system.provider_registry import ProviderNotFoundError
+from hivememory.system.services.import_bus import ImportBusUnavailableError
 from hivememory.workspace.contracts.errors import (
     SessionBusyError,
     SessionCapacityError,
@@ -110,6 +111,9 @@ def test_domain_errors_keep_http_categories_without_diagnostics(error_type, stat
             "authentication_gateway_closed",
         ),
         (AssetOperationConflictError(details={"reason": "store_closed"}), 503, "store_closed"),
+        (ImportBusUnavailableError(reason="gateway_unavailable"), 503, "gateway_unavailable"),
+        (ImportBusUnavailableError(reason="queue_unavailable"), 503, "queue_unavailable"),
+        (ImportBusUnavailableError(reason="shutting_down"), 503, "shutting_down"),
         (ScopeRequiredError(details={"reason": "actor_not_admitted"}), 500, "actor_not_admitted"),
         (
             OperationDeniedError(details={"reason": "target_workspace_not_resident"}),
@@ -121,6 +125,7 @@ def test_domain_errors_keep_http_categories_without_diagnostics(error_type, stat
             403,
             "target_owner_mismatch",
         ),
+        (OperationDeniedError(details={"reason": "agent_required"}), 403, "agent_required"),
         (OperationDeniedError(details={"reason": "secret-token"}), 403, None),
     ],
 )

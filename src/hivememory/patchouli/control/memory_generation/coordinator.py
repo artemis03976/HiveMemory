@@ -7,6 +7,7 @@ import logging
 from collections.abc import Sequence
 from uuid import UUID
 
+from hivememory.config.patchouli import GenerationTranscriptConfig
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     LogicalBlock,
@@ -44,6 +45,7 @@ class MemoryGenerationCoordinator:
         bus: PatchouliBus,
         recent_block_limit: int,
         pending_atom_settler: PendingAtomSettler | None = None,
+        transcript_config: GenerationTranscriptConfig | None = None,
     ) -> None:
         if recent_block_limit < 0:
             raise ValueError("recent_block_limit 不能为负数")
@@ -51,7 +53,8 @@ class MemoryGenerationCoordinator:
         # 主动生成只取话题最近的若干个 block 作为材料（含 state_summary）。
         self._recent_block_limit = recent_block_limit
         self._pending_atom_settler = pending_atom_settler or PendingAtomSettler(bus)
-        self._transcript_builder = GenerationTranscriptBuilder()
+        # 生成材料的动作段按配置的上限截断，感知的 token 统计使用同一组上限。
+        self._transcript_builder = GenerationTranscriptBuilder(transcript_config)
 
     async def submit_settlement(self, payload: TopicMaterializeTask) -> MemoryGenerationTask | None:
         """将话题结算转为 SETTLE 任务，统一以归属对应的 system 为发起者。"""

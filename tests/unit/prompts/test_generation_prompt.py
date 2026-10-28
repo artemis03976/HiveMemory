@@ -1,3 +1,5 @@
+import pytest
+
 from hivememory.i18n import get_generation_prompt_text
 
 
@@ -39,3 +41,17 @@ def test_generation_prompt_getter_supports_language_alias():
 
     assert "Target Memory" in prompt
     assert "{memory_title}" in prompt
+
+
+@pytest.mark.parametrize("language", ["zh", "en"])
+@pytest.mark.parametrize("mode", ["passive", "write", "update"])
+def test_generation_prompts_explain_action_section_and_forbid_credentials(mode, language):
+    """转写带有思考与外部工具动作的提示词，必须说明动作段的含义与凭据约束。"""
+    prompt = get_generation_prompt_text(mode, "system_prompt", language)
+    credential_rule = {"zh": "不要把密钥、令牌", "en": "Never write credentials"}[language]
+
+    assert "THOUGHT" in prompt
+    assert "TOOL / RESULT" in prompt
+    assert "chars omitted" in prompt
+    assert "OMITTED" in prompt
+    assert credential_rule in prompt

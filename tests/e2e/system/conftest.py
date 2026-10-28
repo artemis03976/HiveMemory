@@ -160,6 +160,8 @@ class PatchouliChatStack:
     vector_store: _VectorStore
     events: RecordingRuntimeEventSink
     extractor: _Extractor
+    # 交互提交队列：导入验收据此等待已接纳的交互应用完成，不靠固定等待。
+    interaction_queue: InteractionSubmissionQueue
 
 
 @pytest_asyncio.fixture
@@ -272,7 +274,15 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
     await queue.start()
     try:
         yield PatchouliChatStack(
-            global_bus, short_term, mid_term, controller, lifecycle, vector_store, events, extractor
+            global_bus,
+            short_term,
+            mid_term,
+            controller,
+            lifecycle,
+            vector_store,
+            events,
+            extractor,
+            queue,
         )
     finally:
         await chat_service.drain_active_finalizations()

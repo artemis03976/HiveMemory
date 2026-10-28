@@ -140,6 +140,11 @@ def test_stage_authorization_is_only_called_by_task_processes():
     }
 
 
+def test_import_authorization_is_only_called_by_import_bus():
+    """导入授权不检查 actor 操作白名单，只能供 Import Bus 提交已发生的交互。"""
+    assert _private_call_sites("authorize_import") == {"system/application/import_bus_service.py"}
+
+
 def test_stage_operation_snapshot_is_only_read_by_task_process():
     """操作快照只在线程表派生线程时读取，不能成为 actor API 或 CPU 的授权旁路。"""
     assert _private_call_sites("get_stage_operations") == {"workspace/process/threads.py"}
@@ -380,9 +385,13 @@ def test_intent_dispatch_uses_only_public_submission_path():
 
 
 def test_capability_and_process_entries_take_identity_only_through_access():
-    """能力层与任务进程的公共方法不接收调用方组装的 IdentityScope；显式目标必须配对访问 context。"""
+    """能力层、任务进程与 Import Bus 的公共方法不接收调用方组装的 IdentityScope。
+
+    显式目标 workspace 必须与访问 context 配对出现。
+    """
     import inspect
 
+    from hivememory.system.application.import_bus_service import ImportBusService
     from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
     from hivememory.workspace.capability.actor.memory import ActorMemoryService
     from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
@@ -395,6 +404,7 @@ def test_capability_and_process_entries_take_identity_only_through_access():
 
     violations = []
     for service in (
+        ImportBusService,
         ActorAgentService,
         ActorMemoryService,
         RootAgentProfileService,

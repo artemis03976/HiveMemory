@@ -24,7 +24,7 @@ related_docs:
   - docs/architecture/data-model.md
   - docs/system/composition.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-21
 ---
 
 # Workspace
@@ -63,9 +63,9 @@ Workspace 的架构意义是一个稳定的资源归属与访问边界，而不�
 
 ```mermaid
 flowchart TB
-    IN["HTTP / Passive ingress / 内部测试入口"]
+    IN["HTTP（chat / 管理 / 导入）/ 内部测试入口"]
     SCOPE["IdentityScope\nActor + Workspace"]
-    APP["门面提供的服务\nroot API / 任务进程编排 / 被动摄入"]
+    APP["门面提供的服务\nroot API / 任务进程编排 / Import Bus"]
     ENTRY["操作入口\nactor API"]
     BUS["GlobalSystemBus"]
     GW["Gateway\n入口决策"]
@@ -110,7 +110,7 @@ workspace 不负责：
 - 调用来源的接入登记与 Principal authentication：属于 System，经 `core.access.PrincipalAuthenticator` 端口注入；
 - Agent loop、MTP 解释与 CALL 编排：属于 Alice，workspace 只经 CPU 端口调用执行者；
 - 入口分析：Gateway 只产生 `GatewayDecision`；
-- 被动摄入：属于 System 的 `PassiveIngressService`。
+- 外部交互的导入：属于 System 的 Import Bus 服务（[Import Bus](../system/import-bus.md)）；workspace 只提供它调用的导入授权（[身份与授权](./identity-and-authorization.md#4-操作授权)），不为导入创建任务进程。
 
 ## 4. 包结构与依赖规则
 
@@ -130,13 +130,13 @@ workspace 不负责：
 
 ### 5.1 启动
 
-System 的启动顺序为 `Gateway -> Patchouli -> Alice -> Scheduler -> Passive Ingress`。workspace 没有单独的启动步骤：认证网关、能力层、读取视图、会话服务、进程表与 WorkspaceAssetStore 都在装配阶段创建，不按 Workspace 复制或启动，可用性由 System 生命周期承载。
+System 的启动顺序为 `Gateway -> Patchouli -> Alice -> Scheduler`；Import Bus 没有启动步骤，也不向调度器登记维护任务。workspace 没有单独的启动步骤：认证网关、能力层、读取视图、会话服务、进程表与 WorkspaceAssetStore 都在装配阶段创建，不按 Workspace 复制或启动，可用性由 System 生命周期承载。
 
 ### 5.2 停止
 
 停止顺序的逐步列表只由 [System 组合根](../system/composition.md#3-停止顺序)维护；本节说明其中与 workspace 相关的约束。
 
-认证网关最先关闭，此后不再签发新的访问 context，已签发的 context 照常可用，使在途请求与任务进程能完成各自的授权；全部已签发 context 在最后一步撤销。先停调度器和被动入口，避免 shutdown 期间继续接纳新的维护或摄入；任务进程全部关闭后才清空会话，会话认领随进程关闭释放（[任务进程](./task-process.md#13-关闭与系统停止)）。Alice 卸载运行入口、Patchouli 完成已接纳工作的 drain 后，先解除 workspace 的 canonical 变更与意图结算订阅、关闭读取视图（停止新读、清理派生缓存，不触碰 canonical 数据），再清空 WorkspaceAssetStore（[WorkspaceAsset](./assets.md#5-关闭与失败边界)）。`close_and_clear()` 幂等，重复 stop 不会重新打开或恢复任何状态。Patchouli 内部的 drain 顺序见[System 组合根与生命周期](../system/composition.md)。
+认证网关最先关闭，此后不再签发新的访问 context，已签发的 context 照常可用，使在途请求与任务进程能完成各自的授权；全部已签发 context 在最后一步撤销。网关关闭后新的导入请求即以 503 拒绝；随后先停调度器，再等待在途导入结束（含其等待应用的时间，不排空提交队列，队列由 Patchouli 停止时排空），避免 shutdown 期间继续接纳新的维护或导入；任务进程全部关闭后才清空会话，会话认领随进程关闭释放（[任务进程](./task-process.md#13-关闭与系统停止)）。Alice 卸载运行入口、Patchouli 完成已接纳工作的 drain 后，先解除 workspace 的 canonical 变更与意图结算订阅、关闭读取视图（停止新读、清理派生缓存，不触碰 canonical 数据），再清空 WorkspaceAssetStore（[WorkspaceAsset](./assets.md#5-关闭与失败边界)）。`close_and_clear()` 幂等，重复 stop 不会重新打开或恢复任何状态。Patchouli 内部的 drain 顺序见[System 组合根与生命周期](../system/composition.md)。
 
 ## 6. 当前设计文档
 

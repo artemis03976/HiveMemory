@@ -33,6 +33,19 @@ class TopicBusyError(DomainError):
     code = "patchouli.topic.busy"
 
 
+class InteractionAdmissionUnavailableError(DomainError):
+    """交互提交暂未被摄入队列接纳：容量已满或队列已停止。
+
+    属于可重试的拥塞：队列没有接管这次提交，调用方以同一 interaction_id
+    稍后重发即可，不会形成重复交互。
+    """
+
+    code = "patchouli.interaction.admission_unavailable"
+
+    def __init__(self, *, reason: Literal["capacity_rejected", "queue_stopped"]) -> None:
+        super().__init__(details={"reason": reason})
+
+
 ActiveFinalizationStage = Literal[
     "interaction_admission",
     "interaction_apply",

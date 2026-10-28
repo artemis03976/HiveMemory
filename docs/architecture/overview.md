@@ -10,6 +10,8 @@ code_paths:
   - src/hivememory/config/
   - src/hivememory/workspace/
   - src/hivememory/workspace/process/
+  - src/hivememory/system/application/import_bus_service.py
+  - src/hivememory/system/services/import_bus/
   - src/hivememory/gateway/system.py
   - src/hivememory/patchouli/system.py
   - src/hivememory/alice/system.py
@@ -19,9 +21,10 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/architecture/boundaries.md
+  - docs/system/import-bus.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-21
 ---
 
 # HiveMemory 当前系统架构
@@ -44,9 +47,9 @@ HiveMemory 因而保留了原项目“双系统”的核心思想：热路径负
 
 ### 1.3 统一入口与领域自治
 
-主动对话、被动摄入和系统指令都需要理解“这条输入要去哪里”，但入口判断本身不应取得记忆或执行的所有权。Gateway 因此独立为系统级守门人：它形成决策，却不执行检索、不生成回答，也不写入记忆。
+主动对话、外部交互导入和系统指令都需要理解“这条输入要去哪里”，但入口判断本身不应取得记忆或执行的所有权。Gateway 因此独立为系统级守门人：它形成决策，却不执行检索、不生成回答，也不写入记忆。
 
-应用层用例再把 Gateway 的入口决策、Patchouli 的记忆事务和 Alice 的执行能力编排为完整用例（chat 任务进程的进程表与编排位于 `workspace.process`，被动摄入位于 System）。这样既保持统一入口，又避免 Gateway 演变成新的 God Object。
+应用层用例再把 Gateway 的入口决策、Patchouli 的记忆事务和 Alice 的执行能力编排为完整用例（chat 任务进程的进程表与编排位于 `workspace.process`，Import Bus 位于 System）。这样既保持统一入口，又避免 Gateway 演变成新的 God Object。
 
 ## 2. 当前基线
 
@@ -91,14 +94,14 @@ flowchart TB
     CHAT --> CPU["CPUPort（workspace.contracts）"]
     CPU --> AL["AliceSystem / AliceCPU"]
 
-    FACADE --> PI["Passive Ingress（System）"]
-    PI --> BUS
+    FACADE --> IB["Import Bus（System）"]
+    IB --> BUS
 
     PA --> STORE["MemoryLibrary / Storage / Artifacts"]
     AL --> AR["AgentRuntime / KoakumaRuntime"]
 
     OBS["RuntimeEventBus"] -. "best-effort observability" .-> CHAT
-    OBS -.-> PI
+    OBS -.-> IB
     OBS -.-> GW
     OBS -.-> PA
     OBS -.-> AL
@@ -113,7 +116,7 @@ System 层拥有：
 - 根配置加载（`config.app`），并把各配置段注入对应组件；
 - `GlobalSystemBus`、可选 `RuntimeEventBus` 和全局维护调度器等共享设施实例的装配与关闭（机制实现在 `components`）；
 - Provider / Model 注册表，以及调用来源接入登记与 Principal authentication；
-- 被动摄入与就绪检查。
+- Import Bus（外部 harness 交互导入）与就绪检查。
 
 资源能力（能力层、认证入口与准入、读取视图、WorkspaceAsset）与任务进程表及 chat 任务进程编排属于 workspace（`workspace.process`）。System 更像舞台管理者：它知道谁应先出场、关闭时谁先收尾，也持有全局时钟和观测设施；但它不替任何角色完成领域工作。System 不实现 Gateway 分析、记忆域算法或 Agent 执行循环，否则顶层编排很快会重新变成无法测试和替换的总管对象。
 
@@ -213,39 +216,45 @@ TaskProcessService（workspace.process）
 5. prepare 成功但 finalize 未成功时，任务进程请求 Patchouli cleanup，清理可能预创建的空话题；附件租借无论结局如何都在进程结束时释放；
 6. 任务进程封口交互记录（用 core 的归约器从结构化 `turn_events` 得到 MTP trace），finalize 原样提交 interaction，并记录检索命中；WRITE/UPDATE 已在 actor 操作内独立派发。
 
-## 6. 被动摄入：让外部经历进入记忆，而不是伪造一次对话
+## 6. Import Bus：让外部经历进入记忆，而不是伪造一次对话
 
-Passive Ingress 属于 System 应用层，而不是 Patchouli 或 Alice 的替代 chat 入口。它解决的是“如何把其他 harness 已经发生的经历带入 HiveMemory”，而不是要求系统重新扮演一次对话参与者。
+Import Bus 属于 System 应用层，而不是 Patchouli 或 Alice 的替代 chat 入口。它解决的是“如何把其他 harness 已经发生的经历带入 HiveMemory”，而不是要求系统重新扮演一次对话参与者。外部 harness 在一轮交互结束后提交这一轮的完整记录（用户消息、回复、思考、外部工具的调用与结果、结局，以及只供落位参考的最近几轮）；当前的接入方是仓库中的 Claude Code 连接器插件（`integrations/claude-code/`）。
 
 ```text
-POST /api/v1/ingest
-  -> PassiveIngressService
-  -> Gateway PROCESS (PASSIVE_MEMORY)
-  -> 可选记忆上下文准备
-  -> 按外部会话键缓冲并封口 turn
-  -> InteractionSubmissionQueue
-  -> PerceptionFamiliar.apply_interaction
+POST /api/v1/import/turns
+  -> 统一认证网关：以 (user, 具体 Agent) 声明取得请求级 context
+  -> ImportBusService：导入授权（准入与目标，不检查 actor 操作白名单）
+  -> ImportBusIngestor：按 (user, Agent, source, 外部会话) 串行
+     -> 推导 interaction_id，经 Patchouli interaction.status 查询进度
+     -> Gateway PROCESS (PASSIVE_MEMORY)：只取话题落位与价值信号
+     -> core 共用封口函数 seal_interaction
+     -> Patchouli interaction.submit（感知队列接纳）
+     -> Patchouli interaction.wait：等待感知应用完成
+  -> accepted / duplicate / skipped
 ```
 
-因此，被动模式刻意保持较窄的能力面：
+因此，Import Bus 刻意保持较窄的能力面：
 
+- 只向记忆网络输入：不检索记忆，也不向调用方返回记忆上下文；Gateway 决定中的检索计划被忽略；
 - 禁止系统指令分支；形如 `/clear` 的文本仍按普通外部消息处理；
-- 可以请求 Gateway 决策与记忆上下文；
-- 不运行 Alice，不生成面向用户的回复；
-- 不执行 MTP 或全局命令；
-- 通过去重、顺序控制和共享 Work Queue 的 admission/retry 保护外部事件摄入；Passive Ingress 不维护第二个 outbox。
+- 不运行 Alice，不生成面向用户的回复，不执行 MTP 或全局命令；
+- 与主动链路同样在认证之后由授权点组装 `IdentityScope`；导入授权不检查 actor 操作白名单，因为导入提交的是已经发生的交互，不调用任何 actor 操作；
+- 交互记录与任务进程使用同一个封口函数，经 Patchouli 公开提交路由进入同一条感知队列；
+- 应用完成后才确认：同一轮重发得到同一 `interaction_id`，已应用返回 duplicate；等待超时以 503 交回、重发时继续等待，应用失败以 500 交回、重发时重新路由并以同一标识再次提交。Import Bus 不持有提交队列，不维护第二个 outbox，也不注册维护任务。
+
+链路、失败分类与关闭语义见 [Import Bus](../system/import-bus.md)。
 
 ## 7. 生命周期顺序与设计理由
 
 启动顺序：
 
 ```text
-Gateway -> Patchouli -> Alice -> Scheduler -> Passive Ingress
+Gateway -> Patchouli -> Alice -> Scheduler
 ```
 
-启动时先让入口决策可用，再挂载记忆和执行能力，最后接受后台维护与外部摄入。
+启动时先让入口决策可用，再挂载记忆和执行能力，最后接受后台维护。Import Bus 没有启动步骤：它只在请求到来时经认证网关工作。
 
-停止顺序的逐步列表与各步约束只由 [System 组合根](../system/composition.md#3-停止顺序)维护，这里只说明它遵循的原则：先拒绝新的认证、维护与外部事件，排空仍可安全提交的消息；再关闭在途任务进程并清空会话，随后撤销执行、记忆和入口能力；最后关闭 workspace 读取视图（停止新读并清理派生缓存，不触碰 canonical 数据）、清空进程级 WorkspaceAssetStore，并撤销全部已签发的访问 context。这个顺序避免系统在半关闭状态继续创建需要下游处理的新工作，并保持当前 settlement ref 交接约定在 Patchouli drain 期间仍有可用的 Store。
+停止顺序的逐步列表与各步约束只由 [System 组合根](../system/composition.md#3-停止顺序)维护，这里只说明它遵循的原则：先拒绝新的认证与维护，等待在途导入完成（提交队列此时仍在运行，已提交的轮次能得到确认）；再关闭在途任务进程并清空会话，随后撤销执行、记忆和入口能力；最后关闭 workspace 读取视图（停止新读并清理派生缓存，不触碰 canonical 数据）、清空进程级 WorkspaceAssetStore，并撤销全部已签发的访问 context。这个顺序避免系统在半关闭状态继续创建需要下游处理的新工作，并保持当前 settlement ref 交接约定在 Patchouli drain 期间仍有可用的 Store。
 
 ## 8. 当前不变量
 
@@ -256,7 +265,7 @@ Gateway -> Patchouli -> Alice -> Scheduler -> Passive Ingress
 - 跨子系统业务调用依赖公开契约：任务进程调用 CPU 对象端口，执行者提交 workspace 操作请求，其他子系统业务调用使用 `GlobalSystemBus` 公开路由；
 - local bus 路由不得成为其他子系统的隐式 API；
 - Gateway 命令结果与普通决策互斥；
-- Passive Memory 不得产生命令结果；
+- `PASSIVE_MEMORY` 模式不得产生命令结果；Import Bus 不检索记忆、不返回记忆上下文，只在交互应用完成后确认；
 - Alice 不直接请求 Patchouli，也不持有其 Runtime / Service；MTP 经 workspace 的公共操作入口访问记忆能力；
 - 观测事件是旁路信息，不参与业务正确性判断；
 - 当前实现是单进程异步架构，不承诺分布式投递语义。
@@ -289,7 +298,7 @@ Gateway -> Patchouli -> Alice -> Scheduler -> Passive Ingress
 - 组合与生命周期：`src/hivememory/system/assembler.py`、`src/hivememory/system/system.py`；
 - 包分层：`tests/unit/architecture/test_package_layers.py`；
 - 主动链路：`src/hivememory/workspace/process/`；
-- 被动链路：`src/hivememory/system/application/passive_ingress_service.py`、`src/hivememory/system/services/passive/`；
+- Import Bus：`src/hivememory/server/routers/import_bus.py`、`src/hivememory/system/application/import_bus_service.py`、`src/hivememory/system/services/import_bus/`，连接器插件 `integrations/claude-code/`；
 - 子系统宿主：`src/hivememory/{gateway,patchouli,alice}/system.py`；
 - 主要测试：`tests/unit/system/`、`tests/unit/gateway/`、`tests/e2e/pipeline/`。
 

@@ -11,6 +11,9 @@ code_paths:
   - src/hivememory/alice/interface/cpu.py
   - src/hivememory/alice/interface/output.py
   - src/hivememory/server/routers/chat.py
+  - src/hivememory/server/routers/import_bus.py
+  - src/hivememory/server/models/import_bus.py
+  - src/hivememory/system/services/import_bus/events.py
   - src/hivememory/core/contracts/events.py
   - src/hivememory/core/contracts/runtime_events.py
   - src/hivememory/components/bus/
@@ -20,12 +23,13 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-19
+  - docs/system/import-bus.md
+last_reviewed: 2026-10-21
 ---
 
 # 公开路由与事件
 
-本文是进程内跨子系统路由名、事件名和投递语义的规范入口；第 6 节同时固化共享身份交接、会话管理与 Chat SSE 契约。
+本文是进程内跨子系统路由名、事件名和投递语义的规范入口；第 6 节同时固化共享身份交接、会话管理、Chat SSE 与导入入口的 HTTP 契约。
 
 全局总线的目标是解除对象图耦合：Gateway 与 workspace 可以请求 Patchouli 的公共能力，却不需要持有它的 Runtime、Service 或存储对象。它不是为了把单体进程伪装成分布式系统，也不提供网络消息中间件的可靠性语义。明确这一点很重要，否则调用方容易把一次普通函数交接误写成无人负责的事件流，或反过来依赖总线并未承诺的持久化、重试和 exactly-once。
 
@@ -87,12 +91,14 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `patchouli.public.interaction.submit` | `submit_interaction` | `identity_scope`、`InteractionPayload`、可选 requested topic / interaction id | `InteractionSubmitResult`（接纳结果） |
+| `patchouli.public.interaction.submit` | `submit_interaction` | `identity_scope`、`InteractionPayload`、可选 requested topic / interaction id / origin、新话题的 `new_topic_title` / `new_topic_summary`（只在 `NEW_TOPIC` 时允许） | `InteractionSubmitResult`（接纳收据）；队列容量已满或已停止抛 `InteractionAdmissionUnavailableError` |
+| `patchouli.public.interaction.status` | `interaction_status` | `identity_scope`、interaction id | `InteractionStatus \| None`（`pending` / `succeeded` 附真实落点 / `failed` / `unknown`；未接纳为 `None`）；同名交互属于其他 Workspace 抛 `WorkspaceMismatchError` |
+| `patchouli.public.interaction.wait` | `wait_interaction` | `identity_scope`、interaction id、`timeout_seconds` | 应用到终态或超时时的 `InteractionStatus \| None`；归属校验同 status |
 | `patchouli.public.memory_intent.submit` | `submit_memory_intent` | `identity_scope`、`MemoryIntent` | `MemoryIntentSubmissionResult`（accepted / rejected / unknown；仅 accepted 带任务坐标） |
 
-上表两条路由只接收调用方授权点组装的 `IdentityScope`，本身不做操作授权。`memory_intent.submit` 的生产调用方是 workspace actor API 的 WRITE/UPDATE：`MemoryIntent.intent_id` 与 `pending_alias` 必填，沿用登记值；话题由任务进程提供。Patchouli 在内部构造物化任务，唯一调用 local `GENERATION_SUBMIT_ACTIVE`，每次一个意图，返回接纳、明确拒绝或未知结果。明确拒绝结算 FAILED；未知结果不提前结算，既有任务保留结算权。
+上表路由只接收调用方授权点组装的 `IdentityScope`，本身不做操作授权。`memory_intent.submit` 的生产调用方是 workspace actor API 的 WRITE/UPDATE：`MemoryIntent.intent_id` 与 `pending_alias` 必填，沿用登记值；话题由任务进程提供。Patchouli 在内部构造物化任务，唯一调用 local `GENERATION_SUBMIT_ACTIVE`，每次一个意图，返回接纳、明确拒绝或未知结果。明确拒绝结算 FAILED；未知结果不提前结算，既有任务保留结算权。
 
-`interaction.submit` 仍没有生产调用方，只有测试调用。chat finalize 与被动摄入直接构造 `InteractionSubmission` 并提交共享 lane，handler 调用 `PerceptionFamiliar.apply_interaction()`。`InteractionPayload` 不携带物化任务；submission 的 `belong_to/from_actor` 分别是归属与发起者来源，调用方不能从 payload 或 topic id 反推作用域。`chat.run.completed` 和 SSE `done` 都不携带记忆任务 ID；任务通过 `memory.task.*` 事件及 list/get 查询观察。
+三条交互路由的生产调用方是 Import Bus，在导入授权之后调用：提交前以 `interaction.status` 查重，提交后以 `interaction.wait` 等待应用；进度、重发与幂等规则见[子系统公共契约](./subsystem-contracts.md#36-交互提交进度与等待)第 3.6 节。chat finalize 不经这些路由：Patchouli 在 finalize 内部构造 `InteractionSubmission` 并提交同一条 lane，两条路径的 handler 都调用 `PerceptionFamiliar.apply_interaction()`。`InteractionPayload` 不携带物化任务；submission 的 `belong_to/from_actor` 分别是归属与发起者来源，调用方不能从 payload 或 topic id 反推作用域。`chat.run.completed` 和 SSE `done` 都不携带记忆任务 ID；任务通过 `memory.task.*` 事件及 list/get 查询观察。
 
 Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与存储只接收 `belong_to` 和需要的 `from_actor`。`PreparedAgentRun` 只保留 prepare 的归属；任务进程在调用 finalize 前重新执行阶段授权并传入当次 scope；cleanup 同样重新执行阶段授权，授权被拒时记录警告并完成关闭；资源 owner 拒绝删除越域 prepared 或已被提交链接管的话题。
 
@@ -170,7 +176,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 |:---|:---|
 | Chat | `chat.run.*` |
 | Command | `command.executed` |
-| Passive Ingress | `passive.ingress.*`、`passive.memory.context.prepared`；提交生命周期复用 `work.*` |
+| Import Bus | `import.turn.accepted`、`import.turn.duplicate`、`import.turn.skipped`、`import.turn.deferred`；提交生命周期复用 `work.*` |
 | Gateway | `gateway.workflow.*`、`gateway.step.completed`、`gateway.analysis.capability.completed` |
 | Agent | `agent.run.*`、`agent.context.compaction`、`agent.context.budget_exceeded` |
 | Memory Task | `memory.task.*` |
@@ -178,6 +184,10 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 | System lifecycle | `system.starting/ready/start_failed/shutting_down/stopped/stop_failed` |
 | Subsystem operation | `subsystem.operation.*` |
 | Stream continuity | `event.stream.gap` |
+
+`system.stopped` 与 `system.stop_failed` 的 `data` 包含 `steps`、`completed_steps`、`scheduler_stopped` 与 `import_bus_shutdown`；后者是 Import Bus 关闭时等待的结果（`{"waited_requests": 关闭开始时的在途导入数}`），停止在它之前失败时为 None。
+
+`import.turn.*` 由 Import Bus 在一次导入的结局处发布，`task_type` 为 `background`（导入没有用户在 HiveMemory 一侧等待），`agent_id` 与 `workspace_id` 取导入授权的发起者与目标 Workspace，只作观测标签。`data` 只携带 `source`、`external_conversation_id`、`external_turn_id`、`interaction_id` 与事件数量 `event_count`，不携带用户消息、回复、思考、工具参数或工具结果的正文：`accepted` 在交互应用完成后发布，信封 `topic_id` 是实际落位的话题，`data` 另带 `outcome`、`is_new_topic` 与 `worth_saving`；`deferred` 是可重试或应用失败的推迟，`severity=warning`。关闭中拒绝（`shutting_down`）、认证与授权失败以及原样传播的契约错误与程序错误不发布 `import.turn.*`。
 
 ### 4.1 投递语义
 
@@ -205,7 +215,8 @@ Alice CPU 端口的交互输出与 `/runtime-events/stream` 是两条独立通�
 
 | 事件/字段 | 公开值与含义 |
 |:---|:---|
-| `passive.memory.context.prepared.reason` | 降级阶段为 `gateway_unavailable` 或 `retrieval_unavailable`；成功为 None |
+| `import.turn.deferred.reason` | `gateway_unavailable`（Gateway 整体抛出可恢复异常）、`queue_unavailable`（提交队列容量已满或已停止）、`apply_pending`（等待应用超时）或 `apply_failed`（应用失败）；`data.error_class` 为异常类型名，等待类原因为 None |
+| `import.turn.duplicate.reason` / `import.turn.skipped.reason` | 分别为 `interaction_already_accepted` 与 `no_output` |
 | Gateway workflow failed 的 `reason` | `gateway_timeout`、`dependency_unavailable` 或 `workflow_failed`；message 为固定失败说明 |
 | Gateway step 的 `data.fallback_reason` | `request_deadline_exceeded`、`step_timeout` 或 `dependency_unavailable`；无 fallback 为 None |
 | 查询分析 capability 的 `data.error` | 失败为 `query_understanding_failed`，成功为 None |
@@ -221,14 +232,14 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 
 ## 6. HTTP 入口的身份交接与管理读取边界
 
-本节固化 HTTP 身份选择、会话管理与 Chat SSE 契约；身份选择转换为进入上述 route 的 `IdentityScope`，因为它是所有总线调用共享的前置契约。完整的认证与授权模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节。
+本节固化 HTTP 身份选择、会话管理、Chat SSE 与导入入口的契约；身份选择转换为进入上述 route 的 `IdentityScope`，因为它是所有总线调用共享的前置契约。完整的认证与授权模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节。
 
-- 用户导向身份选择为 `user_id + workspace_id` 基础选择，Agent action（Chat、被动接入）附加具体 `agent_id`；基础选择只经统一请求头 `x-user-id`/`x-workspace-id` 承载，Chat/stop 请求体与 Topic、会话等管理路由都不接受 body 或 query 中的身份字段；`/ingest` 的请求体身份字段是唯一例外。
-- `server/deps.py resolve_request_identity_claims` 是唯一解析入口，只产出身份声明（actor 声明与请求进入的 Workspace），不组装 `IdentityScope`；`/ingest` 的 body 身份字段与 header 冲突时显式拒绝（409）；未知 Workspace 拒绝（404）；Agent action 缺失具体 `agent_id` 或显式使用保留的 `system` 返回 400；非 Agent action 使用保留 `SYSTEM_AGENT_ID = "system"`（"没有具体 Agent 作为操作来源主体"，不得成为 `MemoryAccessPolicy` target）。
-- 声明交给统一认证网关取得访问 context：Chat 由任务进程的注册入口认证并创建进程；管理操作与 `/chat/stop` 取得绑定本次请求的请求级 context，请求结束时撤销。进入上述 route 的 `IdentityScope` 由授权点在操作授权后组装。
+- 用户导向身份选择为 `user_id + workspace_id` 基础选择，Agent action（Chat、导入）由请求体附加具体 `agent_id`；基础选择只经统一请求头 `x-user-id`/`x-workspace-id` 承载，Chat/stop、导入请求体与 Topic、会话等管理路由都不接受 body 或 query 中的 user 与 Workspace 字段。
+- `server/deps.py resolve_request_identity_claims` 是唯一解析入口，只产出身份声明（actor 声明与请求进入的 Workspace），不组装 `IdentityScope`；只含空白的身份请求头拒绝（400）；未知 Workspace 拒绝（404）；Agent action 缺失具体 `agent_id` 或显式使用保留的 `system` 返回 400；非 Agent action 使用保留 `SYSTEM_AGENT_ID = "system"`（"没有具体 Agent 作为操作来源主体"，不得成为 `MemoryAccessPolicy` target）。
+- 声明交给统一认证网关取得访问 context：Chat 由任务进程的注册入口认证并创建进程；管理操作、`/chat/stop` 与导入取得绑定本次请求的请求级 context，请求结束时撤销。进入上述 route 的 `IdentityScope` 由授权点在操作授权后组装。
 - Chat 请求体的 `session_id` 绑定会话资源，缺省自动创建；不进入身份构造，finalize 关联仍使用进程 ID；`ActorIdentity` 仅包含 `user_id`、`agent_id` 与可选 `team_id`。
 - `/chat/stop` 不是 Agent action：注册入口经进程控制授权比对请求方与进程记录的驻留坐标，不可控与不存在统一按 `not_found` 返回，取消与事件发布使用进程注册时绑定的观测标签，不从当前选择重新构造身份。
-- 被动接入 `/ingest` 不经认证网关，由 `resolve_request_identity_scope` 在认证前组装 `IdentityScope`（已知例外）。
+- 导入以 (user, 具体 Agent) 声明经 server 的 principal 与 `http` adapter 认证；Import Bus 服务以导入授权组装 `IdentityScope`：只校验准入与目标，不检查 actor 操作白名单，拒绝保留的 `system`（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。认证前不组装 scope，没有例外入口。
 - 管理读取（Memory/Agent Profile/Topic 管理）按 owner-management 语义执行：在 Workspace ownership hard boundary 通过后可读取该 Workspace 的 `PUBLIC/PRIVATE/TEAM` 全部 Memory，不执行 Agent 可见性过滤；Agent retrieval 仍按 `MemoryAccessPolicy` 过滤，`system` 不承担权限绕过语义。
 - Memory task list 按快照的必需 `belong_to` 过滤；get/cancel 对越域与不存在统一抛 `ResourceNotFoundError`，HTTP 统一映射为 404，任务 ID 不授予观察或取消能力。
 - 响应 DTO 中的 `user_id`（如 `MemoryResponse.user_id`）保留为对外 owner 展示兼容字段，来源是 `workspace_identity.owner_user_id`；前端不得把它反推为下一次 actor 选择。
@@ -257,6 +268,39 @@ Alice 在创建根 frame 前可推送 `context_compaction`，经 CPU 事件 sink
 
 事件沿用 run 的 `stream_sequence`，开始时 `layer=reduction`、覆盖轮数为 0；正常完成压缩产出开始和结束，取消或程序异常可只有开始。它不进入 `turn_events`，不构成本轮输出，也不单独触发封口。非流式交付丢弃交互进度事件，上述 RuntimeEvent 照常发布。
 
+### 6.2 Import Bus 导入
+
+`POST /api/v1/import/turns`（`server/routers/import_bus.py`）接收外部 harness 一轮已经结束的交互的完整记录，交给 System 的 Import Bus；不返回记忆上下文。一次请求只对应一轮，不跨请求累积。请求模型拒绝未知字段：
+
+| 字段 | 说明 |
+|:---|:---|
+| `source` | 来源标识，1–64 个小写字母、数字或连字符，例如 `claude-code` |
+| `external_conversation_id`、`external_turn_id` | harness 的会话标识与该轮标识（各 1–256 字符），同一轮重发时不变 |
+| `agent_id` | 连接器代表的具体 Agent，只作为认证声明，不进入导入记录 |
+| `outcome` | `completed`、`cancelled` 或 `failed` |
+| `user_message` | 该轮的用户消息；服务端写成序号为 0 的 `user_message` 事件 |
+| `events` | 用户消息之后的事件，`sequence` 从 1 起严格递增；`kind` 为 `assistant_message`、`thought`、`tool_call` 或 `tool_result`，另有 `content`，工具事件可带 `action_id`、`tool_name`、`tool_args`、`status`（出错为 `error`）。不接受 `role`、`tool_kind`、`target`：角色由服务端按种类填写，外部工具不设 MTP 动词 |
+| `assistant_final_text`、`model_used` | 该轮最终的回复正文与实际使用的模型名，可为空 |
+| `recent_turns` | 该轮之前最近的若干轮（`user_message`、`assistant_text`、可选的 `external_turn_id`），只供 Gateway 落位，不进入交互载荷 |
+
+请求体上限 `import_bus.max_request_bytes`（默认 8 MiB）在框架读取并解析请求体之前判定：声明的 Content-Length 超出时不读取请求体，没有声明时边读边计数，超出即以 413 拒绝，过大且不是合法 JSON 的请求也是 413 而不是 422。
+
+响应为 200，`status` 为 `accepted`（本次提交且已应用）、`duplicate`（此前已应用）或 `skipped`（用户消息之外没有输出，不提交），并带推导出的 `interaction_id`；不暴露 Gateway 决定、话题或记忆上下文。确认只在交互应用完成之后给出（等待时限 `import_bus.apply_wait_seconds`，默认 30 秒）。失败经错误信封区分是否可重试：
+
+| 情况 | 状态码 | `error` / `reason` | 可重试 |
+|:---|:---:|:---|:---:|
+| Agent 缺失或为 `system`、身份请求头只含空白 | 400 | `request.agent_required` / `request.agent_reserved` / `request.identity_empty` | 否 |
+| 未知 Workspace | 404 | `request.workspace_not_found` | 否 |
+| 未获准入（接入或 Workspace 准入失败） | 403 | `workspace.admission_denied` | 否 |
+| 请求体超过上限 | 413 | `request.body_too_large` | 否 |
+| 请求校验失败 | 422 | `request.validation_failed` | 否 |
+| 认证网关已关闭（服务关闭中） | 503 | `workspace.admission_denied` / `authentication_gateway_closed` | 是 |
+| Gateway 暂不可用、提交队列拥塞、等待应用超时、导入服务关闭中 | 503 | `import_bus.unavailable` / `gateway_unavailable`、`queue_unavailable`、`apply_pending`、`shutting_down` | 是；`apply_pending` 重发时只继续等待，不重复提交 |
+| 已提交的交互在应用时失败 | 500 | `import_bus.apply_failed` | 有限次；重发时重新路由并以同一 `interaction_id` 再次提交 |
+| 其他未分类错误 | 500 | `server.internal_error` | 有限次 |
+
+分类与原因码的归属见[错误模型](./error-model.md#43-import-bus)，编排见 [Import Bus](../system/import-bus.md)。
+
 ## 7. 设计矛盾检查
 
 评审新的 route 或 event 时，应检查：
@@ -278,4 +322,4 @@ Alice 在创建根 frame 前可推送 `context_compaction`，经 CPU 事件 sink
 - 删除或重命名 route/event 前必须更新所有注册方、调用方、测试和本文；
 - local route 不记录在本规范中，也不得被外部模块直接引用。
 
-主要验证入口：`scripts/typecheck_bus_routes.py`、`tests/unit/system/contracts/test_public_routes.py`、`tests/unit/components/events/test_bus.py`、`tests/unit/components/bus/test_async_bus.py`。
+主要验证入口：`scripts/typecheck_bus_routes.py`、`tests/unit/system/contracts/test_public_routes.py`、`tests/unit/components/events/test_bus.py`、`tests/unit/components/bus/test_async_bus.py`；导入入口与 `import.turn.*`：`tests/unit/server/routers/test_import_bus.py`、`tests/unit/system/services/import_bus/test_ingestor.py`。

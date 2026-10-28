@@ -42,6 +42,10 @@ from hivememory.patchouli.contracts.errors import TopicBusyError, TopicSettleAdm
 from hivememory.server.models.errors import ErrorResponse, ValidationIssue
 from hivememory.system.model_registry import DuplicateModelIdError
 from hivememory.system.provider_registry import ProviderNotFoundError
+from hivememory.system.services.import_bus import (
+    ImportBusApplyFailedError,
+    ImportBusUnavailableError,
+)
 from hivememory.workspace.contracts.errors import (
     SessionBusyError,
     SessionCapacityError,
@@ -53,7 +57,6 @@ logger = logging.getLogger(__name__)
 
 type HTTPErrorCode = Literal[
     "request.invalid_memory_id",
-    "request.identity_conflict",
     "request.identity_empty",
     "request.agent_required",
     "request.agent_reserved",
@@ -67,13 +70,13 @@ type HTTPErrorCode = Literal[
     "request.file_content_required",
     "request.idempotency_key_required",
     "request.idempotency_key_too_long",
+    "request.body_too_large",
     "request.not_found",
 ]
 
 # 显式传输错误由调用点选择机器类别，不能根据异常 detail 反查分类。
 _HTTP_ERRORS: dict[HTTPErrorCode, tuple[int, str]] = {
     "request.invalid_memory_id": (400, "无效的记忆 ID 格式"),
-    "request.identity_conflict": (409, "身份选择冲突，请在同一请求中只表达一种选择"),
     "request.identity_empty": (400, "身份字段不能为空"),
     "request.agent_required": (400, "该操作必须显式提供 agent_id"),
     "request.agent_reserved": (400, "不能使用保留的 system 作为 agent_id"),
@@ -93,6 +96,7 @@ _HTTP_ERRORS: dict[HTTPErrorCode, tuple[int, str]] = {
         "缺少 Idempotency-Key 请求头；同一文件重试必须沿用同一取值",
     ),
     "request.idempotency_key_too_long": (400, "Idempotency-Key 过长"),
+    "request.body_too_large": (413, "请求体超过允许的大小上限"),
     "request.not_found": (404, "请求的资源不存在"),
 }
 
@@ -128,6 +132,16 @@ _DOMAIN_ERRORS: dict[type[Exception], tuple[int, str, str]] = {
         503,
         "patchouli.topic.settle_rejected",
         "结算材料暂未被生成队列接纳，话题内容已保留，可重试",
+    ),
+    ImportBusUnavailableError: (
+        503,
+        "import_bus.unavailable",
+        "导入暂时无法完成，请保留该轮并稍后重发",
+    ),
+    ImportBusApplyFailedError: (
+        500,
+        "import_bus.apply_failed",
+        "导入的轮次在应用时失败，重发时会重新路由并再次提交",
     ),
     AssetNotFoundError: (404, "workspace.asset.not_found", "附件不存在或已失效"),
     AssetExpiredError: (410, "workspace.asset.expired", "附件已失效，请重新上传"),
@@ -169,6 +183,7 @@ _REASON_ALLOWLIST: dict[type[Exception], frozenset[str]] = {
         {
             "operation_not_allowed",
             "root_required",
+            "agent_required",
             "target_workspace_not_resident",
             "target_owner_mismatch",
         }
@@ -180,6 +195,9 @@ _REASON_ALLOWLIST: dict[type[Exception], frozenset[str]] = {
         {"alias_occupied", "alias_candidates_exhausted", "ambiguous_alias"}
     ),
     AssetOperationConflictError: frozenset({"store_closed"}),
+    ImportBusUnavailableError: frozenset(
+        {"gateway_unavailable", "queue_unavailable", "apply_pending", "shutting_down"}
+    ),
 }
 
 

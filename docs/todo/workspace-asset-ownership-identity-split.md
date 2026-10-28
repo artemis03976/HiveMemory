@@ -13,7 +13,7 @@ related_docs:
   - docs/system/attachments.md
   - docs/contracts/subsystem-contracts.md
   - docs/archive/plans/v0.7.0-identity-access-batch-2.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-21
 ---
 
 # WorkspaceAsset 内部归属与操作身份拆分
@@ -33,7 +33,7 @@ Patchouli 的记忆物化现接收 `WorkspaceAssetMaterializationReaderPort`，�
 - 上传、解析、representation 租借与关闭清理的调用方和测试；
 - System 的记忆物化 reader 适配器及其在组合根的装配。
 
-Alice/CPU 的执行身份、PendingAtom 回读范围与 Import Bus `/ingest` 不由本 Todo 承接。资产 ownership、状态机和租借生命周期也不因参数拆分另设所有者。
+Alice/CPU 的执行身份与 PendingAtom 回读范围不由本 Todo 承接。资产 ownership、状态机和租借生命周期也不因参数拆分另设所有者。
 
 ## 完成条件
 

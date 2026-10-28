@@ -15,7 +15,7 @@ code_paths:
   - src/hivememory/core/mtp/models.py
   - src/hivememory/core/mtp/formatter.py
   - src/hivememory/core/protocol/gateway.py
-  - src/hivememory/system/services/passive/exceptions.py
+  - src/hivememory/system/services/import_bus/errors.py
   - src/hivememory/components/bus/async_bus.py
   - src/hivememory/system/access/
   - src/hivememory/workspace/authentication.py
@@ -28,7 +28,8 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-19
+  - docs/system/import-bus.md
+last_reviewed: 2026-10-21
 ---
 
 # 跨边界错误模型
@@ -43,7 +44,7 @@ HiveMemory 在产生失败的边界保留中立类型，在 HTTP、普通 MTP �
 
 | 机制 | 使用场景 | 调用方行为 |
 |:---|:---|:---|
-| 业务结果状态 | 命令、Agent run、Passive outcome 等预期终态 | 检查判别字段或 status，不依赖异常 |
+| 业务结果状态 | 命令、Agent run、导入结果等预期终态 | 检查判别字段或 status，不依赖异常 |
 | 中立异常 | 所有者判定的资源、访问、存储和子系统失败 | 按具体类型与受控原因处理，保留 cause，不依赖协议层 |
 | `MTPErrorInfo` | MTP 对 Agent 的错误呈现 | 根据具体类别与文案调整行动，severity 不授予重试许可 |
 | `ErrorResponse` | HTTP API 请求失败 | 检查 status/error/reason，展示安全 detail |
@@ -92,9 +93,9 @@ CPU 执行结果（`CPUExecutionResult`）的 `status` 为 `completed`、`cancel
 
 Alice CPU 宿主未启动或已停止时，await `execute()` 抛出 `AliceUnavailableError`（`RuntimeError`）。这是执行准入异常，任务进程按失败清理，不投影为四类预算原因。该类型定义在 Alice 接口层，不属于跨子系统可导入的契约类型；异常上的 `code=alice.unavailable`、`details.reason=not_running` 只供日志诊断，任务进程不据此分支，SSE 与 `chat.run.failed` 仍按未分类的进程异常投影。生命周期与交付边界见[CPU 契约](./subsystem-contracts.md#43-alice-的执行入口)。
 
-### 2.3 Passive Ingress
+### 2.3 Import Bus 导入结果
 
-Passive Ingress 用 outcome 表达 accepted、buffered、duplicate、ignored 或 degraded 等对外结果。内部 Gateway fallback、提交重试次数和 RuntimeEvent 不直接泄漏到响应模型。
+一次导入的正常结果是 `ImportTurnResponse.status`：`accepted`（本次提交且已应用）、`duplicate`（此前已应用）或 `skipped`（用户消息之外没有输出，不提交），并带推导出的 `interaction_id`。Gateway 决定、内部 fallback、提交与等待的过程以及 RuntimeEvent 不进入响应。导入在交互应用完成之后才确认，因此“这一轮暂时无法完成”不是业务终态：Gateway 暂不可用、提交队列拥塞、等待应用超时与应用失败都以错误交回，由连接器按状态码决定保留还是放弃这一轮（第 4.3 节）。
 
 ## 3. MTP 结构化错误
 
@@ -186,11 +187,26 @@ Formatter 把 content、CALL reply、artifact alias、本地化 error reason 和
 
 Gateway Context Provider 只包装 `StorageOfflineError`、`StorageReadError`、`ResourceUnavailableError`；超时直接交给 workflow。两个分析 Engine 只把 `ModelProviderError`（含超窗）与 `JSONParseError`/显式输出校验失败转换为能力错误；SDK 异常由 LLM 服务在边界转换（第 4.6 节），引擎不识别 SDK 类型。JSON 输出要求只在 SDK 明确报告不支持该参数时去掉格式参数再请求一次，其他失败直接传播。缺失 route、参数接线、投影和未知程序错误不会进入局部 fallback。
 
-### 4.3 Passive Ingress
+### 4.3 Import Bus
 
-`PassiveIngressContractError` 表示下游违反协议，例如 `PASSIVE_MEMORY` 返回 command outcome。它不是可重试基础设施错误。submission queue admission 失败会向调用方抛出明确异常，同时保留当前 accumulator；admission 后的 apply 失败由 Work Queue Runtime 按 policy 重试并通过通用 RuntimeEvent 观测。
+Import Bus 在交互应用完成之后才确认，失败按“重发能否得到不同结果”分类，连接器据此决定保留游标稍后重发，还是放弃这一轮继续后续轮次（`system/services/import_bus/errors.py`）：
 
-Passive 的可恢复集合只有 `TimeoutError`、`GatewayTimeoutError`、`StorageOfflineError`、`StorageReadError`、`ResourceUnavailableError`。允许降级时仍接收原始 user 事件；retrieval 失败保留已有 topic decision。未知错误、授权拒绝、契约违约与原生取消向上传播，不能被“尽力接收”掩盖。
+| 类型 / code | HTTP | `reason` | 语义与重发 |
+|:---|:---:|:---|:---|
+| `ImportBusUnavailableError` / `import_bus.unavailable` | 503 | `gateway_unavailable` | Gateway 整体抛出可恢复异常，交互尚未提交；以同一轮重发 |
+| 同上 | 503 | `queue_unavailable` | Patchouli 提交队列容量已满或已停止，交互未被接管；以同一 `interaction_id` 重发不会形成重复 |
+| 同上 | 503 | `apply_pending` | 交互已被接纳，等待应用超过 `import_bus.apply_wait_seconds`；重发时查到仍在应用，只继续等待、不重复提交 |
+| 同上 | 503 | `shutting_down` | 编排器已开始关闭：认证网关关闭之前已通过认证、关闭开始后才到达，或在同一外部会话的串行门外等待的请求 |
+| `ImportBusApplyFailedError` / `import_bus.apply_failed` | 500 | —— | 交互已被接纳，但在感知应用时失败（例如落位的话题在应用前已被驱逐）；重发时重新路由并以同一 `interaction_id` 再次提交，失败可能反复出现，连接器有限次重试 |
+| `ImportBusContractError`（`RuntimeError`） | 500（`server.internal_error`） | —— | 下游破坏公共契约，例如 `PASSIVE_MEMORY` 返回命令结果，或已接纳的交互在等待时查不到；重发只会重复失败，不转为可重试错误 |
+
+请求进入 Import Bus 之前的拒绝沿用 server 与访问边界的分类：请求体超过 `import_bus.max_request_bytes` 在框架解析请求体之前以 413 `request.body_too_large` 拒绝，过大且不是合法 JSON 的请求不会落成 422；请求校验失败为 422，Agent 缺失或为 `system` 为 400，未获准入为 403，认证网关已关闭为 503（第 4.4 节）。其中只有认证网关关闭的 503 可以稍后重发，其余拒绝重发也不会改变结果。
+
+**提交队列的拥塞**：Patchouli 的公开提交路由在提交队列容量已满（`WorkQueueCapacityError`）或已停止（`WorkQueueStoppedError`）时抛出 `InteractionAdmissionUnavailableError`（`patchouli.interaction.admission_unavailable`，reason `capacity_rejected` / `queue_stopped`），表示队列没有接管这次提交；Import Bus 把它转为 `queue_unavailable`，因此这两种拥塞以 503 返回，不落入 500。`InteractionAdmissionUnavailableError` 本身没有 HTTP 映射，由消费它的一方翻译。
+
+**Gateway 的失败**：Gateway 各决策步骤的失败由 Gateway 自身按 step fallback 兜底，照常返回一个决定（话题路由失败时续接上一轮的话题，否则新话题），导入按兜底结果继续。只有 Gateway 整体抛出的可恢复异常——`TimeoutError`、`GatewayTimeoutError`、`StorageOfflineError`、`StorageReadError`、`ResourceUnavailableError`——转为 `gateway_unavailable`。未知错误、授权拒绝、契约违约与原生取消原样传播，不能被“稍后重发”掩盖。
+
+可重试失败与应用失败发布 `import.turn.deferred`（reason 为 `gateway_unavailable`、`queue_unavailable`、`apply_pending` 或 `apply_failed`；`data.error_class` 只带异常类型名，等待应用得出的两种原因为空）；`shutting_down` 不发布事件（[事件契约](./routes-and-events.md#44-失败与降级观测)）。
 
 ### 4.4 Workspace 与访问边界错误
 
@@ -201,7 +217,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 | `workspace.scope_required` | 缺少完整 `IdentityScope`，或访问 context 无效：传入的不是访问 context，或 context 已撤销（`reason=context_not_issued`），或授权时准入记录已不存在（`reason=actor_not_admitted`） |
 | `workspace.mismatch` | 资源与请求 Workspace 不一致，例如 prepare 返回的 scope 与授权组装的 scope 不一致 |
 | `workspace.admission_denied` | 统一认证网关的接入/准入拒绝（`details.reason` 区分阶段：`unknown_principal`、`adapter_mismatch`、`actor_not_allowed_for_principal`、`actor_not_owner`、`actor_not_admitted`、`authentication_gateway_closed`） |
-| `workspace.operation_denied` | 第 3 阶段授权失败（`details.reason` 区分：`target_workspace_not_resident`、`target_owner_mismatch`、`operation_not_allowed`、`root_required`） |
+| `workspace.operation_denied` | 第 3 阶段授权失败（`details.reason` 区分：`target_workspace_not_resident`、`target_owner_mismatch`、`operation_not_allowed`、`root_required`、`agent_required`） |
 | `workspace.resource.not_found` | 当前 Workspace 作用域内不存在目标资源 |
 | `workspace.resource.not_visible` | 资源存在但当前 Actor 未通过可见性授权（与 not_found 有意区分；调用方可按契约合并呈现） |
 | `workspace.resource.unavailable` | 资源 provider 暂时不可用，不代表资源不存在或被拒绝 |
@@ -228,10 +244,11 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 | 第 3 阶段：actor 用户不是目标 Workspace 的 owner | `OperationDeniedError` | `target_owner_mismatch` | 403 |
 | 第 3 阶段（actor API）：白名单不含该 actor 操作 | `OperationDeniedError` | `operation_not_allowed` | 403 |
 | 第 3 阶段（root API）：actor 不是保留的 `system` | `OperationDeniedError` | `root_required` | 403 |
+| 第 3 阶段（导入授权）：actor 是保留的 `system`（HTTP 入口已在声明解析处以 400 `request.agent_reserved` 拒绝，这里是授权点的再次检查） | `OperationDeniedError` | `agent_required` | 403 |
 | 访问 context 无效：不是访问 context，或已撤销（线程已结束见下文）；授权时准入记录已不存在；把进程 context、请求级 context 或未登记在线程表中的线程 context 交给操作入口；从非进程 context 派生线程 context；以子线程派生 CALL 子线程；CPU 结束主线程 | `ScopeRequiredError` | 无 / `context_not_issued` / `actor_not_admitted` | 500：生产入口经网关签发后不应出现，出现即为接线缺陷 |
 | 资源与请求 Workspace 不一致 | `WorkspaceMismatchError` | —— | 409 |
 
-- 缺少行为许可属于授权失败，不是身份认证失败；空白名单可以进入，但所有 actor 操作都被拒绝。未知 operation 在访问登记装载期失败。`operation_not_allowed` 的 `details.operation` 给出被拒绝的 actor 操作；root 授权与任务进程的阶段授权不检查 operation，它们的目标拒绝与 `root_required` 不附带 `operation`。阶段授权只校验准入与目标，因此不会出现 `operation_not_allowed`。
+- 缺少行为许可属于授权失败，不是身份认证失败；空白名单可以进入，但所有 actor 操作都被拒绝。未知 operation 在访问登记装载期失败。`operation_not_allowed` 的 `details.operation` 给出被拒绝的 actor 操作；root 授权、任务进程的阶段授权与导入授权不检查 operation，它们的目标拒绝、`root_required` 与 `agent_required` 不附带 `operation`。阶段授权与导入授权只校验准入与目标，因此不会出现 `operation_not_allowed`。
 - 访问 context 没有固定有效期，不存在“过期”拒绝；认证网关关闭只拒绝新认证，已签发的 context 照常可用，直到被撤销。
 - HTTP 映射由 server 的异常处理器统一完成（`server/error_handlers.py`），响应体包含稳定机器码 `error`、安全 `detail` 与可选 `reason`，不暴露接入凭据。
 - 拒绝阶段可观测的最小记录为 principal 标识、Actor/Workspace 安全投影、operation、关联 ID 与拒绝阶段，不记录接入凭据和原始对话。
@@ -302,7 +319,7 @@ RuntimeEventSink 是 best-effort：
 
 这也是错误机制不能合并的一个现实原因：观测流允许丢失、回放缺口和慢订阅者隔离，业务终态却必须在调用点得到确定答案。把 `*.failed` RuntimeEvent 当成唯一失败事实，会让断连后的客户端无法知道任务究竟失败还是只是漏掉了事件。
 
-观测中的 `error_class` 只作诊断，不是稳定分类或重试依据；类合并或迁移后可变化。Passive reason 使用 `gateway_unavailable` / `retrieval_unavailable`，成功为 None。Gateway 与 Work Queue 的具体原因码见[事件契约](./routes-and-events.md#44-失败与降级观测)，不携带异常正文；生成任务的公开 error 使用固定说明，原始 WorkOutcome.error 仅留在进程内。
+观测中的 `error_class` 只作诊断，不是稳定分类或重试依据；类合并或迁移后可变化。`import.turn.deferred` 的 reason 使用 `gateway_unavailable` / `queue_unavailable` / `apply_pending` / `apply_failed`。Import Bus、Gateway 与 Work Queue 的具体原因码见[事件契约](./routes-and-events.md#44-失败与降级观测)，不携带异常正文；生成任务的公开 error 使用固定说明，原始 WorkOutcome.error 仅留在进程内。
 
 ## 6. i18n 与信息泄漏
 
@@ -310,7 +327,7 @@ RuntimeEventSink 是 best-effort：
 - syscall key 使用 `syscall.*` 文本表，其他 MTP key 使用 `mtp.*` 文本表；
 - 内部 exception `cause` 不进入 Agent 可见 XML；
 - 不应把 traceback、文件系统绝对路径、密钥、完整 tool args 或 memory context 放进公共 message；
-- RuntimeEvent 的 `data` 也应保持摘要化，尤其是 Passive Ingress 内容和工具参数。
+- RuntimeEvent 的 `data` 也应保持摘要化，尤其是导入的交互内容和工具参数。
 
 隐藏 `cause` 不只是为了避免泄漏路径、密钥或内部数据，也是在保护协议稳定性。exception 文本随依赖版本和实现细节变化，既不适合作为 Agent 的机器判断依据，也可能诱导模型针对偶然实现编写脆弱的重试策略。稳定 `code`、本地化 message 和受控 params 才是公共契约；完整 cause 留给受保护的调试与日志通道。
 
@@ -355,7 +372,7 @@ SSE 开始后由进程流内投影输出安全 code/message，不能改 HTTP sta
 5. 为重试/取消/降级边界增加测试；
 6. 同步更新[MTP 契约](./mtp.md)和调用方文档。
 
-验证入口：`tests/unit/core/mtp/`、`tests/unit/agent_runtime/mtp/`、`tests/unit/infrastructure/test_litellm_service.py`、`tests/unit/engines/generation/test_extractor.py`、`tests/unit/gateway/test_workflow.py`、`tests/unit/system/services/passive/`、`tests/unit/components/events/test_bus.py`、`tests/unit/workspace/test_access.py`、`tests/unit/system/access/`、`tests/integration/workspace/test_application_access_boundary.py`。
+验证入口：`tests/unit/core/mtp/`、`tests/unit/agent_runtime/mtp/`、`tests/unit/infrastructure/test_litellm_service.py`、`tests/unit/engines/generation/test_extractor.py`、`tests/unit/gateway/test_workflow.py`、`tests/unit/system/services/import_bus/`、`tests/unit/server/routers/test_import_bus.py`、`tests/unit/server/test_error_handlers.py`、`tests/unit/components/events/test_bus.py`、`tests/unit/workspace/test_access.py`、`tests/unit/system/access/`、`tests/integration/workspace/test_application_access_boundary.py`。
 
 
 ## 10. v0.7.0 兼容迁移
@@ -374,4 +391,4 @@ SSE 开始后由进程流内投影输出安全 code/message，不能改 HTTP sta
 | `agent_runtime` 的 ModelProviderError/ModelContextWindowExceededError | `core.errors`；`agent_runtime` 包根继续导出，超窗改为提供商失败的子类 |
 | `infrastructure.llm.errors.LLM_PROVIDER_ERRORS` | 删除；SDK 分类是 `LiteLLMService` 的私有细节，调用方只捕获 `core.errors` 的中立错误 |
 
-请求校验旧 `detail` 列表改为字符串，字段级说明位于 `issues`。未知异常及 HTTP detail 不再原样公开；客户端应依据 status/error/reason 分支。原 Passive 默认允许未知异常降级、Gateway 包装缺失路由、CALL 跳过 READ 授权失败的行为均已收窄。未建立无实际消费者的兼容异常别名；版本发布和仓库外调用方升级须显式采用这些入口。
+请求校验旧 `detail` 列表改为字符串，字段级说明位于 `issues`。未知异常及 HTTP detail 不再原样公开；客户端应依据 status/error/reason 分支。原被动摄入链路（现已由 Import Bus 取代）默认允许未知异常降级、Gateway 包装缺失路由、CALL 跳过 READ 授权失败的行为均已收窄。未建立无实际消费者的兼容异常别名；版本发布和仓库外调用方升级须显式采用这些入口。

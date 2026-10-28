@@ -10,6 +10,7 @@ code_paths:
   - docker/
   - configs/
   - src/hivememory/server/
+  - integrations/claude-code/
 related_contracts:
   - docs/contracts/routes-and-events.md
 last_reviewed: 2026-07-29
@@ -21,7 +22,7 @@ last_reviewed: 2026-07-29
 
 ## 当前指南
 
-- [安装与启动](./setup.md)：Docker 一体化运行、本地开发、端口、health/readiness 与验证；
+- [安装与启动](./setup.md)：Docker 一体化运行、本地开发、端口、health/readiness、验证，以及接入 Claude Code 的连接器插件；
 - [配置指南](./configuration.md)：配置来源、Provider 凭证、Model Registry、环境变量和生效边界；
 - [故障排查](./troubleshooting.md)：Qdrant、模型预热、LLM、前端连接、mock 数据、日志与 Settings 常见问题。
 

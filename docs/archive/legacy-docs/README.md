@@ -35,7 +35,7 @@ last_reviewed: 2026-07-30
 
 ### Patchouli 与 Engines
 
-- [Patchouli 旧设计](./patchouli/ActiveMemoryGenerationDecouplingDesign.md)、[被动摄入改造计划](./patchouli/PatchouliPassiveIngestRefactorPlan.md)与[Transcript 双视图重构](./patchouli/PatchouliTranscriptDualViewRefactor.md)：分别由 [Perception](../../patchouli/perception.md)、[Generation](../../patchouli/generation.md)、[Artifacts](../../patchouli/artifacts.md) 与 [System Passive Ingress](../../system/passive-ingress.md) 取代；
+- [Patchouli 旧设计](./patchouli/ActiveMemoryGenerationDecouplingDesign.md)、[被动摄入改造计划](./patchouli/PatchouliPassiveIngestRefactorPlan.md)与[Transcript 双视图重构](./patchouli/PatchouliTranscriptDualViewRefactor.md)：分别由 [Perception](../../patchouli/perception.md)、[Generation](../../patchouli/generation.md)、[Artifacts](../../patchouli/artifacts.md) 与 [System Import Bus（原 Passive Ingress）](../../system/import-bus.md) 取代；
 - [Engines 旧索引](./engines/README.md)：代码目录仍存在，但文档入口已由 [Patchouli](../../patchouli/README.md) 与 [Gateway](../../gateway/README.md) 接管；
 - [旧 Perception](./engines/perception.md)、[Generation](./engines/generation.md)、[Retrieval](./engines/retrieval.md) 与 [Lifecycle](./engines/lifecycle.md)：已分别并入 Patchouli 当前模块文档；Perception 的损坏正文按原样保留，仅修正归档后的替代入口链接；
 - [旧 MemoryCompiler 索引与 Phase 1 设计](./engines/memory_compiler/README.md)：已由 [MemoryCompiler 当前设计](../../patchouli/memory-compiler.md)取代。

@@ -252,6 +252,8 @@ def test_handler_projects_used_attachments_into_binding_coordinates() -> None:
         from_actor=make_identity_scope(user_id="u1", agent_id="a1").actor_identity,
         requested_topic_id="topic-1",
         interaction_id="interaction-1",
+        new_topic_title=None,
+        new_topic_summary=None,
     )
 
     asyncio.run(handler.execute(submission, context=None))

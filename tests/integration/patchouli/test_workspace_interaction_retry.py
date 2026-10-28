@@ -112,6 +112,8 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once():
         target_topic_id,
         interaction_id,
         asset_refs=(),
+        new_topic_title=None,
+        new_topic_summary=None,
     ):
         attempts.append((len(attempts) + 1, belong_to))
         if len(attempts) == 1:
@@ -182,7 +184,7 @@ async def test_ambiguous_failure_after_add_block_does_not_duplicate_block() -> N
         payload=_payload("ambiguous"),
         requested_topic_id="NEW_TOPIC",
         ordering_key="conversation-1",
-        origin="passive_memory",
+        origin="import_bus",
         correlation={"turn_id": "interaction-ambiguous"},
     )
 
@@ -247,7 +249,7 @@ async def test_retry_resumes_pending_compact_without_duplicating_block() -> None
         payload=_payload("second"),
         requested_topic_id=topic_id,
         ordering_key="conversation-1",
-        origin="passive_memory",
+        origin="import_bus",
         correlation={"turn_id": "interaction-settlement"},
     )
 

@@ -1,5 +1,7 @@
 from hivememory.patchouli.contracts.interaction_submission import (
     InteractionOrigin,
+    InteractionProgress,
+    InteractionStatus,
     InteractionSubmissionResult,
     InteractionSubmitResult,
 )
@@ -32,6 +34,8 @@ __all__ = [
     "MemoryIntent",
     "MemoryIntentSubmissionResult",
     "InteractionOrigin",
+    "InteractionProgress",
+    "InteractionStatus",
     "InteractionSubmitResult",
     "InteractionSubmissionResult",
     "MemoryGenerationAdmission",

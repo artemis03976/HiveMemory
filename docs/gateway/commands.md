@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/application-services.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-10-21
 ---
 
 # Gateway 全局命令
@@ -48,7 +48,7 @@ CommandDefinition
 
 只有 `ACTIVE_CHAT` 允许系统命令。L1 收到 slash 输入时，即使命令未知、参数无效或 Registry 未启用，也会形成 SYSTEM 分支并带上相应的解析状态；未知命令不会落入 LLM Query Analysis。
 
-`PASSIVE_MEMORY` 调用 interceptor 时设置 `allow_system=false`，所以外部对话中的 `/help` 或 `/clear` 只被当作普通被动消息分析，不会控制 HiveMemory。这个限制是被动摄入作为“观察者而非参与者”的安全边界；Gateway 执行状态的 `finalize()` 同样拒绝被动模式产生命令结果。
+`PASSIVE_MEMORY` 调用 interceptor 时设置 `allow_system=false`，所以经 [Import Bus](../system/import-bus.md) 导入的外部对话中的 `/help` 或 `/clear` 只被当作普通消息分析，不会控制 HiveMemory。这个限制是 Import Bus 作为“记录者而非参与者”的安全边界：外部 harness 中的斜杠输入是写给那个 harness 的，不是写给 HiveMemory 的；Gateway 执行状态的 `finalize()` 同样拒绝这一模式产生命令结果，Import Bus 收到命令结果时也按契约错误处理。
 
 命令请求同样登记为任务进程。命令结果不会继续进入 topic routing、retrieval、Agent 执行、MTP 或 active memory generation；任务进程在 Gateway 阶段之后直接以命令终态结束，进程结局为 `completed`。
 

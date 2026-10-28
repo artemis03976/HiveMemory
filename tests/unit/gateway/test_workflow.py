@@ -20,6 +20,7 @@ from hivememory.core.protocol.gateway import (
     CommandParseResult,
     CommandParseStatus,
     GatewayIngressMode,
+    GatewaySessionTurn,
     IntentType,
     MemoryWriteSignal,
     RetrievalMode,
@@ -27,6 +28,7 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.engines.gateway.interceptors import create_interceptor
 from hivememory.engines.gateway.models import TopicRoutingResult
+from hivememory.engines.gateway.topic_router import TopicRouterError
 from hivememory.gateway.analysis import UserQueryAnalysisResult
 from hivememory.gateway.commands import create_builtin_command_registry
 from hivememory.gateway.context import CandidateTopics
@@ -281,6 +283,35 @@ async def test_declared_fallbacks_form_a_complete_conservative_decision() -> Non
         True,
         True,
     ]
+
+
+@pytest.mark.parametrize(
+    ("previous_topic_id", "expected_target"),
+    [("topic-1", "topic-1"), ("topic-evicted", "NEW_TOPIC")],
+    ids=["previous-still-a-candidate", "previous-no-longer-a-candidate"],
+)
+@pytest.mark.asyncio
+async def test_topic_routing_failure_continues_previous_topic_while_it_is_a_candidate(
+    previous_topic_id: str, expected_target: str
+) -> None:
+    """话题路由失败时续接上一轮落位的话题；该话题已不在候选中时才新建。"""
+    router = _Router()
+    router.route = AsyncMock(side_effect=TopicRouterError("路由模型不可用"))
+    workflow = _make_workflow(provider=_Provider(), router=router, resolver=_Resolver())
+
+    result = await workflow.run(
+        "继续改",
+        identity_scope=make_identity_scope(user_id="u1"),
+        ingress_mode=GatewayIngressMode.PASSIVE_MEMORY,
+        session_turns=(
+            GatewaySessionTurn(user_message="改登录页", topic_id="topic-0"),
+            GatewaySessionTurn(user_message="修表单校验", topic_id=previous_topic_id),
+        ),
+    )
+
+    assert result.kind == "decision"
+    assert result.decision.target_topic_id == expected_target
+    assert result.decision.new_topic_title is None
 
 
 @pytest.mark.asyncio

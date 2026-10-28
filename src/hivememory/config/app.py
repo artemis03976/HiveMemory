@@ -20,8 +20,8 @@ from pydantic_settings import BaseSettings, PydanticBaseSettingsSource, Settings
 from hivememory.config.alice import AliceConfig
 from hivememory.config.attachments import AttachmentCompilerConfig, AttachmentParserConfig
 from hivememory.config.gateway import SystemGatewayConfig
+from hivememory.config.import_bus import ImportBusConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
-from hivememory.config.passive import PassiveIngressConfig
 from hivememory.config.patchouli import PatchouliConfig
 from hivememory.config.runtime import RuntimeEventsConfig, SchedulerConfig
 from hivememory.config.shared import LLMConfig, SharedConfig
@@ -149,10 +149,24 @@ def yaml_config_settings_source() -> dict[str, Any]:
     try:
         with open(path, encoding="utf-8") as f:
             yaml_content = yaml.safe_load(f) or {}
-        return yaml_content
     except Exception as e:
         logger.error(f"加载 YAML 配置文件失败: {e}")
         return {}
+    _reject_unknown_sections(yaml_content, path)
+    return yaml_content
+
+
+def _reject_unknown_sections(yaml_content: Any, path: Path) -> None:
+    """配置文件的顶层键必须是已声明的配置段，写错或已删除的段让加载失败。
+
+    根配置对环境变量与 .env 保持宽松（其中有不属于配置树的变量），配置
+    文件只承载配置树，因此在这里单独检查，避免已删除的段被静默丢弃。
+    """
+    if not isinstance(yaml_content, dict):
+        return
+    unknown = sorted(str(key) for key in set(yaml_content) - set(HiveMemoryConfig.model_fields))
+    if unknown:
+        raise ValueError(f"配置文件包含未知的顶层配置段 {unknown}: {path}")
 
 
 class _LoaderSettingsSource(PydanticBaseSettingsSource):
@@ -218,7 +232,7 @@ class HiveMemoryConfig(BaseSettings):
 
     shared: SharedConfig = Field(default_factory=SharedConfig)
     gateway: SystemGatewayConfig = Field(default_factory=SystemGatewayConfig)
-    passive_ingress: PassiveIngressConfig = Field(default_factory=PassiveIngressConfig)
+    import_bus: ImportBusConfig = Field(default_factory=ImportBusConfig)
     memory_compiler: MemoryCompilerConfig = Field(default_factory=MemoryCompilerConfig)
     patchouli: PatchouliConfig = Field(default_factory=PatchouliConfig)
     alice: AliceConfig = Field(default_factory=AliceConfig)
@@ -276,8 +290,8 @@ def get_gateway_llm_config() -> LLMConfig:
 
 
 __all__ = [
-    # 被动接入
-    "PassiveIngressConfig",
+    # Import Bus
+    "ImportBusConfig",
     # 顶层
     "SystemConfig",
     "LoggingConfig",

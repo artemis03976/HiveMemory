@@ -7,6 +7,7 @@ code_paths:
   - src/hivememory/workspace/process/
   - src/hivememory/workspace/contracts/cpu.py
   - src/hivememory/workspace/contracts/process.py
+  - src/hivememory/core/protocol/sealing.py
   - src/hivememory/server/routers/chat.py
   - src/hivememory/prompts/compilation.py
 related_contracts:
@@ -21,12 +22,13 @@ related_docs:
   - docs/workspace/sessions.md
   - docs/system/application-services.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-19
+  - docs/system/import-bus.md
+last_reviewed: 2026-10-21
 ---
 
 # 任务进程
 
-任务进程是 workspace 运行一次任务请求的单位：请求经唯一注册入口登记为进程，此后 Gateway 分析、预检索、CPU 分配、Actor 执行与结算都在进程内进行，停止与关闭因此覆盖整条链路，中间产物与访问 context 也都有明确的持有者。当前只有主动 chat 经注册入口进入；被动摄入仍走 System 的 `PassiveIngressService`（[被动摄入](../system/passive-ingress.md)）。
+任务进程是 workspace 运行一次任务请求的单位：请求经唯一注册入口登记为进程，此后 Gateway 分析、预检索、CPU 分配、Actor 执行与结算都在进程内进行，停止与关闭因此覆盖整条链路，中间产物与访问 context 也都有明确的持有者。当前只有主动 chat 经注册入口进入；外部 harness 中已经结束的交互经 System 的 Import Bus 导入，不创建任务进程，但与任务进程共用交互记录的封口函数（第 8 节、[Import Bus](../system/import-bus.md)）。
 
 这一层存在，是因为 HTTP、SSE 与未来的外部 adapter 都需要共享同一条主动 chat、取消与结算链路。若每个入口自己拼装 Gateway、Patchouli 和 Alice，就会再次出现多套 prepare/finalize、错误处理和取消语义。任务进程回答“这次请求应该按什么顺序跨边界运行”，而不回答“记忆如何检索”“Agent 如何生成”或“Gateway 如何分析”。
 
@@ -103,7 +105,7 @@ TaskProcessService.run_process(handle, stream=…)：创建进程 task；交付�
   -> 注册入口在进程 task 的 finally 中撤销进程 context、从进程表注销、释放会话认领，最后结束输出通道
 ```
 
-Gateway 阶段从会话取最近 `gateway.context_preparation.session_turn_limit` 轮的用户与助手文本，随 `session_turns` 交给 Gateway（[Gateway 分析](../gateway/analysis.md)）。
+Gateway 阶段从会话取最近 `gateway.context_preparation.session_turn_limit` 轮的用户与助手文本，连同每轮在会话中标注的落位话题 `topic_id`，随 `session_turns` 交给 Gateway（[Gateway 分析](../gateway/analysis.md)）。落位话题只在话题路由失败时使用：Gateway 续接上一轮的话题（该话题仍在本次的候选话题中时），否则新建话题；同一会话的相邻轮次大多仍在同一话题上，续接比每次失败都新建无标题话题归错的代价小。
 
 ### 5.2 阶段调用
 
@@ -135,7 +137,7 @@ Actor 阶段结束时，执行器同步结束本进程仍在运行的全部线�
 
 ## 8. 封口、部分输出与结算
 
-交互记录由进程封口：Actor 有输出、进入 finalize 之前，进程以入口消息、Gateway 决定、Actor 的执行结果与实际使用的附件组装 `InteractionPayload`（`workspace/process/sealing.py`），MTP 轨迹由 core 的归约器从轮次事件得到；CPU 结果与交互记录都不携带物化任务；finalize 原样提交、等待 applied 并记录命中后返回 `None`，不派发写入。finalize 失败不影响已接纳写入。这与被动链路由提交方（turn buffer）封口一致，Patchouli 不需要读懂执行者的运行结果。字段来源见[子系统公共契约](../contracts/subsystem-contracts.md#32-finalizeagentrun) 3.2。
+交互记录由进程封口：Actor 有输出、进入 finalize 之前，进程以入口消息、Gateway 决定、Actor 的执行结果与实际使用的附件组装 `InteractionPayload`（core 的共用封口函数 `seal_interaction`，`core/protocol/sealing.py`），MTP 轨迹由 core 的归约器从轮次事件得到；CPU 结果与交互记录都不携带物化任务；finalize 原样提交、等待 applied 并记录命中后返回 `None`，不派发写入。finalize 失败不影响已接纳写入。Import Bus 以同一个函数封口导入的轮次，两条链路交给 Patchouli 的载荷同形，Patchouli 不需要读懂执行者的运行结果。字段来源见[子系统公共契约](../contracts/subsystem-contracts.md#32-finalizeagentrun) 3.2。
 
 CPU 的三种结局只要有回复文本或执行事件就封口、同步写入会话并进入 finalize；初始 `user_message` 是输入，不算输出。只有正文而无助手事件时，封口处补齐规范 `assistant_message`。finalize 成功后 prepared 标记为已接管，不再 cleanup。
 
@@ -225,14 +227,16 @@ chat 路由以 `detach_reason="client_disconnected"` 订阅交付，不轮询断
 
 ## 16. 代码与测试入口
 
-- [`workspace/process/`](../../src/hivememory/workspace/process/)：注册入口 `service.py`、进程表 `table.py`、进程状态容器 `task_process.py`、执行器 `runner.py`、CPU 分配 `allocation.py`、封口 `sealing.py`、命令终态 `command_terminal.py`、输出通道与阶段产出 `outputs.py`、事件投影 `events.py`、工作集 `working_set.py`；
+- [`workspace/process/`](../../src/hivememory/workspace/process/)：注册入口 `service.py`、进程表 `table.py`、进程状态容器 `task_process.py`、执行器 `runner.py`、CPU 分配 `allocation.py`、命令终态 `command_terminal.py`、输出通道与阶段产出 `outputs.py`、事件投影 `events.py`、工作集 `working_set.py`；
+- 封口：与 Import Bus 共用的 [`core/protocol/sealing.py`](../../src/hivememory/core/protocol/sealing.py)；
 - 公共契约：[`workspace/contracts/cpu.py`](../../src/hivememory/workspace/contracts/cpu.py)、[`workspace/contracts/process.py`](../../src/hivememory/workspace/contracts/process.py)；HTTP 入口：[`server/routers/chat.py`](../../src/hivememory/server/routers/chat.py)；
 - 测试：
   - `tests/unit/workspace/process/test_gateway_chat_flow.py`（含 Actor 中停止在等 CPU 与阻塞于通道写入时的响应）；
   - `tests/unit/workspace/process/test_chat_run_control_contract.py`（输出通道的容量与离开语义、订阅者暂停时进程仍推进、五种结局的唯一退出路径、交付方离开不等待关闭）；
   - `tests/unit/workspace/process/test_cpu_allocation.py`（CPU 分配、租借释放与关闭顺序）；
   - `tests/unit/workspace/process/test_cpu_port.py`（经 CPU 端口执行：测试 CPU 跑通任务进程、自报结局与执行异常）；
-  - `tests/unit/workspace/process/test_command_terminal.py`、`test_seal_interaction.py`、`test_process_events.py`（`chat.run.*` 投影与 best-effort 边界，交付方离开与硬取消的事件形态）；
+  - `tests/unit/workspace/process/test_command_terminal.py`、`test_process_events.py`（`chat.run.*` 投影与 best-effort 边界，交付方离开与硬取消的事件形态）；
+  - `tests/unit/core/protocol/test_seal_interaction.py`（共用封口函数）；
   - `tests/unit/server/routers/test_chat.py`（注册后运行、断连以 `client_disconnected` 关闭交付、流从未开始时的关闭）；
   - `tests/integration/workspace/test_session_completion.py`（部分输出、停止晚于终态、交付方离开、检查点接受与系统关闭的停止、等待与硬取消）；
   - `tests/integration/workspace/test_process_intents.py`（已接纳写入跨进程终态保留、派发话题与线程 context 撤销）、`test_inflight_dispatch.py`（ACK 接纳时点、明确拒绝、未知结果与派发期间取消）；

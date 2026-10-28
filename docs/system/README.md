@@ -8,7 +8,7 @@ code_paths:
   - src/hivememory/system/assembler.py
   - src/hivememory/system/application/
   - src/hivememory/system/access/
-  - src/hivememory/system/services/passive/
+  - src/hivememory/system/services/import_bus/
   - src/hivememory/config/
 related_contracts:
   - docs/contracts/subsystem-contracts.md
@@ -17,22 +17,22 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/components/README.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-21
 ---
 
 # System
 
-本目录是 HiveMemory 顶层 System 当前设计的入口，负责说明系统装配、门面与应用服务、配置与注册表和被动摄入基础设施。
+本目录是 HiveMemory 顶层 System 当前设计的入口，负责说明系统装配、门面与应用服务、配置与注册表，以及外部 harness 对话回流的入口 Import Bus。
 
-System 的职责不是把 Gateway、Patchouli 和 Alice 的领域行为重新实现一遍，而是装配所有组件、决定它们如何启动和收尾，并通过门面把服务交给入口。它是依赖图的顶点：除入口外不被任何包导入。System 拥有根配置的加载与分段注入、模型/Provider 注册表、调用来源接入登记与 Principal authentication，以及被动摄入这一系统级能力；总线、维护调度器、work queue 与观测旁路的机制实现位于 `components` 包，System 负责装配这些实例并管理其启停。资源能力（`workspace.capability`）与任务进程表及 chat 任务进程编排（`workspace.process`）同样由 System 装配并经门面交给入口，但不属于 System。
+System 的职责不是把 Gateway、Patchouli 和 Alice 的领域行为重新实现一遍，而是装配所有组件、决定它们如何启动和收尾，并通过门面把服务交给入口。它是依赖图的顶点：除入口外不被任何包导入。System 拥有根配置的加载与分段注入、模型/Provider 注册表、调用来源接入登记与 Principal authentication，以及 Import Bus 这一系统级能力；总线、维护调度器、work queue 与观测旁路的机制实现位于 `components` 包，System 负责装配这些实例并管理其启停。资源能力（`workspace.capability`）与任务进程表及 chat 任务进程编排（`workspace.process`）同样由 System 装配并经门面交给入口，但不属于 System。
 
 Workspace 是跨 System 与各领域 Store 的资源归属坐标，不是由 System 复制出的独立运行时。操作授权产生的 `IdentityScope` 只交到公开资源边界，Patchouli 内部与后台交接使用独立的归属和发起者字段。System 装配、在关闭时最后清理进程级唯一的 `WorkspaceAssetStore`（属于 workspace）；Topic、Memory 和 Artifact 的领域语义仍由 Patchouli 所有。详见 [Workspace](../workspace/README.md)。
 
 当前设计文档：
 
 - [组合根与生命周期](./composition.md)：`HiveMemorySystem`、`SystemAssembler`、子系统装配和启停顺序；
-- [应用服务](./application-services.md)：用例层的共同规则、Transport 边界，以及被动摄入与就绪检查两个系统级服务；任务进程与能力层属于 workspace；
-- [被动摄入](./passive-ingress.md)：外部对话事件、turn accumulator、submission queue 和降级语义；
+- [应用服务](./application-services.md)：用例层的共同规则、Transport 边界，以及 Import Bus 与就绪检查两个系统级服务；任务进程与能力层属于 workspace；
+- [Import Bus](./import-bus.md)：外部 harness 一轮完整交互的导入——导入授权、按外部会话串行、Gateway 落位、共用封口、应用完成后确认、失败分类，以及 Claude Code 连接器；
 - [Workspace](../workspace/README.md)：workspace 子系统的文档包——身份与授权、认证与访问登记、能力层、任务进程与执行线程、会话、读取视图与写入意图、WorkspaceAsset；
 - [配置与注册表](./configuration.md)：`config` 包的配置段与根配置加载、所有权、模型/Provider 注册和覆盖边界；
 - [i18n](./i18n.md)：语言归一化、解析优先级和各文本领域的当前入口。

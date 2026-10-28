@@ -4,7 +4,7 @@
 指向它们的注释会失去意义或与实现不一致。注释、docstring 与字段 ``description``
 必须直接写出行为、不变量与理由。
 
-扫描范围：``src``、``tests``、``scripts`` 下的 Python 注释、裸字符串表达式
+扫描范围：``src``、``tests``、``scripts``、``integrations`` 下的 Python 注释、裸字符串表达式
 （含 docstring）与 ``description=`` 字符串参数，以及 ``frontend/src`` 下
 TypeScript 的注释。变量名、用户可见的提示文案与其他字符串字面量不在范围内。
 同样的目录下也不放 README：模块用途写在 docstring 中，设计说明只在文档里维护。
@@ -20,7 +20,7 @@ from collections.abc import Iterator
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
-PYTHON_ROOTS = ("src", "tests", "scripts")
+PYTHON_ROOTS = ("src", "tests", "scripts", "integrations")
 FRONTEND_ROOT = REPO_ROOT / "frontend" / "src"
 CODE_ROOTS = (*(REPO_ROOT / root for root in PYTHON_ROOTS), FRONTEND_ROOT)
 

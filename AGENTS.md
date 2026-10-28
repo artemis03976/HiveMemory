@@ -21,7 +21,7 @@
 
 ## 3. 当前架构与所有权
 
-当前组合根是 `src/hivememory/system/` 中的 `HiveMemorySystem`（装配、门面与生命周期）。HTTP 路由是入口适配层，经门面取得服务调用，不应重新实现业务流程：管理能力由 `workspace.capability` 的 root API 提供（actor API 只经操作入口，不经门面），chat 任务进程的进程表与四阶段编排骨架位于 `workspace.process`，被动摄入与就绪检查位于 `system.application`。
+当前组合根是 `src/hivememory/system/` 中的 `HiveMemorySystem`（装配、门面与生命周期）。HTTP 路由是入口适配层，经门面取得服务调用，不应重新实现业务流程：管理能力由 `workspace.capability` 的 root API 提供（actor API 只经操作入口，不经门面），chat 任务进程的进程表与四阶段编排骨架位于 `workspace.process`，Import Bus 的应用服务与就绪检查位于 `system.application`。
 
 包按层组织，依赖只能指向同层或更低层（由 `tests/unit/architecture/test_package_layers.py` 守护）：
 
@@ -38,7 +38,7 @@
 
 | 边界 | 负责 | 不负责 |
 | --- | --- | --- |
-| System | 组合根与门面、配置加载、生命周期、模型/Provider 注册表、接入登记与 Principal authentication、Passive Ingress、就绪检查 | 记忆算法、Gateway 分析、Agent loop、MTP 具体执行、Workspace 准入与行为授权、运行时机制实现 |
+| System | 组合根与门面、配置加载、生命周期、模型/Provider 注册表、接入登记与 Principal authentication、Import Bus、就绪检查 | 记忆算法、Gateway 分析、Agent loop、MTP 具体执行、Workspace 准入与行为授权、运行时机制实现 |
 | Workspace | 认证入口（两阶段认证编排与 Workspace 准入）、逐次行为授权、能力层（只供 `system` 的 root API 与供 actor 的 actor API）、会话资源（ConversationSession）、写入意图登记、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`，含 CPU 分配：Profile 解析、附件租借与编译、记忆与中立提示词编译、输入清单组装；经组合根注入的 CPU 端口调用 Actor；Actor 完成后封口交互记录） | 记忆算法与 canonical 存储、接入登记、Agent loop |
 | Gateway | 入口拦截、命令解析、话题/查询分析、检索计划和保守降级 | 命令执行、记忆存储、检索执行、回复生成、Interaction 提交 |
 | Patchouli | Memory/Topic/Profile、检索、感知、生成、生命周期、prepare（话题与检索）/finalize 和长期状态 | 顶层 chat 编排、入口命令、Agent 生成循环、附件租借与执行上下文编译 |
@@ -46,7 +46,7 @@
 | Core/Contracts | 依赖中立的模型、协议枚举、Route 泛型原语、事件常量、访问值类型与端口协议 | 业务编排、I/O、可变运行时状态 |
 | Components | 进程内运行时机制（总线、调度器、work queue、运行时事件、串行门、trace context、取消收尾） | 业务状态与业务判断 |
 
-必须保持以下方向：`server -> 经门面取得的服务（workspace 能力层与任务进程编排 / System 被动摄入） -> Global public routes -> 子系统`。route 名称与签名由提供方 `contracts` 声明，调用方直接导入提供方的类型化 route；core 只提供 `Route` / `route` 原语，事件常量仍在 core。跨子系统使用公共 route、公共模型或全局事件；不要持有对方 Runtime、Service、Controller、存储客户端或 local bus。
+必须保持以下方向：`server -> 经门面取得的服务（workspace 能力层与任务进程编排 / System Import Bus） -> Global public routes -> 子系统`。route 名称与签名由提供方 `contracts` 声明，调用方直接导入提供方的类型化 route；core 只提供 `Route` / `route` 原语，事件常量仍在 core。跨子系统使用公共 route、公共模型或全局事件；不要持有对方 Runtime、Service、Controller、存储客户端或 local bus。
 
 执行者通过 `workspace.contracts` 的 `OperationRequest` 与线程句柄 `OperationSubmitter` 提交操作。任务进程内有两类访问 context：进程 context 服务于全部四个阶段的阶段调用，由进程记录持有、进程关闭时最后撤销；线程 context 属于执行线程，只服务于 Actor 阶段的 actor 操作。执行线程是任务进程在 Actor 阶段内的执行主体，登记在进程的线程表（`TaskProcess.threads`）中；`workspace.process` 的 `ProcessThreads` 是派生、结束与解析的唯一入口，经 `ThreadContextLifecycle` 端口进入认证一侧。主线程在进入 Actor 阶段时以 prepare 之前解析的图纸派生；CALL 由入口的 `derive_child_thread` 在一次提交内组合：actor API 的 `resolve_call_target`（actor 操作 `agent.call`）只解析目标图纸，线程表再确认调用方是存活的主线程，以被调用方做 Workspace 准入后派生子线程；`DeriveCallThreadRequest` 不是 `OperationRequest`。主线程与子线程以同一种执行线程交给 CPU 驱动：线程描述 `ThreadDescriptor`（标识、观测标签、图纸、操作快照）与线程 context；CPU 驱动以 `workspace.contracts.ThreadOperationSubmitter` 把它与 `WorkspaceOperationEntry` 绑定为该线程的句柄，句柄只交出线程描述，帧持有所属线程的句柄。线程结束即撤销线程 context：子线程随 CALL 返回由 CPU 经入口的 `end_thread` 结束，停止被接受时全部线程即已结束，Actor 阶段结束时全部兜底结束。存活只有一个判定（线程未结束且进程仍在运行），入口的 `execute` 在分派前经线程表判定，再按请求类型把五项记忆请求直接交给 actor API 方法；线程已结束以 `ThreadEndedError` 拒绝，接线缺陷仍是 `ScopeRequiredError`。请求只携带操作参数，不暴露访问 context，也不能切换目标 Workspace 或指定 process_id。
 
@@ -63,10 +63,10 @@
 
 - Patchouli 是 Memory、Topic、Artifact、Interaction 和记忆任务的权威所有者。
 - Alice 只拥有本次 Agent run 的 frame、turn events、工具调用与 ACK 别名清单；写入意图登记、完整引用解析、引用记录副作用以及可失效的原子/Profile 缓存属于 workspace。Alice 不请求 Patchouli 公开路由。
-- System 拥有 passive 控制状态，以及总线、调度器等共享设施实例的装配与关闭（机制实现在 `components`）；chat 任务进程的控制状态由 workspace 的进程表（`workspace.process`）持有；`WorkspaceAssetStore` 的进程内 working set 属于 workspace，由组合根装配并在关闭时最后清理。
+- System 拥有 Import Bus 的进程内控制状态，以及总线、调度器等共享设施实例的装配与关闭（机制实现在 `components`）；chat 任务进程的控制状态由 workspace 的进程表（`workspace.process`）持有；`WorkspaceAssetStore` 的进程内 working set 属于 workspace，由组合根装配并在关闭时最后清理。
 - Gateway 只产生 `GatewayDecision`；它可以读取辅助上下文，但不取得记忆所有权。
 - RuntimeEvent 只用于 best-effort 观测，不能决定业务成功、替代 RPC 返回值或充当可靠命令。
-- 身份数据按形态区分，不得互相代替：访问 context 只由运行持有者与 workspace 授权点持有（线程 context 的运行是该执行线程从派生到结束的一段，由 CPU 驱动持有，CPU 读不出其内容，也不持有进程 context）；`IdentityScope`（发起者 + 目标 Workspace）只由授权点组装，只在一次操作的调用链内经公共 route 到达资源 owner 与 Gateway，不写入记录、事件或后台任务。Import Bus 的 `/ingest` 仍在认证前组装，是既有例外（[身份与授权](docs/workspace/identity-and-authorization.md#12-默认入口和内部-seam)第 1.2 节）。Alice/CPU 的 `RuntimeScope`、`CPUInputManifest` 与线程描述只携带 `ExecutionLabels`（`agent_id`、`workspace_id`）作为身份数据：清单是注册认证后绑定的进程级标签，线程描述是线程自己的标签（主线程与注册标签相同，CALL 子线程为被调用方与注册时的 workspace），由线程表生成；标签用于观测与提示词，不参与授权，不得据此重建访问身份。线程描述另带线程表在派生时以该线程 context 读取的 actor 操作快照（`allowed_operations`），只用于提示词与 frame 执行策略，同样不是授权依据。
+- 身份数据按形态区分，不得互相代替：访问 context 只由运行持有者与 workspace 授权点持有（线程 context 的运行是该执行线程从派生到结束的一段，由 CPU 驱动持有，CPU 读不出其内容，也不持有进程 context）；`IdentityScope`（发起者 + 目标 Workspace）只由授权点组装，只在一次操作的调用链内经公共 route 到达资源 owner 与 Gateway，不写入记录、事件或后台任务。Alice/CPU 的 `RuntimeScope`、`CPUInputManifest` 与线程描述只携带 `ExecutionLabels`（`agent_id`、`workspace_id`）作为身份数据：清单是注册认证后绑定的进程级标签，线程描述是线程自己的标签（主线程与注册标签相同，CALL 子线程为被调用方与注册时的 workspace），由线程表生成；标签用于观测与提示词，不参与授权，不得据此重建访问身份。线程描述另带线程表在派生时以该线程 context 读取的 actor 操作快照（`allowed_operations`），只用于提示词与 frame 执行策略，同样不是授权依据。
 - 资源 owner 在公共边界把 `IdentityScope` 拆为资源归属（`WorkspaceIdentity`）与发起者（`ActorIdentity`），内部分开传递，不再传递或重新组装 `IdentityScope`。交互记录与后台任务以独立字段携带归属与（需要时）发起者；非主动生成路径的发起者是保留的 `system`，参与内容的 Agent 只记入贡献者；这种用法只按普通可见性读取，与 `system` 作为 root（只在 root API 生效）分属不同入口。
 - 身份第二批的暂缓边界：`WorkspaceAssetStore`、解析服务与既有资产 Reader/Command 端口仍使用旧 `IdentityScope` 做归属检查；System 的 `AssetMaterializationReader` 在一次 representation 租借内以归属和保留 `system` actor 组装旧接口所需 scope，Patchouli 只使用归属读取端口，不保存该 scope。此例外仅限该适配器，不得扩散，后续拆分见 [WorkspaceAsset 归属拆分 Todo](docs/todo/workspace-asset-ownership-identity-split.md)。
 - 资源授权在资源 owner 处进行：先校验资源归属等于目标 Workspace（硬边界，任何读取视角都不跳过），再按资源 policy 判断发起者的可见性；资源上的来源字段不参与授权。
@@ -77,7 +77,7 @@
 
 - 主动链路：`Gateway process -> Patchouli prepare（话题与检索） -> 任务进程 CPU 分配 -> Actor 执行（经 CPU 端口，当前为 Alice run） -> (有输出的 completed/cancelled/failed) 任务进程封口交互记录并同步写入会话 -> Patchouli finalize`；附件租借由任务进程持有，进程结束时无论结局都释放。
 - 任务进程持有自己的 task 与输出通道，阶段推进不依赖交付方读取；交付方离开只退订，并以给定原因（HTTP 断连为 `client_disconnected`）请求停止，进程只在自己的 task 中收尾。用户停止仍使用原生 `Task.cancel()`；CPU 在最外层把取消转换为返回值，以 cancelled 结果交回部分输出与已完成检查点，直接传播取消的 CPU 按无输出处理。初始用户事件与压缩进度不算输出。Actor 阶段结束、全部线程结束后，进程同步接受已完成的旧历史检查点，再判断本轮丢弃或无输出；接受不依赖本轮封口，普通执行异常没有可接受的结果。检查点不进入 done，失败原因以中立原因码投影。进程封口后同步写入会话，在交出 `finalizing` 前创建并持有提交任务；FINALIZE 后交付方离开不影响提交，不 cleanup 已接管交互。
-- 被动链路：`PassiveIngressService -> Gateway PASSIVE_MEMORY -> buffer/seal -> InteractionSubmissionQueue -> Patchouli perception`；被动模式不运行 Alice、MTP、命令或回复生成。
+- Import Bus 链路：`POST /api/v1/import/turns -> 统一认证网关 + 导入授权 -> Import Bus 编排（按外部会话串行，查询交互进度） -> Gateway PASSIVE_MEMORY（只取话题落位与价值信号） -> 共用封口 seal_interaction -> Patchouli 公开提交路由 -> 等待感知应用完成后确认`；Import Bus 不运行 Alice、MTP、命令或回复生成，不检索记忆，也不返回记忆上下文。
 - prepare 失败、进程异常、finalize 前断连或 CPU 无输出时，不进入 finalize；任务进程可请求 Patchouli cleanup，但 cleanup 只补偿 prepare 新建且仍为空的临时话题，不是跨边界事务回滚。
 - `MTP WRITE/UPDATE` 的 ACK 表示意图已在 workspace 登记，并已被 Patchouli 生成队列接纳，不表示正式记忆已经持久化。actor API 在同步段向线程表解析一次线程，取得进程关联、线程标识与派发话题，并登记为 MATERIALIZING；UPDATE 的基础冷读在同步段之前，冷读跨越线程结束或停止时在同步段拒绝。派发开始后屏蔽调用方取消并持有提交任务直到完成，再传播取消；CPU 失败、取消、停止、子线程结束、进程关闭或 CALL 子帧失败都不撤回已提交写入。停止被接受时全部线程即已结束，此后的 actor 操作都以线程已结束拒绝，CPU 取消后的收尾不得依赖 actor 操作。CPU 返回终态后、finalize 之前，Actor 阶段同步结束全部线程，且只在这里执行一次；Actor 阶段提前结束时也在交付终态前执行；进程关闭先于任何 await 兜底结束线程。有输出的三种结局均封口交互记录，finalize 不派发写入；正式持久化由 Patchouli 生成链结算，不能在 Koakuma/Alice 内直接写正式 Memory。
 - Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，Agent Profile 不承载任何权限；Alice 把所属线程描述的操作快照翻译为 MTP 动词（RUN 始终可用），用于提示词与 frame 执行策略，资源操作仍由 actor API 逐次授权。`sys_*` 系统工具不设权限。CALL 派生的子 frame 以被调用方身份运行：按被调用方的白名单与记忆可见性授权，写入记在被调用方名下，观测标签取被调用方，动词集合由被调用方的操作快照翻译并去掉 CALL；CALL 只允许根 frame 发起，不得递归 CALL；子线程随 CALL 返回结束（子帧任何终态、取消清理与派生后的准备失败），Alice 不结束主线程。

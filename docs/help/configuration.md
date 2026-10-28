@@ -17,7 +17,9 @@ code_paths:
   - src/hivememory/server/routers/config.py
 related_contracts:
   - docs/architecture/boundaries.md
-last_reviewed: 2026-10-17
+related_docs:
+  - docs/system/import-bus.md
+last_reviewed: 2026-10-21
 ---
 
 # HiveMemory 配置指南
@@ -120,7 +122,7 @@ ProviderRegistry 和 ModelRegistry 自身支持运行时 CRUD；Provider 凭证�
 
 ### 5.1 访问登记
 
-与 Workspace 相关的 HTTP 请求（Chat、停止、记忆、话题、Agent、附件、记忆任务）都先经统一认证网关：server 以 `system.server_principal_id` 登记的 principal 接入，再按 `configs/workspace_actors.yaml` 判断请求的用户与 Agent 能否进入 Workspace、能执行哪些操作。随仓库发布的默认登记覆盖本地默认用户 `default` 在 `main_workspace` 中的所有具体 Agent（Chat 所需的读取、检索、Profile、附件与交互提交），并为管理操作单独登记保留的 `system`（记忆、话题、附件与任务管理）。
+与 Workspace 相关的 HTTP 请求（Chat、停止、对话导入、记忆、话题、Agent、附件、记忆任务）都先经统一认证网关：server 以 `system.server_principal_id` 登记的 principal 接入，再按 `configs/workspace_actors.yaml` 判断请求的用户与 Agent 能否进入 Workspace、能执行哪些操作。随仓库发布的默认登记覆盖本地默认用户 `default` 在 `main_workspace` 中的所有具体 Agent（Chat 所需的读取、检索、Profile、附件与交互提交），并为管理操作单独登记保留的 `system`（记忆、话题、附件与任务管理），为 Claude Code 连接器登记 `allowed_operations` 为空的 `claude_code`（对话导入只要求准入，见[安装与启动](./setup.md#93-访问登记)）。
 
 - 使用其他用户（请求头 `x-user-id`）时，需要在 `workspace_actors.yaml` 中为该用户登记对应记录，否则请求返回 403（`reason=actor_not_admitted`）；
 - 两个登记文件可分别用 `HIVEMEMORY_PRINCIPALS_PATH`、`HIVEMEMORY_WORKSPACE_ACTORS_PATH` 指向其他位置；修改后需要重启服务；
@@ -134,6 +136,19 @@ ProviderRegistry 和 ModelRegistry 自身支持运行时 CRUD；Provider 凭证�
 自动压缩由 `configs/config.yaml` 的 `alice.compaction` 控制；完整默认值与单位见 [System 配置](../system/configuration.md#12-alice-会话预算与压缩)。修改后重启运行实例。模型窗口可在 `configs/models.yaml` 或模型 API 登记，不把总窗口误填为最大输出长度；未登记时使用保守默认窗口，请求的 `max_tokens` 也会占用窗口预算。
 
 关闭 `enabled` 会让 Alice 忽略已有检查点、重放原文，但不会关闭每次生成前的输入守卫。压缩不删除会话原文、不增加会话容量，也不提供跨后端重启保存；当前没有手动 `/compact` 入口。
+
+### 5.3 对话导入（Import Bus）
+
+Claude Code 等外部工具的对话经 `POST /api/v1/import/turns` 导入，安装与连接器配置见[安装与启动](./setup.md#9-接入-claude-code)。服务端的 `import_bus` 段只有两项，`configs/config.yaml` 中没有写出时按默认值运行：
+
+| 键 | 默认值 | 说明 |
+|:---|---:|:---|
+| `import_bus.max_request_bytes` | `8388608`（8 MiB） | 单次导入请求体的上限；超出的那一轮被拒绝（413），连接器记录后跳过 |
+| `import_bus.apply_wait_seconds` | `30` | 提交后等待记忆系统应用这一轮的秒数；超时返回 503，连接器稍后重发 |
+
+连接器等待一次导入的上限是 60 秒，调大 `apply_wait_seconds` 或 Gateway 请求时限（`gateway.workflow.default_request_timeout_ms`，默认 8 秒）时，两者之和应保持在这个范围内。
+
+升级注意：旧的 `passive_ingress` 段以及 `scheduler.tasks` 下的 `observer_idle_flush_interval_seconds`、`observer_idle_flush_timeout_seconds`、`enable_observer_idle_flush` 已删除。配置文件中仍有这些键时服务无法启动，需要删除它们；配置文件中出现任何未知的顶层段同样会让启动失败。旧的 `/api/v1/ingest` 与 `/api/v1/ingest/flush` 已由 `/api/v1/import/turns` 取代。
 
 ## 6. 当前 Settings 页面限制
 

@@ -5,7 +5,7 @@
 Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用可控时钟。
 
 测试覆盖:
-- apply_interaction: 新建/指定话题写入、binding 幂等、busy 拒绝、未知目标、
+- apply_interaction: 新建（含提交携带的标题与摘要）/指定话题写入、binding 幂等、busy 拒绝、未知目标、
   retry 幂等与等价性冲突、跨 Workspace 复用 interaction_id 被拒
 - LRU 驱逐: 池满驱逐最久未访问话题、busy 候选改选、admission 失败传播
 - token 溢出 compact: 折叠摘要写回、relay 失败后 retry 续跑不重复写块、未超保留块数不折叠
@@ -194,6 +194,25 @@ class TestApplyInteraction:
         assert journal.get("i-1").stage is InteractionApplyStage.COMPLETED
         # 驻留工作集记录了话题（shutdown 候选可观察）
         assert {tid for _, tid in working_set.list_shutdown_candidates()} == {topic_id}
+
+    @pytest.mark.asyncio
+    async def test_new_topic_uses_submitted_title_and_summary(self):
+        """提交携带的新话题标题与摘要用于建立话题，后续落位依赖它们。"""
+        familiar, store, _, _, _ = _make_familiar()
+        scope = _identity_scope()
+
+        topic_id = await familiar.apply_interaction(
+            _payload(),
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+            interaction_id="i-titled",
+            new_topic_title="部署贪吃蛇",
+            new_topic_summary="讨论贪吃蛇游戏的部署步骤",
+        )
+
+        topic = store.get(scope.workspace_identity, topic_id)
+        assert topic.topic_title == "部署贪吃蛇"
+        assert topic.topic_summary == "讨论贪吃蛇游戏的部署步骤"
 
     @pytest.mark.asyncio
     async def test_existing_topic_appends_blocks_and_dedupes_bindings(self):

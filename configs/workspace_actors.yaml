@@ -33,3 +33,12 @@ workspace_actors:
     workspace_id: "main_workspace"
     user_id: "default"
     agent_id: "system"
+
+  # Claude Code 连接器（Import Bus）：以 (default, claude_code) 声明导入已结束
+  # 的交互。导入只校验准入与目标、不经白名单；精确记录优先于上方的用户级
+  # 记录，空白名单使这个 Agent 只能准入，不继承六项 actor 操作。
+  - owner_user_id: "default"
+    workspace_id: "main_workspace"
+    user_id: "default"
+    agent_id: "claude_code"
+    allowed_operations: []

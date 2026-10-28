@@ -11,7 +11,7 @@ DEFAULT_USER_ID = "default"
 
 使用边界：该回退值只允许出现在 ``server/deps.py`` 的
 ``_resolve_identity_coordinates``，它是声明解析 ``resolve_request_identity_claims``
-与 /ingest 例外路径 ``resolve_request_identity_scope`` 共用的唯一缺省回退点。
+的唯一缺省回退点。
 身份模型不带默认值，应用服务与引擎层不得再次解析或回退默认身份
 （由 tests/unit/architecture/test_identity_fields.py 的边界守卫约束）。"""
 

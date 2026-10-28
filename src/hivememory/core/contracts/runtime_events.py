@@ -20,11 +20,10 @@ class RuntimeEventType(str, Enum):
 
     COMMAND_EXECUTED = "command.executed"
 
-    PASSIVE_INGRESS_EVENT_ACCEPTED = "passive.ingress.event.accepted"
-    PASSIVE_INGRESS_DUPLICATE_IGNORED = "passive.ingress.duplicate.ignored"
-    PASSIVE_MEMORY_CONTEXT_PREPARED = "passive.memory.context.prepared"
-    PASSIVE_TURN_SUBMITTED = "passive.turn.submitted"
-    PASSIVE_TURN_SUBMIT_FAILED = "passive.turn.submit_failed"
+    IMPORT_TURN_ACCEPTED = "import.turn.accepted"
+    IMPORT_TURN_DUPLICATE = "import.turn.duplicate"
+    IMPORT_TURN_SKIPPED = "import.turn.skipped"
+    IMPORT_TURN_DEFERRED = "import.turn.deferred"
 
     GATEWAY_WORKFLOW_STARTED = "gateway.workflow.started"
     GATEWAY_STEP_COMPLETED = "gateway.step.completed"

@@ -1,0 +1,44 @@
+"""Import Bus HTTP API 的 Request/Response 模型。"""
+
+from pydantic import BaseModel, Field
+
+from hivememory.system.services.import_bus import ImportedTurn, ImportTurnStatus
+
+
+class ImportTurnRequest(ImportedTurn):
+    """导入一轮已结束交互的完整记录；请求模型拒绝未知字段。
+
+    ``agent_id`` 是连接器所代表的具体 Agent，只作为认证声明使用，不进入
+    导入记录；缺失或为保留的 ``system`` 时由声明解析返回 400，因此这里
+    不设为必填。
+    """
+
+    agent_id: str | None = Field(
+        default=None,
+        description="连接器所代表的具体 Agent ID；缺失或为 system 时返回 400",
+    )
+
+    def to_imported_turn(self) -> ImportedTurn:
+        """去掉认证声明，交出只含导入内容的记录。
+
+        字段已随请求完成校验，这里直接复用，不对可能很大的请求体再校验一遍。
+        """
+        return ImportedTurn.model_construct(
+            **{name: getattr(self, name) for name in ImportedTurn.model_fields}
+        )
+
+
+class ImportTurnResponse(BaseModel):
+    """导入结果：接纳、重复或因没有输出而跳过，并带推导出的交互标识。
+
+    ``accepted`` 与 ``duplicate`` 都表示这一轮已经应用；不暴露 Gateway 决定、
+    话题或记忆上下文；可重试与不可重试的失败经错误信封的状态码区分。
+    """
+
+    status: ImportTurnStatus = Field(
+        description="accepted（本次提交并已应用）、duplicate（此前已应用）或 skipped（没有输出）"
+    )
+    interaction_id: str = Field(description="由认证结果与外部标识推导的稳定交互标识")
+
+
+__all__ = ["ImportTurnRequest", "ImportTurnResponse"]

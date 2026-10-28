@@ -22,6 +22,8 @@
   ``ScopeRequiredError`` 拒绝，记录侧已撤销按 ``False``（不可控）呈现；
 - ``authorize_stage`` 只检查凭据、准入与目标，不要求 actor 操作白名单；
   返回 scope 仍保留进程 actor 身份，不切换成保留的 system actor；
+- ``authorize_import`` 与阶段授权共用凭据、准入与目标检查，不要求白名单，
+  另外只接受具体 Agent，并交出认证通过的 principal 标识；
 
 签发约定：``WorkspaceAuthenticator.admit`` 只由认证网关调用——本套件的
 全部签发都经 ``composition.gateway.authenticate`` 完成，不直接调用
@@ -378,7 +380,7 @@ async def test_authorize_stage_without_operations_preserves_process_actor():
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("method", ["authorize_stage", "get_stage_operations"])
+@pytest.mark.parametrize("method", ["authorize_stage", "get_stage_operations", "authorize_import"])
 async def test_authorize_stage_rejects_revoked_context(method):
     """阶段授权兑现已撤销凭据时拒绝，空白名单不能绕过签发有效性检查。"""
     composition = _composition(allowed_operations=frozenset())
@@ -423,7 +425,7 @@ async def test_authorize_stage_rechecks_current_admission(method, enabled):
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("method", ["authorize_stage", "get_stage_operations"])
+@pytest.mark.parametrize("method", ["authorize_stage", "get_stage_operations", "authorize_import"])
 async def test_authorize_stage_rejects_target_outside_resident_workspace(method):
     """驻留 workspace 以外的阶段目标拒绝，错误不伪造 actor operation。
 
@@ -462,6 +464,36 @@ async def test_authorize_stage_rejects_missing_context_and_invalid_target(method
 
     assert missing_info.value.code == "workspace.scope_required"
     assert bare_info.value.code == "workspace.scope_required"
+
+
+@pytest.mark.asyncio
+async def test_authorize_import_without_operations_returns_scope_and_principal():
+    """空白名单的具体 Agent 可以导入，结果携带本次 scope 与认证通过的 principal。"""
+    composition = _composition(allowed_operations=frozenset())
+    context = await composition.authenticate(agent_id="a1", user_id="u1")
+
+    authorization = composition.authorizer.authorize_import(context, MAIN)
+
+    assert authorization.identity_scope == IdentityScope(
+        actor_identity=make_identity_scope(user_id="u1", agent_id="a1").actor_identity,
+        workspace_identity=MAIN,
+    )
+    assert authorization.principal_id == composition.principal.principal_id
+
+
+@pytest.mark.asyncio
+async def test_authorize_import_rejects_reserved_system_actor():
+    """保留的 system 不代表交互参与者，即使已准入也不能导入。"""
+    composition = make_access_composition(
+        [make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID)],
+        default_workspace=MAIN,
+    )
+    context = await composition.authenticate(agent_id=SYSTEM_AGENT_ID)
+
+    with pytest.raises(OperationDeniedError) as error:
+        composition.authorizer.authorize_import(context, MAIN)
+
+    assert error.value.details == {"reason": "agent_required"}
 
 
 class TestAuthorizeProcessControl:

@@ -25,7 +25,7 @@ from hivememory.system.provider_registry import ProviderRegistry
 
 if TYPE_CHECKING:
     from hivememory.gateway import GatewaySystem
-    from hivememory.system.application.passive_ingress_service import PassiveIngressService
+    from hivememory.system.application.import_bus_service import ImportBusService
     from hivememory.system.application.readiness_service import SystemReadinessService
     from hivememory.workspace.authentication import ActorAuthenticationGateway
     from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
@@ -73,7 +73,7 @@ class HiveMemorySystem:
 
         # 应用服务
         self._process_service = services.process
-        self._ingress_service = services.ingress
+        self._import_bus_service = services.import_bus
         self._root_memory_service = services.root_memory
         self._root_memory_task_service = services.root_memory_task
         self._root_agent_service = services.root_agent
@@ -139,7 +139,6 @@ class HiveMemorySystem:
             "patchouli.start",
             "alice.start",
             "scheduler.start",
-            "passive_ingress.start",
         ]
         self._emit_lifecycle_event(
             RuntimeEventType.SYSTEM_STARTING,
@@ -159,8 +158,6 @@ class HiveMemorySystem:
             completed_steps.append("alice.start")
             self._scheduler.start()
             completed_steps.append("scheduler.start")
-            await self._ingress_service.start()
-            completed_steps.append("passive_ingress.start")
             self._started = True
             self._scheduler_stopped = False
         except Exception as exc:
@@ -201,7 +198,7 @@ class HiveMemorySystem:
         steps = [
             "access_gateway.close",
             "scheduler.stop",
-            "passive_ingress.shutdown_drain",
+            "import_bus.shutdown",
             "process_service.shutdown",
             "sessions.close_and_clear",
             "alice.stop",
@@ -221,7 +218,7 @@ class HiveMemorySystem:
             },
         )
 
-        passive_shutdown_drain: Any = None
+        import_bus_shutdown: Any = None
         scheduler_stopped = self._scheduler_stopped
         try:
             # 先关闭统一认证网关、拒绝新认证：已签发
@@ -231,8 +228,10 @@ class HiveMemorySystem:
             await self._stop_scheduler()
             scheduler_stopped = self._scheduler_stopped
             completed_steps.append("scheduler.stop")
-            passive_shutdown_drain = await self._ingress_service.shutdown_drain()
-            completed_steps.append("passive_ingress.shutdown_drain")
+            # 认证网关已关闭，新的导入请求以 503 拒绝；这里只等待在途导入，
+            # 已接纳的交互由 Patchouli 停止时排空提交队列。
+            import_bus_shutdown = await self._import_bus_service.shutdown()
+            completed_steps.append("import_bus.shutdown")
             await self._process_service.shutdown()
             completed_steps.append("process_service.shutdown")
             self._sessions.close_and_clear()
@@ -253,7 +252,7 @@ class HiveMemorySystem:
                         "steps": steps,
                         "completed_steps": completed_steps,
                         "scheduler_stopped": scheduler_stopped,
-                        "passive_shutdown_drain": passive_shutdown_drain,
+                        "import_bus_shutdown": import_bus_shutdown,
                     },
                 )
                 return
@@ -294,7 +293,7 @@ class HiveMemorySystem:
                         completed_steps,
                     ),
                     "scheduler_stopped": scheduler_stopped,
-                    "passive_shutdown_drain": passive_shutdown_drain,
+                    "import_bus_shutdown": import_bus_shutdown,
                     "error": str(exc),
                 },
             )
@@ -310,7 +309,7 @@ class HiveMemorySystem:
                 "steps": steps,
                 "completed_steps": completed_steps,
                 "scheduler_stopped": scheduler_stopped,
-                "passive_shutdown_drain": passive_shutdown_drain,
+                "import_bus_shutdown": import_bus_shutdown,
             },
         )
 
@@ -379,8 +378,9 @@ class HiveMemorySystem:
         return self._process_service
 
     @property
-    def ingress_service(self) -> PassiveIngressService:
-        return self._ingress_service
+    def import_bus_service(self) -> ImportBusService:
+        """接收外部 harness 一轮完整交互记录的 Import Bus 服务。"""
+        return self._import_bus_service
 
     @property
     def root_memory_service(self) -> RootMemoryService:
