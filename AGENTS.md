@@ -1,6 +1,6 @@
 # HiveMemory Coding Agent 规范
 
-本文件是仓库根目录的 Coding Agent 工作规范。它把项目当前的架构、测试和文档治理规则压缩成执行清单；详细设计仍以 `docs/` 中的当前文档、代码、测试和配置为准。
+本文件是仓库根目录的 Coding Agent 工作规范：工作原则、所有权摘要、最容易被违反的约束与验证要求，并指向改动前需要先读的当前设计文档。详细设计以 `docs/` 中的当前文档、代码、测试和配置为准。
 
 ## 1. 工作原则
 
@@ -10,6 +10,27 @@
 - 不猜测公共行为。路由、事件、错误、版本和配置字段必须从代码或当前契约文档确认。
 - 不把“测试通过”写成未执行的事实；最终说明实际运行过的命令及其结果。
 - 默认使用中文沟通和提交说明；代码、公共标识符、日志和错误信息遵循现有语言与命名。
+
+### 1.1 控制复杂度
+
+代码要由 owner 长期读懂和维护。每个新概念的理解成本由之后的每一位读者承担，所以默认不新增概念，或需要严格控制新概念的加入。这与 [ADR-0002](docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md) 的按需原则一致。
+
+- 新的类型、端口（Protocol）、DTO、状态、层或配置项，需要已经存在的生产使用方；测试不算生产使用方。为尚未出现的第二个实现或调用方预留抽象，只在 owner 明确要求时进行。
+- 生产中不会出现的输入不写处理分支。罕见或尚未出现的边界情况，优先以结构化错误显式拒绝，等真实出现再处理；不要用兜底、重试或兼容分支掩盖它们。
+- 方案先给出能满足需求的最简单版本，写明它暂不处理哪些情况；更完整的做法作为可选项说明，由 owner 选择。
+- 重构只服务于当前任务，只调整任务需要触及的结构。没有生产使用方的代码、同一事实的重复表达、读不懂的结构，在交付说明中列出或登记为 Todo，不擅自扩大改动范围。
+- 第 3、4 节的所有权与不变量在实现时必须遵守，但不排斥简化：发现某个概念可以删除或合并时应当提出，并说明它原本保护的行为改由什么保证，由 owner 决定。
+
+### 1.2 可读性与代码风格
+
+人类可读、可理解、可维护，优先于写法上的巧妙、未经测量的性能优化和形式上的完备。判断标准是：owner 不借助 Agent，能读懂这段代码做什么、为什么这样做，并且有把握修改它。
+
+- 先读后写。动手前读要修改的模块和相邻代码，沿用其中的命名、结构、错误处理、日志、类型标注与注释写法；同类问题已有写法时照着写，不在仓库里引入第二种风格。
+- 命名使用项目已有的领域术语，说明它是什么；同一概念不另起名字，不同概念不共用名字。
+- 控制流保持直白：优先平铺的顺序代码与提前返回，避免深层嵌套、用异常承担常规分支、只转发一次的薄包装和多余的间接层。抽取函数是为了让调用处更好读，不是为了减少行数。
+- 函数只做一件事，长度以一屏能读完为宜；正确性依赖的前提（例如两步之间不能有 `await`）尽量由结构保证，做不到时在代码旁用一句注释写明。
+- 注释与 docstring 写行为、不变量和理由，篇幅与逻辑的复杂度相称，不逐行复述代码，也不大段讲述相邻模块的职责（其余要求见第 5 节）。
+- 格式只以 ruff、black 与前端 lint 配置为准。现有写法明显妨碍阅读时，不在当前任务中另起一套风格，在交付说明中提出。
 
 ## 2. 开始任务前
 
@@ -39,7 +60,7 @@
 | 边界 | 负责 | 不负责 |
 | --- | --- | --- |
 | System | 组合根与门面、配置加载、生命周期、模型/Provider 注册表、接入登记与 Principal authentication、Import Bus、就绪检查 | 记忆算法、Gateway 分析、Agent loop、MTP 具体执行、Workspace 准入与行为授权、运行时机制实现 |
-| Workspace | 认证入口（两阶段认证编排与 Workspace 准入）、逐次行为授权、能力层（只供 `system` 的 root API 与供 actor 的 actor API）、会话资源（ConversationSession）、写入意图登记、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`，含 CPU 分配：Profile 解析、附件租借与编译、记忆与中立提示词编译、输入清单组装；经组合根注入的 CPU 端口调用 Actor；Actor 完成后封口交互记录） | 记忆算法与 canonical 存储、接入登记、Agent loop |
+| Workspace | 认证入口与 Workspace 准入、逐次行为授权、能力层（root API 与 actor API）、会话资源、写入意图登记与读取视图、WorkspaceAsset working set 与上传/解析交接、任务进程（进程表、四阶段编排、CPU 分配与提示词编译、封口交互记录） | 记忆算法与 canonical 存储、接入登记、Agent loop |
 | Gateway | 入口拦截、命令解析、话题/查询分析、检索计划和保守降级 | 命令执行、记忆存储、检索执行、回复生成、Interaction 提交 |
 | Patchouli | Memory/Topic/Profile、检索、感知、生成、生命周期、prepare（话题与检索）/finalize 和长期状态 | 顶层 chat 编排、入口命令、Agent 生成循环、附件租借与执行上下文编译 |
 | Alice | Agent run、frame、MTP/工具和 CALL 编排 | 长期记忆所有权、Gateway 分析、chat 任务进程编排、HTTP 生命周期 |
@@ -48,39 +69,32 @@
 
 必须保持以下方向：`server -> 经门面取得的服务（workspace 能力层与任务进程编排 / System Import Bus） -> Global public routes -> 子系统`。route 名称与签名由提供方 `contracts` 声明，调用方直接导入提供方的类型化 route；core 只提供 `Route` / `route` 原语，事件常量仍在 core。跨子系统使用公共 route、公共模型或全局事件；不要持有对方 Runtime、Service、Controller、存储客户端或 local bus。
 
-执行者通过 `workspace.contracts` 的 `OperationRequest` 与线程句柄 `OperationSubmitter` 提交操作。任务进程内有两类访问 context：进程 context 服务于全部四个阶段的阶段调用，由进程记录持有、进程关闭时最后撤销；线程 context 属于执行线程，只服务于 Actor 阶段的 actor 操作。执行线程是任务进程在 Actor 阶段内的执行主体，登记在进程的线程表（`TaskProcess.threads`）中；`workspace.process` 的 `ProcessThreads` 是派生、结束与解析的唯一入口，经 `ThreadContextLifecycle` 端口进入认证一侧。主线程在进入 Actor 阶段时以 prepare 之前解析的图纸派生；CALL 由入口的 `derive_child_thread` 在一次提交内组合：actor API 的 `resolve_call_target`（actor 操作 `agent.call`）只解析目标图纸，线程表再确认调用方是存活的主线程，以被调用方做 Workspace 准入后派生子线程；`DeriveCallThreadRequest` 不是 `OperationRequest`。主线程与子线程以同一种执行线程交给 CPU 驱动：线程描述 `ThreadDescriptor`（标识、观测标签、图纸、操作快照）与线程 context；CPU 驱动以 `workspace.contracts.ThreadOperationSubmitter` 把它与 `WorkspaceOperationEntry` 绑定为该线程的句柄，句柄只交出线程描述，帧持有所属线程的句柄。线程结束即撤销线程 context：子线程随 CALL 返回由 CPU 经入口的 `end_thread` 结束，停止被接受时全部线程即已结束，Actor 阶段结束时全部兜底结束。存活只有一个判定（线程未结束且进程仍在运行），入口的 `execute` 在分派前经线程表判定，再按请求类型把五项记忆请求直接交给 actor API 方法；线程已结束以 `ThreadEndedError` 拒绝，接线缺陷仍是 `ScopeRequiredError`。请求只携带操作参数，不暴露访问 context，也不能切换目标 Workspace 或指定 process_id。
-
-能力层的三个调用面（详见 [能力层](docs/workspace/capability.md#1-三个调用面)第 1 节）：
-
-- **actor API**（`workspace/capability/actor/`）：六项 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，与 MTP 的 READ、SEARCH、RUN、WRITE、UPDATE、CALL 一一对应，每种请求只检查访问登记白名单中的对应一项。
-- **root API**（`workspace/capability/root/`）：全部管理方法，只接受保留的 `system`，不读取白名单；`system` 的访问记录不得配置 operation，也不能执行 actor 操作。HTTP 管理路由只调用 root API。
-- **任务进程的阶段调用**：经阶段授权（`authorize_stage`），只校验准入与目标、不检查 actor 操作，scope 仍以进程 Agent 为发起者，资源可见性照常按该 Agent 过滤；阶段授权只能在 `workspace.process` 中调用，scope 不得进入 CPU 可见的对象。
-- 两个 API 目录互不导入；server 只导入 root API，操作入口只导入 actor API。不要新增可登记给 actor 的管理 operation，也不要让阶段调用借用 actor 操作。
-
 关键所有权约束：
 
-- ConversationSession 是 workspace 的进程内资源，属于 Workspace、不属于 Agent；同一会话同时只允许一个任务进程。轮次中的 `agent_id` 仅用于历史角色展示，不是访问身份。会话管理只经 root API；Alice 接收全量会话原文并构建预算受限的派生视图；会话持有 CPU 中立的压缩检查点，原文不删改。Gateway 使用最近 N 轮，Topic 继续作为记忆材料。容量用尽显式拒绝，System 关闭全部进程后清空会话。
-
-- Patchouli 是 Memory、Topic、Artifact、Interaction 和记忆任务的权威所有者。
+- Patchouli 是 Memory、Topic、Artifact、Interaction 和记忆任务的权威所有者；Topic、Memory、Artifact 的 Workspace 归属由 Patchouli 领域规则校验。
 - Alice 只拥有本次 Agent run 的 frame、turn events、工具调用与 ACK 别名清单；写入意图登记、完整引用解析、引用记录副作用以及可失效的原子/Profile 缓存属于 workspace。Alice 不请求 Patchouli 公开路由。
-- System 拥有 Import Bus 的进程内控制状态，以及总线、调度器等共享设施实例的装配与关闭（机制实现在 `components`）；chat 任务进程的控制状态由 workspace 的进程表（`workspace.process`）持有；`WorkspaceAssetStore` 的进程内 working set 属于 workspace，由组合根装配并在关闭时最后清理。
+- System 拥有 Import Bus 的进程内控制状态，以及总线、调度器等共享设施实例的装配与关闭（机制实现在 `components`）；chat 任务进程的控制状态由 workspace 的进程表持有；`WorkspaceAsset` 及其 working set 属于 workspace，由组合根装配并在关闭时最后清理。
 - Gateway 只产生 `GatewayDecision`；它可以读取辅助上下文，但不取得记忆所有权。
 - RuntimeEvent 只用于 best-effort 观测，不能决定业务成功、替代 RPC 返回值或充当可靠命令。
-- 身份数据按形态区分，不得互相代替：访问 context 只由运行持有者与 workspace 授权点持有（线程 context 的运行是该执行线程从派生到结束的一段，由 CPU 驱动持有，CPU 读不出其内容，也不持有进程 context）；`IdentityScope`（发起者 + 目标 Workspace）只由授权点组装，只在一次操作的调用链内经公共 route 到达资源 owner 与 Gateway，不写入记录、事件或后台任务。Alice/CPU 的 `RuntimeScope`、`CPUInputManifest` 与线程描述只携带 `ExecutionLabels`（`agent_id`、`workspace_id`）作为身份数据：清单是注册认证后绑定的进程级标签，线程描述是线程自己的标签（主线程与注册标签相同，CALL 子线程为被调用方与注册时的 workspace），由线程表生成；标签用于观测与提示词，不参与授权，不得据此重建访问身份。线程描述另带线程表在派生时以该线程 context 读取的 actor 操作快照（`allowed_operations`），只用于提示词与 frame 执行策略，同样不是授权依据。
-- 资源 owner 在公共边界把 `IdentityScope` 拆为资源归属（`WorkspaceIdentity`）与发起者（`ActorIdentity`），内部分开传递，不再传递或重新组装 `IdentityScope`。交互记录与后台任务以独立字段携带归属与（需要时）发起者；非主动生成路径的发起者是保留的 `system`，参与内容的 Agent 只记入贡献者；这种用法只按普通可见性读取，与 `system` 作为 root（只在 root API 生效）分属不同入口。
-- 身份第二批的暂缓边界：`WorkspaceAssetStore`、解析服务与既有资产 Reader/Command 端口仍使用旧 `IdentityScope` 做归属检查；System 的 `AssetMaterializationReader` 在一次 representation 租借内以归属和保留 `system` actor 组装旧接口所需 scope，Patchouli 只使用归属读取端口，不保存该 scope。此例外仅限该适配器，不得扩散，后续拆分见 [WorkspaceAsset 归属拆分 Todo](docs/todo/workspace-asset-ownership-identity-split.md)。
-- 资源授权在资源 owner 处进行：先校验资源归属等于目标 Workspace（硬边界，任何读取视角都不跳过），再按资源 policy 判断发起者的可见性；资源上的来源字段不参与授权。
 - Cache、queue、registry、scheduler 和 EventBus 默认是进程级共享基础设施；`workspace_id` 观测标签不等于授权或分区。
-- `WorkspaceAsset` 是 workspace 的进程内资源；Topic、Memory、Artifact 的 Workspace 归属仍由 Patchouli 领域规则校验。
+
+Workspace 的访问、能力层与任务进程规则较多。改动这些区域前先读对应的当前设计文档；下面只列出最容易被违反的约束：
+
+- **能力层**（[能力层](docs/workspace/capability.md)）：三个调用面互不借用。actor API 的六项 actor 操作与 MTP 的 READ、SEARCH、RUN、WRITE、UPDATE、CALL 一一对应，逐次按访问登记白名单授权；root API 只接受保留的 `system`，HTTP 管理路由只调用它；任务进程的阶段调用只校验准入与目标，只在 `workspace.process` 中发起。两个 API 目录互不导入，不要新增可登记给 actor 的管理 operation。
+- **任务进程与执行线程**（[任务进程](docs/workspace/task-process.md)、[执行线程](docs/workspace/execution-threads.md)）：进程 context 服务阶段调用，线程 context 只服务 Actor 阶段的 actor 操作。`ProcessThreads` 是派生、结束与解析线程的唯一入口，存活只有一个判定（线程未结束且进程仍在运行）。执行者经线程句柄 `OperationSubmitter` 提交 `OperationRequest`；请求只携带操作参数，不暴露访问 context，也不能切换目标 Workspace 或指定 `process_id`。
+- **身份数据**（[身份与授权](docs/workspace/identity-and-authorization.md)）：访问 context、`IdentityScope`、`ExecutionLabels` 与操作快照各有形态，不得互相代替。`IdentityScope` 只由授权点组装，只在一次操作的调用链内传递，不写入记录、事件或后台任务；标签与操作快照只用于观测、提示词与执行策略，不参与授权。资源 owner 在公共边界把 scope 拆为资源归属与发起者；资源授权在 owner 处进行，先校验归属等于目标 Workspace，再按资源 policy 判断发起者的可见性。
+- **会话**（[会话资源](docs/workspace/sessions.md)）：ConversationSession 属于 Workspace，不属于 Agent；同一会话同时只允许一个任务进程；会话原文不删改，压缩只产生检查点；会话管理只经 root API。
+- **已知例外**：`WorkspaceAssetStore`、解析服务与既有资产 Reader/Command 端口仍以旧 `IdentityScope` 做归属检查，System 的 `AssetMaterializationReader` 为此在一次租借内组装 scope。此例外仅限该适配器，不得扩散，后续拆分见 [WorkspaceAsset 归属拆分 Todo](docs/todo/workspace-asset-ownership-identity-split.md)。
 
 ## 4. 关键流程不变量
 
-- 主动链路：`Gateway process -> Patchouli prepare（话题与检索） -> 任务进程 CPU 分配 -> Actor 执行（经 CPU 端口，当前为 Alice run） -> (有输出的 completed/cancelled/failed) 任务进程封口交互记录并同步写入会话 -> Patchouli finalize`；附件租借由任务进程持有，进程结束时无论结局都释放。
-- 任务进程持有自己的 task 与输出通道，阶段推进不依赖交付方读取；交付方离开只退订，并以给定原因（HTTP 断连为 `client_disconnected`）请求停止，进程只在自己的 task 中收尾。用户停止仍使用原生 `Task.cancel()`；CPU 在最外层把取消转换为返回值，以 cancelled 结果交回部分输出与已完成检查点，直接传播取消的 CPU 按无输出处理。初始用户事件与压缩进度不算输出。Actor 阶段结束、全部线程结束后，进程同步接受已完成的旧历史检查点，再判断本轮丢弃或无输出；接受不依赖本轮封口，普通执行异常没有可接受的结果。检查点不进入 done，失败原因以中立原因码投影。进程封口后同步写入会话，在交出 `finalizing` 前创建并持有提交任务；FINALIZE 后交付方离开不影响提交，不 cleanup 已接管交互。
-- Import Bus 链路：`POST /api/v1/import/turns -> 统一认证网关 + 导入授权 -> Import Bus 编排（按外部会话串行，查询交互进度） -> Gateway PASSIVE_MEMORY（只取话题落位与价值信号） -> 共用封口 seal_interaction -> Patchouli 公开提交路由 -> 等待感知应用完成后确认`；Import Bus 不运行 Alice、MTP、命令或回复生成，不检索记忆，也不返回记忆上下文。
-- prepare 失败、进程异常、finalize 前断连或 CPU 无输出时，不进入 finalize；任务进程可请求 Patchouli cleanup，但 cleanup 只补偿 prepare 新建且仍为空的临时话题，不是跨边界事务回滚。
-- `MTP WRITE/UPDATE` 的 ACK 表示意图已在 workspace 登记，并已被 Patchouli 生成队列接纳，不表示正式记忆已经持久化。actor API 在同步段向线程表解析一次线程，取得进程关联、线程标识与派发话题，并登记为 MATERIALIZING；UPDATE 的基础冷读在同步段之前，冷读跨越线程结束或停止时在同步段拒绝。派发开始后屏蔽调用方取消并持有提交任务直到完成，再传播取消；CPU 失败、取消、停止、子线程结束、进程关闭或 CALL 子帧失败都不撤回已提交写入。停止被接受时全部线程即已结束，此后的 actor 操作都以线程已结束拒绝，CPU 取消后的收尾不得依赖 actor 操作。CPU 返回终态后、finalize 之前，Actor 阶段同步结束全部线程，且只在这里执行一次；Actor 阶段提前结束时也在交付终态前执行；进程关闭先于任何 await 兜底结束线程。有输出的三种结局均封口交互记录，finalize 不派发写入；正式持久化由 Patchouli 生成链结算，不能在 Koakuma/Alice 内直接写正式 Memory。
-- Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，Agent Profile 不承载任何权限；Alice 把所属线程描述的操作快照翻译为 MTP 动词（RUN 始终可用），用于提示词与 frame 执行策略，资源操作仍由 actor API 逐次授权。`sys_*` 系统工具不设权限。CALL 派生的子 frame 以被调用方身份运行：按被调用方的白名单与记忆可见性授权，写入记在被调用方名下，观测标签取被调用方，动词集合由被调用方的操作快照翻译并去掉 CALL；CALL 只允许根 frame 发起，不得递归 CALL；子线程随 CALL 返回结束（子帧任何终态、取消清理与派生后的准备失败），Alice 不结束主线程。
+两条链路的完整控制流见[系统架构概览](docs/architecture/overview.md)第 5、6 节；停止、取消与收尾的细节见[任务进程](docs/workspace/task-process.md)。
+
+- 主动链路：`Gateway process -> Patchouli prepare（话题与检索） -> 任务进程 CPU 分配 -> Actor 执行（经 CPU 端口，当前为 Alice） -> 有输出时封口交互记录并写入会话 -> Patchouli finalize`。prepare 失败、进程异常、finalize 前断连或 CPU 无输出时不进入 finalize；cleanup 只补偿 prepare 新建且仍为空的话题，不是跨边界事务回滚。附件租借随进程关闭释放。
+- 停止与取消：用户停止保留部分输出并提交，交付方离开与系统关闭丢弃本轮；进入 FINALIZE 后拒绝停止，提交不受交付方离开影响。停止被接受时全部线程即已结束，CPU 取消后的收尾不得依赖 actor 操作。
+- Import Bus 链路：`POST /api/v1/import/turns -> 统一认证网关 + 导入授权 -> 按外部会话串行编排 -> Gateway PASSIVE_MEMORY（只取话题落位与价值信号） -> 共用封口 seal_interaction -> Patchouli 公开提交路由 -> 等待感知应用完成后确认`。Import Bus 不运行 Alice、MTP、命令或回复生成，不检索记忆，也不返回记忆上下文。
+- `MTP WRITE/UPDATE` 的 ACK 表示意图已在 workspace 登记，并已被 Patchouli 生成队列接纳，不表示正式记忆已经持久化；派发开始后，写入不因 CPU 失败、取消、停止、线程结束或进程关闭而撤回。正式持久化只由 Patchouli 生成链结算，不能在 Alice（含 Koakuma）内直接写正式 Memory。详见[读取视图与写入意图](docs/workspace/read-view-and-write-intents.md)。
+- Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，Agent Profile 不承载任何权限。CALL 派生的子 frame 以被调用方身份运行，只允许根 frame 发起，不得递归 CALL。详见 [MTP 契约](docs/contracts/mtp.md)与[执行线程](docs/workspace/execution-threads.md)。
 - Gateway 的局部失败只能在仍满足终态不变量时保守降级；投影、终态校验、装配错误和 cancellation 不得被静默吞掉。
 - RPC 用于需要确定返回值、失败传播或完成确认的操作；Pub/Sub 只用于发布者不依赖结果的通知。
 
@@ -100,20 +114,15 @@
 - 改动公共模型、route 名称、事件名、配置键或错误语义时，先更新对应契约和所有消费者，再运行跨边界测试。
 - 代码注释、docstring 与字段 `description`（含测试与前端代码）直接写出行为、不变量与理由，不指向任何文档：不写 `docs/` 路径、文档章节号与编号条目，不写计划与批次代号、决定编号或依赖计划进度的“暂时/下一批”，迁移来源与版本历史交给版本控制；代码目录不放 README。引用只能从文档指向代码；规则见[文档治理规范](docs/DOCUMENTATION.md)第 11.2 节，由 `tests/unit/architecture/test_self_contained_comments.py` 守护。
 
-## 6. 测试设计与选择
+## 6. 测试与验证
 
-测试主类型由目录决定：`tests/unit/` 验证快速隔离行为，`tests/integration/` 验证多组件/真实适配器协作，`tests/e2e/` 验证公开入口到可观察终态的链路。`e2e`、`live_llm`、`slow` 是运行条件，不要用 marker 掩盖错误的目录归类。
+测试的分类、归属、断言、mock、命名与隔离规则以[测试设计规范](docs/governance/testing/test-design-standards.md)为准，新增、修改或删除测试前先读它。下面只列出最常被违反的几条：
 
-- 测试行为和可观察结果，不测试私有字段、实现顺序或仅仅“调用过 mock”。
-- 依赖不触发网络或慢 I/O 时优先用真实对象；外部 LLM、SDK、网络边界才使用 mock，必要时使用手写 fake/in-memory store。
-- 禁止恒真断言、复制生产公式、mock 返回值镜像、`is not None`/`len > 0`/`>= 0` 宽松断言、条件守卫、无断言测试和 `pytest.raises(Exception)`。
-- 异常断言收敛到具体异常类型，必要时使用 `match=`；浮点比较使用 `pytest.approx`。
-- fixture 默认 function scope；修改全局注册表、contextvar、语言或单例时必须恢复；临时文件使用 `tmp_path`。
-- 一个测试验证一个明确行为；测试命名描述触发条件与结果，docstring 必须与真实范围一致。
-- 新行为按相关性覆盖成功路径、关键边界、取消/失败语义、权限/Workspace 隔离和必要的重试/幂等行为；不要为纯重命名或低风险可逆改动堆测试。
-- 每条不变量只在做出该判断的最低可测层（归属层）写权威测试与用例矩阵，上层与 e2e 至多保留一个代表性用例证明链路经过该判断。新增前先按错误类型、reason、路由或被测函数检索现有测试，已有覆盖时扩展原测试，不另建文件。
-- 参数化的每个维度必须对应不同的生产分支或映射条目，在共享检查点之前汇合的维度只取一个代表；不为缺少必填参数、签名形状、字段存在与否等由 Python、mypy 或架构测试保证的性质写运行时测试。
-- 契约有意变更时，在同一改动中删除或改写旧契约的测试，不写“已删除的 X 不再存在”式墓碑测试；持久化数据与配置的兼容行为仍按当前契约测试。职责迁移时测试随之迁入新归属方并合并；计划验收测试写入归属层的现有文件，测试文件不以计划、阶段、批次或版本命名。超出本次范围的存量冗余登记为 `docs/todo/` 中的 Todo。详见[测试设计规范](docs/governance/testing/test-design-standards.md)第 4 节。
+- 测试主类型由目录决定（`tests/unit/`、`tests/integration/`、`tests/e2e/`）；`e2e`、`live_llm`、`slow` 只是运行条件，不用 marker 掩盖错误的归类。
+- 断言可观察行为，改坏生产代码时测试必须会失败；不测私有字段、实现顺序或 mock 的调用细节。
+- 每条不变量只在做出判断的最低可测层写权威测试；新增前先检索现有测试，已有覆盖时扩展原测试，不另建文件。
+- 测试针对可能出现的生产缺陷：不为纯重命名、低风险可逆改动，或 Python、mypy、架构测试已经保证的性质写测试。
+- 契约有意变更时，在同一改动中删除或改写旧契约的测试，不写墓碑测试。
 
 常用验证命令：
 
@@ -147,20 +156,21 @@ cd frontend && npm ci && npm run lint && npm run build
 
 ## 7. 文档与设计变更
 
-- 当前事实入口：`docs/PROJECT.md`、`docs/architecture/`、`docs/system/`、`docs/components/`、`docs/workspace/`、`docs/gateway/`、`docs/patchouli/`、`docs/alice/`、`docs/contracts/`、`docs/help/` 和 `docs/governance/`。
-- `docs/research/` 集中保存外部 Memory、Agent 系统、论文和技术方案的独立调研需求与报告。需求编写时为 `draft`，有效时为 `current`，不表示调研或实测已完成；报告编写时为 `draft`，冻结证据后为 `baseline` 并记录 `snapshot_at`，区分外部事实、适配分析与待验证项。需求与报告相互链接，本项目开放设计仍归属 Idea/Plan，治理基线仍在 `docs/governance/baselines/`；详细规则见 `docs/DOCUMENTATION.md` 第 8.6 节。
-- `docs/ideas/` 是探索（以 `horizon` 区分当前版本讨论 `current`、候选方向 `candidate` 与长期方向 `long-term`），`docs/plans/` 是绑定版本/里程碑且可验收的实施计划，`docs/todo/` 是小范围缺陷/技术债，`docs/ROADMAP.md` 是明确标注状态的规划摘要，`docs/archive/` 只保存历史。
-- 计划不设总分结构：同一目标方向只有一份生效计划，不使用 `parent_plan`；计划正文只以事实文档、代码、ADR、已归档计划、已冻结的 Research 报告和背景 Idea 为依据，外部调研不能替代本项目的事实与设计决定；计划之间只有整份粒度的顺序依赖；未完成实施即作废的计划直接删除（入链与遗留事项的处理见 `docs/DOCUMENTATION.md` 第 10 节），方向保留但前提改变的未实施计划退回 Idea（第 8.4 节）。ADR 只叙述已做出的决定与事实，不依赖计划。
-- 开发分支尚未最终收尾时，不把候选模型、未稳定命名、目标接口、迁移步骤或“未来将支持”的设计写入当前事实文档。实现、测试、迁移、验收和代码审查完成后，才按最终代码晋升事实并归档 Plan。
-- 当前设计文档既要写可执行事实，也要保留仍然有效的问题背景、所有权理由、关键取舍、不变量和失败语义；不要把代码目录逐文件翻译成文档。
-- 新增/修改文档后检查相对链接、状态、owner、last_reviewed、相关代码入口和重复真相源；运行 `git diff --check`。
-- 更新根 README、当前架构、契约或本文件时，确认没有把计划内容误写成现状，也没有覆盖用户已有的文档修改。
+文档的分类、状态、晋升门禁、计划与归档规则以[文档治理规范](docs/DOCUMENTATION.md)为准，新增、修改、移动或删除文档前先读它。下面只列出最常被违反的几条：
+
+- 当前事实文档只写已经落地的内容。开发分支最终收尾之前，候选模型、目标接口、迁移步骤和“未来将支持”的设计只留在 Idea、Plan 或 Todo 中，也不用“计划中”“尚未实现”之类的措辞提前写进事实文档。
+- 当前设计文档既写可执行事实，也保留仍然有效的问题背景、所有权理由、关键取舍与失败语义；不要把代码目录逐文件翻译成文档。
+- 同一概念只在一处维护，其他文档链接过去，不复制内容。
+- 设计讨论只把阻塞下一份计划（见 [Plans 导航](docs/plans/README.md)）的问题写进 Idea，写明背景、选项与影响；不阻塞的发现只记一行搁置项，或在对话中提出，owner 要求时再展开。一个主题只设一个问题，不拆成子问题。owner 决定后问题即关闭，后续细节作为候选设计写入 Idea 并给出合理默认值，注明不是 owner 决定、可在计划评审时调整；回答问题不应让未决问题变多。
+- 新增或修改文档后，检查相对链接、状态、owner、`last_reviewed` 与相关代码入口，并运行 `git diff --check`。
 
 ## 8. 完成任务前的自检
 
 - [ ] 改动范围只覆盖任务所需文件，未覆盖用户已有修改。
 - [ ] 所有跨边界调用遵循公共 route/model/event 和唯一状态所有者；新增导入符合包分层规则。
 - [ ] Workspace 访问与身份数据（访问 context、`IdentityScope`、资源归属与发起者）、取消、超时、失败、幂等和资源清理语义已核对。
+- [ ] 新增的类型、端口、DTO、状态或配置项都有生产使用方；没有为生产中不会出现的输入写处理分支。
+- [ ] 改动的代码不借助 Agent 也能读懂；命名、结构、错误处理与注释沿用了周边代码的写法。
 - [ ] 新测试属于正确主类型，断言可在生产代码改坏时失败。
 - [ ] 新测试位于不变量的归属层，没有在其他层或文件重复已有覆盖；契约变更已同步删除或改写旧契约测试。
 - [ ] 已运行与改动匹配的定向测试、静态检查和必要的全量门槛。
@@ -168,4 +178,4 @@ cd frontend && npm ci && npm run lint && npm run build
 - [ ] 新写或改动的注释与 docstring 不引用文档、计划代号或决定编号，读者不打开文档也能理解。
 - [ ] `git diff --check` 和最终 `git diff` 已审阅。
 
-交付说明应简洁列出：改了什么、为什么、运行了哪些验证、哪些检查因环境或外部依赖未运行，以及任何仍需关注的风险。
+交付说明应简洁列出：改了什么、为什么、新增与删除了哪些概念、运行了哪些验证、哪些检查因环境或外部依赖未运行、任何仍需关注的风险，以及发现但没有处理的简化点。
