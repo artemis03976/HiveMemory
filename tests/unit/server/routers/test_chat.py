@@ -477,6 +477,15 @@ class TestChatDisconnect:
             principal_id=composition.principal.principal_id,
         )
 
+    @staticmethod
+    def _http_scope():
+        """直接调用响应时使用的 http scope。
+
+        ASGI 规定 http scope 必须带 ``method``；SSE 响应据此识别 HEAD 请求，
+        缺少该键会在开始响应前失败。chat 路由只接受 POST。
+        """
+        return {"type": "http", "method": "POST"}
+
     @pytest.mark.asyncio
     @pytest.mark.parametrize("cancelled_while", ["awaiting_event", "awaiting_send"])
     async def test_disconnect_closes_delivery_subscribed_with_client_disconnected(
@@ -510,7 +519,7 @@ class TestChatDisconnect:
             await first_chunk_sent.wait()
             return {"type": "http.disconnect"}
 
-        await asyncio.wait_for(response({"type": "http"}, receive, send), timeout=2)
+        await asyncio.wait_for(response(self._http_scope(), receive, send), timeout=2)
 
         assert delivery_closed.is_set()
         assert mock_service.run_process.call_args.kwargs == {
@@ -544,14 +553,14 @@ class TestChatDisconnect:
             async def send(message):
                 await asyncio.sleep(0)
 
-            await response({"type": "http"}, receive, send)
+            await response(self._http_scope(), receive, send)
         else:
 
             async def send(message):
                 raise OSError("client disconnected")
 
             with pytest.raises(OSError, match="client disconnected"):
-                await response({"type": "http"}, receive, send)
+                await response(self._http_scope(), receive, send)
 
         # 生成器体从未执行（未发起运行），进程仍被关闭且只关闭一次。
         mock_service.run_process.assert_not_called()
