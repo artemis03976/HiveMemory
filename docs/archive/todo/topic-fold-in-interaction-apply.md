@@ -1,14 +1,17 @@
 ---
 title: Topic Folding Inside Interaction Apply
-status: todo
+status: archived
+archived_at: 2026-10-27
+implemented_by: fix/topic-fold-in-interaction-apply（be99128d 与本归档提交）
+superseded_by: docs/patchouli/perception.md
 owner: patchouli
 scope: perception-compact-timing-and-interaction-submission-timeout
 code_paths:
   - src/hivememory/patchouli/services/perception.py
   - src/hivememory/patchouli/control/interaction_submission.py
-  - src/hivememory/patchouli/control/interaction_apply_journal.py
   - src/hivememory/patchouli/system.py
   - src/hivememory/engines/perception/relay_controller.py
+  - src/hivememory/config/patchouli.py
   - src/hivememory/infrastructure/work_queue/in_memory_store.py
 related_docs:
   - docs/patchouli/perception.md
@@ -19,6 +22,8 @@ last_reviewed: 2026-10-27
 ---
 
 # 话题折叠计入交互提交的处理时限
+
+> 已完成并归档（2026-10-27）。当前事实见[感知与短期话题](../../patchouli/perception.md)第 5 节；实施结果与偏离候选设计之处见文末实施记录。以下正文保留登记与决定时的原文。
 
 ## 问题
 
@@ -60,7 +65,7 @@ last_reviewed: 2026-10-27
   - 同一轮连续三次得到 500 后，连接器写入拒绝记录并跳过这一轮，而这一轮的 block 实际已经写入话题。
 - **主动链路**：任务进程封口后的提交会等待同一队列的应用结果，折叠超时使 finalize 以 `interaction_apply` 阶段失败。
 - **连续失败**：折叠失败后话题仍超过阈值，之后写入同一话题的每次应用都会再触发折叠，可能接连失败。
-- 折叠期间话题 lease 一直被占用（[感知与短期话题](../patchouli/perception.md#8-当前限制)已记录），超时与重试不会缩短占用。
+- 折叠期间话题 lease 一直被占用（[感知与短期话题](../../patchouli/perception.md#8-当前限制)已记录），超时与重试不会缩短占用。
 
 ## 候选设计
 
@@ -97,8 +102,8 @@ last_reviewed: 2026-10-27
   - 折叠期间，同一话题的后续提交在折叠结束后应用，且不因等待而超时；
   - 折叠失败后话题内容完整，之后仍能再次折叠；
 - 更新受影响的事实文档：
-  - [感知与短期话题](../patchouli/perception.md)中的折叠时机与当前限制；
-  - [Import Bus](../system/import-bus.md)中关于应用等待含折叠模型调用、写入后失败的重新提交的描述。
+  - [感知与短期话题](../../patchouli/perception.md)中的折叠时机与当前限制；
+  - [Import Bus](../../system/import-bus.md)中关于应用等待含折叠模型调用、写入后失败的重新提交的描述。
 
 ## 追踪
 
@@ -106,7 +111,20 @@ last_reviewed: 2026-10-27
 
 ## 相关文档
 
-- [感知与短期话题](../patchouli/perception.md)：折叠时机、Relay 与当前限制；
-- [Import Bus](../system/import-bus.md)：应用完成后确认、错误分类与连接器重发；
-- [短期记忆与上下文压缩](../ideas/short-term-memory-and-context-compaction.md)：Topic folding 的整体优化方向；
-- [Import Bus 真实使用观察](./import-bus-real-use-observation.md)：折叠频率与导入失败比例的观察。
+- [感知与短期话题](../../patchouli/perception.md)：折叠时机、Relay 与当前限制；
+- [Import Bus](../../system/import-bus.md)：应用完成后确认、错误分类与连接器重发；
+- [短期记忆与上下文压缩](../../ideas/short-term-memory-and-context-compaction.md)：Topic folding 的整体优化方向；
+- [Import Bus 真实使用观察](../../todo/import-bus-real-use-observation.md)：折叠频率与导入失败比例的观察。
+
+## 实施记录
+
+2026-10-27 在分支 `fix/topic-fold-in-interaction-apply` 实施（实现提交 `be99128d`），候选设计经代码审查后落地如下：
+
+- **折叠作为独立工作项**：按候选设计实现。交互写入话题即完成应用；提交队列在应用之后检查 `needs_compact`，需要时排入折叠项，排序键与该话题的提交相同（排序键约定集中为 `topic_ordering_key`）。同一话题至多一个未结束的折叠项；队列已满或排入出错时放弃这一次，交互结果不变。
+- **时限**：交互应用的 30 秒由 handler 只对应用本身施加，lane 不设统一时限；折叠的时限由 LLM relay 的摘要调用承担，新增 `patchouli.perception.engine.relay.engine.summary_timeout_seconds`（默认 60 秒），超时回退为规则摘要（采用候选默认值）。
+- **回退保留历史**：审查发现 LLM relay 的回退（无 LLM、提供商失败、超时）只总结新折叠的 blocks，会丢掉话题已有的累积摘要；三条回退合并为一处，规则摘要接在 previous summary 之后。前两条路径的这个缺陷在本次之前就已存在。
+- **关停**：Patchouli 停止时先关闭折叠（排队中的直接结束，进行中的取消），`drain_all` 一并等待折叠项收尾，之后的结算不会遇到占用。
+- **偏离候选设计——移除 apply journal**：候选设计只打算删除 journal 的 `LOCAL_COMPLETED` 阶段；实施后确认写入成为应用中最后一个可能失败的步骤，应用未成功就没有写入，journal 保护的“写入后失败的重试与重放”已无路径触发，owner 决定整体移除，同一交互的幂等收敛到提交队列。Import Bus 文档中“写入后失败的重新提交因输入不同再次失败”的限制随之消失。ADR-0002 以注明日期的修订记录这一变化。
+- **不处理的审查项**：折叠项与交互共用队列容量和终态保留窗口（同一话题至多一个折叠项，驻留话题上限 5）；积压时折叠排在已入队的同话题提交之后（Import Bus 每个外部会话同时只有一轮在途）；折叠最多占用一个执行槽 60 秒。后两项记入[感知与短期话题](../../patchouli/perception.md)第 8 节的当前限制。
+
+验证：快速集 3053 passed（覆盖率 94.15%），确定性 E2E 22 passed；ruff、black、mypy 通过。归属层测试见 `tests/unit/patchouli/control/test_interaction_submission.py`（同话题等待、失败隔离、去重、关闭、drain、排入失败、构造校验）、`tests/integration/patchouli/test_perception.py`（折叠用例）与 `tests/unit/engines/perception/test_relay_controller.py`（超时回退保留旧摘要）。真实 LLM 下一次折叠的耗时未实测，留给 [Import Bus 真实使用观察](../../todo/import-bus-real-use-observation.md)。

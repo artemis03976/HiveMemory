@@ -17,7 +17,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-27
 ---
 
 # 子系统公共契约
@@ -414,13 +414,13 @@ Import Bus 由 System 拥有：`ImportBusService` 做导入授权并委托编排
 
 主动链路与 Import Bus 的消息来源和入口流程不同，但二者最终都向 Topic 追加 Interaction，因此共享同一组时序职责：
 
-`InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：必需的 `belong_to` 与 `from_actor` 独立保存归属与发起者，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容，不嵌入操作 scope。Interaction codec v6 与 `schema_version="1.1"`（字符串）的 generation codec 分别 round-trip 两种身份；当前进程内队列不注册旧 codec，retry 恢复相同字段，不重跑身份解析、不重新组装 scope。apply journal 的摘要使用归属与包含 actor 的 TurnRecord，继续校验重放内容一致性。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
+`InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：必需的 `belong_to` 与 `from_actor` 独立保存归属与发起者，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容，不嵌入操作 scope。Interaction codec v6 与 `schema_version="1.1"`（字符串）的 generation codec 分别 round-trip 两种身份；当前进程内队列不注册旧 codec，retry 恢复相同字段，不重跑身份解析、不重新组装 scope。同一 `interaction_id` 的幂等只由提交队列负责：等待中与已成功的提交以相同载荷重交时复用原收据、载荷不同时冲突，只有应用未成功的交互可以重新提交；应用把 block 写入话题是它最后一个可能失败的步骤，未成功的应用没有写入，重新提交因此不会重复写入。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
 
 `InteractionPayload.used_attachments` 携带任务进程的 `AttachmentCompiler` 确认实际进入上下文的 bound ref 快照（由任务进程封口时写入）：submission handler 把这份快照以 `asset_refs` 形参一次性传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
 
 1. **Interaction 内全序由生产者冻结。** `TurnEvent.sequence` 只在所属 interaction 内有效；payload 一旦进入 submission queue，retry、dedup、cleanup 和 handler 都不得改写既有事件顺序或生成新的语义身份。
 2. **Topic append 顺序由 Patchouli 拥有。** 当前以成功 apply 的实际 append 顺序作为 topic-local 权威投影。若未来增加 `topic_position`，必须由 topic owner 在持久化提交时原子分配，调用方不能根据时间戳自行计算。
-3. **Queue FIFO 只是执行约束。** ordering key 只串行化已经入队的 work，不代表源事件发生时间，也不表达 Agent 因果关系。idempotency journal 只防止重复副作用，不参与排序。
+3. **Queue FIFO 只是执行约束。** ordering key 只串行化已经入队的 work，不代表源事件发生时间，也不表达 Agent 因果关系。话题折叠项与该话题的提交共用排序键，折叠执行期间同一话题的后续提交在队列中等待；折叠项不改写交互内容与交互之间的先后。队列的幂等接纳只防止重复副作用，不参与排序。
 4. **外部轮次的先后由提交方保证。** Import Bus 只保证同一外部会话内按到达顺序接纳与应用；连接器按会话顺序提交、确认后才推进，Patchouli 不按外部时间缓存、等待或重排晚到的轮次。导入与主动链路落到同一话题时，由同一个按话题的排序键保证先后。
 5. **Active prepare 读取的是一个 topic snapshot。** finalize/apply 的先后位置只能证明提交顺序，不能证明某个 run 在生成 LLM input 时看见过中间提交。多个 run 可以基于同一 revision 并发执行。
 6. **多 Agent 并发优先表达因果偏序。** 未来应保存 `base_topic_revision`、causal parent 或等价的 run/frame 关系，再由 prompt/display 层按需要确定性线性化；不得仅按完成时间伪造语义先后。

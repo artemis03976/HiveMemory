@@ -4,7 +4,7 @@ status: accepted
 owner: project
 scope: identity-uniqueness-and-concurrency-complexity
 decided_at: 2026-09-02
-last_reviewed: 2026-09-02
+last_reviewed: 2026-10-27
 related_docs:
   - docs/architecture/overview.md
   - docs/architecture/boundaries.md
@@ -30,7 +30,7 @@ HiveMemory 当前是单用户、单进程、低并发的异步系统。系统内
 
 1. 所有表达实体、工作项或业务操作身份的 ID 默认在项目身份域内全局唯一。创建路径使用 UUID 生成器或等价的 UUID 派生形式；`topic_id` 即使参与 `WorkspaceTopicKey` 寻址，也不因此成为 Workspace 内局部命名空间。固定的 well-known ID（例如默认 Workspace 键）是显式声明的单例，不是运行时生成的局部计数器。
 2. 新代码直接依赖该唯一性，不为随机碰撞建立全局查重表、冲突恢复流程或专门的业务分支。极低概率的碰撞属于异常和缺陷信号，发生后按实际证据修复。
-3. 重试时复用同一个稳定 ID，表示同一个业务操作的再次投递；这与两个不同操作偶然生成相同 ID 是不同问题。队列的幂等接纳、`InteractionApplyJournal` 的阶段记录和领域版本检查服务于前者，不是为 UUID 碰撞提供兜底。
+3. 重试时复用同一个稳定 ID，表示同一个业务操作的再次投递；这与两个不同操作偶然生成相同 ID 是不同问题。队列的幂等接纳和领域版本检查服务于前者，不是为 UUID 碰撞提供兜底。
 4. 外部来源事件 ID 如果由来源方提供，必须在契约声明的来源域内唯一；它与 `source` 组合后可作为该来源的幂等身份，但不自动成为项目级实体 ID。`alias`、ordering key、correlation ID、版本号和时间戳也不自动获得实体 ID 的语义，不能被悄然当作新的全局身份轴。
 
 ### 2. 并发保护按实际业务契约添加
@@ -41,7 +41,6 @@ HiveMemory 当前是单用户、单进程、低并发的异步系统。系统内
    - Passive Ingress 同一会话的顺序缓冲；
    - 明确的领域状态转换原子性，例如一次 interaction apply 中 block 与 binding 的一致提交；
    - 跨异步边界的不可变 payload snapshot；
-   - `InteractionApplyJournal` 等用于队列 at-least-once 重试和 apply 阶段恢复的现有机制。
 3. 上述保护只保护它所拥有的具体状态或交接契约，不应泛化为所有组件共享的并发框架。共享 runtime、cache、registry、EventBus 和 Workspace 资源 Store 仍按各自所有权工作，不因存在 ID 或 `IdentityScope` 就自动增加一套协调状态。
 4. 只有出现可复现的竞态、已承诺的外部语义，或测试能够证明不变量会被破坏时，才新增保护。实现应优先把状态写入收敛到唯一所有者和一个清晰入口，而不是为每个上游消费者复制一套 gate 或组合方法。
 
@@ -76,7 +75,7 @@ HiveMemory 当前是单用户、单进程、低并发的异步系统。系统内
 
 ### 每个入口都增加独立 gate、receipt 和 journal
 
-拒绝。入口重复投递、领域副作用和观测信号的可靠性等级不同。重复建设会制造多个状态真相；已有队列和 `InteractionApplyJournal` 仅在其具体 apply/retry 契约范围内保留。
+拒绝。入口重复投递、领域副作用和观测信号的可靠性等级不同。重复建设会制造多个状态真相；已有队列仅在其具体 apply/retry 契约范围内保留。
 
 ### 完全忽略并发和重复执行
 
@@ -85,6 +84,8 @@ HiveMemory 当前是单用户、单进程、低并发的异步系统。系统内
 ## Status
 
 Accepted。该决策适用于当前单用户、单进程、低并发实现及其代码评审。若部署拓扑、用户模型或可靠性承诺发生变化，应以新的证据和独立 ADR 重新评估，而不是在局部代码中悄然扩展保护范围。
+
+修订（2026-10-27）：决定不变，删去对 `InteractionApplyJournal` 的保留。它原先保护的是交互写入话题之后仍可能失败的步骤（同一次应用内的 token 溢出折叠）引起的重试与重放。话题折叠移出交互应用、改为提交队列中的独立工作项之后，写入成为应用中最后一个可能失败的步骤，应用未成功就没有写入，这一契约不再存在；按第 2 节，同一交互的幂等收敛到提交队列一处，journal 随之删除。当前语义见 [Patchouli 感知](../../patchouli/perception.md)与[跨子系统幂等性与重试治理](../../governance/reliability/idempotency-and-retry.md)。
 
 ## Related documents
 
