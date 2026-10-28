@@ -726,13 +726,20 @@ __all__ = ["MemoryGenerationFamiliar"]
 
 
 def _require_content_invariants(atom: MemoryAtom) -> None:
-    """内容提交的类型相关约束：AGENT_PROFILE 必须带 alias（按 alias 寻址与 CALL）。
+    """内容提交的类型相关约束。
+
+    AGENT_PROFILE 必须带 alias（按 alias 寻址与 CALL）；``agent_config`` 只有
+    Profile 解析会读取，其他类型带上它只会生成无人使用的内容版本，因此只允许
+    AGENT_PROFILE 设置。记忆与 Profile 共用编辑入口，类型差异只能在这里区分。
 
     约束放在提交边界而不是模型：模型约束同样作用于读取解码，收紧会让既有
     不合规记录无法读取；提交边界只拒绝新的写入。
     """
-    if atom.index.memory_type == MemoryType.AGENT_PROFILE and not atom.index.alias:
+    is_profile = atom.index.memory_type == MemoryType.AGENT_PROFILE
+    if is_profile and not atom.index.alias:
         raise InvalidMemoryFieldError("AGENT_PROFILE 必须设置 alias")
+    if not is_profile and atom.payload.agent_config is not None:
+        raise InvalidMemoryFieldError("只有 AGENT_PROFILE 可以设置 agent_config")
 
 
 def _manual_changelog(changed_fields: list[str]) -> str:

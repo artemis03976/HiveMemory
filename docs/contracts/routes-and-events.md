@@ -109,7 +109,7 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 | `patchouli.public.memory.create` | `create_memory` | `identity_scope`、`MemoryCreation`（创建材料；类型不得为 `AGENT_PROFILE`） | 持久化后的 `MemoryAtom` |
 | `patchouli.public.memory.list` | `list_memories` | `identity_scope`、query、filters、limit、exclude、refresh | `list[MemoryAtom]` |
 | `patchouli.public.memory.get` | `get_memory` | memory id、`identity_scope`、refresh | `MemoryAtom | None` |
-| `patchouli.public.memory.update` | `update_memory` | memory id、`identity_scope`、`MemoryEdit`（部分编辑，`None` 表示不修改） | `MemoryAtom | None` |
+| `patchouli.public.memory.update` | `update_memory` | memory id、`identity_scope`、`MemoryEdit`（部分编辑，`None` 表示不修改；记忆与 Profile 共用，`agent_config` 只对 `AGENT_PROFILE` 有效） | `MemoryAtom | None` |
 | `patchouli.public.memory.delete` | `delete_memory` | `identity_scope`、memory id | `bool` |
 | `patchouli.public.memory.record_feedback` | `record_feedback` | memory id、`identity_scope`、positive、source | 记录结果 |
 

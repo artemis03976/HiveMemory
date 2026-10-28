@@ -47,8 +47,9 @@ class MemoryEdit:
     """对一条已有记忆的部分编辑；记忆与 Profile 共用。
 
     字段为 ``None`` 表示不修改；空白 alias 表示清除（普通记忆可以没有 alias，
-    Profile 清除 alias 会被拒绝）。全部为 ``None`` 或规范化后与当前值相同的
-    编辑不产生新版本，原样返回当前原子。
+    Profile 清除 alias 会被拒绝）。``agent_config`` 只对 Profile 有效，对其他
+    类型提交会被拒绝。全部为 ``None`` 或规范化后与当前值相同的编辑不产生新
+    版本，原样返回当前原子。
     """
 
     title: str | None = None

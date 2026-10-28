@@ -180,7 +180,11 @@ artifact。因此 `TimeoutError`、`ConnectionError`、模型异常以及普通�
 `intent_id` 派生稳定 task/work identity：进程内重复 dispatch 会复用已有任务，且相同 identity 携带不同
 spec 会被拒绝。跨重启结果记录、数据面内部副作用幂等和 reconciliation 仍留待后续持久化/I2 阶段处理。
 
-手工 memory create/update 同样通过 Familiar，两者都只接收调用方提交的字段材料：创建由 Familiar 构造原子，记忆 ID、来源记录（取本次发起者）、默认访问策略、生命周期与完整时间戳都在提交边界确定，字段非法以 `InvalidMemoryFieldError` 拒绝，类型相关约束与 alias 唯一性在写版本记录之前检查；记忆管理入口不接受 `AGENT_PROFILE`，Profile 只经 Profile 管理入口创建，类型由入口固定。编辑捕获 before snapshot，仅当传入值与当前值不同（值相等判定）才递增 version 并生成 MANUAL_EDIT version artifact，无变化调用原样返回。
+手工 memory create/update 同样通过 Familiar，两者都只接收调用方提交的字段材料：创建由 Familiar 构造原子，记忆 ID、来源记录（取本次发起者）、默认访问策略、生命周期与完整时间戳都在提交边界确定，字段非法以 `InvalidMemoryFieldError` 拒绝，类型相关约束与 alias 唯一性在写版本记录之前检查；记忆管理入口不接受 `AGENT_PROFILE`，Profile 只经 Profile 管理入口创建，类型由入口固定。
+
+类型相关约束有两条：`AGENT_PROFILE` 必须带 alias（按 alias 寻址与 CALL）；`payload.agent_config` 只允许 `AGENT_PROFILE` 设置。`agent_config` 的唯一读取方是 Profile 解析，写在其他类型上只会生成无人使用的内容版本，调用方也得不到字段无效的反馈。记忆与 Profile 共用编辑路由，HTTP 的 `PATCH /api/v1/memories/{id}` 同时是前端保存 Agent 的入口，入口无法按类型区分，因此由 Familiar 在提交边界按原子类型检查，违反时以 `InvalidMemoryFieldError` 拒绝且不写版本记录。约束放在提交边界而不是 Memory 模型：模型约束同样作用于读取解码，收紧会让既有不合规记录无法读取。
+
+编辑捕获 before snapshot，仅当传入值与当前值不同（值相等判定）才递增 version 并生成 MANUAL_EDIT version artifact，无变化调用原样返回。
 
 ## 6. 后台任务与终态
 
