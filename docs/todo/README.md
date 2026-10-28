@@ -13,7 +13,7 @@ last_reviewed: 2026-10-27
 当前事项：
 
 - [重排模型 int8 与 ONNX 内存池](./reranker-int8-and-onnx-memory.md)（2026-10-27 排查常驻内存时登记：重排模型 int8 先做实验评估，另有 ONNX 内存池保留推理峰值、嵌入截断上限 8192 token、配置项不生效与 Docker 预下载落空；后四项已于同日完成，int8 评估待开始）；
-- [话题折叠计入交互提交的处理时限](./topic-fold-in-interaction-apply.md)（2026-10-27 启用 LLM relay 时发现：折叠在交互应用内执行，耗时计入提交队列 30 秒时限与导入、finalize 的应用等待，超时使交互判为应用失败）；
+- [话题折叠计入交互提交的处理时限](./topic-fold-in-interaction-apply.md)（2026-10-27 启用 LLM relay 时发现：折叠在交互应用内执行，耗时计入提交队列 30 秒时限与导入、finalize 的应用等待，超时使交互判为应用失败；owner 同日决定：折叠耗时不计入处理时限，折叠期间暂停向该话题提交，同话题的后续交互在队列中等待）；
 - [Import Bus 真实使用观察](./import-bus-real-use-observation.md)（2026-10-21 Import Bus 重设计收尾时登记：真实使用验收随日常使用持续观察，核对闭环、话题落位、生成质量与开销、凭据、导入耗时与连接器行为）；
 - [记忆编辑可以给非 Profile 记忆写入 agent_config](./memory-edit-agent-config-type-check.md)（2026-10-18 引入 `MemoryEdit` 时发现：编辑链不按类型限制 `agent_config`，普通记忆被写入无效配置并生成版本）；
 - [WorkspaceAsset 内部归属与操作身份拆分](./workspace-asset-ownership-identity-split.md)（身份第二批明确暂缓：Store/解析旧 scope 接口与 System 物化 reader 桥接）；
