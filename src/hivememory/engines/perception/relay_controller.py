@@ -7,6 +7,7 @@ HiveMemory Token 溢出接力控制器 / Page Folding 摘要生成器
     - 生成中间态摘要以维持跨 Block 的上下文连贯性
 """
 
+import asyncio
 import logging
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any
@@ -137,14 +138,18 @@ class LLMRelayController(BaseRelayController):
     """
     LLM 接力控制器（基于 LLM 的智能摘要生成）
 
-    使用 LLM 生成更智能、更语义化的摘要；没有可用 LLM 或提供商失败时回退为
-    简单摘要，程序错误与取消不降级。
+    使用 LLM 生成更智能、更语义化的摘要；没有可用 LLM、提供商失败或摘要调用
+    超时时回退为简单摘要，程序错误与取消不降级。回退的简单摘要接在上一次摘要
+    之后，已经折叠的历史不会丢失。超时回退使一次折叠的耗时有上限，并让话题
+    回到折叠阈值以下，不会在之后每次写入时再触发一次慢折叠。
     """
 
     def __init__(
         self,
         summary_llm: "BaseLLMService | None" = None,
         llm_params: "LLMRequestParams | None" = None,
+        *,
+        summary_timeout_seconds: float,
     ):
         """
         初始化 LLM 接力控制器
@@ -152,9 +157,11 @@ class LLMRelayController(BaseRelayController):
         Args:
             summary_llm: 用于生成摘要的 LLM 服务（可选）
             llm_params: 由 Librarian 组件 LLM 配置转换的请求参数（可选）
+            summary_timeout_seconds: 每次摘要调用的时限，超时回退为简单摘要
         """
         self.summary_llm = summary_llm
         self._llm_params = llm_params
+        self._summary_timeout_seconds = summary_timeout_seconds
 
     async def generate_summary(
         self, blocks_to_fold: list[LogicalBlock], previous_summary: str | None = None
@@ -230,8 +237,7 @@ class LLMRelayController(BaseRelayController):
         # 无 LLM 服务时的回退
         if self.summary_llm is None or self._llm_params is None:
             logger.warning("summary_llm 未配置，回退到简单摘要")
-            simple_controller = SimpleRelayController()
-            return simple_controller._generate_simple_summary(blocks)
+            return await SimpleRelayController().generate_summary(blocks, previous_summary)
 
         # 构建近期事件文本
         recent_events = self._build_recent_events(blocks)
@@ -246,17 +252,18 @@ class LLMRelayController(BaseRelayController):
         # 获取系统提示词（默认回退到全局 i18n 兜底文案）
         system_prompt = get_relay_prompt_text("system_prompt")
 
-        # 调用 LLM；只有提供商失败回退为简单摘要
+        # 调用 LLM；只有提供商失败与调用超时回退为简单摘要
         messages = [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_prompt},
         ]
         try:
-            completion = await self.summary_llm.complete(messages, self._llm_params)
-        except ModelProviderError as e:
-            logger.error(f"LLM 摘要生成失败: {e}，回退到简单摘要")
-            simple_controller = SimpleRelayController()
-            return simple_controller._generate_simple_summary(blocks)
+            async with asyncio.timeout(self._summary_timeout_seconds):
+                completion = await self.summary_llm.complete(messages, self._llm_params)
+        except (TimeoutError, ModelProviderError) as error:
+            # TimeoutError 来自上面的时限：超过 summary_timeout_seconds 未返回。
+            logger.error("LLM 摘要生成失败，回退到简单摘要: %r", error)
+            return await SimpleRelayController().generate_summary(blocks, previous_summary)
 
         summary = completion.text
         logger.info(f"LLM 摘要生成成功，长度: {len(summary)} 字符")
@@ -314,7 +321,11 @@ def create_relay_controller(
         return SimpleRelayController()
 
     elif isinstance(impl_config, LLMRelayConfig):
-        return LLMRelayController(summary_llm=llm_service, llm_params=llm_params)
+        return LLMRelayController(
+            summary_llm=llm_service,
+            llm_params=llm_params,
+            summary_timeout_seconds=impl_config.summary_timeout_seconds,
+        )
 
     raise ValueError(f"未知的 RelayController 配置类型: {type(impl_config)}")
 

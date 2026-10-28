@@ -48,7 +48,6 @@ from hivememory.patchouli.application import (
     TopicManagementService,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.control.interaction_apply_journal import InMemoryInteractionApplyJournal
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.patchouli.control.memory_generation.controller import MemoryGenerationTaskController
 from hivememory.patchouli.control.memory_generation.coordinator import MemoryGenerationCoordinator
@@ -199,7 +198,6 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
         working_set=TopicWorkingSet(max_resident=16),
         bus=local_bus,
         config=MemoryPerceptionConfig(),
-        interaction_journal=InMemoryInteractionApplyJournal(),
     )
     extractor = _Extractor()
     generation = MemoryGenerationFamiliar(

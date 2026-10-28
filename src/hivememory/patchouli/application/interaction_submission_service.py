@@ -32,6 +32,7 @@ from hivememory.patchouli.contracts.interaction_submission import (
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionQueue,
+    topic_ordering_key,
 )
 
 
@@ -72,7 +73,7 @@ class InteractionSubmissionService:
             interaction_id=resolved_interaction_id,
             payload=payload,
             requested_topic_id=requested_topic_id,
-            ordering_key=f"topic:{requested_topic_id}",
+            ordering_key=topic_ordering_key(requested_topic_id),
             origin=origin,
             correlation={},
             new_topic_title=new_topic_title,

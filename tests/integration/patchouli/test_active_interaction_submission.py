@@ -498,11 +498,12 @@ async def test_post_apply_retrieval_hit_failure_is_best_effort() -> None:
     record_hit.assert_awaited_once()
 
 
-def test_default_interaction_policy_has_finite_attempt_timeout() -> None:
+def test_default_lane_policy_leaves_time_limits_to_each_work_kind() -> None:
+    """lane 不设统一时限：交互应用由 handler 限时，折叠不被交互的时限截断。"""
     queue = InteractionSubmissionQueue(AsyncMock(return_value="topic-1"))
 
     policy = queue.runtime.lanes[0].policy
 
-    assert policy.timeout_seconds == 30.0
+    assert policy.timeout_seconds is None
     assert policy.max_attempts == 3
     assert policy.cancellable is False

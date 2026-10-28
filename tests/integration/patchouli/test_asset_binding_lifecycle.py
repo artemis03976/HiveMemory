@@ -21,9 +21,6 @@ from hivememory.core.models import (
 )
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
-from hivememory.patchouli.control.interaction_apply_journal import (
-    InMemoryInteractionApplyJournal,
-)
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
@@ -67,7 +64,6 @@ def _make_familiar_with_store():
         working_set=TopicWorkingSet(),
         bus=Mock(request=AsyncMock(return_value=None)),
         config=SimpleNamespace(idle_timeout_seconds=900),
-        interaction_journal=InMemoryInteractionApplyJournal(),
     )
     return familiar, store
 

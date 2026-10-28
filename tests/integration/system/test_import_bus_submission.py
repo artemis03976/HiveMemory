@@ -21,7 +21,6 @@ from hivememory.engines.perception.memory_perception_engine import MemoryPercept
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.application import InteractionSubmissionService
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.patchouli.control.interaction_apply_journal import InMemoryInteractionApplyJournal
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -58,7 +57,6 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
         working_set=TopicWorkingSet(),
         bus=PatchouliBus(),
         config=config.patchouli.perception,
-        interaction_journal=InMemoryInteractionApplyJournal(),
     )
     queue = InteractionSubmissionQueue(perception.apply_interaction)
     submissions = InteractionSubmissionService(interaction_queue=queue)

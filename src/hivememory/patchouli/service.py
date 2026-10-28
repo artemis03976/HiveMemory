@@ -32,6 +32,7 @@ from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionQueue,
     InteractionSubmissionReceipt,
+    topic_ordering_key,
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
 
@@ -198,7 +199,7 @@ class PatchouliService:
                     interaction_id=prepared_run.interaction_id,
                     payload=payload,
                     requested_topic_id=topic_id,
-                    ordering_key=f"topic:{topic_id}",
+                    ordering_key=topic_ordering_key(topic_id),
                     origin="active_chat",
                     correlation=correlation,
                 )

@@ -111,6 +111,7 @@ class PatchouliSystem(SubsystemProtocol):
 
         self._interaction_submission_queue = InteractionSubmissionQueue(
             self.runtime.perception_familiar.apply_interaction,
+            compaction=self.runtime.perception_familiar,
             runtime_events=self._runtime_events.scoped(
                 "patchouli",
                 component="interaction_submission_queue",
@@ -230,6 +231,8 @@ class PatchouliSystem(SubsystemProtocol):
 
         # interaction work 不可取消；先等待所有已接纳 work 和 Active continuation
         # 完成，再进入 perception flush，避免 handler 晚于 shutdown settlement 写入。
+        # 折叠先行关闭：排空时不再等待摘要模型，结算会带走话题的完整 blocks。
+        self._interaction_submission_queue.close_compactions()
         await self._interaction_submission_queue.drain_all(timeout=None)
         await self.service.drain_active_finalizations()
         await self._interaction_submission_queue.stop()

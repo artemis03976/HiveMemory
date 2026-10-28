@@ -36,7 +36,6 @@ from hivememory.engines.generation.models import (
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationTaskStatus
-from hivememory.patchouli.control.interaction_apply_journal import InMemoryInteractionApplyJournal
 from hivememory.patchouli.control.memory_generation.controller import MemoryGenerationTaskController
 from hivememory.patchouli.control.memory_generation.coordinator import MemoryGenerationCoordinator
 from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
@@ -237,7 +236,6 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
         working_set=TopicWorkingSet(clock=clock),
         bus=bus,
         config=SimpleNamespace(idle_timeout_seconds=5),
-        interaction_journal=InMemoryInteractionApplyJournal(),
     )
     await controller.start()
     try:
