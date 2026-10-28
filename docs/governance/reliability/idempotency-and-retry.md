@@ -17,7 +17,7 @@ related_docs:
   - docs/workspace/README.md
   - docs/contracts/subsystem-contracts.md
   - docs/patchouli/artifacts.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-27
 ---
 
 # 跨子系统幂等性与重试治理
@@ -31,7 +31,7 @@ HiveMemory 的后台任务、Artifact、MemoryAtom、Import Bus、PendingAtom �
 | 操作 | 当前已有基础 | 当前缺口 |
 |:---|:---|:---|
 | Import Bus | 同一轮重发得到同一 `interaction_id`（由认证通过的 principal、user、Agent 与 `source`、外部会话、外部轮次推导）；同一外部会话串行处理；经 Patchouli 交互状态查询判重：已应用返回 duplicate，仍在应用只继续等待，应用失败后重新路由并以同一标识再次提交；应用完成后才确认 | 判重依赖提交队列的进程内记录，终态记录与旁路索引都有保留上限；接纳之后、确认送达之前服务重启，或超出保留窗口后重发，会形成重复交互 |
-| Interaction submission | 主动链路与 Import Bus 共享 apply、ordering key 与有限 retry；明确瞬态异常复用同一 `interaction_id`；应用失败（终态未成功）的交互允许以同一 `interaction_id` 重新提交新 payload，以递增尝试号区分工作项，等待中与已成功的仍按原规则幂等；apply journal 按 Workspace、interaction 与目标 Topic 判断重放或冲突 | retry 结果与跨重启 operation record 仍未耐久化；模糊失败 reconciliation 尚未完成 |
+| Interaction submission | 主动链路与 Import Bus 共享 apply、ordering key 与有限 retry；明确瞬态异常复用同一 `interaction_id`；应用失败（终态未成功）的交互允许以同一 `interaction_id` 重新提交新 payload，以递增尝试号区分工作项，等待中与已成功的仍按原规则幂等；应用把 block 写入话题是最后一个可能失败的步骤，未成功的应用没有写入，重新提交不会重复写入，感知一侧不另设应用记录 | retry 结果与跨重启 operation record 仍未耐久化；模糊失败 reconciliation 尚未完成 |
 | Memory generation | TaskController 只写一次终态，lane 固定单次 attempt | 任务失败后的部分副作用仍可能无法确认；task id 是运行句柄，不自动等同业务幂等键 |
 | PendingAtom settlement | workspace `WriteIntentRegistry` 按 alias/intent_id 校验；登记生成唯一 intent_id，生成侧以 `active:{intent_id}` 幂等；同步拒绝与结算通知幂等，终态不再被后续通知重写 | registry 进程内，resolution 与重复 settlement 缺少耐久唯一约束、跨重启 replay 和通知未送达对账 |
 | Artifact | 随机 artifact id、hash 校验和 ref | `put()` 没有 compare-and-set，调用方仍需保证 id 一次性；artifact 写入和 atom upsert 不原子 |
@@ -83,14 +83,14 @@ at-least-once delivery
 
 幂等 key 需要根据业务包含 user、team、workspace、topic、memory、ordering key 或 source scope。这里的作用域由业务操作定义：操作 scope 只到公开资源边界，后台 payload 独立保存归属与发起者；共享 Work Queue、registry 和 cache 不因携带这些字段就自动按 Workspace 分区。一个全局短字符串可能把两个用户的合法操作错误合并；把随机 task id 当作幂等 key 又无法识别重试。
 
-Interaction apply 的 canonical 摘要使用 `belong_to` 与交互事实，actor 已在 turn 中。摘要排除随机 turn/block 标识与 block 创建、binding 绑定时点，使等价重试得到相同摘要，不同 Workspace 得到不同摘要。代码与回归见 [apply journal](../../../src/hivememory/patchouli/control/interaction_apply_journal.py) 和 [摘要测试](../../../tests/unit/patchouli/control/test_interaction_apply_journal.py)。Interaction Submission codec 为 v6，Memory Generation codec 的 `schema_version` 为字符串 `"1.1"`；旧 codec 不注册，旧版本解码显式拒绝。当前 Store 只有 `InMemoryWorkStore`，重启后无旧队列 payload，故此轮不提供旧载荷读升级；这不扩大跨重启恢复承诺。
+同一交互的幂等只由提交队列负责：队列以 `interaction_id` 定位，等待中与已成功的交互以相同载荷重交时复用原收据，载荷不同或同一标识属于另一个 Workspace 时冲突，只有应用未成功的交互可以重新提交。感知的 apply 在写入 block 之后不再有可能失败的步骤，话题折叠作为独立工作项在应用之后排入，因此“未成功”就意味着没有写入。原先在感知一侧按摘要判断重放的 apply journal 已随折叠移出应用而删除（2026-10-27）。代码与回归见 [提交队列](../../../src/hivememory/patchouli/control/interaction_submission.py) 与 [提交队列测试](../../../tests/unit/patchouli/control/test_interaction_submission.py)。Interaction Submission codec 为 v6，Memory Generation codec 的 `schema_version` 为字符串 `"1.1"`；旧 codec 不注册，旧版本解码显式拒绝。当前 Store 只有 `InMemoryWorkStore`，重启后无旧队列 payload，故此轮不提供旧载荷读升级；这不扩大跨重启恢复承诺。
 
 ## 3. 初步幂等键目录
 
 | 业务操作 | 候选稳定 key | 重复语义 |
 |:---|:---|:---|
 | Import Bus 外部轮次 | 由 principal、actor、`source`、外部会话与外部轮次推导的 `interaction_id` | 已应用返回 duplicate，不再路由与提交；应用失败的轮次重新路由后以同一标识再次提交 |
-| Interaction apply | 当前 journal 以 `interaction_id` 索引；记录同时校验 `target_topic_id` 与包含 `belong_to` 的 canonical 摘要 | 等价重放返回已应用结果，不重复创建 block；目标或事实摘要冲突显式拒绝，不把跨 Workspace 输入合并为等价重试 |
+| Interaction apply | 提交队列的 `interaction_id`；感知一侧不另设记录 | 等待中与已成功的交互重交返回原收据，不重复创建 block；载荷不同或跨 Workspace 复用同一标识显式冲突；只有未写入的失败交互可以重新提交 |
 | Memory generation | `generation_intent_id` / `pending intent_id` + schema version | 返回原 task/settlement，不能重复 CREATE/UPDATE |
 | PendingAtom settlement | `intent_id + settlement_version` | 第一次终态胜出，后续同结果 no-op，冲突终态显式拒绝 |
 | MemoryAtom update | `memory_id + expected_version + operation_id` | 同一 operation 重放返回原 version；不同版本冲突进入 retry/merge |

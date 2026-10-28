@@ -88,7 +88,7 @@ ConversationSession 已承接 Alice 的会话资源；后续目标是在现有 `
 
 Topic prepare/handle、assignment、条件清理和资料引用交接的生命周期集中在第 4 节定义。
 
-代码依据：`ActorIdentity` 的兼容 `session_id` 已于 2026-10-04 随身份第二批移除，HTTP chat 请求体已用该字段绑定 workspace 会话资源；`core/protocol/models.py` 的 `InteractionPayload` 保存事件、结局与价值信号，物化任务已移出；`core/models/interaction.py` 已有可选 `action_id` 的 TurnEvent、ActionReducer 和 TurnRecord；`core/models/topic.py` 的 LogicalBlock 内嵌 TurnRecord。`patchouli/application/interaction_submission_service.py` 返回 `InteractionSubmitResult`（定义在 `patchouli/contracts/interaction_submission.py`），当前仅表达接纳结果，使用 `topic:{requested_topic_id}` 排序；`patchouli/control/interaction_apply_journal.py` 的 `InteractionApplyRecord` 已按 interaction_id 保存 topic_id、应用阶段和摘要，但只提供有界内部记录。`system/services/passive/turn_buffer.py` 已把部分外部事件转换为 TurnEvent；其启动条件、容量截断和封口规则仍不足以承接一般外部会话。以上路径于 2026-10-15 随会话迁移再次核对；Alice 的会话模型已经落地，但外部无损输入处理和公共应用结果查询尚未实现。
+代码依据：`ActorIdentity` 的兼容 `session_id` 已于 2026-10-04 随身份第二批移除，HTTP chat 请求体已用该字段绑定 workspace 会话资源；`core/protocol/models.py` 的 `InteractionPayload` 保存事件、结局与价值信号，物化任务已移出；`core/models/interaction.py` 已有可选 `action_id` 的 TurnEvent、ActionReducer 和 TurnRecord；`core/models/topic.py` 的 LogicalBlock 内嵌 TurnRecord。`patchouli/application/interaction_submission_service.py` 返回 `InteractionSubmitResult`（定义在 `patchouli/contracts/interaction_submission.py`），当前仅表达接纳结果，使用 `topic:{requested_topic_id}` 排序；原 `patchouli/control/interaction_apply_journal.py` 的 `InteractionApplyRecord` 已于 2026-10-27 随话题折叠移出交互应用而删除，同一交互的幂等只由提交队列负责。`system/services/passive/turn_buffer.py` 已把部分外部事件转换为 TurnEvent；其启动条件、容量截断和封口规则仍不足以承接一般外部会话。以上路径于 2026-10-15 随会话迁移再次核对；Alice 的会话模型已经落地，但外部无损输入处理和公共应用结果查询尚未实现。
 
 ## 2. 数据模型
 
@@ -121,7 +121,7 @@ ConversationSession
 
 Session 是由用户或调用软件控制的会话总容器，维护稳定来源、顺序、生命周期和历史引用。它作为 Workspace 归属的会话资源，由 workspace 共享设施中的会话服务持有本地记录（2026-09-28，总 Idea D-9；原候选为 System 会话服务），adapter 负责输入与生命周期触发；Patchouli 不持有第二份完整历史。外部 harness 仍拥有自己原生历史，本地只记录它交付的部分，不能宣称获得未提供的完整会话。Session 的管理/读取同样经过 A1 与资源 policy。
 
-`ordered_interaction_refs` 指向本地保留的封口 `InteractionPayload`，表达逻辑顺序，不要求把全部历史装进一个无限增长对象。Session 记录与封口内容共同构成本地接收历史；内容的存放位置、分页、保留范围和容量待定（第 8 节），不能用内部 queue 或 apply journal 代替历史存储。进程内首版只承诺实际保存窗口，容量不足必须显式拒绝/报告，不能静默丢事件。会话资源不能当派生 cache 随便淘汰；删除/关闭 Session 不默认级联删除已形成的 Topic 或 Memory，provenance 引用过期时明确不可回查。route cursor 仅为可重建的路由投影，不决定既有交互的来源或内容。
+`ordered_interaction_refs` 指向本地保留的封口 `InteractionPayload`，表达逻辑顺序，不要求把全部历史装进一个无限增长对象。Session 记录与封口内容共同构成本地接收历史；内容的存放位置、分页、保留范围和容量待定（第 8 节），不能用内部 queue 代替历史存储。进程内首版只承诺实际保存窗口，容量不足必须显式拒绝/报告，不能静默丢事件。会话资源不能当派生 cache 随便淘汰；删除/关闭 Session 不默认级联删除已形成的 Topic 或 Memory，provenance 引用过期时明确不可回查。route cursor 仅为可重建的路由投影，不决定既有交互的来源或内容。
 
 完整资料的跨环节保留按[全链路 Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)收敛：Topic 需要在自己的生命周期内持有已交接的资料或稳定引用；不能只保留依赖 Session 不被删除的临时指针。这里的保留窗口与引用过期不是允许 folding 删除唯一原文的例外，会话持久化仍另行计划。
 
@@ -152,7 +152,7 @@ InteractionPayload（演进现有模型）
 
 `InteractionPayload` 表达已经完成或明确封口的一次交互，是跨 Actor 的共同提交输入。它可以包含普通消息、助手回复、工具调用和工具结果，不等同于 Alice run，也不要求特定 prompt history。旧草案的 Segment 仅保留为历史概念名，不再引入独立 `segment_id` 或 Segment→Payload 内容转换层。
 
-`interaction_id` 同时标识封口交互及其逻辑提交；同一次提交重试必须复用它。既有 envelope、公开结果与 apply journal 沿用同一值，不能各自产生新 ID；兼容参数与 payload 同时携带 ID 时须校验一致。`work_id` 仍是队列工作身份，外部 turn/event ID 和 execution reference 仍是来源关联，不与 interaction_id 互换。Session 顺序由可信 Session key 与交互 sequence 保证，不能继续简单使用 `topic:{topic_id}` 作为会话排序键；TurnEvent.sequence 则只表达交互内部顺序。
+`interaction_id` 同时标识封口交互及其逻辑提交；同一次提交重试必须复用它。既有 envelope、公开结果与提交队列沿用同一值，不能各自产生新 ID；兼容参数与 payload 同时携带 ID 时须校验一致。`work_id` 仍是队列工作身份，外部 turn/event ID 和 execution reference 仍是来源关联，不与 interaction_id 互换。Session 顺序由可信 Session key 与交互 sequence 保证，不能继续简单使用 `topic:{topic_id}` 作为会话排序键；TurnEvent.sequence 则只表达交互内部顺序。
 
 开放段是 accumulator 的可变工作记录，公开提交的是封口后的不可变快照；保留类名不意味着保留当前模型的可变提交语义。`completion_state` 描述交互实际结束结果，`seal_reason` 描述为何封口，两者都不表示 Patchouli 已接纳。取消/失败也可有可保存内容，不应因没有成功 final reply 而丢弃全部记录。一份交互不硬性要求恰好一条 user 和一条 assistant；可包含多条消息或不完整工具事件。可信 scope 仍由 access/内部 envelope 承载，正文中的来源信息不能成为第二份授权身份。Alice 当前使用 `outcome=completed/cancelled/failed`，有输出即封口提交；外部输入的 `completion_state` 与 `seal_reason` 仍是候选，不是另一套现行结局字段。
 
@@ -210,7 +210,7 @@ InteractionSubmitResult / 应用结果查询投影（扩展既有结果语义）
   optional route_reason / router_revision / confidence / manual_override
 ```
 
-上述为候选的结果语义与内部指令，不意味着当前已提供同名外部接口。现有 `InteractionApplyRecord` 可承接路由关联，但其有界内部 journal 不能直接充当公共历史或查询 API；还需补齐结果可见范围、保留期、过期行为和 A1 授权。`InteractionSubmitResult` 是初次调用的不可变返回值，不会在后台自动变为 applied；后续查询读取新的结果投影，不暴露内部 queue/work record。不另设 TopicAssignment 实体或与 application status 竞争的状态机。
+上述为候选的结果语义与内部指令，不意味着当前已提供同名外部接口。提交队列的有界内部工作记录不能直接充当公共历史或查询 API（原 `InteractionApplyRecord` 已于 2026-10-27 删除）；还需补齐结果可见范围、保留期、过期行为和 A1 授权。`InteractionSubmitResult` 是初次调用的不可变返回值，不会在后台自动变为 applied；后续查询读取新的结果投影，不暴露内部 queue/work record。不另设 TopicAssignment 实体或与 application status 竞争的状态机。
 
 `auto` 在允许的候选中判断；`continue` 将上次 Topic 作为提示，允许明确的改路由；`explicit` 在通过授权后固定目标；`new` 强制新建并排除自动并回相似 Topic。若 `continue/explicit` 在真实调用中没有不同语义，应合并枚举，不能留下两个同义分支。confidence/router_revision 只有路由器实际提供时才返回，不伪造精度和版本。
 

@@ -10,6 +10,7 @@ last_reviewed: 2026-10-27
 
 本目录保存已完成的修复与技术债处置历史；当前行为从对应事实文档进入，活动待办见 [Todo](../../todo/README.md)。
 
+- [话题折叠计入交互提交的处理时限](./topic-fold-in-interaction-apply.md)：2026-10-27 在 `fix/topic-fold-in-interaction-apply` 完成，交互写入话题即完成应用，折叠作为提交队列中与该话题提交共用排序键的独立工作项，折叠期间同一话题的后续提交在队列中等待、不计入处理时限；LLM relay 摘要新增独立时限，超时与其他回退都接在已有摘要之后；写入成为应用中最后一个可能失败的步骤，apply journal 随之移除，幂等收敛到提交队列；当前事实见[感知与短期话题](../../patchouli/perception.md)第 5 节。
 - [模型推理移出事件循环](./inference-off-event-loop.md)：2026-10-27 在 `feat/model-memory-footprint` 完成，嵌入与重排模型各持有一个推理线程，懒加载与推理不再在事件循环上执行，同一模型的调用逐个进行，Patchouli 停止时在生成 lane 之后释放线程；onnxruntime 创建会话时持有 GIL，模型加载期间事件循环仍会停顿；当前事实见 [Patchouli](../../patchouli/README.md) 第 4 节。
 - [日志配置段的级别、格式与输出没有生效](./logging-config-not-applied.md)：2026-10-19 在 v0.7.0 收尾分支修复，server 生命周期在装配系统前按 `logging` 段设置根 logger 的级别、格式、控制台与文件输出，两种启动方式一致，只替换入口自己装上的 handler；当前事实见 [System 配置](../../system/configuration.md)第 4 节。
 - [构造根配置会改写进程默认语言](./config-construction-resets-default-language.md)：2026-10-19 在 v0.7.0 收尾分支修复，删除配置模型上的同步校验器，进程默认语言只在组合根装配运行配置时设置，配置路由构造的临时对象不再改变它；当前事实见 [i18n](../../system/i18n.md)第 2 节。

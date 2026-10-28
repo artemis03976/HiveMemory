@@ -31,7 +31,7 @@ related_docs:
   - docs/help/setup.md
 related_plans:
   - docs/archive/plans/v0.7.1-import-bus-redesign.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-27
 ---
 
 # Import Bus
@@ -153,7 +153,7 @@ workspace 授权点的 `authorize_import` 只校验 context 有效、已准入�
 - 仍为 `pending`（等待超时）：返回 503（`import_bus.unavailable`，reason `apply_pending`）；重发时查到仍在应用，只继续等待；
 - `failed`：返回 500（`import_bus.apply_failed`）；重发时重新路由并再次提交。
 
-等待的代价是每次导入多等一次应用；话题触发折叠时，应用里含一次摘要模型调用。已接纳的交互在等待时查不到属于契约违约，以 `ImportBusContractError` 原样传播。
+等待的代价是每次导入多等一次应用。话题折叠不在应用内：触发折叠的一轮写入后即确认；同一话题的下一轮在提交队列中等待折叠结束，超过 `apply_wait_seconds` 时以 503 `apply_pending` 交回，重发时只继续等待（[感知与短期话题](../patchouli/perception.md#5-page-folding)第 5 节）。已接纳的交互在等待时查不到属于契约违约，以 `ImportBusContractError` 原样传播。
 
 ## 5. 失败分类与 HTTP 映射
 
@@ -305,7 +305,6 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录）
 ## 10. 已知限制
 
 - 查重依赖 Patchouli 提交队列的进程内记录，终态记录有保留上限：确认送达之前服务重启，或超出保留窗口后重发，会形成重复的交互。
-- 应用失败若发生在写入话题之后（例如折叠时出错），重新提交可能因输入不同再次失败；连接器在同一轮连续三次 500 后写入拒绝记录并放弃这一轮。
 - 话题路由失败时续接上一轮的兜底，会把用户恰在故障期间换了话题的轮次归入旧话题。
 - 超过请求体上限的一轮以 413 整轮跳过；提交队列的终态工作记录保存完整的编码载荷，工具输出很大时占用可观的内存。
 - 工具结果可能包含密钥、令牌等凭据：连接器不筛选，原文随交互 Artifact 持久化，截断后的结果进入生成转写；提取提示词要求不把凭据写入记忆。

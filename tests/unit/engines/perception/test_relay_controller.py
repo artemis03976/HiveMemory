@@ -3,12 +3,16 @@ RelayController 单元测试
 
 测试覆盖:
 - 摘要生成逻辑（简单规则与 LLM）
-- LLM 摘要只在没有可用 LLM 或提供商失败时回退为简单摘要
+- LLM 摘要只在没有可用 LLM、提供商失败或调用超时时回退为简单摘要
 - 摘要上下文注入格式
 """
 
+import asyncio
+from unittest.mock import AsyncMock, Mock
+
 import pytest
 
+from hivememory.config.patchouli import LLMRelayConfig, RelayControllerConfig
 from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import AgentAction, TraceItem, TurnRecord
 from hivememory.engines.perception.models import (
@@ -17,6 +21,7 @@ from hivememory.engines.perception.models import (
 from hivememory.engines.perception.relay_controller import (
     LLMRelayController,
     SimpleRelayController,
+    create_relay_controller,
 )
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
 from tests.helpers.workspace import make_actor_identity
@@ -71,7 +76,9 @@ class TestLLMRelayController:
     async def test_llm_summary_generation(self):
         """LLM 摘要以 system + user 双消息请求，近期事件包含用户消息与 MTP 轨迹。"""
         llm = ScriptedLLMService("LLM 生成的摘要")
-        controller = LLMRelayController(summary_llm=llm, llm_params=DEFAULT_LLM_PARAMS)
+        controller = LLMRelayController(
+            summary_llm=llm, llm_params=DEFAULT_LLM_PARAMS, summary_timeout_seconds=60
+        )
 
         block = LogicalBlock(
             turn=TurnRecord(
@@ -94,8 +101,8 @@ class TestLLMRelayController:
 
     @pytest.mark.asyncio
     async def test_llm_fallback_when_no_service(self):
-        """测试无 LLM 服务时回退到简单摘要"""
-        controller = LLMRelayController(summary_llm=None)
+        """无 LLM 服务时回退到简单摘要，并接在上一次摘要之后，已折叠的历史不丢失。"""
+        controller = LLMRelayController(summary_llm=None, summary_timeout_seconds=60)
 
         block = LogicalBlock(
             turn=TurnRecord(
@@ -106,9 +113,9 @@ class TestLLMRelayController:
             total_tokens=50,
         )
 
-        summary = await controller.generate_summary([block])
+        summary = await controller.generate_summary([block], previous_summary="早先的接力摘要")
 
-        # 应该回退到简单摘要格式
+        assert summary.startswith("早先的接力摘要\n---\n")
         assert "处理了 1 个用户请求" in summary
 
     @pytest.mark.asyncio
@@ -117,6 +124,7 @@ class TestLLMRelayController:
         controller = LLMRelayController(
             summary_llm=ScriptedLLMService(ModelProviderError("provider down")),
             llm_params=DEFAULT_LLM_PARAMS,
+            summary_timeout_seconds=60,
         )
 
         block = LogicalBlock(
@@ -131,11 +139,42 @@ class TestLLMRelayController:
         assert "处理了 1 个用户请求" in summary
 
     @pytest.mark.asyncio
+    async def test_summary_timeout_from_config_falls_back_to_simple_summary(self):
+        """摘要调用超过配置的时限时回退为简单摘要并保留上一次摘要，折叠不会无限等待模型。"""
+
+        async def never_returns(messages, params):
+            await asyncio.Event().wait()
+
+        hanging_llm = Mock()
+        hanging_llm.complete = AsyncMock(side_effect=never_returns)
+        controller = create_relay_controller(
+            RelayControllerConfig(engine=LLMRelayConfig(summary_timeout_seconds=0.01)),
+            llm_service=hanging_llm,
+            llm_params=DEFAULT_LLM_PARAMS,
+        )
+
+        block = LogicalBlock(
+            turn=TurnRecord(
+                identity=make_actor_identity(), user_query="测试", assistant_final_text="响应"
+            ),
+            total_tokens=50,
+        )
+
+        summary = await asyncio.wait_for(
+            controller.generate_summary([block], previous_summary="早先的接力摘要"), timeout=2
+        )
+
+        assert summary.startswith("早先的接力摘要\n---\n")
+        assert "处理了 1 个用户请求" in summary
+
+    @pytest.mark.asyncio
     async def test_program_error_is_not_masked_by_simple_summary(self):
         """程序错误不属于提供商失败，原样传播而不回退。"""
         failure = TypeError("broken prompt wiring")
         controller = LLMRelayController(
-            summary_llm=ScriptedLLMService(failure), llm_params=DEFAULT_LLM_PARAMS
+            summary_llm=ScriptedLLMService(failure),
+            llm_params=DEFAULT_LLM_PARAMS,
+            summary_timeout_seconds=60,
         )
 
         block = LogicalBlock(
@@ -152,7 +191,7 @@ class TestLLMRelayController:
 
     def test_build_recent_events_with_traces(self):
         """测试 recent_events 构建包含 MTP 轨迹"""
-        controller = LLMRelayController()
+        controller = LLMRelayController(summary_timeout_seconds=60)
 
         blocks = [
             LogicalBlock(

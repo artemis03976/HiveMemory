@@ -1,9 +1,11 @@
 """Patchouli 感知使魔。
 
-感知业务的唯一编排者：持有 Engine（纯算法，含 RelayController）、Store（内容）、
-WorkingSet（驻留与 lease）与 Interaction journal，负责话题路由、Interaction
-原子写入与 retry、统一 settle 时序、LRU / idle / shutdown 维护，并把领域
-结果投影为公开报告。
+感知业务的唯一编排者：持有 Engine（纯算法，含 RelayController）、Store（内容）
+与 WorkingSet（驻留与 lease），负责话题路由、Interaction 原子写入、话题折叠、
+统一 settle 时序、LRU / idle / shutdown 维护，并把领域结果投影为公开报告。
+
+折叠是话题自身的维护，不属于交互应用：应用在写入 block 后即完成，是否需要
+折叠由 ``needs_compact`` 判断，``compact_topic`` 作为独立用例执行。
 
 占用权统一由 WorkingSet 的 lease 表达：所有写路径都是
 ``acquire → try/finally release``；Relay 摘要生成在 lease 持有期间进行，
@@ -22,6 +24,8 @@ from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueSt
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     ActorIdentity,
+    LogicalBlock,
+    TopicData,
     WorkspaceAssetRef,
     WorkspaceIdentity,
     merge_interaction_into_topic,
@@ -32,11 +36,6 @@ from hivememory.engines.perception.models import TopicMaterializeTask, TriggerRe
 from hivememory.patchouli.contracts.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.topic_management import TopicEvictionResult, TopicSettleResult
-from hivememory.patchouli.control.interaction_apply_journal import (
-    InMemoryInteractionApplyJournal,
-    InteractionApplyStage,
-    compute_apply_digest,
-)
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTask
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.models import TopicShutdownFlushReport
@@ -50,10 +49,10 @@ logger = logging.getLogger(__name__)
 
 
 class PerceptionFamiliar:
-    """感知业务门面：Engine + Store + WorkingSet + Journal 的编排者。
+    """感知业务门面：Engine + Store + WorkingSet 的编排者。
 
     ``engine=None`` 表示感知关闭（原 ``NullPerceptionLayer`` 语义）：摄入
-    路径无任何存储与 journal 副作用；维护用例对空存储自然空转。
+    路径无任何存储副作用；维护用例对空存储自然空转。
     """
 
     def __init__(
@@ -64,14 +63,12 @@ class PerceptionFamiliar:
         working_set: TopicWorkingSet,
         bus: PatchouliBus,
         config: MemoryPerceptionConfig,
-        interaction_journal: InMemoryInteractionApplyJournal,
     ) -> None:
         self._engine = engine
         self._store = store
         self._working_set = working_set
         self._bus = bus
         self._idle_timeout_seconds = config.idle_timeout_seconds
-        self._interaction_journal = interaction_journal
 
     # ========== Interaction 摄入 ==========
 
@@ -89,12 +86,14 @@ class PerceptionFamiliar:
     ) -> str:
         """应用一份已接纳的交互载荷并完成话题路由（核心用例）。
 
-        retry 依据 journal 阶段幂等续跑（COMPLETED 直接返回；APPLIED 补跑
-        compact），不重复写入 block；等价性校验在取得占用权之前完成。
+        本轮 block 与首次 asset binding 一次写入话题即完成，不执行折叠。写入是
+        这次应用中最后一个可能失败的步骤：应用要么失败且没有写入，要么写入并
+        成功。提交队列只允许未成功结束的交互重新提交，因此同一轮不会被写入两次；
+        在写入之后加入可能失败的步骤会破坏这一点。
         目标为 ``NEW_TOPIC`` 时以提交携带的标题与摘要建立话题，后续落位
         依赖候选话题的标题与摘要；缺省时使用默认标题。
         """
-        if self._engine is None:  # 感知关闭：无任何存储与 journal 副作用
+        if self._engine is None:  # 感知关闭：无任何存储副作用
             return target_topic_id
         if not payload.turn_events:
             raise ValueError(
@@ -102,66 +101,30 @@ class PerceptionFamiliar:
                 "legacy assistant_message fallback has been removed."
             )
 
-        apply_record = self._interaction_journal.get(interaction_id) if interaction_id else None
         logger.info("PerceptionFamiliar 应用交互载荷: user='%s...'", payload.user_message[:30])
-
-        # retry 已有 apply journal 时不能驱逐刚刚写入的目标话题。
-        if apply_record is None:
-            await self._maybe_evict_lru(belong_to, target_topic_id)
-        # retry 路由回已记录的话题；首次 apply 确保目标存在。
-        topic_id = (
-            apply_record.topic_id
-            if apply_record is not None
-            else self._ensure_topic(
-                belong_to,
-                target_topic_id,
-                topic_title=new_topic_title,
-                topic_summary=new_topic_summary,
-            )
+        await self._maybe_evict_lru(belong_to, target_topic_id)
+        topic_id = self._ensure_topic(
+            belong_to,
+            target_topic_id,
+            topic_title=new_topic_title,
+            topic_summary=new_topic_summary,
         )
-
-        # block 构造与 digest 是纯计算；retry 等价性校验在取得占用权之前完成。
         block = self._engine.build_block(payload, from_actor)
-        digest = compute_apply_digest(block, asset_refs, payload.model_used, belong_to)
-        if apply_record is not None:
-            if apply_record.input_digest != digest:
-                raise ValueError(
-                    f"interaction '{interaction_id}' was already applied with different input"
-                )
-            if apply_record.stage is InteractionApplyStage.COMPLETED:
-                self._refresh_residency(belong_to, topic_id)
-                return topic_id
 
         lease = self._working_set.acquire(belong_to, topic_id)
         if lease is None:
             raise TopicBusyError(f"topic '{topic_id}' 正忙，无法原子摄入 interaction，可稍后重试")
         try:
-            if apply_record is None:
-                topic = self._store.get(belong_to, topic_id)
-                if topic is None:
-                    raise ResourceNotFoundError(details={"resource": "topic", "topic_id": topic_id})
-                self._store.put(
-                    merge_interaction_into_topic(
-                        topic, block, asset_refs, interaction_id, payload.model_used
-                    )
+            topic = self._store.get(belong_to, topic_id)
+            if topic is None:
+                raise ResourceNotFoundError(details={"resource": "topic", "topic_id": topic_id})
+            self._store.put(
+                merge_interaction_into_topic(
+                    topic, block, asset_refs, interaction_id, payload.model_used
                 )
-                if interaction_id:
-                    # journal 必须紧跟实际写入点；后续异常发生时 retry 仍能去重。
-                    self._interaction_journal.record_interaction_applied(
-                        interaction_id, topic_id, digest
-                    )
-            if (
-                apply_record is None
-                or apply_record.stage is InteractionApplyStage.INTERACTION_APPLIED
-            ):
-                # 后置本地义务：token 溢出 compact；LOCAL_COMPLETED 之后不再重复执行。
-                await self._compact_topic_if_needed(belong_to, topic_id)
+            )
         finally:
             self._working_set.release(lease)
-
-        if interaction_id:
-            self._interaction_journal.record_local_completed(interaction_id, topic_id, None)
-            self._interaction_journal.complete(interaction_id, topic_id)
 
         self._refresh_residency(belong_to, topic_id)
         return topic_id
@@ -269,6 +232,36 @@ class PerceptionFamiliar:
 
     # ========== Compact（页面折叠） ==========
 
+    def needs_compact(self, belong_to: WorkspaceIdentity, topic_id: str) -> bool:
+        """话题超过折叠阈值且有可折叠的旧前缀时为真；话题不存在或感知关闭时为假。"""
+        topic = self._store.get(belong_to, topic_id)
+        return topic is not None and bool(self._blocks_to_fold(topic))
+
+    async def compact_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
+        """折叠用例：取得话题的 lease 后，在超过阈值时折叠旧前缀。
+
+        话题已被结算或驱逐时直接结束；正被占用时抛出 :class:`TopicBusyError`
+        留待重试。摘要生成期间持有 lease，同一话题的写入与结算不会交错；写回在
+        摘要返回后一次完成，中途取消或失败都不改动话题。
+        """
+        if self._engine is None:  # 感知关闭：不做任何折叠
+            return
+        lease = self._working_set.acquire(belong_to, topic_id)
+        if lease is None:
+            raise TopicBusyError(f"topic '{topic_id}' 正忙，无法折叠，可稍后重试")
+        try:
+            await self._compact_topic_if_needed(belong_to, topic_id)
+        finally:
+            self._working_set.release(lease)
+
+    def _blocks_to_fold(self, topic: TopicData) -> list[LogicalBlock]:
+        """超过折叠阈值时返回保留后缀之前的旧 blocks；未超过或无可折叠前缀时为空。"""
+        engine = self._engine
+        if engine is None or topic.is_empty or not engine.should_compact(topic.total_tokens):
+            return []
+        # 保留块数以 Engine 配置为单一事实源。
+        return engine.select_blocks_to_fold(topic.blocks, engine.config.fold_retain_recent_blocks)
+
     async def _compact_topic_if_needed(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
         """token 溢出时执行 compact：生成折叠摘要并写回保留的近期 blocks。
 
@@ -279,15 +272,12 @@ class PerceptionFamiliar:
         if engine is None:  # 感知关闭：与 apply 一致，不做任何折叠
             return
         topic = self._store.get(belong_to, topic_id)
-        if topic is None or topic.is_empty or not engine.should_compact(topic.total_tokens):
+        if topic is None:
             return
-        logger.info("Token 溢出，触发 Page Folding: topic_id=%s", topic_id)
-        # 保留块数以 Engine 配置为单一事实源。
-        blocks_to_fold = engine.select_blocks_to_fold(
-            topic.blocks, engine.config.fold_retain_recent_blocks
-        )
+        blocks_to_fold = self._blocks_to_fold(topic)
         if not blocks_to_fold:
             return
+        logger.info("Token 溢出，触发 Page Folding: topic_id=%s", topic_id)
         summary = await engine.generate_fold_summary(blocks_to_fold, topic.state_summary)
         retained = topic.blocks[len(blocks_to_fold) :]
         self._store.put(

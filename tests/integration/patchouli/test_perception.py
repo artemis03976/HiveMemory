@@ -1,19 +1,19 @@
 """PerceptionFamiliar 感知链路集成测试（lease 编排架构）。
 
 真实协作：PerceptionFamiliar + MemoryPerceptionEngine + TopicWorkingSet
-+ ShortTermMemoryStore + InMemoryInteractionApplyJournal；Relay（LLM 摘要）与
++ ShortTermMemoryStore；Relay（LLM 摘要）与
 Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用可控时钟。
 
 测试覆盖:
-- apply_interaction: 新建（含提交携带的标题与摘要）/指定话题写入、binding 幂等、busy 拒绝、未知目标、
-  retry 幂等与等价性冲突、跨 Workspace 复用 interaction_id 被拒
+- apply_interaction: 新建（含提交携带的标题与摘要）/指定话题写入、binding 幂等、busy 拒绝、未知目标
 - LRU 驱逐: 池满驱逐最久未访问话题、busy 候选改选、admission 失败传播
-- token 溢出 compact: 折叠摘要写回、relay 失败后 retry 续跑不重复写块、未超保留块数不折叠
+- 折叠: 应用不在内部折叠、needs_compact 判断、折叠摘要累积写回、失败后话题完整且可再次折叠、
+  占用时 busy 拒绝、话题已结算时直接结束、未超保留块数不折叠
 - manual_settle_topic / evict_topic / discard_if_empty 具名用例，含 admission 失败可重试、
   全部 block 被过滤与 summary-only 话题
 - scan_idle_buffers_once / flush_all_for_shutdown 维护投影，含跨 Workspace 结算、
   折叠后结算、占用话题记为 failed 与生成跳过
-- 感知关闭时无副作用且重放不依赖 apply journal
+- 感知关闭时无副作用
 """
 
 import asyncio
@@ -37,13 +37,6 @@ from hivememory.engines.perception.memory_perception_engine import MemoryPercept
 from hivememory.engines.perception.models import TriggerReason
 from hivememory.patchouli.contracts.errors import TopicBusyError, TopicSettleAdmissionError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.control.interaction_apply_journal import (
-    InMemoryInteractionApplyJournal,
-    InteractionApplyStage,
-)
-from hivememory.patchouli.control.interaction_submission import (
-    TransientInteractionSubmissionError,
-)
 from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
@@ -141,7 +134,7 @@ def _make_familiar(
     clock=None,
     engine="default",
 ):
-    """构造 (familiar, store, working_set, bus, journal) 测试组合。
+    """构造 (familiar, store, working_set, bus) 测试组合。
 
     Engine（含 RelayController）/ Store / WorkingSet / Journal 为真实对象；
     时间使用可控时钟。
@@ -159,16 +152,14 @@ def _make_familiar(
             config=engine_config or SemanticFlowPerceptionConfig(fold_token_threshold=999999),
             relay_controller=relay,
         )
-    journal = InMemoryInteractionApplyJournal()
     familiar = PerceptionFamiliar(
         engine=engine,
         store=store,
         working_set=working_set,
         bus=bus,
         config=SimpleNamespace(idle_timeout_seconds=idle_timeout),
-        interaction_journal=journal,
     )
-    return familiar, store, working_set, bus, journal
+    return familiar, store, working_set, bus
 
 
 # ========== apply_interaction：核心摄入用例 ==========
@@ -176,8 +167,8 @@ def _make_familiar(
 
 class TestApplyInteraction:
     @pytest.mark.asyncio
-    async def test_new_topic_creates_topic_and_completes_journal(self):
-        familiar, store, working_set, bus, journal = _make_familiar()
+    async def test_new_topic_creates_topic_and_tracks_residency(self):
+        familiar, store, working_set, bus = _make_familiar()
         scope = _identity_scope()
 
         topic_id = await familiar.apply_interaction(
@@ -191,14 +182,13 @@ class TestApplyInteraction:
         assert topic is not None
         assert topic.block_count == 1
         assert topic.topic_title == "新建话题"
-        assert journal.get("i-1").stage is InteractionApplyStage.COMPLETED
         # 驻留工作集记录了话题（shutdown 候选可观察）
         assert {tid for _, tid in working_set.list_shutdown_candidates()} == {topic_id}
 
     @pytest.mark.asyncio
     async def test_new_topic_uses_submitted_title_and_summary(self):
         """提交携带的新话题标题与摘要用于建立话题，后续落位依赖它们。"""
-        familiar, store, _, _, _ = _make_familiar()
+        familiar, store, _, _ = _make_familiar()
         scope = _identity_scope()
 
         topic_id = await familiar.apply_interaction(
@@ -216,7 +206,7 @@ class TestApplyInteraction:
 
     @pytest.mark.asyncio
     async def test_existing_topic_appends_blocks_and_dedupes_bindings(self):
-        familiar, store, _, _, _ = _make_familiar()
+        familiar, store, _, _ = _make_familiar()
         scope = _identity_scope()
         store.create(scope.workspace_identity, topic_id="t-fixed", topic_title="Fixed")
         ref = WorkspaceAssetRef(token="token-1", asset_id="asset-1")
@@ -247,7 +237,7 @@ class TestApplyInteraction:
 
     @pytest.mark.asyncio
     async def test_empty_turn_events_rejected_without_legacy_fallback(self):
-        familiar, store, _, _, _ = _make_familiar()
+        familiar, store, _, _ = _make_familiar()
         payload = InteractionPayload(user_message="hello", turn_events=[])
 
         with pytest.raises(ValueError, match="turn_events is required"):
@@ -261,7 +251,7 @@ class TestApplyInteraction:
 
     @pytest.mark.asyncio
     async def test_busy_topic_rejects_interaction_without_writing(self):
-        familiar, store, working_set, _, _ = _make_familiar()
+        familiar, store, working_set, _ = _make_familiar()
         scope = _identity_scope()
         store.create(scope.workspace_identity, topic_id="t1")
         lease = working_set.acquire(scope.workspace_identity, "t1")
@@ -279,7 +269,7 @@ class TestApplyInteraction:
 
     @pytest.mark.asyncio
     async def test_unknown_target_is_rejected(self):
-        familiar, _, _, _, _ = _make_familiar()
+        familiar, _, _, _ = _make_familiar()
 
         with pytest.raises(ResourceNotFoundError):
             await familiar.apply_interaction(
@@ -289,86 +279,6 @@ class TestApplyInteraction:
                 target_topic_id="missing",
             )
 
-    @pytest.mark.asyncio
-    async def test_retry_with_same_payload_is_idempotent(self):
-        familiar, store, _, _, _ = _make_familiar()
-        scope = _identity_scope()
-        store.create(scope.workspace_identity, topic_id="t1")
-        payload = _payload("m")
-
-        first = await familiar.apply_interaction(
-            payload,
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            target_topic_id="t1",
-            interaction_id="i-1",
-        )
-        replayed = await familiar.apply_interaction(
-            payload,
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            target_topic_id="t1",
-            interaction_id="i-1",
-        )
-
-        assert replayed == first
-        assert store.get(scope.workspace_identity, "t1").block_count == 1
-
-    @pytest.mark.asyncio
-    async def test_retry_with_different_payload_conflicts(self):
-        familiar, store, _, _, _ = _make_familiar()
-        scope = _identity_scope()
-        store.create(scope.workspace_identity, topic_id="t1")
-
-        await familiar.apply_interaction(
-            _payload("m"),
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            target_topic_id="t1",
-            interaction_id="i-1",
-        )
-        with pytest.raises(ValueError, match="different input"):
-            await familiar.apply_interaction(
-                _payload("other"),
-                belong_to=scope.workspace_identity,
-                from_actor=scope.actor_identity,
-                target_topic_id="t1",
-                interaction_id="i-1",
-            )
-        assert store.get(scope.workspace_identity, "t1").block_count == 1
-
-    @pytest.mark.asyncio
-    async def test_interaction_retry_rejects_same_content_from_another_workspace(self):
-        """同一 interaction_id 不能跨 Workspace 复用已完成的 apply 记录。"""
-        familiar, store, _, _, _ = _make_familiar()
-        main_scope = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
-        isolated_scope = make_identity_scope(
-            user_id="u1", agent_id="a1", workspace_id="isolated_workspace"
-        )
-        payload = _payload("same question", "same answer")
-
-        topic_id = await familiar.apply_interaction(
-            payload,
-            belong_to=main_scope.workspace_identity,
-            from_actor=main_scope.actor_identity,
-            target_topic_id="NEW_TOPIC",
-            interaction_id="interaction-shared",
-        )
-
-        with pytest.raises(ValueError, match="different input"):
-            await familiar.apply_interaction(
-                payload,
-                belong_to=isolated_scope.workspace_identity,
-                from_actor=isolated_scope.actor_identity,
-                target_topic_id="NEW_TOPIC",
-                interaction_id="interaction-shared",
-            )
-
-        original = store.get(main_scope.workspace_identity, topic_id)
-        assert original is not None
-        assert [block.user_query for block in original.blocks] == ["same question"]
-        assert store.list_by_workspace(isolated_scope.workspace_identity) == []
-
 
 # ========== LRU 驱逐 ==========
 
@@ -377,7 +287,7 @@ class TestLruEviction:
     @pytest.mark.asyncio
     async def test_pool_full_evicts_least_recently_used_topic(self):
         clock = _FakeClock()
-        familiar, store, _, bus, _ = _make_familiar(max_resident=2, clock=clock)
+        familiar, store, _, bus = _make_familiar(max_resident=2, clock=clock)
         scope = _identity_scope()
         t1 = await familiar.apply_interaction(
             _payload("1"), belong_to=scope.workspace_identity, from_actor=scope.actor_identity
@@ -404,7 +314,7 @@ class TestLruEviction:
     @pytest.mark.asyncio
     async def test_busy_candidate_is_skipped_for_older_leased_topic(self):
         clock = _FakeClock()
-        familiar, store, working_set, _, _ = _make_familiar(max_resident=2, clock=clock)
+        familiar, store, working_set, _ = _make_familiar(max_resident=2, clock=clock)
         scope = _identity_scope()
         t1 = await familiar.apply_interaction(
             _payload("1"), belong_to=scope.workspace_identity, from_actor=scope.actor_identity
@@ -429,7 +339,7 @@ class TestLruEviction:
 
     @pytest.mark.asyncio
     async def test_admission_failure_preserves_topic_and_propagates(self):
-        familiar, store, _, bus, _ = _make_familiar(max_resident=1)
+        familiar, store, _, bus = _make_familiar(max_resident=1)
         scope = _identity_scope()
         t1 = await familiar.apply_interaction(
             _payload("1"), belong_to=scope.workspace_identity, from_actor=scope.actor_identity
@@ -447,7 +357,7 @@ class TestLruEviction:
 
     @pytest.mark.asyncio
     async def test_pool_full_with_all_candidates_busy_raises(self):
-        familiar, _, working_set, _, _ = _make_familiar(max_resident=1)
+        familiar, _, working_set, _ = _make_familiar(max_resident=1)
         scope = _identity_scope()
         t1 = await familiar.apply_interaction(
             _payload("1"), belong_to=scope.workspace_identity, from_actor=scope.actor_identity
@@ -460,111 +370,129 @@ class TestLruEviction:
             )
 
 
-# ========== token 溢出 compact ==========
+# ========== 折叠（compact） ==========
+
+
+def _fold_every_block_config() -> SemanticFlowPerceptionConfig:
+    """每个 block 都超过阈值、只保留最近 1 块：第二块写入后即有可折叠前缀。"""
+    return SemanticFlowPerceptionConfig(fold_token_threshold=1, fold_retain_recent_blocks=1)
+
+
+async def _apply_to_topic(familiar, scope, topic_id: str, *messages: str) -> None:
+    for message in messages:
+        await familiar.apply_interaction(
+            _payload(message),
+            belong_to=scope.workspace_identity,
+            from_actor=scope.actor_identity,
+            target_topic_id=topic_id,
+            interaction_id=f"i-{topic_id}-{message}",
+        )
 
 
 class TestCompact:
     @pytest.mark.asyncio
-    async def test_token_overflow_folds_old_blocks_and_writes_cumulative_summary(self):
-        engine_config = SemanticFlowPerceptionConfig(
-            fold_token_threshold=1, fold_retain_recent_blocks=1
+    async def test_apply_writes_block_without_compacting_over_threshold_topic(self):
+        """应用只写入 block；话题超过阈值也不在应用内折叠。"""
+        familiar, store, _, _ = _make_familiar(
+            engine_config=_fold_every_block_config(), relay=_folding_relay()
         )
-        mock_relay = Mock()
-        # 摘要在旧摘要之上累积（Relay 的 previous_summary 契约）
-        mock_relay.generate_summary = AsyncMock(
-            side_effect=lambda blocks_to_fold, previous_summary=None: (previous_summary or "")
-            + "---folded"
-        )
-        familiar, store, _, bus, _ = _make_familiar(engine_config=engine_config, relay=mock_relay)
         scope = _identity_scope()
         store.create(scope.workspace_identity, topic_id="t1")
 
-        await familiar.apply_interaction(
-            _payload("a"),
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            target_topic_id="t1",
-            interaction_id="i-1",
-        )
-        await familiar.apply_interaction(
-            _payload("b"),
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            target_topic_id="t1",
-            interaction_id="i-2",
-        )
-        await familiar.apply_interaction(
-            _payload("c"),
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            target_topic_id="t1",
-            interaction_id="i-3",
-        )
+        await _apply_to_topic(familiar, scope, "t1", "a", "b")
 
         topic = store.get(scope.workspace_identity, "t1")
-        assert topic.block_count == 1  # 每轮折叠后只保留最近 1 块
-        # 第二次折叠收到第一次的摘要（"---folded"）作为 previous_summary，累积成链
-        assert topic.state_summary == "---folded---folded"
+        assert [block.user_query for block in topic.blocks] == ["a", "b"]
+        assert topic.state_summary == ""
+        assert familiar.needs_compact(scope.workspace_identity, "t1") is True
+
+    @pytest.mark.asyncio
+    async def test_compact_topic_folds_old_blocks_into_cumulative_summary(self):
+        """折叠保留最近的 block，旧前缀并入在上一次摘要之上累积的新摘要。"""
+        familiar, store, _, bus = _make_familiar(
+            engine_config=_fold_every_block_config(), relay=_folding_relay()
+        )
+        scope = _identity_scope()
+        store.create(scope.workspace_identity, topic_id="t1")
+
+        for message in ("a", "b", "c"):
+            await _apply_to_topic(familiar, scope, "t1", message)
+            await familiar.compact_topic(scope.workspace_identity, "t1")
+
+        topic = store.get(scope.workspace_identity, "t1")
+        assert [block.user_query for block in topic.blocks] == ["c"]
+        # 第二次折叠收到第一次的摘要作为 previous_summary，累积成链
+        assert topic.state_summary == "folded:1|folded:1"
         assert topic.total_tokens == topic.blocks[0].total_tokens
+        assert familiar.needs_compact(scope.workspace_identity, "t1") is False
         # 折叠只压缩上下文，不触发记忆生成，也不驱逐话题
         bus.request.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_compact_failure_after_write_resumes_on_retry(self):
-        engine_config = SemanticFlowPerceptionConfig(
-            fold_token_threshold=1, fold_retain_recent_blocks=1
+    async def test_failed_compaction_leaves_topic_intact_and_can_compact_again(self):
+        """摘要失败时话题原样保留并释放占用，之后的折叠照常完成。"""
+        relay = Mock()
+        relay.generate_summary = AsyncMock(
+            side_effect=[RuntimeError("relay down"), "folded-summary"]
         )
-        mock_relay = Mock()
-        mock_relay.generate_summary = AsyncMock(
-            side_effect=[
-                TransientInteractionSubmissionError("caller missed apply result"),
-                "folded-summary",
-            ]
-        )
-        familiar, store, _, _, journal = _make_familiar(
-            engine_config=engine_config, relay=mock_relay
+        familiar, store, _, _ = _make_familiar(
+            engine_config=_fold_every_block_config(), relay=relay
         )
         scope = _identity_scope()
         store.create(scope.workspace_identity, topic_id="t1")
-        payload = _payload("b")
+        await _apply_to_topic(familiar, scope, "t1", "a", "b")
+        before = store.get(scope.workspace_identity, "t1")
 
-        await familiar.apply_interaction(
-            _payload("a"),
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            target_topic_id="t1",
-            interaction_id="i-1",
-        )
-        with pytest.raises(TransientInteractionSubmissionError):
-            await familiar.apply_interaction(
-                payload,
-                belong_to=scope.workspace_identity,
-                from_actor=scope.actor_identity,
-                target_topic_id="t1",
-                interaction_id="i-2",
-            )
-        # block 已写入、journal 停在 INTERACTION_APPLIED
-        assert store.get(scope.workspace_identity, "t1").block_count == 2
-        assert journal.get("i-2").stage is InteractionApplyStage.INTERACTION_APPLIED
+        with pytest.raises(RuntimeError, match="relay down"):
+            await familiar.compact_topic(scope.workspace_identity, "t1")
 
-        # 同 payload retry：不重复写块，compact 后置义务补跑完成
-        await familiar.apply_interaction(
-            payload,
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            target_topic_id="t1",
-            interaction_id="i-2",
-        )
+        assert store.get(scope.workspace_identity, "t1") == before
+        await familiar.compact_topic(scope.workspace_identity, "t1")
         topic = store.get(scope.workspace_identity, "t1")
-        assert topic.block_count == 1
+        assert [block.user_query for block in topic.blocks] == ["b"]
         assert topic.state_summary == "folded-summary"
-        assert journal.get("i-2").stage is InteractionApplyStage.COMPLETED
 
     @pytest.mark.asyncio
-    async def test_compact_is_noop_when_blocks_not_exceeding_retain(self):
-        familiar, store, _, _, _ = _make_familiar(
+    async def test_compact_topic_rejects_topic_held_by_another_use_case(self):
+        """话题正被占用（例如结算中）时折叠以 busy 拒绝，留待重试，不改动话题。"""
+        familiar, store, working_set, _ = _make_familiar(
+            engine_config=_fold_every_block_config(), relay=_folding_relay()
+        )
+        scope = _identity_scope()
+        store.create(scope.workspace_identity, topic_id="t1")
+        await _apply_to_topic(familiar, scope, "t1", "a", "b")
+        lease = working_set.acquire(scope.workspace_identity, "t1")
+        assert lease is not None
+
+        with pytest.raises(TopicBusyError, match="正忙"):
+            await familiar.compact_topic(scope.workspace_identity, "t1")
+
+        working_set.release(lease)
+        assert store.get(scope.workspace_identity, "t1").state_summary == ""
+
+    @pytest.mark.asyncio
+    async def test_compact_topic_ends_without_reviving_settled_topic(self):
+        """折叠开始前话题已被结算删除：直接结束，不把话题写回。"""
+        familiar, store, _, bus = _make_familiar(
+            engine_config=_fold_every_block_config(), relay=_folding_relay()
+        )
+        scope = _identity_scope()
+        store.create(scope.workspace_identity, topic_id="t1")
+        await _apply_to_topic(familiar, scope, "t1", "a", "b")
+        bus.request.side_effect = _accept_settlement_task
+        await familiar.manual_settle_topic(scope.workspace_identity, "t1")
+
+        await familiar.compact_topic(scope.workspace_identity, "t1")
+
+        assert store.get(scope.workspace_identity, "t1") is None
+        assert familiar.needs_compact(scope.workspace_identity, "t1") is False
+
+    @pytest.mark.asyncio
+    async def test_blocks_within_retain_count_need_no_compaction(self):
+        """超过阈值但块数不多于保留数时没有可折叠前缀：不需要折叠，折叠也不改动话题。"""
+        familiar, store, _, _ = _make_familiar(
             engine_config=SemanticFlowPerceptionConfig(
-                fold_token_threshold=10, fold_retain_recent_blocks=5
+                fold_token_threshold=1, fold_retain_recent_blocks=5
             )
         )
         scope = _identity_scope()
@@ -575,6 +503,8 @@ class TestCompact:
             target_topic_id="NEW_TOPIC",
         )
 
+        assert familiar.needs_compact(scope.workspace_identity, topic_id) is False
+        await familiar.compact_topic(scope.workspace_identity, topic_id)
         data = store.get(scope.workspace_identity, topic_id)
         assert data.state_summary == ""
         assert len(data.blocks) == 1
@@ -586,7 +516,7 @@ class TestCompact:
 class TestNamedUseCases:
     @pytest.mark.asyncio
     async def test_manual_settle_admits_task_then_deletes_topic(self):
-        familiar, store, _, bus, _ = _make_familiar()
+        familiar, store, _, bus = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(),
@@ -607,7 +537,7 @@ class TestNamedUseCases:
 
     @pytest.mark.asyncio
     async def test_manual_settle_empty_topic_skips_generation(self):
-        familiar, store, _, bus, _ = _make_familiar()
+        familiar, store, _, bus = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.prepare_topic(
             "NEW_TOPIC", "标题", "摘要", scope.workspace_identity
@@ -622,7 +552,7 @@ class TestNamedUseCases:
 
     @pytest.mark.asyncio
     async def test_manual_settle_busy_topic_raises_busy_error(self):
-        familiar, store, working_set, _, _ = _make_familiar()
+        familiar, store, working_set, _ = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(),
@@ -639,14 +569,14 @@ class TestNamedUseCases:
 
     @pytest.mark.asyncio
     async def test_manual_settle_unknown_topic_raises_not_found(self):
-        familiar, _, _, _, _ = _make_familiar()
+        familiar, _, _, _ = _make_familiar()
 
         with pytest.raises(ResourceNotFoundError):
             await familiar.manual_settle_topic(_identity_scope().workspace_identity, "missing")
 
     @pytest.mark.asyncio
     async def test_evict_topic_removes_without_settlement(self):
-        familiar, store, working_set, bus, _ = _make_familiar()
+        familiar, store, working_set, bus = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(),
@@ -664,7 +594,7 @@ class TestNamedUseCases:
 
     @pytest.mark.asyncio
     async def test_evict_busy_topic_reports_not_removed(self):
-        familiar, store, working_set, _, _ = _make_familiar()
+        familiar, store, working_set, _ = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(),
@@ -681,7 +611,7 @@ class TestNamedUseCases:
 
     @pytest.mark.asyncio
     async def test_discard_if_empty_removes_only_truly_empty_topic(self):
-        familiar, store, _, _, _ = _make_familiar()
+        familiar, store, _, _ = _make_familiar()
         scope = _identity_scope()
         empty_id = await familiar.prepare_topic(
             "NEW_TOPIC", "标题", "摘要", scope.workspace_identity
@@ -700,7 +630,7 @@ class TestNamedUseCases:
 
     @pytest.mark.asyncio
     async def test_discard_if_empty_keeps_summary_only_topic(self):
-        familiar, store, _, _, _ = _make_familiar()
+        familiar, store, _, _ = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, scope.workspace_identity)
         topic = store.get(scope.workspace_identity, topic_id)
@@ -718,7 +648,7 @@ class TestNamedUseCases:
     async def test_manual_settle_admission_failure_keeps_topic_intact_and_allows_retry(
         self, failure
     ):
-        familiar, store, _, bus, _ = _make_familiar()
+        familiar, store, _, bus = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload("question", "answer"),
@@ -746,7 +676,7 @@ class TestNamedUseCases:
     @pytest.mark.asyncio
     async def test_manual_settle_with_all_blocks_filtered_evicts_without_task(self):
         """blocks 均被 worth_saving=False 过滤：无任务但生命周期仍正常结束。"""
-        familiar, store, _, bus, _ = _make_familiar()
+        familiar, store, _, bus = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, scope.workspace_identity)
         topic = store.get(scope.workspace_identity, topic_id)
@@ -767,7 +697,7 @@ class TestMaintenance:
     @pytest.mark.asyncio
     async def test_scan_idle_settles_only_timed_out_topics(self):
         clock = _FakeClock()
-        familiar, store, _, bus, _ = _make_familiar(idle_timeout=30, clock=clock)
+        familiar, store, _, bus = _make_familiar(idle_timeout=30, clock=clock)
         scope = _identity_scope()
         stale_id = await familiar.apply_interaction(
             _payload("1"),
@@ -795,7 +725,7 @@ class TestMaintenance:
     @pytest.mark.asyncio
     async def test_scan_idle_skips_leased_topic(self):
         clock = _FakeClock()
-        familiar, store, working_set, _, _ = _make_familiar(idle_timeout=30, clock=clock)
+        familiar, store, working_set, _ = _make_familiar(idle_timeout=30, clock=clock)
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(),
@@ -814,7 +744,7 @@ class TestMaintenance:
     @pytest.mark.asyncio
     async def test_scan_idle_admission_failure_skips_and_preserves(self):
         clock = _FakeClock()
-        familiar, store, _, bus, _ = _make_familiar(idle_timeout=30, clock=clock)
+        familiar, store, _, bus = _make_familiar(idle_timeout=30, clock=clock)
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload(),
@@ -833,7 +763,7 @@ class TestMaintenance:
 
     @pytest.mark.asyncio
     async def test_shutdown_flush_classifies_settled_skipped_and_failed(self):
-        familiar, store, _, bus, _ = _make_familiar()
+        familiar, store, _, bus = _make_familiar()
         scope = _identity_scope()
         ok_id = await familiar.apply_interaction(
             _payload("1"),
@@ -868,7 +798,7 @@ class TestMaintenance:
     @pytest.mark.asyncio
     async def test_idle_flush_skips_empty_settlement_submission(self):
         clock = _FakeClock()
-        familiar, store, _, bus, _ = _make_familiar(idle_timeout=1, clock=clock)
+        familiar, store, _, bus = _make_familiar(idle_timeout=1, clock=clock)
         scope = _identity_scope()
         topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, scope.workspace_identity)
         assert store.get(scope.workspace_identity, topic_id) is not None
@@ -884,7 +814,7 @@ class TestMaintenance:
     @pytest.mark.asyncio
     async def test_idle_flush_frees_slot(self):
         clock = _FakeClock()
-        familiar, store, _, _, _ = _make_familiar(idle_timeout=1, max_resident=2, clock=clock)
+        familiar, store, _, _ = _make_familiar(idle_timeout=1, max_resident=2, clock=clock)
         first = _identity_scope(user_id="u1", agent_id="a1")
         second = _identity_scope(user_id="u2", agent_id="a2")
         third = _identity_scope(user_id="u3", agent_id="a3")
@@ -911,7 +841,7 @@ class TestMaintenance:
 
     @pytest.mark.asyncio
     async def test_shutdown_flush_settles_and_swaps_out_all_topics(self):
-        familiar, store, _, bus, _ = _make_familiar(max_resident=4)
+        familiar, store, _, bus = _make_familiar(max_resident=4)
         first = _identity_scope(user_id="u1", agent_id="a1")
         second = _identity_scope(user_id="u2", agent_id="a2")
         for scope, message in ((first, "q1"), (second, "q2")):
@@ -938,7 +868,7 @@ class TestMaintenance:
     @pytest.mark.asyncio
     async def test_shutdown_reports_busy_topic_in_failed_ids_without_generation(self):
         """drain 后仍被占用的话题属于关闭顺序缺陷，隔离记录为 failed。"""
-        familiar, store, working_set, bus, _ = _make_familiar()
+        familiar, store, working_set, bus = _make_familiar()
         scope = _identity_scope(user_id="u-busy", agent_id="a-busy")
         topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, scope.workspace_identity)
         assert working_set.acquire(scope.workspace_identity, topic_id) is not None
@@ -952,7 +882,7 @@ class TestMaintenance:
 
     @pytest.mark.asyncio
     async def test_shutdown_after_folding_settles_summary_and_retained_block(self):
-        familiar, store, _, bus, _ = _make_familiar(
+        familiar, store, _, bus = _make_familiar(
             max_resident=2,
             engine_config=SemanticFlowPerceptionConfig(
                 fold_token_threshold=10, fold_retain_recent_blocks=1
@@ -969,6 +899,7 @@ class TestMaintenance:
                 from_actor=scope.actor_identity,
                 target_topic_id=topic_id,
             )
+            await familiar.compact_topic(scope.workspace_identity, topic_id)
 
         before_shutdown = store.get(scope.workspace_identity, topic_id)
         assert before_shutdown is not None
@@ -993,7 +924,7 @@ class TestMaintenance:
     @pytest.mark.asyncio
     async def test_shutdown_marks_generation_skip_when_submission_builds_no_task(self):
         """下游正常返回无任务时，Topic 已结算但 generation 被跳过。"""
-        familiar, store, _, _, _ = _make_familiar()
+        familiar, store, _, _ = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.apply_interaction(
             _payload("question", "answer"),
@@ -1011,7 +942,7 @@ class TestMaintenance:
     @pytest.mark.asyncio
     async def test_shutdown_marks_filtered_topic_as_generation_skip_and_evicts_it(self):
         """全部 blocks 被过滤时不能因为 block_count 非零而漏报 skip。"""
-        familiar, store, _, bus, _ = _make_familiar()
+        familiar, store, _, bus = _make_familiar()
         scope = _identity_scope()
         topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, scope.workspace_identity)
         topic = store.get(scope.workspace_identity, topic_id)
@@ -1032,7 +963,7 @@ class TestMaintenance:
 class TestDisabledPerception:
     @pytest.mark.asyncio
     async def test_disabled_engine_has_no_side_effects(self):
-        familiar, store, _, _, journal = _make_familiar(engine=None)
+        familiar, store, _, _ = _make_familiar(engine=None)
         scope = _identity_scope()
 
         topic_id = await familiar.apply_interaction(
@@ -1042,27 +973,15 @@ class TestDisabledPerception:
             interaction_id="i-1",
         )
 
-        replayed_topic_id = await asyncio.wait_for(
-            familiar.apply_interaction(
-                _payload(),
-                belong_to=scope.workspace_identity,
-                from_actor=scope.actor_identity,
-                interaction_id="i-1",
-            ),
-            timeout=1,
-        )
-
         assert topic_id == "NEW_TOPIC"
-        assert replayed_topic_id == "NEW_TOPIC"
         assert store.list_all() == []
-        assert journal.get("i-1") is None
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("failure", [KeyError("handler bug"), asyncio.CancelledError()])
 async def test_manual_settle_unknown_failure_keeps_topic_and_propagates(failure):
     """未知接纳结果与取消不改判明确拒绝；保留材料并释放占用，供后续核实。"""
-    familiar, store, _, bus, _ = _make_familiar()
+    familiar, store, _, bus = _make_familiar()
     scope = _identity_scope()
     topic_id = await familiar.apply_interaction(
         _payload("question", "answer"),

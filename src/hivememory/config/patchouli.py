@@ -32,6 +32,7 @@ class SimpleRelayConfig(BaseModel):
 
 class LLMRelayConfig(BaseModel):
     type: Literal["llm"] = Field(default="llm")
+    summary_timeout_seconds: float = Field(default=60, gt=0)
 
     model_config = ConfigDict(extra="forbid")
 

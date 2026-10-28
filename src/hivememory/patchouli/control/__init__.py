@@ -1,10 +1,5 @@
 """Patchouli 控制面组件。"""
 
-from hivememory.patchouli.control.interaction_apply_journal import (
-    InMemoryInteractionApplyJournal,
-    InteractionApplyRecord,
-    InteractionApplyStage,
-)
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionCodec,
@@ -26,9 +21,6 @@ from hivememory.patchouli.control.memory_generation import (
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 
 __all__ = [
-    "InMemoryInteractionApplyJournal",
-    "InteractionApplyRecord",
-    "InteractionApplyStage",
     "InteractionSubmission",
     "InteractionSubmissionCodec",
     "InteractionSubmissionHandler",

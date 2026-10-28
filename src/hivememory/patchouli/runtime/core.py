@@ -46,9 +46,6 @@ from hivememory.components.work_queue import (
 from hivememory.config.patchouli import PatchouliConfig
 from hivememory.config.shared import SharedConfig
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.control.interaction_apply_journal import (
-    InMemoryInteractionApplyJournal,
-)
 from hivememory.patchouli.control.memory_change_publisher import MemoryChangePublisher
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationTaskStatus
 from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
@@ -135,7 +132,6 @@ class PatchouliRuntime:
         self._pending_atom_settler = PendingAtomSettler(self._local_bus)
         self._local_routes_registered = False
         self._shutdown_drain_started = False
-        self._interaction_apply_journal = InMemoryInteractionApplyJournal()
 
         # 1. 初始化基础设施
         self._init_infrastructure()
@@ -433,7 +429,7 @@ class PatchouliRuntime:
     def _build_perception_engine(self):
         """[私有构建器] 组装 Perception 纯算法引擎
 
-        Engine 不持有 Store / Journal / Queue 等运行时状态；编排依赖
+        Engine 不持有 Store / Queue 等运行时状态；编排依赖
         （Relay、WorkingSet、Store）由 PerceptionFamiliar 持有。
         感知关闭（``engine.enable=False``）时返回 ``None``，Familiar 以
         no-op 模式运行（继承原 ``NullPerceptionLayer`` 语义）。
@@ -622,7 +618,6 @@ class PatchouliRuntime:
             working_set=working_set,
             bus=self._local_bus,
             config=self._patchouli_config.perception,
-            interaction_journal=self._interaction_apply_journal,
         )
 
         self._services["lifecycle"] = LifecycleFamiliar(

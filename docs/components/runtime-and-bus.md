@@ -23,7 +23,7 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-27
 ---
 
 # 运行时机制：总线、调度器与 Work Queue
@@ -173,7 +173,7 @@ retry-wait 与有限终态记录均不可恢复，因此当前入口只能声称
 
 | Lane | 业务所有者 | 顺序与并发 | Retry / Cancel | 成功条件 |
 |:---|:---|:---|:---|:---|
-| `interaction_submission` | Patchouli Interaction Submission | 同 ordering key FIFO，不同 key 可并发 | 仅明确瞬态 apply 失败有限重试；默认不可取消 | interaction 已被幂等应用 |
+| `interaction_submission` | Patchouli Interaction Submission | 同 ordering key FIFO，不同 key 可并发；话题折叠项与该话题的提交共用 key | 仅明确瞬态 apply 失败有限重试，折叠只在话题被占用时重试；默认不可取消；lane 不设统一时限，交互应用的时限由 handler 施加 | interaction 已被幂等应用；折叠项结束 |
 | `memory_generation` | Patchouli Memory Generation | 受全局低并发限制，不要求全局 FIFO | 整条含副作用数据面固定单次 attempt；支持 queued/running cancel 与 timeout | 生成数据面完成并形成领域终态 |
 
 两条 lane 不共享 payload、成功条件、retry classifier 或领域 API。通用 Runtime 虽保留多 lane registry，
@@ -188,7 +188,8 @@ retry-wait 与有限终态记录均不可恢复，因此当前入口只能声称
 同 ID 不同 canonical payload 被拒绝。应用失败（工作项终态未成功）的交互允许以同一 ID 重新提交，
 payload 可以不同，新提交以递增的尝试号区分工作项标识。为查重保留的旁路索引只存编码 payload 的摘要。
 `topic:{topic_id}` ordering key 只保证成功 apply 的 topic-local
-顺序，不代表 prepare snapshot 或 Agent 因果顺序。
+顺序，不代表 prepare snapshot 或 Agent 因果顺序。应用写入话题后，话题需要折叠时由队列以同一 ordering key
+排入折叠项，交互的应用结果不等折叠；折叠的语义见[感知与短期话题](../patchouli/perception.md#5-page-folding)。
 
 Active finalize 在 admission 后同步等待 applied gate，只有 work `SUCCEEDED` 才继续 materialization 与
 HIT 等后续副作用。Import Bus 在 admission 后经交互等待路由等待应用到终态或超时，成功才向调用方确认；

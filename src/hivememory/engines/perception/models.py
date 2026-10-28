@@ -78,7 +78,7 @@ class TopicMaterializeTask(BaseModel):
         default=TriggerReason.IDLE_TIMEOUT, description="话题结算触发原因"
     )
 
-    # task 会跨越 journal 与 queue admission 边界；禁止字段重新赋值，并使用
+    # task 会跨越 queue admission 边界；禁止字段重新赋值，并使用
     # tuple 承载 blocks，避免冻结模型内部仍可被原地 append。
     model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
 

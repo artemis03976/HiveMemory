@@ -21,9 +21,6 @@ from hivememory.engines.perception.memory_perception_engine import MemoryPercept
 from hivememory.patchouli.application import TopicManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.patchouli.control.interaction_apply_journal import (
-    InMemoryInteractionApplyJournal,
-)
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
@@ -66,7 +63,6 @@ def _payload(user_message: str, assistant_message: str):
 def _topic_boundary(*, max_resident_topics: int = 5):
     """组装 Topic 管理所需的真实内部组件（含真实 bus 路由分发）。"""
     store = ShortTermMemoryStore()
-    journal = InMemoryInteractionApplyJournal()
     relay = _DeterministicRelay()
     engine = MemoryPerceptionEngine(
         config=SemanticFlowPerceptionConfig(
@@ -83,7 +79,6 @@ def _topic_boundary(*, max_resident_topics: int = 5):
         working_set=working_set,
         bus=bus,
         config=SimpleNamespace(idle_timeout_seconds=900),
-        interaction_journal=journal,
     )
     library = MemoryLibrary(short_term=store, mid_term=Mock(), long_term=Mock())
     retrieval = RetrievalFamiliar(
