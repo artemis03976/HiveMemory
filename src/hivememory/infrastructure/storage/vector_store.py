@@ -80,12 +80,7 @@ class QdrantMemoryStore:
 
         logger.info("加载 BGE-M3 Embedding 服务")
 
-        bge_config = self.embedding_config
-        if "bge-m3" not in bge_config.model_name.lower():
-            logger.info("当前 Embedding 配置非 BGE-M3，自动调整模型名称以适配存储层")
-            bge_config = bge_config.model_copy(update={"model_name": "Xenova/bge-m3"})
-
-        self.embedding_service = get_bge_m3_service(config=bge_config)
+        self.embedding_service = get_bge_m3_service(config=self.embedding_config)
 
         self.collection_name = self.qdrant_config.collection_name
         self.vector_dimension = self.qdrant_config.vector_dimension
@@ -151,7 +146,7 @@ class QdrantMemoryStore:
             [
                 PointStruct(
                     id=point_id,
-                    vector=self._encode_vectors(memory, use_sparse=use_sparse),
+                    vector=await self._encode_vectors(memory, use_sparse=use_sparse),
                     payload=payload,
                 )
             ]
@@ -175,13 +170,15 @@ class QdrantMemoryStore:
             )
             logger.debug(f"✓ 成功存储记忆: {memory.id} - {memory.index.title}")
 
-    def _encode_vectors(self, memory: MemoryAtom, *, use_sparse: bool) -> dict[str, Any]:
+    async def _encode_vectors(self, memory: MemoryAtom, *, use_sparse: bool) -> dict[str, Any]:
         """编译 embedding 输入并生成命名向量：dense 必有，sparse 为 BM25 文本。"""
         dense_text = _compiler.compile(memory, MemoryCompileTarget.DENSE_EMBEDDING).text
         if not use_sparse:
-            return {"dense_text": self.embedding_service.encode(dense_texts=dense_text)}
+            return {"dense_text": await self.embedding_service.encode(dense_texts=dense_text)}
         sparse_text = _compiler.compile(memory, MemoryCompileTarget.SPARSE_EMBEDDING).text
-        vectors = self.embedding_service.encode(dense_texts=dense_text, sparse_texts=sparse_text)
+        vectors = await self.embedding_service.encode(
+            dense_texts=dense_text, sparse_texts=sparse_text
+        )
         return {
             "dense_text": vectors["dense"],
             "sparse_text": Document(text=vectors["sparse_text"], model="qdrant/bm25"),
@@ -319,7 +316,7 @@ class QdrantMemoryStore:
             query: Any = Document(text=query_text, model="qdrant/bm25")
             using, threshold = "sparse_text", None
         else:
-            query = self.embedding_service.encode(dense_texts=query_text)
+            query = await self.embedding_service.encode(dense_texts=query_text)
             using, threshold = "dense_text", score_threshold
         with storage_operation("search_memories", write=False):
             response = await self.client.query_points(

@@ -53,7 +53,7 @@ WORKSPACE = make_workspace_identity(owner_user_id=ACTOR.user_id)
 class _DeterministicEmbedding:
     """令所有候选语义分数相同，只替换边界外的 embedding provider。"""
 
-    def encode(self, *, dense_texts: str, sparse_texts: str | None = None) -> list[float]:
+    async def encode(self, *, dense_texts: str, sparse_texts: str | None = None) -> list[float]:
         return [0.25, 0.75]
 
 

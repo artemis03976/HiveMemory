@@ -150,7 +150,7 @@ def _access_records() -> list:
 class _DeterministicEmbedding:
     """进程外 embedding 依赖的确定性替换。"""
 
-    def encode(self, *, dense_texts, sparse_texts=None):
+    async def encode(self, *, dense_texts, sparse_texts=None):
         return [0.25, 0.75]
 
 

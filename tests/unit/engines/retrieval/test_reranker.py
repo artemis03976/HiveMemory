@@ -78,7 +78,8 @@ def sample_query():
 class TestCrossEncoderReranker:
     """测试 CrossEncoderReranker"""
 
-    def test_rerank_basic(self, sample_results, sample_query):
+    @pytest.mark.asyncio
+    async def test_rerank_basic(self, sample_results, sample_query):
         """测试基本重排序功能"""
         mock_service = Mock(spec=BaseRerankService)
         # 返回的分数顺序与原始结果不同，测试重排序
@@ -87,7 +88,7 @@ class TestCrossEncoderReranker:
         config = RerankerConfig(top_k=10)
         reranker = CrossEncoderReranker(service=mock_service, config=config)
 
-        result = reranker.rerank(sample_results, sample_query)
+        result = await reranker.rerank(sample_results, sample_query)
 
         # 验证结果数量
         assert len(result.results) == 3
@@ -104,18 +105,20 @@ class TestCrossEncoderReranker:
 
         mock_service.compute_score.assert_called_once()
 
-    def test_rerank_empty(self, sample_query):
+    @pytest.mark.asyncio
+    async def test_rerank_empty(self, sample_query):
         """测试空结果处理"""
         mock_service = Mock(spec=BaseRerankService)
         reranker = CrossEncoderReranker(service=mock_service, config=RerankerConfig())
         empty_results = SearchResults()
 
-        result = reranker.rerank(empty_results, sample_query)
+        result = await reranker.rerank(empty_results, sample_query)
 
         assert result.is_empty()
         mock_service.compute_score.assert_not_called()
 
-    def test_rerank_top_k_filtering(self, sample_results, sample_query):
+    @pytest.mark.asyncio
+    async def test_rerank_top_k_filtering(self, sample_results, sample_query):
         """测试 top_k 过滤功能"""
         mock_service = Mock(spec=BaseRerankService)
         mock_service.compute_score.return_value = [0.5, 0.9]  # 只返回2个分数
@@ -123,13 +126,14 @@ class TestCrossEncoderReranker:
         config = RerankerConfig(top_k=2)  # 只重排序前2个
         reranker = CrossEncoderReranker(service=mock_service, config=config)
 
-        result = reranker.rerank(sample_results, sample_query)
+        result = await reranker.rerank(sample_results, sample_query)
 
         # 只有 top_k=2 个结果被重排序
         assert len(result.results) == 2
         mock_service.compute_score.assert_called_once()
 
-    def test_rerank_no_normalization(self, sample_results, sample_query):
+    @pytest.mark.asyncio
+    async def test_rerank_no_normalization(self, sample_results, sample_query):
         """测试不标准化分数"""
         mock_service = Mock(spec=BaseRerankService)
         mock_service.compute_score.return_value = [0.5, 0.9, 0.3]
@@ -137,7 +141,7 @@ class TestCrossEncoderReranker:
         config = RerankerConfig(top_k=10, normalize_scores=False)
         reranker = CrossEncoderReranker(service=mock_service, config=config)
 
-        result = reranker.rerank(sample_results, sample_query)
+        result = await reranker.rerank(sample_results, sample_query)
 
         # 验证使用原始分数 (未经过 sigmoid)
         scores = [r.score for r in result.results]
@@ -145,14 +149,15 @@ class TestCrossEncoderReranker:
         # 0.9 排第一，0.5 排第二，0.3 排第三
         assert scores == [0.9, 0.5, 0.3]
 
-    def test_rerank_error_fallback(self, sample_results, sample_query):
+    @pytest.mark.asyncio
+    async def test_rerank_error_fallback(self, sample_results, sample_query):
         """测试计算失败时的降级处理"""
         mock_service = Mock(spec=BaseRerankService)
         mock_service.compute_score.side_effect = Exception("CUDA OOM")
 
         reranker = CrossEncoderReranker(service=mock_service, config=RerankerConfig())
 
-        result = reranker.rerank(sample_results, sample_query)
+        result = await reranker.rerank(sample_results, sample_query)
 
         # 返回原始结果
         assert len(result.results) == len(sample_results.results)
@@ -165,10 +170,11 @@ class TestCrossEncoderReranker:
 class TestNoopReranker:
     """测试 NoopReranker"""
 
-    def test_passthrough(self, sample_results, sample_query):
+    @pytest.mark.asyncio
+    async def test_passthrough(self, sample_results, sample_query):
         """测试透传行为"""
         reranker = NoopReranker()
-        result = reranker.rerank(sample_results, sample_query)
+        result = await reranker.rerank(sample_results, sample_query)
 
         # 返回相同的结果
         assert len(result.results) == len(sample_results.results)

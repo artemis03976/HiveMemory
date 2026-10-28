@@ -199,10 +199,8 @@ class AdaptiveWeightedFusionConfig(BaseModel):
 class RerankerConfig(BaseModel):
     enabled: bool = Field(default=True)
     model_name: str = Field(default="BAAI/bge-reranker-base")
-    device: str = Field(default="cpu")
     cache_dir: str | None = Field(default="data/model_cache")
-    use_fp16: bool = Field(default=True)
-    batch_size: int = Field(default=32)
+    batch_size: int = Field(default=32, ge=1, description="一次送入重排模型的文本对数")
     top_k: int = Field(default=20)
     normalize_scores: bool = Field(default=True)
 

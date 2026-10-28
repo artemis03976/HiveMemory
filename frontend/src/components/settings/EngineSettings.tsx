@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { ChevronRight } from 'lucide-react';
-import { SettingSection, SettingRow, Input, Select } from '../common/FormControls';
+import { SettingSection, SettingRow, Input } from '../common/FormControls';
 import type { SettingsWithValidationProps } from '@/types/settings';
 import { fetchModels } from '@/services/modelRegistryApi';
 import type { RegisteredModel } from '@/types/model';
@@ -132,26 +132,6 @@ export function EngineSettings({ config, updateConfig, getFieldError }: Settings
             value={config.embedding.default.model_name}
             onChange={(v: string) => updateConfig('embedding.default.model_name', v)}
             className="w-64"
-          />
-        </SettingRow>
-        <SettingRow label="计算设备" description="计算设备 (cpu, cuda, mps)。">
-          <Select
-            value={config.embedding.default.device}
-            onChange={(v: string) => updateConfig('embedding.default.device', v)}
-            error={getFieldError('embedding.default.device')}
-            options={[
-              { label: 'CPU', value: 'cpu' },
-              { label: 'CUDA', value: 'cuda' },
-              { label: 'MPS', value: 'mps' },
-            ]}
-          />
-        </SettingRow>
-        <SettingRow label="维度" description="向量维度大小。">
-          <Input
-            type="number"
-            value={config.embedding.default.dimension}
-            onChange={(v: number) => updateConfig('embedding.default.dimension', v)}
-            className="w-32"
           />
         </SettingRow>
       </SettingSection>

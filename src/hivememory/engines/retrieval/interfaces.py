@@ -88,7 +88,7 @@ class BaseReranker(ABC):
         return top_k
 
     @abstractmethod
-    def rerank(self, results: SearchResults, query: RetrievalQuery) -> SearchResults:
+    async def rerank(self, results: SearchResults, query: RetrievalQuery) -> SearchResults:
         """
         对检索结果进行重排序
 

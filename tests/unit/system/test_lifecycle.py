@@ -46,6 +46,7 @@ def _build_runtime_with_local_bus():
     runtime.ensure_storage_ready = AsyncMock()
     runtime.start_memory_generation_queue = AsyncMock()
     runtime.stop_memory_generation_queue = AsyncMock()
+    runtime.stop_inference_workers = AsyncMock()
     runtime.mount_local_routes = PatchouliRuntime.mount_local_routes.__get__(
         runtime, PatchouliRuntime
     )
@@ -68,6 +69,7 @@ def mock_patchouli():
     runtime.ensure_storage_ready = AsyncMock()
     runtime.start_memory_generation_queue = AsyncMock()
     runtime.stop_memory_generation_queue = AsyncMock()
+    runtime.stop_inference_workers = AsyncMock()
     runtime.mount_local_routes = MagicMock(
         side_effect=lambda service: setattr(runtime, "local_routes_registered", True)
     )
@@ -245,6 +247,7 @@ class TestPatchouliSystemLocalRoutes:
         runtime.shutdown_drain.assert_awaited_once()
         runtime.start_memory_generation_queue.assert_awaited_once()
         runtime.stop_memory_generation_queue.assert_awaited_once()
+        runtime.stop_inference_workers.assert_awaited_once()
         patchouli._interaction_submission_queue.start.assert_awaited_once()
         patchouli._interaction_submission_queue.drain_all.assert_awaited_once_with(timeout=None)
         patchouli.service.drain_active_finalizations.assert_awaited_once()

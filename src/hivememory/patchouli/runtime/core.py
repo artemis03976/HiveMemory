@@ -191,6 +191,15 @@ class PatchouliRuntime:
         """停止记忆生成 lane，并返回通用队列 drain 摘要。"""
         return await self._task_controller.stop()
 
+    async def stop_inference_workers(self) -> None:
+        """释放嵌入与重排模型的推理线程，等待在途推理结束。
+
+        在记忆生成 lane 停止之后调用：drain 期间的生成仍需要嵌入编码。
+        """
+        await self.storage.embedding_service.close()
+        if self.reranker_service is not None:
+            await self.reranker_service.close()
+
     # ========== 模型预热 ==========
 
     async def warmup_models(self) -> None:

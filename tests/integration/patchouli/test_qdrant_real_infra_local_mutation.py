@@ -60,7 +60,7 @@ pytestmark = [
 class _DeterministicEmbedding:
     """测试边界外的确定性 embedding provider（2 维，便于断言逐位一致）。"""
 
-    def encode(self, *, dense_texts, sparse_texts=None):
+    async def encode(self, *, dense_texts, sparse_texts=None):
         return [0.25, 0.75]
 
 
@@ -68,7 +68,8 @@ class _DeterministicEmbedding:
 async def store():
     qdrant = QdrantMemoryStore.__new__(QdrantMemoryStore)
     qdrant.client = AsyncQdrantClient(url=QDRANT_URL, timeout=30)
-    qdrant.collection_name = "a2p_real_infra_local_mutation"
+    # 每个测试独占一个集合：并行执行时同名集合会在创建时冲突。
+    qdrant.collection_name = f"a2p_real_infra_local_mutation_{uuid4().hex}"
     qdrant.vector_dimension = 2
     qdrant.embedding_service = _DeterministicEmbedding()
     await qdrant.client.create_collection(

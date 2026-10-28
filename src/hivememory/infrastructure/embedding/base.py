@@ -9,6 +9,8 @@ import threading
 from abc import ABC, abstractmethod
 from typing import TYPE_CHECKING, Any, ClassVar, TypedDict
 
+from hivememory.infrastructure.inference_worker import InferenceWorker
+
 if TYPE_CHECKING:
     from hivememory.config.shared import EmbeddingConfig
 
@@ -36,7 +38,7 @@ class BaseEmbeddingService(ABC):
     """
 
     @abstractmethod
-    def encode(
+    async def encode(
         self,
         dense_texts: str | list[str] | None = None,
         sparse_texts: str | list[str] | None = None,
@@ -63,13 +65,17 @@ class BaseEmbeddingService(ABC):
         """预热模型（默认无操作，子类可覆盖）"""
         pass
 
+    async def close(self) -> None:
+        """释放推理所用的线程（默认无操作，子类可覆盖）"""
+        pass
+
 
 class SingletonModelService(BaseEmbeddingService):
     """
     单例模型服务基类 (支持多例模式 Multiton)
 
     封装了通用的单例/多例模式、线程安全和延迟加载逻辑。
-    基于配置的 model_name 和 device 区分实例。
+    基于配置的 model_name 区分实例。
     """
 
     _instances: ClassVar[dict[str, "SingletonModelService"]] = {}
@@ -78,10 +84,9 @@ class SingletonModelService(BaseEmbeddingService):
 
     def __new__(cls, config: "EmbeddingConfig", *args, **kwargs):
         """
-        Multiton 模式: 根据配置的 model_name 和 device 获取或创建实例
+        Multiton 模式: 根据配置的 model_name 获取或创建实例
         """
-        # 生成唯一键 (使用 model_name 和 device 作为键)
-        key = f"{config.model_name}:{config.device}"
+        key = config.model_name
 
         if key not in cls._instances:
             with cls._lock:
@@ -106,17 +111,16 @@ class SingletonModelService(BaseEmbeddingService):
 
         self.config = config
         self.model_name = self.config.model_name
-        self.device = self.config.device
         self.cache_dir = self.config.cache_dir
         self._model: Any = None
 
         self._lazy_load_lock = threading.Lock()
+        # 加载与推理都在这个线程中执行，不占用事件循环。
+        self._inference = InferenceWorker(self.model_name)
 
         self._initialized = True
 
-        logger.info(
-            f"{self.__class__.__name__} 配置: " f"model={self.model_name}, device={self.device}"
-        )
+        logger.info(f"{self.__class__.__name__} 配置: model={self.model_name}")
 
     @property
     def model(self):
@@ -147,3 +151,7 @@ class SingletonModelService(BaseEmbeddingService):
             logger.info(f"{self.__class__.__name__} 开始预热模型: {self.model_name}")
             _ = self.model  # 触发 property 中的延迟加载
             logger.info(f"{self.__class__.__name__} 模型预热完成")
+
+    async def close(self) -> None:
+        """等待在途推理结束并释放推理线程；之后的推理重新创建线程。"""
+        await self._inference.close()

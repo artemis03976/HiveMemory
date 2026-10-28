@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-27
 ---
 
 # System 配置与注册表
@@ -63,6 +63,8 @@ last_reviewed: 2026-10-21
 默认值写在 `configs/config.yaml` 中，渲染与省略规则见 [Patchouli 生成](../patchouli/generation.md)。
 
 `import_bus`（`ImportBusConfig`）只有两项：`max_request_bytes`（默认 8 MiB，即 `8388608`，大于 0）是单次导入请求体的字节上限，超出以 413 拒绝；`apply_wait_seconds`（默认 30，大于 0）是提交后等待感知应用完成的时限，超时以可重试的 503 交回。Import Bus 的 Gateway 请求时限与最近轮数沿用 Gateway 配置段。随仓库发布的 `configs/config.yaml` 不含该段，按默认值运行，语义见 [Import Bus](./import-bus.md#7-配置)。
+
+升级注意（推理模型配置）：删除了从未生效的 `shared.embedding.*.device`、`patchouli.retrieval.reranker.device` 与 `use_fp16`，需要从配置中移除，残留时由所在配置段拒绝未知键而加载失败。推理只在 CPU 上进行，重排模型的精度由加载的模型文件决定，这三项此前都没有传给模型。`patchouli.retrieval.reranker.batch_size`（默认 32，至少 1）此前同样没有传给模型，现在决定每批送入重排模型的文本对数。
 
 升级注意（Import Bus）：`passive_ingress` 配置段与 `scheduler.tasks` 的 `observer_idle_flush_interval_seconds`、`observer_idle_flush_timeout_seconds`、`enable_observer_idle_flush` 三项已删除，需要从配置中移除：配置文件中残留 `passive_ingress` 段时加载失败（第 2 节），残留的三项调度器键由 `scheduler.tasks` 拒绝未知键而失败。新增的 `import_bus` 段与 `patchouli.generation.transcript` 都有默认值，不需要补写。
 

@@ -11,6 +11,9 @@ code_paths:
   - src/hivememory/engines/lifecycle/
   - src/hivememory/engines/artifacts/
   - src/hivememory/engines/memory_compiler/
+  - src/hivememory/infrastructure/embedding/
+  - src/hivememory/infrastructure/rerank/
+  - src/hivememory/infrastructure/inference_worker.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
@@ -18,7 +21,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-27
 ---
 
 # Patchouli
@@ -156,12 +159,16 @@ RetrievalRequest
 
 `PatchouliSystem.start()` 先确保 Qdrant 可用，再挂载 local routes、公开 bridge 和维护任务。模型预热是独立能力；预热失败会退化到首次请求懒加载，不阻止子系统启动。
 
+嵌入模型与重排模型各持有一个推理线程（`InferenceWorker`），首次使用时的加载与每次推理都在其中执行：同一模型的调用按提交顺序逐个进行，并行推理不会叠加激活内存；推理期间事件循环继续调度其他请求与后台队列。调用方被取消时取消照常传播，尚未开始的推理不再执行，已经开始的推理在线程中跑完后结果被丢弃。onnxruntime 创建推理会话时持有 GIL，模型加载期间事件循环仍会停顿，约为加载时长的一半；加载只发生在启动预热或首次使用时。
+
+两个模型的 ONNX 会话都关闭 CPU 内存池：开启时一次推理的峰值分配会一直留在进程内，关闭后随推理结束归还。嵌入输入按 1024 token 截断，而不是模型自带的 8192 token：存储写入的 dense 文本由标题（≤200 字符）、类型、标签与摘要（≤500 字符）组成，在这个范围内；按 8192 token 截断时一条长输入的激活内存会瞬时升到数 GB。重排输入按模型的 512 token 上限截断，每批送入 `patchouli.retrieval.reranker.batch_size` 对。
+
 Patchouli 向全局调度器注册两个业务任务：
 
 - `perception_idle_flush`：扫描空闲话题并提交结算任务；
 - `memory_gardening`：刷新生命力并归档低生命力中期记忆。
 
-调度器只拥有时钟、非重入与停止语义，Perception 和 Lifecycle 仍拥有业务规则。关闭时 Patchouli 先结算全部非空活跃话题，再等待当时仍运行的记忆任务；超过 `generation_wait_timeout_seconds` 的任务会被请求取消，随后才卸载 bridge 与 local routes。
+调度器只拥有时钟、非重入与停止语义，Perception 和 Lifecycle 仍拥有业务规则。关闭时 Patchouli 先结算全部非空活跃话题，再等待当时仍运行的记忆任务；超过 `generation_wait_timeout_seconds` 的任务会被请求取消；生成 lane 停止后释放两个模型的推理线程（等待在途推理结束，后续使用会重新创建），随后才卸载 bridge 与 local routes。
 
 ## 5. 当前设计文档
 

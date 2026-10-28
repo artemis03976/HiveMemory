@@ -235,6 +235,7 @@ class PatchouliSystem(SubsystemProtocol):
         await self._interaction_submission_queue.stop()
         await self.runtime.shutdown_drain()
         await self.runtime.stop_memory_generation_queue()
+        await self.runtime.stop_inference_workers()
 
         self._bridge.unmount()
 

@@ -56,7 +56,6 @@ shared:
   embedding:
     default:
       model_name: "Xenova/bge-m3"
-      device: "cpu"
       cache_dir: "data/model_cache"
 
   # ========== 模型提供商凭证 ==========
@@ -161,9 +160,7 @@ patchouli:
     reranker:
       enabled: true
       model_name: "BAAI/bge-reranker-base"
-      device: "cpu"
       cache_dir: "data/model_cache"
-      use_fp16: true
       batch_size: 32
       top_k: 20
       normalize_scores: true
