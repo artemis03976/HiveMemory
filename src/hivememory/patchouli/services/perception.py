@@ -174,7 +174,7 @@ class PerceptionFamiliar:
             if topic is None:
                 self._working_set.remove(belong_to, topic_id)  # 清理陈旧驻留条目
                 return False, None
-            # 冻结材料：字段转换、worth_saving 过滤与 no-material 判断收口在数据模型内。
+            # 冻结材料：字段转换与 no-material 判断收口在数据模型内。
             task = TopicMaterializeTask.from_topic_data(topic, belong_to=belong_to, reason=reason)
             if task is None:  # 无可保存材料：正常结束生命周期，不触发生成
                 self._store.delete(belong_to, topic_id)

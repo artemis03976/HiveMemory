@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-10-27
+last_reviewed: 2026-10-29
 ---
 
 # Plans
@@ -17,7 +17,7 @@ last_reviewed: 2026-10-27
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
 | 1 | [Import Bus 重设计：以 Claude Code 对话回流为第一条真实路径](../archive/plans/v0.7.1-import-bus-redesign.md) | Archived（2026-10-21）；当前事实见 [Import Bus](../system/import-bus.md)；真实使用验收随日常使用持续观察（[Todo](../todo/import-bus-real-use-observation.md)） | —— |
-| 2 | 记忆访问：Claude Code 经 MCP 工具检索与读取记忆 | 候选的下一步，计划尚未建立；阻塞问题见外部 Actor Idea | 背景：[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题) |
+| 2 | [记忆访问：Claude Code 经 MCP 工具检索与读取记忆](./v0.7.1-memory-access-mcp.md) | Planned（2026-10-29）；设计依据为外部 Actor Idea 第 4 节的决定（E-2、E-3b、E-7、P-1c、P-9c） | 背景：[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题) |
 | — | [推理模型的空闲卸载与按需加载](./v0.7.1-model-idle-unload.md)（plugin 模式下后端常驻时的内存开销） | Planned（owner，2026-10-27），与方向 2 没有顺序依赖；进入条件 [推理移出事件循环](../archive/todo/inference-off-event-loop.md) 已于 2026-10-27 完成 | —— |
 
 ## v0.7.0

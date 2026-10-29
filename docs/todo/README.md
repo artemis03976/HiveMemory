@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-10-28
+last_reviewed: 2026-10-29
 ---
 
 # Todo
@@ -12,6 +12,8 @@ last_reviewed: 2026-10-28
 
 当前事项：
 
+- [生成材料的筛选与截断](./generation-material-filtering-and-truncation.md)（2026-10-29 由 Import Bus 真实使用观察登记：Gateway 价值预判只看用户消息，把整轮实现丢出生成，结算已停止按 `worth_saving` 筛选；待在真实样本上校准生成视图的每轮上限，并随记忆价值策略重设计决定 `worth_saving` 的去留）；
+- [生成查重的决策信号](./generation-dedup-decision-signal.md)（2026-10-29 由 Import Bus 真实使用观察登记：dense top-1 余弦在记忆对记忆的比较中分不开同一工作与同项目的其他记忆，固定阈值够不到，查重只会新建；UPDATE 为整体覆盖，不能单靠调低阈值）；
 - [任务进程中无生产使用方的代码与可合并小项](./task-process-unused-paths.md)（2026-10-28 由[任务进程概念盘点](../governance/baselines/task-process-concept-inventory-2026-10-28.md)登记：删除只供测试使用的非流式交付、按句柄取消、诊断查询链与重复 `process_id` 预检，合并三处重复表达）；
 - [重排模型 int8 与 ONNX 内存池](./reranker-int8-and-onnx-memory.md)（2026-10-27 排查常驻内存时登记：重排模型 int8 先做实验评估，另有 ONNX 内存池保留推理峰值、嵌入截断上限 8192 token、配置项不生效与 Docker 预下载落空；后四项已于同日完成，int8 评估待开始）；
 - [Import Bus 真实使用观察](./import-bus-real-use-observation.md)（2026-10-21 Import Bus 重设计收尾时登记：真实使用验收随日常使用持续观察，核对闭环、话题落位、生成质量与开销、凭据、导入耗时与连接器行为）；

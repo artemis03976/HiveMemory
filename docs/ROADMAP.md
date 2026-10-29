@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-10-27
+last_reviewed: 2026-10-29
 ---
 
 # HiveMemory 开发路线图
@@ -127,7 +127,7 @@ last_reviewed: 2026-10-27
 
 - **版本目标**：plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code（第 4.4 节）。目的是让外部 harness 在用户真实的日常使用中使用 Patchouli 记忆，以此开始检验记忆系统的闭环；它对应 [VISION](./VISION.md) 的兼容轨，以及第 6 节评估中的“外部 harness + Patchouli”对照组。
 - **排序依据**（owner，2026-10-20）：同日先定的 controller 模式目标改为 plugin 模式。各家 harness 的程序化接口开放程度不一（[接口调研快照](./research/harness-interface-survey-snapshot.md)），controller 模式能达到的控制效果取决于被接入方；非侵入的 plugin 模式更容易得到各家生态的支持，用户也继续在 harness 自己的界面中工作，真实的日常使用才会发生。记忆系统的核心机制自 MVP 以来进展较少，当前优先以真实使用检验它。controller 模式退回候选方向（第 5.6 节）。
-- **分步实施**：版本目标按小步分别建立计划。plugin 模式由对话回流（经 Import Bus 进入记忆生成）与记忆访问（经 MCP 工具调用能力层）两部分组成。对话回流已由首份计划完成（2026-10-21）：harness 一轮结束后提交完整记录，经统一认证网关与导入授权，Gateway 只做落位与价值信号，应用完成后才确认；话题路由失败时续接上一轮的话题；生成视图纳入思考与外部工具的三元组；Claude Code 连接器以插件形式提供，详见 [Import Bus](./system/import-bus.md)。记忆访问在其后，阻塞问题是不建进程的 actor 访问与连接方的身份证明（[第五代架构 Idea](./ideas/fifth-generation-architecture.md) P-9c、P-1c）、传输与操作适配器的位置（外部 Actor Idea E-2、E-3b）以及记忆到达 harness 的方式（E-7）。能以保留的 `system` 进入 root API 的只有 HTTP 入口的管理访问（owner，2026-10-20），登记外部来源之前在接入登记中落实（[身份与访问体系 Idea](./ideas/identity-and-access-model.md#4-已登记的暂缓与例外)第 4 节）。各步的范围见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。
+- **分步实施**：版本目标按小步分别建立计划。plugin 模式由对话回流（经 Import Bus 进入记忆生成）与记忆访问（经 MCP 工具调用能力层）两部分组成。对话回流已由首份计划完成（2026-10-21）：harness 一轮结束后提交完整记录，经统一认证网关与导入授权，Gateway 只做落位与价值信号，应用完成后才确认；话题路由失败时续接上一轮的话题；生成视图纳入思考与外部工具的三元组；Claude Code 连接器以插件形式提供，详见 [Import Bus](./system/import-bus.md)。记忆访问在其后，阻塞问题已于 2026-10-29 全部决定：多种传输各由操作适配器归一到同一能力层，支持 MCP 的 harness 以 MCP 访问记忆（外部 Actor Idea E-2）；MCP 的操作适配器放在与 server 同层的独立入口包，MTP 的留在 agent_runtime（E-3b）；plugin 模式暂不提供主动预检索，记忆只经 MCP 工具由 agent 自己选择使用（E-7）；由统一认证网关证明身份，每次操作使用一份请求级访问 context（[第五代架构 Idea](./ideas/fifth-generation-architecture.md) P-1c、P-9c）；复核后，Claude Code 以自己的 principal 与本地共享密钥接入，对话回流一并迁移，不再借用 server 的 principal。能以保留的 `system` 进入 root API 的只有 HTTP 入口的管理访问（owner，2026-10-20），登记外部来源之前在接入登记中落实（[身份与访问体系 Idea](./ideas/identity-and-access-model.md#4-已登记的暂缓与例外)第 4 节）。各步的范围见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。
 - **规模控制**（owner，2026-10-20）：v0.7.1 期间不新增只服务 controller 模式的机制；每份计划写明它针对的已观察问题或待验证的核心假设（[VISION](./VISION.md) 第 10.10 节）。真实使用开始后，后续主线转向由使用中观察到的问题驱动 Patchouli 核心机制的改进，样本同时供第 4.8 节的价值策略校准。
 - **常驻内存**（Planned，owner，2026-10-27）：plugin 模式下后端与 Qdrant 随日常使用常驻。观察到后端进程峰值常驻内存约 3.0 GB，主要来自启动后一直驻留的嵌入与重排模型，对 16 GB 内存的机器不友好。按以下顺序处理：
   1. 先把模型推理移出事件循环（已完成，2026-10-27，[归档记录](./archive/todo/inference-off-event-loop.md)）；
@@ -137,7 +137,7 @@ last_reviewed: 2026-10-27
 
 ### 4.4 v0.7.1：plugin 模式接入 Claude Code
 
-状态：Partially Landed，v0.7.1 的版本目标（owner，2026-10-20）；对话回流已完成（2026-10-21），记忆访问待建立计划；各步的范围与阻塞问题见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。本节的验收针对整个版本目标。
+状态：Partially Landed，v0.7.1 的版本目标（owner，2026-10-20）；对话回流已完成（2026-10-21），记忆访问的[计划](./plans/v0.7.1-memory-access-mcp.md)已建立（2026-10-29）；各步的范围与阻塞问题见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。本节的验收针对整个版本目标。
 
 外部 Actor 分为 plugin 与 controller 两种接入模式（[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1，2026-09-27 决定）。plugin 模式下 HiveMemory 以插件形式挂载在外部 harness 中，用户直接使用该 harness，HiveMemory 不接管对话：对话经 Import Bus 回流，harness 经 MCP 工具响应记忆域调用；外部 harness 的任务对 HiveMemory 不可见，不建任务进程，记忆访问经能力层、不绑定进程。首个接入的 harness 为 Claude Code（owner，2026-10-20）：用户日常使用它，它的插件可以把 hooks 与 MCP server 打包为一个单元。对话回流由 [Import Bus](./system/import-bus.md) 与 Claude Code 连接器实现（2026-10-21）：Import Bus 只向网络输入、不返回记忆上下文，记忆到达 harness 由记忆访问一步承担。
 
@@ -179,7 +179,7 @@ last_reviewed: 2026-10-27
 
 状态：Candidate。v0.7.1 起可启动分析与样本收集，v0.7.2 大规模自动物化前完成最小策略，后续根据真实使用反馈迭代。
 
-当前已有 Gateway 的 WRITE/SKIP/UNKNOWN 预判、worth_saving 投影，以及 Perception settlement 对材料的筛选；正式 Memory 的生命周期评分另有依据。不能把现状简化成“缺少三态布尔值”，也不能用一个总分替代所有层次。事实入口见 [Gateway Analysis](./gateway/analysis.md)、[Perception](./patchouli/perception.md)和 [Lifecycle](./patchouli/lifecycle.md)。
+当前已有 Gateway 的 WRITE/SKIP/UNKNOWN 预判与 worth_saving 投影，但它们只供观测：Perception settlement 原先按 worth_saving 整轮筛选材料，Claude Code 真实导入中这一预判只看到用户消息，把“请提交”“继续”背后的整轮实现丢出了生成，2026-10-29 起不再筛选（证据见 [Todo](./todo/generation-material-filtering-and-truncation.md)）；正式 Memory 的生命周期评分另有依据。不能把现状简化成“缺少三态布尔值”，也不能用一个总分替代所有层次。事实入口见 [Gateway Analysis](./gateway/analysis.md)、[Perception](./patchouli/perception.md)和 [Lifecycle](./patchouli/lifecycle.md)。
 
 规划分两个切片：
 

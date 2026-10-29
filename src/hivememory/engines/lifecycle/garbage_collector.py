@@ -10,7 +10,7 @@ from collections.abc import Iterable
 from typing import TYPE_CHECKING, Any
 
 from hivememory.config.patchouli import GarbageCollectorConfig
-from hivememory.core.models import MemoryAtom, WorkspaceMemoryKey
+from hivememory.core.models import MemoryAtom, MemoryType, WorkspaceMemoryKey
 from hivememory.engines.lifecycle.interfaces import BaseGarbageCollector
 from hivememory.utils.time import utc_now
 
@@ -18,6 +18,11 @@ if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.library import MemoryLibrary
 
 logger = logging.getLogger(__name__)
+
+# Profile 记忆不按生命力归档：AGENT_PROFILE 定义可运行的 Agent，归档后该 Agent 会从
+# 列表与解析中消失；USER_PROFILE 记录用户的长期偏好，长时间未被检索不代表已经过时。
+# 时间衰减与命中信号衡量不了这两类记忆的价值，它们的生命力仍照常计算与展示。
+_ARCHIVE_EXEMPT_TYPES = frozenset({MemoryType.AGENT_PROFILE, MemoryType.USER_PROFILE})
 
 
 class PeriodicGarbageCollector(BaseGarbageCollector):
@@ -29,7 +34,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
 
     工作流程:
         1. 接收已刷新生命力的记忆集合
-        2. 筛选低于阈值的记忆
+        2. 筛选低于阈值的记忆，Profile 记忆不参与
         3. 批量归档
 
     Examples:
@@ -87,7 +92,8 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
             )
             for memory in memories
             if (
-                memory.meta.lifecycle.vitality_score is not None
+                memory.index.memory_type not in _ARCHIVE_EXEMPT_TYPES
+                and memory.meta.lifecycle.vitality_score is not None
                 and memory.meta.lifecycle.vitality_score <= threshold
             )
         ]

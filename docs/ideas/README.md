@@ -3,7 +3,7 @@ title: Ideas
 status: current
 owner: project
 scope: uncommitted-exploration
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # Ideas
@@ -28,7 +28,7 @@ v0.7.1 的版本目标为 plugin 模式的真实外部 harness 接入，首个�
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
-| [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两类接入登记（配置装载）、统一认证网关（HTTP、进程注册与 Import Bus 已接入）、Import Bus 与 Claude Code 连接器（plugin 模式的对话回流）、能力层 | 原计划 B 退回：外部 Actor 分为 plugin 与 controller 两种接入模式（plugin 模式为 v0.7.1 的版本目标，首个接入 Claude Code；controller 模式退回候选方向）；外部 Actor 如何登记进系统、运行时如何访问系统，以及操作适配器的接口边界（E-1 已决定维持配置装载；E-3a 已决定以归一化定义操作适配器；E-5 已决定外部执行单元不识别子线程、所有 actor 共享主线程的 context；E-6a 已决定外部 harness 是执行环境、与 agent 分别选择；E-6b 已决定不允许 CALL 的目标位于另一个执行单元；E-2、E-3b、E-4、E-7 待决，E-7 为 plugin 模式下记忆到达 harness 的方式，阻塞候选的下一步记忆访问） |
+| [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两类接入登记（配置装载）、统一认证网关（HTTP、进程注册与 Import Bus 已接入）、Import Bus 与 Claude Code 连接器（plugin 模式的对话回流）、能力层 | 原计划 B 退回：外部 Actor 分为 plugin 与 controller 两种接入模式（plugin 模式为 v0.7.1 的版本目标，首个接入 Claude Code；controller 模式退回候选方向）；外部 Actor 如何登记进系统、运行时如何访问系统，以及操作适配器的接口边界（E-1 已决定维持配置装载；E-3a 已决定以归一化定义操作适配器；E-5 已决定外部执行单元不识别子线程、所有 actor 共享主线程的 context；E-6a 已决定外部 harness 是执行环境、与 agent 分别选择；E-6b 已决定不允许 CALL 的目标位于另一个执行单元；E-2 已决定多种传输各由操作适配器归一到同一能力层，支持 MCP 的 harness 以 MCP 访问记忆；E-7 已决定 plugin 模式下记忆只经 MCP 工具到达 harness；E-3b 已决定 MCP 的操作适配器放在与 server 同层的独立入口包、MTP 的留在 agent_runtime；E-4 待决；记忆访问的[计划](../plans/v0.7.1-memory-access-mcp.md)已于 2026-10-29 建立） |
 
 Import Bus Idea 随首份计划实施改为候选方向（2026-10-21）。执行线程的正式定义已于 2026-10-19 实施，Idea 移入[归档](../archive/ideas/README.md)，当前事实见 [执行线程](../workspace/execution-threads.md)。版本内状态见 [Plans 导航](../plans/README.md#v071)。
 

@@ -90,13 +90,15 @@ class TopicMaterializeTask(BaseModel):
         belong_to: WorkspaceIdentity,
         reason: TriggerReason,
     ) -> TopicMaterializeTask | None:
-        """从冻结 TopicData 构造生成交接任务；无可保存 block 时返回 None。
+        """从冻结 TopicData 构造生成交接任务；话题没有 block 时返回 None。
 
-        ``belong_to`` 必须由调用方显式传入。字段映射、``worth_saving``
-        过滤和 no-material 判断集中在此，服务与调用方不得重复拼装。
+        ``belong_to`` 必须由调用方显式传入。字段映射和 no-material 判断集中在此，
+        服务与调用方不得重复拼装。
         """
-        # 结算任务只携带值得保存的 block。
-        blocks = tuple(block for block in topic_data.blocks if block.worth_saving is not False)
+        # 全部 block 都进入结算，不按 block 的 worth_saving 筛选：Gateway 的价值预判
+        # 只看到用户消息，看不到回答与工具过程，会把"请提交""继续"这类消息背后的
+        # 整轮实现丢掉。一轮有没有长期价值，由生成阶段在完整材料上判断。
+        blocks = topic_data.blocks
         if not blocks:
             return None
 

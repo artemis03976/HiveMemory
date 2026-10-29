@@ -16,7 +16,7 @@ related_ideas:
   - docs/ideas/short-term-memory-and-context-compaction.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/ideas/external-session-and-topic-projection.md
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-29
 ---
 
 # 从 ConversationSession 到 Topic 与 Memory Artifact 的原始资料保存
@@ -46,7 +46,7 @@ last_reviewed: 2026-10-16
 | Session | [ConversationSessionService](../../src/hivememory/workspace/sessions/service.py)按封口顺序保存 `ConversationTurn` 与 payload 深拷贝；有容量限制，同会话只允许一个进程认领；删除不级联 Topic/Memory，关闭时清空 | 当前为进程内记录，尚无编辑、回退、分支或会话持久化；保存范围仍受当前 payload 与生产者实际输出约束 |
 | 主动交接 | [交互封口](../../src/hivememory/core/protocol/sealing.py)组装 `InteractionPayload`；任务进程对有输出的 completed/cancelled/failed 封口、追加会话并提交 finalize | 当前是封口交接，未结束轮次的流式资料同步仍是方向；Session 写入与 Patchouli 应用不是跨系统原子事务 |
 | Topic | [PerceptionFamiliar](../../src/hivememory/patchouli/services/perception.py)把交互投影为 block，维护 Topic；overflow 由提交队列在应用之后排入的折叠项更新摘要并移除旧前缀 | 没有与工作视图分离的完整资料集合，folding 前也不保存原文 |
-| 结算与生成 | [TopicMaterializeTask](../../src/hivememory/engines/perception/models.py)从现存 blocks 冻结结算材料并过滤 `worth_saving=False`；[生成协调器](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)构建模型视图与 `InteractionArtifactInput`，主动生成只取近期 blocks | 进入生成的资料受当前 blocks、价值过滤及近期窗口限制，不能补回此前已折叠的前缀；模型选择也不能证明全部资料已保存 |
+| 结算与生成 | [TopicMaterializeTask](../../src/hivememory/engines/perception/models.py)从现存 blocks 冻结结算材料（不按 `worth_saving` 筛选）；[生成协调器](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)构建模型视图与 `InteractionArtifactInput`，主动生成只取近期 blocks | 进入生成的资料受当前 blocks 及近期窗口限制，不能补回此前已折叠的前缀；模型选择也不能证明全部资料已保存 |
 | 来源 Artifact | [InteractionArtifactBuilder](../../src/hivememory/engines/artifacts/interaction.py)冻结交到它的 blocks；生成链捕获 InteractionArtifact、按结果挂载来源引用 | 当前 interaction/document 来源捕获为 best-effort，不能据此宣称完整证据必然保存；强制写入的 Memory version artifact 是另一项承诺 |
 
 当前 Session 与 Topic 都是进程内资源；既有 Artifact 已有文件保存能力，这不等于前面两层已具备重启恢复。2026-10-13 owner 保留“未来对话流式同步到 Patchouli 需要接收容器”的方向，见[外部会话与 Topic 投影](./external-session-and-topic-projection.md)；容器、同步协议与失败恢复尚未落地。

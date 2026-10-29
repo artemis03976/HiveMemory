@@ -1,7 +1,7 @@
 """TopicMaterializeTask.from_topic_data() 转换边界单元测试。
 
-字段映射、Workspace 归属传递、binding 快照、worth_saving 过滤和
-no-material 判断统一由该类方法负责；服务与调用方不得重复拼装。
+字段映射、Workspace 归属传递、binding 快照和 no-material 判断统一由该类方法
+负责；服务与调用方不得重复拼装。
 """
 
 from hivememory.core.models import (
@@ -77,13 +77,13 @@ class TestFromTopicData:
         assert task.belong_to == scope.workspace_identity
         assert task.belong_to.owner_user_id == "owner"
 
-    def test_worth_saving_false_blocks_are_filtered(self):
+    def test_gateway_skip_judgment_does_not_drop_blocks(self):
         scope = _identity_scope()
         topic = _topic_data(
             scope,
             blocks=(
-                _block("keep", worth_saving=None),
-                _block("drop", worth_saving=False),
+                _block("unknown", worth_saving=None),
+                _block("skip", worth_saving=False),
             ),
         )
 
@@ -91,18 +91,7 @@ class TestFromTopicData:
             topic, belong_to=scope.workspace_identity, reason=TriggerReason.SHUTDOWN
         )
 
-        assert [b.turn.user_query for b in task.blocks] == ["keep"]
-
-    def test_no_material_returns_none_when_all_blocks_filtered(self):
-        scope = _identity_scope()
-        topic = _topic_data(scope, blocks=(_block("drop", worth_saving=False),))
-
-        assert (
-            TopicMaterializeTask.from_topic_data(
-                topic, belong_to=scope.workspace_identity, reason=TriggerReason.MANUAL_SETTLE
-            )
-            is None
-        )
+        assert [b.turn.user_query for b in task.blocks] == ["unknown", "skip"]
 
     def test_empty_topic_returns_none(self):
         scope = _identity_scope()
