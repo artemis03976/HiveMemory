@@ -9,6 +9,7 @@ code_paths:
   - src/hivememory/system/access/
   - src/hivememory/workspace/registry.py
   - src/hivememory/workspace/authentication.py
+  - src/hivememory/workspace/authorization.py
   - src/hivememory/workspace/capability/
   - src/hivememory/config/access.py
   - src/hivememory/server/deps.py
@@ -204,6 +205,10 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 - 职责：协议翻译；一次操作映射到一个能力方法；把结果与错误映射回协议。
 - 细化（owner，2026-10-09）：操作适配器不直接调用能力层，而是把协议请求解析为固定类型的操作请求，交回 CPU，由 CPU 经 workspace 的单一操作入口调用能力层；请求与能力方法一一对应，对 actor 暴露的操作、操作请求、能力层 API 与 `WorkspaceOperation` 是同一套操作列表。HTTP 管理侧理论上也采用这一形态，暂不迁移。见[子系统公共契约](../contracts/subsystem-contracts.md)第 4.6 节。
 - 细化（owner，2026-10-10）：能力层分为 actor API 与 root API。外部 Actor（含 plugin 模式的 harness）只能使用 actor API，其操作列表翻译为 MCP 工具时不含 CALL；管理员（唯一的 root 角色 `system`）经 HTTP 操作适配器调用 root API。上文例子中“管理员操作映射到不同的方法”应理解为映射到不同的 API 面。见[能力层](../workspace/capability.md#1-三个调用面)第 1 节。
+- 与连接器的区别（分析，2026-10-29）：两者分处网络两侧。
+  - 连接器是运行在外部 harness 一侧的客户端程序：读取会话记录、切分轮次、维护游标与重发，再调用 HiveMemory 的 HTTP 接口；不导入 HiveMemory 包。Claude Code 的连接器见 [Import Bus](../system/import-bus.md#8-claude-code-连接器)第 8 节。
+  - 操作适配器与接入登记中的 adapter 都在 HiveMemory 一侧：前者把协议中的一次操作翻译为能力层调用；后者是接入登记 `adapters` 字段中的标识（现有 `http` 与 `local`），表示调用来源从哪个入口进入认证网关。
+  - 按 E-2 的候选设计（HiveMemory 以 HTTP 提供 MCP 端点），记忆访问路径上没有连接器：harness 按插件中的声明直接连接该端点，连接器只承担对话回流。
 
 **不属于操作适配器的职责**：
 
@@ -294,17 +299,17 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 ### v0.7.1 的步骤与各步的阻塞问题
 
-问题本身仍在各自的位置，这里只按步骤汇总。v0.7.1 的版本目标为 plugin 模式接入 Claude Code（1.1，owner，2026-10-20），第一步对话回流已于 2026-10-21 实施，记忆访问是候选的下一步。
+问题本身仍在各自的位置，这里只按步骤汇总。v0.7.1 的版本目标为 plugin 模式接入 Claude Code（1.1，owner，2026-10-20），第一步对话回流已于 2026-10-21 实施，第二步记忆访问的计划已于 2026-10-29 建立。
 
-plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code 文档](https://code.claude.com/docs/en/hooks)核对）：插件可以把 hooks 与 MCP server 打包为一个单元；`UserPromptSubmit` hook 可以在模型处理用户消息之前追加上下文，默认时限 30 秒，超时后追加的上下文被丢弃、消息照常送达；`Stop` hook 的输入带有会话记录文件的路径。由此连接器有两条通路：对话回流由 hooks 在轮次结束时把交互交给 Import Bus；记忆访问经 MCP 工具，或者在用户提交消息时自动检索并注入（E-7）。
+plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code 文档](https://code.claude.com/docs/en/hooks)核对）：插件可以把 hooks 与 MCP server 打包为一个单元；`UserPromptSubmit` hook 可以在模型处理用户消息之前追加上下文，默认时限 30 秒，超时后追加的上下文被丢弃、消息照常送达；`Stop` hook 的输入带有会话记录文件的路径。由此插件有两条通路：对话回流由连接器经 hooks 在轮次结束时把交互交给 Import Bus；记忆访问经 MCP 工具，或者在用户提交消息时自动检索并注入（E-7）。
 
 **第一步：对话回流（Import Bus 重设计）**——已实施（2026-10-21，[归档计划](../archive/plans/v0.7.1-import-bus-redesign.md)）。Claude Code 插件在轮次结束时把该轮的完整记录交给 Import Bus，经统一认证网关与导入授权、Gateway 落位与共用封口进入 Patchouli，应用完成后才确认；不读取记忆，也不返回记忆上下文。当前事实见 [Import Bus](../system/import-bus.md)；真实使用验收随日常使用持续观察（[Todo](../todo/import-bus-real-use-observation.md)）。
 
-**候选的下一步：记忆访问**（未决定）
+**第二步：记忆访问**——计划已建立（2026-10-29，[计划](../plans/v0.7.1-memory-access-mcp.md)）。以下是建立计划时的范围、验收方向与阻塞问题；各项决定之后的候选设计在计划中采纳或调整，以计划为准。
 
 - 范围：Claude Code 插件提供 MCP 工具，经能力层检索与读取记忆，访问不建进程、不绑定进程；结果带有可回查的记忆引用。
 - 验收方向：Claude Code 在会话中检索到已有记忆（包括对话回流积累与 Alice 会话形成的记忆）并实际使用；访问按 Workspace 访问登记逐次授权，越权与跨 Workspace 的访问被拒绝。与第一步合起来达到 [ROADMAP](../ROADMAP.md) 第 4.4 节的验收闭环。
-- 阻塞问题：[第五代架构 Idea](./fifth-generation-architecture.md) P-9c（不建进程的 actor 访问如何进入 actor API）、P-1c（身份证明的实现位置）；本文 E-2（传输承载）、E-3b（操作适配器的代码位置）、E-7（记忆到达 harness 的方式）。若这一步为连接器另行登记 principal，需先落实已决定的 root 声明范围（身份与访问体系 Idea 第 4 节）。
+- 阻塞问题：已于 2026-10-29 全部决定。本文 E-2（传输承载）、E-3b（操作适配器的代码位置）与 E-7（记忆到达 harness 的方式），见各节；[第五代架构 Idea](./fifth-generation-architecture.md) 的 P-1c（身份证明的实现位置）与 P-9c（不建进程的 actor 访问如何进入 actor API），见下文“[P-1c 与 P-9c](#p-1c-与-p-9c-身份证明与不建进程的访问-context)”。计划为 Claude Code 登记自己的 principal，并在同一计划中落实已决定的 root 声明范围（身份与访问体系 Idea 第 4 节）。
 - 不阻塞本步（分析）：只读取时没有异步结果需要观察，E-4 不涉及。
 - 候选设计（分析，2026-10-29）：取回的记忆不经对话回流再次提取（回声），检索结果的优先级低于仓库代码与 harness 自己的指令和记忆文件；见 E-7 之后的“与对话回流及 harness 自带记忆的衔接”。
 
@@ -321,7 +326,7 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 - 不包含：harness 主动调用记忆（操作适配器）、工具调用的事件呈现、Profile 应用结果的报告、harness 的子 agent、第二个 harness。
 - 阻塞问题：本文 E-2a；[任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) Q-8；[执行环境 Idea](./execution-environment.md) T-7、T-8、T-11。候选 harness 的程序化接口见[接口调研需求](../research/harness-interface-survey.md)与 [2026-10-20 资料快照](../research/harness-interface-survey-snapshot.md)（模型实测待验证）。
 - 不阻塞这一步（分析）：harness 不回调 HiveMemory，也不需要登记外部来源，E-2 主问题、E-3b、[第五代架构 Idea](./fifth-generation-architecture.md) P-1b 与 P-1c、[身份与授权](../workspace/identity-and-authorization.md#8-已知限制)第 8 节的 `system` 声明规则都不涉及；只回传正文与终态字段时，T-10 的三个选项行为相同。
-- 后续步骤（候选）：harness 经绑定线程的操作适配器主动使用记忆，需要 E-2 主问题、E-3b、P-1b、P-1c 与 `system` 声明规则，T-10 需要在此之前决定；Profile 应用结果的报告（P-10a，与 T-7b 相互约束）与前端呈现；E-2a 若选通用协议，接入第二个 harness 验证驱动的通用性。Q-3b 只在外部协议直接发起任务时才需要；P-3 随执行基座考虑（暂不考虑，见 ROADMAP 第 5.4 节）。验收方向见 ROADMAP 第 5.6 节。
+- 后续步骤（候选）：harness 经绑定线程的操作适配器主动使用记忆，需要 E-2 主问题、E-3b、P-1b 与 `system` 声明规则，T-10 需要在此之前决定；Profile 应用结果的报告（P-10a，与 T-7b 相互约束）与前端呈现；E-2a 若选通用协议，接入第二个 harness 验证驱动的通用性。Q-3b 只在外部协议直接发起任务时才需要；P-3 随执行基座考虑（暂不考虑，见 ROADMAP 第 5.4 节）。验收方向见 ROADMAP 第 5.6 节。
 
 ### E-1 接入登记的来源与生效时点
 
@@ -353,6 +358,9 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 
 与任务进程 Idea [Q-3b](./task-process-table-and-registration-entry.md#q-3b-唯一入口与传输入口)（唯一入口是否同时要求唯一的传输入口）相关。
 
+- **owner 决定（2026-10-29）**：选项 C。多种传输各由操作适配器归一到同一能力层，这是建立统一 Workspace 能力层的核心理念；对支持 MCP 的 harness，记忆访问以 MCP 为传输。子问题 E-2a 随 controller 模式退回候选方向，仍待决。
+- 候选设计（分析，不是 owner 决定，可在计划评审时调整）：MCP 端点由 HiveMemory 以 HTTP 提供，harness 按插件中的声明直接连接；对话回流继续使用已实施的 Import Bus。
+
 **子问题 E-2a controller 模式下驱动外部 harness 的方式**：上述选项是外部 harness 调用 HiveMemory 的传输；controller 模式还需要 HiveMemory 驱动外部 harness（1.1）。
 
 | 选项 | 内容 | 影响 |
@@ -365,7 +373,16 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 
 - **E-3a 判据**：采用 3.4 的候选判据 / 其他划分。
   - **owner 决定（2026-10-06）**：不采用原候选判据，改以归一化定义操作适配器：把一次操作请求归一化为能力层 API 的一次调用，判据是归一化的目标必须是能力层已有的方法（3.4）。
-- **E-3b 代码位置**：入口层（`server`） / workspace 包内 / 独立的 adapter 包 / 其他。位置决定操作适配器在包分层中的层级，以及它能导入哪些包（分层规则见[系统架构概览](../architecture/overview.md)）。仍待决；与执行单元 Idea T-4c（操作适配器与进程的绑定方式）一并考虑。
+- **E-3b 代码位置**：入口层（`server`） / workspace 包内 / 独立的 adapter 包 / 其他。位置决定操作适配器在包分层中的层级，以及它能导入哪些包（分层规则见[系统架构概览](../architecture/overview.md)）。
+  - **owner 决定（2026-10-29）**：MCP 的操作适配器放在与 `server` 同层的独立入口包；MTP 的操作适配器留在 `agent_runtime`，不一起迁移。本决定只涉及 plugin 模式下不绑定进程的 MCP 适配器；controller 模式下绑定线程的适配器（T-4）随该模式另行考虑。
+  - 两者不放在一起的理由（分析）：
+    - 分层：MTP 的动词由 Alice 的 agent loop 调用，放到 `server` 同层后 Alice 无法导入；MCP 适配器要经认证网关与门面取得访问 context，放不进子系统层。
+    - 两者位于执行线程的两侧：MTP 适配器在执行线程内运行，只持有线程句柄 `OperationSubmitter`，读不出 context；MCP 适配器位于网络入口，没有线程，每次调用经网关签发一份请求级 context（P-9c）。
+    - MTP 的动词还承担执行单元的行为：RUN 在沙箱中执行用户工具，`sys_*` 系统工具在本地执行，CALL 是 Alice 的编排，SEARCH 把结果编译为 Agent 可读的检索上下文。MCP 适配器不需要这些。
+  - 能力层统一的是归一化的目标，不是适配器的位置。两个适配器共用的部分已经位于更低的层：同一套操作请求（`workspace.contracts`）与 actor API、中立的错误类型，以及 `engines.memory_compiler` 的记忆渲染。各适配器只各自实现协议两端：解析请求，把结果与错误映射回协议（MTP 一侧见 [`agent_runtime/mtp/error_mapping.py`](../../src/hivememory/agent_runtime/mtp/error_mapping.py)）。
+  - 候选设计（分析，不是 owner 决定，可在计划评审时调整）：
+    - 入口包只导入 actor API 的读取方法与认证网关的公开接口，由组合根装配；不放进 `server`（能力层的三个调用面互不借用，server 在能力层中只调用 root API），也不放进 `workspace`（适配器属于传输层）。包名在计划中确定。
+    - 用语：当前的[子系统公共契约](../contracts/subsystem-contracts.md)第 4.6 节把 MTP 一侧称为“执行适配器”，与 E-3a 定义的操作适配器是同一概念；MCP 适配器落地时事实文档第一次出现两个适配器，随记忆访问的计划统一为“操作适配器”。
 
 ### E-4 结果观察的方式
 
@@ -420,9 +437,12 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|
 | A | 只由 harness 经 MCP 工具主动调用 | 是否检索由模型决定，可能该用的记忆没有被用上；与 [VISION](../VISION.md) 假设 H3（主动记忆交互优于纯预检索注入）的检验方式一致 |
-| B | 连接器在用户提交消息时自动检索并注入上下文（经能力层，不经 Import Bus） | 每条消息都承担一次检索的延迟与成本，经 Gateway 分析时还多一次模型调用；受 harness hook 时限约束，超时则本轮没有记忆；自动检索以谁的身份发起，与 P-9c 一并确定 |
+| B | 连接器在用户提交消息时自动检索并注入上下文（经能力层，不经 Import Bus） | 每条消息都承担一次检索的延迟与成本，经 Gateway 分析时还多一次模型调用；受 harness hook 时限约束，超时则本轮没有记忆；自动检索与 MCP 工具相同，以请求级访问 context 发起（P-9c，2026-10-29 已决定） |
 | C | 两者并存 | 需要避免同一轮重复检索与重复注入 |
 | D | 其他 | —— |
+
+- **owner 决定（2026-10-29）**：选项 A。plugin 模式下暂时不再提供主动预检索的能力，记忆只经 MCP 工具到达 harness，由 agent 自己选择使用。
+- 候选设计（分析，不是 owner 决定，可在计划评审时调整）：MCP server 的说明引导 agent 何时检索；真实使用中记录该用而未用记忆的情况，作为 [VISION](../VISION.md) 假设 H3 的检验样本。
 
 **与对话回流及 harness 自带记忆的衔接**（候选设计，分析，2026-10-29，不是 owner 决定，可在计划评审时调整）：以下两点不随 E-7 的选项而变，来自 Claude Code 对话回流的真实运行观察，不另立问题。
 
@@ -438,13 +458,43 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
   - 候选做法：MCP 工具的说明与每条结果写明记忆的更新时间与来源，并声明优先级——仓库中的代码与文档、harness 自己的指令与记忆文件，优先于 HiveMemory 的检索结果；检索结果作为带日期的历史证据，引用前先核实。
   - 本步不做两套记忆之间的同步或去重：HiveMemory 不读取、不写入 harness 的记忆文件，两边冲突时按上述优先级处理。
 
+### P-1c 与 P-9c 身份证明与不建进程的访问 context
+
+**背景**：两个问题位于[第五代架构 Idea](./fifth-generation-architecture.md) 第 5 节，阻塞第 4 节中记忆访问一步，都不易回退：P-1c 决定外部调用方的身份由谁证明，P-9c 决定 actor API 是否接受进程之外的访问。
+
+#### P-1c 身份证明的实现位置
+
+- **owner 决定（2026-10-29）**：由统一认证网关证明。网关第一阶段验证 principal，第二阶段做 Workspace 准入；这是 Workspace 架构的基础，现有的 HTTP 入口、任务进程注册与 Import Bus 都经网关认证（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节）。
+- **复核（owner，2026-10-29）**：同日先写的候选设计是“沿用 server 的 principal 与 `http` adapter，不为 Claude Code 另行登记 principal，也不做凭据证明”，已作废。
+  - 作废的理由：它重复了 Import Bus 落地时的偏离，与 1.2“一个外部 harness 只登记一份，接入侧面回答以哪个 principal、经哪种操作适配器接入”相悖，也与 Import Bus Idea D-8a（2026-10-20 选“经统一认证网关”，影响写明“输入来源需要作为 principal 登记”）相悖。
+  - 一个 harness 对应一个 principal。principal 是接入的合法身份标识，不建进程的 plugin 模式下同样生效；adapter 标识同理，表示调用来源经哪个入口接入，外部入口不复用 `http`。
+  - **owner 决定**：接入证据采用每个外部 principal 一份本地共享密钥，由网关第一阶段核对，入口只携带证据。
+  - **owner 决定**：对话回流（Import Bus）在记忆访问的计划中一并迁移到 harness 自己的 principal。
+- 具体设计见[记忆访问计划](../plans/v0.7.1-memory-access-mcp.md)第 5.2、5.6 节，包括：
+  - Claude Code 的接入登记；
+  - `mcp` 与 `import` 两个 adapter 标识；
+  - 凭据只以环境变量名登记；
+  - 登记逐个声明能否声明 `system`，落实身份与访问体系 Idea 第 4 节的 root 声明范围。
+
+#### P-9c 不建进程的 actor 访问如何进入 actor API
+
+- **owner 决定（2026-10-29）**：与 root 的直接通道相同，不建进程的 actor 访问只有操作、没有进程，每次操作对应一份访问 context，由入口经统一认证网关签发，操作结束时撤销。
+- 现状核对（代码，2026-10-29）：
+  - 这种 context 已经存在。root 管理、Import Bus 与 Profile 注入脚本使用的都是 `WorkspaceAccessContext`，运行绑定为请求级（`AccessRunType.REQUEST`）：server 在请求开始时经网关签发，请求结束时撤销（[`server/deps.py`](../../src/hivememory/server/deps.py) 的 `request_access_for_claims`）。任务进程、执行线程与请求是同一种密封凭据的三种运行绑定，不需要新的 context 类型。
+  - actor API 目前只接受线程 context：授权经 `authorize_thread_operation`，运行绑定不是执行线程即拒绝（[`workspace/authorization.py`](../../src/hivememory/workspace/authorization.py)）；actor API 唯一的调用方 `WorkspaceOperationEntry` 在分派前先经线程表判定线程存活。底层的 `authorize_operation`（准入、目标与白名单检查）不检查运行绑定。
+  - READ、SEARCH、RUN 授权后只使用 scope；WRITE、UPDATE 还要从线程取得 `process_id`、`thread_id` 与派发话题。
+- 候选设计（分析，不是 owner 决定，可在计划评审时调整）：
+  - 授权：actor 授权接受请求级绑定，目标取驻留 Workspace（与线程相同，请求不能切换 Workspace），白名单照常逐次授权；线程绑定的路径不变。
+  - 调用路径：请求级访问不经线程专用的 `WorkspaceOperationEntry`，MCP 端点经门面取得 actor API 的读取方法。这改变“actor API 只经操作入口、不经门面”的现行规则（[能力层](../workspace/capability.md#1-三个调用面)第 1 节），端点所在的包随 E-3b 确定。
+  - 写入：目前不开放写入类 MCP 工具。写入意图的登记需要进程关联与派发话题，不建进程的写入如何取得它们是后续必须解决的问题，随第 4 节后续步骤“写入意图经 MCP 提交”设计。
+
 ## 5. 相关问题（位于其他文档）
 
 | 问题 | 位置 | 关系 |
 |:---|:---|:---|
-| P-1 经网络接入的 Actor 每次请求如何证明身份 | [第五代架构 Idea](./fifth-generation-architecture.md) P-1 | 运行时访问的身份证明；P-1a 已决定：注册前经认证网关验证身份，此后每次请求重新校验（总 Idea 15.2） |
+| P-1 经网络接入的 Actor 每次请求如何证明身份 | [第五代架构 Idea](./fifth-generation-architecture.md) P-1 | 运行时访问的身份证明；P-1a 已决定：注册前经认证网关验证身份，此后每次请求重新校验（总 Idea 15.2）；P-1c 已决定（2026-10-29）：由统一认证网关证明，每个外部 principal 一份本地共享密钥作为接入证据，见第 4 节“P-1c 与 P-9c” |
 | P-3 能力层是否覆盖执行类操作 | 同上 | 外部 Actor 可调用的操作范围（3.5） |
-| P-9c 不建进程的 actor 访问如何进入 actor API | 同上 | plugin 模式的访问不建进程（1.1）；阻塞第 4 节中记忆访问一步 |
+| P-9c 不建进程的 actor 访问如何进入 actor API | 同上 | plugin 模式的访问不建进程（1.1）；已决定（2026-10-29）：每次操作一份请求级访问 context，见第 4 节“P-1c 与 P-9c” |
 | P-10 Agent Profile 的能力描述是否与 MTP 解耦 | 同上 | 外部 Actor 如何理解 Profile；已决定：allow 字段并入能力层的 operation 控制（总 Idea 15.4），P-10a 仍待决 |
 | Q-8 外部 CPU 的进程 | [任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) | 外部 Actor 的调用与进程的关系、回收与取消；只涉及 controller 模式（1.1） |
 | Import Bus 后续方向 | [Import Bus Idea](./import-bus.md)第 2 节 | 流式监听、历史导入另设通道、第二个 harness 的连接器；完整交互记录的接收已实施 |

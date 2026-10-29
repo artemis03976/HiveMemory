@@ -18,7 +18,7 @@ related_docs:
   - docs/ideas/ae2-hivememory-architecture-analogy.md
   - docs/ideas/pending-intent-migration.md
   - docs/todo/workspace-asset-ownership-identity-split.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # 身份与访问体系
@@ -81,7 +81,7 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 - WorkspaceAsset 的 Store、解析服务与旧端口仍接收 `IdentityScope`，归属拆分暂缓：[WorkspaceAsset 归属拆分 Todo](../todo/workspace-asset-ownership-identity-split.md)；
 - chat 请求体中 `session_id` 的未来语义：[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md)。
 
-**root 的声明范围**（owner，2026-10-20）：能以保留的 `system` 进入 root API 的只有用户经 HTTP 入口的管理访问，其他接入来源不能声明 `system`。现状是认证网关只限制 principal 可代表的用户，任何已登记的来源都能声明 `system`（[身份与授权](../workspace/identity-and-authorization.md#8-已知限制)第 8 节）；Profile 注入脚本（`hivememory:profile-injector`）不在这条规则的范围内（owner，2026-10-20）：它用于向默认 Workspace 快速注入预设 Agent，理想情况下只在项目初次部署时使用，不应经过权限系统；现状仍作为登记来源经网关以 `system` 进入 root API，项目接入部署流程时再调整，不影响当前流程。候选设计（分析）：在接入登记中为每个 principal 显式声明能否声明 `system`，默认不能；登记第一个外部 principal 之前落实。
+**root 的声明范围**（owner，2026-10-20）：能以保留的 `system` 进入 root API 的只有用户经 HTTP 入口的管理访问，其他接入来源不能声明 `system`。现状是认证网关只限制 principal 可代表的用户，任何已登记的来源都能声明 `system`（[身份与授权](../workspace/identity-and-authorization.md#8-已知限制)第 8 节）；Profile 注入脚本（`hivememory:profile-injector`）不在这条规则的范围内（owner，2026-10-20）：它用于向默认 Workspace 快速注入预设 Agent，理想情况下只在项目初次部署时使用，不应经过权限系统；现状仍作为登记来源经网关以 `system` 进入 root API，项目接入部署流程时再调整，不影响当前流程。候选设计（分析）：在接入登记中为每个 principal 显式声明能否声明 `system`，默认不能；登记第一个外部 principal 之前落实。2026-10-29：[记忆访问计划](../plans/v0.7.1-memory-access-mcp.md)登记第一个外部 principal（Claude Code），并在第 5.2 节采纳这一设计。
 
 ## 5. 相关文档
 
