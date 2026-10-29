@@ -4,7 +4,8 @@
 一次认证调用完成两项认证并签发密封的 context，授予内容（来源 principal
 与运行绑定）在签发时写入 context，经网关的 ``describe_context`` 诊断查询
 逐项可见；未登记/禁用折叠为同一 reason
-（不泄漏配置）、adapter 不匹配、身份解析收紧、owner 准入约束与缺失
+（不泄漏配置）、adapter 不匹配、凭据缺失或不一致（含凭据环境变量未设置）、
+身份解析收紧、未获允许的 system 声明、owner 准入约束与缺失
 Workspace 访问记录分别拒绝；同一 principal 服务多个 Actor 不是失败；
 生命周期语义可区分：``gateway.close`` 只拒新认证，已签发 context 照常
 可用；``revoke_all_contexts`` 才使已签发 context 失效。
@@ -18,8 +19,10 @@ from hivememory.core.access import (
     AccessRunType,
     CallerPrincipal,
     RunBinding,
+    WorkspaceAccessContext,
     WorkspaceOperation,
 )
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import AdmissionDeniedError, ScopeRequiredError
 from hivememory.core.models import ActorIdentity
 from hivememory.system.access import (
@@ -126,6 +129,7 @@ async def test_unregistered_and_disabled_principal_share_same_denial_reason():
             await gateway.authenticate(
                 adapter="local",
                 principal=CallerPrincipal(principal_id),
+                credential=None,
                 actor=ActorIdentity(user_id="u1", agent_id="a1"),
                 workspace=MAIN,
                 binding=RunBinding.for_request("request-denied"),
@@ -136,6 +140,7 @@ async def test_unregistered_and_disabled_principal_share_same_denial_reason():
     context = await gateway.authenticate(
         adapter="local",
         principal=CallerPrincipal("local-process:test"),
+        credential=None,
         actor=ActorIdentity(user_id="u1", agent_id="a1"),
         workspace=MAIN,
         binding=RunBinding.for_request("request-ok"),
@@ -158,6 +163,113 @@ async def test_adapter_mismatch_rejected_at_first_layer():
         await composition.authenticate(adapter="http", agent_id="a1", user_id="u1")
 
     assert exc_info.value.details["reason"] == "adapter_mismatch"
+
+
+def _credential_gateway(entry: SystemActorAccessEntry) -> ActorAuthenticationGateway:
+    """以单条接入登记与 (u1, a1) 的准入记录组装网关。"""
+    return ActorAuthenticationGateway(
+        principals=SystemPrincipalAuthenticator(SystemActorAccessRegistry([entry])),
+        authenticator=WorkspaceAuthenticator(
+            WorkspaceActorAccessRegistry(
+                [make_actor_access_record(owner_user_id="u1", agent_id="a1")]
+            )
+        ),
+    )
+
+
+async def _authenticate_harness(
+    gateway: ActorAuthenticationGateway, credential: str | None
+) -> WorkspaceAccessContext:
+    """以外部来源 harness:test 经 mcp adapter 携带给定凭据认证 (u1, a1)。"""
+    return await gateway.authenticate(
+        adapter="mcp",
+        principal=CallerPrincipal("harness:test"),
+        credential=credential,
+        actor=ActorIdentity(user_id="u1", agent_id="a1"),
+        workspace=MAIN,
+        binding=RunBinding.for_request("request-harness"),
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("credential", [None, "wrong-token"])
+async def test_registered_credential_rejects_missing_or_different_credential(credential):
+    """登记了凭据的来源只接受一致的凭据；缺失或不一致都以 invalid_credential 拒绝。"""
+    gateway = _credential_gateway(
+        SystemActorAccessEntry(
+            principal_id="harness:test",
+            adapters=frozenset({"mcp"}),
+            credential_env="TEST_HARNESS_TOKEN",
+            credential="s3cret-token",
+        )
+    )
+
+    with pytest.raises(AdmissionDeniedError) as exc_info:
+        await _authenticate_harness(gateway, credential)
+    assert exc_info.value.details["reason"] == "invalid_credential"
+    assert "s3cret-token" not in str(exc_info.value.details)
+
+    context = await _authenticate_harness(gateway, "s3cret-token")
+    summary = gateway.describe_context(context)
+    assert summary is not None
+    assert summary.principal_id == "harness:test"
+
+
+@pytest.mark.asyncio
+async def test_unset_credential_env_rejects_every_authentication():
+    """凭据环境变量未设置时，即使请求同样不带凭据也被拒绝，不退化为免凭据接入。"""
+    gateway = _credential_gateway(
+        SystemActorAccessEntry(
+            principal_id="harness:test",
+            adapters=frozenset({"mcp"}),
+            credential_env="TEST_HARNESS_TOKEN",
+            credential=None,
+        )
+    )
+
+    with pytest.raises(AdmissionDeniedError) as exc_info:
+        await _authenticate_harness(gateway, None)
+    assert exc_info.value.details["reason"] == "invalid_credential"
+
+
+@pytest.mark.asyncio
+async def test_only_principals_allowed_to_declare_system_can_use_it():
+    """未显式允许的来源声明保留的 system 以 system_actor_not_allowed 拒绝。"""
+    gateway = ActorAuthenticationGateway(
+        principals=SystemPrincipalAuthenticator(
+            SystemActorAccessRegistry(
+                [
+                    SystemActorAccessEntry(
+                        principal_id="local-process:admin", allow_system_actor=True
+                    ),
+                    SystemActorAccessEntry(principal_id="local-process:plain"),
+                ]
+            )
+        ),
+        authenticator=WorkspaceAuthenticator(
+            WorkspaceActorAccessRegistry(
+                [make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID)]
+            )
+        ),
+    )
+
+    async def authenticate_system(principal_id: str) -> WorkspaceAccessContext:
+        return await gateway.authenticate(
+            adapter="local",
+            principal=CallerPrincipal(principal_id),
+            credential=None,
+            actor=ActorIdentity(user_id="u1", agent_id=SYSTEM_AGENT_ID),
+            workspace=MAIN,
+            binding=RunBinding.for_request("request-system"),
+        )
+
+    with pytest.raises(AdmissionDeniedError) as exc_info:
+        await authenticate_system("local-process:plain")
+    assert exc_info.value.details["reason"] == "system_actor_not_allowed"
+
+    summary = gateway.describe_context(await authenticate_system("local-process:admin"))
+    assert summary is not None
+    assert summary.agent_id == SYSTEM_AGENT_ID
 
 
 @pytest.mark.asyncio
@@ -185,6 +297,7 @@ async def test_principal_identity_rule_rejects_foreign_user():
         await gateway.authenticate(
             adapter="local",
             principal=CallerPrincipal("local-process:bounded"),
+            credential=None,
             actor=ActorIdentity(user_id="mallory", agent_id="a1"),
             workspace=MAIN,
             binding=RunBinding.for_request("request-foreign-user"),

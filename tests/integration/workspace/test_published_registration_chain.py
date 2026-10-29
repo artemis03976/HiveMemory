@@ -90,7 +90,6 @@ from hivememory.server.routers.memories import router as memories_router
 from hivememory.server.routers.memory_tasks import router as memory_tasks_router
 from hivememory.server.routers.topics import router as topics_router
 from hivememory.system.access import (
-    SystemActorAccessEntry,
     SystemActorAccessRegistry,
     SystemPrincipalAuthenticator,
 )
@@ -125,24 +124,9 @@ class _PublishedRegistration:
 
     def __init__(self) -> None:
         registration = load_access_registration()
-        # 与组合根 _build_access_control 相同的转换：operation 枚举值在
-        # 装载期解析（未知值显式失败）。
-        self.system_registry = SystemActorAccessRegistry(
-            [
-                SystemActorAccessEntry(
-                    principal_id=entry.principal_id,
-                    kind=entry.kind,
-                    enabled=entry.enabled,
-                    adapters=frozenset(entry.adapters),
-                    allowed_user_ids=(
-                        frozenset(entry.allowed_user_ids)
-                        if entry.allowed_user_ids is not None
-                        else None
-                    ),
-                )
-                for entry in registration.principals.principals
-            ]
-        )
+        # 与组合根 _build_access_control 相同的转换：接入登记经同一构造
+        # 读取凭据环境变量；operation 枚举值在装载期解析（未知值显式失败）。
+        self.system_registry = SystemActorAccessRegistry.from_config(registration.principals)
         self.workspace_registry = WorkspaceActorAccessRegistry(
             [
                 WorkspaceActorAccessRecord(
@@ -548,6 +532,8 @@ async def test_chat_stop_cancels_running_process_through_published_registration(
         claims,
         gateway=stack.registration.gateway,
         principal_id=stack.registration.principal_id,
+        adapter=deps.HTTP_ADAPTER,
+        credential=None,
     ) as request_access:
         result = await stop_chat(
             request=StopChatRequest(process_id="process-published-stop"),
@@ -598,6 +584,7 @@ async def test_system_context_cannot_use_actor_visible_read_operations(published
     context = await stack.registration.gateway.authenticate(
         adapter="http",
         principal=CallerPrincipal(stack.registration.principal_id),
+        credential=None,
         actor=ActorIdentity(user_id="default", agent_id="system"),
         workspace=workspace,
         binding=RunBinding.for_task_process("published_system_process"),

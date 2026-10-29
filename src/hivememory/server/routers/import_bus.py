@@ -7,6 +7,7 @@ from fastapi import APIRouter, Depends, Request, Response
 from fastapi.routing import APIRoute
 
 from hivememory.server.deps import (
+    HTTP_ADAPTER,
     RequestIdentitySelection,
     get_access_gateway,
     get_identity_selection,
@@ -85,7 +86,11 @@ async def import_turn(
     """
     claims = resolve_request_identity_claims(selection, require_agent=True, agent_id=body.agent_id)
     async with request_access_for_claims(
-        claims, gateway=gateway, principal_id=principal_id
+        claims,
+        gateway=gateway,
+        principal_id=principal_id,
+        adapter=HTTP_ADAPTER,
+        credential=None,
     ) as request_access:
         result = await service.import_turn(
             body.to_imported_turn(),

@@ -179,6 +179,7 @@ async def root_access(
     access = await gateway.authenticate(
         adapter="http",
         principal=CallerPrincipal(system.config.system.server_principal_id),
+        credential=None,
         actor=ActorIdentity(user_id=workspace.owner_user_id, agent_id=SYSTEM_AGENT_ID),
         workspace=workspace,
         binding=RunBinding.for_request(f"e2e_{uuid4().hex}"),

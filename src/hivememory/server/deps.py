@@ -17,6 +17,7 @@ from hivememory.infrastructure.log_handler import WebSocketLogHandler
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
 from hivememory.server.error_handlers import APIError
 from hivememory.system import HiveMemorySystem
+from hivememory.system.access import HTTP_ADAPTER
 from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
@@ -33,9 +34,6 @@ logger = logging.getLogger(__name__)
 
 _system: HiveMemorySystem | None = None
 _ws_manager: WebSocketConnectionManager | None = None
-
-#: server 作为 system actor 的 adapter 接入统一认证网关。
-HTTP_ADAPTER = "http"
 
 
 def init_system(config: HiveMemoryConfig | None = None) -> HiveMemorySystem:
@@ -259,16 +257,20 @@ async def authenticate_request_access(
     *,
     gateway: ActorAuthenticationGateway,
     principal_id: str,
+    adapter: str,
+    credential: str | None,
 ) -> WorkspaceAccessContext:
-    """以 server 自身 principal 经统一认证网关取得请求级访问 context。
+    """以给定 principal、adapter 与凭据经统一认证网关取得请求级访问 context。
 
     ``claims`` 是 :func:`resolve_request_identity_claims` 解析的请求身份
-    声明，只在这里作为认证输入使用；运行绑定为本次请求的标识。网关认证失败（未登记 principal、adapter 不匹配、未获
-    准入）以 ``AdmissionDeniedError`` 拒绝，由访问错误映射转为 HTTP 状态码。
+    声明，只在这里作为认证输入使用；运行绑定为本次请求的标识。网关认证
+    失败（未登记 principal、adapter 不匹配、凭据无效、未获准入）以
+    ``AdmissionDeniedError`` 拒绝，由访问错误映射转为 HTTP 状态码。
     """
     return await gateway.authenticate(
-        adapter=HTTP_ADAPTER,
+        adapter=adapter,
         principal=CallerPrincipal(principal_id),
+        credential=credential,
         actor=claims.actor,
         workspace=claims.workspace,
         binding=RunBinding.for_request(_request_run_id()),
@@ -294,14 +296,24 @@ async def request_access_for_claims(
     *,
     gateway: ActorAuthenticationGateway,
     principal_id: str,
+    adapter: str,
+    credential: str | None,
 ) -> AsyncIterator[RequestAccess]:
     """以给定声明取得请求级访问凭据；退出时使 context 失效。
 
     取得 context、以 :class:`RequestAccess` 交出凭据与目标 workspace，声明
-    不越过认证边界。管理路由经 :func:`get_request_access` 以 (user, ``system``)
-    声明调用；导入入口的 Agent 来自请求体，以 (user, 具体 Agent) 声明直接调用。
+    不越过认证边界。principal、adapter 与凭据由调用方给出：管理路由经
+    :func:`get_request_access` 传入 server 自身的 principal、``http`` 与
+    ``None``，以 (user, ``system``) 声明调用；导入入口的 Agent 来自请求体，
+    以 (user, 具体 Agent) 声明直接调用。
     """
-    access = await authenticate_request_access(claims, gateway=gateway, principal_id=principal_id)
+    access = await authenticate_request_access(
+        claims,
+        gateway=gateway,
+        principal_id=principal_id,
+        adapter=adapter,
+        credential=credential,
+    )
     try:
         yield RequestAccess(access=access, target_workspace=claims.workspace)
     finally:
@@ -320,7 +332,11 @@ async def get_request_access(
     """
     claims = resolve_request_identity_claims(selection)
     async with request_access_for_claims(
-        claims, gateway=gateway, principal_id=principal_id
+        claims,
+        gateway=gateway,
+        principal_id=principal_id,
+        adapter=HTTP_ADAPTER,
+        credential=None,
     ) as request_access:
         yield request_access
 

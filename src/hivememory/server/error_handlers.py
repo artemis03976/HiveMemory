@@ -173,6 +173,7 @@ _REASON_ALLOWLIST: dict[type[Exception], frozenset[str]] = {
             "authentication_gateway_closed",
             "unknown_principal",
             "adapter_mismatch",
+            "invalid_credential",
             "actor_not_allowed_for_principal",
             "actor_not_owner",
             "actor_not_admitted",

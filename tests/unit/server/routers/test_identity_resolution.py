@@ -314,6 +314,8 @@ class TestAuthenticateRequestAccess:
             claims,
             gateway=composition.gateway,
             principal_id=composition.principal.principal_id,
+            adapter=deps.HTTP_ADAPTER,
+            credential=None,
         )
 
         summary = composition.gateway.describe_context(access)

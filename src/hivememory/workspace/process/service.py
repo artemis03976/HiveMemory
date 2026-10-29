@@ -173,9 +173,11 @@ class TaskProcessService:
         # 1. 拒绝 system 作为任务请求的 actor：任务进程必须由具体 Agent 执行。
         self._reject_system_actor(actor.agent_id)
         # 2. 经认证网关完成两阶段认证，签发即绑定本进程。
+        # 注册入口只服务进程内入口（server 的 chat），没有接入凭据。
         access = await self._access_gateway.authenticate(
             adapter=adapter,
             principal=principal,
+            credential=None,
             actor=actor,
             workspace=workspace,
             binding=RunBinding.for_task_process(process_id),

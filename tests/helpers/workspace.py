@@ -239,6 +239,7 @@ class AccessTestComposition:
         return await self.gateway.authenticate(
             adapter=adapter,
             principal=CallerPrincipal(principal_id or self.principal.principal_id),
+            credential=None,
             actor=ActorIdentity(user_id=target_user, agent_id=agent_id),
             workspace=workspace or self.default_workspace,
             binding=binding or RunBinding.for_request("test_request"),
@@ -261,9 +262,11 @@ def make_access_composition(
     principal = CallerPrincipal(principal_id)
     system_registry = SystemActorAccessRegistry(
         [
+            # 测试组合模拟进程内的受信来源：没有凭据，可以声明 system 进入 root API。
             SystemActorAccessEntry(
                 principal_id=principal_id,
                 adapters=frozenset(adapters),
+                allow_system_actor=True,
             )
         ]
     )

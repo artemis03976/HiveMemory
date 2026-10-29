@@ -106,6 +106,11 @@ def test_domain_errors_keep_http_categories_without_diagnostics(error_type, stat
             "actor_not_admitted",
         ),
         (
+            AdmissionDeniedError(details={"reason": "invalid_credential"}),
+            403,
+            "invalid_credential",
+        ),
+        (
             AdmissionDeniedError(details={"reason": "authentication_gateway_closed"}),
             503,
             "authentication_gateway_closed",
