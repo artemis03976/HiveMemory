@@ -14,6 +14,8 @@ code_paths:
   - src/hivememory/server/deps.py
   - src/hivememory/server/routers/ingest.py
   - src/hivememory/workspace/contracts/
+  - integrations/claude-code/connector/claude_code/reader.py
+  - src/hivememory/prompts/transcript/actions.py
 related_docs:
   - docs/ideas/fifth-generation-architecture.md
   - docs/ideas/task-process-table-and-registration-entry.md
@@ -24,7 +26,7 @@ related_docs:
   - docs/VISION.md
   - docs/ideas/execution-environment.md
   - docs/archive/ideas/execution-thread-definition.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # 外部 Actor 的接入登记与运行时访问
@@ -304,6 +306,7 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 - 验收方向：Claude Code 在会话中检索到已有记忆（包括对话回流积累与 Alice 会话形成的记忆）并实际使用；访问按 Workspace 访问登记逐次授权，越权与跨 Workspace 的访问被拒绝。与第一步合起来达到 [ROADMAP](../ROADMAP.md) 第 4.4 节的验收闭环。
 - 阻塞问题：[第五代架构 Idea](./fifth-generation-architecture.md) P-9c（不建进程的 actor 访问如何进入 actor API）、P-1c（身份证明的实现位置）；本文 E-2（传输承载）、E-3b（操作适配器的代码位置）、E-7（记忆到达 harness 的方式）。若这一步为连接器另行登记 principal，需先落实已决定的 root 声明范围（身份与访问体系 Idea 第 4 节）。
 - 不阻塞本步（分析）：只读取时没有异步结果需要观察，E-4 不涉及。
+- 候选设计（分析，2026-10-29）：取回的记忆不经对话回流再次提取（回声），检索结果的优先级低于仓库代码与 harness 自己的指令和记忆文件；见 E-7 之后的“与对话回流及 harness 自带记忆的衔接”。
 
 **后续步骤**（候选，未决定）
 
@@ -420,6 +423,20 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 | B | 连接器在用户提交消息时自动检索并注入上下文（经能力层，不经 Import Bus） | 每条消息都承担一次检索的延迟与成本，经 Gateway 分析时还多一次模型调用；受 harness hook 时限约束，超时则本轮没有记忆；自动检索以谁的身份发起，与 P-9c 一并确定 |
 | C | 两者并存 | 需要避免同一轮重复检索与重复注入 |
 | D | 其他 | —— |
+
+**与对话回流及 harness 自带记忆的衔接**（候选设计，分析，2026-10-29，不是 owner 决定，可在计划评审时调整）：以下两点不随 E-7 的选项而变，来自 Claude Code 对话回流的真实运行观察，不另立问题。
+
+- **回声**：选项 A、C 中，经 MCP 工具取回的记忆作为普通工具结果留在会话记录里，本轮结束时随对话回流再次导入。
+  - 生成视图会渲染外部工具的结果（[生成转写的动作段](../../src/hivememory/prompts/transcript/actions.py)），提取模型可能把已有记忆再提取一遍，形成重复记忆，并在之后的检索中自我强化。
+  - Alice 经 MTP READ、SEARCH 读回的记忆不渲染进生成，正是为了避免这一点；但外部 MCP 调用在连接器看来只是普通工具调用。
+  - 候选做法：连接器按 MCP server 名识别 HiveMemory 自己的工具调用，并在导入事件上标明来源；生成视图对这类动作只保留一行摘要（工具名与查询），不渲染结果，与 MTP READ、SEARCH 同样处理。标注用哪个字段在计划中确定。
+  - 选项 B 没有这条回路：经 `UserPromptSubmit` hook 注入的上下文以 `attachment` 条目写入 Claude Code 会话记录，而连接器只读取 `user` 与 `assistant` 条目（[会话记录读取器](../../integrations/claude-code/connector/claude_code/reader.py)），不会再次导入。助手据此作出的回答照常进入生成。
+- **优先级与时效**：取回的记忆描述的是生成当时的状态，常含“某分支待推送”“某项进行中”这类一两天内就过时的内容。
+  - 2026-10-29 核对：对话回流生成的 5 条记忆中，2 条标为 WORK_IN_PROGRESS，所述工作在记忆生成之前已经合并。
+  - harness 侧还有自己的指令与记忆：Claude Code 的项目指令文件（CLAUDE.md、AGENTS.md），以及按项目保存的记忆文件。记忆文件的索引在每次会话自动加载，记录的是与用户协作的偏好与纠正。
+  - 两边已经有重叠：写入 harness 记忆文件的决定，作为工具调用留在会话记录中，经对话回流也被提取进 HiveMemory 的记忆（例如任务进程不回退的决定）。
+  - 候选做法：MCP 工具的说明与每条结果写明记忆的更新时间与来源，并声明优先级——仓库中的代码与文档、harness 自己的指令与记忆文件，优先于 HiveMemory 的检索结果；检索结果作为带日期的历史证据，引用前先核实。
+  - 本步不做两套记忆之间的同步或去重：HiveMemory 不读取、不写入 harness 的记忆文件，两边冲突时按上述优先级处理。
 
 ## 5. 相关问题（位于其他文档）
 

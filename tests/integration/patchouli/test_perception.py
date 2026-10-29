@@ -26,9 +26,7 @@ from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueSt
 from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
-    LogicalBlock,
     TurnEvent,
-    TurnRecord,
     WorkspaceAssetRef,
     system_actor_for_workspace,
 )
@@ -44,7 +42,7 @@ from hivememory.patchouli.control.memory_generation.models import (
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
-from tests.helpers.workspace import make_actor_identity, make_identity_scope
+from tests.helpers.workspace import make_identity_scope
 
 
 def _identity_scope(user_id="u1", agent_id="a1"):
@@ -101,14 +99,6 @@ def _folding_relay() -> Mock:
         )
     )
     return relay
-
-
-def _filtered_block() -> LogicalBlock:
-    """worth_saving=False 的块：保留在工作集，但不进入结算材料。"""
-    return LogicalBlock(
-        turn=TurnRecord(identity=make_actor_identity(), user_query="q", assistant_final_text="a"),
-        worth_saving=False,
-    )
 
 
 class _FakeClock:
@@ -673,22 +663,6 @@ class TestNamedUseCases:
         assert result.topic_id == topic_id
         assert store.get(scope.workspace_identity, topic_id) is None
 
-    @pytest.mark.asyncio
-    async def test_manual_settle_with_all_blocks_filtered_evicts_without_task(self):
-        """blocks 均被 worth_saving=False 过滤：无任务但生命周期仍正常结束。"""
-        familiar, store, _, bus = _make_familiar()
-        scope = _identity_scope()
-        topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, scope.workspace_identity)
-        topic = store.get(scope.workspace_identity, topic_id)
-        store.put(topic.model_copy(update={"blocks": (_filtered_block(),)}))
-
-        result = await familiar.manual_settle_topic(scope.workspace_identity, topic_id)
-
-        assert result.topic_id == topic_id
-        assert result.generation_submitted is False
-        assert store.get(scope.workspace_identity, topic_id) is None
-        bus.request.assert_not_awaited()
-
 
 # ========== 维护与 shutdown ==========
 
@@ -938,23 +912,6 @@ class TestMaintenance:
         assert result.settled_topic_ids == (topic_id,)
         assert result.generation_skipped_topic_ids == (topic_id,)
         assert store.get(scope.workspace_identity, topic_id) is None
-
-    @pytest.mark.asyncio
-    async def test_shutdown_marks_filtered_topic_as_generation_skip_and_evicts_it(self):
-        """全部 blocks 被过滤时不能因为 block_count 非零而漏报 skip。"""
-        familiar, store, _, bus = _make_familiar()
-        scope = _identity_scope()
-        topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, scope.workspace_identity)
-        topic = store.get(scope.workspace_identity, topic_id)
-        store.put(topic.model_copy(update={"blocks": (_filtered_block(),)}))
-
-        result = await familiar.flush_all_for_shutdown()
-
-        assert result.settled_topic_ids == (topic_id,)
-        assert result.generation_skipped_topic_ids == (topic_id,)
-        assert result.resident_block_count == 1
-        assert store.get(scope.workspace_identity, topic_id) is None
-        bus.request.assert_not_awaited()
 
 
 # ========== 感知关闭（engine=None）==========

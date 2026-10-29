@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-10-27
+last_reviewed: 2026-10-29
 ---
 
 # HiveMemory 开发路线图
@@ -179,7 +179,7 @@ last_reviewed: 2026-10-27
 
 状态：Candidate。v0.7.1 起可启动分析与样本收集，v0.7.2 大规模自动物化前完成最小策略，后续根据真实使用反馈迭代。
 
-当前已有 Gateway 的 WRITE/SKIP/UNKNOWN 预判、worth_saving 投影，以及 Perception settlement 对材料的筛选；正式 Memory 的生命周期评分另有依据。不能把现状简化成“缺少三态布尔值”，也不能用一个总分替代所有层次。事实入口见 [Gateway Analysis](./gateway/analysis.md)、[Perception](./patchouli/perception.md)和 [Lifecycle](./patchouli/lifecycle.md)。
+当前已有 Gateway 的 WRITE/SKIP/UNKNOWN 预判与 worth_saving 投影，但它们只供观测：Perception settlement 原先按 worth_saving 整轮筛选材料，Claude Code 真实导入中这一预判只看到用户消息，把“请提交”“继续”背后的整轮实现丢出了生成，2026-10-29 起不再筛选（证据见 [Todo](./todo/generation-material-filtering-and-truncation.md)）；正式 Memory 的生命周期评分另有依据。不能把现状简化成“缺少三态布尔值”，也不能用一个总分替代所有层次。事实入口见 [Gateway Analysis](./gateway/analysis.md)、[Perception](./patchouli/perception.md)和 [Lifecycle](./patchouli/lifecycle.md)。
 
 规划分两个切片：
 

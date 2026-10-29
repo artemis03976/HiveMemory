@@ -10,7 +10,7 @@ code_paths:
 related_contracts:
   - docs/components/runtime-and-bus.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-10-29
 ---
 
 # 记忆生命周期
@@ -85,12 +85,14 @@ HIT 表示一次被动检索命中，不应推进衰减基准，否则经常被�
 
 1. scroll 最多 10000 条中期记忆；
 2. 重新计算每条 vitality 并持久化；
-3. 选择 `vitality_score <= low_watermark` 的候选；
+3. 选择 `vitality_score <= low_watermark` 的候选，`AGENT_PROFILE` 与 `USER_PROFILE` 不参与；
 4. 按分数升序截取 `batch_size`；
 5. 对尚未归档的候选调用 `MemoryLibrary.archive()`；
 6. 返回 archived count、duration 与 error 摘要供维护观测。
 
 默认 low watermark 为 20，batch size 为 10。`force` 参数当前会沿调用链传递，但 collector 没有额外调度限制可绕过，因此不会改变实际筛选逻辑。
+
+Profile 记忆不按生命力归档。`AGENT_PROFILE` 定义可运行的 Agent，Agent 列表与解析只读中期记忆，归档会让该 Agent 直接消失；`USER_PROFILE` 记录用户的长期偏好，长时间没有被检索命中并不说明它已经过时。时间衰减与命中信号衡量的是“近期是否被用到”，衡量不了这两类记忆的价值，因此 collector 在筛选候选时跳过它们；它们的 vitality 仍照常刷新与展示，不再需要时由用户删除或修订。
 
 生命力刷新由调用用例决定是否持久化：普通读取可用 `persist=False` 得到临时新分数；`persist=True` 经 `patch_payload` 只提交 `vitality_score`，不重算向量、不写版本 Artifact（gardening 先刷新全部候选，再把已更新 atoms 交给 GarbageCollector）。Collector 不持有 VitalityCalculator，也不自行读取存储；这一安排避免计算器、收集器与存储形成循环依赖，并保持 Engine 是生命周期算法的唯一编排者。
 
@@ -109,7 +111,7 @@ Archive 顺序为长期 persist 后中期 delete，并在 atom 中追加 ARCHIVE
 - Scheduler 定期执行 gardening；
 - 内部 local route 可执行 revive。
 
-Lifecycle 不从 Gateway 的 `worth_saving` 直接调整分数。入口价值预判只影响短期材料是否进入结算，正式 MemoryAtom 的长期演化使用自己的证据。
+Lifecycle 不从 Gateway 的 `worth_saving` 调整分数。入口价值预判既不决定短期材料是否进入结算（[Perception](./perception.md)第 2 节），也不影响正式 MemoryAtom 的长期演化，后者使用自己的证据。
 
 ## 7. 维护与可观测性
 

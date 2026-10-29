@@ -18,7 +18,7 @@ related_contracts:
   - docs/system/import-bus.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-27
+last_reviewed: 2026-10-29
 ---
 
 # 感知与短期话题
@@ -88,7 +88,7 @@ InteractionPayload
 
 目标话题属于提交前的 Gateway 落位决定，而不是应用时重新计算的感知结果。任务进程在 Gateway 阶段取得落位，并在 prepare 时建立新话题；Import Bus 在提交前以 `PASSIVE_MEMORY` 为需要提交的每一轮调用 Gateway，把落位作为 `requested_topic_id` 提交。目标为 `NEW_TOPIC` 时，Perception 以提交携带的 `new_topic_title`/`new_topic_summary` 建立话题，缺省时使用默认标题“新建话题”与空摘要；后续轮次的落位依赖候选话题的标题与摘要，因此 Import Bus 新建话题时带上 Gateway 给出的标题与摘要。应用失败的交互没有写入任何话题，重新提交时按提交方这一次交来的落位应用。Import Bus 拥有外部会话的串行、查重与确认，Gateway 只负责入口判断，两者都不持有话题内容。
 
-Perception 只把 `worth_saving` 写入 block，不在普通 ingest 时删除它。真正形成 settlement payload 时，`worth_saving is False` 的 blocks 被过滤，`None` 与 `True` 保留。这种保守语义确保 Gateway 缺失判断时不会默认丢弃材料。
+Perception 把 `worth_saving` 写入 block，但它不决定材料去留：形成 settlement payload 时，话题中的全部 blocks 都进入结算。Gateway 的价值预判只看到用户消息与已有话题上下文，看不到这一轮的回答、工具调用与结果（[Gateway 分析](../gateway/analysis.md)第 7.1 节），“请提交”“继续”这类短消息背后常是整轮实现；按它筛选会把这些轮次整轮丢出生成，交互 Artifact 也不再保存它们。一轮是否有长期价值，由生成阶段在完整材料上判断。`worth_saving` 目前只随交互记录、block 与导入事件传递，供观测使用。
 
 ## 3. 话题准备与 LRU
 
@@ -191,7 +191,6 @@ Engine 不持有 Store / Queue，也不导入 `hivememory.patchouli.*`，可被�
 - Relay 的摘要调用在 lease 持有期间进行：LLM relay 等待模型时不阻塞事件循环，但该话题一直被占用，同一话题的后续提交在队列中等待，手动结算会遇到忙碌；
 - 折叠项占用提交队列的一个执行槽（共 4 个），一次最多占用摘要时限（默认 60 秒）；多个话题同时折叠时，其他话题的提交要等执行槽；
 - 折叠项排在已入队的同一话题提交之后：同一话题积压多轮时，这些轮次都写入之后才折叠一次，这次的摘要输入相应更大；Import Bus 每个外部会话同时只有一轮在途，积压通常很小；
-- `worth_saving=False` 在 settlement 时过滤，但原始 block 在此之前仍存在于短期话题中；
 - WorkingSet 的容量检查与候选选择运行在单事件循环内（方法同步、不内部 await），跨线程使用需调用方先行串行化；两个并发 NEW_TOPIC 的容量检查存在与旧实现等价的短暂竞态窗口；
 - flush 触发器的历史 e2e 用例随感知层删除而移除，重建需要真实 LLM/Qdrant 栈；当前回归由 Familiar 集成测试（tests/integration/patchouli/test_perception.py）覆盖；
 - 旧文档中的 `assistant_message` fallback、扁平 `context_messages` 和 Perception 私有 `InteractionPayload` 均已退出主路径。

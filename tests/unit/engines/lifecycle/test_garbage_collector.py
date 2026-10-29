@@ -17,7 +17,11 @@ from hivememory.engines.lifecycle.garbage_collector import PeriodicGarbageCollec
 from tests.helpers.memory import make_memory_metadata
 
 
-def _make_memory(title: str, vitality_score: float | None) -> MemoryAtom:
+def _make_memory(
+    title: str,
+    vitality_score: float | None,
+    memory_type: MemoryType = MemoryType.FACT,
+) -> MemoryAtom:
     return MemoryAtom(
         id=uuid4(),
         meta=make_memory_metadata(
@@ -30,7 +34,7 @@ def _make_memory(title: str, vitality_score: float | None) -> MemoryAtom:
             title=title,
             summary=f"summary for {title}",
             tags=[],
-            memory_type=MemoryType.FACT,
+            memory_type=memory_type,
         ),
         payload=PayloadLayer(content="content"),
     )
@@ -79,6 +83,14 @@ class TestPeriodicGarbageCollector:
         candidates = self.gc.scan_candidates([higher, lower])
 
         assert candidates == [_key(lower), _key(higher)]
+
+    @pytest.mark.parametrize("profile_type", [MemoryType.AGENT_PROFILE, MemoryType.USER_PROFILE])
+    def test_scan_candidates_never_selects_profile_memories(self, profile_type):
+        profile = _make_memory("Profile", 5.0, memory_type=profile_type)
+
+        candidates = self.gc.scan_candidates([profile, self.low_vitality_memory])
+
+        assert candidates == [_key(self.low_vitality_memory)]
 
     def test_scan_candidates_skips_missing_vitality(self):
         missing = Mock()

@@ -8,7 +8,7 @@ related_docs:
   - docs/archive/plans/v0.7.1-import-bus-redesign.md
   - docs/patchouli/generation.md
   - docs/ROADMAP.md
-last_reviewed: 2026-10-27
+last_reviewed: 2026-10-29
 ---
 
 # Import Bus 真实使用观察
@@ -25,6 +25,8 @@ last_reviewed: 2026-10-27
 - **导入耗时与失败**：导入请求的耗时、`apply_pending` 与 `import_bus.apply_failed` 的比例；拒绝记录中 413 的比例；交互 Artifact 是否因查重窗口或服务重启出现重复。
 - **连接器**：30 分钟无新条目即按中断结束的规则是否误判长时间等待权限确认的轮次；Claude Code 本地记录中思考正文的可得性（较新的模型默认只记录签名或摘要）。
 - **资源**：提交队列的终态工作记录保存完整的编码载荷，工具输出很大时的内存占用；必要时调低 `import_bus.max_request_bytes`。
+
+进度（2026-10-29）：生成质量一项中，查重从未做出新建以外的决策，已登记为[生成查重的决策信号](./generation-dedup-decision-signal.md)；生成转写的长度与截断比例已对账，Gateway 价值预判整轮丢弃实现过程的问题已停用筛选，每轮上限的校准登记为[生成材料的筛选与截断](./generation-material-filtering-and-truncation.md)。
 
 ## 影响
 
