@@ -12,6 +12,7 @@ last_reviewed: 2026-10-29
 
 当前事项：
 
+- [导入的 MCP 读取在轨迹中显示 alias](./imported-read-trace-alias.md)（2026-10-29 由记忆访问计划阶段四审查登记：READ 轨迹的目标取工具名，导入的 MCP 读取只显示工具调用名，所读的 alias 在参数中，生成视图看不出读了哪些记忆；未排期）；
 - [MTP READ 截断正式记忆的正文](./mtp-read-content-truncation.md)（2026-10-29 由记忆访问计划阶段三审查登记：MTP READ 取编译选项默认的 500 字符上限，超长正文被截断，提示“再次 READ”却得到同样结果；预计随 v0.7.3 MTP READ 专项编译一起修复）；
 - [生成材料的筛选与截断](./generation-material-filtering-and-truncation.md)（2026-10-29 由 Import Bus 真实使用观察登记：Gateway 价值预判只看用户消息，把整轮实现丢出生成，结算已停止按 `worth_saving` 筛选；待在真实样本上校准生成视图的每轮上限，并随记忆价值策略重设计决定 `worth_saving` 的去留）；
 - [生成查重的决策信号](./generation-dedup-decision-signal.md)（2026-10-29 由 Import Bus 真实使用观察登记：dense top-1 余弦在记忆对记忆的比较中分不开同一工作与同项目的其他记忆，固定阈值够不到，查重只会新建；UPDATE 为整体覆盖，不能单靠调低阈值）；
