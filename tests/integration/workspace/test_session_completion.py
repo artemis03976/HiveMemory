@@ -2,7 +2,9 @@
 
 import asyncio
 import logging
+from collections.abc import Callable
 from dataclasses import dataclass, field
+from functools import partial
 
 import pytest
 
@@ -15,22 +17,28 @@ from hivememory.core.protocol.models import InteractionPayload
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
+from hivememory.workspace.process.table import CancelResult
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.process import make_task_process_service
+from tests.helpers.process import collect_events, done_data, make_task_process_service
 from tests.helpers.sessions import make_compaction_checkpoint
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 
 @dataclass
 class CompletionProbe:
-    """记录外部 Patchouli 边界的交互接管与清理，提供可控提交屏障。"""
+    """记录外部 Patchouli 边界的交互接管与清理，提供可控提交屏障与用户停止入口。
+
+    ``stop`` 以同一 Workspace 已获准入的请求方 context 对本进程发起停止，
+    与 ``/chat/stop`` 走同一个取消方法。
+    """
 
     submitted: list = field(default_factory=list)
     cleaned: list = field(default_factory=list)
     entered: asyncio.Event = field(default_factory=asyncio.Event)
     release: asyncio.Event = field(default_factory=asyncio.Event)
+    stop: Callable[[], CancelResult] | None = None
 
 
 async def completion_chain(
@@ -108,6 +116,8 @@ async def completion_chain(
         session_id=session_id,
         message="请继续分析",
     )
+    requestor = await access.authenticate(agent_id="omni_doll")
+    probe.stop = partial(service.cancel_process, handle.process_id, access=requestor)
     return service, handle, sessions, access.default_workspace, probe
 
 
@@ -124,10 +134,10 @@ async def test_user_stop_seals_outcome_returned_by_cpu(reported, final_text):
         cancelled_result=make_cpu_result(status=reported, final_text=final_text),
     )
     service, handle, sessions, workspace, probe = await completion_chain(cpu)
-    stream = service.run_process(handle, stream=True)
+    stream = service.run_process(handle)
     first = await anext(stream)
     await asyncio.wait_for(cpu.hang_entered.wait(), timeout=2)
-    assert service.cancel_process(handle).cancelled is True
+    assert probe.stop().cancelled is True
     events = [first, *[event async for event in stream]]
     done = events[-1]["data"]
     assert (done["status"], done["final_text"]) == (reported, final_text)
@@ -154,7 +164,7 @@ async def test_output_with_each_outcome_is_submitted_before_terminal(status):
         ),
         seed_history=True,
     )
-    events = [event async for event in service.run_process(handle, stream=True)]
+    events = [event async for event in service.run_process(handle)]
     assert events[-1]["data"]["status"] == status
     assert [p.outcome for p in probe.submitted] == [status]
     saved = sessions.get(workspace, handle.session_id)
@@ -192,7 +202,7 @@ async def test_alice_context_guard_seals_tool_output_as_failed_turn(tmp_path):
     await alice.start()
     try:
         service, handle, sessions, workspace, probe = await completion_chain(alice.cpu_port)
-        events = [event async for event in service.run_process(handle, stream=True)]
+        events = [event async for event in service.run_process(handle)]
         done = events[-1]["data"]
         assert (done["status"], done["failure_reason"]) == (
             "failed",
@@ -229,7 +239,7 @@ async def test_empty_terminal_does_not_create_turn_and_done_omits_text():
         ),
         seed_history=True,
     )
-    events = [event async for event in service.run_process(handle, stream=True)]
+    events = [event async for event in service.run_process(handle)]
     assert "final_text" not in events[-1]["data"]
     saved = sessions.get(workspace, handle.session_id)
     assert [turn.interaction_id for turn in saved.turns] == ["old"]
@@ -245,10 +255,10 @@ async def test_delivery_leaving_after_finalizing_never_skips_submission():
     service, handle, sessions, workspace, probe = await completion_chain(
         ScriptedCPU(result=make_cpu_result()), block_finalize=True
     )
-    stream = service.run_process(handle, stream=True)
+    stream = service.run_process(handle)
     while (await anext(stream))["event"] != "run_status":
         pass
-    assert service.cancel_process(handle).reason == "already_finalizing"
+    assert probe.stop().reason == "already_finalizing"
     await stream.aclose()
     await probe.entered.wait()
     assert probe.submitted == []
@@ -265,9 +275,9 @@ async def test_stop_after_cpu_terminal_keeps_completed_outcome():
     """CPU 已返回 completed、进程尚未恢复时到达的停止，不把完整回复改记为中断。"""
     cpu = ScriptedCPU(result=make_cpu_result(final_text="完整答案"))
     service, handle, sessions, workspace, probe = await completion_chain(cpu)
-    run = asyncio.create_task(_collect(service.run_process(handle, stream=True)))
+    run = asyncio.create_task(_collect(service.run_process(handle)))
     await asyncio.wait_for(cpu.result_returning.wait(), timeout=2)
-    assert service.cancel_process(handle).cancelled is True
+    assert probe.stop().cancelled is True
     done = (await run)[-1]["data"]
     assert (done["status"], done["final_text"]) == ("completed", "完整答案")
     turns = sessions.get(workspace, handle.session_id).turns
@@ -281,7 +291,7 @@ async def test_delivery_leaving_after_cpu_terminal_discards_turn_but_accepts_che
     checkpoint = make_compaction_checkpoint(reduced_through="old")
     cpu = ScriptedCPU(result=make_cpu_result(compaction_checkpoint=checkpoint))
     service, handle, sessions, workspace, probe = await completion_chain(cpu, seed_history=True)
-    stream = service.run_process(handle, stream=True)
+    stream = service.run_process(handle)
     await anext(stream)
     await asyncio.wait_for(cpu.result_returning.wait(), timeout=2)
     await stream.aclose()
@@ -319,7 +329,7 @@ async def test_shutdown_stops_streaming_process_and_discards_partial_output(capl
         cancelled_result=make_cpu_result(status="cancelled", final_text="半截"),
     )
     service, handle, sessions, workspace, probe = await completion_chain(cpu)
-    subscriber = asyncio.create_task(_collect(service.run_process(handle, stream=True)))
+    subscriber = asyncio.create_task(_collect(service.run_process(handle)))
     await asyncio.wait_for(cpu.hang_entered.wait(), timeout=2)
     with caplog.at_level(logging.WARNING):
         await service.shutdown()
@@ -345,14 +355,14 @@ async def test_shutdown_hard_cancels_process_that_does_not_stop_in_time(caplog):
     service, handle, sessions, workspace, probe = await completion_chain(
         cpu, shutdown_wait_seconds=0
     )
-    subscriber = asyncio.create_task(_collect(service.run_process(handle, stream=True)))
+    subscriber = asyncio.create_task(_collect(service.run_process(handle)))
     await asyncio.wait_for(cpu.hang_entered.wait(), timeout=2)
     with caplog.at_level(logging.WARNING):
         await service.shutdown()
     assert sessions.get(workspace, handle.session_id).active_process_id is None
     assert probe.cleaned == [handle.process_id]
     assert cpu.finished is True
-    assert service.cancel_process(handle).status == "not_found"
+    assert probe.stop().status == "not_found"
     assert any("硬取消" in r.getMessage() for r in caplog.records)
     assert [event["event"] for event in await subscriber] == ["process_id", "memory_refs", "token"]
 
@@ -363,7 +373,7 @@ async def test_shutdown_hard_cancel_still_waits_for_finalize_submission():
     service, handle, sessions, workspace, probe = await completion_chain(
         ScriptedCPU(result=make_cpu_result()), block_finalize=True, shutdown_wait_seconds=0
     )
-    stream = service.run_process(handle, stream=True)
+    stream = service.run_process(handle)
     while (await anext(stream))["event"] != "run_status":
         pass
     await probe.entered.wait()
@@ -393,7 +403,7 @@ async def test_shutdown_closes_registered_process_that_never_ran():
     )
     await service.shutdown()
     assert sessions.get(workspace, handle.session_id).active_process_id is None
-    assert service.cancel_process(handle).status == "not_found"
+    assert probe.stop().status == "not_found"
     assert probe.cleaned == []
 
 
@@ -419,7 +429,7 @@ async def test_closing_cpu_accepts_old_history_checkpoint_before_releasing_claim
     service, handle, sessions, workspace, probe = await completion_chain(
         cpu, seed_history=True, shutdown_wait_seconds=0
     )
-    stream = service.run_process(handle, stream=True)
+    stream = service.run_process(handle)
     while (await anext(stream))["event"] != "context_compaction":
         pass
     await asyncio.wait_for(cpu.hang_entered.wait(), timeout=2)
@@ -430,7 +440,7 @@ async def test_closing_cpu_accepts_old_history_checkpoint_before_releasing_claim
         await service.shutdown()
         assert [event["event"] async for event in stream] == []
     else:
-        service.cancel_process(handle)
+        probe.stop()
         events = [event async for event in stream]
         assert events[-1]["data"]["status"] == "cancelled"
     saved = sessions.get(workspace, handle.session_id)
@@ -450,8 +460,8 @@ async def test_rejected_checkpoint_does_not_prevent_current_turn_submission(capl
     )
     service, handle, sessions, workspace, probe = await completion_chain(cpu, seed_history=True)
     with caplog.at_level(logging.WARNING):
-        result = await service.run_process(handle, stream=False)
-    assert result.execution_result.status == "completed"
+        events = await collect_events(service, handle)
+    assert done_data(events)["status"] == "completed"
     saved = sessions.get(workspace, handle.session_id)
     assert saved.compaction_checkpoint is None
     assert [turn.interaction_id for turn in saved.turns] == ["old", "partial"]
@@ -471,11 +481,11 @@ async def test_unavailable_alice_fails_process_and_releases_prepared_resources()
         AliceConfig(), operation_entry=OperationsHarness().entry, llm_service=ScriptedLLMService()
     )
     service, handle, sessions, workspace, probe = await completion_chain(alice.cpu_port)
-    events = [event async for event in service.run_process(handle, stream=True)]
+    events = [event async for event in service.run_process(handle)]
     assert events[-1] == {"event": "error", "data": {"message": "系统错误，请检查后端服务器"}}
     saved = sessions.get(workspace, handle.session_id)
     assert saved.turns == ()
     assert saved.active_process_id is None
     assert probe.cleaned == [handle.process_id]
     assert probe.submitted == []
-    assert service.cancel_process(handle).status == "not_found"
+    assert probe.stop().status == "not_found"

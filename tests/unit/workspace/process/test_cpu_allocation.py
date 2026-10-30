@@ -55,7 +55,13 @@ from hivememory.workspace.process.table import ProcessTable
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.process import make_task_process_service
+from tests.helpers.process import (
+    collect_events,
+    done_data,
+    error_code,
+    make_task_process_service,
+    wait_for_process_exit,
+)
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -261,21 +267,10 @@ async def _run_once(
     *,
     process_id: str,
     **kwargs,
-):
-    handle = await _register(composition, service, message, process_id=process_id, **kwargs)
-    return await service.run_process(handle, stream=False)
-
-
-async def _stream_events(
-    composition: AccessTestComposition,
-    service: TaskProcessService,
-    message: str,
-    *,
-    process_id: str,
-    **kwargs,
 ) -> list[dict]:
+    """注册并经流式交付运行到结束，返回全部流式事件。"""
     handle = await _register(composition, service, message, process_id=process_id, **kwargs)
-    return [event async for event in service.run_process(handle, stream=True)]
+    return await collect_events(service, handle)
 
 
 # ========== 清单组装（Profile 与编译） ==========
@@ -305,9 +300,9 @@ async def test_main_thread_operations_follow_access_record_precedence():
     cpu = ScriptedCPU(result=make_cpu_result())
     service, composition = await _service(bus, cpu=cpu, composition=composition)
 
-    result = await _run_once(composition, service, "问题", process_id="process-operations")
+    events = await _run_once(composition, service, "问题", process_id="process-operations")
 
-    assert result.execution_result.status == "completed"
+    assert done_data(events)["status"] == "completed"
     assert cpu.calls[0].thread.descriptor.allowed_operations == frozenset()
 
 
@@ -327,9 +322,9 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
 
     service, composition = await _service(bus, cpu=cpu)
-    result = await _run_once(composition, service, "问题", process_id="process-manifest")
+    events = await _run_once(composition, service, "问题", process_id="process-manifest")
 
-    assert result.kind == "agent"
+    assert done_data(events)["status"] == "completed"
     # Profile 以操作授权者组装的 identity_scope 经公开路由按 agent_id 解析。
     assert [agent_id for agent_id, _scope in profile_calls] == ["omni_doll"]
     assert profile_calls[0][1] == _expected_scope()
@@ -389,9 +384,9 @@ async def test_manifest_labels_match_registration_and_process_event_labels() -> 
         process_id="process-manifest-labels",
         message="问题",
     )
-    result = await service.run_process(handle, stream=False)
+    events = await collect_events(service, handle)
 
-    assert result.execution_result.status == "completed"
+    assert done_data(events)["status"] == "completed"
     assert cpu.calls[0].manifest.labels.model_dump() == {
         "agent_id": "registered_agent",
         "workspace_id": "labels_workspace",
@@ -464,9 +459,9 @@ async def test_no_actor_operations_still_allocates_execution_profile() -> None:
     composition = _composition(excluded_operations=frozenset(WorkspaceOperation))
 
     service, composition = await _service(bus, cpu=cpu, composition=composition)
-    result = await _run_once(composition, service, "问题", process_id="process-no-actor-operations")
+    events = await _run_once(composition, service, "问题", process_id="process-no-actor-operations")
 
-    assert result.execution_result.status == "completed"
+    assert done_data(events)["status"] == "completed"
     assert cpu.calls[0].thread.descriptor.agent_profile.persona == "阶段读取配置"
     assert profile_calls == [("omni_doll", _expected_scope())]
 
@@ -508,10 +503,9 @@ async def test_admission_revoked_before_actor_fails_main_thread_derivation() -> 
         event_publisher=RuntimeEventPublisher(sink),
     )
 
-    with pytest.raises(ScopeRequiredError) as error:
-        await _run_once(composition, service, "问题", process_id="process-admission-revoked")
+    events = await _run_once(composition, service, "问题", process_id="process-admission-revoked")
 
-    assert error.value.details["reason"] == "actor_not_admitted"
+    assert error_code(events) == ScopeRequiredError.code
     assert cpu.calls == []
     assert len(cleaned) == 1
     assert [event.status for event in sink.events][-2:] == ["streaming", "failed"]
@@ -537,34 +531,13 @@ async def test_profile_resolution_failure_fails_stream_before_prepare() -> None:
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, cpu=cpu)
-    events = await _stream_events(composition, service, "问题", process_id="process-profile-fail")
+    events = await _run_once(composition, service, "问题", process_id="process-profile-fail")
 
-    assert [event["event"] for event in events if event["event"] == "error"] == ["error"]
+    assert [event["event"] for event in events] == ["process_id", "error"]
+    assert error_code(events) == ResourceNotFoundError.code
     assert prepare_calls == []
     assert cleanup_calls == []
     assert cpu.calls == []
-
-
-@pytest.mark.asyncio
-async def test_profile_resolution_failure_propagates_before_prepare() -> None:
-    """非流式路径：Profile 解析失败沿异常上抛，prepare 与 cleanup 均未调用。"""
-    bus = GlobalSystemBus()
-    failure = ResourceNotFoundError(
-        details={"resource": "agent_profile", "agent_alias": "omni_doll"},
-    )
-    prepare_calls: list = []
-    cleanup_calls: list = []
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _raising(failure))
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _recording(prepare_calls))
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _recording(cleanup_calls))
-
-    service, composition = await _service(bus)
-    with pytest.raises(ResourceNotFoundError):
-        await _run_once(composition, service, "问题", process_id="process-profile-fail-ns")
-
-    assert prepare_calls == []
-    assert cleanup_calls == []
 
 
 # ========== 附件租借（CPU 分配边界） ==========
@@ -604,7 +577,7 @@ async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> N
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     service, composition = await _service(bus, store=store)
-    result = await _run_once(
+    events = await _run_once(
         composition,
         service,
         "带附件的消息",
@@ -615,7 +588,7 @@ async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> N
         ],
     )
 
-    assert result.kind == "agent"
+    assert done_data(events)["status"] == "completed"
     assert "selected_attachments" not in prepare_kwargs
     # 用户顺序：第二份在前；实际使用引用按编译顺序冻结，经封口 payload 交给 finalize。
     assert list(finalize_kwargs["payload"].used_attachments) == [ref_b, ref_a]
@@ -645,7 +618,7 @@ async def test_no_actor_operations_still_allocates_attachments_and_finalizes() -
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, store=store, cpu=cpu, composition=composition)
-    result = await _run_once(
+    events = await _run_once(
         composition,
         service,
         "带附件的消息",
@@ -653,7 +626,7 @@ async def test_no_actor_operations_still_allocates_attachments_and_finalizes() -
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
 
-    assert result.execution_result.status == "completed"
+    assert done_data(events)["status"] == "completed"
     assert "阶段附件正文" in cpu.calls[0].manifest.turn_context
     assert tuple(finalize_kwargs["payload"].used_attachments) == (ref_a,)
     assert store.close_and_clear().leases_cleared == 0
@@ -681,19 +654,19 @@ async def test_attachment_version_mismatch_releases_leases_and_rejects() -> None
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
 
     service, composition = await _service(bus, store=store)
-    with pytest.raises(AssetOperationConflictError):
-        await _run_once(
-            composition,
-            service,
-            "带附件的消息",
-            process_id="process-mismatch",
-            attachments=[
-                AttachmentSelectionRequest(asset_ref=ref_a),
-                # ref_b 的实际 hash 是 text-hash-b；客户端看到的是过期摘要。
-                AttachmentSelectionRequest(asset_ref=ref_b, content_hash="stale-hash"),
-            ],
-        )
+    events = await _run_once(
+        composition,
+        service,
+        "带附件的消息",
+        process_id="process-mismatch",
+        attachments=[
+            AttachmentSelectionRequest(asset_ref=ref_a),
+            # ref_b 的实际 hash 是 text-hash-b；客户端看到的是过期摘要。
+            AttachmentSelectionRequest(asset_ref=ref_b, content_hash="stale-hash"),
+        ],
+    )
 
+    assert error_code(events) == AssetOperationConflictError.code
     assert store.close_and_clear().leases_cleared == 0
 
 
@@ -712,20 +685,20 @@ async def test_unknown_attachment_ref_rejected_without_leaking_leases() -> None:
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
 
     service, composition = await _service(bus, store=store)
-    with pytest.raises(AssetNotFoundError):
-        await _run_once(
-            composition,
-            service,
-            "带附件的消息",
-            process_id="process-unknown-ref",
-            attachments=[
-                AttachmentSelectionRequest(asset_ref=ref_a),
-                AttachmentSelectionRequest(
-                    asset_ref=WorkspaceAssetRef(token="missing-ref", asset_id="asset-missing"),
-                ),
-            ],
-        )
+    events = await _run_once(
+        composition,
+        service,
+        "带附件的消息",
+        process_id="process-unknown-ref",
+        attachments=[
+            AttachmentSelectionRequest(asset_ref=ref_a),
+            AttachmentSelectionRequest(
+                asset_ref=WorkspaceAssetRef(token="missing-ref", asset_id="asset-missing"),
+            ),
+        ],
+    )
 
+    assert error_code(events) == AssetNotFoundError.code
     assert store.close_and_clear().leases_cleared == 0
 
 
@@ -745,15 +718,15 @@ async def test_removed_asset_rejected_without_leaking_leases() -> None:
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
 
     service, composition = await _service(bus, store=store)
-    with pytest.raises(AssetRemovedError):
-        await _run_once(
-            composition,
-            service,
-            "带附件的消息",
-            process_id="process-removed",
-            attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
-        )
+    events = await _run_once(
+        composition,
+        service,
+        "带附件的消息",
+        process_id="process-removed",
+        attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
+    )
 
+    assert error_code(events) == AssetRemovedError.code
     assert store.close_and_clear().leases_cleared == 0
 
 
@@ -827,7 +800,7 @@ async def test_leased_attachment_released_after_completed_run() -> None:
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
 
     service, composition = await _service(bus, store=store)
-    result = await _run_once(
+    events = await _run_once(
         composition,
         service,
         "带附件的消息",
@@ -835,7 +808,7 @@ async def test_leased_attachment_released_after_completed_run() -> None:
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
 
-    assert result.execution_result.status == CPUExecutionStatus.COMPLETED.value
+    assert done_data(events)["status"] == CPUExecutionStatus.COMPLETED.value
     assert store.close_and_clear().leases_cleared == 0
 
 
@@ -855,7 +828,7 @@ async def test_leased_attachment_released_when_cpu_reports_failure() -> None:
     cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
 
     service, composition = await _service(bus, store=store, cpu=cpu)
-    result = await _run_once(
+    events = await _run_once(
         composition,
         service,
         "带附件的消息",
@@ -863,7 +836,7 @@ async def test_leased_attachment_released_when_cpu_reports_failure() -> None:
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
 
-    assert result.execution_result.status == CPUExecutionStatus.FAILED.value
+    assert done_data(events)["status"] == CPUExecutionStatus.FAILED.value
     assert store.close_and_clear().leases_cleared == 0
 
 
@@ -882,53 +855,12 @@ def _blocking_cleanup(started: asyncio.Event, release: asyncio.Event):
 
 
 @pytest.mark.asyncio
-async def test_cancel_during_cleanup_still_releases_leases_and_closes_process() -> None:
-    """owner task 在 cleanup 期间被取消：取消不被吞掉，租借已同步释放，收口仍完成。
+async def test_delivery_cancelled_during_cleanup_still_releases_leases_and_closes_process() -> None:
+    """交付方在 cleanup 期间被取消：取消传给交付方，租借已同步释放，进程收口仍完成。
 
-    CancelledError 不被 ``except Exception`` 捕获；租借释放先于任何 await 同步
-    执行，不依赖 cleanup 完成。取消中断第一次 close 后，交付收口（close_process）
-    在 cleanup 放行后完成：context 失效、进程从表中注销。
+    租借释放先于任何 await 同步执行，不依赖 cleanup 完成；交付方离开不打断进程自己的
+    关闭流程，cleanup 放行后进程从表中注销。
     """
-    store = InMemoryWorkspaceAssetStore()
-    composition = _composition()
-    scope = await _store_scope(composition)
-    ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
-
-    bus = GlobalSystemBus()
-    cleanup_started = asyncio.Event()
-    release_cleanup = asyncio.Event()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(
-        PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
-        _blocking_cleanup(cleanup_started, release_cleanup),
-    )
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
-
-    table = ProcessTable()
-    service, composition = await _service(bus, store=store, cpu=cpu, process_table=table)
-    handle = await _register(
-        composition,
-        service,
-        "带附件的消息",
-        process_id="process-cancel-during-cleanup",
-        attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
-    )
-    task = asyncio.create_task(service.run_process(handle, stream=False))
-    await cleanup_started.wait()
-    task.cancel()
-    release_cleanup.set()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-
-    assert table.get("process-cancel-during-cleanup") is None
-    assert store.close_and_clear().leases_cleared == 0
-
-
-@pytest.mark.asyncio
-async def test_stream_cancel_during_cleanup_still_releases_leases_and_closes_process() -> None:
-    """流式路径：owner task 在 cleanup 期间被取消，租借仍被同步释放，收口仍完成。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
     scope = await _store_scope(composition)
@@ -955,26 +887,24 @@ async def test_stream_cancel_during_cleanup_still_releases_leases_and_closes_pro
         process_id="process-stream-cancel-during-cleanup",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
-    task = asyncio.create_task(_collect_stream(service.run_process(handle, stream=True)))
+    task = asyncio.create_task(collect_events(service, handle))
     await cleanup_started.wait()
     task.cancel()
     release_cleanup.set()
     with pytest.raises(asyncio.CancelledError):
         await task
+    await wait_for_process_exit(table, "process-stream-cancel-during-cleanup")
 
     assert table.get("process-stream-cancel-during-cleanup") is None
     assert store.close_and_clear().leases_cleared == 0
-
-
-async def _collect_stream(stream) -> list[dict]:
-    return [event async for event in stream]
 
 
 @pytest.mark.asyncio
 async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() -> None:
     """prepare 或分配期间收到的停止请求在进入 Actor 执行前生效。
 
-    CPU 与 finalize 均未调用；cleanup 补偿 prepare 的结果；分配已取得的租借已释放。
+    不发出记忆引用等前导事件，done 为 cancelled；CPU 与 finalize 均未调用；cleanup
+    补偿 prepare 的结果；分配已取得的租借已释放。
     """
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
@@ -1004,6 +934,7 @@ async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() ->
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, store=store, cpu=cpu)
+    requestor = await composition.authenticate(agent_id=_AGENT)
     handle = await _register(
         composition,
         service,
@@ -1011,14 +942,15 @@ async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() ->
         process_id="process-stop-before-actor",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
-    task = asyncio.create_task(service.run_process(handle, stream=False))
+    task = asyncio.create_task(collect_events(service, handle))
     await prepare_started.wait()
-    stop_result = service.cancel_process(handle, reason="user_requested")
+    stop_result = service.cancel_process("process-stop-before-actor", access=requestor)
     release_prepare.set()
-    result = await task
+    events = await task
 
     assert stop_result.cancelled is True
-    assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
+    assert [event["event"] for event in events] == ["process_id", "done"]
+    assert done_data(events)["status"] == CPUExecutionStatus.CANCELLED.value
     assert cpu.calls == []
     assert finalize_calls == []
     assert cleanup_calls != [] and all(
@@ -1060,6 +992,7 @@ async def test_stop_during_profile_resolution_takes_effect_before_actor() -> Non
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, store=store, cpu=cpu)
+    requestor = await composition.authenticate(agent_id=_AGENT)
     handle = await _register(
         composition,
         service,
@@ -1067,48 +1000,19 @@ async def test_stop_during_profile_resolution_takes_effect_before_actor() -> Non
         process_id="process-stop-during-allocation",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
-    task = asyncio.create_task(service.run_process(handle, stream=False))
+    task = asyncio.create_task(collect_events(service, handle))
     await allocation_started.wait()
-    stop_result = service.cancel_process(handle, reason="user_requested")
+    stop_result = service.cancel_process("process-stop-during-allocation", access=requestor)
     release_allocation.set()
-    result = await task
+    events = await task
 
     assert stop_result.cancelled is True
-    assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
+    assert done_data(events)["status"] == CPUExecutionStatus.CANCELLED.value
     assert cpu.calls == []
     assert cleanup_calls != [] and all(
         prepared.interaction_id == "process-stop-during-allocation" for prepared in cleanup_calls
     )
     assert store.close_and_clear().leases_cleared == 0
-
-
-@pytest.mark.asyncio
-async def test_stream_stop_before_actor_emits_no_prelude() -> None:
-    """流式路径：prepare 期间收到 stop 时，前导事件不发出，done 为 cancelled。"""
-    bus = GlobalSystemBus()
-    prepare_started = asyncio.Event()
-    release_prepare = asyncio.Event()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(
-        PatchouliRoutes.PREPARE_AGENT_RUN,
-        _prepare_route(started=prepare_started, gate=release_prepare),
-    )
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
-    cpu = ScriptedCPU(result=make_cpu_result())
-
-    service, composition = await _service(bus, cpu=cpu)
-    handle = await _register(composition, service, "问题", process_id="process-stream-stop")
-    task = asyncio.create_task(_collect_stream(service.run_process(handle, stream=True)))
-    await prepare_started.wait()
-    service.cancel_process(handle, reason="user_requested")
-    release_prepare.set()
-    events = await task
-
-    assert [event["event"] for event in events if event["event"] == "memory_refs"] == []
-    assert events[-1]["event"] == "done"
-    assert events[-1]["data"]["status"] == "cancelled"
-    assert cpu.calls == []
 
 
 @pytest.mark.asyncio
@@ -1132,7 +1036,7 @@ async def test_lease_release_tolerates_store_closed_after_finalize() -> None:
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     service, composition = await _service(bus, store=store)
-    result = await _run_once(
+    events = await _run_once(
         composition,
         service,
         "带附件的消息",
@@ -1140,7 +1044,7 @@ async def test_lease_release_tolerates_store_closed_after_finalize() -> None:
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
 
-    assert result.execution_result.final_text == "完成"
+    assert done_data(events)["final_text"] == "完成"
 
 
 def _scoped_prepared(kwargs: dict[str, Any]) -> PreparedAgentRun:

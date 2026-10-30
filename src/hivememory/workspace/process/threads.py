@@ -148,7 +148,7 @@ class ProcessThreads:
             access=access,
             thread_id=MAIN_THREAD_ID,
             parent_id=None,
-            labels=process.record.events.labels,
+            labels=process.record.labels,
             profile=profile,
         )
 
@@ -173,7 +173,7 @@ class ProcessThreads:
         )
         labels = ExecutionLabels(
             agent_id=profile.agent_id,
-            workspace_id=process.record.events.labels.workspace_id,
+            workspace_id=process.record.labels.workspace_id,
         )
         return self._register(
             process,

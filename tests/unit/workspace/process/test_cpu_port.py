@@ -36,7 +36,12 @@ from tests.helpers.chat_handoff import (
     make_mtp_turn_events,
 )
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.process import make_task_process_service
+from tests.helpers.process import (
+    collect_events,
+    done_data,
+    error_code,
+    make_task_process_service,
+)
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -157,29 +162,18 @@ async def _run_once(
     *,
     process_id: str,
     **kwargs,
-):
-    handle = await _register(composition, service, message, process_id=process_id, **kwargs)
-    return await service.run_process(handle, stream=False)
-
-
-async def _stream_events(
-    composition: AccessTestComposition,
-    service: TaskProcessService,
-    message: str,
-    *,
-    process_id: str,
-    **kwargs,
 ) -> list[dict]:
+    """注册并经流式交付运行到结束，返回全部流式事件。"""
     handle = await _register(composition, service, message, process_id=process_id, **kwargs)
-    return [event async for event in service.run_process(handle, stream=True)]
+    return await collect_events(service, handle)
 
 
 # ========== 测试 CPU 跑通完整进程 ==========
 
 
 @pytest.mark.asyncio
-async def test_test_cpu_completes_non_streaming_process_through_cpu_port() -> None:
-    """测试 CPU 跑完非流式进程：交互事件被丢弃，结果与 finalize 的交互记录来自 CPU 执行结果。"""
+async def test_test_cpu_completes_process_and_finalizes_its_execution_result() -> None:
+    """测试 CPU 跑完进程：done 与 finalize 的交互记录都来自 CPU 的执行结果。"""
     bus = GlobalSystemBus()
     turn_events = make_mtp_turn_events()
     submitted = []
@@ -208,12 +202,11 @@ async def test_test_cpu_completes_non_streaming_process_through_cpu_port() -> No
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     service, composition = await _service(bus, cpu)
-    result = await _run_once(composition, service, "问题", process_id="process-cpu-once")
+    done = done_data(await _run_once(composition, service, "问题", process_id="process-cpu-once"))
 
-    assert result.kind == "agent"
-    assert result.execution_result.status == CPUExecutionStatus.COMPLETED.value
-    assert result.execution_result.final_text == "完成"
-    assert result.execution_result.model_used == "glm-4"
+    assert done["status"] == CPUExecutionStatus.COMPLETED.value
+    assert done["final_text"] == "完成"
+    assert done["model_used"] == "glm-4"
 
     payload = finalize_kwargs["payload"]
     assert payload.assistant_final_text == "完成"
@@ -238,7 +231,7 @@ async def test_test_cpu_completes_streaming_process_and_relays_events() -> None:
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
     service, composition = await _service(bus, cpu)
-    events = await _stream_events(composition, service, "问题", process_id="process-cpu-stream")
+    events = await _run_once(composition, service, "问题", process_id="process-cpu-stream")
 
     assert [event["event"] for event in events] == [
         "process_id",
@@ -302,10 +295,12 @@ async def test_no_actor_operations_still_executes_cpu_and_finalizes() -> None:
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
     composition = _composition(excluded_operations=frozenset(WorkspaceOperation))
     service, composition = await _service(bus, cpu, composition=composition)
-    result = await _run_once(composition, service, "问题", process_id="process-no-operations")
+    done = done_data(
+        await _run_once(composition, service, "问题", process_id="process-no-operations")
+    )
 
-    assert result.execution_result.status == "completed"
-    assert result.execution_result.final_text == "无操作权限也完成"
+    assert done["status"] == "completed"
+    assert done["final_text"] == "无操作权限也完成"
     assert submitted_texts == ["无操作权限也完成"]
     assert cpu.finished is True
 
@@ -336,9 +331,9 @@ async def test_cpu_self_reported_terminal_ends_process_without_finalize(
     )
 
     service, composition = await _service(bus, cpu)
-    result = await _run_once(composition, service, "问题", process_id=f"process-cpu-{status.value}")
+    events = await _run_once(composition, service, "问题", process_id=f"process-cpu-{status.value}")
 
-    assert result.execution_result.status == status.value
+    assert done_data(events)["status"] == status.value
     assert cleanup_calls != [] and all(
         prepared.interaction_id == f"process-cpu-{status.value}" for prepared in cleanup_calls
     )
@@ -349,7 +344,7 @@ async def test_cpu_self_reported_terminal_ends_process_without_finalize(
 
 @pytest.mark.asyncio
 async def test_cpu_exception_fails_process() -> None:
-    """CPU 抛出异常：进程按失败处理，异常沿非流式路径原样上抛。"""
+    """CPU 抛出异常：进程按失败处理，流式交付以不带错误码的系统错误结束。"""
     bus = GlobalSystemBus()
     cpu = ScriptedCPU(error=RuntimeError("cpu exploded"))
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
@@ -358,5 +353,6 @@ async def test_cpu_exception_fails_process() -> None:
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
 
     service, composition = await _service(bus, cpu)
-    with pytest.raises(RuntimeError, match="cpu exploded"):
-        await _run_once(composition, service, "问题", process_id="process-cpu-error")
+    events = await _run_once(composition, service, "问题", process_id="process-cpu-error")
+
+    assert error_code(events) is None

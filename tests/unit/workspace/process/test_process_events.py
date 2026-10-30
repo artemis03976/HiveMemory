@@ -36,11 +36,16 @@ from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUFailureReason
-from hivememory.workspace.process import NonStreamingAgentOutcome, TaskProcessService
+from hivememory.workspace.process import TaskProcessService
 from hivememory.workspace.process.service import ProcessHandle
 from hivememory.workspace.process.table import ProcessTable
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.process import make_task_process_service, wait_for_process_exit
+from tests.helpers.process import (
+    collect_events,
+    done_data,
+    make_task_process_service,
+    wait_for_process_exit,
+)
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -159,8 +164,7 @@ async def test_completed_stream_events_share_process_correlation_and_bind_topic(
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=cpu)
     handle = await _register(composition, service, "问题", process_id="process-events")
 
-    async for _ in service.run_process(handle, stream=True):
-        pass
+    await collect_events(service, handle)
 
     events = _chat_events(sink)
     assert [(event.event_type, event.status) for event in events] == [
@@ -210,11 +214,12 @@ async def test_stop_during_gateway_cancels_process_in_gateway_phase() -> None:
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
     sink = RecordingRuntimeEventSink()
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=ScriptedCPU())
+    requestor = await composition.authenticate(agent_id=_AGENT)
     handle = await _register(composition, service, "问题", process_id="process-stop")
-    task = asyncio.create_task(service.run_process(handle, stream=False))
+    task = asyncio.create_task(collect_events(service, handle))
     await gateway_started.wait()
 
-    stop_result = service.cancel_process(handle, reason="user_requested")
+    stop_result = service.cancel_process("process-stop", access=requestor)
     await task
 
     assert stop_result.cancelled is True
@@ -235,10 +240,8 @@ async def test_stop_during_gateway_cancels_process_in_gateway_phase() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cancel_of_uncontrollable_process_publishes_request_event_with_requestor_label() -> (
-    None
-):
-    """取消不可控进程：发布 not_found 的停止请求判定，workspace 标签取请求方驻留摘要。"""
+async def test_cancel_of_uncontrollable_process_publishes_not_found_request_event() -> None:
+    """取消不可控进程：发布 not_found 的停止请求判定，只关联请求中的 process_id。"""
     sink = RecordingRuntimeEventSink()
     service, composition = await _service(
         GlobalSystemBus(), RuntimeEventPublisher(sink), cpu=ScriptedCPU()
@@ -258,13 +261,11 @@ async def test_cancel_of_uncontrollable_process_publishes_request_event_with_req
     event = cancel_requested[0]
     assert (
         event.process_id,
-        event.workspace_id,
         event.status,
         event.reason,
         event.data,
     ) == (
         "missing-process",
-        _workspace().workspace_id,
         "not_found",
         "user_requested",
         {"cancelled": False},
@@ -280,8 +281,7 @@ async def test_failed_event_carries_domain_error_code() -> None:
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=cpu)
     handle = await _register(composition, service, "问题", process_id="p-domain")
 
-    with pytest.raises(AssetNotReadyError):
-        await service.run_process(handle, stream=False)
+    await collect_events(service, handle)
 
     failed = _chat_events(sink)[-1]
     assert failed.event_type == RuntimeEventType.CHAT_RUN_FAILED
@@ -302,8 +302,7 @@ async def test_failed_event_does_not_expose_exception_text() -> None:
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=cpu)
     handle = await _register(composition, service, "问题", process_id="p-internal")
 
-    with pytest.raises(RuntimeError, match="internal-secret-detail"):
-        await service.run_process(handle, stream=False)
+    await collect_events(service, handle)
 
     failed = _chat_events(sink)[-1]
     assert failed.event_type == RuntimeEventType.CHAT_RUN_FAILED
@@ -321,9 +320,8 @@ async def test_cpu_failure_reason_reaches_done_and_runtime_event(reason):
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=cpu)
     handle = await _register(composition, service, "问题", process_id="cpu-failure")
 
-    events = [event async for event in service.run_process(handle, stream=True)]
+    done = done_data(await collect_events(service, handle))
 
-    done = events[-1]["data"]
     assert done["status"] == "failed"
     assert done["reason"] == "agent_run_failed"
     assert done.get("failure_reason") == reason
@@ -346,11 +344,8 @@ def _hanging_gateway_bus() -> tuple[GlobalSystemBus, asyncio.Event]:
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize("delivery", ["stream", "once"])
-async def test_delivery_leaving_before_terminal_stops_process_with_its_reason(
-    delivery: str,
-) -> None:
-    """交付方在终态前离开（流被关闭或等待被取消）：以交付方给出的原因走普通停止路径，
+async def test_delivery_leaving_before_terminal_stops_process_as_client_disconnected() -> None:
+    """交付方在终态前离开（流被关闭）：以 client_disconnected 走普通停止路径，
     发布停止请求与带生效阶段的 cancelled 事件。"""
     bus, gateway_started = _hanging_gateway_bus()
     sink = RecordingRuntimeEventSink()
@@ -358,19 +353,10 @@ async def test_delivery_leaving_before_terminal_stops_process_with_its_reason(
     service, composition = await _service(bus, RuntimeEventPublisher(sink), process_table=table)
     handle = await _register(composition, service, "问题", process_id="process-left")
 
-    if delivery == "stream":
-        stream = service.run_process(handle, stream=True, detach_reason="client_disconnected")
-        assert (await anext(stream))["event"] == "process_id"
-        await gateway_started.wait()
-        await stream.aclose()
-    else:
-        waiter = asyncio.create_task(
-            service.run_process(handle, stream=False, detach_reason="client_disconnected")
-        )
-        await gateway_started.wait()
-        waiter.cancel()
-        with pytest.raises(asyncio.CancelledError):
-            await waiter
+    stream = service.run_process(handle)
+    assert (await anext(stream))["event"] == "process_id"
+    await gateway_started.wait()
+    await stream.aclose()
     await wait_for_process_exit(table, "process-left")
 
     events = _chat_events(sink)
@@ -407,7 +393,7 @@ async def test_hard_cancelled_process_publishes_cancelled_with_close_reason() ->
         shutdown_wait_seconds=0,
     )
     handle = await _register(composition, service, "问题", process_id="process-hard-cancel")
-    stream = service.run_process(handle, stream=True)
+    stream = service.run_process(handle)
     await anext(stream)
     await asyncio.wait_for(cpu.hang_entered.wait(), timeout=1)
 
@@ -438,7 +424,6 @@ async def test_event_sink_failure_does_not_change_chat_result() -> None:
     service, composition = await _service(bus, RuntimeEventPublisher(_RaisingSink()), cpu=cpu)
     handle = await _register(composition, service, "问题", process_id="process-sink-failure")
 
-    result = await service.run_process(handle, stream=False)
+    done = done_data(await collect_events(service, handle))
 
-    assert isinstance(result, NonStreamingAgentOutcome)
-    assert result.execution_result.status == "completed"
+    assert done["status"] == "completed"

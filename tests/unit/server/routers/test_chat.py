@@ -7,9 +7,9 @@ Chat 路由单元测试
     2. 正常对话 — SSE 事件序列: token → done
     3. MTP 对话 — SSE 事件序列: token → mtp_start → mtp_result → token → done
     4. 异常处理 — SSE error 事件
-    5. 断连 — 交付以 detach_reason="client_disconnected" 运行，响应被取消时
-       交付生成器随之关闭（退订并请求停止由注册入口负责）；生成器从未开始
-       迭代时经 close_process(handle) 关闭进程
+    5. 断连 — 响应被取消时交付生成器随之关闭（退订并以 client_disconnected
+       请求停止由注册入口负责）；生成器从未开始迭代时经 close_process(handle)
+       关闭进程
 """
 
 import asyncio
@@ -60,7 +60,7 @@ def _wired_chat_service(stream_factory):
     """构造按注册→运行编排的 mock 任务进程服务。
 
     ``register_process`` 返回只暴露 ``process_id`` 的进程句柄 stub；
-    ``run_process`` 与生产签名一致地接收 ``(handle, stream=True)``。
+    ``run_process`` 与生产签名一致地只接收进程句柄。
     """
     mock_service = MagicMock()
     mock_service.register_process = AsyncMock(
@@ -188,10 +188,9 @@ class TestChatRegistration:
             "top_p": 0.8,
             "max_tokens": 1024,
         }
-        # run_process 收到注册返回的不透明进程句柄；交付以断连原因订阅
-        run_args, run_kwargs = mock_service.run_process.call_args
+        # run_process 收到注册返回的不透明进程句柄
+        run_args, _ = mock_service.run_process.call_args
         assert run_args[0].process_id == register_kwargs["process_id"]
-        assert run_kwargs == {"stream": True, "detach_reason": "client_disconnected"}
 
     def test_registration_precedes_stream_run(self):
         """正常路径先完成注册（认证+登记），再开始流式运行。"""
@@ -488,10 +487,8 @@ class TestChatDisconnect:
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize("cancelled_while", ["awaiting_event", "awaiting_send"])
-    async def test_disconnect_closes_delivery_subscribed_with_client_disconnected(
-        self, cancelled_while
-    ):
-        """客户端断连：以断连原因订阅的交付生成器被关闭，路由不调用关闭路径。
+    async def test_disconnect_closes_delivery_without_close_path(self, cancelled_while):
+        """客户端断连：交付生成器被关闭（注册入口据此以断连原因请求停止），路由不调用关闭路径。
 
         两种取消时机：响应在等待下一项时被取消（取消直接穿过生成器），以及
         在等待 send 时被取消（生成器停在 yield，由响应收尾关闭）。
@@ -522,10 +519,6 @@ class TestChatDisconnect:
         await asyncio.wait_for(response(self._http_scope(), receive, send), timeout=2)
 
         assert delivery_closed.is_set()
-        assert mock_service.run_process.call_args.kwargs == {
-            "stream": True,
-            "detach_reason": "client_disconnected",
-        }
         mock_service.close_process.assert_not_awaited()
 
     @pytest.mark.asyncio

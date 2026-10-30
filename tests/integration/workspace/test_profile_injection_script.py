@@ -21,7 +21,7 @@ class _ScriptSystems:
     def __init__(self) -> None:
         self.atoms = {}
         self.stopped = 0
-        self.gateways = []
+        self.compositions = []
 
     def build(self, *, config):
         composition = make_access_composition(
@@ -60,7 +60,7 @@ class _ScriptSystems:
             return context
 
         composition.gateway.authenticate = recording_authenticate
-        self.gateways.append((composition.gateway, issued))
+        self.compositions.append((composition, issued))
 
         async def start():
             return None
@@ -104,9 +104,9 @@ async def test_profile_injection_is_idempotent_and_releases_each_context(script_
         atom.meta.workspace_identity.owner_user_id for atom in script_systems.atoms.values()
     } == {"u1"}
     assert script_systems.stopped == 2
-    for gateway, issued in script_systems.gateways:
+    for composition, issued in script_systems.compositions:
         (context,) = issued
-        assert gateway.describe_context(context) is None
+        assert composition.is_revoked(context) is True
 
 
 @pytest.mark.asyncio
@@ -120,5 +120,5 @@ async def test_profile_injection_from_unknown_principal_is_denied_and_stops_syst
     assert error.value.details["reason"] == "unknown_principal"
     assert script_systems.atoms == {}
     assert script_systems.stopped == 1
-    ((_gateway, issued),) = script_systems.gateways
+    ((_composition, issued),) = script_systems.compositions
     assert issued == []

@@ -54,6 +54,7 @@ from hivememory.core.constants import DEFAULT_USER_ID
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import (
     OperationDeniedError,
+    ScopeRequiredError,
 )
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -519,7 +520,7 @@ async def test_chat_stop_cancels_running_process_through_published_registration(
     )
 
     async def drive_stream() -> None:
-        async for _event in process_service.run_process(handle, stream=True):
+        async for _event in process_service.run_process(handle):
             continue
 
     run_task = asyncio.create_task(drive_stream())
@@ -547,9 +548,13 @@ async def test_chat_stop_cancels_running_process_through_published_registration(
     )
 
     await asyncio.wait_for(run_task, timeout=2)
-    # 取消终态后，进程绑定的 context 已随交付收口失效（认证一侧查无记录）。
+    # 取消终态后，进程绑定的 context 已随进程关闭失效，授权以 context_not_issued 拒绝。
     assert issued_contexts, "进程 context 未被捕获"
-    assert stack.registration.gateway.describe_context(issued_contexts[0]) is None
+    with pytest.raises(ScopeRequiredError) as revoked:
+        stack.registration.authorizer.authorize_stage(
+            issued_contexts[0], stack.registration.default_workspace
+        )
+    assert revoked.value.details["reason"] == "context_not_issued"
     # 取消事件的即时判定与终态投影都按注册时绑定的观测标签发布。
     cancel_events = [
         event

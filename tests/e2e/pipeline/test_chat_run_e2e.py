@@ -3,7 +3,7 @@
 
 驱动真实 HiveMemorySystem（真实 LLM + Qdrant）经 TaskProcessService 统一入口，
 验证 v4「一次 chat 调用 = gateway → prepare(检索) → agent run → finalize(记忆落库)」完整闭环：
-- chat(): 非流式完整闭环，finalize 后记忆真实落库 Qdrant
+- 完整闭环：finalize 后记忆真实落库 Qdrant
 - chat(): MTP WRITE 主动生成路径（memory_intent.submit → submit_active → 确定性落库）
 - chat_stream(): 完整事件序列契约（process_id → topic_info → memory_refs → 运行期 → run_status → done）
 - 检索注入：预埋记忆后 chat，memory_refs 携带引用
@@ -18,7 +18,6 @@ from typing import Any
 import pytest
 
 from hivememory.core.models import MemoryAtom, MemoryType
-from hivememory.workspace.process.service import NonStreamingAgentOutcome
 from tests.e2e.conftest import root_access, wait_for_workspace_memories, workspace_for
 from tests.helpers.registered_chat import run_registered_chat, stream_registered_chat
 
@@ -82,17 +81,16 @@ class TestChatRun:
     async def test_chat_full_round_trip_persists_memory(self, e2e_system, e2e_user):
         """chat() 完整闭环：回答 + finalize 触发记忆落库"""
         user_id = e2e_user()
-        result = await run_registered_chat(
+        events = await run_registered_chat(
             e2e_system,
             user_id=user_id,
             message=("我叫小林，我在一家物流公司工作，每天通勤两小时。" "请记住这些关于我的信息。"),
             enable_memory_retrieval=True,
         )
-        assert isinstance(
-            result, NonStreamingAgentOutcome
-        ), f"chat 应返回 agent outcome, 实际 {type(result).__name__}"
-        assert result.execution_result.final_text
-        assert result.execution_result.status == "completed"
+        done = events[-1]
+        assert done["event"] == "done", f"chat 应以 done 结束。events={_event_summary(events)}"
+        assert done["data"].get("final_text")
+        assert done["data"]["status"] == "completed"
 
         # finalize 链路应把对话内容物化为真实记忆
         memories = await wait_for_workspace_memories(e2e_system, user_id, timeout=30.0)
@@ -163,7 +161,7 @@ class TestChatRun:
         验证进程已认领并派发登记意图。
         """
         user_id = e2e_user()
-        result = await run_registered_chat(
+        events = await run_registered_chat(
             e2e_system,
             user_id=user_id,
             message=(
@@ -173,16 +171,14 @@ class TestChatRun:
             ),
             enable_memory_retrieval=False,
         )
-        run_result = result.execution_result
-        assert run_result.status == "completed", f"chat 未正常完成: status={run_result.status}"
-        write_results = [
-            event
-            for event in run_result.turn_events
-            if event.kind == "tool_result" and event.tool_kind == "WRITE"
+        status = events[-1]["data"].get("status")
+        assert status == "completed", f"chat 未正常完成: status={status}"
+        write_statuses = [
+            event["data"]["status"]
+            for event in events
+            if event["event"] == "mtp_result" and event["data"]["verb"] == "WRITE"
         ]
-        assert [event.status for event in write_results] == [
-            "ack"
-        ], "应经 MTP WRITE 登记一次意图，再由进程收尾认领"
+        assert write_statuses == ["ack"], "应经 MTP WRITE 登记一次意图，再由进程收尾认领"
 
         # WRITE 走 Mode B（WriteFocus 直接落库），内容应确定性地包含显式给定文本
         memories = await wait_for_workspace_memories(e2e_system, user_id, timeout=30.0)

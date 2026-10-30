@@ -4,7 +4,7 @@
 可观测事件，不修改进程记录。scope、关联上下文、payload 安全转换与
 best-effort 边界统一由 :class:`RuntimeEventPublisher` 负责。
 
-:class:`BoundProcessEvents` 持有只读观测标签及其绑定发布器，不回指进程
+:class:`BoundProcessEvents` 持有绑定了进程关联字段的发布器，不回指进程
 记录——发布时需要的状态（phase/outcome/stop_reason）由调用方显式传入，
 避免事件发布器与进程记录互相引用。
 """
@@ -60,8 +60,8 @@ class TaskProcessEventEmitter:
     ) -> BoundProcessEvents:
         """绑定一次进程的稳定关联字段。
 
-        ``labels`` 由注册入口在认证成功后绑定一次：事件与 CPU 输入清单
-        共用这组只读字符串，不等于授权或分区，也不携带身份数据。
+        ``labels`` 是注册入口在认证成功后创建的观测标签，只作为事件的关联
+        字段，不等于授权或分区，也不携带身份数据。
         """
         return BoundProcessEvents(
             self._publisher.bind(
@@ -70,25 +70,16 @@ class TaskProcessEventEmitter:
                 process_id=process_id,
                 workspace_id=labels.workspace_id,
                 agent_id=labels.agent_id,
-            ),
-            labels=labels,
+            )
         )
 
-    def cancel_requested(
-        self,
-        result: CancelResult,
-        *,
-        workspace_id: str | None = None,
-    ) -> None:
-        """停止请求的即时判定；进程不存在或不可控时同样发布。
+    def cancel_requested(self, result: CancelResult) -> None:
+        """停止请求找不到可控进程时的即时判定。
 
-        ``workspace_id`` 是观测标签：进程存在时取注册时绑定的标签，否则
-        可传请求方 context 的驻留 workspace 摘要（经认证网关的诊断查询）。
+        进程不存在与请求方无权控制同样呈现为 ``not_found``；事件只带请求中的
+        ``process_id``，不带其他关联字段。
         """
-        self._publisher.bind(
-            process_id=result.process_id,
-            workspace_id=workspace_id,
-        ).emit(
+        self._publisher.bind(process_id=result.process_id).emit(
             RuntimeEventType.CHAT_RUN_CANCEL_REQUESTED,
             status=result.status,
             reason=result.reason,
@@ -101,18 +92,11 @@ class BoundProcessEvents:
 
     发布时的进程状态（status/reason）由调用方显式传入：本类只经注册入口
     写入进程记录的 ``events`` 字段、由进程编排与控制面读取，二者单向
-    依赖，不做互相引用。``labels`` 是注册时绑定的唯一标签载体，也交给
-    CPU 输入清单，标签不参与授权。
+    依赖，不做互相引用。
     """
 
-    def __init__(self, publisher: RuntimeEventPublisher, *, labels: ExecutionLabels) -> None:
+    def __init__(self, publisher: RuntimeEventPublisher) -> None:
         self._publisher = publisher
-        self._labels = labels
-
-    @property
-    def labels(self) -> ExecutionLabels:
-        """注册时绑定的只读观测标签，供事件与 CPU 输入清单共同使用。"""
-        return self._labels
 
     def bind_topic(self, topic_id: str) -> None:
         """prepare 返回后，此后的事件都关联本轮 Topic。"""

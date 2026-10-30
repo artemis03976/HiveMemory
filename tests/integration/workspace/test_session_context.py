@@ -27,7 +27,7 @@ from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
-from tests.helpers.process import make_task_process_service
+from tests.helpers.process import collect_events, make_task_process_service
 from tests.helpers.sessions import make_compaction_checkpoint
 from tests.helpers.workspace import (
     make_access_composition,
@@ -100,7 +100,7 @@ async def test_interleaved_sessions_share_topic_but_not_cpu_or_gateway_history()
                 checkpoint=make_compaction_checkpoint(reduced_through="p1"),
             )
         sessions[name] = handle.session_id
-        await service.run_process(handle, stream=False)
+        await collect_events(service, handle)
     manifest = cpu.calls[-1].manifest
     assert [t.payload.user_message for t in manifest.session_history] == [
         "A0",

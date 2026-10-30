@@ -3,13 +3,14 @@ title: Archived Todo
 status: current
 owner: project
 scope: completed-todo-history
-last_reviewed: 2026-10-27
+last_reviewed: 2026-10-30
 ---
 
 # Archived Todo
 
 本目录保存已完成的修复与技术债处置历史；当前行为从对应事实文档进入，活动待办见 [Todo](../../todo/README.md)。
 
+- [任务进程中无生产使用方的代码与可合并小项](./task-process-unused-paths.md)：2026-10-30 在 `refactor/task-process-unused-paths` 完成，删除只供测试使用的非流式交付、按句柄取消、诊断查询链（`describe_context`、`AccessGrantSummary`）与重复 `process_id` 的注册预检；交付方离开的停止原因合并为 `client_disconnected`，`ExecutionLabels` 移到进程记录，删除对 prepare 结果归属的重复比对；`POST /chat` 与 `POST /chat/stop` 的公开行为不变；当前事实见[任务进程](../../workspace/task-process.md)。
 - [记忆编辑可以给非 Profile 记忆写入 agent_config](./memory-edit-agent-config-type-check.md)：2026-10-27 在 `fix/memory-edit-agent-config-type-check` 完成，Familiar 提交边界的类型约束拒绝非 `AGENT_PROFILE` 原子带 `agent_config`（`InvalidMemoryFieldError`，HTTP 422），检查在写版本记录之前；记忆与 Profile 继续共用编辑入口，不拆 Profile 专用编辑，存量数据无需清理；当前事实见 [Patchouli 生成](../../patchouli/generation.md)第 5 节。
 - [话题折叠计入交互提交的处理时限](./topic-fold-in-interaction-apply.md)：2026-10-27 在 `fix/topic-fold-in-interaction-apply` 完成，交互写入话题即完成应用，折叠作为提交队列中与该话题提交共用排序键的独立工作项，折叠期间同一话题的后续提交在队列中等待、不计入处理时限；LLM relay 摘要新增独立时限，超时与其他回退都接在已有摘要之后；写入成为应用中最后一个可能失败的步骤，apply journal 随之移除，幂等收敛到提交队列；当前事实见[感知与短期话题](../../patchouli/perception.md)第 5 节。
 - [模型推理移出事件循环](./inference-off-event-loop.md)：2026-10-27 在 `feat/model-memory-footprint` 完成，嵌入与重排模型各持有一个推理线程，懒加载与推理不再在事件循环上执行，同一模型的调用逐个进行，Patchouli 停止时在生成 lane 之后释放线程；onnxruntime 创建会话时持有 GIL，模型加载期间事件循环仍会停顿；当前事实见 [Patchouli](../../patchouli/README.md) 第 4 节。

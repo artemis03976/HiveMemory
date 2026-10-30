@@ -169,7 +169,10 @@ class OperationsHarness:
         )
         self.compositions.setdefault(process_id, []).append(composition)
         entry = self.make_entry(composition.authorizer, composition.threads)
-        return ThreadOperationSubmitter(entry, composition.register_main_thread(access))
+        thread = composition.register_main_thread(
+            access, process_id=process_id, agent_id=actor.agent_id
+        )
+        return ThreadOperationSubmitter(entry, thread)
 
     def revoke(self, process_id: str = "test_run") -> None:
         """同步结束测试进程的全部线程并撤销进程 context，不取消调用方任务。"""

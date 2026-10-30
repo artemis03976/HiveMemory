@@ -29,9 +29,6 @@ from hivememory.workspace.process.service import TaskProcessService
 router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["chat"])
 logger = logging.getLogger(__name__)
 
-#: 客户端断连时交付方离开的停止原因。
-CLIENT_DISCONNECTED_REASON = "client_disconnected"
-
 
 class _RegisteredProcessResponse(EventSourceResponse):
     """已注册进程的 SSE 响应：响应收尾时执行交付的收尾回调。
@@ -111,9 +108,7 @@ async def chat(
         started = True
         try:
             # aclosing 保证本生成器被关闭时，交付生成器也随之退订。
-            async with aclosing(
-                service.run_process(handle, stream=True, detach_reason=CLIENT_DISCONNECTED_REASON)
-            ) as events:
+            async with aclosing(service.run_process(handle)) as events:
                 async for event in events:
                     yield {
                         "event": event["event"],

@@ -25,7 +25,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # 公开路由与事件
@@ -254,7 +254,7 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 
 Chat SSE 订阅任务进程的输出通道：进程在自己的 task 中运行，客户端断连时交付以 `client_disconnected` 退订并请求停止，与用户停止走同一条路径，发布 `chat.run.cancel_requested` 与带生效阶段的 `chat.run.cancelled`，本轮输出被丢弃；进入 finalize 后的断连不影响提交。响应不等待进程关闭，详见[任务进程](../workspace/task-process.md#111-流式交付)。
 
-Chat 首个 `process_id` SSE 事件携带 `{process_id, session_id}`；非流式交付的结果也含 `session_id`，但不含 `topic_id`、停止原因与记忆引用。`memory_refs` 保留；不再发布 `topic_info`。有输出的 completed/cancelled/failed 的 done 包含 `topic_id`，对应会话本轮标注；没有 `pool_topics`。无输出的 done 不含 `final_text` 与 `topic_id`。前端通过独立 Topic 列表接口管理短期话题。取消、失败有输出时先 finalize 再交付终态，详见[任务进程](../workspace/task-process.md#8-封口部分输出与结算)。
+Chat 首个 `process_id` SSE 事件携带 `{process_id, session_id}`。`memory_refs` 保留；不再发布 `topic_info`。有输出的 completed/cancelled/failed 的 done 包含 `topic_id`，对应会话本轮标注；没有 `pool_topics`。无输出的 done 不含 `final_text` 与 `topic_id`。前端通过独立 Topic 列表接口管理短期话题。取消、失败有输出时先 finalize 再交付终态，详见[任务进程](../workspace/task-process.md#8-封口部分输出与结算)。
 
 failed done 保留 `reason=agent_run_failed`，CPU 有稳定原因时另带 `failure_reason`；`chat.run.failed.message` 使用该码，不下发异常正文。四类预算原因见[错误模型](./error-model.md#22-agent-run)。done 不包含 `turn_events` 或 `compaction_checkpoint`；检查点以会话读取结果为准，压缩结束事件不代表会话已接受。
 
@@ -270,7 +270,7 @@ Alice 在创建根 frame 前可推送 `context_compaction`，经 CPU 事件 sink
 | `summary_status` | 结束时为 `not_needed`、`completed` 或 `abandoned` |
 | `elapsed_ms` | 结束时的压缩耗时 |
 
-事件沿用 run 的 `stream_sequence`，开始时 `layer=reduction`、覆盖轮数为 0；正常完成压缩产出开始和结束，取消或程序异常可只有开始。它不进入 `turn_events`，不构成本轮输出，也不单独触发封口。非流式交付丢弃交互进度事件，上述 RuntimeEvent 照常发布。
+事件沿用 run 的 `stream_sequence`，开始时 `layer=reduction`、覆盖轮数为 0；正常完成压缩产出开始和结束，取消或程序异常可只有开始。它不进入 `turn_events`，不构成本轮输出，也不单独触发封口。
 
 ### 6.2 Import Bus 导入
 
