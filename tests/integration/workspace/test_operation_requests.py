@@ -172,7 +172,7 @@ async def _derive_thread(access, process_id="process", *, agent_id="test_agent")
     context = await access.authenticate(
         agent_id=agent_id, binding=RunBinding.for_task_process(process_id)
     )
-    return access.register_main_thread(context).access
+    return access.register_main_thread(context, process_id=process_id, agent_id=agent_id).access
 
 
 @pytest.mark.asyncio

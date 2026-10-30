@@ -24,7 +24,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-30
 ---
 
 # 多 Agent 编排
@@ -48,7 +48,7 @@ AliceSystem
 ```
 
 - AgentRunService 是内部运行用例：`run_agent` 面向运行层的 `RunOutput`，创建根 frame 与每次 run 的 Executor，返回 CPU 中立执行结果并发布终态观测；模型预算、视图与压缩交给独立的 `RootContextBuilder`，结果投影放在 `run/result.py`；它是 Alice 作为 CPU 的最外层，被取消时把已产生的输出与已完成检查点组装为 cancelled 结果返回，不再传播取消，没有可交回的内容时才原样传播；
-- AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程。它把进程交来的主线程绑定为线程句柄、检查宿主启停，每次执行都以 `SinkRunOutput` 直接等待运行服务，交互事件推送给进程的 sink，类型化结果作为返回值交回，不区分交付形态；
+- AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程。它把进程交来的主线程绑定为线程句柄、检查宿主启停，每次执行都以 `SinkRunOutput` 直接等待运行服务，交互事件推送给进程的 sink，类型化结果作为返回值交回；
 - AliceSystem 是子系统装配根，通过内核工厂构造 AgentRuntime。Profile 读取与缓存归 workspace，内核不参与多帧调度；
 - RunSession 只拥有一次 run 的 frame registry 与 CALL record，不保存取消信号、活动 frame、frame 调度状态或传输层 stream sequence；
 - RunExecutor 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件。它以协程递归执行 CALL 派生 frame，并在根帧终态只记录一次 run 结果；意图收尾属于任务进程；

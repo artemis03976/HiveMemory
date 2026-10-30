@@ -17,7 +17,7 @@ related_docs:
   - docs/workspace/capability.md
   - docs/architecture/boundaries.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # 应用服务
@@ -58,7 +58,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 
 | 服务（位置） | 当前职责 | 详见 |
 |:---|:---|:---|
-| `TaskProcessService`（`workspace.process`） | 任务请求的唯一注册入口：注册时完成两阶段认证并创建进程，运行已注册的进程（流式与非流式交付、四阶段编排），提供取消与关闭 | [任务进程](../workspace/task-process.md) |
+| `TaskProcessService`（`workspace.process`） | 任务请求的唯一注册入口：注册时完成两阶段认证并创建进程，以流式交付运行已注册的进程（四阶段编排），提供取消与关闭 | [任务进程](../workspace/task-process.md) |
 | `RootMemoryService`、`RootMemoryTaskService`、`RootAgentProfileService`、`RootSessionService`、`RootTopicService`、`RootWorkspaceAssetService`（`workspace.capability.root`） | 以 root 授权提供 Memory、记忆任务、Profile、会话、话题与附件上传的管理用例 | [能力层](../workspace/capability.md#3-root-api) |
 | `ImportBusService`（`system.application`） | 外部 harness 一轮完整交互的导入：导入授权后委托编排器；关闭时等待在途导入 | 第 3 节；[Import Bus](./import-bus.md) |
 | `SystemReadinessService`（`system.application`） | 模型 warmup、ready 和简短 readiness 状态 | 第 3 节 |

@@ -28,7 +28,7 @@ from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import CPUPort, OperationEntry
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.runner import TaskProcessRunner
-from hivememory.workspace.process.service import TaskProcessService
+from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.process.threads import ProcessThreads
 from hivememory.workspace.read_view import WorkspaceReadView
@@ -104,6 +104,25 @@ def make_task_process_service(
     )
 
 
+async def collect_events(
+    service: TaskProcessService, handle: ProcessHandle
+) -> list[dict[str, Any]]:
+    """经流式交付把进程运行到结束，返回全部流式事件；最后一项读出时进程已经关闭。"""
+    return [event async for event in service.run_process(handle)]
+
+
+def done_data(events: list[dict[str, Any]]) -> dict[str, Any]:
+    """取流式交付终态 ``done`` 的数据；最后一项不是 ``done`` 时以实际事件失败。"""
+    assert events[-1]["event"] == "done", events[-1]
+    return events[-1]["data"]
+
+
+def error_code(events: list[dict[str, Any]]) -> str | None:
+    """取流式交付终态 ``error`` 的错误码：Workspace 领域错误带码，其余错误为 ``None``。"""
+    assert events[-1]["event"] == "error", events[-1]
+    return events[-1]["data"].get("code")
+
+
 def process_state(table: ProcessTable, process_id: str) -> tuple[str, str, str | None] | None:
     """读取已登记进程的 (阶段, 结局, 停止原因)；未登记或已注销时为 ``None``。"""
     process = table.get(process_id)
@@ -125,4 +144,11 @@ async def wait_for_process_exit(
     await asyncio.wait_for(asyncio.wait((process.task,)), timeout)
 
 
-__all__ = ["make_task_process_service", "process_state", "wait_for_process_exit"]
+__all__ = [
+    "collect_events",
+    "done_data",
+    "error_code",
+    "make_task_process_service",
+    "process_state",
+    "wait_for_process_exit",
+]

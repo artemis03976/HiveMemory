@@ -9,7 +9,6 @@ from uuid import uuid4
 
 from hivememory.core.access import CallerPrincipal
 from hivememory.core.models import ActorIdentity
-from hivememory.workspace.process.outputs import NonStreamingResult
 from hivememory.workspace.process.service import ProcessHandle
 from tests.helpers.workspace import make_workspace_identity
 
@@ -36,13 +35,14 @@ async def _register_chat(
 
 async def run_registered_chat(
     system, *, user_id: str, message: str, **options: Any
-) -> NonStreamingResult:
-    """非流式公开注册与运行，任何结局都经注册入口关闭。"""
-    handle = await _register_chat(system, user_id=user_id, message=message, **options)
-    try:
-        return await system.process_service.run_process(handle, stream=False)
-    finally:
-        await system.process_service.close_process(handle)
+) -> list[dict[str, Any]]:
+    """公开注册并经流式交付运行到结束，返回全部流式事件。"""
+    return [
+        event
+        async for event in stream_registered_chat(
+            system, user_id=user_id, message=message, **options
+        )
+    ]
 
 
 async def stream_registered_chat(
@@ -51,7 +51,7 @@ async def stream_registered_chat(
     """流式公开注册与运行，消费提前结束时也释放进程句柄。"""
     handle = await _register_chat(system, user_id=user_id, message=message, **options)
     try:
-        async with aclosing(system.process_service.run_process(handle, stream=True)) as events:
+        async with aclosing(system.process_service.run_process(handle)) as events:
             async for event in events:
                 yield event
     finally:

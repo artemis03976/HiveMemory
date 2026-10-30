@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/application-services.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-30
 ---
 
 # Gateway 全局命令
@@ -92,7 +92,7 @@ Registry 在 Gateway Runtime 装配时创建并注册内置命令；`gateway.com
 | `matched` | `not_implemented` | `command.unavailable` | “系统指令 <命令名> 暂不可用。” |
 | `unknown`、`invalid_args`、`ambiguous` | `rejected` | `command.parse.<解析状态>` | 解析错误 |
 
-`command_id` 取解析结果的 `effective_command_id`：解析成功时为定义的 `command_id`；解析失败时 `command_id` 为空，回退为解析出的命令名，切分失败连命令名都没有时为 `unknown`。命令终态不携带客户端动作。流式交付仍发出 `command_result` 与 `done`，非流式返回 `NonStreamingCommandOutcome`；`chat.run.completed` 与 `gateway.workflow.completed` 事件都带 `command_id`。
+`command_id` 取解析结果的 `effective_command_id`：解析成功时为定义的 `command_id`；解析失败时 `command_id` 为空，回退为解析出的命令名，切分失败连命令名都没有时为 `unknown`。命令终态不携带客户端动作。流式交付仍发出 `command_result` 与 `done`；`chat.run.completed` 与 `gateway.workflow.completed` 事件都带 `command_id`。
 
 命令不可用是命令自身的终态，不是进程失败，也不会回退到普通 chat。
 

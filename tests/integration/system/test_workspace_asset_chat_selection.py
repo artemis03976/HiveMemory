@@ -23,7 +23,12 @@ from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.attachment_parsing import ChunkedSource, make_upload_access, make_upload_service
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.process import make_task_process_service
+from tests.helpers.process import (
+    collect_events,
+    done_data,
+    error_code,
+    make_task_process_service,
+)
 from tests.helpers.workspace import make_identity_scope
 from tests.unit.workspace.process.test_gateway_chat_flow import (
     _profile_route,
@@ -144,10 +149,10 @@ async def test_uploaded_ready_asset_can_be_selected_by_task_process() -> None:
             AttachmentSelectionRequest(asset_ref=first.handle.asset_ref),
         ],
     )
-    result = await service.run_process(process, stream=False)
+    events = await collect_events(service, process)
 
     # 用户选择只作为 compiler input：实际使用顺序由编译产物冻结，经封口 payload 交给 finalize。
-    assert result.kind == "agent"
+    assert done_data(events)["status"] == "completed"
     assert list(finalize_kwargs["payload"].used_attachments) == [
         second.handle.asset_ref,
         first.handle.asset_ref,
@@ -198,8 +203,9 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
             AttachmentSelectionRequest(asset_ref=receipt.handle.asset_ref),
         ],
     )
-    with pytest.raises(AssetRemovedError):
-        await service.run_process(process, stream=False)
+    events = await collect_events(service, process)
+
+    assert error_code(events) == AssetRemovedError.code
     # remove 清除全部 representation：同一 ref 不可能复活，也不会残留 lease。
     # 同 Workspace 内已知 ref 的既有 Store 语义是 AssetRemovedError。
     assert store.close_and_clear().leases_cleared == 0
@@ -275,11 +281,10 @@ async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
             ),
         ],
     )
-    result = await service.run_process(process, stream=False)
+    events = await collect_events(service, process)
 
     # 真实 prepare 与进程 CPU 分配完整走通。
-    assert result.kind == "agent"
-    assert result.execution_result.final_text == "完成"
+    assert done_data(events)["final_text"] == "完成"
     assert store.close_and_clear().leases_cleared == 0
 
 

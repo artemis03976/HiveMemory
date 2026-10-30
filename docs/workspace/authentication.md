@@ -23,7 +23,7 @@ related_docs:
   - docs/system/configuration.md
   - docs/system/import-bus.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # 认证与访问登记
@@ -98,7 +98,7 @@ last_reviewed: 2026-10-29
 
 context 是**密封的**凭据：
 
-- 没有公开字段，repr 不显示内容；签发（`_seal`）、读取（`_unseal`）与撤销（`_revoke`）是私有接口，架构测试限定签发与撤销只在认证一侧调用，读取只在操作授权者与认证一侧（派生、线程撤销校验与诊断查询）调用；
+- 没有公开字段，repr 不显示内容；签发（`_seal`）、读取（`_unseal`）与撤销（`_revoke`）是私有接口，架构测试限定签发与撤销只在认证一侧调用，读取只在操作授权者与认证一侧（派生与线程撤销校验）调用；
 - 直接构造被拒绝——只有认证一侧能签发，不存在“未签发的 context”；
 - 复制与序列化被拒绝，修改被拒绝：撤销状态随凭据对象本身，副本不能逃过撤销。
 
@@ -143,8 +143,8 @@ context 只属于一次运行，没有固定有效期，只在以下时点失效
 
 | 类 | 负责 | 依赖 | 调用方 |
 |:---|:---|:---|:---|
-| `ActorAuthenticationGateway` | 唯一对外的认证入口：`authenticate(adapter, principal, actor, workspace, binding)` 依次完成第 1、2 阶段并签发 context；转交单个撤销（`revoke_context`）、撤销全部与诊断查询；实现进程侧的线程 context 生命周期端口（派生主线程与子线程、撤销线程 context）；关闭（拒绝新认证） | `PrincipalAuthenticator` 端口、`WorkspaceAuthenticator` | 运行持有者：server（请求级 context）、注册入口（进程 context）；System；进程线程管理只经生命周期端口 |
-| `WorkspaceAuthenticator` | 第 2 阶段：检查 actor 用户等于要进入的 Workspace 的 owner，准入记录存在且启用；签发写有授予内容的 context；从进程 context 派生主线程与（经被调用方准入的）子线程 context；撤销（单个、只限线程 context 的撤销、全部）；诊断查询（授予内容摘要，只用于日志与观测标签） | Workspace Actor 访问注册表 | 只有认证网关 |
+| `ActorAuthenticationGateway` | 唯一对外的认证入口：`authenticate(adapter, principal, actor, workspace, binding)` 依次完成第 1、2 阶段并签发 context；转交单个撤销（`revoke_context`）与撤销全部；实现进程侧的线程 context 生命周期端口（派生主线程与子线程、撤销线程 context）；关闭（拒绝新认证） | `PrincipalAuthenticator` 端口、`WorkspaceAuthenticator` | 运行持有者：server（请求级 context）、注册入口（进程 context）；System；进程线程管理只经生命周期端口 |
+| `WorkspaceAuthenticator` | 第 2 阶段：检查 actor 用户等于要进入的 Workspace 的 owner，准入记录存在且启用；签发写有授予内容的 context；从进程 context 派生主线程与（经被调用方准入的）子线程 context；撤销（单个、只限线程 context 的撤销、全部） | Workspace Actor 访问注册表 | 只有认证网关 |
 
 认证与授权互不依赖：两者都只读同一份访问注册表，经 context 这个类型发生联系；操作授权者见[身份与授权](./identity-and-authorization.md#4-操作授权)。
 

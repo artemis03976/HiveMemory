@@ -17,7 +17,7 @@ from fastapi.testclient import TestClient
 
 from hivememory.core.access import AccessRunType, WorkspaceAccessContext
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.models import IdentityScope, WorkspaceIdentity
+from hivememory.core.models import ActorIdentity, IdentityScope, WorkspaceIdentity
 from hivememory.server import deps
 from hivememory.server.deps import (
     RequestIdentityClaims,
@@ -253,18 +253,20 @@ class TestChatEntryIdentity:
 
 class TestStopEntryIdentity:
     @staticmethod
-    def _stop_service_mock(composition, *, cancelled, status):
-        """取消发生时快照请求级 context 的授予摘要；请求结束后它已失效。
+    def _stop_service_mock(composition, *, user_id, cancelled, status):
+        """取消发生时经 root 授权确认请求级 context 的身份；请求结束后它已失效。
 
-        返回 ``(mock_service, summaries)``：``summaries`` 记录 cancel_process
-        被调用时刻经认证网关取回的授予摘要（此时 context 尚未随请求收尾失效）。
+        返回 ``(mock_service, scopes)``：``scopes`` 记录 cancel_process 被调用
+        时刻对 ``user_id`` 默认 Workspace 的 root 授权结果（此时 context 尚未随
+        请求收尾失效）；只有驻留在该 Workspace 的 system 声明能通过 root 授权。
         """
 
-        summaries: list = []
+        scopes: list[IdentityScope] = []
         mock_service = MagicMock()
+        workspace = deps.resolve_default_workspace_identity(user_id)
 
         def fake_cancel(process_id, *, access):
-            summaries.append(composition.gateway.describe_context(access))
+            scopes.append(composition.authorizer.authorize_root(access, workspace))
             return MagicMock(
                 process_id=process_id,
                 cancelled=cancelled,
@@ -273,12 +275,12 @@ class TestStopEntryIdentity:
             )
 
         mock_service.cancel_process = MagicMock(side_effect=fake_cancel)
-        return mock_service, summaries
+        return mock_service, scopes
 
     def test_stop_without_identity_selection_uses_single_fallback(self):
         overrides, composition = make_server_access_overrides()
-        mock_service, summaries = self._stop_service_mock(
-            composition, cancelled=False, status="not_found"
+        mock_service, scopes = self._stop_service_mock(
+            composition, user_id="default", cancelled=False, status="not_found"
         )
         app, _ = _create_chat_app(mock_service, (overrides, composition))
         client = TestClient(app)
@@ -288,17 +290,17 @@ class TestStopEntryIdentity:
         assert response.status_code == 200
         assert response.json()["cancelled"] is False
         # stop 不是 Agent action：请求以缺省回退的 (default, system) 声明认证
-        assert len(summaries) == 1
-        assert summaries[0].actor_user_id == "default"
-        assert summaries[0].agent_id == SYSTEM_AGENT_ID
+        assert [scope.actor_identity for scope in scopes] == [
+            ActorIdentity(user_id="default", agent_id=SYSTEM_AGENT_ID)
+        ]
         # 请求结束后请求级 context 已失效
         access = mock_service.cancel_process.call_args.kwargs["access"]
-        assert composition.gateway.describe_context(access) is None
+        assert composition.is_revoked(access) is True
 
     def test_stop_uses_header_selection_for_ownership_check(self):
         overrides, composition = make_server_access_overrides(users=["u1"])
-        mock_service, summaries = self._stop_service_mock(
-            composition, cancelled=True, status="stop_requested"
+        mock_service, scopes = self._stop_service_mock(
+            composition, user_id="u1", cancelled=True, status="stop_requested"
         )
         app, _ = _create_chat_app(mock_service, (overrides, composition))
         client = TestClient(app)
@@ -312,12 +314,12 @@ class TestStopEntryIdentity:
         assert response.status_code == 200
         assert response.json()["cancelled"] is True
         # 取消发生时请求级 context 仍有效，且以 header 选择的 (u1, system) 声明签发
-        assert len(summaries) == 1
-        assert summaries[0].actor_user_id == "u1"
-        assert summaries[0].agent_id == SYSTEM_AGENT_ID
+        assert [scope.actor_identity for scope in scopes] == [
+            ActorIdentity(user_id="u1", agent_id=SYSTEM_AGENT_ID)
+        ]
         # 请求结束后请求级 context 已失效
         access = mock_service.cancel_process.call_args.kwargs["access"]
-        assert composition.gateway.describe_context(access) is None
+        assert composition.is_revoked(access) is True
 
 
 class TestAuthenticateRequestAccess:
@@ -335,6 +337,15 @@ class TestAuthenticateRequestAccess:
         claims = deps.resolve_request_identity_claims(
             deps.RequestIdentitySelection(user_id="u1", workspace_id=None),
         )
+        # 网关的认证输入就是被测契约：记录交给网关的来源与运行绑定。
+        authenticated: list[dict] = []
+        authenticate = composition.gateway.authenticate
+
+        async def recording_authenticate(**kwargs):
+            authenticated.append(kwargs)
+            return await authenticate(**kwargs)
+
+        composition.gateway.authenticate = recording_authenticate  # type: ignore[method-assign]
 
         access = await deps.authenticate_request_access(
             claims,
@@ -344,12 +355,10 @@ class TestAuthenticateRequestAccess:
             credential=None,
         )
 
-        summary = composition.gateway.describe_context(access)
-        assert summary.actor_user_id == "u1"
-        assert summary.agent_id == SYSTEM_AGENT_ID
-        assert summary.workspace_id == claims.workspace.workspace_id
-        assert summary.principal_id == composition.principal.principal_id
-        assert summary.run_type == AccessRunType.REQUEST.value
+        scope = composition.authorizer.authorize_root(access, claims.workspace)
+        assert scope.actor_identity == ActorIdentity(user_id="u1", agent_id=SYSTEM_AGENT_ID)
+        assert [call["principal"] for call in authenticated] == [composition.principal]
+        assert authenticated[0]["binding"].run_type is AccessRunType.REQUEST
 
 
 class TestRequestAccessResolvedOncePerRequest:

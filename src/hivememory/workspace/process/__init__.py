@@ -7,8 +7,8 @@
 所有进程共用的执行器 ``TaskProcessRunner``（``runner``）持有编排依赖，在
 进程 task 中经全局总线的公开路由驱动 Gateway → Patchouli prepare → CPU 分配
 （``allocation``）→ Actor 执行（经组合根注入的 CPU 端口调用 CPU）→
-finalize，阶段产出写入输出通道，流式交付订阅通道、非流式交付等待终态
-（``outputs``）。进程表是进程内共享设施，以 ``process_id`` 为键登记任务
+finalize，阶段产出写入输出通道，由流式交付订阅（``outputs``）。进程表是
+进程内共享设施，以 ``process_id`` 为键登记任务
 进程，进程记录经进程取得；控制请求经注册入口的进程控制授权。
 ``chat.run.*`` 观测事件由领域 emitter（``events``）投影。工作集登记关闭时
 仍需释放或补偿的资源，随进程关闭由取得它们的一方释放；Actor 阶段的执行线程
@@ -17,11 +17,6 @@ finalize，阶段产出写入输出通道，流式交付订阅通道、非流式
 """
 
 from hivememory.workspace.process.allocation import CPUAllocator
-from hivememory.workspace.process.outputs import (
-    NonStreamingAgentOutcome,
-    NonStreamingCommandOutcome,
-    NonStreamingResult,
-)
 from hivememory.workspace.process.runner import TaskProcessRunner
 from hivememory.workspace.process.service import TaskProcessService
 from hivememory.workspace.process.table import (
@@ -37,9 +32,6 @@ from hivememory.workspace.process.working_set import ProcessWorkingSet
 __all__ = [
     "CPUAllocator",
     "CancelResult",
-    "NonStreamingAgentOutcome",
-    "NonStreamingCommandOutcome",
-    "NonStreamingResult",
     "ProcessOutcome",
     "ProcessPhase",
     "ProcessRecord",

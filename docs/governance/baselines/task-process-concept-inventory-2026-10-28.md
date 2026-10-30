@@ -16,7 +16,7 @@ code_paths:
   - src/hivememory/alice/interface/cpu.py
 related_docs:
   - docs/governance/baselines/v0.7.0-code-structure-causes-2026-10-18.md
-  - docs/todo/task-process-unused-paths.md
+  - docs/archive/todo/task-process-unused-paths.md
   - docs/workspace/task-process.md
   - docs/workspace/execution-threads.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
@@ -127,7 +127,7 @@ last_reviewed: 2026-10-28
 
 | 项 | 处置 |
 |:---|:---|
-| 第 3、4 节 | 登记为 Todo：[任务进程中无生产使用方的代码与可合并小项](../../todo/task-process-unused-paths.md) |
+| 第 3、4 节 | 登记为 Todo：[任务进程中无生产使用方的代码与可合并小项](../../archive/todo/task-process-unused-paths.md)（2026-10-30 完成并归档） |
 | 第 5 节 | 未排期。修改系统关闭流程时，先核实第 5 节的前提再决定 |
 | 第 6 节 | 保留。建议 controller 模式重新排期之前，不再往这一层增加中立抽象；上一份基线 3.2 的候选方向（收窄 CPU 边界）仍未排期 |
 | 第 8 节 | 只记录，controller 模式落地时评估 |

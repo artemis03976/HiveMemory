@@ -4,10 +4,9 @@
 有输出时封口交互记录并 finalize，对子系统的一切调用都经全局总线
 的公开路由完成，Actor 执行经组合根注入的 CPU 端口（``workspace.contracts``
 的 :class:`CPUPort`）完成。骨架运行在进程自己的 task 中，只把类型化的阶段
-产出写入进程的输出通道（见 ``workspace.process.outputs``），不区分交付
-形态：CPU 总是逐项推送交互事件，订阅通道的流式交付逐条转交，不订阅的
-非流式交付只取终态；两种交付共用同一条阶段顺序、同一组取消响应点与同一个
-关闭流程。进入 Gateway 之前，骨架先请求 Patchouli 在后台预取推理模型。
+产出写入进程的输出通道（见 ``workspace.process.outputs``）：CPU 逐项推送
+交互事件，订阅通道的流式交付逐条转交。进入 Gateway 之前，骨架先请求
+Patchouli 在后台预取推理模型。
 
 执行器跨进程共享、不持有任何进程的状态：它只持有编排依赖，每次运行与
 关闭都以 :class:`TaskProcess` 为参数，进程的全部状态（进程记录、任务参数、
@@ -30,8 +29,8 @@ from hivememory.components.trace_context import (
     reset_trace_context,
     set_trace_context,
 )
-from hivememory.core.errors import WorkspaceDomainError, WorkspaceMismatchError
-from hivememory.core.models import AgentProfile, IdentityScope, WorkspaceIdentity
+from hivememory.core.errors import WorkspaceDomainError
+from hivememory.core.models import AgentProfile, IdentityScope
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode, GatewaySessionTurn
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.core.protocol.sealing import seal_interaction
@@ -60,6 +59,7 @@ from hivememory.workspace.process.outputs import (
     TerminalOutput,
 )
 from hivememory.workspace.process.table import (
+    CLIENT_DISCONNECTED_STOP_REASON,
     ProcessOutcome,
     ProcessPhase,
     ProcessRecord,
@@ -129,21 +129,6 @@ async def _run_interruptible(
         control.unbind_phase(task)
 
 
-def _require_prepared_workspace(
-    prepared: PreparedAgentRun,
-    belong_to: WorkspaceIdentity,
-) -> None:
-    """拒绝 prepare 返回与任务目标 Workspace 不一致的结果。"""
-    if prepared.belong_to != belong_to:
-        raise WorkspaceMismatchError(
-            "PreparedAgentRun 与任务目标 Workspace 不一致",
-            details={
-                "requested_workspace": belong_to.workspace_id,
-                "prepared_workspace": prepared.belong_to.workspace_id,
-            },
-        )
-
-
 @dataclass
 class _ReturnedResult:
     """Actor 子 task 与阶段函数共享的局部状态：CPU 返回的终态结果。
@@ -159,9 +144,8 @@ class TaskProcessRunner:
     """任务进程执行器：四阶段编排骨架与关闭流程，跨进程共享。
 
     :meth:`run` 是唯一的编排骨架，:meth:`close` 是唯一的关闭流程；两者都
-    以进程为参数、都运行在进程 task 中，执行器自身不保存任何进程的状态，
-    也不区分交付形态：CPU 总是逐项产出交互事件，由交付方决定订阅还是只取
-    终态。执行器与 ``CPUAllocator`` 由组合根构建并注入注册入口。
+    以进程为参数、都运行在进程 task 中，执行器自身不保存任何进程的状态。
+    执行器与 ``CPUAllocator`` 由组合根构建并注入注册入口。
 
     阶段调用由进程编排负责，每次调用前校验准入与任务目标 Workspace，
     不检查 actor 操作白名单。授权返回的 ``IdentityScope`` 保留进程 actor，
@@ -191,19 +175,15 @@ class TaskProcessRunner:
 
     # ========== 编排骨架 ==========
 
-    async def run(self, process: TaskProcess) -> TerminalOutput:
-        """在进程 task 中按四阶段顺序推进，返回终态产出；结束时执行 :meth:`close`。
+    async def run(self, process: TaskProcess) -> None:
+        """在进程 task 中按四阶段顺序推进，把终态产出写入输出通道；结束时执行 :meth:`close`。
 
-        阶段产出写入进程的输出通道，终态产出既写入通道、也作为返回值交给
-        等待进程 task 的一方。停止与普通异常都收口为终态产出，只有硬取消以
-        ``CancelledError`` 结束；无论哪种结局，关闭流程都在 ``finally`` 中
-        执行一次。
+        停止与普通异常都收口为终态产出，只有硬取消以 ``CancelledError`` 结束；
+        无论哪种结局，关闭流程都在 ``finally`` 中执行一次。
         """
         trace_tokens = set_trace_context(process.trace_id, "TaskProcess", "foreground")
         try:
-            terminal = await self._execute(process)
-            await process.outputs.send(terminal)
-            return terminal
+            await process.outputs.send(await self._execute(process))
         finally:
             try:
                 await self.close(process)
@@ -288,7 +268,9 @@ class TaskProcessRunner:
         # 交付方离开或系统关闭时丢弃本轮；用户停止晚于 CPU 终态时沿用 CPU
         # 的结局，不把完整回复改记为 cancelled。
         if record.discards_output:
-            raise _ProcessCancelled(record.phase, record.stop_reason or "stream_closed")
+            raise _ProcessCancelled(
+                record.phase, record.stop_reason or CLIENT_DISCONNECTED_STOP_REASON
+            )
         has_output = execution_result.has_output
         if has_output:
             await self._seal_and_finalize(
@@ -404,7 +386,7 @@ class TaskProcessRunner:
             request.target_workspace,
             request.session_id,
             process_id=record.process_id,
-            agent_id=record.events.labels.agent_id,
+            agent_id=record.labels.agent_id,
             payload=payload,
             topic_id=prepared.topic_id,
         )
@@ -480,18 +462,15 @@ class TaskProcessRunner:
             gateway_decision=decision,
             enable_memory_retrieval=request.enable_memory_retrieval,
         )
-        # 先写入工作集再校验：关闭流程仍按本进程目标授权；资源 owner
-        # 拒绝清理越域结果，避免补偿路径删除其他 Workspace 的话题。
         working_set.prepared = prepared
         record.events.bind_topic(prepared.topic_id)
-        _require_prepared_workspace(prepared, request.target_workspace)
 
         # CPU 分配的其余部分（附件租借与编译、清单组装）仍在 PREPARE 阶段内完成。
         session = self._sessions.get(request.target_workspace, request.session_id)
         manifest = self._allocator.allocate(
             working_set,
             process_id=record.process_id,
-            labels=record.events.labels,
+            labels=record.labels,
             user_message=request.message,
             agent_profile=agent_profile,
             selections=list(request.attachments),

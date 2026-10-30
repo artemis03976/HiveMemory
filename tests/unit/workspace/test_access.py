@@ -10,9 +10,8 @@
 - 认证一侧的撤销：单个撤销（``revoke``，幂等）与 System 停止时的
   撤销全部（``revoke_all``）之后，context 不再能通过授权
   （``context_not_issued``）；撤销全部不影响之后的新认证；网关关闭只拒绝
-  新认证，已签发的 context 照常可用；诊断查询（``describe``）返回
-  ``AccessGrantSummary``，已撤销返回 ``None``；认证一侧不保留所有者已
-  释放的 context；
+  新认证，已签发的 context 照常可用；认证一侧不保留所有者已释放的
+  context；
 - ``WorkspaceOperationAuthorizer`` 只依赖访问登记：错误类型的凭据在类型
   边界即失败（无 reason）；``authorize_operation`` 显式接收目标
   workspace，目标非驻留（``target_workspace_not_resident``）、目标 owner
@@ -41,7 +40,6 @@ from weakref import ref
 import pytest
 
 from hivememory.core.access import (
-    AccessRunType,
     RunBinding,
     WorkspaceAccessContext,
     WorkspaceOperation,
@@ -54,7 +52,6 @@ from hivememory.core.errors import (
     ThreadEndedError,
 )
 from hivememory.core.models import IdentityScope
-from hivememory.workspace.authentication import AccessGrantSummary
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -77,11 +74,10 @@ def _composition(**record_kwargs):
 
 
 def _assert_revoked(composition, context) -> None:
-    """已撤销的 context 不再能通过授权，诊断查询也不再返回摘要。"""
+    """已撤销的 context 不再能通过授权。"""
     with pytest.raises(ScopeRequiredError) as exc_info:
         composition.authorizer.authorize_operation(context, READ, MAIN)
     assert exc_info.value.details["reason"] == "context_not_issued"
-    assert composition.gateway.describe_context(context) is None
 
 
 # ---------------------------------------------------------------------------
@@ -131,7 +127,7 @@ async def test_context_cannot_be_modified():
 
 
 # ---------------------------------------------------------------------------
-# 认证一侧（WorkspaceAuthenticator）：撤销、诊断与网关关闭
+# 认证一侧（WorkspaceAuthenticator）：撤销与网关关闭
 # ---------------------------------------------------------------------------
 
 
@@ -182,30 +178,6 @@ async def test_gateway_close_rejects_new_auth_but_keeps_issued_contexts():
     assert auth_info.value.details["reason"] == "authentication_gateway_closed"
     assert (
         composition.authorizer.authorize_operation(context, READ, MAIN).workspace_identity == MAIN
-    )
-
-
-@pytest.mark.asyncio
-async def test_describe_returns_grant_summary_for_issued_context():
-    """诊断查询返回授予内容摘要：actor/驻留/principal/运行绑定逐项一致。"""
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
-        default_workspace=MAIN,
-        principal_id="local-process:test",
-    )
-    context = await composition.authenticate(
-        agent_id="a1",
-        user_id="u1",
-        binding=RunBinding.for_task_process("process-1"),
-    )
-
-    assert composition.gateway.describe_context(context) == AccessGrantSummary(
-        actor_user_id="u1",
-        agent_id="a1",
-        workspace_id=MAIN.workspace_id,
-        principal_id="local-process:test",
-        run_type=AccessRunType.TASK_PROCESS.value,
-        run_id="process-1",
     )
 
 

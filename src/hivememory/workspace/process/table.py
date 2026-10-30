@@ -5,7 +5,7 @@
 进程的控制面经进程取得，不单独登记。
 注册、注销与进程控制授权由注册入口（``workspace.process.service``）负责，
 阶段推进与终态记录由编排骨架（``workspace.process.runner``）负责；
-进程记录只持有访问 context 与进程自身的元数据，不保存身份字段。
+进程记录只持有访问 context、观测标签与进程自身的元数据，不保存身份字段。
 """
 
 from __future__ import annotations
@@ -21,6 +21,7 @@ from hivememory.core.errors import WorkspaceDomainError
 # 记录与相关枚举，反向的运行时导入会形成循环。
 if TYPE_CHECKING:
     from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.core.models import ExecutionLabels
     from hivememory.workspace.process.events import BoundProcessEvents
     from hivememory.workspace.process.task_process import TaskProcess
 
@@ -49,13 +50,11 @@ class ProcessOutcome(str, Enum):
 #: System 关闭时经进程记录送达的停止原因。
 SYSTEM_SHUTDOWN_STOP_REASON = "system_shutdown"
 
-#: 交付方离开时默认的停止原因；HTTP 交付在客户端断连时改用 ``client_disconnected``。
-STREAM_CLOSED_STOP_REASON = "stream_closed"
+#: 交付方离开时的停止原因：流式交付被关闭，或响应在交付开始前就结束。
+CLIENT_DISCONNECTED_STOP_REASON = "client_disconnected"
 
 #: 不是用户决定的停止：交付方已离开或系统关闭，部分输出不写入会话、不提交。
-DISCARDING_STOP_REASONS = frozenset(
-    {"client_disconnected", STREAM_CLOSED_STOP_REASON, SYSTEM_SHUTDOWN_STOP_REASON}
-)
+DISCARDING_STOP_REASONS = frozenset({CLIENT_DISCONNECTED_STOP_REASON, SYSTEM_SHUTDOWN_STOP_REASON})
 
 
 @dataclass(frozen=True)
@@ -85,13 +84,15 @@ class ProcessRecord:
     ``access`` 是注册入口经两阶段认证取得、绑定本进程的访问 context：它是
     记录持有的唯一身份凭据，只交给操作授权者用于授权与控制比对，进程以
     任何结局关闭时由注册入口使其失效。记录不保存 actor、驻留
-    workspace 等身份字段：阶段调用的目标取自任务参数，观测标签（``events``）
-    在注册时用通过认证的声明绑定一次；``events`` 是记录与
-    事件发布器之间唯一的持有关系，发布器不回指记录。
+    workspace 等身份字段：阶段调用的目标取自任务参数。``labels`` 是注册时
+    用通过认证的声明创建一次的观测标签，供事件、会话记录、CPU 输入清单与
+    线程描述使用，不参与授权；``events`` 是记录与事件发布器之间唯一的持有
+    关系，发布器不回指记录。
     """
 
     process_id: str
     access: WorkspaceAccessContext
+    labels: ExecutionLabels
     events: BoundProcessEvents
     phase: ProcessPhase = ProcessPhase.CREATED
     outcome: ProcessOutcome = ProcessOutcome.RUNNING
@@ -224,12 +225,12 @@ class ProcessTable:
 
 
 __all__ = [
+    "CLIENT_DISCONNECTED_STOP_REASON",
     "CancelResult",
     "ProcessOutcome",
     "ProcessPhase",
     "ProcessRecord",
     "ProcessTable",
-    "STREAM_CLOSED_STOP_REASON",
     "SYSTEM_SHUTDOWN_STOP_REASON",
     "StopResult",
 ]

@@ -4,7 +4,7 @@
 
 - :class:`ActorAuthenticationGateway` 是唯一对外的认证入口：依次调用
   ``PrincipalAuthenticator``（第 1 阶段）与 :class:`WorkspaceAuthenticator`
-  （第 2 阶段），转交 context 的撤销与诊断查询，并负责关闭（拒绝新认证）；
+  （第 2 阶段），转交 context 的撤销，并负责关闭（拒绝新认证）；
 - :class:`WorkspaceAuthenticator` 负责第 2 阶段准入，签发写有授予内容的
   密封 context，并负责撤销。
 
@@ -34,7 +34,6 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from weakref import WeakSet
 
 from hivememory.core.access import (
@@ -51,34 +50,16 @@ from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.workspace.registry import WorkspaceActorAccessRegistry
 
 __all__ = [
-    "AccessGrantSummary",
     "ActorAuthenticationGateway",
     "WorkspaceAuthenticator",
 ]
-
-
-@dataclass(frozen=True, slots=True)
-class AccessGrantSummary:
-    """授予内容的只读摘要，仅供日志与观测标签使用。
-
-    本摘要不能作为授权依据：授权仍必须把 context 交给操作授权者；摘要中
-    的坐标不构成准入或授权结论。
-    """
-
-    actor_user_id: str
-    agent_id: str
-    workspace_id: str
-    principal_id: str
-    run_type: str
-    run_id: str
-    thread_id: str | None = None
 
 
 class WorkspaceAuthenticator:
     """第 2 阶段 Workspace 认证：准入、签发与撤销（认证一侧）。
 
     准入 :meth:`admit` 由认证网关与本类的子线程派生调用；撤销（:meth:`revoke`、
-    :meth:`revoke_all`）与诊断查询（:meth:`describe`）只经认证网关转交。
+    :meth:`revoke_all`）只经认证网关转交。
     签发的 context 自带密封的授予内容，本类只记住"签发过哪些仍可能存活
     的 context"，用于 System 停止时撤销全部；没有自身的关闭状态——关闭
     只在认证网关，已签发的 context 照常可用，直到被撤销。该机制维护可信
@@ -208,27 +189,6 @@ class WorkspaceAuthenticator:
             context._revoke()
         self._issued.clear()
 
-    def describe(self, access: WorkspaceAccessContext) -> AccessGrantSummary | None:
-        """返回授予内容的只读摘要；已撤销返回 ``None``。
-
-        只用于日志与观测标签（如取消入口为观测事件取请求方的驻留
-        workspace 标签），不能作为授权依据。
-        """
-        if type(access) is not WorkspaceAccessContext:
-            raise TypeError("describe 只接受 WorkspaceAccessContext")
-        grant = access._unseal()
-        if grant is None:
-            return None
-        return AccessGrantSummary(
-            actor_user_id=grant.actor.user_id,
-            agent_id=grant.actor.agent_id,
-            workspace_id=grant.workspace.workspace_id,
-            principal_id=grant.principal.principal_id,
-            run_type=grant.binding.run_type.value,
-            run_id=grant.binding.run_id,
-            thread_id=grant.binding.thread_id,
-        )
-
 
 class ActorAuthenticationGateway:
     """统一 Actor Authentication 网关（workspace 认证入口）。
@@ -239,8 +199,8 @@ class ActorAuthenticationGateway:
     两项均通过才签发 ``WorkspaceAccessContext``，签发时写入运行绑定：
     任务进程 context 绑定本进程的 ``process_id``，请求级
     context 绑定入口为本次请求生成的标识。网关是唯一对外的认证入口：
-    context 的撤销与诊断查询都经这里转交认证一侧，运行持有者不
-    直接接触 ``WorkspaceAuthenticator``。
+    context 的撤销经这里转交认证一侧，运行持有者不直接接触
+    ``WorkspaceAuthenticator``。
 
     生命周期：context 不设固定有效期，
     随绑定的任务进程关闭、CPU 执行结束、请求结束或 System 停止而失效。
@@ -292,10 +252,6 @@ class ActorAuthenticationGateway:
     def revoke_all_contexts(self) -> None:
         """System 停止时撤销全部已签发 context；此后它们不再能通过授权。"""
         self._authenticator.revoke_all()
-
-    def describe_context(self, access: WorkspaceAccessContext) -> AccessGrantSummary | None:
-        """返回授予内容的只读摘要（日志与观测标签专用）；转交认证一侧。"""
-        return self._authenticator.describe(access)
 
     async def authenticate(
         self,

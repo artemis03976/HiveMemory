@@ -13,6 +13,7 @@ from hivememory.core.access import (
     WorkspaceOperation,
 )
 from hivememory.core.constants import SYSTEM_AGENT_ID
+from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
 from hivememory.core.models import (
     ActorIdentity,
     AgentProfile,
@@ -148,7 +149,7 @@ def make_actor_access_record(
 class AccessTestComposition:
     """一次性装配的认证与授权两侧组合，供各层测试显式认证与授权。
 
-    ``gateway`` / ``authenticator`` 是认证一侧（准入、签发、撤销、诊断），
+    ``gateway`` / ``authenticator`` 是认证一侧（准入、签发、撤销），
     ``authorizer`` 是操作授权者（第 3 阶段授权、进程控制授权、CPU 执行
     身份）；两者与生产装配同构：互不依赖，都只读同一份访问登记，授权者
     读取 context 密封的授予内容。
@@ -168,29 +169,46 @@ class AccessTestComposition:
             self.process_table, lifecycle=self.gateway, authorizer=self.authorizer
         )
 
+    def is_revoked(self, context: WorkspaceAccessContext) -> bool:
+        """经操作授权者判断 context 是否已撤销：已撤销的 context 以 ``context_not_issued`` 拒绝。
+
+        兑现凭据先于目标校验，因此任何运行种类的 context 都可以这样判断；
+        仍然有效但驻留在其他 Workspace 的 context 不算撤销。
+        """
+        try:
+            self.authorizer.authorize_stage(context, self.default_workspace)
+        except ScopeRequiredError as error:
+            if error.details.get("reason") == "context_not_issued":
+                return True
+            raise
+        except OperationDeniedError:
+            return False
+        return False
+
     def register_main_thread(
-        self, process: WorkspaceAccessContext, *, profile: AgentProfile | None = None
+        self,
+        process: WorkspaceAccessContext,
+        *,
+        process_id: str,
+        agent_id: str,
+        profile: AgentProfile | None = None,
     ) -> ExecutionThread:
         """测试组合根登记已认证进程，以真实线程管理派生主线程。
 
-        ``profile`` 缺省为只带进程 Agent 身份的图纸；主线程的操作快照按访问
-        登记读取。
+        ``process_id`` 与 ``agent_id`` 必须与认证 ``process`` 时的运行绑定和
+        actor 声明一致，与注册入口一样由登记方提供；``profile`` 缺省为只带
+        该 Agent 身份的图纸，主线程的操作快照按访问登记读取。
         """
-        summary = self.gateway.describe_context(process)
-        if summary is None:
-            raise ValueError("进程 context 已失效")
         events = TaskProcessEventEmitter(RuntimeEventPublisher(NullRuntimeEventSink()))
+        labels = ExecutionLabels(
+            agent_id=agent_id, workspace_id=self.default_workspace.workspace_id
+        )
         task = TaskProcess(
             record=ProcessRecord(
-                process_id=summary.run_id,
+                process_id=process_id,
                 access=process,
-                events=events.for_process(
-                    process_id=summary.run_id,
-                    labels=ExecutionLabels(
-                        agent_id=summary.agent_id, workspace_id=summary.workspace_id
-                    ),
-                    trace_id="test",
-                ),
+                labels=labels,
+                events=events.for_process(process_id=process_id, labels=labels, trace_id="test"),
             ),
             request=ProcessRequest(
                 session_id="test-session",
@@ -202,22 +220,33 @@ class AccessTestComposition:
         task.working_set.dispatch_topic_id = "test-topic"
         task.record.enter_phase(ProcessPhase.ACTOR)
         self.process_table.register(task)
-        return self.threads.derive_main(task, profile or AgentProfile(agent_id=summary.agent_id))
+        return self.threads.derive_main(task, profile or AgentProfile(agent_id=agent_id))
 
     async def authenticate_main_thread(
-        self, *, process_id: str = "test_run", **kwargs
+        self, *, process_id: str = "test_run", agent_id: str = "test_agent", **kwargs
     ) -> ExecutionThread:
         """先认证进程再登记进程并派生主线程，返回交给 CPU 驱动的执行线程。"""
-        process = await self.authenticate(binding=RunBinding.for_task_process(process_id), **kwargs)
-        return self.register_main_thread(process)
+        process = await self.authenticate(
+            agent_id=agent_id, binding=RunBinding.for_task_process(process_id), **kwargs
+        )
+        return self.register_main_thread(process, process_id=process_id, agent_id=agent_id)
 
     async def authenticate_thread(
-        self, *, process_id: str = "test_run", register_process: bool = False, **kwargs
+        self,
+        *,
+        process_id: str = "test_run",
+        agent_id: str = "test_agent",
+        register_process: bool = False,
+        **kwargs,
     ) -> WorkspaceAccessContext:
         """先认证进程再派生主线程，actor API 测试不自行构造或解封 context。"""
-        process = await self.authenticate(binding=RunBinding.for_task_process(process_id), **kwargs)
+        process = await self.authenticate(
+            agent_id=agent_id, binding=RunBinding.for_task_process(process_id), **kwargs
+        )
         if register_process:
-            return self.register_main_thread(process).access
+            return self.register_main_thread(
+                process, process_id=process_id, agent_id=agent_id
+            ).access
         return self.gateway.derive_thread_context(process)
 
     async def authenticate(

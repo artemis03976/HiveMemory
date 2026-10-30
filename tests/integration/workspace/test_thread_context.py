@@ -35,12 +35,9 @@ async def test_derivation_preserves_identity_and_binds_main_thread(composition):
     assert composition.authorizer.get_thread_binding(thread) == RunBinding.for_execution_thread(
         "process-1", "main"
     )
-    summary = composition.gateway.describe_context(thread)
-    assert summary.principal_id == composition.principal.principal_id
-    assert (summary.run_type, summary.run_id, summary.thread_id) == (
-        "execution_thread",
-        "process-1",
-        "main",
+    assert (
+        composition.authorizer.authorize_import(thread, composition.default_workspace).principal_id
+        == composition.principal.principal_id
     )
 
 
@@ -116,7 +113,8 @@ async def test_thread_queries_reject_other_run_types(composition, binding):
         composition.authorizer.get_thread_binding(context)
     with pytest.raises(ScopeRequiredError, match="线程 context"):
         composition.gateway.revoke_thread_context(context)
-    assert composition.gateway.describe_context(context).run_id == binding.run_id
+    # 被拒绝的线程撤销不影响原 context。
+    assert composition.is_revoked(context) is False
 
 
 @pytest.mark.asyncio
@@ -146,11 +144,12 @@ async def test_child_derivation_uses_callee_admission_and_preserves_process_coor
     assert scope.actor_identity.agent_id == "worker"
     assert scope.actor_identity.user_id == "test_user"
     assert scope.workspace_identity == composition.default_workspace
-    summary = composition.gateway.describe_context(child)
-    assert (summary.principal_id, summary.run_id, summary.thread_id) == (
-        composition.principal.principal_id,
-        "process-1",
-        "child-1",
+    assert composition.authorizer.get_thread_binding(child) == RunBinding.for_execution_thread(
+        "process-1", "child-1"
+    )
+    assert (
+        composition.authorizer.authorize_import(child, composition.default_workspace).principal_id
+        == composition.principal.principal_id
     )
     composition.gateway.revoke_all_contexts()
     with pytest.raises(ThreadEndedError):

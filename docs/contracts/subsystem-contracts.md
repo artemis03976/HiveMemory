@@ -17,7 +17,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # 子系统公共契约
@@ -278,7 +278,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 
 端口语义：
 
-- **推送与返回**：执行过程中，CPU 经 `events` 逐项推送交互事件；结束时返回唯一的终态结果 `CPUExecutionResult`。端口不区分交付形态：进程的非流式交付丢弃交互事件、只取终态，CPU 照常推送。
+- **推送与返回**：执行过程中，CPU 经 `events` 逐项推送交互事件；结束时返回唯一的终态结果 `CPUExecutionResult`。
 - **交互事件**：带 `event` 与 `data` 的字典，进程写入输出通道后原样转交给流式交付，不做解释。sink 由进程定义：订阅者暂停、通道写满时等待（背压），停止时在等待处抛出 `asyncio.CancelledError`。
 - **结局**：执行者自报的结局经终态结果的 `status` 表达；执行者抛出普通异常，由进程按失败处理，不接受任何候选结果。
 - **取消**：用户停止时，进程以原生 `asyncio.CancelledError` 取消正在执行的协程。CPU 内部各层原样传播取消并完成收尾，只在最外层把取消转换为返回值：返回 cancelled 结果，携带已产生的输出与已完成的检查点，`status` 如实描述 CPU 的结局。没有转换、直接传播取消的 CPU 按无输出的取消处理，`has_output` 排除初始用户输入事件。CPU 返回之后到达的停止不改写这个结局（停止晚于终态时仍是 completed）。

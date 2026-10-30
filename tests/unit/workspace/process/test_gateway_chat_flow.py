@@ -2,7 +2,7 @@
 
 被测边界：``TaskProcessService`` 注册入口与四阶段编排在命令短路、完成、
 取消与失败路径上的行为，以及各阶段停止的响应点。注册经真实认证网关完成两阶段认证（组合内
-显式登记）并返回进程句柄；停止请求经句柄 stop 入口注入；Actor 阶段以
+显式登记）并返回进程句柄；停止请求以 process_id 加请求级 context 注入；Actor 阶段以
 测试 CPU 替换 Alice（总线上不注册 Alice 路由），子系统路由用
 GlobalSystemBus 上的替身隔离。
 """
@@ -59,7 +59,13 @@ from tests.helpers.chat_handoff import (
 )
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.process import make_task_process_service, wait_for_process_exit
+from tests.helpers.process import (
+    collect_events,
+    done_data,
+    error_code,
+    make_task_process_service,
+    wait_for_process_exit,
+)
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
@@ -151,21 +157,10 @@ async def _run_once(
     *,
     process_id: str,
     **kwargs,
-):
-    handle = await _register(composition, service, message, process_id=process_id, **kwargs)
-    return await service.run_process(handle, stream=False)
-
-
-async def _stream_events(
-    composition: AccessTestComposition,
-    service: TaskProcessService,
-    message: str,
-    *,
-    process_id: str,
-    **kwargs,
 ) -> list[dict]:
+    """注册并经流式交付运行到结束，返回全部流式事件。"""
     handle = await _register(composition, service, message, process_id=process_id, **kwargs)
-    return [event async for event in service.run_process(handle, stream=True)]
+    return await collect_events(service, handle)
 
 
 def _decision_outcome() -> GatewayDecisionOutcome:
@@ -278,27 +273,30 @@ def _register_profile(bus: GlobalSystemBus) -> None:
 
 
 @pytest.mark.asyncio
-async def test_non_streaming_command_short_circuits_patchouli_and_cpu() -> None:
-    """命令只解析不执行：进程把解析结果转为"暂不可用"终态，不调用 prepare/Profile/CPU。"""
+async def test_command_short_circuits_patchouli_and_cpu() -> None:
+    """命令只解析不执行：进程把解析结果转为"暂不可用"终态，只发出 command_result 与 done，
+    不调用 prepare/Profile/CPU。"""
     bus = GlobalSystemBus()
     gateway = AsyncMock(return_value=_command_outcome())
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, cpu)
-    result = await _run_once(composition, service, "/clear", process_id=f"process_{uuid4().hex}")
+    events = await _run_once(composition, service, "/clear", process_id=f"process_{uuid4().hex}")
 
-    assert result.kind == "command"
-    assert result.command_execution_result.command_id == "system.clear"
-    assert result.command_execution_result.status == CommandExecutionStatus.NOT_IMPLEMENTED
-    assert result.command_execution_result.error_code == "command.unavailable"
-    assert result.command_execution_result.client_action is None
+    assert [event["event"] for event in events] == ["process_id", "command_result", "done"]
+    command_result = events[1]["data"]
+    assert command_result["command_id"] == "system.clear"
+    assert command_result["status"] == CommandExecutionStatus.NOT_IMPLEMENTED.value
+    assert command_result["error_code"] == "command.unavailable"
+    assert command_result["client_action"] is None
+    assert done_data(events)["final_text"] == "系统指令 /clear 暂不可用。"
     assert cpu.calls == []
     assert bus.list_routes() == [GatewayPublicRoutes.PROCESS, PatchouliRoutes.MEMORY_INTENT_SUBMIT]
 
 
 @pytest.mark.asyncio
-async def test_non_streaming_decision_uses_one_prepare_cpu_finalize_sequence() -> None:
+async def test_decision_uses_one_prepare_cpu_finalize_sequence() -> None:
     bus = GlobalSystemBus()
     calls: list[str] = []
 
@@ -326,10 +324,9 @@ async def test_non_streaming_decision_uses_one_prepare_cpu_finalize_sequence() -
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     service, composition = await _service(bus, _RecordingCPU(result=make_cpu_result()))
-    result = await _run_once(composition, service, "问题", process_id="process-sequence")
+    events = await _run_once(composition, service, "问题", process_id="process-sequence")
 
-    assert result.kind == "agent"
-    assert result.execution_result.final_text == "完成"
+    assert done_data(events)["final_text"] == "完成"
     assert calls == ["gateway", "prepare", "cpu", "finalize"]
 
 
@@ -354,56 +351,15 @@ async def test_model_prefetch_precedes_gateway_and_its_failure_does_not_affect_p
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
 
     service, composition = await _service(bus)
-    result = await _run_once(composition, service, "问题", process_id="process-prefetch")
+    events = await _run_once(composition, service, "问题", process_id="process-prefetch")
 
-    assert result.kind == "agent"
-    assert result.execution_result.final_text == "完成"
+    assert done_data(events)["final_text"] == "完成"
     assert calls == ["prefetch", "gateway"]
 
 
 @pytest.mark.asyncio
-async def test_completed_non_streaming_process_seals_interaction_payload() -> None:
-    """完成的非流式进程：交给 finalize 的交互记录由进程封口，逐字段等于各阶段产出。"""
-    bus = GlobalSystemBus()
-    turn_events = make_mtp_turn_events()
-    submitted = []
-
-    async def write(submit):
-        submitted.append(
-            await submit(SubmitWriteIntentRequest(focus=WriteFocus(content="记住这一点")))
-        )
-
-    finalize_kwargs: dict = {}
-    cpu = ScriptedCPU(
-        result=make_cpu_result(
-            turn_events=turn_events,
-        ),
-        operation_script=write,
-    )
-
-    async def finalize(**kwargs):
-        finalize_kwargs.update(kwargs)
-        return []
-
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-
-    service, composition = await _service(bus, cpu)
-    result = await _run_once(composition, service, "问题", process_id="process-seal-once")
-
-    assert result.kind == "agent"
-    _assert_sealed_payload(
-        finalize_kwargs["payload"],
-        turn_events=turn_events,
-        submitted=submitted,
-    )
-
-
-@pytest.mark.asyncio
-async def test_completed_streaming_process_seals_interaction_payload() -> None:
-    """完成的流式进程：与非流式共用同一封口，CPU 终态结果逐字段进入交互记录。"""
+async def test_completed_process_seals_interaction_payload() -> None:
+    """完成的进程：交给 finalize 的交互记录由进程封口，CPU 终态结果逐字段进入交互记录。"""
     bus = GlobalSystemBus()
     turn_events = make_mtp_turn_events()
     submitted = []
@@ -433,7 +389,7 @@ async def test_completed_streaming_process_seals_interaction_payload() -> None:
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
     service, composition = await _service(bus, cpu)
-    events = await _stream_events(composition, service, "问题", process_id="process-seal-stream")
+    events = await _run_once(composition, service, "问题", process_id="process-seal-stream")
 
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "completed"
@@ -506,7 +462,7 @@ async def test_streaming_done_omits_sealing_only_result_fields(
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
     service, composition = await _service(bus, cpu)
-    events = await _stream_events(
+    events = await _run_once(
         composition, service, "问题", process_id=f"process-done-{status.value}"
     )
 
@@ -516,31 +472,6 @@ async def test_streaming_done_omits_sealing_only_result_fields(
     assert done["data"]["status"] == status.value
     assert done["data"]["final_text"] == "完成"
     assert done["data"]["model_used"] == "glm-4"
-
-
-@pytest.mark.asyncio
-async def test_streaming_command_emits_result_and_done_only() -> None:
-    """流式命令请求：command_result 为"暂不可用"终态且不带客户端动作，随后 done 收口。"""
-    bus = GlobalSystemBus()
-    bus.register(
-        GatewayPublicRoutes.PROCESS,
-        AsyncMock(return_value=_command_outcome()),
-    )
-
-    service, composition = await _service(bus)
-    events = await _stream_events(
-        composition, service, "/clear", process_id="process-stream-command"
-    )
-
-    assert [event["event"] for event in events] == [
-        "process_id",
-        "command_result",
-        "done",
-    ]
-    assert events[1]["data"]["status"] == "not_implemented"
-    assert events[1]["data"]["error_code"] == "command.unavailable"
-    assert events[1]["data"]["client_action"] is None
-    assert events[2]["data"]["final_text"] == "系统指令 /clear 暂不可用。"
 
 
 @pytest.mark.asyncio
@@ -567,7 +498,7 @@ async def test_completed_stream_uses_one_process_id_for_events_and_downstream_ro
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
     service, composition = await _service(bus, cpu)
-    events = await _stream_events(
+    events = await _run_once(
         composition,
         service,
         "问题",
@@ -621,7 +552,7 @@ async def test_stage_routes_receive_only_authorizer_assembled_identity_scope() -
 
     service, composition = await _service(bus)
     # 流式交付只保留阶段调用，话题池由独立管理入口读取。
-    await _stream_events(composition, service, "问题", process_id="process-scope-only")
+    await _run_once(composition, service, "问题", process_id="process-scope-only")
 
     assert "access" not in captured["gateway"]
     assert captured["gateway"]["identity_scope"] == _expected_scope()
@@ -689,15 +620,14 @@ async def test_finalize_reauthorizes_and_revoked_admission_closes_completed_cpu_
         operation_authorizer=authorizer,
     )
     issued = _capture_issued_contexts(composition)
-    with pytest.raises(ScopeRequiredError) as error:
-        await _run_once(composition, service, "问题", process_id="process-finalize-denied")
+    events = await _run_once(composition, service, "问题", process_id="process-finalize-denied")
 
-    assert error.value.details == {"reason": "actor_not_admitted"}
+    assert error_code(events) == ScopeRequiredError.code
     assert len(cpu.calls) == 1
     assert cpu.finished is True
     assert finalized == []
     assert cleaned == []
-    assert composition.gateway.describe_context(issued[0]) is None
+    assert composition.is_revoked(issued[0]) is True
 
 
 @pytest.mark.asyncio
@@ -729,12 +659,12 @@ async def test_cleanup_admission_denial_skips_route_and_still_closes_process(cap
         operation_authorizer=authorizer,
     )
     issued = _capture_issued_contexts(composition)
-    result = await _run_once(composition, service, "问题", process_id="process-cleanup-denied")
+    events = await _run_once(composition, service, "问题", process_id="process-cleanup-denied")
 
-    assert result.execution_result.status == "failed"
+    assert done_data(events)["status"] == "failed"
     assert cleaned == []
     assert "清理 prepared run 失败" in caplog.text
-    assert composition.gateway.describe_context(issued[0]) is None
+    assert composition.is_revoked(issued[0]) is True
 
 
 @pytest.mark.asyncio
@@ -748,20 +678,21 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
 
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
     service, composition = await _service(bus)
+    requestor = await composition.authenticate(agent_id=_AGENT)
     handle = await _register(composition, service, "问题", process_id="process-gateway")
 
-    task = asyncio.create_task(service.run_process(handle, stream=False))
+    task = asyncio.create_task(collect_events(service, handle))
     await started.wait()
-    stop_result = service.cancel_process(handle, reason="user_requested")
-    result = await task
+    stop_result = service.cancel_process("process-gateway", access=requestor)
+    events = await task
 
     assert stop_result.cancelled is True
-    assert result.kind == "agent"
-    assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
+    assert done_data(events)["status"] == CPUExecutionStatus.CANCELLED.value
 
 
 @pytest.mark.asyncio
-async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
+async def test_cpu_self_reported_cancel_skips_finalize_and_cleans_prepared_run() -> None:
+    """CPU 自报取消且无输出：done 为 stopped 的 cancelled，不调用 finalize，并补偿 prepare 结果。"""
     bus = GlobalSystemBus()
     prepared_holder: dict = {}
     cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.CANCELLED, final_text=""))
@@ -785,12 +716,15 @@ async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
         PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
         cleanup,
     )
+    finalize = AsyncMock(return_value=[])
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     service, composition = await _service(bus, cpu)
-    result = await _run_once(composition, service, "问题", process_id="process-cancel-cleanup")
+    events = await _run_once(composition, service, "问题", process_id="process-cancel-cleanup")
 
-    assert result.kind == "agent"
-    assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
+    done = done_data(events)
+    assert (done["status"], done["stopped"]) == (CPUExecutionStatus.CANCELLED.value, True)
+    finalize.assert_not_awaited()
     # cleanup 只在唯一的关闭流程中补偿一次本进程 prepare 的结果，scope 来自
     # 关闭前的阶段再授权。
     cleanup.assert_awaited_once_with(
@@ -799,7 +733,8 @@ async def test_non_streaming_cancel_after_prepare_cleans_prepared_run() -> None:
 
 
 @pytest.mark.asyncio
-async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() -> None:
+async def test_failed_agent_run_keeps_failed_status_and_skips_finalize() -> None:
+    """CPU 自报失败且无输出：done 保持 failed（不改记为取消），不调用 finalize，补偿 prepare 结果。"""
     bus = GlobalSystemBus()
     finalize = AsyncMock(return_value=[])
     cleanup = AsyncMock(return_value=True)
@@ -818,67 +753,11 @@ async def test_non_streaming_failed_agent_run_is_not_rewritten_as_cancelled() ->
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
 
     service, composition = await _service(bus, cpu)
-    result = await _run_once(composition, service, "问题", process_id="process-cpu-failed")
+    events = await _run_once(composition, service, "问题", process_id="process-cpu-failed")
 
-    assert result.execution_result.status == CPUExecutionStatus.FAILED.value
+    done = done_data(events)
+    assert (done["status"], done["stopped"]) == (CPUExecutionStatus.FAILED.value, True)
     finalize.assert_not_awaited()
-    cleanup.assert_any_await(
-        prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
-    )
-
-
-@pytest.mark.asyncio
-async def test_streaming_cpu_self_reported_cancel_skips_finalize_and_reports_stopped_done() -> None:
-    """CPU 自报取消且无输出：流式交付发出 cancelled 的 done，finalize 路由全程未被调用。"""
-    bus = GlobalSystemBus()
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.CANCELLED, final_text=""))
-    finalize_calls: list = []
-
-    async def finalize(**kwargs):
-        finalize_calls.append(kwargs)
-        return []
-
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-
-    service, composition = await _service(bus, cpu)
-    events = await _stream_events(composition, service, "hello", process_id="process-cpu-cancel")
-
-    done_events = [event for event in events if event["event"] == "done"]
-    assert [(event["data"]["status"], event["data"]["stopped"]) for event in done_events] == [
-        ("cancelled", True)
-    ]
-    assert finalize_calls == []
-
-
-@pytest.mark.asyncio
-async def test_streaming_failed_agent_run_preserves_failed_done_status() -> None:
-    bus = GlobalSystemBus()
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
-    bus.register(
-        GatewayPublicRoutes.PROCESS,
-        AsyncMock(return_value=_decision_outcome()),
-    )
-    _register_profile(bus)
-    prepared_holder: dict = {}
-    bus.register(
-        PatchouliRoutes.PREPARE_AGENT_RUN,
-        _recording_prepared_route(prepared_holder),
-    )
-    cleanup = AsyncMock(return_value=True)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
-
-    service, composition = await _service(bus, cpu)
-    events = await _stream_events(
-        composition, service, "问题", process_id="process-cpu-failed-stream"
-    )
-
-    assert events[-1]["event"] == "done"
-    assert events[-1]["data"]["status"] == CPUExecutionStatus.FAILED.value
-    assert events[-1]["data"]["stopped"] is True
     cleanup.assert_any_await(
         prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
     )
@@ -918,17 +797,18 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_cpu_and_finalize
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service, composition = await _service(bus, cpu)
+    requestor = await composition.authenticate(agent_id=_AGENT)
     handle = await _register(composition, service, "问题", process_id="process-prepare")
 
-    task = asyncio.create_task(service.run_process(handle, stream=False))
+    task = asyncio.create_task(collect_events(service, handle))
     await prepare_started.wait()
-    stop_result = service.cancel_process(handle, reason="user_requested")
+    stop_result = service.cancel_process("process-prepare", access=requestor)
     release_prepare.set()
-    result = await task
+    events = await task
 
     assert stop_result.cancelled is True
     assert prepare_cancelled is False
-    assert result.execution_result.status == CPUExecutionStatus.CANCELLED.value
+    assert done_data(events)["status"] == CPUExecutionStatus.CANCELLED.value
     assert cpu.calls == []
     finalize.assert_not_awaited()
     cleanup.assert_any_await(
@@ -967,8 +847,9 @@ async def test_actor_stop_takes_effect_while_waiting_on_cpu_or_channel(blocked_o
     service, composition = await _service(
         bus, cpu, process_table=table, event_publisher=RuntimeEventPublisher(sink)
     )
+    requestor = await composition.authenticate(agent_id=_AGENT)
     handle = await _register(composition, service, "问题", process_id="process-actor-stop")
-    stream = service.run_process(handle, stream=True)
+    stream = service.run_process(handle)
     first = await anext(stream)
 
     if blocked_on == "cpu":
@@ -976,7 +857,7 @@ async def test_actor_stop_takes_effect_while_waiting_on_cpu_or_channel(blocked_o
     else:
         await asyncio.wait_for(cpu.last_event_entered.wait(), timeout=1)
         assert cpu.hang_entered.is_set() is False
-    stop_result = service.cancel_process(handle, reason="user_requested")
+    stop_result = service.cancel_process("process-actor-stop", access=requestor)
     await wait_for_process_exit(table, "process-actor-stop")
     events = [first, *[event async for event in stream]]
 
@@ -1015,17 +896,18 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service, composition = await _service(bus)
+    requestor = await composition.authenticate(agent_id=_AGENT)
     handle = await _register(composition, service, "问题", process_id="process-finalize")
 
-    task = asyncio.create_task(service.run_process(handle, stream=False))
+    task = asyncio.create_task(collect_events(service, handle))
     await finalize_started.wait()
-    stop_result = service.cancel_process(handle, reason="user_requested")
+    stop_result = service.cancel_process("process-finalize", access=requestor)
     release_finalize.set()
-    result = await task
+    events = await task
 
     assert stop_result.cancelled is False
     assert stop_result.reason == "already_finalizing"
-    assert result.execution_result.status == CPUExecutionStatus.COMPLETED.value
+    assert done_data(events)["status"] == CPUExecutionStatus.COMPLETED.value
     cleanup.assert_not_awaited()
 
 
@@ -1044,7 +926,7 @@ async def test_streaming_workspace_domain_error_yields_safe_code() -> None:
 
     service, composition = await _service(bus)
     handle = await _register(composition, service, "问题", process_id="process-domain-error")
-    events = [event async for event in service.run_process(handle, stream=True)]
+    events = await collect_events(service, handle)
 
     errors = [event for event in events if event["event"] == "error"]
     assert len(errors) == 1

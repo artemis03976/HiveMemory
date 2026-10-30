@@ -30,13 +30,13 @@ async def make_process(access, table, process_id="p"):
     """已认证并登记到进程表、处于 Actor 阶段且已冻结派发话题的任务进程。"""
     context = await access.authenticate(binding=RunBinding.for_task_process(process_id))
     events = TaskProcessEventEmitter(RuntimeEventPublisher(NullRuntimeEventSink()))
+    labels = make_execution_labels()
     process = TaskProcess(
         record=ProcessRecord(
             process_id=process_id,
             access=context,
-            events=events.for_process(
-                process_id=process_id, labels=make_execution_labels(), trace_id="t"
-            ),
+            labels=labels,
+            events=events.for_process(process_id=process_id, labels=labels, trace_id="t"),
         ),
         request=ProcessRequest(
             session_id="test-session", message="派生", target_workspace=access.default_workspace
@@ -89,7 +89,7 @@ async def test_derivation_registers_threads_in_order_with_their_own_descriptors(
     second = threads.derive_child(parent=main, profile=profile_of("other"))
 
     main_descriptor = process.threads.get("main").descriptor
-    assert main_descriptor.labels == process.record.events.labels
+    assert main_descriptor.labels == process.record.labels
     assert main_descriptor.agent_profile == profile_of("test_agent")
     assert main_descriptor.allowed_operations == frozenset({WorkspaceOperation.MEMORY_READ})
     assert first.descriptor.thread_id == "child-1"
@@ -124,7 +124,7 @@ async def test_end_all_revokes_every_thread_idempotently_and_keeps_registrations
         ("child-1", "main", ThreadState.ENDED),
     ]
     for context in (main, child.access):
-        assert access.gateway.describe_context(context) is None
+        assert access.is_revoked(context) is True
     assert process.threads.next_child_id() == "child-2"
     assert (
         access.authorizer.authorize_stage(
@@ -225,7 +225,7 @@ async def test_thread_of_another_process_cannot_derive_into_it():
 
     child = chain.threads.derive_child(parent=other_main, profile=profile_of("worker"))
 
-    assert chain.access.gateway.describe_context(child.access).run_id == "q"
+    assert chain.access.authorizer.get_thread_binding(child.access).run_id == "q"
     assert [t.thread_id for t in other.threads.snapshot()] == ["main", "child-1"]
     assert [t.thread_id for t in chain.process.threads.snapshot()] == ["main"]
 
@@ -266,7 +266,7 @@ async def test_failed_derivation_leaves_no_registration_or_valid_credential():
 
     assert registered(process) == before
     (issued,) = failing.failed_contexts
-    assert access.gateway.describe_context(issued) is None
+    assert access.is_revoked(issued) is True
     threads.derive_child(parent=main, profile=profile_of("worker"))
     assert [t.thread_id for t in process.threads.snapshot()] == ["main", "child-1"]
 
@@ -289,7 +289,7 @@ async def test_end_child_ends_only_that_child_idempotently():
         ("child-1", "main", ThreadState.ENDED),
         ("child-2", "main", ThreadState.RUNNING),
     ]
-    assert chain.access.gateway.describe_context(first.access) is None
+    assert chain.access.is_revoked(first.access) is True
     with pytest.raises(ThreadEndedError):
         chain.threads.resolve(first.access)
     assert chain.threads.resolve(second.access).thread_id == "child-2"
@@ -306,7 +306,7 @@ async def test_end_child_after_stop_still_revokes_child_credential():
 
     chain.threads.end_child(child.access)
 
-    assert chain.access.gateway.describe_context(child.access) is None
+    assert chain.access.is_revoked(child.access) is True
     assert chain.process.threads.get("child-1").state is ThreadState.ENDED
 
 

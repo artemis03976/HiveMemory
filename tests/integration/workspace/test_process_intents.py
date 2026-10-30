@@ -40,7 +40,12 @@ from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.process import make_task_process_service
+from tests.helpers.process import (
+    collect_events,
+    done_data,
+    error_code,
+    make_task_process_service,
+)
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 pytestmark = pytest.mark.integration
@@ -123,8 +128,8 @@ async def test_process_terminal_status_preserves_dispatched_intents(status):
         message="登记",
     )
     try:
-        result = await service.run_process(handle, stream=False)
-        assert result.execution_result.status == status
+        events = await collect_events(service, handle)
+        assert done_data(events)["status"] == status
         intent, scope = admission.submissions[0]
         assert (intent.topic_id, scope.actor_identity) == (cpu.calls[0].manifest.topic_id, actor)
         assert intent.topic_id == "prebuilt-topic"
@@ -219,7 +224,7 @@ async def test_main_and_child_thread_writes_record_their_own_thread_ids():
         message="归因",
     )
     try:
-        await service.run_process(handle, stream=False)
+        await collect_events(service, handle)
         stored = [
             runtime.intents.get(pending.pending_alias, access.default_workspace)
             for pending in submitted
@@ -310,11 +315,10 @@ async def test_finalize_authorization_failure_preserves_dispatched_intents():
         message="登记",
     )
     try:
-        with pytest.raises(ScopeRequiredError) as exc_info:
-            await service.run_process(handle, stream=False)
+        events = await collect_events(service, handle)
 
         status = runtime.intents.get(submitted[0].pending_alias, workspace).status
-        assert exc_info.value.details["reason"] == "actor_not_admitted"
+        assert error_code(events) == ScopeRequiredError.code
         assert (status, finalized) == (PendingAtomStatus.MATERIALIZING, [])
     finally:
         runtime.close()
@@ -398,7 +402,7 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
         process_id="waiting",
         message="冷读 UPDATE",
     )
-    stream = service.run_process(handle, stream=True)
+    stream = service.run_process(handle)
     try:
         async with asyncio.timeout(1):
             while (await anext(stream))["event"] != "token":

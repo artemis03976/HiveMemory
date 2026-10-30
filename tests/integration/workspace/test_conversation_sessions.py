@@ -16,7 +16,7 @@ from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.process import make_task_process_service
+from tests.helpers.process import collect_events, make_task_process_service
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -146,8 +146,8 @@ async def test_completed_turn_is_saved_before_finalize_and_agents_can_switch():
             session_id=session_id,
         )
         session_id = handle.session_id
-        result = await service.run_process(handle, stream=False)
-        assert result.session_id == session_id
+        events = await collect_events(service, handle)
+        assert events[0]["data"]["session_id"] == session_id
     assert submitted == ["问题0", "问题1"]
     assert [
         (t.agent_id, t.topic_id) for t in store.get(access.default_workspace, session_id).turns

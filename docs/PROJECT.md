@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/contracts/mcp.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # HiveMemory 项目总览
@@ -152,7 +152,7 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 - 任务请求的唯一注册入口：chat 与命令经两阶段认证登记为任务进程，以 `process_id` 标识；进程持有自己的 task 与输出通道，用户停止、交付方断连与系统关闭都由进程在自己的 task 中收尾；
 - 主动 chat：Gateway 决策后执行 Patchouli prepare（话题与检索）、任务进程 CPU 分配（Profile、附件与记忆编译）、经 CPU 端口执行 Actor（当前为 Alice run）、有输出时任务进程封口并追加会话、Patchouli finalize；
 - ConversationSession 的创建、列表、重命名、删除与历史恢复；会话属于 Workspace，逐轮选择 Agent，Alice 从全量原文构建带工具减重与接力摘要的预算视图，Gateway 使用最近 N 轮；原文与压缩检查点仅在进程内保存；
-- SSE 流式 Agent run（另有只取终态的非流式交付，当前只供测试驱动）；
+- SSE 流式 Agent run；
 - 全局系统指令的注册与解析：命令以命令终态结束、不进入普通 chat，当前不执行内置命令（[Gateway 全局命令](./gateway/commands.md)）；
 - Import Bus：外部 harness 一轮已结束交互的整轮导入（`POST /api/v1/import/turns`），经统一认证与导入授权、Gateway 话题落位、共用封口后提交 Patchouli 感知，交互应用完成后才确认，不检索记忆、不返回记忆上下文；仓库附带 Claude Code 插件（`integrations/claude-code/`），其中的连接器在轮次结束与会话开始、结束时把会话记录中已结束的轮次导入，并把插件自身记忆工具的调用标为 SEARCH、READ，避免取回的记忆被再提取；
 - MCP 记忆访问：外部 harness 经 `POST /mcp` 的两个只读工具 `memory_search` 与 `memory_read` 检索与读取记忆；每次工具调用以请求头中的接入身份与凭据经统一认证网关签发一份请求级 context，经操作入口的请求级提交进入 actor API、按访问登记逐次授权，不建进程；Claude Code 插件以 `.mcp.json` 声明这个 MCP server（[MCP 记忆访问](./contracts/mcp.md)）；

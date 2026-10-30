@@ -141,8 +141,8 @@ class WorkspaceAccessContext:
 
     - :meth:`_seal`：签发，只由 ``WorkspaceAuthenticator`` 调用；
     - :meth:`_revoke`：撤销，只由 ``WorkspaceAuthenticator`` 调用；
-    - :meth:`_unseal`：读取授予内容，只由操作授权者与认证一侧的派生、
-      线程撤销校验和诊断查询调用。
+    - :meth:`_unseal`：读取授予内容，只由操作授权者与认证一侧的派生和
+      线程撤销校验调用。
 
     直接构造被拒绝；复制与序列化被拒绝（撤销状态随凭据对象本身，副本
     不能逃过撤销）；按对象身份比较。它不作为可序列化的远端凭据，也不写入

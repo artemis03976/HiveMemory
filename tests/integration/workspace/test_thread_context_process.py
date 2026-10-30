@@ -6,6 +6,7 @@ from types import SimpleNamespace
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.access import RunBinding
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     ActorIdentity,
@@ -20,7 +21,7 @@ from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.process.threads import ProcessThreads
 from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.process import make_task_process_service
+from tests.helpers.process import collect_events, done_data, make_task_process_service
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -143,23 +144,24 @@ async def test_cpu_end_revokes_thread_before_terminal_and_keeps_stage_authorizat
     observed = []
 
     async def inspect_thread(_submit):
-        summary = chain.access.gateway.describe_context(chain.cpu.calls[0].thread.access)
-        observed.append((summary.run_type, summary.run_id, summary.thread_id))
+        observed.append(
+            chain.access.authorizer.get_thread_binding(chain.cpu.calls[0].thread.access)
+        )
 
     cpu = DerivingCPU(chain, **cpu_outcome, operation_script=inspect_thread)
     handle = await register(chain, cpu)
-    stream = chain.service.run_process(handle, stream=True)
+    stream = chain.service.run_process(handle)
     try:
         async with asyncio.timeout(2):
             while (await anext(stream))["event"] not in {"done", "error", "cancelled"}:
                 pass
-        assert chain.access.gateway.describe_context(cpu.calls[0].thread.access) is None
+        assert chain.access.is_revoked(cpu.calls[0].thread.access) is True
         # 终态交付后继续耗尽，确保注册入口的关闭与 cleanup 也执行完成。
         assert [event async for event in stream] == []
     finally:
         await stream.aclose()
 
-    assert observed == [("execution_thread", "thread-lifetime", "main")]
+    assert observed == [RunBinding.for_execution_thread("thread-lifetime", "main")]
     assert chain.stages == expected_stages
 
 
@@ -183,7 +185,7 @@ async def start_hanging_process(chain):
     """CPU 挂起在终态之前，使停止与取消都落在 Actor 阶段内。"""
     cpu = DerivingCPU(chain, hang_before_result=True)
     handle = await register(chain, cpu)
-    return cpu, asyncio.create_task(chain.service.run_process(handle, stream=False))
+    return cpu, asyncio.create_task(collect_events(chain.service, handle))
 
 
 @pytest.mark.asyncio
@@ -195,9 +197,9 @@ async def test_user_stop_revokes_thread_and_keeps_cleanup_authorized(process_cha
         await asyncio.wait_for(cpu.hang_entered.wait(), timeout=2)
         requestor = await chain.access.authenticate(agent_id="omni_doll")
         assert chain.service.cancel_process("thread-lifetime", access=requestor).cancelled
-        terminal = await asyncio.wait_for(task, timeout=2)
+        events = await asyncio.wait_for(task, timeout=2)
 
-        assert terminal.execution_result.status == "cancelled"
+        assert done_data(events)["status"] == "cancelled"
         with pytest.raises(ThreadEndedError):
             await cpu.operation_entry.execute(
                 ResolveReferencesRequest(("missing",)), access=cpu.calls[0].thread.access

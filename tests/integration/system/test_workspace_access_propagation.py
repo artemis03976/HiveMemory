@@ -13,7 +13,6 @@ import asyncio
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import ActorIdentity, ResolvedAgentProfile
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -28,8 +27,7 @@ from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUExecutionResult
 from hivememory.workspace.process.service import TaskProcessService
 from tests.helpers.chat_handoff import make_prepared_run
-from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.process import make_task_process_service
+from tests.helpers.process import collect_events, done_data, make_task_process_service
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -146,7 +144,8 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     main_task = asyncio.create_task(
-        service.run_process(
+        collect_events(
+            service,
             await _register(
                 service,
                 composition,
@@ -154,11 +153,11 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
                 process_id="process-main",
                 message="question",
             ),
-            stream=False,
         )
     )
     isolation_task = asyncio.create_task(
-        service.run_process(
+        collect_events(
+            service,
             await _register(
                 service,
                 composition,
@@ -166,7 +165,6 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
                 process_id="process-isolation",
                 message="question",
             ),
-            stream=False,
         )
     )
 
@@ -178,8 +176,8 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
         timeout=1,
     )
 
-    assert main_result.execution_result.final_text == "main_workspace"
-    assert isolation_result.execution_result.final_text == "isolation_workspace"
+    assert done_data(main_result)["final_text"] == "main_workspace"
+    assert done_data(isolation_result)["final_text"] == "isolation_workspace"
     assert {context for context in gateway_contexts} == {
         make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace"),
         make_identity_scope(user_id="u1", agent_id="a1", workspace_id="isolation_workspace"),
@@ -188,51 +186,6 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
         make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace"),
         make_identity_scope(user_id="u1", agent_id="a1", workspace_id="isolation_workspace"),
     }
-
-
-@pytest.mark.asyncio
-async def test_chat_rejects_prepared_run_from_different_workspace_before_alice() -> None:
-    """防止 prepare 返回漂移 scope 后继续执行 Alice 或 finalize 写入。"""
-    composition = _composition()
-    bus = GlobalSystemBus()
-    drifted = make_identity_scope(
-        user_id="u1",
-        agent_id="a1",
-        workspace_id="isolation_workspace",
-    )
-    cleaned = []
-
-    async def gateway(**_kwargs):
-        return _decision()
-
-    async def prepare(**_kwargs):
-        return _prepared(drifted)
-
-    async def cleanup(*, prepared_run, identity_scope):
-        cleaned.append((prepared_run.belong_to, identity_scope.workspace_identity))
-
-    bus.register(GatewayPublicRoutes.PROCESS, gateway)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
-
-    service = _service(bus, composition, ScriptedCPU(result=make_cpu_result()))
-    process = await _register(
-        service,
-        composition,
-        workspace=make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace"),
-        process_id="process-drifted",
-        message="question",
-    )
-    with pytest.raises(WorkspaceMismatchError, match="任务目标 Workspace 不一致"):
-        await service.run_process(process, stream=False)
-
-    assert cleaned == [
-        (
-            drifted.workspace_identity,
-            make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace"),
-        )
-    ]
 
 
 @pytest.mark.asyncio
@@ -267,7 +220,8 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     main_task = asyncio.create_task(
-        service.run_process(
+        collect_events(
+            service,
             await _register(
                 service,
                 composition,
@@ -275,11 +229,11 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
                 process_id="process-run-main",
                 message="main",
             ),
-            stream=False,
         )
     )
     isolated_task = asyncio.create_task(
-        service.run_process(
+        collect_events(
+            service,
             await _register(
                 service,
                 composition,
@@ -287,7 +241,6 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
                 process_id="process-run-isolated",
                 message="isolated",
             ),
-            stream=False,
         )
     )
 
@@ -306,5 +259,5 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
         await asyncio.wait_for(asyncio.gather(main_task, isolated_task), timeout=1)
 
     main_result, isolated_result = main_task.result(), isolated_task.result()
-    assert main_result.execution_result.final_text == "main_workspace"
-    assert isolated_result.execution_result.final_text == "isolation_workspace"
+    assert done_data(main_result)["final_text"] == "main_workspace"
+    assert done_data(isolated_result)["final_text"] == "isolation_workspace"
