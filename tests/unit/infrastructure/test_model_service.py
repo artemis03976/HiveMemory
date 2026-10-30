@@ -2,6 +2,7 @@
 
 import asyncio
 import itertools
+import logging
 import threading
 from collections.abc import Callable
 
@@ -238,4 +239,70 @@ async def test_failed_reload_makes_service_not_ready_until_next_success(make_ser
 
     fail_next = False
     await service.load()
+    assert service.is_ready() is True
+
+
+@pytest.mark.asyncio
+async def test_prefetch_starts_loading_in_background_and_loads_once(make_service):
+    """预取不等待加载即返回，加载在后台进行；重复预取与随后的推理不重复加载。"""
+    started = threading.Event()
+    release = threading.Event()
+
+    def blocking_loader() -> _FakeModel:
+        started.set()
+        release.wait(_WAIT_SECONDS)
+        return _FakeModel()
+
+    service, _ = make_service(loader=blocking_loader)
+
+    service.prefetch()
+    assert await asyncio.to_thread(started.wait, _WAIT_SECONDS)
+    service.prefetch()
+    release.set()
+    await service.infer(lambda model: model)
+
+    assert len(service.load_threads) == 1
+    assert service.state is ModelLoadState.LOADED
+
+
+@pytest.mark.asyncio
+async def test_close_cancels_prefetch_that_has_not_started(make_service):
+    """关闭时尚未开始的预取被取消，关闭之后不再加载模型。"""
+    started = threading.Event()
+
+    def loader() -> _FakeModel:
+        started.set()
+        return _FakeModel()
+
+    service, _ = make_service(loader=loader)
+
+    service.prefetch()
+    await service.close()
+
+    assert not await asyncio.to_thread(started.wait, _ABSENCE_WINDOW_SECONDS)
+    assert service.state is ModelLoadState.UNLOADED
+
+
+@pytest.mark.asyncio
+async def test_failed_prefetch_is_logged_and_retried_by_next_load(make_service, caplog):
+    """后台加载失败只记录日志并进入失败状态，下一次加载重试。"""
+    attempts = itertools.count()
+    first_attempt = threading.Event()
+
+    def flaky_loader() -> _FakeModel:
+        if next(attempts) == 0:
+            first_attempt.set()
+            raise OSError("model file missing")
+        return _FakeModel()
+
+    service, _ = make_service(loader=flaky_loader)
+
+    with caplog.at_level(logging.WARNING):
+        service.prefetch()
+        assert await asyncio.to_thread(first_attempt.wait, _WAIT_SECONDS)
+        # 排在失败的预取之后：返回时预取任务已经结束。
+        await service.load()
+
+    assert "推理模型预取失败" in caplog.text
+    assert len(service.load_threads) == 2
     assert service.is_ready() is True

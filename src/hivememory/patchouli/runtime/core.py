@@ -185,7 +185,7 @@ class PatchouliRuntime:
         return await self._task_controller.stop()
 
     async def stop_inference_workers(self) -> None:
-        """释放嵌入与重排模型的推理线程，等待在途推理结束。
+        """取消在途的模型预取，释放嵌入与重排模型的推理线程，等待在途推理结束。
 
         在记忆生成 lane 停止之后调用：drain 期间的生成仍需要嵌入编码。
         """
@@ -223,6 +223,15 @@ class PatchouliRuntime:
 
         elapsed = (time.time() - start) * 1000
         logger.info(f"推理模型预热结束 ({elapsed:.0f}ms)")
+
+    async def prefetch_models(self) -> None:
+        """在后台开始加载尚未加载的推理模型并立即返回，不等待加载完成。
+
+        加载任务由各模型服务持有，``stop_inference_workers`` 时取消；已加载或正在加载
+        的模型不受影响。
+        """
+        for service in self._model_services():
+            service.prefetch()
 
     def is_models_ready(self) -> bool:
         """

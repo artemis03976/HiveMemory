@@ -23,9 +23,15 @@ from hivememory.engines.retrieval.reranker import (
     NoopReranker,
     create_reranker,
 )
+from hivememory.infrastructure.model_service import ModelLoadState
 from hivememory.infrastructure.rerank.base import BaseRerankService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
+
+
+def _loaded_service() -> Mock:
+    """模型已在内存中的重排服务替身。"""
+    return Mock(spec=BaseRerankService, state=ModelLoadState.LOADED)
 
 
 @pytest.fixture
@@ -81,7 +87,7 @@ class TestCrossEncoderReranker:
     @pytest.mark.asyncio
     async def test_rerank_basic(self, sample_results, sample_query):
         """测试基本重排序功能"""
-        mock_service = Mock(spec=BaseRerankService)
+        mock_service = _loaded_service()
         # 返回的分数顺序与原始结果不同，测试重排序
         mock_service.compute_score.return_value = [0.5, 0.9, 0.3]
 
@@ -108,7 +114,7 @@ class TestCrossEncoderReranker:
     @pytest.mark.asyncio
     async def test_rerank_empty(self, sample_query):
         """测试空结果处理"""
-        mock_service = Mock(spec=BaseRerankService)
+        mock_service = _loaded_service()
         reranker = CrossEncoderReranker(service=mock_service, config=RerankerConfig())
         empty_results = SearchResults()
 
@@ -120,7 +126,7 @@ class TestCrossEncoderReranker:
     @pytest.mark.asyncio
     async def test_rerank_top_k_filtering(self, sample_results, sample_query):
         """测试 top_k 过滤功能"""
-        mock_service = Mock(spec=BaseRerankService)
+        mock_service = _loaded_service()
         mock_service.compute_score.return_value = [0.5, 0.9]  # 只返回2个分数
 
         config = RerankerConfig(top_k=2)  # 只重排序前2个
@@ -135,7 +141,7 @@ class TestCrossEncoderReranker:
     @pytest.mark.asyncio
     async def test_rerank_no_normalization(self, sample_results, sample_query):
         """测试不标准化分数"""
-        mock_service = Mock(spec=BaseRerankService)
+        mock_service = _loaded_service()
         mock_service.compute_score.return_value = [0.5, 0.9, 0.3]
 
         config = RerankerConfig(top_k=10, normalize_scores=False)
@@ -152,7 +158,7 @@ class TestCrossEncoderReranker:
     @pytest.mark.asyncio
     async def test_rerank_error_fallback(self, sample_results, sample_query):
         """测试计算失败时的降级处理"""
-        mock_service = Mock(spec=BaseRerankService)
+        mock_service = _loaded_service()
         mock_service.compute_score.side_effect = Exception("CUDA OOM")
 
         reranker = CrossEncoderReranker(service=mock_service, config=RerankerConfig())
@@ -165,6 +171,20 @@ class TestCrossEncoderReranker:
         original_scores = [r.score for r in sample_results.results]
         result_scores = [r.score for r in result.results]
         assert original_scores == result_scores
+
+    @pytest.mark.asyncio
+    async def test_unloaded_model_returns_recall_order_and_starts_background_load(
+        self, sample_results, sample_query
+    ):
+        """模型不在内存中时不等待加载：本次按召回顺序原样返回，并在后台开始加载。"""
+        service = Mock(spec=BaseRerankService, state=ModelLoadState.UNLOADED)
+        reranker = CrossEncoderReranker(service=service, config=RerankerConfig())
+
+        result = await reranker.rerank(sample_results, sample_query)
+
+        assert result.results == sample_results.results
+        service.compute_score.assert_not_called()
+        service.prefetch.assert_called_once_with()
 
 
 class TestNoopReranker:

@@ -6,9 +6,11 @@
 ``resident`` 模式加载后一直驻留到进程结束。
 
 加载、推理与卸载都在服务自己的推理线程中逐个执行：推理进行中不会卸载，加载与卸载互不
-重叠，都由同一个线程保证，不另加锁。
+重叠，都由同一个线程保证，不另加锁。预取在后台开始加载、不等待结果，让加载不落在请求
+的关键路径上。
 """
 
+import asyncio
 import ctypes
 import functools
 import gc
@@ -47,7 +49,7 @@ class SingletonModelService[M](ABC):
     线程中取得模型执行。
 
     状态分两组，各只有一个写入方：模型、驻留状态与是否加载过只在推理线程中写入；在途
-    推理数与最近一次使用时间只在事件循环线程中读写。
+    推理数、最近一次使用时间与预取任务只在事件循环线程中读写。
     """
 
     _instances: ClassVar[dict[tuple[type, str], "SingletonModelService[Any]"]] = {}
@@ -95,6 +97,7 @@ class SingletonModelService[M](ABC):
         # 只在事件循环线程中读写。在途推理数包含已提交、尚未开始执行的调用。
         self._in_flight = 0
         self._last_used = self._clock()
+        self._prefetch_task: asyncio.Task[None] | None = None
 
         self._initialized = True
 
@@ -123,6 +126,27 @@ class SingletonModelService[M](ABC):
         """加载模型并等待完成；已加载时只记为一次使用。加载失败时抛出加载错误。"""
         await self._run_with_model(lambda _model: None)
 
+    def prefetch(self) -> None:
+        """在后台开始加载模型并立即返回，必须在事件循环中调用。
+
+        模型已加载、正在加载或已有预取在途时不做任何事。预取任务由服务持有，``close``
+        时取消；加载失败只记录日志，模型进入加载失败状态，下一次推理或预取时重试。
+        """
+        if self._state in (ModelLoadState.LOADED, ModelLoadState.LOADING):
+            return
+        if self._prefetch_task is not None and not self._prefetch_task.done():
+            return
+        self._prefetch_task = asyncio.create_task(
+            self._prefetch(), name=f"model-prefetch:{self.model_name}"
+        )
+
+    async def _prefetch(self) -> None:
+        """预取任务的主体：加载失败在这里记录，不留给无人等待的任务。"""
+        try:
+            await self.load()
+        except Exception as e:
+            logger.warning(f"推理模型预取失败: model={self.model_name}: {e}")
+
     async def unload_if_idle(self) -> None:
         """``idle_unload`` 模式下，模型空闲超过时限时卸载并归还内存。
 
@@ -138,7 +162,15 @@ class SingletonModelService[M](ABC):
         await self._inference.run(self._unload)
 
     async def close(self) -> None:
-        """等待在途调用结束并释放推理线程；模型保持驻留，之后的调用重新创建线程。"""
+        """取消在途的预取，等待在途调用结束并释放推理线程。
+
+        已在推理线程中开始的加载无法中断，等它结束后才释放线程。模型保持驻留，之后的
+        调用重新创建线程。
+        """
+        prefetch, self._prefetch_task = self._prefetch_task, None
+        if prefetch is not None and not prefetch.done():
+            prefetch.cancel()
+            await asyncio.wait((prefetch,))
         await self._inference.close()
 
     async def _run_with_model[**P, T](

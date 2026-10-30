@@ -6,6 +6,8 @@ Rerank 服务基础模块
 
 from abc import ABC, abstractmethod
 
+from hivememory.infrastructure.model_service import ModelLoadState
+
 
 class BaseRerankService(ABC):
     """
@@ -26,3 +28,12 @@ class BaseRerankService(ABC):
             分数列表
         """
         pass
+
+    @property
+    @abstractmethod
+    def state(self) -> ModelLoadState:
+        """模型的驻留状态；不是已加载时，计算分数要先等待加载。"""
+
+    @abstractmethod
+    def prefetch(self) -> None:
+        """在后台开始加载模型并立即返回。"""

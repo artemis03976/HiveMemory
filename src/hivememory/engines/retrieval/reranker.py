@@ -14,6 +14,7 @@ from hivememory.config.patchouli import RerankerConfig
 from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
 from hivememory.engines.retrieval.interfaces import BaseReranker
 from hivememory.engines.retrieval.models import RetrievalQuery, SearchResults
+from hivememory.infrastructure.model_service import ModelLoadState
 from hivememory.infrastructure.rerank.base import BaseRerankService
 
 logger = logging.getLogger(__name__)
@@ -109,6 +110,10 @@ class CrossEncoderReranker(BaseReranker):
         4. 标准化分数并重新排序
         5. 更新 match_reason
 
+        重排模型不在内存中（空闲卸载后或尚未加载完成）时不等待加载：这一次按召回
+        顺序返回，由引擎截取最终条数，并在后台开始加载，之后的检索恢复重排。结果与
+        重排计算失败时的降级相同。
+
         Args:
             results: 检索器返回的召回结果
             query: 处理后的查询
@@ -121,6 +126,13 @@ class CrossEncoderReranker(BaseReranker):
         # 空结果直接返回
         if results.is_empty():
             logger.debug("CrossEncoderReranker: 结果为空，跳过重排序")
+            return results
+
+        if self.service.state is not ModelLoadState.LOADED:
+            logger.warning(
+                f"重排模型未加载（{self.service.state}），本次按召回顺序返回，后台开始加载"
+            )
+            self.service.prefetch()
             return results
 
         # 1. 限制到 top_k 候选 (性能优化)

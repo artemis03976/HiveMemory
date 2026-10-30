@@ -334,6 +334,34 @@ async def test_non_streaming_decision_uses_one_prepare_cpu_finalize_sequence() -
 
 
 @pytest.mark.asyncio
+async def test_model_prefetch_precedes_gateway_and_its_failure_does_not_affect_process() -> None:
+    """进程在 Gateway 之前请求预取推理模型；预取失败只记录日志，进程照常完成。"""
+    bus = GlobalSystemBus()
+    calls: list[str] = []
+
+    async def prefetch_models():
+        calls.append("prefetch")
+        raise RuntimeError("patchouli unavailable")
+
+    async def gateway(**_kwargs):
+        calls.append("gateway")
+        return _decision_outcome()
+
+    bus.register(PatchouliRoutes.PREFETCH_MODELS, prefetch_models)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
+    _register_profile(bus)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+
+    service, composition = await _service(bus)
+    result = await _run_once(composition, service, "问题", process_id="process-prefetch")
+
+    assert result.kind == "agent"
+    assert result.execution_result.final_text == "完成"
+    assert calls == ["prefetch", "gateway"]
+
+
+@pytest.mark.asyncio
 async def test_completed_non_streaming_process_seals_interaction_payload() -> None:
     """完成的非流式进程：交给 finalize 的交互记录由进程封口，逐字段等于各阶段产出。"""
     bus = GlobalSystemBus()

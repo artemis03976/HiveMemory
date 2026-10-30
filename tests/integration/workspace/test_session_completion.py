@@ -66,7 +66,11 @@ async def completion_chain(
     async def cleanup(*, prepared_run, **_kwargs):
         probe.cleaned.append(prepared_run.interaction_id)
 
+    async def prefetch_models() -> None:
+        return None
+
     for route, handler in (
+        (PatchouliRoutes.PREFETCH_MODELS, prefetch_models),
         (GatewayPublicRoutes.PROCESS, gateway),
         (PatchouliRoutes.GET_AGENT_PROFILE, profile),
         (PatchouliRoutes.PREPARE_AGENT_RUN, prepare),

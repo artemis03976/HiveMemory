@@ -257,6 +257,11 @@ class PatchouliRoutes:
         """预热 Patchouli 使用的模型。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
+    @route("patchouli.public.models.prefetch")
+    async def PREFETCH_MODELS() -> None:
+        """在后台开始加载尚未加载的推理模型并立即返回，只保证加载已经开始；已加载或正在加载的模型不受影响。"""
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
     @route("patchouli.public.models.ready")
     async def MODELS_READY() -> bool:
         """读取推理模型是否就绪：每个启用的模型至少成功加载过一次，且当前不处于加载失败状态；空闲卸载不改变就绪。"""
@@ -291,6 +296,7 @@ class PatchouliRoutes:
         EVICT_TOPIC,
         RECORD_MEMORY_CITATION,
         WARMUP_MODELS,
+        PREFETCH_MODELS,
         MODELS_READY,
     )
 

@@ -108,6 +108,7 @@ def build_patchouli_route_bindings(
             runtime.lifecycle_familiar.run_gardening_once,
         ),
         RouteBinding.of(PatchouliLocalRoutes.RUNTIME_MODELS_WARMUP, runtime.warmup_models),
+        RouteBinding.of(PatchouliLocalRoutes.RUNTIME_MODELS_PREFETCH, runtime.prefetch_models),
         RouteBinding.of(PatchouliLocalRoutes.RUNTIME_MODELS_READY, models_ready),
         RouteBinding.of(PatchouliLocalRoutes.RUNTIME_STORAGE_HEALTH, runtime.check_storage_health),
         RouteBinding.of(

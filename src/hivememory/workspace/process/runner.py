@@ -7,7 +7,7 @@
 产出写入进程的输出通道（见 ``workspace.process.outputs``），不区分交付
 形态：CPU 总是逐项推送交互事件，订阅通道的流式交付逐条转交，不订阅的
 非流式交付只取终态；两种交付共用同一条阶段顺序、同一组取消响应点与同一个
-关闭流程。
+关闭流程。进入 Gateway 之前，骨架先请求 Patchouli 在后台预取推理模型。
 
 执行器跨进程共享、不持有任何进程的状态：它只持有编排依赖，每次运行与
 关闭都以 :class:`TaskProcess` 为参数，进程的全部状态（进程记录、任务参数、
@@ -247,6 +247,7 @@ class TaskProcessRunner:
         # 阶段授权只校验准入与目标；Gateway 沿用进程 actor 的 scope
         # 读取话题，actor 是否持有 READ 不影响这次系统编排。
         gateway_scope = self._authorize(process)
+        await self._prefetch_models()
         gateway_result = await _run_interruptible(
             record,
             ProcessPhase.GATEWAY,
@@ -305,6 +306,18 @@ class TaskProcessRunner:
         if execution_result.status is CPUExecutionStatus.FAILED:
             return RunFailed(execution_result, topic_id=topic_id)
         return RunCompleted(execution_result=execution_result, topic_id=topic_id)
+
+    async def _prefetch_models(self) -> None:
+        """在 Gateway 之前请求 Patchouli 在后台加载推理模型，让加载与 Gateway 的 LLM 调用并行。
+
+        在阶段授权之后发出，准入已失效的进程不触发加载。路由只开始加载、立即返回；
+        Gateway 判定不需要检索时模型同样会加载，由空闲卸载回收。预取失败只记录日志，
+        不影响任务进程。
+        """
+        try:
+            await self._bus.request(PatchouliRoutes.PREFETCH_MODELS)
+        except Exception as exc:
+            logger.warning("推理模型预取请求失败，任务进程照常继续: %s", exc)
 
     async def _run_actor(
         self, process: TaskProcess, manifest: CPUInputManifest, agent_profile: AgentProfile
