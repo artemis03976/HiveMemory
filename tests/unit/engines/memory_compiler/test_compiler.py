@@ -738,6 +738,20 @@ class TestEnvelopeCompilation:
         assert "代码分析师" in envelope.text
         assert isinstance(envelope.sections[0], MemoryEnvelopeSection)
 
+    def test_retrieval_context_without_header_footer_keeps_only_sections(
+        self, compiler, sample_atom
+    ):
+        """关闭头尾引导后只留小节：外部 harness 看不到预检索语境与 MTP 指令。"""
+        envelope = compiler.compile(
+            [sample_atom],
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            MemoryCompileOptions(include_header_footer=False),
+        )
+
+        assert "Python parse_date" in envelope.text
+        assert "<memory_context>" not in envelope.text
+        assert "⟪" not in envelope.text
+
     def test_retrieval_context_compile_agent_profile_only(self, compiler, agent_profile_atom):
         envelope = compiler.compile(
             agent_profile_atom,

@@ -13,7 +13,7 @@ class ThreadEndedError(DomainError):
     """执行线程已结束，迟到的 actor 操作不能继续分派。
 
     线程的凭据已撤销、线程本身已结束或所属进程已收到停止，都属于线程已
-    结束；与表示接线缺陷的 ``ScopeRequiredError`` 区分。执行适配器仍按既有
+    结束；与表示接线缺陷的 ``ScopeRequiredError`` 区分。操作适配器仍按既有
     系统错误路径回填。
     """
 

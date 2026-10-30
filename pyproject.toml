@@ -37,6 +37,8 @@ dependencies = [
     "httpx>=0.26.0",
     "sse-starlette>=1.6.0",
     "defusedxml>=0.7.1,<0.8",
+    # MCP 入口包（mcp_server）。主版本之间改名与移动了服务端 API，上限锁在主版本内。
+    "mcp>=2.3.0,<3",
 ]
 
 [project.optional-dependencies]
