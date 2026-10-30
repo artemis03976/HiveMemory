@@ -133,7 +133,7 @@ last_reviewed: 2026-10-30
   1. 先把模型推理移出事件循环（已完成，2026-10-27，[归档记录](./archive/todo/inference-off-event-loop.md)）；
   2. 重排模型 int8 先做实验评估，与 ONNX 内存池、截断长度一并处理（[Todo](./todo/reranker-int8-and-onnx-memory.md)；内存池、截断、不生效的配置与 Docker 预下载已于 2026-10-27 完成，int8 评估待开始）；
   3. 模型的空闲卸载、按需加载与预取（已完成，2026-10-29，[归档计划](./archive/plans/v0.7.1-model-idle-unload.md)）：两个模型默认空闲卸载、使用时重新加载，chat 在 Gateway 之前预取，重排模型未就绪时这一次跳过重排；当前事实见 [Patchouli](./patchouli/README.md#41-模型驻留与空闲卸载)。实测重新加载期间其他请求最长等待约 1～3.7 秒，记为已知限制，之后单独优化（owner，2026-10-30，[Todo](./todo/model-reload-event-loop-stall.md)）。
-- **工具解析链路重写**（owner，2026-10-30；设计中）：Claude Code 接入后发现 MTP 与外部 MCP 的工具调用写出的事件不同形，事件、动作、轨迹三份表达并存，下游解析来源不一致（[调查基线](./governance/baselines/tool-call-data-shapes-2026-10-30.md)）。重写以 `TurnEvent` 作为唯一的交互原子事件，分两部分：工具调用如何统一进入 `TurnEvent`，感知层如何解析这一份事件集；设计见 [Idea](./ideas/tool-call-parsing-chain.md)。
+- **工具解析链路重写**（owner，2026-10-30；设计中）：Claude Code 接入后发现 MTP 与外部 MCP 的工具调用写出的事件不同形，事件、动作、轨迹三份表达并存，下游解析来源不一致（[调查基线](./governance/baselines/tool-call-data-shapes-2026-10-30.md)）。重写以 `TurnEvent` 作为唯一的交互原子事件，分两部分：工具调用如何统一进入 `TurnEvent`，感知层如何解析这一份事件集；设计讨论见 [Idea](./ideas/tool-call-parsing-chain.md)，实施见[计划](./plans/v0.7.1-tool-call-parsing-chain.md)（Planned，2026-10-30）。
 - **执行基座与沙箱基线**：原排期在 v0.7.1，暂不考虑（owner，2026-10-20），见第 5.4 节。plugin 模式下 HiveMemory 不执行代码，harness 的工具由其自身管理。
 
 ### 4.4 v0.7.1：plugin 模式接入 Claude Code

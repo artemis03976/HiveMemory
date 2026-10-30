@@ -20,7 +20,7 @@ code_paths:
   - frontend/src/stores/chat/sessionHistory.ts
 related_docs:
   - docs/governance/baselines/tool-call-data-shapes-2026-10-30.md
-  - docs/todo/imported-read-trace-alias.md
+  - docs/plans/v0.7.1-tool-call-parsing-chain.md
   - docs/patchouli/perception.md
   - docs/system/import-bus.md
   - docs/contracts/mtp.md
@@ -31,7 +31,7 @@ last_reviewed: 2026-10-30
 
 # 工具解析链路重写
 
-**文档状态**：Idea，候选设计，尚未形成计划。
+**文档状态**：Idea。2026-10-30 已形成[计划](../plans/v0.7.1-tool-call-parsing-chain.md)：本文的候选设计在计划中采纳或调整，此后以计划为准，本文不再同步。
 
 ## 0. 文档性质
 

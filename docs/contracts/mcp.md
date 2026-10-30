@@ -117,7 +117,7 @@ Claude Code 改变命名规则时标记会静默失效，回声恢复，表现�
 ## 8. 已知限制
 
 - 只提供检索与读取，不开放写入类工具。
-- 读取的轨迹看不出读了哪些 alias：READ 轨迹的目标取工具名，导入的 MCP 读取只有工具调用名，alias 在参数中（[Todo](../todo/imported-read-trace-alias.md)）。
+- 读取的轨迹看不出读了哪些 alias：READ 轨迹的目标取工具名，导入的 MCP 读取只有工具调用名，alias 在参数中（由[工具解析链路重写计划](../plans/v0.7.1-tool-call-parsing-chain.md)处理）。
 - Host 检查只接受带端口的本机地址，远程部署与传输安全（TLS、OAuth）不在当前范围内。
 
 ## 9. 代码与测试入口
