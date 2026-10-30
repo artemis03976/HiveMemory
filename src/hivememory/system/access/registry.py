@@ -25,6 +25,7 @@ logger = logging.getLogger(__name__)
 
 __all__ = [
     "HTTP_ADAPTER",
+    "IMPORT_ADAPTER",
     "LOCAL_ADAPTER",
     "MCP_ADAPTER",
     "SystemActorAccessEntry",
@@ -37,6 +38,8 @@ LOCAL_ADAPTER = "local"
 HTTP_ADAPTER = "http"
 #: MCP 入口包（外部 harness 的操作适配器）以请求声明的 principal 接入时使用的 adapter 标识。
 MCP_ADAPTER = "mcp"
+#: Import Bus 路由（外部 harness 的连接器）以请求声明的 principal 接入时使用的 adapter 标识。
+IMPORT_ADAPTER = "import"
 
 # 只有进程内入口以自己的 principal 接入、不携带凭据；其余 adapter 都是外部
 # 入口，principal 取自请求声明，只有核对凭据后才成立。新增的 adapter 默认

@@ -229,9 +229,9 @@ def resolve_request_identity_claims(
 # 统一认证网关接入
 #
 # server 是一个登记过的调用来源：以自身 principal 与 ``http`` adapter 对
-# 每个与 workspace 相关的请求经网关取得 context。外部入口（MCP）不使用
-# server 的 principal，而是把请求声明的 principal 与接入凭据交给同一个网关
-# 核对。请求头中的用户身份不做证明——这是本地单用户部署的信任假设。
+# 每个与 workspace 相关的请求经网关取得 context。外部入口（MCP 与 Import
+# Bus）不使用 server 的 principal，而是把请求声明的 principal 与接入凭据交给
+# 同一个网关核对。请求头中的用户身份不做证明——这是本地单用户部署的信任假设。
 # 认证前 server 只持有声明（:class:`RequestIdentityClaims`），声明只作为
 # 认证输入：认证通过后，经过验证的身份只存在于密封的 context 中，server
 # 不把声明当作已确认的身份继续使用，也不把声明交给路由处理函数。
@@ -329,9 +329,9 @@ async def request_access_for_claims(
     取得 context、以 :class:`RequestAccess` 交出凭据与目标 workspace，声明
     不越过认证边界。principal、adapter 与凭据由调用方给出：管理路由经
     :func:`get_request_access` 传入 server 自身的 principal、``http`` 与
-    ``None``，以 (user, ``system``) 声明调用；导入入口的 Agent 来自请求体，
-    以 (user, 具体 Agent) 声明直接调用；MCP 入口传入请求声明的 principal、
-    ``mcp`` 与请求中的凭据，以 (user, 具体 Agent) 声明调用。
+    ``None``，以 (user, ``system``) 声明调用；导入入口与 MCP 入口传入请求
+    声明的 principal、各自的 adapter（``import``、``mcp``）与请求中的凭据，
+    以 (user, 具体 Agent) 声明调用，导入的 Agent 取自请求体。
     """
     access = await authenticate_request_access(
         claims,

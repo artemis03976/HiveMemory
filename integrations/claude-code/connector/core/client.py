@@ -3,10 +3,13 @@
 分类决定游标：确认（服务端在这一轮应用完成后才确认）后前进；可重试（网络
 错误、503 等服务暂不可用，含等待应用超时）时保留游标、停止处理这份会话
 记录，等下次唤醒；413 与 422 是这一轮内容本身的问题，
-重发不会改变结果，写入拒绝记录后前进；其余 4xx（身份声明不合法、未获准入、
-地址或版本不对）是连接器配置的问题，与具体轮次无关，前进只会让后续轮次
-全部丢失，因此同样保留游标、停止处理，修正配置后补发；500 等服务器内部
-错误（含这一轮在应用时失败）由同步循环有限次重试。
+重发不会改变结果，写入拒绝记录后前进；其余 4xx（凭据未配置或不一致、身份
+声明不合法、未获准入、地址或版本不对）是连接器配置的问题，与具体轮次无关，
+前进只会让后续轮次全部丢失，因此同样保留游标、停止处理，修正配置后补发；
+500 等服务器内部错误（含这一轮在应用时失败）由同步循环有限次重试。
+
+每次提交以 ``X-Principal-ID`` 声明连接器的 principal、以 ``Authorization:
+Bearer`` 携带接入凭据，由服务端的统一认证网关核对。
 """
 
 from __future__ import annotations
@@ -18,7 +21,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Literal
 
-from connector.core.config import ConnectorConfig
+from connector.core.config import PRINCIPAL_ID, ConnectorConfig
 
 IMPORT_PATH = "/api/v1/import/turns"
 
@@ -66,7 +69,9 @@ class ImportClient:
         self._transport = transport
 
     def submit(self, body: dict[str, Any]) -> SubmitResult:
-        headers = {"Content-Type": "application/json"}
+        headers = {"Content-Type": "application/json", "X-Principal-ID": PRINCIPAL_ID}
+        if self._config.token:
+            headers["Authorization"] = f"Bearer {self._config.token}"
         if self._config.user_id:
             headers["X-User-ID"] = self._config.user_id
         encoded = json.dumps(body, ensure_ascii=False).encode("utf-8")

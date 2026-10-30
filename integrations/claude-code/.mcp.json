@@ -1,0 +1,14 @@
+{
+  "mcpServers": {
+    "hivememory": {
+      "type": "http",
+      "url": "${HIVEMEMORY_URL:-http://localhost:8000}/mcp",
+      "headers": {
+        "X-Principal-ID": "harness:claude-code",
+        "Authorization": "Bearer ${HIVEMEMORY_TOKEN}",
+        "X-User-ID": "${HIVEMEMORY_USER_ID:-}",
+        "X-Agent-ID": "${HIVEMEMORY_AGENT_ID:-claude_code}"
+      }
+    }
+  }
+}

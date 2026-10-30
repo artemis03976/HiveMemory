@@ -251,9 +251,14 @@ def make_access_composition(
     *,
     principal_id: str = "local-process:test",
     adapters: tuple[str, ...] = ("local",),
+    credential: str | None = None,
     default_workspace: WorkspaceIdentity | None = None,
 ) -> AccessTestComposition:
     """构造 System 接入登记 + Workspace Actor 注册表 + 认证网关 + 操作授权者。
+
+    缺省模拟进程内的受信来源：没有凭据，可以声明 system 进入 root API。
+    给出 ``credential`` 时模拟外部入口的来源（``adapters`` 须为外部
+    adapter）：认证必须携带一致的凭据，不能声明 system。
 
     context 不设固定有效期，只随进程关闭、请求结束与撤销全部失效；
     需要验证单个 context 失效时经组合的网关调用
@@ -262,11 +267,12 @@ def make_access_composition(
     principal = CallerPrincipal(principal_id)
     system_registry = SystemActorAccessRegistry(
         [
-            # 测试组合模拟进程内的受信来源：没有凭据，可以声明 system 进入 root API。
             SystemActorAccessEntry(
                 principal_id=principal_id,
                 adapters=frozenset(adapters),
-                allow_system_actor=True,
+                allow_system_actor=credential is None,
+                credential_env=None if credential is None else "TEST_PRINCIPAL_TOKEN",
+                credential=credential,
             )
         ]
     )

@@ -24,9 +24,12 @@ pytestmark = pytest.mark.e2e
 async def test_http_import_turn_forms_interaction_in_patchouli(patchouli_chat_stack):
     """连接器导入一轮：经认证网关与真实 Gateway 落位，Patchouli 话题中出现该轮。"""
     stack = patchouli_chat_stack
+    # 连接器以自己的 principal 经 import adapter 接入，并携带接入凭据。
     access = make_access_composition(
         [make_actor_access_record(agent_id="claude_code", allowed_operations=frozenset())],
-        adapters=("http",),
+        principal_id="harness:claude-code",
+        adapters=("import",),
+        credential="token-e2e",
     )
     workspace = access.default_workspace
     gateway_config = SystemGatewayConfig()
@@ -45,7 +48,6 @@ async def test_http_import_turn_forms_interaction_in_patchouli(patchouli_chat_st
     app.dependency_overrides[deps.get_import_bus_service] = lambda: service
     app.dependency_overrides[deps.get_import_request_limit] = lambda: 1024 * 1024
     app.dependency_overrides[deps.get_access_gateway] = lambda: access.gateway
-    app.dependency_overrides[deps.get_server_principal_id] = lambda: access.principal.principal_id
     body = {
         "source": "claude-code",
         "external_conversation_id": "session-e2e",
@@ -78,7 +80,11 @@ async def test_http_import_turn_forms_interaction_in_patchouli(patchouli_chat_st
     async with AsyncClient(
         transport=ASGITransport(app=app),
         base_url="http://test",
-        headers={"X-User-ID": workspace.owner_user_id},
+        headers={
+            "X-User-ID": workspace.owner_user_id,
+            "X-Principal-ID": "harness:claude-code",
+            "Authorization": "Bearer token-e2e",
+        },
     ) as client:
         accepted = await client.post("/api/v1/import/turns", json=body)
         await stack.interaction_queue.drain_all()
