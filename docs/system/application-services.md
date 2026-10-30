@@ -17,7 +17,7 @@ related_docs:
   - docs/workspace/capability.md
   - docs/architecture/boundaries.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # 应用服务
@@ -69,7 +69,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 
 `ImportBusService` 是 `POST /api/v1/import/turns` 背后的用例入口：以 workspace 的导入授权（`authorize_import`，只校验准入与目标、不检查 actor 操作白名单、拒绝保留的 `system`）把请求级 context 兑现为本次请求的 `IdentityScope` 与 principal 标识，再交给 `system.services.import_bus` 的编排器 `ImportBusIngestor`。编排器按外部会话串行，经 Patchouli 公开路由查询进度、提交与等待应用，经 Gateway 的 `PASSIVE_MEMORY` 入口只取得话题落位与价值信号，以与任务进程共用的封口函数组装交互记录，应用完成后才确认。它不检索记忆、不返回记忆上下文，不运行 Alice、MTP、命令或回复生成，不经任务进程的注册入口，不持有 Patchouli 的提交队列，也不向调度器注册维护任务。链路、失败分类与 Claude Code 连接器见 [Import Bus](./import-bus.md)，导入授权在访问模型中的位置见[身份与授权](../workspace/identity-and-authorization.md)。
 
-`SystemReadinessService` 提供模型 warmup、ready 查询和 `ready/warming_up` 摘要，经 Patchouli readiness routes 取得状态，不参与 Workspace 资源授权。
+`SystemReadinessService` 提供模型 warmup、ready 查询和 `ready/warming_up` 摘要，经 Patchouli readiness routes 取得状态，不参与 Workspace 资源授权。ready 表示每个启用的推理模型自进程启动后至少成功加载过一次，且当前不处于加载失败状态：启动预热完成之前为 `warming_up`；空闲卸载不改变 ready，ready 也不表示模型此刻在内存中；重新加载失败时回到 `warming_up`，直到下一次加载成功。驻留与卸载见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载)。
 
 ## 4. 错误、观测与 cleanup
 

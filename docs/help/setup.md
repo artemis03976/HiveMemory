@@ -154,6 +154,8 @@ curl http://localhost:8769/health/ready
 
 `/health/ready` 在模型尚未完成后台预热时返回 HTTP 503 与 `warming_up`，这是可预期状态。若服务进程退出或长时间无法 ready，再进入排障。
 
+ready 表示嵌入与重排模型都至少成功加载过一次，不表示模型此刻在内存中。默认配置下模型空闲一段时间后卸载、归还内存（嵌入模型 30 分钟、重排模型 10 分钟），`/health/ready` 仍为 ready；卸载后的首次使用要重新加载模型，单个模型约需 1～3 秒，首次检索可能跳过重排。需要模型一直驻留时，把 `shared.embedding.default.residency` 与 `patchouli.retrieval.reranker.residency` 设为 `resident`（[配置](../system/configuration.md)）。
+
 ### 4.4 启动前端
 
 在另一个终端：

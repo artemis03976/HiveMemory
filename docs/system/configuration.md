@@ -38,7 +38,7 @@ last_reviewed: 2026-10-29
 | 区域 | 模块 | 主要内容 | 责任边界 |
 |:---|:---|:---|:---|
 | `system` / `logging` / `i18n` | `config.app` | 名称、调试标志、server 自身的 principal 标识 `server_principal_id`；日志级别、格式、控制台与文件输出及 WebSocket 日志广播（第 4 节）；默认语言 | System / 全局文本解析 |
-| `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待、perception idle flush 与 lifecycle GC 任务的开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
+| `scheduler` / `runtime_events` | `config.runtime` | tick、关闭等待，perception idle flush、lifecycle GC 与推理模型空闲卸载任务的开关与间隔；事件 ring buffer 与订阅队列大小 | 共享运行时设施 |
 | `shared` | `config.shared` | LLM、embedding、provider credentials | Registry 与共享模型能力 |
 | `gateway` | `config.gateway` | interceptor、commands、workflow、topic router、query analysis | Gateway |
 | `import_bus` | `config.import_bus` | 导入请求体上限、提交后等待应用的时限 | System Import Bus |
@@ -65,6 +65,10 @@ last_reviewed: 2026-10-29
 `import_bus`（`ImportBusConfig`）只有两项：`max_request_bytes`（默认 8 MiB，即 `8388608`，大于 0）是单次导入请求体的字节上限，超出以 413 拒绝；`apply_wait_seconds`（默认 30，大于 0）是提交后等待感知应用完成的时限，超时以可重试的 503 交回。Import Bus 的 Gateway 请求时限与最近轮数沿用 Gateway 配置段。随仓库发布的 `configs/config.yaml` 不含该段，按默认值运行，语义见 [Import Bus](./import-bus.md#7-配置)。
 
 话题折叠的 LLM 摘要以 `patchouli.perception.engine.relay.engine.summary_timeout_seconds`（默认 60，大于 0）为每次调用的时限，只在 `relay.engine.type` 为 `llm` 时存在；超时与提供商失败一样回退为规则摘要。折叠在交互提交队列中以独立工作项执行，这一项决定一次折叠最多占用一个执行槽多久。随仓库发布的 `configs/config.yaml` 不写这一项，按默认值运行，语义见[感知与短期话题](../patchouli/perception.md#5-page-folding)。
+
+推理模型的驻留方式按模型配置：`shared.embedding.default` 与 `patchouli.retrieval.reranker` 各有 `residency` 与 `idle_timeout_seconds`。`residency` 取 `resident`（加载后一直驻留到进程结束）或 `idle_unload`（空闲超过时限即卸载，下一次使用时重新加载），两处默认都是 `idle_unload`；`idle_timeout_seconds` 是空闲时限（大于 0），嵌入模型默认 1800 秒、重排模型默认 600 秒。检查周期与开关在 `scheduler.tasks.model_idle_unload_interval_seconds`（默认 60 秒）与 `enable_model_idle_unload`（默认开启）；关闭该任务或整个调度器时模型不卸载。内存充足的机器可以把两处 `residency` 设为 `resident`。语义见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载)。
+
+升级注意（推理模型驻留）：新增的驻留配置都有默认值，旧配置无需修改即可加载；升级后两个模型默认空闲卸载，想保持加载后一直驻留的原行为，把两处 `residency` 设为 `resident`。`/health/ready` 的含义随之变化：它表示模型至少成功加载过一次，不再表示模型此刻在内存中（[应用服务](./application-services.md#3-系统级服务)）。
 
 升级注意（推理模型配置）：删除了从未生效的 `shared.embedding.*.device`、`patchouli.retrieval.reranker.device` 与 `use_fp16`，需要从配置中移除，残留时由所在配置段拒绝未知键而加载失败。推理只在 CPU 上进行，重排模型的精度由加载的模型文件决定，这三项此前都没有传给模型。`patchouli.retrieval.reranker.batch_size`（默认 32，至少 1）此前同样没有传给模型，现在决定每批送入重排模型的文本对数。
 

@@ -187,7 +187,7 @@ Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题，不负责附
 | Agent Profile | 携带 `IdentityScope` 的 create/list/get |
 | Topic | 携带 `IdentityScope` 的 list active、topic data、manual settle、evict；Patchouli owner 拒绝越域 topic |
 | Citation | 记录正式记忆引用；workspace 引用交付统一使用 `workspace.reference_read` 来源 |
-| Readiness | 模型 warmup 与 ready 查询 |
+| Readiness | 模型 warmup、预取与 ready 查询 |
 
 Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，调用方不能仅凭拿到 id 就假设目标可见；操作授权由调用方一侧的授权点完成（第 3.5 节）。任务快照的 `belong_to` 必须等于 scope 的目标 Workspace，知道任务 ID 不构成权限。Topic ID 在领域上保持全局唯一；scope 在公共边界拆分，内部以 `belong_to + topic_id` 检查归属，不构造另一套局部 ID 命名空间。
 

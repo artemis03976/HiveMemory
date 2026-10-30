@@ -276,9 +276,14 @@ class PatchouliLocalRoutes:
         """后台预热所有推理模型 (Embedding + Reranker)"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
+    @route("runtime.models.prefetch")
+    async def RUNTIME_MODELS_PREFETCH() -> None:
+        """在后台开始加载尚未加载的推理模型并立即返回"""
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
     @route("runtime.models.ready")
     async def RUNTIME_MODELS_READY() -> bool:
-        """检查所有推理模型是否已加载就绪"""
+        """检查推理模型是否就绪：每个启用的模型至少成功加载过一次，且当前不处于加载失败状态"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("runtime.storage_health")
@@ -319,6 +324,7 @@ class PatchouliLocalRoutes:
         TOPIC_EVICT,
         TOPIC_DISCARD_IF_EMPTY,
         RUNTIME_MODELS_WARMUP,
+        RUNTIME_MODELS_PREFETCH,
         RUNTIME_MODELS_READY,
         RUNTIME_STORAGE_HEALTH,
     )

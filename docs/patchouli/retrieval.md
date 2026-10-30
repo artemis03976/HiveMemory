@@ -7,13 +7,14 @@ code_paths:
   - src/hivememory/engines/retrieval/
   - src/hivememory/patchouli/services/retrieval.py
   - src/hivememory/infrastructure/storage/vector_store.py
+  - src/hivememory/infrastructure/rerank/
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # 记忆检索
@@ -103,6 +104,8 @@ Hybrid 融合 Dense/Sparse `SearchResults` 后，按调用方请求的候选数�
 
 重排阶段始终存在：`retrieval.reranker` 关闭时由 `NoopReranker` 顶替，候选数等于 top-k、结果原样返回；配置开启但未装配重排服务时同样退化为 `NoopReranker` 并记录 warning。CrossEncoderReranker 以配置的 `top_k`（默认 20）作为候选池，通过 MemoryCompiler 的 `DENSE_EMBEDDING` target 构造候选文本，避免维护另一套排序文本拼接。
 
+CrossEncoderReranker 不等待重排模型加载：模型空闲卸载后或尚未加载完成时（驻留状态不是已加载，见 [Patchouli](./README.md#41-模型驻留与空闲卸载)），这一次按召回顺序原样返回、由引擎截取最终条数，记录 warning 并触发后台预取，之后的检索恢复重排。重排计算抛出异常时同样返回召回结果并记录 warning。两种降级的结果相同：这一次的排序质量下降，只在日志中可见。重排是对召回的精排，让一次检索等待 2～3 秒的模型加载，代价高于一次未经精排的结果；嵌入模型没有这样的退路，dense 召回与写入都等待它加载。
+
 召回、融合与重排的分数尺度互不相同，同一个阈值数字只能对其中一种有意义，因此分数阈值只作用于 Dense 召回，交给重排的候选即粗筛后的结果：
 
 - Sparse 不设阈值（见第 4 节）；
@@ -137,7 +140,7 @@ Retrieval 只返回 atoms。当前主要调用者分别编译：
 
 ## 8. 失败与降级
 
-普通检索传播中立的存储故障、未知程序异常与取消；dense/sparse/hybrid 的失败不伪装为空成功。Profile 缺失/不可见使用 `ResourceNotFoundError`，已找到但类型或配置无效使用 `ProfileResolutionError`，由 CALL 或 CPU 分配边界各自处理，不回退 Omni-Doll。这个边界让调用方区分书库离线、配置损坏与真正无命中；分类见[错误模型](../contracts/error-model.md)。
+普通检索传播中立的存储故障、未知程序异常与取消；dense/sparse/hybrid 的失败不伪装为空成功。重排阶段是唯一的保守降级：重排模型未加载或重排计算失败时返回召回结果（第 5 节），不影响召回本身的失败传播。Profile 缺失/不可见使用 `ResourceNotFoundError`，已找到但类型或配置无效使用 `ProfileResolutionError`，由 CALL 或 CPU 分配边界各自处理，不回退 Omni-Doll。这个边界让调用方区分书库离线、配置损坏与真正无命中；分类见[错误模型](../contracts/error-model.md)。
 
 空 response 表示成功读取后没有命中，或调用策略显式跳过检索；健康判断使用独立的 health 契约，不能从一次空结果推断依赖状态。
 

@@ -201,6 +201,10 @@ class PatchouliBridge:
                 self._public_api.readiness.warmup_models,
             ),
             RouteBinding.of(
+                PatchouliRoutes.PREFETCH_MODELS,
+                self._public_api.readiness.prefetch_models,
+            ),
+            RouteBinding.of(
                 PatchouliRoutes.MODELS_READY,
                 self._public_api.readiness.is_models_ready,
             ),

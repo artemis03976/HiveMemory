@@ -61,6 +61,8 @@ COPY configs/ ./configs/
 # 经运行时同一套配置加载与模型服务完成：模型名、自定义模型注册与缓存目录都与运行时一致。
 RUN [ "$PRELOAD_MODELS" = "true" ] || exit 0; \
     python - <<'PY'
+import asyncio
+
 from hivememory.config.app import load_app_config
 from hivememory.infrastructure.embedding import get_bge_m3_service
 from hivememory.infrastructure.rerank import get_fast_embed_reranker_service
@@ -69,13 +71,13 @@ config = load_app_config("/app/configs/config.yaml")
 
 embedding = get_bge_m3_service(config.shared.embedding.default)
 print(f"[preload] embedding={embedding.model_name} cache_dir={embedding.cache_dir}")
-embedding.warmup()
+asyncio.run(embedding.load())
 
 reranker_config = config.patchouli.retrieval.reranker
 if reranker_config.enabled:
     reranker = get_fast_embed_reranker_service(reranker_config)
     print(f"[preload] reranker={reranker.model_name} cache_dir={reranker.cache_dir}")
-    reranker.warmup()
+    asyncio.run(reranker.load())
 
 print("[preload] model predownload completed")
 PY

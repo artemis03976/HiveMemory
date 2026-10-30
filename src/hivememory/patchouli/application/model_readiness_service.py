@@ -18,5 +18,8 @@ class ModelReadinessService:
     async def warmup_models(self) -> None:
         await self._bus.request(PatchouliLocalRoutes.RUNTIME_MODELS_WARMUP)
 
+    async def prefetch_models(self) -> None:
+        await self._bus.request(PatchouliLocalRoutes.RUNTIME_MODELS_PREFETCH)
+
     async def is_models_ready(self) -> bool:
         return await self._bus.request(PatchouliLocalRoutes.RUNTIME_MODELS_READY)

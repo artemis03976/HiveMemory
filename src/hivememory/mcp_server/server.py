@@ -156,7 +156,15 @@ def _new_server() -> MCPServer:
     placeholder = logging.NullHandler()
     root.addHandler(placeholder)
     try:
-        return MCPServer(name="hivememory", instructions=_INSTRUCTIONS, version=__version__)
+        # 不提供 subscriptions/listen：工具与资源在运行时不变，没有可推送的变更。该请求的
+        # 响应是一条一直打开的流，只在会话管理器退出时结束，而 uvicorn 要等所有连接结束后
+        # 才执行宿主的 lifespan 关闭，任何在线的客户端都会让服务停不下来。
+        return MCPServer(
+            name="hivememory",
+            instructions=_INSTRUCTIONS,
+            version=__version__,
+            subscriptions=False,
+        )
     finally:
         root.removeHandler(placeholder)
 

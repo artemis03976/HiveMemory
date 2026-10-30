@@ -129,10 +129,10 @@ last_reviewed: 2026-10-29
 - **排序依据**（owner，2026-10-20）：同日先定的 controller 模式目标改为 plugin 模式。各家 harness 的程序化接口开放程度不一（[接口调研快照](./research/harness-interface-survey-snapshot.md)），controller 模式能达到的控制效果取决于被接入方；非侵入的 plugin 模式更容易得到各家生态的支持，用户也继续在 harness 自己的界面中工作，真实的日常使用才会发生。记忆系统的核心机制自 MVP 以来进展较少，当前优先以真实使用检验它。controller 模式退回候选方向（第 5.6 节）。
 - **分步实施**：版本目标按小步分别建立计划。plugin 模式由对话回流（经 Import Bus 进入记忆生成）与记忆访问（经 MCP 工具调用能力层）两部分组成。对话回流已由首份计划完成（2026-10-21）：harness 一轮结束后提交完整记录，经统一认证网关与导入授权，Gateway 只做落位与价值信号，应用完成后才确认；话题路由失败时续接上一轮的话题；生成视图纳入思考与外部工具的三元组；Claude Code 连接器以插件形式提供，详见 [Import Bus](./system/import-bus.md)。记忆访问在其后，阻塞问题已于 2026-10-29 全部决定：多种传输各由操作适配器归一到同一能力层，支持 MCP 的 harness 以 MCP 访问记忆（外部 Actor Idea E-2）；MCP 的操作适配器放在与 server 同层的独立入口包，MTP 的留在 agent_runtime（E-3b）；plugin 模式暂不提供主动预检索，记忆只经 MCP 工具由 agent 自己选择使用（E-7）；由统一认证网关证明身份，每次操作使用一份请求级访问 context（[第五代架构 Idea](./ideas/fifth-generation-architecture.md) P-1c、P-9c）；复核后，Claude Code 以自己的 principal 与本地共享密钥接入，对话回流一并迁移，不再借用 server 的 principal。能以保留的 `system` 进入 root API 的只有 HTTP 入口的管理访问（owner，2026-10-20），登记外部来源之前在接入登记中落实（[身份与访问体系 Idea](./ideas/identity-and-access-model.md#4-已登记的暂缓与例外)第 4 节）。各步的范围见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。
 - **规模控制**（owner，2026-10-20）：v0.7.1 期间不新增只服务 controller 模式的机制；每份计划写明它针对的已观察问题或待验证的核心假设（[VISION](./VISION.md) 第 10.10 节）。真实使用开始后，后续主线转向由使用中观察到的问题驱动 Patchouli 核心机制的改进，样本同时供第 4.8 节的价值策略校准。
-- **常驻内存**（Planned，owner，2026-10-27）：plugin 模式下后端与 Qdrant 随日常使用常驻。观察到后端进程峰值常驻内存约 3.0 GB，主要来自启动后一直驻留的嵌入与重排模型，对 16 GB 内存的机器不友好。按以下顺序处理：
+- **常驻内存**（owner，2026-10-27；第 1、3 项已完成，int8 评估待开始）：plugin 模式下后端与 Qdrant 随日常使用常驻。观察到后端进程峰值常驻内存约 3.0 GB，主要来自启动后一直驻留的嵌入与重排模型，对 16 GB 内存的机器不友好。按以下顺序处理：
   1. 先把模型推理移出事件循环（已完成，2026-10-27，[归档记录](./archive/todo/inference-off-event-loop.md)）；
   2. 重排模型 int8 先做实验评估，与 ONNX 内存池、截断长度一并处理（[Todo](./todo/reranker-int8-and-onnx-memory.md)；内存池、截断、不生效的配置与 Docker 预下载已于 2026-10-27 完成，int8 评估待开始）；
-  3. 模型的空闲卸载、按需加载与预取单独建立计划（[计划](./plans/v0.7.1-model-idle-unload.md)）。
+  3. 模型的空闲卸载、按需加载与预取（已完成，2026-10-29，[归档计划](./archive/plans/v0.7.1-model-idle-unload.md)）：两个模型默认空闲卸载、使用时重新加载，chat 在 Gateway 之前预取，重排模型未就绪时这一次跳过重排；当前事实见 [Patchouli](./patchouli/README.md#41-模型驻留与空闲卸载)。实测重新加载期间其他请求最长等待约 1～3.7 秒，记为已知限制，之后单独优化（owner，2026-10-30，[Todo](./todo/model-reload-event-loop-stall.md)）。
 - **执行基座与沙箱基线**：原排期在 v0.7.1，暂不考虑（owner，2026-10-20），见第 5.4 节。plugin 模式下 HiveMemory 不执行代码，harness 的工具由其自身管理。
 
 ### 4.4 v0.7.1：plugin 模式接入 Claude Code

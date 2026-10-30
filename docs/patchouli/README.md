@@ -14,6 +14,7 @@ code_paths:
   - src/hivememory/infrastructure/embedding/
   - src/hivememory/infrastructure/rerank/
   - src/hivememory/infrastructure/inference_worker.py
+  - src/hivememory/infrastructure/model_service.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
@@ -21,7 +22,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-27
+last_reviewed: 2026-10-29
 ---
 
 # Patchouli
@@ -157,18 +158,34 @@ RetrievalRequest
 
 ## 4. 运行、维护与关闭
 
-`PatchouliSystem.start()` 先确保 Qdrant 可用，再挂载 local routes、公开 bridge 和维护任务。模型预热是独立能力；预热失败会退化到首次请求懒加载，不阻止子系统启动。
+`PatchouliSystem.start()` 先确保 Qdrant 可用，再挂载 local routes、公开 bridge 和维护任务。模型预热是独立能力：服务启动后在各模型的推理线程中依次加载一次，尽早暴露模型文件或配置错误；一个模型预热失败只记录日志，不跳过其他模型，也不阻止子系统启动，失败的模型在下一次使用时重新加载。
 
-嵌入模型与重排模型各持有一个推理线程（`InferenceWorker`），首次使用时的加载与每次推理都在其中执行：同一模型的调用按提交顺序逐个进行，并行推理不会叠加激活内存；推理期间事件循环继续调度其他请求与后台队列。调用方被取消时取消照常传播，尚未开始的推理不再执行，已经开始的推理在线程中跑完后结果被丢弃。onnxruntime 创建推理会话时持有 GIL，模型加载期间事件循环仍会停顿，约为加载时长的一半；加载只发生在启动预热或首次使用时。
+嵌入模型与重排模型各持有一个推理线程（`InferenceWorker`），模型的加载、推理与卸载都在其中执行：同一模型的调用按提交顺序逐个进行，并行推理不会叠加激活内存；推理期间事件循环继续调度其他请求与后台队列。调用方被取消时取消照常传播，尚未开始的推理不再执行，已经开始的推理在线程中跑完后结果被丢弃。onnxruntime 创建推理会话时持有 GIL，模型加载期间事件循环仍会停顿；空闲卸载之后的每次重新加载都会出现一次这样的停顿（实测见第 7 节）。
 
 两个模型的 ONNX 会话都关闭 CPU 内存池：开启时一次推理的峰值分配会一直留在进程内，关闭后随推理结束归还。嵌入输入按 1024 token 截断，而不是模型自带的 8192 token：存储写入的 dense 文本由标题（≤200 字符）、类型、标签与摘要（≤500 字符）组成，在这个范围内；按 8192 token 截断时一条长输入的激活内存会瞬时升到数 GB。重排输入按模型的 512 token 上限截断，每批送入 `patchouli.retrieval.reranker.batch_size` 对。
 
-Patchouli 向全局调度器注册两个业务任务：
+### 4.1 模型驻留与空闲卸载
+
+两个模型合计占 2 GB 以上的常驻内存，而后端在 plugin 模式下随日常使用常驻，模型的使用并不连续：Import Bus 回流不检索记忆，记忆生成在后台队列中进行。若模型一直驻留，一台 16 GB 内存的机器要为不在使用的模型长期付出这部分内存。因此模型按需驻留，两个模型服务共用同一份驻留实现（`infrastructure/model_service.py` 的 `SingletonModelService`）：
+
+- 每个模型处于四种驻留状态之一：未加载、加载中、已加载、加载失败。推理时模型未加载，就先在推理线程中加载，调用方等待；加载失败时调用方收到加载错误，下一次推理或预取时重试。
+- 驻留方式按模型配置：`resident` 加载后一直驻留到进程结束；`idle_unload`（默认）空闲超过时限即卸载，下一次使用时重新加载。Patchouli 向全局调度器登记 `model_idle_unload` 维护任务，周期检查各模型；空闲时间从最近一次使用结束起按单调时钟计算，有在途推理（含已提交、尚未开始的调用）时不卸载。配置项见[配置](../system/configuration.md)。
+- 卸载同样在推理线程中执行：推理进行中不会卸载，加载与卸载不会重叠，都由同一个线程保证，不另加锁。卸载释放模型对象并执行 `gc.collect()`，运行库提供 `malloc_trim` 时再调用 `malloc_trim(0)`：glibc 不会主动把释放的大块堆内存还给操作系统，只删除模型对象时进程常驻内存基本不降；不提供时跳过并记录一次 debug 日志。
+- 预取在后台开始加载、立即返回，让重新加载尽量不落在请求的关键路径上。chat 任务进程在调用 Gateway 之前经公开路由 `patchouli.public.models.prefetch` 请求预取，加载与 Gateway 的 LLM 调用并行（[任务进程](../workspace/task-process.md#51-主动链路)）；检索时重排模型未加载，这一次跳过重排并触发预取（[记忆检索](./retrieval.md#5-fusion-与-rerank)）。嵌入模型不降级：dense 召回与记忆写入都依赖它，检索与后台生成等待加载。模型已加载、正在加载或已有预取在途时，预取不做任何事；预取任务由模型服务持有，关闭时取消。
+- 就绪（`patchouli.public.models.ready`，`/health/ready` 据此判断）表示每个启用的模型自进程启动后至少成功加载过一次，且当前不处于加载失败状态。空闲卸载不改变就绪，就绪也不表示模型此刻在内存中；重新加载失败时变为未就绪，直到下一次加载成功。
+- 加载与卸载各记录一条 info 日志，包含模型名与耗时；运行平台提供 `/proc/self/status` 时，卸载日志还记录卸载前后的进程常驻内存。
+
+模型服务按（服务类，模型名）在进程内复用实例，之后启动的系统继续使用同一实例与已加载的模型；再次构造时沿用首次的配置。
+
+### 4.2 维护任务与关闭
+
+Patchouli 向全局调度器注册三个维护任务：
 
 - `perception_idle_flush`：扫描空闲话题并提交结算任务；
-- `memory_gardening`：刷新生命力并归档低生命力中期记忆。
+- `memory_gardening`：刷新生命力并归档低生命力中期记忆；
+- `model_idle_unload`：卸载空闲超过各自时限的 `idle_unload` 模型（第 4.1 节）。
 
-调度器只拥有时钟、非重入与停止语义，Perception 和 Lifecycle 仍拥有业务规则。关闭时 Patchouli 先结算全部非空活跃话题，再等待当时仍运行的记忆任务；超过 `generation_wait_timeout_seconds` 的任务会被请求取消；生成 lane 停止后释放两个模型的推理线程（等待在途推理结束，后续使用会重新创建），随后才卸载 bridge 与 local routes。
+调度器只拥有时钟、非重入与停止语义，Perception、Lifecycle 与模型服务仍拥有各自的业务规则。关闭时 Patchouli 先结算全部非空活跃话题，再等待当时仍运行的记忆任务；超过 `generation_wait_timeout_seconds` 的任务会被请求取消；生成 lane 停止后取消尚未结束的模型预取，并释放两个模型的推理线程（等待在途推理与已经开始的加载结束，后续使用会重新创建；模型保持当时的驻留状态），随后才卸载 bridge 与 local routes。
 
 ## 5. 当前设计文档
 
@@ -193,6 +210,7 @@ Patchouli 向全局调度器注册两个业务任务：
 | 公开管理用例 | `src/hivememory/patchouli/application/` |
 | 内部业务服务 | `src/hivememory/patchouli/services/`、`control/` |
 | 存储协调 | `src/hivememory/patchouli/memory_library/` |
+| 推理模型服务与驻留 | `src/hivememory/infrastructure/model_service.py`、`inference_worker.py`、`embedding/`、`rerank/` |
 | 领域算法 | `src/hivememory/engines/{perception,generation,retrieval,lifecycle,artifacts,memory_compiler}/` |
 
 ## 7. 当前限制与设计张力
@@ -203,6 +221,9 @@ Patchouli 向全局调度器注册两个业务任务：
 - 中期与长期存储的 archive/revive 是顺序 I/O，不具备跨存储事务；
 - Perception 的 token overflow 目前只形成摘要并折叠旧前缀，不生成长期记忆；
 - Retrieval 与 MemoryCompiler 已经解耦，但若干过滤字段、预算口径和保留 target 仍存在实现缺口，详见各模块文档；
-- `engines/` 仍是代码上的算法目录，不再是独立子系统或并行文档真相源。
+- `engines/` 仍是代码上的算法目录，不再是独立子系统或并行文档真相源；
+- 空闲卸载后的重新加载会让事件循环停顿（onnxruntime 创建会话时持有 GIL）。2026-10-29 在 16 核开发机上实测（以 `/health` 的响应时间估计）：只加载一个模型时最长约 1～2 秒，chat 的预取让两个模型同时加载时接近整个加载时长（约 3.3～3.7 秒）；卸载本身停顿约 0.45 秒。期间其他会话的流式输出与请求没有进展，只有在独立进程中加载才能消除，后续优化见 [Todo](../todo/model-reload-event-loop-stall.md)。预取与重排降级能让 chat 的检索少等，但嵌入模型的等待仍会落在检索或生成上；
+- 卸载后的内存归还依赖 glibc 的 `malloc_trim`，只在 Linux（glibc）上验证过，其他分配器或平台上释放的内存可能留在进程内；
+- 重排模型未加载的那一次检索不经重排，排序质量下降只在日志中可见。
 
 这些限制属于当前真实边界。未来设计只有在进入 Plans 并落地后，才能改写本目录中的当前能力描述。

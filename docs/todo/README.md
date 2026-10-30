@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # Todo
@@ -12,6 +12,7 @@ last_reviewed: 2026-10-29
 
 当前事项：
 
+- [推理模型重新加载时的事件循环停顿](./model-reload-event-loop-stall.md)（2026-10-30 由空闲卸载计划的实测验收登记：onnxruntime 创建会话与卸载时的 `gc.collect()` 持有 GIL，重新加载期间其他请求最长等待约 1～3.7 秒，两个模型同时加载时最长；owner 决定记为已知限制，之后单独优化，未排期）；
 - [导入的 MCP 读取在轨迹中显示 alias](./imported-read-trace-alias.md)（2026-10-29 由记忆访问计划阶段四审查登记：READ 轨迹的目标取工具名，导入的 MCP 读取只显示工具调用名，所读的 alias 在参数中，生成视图看不出读了哪些记忆；未排期）；
 - [MTP READ 截断正式记忆的正文](./mtp-read-content-truncation.md)（2026-10-29 由记忆访问计划阶段三审查登记：MTP READ 取编译选项默认的 500 字符上限，超长正文被截断，提示“再次 READ”却得到同样结果；预计随 v0.7.3 MTP READ 专项编译一起修复）；
 - [生成材料的筛选与截断](./generation-material-filtering-and-truncation.md)（2026-10-29 由 Import Bus 真实使用观察登记：Gateway 价值预判只看用户消息，把整轮实现丢出生成，结算已停止按 `worth_saving` 筛选；待在真实样本上校准生成视图的每轮上限，并随记忆价值策略重设计决定 `worth_saving` 的去留）；

@@ -134,7 +134,7 @@ async def health():
     return HealthResponse(status="ok", version=__version__)
 
 
-# 就绪检查 (Readiness) — 模型是否已加载
+# 就绪检查 (Readiness) — 推理模型是否就绪；空闲卸载后仍为就绪，不代表模型此刻在内存中
 @app.get("/health/ready")
 async def readiness():
     system = get_system()

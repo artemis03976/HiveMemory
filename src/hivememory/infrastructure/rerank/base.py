@@ -1,20 +1,12 @@
 """
 Rerank 服务基础模块
 
-包含 Rerank 服务抽象接口和单例模式基类。
+包含 Rerank 服务抽象接口。
 """
 
-import logging
-import threading
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any
 
-from hivememory.infrastructure.inference_worker import InferenceWorker
-
-if TYPE_CHECKING:
-    from hivememory.config.patchouli import RerankerConfig
-
-logger = logging.getLogger(__name__)
+from hivememory.infrastructure.model_service import ModelLoadState
 
 
 class BaseRerankService(ABC):
@@ -37,91 +29,11 @@ class BaseRerankService(ABC):
         """
         pass
 
-    def is_loaded(self) -> bool:
-        """检查模型是否已加载"""
-        return True
-
-    def warmup(self) -> None:
-        """预热模型（默认无操作，子类可覆盖）"""
-        pass
-
-    async def close(self) -> None:
-        """释放推理所用的线程（默认无操作，子类可覆盖）"""
-        pass
-
-
-class SingletonModelService(BaseRerankService):
-    """
-    单例模型服务基类
-
-    封装了通用的单例模式、线程安全和延迟加载逻辑。
-    """
-
-    _instance = None
-    _lock = threading.Lock()
-    _initialized = False
-
-    def __new__(cls, *args, **kwargs):
-        """单例模式，确保全局只有一个实例"""
-        if cls._instance is None:
-            with cls._lock:
-                if cls._instance is None:
-                    cls._instance = super().__new__(cls)
-                    cls._instance._initialized = False
-        return cls._instance
-
-    def __init__(self, config: "RerankerConfig"):
-        """
-        初始化服务配置
-
-        Args:
-            config: Reranker 配置对象
-        """
-        if self._initialized:
-            return
-
-        self.config = config
-        self.model_name = config.model_name
-        self.cache_dir = config.cache_dir
-        self._model: Any = None
-        self._lazy_load_lock = threading.Lock()
-        # 加载与推理都在这个线程中执行，不占用事件循环。
-        self._inference = InferenceWorker(self.model_name)
-
-        self._initialized = True
-
-        logger.info(f"{self.__class__.__name__} 配置: model={self.model_name}")
-
     @property
-    def model(self):
-        """延迟加载模型，首次使用时才加载"""
-        if self._model is None:
-            with self._lazy_load_lock:
-                if self._model is None:
-                    self._load_model()
-        return self._model
+    @abstractmethod
+    def state(self) -> ModelLoadState:
+        """模型的驻留状态；不是已加载时，计算分数要先等待加载。"""
 
     @abstractmethod
-    def _load_model(self) -> None:
-        """加载具体模型的逻辑，由子类实现"""
-        pass
-
-    def is_loaded(self) -> bool:
-        """检查模型是否已加载"""
-        return self._model is not None
-
-    def warmup(self) -> None:
-        """
-        预热模型 — 主动触发延迟加载
-
-        在后台线程中调用此方法可避免首次请求时的加载延迟。
-        线程安全：内部使用 _lazy_load_lock 保护。
-        """
-        if self._model is None:
-            logger.info(f"{self.__class__.__name__} 开始预热模型: {self.model_name}")
-            _ = self.model  # 触发 property 中的延迟加载
-            logger.info(f"{self.__class__.__name__} 模型预热完成")
-
-    async def close(self) -> None:
-        """等待在途推理结束并释放推理线程；之后的推理重新创建线程。"""
-        await self._inference.close()
+    def prefetch(self) -> None:
+        """在后台开始加载模型并立即返回。"""

@@ -29,6 +29,7 @@ from hivememory.engines.retrieval.models import (
 )
 from hivememory.engines.retrieval.reranker import NoopReranker, create_reranker
 from hivememory.engines.retrieval.retriever import DenseRetriever, SparseRetriever
+from hivememory.infrastructure.model_service import ModelLoadState
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope
 
@@ -141,7 +142,7 @@ class TestRetrievalEngineRerankStage:
         storage.search = AsyncMock(
             return_value=[{"memory": first, "score": 0.9}, {"memory": second, "score": 0.8}]
         )
-        rerank_service = Mock()
+        rerank_service = Mock(state=ModelLoadState.LOADED)
         # 候选按召回顺序 [M1, M2] 送入重排；重排分数把 M2 提到首位
         rerank_service.compute_score = AsyncMock(return_value=[-5.0, 5.0])
         engine = RetrievalEngine(
@@ -164,7 +165,7 @@ class TestRetrievalEngineRerankStage:
         storage.search = AsyncMock(
             return_value=[{"memory": m, "score": 0.9} for m in memories],
         )
-        rerank_service = Mock()
+        rerank_service = Mock(state=ModelLoadState.LOADED)
         # 重排把召回顺序完全反转
         rerank_service.compute_score = AsyncMock(return_value=[1.0, 2.0, 3.0, 4.0])
         engine = RetrievalEngine(

@@ -49,7 +49,7 @@ docker compose -f docker/docker-compose.yml logs qdrant
 
 ## 3. `/health/ready` 长时间 503
 
-`/health` 成功而 `/health/ready` 返回 `warming_up`，表示服务已经接受 HTTP，但 Embedding 或启用的 Reranker 尚未完成加载。
+`/health` 成功而 `/health/ready` 返回 `warming_up`，表示服务已经接受 HTTP，但 Embedding 或启用的 Reranker 尚未成功加载过，或空闲卸载之后的重新加载失败了。模型空闲卸载本身不会让它变为 `warming_up`。
 
 检查：
 
@@ -57,7 +57,9 @@ docker compose -f docker/docker-compose.yml logs qdrant
 - 网络是否能访问模型源，必要时设置可信的 `HF_ENDPOINT`；
 - 模型 cache 目录是否有写权限和足够空间；
 - 配置中的 embedding/reranker model name 是否有效；
-- 后端日志是否出现模型加载异常。
+- 后端日志是否出现模型加载异常或 `推理模型预取失败`。
+
+空闲卸载之后的第一次检索或记忆生成会先重新加载模型，单个模型约需 1～3 秒，这期间其他请求与流式输出可能停顿数秒；第一次检索还可能跳过重排，日志出现 `重排模型未加载` 的 warning，之后的检索恢复重排。这是空闲卸载的预期代价；内存充足时可以把驻留方式设为 `resident`（[配置](../system/configuration.md)）。外部脚本不应再用 `/health/ready` 判断模型是否已在内存中，它只表示服务可用。
 
 Docker 镜像默认尝试在 build 阶段预下载模型；构建失败与运行时 warmup 失败是两个不同阶段。
 

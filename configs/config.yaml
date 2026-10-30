@@ -57,6 +57,9 @@ shared:
     default:
       model_name: "Xenova/bge-m3"
       cache_dir: "data/model_cache"
+      # resident：加载后一直驻留；idle_unload：空闲超过 idle_timeout_seconds 秒后卸载，下次使用时重新加载
+      residency: "idle_unload"
+      idle_timeout_seconds: 1800
 
   # ========== 模型提供商凭证 ==========
   # 供模型注册表（configs/models.yaml）按 provider 补齐 api_key / api_base。
@@ -164,6 +167,8 @@ patchouli:
       batch_size: 32
       top_k: 20
       normalize_scores: true
+      residency: "idle_unload"     # resident 或 idle_unload，含义同 shared.embedding.default
+      idle_timeout_seconds: 600
 
   lifecycle:
     vitality_calculator:

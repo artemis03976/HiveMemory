@@ -2,6 +2,8 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
+from hivememory.config.shared import ModelResidency
+
 # ========== 存储 ==========
 
 
@@ -204,6 +206,12 @@ class RerankerConfig(BaseModel):
     batch_size: int = Field(default=32, ge=1, description="一次送入重排模型的文本对数")
     top_k: int = Field(default=20)
     normalize_scores: bool = Field(default=True)
+    residency: ModelResidency = Field(default="idle_unload", description="重排模型的驻留方式")
+    idle_timeout_seconds: float = Field(
+        default=600.0,
+        gt=0,
+        description="idle_unload 模式下，重排模型空闲多少秒后卸载",
+    )
 
     model_config = ConfigDict(extra="forbid")
 

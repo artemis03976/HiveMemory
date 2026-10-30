@@ -8,6 +8,9 @@ class MaintenanceTasksConfig(BaseModel):
     enable_perception_idle_flush: bool = Field(default=True)
     lifecycle_gc_interval_hours: int = Field(default=24)
     enable_lifecycle_gc: bool = Field(default=True)
+    # 检查 idle_unload 推理模型是否空闲超时；空闲时限由各模型配置决定。
+    model_idle_unload_interval_seconds: float = Field(default=60.0)
+    enable_model_idle_unload: bool = Field(default=True)
 
     model_config = ConfigDict(extra="forbid")
 
