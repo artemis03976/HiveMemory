@@ -326,3 +326,47 @@ class TestRuntimeRerankerAssembly:
 
         assert runtime.reranker_service is None
         reranker_factory.assert_not_called()
+
+
+class TestRuntimeModelReadiness:
+    """模型就绪要求每个启用的模型都就绪；关闭的重排模型不参与判断。"""
+
+    @staticmethod
+    def _model_service(*, ready: bool) -> Mock:
+        service = Mock()
+        service.is_ready.return_value = ready
+        return service
+
+    @pytest.mark.parametrize(
+        ("embedding_ready", "reranker_ready"),
+        [(False, True), (True, False)],
+        ids=["embedding-not-ready", "reranker-not-ready"],
+    )
+    def test_any_enabled_model_not_ready_makes_models_not_ready(
+        self, embedding_ready, reranker_ready
+    ):
+        runtime = _create_runtime()
+        runtime.storage.embedding_service = self._model_service(ready=embedding_ready)
+        runtime.reranker_service = self._model_service(ready=reranker_ready)
+
+        assert runtime.is_models_ready() is False
+
+    def test_disabled_reranker_does_not_block_readiness(self):
+        runtime = _create_runtime()
+        runtime.storage.embedding_service = self._model_service(ready=True)
+        runtime.reranker_service = None
+
+        assert runtime.is_models_ready() is True
+
+    @pytest.mark.asyncio
+    async def test_warmup_failure_of_one_model_does_not_skip_the_others(self):
+        """预热失败只记录日志，其余模型照常加载。"""
+        runtime = _create_runtime()
+        runtime.storage.embedding_service = Mock()
+        runtime.storage.embedding_service.load = AsyncMock(side_effect=OSError("model missing"))
+        runtime.reranker_service = Mock()
+        runtime.reranker_service.load = AsyncMock()
+
+        await runtime.warmup_models()
+
+        runtime.reranker_service.load.assert_awaited_once()

@@ -259,7 +259,7 @@ class PatchouliRoutes:
 
     @route("patchouli.public.models.ready")
     async def MODELS_READY() -> bool:
-        """读取模型是否已完成预热。"""
+        """读取推理模型是否就绪：每个启用的模型至少成功加载过一次，且当前不处于加载失败状态；空闲卸载不改变就绪。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     ALL = (

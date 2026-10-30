@@ -278,7 +278,7 @@ class PatchouliLocalRoutes:
 
     @route("runtime.models.ready")
     async def RUNTIME_MODELS_READY() -> bool:
-        """检查所有推理模型是否已加载就绪"""
+        """检查推理模型是否就绪：每个启用的模型至少成功加载过一次，且当前不处于加载失败状态"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("runtime.storage_health")

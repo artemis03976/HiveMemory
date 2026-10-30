@@ -205,6 +205,15 @@ class PatchouliSystem(SubsystemProtocol):
             ),
             self.runtime.lifecycle_familiar.run_gardening_once,
         )
+        scheduler.register(
+            MaintenanceTaskSpec(
+                owner=self._MAINTENANCE_OWNER,
+                name="model_idle_unload",
+                interval_seconds=tasks_config.model_idle_unload_interval_seconds,
+                enabled=tasks_config.enable_model_idle_unload,
+            ),
+            self.runtime.unload_idle_models,
+        )
         return True
 
     def unregister_maintenance_tasks(self, scheduler: AsyncMaintenanceScheduler) -> int:

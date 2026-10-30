@@ -7,7 +7,7 @@
     - 基础设施初始化（存储、Reranker），持有组合根注入的 Librarian LLM
     - 引擎构建（Perception、Generation、Lifecycle、Retrieval）
     - 持有 Patchouli local bus 与内部能力路由
-    - 提供 warmup / health / shutdown drain 等运行时能力
+    - 提供模型预热与空闲卸载、health、shutdown drain 等运行时能力
 
 架构定位：
     PatchouliRuntime 是记忆域的能力运行环境宿主，
@@ -30,7 +30,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import logging
 from typing import TYPE_CHECKING, Any, TypedDict
 
@@ -61,6 +60,7 @@ from hivememory.patchouli.runtime.shutdown_drain import (
 
 if TYPE_CHECKING:
     from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
+    from hivememory.infrastructure.model_service import SingletonModelService
     from hivememory.infrastructure.rerank import FastEmbedRerankerService
     from hivememory.patchouli.control.memory_generation import MemoryGenerationCoordinator
     from hivememory.patchouli.memory_library import MemoryLibrary
@@ -145,9 +145,6 @@ class PatchouliRuntime:
 
         logger.info("PatchouliRuntime 帕秋莉运行时初始化完成")
 
-        # 模型预热状态
-        self._models_ready = False
-
     @property
     def local_bus(self) -> PatchouliBus:
         return self._local_bus
@@ -192,55 +189,57 @@ class PatchouliRuntime:
 
         在记忆生成 lane 停止之后调用：drain 期间的生成仍需要嵌入编码。
         """
-        await self.storage.embedding_service.close()
-        if self.reranker_service is not None:
-            await self.reranker_service.close()
+        for service in self._model_services():
+            await service.close()
 
-    # ========== 模型预热 ==========
+    # ========== 模型驻留 ==========
+
+    def _model_services(self) -> list[SingletonModelService[Any]]:
+        """启用的推理模型服务：存储层嵌入模型，以及启用重排时的重排模型。"""
+        services: list[SingletonModelService[Any]] = [self.storage.embedding_service]
+        if self.reranker_service is not None:
+            services.append(self.reranker_service)
+        return services
 
     async def warmup_models(self) -> None:
         """
         后台预热所有推理模型 (Embedding + Reranker)
 
-        在后台线程中触发模型加载，避免首次请求时的延迟。
-        服务启动后由 lifespan 异步调用，不阻塞 HTTP 服务可用性。
+        在各模型的推理线程中依次加载，避免首次请求时的延迟，并尽早暴露模型文件或配置
+        错误；``idle_unload`` 模型同样加载一次，之后按空闲时限卸载。服务启动后由
+        lifespan 异步调用，不阻塞 HTTP 服务可用性。
         """
         import time
 
         start = time.time()
         logger.info("开始后台预热推理模型...")
 
-        try:
-            # 存储层 Embedding (BGE-M3, 用于写入时的向量化)
-            await asyncio.to_thread(self.storage.embedding_service.warmup)
+        for service in self._model_services():
+            try:
+                await service.load()
+            except Exception as e:
+                # 预热失败不阻塞服务，也不跳过其余模型：失败的模型保持未就绪，下一次使用时重新加载。
+                logger.error(f"模型预热失败: {service.model_name}: {e}", exc_info=True)
 
-            # Reranker
-            if self.reranker_service is not None:
-                await asyncio.to_thread(self.reranker_service.warmup)
-
-            self._models_ready = True
-            elapsed = (time.time() - start) * 1000
-            logger.info(f"推理模型预热完成 ({elapsed:.0f}ms)")
-
-        except Exception as e:
-            logger.error(f"模型预热失败: {e}", exc_info=True)
-            # 预热失败不阻塞服务，退化为首次请求时懒加载
-            self._models_ready = False
+        elapsed = (time.time() - start) * 1000
+        logger.info(f"推理模型预热结束 ({elapsed:.0f}ms)")
 
     def is_models_ready(self) -> bool:
         """
-        检查所有推理模型是否已加载就绪
+        检查推理模型是否就绪
+
+        每个启用的模型自进程启动后至少成功加载过一次，且当前不处于加载失败状态时
+        就绪；空闲卸载不改变就绪。
 
         Returns:
-            True 如果所有模型已加载，否则 False
+            True 如果所有启用的模型都就绪，否则 False
         """
-        if self._models_ready:
-            return True
+        return all(service.is_ready() for service in self._model_services())
 
-        # 动态检查（覆盖懒加载已完成但 warmup 未调用的情况）
-        storage_ready = self.storage.embedding_service.is_loaded()
-        reranker_ready = self.reranker_service is None or self.reranker_service.is_loaded()
-        return storage_ready and reranker_ready
+    async def unload_idle_models(self) -> None:
+        """卸载空闲超过各自时限的 ``idle_unload`` 模型；由全局维护调度器周期调用。"""
+        for service in self._model_services():
+            await service.unload_if_idle()
 
     async def shutdown_drain(self) -> dict[str, Any]:
         """

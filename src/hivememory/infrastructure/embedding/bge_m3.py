@@ -6,13 +6,17 @@ import logging
 import threading
 from typing import TYPE_CHECKING, Any, Optional, overload
 
-if TYPE_CHECKING:
-    from hivememory.config.shared import EmbeddingConfig
 from hivememory.infrastructure.embedding.base import (
+    BaseEmbeddingService,
     DenseSparseEncoding,
     EmbeddingOutput,
-    SingletonModelService,
 )
+from hivememory.infrastructure.model_service import SingletonModelService
+
+if TYPE_CHECKING:
+    from fastembed import TextEmbedding
+
+    from hivememory.config.shared import EmbeddingConfig
 
 logger = logging.getLogger(__name__)
 
@@ -24,7 +28,7 @@ _CUSTOM_BGE_M3_DIM = 1024
 _MAX_INPUT_TOKENS = 1024
 
 
-class BGEM3EmbeddingService(SingletonModelService):
+class BGEM3EmbeddingService(SingletonModelService["TextEmbedding"], BaseEmbeddingService):
     """
     BGE-M3 Dense Embedding 服务 (FastEmbed ONNX)
 
@@ -33,8 +37,8 @@ class BGEM3EmbeddingService(SingletonModelService):
     - Sparse: 返回原始文本供 Qdrant BM25 使用
     """
 
-    def _load_model(self) -> None:
-        """加载 FastEmbed BGE-M3 ONNX 模型"""
+    def _load_model(self) -> "TextEmbedding":
+        """加载 FastEmbed BGE-M3 ONNX 模型，并把输入截断设为 1024 token"""
         try:
             from fastembed import TextEmbedding
             from fastembed.common.model_description import ModelSource, PoolingType
@@ -66,9 +70,8 @@ class BGEM3EmbeddingService(SingletonModelService):
             if not isinstance(tokenizer, Tokenizer):
                 raise RuntimeError("BGE-M3 模型没有可设置截断的分词器，无法限制输入长度")
             tokenizer.enable_truncation(max_length=_MAX_INPUT_TOKENS)
-            # 截断设置完成后才对其他线程可见。
-            self._model = model
-            logger.info("FastEmbed BGE-M3 模型加载完成")
+            # 截断设置完成后才交给调用方，推理不会用到未截断的模型。
+            return model
         except Exception as e:
             logger.error(f"BGE-M3 模型加载失败: {e}")
             raise
@@ -98,7 +101,7 @@ class BGEM3EmbeddingService(SingletonModelService):
         """
         编码文本为稠密向量，或返回 sparse 原始文本供 Qdrant BM25 使用。
 
-        稠密编码（含首次使用时的模型加载）在推理线程中执行。
+        稠密编码（含模型未加载时的加载）在推理线程中执行；模型加载失败时抛出加载错误。
 
         Returns:
             - dense only: List[float]
@@ -114,17 +117,19 @@ class BGEM3EmbeddingService(SingletonModelService):
             # sparse only：返回原文，由向量库计算 BM25
             return sparse_texts
 
-        dense_result = await self._inference.run(self._embed_dense, dense_texts)
+        dense_result = await self._run_with_model(self._embed_dense, dense_texts)
         if sparse_texts is None:
             return dense_result
         return {"dense": dense_result, "sparse_text": sparse_texts}
 
-    def _embed_dense(self, dense_texts: str | list[str]) -> list[float] | list[list[float]]:
-        """在推理线程中计算稠密向量；模型失败时退化为空向量。"""
+    def _embed_dense(
+        self, model: "TextEmbedding", dense_texts: str | list[str]
+    ) -> list[float] | list[list[float]]:
+        """在推理线程中计算稠密向量；推理失败时退化为空向量。"""
         single = isinstance(dense_texts, str)
         input_list = [dense_texts] if isinstance(dense_texts, str) else dense_texts
         try:
-            embeddings = list(self.model.embed(input_list))
+            embeddings = list(model.embed(input_list))
             return embeddings[0].tolist() if single else [e.tolist() for e in embeddings]
         except Exception as e:
             logger.warning(f"稠密向量编码失败: {e}")

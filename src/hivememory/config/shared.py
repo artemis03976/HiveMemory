@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.constants import (
@@ -51,9 +53,20 @@ class LLMGlobalConfig(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+# 推理模型的驻留方式：resident 加载后一直驻留到进程结束；idle_unload 空闲超过时限即卸载，
+# 下一次使用时重新加载。
+ModelResidency = Literal["resident", "idle_unload"]
+
+
 class EmbeddingConfig(BaseModel):
     model_name: str = Field(default="sentence-transformers/all-MiniLM-L6-v2")
     cache_dir: str | None = Field(default=None)
+    residency: ModelResidency = Field(default="idle_unload", description="嵌入模型的驻留方式")
+    idle_timeout_seconds: float = Field(
+        default=1800.0,
+        gt=0,
+        description="idle_unload 模式下，嵌入模型空闲多少秒后卸载",
+    )
 
     model_config = ConfigDict(extra="forbid")
 
