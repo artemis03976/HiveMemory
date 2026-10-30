@@ -72,12 +72,10 @@ def _frame(
         TurnEvent(
             kind="tool_call",
             sequence=0,
-            role="assistant",
             content="<CALL helper>",
             action_id=action_id,
-            tool_kind="CALL",
-            tool_name="helper",
-            status="pending",
+            verb="CALL",
+            targets=("helper",),
         )
     )
     frame.progress.sequence = 1
@@ -240,7 +238,8 @@ class _RecordingRunOutput:
         self.call_finished_outputs.append(output)
 
 
-def test_apply_call_response_is_exactly_once_and_updates_call_pair():
+def test_apply_call_response_is_exactly_once_and_records_outcome_on_result():
+    """回填写出配对的结果事件：子帧结局与产物只在结果上，挂起时的调用事件保持原样。"""
     runtime = AgentRuntime(
         runtime_config=MagicMock(),
         loop_executor=MagicMock(),
@@ -254,12 +253,14 @@ def test_apply_call_response_is_exactly_once_and_updates_call_pair():
         artifact_aliases=["draft-1"],
     )
 
+    call = frame.progress.turn_events[0]
     runtime.apply_call_response(frame, suspension, response)
 
     assert [message["role"] for message in frame.working_history] == ["assistant", "user"]
-    assert frame.progress.turn_events[0].status == "success"
-    assert frame.progress.turn_events[-1].kind == "tool_result"
-    assert frame.progress.turn_events[-1].action_id == "act-1"
+    assert frame.progress.turn_events[0] == call
+    result = frame.progress.turn_events[-1]
+    assert (result.kind, result.sequence, result.action_id) == ("tool_result", 1, "act-1")
+    assert (result.status, result.produced_aliases) == ("success", ("draft-1",))
     assert frame.harvested_aliases == ["draft-1"]
     with pytest.raises(ValueError, match="already applied"):
         runtime.apply_call_response(frame, suspension, response)

@@ -20,7 +20,6 @@ from hivememory.components.work_queue import QueuePolicy
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import IdentityScope
 from hivememory.core.models.pending import UpdateFocus, WriteFocus
-from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.application import (
     InteractionSubmissionService,
     MemoryIntentSubmissionService,
@@ -36,6 +35,7 @@ from hivememory.patchouli.contracts.memory_tasks import (
 )
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.patchouli.runtime.bus import PatchouliBus
+from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -48,12 +48,7 @@ def _scope(workspace_id: str = "main_workspace") -> IdentityScope:
 
 
 def _payload():
-    return InteractionPayload(
-        user_message="integration question",
-        mtp_traces=[],
-        assistant_final_text="integration answer",
-        turn_events=[],
-    )
+    return make_interaction_payload("integration question", "integration answer")
 
 
 # ---- 交互提交 ----

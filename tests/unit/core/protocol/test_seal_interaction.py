@@ -6,6 +6,9 @@
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from hivememory.core.models import TurnEvent, WorkspaceAssetRef
 from hivememory.core.protocol.sealing import seal_interaction
 from tests.helpers.chat_handoff import (
@@ -36,7 +39,7 @@ def test_seal_interaction_assembles_payload_from_explicit_fields() -> None:
     assert payload.assistant_final_text == "完成"
     assert payload.turn_events == [
         *turn_events,
-        TurnEvent(kind="assistant_message", sequence=5, role="assistant", content="完成"),
+        TurnEvent(kind="assistant_message", sequence=5, content="完成"),
     ]
     assert payload.model_used == "glm-4"
     assert payload.used_attachments == used
@@ -44,31 +47,33 @@ def test_seal_interaction_assembles_payload_from_explicit_fields() -> None:
     assert payload.mtp_traces == expected_mtp_traces()
 
 
-def test_seal_interaction_without_turn_events_has_empty_mtp_traces() -> None:
-    """只有正文时补齐助手事件，仍不凭正文推导 MTP 轨迹。"""
+def test_seal_interaction_with_only_user_message_event_appends_reply_event() -> None:
+    """执行方只返回正文时补齐助手事件，仍不凭正文推导 MTP 轨迹。"""
+    user = TurnEvent(kind="user_message", sequence=0, content="问题")
     payload = seal_interaction(
         user_message="问题",
         gateway_decision=make_gateway_decision(),
         assistant_final_text="完成",
-        turn_events=[],
+        turn_events=[user],
         model_used="",
         used_attachments=[],
     )
 
     assert payload.mtp_traces == []
     assert payload.turn_events == [
-        TurnEvent(kind="assistant_message", sequence=0, role="assistant", content="完成")
+        user,
+        TurnEvent(kind="assistant_message", sequence=1, content="完成"),
     ]
     assert payload.used_attachments == []
 
 
 def test_seal_interaction_keeps_non_mtp_tool_calls_out_of_mtp_traces() -> None:
-    """不带 MTP 动词的外部工具调用保留在事件中，但不产生轨迹。"""
+    """外部工具调用（带工具名、不带动词）保留在事件中，但不产生轨迹。"""
     turn_events = [
+        TurnEvent(kind="user_message", sequence=0, content="修一下测试"),
         TurnEvent(
             kind="tool_call",
             sequence=1,
-            role="assistant",
             content="",
             action_id="toolu-1",
             tool_name="Bash",
@@ -77,12 +82,11 @@ def test_seal_interaction_keeps_non_mtp_tool_calls_out_of_mtp_traces() -> None:
         TurnEvent(
             kind="tool_result",
             sequence=2,
-            role="system",
             content="1 failed",
             action_id="toolu-1",
             status="error",
         ),
-        TurnEvent(kind="assistant_message", sequence=3, role="assistant", content="已修复"),
+        TurnEvent(kind="assistant_message", sequence=3, content="已修复"),
     ]
 
     payload = seal_interaction(
@@ -99,12 +103,13 @@ def test_seal_interaction_keeps_non_mtp_tool_calls_out_of_mtp_traces() -> None:
 
 
 def test_seal_interaction_without_gateway_decision_leaves_gateway_fields_empty() -> None:
-    """缺省 Gateway 决定时改写查询与价值信号为空，其余字段照常封口。"""
+    """缺省 Gateway 决定时改写查询与价值信号为空；补齐的助手事件不带结局。"""
+    user = TurnEvent(kind="user_message", sequence=0, content="问题")
     payload = seal_interaction(
         user_message="问题",
         gateway_decision=None,
         assistant_final_text="完成",
-        turn_events=[],
+        turn_events=[user],
         model_used="",
         used_attachments=[],
         outcome="cancelled",
@@ -114,11 +119,19 @@ def test_seal_interaction_without_gateway_decision_leaves_gateway_fields_empty()
     assert payload.worth_saving is None
     assert payload.outcome == "cancelled"
     assert payload.turn_events == [
-        TurnEvent(
-            kind="assistant_message",
-            sequence=0,
-            role="assistant",
-            content="完成",
-            status="cancelled",
-        )
+        user,
+        TurnEvent(kind="assistant_message", sequence=1, content="完成"),
     ]
+
+
+def test_interaction_payload_rejects_events_that_break_the_turn_invariants() -> None:
+    """任何载荷的事件都以序号 0 的用户消息开头：缺少它时封口显式失败，不补写。"""
+    with pytest.raises(ValidationError, match="start with the user message"):
+        seal_interaction(
+            user_message="问题",
+            gateway_decision=None,
+            assistant_final_text="完成",
+            turn_events=[],
+            model_used="",
+            used_attachments=[],
+        )

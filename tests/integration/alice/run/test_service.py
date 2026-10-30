@@ -189,9 +189,7 @@ async def test_run_agent_passes_input_and_submitter_to_root_frame():
     context = _build_input_manifest().model_copy(
         update={
             "session_history": (
-                make_conversation_turn(
-                    agent_id="other", user_message="历史问题", assistant_final_text="历史回答"
-                ),
+                make_conversation_turn(agent_id="other", user_message="历史问题", reply="历史回答"),
             ),
         }
     )
@@ -386,7 +384,6 @@ async def test_terminal_result_carries_turn_facts_and_event_keeps_iteration_stat
                 TurnEvent(
                     kind="assistant_message",
                     sequence=frame.progress.sequence,
-                    role="assistant",
                     content="hello world",
                 )
             )
@@ -458,9 +455,10 @@ async def test_native_cancellation_returns_partial_text_and_completed_checkpoint
     assert result.final_text == "半截答案"
     assert result.compaction_checkpoint.summary == "Accepted summary"
     assert result.compaction_checkpoint.summarized_through == "t2"
-    assert [(e.kind, e.content, e.status) for e in result.turn_events] == [
-        ("user_message", "hello", None),
-        ("assistant_message", "半截答案", "cancelled"),
+    # 未完成由结果的 cancelled 结局表达，半截正文事件本身不带状态。
+    assert [(e.kind, e.content) for e in result.turn_events] == [
+        ("user_message", "hello"),
+        ("assistant_message", "半截答案"),
     ]
 
 
@@ -498,7 +496,8 @@ async def test_cancel_in_call_keeps_root_call_without_child_partial_text():
     result, _ = await run
     assert result.status == "cancelled"
     assert result.final_text == ""
-    assert [(e.kind, e.tool_kind) for e in result.turn_events] == [
+    # 被取消的 CALL 只有调用事件，没有结果：这次调用没有完成。
+    assert [(e.kind, e.verb) for e in result.turn_events] == [
         ("user_message", None),
         ("tool_call", "CALL"),
     ]
@@ -524,18 +523,25 @@ def _compaction_inputs(*, compressible=True):
         user_message="old" if compressible else "x" * 6000,
         turn_events=(
             [
+                TurnEvent(kind="user_message", sequence=0, content="old"),
+                TurnEvent(
+                    kind="tool_call",
+                    sequence=1,
+                    content="⟪ READ | mem_a ⟫",
+                    action_id="read",
+                    verb="READ",
+                    targets=("mem_a",),
+                ),
                 TurnEvent(
                     kind="tool_result",
-                    sequence=0,
-                    role="user",
+                    sequence=2,
                     content="x" * 6000,
-                    tool_kind="READ",
-                    target="mem_a",
+                    action_id="read",
                     status="success",
-                )
+                ),
             ]
             if compressible
-            else []
+            else [TurnEvent(kind="user_message", sequence=0, content="x" * 6000)]
         ),
     )
     manifest = make_input_manifest(
@@ -573,7 +579,8 @@ async def test_compaction_reaches_generation_and_returns_checkpoint_without_reco
         ("assistant_message", "完成"),
     ]
     (request,) = [call.messages for call in llm.calls]
-    assert "READ again" in request[1]["content"]
+    # 历史轮次依次是用户消息、READ 调用与减重后的结果线索。
+    assert "READ again" in request[2]["content"]
     assert all("x" * 6000 not in message["content"] for message in request)
     observed = [
         event
@@ -655,9 +662,7 @@ def _summary_inputs():
     """使用需要接力摘要的多轮纯文本历史，保持生成请求在小预算内。"""
     config, manifest = _compaction_inputs()
     turns = tuple(
-        make_conversation_turn(
-            interaction_id=f"t{i}", user_message="x" * 400, assistant_final_text="y" * 400
-        )
+        make_conversation_turn(interaction_id=f"t{i}", user_message="x" * 400, reply="y" * 400)
         for i in range(4)
     )
     return config, manifest.model_copy(update={"session_history": turns})

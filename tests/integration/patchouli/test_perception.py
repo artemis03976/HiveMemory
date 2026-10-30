@@ -26,7 +26,6 @@ from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueSt
 from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
-    TurnEvent,
     WorkspaceAssetRef,
     system_actor_for_workspace,
 )
@@ -42,6 +41,7 @@ from hivememory.patchouli.control.memory_generation.models import (
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
+from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -50,19 +50,7 @@ def _identity_scope(user_id="u1", agent_id="a1"):
 
 
 def _payload(message: str = "hello", answer: str | None = None) -> InteractionPayload:
-    answer = answer if answer is not None else f"answer:{message}"
-    return InteractionPayload(
-        user_message=message,
-        assistant_final_text=answer,
-        turn_events=[
-            TurnEvent(
-                kind="assistant_message",
-                sequence=0,
-                role="assistant",
-                content=answer,
-            )
-        ],
-    )
+    return make_interaction_payload(message, answer if answer is not None else f"answer:{message}")
 
 
 def _generation_task(task_id="task-1", topic_id="t1") -> MemoryGenerationTask:
@@ -224,20 +212,6 @@ class TestApplyInteraction:
         # 同一资产重复使用只保留首次交互事实
         assert len(topic.bindings) == 1
         assert topic.bindings[0].first_bound_interaction_id == "i-1"
-
-    @pytest.mark.asyncio
-    async def test_empty_turn_events_rejected_without_legacy_fallback(self):
-        familiar, store, _, _ = _make_familiar()
-        payload = InteractionPayload(user_message="hello", turn_events=[])
-
-        with pytest.raises(ValueError, match="turn_events is required"):
-            await familiar.apply_interaction(
-                payload,
-                belong_to=_identity_scope().workspace_identity,
-                from_actor=_identity_scope().actor_identity,
-                interaction_id="i-1",
-            )
-        assert store.list_all() == []  # 未产生任何话题写入
 
     @pytest.mark.asyncio
     async def test_busy_topic_rejects_interaction_without_writing(self):

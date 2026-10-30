@@ -1,17 +1,11 @@
-"""会话历史转写：按全量轮次重放事件，缺少事件时回退到回复文本。"""
+"""会话历史转写：按全量轮次重放每一轮的事件。"""
 
 from collections.abc import Sequence
 
 from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import ConversationTurn
 from hivememory.i18n import get_compaction_prompt_text
-from hivememory.i18n.mtp_runtime import get_mtp_info_text
 from hivememory.prompts.transcript.reduction import reduce_tool_result
-
-_SYSTEM_PREFIX_KEYS: dict[str, str] = {
-    "system_tool_result": "mtp.loop.execution_result_title",
-    "system_call_response": "mtp.call_response.title",
-}
 
 
 class HistoryTranscriptBuilder:
@@ -88,73 +82,44 @@ class HistoryTranscriptBuilder:
         excerpt_chars: int,
         result_max_chars: int | None,
     ) -> None:
-        """渲染单个会话轮次，追加到 out。"""
-        payload = turn.payload
-        if payload.turn_events:
-            # 结构化路径：按 sequence 重放事件流
-            if payload.user_message and not self._has_user_message_event(payload.turn_events):
-                out.append({"role": "user", "content": payload.user_message})
-            calls: dict[str, TurnEvent] = {}
-            for event in sorted(payload.turn_events, key=lambda e: e.sequence):
-                if event.kind == "tool_call" and event.action_id:
-                    calls[event.action_id] = event
-                if reduce_results and event.kind == "tool_result":
-                    # 参数只记录在调用事件中；以 action_id 关联，不能借用别的调用。
+        """按事件顺序重放单个会话轮次，追加到 out。
+
+        角色由事件种类决定：用户消息与工具返回进入 user 消息（工具返回放进 user
+        消息是 Alice 的重放规则，与运行时回填一致），其余进入 assistant 消息。
+        指令前正文与紧随其后的 MTP 调用合并成一条助手消息，与运行时 working
+        history 中的形态一致，指令前正文因此只出现一次。回填正文自带标题，
+        重放原样使用。
+        """
+        calls: dict[str | None, TurnEvent] = {}
+        previous: TurnEvent | None = None
+        for event in turn.payload.turn_events:
+            if event.kind == "user_message":
+                out.append({"role": "user", "content": event.content})
+            elif event.kind == "tool_result":
+                content = event.content
+                if reduce_results:
+                    # 参数与作用对象只记录在调用事件中；以 action_id 关联，不能借用别的调用。
                     content = reduce_tool_result(
                         event,
-                        calls.get(event.action_id or ""),
+                        calls[event.action_id],
                         language=language,
                         excerpt_chars=excerpt_chars,
                     )
-                    event = event.model_copy(update={"content": content})
-                msg = self._render_event(event, turn, current_agent_id)
-                if msg is not None:
-                    if event.kind == "tool_result" and result_max_chars is not None:
-                        msg = {**msg, "content": msg["content"][:result_max_chars]}
-                    out.append(msg)
-        else:
-            user_content = payload.user_message
-            if user_content:
-                out.append({"role": "user", "content": user_content})
-            assistant_content = payload.assistant_final_text
-            if not assistant_content:
-                return
-            content = self._apply_agent_prefix(assistant_content, turn, current_agent_id)
-            out.append({"role": "assistant", "content": content})
-
-    def _render_event(
-        self,
-        event: TurnEvent,
-        turn: ConversationTurn,
-        current_agent_id: str,
-    ) -> "dict[str, str] | None":
-        """
-        将单个 TurnEvent 转换为 OpenAI message dict。
-
-        Returns:
-            dict 或 None（未来可用于过滤特定事件类型）
-        """
-        content = self._apply_system_prefix(event)
-
-        if event.role == "assistant":
-            content = self._apply_agent_prefix(content, turn, current_agent_id)
-
-        return {"role": event.role, "content": content}
-
-    def _has_user_message_event(self, events: Sequence[TurnEvent]) -> bool:
-        """检查结构化事件流是否已经承载用户消息，避免重放时重复补 user_query。"""
-        return any(event.kind == "user_message" for event in events)
-
-    def _apply_system_prefix(self, event: TurnEvent) -> str:
-        """根据 render_as 为 mtp_result 类事件补系统前缀。"""
-        render_as = event.render_as
-        prefix_key = _SYSTEM_PREFIX_KEYS.get(render_as)
-        prefix = get_mtp_info_text(prefix_key) if prefix_key else None
-        if prefix:
-            if event.content == prefix or event.content.startswith(f"{prefix}\n"):
-                return event.content
-            return f"{prefix}\n{event.content}"
-        return event.content
+                if result_max_chars is not None:
+                    content = content[:result_max_chars]
+                out.append({"role": "user", "content": content})
+            elif (
+                event.kind == "tool_call"
+                and previous is not None
+                and previous.kind == "assistant_message"
+            ):
+                out[-1] = {**out[-1], "content": out[-1]["content"] + event.content}
+            else:
+                content = self._apply_agent_prefix(event.content, turn, current_agent_id)
+                out.append({"role": "assistant", "content": content})
+            if event.kind == "tool_call":
+                calls[event.action_id] = event
+            previous = event
 
     def _apply_agent_prefix(
         self,

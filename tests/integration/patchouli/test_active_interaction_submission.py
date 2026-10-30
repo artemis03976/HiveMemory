@@ -31,6 +31,7 @@ from hivememory.patchouli.control.interaction_submission import (
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -85,11 +86,8 @@ def _sealed_payload(
     final_text: str = "answer",
 ) -> InteractionPayload:
     """构造任务进程封口后的交互记录（finalize 的输入）。"""
-    return InteractionPayload(
-        user_message="question",
-        rewritten_query="原查询",
-        worth_saving=True,
-        assistant_final_text=final_text,
+    return make_interaction_payload(
+        "question", final_text, rewritten_query="原查询", worth_saving=True
     )
 
 
@@ -309,10 +307,7 @@ async def test_import_backlog_capacity_rejects_active_before_side_effects() -> N
                 )
             ).actor_identity,
             interaction_id="import-pending",
-            payload=InteractionPayload(
-                user_message="imported question",
-                assistant_final_text="imported answer",
-            ),
+            payload=make_interaction_payload("imported question", "imported answer"),
             requested_topic_id="topic-1",
             ordering_key="topic:topic-1",
             origin="import_bus",

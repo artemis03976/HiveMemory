@@ -14,6 +14,7 @@ from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from typing import Any
 
+from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import SessionCompactionCheckpoint
 from hivememory.workspace.contracts import (
     CPUEventSink,
@@ -48,6 +49,9 @@ class ScriptedCPU:
     传播取消（不交回任何结果）。``linger_on_cancel`` 让取消收尾先挂起，直到
     再次被取消，模拟停止后不能及时结束、只能由系统关闭硬取消的 CPU；硬取消
     到达后仍按 ``cancelled_result`` 决定返回还是传播。
+
+    与 Alice 一样，交回的轮次事件以本轮用户消息开头：预置结果没有用户消息
+    事件时，以输入清单中的用户消息补上序号 0 的事件。
 
     调用入参记录在 ``calls``；``finished`` 记录执行是否已经结束（返回、
     抛出或传播取消均算）。
@@ -118,16 +122,25 @@ class ScriptedCPU:
             if self._result is None:
                 raise AssertionError("ScriptedCPU 没有配置终态结果")
             self.result_returning.set()
-            return self._result
+            return _opened_by_user_message(self._result, manifest)
         except asyncio.CancelledError:
             if self._linger_on_cancel:
                 with contextlib.suppress(asyncio.CancelledError):
                     await asyncio.Event().wait()
             if self._cancelled_result is None:
                 raise
-            return self._cancelled_result
+            return _opened_by_user_message(self._cancelled_result, manifest)
         finally:
             self.finished = True
+
+
+def _opened_by_user_message(
+    result: CPUExecutionResult, manifest: CPUInputManifest
+) -> CPUExecutionResult:
+    if result.turn_events and result.turn_events[0].kind == "user_message":
+        return result
+    user = TurnEvent(kind="user_message", sequence=0, content=manifest.user_message)
+    return result.model_copy(update={"turn_events": [user, *result.turn_events]})
 
 
 def make_cpu_result(

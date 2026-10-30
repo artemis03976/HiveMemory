@@ -10,16 +10,38 @@ from enum import Enum
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    WithJsonSchema,
+    field_validator,
+    model_validator,
+)
 
 from hivememory.core.models.identity import ActorIdentity
 from hivememory.core.models.immutable import FrozenDict, freeze_mapping
 from hivememory.utils.token_estimator import estimate_tokens
 
-# tool_result 在历史视图中的渲染提示；入口模型与 TurnEvent 共用同一取值集合。
 InteractionOutcome = Literal["completed", "cancelled", "failed"]
 
-TurnEventRenderAs = Literal["plain", "system_tool_result", "system_call_response"]
+# HiveMemory 能力动词：MTP 指令的动词，以及外部 harness 经 HiveMemory MCP 工具
+# 调用的能力。外部工具名是开放词表、会与动词重名（Claude Code 有 Read、Write
+# 工具），因此动词单独成字段，不与 tool_name 合并。
+CapabilityVerb = Literal["SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"]
+
+# 工具调用的结局，只写在结果事件上；调用没有结果事件表示这次调用没有完成。
+ToolResultStatus = Literal["success", "ack", "error", "cancelled"]
+
+# 每种事件可以携带的可选字段；未列出的字段必须保持缺省（None 或空元组）。
+_EVENT_OPTIONAL_FIELDS: dict[str, frozenset[str]] = {
+    "user_message": frozenset(),
+    "assistant_message": frozenset(),
+    "thought": frozenset(),
+    "tool_call": frozenset({"action_id", "tool_name", "verb", "targets", "tool_args"}),
+    "tool_result": frozenset({"action_id", "status", "produced_aliases"}),
+}
+_OPTIONAL_FIELDS = frozenset().union(*_EVENT_OPTIONAL_FIELDS.values())
 
 
 class StreamMessageType(str, Enum):
@@ -70,20 +92,26 @@ class StreamMessage(BaseModel):
 
 class TurnEvent(BaseModel):
     """
-    通用 Agent 交互原子事件
+    一轮 Agent 交互的原子事件，是一轮交互过程的唯一记录。
 
-    用于统一描述各类 Agent 系统中的最小交互单元：
-    - 普通用户/助手消息
-    - Thought 片段
-    - Tool Call
-    - Tool Result（包含工具调用后的系统级回填）
+    Alice 的 MTP 指令与外部 harness 的工具调用写出同形的事件：字段含义相同，
+    来源之间真实存在的差异只体现为取值，读取方不判断来源。
 
-    设计目标：
-    - 作为历史视图重放的统一事件真相源
-    - 通过 action_id 维护一次完整 Agent Action 的结构边界
-    - 为主动模式（MTP）与被动模式（JSON function call）提供相同事件语义
+    - ``content`` 是执行者写出或收到的原文：用户消息、助手正文、思考、MTP
+      指令片段（结构化工具调用没有调用原文，为空串）或工具返回。原文供重放，
+      对工具调用的解读只看结构化字段；MTP 指令解析失败时只有原文。
+    - 调用一方的事实只写在 ``tool_call`` 上，结局一方的事实只写在
+      ``tool_result`` 上，二者以 ``action_id`` 配对，结果不重复调用的字段。
+    - ``verb`` 与 ``tool_name`` 互斥，回答“调用了什么”：前者是 HiveMemory
+      能力，后者是外部工具的名字；MTP 指令无法解析时二者都为空。
+    - ``targets`` 是动词的作用对象：READ 的 alias，RUN 的工具或代码记忆，
+      UPDATE 的记忆，CALL 的 Agent；SEARCH 与 WRITE 的通配目标为空。
+      ``tool_args`` 只放作用对象以外的参数。
+    - ``produced_aliases`` 是本次调用产出的 alias：WRITE、UPDATE 的 ACK 为
+      pending alias，CALL 为子帧回填的产物，其他为空。
 
-    当前仅接受标准化后的事件语义与字段命名。
+    单个事件的字段规则在构造时校验；一轮事件集的不变量由
+    ``validate_turn_events`` 校验。
     """
 
     kind: Literal[
@@ -94,15 +122,15 @@ class TurnEvent(BaseModel):
         "tool_result",
     ]
     sequence: int
-    role: Literal["user", "assistant", "system"]
     content: str
 
-    # 聚合信息：将多个原子事件归并为同一次完整 action
+    # 调用与结果的配对标识；思考与正文不带。
     action_id: str | None = None
 
-    # 通用工具调用元数据
+    # ---- 只在 tool_call 上 ----
     tool_name: str | None = None
-    tool_kind: str | None = None
+    verb: CapabilityVerb | None = None
+    targets: tuple[str, ...] = ()
     # 运行时保持递归冻结，HTTP/JSON schema 按实际序列化结果声明为普通对象。
     tool_args: (
         Annotated[
@@ -110,22 +138,82 @@ class TurnEvent(BaseModel):
         ]
         | None
     ) = None
-    target: str | None = None
-    status: str | None = None
 
-    # 历史视图渲染提示
-    render_as: TurnEventRenderAs = "plain"
+    # ---- 只在 tool_result 上 ----
+    status: ToolResultStatus | None = None
+    produced_aliases: tuple[str, ...] = ()
 
     model_config = ConfigDict(
         frozen=True,
         use_enum_values=True,
         arbitrary_types_allowed=True,
+        extra="forbid",
     )
 
     @field_validator("tool_args", mode="before")
     @classmethod
     def _freeze_tool_args(cls, value: Any) -> FrozenDict[str, Any] | None:
         return None if value is None else freeze_mapping(value)
+
+    @model_validator(mode="after")
+    def _check_fields_for_kind(self) -> "TurnEvent":
+        """字段只出现在允许它的事件种类上；工具事件必带配对标识，结果必带状态。"""
+        present = {
+            name
+            for name in _OPTIONAL_FIELDS
+            if getattr(self, name) is not None and getattr(self, name) != ()
+        }
+        unexpected = sorted(present - _EVENT_OPTIONAL_FIELDS[self.kind])
+        if unexpected:
+            raise ValueError(f"{self.kind} event cannot carry: {', '.join(unexpected)}")
+        if self.kind in ("tool_call", "tool_result") and not self.action_id:
+            raise ValueError(f"{self.kind} event requires action_id")
+        if self.kind == "tool_result" and self.status is None:
+            raise ValueError("tool_result event requires status")
+        if self.verb is not None and self.tool_name is not None:
+            raise ValueError("tool_call event cannot carry both verb and tool_name")
+        if self.targets and self.verb is None:
+            raise ValueError("tool_call event without verb cannot carry targets")
+        return self
+
+
+def validate_turn_events(events: Sequence[TurnEvent]) -> None:
+    """校验一轮事件集的不变量，违反时抛出 ``ValueError``，不修补。
+
+    - 首个事件是这一轮唯一的用户消息，序号为 0；序号轮内唯一、严格递增；
+    - 每个调用的 ``action_id`` 轮内唯一；每个结果指向本轮更早出现的调用，
+      每个调用至多一个结果。没有结果的调用表示这次调用没有完成。
+    """
+    if not events or events[0].kind != "user_message" or events[0].sequence != 0:
+        raise ValueError("turn events must start with the user message at sequence 0")
+    previous = 0
+    calls: set[str | None] = set()
+    answered: set[str | None] = set()
+    for event in events[1:]:
+        if event.sequence <= previous:
+            raise ValueError("turn event sequences must be strictly increasing")
+        previous = event.sequence
+        if event.kind == "user_message":
+            raise ValueError("a turn has exactly one user message")
+        if event.kind == "tool_call":
+            if event.action_id in calls:
+                raise ValueError(f"duplicate tool_call action_id: {event.action_id}")
+            calls.add(event.action_id)
+        elif event.kind == "tool_result":
+            if event.action_id not in calls:
+                raise ValueError(f"tool_result without an earlier tool_call: {event.action_id}")
+            if event.action_id in answered:
+                raise ValueError(f"tool_call has more than one result: {event.action_id}")
+            answered.add(event.action_id)
+
+
+def turn_reply_text(events: Sequence[TurnEvent]) -> str:
+    """一轮的回复正文：全部助手正文按序号以空行拼接；没有助手正文时为空串。"""
+    return "\n\n".join(
+        event.content
+        for event in sorted(events, key=lambda item: item.sequence)
+        if event.kind == "assistant_message"
+    )
 
 
 class AgentAction(BaseModel):
@@ -332,18 +420,14 @@ class ActionReducer:
             if event.kind == "thought":
                 action["thought"] = cls._merge_thought(action["thought"], event.content)
             elif event.kind == "tool_call":
-                action["tool_name"] = event.tool_name or event.target or action["tool_name"]
-                action["tool_kind"] = event.tool_kind or action["tool_kind"]
-                if event.tool_args is not None:
-                    action["tool_args"] = event.tool_args
-                action["status"] = event.status or action["status"]
+                # 能力调用没有工具名，摘要层以作用对象代替：READ 的 alias、
+                # RUN 的工具、CALL 的 Agent。
+                action["tool_name"] = event.tool_name or ", ".join(event.targets)
+                action["tool_kind"] = event.verb or ""
+                action["tool_args"] = event.tool_args
             elif event.kind == "tool_result":
                 action["results"].append(event)
-                action["status"] = event.status or action["status"]
-                if not action["tool_name"]:
-                    action["tool_name"] = event.tool_name or event.target or ""
-                if not action["tool_kind"]:
-                    action["tool_kind"] = event.tool_kind or ""
+                action["status"] = event.status
 
             last_action_id = action_id
 

@@ -17,12 +17,10 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryVisibility,
     PayloadLayer,
-    TurnEvent,
     WorkspaceIdentity,
     WriteFocus,
     system_actor_for_workspace,
 )
-from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 from hivememory.engines.generation.engine import MemoryGenerationEngine
@@ -53,6 +51,7 @@ from hivememory.patchouli.services.memory_generation import MemoryGenerationFami
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.sessions import make_interaction_payload
 
 
 class _Clock:
@@ -240,15 +239,7 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
     await controller.start()
     try:
         topic_id = await perception.apply_interaction(
-            InteractionPayload(
-                user_message="question",
-                assistant_final_text="answer",
-                turn_events=[
-                    TurnEvent(
-                        kind="assistant_message", sequence=0, role="assistant", content="answer"
-                    )
-                ],
-            ),
+            make_interaction_payload("question", "answer"),
             belong_to=belong_to,
             from_actor=from_actor,
             interaction_id="idle-interaction",

@@ -25,22 +25,12 @@ from hivememory.patchouli.control.interaction_submission import (
     TransientInteractionSubmissionError,
     topic_ordering_key,
 )
+from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope
 
 
 def _payload(message: str = "hello") -> InteractionPayload:
-    return InteractionPayload(
-        user_message=message,
-        assistant_final_text=f"answer:{message}",
-        turn_events=[
-            TurnEvent(
-                kind="assistant_message",
-                sequence=0,
-                role="assistant",
-                content=f"answer:{message}",
-            )
-        ],
-    )
+    return make_interaction_payload(message, f"answer:{message}")
 
 
 def _submission(
@@ -92,6 +82,7 @@ async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> 
 
     queue = InteractionSubmissionQueue(submit)
     original = _payload("original")
+    original_events = list(original.turn_events)
     submission = _submission("interaction-1", payload=original)
     assert submission.payload is original
 
@@ -115,7 +106,7 @@ async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> 
     assert len(attempts) == 2
     assert attempts[0] is not attempts[1]
     assert attempts[1].user_message == "original"
-    assert len(attempts[1].turn_events) == 1
+    assert attempts[1].turn_events == original_events
     assert attempt_scopes == [submission.belong_to, submission.belong_to]
     assert attempt_scopes[0] is not attempt_scopes[1]
 
@@ -340,8 +331,28 @@ def test_codec_roundtrip_preserves_split_identity_and_attachment_order() -> None
     ]
     submission = _submission(
         "interaction-attachments",
-        payload=InteractionPayload(
-            user_message="带附件的消息", outcome="cancelled", used_attachments=attachments
+        payload=make_interaction_payload(
+            "带附件的消息",
+            outcome="cancelled",
+            used_attachments=attachments,
+            turn_events=[
+                TurnEvent(kind="user_message", sequence=0, content="带附件的消息"),
+                TurnEvent(
+                    kind="tool_call",
+                    sequence=1,
+                    content="",
+                    action_id="read",
+                    verb="READ",
+                    targets=("fact_a", "fact_b"),
+                ),
+                TurnEvent(
+                    kind="tool_result",
+                    sequence=2,
+                    content="正文",
+                    action_id="read",
+                    status="success",
+                ),
+            ],
         ),
         new_topic_title="附件整理",
         new_topic_summary="整理两份附件",

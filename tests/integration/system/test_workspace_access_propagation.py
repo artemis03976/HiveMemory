@@ -13,7 +13,7 @@ import asyncio
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.models import ActorIdentity, ResolvedAgentProfile
+from hivememory.core.models import ActorIdentity, ResolvedAgentProfile, TurnEvent
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayDecisionOutcome,
@@ -105,10 +105,16 @@ async def _register(service, composition, *, workspace, process_id: str, message
 
 
 class _WorkspaceEchoCPU:
-    """按清单回显 workspace_id 的最小 CPU 实现：验证并发 run 的上下文隔离。"""
+    """按清单回显 workspace_id 的最小 CPU 实现：验证并发 run 的上下文隔离。
+
+    轮次事件以本轮用户消息开头，回复正文由封口补成事件。
+    """
 
     async def execute(self, manifest, *, thread, generation_options=None, events):
-        return CPUExecutionResult(final_text=manifest.labels.workspace_id)
+        return CPUExecutionResult(
+            final_text=manifest.labels.workspace_id,
+            turn_events=[TurnEvent(kind="user_message", sequence=0, content=manifest.user_message)],
+        )
 
 
 @pytest.mark.asyncio

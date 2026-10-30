@@ -108,6 +108,7 @@ def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
         _log_call("memory_search", headers, started, f"results={len(memories)}")
         return _text_result(text)
 
+    # Claude Code 连接器按参数名把 aliases 归一化为 READ 的作用对象，改名时同步修改它的识别表。
     @server.tool(
         name="memory_read",
         description=_READ_DESCRIPTION,

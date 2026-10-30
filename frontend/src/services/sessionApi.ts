@@ -11,15 +11,18 @@ export interface SessionSummary {
   turn_count: number;
   active_process_id: string | null;
 }
+/** 轮次事件：调用一方的字段只在 tool_call 上，结局一方的字段只在 tool_result 上。 */
 export interface SessionTurnEvent {
   kind: string;
   sequence: number;
   content: string;
   action_id?: string | null;
-  tool_kind?: string | null;
-  target?: string | null;
+  tool_name?: string | null;
+  verb?: string | null;
+  targets?: string[];
   tool_args?: Record<string, unknown> | null;
   status?: string | null;
+  produced_aliases?: string[];
 }
 export interface ConversationTurn {
   interaction_id: string;

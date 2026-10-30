@@ -36,8 +36,9 @@ from .interaction import (
     TraceItem,
     TraceReducer,
     TurnEvent,
-    TurnEventRenderAs,
     TurnRecord,
+    turn_reply_text,
+    validate_turn_events,
 )
 from .memory import (
     Artifacts,
@@ -145,7 +146,8 @@ __all__ = [
     "StreamMessageType",
     "StreamMessage",
     "TurnEvent",
-    "TurnEventRenderAs",
+    "turn_reply_text",
+    "validate_turn_events",
     "AgentAction",
     "TraceItem",
     "TurnRecord",

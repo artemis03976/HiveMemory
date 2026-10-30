@@ -43,7 +43,7 @@ class CPUExecutionResult(BaseModel):
     字段不变量：每个字段由 CPU 组装，且有完全明确的下游消费者。
         status            → 任务进程按此判定 Actor 阶段结局；有输出的三种结局均进入 finalize
         final_text        → 用户可见回复 / InteractionPayload.assistant_final_text
-        turn_events       → 封口归约 MTP 轨迹 → 感知层
+        turn_events       → 本轮唯一的交互记录，以序号 0 的用户消息开头 → 封口 → 感知层
         model_used        → 本次 run 实际使用的模型展示名；空字符串表示未解析
         failure_reason    → failed 终态的公开原因码；外部 CPU 可以不填
         compaction_checkpoint → 会话接受的旧历史派生视图，不进入本轮封口或 done

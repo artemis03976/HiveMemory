@@ -26,7 +26,8 @@ class ChatRequest(BaseModel):
     CPU 分配中随附件租借完成，HTTP 层只校验字段类型与数组结构。
     """
 
-    message: str = Field(..., description="用户消息")
+    # 用户消息是交互记录序号 0 的事件，每一轮都以它开头，因此不接受空消息。
+    message: str = Field(..., min_length=1, description="用户消息，不能为空")
     agent_id: str = Field(..., description="执行本次对话的具体 Agent ID")
     session_id: str | None = Field(
         default=None, description="会话 ID；缺少时新建会话，不参与身份授权"

@@ -7,12 +7,13 @@
   的思考紧排在该动作之前；未附属于动作的思考在其事件位置单独成条。
   归约器会把未附属的思考吸附到最近的动作，生成视图不采用这种吸附：
   吸附会把引出下一步的推理排到上一个动作的结果之后。
-- **外部工具动作**（``tool_kind`` 为空）：渲染工具名、参数摘要与各条结果，
-  结果按单条上限截断，出错的结果标明状态。
-- **MTP 动作**（带 ``tool_kind`` 的动作）：维持一行摘要（SEARCH、READ、RUN；
-  CALL、WRITE、UPDATE 与无法解析的动作不渲染），不渲染结果——READ、SEARCH
-  读回的是已有记忆，渲染进生成会把它们重复提取。外部 harness 经 HiveMemory
-  的 MCP 工具检索与读取时，导入的事件同样带 ``tool_kind``，按同一规则处理。
+- **外部工具动作**（调用事件带 ``tool_name``）：渲染工具名、参数摘要与各条
+  结果，结果按单条上限截断，出错的结果标明状态。
+- **能力动作**（调用事件带 ``verb``）：维持一行摘要（SEARCH、READ、RUN；
+  CALL、WRITE、UPDATE 不渲染），不渲染结果——READ、SEARCH 读回的是已有记忆，
+  渲染进生成会把它们重复提取。外部 harness 经 HiveMemory 的 MCP 工具检索与
+  读取时，导入的事件同样带 ``verb``，按同一规则处理。
+- **无法解析的 MTP 指令**（``verb`` 与 ``tool_name`` 都为空）不渲染。
 - **单轮上限**：动作段超过上限时依次保留思考、出错的动作与最近的动作，其余
   外部工具动作只保留工具名与参数摘要的一行。上限是硬上限：全部降为一行后
   仍超出时，按优先级从低到高省略整条（较早的非出错动作、MTP 摘要、出错的
@@ -77,8 +78,8 @@ def render_action_entries(
                 if summary is not None:
                     entries.append(ActionEntry(kind="trace", text=summary))
             continue
-        if not (action.tool_name or action.results):
-            # 只有显式附属思考的动作：思考已经渲染，没有工具可以呈现。
+        if not action.tool_name:
+            # 无法解析的 MTP 指令，或只有显式附属思考的动作：没有工具可以呈现。
             continue
         full, head = _tool_texts(action, config)
         degraded[len(entries)] = head

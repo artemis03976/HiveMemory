@@ -212,7 +212,7 @@ async def test_test_cpu_completes_process_and_finalizes_its_execution_result() -
     assert payload.assistant_final_text == "完成"
     assert payload.turn_events == [
         *turn_events,
-        TurnEvent(kind="assistant_message", sequence=5, role="assistant", content="完成"),
+        TurnEvent(kind="assistant_message", sequence=5, content="完成"),
     ]
     assert payload.model_used == "glm-4"
     assert payload.mtp_traces == expected_mtp_traces()

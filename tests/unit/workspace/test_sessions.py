@@ -3,7 +3,6 @@
 import pytest
 
 from hivememory.config.workspace import WorkspaceSessionConfig
-from hivememory.core.protocol.models import InteractionPayload
 from hivememory.workspace.contracts.errors import (
     SessionBusyError,
     SessionCapacityError,
@@ -12,7 +11,7 @@ from hivememory.workspace.contracts.errors import (
     SessionNotFoundError,
 )
 from hivememory.workspace.sessions import ConversationSessionService
-from tests.helpers.sessions import make_compaction_checkpoint
+from tests.helpers.sessions import make_compaction_checkpoint, make_interaction_payload
 from tests.helpers.workspace import make_workspace_identity
 
 
@@ -32,7 +31,7 @@ def test_capacity_rejects_without_evicting_existing_history():
         session.session_id,
         process_id="p1",
         agent_id="alice",
-        payload=InteractionPayload(user_message="首轮", assistant_final_text="回复"),
+        payload=make_interaction_payload("首轮", "回复"),
         topic_id="t1",
     )
     service.release(workspace, session.session_id, "p1")
@@ -81,7 +80,7 @@ def test_payload_snapshots_do_not_mutate_stored_history():
     workspace = make_workspace_identity()
     session = service.create(workspace)
     service.claim(workspace, session.session_id, "p1")
-    payload = InteractionPayload(user_message="问题", assistant_final_text="原文")
+    payload = make_interaction_payload("问题", "原文")
     service.append(
         workspace, session.session_id, process_id="p1", agent_id="a", payload=payload, topic_id="t"
     )
@@ -127,7 +126,7 @@ def checkpoint_session():
             session_id,
             process_id=process,
             agent_id="alice",
-            payload=InteractionPayload(user_message=process),
+            payload=make_interaction_payload(process),
             topic_id="topic",
         )
         service.release(workspace, session_id, process)

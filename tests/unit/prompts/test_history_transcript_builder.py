@@ -3,360 +3,147 @@ HistoryTranscriptBuilder 单测
 
 覆盖以下场景：
 
-1. 无 turn_events 的 轮次 → 优先回退到 assistant_final_text
-2. 结构化重放: assistant_message + tool_call + tool_result + assistant_message
-3. render_as 前缀渲染:
-   - system_tool_result → "[System MTP Execution Result]\\n{content}"
-   - system_call_response → "[System MTP Call Response]\\n{content}"
-4. 多智能体前缀:
-   - 非当前 agent 的 assistant 事件带 [From: ...]
-   - tool_result 不带 [From: ...]
-5. 混合兼容: assistant_final_text block + structured block 混合输入时顺序正确
-6. 无结构化事件的 回退轮次 仍能正确回放
+1. 结构化重放：角色由事件种类决定，用户消息与工具返回进入 user 消息
+2. 指令前正文与紧随其后的 MTP 调用合并为一条助手消息，与运行时一致
+3. 工具返回原样重放（回填正文自带标题）
+4. 多智能体前缀：非当前 agent 的助手消息带 [From: ...]，工具返回不带
+5. 未正常完成的轮次附结局说明
+6. 工具结果减重：动词、作用对象与参数取自配对的调用事件
 """
 
+from typing import Any
+
 from hivememory.core.models import TurnEvent
+from hivememory.core.protocol.models import ConversationTurn
 from hivememory.prompts.transcript import HistoryTranscriptBuilder
 from tests.helpers.sessions import make_conversation_turn
 
 
-def _turn_fallback(user_query: str, assistant_final_text: str, agent_id: str = "default"):
-    """没有事件的轮次回退到用户消息与回复文本。"""
+def _turn(
+    *events: dict[str, Any], user: str = "问题", agent_id: str = "default", **payload_fields
+) -> ConversationTurn:
+    """以序号 0 的用户消息开头，按给出的顺序为其后的事件编号。"""
+    turn_events = [TurnEvent(kind="user_message", sequence=0, content=user)]
+    turn_events.extend(
+        TurnEvent(sequence=index, **fields) for index, fields in enumerate(events, start=1)
+    )
     return make_conversation_turn(
-        user_message=user_query, assistant_final_text=assistant_final_text, agent_id=agent_id
+        user_message=user, turn_events=turn_events, agent_id=agent_id, **payload_fields
     )
 
 
-def _turn_structured(user_query: str, events: list, agent_id: str = "default"):
-    """结构化轮次使用原子事件重放。"""
-    return make_conversation_turn(user_message=user_query, turn_events=events, agent_id=agent_id)
+def _text(content: str) -> dict[str, Any]:
+    return {"kind": "assistant_message", "content": content}
 
 
-def _ev(
-    kind: str, seq: int, role: str, content: str, tool_kind: str = None, render_as: str = "plain"
-) -> TurnEvent:
-    return TurnEvent(
-        kind=kind,
-        sequence=seq,
-        role=role,
-        content=content,
-        tool_kind=tool_kind,
-        render_as=render_as,
-    )
+def _call(action_id: str, content: str = "", **fields: Any) -> dict[str, Any]:
+    return {"kind": "tool_call", "action_id": action_id, "content": content, **fields}
+
+
+def _result(action_id: str, content: str, status: str = "success") -> dict[str, Any]:
+    return {"kind": "tool_result", "action_id": action_id, "content": content, "status": status}
 
 
 builder = HistoryTranscriptBuilder()
 
 
-# ============ 1. fallback / legacy 路径 ============
-
-
-class TestFallbackPaths:
-    def test_no_turn_events_uses_assistant_final_text(self):
-        block = _turn_fallback("你好", "你好，有什么可以帮你？")
-        msgs = builder.build_messages([block])
-        assert msgs == [
-            {"role": "user", "content": "你好"},
-            {"role": "assistant", "content": "你好，有什么可以帮你？"},
-        ]
-
-    def test_no_turn_events_and_no_assistant_final_text_emits_only_user(self):
-        block = make_conversation_turn(user_message="hello")
-        msgs = builder.build_messages([block])
-        assert msgs == [{"role": "user", "content": "hello"}]
-
-    def test_empty_user_query_skipped(self):
-        block = make_conversation_turn(user_message="", assistant_final_text="hi")
-        msgs = builder.build_messages([block])
-        # user_query 为空，不应产生 user 消息
-        assert not any(m["role"] == "user" for m in msgs)
-
+class TestStructuredReplay:
     def test_empty_blocks_returns_empty(self):
         assert builder.build_messages([]) == []
 
-    def test_multiple_legacy_blocks_order(self):
-        blocks = [
-            _turn_fallback("问题1", "答案1"),
-            _turn_fallback("问题2", "答案2"),
-        ]
-        msgs = builder.build_messages(blocks)
-        assert [m["content"] for m in msgs] == ["问题1", "答案1", "问题2", "答案2"]
-
-
-# ============ 2. 结构化事件重放 ============
-
-
-class TestStructuredReplay:
-    def test_user_message_event_not_replayed_twice(self):
-        """turn_events 已包含 user_message 时，不再额外从 block.user_query 补一条 user。"""
-        events = [
-            _ev("user_message", 0, "user", "同一个问题"),
-            _ev("assistant_message", 1, "assistant", "回答"),
-        ]
-        block = _turn_structured("同一个问题", events)
-        msgs = builder.build_messages([block])
+    def test_user_message_and_reply_replay_once_each(self):
+        msgs = builder.build_messages([_turn(_text("回答"), user="同一个问题")])
         assert msgs == [
             {"role": "user", "content": "同一个问题"},
             {"role": "assistant", "content": "回答"},
         ]
 
-    def test_assistant_message_event(self):
-        events = [_ev("assistant_message", 0, "assistant", "这是自然语言回复")]
-        block = _turn_structured("问题", events)
-        msgs = builder.build_messages([block])
+    def test_prefix_text_and_mtp_call_merge_into_one_assistant_message(self):
+        """指令前正文只出现一次：与随后的指令片段合并，形态与运行时 working history 相同。"""
+        turn = _turn(
+            _text("正在查找"),
+            _call("a1", "⟪ READ | alias_x ⟫", verb="READ", targets=("alias_x",)),
+            _result("a1", "[System MTP Execution Result]\n<mtp_response>ok</mtp_response>"),
+            _text("找到了！"),
+            user="帮我找一下",
+        )
+        msgs = builder.build_messages([turn])
         assert msgs == [
-            {"role": "user", "content": "问题"},
-            {"role": "assistant", "content": "这是自然语言回复"},
+            {"role": "user", "content": "帮我找一下"},
+            {"role": "assistant", "content": "正在查找⟪ READ | alias_x ⟫"},
+            {
+                "role": "user",
+                "content": "[System MTP Execution Result]\n<mtp_response>ok</mtp_response>",
+            },
+            {"role": "assistant", "content": "找到了！"},
         ]
 
-    def test_tool_call_event(self):
-        events = [_ev("tool_call", 0, "assistant", "⟪ READ | alias_x ⟫", tool_kind="READ")]
-        block = _turn_structured("查找", events)
-        msgs = builder.build_messages([block])
-        assert msgs[1] == {"role": "assistant", "content": "⟪ READ | alias_x ⟫"}
-
-    def test_full_sequence_four_events(self):
-        """prefix + tool_call + tool_result + final_text"""
-        events = [
-            _ev("assistant_message", 0, "assistant", "正在查找"),
-            _ev("tool_call", 1, "assistant", "⟪ READ | alias_x ⟫", tool_kind="READ"),
-            _ev(
-                "tool_result",
-                2,
-                "user",
-                "<xml>result</xml>",
-                tool_kind="READ",
-                render_as="system_tool_result",
-            ),
-            _ev("assistant_message", 3, "assistant", "找到了！"),
-        ]
-        block = _turn_structured("帮我找一下", events)
-        msgs = builder.build_messages([block])
-        assert len(msgs) == 5  # user + 4 个事件
-        assert msgs[0] == {"role": "user", "content": "帮我找一下"}
-        assert msgs[1] == {"role": "assistant", "content": "正在查找"}
-        assert msgs[2] == {"role": "assistant", "content": "⟪ READ | alias_x ⟫"}
-        assert msgs[3]["role"] == "user"
-        assert msgs[4] == {"role": "assistant", "content": "找到了！"}
-
-    def test_sequence_order_by_sequence_field(self):
-        """乱序 sequence 应按 sequence 正序输出"""
-        events = [
-            _ev("assistant_message", 2, "assistant", "最后"),
-            _ev("assistant_message", 0, "assistant", "第一"),
-            _ev("tool_call", 1, "assistant", "中间"),
-        ]
-        block = _turn_structured("排序测试", events)
-        msgs = builder.build_messages([block])
-        contents = [m["content"] for m in msgs[1:]]  # 跳过 user
-        assert contents == ["第一", "中间", "最后"]
-
-    def test_turn_events_takes_priority_over_assistant_final_text(self):
-        """有 turn_events 时不走 assistant_final_text fallback"""
-        block = make_conversation_turn(
-            user_message="测试",
-            assistant_final_text="旧回复（不应出现）",
-            turn_events=[_ev("assistant_message", 0, "assistant", "新事件回复")],
+    def test_call_without_prefix_text_is_its_own_assistant_message(self):
+        turn = _turn(
+            _call("a1", "⟪ READ | alias_x ⟫", verb="READ", targets=("alias_x",)),
+            _result("a1", "result"),
+            _call("a2", "⟪ READ | alias_y ⟫", verb="READ", targets=("alias_y",)),
+            _result("a2", "result"),
         )
-        msgs = builder.build_messages([block])
-        assert all("旧回复" not in m["content"] for m in msgs)
-        assert any("新事件回复" in m["content"] for m in msgs)
+        msgs = builder.build_messages([turn])
+        assert [(m["role"], m["content"]) for m in msgs[1:]] == [
+            ("assistant", "⟪ READ | alias_x ⟫"),
+            ("user", "result"),
+            ("assistant", "⟪ READ | alias_y ⟫"),
+            ("user", "result"),
+        ]
 
-
-# ============ 3. render_as 前缀渲染 ============
-
-
-class TestRenderAsPrefix:
-    def test_plain_no_prefix(self):
-        event = _ev("assistant_message", 0, "assistant", "原样内容", render_as="plain")
-        block = _turn_structured("q", [event])
-        msgs = builder.build_messages([block])
-        assert msgs[1]["content"] == "原样内容"
-
-    def test_system_tool_result_prefix(self):
-        event = _ev("tool_result", 0, "user", "<xml>result</xml>", render_as="system_tool_result")
-        block = _turn_structured("q", [event])
-        msgs = builder.build_messages([block])
-        assert msgs[1]["content"] == "[System MTP Execution Result]\n<xml>result</xml>"
-        assert msgs[1]["role"] == "user"
-
-    def test_system_tool_result_prefix_not_duplicated(self):
-        content = "[System MTP Execution Result]\n<mtp_response>ok</mtp_response>"
-        event = _ev("tool_result", 0, "user", content, render_as="system_tool_result")
-        block = _turn_structured("q", [event])
-        msgs = builder.build_messages([block])
-        assert msgs[1]["content"] == content
-
-    def test_system_call_response_prefix(self):
-        event = _ev(
-            "tool_result",
-            0,
-            "user",
-            "<mtp_response>...</mtp_response>",
-            render_as="system_call_response",
-        )
-        block = _turn_structured("q", [event])
-        msgs = builder.build_messages([block])
-        assert msgs[1]["content"] == "[System MTP Call Response]\n<mtp_response>...</mtp_response>"
-
-    def test_system_call_response_prefix_not_duplicated(self):
-        content = "[System MTP Call Response]\n<mtp_response>...</mtp_response>"
-        event = _ev("tool_result", 0, "user", content, render_as="system_call_response")
-        block = _turn_structured("q", [event])
-        msgs = builder.build_messages([block])
-        assert msgs[1]["content"] == content
-
-    def test_tool_result_default_plain(self):
-        """render_as 默认为 plain，不加前缀"""
-        event = _ev("tool_result", 0, "user", "raw result", render_as="plain")
-        block = _turn_structured("q", [event])
-        msgs = builder.build_messages([block])
-        assert msgs[1]["content"] == "raw result"
-
-
-# ============ 4. 多智能体身份前缀 ============
+    def test_multiple_turns_preserve_order(self):
+        turns = [_turn(_text(f"回复{i}"), user=f"问题{i}") for i in range(3)]
+        msgs = builder.build_messages(turns)
+        assert [m["content"] for m in msgs] == [
+            "问题0",
+            "回复0",
+            "问题1",
+            "回复1",
+            "问题2",
+            "回复2",
+        ]
 
 
 class TestAgentPrefix:
     def test_same_agent_no_prefix(self):
         """当前 agent 的发言不加前缀"""
-        block = _turn_structured(
-            "q", [_ev("assistant_message", 0, "assistant", "我的回复")], agent_id="coder_doll"
-        )
-        msgs = builder.build_messages([block], current_agent_id="coder_doll")
+        turn = _turn(_text("我的回复"), agent_id="coder_doll")
+        msgs = builder.build_messages([turn], current_agent_id="coder_doll")
         assert msgs[1]["content"] == "我的回复"
 
     def test_different_agent_adds_prefix(self):
         """非当前 agent 的 assistant 发言加 [From: ...]"""
-        block = _turn_structured(
-            "q",
-            [_ev("assistant_message", 0, "assistant", "我来自另一个 agent")],
-            agent_id="coder_doll",
-        )
-        msgs = builder.build_messages([block], current_agent_id="omni_doll")
+        turn = _turn(_text("我来自另一个 agent"), agent_id="coder_doll")
+        msgs = builder.build_messages([turn], current_agent_id="omni_doll")
         assert msgs[1]["content"] == "[From: coder_doll]\n我来自另一个 agent"
 
-    def test_tool_result_no_agent_prefix(self):
-        """tool_result 是系统消息，不加身份前缀"""
-        block = _turn_structured(
-            "q",
-            [_ev("tool_result", 0, "user", "result", render_as="system_tool_result")],
+    def test_merged_call_from_other_agent_carries_one_prefix_and_result_none(self):
+        """合并后的助手消息只在开头带一次身份前缀；工具返回不带前缀。"""
+        turn = _turn(
+            _text("先读"),
+            _call("a1", "⟪ READ | x ⟫", verb="READ", targets=("x",)),
+            _result("a1", "result"),
             agent_id="coder_doll",
         )
-        msgs = builder.build_messages([block], current_agent_id="omni_doll")
-        # role=user 的消息不走 agent prefix 逻辑
-        assert "[From:" not in msgs[1]["content"]
+        msgs = builder.build_messages([turn], current_agent_id="omni_doll")
+        assert msgs[1]["content"] == "[From: coder_doll]\n先读⟪ READ | x ⟫"
+        assert msgs[2] == {"role": "user", "content": "result"}
 
-    def test_tool_call_from_different_agent_has_prefix(self):
-        """非当前 agent 发出的 tool call 也应加前缀"""
-        block = _turn_structured(
-            "q",
-            [_ev("tool_call", 0, "assistant", "⟪ READ | x ⟫", tool_kind="READ")],
-            agent_id="coder_doll",
+    def test_call_without_prefix_text_from_other_agent_has_prefix(self):
+        turn = _turn(
+            _call("a1", "⟪ READ | x ⟫", verb="READ", targets=("x",)), agent_id="coder_doll"
         )
-        msgs = builder.build_messages([block], current_agent_id="omni_doll")
-        assert msgs[1]["content"].startswith("[From: coder_doll]")
-
-    def test_default_agent_id_has_prefix_for_other_agent(self):
-        """default 与其他 Agent 一样标注身份"""
-        block = _turn_structured(
-            "q", [_ev("assistant_message", 0, "assistant", "默认 agent 回复")], agent_id="default"
-        )
-        msgs = builder.build_messages([block], current_agent_id="omni_doll")
-        assert msgs[1]["content"] == "[From: default]\n默认 agent 回复"
-
-    def test_omni_doll_has_prefix_for_other_agent(self):
-        """omni_doll 在切换 Agent 后同样标注身份"""
-        block = _turn_structured(
-            "q", [_ev("assistant_message", 0, "assistant", "omni_doll 回复")], agent_id="omni_doll"
-        )
-        msgs = builder.build_messages([block], current_agent_id="coder_doll")
-        assert msgs[1]["content"] == "[From: omni_doll]\nomni_doll 回复"
-
-    def test_legacy_block_different_agent(self):
-        """无 turn_events 的 回退轮次 也应加前缀"""
-        block = _turn_fallback("q", "旧回复", agent_id="coder_doll")
-        msgs = builder.build_messages([block], current_agent_id="omni_doll")
-        assert msgs[1]["content"] == "[From: coder_doll]\n旧回复"
-
-
-# ============ 5. 混合兼容场景 ============
-
-
-class TestMixedBlocks:
-    def test_old_block_then_new_block(self):
-        """回退轮次 + 新 block 顺序正确"""
-        old_block = _turn_fallback("旧问题", "旧答案")
-        new_events = [
-            _ev("assistant_message", 0, "assistant", "新回复（前缀）"),
-            _ev("tool_call", 1, "assistant", "⟪ READ | x ⟫"),
-            _ev("tool_result", 2, "user", "result", render_as="system_tool_result"),
-            _ev("assistant_message", 3, "assistant", "新回复（最终）"),
-        ]
-        new_block = _turn_structured("新问题", new_events)
-
-        msgs = builder.build_messages([old_block, new_block])
-
-        # 旧 block: user + assistant
-        assert msgs[0] == {"role": "user", "content": "旧问题"}
-        assert msgs[1] == {"role": "assistant", "content": "旧答案"}
-
-        # 新 block: user + 4 events
-        assert msgs[2] == {"role": "user", "content": "新问题"}
-        assert msgs[3] == {"role": "assistant", "content": "新回复（前缀）"}
-        assert msgs[4] == {"role": "assistant", "content": "⟪ READ | x ⟫"}
-        assert msgs[5]["content"] == "[System MTP Execution Result]\nresult"
-        assert msgs[6] == {"role": "assistant", "content": "新回复（最终）"}
-
-    def test_multiple_new_blocks_preserve_order(self):
-        """多个新 block 顺序正确"""
-        blocks = []
-        for i in range(3):
-            events = [_ev("assistant_message", 0, "assistant", f"回复{i}")]
-            blocks.append(_turn_structured(f"问题{i}", events))
-
-        msgs = builder.build_messages(blocks)
-        assert len(msgs) == 6
-        for i in range(3):
-            assert msgs[i * 2]["content"] == f"问题{i}"
-            assert msgs[i * 2 + 1]["content"] == f"回复{i}"
-
-    def test_call_response_and_mtp_result_both_in_one_block(self):
-        """单个 block 同时含有 system_call_response 和 system_tool_result"""
-        events = [
-            _ev(
-                "tool_result",
-                0,
-                "user",
-                "sub response",
-                tool_kind="CALL",
-                render_as="system_call_response",
-            ),
-            _ev(
-                "tool_result",
-                1,
-                "user",
-                "read result",
-                tool_kind="READ",
-                render_as="system_tool_result",
-            ),
-        ]
-        block = _turn_structured("复杂场景", events)
-        msgs = builder.build_messages([block])
-        assert msgs[1]["content"] == "[System MTP Call Response]\nsub response"
-        assert msgs[2]["content"] == "[System MTP Execution Result]\nread result"
-
-
-# ============ 7. 未正常完成的轮次 ============
+        msgs = builder.build_messages([turn], current_agent_id="omni_doll")
+        assert msgs[1]["content"] == "[From: coder_doll]\n⟪ READ | x ⟫"
 
 
 class TestOutcomeNotes:
     def test_cancelled_note_is_appended_to_last_message_without_system_role(self):
         """中断说明附在本轮最后一条消息后，历史中间不出现 system 消息。"""
-        cancelled = make_conversation_turn(
-            user_message="问题一", assistant_final_text="半截", outcome="cancelled"
-        )
-        follow_up = _turn_fallback("问题二", "回复二")
+        cancelled = _turn(_text("半截"), user="问题一", outcome="cancelled")
+        follow_up = _turn(_text("回复二"), user="问题二")
         msgs = builder.build_messages([cancelled, follow_up], language="zh")
         assert msgs == [
             {"role": "user", "content": "问题一"},
@@ -367,78 +154,51 @@ class TestOutcomeNotes:
 
     def test_failed_note_follows_tool_result_when_turn_ends_there(self):
         """失败轮次以工具结果收尾时，说明附在该结果后，角色交替不变。"""
-        events = [
-            _ev("assistant_message", 0, "assistant", "我先读取"),
-            _ev("tool_result", 1, "user", "read result", render_as="system_tool_result"),
-        ]
-        failed = make_conversation_turn(user_message="读一下", turn_events=events, outcome="failed")
+        failed = _turn(
+            _text("我先读取"),
+            _call("a1", "⟪ READ | x ⟫", verb="READ", targets=("x",)),
+            _result("a1", "read result"),
+            user="读一下",
+            outcome="failed",
+        )
         msgs = builder.build_messages([failed], language="en")
         assert [m["role"] for m in msgs] == ["user", "assistant", "user"]
         assert msgs[-1]["content"] == (
-            "[System MTP Execution Result]\nread result\n\n"
-            "[This turn failed; the response may be incomplete.]"
+            "read result\n\n[This turn failed; the response may be incomplete.]"
         )
 
 
 class TestResultReduction:
     def test_only_covered_results_change_and_original_turns_remain_intact(self):
         """减重边界包含当前轮次，后缀与用户、助手和调用正文逐字保留。"""
-        events = [
-            TurnEvent(kind="user_message", sequence=0, role="user", content="原始问题"),
-            TurnEvent(kind="assistant_message", sequence=1, role="assistant", content="先读取"),
-            TurnEvent(kind="tool_call", sequence=2, role="assistant", content="⟪ READ | mem_a ⟫"),
-            TurnEvent(
-                kind="tool_result",
-                sequence=3,
-                role="user",
-                content="完整资料" * 50,
-                tool_kind="READ",
-                target="mem_a",
-                status="success",
-            ),
-        ]
-        old = make_conversation_turn(
-            interaction_id="old", user_message="原始问题", turn_events=events
+        events = (
+            _text("先读取"),
+            _call("a1", "⟪ READ | mem_a ⟫", verb="READ", targets=("mem_a",)),
+            _result("a1", "完整资料" * 50),
         )
-        recent = make_conversation_turn(
-            interaction_id="recent", user_message="新问题", turn_events=events
-        )
+        old = _turn(*events, user="原始问题")
+        old = old.model_copy(update={"interaction_id": "old"})
+        recent = _turn(*events, user="新问题")
+        recent = recent.model_copy(update={"interaction_id": "recent"})
         original = [old.model_dump(), recent.model_dump()]
         raw = builder.build_messages([old, recent], language="zh")
         reduced = builder.build_messages([old, recent], reduced_through="old", language="zh")
-        assert reduced[:3] == raw[:3]
-        assert reduced[3] == {
+        assert reduced[:2] == raw[:2]
+        assert reduced[2] == {
             "role": "user",
             "content": "[READ target=mem_a status=success]\n可重新 READ 获取正文。",
         }
-        assert reduced[4:] == raw[4:]
+        assert reduced[3:] == raw[3:]
         assert [old.model_dump(), recent.model_dump()] == original
 
     def test_search_recovers_query_from_the_matching_call(self):
-        """结果事件不带参数时按 action_id 关联，多个调用的查询不会串用。"""
-        events = [
-            TurnEvent(
-                kind="tool_call",
-                sequence=index,
-                role="assistant",
-                content=f"search {query}",
-                action_id=action_id,
-                tool_args={"query": query},
-            )
-            for index, (action_id, query) in enumerate((("s1", "缓存失效"), ("s2", "索引重建")))
-        ] + [
-            TurnEvent(
-                kind="tool_result",
-                sequence=2 + index,
-                role="user",
-                content="检索全文" * 50,
-                action_id=action_id,
-                tool_kind="SEARCH",
-                status="success",
-            )
-            for index, action_id in enumerate(("s2", "s1"))
-        ]
-        turn = make_conversation_turn(user_message="执行", turn_events=events)
+        """查询只记在调用事件中，按 action_id 关联，多个调用的查询不会串用。"""
+        turn = _turn(
+            _call("s1", "search 缓存失效", verb="SEARCH", tool_args={"query": "缓存失效"}),
+            _call("s2", "search 索引重建", verb="SEARCH", tool_args={"query": "索引重建"}),
+            _result("s2", "检索全文" * 50),
+            _result("s1", "检索全文" * 50),
+        )
         messages = builder.build_messages(
             [turn], reduced_through=turn.interaction_id, language="en"
         )
@@ -450,41 +210,22 @@ class TestResultReduction:
     def test_run_result_does_not_repeat_call_arguments_or_grow_history(self):
         """参数只留在原样重放的调用中；输出短于线索时保留原文，减重后历史不会变长。"""
         code = "print(1)\n" * 600
-        events = [
-            TurnEvent(
-                kind="tool_call",
-                sequence=index * 2,
-                role="assistant",
-                content=f'⟪ RUN | sys_python_repl | code="{code}" ⟫',
-                action_id=action_id,
-                tool_kind="RUN",
+
+        def run_call(action_id: str) -> dict[str, Any]:
+            return _call(
+                action_id,
+                f'⟪ RUN | sys_python_repl | code="{code}" ⟫',
+                verb="RUN",
+                targets=("sys_python_repl",),
                 tool_args={"code": code},
-                target="sys_python_repl",
             )
-            for index, action_id in enumerate(("short", "long"))
-        ]
-        events.insert(
-            1,
-            TurnEvent(
-                kind="tool_result",
-                sequence=1,
-                role="user",
-                content="1",
-                action_id="short",
-                status="success",
-            ),
+
+        turn = _turn(
+            run_call("short"),
+            _result("short", "1"),
+            run_call("long"),
+            _result("long", "1\n" * 300),
         )
-        events.append(
-            TurnEvent(
-                kind="tool_result",
-                sequence=3,
-                role="user",
-                content="1\n" * 300,
-                action_id="long",
-                status="success",
-            )
-        )
-        turn = make_conversation_turn(user_message="执行", turn_events=events)
         raw = builder.build_messages([turn], language="en")
         reduced = builder.build_messages(
             [turn], reduced_through=turn.interaction_id, language="en", tool_result_excerpt_chars=40
@@ -496,68 +237,43 @@ class TestResultReduction:
         assert code not in reduced[4]["content"]
         assert sum(len(m["content"]) for m in reduced) < sum(len(m["content"]) for m in raw)
 
-    def test_ack_error_call_and_unknown_status_keep_bounded_original_content(self):
+    def test_ack_error_and_call_keep_bounded_original_content(self):
         """ACK、失败原因和 CALL 响应不可替换成成功线索；长文本保留头尾。"""
         cases = [
-            ("WRITE", "ack"),
-            ("UPDATE", "ack"),
-            ("READ", "error"),
-            ("CALL", "success"),
-            ("SEARCH", None),
+            ({"verb": "WRITE"}, "ack"),
+            ({"verb": "UPDATE", "targets": ("base",)}, "ack"),
+            ({"verb": "READ", "targets": ("missing",)}, "error"),
+            ({"verb": "CALL", "targets": ("helper",)}, "success"),
         ]
-        events = [
-            TurnEvent(
-                kind="tool_result",
-                sequence=index,
-                role="user",
-                content="保留原文",
-                tool_kind=verb,
-                status=status,
-            )
-            for index, (verb, status) in enumerate(cases)
-        ]
-        events.append(
-            TurnEvent(
-                kind="tool_result",
-                sequence=5,
-                role="user",
-                content="head" + "x" * 200 + "tail",
-                tool_kind="CALL",
-                status="success",
-            )
-        )
-        turn = make_conversation_turn(user_message="执行", turn_events=events)
+        events: list[dict[str, Any]] = []
+        for index, (call_fields, status) in enumerate(cases):
+            events.append(_call(f"a{index}", **call_fields))
+            events.append(_result(f"a{index}", "保留原文", status))
+        events.append(_call("long", verb="CALL", targets=("helper",)))
+        events.append(_result("long", "head" + "x" * 200 + "tail"))
+        turn = _turn(*events)
         messages = builder.build_messages(
             [turn], reduced_through=turn.interaction_id, language="zh", tool_result_excerpt_chars=40
         )
-        assert [m["content"] for m in messages[1:6]] == ["保留原文"] * 5
-        excerpt = messages[-1]["content"]
+        results = [m["content"] for m in messages if m["role"] == "user"][1:]
+        assert results[:4] == ["保留原文"] * 4
+        excerpt = results[-1]
         assert len(excerpt) == 40
         assert excerpt.startswith("head") and excerpt.endswith("tail")
         assert "已省略部分工具结果" in excerpt
 
     def test_missing_retrieval_metadata_keeps_original_instead_of_unusable_hint(self):
-        """历史缺少 READ 目标或 SEARCH 查询时，没有可靠重取线索就保留原文。"""
-        turn = make_conversation_turn(
-            user_message="读取",
-            turn_events=[
-                TurnEvent(
-                    kind="tool_result",
-                    sequence=0,
-                    role="user",
-                    content="旧格式正文",
-                    tool_kind="READ",
-                    status="success",
-                ),
-                TurnEvent(
-                    kind="tool_result",
-                    sequence=1,
-                    role="user",
-                    content="旧格式结果",
-                    tool_kind="SEARCH",
-                    status="success",
-                ),
-            ],
+        """READ 没有作用对象或 SEARCH 没有查询时，没有可靠重取线索就保留原文。"""
+        turn = _turn(
+            _call("r", verb="READ"),
+            _result("r", "通配读取的正文"),
+            _call("s", verb="SEARCH"),
+            _result("s", "没有查询的结果"),
+            user="读取",
         )
         messages = builder.build_messages([turn], reduced_through=turn.interaction_id)
-        assert [message["content"] for message in messages] == ["读取", "旧格式正文", "旧格式结果"]
+        assert [m["content"] for m in messages if m["role"] == "user"] == [
+            "读取",
+            "通配读取的正文",
+            "没有查询的结果",
+        ]

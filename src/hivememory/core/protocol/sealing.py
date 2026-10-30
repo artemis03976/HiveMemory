@@ -53,9 +53,7 @@ def seal_interaction(
             TurnEvent(
                 kind="assistant_message",
                 sequence=max((event.sequence for event in events), default=-1) + 1,
-                role="assistant",
                 content=assistant_final_text,
-                status=outcome if outcome != "completed" else None,
             )
         )
     actions = ActionReducer.reduce(events)

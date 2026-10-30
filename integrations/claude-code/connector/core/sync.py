@@ -361,7 +361,6 @@ class TranscriptSync:
             "outcome": outcome,
             "user_message": turn.user_message,
             "events": turn.events,
-            "assistant_final_text": turn.assistant_final_text,
             "model_used": turn.model_used,
             "recent_turns": [
                 {

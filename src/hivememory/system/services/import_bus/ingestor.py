@@ -26,7 +26,7 @@ from typing import Any
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RuntimeEventSink
 from hivememory.components.serial_gate import KeyedSerialGate
-from hivememory.core.models import IdentityScope
+from hivememory.core.models import IdentityScope, turn_reply_text
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayIngressMode,
@@ -164,11 +164,12 @@ class ImportBusIngestor:
 
         # 尚未提交，或上一次提交在应用时失败：重新路由后（再次）提交。
         decision = await self._request_gateway_decision(turn, scope, interaction_id, principal_id)
+        turn_events = turn.to_turn_events()
         payload = seal_interaction(
             user_message=turn.user_message,
             gateway_decision=decision,
-            assistant_final_text=turn.assistant_final_text or "",
-            turn_events=turn.to_turn_events(),
+            assistant_final_text=turn_reply_text(turn_events),
+            turn_events=turn_events,
             model_used=turn.model_used or "",
             used_attachments=(),
             outcome=turn.outcome,

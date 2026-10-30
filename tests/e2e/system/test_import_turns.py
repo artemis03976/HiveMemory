@@ -73,7 +73,6 @@ async def test_http_import_turn_forms_interaction_in_patchouli(patchouli_chat_st
             },
             {"kind": "assistant_message", "sequence": 3, "content": "脚本缺少执行权限"},
         ],
-        "assistant_final_text": "脚本缺少执行权限",
         "model_used": "claude-test",
     }
 

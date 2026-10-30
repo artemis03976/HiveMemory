@@ -8,13 +8,14 @@ from __future__ import annotations
 
 from datetime import UTC, datetime
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hivememory.core.models import (
     IdentityScope,
     TraceItem,
     TurnEvent,
     WorkspaceAssetRef,
+    validate_turn_events,
 )
 from hivememory.core.models.interaction import InteractionOutcome
 from hivememory.core.models.query import QueryFilters
@@ -83,6 +84,8 @@ class InteractionPayload(BaseModel):
     Note:
         不内嵌身份；归属与发起者由 ``InteractionSubmission`` 的
         ``belong_to``、``from_actor`` 独立承载，避免 payload 成为第二份身份事实。
+        构造时校验一轮事件集的不变量，任何载荷的事件都以序号 0 的用户消息开头、
+        调用与结果正确配对；违反时显式失败，不修补。
     """
 
     outcome: InteractionOutcome = Field(default="completed", description="本轮执行结局")
@@ -97,8 +100,7 @@ class InteractionPayload(BaseModel):
     )
     # 收集的结构化轮次事件列表
     turn_events: list[TurnEvent] = Field(
-        default_factory=list,
-        description="结构化轮次事件列表（主动链路来自 Agent 执行循环，Import Bus 来自导入的整轮记录），有值时感知层优先走结构化路径",
+        description="结构化轮次事件列表（主动链路来自 Agent 执行循环，Import Bus 来自导入的整轮记录），以序号 0 的用户消息开头",
     )
     mtp_traces: list[TraceItem] = Field(
         default_factory=list,
@@ -120,6 +122,11 @@ class InteractionPayload(BaseModel):
     )
 
     model_config = ConfigDict(arbitrary_types_allowed=True, extra="forbid")
+
+    @model_validator(mode="after")
+    def _check_turn_events(self) -> InteractionPayload:
+        validate_turn_events(self.turn_events)
+        return self
 
 
 class SessionCompactionCheckpoint(BaseModel):

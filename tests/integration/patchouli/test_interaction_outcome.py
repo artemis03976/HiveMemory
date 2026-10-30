@@ -13,9 +13,7 @@ from tests.helpers.sessions import make_conversation_turn
 @pytest.mark.parametrize("outcome, note", [("cancelled", "已中断"), ("failed", "执行失败")])
 def test_outcome_survives_perception_and_transcript_projection(outcome, note):
     """实际 block 与生成材料保留结局，下一轮历史也明确提示不完整。"""
-    turn = make_conversation_turn(
-        user_message="问题", assistant_final_text="半截回答", outcome=outcome
-    )
+    turn = make_conversation_turn(user_message="问题", reply="半截回答", outcome=outcome)
     engine = MemoryPerceptionEngine(config=SemanticFlowPerceptionConfig(), relay_controller=None)
     block = engine.build_block(turn.payload, ActorIdentity(user_id="default", agent_id="default"))
     assert block.turn.outcome == outcome

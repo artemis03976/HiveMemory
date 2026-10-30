@@ -135,10 +135,10 @@ def test_finalize_completed_frame_projects_only_acknowledged_aliases():
         TurnEvent(
             kind="tool_call",
             sequence=0,
-            role="assistant",
             content="update",
-            tool_kind="UPDATE",
-            target="fact_base",
+            action_id="action_1_0",
+            verb="UPDATE",
+            targets=("fact_base",),
         )
     )
     products = runtime.finalize_frame(

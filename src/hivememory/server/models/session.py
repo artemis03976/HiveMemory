@@ -25,16 +25,22 @@ class SessionTitleRequest(BaseModel):
 
 
 class SessionTurnEventResponse(BaseModel):
-    """轮次事件的 HTTP 表示；工具调用与结果按 ``action_id`` 配对。"""
+    """轮次事件的 HTTP 表示；字段与轮次事件相同，工具调用与结果按 ``action_id`` 配对。
+
+    调用一方的字段（``verb``/``tool_name``、``targets``、``tool_args``）只出现在
+    调用上，结局一方的字段（``status``、``produced_aliases``）只出现在结果上。
+    """
 
     kind: str
     sequence: int
     content: str
     action_id: str | None = None
-    tool_kind: str | None = None
-    target: str | None = None
+    tool_name: str | None = None
+    verb: str | None = None
+    targets: list[str] = Field(default_factory=list)
     tool_args: dict[str, Any] | None = None
     status: str | None = None
+    produced_aliases: list[str] = Field(default_factory=list)
 
     @classmethod
     def from_domain(cls, event: TurnEvent) -> SessionTurnEventResponse:
@@ -43,10 +49,12 @@ class SessionTurnEventResponse(BaseModel):
             sequence=event.sequence,
             content=event.content,
             action_id=event.action_id,
-            tool_kind=event.tool_kind,
-            target=event.target,
+            tool_name=event.tool_name,
+            verb=event.verb,
+            targets=list(event.targets),
             tool_args=event.tool_args,
             status=event.status,
+            produced_aliases=list(event.produced_aliases),
         )
 
 

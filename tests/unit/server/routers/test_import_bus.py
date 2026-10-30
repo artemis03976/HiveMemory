@@ -91,7 +91,6 @@ def _body(**overrides):
             },
             {"kind": "assistant_message", "sequence": 2, "content": "已修复"},
         ],
-        "assistant_final_text": "已修复",
         "recent_turns": [{"user_message": "上一轮", "assistant_text": "上一轮回复"}],
     }
     body.update(overrides)

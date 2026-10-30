@@ -26,6 +26,7 @@ from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
+from hivememory.prompts.transcript.generation import GenerationTranscriptBuilder
 from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.system.services.import_bus import ImportBusIngestor, ImportedTurn
 from tests.helpers.workspace import (
@@ -120,9 +121,23 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
                     "action_id": "toolu-1",
                     "status": "error",
                 },
-                {"kind": "assistant_message", "sequence": 3, "content": "已修复断言"},
+                {
+                    "kind": "tool_call",
+                    "sequence": 3,
+                    "content": "",
+                    "action_id": "toolu-2",
+                    "verb": "READ",
+                    "targets": ["fact_a", "fact_b"],
+                },
+                {
+                    "kind": "tool_result",
+                    "sequence": 4,
+                    "content": "已有记忆正文",
+                    "action_id": "toolu-2",
+                    "status": "success",
+                },
+                {"kind": "assistant_message", "sequence": 5, "content": "已修复断言"},
             ],
-            "assistant_final_text": "已修复断言",
         }
     )
 
@@ -152,6 +167,9 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
     assert block.turn.identity.agent_id == "claude_code"
     assert block.turn.user_query == "测试挂了"
     assert block.turn.assistant_final_text == "已修复断言"
-    assert [action.tool_name for action in block.turn.actions] == ["Bash"]
-    assert block.turn.semantic_traces == ()
+    # 经 MCP 的读取与 Alice 的 READ 同形：生成视图列出所读的 alias，不渲染取回的记忆。
+    generation = GenerationTranscriptBuilder()
+    transcript = generation.build_transcript(generation.build_context([block]))
+    assert "READ: fact_a, fact_b" in transcript
+    assert "已有记忆正文" not in transcript
     assert await queue.pending_count() == 0

@@ -293,7 +293,10 @@ def test_trailing_turn_ended_before_its_last_lines_are_written_waits_for_them(tm
 
     assert submitted_early == []
     [body] = transport.bodies
-    assert body["assistant_final_text"] == "我先看看\n\n修好了"
+    assert [e["content"] for e in body["events"] if e["kind"] == "assistant_message"] == [
+        "我先看看",
+        "修好了",
+    ]
 
 
 def test_quiet_transcript_submits_ended_turn_without_a_clean_finish(tmp_path):
@@ -343,13 +346,13 @@ def test_turn_that_grows_while_the_previous_one_submits_is_reread(tmp_path):
 
     assert transport.turn_ids() == ["p1", "p2"]
     second = transport.bodies[1]
-    assert second["assistant_final_text"] == "开始写\n\n测试已加上"
     assert [event["kind"] for event in second["events"]] == [
         "assistant_message",
         "tool_call",
         "tool_result",
         "assistant_message",
     ]
+    assert second["events"][-1]["content"] == "测试已加上"
 
 
 def test_interrupted_and_stale_turns_end_as_cancelled(tmp_path):
@@ -534,7 +537,7 @@ def test_concurrent_updates_keep_state_consistent(tmp_path):
 
 
 def test_request_body_satisfies_the_import_bus_contract(tmp_path):
-    """连接器构造的请求体（含记忆工具的 SEARCH 标记）通过服务端请求模型的校验：两侧不漂移。"""
+    """连接器构造的请求体（含记忆工具的检索与读取）通过服务端请求模型的校验：两侧不漂移。"""
     from hivememory.server.models.import_bus import ImportTurnRequest
     from tests.unit.connectors.transcripts import text, thinking, tool_use
 
@@ -546,7 +549,10 @@ def test_request_body_satisfies_the_import_bus_contract(tmp_path):
     memory_search = "mcp__plugin_hivememory-connector_hivememory__memory_search"
     log.assistant(tool_use("toolu-2", memory_search, {"query": "测试约定"}), message_id="m1")
     log.tool_result("toolu-2", "检索结果")
-    log.assistant(text("已修复"), message_id="m2")
+    memory_read = "mcp__plugin_hivememory-connector_hivememory__memory_read"
+    log.assistant(tool_use("toolu-3", memory_read, {"aliases": ["fact_a"]}), message_id="m2")
+    log.tool_result("toolu-3", "记忆正文")
+    log.assistant(text("已修复"), message_id="m3")
     log.turn("p2")
     transport = FakeTransport()
     sync, _ = _harness(tmp_path, transport)
@@ -556,11 +562,16 @@ def test_request_body_satisfies_the_import_bus_contract(tmp_path):
 
     requests = [ImportTurnRequest.model_validate(body) for body in transport.bodies]
     assert [request.external_turn_id for request in requests] == ["p0", "p1"]
-    assert [(event.kind, event.tool_kind) for event in requests[1].events] == [
-        ("thought", None),
-        ("tool_call", None),
-        ("tool_result", None),
-        ("tool_call", "SEARCH"),
-        ("tool_result", None),
-        ("assistant_message", None),
+    assert [
+        (event.kind, event.tool_name, event.verb, event.targets, event.status)
+        for event in requests[1].events
+    ] == [
+        ("thought", None, None, [], None),
+        ("tool_call", "Bash", None, [], None),
+        ("tool_result", None, None, [], "error"),
+        ("tool_call", None, "SEARCH", [], None),
+        ("tool_result", None, None, [], "success"),
+        ("tool_call", None, "READ", ["fact_a"], None),
+        ("tool_result", None, None, [], "success"),
+        ("assistant_message", None, None, [], None),
     ]

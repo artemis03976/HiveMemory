@@ -17,21 +17,24 @@ function blocksFor(turn: ConversationTurn): ContentBlock[] {
       blocks.push({ kind: 'text', text: event.content });
     } else if (event.kind === 'tool_call') {
       const result = events.find(e => e.kind === 'tool_result' && e.action_id === event.action_id);
-      if (event.tool_kind === 'CALL') {
+      const targets = event.targets ?? [];
+      if (event.verb === 'CALL') {
         blocks.push({
-          kind: 'sub_agent', agentId: event.target || 'Agent',
+          kind: 'sub_agent', agentId: targets[0] || 'Agent',
           task: String(event.tool_args?.task || ''),
           status: result?.status === 'success' ? 'completed' : 'error',
           contentBlocks: [], finalText: result?.content || '调用未完成',
         });
       } else {
-        const verb = event.tool_kind || 'UNKNOWN';
+        // 指令无法解析时没有动词，卡片显示为 UNKNOWN；命令文本是调用原文（MTP 指令片段）。
+        const verb = event.verb || 'UNKNOWN';
         const type = ['READ', 'SEARCH', 'RUN', 'WRITE', 'UPDATE'].includes(verb)
           ? verb as MtpAction['type'] : 'UNKNOWN';
+        const target = targets.join(', ');
         blocks.push({ kind: 'mtp', action: {
           id: event.action_id || `${turn.interaction_id}-${event.sequence}`, type,
-          command: event.content || `${verb} ${event.target || ''}`,
-          target: event.target || undefined, params: event.tool_args || undefined,
+          command: event.content || `${verb} ${target}`.trim(),
+          target: target || undefined, params: event.tool_args || undefined,
           status: result ? normalizeMtpStatus(result.status || 'error') : 'error',
           resultMessage: result?.content || '操作未完成',
         } });

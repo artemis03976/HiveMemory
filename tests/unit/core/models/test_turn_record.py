@@ -34,12 +34,7 @@ def test_turn_record_anchor_text():
 
 
 def test_logical_block_rejects_flat_turn_fields():
-    event = TurnEvent(
-        kind="assistant_message",
-        sequence=0,
-        role="assistant",
-        content="hello",
-    )
+    event = TurnEvent(kind="assistant_message", sequence=0, content="hello")
     action = AgentAction(action_id="a1", tool_kind="READ", tool_name="alias_x")
     trace = TraceItem(action="READ", action_id="a1", target="alias_x")
 

@@ -18,7 +18,6 @@ from hivememory.components.work_queue import (
     WorkState,
 )
 from hivememory.config.patchouli import SemanticFlowPerceptionConfig
-from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.patchouli.control.interaction_submission import (
@@ -30,23 +29,13 @@ from hivememory.patchouli.control.interaction_submission import (
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
+from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope
 
 
 def _payload(message: str = "retry question") -> InteractionPayload:
     """构造不可变的结构化交互载荷。"""
-    return InteractionPayload(
-        user_message=message,
-        assistant_final_text=f"answer:{message}",
-        turn_events=[
-            TurnEvent(
-                kind="assistant_message",
-                sequence=0,
-                role="assistant",
-                content=f"answer:{message}",
-            )
-        ],
-    )
+    return make_interaction_payload(message, f"answer:{message}")
 
 
 def _build_familiar(

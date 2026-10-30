@@ -82,10 +82,10 @@ def _turn(**overrides) -> ImportedTurn:
                 "sequence": 3,
                 "content": f"deployed with {SECRET}",
                 "action_id": "toolu-1",
+                "status": "success",
             },
             {"kind": "assistant_message", "sequence": 4, "content": "部署完成"},
         ],
-        "assistant_final_text": "部署完成",
         "model_used": "claude-opus",
     }
     fields.update(overrides)
@@ -198,6 +198,8 @@ async def test_accepted_turn_is_sealed_and_submitted_with_new_topic_title() -> N
     assert payload.rewritten_query == "如何部署"
     assert payload.worth_saving is True
     assert payload.used_attachments == []
+    # 回复正文由事件中的助手正文得到，不随请求上传。
+    assert payload.assistant_final_text == "部署完成"
     # 外部工具不带 MTP 动词，不产生轨迹；用户消息是序号 0 的事件。
     assert payload.mtp_traces == []
     assert [(event.kind, event.sequence) for event in payload.turn_events] == [
@@ -316,7 +318,7 @@ async def test_resent_accepted_turn_is_duplicate_without_gateway_call() -> None:
 async def test_turn_without_output_is_skipped_without_gateway_call() -> None:
     """用户消息之外没有输出的轮次不封口、不路由。"""
     async with _harness() as harness:
-        result = await harness.ingest(_turn(events=[], assistant_final_text=None))
+        result = await harness.ingest(_turn(events=[]))
 
     assert result.status == "skipped"
     assert harness.gateway_calls == []

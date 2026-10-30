@@ -43,63 +43,83 @@ def _turn(**overrides) -> ImportedTurn:
             },
             {"kind": "assistant_message", "sequence": 4, "content": "已修复"},
         ],
-        "assistant_final_text": "已修复",
     }
     fields.update(overrides)
     return ImportedTurn.model_validate(fields)
 
 
-def test_turn_events_put_user_message_first_and_fill_roles_by_kind() -> None:
-    """用户消息写成序号 0 的事件，角色按种类填写，工具结果记为 system。"""
+def test_turn_events_put_user_message_first_and_keep_imported_fields() -> None:
+    """用户消息写成序号 0 的事件，其后的事件与导入的字段同形。"""
     events = _turn().to_turn_events()
 
     assert events == [
-        TurnEvent(kind="user_message", sequence=0, role="user", content="修一下测试"),
-        TurnEvent(kind="thought", sequence=1, role="assistant", content="先运行测试"),
+        TurnEvent(kind="user_message", sequence=0, content="修一下测试"),
+        TurnEvent(kind="thought", sequence=1, content="先运行测试"),
         TurnEvent(
             kind="tool_call",
             sequence=2,
-            role="assistant",
             content="",
             action_id="toolu-1",
             tool_name="Bash",
             tool_args={"command": "pytest -q"},
         ),
         TurnEvent(
-            kind="tool_result",
-            sequence=3,
-            role="system",
-            content="1 failed",
-            action_id="toolu-1",
-            status="error",
+            kind="tool_result", sequence=3, content="1 failed", action_id="toolu-1", status="error"
         ),
-        TurnEvent(kind="assistant_message", sequence=4, role="assistant", content="已修复"),
+        TurnEvent(kind="assistant_message", sequence=4, content="已修复"),
     ]
 
 
-def _memory_tool_call(tool_kind: str) -> dict:
-    return {
-        "kind": "tool_call",
-        "sequence": 1,
-        "content": "",
-        "action_id": "toolu-1",
-        "tool_name": "mcp__plugin_hivememory-connector_hivememory__memory_search",
-        "tool_args": {"query": "部署流程"},
-        "tool_kind": tool_kind,
-    }
+def _memory_call(verb: str, **fields) -> list[dict]:
+    """一次 HiveMemory 能力调用与它的成功结果。"""
+    return [
+        {"kind": "tool_call", "sequence": 1, "content": "", "action_id": "toolu-1", "verb": verb}
+        | fields,
+        {
+            "kind": "tool_result",
+            "sequence": 2,
+            "content": "记忆",
+            "action_id": "toolu-1",
+            "status": "success",
+        },
+    ]
 
 
-def test_memory_tool_kind_is_carried_into_turn_events() -> None:
-    """HiveMemory 自身 MCP 工具的记忆操作标记原样写入结构化事件，生成据此只留一行轨迹。"""
-    events = _turn(events=[_memory_tool_call("SEARCH")]).to_turn_events()
+def test_memory_read_verb_and_targets_are_carried_into_turn_events() -> None:
+    """HiveMemory MCP 读取的动词与作用对象原样写入结构化事件，生成据此只留一行摘要。"""
+    events = _turn(events=_memory_call("READ", targets=["fact_a", "fact_b"])).to_turn_events()
 
-    assert events[1].tool_kind == "SEARCH"
+    assert (events[1].verb, events[1].targets, events[1].tool_name) == (
+        "READ",
+        ("fact_a", "fact_b"),
+        None,
+    )
 
 
-def test_tool_kind_outside_mcp_memory_reads_is_rejected() -> None:
-    """外部 harness 只能经 MCP 检索与读取记忆，其他记忆操作标记在校验时拒绝。"""
-    with pytest.raises(ValidationError, match="tool_kind"):
-        _turn(events=[_memory_tool_call("WRITE")])
+@pytest.mark.parametrize(
+    ("overrides", "match"),
+    [
+        ({"events": _memory_call("WRITE")}, "verb"),
+        ({"events": _memory_call("READ")}, "READ tool_call requires targets"),
+        ({"events": _memory_call("SEARCH", tool_kind="SEARCH")}, "tool_kind"),
+        ({"assistant_final_text": "已修复"}, "assistant_final_text"),
+        (
+            {"events": [_memory_call("SEARCH")[0], {**_memory_call("SEARCH")[1], "status": None}]},
+            "tool_result event requires status",
+        ),
+    ],
+    ids=[
+        "verb-beyond-search-and-read",
+        "read-without-targets",
+        "removed-event-field",
+        "removed-body-field",
+        "result-without-status",
+    ],
+)
+def test_events_outside_the_import_contract_are_rejected(overrides, match) -> None:
+    """导入只接受检索与读取，读取必须给出作用对象；已删除的字段与违反事件规则的轮次拒绝。"""
+    with pytest.raises(ValidationError, match=match):
+        _turn(**overrides)
 
 
 @pytest.mark.parametrize("sequences", [(1, 1), (2, 1)], ids=["repeated", "decreasing"])
@@ -115,18 +135,13 @@ def test_non_increasing_sequences_are_rejected(sequences) -> None:
 
 
 @pytest.mark.parametrize(
-    ("events", "final_text", "has_output"),
-    [
-        ([], None, False),
-        ([], "", False),
-        ([], "只有正文", True),
-        ([{"kind": "thought", "sequence": 1, "content": "思考"}], None, True),
-    ],
-    ids=["nothing", "empty-final-text", "final-text-only", "events-only"],
+    ("events", "has_output"),
+    [([], False), ([{"kind": "thought", "sequence": 1, "content": "思考"}], True)],
+    ids=["nothing", "events"],
 )
-def test_output_requires_events_or_final_text(events, final_text, has_output) -> None:
-    """用户消息之外既无事件也无最终正文的轮次没有输出。"""
-    assert _turn(events=events, assistant_final_text=final_text).has_output is has_output
+def test_output_requires_events_after_the_user_message(events, has_output) -> None:
+    """用户消息之后没有事件的轮次没有输出。"""
+    assert _turn(events=events).has_output is has_output
 
 
 def test_interaction_id_is_stable_for_the_same_turn() -> None:

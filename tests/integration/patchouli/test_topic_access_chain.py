@@ -15,8 +15,7 @@ import pytest
 
 from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.errors import ResourceNotFoundError
-from hivememory.core.models import TurnEvent, system_actor_for_workspace
-from hivememory.core.protocol.models import InteractionPayload
+from hivememory.core.models import system_actor_for_workspace
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.patchouli.application import TopicManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -33,6 +32,7 @@ from hivememory.patchouli.service import PatchouliService
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
+from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -46,18 +46,7 @@ class _DeterministicRelay:
 
 def _payload(user_message: str, assistant_message: str):
     """构造真实 Perception 链路所需的结构化一轮对话。"""
-    return InteractionPayload(
-        user_message=user_message,
-        assistant_final_text=assistant_message,
-        turn_events=[
-            TurnEvent(
-                kind="assistant_message",
-                sequence=0,
-                role="assistant",
-                content=assistant_message,
-            )
-        ],
-    )
+    return make_interaction_payload(user_message, assistant_message)
 
 
 def _topic_boundary(*, max_resident_topics: int = 5):

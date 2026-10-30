@@ -2,13 +2,13 @@
 
 被测对象：``render_action_entries`` 把一轮的思考、外部工具动作与 MTP 动作
 渲染为动作段条目。保护的契约：
-- 思考按出现顺序渲染：显式附属于动作的紧排在该动作之前，其余在事件位置单独成条；
+- 思考按出现顺序在事件位置单独成条；
 - 外部工具动作渲染工具名、参数摘要与各条结果，出错的结果标明状态；
 - 思考、参数与结果按各自上限截断，保留首尾并标出省略量；
 - 超出单轮上限时保留思考、出错的动作与最近的动作，其余外部工具动作降为一行；
   降为一行仍超出时按优先级省略整条，结果不超过上限；
 - 空白的思考不渲染；
-- MTP 动作维持一行摘要，不渲染结果，CALL/WRITE/UPDATE 不渲染；
+- 能力动作维持一行摘要，不渲染结果，CALL/WRITE/UPDATE 与无法解析的指令不渲染；
 - 只有用户消息与最终回复的轮次没有动作段。
 
 测试中的动作与轨迹由 core 的归约器从事件得到，与感知建块的方式一致。
@@ -40,17 +40,14 @@ def _turn(events: list[TurnEvent], *, traces: list[TraceItem] | None = None) -> 
     )
 
 
-def _thought(sequence: int, content: str, action_id: str | None = None) -> TurnEvent:
-    return TurnEvent(
-        kind="thought", sequence=sequence, role="assistant", content=content, action_id=action_id
-    )
+def _thought(sequence: int, content: str) -> TurnEvent:
+    return TurnEvent(kind="thought", sequence=sequence, content=content)
 
 
-def _call(sequence: int, action_id: str, tool_name: str = "Bash", **kwargs) -> TurnEvent:
+def _call(sequence: int, action_id: str, tool_name: str | None = "Bash", **kwargs) -> TurnEvent:
     return TurnEvent(
         kind="tool_call",
         sequence=sequence,
-        role="assistant",
         content="",
         action_id=action_id,
         tool_name=tool_name,
@@ -58,11 +55,10 @@ def _call(sequence: int, action_id: str, tool_name: str = "Bash", **kwargs) -> T
     )
 
 
-def _result(sequence: int, action_id: str, content: str, status: str | None = None) -> TurnEvent:
+def _result(sequence: int, action_id: str, content: str, status: str = "success") -> TurnEvent:
     return TurnEvent(
         kind="tool_result",
         sequence=sequence,
-        role="system",
         content=content,
         action_id=action_id,
         status=status,
@@ -97,40 +93,17 @@ def test_unattached_thoughts_keep_their_position_between_actions():
     ]
 
 
-def test_attached_thought_is_rendered_right_before_its_action():
-    """显式附属于动作的思考即使晚于调用出现，也紧排在该动作之前。"""
-    turn = _turn(
-        [
-            _call(1, "toolu-1", tool_args={"command": "ls"}),
-            _thought(2, "看看目录结构", action_id="toolu-1"),
-            _result(3, "toolu-1", "src tests"),
-        ]
-    )
-
-    assert [entry.kind for entry in render_action_entries(turn, DEFAULTS)] == ["thought", "tool"]
-    assert _texts(render_action_entries(turn, DEFAULTS))[0] == "THOUGHT: 看看目录结构"
-
-
-def test_thought_attached_to_an_action_without_tool_call_renders_only_the_thought():
-    """只有附属思考、没有工具调用的动作不渲染工具行，也不重复渲染思考。"""
-    turn = _turn([_thought(1, "考虑是否需要工具", action_id="act-1")])
-
-    assert _texts(render_action_entries(turn, DEFAULTS)) == ["THOUGHT: 考虑是否需要工具"]
-
-
-def test_error_results_are_marked_and_every_result_is_rendered():
-    """出错的结果标明状态；一个动作的多条结果按顺序逐条渲染。"""
+def test_error_results_are_marked():
+    """出错的结果标明状态。"""
     turn = _turn(
         [
             _call(1, "toolu-1", tool_name="Read", tool_args={"file_path": "a.py"}),
-            _result(2, "toolu-1", "partial output"),
-            _result(3, "toolu-1", "permission denied", status="error"),
+            _result(2, "toolu-1", "permission denied", status="error"),
         ]
     )
 
     assert _texts(render_action_entries(turn, DEFAULTS)) == [
-        'TOOL: Read {"file_path": "a.py"}\nRESULT: partial output\n'
-        "RESULT (error): permission denied"
+        'TOOL: Read {"file_path": "a.py"}\nRESULT (error): permission denied'
     ]
 
 
@@ -227,7 +200,7 @@ def test_blank_thoughts_are_not_rendered():
     turn = _turn(
         [
             _thought(1, "   "),
-            _thought(2, "", action_id="toolu-1"),
+            _thought(2, ""),
             _call(3, "toolu-1", tool_args={"c": "1"}),
         ]
     )
@@ -235,29 +208,35 @@ def test_blank_thoughts_are_not_rendered():
     assert _texts(render_action_entries(turn, DEFAULTS)) == ['TOOL: Bash {"c": "1"}']
 
 
-def test_mtp_actions_keep_one_line_summaries_without_results():
-    """MTP 动作只渲染一行摘要；结果与 CALL/WRITE/UPDATE 不进入生成视图。"""
+def test_capability_actions_keep_one_line_summaries_without_results():
+    """能力动作只渲染一行摘要；结果、CALL/WRITE/UPDATE 与无法解析的指令不进入生成视图。
+
+    READ 列出全部作用对象：外部 harness 经 MCP 读取与 MTP READ 写出同样的调用事件，
+    摘要相同，不出现 MCP 调用名。
+    """
     turn = _turn(
         [
-            _call(
-                1,
-                "act-search",
-                tool_name="memory_search",
-                tool_kind="SEARCH",
-                tool_args={"query": "部署"},
-            ),
-            _result(2, "act-search", "已有记忆正文", status="success"),
-            _call(3, "act-run", tool_name="git_log", tool_kind="RUN"),
-            _result(4, "act-run", "commit abc", status="success"),
-            _call(5, "act-write", tool_name="memory_write", tool_kind="WRITE"),
-            _result(6, "act-write", "已登记", status="success"),
+            _call(1, "act-search", None, verb="SEARCH", tool_args={"query": "部署"}),
+            _result(2, "act-search", "已有记忆正文"),
+            _call(3, "act-read", None, verb="READ", targets=("fact_a", "fact_b")),
+            _result(4, "act-read", "已有记忆正文"),
+            _call(5, "act-run", None, verb="RUN", targets=("git_log",)),
+            _result(6, "act-run", "commit abc"),
+            _call(7, "act-write", None, verb="WRITE"),
+            _result(8, "act-write", "已登记", status="ack"),
+            _call(9, "act-unparsed", None),
+            _result(10, "act-unparsed", "parse error", status="error"),
         ]
     )
 
     entries = render_action_entries(turn, DEFAULTS)
 
-    assert [entry.kind for entry in entries] == ["trace", "trace"]
-    assert _texts(entries) == ['SEARCH: "部署"', "RUN: git_log (success)"]
+    assert [entry.kind for entry in entries] == ["trace", "trace", "trace"]
+    assert _texts(entries) == [
+        'SEARCH: "部署"',
+        "READ: fact_a, fact_b",
+        "RUN: git_log (success)",
+    ]
 
 
 def test_traces_without_events_render_in_trace_order():
@@ -272,8 +251,6 @@ def test_traces_without_events_render_in_trace_order():
 
 def test_turn_with_only_messages_has_no_action_entries():
     """只有用户消息与最终回复的轮次没有动作段。"""
-    turn = _turn(
-        [TurnEvent(kind="assistant_message", sequence=1, role="assistant", content="已修复")]
-    )
+    turn = _turn([TurnEvent(kind="assistant_message", sequence=1, content="已修复")])
 
     assert render_action_entries(turn, DEFAULTS) == []

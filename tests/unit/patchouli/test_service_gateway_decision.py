@@ -15,13 +15,13 @@ from hivememory.core.protocol.gateway import (
     RetrievalMode,
     RetrievalPlan,
 )
-from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionQueue,
 )
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
+from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -124,7 +124,7 @@ async def test_finalize_submits_received_payload_with_prepared_identity() -> Non
         interaction_id="interaction-test",
         gateway_decision=_decision(),
     )
-    payload = InteractionPayload(user_message="原问题", assistant_final_text="回答")
+    payload = make_interaction_payload("原问题", "回答")
 
     try:
         await queue.start()
@@ -178,7 +178,7 @@ async def test_finalize_and_cleanup_reject_foreign_prepared_workspace() -> None:
     bus.register(PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY, discard)
     with pytest.raises(WorkspaceMismatchError, match="workspace.mismatch"):
         await service.finalize_agent_run(
-            prepared, InteractionPayload(user_message="问题"), identity_scope=scope
+            prepared, make_interaction_payload("问题"), identity_scope=scope
         )
 
     assert await queue.is_accepted(prepared.interaction_id) is False
@@ -207,7 +207,7 @@ async def test_finalize_uses_current_submission_actor_instead_of_prepare_actor()
     try:
         await queue.start()
         result = await service.finalize_agent_run(
-            prepared, InteractionPayload(user_message="问题"), identity_scope=scope
+            prepared, make_interaction_payload("问题"), identity_scope=scope
         )
     finally:
         await queue.stop()
@@ -235,7 +235,7 @@ async def test_finalize_unknown_admission_preserves_cause_and_uncertainty() -> N
     finalizer = PatchouliService(bus, interaction_queue=queue)
     with pytest.raises(ActiveInteractionFinalizationError) as caught:
         await finalizer.finalize_agent_run(
-            prepared, InteractionPayload(user_message="q"), identity_scope=scope
+            prepared, make_interaction_payload("q"), identity_scope=scope
         )
     assert caught.value.stage == "interaction_admission"
     assert caught.value.reason == "admission_unknown"

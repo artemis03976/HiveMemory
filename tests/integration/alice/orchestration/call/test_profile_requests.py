@@ -67,12 +67,9 @@ def _caller(submit_operation, *, agent_id="parent") -> ExecutionFrame:
         TurnEvent(
             kind="tool_call",
             sequence=0,
-            role="assistant",
             content="<CALL>",
             action_id="call-1",
-            tool_kind="CALL",
-            tool_name="CALL",
-            status="pending",
+            verb="CALL",
         )
     )
     caller.progress.sequence = 1

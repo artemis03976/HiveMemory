@@ -31,34 +31,29 @@ def _scope():
     return make_identity_scope(actor_identity=_identity())
 
 
-def _turn_event(kind="tool_call", tool_kind="READ", target="alias_x") -> TurnEvent:
+def _read_call(sequence: int = 1) -> TurnEvent:
     return TurnEvent(
-        kind=kind,
-        sequence=0,
-        role="assistant",
+        kind="tool_call",
+        sequence=sequence,
         content="",
-        tool_kind=tool_kind,
-        tool_name=target if tool_kind == "RUN" else None,
-        target=target,
+        action_id="a1",
+        verb="READ",
+        targets=("alias_x",),
     )
 
 
 def _payload(user_msg="hello", assistant_msg="world", traces=None, turn_events=None):
+    """``turn_events`` 是用户消息之后的事件，缺省为一条回复正文。"""
+    if turn_events is None:
+        turn_events = (
+            [TurnEvent(kind="assistant_message", sequence=1, content=assistant_msg)]
+            if assistant_msg
+            else []
+        )
     return InteractionPayload(
         user_message=user_msg,
         assistant_final_text=assistant_msg,
-        turn_events=(
-            turn_events
-            if turn_events is not None
-            else [
-                TurnEvent(
-                    kind="assistant_message",
-                    sequence=0,
-                    role="assistant",
-                    content=assistant_msg,
-                )
-            ]
-        ),
+        turn_events=[TurnEvent(kind="user_message", sequence=0, content=user_msg), *turn_events],
         mtp_traces=traces or [],
     )
 
@@ -85,45 +80,28 @@ class TestBuildBlock:
         engine = MemoryPerceptionEngine(
             config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
-        turn_event = _turn_event()
+        payload = _payload("hello", "clean reply", turn_events=[_read_call()])
 
-        block = engine.build_block(
-            _payload("hello", "clean reply", turn_events=[turn_event]), _scope().actor_identity
-        )
+        block = engine.build_block(payload, _scope().actor_identity)
 
         assert block.assistant_final_text == "clean reply"
-        assert len(block.turn_events) == 1
-        assert block.turn_events[0].kind == turn_event.kind
-        assert block.turn_events[0].tool_kind == turn_event.tool_kind
+        assert block.turn_events == tuple(payload.turn_events)
 
     def test_reduces_turn_events_to_actions(self):
         engine = MemoryPerceptionEngine(
             config=SemanticFlowPerceptionConfig(), relay_controller=_mock_relay()
         )
-        payload = InteractionPayload(
-            user_message="hello",
-            assistant_final_text="clean reply",
+        payload = _payload(
+            "hello",
+            "clean reply",
             turn_events=[
-                TurnEvent(
-                    kind="tool_call",
-                    sequence=0,
-                    role="assistant",
-                    content="<< READ | alias_x >>",
-                    action_id="a1",
-                    tool_kind="READ",
-                    tool_name="alias_x",
-                    target="alias_x",
-                ),
+                _read_call(),
                 TurnEvent(
                     kind="tool_result",
-                    sequence=1,
-                    role="user",
+                    sequence=2,
                     content="result",
                     action_id="a1",
-                    tool_kind="READ",
-                    tool_name="alias_x",
                     status="success",
-                    render_as="system_tool_result",
                 ),
             ],
         )
@@ -208,11 +186,10 @@ def _external_tool_payload(result: str, *, thought: str = "先跑测试") -> Int
         "q",
         "a",
         turn_events=[
-            TurnEvent(kind="thought", sequence=1, role="assistant", content=thought),
+            TurnEvent(kind="thought", sequence=1, content=thought),
             TurnEvent(
                 kind="tool_call",
                 sequence=2,
-                role="assistant",
                 content="",
                 action_id="toolu-1",
                 tool_name="Bash",
@@ -221,9 +198,9 @@ def _external_tool_payload(result: str, *, thought: str = "先跑测试") -> Int
             TurnEvent(
                 kind="tool_result",
                 sequence=3,
-                role="system",
                 content=result,
                 action_id="toolu-1",
+                status="success",
             ),
         ],
     )
@@ -260,19 +237,10 @@ class TestRenderedActionTokens:
             "a",
             traces=[trace],
             turn_events=[
-                TurnEvent(
-                    kind="tool_call",
-                    sequence=1,
-                    role="assistant",
-                    content="",
-                    action_id="a1",
-                    tool_kind="READ",
-                    tool_name="alias_x",
-                ),
+                _read_call(),
                 TurnEvent(
                     kind="tool_result",
                     sequence=2,
-                    role="system",
                     content="已有记忆正文" * 200,
                     action_id="a1",
                     status="success",

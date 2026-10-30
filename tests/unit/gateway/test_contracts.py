@@ -44,8 +44,9 @@ def test_canonical_topic_object_graph_is_recursively_immutable() -> None:
     event = TurnEvent(
         kind="tool_call",
         sequence=1,
-        role="assistant",
         content="查询",
+        action_id="search",
+        verb="SEARCH",
         tool_args={"filters": {"tags": ["gateway"]}},
     )
     block = LogicalBlock(

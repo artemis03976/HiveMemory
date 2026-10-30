@@ -212,7 +212,7 @@ def _assert_sealed_payload(payload, *, turn_events: list[TurnEvent], submitted) 
     assert payload.assistant_final_text == "完成"
     assert payload.turn_events == [
         *turn_events,
-        TurnEvent(kind="assistant_message", sequence=5, role="assistant", content="完成"),
+        TurnEvent(kind="assistant_message", sequence=5, content="完成"),
     ]
     assert payload.model_used == "glm-4"
     # 本测试未选择附件：附件编译的实际使用集合为空

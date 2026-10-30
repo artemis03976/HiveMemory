@@ -103,15 +103,22 @@ def _read_turn(name, size):
         interaction_id=name,
         user_message="read",
         turn_events=[
+            TurnEvent(kind="user_message", sequence=0, content="read"),
+            TurnEvent(
+                kind="tool_call",
+                sequence=1,
+                content=f"⟪ READ | {name} ⟫",
+                action_id="read",
+                verb="READ",
+                targets=(name,),
+            ),
             TurnEvent(
                 kind="tool_result",
-                sequence=0,
-                role="user",
+                sequence=2,
                 content="x" * size,
-                tool_kind="READ",
-                target=name,
+                action_id="read",
                 status="success",
-            )
+            ),
         ],
     )
 
@@ -153,7 +160,7 @@ def test_history_role_prefix_uses_registered_label(registered_agent_id, expected
     """历史角色归并取注册标签，其他 Agent 的回复带来源前缀。"""
     history = (
         make_conversation_turn(
-            agent_id="registered_agent", user_message="历史问题", assistant_final_text="历史回复"
+            agent_id="registered_agent", user_message="历史问题", reply="历史回复"
         ),
     )
     view = _view(
@@ -188,7 +195,7 @@ def test_reduction_keeps_a_whole_recent_suffix_and_reuses_stable_boundary():
     assert result.checkpoint.summarized_through is None
     assert result.covered_turns == 1
     assert result.tokens_after < 500
-    assert result.messages[-3]["content"] == "read"
+    assert result.messages[-4]["content"] == "read"
     assert result.messages[-2]["content"] == "x" * 600
     reused = _view(turns, checkpoint=result.checkpoint)
     assert reused.messages == result.messages
@@ -218,7 +225,7 @@ def test_unrecognized_checkpoint_replays_original_before_recomputing(fields):
     turns = (_read_turn("old", 6000),)
     checkpoint = make_compaction_checkpoint(reduced_through="old", **fields)
     view = _view(turns, checkpoint=checkpoint)
-    assert view.messages[1]["content"] == "x" * 6000
+    assert view.messages[2]["content"] == "x" * 6000
     assert view.should_compact() is True
     assert view.reduce().checkpoint.producer == "alice"
 
@@ -232,7 +239,7 @@ def test_disabled_compaction_ignores_checkpoint_and_force():
         config=CompactionConfig(enabled=False),
         limit=2000,
     )
-    assert view.messages[1]["content"] == "x" * 6000
+    assert view.messages[2]["content"] == "x" * 6000
     assert view.should_compact(force=True) is False
 
 
@@ -272,7 +279,7 @@ def _plain_turn(name, size=400):
         interaction_id=name,
         agent_id="test_agent",
         user_message=name + "x" * size,
-        assistant_final_text="y" * size,
+        reply="y" * size,
     )
 
 
@@ -393,15 +400,22 @@ async def test_summary_input_bounds_tool_messages_but_preserves_agent_and_failed
         user_message="review",
         outcome="failed",
         turn_events=[
+            TurnEvent(kind="user_message", sequence=0, content="review"),
+            TurnEvent(
+                kind="tool_call",
+                sequence=1,
+                content="⟪ RUN | sys_read_file ⟫",
+                action_id="run",
+                verb="RUN",
+                targets=("sys_read_file",),
+            ),
             TurnEvent(
                 kind="tool_result",
-                sequence=0,
-                role="user",
+                sequence=2,
                 content="z" * 6000,
-                tool_kind="RUN",
-                target="sys_read_file",
+                action_id="run",
                 status="success",
-            )
+            ),
         ],
     )
     config = CompactionConfig(summary_max_tokens=64, summary_input_tool_chars=100, target_ratio=0.2)

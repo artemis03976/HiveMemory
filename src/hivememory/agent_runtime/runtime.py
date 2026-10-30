@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus, FrameProducts
 from hivememory.agent_runtime.loop import AgentLoopExecutor
@@ -11,6 +11,7 @@ from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.output import FrameOutputSink
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import AgentProfile, TurnEvent
+from hivememory.core.models.interaction import ToolResultStatus
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter
 
 if TYPE_CHECKING:
@@ -83,7 +84,11 @@ class AgentRuntime:
         suspension: FrameExecutionResult,
         response: MTPCallResponse,
     ) -> None:
-        """把一次已结算的 CALL response 恰好一次地回填到挂起的 caller frame。"""
+        """把一次已结算的 CALL response 恰好一次地回填到挂起的 caller frame。
+
+        调用事件在挂起时已经写出，回填不改写它；子帧结局与产物只写在随后的
+        结果事件上。
+        """
         if suspension.status != FrameExecutionStatus.SUSPENDED:
             raise ValueError("CALL response requires a suspended frame result.")
         call_request = suspension.call_request
@@ -116,20 +121,15 @@ class AgentRuntime:
         assistant_text = suspension.suspend_assistant_text or ""
         frame.working_history.append({"role": "assistant", "content": assistant_text})
         frame.working_history.append({"role": "user", "content": formatted_response})
-        frame.progress.turn_events[frame.progress.turn_events.index(matching_calls[0])] = (
-            matching_calls[0].model_copy(update={"status": response.status.value})
-        )
         frame.progress.turn_events.append(
             TurnEvent(
                 kind="tool_result",
                 sequence=frame.progress.sequence,
-                role="user",
                 content=formatted_response,
                 action_id=action_id,
-                tool_kind="CALL",
-                tool_name=call_request.target_alias,
-                status=response.status.value,
-                render_as="system_call_response",
+                # 子帧结局只有 success、cancelled 与 error，事件构造时校验。
+                status=cast(ToolResultStatus, response.status.value),
+                produced_aliases=tuple(response.artifact_aliases),
             )
         )
         frame.progress.sequence += 1

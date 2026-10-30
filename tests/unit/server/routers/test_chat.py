@@ -154,6 +154,20 @@ class TestChatRegistration:
         assert response.status_code == 400
         mock_service.register_process.assert_not_called()
 
+    def test_empty_message_returns_422_without_registration(self):
+        """每一轮都以用户消息开头，空消息在注册前以 422 拒绝。"""
+        mock_service = MagicMock()
+        mock_service.register_process = AsyncMock()
+        app, _ = _create_test_app(mock_service)
+
+        response = TestClient(app).post(
+            "/api/v1/chat",
+            json={"message": "", "agent_id": "test_agent"},
+        )
+
+        assert response.status_code == 422
+        mock_service.register_process.assert_not_called()
+
     def test_runtime_generation_options_are_forwarded_to_registration(self):
         mock_service = _wired_chat_service(
             lambda *args, **kw: _simple_stream(

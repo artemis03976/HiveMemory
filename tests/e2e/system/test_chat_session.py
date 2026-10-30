@@ -237,7 +237,8 @@ async def test_text_only_cpu_output_is_structured_before_patchouli_submission(
         (block,) = topic.blocks
         assert block.turn.outcome == outcome
         assert [(e.kind, e.content) for e in block.turn_events] == [
-            ("assistant_message", "仅正文结果")
+            ("user_message", "只含正文"),
+            ("assistant_message", "仅正文结果"),
         ]
         session_id = events[0][1]["session_id"]
         assert sessions.get(access.default_workspace, session_id).turns[

@@ -16,7 +16,6 @@ from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.errors import AssetRemovedError
 from hivememory.core.models import (
     AssetRepresentationKind,
-    TurnEvent,
     WorkspaceAssetMetadata,
 )
 from hivememory.core.protocol.models import InteractionPayload
@@ -25,6 +24,7 @@ from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
+from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -69,18 +69,7 @@ def _make_familiar_with_store():
 
 
 def _payload() -> InteractionPayload:
-    return InteractionPayload(
-        user_message="q",
-        assistant_final_text="a",
-        turn_events=[
-            TurnEvent(
-                kind="assistant_message",
-                sequence=0,
-                role="assistant",
-                content="a",
-            )
-        ],
-    )
+    return make_interaction_payload("q", "a")
 
 
 def test_remove_before_acquire_establishes_no_binding():

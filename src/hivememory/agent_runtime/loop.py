@@ -17,7 +17,7 @@ Agent Loop Executor - 纯单 Agent 执行循环总控
 
 import asyncio
 import logging
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, cast
 
 from hivememory.agent_runtime.frame import (
     ExecutionFrame,
@@ -38,6 +38,7 @@ from hivememory.agent_runtime.output import (
 )
 from hivememory.config.alice import AgentRuntimeConfig
 from hivememory.core.models import TurnEvent, freeze_mapping
+from hivememory.core.models.interaction import ToolResultStatus
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime.model.generator import MTPGenerator
@@ -156,10 +157,10 @@ class AgentLoopExecutor:
             try:
                 result = await self._generate_turn(frame, resolved_model.params, output_sink)
             except asyncio.CancelledError:
-                self._seal_partial_text(frame, "cancelled")
+                self._seal_partial_text(frame)
                 raise
             if isinstance(result, FrameExecutionResult):
-                self._seal_partial_text(frame, "failed")
+                self._seal_partial_text(frame)
                 return result
             # 完整结果已经包含流出的文字，随后记录时不能再次追加缓冲。
             p.streaming_text.clear()
@@ -167,32 +168,20 @@ class AgentLoopExecutor:
             if not result.was_mtp_interrupted:
                 p.text_segments.append(result.text)
                 p.turn_events.append(
-                    TurnEvent(
-                        kind="assistant_message",
-                        sequence=p.sequence,
-                        role="assistant",
-                        content=result.text,
-                    )
+                    TurnEvent(kind="assistant_message", sequence=p.sequence, content=result.text)
                 )
                 p.sequence += 1
                 return FrameExecutionResult(status=FrameExecutionStatus.COMPLETED)
 
+            # 指令前正文只记在 assistant_message 中，调用事件只存指令片段。
             p.text_segments.append(result.prefix_text)
             if result.prefix_text:
                 p.turn_events.append(
                     TurnEvent(
-                        kind="assistant_message",
-                        sequence=p.sequence,
-                        role="assistant",
-                        content=result.prefix_text,
+                        kind="assistant_message", sequence=p.sequence, content=result.prefix_text
                     )
                 )
                 p.sequence += 1
-
-            verb_hint = "UNKNOWN"
-            target_hint = ""
-            args_hint: dict[str, Any] = {}
-            raw_hint = result.mtp_fragment
 
             action_id = f"action_{p.iteration}_{p.sequence}"
             mtp_context = MTPExecutionContext(
@@ -205,25 +194,32 @@ class AgentLoopExecutor:
                 result.text,
                 context=mtp_context,
             )
+            if mtp_result is None:
+                # 生成器只在文本含左定界符时报告 MTP 中断，执行器对这样的文本总会
+                # 给出结果（解析失败也是 error 结果）；走到这里说明两者的约定被破坏。
+                raise RuntimeError("MTP executor returned no result for an interrupted generation.")
 
-            if mtp_result is not None and mtp_result.command:
-                verb_hint = mtp_result.command.verb.value
-                target_hint, args_hint, raw_hint = self._extract_command_info(
-                    mtp_result.command, raw_hint
+            command = mtp_result.command
+            verb_hint = "UNKNOWN"
+            target_hint = ""
+            args_hint: dict[str, Any] = {}
+            raw_hint = result.mtp_fragment
+            if command:
+                verb_hint = command.verb.value
+                target_hint, args_hint, raw_hint = self._extract_command_info(command, raw_hint)
+
+            # 指令无法解析时动词与作用对象都为空，原文仍在 content 中，随后是 error 结果。
+            p.turn_events.append(
+                TurnEvent(
+                    kind="tool_call",
+                    sequence=p.sequence,
+                    content=result.mtp_fragment,
+                    action_id=action_id,
+                    verb=command.verb.value if command else None,
+                    targets=tuple(command.target.aliases) if command else (),
+                    tool_args=freeze_mapping(command.args) if command and command.args else None,
                 )
-
-            command_event = TurnEvent(
-                kind="tool_call",
-                sequence=p.sequence,
-                role="assistant",
-                content=result.text,
-                action_id=action_id,
-                tool_kind=verb_hint,
-                tool_name=target_hint if target_hint else None,
-                tool_args=freeze_mapping(args_hint) if args_hint else None,
-                target=target_hint if target_hint else None,
             )
-            p.turn_events.append(command_event)
             p.sequence += 1
 
             await output_sink.send(
@@ -237,42 +233,11 @@ class AgentLoopExecutor:
                 )
             )
 
-            if mtp_result is None:
-                p.text_segments.append(result.mtp_fragment)
-                p.turn_events[-1] = command_event.model_copy(update={"status": "failed"})
-                p.turn_events.append(
-                    TurnEvent(
-                        kind="tool_result",
-                        sequence=p.sequence,
-                        role="user",
-                        content=result.mtp_fragment,
-                        action_id=action_id,
-                        tool_kind=verb_hint,
-                        tool_name=target_hint if target_hint else None,
-                        status="failed",
-                    )
-                )
-                p.sequence += 1
-                await output_sink.send(
-                    MTPFinished(
-                        verb=verb_hint,
-                        target=target_hint,
-                        args=args_hint,
-                        raw_text=raw_hint,
-                        status="failed",
-                        iteration=p.iteration,
-                        action_id=action_id,
-                    )
-                )
-                return FrameExecutionResult(
-                    status=FrameExecutionStatus.FAILED,
-                    error=RuntimeError("MTP execution returned no result."),
-                )
-
             if mtp_result.response_status == "suspend":
                 # CALL 陷入：引擎把控制权交还编排，自己不 fork / resume / 组 CALL response。
                 # 编排负责：append 已归一化的 CALL 文本 → fork子帧 → 跑子帧
                 # → resume → harvest → 组 CALL response → append 回填 → 重入本帧。
+                # 挂起时只有调用事件；结局在回填时作为结果事件写出。
                 await output_sink.send(
                     MTPFinished(
                         verb=verb_hint,
@@ -298,9 +263,6 @@ class AgentLoopExecutor:
             if mtp_result.response_status == "ack" and mtp_result.pending_alias:
                 frame.add_harvested_alias(mtp_result.pending_alias)
 
-            p.turn_events[-1] = command_event.model_copy(
-                update={"status": mtp_result.response_status}
-            )
             await output_sink.send(
                 MTPFinished(
                     verb=verb_hint,
@@ -320,18 +282,18 @@ class AgentLoopExecutor:
                     "content": mtp_result.formatted_response,
                 }
             )
+            # 回填文本带本地化标题，原样记录为 Alice 收到的返回。响应状态在事件
+            # 构造时校验：warning 只作为 success 上的警告出现，不是状态。
             p.turn_events.append(
                 TurnEvent(
                     kind="tool_result",
                     sequence=p.sequence,
-                    role="user",
                     content=mtp_result.formatted_response,
                     action_id=action_id,
-                    tool_kind=verb_hint,
-                    tool_name=target_hint if target_hint else None,
-                    target=target_hint if target_hint else None,
-                    status=mtp_result.response_status,
-                    render_as="system_tool_result",
+                    status=cast(ToolResultStatus, mtp_result.response_status),
+                    produced_aliases=(
+                        (mtp_result.pending_alias,) if mtp_result.pending_alias else ()
+                    ),
                 )
             )
             p.sequence += 1
@@ -339,26 +301,23 @@ class AgentLoopExecutor:
         return FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
 
     @staticmethod
-    def _seal_partial_text(frame: ExecutionFrame, status: str) -> None:
-        """把已交付但尚未完成的文字同步封入进度，保持事件编号连续。"""
+    def _seal_partial_text(frame: ExecutionFrame) -> None:
+        """把已交付但尚未完成的文字同步封入进度，保持事件编号连续。
+
+        未完成不记在事件上：本轮结局由封口后的交互记录表达。
+        """
         progress = frame.progress
         text = "".join(progress.streaming_text)
         progress.streaming_text.clear()
         if text:
             progress.text_segments.append(text)
             progress.turn_events.append(
-                TurnEvent(
-                    kind="assistant_message",
-                    sequence=progress.sequence,
-                    role="assistant",
-                    content=text,
-                    status=status,
-                )
+                TurnEvent(kind="assistant_message", sequence=progress.sequence, content=text)
             )
             progress.sequence += 1
 
     def _extract_command_info(self, command, raw_hint):
-        """从解析出的 MTP 命令中提取 verb 提示、target 与 args，用于事件投影。"""
+        """从解析出的 MTP 命令中提取 target 提示、args 与原文，用于流式交付的 MTP 事件。"""
         if command.target.is_wildcard:
             target_hint = "*"
         elif command.target.aliases:

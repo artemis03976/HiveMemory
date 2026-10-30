@@ -105,44 +105,40 @@ def make_thread_descriptor(
     )
 
 
-def make_mtp_turn_events() -> list[TurnEvent]:
-    """一组含 SEARCH 与 WRITE 两个 MTP 动作的固定轮次事件。"""
+def make_mtp_turn_events(user_message: str = "问题") -> list[TurnEvent]:
+    """一组以用户消息开头、含 SEARCH 与 WRITE 两个 MTP 动作的固定轮次事件。"""
     return [
+        TurnEvent(kind="user_message", sequence=0, content=user_message),
         TurnEvent(
             kind="tool_call",
             sequence=1,
-            role="assistant",
-            content="",
+            content='⟪ SEARCH | * | query="贪吃蛇 部署" ⟫',
             action_id="act-search",
-            tool_name="memory_search",
-            tool_kind="SEARCH",
+            verb="SEARCH",
             tool_args={"query": "贪吃蛇 部署"},
         ),
         TurnEvent(
             kind="tool_result",
             sequence=2,
-            role="system",
             content="检索结果",
             action_id="act-search",
-            status="ok",
+            status="success",
         ),
         TurnEvent(
             kind="tool_call",
             sequence=3,
-            role="assistant",
-            content="",
+            content='⟪ WRITE | * | content="部署步骤" ⟫',
             action_id="act-write",
-            tool_name="memory_write",
-            tool_kind="WRITE",
-            status="ok",
+            verb="WRITE",
+            tool_args={"content": "部署步骤"},
         ),
         TurnEvent(
             kind="tool_result",
             sequence=4,
-            role="system",
             content="已登记",
             action_id="act-write",
-            status="ok",
+            status="ack",
+            produced_aliases=("draft_deploy",),
         ),
     ]
 
@@ -151,7 +147,7 @@ def expected_mtp_traces() -> list[TraceItem]:
     """``make_mtp_turn_events`` 对应的轨迹预期（手写，不在测试中重复调用归约器）。"""
     return [
         TraceItem(action="SEARCH", action_id="act-search", query="贪吃蛇 部署"),
-        TraceItem(action="WRITE", action_id="act-write", target="memory_write", status="ok"),
+        TraceItem(action="WRITE", action_id="act-write", status="ack"),
     ]
 
 
