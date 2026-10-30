@@ -16,10 +16,10 @@ Actor 访问注册表（``workspace.registry``）表达。
 from __future__ import annotations
 
 import logging
-import os
 from dataclasses import dataclass, field
 
 from hivememory.config.access import SystemPrincipalsFile
+from hivememory.config.app import environment_value
 
 logger = logging.getLogger(__name__)
 
@@ -112,9 +112,10 @@ class SystemActorAccessRegistry:
 
     @classmethod
     def from_config(cls, principals: SystemPrincipalsFile) -> SystemActorAccessRegistry:
-        """由接入登记文件构造注册表，并从环境变量读取各来源的接入凭据。
+        """由接入登记文件构造注册表，并读取各来源的接入凭据。
 
-        凭据只存在于内存中的登记里，不写入日志。读取时去掉首尾空白，避免
+        凭据与其他密钥同源：进程环境变量优先，其次是 ``.env`` 文件。凭据只
+        存在于内存中的登记里，不写入日志。读取时去掉首尾空白，避免
         环境文件中的换行符使正确配置的凭据永远不匹配。登记了 ``credential_env``
         而环境变量为空时记录一条警告并照常装配：该来源此后的每次认证都以
         ``invalid_credential`` 拒绝，不使用它的部署不受影响。
@@ -123,7 +124,7 @@ class SystemActorAccessRegistry:
         for entry in principals.principals:
             credential = None
             if entry.credential_env is not None:
-                credential = (os.getenv(entry.credential_env) or "").strip() or None
+                credential = (environment_value(entry.credential_env) or "").strip() or None
                 if credential is None:
                     logger.warning(
                         f"接入登记 {entry.principal_id!r} 的凭据环境变量 "

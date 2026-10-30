@@ -85,6 +85,30 @@ def test_from_config_reads_credential_from_env_and_hides_it_from_repr(monkeypatc
     assert "s3cret-token" not in repr(entry)
 
 
+def test_from_config_reads_credential_written_in_dotenv(monkeypatch, tmp_path):
+    """凭据与其他密钥一样可以写在 .env 中：进程环境变量未设置时从 .env 读取。"""
+    monkeypatch.delenv("TEST_HARNESS_TOKEN", raising=False)
+    monkeypatch.chdir(tmp_path)
+    (tmp_path / ".env").write_text("TEST_HARNESS_TOKEN=dotenv-token\n", encoding="utf-8")
+
+    registry = SystemActorAccessRegistry.from_config(
+        SystemPrincipalsFile.model_validate(
+            {
+                "principals": [
+                    {
+                        "principal_id": "harness:test",
+                        "adapters": ["mcp"],
+                        "credential_env": "TEST_HARNESS_TOKEN",
+                    }
+                ]
+            }
+        )
+    )
+
+    entry = registry.entry_for("harness:test")
+    assert entry is not None and entry.credential == "dotenv-token"
+
+
 def test_from_config_with_unset_credential_env_warns_and_still_loads(monkeypatch, caplog):
     """凭据环境变量未设置时照常装配并告警，该来源不持有任何凭据。"""
     monkeypatch.delenv("TEST_HARNESS_TOKEN", raising=False)
