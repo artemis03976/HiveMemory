@@ -381,7 +381,7 @@ RUN 与 CALL 已是 actor 操作，授权进入能力层；系统工具暂不设
 
 ### P-9 不建进程的访问
 
-- **P-9c 不建进程的 actor 访问如何进入 actor API**：owner 决定（2026-10-29）与 root 的直接通道相同，每次操作对应一份请求级访问 context；决定、现状核对与候选设计记录在[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#p-1c-与-p-9c-身份证明与不建进程的访问-context)；
+- **P-9c 不建进程的 actor 访问如何进入 actor API**：owner 决定（2026-10-29）与 root 的直接通道相同，每次操作对应一份请求级访问 context；决定、现状核对、候选设计与复核记录在[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#p-1c-与-p-9c-身份证明与不建进程的访问-context)；
 - **P-9d 进程的定义**：是否把“进程是由执行单元执行的一个任务”确立为定义，3.2 中“root 直接通道与不建进程的接入不是任务”依此成立。
   - 分析（2026-10-20）：按第 2 节修订后的用语，Gateway、prepare 与 finalize 在网络一侧完成，只有 Actor 阶段交给执行单元；作为定义时宜表述为“进程的 Actor 阶段由一个执行单元执行”。
 

@@ -18,6 +18,8 @@
   workspace，目标非驻留（``target_workspace_not_resident``）、目标 owner
   不符（``target_owner_mismatch``）、白名单缺失（``operation_not_allowed``）
   分别拒绝；按授权者自己的访问登记判定准入（``actor_not_admitted``）；
+- ``authorize_actor_operation`` 接受线程与请求级 context，目标取自驻留
+  workspace，照常检查白名单；进程 context 与已撤销的 context 被拒绝；
 - 进程控制授权比对请求方与进程记录的驻留坐标：请求方无效按
   ``ScopeRequiredError`` 拒绝，记录侧已撤销按 ``False``（不可控）呈现；
 - ``authorize_stage`` 只检查凭据、准入与目标，不要求 actor 操作白名单；
@@ -49,6 +51,7 @@ from hivememory.core.errors import (
     AdmissionDeniedError,
     OperationDeniedError,
     ScopeRequiredError,
+    ThreadEndedError,
 )
 from hivememory.core.models import IdentityScope
 from hivememory.workspace.authentication import AccessGrantSummary
@@ -363,6 +366,80 @@ async def test_authorize_operation_rejects_wrong_operation_and_target_types():
         composition.authorizer.authorize_operation(
             context, WorkspaceOperation.MEMORY_READ, "main_workspace"
         )
+
+
+async def _process_context(composition):
+    """注册入口为任务进程签发的进程 context。"""
+    return await composition.authenticate(
+        agent_id="a1", user_id="u1", binding=RunBinding.for_task_process("process-1")
+    )
+
+
+async def _thread_context(composition):
+    """从进程 context 派生的主线程 context。"""
+    return composition.gateway.derive_thread_context(await _process_context(composition))
+
+
+async def _request_context(composition):
+    """外部入口为一次调用签发的请求级 context。"""
+    return await composition.authenticate(agent_id="a1", user_id="u1")
+
+
+async def _revoked_request_context(composition):
+    """调用结束后已撤销的请求级 context。"""
+    context = await _request_context(composition)
+    composition.gateway.revoke_context(context)
+    return context
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("make_context", [_thread_context, _request_context])
+async def test_authorize_actor_operation_targets_resident_workspace(make_context):
+    """线程与请求级 context 都能执行获准的 actor 操作，目标取自驻留 Workspace。"""
+    composition = _composition(allowed_operations=frozenset({READ}))
+    context = await make_context(composition)
+
+    scope = composition.authorizer.authorize_actor_operation(context, READ)
+
+    assert scope == IdentityScope(
+        actor_identity=make_identity_scope(user_id="u1", agent_id="a1").actor_identity,
+        workspace_identity=MAIN,
+    )
+
+
+@pytest.mark.asyncio
+async def test_authorize_actor_operation_checks_whitelist_for_request_context():
+    """请求级 context 同样按访问登记的白名单逐次授权，不因不建进程而放宽。"""
+    composition = _composition(allowed_operations=frozenset({READ}))
+    context = await _request_context(composition)
+
+    with pytest.raises(OperationDeniedError) as exc_info:
+        composition.authorizer.authorize_actor_operation(context, WorkspaceOperation.MEMORY_SEARCH)
+
+    assert exc_info.value.details["reason"] == "operation_not_allowed"
+    assert exc_info.value.details["operation"] == "memory.search"
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("make_context", "error_type"),
+    [
+        # 进程 context 只服务阶段调用，不能执行 actor 操作。
+        (_process_context, ScopeRequiredError),
+        # 撤销后的请求级 context 与结束的线程一样拒绝。
+        (_revoked_request_context, ThreadEndedError),
+    ],
+    ids=["process", "revoked-request"],
+)
+async def test_authorize_actor_operation_rejects_process_and_revoked_contexts(
+    make_context, error_type
+):
+    """进程 context 与已撤销的 context 不能执行 actor 操作。"""
+    composition = _composition()
+    context = await make_context(composition)
+
+    with pytest.raises(error_type):
+        composition.authorizer.authorize_actor_operation(context, READ)
 
 
 @pytest.mark.asyncio

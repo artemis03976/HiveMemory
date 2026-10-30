@@ -485,8 +485,13 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
   - READ、SEARCH、RUN 授权后只使用 scope；WRITE、UPDATE 还要从线程取得 `process_id`、`thread_id` 与派发话题。
 - 候选设计（分析，不是 owner 决定，可在计划评审时调整）：
   - 授权：actor 授权接受请求级绑定，目标取驻留 Workspace（与线程相同，请求不能切换 Workspace），白名单照常逐次授权；线程绑定的路径不变。
-  - 调用路径：请求级访问不经线程专用的 `WorkspaceOperationEntry`，MCP 端点经门面取得 actor API 的读取方法。这改变“actor API 只经操作入口、不经门面”的现行规则（[能力层](../workspace/capability.md#1-三个调用面)第 1 节），端点所在的包随 E-3b 确定。
+  - 调用路径（已作废，见下方复核）：请求级访问不经线程专用的 `WorkspaceOperationEntry`，MCP 端点经门面取得 actor API 的读取方法。
   - 写入：目前不开放写入类 MCP 工具。写入意图的登记需要进程关联与派发话题，不建进程的写入如何取得它们是后续必须解决的问题，随第 4 节后续步骤“写入意图经 MCP 提交”设计。
+- **复核（owner，2026-10-29，记忆访问计划阶段二实施后）**：上面的调用路径让 actor API 有了两个出口，MCP 绕过操作入口的调用约束，违背 3.4 的细化（2026-10-09）——操作适配器经 workspace 的单一操作入口调用能力层。
+  - **owner 决定**：actor API 只经操作入口，门面不交出 actor API；
+  - **owner 决定**：操作入口新增请求级提交，只开放检索与读取，门面交出操作入口供 MCP 入口使用；
+  - **owner 决定**：actor 操作的授权合并为一个方法，接受线程或请求级 context。
+  - 具体设计见[记忆访问计划](../plans/v0.7.1-memory-access-mcp.md)第 5.3、5.4 节。
 
 ## 5. 相关问题（位于其他文档）
 

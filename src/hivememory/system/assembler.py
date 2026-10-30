@@ -153,10 +153,15 @@ class _CapabilitiesBundle:
 
 @dataclass
 class _ServicesBundle:
-    """门面暴露的应用服务：root 管理能力与系统编排服务。"""
+    """门面暴露的应用服务：root 管理能力、操作入口与系统编排服务。
+
+    ``operation_entry`` 是 Alice 所用的同一个操作入口，门面只为 MCP 入口交出
+    它的请求级提交；actor API 仍只经操作入口调用。
+    """
 
     process: TaskProcessService
     import_bus: ImportBusService
+    operation_entry: WorkspaceOperationEntry
     root_memory: RootMemoryService
     root_memory_task: RootMemoryTaskService
     root_agent: RootAgentProfileService
@@ -221,7 +226,9 @@ class SystemAssembler:
         processes = self._build_process_facilities(access_control)
         capabilities = self._build_capabilities(runtime, access_control, processes)
         subsystems = self._build_subsystems(runtime, registries, llm, capabilities)
-        services = self._build_services(runtime, subsystems, access_control, processes)
+        services = self._build_services(
+            runtime, subsystems, access_control, processes, capabilities
+        )
 
         return HiveMemorySystem(
             config=self._config,
@@ -489,6 +496,7 @@ class SystemAssembler:
         subsystems: _SubsystemBundle,
         access_control: _AccessControlBundle,
         processes: _ProcessFacilitiesBundle,
+        capabilities: _CapabilitiesBundle,
     ) -> _ServicesBundle:
         # 任务进程的编排依赖只交给执行器（四阶段骨架，所有进程共用）；
         # 注册入口只持有生命周期依赖。
@@ -584,6 +592,7 @@ class SystemAssembler:
         return _ServicesBundle(
             process=process,
             import_bus=import_bus,
+            operation_entry=capabilities.operations,
             root_memory=root_memory,
             root_memory_task=root_memory_task,
             root_agent=root_agent,

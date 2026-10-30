@@ -240,6 +240,7 @@ def _build_system(
     services = _ServicesBundle(
         process=_Processes(),  # type: ignore[arg-type]
         import_bus=_ImportBus(calls),  # type: ignore[arg-type]
+        operation_entry=object(),  # type: ignore[arg-type]
         root_memory=object(),  # type: ignore[arg-type]
         root_memory_task=object(),  # type: ignore[arg-type]
         root_agent=object(),  # type: ignore[arg-type]
@@ -451,6 +452,7 @@ async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
     services = _ServicesBundle(
         process=_Processes(),  # type: ignore[arg-type]
         import_bus=_ImportBus(calls),  # type: ignore[arg-type]
+        operation_entry=object(),  # type: ignore[arg-type]
         root_memory=object(),  # type: ignore[arg-type]
         root_memory_task=object(),  # type: ignore[arg-type]
         root_agent=object(),  # type: ignore[arg-type]

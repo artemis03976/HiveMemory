@@ -1,4 +1,4 @@
-"""真实操作入口、线程 context 与能力层协作，验证分派、权限和撤销语义。"""
+"""真实操作入口、线程与请求级 context 与能力层协作，验证分派、权限和撤销语义。"""
 
 from __future__ import annotations
 
@@ -590,6 +590,60 @@ async def test_wrong_context_type_cannot_submit_or_revoke_thread(operation_setup
         harness.registry.get(pending.pending_alias, access.default_workspace).focus.content
         == "仍有效"
     )
+
+
+@pytest.mark.asyncio
+async def test_request_level_read_delivers_and_records_citation(operation_setup):
+    """请求级 context 经请求级提交读取：交付正式原子，与线程读取一样记录一次引用。"""
+    harness, access = operation_setup
+    request_access = await access.authenticate()
+
+    results = await harness.entry.execute_request(
+        ResolveReferencesRequest(("base",)), access=request_access
+    )
+
+    assert [(item.requested_alias, item.kind) for item in results] == [("base", "atom")]
+    assert [item["memory_id"] for item in harness.citations] == [harness.memories["base"].id]
+
+
+@pytest.mark.asyncio
+async def test_request_level_search_delivers_without_citation(operation_setup):
+    """请求级 context 经请求级提交检索：交付检索结果，检索不是引用。"""
+    harness, access = operation_setup
+    request_access = await access.authenticate()
+
+    atoms = await harness.entry.execute_request(
+        RetrieveRequest("查询基础内容"), access=request_access
+    )
+
+    assert [atom.index.alias for atom in atoms] == ["base"]
+    assert harness.citations == []
+
+
+@pytest.mark.asyncio
+async def test_request_level_submission_rejects_other_requests_before_dispatch(operation_setup):
+    """请求级提交只开放检索与读取；RUN 授权本会通过，由入口在分派前拒绝，不交付也不记引用。"""
+    harness, access = operation_setup
+    request_access = await access.authenticate()
+
+    with pytest.raises(TypeError, match="Unsupported request-level operation"):
+        await harness.entry.execute_request(ResolveRunTargetRequest("base"), access=request_access)
+
+    assert harness.citations == []
+    assert harness.owner_calls == []
+
+
+@pytest.mark.asyncio
+async def test_thread_submission_rejects_request_level_context(operation_setup):
+    """请求级 context 不能经线程提交绕过类型限制：线程表在分派前拒绝。"""
+    harness, access = operation_setup
+    request_access = await access.authenticate()
+
+    with pytest.raises(ScopeRequiredError):
+        await harness.entry.execute(ResolveRunTargetRequest("base"), access=request_access)
+
+    assert harness.citations == []
+    assert harness.owner_calls == []
 
 
 @pytest.mark.asyncio

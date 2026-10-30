@@ -29,7 +29,7 @@ async def test_derivation_preserves_identity_and_binds_main_thread(composition):
     thread = composition.gateway.derive_thread_context(process)
 
     assert thread is not process
-    assert composition.authorizer.authorize_thread_operation(
+    assert composition.authorizer.authorize_actor_operation(
         thread, WorkspaceOperation.MEMORY_READ
     ) == composition.authorizer.authorize_stage(process, composition.default_workspace)
     assert composition.authorizer.get_thread_binding(thread) == RunBinding.for_execution_thread(
@@ -142,9 +142,7 @@ async def test_child_derivation_uses_callee_admission_and_preserves_process_coor
     child = composition.gateway.derive_child_thread_context(
         process, agent_id="worker", thread_id="child-1"
     )
-    scope = composition.authorizer.authorize_thread_operation(
-        child, WorkspaceOperation.MEMORY_WRITE
-    )
+    scope = composition.authorizer.authorize_actor_operation(child, WorkspaceOperation.MEMORY_WRITE)
     assert scope.actor_identity.agent_id == "worker"
     assert scope.actor_identity.user_id == "test_user"
     assert scope.workspace_identity == composition.default_workspace

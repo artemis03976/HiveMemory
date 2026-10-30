@@ -164,9 +164,9 @@ def test_thread_lifecycle_is_only_consumed_by_process_threads():
         }
 
 
-def test_thread_authorization_is_only_used_by_actor_api():
-    """只有 actor 能力从线程 context 组装资源 scope，CPU 只提交请求。"""
-    assert _private_call_sites("authorize_thread_operation") == {
+def test_actor_authorization_is_only_used_by_actor_api():
+    """只有 actor 能力从线程或请求级 context 组装资源 scope，提交方只提交请求。"""
+    assert _private_call_sites("authorize_actor_operation") == {
         "workspace/capability/actor/memory.py",
         "workspace/capability/actor/agent_profiles.py",
     }
@@ -216,13 +216,13 @@ def test_cpu_visible_objects_cannot_carry_access_context():
 
 
 def test_actor_dispatch_does_not_unpack_requests_into_handlers():
-    """入口的 execute 只把五项记忆请求直接分派到能力方法；派生与结束是专用的生命周期方法。"""
+    """入口只把记忆请求直接分派到能力方法；请求级提交共用分派表，派生与结束是生命周期方法。"""
     path = SRC_ROOT / "workspace/capability/operations.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
     entry = next(n for n in tree.body if isinstance(n, ast.ClassDef))
     assert {
         n.name for n in entry.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-    } == {"__init__", "execute", "derive_child_thread", "end_thread"}
+    } == {"__init__", "execute", "execute_request", "derive_child_thread", "end_thread"}
     dispatch = next(
         n.value
         for n in ast.walk(entry)

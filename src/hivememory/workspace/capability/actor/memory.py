@@ -306,4 +306,4 @@ class ActorMemoryService:
         operation: WorkspaceOperation,
     ) -> IdentityScope:
         """在 backing 调用前执行操作授权，返回组装的可信 scope。"""
-        return self._authorizer.authorize_thread_operation(access, operation)
+        return self._authorizer.authorize_actor_operation(access, operation)
