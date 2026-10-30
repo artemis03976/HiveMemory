@@ -75,6 +75,8 @@ last_reviewed: 2026-10-20
 - **失败原因**：`CPUFailureReason` 中的 `compaction_failed`、`turn_context_budget_exceeded` 描述 Alice 自己的会话压缩与轮内守卫。controller 模式下 harness 自管上下文与压缩（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1），这类原因无从产生，其他失败也没有对应的中立分类；
 - **会话历史**：`CPUExecutionResult.turn_events` 写入会话，再供 Patchouli 生成记忆与 Gateway 读取最近 N 轮。`TurnEvent` 按通用 Agent 事件设计，但 Alice 写入的工具调用内容是 MTP 原文，`tool_kind` 取 MTP 动词，`render_as` 是 Alice 重放历史时使用的提示。前提 10 使同一会话内不会切换执行环境，问题集中在不同执行环境写入的历史能否被同一套下游读取。
 
+> 2026-10-30：“会话历史”一项由[工具解析链路重写 Idea](./tool-call-parsing-chain.md)处理，交互事件与失败原因两项仍在本问题中。
+
 进程封口、会话写入与 finalize 依赖的 `CPUExecutionResult` 字段（`status`、`final_text`、`turn_events` 的结构、`has_output`）已经是类型化契约，不在本问题范围内。
 
 - 选项：

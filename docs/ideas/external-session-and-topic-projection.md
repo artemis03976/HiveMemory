@@ -172,6 +172,8 @@ TurnEvent（在现有字段上补齐表达能力）
   source_metadata
 ```
 
+> 2026-10-30：工具调用相关的 `TurnEvent` 字段（`action_id` 是否必带、工具名、动词、作用对象、结果状态）改由[工具解析链路重写 Idea](./tool-call-parsing-chain.md)设计；本节其余候选扩展待该设计落地后依据新的事实修订。
+
 现有 TurnEvent 已能表示消息、thought、工具调用与结果，并允许缺少 action_id；候选设计补齐 system_message、external_summary、unknown、事件时间、外部 event/call 关联和 provenance 的表达，不另建等价 Part 模型。来源字段采用独立字段还是受约束 metadata 待定；外部 event ID 可选，不能为了统一强造新的全局 part_id。来源未知须可显式表达。
 
 未知或缺少关联的工具事件必须保留在共同 TurnEvent 序列中，不因无法构造完整 action 而丢弃或伪造关系。source、occurred_at、received_at、外部 event id 和 connector provenance 是来源元数据，不是 Actor 认证凭证。
