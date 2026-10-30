@@ -20,7 +20,7 @@ related_docs:
   - docs/workspace/capability.md
   - docs/workspace/authentication.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # MCP 记忆访问
@@ -35,6 +35,7 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 |:---|:---|
 | 地址 | `POST /mcp`，由 server 应用以路由接入，登记在 SPA 兜底路由之前。以路由而不是挂载接入：挂载在 `/mcp` 的子应用只匹配 `/mcp/` 下的路径，插件声明的 `/mcp` 会被重定向 |
 | 传输 | MCP Python SDK 的 streamable HTTP，无状态、JSON 响应：每个 HTTP 请求独立处理，不保存 MCP 会话，也没有服务端通知、资源或提示 |
+| 订阅 | 不提供 `subscriptions/listen`，也不宣告工具、资源与提示的列表变更：工具在运行时不变，没有可推送的变更。该请求的响应是一条一直打开的流，只在会话管理器退出时结束；而 uvicorn 要等所有连接结束后才执行 server 的 lifespan 关闭，接受订阅会让任何在线的客户端（Claude Code 以 2026-07-28 协议连接时会发出该请求）都让服务停不下来 |
 | 生命周期 | SDK 会话管理器由 server 的 lifespan 运行：在装配系统之前进入，在系统停止之后退出。挂进宿主后 SDK 自己的 lifespan 不会执行，没有运行会话管理器时每个请求都会失败。会话管理器每个进程只能运行一次 |
 | Host 与 Origin | 保留 SDK 默认的检查，防止 DNS 重绑定：只接受带端口的本机地址（`localhost:*`、`127.0.0.1:*`、`[::1]:*`），其他主机名以 421 拒绝 |
 
@@ -124,4 +125,4 @@ Claude Code 改变命名规则时标记会静默失效，回声恢复，表现�
 - 入口包：`src/hivememory/mcp_server/server.py`（服务、工具、错误投影与日志）；接入：`src/hivememory/server/app.py`（路由与 lifespan）；声明解析：`src/hivememory/server/deps.py`。
 - 操作入口：`src/hivememory/workspace/capability/operations.py`；编译：`src/hivememory/engines/memory_compiler/`。
 - 插件声明：`integrations/claude-code/.mcp.json`；回声标记：`integrations/claude-code/connector/claude_code/reader.py`。
-- 测试：`tests/unit/mcp_server/`（身份取自请求头、一次调用一份 context 并撤销、错误投影、结果编译）；`tests/integration/system/test_mcp_memory_access.py`（真实认证授权与操作入口下的检索、读取与拒绝）；`tests/unit/server/routers/test_app_lifespan.py`（`/mcp` 路由与会话管理器接线）；`tests/unit/architecture/test_access_boundaries.py`（调用面守护）；`tests/unit/connectors/`（回声标记）。
+- 测试：`tests/unit/mcp_server/`（身份取自请求头、一次调用一份 context 并撤销、错误投影、结果编译、不提供订阅）；`tests/integration/system/test_mcp_memory_access.py`（真实认证授权与操作入口下的检索、读取与拒绝）；`tests/unit/server/routers/test_app_lifespan.py`（`/mcp` 路由与会话管理器接线）；`tests/unit/architecture/test_access_boundaries.py`（调用面守护）；`tests/unit/connectors/`（回声标记）。

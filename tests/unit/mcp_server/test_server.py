@@ -7,10 +7,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from types import SimpleNamespace
 
 import pytest
+from mcp.client.subscriptions import listen
+from mcp.shared.exceptions import MCPError
+from mcp.types import METHOD_NOT_FOUND
 
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.access import AccessRunType, CallerPrincipal
@@ -204,3 +208,23 @@ async def test_read_rejects_when_no_alias_resolves():
         result = await session.call_tool("memory_read", {"aliases": ["missing"]})
 
     assert tool_error(result)["error"] == "workspace.resource.not_found"
+
+
+@pytest.mark.asyncio
+async def test_subscriptions_listen_is_neither_advertised_nor_served():
+    """2026-07-28 协议下不宣告工具列表变更，订阅请求被拒绝，不会留下一条一直打开的响应流。"""
+    system = _system(_Entry(result=[]))
+
+    # 服务若接受订阅，这条流不会结束，以超时失败而不是挂住。
+    async with (
+        asyncio.timeout(5),
+        serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session,
+    ):
+        # 测试连接以旧握手建立；按 Claude Code 使用的新协议重新协商。
+        await session.discover()
+        with pytest.raises(MCPError) as rejected:
+            async with listen(session, tools_list_changed=True):
+                pass
+
+    assert session.server_capabilities.tools.list_changed is False
+    assert rejected.value.code == METHOD_NOT_FOUND
