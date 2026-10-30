@@ -76,15 +76,10 @@ def _turn(**overrides) -> ImportedTurn:
                 "action_id": "toolu-1",
                 "tool_name": "Bash",
                 "tool_args": {"command": f"deploy --token {SECRET}"},
-            },
-            {
-                "kind": "tool_result",
-                "sequence": 3,
-                "content": f"deployed with {SECRET}",
-                "action_id": "toolu-1",
                 "status": "success",
+                "result": f"deployed with {SECRET}",
             },
-            {"kind": "assistant_message", "sequence": 4, "content": "部署完成"},
+            {"kind": "assistant_message", "sequence": 3, "content": "部署完成"},
         ],
         "model_used": "claude-opus",
     }
@@ -195,19 +190,14 @@ async def test_accepted_turn_is_sealed_and_submitted_with_new_topic_title() -> N
     assert (kwargs["new_topic_title"], kwargs["new_topic_summary"]) == ("部署", "讨论部署步骤")
     assert payload.outcome == "completed"
     assert payload.model_used == "claude-opus"
-    assert payload.rewritten_query == "如何部署"
-    assert payload.worth_saving is True
     assert payload.used_attachments == []
-    # 回复正文由事件中的助手正文得到，不随请求上传。
-    assert payload.assistant_final_text == "部署完成"
-    # 外部工具不带 MTP 动词，不产生轨迹；用户消息是序号 0 的事件。
-    assert payload.mtp_traces == []
+    # 回复正文由事件中的助手正文得到，不随请求上传；用户消息是服务端写出的序号 0 的事件。
+    assert (payload.user_message, payload.reply_text) == (f"部署时用 {SECRET}", "部署完成")
     assert [(event.kind, event.sequence) for event in payload.turn_events] == [
         ("user_message", 0),
         ("thought", 1),
         ("tool_call", 2),
-        ("tool_result", 3),
-        ("assistant_message", 4),
+        ("assistant_message", 3),
     ]
 
 
@@ -501,7 +491,7 @@ async def test_runtime_events_carry_identifiers_without_content() -> None:
         "external_conversation_id": "session-1",
         "external_turn_id": "prompt-1",
         "interaction_id": result.interaction_id,
-        "event_count": 4,
+        "event_count": 3,
         "outcome": "completed",
         "is_new_topic": True,
         "worth_saving": True,

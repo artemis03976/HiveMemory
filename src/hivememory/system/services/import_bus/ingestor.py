@@ -26,7 +26,7 @@ from typing import Any
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RuntimeEventSink
 from hivememory.components.serial_gate import KeyedSerialGate
-from hivememory.core.models import IdentityScope, turn_reply_text
+from hivememory.core.models import IdentityScope
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayIngressMode,
@@ -63,8 +63,8 @@ class ImportBusIngestor:
     门内依次完成进度查询、Gateway、提交与等待应用：同一外部会话的并发请求
     （例如两个 hook 同时补发）因此按到达顺序处理，后到的请求看到前一个的
     结果。已成功应用的轮次直接返回 duplicate；仍在应用的继续等待；两者都
-    不再调用 Gateway——Gateway 的结果写入载荷，重新路由可能得到不同载荷而
-    被队列判为冲突。只有应用失败的轮次重新路由后再提交。
+    不再调用 Gateway——Gateway 给出的目标话题与新话题标题写入提交，重新路由
+    可能得到不同的提交而被队列判为冲突。只有应用失败的轮次重新路由后再提交。
     """
 
     def __init__(
@@ -164,12 +164,8 @@ class ImportBusIngestor:
 
         # 尚未提交，或上一次提交在应用时失败：重新路由后（再次）提交。
         decision = await self._request_gateway_decision(turn, scope, interaction_id, principal_id)
-        turn_events = turn.to_turn_events()
         payload = seal_interaction(
-            user_message=turn.user_message,
-            gateway_decision=decision,
-            assistant_final_text=turn_reply_text(turn_events),
-            turn_events=turn_events,
+            turn_events=turn.to_turn_events(),
             model_used=turn.model_used or "",
             used_attachments=(),
             outcome=turn.outcome,

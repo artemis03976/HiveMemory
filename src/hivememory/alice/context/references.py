@@ -2,7 +2,6 @@
 
 from collections.abc import Iterable
 
-from hivememory.core.models import TurnEvent
 from hivememory.core.protocol.models import ConversationTurn
 
 _FILE_ARGUMENTS = frozenset(
@@ -34,26 +33,22 @@ def extend_references(
 
 
 def _turn_references(turn: ConversationTurn) -> Iterable[str]:
-    """只提取调用事件的结构化作用对象、文件参数与结果事件登记的产出 alias。
+    """只提取调用事件的结构化作用对象、文件参数与结局登记的产出 alias。
 
     READ 的每个 alias 各算一条线索；WRITE、UPDATE 的 ACK 产出的 pending alias
-    取自结果事件。失败的 READ 或 RUN 没有可重新取得的资源（目标不存在、无权限
+    取自结局。失败的 READ 或 RUN 没有可重新取得的资源（目标不存在、无权限
     或文件未写成），不作为线索，避免把错误地址带进后续轮次。
     """
-    calls: dict[str | None, TurnEvent] = {}
-    for event in turn.payload.turn_events:
-        if event.kind == "tool_call":
-            calls[event.action_id] = event
-        if event.kind != "tool_result":
+    for call in turn.payload.turn_events:
+        if call.kind != "tool_call":
             continue
-        call = calls[event.action_id]
-        if call.verb == "READ" and event.status == "success":
+        if call.verb == "READ" and call.status == "success":
             for alias in call.targets:
                 yield f"memory:{alias}"
-        elif call.verb in {"WRITE", "UPDATE"} and event.status == "ack":
-            for alias in event.produced_aliases:
+        elif call.verb in {"WRITE", "UPDATE"} and call.status == "ack":
+            for alias in call.produced_aliases:
                 yield f"memory:{alias}"
-        elif call.verb == "RUN" and event.status == "success":
+        elif call.verb == "RUN" and call.status == "success":
             args = call.tool_args
             for name, value in (args.items() if args is not None else ()):
                 if name not in _FILE_ARGUMENTS:

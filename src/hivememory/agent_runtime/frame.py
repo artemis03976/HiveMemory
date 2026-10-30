@@ -171,7 +171,7 @@ class FrameExecutionResult:
     call_request: MTPCallRequest | None = None
     # MTP 生成器已为被 stop sequence 截断的挂起文本补全右定界符。
     suspend_assistant_text: str | None = None
-    # 供编排回填 tool_result TurnEvent 的 action_id。
+    # 挂起的调用事件的 action_id，编排回填时据此补全它的结局。
     suspend_action_id: str | None = None
     # FAILED 时保留受控的内部异常，编排层只把稳定错误信息回填给 Agent。
     error: Exception | None = None

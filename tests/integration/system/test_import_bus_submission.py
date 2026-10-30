@@ -113,30 +113,20 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
                     "action_id": "toolu-1",
                     "tool_name": "Bash",
                     "tool_args": {"command": "pytest -q"},
-                },
-                {
-                    "kind": "tool_result",
-                    "sequence": 2,
-                    "content": "1 failed",
-                    "action_id": "toolu-1",
                     "status": "error",
+                    "result": "1 failed",
                 },
                 {
                     "kind": "tool_call",
-                    "sequence": 3,
+                    "sequence": 2,
                     "content": "",
                     "action_id": "toolu-2",
                     "verb": "READ",
                     "targets": ["fact_a", "fact_b"],
-                },
-                {
-                    "kind": "tool_result",
-                    "sequence": 4,
-                    "content": "已有记忆正文",
-                    "action_id": "toolu-2",
                     "status": "success",
+                    "result": "已有记忆正文",
                 },
-                {"kind": "assistant_message", "sequence": 5, "content": "已修复断言"},
+                {"kind": "assistant_message", "sequence": 3, "content": "已修复断言"},
             ],
         }
     )
@@ -165,8 +155,8 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
     assert topic.topic_summary == "修复失败的单元测试"
     [block] = topic.blocks
     assert block.turn.identity.agent_id == "claude_code"
-    assert block.turn.user_query == "测试挂了"
-    assert block.turn.assistant_final_text == "已修复断言"
+    assert block.user_message == "测试挂了"
+    assert block.reply_text == "已修复断言"
     # 经 MCP 的读取与 Alice 的 READ 同形：生成视图列出所读的 alias，不渲染取回的记忆。
     generation = GenerationTranscriptBuilder()
     transcript = generation.build_transcript(generation.build_context([block]))

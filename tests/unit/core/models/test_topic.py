@@ -9,8 +9,9 @@
 空白字符串不构成有效 state_summary；has_blocks 保持“是否有原始 block”的窄语义。
 """
 
-from hivememory.core.models import LogicalBlock, TopicData, TurnRecord
-from tests.helpers.workspace import make_actor_identity, make_identity_scope
+from hivememory.core.models import TopicData
+from tests.helpers.sessions import make_logical_block
+from tests.helpers.workspace import make_identity_scope
 
 
 def _make_topic(blocks=None, state_summary=""):
@@ -27,9 +28,7 @@ def _make_topic(blocks=None, state_summary=""):
 
 
 def _make_block():
-    return LogicalBlock(
-        turn=TurnRecord(identity=make_actor_identity(), user_query="q", assistant_final_text="a")
-    )
+    return make_logical_block("q", "a")
 
 
 class TestTopicDataContentEmptiness:

@@ -306,8 +306,10 @@ def create_generation_context(
         assistant_msg = messages[i + 1] if i + 1 < len(messages) else None
         turns.append(
             GenerationTurn(
-                user_query=user_msg["content"] if user_msg else "",
-                assistant_final_text=assistant_msg["content"] if assistant_msg else "",
+                user_message=user_msg["content"] if user_msg else "",
+                material_entries=(
+                    [f"[Assistant]: {assistant_msg['content']}"] if assistant_msg else []
+                ),
                 identity=identity,
             )
         )

@@ -9,24 +9,9 @@ GenerationTranscriptBuilder — 记忆生成视图构建器
     - HistoryTranscriptBuilder: 历史消息视图，还原模型当时看到的完整上下文
     - GenerationTranscriptBuilder: 记忆生成视图，按上限截断的过程材料，适合记忆提取
 
-保留内容:
-    - state_summary（话题状态摘要）
-    - user_query
-    - 动作段：思考、外部工具动作（工具名、参数摘要与截断后的结果）与
-      MTP 动作的一行摘要，渲染规则见 ``prompts.transcript.actions``
-    - assistant_final_text（最终自然语言回复）
-
-丢弃内容:
-    - MTP 动作的结果全文（READ 返回正文、SEARCH 结果体、XML 回填文本）
-    - 超出上限的思考、参数与工具结果中段
-
-动作段格式（action_entries）:
-    - SEARCH: "query text"
-    - READ: alias_name
-    - RUN: tool_name (status)
-    - THOUGHT: reasoning
-    - TOOL: tool_name {"arg": "value"}
-      RESULT (error): output
+每轮的材料由感知层唯一的渲染函数从事件集得到（``engines.perception.material``）：
+助手正文与动作按出现顺序穿插，能力调用只有一行摘要、不渲染取回的记忆，思考、
+外部工具参数与结果按上限截断。这里只负责组装话题状态与各轮次。
 """
 
 from collections.abc import Sequence
@@ -34,7 +19,7 @@ from collections.abc import Sequence
 from hivememory.config.patchouli import GenerationTranscriptConfig
 from hivememory.core.models import LogicalBlock
 from hivememory.engines.generation.models import GenerationContext, GenerationTurn
-from hivememory.prompts.transcript.actions import render_action_entries
+from hivememory.engines.perception.material import format_turn_material, render_turn_material
 
 
 class GenerationTranscriptBuilder:
@@ -42,7 +27,7 @@ class GenerationTranscriptBuilder:
     记忆生成视图构建器
 
     无状态。将 LogicalBlock 列表 + state_summary 转换为 GenerationContext，
-    动作段按 ``config`` 的上限截断；同时提供 build_transcript() 将
+    材料按 ``config`` 的上限截断；同时提供 build_transcript() 将
     GenerationContext 渲染为 LLM 可用的文本（渲染不再截断）。
     """
 
@@ -64,10 +49,10 @@ class GenerationTranscriptBuilder:
         Returns:
             GenerationContext: 结构化的记忆生成视图
         """
-        turns = [self._block_to_turn(block) for block in blocks]
-        # 过滤掉既无 final_text 又无 user_query 的空轮次
-        turns = [t for t in turns if t.user_query or t.assistant_final_text]
-        return GenerationContext(state_summary=state_summary, turns=turns)
+        return GenerationContext(
+            state_summary=state_summary,
+            turns=[self._block_to_turn(block) for block in blocks],
+        )
 
     def build_transcript(self, context: GenerationContext) -> str:
         """
@@ -79,11 +64,11 @@ class GenerationTranscriptBuilder:
 
             [Turn 1]
             [User]: ...
-            [Actions]:
             - THOUGHT: ...
+            - SEARCH: "..."
+            [Assistant]: ...
             - TOOL: Bash {"command": "pytest -q"}
               RESULT (error): ...
-            - SEARCH: "..."
             [Assistant]: ...
 
         Args:
@@ -92,53 +77,33 @@ class GenerationTranscriptBuilder:
         Returns:
             str: 渲染后的 transcript 文本
         """
-        return self._format_context(context)
+        sections: list[str] = []
+        if context.state_summary:
+            sections.append(f"[Topic State]\n{context.state_summary}")
+        for idx, turn in enumerate(context.turns, 1):
+            sections.append(self._format_turn(idx, turn))
+        return "\n\n".join(sections)
 
     # ============ 内部方法 ============
 
     def _block_to_turn(self, block: LogicalBlock) -> GenerationTurn:
         """将单个 LogicalBlock 转换为 GenerationTurn。"""
         return GenerationTurn(
-            user_query=block.user_query,
             outcome=block.turn.outcome,
-            assistant_final_text=block.assistant_final_text,
-            action_entries=[
-                entry.text for entry in render_action_entries(block.turn, self._config)
+            user_message=block.user_message,
+            material_entries=[
+                entry.text for entry in render_turn_material(block.turn_events, self._config)
             ],
             identity=block.identity,
         )
 
-    def _format_context(self, context: GenerationContext) -> str:
-        """将 GenerationContext 渲染为文本。"""
-        sections: list[str] = []
-
-        if context.state_summary:
-            sections.append(f"[Topic State]\n{context.state_summary}")
-
-        for idx, turn in enumerate(context.turns, 1):
-            sections.append(self._format_turn(idx, turn))
-
-        return "\n\n".join(sections)
-
-    def _format_turn(self, idx: int, turn: GenerationTurn) -> str:
-        """渲染单轮对话；多行条目的后续行缩进到条目之下。"""
+    @staticmethod
+    def _format_turn(idx: int, turn: GenerationTurn) -> str:
+        """渲染单轮材料；结局不是 completed 时在轮首标注。"""
         lines = [f"[Turn {idx}]"]
         if turn.outcome != "completed":
             lines.append(f"[Outcome: {turn.outcome}] This turn did not complete normally.")
-
-        if turn.user_query:
-            lines.append(f"[User]: {turn.user_query}")
-
-        if turn.action_entries:
-            lines.append("[Actions]:")
-            for entry in turn.action_entries:
-                first, *rest = entry.split("\n")
-                lines.append(f"- {first}")
-                lines.extend(f"  {line}" for line in rest)
-
-        if turn.assistant_final_text:
-            lines.append(f"[Assistant]: {turn.assistant_final_text}")
-
+        lines.append(format_turn_material(turn.user_message, turn.material_entries))
         return "\n".join(lines)
 
 

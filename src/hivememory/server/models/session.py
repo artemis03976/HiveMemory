@@ -25,10 +25,10 @@ class SessionTitleRequest(BaseModel):
 
 
 class SessionTurnEventResponse(BaseModel):
-    """轮次事件的 HTTP 表示；字段与轮次事件相同，工具调用与结果按 ``action_id`` 配对。
+    """轮次事件的 HTTP 表示；字段与轮次事件相同。
 
-    调用一方的字段（``verb``/``tool_name``、``targets``、``tool_args``）只出现在
-    调用上，结局一方的字段（``status``、``produced_aliases``）只出现在结果上。
+    一次工具调用与它的结局（``status``、``result``、``produced_aliases``）在同一个
+    ``tool_call`` 事件上；没有结局时三者都缺省。
     """
 
     kind: str
@@ -40,6 +40,7 @@ class SessionTurnEventResponse(BaseModel):
     targets: list[str] = Field(default_factory=list)
     tool_args: dict[str, Any] | None = None
     status: str | None = None
+    result: str | None = None
     produced_aliases: list[str] = Field(default_factory=list)
 
     @classmethod
@@ -54,12 +55,13 @@ class SessionTurnEventResponse(BaseModel):
             targets=list(event.targets),
             tool_args=event.tool_args,
             status=event.status,
+            result=event.result,
             produced_aliases=list(event.produced_aliases),
         )
 
 
 class SessionTurnPayloadResponse(BaseModel):
-    """已封口轮次中用于重放的正文。"""
+    """已封口轮次中用于重放的正文；用户消息与回复正文都从轮次事件得到。"""
 
     outcome: InteractionOutcome
     user_message: str
@@ -87,7 +89,7 @@ class SessionTurnResponse(BaseModel):
             payload=SessionTurnPayloadResponse(
                 outcome=payload.outcome,
                 user_message=payload.user_message,
-                assistant_final_text=payload.assistant_final_text,
+                assistant_final_text=payload.reply_text,
                 turn_events=[
                     SessionTurnEventResponse.from_domain(event) for event in payload.turn_events
                 ],

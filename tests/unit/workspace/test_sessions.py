@@ -39,9 +39,7 @@ def test_capacity_rejects_without_evicting_existing_history():
         service.claim(workspace, session.session_id, "p2")
     saved = service.get(workspace, session.session_id)
     assert saved.title == "首轮"
-    assert [(t.interaction_id, t.payload.assistant_final_text) for t in saved.turns] == [
-        ("p1", "回复")
-    ]
+    assert [(t.interaction_id, t.payload.reply_text) for t in saved.turns] == [("p1", "回复")]
 
 
 @pytest.mark.parametrize("operation", ["get", "rename", "delete", "claim", "release"])
@@ -84,11 +82,9 @@ def test_payload_snapshots_do_not_mutate_stored_history():
     service.append(
         workspace, session.session_id, process_id="p1", agent_id="a", payload=payload, topic_id="t"
     )
-    payload.assistant_final_text = "入参篡改"
-    service.get(workspace, session.session_id).turns[0].payload.assistant_final_text = "读取篡改"
-    assert (
-        service.get(workspace, session.session_id).turns[0].payload.assistant_final_text == "原文"
-    )
+    payload.turn_events.pop()
+    service.get(workspace, session.session_id).turns[0].payload.turn_events.clear()
+    assert service.get(workspace, session.session_id).turns[0].payload.reply_text == "原文"
 
 
 @pytest.mark.parametrize(

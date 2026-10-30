@@ -1,4 +1,4 @@
-/** 后端轮次重放为既有消息块；工具按 action_id 配对，不重建子帧的未回填输出。 */
+/** 后端轮次重放为既有消息块；工具结局取自调用事件本身，不重建子帧的未回填输出。 */
 import { normalizeMtpStatus } from './messageReducers';
 import type { ContentBlock, Message, MtpAction } from '@/types';
 import type { ConversationSession, ConversationTurn } from '@/services/sessionApi';
@@ -16,14 +16,13 @@ function blocksFor(turn: ConversationTurn): ContentBlock[] {
     if (event.kind === 'assistant_message' && event.content) {
       blocks.push({ kind: 'text', text: event.content });
     } else if (event.kind === 'tool_call') {
-      const result = events.find(e => e.kind === 'tool_result' && e.action_id === event.action_id);
       const targets = event.targets ?? [];
       if (event.verb === 'CALL') {
         blocks.push({
           kind: 'sub_agent', agentId: targets[0] || 'Agent',
           task: String(event.tool_args?.task || ''),
-          status: result?.status === 'success' ? 'completed' : 'error',
-          contentBlocks: [], finalText: result?.content || '调用未完成',
+          status: event.status === 'success' ? 'completed' : 'error',
+          contentBlocks: [], finalText: event.result || '调用未完成',
         });
       } else {
         // 指令无法解析时没有动词，卡片显示为 UNKNOWN；命令文本是调用原文（MTP 指令片段）。
@@ -35,14 +34,11 @@ function blocksFor(turn: ConversationTurn): ContentBlock[] {
           id: event.action_id || `${turn.interaction_id}-${event.sequence}`, type,
           command: event.content || `${verb} ${target}`.trim(),
           target: target || undefined, params: event.tool_args || undefined,
-          status: result ? normalizeMtpStatus(result.status || 'error') : 'error',
-          resultMessage: result?.content || '操作未完成',
+          status: event.status ? normalizeMtpStatus(event.status) : 'error',
+          resultMessage: event.result || '操作未完成',
         } });
       }
     }
-  }
-  if (!blocks.some(b => b.kind === 'text') && turn.payload.assistant_final_text) {
-    blocks.push({ kind: 'text', text: turn.payload.assistant_final_text });
   }
   return blocks;
 }

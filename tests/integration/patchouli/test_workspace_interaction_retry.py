@@ -139,7 +139,7 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once():
 
     stored = store.get(scope.workspace_identity, outcome.topic_id)
     assert stored.topic_id == outcome.topic_id
-    assert [block.user_query for block in stored.blocks] == ["retry question"]
+    assert [block.user_message for block in stored.blocks] == ["retry question"]
     assert store.list_by_workspace(other_scope.workspace_identity) == []
 
 
@@ -206,4 +206,4 @@ async def test_compaction_runs_after_apply_and_next_same_topic_submission_follow
     assert third_outcome.state is WorkState.SUCCEEDED
     topic = store.get(scope.workspace_identity, topic_id)
     assert topic.state_summary == "folded-summary"
-    assert [block.user_query for block in topic.blocks] == ["second", "third"]
+    assert [block.user_message for block in topic.blocks] == ["second", "third"]

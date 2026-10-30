@@ -147,9 +147,9 @@ async def test_call_child_guard_uses_callee_model_and_returns_error_to_parent(tm
         ),
     )
     assert (result.status, result.final_text) == ("completed", "父帧完成")
-    call_result = next(e for e in result.turn_events if e.kind == "tool_result")
-    assert call_result.status == "error"
-    assert 'code="mtp.call_response.sub_agent_error"' in call_result.content
+    call = next(e for e in result.turn_events if e.kind == "tool_call")
+    assert call.status == "error"
+    assert 'code="mtp.call_response.sub_agent_error"' in call.result
     assert [call.params.model for call in llm.calls] == ["provider/parent", "provider/parent"]
     (guard,) = [e for e in recorder.events if e.event_type == "agent.context.budget_exceeded"]
     assert guard.data["input_token_limit"] == 100
@@ -531,13 +531,8 @@ def _compaction_inputs(*, compressible=True):
                     action_id="read",
                     verb="READ",
                     targets=("mem_a",),
-                ),
-                TurnEvent(
-                    kind="tool_result",
-                    sequence=2,
-                    content="x" * 6000,
-                    action_id="read",
                     status="success",
+                    result="x" * 6000,
                 ),
             ]
             if compressible

@@ -68,9 +68,9 @@ async def test_built_runtime_uses_config_budget_unless_frame_overrides(
 
     assert result.status == FrameExecutionStatus.BUDGET_EXHAUSTED
     assert frame.progress.iteration == expected_iterations
-    assert [
-        event.status for event in frame.progress.turn_events if event.kind == "tool_result"
-    ] == ["success"] * expected_iterations
+    assert [event.status for event in frame.progress.turn_events if event.kind == "tool_call"] == [
+        "success"
+    ] * expected_iterations
     assert runtime.max_iterations == 2
 
 

@@ -240,11 +240,11 @@ def _snapshot_payload(**overrides) -> dict:
         "turn_id": "turn-1",
         "created_at": 1757000000.0,
         "actor_identity": {"user_id": "u1", "agent_id": "omni_doll", "team_id": None},
-        "user_query": "你好",
-        "assistant_final_text": "你好！",
-        "turn_events": [],
-        "actions": [],
-        "semantic_traces": [],
+        "outcome": "completed",
+        "turn_events": [
+            {"kind": "user_message", "sequence": 0, "content": "你好"},
+            {"kind": "assistant_message", "sequence": 1, "content": "你好！"},
+        ],
     }
     payload.update(overrides)
     return payload

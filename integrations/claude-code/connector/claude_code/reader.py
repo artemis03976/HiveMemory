@@ -16,8 +16,10 @@
   条目，读到即视为该轮已被中断。
 - 助手条目的内容块：``text`` → 助手消息，``thinking`` → 思考（没有正文的跳过），
   ``tool_use`` → 工具调用（标识、工具名与输入，本插件自身的工具见下方）；
-  用户条目中的 ``tool_result`` → 工具结果（``is_error`` 为真时状态为
-  ``error``，否则为 ``success``）。同一条
+  用户条目中的 ``tool_result`` 按 ``tool_use_id`` 补全到同一轮的调用上，作为
+  它的结局（``is_error`` 为真时状态为 ``error``，否则为 ``success``），找不到
+  调用的结果跳过。同一条消息并行发出多个调用时，Claude Code 有时只记下最后
+  一个的结果，其余调用因此没有结局，模型其实收到了它们的结果。同一条
   API 消息按内容块分成多个条目增量写入，每个条目带块在消息中的位置
   ``apiBlockIndex``；重复写入的块按消息标识与块位置去重（没有块位置时按块
   内容），工具调用与结果按调用标识去重。
@@ -353,13 +355,19 @@ def _add_tool_result(turn: _TurnBuilder, block: dict[str, Any]) -> None:
     key = f"tool_result:{action_id}"
     if not action_id or key in turn.seen_blocks:
         return
-    turn.seen_blocks.add(key)
-    turn.add_event(
-        "tool_result",
-        _tool_result_text(block.get("content")),
-        action_id=action_id,
-        status="error" if block.get("is_error") else "success",
+    call = next(
+        (
+            event
+            for event in turn.events
+            if event["kind"] == "tool_call" and event.get("action_id") == action_id
+        ),
+        None,
     )
+    if call is None:
+        return
+    turn.seen_blocks.add(key)
+    call["status"] = "error" if block.get("is_error") else "success"
+    call["result"] = _tool_result_text(block.get("content"))
 
 
 def _tool_result_text(content: Any) -> str:

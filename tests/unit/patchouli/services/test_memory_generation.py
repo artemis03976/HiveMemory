@@ -22,12 +22,10 @@ import pytest
 
 from hivememory.core.models import (
     IndexLayer,
-    LogicalBlock,
     MemoryAccessPolicy,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
-    TurnRecord,
     WorkspaceIdentity,
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, MemoryEventType
@@ -46,7 +44,8 @@ from hivememory.patchouli.control.memory_generation.models import (
 )
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
-from tests.helpers.workspace import make_actor_identity, make_identity_scope
+from tests.helpers.sessions import make_logical_block
+from tests.helpers.workspace import make_identity_scope
 
 # 提交边界固定时点：全部时间点断言都收敛到该值。
 FIXED_NOW = datetime(2026, 9, 1, 12, 0, 0, tzinfo=UTC)
@@ -133,13 +132,7 @@ def _make_spec(source=MemoryGenerationSource.WRITE, topic_id="t1", include_inter
                 topic_id=topic_id,
                 topic_title="Test Topic",
                 topic_summary="Test Summary",
-                blocks=(
-                    LogicalBlock(
-                        turn=TurnRecord(
-                            identity=make_actor_identity(), user_query="q", assistant_final_text="a"
-                        )
-                    ),
-                ),
+                blocks=(make_logical_block("q", "a"),),
             )
             if include_interaction_input
             else None
@@ -770,13 +763,7 @@ class TestMemoryGenerationFamiliarArtifacts:
             topic_id="t1",
             topic_title="Test",
             topic_summary="Summary",
-            blocks=(
-                LogicalBlock(
-                    turn=TurnRecord(
-                        identity=make_actor_identity(), user_query="q", assistant_final_text="a"
-                    )
-                ),
-            ),
+            blocks=(make_logical_block("q", "a"),),
         )
 
         result = await familiar._capture_interaction_artifact(
@@ -818,13 +805,7 @@ class TestMemoryGenerationFamiliarArtifacts:
             topic_id="t1",
             topic_title="Test",
             topic_summary="Summary",
-            blocks=(
-                LogicalBlock(
-                    turn=TurnRecord(
-                        identity=make_actor_identity(), user_query="q", assistant_final_text="a"
-                    )
-                ),
-            ),
+            blocks=(make_logical_block("q", "a"),),
         )
 
         result = await familiar._capture_interaction_artifact(

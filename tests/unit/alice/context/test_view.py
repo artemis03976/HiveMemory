@@ -111,13 +111,8 @@ def _read_turn(name, size):
                 action_id="read",
                 verb="READ",
                 targets=(name,),
-            ),
-            TurnEvent(
-                kind="tool_result",
-                sequence=2,
-                content="x" * size,
-                action_id="read",
                 status="success",
+                result="x" * size,
             ),
         ],
     )
@@ -408,13 +403,8 @@ async def test_summary_input_bounds_tool_messages_but_preserves_agent_and_failed
                 action_id="run",
                 verb="RUN",
                 targets=("sys_read_file",),
-            ),
-            TurnEvent(
-                kind="tool_result",
-                sequence=2,
-                content="z" * 6000,
-                action_id="run",
                 status="success",
+                result="z" * 6000,
             ),
         ],
     )

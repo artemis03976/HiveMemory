@@ -208,18 +208,29 @@ class AgentLoopExecutor:
                 verb_hint = command.verb.value
                 target_hint, args_hint, raw_hint = self._extract_command_info(command, raw_hint)
 
-            # 指令无法解析时动词与作用对象都为空，原文仍在 content 中，随后是 error 结果。
-            p.turn_events.append(
-                TurnEvent(
-                    kind="tool_call",
-                    sequence=p.sequence,
-                    content=result.mtp_fragment,
-                    action_id=action_id,
-                    verb=command.verb.value if command else None,
-                    targets=tuple(command.target.aliases) if command else (),
-                    tool_args=freeze_mapping(command.args) if command and command.args else None,
-                )
+            # 指令无法解析时动词与作用对象都为空，原文仍在 content 中，结局为 error。
+            call = TurnEvent(
+                kind="tool_call",
+                sequence=p.sequence,
+                content=result.mtp_fragment,
+                action_id=action_id,
+                verb=command.verb.value if command else None,
+                targets=tuple(command.target.aliases) if command else (),
+                tool_args=freeze_mapping(command.args) if command and command.args else None,
             )
+            if mtp_result.response_status == "suspend":
+                # CALL 挂起时还没有结局，回填时由编排补全。
+                p.turn_events.append(call)
+            else:
+                # 回填文本带本地化标题，原样记录为 Alice 收到的返回。响应状态在事件
+                # 构造时校验：warning 只作为 success 上的警告出现，不是状态。
+                p.turn_events.append(
+                    call.with_outcome(
+                        cast(ToolResultStatus, mtp_result.response_status),
+                        mtp_result.formatted_response,
+                        (mtp_result.pending_alias,) if mtp_result.pending_alias else (),
+                    )
+                )
             p.sequence += 1
 
             await output_sink.send(
@@ -237,7 +248,6 @@ class AgentLoopExecutor:
                 # CALL 陷入：引擎把控制权交还编排，自己不 fork / resume / 组 CALL response。
                 # 编排负责：append 已归一化的 CALL 文本 → fork子帧 → 跑子帧
                 # → resume → harvest → 组 CALL response → append 回填 → 重入本帧。
-                # 挂起时只有调用事件；结局在回填时作为结果事件写出。
                 await output_sink.send(
                     MTPFinished(
                         verb=verb_hint,
@@ -282,21 +292,6 @@ class AgentLoopExecutor:
                     "content": mtp_result.formatted_response,
                 }
             )
-            # 回填文本带本地化标题，原样记录为 Alice 收到的返回。响应状态在事件
-            # 构造时校验：warning 只作为 success 上的警告出现，不是状态。
-            p.turn_events.append(
-                TurnEvent(
-                    kind="tool_result",
-                    sequence=p.sequence,
-                    content=mtp_result.formatted_response,
-                    action_id=action_id,
-                    status=cast(ToolResultStatus, mtp_result.response_status),
-                    produced_aliases=(
-                        (mtp_result.pending_alias,) if mtp_result.pending_alias else ()
-                    ),
-                )
-            )
-            p.sequence += 1
 
         return FrameExecutionResult(status=FrameExecutionStatus.BUDGET_EXHAUSTED)
 

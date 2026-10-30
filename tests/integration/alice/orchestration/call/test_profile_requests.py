@@ -207,7 +207,7 @@ async def test_call_without_call_permission_returns_permission_error_without_dis
     assert set(session.frames) == {"caller"}
     response = caller.progress.turn_events[-1]
     assert response.status == "error"
-    assert 'code="mtp.permission.denied"' in response.content
+    assert 'code="mtp.permission.denied"' in response.result
     assert (harness.backing.reads, harness.registry.size) == ([], 0)
 
 
@@ -229,7 +229,7 @@ async def test_unusable_custom_profile_returns_preparation_error_without_fallbac
     assert set(session.frames) == {"caller"}
     response = caller.progress.turn_events[-1]
     assert response.status == "error"
-    assert f'code="{expected_code}"' in response.content
+    assert f'code="{expected_code}"' in response.result
 
 
 @pytest.mark.asyncio
@@ -288,7 +288,7 @@ async def test_call_context_refs_without_read_returns_permission_error():
     assert set(session.frames) == {"caller"}
     response = caller.progress.turn_events[-1]
     assert response.status == "error"
-    assert "mtp.permission.denied" in response.content
+    assert "mtp.permission.denied" in response.result
     assert atom.payload.content not in str(caller.working_history)
     assert "retrieve_by_aliases" not in harness.backing.reads
     assert harness.citations == []
@@ -356,7 +356,7 @@ async def test_unadmitted_call_target_returns_structured_error_without_creating_
         transition, session, _ = await _begin_call(caller, target)
         assert isinstance(transition, ResumeCaller)
         assert set(session.frames) == {"caller"}
-        response = caller.progress.turn_events[-1].content
+        response = caller.progress.turn_events[-1].result
         assert 'code="mtp.permission.denied"' in response
         assert "[Agent Unavailable]" in response
         process = access.process_table.get("call-process")

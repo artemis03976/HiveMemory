@@ -33,15 +33,10 @@ def _turn(**overrides) -> ImportedTurn:
                 "action_id": "toolu-1",
                 "tool_name": "Bash",
                 "tool_args": {"command": "pytest -q"},
-            },
-            {
-                "kind": "tool_result",
-                "sequence": 3,
-                "content": "1 failed",
-                "action_id": "toolu-1",
                 "status": "error",
+                "result": "1 failed",
             },
-            {"kind": "assistant_message", "sequence": 4, "content": "已修复"},
+            {"kind": "assistant_message", "sequence": 3, "content": "已修复"},
         ],
     }
     fields.update(overrides)
@@ -62,26 +57,26 @@ def test_turn_events_put_user_message_first_and_keep_imported_fields() -> None:
             action_id="toolu-1",
             tool_name="Bash",
             tool_args={"command": "pytest -q"},
+            status="error",
+            result="1 failed",
         ),
-        TurnEvent(
-            kind="tool_result", sequence=3, content="1 failed", action_id="toolu-1", status="error"
-        ),
-        TurnEvent(kind="assistant_message", sequence=4, content="已修复"),
+        TurnEvent(kind="assistant_message", sequence=3, content="已修复"),
     ]
 
 
 def _memory_call(verb: str, **fields) -> list[dict]:
-    """一次 HiveMemory 能力调用与它的成功结果。"""
+    """一次带成功结局的 HiveMemory 能力调用。"""
     return [
-        {"kind": "tool_call", "sequence": 1, "content": "", "action_id": "toolu-1", "verb": verb}
-        | fields,
         {
-            "kind": "tool_result",
-            "sequence": 2,
-            "content": "记忆",
+            "kind": "tool_call",
+            "sequence": 1,
+            "content": "",
             "action_id": "toolu-1",
+            "verb": verb,
             "status": "success",
-        },
+            "result": "记忆",
+        }
+        | fields
     ]
 
 
@@ -103,10 +98,7 @@ def test_memory_read_verb_and_targets_are_carried_into_turn_events() -> None:
         ({"events": _memory_call("READ")}, "READ tool_call requires targets"),
         ({"events": _memory_call("SEARCH", tool_kind="SEARCH")}, "tool_kind"),
         ({"assistant_final_text": "已修复"}, "assistant_final_text"),
-        (
-            {"events": [_memory_call("SEARCH")[0], {**_memory_call("SEARCH")[1], "status": None}]},
-            "tool_result event requires status",
-        ),
+        ({"events": _memory_call("SEARCH", status=None)}, "status and result together"),
     ],
     ids=[
         "verb-beyond-search-and-read",

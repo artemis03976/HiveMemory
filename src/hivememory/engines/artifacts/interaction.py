@@ -76,10 +76,6 @@ def _snapshot(block: LogicalBlock) -> InteractionTurnSnapshot:
         created_at=block.created_at,
         # actor 三元组收敛为单一 ActorIdentity；随 turn 冻结，写入后不再解释
         actor_identity=t.identity,
-        user_query=t.user_query,
-        rewritten_query=t.rewritten_query,
-        assistant_final_text=t.assistant_final_text,
+        outcome=t.outcome,
         turn_events=[e.model_dump() for e in t.turn_events],
-        actions=[a.model_dump() for a in t.actions],
-        semantic_traces=[s.model_dump() for s in t.semantic_traces],
     )

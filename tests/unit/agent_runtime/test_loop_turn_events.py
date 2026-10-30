@@ -3,10 +3,10 @@ LoopExecutor TurnEvent 采集单测
 
 验证结构化事件采集行为:
 1. 自然停止 -> 1 个 assistant_message 事件
-2. 单次 MTP -> 指令前正文、只含指令片段的 tool_call、tool_result，sequence 递增
-3. 指令无法解析 -> 没有动词的 tool_call 与 error 结果
-4. ACK -> 产出的 pending alias 只记在结果事件上
-5. CALL 挂起只写 tool_call；回填由编排侧写出结果事件，不改写调用
+2. 单次 MTP -> 指令前正文、只含指令片段且带结局的 tool_call，sequence 递增
+3. 指令无法解析 -> 没有动词、结局为 error 的 tool_call
+4. ACK -> 产出的 pending alias 记在调用的结局上
+5. CALL 挂起时调用没有结局；回填由编排侧补全同一个调用的结局
 """
 
 import asyncio
@@ -214,7 +214,7 @@ async def test_tool_result_growth_stops_before_next_generation():
     assert result.status == FrameExecutionStatus.FAILED
     assert isinstance(result.error, TurnContextBudgetExceededError)
     assert frame.progress.iteration == 1
-    assert frame.progress.turn_events[-1].content == "x" * 400
+    assert frame.progress.turn_events[-1].result == "x" * 400
     assert executor.generator.calls == 1
 
 
@@ -285,7 +285,7 @@ async def test_generation_cancelled_error_is_not_converted_to_failed_outcome():
 
 @pytest.mark.asyncio
 async def test_single_mtp_produces_four_events():
-    """单次 MTP: 指令前正文 + 只含指令片段的调用 + 结果 + 最终回复，working history 不变。"""
+    """单次 MTP: 指令前正文 + 只含指令片段且带结局的调用 + 最终回复，working history 不变。"""
     frame = _make_frame()
     gen_results = [
         _mtp_result("查找中", "<< READ | alias_x >>"),
@@ -307,23 +307,18 @@ async def test_single_mtp_produces_four_events():
             action_id="action_1_1",
             verb="READ",
             targets=("alias_x",),
-        ),
-        TurnEvent(
-            kind="tool_result",
-            sequence=2,
-            content='<mtp_response status="success">READ result</mtp_response>',
-            action_id="action_1_1",
             status="success",
+            result='<mtp_response status="success">READ result</mtp_response>',
         ),
-        TurnEvent(kind="assistant_message", sequence=3, content="找到了"),
+        TurnEvent(kind="assistant_message", sequence=2, content="找到了"),
     ]
     # 运行时的助手消息仍是指令前正文加指令片段的全文。
     assert frame.working_history[-2] == {"role": "assistant", "content": f"查找中{fragment}"}
 
 
 @pytest.mark.asyncio
-async def test_unparseable_mtp_records_call_without_verb_and_error_result():
-    """指令无法解析时调用事件只有原文，动词与作用对象为空，随后是 error 结果。"""
+async def test_unparseable_mtp_records_call_without_verb_and_error_outcome():
+    """指令无法解析时调用事件只有原文，动词与作用对象为空，结局为 error。"""
     frame = _make_frame()
     executor = _build_executor(
         [_mtp_result("", "<< READ alias_x >>"), _natural_result("重试后完成")]
@@ -338,14 +333,14 @@ async def test_unparseable_mtp_records_call_without_verb_and_error_result():
 
     await executor.execute_frame(frame, max_iterations=5, output_sink=NullFrameOutputSink())
 
-    call, result = frame.progress.turn_events[:2]
-    assert call == TurnEvent(
+    assert frame.progress.turn_events[0] == TurnEvent(
         kind="tool_call",
         sequence=0,
         content=f"<< READ alias_x >> {MTP_RIGHT_DELIMITER}",
         action_id="action_1_0",
+        status="error",
+        result='<mtp_response status="error">parse error</mtp_response>',
     )
-    assert (result.kind, result.action_id, result.status) == ("tool_result", "action_1_0", "error")
 
 
 @pytest.mark.asyncio
@@ -455,17 +450,17 @@ async def test_empty_prefix_text_not_recorded():
 
     await executor.execute_frame(frame, max_iterations=5, output_sink=NullFrameOutputSink())
 
-    # prefix 为空：不产生前缀 assistant_message，只保留 tool_call/tool_result/最终回复
+    # prefix 为空：不产生前缀 assistant_message，只保留 tool_call 与最终回复
     kinds = [ev.kind for ev in frame.progress.turn_events]
-    assert kinds == ["tool_call", "tool_result", "assistant_message"]
+    assert kinds == ["tool_call", "assistant_message"]
     assistant = [ev for ev in frame.progress.turn_events if ev.kind == "assistant_message"]
     assert len(assistant) == 1
     assert assistant[0].content == "done"
 
 
 @pytest.mark.asyncio
-async def test_call_suspension_records_only_the_call_event():
-    """CALL 挂起时只写调用事件：结局要等回填，挂起中的调用没有结果事件。"""
+async def test_call_suspension_records_the_call_without_outcome():
+    """CALL 挂起时写出调用事件：结局要等回填，挂起中的调用没有结局。"""
     frame = _make_frame()
     executor = _build_executor([_mtp_result("正在调用", '<< CALL | sub_agent | task="do work" >>')])
     executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_call_mtp_exec_result())
@@ -478,11 +473,12 @@ async def test_call_suspension_records_only_the_call_event():
     assert [ev.kind for ev in frame.progress.turn_events] == ["assistant_message", "tool_call"]
     call = frame.progress.turn_events[-1]
     assert (call.verb, call.targets, call.action_id) == ("CALL", ("sub_agent",), "action_1_1")
+    assert not call.has_outcome
 
 
 @pytest.mark.asyncio
-async def test_call_path_produces_mtp_result_event_with_call_verb():
-    """CALL 回填: 编排侧写出配对的结果事件，状态为子帧结局，调用事件保持原样。"""
+async def test_call_backfill_completes_the_suspended_call_with_child_outcome():
+    """CALL 回填: 编排侧补全挂起的调用，结局为子帧结局，事件不增加。"""
     executor = _build_executor(
         [_mtp_result("正在调用", '<< CALL | sub_agent | task="do work" >>')],
         fallback=_natural_result("完成"),
@@ -523,21 +519,16 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
 
     assert executor_result.status == FrameExecutionStatus.COMPLETED
     events = frame.progress.turn_events
-    assert [ev.kind for ev in events] == [
-        "assistant_message",
-        "tool_call",
-        "tool_result",
-        "assistant_message",
-    ]
-    call, result = events[1], events[2]
-    assert (call.verb, call.targets, call.status) == ("CALL", ("sub_agent",), None)
-    assert (result.action_id, result.status) == (call.action_id, "success")
-    assert result.content.startswith("[System MTP Call Response]\n")
+    assert [ev.kind for ev in events] == ["assistant_message", "tool_call", "assistant_message"]
+    call = events[1]
+    assert (call.verb, call.targets, call.status) == ("CALL", ("sub_agent",), "success")
+    assert call.result is not None
+    assert call.result.startswith("[System MTP Call Response]\n")
 
 
 @pytest.mark.asyncio
-async def test_ack_records_pending_alias_only_on_result_event():
-    """ACK 的 pending alias 记在结果事件的产出上；调用事件不带结局。"""
+async def test_ack_records_pending_alias_on_the_call_outcome():
+    """ACK 的 pending alias 记在调用结局的产出上。"""
     frame = _make_frame()
     gen_results = [
         _mtp_result("", '<< WRITE | * | content="记住" >>'),
@@ -550,7 +541,10 @@ async def test_ack_records_pending_alias_only_on_result_event():
 
     await executor.execute_frame(frame, max_iterations=5, output_sink=NullFrameOutputSink())
 
-    call, result = frame.progress.turn_events[:2]
-    assert (call.kind, call.status, call.produced_aliases) == ("tool_call", None, ())
-    assert (result.status, result.produced_aliases) == ("ack", ("draft_note_1234",))
+    call = frame.progress.turn_events[0]
+    assert (call.kind, call.status, call.produced_aliases) == (
+        "tool_call",
+        "ack",
+        ("draft_note_1234",),
+    )
     assert frame.harvested_aliases == ["draft_note_1234"]

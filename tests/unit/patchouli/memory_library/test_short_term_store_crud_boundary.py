@@ -7,17 +7,15 @@ import inspect
 import pytest
 from pydantic import ValidationError
 
-from hivememory.core.models import IdentityScope, LogicalBlock, TurnRecord
+from hivememory.core.models import IdentityScope
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
+from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
 
 
 def _topic_with_block(topic, scope: IdentityScope):
     actor = scope.actor_identity
-    block = LogicalBlock(
-        turn=TurnRecord(identity=actor, user_query="question", assistant_final_text="answer"),
-        total_tokens=2,
-    )
+    block = make_logical_block("question", "answer", identity=actor, total_tokens=2)
     return topic.model_copy(update={"blocks": (block,), "total_tokens": 2})
 
 

@@ -9,13 +9,11 @@ import pytest
 from hivememory.config.patchouli import ArtifactConfig
 from hivememory.core.models import (
     IndexLayer,
-    LogicalBlock,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
-    TurnRecord,
     WorkspaceMemoryKey,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
@@ -50,7 +48,8 @@ from hivememory.patchouli.memory_library.stores import (
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_actor_identity, make_identity_scope
+from tests.helpers.sessions import make_logical_block
+from tests.helpers.workspace import make_identity_scope
 
 
 def _identity_scope():
@@ -63,15 +62,7 @@ class _TopicData:
     state_summary = "state summary"
 
     def __init__(self) -> None:
-        self._blocks = [
-            LogicalBlock(
-                turn=TurnRecord(
-                    identity=make_actor_identity(),
-                    user_query="question",
-                    assistant_final_text="answer",
-                )
-            )
-        ]
+        self._blocks = [make_logical_block("question", "answer")]
 
     def recent_blocks(self, limit: int):
         return self._blocks[:limit]
@@ -168,15 +159,7 @@ async def test_passive_settlement_routes_settle_spec_through_task_controller():
             topic_id="topic_1",
             topic_title="topic title",
             topic_summary="topic summary",
-            blocks=[
-                LogicalBlock(
-                    turn=TurnRecord(
-                        identity=make_actor_identity(),
-                        user_query="question",
-                        assistant_final_text="answer",
-                    )
-                )
-            ],
+            blocks=[make_logical_block("question", "answer")],
             state_summary="state summary",
             belong_to=_identity_scope().workspace_identity,
         )
@@ -461,15 +444,7 @@ async def test_passive_settlement_lands_in_real_mid_term(memory_library, artifac
             topic_id="topic_1",
             topic_title="topic title",
             topic_summary="topic summary",
-            blocks=[
-                LogicalBlock(
-                    turn=TurnRecord(
-                        identity=make_actor_identity(),
-                        user_query="question",
-                        assistant_final_text="answer",
-                    )
-                )
-            ],
+            blocks=[make_logical_block("question", "answer")],
             state_summary="state summary",
             belong_to=_identity_scope().workspace_identity,
         )

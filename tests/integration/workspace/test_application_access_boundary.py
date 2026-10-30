@@ -49,7 +49,6 @@ from hivememory.core.errors import (
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
-    LogicalBlock,
     MemoryAccessPolicy,
     MemoryAtom,
     MemoryType,
@@ -57,7 +56,6 @@ from hivememory.core.models import (
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
-    TurnRecord,
 )
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
@@ -90,12 +88,11 @@ from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 from hivememory.workspace.contracts import ResolveReferencesRequest, RetrieveRequest
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.sessions import make_interaction_payload
+from tests.helpers.sessions import make_interaction_payload, make_logical_block
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
     make_actor_access_record,
-    make_actor_identity,
     make_workspace_identity,
     make_workspace_read_view,
 )
@@ -160,15 +157,7 @@ class _FakeTopicData:
     state_summary = "boundary state summary"
 
     def recent_blocks(self, limit):
-        return [
-            LogicalBlock(
-                turn=TurnRecord(
-                    identity=make_actor_identity(),
-                    user_query="question",
-                    assistant_final_text="answer",
-                )
-            )
-        ]
+        return [make_logical_block("question", "answer")]
 
 
 class _FakeRetrievalEngine:

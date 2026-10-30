@@ -27,7 +27,7 @@ reader = ClaudeCodeReader()
 
 
 def test_turn_maps_thinking_tool_calls_results_and_final_text(tmp_path):
-    """思考、外部工具调用与结果按出现顺序成为事件，结果状态为 error 或 success。"""
+    """思考与外部工具调用按出现顺序成为事件，结果补全到调用上，状态为 error 或 success。"""
     log = TranscriptWriter(tmp_path / "s.jsonl")
     log.prompt("p1", "测试挂了")
     log.assistant(thinking("先跑测试"), text("我先运行测试。"), message_id="m1")
@@ -54,35 +54,44 @@ def test_turn_maps_thinking_tool_calls_results_and_final_text(tmp_path):
             "action_id": "toolu-1",
             "tool_name": "Bash",
             "tool_args": {"command": "pytest -q"},
-        },
-        {
-            "kind": "tool_result",
-            "sequence": 4,
-            "content": "1 failed",
-            "action_id": "toolu-1",
             "status": "error",
+            "result": "1 failed",
         },
         {
             "kind": "tool_call",
-            "sequence": 5,
+            "sequence": 4,
             "content": "",
             "action_id": "toolu-2",
             "tool_name": "Edit",
             "tool_args": {"file_path": "a.py"},
-        },
-        {
-            "kind": "tool_result",
-            "sequence": 6,
-            "content": "ok",
-            "action_id": "toolu-2",
             "status": "success",
+            "result": "ok",
         },
-        {"kind": "assistant_message", "sequence": 7, "content": "已修复"},
-        {"kind": "assistant_message", "sequence": 8, "content": "测试通过"},
+        {"kind": "assistant_message", "sequence": 5, "content": "已修复"},
+        {"kind": "assistant_message", "sequence": 6, "content": "测试通过"},
     ]
     # 作为后续轮次的最近上文：按顺序拼接全部助手正文，工具调用之间的叙述也保留。
     assert turn.assistant_final_text == "我先运行测试。\n\n已修复\n\n测试通过"
     assert turn.model_used == "claude-opus"
+
+
+def test_unrecorded_results_leave_calls_without_outcome_and_stray_results_are_skipped(tmp_path):
+    """并行调用只记下最后一个结果时，其余调用没有结局；找不到调用的结果不形成事件。"""
+    log = TranscriptWriter(tmp_path / "s.jsonl")
+    log.prompt("p1", "看两个文件")
+    log.assistant(
+        tool_use("toolu-1", "Read", {"file_path": "a"}),
+        tool_use("toolu-2", "Read", {"file_path": "b"}),
+        message_id="m1",
+    )
+    log.tool_result("toolu-2", "b 的内容")
+    log.tool_result("toolu-x", "没有对应调用")
+
+    [turn] = reader.read(str(log.path), 0)
+
+    assert [
+        (event["action_id"], event.get("status"), event.get("result")) for event in turn.events
+    ] == [("toolu-1", None, None), ("toolu-2", "success", "b 的内容")]
 
 
 def test_only_this_plugins_memory_tools_become_capability_calls(tmp_path):
@@ -113,7 +122,11 @@ def test_only_this_plugins_memory_tools_become_capability_calls(tmp_path):
     [turn] = reader.read(str(log.path), 0)
 
     assert [
-        {key: value for key, value in event.items() if key not in ("sequence", "content")}
+        {
+            key: value
+            for key, value in event.items()
+            if key not in ("sequence", "content", "status", "result")
+        }
         for event in turn.events
         if event["kind"] == "tool_call"
     ] == [
@@ -243,8 +256,8 @@ def test_rewritten_blocks_are_deduplicated_by_message_and_block_position(tmp_pat
         "assistant_message",
         "assistant_message",
         "tool_call",
-        "tool_result",
     ]
+    assert turn.events[-1]["result"] == "内容"
 
 
 def test_incomplete_last_line_is_not_read(tmp_path):

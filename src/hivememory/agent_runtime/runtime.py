@@ -10,7 +10,7 @@ from hivememory.agent_runtime.model.resolution import ResolvedFrameModel, resolv
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.output import FrameOutputSink
 from hivememory.core.errors import ModelNotFoundError
-from hivememory.core.models import AgentProfile, TurnEvent
+from hivememory.core.models import AgentProfile
 from hivememory.core.models.interaction import ToolResultStatus
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter
 
@@ -86,8 +86,7 @@ class AgentRuntime:
     ) -> None:
         """把一次已结算的 CALL response 恰好一次地回填到挂起的 caller frame。
 
-        调用事件在挂起时已经写出，回填不改写它；子帧结局与产物只写在随后的
-        结果事件上。
+        调用事件在挂起时已经写出、没有结局；回填以子帧结局与产物补全它。
         """
         if suspension.status != FrameExecutionStatus.SUSPENDED:
             raise ValueError("CALL response requires a suspended frame result.")
@@ -101,38 +100,31 @@ class AgentRuntime:
                 f"expected={call_request.target_alias!r}, got={response.agent_alias!r}"
             )
 
-        matching_calls = [
-            event
-            for event in frame.progress.turn_events
+        events = frame.progress.turn_events
+        matching = [
+            index
+            for index, event in enumerate(events)
             if event.kind == "tool_call" and event.action_id == action_id
         ]
-        if len(matching_calls) != 1:
+        if len(matching) != 1:
             raise ValueError(
-                f"CALL suspension has {len(matching_calls)} matching tool_call events: "
+                f"CALL suspension has {len(matching)} matching tool_call events: "
                 f"action_id={action_id}"
             )
-        if any(
-            event.kind == "tool_result" and event.action_id == action_id
-            for event in frame.progress.turn_events
-        ):
+        call_index = matching[0]
+        if events[call_index].has_outcome:
             raise ValueError(f"CALL response was already applied: action_id={action_id}")
 
         formatted_response = MTPFormatter.format_call_response(response, frame.language)
         assistant_text = suspension.suspend_assistant_text or ""
         frame.working_history.append({"role": "assistant", "content": assistant_text})
         frame.working_history.append({"role": "user", "content": formatted_response})
-        frame.progress.turn_events.append(
-            TurnEvent(
-                kind="tool_result",
-                sequence=frame.progress.sequence,
-                content=formatted_response,
-                action_id=action_id,
-                # 子帧结局只有 success、cancelled 与 error，事件构造时校验。
-                status=cast(ToolResultStatus, response.status.value),
-                produced_aliases=tuple(response.artifact_aliases),
-            )
+        # 子帧结局只有 success、cancelled 与 error，事件构造时校验。
+        events[call_index] = events[call_index].with_outcome(
+            cast(ToolResultStatus, response.status.value),
+            formatted_response,
+            response.artifact_aliases,
         )
-        frame.progress.sequence += 1
         for alias in response.artifact_aliases:
             frame.add_harvested_alias(alias)
 

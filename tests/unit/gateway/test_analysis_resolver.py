@@ -11,7 +11,7 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.config.gateway import SystemGatewayConfig, UserQueryAnalysisConfig
 from hivememory.core.contracts.runtime_events import RuntimeEventType
-from hivememory.core.models import ActorIdentity, LogicalBlock, TopicData, TurnRecord
+from hivememory.core.models import ActorIdentity, TopicData
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     GatewaySessionTurn,
@@ -32,6 +32,7 @@ from hivememory.gateway.runtime import GatewayRuntime
 from hivememory.gateway.service import GatewayService
 from hivememory.patchouli.contracts import PatchouliRoutes
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
+from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -54,12 +55,10 @@ def _build_topic_data(last_user_query: str = "") -> TopicData:
         topic_title="三餐推荐",
         blocks=(
             (
-                LogicalBlock(
-                    turn=TurnRecord(
-                        identity=ActorIdentity(agent_id="omni_doll", user_id="u1"),
-                        user_query=last_user_query,
-                        assistant_final_text="好的",
-                    )
+                make_logical_block(
+                    last_user_query,
+                    "好的",
+                    identity=ActorIdentity(agent_id="omni_doll", user_id="u1"),
                 ),
             )
             if last_user_query

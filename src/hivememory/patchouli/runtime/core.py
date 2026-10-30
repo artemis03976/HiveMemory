@@ -455,6 +455,7 @@ class PatchouliRuntime:
             config=relay_config,
             llm_service=self._llm_service,
             llm_params=self._llm_params,
+            transcript_config=self._patchouli_config.generation.transcript,
         )
         return MemoryPerceptionEngine(
             config=impl_config,

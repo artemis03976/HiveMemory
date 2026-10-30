@@ -7,12 +7,10 @@ from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
-    LogicalBlock,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
     TopicData,
-    TurnRecord,
 )
 from hivememory.core.models.pending import (
     PendingAtomMaterializeTask,
@@ -34,7 +32,8 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTask,
 )
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.workspace import make_actor_identity, make_identity_scope
+from tests.helpers.sessions import make_logical_block
+from tests.helpers.workspace import make_identity_scope
 
 
 def _identity_scope():
@@ -85,9 +84,7 @@ def _update_task(base_uuid: str, alias="draft_update"):
 
 
 def _topic_block(query: str = "q"):
-    return LogicalBlock(
-        turn=TurnRecord(identity=make_actor_identity(), user_query=query, assistant_final_text="a")
-    )
+    return make_logical_block(query, "a")
 
 
 def _accepted(task_id="j1", source=MemoryGenerationSource.WRITE):
@@ -430,9 +427,9 @@ class TestMemoryGenerationCoordinator:
         )
 
         spec = bus.request.await_args_list[-1].args[1]
-        assert [turn.user_query for turn in spec.request.context.turns] == ["q3", "q4"]
+        assert [turn.user_message for turn in spec.request.context.turns] == ["q3", "q4"]
         assert spec.request.context.state_summary == "state"
-        assert [block.turn.user_query for block in spec.interaction_input.blocks] == ["q3", "q4"]
+        assert [block.user_message for block in spec.interaction_input.blocks] == ["q3", "q4"]
 
     @pytest.mark.asyncio
     async def test_submit_active_rejects_intent_when_topic_read_fails(self):

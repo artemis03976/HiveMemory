@@ -12,9 +12,10 @@ from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hivememory.core.models import (
     IdentityScope,
-    TraceItem,
     TurnEvent,
     WorkspaceAssetRef,
+    turn_reply_text,
+    turn_user_message,
     validate_turn_events,
 )
 from hivememory.core.models.interaction import InteractionOutcome
@@ -73,13 +74,10 @@ class InteractionPayload(BaseModel):
     主动链路与 Import Bus 一致：payload 由提交方组装并封口，Patchouli finalize 原样
     提交。
 
-    Attributes:
-        user_message: 原始用户消息
-        mtp_traces: 封口方从结构化轮次事件归约得到的 Trace 列表
-        rewritten_query: Gateway 重写后的查询
-        worth_saving: Gateway 价值判断
-        assistant_final_text: 最终自然语言回复
-        turn_events: 结构化轮次事件列表
+    交互内容只以 ``turn_events`` 表达：对事件的解析由感知层进行，载荷不携带
+    由事件派生或与事件重复的表达。用户消息与回复正文以只读属性从事件读取，
+    不保存、不序列化。其余字段是本轮结局、执行者使用的模型与实际使用的附件，
+    不是对事件的解析。
 
     Note:
         不内嵌身份；归属与发起者由 ``InteractionSubmission`` 的
@@ -89,25 +87,9 @@ class InteractionPayload(BaseModel):
     """
 
     outcome: InteractionOutcome = Field(default="completed", description="本轮执行结局")
-    user_message: str = Field(..., description="原始用户消息")
-
-    rewritten_query: str | None = Field(default=None, description="Gateway 重写后的查询")
-
-    # ========== 结构化轮次事件 ==========
-    # 模型最终自然语言回复
-    assistant_final_text: str | None = Field(
-        default=None, description="去除 MTP 噪音后的最终自然语言回复"
-    )
-    # 收集的结构化轮次事件列表
     turn_events: list[TurnEvent] = Field(
-        description="结构化轮次事件列表（主动链路来自 Agent 执行循环，Import Bus 来自导入的整轮记录），以序号 0 的用户消息开头",
+        description="本轮唯一的交互记录（主动链路来自 Agent 执行循环，Import Bus 来自导入的整轮记录），以序号 0 的用户消息开头",
     )
-    mtp_traces: list[TraceItem] = Field(
-        default_factory=list,
-        description="由封口方在提交前从结构化轮次事件归约得到的 Trace 列表",
-    )
-
-    worth_saving: bool | None = Field(default=None, description="Gateway 价值判断")
     # 本次 run 实际使用的模型展示名（来自 CPU 执行结果的 model_used）
     # 写入短期话题快照，供 TopicSnapshot 展示给前端
     model_used: str = Field(
@@ -127,6 +109,14 @@ class InteractionPayload(BaseModel):
     def _check_turn_events(self) -> InteractionPayload:
         validate_turn_events(self.turn_events)
         return self
+
+    @property
+    def user_message(self) -> str:
+        return turn_user_message(self.turn_events)
+
+    @property
+    def reply_text(self) -> str:
+        return turn_reply_text(self.turn_events)
 
 
 class SessionCompactionCheckpoint(BaseModel):

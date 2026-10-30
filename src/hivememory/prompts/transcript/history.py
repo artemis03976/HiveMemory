@@ -84,30 +84,16 @@ class HistoryTranscriptBuilder:
     ) -> None:
         """按事件顺序重放单个会话轮次，追加到 out。
 
-        角色由事件种类决定：用户消息与工具返回进入 user 消息（工具返回放进 user
-        消息是 Alice 的重放规则，与运行时回填一致），其余进入 assistant 消息。
-        指令前正文与紧随其后的 MTP 调用合并成一条助手消息，与运行时 working
-        history 中的形态一致，指令前正文因此只出现一次。回填正文自带标题，
-        重放原样使用。
+        角色由事件决定：用户消息与工具调用的结局进入 user 消息（工具返回放进
+        user 消息是 Alice 的重放规则，与运行时回填一致），其余进入 assistant
+        消息。指令前正文与紧随其后的 MTP 调用合并成一条助手消息，与运行时
+        working history 中的形态一致，指令前正文因此只出现一次。回填正文自带
+        标题，重放原样使用；没有结局的调用只重放调用原文。
         """
-        calls: dict[str | None, TurnEvent] = {}
         previous: TurnEvent | None = None
         for event in turn.payload.turn_events:
             if event.kind == "user_message":
                 out.append({"role": "user", "content": event.content})
-            elif event.kind == "tool_result":
-                content = event.content
-                if reduce_results:
-                    # 参数与作用对象只记录在调用事件中；以 action_id 关联，不能借用别的调用。
-                    content = reduce_tool_result(
-                        event,
-                        calls[event.action_id],
-                        language=language,
-                        excerpt_chars=excerpt_chars,
-                    )
-                if result_max_chars is not None:
-                    content = content[:result_max_chars]
-                out.append({"role": "user", "content": content})
             elif (
                 event.kind == "tool_call"
                 and previous is not None
@@ -117,8 +103,15 @@ class HistoryTranscriptBuilder:
             else:
                 content = self._apply_agent_prefix(event.content, turn, current_agent_id)
                 out.append({"role": "assistant", "content": content})
-            if event.kind == "tool_call":
-                calls[event.action_id] = event
+            if event.kind == "tool_call" and event.result is not None:
+                result = event.result
+                if reduce_results:
+                    result = reduce_tool_result(
+                        event, language=language, excerpt_chars=excerpt_chars
+                    )
+                if result_max_chars is not None:
+                    result = result[:result_max_chars]
+                out.append({"role": "user", "content": result})
             previous = event
 
     def _apply_agent_prefix(

@@ -3,12 +3,13 @@ HistoryTranscriptBuilder 单测
 
 覆盖以下场景：
 
-1. 结构化重放：角色由事件种类决定，用户消息与工具返回进入 user 消息
+1. 结构化重放：用户消息与工具调用的结局进入 user 消息，其余进入 assistant 消息
 2. 指令前正文与紧随其后的 MTP 调用合并为一条助手消息，与运行时一致
 3. 工具返回原样重放（回填正文自带标题）
 4. 多智能体前缀：非当前 agent 的助手消息带 [From: ...]，工具返回不带
 5. 未正常完成的轮次附结局说明
-6. 工具结果减重：动词、作用对象与参数取自配对的调用事件
+6. 工具结果减重：动词、作用对象、参数与结局取自同一个调用事件
+7. 没有结局的调用只重放调用原文
 """
 
 from typing import Any
@@ -36,12 +37,19 @@ def _text(content: str) -> dict[str, Any]:
     return {"kind": "assistant_message", "content": content}
 
 
-def _call(action_id: str, content: str = "", **fields: Any) -> dict[str, Any]:
-    return {"kind": "tool_call", "action_id": action_id, "content": content, **fields}
-
-
-def _result(action_id: str, content: str, status: str = "success") -> dict[str, Any]:
-    return {"kind": "tool_result", "action_id": action_id, "content": content, "status": status}
+def _call(
+    action_id: str,
+    content: str = "",
+    *,
+    result: str | None = None,
+    status: str = "success",
+    **fields: Any,
+) -> dict[str, Any]:
+    """一次工具调用；给出 ``result`` 时带结局，否则没有结局。"""
+    event = {"kind": "tool_call", "action_id": action_id, "content": content, **fields}
+    if result is not None:
+        event.update(status=status, result=result)
+    return event
 
 
 builder = HistoryTranscriptBuilder()
@@ -62,8 +70,13 @@ class TestStructuredReplay:
         """指令前正文只出现一次：与随后的指令片段合并，形态与运行时 working history 相同。"""
         turn = _turn(
             _text("正在查找"),
-            _call("a1", "⟪ READ | alias_x ⟫", verb="READ", targets=("alias_x",)),
-            _result("a1", "[System MTP Execution Result]\n<mtp_response>ok</mtp_response>"),
+            _call(
+                "a1",
+                "⟪ READ | alias_x ⟫",
+                verb="READ",
+                targets=("alias_x",),
+                result="[System MTP Execution Result]\n<mtp_response>ok</mtp_response>",
+            ),
             _text("找到了！"),
             user="帮我找一下",
         )
@@ -80,10 +93,8 @@ class TestStructuredReplay:
 
     def test_call_without_prefix_text_is_its_own_assistant_message(self):
         turn = _turn(
-            _call("a1", "⟪ READ | alias_x ⟫", verb="READ", targets=("alias_x",)),
-            _result("a1", "result"),
-            _call("a2", "⟪ READ | alias_y ⟫", verb="READ", targets=("alias_y",)),
-            _result("a2", "result"),
+            _call("a1", "⟪ READ | alias_x ⟫", verb="READ", targets=("alias_x",), result="result"),
+            _call("a2", "⟪ READ | alias_y ⟫", verb="READ", targets=("alias_y",), result="result"),
         )
         msgs = builder.build_messages([turn])
         assert [(m["role"], m["content"]) for m in msgs[1:]] == [
@@ -123,8 +134,7 @@ class TestAgentPrefix:
         """合并后的助手消息只在开头带一次身份前缀；工具返回不带前缀。"""
         turn = _turn(
             _text("先读"),
-            _call("a1", "⟪ READ | x ⟫", verb="READ", targets=("x",)),
-            _result("a1", "result"),
+            _call("a1", "⟪ READ | x ⟫", verb="READ", targets=("x",), result="result"),
             agent_id="coder_doll",
         )
         msgs = builder.build_messages([turn], current_agent_id="omni_doll")
@@ -137,6 +147,8 @@ class TestAgentPrefix:
         )
         msgs = builder.build_messages([turn], current_agent_id="omni_doll")
         assert msgs[1]["content"] == "[From: coder_doll]\n⟪ READ | x ⟫"
+        # 没有结局的调用只重放调用原文，不补一条空的工具返回。
+        assert len(msgs) == 2
 
 
 class TestOutcomeNotes:
@@ -156,8 +168,7 @@ class TestOutcomeNotes:
         """失败轮次以工具结果收尾时，说明附在该结果后，角色交替不变。"""
         failed = _turn(
             _text("我先读取"),
-            _call("a1", "⟪ READ | x ⟫", verb="READ", targets=("x",)),
-            _result("a1", "read result"),
+            _call("a1", "⟪ READ | x ⟫", verb="READ", targets=("x",), result="read result"),
             user="读一下",
             outcome="failed",
         )
@@ -173,8 +184,9 @@ class TestResultReduction:
         """减重边界包含当前轮次，后缀与用户、助手和调用正文逐字保留。"""
         events = (
             _text("先读取"),
-            _call("a1", "⟪ READ | mem_a ⟫", verb="READ", targets=("mem_a",)),
-            _result("a1", "完整资料" * 50),
+            _call(
+                "a1", "⟪ READ | mem_a ⟫", verb="READ", targets=("mem_a",), result="完整资料" * 50
+            ),
         )
         old = _turn(*events, user="原始问题")
         old = old.model_copy(update={"interaction_id": "old"})
@@ -191,41 +203,39 @@ class TestResultReduction:
         assert reduced[3:] == raw[3:]
         assert [old.model_dump(), recent.model_dump()] == original
 
-    def test_search_recovers_query_from_the_matching_call(self):
-        """查询只记在调用事件中，按 action_id 关联，多个调用的查询不会串用。"""
+    def test_search_hint_carries_the_query_of_its_call(self):
+        """成功的检索减重为带原查询的线索，查询取自同一个调用的参数。"""
         turn = _turn(
-            _call("s1", "search 缓存失效", verb="SEARCH", tool_args={"query": "缓存失效"}),
-            _call("s2", "search 索引重建", verb="SEARCH", tool_args={"query": "索引重建"}),
-            _result("s2", "检索全文" * 50),
-            _result("s1", "检索全文" * 50),
+            _call(
+                "s1",
+                "search 缓存失效",
+                verb="SEARCH",
+                tool_args={"query": "缓存失效"},
+                result="检索全文" * 50,
+            ),
         )
         messages = builder.build_messages(
             [turn], reduced_through=turn.interaction_id, language="en"
         )
-        assert [m["content"] for m in messages[3:]] == [
-            "[SEARCH query=索引重建 status=success]\nSearch again with the original query.",
-            "[SEARCH query=缓存失效 status=success]\nSearch again with the original query.",
-        ]
+        assert messages[2]["content"] == (
+            "[SEARCH query=缓存失效 status=success]\nSearch again with the original query."
+        )
 
     def test_run_result_does_not_repeat_call_arguments_or_grow_history(self):
         """参数只留在原样重放的调用中；输出短于线索时保留原文，减重后历史不会变长。"""
         code = "print(1)\n" * 600
 
-        def run_call(action_id: str) -> dict[str, Any]:
+        def run_call(action_id: str, result: str) -> dict[str, Any]:
             return _call(
                 action_id,
                 f'⟪ RUN | sys_python_repl | code="{code}" ⟫',
                 verb="RUN",
                 targets=("sys_python_repl",),
                 tool_args={"code": code},
+                result=result,
             )
 
-        turn = _turn(
-            run_call("short"),
-            _result("short", "1"),
-            run_call("long"),
-            _result("long", "1\n" * 300),
-        )
+        turn = _turn(run_call("short", "1"), run_call("long", "1\n" * 300))
         raw = builder.build_messages([turn], language="en")
         reduced = builder.build_messages(
             [turn], reduced_through=turn.interaction_id, language="en", tool_result_excerpt_chars=40
@@ -247,10 +257,10 @@ class TestResultReduction:
         ]
         events: list[dict[str, Any]] = []
         for index, (call_fields, status) in enumerate(cases):
-            events.append(_call(f"a{index}", **call_fields))
-            events.append(_result(f"a{index}", "保留原文", status))
-        events.append(_call("long", verb="CALL", targets=("helper",)))
-        events.append(_result("long", "head" + "x" * 200 + "tail"))
+            events.append(_call(f"a{index}", result="保留原文", status=status, **call_fields))
+        events.append(
+            _call("long", verb="CALL", targets=("helper",), result="head" + "x" * 200 + "tail")
+        )
         turn = _turn(*events)
         messages = builder.build_messages(
             [turn], reduced_through=turn.interaction_id, language="zh", tool_result_excerpt_chars=40
@@ -265,10 +275,8 @@ class TestResultReduction:
     def test_missing_retrieval_metadata_keeps_original_instead_of_unusable_hint(self):
         """READ 没有作用对象或 SEARCH 没有查询时，没有可靠重取线索就保留原文。"""
         turn = _turn(
-            _call("r", verb="READ"),
-            _result("r", "通配读取的正文"),
-            _call("s", verb="SEARCH"),
-            _result("s", "没有查询的结果"),
+            _call("r", verb="READ", result="通配读取的正文"),
+            _call("s", verb="SEARCH", result="没有查询的结果"),
             user="读取",
         )
         messages = builder.build_messages([turn], reduced_through=turn.interaction_id)

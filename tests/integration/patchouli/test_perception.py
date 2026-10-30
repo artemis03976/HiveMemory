@@ -366,7 +366,7 @@ class TestCompact:
         await _apply_to_topic(familiar, scope, "t1", "a", "b")
 
         topic = store.get(scope.workspace_identity, "t1")
-        assert [block.user_query for block in topic.blocks] == ["a", "b"]
+        assert [block.user_message for block in topic.blocks] == ["a", "b"]
         assert topic.state_summary == ""
         assert familiar.needs_compact(scope.workspace_identity, "t1") is True
 
@@ -384,7 +384,7 @@ class TestCompact:
             await familiar.compact_topic(scope.workspace_identity, "t1")
 
         topic = store.get(scope.workspace_identity, "t1")
-        assert [block.user_query for block in topic.blocks] == ["c"]
+        assert [block.user_message for block in topic.blocks] == ["c"]
         # 第二次折叠收到第一次的摘要作为 previous_summary，累积成链
         assert topic.state_summary == "folded:1|folded:1"
         assert topic.total_tokens == topic.blocks[0].total_tokens
@@ -413,7 +413,7 @@ class TestCompact:
         assert store.get(scope.workspace_identity, "t1") == before
         await familiar.compact_topic(scope.workspace_identity, "t1")
         topic = store.get(scope.workspace_identity, "t1")
-        assert [block.user_query for block in topic.blocks] == ["b"]
+        assert [block.user_message for block in topic.blocks] == ["b"]
         assert topic.state_summary == "folded-summary"
 
     @pytest.mark.asyncio
@@ -628,7 +628,7 @@ class TestNamedUseCases:
 
         after = store.get(scope.workspace_identity, topic_id)
         assert after is not None
-        assert [b.user_query for b in after.blocks] == [b.user_query for b in before.blocks]
+        assert [b.user_message for b in after.blocks] == [b.user_message for b in before.blocks]
         assert after.state_summary == before.state_summary
 
         # 修复 admission 后可再次重试并成功结束生命周期
@@ -852,7 +852,7 @@ class TestMaintenance:
         before_shutdown = store.get(scope.workspace_identity, topic_id)
         assert before_shutdown is not None
         assert before_shutdown.state_summary == "folded:1|folded:1"
-        assert [block.user_query for block in before_shutdown.blocks] == ["question-2-" * 80]
+        assert [block.user_message for block in before_shutdown.blocks] == ["question-2-" * 80]
         assert bus.request.await_count == 0
         bus.request.side_effect = _accept_settlement_task
 
@@ -867,7 +867,7 @@ class TestMaintenance:
         assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
         assert settlement.reason == TriggerReason.SHUTDOWN
         assert settlement.state_summary == "folded:1|folded:1"
-        assert [block.user_query for block in settlement.blocks] == ["question-2-" * 80]
+        assert [block.user_message for block in settlement.blocks] == ["question-2-" * 80]
 
     @pytest.mark.asyncio
     async def test_shutdown_marks_generation_skip_when_submission_builds_no_task(self):

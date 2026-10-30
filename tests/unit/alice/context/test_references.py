@@ -9,22 +9,17 @@ from tests.helpers.sessions import make_conversation_turn
 
 
 def _turn(*actions: tuple[dict[str, Any], dict[str, Any]]) -> ConversationTurn:
-    """以用户消息开头，依次写出每个动作的调用与结果事件；字段只写在各自的事件上。"""
+    """以用户消息开头，依次写出每个动作的调用事件，结局补全在同一个调用上。"""
     events = [TurnEvent(kind="user_message", sequence=0, content="任务")]
-    for index, (call, result) in enumerate(actions):
-        action_id = f"action_{index}"
-        events.append(
-            TurnEvent(
-                kind="tool_call", sequence=len(events), content="", action_id=action_id, **call
-            )
+    for index, (call, outcome) in enumerate(actions):
+        event = TurnEvent(
+            kind="tool_call", sequence=len(events), content="", action_id=f"action_{index}", **call
         )
         events.append(
-            TurnEvent(
-                kind="tool_result",
-                sequence=len(events),
-                content=result.pop("content", "ok"),
-                action_id=action_id,
-                **result,
+            event.with_outcome(
+                outcome["status"],
+                outcome.get("content", "ok"),
+                outcome.get("produced_aliases", ()),
             )
         )
     return make_conversation_turn(user_message="任务", turn_events=events)

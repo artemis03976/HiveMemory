@@ -86,9 +86,7 @@ def _sealed_payload(
     final_text: str = "answer",
 ) -> InteractionPayload:
     """构造任务进程封口后的交互记录（finalize 的输入）。"""
-    return make_interaction_payload(
-        "question", final_text, rewritten_query="原查询", worth_saving=True
-    )
+    return make_interaction_payload("question", final_text)
 
 
 @pytest.mark.asyncio

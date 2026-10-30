@@ -122,23 +122,21 @@ class GenerationTurn(BaseModel):
     """
     记忆生成视图中的单轮对话记录
 
-    保留语义摘要与按上限截断的过程材料，丢弃 MTP 动作的结果全文，供
-    GenerationEngine 提取记忆使用。
+    按顺序保留本轮的材料：助手正文与动作穿插排列，能力调用只有一行摘要，
+    思考、外部工具参数与结果已按上限截断，供 GenerationEngine 提取记忆使用。
 
     Attributes:
         outcome: 轮次结局，用于标注不完整材料
-        user_query: 用户的原始问题
-        assistant_final_text: Agent 最终自然语言回复（已去除 MTP 噪音）
-        action_entries: 本轮动作段条目，按出现顺序：思考、外部工具动作与
-            MTP 动作的一行摘要（如 THOUGHT: ... / TOOL: ... / SEARCH: "..."），
-            已按生成转写的上限截断，条目可以多行
+        user_message: 用户消息
+        material_entries: 用户消息之后的材料条目，按出现顺序：助手正文、思考、
+            能力调用的一行摘要与外部工具步骤（如 [Assistant]: ... / - THOUGHT: ... /
+            - SEARCH: "..." / - TOOL: ...），条目可以多行
         identity: 产出此轮的身份标识
     """
 
     outcome: InteractionOutcome = "completed"
-    user_query: str
-    assistant_final_text: str = ""
-    action_entries: list[str] = Field(default_factory=list)
+    user_message: str
+    material_entries: list[str] = Field(default_factory=list)
     identity: ActorIdentity
 
 

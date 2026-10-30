@@ -33,7 +33,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.interaction import InteractionOutcome, ToolResultStatus
 
-ImportedEventKind = Literal["assistant_message", "thought", "tool_call", "tool_result"]
+ImportedEventKind = Literal["assistant_message", "thought", "tool_call"]
 
 # 导入事件可以携带的能力动词：外部 harness 只能经 MCP 检索与读取记忆。
 ImportedVerb = Literal["SEARCH", "READ"]
@@ -47,9 +47,7 @@ class ImportedTurnEvent(BaseModel):
     kind: ImportedEventKind = Field(description="事件种类；用户消息不作为事件导入")
     sequence: int = Field(ge=1, description="轮内序号，从 1 起严格递增；0 留给用户消息")
     content: str = Field(description="事件正文；工具调用为空字符串")
-    action_id: str | None = Field(
-        default=None, description="工具调用标识，调用与结果必带，以此配对"
-    )
+    action_id: str | None = Field(default=None, description="工具调用标识，工具调用必带，轮内唯一")
     tool_name: str | None = Field(
         default=None, description="外部工具的名字；调用 HiveMemory 能力时不设置"
     )
@@ -67,7 +65,11 @@ class ImportedTurnEvent(BaseModel):
         default=None, description="工具调用的参数，不含作用对象"
     )
     status: ToolResultStatus | None = Field(
-        default=None, description="工具结果必带：success，出错时为 error"
+        default=None,
+        description="工具调用的结局：success，出错时为 error；会话记录没有记下结果时不设置",
+    )
+    result: str | None = Field(
+        default=None, description="工具调用的返回正文，与 status 同时设置或同时缺省"
     )
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -91,6 +93,7 @@ class ImportedTurnEvent(BaseModel):
             targets=tuple(self.targets),
             tool_args=None if self.tool_args is None else freeze_mapping(self.tool_args),
             status=self.status,
+            result=self.result,
         )
 
 
@@ -139,7 +142,7 @@ class ImportedTurn(BaseModel):
 
     @model_validator(mode="after")
     def _check_turn_events(self) -> ImportedTurn:
-        """提前执行封口时的事件规则：序号、调用与结果的配对、各种事件可带的字段。
+        """提前执行封口时的事件规则：序号、调用标识唯一、各种事件可带的字段。
 
         违反时整轮以 422 拒绝，不等到封口才失败。
         """

@@ -75,7 +75,7 @@ async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> 
         attempts.append(payload)
         attempt_scopes.append(belong_to)
         if len(attempts) == 1:
-            payload.user_message = "attempt-local-mutation"
+            payload.model_used = "attempt-local-mutation"
             payload.turn_events.clear()
             raise TransientInteractionSubmissionError("temporary failure")
         return "topic-real"
@@ -91,9 +91,9 @@ async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> 
         receipt = await queue.submit(submission)
 
         # 入队后的调用方修改不得影响 canonical bytes 中的工作快照。
-        original.user_message = "external-mutation"
+        original.model_used = "external-mutation"
         original.turn_events.clear()
-        submission.payload.user_message = "submission-mutation"
+        submission.payload.model_used = "submission-mutation"
         submission.payload.turn_events.clear()
 
         outcome = await queue.wait(receipt, timeout=2)
@@ -105,7 +105,7 @@ async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> 
     assert outcome.topic_id == "topic-real"
     assert len(attempts) == 2
     assert attempts[0] is not attempts[1]
-    assert attempts[1].user_message == "original"
+    assert attempts[1].model_used == ""
     assert attempts[1].turn_events == original_events
     assert attempt_scopes == [submission.belong_to, submission.belong_to]
     assert attempt_scopes[0] is not attempt_scopes[1]
@@ -344,13 +344,8 @@ def test_codec_roundtrip_preserves_split_identity_and_attachment_order() -> None
                     action_id="read",
                     verb="READ",
                     targets=("fact_a", "fact_b"),
-                ),
-                TurnEvent(
-                    kind="tool_result",
-                    sequence=2,
-                    content="正文",
-                    action_id="read",
                     status="success",
+                    result="正文",
                 ),
             ],
         ),

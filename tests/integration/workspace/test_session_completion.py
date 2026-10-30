@@ -141,7 +141,7 @@ async def test_user_stop_seals_outcome_returned_by_cpu(reported, final_text):
     done = events[-1]["data"]
     assert (done["status"], done["final_text"]) == (reported, final_text)
     history = sessions.get(workspace, handle.session_id)
-    assert [(t.payload.outcome, t.payload.assistant_final_text) for t in history.turns] == [
+    assert [(t.payload.outcome, t.payload.reply_text) for t in history.turns] == [
         (reported, final_text)
     ]
     assert probe.submitted == [history.turns[0].payload]
@@ -210,7 +210,7 @@ async def test_alice_context_guard_seals_tool_output_as_failed_turn(tmp_path):
         turns = sessions.get(workspace, handle.session_id).turns
         assert len(turns) == 1
         assert turns[0].payload.outcome == "failed"
-        assert content in turns[0].payload.turn_events[-1].content
+        assert content in turns[0].payload.turn_events[-1].result
         assert probe.submitted == [turns[0].payload]
         assert probe.cleaned == []
         assert len(llm.calls) == 1

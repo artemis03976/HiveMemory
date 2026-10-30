@@ -287,7 +287,7 @@ _RELAY_PROMPT_TEXT_ZH = {
 
 [输入数据]
 1. <old_state_summary>: 本批次交互之前的旧状态。
-2. <recent_events>: 最新的对话轮次和系统动作 (MTP 语义轨迹)。
+2. <recent_events>: 最新的对话轮次，按发生顺序列出用户消息、助手正文、思考与工具调用；记忆检索与读取只有一行摘要，外部工具附截断后的结果。
 
 [压缩规则]
 - 将 <old_state_summary> 与 <recent_events> 合并，生成更新后的状态。
@@ -328,7 +328,7 @@ Your task is to compress the recent interaction history of a specific topic into
 
 [Input Data]
 1. <old_state_summary>: The previous state before this recent batch of interactions.
-2. <recent_events>: The latest conversational turns and system actions (MTP Semantic Traces).
+2. <recent_events>: The latest conversational turns, listing user messages, assistant text, thoughts and tool calls in order; memory searches and reads appear as one-line summaries, external tools with truncated results.
 
 [Compression Rules]
 - MERGE the <old_state_summary> with the <recent_events> to create an updated state.

@@ -9,10 +9,10 @@ from hivememory.core.models import (
     LogicalBlock,
     TopicAssetBinding,
     TopicData,
-    TurnRecord,
     WorkspaceAssetRef,
 )
 from hivememory.engines.perception.models import TopicMaterializeTask, TriggerReason
+from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -20,13 +20,10 @@ def _identity_scope(user_id="u1"):
     return make_identity_scope(user_id=user_id)
 
 
-def _block(text="q", *, worth_saving=None, user_id="u1") -> LogicalBlock:
-    turn = TurnRecord(
-        identity=ActorIdentity(user_id=user_id, agent_id="a1"),
-        user_query=text,
-        assistant_final_text="a",
+def _block(text="q", *, user_id="u1") -> LogicalBlock:
+    return make_logical_block(
+        text, "a", identity=ActorIdentity(user_id=user_id, agent_id="a1"), total_tokens=len(text)
     )
-    return LogicalBlock(turn=turn, total_tokens=len(text), worth_saving=worth_saving)
 
 
 def _topic_data(scope, *, blocks=(), bindings=(), state_summary=""):
@@ -58,7 +55,7 @@ class TestFromTopicData:
         assert task.topic_summary == "展示摘要"
         assert task.state_summary == ""
         assert task.reason is TriggerReason.MANUAL_SETTLE
-        assert [b.turn.user_query for b in task.blocks] == ["q1"]
+        assert [b.user_message for b in task.blocks] == ["q1"]
 
     def test_workspace_belongs_to_explicit_owner_not_block_actor(self):
         """归属来自调用方显式传入，而不是从 block 内容推导。
@@ -76,22 +73,6 @@ class TestFromTopicData:
 
         assert task.belong_to == scope.workspace_identity
         assert task.belong_to.owner_user_id == "owner"
-
-    def test_gateway_skip_judgment_does_not_drop_blocks(self):
-        scope = _identity_scope()
-        topic = _topic_data(
-            scope,
-            blocks=(
-                _block("unknown", worth_saving=None),
-                _block("skip", worth_saving=False),
-            ),
-        )
-
-        task = TopicMaterializeTask.from_topic_data(
-            topic, belong_to=scope.workspace_identity, reason=TriggerReason.SHUTDOWN
-        )
-
-        assert [b.turn.user_query for b in task.blocks] == ["unknown", "skip"]
 
     def test_empty_topic_returns_none(self):
         scope = _identity_scope()

@@ -349,9 +349,9 @@ def test_turn_that_grows_while_the_previous_one_submits_is_reread(tmp_path):
     assert [event["kind"] for event in second["events"]] == [
         "assistant_message",
         "tool_call",
-        "tool_result",
         "assistant_message",
     ]
+    assert second["events"][1]["result"] == "ok"
     assert second["events"][-1]["content"] == "测试已加上"
 
 
@@ -567,11 +567,8 @@ def test_request_body_satisfies_the_import_bus_contract(tmp_path):
         for event in requests[1].events
     ] == [
         ("thought", None, None, [], None),
-        ("tool_call", "Bash", None, [], None),
-        ("tool_result", None, None, [], "error"),
-        ("tool_call", None, "SEARCH", [], None),
-        ("tool_result", None, None, [], "success"),
-        ("tool_call", None, "READ", ["fact_a"], None),
-        ("tool_result", None, None, [], "success"),
+        ("tool_call", "Bash", None, [], "error"),
+        ("tool_call", None, "SEARCH", [], "success"),
+        ("tool_call", None, "READ", ["fact_a"], "success"),
         ("assistant_message", None, None, [], None),
     ]

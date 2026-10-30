@@ -7,8 +7,9 @@ import threading
 import pytest
 from pydantic import ValidationError
 
-from hivememory.core.models import LogicalBlock, TopicData, TurnRecord
+from hivememory.core.models import TopicData
 from hivememory.patchouli.memory_library.adapters.short_term import InMemoryShortTermStorage
+from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -18,15 +19,7 @@ def _topic(scope, topic_id: str) -> TopicData:
         workspace_identity=scope.workspace_identity,
         topic_title=f"topic-{topic_id}",
         last_update=1.0,
-        blocks=(
-            LogicalBlock(
-                turn=TurnRecord(
-                    identity=scope.actor_identity,
-                    user_query="q",
-                    assistant_final_text="a",
-                )
-            ),
-        ),
+        blocks=(make_logical_block("q", "a", identity=scope.actor_identity),),
     )
 
 

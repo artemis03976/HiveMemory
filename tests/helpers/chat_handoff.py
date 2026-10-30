@@ -15,7 +15,6 @@ from hivememory.core.models import (
     ExecutionLabels,
     IdentityScope,
     MemoryAtom,
-    TraceItem,
     TurnEvent,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, WriteFocus
@@ -116,38 +115,20 @@ def make_mtp_turn_events(user_message: str = "问题") -> list[TurnEvent]:
             action_id="act-search",
             verb="SEARCH",
             tool_args={"query": "贪吃蛇 部署"},
-        ),
-        TurnEvent(
-            kind="tool_result",
-            sequence=2,
-            content="检索结果",
-            action_id="act-search",
             status="success",
+            result="检索结果",
         ),
         TurnEvent(
             kind="tool_call",
-            sequence=3,
+            sequence=2,
             content='⟪ WRITE | * | content="部署步骤" ⟫',
             action_id="act-write",
             verb="WRITE",
             tool_args={"content": "部署步骤"},
-        ),
-        TurnEvent(
-            kind="tool_result",
-            sequence=4,
-            content="已登记",
-            action_id="act-write",
             status="ack",
+            result="已登记",
             produced_aliases=("draft_deploy",),
         ),
-    ]
-
-
-def expected_mtp_traces() -> list[TraceItem]:
-    """``make_mtp_turn_events`` 对应的轨迹预期（手写，不在测试中重复调用归约器）。"""
-    return [
-        TraceItem(action="SEARCH", action_id="act-search", query="贪吃蛇 部署"),
-        TraceItem(action="WRITE", action_id="act-write", status="ack"),
     ]
 
 

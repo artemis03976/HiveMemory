@@ -89,13 +89,8 @@ def fixed_samples() -> dict[str, tuple[ConversationTurn, ...]]:
                         action_id="read",
                         verb="READ",
                         targets=(alias,),
-                    ),
-                    TurnEvent(
-                        kind="tool_result",
-                        sequence=2,
-                        content="资料与代码 abcdefghijklmnop\n" * 650,
-                        action_id="read",
                         status="success",
+                        result="资料与代码 abcdefghijklmnop\n" * 650,
                     ),
                 ]
             else:
@@ -112,12 +107,7 @@ def fixed_samples() -> dict[str, tuple[ConversationTurn, ...]]:
                     agent_id=agent,
                     topic_id="sample-topic",
                     created_at=datetime(2026, 10, 17, tzinfo=UTC),
-                    payload=InteractionPayload(
-                        user_message=user,
-                        assistant_final_text=reply,
-                        turn_events=events,
-                        outcome=outcome,
-                    ),
+                    payload=InteractionPayload(turn_events=events, outcome=outcome),
                 )
             )
         samples[name] = tuple(turns)

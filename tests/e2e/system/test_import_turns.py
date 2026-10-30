@@ -63,15 +63,10 @@ async def test_http_import_turn_forms_interaction_in_patchouli(patchouli_chat_st
                 "action_id": "toolu-1",
                 "tool_name": "Bash",
                 "tool_args": {"command": "./deploy.sh"},
-            },
-            {
-                "kind": "tool_result",
-                "sequence": 2,
-                "content": "permission denied",
-                "action_id": "toolu-1",
                 "status": "error",
+                "result": "permission denied",
             },
-            {"kind": "assistant_message", "sequence": 3, "content": "脚本缺少执行权限"},
+            {"kind": "assistant_message", "sequence": 2, "content": "脚本缺少执行权限"},
         ],
         "model_used": "claude-test",
     }
@@ -99,8 +94,6 @@ async def test_http_import_turn_forms_interaction_in_patchouli(patchouli_chat_st
     [topic] = stack.short_term.list_by_workspace(workspace)
     [block] = topic.blocks
     assert block.turn.identity.agent_id == "claude_code"
-    assert block.turn.user_query == "为什么部署脚本失败了"
-    assert block.turn.assistant_final_text == "脚本缺少执行权限"
-    assert [result.status for action in block.turn.actions for result in action.results] == [
-        "error"
-    ]
+    assert block.user_message == "为什么部署脚本失败了"
+    assert block.reply_text == "脚本缺少执行权限"
+    assert [e.status for e in block.turn_events if e.kind == "tool_call"] == ["error"]

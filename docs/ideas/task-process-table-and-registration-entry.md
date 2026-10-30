@@ -13,7 +13,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/execution-environment.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-30
 ---
 
 # 任务进程表与任务请求唯一注册入口
@@ -80,6 +80,8 @@ controller 模式下所有任务进程共用 Gateway 分析 → 预检索 → Ac
 ### 2.6 被动请求（Q-6）
 
 owner（2026-10-01）决定这一阶段先不考虑被动请求，避免现在做好的接口被后续设计推翻；入口的形状以后可能需要调整。被动请求只存在于 controller 模式，触发器的认证见[第五代架构 Idea](./fifth-generation-architecture.md) P-5。
+
+plugin 模式有性质相近的情形（2026-10-30 发现，owner 决定之后再详细设计）：Claude Code 的后台任务（后台命令、Monitor 等）完成或产生事件时，以 `turnOrigin` 为 `task_notification` 的用户条目唤醒 Agent 续作，续作不由用户即时发出。后台命令的完成通知带 `<tool-use-id>`，回指发起它的调用；Monitor 的事件通知不带，且一次调用产生多条。连接器把续作接在上一轮之后，而上一轮在 Agent 停下等待时已经提交，按代码推断续作不会被导入（未实测）。本机会话记录的 17 条通知中有 7 条之后有续作，共 113 个工具调用、65 段正文。
 
 ## 3. 开放问题
 

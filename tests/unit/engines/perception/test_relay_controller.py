@@ -2,7 +2,8 @@
 RelayController 单元测试
 
 测试覆盖:
-- 摘要生成逻辑（简单规则与 LLM）
+- 规则摘要：请求计数取用户消息，工具列表取工具步骤（动词的小写或工具名）
+- LLM 摘要的近期事件与记忆生成视图使用同一份材料，含思考与外部工具过程
 - LLM 摘要只在没有可用 LLM、提供商失败或调用超时时回退为简单摘要
 - 摘要上下文注入格式
 """
@@ -12,19 +13,54 @@ from unittest.mock import AsyncMock, Mock
 
 import pytest
 
-from hivememory.config.patchouli import LLMRelayConfig, RelayControllerConfig
-from hivememory.core.errors import ModelProviderError
-from hivememory.core.models import AgentAction, TraceItem, TurnRecord
-from hivememory.engines.perception.models import (
-    LogicalBlock,
+from hivememory.config.patchouli import (
+    GenerationTranscriptConfig,
+    LLMRelayConfig,
+    RelayControllerConfig,
 )
+from hivememory.core.errors import ModelProviderError
+from hivememory.core.models import TurnEvent
 from hivememory.engines.perception.relay_controller import (
     LLMRelayController,
     SimpleRelayController,
     create_relay_controller,
 )
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
-from tests.helpers.workspace import make_actor_identity
+from tests.helpers.sessions import make_logical_block
+
+TRANSCRIPT = GenerationTranscriptConfig()
+
+
+def _process_block():
+    """一轮带过程的交互：思考、一次能力调用、一次外部工具调用与回复。"""
+    return make_logical_block(
+        turn_events=[
+            TurnEvent(kind="user_message", sequence=0, content="创建认证模块"),
+            TurnEvent(kind="thought", sequence=1, content="先看看已有的鉴权代码"),
+            TurnEvent(
+                kind="tool_call",
+                sequence=2,
+                content="⟪ RUN | sys_write_file ⟫",
+                action_id="run",
+                verb="RUN",
+                targets=("sys_write_file",),
+                status="success",
+                result="写入完成",
+            ),
+            TurnEvent(
+                kind="tool_call",
+                sequence=4,
+                content="",
+                action_id="toolu-1",
+                tool_name="weather_api",
+                tool_args={"city": "上海"},
+                status="error",
+                result="timeout",
+            ),
+            TurnEvent(kind="assistant_message", sequence=6, content="已创建 auth.py"),
+        ],
+        total_tokens=50,
+    )
 
 
 class TestRelayController:
@@ -35,31 +71,14 @@ class TestRelayController:
 
     @pytest.mark.asyncio
     async def test_generate_simple_summary(self):
-        """测试简单摘要生成"""
-        # 构造 Block 链
-        block1 = LogicalBlock(
-            turn=TurnRecord(identity=make_actor_identity(), user_query="查询天气"),
-        )
+        """请求数取用户消息；工具列表为能力调用动词的小写与外部工具名；最近一条用户消息作参考。"""
+        blocks = [make_logical_block("查询天气", "晴"), _process_block()]
 
-        block2 = LogicalBlock(
-            turn=TurnRecord(
-                identity=make_actor_identity(),
-                actions=[
-                    AgentAction(
-                        action_id="action_1",
-                        tool_name="weather_api",
-                        results=[],
-                        status="success",
-                    )
-                ],
-            )
-        )
+        summary = await self.controller.generate_summary(blocks)
 
-        summary = await self.controller.generate_summary([block1, block2])
-
-        assert "处理了 1 个用户请求" in summary
-        assert "weather_api" in summary
-        assert "查询天气" in summary
+        assert "处理了 2 个用户请求" in summary
+        assert "使用了工具: run, weather_api" in summary
+        assert "最近: 创建认证模块" in summary
 
     def test_create_relay_context(self):
         """测试上下文注入格式"""
@@ -74,44 +93,40 @@ class TestLLMRelayController:
 
     @pytest.mark.asyncio
     async def test_llm_summary_generation(self):
-        """LLM 摘要以 system + user 双消息请求，近期事件包含用户消息与 MTP 轨迹。"""
+        """LLM 摘要以 system + user 双消息请求，近期事件是与记忆生成视图相同的整轮材料。"""
         llm = ScriptedLLMService("LLM 生成的摘要")
         controller = LLMRelayController(
-            summary_llm=llm, llm_params=DEFAULT_LLM_PARAMS, summary_timeout_seconds=60
+            summary_llm=llm,
+            llm_params=DEFAULT_LLM_PARAMS,
+            summary_timeout_seconds=60,
+            transcript_config=TRANSCRIPT,
         )
 
-        block = LogicalBlock(
-            turn=TurnRecord(
-                identity=make_actor_identity(),
-                user_query="创建认证模块",
-                assistant_final_text="已创建 auth.py",
-                semantic_traces=[TraceItem(action="RUN", tool="sys_write_file", status="success")],
-            ),
-            total_tokens=50,
-        )
-
-        summary = await controller.generate_summary([block])
+        summary = await controller.generate_summary([_process_block()])
 
         assert summary == "LLM 生成的摘要"
         call = llm.calls[-1]
         assert [message["role"] for message in call.messages] == ["system", "user"]
-        assert "创建认证模块" in call.messages[1]["content"]
-        assert "sys_write_file" in call.messages[1]["content"]
+        recent_events = call.messages[1]["content"]
+        for line in (
+            "[User]: 创建认证模块",
+            "- THOUGHT: 先看看已有的鉴权代码",
+            "- RUN: sys_write_file (success)",
+            '- TOOL: weather_api {"city": "上海"}',
+            "  RESULT (error): timeout",
+            "[Assistant]: 已创建 auth.py",
+        ):
+            assert line in recent_events
         assert call.params == DEFAULT_LLM_PARAMS
 
     @pytest.mark.asyncio
     async def test_llm_fallback_when_no_service(self):
         """无 LLM 服务时回退到简单摘要，并接在上一次摘要之后，已折叠的历史不丢失。"""
-        controller = LLMRelayController(summary_llm=None, summary_timeout_seconds=60)
-
-        block = LogicalBlock(
-            turn=TurnRecord(
-                identity=make_actor_identity(),
-                user_query="测试查询",
-                assistant_final_text="测试响应",
-            ),
-            total_tokens=50,
+        controller = LLMRelayController(
+            summary_llm=None, summary_timeout_seconds=60, transcript_config=TRANSCRIPT
         )
+
+        block = make_logical_block("测试查询", "测试响应", total_tokens=50)
 
         summary = await controller.generate_summary([block], previous_summary="早先的接力摘要")
 
@@ -125,14 +140,10 @@ class TestLLMRelayController:
             summary_llm=ScriptedLLMService(ModelProviderError("provider down")),
             llm_params=DEFAULT_LLM_PARAMS,
             summary_timeout_seconds=60,
+            transcript_config=TRANSCRIPT,
         )
 
-        block = LogicalBlock(
-            turn=TurnRecord(
-                identity=make_actor_identity(), user_query="测试", assistant_final_text="响应"
-            ),
-            total_tokens=50,
-        )
+        block = make_logical_block("测试", "响应", total_tokens=50)
 
         summary = await controller.generate_summary([block])
 
@@ -151,14 +162,10 @@ class TestLLMRelayController:
             RelayControllerConfig(engine=LLMRelayConfig(summary_timeout_seconds=0.01)),
             llm_service=hanging_llm,
             llm_params=DEFAULT_LLM_PARAMS,
+            transcript_config=TRANSCRIPT,
         )
 
-        block = LogicalBlock(
-            turn=TurnRecord(
-                identity=make_actor_identity(), user_query="测试", assistant_final_text="响应"
-            ),
-            total_tokens=50,
-        )
+        block = make_logical_block("测试", "响应", total_tokens=50)
 
         summary = await asyncio.wait_for(
             controller.generate_summary([block], previous_summary="早先的接力摘要"), timeout=2
@@ -175,44 +182,12 @@ class TestLLMRelayController:
             summary_llm=ScriptedLLMService(failure),
             llm_params=DEFAULT_LLM_PARAMS,
             summary_timeout_seconds=60,
+            transcript_config=TRANSCRIPT,
         )
 
-        block = LogicalBlock(
-            turn=TurnRecord(
-                identity=make_actor_identity(), user_query="测试", assistant_final_text="响应"
-            ),
-            total_tokens=50,
-        )
+        block = make_logical_block("测试", "响应", total_tokens=50)
 
         with pytest.raises(TypeError) as raised:
             await controller.generate_summary([block])
 
         assert raised.value is failure
-
-    def test_build_recent_events_with_traces(self):
-        """测试 recent_events 构建包含 MTP 轨迹"""
-        controller = LLMRelayController(summary_timeout_seconds=60)
-
-        blocks = [
-            LogicalBlock(
-                turn=TurnRecord(
-                    identity=make_actor_identity(),
-                    user_query="搜索代码",
-                    assistant_final_text="找到了",
-                    semantic_traces=[
-                        TraceItem(action="SEARCH", query="auth code"),
-                        TraceItem(action="READ", target="mem_123"),
-                        TraceItem(action="RUN", tool="sys_write_file", status="success"),
-                    ],
-                ),
-                total_tokens=30,
-            )
-        ]
-
-        events = controller._build_recent_events(blocks)
-
-        assert '[Action]: SEARCH query="auth code"' in events
-        assert "[Action]: READ target=mem_123" in events
-        assert "[Action]: RUN tool=sys_write_file (Status: success)" in events
-        assert "User: 搜索代码" in events
-        assert "Agent: 找到了" in events
