@@ -19,7 +19,7 @@ related_docs:
   - docs/patchouli/README.md
   - docs/patchouli/retrieval.md
   - docs/todo/reranker-int8-and-onnx-memory.md
-  - docs/plans/v0.7.1-model-idle-unload.md
+  - docs/archive/plans/v0.7.1-model-idle-unload.md
 last_reviewed: 2026-10-27
 ---
 
@@ -31,7 +31,7 @@ last_reviewed: 2026-10-27
 
 嵌入与重排的 ONNX 推理在 async 函数里同步执行，推理期间事件循环停住：同一进程内的 HTTP 请求、SSE 输出、Import Bus 提交、work queue 与维护任务都要等它结束。模型在首次使用时懒加载，加载同样发生在调用推理的那一次同步调用里。
 
-Owner 决定（2026-10-27）：本项先于[重排模型 int8 与 ONNX 内存池](../../todo/reranker-int8-and-onnx-memory.md)和[推理模型的空闲卸载与按需加载](../../plans/v0.7.1-model-idle-unload.md)完成。空闲卸载之后模型会在请求路径上重新加载，推理与加载留在事件循环上时，每次重新加载都会让整个服务停顿。
+Owner 决定（2026-10-27）：本项先于[重排模型 int8 与 ONNX 内存池](../../todo/reranker-int8-and-onnx-memory.md)和[推理模型的空闲卸载与按需加载](../plans/v0.7.1-model-idle-unload.md)完成。空闲卸载之后模型会在请求路径上重新加载，推理与加载留在事件循环上时，每次重新加载都会让整个服务停顿。
 
 ## 证据
 
@@ -69,7 +69,7 @@ Owner 决定（2026-10-27）：本项先于[重排模型 int8 与 ONNX 内存池
 ## 相关文档
 
 - [重排模型 int8 与 ONNX 内存池](../../todo/reranker-int8-and-onnx-memory.md)：同批登记的推理内存事项；
-- [推理模型的空闲卸载与按需加载](../../plans/v0.7.1-model-idle-unload.md)：以本项完成为进入条件；
+- [推理模型的空闲卸载与按需加载](../plans/v0.7.1-model-idle-unload.md)：以本项完成为进入条件；
 - [Patchouli 检索](../../patchouli/retrieval.md)：召回与重排阶段。
 
 ## 实施记录（2026-10-27）
@@ -86,7 +86,7 @@ Owner 决定（2026-10-27）：本项先于[重排模型 int8 与 ONNX 内存池
 
 - sparse 查询与写入的 `Document(model="qdrant/bm25")`：qdrant-client 1.19.1 的 `ModelEmbedder` 原样返回该对象，BM25 由 Qdrant 服务端计算，不在客户端事件循环上执行，无需改动。
 - 用真实模型通过服务实测事件循环停顿（每 10 ms 一次 tick 的最大延迟）：稳态嵌入（约 1440 字）与重排 20 条期间最大停顿 4～7 ms，两者并发时 7 ms。改动前推理在协程中同步执行，事件循环在整个推理期间停住，同样输入的推理耗时为 0.5 秒与 1.15 秒。
-- **已知限制**：模型加载期间事件循环仍会停顿。实测在另一线程中创建 onnxruntime 会话时，bge-m3 加载 0.84 秒、最大停顿 452 ms，fp32 重排模型加载 1.67 秒、最大停顿 835 ms（关闭图优化时 784 ms）；分词器加载 0.48 秒、停顿 132 ms。原因是 onnxruntime 创建会话、解析模型时持有 GIL，换线程无法消除。当前只在启动预热或首次使用时发生；空闲卸载之后每次重新加载都会出现，已作为风险记入[空闲卸载计划](../../plans/v0.7.1-model-idle-unload.md)。
+- **已知限制**：模型加载期间事件循环仍会停顿。实测在另一线程中创建 onnxruntime 会话时，bge-m3 加载 0.84 秒、最大停顿 452 ms，fp32 重排模型加载 1.67 秒、最大停顿 835 ms（关闭图优化时 784 ms）；分词器加载 0.48 秒、停顿 132 ms。原因是 onnxruntime 创建会话、解析模型时持有 GIL，换线程无法消除。当前只在启动预热或首次使用时发生；空闲卸载之后每次重新加载都会出现，已作为风险记入[空闲卸载计划](../plans/v0.7.1-model-idle-unload.md)。
 
 **验证**
 

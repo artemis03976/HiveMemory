@@ -130,8 +130,9 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 | `patchouli.public.topic.get_data` | `get_topic_data` | `identity_scope`、topic id | `TopicData | None`（越域目标隐藏） |
 | `patchouli.public.manual_settle_topic` | `settle_topic` | `identity_scope`、`topic_id` | `TopicSettleResult` |
 | `patchouli.public.evict_topic` | `evict_topic` | `identity_scope`、topic id | `TopicEvictionResult` |
-| `patchouli.public.models.warmup` | `warmup_models` | 无 | `None` |
-| `patchouli.public.models.ready` | `is_models_ready` | 无 | `bool` |
+| `patchouli.public.models.warmup` | `warmup_models` | 无 | `None`；依次加载启用的推理模型，失败只记录日志 |
+| `patchouli.public.models.prefetch` | `prefetch_models` | 无 | `None`；在后台开始加载尚未加载的推理模型并立即返回，只保证加载已经开始；已加载或正在加载的模型不受影响 |
+| `patchouli.public.models.ready` | `is_models_ready` | 无 | `bool`：每个启用的推理模型至少成功加载过一次，且当前不处于加载失败状态；空闲卸载不改变结果 |
 
 ### 2.5 CPU 端口与交互输出
 

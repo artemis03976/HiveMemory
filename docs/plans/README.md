@@ -18,7 +18,7 @@ last_reviewed: 2026-10-29
 |:---:|:---|:---|:---|
 | 1 | [Import Bus 重设计：以 Claude Code 对话回流为第一条真实路径](../archive/plans/v0.7.1-import-bus-redesign.md) | Archived（2026-10-21）；当前事实见 [Import Bus](../system/import-bus.md)；真实使用验收随日常使用持续观察（[Todo](../todo/import-bus-real-use-observation.md)） | —— |
 | 2 | [记忆访问：Claude Code 经 MCP 工具检索与读取记忆](../archive/plans/v0.7.1-memory-access-mcp.md) | Archived（2026-10-29）；当前事实见 [MCP 记忆访问](../contracts/mcp.md)；检索与读取的真实使用样本记入同一观察 [Todo](../todo/import-bus-real-use-observation.md) | —— |
-| — | [推理模型的空闲卸载与按需加载](./v0.7.1-model-idle-unload.md)（plugin 模式下后端常驻时的内存开销） | Planned（owner，2026-10-27）；进入条件 [推理移出事件循环](../archive/todo/inference-off-event-loop.md) 已于 2026-10-27 完成 | —— |
+| — | [推理模型的空闲卸载与按需加载](../archive/plans/v0.7.1-model-idle-unload.md)（plugin 模式下后端常驻时的内存开销） | Archived（2026-10-29）；当前事实见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载) | —— |
 
 ## v0.7.0
 

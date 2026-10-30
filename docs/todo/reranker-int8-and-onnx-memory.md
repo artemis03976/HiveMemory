@@ -17,8 +17,8 @@ related_docs:
   - docs/system/configuration.md
   - docs/help/setup.md
   - docs/archive/todo/inference-off-event-loop.md
-  - docs/plans/v0.7.1-model-idle-unload.md
-last_reviewed: 2026-10-27
+  - docs/archive/plans/v0.7.1-model-idle-unload.md
+last_reviewed: 2026-10-29
 ---
 
 # 重排模型 int8 与 ONNX 内存池
@@ -27,7 +27,7 @@ last_reviewed: 2026-10-27
 
 plugin 模式下后端与 Qdrant 需要常驻，后端进程的常驻内存主要来自两个 ONNX 模型，以及 ONNX Runtime 在推理后保留的内存池。16 GB 内存的笔记本或小主机上压力明显。
 
-本项处理三处与模型加载生命周期无关的开销：重排模型的精度、ONNX 的 CPU 内存池、嵌入输入的截断长度。模型的空闲卸载与按需加载由[计划](../plans/v0.7.1-model-idle-unload.md)承担。
+本项处理三处与模型加载生命周期无关的开销：重排模型的精度、ONNX 的 CPU 内存池、嵌入输入的截断长度。模型的空闲卸载与按需加载已由[归档计划](../archive/plans/v0.7.1-model-idle-unload.md)完成（2026-10-29），当前事实见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载)。
 
 Owner 决定（2026-10-27）：重排模型改用 int8 之前先做实验评估，按结果决定是否采用。
 
@@ -81,7 +81,7 @@ Owner 决定（2026-10-27）：重排模型改用 int8 之前先做实验评估�
 ## 相关文档
 
 - [模型推理移出事件循环](../archive/todo/inference-off-event-loop.md)：同批登记，已于 2026-10-27 完成；
-- [推理模型的空闲卸载与按需加载](../plans/v0.7.1-model-idle-unload.md)：模型加载生命周期；
+- [推理模型的空闲卸载与按需加载](../archive/plans/v0.7.1-model-idle-unload.md)：模型加载生命周期，已于 2026-10-29 完成并归档；
 - [Patchouli 检索](../patchouli/retrieval.md)：重排阶段与分数语义。
 
 ## 实施记录

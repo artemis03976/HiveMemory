@@ -23,7 +23,7 @@ related_docs:
   - docs/system/application-services.md
   - docs/system/attachments.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # 任务进程
@@ -87,7 +87,8 @@ last_reviewed: 2026-10-21
 TaskProcessService.register_process()：认证、创建进程、登记进程表，返回进程句柄
 TaskProcessService.run_process(handle, stream=…)：创建进程 task；交付方订阅输出通道或等待终态
 进程 task -> TaskProcessRunner.run(process)
-  -> Gateway public process (ACTIVE_CHAT)             阶段授权
+  -> Gateway 的阶段授权 -> Patchouli models.prefetch（立即返回；失败只记录日志）
+  -> Gateway public process (ACTIVE_CHAT)
   -> command: return command outcome
   -> decision: 解析 Agent Profile（workspace 读取视图）  阶段授权
   -> Patchouli prepare_agent_run（Topic 与检索；interaction_id 取 process_id 值）  阶段授权
@@ -104,6 +105,8 @@ TaskProcessService.run_process(handle, stream=…)：创建进程 task；交付�
        -> 若 prepare 成功且 finalize 未成功，阶段授权 -> await Patchouli cleanup_prepared_agent_run
   -> 注册入口在进程 task 的 finally 中撤销进程 context、从进程表注销、释放会话认领，最后结束输出通道
 ```
+
+调用 Gateway 之前，进程请求 Patchouli 在后台预取推理模型：路由只开始加载、立即返回，模型加载与 Gateway 的 LLM 调用并行，空闲卸载之后的重新加载因此尽量不落在 prepare 检索的路径上（[Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载)）。预取在 Gateway 的阶段授权之后发出，准入已失效的进程不触发加载；Gateway 判定为命令或不需要检索时模型同样会加载，这部分内存由空闲卸载回收。预取不涉及 Workspace 资源，不是阶段调用，不携带 scope；预取失败只记录日志，不影响进程。
 
 Gateway 阶段从会话取最近 `gateway.context_preparation.session_turn_limit` 轮的用户与助手文本，连同每轮在会话中标注的落位话题 `topic_id`，随 `session_turns` 交给 Gateway（[Gateway 分析](../gateway/analysis.md)）。落位话题只在话题路由失败时使用：Gateway 续接上一轮的话题（该话题仍在本次的候选话题中时），否则新建话题；同一会话的相邻轮次大多仍在同一话题上，续接比每次失败都新建无标题话题归错的代价小。
 
@@ -231,7 +234,7 @@ chat 路由以 `detach_reason="client_disconnected"` 订阅交付，不轮询断
 - 封口：与 Import Bus 共用的 [`core/protocol/sealing.py`](../../src/hivememory/core/protocol/sealing.py)；
 - 公共契约：[`workspace/contracts/cpu.py`](../../src/hivememory/workspace/contracts/cpu.py)、[`workspace/contracts/process.py`](../../src/hivememory/workspace/contracts/process.py)；HTTP 入口：[`server/routers/chat.py`](../../src/hivememory/server/routers/chat.py)；
 - 测试：
-  - `tests/unit/workspace/process/test_gateway_chat_flow.py`（含 Actor 中停止在等 CPU 与阻塞于通道写入时的响应）；
+  - `tests/unit/workspace/process/test_gateway_chat_flow.py`（含 Actor 中停止在等 CPU 与阻塞于通道写入时的响应，以及 Gateway 之前的模型预取）；
   - `tests/unit/workspace/process/test_chat_run_control_contract.py`（输出通道的容量与离开语义、订阅者暂停时进程仍推进、五种结局的唯一退出路径、交付方离开不等待关闭）；
   - `tests/unit/workspace/process/test_cpu_allocation.py`（CPU 分配、租借释放与关闭顺序）；
   - `tests/unit/workspace/process/test_cpu_port.py`（经 CPU 端口执行：测试 CPU 跑通任务进程、自报结局与执行异常）；
