@@ -10,6 +10,7 @@ code_paths:
   - src/hivememory/workspace/authorization.py
   - src/hivememory/server/deps.py
   - src/hivememory/system/application/import_bus_service.py
+  - src/hivememory/mcp_server/
   - src/hivememory/patchouli/memory_library/stores.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md
@@ -20,7 +21,7 @@ related_docs:
   - docs/system/import-bus.md
   - docs/architecture/data-model.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # 身份与授权
@@ -51,7 +52,7 @@ HTTP 层的用户导向身份选择（`user_id + workspace_id`）由统一请求
 
 下游不能读取进程级 `current_workspace`，也不能在 retry 时重新执行默认解析；后台任务必须从自己的领域 payload 分别恢复资源归属与发起者，并在最终访问 Workspace-owned 资源时重新执行归属检查（第 6.2 节）。
 
-所有与 Workspace 相关的 HTTP 入口都经统一认证网关取得访问 context：Chat 由任务进程的注册入口认证，管理操作、取消与导入取得请求级 context（第 6.1 节）。server 不在认证前组装 `IdentityScope`，这条规则没有例外。
+所有与 Workspace 相关的 HTTP 入口都经统一认证网关取得访问 context：Chat 由任务进程的注册入口认证，管理操作、取消、导入与 MCP 工具调用取得请求级 context（第 6.1 节）。server 不在认证前组装 `IdentityScope`，这条规则没有例外。
 
 ## 2. 访问边界：两阶段认证与两阶段授权
 
@@ -86,7 +87,8 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 
 | 层 | 持有 | 不持有 |
 |:---|:---|:---|
-| server（入口 adapter） | 认证前的声明（只作为认证输入）；自身的 principal 与 adapter；管理操作、取消与导入的请求级 context 与目标 Workspace；chat 的不透明进程句柄 | 认证前组装的 `IdentityScope`；认证后的身份；进程记录及其中的 context |
+| server（入口 adapter） | 认证前的声明（只作为认证输入）；自身的 principal 与 adapter；导入请求声明的 principal 与凭据（只交给网关）；管理操作、取消与导入的请求级 context 与目标 Workspace；chat 的不透明进程句柄 | 认证前组装的 `IdentityScope`；认证后的身份；进程记录及其中的 context |
+| MCP 入口（`mcp_server`，操作适配器） | 认证前的声明与凭据（只交给网关）；一次工具调用的请求级 context，只在本次调用内交给操作入口的请求级提交 | `IdentityScope`；认证后的身份；actor API 本身（只经门面取得的操作入口提交） |
 | 授权点：注册入口、能力层、任务进程的阶段检查、Import Bus 服务 | 访问 context、操作授权者（注册入口作为进程 context 的运行持有者，另持认证网关；进程线程管理另经线程 context 生命周期端口派生与撤销线程 context） | 调用方另行传入的 `IdentityScope` |
 | Import Bus 编排器（`ImportBusIngestor`） | 导入授权交出的 `IdentityScope` 与 principal 标识，只在本次导入请求的调用链内使用：推导 `interaction_id`，经公共路由交给 Gateway 与 Patchouli | 访问 context、认证网关、操作授权者；不把 scope 写入记录、事件或后台任务 |
 | Gateway 与 Patchouli 公共边界 | 授权点组装后传入的 `IdentityScope`；Patchouli 立即拆分归属与发起者 | 访问 context、认证网关、操作授权者 |
@@ -115,7 +117,7 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 
 | 方法 | 用途 |
 |:---|:---|
-| `authorize_operation(access, operation, target_workspace)` 与其线程形式 `authorize_thread_operation(access, operation)` | actor 操作授权；线程形式先确认是未撤销的线程 context，再以驻留 Workspace 为目标执行前者 |
+| `authorize_operation(access, operation, target_workspace)` 与 actor 形式 `authorize_actor_operation(access, operation)` | actor 操作授权；actor 形式先确认是未撤销的执行线程或请求级 context（进程 context 只服务阶段调用，以 `ScopeRequiredError` 拒绝），再以驻留 Workspace 为目标执行前者。actor API 的全部方法都用它，不按方法区分 context 的种类；请求级 context 只能检索与读取，由操作入口的请求级提交保证（[能力层](./capability.md#6-操作入口)） |
 | `authorize_root(access, target_workspace)` | root 授权 |
 | `authorize_stage(access, target_workspace)` | 任务进程的阶段授权 |
 | `authorize_import(access, target_workspace)` | 导入授权：返回 `ImportAuthorization`，即本次请求的 `IdentityScope` 与认证通过的 principal 标识 |
@@ -165,7 +167,7 @@ work queue、ordering/idempotency key、task/run registry、scheduler、runtime 
 用户导向身份选择（user_id + workspace_id；Agent action 附加 agent_id）
   -> server/deps.py 解析为身份声明（actor 声明 + 请求进入的 Workspace）
   -> 统一认证网关：第 1、2 阶段，签发绑定本次运行的访问 context
-       chat：由注册入口认证并创建任务进程；管理操作、取消与导入：请求级 context
+       chat：由注册入口认证并创建任务进程；管理操作、取消、导入与 MCP 工具调用：请求级 context
   -> 授权点：第 3 阶段，组装 IdentityScope（actor API / root API / 任务进程的阶段授权 / 导入授权）
   -> public route / 资源 owner 公共边界（接收 IdentityScope）
   -> Patchouli 拆为 belong_to / from_actor，内部独立传递
@@ -174,7 +176,9 @@ work queue、ordering/idempotency key、task/run registry、scheduler、runtime 
 
 主动 Chat 是 Agent action，必须携带具体 `agent_id`；注册入口完成认证并立即创建进程，进程的阶段调用以注册时通过认证的 Workspace 为目标授权（[任务进程](./task-process.md#2-注册)）。`/chat/stop` 不是 Agent action：server 以 `(user, system)` 声明取得请求级 context，注册入口经进程控制授权比对请求方与进程记录的驻留坐标。
 
-导入 `POST /api/v1/import/turns` 也是 Agent action：server 以 (user, 请求体中的具体 Agent) 声明、自身 principal 与 `http` adapter 经网关取得请求级 context，请求结束（含失败）时撤销；Import Bus 服务以导入授权取得本次请求的 `IdentityScope`，经公共路由交给 Gateway 与 Patchouli。提交的交互归属取目标 Workspace，发起者取认证通过的 (user, Agent)。外部来源与外部会话标识只用于按会话串行与推导 `interaction_id`，不进入身份，也不因此建立第二套 Workspace 资源状态（[Import Bus](../system/import-bus.md)）。下游不使用进程当前 Workspace 推断资源归属。
+导入 `POST /api/v1/import/turns` 也是 Agent action：server 以 (user, 请求体中的具体 Agent) 声明、请求声明的 principal、凭据与 `import` adapter 经网关取得请求级 context，请求结束（含失败）时撤销；Import Bus 服务以导入授权取得本次请求的 `IdentityScope`，经公共路由交给 Gateway 与 Patchouli。提交的交互归属取目标 Workspace，发起者取认证通过的 (user, Agent)。外部来源与外部会话标识只用于按会话串行与推导 `interaction_id`，不进入身份，也不因此建立第二套 Workspace 资源状态（[Import Bus](../system/import-bus.md)）。下游不使用进程当前 Workspace 推断资源归属。
+
+MCP 工具调用同样是 Agent action：MCP 入口以 (user, `X-Agent-ID` 中的具体 Agent) 声明、请求声明的 principal、凭据与 `mcp` adapter 经网关取得一份请求级 context，经操作入口的请求级提交进入 actor API，actor API 以 `authorize_actor_operation` 组装本次调用的 `IdentityScope`；调用结束（含失败）时撤销。工具参数不作为身份来源（[MCP 记忆访问](../contracts/mcp.md)）。
 
 ### 6.2 后台任务和重试
 
@@ -186,13 +190,14 @@ Interaction codec 为 v6，generation codec 的 `schema_version` 为字符串 `"
 
 ## 7. 拒绝语义
 
-四个阶段的失败以稳定错误类型与 reason 区分：第 1、2 阶段的失败是 `AdmissionDeniedError`，第 3 阶段的失败是 `OperationDeniedError`，访问 context 无效（不是签发的或已撤销）是 `ScopeRequiredError`——生产入口经网关签发后不应出现，出现即为接线缺陷；把进程 context 或请求级 context 交给操作入口同样是接线缺陷。线程已结束是生命周期拒绝，以 `ThreadEndedError` 区分：线程的凭据已撤销、线程已结束或进程已收到停止时，actor 请求与 CALL 派生得到它；线程未登记、context 类型或运行绑定不对、子线程试图派生或 CPU 结束主线程，仍属接线缺陷，以 `ScopeRequiredError` 拒绝（[执行线程](./execution-threads.md#3-生命周期与唯一的存活判定)）。reason、错误码与 HTTP 映射的完整表格只维护在[错误模型](../contracts/error-model.md)第 4.4 节。访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。
+四个阶段的失败以稳定错误类型与 reason 区分：第 1、2 阶段的失败是 `AdmissionDeniedError`，第 3 阶段的失败是 `OperationDeniedError`，访问 context 无效（不是签发的或已撤销）是 `ScopeRequiredError`——生产入口经网关签发后不应出现，出现即为接线缺陷；把进程 context 或请求级 context 交给操作入口的线程提交、把进程 context 交给 actor API 同样是接线缺陷。线程已结束是生命周期拒绝，以 `ThreadEndedError` 区分：线程的凭据已撤销、线程已结束或进程已收到停止时，actor 请求与 CALL 派生得到它；线程未登记、context 类型或运行绑定不对、子线程试图派生或 CPU 结束主线程，仍属接线缺陷，以 `ScopeRequiredError` 拒绝（[执行线程](./execution-threads.md#3-生命周期与唯一的存活判定)）。reason、错误码与 HTTP 映射的完整表格只维护在[错误模型](../contracts/error-model.md)第 4.4 节。访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。
 
 会话和写入意图的异常定义由 `workspace.contracts.errors` 拥有；访问、共享资源与线程结束类型仍在 `core.errors`。读取视图的缺失/不可见为中立资源失败，Profile 类型与配置失败消费 Patchouli 的公共错误。CALL 的共享引用需要 READ，授权拒绝不能静默跳过。线程结束有稳定 code，Agent 出口明确提示停止操作；共同呈现与兼容规则见[错误模型](../contracts/error-model.md)。
 
 ## 8. 已知限制
 
-- root 只由 actor 是否为保留的 `system` 判定，认证网关只限制 principal 可代表的用户，不限制谁可以声明 `system`：任何已登记且可代表该用户的来源都能进入 root API。当前登记的来源都是本地受信进程（HTTP server 与 Profile 注入脚本），HTTP 请求头中的用户身份不做证明；导入入口不能声明 `system`（声明解析以 400 拒绝，导入授权以 `agent_required` 拒绝），但同一 server principal 的管理路由仍以 `system` 声明进入 root API。限定可声明 `system` 的接入来源的后续方向见[身份与访问体系 Idea](../ideas/identity-and-access-model.md#4-已登记的暂缓与例外)第 4 节；
+- root 只由 actor 是否为保留的 `system` 判定；能声明 `system` 的来源由接入登记的 `allow_system_actor` 逐个限定（默认不能），当前只有 HTTP server 与 Profile 注入脚本可以，外部 harness 不能（[认证与访问登记](./authentication.md#1-两阶段认证)）。HTTP 请求头中的用户身份不做证明，因此能连到 server 的程序都能经管理路由以 `system` 声明进入 root API，这沿用本地单用户部署的信任假设；
+- principal 不与 Agent 绑定：持有某个外部 principal 凭据的调用方可以声明该用户的任意具体 Agent，落到对应的访问记录；请求级 context 只能检索与读取，写入、RUN 与 CALL 仍需要执行线程；
 - Patchouli 的交互提交（含状态查询与等待）与主动记忆意图提交路由只接收 `IdentityScope`、不做操作授权。交互提交路由唯一的生产调用方是 Import Bus，在导入授权之后调用；意图提交路由唯一的生产调用方是 actor API，在 `memory.write`/`memory.update` 授权之后调用。新的调用方必须在自己的授权点先完成授权；
 - 第 3 阶段只接受目标等于驻留 Workspace，跨 Workspace 的授权模型尚不存在；后续方向见[身份与访问体系 Idea](../ideas/identity-and-access-model.md)。
 

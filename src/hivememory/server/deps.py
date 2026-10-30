@@ -17,6 +17,7 @@ from hivememory.infrastructure.log_handler import WebSocketLogHandler
 from hivememory.infrastructure.websocket_manager import WebSocketConnectionManager
 from hivememory.server.error_handlers import APIError
 from hivememory.system import HiveMemorySystem
+from hivememory.system.access import HTTP_ADAPTER
 from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
@@ -33,9 +34,6 @@ logger = logging.getLogger(__name__)
 
 _system: HiveMemorySystem | None = None
 _ws_manager: WebSocketConnectionManager | None = None
-
-#: server 作为 system actor 的 adapter 接入统一认证网关。
-HTTP_ADAPTER = "http"
 
 
 def init_system(config: HiveMemoryConfig | None = None) -> HiveMemorySystem:
@@ -231,11 +229,12 @@ def resolve_request_identity_claims(
 # 统一认证网关接入
 #
 # server 是一个登记过的调用来源：以自身 principal 与 ``http`` adapter 对
-# 每个与 workspace 相关的请求经网关取得 context。请求头中的用户身份不做
-# 证明——这是本地单用户部署的信任假设。认证前 server 只持有声明
-# （:class:`RequestIdentityClaims`），声明只作为认证输入：认证通过后，
-# 经过验证的身份只存在于密封的 context 中，server 不把声明当作已确认
-# 的身份继续使用，也不把声明交给路由处理函数。
+# 每个与 workspace 相关的请求经网关取得 context。外部入口（MCP 与 Import
+# Bus）不使用 server 的 principal，而是把请求声明的 principal 与接入凭据交给
+# 同一个网关核对。请求头中的用户身份不做证明——这是本地单用户部署的信任假设。
+# 认证前 server 只持有声明（:class:`RequestIdentityClaims`），声明只作为
+# 认证输入：认证通过后，经过验证的身份只存在于密封的 context 中，server
+# 不把声明当作已确认的身份继续使用，也不把声明交给路由处理函数。
 # ---------------------------------------------------------------------------
 
 
@@ -249,6 +248,30 @@ def get_server_principal_id() -> str:
     return get_system().config.system.server_principal_id
 
 
+def resolve_principal_claim(x_principal_id: str | None) -> str:
+    """外部入口声明的调用来源：缺省或空串返回 400，只含空白同样显式失败。
+
+    声明只是认证输入，经统一认证网关核对接入凭据后才成立；入口不据此
+    判定身份。
+    """
+    principal_id = _normalize_identity_header(x_principal_id)
+    if principal_id is None:
+        raise APIError("request.principal_required")
+    return principal_id
+
+
+def bearer_credential(authorization: str | None) -> str | None:
+    """取出 ``Authorization: Bearer`` 中的接入凭据；缺省或不是 Bearer 时为 ``None``。
+
+    入口不判定凭据：``None`` 同样交给统一认证网关，由它以
+    ``invalid_credential`` 拒绝。
+    """
+    scheme, _, token = (authorization or "").partition(" ")
+    if scheme.lower() != "bearer":
+        return None
+    return token.strip() or None
+
+
 def _request_run_id() -> str:
     """为请求级 context 生成一次性的运行标识（server 为本次请求生成）。"""
     return f"request_{uuid4().hex}"
@@ -259,16 +282,20 @@ async def authenticate_request_access(
     *,
     gateway: ActorAuthenticationGateway,
     principal_id: str,
+    adapter: str,
+    credential: str | None,
 ) -> WorkspaceAccessContext:
-    """以 server 自身 principal 经统一认证网关取得请求级访问 context。
+    """以给定 principal、adapter 与凭据经统一认证网关取得请求级访问 context。
 
     ``claims`` 是 :func:`resolve_request_identity_claims` 解析的请求身份
-    声明，只在这里作为认证输入使用；运行绑定为本次请求的标识。网关认证失败（未登记 principal、adapter 不匹配、未获
-    准入）以 ``AdmissionDeniedError`` 拒绝，由访问错误映射转为 HTTP 状态码。
+    声明，只在这里作为认证输入使用；运行绑定为本次请求的标识。网关认证
+    失败（未登记 principal、adapter 不匹配、凭据无效、未获准入）以
+    ``AdmissionDeniedError`` 拒绝，由访问错误映射转为 HTTP 状态码。
     """
     return await gateway.authenticate(
-        adapter=HTTP_ADAPTER,
+        adapter=adapter,
         principal=CallerPrincipal(principal_id),
+        credential=credential,
         actor=claims.actor,
         workspace=claims.workspace,
         binding=RunBinding.for_request(_request_run_id()),
@@ -294,14 +321,25 @@ async def request_access_for_claims(
     *,
     gateway: ActorAuthenticationGateway,
     principal_id: str,
+    adapter: str,
+    credential: str | None,
 ) -> AsyncIterator[RequestAccess]:
     """以给定声明取得请求级访问凭据；退出时使 context 失效。
 
     取得 context、以 :class:`RequestAccess` 交出凭据与目标 workspace，声明
-    不越过认证边界。管理路由经 :func:`get_request_access` 以 (user, ``system``)
-    声明调用；导入入口的 Agent 来自请求体，以 (user, 具体 Agent) 声明直接调用。
+    不越过认证边界。principal、adapter 与凭据由调用方给出：管理路由经
+    :func:`get_request_access` 传入 server 自身的 principal、``http`` 与
+    ``None``，以 (user, ``system``) 声明调用；导入入口与 MCP 入口传入请求
+    声明的 principal、各自的 adapter（``import``、``mcp``）与请求中的凭据，
+    以 (user, 具体 Agent) 声明调用，导入的 Agent 取自请求体。
     """
-    access = await authenticate_request_access(claims, gateway=gateway, principal_id=principal_id)
+    access = await authenticate_request_access(
+        claims,
+        gateway=gateway,
+        principal_id=principal_id,
+        adapter=adapter,
+        credential=credential,
+    )
     try:
         yield RequestAccess(access=access, target_workspace=claims.workspace)
     finally:
@@ -320,7 +358,11 @@ async def get_request_access(
     """
     claims = resolve_request_identity_claims(selection)
     async with request_access_for_claims(
-        claims, gateway=gateway, principal_id=principal_id
+        claims,
+        gateway=gateway,
+        principal_id=principal_id,
+        adapter=HTTP_ADAPTER,
+        credential=None,
     ) as request_access:
         yield request_access
 

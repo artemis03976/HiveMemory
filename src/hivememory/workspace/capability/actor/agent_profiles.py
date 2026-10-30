@@ -39,5 +39,5 @@ class ActorAgentService:
         或显式选择 ``default`` / ``omni_doll`` 时返回内置 Profile；自定义 alias
         缺失、不可见、类型不符或配置损坏均显式失败，不降级为默认配置。
         """
-        scope = self._authorizer.authorize_thread_operation(access, WorkspaceOperation.AGENT_CALL)
+        scope = self._authorizer.authorize_actor_operation(access, WorkspaceOperation.AGENT_CALL)
         return await self._profile_reader.get(request.agent_alias, scope=scope)

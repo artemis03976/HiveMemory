@@ -3,7 +3,8 @@
 覆盖 ``resolve_request_identity_claims`` 的解析规则与各 HTTP 入口的
 身份上下文行为：请求头的 user_id + workspace_id 构造认证前声明（不产出
 ``IdentityScope``）、只含空白的请求头显式失败、未知 Workspace 拒绝、
-非 Agent action 注入 system actor、Chat 缺失具体 Agent 显式失败。
+非 Agent action 注入 system actor、Chat 缺失具体 Agent 显式失败；外部
+入口的 principal 声明缺失时拒绝，接入凭据只取 Bearer 方案。
 """
 
 import dataclasses
@@ -21,6 +22,8 @@ from hivememory.server import deps
 from hivememory.server.deps import (
     RequestIdentityClaims,
     RequestIdentitySelection,
+    bearer_credential,
+    resolve_principal_claim,
     resolve_request_identity_claims,
 )
 from hivememory.server.error_handlers import APIError, install_error_handlers
@@ -139,6 +142,29 @@ class TestResolveRequestIdentityClaims:
                 agent_id=SYSTEM_AGENT_ID,
             )
         assert exc_info.value.status_code == 400
+
+
+class TestExternalEntryClaims:
+    """外部入口的 principal 声明与接入凭据：入口只解析，不判定身份。"""
+
+    def test_missing_principal_declaration_rejected(self):
+        with pytest.raises(APIError) as exc_info:
+            resolve_principal_claim(None)
+        assert exc_info.value.payload.error == "request.principal_required"
+
+    @pytest.mark.parametrize(
+        ("authorization", "credential"),
+        [
+            ("Bearer token-1", "token-1"),
+            # 认证方案不区分大小写。
+            ("bearer token-1", "token-1"),
+            # 不是 Bearer 时不取凭据，交给网关以 invalid_credential 拒绝。
+            ("Basic dG9rZW4tMQ==", None),
+        ],
+        ids=["bearer", "lowercase-scheme", "other-scheme"],
+    )
+    def test_bearer_credential_extraction(self, authorization, credential):
+        assert bearer_credential(authorization) == credential
 
 
 # ─── HTTP 入口行为 ───────────────────────────────────────────────────────────
@@ -314,6 +340,8 @@ class TestAuthenticateRequestAccess:
             claims,
             gateway=composition.gateway,
             principal_id=composition.principal.principal_id,
+            adapter=deps.HTTP_ADAPTER,
+            credential=None,
         )
 
         summary = composition.gateway.describe_context(access)

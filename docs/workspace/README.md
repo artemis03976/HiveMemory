@@ -24,7 +24,7 @@ related_docs:
   - docs/architecture/data-model.md
   - docs/system/composition.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # Workspace
@@ -64,6 +64,7 @@ Workspace 的架构意义是一个稳定的资源归属与访问边界，而不�
 ```mermaid
 flowchart TB
     IN["HTTP（chat / 管理 / 导入）/ 内部测试入口"]
+    MCP["MCP 入口\n外部 harness 的检索与读取"]
     SCOPE["IdentityScope\nActor + Workspace"]
     APP["门面提供的服务\nroot API / 任务进程编排 / Import Bus"]
     ENTRY["操作入口\nactor API"]
@@ -82,6 +83,7 @@ flowchart TB
     BUS --> PA
     APP --> CPU["CPU 端口\n输入清单 labels + 独立线程 context"] --> AL
     AL --> OP["操作请求\n绑定线程 context 的 OperationSubmitter"] --> ENTRY --> SCOPE
+    MCP --> REQ["操作请求\n请求级 context，只开放检索与读取"] --> ENTRY
     PA --> IDENTITY --> TOPIC
     APP --> ASSET
     IDENTITY -. "最终资源边界重新校验" .-> TOPIC
@@ -98,7 +100,7 @@ Workspace 只在资源所有者需要它的地方生效。Patchouli 在公共边
 workspace 负责：
 
 - **认证入口与访问检查**：两阶段认证的编排与 Workspace 准入、逐次的操作授权（[认证与访问登记](./authentication.md)、[身份与授权](./identity-and-authorization.md)）；
-- **能力层**：只供保留 `system` 的 root API 与只经操作入口供 actor 使用的 actor API（[能力层](./capability.md)）；
+- **能力层**：只供保留 `system` 的 root API 与只经操作入口供 actor 使用的 actor API；操作入口服务执行线程的线程提交与 MCP 入口的请求级提交（[能力层](./capability.md)）；
 - **任务进程**：唯一注册入口、进程表与 chat 任务进程的四阶段编排，含 CPU 分配与交互记录封口（[任务进程](./task-process.md)），以及 Actor 阶段内的执行线程（[执行线程](./execution-threads.md)）；
 - **会话资源**：ConversationSession 与 CPU 中立的压缩检查点（[会话资源](./sessions.md)）；
 - **读取视图与写入意图**：完整原子与 Profile 的派生缓存、引用解析、写入意图登记与实时派发（[读取视图与写入意图](./read-view-and-write-intents.md)）；

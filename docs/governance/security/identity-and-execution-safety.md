@@ -25,7 +25,7 @@ related_docs:
   - docs/todo/frontend-identity-ownership.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
   - docs/todo/workspace-asset-ownership-identity-split.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # 身份隔离与执行安全治理
@@ -41,7 +41,7 @@ HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agen
 | Memory visibility | MemoryAtom 独立持有归属、`MemoryAccessPolicy` 与来源记录；Patchouli 是可见性所有者 | workspace resolver 在 L1 命中与 L2 交付时重验归属及 actor policy；canonical 变更失效原子、旧 alias 和 Profile 派生项，不提供通知未送达补偿 |
 | PendingAtom | workspace registry 独立保存 `belong_to`、`from_actor` 与 `process_id`；actor API 分别以 `memory.write` / `memory.update` 授权登记、以 `memory.read` 授权回读 | 第一版不设 Pending policy，同 Workspace 中获读授权的 Actor 可读回意图；跨 Workspace 不可读，无持久化 ledger；结算 redirect 仍逐次校验 canonical 可见性 |
 | Agent Profile | Profile 作为 MemoryAtom，主线程 Profile 由任务进程 CPU 分配经阶段授权读取（不要求 actor 操作），CALL 目标经 actor API 的 `agent.call`；ProfileCache 按 Workspace/alias 定位，命中时以源 policy 对当前 actor 重验 | 主线程与 CALL 目标共用 workspace 读取视图，来源 UUID 失效与代次回填保护已生效；事件通知无持久重放或未送达补偿 |
-| 管理入口（root） | 能力层分为 root API 与 actor API：管理方法只经 root 授权，只接受保留的 `system`；`system` 的访问记录不得配置 operation，不能经操作入口执行 actor 操作；任务进程的阶段调用不检查 actor 操作，但仍以进程 Agent 为发起者过滤可见性 | root 只由 actor 是否为 `system` 判定，认证网关只限制 principal 可代表的用户，不限制谁可以声明 `system`；当前登记的来源（HTTP server、Profile 注入脚本）都是本地受信进程，登记外部来源前需要补上这条规则 |
+| 管理入口（root） | 能力层分为 root API 与 actor API：管理方法只经 root 授权，只接受保留的 `system`；`system` 的访问记录不得配置 operation，不能经操作入口执行 actor 操作；任务进程的阶段调用不检查 actor 操作，但仍以进程 Agent 为发起者过滤可见性 | 能声明 `system` 的来源由接入登记的 `allow_system_actor` 逐个限定（默认不能，2026-10-29），当前只有 HTTP server 与 Profile 注入脚本；HTTP 请求头中的用户身份不做证明，能连到 server 的程序都能经管理路由以 `system` 进入 root API，沿用本地单用户部署的信任假设 |
 | Agent run/frame | `ExecutionFrame`、`RunSession`、frame policy、任务进程 task、可中断阶段 task、进程输出通道与 `SinkRunOutput` | frame registry/CALL record、进程 task 与可中断阶段 task、输出通道和流序号均按进程或 run 隔离；执行模型只含观测标签；CALL 子帧以被调用方身份运行（独立的子线程 context，按被调用方的白名单与可见性授权），调用方持有 `agent.call` 即可经 CALL 返回值取得被调用方的 PRIVATE 内容，没有“谁能调用谁”的细粒度策略 |
 | MTP permission | Agent 权限只由访问登记的 actor 操作白名单表达，Profile 不承载权限；Alice 把所属线程描述的操作快照翻译为 frame 动词集合，同时驱动提示词与 Koakuma 执行前检查，资源操作由 actor API 逐次授权 | prompt 教学不是硬安全保证；`sys_*` 系统工具不设权限，所有 Agent 都可写文件与执行 Python；白名单只能改配置并重启；子 agent 按被调用方自己的白名单运行，被调用方须在本 Workspace 准入 |
 | MTP READ/RUN | READ 可访问记忆，RUN 可执行 memory code | RUN 没有强沙箱、资源限制、可信资产分级或强制审批边界 |
@@ -88,11 +88,11 @@ ExecutionLabels：agent_id/workspace_id 字符串，仅用于提示词、展示�
 
 CALL 子 Agent 以被调用方身份运行：任务进程在派生时对被调用方做 Workspace 准入，从进程 context 签发子线程 context，子帧的请求按被调用方的白名单与可见性授权，写入意图记在被调用方名下并记录子线程标识；子帧的观测标签取子线程描述中的被调用方身份，由线程表生成，仍只用于观测。显式 `context_refs` 由调用方以自己的 READ 读取，只选择共享内容，不签发更广的资源权限。Alice/CPU 的 `RuntimeScope` 与 `CPUInputManifest` 不携带 `IdentityScope`，frame 与 MTP 上下文没有 `identity` 派生。标签由注册入口或线程表生成并冻结，不能还原成资源归属或授权身份；提示词历史归并和运行事件使用注册标签，frame 流式角色展示优先使用 Profile 的源 alias。线程描述携带的操作快照只用于提示词与执行策略，不是授权依据。`request/run/frame` 等关联坐标属于运行模型，`ActorIdentity` 只含 user/agent/team，不含 `session_id`。
 
-入口层现状：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_claims` 解析为身份声明，经统一认证网关认证后，由 workspace 授权点在操作授权时组装 `IdentityScope`（模型见[身份与授权](../../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节），应用服务不再解析裸 `user_id`。交互导入（`POST /api/v1/import/turns`）同样没有认证前组装的例外：server 以 (user, 具体 Agent) 声明、自身 principal 与 `http` adapter 经网关取得请求级 context，由导入授权校验准入与目标后组装本次请求的 `IdentityScope`；导入授权不检查 actor 操作白名单并拒绝保留的 `system`。连接器没有单独登记的 principal，请求头中的用户选择与其他 HTTP 入口一样不做额外证明。非 Agent action 使用单独登记的保留 `system` actor，它也是 root API 唯一接受的 actor（root 授权不读取白名单）；Memory 管理读取按 owner-management 语义在归属硬边界内跳过 actor 可见性过滤，Agent retrieval 与 SETTLE 查重仍执行普通 `MemoryAccessPolicy`，后者以 `system` 为可见性主体。
+入口层现状：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_claims` 解析为身份声明，经统一认证网关认证后，由 workspace 授权点在操作授权时组装 `IdentityScope`（模型见[身份与授权](../../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节），应用服务不再解析裸 `user_id`。交互导入（`POST /api/v1/import/turns`）与 MCP 记忆访问（`POST /mcp`）同样没有认证前组装的例外：外部 harness 有自己的接入登记，请求以 `X-Principal-ID` 声明 principal、以 `Authorization: Bearer` 携带接入凭据，网关第一阶段以常量时间比较核对凭据后才承认这个 principal；导入经 `import` adapter 取得请求级 context，由导入授权校验准入与目标后组装本次请求的 `IdentityScope`（不检查 actor 操作白名单并拒绝保留的 `system`），MCP 经 `mcp` adapter 每次工具调用取得一份请求级 context，只能检索与读取（[MCP 记忆访问](../../contracts/mcp.md)）。接入凭据是每个外部 principal 一份本地共享密钥，只能防止本机其他程序冒用 harness 身份，不防止能读取用户环境的程序；principal 不与 Agent 绑定，请求头中的用户选择与其他 HTTP 入口一样不做额外证明。非 Agent action 使用单独登记的保留 `system` actor，它也是 root API 唯一接受的 actor（root 授权不读取白名单）；Memory 管理读取按 owner-management 语义在归属硬边界内跳过 actor 可见性过滤，Agent retrieval 与 SETTLE 查重仍执行普通 `MemoryAccessPolicy`，后者以 `system` 为可见性主体。
 
 WorkspaceAsset 的 Store、解析服务与既有 Reader/Command 端口仍使用旧 `IdentityScope` 接口做归属检查；System 的 `AssetMaterializationReader` 只在一次 representation 租借内以归属和保留 `system` actor 组装适配所需 scope，Patchouli 使用归属读取端口，不保存该 scope。此例外不扩展到 Alice、CPU 或其他资源路径，内部拆分继续由 [WorkspaceAsset 归属 Todo](../../todo/workspace-asset-ownership-identity-split.md) 跟踪。
 
-线程 context 与其他访问 context 一样不能复制或序列化，CPU 读不出其内容；派生只复制已认证的 actor、驻留 Workspace 与 principal，不能改变身份或目标，准入与白名单仍在每次授权时即时检查。`WorkspaceOperationEntry` 只接受存活线程的 context：分派前经线程表做唯一的存活判定（线程未结束且进程仍在运行），进程 context、请求级 context 与未登记的线程以接线缺陷拒绝，已结束的线程以生命周期错误拒绝，actor API 方法仍逐次授权；`system` 的白名单为空，即使派生出线程 context 也不能执行 actor 操作。CALL 的派生由入口在一次提交内组合：先以 `agent.call` 解析图纸，再由线程表以被调用方准入后派生，CPU 不能交回图纸来自报子线程的身份。线程结束即同步撤销线程 context；进程关闭兜底撤销与释放租借先于任何 await，在途只读可完成。WRITE/UPDATE 在基础校验之后的同步段只解析一次线程，取得进程关联、线程标识与进程话题并登记；冷读跨越线程结束或停止时不登记。派发开始后持有受取消保护的提交任务直至结束，再传播取消；进程或 CALL 失败不撤回写入。新增副作用前有 await 的能力方法必须明确撤销与提交的边界。
+线程 context 与其他访问 context 一样不能复制或序列化，CPU 读不出其内容；派生只复制已认证的 actor、驻留 Workspace 与 principal，不能改变身份或目标，准入与白名单仍在每次授权时即时检查。`WorkspaceOperationEntry` 的线程提交只接受存活线程的 context：分派前经线程表做唯一的存活判定（线程未结束且进程仍在运行），进程 context、请求级 context 与未登记的线程以接线缺陷拒绝，已结束的线程以生命周期错误拒绝，actor API 方法仍逐次授权；请求级提交只供 MCP 入口，只开放检索与读取，其余请求类型在分派前拒绝；`system` 的白名单为空，即使派生出线程 context 也不能执行 actor 操作。CALL 的派生由入口在一次提交内组合：先以 `agent.call` 解析图纸，再由线程表以被调用方准入后派生，CPU 不能交回图纸来自报子线程的身份。线程结束即同步撤销线程 context；进程关闭兜底撤销与释放租借先于任何 await，在途只读可完成。WRITE/UPDATE 在基础校验之后的同步段只解析一次线程，取得进程关联、线程标识与进程话题并登记；冷读跨越线程结束或停止时不登记。派发开始后持有受取消保护的提交任务直至结束，再传播取消；进程或 CALL 失败不撤回写入。新增副作用前有 await 的能力方法必须明确撤销与提交的边界。
 
 ### 3.2 所有者重新校验
 
@@ -134,6 +134,8 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 5. 将失败 reason 和安全摘要写入可观察事件，但不泄漏不可见正文。
 
 Alice 操作请求与过渡执行身份删除的实现证据见[操作请求集成测试](../../../tests/integration/workspace/test_operation_requests.py)、[CALL Profile 集成测试](../../../tests/integration/alice/orchestration/call/test_profile_requests.py)、[访问边界测试](../../../tests/unit/architecture/test_access_boundaries.py)与 [HTTP 系统 E2E](../../../tests/e2e/system/)。实施历史保留于 [v0.7.0 Alice 能力迁移归档计划](../../archive/plans/v0.7.0-alice-capability-migration.md)。
+
+外部 harness 的接入身份（2026-10-29）：外部 principal 以接入凭据证明，`allow_system_actor` 限定能声明 `system` 的来源，Claude Code 的对话回流与 MCP 记忆访问共用 `harness:claude-code` 的接入登记。证据见[网关测试](../../../tests/unit/system/access/test_gateway.py)、[接入登记测试](../../../tests/unit/system/access/test_registry.py)与 [MCP 集成测试](../../../tests/integration/system/test_mcp_memory_access.py)；实施历史见[记忆访问归档计划](../../archive/plans/v0.7.1-memory-access-mcp.md)。
 
 能力层分为 root API 与 actor API（2026-10-10）：管理能力不再是可登记给 actor 的 operation，actor 操作对齐 MTP 的六项动词，任务进程的阶段调用不再借用 actor 操作。证据见 [root 授权集成测试](../../../tests/integration/workspace/test_root_api_authorization.py)、[阶段授权 HTTP E2E](../../../tests/e2e/system/test_chat_operation_whitelist.py) 与[访问边界测试](../../../tests/unit/architecture/test_access_boundaries.py)；实施历史见[能力层分层归档计划](../../archive/plans/v0.7.0-capability-surface-split.md)。
 

@@ -220,6 +220,8 @@ def _create_authorized_task_app(*, request_agent_id: str = SYSTEM_AGENT_ID):
             claims,
             gateway=composition.gateway,
             principal_id=composition.principal.principal_id,
+            adapter=deps.HTTP_ADAPTER,
+            credential=None,
         ) as request_access:
             yield request_access
 

@@ -162,6 +162,7 @@ class OperationsHarness:
         access = await composition.gateway.authenticate(
             adapter="local",
             principal=composition.principal,
+            credential=None,
             actor=actor,
             workspace=workspace,
             binding=RunBinding.for_task_process(process_id),

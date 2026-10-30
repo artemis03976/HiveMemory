@@ -66,7 +66,10 @@ class SystemPrincipalAccessEntry(BaseModel):
 
     ``adapters`` 声明可经哪些 adapter 接入（HTTP 入口使用 ``http``）；
     ``allowed_user_ids`` 为可选身份解析收紧，``None`` 表示不按用户限定。
-    principal 配置不授予任何 Workspace operation。
+    ``credential_env`` 只写接入凭据所在的环境变量名，凭据本身不进入仓库；
+    列出外部 adapter（``mcp``、``import``）的登记必须声明它。
+    ``allow_system_actor`` 决定该来源能否声明保留的 ``system`` 进入 root
+    API，默认不能。principal 配置不授予任何 Workspace operation。
     """
 
     principal_id: str = Field(description="稳定调用来源标识（带命名空间）")
@@ -79,6 +82,15 @@ class SystemPrincipalAccessEntry(BaseModel):
     allowed_user_ids: list[str] | None = Field(
         default=None,
         description="可选：该来源可服务的用户集合（身份解析收紧）",
+    )
+    allow_system_actor: bool = Field(
+        default=False,
+        description="该来源能否声明保留的 system actor（进入 root API）",
+    )
+    credential_env: str | None = Field(
+        default=None,
+        min_length=1,
+        description="可选：接入凭据所在的环境变量名（凭据本身不写入配置）",
     )
 
     # 访问控制配置拼错字段会被静默丢弃并落到 deny-by-default，方向虽安全

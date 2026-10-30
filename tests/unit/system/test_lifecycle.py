@@ -155,6 +155,7 @@ def system_factory(mock_patchouli, global_bus, scheduler):
         services = _ServicesBundle(
             process=process_service,
             import_bus=import_bus_service,
+            operation_entry=MagicMock(),
             root_memory=memory_service,
             root_memory_task=memory_task_service,
             root_agent=agent_service,

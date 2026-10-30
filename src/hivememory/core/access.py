@@ -100,9 +100,11 @@ class RunBinding:
 
 @dataclass(frozen=True)
 class CallerPrincipal:
-    """已被受信入口建立的调用来源身份。
+    """调用来源身份：回答"哪个已登记的调用来源在发起请求"。
 
-    回答"哪个已登记的调用来源在发起请求"；请求体中的
+    进程内入口（server 的 ``http``、本地脚本的 ``local``）传入自己的
+    principal；外部入口传入的是请求中的声明，经认证网关第 1 阶段核对接入
+    凭据后才成立。授予内容中的 principal 是核对通过的结果。请求体中的
     ``user_id``/``agent_id``/``role`` 字符串只是待验证的 claim，不能自封
     principal，也不能把 ``system`` 标记当作认证结论。``principal_id``
     使用稳定的带命名空间标识（如 ``hivememory:http-server``）。
@@ -196,7 +198,10 @@ class WorkspaceAccessContext:
 class PrincipalAuthenticator(Protocol):
     """Principal authentication 端口：确认调用来源已登记且可服务该 Actor。
 
-    失败时抛出 ``AdmissionDeniedError``（稳定 reason 见实现方）；成功无返回值。
+    ``credential`` 是入口携带的接入证据：进程内入口传 ``None``，外部入口
+    原样传入请求中的凭据（缺失时同样传 ``None``），由实现方判定，入口
+    不自行判定身份。失败时抛出 ``AdmissionDeniedError``（稳定 reason 见
+    实现方）；成功无返回值。
     """
 
     def authenticate_principal(
@@ -204,6 +209,7 @@ class PrincipalAuthenticator(Protocol):
         *,
         adapter: str,
         principal: CallerPrincipal,
+        credential: str | None,
         actor: ActorIdentity,
     ) -> None: ...
 

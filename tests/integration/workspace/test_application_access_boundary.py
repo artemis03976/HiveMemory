@@ -461,6 +461,7 @@ async def test_unregistered_source_denied_before_workspace_admission(wired):
         await wired.access.gateway.authenticate(
             adapter="local",
             principal=CallerPrincipal("local-process:stranger"),
+            credential=None,
             actor=ActorIdentity(user_id="u1", agent_id="a1"),
             workspace=MAIN,
             binding=RunBinding.for_request("boundary_request"),

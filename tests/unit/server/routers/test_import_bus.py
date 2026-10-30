@@ -1,7 +1,7 @@
 """Import Bus 路由单元测试。
 
-被测对象：``POST /api/v1/import/turns`` 的传输校验、声明解析、经统一认证
-网关的请求级认证与错误分类。应用服务是真实的 ``ImportBusService``（导入
+被测对象：``POST /api/v1/import/turns`` 的传输校验、声明解析、以请求声明的
+principal 与凭据经统一认证网关的请求级认证与错误分类。应用服务是真实的 ``ImportBusService``（导入
 授权使用与网关同一组合的操作授权者），编排器以记录调用的替身代替；编排
 本身的行为由 System 归属层测试覆盖。
 """
@@ -23,11 +23,11 @@ from hivememory.system.services.import_bus import (
     ImportedTurn,
     ImportTurnResult,
 )
-from tests.helpers.workspace import (
-    make_access_composition,
-    make_actor_access_record,
-    make_server_access_overrides,
-)
+from tests.helpers.workspace import make_access_composition, make_actor_access_record
+
+_PRINCIPAL = "harness:claude-code"
+_TOKEN = "token-1"
+_HEADERS = {"X-Principal-ID": _PRINCIPAL, "Authorization": f"Bearer {_TOKEN}"}
 
 
 class _RecordingIngestor:
@@ -46,9 +46,19 @@ class _RecordingIngestor:
         return ImportTurnResult(status="accepted", interaction_id="import_0123")
 
 
-def _client(ingestor=None, *, access=None, limit: int = 1024 * 1024):
-    access = access or make_server_access_overrides()
-    overrides, composition = access
+def _connector_access(records=None):
+    """连接器的接入登记：外部 principal 只经 import adapter、携带凭据接入。"""
+    composition = make_access_composition(
+        records or [make_actor_access_record(owner_user_id="default", agent_id=None)],
+        principal_id=_PRINCIPAL,
+        adapters=("import",),
+        credential=_TOKEN,
+    )
+    return {deps.get_access_gateway: lambda: composition.gateway}, composition
+
+
+def _client(ingestor=None, *, access=None, limit: int = 1024 * 1024, headers=None):
+    overrides, composition = access or _connector_access()
     app = FastAPI()
     install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
@@ -59,7 +69,7 @@ def _client(ingestor=None, *, access=None, limit: int = 1024 * 1024):
     app.dependency_overrides[deps.get_import_bus_service] = lambda: service
     app.dependency_overrides[deps.get_import_request_limit] = lambda: limit
     app.dependency_overrides.update(overrides)
-    return TestClient(app), composition
+    return TestClient(app, headers=_HEADERS if headers is None else headers), composition
 
 
 def _body(**overrides):
@@ -89,7 +99,7 @@ def _body(**overrides):
 
 
 def test_import_turn_authenticates_agent_claims_and_returns_result():
-    """以 (user, 具体 Agent) 声明认证；编排器收到不含认证声明的记录与导入授权结果。"""
+    """以请求声明的 principal、凭据与 (user, 具体 Agent) 认证；编排器收到不含认证声明的记录。"""
     ingestor = _RecordingIngestor()
     client, composition = _client(ingestor)
 
@@ -103,7 +113,7 @@ def test_import_turn_authenticates_agent_claims_and_returns_result():
     assert call["identity_scope"].actor_identity.user_id == "default"
     assert call["identity_scope"].actor_identity.agent_id == "claude_code"
     assert call["identity_scope"].workspace_identity.workspace_id == "main_workspace"
-    assert call["principal_id"] == composition.principal.principal_id
+    assert call["principal_id"] == _PRINCIPAL
 
 
 @pytest.mark.parametrize(
@@ -111,7 +121,6 @@ def test_import_turn_authenticates_agent_claims_and_returns_result():
     [
         {"unexpected": True},
         {"events": [{"kind": "user_message", "sequence": 1, "content": "再问一次"}]},
-        {"events": [{"kind": "tool_call", "sequence": 1, "content": "", "tool_kind": "SEARCH"}]},
         {
             "events": [
                 {"kind": "assistant_message", "sequence": 2, "content": "a"},
@@ -120,10 +129,10 @@ def test_import_turn_authenticates_agent_claims_and_returns_result():
         },
         {"source": "Claude Code"},
     ],
-    ids=["unknown-field", "user-message-event", "tool-kind", "non-increasing", "source-format"],
+    ids=["unknown-field", "user-message-event", "non-increasing", "source-format"],
 )
 def test_invalid_import_body_is_rejected_before_import(overrides):
-    """未知字段、用户消息事件、携带 tool_kind、非递增序号与非法来源在入口拒绝。"""
+    """未知字段、用户消息事件、非递增序号与非法来源在入口拒绝。"""
     ingestor = _RecordingIngestor()
     client, _ = _client(ingestor)
 
@@ -156,18 +165,38 @@ def test_import_requires_concrete_agent(agent_id, code):
     assert ingestor.calls == []
 
 
+@pytest.mark.parametrize(
+    ("headers", "status", "error", "reason"),
+    [
+        ({"Authorization": f"Bearer {_TOKEN}"}, 400, "request.principal_required", None),
+        (
+            {"X-Principal-ID": _PRINCIPAL, "Authorization": "Bearer wrong"},
+            403,
+            "workspace.admission_denied",
+            "invalid_credential",
+        ),
+    ],
+    ids=["missing-principal", "wrong-credential"],
+)
+def test_import_requires_declared_principal_and_matching_credential(headers, status, error, reason):
+    """缺少 principal 声明返回 400，凭据不一致返回 403；两者都不可重试，不交给编排器。"""
+    ingestor = _RecordingIngestor()
+    client, _ = _client(ingestor, headers=headers)
+
+    response = client.post("/api/v1/import/turns", json=_body())
+
+    assert response.status_code == status
+    assert (response.json()["error"], response.json().get("reason")) == (error, reason)
+    assert ingestor.calls == []
+
+
 def test_unregistered_agent_is_denied_admission():
     """未登记的 Agent 不能导入：准入失败返回 403，不可重试。"""
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="default", agent_id="omni_doll")],
-        adapters=("http",),
+    access = _connector_access(
+        [make_actor_access_record(owner_user_id="default", agent_id="omni_doll")]
     )
-    overrides = {
-        deps.get_access_gateway: lambda: composition.gateway,
-        deps.get_server_principal_id: lambda: composition.principal.principal_id,
-    }
     ingestor = _RecordingIngestor()
-    client, _ = _client(ingestor, access=(overrides, composition))
+    client, _ = _client(ingestor, access=access)
 
     response = client.post("/api/v1/import/turns", json=_body())
 

@@ -3,8 +3,7 @@
 from __future__ import annotations
 
 from hivememory.agent_runtime.mtp.context import MTPExecutionContext
-from hivememory.core.models import MemoryAtom, PendingAtom
-from hivememory.core.models.reference import ReferenceResolution
+from hivememory.core.models import PendingAtom
 from hivememory.core.mtp import (
     MTPCommand,
     MTPResponse,
@@ -19,6 +18,7 @@ from hivememory.engines.memory_compiler import (
     MemoryCompileOptions,
     MemoryCompiler,
     MemoryCompileTarget,
+    readable_source,
 )
 from hivememory.workspace.contracts import (
     ResolveReferencesRequest,
@@ -56,7 +56,7 @@ async def handle_read(
     unresolved: list[str] = []
     # 按请求顺序逐项编译，输出与 agent 列出的 alias 顺序一致。
     for alias, result in zip(aliases, results, strict=True):
-        source = _readable(result)
+        source = readable_source(result)
         if source is None:
             unresolved.append(alias)
             continue
@@ -85,21 +85,3 @@ async def handle_read(
         content="\n".join(output_lines),
         warnings=warnings,
     )
-
-
-def _readable(result: ReferenceResolution) -> PendingAtom | ReferenceResolution | MemoryAtom | None:
-    """READ 交付给编译器的内容；无可交付内容时返回 ``None``，按未解析提示。
-
-    pending 交付意图句柄；带可读原子的 redirect 与 discarded/failed/expired
-    终态交付解析结果本身；正式原子交付原子；其余（not_found、不可读的
-    redirect、缺失载荷的 pending）都按未解析处理。
-    """
-    if result.kind == "pending":
-        return result.pending
-    if result.kind == "redirect":
-        return result if result.atom is not None else None
-    if result.kind == "atom":
-        return result.atom
-    if result.kind in {"discarded", "failed", "expired"}:
-        return result
-    return None

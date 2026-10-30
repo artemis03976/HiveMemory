@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from hivememory.engines.memory_compiler.compiler import MemoryCompiler
+from hivememory.engines.memory_compiler.compiler import MemoryCompiler, readable_source
 from hivememory.engines.memory_compiler.models import (
     CompiledMemory,
     CompiledMemoryArtifact,
@@ -22,4 +22,5 @@ __all__ = [
     "CompiledMemoryEnvelope",
     "MemoryEnvelopeSection",
     "MemoryCompileOptions",
+    "readable_source",
 ]

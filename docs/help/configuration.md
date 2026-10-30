@@ -19,7 +19,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/system/import-bus.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # HiveMemory 配置指南
@@ -122,11 +122,13 @@ ProviderRegistry 和 ModelRegistry 自身支持运行时 CRUD；Provider 凭证�
 
 ### 5.1 访问登记
 
-与 Workspace 相关的 HTTP 请求（Chat、停止、对话导入、记忆、话题、Agent、附件、记忆任务）都先经统一认证网关：server 以 `system.server_principal_id` 登记的 principal 接入，再按 `configs/workspace_actors.yaml` 判断请求的用户与 Agent 能否进入 Workspace、能执行哪些操作。随仓库发布的默认登记覆盖本地默认用户 `default` 在 `main_workspace` 中的所有具体 Agent（Chat 所需的读取、检索、Profile、附件与交互提交），并为管理操作单独登记保留的 `system`（记忆、话题、附件与任务管理），为 Claude Code 连接器登记 `allowed_operations` 为空的 `claude_code`（对话导入只要求准入，见[安装与启动](./setup.md#93-访问登记)）。
+与 Workspace 相关的 HTTP 请求（Chat、停止、对话导入、MCP 记忆访问、记忆、话题、Agent、附件、记忆任务）都先经统一认证网关。前端使用的路由由 server 以 `system.server_principal_id` 登记的 principal 接入；对话导入与 MCP 由外部 harness 以自己登记的 principal 与接入凭据接入（Claude Code 为 `harness:claude-code`，凭据配置见[安装与启动](./setup.md#92-配置接入凭据)）。随后按 `configs/workspace_actors.yaml` 判断请求的用户与 Agent 能否进入 Workspace、能执行哪些操作。随仓库发布的默认登记覆盖本地默认用户 `default` 在 `main_workspace` 中的所有具体 Agent（Chat 所需的读取、检索、Profile、附件与交互提交），并为管理操作单独登记保留的 `system`（记忆、话题、附件与任务管理），为 Claude Code 登记只获准 `memory.read` 与 `memory.search` 的 `claude_code`（MCP 检索与读取；对话导入只要求准入，见[安装与启动](./setup.md#94-访问登记)）。
 
 - 使用其他用户（请求头 `x-user-id`）时，需要在 `workspace_actors.yaml` 中为该用户登记对应记录，否则请求返回 403（`reason=actor_not_admitted`）；
 - 两个登记文件可分别用 `HIVEMEMORY_PRINCIPALS_PATH`、`HIVEMEMORY_WORKSPACE_ACTORS_PATH` 指向其他位置；修改后需要重启服务；
 - 登记文件缺失时按空登记处理，所有 Workspace 请求都会被拒绝；
+- `configs/system_principals.yaml` 中每个调用来源能否以 `system` 进入管理接口由 `allow_system_actor` 决定，默认不能；自定义过该文件时，server 的登记需要显式设为 `true`，否则管理接口返回 403（`reason=system_actor_not_allowed`）；
+- 外部 harness 的接入凭据只在登记中写环境变量名（`credential_env`），值写在 `.env` 或环境变量中，修改后重启服务；
 - 请求头中的用户身份不做证明，只适用于本地单用户部署。
 
 字段说明与规则见 [System 配置](../system/configuration.md)第 1.1 节与 [认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节。
@@ -139,7 +141,7 @@ ProviderRegistry 和 ModelRegistry 自身支持运行时 CRUD；Provider 凭证�
 
 ### 5.3 对话导入（Import Bus）
 
-Claude Code 等外部工具的对话经 `POST /api/v1/import/turns` 导入，安装与连接器配置见[安装与启动](./setup.md#9-接入-claude-code)。服务端的 `import_bus` 段只有两项，`configs/config.yaml` 中没有写出时按默认值运行：
+Claude Code 等外部工具的对话经 `POST /api/v1/import/turns` 导入，安装、凭据与连接器配置见[安装与启动](./setup.md#9-接入-claude-code)。服务端的 `import_bus` 段只有两项，`configs/config.yaml` 中没有写出时按默认值运行：
 
 | 键 | 默认值 | 说明 |
 |:---|---:|:---|

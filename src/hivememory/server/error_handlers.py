@@ -58,6 +58,7 @@ logger = logging.getLogger(__name__)
 type HTTPErrorCode = Literal[
     "request.invalid_memory_id",
     "request.identity_empty",
+    "request.principal_required",
     "request.agent_required",
     "request.agent_reserved",
     "request.workspace_not_found",
@@ -78,6 +79,7 @@ type HTTPErrorCode = Literal[
 _HTTP_ERRORS: dict[HTTPErrorCode, tuple[int, str]] = {
     "request.invalid_memory_id": (400, "无效的记忆 ID 格式"),
     "request.identity_empty": (400, "身份字段不能为空"),
+    "request.principal_required": (400, "外部入口必须以 X-Principal-ID 声明调用来源"),
     "request.agent_required": (400, "该操作必须显式提供 agent_id"),
     "request.agent_reserved": (400, "不能使用保留的 system 作为 agent_id"),
     "request.workspace_not_found": (404, "Workspace 不存在或未开放"),
@@ -173,6 +175,7 @@ _REASON_ALLOWLIST: dict[type[Exception], frozenset[str]] = {
             "authentication_gateway_closed",
             "unknown_principal",
             "adapter_mismatch",
+            "invalid_credential",
             "actor_not_allowed_for_principal",
             "actor_not_owner",
             "actor_not_admitted",

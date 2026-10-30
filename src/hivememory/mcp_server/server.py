@@ -1,0 +1,282 @@
+"""MCP 入口：把外部 harness 的工具调用归一为操作请求，经操作入口以请求级 context 提交。
+
+只提供检索与读取两个只读工具。每次工具调用以请求头中的声明（principal、
+接入凭据、用户与具体 Agent）经统一认证网关签发一份请求级访问 context，
+经门面取得的操作入口的请求级提交进入 actor API，调用结束（含失败）时撤销；
+不建进程，不派生线程。工具参数由模型生成，永远不作为身份来源；本入口也
+不组装 ``IdentityScope``。
+"""
+
+from __future__ import annotations
+
+import logging
+import sys
+import time
+from collections.abc import Callable, Mapping
+from typing import TYPE_CHECKING, Annotated
+
+from mcp.server.mcpserver import Context, MCPServer
+from mcp.types import CallToolResult, TextContent, ToolAnnotations
+from pydantic import Field
+
+from hivememory import __version__
+from hivememory.core.errors import ResourceNotFoundError
+from hivememory.core.models import MemoryAtom, PendingAtom, ReferenceResolution
+from hivememory.engines.memory_compiler import (
+    MemoryCompileOptions,
+    MemoryCompiler,
+    MemoryCompileTarget,
+    MemoryEnvelopeTarget,
+    readable_source,
+)
+from hivememory.server.deps import (
+    RequestIdentitySelection,
+    bearer_credential,
+    request_access_for_claims,
+    resolve_principal_claim,
+    resolve_request_identity_claims,
+)
+from hivememory.server.error_handlers import project_error
+from hivememory.system.access import MCP_ADAPTER
+from hivememory.workspace.contracts import (
+    OperationRequest,
+    ResolveReferencesRequest,
+    RetrieveRequest,
+)
+
+if TYPE_CHECKING:
+    from starlette.applications import Starlette
+
+    from hivememory.config.memory_compiler import RetrievalContextStrategyConfig
+    from hivememory.system import HiveMemorySystem
+
+logger = logging.getLogger(__name__)
+
+_INSTRUCTIONS = """\
+HiveMemory 保存此前对话沉淀下来的长期记忆，包括项目历史、做过的决定与用户偏好。
+- 回答涉及项目历史、此前的决定或用户偏好的问题之前，先用 memory_search 检索；
+- 检索结果是带存档日期的历史证据，可能已经过时，引用前先核实；
+- 仓库中的代码与文档、你自己的项目指令与记忆文件优先于检索结果；
+- 检索结果中的 alias 可以用 memory_read 读取全文。"""
+
+_SEARCH_DESCRIPTION = """\
+检索 HiveMemory 中的长期记忆（此前对话沉淀的项目历史、决定与用户偏好）。
+回答涉及项目历史、此前的决定或用户偏好的问题之前调用。结果是带存档日期的历史证据，\
+可能已经过时：仓库中的代码与文档、你自己的项目指令与记忆文件优先于检索结果，引用前先核实。
+结果中的 alias 可以交给 memory_read 读取全文。"""
+
+_READ_DESCRIPTION = """\
+按 alias 读取 HiveMemory 记忆的全文，alias 来自 memory_search 的结果。
+结果按请求顺序给出；找不到的 alias 列在末尾，全部找不到时返回错误。\
+读到的内容同样是带日期的历史证据，引用前先核实。"""
+
+_NO_RESULTS = "没有检索到相关记忆。"
+_UNRESOLVED = "未找到以下 alias：{aliases}"
+
+# 两个工具都只读取记忆；读取会记录引用，但不改变记忆内容。
+_READ_ONLY = ToolAnnotations(read_only_hint=True)
+
+# memory_read 交付全文：不截断，也就不会出现指引 MTP READ 的截断提示。
+_FULL_CONTENT = sys.maxsize
+
+
+def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
+    """构造带两个只读工具的 MCP 服务；门面在每次调用时取得，服务可以先于系统装配。"""
+    server = _new_server()
+    compiler = MemoryCompiler()
+
+    @server.tool(
+        name="memory_search",
+        description=_SEARCH_DESCRIPTION,
+        annotations=_READ_ONLY,
+        structured_output=False,
+    )
+    async def memory_search(
+        query: Annotated[str, Field(min_length=1, description="用自然语言描述要找的内容")],
+        ctx: Context,
+    ) -> CallToolResult:
+        started = time.monotonic()
+        headers = ctx.headers or {}
+        try:
+            system = get_system()
+            memories = await _submit(system, headers, RetrieveRequest(semantic_query=query))
+            text = _search_text(
+                compiler, memories, system.config.memory_compiler.retrieval_context.strategy
+            )
+        except Exception as error:
+            return _failed("memory_search", headers, started, error)
+        _log_call("memory_search", headers, started, f"results={len(memories)}")
+        return _text_result(text)
+
+    @server.tool(
+        name="memory_read",
+        description=_READ_DESCRIPTION,
+        annotations=_READ_ONLY,
+        structured_output=False,
+    )
+    async def memory_read(
+        aliases: Annotated[list[str], Field(min_length=1, description="要读取的记忆 alias")],
+        ctx: Context,
+    ) -> CallToolResult:
+        started = time.monotonic()
+        headers = ctx.headers or {}
+        try:
+            system = get_system()
+            results = await _submit(
+                system, headers, ResolveReferencesRequest(aliases=tuple(aliases))
+            )
+            text, unresolved = _read_text(compiler, aliases, results)
+        except Exception as error:
+            return _failed("memory_read", headers, started, error)
+        _log_call("memory_read", headers, started, f"unresolved={len(unresolved)}")
+        return _text_result(text)
+
+    return server
+
+
+def create_http_app(server: MCPServer) -> Starlette:
+    """无状态、JSON 响应的 streamable HTTP 应用，端点路径为 ``/mcp``。
+
+    每个 HTTP 请求独立处理，不保存 MCP 会话。保留 SDK 默认的 Host 与 Origin
+    检查（只接受本机地址），防止 DNS 重绑定。调用之后 ``server.session_manager``
+    才存在；挂进宿主应用后 SDK 自己的 lifespan 不会执行，宿主的 lifespan 必须
+    运行会话管理器，否则每个请求都会失败。
+    """
+    return server.streamable_http_app(stateless_http=True, json_response=True)
+
+
+def _new_server() -> MCPServer:
+    """SDK 构造时以 ``logging.basicConfig`` 给根 logger 装自己的输出。
+
+    根 logger 已有 handler 时 ``basicConfig`` 不生效。进程日志由 server 按配置
+    统一设置，而本服务在模块导入时构造、早于日志配置；构造期间挂一个占位
+    handler，否则此后每条日志都会多输出一份。
+    """
+    root = logging.getLogger()
+    placeholder = logging.NullHandler()
+    root.addHandler(placeholder)
+    try:
+        return MCPServer(name="hivememory", instructions=_INSTRUCTIONS, version=__version__)
+    finally:
+        root.removeHandler(placeholder)
+
+
+async def _submit[R](
+    system: HiveMemorySystem, headers: Mapping[str, str], request: OperationRequest[R]
+) -> R:
+    """以请求头的声明经统一认证网关签发请求级 context，经请求级提交分派后撤销。
+
+    principal 与凭据由网关核对，用户、Workspace 与 Agent 声明经 server 唯一的
+    声明解析与默认回退；context 不离开本次调用。
+    """
+    principal_id = resolve_principal_claim(headers.get("x-principal-id"))
+    claims = resolve_request_identity_claims(
+        RequestIdentitySelection(
+            user_id=headers.get("x-user-id"), workspace_id=headers.get("x-workspace-id")
+        ),
+        require_agent=True,
+        agent_id=headers.get("x-agent-id"),
+    )
+    async with request_access_for_claims(
+        claims,
+        gateway=system.access_gateway,
+        principal_id=principal_id,
+        adapter=MCP_ADAPTER,
+        credential=bearer_credential(headers.get("authorization")),
+    ) as request_access:
+        return await system.operation_entry.execute_request(request, access=request_access.access)
+
+
+def _search_text(
+    compiler: MemoryCompiler,
+    memories: list[MemoryAtom],
+    strategy: RetrievalContextStrategyConfig,
+) -> str:
+    """与 MTP SEARCH 使用同一检索上下文信封与配置的策略，去掉面向 Alice 的头尾引导。"""
+    if not memories:
+        return _NO_RESULTS
+    return compiler.compile(
+        memories,
+        MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+        MemoryCompileOptions(include_header_footer=False, retrieval_strategy_config=strategy),
+    ).text
+
+
+def _read_text(
+    compiler: MemoryCompiler, aliases: list[str], results: list[ReferenceResolution]
+) -> tuple[str, list[str]]:
+    """按请求顺序逐项编译，未解析的 alias 列在末尾；全部未解析时以资源不存在拒绝。
+
+    哪些解析结果可以交付与 MTP READ 共用 ``readable_source``。
+    """
+    blocks: list[str] = []
+    unresolved: list[str] = []
+    for alias, result in zip(aliases, results, strict=True):
+        source = readable_source(result)
+        if source is None:
+            unresolved.append(alias)
+            continue
+        # pending 句柄自带 alias；其余结果按请求的 alias 呈现，redirect 才能标出原名。
+        requested_alias = None if isinstance(source, PendingAtom) else alias
+        options = MemoryCompileOptions(
+            requested_alias=requested_alias, max_content_length=_FULL_CONTENT
+        )
+        blocks.append(compiler.compile(source, MemoryCompileTarget.MTP_READ, options).text)
+    if not blocks:
+        raise ResourceNotFoundError(details={"aliases": unresolved})
+    if unresolved:
+        blocks.append(_UNRESOLVED.format(aliases=", ".join(unresolved)))
+    return "\n".join(blocks), unresolved
+
+
+def _text_result(text: str) -> CallToolResult:
+    return CallToolResult(content=[TextContent(type="text", text=text)])
+
+
+def _failed(
+    tool: str, headers: Mapping[str, str], started: float, error: Exception
+) -> CallToolResult:
+    """复用 HTTP 出口的错误投影，写入 ``isError`` 的工具结果。
+
+    投影与 HTTP 响应体相同：错误码、安全说明与白名单内的 reason，异常正文
+    不公开。服务端错误像 HTTP 入口一样在本次调用边界记录一次完整异常栈。
+    """
+    status, payload = project_error(error)
+    _log_call(
+        tool,
+        headers,
+        started,
+        f"error={payload.error}",
+        level=logging.ERROR if status >= 500 else logging.INFO,
+        exc_info=error if status >= 500 else None,
+    )
+    return CallToolResult(
+        content=[TextContent(type="text", text=payload.model_dump_json(exclude_none=True))],
+        is_error=True,
+    )
+
+
+def _log_call(
+    tool: str,
+    headers: Mapping[str, str],
+    started: float,
+    outcome: str,
+    *,
+    level: int = logging.INFO,
+    exc_info: Exception | None = None,
+) -> None:
+    """每次工具调用一行：工具、声明的 principal 与 Agent、结果与耗时。
+
+    不记录查询、记忆正文与凭据；principal 与 Agent 是请求中的声明，按 ``%r``
+    记录，使请求方提供的文本保持在一行。
+    """
+    logger.log(
+        level,
+        "MCP tool call: tool=%s principal=%r agent=%r %s elapsed_ms=%.0f",
+        tool,
+        headers.get("x-principal-id"),
+        headers.get("x-agent-id"),
+        outcome,
+        (time.monotonic() - started) * 1000,
+        exc_info=exc_info,
+    )

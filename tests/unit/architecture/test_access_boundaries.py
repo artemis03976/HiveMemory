@@ -4,7 +4,7 @@
 接触它；CPU 只持派生的线程 context，不持进程 context。Gateway、Patchouli
 等资源 owner 与引擎位于授权点以下，资源调用只流动授权点组装的
 ``IdentityScope``；AliceCPU 将线程 context 绑定为操作提交函数，Agent loop
-与执行适配器只持提交函数和观测标签，不持有、也读不出访问 context。
+与操作适配器只持提交函数和观测标签，不持有、也读不出访问 context。
 包分层测试只能证明"子系统之间只导入
 contracts"；本模块把认证与授权两侧的依赖方向固化为精确清单：
 
@@ -164,12 +164,49 @@ def test_thread_lifecycle_is_only_consumed_by_process_threads():
         }
 
 
-def test_thread_authorization_is_only_used_by_actor_api():
-    """只有 actor 能力从线程 context 组装资源 scope，CPU 只提交请求。"""
-    assert _private_call_sites("authorize_thread_operation") == {
+def test_actor_authorization_is_only_used_by_actor_api():
+    """只有 actor 能力从线程或请求级 context 组装资源 scope，提交方只提交请求。"""
+    assert _private_call_sites("authorize_actor_operation") == {
         "workspace/capability/actor/memory.py",
         "workspace/capability/actor/agent_profiles.py",
     }
+
+
+def test_actor_api_is_reached_only_through_the_operation_entry():
+    """actor API 只经操作入口调用：组合根装配它，门面与各入口都不导入它。"""
+    actor_package = "workspace/capability/actor/"
+    importers = {
+        relative
+        for path in _source_files()
+        if not (relative := path.relative_to(SRC_ROOT).as_posix()).startswith(actor_package)
+        and _imports_any(path, ("hivememory.workspace.capability.actor",))
+    }
+    assert importers == {"workspace/capability/operations.py", "system/assembler.py"}
+
+
+def test_request_level_submission_is_only_used_by_mcp_entry():
+    """请求级提交不做线程存活判定，只有不建进程的 MCP 入口以请求级 context 调用它。"""
+    assert _private_call_sites("execute_request") == {"mcp_server/server.py"}
+
+
+def test_mcp_entry_reaches_capabilities_only_through_the_operation_entry():
+    """MCP 入口不导入 actor API、root API、任务进程与 Import Bus。"""
+    forbidden = (
+        "hivememory.workspace.capability.actor",
+        "hivememory.workspace.capability.root",
+        "hivememory.workspace.process",
+        "hivememory.system.application.import_bus_service",
+        "hivememory.system.services.import_bus",
+    )
+    files = sorted((SRC_ROOT / "mcp_server").rglob("*.py"))
+    assert files, "未扫描到 MCP 入口的源文件"
+    offenders = [
+        f"{path.relative_to(SRC_ROOT).as_posix()}: {module}"
+        for path in files
+        for module in _internal_imports(path)
+        if module.startswith(forbidden)
+    ]
+    assert offenders == []
 
 
 def _model_field_types(model: type[BaseModel]) -> list[tuple[str, object]]:
@@ -216,13 +253,13 @@ def test_cpu_visible_objects_cannot_carry_access_context():
 
 
 def test_actor_dispatch_does_not_unpack_requests_into_handlers():
-    """入口的 execute 只把五项记忆请求直接分派到能力方法；派生与结束是专用的生命周期方法。"""
+    """入口只把记忆请求直接分派到能力方法；请求级提交共用分派表，派生与结束是生命周期方法。"""
     path = SRC_ROOT / "workspace/capability/operations.py"
     tree = ast.parse(path.read_text(encoding="utf-8"))
     entry = next(n for n in tree.body if isinstance(n, ast.ClassDef))
     assert {
         n.name for n in entry.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-    } == {"__init__", "execute", "derive_child_thread", "end_thread"}
+    } == {"__init__", "execute", "execute_request", "derive_child_thread", "end_thread"}
     dispatch = next(
         n.value
         for n in ast.walk(entry)
@@ -306,7 +343,7 @@ def test_alice_resource_operations_do_not_reference_patchouli_routes():
 
 
 def test_alice_execution_does_not_import_or_reference_identity_scope():
-    """Alice 与 MTP 执行适配器不能从观测标签重建资源访问身份。"""
+    """Alice 与 MTP 操作适配器不能从观测标签重建资源访问身份。"""
     files = [path for path in _source_files() if _top_package(path) in {"alice", "agent_runtime"}]
     assert files, "未扫描到 Alice 与 agent_runtime 源文件"
     offenders: list[str] = []

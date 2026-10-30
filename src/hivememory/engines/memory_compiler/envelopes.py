@@ -45,7 +45,9 @@ def compile_envelope_from_ir(
     resolved_sections = [_resolve_section_units(s, opts) for s in bundle.sections]
 
     if bundle.purpose == MemoryEnvelopeTarget.RETRIEVAL_CONTEXT:
-        text = _compile_retrieval_context(resolved_sections, opts.language)
+        text = _compile_retrieval_context(
+            resolved_sections, opts.language, include_header_footer=opts.include_header_footer
+        )
     elif bundle.purpose == MemoryEnvelopeTarget.MTP_READ_RESPONSE:
         text = _compile_mtp_read_response(resolved_sections, opts.language)
     elif bundle.purpose == MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION:
@@ -204,8 +206,12 @@ def _apply_compact_strategy(
 def _compile_retrieval_context(
     sections: list[MemorySectionIR],
     language: str | None,
+    *,
+    include_header_footer: bool,
 ) -> str:
-    parts = [get_memory_envelope_text("retrieval_header", language)]
+    parts = (
+        [get_memory_envelope_text("retrieval_header", language)] if include_header_footer else []
+    )
     for section in sections:
         if section.kind == "memories":
             parts.append(_render_retrieval_memories_section(section, language))
@@ -215,7 +221,8 @@ def _compile_retrieval_context(
             parts.append("".join(artifact.text for artifact in section.artifacts))
         elif section.empty_text:
             parts.append(section.empty_text)
-    parts.append(get_memory_envelope_text("retrieval_footer", language))
+    if include_header_footer:
+        parts.append(get_memory_envelope_text("retrieval_footer", language))
     return "".join(parts)
 
 

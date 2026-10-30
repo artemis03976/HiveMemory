@@ -61,6 +61,7 @@ def _harness(
     first_run_at: float = STARTED_AT - 60,
     clock: Callable[[], float] | None = None,
     user_id: str | None = None,
+    token: str | None = None,
     reader: ClaudeCodeReader | None = None,
 ) -> tuple[TranscriptSync, StateStore]:
     config = ConnectorConfig(
@@ -68,6 +69,7 @@ def _harness(
         agent_id="claude_code",
         user_id=user_id,
         state_dir=tmp_path / "state",
+        token=token,
     )
     store = StateStore(config.state_dir)
     store.first_run_at(first_run_at)
@@ -477,12 +479,12 @@ def test_lost_cursor_blocks_the_transcript_instead_of_resending_it(tmp_path):
 
 
 def test_request_carries_identity_claims_and_import_fields(tmp_path):
-    """请求带来源、外部标识、Agent 与可选的用户请求头。"""
+    """请求带来源、外部标识、Agent、principal 声明、Bearer 凭据与可选的用户请求头。"""
     log = _log(tmp_path)
     log.turn("p1")
     log.turn("p2")
     transport = FakeTransport()
-    sync, _ = _harness(tmp_path, transport, user_id="alice")
+    sync, _ = _harness(tmp_path, transport, user_id="alice", token="token-1")
     sync.register(str(log.path))
 
     sync.sync(str(log.path))
@@ -493,7 +495,13 @@ def test_request_carries_identity_claims_and_import_fields(tmp_path):
         "external_conversation_id": "session-test",
         "agent_id": "claude_code",
     }
-    assert transport.headers[0]["X-User-ID"] == "alice"
+    assert {
+        key: transport.headers[0][key] for key in ("X-Principal-ID", "Authorization", "X-User-ID")
+    } == {
+        "X-Principal-ID": "harness:claude-code",
+        "Authorization": "Bearer token-1",
+        "X-User-ID": "alice",
+    }
 
 
 def test_concurrent_updates_keep_state_consistent(tmp_path):
@@ -526,7 +534,7 @@ def test_concurrent_updates_keep_state_consistent(tmp_path):
 
 
 def test_request_body_satisfies_the_import_bus_contract(tmp_path):
-    """连接器构造的请求体通过服务端请求模型的校验：两侧的字段不漂移。"""
+    """连接器构造的请求体（含记忆工具的 SEARCH 标记）通过服务端请求模型的校验：两侧不漂移。"""
     from hivememory.server.models.import_bus import ImportTurnRequest
     from tests.unit.connectors.transcripts import text, thinking, tool_use
 
@@ -535,6 +543,9 @@ def test_request_body_satisfies_the_import_bus_contract(tmp_path):
     log.prompt("p1", "修一下测试")
     log.assistant(thinking("先跑测试"), tool_use("toolu-1", "Bash", {"command": "pytest"}))
     log.tool_result("toolu-1", "1 failed", is_error=True)
+    memory_search = "mcp__plugin_hivememory-connector_hivememory__memory_search"
+    log.assistant(tool_use("toolu-2", memory_search, {"query": "测试约定"}), message_id="m1")
+    log.tool_result("toolu-2", "检索结果")
     log.assistant(text("已修复"), message_id="m2")
     log.turn("p2")
     transport = FakeTransport()
@@ -545,9 +556,11 @@ def test_request_body_satisfies_the_import_bus_contract(tmp_path):
 
     requests = [ImportTurnRequest.model_validate(body) for body in transport.bodies]
     assert [request.external_turn_id for request in requests] == ["p0", "p1"]
-    assert [event.kind for event in requests[1].events] == [
-        "thought",
-        "tool_call",
-        "tool_result",
-        "assistant_message",
+    assert [(event.kind, event.tool_kind) for event in requests[1].events] == [
+        ("thought", None),
+        ("tool_call", None),
+        ("tool_result", None),
+        ("tool_call", "SEARCH"),
+        ("tool_result", None),
+        ("assistant_message", None),
     ]

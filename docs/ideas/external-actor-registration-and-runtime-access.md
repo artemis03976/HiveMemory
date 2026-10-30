@@ -299,13 +299,13 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 ### v0.7.1 的步骤与各步的阻塞问题
 
-问题本身仍在各自的位置，这里只按步骤汇总。v0.7.1 的版本目标为 plugin 模式接入 Claude Code（1.1，owner，2026-10-20），第一步对话回流已于 2026-10-21 实施，第二步记忆访问的计划已于 2026-10-29 建立。
+问题本身仍在各自的位置，这里只按步骤汇总。v0.7.1 的版本目标为 plugin 模式接入 Claude Code（1.1，owner，2026-10-20），第一步对话回流已于 2026-10-21 实施，第二步记忆访问已于 2026-10-29 实施并归档，版本目标完成。
 
 plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code 文档](https://code.claude.com/docs/en/hooks)核对）：插件可以把 hooks 与 MCP server 打包为一个单元；`UserPromptSubmit` hook 可以在模型处理用户消息之前追加上下文，默认时限 30 秒，超时后追加的上下文被丢弃、消息照常送达；`Stop` hook 的输入带有会话记录文件的路径。由此插件有两条通路：对话回流由连接器经 hooks 在轮次结束时把交互交给 Import Bus；记忆访问经 MCP 工具，或者在用户提交消息时自动检索并注入（E-7）。
 
 **第一步：对话回流（Import Bus 重设计）**——已实施（2026-10-21，[归档计划](../archive/plans/v0.7.1-import-bus-redesign.md)）。Claude Code 插件在轮次结束时把该轮的完整记录交给 Import Bus，经统一认证网关与导入授权、Gateway 落位与共用封口进入 Patchouli，应用完成后才确认；不读取记忆，也不返回记忆上下文。当前事实见 [Import Bus](../system/import-bus.md)；真实使用验收随日常使用持续观察（[Todo](../todo/import-bus-real-use-observation.md)）。
 
-**第二步：记忆访问**——计划已建立（2026-10-29，[计划](../plans/v0.7.1-memory-access-mcp.md)）。以下是建立计划时的范围、验收方向与阻塞问题；各项决定之后的候选设计在计划中采纳或调整，以计划为准。
+**第二步：记忆访问**——已实施（2026-10-29，[归档计划](../archive/plans/v0.7.1-memory-access-mcp.md)），当前事实见 [MCP 记忆访问](../contracts/mcp.md)。以下是建立计划时的范围、验收方向与阻塞问题；各项决定之后的候选设计在计划中采纳或调整，落地结果以当前事实文档为准。
 
 - 范围：Claude Code 插件提供 MCP 工具，经能力层检索与读取记忆，访问不建进程、不绑定进程；结果带有可回查的记忆引用。
 - 验收方向：Claude Code 在会话中检索到已有记忆（包括对话回流积累与 Alice 会话形成的记忆）并实际使用；访问按 Workspace 访问登记逐次授权，越权与跨 Workspace 的访问被拒绝。与第一步合起来达到 [ROADMAP](../ROADMAP.md) 第 4.4 节的验收闭环。
@@ -470,7 +470,7 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
   - 一个 harness 对应一个 principal。principal 是接入的合法身份标识，不建进程的 plugin 模式下同样生效；adapter 标识同理，表示调用来源经哪个入口接入，外部入口不复用 `http`。
   - **owner 决定**：接入证据采用每个外部 principal 一份本地共享密钥，由网关第一阶段核对，入口只携带证据。
   - **owner 决定**：对话回流（Import Bus）在记忆访问的计划中一并迁移到 harness 自己的 principal。
-- 具体设计见[记忆访问计划](../plans/v0.7.1-memory-access-mcp.md)第 5.2、5.6 节，包括：
+- 具体设计见[记忆访问计划（已归档）](../archive/plans/v0.7.1-memory-access-mcp.md)第 5.2、5.6 节，当前事实见[认证与访问登记](../workspace/authentication.md)，包括：
   - Claude Code 的接入登记；
   - `mcp` 与 `import` 两个 adapter 标识；
   - 凭据只以环境变量名登记；
@@ -485,8 +485,13 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
   - READ、SEARCH、RUN 授权后只使用 scope；WRITE、UPDATE 还要从线程取得 `process_id`、`thread_id` 与派发话题。
 - 候选设计（分析，不是 owner 决定，可在计划评审时调整）：
   - 授权：actor 授权接受请求级绑定，目标取驻留 Workspace（与线程相同，请求不能切换 Workspace），白名单照常逐次授权；线程绑定的路径不变。
-  - 调用路径：请求级访问不经线程专用的 `WorkspaceOperationEntry`，MCP 端点经门面取得 actor API 的读取方法。这改变“actor API 只经操作入口、不经门面”的现行规则（[能力层](../workspace/capability.md#1-三个调用面)第 1 节），端点所在的包随 E-3b 确定。
+  - 调用路径（已作废，见下方复核）：请求级访问不经线程专用的 `WorkspaceOperationEntry`，MCP 端点经门面取得 actor API 的读取方法。
   - 写入：目前不开放写入类 MCP 工具。写入意图的登记需要进程关联与派发话题，不建进程的写入如何取得它们是后续必须解决的问题，随第 4 节后续步骤“写入意图经 MCP 提交”设计。
+- **复核（owner，2026-10-29，记忆访问计划阶段二实施后）**：上面的调用路径让 actor API 有了两个出口，MCP 绕过操作入口的调用约束，违背 3.4 的细化（2026-10-09）——操作适配器经 workspace 的单一操作入口调用能力层。
+  - **owner 决定**：actor API 只经操作入口，门面不交出 actor API；
+  - **owner 决定**：操作入口新增请求级提交，只开放检索与读取，门面交出操作入口供 MCP 入口使用；
+  - **owner 决定**：actor 操作的授权合并为一个方法，接受线程或请求级 context。
+  - 具体设计见[记忆访问计划（已归档）](../archive/plans/v0.7.1-memory-access-mcp.md)第 5.3、5.4 节，当前事实见[能力层](../workspace/capability.md#6-操作入口)。
 
 ## 5. 相关问题（位于其他文档）
 

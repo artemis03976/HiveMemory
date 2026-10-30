@@ -37,7 +37,6 @@ from hivememory.i18n import set_default_language
 from hivememory.infrastructure.llm import BaseLLMService, LiteLLMService, LLMRequestParams
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.access import (
-    SystemActorAccessEntry,
     SystemActorAccessRegistry,
     SystemPrincipalAuthenticator,
 )
@@ -154,10 +153,15 @@ class _CapabilitiesBundle:
 
 @dataclass
 class _ServicesBundle:
-    """门面暴露的应用服务：root 管理能力与系统编排服务。"""
+    """门面暴露的应用服务：root 管理能力、操作入口与系统编排服务。
+
+    ``operation_entry`` 是 Alice 所用的同一个操作入口，门面只为 MCP 入口交出
+    它的请求级提交；actor API 仍只经操作入口调用。
+    """
 
     process: TaskProcessService
     import_bus: ImportBusService
+    operation_entry: WorkspaceOperationEntry
     root_memory: RootMemoryService
     root_memory_task: RootMemoryTaskService
     root_agent: RootAgentProfileService
@@ -222,7 +226,9 @@ class SystemAssembler:
         processes = self._build_process_facilities(access_control)
         capabilities = self._build_capabilities(runtime, access_control, processes)
         subsystems = self._build_subsystems(runtime, registries, llm, capabilities)
-        services = self._build_services(runtime, subsystems, access_control, processes)
+        services = self._build_services(
+            runtime, subsystems, access_control, processes, capabilities
+        )
 
         return HiveMemorySystem(
             config=self._config,
@@ -334,8 +340,9 @@ class SystemAssembler:
         """装载两类访问登记并构造认证与授权两侧。
 
         System composition 负责"装载和注入配置"：接入登记从
-        ``configs/system_principals.yaml`` 装载转入 System 注册表，
-        Workspace Actor 访问登记从 ``configs/workspace_actors.yaml`` 装载
+        ``configs/system_principals.yaml`` 装载转入 System 注册表，同时从
+        环境变量读取各来源的接入凭据（未设置时告警，该来源的认证一律被
+        拒绝），Workspace Actor 访问登记从 ``configs/workspace_actors.yaml`` 装载
         转入 Workspace 注册表，operation 枚举值在装载期校验（未知值显式
         失败，不静默丢弃）。缺省空登记即 fail closed——网关拒绝一切认证。
         认证与操作授权分属两个类：认证一侧签发与撤销
@@ -345,20 +352,6 @@ class SystemAssembler:
         """
         registration = load_access_registration()
 
-        system_entries = [
-            SystemActorAccessEntry(
-                principal_id=entry.principal_id,
-                kind=entry.kind,
-                enabled=entry.enabled,
-                adapters=frozenset(entry.adapters),
-                allowed_user_ids=(
-                    frozenset(entry.allowed_user_ids)
-                    if entry.allowed_user_ids is not None
-                    else None
-                ),
-            )
-            for entry in registration.principals.principals
-        ]
         workspace_records = [
             WorkspaceActorAccessRecord(
                 owner_user_id=entry.owner_user_id,
@@ -373,7 +366,7 @@ class SystemAssembler:
             for entry in registration.workspace_actors.workspace_actors
         ]
 
-        system_registry = SystemActorAccessRegistry(system_entries)
+        system_registry = SystemActorAccessRegistry.from_config(registration.principals)
         workspace_registry = WorkspaceActorAccessRegistry(workspace_records)
         # 第 2 阶段的准入、签发与撤销归认证一侧；第 3 阶段归操作授权者
         # （无状态，读取 context 密封的授予内容）。两者互不依赖，都只读
@@ -503,6 +496,7 @@ class SystemAssembler:
         subsystems: _SubsystemBundle,
         access_control: _AccessControlBundle,
         processes: _ProcessFacilitiesBundle,
+        capabilities: _CapabilitiesBundle,
     ) -> _ServicesBundle:
         # 任务进程的编排依赖只交给执行器（四阶段骨架，所有进程共用）；
         # 注册入口只持有生命周期依赖。
@@ -598,6 +592,7 @@ class SystemAssembler:
         return _ServicesBundle(
             process=process,
             import_bus=import_bus,
+            operation_entry=capabilities.operations,
             root_memory=root_memory,
             root_memory_task=root_memory_task,
             root_agent=root_agent,

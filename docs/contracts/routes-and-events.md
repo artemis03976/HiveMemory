@@ -21,10 +21,11 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
+  - docs/contracts/mcp.md
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # 公开路由与事件
@@ -232,14 +233,16 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 
 ## 6. HTTP 入口的身份交接与管理读取边界
 
-本节固化 HTTP 身份选择、会话管理、Chat SSE 与导入入口的契约；身份选择转换为进入上述 route 的 `IdentityScope`，因为它是所有总线调用共享的前置契约。完整的认证与授权模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节。
+本节固化 HTTP 身份选择、会话管理、Chat SSE、导入与 MCP 入口的契约；身份选择转换为进入上述 route 的 `IdentityScope`，因为它是所有总线调用共享的前置契约。完整的认证与授权模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节。
 
 - 用户导向身份选择为 `user_id + workspace_id` 基础选择，Agent action（Chat、导入）由请求体附加具体 `agent_id`；基础选择只经统一请求头 `x-user-id`/`x-workspace-id` 承载，Chat/stop、导入请求体与 Topic、会话等管理路由都不接受 body 或 query 中的 user 与 Workspace 字段。
 - `server/deps.py resolve_request_identity_claims` 是唯一解析入口，只产出身份声明（actor 声明与请求进入的 Workspace），不组装 `IdentityScope`；只含空白的身份请求头拒绝（400）；未知 Workspace 拒绝（404）；Agent action 缺失具体 `agent_id` 或显式使用保留的 `system` 返回 400；非 Agent action 使用保留 `SYSTEM_AGENT_ID = "system"`（"没有具体 Agent 作为操作来源主体"，不得成为 `MemoryAccessPolicy` target）。
 - 声明交给统一认证网关取得访问 context：Chat 由任务进程的注册入口认证并创建进程；管理操作、`/chat/stop` 与导入取得绑定本次请求的请求级 context，请求结束时撤销。进入上述 route 的 `IdentityScope` 由授权点在操作授权后组装。
 - Chat 请求体的 `session_id` 绑定会话资源，缺省自动创建；不进入身份构造，finalize 关联仍使用进程 ID；`ActorIdentity` 仅包含 `user_id`、`agent_id` 与可选 `team_id`。
 - `/chat/stop` 不是 Agent action：注册入口经进程控制授权比对请求方与进程记录的驻留坐标，不可控与不存在统一按 `not_found` 返回，取消与事件发布使用进程注册时绑定的观测标签，不从当前选择重新构造身份。
-- 导入以 (user, 具体 Agent) 声明经 server 的 principal 与 `http` adapter 认证；Import Bus 服务以导入授权组装 `IdentityScope`：只校验准入与目标，不检查 actor 操作白名单，拒绝保留的 `system`（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。认证前不组装 scope，没有例外入口。
+- 外部入口（导入与 MCP）不使用 server 的 principal：请求以 `X-Principal-ID` 声明调用来源、以 `Authorization: Bearer` 携带接入凭据，`resolve_principal_claim` 解析声明（缺省返回 400 `request.principal_required`），`bearer_credential` 取出凭据，两者交给统一认证网关核对；server 的 principal 只用于前端的管理、chat 与取消路由（[认证与访问登记](../workspace/authentication.md)）。
+- 导入以请求声明的 principal、凭据与 (user, 具体 Agent) 声明经 `import` adapter 认证；Import Bus 服务以导入授权组装 `IdentityScope`：只校验准入与目标，不检查 actor 操作白名单，拒绝保留的 `system`（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。认证前不组装 scope，没有例外入口。
+- MCP 入口（`POST /mcp`）以请求头声明的 principal、凭据与 (user, 具体 Agent) 经 `mcp` adapter 认证，每次工具调用一份请求级 context，契约见 [MCP 记忆访问](./mcp.md)。
 - 管理读取（Memory/Agent Profile/Topic 管理）按 owner-management 语义执行：在 Workspace ownership hard boundary 通过后可读取该 Workspace 的 `PUBLIC/PRIVATE/TEAM` 全部 Memory，不执行 Agent 可见性过滤；Agent retrieval 仍按 `MemoryAccessPolicy` 过滤，`system` 不承担权限绕过语义。
 - Memory task list 按快照的必需 `belong_to` 过滤；get/cancel 对越域与不存在统一抛 `ResourceNotFoundError`，HTTP 统一映射为 404，任务 ID 不授予观察或取消能力。
 - 响应 DTO 中的 `user_id`（如 `MemoryResponse.user_id`）保留为对外 owner 展示兼容字段，来源是 `workspace_identity.owner_user_id`；前端不得把它反推为下一次 actor 选择。
@@ -279,9 +282,11 @@ Alice 在创建根 frame 前可推送 `context_compaction`，经 CPU 事件 sink
 | `agent_id` | 连接器代表的具体 Agent，只作为认证声明，不进入导入记录 |
 | `outcome` | `completed`、`cancelled` 或 `failed` |
 | `user_message` | 该轮的用户消息；服务端写成序号为 0 的 `user_message` 事件 |
-| `events` | 用户消息之后的事件，`sequence` 从 1 起严格递增；`kind` 为 `assistant_message`、`thought`、`tool_call` 或 `tool_result`，另有 `content`，工具事件可带 `action_id`、`tool_name`、`tool_args`、`status`（出错为 `error`）。不接受 `role`、`tool_kind`、`target`：角色由服务端按种类填写，外部工具不设 MTP 动词 |
+| `events` | 用户消息之后的事件，`sequence` 从 1 起严格递增；`kind` 为 `assistant_message`、`thought`、`tool_call` 或 `tool_result`，另有 `content`，工具事件可带 `action_id`、`tool_name`、`tool_args`、`status`（出错为 `error`）。`tool_kind` 只接受 `SEARCH`、`READ`，只为 HiveMemory 自身 MCP 工具的调用设置（[MCP 记忆访问](./mcp.md#6-工具调用名与回声标记)），其他取值以 422 拒绝，其他工具不设置。不接受 `role`、`target`：角色由服务端按种类填写 |
 | `assistant_final_text`、`model_used` | 该轮最终的回复正文与实际使用的模型名，可为空 |
 | `recent_turns` | 该轮之前最近的若干轮（`user_message`、`assistant_text`、可选的 `external_turn_id`），只供 Gateway 落位，不进入交互载荷 |
+
+请求以 `X-Principal-ID` 声明连接器的 principal、以 `Authorization: Bearer` 携带接入凭据；用户与 Workspace 选择仍只来自统一请求头。
 
 请求体上限 `import_bus.max_request_bytes`（默认 8 MiB）在框架读取并解析请求体之前判定：声明的 Content-Length 超出时不读取请求体，没有声明时边读边计数，超出即以 413 拒绝，过大且不是合法 JSON 的请求也是 413 而不是 422。
 
@@ -289,9 +294,10 @@ Alice 在创建根 frame 前可推送 `context_compaction`，经 CPU 事件 sink
 
 | 情况 | 状态码 | `error` / `reason` | 可重试 |
 |:---|:---:|:---|:---:|
-| Agent 缺失或为 `system`、身份请求头只含空白 | 400 | `request.agent_required` / `request.agent_reserved` / `request.identity_empty` | 否 |
+| 缺少 principal 声明、Agent 缺失或为 `system`、身份请求头只含空白 | 400 | `request.principal_required` / `request.agent_required` / `request.agent_reserved` / `request.identity_empty` | 否 |
 | 未知 Workspace | 404 | `request.workspace_not_found` | 否 |
-| 未获准入（接入或 Workspace 准入失败） | 403 | `workspace.admission_denied` | 否 |
+| 凭据缺失或不一致 | 403 | `workspace.admission_denied` / `invalid_credential` | 否；修正凭据后补发 |
+| 未获准入（其他接入或 Workspace 准入失败） | 403 | `workspace.admission_denied` | 否 |
 | 请求体超过上限 | 413 | `request.body_too_large` | 否 |
 | 请求校验失败 | 422 | `request.validation_failed` | 否 |
 | 认证网关已关闭（服务关闭中） | 503 | `workspace.admission_denied` / `authentication_gateway_closed` | 是 |

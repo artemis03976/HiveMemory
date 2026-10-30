@@ -4,8 +4,13 @@
 # 可用的 adapter。principal 配置不授予任何 Workspace operation——操作
 # 许可只由 workspace_actors.yaml 表达。
 #
+# - allow_system_actor：能否声明保留的 system 进入 root API，默认 false；
+# - credential_env：接入凭据所在的环境变量名，凭据本身不写入本文件。外部
+#   入口（mcp、import）的 principal 取自请求声明，列出它们的登记必须声明
+#   credential_env；环境变量未设置时照常启动并告警，该来源的认证一律被拒绝。
+#
 # 拒绝未知字段；本文件缺失时按空登记 fail closed（网关拒绝一切认证）。
-# 登记修改经重启生效，不提供热更新。
+# 登记与凭据环境变量的修改经重启生效，不提供热更新。
 
 principals:
   # HTTP 入口（server）作为 system actor 的 adapter 接入统一认证网关。
@@ -15,6 +20,7 @@ principals:
     enabled: true
     adapters:
       - "http"
+    allow_system_actor: true
 
   # Profile 注入脚本的独立本地来源；Workspace 管理仍需 system 准入与 root 授权。
   - principal_id: "hivememory:profile-injector"
@@ -22,3 +28,14 @@ principals:
     enabled: true
     adapters:
       - "local"
+    allow_system_actor: true
+
+  # Claude Code（插件中的连接器与 MCP server 共用）：经 import 导入已结束的
+  # 交互，经 mcp 检索与读取记忆，两者都以同一凭据认证；不能声明 system。
+  - principal_id: "harness:claude-code"
+    kind: "harness"
+    enabled: true
+    adapters:
+      - "mcp"
+      - "import"
+    credential_env: "HIVEMEMORY_CLAUDE_CODE_TOKEN"

@@ -270,3 +270,24 @@ class MemoryCompiler:
     ) -> MemoryBundleIR:
         metadata = {"format": options.format} if options.format else {}
         return MemoryBundleIR(purpose=target, sections=sections, metadata=metadata)
+
+
+def readable_source(
+    result: ReferenceResolution,
+) -> PendingAtom | ReferenceResolution | MemoryAtom | None:
+    """READ 交付给编译器的内容；无可交付内容时返回 ``None``，按未解析提示。
+
+    pending 交付意图句柄；带可读原子的 redirect 与 discarded/failed/expired
+    终态交付解析结果本身；正式原子交付原子；其余（not_found、不可读的
+    redirect、缺失载荷的 pending）都按未解析处理。MTP READ 与 MCP 的读取
+    工具共用这一份规则。
+    """
+    if result.kind == "pending":
+        return result.pending
+    if result.kind == "redirect":
+        return result if result.atom is not None else None
+    if result.kind == "atom":
+        return result.atom
+    if result.kind in {"discarded", "failed", "expired"}:
+        return result
+    return None

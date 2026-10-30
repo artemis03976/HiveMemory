@@ -77,6 +77,31 @@ def test_turn_events_put_user_message_first_and_fill_roles_by_kind() -> None:
     ]
 
 
+def _memory_tool_call(tool_kind: str) -> dict:
+    return {
+        "kind": "tool_call",
+        "sequence": 1,
+        "content": "",
+        "action_id": "toolu-1",
+        "tool_name": "mcp__plugin_hivememory-connector_hivememory__memory_search",
+        "tool_args": {"query": "部署流程"},
+        "tool_kind": tool_kind,
+    }
+
+
+def test_memory_tool_kind_is_carried_into_turn_events() -> None:
+    """HiveMemory 自身 MCP 工具的记忆操作标记原样写入结构化事件，生成据此只留一行轨迹。"""
+    events = _turn(events=[_memory_tool_call("SEARCH")]).to_turn_events()
+
+    assert events[1].tool_kind == "SEARCH"
+
+
+def test_tool_kind_outside_mcp_memory_reads_is_rejected() -> None:
+    """外部 harness 只能经 MCP 检索与读取记忆，其他记忆操作标记在校验时拒绝。"""
+    with pytest.raises(ValidationError, match="tool_kind"):
+        _turn(events=[_memory_tool_call("WRITE")])
+
+
 @pytest.mark.parametrize("sequences", [(1, 1), (2, 1)], ids=["repeated", "decreasing"])
 def test_non_increasing_sequences_are_rejected(sequences) -> None:
     """重复或回退的序号会让动作与回复错位，校验时拒绝。"""

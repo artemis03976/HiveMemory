@@ -15,10 +15,11 @@
 - Claude Code 在用户中断时写入 ``[Request interrupted by user...]`` 文本的用户
   条目，读到即视为该轮已被中断。
 - 助手条目的内容块：``text`` → 助手消息，``thinking`` → 思考（没有正文的跳过），
-  ``tool_use`` → 工具调用（标识与输入）；用户条目中的 ``tool_result`` → 工具
-  结果（``is_error`` 为真时状态为 ``error``）。同一条 API 消息按内容块分成多个
-  条目增量写入，每个条目带块在消息中的位置 ``apiBlockIndex``；重复写入的块按
-  消息标识与块位置去重（没有块位置时按块内容），工具调用与结果按调用标识去重。
+  ``tool_use`` → 工具调用（标识与输入，见下方的记忆操作标记）；用户条目中的
+  ``tool_result`` → 工具结果（``is_error`` 为真时状态为 ``error``）。同一条
+  API 消息按内容块分成多个条目增量写入，每个条目带块在消息中的位置
+  ``apiBlockIndex``；重复写入的块按消息标识与块位置去重（没有块位置时按块
+  内容），工具调用与结果按调用标识去重。
 - 思考只有 Claude Code 写入本地记录的部分：较新的模型默认不返回思考正文，
   只有签名，没有正文的思考块跳过。
 - ``assistant_final_text`` 按顺序拼接该轮全部助手正文，与 Alice 的最终正文
@@ -26,6 +27,12 @@
   最后一条助手条目的模型（Claude Code 为合成消息标注的 ``<synthetic>`` 除外）。
 - 最后一条助手条目的 ``message.stop_reason`` 不是 ``tool_use`` 时，该轮已经
   正常收尾；末尾一轮据此判断内容是否已经写完。
+- 本插件自身 MCP server 的两个工具（检索与读取 HiveMemory 记忆）的调用标为
+  ``SEARCH``、``READ``：取回的是已有记忆，HiveMemory 生成时只为它们保留一行
+  轨迹，不会把这些记忆再提取一遍。调用名按 Claude Code 的规则由插件名与
+  server 名拼出（``mcp__plugin_<插件名>_<server 名>__<工具名>``，``A-Z``、
+  ``a-z``、``0-9``、``_``、``-`` 以外的字符替换为 ``_``）；规则变化时标记会
+  静默失效，表现为重复记忆，不丢失数据。其他工具不标记。
 """
 
 from __future__ import annotations
@@ -44,6 +51,23 @@ SOURCE = "claude-code"
 
 _INTERRUPT_MARKER = re.compile(r"^\[Request interrupted by user[^\]]*\]$")
 _SYNTHETIC_MODEL = "<synthetic>"
+
+# 与 .claude-plugin/plugin.json 的 name 和 .mcp.json 的 server 名保持一致。
+PLUGIN_NAME = "hivememory-connector"
+MCP_SERVER_NAME = "hivememory"
+
+
+def _plugin_tool_name(tool: str) -> str:
+    """Claude Code 为插件 MCP 工具生成的调用名。"""
+    scope = re.sub(r"[^A-Za-z0-9_-]", "_", f"plugin_{PLUGIN_NAME}_{MCP_SERVER_NAME}")
+    return f"mcp__{scope}__{tool}"
+
+
+# 本插件自身 MCP 工具的调用名到记忆操作标记。
+_MEMORY_TOOL_KINDS = {
+    _plugin_tool_name("memory_search"): "SEARCH",
+    _plugin_tool_name("memory_read"): "READ",
+}
 
 
 @dataclass
@@ -276,11 +300,13 @@ def _add_assistant_block(
             return
         turn.seen_blocks.add(key)
         tool_input = block.get("input")
+        tool_name = str(block.get("name") or "")
         turn.add_event(
             "tool_call",
             "",
             action_id=action_id,
-            tool_name=str(block.get("name") or ""),
+            tool_name=tool_name,
+            tool_kind=_MEMORY_TOOL_KINDS.get(tool_name),
             tool_args=tool_input if isinstance(tool_input, dict) else {"input": tool_input},
         )
         return

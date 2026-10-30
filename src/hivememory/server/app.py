@@ -10,9 +10,11 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.routing import Route
 
 from hivememory import __version__
 from hivememory.config.app import load_app_config
+from hivememory.mcp_server import create_http_app, create_mcp_server
 from hivememory.server.deps import (
     get_system,
     init_system,
@@ -39,6 +41,11 @@ from hivememory.server.routers.workspace_assets import router as workspace_asset
 
 logger = logging.getLogger(__name__)
 
+# MCP 入口：外部 harness 经插件声明的 MCP server 检索与读取记忆。门面在每次
+# 工具调用时取得，因此可以在模块导入时先于系统装配构造。
+mcp_server = create_mcp_server(get_system)
+mcp_app = create_http_app(mcp_server)
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -57,25 +64,29 @@ async def lifespan(app: FastAPI):
     # 装配期间的日志才按配置输出。
     config = load_app_config()
     configure_logging(config.logging)
-    logger.info("正在初始化 HiveMemorySystem...")
-    system = init_system(config)
-    await system.start()
+    # MCP 会话管理器在装配系统之前进入、在系统停止之后退出：挂进宿主后 SDK
+    # 自己的 lifespan 不会执行。系统停止时先关闭认证网关，此后的工具调用得到
+    # “服务不可用”的工具结果。
+    async with mcp_server.session_manager.run():
+        logger.info("正在初始化 HiveMemorySystem...")
+        system = init_system(config)
+        await system.start()
 
-    # 初始化 WebSocket 日志广播
-    ws_manager = init_websocket_log_broadcasting(system.config)
-    app.state.ws_manager = ws_manager  # 存储到 app state
+        # 初始化 WebSocket 日志广播
+        ws_manager = init_websocket_log_broadcasting(system.config)
+        app.state.ws_manager = ws_manager  # 存储到 app state
 
-    # 后台预热推理模型（不阻塞服务启动）
-    asyncio.create_task(system.readiness_service.warmup_models())
+        # 后台预热推理模型（不阻塞服务启动）
+        asyncio.create_task(system.readiness_service.warmup_models())
 
-    logger.info("HiveMemorySystem 就绪，服务启动完成")
-    yield
+        logger.info("HiveMemorySystem 就绪，服务启动完成")
+        yield
 
-    await shutdown_system()
+        await shutdown_system()
 
-    # 清理 WebSocket 连接
-    await shutdown_websocket_log_broadcasting(ws_manager)
-    logger.info("HiveMemorySystem 已关闭")
+        # 清理 WebSocket 连接
+        await shutdown_websocket_log_broadcasting(ws_manager)
+        logger.info("HiveMemorySystem 已关闭")
 
 
 app = FastAPI(
@@ -150,6 +161,11 @@ app.include_router(providers_router, prefix="/api/v1")
 app.include_router(runtime_events_router, prefix="/api/v1")
 app.include_router(topics_router, prefix="/api/v1")
 app.include_router(workspace_assets_router, prefix="/api/v1")
+
+# MCP 端点必须在 SPA 兜底路由之前登记。以路由而不是挂载接入：挂载在 /mcp
+# 的子应用只匹配 /mcp/ 下的路径，插件声明的 /mcp 会被重定向。端点是 ASGI
+# 应用，路由不限定方法，原样交给它处理。
+app.router.routes.append(Route("/mcp", endpoint=mcp_app))
 
 # ==========================================
 # 前后端整合与静态资源挂载 (生产环境与开发环境切换)

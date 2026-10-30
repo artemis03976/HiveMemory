@@ -92,6 +92,16 @@ def _load_dotenv_sources() -> dict[str, str]:
     return values
 
 
+def environment_value(name: str) -> str | None:
+    """按配置加载器的同一来源读取一个变量：进程环境变量优先，其次是 ``.env`` 文件。
+
+    密钥按约定可以写在 ``.env`` 中；本地运行时 ``.env`` 不会导出为进程环境
+    变量，只读进程环境变量就读不到写在那里的值。
+    """
+    value = os.environ.get(name)
+    return value if value is not None else _load_dotenv_sources().get(name)
+
+
 def legacy_env_alias_settings_source() -> dict[str, Any]:
     """把 ``LEGACY_ENV_ALIASES`` 中的扁平环境变量名映射到嵌套配置结构，已有部署无需改名。"""
     raw_values = _load_dotenv_sources()
@@ -303,6 +313,7 @@ __all__ = [
     "get_gateway_llm_config",
     "HIVEMEMORY_ENV_PREFIX",
     "LEGACY_ENV_ALIASES",
+    "environment_value",
     "get_config_file_path",
     "get_default_config_file_path",
     "yaml_config_settings_source",

@@ -7,7 +7,7 @@
     {
       "name": "hivememory-connector",
       "source": "./claude-code",
-      "description": "把 Claude Code 中已经结束的对话轮次导入 HiveMemory。"
+      "description": "把 Claude Code 中已经结束的对话轮次导入 HiveMemory，并让 Claude Code 经 MCP 工具检索与读取 HiveMemory 的记忆。"
     }
   ]
 }

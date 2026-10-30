@@ -43,6 +43,7 @@ LAYERS: dict[str, int] = {
     "agent_runtime": 3,
     "system": 4,
     "server": 5,
+    "mcp_server": 5,
 }
 SUBSYSTEM_LAYER = 3
 # 同一子系统的不同包：互相导入不受 contracts 限制。

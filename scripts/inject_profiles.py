@@ -96,6 +96,7 @@ async def main(user_id: str, principal_id: str = "hivememory:profile-injector") 
         access = await system.access_gateway.authenticate(
             adapter="local",
             principal=CallerPrincipal(principal_id=principal_id),
+            credential=None,
             actor=ActorIdentity(user_id=user_id, agent_id=SYSTEM_AGENT_ID),
             workspace=target_workspace,
             binding=RunBinding.for_request(f"profile-injection:{uuid4()}"),

@@ -1,16 +1,19 @@
 """Claude Code 会话记录读取器的单元测试（合成会话记录，不读取真实对话）。
 
 保护的契约：一轮从 ``turnOrigin`` 为 human 的消息开始；助手文本、思考、工具
-调用与工具结果映射为导入事件；子代理、元条目、压缩摘要、注入的内容、系统
-条目与不认识的条目跳过；中断标记结束一轮；重复写入的块按消息与块位置去重；
-只读完整行；游标之前的条目不形成轮次。
+调用与工具结果映射为导入事件；本插件自身的 MCP 记忆工具标为 SEARCH、READ；
+子代理、元条目、压缩摘要、注入的内容、系统条目与不认识的条目跳过；中断标记
+结束一轮；重复写入的块按消息与块位置去重；只读完整行；游标之前的条目不形成
+轮次。
 """
 
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
-from connector.claude_code.reader import ClaudeCodeReader
+from connector.claude_code.reader import MCP_SERVER_NAME, PLUGIN_NAME, ClaudeCodeReader
+from connector.core.config import PRINCIPAL_ID
 
 from tests.unit.connectors.transcripts import (
     TranscriptWriter,
@@ -73,6 +76,44 @@ def test_turn_maps_thinking_tool_calls_results_and_final_text(tmp_path):
     # 与 Alice 的最终正文一致：按顺序拼接全部助手正文，工具调用之间的叙述也保留。
     assert turn.assistant_final_text == "我先运行测试。\n\n已修复\n\n测试通过"
     assert turn.model_used == "claude-opus"
+
+
+def test_only_this_plugins_memory_tools_are_marked_as_memory_operations(tmp_path):
+    """本插件 MCP 工具的检索与读取标为 SEARCH、READ；其他 server 的同名工具与普通工具不标记。
+
+    调用名固定为 Claude Code 文档给出的格式，拼名规则出错时这里失败。
+    """
+    log = TranscriptWriter(tmp_path / "s.jsonl")
+    log.prompt("p1", "之前怎么部署的")
+    calls = [
+        ("toolu-1", "mcp__plugin_hivememory-connector_hivememory__memory_search"),
+        ("toolu-2", "mcp__plugin_hivememory-connector_hivememory__memory_read"),
+        ("toolu-3", "mcp__other__memory_search"),
+        ("toolu-4", "Bash"),
+    ]
+    for index, (tool_id, name) in enumerate(calls):
+        log.assistant(tool_use(tool_id, name, {"query": "部署"}), message_id=f"m{index}")
+        log.tool_result(tool_id, "结果")
+
+    [turn] = reader.read(str(log.path), 0)
+
+    assert [event.get("tool_kind") for event in turn.events if event["kind"] == "tool_call"] == [
+        "SEARCH",
+        "READ",
+        None,
+        None,
+    ]
+
+
+def test_connector_constants_match_plugin_declarations():
+    """标记依赖插件名与 server 名，导入依赖 principal：插件清单或 .mcp.json 改名时这里失败。"""
+    plugin_root = Path(__file__).resolve().parents[3] / "integrations" / "claude-code"
+    manifest = json.loads((plugin_root / ".claude-plugin" / "plugin.json").read_text())
+    servers = json.loads((plugin_root / ".mcp.json").read_text())["mcpServers"]
+
+    assert manifest["name"] == PLUGIN_NAME
+    assert list(servers) == [MCP_SERVER_NAME]
+    assert servers[MCP_SERVER_NAME]["headers"]["X-Principal-ID"] == PRINCIPAL_ID
 
 
 def test_next_prompt_closes_the_previous_turn_at_its_line(tmp_path):

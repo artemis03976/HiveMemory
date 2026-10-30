@@ -16,10 +16,12 @@ code_paths:
   - integrations/claude-code/
   - integrations/.claude-plugin/marketplace.json
   - configs/workspace_actors.yaml
+  - configs/system_principals.yaml
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
+  - docs/contracts/mcp.md
 related_docs:
   - docs/workspace/identity-and-authorization.md
   - docs/workspace/authentication.md
@@ -31,7 +33,8 @@ related_docs:
   - docs/help/setup.md
 related_plans:
   - docs/archive/plans/v0.7.1-import-bus-redesign.md
-last_reviewed: 2026-10-27
+  - docs/archive/plans/v0.7.1-memory-access-mcp.md
+last_reviewed: 2026-10-29
 ---
 
 # Import Bus
@@ -63,7 +66,7 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 
 ## 3. HTTP 入口
 
-`POST /api/v1/import/turns`，请求体是 harness 一轮已结束交互的完整记录。请求模型拒绝未知字段：
+`POST /api/v1/import/turns`，请求体是 harness 一轮已结束交互的完整记录。请求以 `X-Principal-ID` 声明连接器的 principal、以 `Authorization: Bearer` 携带接入凭据（第 4.1 节），用户与 Workspace 选择只来自统一请求头。请求模型拒绝未知字段：
 
 | 字段 | 说明 |
 |:---|:---|
@@ -73,12 +76,13 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 | `agent_id` | 连接器所代表的具体 Agent，只作为认证声明，不进入导入记录 |
 | `outcome` | `completed`、`cancelled` 或 `failed`，与 `InteractionOutcome` 相同 |
 | `user_message` | 该轮的用户消息 |
-| `events` | 用户消息之后的事件：`kind`（`assistant_message`、`thought`、`tool_call`、`tool_result`）、`sequence`（从 1 起严格递增）、`content`，工具事件另带 `action_id`、`tool_name`、`tool_args`、`status`（出错的结果为 `error`） |
+| `events` | 用户消息之后的事件：`kind`（`assistant_message`、`thought`、`tool_call`、`tool_result`）、`sequence`（从 1 起严格递增）、`content`，工具事件另带 `action_id`、`tool_name`、`tool_args`、`status`（出错的结果为 `error`），HiveMemory 自身 MCP 工具的调用另带 `tool_kind`（`SEARCH` 或 `READ`） |
 | `assistant_final_text` | 该轮最终的自然语言回复，可为空 |
 | `model_used` | 实际使用的模型名，可为空 |
 | `recent_turns` | 该轮之前的若干轮（`user_message`、`assistant_text`、可选 `external_turn_id`），只供 Gateway 落位，不进入交互记录 |
 
-- 事件不携带 `role`、`tool_kind`、`target` 与 `render_as`。服务端把 `user_message` 写成序号为 0 的 `user_message` 事件，再按事件种类填写角色（工具结果为 `system`，其余为 `assistant`）。`tool_kind` 只表示 MTP 动词，外部工具不设置，因此导入的工具调用不会产生 MTP 轨迹，也不会被误当作记忆操作；生成视图把这类动作按思考、工具名、参数摘要与截断后的结果渲染（[生成](../patchouli/generation.md)）。
+- 事件不携带 `role`、`target` 与 `render_as`。服务端把 `user_message` 写成序号为 0 的 `user_message` 事件，再按事件种类填写角色（工具结果为 `system`，其余为 `assistant`）。
+- `tool_kind` 标记对 HiveMemory 能力层的记忆操作，包括 Alice 的 MTP 动词与 HiveMemory 自身 MCP 工具的读取；导入只接受 `SEARCH` 与 `READ`，其他取值以 422 拒绝，原样写入 `TurnEvent.tool_kind`。外部 harness 经 MCP 取回的记忆会作为工具结果留在会话记录里并随本轮导入，生成视图对带 `tool_kind` 的动作只保留一行轨迹、不渲染结果，与 MTP 的 SEARCH、READ 相同，因此不会把已有记忆再提取一遍（回声）；其他外部工具不设置，生成视图把它们按思考、工具名、参数摘要与截断后的结果渲染（[生成](../patchouli/generation.md)）。哪些调用要标记由连接器按 [MCP 记忆访问](../contracts/mcp.md#6-工具调用名与回声标记)的工具名对应负责，交互记录与 Artifact 仍保存包括结果在内的原始事件。
 - 序号重复或回退会让动作与回复错位，请求以 422 拒绝。
 - 请求体上限 `import_bus.max_request_bytes` 在框架读取并解析请求体之前判定（自定义路由类 `BodyLimitedRoute`）：声明的 `Content-Length` 超限时不读取请求体，没有声明长度时边读边计数，超限即停止。两种情况都返回 413（`request.body_too_large`），过大且不是合法 JSON 的请求因此也是 413 而不是 422。
 
@@ -96,11 +100,11 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 
 ### 4.1 认证与导入授权
 
-导入是 Agent action：server 用 `resolve_request_identity_claims(require_agent=True)` 把请求头的用户选择与请求体的 `agent_id` 解析为 (user, 具体 Agent) 声明，缺失 `agent_id` 返回 400（`request.agent_required`），显式给出保留的 `system` 返回 400（`request.agent_reserved`）；`X-Workspace-ID` 只接受 `main_workspace`，其他值返回 404。随后以 server 自身的 principal 与 `http` adapter 经统一认证网关取得请求级 context（`request_access_for_claims`），请求结束时撤销；认证前不组装 `IdentityScope`，也不为连接器另行登记 principal。请求头中的用户身份不做证明，沿用本地单用户部署的信任假设。
+导入是 Agent action：server 用 `resolve_request_identity_claims(require_agent=True)` 把请求头的用户选择与请求体的 `agent_id` 解析为 (user, 具体 Agent) 声明，缺失 `agent_id` 返回 400（`request.agent_required`），显式给出保留的 `system` 返回 400（`request.agent_reserved`）；`X-Workspace-ID` 只接受 `main_workspace`，其他值返回 404。principal 取自请求头 `X-Principal-ID`，缺省返回 400（`request.principal_required`）；凭据取自 `Authorization: Bearer`。随后以请求声明的 principal、`import` adapter 与凭据经统一认证网关取得请求级 context（`request_access_for_claims`），请求结束时撤销；凭据由网关第一阶段核对，缺失或不一致以 403 `invalid_credential` 拒绝。连接器以 Claude Code 自己的接入登记 `harness:claude-code` 认证，与插件中的 MCP server 共用（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）；server 的 principal 只用于前端路由。认证前不组装 `IdentityScope`。请求头中的用户身份不做证明，沿用本地单用户部署的信任假设。
 
 workspace 授权点的 `authorize_import` 只校验 context 有效、已准入且目标等于驻留 Workspace，不检查 actor 操作白名单，拒绝保留的 `system` 作为发起者（`OperationDeniedError`，reason `agent_required`），返回本次请求的 `IdentityScope` 与认证通过的 principal 标识。不检查白名单的理由：导入提交的是已经在外部发生的交互，与任务进程封口后提交交互记录同类，不调用任何 actor 操作，因此白名单为空的 Agent 也能导入。`authorize_import` 的生产调用位置由架构测试锁定为 `system/application/import_bus_service.py`。
 
-`IdentityScope` 只在这一次导入的调用链内经公共路由到达 Gateway 与 Patchouli，不写入记录、事件或后台任务；Patchouli 在提交边界把它拆为归属（目标 Workspace）与发起者（认证通过的 user 与 Agent）。访问模型见[身份与授权](../workspace/identity-and-authorization.md)，访问登记的匹配规则见[认证与访问登记](../workspace/authentication.md#2-两类访问登记)。随仓库发布的 `configs/workspace_actors.yaml` 为 `default` 用户在 `main_workspace` 登记了 `claude_code` 的精确记录，`allowed_operations` 为空：精确记录优先于用户级记录，这个 Agent 只能准入，不继承用户级的六项 actor 操作。
+`IdentityScope` 只在这一次导入的调用链内经公共路由到达 Gateway 与 Patchouli，不写入记录、事件或后台任务；Patchouli 在提交边界把它拆为归属（目标 Workspace）与发起者（认证通过的 user 与 Agent）。访问模型见[身份与授权](../workspace/identity-and-authorization.md)，访问登记的匹配规则见[认证与访问登记](../workspace/authentication.md#2-两类访问登记)。随仓库发布的 `configs/workspace_actors.yaml` 为 `default` 用户在 `main_workspace` 登记了 `claude_code` 的精确记录，`allowed_operations` 为 `memory.read` 与 `memory.search`，供 MCP 工具使用；导入不读取白名单，不受它影响。精确记录优先于用户级记录，这个 Agent 不继承用户级的其余四项 actor 操作。
 
 ### 4.2 编排顺序
 
@@ -122,7 +126,7 @@ workspace 授权点的 `authorize_import` 只校验 context 有效、已准入�
 
 ### 4.3 交互标识与串行
 
-`interaction_id` 是 `import_` 加上对（principal、user、Agent、`source`、`external_conversation_id`、`external_turn_id`）规范化 JSON 序列取 SHA-256 的前 32 位十六进制。同一轮重发得到同一标识，队列据此幂等；当前认证方式下 principal 恒为 server，纳入认证通过的 actor 使代表不同用户或 Agent 的连接器不会撞号；前缀把它与任务进程的 `process_id` 及其他来源的标识分开。
+`interaction_id` 是 `import_` 加上对（principal、user、Agent、`source`、`external_conversation_id`、`external_turn_id`）规范化 JSON 序列取 SHA-256 的前 32 位十六进制。同一轮重发得到同一标识，队列据此幂等；principal 是连接器声明、经凭据核对的接入来源（Claude Code 为 `harness:claude-code`），纳入认证通过的 actor 使代表不同用户或 Agent 的连接器不会撞号；前缀把它与任务进程的 `process_id` 及其他来源的标识分开。
 
 编排器按（user、Agent、`source`、`external_conversation_id`）持 `KeyedSerialGate`（[运行时与总线](../components/runtime-and-bus.md#5-keyedserialgate)），门内依次完成进度查询、Gateway、提交与等待应用。同一外部会话的并发请求（例如两个 hook 同时触发补发）因此按到达顺序处理，后到的请求看到前一个的结果；串行门持有到应用完成，同一外部会话的下一轮路由时，上一轮新建的话题已经建立，可以成为候选与续接的落点。不同外部会话互不阻塞。串行键只用于进程内排序，不参与授权。
 
@@ -163,8 +167,10 @@ workspace 授权点的 `authorize_import` 只校验 context 有效、已准入�
 |:---|:---:|:---|:---|
 | 请求校验失败（未知字段、序号不递增等） | 422 | `request.validation_failed` | 写入拒绝记录，前进 |
 | 请求体超过上限 | 413 | `request.body_too_large` | 写入拒绝记录，前进 |
+| 缺少 `X-Principal-ID` | 400 | `request.principal_required` | 保留游标，停止（配置问题） |
 | 缺少 `agent_id` 或为 `system` | 400 | `request.agent_required` / `request.agent_reserved` | 保留游标，停止（配置问题） |
 | `X-Workspace-ID` 不是 `main_workspace` | 404 | `request.workspace_not_found` | 保留游标，停止 |
+| 凭据未配置或不一致 | 403 | `workspace.admission_denied` / `invalid_credential` | 保留游标，停止；修正凭据后补发 |
 | 未获准入 | 403 | `workspace.admission_denied`（如 `actor_not_admitted`） | 保留游标，停止 |
 | 认证网关已关闭 | 503 | `workspace.admission_denied` / `authentication_gateway_closed` | 保留游标，稍后重发 |
 | Gateway 整体抛出可恢复异常 | 503 | `import_bus.unavailable` / `gateway_unavailable` | 保留游标，稍后重发 |
@@ -226,7 +232,8 @@ Gateway 请求时限（`gateway.workflow.default_request_timeout_ms`，默认 80
 ### 8.1 组成
 
 - `integrations/.claude-plugin/marketplace.json`：本地 marketplace `hivememory-local`，只列出插件 `hivememory-connector`（来源 `./claude-code`），供本机安装，不发布。
-- `integrations/claude-code/.claude-plugin/plugin.json` 与 `hooks/hooks.json`：插件清单与四个命令 hook。
+- `integrations/claude-code/.claude-plugin/plugin.json` 与 `hooks/hooks.json`：插件清单与四个命令 hook；插件说明同时覆盖对话回流与记忆访问。
+- `integrations/claude-code/.mcp.json`：插件声明的 MCP server `hivememory`（HTTP，`${HIVEMEMORY_URL:-http://localhost:8000}/mcp`），请求头带 principal、`Bearer ${HIVEMEMORY_TOKEN}`、用户与 Agent 声明；插件启用后 Claude Code 自动连接，HiveMemory 不可用时重试后标为连接失败，工具不出现，工作照常进行（[MCP 记忆访问](../contracts/mcp.md)）。
 - `hivememory_hook.py`：启动脚本，把插件根目录放进导入路径后交给 `connector` 的命令行入口（`hook <事件>`、`sync --transcript <路径>`、`sync --all`）。
 - `connector/core/`：与 harness 无关的公共骨架——配置、状态与游标、提交与结果分类、同步循环、日志；`connector/claude_code/`：Claude Code 会话记录的读取器与 hook 处理。接入第二个 harness 时只需新增读取器。
 - `scripts/transcript_stats.py`：维护工具，只统计会话记录的字段名、类型、计数与固定标记，不输出正文，用于在 Claude Code 升级后核对记录结构。
@@ -250,7 +257,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录）
 
 - 只读取 `user` 与 `assistant` 条目，跳过 `isSidechain`（子代理）、`isMeta`、`isCompactSummary` 条目与 `system` 条目（压缩边界、API 错误等）；只读完整的行。
 - 一轮从一条 `turnOrigin` 为 `human`、内容不是工具结果的用户条目开始，到下一条这样的条目之前为止；轮次标识取该条目的 `uuid`，外部会话标识取它的 `sessionId`（缺失时取会话记录的文件名）。`[Request interrupted by user...]` 标记立即结束一轮（结局 `cancelled`）。
-- 助手内容块 `text` → `assistant_message`，`thinking` → `thought`（没有正文的跳过：较新的模型默认只在本地记录签名），`tool_use` → `tool_call`（`action_id` 为调用标识，`tool_args` 为输入）；用户条目中的 `tool_result` → `tool_result`（`is_error` 为真时 `status` 为 `error`）。同一条 API 消息按内容块分条增量写入，重复的块按消息标识与块位置去重，工具调用与结果按调用标识去重。
+- 助手内容块 `text` → `assistant_message`，`thinking` → `thought`（没有正文的跳过：较新的模型默认只在本地记录签名），`tool_use` → `tool_call`（`action_id` 为调用标识，`tool_args` 为输入；本插件自身 MCP 工具的两种调用名分别标 `tool_kind` 为 `SEARCH`、`READ`，调用名由插件名与 server 名两个常量按 Claude Code 的规则拼出，其他工具不标记）；用户条目中的 `tool_result` → `tool_result`（`is_error` 为真时 `status` 为 `error`）。同一条 API 消息按内容块分条增量写入，重复的块按消息标识与块位置去重，工具调用与结果按调用标识去重。
 - `assistant_final_text` 按顺序拼接该轮全部助手正文，与 Alice 的最终正文一致，工具调用之间的叙述也进入记忆生成；`model_used` 取最后一条助手条目的模型（`<synthetic>` 除外）。
 - `recent_turns` 取该轮之前最近三轮已确认轮次的用户消息、最终正文与 `external_turn_id`；正文各截断到 2000 字符，避免一轮过大的内容拖着后续轮次一起超过请求体上限。
 
@@ -273,7 +280,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录）
 | 2xx（`accepted`、`duplicate`、`skipped`） | 前进 |
 | 网络错误、429、502、503、504 | 保留游标，停止处理这份会话记录，等下次唤醒 |
 | 413、422（这一轮内容本身的问题） | 写入拒绝记录，前进 |
-| 其他 4xx（身份声明、准入、地址或版本不对） | 保留游标，停止处理：这是连接器配置的问题，前进会让后续轮次全部丢失，修正配置后补发 |
+| 其他 4xx（凭据未配置或不一致、身份声明、准入、地址或版本不对） | 保留游标，停止处理：这是连接器配置的问题，前进会让后续轮次全部丢失，修正配置后补发 |
 | 500 等其他 5xx | 同一轮连续第三次时写入拒绝记录并前进，否则保留游标、停止 |
 
 服务端按推导出的交互标识去重，在其查重保留窗口内，确认丢失后的重发不会形成重复交互。
@@ -285,7 +292,10 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录）
 | `HIVEMEMORY_URL` | `http://localhost:8000` | HiveMemory 服务地址 |
 | `HIVEMEMORY_USER_ID` | 不发送 | 作为 `X-User-ID` 请求头发送；缺省时由服务端取默认用户 |
 | `HIVEMEMORY_AGENT_ID` | `claude_code` | 请求体中的 `agent_id` |
+| `HIVEMEMORY_TOKEN` | 不发送 | 接入凭据，作为 `Authorization: Bearer` 发送（去掉首尾空白）；未设置时服务端以 `invalid_credential` 拒绝，连接器保留游标等待补发 |
 | `HIVEMEMORY_CONNECTOR_STATE_DIR` | 见下 | 状态目录 |
+
+每次提交另以常量 `harness:claude-code` 作为 `X-Principal-ID` 发送。服务端一侧对应的凭据环境变量是 `HIVEMEMORY_CLAUDE_CODE_TOKEN`，两侧需要配置同一份凭据（[配置](./configuration.md)）。
 
 状态目录依次取 `HIVEMEMORY_CONNECTOR_STATE_DIR`、Claude Code 提供的插件数据目录 `CLAUDE_PLUGIN_DATA`，都没有时用 `~/.hivememory/claude-code-connector`；后台同步进程沿用 hook 解析出的状态目录。目录中保存 `transcripts/`（各会话记录的状态）、`connector.json`（首次运行时间）、`rejections.jsonl`（拒绝记录：会话与轮次标识、状态码、错误码与原因）与 `connector.log`（超过 1 MiB 时轮转一份）。状态、拒绝记录与日志只保存标识、位置与状态，不保存会话正文。
 
@@ -308,7 +318,8 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录）
 - 话题路由失败时续接上一轮的兜底，会把用户恰在故障期间换了话题的轮次归入旧话题。
 - 超过请求体上限的一轮以 413 整轮跳过；提交队列的终态工作记录保存完整的编码载荷，工具输出很大时占用可观的内存。
 - 工具结果可能包含密钥、令牌等凭据：连接器不筛选，原文随交互 Artifact 持久化，截断后的结果进入生成转写；提取提示词要求不把凭据写入记忆。
-- 请求头中的用户身份不做证明，只适用于本地单用户部署。
+- 请求头中的用户身份不做证明，只适用于本地单用户部署；接入凭据是本地共享密钥，修改经重启生效。
+- 回声标记依赖 Claude Code 的工具调用命名规则：规则变化时标记静默失效，回声恢复，表现为重复记忆，不丢失数据。READ 轨迹的目标取工具名，导入的 MCP 读取在生成视图中看不出读了哪些 alias（[Todo](../todo/imported-read-trace-alias.md)）。
 - 连接器依赖 Claude Code 未公开承诺的会话记录格式；本地记录中的思考多数只有签名，连接器只能转交有正文的部分。30 分钟无新条目即按中断结束的规则，会把等待权限确认超过 30 分钟、恰逢其他会话唤醒补发的一轮按中断提交，之后写入的内容不再导入。连接器只在 Linux（WSL）上验证过，Windows 上的文件锁以持续重试取得。
 
 这些项目在真实使用中的观察见 [Import Bus 真实使用观察 Todo](../todo/import-bus-real-use-observation.md)。
@@ -328,9 +339,9 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录）
 测试：
 
 - 编排（进度查询、跳过、Gateway 输入、等待应用与重发、失败分类、串行、事件脱敏、关闭）：`tests/unit/system/services/import_bus/test_ingestor.py`；输入模型与交互标识：`tests/unit/system/services/import_bus/test_models.py`；
-- HTTP 入口（声明、准入、413 在解析前判定、503/500 映射）：`tests/unit/server/routers/test_import_bus.py`、`tests/unit/server/test_error_handlers.py`；
+- HTTP 入口（principal 与凭据、声明、准入、413 在解析前判定、503/500 映射）：`tests/unit/server/routers/test_import_bus.py`、`tests/unit/server/test_error_handlers.py`；
 - 导入授权与调用位置：`tests/unit/workspace/test_access.py`、`tests/unit/architecture/test_access_boundaries.py`；
 - 封口：`tests/unit/core/protocol/test_seal_interaction.py`；提交队列的状态、等待与失败后重交：`tests/unit/patchouli/control/test_interaction_submission.py`；
 - 装配与关闭：`tests/unit/system/application/test_api_services.py`、`tests/unit/system/test_hivememory_system.py`、`tests/unit/system/test_lifecycle.py`；配置：`tests/unit/system/test_config_agent_runtime.py`；
 - 真实队列与感知的协作：`tests/integration/system/test_import_bus_submission.py`；离线 E2E：`tests/e2e/system/test_import_turns.py`；
-- 连接器：`tests/unit/connectors/test_claude_code_reader.py`、`tests/unit/connectors/test_claude_code_hooks.py`、`tests/unit/connectors/test_sync.py`。
+- 连接器（含回声标记、插件声明与常量一致、principal 与凭据请求头）：`tests/unit/connectors/test_claude_code_reader.py`、`tests/unit/connectors/test_claude_code_hooks.py`、`tests/unit/connectors/test_sync.py`。

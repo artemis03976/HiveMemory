@@ -103,7 +103,7 @@ class OperationEntry(Protocol):
 class OperationSubmitter(Protocol):
     """CPU 侧唯一的线程句柄：线程描述、提交函数与子线程的派生和结束。
 
-    执行适配器、frame 与 CALL 编排只持有句柄，读不出 context；帧持有所属
+    操作适配器、frame 与 CALL 编排只持有句柄，读不出 context；帧持有所属
     线程的句柄，帧与线程的对应关系由此建立。
     """
 

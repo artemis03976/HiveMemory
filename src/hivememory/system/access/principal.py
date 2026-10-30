@@ -9,7 +9,10 @@ Workspace operation。
 
 from __future__ import annotations
 
+import hmac
+
 from hivememory.core.access import CallerPrincipal
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import AdmissionDeniedError
 from hivememory.core.models import ActorIdentity
 from hivememory.system.access.registry import SystemActorAccessRegistry
@@ -22,11 +25,16 @@ __all__ = [
 class SystemPrincipalAuthenticator:
     """按 System 接入登记完成 Principal authentication。
 
-    拒绝语义（均为 ``AdmissionDeniedError``，以稳定 reason 区分）：
+    按以下顺序检查，拒绝均为 ``AdmissionDeniedError``，以稳定 reason 区分：
 
     - 接入未登记/禁用（不区分，避免泄漏配置）→ ``unknown_principal``；
     - adapter 不匹配 → ``adapter_mismatch``；
-    - principal 身份解析规则不允许该用户 → ``actor_not_allowed_for_principal``。
+    - 登记了凭据而未提供一致的凭据 → ``invalid_credential``；
+    - principal 身份解析规则不允许该用户 → ``actor_not_allowed_for_principal``；
+    - 不允许声明 ``system`` 的来源声明了它 → ``system_actor_not_allowed``。
+
+    凭据错误与未登记分开报告，用户才能区分"没登记"与"凭据不对"；两者都
+    不携带凭据本身。
     """
 
     def __init__(self, registry: SystemActorAccessRegistry) -> None:
@@ -37,9 +45,10 @@ class SystemPrincipalAuthenticator:
         *,
         adapter: str,
         principal: CallerPrincipal,
+        credential: str | None,
         actor: ActorIdentity,
     ) -> None:
-        """确认调用来源已登记、adapter 匹配且可服务该 Actor 用户。"""
+        """确认调用来源已登记、adapter 与凭据匹配，且可服务该 Actor。"""
         entry = self._system_registry.entry_for(principal.principal_id)
         # 未登记与已禁用统一按未知 principal 拒绝，不区分，避免泄漏配置。
         if entry is None or not entry.enabled:
@@ -58,6 +67,16 @@ class SystemPrincipalAuthenticator:
                     "reason": "adapter_mismatch",
                 },
             )
+        if entry.credential_env is not None and not _credential_matches(
+            credential, entry.credential
+        ):
+            raise AdmissionDeniedError(
+                message="调用来源的接入凭据无效",
+                details={
+                    "principal_id": principal.principal_id,
+                    "reason": "invalid_credential",
+                },
+            )
         if entry.allowed_user_ids is not None and actor.user_id not in entry.allowed_user_ids:
             raise AdmissionDeniedError(
                 message="接入登记的身份解析规则不允许该 Actor 用户",
@@ -66,3 +85,18 @@ class SystemPrincipalAuthenticator:
                     "reason": "actor_not_allowed_for_principal",
                 },
             )
+        if actor.agent_id == SYSTEM_AGENT_ID and not entry.allow_system_actor:
+            raise AdmissionDeniedError(
+                message="该调用来源不能声明保留的 system actor",
+                details={
+                    "principal_id": principal.principal_id,
+                    "reason": "system_actor_not_allowed",
+                },
+            )
+
+
+def _credential_matches(provided: str | None, expected: str | None) -> bool:
+    """以常量时间比较凭据；登记的凭据为空（环境变量未设置）时一律不匹配。"""
+    if not provided or not expected:
+        return False
+    return hmac.compare_digest(provided.encode(), expected.encode())

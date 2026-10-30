@@ -101,12 +101,32 @@ class WorkspaceOperationAuthorizer:
         """
         return self._thread_grant(access).binding
 
-    def authorize_thread_operation(
+    def authorize_actor_operation(
         self, access: WorkspaceAccessContext, operation: WorkspaceOperation
     ) -> IdentityScope:
-        """线程只在驻留 Workspace 发起操作，目标从密封授予内容取得。"""
-        grant = self._thread_grant(access)
+        """actor 只在驻留 Workspace 发起操作，目标从密封授予内容取得。
+
+        接受执行线程 context 与请求级 context（不建进程的外部入口每次调用
+        签发一份）；哪种提交方式能使用哪些操作由操作入口决定，不在这里区分。
+        进程 context 只服务阶段调用，以 ``ScopeRequiredError`` 拒绝。
+        """
+        grant = self._actor_grant(access)
         return self.authorize_operation(access, operation, grant.workspace)
+
+    @staticmethod
+    def _actor_grant(access: WorkspaceAccessContext) -> AccessGrant:
+        """凭据已撤销表示线程已结束，类型或运行种类错误属于接线缺陷。
+
+        请求级 context 只在调用结束时撤销，调用期间不会遇到撤销。
+        """
+        if type(access) is not WorkspaceAccessContext:
+            raise ScopeRequiredError("actor 操作需要线程或请求级 context")
+        grant = access._unseal()
+        if grant is None:
+            raise ThreadEndedError("Thread context is revoked")
+        if grant.binding.run_type not in (AccessRunType.EXECUTION_THREAD, AccessRunType.REQUEST):
+            raise ScopeRequiredError("actor 操作需要线程或请求级 context")
+        return grant
 
     @staticmethod
     def _thread_grant(access: WorkspaceAccessContext) -> AccessGrant:

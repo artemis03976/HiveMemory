@@ -20,7 +20,9 @@
 
 - 接入未登记/禁用（不区分，避免泄漏配置）→ ``unknown_principal``；
 - adapter 不匹配 → ``adapter_mismatch``；
+- 登记了凭据而未提供一致的凭据 → ``invalid_credential``；
 - principal 身份解析规则不允许该用户 → ``actor_not_allowed_for_principal``；
+- 不允许声明 ``system`` 的来源声明了它 → ``system_actor_not_allowed``；
 - actor user ≠ 要进入的 workspace 的 owner（准入约束，第 2 阶段检查）
   → ``actor_not_owner``；
 - Workspace 无有效 Actor 访问记录 → ``actor_not_admitted``。
@@ -300,14 +302,17 @@ class ActorAuthenticationGateway:
         *,
         adapter: str,
         principal: CallerPrincipal,
+        credential: str | None,
         actor: ActorIdentity,
         workspace: WorkspaceIdentity,
         binding: RunBinding,
     ) -> WorkspaceAccessContext:
         """完成两项认证并签发访问上下文；任一失败即拒绝，无部分成功。
 
-        ``adapter`` 是调用来源实际使用的接入方式标识；``principal`` 由
-        受信 adapter 依据其接入证据构造；``binding`` 是本次运行绑定——
+        ``adapter`` 是调用来源实际使用的接入方式标识，由入口代码固定传入；
+        ``principal`` 是入口传入的调用来源，``credential`` 是它的接入证据
+        ——进程内入口传 ``None``，外部入口原样传入请求中的凭据，两者都交给
+        第 1 阶段核对，入口不自行判定身份；``binding`` 是本次运行绑定——
         任务进程注册传 :meth:`RunBinding.for_task_process`，请求级访问传
         :meth:`RunBinding.for_request`。认证成功返回的 context 与单次
         operation 解耦，可在此后各次获准操作中经操作授权者逐次授权。
@@ -321,6 +326,8 @@ class ActorAuthenticationGateway:
             raise TypeError("adapter 必须是非空字符串")
         if not isinstance(principal, CallerPrincipal):
             raise TypeError("principal 必须是 CallerPrincipal")
+        if credential is not None and not isinstance(credential, str):
+            raise TypeError("credential 必须是字符串或 None")
         if not isinstance(actor, ActorIdentity):
             raise TypeError("actor 必须是 ActorIdentity")
         if not isinstance(workspace, WorkspaceIdentity):
@@ -334,6 +341,7 @@ class ActorAuthenticationGateway:
         self._principals.authenticate_principal(
             adapter=adapter,
             principal=principal,
+            credential=credential,
             actor=actor,
         )
 

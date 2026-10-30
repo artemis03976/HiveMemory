@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     from hivememory.system.application.import_bus_service import ImportBusService
     from hivememory.system.application.readiness_service import SystemReadinessService
     from hivememory.workspace.authentication import ActorAuthenticationGateway
+    from hivememory.workspace.capability.operations import WorkspaceOperationEntry
     from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
     from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
     from hivememory.workspace.capability.root.memory import RootMemoryService
@@ -74,6 +75,7 @@ class HiveMemorySystem:
         # 应用服务
         self._process_service = services.process
         self._import_bus_service = services.import_bus
+        self._operation_entry = services.operation_entry
         self._root_memory_service = services.root_memory
         self._root_memory_task_service = services.root_memory_task
         self._root_agent_service = services.root_agent
@@ -381,6 +383,15 @@ class HiveMemorySystem:
     def import_bus_service(self) -> ImportBusService:
         """接收外部 harness 一轮完整交互记录的 Import Bus 服务。"""
         return self._import_bus_service
+
+    @property
+    def operation_entry(self) -> WorkspaceOperationEntry:
+        """actor API 唯一的调用方：与 Alice 共用同一实例，门面只供 MCP 入口使用。
+
+        MCP 入口以请求级 context 经 ``execute_request`` 提交检索与读取；门面
+        不交出 actor API 本身。
+        """
+        return self._operation_entry
 
     @property
     def root_memory_service(self) -> RootMemoryService:

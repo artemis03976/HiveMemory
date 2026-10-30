@@ -64,7 +64,9 @@ class MemoryCompileOptions(BaseModel):
     max_content_length: int = 500
     max_summary_length: int = 100
     stale_days: int = 90
-    include_header_footer: bool = False
+    # 检索上下文信封的头尾引导文字面向 Alice（预检索语境与 MTP 指令）；外部
+    # harness 经 MCP 检索时关闭，由工具与服务说明代替。其余信封不读取此项。
+    include_header_footer: bool = True
     requested_alias: str | None = None
     canonical_alias: str | None = None
     format: Literal["xml", "markdown", "plain"] | None = None

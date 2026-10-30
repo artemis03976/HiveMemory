@@ -10,13 +10,14 @@ code_paths:
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
+  - docs/contracts/mcp.md
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/workspace/identity-and-authorization.md
   - docs/workspace/execution-threads.md
   - docs/workspace/read-view-and-write-intents.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # 能力层
@@ -27,7 +28,7 @@ last_reviewed: 2026-10-21
 
 | 调用面 | 代码 | 授权 | 检查（共用的准入与目标检查之外） | 调用方 |
 |:---|:---|:---|:---|:---|
-| actor API | `workspace/capability/actor/` | `authorize_thread_operation`（确认是未撤销的线程 context 后，以驻留 Workspace 为目标执行 `authorize_operation`） | 访问登记白名单包含该 actor 操作 | 只有操作入口 `WorkspaceOperationEntry`（第 6 节） |
+| actor API | `workspace/capability/actor/` | `authorize_actor_operation`（确认是未撤销的执行线程或请求级 context 后，以驻留 Workspace 为目标执行 `authorize_operation`） | 访问登记白名单包含该 actor 操作 | 只有操作入口 `WorkspaceOperationEntry`（第 6 节）；执行线程经线程提交，MCP 入口经门面取得同一入口的请求级提交 |
 | root API | `workspace/capability/root/` | `authorize_root` | actor 是保留的 `system`；不读取白名单 | 门面暴露给 server 的 HTTP 管理入口；Profile 注入脚本 |
 | 阶段调用 | `workspace/process/`（`TaskProcessRunner`、`CPUAllocator`） | `authorize_stage` | 不检查 actor 操作 | 任务进程自身的编排（[任务进程](./task-process.md#52-阶段调用)） |
 
@@ -91,7 +92,11 @@ root API 与阶段调用只接收访问 context、目标 Workspace 与业务参�
 
 ## 6. 操作入口
 
-执行者通过 `workspace.contracts` 的 `OperationRequest` 与线程句柄 `OperationSubmitter` 提交操作。`WorkspaceOperationEntry` 实现公共 `OperationEntry`，入口只接受存活线程的 context：`execute` 在分派前调用线程表的 `resolve`，全部 actor 操作因此共用同一个存活判定（[执行线程](./execution-threads.md#3-生命周期与唯一的存活判定)）；线程已结束以 `ThreadEndedError` 拒绝，进程 context、请求级 context 或未登记的线程以 `ScopeRequiredError` 拒绝，均没有副作用。随后 `execute` 只按请求类型把五项记忆请求与线程 context 直接交给对应的 actor API 方法，不拆参数；actor API 逐次授权并组装该次调用的 `IdentityScope`，资源 owner 仍执行归属与 actor policy 检查。
+操作入口 `WorkspaceOperationEntry` 是 actor API 唯一的调用方，门面不暴露 actor API。它服务两类提交：执行线程的线程提交，与不建进程的外部入口的请求级提交。
+
+执行者通过 `workspace.contracts` 的 `OperationRequest` 与线程句柄 `OperationSubmitter` 提交操作。`WorkspaceOperationEntry` 实现公共 `OperationEntry`，线程提交只接受存活线程的 context：`execute` 在分派前调用线程表的 `resolve`，全部 actor 操作因此共用同一个存活判定（[执行线程](./execution-threads.md#3-生命周期与唯一的存活判定)）；线程已结束以 `ThreadEndedError` 拒绝，进程 context、请求级 context 或未登记的线程以 `ScopeRequiredError` 拒绝，均没有副作用。随后 `execute` 只按请求类型把五项记忆请求与线程 context 直接交给对应的 actor API 方法，不拆参数；actor API 逐次授权并组装该次调用的 `IdentityScope`，资源 owner 仍执行归属与 actor policy 检查。
+
+请求级提交 `execute_request` 只供 MCP 入口调用，门面以 `operation_entry` 交出同一个入口：外部 harness 的任务对 HiveMemory 不可见，没有进程与线程，每次工具调用取得一份请求级 context，调用结束即撤销（[MCP 记忆访问](../contracts/mcp.md)）。它只接受检索与读取两种请求，与 `execute` 共用同一分派表，其余请求类型在分派前以 `TypeError` 拒绝，没有副作用；“请求级 context 只开放检索与读取”只写在这一处。它不做存活判定，撤销由 actor API 的授权检查。actor API 的授权 `authorize_actor_operation` 接受线程与请求级 context，不按方法区分 context 的种类；请求级 context 到不了 RUN、WRITE、UPDATE 与 CALL，由入口与线程解析保证：经 `execute` 提交时被线程表拒绝，经 `execute_request` 提交时被类型表拒绝，WRITE 与 UPDATE 登记意图前要解析线程，CALL 的派生先判定调用方存活。
 
 请求只携带操作参数，不暴露访问 context，也不能切换目标 Workspace 或指定 process_id；意图登记的 `process_id` 与 `thread_id` 取自线程表的解析结果。线程 context 的派生不授予操作许可：`system` 的进程即使派生出线程 context，也因白名单为空而在每个 actor 请求上被拒绝。
 
@@ -105,9 +110,10 @@ CALL 的派生与子线程的结束是入口的另外两个生命周期方法 `d
 
 架构测试限定：
 
-- `authorize_stage` 只在 `workspace/process/` 的 runner 与 CPU 分配中出现，`get_stage_operations` 与 `get_thread_binding` 只在进程线程管理中出现，`authorize_root` 只在 root API 中出现，`authorize_thread_operation` 只在 actor API 中出现；派生与撤销线程 context 只由进程线程管理调用；
+- `authorize_stage` 只在 `workspace/process/` 的 runner 与 CPU 分配中出现，`get_stage_operations` 与 `get_thread_binding` 只在进程线程管理中出现，`authorize_root` 只在 root API 中出现，`authorize_actor_operation` 只在 actor API 中出现；派生与撤销线程 context 只由进程线程管理调用；
 - Alice 除 CPU 驱动与组合入口外不引用访问 context、执行线程或操作入口；CPU 可见的对象（输入清单、线程描述、线程句柄交出的描述）不含访问 context；
-- 入口的 `execute` 只把五项记忆请求直接分派到 actor API 方法，没有拆参 handler，CALL 的派生与结束是入口的两个生命周期方法；
+- 入口的 `execute` 只把五项记忆请求直接分派到 actor API 方法，没有拆参 handler，请求级提交 `execute_request` 共用同一分派表，CALL 的派生与结束是入口的两个生命周期方法；
+- actor API 只被操作入口导入（组合根装配除外）；`execute_request` 只由 MCP 入口调用；MCP 入口不导入 actor API、root API、任务进程与 Import Bus；
 - 两个 API 目录互不导入，capability 父包只导出共享的读取 backing；server 只导入 root API，操作入口只导入 actor API；actor API 的公开方法、操作目录与请求类型保持一一对应。
 
 不要新增可登记给 actor 的管理 operation，也不要让阶段调用借用 actor 操作。
@@ -122,4 +128,4 @@ CALL 的派生与子线程的结束是入口的另外两个生命周期方法 `d
 
 - [`workspace/capability/root/`](../../src/hivememory/workspace/capability/root/)（root API）、[`workspace/capability/actor/`](../../src/hivememory/workspace/capability/actor/)（actor API）、[`WorkspaceOperationEntry`](../../src/hivememory/workspace/capability/operations.py)、[`backing.py`](../../src/hivememory/workspace/capability/backing.py)；
 - 公共契约：[`workspace/contracts/operations.py`](../../src/hivememory/workspace/contracts/operations.py)；操作目录：[`core/access.py`](../../src/hivememory/core/access.py)；
-- 测试：`tests/unit/workspace/capability/root/`、`tests/unit/workspace/capability/actor/`、[`test_root_api_authorization.py`](../../tests/integration/workspace/test_root_api_authorization.py)（逐方法的 root 授权：非 `system` 拒绝且不触达 owner，`system` 无白名单也能调用）、[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)、[`test_reference_citations.py`](../../tests/integration/workspace/test_reference_citations.py)、[`test_profile_injection_script.py`](../../tests/integration/workspace/test_profile_injection_script.py)、[`test_chat_mtp_operations.py`](../../tests/e2e/system/test_chat_mtp_operations.py)、[`test_chat_operation_whitelist.py`](../../tests/e2e/system/test_chat_operation_whitelist.py)（没有 actor 操作的 Agent 完成 chat，预检索仍按 actor 过滤；只授予 READ 与 SEARCH 的 Agent 输出 WRITE 时被拒绝且不登记意图）。
+- 测试：`tests/unit/workspace/capability/root/`、`tests/unit/workspace/capability/actor/`、[`test_root_api_authorization.py`](../../tests/integration/workspace/test_root_api_authorization.py)（逐方法的 root 授权：非 `system` 拒绝且不触达 owner，`system` 无白名单也能调用）、[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)（含请求级提交）、[`test_reference_citations.py`](../../tests/integration/workspace/test_reference_citations.py)、[`test_profile_injection_script.py`](../../tests/integration/workspace/test_profile_injection_script.py)、[`test_chat_mtp_operations.py`](../../tests/e2e/system/test_chat_mtp_operations.py)、[`test_chat_operation_whitelist.py`](../../tests/e2e/system/test_chat_operation_whitelist.py)（没有 actor 操作的 Agent 完成 chat，预检索仍按 actor 过滤；只授予 READ 与 SEARCH 的 Agent 输出 WRITE 时被拒绝且不登记意图）。

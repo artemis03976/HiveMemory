@@ -3,21 +3,23 @@
 from collections.abc import Callable, Coroutine
 from typing import Any
 
-from fastapi import APIRouter, Depends, Request, Response
+from fastapi import APIRouter, Depends, Header, Request, Response
 from fastapi.routing import APIRoute
 
 from hivememory.server.deps import (
     RequestIdentitySelection,
+    bearer_credential,
     get_access_gateway,
     get_identity_selection,
     get_import_bus_service,
     get_import_request_limit,
-    get_server_principal_id,
     request_access_for_claims,
+    resolve_principal_claim,
     resolve_request_identity_claims,
 )
 from hivememory.server.error_handlers import APIError, error_responses
 from hivememory.server.models.import_bus import ImportTurnRequest, ImportTurnResponse
+from hivememory.system.access import IMPORT_ADAPTER
 from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 
@@ -67,25 +69,34 @@ router = APIRouter(
 async def import_turn(
     body: ImportTurnRequest,
     selection: RequestIdentitySelection = Depends(get_identity_selection),
+    x_principal_id: str | None = Header(default=None),
+    authorization: str | None = Header(default=None),
     service: ImportBusService = Depends(get_import_bus_service),
     gateway: ActorAuthenticationGateway = Depends(get_access_gateway),
-    principal_id: str = Depends(get_server_principal_id),
 ) -> ImportTurnResponse:
     """导入 harness 一轮已结束交互的完整记录，不返回记忆上下文。
 
     导入是 Agent action：body 必须携带连接器所代表的具体 ``agent_id``，
-    用户与 Workspace 选择只来自统一请求头。server 以 (user, 具体 Agent)
-    声明、自身 principal 与 ``http`` adapter 经统一认证网关取得请求级
-    context，请求结束时失效；认证前不组装 ``IdentityScope``。
+    用户与 Workspace 选择只来自统一请求头。连接器以 ``X-Principal-ID``
+    声明调用来源、以 ``Authorization: Bearer`` 携带接入凭据；server 以
+    (user, 具体 Agent) 声明、请求声明的 principal 与 ``import`` adapter 经
+    统一认证网关取得请求级 context，凭据由网关核对，请求结束时失效；认证前
+    不组装 ``IdentityScope``。
 
-    确认表示交互已经应用。状态码区分是否可重试：校验失败、Agent 缺失或为
-    ``system``、请求体过大与准入失败不可重试；认证网关关闭、Gateway 暂不
-    可用、提交队列拥塞与等待应用超时返回 503，连接器保留该轮稍后重发；
-    应用失败返回 500，连接器有限次重发，重发时重新路由并再次提交。
+    确认表示交互已经应用。状态码区分是否可重试：校验失败、principal 或
+    Agent 缺失、Agent 为 ``system``、请求体过大、凭据无效与准入失败不可
+    重试；认证网关关闭、Gateway 暂不可用、提交队列拥塞与等待应用超时返回
+    503，连接器保留该轮稍后重发；应用失败返回 500，连接器有限次重发，重发时
+    重新路由并再次提交。
     """
+    principal_id = resolve_principal_claim(x_principal_id)
     claims = resolve_request_identity_claims(selection, require_agent=True, agent_id=body.agent_id)
     async with request_access_for_claims(
-        claims, gateway=gateway, principal_id=principal_id
+        claims,
+        gateway=gateway,
+        principal_id=principal_id,
+        adapter=IMPORT_ADAPTER,
+        credential=bearer_credential(authorization),
     ) as request_access:
         result = await service.import_turn(
             body.to_imported_turn(),

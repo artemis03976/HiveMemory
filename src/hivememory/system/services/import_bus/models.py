@@ -3,9 +3,11 @@
 契约要点：
     - 一次导入接收 harness 一轮已经结束的交互的完整记录，不跨请求累积；
       用户消息由服务端写成序号为 0 的事件，其后的事件序号严格递增。
-    - 事件不携带 ``role``、``tool_kind``、``target`` 与 ``render_as``：``role``
-      由服务端按事件种类填写；``tool_kind`` 只表示 MTP 动词，外部工具不设置，
-      因此不会产生 MTP 轨迹，也不会被误当作记忆操作。
+    - 事件不携带 ``role``、``target`` 与 ``render_as``：``role`` 由服务端按
+      事件种类填写。``tool_kind`` 标记对 HiveMemory 能力层的记忆操作，导入
+      只接受 HiveMemory 自身 MCP 工具的检索与读取（``SEARCH``、``READ``），
+      生成视图因此只为它们保留一行轨迹、不再渲染取回的记忆；其他外部工具
+      不设置，不会产生记忆操作轨迹，也不会被误当作记忆操作。
     - ``recent_turns`` 只供 Gateway 落位，不进入交互载荷；最近一轮带外部标识
       时，服务端查出它实际落位的话题，供话题路由失败时续接。
     - 交互标识由认证结果与外部标识推导，同一轮重发时不变，不同调用来源、
@@ -25,6 +27,9 @@ from hivememory.core.models import ActorIdentity, TurnEvent, freeze_mapping
 from hivememory.core.models.interaction import InteractionOutcome
 
 ImportedEventKind = Literal["assistant_message", "thought", "tool_call", "tool_result"]
+
+# 导入事件可以携带的记忆操作标记：外部 harness 只能经 MCP 检索与读取记忆。
+ImportedToolKind = Literal["SEARCH", "READ"]
 
 # 事件种类到 TurnEvent 角色的唯一映射；工具结果是外部系统的回填，记为 system。
 _ROLE_BY_KIND: dict[str, Literal["user", "assistant", "system"]] = {
@@ -48,6 +53,13 @@ class ImportedTurnEvent(BaseModel):
     )
     tool_name: str | None = Field(default=None, description="工具名")
     tool_args: dict[str, Any] | None = Field(default=None, description="工具调用的参数")
+    tool_kind: ImportedToolKind | None = Field(
+        default=None,
+        description=(
+            "只为 HiveMemory 自身 MCP 工具的调用设置：检索为 SEARCH、读取为 READ，"
+            "生成时只保留一行轨迹，不再渲染取回的记忆；其他工具不设置"
+        ),
+    )
     status: str | None = Field(default=None, description="工具结果状态，出错时为 error")
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -127,6 +139,7 @@ class ImportedTurn(BaseModel):
                 content=event.content,
                 action_id=event.action_id,
                 tool_name=event.tool_name,
+                tool_kind=event.tool_kind,
                 tool_args=None if event.tool_args is None else freeze_mapping(event.tool_args),
                 status=event.status,
             )
