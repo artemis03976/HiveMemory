@@ -239,7 +239,7 @@ class TaskProcessRunner:
                 session_turns=tuple(
                     GatewaySessionTurn(
                         user_message=t.payload.user_message,
-                        assistant_text=t.payload.assistant_final_text or "",
+                        assistant_text=t.payload.reply_text,
                         topic_id=t.topic_id,
                     )
                     for t in self._sessions.get(request.target_workspace, request.session_id).turns[
@@ -273,9 +273,7 @@ class TaskProcessRunner:
             )
         has_output = execution_result.has_output
         if has_output:
-            await self._seal_and_finalize(
-                process, prepared, gateway_result.decision, execution_result
-            )
+            await self._seal_and_finalize(process, prepared, execution_result)
 
         topic_id = prepared.topic_id if has_output else None
         self._mark_execution_terminal(process, execution_result)
@@ -360,7 +358,6 @@ class TaskProcessRunner:
         self,
         process: TaskProcess,
         prepared: PreparedAgentRun,
-        decision: GatewayDecision,
         execution_result: CPUExecutionResult,
     ) -> None:
         """封口交互记录并同步写入会话，再把提交交给 Patchouli 并等待它完成。
@@ -374,13 +371,11 @@ class TaskProcessRunner:
         record = process.record
         request = process.request
         payload = seal_interaction(
-            user_message=request.message,
-            gateway_decision=decision,
-            assistant_final_text=execution_result.final_text,
             turn_events=execution_result.turn_events,
             model_used=execution_result.model_used,
             used_attachments=process.working_set.used_attachments,
             outcome=execution_result.status.value,
+            final_text=execution_result.final_text,
         )
         self._sessions.append(
             request.target_workspace,

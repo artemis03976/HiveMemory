@@ -59,14 +59,7 @@ class FrameFactory:
             if not content:
                 return ExecutionProgress()
             return ExecutionProgress(
-                turn_events=[
-                    TurnEvent(
-                        kind="user_message",
-                        sequence=0,
-                        role="user",
-                        content=content,
-                    )
-                ],
+                turn_events=[TurnEvent(kind="user_message", sequence=0, content=content)],
                 sequence=1,
             )
         return ExecutionProgress()

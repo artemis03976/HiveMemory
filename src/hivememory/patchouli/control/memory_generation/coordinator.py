@@ -53,7 +53,7 @@ class MemoryGenerationCoordinator:
         # 主动生成只取话题最近的若干个 block 作为材料（含 state_summary）。
         self._recent_block_limit = recent_block_limit
         self._pending_atom_settler = pending_atom_settler or PendingAtomSettler(bus)
-        # 生成材料的动作段按配置的上限截断，感知的 token 统计使用同一组上限。
+        # 生成材料的过程条目按配置的上限截断，感知的 token 统计使用同一组上限。
         self._transcript_builder = GenerationTranscriptBuilder(transcript_config)
 
     async def submit_settlement(self, payload: TopicMaterializeTask) -> MemoryGenerationTask | None:

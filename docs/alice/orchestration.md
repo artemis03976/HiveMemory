@@ -128,7 +128,7 @@ current frame emits CALL
 
 Profile 生产者和读取视图只抛中立错误。`preparation_error_response()` 负责上下文/装配失败的唯一呈现，最终子帧结果通过具名函数构造 `MTPErrorInfo`，不再为已确定的预算耗尽或模型不可用创建只供序列化的异常对象。参数逐项筛选，分类与恢复动作见[错误模型](../contracts/error-model.md)。
 
-CALL 的 `tool_call` 与 `tool_result` 使用同一个最终 success/error/cancelled 状态；内部 cause 只进入日志，不回填给 Agent。
+CALL 的 `tool_call` 挂起时没有结局，回填时补全为子帧的最终 success/error/cancelled 状态，与回填给 Agent 的响应一致；内部 cause 只进入日志，不回填给 Agent。
 
 Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARCH：相关图纸可以在 memory context 中以 Agent Profile 菜单出现，主 Agent 随后用 alias 发起 CALL。Alice 当前不维护硬编码 team，也不会根据模糊需求动态创建 Profile。
 
@@ -159,7 +159,7 @@ Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARC
 
 子帧不读取主话题完整 history，也不会把内部 token、SEARCH/RUN 重试或工具结果写回主 frame 的 working history。只有子帧以 `COMPLETED` 自然结束后，CallCoordinator 才取 `text_segments` 形成 reply，并把运行期间收到 ACK 的 aliases 放入 CALL artifacts。取消、失败或预算耗尽的子帧不会收割 reply/artifact，已提交写入仍由 Patchouli 继续生成。`SUSPENDED` 是 RunExecutor 必须继续递归消费的非终态 trap；若它进入 `complete_call()`，属于编排不变量违约，不构造 CALL response。
 
-这种黑盒隔离避免主 Agent 与 Perception 被子任务细节淹没，但它并不等于子任务没有证据。子帧流事件仍可被 UI 观察，CALL 在主 frame 中有结构化 tool_call/tool_result，PendingAtom 又保存写入意图；只是这些事实目前没有被组合成持久化子任务 artifact。
+这种黑盒隔离避免主 Agent 与 Perception 被子任务细节淹没，但它并不等于子任务没有证据。子帧流事件仍可被 UI 观察，CALL 在主 frame 中有带结局的结构化 tool_call，PendingAtom 又保存写入意图；只是这些事实目前没有被组合成持久化子任务 artifact。
 
 ## 5. 当前单层 CALL 策略
 
@@ -182,7 +182,7 @@ root frame
 
 `FrameProducts` 只投影本 frame 收到 ACK 后去重记录的 alias，不加入 UPDATE 的原基础 alias；caller 收到成功 CALL response 后把子帧产物加入自己的 alias 清单。
 
-自然语言 reply 与 alias 列表组成 success `MTPCallResponse`。CallCoordinator 不直接操作 history 容器，而把 success/error/cancelled 终态响应交给 `AgentRuntime.apply_call_response()` 一次性加入 caller working history，并形成与原 CALL action_id 对应的 `tool_result`。caller 随后可以 READ pending alias、把它作为另一个 CALL 的 context ref，或直接根据子 Agent reply 继续任务。
+自然语言 reply 与 alias 列表组成 success `MTPCallResponse`。CallCoordinator 不直接操作 history 容器，而把 success/error/cancelled 终态响应交给 `AgentRuntime.apply_call_response()` 一次性加入 caller working history，并以子帧结局、格式化响应与产出 alias 补全原 CALL 的调用事件；同一个调用只能补全一次。caller 随后可以 READ pending alias、把它作为另一个 CALL 的 context ref，或直接根据子 Agent reply 继续任务。
 
 CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：`alice/orchestration/call/response.py` 仅将 `COMPLETED` 映射为 success，将 `CANCELLED` 映射为 cancelled，将 `FAILED`、`BUDGET_EXHAUSTED` 映射为带稳定 error code 的 error；`SUSPENDED` 不属于可映射终态。
 

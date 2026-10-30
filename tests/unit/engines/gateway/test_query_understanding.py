@@ -9,13 +9,14 @@ import pytest
 
 from hivememory.config.gateway import UserQueryAnalysisConfig
 from hivememory.core.errors import ModelProviderError
-from hivememory.core.models import ActorIdentity, LogicalBlock, TopicData, TurnRecord
+from hivememory.core.models import ActorIdentity, TopicData
 from hivememory.core.protocol.gateway import IntentType, MemoryWriteSignal
 from hivememory.engines.gateway.query_understanding import (
     QueryUnderstandingEngine,
     QueryUnderstandingError,
 )
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
+from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -28,12 +29,10 @@ def _build_topic_data() -> TopicData:
         topic_summary="排查 Docker 部署问题",
         state_summary="已定位到内存溢出",
         blocks=(
-            LogicalBlock(
-                turn=TurnRecord(
-                    identity=ActorIdentity(agent_id="omni_doll", user_id="u1"),
-                    user_query="那个报错怎么修？",
-                    assistant_final_text="可以增加内存限制",
-                )
+            make_logical_block(
+                "那个报错怎么修？",
+                "可以增加内存限制",
+                identity=ActorIdentity(agent_id="omni_doll", user_id="u1"),
             ),
         ),
         last_update=now,
@@ -161,12 +160,10 @@ async def test_analyze_respects_configurable_context_limits() -> None:
         workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
         topic_title="三餐推荐",
         blocks=(
-            LogicalBlock(
-                turn=TurnRecord(
-                    identity=ActorIdentity(agent_id="omni_doll", user_id="u1"),
-                    user_query="上一轮用户输入的很长内容",
-                    assistant_final_text="",
-                )
+            make_logical_block(
+                "上一轮用户输入的很长内容",
+                "",
+                identity=ActorIdentity(agent_id="omni_doll", user_id="u1"),
             ),
         ),
         last_update=now,

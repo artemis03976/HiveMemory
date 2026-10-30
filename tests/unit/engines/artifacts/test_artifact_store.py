@@ -190,7 +190,7 @@ async def test_tampered_content_fails_get_and_verify(store):
 @pytest.mark.asyncio
 async def test_legacy_actor_session_id_is_ignored_without_changing_artifact_hash(tmp_path):
     """旧身份字段只在模型解释时忽略，存储校验仍使用原始 JSON 内容。"""
-    original_hash = "0a2fde58e01d8fc78dda223624b7ea63c49ad0fe208500d879adc63f7df89d3b"
+    original_hash = "f57bea31ab6b002129bb404b7a112bc816929f8484993bbc9518362a5d896476"
     payload = (
         '{"artifact_id":"legacy-session","artifact_type":"interaction",'
         '"created_at":"2026-06-14T12:00:00+00:00","workspace_identity":'
@@ -198,7 +198,7 @@ async def test_legacy_actor_session_id_is_ignored_without_changing_artifact_hash
         '"topic_id":"legacy-topic","captured_at":"2026-06-14T12:00:00+00:00",'
         '"turns":[{"block_id":"block-1","turn_id":"turn-1","actor_identity":'
         '{"user_id":"u1","agent_id":"agent-1","team_id":null,"session_id":"old-session"},'
-        '"user_query":"legacy question"}],"content_hash":"' + original_hash + '"}'
+        '"outcome":"completed"}],"content_hash":"' + original_hash + '"}'
     )
     path = tmp_path / "legacy-session.json"
     path.write_text(payload, encoding="utf-8")

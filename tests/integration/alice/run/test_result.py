@@ -105,7 +105,6 @@ async def test_run_agent_assembles_result_from_completed_frame():
         TurnEvent(
             kind="assistant_message",
             sequence=frame.progress.sequence,
-            role="assistant",
             content="hello world",
         )
     )

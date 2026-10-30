@@ -176,7 +176,7 @@ async def test_http_session_resume_after_partial_stop(patchouli_chat_stack):
             block = next(
                 block
                 for block in topic.blocks
-                if block.user_query == turn["payload"]["user_message"]
+                if block.user_message == turn["payload"]["user_message"]
             )
             assert block.turn.outcome == turn["payload"]["outcome"]
         third_prompt = "\n".join(item["content"] for item in history_inputs[2])
@@ -237,7 +237,8 @@ async def test_text_only_cpu_output_is_structured_before_patchouli_submission(
         (block,) = topic.blocks
         assert block.turn.outcome == outcome
         assert [(e.kind, e.content) for e in block.turn_events] == [
-            ("assistant_message", "仅正文结果")
+            ("user_message", "只含正文"),
+            ("assistant_message", "仅正文结果"),
         ]
         session_id = events[0][1]["session_id"]
         assert sessions.get(access.default_workspace, session_id).turns[
@@ -383,10 +384,10 @@ async def test_http_long_session_reuses_compacted_history_and_seals_budget_failu
                 turn["payload"]["assistant_final_text"] for turn in compacted["turns"]
             ] == answers
             old_results = [
-                event["content"]
+                event["result"]
                 for turn in compacted["turns"]
                 for event in turn["payload"]["turn_events"]
-                if event["kind"] == "tool_result"
+                if event["kind"] == "tool_call"
             ]
             assert len(old_results) == 5
             assert old_results == [

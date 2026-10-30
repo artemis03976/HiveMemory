@@ -1,7 +1,7 @@
 """无状态的短期记忆摄入算法引擎。
 
 ``MemoryPerceptionEngine`` 只承载纯算法：把 ``InteractionPayload`` 归并为
-不可变 ``LogicalBlock``、估算 token（与记忆生成转写共用动作段的截断规则）、
+不可变 ``LogicalBlock``、按本轮渲染出的材料估算 token、
 判断折叠阈值、选择待折叠 blocks 并生成摘要。它不持有 Store / Journal / Queue，不实现话题路由与 settle 用例（那是
 ``PerceptionFamiliar`` 的编排职责），也不导入 ``hivememory.patchouli.*``，
 可被其他 runtime 复用、可纯单元测试。
@@ -12,14 +12,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from hivememory.config.patchouli import GenerationTranscriptConfig, SemanticFlowPerceptionConfig
-from hivememory.core.models import (
-    ActionReducer,
-    ActorIdentity,
-    LogicalBlock,
-    TurnRecord,
-)
+from hivememory.core.models import ActorIdentity, LogicalBlock, TurnRecord
 from hivememory.core.protocol.models import InteractionPayload
-from hivememory.prompts.transcript.actions import render_action_entries
+from hivememory.engines.perception.material import render_turn_text
 from hivememory.utils.token_estimator import estimate_tokens
 
 if TYPE_CHECKING:
@@ -45,7 +40,7 @@ class MemoryPerceptionEngine:
     ) -> None:
         self.config = config
         self._relay = relay_controller
-        # 与记忆生成转写同一组上限：块的 token 统计按生成实际看到的材料计算。
+        # 与记忆生成视图同一组截断上限：块的 token 统计按生成实际看到的材料计算。
         self._transcript_config = transcript_config or GenerationTranscriptConfig()
 
     def build_block(
@@ -58,37 +53,14 @@ class MemoryPerceptionEngine:
         ``block_id``/``created_at`` 由模型默认值生成，是 retry 时重新生成的
         随机标识，不参与 retry 等价性判断。
         """
-        actions = ActionReducer.reduce(payload.turn_events)
         turn = TurnRecord(
             outcome=payload.outcome,
             identity=from_actor,
-            user_query=payload.user_message,
-            rewritten_query=payload.rewritten_query,
-            assistant_final_text=payload.assistant_final_text or "",
             turn_events=tuple(payload.turn_events),
-            actions=tuple(actions),
-            semantic_traces=tuple(payload.mtp_traces),
         )
-        # 思考与外部工具动作按生成转写的同一套截断规则计入；MTP 轨迹仍只计
-        # 查询与目标，只有用户消息、回复与 MTP 动作的轮次统计不变。
-        total_tokens = (
-            estimate_tokens(turn.user_query)
-            + estimate_tokens(turn.assistant_final_text)
-            + sum(
-                estimate_tokens(trace.query or "") + estimate_tokens(trace.target or "")
-                for trace in turn.semantic_traces
-            )
-            + sum(
-                estimate_tokens(entry.text)
-                for entry in render_action_entries(turn, self._transcript_config)
-                if entry.kind != "trace"
-            )
-        )
-        return LogicalBlock(
-            turn=turn,
-            total_tokens=total_tokens,
-            worth_saving=payload.worth_saving,
-        )
+        # 统计的是生成实际看到的整轮材料，折叠阈值因此直接反映生成的输入。
+        total_tokens = estimate_tokens(render_turn_text(turn.turn_events, self._transcript_config))
+        return LogicalBlock(turn=turn, total_tokens=total_tokens)
 
     def should_compact(self, total_tokens: int) -> bool:
         """纯函数：判断话题当前 token 总量是否已溢出折叠阈值。"""

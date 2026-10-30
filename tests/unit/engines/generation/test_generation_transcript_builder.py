@@ -2,21 +2,19 @@
 GenerationTranscriptBuilder / GenerationContext 单测
 
 覆盖以下场景:
-1. GenerationTranscriptBuilder.build_context() 基础构建
-2. action_entries 中 MTP 轨迹的一行摘要 (SEARCH / READ / RUN)；思考与外部工具动作的
-   渲染规则由 tests/unit/prompts/test_generation_action_entries.py 覆盖
-3. assistant_final_text 优先于 clean_response
-4. state_summary 进入 GenerationContext
-5. build_transcript() 格式渲染
-6. MemoryGenerationEngine.process() 识别 request.context
-7. Mode B / Mode C 与 GenerationContext 兼容
+1. build_context() 从逻辑块构建轮次：用户消息、结局、来源身份与按顺序的材料条目；
+   各类步骤的渲染规则由感知层材料模块的测试覆盖
+2. build_transcript() 格式：话题状态、轮首结局标注、用户消息之后按顺序的材料，
+   没有单独的动作段，也没有末尾的回复行
+3. GenerationRequest.has_context
+4. MemoryGenerationEngine.process() 识别 request.context；Mode B 与上下文兼容
 """
 
 from unittest.mock import AsyncMock, MagicMock
 
 import pytest
 
-from hivememory.core.models import ActorIdentity, LogicalBlock, TraceItem, TurnRecord, WriteFocus
+from hivememory.core.models import ActorIdentity, TurnEvent, WriteFocus
 from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
@@ -24,6 +22,7 @@ from hivememory.engines.generation.models import (
 )
 from hivememory.prompts.transcript import GenerationTranscriptBuilder
 from tests.helpers.memory import make_memory_identity_scope
+from tests.helpers.sessions import make_logical_block
 
 # ============ 辅助工厂 ============
 
@@ -36,32 +35,22 @@ def _request(**values) -> GenerationRequest:
     return GenerationRequest(**values)
 
 
-def _block(
-    user_query: str = "问题",
-    assistant_final_text: str = "",
-    traces: list = None,
-) -> LogicalBlock:
-    return LogicalBlock(
-        turn=TurnRecord(
-            identity=_identity(),
-            user_query=user_query,
-            assistant_final_text=assistant_final_text,
-            semantic_traces=traces or [],
-        )
+def _turn(user_message: str = "q", *entries: str, outcome: str = "completed") -> GenerationTurn:
+    return GenerationTurn(
+        user_message=user_message,
+        material_entries=list(entries),
+        outcome=outcome,
+        identity=_identity(),
     )
-
-
-def _trace(action: str, **kwargs) -> TraceItem:
-    return TraceItem(action=action, **kwargs)
 
 
 builder = GenerationTranscriptBuilder()
 
 
-# ============ 1. build_context 基础行为 ============
+# ============ 1. build_context ============
 
 
-class TestBuildContextBasic:
+class TestBuildContext:
     def test_empty_blocks_produces_empty_turns(self):
         ctx = builder.build_context([], state_summary="")
         assert ctx.turns == []
@@ -70,202 +59,96 @@ class TestBuildContextBasic:
         ctx = builder.build_context([], state_summary="话题摘要")
         assert ctx.state_summary == "话题摘要"
 
-    def test_single_block_produces_one_turn(self):
-        blocks = [_block("你好", assistant_final_text="你好呀")]
-        ctx = builder.build_context(blocks)
-        assert len(ctx.turns) == 1
-        assert ctx.turns[0].user_query == "你好"
+    def test_block_becomes_turn_with_ordered_material_entries(self):
+        """用户消息单独成字段，其后的材料按出现顺序排列，助手正文穿插其中。"""
+        block = make_logical_block(
+            identity=_identity("claude_code"),
+            outcome="cancelled",
+            turn_events=[
+                TurnEvent(kind="user_message", sequence=0, content="之前怎么部署的"),
+                TurnEvent(kind="assistant_message", sequence=1, content="先查记忆。"),
+                TurnEvent(
+                    kind="tool_call",
+                    sequence=2,
+                    content="",
+                    action_id="toolu-1",
+                    verb="READ",
+                    targets=("fact_deploy",),
+                    status="success",
+                    result="记忆正文",
+                ),
+                TurnEvent(kind="assistant_message", sequence=4, content="按记忆中的步骤部署。"),
+            ],
+        )
+
+        [turn] = builder.build_context([block]).turns
+
+        assert turn == GenerationTurn(
+            outcome="cancelled",
+            user_message="之前怎么部署的",
+            material_entries=[
+                "[Assistant]: 先查记忆。",
+                "- READ: fact_deploy",
+                "[Assistant]: 按记忆中的步骤部署。",
+            ],
+            identity=_identity("claude_code"),
+        )
 
     def test_multiple_blocks_produce_multiple_turns(self):
-        blocks = [_block(f"问题{i}", assistant_final_text=f"答案{i}") for i in range(3)]
+        blocks = [make_logical_block(f"问题{i}", f"答案{i}") for i in range(3)]
         ctx = builder.build_context(blocks)
-        assert len(ctx.turns) == 3
-
-    def test_block_with_only_user_query_is_kept(self):
-        """user_query 非空即保留（即使无 final_text）"""
-        blocks = [_block("只有问题", assistant_final_text="")]
-        ctx = builder.build_context(blocks)
-        assert len(ctx.turns) == 1
-        assert ctx.turns[0].user_query == "只有问题"
-
-    def test_block_with_no_query_and_no_text_is_filtered(self):
-        """user_query 和 assistant_final_text 都为空的 block 被过滤"""
-        blocks = [LogicalBlock(turn=TurnRecord(identity=_identity()))]  # 全空
-        ctx = builder.build_context(blocks)
-        assert len(ctx.turns) == 0
+        assert [turn.user_message for turn in ctx.turns] == ["问题0", "问题1", "问题2"]
 
 
-# ============ 2. assistant_final_text 优先级 ============
-
-
-class TestFinalTextPriority:
-    def test_both_empty_produces_empty_final_text(self):
-        block = _block(assistant_final_text="")
-        ctx = builder.build_context([block])
-        assert ctx.turns[0].assistant_final_text == ""
-
-
-# ============ 3. action_entries 映射 ============
-
-
-class TestTraceSummaries:
-    def test_search_trace(self):
-        block = _block(traces=[_trace("SEARCH", query="docker deploy")])
-        ctx = builder.build_context([block])
-        assert ctx.turns[0].action_entries == ['SEARCH: "docker deploy"']
-
-    def test_read_trace(self):
-        block = _block(traces=[_trace("READ", target="fact_auth_flow")])
-        ctx = builder.build_context([block])
-        assert ctx.turns[0].action_entries == ["READ: fact_auth_flow"]
-
-    def test_run_trace(self):
-        block = _block(traces=[_trace("RUN", tool="git_log", status="success")])
-        ctx = builder.build_context([block])
-        assert ctx.turns[0].action_entries == ["RUN: git_log (success)"]
-
-    def test_run_trace_unknown_status(self):
-        block = _block(traces=[_trace("RUN", tool="web_search")])
-        ctx = builder.build_context([block])
-        assert ctx.turns[0].action_entries == ["RUN: web_search (unknown)"]
-
-    def test_multiple_traces_in_order(self):
-        block = _block(
-            traces=[
-                _trace("SEARCH", query="query1"),
-                _trace("READ", target="alias_x"),
-                _trace("RUN", tool="tool_y", status="error"),
-            ]
-        )
-        ctx = builder.build_context([block])
-        summaries = ctx.turns[0].action_entries
-        assert len(summaries) == 3
-        assert summaries[0].startswith("SEARCH")
-        assert summaries[1].startswith("READ")
-        assert summaries[2].startswith("RUN")
-
-    def test_no_traces_produces_empty_summaries(self):
-        block = _block(traces=[])
-        ctx = builder.build_context([block])
-        assert ctx.turns[0].action_entries == []
-
-    def test_call_trace_is_skipped(self):
-        """CALL 类型 trace 不生成摘要"""
-        block = _block(traces=[_trace("CALL", target="sub_agent")])
-        ctx = builder.build_context([block])
-        assert ctx.turns[0].action_entries == []
-
-
-# ============ 4. build_transcript 格式渲染 ============
+# ============ 2. build_transcript 格式渲染 ============
 
 
 class TestBuildTranscript:
     def test_empty_context_produces_empty_string(self):
-        ctx = GenerationContext()
-        assert builder.build_transcript(ctx) == ""
+        assert builder.build_transcript(GenerationContext()) == ""
 
-    def test_state_summary_in_header(self):
-        ctx = GenerationContext(state_summary="当前话题是 X", turns=[])
-        result = builder.build_transcript(ctx)
-        assert "[Topic State]" in result
-        assert "当前话题是 X" in result
-
-    def test_no_state_summary_no_header(self):
-        ctx = GenerationContext(
-            state_summary="",
-            turns=[
-                GenerationTurn(user_query="hi", assistant_final_text="hello", identity=_identity())
-            ],
-        )
-        result = builder.build_transcript(ctx)
-        assert "[Topic State]" not in result
-
-    def test_turn_user_query_rendered(self):
+    def test_turn_renders_user_message_then_material_in_order(self):
+        """用户消息之后按顺序列出材料；没有单独的动作段，也没有末尾的回复行。"""
         ctx = GenerationContext(
             turns=[
-                GenerationTurn(user_query="我的问题", assistant_final_text="", identity=_identity())
-            ]
-        )
-        result = builder.build_transcript(ctx)
-        assert "[User]: 我的问题" in result
-
-    def test_turn_assistant_rendered(self):
-        ctx = GenerationContext(
-            turns=[
-                GenerationTurn(
-                    user_query="q", assistant_final_text="我的回答", identity=_identity()
-                )
-            ]
-        )
-        result = builder.build_transcript(ctx)
-        assert "[Assistant]: 我的回答" in result
-
-    def test_actions_section_rendered(self):
-        ctx = GenerationContext(
-            turns=[
-                GenerationTurn(
-                    user_query="q",
-                    assistant_final_text="a",
-                    action_entries=['SEARCH: "auth flow"', "READ: fact_x"],
-                    identity=_identity(),
-                )
-            ]
-        )
-        result = builder.build_transcript(ctx)
-        assert "[Actions]:" in result
-        assert '- SEARCH: "auth flow"' in result
-        assert "- READ: fact_x" in result
-
-    def test_turn_without_actions_renders_only_user_and_assistant(self):
-        """只有用户消息与最终回复的轮次不出现动作段。"""
-        ctx = builder.build_context([_block("问题", assistant_final_text="答案")])
-
-        assert builder.build_transcript(ctx) == "[Turn 1]\n[User]: 问题\n[Assistant]: 答案"
-
-    def test_multiline_entries_indent_continuation_lines(self):
-        """多行条目的后续行缩进到条目之下，与下一个条目区分开。"""
-        ctx = GenerationContext(
-            turns=[
-                GenerationTurn(
-                    user_query="q",
-                    action_entries=["TOOL: Bash\nRESULT (error): line 1\nline 2", 'SEARCH: "x"'],
-                    identity=_identity(),
+                _turn(
+                    "修一下测试",
+                    '- SEARCH: "测试约定"',
+                    "[Assistant]: 先跑一遍。",
+                    '- TOOL: Bash {"command": "pytest"}\n  RESULT (error): 1 failed',
+                    "[Assistant]: 已修复。",
                 )
             ]
         )
 
-        assert builder.build_transcript(ctx).splitlines()[2:] == [
-            "[Actions]:",
-            "- TOOL: Bash",
-            "  RESULT (error): line 1",
-            "  line 2",
-            '- SEARCH: "x"',
-        ]
+        assert builder.build_transcript(ctx) == "\n".join(
+            [
+                "[Turn 1]",
+                "[User]: 修一下测试",
+                '- SEARCH: "测试约定"',
+                "[Assistant]: 先跑一遍。",
+                '- TOOL: Bash {"command": "pytest"}',
+                "  RESULT (error): 1 failed",
+                "[Assistant]: 已修复。",
+            ]
+        )
 
-    def test_full_format_with_state_and_two_turns(self):
+    def test_full_format_with_state_and_incomplete_turn(self):
+        """话题状态在最前；结局不是 completed 的轮次在轮首标注。"""
         ctx = GenerationContext(
             state_summary="重构进行中",
             turns=[
-                GenerationTurn(
-                    user_query="问题1",
-                    action_entries=['SEARCH: "x"'],
-                    assistant_final_text="答案1",
-                    identity=_identity(),
-                ),
-                GenerationTurn(
-                    user_query="问题2",
-                    assistant_final_text="答案2",
-                    identity=_identity(),
-                ),
+                _turn("问题1", "[Assistant]: 答案1"),
+                _turn("问题2", "[Assistant]: 半截", outcome="cancelled"),
             ],
         )
-        result = builder.build_transcript(ctx)
-        assert "[Topic State]" in result
-        assert "[Turn 1]" in result
-        assert "[Turn 2]" in result
-        assert "重构进行中" in result
-        assert "问题1" in result
-        assert "问题2" in result
+
+        assert builder.build_transcript(ctx) == (
+            "[Topic State]\n重构进行中\n\n"
+            "[Turn 1]\n[User]: 问题1\n[Assistant]: 答案1\n\n"
+            "[Turn 2]\n[Outcome: cancelled] This turn did not complete normally.\n"
+            "[User]: 问题2\n[Assistant]: 半截"
+        )
 
 
 # ============ 5. GenerationRequest.has_context ============
@@ -281,7 +164,7 @@ class TestGenerationRequestHasContext:
         assert not req.has_context
 
     def test_has_context_true_when_context_has_turns(self):
-        ctx = GenerationContext(turns=[GenerationTurn(user_query="q", identity=_identity())])
+        ctx = GenerationContext(turns=[_turn("q")])
         req = _request(context=ctx)
         assert req.has_context
 
@@ -333,7 +216,7 @@ class TestEngineWithGenerationContext:
         engine, extractor, _ = self._make_engine()
         ctx = GenerationContext(
             state_summary="摘要",
-            turns=[GenerationTurn(user_query="q", assistant_final_text="a", identity=_identity())],
+            turns=[_turn("q", "[Assistant]: a")],
         )
         req = _request(context=ctx)
         await engine.process(
@@ -393,9 +276,7 @@ class TestEngineWithGenerationContext:
         extractor.extract.return_value = draft
         deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
 
-        ctx = GenerationContext(
-            turns=[GenerationTurn(user_query="q", assistant_final_text="a", identity=_identity())]
-        )
+        ctx = GenerationContext(turns=[_turn("q", "[Assistant]: a")])
         focus = WriteFocus(content="content to write")
         req = _request(context=ctx, write_focus=focus)
         await engine.process(

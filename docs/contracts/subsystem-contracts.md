@@ -92,7 +92,7 @@ Gateway 只解析命令，不执行命令：`CommandParseResult` 与 `CommandPar
 ### 2.3 模式不变量
 
 - `ACTIVE_CHAT` 可以识别（解析）系统指令，不执行；
-- `PASSIVE_MEMORY` 必须返回普通决策，绝不能返回 command outcome；它的调用方 Import Bus 只使用决定中的话题落位、新话题元数据、`rewritten_query` 与 `worth_saving`，忽略检索计划、不检索；
+- `PASSIVE_MEMORY` 必须返回普通决策，绝不能返回 command outcome；它的调用方 Import Bus 只使用决定中的话题落位与新话题元数据，`worth_saving` 只进入导入的观测事件，忽略检索计划、不检索；
 - `request_timeout_ms` 只能收紧配置的默认总超时，不能扩大它；
 - 局部可恢复失败可以降级，但最终结果仍必须满足完整终态不变量。
 
@@ -144,12 +144,12 @@ finalize_agent_run(
 
 | 字段 | 来源 |
 |:---|:---|
+| `turn_events` | Actor 执行结果的事件集，以执行循环写出的序号 0 用户消息开头；本轮唯一的交互记录 |
 | `outcome` | CPU 执行结局 completed/cancelled/failed，默认 completed |
-| `user_message` | 任务请求的入口消息 |
-| `rewritten_query`、`worth_saving` | Gateway 阶段的决定 |
-| `assistant_final_text`、`turn_events`、`model_used` | Actor 的执行结果 |
-| `mtp_traces` | 由 core 的 `ActionReducer` / `TraceReducer` 从 `turn_events` 归约 |
+| `model_used` | Actor 实际使用的模型展示名 |
 | `used_attachments` | 附件编译确认实际进入上下文的附件引用快照 |
+
+交互内容只以 `turn_events` 表达，载荷不携带由事件派生或与事件重复的表达：用户消息与回复正文是从事件读取的只读属性，不序列化；Gateway 的改写查询与价值预判不进入载荷。字段与事件规则见[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)。
 
 附件租借由任务进程持有并在进程结束时释放，finalize 不负责。
 
@@ -161,7 +161,7 @@ Finalize：
 
 任务进程对有输出的 completed/cancelled/failed 结果封口，同步写入会话，再创建 finalize 任务；提交时重新阶段授权，不能从 prepared 取回旧 scope。只有正文的 CPU 结果在封口处补成规范助手事件，感知侧仍只接收结构化事件。Finalize 已成功后不能再 cleanup；调用方取消等待时，Patchouli 已接管的 finalization continuation 继续完成，cleanup 也不能删除其话题。
 
-finalize 是执行事务与记忆事务的分界。交互记录由提交方封口：主动链路由任务进程封口，Import Bus 由 System 的 Import Bus 编排器封口，两者调用 core 中同一个 `seal_interaction`，交给 Patchouli 的载荷同形（Import Bus 没有附件，`used_attachments` 为空；没有 Gateway 决定时 `rewritten_query` 与 `worth_saving` 为空）；Patchouli 的公开路由因此不必读懂任何执行者的运行结果，换一个 CPU 也不需要 Patchouli 随之改变。轨迹归约规则只有 core 中的一份，封口方调用它，不会形成第二套规则。Patchouli 负责判断已封口的交互如何进入长期知识（提交、感知、生成与 lifecycle）；有输出的三种结局都封口提交，无输出或 finalize 前断连不提交；显式写入始终按自己的派发结果独立生成。
+finalize 是执行事务与记忆事务的分界。交互记录由提交方封口：主动链路由任务进程封口，Import Bus 由 System 的 Import Bus 编排器封口，两者调用 core 中同一个 `seal_interaction`，交给 Patchouli 的载荷同形（Import Bus 没有附件，`used_attachments` 为空）；Patchouli 的公开路由因此不必读懂任何执行者的运行结果，换一个 CPU 也不需要 Patchouli 随之改变。封口只组装、不解析事件：序号 0 的用户消息事件由提交方写出，一轮的不变量在载荷构造时校验，对事件的解析只在感知层进行一次（见[感知](../patchouli/perception.md)）。Patchouli 负责判断已封口的交互如何进入长期知识（提交、感知、生成与 lifecycle）；有输出的三种结局都封口提交，无输出或 finalize 前断连不提交；显式写入始终按自己的派发结果独立生成。
 
 ### 3.3 CleanupPreparedAgentRun
 
@@ -291,7 +291,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 
 - `status`：`completed`、`cancelled` 或 `failed`（`CPUExecutionStatus`）；
 - `final_text`：最终用户可见文本；
-- `turn_events`：结构化运行事实（`TurnEvent`）；
+- `turn_events`：本轮的事件集（`TurnEvent`），以执行者写出的序号 0 用户消息开头，封口后是交互记录的唯一内容；字段与一轮的不变量见[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)；
 - `model_used`：执行者实际使用的模型展示名，空字符串表示未解析；
 - `failure_reason: CPUFailureReason | None`：可选的稳定失败原因，仅 failed 时有意义，外部 CPU 可不填，取值见[错误模型](./error-model.md#22-agent-run)；
 - `compaction_checkpoint: SessionCompactionCheckpoint | None`：默认 None，本次完成的旧历史压缩检查点，正常结果与取消后返回的结果都可携带。它不令 `has_output` 为真。
@@ -406,9 +406,9 @@ Import Bus 由 System 拥有：`ImportBusService` 做导入授权并委托编排
 对外结果只有 `accepted`（本次提交且已应用）、`duplicate`（此前已应用）与 `skipped`（用户消息之外没有输出，与任务进程一样不封口），并带推导出的 `interaction_id`；Gateway 决定、话题、价值信号与 RuntimeEvent 不进入响应。`accepted` 与 `duplicate` 都表示这一轮已经应用，确认只在应用完成之后给出：可重试与不可重试的失败经错误区分（[错误模型](./error-model.md#43-import-bus)）。
 
 - **交互标识**：`import_` 加上对（principal、user、Agent、来源、外部会话、外部轮次）规范化序列取 SHA-256 的前 32 位十六进制。同一轮重发得到同一标识，队列据此幂等；纳入认证通过的 actor，使代表不同用户或 Agent 的连接器不会撞号。
-- **串行与查重**：同一（user、Agent、来源、外部会话）在单进程内按到达顺序串行，串行范围包含进度查询、Gateway、提交与等待应用；不同会话可以并发。门内先查询进度：已应用（`succeeded`）或接纳过但结局已超出保留窗口（`unknown`）时返回 `duplicate`；仍在应用（`pending`）只继续等待，不再路由与提交——Gateway 的结果写入载荷，重新路由可能得到不同载荷而被队列判为冲突；未提交或应用失败的轮次才调用 Gateway 并（再次）提交。该契约不扩展为跨进程排序或持久化 mailbox。
+- **串行与查重**：同一（user、Agent、来源、外部会话）在单进程内按到达顺序串行，串行范围包含进度查询、Gateway、提交与等待应用；不同会话可以并发。门内先查询进度：已应用（`succeeded`）或接纳过但结局已超出保留窗口（`unknown`）时返回 `duplicate`；仍在应用（`pending`）只继续等待，不再路由与提交——Gateway 的落位随提交写入，重新路由可能得到不同的提交而被队列判为冲突；未提交或应用失败的轮次才调用 Gateway 并（再次）提交。该契约不扩展为跨进程排序或持久化 mailbox。
 - **落位**：`session_turns` 取请求中最近若干轮的最后 `gateway.context_preparation.session_turn_limit` 轮；最近一轮带外部标识时，Import Bus 推导它的交互标识并经状态查询取得应用成功后的真实落点，作为该轮的 `topic_id`。新话题以 Gateway 给出的标题与摘要提交。
-- **事件**：`tool_kind` 只接受 `SEARCH`、`READ`，只标在 HiveMemory 自身 MCP 工具的调用上，生成视图对它们只留一行轨迹，不再渲染取回的记忆；其他外部工具调用不设置，不产生记忆操作轨迹，也不会被当作记忆操作。用户消息由服务端写成序号为 0 的事件。
+- **事件**：导入的事件与 `TurnEvent` 同形（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)），请求校验阶段执行同样的事件规则。`verb` 只接受 `SEARCH`、`READ`，只标在 HiveMemory 自身 MCP 工具的调用上，生成视图对它们只留一行摘要，不再渲染取回的记忆；其他外部工具调用只带 `tool_name`。用户消息由服务端写成序号为 0 的事件。
 
 这条限制保护的是入口语义。Import Bus 摄入的是已经在外部发生的经历，并不等价于伪造一次用户与 Agent 的对话；如果它允许命令或 Alice 执行，外部内容便可能意外触发控制行为、工具调用和回复生成，也会让“谁发起了这次行动”失去可靠答案。
 

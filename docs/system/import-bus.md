@@ -34,7 +34,7 @@ related_docs:
 related_plans:
   - docs/archive/plans/v0.7.1-import-bus-redesign.md
   - docs/archive/plans/v0.7.1-memory-access-mcp.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # Import Bus
@@ -58,7 +58,7 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 | HTTP 入口 | `server/routers/import_bus.py`、`server/models/import_bus.py` | 请求体上限、请求校验、身份声明解析、经统一认证网关取得请求级 context、错误映射 | 授权、编排 |
 | 应用服务 `ImportBusService` | `system/application/import_bus_service.py` | 以导入授权把 context 兑现为本次请求的 `IdentityScope` 与 principal 标识，委托编排器；关闭时转交 | 跨请求的业务状态 |
 | 编排器 `ImportBusIngestor` | `system/services/import_bus/` | 按外部会话串行、推导 `interaction_id`、进度查询、Gateway 落位、封口、提交、等待应用、观测事件、关闭时等待在途请求 | 持有提交队列、注册维护任务、检索、记忆存储 |
-| 封口函数 `seal_interaction` | `core/protocol/sealing.py` | 两条链路共用：组装 `InteractionPayload`，由 core 归约器得到 MTP 轨迹 | — |
+| 封口函数 `seal_interaction` | `core/protocol/sealing.py` | 两条链路共用：组装 `InteractionPayload` | 解析事件（只在感知层进行） |
 | Patchouli | 公开路由 `patchouli.public.interaction.submit` / `.status` / `.wait` | 提交队列、查重、应用、新话题的建立 | 导入的身份与重试策略 |
 | Claude Code 连接器 | `integrations/claude-code/` | 读取会话记录、切分轮次、游标与重发 | 服务端的查重与授权 |
 
@@ -76,14 +76,15 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 | `agent_id` | 连接器所代表的具体 Agent，只作为认证声明，不进入导入记录 |
 | `outcome` | `completed`、`cancelled` 或 `failed`，与 `InteractionOutcome` 相同 |
 | `user_message` | 该轮的用户消息 |
-| `events` | 用户消息之后的事件：`kind`（`assistant_message`、`thought`、`tool_call`、`tool_result`）、`sequence`（从 1 起严格递增）、`content`，工具事件另带 `action_id`、`tool_name`、`tool_args`、`status`（出错的结果为 `error`），HiveMemory 自身 MCP 工具的调用另带 `tool_kind`（`SEARCH` 或 `READ`） |
-| `assistant_final_text` | 该轮最终的自然语言回复，可为空 |
+| `events` | 用户消息之后的事件，与 `TurnEvent` 同形（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)）：`kind`（`assistant_message`、`thought`、`tool_call`）、`sequence`（从 1 起严格递增）、`content`；工具调用另带轮内唯一的 `action_id`、`tool_name` 或 `verb`、`targets`、`tool_args`，有结局时带成对的 `status` 与 `result` |
 | `model_used` | 实际使用的模型名，可为空 |
 | `recent_turns` | 该轮之前的若干轮（`user_message`、`assistant_text`、可选 `external_turn_id`），只供 Gateway 落位，不进入交互记录 |
 
-- 事件不携带 `role`、`target` 与 `render_as`。服务端把 `user_message` 写成序号为 0 的 `user_message` 事件，再按事件种类填写角色（工具结果为 `system`，其余为 `assistant`）。
-- `tool_kind` 标记对 HiveMemory 能力层的记忆操作，包括 Alice 的 MTP 动词与 HiveMemory 自身 MCP 工具的读取；导入只接受 `SEARCH` 与 `READ`，其他取值以 422 拒绝，原样写入 `TurnEvent.tool_kind`。外部 harness 经 MCP 取回的记忆会作为工具结果留在会话记录里并随本轮导入，生成视图对带 `tool_kind` 的动作只保留一行轨迹、不渲染结果，与 MTP 的 SEARCH、READ 相同，因此不会把已有记忆再提取一遍（回声）；其他外部工具不设置，生成视图把它们按思考、工具名、参数摘要与截断后的结果渲染（[生成](../patchouli/generation.md)）。哪些调用要标记由连接器按 [MCP 记忆访问](../contracts/mcp.md#6-工具调用名与回声标记)的工具名对应负责，交互记录与 Artifact 仍保存包括结果在内的原始事件。
-- 序号重复或回退会让动作与回复错位，请求以 422 拒绝。
+- 服务端把 `user_message` 写成序号为 0 的 `user_message` 事件；回复正文不单独上传，由事件中的助手正文得到。
+- 一次工具调用与它的结局是同一个 `tool_call` 事件：`status` 为 `success`，出错为 `error`，`result` 是结果正文；会话记录没有记下结果的调用不带结局（第 8.3 节）。
+- `verb` 标记对 HiveMemory 能力层的记忆操作，与 Alice 的 MTP 动词同一词表，与 `tool_name` 互斥。外部 harness 只能经 HiveMemory 的 MCP 工具检索与读取，导入因此只接受 `SEARCH` 与 `READ`，其他取值以 422 拒绝；`READ` 必须带非空的 `targets`（所读的 alias），否则生成视图无法说明读了哪些记忆。外部 harness 经 MCP 取回的记忆会作为工具结果留在会话记录里并随本轮导入，生成视图对带 `verb` 的调用只保留一行摘要（`SEARCH: "查询"`、`READ: a, b`）、不渲染结果，与 Alice 的 MTP SEARCH、READ 写出同形的事件、渲染相同，因此不会把已有记忆再提取一遍（回声）；其他外部工具只带 `tool_name`，生成视图把它们按工具名、参数摘要与截断后的结果渲染（[生成](../patchouli/generation.md)）。哪些调用归一化为能力调用由连接器按 [MCP 记忆访问](../contracts/mcp.md#6-工具调用名与回声标记)的工具名对应负责，交互记录与 Artifact 仍保存包括结果在内的原始事件。
+- 外部 harness 不产出 alias，事件不接受 `produced_aliases`。
+- 单个事件的字段规则与一轮的不变量在请求校验阶段执行，与封口时相同：序号重复或回退、调用标识重复、字段出现在不允许的种类上或结局字段不成对时，整轮以 422 拒绝，不等到封口才失败。未升级的连接器仍上传旧的事件形态，它的轮次因此以 422 拒绝并被跳过（第 8.5 节），升级服务端时需要同时重新安装插件。
 - 请求体上限 `import_bus.max_request_bytes` 在框架读取并解析请求体之前判定（自定义路由类 `BodyLimitedRoute`）：声明的 `Content-Length` 超限时不读取请求体，没有声明长度时边读边计数，超限即停止。两种情况都返回 413（`request.body_too_large`），过大且不是合法 JSON 的请求因此也是 413 而不是 422。
 
 成功响应为 200，带推导出的 `interaction_id` 与 `status`：
@@ -92,7 +93,7 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 |:---|:---|
 | `accepted` | 本次提交，且已经应用 |
 | `duplicate` | 此前已经提交，现已应用（含本次请求等到上一次提交应用完成） |
-| `skipped` | 该轮没有用户消息之外的输出（既无事件也无最终正文），与任务进程一样不封口 |
+| `skipped` | 该轮没有用户消息之外的事件，与任务进程一样不封口 |
 
 响应不暴露 Gateway 决定、话题或记忆上下文。失败的状态码与可重试性见第 5 节。
 
@@ -145,8 +146,8 @@ workspace 授权点的 `authorize_import` 只校验 context 有效、已准入�
 
 ### 4.5 Gateway 落位、封口与提交
 
-- **Gateway**：以 `PASSIVE_MEMORY` 模式调用 `gateway.public.process`，消息为该轮的用户消息，时限为 `gateway.workflow.default_request_timeout_ms`。`session_turns` 取请求中 `recent_turns` 的最后 `gateway.context_preparation.session_turn_limit` 轮；最近一轮带 `external_turn_id` 时，编排器推导它的 `interaction_id`、经状态查询取得应用成功后的真实落点，写入该轮的 `topic_id`。话题路由失败时，Gateway 续接上一轮仍在候选中的话题，否则按新话题兜底（[Gateway 分析](../gateway/analysis.md)）。Import Bus 只使用决定中的 `target_topic_id`、`new_topic_title`、`new_topic_summary`、`rewritten_query` 与 `worth_saving`，忽略检索计划，不调用检索。`worth_saving` 只是写入预判，不用于丢弃交互。
-- **封口**：以用户消息、Gateway 决定、`assistant_final_text`、补上用户消息事件后的轮次事件、`outcome` 与 `model_used` 调用 `seal_interaction`；Import Bus 不携带附件，`used_attachments` 为空。
+- **Gateway**：以 `PASSIVE_MEMORY` 模式调用 `gateway.public.process`，消息为该轮的用户消息，时限为 `gateway.workflow.default_request_timeout_ms`。`session_turns` 取请求中 `recent_turns` 的最后 `gateway.context_preparation.session_turn_limit` 轮；最近一轮带 `external_turn_id` 时，编排器推导它的 `interaction_id`、经状态查询取得应用成功后的真实落点，写入该轮的 `topic_id`。话题路由失败时，Gateway 续接上一轮仍在候选中的话题，否则按新话题兜底（[Gateway 分析](../gateway/analysis.md)）。Import Bus 只使用决定中的 `target_topic_id`、`new_topic_title` 与 `new_topic_summary`，忽略检索计划，不调用检索；`worth_saving` 只进入观测事件（第 6.2 节），不进入交互记录，也不用于丢弃交互。
+- **封口**：以补上序号 0 用户消息事件后的轮次事件、`outcome` 与 `model_used` 调用 `seal_interaction`；Import Bus 不携带附件，`used_attachments` 为空。Gateway 决定不进入交互记录。
 - **提交**：调用 `patchouli.public.interaction.submit`，`origin` 为 `import_bus`；目标为 `NEW_TOPIC` 时附上 Gateway 给出的 `new_topic_title` 与 `new_topic_summary`，感知以它们建立新话题。后续落位依赖候选话题的标题与摘要，缺少它们的“新建话题”会让持续导入的落位质量下降。提交按话题生成排序键，导入与主动链路落到同一话题时由同一个排序键保证先后。
 
 ### 4.6 等待应用与确认
@@ -257,9 +258,9 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录）
 
 - 只读取 `user` 与 `assistant` 条目，跳过 `isSidechain`（子代理）、`isMeta`、`isCompactSummary` 条目与 `system` 条目（压缩边界、API 错误等）；只读完整的行。
 - 一轮从一条 `turnOrigin` 为 `human`、内容不是工具结果的用户条目开始，到下一条这样的条目之前为止；轮次标识取该条目的 `uuid`，外部会话标识取它的 `sessionId`（缺失时取会话记录的文件名）。`[Request interrupted by user...]` 标记立即结束一轮（结局 `cancelled`）。
-- 助手内容块 `text` → `assistant_message`，`thinking` → `thought`（没有正文的跳过：较新的模型默认只在本地记录签名），`tool_use` → `tool_call`（`action_id` 为调用标识，`tool_args` 为输入；本插件自身 MCP 工具的两种调用名分别标 `tool_kind` 为 `SEARCH`、`READ`，调用名由插件名与 server 名两个常量按 Claude Code 的规则拼出，其他工具不标记）；用户条目中的 `tool_result` → `tool_result`（`is_error` 为真时 `status` 为 `error`）。同一条 API 消息按内容块分条增量写入，重复的块按消息标识与块位置去重，工具调用与结果按调用标识去重。
-- `assistant_final_text` 按顺序拼接该轮全部助手正文，与 Alice 的最终正文一致，工具调用之间的叙述也进入记忆生成；`model_used` 取最后一条助手条目的模型（`<synthetic>` 除外）。
-- `recent_turns` 取该轮之前最近三轮已确认轮次的用户消息、最终正文与 `external_turn_id`；正文各截断到 2000 字符，避免一轮过大的内容拖着后续轮次一起超过请求体上限。
+- 助手内容块 `text` → `assistant_message`，`thinking` → `thought`（没有正文的跳过：较新的模型默认只在本地记录签名），`tool_use` → `tool_call`（`action_id` 为调用标识，`tool_args` 为输入；本插件自身 MCP 工具的两种调用名归一化为 `SEARCH`、`READ` 能力调用，不上传调用名，读取的 `aliases` 移出参数作为 `targets`；调用名由插件名与 server 名两个常量按 Claude Code 的规则拼出，其他工具写 `tool_name`）。`aliases` 不是非空的字符串列表时（模型传错了参数，MCP server 已以工具错误拒绝），读取按普通工具写出，否则服务端会因 READ 缺少作用对象拒绝整轮。用户条目中的 `tool_result` 按 `tool_use_id` 补全到同一轮的调用上，作为它的结局（`is_error` 为真时 `status` 为 `error`，否则为 `success`；`result` 为结果正文），找不到调用的结果跳过。同一条消息并行发出多个调用时，Claude Code 有时只记下最后一个的结果，其余调用因此没有结局，模型其实收到了它们的结果。同一条 API 消息按内容块分条增量写入，重复的块按消息标识与块位置去重，工具调用与结果按调用标识去重。
+- 回复正文不随轮次上传，服务端从助手消息事件得到；`model_used` 取最后一条助手条目的模型（`<synthetic>` 除外）。
+- `recent_turns` 取该轮之前最近三轮已确认轮次的用户消息、按顺序以空行拼接的全部助手正文与 `external_turn_id`；正文各截断到 2000 字符，避免一轮过大的内容拖着后续轮次一起超过请求体上限。
 
 ### 8.4 结束判定与游标
 
@@ -307,7 +308,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录）
 - 同一（user、Agent、`source`、外部会话）内按到达顺序处理，串行门持有到应用完成；不同外部会话不被一把全局锁串行化。
 - `interaction_id` 只由认证结果与外部标识推导，同一轮重发不变。
 - 导入授权只在 Import Bus 服务调用，只校验准入与目标，不检查白名单，拒绝保留的 `system`；`IdentityScope` 只在一次请求的调用链内使用。
-- 交互记录由共用的 `seal_interaction` 产出，与任务进程的交互记录同形；`worth_saving` 不得删除原始交互。
+- 交互记录由共用的 `seal_interaction` 产出，与任务进程的交互记录同形，只以事件表达交互内容；`worth_saving` 不进入交互记录，也不得删除原始交互。
 - 编排器不持有提交队列、不注册维护任务；关闭时只等待在途请求，不排空队列。
 - RuntimeEvent 不携带正文，发布失败不改变结果。
 - 连接器只在得到确认，或判定这一轮不可重试并写入拒绝记录之后前进游标；hook 不做网络提交，不阻塞 Claude Code。
@@ -319,7 +320,8 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录）
 - 超过请求体上限的一轮以 413 整轮跳过；提交队列的终态工作记录保存完整的编码载荷，工具输出很大时占用可观的内存。
 - 工具结果可能包含密钥、令牌等凭据：连接器不筛选，原文随交互 Artifact 持久化，截断后的结果进入生成转写；提取提示词要求不把凭据写入记忆。
 - 请求头中的用户身份不做证明，只适用于本地单用户部署；接入凭据是本地共享密钥，修改经重启生效。
-- 回声标记依赖 Claude Code 的工具调用命名规则：规则变化时标记静默失效，回声恢复，表现为重复记忆，不丢失数据。READ 轨迹的目标取工具名，导入的 MCP 读取在生成视图中看不出读了哪些 alias（由[工具解析链路重写计划](../plans/v0.7.1-tool-call-parsing-chain.md)处理）。
+- 回声标记依赖 Claude Code 的工具调用命名规则：规则变化时标记静默失效，回声恢复，表现为重复记忆，不丢失数据。
+- Claude Code 的会话记录有时只记下同一条消息并行发出的多个调用中最后一个的结果，其余调用以没有结局的形式导入，生成材料中缺少这些结果；连接器无法补回会话记录没有保存的内容。
 - 连接器依赖 Claude Code 未公开承诺的会话记录格式；本地记录中的思考多数只有签名，连接器只能转交有正文的部分。30 分钟无新条目即按中断结束的规则，会把等待权限确认超过 30 分钟、恰逢其他会话唤醒补发的一轮按中断提交，之后写入的内容不再导入。连接器只在 Linux（WSL）上验证过，Windows 上的文件锁以持续重试取得。
 
 这些项目在真实使用中的观察见 [Import Bus 真实使用观察 Todo](../todo/import-bus-real-use-observation.md)。

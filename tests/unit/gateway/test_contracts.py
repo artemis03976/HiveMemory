@@ -10,12 +10,10 @@ from pydantic import ValidationError
 from hivememory.core.models import (
     ActorIdentity,
     FrozenDict,
-    LogicalBlock,
     TopicData,
     TopicLastTurn,
     TopicSnapshot,
     TurnEvent,
-    TurnRecord,
 )
 from hivememory.core.protocol.gateway import (
     CommandExecutionResult,
@@ -37,19 +35,21 @@ from hivememory.gateway.workflow import (
     GatewayExecutionState,
     GatewayStepResult,
 )
-from tests.helpers.workspace import make_actor_identity, make_identity_scope
+from tests.helpers.sessions import make_logical_block
+from tests.helpers.workspace import make_identity_scope
 
 
 def test_canonical_topic_object_graph_is_recursively_immutable() -> None:
     event = TurnEvent(
         kind="tool_call",
         sequence=1,
-        role="assistant",
         content="查询",
+        action_id="search",
+        verb="SEARCH",
         tool_args={"filters": {"tags": ["gateway"]}},
     )
-    block = LogicalBlock(
-        turn=TurnRecord(identity=make_actor_identity(), user_query="继续", turn_events=(event,)),
+    block = make_logical_block(
+        turn_events=[TurnEvent(kind="user_message", sequence=0, content="继续"), event]
     )
     topic = TopicData(
         topic_id="topic-1",

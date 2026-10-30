@@ -260,12 +260,10 @@ async def test_completed_call_ends_child_thread_but_keeps_its_dispatched_write()
         TurnEvent(
             kind="tool_call",
             sequence=0,
-            role="assistant",
             content="<CALL omni_doll>",
             action_id="call-1",
-            tool_kind="CALL",
-            tool_name="omni_doll",
-            status="pending",
+            verb="CALL",
+            targets=("omni_doll",),
         )
     )
     config = AliceConfig()

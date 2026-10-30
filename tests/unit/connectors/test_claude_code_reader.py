@@ -1,7 +1,8 @@
 """Claude Code 会话记录读取器的单元测试（合成会话记录，不读取真实对话）。
 
 保护的契约：一轮从 ``turnOrigin`` 为 human 的消息开始；助手文本、思考、工具
-调用与工具结果映射为导入事件；本插件自身的 MCP 记忆工具标为 SEARCH、READ；
+调用与工具结果映射为导入事件；本插件自身的 MCP 记忆工具归一化为 SEARCH、READ
+能力调用，不带调用名；
 子代理、元条目、压缩摘要、注入的内容、系统条目与不认识的条目跳过；中断标记
 结束一轮；重复写入的块按消息与块位置去重；只读完整行；游标之前的条目不形成
 轮次。
@@ -26,7 +27,7 @@ reader = ClaudeCodeReader()
 
 
 def test_turn_maps_thinking_tool_calls_results_and_final_text(tmp_path):
-    """思考、工具调用与结果按出现顺序成为事件；最终正文取最后一次工具结果之后的助手文本。"""
+    """思考与外部工具调用按出现顺序成为事件，结果补全到调用上，状态为 error 或 success。"""
     log = TranscriptWriter(tmp_path / "s.jsonl")
     log.prompt("p1", "测试挂了")
     log.assistant(thinking("先跑测试"), text("我先运行测试。"), message_id="m1")
@@ -53,55 +54,118 @@ def test_turn_maps_thinking_tool_calls_results_and_final_text(tmp_path):
             "action_id": "toolu-1",
             "tool_name": "Bash",
             "tool_args": {"command": "pytest -q"},
-        },
-        {
-            "kind": "tool_result",
-            "sequence": 4,
-            "content": "1 failed",
-            "action_id": "toolu-1",
             "status": "error",
+            "result": "1 failed",
         },
         {
             "kind": "tool_call",
-            "sequence": 5,
+            "sequence": 4,
             "content": "",
             "action_id": "toolu-2",
             "tool_name": "Edit",
             "tool_args": {"file_path": "a.py"},
+            "status": "success",
+            "result": "ok",
         },
-        {"kind": "tool_result", "sequence": 6, "content": "ok", "action_id": "toolu-2"},
-        {"kind": "assistant_message", "sequence": 7, "content": "已修复"},
-        {"kind": "assistant_message", "sequence": 8, "content": "测试通过"},
+        {"kind": "assistant_message", "sequence": 5, "content": "已修复"},
+        {"kind": "assistant_message", "sequence": 6, "content": "测试通过"},
     ]
-    # 与 Alice 的最终正文一致：按顺序拼接全部助手正文，工具调用之间的叙述也保留。
+    # 作为后续轮次的最近上文：按顺序拼接全部助手正文，工具调用之间的叙述也保留。
     assert turn.assistant_final_text == "我先运行测试。\n\n已修复\n\n测试通过"
     assert turn.model_used == "claude-opus"
 
 
-def test_only_this_plugins_memory_tools_are_marked_as_memory_operations(tmp_path):
-    """本插件 MCP 工具的检索与读取标为 SEARCH、READ；其他 server 的同名工具与普通工具不标记。
+def test_unrecorded_results_leave_calls_without_outcome_and_stray_results_are_skipped(tmp_path):
+    """并行调用只记下最后一个结果时，其余调用没有结局；找不到调用的结果不形成事件。"""
+    log = TranscriptWriter(tmp_path / "s.jsonl")
+    log.prompt("p1", "看两个文件")
+    log.assistant(
+        tool_use("toolu-1", "Read", {"file_path": "a"}),
+        tool_use("toolu-2", "Read", {"file_path": "b"}),
+        message_id="m1",
+    )
+    log.tool_result("toolu-2", "b 的内容")
+    log.tool_result("toolu-x", "没有对应调用")
+
+    [turn] = reader.read(str(log.path), 0)
+
+    assert [
+        (event["action_id"], event.get("status"), event.get("result")) for event in turn.events
+    ] == [("toolu-1", None, None), ("toolu-2", "success", "b 的内容")]
+
+
+def test_only_this_plugins_memory_tools_become_capability_calls(tmp_path):
+    """本插件的检索与读取写动词与作用对象、不带调用名；其他 server 的同名工具、普通工具与
+    作用对象不是 alias 列表的读取写工具名，后者若写成 READ 会让服务端拒绝整轮。
 
     调用名固定为 Claude Code 文档给出的格式，拼名规则出错时这里失败。
     """
     log = TranscriptWriter(tmp_path / "s.jsonl")
     log.prompt("p1", "之前怎么部署的")
     calls = [
-        ("toolu-1", "mcp__plugin_hivememory-connector_hivememory__memory_search"),
-        ("toolu-2", "mcp__plugin_hivememory-connector_hivememory__memory_read"),
-        ("toolu-3", "mcp__other__memory_search"),
-        ("toolu-4", "Bash"),
+        (
+            "toolu-1",
+            "mcp__plugin_hivememory-connector_hivememory__memory_search",
+            {"query": "部署"},
+        ),
+        (
+            "toolu-2",
+            "mcp__plugin_hivememory-connector_hivememory__memory_read",
+            {"aliases": ["fact_a", "fact_b"]},
+        ),
+        ("toolu-3", "mcp__other__memory_search", {"query": "部署"}),
+        ("toolu-4", "Bash", {"command": "ls"}),
+        (
+            "toolu-5",
+            "mcp__plugin_hivememory-connector_hivememory__memory_read",
+            {"aliases": "fact_a"},
+        ),
     ]
-    for index, (tool_id, name) in enumerate(calls):
-        log.assistant(tool_use(tool_id, name, {"query": "部署"}), message_id=f"m{index}")
+    for index, (tool_id, name, tool_input) in enumerate(calls):
+        log.assistant(tool_use(tool_id, name, tool_input), message_id=f"m{index}")
         log.tool_result(tool_id, "结果")
 
     [turn] = reader.read(str(log.path), 0)
 
-    assert [event.get("tool_kind") for event in turn.events if event["kind"] == "tool_call"] == [
-        "SEARCH",
-        "READ",
-        None,
-        None,
+    assert [
+        {
+            key: value
+            for key, value in event.items()
+            if key not in ("sequence", "content", "status", "result")
+        }
+        for event in turn.events
+        if event["kind"] == "tool_call"
+    ] == [
+        {
+            "kind": "tool_call",
+            "action_id": "toolu-1",
+            "verb": "SEARCH",
+            "tool_args": {"query": "部署"},
+        },
+        {
+            "kind": "tool_call",
+            "action_id": "toolu-2",
+            "verb": "READ",
+            "targets": ["fact_a", "fact_b"],
+        },
+        {
+            "kind": "tool_call",
+            "action_id": "toolu-3",
+            "tool_name": "mcp__other__memory_search",
+            "tool_args": {"query": "部署"},
+        },
+        {
+            "kind": "tool_call",
+            "action_id": "toolu-4",
+            "tool_name": "Bash",
+            "tool_args": {"command": "ls"},
+        },
+        {
+            "kind": "tool_call",
+            "action_id": "toolu-5",
+            "tool_name": "mcp__plugin_hivememory-connector_hivememory__memory_read",
+            "tool_args": {"aliases": "fact_a"},
+        },
     ]
 
 
@@ -204,8 +268,8 @@ def test_rewritten_blocks_are_deduplicated_by_message_and_block_position(tmp_pat
         "assistant_message",
         "assistant_message",
         "tool_call",
-        "tool_result",
     ]
+    assert turn.events[-1]["result"] == "内容"
 
 
 def test_incomplete_last_line_is_not_read(tmp_path):

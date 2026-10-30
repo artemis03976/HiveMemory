@@ -12,13 +12,14 @@ code_paths:
   - src/hivememory/patchouli/control/interaction_submission.py
   - src/hivememory/patchouli/application/interaction_submission_service.py
   - src/hivememory/core/protocol/sealing.py
-  - src/hivememory/prompts/transcript/actions.py
+  - src/hivememory/core/models/interaction.py
+  - src/hivememory/core/models/topic.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/system/import-bus.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # 感知与短期话题
@@ -31,21 +32,15 @@ Perception 负责把一轮已经发生的交互转化为 Patchouli 可以持续�
 
 ### 1.1 内容事实：TurnRecord
 
-一轮交互的内容真相由 `core.models.TurnRecord` 表达，包括：
+一轮交互的内容真相由 `core.models.TurnRecord` 表达，只有四项：本轮结局 `outcome`、`turn_id`、产出本轮的 `ActorIdentity`（不含 session），以及以序号 0 的用户消息开头的有序 `TurnEvent` 集。事件集是唯一的内容事实：用户消息取序号 0 的事件正文，回复正文是全部助手正文按序号以空行拼接，二者都在读取时从事件得到，不在记录中另存一份。
 
-- 不含 session 的 `ActorIdentity`、原始 user query 与 rewritten query；
-- assistant final text；
-- 有序 `TurnEvent[]`；
-- 由事件归并的 `AgentAction[]`；
-- 由 action 派生的 `TraceItem[]`。
-
-当前 `TurnEvent.kind` 只接受 `user_message / assistant_message / thought / tool_call / tool_result`。工具事件通过 `action_id` 保持一次 action 的结构边界。Perception 不再接受旧 `assistant_message` fallback 字段，也不会从一段拼接文本逆向解析工具事实。
+`TurnEvent` 有用户消息、助手正文、思考与工具调用四种；一次工具调用与它的结局是同一个事件，字段与一轮的不变量见[数据模型](../architecture/data-model.md)。事件集之外不保存由它归并的动作或轨迹：同一事实存两份时，两份会各自漂移，读取方也会从不同来源得到不一致的解读。Perception 不会从一段拼接文本逆向解析工具事实。
 
 `TurnRecord.outcome` 保存 completed/cancelled/failed（默认 completed），从 `InteractionPayload` 原样转入。中断和失败只要有输出，也沿同一提交与幂等应用链形成 block；结局不是成功知识的标志，生成转写会注明不完整。会话上下文属于 workspace，Topic 仅作为记忆材料，不反向填充 Alice 的历史。
 
 ### 1.2 感知容器：LogicalBlock
 
-`LogicalBlock` 在 TurnRecord 外增加感知层元数据：block id、created time、估算 token、gateway intent 与 `worth_saving`。它是不可变模型，表明同一轮内容事实进入短期话题后的感知视图。
+`LogicalBlock` 在 TurnRecord 外只增加感知层元数据：block id、created time 与估算 token（`total_tokens`，第 6 节）。用户消息与回复正文是从事件读取的只读属性。它是不可变模型，表明同一轮内容事实进入短期话题后的感知视图；Gateway 的入口判断（意图、价值预判、改写后的查询）不进入块。
 
 可以简写为：
 
@@ -59,7 +54,7 @@ Perception 以 `TopicData` 快照作为话题工作视图，保存 blocks、展�
 
 ## 2. 结构化摄入
 
-`InteractionPayload` 是主动链路与 [Import Bus](../system/import-bus.md) 共享的协议，当前字段包括 outcome、user message、rewritten query、assistant final text、turn events、MTP traces、worth_saving、model_used 与实际使用的附件引用 `used_attachments`（Import Bus 的提交为空）。两条链路都由 `core.protocol.sealing` 中同一个封口函数 `seal_interaction` 组装它，交给 Patchouli 的载荷因此同形。它不重复保存本轮 Workspace 身份；两条链路在资源 owner 边界拆分 `IdentityScope`，进入提交队列时由外层 `InteractionSubmission.belong_to` 与 `from_actor` 独立携带归属和本轮发起者。
+`InteractionPayload` 是主动链路与 [Import Bus](../system/import-bus.md) 共享的协议。交互内容只以 `turn_events` 表达，其余字段是本轮结局 `outcome`、执行者使用的模型 `model_used` 与实际使用的附件引用 `used_attachments`（Import Bus 的提交为空），它们不是对事件的解析；用户消息与回复正文是从事件读取的只读属性，不保存、不序列化。载荷构造时校验一轮事件集的不变量，违反时显式失败，不修补。两条链路都由 `core.protocol.sealing` 中同一个封口函数 `seal_interaction` 组装它，交给 Patchouli 的载荷因此同形；封口只组装、不解析事件，序号 0 的用户消息事件由提交方写出（Alice 执行循环、Import Bus 服务端），执行方只交出回复正文、没有写助手正文事件时，封口在末尾补一条助手正文事件。它不重复保存本轮 Workspace 身份；两条链路在资源 owner 边界拆分 `IdentityScope`，进入提交队列时由外层 `InteractionSubmission.belong_to` 与 `from_actor` 独立携带归属和本轮发起者。
 
 `InteractionSubmission` 另外携带可选的 `new_topic_title` 与 `new_topic_summary`：只在 `requested_topic_id` 为 `NEW_TOPIC` 时允许非空，已有话题的标题与摘要由话题自身持有，提交不能借此改写。`InteractionSubmissionCodec` 当前为 v6，只注册当前布局：缺失字段、额外字段、旧 `identity_scope` 布局及嵌套对象不能规范往返的载荷均被拒绝。队列使用 `InMemoryWorkStore`，提交快照与幂等收据只驻留于当前进程，不提供旧版本队列载荷迁移或重启恢复。
 
@@ -72,11 +67,9 @@ Perception 以 `TopicData` 快照作为话题工作视图，保存 blocks、展�
 交互应用成功后，Perception 才会把用户明确使用的 `(asset_id, asset_ref)` 记录为 Topic 的 `TopicAssetBinding`。上传、候选列表或 UI 选择本身不会进入 Topic 事实。由此，感知层只接收已完成身份与资源前置校验的交接输入，不拥有 `WorkspaceAssetStore` 的生命周期。
 
 ```text
-InteractionPayload
-  -> require turn_events
-  -> ActionReducer(turn_events)
-  -> TurnRecord
-  -> token estimate
+InteractionPayload（构造时已校验一轮的不变量）
+  -> TurnRecord(outcome, identity, turn_events)
+  -> 渲染整轮材料并估算 token（engines.perception.material）
   -> LogicalBlock
   -> ShortTermMemoryStore.put(TopicData snapshot)   应用到此完成
   -> needs_compact：提交队列排入折叠项 -> compact_topic（Page Folding，第 5 节）
@@ -84,11 +77,13 @@ InteractionPayload
 
 主动流程由任务进程封口 payload、Patchouli finalize 原样提交；Import Bus 以同一封口函数封口导入的整轮记录，经公开提交路由提交。两者先进入同一 `InteractionSubmissionQueue`，再由 `PerceptionFamiliar.apply_interaction()` 编排 `MemoryPerceptionEngine.build_block()`（纯算法）、占用检查与 Store 写入，不存在导入专用的扁平文本主链，也不存在中间感知层。应用在写入后即完成，不执行折叠；话题需要折叠时，由提交队列在这次应用之后另行排入折叠项。
 
-结构化摄入的边界来自外部 harness 的真实事件形态：Import Bus 接收的一轮整轮记录中，用户消息由服务端写为序号 0 的事件，其后是 `assistant_message`、`thought`、`tool_call`、`tool_result` 四类事件。外部工具不设置 `tool_kind`（它只表示 MTP 动词），因此不产生 MTP trace，也不会被当作记忆操作。只有最终的自然语言回复进入 `assistant_final_text`；思考、工具调用与工具返回必须以 `TurnEvent` 保留，不能为了生成一段看似完整的 transcript 而提前丢弃。`ActionReducer`/`TraceReducer` 位于 core，是从这些事件派生 action/trace 的唯一规则：Perception 用它归约 action，封口函数用它归约 MTP trace，记忆生成视图的动作段也沿用它把事件归到动作。入口层不应另行构造第二套摘要，否则历史重放、主动生成与导入归档会拥有互相漂移的事实来源。
+结构化摄入的边界来自外部 harness 的真实事件形态：Import Bus 接收的一轮整轮记录中，用户消息由服务端写为序号 0 的事件，其后是助手正文、思考与工具调用三类事件。两种来源写出的事件同形，来源之间真实存在的差异只体现为取值：调用 HiveMemory 能力（Alice 的 MTP 指令、外部 harness 经 HiveMemory MCP 工具的检索与读取）带动词与作用对象，外部工具带工具名，下游不判断来源。思考、工具调用与工具返回必须以 `TurnEvent` 保留，不能为了生成一段看似完整的 transcript 而提前丢弃。
+
+对事件集的解读只在感知层进行一次：`engines/perception/material.py` 把一轮事件渲染为感知层唯一的材料文本，记忆生成视图（[记忆生成](./generation.md#21-材料与渲染)）、LLM 接力摘要与逻辑块的 token 统计都使用它，按同一组截断上限得到同样的材料。入口层与封口不另行构造第二套摘要，否则历史重放、主动生成与导入归档会拥有互相漂移的事实来源。
 
 目标话题属于提交前的 Gateway 落位决定，而不是应用时重新计算的感知结果。任务进程在 Gateway 阶段取得落位，并在 prepare 时建立新话题；Import Bus 在提交前以 `PASSIVE_MEMORY` 为需要提交的每一轮调用 Gateway，把落位作为 `requested_topic_id` 提交。目标为 `NEW_TOPIC` 时，Perception 以提交携带的 `new_topic_title`/`new_topic_summary` 建立话题，缺省时使用默认标题“新建话题”与空摘要；后续轮次的落位依赖候选话题的标题与摘要，因此 Import Bus 新建话题时带上 Gateway 给出的标题与摘要。应用失败的交互没有写入任何话题，重新提交时按提交方这一次交来的落位应用。Import Bus 拥有外部会话的串行、查重与确认，Gateway 只负责入口判断，两者都不持有话题内容。
 
-Perception 把 `worth_saving` 写入 block，但它不决定材料去留：形成 settlement payload 时，话题中的全部 blocks 都进入结算。Gateway 的价值预判只看到用户消息与已有话题上下文，看不到这一轮的回答、工具调用与结果（[Gateway 分析](../gateway/analysis.md)第 7.1 节），“请提交”“继续”这类短消息背后常是整轮实现；按它筛选会把这些轮次整轮丢出生成，交互 Artifact 也不再保存它们。一轮是否有长期价值，由生成阶段在完整材料上判断。`worth_saving` 目前只随交互记录、block 与导入事件传递，供观测使用。
+Gateway 的价值预判（`worth_saving`）不进入交互记录与 block，也不决定材料去留：形成 settlement payload 时，话题中的全部 blocks 都进入结算。价值预判只看到用户消息与已有话题上下文，看不到这一轮的回答、工具调用与结果（[Gateway 分析](../gateway/analysis.md)第 7.1 节），“请提交”“继续”这类短消息背后常是整轮实现；按它筛选会把这些轮次整轮丢出生成，交互 Artifact 也不再保存它们。一轮是否有长期价值，由生成阶段在完整材料上判断。Import Bus 的接纳事件仍直接从 Gateway 决定取它，只供观测。
 
 ## 3. 话题准备与 LRU
 
@@ -157,7 +152,7 @@ Page Folding 是 Patchouli 的内部 topic working-set compaction，主动链路
 
 `MemoryPerceptionEngine` 是无状态的短期记忆摄入与 compact 算法引擎，职责包括：
 
-- `build_block`: 把 `InteractionPayload` 转化为不可变 `LogicalBlock`，归并结构化事件为 actions、估算 token。块的 `total_tokens` 计入用户消息、回复、MTP trace 的查询与目标，以及动作段中的思考与外部工具动作；后者调用记忆生成转写的同一个渲染函数（`prompts/transcript/actions.py`），按 `patchouli.generation.transcript` 的同一组上限截断，折叠阈值因此反映生成实际看到的材料。MTP 动作的一行摘要不重复计入，只有用户消息、回复与 MTP 动作的轮次统计因此不受动作段影响；
+- `build_block`: 把 `InteractionPayload` 转化为不可变 `LogicalBlock` 并估算 token。块的 `total_tokens` 是对整轮渲染材料的估算：用户消息、助手正文、思考、能力调用的一行摘要与外部工具步骤，按 `patchouli.generation.transcript` 的同一组上限截断，折叠阈值因此直接反映生成实际看到的材料；能力调用读回的记忆不渲染，也不计入；
 - `should_compact`: 判断话题总 token 是否超过折叠阈值；
 - `select_blocks_to_fold`: 选择待折叠的旧 blocks 前缀（保留最近 N 个）；
 - `generate_fold_summary`: 异步生成 Page Folding 摘要（委托给持有的 `RelayController`）。
@@ -166,8 +161,8 @@ Engine 持有 `RelayController`，封装了完整的 compact 算法能力。`Per
 
 RelayController 有三种实现：
 
-- **SimpleRelayController**: 以确定性规则形成简要接力摘要；
-- **LLMRelayController**: 经组合根注入的共享 LLM 服务，以 `shared.llm.librarian` 转换的请求参数异步生成更丰富摘要；每次调用以 `patchouli.perception.engine.relay.engine.summary_timeout_seconds`（默认 60 秒）为时限。只在没有可用 LLM（Librarian 未配置模型）、提供商失败（`ModelProviderError`，含超窗）或调用超时时回退为规则摘要，回退的规则摘要接在 previous summary 之后，已折叠的历史不丢失；程序错误不被规则摘要掩盖，沿 compact 路径传播；
+- **SimpleRelayController**: 以确定性规则形成简要接力摘要：用户请求数、用到的工具（能力调用取动词的小写，外部工具取工具名，无法解析的 MTP 指令不计）与 token 总数；
+- **LLMRelayController**: 经组合根注入的共享 LLM 服务，以 `shared.llm.librarian` 转换的请求参数异步生成更丰富摘要。近期事件是各块与记忆生成视图相同的材料，块之间空一行：被折叠的块在结算前只以摘要存在，近期事件因此保留思考与外部工具过程，不只有问答；每次调用以 `patchouli.perception.engine.relay.engine.summary_timeout_seconds`（默认 60 秒）为时限。只在没有可用 LLM（Librarian 未配置模型）、提供商失败（`ModelProviderError`，含超窗）或调用超时时回退为规则摘要，回退的规则摘要接在 previous summary 之后，已折叠的历史不丢失；程序错误不被规则摘要掩盖，沿 compact 路径传播；
 - **NoOpRelayController**: 用于关闭折叠能力。
 
 Relay 控制器由 Runtime 按配置创建并注入 Engine 构造。关闭 perception（`engine.enable=false`）时 Runtime 注入 `engine=None`，Familiar 的摄入路径变为无副作用 no-op（原 NullPerceptionLayer 语义），维护用例对空存储自然空转。
@@ -183,8 +178,8 @@ Engine 不持有 Store / Queue，也不导入 `hivememory.patchouli.*`，可被�
 ## 8. 当前限制
 
 - 短期话题是进程内状态，异常退出可能丢失未结算 blocks；
-- token 统计覆盖 user/final text、MTP trace 的查询与目标，以及截断后的思考与外部工具动作，不是模型级精确 tokenizer 预算；
-- 块的 token 统计计入思考与外部工具动作后，工具密集的轮次会更早触发折叠；接力摘要不含思考与工具结果（LLM relay 只渲染 MTP trace，规则摘要只列工具名），被折叠的块在结算前就失去这些材料；
+- token 统计是对截断后整轮材料的估算，不是模型级精确 tokenizer 预算；
+- 块的 token 统计计入思考与外部工具步骤，工具密集的轮次会更早触发折叠；LLM relay 的近期事件同样包含这些材料，单块最多约为单轮上限再加上用户消息与助手正文，输入越大越可能触及 `summary_timeout_seconds` 而回退为规则摘要，规则摘要只列工具名；
 - `fold_retain_recent_blocks` 只限制 block 数量，不保证保留后缀的 token 总量低于阈值；单个超大 block 也可能超过软水位线；
 - 所有 compact 配置与 Engine 的折叠选择都拒绝小于 1 的 retain 值，至少保留一个最新 block；summary-only Topic 可被列出、路由并免于空 Topic 误删，但当前 generation 仍以 `state_summary + 至少一个 recent block` 作为可结算材料，独立的 summary-only memory/artifact 生成能力未定义；
 - overflow 不产生 settlement/artifact，被折叠旧前缀目前只进入有损 `state_summary`；

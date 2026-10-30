@@ -1,93 +1,69 @@
 """程序提取的摘要引用只保留有限线索，不推断授权或持久化状态。"""
 
-import pytest
+from typing import Any
 
 from hivememory.alice.context.references import extend_references
 from hivememory.core.models import TurnEvent
-from hivememory.core.mtp.formatter import MTPFormatter
-from hivememory.core.mtp.models import MTPResponse, MTPResponseStatus
-from hivememory.i18n.mtp_runtime import get_mtp_info_text
+from hivememory.core.protocol.models import ConversationTurn
 from tests.helpers.sessions import make_conversation_turn
 
 
-@pytest.mark.parametrize("language", ["zh", "en"])
-def test_extracts_read_ack_and_run_file_clues_with_recent_deduplication(language):
-    """中英文 ACK 都提取 pending 别名，文件参数从对应调用取得，重复引用移到末尾。"""
-
-    def ack(verb, sequence, alias):
-        content = get_mtp_info_text(
-            f"mtp.{verb.lower()}.ack", {"pending_alias": alias, "base_alias": "base"}, language
+def _turn(*actions: tuple[dict[str, Any], dict[str, Any]]) -> ConversationTurn:
+    """以用户消息开头，依次写出每个动作的调用事件，结局补全在同一个调用上。"""
+    events = [TurnEvent(kind="user_message", sequence=0, content="任务")]
+    for index, (call, outcome) in enumerate(actions):
+        event = TurnEvent(
+            kind="tool_call", sequence=len(events), content="", action_id=f"action_{index}", **call
         )
-        return TurnEvent(
-            kind="tool_result",
-            sequence=sequence,
-            role="user",
-            tool_kind=verb,
-            status="ack",
-            content=MTPFormatter.format_response(
-                MTPResponse(status=MTPResponseStatus.ACK, content=content), language
-            ),
+        events.append(
+            event.with_outcome(
+                outcome["status"],
+                outcome.get("content", "ok"),
+                outcome.get("produced_aliases", ()),
+            )
         )
+    return make_conversation_turn(user_message="任务", turn_events=events)
 
-    events = [
-        TurnEvent(
-            kind="tool_result",
-            sequence=0,
-            role="user",
-            tool_kind="READ",
-            target="a",
-            status="success",
-            content="正文",
+
+def test_extracts_read_ack_and_run_file_clues_with_recent_deduplication():
+    """READ 的每个 alias 各算一条，ACK 取结果事件的产出 alias，文件参数取自配对的调用。"""
+    turn = _turn(
+        ({"verb": "READ", "targets": ("a", "b")}, {"status": "success"}),
+        ({"verb": "WRITE"}, {"status": "ack", "produced_aliases": ("pending_a",)}),
+        (
+            {"verb": "UPDATE", "targets": ("base",)},
+            {"status": "ack", "produced_aliases": ("rev_b",)},
         ),
-        ack("WRITE", 1, "pending_a"),
-        ack("UPDATE", 2, "pending_b"),
-        TurnEvent(
-            kind="tool_call",
-            sequence=3,
-            role="assistant",
-            content="run",
-            tool_kind="RUN",
-            action_id="run",
-            tool_args={"path": "report.md", "content": "不是文件路径"},
+        (
+            {"verb": "RUN", "targets": ("sys_file_write",), "tool_args": {"path": "report.md"}},
+            {"status": "success"},
         ),
-        TurnEvent(
-            kind="tool_result",
-            sequence=4,
-            role="user",
-            content="ok",
-            tool_kind="RUN",
-            action_id="run",
-            status="success",
-        ),
-        TurnEvent(
-            kind="tool_result",
-            sequence=5,
-            role="user",
-            content="pending atom 'not_admitted'",
-            tool_kind="WRITE",
-            status="error",
-        ),
-    ]
-    turn = make_conversation_turn(user_message="任务", turn_events=events)
-    references = extend_references(("memory:a", "file:old"), turn, limit=4, max_chars=100)
-    assert references == ("memory:a", "memory:pending_a", "memory:pending_b", "file:report.md")
+        # 失败的 WRITE 即使正文提到 pending 标记也不产出线索。
+        ({"verb": "WRITE"}, {"status": "error", "content": "pending atom 'not_admitted'"}),
+    )
+
+    references = extend_references(("memory:a", "file:old"), turn, limit=5, max_chars=100)
+
+    assert references == (
+        "memory:a",
+        "memory:b",
+        "memory:pending_a",
+        "memory:rev_b",
+        "file:report.md",
+    )
 
 
 def test_reference_count_and_length_limits_never_turn_a_long_path_into_a_false_address():
     """过长线索忽略而非截断；多个文件参数的列表只保留最近的有效项。"""
-    turn = make_conversation_turn(
-        user_message="task",
-        turn_events=[
-            TurnEvent(
-                kind="tool_result",
-                sequence=0,
-                role="user",
-                tool_kind="RUN",
-                content="ok",
-                status="success",
-                tool_args={"paths": ["a.py", "b.py", "x" * 300]},
-            )
-        ],
+    turn = _turn(
+        (
+            {
+                "verb": "RUN",
+                "targets": ("sys_python",),
+                "tool_args": {"paths": ["a.py", "b.py", "x" * 300]},
+            },
+            {"status": "success"},
+        )
     )
     assert extend_references((), turn, limit=1, max_chars=30) == ("file:b.py",)
     assert extend_references(("memory:old",), turn, limit=0, max_chars=30) == ()
@@ -95,27 +71,11 @@ def test_reference_count_and_length_limits_never_turn_a_long_path_into_a_false_a
 
 def test_failed_read_and_run_do_not_become_retrieval_clues():
     """目标不存在、无权限或文件未写成时没有可重取的资源，不能留下错误地址。"""
-    turn = make_conversation_turn(
-        user_message="task",
-        turn_events=[
-            TurnEvent(
-                kind="tool_result",
-                sequence=0,
-                role="user",
-                tool_kind="READ",
-                target="missing",
-                status="error",
-                content="not found",
-            ),
-            TurnEvent(
-                kind="tool_result",
-                sequence=1,
-                role="user",
-                tool_kind="RUN",
-                status="error",
-                content="permission denied",
-                tool_args={"path": "unwritten.md"},
-            ),
-        ],
+    turn = _turn(
+        ({"verb": "READ", "targets": ("missing",)}, {"status": "error", "content": "not found"}),
+        (
+            {"verb": "RUN", "targets": ("sys_file_write",), "tool_args": {"path": "unwritten.md"}},
+            {"status": "error", "content": "permission denied"},
+        ),
     )
     assert extend_references(("memory:a",), turn, limit=4, max_chars=100) == ("memory:a",)

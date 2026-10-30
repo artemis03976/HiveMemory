@@ -54,7 +54,6 @@ from hivememory.workspace.process.outputs import OUTPUT_CHANNEL_CAPACITY
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from hivememory.workspace.process.table import ProcessTable
 from tests.helpers.chat_handoff import (
-    expected_mtp_traces,
     make_mtp_turn_events,
 )
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
@@ -204,20 +203,17 @@ def _memory_ref_atom() -> MemoryAtom:
 
 
 def _assert_sealed_payload(payload, *, turn_events: list[TurnEvent], submitted) -> None:
-    """完成的进程交给 finalize 的交互记录逐字段等于各阶段产出。"""
-    decision = _decision_outcome().decision
-    assert payload.user_message == "问题"
-    assert payload.rewritten_query == decision.rewritten_query
-    assert payload.worth_saving is True
-    assert payload.assistant_final_text == "完成"
+    """完成的进程交给 finalize 的交互记录逐字段等于 CPU 的执行结果与实际使用的附件。
+
+    Gateway 的改写与价值预判不进入交互记录。
+    """
     assert payload.turn_events == [
         *turn_events,
-        TurnEvent(kind="assistant_message", sequence=5, role="assistant", content="完成"),
+        TurnEvent(kind="assistant_message", sequence=3, content="完成"),
     ]
     assert payload.model_used == "glm-4"
     # 本测试未选择附件：附件编译的实际使用集合为空
     assert payload.used_attachments == []
-    assert payload.mtp_traces == expected_mtp_traces()
 
 
 def _scoped_prepared_route(

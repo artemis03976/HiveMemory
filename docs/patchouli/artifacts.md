@@ -8,14 +8,14 @@ code_paths:
   - src/hivememory/engines/artifacts/
   - src/hivememory/patchouli/memory_library/adapters/artifact.py
   - src/hivememory/patchouli/services/memory_generation.py
-  - src/hivememory/prompts/transcript/actions.py
+  - src/hivememory/engines/perception/material.py
 related_contracts:
   - docs/architecture/boundaries.md
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-30
 ---
 
 # Artifacts 与来源追踪
@@ -47,12 +47,14 @@ Chat 附件的来源 promotion 已接入本链路（见[Chat 附件链路](../sy
 
 ### 2.1 InteractionArtifact
 
-InteractionArtifact 是一个话题材料快照，保存 `topic_id/title/summary` 和多个 `InteractionTurnSnapshot`。每个 turn 从 `LogicalBlock.turn` 冻结得到，包括：
+InteractionArtifact 是一个话题材料快照，保存 `topic_id/title/summary` 和多个 `InteractionTurnSnapshot`。每个 turn 从 `LogicalBlock` 冻结得到，包括：
 
+- 块标识、`turn_id` 与写入时间；
 - user/agent/team 三轴的 `actor_identity`（不保存 session）；
-- 原始与重写后的用户问题；
-- assistant final text；
-- `turn_events`、`actions` 与 `semantic_traces` 的 dict 快照。
+- 本轮结局 `outcome`；
+- `turn_events` 的 dict 快照。
+
+事件集是本轮唯一的内容事实，快照不另存问答正文或由事件派生的动作与轨迹：用户消息与回复正文从事件读取，生成材料也由事件按当时的截断配置复现。事件以 dict 保存，运行时模型改变时不影响已写入记录的读取。
 
 它刻意不保存 memory id、alias、source intent、capture policy，也不设置顶层 Agent 来源字段：来源 provenance 由每个 block 冻结的 `actor_identity` 承载，因为同一 Workspace 话题内可以切换不同 Agent，话题级单值来源无法表达这一事实。原始交互先保持中立，哪条记忆由它派生则由 MemoryCreation/Version Artifact 表达。这样同一份证据不会因为生成出不同记忆而被重复解释为不同“原文”。
 
@@ -73,7 +75,7 @@ MemoryCreationArtifact（schema `"2"`）是一条记忆的 genesis record，记�
 - `memory_id`；
 - `source_intent`：`ARCHIVE / WRITE / IMPORT / MANUAL / SYSTEM`；
 - 结构化 `provenance`（`core.models.MemoryProvenance`：`source_agent_id`、`source_team_id` 与 `contributing_agent_ids`，与 MemoryAtom 语义一致，见下文“来源与归属语义”）；
-- 当时的结构化 `GenerationContext`（`generation_view`），即生成实际看到的上下文：包括动作段中截断后的思考、工具参数与工具结果，同一次生成新建的每条记忆各存一份；
+- 当时的结构化 `GenerationContext`（`generation_view`），即生成实际看到的上下文：每轮的用户消息与按顺序的材料条目，包括截断后的思考、工具参数与工具结果，同一次生成新建的每条记忆各存一份；
 - source artifacts 与 source memories；
 - 指向初始 `MemoryVersionArtifact(v1)` 的引用。
 
@@ -140,22 +142,23 @@ A2-P 起版本记录是内容提交的强制前置条件：memory 组件关闭�
 
 ## 6. 双视图与结构化事实
 
-同一轮 Agent 事实以 `TurnEvent -> AgentAction -> TraceItem -> TurnRecord` 保存。消费方随后产生两个不同视图：
+同一轮 Agent 事实只以 `TurnRecord` 中的 `TurnEvent` 集保存，不另存由它归并的动作或轨迹。消费方随后产生不同视图：
 
 - 历史重放视图保留工具调用和对话顺序，服务于 Agent 上下文；
-- Generation 视图保留 user query、final text 与动作段（思考、外部工具动作的工具名、参数摘要与截断后的结果、MTP 动作的一行摘要），服务于记忆提取，渲染与截断规则见[记忆生成](./generation.md#21-动作段)；
-- InteractionArtifact 则冻结底层结构化事实，服务于来源追踪。
+- Generation 视图保留用户消息与按顺序穿插的助手正文、思考、能力调用的一行摘要与外部工具步骤（工具名、参数摘要与截断后的结果），服务于记忆提取，渲染与截断规则见[记忆生成](./generation.md#21-材料与渲染)；
+- InteractionArtifact 则冻结底层事件集，服务于来源追踪。
 
 三者共享同一 `TurnRecord`，但不共享一段提前压扁的 `context_messages` 字符串。新增交互事实应先进入结构化事件或 turn 模型，再由各视图渲染，不能重新引入字符串反解析主路径。
 
-两份持久化记录的分工因此不同：思考与工具结果的原文随 InteractionArtifact（可选旁路）的 `turn_events` 与 `actions` 快照保存；MemoryCreationArtifact 的 `generation_view` 记录的是 Generation 视图，即截断后的版本，用于回答“这条记忆生成时看到了什么”，不能替代原始证据。
+两份持久化记录的分工因此不同：思考与工具结果的原文随 InteractionArtifact（可选旁路）的 `turn_events` 快照保存；MemoryCreationArtifact 的 `generation_view` 记录的是 Generation 视图，即截断后的版本，用于回答“这条记忆生成时看到了什么”，不能替代原始证据。
 
 ## 7. 当前限制
 
 - DocumentArtifact builder 尚未接入完整文档摄入用例；
 - 没有 orphan/ref consistency scanner、保留策略或垃圾回收；
-- 没有把 MTP trace 中每条 READ/RUN 证据自动提升为细粒度 source memory/document refs；
-- MemoryCreationArtifact 的 `generation_view` 为同一次生成新建的每条记忆各存一份截断后的动作段（含思考与工具结果），与 InteractionArtifact 中的原文构成重复存储；
+- 没有把能力调用中的 READ/RUN 证据自动提升为细粒度 source memory/document refs；
+- MemoryCreationArtifact 的 `generation_view` 为同一次生成新建的每条记忆各存一份截断后的材料条目（含思考与工具结果），与 InteractionArtifact 中的原文构成重复存储；
+- 交互快照与 `generation_view` 的形态于 2026-10-30 改变：此前写入的记录保留原有字段（用户问题、回复正文、动作与轨迹快照，以及生成视图中的动作段），不迁移；当前没有按类型读回这两种记录的入口，Artifact 存储只返回原始 dict；
 - artifacts 与 Qdrant 写入不是原子事务；
 - 完整版本重建模型已经存在，但公开回档、diff 和 UI 浏览仍未完成。
 

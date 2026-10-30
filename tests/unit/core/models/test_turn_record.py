@@ -1,66 +1,41 @@
-"""
-TurnRecord 与 LogicalBlock 收敛测试
-
-覆盖:
-- TurnRecord 基本属性
-- LogicalBlock 必须显式传入 turn
-- block 兼容属性继续可读
-"""
+"""TurnRecord 与 LogicalBlock 单元测试：内容只以事件集保存，两段文字从事件读取。"""
 
 import pytest
 from pydantic import ValidationError
 
-from hivememory.core.models import (
-    ActorIdentity,
-    AgentAction,
-    LogicalBlock,
-    TraceItem,
-    TurnEvent,
-    TurnRecord,
-)
+from hivememory.core.models import LogicalBlock, TurnEvent
+from tests.helpers.sessions import make_logical_block
 
 
-def _identity() -> ActorIdentity:
-    return ActorIdentity(user_id="u1", agent_id="a1")
-
-
-def test_turn_record_anchor_text():
-    turn = TurnRecord(
-        identity=_identity(),
-        user_query="原始问题",
-        rewritten_query="重写问题",
+def test_logical_block_reads_user_message_and_reply_text_from_events():
+    """用户消息取序号 0 的事件，回复正文是各段助手正文以空行拼接，穿插的工具步骤不计入。"""
+    block = make_logical_block(
+        turn_events=[
+            TurnEvent(kind="user_message", sequence=0, content="帮我看看"),
+            TurnEvent(kind="assistant_message", sequence=1, content="先读一下。"),
+            TurnEvent(
+                kind="tool_call",
+                sequence=2,
+                content="",
+                action_id="a1",
+                verb="READ",
+                targets=("fact_a",),
+                status="success",
+                result="正文",
+            ),
+            TurnEvent(kind="assistant_message", sequence=4, content="结论如下。"),
+        ]
     )
-    assert turn.anchor_text == "重写问题"
+
+    assert block.user_message == "帮我看看"
+    assert block.reply_text == "先读一下。\n\n结论如下。"
 
 
 def test_logical_block_rejects_flat_turn_fields():
-    event = TurnEvent(
-        kind="assistant_message",
-        sequence=0,
-        role="assistant",
-        content="hello",
-    )
-    action = AgentAction(action_id="a1", tool_kind="READ", tool_name="alias_x")
-    trace = TraceItem(action="READ", action_id="a1", target="alias_x")
-
+    """块只接受轮次记录；问答正文、轨迹等派生内容不能作为块的字段写入。"""
     with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
         LogicalBlock(
-            identity=_identity(),
+            turn=make_logical_block().turn,
             user_query="问题",
-            rewritten_query="重写问题",
             assistant_final_text="回答",
-            turn_events=[event],
-            actions=[action],
-            semantic_traces=[trace],
         )
-
-
-def test_logical_block_accepts_turn_record_directly():
-    turn = TurnRecord(
-        identity=_identity(),
-        user_query="hello",
-        assistant_final_text="world",
-    )
-    block = LogicalBlock(turn=turn)
-    assert block.user_query == "hello"
-    assert block.assistant_final_text == "world"

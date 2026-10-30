@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-30
 ---
 
 # Memory Tool Protocol (MTP)
@@ -197,7 +197,7 @@ MTP 是否应该出现，取决于当前行动门槛，而不是“能调用工�
 | `success` | 指令完成；可以同时带 nonfatal warnings |
 | `error` | 指令失败并携带结构化 `MTPErrorInfo` |
 | `ack` | WRITE/UPDATE 已登记延迟意图 |
-| `warning` | 兼容的警告终态；常规 nonfatal 警告优先放 `warnings` |
+| `warning` | 协议保留的警告终态，当前没有处理器产生；轮次事件的调用结局不接受它（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)），nonfatal 警告一律放 `warnings` |
 | `suspend` | CALL 要求 Alice RunExecutor 接管 |
 | `cancelled` | 执行在取消边界终止 |
 

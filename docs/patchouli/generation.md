@@ -7,7 +7,7 @@ code_paths:
   - src/hivememory/engines/generation/
   - src/hivememory/infrastructure/llm/base.py
   - src/hivememory/prompts/transcript/generation.py
-  - src/hivememory/prompts/transcript/actions.py
+  - src/hivememory/engines/perception/material.py
   - src/hivememory/i18n/prompts.py
   - src/hivememory/patchouli/services/memory_generation.py
   - src/hivememory/patchouli/control/memory_generation/
@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # 记忆生成
@@ -65,21 +65,29 @@ GenerationContext
   ├─ state_summary
   └─ GenerationTurn[]
        ├─ outcome（completed/cancelled/failed）
-       ├─ user_query
-       ├─ assistant_final_text
-       ├─ action_entries（动作段，已按上限截断）
+       ├─ user_message
+       ├─ material_entries（用户消息之后的材料条目，已按上限截断）
        └─ identity
 ```
 
-它保留对记忆提取有意义的语义与过程材料，丢弃 MTP 动作的结果全文（READ、SEARCH 读回的已有记忆会被重复提取）与超出上限的部分。Alice 历史从会话 payload 重放，记忆生成从 Topic 的 TurnRecord 取材，两者各自生成适合任务的视图；Generation 不能反向依赖 Alice 的消息渲染格式。
+它保留对记忆提取有意义的语义与过程材料，丢弃能力调用读回的内容（READ、SEARCH 读回的已有记忆会被重复提取）与超出上限的部分。Alice 历史从会话 payload 重放，记忆生成从 Topic 的 TurnRecord 取材，两者各自生成适合任务的视图；Generation 不能反向依赖 Alice 的消息渲染格式。
 
-### 2.1 动作段
+### 2.1 材料与渲染
 
-动作段（`action_entries`）由 `prompts/transcript/actions.py` 统一渲染，按出现顺序包含三类条目：
+每轮的材料由感知层唯一的渲染函数（`engines/perception/material.py`）从事件集得到，Generation 只组装话题状态与各轮次。同一个函数也用于 LLM 接力摘要的近期事件与逻辑块的 token 统计（见[感知与短期话题](./perception.md)），三处按同一组上限得到同样的材料。
 
-- **思考**：`action_id` 显式指向某个动作的思考紧排在该动作之前；未附属于动作的思考（例如第一次工具调用之前的推理）在其事件位置单独成条。事件到动作的归属沿用 `ActionReducer` 的同一条规则，但归约器会把未附属的思考吸附到最近的动作，生成视图不采用这种吸附，否则引出下一步的推理会排到上一个动作的结果之后。空白的思考（例如只有签名的思考块）不渲染。Alice 当前不产生思考事件，它的转写没有这类条目。
-- **外部工具动作**（`tool_kind` 为空的动作，例如经 Import Bus 导入的 harness 工具调用，HiveMemory 自身的 MCP 工具除外）：渲染工具名、参数摘要与各条结果，出错的结果标为 `RESULT (error)`。工具结果是对外部系统的观察，是记忆提取的重要事实来源。
-- **MTP 动作**（带 `tool_kind` 的动作）：维持一行摘要，SEARCH、READ、RUN 各一行，CALL、WRITE、UPDATE 与无法解析的动作不渲染；不渲染结果。READ、SEARCH 读回的是已有记忆，渲染进生成会把它们重复提取。外部 harness 经 HiveMemory 的 MCP 工具检索与读取时，连接器在导入的事件上标出 `SEARCH`、`READ`（[MCP 记忆访问](../contracts/mcp.md#6-工具调用名与回声标记)），这些动作按同一规则只留一行摘要；导入的 READ 摘要目标是工具调用名，不是所读的 alias。
+用户消息之后的事件按序号就是材料的顺序，助手正文与过程条目按出现位置穿插：
+
+| 事件 | 渲染 |
+|:---|:---|
+| 用户消息 | `[User]: …`，在轮首 |
+| 助手正文 | `[Assistant]: …` |
+| 思考 | `- THOUGHT: …`；空白的思考（例如只有签名的思考块）不渲染。思考只按先后排列，不归属某个工具调用；Alice 当前不产生思考事件 |
+| 能力调用（带动词） | 一行摘要，不渲染返回原文：`- SEARCH: "查询"`、`- READ: a, b`、`- RUN: 目标 (状态)`，没有结局时状态为 `no result`；WRITE、UPDATE、CALL 不渲染 |
+| 外部工具调用（带工具名） | `- TOOL: 工具名 参数摘要`，有结局时其后一行 `RESULT: …`，出错时为 `RESULT (error): …` |
+| 无法解析的 MTP 指令 | 不渲染 |
+
+能力调用的规则不区分来源：外部 harness 经 HiveMemory 的 MCP 工具检索与读取时，连接器把调用写成同样的 `SEARCH`、`READ` 与作用对象（[MCP 记忆访问](../contracts/mcp.md)），同一次读取无论来自 Alice 的 MTP 指令还是外部 harness，渲染相同，读取显示所读的 alias。外部工具的结局是对外部系统的观察，是记忆提取的重要事实来源。调用没有结局表示结局没有记录：执行者拿到结果之前被取消，或来源没有记下结果（Claude Code 的会话记录会漏记并行调用的结果），因此渲染不断言调用没有完成。
 
 截断保留首尾、省略中段并标出省略的字符数，长输出末尾的报错与推理的结论因此得以保留。上限来自 `patchouli.generation.transcript`：
 
@@ -88,15 +96,17 @@ GenerationContext
 | `max_thought_chars` | 1000 | 单条思考 |
 | `max_args_chars` | 300 | 工具参数摘要 |
 | `max_result_chars` | 800 | 单条工具结果 |
-| `max_turn_action_chars` | 8000 | 一轮动作段的总长度 |
+| `max_turn_action_chars` | 8000 | 一轮思考、能力摘要与外部工具步骤的总长度 |
 
-一轮动作段超过单轮上限时，先把外部工具动作全部降为工具名与参数摘要的一行，再按出错的动作优先、其余动作其次、各自由近及远的顺序恢复完整形态，放不下的跳过。全部降为一行后仍超出时，按较早的非出错外部工具动作、MTP 摘要、出错的外部工具动作、思考的顺序由远及近省略整条，并在段首以一行 `OMITTED` 标明省略的条目数。单轮上限是硬上限：只降级而不省略时，大量思考与一行动作仍可使转写远超上限。
+单轮上限不约束用户消息与助手正文，长回复不会挤掉过程条目。超出时，先把外部工具步骤全部降为工具名与参数摘要的一行，再按出错的步骤优先、其余步骤其次、各自由近及远的顺序恢复完整形态，放不下的跳过。全部降为一行后仍超出时，按较早的非出错外部工具步骤、能力摘要、出错的外部工具步骤、思考的顺序由远及近省略整条，并在用户消息之后以一行 `OMITTED` 标明省略的条目数。单轮上限是硬上限：只降级而不省略时，大量思考与一行摘要仍可使转写远超上限。
 
-截断在构建 `GenerationContext` 时一次完成，渲染为提示词文本时不再截断，多行条目的后续行缩进到条目之下。Perception 估算块的 token 时调用同一个渲染函数、使用同一组上限（见[感知与短期话题](./perception.md)），折叠阈值因此反映生成实际看到的材料。
+截断在构建 `GenerationContext` 时一次完成，渲染为提示词文本时不再截断，多行条目的后续行缩进到条目之下。
 
-Mode B/C 的背景同样经这个构建器生成，带有动作段。三种模式的提取提示词（中英文各一份）都说明动作段的含义：THOUGHT 是 Agent 的推理，不能作为事实依据（Mode A 中主要由它得出的内容降低置信度）；TOOL/RESULT 是外部工具的调用与返回，可以作为依据，`(error)` 表示调用出错；SEARCH/READ/RUN 是记忆系统内部操作的一行摘要，Mode A 另外提示读回的已有记忆不要重复提取；省略标记处的内容不要推测。提示词同时要求不把密钥、令牌、密码、证书或连接串中的凭据写入记忆，需要记录相关配置时只保留名称与用途。
+Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示词（中英文各一份）都说明材料格式：每轮以 `[User]` 开头，其后按发生顺序排列 `[Assistant]` 正文与以 `- ` 开头的过程条目；THOUGHT 是 Agent 的推理，不能作为事实依据（Mode A 中主要由它得出的内容降低置信度）；TOOL/RESULT 是外部工具的调用与返回，可以作为依据，`(error)` 表示调用出错；SEARCH/READ/RUN 是记忆系统内部操作的一行摘要，Mode A 另外提示读回的已有记忆不要重复提取；省略标记处的内容不要推测。提示词同时要求不把密钥、令牌、密码、证书或连接串中的凭据写入记忆，需要记录相关配置时只保留名称与用途。
 
-`GenerationTranscriptBuilder` 将 `TurnRecord.outcome` 传给 `GenerationTurn`；cancelled/failed 在转写中附 `[Outcome: ...]` 和未正常完成的说明，避免把半截回复视为完整结论。
+渲染规则与单轮上限的回归入口为 [材料测试](../../tests/unit/engines/perception/test_material.py)，转写格式见 [生成视图构建器测试](../../tests/unit/engines/generation/test_generation_transcript_builder.py)。
+
+`GenerationTranscriptBuilder` 将 `TurnRecord.outcome` 传给 `GenerationTurn`；cancelled/failed 在转写的轮首附 `[Outcome: ...]` 和未正常完成的说明，避免把半截回复视为完整结论。
 
 ## 3. 三种生成模式
 

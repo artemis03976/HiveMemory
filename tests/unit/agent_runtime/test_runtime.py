@@ -68,9 +68,9 @@ async def test_built_runtime_uses_config_budget_unless_frame_overrides(
 
     assert result.status == FrameExecutionStatus.BUDGET_EXHAUSTED
     assert frame.progress.iteration == expected_iterations
-    assert [
-        event.status for event in frame.progress.turn_events if event.kind == "tool_result"
-    ] == ["success"] * expected_iterations
+    assert [event.status for event in frame.progress.turn_events if event.kind == "tool_call"] == [
+        "success"
+    ] * expected_iterations
     assert runtime.max_iterations == 2
 
 
@@ -135,10 +135,10 @@ def test_finalize_completed_frame_projects_only_acknowledged_aliases():
         TurnEvent(
             kind="tool_call",
             sequence=0,
-            role="assistant",
             content="update",
-            tool_kind="UPDATE",
-            target="fact_base",
+            action_id="action_1_0",
+            verb="UPDATE",
+            targets=("fact_base",),
         )
     )
     products = runtime.finalize_frame(

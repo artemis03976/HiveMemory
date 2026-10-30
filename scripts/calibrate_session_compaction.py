@@ -75,36 +75,39 @@ def fixed_samples() -> dict[str, tuple[ConversationTurn, ...]]:
                 "interrupted": "迁移尚未完成；回滚验证仍待执行，不能声称发布成功。",
                 "multi_agent": "reviewer 要求保留边界校验；coder 已实现解析但尚未合并。",
             }
+            reply = "检查记录：" + "trace_result=ok;\n" * 100
             if name == "tools":
+                # 工具密集样本以一次大结果的 READ 收尾，没有回复正文。
                 user = facts[name]
+                alias = f"design_{index}"
                 events = [
+                    TurnEvent(kind="user_message", sequence=0, content=user),
                     TurnEvent(
-                        kind="tool_result",
-                        sequence=0,
-                        role="user",
-                        tool_kind="READ",
-                        target=f"design_{index}",
+                        kind="tool_call",
+                        sequence=1,
+                        content=f"⟪ READ | {alias} ⟫",
+                        action_id="read",
+                        verb="READ",
+                        targets=(alias,),
                         status="success",
-                        content="资料与代码 abcdefghijklmnop\n" * 650,
-                    )
+                        result="资料与代码 abcdefghijklmnop\n" * 650,
+                    ),
                 ]
             else:
                 user = (
                     facts[name] + "\n" + ("def parse_time(value): return normalize(value)\n" * 110)
                 )
-                events = []
+                events = [
+                    TurnEvent(kind="user_message", sequence=0, content=user),
+                    TurnEvent(kind="assistant_message", sequence=1, content=reply),
+                ]
             turns.append(
                 ConversationTurn(
                     interaction_id=f"{name}-{index}",
                     agent_id=agent,
                     topic_id="sample-topic",
                     created_at=datetime(2026, 10, 17, tzinfo=UTC),
-                    payload=InteractionPayload(
-                        user_message=user,
-                        assistant_final_text="检查记录：" + "trace_result=ok;\n" * 100,
-                        turn_events=events,
-                        outcome=outcome,
-                    ),
+                    payload=InteractionPayload(turn_events=events, outcome=outcome),
                 )
             )
         samples[name] = tuple(turns)

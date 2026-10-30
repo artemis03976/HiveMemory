@@ -49,7 +49,6 @@ from hivememory.core.errors import (
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
-    LogicalBlock,
     MemoryAccessPolicy,
     MemoryAtom,
     MemoryType,
@@ -57,9 +56,7 @@ from hivememory.core.models import (
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
-    TurnRecord,
 )
-from hivememory.core.protocol.models import InteractionPayload
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
     InteractionSubmissionService,
@@ -91,11 +88,11 @@ from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 from hivememory.workspace.contracts import ResolveReferencesRequest, RetrieveRequest
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.sessions import make_interaction_payload, make_logical_block
 from tests.helpers.workspace import (
     AccessTestComposition,
     make_access_composition,
     make_actor_access_record,
-    make_actor_identity,
     make_workspace_identity,
     make_workspace_read_view,
 )
@@ -160,15 +157,7 @@ class _FakeTopicData:
     state_summary = "boundary state summary"
 
     def recent_blocks(self, limit):
-        return [
-            LogicalBlock(
-                turn=TurnRecord(
-                    identity=make_actor_identity(),
-                    user_query="question",
-                    assistant_final_text="answer",
-                )
-            )
-        ]
+        return [make_logical_block("question", "answer")]
 
 
 class _FakeRetrievalEngine:
@@ -695,12 +684,7 @@ async def test_interaction_submit_reaches_real_queue_via_global_route(wired):
     scope = wired.access.authorizer.authorize_stage(context, MAIN)
     receipt = await wired.global_bus.request(
         PatchouliRoutes.INTERACTION_SUBMIT,
-        payload=InteractionPayload(
-            user_message="boundary question",
-            mtp_traces=[],
-            assistant_final_text="boundary answer",
-            turn_events=[],
-        ),
+        payload=make_interaction_payload("boundary question", "boundary answer"),
         identity_scope=scope,
         requested_topic_id="topic_boundary",
         interaction_id="interaction_boundary_1",
@@ -723,12 +707,7 @@ async def test_invalidated_context_cannot_authorize_and_accepted_work_survives_c
     ``context_not_issued`` 失败，取代旧的固定 TTL 语义）。
     """
     context = await wired.access.authenticate(agent_id="a1", workspace=MAIN)
-    payload = InteractionPayload(
-        user_message="delayed question",
-        mtp_traces=[],
-        assistant_final_text="delayed answer",
-        turn_events=[],
-    )
+    payload = make_interaction_payload("delayed question", "delayed answer")
     scope = wired.access.authorizer.authorize_stage(context, MAIN)
     first = await wired.global_bus.request(
         PatchouliRoutes.INTERACTION_SUBMIT,

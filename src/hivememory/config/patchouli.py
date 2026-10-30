@@ -85,10 +85,12 @@ class DeduplicatorConfig(BaseModel):
 
 
 class GenerationTranscriptConfig(BaseModel):
-    """记忆生成转写中动作段的字符上限。
+    """一轮交互材料的字符上限。
 
-    感知估算逻辑块的 token 时使用同一组上限，折叠阈值因此反映生成实际看到
-    的材料。上限只约束思考与外部工具动作的渲染，MTP 动作的一行摘要不截断。
+    记忆生成视图、LLM 接力摘要与逻辑块的 token 统计使用同一组上限，折叠
+    阈值因此反映生成实际看到的材料。上限只约束思考与外部工具步骤的渲染，
+    能力调用的一行摘要不截断；单轮上限另外计入能力摘要，用户消息与助手
+    正文不计入。
     """
 
     max_thought_chars: int = Field(default=1000, ge=1, description="单条思考的字符上限")
@@ -97,7 +99,7 @@ class GenerationTranscriptConfig(BaseModel):
     max_turn_action_chars: int = Field(
         default=8000,
         ge=1,
-        description="一轮动作段的字符上限，超出时较早的非出错动作降为一行",
+        description="一轮思考、能力摘要与外部工具步骤的字符上限，超出时较早的非出错工具步骤降为一行",
     )
 
     model_config = ConfigDict(extra="forbid")

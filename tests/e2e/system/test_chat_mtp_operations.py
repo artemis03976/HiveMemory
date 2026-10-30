@@ -197,13 +197,13 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
         topic = stack.short_term.get(workspace, done["topic_id"])
         (block,) = topic.blocks
         assert block.turn.identity == actor
-        assert [event.tool_kind for event in block.turn_events if event.kind == "tool_call"] == [
+        assert [event.verb for event in block.turn_events if event.kind == "tool_call"] == [
             "SEARCH",
             "READ",
             "WRITE",
             "CALL",
         ]
-        assert [event.status for event in block.turn_events if event.kind == "tool_result"] == [
+        assert [event.status for event in block.turn_events if event.kind == "tool_call"] == [
             "success",
             "success",
             "ack",
@@ -516,12 +516,10 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
             harness.registry.get(task.pending_alias, workspace).status
             == PendingAtomStatus.MATERIALIZING
         )
-        read_result = next(
-            event for event in payloads[1].turn_events if event.kind == "tool_result"
-        )
-        assert read_result.tool_kind == "READ"
-        assert read_result.status == "success"
-        assert "HTTP 第一轮登记的内容" in read_result.content
+        read = next(event for event in payloads[1].turn_events if event.kind == "tool_call")
+        assert read.verb == "READ"
+        assert read.status == "success"
+        assert "HTTP 第一轮登记的内容" in read.result
         assert completions == 4
     finally:
         await alice.stop()

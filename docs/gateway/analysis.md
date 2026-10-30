@@ -16,7 +16,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-30
 ---
 
 # Gateway 话题与查询分析
@@ -107,6 +107,8 @@ Tier 2：纯函数派生 retrieval plan
 Tier 0 只覆盖低成本、高确定性的规则，并在与模型结果冲突时覆盖对应字段。重复检测会移除空白并忽略大小写，但只比较当前会话的最后一轮用户输入；没有会话轮次时不回退到 Topic。
 
 Topic Router 与 QueryUnderstanding 的模型消息都只有 system 与当前输入两条：最近会话轮次与话题菜单一样渲染为编号列表（`prompts/gateway.py` 的 `render_session_turns`，每轮一个条目，`User:` 与 `Assistant:` 各占一行，多行内容续行缩进），放在 system 提示词的“当前会话最近轮次”段落中，并注明只用于理解指代与省略、不需要回答。会话轮次不作为对话消息发送：以用户/助手消息提供时，真实模型会接着对话回答用户而不是完成分析，JSON 输出随之为空，两项分析都会降级。消息经组合根注入的共享 LLM 服务以完整调用发出。请求参数来自由 `shared.llm.gateway` 转换的组件参数，两个 Engine 都追加 JSON 输出要求；配置了各自的 `model_override` 时只替换模型，凭证与采样参数沿用组件参数（[System 组合根](../system/composition.md#13-llm-bundle)）。Tier 1 的 `QueryUnderstandingEngine` 共享一次 LLM 调用，同时产生意图、重写、关键词和记忆初判。这是第一代实现的成本/延迟取舍，不是永久规定。Engine 还能解析 `sub_intents`，但 Resolver 当前没有把它投影到公共 `UserQueryAnalysisResult`，因此没有下游消费者，也不能被描述为已支持复合意图执行。
+
+路由到已有话题时，QueryUnderstanding 的输入另带该话题的辅助背景：标题、话题摘要与状态摘要，以及最近若干个逻辑块（`context_block_limit`，默认 3）的用户消息与回复正文，各截断到 `context_text_limit` 字符（默认 200）。这两段文字由逻辑块从本轮事件读取，不另存；思考与工具过程不进入 Gateway 的提示词。
 
 Tier 2 不再调用模型。检索模式是 Gateway 根据已提交分析派生的提示，不代表 Patchouli 已经执行检索。
 

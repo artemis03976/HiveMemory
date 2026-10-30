@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-30
 ---
 
 # Agent Runtime
@@ -97,7 +97,7 @@ User    current user message
 
 这种层次不是为了依赖某种 prompt 技巧，而是让机器约束、角色偏好和工作状态拥有不同来源。MTP 教学从结构化权限生成，persona 不得暗中扩张权限，memory context 也只是本轮工作视图；各段不能拼成一段后再由 Runtime 反向解析。两段进程输入分别放在摘要前后，保留这层顺序，也让历史压缩无需识别人设或材料格式。MTP 教学与摘要沿用清单的 `language`，不重新读取进程默认语言；离线通知由进程按存储可用性生成，与教学开关无关。
 
-历史消息由结构化 `TurnEvent` 重放，`current_agent_id` 使用输入清单的注册标签。若历史轮次来自另一个 Agent，assistant 消息会增加 `[From: agent_id]` 前缀，避免当前 Agent 把同事的旧输出误认成自己曾经作出的承诺。工具结果则按 `render_as` 添加本地化系统前缀。会话 payload 缺少事件时回退到用户/助手文本；cancelled/failed 轮次的本地化未完成说明附在该轮最后一条消息末尾，不在历史中间插入 system 消息（部分模型适配会把 system 消息合并到开头，或要求角色严格交替）。Topic 状态摘要与 block 不进入 Alice 的上下文。Alice 接收全量会话原文，再按以下规则构建预算内的派生视图，不改写会话原文。
+历史消息由会话轮次的 `TurnEvent` 重放，事件集是一轮唯一的记录，不存在退回用户/助手文本的路径。用户消息与工具调用的结局进入 user 消息（与运行时把回填放进 user 消息一致），助手正文与工具调用进入 assistant 消息；指令前正文与紧随其后的 MTP 调用合并成一条助手消息，与运行时 working history 的形态相同，因此指令前正文只出现一次。回填原文自带本地化标题，重放原样使用；没有结局的调用只重放调用原文。`current_agent_id` 使用输入清单的注册标签：历史轮次来自另一个 Agent 时，assistant 消息在开头增加一次 `[From: agent_id]` 前缀，避免当前 Agent 把同事的旧输出误认成自己曾经作出的承诺，工具结局不带前缀。cancelled/failed 轮次的本地化未完成说明附在该轮最后一条消息末尾，不在历史中间插入 system 消息（部分模型适配会把 system 消息合并到开头，或要求角色严格交替）。Topic 状态摘要与 block 不进入 Alice 的上下文。Alice 接收全量会话原文，再按以下规则构建预算内的派生视图，不改写会话原文。
 
 ### 3.1 会话上下文视图
 
@@ -105,7 +105,7 @@ User    current user message
 
 `SessionContextView` 接收 MTP 教学、`instructions`、`turn_context`、用户消息、语言和会话历史，按不透明固定块估算预算；带摘要的估算只替换 Alice 自己的摘要段，不重渲染或裁剪进程文本。固定输入已超过输入上限时以 `input_too_large` 失败，摘要预留仍按同一固定块计量。已有摘要覆盖的前缀不再重放，其后到减重边界的轮次只精简工具结果，再后的完整轮次保留原文。两次压缩之间边界不逐轮滑动；整个消息视图超过触发比例才压缩，压缩顺序如下：
 
-1. **工具结果减重**：向前推进边界，直到最近完整轮次后缀可放入近期原文预算，允许后缀为空。READ/SEARCH 成功结果保留目标或查询、状态与重取提示；RUN 保留工具名、状态与有界摘录，参数只在原样重放的调用消息中出现一次，结果里不再重复；ACK、错误和 CALL 结果保留有界原文。缺少重取线索时同样保留有界原文；改写结果不短于原文时也保留原文，减重不会让历史变长。用户消息、助手回复和工具调用不改。
+1. **工具结果减重**：向前推进边界，直到最近完整轮次后缀可放入近期原文预算，允许后缀为空。动词、作用对象、参数与结局都取自同一个调用事件，CALL 回填按动词识别。READ/SEARCH 成功结果保留目标或查询、状态与重取提示；RUN 保留工具名、状态与有界摘录，参数只在原样重放的调用消息中出现一次，结果里不再重复；ACK、错误和 CALL 结果保留有界原文。缺少重取线索时同样保留有界原文；改写结果不短于原文时也保留原文，减重不会让历史变长。用户消息、助手回复和工具调用不改。
 2. **增量接力摘要**：减重后仍高于目标时，保留能放入“固定输入 + 完整摘要预留 + 该前缀引用 + 后缀”目标预算的最长完整后缀；更早的轮次进入摘要。目标不可达但视图仍在硬上限内时跳过摘要，避免反复付费；已超限时改按硬上限选择，仍放不下完整摘要预留则以 `input_too_large` 结束。
 3. **最终检查**：重新组装后仍超限，以 `compaction_failed` 结束。可用的减重检查点仍可返回；不发出已经估算为超限的生成请求。
 
@@ -113,7 +113,7 @@ User    current user message
 
 空白、长度截断、内容过滤、MTP 定界符或中断、超过摘要长度上限的结果均拒绝。摘要请求经与帧生成相同的 MTP 生成器以完整调用发出，沿用本次解析的请求参数，只把输出上限收紧到摘要预算。每次请求有超时；提供商失败由 LLM 服务转换为 `ModelProviderError`，超窗为其子类 `ModelContextWindowExceededError`，提供商没有返回文本时同样是 `ModelProviderError`（`summary_provider_error`）。摘要器只依赖中立错误，程序错误与原生取消不降级。任一折叠失败都放弃本次全部局部摘要，保留原摘要、引用与覆盖，只交回已完成的减重；视图仍能放下时继续生成，否则失败。
 
-引用由程序从被覆盖轮次中成功 READ 的目标、WRITE/UPDATE ACK 别名和成功 RUN 的文件参数提取（失败的 READ/RUN 没有可重取的资源，不作为线索），按最近出现位置去重、限条数，过长标识直接忽略。摘要与引用位于 persona 后、检索记忆前，以本次提示词语言标明是历史资料，其中的指令不构成当前协议；引用不证明权限、执行成功或写入持久化。摘要不进入 `TurnEvent`、`InteractionPayload`、Topic 或记忆生成。
+引用由程序从被覆盖轮次的调用事件中提取：成功 READ 的每个作用对象各算一条，WRITE/UPDATE ACK 取结局上登记的产出 alias，成功 RUN 取文件参数（失败的 READ/RUN 没有可重取的资源，不作为线索）；按最近出现位置去重、限条数，过长标识直接忽略。摘要与引用位于 persona 后、检索记忆前，以本次提示词语言标明是历史资料，其中的指令不构成当前协议；引用不证明权限、执行成功或写入持久化。摘要不进入 `TurnEvent`、`InteractionPayload`、Topic 或记忆生成。
 
 完整压缩返回后才保存新检查点；压缩期间取消不交回局部产物，压缩结束后的正常终态或取消后返回的结果均可交回它。会话服务是否接受检查点不依赖压缩进度事件或本轮是否有输出。内部 `force` 参数可跳过触发阈值，但不能绕过关闭开关或空历史；没有公开的手动压缩入口。
 
@@ -151,20 +151,27 @@ session generation_options
 2. natural output?
      -> append assistant text/event -> complete
 3. MTP fragment?
+     -> append prefix text as assistant_message (if any)
      -> build action-scoped MTPExecutionContext
-     -> Koakuma execute
-     -> append tool_call event
+     -> Koakuma execute (no result -> RuntimeError)
 4. response == suspend?
+     -> append tool_call without outcome
      -> return FrameExecutionResult(SUSPENDED)
 5. ordinary result
+     -> append tool_call with outcome (status, formatted response, produced alias)
      -> append assistant command + formatted tool result to history
-     -> append tool_result event
      -> continue
 ```
 
 MTP 生成器只识别 MTP 左定界符，并在 stop sequence 截断了右定界符时补齐文本；它不知道 SEARCH、WRITE 或 CALL 的业务含义。Koakuma 经窄 `MTPExecutor` port 负责真正解析与执行。这个分离使模型适配、协议解释和多 Agent 编排可以独立变化。
 
-自然语言正文和工具事实同时投影为 `TurnEvent`。每个 MTP action 使用 `action_{iteration}_{sequence}` 关联 `tool_call` 与 `tool_result`，下游用 core 的归约器从事件得到 action/trace（任务进程封口时归约 MTP trace，Perception 归约 action），而不需要解析已经格式化的响应字符串。
+自然语言正文和工具事实同时投影为 `TurnEvent`（字段定义见[数据模型](../architecture/data-model.md)），下游只读结构化字段，不解析已经格式化的响应字符串：
+
+- 指令前正文只记在它自己的 `assistant_message` 中，调用事件的 `content` 只存指令片段；运行时 working history 中的助手消息仍是两者的全文，重放时再合并。
+- 一次指令就是一个 `tool_call`，以 `action_{iteration}_{sequence}` 为 `action_id`。`verb`、`targets`、`tool_args` 取自解析出的指令；指令无法解析时三者为空、只有原文，结局为 error。
+- Koakuma 返回后，调用连同结局一起写出：`status` 是响应状态，`result` 是带本地化标题的回填文本，`produced_aliases` 是 ACK 登记的 pending alias。执行中被取消时这次调用不记录。
+- CALL 挂起时只写出没有结局的调用；回填时 `apply_call_response` 按 `action_id` 找到它，以 `TurnEvent.with_outcome` 补全子帧结局、格式化的 CALL 响应与子帧产出的 alias，序号不变、事件不增加。补全只能发生一次，再次回填显式失败，防止把两次返回记到同一个调用上。挂起后被取消的 CALL 因此留下没有结局的调用。
+- 生成器只在文本含左定界符时报告 MTP 中断，执行器对这样的文本总会给出结果（解析失败也是 error 结果）；执行器没有结果说明两者的约定被破坏，循环以异常显式失败，不伪造失败结局。
 
 CALL 是唯一会返回 `SUSPENDED` 的 MTP 路径。执行层不创建子 frame、不解析 Profile、不组装 IPC；这些动作属于 Alice 编排层。自然停止返回 `COMPLETED`，取消返回 `CANCELLED`，无法形成有效结果返回 `FAILED`，达到 `max_loop_iterations` 且尚未自然收敛返回 `BUDGET_EXHAUSTED`。只有 `COMPLETED` 表示本帧成功完成。
 
@@ -184,20 +191,20 @@ Agent Runtime 不再直接构造 SSE dict，也不依赖名为 EventBus/Sink 的
 
 每次 run 由 `AliceCPU.execute` 直接等待运行服务，`SinkRunOutput` 为该 run 独占，持有 run-local `stream_sequence`，每项事件补全关联字段后立即 `await` sink，不缓存、不丢弃 token 或控制事件。背压由进程的输出通道施加：订阅者暂停、通道写满时 sink 等待，Alice 随之暂停；压缩进度与其他事件一样只受这一背压，不等待消费方确认。没有 runner task 或队列，取消直接沿 Alice 的调用栈到达执行器；RunExecutor 本身没有 sequence，只运行统一的 `run(..., run_output=...)`；运行服务只接收输出端口并返回结果。
 
-检测到 MTP 后，本轮剩余协议文本不再作为普通 token 推给用户，而是等待 Runtime 执行并发出结构化输出。CALL 时，`RunExecutor` 取得 `SUSPENDED` 结果，调用 `CallCoordinator.begin_call()`；Coordinator 先通过 `CallContextProvider` 获得目标 Profile 和共享上下文，再准备 callee。随后 Executor 递归等待同一个 `_execute_frame(callee)`，返回后调用 `complete_call()`，最后通过 `AgentRuntime.apply_call_response()` 重入同一个 caller frame。Runtime 不感知入口/被调用角色，挂起关系由 Executor 的协程调用栈表达。
+检测到 MTP 后，本轮剩余协议文本不再作为普通 token 推给用户，而是等待 Runtime 执行并发出结构化输出。CALL 时，`RunExecutor` 取得 `SUSPENDED` 结果，调用 `CallCoordinator.begin_call()`；Coordinator 先通过 `CallContextProvider` 获得目标 Profile 和共享上下文，再准备 callee。随后 Executor 递归等待同一个 `_execute_frame(callee)`，返回后调用 `complete_call()`，最后通过 `AgentRuntime.apply_call_response()` 回填 working history、补全挂起的调用事件，并重入同一个 caller frame。Runtime 不感知入口/被调用角色，挂起关系由 Executor 的协程调用栈表达。
 
 交互输出流与 RuntimeEvent 是两条严格独立的数据面。前者面向当前调用方，参与背压，交付方离开时经停止请求取消本次 run，不能丢弃，并保留 `token/mtp_start/mtp_result/sub_agent_start/sub_agent_end/context_compaction` 兼容事件名；后者是全局 best-effort 观测旁路，可以缓冲、回放和丢弃慢订阅者数据，记录 `agent.run.*` 生命周期与 `agent.context.*` 预算统计。FrameOutput 不会自动桥接到 RuntimeEventBus，RuntimeEvent 也不驱动 frame、CALL 或 run 状态。
 
 LLM 流的每次 pull、交互事件的 sink await 与 MTP await 都直接响应外层 task cancellation。运行服务是 Alice 作为 CPU 的最外层：内部各层原样传播取消，执行器递归收尾后，运行服务把根帧的部分输出与已完成检查点组装为 cancelled 结果返回，不再传播取消；还没有任何可交回的内容时（执行器尚未开始且没有完成的检查点）原样传播取消。Agent loop 在 `finally` 中关闭生成器的流，生成器关闭 LLM 服务的流，服务再关闭提供商响应；各层 close 失败只记录日志，不能替换正在传播的 `CancelledError`。RunExecutor 的 CALL/run 收尾遵循同一优先级：先做 best-effort 本地清理，再原样重抛取消。同步 syscall 一旦开始执行，事件循环仍必须等待函数返回，这属于 Python task cancellation 无法解决的同步边界。
 
-LLM 流已交付的文字同步积累到 frame 的 `streaming_text`；正常结果到达后清空以避免重复，原生取消或模型失败时封为带状态的未完成 `assistant_message` 并加入正文。
+LLM 流已交付的文字同步积累到 frame 的 `streaming_text`；正常结果到达后清空以避免重复，原生取消或模型失败时封为一条 `assistant_message` 并加入正文。事件不带完成状态：本轮是否完成由封口后交互记录的结局表达。
 
 ## 7. 执行结果的组装边界
 
 Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程的 CPU 中立执行结果（`CPUExecutionResult`，`workspace.contracts`）由运行层的 `run/result.py` 组装；被取消时，AgentRunService 在取消收尾中以同一投影组装 cancelled 结果并返回：
 
 - `final_text` 来自主 frame 累积正文；
-- `turn_events` 是当前用户消息、assistant 输出和工具事件的有序事实（`TurnEvent`）；
+- `turn_events` 是本轮唯一的交互记录：以序号 0 的用户消息开头，其后是助手正文与带结局的工具调用（`TurnEvent`）；
 - `status` 由取消状态与运行终态确定；
 - `model_used` 来自主 frame 模型解析；
 - `failure_reason` 仅 failed 时投影可识别的预算/压缩失败码；
@@ -215,7 +222,7 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程
 - 输入清单是本轮只读消费的快照，定稿提示词作为不透明固定块使用，Alice 不在执行中取得话题或长期记忆的可变所有权；
 - 模型解析和 generation/provider 故障必须稳定形成 `FAILED`，不能为了可用性静默运行错误模型；
 - 取消不能被包装成普通 success：只在运行服务这一最外层转换为 status 为 cancelled 的结果，CPU 执行必须以 `CPUExecutionResult` 或异常明确结束；
-- 引擎事件必须保持 sequence 单调、tool_call/tool_result action_id 对齐，不能只保留用户可见正文。
+- 引擎事件必须保持 sequence 单调、`action_id` 轮内唯一，调用的结局只记录一次，不能只保留用户可见正文。
 
 ## 9. 配置、观测与测试
 
@@ -229,7 +236,8 @@ Agent Runtime 返回的是 frame 级 `FrameExecutionResult`；面向任务进程
 - `tests/unit/agent_runtime/test_loop_stream.py`；
 - `tests/unit/agent_runtime/model/test_generator.py`；`tests/unit/infrastructure/test_litellm_service.py`（LLM 服务的参数透传、异常转换与流关闭）；
 - `tests/unit/agent_runtime/test_runtime.py`；
-- `tests/unit/alice/context/test_view.py`、`test_summarizer.py`、`test_references.py`；
+- `tests/unit/alice/context/test_view.py`、`test_summarizer.py`、`test_references.py`；`tests/unit/prompts/test_history_transcript_builder.py`（历史重放与工具结果减重）；
+- `tests/unit/alice/orchestration/call/test_coordinator.py`（CALL 回填补全挂起的调用，只补全一次）；
 - `tests/e2e/system/test_chat_session.py`（HTTP 长会话、检查点复用与守卫封口）；
 - `tests/unit/alice/run/test_service.py`；
 - `tests/unit/alice/orchestration/test_executor.py`；

@@ -23,7 +23,7 @@ const turn = { interaction_id: 'p1', agent_id: 'alice', topic_id: 't1', created_
   user_message: '继续', assistant_final_text: '半截答案', outcome: 'cancelled', turn_events: [
     { kind: 'user_message', sequence: 0, content: '继续' },
     { kind: 'assistant_message', sequence: 1, content: '半截答案' },
-    { kind: 'tool_call', sequence: 2, content: 'CALL helper', tool_kind: 'CALL', action_id: 'a1', target: 'helper', tool_args: { task: '帮忙' } },
+    { kind: 'tool_call', sequence: 2, content: 'CALL helper', verb: 'CALL', action_id: 'a1', targets: ['helper'], tool_args: { task: '帮忙' } },
   ],
 } };
 
@@ -91,9 +91,9 @@ test('有输出的取消保持正文、话题和结局，浏览器不保存消�
 test('恢复 WRITE ACK 是成功，未完成操作不能继续显示执行中', () => {
   const messages = sessionMessages({ ...summary, turns: [{ ...turn, payload: { ...turn.payload,
     turn_events: [
-      { kind: 'tool_call', sequence: 0, content: 'WRITE', action_id: 'a', tool_kind: 'WRITE' },
-      { kind: 'tool_result', sequence: 1, content: '已接纳', action_id: 'a', status: 'ack' },
-      { kind: 'tool_call', sequence: 2, content: 'READ', action_id: 'b', tool_kind: 'READ' },
+      { kind: 'tool_call', sequence: 0, content: 'WRITE', action_id: 'a', verb: 'WRITE',
+        status: 'ack', result: '已接纳' },
+      { kind: 'tool_call', sequence: 1, content: 'READ', action_id: 'b', verb: 'READ' },
     ],
   } }] });
   assert.equal(messages[1].contentBlocks[0].action.status, 'success');

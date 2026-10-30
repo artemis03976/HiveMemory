@@ -10,16 +10,47 @@ from enum import Enum
 from typing import Annotated, Any, Literal
 from uuid import uuid4
 
-from pydantic import BaseModel, ConfigDict, Field, WithJsonSchema, field_validator
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    WithJsonSchema,
+    field_validator,
+    model_validator,
+)
 
 from hivememory.core.models.identity import ActorIdentity
 from hivememory.core.models.immutable import FrozenDict, freeze_mapping
-from hivememory.utils.token_estimator import estimate_tokens
 
-# tool_result 在历史视图中的渲染提示；入口模型与 TurnEvent 共用同一取值集合。
 InteractionOutcome = Literal["completed", "cancelled", "failed"]
 
-TurnEventRenderAs = Literal["plain", "system_tool_result", "system_call_response"]
+# HiveMemory 能力动词：MTP 指令的动词，以及外部 harness 经 HiveMemory MCP 工具
+# 调用的能力。外部工具名是开放词表、会与动词重名（Claude Code 有 Read、Write
+# 工具），因此动词单独成字段，不与 tool_name 合并。
+CapabilityVerb = Literal["SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"]
+
+# 工具调用的结局。
+ToolResultStatus = Literal["success", "ack", "error", "cancelled"]
+
+# 每种事件可以携带的可选字段；未列出的字段必须保持缺省（None 或空元组）。
+_EVENT_OPTIONAL_FIELDS: dict[str, frozenset[str]] = {
+    "user_message": frozenset(),
+    "assistant_message": frozenset(),
+    "thought": frozenset(),
+    "tool_call": frozenset(
+        {
+            "action_id",
+            "tool_name",
+            "verb",
+            "targets",
+            "tool_args",
+            "status",
+            "result",
+            "produced_aliases",
+        }
+    ),
+}
+_OPTIONAL_FIELDS = frozenset().union(*_EVENT_OPTIONAL_FIELDS.values())
 
 
 class StreamMessageType(str, Enum):
@@ -70,20 +101,30 @@ class StreamMessage(BaseModel):
 
 class TurnEvent(BaseModel):
     """
-    通用 Agent 交互原子事件
+    一轮 Agent 交互的原子事件，是一轮交互过程的唯一记录。
 
-    用于统一描述各类 Agent 系统中的最小交互单元：
-    - 普通用户/助手消息
-    - Thought 片段
-    - Tool Call
-    - Tool Result（包含工具调用后的系统级回填）
+    Alice 的 MTP 指令与外部 harness 的工具调用写出同形的事件：字段含义相同，
+    来源之间真实存在的差异只体现为取值，读取方不判断来源。
 
-    设计目标：
-    - 作为历史视图重放的统一事件真相源
-    - 通过 action_id 维护一次完整 Agent Action 的结构边界
-    - 为主动模式（MTP）与被动模式（JSON function call）提供相同事件语义
+    - ``content`` 是执行者写出的原文：用户消息、助手正文、思考或 MTP 指令
+      片段（结构化工具调用没有调用原文，为空串）。原文供重放，对工具调用的
+      解读只看结构化字段；MTP 指令解析失败时只有原文。
+    - 一次工具调用与它的结局是同一个 ``tool_call`` 事件：调用在执行前写出，
+      结局到达时由 ``with_outcome`` 补全。``action_id`` 标识这次调用。
+    - ``verb`` 与 ``tool_name`` 互斥，回答“调用了什么”：前者是 HiveMemory
+      能力，后者是外部工具的名字；MTP 指令无法解析时二者都为空。
+    - ``targets`` 是动词的作用对象：READ 的 alias，RUN 的工具或代码记忆，
+      UPDATE 的记忆，CALL 的 Agent；SEARCH 与 WRITE 的通配目标为空。
+      ``tool_args`` 只放作用对象以外的参数。
+    - ``status`` 与 ``result`` 是结局与执行者收到的返回原文，同时出现或
+      同时为空。没有结局表示结局没有记录：执行者拿到结果之前被取消或失败，
+      或来源没有记下结果（外部 harness 的会话记录会漏记并行调用的结果），
+      因此不等于调用没有完成。
+    - ``produced_aliases`` 是本次调用产出的 alias：WRITE、UPDATE 的 ACK 为
+      pending alias，CALL 为子帧回填的产物，其他为空。
 
-    当前仅接受标准化后的事件语义与字段命名。
+    单个事件的字段规则在构造时校验；一轮事件集的不变量由
+    ``validate_turn_events`` 校验。
     """
 
     kind: Literal[
@@ -91,18 +132,16 @@ class TurnEvent(BaseModel):
         "assistant_message",
         "thought",
         "tool_call",
-        "tool_result",
     ]
     sequence: int
-    role: Literal["user", "assistant", "system"]
     content: str
 
-    # 聚合信息：将多个原子事件归并为同一次完整 action
+    # ---- 只在 tool_call 上 ----
+    # 一次调用的标识，轮内唯一。
     action_id: str | None = None
-
-    # 通用工具调用元数据
     tool_name: str | None = None
-    tool_kind: str | None = None
+    verb: CapabilityVerb | None = None
+    targets: tuple[str, ...] = ()
     # 运行时保持递归冻结，HTTP/JSON schema 按实际序列化结果声明为普通对象。
     tool_args: (
         Annotated[
@@ -110,16 +149,17 @@ class TurnEvent(BaseModel):
         ]
         | None
     ) = None
-    target: str | None = None
-    status: str | None = None
 
-    # 历史视图渲染提示
-    render_as: TurnEventRenderAs = "plain"
+    # ---- tool_call 的结局 ----
+    status: ToolResultStatus | None = None
+    result: str | None = None
+    produced_aliases: tuple[str, ...] = ()
 
     model_config = ConfigDict(
         frozen=True,
         use_enum_values=True,
         arbitrary_types_allowed=True,
+        extra="forbid",
     )
 
     @field_validator("tool_args", mode="before")
@@ -127,108 +167,108 @@ class TurnEvent(BaseModel):
     def _freeze_tool_args(cls, value: Any) -> FrozenDict[str, Any] | None:
         return None if value is None else freeze_mapping(value)
 
-
-class AgentAction(BaseModel):
-    """
-    完整的 Agent Action 聚合单元
-
-    位于 TurnEvent 之上，用于将一次完整的 Agent 动作保持为同一个结构：
-    - 可选 thought
-    - 1 次 tool call
-    - 0..N 次 tool result
-
-    设计目标：
-    - 继承旧三元组 (thought -> tool call - > tool result) 的“动作完整性”设计哲学
-    - 适配多段结果、流式返回、挂起恢复等场景
-    - 为 TraceItem 摘要层提供稳定输入
-    """
-
-    action_id: str
-    thought: str = ""
-    tool_name: str = ""
-    tool_kind: str = ""
-    # 运行时保持递归冻结，HTTP/JSON schema 按实际序列化结果声明为普通对象。
-    tool_args: (
-        Annotated[
-            FrozenDict[str, Any], WithJsonSchema({"type": "object", "additionalProperties": True})
-        ]
-        | None
-    ) = None
-    results: tuple[TurnEvent, ...] = Field(default_factory=tuple)
-    status: str | None = None
+    @model_validator(mode="after")
+    def _check_fields_for_kind(self) -> "TurnEvent":
+        """字段只出现在允许它的事件种类上；调用必带标识，结局字段成对出现。"""
+        present = {
+            name
+            for name in _OPTIONAL_FIELDS
+            if getattr(self, name) is not None and getattr(self, name) != ()
+        }
+        unexpected = sorted(present - _EVENT_OPTIONAL_FIELDS[self.kind])
+        if unexpected:
+            raise ValueError(f"{self.kind} event cannot carry: {', '.join(unexpected)}")
+        if self.kind == "tool_call" and not self.action_id:
+            raise ValueError("tool_call event requires action_id")
+        if self.verb is not None and self.tool_name is not None:
+            raise ValueError("tool_call event cannot carry both verb and tool_name")
+        if self.targets and self.verb is None:
+            raise ValueError("tool_call event without verb cannot carry targets")
+        if (self.status is None) != (self.result is None):
+            raise ValueError("tool_call event carries status and result together")
+        if self.produced_aliases and self.status is None:
+            raise ValueError("tool_call event without outcome cannot carry produced_aliases")
+        return self
 
     @property
-    def is_started(self) -> bool:
-        """是否已形成一次可识别的动作。"""
-        return bool(self.tool_name or self.tool_kind or self.thought or self.results)
+    def has_outcome(self) -> bool:
+        """调用是否记录了结局。"""
+        return self.status is not None
 
-    @property
-    def is_complete(self) -> bool:
-        """是否已拿到至少一个结果事件。"""
-        return bool(self.tool_name or self.tool_kind) and bool(self.results)
+    def with_outcome(
+        self,
+        status: ToolResultStatus,
+        result: str,
+        produced_aliases: Sequence[str] = (),
+    ) -> "TurnEvent":
+        """补全一次调用的结局，返回替换原事件的新事件，序号不变。
 
-    @property
-    def total_tokens(self) -> int:
-        """估算动作单元的 Token 数量。"""
-        tokens = 0
-        if self.thought:
-            tokens += estimate_tokens(self.thought)
-        if self.tool_name:
-            tokens += estimate_tokens(self.tool_name)
-        if self.tool_kind:
-            tokens += estimate_tokens(self.tool_kind)
-        if self.tool_args:
-            tokens += estimate_tokens(str(self.tool_args))
-        for result in self.results:
-            tokens += estimate_tokens(result.content)
-        return tokens
-
-    model_config = ConfigDict(frozen=True, arbitrary_types_allowed=True)
-
-    @field_validator("tool_args", mode="before")
-    @classmethod
-    def _freeze_tool_args(cls, value: Any) -> FrozenDict[str, Any] | None:
-        return None if value is None else freeze_mapping(value)
+        只对没有结局的调用进行：结局只记录一次，重复补全说明写出方把两次
+        返回记到了同一个调用上，显式失败。
+        """
+        if self.kind != "tool_call":
+            raise ValueError(f"{self.kind} event has no outcome")
+        if self.has_outcome:
+            raise ValueError(f"tool_call already has an outcome: {self.action_id}")
+        return TurnEvent.model_validate(
+            {
+                **self.model_dump(),
+                "status": status,
+                "result": result,
+                "produced_aliases": tuple(produced_aliases),
+            }
+        )
 
 
-class TraceItem(BaseModel):
+def validate_turn_events(events: Sequence[TurnEvent]) -> None:
+    """校验一轮事件集的不变量，违反时抛出 ``ValueError``，不修补。
+
+    - 首个事件是这一轮唯一的用户消息，序号为 0；序号轮内唯一、严格递增；
+    - 每个调用的 ``action_id`` 轮内唯一。
     """
-    Agent Action 的语义摘要项
+    if not events or events[0].kind != "user_message" or events[0].sequence != 0:
+        raise ValueError("turn events must start with the user message at sequence 0")
+    previous = 0
+    calls: set[str | None] = set()
+    for event in events[1:]:
+        if event.sequence <= previous:
+            raise ValueError("turn event sequences must be strictly increasing")
+        previous = event.sequence
+        if event.kind == "user_message":
+            raise ValueError("a turn has exactly one user message")
+        if event.kind == "tool_call":
+            if event.action_id in calls:
+                raise ValueError(f"duplicate tool_call action_id: {event.action_id}")
+            calls.add(event.action_id)
 
-    作为 generation / relay 等摘要视图的轻量输入，仅保留动作语义：
-    - READ   -> 目标
-    - SEARCH -> 查询意图
-    - RUN    -> 工具与状态
 
-    注意：
-    - WRITE / UPDATE / CALL 等控制信号会保留为 TraceItem，但摘要渲染层可选择跳过
-    - tool_result 正文与系统回填文本不进入 TraceItem
+def turn_user_message(events: Sequence[TurnEvent]) -> str:
+    """一轮的用户消息：序号 0 的用户消息事件的正文。"""
+    for event in events:
+        if event.kind == "user_message":
+            return event.content
+    raise ValueError("turn events have no user message")
+
+
+def turn_reply_text(events: Sequence[TurnEvent]) -> str:
+    """一轮的回复正文：全部助手正文按序号以空行拼接；没有助手正文时为空串。
+
+    两种来源统一按空行拼接；执行者交给交付方的最终回复由执行者自己组装，
+    不受这里影响。
     """
-
-    action: str = Field(..., description="操作类型: READ / SEARCH / RUN")
-    action_id: str | None = Field(default=None, description="来源 AgentAction 的 action_id")
-    target: str | None = Field(default=None, description="READ 目标别名")
-    query: str | None = Field(default=None, description="SEARCH 查询文本")
-    tool: str | None = Field(default=None, description="RUN 工具名称")
-    status: str | None = Field(default=None, description="RUN 执行状态")
-
-    model_config = ConfigDict(frozen=True, use_enum_values=True)
+    return "\n\n".join(
+        event.content
+        for event in sorted(events, key=lambda item: item.sequence)
+        if event.kind == "assistant_message"
+    )
 
 
 class TurnRecord(BaseModel):
     """
-    单轮内容真相记录
+    单轮内容记录：本轮结局、标识、产出它的 actor 与本轮事件集。
 
-    该模型承载一轮交互中与“内容本身”相关的所有结构化信息：
-    - user_query / rewritten_query
-    - assistant_final_text
-    - turn_events
-    - actions
-    - semantic_traces
-
-    语义定位：
-    - TurnRecord 是内容真相源
-    - LogicalBlock 是感知层容器
+    事件集是唯一的内容事实；用户消息、回复正文与过程材料都在读取时从事件
+    得到，不在记录中另存一份。
     """
 
     outcome: InteractionOutcome = "completed"
@@ -236,240 +276,6 @@ class TurnRecord(BaseModel):
     # 产出本轮的 actor；没有可以代替的默认身份，由构造方显式给出。
     identity: ActorIdentity
 
-    user_query: str = Field(default="", description="原始用户问题")
-    rewritten_query: str | None = Field(
-        default=None,
-        description="重写后的查询（指代消解与上下文补全）",
-    )
-    assistant_final_text: str = Field(
-        default="",
-        description="本轮最终自然语言回复",
-    )
-
-    turn_events: tuple[TurnEvent, ...] = Field(
-        default_factory=tuple,
-        description="本轮原子事件流",
-    )
-    actions: tuple[AgentAction, ...] = Field(
-        default_factory=tuple,
-        description="由 turn_events 聚合出的完整动作单元",
-    )
-    semantic_traces: tuple[TraceItem, ...] = Field(
-        default_factory=tuple,
-        description="由 actions 派生出的动作摘要缓存",
-    )
-
-    @property
-    def anchor_text(self) -> str:
-        """获取单轮语义锚点。"""
-        return self.rewritten_query or self.user_query or ""
-
-    @property
-    def is_empty(self) -> bool:
-        """是否尚未承载任何有效内容。"""
-        return not (
-            self.user_query
-            or self.assistant_final_text
-            or self.rewritten_query
-            or self.turn_events
-            or self.actions
-            or self.semantic_traces
-        )
+    turn_events: tuple[TurnEvent, ...] = Field(description="本轮事件集，以序号 0 的用户消息开头")
 
     model_config = ConfigDict(frozen=True)
-
-
-class ActionReducer:
-    """
-    无状态转换器：将 TurnEvent 列表聚合为 AgentAction 列表。
-
-    聚合规则：
-    - `tool_call` 创建或更新一个动作单元
-    - `tool_result` 追加到对应动作的结果列表
-    - `thought` 尝试归并到对应动作；若缺失显式 action_id，则吸附到最近动作
-    - 其他事件（如 user/assistant message）不参与动作聚合
-    """
-
-    @classmethod
-    def reduce(cls, turn_events: Sequence[TurnEvent | dict[str, Any] | Any]) -> list[AgentAction]:
-        """将事件流聚合为动作列表，保持首次出现顺序。"""
-        actions_by_id: dict[str, dict[str, Any]] = {}
-        action_order: list[str] = []
-        last_action_id: str | None = None
-
-        normalized_events = [
-            cls._normalize_event(event)
-            for event in sorted(
-                turn_events,
-                key=lambda e: (
-                    e.get("sequence", 0) if isinstance(e, dict) else getattr(e, "sequence", 0)
-                ),
-            )
-        ]
-
-        for event in normalized_events:
-            if event.kind not in {"thought", "tool_call", "tool_result"}:
-                continue
-
-            action_id = cls.resolve_action_id(event, last_action_id)
-            if action_id is None:
-                continue
-
-            action = actions_by_id.get(action_id)
-            if action is None:
-                action = {
-                    "action_id": action_id,
-                    "thought": "",
-                    "tool_name": "",
-                    "tool_kind": "",
-                    "tool_args": None,
-                    "results": [],
-                    "status": None,
-                }
-                actions_by_id[action_id] = action
-                action_order.append(action_id)
-
-            if event.kind == "thought":
-                action["thought"] = cls._merge_thought(action["thought"], event.content)
-            elif event.kind == "tool_call":
-                action["tool_name"] = event.tool_name or event.target or action["tool_name"]
-                action["tool_kind"] = event.tool_kind or action["tool_kind"]
-                if event.tool_args is not None:
-                    action["tool_args"] = event.tool_args
-                action["status"] = event.status or action["status"]
-            elif event.kind == "tool_result":
-                action["results"].append(event)
-                action["status"] = event.status or action["status"]
-                if not action["tool_name"]:
-                    action["tool_name"] = event.tool_name or event.target or ""
-                if not action["tool_kind"]:
-                    action["tool_kind"] = event.tool_kind or ""
-
-            last_action_id = action_id
-
-        actions = [AgentAction(**actions_by_id[action_id]) for action_id in action_order]
-        return [action for action in actions if action.is_started]
-
-    @classmethod
-    def _normalize_event(cls, event: TurnEvent | dict[str, Any] | Any) -> TurnEvent:
-        """统一兼容对象与 dict 输入。"""
-        if isinstance(event, TurnEvent):
-            return event
-        if isinstance(event, dict):
-            return TurnEvent.model_validate(event)
-        return TurnEvent.model_validate(event.model_dump())
-
-    @classmethod
-    def resolve_action_id(cls, event: TurnEvent, last_action_id: str | None) -> str | None:
-        """解析事件应归属的 action_id；需要按事件定位动作的视图共用这一条规则。
-
-        显式 ``action_id`` 优先；没有时 ``tool_call`` 以序号生成标识，思考与
-        工具结果吸附到 ``last_action_id`` 所指的最近动作。
-        """
-        if event.action_id:
-            return event.action_id
-        if event.kind == "tool_call":
-            return f"tool_call_{event.sequence}"
-        if event.kind in {"thought", "tool_result"}:
-            return last_action_id
-        return None
-
-    @staticmethod
-    def _merge_thought(existing: str, incoming: str) -> str:
-        """将多段 thought 合并为单个文本块。"""
-        if not existing:
-            return incoming
-        if not incoming:
-            return existing
-        return f"{existing}\n{incoming}"
-
-
-class TraceReducer:
-    """
-    无状态转换器：将 AgentAction 列表化简为 TraceItem 列表。
-
-    这是摘要层的唯一推荐入口。
-    """
-
-    @classmethod
-    def reduce(cls, actions: Sequence[AgentAction | dict[str, Any] | Any]) -> list[TraceItem]:
-        """将动作列表转换为摘要轨迹列表。"""
-        traces: list[TraceItem] = []
-        for action in actions:
-            normalized = cls._normalize_action(action)
-            trace = cls._action_to_trace(normalized)
-            if trace is not None:
-                traces.append(trace)
-        return traces
-
-    @classmethod
-    def _normalize_action(cls, action: AgentAction | dict[str, Any] | Any) -> AgentAction:
-        """统一兼容对象与 dict 输入。"""
-        if isinstance(action, AgentAction):
-            return action
-        if isinstance(action, dict):
-            return AgentAction.model_validate(action)
-        return AgentAction.model_validate(action.model_dump())
-
-    @classmethod
-    def _action_to_trace(cls, action: AgentAction) -> TraceItem | None:
-        """将单个动作转换为摘要项。"""
-        verb = (action.tool_kind or "").upper()
-
-        if verb == "READ":
-            return TraceItem(
-                action="READ",
-                action_id=action.action_id,
-                target=action.tool_name or None,
-            )
-
-        if verb == "SEARCH":
-            return TraceItem(
-                action="SEARCH",
-                action_id=action.action_id,
-                query=cls._extract_search_query(action),
-            )
-
-        if verb == "RUN":
-            return TraceItem(
-                action="RUN",
-                action_id=action.action_id,
-                tool=action.tool_name or None,
-                status=action.status or "unknown",
-            )
-
-        if verb == "CALL":
-            return TraceItem(
-                action="CALL",
-                action_id=action.action_id,
-                target=action.tool_name or None,
-                status=action.status or "unknown",
-            )
-
-        if verb == "WRITE":
-            return TraceItem(
-                action="WRITE",
-                action_id=action.action_id,
-                target=action.tool_name or None,
-                status=action.status or "unknown",
-            )
-
-        if verb == "UPDATE":
-            return TraceItem(
-                action="UPDATE",
-                action_id=action.action_id,
-                target=action.tool_name or None,
-                status=action.status or "unknown",
-            )
-
-        # UNKNOWN -> 默认不进入摘要轨迹
-        return None
-
-    @staticmethod
-    def _extract_search_query(action: AgentAction) -> str | None:
-        """优先从 tool_args 提取 SEARCH query，必要时回退解析 thought。"""
-        if action.tool_args:
-            query = action.tool_args.get("query")
-            if isinstance(query, str):
-                return query
-        return None

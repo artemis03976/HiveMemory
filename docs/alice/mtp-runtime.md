@@ -17,7 +17,7 @@ related_contracts:
   - docs/alice/orchestration.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-30
 ---
 
 # MTP Runtime：从文本指令到受控执行
@@ -45,12 +45,12 @@ MTPGenerator.generate(stream=True, stop = MTP right delimiter)
        check tool / scope / type constraints
        produce MTPResponse
        format localized XML
-  -> tool_call + tool_result TurnEvents
+  -> tool_call TurnEvent with outcome（CALL 挂起时没有结局，回填时补全）
   -> formatted response enters working history
   -> MTPGenerator continues generation
 ```
 
-如果文本中没有 MTP 左定界符，Koakuma 返回 `None`，Agent loop 把本次生成当作自然语言收敛。解析错误不会抛回模型适配层，而会形成结构化 `MTPErrorInfo` 并格式化回填，让 Agent 有机会修正语法或参数。
+生成器只在文本含 MTP 左定界符时报告指令中断；没有中断时 Agent loop 把本次生成当作自然语言收敛，不调用 Koakuma。Koakuma 对不含左定界符的文本返回 `None`，对中断的文本总会给出结果，Agent loop 收到 `None` 视为两者约定被破坏而显式失败。解析错误不会抛回模型适配层，而会形成结构化 `MTPErrorInfo` 并格式化回填，让 Agent 有机会修正语法或参数。
 
 CALL 是唯一不在 handler 内完成业务动作的动词。Koakuma 只解析协议参数并产生 `suspend + MTPCallRequest`，不读取 Agent Profile 或 `context_refs` 内容；AgentLoopExecutor 把 frame 状态交还 Alice 的 `RunExecutor`，由 `CallContextProvider` 解析调用上下文，`CallCoordinator.begin_call()` 消费该上下文并创建普通 callee frame。Executor 递归等待 callee frame 完成，再由 `complete_call()` 通过 `AgentRuntime.apply_call_response()` 恢复 caller。把 CALL 留成 trap，保证单 Agent 执行器不偷偷取得多 Agent 编排权。
 

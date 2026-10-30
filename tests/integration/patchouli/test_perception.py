@@ -26,7 +26,6 @@ from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueSt
 from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
-    TurnEvent,
     WorkspaceAssetRef,
     system_actor_for_workspace,
 )
@@ -42,6 +41,7 @@ from hivememory.patchouli.control.memory_generation.models import (
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
+from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -50,19 +50,7 @@ def _identity_scope(user_id="u1", agent_id="a1"):
 
 
 def _payload(message: str = "hello", answer: str | None = None) -> InteractionPayload:
-    answer = answer if answer is not None else f"answer:{message}"
-    return InteractionPayload(
-        user_message=message,
-        assistant_final_text=answer,
-        turn_events=[
-            TurnEvent(
-                kind="assistant_message",
-                sequence=0,
-                role="assistant",
-                content=answer,
-            )
-        ],
-    )
+    return make_interaction_payload(message, answer if answer is not None else f"answer:{message}")
 
 
 def _generation_task(task_id="task-1", topic_id="t1") -> MemoryGenerationTask:
@@ -226,20 +214,6 @@ class TestApplyInteraction:
         assert topic.bindings[0].first_bound_interaction_id == "i-1"
 
     @pytest.mark.asyncio
-    async def test_empty_turn_events_rejected_without_legacy_fallback(self):
-        familiar, store, _, _ = _make_familiar()
-        payload = InteractionPayload(user_message="hello", turn_events=[])
-
-        with pytest.raises(ValueError, match="turn_events is required"):
-            await familiar.apply_interaction(
-                payload,
-                belong_to=_identity_scope().workspace_identity,
-                from_actor=_identity_scope().actor_identity,
-                interaction_id="i-1",
-            )
-        assert store.list_all() == []  # 未产生任何话题写入
-
-    @pytest.mark.asyncio
     async def test_busy_topic_rejects_interaction_without_writing(self):
         familiar, store, working_set, _ = _make_familiar()
         scope = _identity_scope()
@@ -392,7 +366,7 @@ class TestCompact:
         await _apply_to_topic(familiar, scope, "t1", "a", "b")
 
         topic = store.get(scope.workspace_identity, "t1")
-        assert [block.user_query for block in topic.blocks] == ["a", "b"]
+        assert [block.user_message for block in topic.blocks] == ["a", "b"]
         assert topic.state_summary == ""
         assert familiar.needs_compact(scope.workspace_identity, "t1") is True
 
@@ -410,7 +384,7 @@ class TestCompact:
             await familiar.compact_topic(scope.workspace_identity, "t1")
 
         topic = store.get(scope.workspace_identity, "t1")
-        assert [block.user_query for block in topic.blocks] == ["c"]
+        assert [block.user_message for block in topic.blocks] == ["c"]
         # 第二次折叠收到第一次的摘要作为 previous_summary，累积成链
         assert topic.state_summary == "folded:1|folded:1"
         assert topic.total_tokens == topic.blocks[0].total_tokens
@@ -439,7 +413,7 @@ class TestCompact:
         assert store.get(scope.workspace_identity, "t1") == before
         await familiar.compact_topic(scope.workspace_identity, "t1")
         topic = store.get(scope.workspace_identity, "t1")
-        assert [block.user_query for block in topic.blocks] == ["b"]
+        assert [block.user_message for block in topic.blocks] == ["b"]
         assert topic.state_summary == "folded-summary"
 
     @pytest.mark.asyncio
@@ -654,7 +628,7 @@ class TestNamedUseCases:
 
         after = store.get(scope.workspace_identity, topic_id)
         assert after is not None
-        assert [b.user_query for b in after.blocks] == [b.user_query for b in before.blocks]
+        assert [b.user_message for b in after.blocks] == [b.user_message for b in before.blocks]
         assert after.state_summary == before.state_summary
 
         # 修复 admission 后可再次重试并成功结束生命周期
@@ -878,7 +852,7 @@ class TestMaintenance:
         before_shutdown = store.get(scope.workspace_identity, topic_id)
         assert before_shutdown is not None
         assert before_shutdown.state_summary == "folded:1|folded:1"
-        assert [block.user_query for block in before_shutdown.blocks] == ["question-2-" * 80]
+        assert [block.user_message for block in before_shutdown.blocks] == ["question-2-" * 80]
         assert bus.request.await_count == 0
         bus.request.side_effect = _accept_settlement_task
 
@@ -893,7 +867,7 @@ class TestMaintenance:
         assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
         assert settlement.reason == TriggerReason.SHUTDOWN
         assert settlement.state_summary == "folded:1|folded:1"
-        assert [block.user_query for block in settlement.blocks] == ["question-2-" * 80]
+        assert [block.user_message for block in settlement.blocks] == ["question-2-" * 80]
 
     @pytest.mark.asyncio
     async def test_shutdown_marks_generation_skip_when_submission_builds_no_task(self):

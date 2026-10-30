@@ -11,15 +11,19 @@ export interface SessionSummary {
   turn_count: number;
   active_process_id: string | null;
 }
+/** 轮次事件：一次工具调用与它的结局（status、result、produced_aliases）在同一个 tool_call 上，没有结局时都缺省。 */
 export interface SessionTurnEvent {
   kind: string;
   sequence: number;
   content: string;
   action_id?: string | null;
-  tool_kind?: string | null;
-  target?: string | null;
+  tool_name?: string | null;
+  verb?: string | null;
+  targets?: string[];
   tool_args?: Record<string, unknown> | null;
   status?: string | null;
+  result?: string | null;
+  produced_aliases?: string[];
 }
 export interface ConversationTurn {
   interaction_id: string;

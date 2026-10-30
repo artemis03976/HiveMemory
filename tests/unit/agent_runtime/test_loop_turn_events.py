@@ -3,9 +3,10 @@ LoopExecutor TurnEvent 采集单测
 
 验证结构化事件采集行为:
 1. 自然停止 -> 1 个 assistant_message 事件
-2. 单次 MTP -> prefix + tool_call + tool_result，sequence 递增
-3. CALL 路径 -> 编排侧产出 kind=tool_result tool_kind=CALL 事件
-4. 无 MTP 时 frame.progress 正常，final_text 正确
+2. 单次 MTP -> 指令前正文、只含指令片段且带结局的 tool_call，sequence 递增
+3. 指令无法解析 -> 没有动词、结局为 error 的 tool_call
+4. ACK -> 产出的 pending alias 记在调用的结局上
+5. CALL 挂起时调用没有结局；回填由编排侧补全同一个调用的结局
 """
 
 import asyncio
@@ -51,14 +52,15 @@ def _natural_result(text: str) -> GenerationResult:
 
 
 def _mtp_result(prefix: str, mtp_text: str) -> GenerationResult:
-    text = (
+    """与生成器一致：全文是指令前正文加补齐右定界符的指令片段。"""
+    fragment = (
         mtp_text if mtp_text.endswith(MTP_RIGHT_DELIMITER) else f"{mtp_text} {MTP_RIGHT_DELIMITER}"
     )
     return GenerationResult(
-        text=text,
+        text=prefix + fragment,
         was_mtp_interrupted=True,
         prefix_text=prefix,
-        mtp_fragment=text,
+        mtp_fragment=fragment,
     )
 
 
@@ -176,14 +178,9 @@ async def test_natural_stop_produces_one_assistant_message_event():
 
     assert engine_result.status == FrameExecutionStatus.COMPLETED
     assert "".join(frame.progress.text_segments) == "Hello world"
-    assert len(frame.progress.turn_events) == 1
-
-    ev: TurnEvent = frame.progress.turn_events[0]
-    assert ev.kind == "assistant_message"
-    assert ev.sequence == 0
-    assert ev.role == "assistant"
-    assert ev.content == "Hello world"
-    assert ev.tool_kind is None
+    assert frame.progress.turn_events == [
+        TurnEvent(kind="assistant_message", sequence=0, content="Hello world")
+    ]
 
 
 @pytest.mark.asyncio
@@ -217,7 +214,7 @@ async def test_tool_result_growth_stops_before_next_generation():
     assert result.status == FrameExecutionStatus.FAILED
     assert isinstance(result.error, TurnContextBudgetExceededError)
     assert frame.progress.iteration == 1
-    assert frame.progress.turn_events[-1].content == "x" * 400
+    assert frame.progress.turn_events[-1].result == "x" * 400
     assert executor.generator.calls == 1
 
 
@@ -238,17 +235,15 @@ async def test_context_guard_counts_message_overhead_and_allows_exact_budget(lim
 
 
 @pytest.mark.asyncio
-async def test_missing_mtp_result_returns_failed():
+async def test_missing_mtp_result_fails_explicitly_without_tool_events():
+    """执行器对中断于指令的文本没有给出结果时显式失败，不补写失败的调用与结果。"""
     frame = _make_frame()
     executor = _build_executor([_mtp_result("", "<< READ | alias_x >>")])
 
-    engine_result = await executor.execute_frame(
-        frame, max_iterations=2, output_sink=NullFrameOutputSink()
-    )
+    with pytest.raises(RuntimeError, match="no result"):
+        await executor.execute_frame(frame, max_iterations=2, output_sink=NullFrameOutputSink())
 
-    assert engine_result.status == FrameExecutionStatus.FAILED
-    assert isinstance(engine_result.error, RuntimeError)
-    assert frame.progress.turn_events[-1].status == "failed"
+    assert frame.progress.turn_events == []
 
 
 @pytest.mark.asyncio
@@ -290,7 +285,7 @@ async def test_generation_cancelled_error_is_not_converted_to_failed_outcome():
 
 @pytest.mark.asyncio
 async def test_single_mtp_produces_four_events():
-    """单次 MTP: prefix(assistant_message) + tool_call + tool_result + final(assistant_message)"""
+    """单次 MTP: 指令前正文 + 只含指令片段且带结局的调用 + 最终回复，working history 不变。"""
     frame = _make_frame()
     gen_results = [
         _mtp_result("查找中", "<< READ | alias_x >>"),
@@ -302,32 +297,50 @@ async def test_single_mtp_produces_four_events():
     await executor.execute_frame(frame, max_iterations=5, output_sink=NullFrameOutputSink())
 
     assert "".join(frame.progress.text_segments) == "查找中找到了"
-    events = frame.progress.turn_events
-    assert len(events) == 4
+    fragment = f"<< READ | alias_x >> {MTP_RIGHT_DELIMITER}"
+    assert frame.progress.turn_events == [
+        TurnEvent(kind="assistant_message", sequence=0, content="查找中"),
+        TurnEvent(
+            kind="tool_call",
+            sequence=1,
+            content=fragment,
+            action_id="action_1_1",
+            verb="READ",
+            targets=("alias_x",),
+            status="success",
+            result='<mtp_response status="success">READ result</mtp_response>',
+        ),
+        TurnEvent(kind="assistant_message", sequence=2, content="找到了"),
+    ]
+    # 运行时的助手消息仍是指令前正文加指令片段的全文。
+    assert frame.working_history[-2] == {"role": "assistant", "content": f"查找中{fragment}"}
 
-    prefix_ev, cmd_ev, res_ev, final_ev = events
-    assert prefix_ev.kind == "assistant_message"
-    assert prefix_ev.sequence == 0
-    assert prefix_ev.role == "assistant"
-    assert prefix_ev.content == "查找中"
 
-    assert cmd_ev.kind == "tool_call"
-    assert cmd_ev.sequence == 1
-    assert cmd_ev.role == "assistant"
-    assert cmd_ev.tool_kind == "READ"
-    assert cmd_ev.content.endswith(MTP_RIGHT_DELIMITER)
+@pytest.mark.asyncio
+async def test_unparseable_mtp_records_call_without_verb_and_error_outcome():
+    """指令无法解析时调用事件只有原文，动词与作用对象为空，结局为 error。"""
+    frame = _make_frame()
+    executor = _build_executor(
+        [_mtp_result("", "<< READ alias_x >>"), _natural_result("重试后完成")]
+    )
+    executor._mtp_executor.intercept_and_execute = AsyncMock(
+        return_value=MTPExecutionResult(
+            command=None,
+            response_status="error",
+            formatted_response='<mtp_response status="error">parse error</mtp_response>',
+        )
+    )
 
-    assert res_ev.kind == "tool_result"
-    assert res_ev.sequence == 2
-    assert res_ev.role == "user"
-    assert res_ev.tool_kind == "READ"
-    assert res_ev.status == "success"
-    assert res_ev.render_as == "system_tool_result"
-    assert frame.working_history[-2]["content"] == cmd_ev.content
+    await executor.execute_frame(frame, max_iterations=5, output_sink=NullFrameOutputSink())
 
-    assert final_ev.kind == "assistant_message"
-    assert final_ev.sequence == 3
-    assert final_ev.content == "找到了"
+    assert frame.progress.turn_events[0] == TurnEvent(
+        kind="tool_call",
+        sequence=0,
+        content=f"<< READ alias_x >> {MTP_RIGHT_DELIMITER}",
+        action_id="action_1_0",
+        status="error",
+        result='<mtp_response status="error">parse error</mtp_response>',
+    )
 
 
 @pytest.mark.asyncio
@@ -437,17 +450,35 @@ async def test_empty_prefix_text_not_recorded():
 
     await executor.execute_frame(frame, max_iterations=5, output_sink=NullFrameOutputSink())
 
-    # prefix 为空：不产生前缀 assistant_message，只保留 tool_call/tool_result/最终回复
+    # prefix 为空：不产生前缀 assistant_message，只保留 tool_call 与最终回复
     kinds = [ev.kind for ev in frame.progress.turn_events]
-    assert kinds == ["tool_call", "tool_result", "assistant_message"]
+    assert kinds == ["tool_call", "assistant_message"]
     assistant = [ev for ev in frame.progress.turn_events if ev.kind == "assistant_message"]
     assert len(assistant) == 1
     assert assistant[0].content == "done"
 
 
 @pytest.mark.asyncio
-async def test_call_path_produces_mtp_result_event_with_call_verb():
-    """CALL 路径: 编排侧产出 kind=tool_result, tool_kind=CALL, role=user"""
+async def test_call_suspension_records_the_call_without_outcome():
+    """CALL 挂起时写出调用事件：结局要等回填，挂起中的调用没有结局。"""
+    frame = _make_frame()
+    executor = _build_executor([_mtp_result("正在调用", '<< CALL | sub_agent | task="do work" >>')])
+    executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_call_mtp_exec_result())
+
+    result = await executor.execute_frame(
+        frame, max_iterations=5, output_sink=NullFrameOutputSink()
+    )
+
+    assert result.status == FrameExecutionStatus.SUSPENDED
+    assert [ev.kind for ev in frame.progress.turn_events] == ["assistant_message", "tool_call"]
+    call = frame.progress.turn_events[-1]
+    assert (call.verb, call.targets, call.action_id) == ("CALL", ("sub_agent",), "action_1_1")
+    assert not call.has_outcome
+
+
+@pytest.mark.asyncio
+async def test_call_backfill_completes_the_suspended_call_with_child_outcome():
+    """CALL 回填: 编排侧补全挂起的调用，结局为子帧结局，事件不增加。"""
     executor = _build_executor(
         [_mtp_result("正在调用", '<< CALL | sub_agent | task="do work" >>')],
         fallback=_natural_result("完成"),
@@ -486,45 +517,34 @@ async def test_call_path_produces_mtp_result_event_with_call_verb():
         frame, generation_options={"model": "test-model"}, run_output=NullAgentRunOutput()
     )
 
-    call_events = [
-        ev
-        for ev in frame.progress.turn_events
-        if ev.kind == "tool_result" and ev.tool_kind == "CALL"
-    ]
     assert executor_result.status == FrameExecutionStatus.COMPLETED
-    assert (
-        len(call_events) == 1
-    ), f"应有 1 个 CALL tool_result 事件，实际: {frame.progress.turn_events}"
-    call_ev = call_events[0]
-    assert call_ev.role == "user"
-    assert call_ev.status == "success"
-    assert call_ev.render_as == "system_call_response"
-    assert call_ev.content.startswith("[System MTP Call Response]\n")
-
-
-def test_chat_result_default_turn_events():
-    """CPU 执行结果的轮次事件字段有默认值"""
-    from hivememory.workspace.contracts import CPUExecutionResult
-
-    r = CPUExecutionResult(final_text="hi")
-    assert r.turn_events == []
+    events = frame.progress.turn_events
+    assert [ev.kind for ev in events] == ["assistant_message", "tool_call", "assistant_message"]
+    call = events[1]
+    assert (call.verb, call.targets, call.status) == ("CALL", ("sub_agent",), "success")
+    assert call.result is not None
+    assert call.result.startswith("[System MTP Call Response]\n")
 
 
 @pytest.mark.asyncio
-async def test_run_command_event_carries_execution_status_for_reducer():
-    """RUN 指令的 tool_call 事件应带上执行状态，避免 reducer 降级为 unknown"""
+async def test_ack_records_pending_alias_on_the_call_outcome():
+    """ACK 的 pending alias 记在调用结局的产出上。"""
     frame = _make_frame()
     gen_results = [
-        _mtp_result("", '<< RUN | tool_x | cmd="echo hi" >>'),
+        _mtp_result("", '<< WRITE | * | content="记住" >>'),
         _natural_result("done"),
     ]
     executor = _build_executor(gen_results)
-    executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=_mtp_exec_result("RUN"))
+    ack = _mtp_exec_result("WRITE", status="ack")
+    ack.pending_alias = "draft_note_1234"
+    executor._mtp_executor.intercept_and_execute = AsyncMock(return_value=ack)
 
     await executor.execute_frame(frame, max_iterations=5, output_sink=NullFrameOutputSink())
 
-    run_commands = [
-        ev for ev in frame.progress.turn_events if ev.kind == "tool_call" and ev.tool_kind == "RUN"
-    ]
-    assert len(run_commands) == 1
-    assert run_commands[0].status == "success"
+    call = frame.progress.turn_events[0]
+    assert (call.kind, call.status, call.produced_aliases) == (
+        "tool_call",
+        "ack",
+        ("draft_note_1234",),
+    )
+    assert frame.harvested_aliases == ["draft_note_1234"]

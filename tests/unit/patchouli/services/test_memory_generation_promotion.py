@@ -33,6 +33,7 @@ from hivememory.patchouli.services.memory_generation import MemoryGenerationFami
 from hivememory.system.services.asset_materialization_reader import AssetMaterializationReader
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -230,8 +231,6 @@ def _familiar(
 
 def test_handler_projects_used_attachments_into_binding_coordinates() -> None:
     """捕获 handler 丢失投影、重复投影或把 selected 当作 used。"""
-    from hivememory.core.protocol.models import InteractionPayload
-
     captured: dict = {}
 
     async def apply_interaction(payload, *, asset_refs=(), **_kwargs):
@@ -239,8 +238,8 @@ def test_handler_projects_used_attachments_into_binding_coordinates() -> None:
         return "topic-1"
 
     handler = InteractionSubmissionHandler(apply_interaction)
-    payload = InteractionPayload(
-        user_message="带附件",
+    payload = make_interaction_payload(
+        "带附件",
         used_attachments=[
             WorkspaceAssetRef(asset_id="asset-1", token="ref-1"),
             WorkspaceAssetRef(asset_id="asset-2", token="ref-2"),

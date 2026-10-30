@@ -168,9 +168,9 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
         # 结构化权限错误在真实交互记录中验收，不能只依赖自然语言回复。
         topic = stack.short_term.get(workspace, done["topic_id"])
         (block,) = topic.blocks
-        (tool_result,) = [event for event in block.turn.turn_events if event.kind == "tool_result"]
-        assert tool_result.status == "error"
-        assert '<error code="mtp.permission.denied"' in tool_result.content
+        (call,) = [event for event in block.turn.turn_events if event.kind == "tool_call"]
+        assert call.status == "error"
+        assert '<error code="mtp.permission.denied"' in call.result
         assert "WRITE" in resumed[-1]["content"]
         assert runtime.intents.size == 0
     finally:
@@ -361,8 +361,8 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
         topic = stack.short_term.get(workspace, done["topic_id"])
         (block,) = topic.blocks
         assert block.turn.identity == actor
-        assert block.turn.user_query == message
-        assert block.turn.assistant_final_text == "阶段授权验收完成"
+        assert block.user_message == message
+        assert block.reply_text == "阶段授权验收完成"
         assert assets.close_and_clear().leases_cleared == 0
     finally:
         await alice.stop()

@@ -13,7 +13,6 @@ from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, ResolvedAgentProfile
 from hivememory.core.models.interaction import TurnEvent
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
-from hivememory.core.protocol.models import InteractionPayload
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.prepare import PreparedAgentRun
@@ -22,7 +21,7 @@ from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.process import collect_events, done_data, make_task_process_service
-from tests.helpers.sessions import make_compaction_checkpoint
+from tests.helpers.sessions import make_compaction_checkpoint, make_interaction_payload
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 
@@ -103,7 +102,7 @@ async def completion_chain(
             session_id,
             process_id="old",
             agent_id="omni_doll",
-            payload=InteractionPayload(user_message="旧问题", assistant_final_text="旧回复"),
+            payload=make_interaction_payload("旧问题", "旧回复"),
             topic_id="old-topic",
         )
         sessions.release(access.default_workspace, session_id, "old")
@@ -142,7 +141,7 @@ async def test_user_stop_seals_outcome_returned_by_cpu(reported, final_text):
     done = events[-1]["data"]
     assert (done["status"], done["final_text"]) == (reported, final_text)
     history = sessions.get(workspace, handle.session_id)
-    assert [(t.payload.outcome, t.payload.assistant_final_text) for t in history.turns] == [
+    assert [(t.payload.outcome, t.payload.reply_text) for t in history.turns] == [
         (reported, final_text)
     ]
     assert probe.submitted == [history.turns[0].payload]
@@ -211,7 +210,7 @@ async def test_alice_context_guard_seals_tool_output_as_failed_turn(tmp_path):
         turns = sessions.get(workspace, handle.session_id).turns
         assert len(turns) == 1
         assert turns[0].payload.outcome == "failed"
-        assert content in turns[0].payload.turn_events[-1].content
+        assert content in turns[0].payload.turn_events[-1].result
         assert probe.submitted == [turns[0].payload]
         assert probe.cleaned == []
         assert len(llm.calls) == 1
@@ -232,9 +231,7 @@ async def test_empty_terminal_does_not_create_turn_and_done_omits_text():
                 status="cancelled",
                 final_text="",
                 compaction_checkpoint=make_compaction_checkpoint(reduced_through="old"),
-                turn_events=[
-                    TurnEvent(kind="user_message", sequence=0, role="user", content="请继续分析")
-                ],
+                turn_events=[TurnEvent(kind="user_message", sequence=0, content="请继续分析")],
             )
         ),
         seed_history=True,

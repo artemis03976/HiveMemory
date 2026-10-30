@@ -2,12 +2,14 @@
 
 契约要点：
     - 一次导入接收 harness 一轮已经结束的交互的完整记录，不跨请求累积；
-      用户消息由服务端写成序号为 0 的事件，其后的事件序号严格递增。
-    - 事件不携带 ``role``、``target`` 与 ``render_as``：``role`` 由服务端按
-      事件种类填写。``tool_kind`` 标记对 HiveMemory 能力层的记忆操作，导入
-      只接受 HiveMemory 自身 MCP 工具的检索与读取（``SEARCH``、``READ``），
-      生成视图因此只为它们保留一行轨迹、不再渲染取回的记忆；其他外部工具
-      不设置，不会产生记忆操作轨迹，也不会被误当作记忆操作。
+      用户消息由服务端写成序号为 0 的事件，其后的事件序号严格递增。回复
+      正文不单独上传，由事件中的助手正文得到。
+    - 事件与 ``TurnEvent`` 同形，请求校验阶段执行同样的字段规则与一轮的
+      不变量，违反时整轮拒绝。``verb`` 标记对 HiveMemory 能力的调用：外部
+      harness 只能经 HiveMemory 的 MCP 工具检索与读取，导入因此只接受
+      ``SEARCH`` 与 ``READ``，读取必须给出作用对象；其他外部工具只带
+      ``tool_name``。导入不认识 MCP 工具的参数结构，参数由连接器归一化。
+    - 外部 harness 不产出 alias，事件不接受 ``produced_aliases``。
     - ``recent_turns`` 只供 Gateway 落位，不进入交互载荷；最近一轮带外部标识
       时，服务端查出它实际落位的话题，供话题路由失败时续接。
     - 交互标识由认证结果与外部标识推导，同一轮重发时不变，不同调用来源、
@@ -23,21 +25,18 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from hivememory.core.models import ActorIdentity, TurnEvent, freeze_mapping
-from hivememory.core.models.interaction import InteractionOutcome
+from hivememory.core.models import (
+    ActorIdentity,
+    TurnEvent,
+    freeze_mapping,
+    validate_turn_events,
+)
+from hivememory.core.models.interaction import InteractionOutcome, ToolResultStatus
 
-ImportedEventKind = Literal["assistant_message", "thought", "tool_call", "tool_result"]
+ImportedEventKind = Literal["assistant_message", "thought", "tool_call"]
 
-# 导入事件可以携带的记忆操作标记：外部 harness 只能经 MCP 检索与读取记忆。
-ImportedToolKind = Literal["SEARCH", "READ"]
-
-# 事件种类到 TurnEvent 角色的唯一映射；工具结果是外部系统的回填，记为 system。
-_ROLE_BY_KIND: dict[str, Literal["user", "assistant", "system"]] = {
-    "assistant_message": "assistant",
-    "thought": "assistant",
-    "tool_call": "assistant",
-    "tool_result": "system",
-}
+# 导入事件可以携带的能力动词：外部 harness 只能经 MCP 检索与读取记忆。
+ImportedVerb = Literal["SEARCH", "READ"]
 
 IMPORT_INTERACTION_PREFIX = "import_"
 
@@ -47,22 +46,55 @@ class ImportedTurnEvent(BaseModel):
 
     kind: ImportedEventKind = Field(description="事件种类；用户消息不作为事件导入")
     sequence: int = Field(ge=1, description="轮内序号，从 1 起严格递增；0 留给用户消息")
-    content: str = Field(description="事件正文；工具调用可为空字符串")
-    action_id: str | None = Field(
-        default=None, description="工具调用标识，工具调用与其结果以此配对"
+    content: str = Field(description="事件正文；工具调用为空字符串")
+    action_id: str | None = Field(default=None, description="工具调用标识，工具调用必带，轮内唯一")
+    tool_name: str | None = Field(
+        default=None, description="外部工具的名字；调用 HiveMemory 能力时不设置"
     )
-    tool_name: str | None = Field(default=None, description="工具名")
-    tool_args: dict[str, Any] | None = Field(default=None, description="工具调用的参数")
-    tool_kind: ImportedToolKind | None = Field(
+    verb: ImportedVerb | None = Field(
         default=None,
         description=(
-            "只为 HiveMemory 自身 MCP 工具的调用设置：检索为 SEARCH、读取为 READ，"
-            "生成时只保留一行轨迹，不再渲染取回的记忆；其他工具不设置"
+            "只为 HiveMemory MCP 工具的调用设置：检索为 SEARCH、读取为 READ，"
+            "生成时只保留一行摘要，不再渲染取回的记忆；与 tool_name 互斥"
         ),
     )
-    status: str | None = Field(default=None, description="工具结果状态，出错时为 error")
+    targets: list[str] = Field(
+        default_factory=list, description="能力动词的作用对象，READ 为要读取的 alias，不能为空"
+    )
+    tool_args: dict[str, Any] | None = Field(
+        default=None, description="工具调用的参数，不含作用对象"
+    )
+    status: ToolResultStatus | None = Field(
+        default=None,
+        description="工具调用的结局：success，出错时为 error；会话记录没有记下结果时不设置",
+    )
+    result: str | None = Field(
+        default=None, description="工具调用的返回正文，与 status 同时设置或同时缺省"
+    )
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+    @model_validator(mode="after")
+    def _require_read_targets(self) -> ImportedTurnEvent:
+        """读取必须给出要读的 alias，否则摘要无法说明读了哪些记忆。"""
+        if self.verb == "READ" and not self.targets:
+            raise ValueError("READ tool_call requires targets")
+        return self
+
+    def to_turn_event(self) -> TurnEvent:
+        """转换为同形的 ``TurnEvent``；单个事件的字段规则在这里执行。"""
+        return TurnEvent(
+            kind=self.kind,
+            sequence=self.sequence,
+            content=self.content,
+            action_id=self.action_id,
+            tool_name=self.tool_name,
+            verb=self.verb,
+            targets=tuple(self.targets),
+            tool_args=None if self.tool_args is None else freeze_mapping(self.tool_args),
+            status=self.status,
+            result=self.result,
+        )
 
 
 class ImportedRecentTurn(BaseModel):
@@ -100,9 +132,6 @@ class ImportedTurn(BaseModel):
     events: list[ImportedTurnEvent] = Field(
         default_factory=list, description="用户消息之后的轮次事件，按 sequence 严格递增"
     )
-    assistant_final_text: str | None = Field(
-        default=None, description="该轮最终的自然语言回复，可为空"
-    )
     model_used: str | None = Field(default=None, description="实际使用的模型名，可为空")
     recent_turns: list[ImportedRecentTurn] = Field(
         default_factory=list,
@@ -112,40 +141,25 @@ class ImportedTurn(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     @model_validator(mode="after")
-    def _require_increasing_sequences(self) -> ImportedTurn:
-        """序号决定归约顺序；重复或回退的序号会让动作与回复错位，直接拒绝。"""
-        previous = 0
-        for event in self.events:
-            if event.sequence <= previous:
-                raise ValueError("events.sequence must be strictly increasing")
-            previous = event.sequence
+    def _check_turn_events(self) -> ImportedTurn:
+        """提前执行封口时的事件规则：序号、调用标识唯一、各种事件可带的字段。
+
+        违反时整轮以 422 拒绝，不等到封口才失败。
+        """
+        validate_turn_events(self.to_turn_events())
         return self
 
     @property
     def has_output(self) -> bool:
-        """是否有用户消息之外的输出；没有输出的轮次与任务进程一样不封口。"""
-        return bool(self.events) or bool(self.assistant_final_text)
+        """用户消息之后是否有事件；没有输出的轮次与任务进程一样不封口。"""
+        return bool(self.events)
 
     def to_turn_events(self) -> list[TurnEvent]:
-        """转换为感知使用的结构化事件：用户消息写在序号 0，角色按种类填写。"""
-        events = [
-            TurnEvent(kind="user_message", sequence=0, role="user", content=self.user_message)
+        """转换为封口使用的事件集：用户消息写在序号 0，其后是导入的事件。"""
+        return [
+            TurnEvent(kind="user_message", sequence=0, content=self.user_message),
+            *(event.to_turn_event() for event in self.events),
         ]
-        events.extend(
-            TurnEvent(
-                kind=event.kind,
-                sequence=event.sequence,
-                role=_ROLE_BY_KIND[event.kind],
-                content=event.content,
-                action_id=event.action_id,
-                tool_name=event.tool_name,
-                tool_kind=event.tool_kind,
-                tool_args=None if event.tool_args is None else freeze_mapping(event.tool_args),
-                status=event.status,
-            )
-            for event in self.events
-        )
-        return events
 
 
 @dataclass(frozen=True)

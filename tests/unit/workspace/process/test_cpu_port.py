@@ -31,7 +31,6 @@ from hivememory.workspace.contracts import CPUExecutionStatus, SubmitWriteIntent
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from hivememory.workspace.process.table import ProcessTable
 from tests.helpers.chat_handoff import (
-    expected_mtp_traces,
     make_gateway_decision,
     make_mtp_turn_events,
 )
@@ -209,13 +208,11 @@ async def test_test_cpu_completes_process_and_finalizes_its_execution_result() -
     assert done["model_used"] == "glm-4"
 
     payload = finalize_kwargs["payload"]
-    assert payload.assistant_final_text == "完成"
     assert payload.turn_events == [
         *turn_events,
-        TurnEvent(kind="assistant_message", sequence=5, role="assistant", content="完成"),
+        TurnEvent(kind="assistant_message", sequence=3, content="完成"),
     ]
     assert payload.model_used == "glm-4"
-    assert payload.mtp_traces == expected_mtp_traces()
 
 
 @pytest.mark.asyncio
@@ -286,7 +283,7 @@ async def test_no_actor_operations_still_executes_cpu_and_finalizes() -> None:
     submitted_texts: list[str] = []
 
     async def finalize(*, payload, **_kwargs):
-        submitted_texts.append(payload.assistant_final_text)
+        submitted_texts.append(payload.reply_text)
         return []
 
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)

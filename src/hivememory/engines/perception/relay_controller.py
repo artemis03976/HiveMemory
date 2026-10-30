@@ -14,10 +14,11 @@ from typing import TYPE_CHECKING, Any
 
 from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import LogicalBlock
+from hivememory.engines.perception.material import render_turn_text
 from hivememory.i18n import get_relay_prompt_text
 
 if TYPE_CHECKING:
-    from hivememory.config.patchouli import RelayControllerConfig
+    from hivememory.config.patchouli import GenerationTranscriptConfig, RelayControllerConfig
     from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
 
 logger = logging.getLogger(__name__)
@@ -50,9 +51,9 @@ class SimpleRelayController(BaseRelayController):
 
     使用统计信息生成摘要：
         - 用户请求数量
-        - 使用的工具列表
+        - 使用的工具列表：能力调用取动词的小写，外部工具取工具名
         - Token 总数
-        - 最近的查询片段
+        - 最近的用户消息片段
     """
 
     async def generate_summary(
@@ -93,28 +94,21 @@ class SimpleRelayController(BaseRelayController):
         summary_parts = []
 
         # 1. 统计用户请求
-        user_queries = []
-        for b in blocks:
-            if b.rewritten_query or b.user_query:
-                user_queries.append(b.rewritten_query or b.user_query)
+        user_messages = [b.user_message for b in blocks if b.user_message]
 
-        if user_queries:
-            summary_parts.append(f"处理了 {len(user_queries)} 个用户请求")
+        if user_messages:
+            summary_parts.append(f"处理了 {len(user_messages)} 个用户请求")
 
-        # 2. 提取使用的工具 (兼容 actions + v3.0 semantic_traces)
+        # 2. 提取使用的工具；无法解析的 MTP 指令没有名字，不计入
         tool_names = set()
         for b in blocks:
-            for action in b.actions:
-                if action.tool_name:
-                    tool_names.add(action.tool_name)
-                elif action.tool_kind:
-                    tool_names.add(action.tool_kind.lower())
-            # v3.0 路径：TraceItem.tool（RUN）/ TraceItem.action（READ/SEARCH）
-            for t in b.semantic_traces:
-                if t.tool:
-                    tool_names.add(t.tool)
-                elif t.action in ("READ", "SEARCH"):
-                    tool_names.add(t.action.lower())
+            for event in b.turn_events:
+                if event.kind != "tool_call":
+                    continue
+                if event.verb is not None:
+                    tool_names.add(event.verb.lower())
+                elif event.tool_name:
+                    tool_names.add(event.tool_name)
 
         if tool_names:
             tools_str = ", ".join(sorted(tool_names))
@@ -124,12 +118,12 @@ class SimpleRelayController(BaseRelayController):
         total_tokens = sum(b.total_tokens for b in blocks)
         summary_parts.append(f"共 {total_tokens} tokens")
 
-        # 4. 最后一个用户查询（作为上下文参考）
-        if user_queries:
-            last_query = user_queries[-1][:50]
-            if len(user_queries[-1]) > 50:
-                last_query += "..."
-            summary_parts.append(f"最近: {last_query}")
+        # 4. 最后一条用户消息（作为上下文参考）
+        if user_messages:
+            last_message = user_messages[-1][:50]
+            if len(user_messages[-1]) > 50:
+                last_message += "..."
+            summary_parts.append(f"最近: {last_message}")
 
         return "；".join(summary_parts)
 
@@ -150,6 +144,7 @@ class LLMRelayController(BaseRelayController):
         llm_params: "LLMRequestParams | None" = None,
         *,
         summary_timeout_seconds: float,
+        transcript_config: "GenerationTranscriptConfig",
     ):
         """
         初始化 LLM 接力控制器
@@ -158,10 +153,12 @@ class LLMRelayController(BaseRelayController):
             summary_llm: 用于生成摘要的 LLM 服务（可选）
             llm_params: 由 Librarian 组件 LLM 配置转换的请求参数（可选）
             summary_timeout_seconds: 每次摘要调用的时限，超时回退为简单摘要
+            transcript_config: 渲染近期事件的截断上限，与记忆生成视图相同
         """
         self.summary_llm = summary_llm
         self._llm_params = llm_params
         self._summary_timeout_seconds = summary_timeout_seconds
+        self._transcript_config = transcript_config
 
     async def generate_summary(
         self, blocks_to_fold: list[LogicalBlock], previous_summary: str | None = None
@@ -185,41 +182,14 @@ class LLMRelayController(BaseRelayController):
         return new_summary
 
     def _build_recent_events(self, blocks: list[LogicalBlock]) -> str:
+        """构建 recent_events 文本：各块与记忆生成视图相同的材料，块之间空一行。
+
+        被折叠的块在结算前只以摘要存在，近期事件因此保留思考与外部工具过程，
+        不只有问答。
         """
-        构建 recent_events 文本（包含 MTP 轨迹和对话）
-
-        Args:
-            blocks: LogicalBlock 列表
-
-        Returns:
-            str: 格式化的 recent_events 文本
-        """
-        lines = []
-
-        for block in blocks:
-            # 添加 MTP 语义轨迹
-            for trace in block.semantic_traces:
-                if trace.action == "SEARCH":
-                    lines.append(f'[Action]: SEARCH query="{trace.query}"')
-                elif trace.action == "READ":
-                    lines.append(f"[Action]: READ target={trace.target}")
-                elif trace.action == "RUN":
-                    status = trace.status or "unknown"
-                    lines.append(f"[Action]: RUN tool={trace.tool} (Status: {status})")
-
-            # 添加用户查询
-            user_query = block.rewritten_query or block.user_query
-            if user_query:
-                lines.append(f"User: {user_query}")
-
-            # 添加助手响应
-            response = block.assistant_final_text
-            if response:
-                lines.append(f"Agent: {response}")
-
-            lines.append("")  # 块之间空一行
-
-        return "\n".join(lines)
+        return "\n\n".join(
+            render_turn_text(block.turn_events, self._transcript_config) for block in blocks
+        )
 
     async def _generate_llm_summary(
         self, blocks: list[LogicalBlock], previous_summary: str | None = None
@@ -286,6 +256,8 @@ def create_relay_controller(
     config: "RelayControllerConfig",
     llm_service: "BaseLLMService | None" = None,
     llm_params: "LLMRequestParams | None" = None,
+    *,
+    transcript_config: "GenerationTranscriptConfig",
 ) -> BaseRelayController:
     """
     创建 RelayController 实例（工厂函数）
@@ -296,14 +268,21 @@ def create_relay_controller(
         config: RelayControllerConfig 配置对象
         llm_service: LLM 服务（可选，用于 LLMRelayController）
         llm_params: 摘要调用的请求参数（可选，用于 LLMRelayController）
+        transcript_config: 记忆生成视图的截断上限，LLM 接力按同一组上限渲染近期事件
 
     Returns:
         BaseRelayController 实例
 
     Examples:
-        >>> from hivememory.config.patchouli import RelayControllerConfig, SimpleRelayConfig
+        >>> from hivememory.config.patchouli import (
+        ...     GenerationTranscriptConfig,
+        ...     RelayControllerConfig,
+        ...     SimpleRelayConfig,
+        ... )
         >>> config = RelayControllerConfig(engine=SimpleRelayConfig())
-        >>> controller = create_relay_controller(config)
+        >>> controller = create_relay_controller(
+        ...     config, transcript_config=GenerationTranscriptConfig()
+        ... )
         >>> isinstance(controller, SimpleRelayController)
         True
     """
@@ -325,6 +304,7 @@ def create_relay_controller(
             summary_llm=llm_service,
             llm_params=llm_params,
             summary_timeout_seconds=impl_config.summary_timeout_seconds,
+            transcript_config=transcript_config,
         )
 
     raise ValueError(f"未知的 RelayController 配置类型: {type(impl_config)}")

@@ -12,7 +12,7 @@ from hivememory.agent_runtime.loop import AgentLoopExecutor
 from hivememory.agent_runtime.model.generator import GenerationResult, StreamChunk
 from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
 from hivememory.agent_runtime.output import FrameOutput, TokenDelta
-from hivememory.core.models import OMNI_DOLL_PROFILE
+from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.llm import DEFAULT_LLM_PARAMS
 from tests.helpers.workspace import make_runtime_scope
@@ -205,7 +205,10 @@ async def test_streaming_without_final_chunk_returns_failed_frame_result() -> No
 
 @pytest.mark.asyncio
 async def test_failed_stream_keeps_delivered_text_as_incomplete_event() -> None:
-    """模型缺少终态时，已交付文字仍能进入 failed 交互，不能无声丢失。"""
+    """模型缺少终态时，已交付文字仍封成助手正文进入 failed 交互，不能无声丢失。
+
+    未完成由帧的 FAILED 结局表达，正文事件本身不带状态。
+    """
     stream = TrackingChunkStream([StreamChunk(delta="未完成", full_text="未完成")])
     executor = AgentLoopExecutor(
         generator=MagicMock(generate=MagicMock(return_value=stream)),
@@ -218,4 +221,6 @@ async def test_failed_stream_keeps_delivered_text_as_incomplete_event() -> None:
     )
     assert result.status == FrameExecutionStatus.FAILED
     assert frame.progress.text_segments == ["未完成"]
-    assert [(e.content, e.status) for e in frame.progress.turn_events] == [("未完成", "failed")]
+    assert frame.progress.turn_events == [
+        TurnEvent(kind="assistant_message", sequence=0, content="未完成")
+    ]

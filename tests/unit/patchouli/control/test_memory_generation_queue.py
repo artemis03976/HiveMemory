@@ -26,7 +26,6 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
     TopicAssetBinding,
-    TurnRecord,
     WorkspaceAssetRef,
 )
 from hivememory.engines.generation.models import GenerationContext, GenerationRequest
@@ -45,7 +44,7 @@ from hivememory.patchouli.control.memory_generation.queue import (
     _MemoryGenerationWorkAdapter,
 )
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
-from tests.helpers.workspace import make_actor_identity
+from tests.helpers.sessions import make_logical_block
 
 
 def _memory_atom() -> MemoryAtom:
@@ -106,11 +105,7 @@ def _controller(
 
 def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() -> None:
     atom = _memory_atom()
-    block = LogicalBlock(
-        turn=TurnRecord(
-            identity=make_actor_identity(), user_query="question", assistant_final_text="answer"
-        )
-    )
+    block = make_logical_block("question", "answer")
     spec = MemoryGenerationTaskSpec(
         belong_to=make_memory_identity_scope().workspace_identity,
         from_actor=make_memory_identity_scope().actor_identity,
@@ -198,13 +193,7 @@ def test_codec_roundtrips_asset_bindings_without_losing_refs() -> None:
         spec,
         interaction_input=InteractionArtifactInput(
             topic_id="topic-bind",
-            blocks=(
-                LogicalBlock(
-                    turn=TurnRecord(
-                        identity=make_actor_identity(), user_query="q", assistant_final_text="a"
-                    )
-                ),
-            ),
+            blocks=(make_logical_block("q", "a"),),
             asset_bindings=(binding,),
         ),
     )

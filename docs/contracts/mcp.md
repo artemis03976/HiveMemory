@@ -65,7 +65,7 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 | `memory_search` | `query`：非空字符串 | `RetrieveRequest(semantic_query=query)` | `memory.search` | 检索上下文信封，每条含 alias、存档时间（记忆的更新时间）与置信度；没有结果时返回“没有检索到相关记忆。”，不算错误 |
 | `memory_read` | `aliases`：非空的 alias 列表 | `ResolveReferencesRequest(aliases)` | `memory.read` | 按请求顺序逐项交付全文；未解析的 alias 以“未找到以下 alias：…”列在末尾；全部未解析时返回 `workspace.resource.not_found` 错误。交付正式原子时记录 `workspace.reference_read` 引用 |
 
-- **参数**：不开放条数、过滤与关键词，检索使用默认条数。参数名 `query` 与轨迹归约读取查询的字段一致，回声标记（第 6 节）因此得到带查询的一行摘要。
+- **参数**：不开放条数、过滤与关键词，检索使用默认条数。参数名 `query` 与生成视图读取 SEARCH 查询的参数名（`tool_args["query"]`）一致，`aliases` 由连接器移为 READ 的作用对象，回声标记（第 6 节）因此得到带查询或 alias 的一行摘要。
 - **与 MTP 共用的编译**：检索结果与 MTP SEARCH 使用同一检索上下文信封与配置的检索策略，但关闭信封的头尾引导文字（编译选项 `include_header_footer=False`）：头尾面向 Alice，含预检索语境与 MTP 指令语法，会误导外部 agent。读取使用 MTP READ 的 `MTP_READ` 目标与同一份交付规则（`engines.memory_compiler.readable_source`），但不截断正文，因此不会出现指向 MTP READ 的截断提示。
 - **说明文字**：工具说明与 MCP 服务说明（instructions）写明何时检索（回答涉及项目历史、此前的决定或用户偏好的问题之前）、结果是带日期的历史证据（引用前先核实）、仓库中的代码与文档以及 harness 自己的指令与记忆文件优先于检索结果，以及检索得到的 alias 可以用 `memory_read` 读取全文。
 - **标注**：两个工具都标注为只读（MCP 的 `readOnlyHint`）。读取会记录引用，但不改变记忆内容。
@@ -99,12 +99,12 @@ MCP 入口复用 HTTP 出口的 `project_error` 投影，不另建映射；投�
 
 Claude Code 为插件 MCP 工具生成的调用名为 `mcp__plugin_<插件名>_<server 名>__<工具名>`，`A-Z`、`a-z`、`0-9`、`_`、`-` 以外的字符替换为 `_`；会话记录中 `tool_use` 的 `name` 就是这个调用名。插件名为 `hivememory-connector`、server 名为 `hivememory`，两个工具因此分别为：
 
-| 调用名 | `tool_kind` |
-|:---|:---|
-| `mcp__plugin_hivememory-connector_hivememory__memory_search` | `SEARCH` |
-| `mcp__plugin_hivememory-connector_hivememory__memory_read` | `READ` |
+| 调用名 | `verb` | 作用对象 `targets` |
+|:---|:---|:---|
+| `mcp__plugin_hivememory-connector_hivememory__memory_search` | `SEARCH` | 无；查询留在参数 `query` |
+| `mcp__plugin_hivememory-connector_hivememory__memory_read` | `READ` | 参数 `aliases`，移出参数 |
 
-经 MCP 取回的记忆会作为普通工具结果留在会话记录里，本轮结束时随对话回流再次导入；生成视图若渲染这些结果，提取模型可能把已有记忆再提取一遍。连接器因此只在这两类工具调用事件上按上表设置 `tool_kind`，其他工具不设置；Import Bus 只接受 `SEARCH` 与 `READ`（[Import Bus](../system/import-bus.md)），生成视图对带 `tool_kind` 的动作只渲染一行轨迹，不渲染结果，与 Alice 的 MTP SEARCH、READ 处理相同（[Patchouli 生成](../patchouli/generation.md)）。交互记录与 Artifact 仍保存包括结果在内的原始事件。
+经 MCP 取回的记忆会作为普通工具结果留在会话记录里，本轮结束时随对话回流再次导入；生成视图若渲染这些结果，提取模型可能把已有记忆再提取一遍。连接器因此把这两个工具的调用归一化为 HiveMemory 能力调用：按上表写 `verb` 与作用对象，不上传调用名；其他工具写 `tool_name` 与完整参数。`aliases` 不是非空的字符串列表时（模型传错了参数，MCP server 已以工具错误拒绝这次调用），读取按普通工具写出，避免服务端因 READ 缺少作用对象拒绝整轮。Import Bus 只接受 `SEARCH` 与 `READ`（[Import Bus](../system/import-bus.md)）。生成视图对带 `verb` 的调用只渲染 `SEARCH: "查询"` 或 `READ: a, b` 一行摘要，不渲染结果，与 Alice 的 MTP SEARCH、READ 写出同形的事件、渲染相同（[Patchouli 生成](../patchouli/generation.md)）。交互记录与 Artifact 仍保存包括结果在内的原始事件。
 
 Claude Code 改变命名规则时标记会静默失效，回声恢复，表现为重复记忆，不丢失数据；连接器单元测试把调用名固定为上表的格式，并核对插件清单、`.mcp.json` 与连接器常量一致。
 
@@ -117,7 +117,6 @@ Claude Code 改变命名规则时标记会静默失效，回声恢复，表现�
 ## 8. 已知限制
 
 - 只提供检索与读取，不开放写入类工具。
-- 读取的轨迹看不出读了哪些 alias：READ 轨迹的目标取工具名，导入的 MCP 读取只有工具调用名，alias 在参数中（由[工具解析链路重写计划](../plans/v0.7.1-tool-call-parsing-chain.md)处理）。
 - Host 检查只接受带端口的本机地址，远程部署与传输安全（TLS、OAuth）不在当前范围内。
 
 ## 9. 代码与测试入口

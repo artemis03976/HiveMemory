@@ -15,24 +15,30 @@
 - Claude Code 在用户中断时写入 ``[Request interrupted by user...]`` 文本的用户
   条目，读到即视为该轮已被中断。
 - 助手条目的内容块：``text`` → 助手消息，``thinking`` → 思考（没有正文的跳过），
-  ``tool_use`` → 工具调用（标识与输入，见下方的记忆操作标记）；用户条目中的
-  ``tool_result`` → 工具结果（``is_error`` 为真时状态为 ``error``）。同一条
+  ``tool_use`` → 工具调用（标识、工具名与输入，本插件自身的工具见下方）；
+  用户条目中的 ``tool_result`` 按 ``tool_use_id`` 补全到同一轮的调用上，作为
+  它的结局（``is_error`` 为真时状态为 ``error``，否则为 ``success``），找不到
+  调用的结果跳过。同一条消息并行发出多个调用时，Claude Code 有时只记下最后
+  一个的结果，其余调用因此没有结局，模型其实收到了它们的结果。同一条
   API 消息按内容块分成多个条目增量写入，每个条目带块在消息中的位置
   ``apiBlockIndex``；重复写入的块按消息标识与块位置去重（没有块位置时按块
   内容），工具调用与结果按调用标识去重。
 - 思考只有 Claude Code 写入本地记录的部分：较新的模型默认不返回思考正文，
   只有签名，没有正文的思考块跳过。
-- ``assistant_final_text`` 按顺序拼接该轮全部助手正文，与 Alice 的最终正文
-  一致：工具调用之间的叙述（例如对故障原因的判断）也进入记忆生成。``model_used`` 取
-  最后一条助手条目的模型（Claude Code 为合成消息标注的 ``<synthetic>`` 除外）。
+- 回复正文不随轮次上传，服务端从助手消息事件得到；``assistant_final_text``
+  按顺序以空行拼接该轮全部助手正文，只作为后续轮次的最近上文。``model_used``
+  取最后一条助手条目的模型（Claude Code 为合成消息标注的 ``<synthetic>`` 除外）。
 - 最后一条助手条目的 ``message.stop_reason`` 不是 ``tool_use`` 时，该轮已经
   正常收尾；末尾一轮据此判断内容是否已经写完。
-- 本插件自身 MCP server 的两个工具（检索与读取 HiveMemory 记忆）的调用标为
-  ``SEARCH``、``READ``：取回的是已有记忆，HiveMemory 生成时只为它们保留一行
-  轨迹，不会把这些记忆再提取一遍。调用名按 Claude Code 的规则由插件名与
-  server 名拼出（``mcp__plugin_<插件名>_<server 名>__<工具名>``，``A-Z``、
-  ``a-z``、``0-9``、``_``、``-`` 以外的字符替换为 ``_``）；规则变化时标记会
-  静默失效，表现为重复记忆，不丢失数据。其他工具不标记。
+- 本插件自身 MCP server 的两个工具（检索与读取 HiveMemory 记忆）在这里归一化
+  为 HiveMemory 能力调用：只写动词与作用对象，不上传调用名。检索为
+  ``SEARCH``，查询留在参数中；读取为 ``READ``，参数 ``aliases`` 移出参数、
+  作为作用对象。取回的是已有记忆，HiveMemory 生成时只为它们保留一行摘要，
+  不会把这些记忆再提取一遍。调用名按 Claude Code 的规则由插件名与 server 名
+  拼出（``mcp__plugin_<插件名>_<server 名>__<工具名>``，``A-Z``、``a-z``、
+  ``0-9``、``_``、``-`` 以外的字符替换为 ``_``）；规则变化时识别会静默失效，
+  表现为重复记忆，不丢失数据。工具参数改名时，识别表与 HiveMemory 的 MCP
+  server 同时修改。其他工具写工具名与完整参数。
 """
 
 from __future__ import annotations
@@ -63,10 +69,18 @@ def _plugin_tool_name(tool: str) -> str:
     return f"mcp__{scope}__{tool}"
 
 
-# 本插件自身 MCP 工具的调用名到记忆操作标记。
-_MEMORY_TOOL_KINDS = {
-    _plugin_tool_name("memory_search"): "SEARCH",
-    _plugin_tool_name("memory_read"): "READ",
+@dataclass(frozen=True)
+class _MemoryTool:
+    """本插件自身的一个 MCP 工具对应的 HiveMemory 能力：动词与作用对象所在的参数。"""
+
+    verb: str
+    target_param: str | None = None
+
+
+# 本插件自身 MCP 工具的调用名到 HiveMemory 能力。
+_MEMORY_TOOLS = {
+    _plugin_tool_name("memory_search"): _MemoryTool("SEARCH"),
+    _plugin_tool_name("memory_read"): _MemoryTool("READ", target_param="aliases"),
 }
 
 
@@ -300,14 +314,30 @@ def _add_assistant_block(
             return
         turn.seen_blocks.add(key)
         tool_input = block.get("input")
+        tool_args = dict(tool_input) if isinstance(tool_input, dict) else {"input": tool_input}
         tool_name = str(block.get("name") or "")
+        memory_tool = _MEMORY_TOOLS.get(tool_name)
+        targets = None
+        if memory_tool is not None and memory_tool.target_param:
+            targets = tool_args.get(memory_tool.target_param)
+            if _is_alias_list(targets):
+                del tool_args[memory_tool.target_param]
+            else:
+                # 模型传错了作用对象，MCP server 已以工具错误拒绝这次调用。按普通
+                # 工具写出：服务端要求读取带作用对象，否则会拒绝整轮。
+                memory_tool = None
+        if memory_tool is None:
+            turn.add_event(
+                "tool_call", "", action_id=action_id, tool_name=tool_name, tool_args=tool_args
+            )
+            return
         turn.add_event(
             "tool_call",
             "",
             action_id=action_id,
-            tool_name=tool_name,
-            tool_kind=_MEMORY_TOOL_KINDS.get(tool_name),
-            tool_args=tool_input if isinstance(tool_input, dict) else {"input": tool_input},
+            verb=memory_tool.verb,
+            targets=targets,
+            tool_args=tool_args or None,
         )
         return
     if block_type == "text":
@@ -326,18 +356,28 @@ def _add_assistant_block(
     turn.add_event(kind, text)
 
 
+def _is_alias_list(value: Any) -> bool:
+    return isinstance(value, list) and bool(value) and all(isinstance(v, str) for v in value)
+
+
 def _add_tool_result(turn: _TurnBuilder, block: dict[str, Any]) -> None:
     action_id = str(block.get("tool_use_id") or "")
     key = f"tool_result:{action_id}"
     if not action_id or key in turn.seen_blocks:
         return
-    turn.seen_blocks.add(key)
-    turn.add_event(
-        "tool_result",
-        _tool_result_text(block.get("content")),
-        action_id=action_id,
-        status="error" if block.get("is_error") else None,
+    call = next(
+        (
+            event
+            for event in turn.events
+            if event["kind"] == "tool_call" and event.get("action_id") == action_id
+        ),
+        None,
     )
+    if call is None:
+        return
+    turn.seen_blocks.add(key)
+    call["status"] = "error" if block.get("is_error") else "success"
+    call["result"] = _tool_result_text(block.get("content"))
 
 
 def _tool_result_text(content: Any) -> str:

@@ -28,16 +28,14 @@ from .execution import ExecutionLabels
 from .identity import system_actor_for_workspace
 from .immutable import FrozenDict, freeze_mapping, freeze_value
 from .interaction import (
-    ActionReducer,
     ActorIdentity,
-    AgentAction,
     StreamMessage,
     StreamMessageType,
-    TraceItem,
-    TraceReducer,
     TurnEvent,
-    TurnEventRenderAs,
     TurnRecord,
+    turn_reply_text,
+    turn_user_message,
+    validate_turn_events,
 )
 from .memory import (
     Artifacts,
@@ -139,15 +137,13 @@ __all__ = [
     "MemoryAtom",
     "WorkspaceMemoryKey",
     "ResolvedAgentProfile",
-    "ActionReducer",
-    "TraceReducer",
     "ActorIdentity",
     "StreamMessageType",
     "StreamMessage",
     "TurnEvent",
-    "TurnEventRenderAs",
-    "AgentAction",
-    "TraceItem",
+    "turn_reply_text",
+    "turn_user_message",
+    "validate_turn_events",
     "TurnRecord",
     "TopicSnapshot",
     "TopicLastTurn",

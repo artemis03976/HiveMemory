@@ -89,8 +89,8 @@ class QueryUnderstandingEngine:
             lines.append(topic_data.state_summary)
         text_limit = self._config.context_text_limit
         for block in topic_data.recent_blocks(self._config.context_block_limit):
-            user_text = block.user_query[:text_limit]
-            assistant_text = block.assistant_final_text[:text_limit]
+            user_text = block.user_message[:text_limit]
+            assistant_text = block.reply_text[:text_limit]
             if user_text:
                 lines.append(f"user: {user_text}")
             if assistant_text:

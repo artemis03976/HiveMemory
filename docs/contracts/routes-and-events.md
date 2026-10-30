@@ -239,7 +239,7 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 - 用户导向身份选择为 `user_id + workspace_id` 基础选择，Agent action（Chat、导入）由请求体附加具体 `agent_id`；基础选择只经统一请求头 `x-user-id`/`x-workspace-id` 承载，Chat/stop、导入请求体与 Topic、会话等管理路由都不接受 body 或 query 中的 user 与 Workspace 字段。
 - `server/deps.py resolve_request_identity_claims` 是唯一解析入口，只产出身份声明（actor 声明与请求进入的 Workspace），不组装 `IdentityScope`；只含空白的身份请求头拒绝（400）；未知 Workspace 拒绝（404）；Agent action 缺失具体 `agent_id` 或显式使用保留的 `system` 返回 400；非 Agent action 使用保留 `SYSTEM_AGENT_ID = "system"`（"没有具体 Agent 作为操作来源主体"，不得成为 `MemoryAccessPolicy` target）。
 - 声明交给统一认证网关取得访问 context：Chat 由任务进程的注册入口认证并创建进程；管理操作、`/chat/stop` 与导入取得绑定本次请求的请求级 context，请求结束时撤销。进入上述 route 的 `IdentityScope` 由授权点在操作授权后组装。
-- Chat 请求体的 `session_id` 绑定会话资源，缺省自动创建；不进入身份构造，finalize 关联仍使用进程 ID；`ActorIdentity` 仅包含 `user_id`、`agent_id` 与可选 `team_id`。
+- Chat 请求体的 `message` 不能为空（空串以 422 拒绝），每轮交互记录因此都以序号 0 的用户消息事件开头；`session_id` 绑定会话资源，缺省自动创建；不进入身份构造，finalize 关联仍使用进程 ID；`ActorIdentity` 仅包含 `user_id`、`agent_id` 与可选 `team_id`。
 - `/chat/stop` 不是 Agent action：注册入口经进程控制授权比对请求方与进程记录的驻留坐标，不可控与不存在统一按 `not_found` 返回，取消与事件发布使用进程注册时绑定的观测标签，不从当前选择重新构造身份。
 - 外部入口（导入与 MCP）不使用 server 的 principal：请求以 `X-Principal-ID` 声明调用来源、以 `Authorization: Bearer` 携带接入凭据，`resolve_principal_claim` 解析声明（缺省返回 400 `request.principal_required`），`bearer_credential` 取出凭据，两者交给统一认证网关核对；server 的 principal 只用于前端的管理、chat 与取消路由（[认证与访问登记](../workspace/authentication.md)）。
 - 导入以请求声明的 principal、凭据与 (user, 具体 Agent) 声明经 `import` adapter 认证；Import Bus 服务以导入授权组装 `IdentityScope`：只校验准入与目标，不检查 actor 操作白名单，拒绝保留的 `system`（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。认证前不组装 scope，没有例外入口。
@@ -250,7 +250,7 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 
 ### 6.1 会话管理与 Chat SSE
 
-会话 HTTP 由 `server/routers/sessions.py` 经门面取得 `RootSessionService`，沿用请求认证与 root 授权。POST/GET `/api/v1/sessions` 创建（201）/列出摘要；GET/PATCH/DELETE `/api/v1/sessions/{session_id}` 读取全量历史/以 `{title}` 重命名/删除（204）。创建体同为 `{title}`，允许空标题，首轮写入时自动取用户消息前 80 字。标题最多 200 字。会话不属于 Agent，不增加 actor 操作。响应是 `server/models/session.py` 的投影，不含 Workspace 归属：摘要为 `session_id`、`title`、`created_at`、`updated_at`、`turn_count` 与 `active_process_id`（非空表示正被任务进程占用）；完整读取另含 `turns` 与可空的 `compaction_checkpoint`（结构见[子系统契约](./subsystem-contracts.md#421-会话压缩检查点)）。每轮只返回 `interaction_id`、`agent_id`（仅用于历史展示）、`topic_id`、`created_at` 与载荷中的 `outcome`、`user_message`、`assistant_final_text`、`turn_events`；轮次事件只含 `kind`、`sequence`、`content`、`action_id`、`tool_kind`、`target`、`tool_args`、`status`。列表摘要不含轮次或检查点。
+会话 HTTP 由 `server/routers/sessions.py` 经门面取得 `RootSessionService`，沿用请求认证与 root 授权。POST/GET `/api/v1/sessions` 创建（201）/列出摘要；GET/PATCH/DELETE `/api/v1/sessions/{session_id}` 读取全量历史/以 `{title}` 重命名/删除（204）。创建体同为 `{title}`，允许空标题，首轮写入时自动取用户消息前 80 字。标题最多 200 字。会话不属于 Agent，不增加 actor 操作。响应是 `server/models/session.py` 的投影，不含 Workspace 归属：摘要为 `session_id`、`title`、`created_at`、`updated_at`、`turn_count` 与 `active_process_id`（非空表示正被任务进程占用）；完整读取另含 `turns` 与可空的 `compaction_checkpoint`（结构见[子系统契约](./subsystem-contracts.md#421-会话压缩检查点)）。每轮只返回 `interaction_id`、`agent_id`（仅用于历史展示）、`topic_id`、`created_at` 与载荷中的 `outcome`、`user_message`、`assistant_final_text`、`turn_events`；用户消息与回复正文从轮次事件读取（`assistant_final_text` 为全部助手正文按序号以空行拼接，没有时为空串）。轮次事件与 `TurnEvent` 字段相同：`kind`、`sequence`、`content`、`action_id`、`tool_name`、`verb`、`targets`、`tool_args`、`status`、`result`、`produced_aliases`，一次工具调用与它的结局在同一个 `tool_call` 事件上，没有结局时三个结局字段缺省（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)）。列表摘要不含轮次或检查点。
 
 Chat SSE 订阅任务进程的输出通道：进程在自己的 task 中运行，客户端断连时交付以 `client_disconnected` 退订并请求停止，与用户停止走同一条路径，发布 `chat.run.cancel_requested` 与带生效阶段的 `chat.run.cancelled`，本轮输出被丢弃；进入 finalize 后的断连不影响提交。响应不等待进程关闭，详见[任务进程](../workspace/task-process.md#111-流式交付)。
 
@@ -283,8 +283,8 @@ Alice 在创建根 frame 前可推送 `context_compaction`，经 CPU 事件 sink
 | `agent_id` | 连接器代表的具体 Agent，只作为认证声明，不进入导入记录 |
 | `outcome` | `completed`、`cancelled` 或 `failed` |
 | `user_message` | 该轮的用户消息；服务端写成序号为 0 的 `user_message` 事件 |
-| `events` | 用户消息之后的事件，`sequence` 从 1 起严格递增；`kind` 为 `assistant_message`、`thought`、`tool_call` 或 `tool_result`，另有 `content`，工具事件可带 `action_id`、`tool_name`、`tool_args`、`status`（出错为 `error`）。`tool_kind` 只接受 `SEARCH`、`READ`，只为 HiveMemory 自身 MCP 工具的调用设置（[MCP 记忆访问](./mcp.md#6-工具调用名与回声标记)），其他取值以 422 拒绝，其他工具不设置。不接受 `role`、`target`：角色由服务端按种类填写 |
-| `assistant_final_text`、`model_used` | 该轮最终的回复正文与实际使用的模型名，可为空 |
+| `events` | 用户消息之后的事件，与 `TurnEvent` 同形（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)），`sequence` 从 1 起严格递增；`kind` 为 `assistant_message`、`thought` 或 `tool_call`，另有 `content`。工具调用必带轮内唯一的 `action_id`，带 `tool_name`、`tool_args`，有结局时带成对的 `status`（`success`，出错为 `error`）与 `result`。`verb` 只接受 `SEARCH`、`READ`，只为 HiveMemory 自身 MCP 工具的调用设置（[MCP 记忆访问](./mcp.md#6-工具调用名与回声标记)），与 `tool_name` 互斥；`READ` 必须带非空的 `targets`。外部 harness 不产出 alias，不接受 `produced_aliases` |
+| `model_used` | 实际使用的模型名，可为空；回复正文不单独上传，由事件中的助手正文得到 |
 | `recent_turns` | 该轮之前最近的若干轮（`user_message`、`assistant_text`、可选的 `external_turn_id`），只供 Gateway 落位，不进入交互载荷 |
 
 请求以 `X-Principal-ID` 声明连接器的 principal、以 `Authorization: Bearer` 携带接入凭据；用户与 Workspace 选择仍只来自统一请求头。

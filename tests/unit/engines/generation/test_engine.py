@@ -73,8 +73,8 @@ def _make_context_from_messages(messages: list[StreamMessage]) -> GenerationCont
         assistant_msg = messages[i + 1] if i + 1 < len(messages) else None
         turns.append(
             GenerationTurn(
-                user_query=user_msg.content if user_msg else "",
-                assistant_final_text=assistant_msg.content if assistant_msg else "",
+                user_message=user_msg.content if user_msg else "",
+                material_entries=[f"[Assistant]: {assistant_msg.content}"] if assistant_msg else [],
                 identity=(
                     assistant_msg.identity
                     if assistant_msg and assistant_msg.identity
@@ -90,8 +90,8 @@ def _make_context_with_agents(agent_ids: list[str]) -> GenerationContext:
     return GenerationContext(
         turns=[
             GenerationTurn(
-                user_query=f"q_{i}",
-                assistant_final_text=f"a_{i}",
+                user_message=f"q_{i}",
+                material_entries=[f"[Assistant]: a_{i}"],
                 identity=ActorIdentity(user_id="u1", agent_id=agent_id),
             )
             for i, agent_id in enumerate(agent_ids)

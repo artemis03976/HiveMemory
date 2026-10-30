@@ -7,7 +7,7 @@ from uuid import uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.core.models.interaction import TurnRecord
+from hivememory.core.models.interaction import TurnRecord, turn_reply_text, turn_user_message
 from hivememory.core.models.workspace import WorkspaceIdentity
 from hivememory.core.models.workspace_asset import TopicAssetBinding, WorkspaceAssetRef
 
@@ -39,26 +39,18 @@ class TopicSnapshot(BaseModel):
 
 
 class LogicalBlock(BaseModel):
-    """感知层写入短期话题的不可变逻辑块。"""
+    """感知层写入短期话题的不可变逻辑块。
+
+    ``total_tokens`` 是写入时对本轮渲染材料的估算；用户消息与回复正文从
+    本轮事件集读取，不另存。
+    """
 
     block_id: str = Field(default_factory=lambda: uuid4().hex)
     turn: TurnRecord
     created_at: float = Field(default_factory=lambda: datetime.now().timestamp())
     total_tokens: int = 0
-    gateway_intent: str | None = None
-    worth_saving: bool | None = None
 
     model_config = ConfigDict(frozen=True, use_enum_values=True, extra="forbid")
-
-    @property
-    def is_complete(self) -> bool:
-        return bool(self.turn.user_query) and bool(
-            self.turn.assistant_final_text or self.turn.turn_events or self.turn.actions
-        )
-
-    @property
-    def anchor_text(self) -> str:
-        return self.turn.anchor_text
 
     @property
     def identity(self):
@@ -66,28 +58,16 @@ class LogicalBlock(BaseModel):
         return self.turn.identity
 
     @property
-    def rewritten_query(self) -> str | None:
-        return self.turn.rewritten_query
-
-    @property
-    def user_query(self) -> str:
-        return self.turn.user_query
-
-    @property
-    def assistant_final_text(self) -> str:
-        return self.turn.assistant_final_text
-
-    @property
     def turn_events(self):
         return self.turn.turn_events
 
     @property
-    def actions(self):
-        return self.turn.actions
+    def user_message(self) -> str:
+        return turn_user_message(self.turn.turn_events)
 
     @property
-    def semantic_traces(self):
-        return self.turn.semantic_traces
+    def reply_text(self) -> str:
+        return turn_reply_text(self.turn.turn_events)
 
 
 class TopicData(BaseModel):
@@ -144,8 +124,8 @@ class TopicData(BaseModel):
         if self.blocks:
             last_block = self.blocks[-1]
             last_turn = TopicLastTurn(
-                user=last_block.user_query,
-                assistant=last_block.assistant_final_text,
+                user=last_block.user_message,
+                assistant=last_block.reply_text,
             )
         return TopicSnapshot(
             topic_id=self.topic_id,

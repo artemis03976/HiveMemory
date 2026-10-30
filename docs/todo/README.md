@@ -31,7 +31,7 @@ last_reviewed: 2026-10-30
 - [engines 对上层的既有导入](./engines-upward-imports.md)（包分层登记的 10 处已知例外，原记录于 Workspace 网络与任务进程架构 Idea）；
 - [RUN 目标的可执行性检查](./run-target-executability-check.md)（能力层分层审查遗留：只有 `memory.run` 的 actor 可经 RUN 的错误探测可见记忆的类型与存在，不可执行目标也记录引用）；
 
-原“导入的 MCP 读取在轨迹中显示 alias”于 2026-10-30 并入计划：它是工具调用进入 `TurnEvent` 时 `tool_name` 含义重叠的一个表现，随[工具解析链路重写计划](../plans/v0.7.1-tool-call-parsing-chain.md)从根上处理（删除前最后版本见 commit `051625d9`）。
+原“导入的 MCP 读取在轨迹中显示 alias”于 2026-10-30 并入计划：它是工具调用进入 `TurnEvent` 时 `tool_name` 含义重叠的一个表现，随[工具解析链路重写计划](../archive/plans/v0.7.1-tool-call-parsing-chain.md)从根上处理，计划已于 2026-10-30 实施并归档（删除前最后版本见 commit `051625d9`）。
 
 原“任务进程中无生产使用方的代码与可合并小项”于 2026-10-30 完成并归档（删除只供测试使用的非流式交付、按句柄取消、诊断查询链与重复 `process_id` 预检；交付方离开的停止原因合并为 `client_disconnected`，观测标签移到进程记录，删除对 prepare 结果归属的重复比对）：[归档记录](../archive/todo/task-process-unused-paths.md)；当前事实见[任务进程](../workspace/task-process.md)。
 

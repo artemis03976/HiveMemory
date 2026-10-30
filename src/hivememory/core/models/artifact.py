@@ -15,6 +15,7 @@ from uuid import uuid4
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, field_validator, model_validator
 
 from hivememory.core.models.identity import ActorIdentity
+from hivememory.core.models.interaction import InteractionOutcome
 from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.core.models.workspace import WorkspaceIdentity
 from hivememory.utils.time import require_utc, utc_now
@@ -185,7 +186,8 @@ class InteractionTurnSnapshot(BaseModel):
     """单轮交互快照 - 原始 LogicalBlock.turn 的 JSON 冻结视图。
 
     不包含任何记忆归属信息（memory_id / alias / source_intent / capture_policy），
-    仅保留交互本身的内容真相。
+    仅保留交互本身的内容真相：本轮事件集，以及块标识、时间、来源身份与结局。
+    问答正文与生成材料都由事件按当时的截断配置复现，不另存。
 
     执行者身份由单一 ``actor_identity`` 字段承载，不平铺
     user_id / agent_id / team_id 三元组；历史平铺 JSON 的读取升级分支已随
@@ -198,15 +200,10 @@ class InteractionTurnSnapshot(BaseModel):
     created_at: float | None = None
 
     actor_identity: ActorIdentity
-
-    user_query: str = ""
-    rewritten_query: str | None = None
-    assistant_final_text: str = ""
+    outcome: InteractionOutcome
 
     # 使用 dict 快照而非强类型对象，避免 runtime 模型变更时破坏 artifact 读取
     turn_events: list[dict[str, Any]] = Field(default_factory=list)
-    actions: list[dict[str, Any]] = Field(default_factory=list)
-    semantic_traces: list[dict[str, Any]] = Field(default_factory=list)
 
     model_config = ConfigDict(extra="ignore")
 
