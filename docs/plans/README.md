@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # Plans
@@ -19,6 +19,7 @@ last_reviewed: 2026-10-29
 | 1 | [Import Bus 重设计：以 Claude Code 对话回流为第一条真实路径](../archive/plans/v0.7.1-import-bus-redesign.md) | Archived（2026-10-21）；当前事实见 [Import Bus](../system/import-bus.md)；真实使用验收随日常使用持续观察（[Todo](../todo/import-bus-real-use-observation.md)） | —— |
 | 2 | [记忆访问：Claude Code 经 MCP 工具检索与读取记忆](../archive/plans/v0.7.1-memory-access-mcp.md) | Archived（2026-10-29）；当前事实见 [MCP 记忆访问](../contracts/mcp.md)；检索与读取的真实使用样本记入同一观察 [Todo](../todo/import-bus-real-use-observation.md) | —— |
 | — | [推理模型的空闲卸载与按需加载](../archive/plans/v0.7.1-model-idle-unload.md)（plugin 模式下后端常驻时的内存开销） | Archived（2026-10-29）；当前事实见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载) | —— |
+| 3 | [工具解析链路重写：`TurnEvent` 作为唯一的交互原子事件](./v0.7.1-tool-call-parsing-chain.md) | Planned（2026-10-30）；设计讨论见 [Idea](../ideas/tool-call-parsing-chain.md)，并入原 Todo《导入的 MCP 读取在轨迹中显示 alias》 | —— |
 
 ## v0.7.0
 

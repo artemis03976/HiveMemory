@@ -13,7 +13,6 @@ last_reviewed: 2026-10-30
 当前事项：
 
 - [推理模型重新加载时的事件循环停顿](./model-reload-event-loop-stall.md)（2026-10-30 由空闲卸载计划的实测验收登记：onnxruntime 创建会话与卸载时的 `gc.collect()` 持有 GIL，重新加载期间其他请求最长等待约 1～3.7 秒，两个模型同时加载时最长；owner 决定记为已知限制，之后单独优化，未排期）；
-- [导入的 MCP 读取在轨迹中显示 alias](./imported-read-trace-alias.md)（2026-10-29 由记忆访问计划阶段四审查登记：READ 轨迹的目标取工具名，导入的 MCP 读取只显示工具调用名，所读的 alias 在参数中，生成视图看不出读了哪些记忆；未排期）；
 - [MTP READ 截断正式记忆的正文](./mtp-read-content-truncation.md)（2026-10-29 由记忆访问计划阶段三审查登记：MTP READ 取编译选项默认的 500 字符上限，超长正文被截断，提示“再次 READ”却得到同样结果；预计随 v0.7.3 MTP READ 专项编译一起修复）；
 - [生成材料的筛选与截断](./generation-material-filtering-and-truncation.md)（2026-10-29 由 Import Bus 真实使用观察登记：Gateway 价值预判只看用户消息，把整轮实现丢出生成，结算已停止按 `worth_saving` 筛选；待在真实样本上校准生成视图的每轮上限，并随记忆价值策略重设计决定 `worth_saving` 的去留）；
 - [生成查重的决策信号](./generation-dedup-decision-signal.md)（2026-10-29 由 Import Bus 真实使用观察登记：dense top-1 余弦在记忆对记忆的比较中分不开同一工作与同项目的其他记忆，固定阈值够不到，查重只会新建；UPDATE 为整体覆盖，不能单靠调低阈值）；
@@ -31,6 +30,8 @@ last_reviewed: 2026-10-30
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
 - [engines 对上层的既有导入](./engines-upward-imports.md)（包分层登记的 10 处已知例外，原记录于 Workspace 网络与任务进程架构 Idea）；
 - [RUN 目标的可执行性检查](./run-target-executability-check.md)（能力层分层审查遗留：只有 `memory.run` 的 actor 可经 RUN 的错误探测可见记忆的类型与存在，不可执行目标也记录引用）；
+
+原“导入的 MCP 读取在轨迹中显示 alias”于 2026-10-30 并入计划：它是工具调用进入 `TurnEvent` 时 `tool_name` 含义重叠的一个表现，随[工具解析链路重写计划](../plans/v0.7.1-tool-call-parsing-chain.md)从根上处理（删除前最后版本见 commit `051625d9`）。
 
 原“任务进程中无生产使用方的代码与可合并小项”于 2026-10-30 完成并归档（删除只供测试使用的非流式交付、按句柄取消、诊断查询链与重复 `process_id` 预检；交付方离开的停止原因合并为 `client_disconnected`，观测标签移到进程记录，删除对 prepare 结果归属的重复比对）：[归档记录](../archive/todo/task-process-unused-paths.md)；当前事实见[任务进程](../workspace/task-process.md)。
 
