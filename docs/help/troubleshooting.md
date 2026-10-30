@@ -8,9 +8,11 @@ code_paths:
   - src/hivememory/server/app.py
   - src/hivememory/config/
   - frontend/src/
+  - integrations/claude-code/
 related_contracts:
   - docs/contracts/error-model.md
-last_reviewed: 2026-10-17
+  - docs/contracts/mcp.md
+last_reviewed: 2026-10-29
 ---
 
 # HiveMemory 故障排查
@@ -135,7 +137,21 @@ Memory、Agent、Settings 和开发模式 Memory task 存在 mock fallback。典
 
 日志和 RuntimeEvent 都是 best-effort 观测旁路。它们缺失不自动代表业务失败，业务结果仍应检查 HTTP/SSE 终态和后端状态。
 
-## 10. 仍无法定位
+## 10. Claude Code 插件：工具不出现、导入停止或被拒
+
+先在 Claude Code 中执行 `/mcp` 查看 `hivememory` 的状态，再看连接器的 `connector.log`（位置见[安装与启动](./setup.md#96-确认导入与排查)）。
+
+| 现象 | 原因与处理 |
+|:---|:---|
+| `/mcp` 显示 `hivememory` 连接失败，工具不出现 | HiveMemory 未运行或 `HIVEMEMORY_URL` 不对（本地开发与 `serve` 模式在 `8769`，Docker 在 `8000`）。启动后在 Claude Code 中执行 `/mcp reconnect all` 或重新打开会话 |
+| 工具调用返回 `invalid_credential`，`connector.log` 的 `stopped` 行带 403 `invalid_credential` | 两侧凭据不一致或没有配置：HiveMemory 一侧为 `.env` 中的 `HIVEMEMORY_CLAUDE_CODE_TOKEN`（后端启动日志会提示它未设置），Claude Code 一侧为 `HIVEMEMORY_TOKEN`。改正后重启 HiveMemory、重新打开 Claude Code；连接器保留了进度，下一次唤醒时补发未导入的轮次 |
+| 导入返回 400 `request.principal_required` | 服务端已更新而插件仍是旧版本：在 `/plugin` 中更新插件后重启 Claude Code，积压的轮次随后补发 |
+| 工具调用返回 `operation_not_allowed` | `workspace_actors.yaml` 中该 Agent 的白名单缺少 `memory.search` 或 `memory.read`；修改后重启 HiveMemory |
+| 工具调用返回 `request.workspace_not_found` | `X-Workspace-ID` 只接受 `main_workspace` |
+| MCP 请求返回 421 | MCP 端点只接受带端口的本机地址（`localhost`、`127.0.0.1`、`[::1]`）；`HIVEMEMORY_URL` 改用这些地址 |
+| 管理接口返回 403 `system_actor_not_allowed` | 自定义的 `system_principals.yaml` 没有为 server 的登记设置 `allow_system_actor: true` |
+
+## 11. 仍无法定位
 
 收集以下信息后再提交 Issue：
 

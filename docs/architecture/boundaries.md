@@ -23,7 +23,7 @@ related_docs:
   - docs/workspace/README.md
   - docs/architecture/data-model.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # 系统边界与所有权
@@ -62,7 +62,7 @@ last_reviewed: 2026-10-21
 
 公共模型在这里相当于一张“交接单”：它应说明上一阶段已经确认了什么、下一阶段可以依赖什么，却不允许接收方通过模型继续操纵发送方的内部对象。将公共模型做成 frozen 或依赖中立结构，目的正是防止 workflow state、存储客户端和引擎实体沿调用链泄漏，最终形成无法辨认的共享内部状态。
 
-访问控制的所有权同样分属两处：System 持有调用来源接入登记与 Principal authentication（`system.access`，第 1 阶段）；workspace 持有统一认证网关与第 2 阶段的准入、签发与撤销（`workspace.authentication`）、第 3 阶段的操作授权（`workspace.authorization`）与访问注册表（`workspace.registry`）。访问值类型与端口协议（`WorkspaceOperation`、密封的 `WorkspaceAccessContext` 与授予内容、`CallerPrincipal`、`PrincipalAuthenticator`）位于 `core.access`。操作授权在 workspace 的授权点完成：actor API 检查 actor 操作白名单，root API 只接受保留的 `system`，任务进程的阶段调用只校验准入与目标、不检查 actor 操作，Import Bus 的导入授权同样只校验准入与目标、不检查 actor 操作，并拒绝保留的 `system`；它们都把组装的 `IdentityScope` 交给公共 route；资源 owner 拆分身份后独立执行资源规则：先检查 Workspace 硬边界，再按 policy 判断发起者的可见性，来源字段不参与授权。Patchouli 与 Gateway 不接收访问 context，也不依赖 workspace 的认证与授权实现。依赖方向为 `system → workspace → core`；workspace 不导入 System。完整模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节。
+访问控制的所有权同样分属两处：System 持有调用来源接入登记与 Principal authentication（`system.access`，第 1 阶段：登记、adapter、外部来源的接入凭据、可代表的用户与能否声明 `system`）；workspace 持有统一认证网关与第 2 阶段的准入、签发与撤销（`workspace.authentication`）、第 3 阶段的操作授权（`workspace.authorization`）与访问注册表（`workspace.registry`）。访问值类型与端口协议（`WorkspaceOperation`、密封的 `WorkspaceAccessContext` 与授予内容、`CallerPrincipal`、`PrincipalAuthenticator`）位于 `core.access`。操作授权在 workspace 的授权点完成：actor API 检查 actor 操作白名单，root API 只接受保留的 `system`，任务进程的阶段调用只校验准入与目标、不检查 actor 操作，Import Bus 的导入授权同样只校验准入与目标、不检查 actor 操作，并拒绝保留的 `system`；它们都把组装的 `IdentityScope` 交给公共 route；资源 owner 拆分身份后独立执行资源规则：先检查 Workspace 硬边界，再按 policy 判断发起者的可见性，来源字段不参与授权。Patchouli 与 Gateway 不接收访问 context，也不依赖 workspace 的认证与授权实现。依赖方向为 `system → workspace → core`；workspace 不导入 System。完整模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节。
 
 local bus 则是一个子系统内部的组合机制。它允许所有者替换内部实现，却不承诺跨子系统稳定性。一旦其他子系统直接依赖 local route，所谓内部重构就会变成隐蔽的公共契约变更，因此跨边界能力必须显式提升为公共 route、公共模型或全局事件。
 
@@ -92,7 +92,7 @@ System 是舞台管理者：它装配所有参与者，知道它们按什么顺�
 
 ### 4.2 允许的依赖
 
-System 可以依赖任何下层包完成装配，也可以通过全局路由调用公共能力。HTTP router 经门面取得服务（workspace root API 与任务进程编排、System Import Bus），而不是直接依赖子系统 Runtime；actor API 只由操作入口持有，server 不导入它。
+System 可以依赖任何下层包完成装配，也可以通过全局路由调用公共能力。HTTP router 经门面取得服务（workspace root API 与任务进程编排、System Import Bus），而不是直接依赖子系统 Runtime；actor API 只由操作入口持有，server 不导入它。MCP 入口（`mcp_server`）经门面取得同一个操作入口，只用其请求级提交，也不导入 actor API。
 
 ### 4.3 禁止的越界
 

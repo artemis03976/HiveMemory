@@ -19,7 +19,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # System 组合根与生命周期
@@ -47,7 +47,7 @@ HiveMemorySystem.build(config)
             LiteLLMService（infrastructure.llm；进程级唯一，Gateway / Patchouli / Alice 共享）
             Gateway 与 Librarian 的请求参数（component_llm_params）
        -> access-control bundle（两类登记分别从 configs/system_principals.yaml、configs/workspace_actors.yaml 装载）
-            SystemActorAccessRegistry / WorkspaceActorAccessRegistry
+            SystemActorAccessRegistry（from_config 装配，读取各来源的接入凭据）/ WorkspaceActorAccessRegistry
             WorkspaceAuthenticator（workspace.authentication；准入、签发、主线程与子线程 context 的派生与撤销）
             WorkspaceOperationAuthorizer（workspace.authorization；操作授权，只依赖访问注册表）
             ActorAuthenticationGateway（workspace.authentication，注入 SystemPrincipalAuthenticator 与 WorkspaceAuthenticator；同时实现线程 context 生命周期端口）
@@ -67,7 +67,7 @@ HiveMemorySystem.build(config)
             root API：RootMemoryService / RootAgentProfileService / RootTopicService / RootMemoryTaskService / RootWorkspaceAssetService（workspace.capability.root；注入操作授权者，不接触读取视图）
 ```
 
-七个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，LLM 服务随后创建并取得组件请求参数，访问控制装载两类登记并组装认证网关与操作授权者，随后先构建 actor API 与操作入口，Alice 构建时即可注入入口；root API 在服务阶段构建，只交给门面；子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。认证网关注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server，另以只含派生与撤销线程 context 的 `ThreadContextLifecycle` 端口注入进程线程管理 `ProcessThreads`；进程表在访问控制阶段创建，`ProcessThreads` 因此能在 actor API 之前构建，注入执行器（主线程）与 actor API（子线程派生），无需延迟绑定；操作授权者注入 root API（root 授权）、actor API（actor 操作授权）、操作入口（线程 context 校验与进程关联）、任务进程的执行器与 CPU 分配（阶段授权）、注册入口（进程控制授权），以及 Import Bus 服务（导入授权）；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[任务进程](../workspace/task-process.md)）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。
+七个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，LLM 服务随后创建并取得组件请求参数，访问控制装载两类登记并组装认证网关与操作授权者，随后先构建 actor API 与操作入口，Alice 构建时即可注入入口；root API 在服务阶段构建，只交给门面；子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。接入注册表由 `SystemActorAccessRegistry.from_config` 装配：登记了 `credential_env` 的来源在这时按与其他配置相同的来源读取凭据（进程环境变量优先，其次是 `.env`），环境变量为空时告警并照常装配（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）。认证网关注入任务进程的注册入口并经 `HiveMemorySystem.access_gateway` 暴露给 server 与 MCP 入口，另以只含派生与撤销线程 context 的 `ThreadContextLifecycle` 端口注入进程线程管理 `ProcessThreads`；进程表在访问控制阶段创建，`ProcessThreads` 因此能在 actor API 之前构建，注入执行器（主线程）与 actor API（子线程派生），无需延迟绑定；操作授权者注入 root API（root 授权）、actor API（actor 操作授权）、操作入口（线程 context 校验与进程关联）、任务进程的执行器与 CPU 分配（阶段授权）、注册入口（进程控制授权），以及 Import Bus 服务（导入授权）；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[任务进程](../workspace/task-process.md)）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。
 
 ### 1.1 Runtime bundle
 
@@ -172,7 +172,7 @@ ActorAuthenticationGateway.close
 
 健康状态是观测和管理入口，不替代业务契约。模型尚未 ready 不等于所有 route 都不存在；反过来，健康返回 `ok` 也不保证一次具体检索或生成调用一定成功。
 
-System 作为门面对外暴露服务属性和 registry/sink 查询，例如 `process_service`（workspace 任务进程编排）、`import_bus_service`（Import Bus）、`root_memory_service` 等 root API 服务（actor API 只由操作入口持有，不经门面暴露）、`access_gateway`、`runtime_events`、`model_registry`。这些属性方便 HTTP 或其他 adapter 注入依赖，但 adapter 仍应调用服务，不应从属性继续下钻到子系统 Runtime。
+System 作为门面对外暴露服务属性和 registry/sink 查询，例如 `process_service`（workspace 任务进程编排）、`import_bus_service`（Import Bus）、`root_memory_service` 等 root API 服务、`operation_entry`（组合根装配的同一个操作入口，只供 MCP 入口调用其请求级提交 `execute_request`）、`access_gateway`、`runtime_events`、`model_registry`。actor API 只由操作入口持有，不经门面暴露（[MCP 记忆访问](../contracts/mcp.md#4-操作入口与授权)）。这些属性方便 HTTP 或其他 adapter 注入依赖，但 adapter 仍应调用服务，不应从属性继续下钻到子系统 Runtime。
 
 ## 5. 生命周期不变量与矛盾检查
 

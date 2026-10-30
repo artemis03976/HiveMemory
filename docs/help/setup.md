@@ -16,16 +16,18 @@ code_paths:
   - integrations/.claude-plugin/marketplace.json
   - integrations/claude-code/
   - configs/workspace_actors.yaml
+  - configs/system_principals.yaml
 related_contracts:
   - docs/contracts/routes-and-events.md
+  - docs/contracts/mcp.md
 related_docs:
   - docs/system/import-bus.md
-last_reviewed: 2026-10-27
+last_reviewed: 2026-10-29
 ---
 
 # 安装与启动 HiveMemory
 
-HiveMemory 当前提供两条明确运行路径：Docker 将前端、后端与 Qdrant 组合为一套本地服务；开发模式则分别运行 Qdrant、Python 后端和 Vite 前端。在 WSL/Linux 上，开发模式也可以交给脚本管理，脚本另有不需要 Docker 的长期运行模式（第 4.5 节）。请先选择一条路径，不要把两套端口和启动命令混用。服务运行起来之后，可以按第 9 节把 Claude Code 的对话接入 HiveMemory。
+HiveMemory 当前提供两条明确运行路径：Docker 将前端、后端与 Qdrant 组合为一套本地服务；开发模式则分别运行 Qdrant、Python 后端和 Vite 前端。在 WSL/Linux 上，开发模式也可以交给脚本管理，脚本另有不需要 Docker 的长期运行模式（第 4.5 节）。请先选择一条路径，不要把两套端口和启动命令混用。服务运行起来之后，可以按第 9 节把 Claude Code 接入 HiveMemory：对话回流与记忆访问。
 
 ## 1. 前置条件
 
@@ -238,7 +240,12 @@ npm run build
 
 ## 9. 接入 Claude Code
 
-仓库提供 Claude Code 插件 `hivememory-connector`：Claude Code 的每一轮对话结束后，插件把这一轮（用户消息、回复、Claude Code 本地记录的思考、工具调用与结果）导入 HiveMemory，记忆随日常使用积累。插件只向 HiveMemory 输入，不向 Claude Code 注入记忆；它的 hook 只做本地记录，网络提交在后台进程中完成，HiveMemory 未运行时 Claude Code 照常工作，未导入的轮次在之后被唤醒时按顺序补发。工作原理见 [Import Bus](../system/import-bus.md)。
+仓库提供 Claude Code 插件 `hivememory-connector`，它做两件事：
+
+- **对话回流**：Claude Code 的每一轮对话结束后，插件把这一轮（用户消息、回复、Claude Code 本地记录的思考、工具调用与结果）导入 HiveMemory，记忆随日常使用积累。它的 hook 只做本地记录，网络提交在后台进程中完成，HiveMemory 未运行时 Claude Code 照常工作，未导入的轮次在之后被唤醒时按顺序补发。工作原理见 [Import Bus](../system/import-bus.md)。
+- **记忆访问**：插件声明了 HiveMemory 的 MCP server，Claude Code 的 agent 可以调用 `memory_search` 检索记忆、`memory_read` 按 alias 读取全文。插件不主动向 Claude Code 注入记忆，何时检索由 agent 自己决定。契约见 [MCP 记忆访问](../contracts/mcp.md)。
+
+两部分都以 Claude Code 自己的接入身份 `harness:claude-code` 认证，需要在 HiveMemory 与 Claude Code 两侧配置同一份接入凭据（第 9.2 节）。
 
 前置条件：
 
@@ -254,34 +261,61 @@ npm run build
 /plugin install hivememory-connector@hivememory-local
 ```
 
-插件挂载 `Stop`、`StopFailure`、`SessionStart` 与 `SessionEnd` 四个 hook。安装时 Claude Code 保存的是插件的副本：仓库中的连接器更新后，需要在 `/plugin` 中更新该插件才会生效。
+插件挂载 `Stop`、`StopFailure`、`SessionStart` 与 `SessionEnd` 四个 hook，并在 `.mcp.json` 中声明 MCP server `hivememory`。安装时 Claude Code 保存的是插件的副本：仓库中的插件更新后，需要在 `/plugin` 中更新该插件（或执行 `claude plugin marketplace update hivememory-local` 与 `claude plugin update hivememory-connector@hivememory-local`）并重启 Claude Code 才会生效。
 
-### 9.2 配置连接器
+### 9.2 配置接入凭据
 
-连接器从环境变量读取配置。hook 由 Claude Code 启动，因此在启动 Claude Code 的环境中设置：
+先生成一份随机凭据，例如：
+
+```bash
+python3 -c "import secrets; print(secrets.token_urlsafe(32))"
+```
+
+把同一个值写入两侧，变量名不同：
+
+| 一侧 | 环境变量 | 写在哪里 |
+|:---|:---|:---|
+| HiveMemory | `HIVEMEMORY_CLAUDE_CODE_TOKEN` | 仓库根 `.env`（与其他密钥放在一起，Docker 路径同样读取它），或启动后端的环境 |
+| Claude Code | `HIVEMEMORY_TOKEN` | 启动 Claude Code 的环境，或 `~/.claude/settings.json` 的 `env` |
+
+修改后重启 HiveMemory，并重新打开 Claude Code。凭据没有配置或两侧不一致时，导入与工具调用都以 `invalid_credential` 被拒绝：HiveMemory 照常启动并在启动日志中提示凭据环境变量未设置，连接器保留进度等待补发，MCP 工具返回错误（第 9.6 节）。凭据只用于防止本机其他程序冒用 Claude Code 的身份，不进入日志与错误响应。
+
+### 9.3 配置连接器
+
+连接器与 MCP server 从同一组环境变量读取配置。hook 与 MCP 连接都由 Claude Code 发起，因此在启动 Claude Code 的环境中设置（也可以写在 `~/.claude/settings.json` 的 `env` 中）：
 
 | 环境变量 | 默认值 | 说明 |
 |:---|:---|:---|
-| `HIVEMEMORY_URL` | `http://localhost:8000` | HiveMemory 后端地址。默认值对应 Docker 路径；本地开发路径（含脚本的 `serve` 模式）的后端在 `8769`，需要设为 `http://localhost:8769` |
-| `HIVEMEMORY_USER_ID` | 不设置 | 以哪个用户导入；不设置时使用服务端的默认用户 `default` |
-| `HIVEMEMORY_AGENT_ID` | `claude_code` | 以哪个 Agent 导入；不能使用保留的 `system` |
-| `HIVEMEMORY_CONNECTOR_STATE_DIR` | 见第 9.4 节 | 连接器状态、日志与拒绝记录的目录 |
+| `HIVEMEMORY_URL` | `http://localhost:8000` | HiveMemory 后端地址。默认值对应 Docker 路径；本地开发路径（含脚本的 `serve` 模式）的后端在 `8769`，需要设为 `http://localhost:8769`。MCP 只接受本机地址（`localhost`、`127.0.0.1` 或 `[::1]`，带端口） |
+| `HIVEMEMORY_TOKEN` | 不设置 | 接入凭据，见第 9.2 节 |
+| `HIVEMEMORY_USER_ID` | 不设置 | 以哪个用户导入与访问；不设置时使用服务端的默认用户 `default` |
+| `HIVEMEMORY_AGENT_ID` | `claude_code` | 以哪个 Agent 导入与访问；不能使用保留的 `system` |
+| `HIVEMEMORY_CONNECTOR_STATE_DIR` | 见第 9.6 节 | 连接器状态、日志与拒绝记录的目录 |
 
 例如本地开发路径：
 
 ```bash
 export HIVEMEMORY_URL=http://localhost:8769
+export HIVEMEMORY_TOKEN=<第 9.2 节生成的凭据>
 ```
 
-### 9.3 访问登记
+### 9.4 访问登记
 
-导入请求同样经统一认证网关，请求的用户与 Agent 必须在 `configs/workspace_actors.yaml` 中获准进入 Workspace。随仓库发布的登记已经为默认用户 `default` 登记了 `claude_code`，使用默认配置时不需要修改。这条记录的 `allowed_operations` 为空：导入只要求准入，不需要任何 actor 操作，空白名单也使这个 Agent 不继承默认用户的记忆操作权限。
+导入与 MCP 请求都经统一认证网关，请求的用户与 Agent 必须在 `configs/workspace_actors.yaml` 中获准进入 Workspace。随仓库发布的登记已经为默认用户 `default` 登记了 `claude_code`，使用默认配置时不需要修改。这条记录只获准 `memory.read` 与 `memory.search`：MCP 的检索与读取各需其一，导入只要求准入、不需要任何 actor 操作；精确记录也使这个 Agent 不继承默认用户的写入等其余权限。
 
-- `HIVEMEMORY_USER_ID` 设为 `default` 以外的用户时，需要为该用户登记记录，否则导入返回 403，连接器停止提交并保留进度；
-- 更换 `HIVEMEMORY_AGENT_ID` 时，默认的用户级记录会覆盖新的 Agent；如果希望它同样只能导入，按 `claude_code` 那条记录的写法为它增加精确记录；
+- `HIVEMEMORY_USER_ID` 设为 `default` 以外的用户时，需要为该用户登记记录，否则导入与工具调用返回 403，连接器停止提交并保留进度；
+- 更换 `HIVEMEMORY_AGENT_ID` 时，默认的用户级记录会覆盖新的 Agent；如果希望它同样只能检索与读取，按 `claude_code` 那条记录的写法为它增加精确记录；
 - 修改登记后重启 HiveMemory。登记规则见[配置指南](./configuration.md#51-访问登记)。
 
-### 9.4 确认导入与排查
+### 9.5 确认记忆访问
+
+配置完成并重新打开 Claude Code 后，在 Claude Code 中执行 `/mcp`：插件的 `hivememory` 应显示已连接，并提供 `memory_search` 与 `memory_read` 两个工具。
+
+- 工具说明要求 agent 把检索结果当作带日期的历史证据：仓库中的代码与文档、Claude Code 自己的项目指令与记忆文件优先于检索结果。
+- HiveMemory 未运行时，Claude Code 重试后把 `hivememory` 标为连接失败，两个工具不出现，工作照常进行；HiveMemory 恢复后，在 Claude Code 中执行 `/mcp reconnect all` 或重新打开会话。
+- 经 MCP 读取的正式记忆会记录一次引用；用过检索工具的轮次导入后，生成只保留一行检索摘要，不会把取回的记忆再提取一遍。
+
+### 9.6 确认导入与排查
 
 连接器的状态目录依次取 `HIVEMEMORY_CONNECTOR_STATE_DIR`、Claude Code 为插件提供的数据目录（`CLAUDE_PLUGIN_DATA`），都没有时使用 `~/.hivememory/claude-code-connector`。目录中：
 
@@ -293,5 +327,5 @@ export HIVEMEMORY_URL=http://localhost:8769
 - 只导入插件首次运行之后开始的会话；安装前已存在的会话不回填，恢复这类会话后只导入新的轮次。
 - 一轮在结束后才导入：正常结束为 `completed`，因 API 错误结束为 `failed`，被用户中断、被下一条消息打断或随会话结束而结束的为 `cancelled`。
 - 连接器没有常驻进程，只在 hook 触发时被唤醒：一轮结束或会话结束时同步当前会话，会话开始（含恢复会话）时补发全部会话中积压的轮次。HiveMemory 停止期间积压的轮次，会在它恢复后的下一次唤醒时按顺序补发。
-- HiveMemory 暂不可用（连接失败、503）或连接器配置有误（400、403、404）时，连接器保留进度、停止提交，修正后在下一次唤醒时补发；配置有误时日志中的 `stopped` 行带有状态码与错误码。
+- HiveMemory 暂不可用（连接失败、503）或连接器配置有误（400、403、404）时，连接器保留进度、停止提交，修正后在下一次唤醒时补发；配置有误时日志中的 `stopped` 行带有状态码与错误码，凭据问题为 403 `invalid_credential`。
 - 单轮内容超过服务端的请求体上限（413，默认 8 MiB）或格式被拒绝（422）时，这一轮写入 `rejections.jsonl` 后跳过，不阻塞后续轮次；同一轮连续三次得到 500 也会被跳过。

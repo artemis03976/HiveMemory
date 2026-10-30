@@ -24,7 +24,7 @@ related_docs:
   - docs/system/import-bus.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # HiveMemory 当前系统架构
@@ -74,7 +74,7 @@ HiveMemory 因而保留了原项目“双系统”的核心思想：热路径负
 | L2 | `engines` / `infrastructure` / `prompts` | 算法与外部技术适配器 |
 | L3 | `workspace` / `patchouli` / `gateway` / `alice` + `agent_runtime` | 各子系统与 workspace 设施；彼此只导入对方公开的 `contracts` 子包 |
 | L4 | `system` | 组合根、门面与系统级能力；除入口外不被任何包导入 |
-| L5 | `server` | 入口（传输层 adapter） |
+| L5 | `server` / `mcp_server` | 入口（传输层 adapter）：`server` 是 HTTP 应用与路由，`mcp_server` 是外部 harness 经 MCP 访问记忆的操作适配器，由 `server` 接入 `/mcp` |
 
 下层需要上层能力时以端口协议声明，由组合根实现并注入；根配置与加载（`config.app`）只供 `system` 与 `server` 使用，各组件只接收自己的配置段。
 
@@ -222,7 +222,7 @@ Import Bus 属于 System 应用层，而不是 Patchouli 或 Alice 的替代 cha
 
 ```text
 POST /api/v1/import/turns
-  -> 统一认证网关：以 (user, 具体 Agent) 声明取得请求级 context
+  -> 统一认证网关：以连接器声明的 principal、接入凭据（import adapter）与 (user, 具体 Agent) 声明取得请求级 context
   -> ImportBusService：导入授权（准入与目标，不检查 actor 操作白名单）
   -> ImportBusIngestor：按 (user, Agent, source, 外部会话) 串行
      -> 推导 interaction_id，经 Patchouli interaction.status 查询进度
@@ -243,6 +243,20 @@ POST /api/v1/import/turns
 - 应用完成后才确认：同一轮重发得到同一 `interaction_id`，已应用返回 duplicate；等待超时以 503 交回、重发时继续等待，应用失败以 500 交回、重发时重新路由并以同一标识再次提交。Import Bus 不持有提交队列，不维护第二个 outbox，也不注册维护任务。
 
 链路、失败分类与关闭语义见 [Import Bus](../system/import-bus.md)。
+
+### 6.1 外部 harness 的记忆访问
+
+对话回流只把外部经历送进记忆网络；外部 harness 读取记忆走另一条路径：HiveMemory 在同一个 HTTP 服务上提供 MCP 端点，Claude Code 插件声明它之后，agent 经两个只读工具检索与读取记忆。
+
+```text
+POST /mcp（插件 .mcp.json 声明；请求头带 principal、接入凭据、user 与 Agent 声明）
+  -> mcp_server：解析声明，经统一认证网关（mcp adapter）签发一份请求级 context
+  -> 门面取得的操作入口：请求级提交 execute_request（只开放检索与读取）
+  -> actor API：retrieve / resolve_references（按访问登记白名单逐次授权）
+  -> MemoryCompiler 呈现为工具结果；调用结束撤销 context
+```
+
+外部 harness 的任务对 HiveMemory 不可见，不建进程、不派生线程，每次工具调用只是一份请求级 context。MCP 入口与 Alice 的 MTP 适配器同为操作适配器：都把协议调用归一为固定类型的操作请求，经同一个操作入口进入同一组 actor API 方法，入口仍是 actor API 唯一的调用方。连接器把插件自身两个工具的调用标为 SEARCH、READ 后导入，生成视图对它们只留一行摘要，经 MCP 取回的记忆因此不会被再提取一遍。契约见 [MCP 记忆访问](../contracts/mcp.md)。
 
 ## 7. 生命周期顺序与设计理由
 
@@ -266,7 +280,7 @@ Gateway -> Patchouli -> Alice -> Scheduler
 - local bus 路由不得成为其他子系统的隐式 API；
 - Gateway 命令结果与普通决策互斥；
 - `PASSIVE_MEMORY` 模式不得产生命令结果；Import Bus 不检索记忆、不返回记忆上下文，只在交互应用完成后确认；
-- Alice 不直接请求 Patchouli，也不持有其 Runtime / Service；MTP 经 workspace 的公共操作入口访问记忆能力；
+- Alice 不直接请求 Patchouli，也不持有其 Runtime / Service；MTP 与 MCP 都经 workspace 的操作入口访问记忆能力，MCP 的请求级 context 只能检索与读取；
 - 观测事件是旁路信息，不参与业务正确性判断；
 - 当前实现是单进程异步架构，不承诺分布式投递语义。
 

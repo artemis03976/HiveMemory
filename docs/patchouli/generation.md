@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-29
 ---
 
 # 记忆生成
@@ -78,8 +78,8 @@ GenerationContext
 动作段（`action_entries`）由 `prompts/transcript/actions.py` 统一渲染，按出现顺序包含三类条目：
 
 - **思考**：`action_id` 显式指向某个动作的思考紧排在该动作之前；未附属于动作的思考（例如第一次工具调用之前的推理）在其事件位置单独成条。事件到动作的归属沿用 `ActionReducer` 的同一条规则，但归约器会把未附属的思考吸附到最近的动作，生成视图不采用这种吸附，否则引出下一步的推理会排到上一个动作的结果之后。空白的思考（例如只有签名的思考块）不渲染。Alice 当前不产生思考事件，它的转写没有这类条目。
-- **外部工具动作**（`tool_kind` 为空的动作，例如经 Import Bus 导入的 harness 工具调用）：渲染工具名、参数摘要与各条结果，出错的结果标为 `RESULT (error)`。工具结果是对外部系统的观察，是记忆提取的重要事实来源。
-- **MTP 动作**（带 `tool_kind` 的动作）：维持一行摘要，SEARCH、READ、RUN 各一行，CALL、WRITE、UPDATE 与无法解析的动作不渲染；不渲染结果。READ、SEARCH 读回的是已有记忆，渲染进生成会把它们重复提取。
+- **外部工具动作**（`tool_kind` 为空的动作，例如经 Import Bus 导入的 harness 工具调用，HiveMemory 自身的 MCP 工具除外）：渲染工具名、参数摘要与各条结果，出错的结果标为 `RESULT (error)`。工具结果是对外部系统的观察，是记忆提取的重要事实来源。
+- **MTP 动作**（带 `tool_kind` 的动作）：维持一行摘要，SEARCH、READ、RUN 各一行，CALL、WRITE、UPDATE 与无法解析的动作不渲染；不渲染结果。READ、SEARCH 读回的是已有记忆，渲染进生成会把它们重复提取。外部 harness 经 HiveMemory 的 MCP 工具检索与读取时，连接器在导入的事件上标出 `SEARCH`、`READ`（[MCP 记忆访问](../contracts/mcp.md#6-工具调用名与回声标记)），这些动作按同一规则只留一行摘要；导入的 READ 摘要目标是工具调用名，不是所读的 alias。
 
 截断保留首尾、省略中段并标出省略的字符数，长输出末尾的报错与推理的结论因此得以保留。上限来自 `patchouli.generation.transcript`：
 
@@ -242,6 +242,7 @@ Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任
 
 ## 8. 当前限制
 
+- 一次话题结算至多产出一条记忆：Mode A 的 extractor 对整段话题材料只返回一份草稿（`BaseMemoryExtractor.extract` 返回 `ExtractedMemoryDraft | None`），同一话题中讨论过的多项决定、事实或偏好只能压进一条记忆，次要内容往往只留在正文里。检索的稠密与稀疏向量以及重排输入都只由标题、类型、标签与摘要编译（MemoryCompiler 的 `DENSE_EMBEDDING`、`SPARSE_EMBEDDING` 目标），只写在正文里的内容因此检索不到。从一段话题材料中提取多条记忆，需要提取输出、查重与演化都改为逐条进行。真实样本见 [Import Bus 真实使用观察](../todo/import-bus-real-use-observation.md)；
 - 结果未知或结算事件丢失时，句柄可能长期保持 MATERIALIZING；没有对账恢复。写入一旦开始派发就不因 CPU、进程或 CALL 子帧失败取消；
 - UPDATE 意图不携带登记时的基础版本，spec 构建时按 UUID 读取当时的最新版本，并发 UPDATE 不检测基础版本冲突；后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)第 6 节；
 - memory work、typed result 与终态快照只存在于当前进程，重启后不可恢复；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；

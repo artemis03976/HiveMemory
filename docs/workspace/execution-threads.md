@@ -19,7 +19,7 @@ related_docs:
   - docs/workspace/authentication.md
   - docs/workspace/capability.md
   - docs/alice/orchestration.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-29
 ---
 
 # 执行线程
@@ -55,7 +55,7 @@ last_reviewed: 2026-10-19
 
 线程的生命周期是“派生 → 运行 → 结束”，结束即同步撤销线程 context 并记为 `ENDED`，重复结束是空操作，没有“停止中”状态。结束有三个时点：子线程随 CALL 返回结束（CPU 经操作入口提交，第 6.2 节）；进程的停止被接受时全部线程即已结束；Actor 阶段结束时全部兜底结束，关闭流程再兜底（第 7 节）。停止路径不通知线程表：存活判定直接读取进程结局，停止被接受到 Actor 阶段收尾撤销凭据之间的提交按线程已结束拒绝。
 
-存活只有一个判定，由 `ProcessThreads.resolve` 一次完成：线程 context 未撤销且运行绑定是执行线程；进程在进程表中、线程登记在它的线程表中，且登记的就是这个 context（按对象身份比较）；线程状态为 `RUNNING`，且进程结局为 `RUNNING`。判定不读取阶段，因为线程只在 Actor 阶段内存在。操作入口的 `execute` 在分派前调用它，全部 actor 操作因此共用同一个存活判定（[能力层](./capability.md#6-操作入口)）。
+存活只有一个判定，由 `ProcessThreads.resolve` 一次完成：线程 context 未撤销且运行绑定是执行线程；进程在进程表中、线程登记在它的线程表中，且登记的就是这个 context（按对象身份比较）；线程状态为 `RUNNING`，且进程结局为 `RUNNING`。判定不读取阶段，因为线程只在 Actor 阶段内存在。操作入口的 `execute` 在分派前调用它，线程提交的全部 actor 操作因此共用同一个存活判定（[能力层](./capability.md#6-操作入口)）。存活判定只覆盖线程提交：不建进程的外部入口经请求级提交 `execute_request` 提交检索与读取，没有线程可判定，也不经线程表。
 
 拒绝分两类：线程的凭据已撤销、线程已结束或进程已收到停止，是生命周期拒绝 `ThreadEndedError`（`workspace.thread.ended`），actor 请求与 CALL 派生都得到它，Agent 出口明确提示停止操作；线程未登记、context 类型或运行绑定不对、子线程试图派生或 CPU 结束主线程，是接线缺陷，以 `ScopeRequiredError` 拒绝。错误码与呈现见[错误模型](../contracts/error-model.md)第 4.4 节。
 
