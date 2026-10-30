@@ -19,7 +19,7 @@ related_docs:
   - docs/workspace/README.md
   - docs/system/attachments.md
   - docs/frontend/state-and-transports.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-30
 ---
 
 # Chat 视图
@@ -76,7 +76,7 @@ OmniInput 在发送前组装：
 
 ChatLayout 挂载时加载会话列表，并按浏览器保存的 `currentSessionId` 读取历史。会话列表支持新建、选择、重命名和删除；TopBar 显示会话标题与轮数。会话内可逐轮切换 Agent；删除会话不删除 Topic 或 Memory。
 
-历史以 `ConversationTurn.payload` 为来源，按事件顺序恢复正文、MTP 和 CALL 卡片，WRITE/UPDATE 的 ACK 表示成功接纳；未配对的动作显示未完成，不继续转圈。CALL 只恢复根帧记录的结果，不编造子帧内部轨迹。每条回复显示本轮 Topic 标注，cancelled/failed 轮次带结局标记。
+历史以 `ConversationTurn.payload` 的轮次事件为来源，按序号恢复正文、MTP 和 CALL 卡片：卡片的动词与目标取调用事件的 `verb`、`targets`，命令文本是调用原文（MTP 指令片段，指令前正文已是前一个正文块），状态与结果取同一个调用事件上的结局；无法解析的指令没有动词，显示为 UNKNOWN。WRITE/UPDATE 的 ACK 表示成功接纳；没有结局的调用（停止时仍挂起的 CALL）显示未完成，不继续转圈。CALL 只恢复根帧记录的结果，不编造子帧内部轨迹。每条回复显示本轮 Topic 标注，cancelled/failed 轮次带结局标记。
 
 会话读取同时恢复服务端已接受的压缩检查点。消息以 `interaction_id` 匹配摘要与减重边界，在对应回复之后标记覆盖位置；摘要可展开，摘要与引用以纯文本展示，完整原文仍然可见。未知产生方或格式版本不展示标记。压缩开始时显示“正在压缩较早的上下文”，不会插入正文，也不会使无输出轮次变成已保存轮次。
 

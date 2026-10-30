@@ -429,12 +429,12 @@ _GENERATION_PROMPT_TEXT_ZH = {
 - **USER_PROFILE**: 用户偏好、习惯设定
 - **WORK_IN_PROGRESS**: 未完成的任务状态
 
-## 动作段 ([Actions])
-对话片段中的 [Actions] 按发生顺序记录助手在该轮中的过程：
+## 过程条目
+对话片段中每轮以 [User] 开头，其后按发生顺序排列助手正文（[Assistant]）与以 "- " 开头的过程条目：
 - **THOUGHT**: Agent 的推理与思考，不是用户的陈述，也不是已经验证的事实；不能单独作为记忆的事实依据，主要由它得出的内容应降低置信度
 - **TOOL / RESULT**: 外部工具的调用（工具名与参数摘要）及其返回结果。结果是对外部系统的观察，可以作为事实依据；标为 (error) 的结果表示调用出错，可用于提炼错误原因与修复经验
 - **SEARCH / READ / RUN**: 记忆系统内部操作（检索、读取记忆与运行记忆中的工具）的一行摘要；SEARCH 与 READ 读回的是已有记忆，不要把它们重复提取为新记忆
-- 过长的内容已被截断，"…[N chars omitted]…" 处省略了中段；"OMITTED" 行表示该轮动作过多而省略的条目数。不要推测被省略的内容
+- 过长的内容已被截断，"…[N chars omitted]…" 处省略了中段；"OMITTED" 行表示该轮过程条目过多而省略的条目数。不要推测被省略的内容
 
 ## 敏感信息
 不要把密钥、令牌、密码、证书或连接串中的凭据写入记忆；需要记录相关配置时，只保留名称与用途，省略具体取值。
@@ -498,10 +498,11 @@ _GENERATION_PROMPT_TEXT_ZH = {
 - **USER_PROFILE**: 用户偏好、习惯设定
 - **WORK_IN_PROGRESS**: 未完成的任务状态
 
-## 背景对话中的动作段 ([Actions])
+## 背景对话中的过程条目
+- 每轮以 [User] 开头，其后按发生顺序排列助手正文（[Assistant]）与以 "- " 开头的过程条目
 - **THOUGHT** 是 Agent 的推理，不能用来证实草稿；**TOOL / RESULT** 是外部工具的调用与返回结果，可以用来验证与补全草稿，标为 (error) 的结果表示调用出错
 - **SEARCH / READ / RUN** 是记忆系统内部操作（检索、读取记忆与运行记忆中的工具）的一行摘要
-- "…[N chars omitted]…" 处省略了过长内容的中段，"OMITTED" 行表示该轮动作过多而省略的条目数，不要推测被省略的内容
+- "…[N chars omitted]…" 处省略了过长内容的中段，"OMITTED" 行表示该轮过程条目过多而省略的条目数，不要推测被省略的内容
 
 ## 敏感信息
 不要把密钥、令牌、密码、证书或连接串中的凭据写入记忆；需要记录相关配置时，只保留名称与用途，省略具体取值。
@@ -563,7 +564,8 @@ _GENERATION_PROMPT_TEXT_ZH = {
 - **Refinement (精修)**: 仅修改特定行或段落，保留其他细节
 - **Append (追加)**: 在末尾追加新内容
 
-## 参考上下文中的动作段 ([Actions])
+## 参考上下文中的过程条目
+- 每轮以 [User] 开头，其后按发生顺序排列助手正文（[Assistant]）与以 "- " 开头的过程条目
 - **THOUGHT** 是 Agent 的推理，不能作为修改的事实依据；**TOOL / RESULT** 是外部工具的调用与返回结果，可以作为修改的参考，标为 (error) 的结果表示调用出错
 - **SEARCH / READ / RUN** 是记忆系统内部操作的一行摘要；"…[N chars omitted]…" 与 "OMITTED" 行表示省略的内容，不要推测
 
@@ -639,12 +641,12 @@ Analyze conversation snippets between the user and the AI assistant, extract and
 - **USER_PROFILE**: User preferences and habitual settings.
 - **WORK_IN_PROGRESS**: Unfinished task state.
 
-## Action Section ([Actions])
-The [Actions] section of a conversation snippet records what the assistant did during the turn, in order:
+## Process Entries
+Each turn of a conversation snippet starts with [User], followed in order by the assistant's text ([Assistant]) and process entries starting with "- ":
 - **THOUGHT**: The Agent's reasoning. It is neither a user statement nor a verified fact; do not use it alone as the factual basis of a memory, and lower the confidence of content that mainly comes from it.
 - **TOOL / RESULT**: A call to an external tool (tool name and argument summary) and what it returned. Results are observations of external systems and may serve as factual basis; a result marked (error) means the call failed and can be used to extract causes and fixes.
 - **SEARCH / READ / RUN**: One-line summaries of internal memory-system operations (searching and reading memories, and running tools stored in memories). What SEARCH and READ read back are existing memories; do not extract them again as new memories.
-- Overlong content has been truncated: "…[N chars omitted]…" marks an omitted middle part, and an "OMITTED" line gives the number of entries dropped because the turn had too many actions. Do not guess the omitted content.
+- Overlong content has been truncated: "…[N chars omitted]…" marks an omitted middle part, and an "OMITTED" line gives the number of entries dropped because the turn had too many process entries. Do not guess the omitted content.
 
 ## Sensitive Information
 Never write credentials such as API keys, tokens, passwords, certificates, or secrets in connection strings into memories. When a configuration is worth recording, keep only its name and purpose and omit the actual value.
@@ -708,10 +710,11 @@ Your task is not to discover value from the conversation, but to verify and stru
 - **USER_PROFILE**: User preferences and habitual settings.
 - **WORK_IN_PROGRESS**: Unfinished task state.
 
-## Action Section in the Background Conversation ([Actions])
+## Process Entries in the Background Conversation
+- Each turn starts with [User], followed in order by the assistant's text ([Assistant]) and process entries starting with "- ".
 - **THOUGHT** is the Agent's reasoning and cannot confirm the draft; **TOOL / RESULT** is a call to an external tool and what it returned, which may be used to verify and enrich the draft. A result marked (error) means the call failed.
 - **SEARCH / READ / RUN** are one-line summaries of internal memory-system operations (searching and reading memories, and running tools stored in memories).
-- "…[N chars omitted]…" marks an omitted middle part of overlong content, and an "OMITTED" line gives the number of entries dropped because the turn had too many actions. Do not guess the omitted content.
+- "…[N chars omitted]…" marks an omitted middle part of overlong content, and an "OMITTED" line gives the number of entries dropped because the turn had too many process entries. Do not guess the omitted content.
 
 ## Sensitive Information
 Never write credentials such as API keys, tokens, passwords, certificates, or secrets in connection strings into memories. When a configuration is worth recording, keep only its name and purpose and omit the actual value.
@@ -773,7 +776,8 @@ Automatically infer the mode from the instruction:
 - **Refinement**: Modify only specific lines or paragraphs while preserving other details.
 - **Append**: Append new content at the end.
 
-## Action Section in the Reference Context ([Actions])
+## Process Entries in the Reference Context
+- Each turn starts with [User], followed in order by the assistant's text ([Assistant]) and process entries starting with "- ".
 - **THOUGHT** is the Agent's reasoning and is not a factual basis for the update; **TOOL / RESULT** is a call to an external tool and what it returned, which may inform the update. A result marked (error) means the call failed.
 - **SEARCH / READ / RUN** are one-line summaries of internal memory-system operations. "…[N chars omitted]…" and "OMITTED" lines mark omitted content; do not guess it.
 

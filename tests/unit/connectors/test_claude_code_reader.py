@@ -95,7 +95,8 @@ def test_unrecorded_results_leave_calls_without_outcome_and_stray_results_are_sk
 
 
 def test_only_this_plugins_memory_tools_become_capability_calls(tmp_path):
-    """本插件的检索与读取写动词与作用对象、不带调用名；其他 server 的同名工具与普通工具写工具名。
+    """本插件的检索与读取写动词与作用对象、不带调用名；其他 server 的同名工具、普通工具与
+    作用对象不是 alias 列表的读取写工具名，后者若写成 READ 会让服务端拒绝整轮。
 
     调用名固定为 Claude Code 文档给出的格式，拼名规则出错时这里失败。
     """
@@ -114,6 +115,11 @@ def test_only_this_plugins_memory_tools_become_capability_calls(tmp_path):
         ),
         ("toolu-3", "mcp__other__memory_search", {"query": "部署"}),
         ("toolu-4", "Bash", {"command": "ls"}),
+        (
+            "toolu-5",
+            "mcp__plugin_hivememory-connector_hivememory__memory_read",
+            {"aliases": "fact_a"},
+        ),
     ]
     for index, (tool_id, name, tool_input) in enumerate(calls):
         log.assistant(tool_use(tool_id, name, tool_input), message_id=f"m{index}")
@@ -153,6 +159,12 @@ def test_only_this_plugins_memory_tools_become_capability_calls(tmp_path):
             "action_id": "toolu-4",
             "tool_name": "Bash",
             "tool_args": {"command": "ls"},
+        },
+        {
+            "kind": "tool_call",
+            "action_id": "toolu-5",
+            "tool_name": "mcp__plugin_hivememory-connector_hivememory__memory_read",
+            "tool_args": {"aliases": "fact_a"},
         },
     ]
 

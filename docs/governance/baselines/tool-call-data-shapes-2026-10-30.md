@@ -28,7 +28,7 @@ code_paths:
   - integrations/claude-code/connector/
   - frontend/src/stores/chat/sessionHistory.ts
 related_docs:
-  - docs/plans/v0.7.1-tool-call-parsing-chain.md
+  - docs/archive/plans/v0.7.1-tool-call-parsing-chain.md
   - docs/contracts/mtp.md
   - docs/contracts/mcp.md
   - docs/system/import-bus.md
@@ -41,7 +41,7 @@ last_reviewed: 2026-10-30
 
 本文冻结 `source_commit`（v0.7.1 开发期间的 `master`）上两条工具调用链路的数据形态：Alice 的 MTP 指令，与外部 harness（Claude Code）经 HiveMemory MCP 工具的调用。最新行为仍以代码、测试与当前设计为准。
 
-**起因**：处理 Todo《导入的 MCP 读取在轨迹中显示 alias》（2026-10-30 并入[工具解析链路重写计划](../../plans/v0.7.1-tool-call-parsing-chain.md)）时发现，问题不在渲染一处。owner 判断（2026-10-30）：`ActionReducer` 与 `TraceReducer` 的行为都不符合预期；`InteractionPayload` 同时保留 `mtp_traces` 与 `turn_events`，后面的解析来源因此不一致；后续各处对这些工具路径的渲染行为也不可见。整条工具解析链路需要重写。本文为重写提供现状证据，不提出设计。
+**起因**：处理 Todo《导入的 MCP 读取在轨迹中显示 alias》（2026-10-30 并入[工具解析链路重写计划](../../archive/plans/v0.7.1-tool-call-parsing-chain.md)）时发现，问题不在渲染一处。owner 判断（2026-10-30）：`ActionReducer` 与 `TraceReducer` 的行为都不符合预期；`InteractionPayload` 同时保留 `mtp_traces` 与 `turn_events`，后面的解析来源因此不一致；后续各处对这些工具路径的渲染行为也不可见。整条工具解析链路需要重写。本文为重写提供现状证据，不提出设计。
 
 ## 1. 范围与方法
 
@@ -250,6 +250,6 @@ assistant | 结论是……
 
 | 项 | 处置 |
 |:---|:---|
-| 工具解析链路重写 | owner 决定重写（2026-10-30）；设计见[工具解析链路重写 Idea](../../ideas/tool-call-parsing-chain.md)，实施见[计划](../../plans/v0.7.1-tool-call-parsing-chain.md) |
-| Todo《导入的 MCP 读取在轨迹中显示 alias》 | 是第 8 节第 2 项的一个表现，2026-10-30 并入[工具解析链路重写计划](../../plans/v0.7.1-tool-call-parsing-chain.md) |
+| 工具解析链路重写 | owner 决定重写（2026-10-30）；设计见[工具解析链路重写 Idea](../../archive/ideas/tool-call-parsing-chain.md)，实施见[计划](../../archive/plans/v0.7.1-tool-call-parsing-chain.md) |
+| Todo《导入的 MCP 读取在轨迹中显示 alias》 | 是第 8 节第 2 项的一个表现，2026-10-30 并入[工具解析链路重写计划](../../archive/plans/v0.7.1-tool-call-parsing-chain.md) |
 | 第 8 节其余各项 | 只记录，供重写设计参考 |

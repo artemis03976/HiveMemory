@@ -141,7 +141,7 @@ Actor 阶段结束时，执行器同步结束本进程仍在运行的全部线�
 
 ## 8. 封口、部分输出与结算
 
-交互记录由进程封口：Actor 有输出、进入 finalize 之前，进程以入口消息、Gateway 决定、Actor 的执行结果与实际使用的附件组装 `InteractionPayload`（core 的共用封口函数 `seal_interaction`，`core/protocol/sealing.py`），MTP 轨迹由 core 的归约器从轮次事件得到；CPU 结果与交互记录都不携带物化任务；finalize 原样提交、等待 applied 并记录命中后返回 `None`，不派发写入。finalize 失败不影响已接纳写入。Import Bus 以同一个函数封口导入的轮次，两条链路交给 Patchouli 的载荷同形，Patchouli 不需要读懂执行者的运行结果。字段来源见[子系统公共契约](../contracts/subsystem-contracts.md#32-finalizeagentrun) 3.2。
+交互记录由进程封口：Actor 有输出、进入 finalize 之前，进程以 Actor 的执行结果（轮次事件、使用的模型、结局与回复正文）和实际使用的附件组装 `InteractionPayload`（core 的共用封口函数 `seal_interaction`，`core/protocol/sealing.py`）。封口只组装、不解析事件：交互内容只以轮次事件表达，序号 0 的用户消息事件由 CPU 写出（chat 入口因此拒绝空消息），入口消息与 Gateway 决定不进入交互记录，一轮事件集的不变量在载荷构造时校验；CPU 结果与交互记录都不携带物化任务；finalize 原样提交、等待 applied 并记录命中后返回 `None`，不派发写入。finalize 失败不影响已接纳写入。Import Bus 以同一个函数封口导入的轮次，两条链路交给 Patchouli 的载荷同形，Patchouli 不需要读懂执行者的运行结果。字段来源见[子系统公共契约](../contracts/subsystem-contracts.md#32-finalizeagentrun) 3.2。
 
 CPU 的三种结局只要有回复文本或执行事件就封口、同步写入会话并进入 finalize；初始 `user_message` 是输入，不算输出。只有正文而无助手事件时，封口处补齐规范 `assistant_message`。finalize 成功后 prepared 标记为已接管，不再 cleanup。
 

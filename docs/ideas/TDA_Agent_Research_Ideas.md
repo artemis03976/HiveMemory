@@ -17,7 +17,7 @@ last_reviewed: 2026-07-29
 
 ## 0. 复核结论与当前基础
 
-HiveMemory 已经拥有比自由文本 CoT 更可靠的一部分观测原语：`TurnEvent` 以 sequence 和 action id 保存消息、thought、tool call/result；`AgentAction` 聚合动作；`RuntimeEvent` 提供 trace、frame、run、task 和 topic 等关联字段；Alice 也能产生单层、串行 CALL 的子 Agent 事件。这些结构可以成为未来离线构图的数据来源。
+HiveMemory 已经拥有比自由文本 CoT 更可靠的一部分观测原语：`TurnEvent` 以 sequence 和 action id 保存消息、thought 与工具调用（调用与结局在同一个事件上）；`RuntimeEvent` 提供 trace、frame、run、task 和 topic 等关联字段；Alice 也能产生单层、串行 CALL 的子 Agent 事件。这些结构可以成为未来离线构图的数据来源。
 
 但当前没有持久化 Agent trajectory graph、依赖边抽取、filtration、persistent homology、topology monitor 或拓扑驱动的运行时控制。RuntimeEventBus 还是进程内 best-effort 观测流，TurnEvent 也没有完整的 parent dependency、成本、延迟与跨 run 回放语义；Alice 当前只支持单层星型 CALL，不具备并行团队、动态 DAG 或自治 review loop。因此下文的图模型、H0/H1 解释和控制策略都只是待证伪假设，不能反写为当前编排设计。
 
@@ -370,7 +370,7 @@ Agent run log
 
 ### 6.1 数据层
 
-首先需要把当前 TurnEvent、AgentAction、Alice 流事件与 RuntimeEvent 投影为一个可导出的最小记录，并补齐构图真正需要、而当前尚未稳定提供的依赖、成本和结果字段。这个导出层必须显式区分内容事实、业务状态与 best-effort 观测，不能把多种事件流简单拼成一份伪权威日志。
+首先需要把当前 TurnEvent、Alice 流事件与 RuntimeEvent 投影为一个可导出的最小记录，并补齐构图真正需要、而当前尚未稳定提供的依赖、成本和结果字段。这个导出层必须显式区分内容事实、业务状态与 best-effort 观测，不能把多种事件流简单拼成一份伪权威日志。
 
 每次运行记录：
 

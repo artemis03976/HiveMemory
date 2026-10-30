@@ -29,9 +29,8 @@ v0.7.1 的版本目标为 plugin 模式的真实外部 harness 接入，首个�
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
 | [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两类接入登记（配置装载）、统一认证网关（HTTP、进程注册、Import Bus 与 MCP 已接入，外部 principal 以接入凭据证明）、Import Bus 与 Claude Code 插件（plugin 模式的对话回流与 MCP 记忆访问）、能力层 | 原计划 B 退回：外部 Actor 分为 plugin 与 controller 两种接入模式（plugin 模式为 v0.7.1 的版本目标，首个接入 Claude Code；controller 模式退回候选方向）；外部 Actor 如何登记进系统、运行时如何访问系统，以及操作适配器的接口边界（E-1 已决定维持配置装载；E-3a 已决定以归一化定义操作适配器；E-5 已决定外部执行单元不识别子线程、所有 actor 共享主线程的 context；E-6a 已决定外部 harness 是执行环境、与 agent 分别选择；E-6b 已决定不允许 CALL 的目标位于另一个执行单元；E-2 已决定多种传输各由操作适配器归一到同一能力层，支持 MCP 的 harness 以 MCP 访问记忆；E-7 已决定 plugin 模式下记忆只经 MCP 工具到达 harness；E-3b 已决定 MCP 的操作适配器放在与 server 同层的独立入口包、MTP 的留在 agent_runtime；E-4 待决；记忆访问已于 2026-10-29 实施并归档（[归档计划](../archive/plans/v0.7.1-memory-access-mcp.md)）） |
-| [工具解析链路重写](./tool-call-parsing-chain.md) | 现状见[工具调用数据形态调查基线](../governance/baselines/tool-call-data-shapes-2026-10-30.md)；owner 决定（2026-10-30）重写整条链路，`TurnEvent` 作为唯一的交互原子事件 | 第一部分（MTP 与 MCP 的工具调用如何统一进入 `TurnEvent`）已有候选设计，阻塞问题已决定（MCP 工具参数在连接器归一化）；第二部分（载荷只携带 `turn_events`、感知层唯一的解析与渲染）已有候选设计；2026-10-30 已形成[计划](../plans/v0.7.1-tool-call-parsing-chain.md) |
 
-Import Bus Idea 随首份计划实施改为候选方向（2026-10-21）。执行线程的正式定义已于 2026-10-19 实施，Idea 移入[归档](../archive/ideas/README.md)，当前事实见 [执行线程](../workspace/execution-threads.md)。版本内状态见 [Plans 导航](../plans/README.md#v071)。
+Import Bus Idea 随首份计划实施改为候选方向（2026-10-21）。执行线程的正式定义已于 2026-10-19 实施，Idea 移入[归档](../archive/ideas/README.md)，当前事实见 [执行线程](../workspace/execution-threads.md)。工具解析链路重写已于 2026-10-30 实施，Idea 同样移入归档，当前事实见[数据模型](../architecture/data-model.md)。版本内状态见 [Plans 导航](../plans/README.md#v071)。
 
 ## 候选方向（`candidate`）
 
@@ -58,7 +57,7 @@ Import Bus Idea 随首份计划实施改为候选方向（2026-10-21）。执行
 | [AE2 与 HiveMemory 的架构同构性](./ae2-hivememory-architecture-analogy.md) | Patchouli 存储平面、Alice Frame/编排、MTP 能力契约与当前可见性过滤 | Workspace/软件子网、Harness-to-Harness、Workflow Memory、Job Graph、Mount/Bridge、AIOS 资源抽象与隔离执行是否值得进入真实验证 |
 | [MaaT 与 Skill/Plugin 边界的资产消费模型](./memory-as-tool-skill-plugin-boundary.md) | `MemoryCompiler` target 体系、MTP `RUN` 两层分发、MemoryAtom/Artifact 分离 | 如何让 MTP RUN 编译为结构化执行意图，证明相对外部 harness + Patchouli 的结构性优势，以及 CODE_SNIPPET 的迁移边界、ToolInvocationIR 与共享 MemoryCompiler IR 的关系、执行证据回流与终端实践的晋升机制 |
 | [生命力分数长期演进](./VitalityScoringLongTermEvolutionIdeas.md) | 当前 vitality 公式、强化事件、gardening 与显式 archive/revive | 哪些新状态能由真实使用数据校准，而不是继续叠加启发式参数 |
-| [Agent 轨迹与多 Agent TDA](./TDA_Agent_Research_Ideas.md) | TurnEvent、AgentAction、RuntimeEvent 与单层 CALL | 拓扑特征能否比普通计数/规则更稳定地解释成功、成本和失败类型 |
+| [Agent 轨迹与多 Agent TDA](./TDA_Agent_Research_Ideas.md) | TurnEvent、RuntimeEvent 与单层 CALL | 拓扑特征能否比普通计数/规则更稳定地解释成功、成本和失败类型 |
 | [Memory-Centric Agent TDA](./TDA_Memory_Centric_Agent_Ideas.md) | MemoryAtom 关系预留、检索信号与来源/版本 Artifact | 多视图记忆图能否形成可重复、可行动且优于平面检索的信号 |
 
 本索引于 2026-09-27 按 `horizon` 重新分区。这里的材料均不代表路线图承诺，也不能作为当前能力引用；`current` 类中记录的 owner 决定只约束后续 Plan 的编写，不等于已经实现。已实现或不再跟踪的 Idea 移入 [Archived Ideas](../archive/ideas/README.md)，例如已随 v0.6.2 实现的 Chat Attachments 初步设计备忘。既有 Ideas 的历史分类依据见[文档迁移最终收口审计](../archive/plans/documentation-migration-finalization-audit.md)。

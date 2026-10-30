@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # System 配置与注册表
@@ -51,14 +51,14 @@ last_reviewed: 2026-10-29
 
 主动写入的背景轮数由 `patchouli.generation.active_recent_blocks` 控制，默认 5、最小 0；即话题过去 N 个 block 与 `state_summary`，不含当前轮。该项与 `patchouli.perception.fold_retain_recent_blocks` 的折叠保留轮数独立，见[Patchouli 生成](../patchouli/generation.md)。
 
-`patchouli.generation.transcript`（`GenerationTranscriptConfig`）约束记忆生成转写中动作段的字符长度；感知估算逻辑块 token 时使用同一组上限，折叠阈值因此反映生成实际看到的材料。上限只约束思考与外部工具动作的渲染，MTP 动作的一行摘要不截断。四项均要求至少 1：
+`patchouli.generation.transcript`（`GenerationTranscriptConfig`）约束一轮交互材料的字符长度：记忆生成视图、LLM 接力摘要与逻辑块的 token 统计使用同一组上限，折叠阈值因此反映生成实际看到的材料。上限只约束思考与外部工具步骤的渲染，能力调用（SEARCH、READ、RUN）的一行摘要不截断；单轮上限另外计入能力摘要，用户消息与助手正文不计入。四项均要求至少 1：
 
 | 字段 | 默认值 | 作用 |
 |:---|---:|:---|
 | `max_thought_chars` | `1000` | 单条思考的字符上限 |
 | `max_args_chars` | `300` | 工具参数摘要的字符上限 |
 | `max_result_chars` | `800` | 单条工具结果的字符上限 |
-| `max_turn_action_chars` | `8000` | 一轮动作段的字符上限：超出时较早的非出错动作降为一行，仍超出时按优先级省略整条 |
+| `max_turn_action_chars` | `8000` | 一轮思考、能力摘要与外部工具步骤的字符上限：超出时较早的非出错工具步骤降为一行，仍超出时按优先级省略整条 |
 
 默认值写在 `configs/config.yaml` 中，渲染与省略规则见 [Patchouli 生成](../patchouli/generation.md)。
 

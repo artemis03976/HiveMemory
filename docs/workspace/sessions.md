@@ -14,7 +14,7 @@ related_docs:
   - docs/workspace/task-process.md
   - docs/alice/agent-runtime.md
   - docs/gateway/analysis.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-30
 ---
 
 # 会话资源
@@ -28,6 +28,8 @@ ConversationSession 是 workspace 的进程内资源，属于 Workspace、不属
 ## 2. 会话轮次与历史所有权
 
 会话保存有序 `ConversationTurn`：进程关联 `interaction_id`、Agent 标签、唯一正文 `payload: InteractionPayload`、本轮 `topic_id` 与写入时间。读取和追加都复制嵌套载荷，调用方不能改写历史。
+
+载荷的交互内容只以事件集 `turn_events` 表达（以序号 0 的用户消息开头，工具调用连同结局记在同一个事件上，模型见[数据模型](../architecture/data-model.md)），另带本轮结局、实际使用的模型与附件。用户消息与回复正文（全部助手正文按序号以空行拼接）由载荷的只读属性从事件读出，不另存一份：会话标题、Gateway 的会话上文与会话 HTTP 的 `user_message`、`assistant_final_text` 都取自这两个属性。回复正文与流式 `done` 中 CPU 组装的最终回复可能只差分段间的空行。
 
 它不是 Topic 的副本，三方各取所需：
 

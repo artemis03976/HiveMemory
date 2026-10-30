@@ -14,7 +14,7 @@ related_docs:
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/todo/conversation-compact-command.md
-last_reviewed: 2026-10-20
+last_reviewed: 2026-10-30
 ---
 
 # 外部会话消息的接收与 Topic 投影
@@ -172,7 +172,7 @@ TurnEvent（在现有字段上补齐表达能力）
   source_metadata
 ```
 
-> 2026-10-30：工具调用相关的 `TurnEvent` 字段（`action_id` 是否必带、工具名、动词、作用对象、结果状态）改由[工具解析链路重写 Idea](./tool-call-parsing-chain.md)设计；本节其余候选扩展待该设计落地后依据新的事实修订。
+> 2026-10-30：工具调用相关的 `TurnEvent` 字段已随[工具解析链路重写计划](../archive/plans/v0.7.1-tool-call-parsing-chain.md)落地：调用必带 `action_id`，`verb` 与 `tool_name` 互斥，作用对象为 `targets`，结局记在同一个调用事件上，没有结局表示结局没有记录（[数据模型](../architecture/data-model.md)）。下面的候选结构与本节其余候选扩展（事件时间、来源元数据等）尚待依据这些事实修订。
 
 现有 TurnEvent 已能表示消息、thought、工具调用与结果，并允许缺少 action_id；候选设计补齐 system_message、external_summary、unknown、事件时间、外部 event/call 关联和 provenance 的表达，不另建等价 Part 模型。来源字段采用独立字段还是受约束 metadata 待定；外部 event ID 可选，不能为了统一强造新的全局 part_id。来源未知须可显式表达。
 
@@ -302,6 +302,8 @@ Topic 身份、prepare handle、路由关联和资料快照分别交接。主动
 复用 `TopicManagementService`、`InteractionSubmissionService` 与现有全局路由地址，对尚未公开的方法补齐明确地址和 operation；不另包一层 provider 或 Workspace service。演进后的 `InteractionPayload` 是公开提交输入，`InteractionSubmission` 仍是内部 queue envelope；二者沿用同一个 interaction_id。apply/路由关联观察应与提交入口同时可用。
 
 ## 5. 结构化事件的构建时机
+
+> 2026-10-30：本节与第 6 节写于工具解析链路重写之前。其中的 `ActionReducer`、`AgentAction`、`mtp_traces` 以及载荷中的用户消息、回复正文与 `worth_saving` 字段，已随[工具解析链路重写计划](../archive/plans/v0.7.1-tool-call-parsing-chain.md)删除：交互内容只以 `turn_events` 表达，一次工具调用与它的结局是同一个事件，没有可靠关联的调用不再经归约器配对（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)）。这两节的候选设计尚待依据新的事实修订。
 
 外部 adapter 在接收阶段把实际收到的事件归一化为 TurnEvent，放入开放段；共同归一化规则应复用，来源特有协议解释留在 adapter。交互封口可以由完成回调、assistant 结束、工具结果完整、显式 flush、shutdown 或取消信号触发；缺少结束信号不能推断成功完成，partial/cancelled 必须保留其状态。
 

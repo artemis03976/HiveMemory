@@ -45,11 +45,12 @@ def test_generation_prompt_getter_supports_language_alias():
 
 @pytest.mark.parametrize("language", ["zh", "en"])
 @pytest.mark.parametrize("mode", ["passive", "write", "update"])
-def test_generation_prompts_explain_action_section_and_forbid_credentials(mode, language):
-    """转写带有思考与外部工具动作的提示词，必须说明动作段的含义与凭据约束。"""
+def test_generation_prompts_explain_process_entries_and_forbid_credentials(mode, language):
+    """转写中助手正文与过程条目按顺序穿插，提示词必须说明这一格式、各条目的含义与凭据约束。"""
     prompt = get_generation_prompt_text(mode, "system_prompt", language)
     credential_rule = {"zh": "不要把密钥、令牌", "en": "Never write credentials"}[language]
 
+    assert "[Assistant]" in prompt
     assert "THOUGHT" in prompt
     assert "TOOL / RESULT" in prompt
     assert "chars omitted" in prompt

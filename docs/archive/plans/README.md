@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # Archived Plans
@@ -14,6 +14,7 @@ last_reviewed: 2026-10-29
 
 当前记录：
 
+- [v0.7.1 工具解析链路重写：`TurnEvent` 作为唯一的交互原子事件](./v0.7.1-tool-call-parsing-chain.md)：2026-10-30 三阶段实现、代码审查与实测验收后归档。Alice 的 MTP 指令与外部 harness 的工具调用写出同形的 `TurnEvent`：`verb` 与 `tool_name` 互斥，作用对象为 `targets`，一次工具调用与它的结局（`status`、`result`、`produced_aliases`）是同一个事件（阶段一后 owner 决定合并），没有结局表示结局没有记录；连接器把插件自身的检索与读取归一化为 SEARCH、READ。交互载荷只以事件表达内容，归约器、轨迹与派生字段删除；感知层的解析与渲染集中为一处，生成视图、LLM 接力摘要与 token 统计共用，助手正文按出现位置穿插在过程之间。并入的 Todo《导入的 MCP 读取在轨迹中显示 alias》随之解决。阶段一 `7b29fe55`、阶段二 `7b3d545c`，审查修正、验收与事实文档收尾随后提交，未发布；后端 3064 passed，覆盖率 94.39%，确定性 E2E 22 passed。当前事实见[数据模型](../../architecture/data-model.md)、[感知与短期话题](../../patchouli/perception.md)、[Patchouli 生成](../../patchouli/generation.md)与 [Import Bus](../../system/import-bus.md)。
 - [v0.7.1 推理模型的空闲卸载与按需加载](./v0.7.1-model-idle-unload.md)：2026-10-29 三阶段实现、代码审查与实测验收后归档。嵌入与重排共用一份模型服务基类，按 `resident`/`idle_unload` 驻留（默认空闲卸载：嵌入 30 分钟、重排 10 分钟），卸载在推理线程中执行并以 `malloc_trim` 把内存归还操作系统；chat 在 Gateway 之前预取，重排模型未加载时这一次跳过重排；就绪改为“每个模型至少成功加载过一次且当前不处于加载失败状态”。实测卸载后常驻内存由约 2.6 GB 回落到约 380 MB，6 轮无增长；重新加载期间其他请求最长等待约 1～3.7 秒，记为已知限制，之后单独优化（[Todo](../../todo/model-reload-event-loop-stall.md)）。阶段一 `c884f553`、阶段二 `ca7124e6`，验收与事实文档收尾随后提交，未发布；后端 3113 passed，确定性 E2E 22 passed。当前事实见 [Patchouli](../../patchouli/README.md#41-模型驻留与空闲卸载)。
 - [v0.7.1 记忆访问：Claude Code 经 MCP 工具检索与读取记忆](./v0.7.1-memory-access-mcp.md)：2026-10-29 五个阶段实现、代码审查与实测验收后归档。Claude Code 以自己的接入登记 `harness:claude-code` 与接入凭据认证（统一认证网关第一阶段核对凭据，`allow_system_actor` 限定能声明 `system` 的来源），对话回流改用这一身份；HiveMemory 在同一 HTTP 服务上提供 `/mcp`，两个只读工具每次调用签发一份请求级 context，经操作入口的请求级提交进入 actor API；连接器把插件自身工具的调用标为 SEARCH、READ，避免回声。当前事实见 [MCP 记忆访问](../../contracts/mcp.md)、[认证与访问登记](../../workspace/authentication.md)与 [Import Bus](../../system/import-bus.md)。
 - [v0.7.1 Import Bus 重设计：以 Claude Code 对话回流为第一条真实路径](./v0.7.1-import-bus-redesign.md)：2026-10-21 实现、代码审查后归档。Passive Ingress 改为只向网络输入的 Import Bus：一次请求接收 harness 一轮已结束交互的完整记录，经统一认证网关与导入授权（认证前组装身份的例外消除），Gateway `PASSIVE_MEMORY` 只做落位与价值信号，载荷与任务进程共用封口函数，经 Patchouli 公开路由提交、在应用完成后才确认；话题路由失败时续接上一轮仍在候选中的话题（两条链路共用）；生成视图纳入思考与外部工具的三元组；Claude Code 连接器以插件形式提供。阶段一 `f995ea7f`、阶段二 `00766df9`、阶段三 `956d1d51`、审查修正 `92329640`、应用后确认 `03b9001e`，事实文档收尾随后提交，未发布；后端 3040 passed、2 skipped，确定性 E2E 10 passed。真实使用验收随日常使用持续观察（[Todo](../../todo/import-bus-real-use-observation.md)）。当前事实见 [Import Bus](../../system/import-bus.md)。

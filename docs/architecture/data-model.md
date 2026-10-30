@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-30
 ---
 
 # 数据模型与可变性边界
@@ -78,7 +78,7 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 当前形成较完整不可变链路的模型包括：
 
 - `ActorIdentity` 与仅含两个字符串的 `ExecutionLabels`；
-- `TurnEvent`、`AgentAction`、`TraceItem`、`TurnRecord`；
+- `TurnEvent`、`TurnRecord` 与 `LogicalBlock`（字段见第 4.9 节）；
 - `TopicData`、`TopicSnapshot` 与相关展示值对象；
 - Gateway 的公共 decision / command outcome 及多项私有分析结果；
 - PendingAtom 领域中的 `WriteFocus`、`UpdateFocus`、`RuntimeScope`、`PendingAtomSnapshot` 和 `PendingAtomMaterializeTask`。
@@ -166,6 +166,35 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 `InteractionPayload.outcome` 与 `TurnRecord.outcome` 均为 completed/cancelled/failed，默认 completed；`GenerationTurn` 继续传递结局以注明中断材料。InteractionSubmission codec 6 拒绝旧版本。会话保存完整交互，CPU 清单的 `session_history` 是本会话全量快照，Gateway 的 `GatewaySessionTurn` 只投影用户与助手文本以及该轮实际落位的 `topic_id`（只供话题路由失败时续接上一轮）；二者都不含访问 context。资源生命周期见 [会话资源](../workspace/sessions.md)。
 
 `SessionCompactionCheckpoint` 同置 `core.protocol.models`，冻结产生方、版本、两个覆盖游标、摘要、引用 tuple 与时间；字段规范见[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)。它是会话旁挂的执行视图，不进入 `InteractionPayload` 或 submission codec；旧会话没有检查点时按原文重放。
+
+### 4.9 交互记录：TurnEvent 与 InteractionPayload
+
+一轮 Agent 交互只有一份记录：有序的 `TurnEvent` 集合（`core/models/interaction.py`）。Alice 的 MTP 指令与外部 harness 的工具调用汇入同一套下游；事件、动作与轨迹若各存一份，读取方会从不同的表达解析出不一致的结果。因此事件集是唯一的内容事实，载荷与逻辑块不保存由它派生或与它重复的表达，对事件的解析只在感知层进行一次（[感知](../patchouli/perception.md)）。两种来源写出同形的事件：字段含义相同，来源之间真实存在的差异只体现为取值，读取方不判断来源。
+
+| kind | content | 可以携带的字段 |
+|:---|:---|:---|
+| `user_message` | 用户消息 | — |
+| `assistant_message` | 助手正文的一段 | — |
+| `thought` | 思考正文 | — |
+| `tool_call` | 调用原文：MTP 为指令片段，结构化调用为空串 | `action_id`（必填）、`verb` 或 `tool_name`、`targets`、`tool_args`；结局 `status`、`result`、`produced_aliases` |
+
+一次工具调用与它的结局是同一个 `tool_call` 事件，读取方不需要配对。字段语义：
+
+- **`content`**：执行者写出的原文，重放据此还原。MTP 调用事件只存指令片段，指令前的正文只在它前面那条 `assistant_message` 中。对调用的解读只看结构化字段；MTP 指令无法解析时只有原文，`verb` 与 `tool_name` 都为空。
+- **`action_id`**：一次调用的标识，轮内唯一。MTP 为 `action_{iteration}_{sequence}`，Claude Code 为 `tool_use.id`；CALL 回填按它找到挂起的调用。
+- **`verb` 与 `tool_name`**：二者互斥，回答“调用了什么”。`verb` 是 HiveMemory 能力（SEARCH、READ、RUN、WRITE、UPDATE、CALL），外部 harness 经 HiveMemory 的 MCP 工具检索与读取时同样写动词；`tool_name` 是外部工具的名字。动词是封闭词表、工具名是开放词表，两者会重名（Claude Code 有 `Read`、`Write` 工具），所以不合并为一个字段。
+- **`targets` 与 `tool_args`**：`targets` 是动词的作用对象（READ 的 alias，RUN 的工具或代码记忆，UPDATE 的记忆，CALL 的 Agent；SEARCH 与 WRITE 为空），只能与 `verb` 同时出现；`tool_args` 只放作用对象以外的参数，SEARCH 的查询在 `tool_args["query"]`，构造时递归冻结。
+- **`status` 与 `result`**：调用的结局与执行者收到的返回原文，同时出现或同时为空。`status` 取 `success`、`ack`、`error`、`cancelled`：MTP 取回填的响应状态（`warning` 从不作为状态出现，CALL 挂起不写入状态），外部工具为 `success` 或 `error`。
+- **没有结局**表示结局没有记录：执行者拿到结果之前被取消或失败，或来源没有记下结果——Claude Code 的会话记录有时只记下同一条消息并行发出的多个调用中最后一个的结果，模型其实收到了全部结果。因此没有结局不等于调用没有完成，读取方不作这样的断言。
+- **`produced_aliases`**：本次调用产出的 alias。WRITE、UPDATE 的 ACK 为 pending alias，CALL 为子帧回填的产物；只在有结局时出现。
+
+单个事件的字段规则在构造时校验：字段只出现在允许它的种类上，调用必带 `action_id`，`verb` 与 `tool_name` 不同时出现，`targets` 只随 `verb` 出现，结局字段成对出现。结局晚于调用到达时（Alice 的 CALL 挂起后回填），由 `TurnEvent.with_outcome` 返回带结局的新事件替换原事件，序号不变；它只对没有结局的调用进行，已有结局时显式失败，避免把两次返回记到同一个调用上。事件集因此不是严格只追加的：没有结局的调用至多在执行者自己的累积列表中被替换一次，封口之后事件集不再改变。
+
+一轮事件集的不变量由 `validate_turn_events` 校验：首个事件是序号 0 的用户消息，且一轮只有这一条用户消息；序号轮内唯一、严格递增；调用的 `action_id` 轮内唯一。`InteractionPayload` 构造时执行这项校验，Import Bus 在请求校验阶段提前执行同一校验；违反时显式失败，不修补。
+
+`InteractionPayload`（`core/protocol/models.py`）只以 `turn_events` 表达交互内容，其余字段是本轮结局 `outcome`、执行者实际使用的模型 `model_used` 与实际进入上下文的附件 `used_attachments`，它们不是对事件的解析。用户消息与回复正文是从事件读取的只读属性，不保存、不序列化：`user_message` 取序号 0 的用户消息，`reply_text` 把全部助手正文按序号以空行拼接（没有助手正文时为空串）；执行者交给交付方的最终回复由执行者自己组装，不受它影响。Gateway 的改写查询与价值预判不进入载荷；载荷拒绝额外字段。
+
+`TurnRecord` 是感知层写入话题的单轮记录，只有结局、`turn_id`、产出本轮的 actor（由构造方显式给出）与事件集 tuple。`LogicalBlock` 包装一条 `TurnRecord`，另有块标识、写入时间与对本轮渲染材料估算的 `total_tokens`；它的 `user_message` 与 `reply_text` 同样从事件读取，不另存。
 
 ## 5. 当前仍然可变或仅浅层冻结的区域
 

@@ -5,7 +5,7 @@ owner: patchouli
 scope: settlement-material-filtering-generation-view-limits-and-worth-saving-leftovers
 code_paths:
   - src/hivememory/engines/perception/models.py
-  - src/hivememory/prompts/transcript/actions.py
+  - src/hivememory/engines/perception/material.py
   - src/hivememory/config/patchouli.py
   - src/hivememory/system/services/import_bus/ingestor.py
   - src/hivememory/core/protocol/gateway.py
@@ -18,7 +18,7 @@ related_docs:
   - docs/system/import-bus.md
   - docs/ROADMAP.md
   - docs/todo/import-bus-real-use-observation.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # 生成材料的筛选与截断
@@ -30,7 +30,7 @@ Claude Code 单个会话的上下文常达数十万 token，而每个话题送�
 1. **入口价值预判整轮丢弃材料**：Gateway 在只看到用户消息的情况下判断价值，判为不值得保存的轮次在结算时被整轮过滤。
    - Owner 决定（2026-10-29）：`worth_saving` 需要整体重设计，在此之前不得再影响材料去留。
    - 结算已于同日改为不按 `worth_saving` 筛选，当前事实见[感知与短期话题](../patchouli/perception.md)第 2 节。
-2. **生成视图的每轮上限**：保留下来的轮次里，动作段大多被截断，多数工具调用只剩工具名与参数，看不到结果。
+2. **生成视图的每轮上限**：保留下来的轮次里，思考与工具步骤大多被截断，多数工具调用只剩工具名与参数，看不到结果。
 
 ## 证据（2026-10-29）
 
@@ -68,7 +68,7 @@ Claude Code 单个会话的上下文常达数十万 token，而每个话题送�
   - 按每轮上限估算，上述 5 个话题的生成视图最多增加约 13 万字符，接近翻倍；
   - 话题更容易达到折叠阈值。
 - 每轮上限不变时，进入生成的实现轮次主要贡献助手正文，测试失败、报错与改动内容等工具结果大多看不到。
-- `worth_saving` 停用后不再参与任何决定，但 Gateway 仍为每一轮计算 `memory_write_signal`，`worth_saving` 仍随交互记录、话题 block 与 `import.turn.accepted` 事件传递，只供观测。
+- `worth_saving` 停用后不再参与任何决定，2026-10-30 起也已移出交互记录与话题 block；但 Gateway 仍为每一轮计算 `memory_write_signal`，由它得到的 `worth_saving` 仍随 `import.turn.accepted` 事件传递，只供观测。
 
 ## 完成条件
 

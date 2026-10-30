@@ -317,14 +317,20 @@ def _add_assistant_block(
         tool_args = dict(tool_input) if isinstance(tool_input, dict) else {"input": tool_input}
         tool_name = str(block.get("name") or "")
         memory_tool = _MEMORY_TOOLS.get(tool_name)
+        targets = None
+        if memory_tool is not None and memory_tool.target_param:
+            targets = tool_args.get(memory_tool.target_param)
+            if _is_alias_list(targets):
+                del tool_args[memory_tool.target_param]
+            else:
+                # 模型传错了作用对象，MCP server 已以工具错误拒绝这次调用。按普通
+                # 工具写出：服务端要求读取带作用对象，否则会拒绝整轮。
+                memory_tool = None
         if memory_tool is None:
             turn.add_event(
                 "tool_call", "", action_id=action_id, tool_name=tool_name, tool_args=tool_args
             )
             return
-        targets = (
-            tool_args.pop(memory_tool.target_param, None) if memory_tool.target_param else None
-        )
         turn.add_event(
             "tool_call",
             "",
@@ -348,6 +354,10 @@ def _add_assistant_block(
         return
     turn.seen_blocks.add(key)
     turn.add_event(kind, text)
+
+
+def _is_alias_list(value: Any) -> bool:
+    return isinstance(value, list) and bool(value) and all(isinstance(v, str) for v in value)
 
 
 def _add_tool_result(turn: _TurnBuilder, block: dict[str, Any]) -> None:

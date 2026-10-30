@@ -83,7 +83,7 @@ class InteractionPayload(BaseModel):
         不内嵌身份；归属与发起者由 ``InteractionSubmission`` 的
         ``belong_to``、``from_actor`` 独立承载，避免 payload 成为第二份身份事实。
         构造时校验一轮事件集的不变量，任何载荷的事件都以序号 0 的用户消息开头、
-        调用与结果正确配对；违反时显式失败，不修补。
+        序号严格递增、调用标识轮内唯一；违反时显式失败，不修补。
     """
 
     outcome: InteractionOutcome = Field(default="completed", description="本轮执行结局")

@@ -1,8 +1,9 @@
 ---
 title: 工具解析链路重写
-status: idea
-horizon: current
-serves_version: v0.7.1
+status: archived
+archived_at: 2026-10-30
+implemented_by: v0.7.1 工具解析链路重写（archive/plans/v0.7.1-tool-call-parsing-chain.md）
+superseded_by: docs/architecture/data-model.md
 owner: project
 scope: turn-event-as-single-interaction-record-for-mtp-and-mcp-tool-calls
 code_paths:
@@ -20,7 +21,7 @@ code_paths:
   - frontend/src/stores/chat/sessionHistory.ts
 related_docs:
   - docs/governance/baselines/tool-call-data-shapes-2026-10-30.md
-  - docs/plans/v0.7.1-tool-call-parsing-chain.md
+  - docs/archive/plans/v0.7.1-tool-call-parsing-chain.md
   - docs/patchouli/perception.md
   - docs/system/import-bus.md
   - docs/contracts/mtp.md
@@ -30,6 +31,8 @@ last_reviewed: 2026-10-30
 ---
 
 # 工具解析链路重写
+
+> 状态：Archived（2026-10-30，随[工具解析链路重写计划](../plans/v0.7.1-tool-call-parsing-chain.md)实施后归档；当前事实见[数据模型](../../architecture/data-model.md)、[感知与短期话题](../../patchouli/perception.md)与 [Patchouli 生成](../../patchouli/generation.md)）。以下为设计讨论原文；实施中另决定把一次工具调用与它的结局合并为一个事件，与本文第 3–6 节的调用、结果分开的形态不同，以计划第 5.1 节为准。
 
 **文档状态**：Idea。2026-10-30 已形成[计划](../plans/v0.7.1-tool-call-parsing-chain.md)：本文的候选设计在计划中采纳或调整，此后以计划为准，本文不再同步。
 
@@ -43,13 +46,13 @@ last_reviewed: 2026-10-30
   - MTP 调用事件的 `content` 保留指令原文（第 3.2 节）。
   - `InteractionPayload` 只能携带 `turn_events`，由感知层解析：交互内容只以事件表达，派生的与和事件重复的表达不进入载荷；`outcome`、`model_used`、`used_attachments` 保留（第 7 节）。
 - **本文范围**：第一部分见第 3–6 节，第二部分见第 7–9 节；两部分共用第 2 节的原则，迁移与暂不处理合并在第 10、11 节。
-- **现状依据**：[工具调用数据形态调查基线](../governance/baselines/tool-call-data-shapes-2026-10-30.md)，下文称“基线”。字段级现状以基线为准，本文不复制。
+- **现状依据**：[工具调用数据形态调查基线](../../governance/baselines/tool-call-data-shapes-2026-10-30.md)，下文称“基线”。字段级现状以基线为准，本文不复制。
 - 标注“候选设计”的内容不是 owner 决定，给出的是合理默认值，可在计划评审时调整。两部分目前都没有待决问题。
 
 ### 0.1 与其他 Idea 的关系
 
-- **[外部会话 Idea](./external-session-and-topic-projection.md#23-turnevent复用并扩展事件表达) 2.3**：那里的候选扩展有 system_message、external_summary、unknown 等事件种类，事件时间与来源元数据，以及可选的 `action_id`。本文只定义工具调用相关的字段，不新增事件种类。本文要求工具事件必带 `action_id`，因为两个现有来源都有调用标识；没有调用标识的 harness 出现时，由它的连接器生成。那一节的候选扩展待本文落地后，依据新的事实修订。
-- **[执行环境 Idea](./execution-environment.md#t-10-cpu-输出与会话历史的词汇归属) T-10**：其中“会话历史”一项（MTP 原文、`tool_kind` 取 MTP 动词、`render_as`）由本文的设计处理：动词作为 HiveMemory 能力动词对两种来源统一，`render_as` 删除。交互事件与失败原因两项不在本文范围。
+- **[外部会话 Idea](../../ideas/external-session-and-topic-projection.md#23-turnevent复用并扩展事件表达) 2.3**：那里的候选扩展有 system_message、external_summary、unknown 等事件种类，事件时间与来源元数据，以及可选的 `action_id`。本文只定义工具调用相关的字段，不新增事件种类。本文要求工具事件必带 `action_id`，因为两个现有来源都有调用标识；没有调用标识的 harness 出现时，由它的连接器生成。那一节的候选扩展待本文落地后，依据新的事实修订。
+- **[执行环境 Idea](../../ideas/execution-environment.md#t-10-cpu-输出与会话历史的词汇归属) T-10**：其中“会话历史”一项（MTP 原文、`tool_kind` 取 MTP 动词、`render_as`）由本文的设计处理：动词作为 HiveMemory 能力动词对两种来源统一，`render_as` 删除。交互事件与失败原因两项不在本文范围。
 
 ## 1. 问题
 
@@ -68,7 +71,7 @@ last_reviewed: 2026-10-30
 下面这些属于第二部分，即感知层解析这一侧（现状见基线第 7 节）：
 
 - **解析分散在多处**：动作在封口与感知各归约一次，轨迹沿用载荷；生成视图按 `action_id` 把动作与轨迹拼回去，LLM 接力摘要只读轨迹，规则摘要读动作的 `tool_name`，token 统计两者混用。
-- **各处看到的材料不同**：生成视图含思考与外部工具；LLM 接力摘要只有 MTP 轨迹与问答，被折叠的块在结算前失去思考与工具过程的影响（[真实使用观察 Todo](../todo/import-bus-real-use-observation.md) 已记录）。
+- **各处看到的材料不同**：生成视图含思考与外部工具；LLM 接力摘要只有 MTP 轨迹与问答，被折叠的块在结算前失去思考与工具过程的影响（[真实使用观察 Todo](../../todo/import-bus-real-use-observation.md) 已记录）。
 - **正文与动作的先后丢失**：生成视图把全部动作排在前面、最终回复排在最后；而 Alice 的回复由各次迭代的正文拼成，与动作本来是穿插的。
 - **载荷与逻辑块携带重复或无用的字段**：`user_message`、`assistant_final_text` 与事件重复；`worth_saving` 不参与任何决定；逻辑块上的 `gateway_intent` 从未被赋值，`anchor_text`、`is_complete` 没有消费方。
 - **渲染不可见**：渲染规则分散在生成视图、接力摘要与 token 统计各自的代码中，渲染出的材料只在新建记忆时随创建 Artifact 保存。
@@ -254,7 +257,7 @@ Alice 的流式交付事件（`mtp_start`、`mtp_result`）是交给前端的传
 | `user_message` | 删除，由序号 0 的事件得到（第 7.2 节） | 与事件重复 |
 | `assistant_final_text` | 删除，由 `assistant_message` 事件得到（第 7.2 节） | 与事件重复 |
 | `rewritten_query` | 删除 | 是 Gateway 对用户消息的改写，不是交互事件；感知层只有接力摘要使用它，改为用用户消息与本轮过程（第 8.4 节） |
-| `worth_saving` | 删除 | 不参与任何决定，只供观测；Import Bus 的观测事件直接取 Gateway 的决定，不经载荷。它与 Gateway 价值预判的整体去留仍随[生成材料 Todo](../todo/generation-material-filtering-and-truncation.md)与记忆价值策略决定 |
+| `worth_saving` | 删除 | 不参与任何决定，只供观测；Import Bus 的观测事件直接取 Gateway 的决定，不经载荷。它与 Gateway 价值预判的整体去留仍随[生成材料 Todo](../../todo/generation-material-filtering-and-truncation.md)与记忆价值策略决定 |
 | `outcome`、`model_used`、`used_attachments` | 保留（owner，2026-10-30） | 本轮的结局、执行者使用的模型与实际使用的附件，不是对事件的解析，也不与事件重复 |
 
 ### 7.2 从事件得到的两段文字
@@ -374,7 +377,7 @@ Alice 的流式交付事件（`mtp_start`、`mtp_result`）是交给前端的传
 
 - Alice 流式交付事件的字段与 `TurnEvent` 不同名（`target`、`args`），只影响前端实时视图。
 - `MTPExecutionResult.command` 的类型为 `Any`。
-- MTP READ 截断正式记忆正文的问题，见 [Todo](../todo/mtp-read-content-truncation.md)。
+- MTP READ 截断正式记忆正文的问题，见 [Todo](../../todo/mtp-read-content-truncation.md)。
 - 读取部分未命中在两侧都是 success，未命中的 alias 只在正文中。
 - 渲染材料的查看入口（第 8.7 节）。
-- 生成材料每轮上限的校准，见[生成材料 Todo](../todo/generation-material-filtering-and-truncation.md)。
+- 生成材料每轮上限的校准，见[生成材料 Todo](../../todo/generation-material-filtering-and-truncation.md)。

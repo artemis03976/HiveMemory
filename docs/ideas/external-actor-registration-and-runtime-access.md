@@ -447,7 +447,7 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 **与对话回流及 harness 自带记忆的衔接**（候选设计，分析，2026-10-29，不是 owner 决定，可在计划评审时调整）：以下两点不随 E-7 的选项而变，来自 Claude Code 对话回流的真实运行观察，不另立问题。
 
 - **回声**：选项 A、C 中，经 MCP 工具取回的记忆作为普通工具结果留在会话记录里，本轮结束时随对话回流再次导入。
-  - 生成视图会渲染外部工具的结果（[生成转写的动作段](../../src/hivememory/prompts/transcript/actions.py)），提取模型可能把已有记忆再提取一遍，形成重复记忆，并在之后的检索中自我强化。
+  - 生成视图会渲染外部工具的结果（[生成材料的渲染](../../src/hivememory/engines/perception/material.py)），提取模型可能把已有记忆再提取一遍，形成重复记忆，并在之后的检索中自我强化。
   - Alice 经 MTP READ、SEARCH 读回的记忆不渲染进生成，正是为了避免这一点；但外部 MCP 调用在连接器看来只是普通工具调用。
   - 候选做法：连接器按 MCP server 名识别 HiveMemory 自己的工具调用，并在导入事件上标明来源；生成视图对这类动作只保留一行摘要（工具名与查询），不渲染结果，与 MTP READ、SEARCH 同样处理。标注用哪个字段在计划中确定。
   - 选项 B 没有这条回路：经 `UserPromptSubmit` hook 注入的上下文以 `attachment` 条目写入 Claude Code 会话记录，而连接器只读取 `user` 与 `assistant` 条目（[会话记录读取器](../../integrations/claude-code/connector/claude_code/reader.py)），不会再次导入。助手据此作出的回答照常进入生成。
