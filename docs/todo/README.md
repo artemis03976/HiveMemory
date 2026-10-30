@@ -18,7 +18,7 @@ last_reviewed: 2026-10-29
 - [生成查重的决策信号](./generation-dedup-decision-signal.md)（2026-10-29 由 Import Bus 真实使用观察登记：dense top-1 余弦在记忆对记忆的比较中分不开同一工作与同项目的其他记忆，固定阈值够不到，查重只会新建；UPDATE 为整体覆盖，不能单靠调低阈值）；
 - [任务进程中无生产使用方的代码与可合并小项](./task-process-unused-paths.md)（2026-10-28 由[任务进程概念盘点](../governance/baselines/task-process-concept-inventory-2026-10-28.md)登记：删除只供测试使用的非流式交付、按句柄取消、诊断查询链与重复 `process_id` 预检，合并三处重复表达）；
 - [重排模型 int8 与 ONNX 内存池](./reranker-int8-and-onnx-memory.md)（2026-10-27 排查常驻内存时登记：重排模型 int8 先做实验评估，另有 ONNX 内存池保留推理峰值、嵌入截断上限 8192 token、配置项不生效与 Docker 预下载落空；后四项已于同日完成，int8 评估待开始）；
-- [Import Bus 真实使用观察](./import-bus-real-use-observation.md)（2026-10-21 Import Bus 重设计收尾时登记：真实使用验收随日常使用持续观察，核对闭环、话题落位、生成质量与开销、凭据、导入耗时与连接器行为）；
+- [Import Bus 真实使用观察](./import-bus-real-use-observation.md)（2026-10-21 Import Bus 重设计收尾时登记：真实使用验收随日常使用持续观察，核对闭环、话题落位、生成质量与开销、凭据、导入耗时与连接器行为；2026-10-29 记忆访问计划收尾时并入 MCP 检索与读取的观察，首个样本为历史决定未导入、正文不进检索索引而未命中）；
 - [WorkspaceAsset 内部归属与操作身份拆分](./workspace-asset-ownership-identity-split.md)（身份第二批明确暂缓：Store/解析旧 scope 接口与 System 物化 reader 桥接）；
 - [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：无 alias 记忆的寻址、alias 查询索引）；
 - [会话 `/compact` 指令](./conversation-compact-command.md)（2026-10-01 由原 Topic `/compact` 系统指令接入重写：compact 归属前台的 CPU 会话上下文，依赖 ConversationSession、命令运行位置与 Alice 会话压缩）；

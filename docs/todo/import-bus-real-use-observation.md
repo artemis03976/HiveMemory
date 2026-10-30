@@ -5,7 +5,9 @@ owner: project
 scope: import-bus-and-claude-code-connector-real-use-observation
 related_docs:
   - docs/system/import-bus.md
+  - docs/contracts/mcp.md
   - docs/archive/plans/v0.7.1-import-bus-redesign.md
+  - docs/archive/plans/v0.7.1-memory-access-mcp.md
   - docs/patchouli/generation.md
   - docs/ROADMAP.md
 last_reviewed: 2026-10-29
@@ -25,12 +27,20 @@ last_reviewed: 2026-10-29
 - **导入耗时与失败**：导入请求的耗时、`apply_pending` 与 `import_bus.apply_failed` 的比例；拒绝记录中 413 的比例；交互 Artifact 是否因查重窗口或服务重启出现重复。
 - **连接器**：30 分钟无新条目即按中断结束的规则是否误判长时间等待权限确认的轮次；Claude Code 本地记录中思考正文的可得性（较新的模型默认只记录签名或摘要）。
 - **资源**：提交队列的终态工作记录保存完整的编码载荷，工具输出很大时的内存占用；必要时调低 `import_bus.max_request_bytes`。
+- **记忆访问（MCP）**：agent 是否在需要时检索，以及“该用而未用”与“用了但没找到”的样本（VISION 假设 H3）；检索结果的相关性与过时比例；经 MCP 读取记录的引用对排序与归档的影响；回声标记是否生效，即用过检索工具的轮次结算后没有生成重复记忆；凭据配置出错的频率。
 
 进度（2026-10-29）：生成质量一项中，查重从未做出新建以外的决策，已登记为[生成查重的决策信号](./generation-dedup-decision-signal.md)；生成转写的长度与截断比例已对账，Gateway 价值预判整轮丢弃实现过程的问题已停用筛选，每轮上限的校准登记为[生成材料的筛选与截断](./generation-material-filtering-and-truncation.md)。
 
+记忆访问的第一个样本（2026-10-29，记忆访问计划实测验收时，记忆库共 30 条记忆）：在 Claude Code 中问及“Import Bus 连接器遇到 4xx 时怎样处理游标、当初为什么这样定”，agent 调用了三次 `memory_search`（各返回 5、2、4 条）与两次 `memory_read`，判断没有相关记忆。原因有两个：
+
+- 该决定是 2026-10-20 至 10-21 在 Import Bus 重设计的会话中定下的，插件 2026-10-27 才安装，那些会话从未导入；记忆库中只有一条无关记忆（话题折叠耗时的决定）在正文中顺带提到“保留游标”，标题与摘要都没有涉及。历史会话的补导属于 [ROADMAP](../ROADMAP.md) 第 4.5 节的 v0.7.2。
+- 检索的稠密与稀疏向量都只由标题、类型、标签与摘要编译（`engines/memory_compiler/handlers/embedding.py`），正文不进入索引，只写在正文中的事实召回不到。
+
+owner 判断（2026-10-29）：根本是记忆生成的粒度问题——一次话题结算至多产出一条记忆，同一话题里的多项决定只能压进一条记忆，次要内容落在正文中；从一段话题材料中提取多条记忆比较麻烦，作为已知限制记录在 [Patchouli 生成](../patchouli/generation.md#8-当前限制)第 8 节。
+
 ## 影响
 
-这些项目决定 Claude Code 对话回流能否作为记忆在真实路径中积累的依据，也是候选的下一步（Claude Code 经 MCP 工具访问记忆）与记忆核心改进的输入。没有观察记录时，生成转写的上限、价值信号与续接兜底都只能沿用候选默认值。
+这些项目决定 Claude Code 对话回流能否作为记忆在真实路径中积累的依据，也是 MCP 记忆访问的检索效果与记忆核心改进的输入。没有观察记录时，生成转写的上限、价值信号与续接兜底都只能沿用候选默认值。
 
 ## 完成条件
 

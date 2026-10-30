@@ -12,13 +12,13 @@ last_reviewed: 2026-10-29
 
 ## v0.7.1
 
-版本目标已决定（owner，2026-10-20）：plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code，按小步分别建立计划；同日先定的 controller 模式目标退回候选方向，其首份计划方向（首个外部驱动的纯文本闭环）随之撤回。目标结果与验收方向见 [ROADMAP](../ROADMAP.md) 第 4.4 节。
+版本目标已决定（owner，2026-10-20）并已完成（2026-10-29，对话回流与记忆访问两份计划均已归档）：plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code，按小步分别建立计划；同日先定的 controller 模式目标退回候选方向，其首份计划方向（首个外部驱动的纯文本闭环）随之撤回。目标结果与验收方向见 [ROADMAP](../ROADMAP.md) 第 4.4 节。
 
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
 | 1 | [Import Bus 重设计：以 Claude Code 对话回流为第一条真实路径](../archive/plans/v0.7.1-import-bus-redesign.md) | Archived（2026-10-21）；当前事实见 [Import Bus](../system/import-bus.md)；真实使用验收随日常使用持续观察（[Todo](../todo/import-bus-real-use-observation.md)） | —— |
-| 2 | [记忆访问：Claude Code 经 MCP 工具检索与读取记忆](./v0.7.1-memory-access-mcp.md) | Planned（2026-10-29）；设计依据为外部 Actor Idea 第 4 节的决定（E-2、E-3b、E-7、P-1c、P-9c） | 背景：[外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题) |
-| — | [推理模型的空闲卸载与按需加载](./v0.7.1-model-idle-unload.md)（plugin 模式下后端常驻时的内存开销） | Planned（owner，2026-10-27），与方向 2 没有顺序依赖；进入条件 [推理移出事件循环](../archive/todo/inference-off-event-loop.md) 已于 2026-10-27 完成 | —— |
+| 2 | [记忆访问：Claude Code 经 MCP 工具检索与读取记忆](../archive/plans/v0.7.1-memory-access-mcp.md) | Archived（2026-10-29）；当前事实见 [MCP 记忆访问](../contracts/mcp.md)；检索与读取的真实使用样本记入同一观察 [Todo](../todo/import-bus-real-use-observation.md) | —— |
+| — | [推理模型的空闲卸载与按需加载](./v0.7.1-model-idle-unload.md)（plugin 模式下后端常驻时的内存开销） | Planned（owner，2026-10-27）；进入条件 [推理移出事件循环](../archive/todo/inference-off-event-loop.md) 已于 2026-10-27 完成 | —— |
 
 ## v0.7.0
 
