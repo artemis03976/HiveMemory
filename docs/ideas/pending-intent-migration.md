@@ -13,7 +13,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-30
 ---
 
 # 写入意图（PendingAtom）的后续方向
@@ -88,7 +88,7 @@ EXPIRED 是设计中的永久终态，SETTLED、FAILED、CANCELLED 都可以迁�
 
 ## 7. 外部 Actor 的提交与回读契约
 
-[外部 Actor](./external-actor-registration-and-runtime-access.md)需要在 Alice 之外使用同一套登记与读取，尚需决定：
+[外部 Actor](./external-actor-registration-and-runtime-access.md)需要在 Alice 之外使用同一套登记与读取，尚需决定。2026-10-30 起本节阻塞 v0.7.2 的 plugin 模式开放 WRITE 与 UPDATE（外部 Actor Idea 第 4 节的 v0.7.2 一步）：
 
 - **wire**：提交、回读与结算状态的协议投影，core `ReferenceResolution` 的外部表示，以及缺少目标身份的旧结算载荷如何兼容；
 - **收据**：区分已登记、已被生成队列接纳与 canonical 已产生，不返回模糊的整体 success；接纳失败后的回读与重试契约；

@@ -12,7 +12,7 @@ related_docs:
   - docs/contracts/mtp.md
   - docs/patchouli/memory-compiler.md
   - docs/ROADMAP.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # MTP READ 截断正式记忆的正文
@@ -33,7 +33,7 @@ READ 是 Agent 检查记忆全文的指令，但 Alice 经 MTP READ 读到的正
 - 截断提示指引的动作无效，可能诱发重复 READ，浪费执行轮次；
 - [MTP 契约](../contracts/mtp.md)第 3.2 节没有说明 READ 会截断，Agent 与读者都无从得知结果不完整。
 
-可能的处理：MTP READ 与 MCP 读取一样交付全文；或按 token 预算截断，并给出能读到其余内容的方式（片段或偏移），截断提示不再指向会得到同样结果的 READ。后者属于 [ROADMAP](../ROADMAP.md)第 4.6 节 v0.7.3 的片段定位、token 预算与截断表达。
+可能的处理：MTP READ 与 MCP 读取一样交付全文；或按 token 预算截断，并给出能读到其余内容的方式（片段或偏移），截断提示不再指向会得到同样结果的 READ。后者属于 [ROADMAP](../ROADMAP.md#45-mtp-read-专项编译与来源表达候选)第 4.5 节 MTP READ 专项编译的片段定位、token 预算与截断表达。
 
 ## 完成条件
 
@@ -44,3 +44,4 @@ READ 是 Agent 检查记忆全文的指令，但 Alice 经 MTP READ 读到的正
 ## 追踪
 
 - 2026-10-29：记忆访问（MCP）计划阶段三审查时发现。owner 意见：大概随 v0.7.3 MTP READ 专项编译（Candidate，尚未建立 Plan）一起修复。未绑定 Issue。
+- 2026-10-30：v0.7.0 之后的计划不预先排定顺序（owner），MTP READ 专项编译撤销 v0.7.3 的版本号，改为不绑定版本的候选方向；本 Todo 仍随它修复，未排期。

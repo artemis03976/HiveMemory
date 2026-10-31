@@ -1,7 +1,8 @@
 ---
 title: 从 ConversationSession 到 Topic 与 Memory Artifact 的原始资料保存
 status: idea
-horizon: candidate
+horizon: current
+serves_version: v0.7.2
 owner:
   - workspace
   - patchouli
@@ -16,14 +17,64 @@ related_ideas:
   - docs/ideas/short-term-memory-and-context-compaction.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/ideas/external-session-and-topic-projection.md
-last_reviewed: 2026-10-29
+  - docs/ideas/settlement-multi-memory-extraction-and-dedup.md
+related_todos:
+  - docs/todo/generation-material-filtering-and-truncation.md
+last_reviewed: 2026-10-30
 ---
 
 # 从 ConversationSession 到 Topic 与 Memory Artifact 的原始资料保存
 
-本文是一项未排期的开放设计。2026-10-16 按 owner 的方向，将原先围绕 page folding 的证据旁路扩展为完整资料链：**ConversationSession 保存完整对话，Topic 保存已交接的完整资料，记忆生成阶段冻结相应来源 Artifact，再由 Memory 引用。** 会话原始数据是否持久化另行计划；本文不以新增独立原始记录仓库为前提。
+本文原为未排期的开放设计，2026-10-30 起为 v0.7.2 的生成材料修正计划供料（第 0 节）。2026-10-16 按 owner 的方向，将原先围绕 page folding 的证据旁路扩展为完整资料链：**ConversationSession 保存完整对话，Topic 保存已交接的完整资料，记忆生成阶段冻结相应来源 Artifact，再由 Memory 引用。** 会话原始数据是否持久化另行计划；本文不以新增独立原始记录仓库为前提。
 
 当前能力仍以 [Workspace](../workspace/README.md)、[感知与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)和[记忆生成](../patchouli/generation.md)为准。Alice compact、Topic page folding 的算法、预算与检查点集中在[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)。本文维护原始资料的保存、交接与来源生命周期。
+
+## 0. v0.7.2：生成材料修正与 Topic 之后的原始证据保存
+
+v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质量)第 4.3 节）。本节是其中生成材料修正计划的设计讨论；同一版本的其他方向见[多条提取与查重 Idea](./settlement-multi-memory-extraction-and-dedup.md)与[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)。计划在本节的阻塞问题决定、能够立即执行时建立。
+
+### 0.1 owner 决定（2026-10-30）
+
+- **范围**：生成材料修正计划同步完成本文中从 Topic 往后所有链路的原始证据保存覆盖面，即第 3 节资料链中的 Topic 完整资料集合、生成阶段的来源冻结、来源 Artifact 与 Memory 的来源关联。按“从 Topic 往后”理解，交到 Topic 之前的环节（Session 侧的保存、进程与入口的交接、会话持久化、流式接收）不在这份计划内。
+- **不截断一轮交互**：一轮交互的内容不得被任何一个上限数字截断，最多只允许单次工具调用的结果受限。现行生成视图的单轮上限（`max_turn_action_chars`）以及思考、参数的单条上限（`max_thought_chars`、`max_args_chars`）不符合这条规则，属于实现漂移：owner 于 2026-10-21 只决定把思考与外部工具纳入生成视图，这些上限是[Import Bus 重设计计划](../archive/plans/v0.7.1-import-bus-redesign.md)第 4.10 节记录该决定时加入的候选默认值，后由[工具解析链路重写](../archive/plans/v0.7.1-tool-call-parsing-chain.md)沿用。单条工具结果的上限（`max_result_chars`）符合规则。
+- **`worth_saving` 只做移除**：价值体系由 owner 重新设计，不在现有信号上增补，`worth_saving` 没有保留与否的问题。结算已于 2026-10-29 停止按它筛选材料。
+
+### 0.2 现状与缺口
+
+2026-10-29 对真实导入的逐段对账见[生成材料的筛选与截断 Todo](../todo/generation-material-filtering-and-truncation.md)：生成视图只剩导入原文的 8%，进入生成的 17 轮中 12 轮顶到单轮上限，257 次工具调用只有 68 次保留了结果。
+
+从 Topic 往后，原文还有两处在资料层消失（代码核对，2026-10-30）：
+
+- **折叠**：`compact_topic` 把保留后缀之前的旧 blocks 合成为 `state_summary` 后裁剪前缀（[感知与短期话题](../patchouli/perception.md#5-page-folding)第 5 节），被裁剪的原文没有任何留存；
+- **结算**：`TopicMaterializeTask` 从结算时现存的 blocks 冻结材料，InteractionArtifact 因此只覆盖未被折叠的轮次，已折叠的前缀不在来源中。
+
+### 0.3 待决问题
+
+每个问题只列选项及其影响，不作选择；选项顺序不代表倾向。
+
+**R-1 完整材料超出提取模型窗口时如何消费。** 不截断之后，一个话题乃至一轮的材料都可能超过提取模型的上下文窗口（真实样本中单轮最多 78 次工具调用、23.6 万字符）。
+
+| 选项 | 内容 | 影响 |
+|:---|:---|:---|
+| A | 生成继续读有界视图（`state_summary` 与现存 blocks），完整资料只保存，供回查与后续处理 | 生成看到的细节仍随折叠减少，但不再被截断；单个超大轮次仍可能单独超窗 |
+| B | 按稳定范围分片读取完整资料，逐片提取 | 与[多条提取 Idea](./settlement-multi-memory-extraction-and-dedup.md#g-1-一个话题的多条记忆怎样提取) G-1 的选项 C 相通；模型调用随材料增加；片与片之间依赖查重合并 |
+| C | 超窗时显式失败或推迟结算，不做截断也不做摘要 | 不损失材料；大话题可能长期没有记忆产出 |
+| D | 其他 | —— |
+
+**R-2 Topic 完整资料的保全承诺。** 第 7.2 节要求计划先选择保障，再定义失败处理。
+
+| 选项 | 内容 | 影响 |
+|:---|:---|:---|
+| A | 完整保全：确认来源 Artifact 已写入或另有持有者接管之前，不丢弃唯一副本（折叠暂缓裁剪，或者背压） | 未冻结的资料占用进程内存，需要容量上限与背压语义 |
+| B | 尽力保全：保存失败时照常折叠，并记录覆盖缺口 | 实现简单；“完整”只是尽力而为，需要对外披露缺口 |
+| C | 其他 | —— |
+
+### 0.4 候选设计（分析，不是 owner 决定，可在计划评审时调整）
+
+- **渲染**：只保留单条工具结果的上限；删除单轮、思考与参数上限及其降级与省略规则。token 统计随之反映完整材料，折叠阈值不变。
+- **`worth_saving` 的移除范围**：`GatewayDecision.worth_saving` 与 `import.turn.accepted` 事件中的同名字段。Gateway 的 `memory_write_signal` 只用于派生它（查询分析提示词、规则解析器与工作流中的默认值），一并移除。
+- **资料布局**：完整资料与工作窗口分开，按第 4 节与第 5.2 节的候选方向在计划中确定具体布局；折叠只推进工作窗口，结算冻结的来源覆盖话题已接收的全部资料。
+- **完成后**：[生成材料 Todo](../todo/generation-material-filtering-and-truncation.md)并入计划。
 
 ## 1. 问题与范围
 
