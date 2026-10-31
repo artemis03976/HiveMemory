@@ -22,7 +22,7 @@ related_contracts:
   - docs/contracts/mcp.md
 related_docs:
   - docs/system/import-bus.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-31
 ---
 
 # 安装与启动 HiveMemory
@@ -245,7 +245,7 @@ npm run build
 仓库提供 Claude Code 插件 `hivememory-connector`，它做两件事：
 
 - **对话回流**：Claude Code 的每一轮对话结束后，插件把这一轮（用户消息、回复、Claude Code 本地记录的思考、工具调用与结果）导入 HiveMemory，记忆随日常使用积累。它的 hook 只做本地记录，网络提交在后台进程中完成，HiveMemory 未运行时 Claude Code 照常工作，未导入的轮次在之后被唤醒时按顺序补发。工作原理见 [Import Bus](../system/import-bus.md)。
-- **记忆访问**：插件声明了 HiveMemory 的 MCP server，Claude Code 的 agent 可以调用 `memory_search` 检索记忆、`memory_read` 按 alias 读取全文。插件不主动向 Claude Code 注入记忆，何时检索由 agent 自己决定。契约见 [MCP 记忆访问](../contracts/mcp.md)。
+- **记忆访问**：插件声明了 HiveMemory 的 MCP server，Claude Code 的 agent 可以调用 `memory_search` 检索记忆、`memory_read` 按 alias 读取全文、`memory_write` 写入值得长期保存的内容、`memory_update` 修正检索到的已有记忆。插件不主动向 Claude Code 注入记忆，何时检索与写入由 agent 自己决定；写入与更新前，插件的 hook 在本地为调用补上当前一轮的信息，HiveMemory 据此把写入落在这一轮所在的话题。契约见 [MCP 记忆访问](../contracts/mcp.md)。
 
 两部分都以 Claude Code 自己的接入身份 `harness:claude-code` 认证，需要在 HiveMemory 与 Claude Code 两侧配置同一份接入凭据（第 9.2 节）。
 
@@ -263,7 +263,7 @@ npm run build
 /plugin install hivememory-connector@hivememory-local
 ```
 
-插件挂载 `Stop`、`StopFailure`、`SessionStart` 与 `SessionEnd` 四个 hook，并在 `.mcp.json` 中声明 MCP server `hivememory`。安装时 Claude Code 保存的是插件的副本：仓库中的插件更新后，需要在 `/plugin` 中更新该插件（或执行 `claude plugin marketplace update hivememory-local` 与 `claude plugin update hivememory-connector@hivememory-local`）并重启 Claude Code 才会生效。
+插件挂载 `Stop`、`StopFailure`、`SessionStart`、`SessionEnd` 与只匹配本插件写入、更新工具的 `PreToolUse` 五个 hook，并在 `.mcp.json` 中声明 MCP server `hivememory`。安装时 Claude Code 保存的是插件的副本：仓库中的插件更新后，需要在 `/plugin` 中更新该插件（或执行 `claude plugin marketplace update hivememory-local` 与 `claude plugin update hivememory-connector@hivememory-local`）并重启 Claude Code 才会生效。插件与 HiveMemory 需要一起升级：新插件导入的轮次可能带写入与更新的标记，旧版 HiveMemory 不认识它们，会整轮拒绝。
 
 ### 9.2 配置接入凭据
 
@@ -303,19 +303,20 @@ export HIVEMEMORY_TOKEN=<第 9.2 节生成的凭据>
 
 ### 9.4 访问登记
 
-导入与 MCP 请求都经统一认证网关，请求的用户与 Agent 必须在 `configs/workspace_actors.yaml` 中获准进入 Workspace。随仓库发布的登记已经为默认用户 `default` 登记了 `claude_code`，使用默认配置时不需要修改。这条记录只获准 `memory.read` 与 `memory.search`：MCP 的检索与读取各需其一，导入只要求准入、不需要任何 actor 操作；精确记录也使这个 Agent 不继承默认用户的写入等其余权限。
+导入与 MCP 请求都经统一认证网关，请求的用户与 Agent 必须在 `configs/workspace_actors.yaml` 中获准进入 Workspace。随仓库发布的登记已经为默认用户 `default` 登记了 `claude_code`，使用默认配置时不需要修改。这条记录获准 `memory.read`、`memory.search`、`memory.write` 与 `memory.update`，分别对应四个 MCP 工具；导入只要求准入、不需要任何 actor 操作；精确记录也使这个 Agent 不继承默认用户的 `memory.run` 与 `agent.call`。本地自定义过登记的，需要手动为它加上 `memory.write` 与 `memory.update`，否则写入与更新返回 403（`workspace.operation_denied`）。
 
 - `HIVEMEMORY_USER_ID` 设为 `default` 以外的用户时，需要为该用户登记记录，否则导入与工具调用返回 403，连接器停止提交并保留进度；
-- 更换 `HIVEMEMORY_AGENT_ID` 时，默认的用户级记录会覆盖新的 Agent；如果希望它同样只能检索与读取，按 `claude_code` 那条记录的写法为它增加精确记录；
+- 更换 `HIVEMEMORY_AGENT_ID` 时，默认的用户级记录会覆盖新的 Agent；如果希望它的权限与 `claude_code` 相同，按那条记录的写法为它增加精确记录；
 - 修改登记后重启 HiveMemory。登记规则见[配置指南](./configuration.md#51-访问登记)。
 
 ### 9.5 确认记忆访问
 
-配置完成并重新打开 Claude Code 后，在 Claude Code 中执行 `/mcp`：插件的 `hivememory` 应显示已连接，并提供 `memory_search` 与 `memory_read` 两个工具。
+配置完成并重新打开 Claude Code 后，在 Claude Code 中执行 `/mcp`：插件的 `hivememory` 应显示已连接，并提供 `memory_search`、`memory_read`、`memory_write` 与 `memory_update` 四个工具。
 
 - 工具说明要求 agent 把检索结果当作带日期的历史证据：仓库中的代码与文档、Claude Code 自己的项目指令与记忆文件优先于检索结果。
-- HiveMemory 未运行时，Claude Code 重试后把 `hivememory` 标为连接失败，两个工具不出现，工作照常进行；HiveMemory 恢复后，在 Claude Code 中执行 `/mcp reconnect all` 或重新打开会话。
-- 经 MCP 读取的正式记忆会记录一次引用；用过检索工具的轮次导入后，生成只保留一行检索摘要，不会把取回的记忆再提取一遍。
+- 写入与更新按 Claude Code 的权限设置确认：确认框中的参数带有 `turn`，是插件补上的当前一轮信息，不需要修改。结果是一个 pending alias（写入以 `draft_` 开头，更新以 `rev_` 开头），表示已被接纳、正式记忆仍在后台生成；可以用 `memory_read` 读取它，生成完成后读取会转到正式记忆。工具结果提示缺少当前一轮的信息（`request.turn_required`）时，说明插件的 hook 没有运行，检查插件是否已更新并重启了 Claude Code。
+- HiveMemory 未运行时，Claude Code 重试后把 `hivememory` 标为连接失败，四个工具不出现，工作照常进行；HiveMemory 恢复后，在 Claude Code 中执行 `/mcp reconnect all` 或重新打开会话。
+- 经 MCP 读取的正式记忆会记录一次引用；用过检索工具的轮次导入后，生成只保留一行检索摘要，不会把取回的记忆再提取一遍；写入与更新的调用不进入生成材料，显式写入的内容也不会被再提取一遍。
 
 ### 9.6 确认导入与排查
 

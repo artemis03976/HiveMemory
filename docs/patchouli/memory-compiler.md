@@ -10,16 +10,16 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/system/i18n.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-31
 ---
 
 # MemoryCompiler
 
-MemoryCompiler 把持久化记忆编译成一次任务能够使用的工作视图。它存在的根本原因是：同一条 MemoryAtom 在向量化、检索注入、MTP READ、Agent Profile 菜单和子 Agent 共享上下文中，不应复制成五套逐渐漂移的字符串模板；但它也不能变成决定检索、权限、运行时策略和工具执行的另一个 God Object。
+MemoryCompiler 把持久化记忆编译成一次任务能够使用的工作视图。它存在的根本原因是：同一条 MemoryAtom 在向量化、检索注入、读取结果、Agent Profile 菜单和子 Agent 共享上下文中，不应复制成五套逐渐漂移的字符串模板；但它也不能变成决定检索、权限、运行时策略和工具执行的另一个 God Object。
 
 因此，Compiler 只做两件事：把不同记忆类源归一为中间表示，再按明确 target 生成文本与元数据。谁选择源、谁拥有权限、何时运行 Agent，仍由调用方负责。
 
-单条 `MemoryAtom` 的表达，与一组记忆在运行时语境中的包装，并不是同一责任。`PROMPT_FULL`、`PROMPT_INDEX`、`MTP_READ` 等 unit target 只负责单项语义；retrieval context、READ response 与 shared context 的 envelope 则负责 section、header/footer、空结果提示和行为说明。把两者重新塞回单一 renderer 或 God Object，会同时污染检索预算、权限策略和 Agent-facing 文案，也会让同一记忆无法按不同调用场景稳定复用。
+单条 `MemoryAtom` 的表达，与一组记忆在运行时语境中的包装，并不是同一责任。`PROMPT_FULL`、`PROMPT_INDEX`、`READ_RESULT` 等 unit target 只负责单项语义；retrieval context 与 shared context 的 envelope 则负责 section、header/footer 和行为说明。target、envelope 与处理器按用途命名，不按调用方的协议命名：Alice 的 MTP 与外部 harness 的 MCP 是同一组记忆能力的两种协议，共用同一套编译。把两者重新塞回单一 renderer 或 God Object，会同时污染检索预算、权限策略和 Agent-facing 文案，也会让同一记忆无法按不同调用场景稳定复用。
 
 ## 1. 编译管线
 
@@ -57,7 +57,7 @@ IR 的意义是让 target handler 面对稳定语义，而不是知道 MemoryAto
 |:---|:---|
 | `PROMPT_FULL` | title/summary/content 等完整 prompt 记忆块 |
 | `PROMPT_INDEX` | 紧凑标题、摘要、alias 索引视图 |
-| `MTP_READ` | 正式、pending、redirect、discard、failed 等 READ 文本 |
+| `READ_RESULT` | 读取操作的结果：正式原子交付全文，pending、redirect、discard、failed 等交付状态与后续指引。Alice 的 MTP READ 与 MCP 的 `memory_read` 共用 |
 | `SHARED_CONTEXT` | 子 Agent 共享的单元视图 |
 | `DENSE_EMBEDDING` | Qdrant dense vector 与 cross-encoder 输入 |
 | `SPARSE_EMBEDDING` | Qdrant sparse vector 输入 |
@@ -70,9 +70,10 @@ Unit 编译单个源返回 CompiledMemory；列表源长度不为 1 时返回同
 
 Envelope 把多个 unit 分 section 组织成完整上下文：
 
-- `RETRIEVAL_CONTEXT`：区分普通 memories 与 agent profiles，添加本地化 header/footer；
-- `MTP_READ_RESPONSE`：组合 READ 结果标题与多个编译单元；
+- `RETRIEVAL_CONTEXT`：区分普通 memories 与 agent profiles，添加本地化 header/footer；header/footer 是提示词中预检索上下文的引导，调用方可以以 `include_header_footer=False` 关闭，工具结果（MCP 的 `memory_search`）因此不带它们；
 - `SHARED_CONTEXT_INJECTION`：为子 Agent 生成带说明的共享上下文。
+
+读取结果没有 envelope：调用方逐项编译 `READ_RESULT`，自己组合多项结果与局部提示。
 
 Retrieval context 中，Agent Profile 使用 `AGENT_PROFILE_MENU`，普通记忆按 retrieval strategy 选择 full/index。其他默认 section 当前使用 `SHARED_CONTEXT` 编译。
 
@@ -98,6 +99,7 @@ Compiler 维持输入顺序，不重新排序。top-k、分数和权限必须在
 
 - workspace 任务进程：在 CPU 分配时把 Patchouli prepare 返回的检索原子编译为 `RETRIEVAL_CONTEXT` 文本，再经中立提示词编译置于附件段之前，写入输入清单的 `turn_context`（Patchouli prepare 本身不编译）；
 - Koakuma MTP：编译 SEARCH envelope 与 READ 的 atom/pending/redirect/terminal 结果；
+- MCP 入口：`memory_search` 编译关闭 header/footer 的 `RETRIEVAL_CONTEXT`，`memory_read` 逐项编译 `READ_RESULT` 且不截断正文（[MCP 记忆访问](../contracts/mcp.md)）；
 - Alice orchestration：编译子 Agent shared context injection；
 - Qdrant storage：为 MemoryAtom 生成 dense/sparse embedding 文本；
 - Retrieval reranker：为 cross-encoder 生成候选文本。
@@ -107,6 +109,8 @@ Compiler 维持输入顺序，不重新排序。top-k、分数和权限必须在
 ## 7. i18n 与格式
 
 Handler 和 envelope 的标签、空值、pending/redirect/error 文本通过 i18n memory compiler catalog 解析。Language 由单次 options 或系统默认值确定，避免 MemoryAtom 本身携带展示语言。
+
+指引下一步操作的句子（摘要不足时读取全文、专项任务委托子代理、截断后读取全文、失败后重新提交写入或更新、过期或丢弃后检索已定型的记忆、重定向后改用正式 alias）只写能力，不写任何协议的指令语法、动词或工具名：工具名随 harness 与安装方式变化（Claude Code 看到的是带插件前缀的全名），能力是固定的。Alice、MCP 与任务进程因此得到同一份文案，任务进程交给 CPU 的预检索上下文不含协议语法；能力与 MTP 动词的对应由 Alice 自己的协议教学给出。在途写入句柄的读取模板不显示来源：PendingAtom 只由写入意图登记创建，写入与更新各用一份模板，二者的区别由模板标题与别名前缀给出。
 
 `MemoryCompileOptions.format` 可以进入 envelope metadata，但当前主要终态仍由各 handler 的文本模板决定，并非所有 target 都已经支持 xml/markdown/plain 三种完全不同的 renderer。格式字段不能被当作完整多格式能力承诺。
 
@@ -122,7 +126,6 @@ prompt 渲染中的“N 天前”相对时间由 `utils.time_formatter.TimeForma
 - Retrieval score/rank 尚未稳定注入 `MemoryUnitIR.metadata`，envelope 主要依赖调用方排序；
 - `format` 只部分进入 metadata，尚无全 target 的多格式保证；
 - citations 字段已经存在于 CompiledMemory，但当前 handlers 没有形成完整引用链；
-- `MTP_READ_RESPONSE` envelope 不是所有 READ 路径的唯一出口，Koakuma 仍逐项编译并负责局部 warning 组合；
 - compiler config 当前主要覆盖 retrieval context，其他 target 的长度与语言策略仍由单次 options/handler 管理。
 
 MemoryCompiler 的演进方向应是更稳定的语义 IR、更一致的预算和引用输出，而不是把检索、权限、工具执行或持久化并入 compiler。Context 是被编译出来的临时视图；Compiler 重要，正因为它不能成为新的长期真相源。

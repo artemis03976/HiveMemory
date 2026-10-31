@@ -1,6 +1,6 @@
 {
   "name": "hivememory-connector",
-  "description": "把 Claude Code 中已经结束的对话轮次导入 HiveMemory，并让 Claude Code 经 MCP 工具检索与读取 HiveMemory 的记忆。",
+  "description": "把 Claude Code 中已经结束的对话轮次导入 HiveMemory，并让 Claude Code 经 MCP 工具检索、读取、写入与更新 HiveMemory 的记忆。",
   "author": {
     "name": "HiveMemory"
   }

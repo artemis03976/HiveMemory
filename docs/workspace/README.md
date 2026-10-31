@@ -24,7 +24,7 @@ related_docs:
   - docs/architecture/data-model.md
   - docs/system/composition.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-31
 ---
 
 # Workspace
@@ -64,7 +64,7 @@ Workspace 的架构意义是一个稳定的资源归属与访问边界，而不�
 ```mermaid
 flowchart TB
     IN["HTTP（chat / 管理 / 导入）/ 内部测试入口"]
-    MCP["MCP 入口\n外部 harness 的检索与读取"]
+    MCP["MCP 入口\n外部 harness 的检索、读取、写入与更新"]
     SCOPE["IdentityScope\nActor + Workspace"]
     APP["门面提供的服务\nroot API / 任务进程编排 / Import Bus"]
     ENTRY["操作入口\nactor API"]
@@ -83,7 +83,7 @@ flowchart TB
     BUS --> PA
     APP --> CPU["CPU 端口\n输入清单 labels + 独立线程 context"] --> AL
     AL --> OP["操作请求\n绑定线程 context 的 OperationSubmitter"] --> ENTRY --> SCOPE
-    MCP --> REQ["操作请求\n请求级 context，只开放检索与读取"] --> ENTRY
+    MCP --> REQ["操作请求\n请求级 context；写入与更新带 Import Bus 的落点话题"] --> ENTRY
     PA --> IDENTITY --> TOPIC
     APP --> ASSET
     IDENTITY -. "最终资源边界重新校验" .-> TOPIC

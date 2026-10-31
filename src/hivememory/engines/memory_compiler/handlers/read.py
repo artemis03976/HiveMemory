@@ -1,4 +1,4 @@
-"""面向 MTP 的记忆 target 处理器。"""
+"""读取结果的记忆 target 处理器。"""
 
 from __future__ import annotations
 
@@ -21,7 +21,7 @@ from hivememory.i18n.memory_compiler import (
 )
 
 
-def compile_mtp_read(
+def compile_read_result(
     unit: MemoryUnitIR,
     target: MemoryCompileTarget,
     options: MemoryCompileOptions,

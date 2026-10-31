@@ -74,7 +74,7 @@ def compile_shared_context(
             options.language,
         )
     elif unit.identity.source_kind == "pending":
-        from hivememory.engines.memory_compiler.handlers.mtp import _render_pending_read
+        from hivememory.engines.memory_compiler.handlers.read import _render_pending_read
 
         text = _render_pending_read(unit, options.language)
     elif is_resolve_terminal(unit):

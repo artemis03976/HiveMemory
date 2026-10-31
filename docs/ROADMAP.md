@@ -128,7 +128,7 @@ last_reviewed: 2026-10-31
 
 ### 4.3 v0.7.2：生成质量
 
-状态：Planned。版本目标（owner，2026-10-30）是生成质量：v0.7.1 让 Claude Code 的日常使用开始产生记忆，真实使用随即暴露出生成链路的问题，v0.7.2 由这些问题驱动 Patchouli 核心机制的改进。下列方向各自在阻塞问题决定、能够立即执行时建立计划，彼此不预设先后，计划导航见 [Plans](./plans/README.md#v072)；生成材料修正一份已于 2026-10-31 完成归档，实测随日常使用进行。
+状态：Planned。版本目标（owner，2026-10-30）是生成质量：v0.7.1 让 Claude Code 的日常使用开始产生记忆，真实使用随即暴露出生成链路的问题，v0.7.2 由这些问题驱动 Patchouli 核心机制的改进。下列方向各自在阻塞问题决定、能够立即执行时建立计划，彼此不预设先后，计划导航见 [Plans](./plans/README.md#v072)；生成材料修正一份已于 2026-10-31 完成归档，实测随日常使用进行；plugin 模式开放 WRITE 与 UPDATE 一份已于同日完成实测验收并归档。
 
 真实使用暴露的问题（证据见各 Todo 与 Idea）：
 
@@ -136,12 +136,12 @@ last_reviewed: 2026-10-31
 - 折叠裁剪的原文没有留存，结算冻结的来源只覆盖未折叠的轮次（已随生成材料修正解决）；
 - 一个话题至多产出一条记忆，只写在正文中的内容检索不到；
 - 查重分不开同一项目中相关与无关的记忆；同项目记忆增多后，查重判出的 UPDATE 整体覆盖已有记忆，已有两条记忆的主要内容在当前版本中被冲掉；
-- plugin 模式只开放了检索与读取，Claude Code 的显式写入与更新从未发生；owner 判断上述生成问题约有一半源于此。
+- plugin 模式只开放了检索与读取，Claude Code 的显式写入与更新从未发生；owner 判断上述生成问题约有一半源于此（已随 plugin 模式开放 WRITE 与 UPDATE 解决）。
 
 | 方向 | 内容 | owner 决定（2026-10-30） | 设计讨论与阻塞问题 |
 |:---|:---|:---|:---|
 | 生成材料修正与原始证据保存 | 生成视图只保留单次工具调用结果的上限；移除 `worth_saving`；同步完成从 Topic 往后全链路的原始证据保存覆盖面（Topic 完整资料、来源冻结、来源 Artifact、Memory 的来源关联） | 一轮交互的内容不得被任何上限数字截断，只允许单次工具调用的结果受限，现行的单轮、思考与参数上限属于实现漂移；`worth_saving` 只做移除；计划同步完成 Topic 往后的原始证据覆盖面 | R-1、R-2 已决定（2026-10-30）：不分片，生成继续读工作视图；Topic 按顺序保存全部交互记录与折叠记录，作为来源 Artifact 的数据。已完成（2026-10-31）：[归档计划](./archive/plans/v0.7.2-generation-material-and-raw-evidence.md)；证据见[生成材料 Todo](./archive/todo/generation-material-filtering-and-truncation.md)（已归档）；当前事实见[感知与短期话题](./patchouli/perception.md)与 [Patchouli 生成](./patchouli/generation.md) |
-| plugin 模式开放 WRITE 与 UPDATE | Claude Code 经 MCP 工具显式写入与更新记忆，经操作入口的请求级提交进入 actor API，派发到 Patchouli 的 Mode B、Mode C；记忆编译的命名与文案不再按 MTP 编写 | 同步开放两项能力，与主动链路共享同一记忆更新逻辑；计划同时清理 MTP 命名与文案残留，包括记忆编译文本（2026-10-31）；交互进行中的话题挂载采用写入时就地落位（E-8，2026-10-31） | [外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)的 v0.7.2 一步；E-8 已决定。计划已建立：[plugin 模式开放 WRITE 与 UPDATE](./plans/v0.7.2-plugin-write-update.md) |
+| plugin 模式开放 WRITE 与 UPDATE | Claude Code 经 MCP 工具显式写入与更新记忆，经操作入口的请求级提交进入 actor API，派发到 Patchouli 的 Mode B、Mode C；记忆编译的命名与文案不再按 MTP 编写 | 同步开放两项能力，与主动链路共享同一记忆更新逻辑；计划同时清理 MTP 命名与文案残留，包括记忆编译文本（2026-10-31）；交互进行中的话题挂载采用写入时就地落位（E-8，2026-10-31） | [外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)的 v0.7.2 一步；E-8 已决定。已完成（2026-10-31）：[归档计划](./archive/plans/v0.7.2-plugin-write-update.md)，以 Claude Code 的真实会话完成实测验收；当前事实见 [MCP 记忆访问](./contracts/mcp.md)与 [Import Bus](./system/import-bus.md#47-写入时落位) |
 | 一个话题提取多条记忆 | 话题结算从整段材料中提取多条记忆，逐条查重与写入 | 版本内完成 | [多条提取与查重 Idea](./ideas/settlement-multi-memory-extraction-and-dedup.md)的 G-1 |
 | 查重与更新机制 | 查重的判定信号，以及命中已有记忆后的写入方式 | 设计未决定 | 同一 Idea 的 G-2、G-3；证据见[查重 Todo](./todo/generation-dedup-decision-signal.md) |
 

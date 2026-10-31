@@ -1,4 +1,4 @@
-"""进程级写入意图登记、派发与结算；只保存归属、发起者以及进程与线程关联。"""
+"""进程级写入意图登记、派发与结算；只保存归属、发起者以及线程提交时的进程与线程关联。"""
 
 from __future__ import annotations
 
@@ -22,7 +22,10 @@ logger = logging.getLogger(__name__)
 
 
 def _slugify(text: str, max_len: int = 30) -> str:
-    """沿用 MTP 的 alias 片段规则，空片段统一回退为 untitled。"""
+    """把文本转为 alias 片段：小写，只保留字母、数字、空白与下划线，空白折叠为下划线。
+
+    截取前 ``max_len`` 个字符并去掉首尾下划线；空片段统一回退为 untitled。
+    """
     slug = re.sub(r"[^a-z0-9\s_]", "", text.lower().strip())
     slug = re.sub(r"\s+", "_", slug)
     return re.sub(r"_+", "_", slug).strip("_")[:max_len].rstrip("_") or "untitled"
@@ -31,8 +34,9 @@ def _slugify(text: str, max_len: int = 30) -> str:
 class WriteIntentRegistry:
     """全 Workspace 可回读的登记，同步操作在单个事件循环内原子完成。
 
-    ``process_id`` 与 ``thread_id`` 仅供观测关联，不限制回读。结算后句柄保留到重启，
-    不产生 EXPIRED，也不回填 canonical 缓存。
+    ``process_id`` 与 ``thread_id`` 仅供观测关联，不限制回读；不建进程的请求级提交
+    没有进程与线程，二者为空。结算后句柄保留到重启，不产生 EXPIRED，也不回填
+    canonical 缓存。
     """
 
     def __init__(self) -> None:
@@ -46,8 +50,8 @@ class WriteIntentRegistry:
         *,
         belong_to: WorkspaceIdentity,
         from_actor: ActorIdentity,
-        process_id: str,
-        thread_id: str,
+        process_id: str | None = None,
+        thread_id: str | None = None,
     ) -> PendingAtom:
         """登记 WRITE 并进入 MATERIALIZING；返回独立副本，调用方不能改写登记中的状态。"""
         prefix = f"draft_{_slugify(focus.title or focus.content[:20])}"
@@ -59,8 +63,8 @@ class WriteIntentRegistry:
         *,
         belong_to: WorkspaceIdentity,
         from_actor: ActorIdentity,
-        process_id: str,
-        thread_id: str,
+        process_id: str | None = None,
+        thread_id: str | None = None,
     ) -> PendingAtom:
         """登记 UPDATE；基础原子的可读性由能力层先行验证。"""
         return self._register(
@@ -73,8 +77,8 @@ class WriteIntentRegistry:
         focus: WriteFocus | UpdateFocus,
         belong_to: WorkspaceIdentity,
         from_actor: ActorIdentity,
-        process_id: str,
-        thread_id: str,
+        process_id: str | None,
+        thread_id: str | None,
     ) -> PendingAtom:
         # alias 永不复用；短后缀冲突时重新生成，不能覆盖已结算的旧句柄。
         alias = f"{prefix}_{uuid4().hex[:4]}"

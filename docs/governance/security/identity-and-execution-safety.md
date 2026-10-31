@@ -25,7 +25,7 @@ related_docs:
   - docs/todo/frontend-identity-ownership.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
   - docs/todo/workspace-asset-ownership-identity-split.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-31
 ---
 
 # 身份隔离与执行安全治理
@@ -88,7 +88,7 @@ ExecutionLabels：agent_id/workspace_id 字符串，仅用于提示词、展示�
 
 CALL 子 Agent 以被调用方身份运行：任务进程在派生时对被调用方做 Workspace 准入，从进程 context 签发子线程 context，子帧的请求按被调用方的白名单与可见性授权，写入意图记在被调用方名下并记录子线程标识；子帧的观测标签取子线程描述中的被调用方身份，由线程表生成，仍只用于观测。显式 `context_refs` 由调用方以自己的 READ 读取，只选择共享内容，不签发更广的资源权限。Alice/CPU 的 `RuntimeScope` 与 `CPUInputManifest` 不携带 `IdentityScope`，frame 与 MTP 上下文没有 `identity` 派生。标签由注册入口或线程表生成并冻结，不能还原成资源归属或授权身份；提示词历史归并和运行事件使用注册标签，frame 流式角色展示优先使用 Profile 的源 alias。线程描述携带的操作快照只用于提示词与执行策略，不是授权依据。`request/run/frame` 等关联坐标属于运行模型，`ActorIdentity` 只含 user/agent/team，不含 `session_id`。
 
-入口层现状：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_claims` 解析为身份声明，经统一认证网关认证后，由 workspace 授权点在操作授权时组装 `IdentityScope`（模型见[身份与授权](../../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节），应用服务不再解析裸 `user_id`。交互导入（`POST /api/v1/import/turns`）与 MCP 记忆访问（`POST /mcp`）同样没有认证前组装的例外：外部 harness 有自己的接入登记，请求以 `X-Principal-ID` 声明 principal、以 `Authorization: Bearer` 携带接入凭据，网关第一阶段以常量时间比较核对凭据后才承认这个 principal；导入经 `import` adapter 取得请求级 context，由导入授权校验准入与目标后组装本次请求的 `IdentityScope`（不检查 actor 操作白名单并拒绝保留的 `system`），MCP 经 `mcp` adapter 每次工具调用取得一份请求级 context，只能检索与读取（[MCP 记忆访问](../../contracts/mcp.md)）。接入凭据是每个外部 principal 一份本地共享密钥，只能防止本机其他程序冒用 harness 身份，不防止能读取用户环境的程序；principal 不与 Agent 绑定，请求头中的用户选择与其他 HTTP 入口一样不做额外证明。非 Agent action 使用单独登记的保留 `system` actor，它也是 root API 唯一接受的 actor（root 授权不读取白名单）；Memory 管理读取按 owner-management 语义在归属硬边界内跳过 actor 可见性过滤，Agent retrieval 与 SETTLE 查重仍执行普通 `MemoryAccessPolicy`，后者以 `system` 为可见性主体。
+入口层现状：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_claims` 解析为身份声明，经统一认证网关认证后，由 workspace 授权点在操作授权时组装 `IdentityScope`（模型见[身份与授权](../../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节），应用服务不再解析裸 `user_id`。交互导入（`POST /api/v1/import/turns`）与 MCP 记忆访问（`POST /mcp`）同样没有认证前组装的例外：外部 harness 有自己的接入登记，请求以 `X-Principal-ID` 声明 principal、以 `Authorization: Bearer` 携带接入凭据，网关第一阶段以常量时间比较核对凭据后才承认这个 principal；导入经 `import` adapter 取得请求级 context，由导入授权校验准入与目标后组装本次请求的 `IdentityScope`（不检查 actor 操作白名单并拒绝保留的 `system`），MCP 经 `mcp` adapter 每次工具调用取得一份请求级 context，只能检索、读取、写入与更新，写入与更新先经导入授权为这一轮落位，再按白名单授权（[MCP 记忆访问](../../contracts/mcp.md)）。接入凭据是每个外部 principal 一份本地共享密钥，只能防止本机其他程序冒用 harness 身份，不防止能读取用户环境的程序；principal 不与 Agent 绑定，请求头中的用户选择与其他 HTTP 入口一样不做额外证明。非 Agent action 使用单独登记的保留 `system` actor，它也是 root API 唯一接受的 actor（root 授权不读取白名单）；Memory 管理读取按 owner-management 语义在归属硬边界内跳过 actor 可见性过滤，Agent retrieval 与 SETTLE 查重仍执行普通 `MemoryAccessPolicy`，后者以 `system` 为可见性主体。
 
 WorkspaceAsset 的 Store、解析服务与既有 Reader/Command 端口仍使用旧 `IdentityScope` 接口做归属检查；System 的 `AssetMaterializationReader` 只在一次 representation 租借内以归属和保留 `system` actor 组装适配所需 scope，Patchouli 使用归属读取端口，不保存该 scope。此例外不扩展到 Alice、CPU 或其他资源路径，内部拆分继续由 [WorkspaceAsset 归属 Todo](../../todo/workspace-asset-ownership-identity-split.md) 跟踪。
 

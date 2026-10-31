@@ -4,12 +4,17 @@
     - 一次导入接收 harness 一轮已经结束的交互的完整记录，不跨请求累积；
       用户消息由服务端写成序号为 0 的事件，其后的事件序号严格递增。回复
       正文不单独上传，由事件中的助手正文得到。
+    - 在途轮次是仍在进行的一轮：只有外部标识、本轮用户消息与之前几轮，供
+      写入时为这一轮落位。完整记录在它之上加入事件与结局，同名字段的校验
+      规则因此相同，两者推导出同一个交互标识。
     - 事件与 ``TurnEvent`` 同形，请求校验阶段执行同样的字段规则与一轮的
       不变量，违反时整轮拒绝。``verb`` 标记对 HiveMemory 能力的调用：外部
-      harness 只能经 HiveMemory 的 MCP 工具检索与读取，导入因此只接受
-      ``SEARCH`` 与 ``READ``，读取必须给出作用对象；其他外部工具只带
-      ``tool_name``。导入不认识 MCP 工具的参数结构，参数由连接器归一化。
-    - 外部 harness 不产出 alias，事件不接受 ``produced_aliases``。
+      harness 经 HiveMemory 的 MCP 工具检索、读取、写入与更新，导入因此接受
+      ``SEARCH``、``READ``、``WRITE`` 与 ``UPDATE``，读取与更新必须给出作用
+      对象；其他外部工具只带 ``tool_name``。导入不认识 MCP 工具的参数结构，
+      参数由连接器归一化。
+    - 事件不接受 ``produced_aliases``：写入与更新返回的 pending alias 只留在
+      工具结果中。
     - ``recent_turns`` 只供 Gateway 落位，不进入交互载荷；最近一轮带外部标识
       时，服务端查出它实际落位的话题，供话题路由失败时续接。
     - 交互标识由认证结果与外部标识推导，同一轮重发时不变，不同调用来源、
@@ -35,8 +40,11 @@ from hivememory.core.models.interaction import InteractionOutcome, ToolResultSta
 
 ImportedEventKind = Literal["assistant_message", "thought", "tool_call"]
 
-# 导入事件可以携带的能力动词：外部 harness 只能经 MCP 检索与读取记忆。
-ImportedVerb = Literal["SEARCH", "READ"]
+# 导入事件可以携带的能力动词：外部 harness 经 MCP 检索、读取、写入与更新记忆。
+ImportedVerb = Literal["SEARCH", "READ", "WRITE", "UPDATE"]
+
+# 必须给出作用对象的动词：读取的 alias、更新的记忆，否则摘要无法说明对象。
+_TARGETED_VERBS = frozenset({"READ", "UPDATE"})
 
 IMPORT_INTERACTION_PREFIX = "import_"
 
@@ -54,12 +62,14 @@ class ImportedTurnEvent(BaseModel):
     verb: ImportedVerb | None = Field(
         default=None,
         description=(
-            "只为 HiveMemory MCP 工具的调用设置：检索为 SEARCH、读取为 READ，"
-            "生成时只保留一行摘要，不再渲染取回的记忆；与 tool_name 互斥"
+            "只为 HiveMemory MCP 工具的调用设置：检索为 SEARCH、读取为 READ、写入为 WRITE、"
+            "更新为 UPDATE。生成时检索与读取只保留一行摘要，不再渲染取回的记忆；写入与"
+            "更新不渲染，已经由显式写入保存。与 tool_name 互斥"
         ),
     )
     targets: list[str] = Field(
-        default_factory=list, description="能力动词的作用对象，READ 为要读取的 alias，不能为空"
+        default_factory=list,
+        description="能力动词的作用对象：READ 为要读取的 alias，UPDATE 为被修改的 alias，二者不能为空",
     )
     tool_args: dict[str, Any] | None = Field(
         default=None, description="工具调用的参数，不含作用对象"
@@ -75,10 +85,10 @@ class ImportedTurnEvent(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
     @model_validator(mode="after")
-    def _require_read_targets(self) -> ImportedTurnEvent:
-        """读取必须给出要读的 alias，否则摘要无法说明读了哪些记忆。"""
-        if self.verb == "READ" and not self.targets:
-            raise ValueError("READ tool_call requires targets")
+    def _require_targets(self) -> ImportedTurnEvent:
+        """读取与更新必须给出作用对象，否则摘要无法说明读了或改了哪些记忆。"""
+        if self.verb in _TARGETED_VERBS and not self.targets:
+            raise ValueError(f"{self.verb} tool_call requires targets")
         return self
 
     def to_turn_event(self) -> TurnEvent:
@@ -112,8 +122,12 @@ class ImportedRecentTurn(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
-class ImportedTurn(BaseModel):
-    """harness 一轮已结束交互的完整记录。"""
+class InFlightTurn(BaseModel):
+    """harness 中仍在进行的一轮：外部标识、本轮用户消息与之前几轮。
+
+    写入与更新在交互进行中提交，以它为这一轮落位；字段与轮次结束时导入
+    的同名字段相同，推导出同一个交互标识，回流时据此沿用落点。
+    """
 
     source: str = Field(
         min_length=1,
@@ -127,18 +141,23 @@ class ImportedTurn(BaseModel):
     external_turn_id: str = Field(
         min_length=1, max_length=256, description="该轮在 harness 中的标识，同一轮重发时不变"
     )
-    outcome: InteractionOutcome = Field(description="该轮的结局")
     user_message: str = Field(description="该轮的用户消息")
-    events: list[ImportedTurnEvent] = Field(
-        default_factory=list, description="用户消息之后的轮次事件，按 sequence 严格递增"
-    )
-    model_used: str | None = Field(default=None, description="实际使用的模型名，可为空")
     recent_turns: list[ImportedRecentTurn] = Field(
         default_factory=list,
         description="该轮之前最近的若干轮，只供 Gateway 落位，不进入交互载荷",
     )
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+
+
+class ImportedTurn(InFlightTurn):
+    """harness 一轮已结束交互的完整记录。"""
+
+    outcome: InteractionOutcome = Field(description="该轮的结局")
+    events: list[ImportedTurnEvent] = Field(
+        default_factory=list, description="用户消息之后的轮次事件，按 sequence 严格递增"
+    )
+    model_used: str | None = Field(default=None, description="实际使用的模型名，可为空")
 
     @model_validator(mode="after")
     def _check_turn_events(self) -> ImportedTurn:
@@ -177,7 +196,7 @@ class ImportConversationKey:
     external_conversation_id: str
 
     @classmethod
-    def for_turn(cls, actor: ActorIdentity, turn: ImportedTurn) -> ImportConversationKey:
+    def for_turn(cls, actor: ActorIdentity, turn: InFlightTurn) -> ImportConversationKey:
         return cls(
             user_id=actor.user_id,
             agent_id=actor.agent_id,
@@ -237,5 +256,6 @@ __all__ = [
     "ImportedRecentTurn",
     "ImportedTurn",
     "ImportedTurnEvent",
+    "InFlightTurn",
     "derive_import_interaction_id",
 ]

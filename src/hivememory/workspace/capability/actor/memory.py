@@ -33,7 +33,7 @@ from hivememory.workspace.contracts.operations import (
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
 )
-from hivememory.workspace.thread_ports import ExecutionThreadTable, ResolvedThread
+from hivememory.workspace.thread_ports import ExecutionThreadTable
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
@@ -68,34 +68,46 @@ class ActorMemoryService:
         request: SubmitWriteIntentRequest,
         *,
         access: WorkspaceAccessContext,
+        dispatch_topic_id: str | None = None,
     ) -> PendingAtom:
-        """提交 WRITE（``memory.write``），生成队列接纳后才返回 ACK。"""
-        scope = self._authorize(access, WorkspaceOperation.MEMORY_WRITE)
-        thread = self._resolve_for_dispatch(access)
+        """提交 WRITE（``memory.write``），生成队列接纳后才返回 ACK。
+
+        ``dispatch_topic_id`` 只由不建进程的请求级提交给出，见 :meth:`_resolve_for_dispatch`。
+        """
+        scope = self._authorize(
+            access, WorkspaceOperation.MEMORY_WRITE, request_level=dispatch_topic_id is not None
+        )
+        process_id, thread_id, topic_id = self._resolve_for_dispatch(access, dispatch_topic_id)
         pending = self._intents.register_write(
             request.focus,
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
-            process_id=thread.process_id,
-            thread_id=thread.thread_id,
+            process_id=process_id,
+            thread_id=thread_id,
         )
-        return await self._dispatch(pending, topic_id=thread.dispatch_topic_id, scope=scope)
+        return await self._dispatch(pending, topic_id=topic_id, scope=scope)
 
     async def submit_update_intent(
         self,
         request: SubmitUpdateIntentRequest,
         *,
         access: WorkspaceAccessContext,
+        dispatch_topic_id: str | None = None,
     ) -> PendingAtom:
-        """提交 UPDATE（``memory.update``）：授权后解析可读正式基础原子，登记成功才失效基础缓存。"""
-        scope = self._authorize(access, WorkspaceOperation.MEMORY_UPDATE)
+        """提交 UPDATE（``memory.update``）：授权后解析可读正式基础原子，登记成功才失效基础缓存。
+
+        ``dispatch_topic_id`` 只由不建进程的请求级提交给出，见 :meth:`_resolve_for_dispatch`。
+        """
+        scope = self._authorize(
+            access, WorkspaceOperation.MEMORY_UPDATE, request_level=dispatch_topic_id is not None
+        )
         result = (await self._reader.resolve_references([request.base_alias], scope=scope))[0]
         if result.kind == "pending":
             raise PendingUpdateNotAllowedError(details={"alias": request.base_alias})
         if result.kind != "atom" or result.atom is None:
             raise ResourceNotFoundError(details={"alias": request.base_alias})
         atom = result.atom
-        thread = self._resolve_for_dispatch(access)
+        process_id, thread_id, topic_id = self._resolve_for_dispatch(access, dispatch_topic_id)
         pending = self._intents.register_update(
             UpdateFocus(
                 base_alias=atom.index.alias or request.base_alias,
@@ -105,19 +117,28 @@ class ActorMemoryService:
             ),
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
-            process_id=thread.process_id,
-            thread_id=thread.thread_id,
+            process_id=process_id,
+            thread_id=thread_id,
         )
         self._reader.evict(scope.workspace_identity, atom.id)
-        return await self._dispatch(pending, topic_id=thread.dispatch_topic_id, scope=scope)
+        return await self._dispatch(pending, topic_id=topic_id, scope=scope)
 
-    def _resolve_for_dispatch(self, access: WorkspaceAccessContext) -> ResolvedThread:
-        """登记前的同步段只解析一次线程：进程关联、线程标识与派发话题都取自结果。
+    def _resolve_for_dispatch(
+        self, access: WorkspaceAccessContext, dispatch_topic_id: str | None
+    ) -> tuple[str | None, str | None, str]:
+        """登记前的同步段：取得进程关联、线程标识与派发话题。
 
-        从这里到登记结束不挂起，线程结束与停止都不能插入同步段；UPDATE 的
-        基础冷读在此之前，冷读跨越线程结束或停止时在这里拒绝，不产生意图。
+        请求级提交没有线程：派发话题由调用方给出，是为这一轮落位得到的话题，
+        登记不带进程与线程关联；授权已确认 context 是请求级的。
+
+        线程提交只解析一次线程，三者都取自结果。从这里到登记结束不挂起，线程
+        结束与停止都不能插入同步段；UPDATE 的基础冷读在此之前，冷读跨越线程
+        结束或停止时在这里拒绝，不产生意图。
         """
-        return self._threads.resolve(access)
+        if dispatch_topic_id is not None:
+            return None, None, dispatch_topic_id
+        thread = self._threads.resolve(access)
+        return thread.process_id, thread.thread_id, thread.dispatch_topic_id
 
     async def _dispatch(
         self, pending: PendingAtom, *, topic_id: str, scope: IdentityScope
@@ -304,6 +325,10 @@ class ActorMemoryService:
         self,
         access: WorkspaceAccessContext,
         operation: WorkspaceOperation,
+        *,
+        request_level: bool = False,
     ) -> IdentityScope:
         """在 backing 调用前执行操作授权，返回组装的可信 scope。"""
-        return self._authorizer.authorize_actor_operation(access, operation)
+        return self._authorizer.authorize_actor_operation(
+            access, operation, request_level=request_level
+        )

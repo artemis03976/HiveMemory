@@ -64,7 +64,7 @@ async def handle_read(
         options = (
             None if isinstance(source, PendingAtom) else MemoryCompileOptions(requested_alias=alias)
         )
-        output_lines.append(compiler.compile(source, MemoryCompileTarget.MTP_READ, options).text)
+        output_lines.append(compiler.compile(source, MemoryCompileTarget.READ_RESULT, options).text)
 
     # 全部无效：直接返回错误
     if not output_lines:

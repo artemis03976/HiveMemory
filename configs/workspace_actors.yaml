@@ -35,9 +35,10 @@ workspace_actors:
     agent_id: "system"
 
   # Claude Code：连接器以 (default, claude_code) 声明导入已结束的交互，MCP
-  # 工具以同一声明检索与读取记忆。导入只校验准入与目标、不经白名单；MCP 的
-  # 每次调用按本白名单逐次授权。精确记录优先于上方的用户级记录，这个 Agent
-  # 只获准检索与读取，不继承其余四项 actor 操作。
+  # 工具以同一声明检索、读取、写入与更新记忆。导入与写入前的落位只校验准入
+  # 与目标、不经白名单；MCP 的每次调用按本白名单逐次授权。精确记录优先于
+  # 上方的用户级记录，这个 Agent 不继承 memory.run 与 agent.call：MCP 入口
+  # 不提供这两项操作。
   - owner_user_id: "default"
     workspace_id: "main_workspace"
     user_id: "default"
@@ -45,3 +46,5 @@ workspace_actors:
     allowed_operations:
       - "memory.read"
       - "memory.search"
+      - "memory.write"
+      - "memory.update"

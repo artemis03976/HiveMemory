@@ -333,7 +333,7 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质
     - 文案写着 MTP 的调用方式（[记忆编译文案](../../src/hivememory/i18n/memory_compiler.py)）：检索上下文信封的头尾引导使用 `⟪ READ | alias | ⟫`、`⟪ CALL … ⟫`、`⟪ SEARCH ⟫` 的指令语法；截断提示让读者“使用 READ 指令”；pending 句柄与引用解析结果的提示让读者“重新发出 WRITE/UPDATE 指令”“使用 SEARCH”“在后续的 READ/RUN/UPDATE 调用中使用正式别名”。
     - 因这些文案而存在的绕行：MCP 检索关闭检索上下文信封的头尾引导（`include_header_footer`，注释写明头尾面向 Alice 的 MTP 指令）；MCP 读取交付全文，注释写明是为了不出现指引 MTP READ 的截断提示。MCP 检索中全文呈现的条目超过长度时，截断提示仍指向 READ 指令。
 - **范围**（候选）：Claude Code 插件的 MCP server 增加写入与更新两个工具，经操作入口的请求级提交进入 actor API 的写入与更新操作，按访问登记逐次授权；写入时就地为本轮落位（E-8），以本轮所在的话题派发；登记写入意图后派发到 Patchouli 的 Mode B、Mode C，与主动链路是同一条链路；记忆编译的命名与文案不再按 MTP 编写，Alice 与 MCP 得到各自协议下可用的指引。
-- **阻塞问题**：无。E-8 已于 2026-10-31 决定（选项 D）。计划已建立：[plugin 模式开放 WRITE 与 UPDATE](../plans/v0.7.2-plugin-write-update.md)（2026-10-31），以下候选设计在计划中采纳或调整。
+- **阻塞问题**：无。E-8 已于 2026-10-31 决定（选项 D）。计划已于 2026-10-31 实施并归档：[plugin 模式开放 WRITE 与 UPDATE](../archive/plans/v0.7.2-plugin-write-update.md)，当前事实见 [MCP 记忆访问](../contracts/mcp.md)与 [Import Bus](../system/import-bus.md#47-写入时落位)。以下候选设计在计划中采纳或调整，保留为讨论记录：落点登记按 `interaction_id` 保存，而不是每个外部会话只保留一轮；回流之后才到达的写入（后台子代理）沿用这一轮实际所在的话题。
 - **候选设计**（分析，不是 owner 决定，可在计划评审时调整）：
   - 请求级 context 登记意图：plugin 模式不建任务进程（1.1），登记改记请求的观测标签，不伪造进程或线程；`execute_request` 的可提交类型增加写入与更新请求；`claude_code` 的访问登记增加 `memory.write` 与 `memory.update`。
   - 写入时就地落位（E-8 选项 D）的完整链路：
@@ -348,7 +348,7 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质
     - **子代理**：Claude Code 子代理发起的写入按主会话的当前一轮落位；子代理中的 hook 如何读到主会话的当前一轮，在计划中核实。
   - 工具结果交还 PendingAtom 句柄，写明句柄表示意图已在 workspace 登记并被生成队列接纳、正式记忆尚未持久化；之后经 `memory_read` 回读，结算后重定向到正式记忆。
   - 回声：连接器把 HiveMemory 自己的写入与更新调用归一化为 `verb` 为 WRITE、UPDATE 的事件，生成视图不渲染这两类事件（[生成材料的渲染](../../src/hivememory/engines/perception/material.py)），避免 Mode A 把显式写入的内容再提取一遍。
-  - 记忆编译：target、信封与处理器按用途命名，不按协议命名；编译正文只写记忆内容与状态，不写任何协议的调用语法。提示读者下一步操作的文字（截断后读取全文、结算后改用正式别名、失败后重新提交、检索为空时检索）由调用方按自己的协议给出操作名：Alice 给 MTP 指令的写法，MCP 给工具名。操作名的传入方式在计划中确定。`include_header_footer` 开关与 MCP 读取为避开截断提示的注释随之复核。
+  - 记忆编译：target、信封与处理器按用途命名，不按协议命名；编译正文只写记忆内容与状态，不写任何协议的调用语法。提示读者下一步操作的文字（截断后读取全文、结算后改用正式别名、失败后重新提交、检索为空时检索）只写能力，不指向任何协议的指令或工具名；工具名随 harness 与安装方式变化，能力是固定的（owner，2026-10-31）。`include_header_footer` 开关与 MCP 读取为避开截断提示的注释随之复核。
 
 ### controller 模式的步骤分析（退回候选方向）
 

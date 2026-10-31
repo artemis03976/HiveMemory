@@ -178,8 +178,8 @@ class MemoryCompiler:
         if isinstance(source, ReferenceResolution):
             if source.kind == "not_found":
                 raise ValueError(
-                    "Cannot compile ReferenceResolution with kind='not_found'. "
-                    "Handle this in MTP runtime instead."
+                    "Cannot compile ReferenceResolution with kind='not_found': it has no "
+                    "content; callers report the alias as unresolved."
                 )
             if source.kind == "pending" and source.pending:
                 if not options.requested_alias:

@@ -12,19 +12,11 @@ _RETRIEVAL_TEXT_ZH = {
 """,
     "retrieval_footer": """
 \n[System Guidance]:
-- 若上述记忆摘要符合当前用户意图，但摘要信息不足，希望查看完整的记忆内容，请立即使用 `⟪ READ | alias | ⟫` 指令（严禁自行猜测或编造）。
+- 若上述记忆摘要符合当前用户意图，但摘要信息不足，请先读取这条记忆的完整内容（严禁自行猜测或编造）。
 - 带有 [未验证] 或 [警告：陈旧] 状态的记忆可能包含错误或过时信息，请结合常识注意甄别。
-- 若任务需要专项能力（如数据分析、代码生成等），且上方列出了对应子代理，请优先使用 `⟪ CALL | agent_alias | topic="..." ⟫` 委托给子代理执行，不要自行承担。
+- 若任务需要专项能力（如数据分析、代码生成等），且上方列出了对应子代理，请优先委托给该子代理执行，不要自行承担。
 </memory_context>
 """,
-    "retrieval_empty_context_notice": (
-        "[System Guidance]: 帕秋莉在本次预检索中未发现强相关的历史记忆或子代理。\n"
-        "(提示: 如果你需要了解历史记忆或寻找特定助手，请随时使用 ⟪ SEARCH ⟫ 协议指令进行全局模糊搜索。)"
-    ),
-    "retrieval_memory_empty_hint": ("当前检索结果为空。若需查阅历史记忆，请使用 ⟪ SEARCH ⟫。"),
-    "retrieval_agent_empty_hint": (
-        '当前未发现相关的专业子代理。若需其他代理协助，请使用 ⟪ SEARCH | * | filter="type:AGENT_PROFILE" ⟫。'
-    ),
 }
 
 _RETRIEVAL_TEXT_EN = {
@@ -34,23 +26,11 @@ Treat these memories as background knowledge naturally surfacing in your mind. I
 """,
     "retrieval_footer": """
 \n[System Guidance]:
-- If a memory summary matches the current user intent but lacks enough detail, immediately use `⟪ READ | alias | ⟫` to inspect the full memory content. Do not guess or fabricate missing details.
+- If a memory summary matches the current user intent but lacks enough detail, read the full memory first. Do not guess or fabricate missing details.
 - Memories marked [Unverified] or [Warning: Stale] may contain incorrect or outdated information. Use common sense when judging them.
-- If the task requires specialized capability, such as data analysis or code generation, and a matching sub-agent is listed above, prefer `⟪ CALL | agent_alias | topic="..." ⟫` to delegate the task instead of handling it yourself.
+- If the task requires specialized capability, such as data analysis or code generation, and a matching sub-agent is listed above, prefer delegating the task to that sub-agent instead of handling it yourself.
 </memory_context>
 """,
-    "retrieval_empty_context_notice": (
-        "[System Guidance]: Patchouli found no strongly relevant historical memories "
-        "or sub-agents during this pre-retrieval pass.\n"
-        "(Hint: If you need historical memory or a specific assistant, use the "
-        "⟪ SEARCH ⟫ protocol command for a global fuzzy search.)"
-    ),
-    "retrieval_memory_empty_hint": (
-        "The current retrieval result is empty. Use ⟪ SEARCH ⟫ if you need to inspect historical memory."
-    ),
-    "retrieval_agent_empty_hint": (
-        'No relevant specialist sub-agent was found. Use ⟪ SEARCH | * | filter="type:AGENT_PROFILE" ⟫ if you need help from another agent.'
-    ),
 }
 
 _SECTION_TITLES_ZH = {
@@ -63,20 +43,10 @@ _SECTION_TITLES_EN = {
     "agent_profiles": "Available Sub-Agents",
 }
 
-_MTP_READ_TEXT_ZH = {
-    "mtp_read_result_title": "[MTP READ Result]",
-}
-
-_MTP_READ_TEXT_EN = {
-    "mtp_read_result_title": "[MTP READ Result]",
-}
-
 _SHARED_CONTEXT_TEXT_ZH = {
     "shared_context_title": "[Shared Context from Parent Agent]",
     "shared_context_empty": "没有共享的记忆材料。",
-    "shared_context_intro": (
-        "父代理共享了以下运行时记忆材料。" "如果需要再次检查它们，请使用 READ。"
-    ),
+    "shared_context_intro": "父代理共享了以下运行时记忆材料。如果需要再次检查它们，请重新读取。",
 }
 
 _SHARED_CONTEXT_TEXT_EN = {
@@ -84,19 +54,17 @@ _SHARED_CONTEXT_TEXT_EN = {
     "shared_context_empty": "No shared memory artifacts.",
     "shared_context_intro": (
         "The parent agent shared the following runtime memory artifacts. "
-        "Use READ if you need to inspect them again."
+        "Read them again if you need to inspect them."
     ),
 }
 
 _ENVELOPE_TEXT_ZH = {
     **_RETRIEVAL_TEXT_ZH,
-    **_MTP_READ_TEXT_ZH,
     **_SHARED_CONTEXT_TEXT_ZH,
 }
 
 _ENVELOPE_TEXT_EN = {
     **_RETRIEVAL_TEXT_EN,
-    **_MTP_READ_TEXT_EN,
     **_SHARED_CONTEXT_TEXT_EN,
 }
 
@@ -115,7 +83,7 @@ _FULL_CONTEXT_TEXT_ZH = {
     "memory_full_change_log_label": "变更记录",
     "memory_tags_empty": "(无标签)",
     "memory_time_unknown": "(时间未知)",
-    "memory_truncation_notice": ("[...部分内容已截断，如需阅读完整内容请使用 READ 指令读取...]"),
+    "memory_truncation_notice": "[...部分内容已截断，如需阅读完整内容，请读取这条记忆...]",
     "memory_field_empty": "无",
     "memory_confidence_high": "高",
     "memory_confidence_medium": "中",
@@ -141,9 +109,7 @@ _FULL_CONTEXT_TEXT_EN = {
     "memory_full_change_log_label": "Change Log",
     "memory_tags_empty": "(No tags)",
     "memory_time_unknown": "(time unknown)",
-    "memory_truncation_notice": (
-        "[...content truncated. Use READ to inspect the full memory content.]"
-    ),
+    "memory_truncation_notice": "[...content truncated. Read this memory to see the full content.]",
     "memory_field_empty": "None",
     "memory_confidence_high": "High",
     "memory_confidence_medium": "Medium",
@@ -210,7 +176,6 @@ _PENDING_ATOM_TEXT_ZH = {
     "pending_read_write": (
         "[{pending_alias}] (运行时待定原子):\n"
         "状态: {status}\n"
-        "来源: WRITE\n"
         "标题：{title}\n"
         "\n"
         "内容:\n"
@@ -229,7 +194,7 @@ _PENDING_ATOM_TEXT_ZH = {
         "注意: 这是一个待定修订。原始记忆尚未被修改。"
     ),
     "pending_read_failed": (
-        "[{pending_alias}] (失败):" "错误: {error}\n" "提示: 重新发出 WRITE/UPDATE 指令以重试。"
+        "[{pending_alias}] (失败):" "错误: {error}\n" "提示: 如需重试，请重新提交这次写入或更新。"
     ),
     "pending_read_settled": (
         "[{pending_alias}] (已落库):"
@@ -249,7 +214,7 @@ _PENDING_ATOM_TEXT_ZH = {
     "pending_read_expired": (
         "[{pending_alias}] (已过期):"
         "此句柄已被回收（reclaimed）。该待定原子在运行时已不再存在。\n"
-        "提示: 如果需要，请使用 SEARCH 查找已定型的记忆。"
+        "提示: 如果需要，请检索已定型的记忆。"
     ),
 }
 
@@ -257,7 +222,6 @@ _PENDING_ATOM_TEXT_EN = {
     "pending_read_write": (
         "[{pending_alias}] (runtime pending atom):\n"
         "status: {status}\n"
-        "source: WRITE\n"
         "title: {title}\n"
         "\n"
         "content:\n"
@@ -280,7 +244,7 @@ _PENDING_ATOM_TEXT_EN = {
     "pending_read_failed": (
         "[{pending_alias}] (failed):"
         "error: {error}\n"
-        "Suggestion: Re-issue a WRITE/UPDATE command to retry."
+        "Suggestion: Submit the write or update again to retry."
     ),
     "pending_read_settled": (
         "[{pending_alias}] (materialized):"
@@ -301,7 +265,7 @@ _PENDING_ATOM_TEXT_EN = {
     "pending_read_expired": (
         "[{pending_alias}] (expired):"
         "This handle has been reclaimed. The pending atom no longer exists in runtime.\n"
-        "Suggestion: Use SEARCH to locate the finalized memory if needed."
+        "Suggestion: Search for the finalized memory if needed."
     ),
 }
 
@@ -314,7 +278,7 @@ _RESOLVE_RESULT_TEXT_ZH = {
         "[{canonical_alias}]:\n"
         "{content}\n"
         "\n"
-        "提示: 请在后续的 READ/RUN/UPDATE 调用中使用 '{canonical_alias}'。"
+        "提示: 后续访问这条记忆时请使用 '{canonical_alias}'。"
     ),
     "resolve_discarded": (
         "[{requested_alias}]\n"
@@ -323,7 +287,7 @@ _RESOLVE_RESULT_TEXT_ZH = {
         "消息：{message}\n"
         "原因：{reason}\n"
         "\n"
-        "提示: 如果需要，请使用 SEARCH 查找相关的已定型记忆。"
+        "提示: 如果需要，请检索相关的已定型记忆。"
     ),
     "resolve_failed": (
         "[{requested_alias}]\n"
@@ -333,14 +297,14 @@ _RESOLVE_RESULT_TEXT_ZH = {
         "消息：{message}\n"
         "原因：{reason}\n"
         "\n"
-        "提示: 重新发出 WRITE/UPDATE 指令以重试。"
+        "提示: 如需重试，请重新提交这次写入或更新。"
     ),
     "resolve_expired": (
         "[{requested_alias}]\n"
         "状态: expired（已过期）\n"
         "已实例化: 否\n"
         "此句柄已被回收（reclaimed）。该待定原子在运行时已不再存在。\n"
-        "提示: 如果需要，请使用 SEARCH 查找已定型的记忆。"
+        "提示: 如果需要，请检索已定型的记忆。"
     ),
 }
 
@@ -353,7 +317,7 @@ _RESOLVE_RESULT_TEXT_EN = {
         "[{canonical_alias}]:\n"
         "{content}\n"
         "\n"
-        "Note: Use '{canonical_alias}' for future READ/RUN/UPDATE calls."
+        "Note: Use '{canonical_alias}' to access this memory from now on."
     ),
     "resolve_discarded": (
         "[{requested_alias}]\n"
@@ -362,7 +326,7 @@ _RESOLVE_RESULT_TEXT_EN = {
         "message: {message}\n"
         "reason: {reason}\n"
         "\n"
-        "Note: Use SEARCH to locate related finalized memory if needed."
+        "Note: Search for related finalized memory if needed."
     ),
     "resolve_failed": (
         "[{requested_alias}]\n"
@@ -372,14 +336,14 @@ _RESOLVE_RESULT_TEXT_EN = {
         "message: {message}\n"
         "reason: {reason}\n"
         "\n"
-        "Note: Re-issue a WRITE/UPDATE command to retry."
+        "Note: Submit the write or update again to retry."
     ),
     "resolve_expired": (
         "[{requested_alias}]\n"
         "status: expired\n"
         "materialized: false\n"
         "This handle has been reclaimed. The pending atom no longer exists in runtime.\n"
-        "Note: Use SEARCH to locate the finalized memory if needed."
+        "Note: Search for the finalized memory if needed."
     ),
 }
 

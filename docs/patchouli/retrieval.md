@@ -14,7 +14,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-31
 ---
 
 # 记忆检索
@@ -121,7 +121,8 @@ CrossEncoderReranker 不等待重排模型加载：模型空闲卸载后或尚�
 Retrieval 只返回 atoms。当前主要调用者分别编译：
 
 - workspace 任务进程（编译 Patchouli prepare 返回的检索原子，prepare 本身不编译）：`RETRIEVAL_CONTEXT`；
-- Koakuma MTP SEARCH/READ：retrieval envelope 或 `MTP_READ`；
+- Koakuma MTP SEARCH/READ：retrieval envelope 或 `READ_RESULT`；
+- MCP 入口的 `memory_search`/`memory_read`：关闭 header/footer 的 retrieval envelope 或 `READ_RESULT`；
 - 子 Agent orchestration：`SHARED_CONTEXT_INJECTION`；
 - Qdrant 与 reranker：dense/sparse embedding targets。
 

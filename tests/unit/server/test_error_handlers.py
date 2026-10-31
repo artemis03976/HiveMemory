@@ -42,6 +42,9 @@ from hivememory.system.model_registry import DuplicateModelIdError
 from hivememory.system.provider_registry import ProviderNotFoundError
 from hivememory.system.services.import_bus import ImportBusUnavailableError
 from hivememory.workspace.contracts.errors import (
+    IntentDispatchRejectedError,
+    IntentDispatchUnknownError,
+    PendingUpdateNotAllowedError,
     SessionBusyError,
     SessionCapacityError,
     SessionClosedError,
@@ -64,6 +67,13 @@ from hivememory.workspace.contracts.errors import (
         (ResourceUnavailableError, 503, "workspace.resource.unavailable"),
         (InvalidMemoryFieldError, 422, "memory.field.invalid"),
         (MemoryAliasConflictError, 409, "workspace.memory.alias_conflict"),
+        (
+            PendingUpdateNotAllowedError,
+            409,
+            "workspace.memory.intent.pending_update_not_allowed",
+        ),
+        (IntentDispatchRejectedError, 503, "workspace.memory.intent.dispatch_rejected"),
+        (IntentDispatchUnknownError, 500, "workspace.memory.intent.dispatch_unknown"),
         (ModelNotFoundError, 404, "model.not_found"),
         (DuplicateModelIdError, 409, "model.duplicate_id"),
         (ProviderNotFoundError, 404, "provider.not_found"),

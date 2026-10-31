@@ -107,7 +107,7 @@ async def test_provide_compiles_atom_context_ref_for_callee():
     )
 
     assert context.shared_context.startswith("[Shared Context from Parent Agent]")
-    assert "Use READ" in context.shared_context
+    assert "The parent agent shared" in context.shared_context
     assert '<memory alias="' in context.shared_context
     assert "Fact A" in context.shared_context
     assert "context payload" in context.shared_context

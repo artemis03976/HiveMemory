@@ -80,13 +80,18 @@ def _memory_call(verb: str, **fields) -> list[dict]:
     ]
 
 
-def test_memory_read_verb_and_targets_are_carried_into_turn_events() -> None:
-    """HiveMemory MCP 读取的动词与作用对象原样写入结构化事件，生成据此只留一行摘要。"""
-    events = _turn(events=_memory_call("READ", targets=["fact_a", "fact_b"])).to_turn_events()
+@pytest.mark.parametrize(
+    ("verb", "targets"),
+    [("READ", ["fact_a", "fact_b"]), ("WRITE", []), ("UPDATE", ["fact_a"])],
+    ids=["read", "write", "update"],
+)
+def test_memory_verbs_and_targets_are_carried_into_turn_events(verb, targets) -> None:
+    """HiveMemory MCP 调用的动词与作用对象原样写入结构化事件，生成据此决定如何呈现。"""
+    events = _turn(events=_memory_call(verb, targets=targets)).to_turn_events()
 
     assert (events[1].verb, events[1].targets, events[1].tool_name) == (
-        "READ",
-        ("fact_a", "fact_b"),
+        verb,
+        tuple(targets),
         None,
     )
 
@@ -94,22 +99,24 @@ def test_memory_read_verb_and_targets_are_carried_into_turn_events() -> None:
 @pytest.mark.parametrize(
     ("overrides", "match"),
     [
-        ({"events": _memory_call("WRITE")}, "verb"),
+        ({"events": _memory_call("RUN")}, "verb"),
         ({"events": _memory_call("READ")}, "READ tool_call requires targets"),
+        ({"events": _memory_call("UPDATE")}, "UPDATE tool_call requires targets"),
         ({"events": _memory_call("SEARCH", tool_kind="SEARCH")}, "tool_kind"),
         ({"assistant_final_text": "已修复"}, "assistant_final_text"),
         ({"events": _memory_call("SEARCH", status=None)}, "status and result together"),
     ],
     ids=[
-        "verb-beyond-search-and-read",
+        "verb-without-mcp-tool",
         "read-without-targets",
+        "update-without-targets",
         "removed-event-field",
         "removed-body-field",
         "result-without-status",
     ],
 )
 def test_events_outside_the_import_contract_are_rejected(overrides, match) -> None:
-    """导入只接受检索与读取，读取必须给出作用对象；已删除的字段与违反事件规则的轮次拒绝。"""
+    """导入只接受 MCP 工具对应的动词，读取与更新必须给出作用对象；已删除的字段与违反事件规则的轮次拒绝。"""
     with pytest.raises(ValidationError, match=match):
         _turn(**overrides)
 

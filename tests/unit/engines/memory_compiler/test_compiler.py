@@ -1,5 +1,6 @@
 """MemoryCompiler 单元测试。"""
 
+import re
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -238,24 +239,24 @@ class TestMemoryAtomCompilation:
         assert "(未命名子代理)" in zh_artifact.text
         assert "(Untitled sub-agent)" in en_artifact.text
 
-    def test_mtp_read(self, compiler, sample_atom):
-        artifact = compiler.compile(sample_atom, MemoryCompileTarget.MTP_READ)
+    def test_read_result(self, compiler, sample_atom):
+        artifact = compiler.compile(sample_atom, MemoryCompileTarget.READ_RESULT)
         alias = sample_atom.get_alias()
         assert f'<memory alias="{alias}">' in artifact.text
         assert "[完整内容]:" in artifact.text
         assert "parse_date" in artifact.text
 
-    def test_mtp_read_english_full_item(self, sample_atom):
+    def test_read_result_english_full_item(self, sample_atom):
         set_default_language("en")
         compiler = MemoryCompiler()
-        artifact = compiler.compile(sample_atom, MemoryCompileTarget.MTP_READ)
+        artifact = compiler.compile(sample_atom, MemoryCompileTarget.READ_RESULT)
 
         assert "[Full Content]:" in artifact.text
         assert "**Confidence**:" in artifact.text
 
-    def test_mtp_read_with_requested_alias(self, compiler, sample_atom):
+    def test_read_result_with_requested_alias(self, compiler, sample_atom):
         opts = MemoryCompileOptions(requested_alias="my_alias")
-        artifact = compiler.compile(sample_atom, MemoryCompileTarget.MTP_READ, opts)
+        artifact = compiler.compile(sample_atom, MemoryCompileTarget.READ_RESULT, opts)
         assert f'<memory alias="{sample_atom.get_alias()}">' in artifact.text
         assert artifact.metadata["requested_alias"] == "my_alias"
 
@@ -357,30 +358,30 @@ class TestPendingAtomCompilation:
             from_actor=make_identity_scope().actor_identity,
         )
 
-    def test_pending_mtp_read_draft(self, compiler, write_pending):
-        artifact = compiler.compile(write_pending, MemoryCompileTarget.MTP_READ)
+    def test_pending_read_result_draft(self, compiler, write_pending):
+        artifact = compiler.compile(write_pending, MemoryCompileTarget.READ_RESULT)
         assert artifact.source_kind == "pending"
         assert "draft_001" in artifact.text
         assert "Hello world" in artifact.text
         assert "materializing" in artifact.text
 
-    def test_materializing_mtp_read_draft(self, compiler, write_pending):
+    def test_materializing_read_result_draft(self, compiler, write_pending):
         from hivememory.core.models import PendingAtomStatus
 
         write_pending.status = PendingAtomStatus.MATERIALIZING
-        artifact = compiler.compile(write_pending, MemoryCompileTarget.MTP_READ)
+        artifact = compiler.compile(write_pending, MemoryCompileTarget.READ_RESULT)
         assert "draft_001" in artifact.text
         assert "materializing" in artifact.text.lower()
 
-    def test_pending_mtp_read_revision(self, compiler, update_pending):
-        artifact = compiler.compile(update_pending, MemoryCompileTarget.MTP_READ)
+    def test_pending_read_result_revision(self, compiler, update_pending):
+        artifact = compiler.compile(update_pending, MemoryCompileTarget.READ_RESULT)
         assert "rev_001" in artifact.text
         assert "pending revision" in artifact.text.lower()
 
-    def test_pending_mtp_read_english_option(self, compiler, write_pending):
+    def test_pending_read_result_english_option(self, compiler, write_pending):
         artifact = compiler.compile(
             write_pending,
-            MemoryCompileTarget.MTP_READ,
+            MemoryCompileTarget.READ_RESULT,
             MemoryCompileOptions(language="en"),
         )
         assert "runtime pending atom" in artifact.text
@@ -478,50 +479,50 @@ class TestPendingAtomCompilation:
             from_actor=make_identity_scope().actor_identity,
         )
 
-    def test_settled_mtp_read_shows_canonical(self, compiler, settled_pending):
-        artifact = compiler.compile(settled_pending, MemoryCompileTarget.MTP_READ)
+    def test_settled_read_result_shows_canonical(self, compiler, settled_pending):
+        artifact = compiler.compile(settled_pending, MemoryCompileTarget.READ_RESULT)
         assert artifact.status == "settled"
         assert "fact_hello" in artifact.text
 
-    def test_settled_mtp_read_empty_canonical_uses_placeholder(self, compiler, settled_pending):
+    def test_settled_read_result_empty_canonical_uses_placeholder(self, compiler, settled_pending):
         settled_pending.settlement = settled_pending.settlement.model_copy(
             update={"canonical_alias": None}
         )
 
-        zh_artifact = compiler.compile(settled_pending, MemoryCompileTarget.MTP_READ)
+        zh_artifact = compiler.compile(settled_pending, MemoryCompileTarget.READ_RESULT)
         en_artifact = compiler.compile(
             settled_pending,
-            MemoryCompileTarget.MTP_READ,
+            MemoryCompileTarget.READ_RESULT,
             MemoryCompileOptions(language="en"),
         )
 
         assert "\u6b63\u5f0f\u540d\u79f0\uff1a\u65e0" in zh_artifact.text
         assert "Canonical alias: None" in en_artifact.text
 
-    def test_pending_mtp_read_empty_title_uses_placeholder(self, compiler, write_pending):
+    def test_pending_read_result_empty_title_uses_placeholder(self, compiler, write_pending):
         write_pending.focus = write_pending.focus.model_copy(update={"title": ""})
 
-        zh_artifact = compiler.compile(write_pending, MemoryCompileTarget.MTP_READ)
+        zh_artifact = compiler.compile(write_pending, MemoryCompileTarget.READ_RESULT)
         en_artifact = compiler.compile(
             write_pending,
-            MemoryCompileTarget.MTP_READ,
+            MemoryCompileTarget.READ_RESULT,
             MemoryCompileOptions(language="en"),
         )
 
         assert "\u6807\u9898\uff1a\u65e0" in zh_artifact.text
         assert "title: None" in en_artifact.text
 
-    def test_failed_mtp_read_shows_error(self, compiler, failed_pending):
-        artifact = compiler.compile(failed_pending, MemoryCompileTarget.MTP_READ)
+    def test_failed_read_result_shows_error(self, compiler, failed_pending):
+        artifact = compiler.compile(failed_pending, MemoryCompileTarget.READ_RESULT)
         assert artifact.status == "failed"
         assert "generation pipeline error" in artifact.text
 
-    def test_cancelled_mtp_read(self, compiler, cancelled_pending):
-        artifact = compiler.compile(cancelled_pending, MemoryCompileTarget.MTP_READ)
+    def test_cancelled_read_result(self, compiler, cancelled_pending):
+        artifact = compiler.compile(cancelled_pending, MemoryCompileTarget.READ_RESULT)
         assert artifact.status == "cancelled"
 
-    def test_expired_mtp_read_shows_reclaimed(self, compiler, expired_pending):
-        artifact = compiler.compile(expired_pending, MemoryCompileTarget.MTP_READ)
+    def test_expired_read_result_shows_reclaimed(self, compiler, expired_pending):
+        artifact = compiler.compile(expired_pending, MemoryCompileTarget.READ_RESULT)
         assert artifact.status == "expired"
         assert "reclaimed" in artifact.text.lower()
 
@@ -625,17 +626,17 @@ class TestReferenceResolutionCompilation:
             pending=pending,
         )
 
-    def test_atom_resolve_mtp_read(self, compiler, atom_resolve):
-        artifact = compiler.compile(atom_resolve, MemoryCompileTarget.MTP_READ)
+    def test_atom_resolve_read_result(self, compiler, atom_resolve):
+        artifact = compiler.compile(atom_resolve, MemoryCompileTarget.READ_RESULT)
         assert "parse_date" in artifact.text
 
     def test_atom_resolve_prompt_full(self, compiler, atom_resolve):
         artifact = compiler.compile(atom_resolve, MemoryCompileTarget.PROMPT_FULL)
         assert "<memory" in artifact.text
 
-    def test_redirect_mtp_read(self, compiler, redirect_resolve):
+    def test_redirect_read_result(self, compiler, redirect_resolve):
         opts = MemoryCompileOptions(requested_alias="draft_old")
-        artifact = compiler.compile(redirect_resolve, MemoryCompileTarget.MTP_READ, opts)
+        artifact = compiler.compile(redirect_resolve, MemoryCompileTarget.READ_RESULT, opts)
         assert "Alias Redirected" in artifact.text
         assert "draft_old" in artifact.text
         assert "fact_api" in artifact.text
@@ -646,15 +647,15 @@ class TestReferenceResolutionCompilation:
         assert "parse_date" in artifact.text
         assert "<memory alias=" in artifact.text
 
-    def test_discarded_mtp_read(self, compiler, discarded_resolve):
+    def test_discarded_read_result(self, compiler, discarded_resolve):
         opts = MemoryCompileOptions(requested_alias="draft_bad")
-        artifact = compiler.compile(discarded_resolve, MemoryCompileTarget.MTP_READ, opts)
+        artifact = compiler.compile(discarded_resolve, MemoryCompileTarget.READ_RESULT, opts)
         assert "discarded" in artifact.text.lower()
         assert "draft_bad" in artifact.text
 
-    def test_failed_mtp_read(self, compiler, failed_resolve):
+    def test_failed_read_result(self, compiler, failed_resolve):
         opts = MemoryCompileOptions(requested_alias="draft_failed")
-        artifact = compiler.compile(failed_resolve, MemoryCompileTarget.MTP_READ, opts)
+        artifact = compiler.compile(failed_resolve, MemoryCompileTarget.READ_RESULT, opts)
         assert artifact.status == "failed"
         assert "generation failed" in artifact.text
         assert "\u6d88\u606f\uff1a\u65e0" in artifact.text
@@ -666,7 +667,7 @@ class TestReferenceResolutionCompilation:
 
         artifact = compiler.compile(
             ReferenceResolution(kind="failed", requested_alias="draft_failed"),
-            MemoryCompileTarget.MTP_READ,
+            MemoryCompileTarget.READ_RESULT,
             MemoryCompileOptions(language="en"),
         )
 
@@ -674,24 +675,24 @@ class TestReferenceResolutionCompilation:
         assert "expired" not in artifact.text.lower()
         assert "draft_failed" in artifact.text
 
-    def test_expired_mtp_read(self, compiler, expired_resolve):
+    def test_expired_read_result(self, compiler, expired_resolve):
         opts = MemoryCompileOptions(requested_alias="draft_expired")
-        artifact = compiler.compile(expired_resolve, MemoryCompileTarget.MTP_READ, opts)
+        artifact = compiler.compile(expired_resolve, MemoryCompileTarget.READ_RESULT, opts)
         assert "expired" in artifact.text.lower()
         assert "reclaimed" in artifact.text.lower()
         assert "Alias Not Found" not in artifact.text
 
-    def test_expired_mtp_read_english_option(self, compiler, expired_resolve):
+    def test_expired_read_result_english_option(self, compiler, expired_resolve):
         artifact = compiler.compile(
             expired_resolve,
-            MemoryCompileTarget.MTP_READ,
+            MemoryCompileTarget.READ_RESULT,
             MemoryCompileOptions(requested_alias="draft_expired", language="en"),
         )
         assert "expired" in artifact.text.lower()
         assert "draft_expired" in artifact.text
 
-    def test_pending_resolve_mtp_read(self, compiler, pending_resolve):
-        artifact = compiler.compile(pending_resolve, MemoryCompileTarget.MTP_READ)
+    def test_pending_resolve_read_result(self, compiler, pending_resolve):
+        artifact = compiler.compile(pending_resolve, MemoryCompileTarget.READ_RESULT)
         assert "draft_002" in artifact.text
         assert "Pending content" in artifact.text
 
@@ -700,7 +701,7 @@ class TestReferenceResolutionCompilation:
 
         resolve = ReferenceResolution(kind="not_found", requested_alias="missing")
         with pytest.raises(ValueError, match="not_found"):
-            compiler.compile(resolve, MemoryCompileTarget.MTP_READ)
+            compiler.compile(resolve, MemoryCompileTarget.READ_RESULT)
 
 
 class TestInvalidInputs:
@@ -708,11 +709,11 @@ class TestInvalidInputs:
 
     def test_unsupported_source_type(self, compiler):
         with pytest.raises(TypeError, match="Unsupported source type"):
-            compiler.compile("not a memory", MemoryCompileTarget.MTP_READ)
+            compiler.compile("not a memory", MemoryCompileTarget.READ_RESULT)
 
     def test_none_source(self, compiler):
         with pytest.raises(TypeError):
-            compiler.compile(None, MemoryCompileTarget.MTP_READ)
+            compiler.compile(None, MemoryCompileTarget.READ_RESULT)
 
     def test_compiled_memory_source_rejected(self, compiler, sample_atom):
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.PROMPT_FULL)
@@ -741,7 +742,7 @@ class TestEnvelopeCompilation:
     def test_retrieval_context_without_header_footer_keeps_only_sections(
         self, compiler, sample_atom
     ):
-        """关闭头尾引导后只留小节：外部 harness 看不到预检索语境与 MTP 指令。"""
+        """关闭头尾引导后只留小节：工具结果不带提示词中预检索上下文的引导。"""
         envelope = compiler.compile(
             [sample_atom],
             MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
@@ -750,7 +751,7 @@ class TestEnvelopeCompilation:
 
         assert "Python parse_date" in envelope.text
         assert "<memory_context>" not in envelope.text
-        assert "⟪" not in envelope.text
+        assert "[System Guidance]" not in envelope.text
 
     def test_retrieval_context_compile_agent_profile_only(self, compiler, agent_profile_atom):
         envelope = compiler.compile(
@@ -812,15 +813,6 @@ class TestEnvelopeCompilation:
         assert envelope.sections[0].kind == "memories"
         assert isinstance(envelope.sections[0], MemoryEnvelopeSection)
 
-    def test_mtp_read_response_compile(self, compiler, sample_atom):
-        envelope = compiler.compile(
-            sample_atom,
-            MemoryEnvelopeTarget.MTP_READ_RESPONSE,
-        )
-
-        assert envelope.text.startswith("[MTP READ Result]")
-        assert "Python parse_date" in envelope.text
-
     def test_shared_context_injection_compile(self, compiler, sample_atom):
         envelope = compiler.compile(
             sample_atom,
@@ -828,7 +820,7 @@ class TestEnvelopeCompilation:
         )
 
         assert envelope.text.startswith("[Shared Context from Parent Agent]")
-        assert "READ" in envelope.text
+        assert "父代理共享了以下运行时记忆材料。" in envelope.text
         assert "Python parse_date" in envelope.text
 
     def test_shared_context_injection_compile_english(self, sample_atom):
@@ -842,7 +834,6 @@ class TestEnvelopeCompilation:
 
         assert envelope.text.startswith("[Shared Context from Parent Agent]")
         assert "The parent agent shared" in envelope.text
-        assert "Use READ" in envelope.text
         assert "Python parse_date" in envelope.text
 
     def test_shared_context_injection_empty_default_chinese(self, compiler):
@@ -883,17 +874,6 @@ class TestEnvelopeCompilation:
         assert "No agents" in envelope.text
         assert isinstance(envelope.sections[0], MemoryEnvelopeSection)
 
-    def test_compile_envelope_accepts_mtp_read_bundle_ir(self, compiler, sample_atom):
-        bundle = MemoryBundleIR(
-            purpose=MemoryEnvelopeTarget.MTP_READ_RESPONSE,
-            sections=[MemorySectionIR(kind="default", units=[build_memory_atom_ir(sample_atom)])],
-        )
-
-        envelope = compile_envelope_from_ir(bundle)
-
-        assert envelope.text.startswith("[MTP READ Result]")
-        assert "Python parse_date" in envelope.text
-
     def test_compile_envelope_accepts_shared_context_bundle_ir(self):
         bundle = MemoryBundleIR(
             purpose=MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
@@ -904,3 +884,122 @@ class TestEnvelopeCompilation:
 
         assert envelope.text.startswith("[Shared Context from Parent Agent]")
         assert "No shared memory artifacts." in envelope.text
+
+
+def _pending(status):
+    from hivememory.core.models import PendingAtom, WriteFocus
+
+    scope = make_identity_scope()
+    return PendingAtom(
+        pending_alias="draft_x",
+        intent_id="intent_x",
+        status=status,
+        source_verb="WRITE",
+        focus=WriteFocus(content="X", title="T"),
+        belong_to=scope.workspace_identity,
+        from_actor=scope.actor_identity,
+    )
+
+
+def _guidance_cases():
+    """每句操作指引的一个编译入口：(编译源, target, 额外选项, 中文指引句)。"""
+    from hivememory.core.models import PendingAtomStatus
+    from hivememory.core.models.reference import ReferenceResolution
+
+    atom = MemoryAtom(
+        index=IndexLayer(title="部署手册", summary="部署摘要", memory_type=MemoryType.FACT),
+        payload=PayloadLayer(content="部署说明。" * 20),
+        meta=make_memory_metadata(source_agent_id="test", user_id="u1"),
+    )
+    redirect = ReferenceResolution(
+        kind="redirect", requested_alias="draft_old", canonical_alias="fact_api", atom=atom
+    )
+    read = MemoryCompileTarget.READ_RESULT
+    return {
+        "truncation": (
+            atom,
+            MemoryCompileTarget.PROMPT_FULL,
+            {"max_content_length": 10},
+            "[...部分内容已截断，如需阅读完整内容，请读取这条记忆...]",
+        ),
+        "pending_failed": (
+            _pending(PendingAtomStatus.FAILED),
+            read,
+            {},
+            "提示: 如需重试，请重新提交这次写入或更新。",
+        ),
+        "pending_expired": (
+            _pending(PendingAtomStatus.EXPIRED),
+            read,
+            {},
+            "提示: 如果需要，请检索已定型的记忆。",
+        ),
+        "redirect": (redirect, read, {}, "提示: 后续访问这条记忆时请使用 'fact_api'。"),
+        "resolve_discarded": (
+            ReferenceResolution(kind="discarded", requested_alias="draft_bad"),
+            read,
+            {},
+            "提示: 如果需要，请检索相关的已定型记忆。",
+        ),
+        "resolve_failed": (
+            ReferenceResolution(kind="failed", requested_alias="draft_failed"),
+            read,
+            {},
+            "提示: 如需重试，请重新提交这次写入或更新。",
+        ),
+        "resolve_expired": (
+            ReferenceResolution(kind="expired", requested_alias="draft_expired"),
+            read,
+            {},
+            "提示: 如果需要，请检索已定型的记忆。",
+        ),
+        "retrieval_read": (
+            atom,
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            {},
+            "请先读取这条记忆的完整内容",
+        ),
+        "retrieval_call": (
+            atom,
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            {},
+            "请优先委托给该子代理执行",
+        ),
+        "shared_context": (
+            atom,
+            MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION,
+            {},
+            "如果需要再次检查它们，请重新读取。",
+        ),
+    }
+
+
+_GUIDANCE_CASES = _guidance_cases()
+
+# MTP 的指令定界符与动词、MCP 的工具名。动词只以 ASCII 字符判定边界，
+# 中文正文中紧贴汉字的动词也能识别。
+_PROTOCOL_SYNTAX = re.compile(
+    r"⟪|(?<![A-Za-z0-9_])(?:READ|SEARCH|RUN|WRITE|UPDATE|CALL)(?![A-Za-z0-9_])"
+    r"|memory_(?:read|search|write|update)"
+)
+
+
+class TestGuidanceText:
+    """指引下一步操作的句子只写能力，不写任何协议的指令语法、动词或工具名。"""
+
+    @pytest.mark.parametrize("case", _GUIDANCE_CASES)
+    def test_guidance_names_capability(self, compiler, case):
+        source, target, extra, expected = _GUIDANCE_CASES[case]
+
+        text = compiler.compile(source, target, MemoryCompileOptions(**extra)).text
+
+        assert expected in text
+
+    @pytest.mark.parametrize("language", ["zh", "en"])
+    def test_compiled_text_contains_no_protocol_syntax(self, compiler, language):
+        for source, target, extra, _expected in _GUIDANCE_CASES.values():
+            text = compiler.compile(
+                source, target, MemoryCompileOptions(language=language, **extra)
+            ).text
+
+            assert _PROTOCOL_SYNTAX.search(text) is None, text

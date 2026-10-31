@@ -9,14 +9,12 @@ from hivememory.engines.memory_compiler.handlers.embedding import (
     compile_dense_embedding,
     compile_sparse_embedding,
 )
-from hivememory.engines.memory_compiler.handlers.mtp import (
-    compile_mtp_read,
-)
 from hivememory.engines.memory_compiler.handlers.prompt import (
     compile_prompt_full,
     compile_prompt_index,
     compile_shared_context,
 )
+from hivememory.engines.memory_compiler.handlers.read import compile_read_result
 from hivememory.engines.memory_compiler.ir import MemoryUnitIR
 from hivememory.engines.memory_compiler.models import (
     CompiledMemoryArtifact,
@@ -37,8 +35,8 @@ def compile_unit_from_ir(
         return compile_prompt_full(unit, target, options)
     if target == MemoryCompileTarget.PROMPT_INDEX:
         return compile_prompt_index(unit, target, options)
-    if target == MemoryCompileTarget.MTP_READ:
-        return compile_mtp_read(unit, target, options)
+    if target == MemoryCompileTarget.READ_RESULT:
+        return compile_read_result(unit, target, options)
     if target == MemoryCompileTarget.SHARED_CONTEXT:
         return compile_shared_context(unit, target, options)
     if target == MemoryCompileTarget.DENSE_EMBEDDING:

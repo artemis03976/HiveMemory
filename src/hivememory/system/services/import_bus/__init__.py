@@ -4,7 +4,7 @@ Import Bus 业务能力
 system 层的 Import Bus 子模块，收口外部 harness 交互导入的编排、输入模型、
 失败分类与观测：
     - ImportBusIngestor
-    - ImportedTurn / ImportedTurnEvent / ImportedRecentTurn
+    - ImportedTurn / ImportedTurnEvent / ImportedRecentTurn / InFlightTurn
     - ImportConversationKey / ImportTurnResult / derive_import_interaction_id
     - ImportBusUnavailableError / ImportBusApplyFailedError / ImportBusContractError
     - ImportBusEventEmitter
@@ -28,6 +28,7 @@ from hivememory.system.services.import_bus.models import (
     ImportedTurnEvent,
     ImportTurnResult,
     ImportTurnStatus,
+    InFlightTurn,
     derive_import_interaction_id,
 )
 
@@ -46,6 +47,7 @@ __all__ = [
     "ImportedRecentTurn",
     "ImportedTurn",
     "ImportedTurnEvent",
+    "InFlightTurn",
     "derive_import_interaction_id",
     "is_recoverable_gateway_error",
 ]

@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # Memory Tool Protocol (MTP)
@@ -90,7 +90,7 @@ SEARCH 返回可继续消费的检索上下文，而不是把“没有找到”�
 
 - 不支持 wildcard；
 - alias 经 workspace 读取视图解析为正式 atom、pending、redirect 或 discarded/failed 终态；模型与编译器保留 expired 终态种类，当前登记不产生它；
-- 每类结果均经 MemoryCompiler 的 `MTP_READ` target 编译，输出按请求中 alias 的顺序逐项排列；
+- 每类结果均经 MemoryCompiler 的 `READ_RESULT` target 编译（MCP 的 `memory_read` 共用），输出按请求中 alias 的顺序逐项排列；
 - 全部 alias 未命中时返回 error；
 - 部分未命中时返回已解析内容，并把缺失 alias 放入 warnings；
 - 提交 `ResolveReferencesRequest`；workspace 对交付的正式 atom 与可读 redirect 目标自动记录 `workspace.reference_read` citation，同次请求按正式 UUID 去重，缓存命中同样计数。

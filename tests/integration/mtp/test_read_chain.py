@@ -317,7 +317,7 @@ class TestReadAliasResolution:
 
         assert result.success
         assert "状态: 失败" in result.response_content
-        assert "重新发出 WRITE/UPDATE" in result.response_content
+        assert "请重新提交这次写入或更新" in result.response_content
         assert "Alias Not Found" not in result.response_content
 
 

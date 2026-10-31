@@ -182,7 +182,8 @@ class PendingAtom(BaseModel):
     不是正式 MemoryAtom，不承诺最终落库。
     同一 Workspace 的 Agent 可通过 pending_alias 回读。``process_id`` 与
     ``thread_id`` 记录发起写入的任务进程与执行线程，只作观测归因（同一进程
-    两次 CALL 同一个 Agent 时以线程区分），不参与回读或授权。
+    两次 CALL 同一个 Agent 时以线程区分），不参与回读或授权；不建进程的请求级
+    提交没有进程与线程，二者为空。
     """
 
     pending_alias: str

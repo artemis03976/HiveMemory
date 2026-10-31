@@ -15,7 +15,8 @@ class MemoryCompileTarget(str, Enum):
 
     PROMPT_FULL = "prompt_full"
     PROMPT_INDEX = "prompt_index"
-    MTP_READ = "mtp_read"
+    # 读取操作的结果：正式原子交付全文，在途句柄与解析终态交付状态与后续指引。
+    READ_RESULT = "read_result"
     SHARED_CONTEXT = "shared_context"
     DENSE_EMBEDDING = "dense_embedding"
     SPARSE_EMBEDDING = "sparse_embedding"
@@ -27,7 +28,6 @@ class MemoryEnvelopeTarget(str, Enum):
     """信封（Envelope）编译 target。"""
 
     RETRIEVAL_CONTEXT = "retrieval_context"
-    MTP_READ_RESPONSE = "mtp_read_response"
     SHARED_CONTEXT_INJECTION = "shared_context_injection"
 
 
@@ -64,8 +64,8 @@ class MemoryCompileOptions(BaseModel):
     max_content_length: int = 500
     max_summary_length: int = 100
     stale_days: int = 90
-    # 检索上下文信封的头尾引导文字面向 Alice（预检索语境与 MTP 指令）；外部
-    # harness 经 MCP 检索时关闭，由工具与服务说明代替。其余信封不读取此项。
+    # 检索上下文信封的头尾是提示词中预检索上下文的引导，不适用于工具结果，
+    # 编译工具结果时关闭。其余信封不读取此项。
     include_header_footer: bool = True
     requested_alias: str | None = None
     canonical_alias: str | None = None

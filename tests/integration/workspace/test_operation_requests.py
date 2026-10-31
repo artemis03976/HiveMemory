@@ -621,14 +621,78 @@ async def test_request_level_search_delivers_without_citation(operation_setup):
 
 
 @pytest.mark.asyncio
-async def test_request_level_submission_rejects_other_requests_before_dispatch(operation_setup):
-    """请求级提交只开放检索与读取；RUN 授权本会通过，由入口在分派前拒绝，不交付也不记引用。"""
+async def test_request_level_write_and_update_register_without_thread_and_dispatch_to_given_topic(
+    operation_setup,
+):
+    """请求级写入与更新：登记不带进程与线程关联，以调用方给出的派发话题派发，接纳后返回句柄。"""
     harness, access = operation_setup
     request_access = await access.authenticate()
 
-    with pytest.raises(TypeError, match="Unsupported request-level operation"):
-        await harness.entry.execute_request(ResolveRunTargetRequest("base"), access=request_access)
+    write = await harness.entry.execute_request(
+        SubmitWriteIntentRequest(WriteFocus(content="写入正文")),
+        access=request_access,
+        dispatch_topic_id="placed-topic",
+    )
+    update = await harness.entry.execute_request(
+        SubmitUpdateIntentRequest("base", "更新指令"),
+        access=request_access,
+        dispatch_topic_id="placed-topic",
+    )
 
+    stored = [
+        harness.registry.get(pending.pending_alias, access.default_workspace)
+        for pending in (write, update)
+    ]
+    assert [(atom.process_id, atom.thread_id) for atom in stored] == [(None, None)] * 2
+    assert [atom.status for atom in stored] == [PendingAtomStatus.MATERIALIZING] * 2
+    assert [
+        (intent.kind, intent.pending_alias, intent.topic_id)
+        for intent, _scope in harness.admission.submissions
+    ] == [
+        ("write", write.pending_alias, "placed-topic"),
+        ("update", update.pending_alias, "placed-topic"),
+    ]
+
+
+async def _request_access(access):
+    """不建进程的外部入口为一次调用签发的请求级 context。"""
+    return await access.authenticate()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("request_", "dispatch_topic_id", "make_access", "error_type"),
+    [
+        # RUN 授权本会通过：执行发生在执行单元的环境中，请求级提交不开放。
+        (ResolveRunTargetRequest("base"), None, _request_access, TypeError),
+        # 写入没有落位的话题就无处派发。
+        (SubmitWriteIntentRequest(WriteFocus(content="正文")), None, _request_access, TypeError),
+        # 读取不涉及话题，给出派发话题即是接线错误。
+        (ResolveReferencesRequest(("base",)), "placed-topic", _request_access, TypeError),
+        # 线程 context 带派发话题会绕过线程的存活判定与派发话题，由授权拒绝。
+        (
+            SubmitWriteIntentRequest(WriteFocus(content="正文")),
+            "placed-topic",
+            _derive_thread,
+            ScopeRequiredError,
+        ),
+    ],
+    ids=["run", "write-without-topic", "read-with-topic", "thread-context-with-topic"],
+)
+async def test_request_level_submission_rejects_mismatched_requests_without_side_effects(
+    operation_setup, request_, dispatch_topic_id, make_access, error_type
+):
+    """请求级提交只按请求类型接受派发话题：不符时在登记、读取与派发之前拒绝。"""
+    harness, access = operation_setup
+    submit_access = await make_access(access)
+
+    with pytest.raises(error_type):
+        await harness.entry.execute_request(
+            request_, access=submit_access, dispatch_topic_id=dispatch_topic_id
+        )
+
+    assert harness.registry.size == 0
+    assert harness.admission.submissions == []
     assert harness.citations == []
     assert harness.owner_calls == []
 

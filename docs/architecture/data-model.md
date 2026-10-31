@@ -113,7 +113,7 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 ### 4.4 PendingAtom 状态机
 
-`PendingAtom` 是 workspace 登记持有的可变记录，分开保存 `belong_to: WorkspaceIdentity`、`from_actor: ActorIdentity` 与只作观测关联的 `process_id`、`thread_id`（发起写入的任务进程与执行线程，回读与授权不读取它们）；不再保存 `identity` 或 Alice 的 `runtime_scope`。登记即进入 MATERIALIZING，随后推进为 SETTLED、FAILED 或 CANCELLED；EXPIRED 是三者共同的永久终态，当前没有转入它的触发，终态句柄保留到进程重启。
+`PendingAtom` 是 workspace 登记持有的可变记录，分开保存 `belong_to: WorkspaceIdentity`、`from_actor: ActorIdentity` 与只作观测关联的 `process_id`、`thread_id`（发起写入的任务进程与执行线程，回读与授权不读取它们；外部 harness 经 MCP 的请求级提交没有进程与线程，二者为空）；不再保存 `identity` 或 Alice 的 `runtime_scope`。登记即进入 MATERIALIZING，随后推进为 SETTLED、FAILED 或 CANCELLED；EXPIRED 是三者共同的永久终态，当前没有转入它的触发，终态句柄保留到进程重启。
 
 登记与解析器均交付深复制结果，调用方修改返回对象不会改写权威登记或缓存。`ReferenceResolution` 是 core 中立 dataclass，携带逐项状态、独立的 pending/atom 与结算视图；redirect 目标不可读时清空引用并省略 pending，避免 UPDATE focus 泄露基础 UUID。actor API 提交携带登记标识与内容的 `MemoryIntent`，物化任务由 Patchouli 意图服务内部构造，独立携带归属与发起者。
 
@@ -184,7 +184,7 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 
 - **`content`**：执行者写出的原文，重放据此还原。MTP 调用事件只存指令片段，指令前的正文只在它前面那条 `assistant_message` 中。对调用的解读只看结构化字段；MTP 指令无法解析时只有原文，`verb` 与 `tool_name` 都为空。
 - **`action_id`**：一次调用的标识，轮内唯一。MTP 为 `action_{iteration}_{sequence}`，Claude Code 为 `tool_use.id`；CALL 回填按它找到挂起的调用。
-- **`verb` 与 `tool_name`**：二者互斥，回答“调用了什么”。`verb` 是 HiveMemory 能力（SEARCH、READ、RUN、WRITE、UPDATE、CALL），外部 harness 经 HiveMemory 的 MCP 工具检索与读取时同样写动词；`tool_name` 是外部工具的名字。动词是封闭词表、工具名是开放词表，两者会重名（Claude Code 有 `Read`、`Write` 工具），所以不合并为一个字段。
+- **`verb` 与 `tool_name`**：二者互斥，回答“调用了什么”。`verb` 是 HiveMemory 能力（SEARCH、READ、RUN、WRITE、UPDATE、CALL），外部 harness 经 HiveMemory 的 MCP 工具检索、读取、写入与更新时同样写动词；`tool_name` 是外部工具的名字。动词是封闭词表、工具名是开放词表，两者会重名（Claude Code 有 `Read`、`Write` 工具），所以不合并为一个字段。
 - **`targets` 与 `tool_args`**：`targets` 是动词的作用对象（READ 的 alias，RUN 的工具或代码记忆，UPDATE 的记忆，CALL 的 Agent；SEARCH 与 WRITE 为空），只能与 `verb` 同时出现；`tool_args` 只放作用对象以外的参数，SEARCH 的查询在 `tool_args["query"]`，构造时递归冻结。
 - **`status` 与 `result`**：调用的结局与执行者收到的返回原文，同时出现或同时为空。`status` 取 `success`、`ack`、`error`、`cancelled`：MTP 取回填的响应状态（`warning` 从不作为状态出现，CALL 挂起不写入状态），外部工具为 `success` 或 `error`。
 - **没有结局**表示结局没有记录：执行者拿到结果之前被取消或失败，或来源没有记下结果——Claude Code 的会话记录有时只记下同一条消息并行发出的多个调用中最后一个的结果，模型其实收到了全部结果。因此没有结局不等于调用没有完成，读取方不作这样的断言。
