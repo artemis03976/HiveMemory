@@ -327,15 +327,25 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质
 - **现状**（代码核对，2026-10-31）：
   - MCP server 只提供 `memory_search` 与 `memory_read`（[MCP server](../../src/hivememory/mcp_server/server.py)）；操作入口的请求级提交 `execute_request` 只分派检索与引用解析，其余类型在分派前拒绝（[操作入口](../../src/hivememory/workspace/capability/operations.py)）；`claude_code` 的访问登记只有 `memory.read` 与 `memory.search`。
   - PendingAtom 链路在 workspace 与 Patchouli 之间闭合，不经 Alice：意图登记在 workspace 的 `WriteIntentRegistry`（[写入意图登记](../../src/hivememory/workspace/intents/registry.py)），登记订阅 Patchouli 的结算事件；读取视图对在途句柄交付登记中的状态，结算后重定向到正式原子并重新授权（[读取视图](../../src/hivememory/workspace/resolution/memory.py)）。`memory_read` 已经经这一读取视图交付 pending 句柄。
-  - actor API 的写入与更新在登记前解析执行线程，从中取得进程标识、线程标识与派发话题（[actor API](../../src/hivememory/workspace/capability/actor/memory.py)）。派发话题是 prepare 为本轮选定的话题，Patchouli 以它的状态摘要与最近几轮作为主动生成的材料（[Patchouli 生成](../patchouli/generation.md#32-mode-b主动-write)第 3.2 节）。请求级 context 没有线程：进程与线程标识只供观测，派发话题见 E-8。
+  - actor API 的写入与更新在登记前解析执行线程，从中取得进程标识、线程标识与派发话题（[actor API](../../src/hivememory/workspace/capability/actor/memory.py)）。派发话题是 prepare 为本轮选定的话题，Patchouli 以它的状态摘要与最近几轮作为主动生成的材料（[Patchouli 生成](../patchouli/generation.md#32-mode-b主动-write)第 3.2 节）。请求级 context 没有线程：进程与线程标识只供观测，派发话题按 E-8 的决定在写入时就地落位取得。
   - 记忆编译是 Alice 与 MCP 共用的引擎，其中仍有按 MTP 编写的命名与文案：
     - target 与信封按 MTP 命名：`MemoryCompileTarget.MTP_READ`、`MemoryEnvelopeTarget.MTP_READ_RESPONSE`，处理器 `compile_mtp_read` 位于 `handlers/mtp.py`，信封标题为 `[MTP READ Result]`（[记忆编译模型](../../src/hivememory/engines/memory_compiler/models.py)）；MCP 的 `memory_read` 也以 `MTP_READ` 编译。
     - 文案写着 MTP 的调用方式（[记忆编译文案](../../src/hivememory/i18n/memory_compiler.py)）：检索上下文信封的头尾引导使用 `⟪ READ | alias | ⟫`、`⟪ CALL … ⟫`、`⟪ SEARCH ⟫` 的指令语法；截断提示让读者“使用 READ 指令”；pending 句柄与引用解析结果的提示让读者“重新发出 WRITE/UPDATE 指令”“使用 SEARCH”“在后续的 READ/RUN/UPDATE 调用中使用正式别名”。
     - 因这些文案而存在的绕行：MCP 检索关闭检索上下文信封的头尾引导（`include_header_footer`，注释写明头尾面向 Alice 的 MTP 指令）；MCP 读取交付全文，注释写明是为了不出现指引 MTP READ 的截断提示。MCP 检索中全文呈现的条目超过长度时，截断提示仍指向 READ 指令。
-- **范围**（候选）：Claude Code 插件的 MCP server 增加写入与更新两个工具，经操作入口的请求级提交进入 actor API 的写入与更新操作，按访问登记逐次授权；登记写入意图后派发到 Patchouli 的 Mode B、Mode C，与主动链路是同一条链路；记忆编译的命名与文案不再按 MTP 编写，Alice 与 MCP 得到各自协议下可用的指引。
-- **阻塞问题**：本文 E-8（plugin 模式写入意图的话题归属）。
+- **范围**（候选）：Claude Code 插件的 MCP server 增加写入与更新两个工具，经操作入口的请求级提交进入 actor API 的写入与更新操作，按访问登记逐次授权；写入时就地为本轮落位（E-8），以本轮所在的话题派发；登记写入意图后派发到 Patchouli 的 Mode B、Mode C，与主动链路是同一条链路；记忆编译的命名与文案不再按 MTP 编写，Alice 与 MCP 得到各自协议下可用的指引。
+- **阻塞问题**：无。E-8 已于 2026-10-31 决定（选项 D），本步可以建立计划。
 - **候选设计**（分析，不是 owner 决定，可在计划评审时调整）：
   - 请求级 context 登记意图：plugin 模式不建任务进程（1.1），登记改记请求的观测标签，不伪造进程或线程；`execute_request` 的可提交类型增加写入与更新请求；`claude_code` 的访问登记增加 `memory.write` 与 `memory.update`。
+  - 写入时就地落位（E-8 选项 D）的完整链路：
+    - **连接器**：插件为 HiveMemory 的写入与更新工具注册 `PreToolUse` hook。hook 从会话记录读出当前一轮与之前几轮：外部轮次标识取本轮用户消息条目的 `uuid`，与轮次结束时的回流一致；把外部会话、外部轮次、本轮用户消息与最近几轮，也就是轮次结束时 Import Bus 用于路由的同一份输入，经 `updatedInput` 补进工具参数。hook 不给权限决定，改写后的参数照常经过 Claude Code 的权限评估，用户对写入工具的确认不变。
+    - **MCP 入口**：写入与更新工具把连接器补上的轮次信息与操作参数分开。轮次信息交给 Import Bus 取得落点；操作请求只携带操作参数，不携带 topic_id（W6）。缺少轮次信息时以结构化错误拒绝，不退化为不绑定话题。
+    - **轮次落位**（System 的 Import Bus 服务）：以导入同样的推导得到这一轮的 `interaction_id`，在同一外部会话的串行门内处理。已有落点直接返回；否则以 `PASSIVE_MEMORY` 做话题路由，经 Patchouli 的 `prepare_agent_run`（关闭检索）准备话题，新话题在此预建，然后登记落点。同一轮的多次写入共用第一次的落点。落位不读取记忆，也不返回记忆上下文，Import Bus 只向网络输入的前提不变。
+    - **落点登记**：属于 Import Bus 的进程内控制状态。每个外部会话只保留正在进行的一轮的落点，该轮回流或该会话的下一轮登记落点时作废；不持久化，进程重启后落点丢失，回流时按现行规则路由。
+    - **派发**：请求级提交把落点话题交给 actor API，作为写入与更新的派发话题。它与线程的派发话题同义，都是本轮最终所在的话题。请求级提交如何携带派发话题，在计划中确定。
+    - **回流**：轮次结束时，Import Bus 对已有落点的轮次不再调用 Gateway，以落点话题提交。落点话题若已结束生命周期（轮次超过空闲时限被空闲结算，或被 LRU 驱逐），按现行规则重新路由；写入的材料在派发时已经读取，不受影响。没有发生写入的轮次与现在完全相同。
+    - **预建话题的清理**：本轮始终没有回流时，预建的话题保持为空，由空闲结算按没有材料的话题结束生命周期（[感知与短期话题](../patchouli/perception.md)），不另设清理机制。
+    - **材料**：与主动链路相同，取话题过去若干轮与状态摘要，不含本轮（W10）；新话题为空时只凭意图本身生成。
+    - **子代理**：Claude Code 子代理发起的写入按主会话的当前一轮落位；子代理中的 hook 如何读到主会话的当前一轮，在计划中核实。
   - 工具结果交还 PendingAtom 句柄，写明句柄表示意图已在 workspace 登记并被生成队列接纳、正式记忆尚未持久化；之后经 `memory_read` 回读，结算后重定向到正式记忆。
   - 回声：连接器把 HiveMemory 自己的写入与更新调用归一化为 `verb` 为 WRITE、UPDATE 的事件，生成视图不渲染这两类事件（[生成材料的渲染](../../src/hivememory/engines/perception/material.py)），避免 Mode A 把显式写入的内容再提取一遍。
   - 记忆编译：target、信封与处理器按用途命名，不按协议命名；编译正文只写记忆内容与状态，不写任何协议的调用语法。提示读者下一步操作的文字（截断后读取全文、结算后改用正式别名、失败后重新提交、检索为空时检索）由调用方按自己的协议给出操作名：Alice 给 MTP 指令的写法，MCP 给工具名。操作名的传入方式在计划中确定。`include_header_footer` 开关与 MCP 读取为避开截断提示的注释随之复核。
@@ -476,14 +486,34 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质
 
 ### E-8 plugin 模式写入意图的话题归属
 
-**背景**（代码核对，2026-10-31）：写入意图派发到 Patchouli 时必须携带话题（`MemoryIntent.topic_id` 必填，[意图契约](../../src/hivememory/patchouli/contracts/memory_intent.py)）。主动链路中它是 prepare 为本轮选定的话题，从执行线程取得；Patchouli 以该话题的状态摘要与最近几轮作为 Mode B、Mode C 的材料（不含当前一轮），话题不存在时按空材料生成（[生成协调器](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)）。plugin 模式没有进程与线程：MCP 请求只携带 principal、用户、Workspace、Agent 的声明与接入凭据，不携带外部会话标识；Import Bus 不保存外部会话到话题的映射，每轮的落点由 Gateway 在该轮回流时决定，而本轮要到轮次结束才回流。本问题阻塞第 4 节的 v0.7.2 一步。
+**问题**（owner，2026-10-31）：原 Passive Ingress 在收到 user 消息时就做 Gateway 分析；退化为 Import Bus 之后，Gateway 分析改在一轮交互完整结束后进行。交互进行的过程中因此没有目标话题的挂载，而写入意图恰好在这段时间内提交。本问题曾阻塞第 4 节的 v0.7.2 一步，已于 2026-10-31 决定（见表后）。
+
+**背景**（代码核对，2026-10-31）：
+
+- 写入意图派发到 Patchouli 时必须携带话题（`MemoryIntent.topic_id` 必填，[意图契约](../../src/hivememory/patchouli/contracts/memory_intent.py)）。主动链路中，prepare 在用户消息到达时按 Gateway 路由准备本轮的话题（新话题预建），CPU 分配时记入进程，写入从执行线程取得。写入的话题因此就是本轮交互最终所在的话题。Patchouli 以该话题的状态摘要与最近几轮作为 Mode B、Mode C 的材料，话题为空时只凭意图本身生成（[生成协调器](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)）。
+- 实时派发时的 owner 决定（2026-10-13，原写入意图 Idea 第 0.1、0.3 节，删除前版本见 commit `4b690d4`；实施见[已归档的实时派发计划](../archive/plans/v0.7.0-intent-inflight-dispatch.md)）：
+  - 生成材料采用选项 A：只用意图本身与话题中已有的内容，舍弃当前一轮；进程把当前一轮尚未闭合的执行记录作为快照随意图提交，目前不采用；ConversationSession 不是记忆的材料来源。
+  - W6：派发时的话题跟随 Gateway 的话题路由结果，由进程在转到 CPU 时补全；actor 的操作请求不携带 topic_id。
+  - W10：材料只取话题过去若干轮与状态摘要，当前一轮有意不参与；话题为空时只凭意图本身生成；对话流式同步到 Patchouli 之后，材料变为之前全部的交互加上当前轮已流式接收的消息。
+  - 该计划的非目标写明：不经任务进程的写入（plugin 模式、外部 wire）派发话题来自进程，只覆盖进程内的执行线程。
+- Import Bus 的流式接收推迟（[已归档的 Import Bus Idea](../archive/ideas/import-bus.md)前提 5，owner，2026-10-20）：流式接入需要经 hook 先取得用户消息送入 Gateway 路由，harness 响应很快时，模型的首条消息可能在路由完成之前到达。当时的分析是，Import Bus 不返回记忆上下文之后，在用户消息到达时提前路由没有收益、只剩时序成本；这一分析没有考虑轮次进行中的写入。
+- [外部会话 Idea](./external-session-and-topic-projection.md#44-向主动意图交接资料)第 4.4 节的候选设计：主动意图需要纳入某次交互时，先确认该交互已经应用并取得其实际所在的话题；两条提交不合并事务，也不建立等待未来交互的屏障。第 4.2 节：adapter 不把外部会话标识伪装成 topic_id。
+- plugin 模式没有进程与线程。MCP 请求头是插件配置中的静态值（[插件 MCP 配置](../../integrations/claude-code/.mcp.json)），只有 principal、用户、Agent 的声明与接入凭据，不携带外部会话或轮次标识。
+- 正在进行的一轮的身份在轮次结束之前就已确定：连接器以本轮用户消息在会话记录中的 `uuid` 作为外部轮次标识（[会话记录读取器](../../integrations/claude-code/connector/claude_code/reader.py)），Import Bus 由认证结果、来源、外部会话与外部轮次推导这一轮的 `interaction_id`（[Import Bus 模型](../../src/hivememory/system/services/import_bus/models.py)），并按外部会话串行编排。
+- Claude Code 的 `PreToolUse` hook 可以按名称匹配插件提供的 MCP 工具，输入中带有会话标识与会话记录路径，并可以经 `updatedInput` 改写工具参数；不给权限决定时，改写后的参数照常经过权限评估（[Claude Code hooks](https://code.claude.com/docs/en/hooks)，2026-10-31 核对）。连接器目前只注册了 `Stop`、`StopFailure`、`SessionStart` 与 `SessionEnd`（[插件 hooks](../../integrations/claude-code/hooks/hooks.json)）。
 
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|
 | A | 不绑定话题：意图的话题改为可选，只以提交内容（UPDATE 另有基础记忆）生成 | 不依赖外部会话，改动最小；材料比主动链路少，没有过去几轮的背景；主动生成的来源 Artifact 由话题的最近几轮构成，没有话题时显式写入的记忆不能回查到对话证据 |
-| B | 提交时绑定外部会话最近一轮的落点：MCP 调用携带外部会话标识，按该会话已回流的最近一轮取话题 | 材料与主动链路同形（过去几轮，不含本轮）；需要连接器在 MCP 请求中带出会话标识（Claude Code 能否提供待核实），以及按外部会话查询最近落点的入口（Import Bus 现有的进度查询按外部轮次取落点）；会话的第一轮还没有落点，退化为 A |
+| B | 提交时绑定外部会话最近一轮的落点：MCP 调用携带外部会话标识，按该会话已回流的最近一轮取话题 | 材料取过去几轮，不含本轮；最近一轮所在的话题不一定是本轮所在的话题；静态请求头带不出会话标识；会话的第一轮还没有落点，退化为 A |
 | C | 推迟到本轮回流之后：提交时登记并交还句柄，本轮经 Import Bus 落位后，以本轮所在的话题派发 | 材料包含本轮；ACK 不再表示已被生成队列接纳，派发时机与主动链路不同；需要把意图关联到之后回流的那一轮，本轮始终没有回流时意图需要一个终态 |
-| D | 其他 | —— |
+| D | 写入时就地落位：连接器以 `PreToolUse` hook 为 HiveMemory 的写入与更新工具补上外部会话与本轮的标识；本轮第一次写入时，以轮次结束时相同的输入（本轮用户消息与最近几轮）对这一轮做话题路由并登记落点（新话题预建），写入以该话题派发；轮次结束回流时，Import Bus 沿用登记的落点，不再路由 | 写入的话题就是本轮最终所在的话题，与主动链路中 prepare 的话题同义，材料同样不含本轮（W10）；只有发生写入的轮次提前路由，首次写入的 ACK 多等一次路由；需要轮次级的落点登记、与 Import Bus 同一外部会话的串行，以及本轮始终没有回流时预建话题的清理；依赖 hook 改写工具参数 |
+| E | 用户消息时点落位：连接器在 `UserPromptSubmit` 时把本轮用户消息交给 Import Bus 路由并登记落点，轮次结束时沿用；写入按会话与轮次标识取得落点 | 恢复原 Passive Ingress 的落位时点，也是流式接收（Import Bus 前提 2、5）的第一步；每一轮都提前路由；同步 hook 让每条用户消息先等一次模型调用，异步 hook 下写入可能早于路由完成，需要等待或回退（前提 5 推迟流式接收的理由）；写入同样需要 hook 补上会话与轮次标识 |
+| F | 按写入内容路由：提交时以写入的内容（UPDATE 为指令与基础记忆）作为路由输入，由 Gateway 在 Workspace 的话题中选出话题 | 不需要外部会话标识；每次写入多一次模型调用；选出的话题可能不是本轮所在的话题，来源 Artifact 会取自另一段对话；判为新话题时退化为 A |
+| G | 其他 | —— |
+
+- **owner 判断（2026-10-31）**：选项 C 不考虑；选项 B 不稳妥；选项 A 影响最小，但也不完全合理。
+- **owner 决定（2026-10-31）**：选项 D，写入时就地落位。候选设计见第 4 节的 v0.7.2 一步。
 
 ### P-1c 与 P-9c 身份证明与不建进程的访问 context
 

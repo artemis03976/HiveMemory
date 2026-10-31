@@ -141,7 +141,7 @@ last_reviewed: 2026-10-31
 | 方向 | 内容 | owner 决定（2026-10-30） | 设计讨论与阻塞问题 |
 |:---|:---|:---|:---|
 | 生成材料修正与原始证据保存 | 生成视图只保留单次工具调用结果的上限；移除 `worth_saving`；同步完成从 Topic 往后全链路的原始证据保存覆盖面（Topic 完整资料、来源冻结、来源 Artifact、Memory 的来源关联） | 一轮交互的内容不得被任何上限数字截断，只允许单次工具调用的结果受限，现行的单轮、思考与参数上限属于实现漂移；`worth_saving` 只做移除；计划同步完成 Topic 往后的原始证据覆盖面 | R-1、R-2 已决定（2026-10-30）：不分片，生成继续读工作视图；Topic 按顺序保存全部交互记录与折叠记录，作为来源 Artifact 的数据。已完成（2026-10-31）：[归档计划](./archive/plans/v0.7.2-generation-material-and-raw-evidence.md)；证据见[生成材料 Todo](./archive/todo/generation-material-filtering-and-truncation.md)（已归档）；当前事实见[感知与短期话题](./patchouli/perception.md)与 [Patchouli 生成](./patchouli/generation.md) |
-| plugin 模式开放 WRITE 与 UPDATE | Claude Code 经 MCP 工具显式写入与更新记忆，经操作入口的请求级提交进入 actor API，派发到 Patchouli 的 Mode B、Mode C；记忆编译的命名与文案不再按 MTP 编写 | 同步开放两项能力，与主动链路共享同一记忆更新逻辑；计划同时清理 MTP 命名与文案残留，包括记忆编译文本（2026-10-31） | [外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)的 v0.7.2 一步：E-8（plugin 模式写入意图的话题归属） |
+| plugin 模式开放 WRITE 与 UPDATE | Claude Code 经 MCP 工具显式写入与更新记忆，经操作入口的请求级提交进入 actor API，派发到 Patchouli 的 Mode B、Mode C；记忆编译的命名与文案不再按 MTP 编写 | 同步开放两项能力，与主动链路共享同一记忆更新逻辑；计划同时清理 MTP 命名与文案残留，包括记忆编译文本（2026-10-31）；交互进行中的话题挂载采用写入时就地落位（E-8，2026-10-31） | [外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)的 v0.7.2 一步；E-8 已决定，可以建立计划 |
 | 一个话题提取多条记忆 | 话题结算从整段材料中提取多条记忆，逐条查重与写入 | 版本内完成 | [多条提取与查重 Idea](./ideas/settlement-multi-memory-extraction-and-dedup.md)的 G-1 |
 | 查重与更新机制 | 查重的判定信号，以及命中已有记忆后的写入方式 | 设计未决定 | 同一 Idea 的 G-2、G-3；证据见[查重 Todo](./todo/generation-dedup-decision-signal.md) |
 
