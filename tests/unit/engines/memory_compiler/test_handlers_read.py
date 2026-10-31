@@ -1,6 +1,6 @@
 import pytest
 
-from hivememory.engines.memory_compiler.handlers.mtp import compile_mtp_read
+from hivememory.engines.memory_compiler.handlers.read import compile_read_result
 from hivememory.engines.memory_compiler.ir import (
     MemoryContentIR,
     MemoryIdentityIR,
@@ -18,7 +18,7 @@ def reset_language():
     set_default_language("zh")
 
 
-def test_compile_mtp_read_renders_redirect():
+def test_compile_read_result_renders_redirect():
     unit = MemoryUnitIR(
         identity=MemoryIdentityIR(
             source_kind="resolve_result",
@@ -29,9 +29,9 @@ def test_compile_mtp_read_renders_redirect():
         status=MemoryStatusIR(is_redirect=True),
     )
 
-    artifact = compile_mtp_read(
+    artifact = compile_read_result(
         unit,
-        MemoryCompileTarget.MTP_READ,
+        MemoryCompileTarget.READ_RESULT,
         MemoryCompileOptions(language="en"),
     )
 
@@ -42,7 +42,7 @@ def test_compile_mtp_read_renders_redirect():
     assert "Canonical content" in artifact.text
 
 
-def test_compile_mtp_read_renders_pending_update():
+def test_compile_read_result_renders_pending_update():
     unit = MemoryUnitIR(
         identity=MemoryIdentityIR(source_kind="pending", alias="rev_1"),
         content=MemoryContentIR(instruction="Revise title", content="Updated content"),
@@ -50,9 +50,9 @@ def test_compile_mtp_read_renders_pending_update():
         metadata={"base_alias": "fact_api"},
     )
 
-    artifact = compile_mtp_read(
+    artifact = compile_read_result(
         unit,
-        MemoryCompileTarget.MTP_READ,
+        MemoryCompileTarget.READ_RESULT,
         MemoryCompileOptions(language="en"),
     )
 
@@ -63,16 +63,16 @@ def test_compile_mtp_read_renders_pending_update():
     assert "Updated content" in artifact.text
 
 
-def test_compile_mtp_read_renders_failed_terminal_result():
+def test_compile_read_result_renders_failed_terminal_result():
     unit = MemoryUnitIR(
         identity=MemoryIdentityIR(source_kind="resolve_result", alias="draft_failed"),
         content=MemoryContentIR(),
         status=MemoryStatusIR(is_terminal=True, error="generation failed"),
     )
 
-    artifact = compile_mtp_read(
+    artifact = compile_read_result(
         unit,
-        MemoryCompileTarget.MTP_READ,
+        MemoryCompileTarget.READ_RESULT,
         MemoryCompileOptions(language="en"),
     )
 
@@ -81,7 +81,7 @@ def test_compile_mtp_read_renders_failed_terminal_result():
     assert "draft_failed" in artifact.text
 
 
-def test_compile_mtp_read_rejects_unknown_source_kind():
+def test_compile_read_result_rejects_unknown_source_kind():
     unit = MemoryUnitIR(
         identity=MemoryIdentityIR(source_kind="pending", alias="draft_1"),
         content=MemoryContentIR(),
@@ -90,4 +90,6 @@ def test_compile_mtp_read_rejects_unknown_source_kind():
     unit.identity.source_kind = "unknown"
 
     with pytest.raises(ValueError, match="Unsupported source"):
-        compile_mtp_read(unit, MemoryCompileTarget.MTP_READ, MemoryCompileOptions(language="en"))
+        compile_read_result(
+            unit, MemoryCompileTarget.READ_RESULT, MemoryCompileOptions(language="en")
+        )

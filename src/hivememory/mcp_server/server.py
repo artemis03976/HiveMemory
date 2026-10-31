@@ -76,7 +76,7 @@ _UNRESOLVED = "未找到以下 alias：{aliases}"
 # 两个工具都只读取记忆；读取会记录引用，但不改变记忆内容。
 _READ_ONLY = ToolAnnotations(read_only_hint=True)
 
-# memory_read 交付全文：不截断，也就不会出现指引 MTP READ 的截断提示。
+# memory_read 用于取得检索结果中摘要之外的全文，因此不截断。
 _FULL_CONTENT = sys.maxsize
 
 
@@ -201,7 +201,10 @@ def _search_text(
     memories: list[MemoryAtom],
     strategy: RetrievalContextStrategyConfig,
 ) -> str:
-    """与 MTP SEARCH 使用同一检索上下文信封与配置的策略，去掉面向 Alice 的头尾引导。"""
+    """与 Alice 的检索使用同一检索上下文信封与配置的策略。
+
+    信封头尾是提示词中预检索上下文的引导，不适用于工具结果，因此关闭。
+    """
     if not memories:
         return _NO_RESULTS
     return compiler.compile(
@@ -230,7 +233,7 @@ def _read_text(
         options = MemoryCompileOptions(
             requested_alias=requested_alias, max_content_length=_FULL_CONTENT
         )
-        blocks.append(compiler.compile(source, MemoryCompileTarget.MTP_READ, options).text)
+        blocks.append(compiler.compile(source, MemoryCompileTarget.READ_RESULT, options).text)
     if not blocks:
         raise ResourceNotFoundError(details={"aliases": unresolved})
     if unresolved:

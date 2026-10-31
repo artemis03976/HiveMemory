@@ -22,7 +22,10 @@ logger = logging.getLogger(__name__)
 
 
 def _slugify(text: str, max_len: int = 30) -> str:
-    """沿用 MTP 的 alias 片段规则，空片段统一回退为 untitled。"""
+    """把文本转为 alias 片段：小写，只保留字母、数字、空白与下划线，空白折叠为下划线。
+
+    截取前 ``max_len`` 个字符并去掉首尾下划线；空片段统一回退为 untitled。
+    """
     slug = re.sub(r"[^a-z0-9\s_]", "", text.lower().strip())
     slug = re.sub(r"\s+", "_", slug)
     return re.sub(r"_+", "_", slug).strip("_")[:max_len].rstrip("_") or "untitled"

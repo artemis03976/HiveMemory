@@ -156,8 +156,8 @@ async def test_unexpected_error_becomes_internal_error_without_leaking_detail(ca
 
 
 @pytest.mark.asyncio
-async def test_search_result_omits_alice_guidance():
-    """检索结果带 alias，不带面向 Alice 的预检索语境与 MTP 指令。"""
+async def test_search_result_omits_prompt_guidance():
+    """检索结果带 alias，不带提示词中预检索上下文的头尾引导。"""
     system = _system(_Entry(result=[_atom("deploy_flow", "部署走 CI")]))
 
     async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
@@ -166,7 +166,7 @@ async def test_search_result_omits_alice_guidance():
     text = tool_text(result)
     assert 'alias="deploy_flow"' in text
     assert "<memory_context>" not in text
-    assert "⟪" not in text
+    assert "[System Guidance]" not in text
 
 
 @pytest.mark.asyncio

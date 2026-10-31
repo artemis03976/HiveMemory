@@ -48,8 +48,6 @@ def compile_envelope_from_ir(
         text = _compile_retrieval_context(
             resolved_sections, opts.language, include_header_footer=opts.include_header_footer
         )
-    elif bundle.purpose == MemoryEnvelopeTarget.MTP_READ_RESPONSE:
-        text = _compile_mtp_read_response(resolved_sections, opts.language)
     elif bundle.purpose == MemoryEnvelopeTarget.SHARED_CONTEXT_INJECTION:
         text = _compile_shared_context_injection(resolved_sections, opts.language)
     else:
@@ -248,15 +246,6 @@ def _render_retrieval_agent_profiles_section(
     if section.empty_text:
         return f"\n### {title}\n{section.empty_text}"
     return ""
-
-
-def _compile_mtp_read_response(
-    sections: list[MemorySectionIR],
-    language: str | None,
-) -> str:
-    body = _join_section_artifacts(sections)
-    title = get_memory_envelope_text("mtp_read_result_title", language)
-    return f"{title}\n{body}" if body else title
 
 
 def _compile_shared_context_injection(

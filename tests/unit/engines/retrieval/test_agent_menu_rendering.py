@@ -69,11 +69,7 @@ class TestRAGMenuRendering:
             MemoryCompiler,
             MemoryEnvelopeTarget,
         )
-        from hivememory.i18n import get_default_language, get_memory_envelope_text
 
-        agent_empty_hint = get_memory_envelope_text(
-            "retrieval_agent_empty_hint", get_default_language().value
-        )
         atom = MemoryAtom(
             meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
             index=IndexLayer(
@@ -87,5 +83,4 @@ class TestRAGMenuRendering:
             [atom],
             MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
         )
-        assert agent_empty_hint not in envelope.text
         assert "### 可用子代理" not in envelope.text
