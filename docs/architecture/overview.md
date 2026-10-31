@@ -24,7 +24,7 @@ related_docs:
   - docs/system/import-bus.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # HiveMemory 当前系统架构
@@ -126,7 +126,7 @@ System 层拥有：
 Gateway 是系统级入口决策子系统。它负责入口拦截、系统指令、候选话题准备、话题路由和用户查询分析，最终只返回两类公共结果：
 
 - `GatewayCommandOutcome`：系统指令已经形成终态，调用方应短路后续对话链；
-- `GatewayDecisionOutcome`：提供话题、查询、记忆价值与检索计划，供 Patchouli 和 System 消费。
+- `GatewayDecisionOutcome`：提供话题、查询、意图与检索计划，供 Patchouli 和 System 消费。
 
 在项目的概念语言中，Gateway 延续了“真理之眼（The Eye）”的角色：它站在图书馆入口辨认来意、整理查询并选择通路。但这一比喻不能掩盖工程边界——Gateway 不持有记忆库，也不执行 Agent。它给出的是可被下游审查和消费的决策，而不是一段不可解释的“智能判断”。
 
@@ -227,7 +227,7 @@ POST /api/v1/import/turns
   -> ImportBusService：导入授权（准入与目标，不检查 actor 操作白名单）
   -> ImportBusIngestor：按 (user, Agent, source, 外部会话) 串行
      -> 推导 interaction_id，经 Patchouli interaction.status 查询进度
-     -> Gateway PROCESS (PASSIVE_MEMORY)：只取话题落位与价值信号
+     -> Gateway PROCESS (PASSIVE_MEMORY)：只取话题落位，不运行查询分析
      -> core 共用封口函数 seal_interaction
      -> Patchouli interaction.submit（感知队列接纳）
      -> Patchouli interaction.wait：等待感知应用完成
@@ -236,7 +236,7 @@ POST /api/v1/import/turns
 
 因此，Import Bus 刻意保持较窄的能力面：
 
-- 只向记忆网络输入：不检索记忆，也不向调用方返回记忆上下文；Gateway 决定中的检索计划被忽略；
+- 只向记忆网络输入：不检索记忆，也不向调用方返回记忆上下文；Gateway 在这一模式下不运行查询分析，决定的检索计划是不检索的默认值；
 - 禁止系统指令分支；形如 `/clear` 的文本仍按普通外部消息处理；
 - 不运行 Alice，不生成面向用户的回复，不执行 MTP 或全局命令；
 - 与主动链路同样在认证之后由授权点组装 `IdentityScope`；导入授权不检查 actor 操作白名单，因为导入提交的是已经发生的交互，不调用任何 actor 操作；

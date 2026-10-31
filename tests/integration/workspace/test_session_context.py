@@ -161,7 +161,7 @@ async def test_gateway_routes_and_rewrites_with_session_history_without_exportin
     bus.register(PatchouliRoutes.TOPIC_GET_DATA, get_topic)
     llm = ScriptedLLMService(
         '{"target_topic":"topic-1","reason":"会话指代 Docker"}',
-        '{"intent_type":"RAG","rewritten_query":"Docker 容器如何重启","search_keywords":["Docker"],"memory_write_signal":"WRITE"}',
+        '{"intent_type":"RAG","rewritten_query":"Docker 容器如何重启","search_keywords":["Docker"]}',
     )
     service = GatewayService(
         GatewayRuntime(

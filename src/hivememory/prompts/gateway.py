@@ -29,7 +29,7 @@ def get_query_understanding_system_prompt(
     topic_context: str | None = None,
     session_context: str | None = None,
 ) -> str:
-    """获取路由后共享查询分析（意图/重写/关键词/记忆价值）的 prompt。"""
+    """获取路由后共享查询分析（意图/重写/关键词）的 prompt。"""
 
     template = get_gateway_prompt_text("query_understanding_prompt", language)
     return _fill(

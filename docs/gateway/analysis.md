@@ -16,14 +16,14 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # Gateway 话题与查询分析
 
 Gateway 的分析层要回答两个不同的问题：这条消息属于哪段对话连续性，以及下游应如何理解和检索它。旧一步 LLM router 把两者连同记忆价值判断塞进一次输出，看似能够“一次计算，多处复用”，实际却把多个失败域绑定在一起：话题选择错误会污染 query rewrite，某个字段解析失败也可能让整份决策不可用。
 
-当前设计保留共享上下文和单次提交，但拆开能力边界：Topic Router 只选择话题；User Query Analysis 在话题已确定后统一生成意图、重写、关键词、记忆信号和检索计划。拆分不是追求 Engine 数量，而是让不同问题拥有独立输入、不变量和 fallback。
+当前设计保留共享上下文和单次提交，但拆开能力边界：Topic Router 只选择话题；User Query Analysis 在话题已确定后统一生成意图、重写、关键词和检索计划。拆分不是追求 Engine 数量，而是让不同问题拥有独立输入、不变量和 fallback。
 
 ## 1. 分析链路
 
@@ -33,12 +33,12 @@ raw message + IdentityScope
   -> candidate TopicSnapshot list
   -> Topic Router
   -> selected TopicData（已有话题时）
-  -> simple chat defaults
+  -> simple chat defaults（简单寒暄与 PASSIVE_MEMORY）
      或 UserQueryAnalysisResolver
   -> GatewayDecision
 ```
 
-L1 只做确定性快速判断。系统命令属于[命令文档](./commands.md)；简单寒暄命中后，workflow 跳过 Query Understanding，直接使用 `CHAT/SKIP/SKIP` 默认值。普通消息进入完整分析。
+L1 只做确定性快速判断。系统命令属于[命令文档](./commands.md)；简单寒暄命中后，workflow 跳过 Query Understanding，直接使用 `CHAT` 意图与不检索的默认值。`PASSIVE_MEMORY` 的每一轮同样不运行查询分析：[Import Bus](../system/import-bus.md) 只使用决定中的话题落位与新话题标题、摘要，二者都来自话题路由，查询分析的产物（重写、关键词与检索计划）没有使用方，因此以同一组默认值收口，每个导入轮次少一次模型调用。`ACTIVE_CHAT` 的普通消息进入完整分析。
 
 ## 2. 两阶段话题上下文
 
@@ -76,7 +76,6 @@ Topic Router 不生成关键词、不判断意图、不读完整 `TopicData`，�
 intent_type
 rewritten_query
 search_keywords
-memory_write_signal
 retrieval_plan
 ```
 
@@ -88,14 +87,12 @@ retrieval_plan
 
 ```text
 Tier 0：本地规则
-  -> 显式“记住 / 以后 / remember / from now on” => WRITE + WRITE
-  -> 与当前会话上一轮 user_message 重复 => memory signal SKIP
+  -> 显式“记住 / 以后 / remember / from now on” => WRITE 意图
 
 Tier 1：一次 QueryUnderstanding LLM 调用
   -> intent_type
   -> rewritten_query
   -> search_keywords
-  -> memory_write_signal
   -> 私有 sub_intents
 
 Tier 2：纯函数派生 retrieval plan
@@ -104,70 +101,64 @@ Tier 2：纯函数派生 retrieval plan
   -> 有关键词 => HYBRID
 ```
 
-Tier 0 只覆盖低成本、高确定性的规则，并在与模型结果冲突时覆盖对应字段。重复检测会移除空白并忽略大小写，但只比较当前会话的最后一轮用户输入；没有会话轮次时不回退到 Topic。
+Tier 0 只覆盖低成本、高确定性的规则，命中时覆盖模型给出的意图。
 
-Topic Router 与 QueryUnderstanding 的模型消息都只有 system 与当前输入两条：最近会话轮次与话题菜单一样渲染为编号列表（`prompts/gateway.py` 的 `render_session_turns`，每轮一个条目，`User:` 与 `Assistant:` 各占一行，多行内容续行缩进），放在 system 提示词的“当前会话最近轮次”段落中，并注明只用于理解指代与省略、不需要回答。会话轮次不作为对话消息发送：以用户/助手消息提供时，真实模型会接着对话回答用户而不是完成分析，JSON 输出随之为空，两项分析都会降级。消息经组合根注入的共享 LLM 服务以完整调用发出。请求参数来自由 `shared.llm.gateway` 转换的组件参数，两个 Engine 都追加 JSON 输出要求；配置了各自的 `model_override` 时只替换模型，凭证与采样参数沿用组件参数（[System 组合根](../system/composition.md#13-llm-bundle)）。Tier 1 的 `QueryUnderstandingEngine` 共享一次 LLM 调用，同时产生意图、重写、关键词和记忆初判。这是第一代实现的成本/延迟取舍，不是永久规定。Engine 还能解析 `sub_intents`，但 Resolver 当前没有把它投影到公共 `UserQueryAnalysisResult`，因此没有下游消费者，也不能被描述为已支持复合意图执行。
+Topic Router 与 QueryUnderstanding 的模型消息都只有 system 与当前输入两条：最近会话轮次与话题菜单一样渲染为编号列表（`prompts/gateway.py` 的 `render_session_turns`，每轮一个条目，`User:` 与 `Assistant:` 各占一行，多行内容续行缩进），放在 system 提示词的“当前会话最近轮次”段落中，并注明只用于理解指代与省略、不需要回答。会话轮次不作为对话消息发送：以用户/助手消息提供时，真实模型会接着对话回答用户而不是完成分析，JSON 输出随之为空，两项分析都会降级。消息经组合根注入的共享 LLM 服务以完整调用发出。请求参数来自由 `shared.llm.gateway` 转换的组件参数，两个 Engine 都追加 JSON 输出要求；配置了各自的 `model_override` 时只替换模型，凭证与采样参数沿用组件参数（[System 组合根](../system/composition.md#13-llm-bundle)）。Tier 1 的 `QueryUnderstandingEngine` 共享一次 LLM 调用，同时产生意图、重写与关键词。这是第一代实现的成本/延迟取舍，不是永久规定。Engine 还能解析 `sub_intents`，但 Resolver 当前没有把它投影到公共 `UserQueryAnalysisResult`，因此没有下游消费者，也不能被描述为已支持复合意图执行。
 
 路由到已有话题时，QueryUnderstanding 的输入另带该话题的辅助背景：标题、话题摘要与状态摘要，以及最近若干个逻辑块（`context_block_limit`，默认 3）的用户消息与回复正文，各截断到 `context_text_limit` 字符（默认 200）。这两段文字由逻辑块从本轮事件读取，不另存；思考与工具过程不进入 Gateway 的提示词。
 
 Tier 2 不再调用模型。检索模式是 Gateway 根据已提交分析派生的提示，不代表 Patchouli 已经执行检索。
 
-## 5. 三种保守默认值不能混为一谈
+## 5. 非模型路径的默认值不能混为一谈
 
-当前代码存在三条不同的非模型路径：
+当前代码存在以下不经模型的路径：
 
-| 场景 | Intent | 记忆信号 | Retrieval | 说明 |
-|:---|:---|:---|:---|:---|
-| L1 简单寒暄 | `CHAT` | `SKIP` | `SKIP`, `top_k=0` | 明确规则命中 |
-| Runtime 未装配 LLM 或分析被禁用 | `RAG` | `WRITE` | `HYBRID` | `FallbackUserQueryAnalysisResolver` 的配置级保守结果 |
-| LLM Resolver 运行中超时/可恢复失败 | `RAG` | `UNKNOWN` | `HYBRID` | workflow 的 Step fallback |
+| 场景 | Intent | Retrieval | 说明 |
+|:---|:---|:---|:---|
+| L1 简单寒暄 | `CHAT` | `SKIP`, `top_k=0` | 明确规则命中 |
+| `PASSIVE_MEMORY` 的每一轮 | `CHAT` | `SKIP`, `top_k=0` | 与简单寒暄同一个默认值步骤；导入只使用话题落位 |
+| Runtime 未装配 LLM 或分析被禁用 | `RAG` | `HYBRID` | `FallbackUserQueryAnalysisResolver` 的配置级保守结果 |
+| LLM Resolver 运行中超时/可恢复失败 | `RAG` | `HYBRID` | workflow 的 Step fallback |
 
-第二、三行对 `memory_write_signal` 的取值不同。这是当前实现事实，不应在文档中抹平：装配级 fallback 倾向保留写入机会，运行时失败则明确表示未知。下游必须按枚举语义处理，不能把所有 fallback 都当成 `WRITE`。
-
-这处不对称也属于后续需要评估的设计矛盾。如果没有产品数据证明“无 LLM 时默认 WRITE”更合理，应统一语义或至少让配置明确表达策略；在改变前，当前文档不替代码虚构统一行为。
+后两行的取值相同，来源不同：前者是装配级配置，查询分析步骤正常完成；后者是运行时失败的降级，步骤事件标出 fallback 与原因。观测与排障时不能把两者当作同一种情况。
 
 ## 6. `GatewayDecision` 的含义
 
 - `target_topic_id` 是话题路由建议，话题实体仍由 Patchouli 管理；
 - `rewritten_query` 与 `search_keywords` 是检索输入，不是新的用户原文；
 - `intent_type` 是入口主意图，不是 Alice 任务图；
-- `memory_write_signal` 是用户输入阶段的初判，不是持久化命令；
 - `retrieval_plan` 是依赖中立的模式、预算和权重提示，不包含具体 Retriever 或索引实现。
 
 `RetrievalPlan` 当前可以携带 dense/sparse weight，但下游对权重的消费仍有限。不能因为字段存在，就宣称稀疏/稠密融合在所有链路中都严格按该权重执行。
 
 ## 7. 第一代实现的技术债
 
-### 7.1 记忆价值判断时机过早
-
-Resolver 只看到用户输入和已有话题上下文，看不到 Alice 的最终回答、MTP WRITE/UPDATE、工具结果或 Patchouli finalize 证据。它最多能判断“这条输入看起来是否值得记录”，不能决定完整 turn 的长期价值。最终记忆生成必须继续由 Patchouli 在更丰富证据下完成。
-
-### 7.2 共享调用需要数据再拆分
+### 7.1 共享调用需要数据再拆分
 
 一次 Query Understanding 调用可能产生字段耦合，但直接拆成多个串行 Engine 也会增加延迟、成本和新的不一致。合理的演化依据应是能力级耗时、解析失败率和字段质量观测，而不是仅凭职责名称就预设固定 Engine 数量。
 
-### 7.3 规则仍是硬编码启发式
+### 7.2 规则仍是硬编码启发式
 
 WRITE 表达式和简单寒暄正则直接写在代码中，语言覆盖有限；自定义入口规则尚没有完整配置与热注入路径。规则应保持窄而确定，不能不断扩张为另一套难以解释的自然语言分类器。
 
-### 7.4 复合意图尚未形成公共能力
+### 7.3 复合意图尚未形成公共能力
 
 私有 `sub_intents` 目前在 Resolver 投影时丢弃，`COMPOSITE` 也没有稳定的下游任务/决策契约。相关设想仍属于计划，不得从 Engine 私有字段反推当前已支持复合任务执行。
 
-### 7.5 未消费字段与配置边界仍需收敛
+### 7.4 未消费字段与配置边界仍需收敛
 
 `RetrievalPlan` 已经携带 mode、top-k 与 dense/sparse weight，但 Patchouli prepare 当前主要消费是否跳过和 top-k，具体融合权重仍由 Retrieval 自身配置决定。`UserQueryAnalysisConfig` 也同时承载 Resolver 开关、模型覆盖和 context 截断等实现细节，尚未形成“稳定公共策略”与“Resolver 私有参数”的清晰分层。
 
-这些问题不能通过继续增加 DTO 字段解决。第二代调整前应先观察 rewrite 重复率、keywords 质量、memory signal 分布/实际物化结果和 `COMPOSITE` 样本，再决定删除无消费者字段、下沉私有配置、扩展 Patchouli 消费，或拆分独立能力。观测只保存计数、耗时和脱敏摘要，不应把原始用户输入塞进 RuntimeEvent。复合意图的协议与样本门禁见[复合意图分解 Idea](../ideas/composite-intent-decomposition.md)，该方向当前未排期。
+这些问题不能通过继续增加 DTO 字段解决。第二代调整前应先观察 rewrite 重复率、keywords 质量和 `COMPOSITE` 样本，再决定删除无消费者字段、下沉私有配置、扩展 Patchouli 消费，或拆分独立能力。观测只保存计数、耗时和脱敏摘要，不应把原始用户输入塞进 RuntimeEvent。复合意图的协议与样本门禁见[复合意图分解 Idea](../ideas/composite-intent-decomposition.md)，该方向当前未排期。
 
 ## 8. 设计矛盾检查
 
 修改分析能力时检查：
 
-1. Topic Router 是否开始输出意图、关键词或记忆判断，重新制造一步 router？
+1. Topic Router 是否开始输出意图或关键词，重新制造一步 router？
 2. Query Analysis 是否绕过 Context Provider 自行读取 Patchouli 私有状态？
 3. Engine 新字段是否真的进入公共 Resolver 结果并有下游消费者？
-4. 是否把 `memory_write_signal` 写成最终持久化决定？
+4. 是否在入口重新引入记忆价值判断？入口只看到用户输入，看不到回答、工具结果与写入证据，一轮的长期价值由 Patchouli 在完整材料上判断。
 5. 是否把模型解析错误、候选越界或类型违约静默改成任意默认值？
 6. 是否未经数据验证就把共享调用拆成更慢的串行调用？
 7. 是否把配置级 fallback 与运行时失败 fallback 描述成相同语义？

@@ -42,14 +42,6 @@ class IntentType(str, Enum):
     UNKNOWN = "UNKNOWN"
 
 
-class MemoryWriteSignal(str, Enum):
-    """用户输入的记忆价值预判。"""
-
-    WRITE = "WRITE"
-    SKIP = "SKIP"
-    UNKNOWN = "UNKNOWN"
-
-
 class RetrievalMode(str, Enum):
     """Gateway 检索模式决策。"""
 
@@ -146,21 +138,10 @@ class GatewayDecision(BaseModel):
     new_topic_summary: str | None = None
     rewritten_query: str
     search_keywords: tuple[str, ...] = ()
-    memory_write_signal: MemoryWriteSignal
     retrieval_plan: RetrievalPlan
     intent_type: IntentType
 
     model_config = ConfigDict(frozen=True)
-
-    @property
-    def worth_saving(self) -> bool | None:
-        """按公共 memory signal 派生 Patchouli 写入预判。"""
-
-        if self.memory_write_signal == MemoryWriteSignal.WRITE:
-            return True
-        if self.memory_write_signal == MemoryWriteSignal.SKIP:
-            return False
-        return None
 
 
 class GatewayCommandOutcome(BaseModel):
@@ -205,7 +186,6 @@ __all__ = [
     "GatewayProcessResult",
     "GatewayTimeoutError",
     "IntentType",
-    "MemoryWriteSignal",
     "RetrievalMode",
     "RetrievalPlan",
 ]

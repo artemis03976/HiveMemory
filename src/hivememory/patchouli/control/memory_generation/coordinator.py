@@ -11,6 +11,7 @@ from hivememory.config.patchouli import GenerationTranscriptConfig
 from hivememory.core.errors import WorkspaceMismatchError
 from hivememory.core.models import (
     LogicalBlock,
+    TopicFold,
     WorkspaceIdentity,
     system_actor_for_workspace,
 )
@@ -53,11 +54,15 @@ class MemoryGenerationCoordinator:
         # 主动生成只取话题最近的若干个 block 作为材料（含 state_summary）。
         self._recent_block_limit = recent_block_limit
         self._pending_atom_settler = pending_atom_settler or PendingAtomSettler(bus)
-        # 生成材料的过程条目按配置的上限截断，感知的 token 统计使用同一组上限。
+        # 生成材料只有工具结果按配置的上限截断，感知的 token 统计使用同一个上限。
         self._transcript_builder = GenerationTranscriptBuilder(transcript_config)
 
     async def submit_settlement(self, payload: TopicMaterializeTask) -> MemoryGenerationTask | None:
-        """将话题结算转为 SETTLE 任务，统一以归属对应的 system 为发起者。"""
+        """将话题结算转为 SETTLE 任务，统一以归属对应的 system 为发起者。
+
+        生成材料是话题的工作视图；来源记录冻结全部交互记录与折叠记录，覆盖
+        已折叠的轮次。
+        """
         gen_context = self._transcript_builder.build_context(
             payload.blocks,
             state_summary=payload.state_summary,
@@ -79,7 +84,8 @@ class MemoryGenerationCoordinator:
                 topic_id=payload.topic_id,
                 topic_title=payload.topic_title,
                 topic_summary=payload.topic_summary,
-                blocks=payload.blocks,
+                blocks=payload.interactions,
+                folds=payload.folds,
                 asset_bindings=payload.asset_bindings,
             ),
         )
@@ -264,6 +270,7 @@ class MemoryGenerationCoordinator:
         topic_title: str,
         topic_summary: str,
         blocks: Sequence[LogicalBlock],
+        folds: Sequence[TopicFold] = (),
         asset_bindings: tuple = (),
     ) -> InteractionArtifactInput | None:
         """将原始交互数据冻结为生成数据平面的交互输入。"""
@@ -274,6 +281,7 @@ class MemoryGenerationCoordinator:
             topic_title=topic_title,
             topic_summary=topic_summary,
             blocks=tuple(blocks),
+            folds=tuple(folds),
             asset_bindings=tuple(asset_bindings),
         )
 

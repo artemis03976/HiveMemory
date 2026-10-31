@@ -12,12 +12,12 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # Gateway
 
-Gateway 是 HiveMemory 的入口决策子系统。它面对一条尚未被系统解释的消息，判断这条消息是否是系统指令、应归入哪个话题、应如何重写和检索，以及是否表现出值得写入记忆的信号；随后，它把这些判断一次性投影为命令终态或依赖中立的 `GatewayDecision`。
+Gateway 是 HiveMemory 的入口决策子系统。它面对一条尚未被系统解释的消息，判断这条消息是否是系统指令、应归入哪个话题、应如何重写和检索；随后，它把这些判断一次性投影为命令终态或依赖中立的 `GatewayDecision`。
 
 项目早期把这类能力称为“真理之眼（The Eye）”。这个比喻表达的是 Gateway 应当在系统入口形成统一视角，而不是赋予它全知全能的控制权。Gateway 可以“看见并判断”，但不执行检索、不生成回复、不持久化记忆，也不拥有 Agent 运行状态。执行仍分别属于 Patchouli、Alice 和 System 应用层。
 
@@ -37,7 +37,7 @@ Gateway 当前负责：
 - 区分 `ACTIVE_CHAT` 与 `PASSIVE_MEMORY` 两种入口策略；
 - 在主动入口中识别、解析、授权和分发系统指令；
 - 读取候选话题快照并选择已有话题或 `NEW_TOPIC`；
-- 对路由后的用户输入生成意图、query rewrite、关键词、记忆写入信号和检索计划；
+- 对路由后的用户输入生成意图、query rewrite、关键词和检索计划；
 - 对可恢复的上下文或模型能力失败应用局部保守降级；
 - 处理整次请求的 deadline 与 RuntimeEvent 观测；外层 task cancellation 原样传播，不建立 Gateway 私有取消协议；
 - 只通过 `gateway.public.process` 暴露稳定公共结果。
@@ -51,15 +51,15 @@ Gateway 不负责：
 - 保存可恢复的 workflow/job 状态；
 - 替 transport 验证身份真实性，或替下游决定最终记忆是否应当持久化。
 
-尤其需要区分 `memory_write_signal` 与“写入命令”：前者只是入口阶段根据用户输入形成的预判，Patchouli 仍拥有长期记忆生成、验证和持久化的最终决定权。
+Gateway 不对记忆价值作任何判断：入口只看到用户输入与已有话题上下文，看不到这一轮的回答、工具结果与写入证据。一轮的长期价值、记忆生成、验证和持久化都由 Patchouli 决定。
 
 Gateway 的公开处理入口携带完整 `IdentityScope`，并将它交给需要 Workspace 上下文的 Patchouli route。命令 allowlist 与查询分析等局部能力可以只消费 `ActorIdentity` 投影；这不代表 Gateway 拥有 Workspace 资源授权，也不替下游重新定义 ownership。
 
 ### 2.1 一次分析、受限复用
 
-旧 Gateway 文档中“Compute Once, Use Everywhere”的动机仍然成立：如果检索、话题感知和记忆生成各自重新解释同一条入口消息，就会产生额外的模型调用、延迟和彼此矛盾的判断。当前实现因此在一次请求内形成一份冻结的 `GatewayDecision`，让下游共享同一份入口投影：`rewritten_query`、`search_keywords` 和 `retrieval_plan` 可供 Patchouli 派生检索请求，`target_topic_id` 供话题准备使用，`memory_write_signal` 供后续记忆流程作为预判参考。
+旧 Gateway 文档中“Compute Once, Use Everywhere”的动机仍然成立：如果检索、话题感知和记忆生成各自重新解释同一条入口消息，就会产生额外的模型调用、延迟和彼此矛盾的判断。当前实现因此在一次请求内形成一份冻结的 `GatewayDecision`，让下游共享同一份入口投影：`rewritten_query`、`search_keywords` 和 `retrieval_plan` 可供 Patchouli 派生检索请求，`target_topic_id` 供话题准备使用。
 
-这里的“复用”有明确边界。复用的是 Gateway 对入口消息的提示、路由和分析结果，不是把 Gateway 的结果升级成检索结果、记忆价值裁决或持久化真相。Patchouli 仍要根据自己的身份、过滤器、存储状态和生成规则决定检索与写回；Alice 仍只消费准备好的运行上下文；任何 fallback 或 `UNKNOWN` 信号都必须在下游按本域语义处理。这样既避免重复解释，也避免一个入口 DTO 重新吞并各子系统的所有权。
+这里的“复用”有明确边界。复用的是 Gateway 对入口消息的提示、路由和分析结果，不是把 Gateway 的结果升级成检索结果、记忆价值裁决或持久化真相。Patchouli 仍要根据自己的身份、过滤器、存储状态和生成规则决定检索与写回；Alice 仍只消费准备好的运行上下文；任何 fallback 结果都必须在下游按本域语义处理。这样既避免重复解释，也避免一个入口 DTO 重新吞并各子系统的所有权。
 
 ## 3. 运行结构
 
@@ -82,7 +82,7 @@ GatewaySystem
 
 `ACTIVE_CHAT` 允许命令短路，也允许普通决策。命令一旦命中（包括未知命令与参数无效），Gateway 只解析不执行，以携带解析结果的 `GatewayCommandOutcome` 结束，不再进入话题、检索或 Agent 执行链路；用户可见的命令终态由任务进程产生，内置命令当前暂时不可用。
 
-`PASSIVE_MEMORY` 禁止系统命令，只能形成 `GatewayDecisionOutcome`；[Import Bus](../system/import-bus.md) 为需要提交的导入轮次（尚未提交或上次应用失败）以这一模式调用 Gateway 取得落位。Gateway 在这一模式下运行与主动入口相同的话题路由与查询分析，也照常派生检索计划；Import Bus 只取话题落位（`target_topic_id` 与新话题的标题、摘要），`worth_saving` 只进入导入的观测事件；改写查询与价值预判都不进入交互记录，Import Bus 也忽略检索计划，不执行检索。导入的串行、查重、封口、Patchouli 提交、等待应用与可重试错误都属于 System 的 Import Bus，不属于 Gateway；Gateway 在这一模式下返回命令结果时，Import Bus 把它当作契约错误。
+`PASSIVE_MEMORY` 禁止系统命令，只能形成 `GatewayDecisionOutcome`；[Import Bus](../system/import-bus.md) 为需要提交的导入轮次（尚未提交或上次应用失败）以这一模式调用 Gateway 取得落位。Gateway 在这一模式下运行与主动入口相同的话题路由，但不运行查询分析：Import Bus 只取话题落位（`target_topic_id` 与新话题的标题、摘要），查询分析的产物没有使用方，决定的意图与检索计划取不检索的默认值（[话题与查询分析](./analysis.md)）。改写查询不进入交互记录，Import Bus 也不执行检索。导入的串行、查重、封口、Patchouli 提交、等待应用与可重试错误都属于 System 的 Import Bus，不属于 Gateway；Gateway 在这一模式下返回命令结果时，Import Bus 把它当作契约错误。
 
 完整跨子系统语义见[子系统公共契约](../contracts/subsystem-contracts.md)和[公开路由与事件](../contracts/routes-and-events.md)。
 

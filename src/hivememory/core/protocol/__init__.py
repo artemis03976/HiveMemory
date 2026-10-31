@@ -12,7 +12,6 @@ from hivememory.core.protocol.gateway import (
     GatewayProcessResult,
     GatewayTimeoutError,
     IntentType,
-    MemoryWriteSignal,
     RetrievalMode,
     RetrievalPlan,
 )
@@ -35,7 +34,6 @@ __all__ = [
     "GatewayProcessResult",
     "GatewayTimeoutError",
     "IntentType",
-    "MemoryWriteSignal",
     "RetrievalMode",
     "RetrievalPlan",
 ]

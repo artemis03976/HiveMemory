@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # 记忆生成
@@ -66,15 +66,15 @@ GenerationContext
   └─ GenerationTurn[]
        ├─ outcome（completed/cancelled/failed）
        ├─ user_message
-       ├─ material_entries（用户消息之后的材料条目，已按上限截断）
+       ├─ material_entries（用户消息之后的材料条目，只有工具结果按上限截断）
        └─ identity
 ```
 
-它保留对记忆提取有意义的语义与过程材料，丢弃能力调用读回的内容（READ、SEARCH 读回的已有记忆会被重复提取）与超出上限的部分。Alice 历史从会话 payload 重放，记忆生成从 Topic 的 TurnRecord 取材，两者各自生成适合任务的视图；Generation 不能反向依赖 Alice 的消息渲染格式。
+它保留对记忆提取有意义的语义与过程材料，丢弃能力调用读回的内容（READ、SEARCH 读回的已有记忆会被重复提取）与工具结果超出上限的中段。Alice 历史从会话 payload 重放，记忆生成从 Topic 的 TurnRecord 取材，两者各自生成适合任务的视图；Generation 不能反向依赖 Alice 的消息渲染格式。
 
 ### 2.1 材料与渲染
 
-每轮的材料由感知层唯一的渲染函数（`engines/perception/material.py`）从事件集得到，Generation 只组装话题状态与各轮次。同一个函数也用于 LLM 接力摘要的近期事件与逻辑块的 token 统计（见[感知与短期话题](./perception.md)），三处按同一组上限得到同样的材料。
+每轮的材料由感知层唯一的渲染函数（`engines/perception/material.py`）从事件集得到，Generation 只组装话题状态与各轮次。同一个函数也用于 LLM 接力摘要的近期事件与逻辑块的 token 统计（见[感知与短期话题](./perception.md)），三处按同一个工具结果上限得到同样的材料。
 
 用户消息之后的事件按序号就是材料的顺序，助手正文与过程条目按出现位置穿插：
 
@@ -84,27 +84,18 @@ GenerationContext
 | 助手正文 | `[Assistant]: …` |
 | 思考 | `- THOUGHT: …`；空白的思考（例如只有签名的思考块）不渲染。思考只按先后排列，不归属某个工具调用；Alice 当前不产生思考事件 |
 | 能力调用（带动词） | 一行摘要，不渲染返回原文：`- SEARCH: "查询"`、`- READ: a, b`、`- RUN: 目标 (状态)`，没有结局时状态为 `no result`；WRITE、UPDATE、CALL 不渲染 |
-| 外部工具调用（带工具名） | `- TOOL: 工具名 参数摘要`，有结局时其后一行 `RESULT: …`，出错时为 `RESULT (error): …` |
+| 外部工具调用（带工具名） | `- TOOL: 工具名 参数`，参数是完整的 JSON；有结局时其后一行 `RESULT: …`，出错时为 `RESULT (error): …` |
 | 无法解析的 MTP 指令 | 不渲染 |
 
 能力调用的规则不区分来源：外部 harness 经 HiveMemory 的 MCP 工具检索与读取时，连接器把调用写成同样的 `SEARCH`、`READ` 与作用对象（[MCP 记忆访问](../contracts/mcp.md)），同一次读取无论来自 Alice 的 MTP 指令还是外部 harness，渲染相同，读取显示所读的 alias。外部工具的结局是对外部系统的观察，是记忆提取的重要事实来源。调用没有结局表示结局没有记录：执行者拿到结果之前被取消，或来源没有记下结果（Claude Code 的会话记录会漏记并行调用的结果），因此渲染不断言调用没有完成。
 
-截断保留首尾、省略中段并标出省略的字符数，长输出末尾的报错与推理的结论因此得以保留。上限来自 `patchouli.generation.transcript`：
-
-| 配置键 | 默认 | 约束对象 |
-|:---|:---|:---|
-| `max_thought_chars` | 1000 | 单条思考 |
-| `max_args_chars` | 300 | 工具参数摘要 |
-| `max_result_chars` | 800 | 单条工具结果 |
-| `max_turn_action_chars` | 8000 | 一轮思考、能力摘要与外部工具步骤的总长度 |
-
-单轮上限不约束用户消息与助手正文，长回复不会挤掉过程条目。超出时，先把外部工具步骤全部降为工具名与参数摘要的一行，再按出错的步骤优先、其余步骤其次、各自由近及远的顺序恢复完整形态，放不下的跳过。全部降为一行后仍超出时，按较早的非出错外部工具步骤、能力摘要、出错的外部工具步骤、思考的顺序由远及近省略整条，并在用户消息之后以一行 `OMITTED` 标明省略的条目数。单轮上限是硬上限：只降级而不省略时，大量思考与一行摘要仍可使转写远超上限。
+一轮交互的内容不受任何总量上限约束：思考、工具参数与一轮的全部条目原样渲染，不降级、不省略。只有单条外部工具结果按 `patchouli.generation.transcript.max_result_chars`（默认 800）截断：工具输出可能是整份文件或日志，其余内容是对话与推理本身，任何一个上限数字都不应截掉一轮的过程。截断保留首尾、省略中段并以 `…[N chars omitted]…` 标出省略的字符数，长输出末尾的报错因此得以保留。
 
 截断在构建 `GenerationContext` 时一次完成，渲染为提示词文本时不再截断，多行条目的后续行缩进到条目之下。
 
-Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示词（中英文各一份）都说明材料格式：每轮以 `[User]` 开头，其后按发生顺序排列 `[Assistant]` 正文与以 `- ` 开头的过程条目；THOUGHT 是 Agent 的推理，不能作为事实依据（Mode A 中主要由它得出的内容降低置信度）；TOOL/RESULT 是外部工具的调用与返回，可以作为依据，`(error)` 表示调用出错；SEARCH/READ/RUN 是记忆系统内部操作的一行摘要，Mode A 另外提示读回的已有记忆不要重复提取；省略标记处的内容不要推测。提示词同时要求不把密钥、令牌、密码、证书或连接串中的凭据写入记忆，需要记录相关配置时只保留名称与用途。
+Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示词（中英文各一份）都说明材料格式：每轮以 `[User]` 开头，其后按发生顺序排列 `[Assistant]` 正文与以 `- ` 开头的过程条目；THOUGHT 是 Agent 的推理，不能作为事实依据（Mode A 中主要由它得出的内容降低置信度）；TOOL/RESULT 是外部工具的调用与返回，可以作为依据，`(error)` 表示调用出错；SEARCH/READ/RUN 是记忆系统内部操作的一行摘要，Mode A 另外提示读回的已有记忆不要重复提取；工具结果中省略标记处的内容不要推测。提示词同时要求不把密钥、令牌、密码、证书或连接串中的凭据写入记忆，需要记录相关配置时只保留名称与用途。
 
-渲染规则与单轮上限的回归入口为 [材料测试](../../tests/unit/engines/perception/test_material.py)，转写格式见 [生成视图构建器测试](../../tests/unit/engines/generation/test_generation_transcript_builder.py)。
+渲染与截断规则的回归入口为 [材料测试](../../tests/unit/engines/perception/test_material.py)，转写格式见 [生成视图构建器测试](../../tests/unit/engines/generation/test_generation_transcript_builder.py)。
 
 `GenerationTranscriptBuilder` 将 `TurnRecord.outcome` 传给 `GenerationTurn`；cancelled/failed 在转写的轮首附 `[Outcome: ...]` 和未正常完成的说明，避免把半截回复视为完整结论。
 
@@ -112,7 +103,7 @@ Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示�
 
 ### 3.1 Mode A：被动观察 / ARCHIVE
 
-当 idle、LRU、shutdown 或 manual settle 形成 `TopicMaterializeTask` 时，Coordinator 用其中的 blocks 与 state summary 构造 GenerationContext。没有 turns 时跳过任务。
+当 idle、LRU、shutdown 或 manual settle 形成 `TopicMaterializeTask` 时，Coordinator 用其中的工作视图（未折叠的 blocks 与 `state_summary`）构造 GenerationContext，被折叠的轮次只以摘要进入生成；同一任务的 `InteractionArtifactInput` 携带话题的全部交互记录与折叠记录，来源 InteractionArtifact 因此覆盖已折叠的轮次（第 5 节）。没有 turns 时跳过任务。
 
 GenerationEngine 渲染 transcript，调用 extractor 判断长期价值并生成 `ExtractedMemoryDraft`；没有草稿或 `has_value=false` 时不产生记忆。有效草稿随后进入 dense top-1 查重。
 
@@ -166,11 +157,13 @@ Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前
 
 MemoryGenerationFamiliar 执行：
 
-1. 尝试捕获 InteractionArtifact；
+1. 尝试捕获 InteractionArtifact：话题结算时覆盖全部交互记录并带折叠记录，主动生成时只有最近的 blocks、没有折叠记录；
 2. 在提交边界取一次 `now`，调用 GenerationEngine（传入同一时点用于内容日期）得到 outcomes；
 3. 对每个非 DISCARD 的 outcome 依次完成：提交字段分配（UPDATE 递增 version、推进内容时间与衰减基准、重置置信度）→ 构建 creation/version artifacts（强制，`now` 贯通 `changed_at` 与事件时间）→ 挂载 refs/events；
 4. 执行 MidTerm `upsert(atom, recompute_vectors=<embedding 输入是否变化>)`；TOUCH 走受限 `patch_payload`；
 5. 把 outcome 投影为 `MemoryGenerationResult` 与可选 PendingAtomSettlement，并通知变更。
+
+InteractionArtifact 在生成之前捕获，失败只记录 warning、生成照常进行。因此提取失败（包括超窗）或结果为 TOUCH、DISCARD 时，原文仍保存在 InteractionArtifact 中，只是没有记忆引用它。
 
 `InteractionArtifactInput.asset_bindings` 随 settlement task 一起冻结并穿过队列边界；它是 Topic 已确认使用过的资产关系，而不是 Artifact 本身。CREATE/UPDATE 持久化后，Familiar 通过注入的 `WorkspaceAssetMaterializationReaderPort`，按归属与 `asset_ref` 租借 READY representation、创建独立 DocumentArtifact 并释放租借；失败按 best-effort 跳过，不回滚已提交的 Memory。该端口不携带 actor 或 scope，Store 的既有访问接口适配由组合根承担；详情见[Artifacts 与来源追踪](./artifacts.md)。
 
@@ -262,6 +255,7 @@ Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任
 - 后台抽取与 chat 共用提供商配额，限流表现为提供商失败：Mode A 按任务失败收尾，Mode B/C 使用 fallback；当前没有生成侧的并发控制；
 - Mode A/B 去重仍只取 dense top-1；检索调用链独立携带归属与发起者，Memory store/adapter 先强制 Workspace ownership hard filter，再重验 actor policy；其他去重策略限制仍待收敛；
 - Dedup UPDATE 是直接覆盖 draft content，不是强语义 merge；
+- 生成材料只截断工具结果，单个轮次没有总量上限，生成也不分片读取：工作视图保留的 blocks 很大时（例如单轮上百次工具调用），结算的提取可能超出模型窗口，任务以 `memory_generation_failed` 失败（超窗不重试），原文仍在来源 InteractionArtifact 中但没有记忆引用；
 - Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；
 - memory 版本 Artifact 失败会阻断该次内容提交（无历史不成功）；provenance 写入与 MemoryAtom 发布仍不是原子事务，canonical 失败会留下孤立 Artifact。
 

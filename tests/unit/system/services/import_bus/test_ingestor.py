@@ -38,7 +38,6 @@ from hivememory.core.protocol.gateway import (
     GatewaySessionTurn,
     GatewayTimeoutError,
     IntentType,
-    MemoryWriteSignal,
     RetrievalPlan,
 )
 from hivememory.core.protocol.models import InteractionPayload
@@ -93,7 +92,6 @@ def _decision(**overrides) -> GatewayDecision:
         "new_topic_title": "部署",
         "new_topic_summary": "讨论部署步骤",
         "rewritten_query": "如何部署",
-        "memory_write_signal": MemoryWriteSignal.WRITE,
         "retrieval_plan": RetrievalPlan(),
         "intent_type": IntentType.RAG,
     }
@@ -494,7 +492,6 @@ async def test_runtime_events_carry_identifiers_without_content() -> None:
         "event_count": 3,
         "outcome": "completed",
         "is_new_topic": True,
-        "worth_saving": True,
     }
     assert SECRET not in accepted.model_dump_json()
 

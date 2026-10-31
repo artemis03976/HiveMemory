@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # Archived Plans
@@ -14,6 +14,7 @@ last_reviewed: 2026-10-30
 
 当前记录：
 
+- [v0.7.2 生成材料修正与 Topic 之后的原始证据保存](./v0.7.2-generation-material-and-raw-evidence.md)：2026-10-31 两阶段实现、代码审查与事实文档收尾后归档。生成材料只截断单条工具结果，思考、工具参数与一轮的全部条目原样渲染，单轮、思考与参数上限连同降级与 `OMITTED` 省略删除；`worth_saving` 与 Gateway 价值信号的整条链路移除，`PASSIVE_MEMORY` 不再运行查询分析；`TopicData` 以交互记录与折叠记录为原始数据，工作视图由二者派生，折叠只追加折叠记录、不再丢弃原文；结算冻结全部记录，来源 InteractionArtifact 覆盖已折叠的轮次并带折叠记录。并入的 Todo《生成材料的筛选与截断》随之[归档](../todo/generation-material-filtering-and-truncation.md)。第 9.3 节的实测按 owner 决定随日常使用进行，不作为归档条件。阶段一 `592e2d3e`、阶段二 `1b680e33`，收尾随后提交，未发布；后端 3062 passed，覆盖率 94.39%。当前事实见[感知与短期话题](../../patchouli/perception.md)、[Patchouli 生成](../../patchouli/generation.md)、[Artifacts](../../patchouli/artifacts.md)与 [Gateway 分析](../../gateway/analysis.md)。
 - [v0.7.1 版本收尾审计](./v0.7.1-release-closeout-audit.md)：2026-10-30 归档。记录版本目标（plugin 模式接入 Claude Code）的逐条判定、PR #136–#147 与收尾分支的内容核对、未纳入本版本的事项、验证结果与版本声明；收尾时按 owner 决定归档 Import Bus 真实使用观察 Todo 与 Import Bus Idea，重排模型 int8 移出本版本。代码版本与本次发布标签为 0.7.1（标签在合并后创建）。
 - [v0.7.1 工具解析链路重写：`TurnEvent` 作为唯一的交互原子事件](./v0.7.1-tool-call-parsing-chain.md)：2026-10-30 三阶段实现、代码审查与实测验收后归档。Alice 的 MTP 指令与外部 harness 的工具调用写出同形的 `TurnEvent`：`verb` 与 `tool_name` 互斥，作用对象为 `targets`，一次工具调用与它的结局（`status`、`result`、`produced_aliases`）是同一个事件（阶段一后 owner 决定合并），没有结局表示结局没有记录；连接器把插件自身的检索与读取归一化为 SEARCH、READ。交互载荷只以事件表达内容，归约器、轨迹与派生字段删除；感知层的解析与渲染集中为一处，生成视图、LLM 接力摘要与 token 统计共用，助手正文按出现位置穿插在过程之间。并入的 Todo《导入的 MCP 读取在轨迹中显示 alias》随之解决。阶段一 `7b29fe55`、阶段二 `7b3d545c`，审查修正、验收与事实文档收尾随后提交，未发布；后端 3064 passed，覆盖率 94.39%，确定性 E2E 22 passed。当前事实见[数据模型](../../architecture/data-model.md)、[感知与短期话题](../../patchouli/perception.md)、[Patchouli 生成](../../patchouli/generation.md)与 [Import Bus](../../system/import-bus.md)。
 - [v0.7.1 推理模型的空闲卸载与按需加载](./v0.7.1-model-idle-unload.md)：2026-10-29 三阶段实现、代码审查与实测验收后归档。嵌入与重排共用一份模型服务基类，按 `resident`/`idle_unload` 驻留（默认空闲卸载：嵌入 30 分钟、重排 10 分钟），卸载在推理线程中执行并以 `malloc_trim` 把内存归还操作系统；chat 在 Gateway 之前预取，重排模型未加载时这一次跳过重排；就绪改为“每个模型至少成功加载过一次且当前不处于加载失败状态”。实测卸载后常驻内存由约 2.6 GB 回落到约 380 MB，6 轮无增长；重新加载期间其他请求最长等待约 1～3.7 秒，记为已知限制，之后单独优化（[Todo](../../todo/model-reload-event-loop-stall.md)）。阶段一 `c884f553`、阶段二 `ca7124e6`，验收与事实文档收尾随后提交，未发布；后端 3113 passed，确定性 E2E 22 passed。当前事实见 [Patchouli](../../patchouli/README.md#41-模型驻留与空闲卸载)。

@@ -268,7 +268,7 @@ class PatchouliLocalRoutes:
 
     @route("topic.discard_if_empty")
     async def TOPIC_DISCARD_IF_EMPTY(belong_to: WorkspaceIdentity, topic_id: str) -> bool:
-        """话题真正为空（无 blocks 且无非空白折叠摘要）时清理并返回 True。"""
+        """话题真正为空（没有接收过任何交互）时清理并返回 True。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("runtime.models.warmup")

@@ -199,7 +199,6 @@ class ImportBusIngestor:
             interaction_id=interaction_id,
             topic_id=applied.topic_id,
             is_new_topic=is_new_topic,
-            worth_saving=decision.worth_saving,
         )
         return ImportTurnResult(status="accepted", interaction_id=interaction_id)
 
@@ -255,7 +254,7 @@ class ImportBusIngestor:
     async def _request_gateway_decision(
         self, turn: ImportedTurn, scope: IdentityScope, interaction_id: str, principal_id: str
     ) -> GatewayDecision:
-        """以 PASSIVE_MEMORY 模式只取得话题落位与价值信号，忽略检索计划。
+        """以 PASSIVE_MEMORY 模式只取得话题落位与新话题的标题和摘要。
 
         最近一轮带外部标识时附上它实际落位的话题：话题路由失败时，Gateway
         续接上一轮的话题，而不是新建无标题话题。

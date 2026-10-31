@@ -22,7 +22,6 @@ from hivememory.core.protocol.gateway import (
     GatewayDecisionOutcome,
     GatewayIngressMode,
     IntentType,
-    MemoryWriteSignal,
     RetrievalMode,
     RetrievalPlan,
 )
@@ -55,11 +54,11 @@ def test_canonical_topic_object_graph_is_recursively_immutable() -> None:
         topic_id="topic-1",
         workspace_identity=make_identity_scope(user_id="user-1").workspace_identity,
         topic_title="Gateway",
-        blocks=[block],
+        interactions=[block],
         last_update=1.0,
     )
 
-    assert isinstance(topic.blocks, tuple)
+    assert isinstance(topic.interactions, tuple)
     assert isinstance(event.tool_args, FrozenDict)
     assert event.tool_args["filters"]["tags"] == ("gateway",)
     assert topic.recent_blocks(1) == (block,)
@@ -91,7 +90,6 @@ def test_public_gateway_result_is_immutable_and_serializable() -> None:
         target_topic_id="NEW_TOPIC",
         rewritten_query="原问题",
         search_keywords=["gateway"],
-        memory_write_signal=MemoryWriteSignal.WRITE,
         retrieval_plan=RetrievalPlan(mode=RetrievalMode.HYBRID, top_k=8),
         intent_type=IntentType.RAG,
     )

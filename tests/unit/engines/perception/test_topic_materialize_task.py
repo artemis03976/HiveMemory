@@ -1,7 +1,8 @@
 """TopicMaterializeTask.from_topic_data() 转换边界单元测试。
 
 字段映射、Workspace 归属传递、binding 快照和 no-material 判断统一由该类方法
-负责；服务与调用方不得重复拼装。
+负责；服务与调用方不得重复拼装。结算冻结全部交互与折叠记录，生成材料仍是
+与 TopicData 同一派生的工作视图。
 """
 
 from hivememory.core.models import (
@@ -9,6 +10,7 @@ from hivememory.core.models import (
     LogicalBlock,
     TopicAssetBinding,
     TopicData,
+    TopicFold,
     WorkspaceAssetRef,
 )
 from hivememory.engines.perception.models import TopicMaterializeTask, TriggerReason
@@ -26,14 +28,14 @@ def _block(text="q", *, user_id="u1") -> LogicalBlock:
     )
 
 
-def _topic_data(scope, *, blocks=(), bindings=(), state_summary=""):
+def _topic_data(scope, *, interactions=(), folds=(), bindings=()):
     return TopicData(
         topic_id="topic-1",
         workspace_identity=scope.workspace_identity,
         topic_title="标题",
         topic_summary="展示摘要",
-        state_summary=state_summary,
-        blocks=tuple(blocks),
+        interactions=tuple(interactions),
+        folds=tuple(folds),
         bindings=tuple(bindings),
         last_update=1.0,
     )
@@ -42,7 +44,7 @@ def _topic_data(scope, *, blocks=(), bindings=(), state_summary=""):
 class TestFromTopicData:
     def test_maps_all_fields_from_topic_data(self):
         scope = _identity_scope()
-        topic = _topic_data(scope, blocks=(_block("q1"),))
+        topic = _topic_data(scope, interactions=(_block("q1"),))
 
         task = TopicMaterializeTask.from_topic_data(
             topic, belong_to=scope.workspace_identity, reason=TriggerReason.MANUAL_SETTLE
@@ -58,14 +60,10 @@ class TestFromTopicData:
         assert [b.user_message for b in task.blocks] == ["q1"]
 
     def test_workspace_belongs_to_explicit_owner_not_block_actor(self):
-        """归属来自调用方显式传入，而不是从 block 内容推导。
-
-        历史 ``_build_settle_payload`` 会取最后一个 worth-saving block 的身份
-        拼装作用域；该行为已删除，此测试防止回归。
-        """
+        """归属来自调用方显式传入，而不是从 block 内容推导。"""
         scope = _identity_scope(user_id="owner")
         # block 的历史身份与调用方作用域不同（内容事实不参与作用域拼装）。
-        topic = _topic_data(scope, blocks=(_block("q", user_id="someone_else"),))
+        topic = _topic_data(scope, interactions=(_block("q", user_id="someone_else"),))
 
         task = TopicMaterializeTask.from_topic_data(
             topic, belong_to=scope.workspace_identity, reason=TriggerReason.IDLE_TIMEOUT
@@ -76,7 +74,7 @@ class TestFromTopicData:
 
     def test_empty_topic_returns_none(self):
         scope = _identity_scope()
-        topic = _topic_data(scope, blocks=())
+        topic = _topic_data(scope)
 
         assert (
             TopicMaterializeTask.from_topic_data(
@@ -85,21 +83,23 @@ class TestFromTopicData:
             is None
         )
 
-    def test_summary_only_topic_returns_none_without_fabricating_blocks(self):
-        """summary-only Topic 可驻留但不独立生成记忆：无可保存 block 即 no-material。
-
-        ``has_content`` 允许 blocks == () 且 state_summary 非空的折叠态话题参与
-        路由与生命周期处理，但生成交接以真实 block 为材料边界，不凭摘要伪造。
-        """
+    def test_folded_topic_freezes_every_interaction_and_fold(self):
+        """结算冻结全部交互与折叠记录；生成材料仍是最后一次折叠的摘要与未折叠的块。"""
         scope = _identity_scope()
-        topic = _topic_data(scope, blocks=(), state_summary="已折叠的历史交互摘要")
-
-        assert (
-            TopicMaterializeTask.from_topic_data(
-                topic, belong_to=scope.workspace_identity, reason=TriggerReason.SHUTDOWN
-            )
-            is None
+        b1, b2, b3 = _block("q1"), _block("q2"), _block("q3")
+        fold = TopicFold(
+            folded_block_ids=(b1.block_id, b2.block_id), summary="折叠历史", folded_at=1.0
         )
+        topic = _topic_data(scope, interactions=(b1, b2, b3), folds=(fold,))
+
+        task = TopicMaterializeTask.from_topic_data(
+            topic, belong_to=scope.workspace_identity, reason=TriggerReason.SHUTDOWN
+        )
+
+        assert task.interactions == (b1, b2, b3)
+        assert task.folds == (fold,)
+        assert task.blocks == (b3,)
+        assert task.state_summary == "折叠历史"
 
     def test_bindings_are_frozen_as_snapshot(self):
         from datetime import UTC, datetime
@@ -110,20 +110,10 @@ class TestFromTopicData:
             first_bound_interaction_id="i1",
             bound_at=datetime.now(UTC),
         )
-        topic = _topic_data(scope, blocks=(_block("q"),), bindings=(binding,))
+        topic = _topic_data(scope, interactions=(_block("q"),), bindings=(binding,))
 
         task = TopicMaterializeTask.from_topic_data(
             topic, belong_to=scope.workspace_identity, reason=TriggerReason.LRU_EVICTION
         )
 
         assert task.asset_bindings == (binding,)
-
-    def test_state_summary_travels_with_task(self):
-        scope = _identity_scope()
-        topic = _topic_data(scope, blocks=(_block("q"),), state_summary="折叠历史")
-
-        task = TopicMaterializeTask.from_topic_data(
-            topic, belong_to=scope.workspace_identity, reason=TriggerReason.IDLE_TIMEOUT
-        )
-
-        assert task.state_summary == "折叠历史"

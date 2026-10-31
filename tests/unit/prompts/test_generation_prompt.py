@@ -54,5 +54,4 @@ def test_generation_prompts_explain_process_entries_and_forbid_credentials(mode,
     assert "THOUGHT" in prompt
     assert "TOOL / RESULT" in prompt
     assert "chars omitted" in prompt
-    assert "OMITTED" in prompt
     assert credential_rule in prompt

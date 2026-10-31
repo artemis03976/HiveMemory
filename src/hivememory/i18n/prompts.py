@@ -174,7 +174,7 @@ Rule: If the category says "Do NOT retry", you MUST stop issuing MTP commands an
 }
 
 _GATEWAY_PROMPT_TEXT_ZH = {
-    "topic_router_prompt": """你是 HiveMemory 的话题路由器，只负责选择用户输入所属的话题，不执行查询重写、关键词提取、意图分类或记忆价值判断。
+    "topic_router_prompt": """你是 HiveMemory 的话题路由器，只负责选择用户输入所属的话题，不执行查询重写、关键词提取或意图分类。
 
 【活跃话题】
 {active_topics_menu}
@@ -185,7 +185,7 @@ _GATEWAY_PROMPT_TEXT_ZH = {
 当前会话最近轮次只用于理解用户输入中的指代与省略，不要回答其中的问题，也不要回答用户输入。
 若输入属于某个活跃话题，target_topic 必须使用列表中的 topic_id；否则使用 NEW_TOPIC，并给出简短的新话题标题和一句话摘要。
 只返回 JSON object，字段固定为 target_topic、new_topic_title、new_topic_summary、reason。""",
-    "query_understanding_prompt": """你是 HiveMemory 的查询分析器。用户输入已完成话题路由，你的任务是结合所属话题的上下文，完成意图识别、查询重写、检索关键词提取和记忆价值初判。你不负责选择话题。
+    "query_understanding_prompt": """你是 HiveMemory 的查询分析器。用户输入已完成话题路由，你的任务是结合所属话题的上下文，完成意图识别、查询重写和检索关键词提取。你不负责选择话题。
 
 【所属话题上下文】
 {topic_context}
@@ -212,22 +212,17 @@ _GATEWAY_PROMPT_TEXT_ZH = {
 
 3. 稀疏检索 search_keywords：提取 3-5 个专有名词、动词或核心实体，用于精确匹配。
 
-4. 记忆价值初判 memory_write_signal：
-   - WRITE：用户明确表达的偏好、硬性禁忌、重要事实、可复用的技术方案。
-   - SKIP：纯确认或附和、与上文重复的提问、无信息量的情绪表达。
-   - UNKNOWN：无法确定时使用（保守，交给下游决定）。
-
-5. 复合意图分解 sub_intents：仅当 intent_type 为 COMPOSITE 时，列出 2-4 个子意图的一句话简述；否则返回空数组。
+4. 复合意图分解 sub_intents：仅当 intent_type 为 COMPOSITE 时，列出 2-4 个子意图的一句话简述；否则返回空数组。
 
 请严格返回一个 JSON object，不要输出 Markdown、代码块或解释文字。JSON 字段必须包含：
-intent_type、rewritten_query、search_keywords、memory_write_signal、sub_intents、reason。""",
+intent_type、rewritten_query、search_keywords、sub_intents、reason。""",
     "active_topics_empty": "无",
     "topic_context_empty": "无（新话题，暂无历史上下文）",
     "session_context_empty": "无",
 }
 
 _GATEWAY_PROMPT_TEXT_EN = {
-    "topic_router_prompt": """You are HiveMemory's topic router. Only choose the topic for the user input. Do not rewrite queries, extract keywords, classify intent, or judge memory value.
+    "topic_router_prompt": """You are HiveMemory's topic router. Only choose the topic for the user input. Do not rewrite queries, extract keywords, or classify intent.
 
 Active topics:
 {active_topics_menu}
@@ -238,7 +233,7 @@ Recent turns in the current session:
 Use the recent session turns only to understand references and omissions in the user input. Do not answer them, and do not answer the user input.
 If the input belongs to an active topic, target_topic must be one of the listed topic IDs. Otherwise use NEW_TOPIC and provide a concise title and one-sentence summary.
 Return only one JSON object with target_topic, new_topic_title, new_topic_summary, and reason.""",
-    "query_understanding_prompt": """You are HiveMemory's query analyzer. The user input has already been routed to a topic. Using the routed topic's context, perform intent classification, query rewriting, retrieval keyword extraction, and an initial memory-value judgment. You do not choose the topic.
+    "query_understanding_prompt": """You are HiveMemory's query analyzer. The user input has already been routed to a topic. Using the routed topic's context, perform intent classification, query rewriting, and retrieval keyword extraction. You do not choose the topic.
 
 [Routed Topic Context]
 {topic_context}
@@ -265,15 +260,10 @@ Use the recent session turns only to understand references and omissions in the 
 
 3. Sparse retrieval search_keywords: extract 3-5 proper nouns, verbs, or core entities for exact matching.
 
-4. Initial memory-value judgment memory_write_signal:
-   - WRITE: explicitly stated preferences, hard constraints, important facts, reusable technical solutions.
-   - SKIP: pure confirmations or acknowledgments, questions repeated from above, emotion-only expressions with no information.
-   - UNKNOWN: use when uncertain (conservative; leave the decision downstream).
-
-5. Composite decomposition sub_intents: only when intent_type is COMPOSITE, list 2-4 one-sentence sub-intent summaries; otherwise return an empty array.
+4. Composite decomposition sub_intents: only when intent_type is COMPOSITE, list 2-4 one-sentence sub-intent summaries; otherwise return an empty array.
 
 Return exactly one JSON object. Do not output markdown, code fences, or prose. The JSON fields must include:
-intent_type, rewritten_query, search_keywords, memory_write_signal, sub_intents, reason.""",
+intent_type, rewritten_query, search_keywords, sub_intents, reason.""",
     "active_topics_empty": "None",
     "topic_context_empty": "None (new topic, no history yet)",
     "session_context_empty": "None",
@@ -432,9 +422,9 @@ _GENERATION_PROMPT_TEXT_ZH = {
 ## 过程条目
 对话片段中每轮以 [User] 开头，其后按发生顺序排列助手正文（[Assistant]）与以 "- " 开头的过程条目：
 - **THOUGHT**: Agent 的推理与思考，不是用户的陈述，也不是已经验证的事实；不能单独作为记忆的事实依据，主要由它得出的内容应降低置信度
-- **TOOL / RESULT**: 外部工具的调用（工具名与参数摘要）及其返回结果。结果是对外部系统的观察，可以作为事实依据；标为 (error) 的结果表示调用出错，可用于提炼错误原因与修复经验
+- **TOOL / RESULT**: 外部工具的调用（工具名与参数）及其返回结果。结果是对外部系统的观察，可以作为事实依据；标为 (error) 的结果表示调用出错，可用于提炼错误原因与修复经验
 - **SEARCH / READ / RUN**: 记忆系统内部操作（检索、读取记忆与运行记忆中的工具）的一行摘要；SEARCH 与 READ 读回的是已有记忆，不要把它们重复提取为新记忆
-- 过长的内容已被截断，"…[N chars omitted]…" 处省略了中段；"OMITTED" 行表示该轮过程条目过多而省略的条目数。不要推测被省略的内容
+- 过长的工具结果已被截断，"…[N chars omitted]…" 处省略了中段。不要推测被省略的内容
 
 ## 敏感信息
 不要把密钥、令牌、密码、证书或连接串中的凭据写入记忆；需要记录相关配置时，只保留名称与用途，省略具体取值。
@@ -502,7 +492,7 @@ _GENERATION_PROMPT_TEXT_ZH = {
 - 每轮以 [User] 开头，其后按发生顺序排列助手正文（[Assistant]）与以 "- " 开头的过程条目
 - **THOUGHT** 是 Agent 的推理，不能用来证实草稿；**TOOL / RESULT** 是外部工具的调用与返回结果，可以用来验证与补全草稿，标为 (error) 的结果表示调用出错
 - **SEARCH / READ / RUN** 是记忆系统内部操作（检索、读取记忆与运行记忆中的工具）的一行摘要
-- "…[N chars omitted]…" 处省略了过长内容的中段，"OMITTED" 行表示该轮过程条目过多而省略的条目数，不要推测被省略的内容
+- "…[N chars omitted]…" 处省略了过长工具结果的中段，不要推测被省略的内容
 
 ## 敏感信息
 不要把密钥、令牌、密码、证书或连接串中的凭据写入记忆；需要记录相关配置时，只保留名称与用途，省略具体取值。
@@ -567,7 +557,7 @@ _GENERATION_PROMPT_TEXT_ZH = {
 ## 参考上下文中的过程条目
 - 每轮以 [User] 开头，其后按发生顺序排列助手正文（[Assistant]）与以 "- " 开头的过程条目
 - **THOUGHT** 是 Agent 的推理，不能作为修改的事实依据；**TOOL / RESULT** 是外部工具的调用与返回结果，可以作为修改的参考，标为 (error) 的结果表示调用出错
-- **SEARCH / READ / RUN** 是记忆系统内部操作的一行摘要；"…[N chars omitted]…" 与 "OMITTED" 行表示省略的内容，不要推测
+- **SEARCH / READ / RUN** 是记忆系统内部操作的一行摘要；"…[N chars omitted]…" 处省略了过长工具结果的中段，不要推测
 
 ## 敏感信息
 不要把密钥、令牌、密码、证书或连接串中的凭据写入记忆；需要记录相关配置时，只保留名称与用途，省略具体取值。
@@ -644,9 +634,9 @@ Analyze conversation snippets between the user and the AI assistant, extract and
 ## Process Entries
 Each turn of a conversation snippet starts with [User], followed in order by the assistant's text ([Assistant]) and process entries starting with "- ":
 - **THOUGHT**: The Agent's reasoning. It is neither a user statement nor a verified fact; do not use it alone as the factual basis of a memory, and lower the confidence of content that mainly comes from it.
-- **TOOL / RESULT**: A call to an external tool (tool name and argument summary) and what it returned. Results are observations of external systems and may serve as factual basis; a result marked (error) means the call failed and can be used to extract causes and fixes.
+- **TOOL / RESULT**: A call to an external tool (tool name and arguments) and what it returned. Results are observations of external systems and may serve as factual basis; a result marked (error) means the call failed and can be used to extract causes and fixes.
 - **SEARCH / READ / RUN**: One-line summaries of internal memory-system operations (searching and reading memories, and running tools stored in memories). What SEARCH and READ read back are existing memories; do not extract them again as new memories.
-- Overlong content has been truncated: "…[N chars omitted]…" marks an omitted middle part, and an "OMITTED" line gives the number of entries dropped because the turn had too many process entries. Do not guess the omitted content.
+- Overlong tool results have been truncated: "…[N chars omitted]…" marks an omitted middle part. Do not guess the omitted content.
 
 ## Sensitive Information
 Never write credentials such as API keys, tokens, passwords, certificates, or secrets in connection strings into memories. When a configuration is worth recording, keep only its name and purpose and omit the actual value.
@@ -714,7 +704,7 @@ Your task is not to discover value from the conversation, but to verify and stru
 - Each turn starts with [User], followed in order by the assistant's text ([Assistant]) and process entries starting with "- ".
 - **THOUGHT** is the Agent's reasoning and cannot confirm the draft; **TOOL / RESULT** is a call to an external tool and what it returned, which may be used to verify and enrich the draft. A result marked (error) means the call failed.
 - **SEARCH / READ / RUN** are one-line summaries of internal memory-system operations (searching and reading memories, and running tools stored in memories).
-- "…[N chars omitted]…" marks an omitted middle part of overlong content, and an "OMITTED" line gives the number of entries dropped because the turn had too many process entries. Do not guess the omitted content.
+- "…[N chars omitted]…" marks an omitted middle part of an overlong tool result. Do not guess the omitted content.
 
 ## Sensitive Information
 Never write credentials such as API keys, tokens, passwords, certificates, or secrets in connection strings into memories. When a configuration is worth recording, keep only its name and purpose and omit the actual value.
@@ -779,7 +769,7 @@ Automatically infer the mode from the instruction:
 ## Process Entries in the Reference Context
 - Each turn starts with [User], followed in order by the assistant's text ([Assistant]) and process entries starting with "- ".
 - **THOUGHT** is the Agent's reasoning and is not a factual basis for the update; **TOOL / RESULT** is a call to an external tool and what it returned, which may inform the update. A result marked (error) means the call failed.
-- **SEARCH / READ / RUN** are one-line summaries of internal memory-system operations. "…[N chars omitted]…" and "OMITTED" lines mark omitted content; do not guess it.
+- **SEARCH / READ / RUN** are one-line summaries of internal memory-system operations. "…[N chars omitted]…" marks an omitted middle part of an overlong tool result; do not guess it.
 
 ## Sensitive Information
 Never write credentials such as API keys, tokens, passwords, certificates, or secrets in connection strings into memories. When a configuration is worth recording, keep only its name and purpose and omit the actual value.

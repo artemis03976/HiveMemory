@@ -92,7 +92,7 @@ Workspace 的访问、能力层与任务进程规则较多。改动这些区域�
 
 - 主动链路：`Gateway process -> Patchouli prepare（话题与检索） -> 任务进程 CPU 分配 -> Actor 执行（经 CPU 端口，当前为 Alice） -> 有输出时封口交互记录并写入会话 -> Patchouli finalize`。prepare 失败、进程异常、finalize 前断连或 CPU 无输出时不进入 finalize；cleanup 只补偿 prepare 新建且仍为空的话题，不是跨边界事务回滚。附件租借随进程关闭释放。
 - 停止与取消：用户停止保留部分输出并提交，交付方离开与系统关闭丢弃本轮；进入 FINALIZE 后拒绝停止，提交不受交付方离开影响。停止被接受时全部线程即已结束，CPU 取消后的收尾不得依赖 actor 操作。
-- Import Bus 链路：`POST /api/v1/import/turns -> 统一认证网关 + 导入授权 -> 按外部会话串行编排 -> Gateway PASSIVE_MEMORY（只取话题落位与价值信号） -> 共用封口 seal_interaction -> Patchouli 公开提交路由 -> 等待感知应用完成后确认`。Import Bus 不运行 Alice、MTP、命令或回复生成，不检索记忆，也不返回记忆上下文。
+- Import Bus 链路：`POST /api/v1/import/turns -> 统一认证网关 + 导入授权 -> 按外部会话串行编排 -> Gateway PASSIVE_MEMORY（只取话题落位） -> 共用封口 seal_interaction -> Patchouli 公开提交路由 -> 等待感知应用完成后确认`。Import Bus 不运行 Alice、MTP、命令或回复生成，不检索记忆，也不返回记忆上下文。
 - `MTP WRITE/UPDATE` 的 ACK 表示意图已在 workspace 登记，并已被 Patchouli 生成队列接纳，不表示正式记忆已经持久化；派发开始后，写入不因 CPU 失败、取消、停止、线程结束或进程关闭而撤回。正式持久化只由 Patchouli 生成链结算，不能在 Alice（含 Koakuma）内直接写正式 Memory。详见[读取视图与写入意图](docs/workspace/read-view-and-write-intents.md)。
 - Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，Agent Profile 不承载任何权限。CALL 派生的子 frame 以被调用方身份运行，只允许根 frame 发起，不得递归 CALL。详见 [MTP 契约](docs/contracts/mtp.md)与[执行线程](docs/workspace/execution-threads.md)。
 - Gateway 的局部失败只能在仍满足终态不变量时保守降级；投影、终态校验、装配错误和 cancellation 不得被静默吞掉。

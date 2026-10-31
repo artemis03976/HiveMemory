@@ -34,12 +34,12 @@ related_docs:
 related_plans:
   - docs/archive/plans/v0.7.1-import-bus-redesign.md
   - docs/archive/plans/v0.7.1-memory-access-mcp.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # Import Bus
 
-Import Bus 是外部 harness 对话回流 HiveMemory 的入口。harness 中的一轮交互结束后，连接器把这一轮的完整记录（用户消息、助手正文、思考、工具调用与结果）一次交给 Import Bus；Import Bus 经 Gateway 取得话题落位与价值信号，用与任务进程相同的封口函数组装交互记录，经 Patchouli 公开路由提交，并在感知应用完成后才确认。第一个接入的 harness 是 Claude Code，连接器以插件形式位于 `integrations/claude-code/`（第 8 节）。
+Import Bus 是外部 harness 对话回流 HiveMemory 的入口。harness 中的一轮交互结束后，连接器把这一轮的完整记录（用户消息、助手正文、思考、工具调用与结果）一次交给 Import Bus；Import Bus 经 Gateway 取得话题落位，用与任务进程相同的封口函数组装交互记录，经 Patchouli 公开路由提交，并在感知应用完成后才确认。第一个接入的 harness 是 Claude Code，连接器以插件形式位于 `integrations/claude-code/`（第 8 节）。
 
 Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返回记忆上下文，不运行 Alice、MTP、命令或回复生成，不经任务进程的注册入口，导入的轮次也不写入 ConversationSession（plugin 模式下会话归外部 harness 所有）。为话题落位读取候选话题属于 Gateway 的分析，不算读取记忆。Gateway 的调用模式仍名为 `PASSIVE_MEMORY`。
 
@@ -146,7 +146,7 @@ workspace 授权点的 `authorize_import` 只校验 context 有效、已准入�
 
 ### 4.5 Gateway 落位、封口与提交
 
-- **Gateway**：以 `PASSIVE_MEMORY` 模式调用 `gateway.public.process`，消息为该轮的用户消息，时限为 `gateway.workflow.default_request_timeout_ms`。`session_turns` 取请求中 `recent_turns` 的最后 `gateway.context_preparation.session_turn_limit` 轮；最近一轮带 `external_turn_id` 时，编排器推导它的 `interaction_id`、经状态查询取得应用成功后的真实落点，写入该轮的 `topic_id`。话题路由失败时，Gateway 续接上一轮仍在候选中的话题，否则按新话题兜底（[Gateway 分析](../gateway/analysis.md)）。Import Bus 只使用决定中的 `target_topic_id`、`new_topic_title` 与 `new_topic_summary`，忽略检索计划，不调用检索；`worth_saving` 只进入观测事件（第 6.2 节），不进入交互记录，也不用于丢弃交互。
+- **Gateway**：以 `PASSIVE_MEMORY` 模式调用 `gateway.public.process`，消息为该轮的用户消息，时限为 `gateway.workflow.default_request_timeout_ms`。`session_turns` 取请求中 `recent_turns` 的最后 `gateway.context_preparation.session_turn_limit` 轮；最近一轮带 `external_turn_id` 时，编排器推导它的 `interaction_id`、经状态查询取得应用成功后的真实落点，写入该轮的 `topic_id`。话题路由失败时，Gateway 续接上一轮仍在候选中的话题，否则按新话题兜底（[Gateway 分析](../gateway/analysis.md)）。Import Bus 只使用决定中的 `target_topic_id`、`new_topic_title` 与 `new_topic_summary`，三者都来自话题路由；Gateway 在这一模式下不运行查询分析，每个导入轮次只有话题路由一次模型调用，决定中的意图与检索计划是不检索的默认值，Import Bus 不调用检索。导入一侧不在入口作任何价值判断，交互记录不因入口判断被丢弃。
 - **封口**：以补上序号 0 用户消息事件后的轮次事件、`outcome` 与 `model_used` 调用 `seal_interaction`；Import Bus 不携带附件，`used_attachments` 为空。Gateway 决定不进入交互记录。
 - **提交**：调用 `patchouli.public.interaction.submit`，`origin` 为 `import_bus`；目标为 `NEW_TOPIC` 时附上 Gateway 给出的 `new_topic_title` 与 `new_topic_summary`，感知以它们建立新话题。后续落位依赖候选话题的标题与摘要，缺少它们的“新建话题”会让持续导入的落位质量下降。提交按话题生成排序键，导入与主动链路落到同一话题时由同一个排序键保证先后。
 
@@ -208,7 +208,7 @@ ActorAuthenticationGateway.close      新的导入请求以 503 拒绝
 
 | 事件 | 时机 | 附加内容 |
 |:---|:---|:---|
-| `import.turn.accepted` | 本次提交应用完成后 | `topic_id`（实际落位）、`outcome`、`is_new_topic`、`worth_saving` |
+| `import.turn.accepted` | 本次提交应用完成后 | `topic_id`（实际落位）、`outcome`、`is_new_topic` |
 | `import.turn.duplicate` | 已应用的轮次重发，或重发等到上一次提交应用完成 | reason `interaction_already_accepted` |
 | `import.turn.skipped` | 没有输出的轮次 | reason `no_output` |
 | `import.turn.deferred` | 可重试或应用失败的推迟（severity `warning`） | reason `gateway_unavailable`、`queue_unavailable`、`apply_pending` 或 `apply_failed`；`error_class` 只有异常类型名 |
@@ -308,7 +308,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录）
 - 同一（user、Agent、`source`、外部会话）内按到达顺序处理，串行门持有到应用完成；不同外部会话不被一把全局锁串行化。
 - `interaction_id` 只由认证结果与外部标识推导，同一轮重发不变。
 - 导入授权只在 Import Bus 服务调用，只校验准入与目标，不检查白名单，拒绝保留的 `system`；`IdentityScope` 只在一次请求的调用链内使用。
-- 交互记录由共用的 `seal_interaction` 产出，与任务进程的交互记录同形，只以事件表达交互内容；`worth_saving` 不进入交互记录，也不得删除原始交互。
+- 交互记录由共用的 `seal_interaction` 产出，与任务进程的交互记录同形，只以事件表达交互内容；Gateway 决定不进入交互记录，也不得删除原始交互。
 - 编排器不持有提交队列、不注册维护任务；关闭时只等待在途请求，不排空队列。
 - RuntimeEvent 不携带正文，发布失败不改变结果。
 - 连接器只在得到确认，或判定这一轮不可重试并写入拒绝记录之后前进游标；hook 不做网络提交，不阻塞 Claude Code。

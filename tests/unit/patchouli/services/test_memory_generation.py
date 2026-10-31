@@ -4,7 +4,7 @@ MemoryGenerationFamiliar 单元测试
 测试覆盖:
 - execute: 完整生成流程（compute -> artifact -> persist）
 - _run_generation: 生成执行流水线（提交边界字段分配、TOUCH patch）
-- _capture_interaction_artifact: 交互 artifact 构建
+- _capture_interaction_artifact: 交互 artifact 构建，结算时覆盖全部轮次与折叠记录
 - _attach_memory_artifact: CREATE/UPDATE artifact 挂载（版本记录强制）
 - create/update_external_memory: 外部编辑的提交边界语义
 
@@ -14,6 +14,7 @@ MemoryGenerationFamiliar 单元测试
 - TOUCH 不走 upsert，走受限 patch_payload 推进访问统计。
 """
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
 from uuid import uuid4
@@ -26,10 +27,12 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
+    TopicFold,
     WorkspaceIdentity,
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType, MemoryEventType
 from hivememory.core.models.pending import WriteFocus
+from hivememory.engines.artifacts.interaction import InteractionArtifactBuilder
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.models import (
     DuplicateDecision,
@@ -66,6 +69,17 @@ def _artifact_ref(artifact_id: str, artifact_type: ArtifactType) -> ArtifactRef:
             workspace_id="main_workspace",
         ),
     )
+
+
+class _RecordingArtifactStore:
+    """记录写入的 Artifact，并返回指向它的引用。"""
+
+    def __init__(self) -> None:
+        self.artifacts: list = []
+
+    async def put(self, artifact) -> ArtifactRef:
+        self.artifacts.append(artifact)
+        return _artifact_ref(artifact.artifact_id, artifact.artifact_type)
 
 
 def _creation_bundle() -> MemoryCreationBundle:
@@ -166,32 +180,40 @@ class TestMemoryGenerationFamiliarExecute:
         )
 
     @pytest.mark.asyncio
-    async def test_execute_builds_interaction_artifact_and_runs_generation(self):
-        interaction_ref = _artifact_ref("interaction_1", ArtifactType.INTERACTION)
-        spec = _make_spec()
+    async def test_execute_captures_every_turn_and_fold_even_without_memory(self):
+        """结算的来源 Artifact 覆盖全部轮次（包括已折叠的）并带折叠记录；生成没有产出时也已写入。"""
+        blocks = tuple(make_logical_block(f"q{index}", f"a{index}") for index in range(3))
+        fold = TopicFold(
+            folded_block_ids=(blocks[0].block_id, blocks[1].block_id),
+            summary="折叠摘要",
+            folded_at=1.0,
+        )
+        spec = replace(
+            _make_spec(),
+            source=MemoryGenerationSource.SETTLE,
+            intent_id=None,
+            pending_alias=None,
+            interaction_input=InteractionArtifactInput(topic_id="t1", blocks=blocks, folds=(fold,)),
+        )
 
         gen_engine = Mock()
         gen_engine.process = AsyncMock(return_value=[])
 
+        store = _RecordingArtifactStore()
         artifact_engine = Mock()
-        artifact_engine.interaction = Mock()
-        artifact_engine.interaction.build_and_store = AsyncMock(return_value=interaction_ref)
-        artifact_engine.memory = Mock()
+        artifact_engine.interaction = InteractionArtifactBuilder(store)
 
-        mid_term = Mock()
-        mid_term.upsert = AsyncMock()
-
-        familiar = self._make_familiar(
-            gen_engine=gen_engine,
-            mid_term=mid_term,
-            artifact_engine=artifact_engine,
-        )
+        familiar = self._make_familiar(gen_engine=gen_engine, artifact_engine=artifact_engine)
 
         results = await familiar.execute(spec)
 
-        gen_engine.process.assert_awaited_once()
-        artifact_engine.interaction.build_and_store.assert_awaited_once()
         assert results == []
+        gen_engine.process.assert_awaited_once()
+        [artifact] = store.artifacts
+        assert [turn.block_id for turn in artifact.turns] == [block.block_id for block in blocks]
+        assert [(item.folded_block_ids, item.summary) for item in artifact.folds] == [
+            ([blocks[0].block_id, blocks[1].block_id], "折叠摘要")
+        ]
 
     @pytest.mark.asyncio
     async def test_execute_with_no_interaction_input_skips_artifact_build(self):

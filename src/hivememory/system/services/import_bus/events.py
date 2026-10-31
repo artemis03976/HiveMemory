@@ -72,9 +72,8 @@ class ImportBusEventEmitter:
         interaction_id: str,
         topic_id: str | None,
         is_new_topic: bool,
-        worth_saving: bool | None,
     ) -> None:
-        """交互已应用：报告实际落位的话题、是否新建与价值信号。"""
+        """交互已应用：报告实际落位的话题与是否新建。"""
         self._emit(
             RuntimeEventType.IMPORT_TURN_ACCEPTED,
             turn=turn,
@@ -86,7 +85,6 @@ class ImportBusEventEmitter:
             data={
                 "outcome": turn.outcome,
                 "is_new_topic": is_new_topic,
-                "worth_saving": worth_saving,
             },
         )
 

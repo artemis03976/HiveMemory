@@ -10,7 +10,7 @@ code_paths:
 related_contracts:
   - docs/components/runtime-and-bus.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-31
 ---
 
 # 记忆生命周期
@@ -111,7 +111,7 @@ Archive 顺序为长期 persist 后中期 delete，并在 atom 中追加 ARCHIVE
 - Scheduler 定期执行 gardening；
 - 内部 local route 可执行 revive。
 
-Lifecycle 不从 Gateway 的 `worth_saving` 调整分数。入口价值预判既不决定短期材料是否进入结算（[Perception](./perception.md)第 2 节），也不影响正式 MemoryAtom 的长期演化，后者使用自己的证据。
+Lifecycle 不使用任何入口阶段的判断调整分数：Gateway 的决定不携带价值信号，短期话题的全部交互都进入结算（[Perception](./perception.md)第 2 节），正式 MemoryAtom 的长期演化使用自己的证据。
 
 ## 7. 维护与可观测性
 

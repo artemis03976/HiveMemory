@@ -3,7 +3,7 @@ title: Ideas
 status: current
 owner: project
 scope: uncommitted-exploration
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # Ideas
@@ -28,7 +28,7 @@ v0.7.2 的版本目标是生成质量（owner，2026-10-30，[ROADMAP](../ROADMA
 
 | Idea | 为 v0.7.2 供料的方向 | 阻塞问题 |
 |:---|:---|:---|
-| [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md) | 生成材料修正，同步完成从 Topic 往后全链路的原始证据保存覆盖面（第 0 节；2026-10-30 由 `candidate` 改为 `current`） | R-1、R-2 已于 2026-10-30 决定，计划已建立：[生成材料修正与原始证据保存](../plans/v0.7.2-generation-material-and-raw-evidence.md) |
+| [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md) | 生成材料修正，同步完成从 Topic 往后全链路的原始证据保存覆盖面（第 0 节；2026-10-30 由 `candidate` 改为 `current`） | R-1、R-2 已于 2026-10-30 决定；计划已于 2026-10-31 完成归档：[生成材料修正与原始证据保存](../archive/plans/v0.7.2-generation-material-and-raw-evidence.md)，交到 Topic 之前的环节仍是候选 |
 | [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | plugin 模式开放 WRITE 与 UPDATE，与主动链路共享同一记忆更新逻辑（第 4 节的 v0.7.2 一步；2026-10-30 v0.7.1 收尾时改为 `candidate`，同日改回 `current`）；controller 模式、E-1 等其余内容仍是候选 | E-4 结果观察的方式；外部 Actor 的提交与回读契约（[写入意图 Idea](./pending-intent-migration.md)第 7 节） |
 | [话题结算的多条提取、查重与更新](./settlement-multi-memory-extraction-and-dedup.md) | 一个话题提取多条记忆；查重与更新机制（2026-10-30 新建） | G-1 多条记忆怎样提取（按范围分片的选项 C 已不予采纳）；G-2 查重的判定信号、G-3 命中已有记忆后的写入方式 |
 

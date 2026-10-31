@@ -19,7 +19,8 @@ class InMemoryShortTermStorage(ShortTermStoragePort):
     """:class:`ShortTermStoragePort` 的线程安全内存实现。
 
     ``WorkspaceTopicKey`` 在此仅为实现细节。适配器从不修改已存的
-    ``TopicData``：写入方必须提交新的冻结快照（``model_copy``）才能变更话题内容。
+    ``TopicData``：写入方必须提交新的冻结快照才能变更话题内容，新快照由 core
+    话题模型的写函数以完整构造产生。
     """
 
     def __init__(self) -> None:

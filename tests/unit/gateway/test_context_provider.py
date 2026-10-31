@@ -24,7 +24,6 @@ from hivememory.core.models import (
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     IntentType,
-    MemoryWriteSignal,
     RetrievalPlan,
 )
 from hivememory.engines.gateway.interceptors import create_interceptor
@@ -144,7 +143,6 @@ def _resolver():
         return_value=UserQueryAnalysisResult(
             intent_type=IntentType.RAG,
             rewritten_query="问题",
-            memory_write_signal=MemoryWriteSignal.WRITE,
             retrieval_plan=RetrievalPlan(),
         )
     )

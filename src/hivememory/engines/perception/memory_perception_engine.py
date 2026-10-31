@@ -40,7 +40,7 @@ class MemoryPerceptionEngine:
     ) -> None:
         self.config = config
         self._relay = relay_controller
-        # 与记忆生成视图同一组截断上限：块的 token 统计按生成实际看到的材料计算。
+        # 与记忆生成视图同一个工具结果上限：块的 token 统计按生成实际看到的材料计算。
         self._transcript_config = transcript_config or GenerationTranscriptConfig()
 
     def build_block(

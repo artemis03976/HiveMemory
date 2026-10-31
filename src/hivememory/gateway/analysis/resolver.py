@@ -2,7 +2,7 @@
 
 - `FallbackUserQueryAnalysisResolver`：不调用 Engine，生成稳定保守结果。
 - `LLMUserQueryAnalysisResolver`：第一代实现，本地规则前置 + 单次共享
-  LLM 调用（意图/重写/关键词/记忆价值初判）+ 纯函数派生检索计划。
+  LLM 调用（意图/重写/关键词）+ 纯函数派生检索计划。
 """
 
 from __future__ import annotations
@@ -21,7 +21,6 @@ from hivememory.core.contracts.runtime_events import (
 )
 from hivememory.core.protocol.gateway import (
     IntentType,
-    MemoryWriteSignal,
     RetrievalMode,
     RetrievalPlan,
 )
@@ -46,13 +45,12 @@ class FallbackUserQueryAnalysisResolver:
         self,
         context: UserQueryAnalysisContext,
     ) -> UserQueryAnalysisResult:
-        """始终保留原始查询，并选择 RAG、写入记忆和混合检索。"""
+        """始终保留原始查询，并选择 RAG 与混合检索。"""
 
         return UserQueryAnalysisResult(
             intent_type=IntentType.RAG,
             rewritten_query=context.raw_message,
             search_keywords=(),
-            memory_write_signal=MemoryWriteSignal.WRITE,
             retrieval_plan=RetrievalPlan(
                 mode=RetrievalMode.HYBRID,
                 top_k=self._config.default_top_k,
@@ -63,9 +61,8 @@ class FallbackUserQueryAnalysisResolver:
 class LLMUserQueryAnalysisResolver:
     """第一代 Resolver：规则前置 + 单次共享 LLM 调用 + 纯函数派生。
 
-    技术债说明：意图识别、query rewrite、记忆价值初判与意图分解当前共享
-    一次 LLM 调用（QueryUnderstandingEngine）；记忆价值判断与意图识别耦合在同一次调用中，
-    后者的提示或模型调整会连带影响前者。
+    技术债说明：意图识别、query rewrite 与意图分解当前共享一次 LLM 调用
+    （QueryUnderstandingEngine），任一能力的提示或模型调整都会连带影响其余能力。
     """
 
     _WRITE_INTENT_PATTERNS: tuple[str, ...] = (
@@ -96,7 +93,7 @@ class LLMUserQueryAnalysisResolver:
     ) -> UserQueryAnalysisResult:
         """完成一次完整查询分析；能力失败转换为 RecoverableGatewayError。"""
 
-        rule_intent, rule_signal = self._apply_rules(context)
+        rule_intent = self._rule_intent(context)
 
         started_at = perf_counter()
         try:
@@ -111,7 +108,6 @@ class LLMUserQueryAnalysisResolver:
         self._emit_capability(started_at, error=None)
 
         intent_type = rule_intent or analysis.intent_type
-        memory_write_signal = rule_signal or analysis.memory_write_signal
         retrieval_plan = self._derive_retrieval_plan(
             intent_type=intent_type,
             search_keywords=analysis.search_keywords,
@@ -120,34 +116,16 @@ class LLMUserQueryAnalysisResolver:
             intent_type=intent_type,
             rewritten_query=analysis.rewritten_query,
             search_keywords=analysis.search_keywords,
-            memory_write_signal=memory_write_signal,
             retrieval_plan=retrieval_plan,
         )
 
-    def _apply_rules(
-        self,
-        context: UserQueryAnalysisContext,
-    ) -> tuple[IntentType | None, MemoryWriteSignal | None]:
-        """零成本前置规则：显式记忆指令与重复输入检测。"""
+    def _rule_intent(self, context: UserQueryAnalysisContext) -> IntentType | None:
+        """零成本前置规则：显式记忆指令直接判为 WRITE 意图，覆盖模型的判断。"""
 
         text = context.raw_message.strip()
         if any(pattern.search(text) for pattern in self._write_patterns):
-            return IntentType.WRITE, MemoryWriteSignal.WRITE
-        if self._is_repeated_input(context):
-            return None, MemoryWriteSignal.SKIP
-        return None, None
-
-    def _is_repeated_input(self, context: UserQueryAnalysisContext) -> bool:
-        # Topic 池可能交错多个会话，重复检测只能比较当前会话的上一轮。
-        if not context.session_turns:
-            return False
-        return self._normalize(context.session_turns[-1].user_message) == self._normalize(
-            context.raw_message
-        )
-
-    @staticmethod
-    def _normalize(text: str) -> str:
-        return "".join(text.split()).lower()
+            return IntentType.WRITE
+        return None
 
     def _derive_retrieval_plan(
         self,

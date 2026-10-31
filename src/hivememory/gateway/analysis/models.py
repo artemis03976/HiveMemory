@@ -10,7 +10,6 @@ from hivememory.core.models import ActorIdentity, TopicData
 from hivememory.core.protocol.gateway import (
     GatewaySessionTurn,
     IntentType,
-    MemoryWriteSignal,
     RetrievalPlan,
 )
 from hivememory.gateway.context import CandidateTopics
@@ -37,7 +36,6 @@ class UserQueryAnalysisResult(BaseModel):
     intent_type: IntentType
     rewritten_query: str
     search_keywords: tuple[str, ...] = Field(default_factory=tuple)
-    memory_write_signal: MemoryWriteSignal
     retrieval_plan: RetrievalPlan
 
     model_config = ConfigDict(frozen=True)

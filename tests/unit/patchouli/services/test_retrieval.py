@@ -19,6 +19,7 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
     TopicData,
+    TopicFold,
 )
 from hivememory.core.models.query import QueryFilters
 from hivememory.engines.retrieval.models import (
@@ -81,17 +82,16 @@ def _make_memory_library():
     return library
 
 
-def _make_topic_data(topic_id="topic_1", user_id="u1", blocks=None, last_update=1.0):
+def _make_topic_data(topic_id="topic_1", user_id="u1", interactions=(), folds=(), last_update=1.0):
     identity_scope = make_identity_scope(user_id=user_id)
     return TopicData(
         topic_id=topic_id,
         workspace_identity=identity_scope.workspace_identity,
         topic_title=f"title-{topic_id}",
         topic_summary=f"summary-{topic_id}",
-        state_summary=f"state-{topic_id}",
-        blocks=tuple(blocks or []),
+        interactions=tuple(interactions),
+        folds=tuple(folds),
         last_update=last_update,
-        total_tokens=10,
     )
 
 
@@ -355,15 +355,20 @@ class TestRetrievalFamiliarShortTermTopics:
 
     def test_list_active_topics_excludes_empty_and_sorts_by_recency(self):
         block = make_logical_block()
-        old_topic = _make_topic_data("old", blocks=[block], last_update=1.0)
-        empty_topic = _make_topic_data("empty", blocks=[], last_update=3.0)
-        empty_topic = empty_topic.model_copy(update={"state_summary": ""})
-        summary_only = _make_topic_data("summary-only", blocks=[], last_update=4.0)
-        new_topic = _make_topic_data("new", blocks=[block], last_update=2.0)
+        old_topic = _make_topic_data("old", interactions=[block], last_update=1.0)
+        empty_topic = _make_topic_data("empty", last_update=3.0)
+        folded = make_logical_block()
+        fully_folded = _make_topic_data(
+            "fully-folded",
+            interactions=[folded],
+            folds=[TopicFold(folded_block_ids=(folded.block_id,), summary="s", folded_at=4.0)],
+            last_update=4.0,
+        )
+        new_topic = _make_topic_data("new", interactions=[block], last_update=2.0)
         self.mock_library.short_term.list_by_workspace.return_value = [
             old_topic,
             empty_topic,
-            summary_only,
+            fully_folded,
             new_topic,
         ]
 
@@ -373,10 +378,10 @@ class TestRetrievalFamiliarShortTermTopics:
         self.mock_library.short_term.list_by_workspace.assert_called_once_with(
             identity_scope.workspace_identity, include_empty=False
         )
-        # 真正空 Topic 被排除；summary-only 与有 blocks 的 Topic 保留，按最近写入排序，
-        # 快照携带排序所依据的写入时间供话题池显示
+        # 没有接收过交互的 Topic 被排除；交互全部折叠的 Topic 与有 blocks 的 Topic 保留，
+        # 按最近写入排序，快照携带排序所依据的写入时间供话题池显示
         assert [(s.topic_id, s.last_update) for s in snapshots] == [
-            ("summary-only", 4.0),
+            ("fully-folded", 4.0),
             ("new", 2.0),
             ("old", 1.0),
         ]

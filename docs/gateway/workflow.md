@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-31
 ---
 
 # Gateway 固定工作流
@@ -63,6 +63,8 @@ entry_interception
 `entry_interception` 执行低成本确定性判断。在 `ACTIVE_CHAT` 中，它可以把 slash command 标记为 `system_command`；在 `PASSIVE_MEMORY`（Import Bus 使用的模式）中，`allow_system=false`，因此命令分支在结构上不可达，`finalize()` 也拒绝这一模式产生命令结果。命令分支在入口步骤之后直接 finalize：Gateway 只解析命令，不运行任何执行步骤（见[全局命令](./commands.md)）。
 
 简单寒暄也可以被 L1 规则命中，但它不会提前结束整个 decision flow。Gateway 仍准备候选话题并完成话题路由，只在最后以 `simple_chat_defaults` 代替 LLM 查询分析。这保持了话题连续性，同时避免为明确的寒暄调用查询分析模型。
+
+`PASSIVE_MEMORY` 的每一轮也走 `simple_chat_defaults`，不运行 `user_query_analysis`：被动入口不检索记忆，调用方 Import Bus 只使用决定中的话题落位与新话题标题、摘要，查询分析的产物（重写、关键词与检索计划）没有使用方。决策前缀照常运行，话题路由与它的兜底不受影响。
 
 ### 2.2 Decision 前缀
 
@@ -118,7 +120,7 @@ GatewayDecisionOutcome
   -> target_topic_id
   -> new_topic_title / new_topic_summary
   -> rewritten_query / search_keywords
-  -> intent_type / memory_write_signal
+  -> intent_type
   -> retrieval_plan
 ```
 

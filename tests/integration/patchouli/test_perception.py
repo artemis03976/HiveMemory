@@ -7,12 +7,11 @@ Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用�
 测试覆盖:
 - apply_interaction: 新建（含提交携带的标题与摘要）/指定话题写入、binding 幂等、busy 拒绝、未知目标
 - LRU 驱逐: 池满驱逐最久未访问话题、busy 候选改选、admission 失败传播
-- 折叠: 应用不在内部折叠、needs_compact 判断、折叠摘要累积写回、失败后话题完整且可再次折叠、
-  占用时 busy 拒绝、话题已结算时直接结束、未超保留块数不折叠
-- manual_settle_topic / evict_topic / discard_if_empty 具名用例，含 admission 失败可重试、
-  全部 block 被过滤与 summary-only 话题
+- 折叠: 应用不在内部折叠、needs_compact 判断、折叠追加折叠记录且不移除交互记录、摘要累积、
+  失败后话题完整且可再次折叠、占用时 busy 拒绝、话题已结算时直接结束、未超保留块数不折叠
+- manual_settle_topic / evict_topic / discard_if_empty 具名用例，含 admission 失败可重试
 - scan_idle_buffers_once / flush_all_for_shutdown 维护投影，含跨 Workspace 结算、
-  折叠后结算、占用话题记为 failed 与生成跳过
+  折叠后结算携带被折叠的轮次、占用话题记为 failed 与生成跳过
 - 感知关闭时无副作用
 """
 
@@ -371,8 +370,8 @@ class TestCompact:
         assert familiar.needs_compact(scope.workspace_identity, "t1") is True
 
     @pytest.mark.asyncio
-    async def test_compact_topic_folds_old_blocks_into_cumulative_summary(self):
-        """折叠保留最近的 block，旧前缀并入在上一次摘要之上累积的新摘要。"""
+    async def test_compact_topic_appends_fold_records_and_keeps_interactions(self):
+        """折叠只推进工作视图：交互记录不移除，每次折叠追加一条记录，摘要在上一次之上累积。"""
         familiar, store, _, bus = _make_familiar(
             engine_config=_fold_every_block_config(), relay=_folding_relay()
         )
@@ -384,10 +383,16 @@ class TestCompact:
             await familiar.compact_topic(scope.workspace_identity, "t1")
 
         topic = store.get(scope.workspace_identity, "t1")
+        first, second, third = topic.interactions
+        assert [block.user_message for block in topic.interactions] == ["a", "b", "c"]
+        assert [fold.folded_block_ids for fold in topic.folds] == [
+            (first.block_id,),
+            (second.block_id,),
+        ]
         assert [block.user_message for block in topic.blocks] == ["c"]
         # 第二次折叠收到第一次的摘要作为 previous_summary，累积成链
         assert topic.state_summary == "folded:1|folded:1"
-        assert topic.total_tokens == topic.blocks[0].total_tokens
+        assert topic.total_tokens == third.total_tokens
         assert familiar.needs_compact(scope.workspace_identity, "t1") is False
         # 折叠只压缩上下文，不触发记忆生成，也不驱逐话题
         bus.request.assert_not_awaited()
@@ -591,19 +596,6 @@ class TestNamedUseCases:
         assert familiar.discard_if_empty(scope.workspace_identity, content_id) is False
         assert store.get(scope.workspace_identity, empty_id) is None
         assert store.get(scope.workspace_identity, content_id) is not None
-
-    @pytest.mark.asyncio
-    async def test_discard_if_empty_keeps_summary_only_topic(self):
-        familiar, store, _, _ = _make_familiar()
-        scope = _identity_scope()
-        topic_id = await familiar.prepare_topic("NEW_TOPIC", None, None, scope.workspace_identity)
-        topic = store.get(scope.workspace_identity, topic_id)
-        store.put(topic.model_copy(update={"state_summary": "折叠历史"}))
-
-        discarded = familiar.discard_if_empty(scope.workspace_identity, topic_id)
-
-        assert discarded is False
-        assert store.get(scope.workspace_identity, topic_id) is not None
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -829,7 +821,8 @@ class TestMaintenance:
         bus.request.assert_not_awaited()
 
     @pytest.mark.asyncio
-    async def test_shutdown_after_folding_settles_summary_and_retained_block(self):
+    async def test_shutdown_after_folding_settles_folded_turns_with_working_view(self):
+        """折叠过的话题结算时，任务携带全部交互与折叠记录，生成材料仍是工作视图。"""
         familiar, store, _, bus = _make_familiar(
             max_resident=2,
             engine_config=SemanticFlowPerceptionConfig(
@@ -866,6 +859,10 @@ class TestMaintenance:
         route, settlement = bus.request.await_args.args
         assert route == PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT
         assert settlement.reason == TriggerReason.SHUTDOWN
+        assert [block.user_message for block in settlement.interactions] == [
+            f"question-{i}-" * 80 for i in range(3)
+        ]
+        assert len(settlement.folds) == 2
         assert settlement.state_summary == "folded:1|folded:1"
         assert [block.user_message for block in settlement.blocks] == ["question-2-" * 80]
 

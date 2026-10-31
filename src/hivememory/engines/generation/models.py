@@ -123,7 +123,7 @@ class GenerationTurn(BaseModel):
     记忆生成视图中的单轮对话记录
 
     按顺序保留本轮的材料：助手正文与动作穿插排列，能力调用只有一行摘要，
-    思考、外部工具参数与结果已按上限截断，供 GenerationEngine 提取记忆使用。
+    只有外部工具的结果按上限截断，供 GenerationEngine 提取记忆使用。
 
     Attributes:
         outcome: 轮次结局，用于标注不完整材料

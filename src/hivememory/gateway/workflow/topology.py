@@ -15,7 +15,6 @@ from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     GatewaySessionTurn,
     IntentType,
-    MemoryWriteSignal,
     RetrievalMode,
     RetrievalPlan,
 )
@@ -297,7 +296,6 @@ def _simple_chat_result(raw_message: str) -> UserQueryAnalysisResult:
         intent_type=IntentType.CHAT,
         rewritten_query=raw_message,
         search_keywords=(),
-        memory_write_signal=MemoryWriteSignal.SKIP,
         retrieval_plan=RetrievalPlan(mode=RetrievalMode.SKIP, top_k=0),
     )
 
@@ -310,7 +308,6 @@ def _conservative_analysis_result(
         intent_type=IntentType.RAG,
         rewritten_query=raw_message,
         search_keywords=(),
-        memory_write_signal=MemoryWriteSignal.UNKNOWN,
         retrieval_plan=RetrievalPlan(
             mode=RetrievalMode.HYBRID,
             top_k=config.default_top_k,

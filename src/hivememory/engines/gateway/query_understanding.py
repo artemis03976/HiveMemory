@@ -1,11 +1,11 @@
 """第一代共享查询分析 Engine 原语。
 
-一次 LLM 调用同时完成意图识别、指代消解与查询重写、检索关键词提取、
-记忆价值初判，并在复合意图时给出可选的子意图列表。
+一次 LLM 调用同时完成意图识别、指代消解与查询重写、检索关键词提取，
+并在复合意图时给出可选的子意图列表。
 
 技术债说明：该 Engine 当前覆盖了 QueryUnderstanding / IntentClassifier /
-MemoryValueJudge / IntentDecomposer 四个候选能力边界，属于第一代
-Resolver 的私有实现细节，后续按观测数据决定是否拆分。
+IntentDecomposer 三个候选能力边界，属于第一代 Resolver 的私有实现细节，
+后续按观测数据决定是否拆分。
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ from __future__ import annotations
 from hivememory.config.gateway import UserQueryAnalysisConfig
 from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import TopicData
-from hivememory.core.protocol.gateway import GatewaySessionTurn, IntentType, MemoryWriteSignal
+from hivememory.core.protocol.gateway import GatewaySessionTurn, IntentType
 from hivememory.engines.gateway.llm import json_analysis_params
 from hivememory.engines.gateway.models import QueryUnderstandingResult
 from hivememory.i18n import resolve_language
@@ -111,12 +111,6 @@ class QueryUnderstandingEngine:
         except ValueError:
             intent_type = IntentType.RAG
 
-        signal_raw = payload.get("memory_write_signal")
-        try:
-            memory_write_signal = MemoryWriteSignal(str(signal_raw))
-        except ValueError:
-            memory_write_signal = MemoryWriteSignal.UNKNOWN
-
         keywords_raw = payload.get("search_keywords")
         search_keywords = (
             tuple(str(kw) for kw in keywords_raw if str(kw).strip())
@@ -135,7 +129,6 @@ class QueryUnderstandingEngine:
             intent_type=intent_type,
             rewritten_query=rewritten_query,
             search_keywords=search_keywords,
-            memory_write_signal=memory_write_signal,
             sub_intents=sub_intents,
             reason=str(payload.get("reason") or ""),
         )

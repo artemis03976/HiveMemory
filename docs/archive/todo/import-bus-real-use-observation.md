@@ -35,7 +35,7 @@ last_reviewed: 2026-10-30
 - **资源**：提交队列的终态工作记录保存完整的编码载荷，工具输出很大时的内存占用；必要时调低 `import_bus.max_request_bytes`。
 - **记忆访问（MCP）**：agent 是否在需要时检索，以及“该用而未用”与“用了但没找到”的样本（VISION 假设 H3）；检索结果的相关性与过时比例；经 MCP 读取记录的引用对排序与归档的影响；回声标记是否生效，即用过检索工具的轮次结算后没有生成重复记忆；导入的检索与读取在生成视图中显示查询与所读的 alias（2026-10-30 以验收轮次确认，真实会话中 agent 自行调用后的结果待确认）；凭据配置出错的频率。
 
-进度（2026-10-29）：生成质量一项中，查重从未做出新建以外的决策，已登记为[生成查重的决策信号](../../todo/generation-dedup-decision-signal.md)；生成转写的长度与截断比例已对账，Gateway 价值预判整轮丢弃实现过程的问题已停用筛选，每轮上限的校准登记为[生成材料的筛选与截断](../../todo/generation-material-filtering-and-truncation.md)。
+进度（2026-10-29）：生成质量一项中，查重从未做出新建以外的决策，已登记为[生成查重的决策信号](../../todo/generation-dedup-decision-signal.md)；生成转写的长度与截断比例已对账，Gateway 价值预判整轮丢弃实现过程的问题已停用筛选，每轮上限的校准登记为[生成材料的筛选与截断](./generation-material-filtering-and-truncation.md)。
 
 记忆访问的第一个样本（2026-10-29，记忆访问计划实测验收时，记忆库共 30 条记忆）：在 Claude Code 中问及“Import Bus 连接器遇到 4xx 时怎样处理游标、当初为什么这样定”，agent 调用了三次 `memory_search`（各返回 5、2、4 条）与两次 `memory_read`，判断没有相关记忆。原因有两个：
 
@@ -60,7 +60,7 @@ owner 决定在 v0.7.1 收尾时归档本 Todo，之后正常使用即可。归�
 
 | 观察项 | 去向 |
 |:---|:---|
-| 生成质量与开销 | 已登记为 Todo：[生成查重的决策信号](../../todo/generation-dedup-decision-signal.md)、[生成材料的筛选与截断](../../todo/generation-material-filtering-and-truncation.md)；`worth_saving` 整轮筛选已于 2026-10-29 停用 |
+| 生成质量与开销 | 已登记为 Todo：[生成查重的决策信号](../../todo/generation-dedup-decision-signal.md)、[生成材料的筛选与截断](./generation-material-filtering-and-truncation.md)；`worth_saving` 整轮筛选已于 2026-10-29 停用 |
 | 记忆访问（MCP） | 首个样本的两项原因：历史会话未导入属于 [ROADMAP](../../ROADMAP.md) 第 4.5 节的 v0.7.2；生成粒度记为 [Patchouli 生成](../../patchouli/generation.md#8-当前限制)的已知限制 |
 | 闭环、话题落位、折叠、凭据、导入耗时与失败、连接器、资源 | 没有形成需要改动的观察结论；相关风险已写在 [Import Bus](../../system/import-bus.md#10-已知限制) 第 10 节与 [MCP 记忆访问](../../contracts/mcp.md#8-已知限制) 第 8 节的已知限制中。日常使用中再发现问题时按缺陷另行登记 |
 
