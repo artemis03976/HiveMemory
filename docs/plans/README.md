@@ -8,11 +8,22 @@ last_reviewed: 2026-10-30
 
 # Plans
 
-本目录存放已经绑定版本或里程碑、能够独立实施和验收，但尚未成为当前事实的计划。本索引是**版本内的计划导航**：按版本列出计划的状态、顺序与链接，不记录设计决定。设计讨论见 [Ideas](../ideas/README.md)，版本规划摘要见 [ROADMAP](../ROADMAP.md)，已完成的计划见 [Archived Plans](../archive/plans/README.md)。
+本目录存放已经绑定版本或里程碑、能够独立实施和验收，但尚未成为当前事实的计划。本索引是**版本内的计划导航**：按版本列出计划的状态与链接，不记录设计决定。设计讨论见 [Ideas](../ideas/README.md)，版本规划摘要见 [ROADMAP](../ROADMAP.md)，已完成的计划见 [Archived Plans](../archive/plans/README.md)。
+
+## v0.7.2
+
+当前开发版本。版本目标（owner，2026-10-30）是生成质量，目标结果与验收方向见 [ROADMAP](../ROADMAP.md#43-v072生成质量)第 4.3 节。版本由多份计划完成；计划之间不预设先后，各方向在阻塞问题决定、能够立即执行时建立计划，在此之前设计讨论留在对应的 Idea。
+
+| 方向 | 状态 | 入口 |
+|:---|:---|:---|
+| [生成材料修正与 Topic 之后的原始证据保存](./v0.7.2-generation-material-and-raw-evidence.md) | Planned（2026-10-30）；阻塞问题 R-1、R-2 已决定 | 设计讨论见 [Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md#0-v072生成材料修正与-topic-之后的原始证据保存)第 0 节 |
+| plugin 模式开放 WRITE 与 UPDATE | 计划未建立；阻塞问题 E-4 与外部 Actor 的提交与回读契约待决定 | [外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update) |
+| 一个话题提取多条记忆 | 计划未建立；阻塞问题 G-1 待决定 | [多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md) |
+| 查重与更新机制 | 计划未建立；阻塞问题 G-2、G-3 待决定 | 同上 |
 
 ## v0.7.1
 
-版本内容已收尾（2026-10-30），规范版本调整为 0.7.1，发布标签 v0.7.1 在合并后创建；版本目标的逐条判定、内容核对、未纳入的事项与验证结果见[收尾审计](../archive/plans/v0.7.1-release-closeout-audit.md)。版本目标（owner，2026-10-20）是 plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code，按小步分别建立计划，完成于 2026-10-29；同日先定的 controller 模式目标退回候选方向，其首份计划方向（首个外部驱动的纯文本闭环）随之撤回。目标结果与验收方向见 [ROADMAP](../ROADMAP.md) 第 4.4 节。
+已发布（Git tag `v0.7.1`，2026-10-30）。版本内容于 2026-10-30 收尾，规范版本调整为 0.7.1；版本目标的逐条判定、内容核对、未纳入的事项与验证结果见[收尾审计](../archive/plans/v0.7.1-release-closeout-audit.md)。版本目标（owner，2026-10-20）是 plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code，按小步分别建立计划，完成于 2026-10-29；同日先定的 controller 模式目标退回候选方向，其首份计划方向（首个外部驱动的纯文本闭环）随之撤回。目标结果与验收方向见 [ROADMAP](../ROADMAP.md) 第 3 节。
 
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
@@ -24,7 +35,7 @@ last_reviewed: 2026-10-30
 
 ## v0.7.0
 
-已发布（Git tag `v0.7.0`，2026-10-20）。范围（owner，2026-09-27）是完全完成项目向新架构的演进，使 workspace 体系在项目架构中稳定存在，首条迁移流程为 Alice 的 chat 链路；版本目标的逐条判定、各方向与归档计划的核对、收尾时搁置的事项和验证结果见[收尾审计](../archive/plans/v0.7.0-release-closeout-audit.md)，版本摘要见 [ROADMAP](../ROADMAP.md) 第 3 节。版本内按小批量逐次实施，同一方向同时只有一份生效计划，下表按方向列出已归档的计划。
+已发布（Git tag `v0.7.0`，2026-10-20）。范围（owner，2026-09-27）是完全完成项目向新架构的演进，使 workspace 体系在项目架构中稳定存在，首条迁移流程为 Alice 的 chat 链路；版本目标的逐条判定、各方向与归档计划的核对、收尾时搁置的事项和验证结果见[收尾审计](../archive/plans/v0.7.0-release-closeout-audit.md)，版本摘要见 [ROADMAP](../ROADMAP.md) 第 2 节。版本内按小批量逐次实施，同一方向同时只有一份生效计划，下表按方向列出已归档的计划。
 
 | 方向 | 归档计划 |
 |:---|:---|
@@ -51,6 +62,7 @@ last_reviewed: 2026-10-30
 
 ## 准入规则
 
+- 只在能够立即执行时建立（owner，2026-10-30）：阻塞问题已经决定、依赖已经成为事实；不能立即实施的方向留在 [Ideas](../ideas/README.md)，计划之间不预设先后；一个版本由多份计划完成；
 - 必须填写明确 `target` 或在标题/范围中绑定当前版本；
 - 必须具有独立目标、非目标、迁移方式、测试和验收出口；
 - 计划之间的关系满足[文档治理规范](../DOCUMENTATION.md)第 8.3 节的三条约束：同一目标方向只有一份生效计划、不设总分结构；设计依据只来自事实文档、代码、ADR、已归档计划、已冻结的 Research 报告与背景 Idea；计划之间只有整份粒度的顺序依赖；

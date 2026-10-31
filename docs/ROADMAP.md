@@ -17,7 +17,7 @@ last_reviewed: 2026-10-30
 
 本文只维护版本阶段、当前完成度、依赖关系和相关入口。已经生效的详细设计进入 Architecture、System 或子系统文档；跨版本质量目标进入 Governance；未承诺方向进入 Ideas；绑定版本的实施方案进入 Plans；完成后的实施文档进入 Archive。
 
-路线图是一条能力依赖链，不是功能愿望清单。排序首先回答“下一项能力需要哪些已经可信的状态、契约和证据”，其次才考虑它是否显眼或易于演示。HiveMemory 的长期方向涉及异步任务、文件、文档、来源和研究，如果这些能力各自建立一套临时状态与失败语义，规模越大反而越难保持记忆闭环。因此近期路线优先补齐可复用底座，再让上层能力逐步消费它们。
+路线图回答当前版本围绕什么功能、为什么是它，以及哪些方向仍是候选。自 v0.7.0 之后，计划之间不预先排定顺序：一份计划只判断能否立即执行，能够立即执行时绑定当前版本建立；不能立即实施的方向只留在 Idea 候选池，不预先分配版本号（owner，2026-10-30，第 4.1 节）。版本功能优先由真实使用中观察到的问题决定（[VISION](./VISION.md) 第 10.10 节）。能力之间的依赖仍然成立：异步任务、文件、文档、来源和研究如果各自建立一套临时状态与失败语义，规模越大越难保持记忆闭环，依赖未成为事实的计划不能立即执行（第 4.9 节）。
 
 ## 1. 状态口径
 
@@ -27,19 +27,17 @@ last_reviewed: 2026-10-30
 | Current Development | 当前开发基线，主体可能已合并但尚未发布 |
 | Completed | 版本或事项内容已收尾；是否已发布仍以 Git tag 为准 |
 | Planned | 已形成目标和大致边界，尚未成为当前事实 |
-| Candidate | 候选排期，范围和顺序仍可调整 |
+| Candidate | 候选方向，范围仍可调整；v0.7.0 之后不绑定版本 |
 | Unscheduled | 已确认问题或方向，但尚未进入具体版本承诺 |
 | Partially Landed | 阶段中的一部分已进入当前实现，其余仍未完成 |
 | Deferred | 已明确后置，不属于近期承诺 |
 
 当前版本事实如下：
 
-- 本次发布标签：`v0.7.1`（合并后创建）；
-- 最近已发布基线：`v0.7.0`（Git tag，2026-10-20）；[收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
-- 当前内容基线：`v0.7.1`，状态为 Completed（plugin 模式接入 Claude Code 已收尾，版本内的计划均已归档）；[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
-- 下一计划版本：`v0.7.2`，冷启动、历史导入与外源文档资产化，状态为 Candidate（第 4.5 节）。
+- 最近已发布基线：`v0.7.1`（Git tag，2026-10-30）；[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
+- 当前开发版本：`v0.7.2`，生成质量，状态为 Planned（版本目标 owner，2026-10-30，第 4.3 节）；[生成材料修正与原始证据保存](./plans/v0.7.2-generation-material-and-raw-evidence.md)计划已建立，其余方向的阻塞问题待决定。
 
-当前规范代码版本为 `0.7.1`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致；本次发布标签为 `v0.7.1`，待合并后创建，最近已发布基线为 `v0.7.0`。
+当前规范代码版本为 `0.7.1`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致，与最近发布标签 `v0.7.1` 对应。
 
 ## 2. 发布历史
 
@@ -54,82 +52,23 @@ last_reviewed: 2026-10-30
 | `v0.6.1` | Released | Local Work Queue Runtime、Active/Passive Interaction Submission 统一接入、Memory Generation queue 与进程内可靠生命周期 | Git tag；[System Runtime 当前设计](components/runtime-and-bus.md#3-local-work-queue-runtime)；[归档实施计划](./archive/plans/v0.6.1-local-work-queue-runtime.md) |
 | `v0.6.2` | Released | Workspace MVP（WorkspaceIdentity、端到端 scope、双 Workspace 隔离、进程级 WorkspaceAssetStore）、Identity 投影收敛、V1 Memory 迁移、Chat Attachments、MTP scope 修复与 Topic/短期存储边界整理 | Git tag；[Workspace](./workspace/README.md)；[附件链路](./system/attachments.md)；[收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md) |
 | `v0.7.0` | Released | Workspace 网络与任务进程：唯一注册入口与任务进程、两阶段认证与授权、能力层与 Agent 操作白名单、执行线程、会话资源与自动压缩、写入意图实时派发、记忆内容版本 | Git tag；[Workspace](./workspace/README.md)；[收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md) |
+| `v0.7.1` | Released | plugin 模式接入 Claude Code：Import Bus 对话回流与 MCP 记忆访问；推理模型空闲卸载；`TurnEvent` 统一的工具解析链路 | Git tag；[Import Bus](./system/import-bus.md)；[MCP 记忆访问](./contracts/mcp.md)；[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md) |
 
 过去文档中的 `v0.5.1`、`v0.5.2`、`v0.5.3` 是 v0.5 开发期的内部工作批次，不是当前仓库中的独立发布标签。它们的已实现事实应按模块并入当前文档，而不是继续作为平行版本入口。
 
-## 3. 最近已发布基线：v0.7.0
+## 3. 最近已发布基线：v0.7.1
 
-主题：**Workspace 网络与任务进程**。Git tag `v0.7.0` 创建于 2026-10-20。逐项内容、版本目标判定、收尾时搁置的事项与验证结果见[收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md)，各方向的归档计划见 [Plans 导航](./plans/README.md#v070)。
+主题：**plugin 模式接入 Claude Code**。Git tag `v0.7.1` 创建于 2026-10-30。逐项内容、版本目标判定、未纳入的事项与验证结果见[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)，各计划见 [Plans 导航](./plans/README.md#v071)。
 
-### 3.1 范围与版本目标
+### 3.1 版本目标
 
-- **范围**（2026-09-27 决定）：完全完成项目向新架构的演进，使 workspace 体系在项目架构中稳定存在。首条迁移流程为 Alice 的 chat 链路，验收口径是 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构；v0.7.0 不对外部 Actor 所需的基建作承诺。架构层面的后续问题见 [第五代架构 Idea](./ideas/fifth-generation-architecture.md)第 5 节。
-- **版本目标**（2026-09-28 决定）与收尾判定：(1) Patchouli 的公开路由既不产出、也不接收 Alice 专属的类型——达成；(2) 非 Alice 的 CPU（测试替身即可）能跑完整个任务进程，不改动进程与入口的代码——达成；(3) 取消与清理都经过进程容器——达成，2026-10-13 决定保留话题预建后，cleanup 路由作为预建空话题的补偿保留，只由进程容器在关闭时发起；(4) 命令、主动请求与被动请求经同一入口注册——命令与主动请求达成，被动请求按 [Q-6](./ideas/task-process-table-and-registration-entry.md#26-被动请求q-6) 这一阶段不考虑，内置命令在 v0.7.0 内不可用。
+- **版本目标**（owner，2026-10-20）：plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code。目的是让外部 harness 在用户真实的日常使用中使用 Patchouli 记忆，以此开始检验记忆系统的闭环；它对应 [VISION](./VISION.md) 的兼容轨，以及第 6 节评估中的“外部 harness + Patchouli”对照组。
+- **接入形态**：plugin 模式下 HiveMemory 以插件形式挂载在外部 harness 中，不接管对话：对话经 Import Bus 回流，harness 经 MCP 工具检索与读取记忆；外部 harness 的任务对 HiveMemory 不可见，不建任务进程（[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。
+- **排序依据**（owner，2026-10-20）：同日先定的 controller 模式目标改为 plugin 模式。各家 harness 的程序化接口开放程度不一（[接口调研快照](./research/harness-interface-survey-snapshot.md)），controller 模式能达到的控制效果取决于被接入方；非侵入的 plugin 模式更容易得到各家生态的支持，用户也继续在 harness 自己的界面中工作，真实的日常使用才会发生。记忆系统的核心机制自 MVP 以来进展较少，当前优先以真实使用检验它。controller 模式退回候选方向（第 5.6 节）。
+- **规模控制**（owner，2026-10-20）：v0.7.1 期间不新增只服务 controller 模式的机制；每份计划写明它针对的已观察问题或待验证的核心假设（[VISION](./VISION.md) 第 10.10 节）。真实使用开始后，后续主线转向由使用中观察到的问题驱动 Patchouli 核心机制的改进；v0.7.2 由此确定（第 4.3 节）。
+- **验收**：用户在 Claude Code 中的对话回流进入记忆生成、来源可查；之后的会话检索并实际使用这些记忆；记忆访问经能力层逐次授权，越权与跨 Workspace 的访问被拒绝；HiveMemory 不可用时不阻塞 Claude Code。收尾审计第 1 节逐条判定为达成。
 
 ### 3.2 发布内容
-
-| 方向 | 结果 | 当前事实 |
-|:---|:---|:---|
-| 任务进程 | 任务进程表与唯一注册入口（五批）：进程表与四阶段编排落位 `workspace.process`，prepare 拆分与 CPU 输入清单，进程封口交互记录，CPU 端口与测试 CPU，命令只解析不执行；随后进程拥有自己的 task 与输出通道，交付改为订阅，断连按停止处理 | [任务进程](./workspace/task-process.md)、[CPU 契约](./contracts/subsystem-contracts.md#4-cpu-端口与-alice-实现) |
-| 访问边界与身份 | A1 访问边界及其返工：统一认证网关、两阶段认证与两阶段授权、密封的访问 context；身份第二批：Patchouli 内部与后台任务分开携带归属与发起者 | [认证与访问登记](./workspace/authentication.md)、[身份与授权](./workspace/identity-and-authorization.md) |
-| 能力层 | Alice 的资源操作经单一操作入口；capability 分为只供 `system` 的 root API 与 actor API，六项 actor 操作对齐 MTP 动词；访问登记的 actor 操作白名单成为 Agent 权限的唯一来源 | [能力层](./workspace/capability.md)、[MTP 契约](./contracts/mtp.md#4-权限) |
-| 执行线程 | 进程 context 与线程 context 取代执行凭据；CALL 子线程以被调用方身份运行；线程表成为派生、结束与解析的唯一入口，子线程随 CALL 返回结束 | [执行线程](./workspace/execution-threads.md) |
-| 写入意图与读取视图 | 写入意图登记迁入 workspace，canonical 变更同步失效读取缓存；WRITE/UPDATE 在操作内派发，生成队列接纳后返回 ACK | [读取视图与写入意图](./workspace/read-view-and-write-intents.md) |
-| 会话 | Workspace 会话资源、Alice 全量历史、Gateway 最近 N 轮、有输出的取消与失败保存；Alice 会话压缩与检查点 | [会话资源](./workspace/sessions.md)、[Agent Runtime](./alice/agent-runtime.md#31-会话上下文视图) |
-| 记忆模型 | 记忆内容版本与 Lifecycle 状态重构、Memory 域时间语义与可控时钟 | [数据模型](./architecture/data-model.md)、[Lifecycle](./patchouli/lifecycle.md) |
-| 结构收敛 | 包分层；Alice 与 agent_runtime 结构重构；提示词编译前移至任务进程；异常体系与边界错误呈现；LLM 访问收敛到 infrastructure；总线路由类型化与 mypy 门禁；代码收敛清单 | [系统架构概览](./architecture/overview.md)、[Alice](./alice/README.md)、[错误模型](./contracts/error-model.md)、[System 组合根](./system/composition.md) |
-
-### 3.3 发布范围边界
-
-- 外部 Actor 的真实接入分为两种接入模式（[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）：plugin 模式是 v0.7.1 的版本目标（第 4.3 节），controller 模式退回候选方向（第 5.6 节）；执行环境的选择（用户在对话开始前分别选择 agent 与执行环境）随 controller 模式接入一并考虑；
-- Import Bus（原 Passive Ingress 链路）排除在现有系统之外，随 plugin 模式另行设计（v0.7.1；已于 2026-10-21 实施，见 [Import Bus](./system/import-bus.md)）；
-- 收尾时搁置的 Todo 与仍未决的 Gateway 路由上下文矛盾见收尾审计第 4 节；
-- 记忆库的归属判据与独立工作契约见 [ADR-0006](./architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md)。
-
-上一个发布版本 v0.6.2（Workspace 身份隔离与 Chat 附件）的内容见第 2 节与[收尾审计](./archive/plans/v0.6.2-release-closeout-audit.md)。
-
-## 4. 近期计划
-
-### 4.1 排序原则与版本调整
-
-本轮规划依据 [VISION](./VISION.md) 的双轨策略：Workspace/Patchouli 提供可独立使用的资源与记忆基础设施；Alice 是 memory-native reference runtime，外部 harness 可以通过适配器成为其他 Actor。先验证资源可复用、执行可替换，再推进文档、研究和桌面产品化。
-
-“脱离 Actor”在此指资源身份、授权、证据、结果和任务状态不依赖某个特定 Actor。确定性解析可由普通服务完成；搜索、浏览或代码执行可以调用工具 worker 或 Actor。Deep Research 的执行仍需要执行者，但研究状态和结果应在执行者离开后继续存在。外部 harness 无需采用 Alice 的 loop、run/frame 工作集或完整 MTP 语法；主动写入的 Pending 读取与结算属于共同资源能力。
-
-版本重新安排如下；这些是目标与候选排期，不改变当前规范代码版本、Git tag 或已完成阶段的归属：
-
-| 原排期 | 新排期 | 调整原因 |
-|:---|:---|:---|
-| `v0.6.2` Workspace 资源体系与 Agent 执行边界 | `v0.7.0`，已发布（第 3 节） | 独立于 W0/W1 收口；2026-09-27 起按 Workspace 网络与任务进程架构重新规划 |
-| `v0.7.0` Document Ingestion & Provenance | `v0.7.2`，Candidate | 建立在新资源边界上，并纳入冷启动、历史对话导入和证据资产化 |
-| `v0.7.1` MTP READ Provenance | `v0.7.3`，Candidate | 消费已经稳定的文档表示、来源和版本契约 |
-| `v0.7.2` Deep Research MVP | `v0.7.4`，Candidate | 等待资源、证据、读取编译和可靠执行的闭环 |
-| 整体后置的 Executable Asset Sandbox | 曾前置为 `v0.7.1` 执行基座；2026-10-20 起暂不考虑（第 5.4 节） | 原意是先解决 MTP RUN 可复现的可靠性问题和可兑现的能力边界；v0.7.1 改以外部 harness 接入为目标 |
-
-旧 Idea、W1 实施记录及历史材料中出现的上述旧版本号，按本表解释其后续排期；不重写历史使其看起来曾采用新顺序。新建 Plan 必须使用新目标版本。
-
-除已定为 v0.7.1 版本目标的 plugin 模式接入（Completed，2026-10-29）外，下列新增工作仍为 Candidate，实施前分别建立范围、迁移、测试与验收方案。版本号表达交付顺序；互不依赖的小切片可以并行验证，不能以并行开发跳过契约冻结。
-
-### 4.2 目标总览
-
-| 目标版本或工作流 | 状态 | 目标结果 | 依赖与实施入口 |
-|:---|:---:|:---|:---|
-| `v0.7.1` 外部 harness 的 plugin 模式（首个：Claude Code） | Completed（2026-10-30 收尾）/ v0.7.1 版本目标（2026-10-20）：对话回流（2026-10-21）与记忆访问（2026-10-29）均已完成 | HiveMemory 以插件形式挂载在 Claude Code 中，不接管对话：对话经 Import Bus 回流进入记忆生成，Claude Code 经 MCP 工具检索与读取记忆；在用户的日常使用中形成“外部 harness + Patchouli”的跨会话闭环 | v0.7.0 的能力层；对话回流见 [Import Bus](./system/import-bus.md)（[归档计划](./archive/plans/v0.7.1-import-bus-redesign.md)）；记忆访问见 [MCP 记忆访问](./contracts/mcp.md)（[归档计划](./archive/plans/v0.7.1-memory-access-mcp.md)）；[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md) |
-| `v0.7.2` Cold Start, Historical Import & Document Ingestion | Candidate | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | v0.7.0 的资源边界、外部 Actor 接入契约的身份/来源/提交语义、记忆价值策略最小切片；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md)；导入与文档分别建 Plan |
-| `v0.7.3` MTP READ 专项编译与来源表达 | Candidate | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | [v0.7.0 A2-P 完整记忆历史](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、v0.7.2 provenance；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md)；正式 Plan 待建立 |
-| `v0.7.4` Deep Research MVP | Candidate | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 资源边界、Document/READ、实际执行能力、明确恢复范围；正式 Plan 待建立 |
-| 外部 harness 的 controller 模式 | Candidate / 版本待定（2026-10-20 由 v0.7.1 版本目标退回） | 外部 harness 作为执行环境运行用户选择的 agent，请求登记为任务进程并交给该 harness 执行 | v0.7.0 的任务进程表与唯一注册入口；第 5.6 节；[接口调研快照](./research/harness-interface-survey-snapshot.md)；正式 Plan 待建立 |
-| 记忆价值策略重设计 | Candidate / 跨版本 | 先冻结入口信号与持久化决策边界，再用真实样本校准 | v0.7.1 起启动分析，v0.7.2 批量物化前交付最小策略；[Gateway](./gateway/analysis.md)、[Perception](./patchouli/perception.md)、[Lifecycle](./patchouli/lifecycle.md) |
-| Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 可与 v0.7 并行；[Frontend](./frontend/README.md)与第 4.9 节 Todo；正式 Plan 待建立 |
-| Electron 桌面客户端 | Candidate / `v0.8.x` 产品化窗口 | 单一客户端管理本地服务、数据目录、连接、升级与诊断 | 前端传输与资源生命周期稳定；[状态与传输](./frontend/state-and-transports.md)、[配置](./system/configuration.md)；正式 Plan 待建立 |
-
-### 4.3 v0.7.1：版本目标（内容已收尾）
-
-状态：Completed（2026-10-30；版本目标 owner，2026-10-20，完成于 2026-10-29）。版本内的计划均已归档，规范版本已调整为 0.7.1，本次发布标签为 v0.7.1（合并后创建）。逐项内容、版本目标判定、未纳入的事项与验证结果见[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)，计划的实施顺序见 [Plans 导航](./plans/README.md#v071)。
-
-- **版本目标**：plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code（第 4.4 节）。目的是让外部 harness 在用户真实的日常使用中使用 Patchouli 记忆，以此开始检验记忆系统的闭环；它对应 [VISION](./VISION.md) 的兼容轨，以及第 6 节评估中的“外部 harness + Patchouli”对照组。
-- **排序依据**（owner，2026-10-20）：同日先定的 controller 模式目标改为 plugin 模式。各家 harness 的程序化接口开放程度不一（[接口调研快照](./research/harness-interface-survey-snapshot.md)），controller 模式能达到的控制效果取决于被接入方；非侵入的 plugin 模式更容易得到各家生态的支持，用户也继续在 harness 自己的界面中工作，真实的日常使用才会发生。记忆系统的核心机制自 MVP 以来进展较少，当前优先以真实使用检验它。controller 模式退回候选方向（第 5.6 节）。
-- **规模控制**（owner，2026-10-20）：v0.7.1 期间不新增只服务 controller 模式的机制；每份计划写明它针对的已观察问题或待验证的核心假设（[VISION](./VISION.md) 第 10.10 节）。真实使用开始后，后续主线转向由使用中观察到的问题驱动 Patchouli 核心机制的改进，样本同时供第 4.8 节的价值策略校准。
 
 | 方向 | 结果 | 当前事实 |
 |:---|:---|:---|
@@ -140,24 +79,81 @@ last_reviewed: 2026-10-30
 | 真实使用中的修正 | 话题折叠移出交互应用，作为提交队列中的独立工作项；结算不再按 `worth_saving` 筛选材料；gardening 不归档 Profile 记忆；只有 Profile 记忆可以经编辑设置 `agent_config` | [感知与短期话题](./patchouli/perception.md)、[Lifecycle](./patchouli/lifecycle.md)、[Patchouli 生成](./patchouli/generation.md) |
 | 结构收敛 | 任务进程概念盘点冻结为治理基线，AGENTS.md 加入复杂度控制与可读性约束；删除任务进程中无生产使用方的代码并合并重复表达 | [任务进程](./workspace/task-process.md)、[概念盘点基线](./governance/baselines/task-process-concept-inventory-2026-10-28.md) |
 
-- **不在 v0.7.1**：重排模型 int8 现在不是必要项，未来再考虑（owner，2026-10-30，[Todo](./todo/reranker-int8-and-onnx-memory.md)）；推理模型重新加载时的事件循环停顿记为已知限制，之后单独优化（owner，2026-10-30，[Todo](./todo/model-reload-event-loop-stall.md)）；controller 模式退回候选方向（第 5.6 节），执行基座与沙箱基线暂不考虑（第 5.4 节）；写入意图经 MCP 提交需要结果观察的方式（外部 Actor Idea E-4），未排期。
-- **真实使用观察**：Import Bus 真实使用观察 Todo 随收尾归档（owner，2026-10-30，[归档记录](./archive/todo/import-bus-real-use-observation.md)），之后正常使用；观察期间需要改动的项目已登记为[生成查重的决策信号](./todo/generation-dedup-decision-signal.md)与[生成材料的筛选与截断](./todo/generation-material-filtering-and-truncation.md)。
+### 3.3 发布范围边界
 
-### 4.4 v0.7.1：plugin 模式接入 Claude Code
+- **不在 v0.7.1**：重排模型 int8 现在不是必要项，未来再考虑（owner，2026-10-30，[Todo](./todo/reranker-int8-and-onnx-memory.md)）；推理模型重新加载时的事件循环停顿记为已知限制，之后单独优化（owner，2026-10-30，[Todo](./todo/model-reload-event-loop-stall.md)）；controller 模式退回候选方向（第 5.6 节），执行基座与沙箱基线暂不考虑（第 5.4 节）；写入意图经 MCP 提交需要结果观察的方式（外部 Actor Idea E-4），2026-10-30 起是 v0.7.2 的方向之一（第 4.3 节）。
+- **真实使用观察**：Import Bus 真实使用观察 Todo 随收尾归档（owner，2026-10-30，[归档记录](./archive/todo/import-bus-real-use-observation.md)），之后正常使用；观察期间需要改动的项目登记为[生成查重的决策信号](./todo/generation-dedup-decision-signal.md)与[生成材料的筛选与截断](./todo/generation-material-filtering-and-truncation.md)，现为 v0.7.2 的输入。
 
-状态：Completed，v0.7.1 的版本目标（owner，2026-10-20）；对话回流已完成（2026-10-21），记忆访问已完成（2026-10-29，[归档计划](./archive/plans/v0.7.1-memory-access-mcp.md)，当前事实见 [MCP 记忆访问](./contracts/mcp.md)），真实使用验收已逐项核对（判定见[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)第 1 节），检索质量等长期表现随日常使用观察，观察 Todo 已于 2026-10-30 [归档](./archive/todo/import-bus-real-use-observation.md)；各步的范围与阻塞问题见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。本节的验收针对整个版本目标。
+上一个发布版本 v0.7.0（Workspace 网络与任务进程）的内容见第 2 节与[收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md)，各方向的归档计划见 [Plans 导航](./plans/README.md#v070)。
 
-外部 Actor 分为 plugin 与 controller 两种接入模式（[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1，2026-09-27 决定）。plugin 模式下 HiveMemory 以插件形式挂载在外部 harness 中，用户直接使用该 harness，HiveMemory 不接管对话：对话经 Import Bus 回流，harness 经 MCP 工具响应记忆域调用；外部 harness 的任务对 HiveMemory 不可见，不建任务进程，记忆访问经能力层、不绑定进程。首个接入的 harness 为 Claude Code（owner，2026-10-20）：用户日常使用它，它的插件可以把 hooks 与 MCP server 打包为一个单元。对话回流由 [Import Bus](./system/import-bus.md) 与 Claude Code 连接器实现（2026-10-21）：Import Bus 只向网络输入、不返回记忆上下文，记忆到达 harness 由记忆访问一步承担。
+## 4. 近期计划
 
-验收必须形成真实闭环：用户在 Claude Code 中的对话回流进入记忆生成，形成的记忆来源可查；Claude Code 在之后的会话中检索并实际使用这些记忆；记忆访问经能力层逐次授权，越权与跨 Workspace 的访问被拒绝。仅采集日志、仅发送事件，或者只有回流、只有读取，都不足以证明 plugin 模式接入完成。
+### 4.1 排序原则与版本调整
 
-接入需把 Claude Code 的会话标识、轮次边界、重发与来源映射到 Import Bus 的接收语义；HiveMemory 服务不可用时不阻塞用户在 Claude Code 中的工作，并明确披露失败。HiveMemory 不控制 Claude Code 的 loop、工具与上下文压缩。交互应用和记忆物化状态继续分开；连接器与操作适配器不重写领域状态机，也不扩大已有幂等与持久化承诺。
+本轮规划依据 [VISION](./VISION.md) 的双轨策略：Workspace/Patchouli 提供可独立使用的资源与记忆基础设施；Alice 是 memory-native reference runtime，外部 harness 可以通过适配器成为其他 Actor。先验证资源可复用、执行可替换，再推进文档、研究和桌面产品化。
 
-### 4.5 v0.7.2：冷启动、历史导入与外源文档资产化
+“脱离 Actor”在此指资源身份、授权、证据、结果和任务状态不依赖某个特定 Actor。确定性解析可由普通服务完成；搜索、浏览或代码执行可以调用工具 worker 或 Actor。Deep Research 的执行仍需要执行者，但研究状态和结果应在执行者离开后继续存在。外部 harness 无需采用 Alice 的 loop、run/frame 工作集或完整 MTP 语法；主动写入的 Pending 读取与结算属于共同资源能力。
 
-状态：Candidate，建议拆成两个可独立验收的 Plan，共享资源归属、来源和物化策略；确定性解析可以提前并行验证。
+**计划的准入**（owner，2026-10-30）：
 
-**冷启动与历史对话导入**解决“空库如何首次产生价值”和“既有会话如何保真迁入”。冷启动允许用户显式选择少量项目事实、偏好、Profile 或资料作为种子；不得自动把默认示例当作用户事实。历史导入保留 source、conversation/turn 标识、发生时间、说话者及分支/编辑关系；助手的推测或旧结论不能直接升级成用户当前事实。
+- v0.7.0 之后，计划之间没有预先排定的顺序约束。一份计划只判断能否立即执行：阻塞问题已经决定、依赖已经成为事实，就绑定当前版本建立；
+- 不能立即实施的方向只留在 Idea 候选池，不预先分配版本号，路线图也不为它们排先后；
+- 一个版本围绕一个功能，由多份计划完成，不以单份计划完成整个版本。
+
+版本号的调整如下；这些调整不改变规范代码版本、Git tag 或已完成阶段的归属：
+
+| 原排期 | 现状 | 调整原因 |
+|:---|:---|:---|
+| `v0.6.2` Workspace 资源体系与 Agent 执行边界 | `v0.7.0`，已发布（第 2 节） | 独立于 W0/W1 收口；2026-09-27 起按 Workspace 网络与任务进程架构重新规划 |
+| `v0.7.0` Document Ingestion & Provenance | 2026-09-27 改排 `v0.7.2`（冷启动、历史导入与文档资产化）；2026-10-30 撤销版本号，改为候选方向（第 4.4 节） | v0.7.2 改以生成质量为版本目标；候选方向不预先分配版本 |
+| `v0.7.1` MTP READ Provenance | 2026-09-27 改排 `v0.7.3`；2026-10-30 撤销版本号（第 4.5 节） | 同上 |
+| `v0.7.2` Deep Research MVP | 2026-09-27 改排 `v0.7.4`；2026-10-30 撤销版本号（第 4.6 节） | 同上 |
+| 整体后置的 Executable Asset Sandbox | 曾前置为 `v0.7.1` 执行基座；2026-10-20 起暂不考虑（第 5.4 节） | 原意是先解决 MTP RUN 可复现的可靠性问题和可兑现的能力边界；v0.7.1 改以外部 harness 接入为目标 |
+| Electron `v0.8.x` 产品化窗口、Alice 高级编排 `v0.8.0+`、高级记忆生命周期 `v0.9.0+` | 2026-10-30 撤销版本窗口（第 5.1–5.3 节） | 候选方向不预先分配版本 |
+
+旧 Idea、W1 实施记录及历史材料中出现的上述旧版本号，按本表解释；不重写历史使其看起来曾采用新顺序。新建 Plan 必须使用当前版本。
+
+### 4.2 目标总览
+
+| 版本或候选方向 | 状态 | 目标结果 | 依赖与入口 |
+|:---|:---:|:---|:---|
+| `v0.7.2` 生成质量 | Planned（版本目标 owner，2026-10-30）；一份计划已建立 | 真实使用中生成的记忆可信：生成材料不被单轮上限截断，Topic 之后的原始证据可以回查；一个话题能提取多条记忆；查重与更新按新机制处理同一件事的后续阶段；Claude Code 能显式写入与更新记忆 | 第 4.3 节 |
+| 冷启动、历史导入与外源文档资产化 | Candidate / 不绑定版本 | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | 第 4.4 节；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md) |
+| MTP READ 专项编译与来源表达 | Candidate / 不绑定版本 | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | 第 4.5 节；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md) |
+| Deep Research MVP | Candidate / 不绑定版本 | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 第 4.6 节 |
+| 外部 harness 的 controller 模式 | Candidate / 不绑定版本（2026-10-20 由 v0.7.1 版本目标退回） | 外部 harness 作为执行环境运行用户选择的 agent，请求登记为任务进程并交给该 harness 执行 | 第 5.6 节；[接口调研快照](./research/harness-interface-survey-snapshot.md) |
+| 记忆价值体系重新设计 | Candidate / 不绑定版本 | owner 重新设计价值体系，不在现有信号上增补 | 第 4.7 节 |
+| Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 随受影响的 API 并行；[Frontend](./frontend/README.md)与第 4.8 节 Todo |
+| Electron 桌面客户端 | Candidate / 不绑定版本 | 单一客户端管理本地服务、数据目录、连接、升级与诊断 | 第 5.1 节；[状态与传输](./frontend/state-and-transports.md)、[配置](./system/configuration.md) |
+
+### 4.3 v0.7.2：生成质量
+
+状态：Planned。版本目标（owner，2026-10-30）是生成质量：v0.7.1 让 Claude Code 的日常使用开始产生记忆，真实使用随即暴露出生成链路的问题，v0.7.2 由这些问题驱动 Patchouli 核心机制的改进。下列方向各自在阻塞问题决定、能够立即执行时建立计划，彼此不预设先后，计划导航见 [Plans](./plans/README.md#v072)；目前已建立生成材料修正一份。
+
+真实使用暴露的问题（证据见各 Todo 与 Idea）：
+
+- 生成视图只剩导入原文的 8%：单轮上限截断了大部分工具过程；结算曾按 `worth_saving` 整轮丢弃 39% 的材料，2026-10-29 已停用筛选；
+- 折叠裁剪的原文没有留存，结算冻结的来源只覆盖未折叠的轮次；
+- 一个话题至多产出一条记忆，只写在正文中的内容检索不到；
+- 查重分不开同一项目中相关与无关的记忆；同项目记忆增多后，查重判出的 UPDATE 整体覆盖已有记忆，已有两条记忆的主要内容在当前版本中被冲掉；
+- plugin 模式只开放了检索与读取，Claude Code 的显式写入与更新从未发生；owner 判断上述生成问题约有一半源于此。
+
+| 方向 | 内容 | owner 决定（2026-10-30） | 设计讨论与阻塞问题 |
+|:---|:---|:---|:---|
+| 生成材料修正与原始证据保存 | 生成视图只保留单次工具调用结果的上限；移除 `worth_saving`；同步完成从 Topic 往后全链路的原始证据保存覆盖面（Topic 完整资料、来源冻结、来源 Artifact、Memory 的来源关联） | 一轮交互的内容不得被任何上限数字截断，只允许单次工具调用的结果受限，现行的单轮、思考与参数上限属于实现漂移；`worth_saving` 只做移除；计划同步完成 Topic 往后的原始证据覆盖面 | R-1、R-2 已决定（2026-10-30）：不分片，生成继续读工作视图；Topic 按顺序保存全部交互记录与折叠记录，作为来源 Artifact 的数据。计划：[生成材料修正与原始证据保存](./plans/v0.7.2-generation-material-and-raw-evidence.md)；证据见[生成材料 Todo](./todo/generation-material-filtering-and-truncation.md) |
+| plugin 模式开放 WRITE 与 UPDATE | Claude Code 经 MCP 工具显式写入与更新记忆，经操作入口的请求级提交进入 actor API，派发到 Patchouli 的 Mode B、Mode C | 同步开放两项能力，与主动链路共享同一记忆更新逻辑 | [外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)的 v0.7.2 一步：E-4，以及外部 Actor 的提交与回读契约 |
+| 一个话题提取多条记忆 | 话题结算从整段材料中提取多条记忆，逐条查重与写入 | 版本内完成 | [多条提取与查重 Idea](./ideas/settlement-multi-memory-extraction-and-dedup.md)的 G-1 |
+| 查重与更新机制 | 查重的判定信号，以及命中已有记忆后的写入方式 | 设计未决定 | 同一 Idea 的 G-2、G-3；证据见[查重 Todo](./todo/generation-dedup-decision-signal.md) |
+
+验收方向：以 Claude Code 的真实会话验收，不只依靠离线测试。生成材料没有单轮截断，结算来源可以回查到已折叠的轮次；一个话题中的多项决定分别形成可检索的记忆；[多条提取与查重 Idea](./ideas/settlement-multi-memory-extraction-and-dedup.md#22-查重分不开相关记忆命中后整体覆盖)第 2.2 节的两条覆盖链等真实样本，在新的查重与更新机制下得到可解释的结果；Claude Code 显式写入与更新的结果经 Patchouli 生成链结算，能被之后的会话检索到。各计划的验收由计划自己冻结。
+
+不在 v0.7.2：记忆价值体系的重新设计（第 4.7 节）；冷启动与历史导入（第 4.4 节）；重排模型 int8 与推理模型重新加载的停顿（Todo，未排期）；正文进入检索索引（搁置，见多条提取与查重 Idea 第 6 节）。
+
+### 4.4 冷启动、历史导入与外源文档资产化（候选）
+
+状态：Candidate，不绑定版本（2026-10-30 撤销原 `v0.7.2` 的版本号）。建议拆成两个可独立验收的 Plan，共享资源归属、来源和物化策略；确定性解析可以提前并行验证。
+
+**冷启动与历史对话导入**解决“空库如何首次产生价值”和“既有会话如何保真迁入”。冷启动允许用户显式选择少量项目事实、偏好、Profile 或资料作为种子；不得自动把默认示例当作用户事实。历史导入保留 source、conversation/turn 标识、发生时间、说话者及分支/编辑关系；助手的推测或旧结论不能直接升级成用户当前事实。Claude Code 插件安装之前的会话从未导入，MCP 记忆访问的第一个检索落空样本即由此而来（[已归档的观察 Todo](./archive/todo/import-bus-real-use-observation.md)）。
 
 导入过程支持预览、来源与 Workspace 选择、稳定导入标识、去重、进度/失败报告，以及只保留证据、稍后提炼记忆。它承接外部 Actor 接入契约的身份、来源和领域提交语义及历史样例缺口，另行定义批次、历史时间、冲突和恢复语义；复用 Patchouli 的物化入口，不简单按实时顺序把全部历史文本重放进当前活动话题，避免改写当前偏好或丢失历史时间关系。
 
@@ -165,38 +161,33 @@ last_reviewed: 2026-10-30
 
 本地已给定文档的解析不依赖 Alice 或通用代码执行；需要网页获取、本地目录浏览或复杂转换时使用相应 provider。语义提炼可以调用模型或 Actor，但不能让文档注册、证据保存和读取依赖 Alice 的 run。
 
-验收至少包含重复导入、部分失败、来源回查、跨 Workspace 隔离、旧信息与当前事实冲突，以及中断后的可解释处理。若承诺重启续跑，先交付导入 checkpoint 和所需任务持久化切片；现有进程内队列不足以承担该承诺。批量自动物化先完成第 4.8 节最小价值策略，避免一次导入大量低质量或相互冲突的记忆。
+验收至少包含重复导入、部分失败、来源回查、跨 Workspace 隔离、旧信息与当前事实冲突，以及中断后的可解释处理。若承诺重启续跑，先交付导入 checkpoint 和所需任务持久化切片；现有进程内队列不足以承担该承诺。批量自动物化依赖第 4.7 节的价值体系，避免一次导入大量低质量或相互冲突的记忆。
 
-### 4.6 v0.7.3：MTP READ 专项编译与来源表达
+### 4.5 MTP READ 专项编译与来源表达（候选）
 
-状态：Candidate。基于 [v0.7.0 A2-P](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)的完整记忆历史，以及 v0.7.2 的来源、文档表示与版本契约，扩展 MemoryCompiler 对文档、代码、历史证据等资源的定向读取、片段定位、token 预算和引用呈现。先冻结实际需要的 READ 模式与错误语义，再扩展协议。完整历史存储、内容版本与 lifecycle 更新边界由 A2-P 提前交付，本阶段不再反向定义记忆写入格式。
+状态：Candidate，不绑定版本（2026-10-30 撤销原 `v0.7.3` 的版本号）。基于 [v0.7.0 A2-P](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)的完整记忆历史，以及外源文档摄入（第 4.4 节）的来源、文档表示与版本契约，扩展 MemoryCompiler 对文档、代码、历史证据等资源的定向读取、片段定位、token 预算和引用呈现。先冻结实际需要的 READ 模式与错误语义，再扩展协议。完整历史存储、内容版本与 lifecycle 更新边界由 A2-P 提前交付，本方向不再反向定义记忆写入格式。
 
-结果应说明读到哪个资源和版本、选择了哪个片段、引用如何回到原始证据，以及截断、缺失来源、旧裁剪历史和无权限如何表达。历史记录中的 lifecycle 是捕获时状态，额外展示当前评估时必须区分时点，不能用当前原子补造历史。不能仅在现有文本末尾追加一个链接，也不能建立第二套 provenance 或检索状态。其编译能力可由外部 adapter 复用，MTP 负责自己的协议呈现。已登记的缺陷 [MTP READ 截断正式记忆的正文](./todo/mtp-read-content-truncation.md)预计在本阶段一并修复。
+结果应说明读到哪个资源和版本、选择了哪个片段、引用如何回到原始证据，以及截断、缺失来源、旧裁剪历史和无权限如何表达。历史记录中的 lifecycle 是捕获时状态，额外展示当前评估时必须区分时点，不能用当前原子补造历史。不能仅在现有文本末尾追加一个链接，也不能建立第二套 provenance 或检索状态。其编译能力可由外部 adapter 复用，MTP 负责自己的协议呈现。已登记的缺陷 [MTP READ 截断正式记忆的正文](./todo/mtp-read-content-truncation.md)预计随本方向一并修复。
 
-### 4.7 v0.7.4：Deep Research MVP
+### 4.6 Deep Research MVP（候选）
 
-状态：Candidate。研究领域持有 request、source、evidence、finding 和 report；协调器负责推进、重试与进度；执行 adapter 提供搜索、抓取、文件读取或分析。资源和研究状态不依赖 Alice 的 frame，Actor 可替换也不表示各 harness 的工具与策略完全等价。
+状态：Candidate，不绑定版本（2026-10-30 撤销原 `v0.7.4` 的版本号）。研究领域持有 request、source、evidence、finding 和 report；协调器负责推进、重试与进度；执行 adapter 提供搜索、抓取、文件读取或分析。资源和研究状态不依赖 Alice 的 frame，Actor 可替换也不表示各 harness 的工具与策略完全等价。
 
-首个 MVP 选择一个有预算和停止条件的真实研究任务，交付来源采集、证据定位、发现记录、报告 Artifact、取消和失败披露。以 v0.7.2/3 的证据与读取结果作为报告依据，并复用既有队列；仅为验证过的研究流程增加最小协调状态，不预先建设通用 DAG 平台。
+首个 MVP 选择一个有预算和停止条件的真实研究任务，交付来源采集、证据定位、发现记录、报告 Artifact、取消和失败披露。以第 4.4、4.5 节的证据与读取结果作为报告依据，并复用既有队列；仅为验证过的研究流程增加最小协调状态，不预先建设通用 DAG 平台。
 
 可先使用一个可靠的外部 harness 或工具 provider。若该路径不运行不可信本地代码，不把完整本地沙箱当作前置条件；若需下载并执行未知代码，先满足相应隔离门槛。执行提供者缺失时任务应明确等待或失败，不阻止已有研究资产读取。
 
 研究状态跨 Actor 存续与跨进程恢复是两个承诺。恢复范围必须在正式 Plan 中冻结：若要在应用重启后继续，先持久化来源、进度与 checkpoint，并定义重放和重复副作用；在此之前只承诺实际支持的进程内暂停/继续。
 
-### 4.8 记忆价值策略：跨版本重设计
+### 4.7 记忆价值体系：重新设计（候选）
 
-状态：Candidate。v0.7.1 起可启动分析与样本收集，v0.7.2 大规模自动物化前完成最小策略，后续根据真实使用反馈迭代。
+状态：Candidate，不绑定版本。owner（2026-10-30）将重新设计价值体系，而不是在现有信号上增补。
 
-当前已有 Gateway 的 WRITE/SKIP/UNKNOWN 预判与 worth_saving 投影，但它们只供观测：Perception settlement 原先按 worth_saving 整轮筛选材料，Claude Code 真实导入中这一预判只看到用户消息，把“请提交”“继续”背后的整轮实现丢出了生成，2026-10-29 起不再筛选（证据见 [Todo](./todo/generation-material-filtering-and-truncation.md)）；正式 Memory 的生命周期评分另有依据。不能把现状简化成“缺少三态布尔值”，也不能用一个总分替代所有层次。事实入口见 [Gateway Analysis](./gateway/analysis.md)、[Perception](./patchouli/perception.md)和 [Lifecycle](./patchouli/lifecycle.md)。
+现状：Gateway 的 WRITE/SKIP/UNKNOWN 预判与由它派生的 `worth_saving` 只供观测。Perception settlement 原先按 `worth_saving` 整轮筛选材料，Claude Code 真实导入中这一预判只看到用户消息，把“请提交”“继续”背后的整轮实现丢出了生成，2026-10-29 起不再筛选（证据见[生成材料 Todo](./todo/generation-material-filtering-and-truncation.md)）；`worth_saving` 随 v0.7.2 的生成材料修正移除（第 4.3 节）。正式 Memory 的生命周期评分另有依据，事实入口见 [Gateway Analysis](./gateway/analysis.md)、[Perception](./patchouli/perception.md)和 [Lifecycle](./patchouli/lifecycle.md)。
 
-规划分两个切片：
+已有的约束：入口信号不能替代 Patchouli 的最终决定，也不应单独成为删除来源证据的依据；新体系不追溯性批量删除旧记忆，任何存量重评或迁移另有预览、审计和回滚范围。正式的 Idea 与 Plan 待建立。
 
-1. **决策边界与最小策略**：区分原始证据保留、候选提炼、正式记忆写入、长期维护价值；明确用户显式选择、不同内容类型、来源置信度、时效和重复冲突的处理，以及 UNKNOWN 的保守语义。入口信号不能替代 Patchouli 最终决定，也不应单独成为删除来源证据的依据。
-2. **样本与反馈校准**：使用真实外部会话、历史导入和日常使用样本，评估关键事实漏存、错误/重复记忆、过时信息、用户修正成本、后续召回收益和模型开销。记录决策理由与策略版本，允许对同一批证据重评，避免每次策略调整都重新导入。
-
-权责与评估明确后再决定是否需要多维评分或新字段。新策略不追溯性批量删除旧记忆；任何存量重评或迁移另有预览、审计和回滚范围。正式 Plan 待建立。
-
-### 4.9 前端与 Todo 并行工作流
+### 4.8 前端与 Todo 并行工作流
 
 Frontend 已部分落地，后续优化按可用性和资源操作体验推进，详细事实见 [Frontend](./frontend/README.md)。本轨不阻塞后端基础重构，但与受影响 API 一起验收。
 
@@ -221,27 +212,24 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 
 上述排期摘要不代替 Todo 本体的完成条件。实现时先复核其是否已解决；跨系统范围扩大则建立 Plan，不通过“清理 Todo”引入未评审的新状态机。
 
-### 4.10 依赖与验收门槛
+### 4.9 依赖与验收门槛
 
 ```text
-v0.6.2 已实现基础 -> v0.7.0：Workspace 网络与任务进程（已发布）
-                          |
-                          +-> 外部 Actor 接入契约（Idea）
-                          |       +-> v0.7.1 plugin 模式（Claude Code）
-                          |       |          (Import Bus 回流 + 不绑定进程的能力层访问)
-                          |       +-> controller 模式（候选，版本待定）
-                          |       +-> v0.7.2 历史导入契约与批次能力
-                          +-> v0.7.2 冷启动 / 文档资源与证据
+v0.7.1（已发布）：plugin 模式接入 Claude Code，真实使用开始产生样本
+        |
+        +-> v0.7.2 生成质量：生成材料与原始证据 / plugin 模式的写入与更新 / 多条提取 / 查重与更新
 
-v0.7.0 A2-P 完整记忆历史 + v0.7.2 来源 / 文档版本 -> v0.7.3 READ 专项编译
-可靠执行提供者 + 证据 / READ + 研究状态恢复契约 -> v0.7.4 Deep Research
-
-价值策略最小切片 -> v0.7.2 批量自动物化
-前端可靠性与资源体验 -> 随 v0.7 各能力并行交付
+候选方向之间的依赖（用于判断一份计划能否立即执行，不表示排期）：
+外部 Actor 的身份 / 来源 / 提交语义 -> 历史导入契约与批次能力
+记忆价值体系 -> 冷启动与历史导入的批量自动物化
+v0.7.0 A2-P 完整记忆历史 + 文档来源 / 版本 -> MTP READ 专项编译
+可靠执行提供者 + 证据 / READ + 研究状态恢复契约 -> Deep Research
+任务进程表与唯一注册入口 + 外部 Actor 接入契约 -> controller 模式
 服务生命周期 / 传输 / 数据升级稳定 -> Electron 产品化
+前端可靠性与资源体验 -> 随受影响的 API 并行交付
 ```
 
-各版本的计划顺序见 [Plans 导航](./plans/README.md)。确定性导入可以提前并行，依赖复杂获取或转换的切片需等对应 provider。真实外部接入越早形成样本，越能帮助价值策略和导入计划减少猜测。
+当前版本的计划见 [Plans 导航](./plans/README.md)。确定性导入可以提前并行，依赖复杂获取或转换的切片需等对应 provider。
 
 每项候选进入实施前必须冻结范围、权威状态、数据来源、失败/取消/恢复承诺、幂等边界和观察指标。任何跨重启恢复、强隔离或 Actor 替换承诺都必须有对应实现证据。仍未具备的能力不能通过 UI、accepted 响应或事件日志伪装成完成。
 
@@ -249,7 +237,7 @@ v0.7.0 A2-P 完整记忆历史 + v0.7.2 来源 / 文档版本 -> v0.7.3 READ 专
 
 ### 5.1 Electron 桌面客户端
 
-状态：Candidate，目标窗口为 `v0.8.x`，正式 Plan 待建立；不是 Deep Research 或 Alice 高级编排的强制下游。v0.7 期间可以做有限启动/连接原型，完整发布以资源生命周期、前端传输和数据管理稳定为门槛。
+状态：Candidate，不绑定版本（2026-10-30 撤销原 `v0.8.x` 产品化窗口），正式 Plan 待建立；不是 Deep Research 或 Alice 高级编排的强制下游。完整发布之前可以做有限启动/连接原型，完整发布以资源生命周期、前端传输和数据管理稳定为门槛。
 
 桌面化覆盖的工作多于 Web 页面外壳：本地 Python 服务及存储依赖的分发/连接、启动就绪、端口冲突、关闭 drain、数据目录、备份与升级、凭据、日志与崩溃诊断。HTTP、SSE、WebSocket 都需可配置地连接同一服务，不能仅迁移日志 URL。平台先选实际使用的一种完成闭环，再扩展安装包和签名发布。
 
@@ -259,13 +247,13 @@ Electron renderer 使用公开资源 API，main process 只持有必要的原生
 
 ### 5.2 Alice 高级编排
 
-状态：Deferred，`v0.8.0+` 后置窗口，不是已承诺的单一版本主题。plan-and-execute、多角色协作、parallel specialists、review loop 和任务图需经过 VISION 中 Alice 存在价值的判定，并与“外部 harness + 同一 Patchouli 记忆库”比较。
+状态：Deferred，不绑定版本（2026-10-30 撤销原 `v0.8.0+` 后置窗口），不是已承诺的单一版本主题。plan-and-execute、多角色协作、parallel specialists、review loop 和任务图需经过 VISION 中 Alice 存在价值的判定，并与“外部 harness + 同一 Patchouli 记忆库”比较。
 
 优先验证能证明记忆作为状态与控制输入有价值的能力，不因外部 Actor 接入而复制一套通用 harness 功能清单。
 
 ### 5.3 高级记忆生命周期
 
-状态：Deferred，保留 `v0.9.0+` 方向。Memory split/merge、完整 rollback、branch invalidation、provenance reverse index 和 L3 复活等待真实演化与恢复需求。记忆价值策略的最小重设计不等于提前实现全部生命周期能力。
+状态：Deferred，不绑定版本（2026-10-30 撤销原 `v0.9.0+` 方向）。Memory split/merge、完整 rollback、branch invalidation、provenance reverse index 和 L3 复活等待真实演化与恢复需求。记忆价值体系的重新设计不等于提前实现全部生命周期能力。
 
 ### 5.4 执行基座与不可信代码沙箱
 
@@ -296,7 +284,7 @@ Electron renderer 使用公开资源 API，main process 只持有必要的原生
 
 ### 5.6 controller 模式的外部 harness 接入
 
-状态：Candidate，版本待定。2026-10-20 曾定为 v0.7.1 的版本目标，同日改为 plugin 模式（第 4.3 节）；首份计划的方向（首个外部驱动的纯文本闭环）随之撤回，计划未建立。步骤分析与阻塞问题保留在[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#controller-模式的步骤分析退回候选方向)，Codex、Claude Code、pi 与 ACP 的接口资料见[接口调研快照](./research/harness-interface-survey-snapshot.md)（2026-10-20，模型实测待验证）；重新排期时先复核其中的未知项与待实测项。
+状态：Candidate，不绑定版本。2026-10-20 曾定为 v0.7.1 的版本目标，同日改为 plugin 模式（第 3.1 节）；首份计划的方向（首个外部驱动的纯文本闭环）随之撤回，计划未建立。步骤分析与阻塞问题保留在[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#controller-模式的步骤分析退回候选方向)，Codex、Claude Code、pi 与 ACP 的接口资料见[接口调研快照](./research/harness-interface-survey-snapshot.md)（2026-10-20，模型实测待验证）；重新排期时先复核其中的未知项与待实测项。
 
 controller 模式把 Codex、Claude Code、pi 一类成熟的 agent harness 作为执行环境与 CPU 类型纳入兼容范围：用户在对话开始前分别选择 agent 与执行环境（[执行环境 Idea](./ideas/execution-environment.md)前提 9、10；外部 Actor Idea E-6a），外部 harness 作为执行环境运行所选 agent，请求经唯一注册入口登记为任务进程，处理后交给该 harness 执行。它建立在 v0.7.0 的任务进程表与注册入口之上，消费外部 Actor 的接入与运行时访问契约（原计划 B），不强依赖 HiveMemory 本地沙箱；外部 harness 继续使用自己的工具和执行环境。采用 ACP 一类的通用协议还是各 harness 的 SDK 或非交互 CLI，见 Idea 的 E-2a。
 
@@ -313,9 +301,9 @@ controller 模式下 HiveMemory 控制任务边界（actor 选择、输入、生
 ## 7. 路线图维护规则
 
 1. 只有 Git tag 对应版本标为 Released；本次重排不修改规范代码版本或构建产物。
-2. 新候选先在 Roadmap 明确目标、依赖与验收出口，实施前建立绑定版本的 Plan；详细设计只维护一份。
+2. 当前版本的功能在 Roadmap 写明目标、方向与验收方向；计划只在能够立即执行时绑定当前版本建立，不能立即实施的方向留在 Idea 候选池，不预先分配版本号或先后（owner，2026-10-30）；详细设计只维护一份。
 3. 仅已完整完成实现、测试、迁移与审查的内容晋升到当前事实文档，并归档 Plan。
 4. 部分落地保持 Partially Landed，已完成 Todo 不重新排期，Deferred 项只有满足触发条件才启动。
 5. 排期变化同步 Plan 的 target、文件名、索引和反向引用；已完成历史文档保留原版本，当前路线提供迁移映射。
 6. PROJECT、Architecture、System 和子系统索引的行为说明按文档治理收口门禁更新；单纯调整候选排期不提前向事实层推广设计。
-7. 定期依据真实外部接入、导入样本和运行故障复核顺序；范围变化显式记录，不把前置能力缺口隐藏在上层功能中。
+7. 定期依据真实使用、导入样本和运行故障复核候选方向与下一个版本的功能；范围变化显式记录，不把前置能力缺口隐藏在上层功能中。

@@ -1,7 +1,8 @@
 ---
 title: 外部 Actor 的接入登记与运行时访问
 status: idea
-horizon: candidate
+horizon: current
+serves_version: v0.7.2
 owner: project
 scope: external-actor-registration-runtime-access-and-adapter-interface
 code_paths:
@@ -16,6 +17,8 @@ code_paths:
   - src/hivememory/workspace/contracts/
   - integrations/claude-code/connector/claude_code/reader.py
   - src/hivememory/prompts/transcript/actions.py
+  - src/hivememory/mcp_server/server.py
+  - src/hivememory/workspace/intents/registry.py
 related_docs:
   - docs/ideas/fifth-generation-architecture.md
   - docs/ideas/task-process-table-and-registration-entry.md
@@ -50,7 +53,7 @@ last_reviewed: 2026-10-30
 - 本文只保留这个问题以及仍然成立的设计材料。没有保留的内容：阶段划分（EMS-0–6）、交付与验收出口、A/B 交接与依赖顺序、测试矩阵、代码落点与迁移切片、文档收口清单；以 Passive Ingress 返回记忆 context 为前提的实时被动模式；以“System 应用服务 → GlobalSystemBus → Patchouli application”为主干的目标结构（已被总 Idea 第 12 节“能力层是 Actor 唯一可见的 API”这一前提取代）。
 - 现状事实按 2026-09-27 的代码核对。
 - 待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。
-- **版本归属**（owner，2026-09-27）：外部 Actor 的真实接入（真正的 adapter 接口与外部服务身份等）不在 v0.7.0。v0.7.0 不对外部 Actor 所需的基建作承诺，只验证 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构（[ROADMAP](../ROADMAP.md) 的 v0.7.0 范围）。外部 Actor 分为两种接入模式（1.1）：v0.7.1 的版本目标为 plugin 模式的真实接入，首个 harness 为 Claude Code；controller 模式退回候选方向，版本待定（1.1 的版本安排，owner，2026-10-20；2026-09-27 原定先做 controller 模式）。2026-10-20 起本文的 horizon 为 `current`，服务 v0.7.1，目标窗口见 [ROADMAP](../ROADMAP.md) 第 4.3 与 4.4 节；2026-10-30 v0.7.1 收尾时改为 `candidate`：plugin 模式的两步均已实施，controller 模式、E-4 与写入意图经 MCP 提交等其余内容未排期。
+- **版本归属**（owner，2026-09-27）：外部 Actor 的真实接入（真正的 adapter 接口与外部服务身份等）不在 v0.7.0。v0.7.0 不对外部 Actor 所需的基建作承诺，只验证 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构（[ROADMAP](../ROADMAP.md) 的 v0.7.0 范围）。外部 Actor 分为两种接入模式（1.1）：v0.7.1 的版本目标为 plugin 模式的真实接入，首个 harness 为 Claude Code；controller 模式退回候选方向，版本待定（1.1 的版本安排，owner，2026-10-20；2026-09-27 原定先做 controller 模式）。2026-10-20 起本文的 horizon 为 `current`，服务 v0.7.1，目标窗口见 [ROADMAP](../ROADMAP.md) 第 3 节（v0.7.1 发布后的位置）；2026-10-30 v0.7.1 收尾时改为 `candidate`：plugin 模式的两步均已实施，controller 模式、E-4 与写入意图经 MCP 提交等其余内容未排期。同日 v0.7.2（生成质量）定下后改回 `current`，服务 v0.7.2：plugin 模式开放 WRITE 与 UPDATE 是该版本的方向之一（第 4 节的 v0.7.2 一步）；controller 模式仍留在候选池。
 - **术语**（owner，2026-10-06）：本文的 adapter 即**操作适配器**（operation adapter），定义见 3.4；1.2 中执行侧面的实现，即 CPU 端口的实现，称 **CPU 驱动**。两者的分层见[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节的执行一侧用语。2026-10-20 用语修订后，执行侧面由执行单元（CPU 的常驻实例）承担，实现执行单元的代码称驱动。
 
 ## 1. 问题
@@ -108,7 +111,7 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 | 问题 | 归属 |
 |:---|:---|
 | [Q-8 外部 CPU 的进程](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) | 只涉及 controller 模式（plugin 模式不建进程）；Q-8a–Q-8c 仍待决 |
-| E-4 结果观察的方式 | 主要涉及 plugin 模式，controller 模式可经任务进程观察结果；仍待决 |
+| E-4 结果观察的方式 | 主要涉及 plugin 模式，controller 模式可经任务进程观察结果；仍待决，阻塞 v0.7.2 的 plugin 模式 WRITE 与 UPDATE（第 4 节） |
 | [P-5b 被动请求的 principal](./fifth-generation-architecture.md) | 被动请求只存在于 controller 模式；owner 倾向由登记的 Agent 反推；仍待决 |
 | 请求方类型与认证 principal 的关系 | 按两种模式的定义：controller 模式下，用户直接向 HiveMemory 的入口发出请求；plugin 模式下，没有请求进入注册入口，外部 harness 以不建进程的方式访问能力层。外部 harness 连接方的身份如何证明见 P-1c |
 
@@ -307,14 +310,23 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 **第二步：记忆访问**——已实施（2026-10-29，[归档计划](../archive/plans/v0.7.1-memory-access-mcp.md)），当前事实见 [MCP 记忆访问](../contracts/mcp.md)。以下是建立计划时的范围、验收方向与阻塞问题；各项决定之后的候选设计在计划中采纳或调整，落地结果以当前事实文档为准。
 
 - 范围：Claude Code 插件提供 MCP 工具，经能力层检索与读取记忆，访问不建进程、不绑定进程；结果带有可回查的记忆引用。
-- 验收方向：Claude Code 在会话中检索到已有记忆（包括对话回流积累与 Alice 会话形成的记忆）并实际使用；访问按 Workspace 访问登记逐次授权，越权与跨 Workspace 的访问被拒绝。与第一步合起来达到 [ROADMAP](../ROADMAP.md) 第 4.4 节的验收闭环。
+- 验收方向：Claude Code 在会话中检索到已有记忆（包括对话回流积累与 Alice 会话形成的记忆）并实际使用；访问按 Workspace 访问登记逐次授权，越权与跨 Workspace 的访问被拒绝。与第一步合起来达到 [ROADMAP](../ROADMAP.md) 第 3.1 节的验收闭环。
 - 阻塞问题：已于 2026-10-29 全部决定。本文 E-2（传输承载）、E-3b（操作适配器的代码位置）与 E-7（记忆到达 harness 的方式），见各节；[第五代架构 Idea](./fifth-generation-architecture.md) 的 P-1c（身份证明的实现位置）与 P-9c（不建进程的 actor 访问如何进入 actor API），见下文“[P-1c 与 P-9c](#p-1c-与-p-9c-身份证明与不建进程的访问-context)”。计划为 Claude Code 登记自己的 principal，并在同一计划中落实已决定的 root 声明范围（身份与访问体系 Idea 第 4 节）。
 - 不阻塞本步（分析）：只读取时没有异步结果需要观察，E-4 不涉及。
 - 候选设计（分析，2026-10-29）：取回的记忆不经对话回流再次提取（回声），检索结果的优先级低于仓库代码与 harness 自己的指令和记忆文件；见 E-7 之后的“与对话回流及 harness 自带记忆的衔接”。
 
-**后续步骤**（候选，未决定）
+### v0.7.2：plugin 模式开放 WRITE 与 UPDATE
 
-- 写入意图经 MCP 提交：需要 E-4 与外部 Actor 的提交与回读契约（[写入意图 Idea](./pending-intent-migration.md)）。
+v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质量)第 4.3 节）；同一版本的其他方向见 [Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md#0-v072生成材料修正与-topic-之后的原始证据保存)第 0 节与[多条提取与查重 Idea](./settlement-multi-memory-extraction-and-dedup.md)。计划在本步的阻塞问题决定、能够立即执行时建立。
+
+- **owner 决定**（2026-10-30）：v0.7.2 同步开放 plugin 模式下 agent 对记忆的 WRITE 与 UPDATE，两项能力与主动链路共享同一记忆更新逻辑。owner 判断，Claude Code 真实使用中暴露的生成问题约有一半是因为这两项能力没有接回：plugin 模式下 Claude Code 只获准检索与读取，显式的写入与更新从未发生；主动链路中显式的 UPDATE 能正常更新记忆。
+- **现状**（代码核对，2026-10-30）：MCP server 只提供 `memory_search` 与 `memory_read`（[MCP server](../../src/hivememory/mcp_server/server.py)）；操作入口的请求级提交 `execute_request` 只分派检索与引用解析，其余类型在分派前拒绝；`claude_code` 的访问登记只有 `memory.read` 与 `memory.search`。写入意图登记中的 `process_id` 与 `thread_id` 只供观测关联，不限制回读（[写入意图登记](../../src/hivememory/workspace/intents/registry.py)）。
+- **范围**（候选）：Claude Code 插件的 MCP server 增加写入与更新两个工具，经操作入口的请求级提交进入 actor API，按访问登记逐次授权；登记写入意图后派发到 Patchouli 的 Mode B、Mode C，与 MTP 的 WRITE、UPDATE 是同一条链路。
+- **阻塞问题**：本文 E-4（结果观察的方式）；外部 Actor 的提交与回读契约（[写入意图 Idea](./pending-intent-migration.md#7-外部-actor-的提交与回读契约)第 7 节）。
+- **候选设计**（分析，不是 owner 决定，可在计划评审时调整）：
+  - 请求级 context 登记意图：plugin 模式不建任务进程（1.1），登记改记请求的观测标签，不伪造进程或线程；`execute_request` 的可提交类型增加写入与更新请求；`claude_code` 的访问登记增加 `memory.write` 与 `memory.update`。
+  - ACK 与 MTP 相同：表示意图已在 workspace 登记并被生成队列接纳，不表示正式记忆已经持久化；工具结果写明这一点，并给出可回读的 pending 别名。
+  - 回声：连接器把 HiveMemory 自己的写入与更新调用归一化为带 `verb` 的事件，生成视图与 MTP 的 WRITE、UPDATE 一样不渲染（[生成材料的渲染](../../src/hivememory/engines/perception/material.py)），避免 Mode A 把显式写入的内容再提取一遍。
 
 ### controller 模式的步骤分析（退回候选方向）
 
@@ -392,7 +404,7 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 | C | 推送或回调 | 外部方需要提供可达端点；推送不能作为唯一的终态真相 |
 | D | 组合 | —— |
 
-**owner 决定（2026-09-27）**：本问题与 Q-8 联动，列入外部 Actor 形态的单独审议。同日审议为两种接入模式（1.1）；本问题主要涉及 plugin 模式，仍待决。
+**owner 决定（2026-09-27）**：本问题与 Q-8 联动，列入外部 Actor 形态的单独审议。同日审议为两种接入模式（1.1）；本问题主要涉及 plugin 模式，仍待决。2026-10-30 起阻塞 v0.7.2 的 plugin 模式开放 WRITE 与 UPDATE（第 4 节）。
 
 ### E-5 外部执行单元的执行线程
 

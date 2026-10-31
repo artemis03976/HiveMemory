@@ -14,7 +14,8 @@ related_docs:
   - docs/patchouli/retrieval.md
   - docs/archive/todo/import-bus-real-use-observation.md
   - docs/todo/reranker-int8-and-onnx-memory.md
-last_reviewed: 2026-10-29
+  - docs/ideas/settlement-multi-memory-extraction-and-dedup.md
+last_reviewed: 2026-10-30
 ---
 
 # 生成查重的决策信号
@@ -23,7 +24,7 @@ last_reviewed: 2026-10-29
 
 Mode A/B 生成的草稿以 `title + summary` 对中期库做 dense top-1 检索，再按原始余弦与固定阈值决策：大于 0.95 时按内容是否一致判为 TOUCH 或 UPDATE，0.75～0.95 判为 UPDATE，其余判为 CREATE（[Patchouli 生成](../patchouli/generation.md)第 4 节）。
 
-Claude Code 接入后的真实使用中，查重从未做出 CREATE 以外的决策，其中包括 owner 有意制造的一次同一工作的跨话题拆分。离线复现表明，用当前的嵌入模型做"记忆对记忆"的比较时，dense 余弦区分不了"同一件事"与"同一项目里的其他事"，固定阈值也够不到。
+Claude Code 接入后的真实使用中，登记时（2026-10-29）查重从未做出 CREATE 以外的决策，其中包括 owner 有意制造的一次同一工作的跨话题拆分。离线复现表明，用当前的嵌入模型做"记忆对记忆"的比较时，dense 余弦区分不了"同一件事"与"同一项目里的其他事"，固定阈值也够不到。同一项目的记忆增多后，UPDATE 开始发生，并按现行规则整体覆盖了已有记忆（2026-10-30 补充的证据）。
 
 ## 证据（2026-10-29）
 
@@ -41,6 +42,15 @@ Claude Code 接入后的真实使用中，查重从未做出 CREATE 以外的决
 - **对照**：同样 5 个问题式短查询，dense 检索在这 30 条记忆中都把目标排在第 1（0.556～0.744）。问题集中在记忆对记忆的比较，不是检索整体失效；但库很小，结论不能外推到同项目记忆增多之后。
 - **未测**：int8 与 fp32 嵌入模型的差异。
 
+## 补充证据（2026-10-30）
+
+插件接入（10-27）以来共 19 次查重决策：15 次 CREATE、4 次 UPDATE、没有 TOUCH。4 次 UPDATE 都发生在 10-29 晚至 10-30，相似度 0.81～0.85，构成两条链，每条被连续覆盖两次，当前版本丢掉了最初记忆的主要内容：
+
+- 「v0.7.1 记忆访问设计决定：P-1c/P-9c/E-2/E-3b/E-7 与 harness principal 复核」两次被后续实现阶段的草稿覆盖，当前正文只剩阶段二的返工；
+- 「v0.7.1 版本剩余工作梳理与收尾建议」两次被收尾阶段的草稿覆盖，当前正文是提交与开 PR 的记录。
+
+两条链都出自同一会话中先后进行的几段工作，被空闲结算拆成不同话题。被覆盖的版本保留在 MemoryVersionArtifact 中，检索与读取只看到最新版本。逐条对照见[多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md#22-查重分不开相关记忆命中后整体覆盖)第 2.2 节。
+
 ## 影响
 
 - 同一工作被空闲结算或会话切换拆到不同话题时，后续阶段总是新建记忆，同一件事在库中分散成多条。Claude Code 的长任务常有较长间隔，这种拆分会是常态。
@@ -51,11 +61,7 @@ Claude Code 接入后的真实使用中，查重从未做出 CREATE 以外的决
 
 ## 完成条件
 
-- 从真实导入的记忆中整理一组标注样本，覆盖四类关系：重复、同一工作的不同阶段、同项目但无关、完全无关。
-- 在这组样本上比较候选决策信号，按结果选定信号并重新标定阈值。候选例如：
-  - dense Top-k 召回后用交叉编码器打分；
-  - dense 宽门槛召回后，由 LLM 判定新建、更新、合并或只建立关联。
-- 若用交叉编码器分数做阈值判定，需要与[重排模型 int8](./reranker-int8-and-onnx-memory.md)的评估一起考虑：int8 会改变原始分数。
-- 放宽 UPDATE 判定之前，先让 UPDATE 保留已有记忆中仍然有效的内容（例如经 extractor 合并），不再整体覆盖。
-- 相同内容能够判为 TOUCH：让查询与入库的嵌入文本形态一致，或改用不依赖绝对余弦的判定。
-- 如果需要新的 extractor 提示词或改动跨子系统契约，升级为 Plan。
+随 v0.7.2 的查重与更新计划完成。查重的新设计（包括 UPDATE 的机制）owner 尚未决定，判定信号与命中后的写入方式作为待决问题记在[多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md#4-待决问题)第 4 节（G-2、G-3），计划建立时本 Todo 并入计划。完成时至少满足：
+
+- 补充证据中的两条覆盖链与离线复现的样本，在新机制下得到可解释的决策；
+- `MemoryDeduplicator` 的 docstring 与实际行为一致。

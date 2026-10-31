@@ -11,8 +11,8 @@ The repository includes a runnable Python backend, a frontend development UI, ve
 
 ## Release Status
 
-- This release: `v0.7.1` (plugin-mode integration with Claude Code; the tag is created after merge, see the [closeout audit](docs/archive/plans/v0.7.1-release-closeout-audit.md))
-- Latest published baseline: `v0.7.0` (see the [closeout audit](docs/archive/plans/v0.7.0-release-closeout-audit.md))
+- Latest published baseline: `v0.7.1` (plugin-mode integration with Claude Code, see the [closeout audit](docs/archive/plans/v0.7.1-release-closeout-audit.md))
+- Current development version: `v0.7.2` (goal: generation quality; see the [Roadmap](docs/ROADMAP.md))
 - Code and package version: `0.7.1`
 - Python requirement: `>=3.12`
 - License: Apache-2.0
@@ -346,7 +346,7 @@ HiveMemory/
 
 ## Contributing
 
-Issues and pull requests are welcome. v0.7.1 content is closed out, and its tag is created after merge. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
+Issues and pull requests are welcome. v0.7.1 has been released, and the main branch is under v0.7.2 development. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
 
 ## License
 
