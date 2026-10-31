@@ -19,7 +19,7 @@ last_reviewed: 2026-10-31
 | [生成材料修正与 Topic 之后的原始证据保存](../archive/plans/v0.7.2-generation-material-and-raw-evidence.md) | Archived（2026-10-31）；当前事实见[感知与短期话题](../patchouli/perception.md)、[Patchouli 生成](../patchouli/generation.md)与 [Artifacts](../patchouli/artifacts.md)；实测随日常使用进行，不作为归档条件；并入的生成材料 Todo 随之[归档](../archive/todo/generation-material-filtering-and-truncation.md) | —— |
 | [plugin 模式开放 WRITE 与 UPDATE](../archive/plans/v0.7.2-plugin-write-update.md) | Archived（2026-10-31）；当前事实见 [MCP 记忆访问](../contracts/mcp.md)、[Import Bus](../system/import-bus.md#47-写入时落位)与[记忆编译](../patchouli/memory-compiler.md)；第 9.3 节以 Claude Code 的真实会话完成实测验收 | —— |
 | 一个话题提取多条记忆 | 计划未建立；阻塞问题 G-1 待决定 | [多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md) |
-| 查重与更新机制 | 计划未建立；G-3 已决定（2026-10-31），G-2 不阻塞，可以建立计划 | 同上 |
+| [查重与更新：先落库再合并](./v0.7.2-dedup-merge.md) | Planned（2026-10-31 建立）；G-3 已决定，G-2 不阻塞 | [多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md)第 5.1 节 |
 
 ## v0.7.1
 
