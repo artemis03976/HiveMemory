@@ -19,9 +19,10 @@ related_ideas:
 related_docs:
   - docs/workspace/capability.md
   - docs/workspace/execution-threads.md
+  - docs/contracts/mcp.md
   - docs/patchouli/generation.md
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-10-31
 ---
 
 # 读取视图与写入意图
@@ -50,9 +51,16 @@ canonical 变更经 Patchouli local bus 与 bridge 内联转发（只改 `meta.l
 
 ## 3. 写入意图登记
 
-`WriteIntentRegistry`（`workspace/intents/registry.py`）是进程级唯一登记，与任务进程生命周期解耦，记录 `belong_to`、`from_actor` 与只作观测关联的 `process_id`、`thread_id`（同一进程两次 CALL 同一个 Agent 时以线程区分）。同 Workspace 的其他 Agent 可经 `memory.read` 回读；越界与不存在相同。UPDATE 意图携带基础原子的修改内容与坐标，回读跟随基础原子的可读性：读不到基础的 Actor 在任何状态下都得到 not_found。
+`WriteIntentRegistry`（`workspace/intents/registry.py`）是进程级唯一登记，与任务进程生命周期解耦，记录 `belong_to`、`from_actor` 与只作观测关联的 `process_id`、`thread_id`（同一进程两次 CALL 同一个 Agent 时以线程区分）；不建进程的请求级提交没有进程与线程，二者为空。同 Workspace 的其他 Agent 可经 `memory.read` 回读；越界与不存在相同。UPDATE 意图携带基础原子的修改内容与坐标，回读跟随基础原子的可读性：读不到基础的 Actor 在任何状态下都得到 not_found。
 
-WRITE 经 `memory.write`、UPDATE 经 `memory.update` 分别授权后登记为 MATERIALIZING，并经 `PatchouliRoutes.MEMORY_INTENT_SUBMIT` 派发；生成队列接纳后才返回 ACK；UPDATE 只接受可读的正式 atom，pending 与 redirect 句柄不能作为基础，登记成功后失效基础原子。登记的归属与发起者取自本次授权结果，进程关联与线程标识取自线程表的一次解析（[执行线程](./execution-threads.md#7-actor-阶段结束与停止)）。
+WRITE 经 `memory.write`、UPDATE 经 `memory.update` 分别授权后登记为 MATERIALIZING，并经 `PatchouliRoutes.MEMORY_INTENT_SUBMIT` 派发；生成队列接纳后才返回 ACK；UPDATE 只接受可读的正式 atom，pending 与 redirect 句柄不能作为基础，登记成功后失效基础原子。登记的归属与发起者取自本次授权结果。
+
+派发话题是 Patchouli 读取生成材料的话题，有两个来源：
+
+- **线程提交**（Alice 的 MTP WRITE、UPDATE）：进程关联、线程标识与派发话题取自线程表的一次解析，派发话题是 CPU 分配冻结的本轮话题（[执行线程](./execution-threads.md#7-actor-阶段结束与停止)）；
+- **请求级提交**（外部 harness 经 MCP）：没有线程，派发话题由操作入口的调用方给出，是 Import Bus 在写入时为这一轮落位得到的话题，这一轮回流时沿用同一话题（[Import Bus](../system/import-bus.md#47-写入时落位)）。授权只接受请求级 context，登记不带进程与线程关联（[能力层](./capability.md#6-操作入口)）。
+
+两种提交登记的是同一种意图，回读、派发、ACK 与结算的规则相同。
 
 ## 4. 引用解析
 
@@ -64,7 +72,7 @@ UPDATE 的基础冷读在登记的同步段之前完成，冷读跨越线程结�
 
 ## 5. 派发与结算
 
-派发开始后由 actor API 持有 shield 保护的任务直到完成，再传播调用方取消；CPU 失败、取消、停止、子线程结束、进程关闭或 CALL 子帧失败都不撤回已提交写入。ACK 表示意图已在 workspace 登记并被 Patchouli 生成队列接纳，不表示正式记忆已经持久化；正式持久化由 Patchouli 生成链结算（[Patchouli 生成](../patchouli/generation.md)）。
+派发开始后由 actor API 持有 shield 保护的任务直到完成，再传播调用方取消；CPU 失败、取消、停止、子线程结束、进程关闭、CALL 子帧失败或 MCP 调用方断开都不撤回已提交写入。ACK 表示意图已在 workspace 登记并被 Patchouli 生成队列接纳，不表示正式记忆已经持久化；正式持久化由 Patchouli 生成链结算（[Patchouli 生成](../patchouli/generation.md)）。
 
 确定性拒绝同步以 `mark_failed` 把句柄推进为 FAILED，并向 agent 返回结构化错误；结果未知保持 MATERIALIZING。结算事件仍由 Patchouli 发布，同步失败与随后失败通知幂等；三个结算事件都携带 pending_alias 与 intent_id，登记只在两者都匹配时迁移状态。状态终结后不再被晚到通知重写。
 
@@ -77,4 +85,4 @@ UPDATE 的基础冷读在登记的同步段之前完成，冷读跨越线程结�
 ## 7. 代码与测试入口
 
 - [`WorkspaceReadView`](../../src/hivememory/workspace/read_view.py)（[`cache/`](../../src/hivememory/workspace/cache/)、[`resolution/`](../../src/hivememory/workspace/resolution/)）、[`MemoryReader`](../../src/hivememory/workspace/resolution/memory.py)、[`ProfileResolver`](../../src/hivememory/workspace/resolution/profile.py)、[`WriteIntentRegistry`](../../src/hivememory/workspace/intents/registry.py)；
-- 测试：[`tests/unit/workspace/intents/test_registry.py`](../../tests/unit/workspace/intents/test_registry.py)、[`test_intent_registry_and_read_cache.py`](../../tests/integration/workspace/test_intent_registry_and_read_cache.py)、[`test_memory_reader.py`](../../tests/unit/workspace/resolution/test_memory_reader.py)、[`test_profile_resolver.py`](../../tests/unit/workspace/resolution/test_profile_resolver.py)（缓存串扰与授权重验）、[`test_workspace_intent_subscription.py`](../../tests/integration/system/test_workspace_intent_subscription.py)（组合根装配即订阅、关闭即取消订阅）、[`test_inflight_dispatch.py`](../../tests/integration/workspace/test_inflight_dispatch.py)。
+- 测试：[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)（线程与请求级提交的登记与派发）、[`tests/unit/workspace/intents/test_registry.py`](../../tests/unit/workspace/intents/test_registry.py)、[`test_intent_registry_and_read_cache.py`](../../tests/integration/workspace/test_intent_registry_and_read_cache.py)、[`test_memory_reader.py`](../../tests/unit/workspace/resolution/test_memory_reader.py)、[`test_profile_resolver.py`](../../tests/unit/workspace/resolution/test_profile_resolver.py)（缓存串扰与授权重验）、[`test_workspace_intent_subscription.py`](../../tests/integration/system/test_workspace_intent_subscription.py)（组合根装配即订阅、关闭即取消订阅）、[`test_inflight_dispatch.py`](../../tests/integration/workspace/test_inflight_dispatch.py)。

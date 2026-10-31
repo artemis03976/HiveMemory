@@ -19,7 +19,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-31
 ---
 
 # System 组合根与生命周期
@@ -172,7 +172,7 @@ ActorAuthenticationGateway.close
 
 健康状态是观测和管理入口，不替代业务契约。模型尚未 ready 不等于所有 route 都不存在；反过来，健康返回 `ok` 也不保证一次具体检索或生成调用一定成功。
 
-System 作为门面对外暴露服务属性和 registry/sink 查询，例如 `process_service`（workspace 任务进程编排）、`import_bus_service`（Import Bus）、`root_memory_service` 等 root API 服务、`operation_entry`（组合根装配的同一个操作入口，只供 MCP 入口调用其请求级提交 `execute_request`）、`access_gateway`、`runtime_events`、`model_registry`。actor API 只由操作入口持有，不经门面暴露（[MCP 记忆访问](../contracts/mcp.md#4-操作入口与授权)）。这些属性方便 HTTP 或其他 adapter 注入依赖，但 adapter 仍应调用服务，不应从属性继续下钻到子系统 Runtime。
+System 作为门面对外暴露服务属性和 registry/sink 查询，例如 `process_service`（workspace 任务进程编排）、`import_bus_service`（Import Bus：导入与写入时落位）、`root_memory_service` 等 root API 服务、`operation_entry`（组合根装配的同一个操作入口，只供 MCP 入口调用其请求级提交 `execute_request`）、`access_gateway`、`runtime_events`、`model_registry`。actor API 只由操作入口持有，不经门面暴露（[MCP 记忆访问](../contracts/mcp.md#4-落位操作入口与授权)）。这些属性方便 HTTP 或其他 adapter 注入依赖，但 adapter 仍应调用服务，不应从属性继续下钻到子系统 Runtime。
 
 ## 5. 生命周期不变量与矛盾检查
 

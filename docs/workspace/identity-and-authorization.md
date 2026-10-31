@@ -21,7 +21,7 @@ related_docs:
   - docs/system/import-bus.md
   - docs/architecture/data-model.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-31
 ---
 
 # 身份与授权
@@ -88,9 +88,9 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 | 层 | 持有 | 不持有 |
 |:---|:---|:---|
 | server（入口 adapter） | 认证前的声明（只作为认证输入）；自身的 principal 与 adapter；导入请求声明的 principal 与凭据（只交给网关）；管理操作、取消与导入的请求级 context 与目标 Workspace；chat 的不透明进程句柄 | 认证前组装的 `IdentityScope`；认证后的身份；进程记录及其中的 context |
-| MCP 入口（`mcp_server`，操作适配器） | 认证前的声明与凭据（只交给网关）；一次工具调用的请求级 context，只在本次调用内交给操作入口的请求级提交 | `IdentityScope`；认证后的身份；actor API 本身（只经门面取得的操作入口提交） |
+| MCP 入口（`mcp_server`，操作适配器） | 认证前的声明与凭据（只交给网关）；一次工具调用的请求级 context，只在本次调用内交给 Import Bus 服务的落位与操作入口的请求级提交 | `IdentityScope`；认证后的身份；actor API 本身（只经门面取得的操作入口提交） |
 | 授权点：注册入口、能力层、任务进程的阶段检查、Import Bus 服务 | 访问 context、操作授权者（注册入口作为进程 context 的运行持有者，另持认证网关；进程线程管理另经线程 context 生命周期端口派生与撤销线程 context） | 调用方另行传入的 `IdentityScope` |
-| Import Bus 编排器（`ImportBusIngestor`） | 导入授权交出的 `IdentityScope` 与 principal 标识，只在本次导入请求的调用链内使用：推导 `interaction_id`，经公共路由交给 Gateway 与 Patchouli | 访问 context、认证网关、操作授权者；不把 scope 写入记录、事件或后台任务 |
+| Import Bus 编排器（`ImportBusIngestor`） | 导入授权交出的 `IdentityScope` 与 principal 标识，只在本次导入或落位请求的调用链内使用：推导 `interaction_id`，经公共路由交给 Gateway 与 Patchouli；落点登记只保存 prepare 的结果（话题与 Workspace 归属），不保存 scope | 访问 context、认证网关、操作授权者；不把 scope 写入记录、事件或后台任务 |
 | Gateway 与 Patchouli 公共边界 | 授权点组装后传入的 `IdentityScope`；Patchouli 立即拆分归属与发起者 | 访问 context、认证网关、操作授权者 |
 | Patchouli 内部、引擎、存储 | 独立的 `WorkspaceIdentity` 与需要时的 `ActorIdentity` | `IdentityScope`、访问 context、认证网关、操作授权者 |
 | 进程记录 | 进程 context 与进程元数据；事件绑定载体中的只读观测标签 | 身份字段副本 |
@@ -117,7 +117,7 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 
 | 方法 | 用途 |
 |:---|:---|
-| `authorize_operation(access, operation, target_workspace)` 与 actor 形式 `authorize_actor_operation(access, operation)` | actor 操作授权；actor 形式先确认是未撤销的执行线程或请求级 context（进程 context 只服务阶段调用，以 `ScopeRequiredError` 拒绝），再以驻留 Workspace 为目标执行前者。actor API 的全部方法都用它，不按方法区分 context 的种类；请求级 context 只能检索与读取，由操作入口的请求级提交保证（[能力层](./capability.md#6-操作入口)） |
+| `authorize_operation(access, operation, target_workspace)` 与 actor 形式 `authorize_actor_operation(access, operation)` | actor 操作授权；actor 形式先确认是未撤销的执行线程或请求级 context（进程 context 只服务阶段调用，以 `ScopeRequiredError` 拒绝），再以驻留 Workspace 为目标执行前者。actor API 的全部方法都用它，不按方法区分 context 的种类；请求级 context 可提交的操作由操作入口的请求级提交决定（[能力层](./capability.md#6-操作入口)）。写入与更新给出派发话题时以 `request_level=True` 授权，只接受请求级 context |
 | `authorize_root(access, target_workspace)` | root 授权 |
 | `authorize_stage(access, target_workspace)` | 任务进程的阶段授权 |
 | `authorize_import(access, target_workspace)` | 导入授权：返回 `ImportAuthorization`，即本次请求的 `IdentityScope` 与认证通过的 principal 标识 |
@@ -178,7 +178,7 @@ work queue、ordering/idempotency key、task/run registry、scheduler、runtime 
 
 导入 `POST /api/v1/import/turns` 也是 Agent action：server 以 (user, 请求体中的具体 Agent) 声明、请求声明的 principal、凭据与 `import` adapter 经网关取得请求级 context，请求结束（含失败）时撤销；Import Bus 服务以导入授权取得本次请求的 `IdentityScope`，经公共路由交给 Gateway 与 Patchouli。提交的交互归属取目标 Workspace，发起者取认证通过的 (user, Agent)。外部来源与外部会话标识只用于按会话串行与推导 `interaction_id`，不进入身份，也不因此建立第二套 Workspace 资源状态（[Import Bus](../system/import-bus.md)）。下游不使用进程当前 Workspace 推断资源归属。
 
-MCP 工具调用同样是 Agent action：MCP 入口以 (user, `X-Agent-ID` 中的具体 Agent) 声明、请求声明的 principal、凭据与 `mcp` adapter 经网关取得一份请求级 context，经操作入口的请求级提交进入 actor API，actor API 以 `authorize_actor_operation` 组装本次调用的 `IdentityScope`；调用结束（含失败）时撤销。工具参数不作为身份来源（[MCP 记忆访问](../contracts/mcp.md)）。
+MCP 工具调用同样是 Agent action：MCP 入口以 (user, `X-Agent-ID` 中的具体 Agent) 声明、请求声明的 principal、凭据与 `mcp` adapter 经网关取得一份请求级 context，经操作入口的请求级提交进入 actor API，actor API 以 `authorize_actor_operation` 组装本次调用的 `IdentityScope`；写入与更新之前，同一份 context 先经 Import Bus 服务的导入授权为这一轮落位；调用结束（含失败）时撤销。工具参数与连接器补上的轮次信息都不作为身份来源（[MCP 记忆访问](../contracts/mcp.md)）。
 
 ### 6.2 后台任务和重试
 
@@ -197,7 +197,7 @@ Interaction codec 为 v6，generation codec 的 `schema_version` 为字符串 `"
 ## 8. 已知限制
 
 - root 只由 actor 是否为保留的 `system` 判定；能声明 `system` 的来源由接入登记的 `allow_system_actor` 逐个限定（默认不能），当前只有 HTTP server 与 Profile 注入脚本可以，外部 harness 不能（[认证与访问登记](./authentication.md#1-两阶段认证)）。HTTP 请求头中的用户身份不做证明，因此能连到 server 的程序都能经管理路由以 `system` 声明进入 root API，这沿用本地单用户部署的信任假设；
-- principal 不与 Agent 绑定：持有某个外部 principal 凭据的调用方可以声明该用户的任意具体 Agent，落到对应的访问记录；请求级 context 只能检索与读取，写入、RUN 与 CALL 仍需要执行线程；
+- principal 不与 Agent 绑定：持有某个外部 principal 凭据的调用方可以声明该用户的任意具体 Agent，落到对应的访问记录；请求级 context 只能检索、读取、写入与更新，RUN 与 CALL 仍需要执行线程；
 - Patchouli 的交互提交（含状态查询与等待）与主动记忆意图提交路由只接收 `IdentityScope`、不做操作授权。交互提交路由唯一的生产调用方是 Import Bus，在导入授权之后调用；意图提交路由唯一的生产调用方是 actor API，在 `memory.write`/`memory.update` 授权之后调用。新的调用方必须在自己的授权点先完成授权；
 - 第 3 阶段只接受目标等于驻留 Workspace，跨 Workspace 的授权模型尚不存在；后续方向见[身份与访问体系 Idea](../ideas/identity-and-access-model.md)。
 

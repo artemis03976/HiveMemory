@@ -84,11 +84,11 @@ InteractionPayload（构造时已校验一轮的不变量）
 
 主动流程由任务进程封口 payload、Patchouli finalize 原样提交；Import Bus 以同一封口函数封口导入的整轮记录，经公开提交路由提交。两者先进入同一 `InteractionSubmissionQueue`，再由 `PerceptionFamiliar.apply_interaction()` 编排 `MemoryPerceptionEngine.build_block()`（纯算法）、占用检查与 Store 写入，不存在导入专用的扁平文本主链，也不存在中间感知层。应用在写入后即完成，不执行折叠；话题需要折叠时，由提交队列在这次应用之后另行排入折叠项。
 
-结构化摄入的边界来自外部 harness 的真实事件形态：Import Bus 接收的一轮整轮记录中，用户消息由服务端写为序号 0 的事件，其后是助手正文、思考与工具调用三类事件。两种来源写出的事件同形，来源之间真实存在的差异只体现为取值：调用 HiveMemory 能力（Alice 的 MTP 指令、外部 harness 经 HiveMemory MCP 工具的检索与读取）带动词与作用对象，外部工具带工具名，下游不判断来源。思考、工具调用与工具返回必须以 `TurnEvent` 保留，不能为了生成一段看似完整的 transcript 而提前丢弃。
+结构化摄入的边界来自外部 harness 的真实事件形态：Import Bus 接收的一轮整轮记录中，用户消息由服务端写为序号 0 的事件，其后是助手正文、思考与工具调用三类事件。两种来源写出的事件同形，来源之间真实存在的差异只体现为取值：调用 HiveMemory 能力（Alice 的 MTP 指令、外部 harness 经 HiveMemory MCP 工具的检索、读取、写入与更新）带动词与作用对象，外部工具带工具名，下游不判断来源。思考、工具调用与工具返回必须以 `TurnEvent` 保留，不能为了生成一段看似完整的 transcript 而提前丢弃。
 
 对事件集的解读只在感知层进行一次：`engines/perception/material.py` 把一轮事件渲染为感知层唯一的材料文本，记忆生成视图（[记忆生成](./generation.md#21-材料与渲染)）、LLM 接力摘要与逻辑块的 token 统计都使用它，按同一个工具结果上限得到同样的材料。入口层与封口不另行构造第二套摘要，否则历史重放、主动生成与导入归档会拥有互相漂移的事实来源。
 
-目标话题属于提交前的 Gateway 落位决定，而不是应用时重新计算的感知结果。任务进程在 Gateway 阶段取得落位，并在 prepare 时建立新话题；Import Bus 在提交前以 `PASSIVE_MEMORY` 为需要提交的每一轮调用 Gateway，把落位作为 `requested_topic_id` 提交。目标为 `NEW_TOPIC` 时，Perception 以提交携带的 `new_topic_title`/`new_topic_summary` 建立话题，缺省时使用默认标题“新建话题”与空摘要；后续轮次的落位依赖候选话题的标题与摘要，因此 Import Bus 新建话题时带上 Gateway 给出的标题与摘要。应用失败的交互没有写入任何话题，重新提交时按提交方这一次交来的落位应用。Import Bus 拥有外部会话的串行、查重与确认，Gateway 只负责入口判断，两者都不持有话题内容。
+目标话题属于提交前的 Gateway 落位决定，而不是应用时重新计算的感知结果。任务进程在 Gateway 阶段取得落位，并在 prepare 时建立新话题；Import Bus 在提交前以 `PASSIVE_MEMORY` 为需要提交的每一轮调用 Gateway，把落位作为 `requested_topic_id` 提交。目标为 `NEW_TOPIC` 时，Perception 以提交携带的 `new_topic_title`/`new_topic_summary` 建立话题，缺省时使用默认标题“新建话题”与空摘要；后续轮次的落位依赖候选话题的标题与摘要，因此 Import Bus 新建话题时带上 Gateway 给出的标题与摘要。外部 harness 经 MCP 写入时，Import Bus 在写入时经 prepare 预建这一轮的话题（以同样的标题与摘要），这一轮回流时以该话题的真实 id 提交（[Import Bus](../system/import-bus.md#47-写入时落位)）。应用失败的交互没有写入任何话题，重新提交时按提交方这一次交来的落位应用。Import Bus 拥有外部会话的串行、查重与确认，Gateway 只负责入口判断，两者都不持有话题内容。
 
 形成 settlement payload 时，话题接收到的全部交互都进入结算，不在入口筛选。入口只看到用户消息与已有话题上下文，看不到这一轮的回答、工具调用与结果，“请提交”“继续”这类短消息背后常是整轮实现；按入口判断筛选会把这些轮次整轮丢出生成，交互 Artifact 也不再保存它们。一轮是否有长期价值，由生成阶段在完整材料上判断；Gateway 的决定只提供话题落位，不携带价值信号。
 

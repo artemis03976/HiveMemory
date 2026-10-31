@@ -164,6 +164,8 @@ def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
         _log_call("memory_read", headers, started, f"unresolved={len(unresolved)}")
         return _text_result(text)
 
+    # Claude Code 连接器的 PreToolUse hook 按参数名填写 turn，回流时把它从参数中去掉；
+    # 改名时同步修改连接器。
     @server.tool(
         name="memory_write",
         description=_WRITE_DESCRIPTION,
@@ -190,6 +192,8 @@ def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
         _log_call("memory_write", headers, started, f"intent_id={pending.intent_id}")
         return _text_result(_ACCEPTED.format(operation="写入", alias=pending.pending_alias))
 
+    # Claude Code 连接器按参数名把 alias 归一化为 UPDATE 的作用对象，turn 的处理与
+    # memory_write 相同；改名时同步修改它的识别表。
     @server.tool(
         name="memory_update",
         description=_UPDATE_DESCRIPTION,

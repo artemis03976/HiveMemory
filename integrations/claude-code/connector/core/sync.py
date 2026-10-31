@@ -65,6 +65,30 @@ MAX_SERVER_ERRORS = 3
 MAX_ROUNDS = 10
 
 
+def turn_info(source: str, turn: TranscriptTurn, previous: list[TranscriptTurn]) -> dict[str, Any]:
+    """一轮的来源、外部标识、用户消息与之前几轮。
+
+    导入请求与写入前补上的轮次信息共用这一份：服务端由前三项推导出同一个
+    交互标识，并以同样的输入为这一轮路由。``previous`` 是该轮之前最近的
+    若干轮，按先后排列。
+    """
+    return {
+        "source": source,
+        "external_conversation_id": turn.conversation_id,
+        "external_turn_id": turn.turn_id,
+        "user_message": turn.user_message,
+        "recent_turns": [
+            {
+                "user_message": earlier.user_message[:RECENT_TEXT_LIMIT],
+                "assistant_text": (earlier.assistant_final_text or "")[:RECENT_TEXT_LIMIT],
+                # 服务端据此查出上一轮实际落位的话题，话题路由失败时续接。
+                "external_turn_id": earlier.turn_id,
+            }
+            for earlier in previous
+        ],
+    }
+
+
 @dataclass
 class SyncReport:
     """一次同步的结果：确认与拒绝的轮数，以及提前停止的原因。"""
@@ -354,21 +378,9 @@ class TranscriptSync:
         self, turn: TranscriptTurn, outcome: Outcome, context: list[TranscriptTurn]
     ) -> dict[str, Any]:
         return {
-            "source": self._reader.source,
-            "external_conversation_id": turn.conversation_id,
-            "external_turn_id": turn.turn_id,
+            **turn_info(self._reader.source, turn, context),
             "agent_id": self._config.agent_id,
             "outcome": outcome,
-            "user_message": turn.user_message,
             "events": turn.events,
             "model_used": turn.model_used,
-            "recent_turns": [
-                {
-                    "user_message": previous.user_message[:RECENT_TEXT_LIMIT],
-                    "assistant_text": (previous.assistant_final_text or "")[:RECENT_TEXT_LIMIT],
-                    # 服务端据此查出上一轮实际落位的话题，话题路由失败时续接。
-                    "external_turn_id": previous.turn_id,
-                }
-                for previous in context
-            ],
         }

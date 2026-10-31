@@ -25,9 +25,9 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 
 - **主动模式（Active mode）**：通过 `POST /api/v1/chat` 提供 SSE 流式对话。每次请求经 workspace 的唯一注册入口认证并登记为任务进程，由 `TaskProcessService` 驱动 Gateway 分析、Patchouli prepare/finalize 与经 CPU 端口的 Alice Agent 执行；`POST /api/v1/chat/stop` 停止进程，客户端断连按停止处理
 - `POST /api/v1/chat` 支持在请求体中携带 `generation_options`（`model` / `temperature` / `top_p` / `max_tokens`）作为单次对话覆盖参数，不会写入全局配置文件
-- **Import Bus（外部 harness 导入）**：通过 `POST /api/v1/import/turns` 导入外部 harness 一轮已结束交互的完整记录（用户消息、回复、思考、外部工具的调用与结果、结局）。请求经统一认证网关与导入授权，由 System 层的 Import Bus 编排 Gateway 话题落位、共用封口与 Patchouli 感知提交，交互应用完成后才确认；它只向记忆网络输入，不检索记忆，也不返回记忆上下文
-- **MCP 记忆访问**：`POST /mcp` 是外部 harness 使用的 MCP 端点（streamable HTTP，无状态，只接受本机地址），提供只读工具 `memory_search` 与 `memory_read`。每次工具调用经统一认证网关取得一份请求级访问 context，按 Workspace 访问登记的白名单逐次授权，不建任务进程
-- **Claude Code 插件**：`integrations/claude-code/`（插件 `hivememory-connector`，本地 marketplace `hivememory-local`，只用 Python 标准库）同时提供对话回流与记忆访问。连接器在轮次结束与会话开始、结束时把 Claude Code 会话记录中已结束的轮次导入 HiveMemory，网络提交在脱离 Claude Code 的后台进程中完成；插件声明的 MCP server 让 Claude Code 的 agent 检索与读取记忆。两者都以 Claude Code 自己的接入登记 `harness:claude-code` 认证，HiveMemory 一侧的 `HIVEMEMORY_CLAUDE_CODE_TOKEN` 与 Claude Code 一侧的 `HIVEMEMORY_TOKEN` 需配置同一份凭据；`configs/workspace_actors.yaml` 为 Agent `claude_code` 只登记了检索与读取。安装与配置见[安装与启动](docs/help/setup.md)
+- **Import Bus（外部 harness 导入）**：通过 `POST /api/v1/import/turns` 导入外部 harness 一轮已结束交互的完整记录（用户消息、回复、思考、外部工具的调用与结果、结局）。请求经统一认证网关与导入授权，由 System 层的 Import Bus 编排 Gateway 话题落位、共用封口与 Patchouli 感知提交，交互应用完成后才确认；外部 harness 写入记忆时，它为进行中的一轮就地落位，这一轮回流时沿用落点；它只向记忆网络输入，不检索记忆，也不返回记忆上下文
+- **MCP 记忆访问**：`POST /mcp` 是外部 harness 使用的 MCP 端点（streamable HTTP，无状态，只接受本机地址），提供检索、读取、写入与更新四个工具（`memory_search`、`memory_read`、`memory_write`、`memory_update`）。每次工具调用经统一认证网关取得一份请求级访问 context，按 Workspace 访问登记的白名单逐次授权，不建任务进程；写入与更新与主动链路共用同一意图登记与生成链路，返回 pending alias
+- **Claude Code 插件**：`integrations/claude-code/`（插件 `hivememory-connector`，本地 marketplace `hivememory-local`，只用 Python 标准库）同时提供对话回流与记忆访问。连接器在轮次结束与会话开始、结束时把 Claude Code 会话记录中已结束的轮次导入 HiveMemory，网络提交在脱离 Claude Code 的后台进程中完成；插件声明的 MCP server 让 Claude Code 的 agent 检索、读取、写入与更新记忆，`PreToolUse` hook 在写入与更新前补上当前一轮的信息。两者都以 Claude Code 自己的接入登记 `harness:claude-code` 认证，HiveMemory 一侧的 `HIVEMEMORY_CLAUDE_CODE_TOKEN` 与 Claude Code 一侧的 `HIVEMEMORY_TOKEN` 需配置同一份凭据；`configs/workspace_actors.yaml` 为 Agent `claude_code` 登记了检索、读取、写入与更新。安装与配置见[安装与启动](docs/help/setup.md)
 - **会话**：支持新建、恢复、重命名与删除；Alice 按模型预算自动精简旧工具结果并生成接力摘要，原始对话完整保留，可查看摘要与压缩边界；有输出的取消与失败轮次保留结局。会话与检查点仅在后端进程内保存，重启后消失；Topic 独立作为记忆材料。
 - **系统指令**：Gateway 只解析命令，识别为命令的消息以命令终态结束、不进入普通对话；当前版本不执行内置命令。
 
@@ -125,7 +125,7 @@ HiveMemory 提供一套进程内协议，让 Worker Agent 可以在生成过程�
 | `/api/v1/sessions` | GET / POST | 列出 / 新建会话 |
 | `/api/v1/sessions/{session_id}` | GET / PATCH / DELETE | 读取全量历史 / 重命名 / 删除会话 |
 | `/api/v1/import/turns` | POST | 导入外部 harness 一轮已结束的交互（Import Bus） |
-| `/mcp` | POST | 外部 harness 经 MCP 工具检索与读取记忆 |
+| `/mcp` | POST | 外部 harness 经 MCP 工具检索、读取、写入与更新记忆 |
 | `/api/v1/memories` | GET / POST | 语义搜索或列出记忆 / 创建记忆 |
 | `/api/v1/memories/{memory_id}` | GET / PATCH / DELETE | 读取 / 编辑 / 删除单条记忆 |
 | `/api/v1/memories/{memory_id}/feedback` | POST | 提交记忆反馈 |

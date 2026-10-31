@@ -23,7 +23,7 @@ related_docs:
   - docs/system/configuration.md
   - docs/system/import-bus.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # 认证与访问登记
@@ -79,7 +79,7 @@ last_reviewed: 2026-10-30
 | principals | Claude Code 的 principal `harness:claude-code` | kind `harness`，adapter `mcp` 与 `import`，`credential_env: HIVEMEMORY_CLAUDE_CODE_TOKEN`；不能声明 `system` |
 | workspace_actors | 用户 `default` 在 `main_workspace` 的用户级记录（所有具体 Agent） | 六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call` |
 | workspace_actors | 用户 `default` 的 `system` | 只登记准入，不配置 operation |
-| workspace_actors | 用户 `default` 的 `claude_code`（Claude Code 导入与 MCP 访问声明的 Agent） | 精确记录，`allowed_operations` 为 `memory.read` 与 `memory.search` |
+| workspace_actors | 用户 `default` 的 `claude_code`（Claude Code 导入与 MCP 访问声明的 Agent） | 精确记录，`allowed_operations` 为 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` |
 
 `system` 记录只回答“能否进入”：root 授权不读取白名单，`system` 也因白名单为空而不能经操作入口执行任何 actor 操作，管理员的直接通道不会走到带缓存的 actor 读取。`claude_code` 的精确记录只获准检索与读取：导入授权只校验准入与目标、不读取白名单（[身份与授权](./identity-and-authorization.md#4-操作授权)），MCP 的每次工具调用按这份白名单逐次授权；精确记录优先于用户级记录，这个 Agent 因此不继承用户级的其余四项 actor 操作。
 
@@ -157,7 +157,7 @@ context 只属于一次运行，没有固定有效期，只在以下时点失效
 - 认证网关注入任务进程的注册入口，并经 `HiveMemorySystem.access_gateway` 暴露给 server 与 MCP 入口；
 - 操作授权者注入 root API 与 actor API 的各服务、操作入口、注册入口、执行器、CPU 分配与 System 的 Import Bus 服务；CPU 分配另注入读取视图的 Profile 读取端口；
 - 进程表由组合根在构建 actor API 之前创建，同时交给注册入口与进程线程管理 `ProcessThreads`；`ProcessThreads` 以认证网关作为线程 context 生命周期端口、以操作授权者读取运行绑定与快照，注入执行器（主线程的派生与兜底结束）、操作入口与 actor API（线程端口 `ExecutionThreadTable`，位于 `workspace/thread_ports.py`，不属于公共契约），能力层与任务进程仍互不导入；
-- `WorkspaceOperationEntry` 由组合根以 actor API 与线程端口装配，公共 `OperationEntry` 注入 `AliceCPU`，同一个入口经门面的 `operation_entry` 交给 MCP 入口，只用其请求级提交；actor API 只由操作入口持有，门面不暴露它；
+- `WorkspaceOperationEntry` 由组合根以 actor API 与线程端口装配，公共 `OperationEntry` 注入 `AliceCPU`，同一个入口经门面的 `operation_entry` 交给 MCP 入口，只用其请求级提交；MCP 入口另经门面的 `import_bus_service` 在写入与更新前为这一轮落位；actor API 只由操作入口持有，门面不暴露它；
 - Patchouli 与 Gateway 不注入任何认证或授权对象。
 
 停止时认证网关最先关闭、全部 context 最后撤销，见 [Workspace](./README.md#52-停止)。

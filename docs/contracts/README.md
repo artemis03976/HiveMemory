@@ -5,7 +5,7 @@ owner: system
 scope: cross-subsystem-contracts
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-31
 ---
 
 # Contracts
@@ -19,7 +19,7 @@ Workspace 是这些交接的资源归属坐标；本目录只记录契约需要�
 - [子系统公共契约](./subsystem-contracts.md)：System、Gateway、Patchouli、Alice 的生命周期、输入输出和协作顺序；
 - [公开路由与事件](./routes-and-events.md)：`GlobalSystemBus` 路由、业务事件和 RuntimeEvent 语义；
 - [Memory Tool Protocol](./mtp.md)：MTP 语法、动词、权限、响应和运行时边界；
-- [MCP 记忆访问](./mcp.md)：外部 harness 经 MCP 检索与读取记忆的端点、身份交接、工具、错误与回声标记；
+- [MCP 记忆访问](./mcp.md)：外部 harness 经 MCP 检索、读取、写入与更新记忆的端点、身份交接、工具、落位、错误与回声标记；
 - [跨边界错误模型](./error-model.md)：业务终态、结构化错误、warning、控制异常与降级。
 
 ## 使用规则

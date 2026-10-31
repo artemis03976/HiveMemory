@@ -29,7 +29,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # 跨边界错误模型
@@ -202,6 +202,8 @@ Import Bus 在交互应用完成之后才确认，失败按“重发能否得到
 
 请求进入 Import Bus 之前的拒绝沿用 server 与访问边界的分类：请求体超过 `import_bus.max_request_bytes` 在框架解析请求体之前以 413 `request.body_too_large` 拒绝，过大且不是合法 JSON 的请求不会落成 422；请求校验失败为 422，缺少 principal 声明（`request.principal_required`）、Agent 缺失或为 `system` 为 400，凭据缺失或不一致（`invalid_credential`）与其他未获准入为 403，认证网关已关闭为 503（第 4.4 节）。其中只有认证网关关闭的 503 可以稍后重发，其余拒绝重发也不会改变结果。
 
+外部 harness 经 MCP 写入与更新之前，Import Bus 为这一轮落位，失败使用同一类型：Gateway 整体抛出可恢复异常为 `gateway_unavailable`，编排器关闭中为 `shutting_down`，这一轮已经提交、等待应用超时仍在应用时为 `apply_pending`。三者都直接交给等待中的写入方，写入方稍后重试即可，不发出 `import.turn.deferred`（[Import Bus](../system/import-bus.md#47-写入时落位)）。
+
 **提交队列的拥塞**：Patchouli 的公开提交路由在提交队列容量已满（`WorkQueueCapacityError`）或已停止（`WorkQueueStoppedError`）时抛出 `InteractionAdmissionUnavailableError`（`patchouli.interaction.admission_unavailable`，reason `capacity_rejected` / `queue_stopped`），表示队列没有接管这次提交；Import Bus 把它转为 `queue_unavailable`，因此这两种拥塞以 503 返回，不落入 500。`InteractionAdmissionUnavailableError` 本身没有 HTTP 映射，由消费它的一方翻译。
 
 **Gateway 的失败**：Gateway 各决策步骤的失败由 Gateway 自身按 step fallback 兜底，照常返回一个决定（话题路由失败时续接上一轮的话题，否则新话题），导入按兜底结果继续。只有 Gateway 整体抛出的可恢复异常——`TimeoutError`、`GatewayTimeoutError`、`StorageOfflineError`、`StorageReadError`、`ResourceUnavailableError`——转为 `gateway_unavailable`。未知错误、授权拒绝、契约违约与原生取消原样传播，不能被“稍后重发”掩盖。
@@ -253,7 +255,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 - 缺少行为许可属于授权失败，不是身份认证失败；空白名单可以进入，但所有 actor 操作都被拒绝。未知 operation 在访问登记装载期失败。`operation_not_allowed` 的 `details.operation` 给出被拒绝的 actor 操作；root 授权、任务进程的阶段授权与导入授权不检查 operation，它们的目标拒绝、`root_required` 与 `agent_required` 不附带 `operation`。阶段授权与导入授权只校验准入与目标，因此不会出现 `operation_not_allowed`。
 - 访问 context 没有固定有效期，不存在“过期”拒绝；认证网关关闭只拒绝新认证，已签发的 context 照常可用，直到被撤销。
 - 凭据错误与未登记分开报告（`invalid_credential` 与 `unknown_principal`），用户才能区分“没登记”和“凭据不对”；两者都不泄露凭据本身。外部入口缺少 principal 声明时在入口以 400 `request.principal_required` 拒绝，不经网关。
-- HTTP 映射由 server 的异常处理器统一完成（`server/error_handlers.py`），响应体包含稳定机器码 `error`、安全 `detail` 与可选 `reason`，不暴露接入凭据。MCP 入口复用同一投影，把结果写入 `isError` 的工具结果（[MCP 记忆访问](./mcp.md#5-错误)）。
+- HTTP 映射由 server 的异常处理器统一完成（`server/error_handlers.py`），响应体包含稳定机器码 `error`、安全 `detail` 与可选 `reason`，不暴露接入凭据。MCP 入口复用同一投影，把结果写入 `isError` 的工具结果；写入与更新缺少连接器补上的轮次信息时，在认证前以 400 `request.turn_required` 拒绝（[MCP 记忆访问](./mcp.md#5-错误)）。
 - 拒绝阶段可观测的最小记录为 principal 标识、Actor/Workspace 安全投影、operation、关联 ID 与拒绝阶段，不记录接入凭据和原始对话。
 
 这些错误表示跨边界拒绝或当前 WorkspaceAsset 生命周期状态，不改变 MTP error/warning 的表达规则；访问错误必须沿 System/application 以原语义传播，不能被通用 `RuntimeError` 捕获包装成服务不可用。Workspace 资源归属、认证/授权模型、opaque ref 和 shutdown 清理的完整语义见[Workspace](../workspace/README.md)。
@@ -262,7 +264,7 @@ actor API 与操作入口的错误保持各自边界：每种 actor 请求缺少
 
 CALL 派生子线程时，被调用方在本 Workspace 没有准入或为保留的 `system`，认证一侧抛 `AdmissionDeniedError`（`actor_not_admitted` / `system_actor_not_allowed`），不签发、不登记子线程；Alice 映射为 `mtp.permission.denied`，文案键 `mtp.call.agent_unavailable`（目标 agent 不可用），与调用方缺少 `agent.call` 时的 `mtp.permission.verb_denied` 区分。子线程试图再派生抛 `ScopeRequiredError`，属于接线缺陷，Koakuma 呈现为 `mtp.system.fault`；冷读期间调用方结束或进程收到停止抛 `ThreadEndedError`（见下文）。
 
-线程已结束时，操作入口、CALL 派生与 actor API 的同步段抛 `ThreadEndedError`（`core.errors`，继承 `DomainError`，由 `workspace.contracts` 重新导出，code 为 `workspace.thread.ended`）：线程的凭据已撤销、线程已结束（子线程随 CALL 返回，或 Actor 阶段收尾），或所属进程已收到停止，都属于这一种生命周期拒绝，六项 actor 操作得到同一种错误。未知请求类型（包括请求级提交收到检索与读取以外的请求）抛 `TypeError`，是接线违规；两者都与表示接线缺陷的 `ScopeRequiredError` 区分。它们没有独立 HTTP API，不新增 HTTP 映射。普通 MTP 与 CALL 将线程结束呈现为 `mtp.system.fault`，文案键 `mtp.system.thread_ended`：原线程已结束，停止操作，不重试或重新获取身份。未知入口异常使用固定系统故障文案，不暴露 cause。线程结束同步撤销线程 context，不取消其他在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 在基础校验之后、登记之前的同步段解析线程，跨越线程结束或停止时拒绝登记；派发开始后持有提交任务直到完成，再传播调用方取消。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
+线程已结束时，操作入口、CALL 派生与 actor API 的同步段抛 `ThreadEndedError`（`core.errors`，继承 `DomainError`，由 `workspace.contracts` 重新导出，code 为 `workspace.thread.ended`）：线程的凭据已撤销、线程已结束（子线程随 CALL 返回，或 Actor 阶段收尾），或所属进程已收到停止，都属于这一种生命周期拒绝，六项 actor 操作得到同一种错误。未知请求类型（包括请求级提交收到它不开放的请求类型，或派发话题与请求类型不符）抛 `TypeError`，是接线违规；两者都与表示接线缺陷的 `ScopeRequiredError` 区分。它们没有独立 HTTP API，不新增 HTTP 映射。普通 MTP 与 CALL 将线程结束呈现为 `mtp.system.fault`，文案键 `mtp.system.thread_ended`：原线程已结束，停止操作，不重试或重新获取身份。未知入口异常使用固定系统故障文案，不暴露 cause。线程结束同步撤销线程 context，不取消其他在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 在基础校验之后、登记之前的同步段解析线程，跨越线程结束或停止时拒绝登记；派发开始后持有提交任务直到完成，再传播调用方取消。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
 
 WRITE/UPDATE 登记后的派发错误携带 `pending_alias` 与 `intent_id`，不暴露内部 cause：
 
@@ -271,7 +273,7 @@ WRITE/UPDATE 登记后的派发错误携带 `pending_alias` 与 `intent_id`，�
 | `IntentDispatchRejectedError` / `workspace.memory.intent.dispatch_rejected` | `mtp.memory.intent_rejected` / agent_fault | 明确未接纳，同步标为 FAILED；失败通知可重复到达 |
 | `IntentDispatchUnknownError` / `workspace.memory.intent.dispatch_unknown` | `mtp.memory.intent_unknown` / system_fault | 保持 MATERIALIZING，不假定未入队；若已接纳，结算仍可推进终态 |
 
-两种错误均在 ACK 之前交给 Agent，中英文文案分别说明拒绝与未知。未知结果只在策略允许 READ 时建议查询已有句柄；没有 READ 能力则明确无法确认，任何情况下都不自动重复 WRITE/UPDATE。总线异常或接纳响应丢失按未知处理；队列停止、容量拒绝、UPDATE 基础丢失及本地意图参数非法按明确拒绝处理。由于 MTP 错误不携带内部 cause，根因只由 actor API 记录日志：总线异常导致的未知结果以 error 级别连同异常堆栈记录，并关联 `intent_id` 与 `pending_alias`，便于排查长期停在 MATERIALIZING 的句柄。
+两种错误均在 ACK 之前交给 Agent，中英文文案分别说明拒绝与未知。外部 harness 经 MCP 提交时，它们与 `PendingUpdateNotAllowedError` 按 HTTP 出口的投影交给调用方：`dispatch_rejected` 为 503、`dispatch_unknown` 为 500、`pending_update_not_allowed` 为 409，文案同样不暴露 cause（[MCP 记忆访问](./mcp.md#5-错误)）。未知结果只在策略允许 READ 时建议查询已有句柄；没有 READ 能力则明确无法确认，任何情况下都不自动重复 WRITE/UPDATE。总线异常或接纳响应丢失按未知处理；队列停止、容量拒绝、UPDATE 基础丢失及本地意图参数非法按明确拒绝处理。由于 MTP 错误不携带内部 cause，根因只由 actor API 记录日志：总线异常导致的未知结果以 error 级别连同异常堆栈记录，并关联 `intent_id` 与 `pending_alias`，便于排查长期停在 MATERIALIZING 的句柄。
 
 引用交付的 citation 使用 `source="workspace.reference_read"`；普通记录失败只记日志、不改变可读结果，取消继续传播，已记录的引用不回滚。因此 RUN 工具失败不会撤销执行前已经完成的正式原子读取计数。
 

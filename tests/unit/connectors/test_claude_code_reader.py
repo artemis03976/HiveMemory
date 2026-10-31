@@ -1,8 +1,9 @@
 """Claude Code 会话记录读取器的单元测试（合成会话记录，不读取真实对话）。
 
 保护的契约：一轮从 ``turnOrigin`` 为 human 的消息开始；助手文本、思考、工具
-调用与工具结果映射为导入事件；本插件自身的 MCP 记忆工具归一化为 SEARCH、READ
-能力调用，不带调用名；
+调用与工具结果映射为导入事件；本插件自身的 MCP 记忆工具归一化为 SEARCH、READ、
+WRITE、UPDATE 能力调用，不带调用名与 hook 补上的轮次信息；插件清单、hooks 的
+matcher 与连接器常量一致；
 子代理、元条目、压缩摘要、注入的内容、系统条目与不认识的条目跳过；中断标记
 结束一轮；重复写入的块按消息与块位置去重；只读完整行；游标之前的条目不形成
 轮次。
@@ -13,7 +14,12 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-from connector.claude_code.reader import MCP_SERVER_NAME, PLUGIN_NAME, ClaudeCodeReader
+from connector.claude_code.reader import (
+    MCP_SERVER_NAME,
+    PLUGIN_NAME,
+    ClaudeCodeReader,
+    plugin_tool_name,
+)
 from connector.core.config import PRINCIPAL_ID
 
 from tests.unit.connectors.transcripts import (
@@ -95,8 +101,9 @@ def test_unrecorded_results_leave_calls_without_outcome_and_stray_results_are_sk
 
 
 def test_only_this_plugins_memory_tools_become_capability_calls(tmp_path):
-    """本插件的检索与读取写动词与作用对象、不带调用名；其他 server 的同名工具、普通工具与
-    作用对象不是 alias 列表的读取写工具名，后者若写成 READ 会让服务端拒绝整轮。
+    """本插件的记忆工具写动词与作用对象、不带调用名与轮次信息；其他 server 的同名工具、
+    普通工具与作用对象形状不对的读取、更新写工具名，后者若写成 READ、UPDATE 会让服务端
+    拒绝整轮。
 
     调用名固定为 Claude Code 文档给出的格式，拼名规则出错时这里失败。
     """
@@ -119,6 +126,21 @@ def test_only_this_plugins_memory_tools_become_capability_calls(tmp_path):
             "toolu-5",
             "mcp__plugin_hivememory-connector_hivememory__memory_read",
             {"aliases": "fact_a"},
+        ),
+        (
+            "toolu-6",
+            "mcp__plugin_hivememory-connector_hivememory__memory_write",
+            {"content": "部署改为手动", "title": "部署", "turn": {"external_turn_id": "p1"}},
+        ),
+        (
+            "toolu-7",
+            "mcp__plugin_hivememory-connector_hivememory__memory_update",
+            {"alias": "deploy_flow", "instruction": "改为手动", "turn": {"external_turn_id": "p1"}},
+        ),
+        (
+            "toolu-8",
+            "mcp__plugin_hivememory-connector_hivememory__memory_update",
+            {"alias": ["deploy_flow"], "instruction": "改为手动", "turn": {}},
         ),
     ]
     for index, (tool_id, name, tool_input) in enumerate(calls):
@@ -166,18 +188,43 @@ def test_only_this_plugins_memory_tools_become_capability_calls(tmp_path):
             "tool_name": "mcp__plugin_hivememory-connector_hivememory__memory_read",
             "tool_args": {"aliases": "fact_a"},
         },
+        {
+            "kind": "tool_call",
+            "action_id": "toolu-6",
+            "verb": "WRITE",
+            "tool_args": {"content": "部署改为手动", "title": "部署"},
+        },
+        {
+            "kind": "tool_call",
+            "action_id": "toolu-7",
+            "verb": "UPDATE",
+            "targets": ["deploy_flow"],
+            "tool_args": {"instruction": "改为手动"},
+        },
+        {
+            "kind": "tool_call",
+            "action_id": "toolu-8",
+            "tool_name": "mcp__plugin_hivememory-connector_hivememory__memory_update",
+            "tool_args": {"alias": ["deploy_flow"], "instruction": "改为手动"},
+        },
     ]
 
 
 def test_connector_constants_match_plugin_declarations():
-    """标记依赖插件名与 server 名，导入依赖 principal：插件清单或 .mcp.json 改名时这里失败。"""
+    """标记依赖插件名与 server 名，导入依赖 principal，补轮次信息依赖 hooks 的 matcher：
+    插件清单、.mcp.json 或 hooks.json 改名时这里失败。"""
     plugin_root = Path(__file__).resolve().parents[3] / "integrations" / "claude-code"
     manifest = json.loads((plugin_root / ".claude-plugin" / "plugin.json").read_text())
     servers = json.loads((plugin_root / ".mcp.json").read_text())["mcpServers"]
+    hooks = json.loads((plugin_root / "hooks" / "hooks.json").read_text())["hooks"]
 
     assert manifest["name"] == PLUGIN_NAME
     assert list(servers) == [MCP_SERVER_NAME]
     assert servers[MCP_SERVER_NAME]["headers"]["X-Principal-ID"] == PRINCIPAL_ID
+    [pre_tool_use] = hooks["PreToolUse"]
+    assert pre_tool_use["matcher"] == "|".join(
+        plugin_tool_name(tool) for tool in ("memory_write", "memory_update")
+    )
 
 
 def test_next_prompt_closes_the_previous_turn_at_its_line(tmp_path):

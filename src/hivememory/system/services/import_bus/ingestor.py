@@ -133,6 +133,9 @@ class ImportBusIngestor:
 
         第一次落位以与导入相同的输入与续接规则做 PASSIVE_MEMORY 路由，再经
         Patchouli prepare（关闭检索）准备话题，新话题在此预建，然后登记落点。
+        这一轮已经回流并应用时（后台运行的子代理可能在这一轮结束、回流之后
+        才写入），直接返回它实际落位的话题，不再路由，也不登记落点；已经提交
+        但仍在应用时以 ``apply_pending`` 交回，写入方稍后重试。
         Gateway 整体抛出的可恢复异常与关闭中以 ``ImportBusUnavailableError``
         交回；写入正等待这个结果，失败直接交给调用方，不记为导入推迟。prepare
         失败时由 Patchouli 清理它预建的空话题，异常原样传播，不登记落点。
@@ -142,6 +145,18 @@ class ImportBusIngestor:
             placement = self._placements.get(interaction_id)
             if placement is not None:
                 return placement.topic_id
+            status = await self._bus.request(
+                PatchouliRoutes.INTERACTION_STATUS,
+                identity_scope=identity_scope,
+                interaction_id=interaction_id,
+            )
+            # 只有已应用的轮次带真实落点。
+            if status is not None and status.topic_id is not None:
+                return status.topic_id
+            if status is not None and status.state == "pending":
+                # 这一轮已经提交、等待应用超时，落点要等应用完成才确定；写入方稍后
+                # 重试时它已应用。此时重新路由会让写入与这一轮落在不同的话题。
+                raise ImportBusUnavailableError(reason="apply_pending")
             decision = await self._request_gateway_decision(turn, identity_scope, principal_id)
             placement = await self._bus.request(
                 PatchouliRoutes.PREPARE_AGENT_RUN,

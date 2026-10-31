@@ -17,8 +17,9 @@ Patchouli 的 prepare 是边界之外的协作者，以确定性的替身给出�
 - 关闭后拒绝新导入与门外等待的导入，并等待在途导入结束；
 - 在途轮次第一次落位只路由一次并准备话题，再次落位返回同一落点；已落位的
   轮次回流时不再路由、以落点话题提交；落点在提交被接纳前保留，落点话题已
-  不存在时应用失败，重发时重新路由；尚未回流的上一轮以落点续接；落位时
-  Gateway 的可恢复异常交给调用方。
+  不存在时应用失败，重发时重新路由；尚未回流的上一轮以落点续接；已回流的
+  轮次再落位时沿用它应用后的话题，仍在应用时交回可重试错误；落位时 Gateway
+  的可恢复异常交给调用方。
 """
 
 from __future__ import annotations
@@ -663,6 +664,39 @@ async def test_placement_is_kept_until_its_submission_is_accepted() -> None:
     assert rejected == [{"reason": "queue_unavailable"}] * 2
     # 第一轮导入与落位各路由一次，两次回流都沿用落点。
     assert len(harness.gateway_calls) == 2
+
+
+@pytest.mark.asyncio
+async def test_placement_after_the_turn_was_imported_returns_its_applied_topic() -> None:
+    """这一轮回流之后才到达的写入（后台子代理）沿用它应用后的话题，不再路由与准备话题。"""
+    async with _harness() as harness:
+        await harness.ingest(_turn())
+        topic_id = await harness.place(_in_flight())
+
+    assert topic_id == "topic-applied"
+    assert len(harness.gateway_calls) == 1
+    assert harness.prepare_calls == []
+
+
+@pytest.mark.asyncio
+async def test_placement_while_the_turn_is_still_applying_is_retryable() -> None:
+    """这一轮已经提交、等待应用超时后到达的写入以 apply_pending 交回，不重新路由与准备话题。"""
+    release = asyncio.Event()
+
+    async def slow_apply(payload, **kwargs):
+        await release.wait()
+        return "topic-applied"
+
+    async with _harness(apply=slow_apply, apply_wait_seconds=0.05) as harness:
+        with pytest.raises(ImportBusUnavailableError):
+            await harness.ingest(_turn())
+        with pytest.raises(ImportBusUnavailableError) as pending:
+            await harness.place(_in_flight())
+        release.set()
+
+    assert pending.value.details == {"reason": "apply_pending"}
+    assert len(harness.gateway_calls) == 1
+    assert harness.prepare_calls == []
 
 
 @pytest.mark.asyncio

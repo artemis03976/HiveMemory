@@ -87,7 +87,7 @@ GenerationContext
 | 外部工具调用（带工具名） | `- TOOL: 工具名 参数`，参数是完整的 JSON；有结局时其后一行 `RESULT: …`，出错时为 `RESULT (error): …` |
 | 无法解析的 MTP 指令 | 不渲染 |
 
-能力调用的规则不区分来源：外部 harness 经 HiveMemory 的 MCP 工具检索与读取时，连接器把调用写成同样的 `SEARCH`、`READ` 与作用对象（[MCP 记忆访问](../contracts/mcp.md)），同一次读取无论来自 Alice 的 MTP 指令还是外部 harness，渲染相同，读取显示所读的 alias。外部工具的结局是对外部系统的观察，是记忆提取的重要事实来源。调用没有结局表示结局没有记录：执行者拿到结果之前被取消，或来源没有记下结果（Claude Code 的会话记录会漏记并行调用的结果），因此渲染不断言调用没有完成。
+能力调用的规则不区分来源：外部 harness 经 HiveMemory 的 MCP 工具检索、读取、写入与更新时，连接器把调用写成同样的 `SEARCH`、`READ`、`WRITE`、`UPDATE` 与作用对象（[MCP 记忆访问](../contracts/mcp.md)），同一次调用无论来自 Alice 的 MTP 指令还是外部 harness，渲染相同：读取显示所读的 alias，显式写入与更新不渲染，Mode A 不会把它们的内容再提取一遍。外部工具的结局是对外部系统的观察，是记忆提取的重要事实来源。调用没有结局表示结局没有记录：执行者拿到结果之前被取消，或来源没有记下结果（Claude Code 的会话记录会漏记并行调用的结果），因此渲染不断言调用没有完成。
 
 一轮交互的内容不受任何总量上限约束：思考、工具参数与一轮的全部条目原样渲染，不降级、不省略。只有单条外部工具结果按 `patchouli.generation.transcript.max_result_chars`（默认 800）截断：工具输出可能是整份文件或日志，其余内容是对话与推理本身，任何一个上限数字都不应截掉一轮的过程。截断保留首尾、省略中段并以 `…[N chars omitted]…` 标出省略的字符数，长输出末尾的报错因此得以保留。
 
@@ -119,13 +119,15 @@ Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记�
 
 ### 3.2 Mode B：主动 WRITE
 
-Alice 的 MTP WRITE 经线程 context 绑定的操作请求进入 workspace 能力层，在共享 `WriteIntentRegistry` 登记 MATERIALIZING 意图，并立即调用 Patchouli 的 `memory_intent.submit`。服务沿用登记的 `intent_id` 与 `pending_alias` 构造内部 `PendingAtomMaterializeTask`，生成队列接纳后才返回 ACK。意图登记与终态由 workspace 持有，正式记忆生成与任务状态由 Patchouli 持有。
+WRITE 经操作请求进入 workspace 能力层，在共享 `WriteIntentRegistry` 登记 MATERIALIZING 意图，并立即调用 Patchouli 的 `memory_intent.submit`。两种来源走同一条链路：Alice 的 MTP WRITE 以线程 context 提交，派发话题是 CPU 分配冻结的本轮话题；外部 harness（plugin 模式）的 `memory_write` 以请求级 context 提交，派发话题是 Import Bus 在写入时为这一轮落位得到的话题，这一轮回流时落在同一话题（[Import Bus](../system/import-bus.md#47-写入时落位)）。服务沿用登记的 `intent_id` 与 `pending_alias` 构造内部 `PendingAtomMaterializeTask`，生成队列接纳后才返回 ACK。意图登记与终态由 workspace 持有，正式记忆生成与任务状态由 Patchouli 持有。
 
-Coordinator 使用话题的 `state_summary` 与过去 N 个 block 作为背景，以 `WriteFocus` 为保存核心。N 由 `patchouli.generation.active_recent_blocks` 配置（默认 5，允许 0），与感知折叠保留轮数无关。派发发生在交互封口前，当前轮不进入背景；新话题为空时只依赖 focus。话题不存在时按空材料生成，话题读取抛错时因尚无任务入队，逐项结算 FAILED 并拒绝。
+Coordinator 使用话题的 `state_summary` 与过去 N 个 block 作为背景，以 `WriteFocus` 为保存核心。N 由 `patchouli.generation.active_recent_blocks` 配置（默认 5，允许 0），与感知折叠保留轮数无关。派发发生在交互封口前，当前轮不进入背景；新话题为空时只依赖 focus。plugin 模式下同样如此：落位预建的新话题在派发时为空，落到已有话题时背景是该话题此前回流的几轮。话题不存在时按空材料生成，话题读取抛错时因尚无任务入队，逐项结算 FAILED 并拒绝。
 
 Extractor 遇到提供商失败（重试耗尽）或输出无法解析时，Mode B 会直接从 WriteFocus 构建 fallback draft，保证明确保存意图不会因为 Librarian LLM 暂时失败而无声丢失；程序错误不进入 fallback，任务按失败收尾。Fallback 仍要经过去重，因而最终可能 CREATE、UPDATE、TOUCH 或 DISCARD；ACK 从未承诺“一定新建一条独立记忆”。
 
 ### 3.3 Mode C：主动 UPDATE
+
+UPDATE 与 WRITE 的两种来源和派发话题规则相同：Alice 的 MTP UPDATE 与外部 harness 的 `memory_update` 都经 actor API 解析可读的正式基础原子后登记并派发。
 
 UPDATE spec 构建时，Coordinator 解析 `UpdateFocus.base_uuid` 并通过 local route 读取现有 MemoryAtom。UUID 非法或目标不存在只使该 active spec 失败，并发布对应 pending failure，不阻断同批其他任务。
 

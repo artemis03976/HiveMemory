@@ -30,15 +30,20 @@
   取最后一条助手条目的模型（Claude Code 为合成消息标注的 ``<synthetic>`` 除外）。
 - 最后一条助手条目的 ``message.stop_reason`` 不是 ``tool_use`` 时，该轮已经
   正常收尾；末尾一轮据此判断内容是否已经写完。
-- 本插件自身 MCP server 的两个工具（检索与读取 HiveMemory 记忆）在这里归一化
-  为 HiveMemory 能力调用：只写动词与作用对象，不上传调用名。检索为
-  ``SEARCH``，查询留在参数中；读取为 ``READ``，参数 ``aliases`` 移出参数、
-  作为作用对象。取回的是已有记忆，HiveMemory 生成时只为它们保留一行摘要，
-  不会把这些记忆再提取一遍。调用名按 Claude Code 的规则由插件名与 server 名
-  拼出（``mcp__plugin_<插件名>_<server 名>__<工具名>``，``A-Z``、``a-z``、
-  ``0-9``、``_``、``-`` 以外的字符替换为 ``_``）；规则变化时识别会静默失效，
-  表现为重复记忆，不丢失数据。工具参数改名时，识别表与 HiveMemory 的 MCP
-  server 同时修改。其他工具写工具名与完整参数。
+- 本插件自身 MCP server 的四个工具（检索、读取、写入与更新 HiveMemory 记忆）
+  在这里归一化为 HiveMemory 能力调用：只写动词与作用对象，不上传调用名。
+  检索为 ``SEARCH``，查询留在参数中；读取为 ``READ``，参数 ``aliases`` 移出
+  参数、作为作用对象；写入为 ``WRITE``，没有作用对象；更新为 ``UPDATE``，
+  参数 ``alias`` 移出参数、作为唯一的作用对象。检索与读取取回的是已有记忆，
+  写入与更新的内容已经由显式写入保存，HiveMemory 生成时都不会把它们再提取
+  一遍。写入与更新的参数 ``turn`` 是 ``PreToolUse`` hook 补上的轮次信息，
+  不上传。调用名按 Claude Code 的规则由插件名与 server 名拼出
+  （``mcp__plugin_<插件名>_<server 名>__<工具名>``，``A-Z``、``a-z``、
+  ``0-9``、``_``、``-`` 以外的字符替换为 ``_``）。规则变化时识别会静默失效，
+  表现为重复记忆；``hooks.json`` 中 ``PreToolUse`` 的 matcher 写的也是这些
+  调用名，同样失效，写入与更新因此以缺少轮次信息被拒绝，模型在工具结果中
+  看到错误。工具参数改名时，识别表、matcher 与 HiveMemory 的 MCP server 同时
+  修改。其他工具写工具名与完整参数。
 """
 
 from __future__ import annotations
@@ -62,8 +67,12 @@ _SYNTHETIC_MODEL = "<synthetic>"
 PLUGIN_NAME = "hivememory-connector"
 MCP_SERVER_NAME = "hivememory"
 
+# 写入与更新工具中由 PreToolUse hook 填写的轮次信息参数，与 HiveMemory MCP
+# server 的参数名一致。
+TURN_PARAM = "turn"
 
-def _plugin_tool_name(tool: str) -> str:
+
+def plugin_tool_name(tool: str) -> str:
     """Claude Code 为插件 MCP 工具生成的调用名。"""
     scope = re.sub(r"[^A-Za-z0-9_-]", "_", f"plugin_{PLUGIN_NAME}_{MCP_SERVER_NAME}")
     return f"mcp__{scope}__{tool}"
@@ -71,16 +80,30 @@ def _plugin_tool_name(tool: str) -> str:
 
 @dataclass(frozen=True)
 class _MemoryTool:
-    """本插件自身的一个 MCP 工具对应的 HiveMemory 能力：动词与作用对象所在的参数。"""
+    """本插件自身的一个 MCP 工具对应的 HiveMemory 能力：动词与作用对象所在的参数。
+
+    ``single_target`` 表示作用对象参数是单个 alias，否则是 alias 列表。
+    """
 
     verb: str
     target_param: str | None = None
+    single_target: bool = False
+
+    def targets(self, value: Any) -> list[str] | None:
+        """参数中的作用对象；形状不对时为 ``None``，MCP server 已以工具错误拒绝这次调用。"""
+        if self.single_target:
+            return [value] if isinstance(value, str) and value else None
+        return value if _is_alias_list(value) else None
 
 
 # 本插件自身 MCP 工具的调用名到 HiveMemory 能力。
 _MEMORY_TOOLS = {
-    _plugin_tool_name("memory_search"): _MemoryTool("SEARCH"),
-    _plugin_tool_name("memory_read"): _MemoryTool("READ", target_param="aliases"),
+    plugin_tool_name("memory_search"): _MemoryTool("SEARCH"),
+    plugin_tool_name("memory_read"): _MemoryTool("READ", target_param="aliases"),
+    plugin_tool_name("memory_write"): _MemoryTool("WRITE"),
+    plugin_tool_name("memory_update"): _MemoryTool(
+        "UPDATE", target_param="alias", single_target=True
+    ),
 }
 
 
@@ -317,14 +340,17 @@ def _add_assistant_block(
         tool_args = dict(tool_input) if isinstance(tool_input, dict) else {"input": tool_input}
         tool_name = str(block.get("name") or "")
         memory_tool = _MEMORY_TOOLS.get(tool_name)
+        if memory_tool is not None:
+            # 轮次信息是连接器自己补上的，不属于这次调用的内容。
+            tool_args.pop(TURN_PARAM, None)
         targets = None
         if memory_tool is not None and memory_tool.target_param:
-            targets = tool_args.get(memory_tool.target_param)
-            if _is_alias_list(targets):
+            targets = memory_tool.targets(tool_args.get(memory_tool.target_param))
+            if targets is not None:
                 del tool_args[memory_tool.target_param]
             else:
                 # 模型传错了作用对象，MCP server 已以工具错误拒绝这次调用。按普通
-                # 工具写出：服务端要求读取带作用对象，否则会拒绝整轮。
+                # 工具写出：服务端要求读取与更新带作用对象，否则会拒绝整轮。
                 memory_tool = None
         if memory_tool is None:
             turn.add_event(

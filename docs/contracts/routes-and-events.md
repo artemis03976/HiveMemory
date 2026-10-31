@@ -283,7 +283,7 @@ Alice 在创建根 frame 前可推送 `context_compaction`，经 CPU 事件 sink
 | `agent_id` | 连接器代表的具体 Agent，只作为认证声明，不进入导入记录 |
 | `outcome` | `completed`、`cancelled` 或 `failed` |
 | `user_message` | 该轮的用户消息；服务端写成序号为 0 的 `user_message` 事件 |
-| `events` | 用户消息之后的事件，与 `TurnEvent` 同形（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)），`sequence` 从 1 起严格递增；`kind` 为 `assistant_message`、`thought` 或 `tool_call`，另有 `content`。工具调用必带轮内唯一的 `action_id`，带 `tool_name`、`tool_args`，有结局时带成对的 `status`（`success`，出错为 `error`）与 `result`。`verb` 只接受 `SEARCH`、`READ`，只为 HiveMemory 自身 MCP 工具的调用设置（[MCP 记忆访问](./mcp.md#6-工具调用名与回声标记)），与 `tool_name` 互斥；`READ` 必须带非空的 `targets`。外部 harness 不产出 alias，不接受 `produced_aliases` |
+| `events` | 用户消息之后的事件，与 `TurnEvent` 同形（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)），`sequence` 从 1 起严格递增；`kind` 为 `assistant_message`、`thought` 或 `tool_call`，另有 `content`。工具调用必带轮内唯一的 `action_id`，带 `tool_name`、`tool_args`，有结局时带成对的 `status`（`success`，出错为 `error`）与 `result`。`verb` 只接受 `SEARCH`、`READ`、`WRITE`、`UPDATE`，只为 HiveMemory 自身 MCP 工具的调用设置（[MCP 记忆访问](./mcp.md#6-连接器调用名轮次信息与回声标记)），与 `tool_name` 互斥；`READ` 与 `UPDATE` 必须带非空的 `targets`。不接受 `produced_aliases`：写入与更新返回的 pending alias 只留在工具结果中 |
 | `model_used` | 实际使用的模型名，可为空；回复正文不单独上传，由事件中的助手正文得到 |
 | `recent_turns` | 该轮之前最近的若干轮（`user_message`、`assistant_text`、可选的 `external_turn_id`），只供 Gateway 落位，不进入交互载荷 |
 
