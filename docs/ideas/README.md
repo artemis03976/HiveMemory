@@ -29,7 +29,7 @@ v0.7.2 的版本目标是生成质量（owner，2026-10-30，[ROADMAP](../ROADMA
 | Idea | 为 v0.7.2 供料的方向 | 阻塞问题 |
 |:---|:---|:---|
 | [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md) | 生成材料修正，同步完成从 Topic 往后全链路的原始证据保存覆盖面（第 0 节；2026-10-30 由 `candidate` 改为 `current`） | R-1、R-2 已于 2026-10-30 决定；计划已于 2026-10-31 完成归档：[生成材料修正与原始证据保存](../archive/plans/v0.7.2-generation-material-and-raw-evidence.md)，交到 Topic 之前的环节仍是候选 |
-| [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | plugin 模式开放 WRITE 与 UPDATE，与主动链路共享同一记忆更新逻辑（第 4 节的 v0.7.2 一步；2026-10-30 v0.7.1 收尾时改为 `candidate`，同日改回 `current`）；controller 模式、E-1 等其余内容仍是候选 | E-4 结果观察的方式；外部 Actor 的提交与回读契约（[写入意图 Idea](./pending-intent-migration.md)第 7 节） |
+| [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | plugin 模式开放 WRITE 与 UPDATE，与主动链路共享同一记忆更新逻辑（第 4 节的 v0.7.2 一步；2026-10-30 v0.7.1 收尾时改为 `candidate`，同日改回 `current`）；controller 模式、E-1 等其余内容仍是候选 | E-8 plugin 模式写入意图的话题归属 |
 | [话题结算的多条提取、查重与更新](./settlement-multi-memory-extraction-and-dedup.md) | 一个话题提取多条记忆；查重与更新机制（2026-10-30 新建） | G-1 多条记忆怎样提取（按范围分片的选项 C 已不予采纳）；G-2 查重的判定信号、G-3 命中已有记忆后的写入方式 |
 
 v0.7.1 已于 2026-10-30 发布（[收尾审计](../archive/plans/v0.7.1-release-closeout-audit.md)）；Import Bus Idea 随收尾归档（[归档](../archive/ideas/import-bus.md)），当前事实见 [Import Bus](../system/import-bus.md)。执行线程的正式定义已于 2026-10-19 实施，Idea 移入[归档](../archive/ideas/README.md)，当前事实见 [执行线程](../workspace/execution-threads.md)。工具解析链路重写已于 2026-10-30 实施，Idea 同样移入归档，当前事实见[数据模型](../architecture/data-model.md)。
@@ -43,7 +43,7 @@ v0.7.1 已于 2026-10-30 发布（[收尾审计](../archive/plans/v0.7.1-release
 | [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | 会话与 Alice 迁移已于 2026-10-15 完成，当前事实见[归档计划](../archive/plans/v0.7.0-conversation-session.md)和[会话资源](../workspace/sessions.md) | 外部输入、流式交接、路由结果、会话持久化与 Gateway 会话提示；Alice compact 已迁入独立 Idea |
 | [任务进程表与任务请求唯一注册入口](./task-process-table-and-registration-entry.md) | 注册入口、进程表、四阶段骨架、CPU 分配与 CPU 端口已落地，当前事实见 [任务进程](../workspace/task-process.md) | 交互被接纳后即关闭进程与 Profile 解析时点（随话题是否预建决定）、进程记录与工作集的剩余槽位、四阶段骨架的失效条件、被动请求；Q-3b、Q-5a、Q-7、Q-8；plugin 与 controller 模式并存时交互记录的去重（Q-5b 与 plugin 模式的 `interaction_id` 推导已随 Import Bus 实施） |
 | [身份与访问体系](./identity-and-access-model.md) | 身份模型、两阶段认证与两阶段授权、密封的访问 context、资源归属与发起者的拆分已落地，当前事实见 [身份与授权](../workspace/identity-and-authorization.md)与[认证与访问登记](../workspace/authentication.md) | 受限穿透访问的授予模型与跨 Workspace 目标的表达（T-5b）、资源授权的扩展约束、访问 context 可能增加的内容；WorkspaceAsset 一项已登记例外；root 的声明范围 |
-| [写入意图（PendingAtom）的后续方向](./pending-intent-migration.md) | workspace 唯一登记与统一引用解析，actor 操作内实时派发（生成队列接纳后 ACK），结算事件订阅；当前事实见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)与 [Patchouli 生成](../patchouli/generation.md) | 结算对账与结果未知、句柄寿命与过期、持久化、意图可见性与 policy、UPDATE 的基础版本、外部 Actor 的提交与回读契约（2026-10-30 起阻塞 v0.7.2 的 plugin 模式 WRITE 与 UPDATE）、完整的生成材料 |
+| [写入意图（PendingAtom）的后续方向](./pending-intent-migration.md) | workspace 唯一登记与统一引用解析，actor 操作内实时派发（生成队列接纳后 ACK），结算事件订阅；当前事实见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)与 [Patchouli 生成](../patchouli/generation.md) | 结算对账与结果未知、句柄寿命与过期、持久化、意图可见性与 policy、UPDATE 的基础版本、完整的生成材料 |
 | [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md) | TurnEvent、封口交互、运行时与被动事件接入 | 原子事件流、长 turn 分段、封口、跨入口与恢复；CPU 检查点与 Patchouli 摄入水位分别推进，通用压缩与证据保存见各自 Idea |
 | [Chat Run 生命周期后续候选](./chat-run-lifecycle-follow-ups.md) | 已完成的取消最小闭环、SSE 与 run registry | 哪些候选具有独立收益，是否值得分别立项，而不是实施一次性大重构 |
 | [复合意图分解](./composite-intent-decomposition.md) | `COMPOSITE` 分类信号与私有 `sub_intents` | 真实样本能否证明单主意图路径存在稳定缺口，以及 envelope、消费所有权与 fallback 如何冻结 |

@@ -29,7 +29,7 @@ related_docs:
   - docs/VISION.md
   - docs/ideas/execution-environment.md
   - docs/archive/ideas/execution-thread-definition.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # 外部 Actor 的接入登记与运行时访问
@@ -111,7 +111,7 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 | 问题 | 归属 |
 |:---|:---|
 | [Q-8 外部 CPU 的进程](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) | 只涉及 controller 模式（plugin 模式不建进程）；Q-8a–Q-8c 仍待决 |
-| E-4 结果观察的方式 | 主要涉及 plugin 模式，controller 模式可经任务进程观察结果；仍待决，阻塞 v0.7.2 的 plugin 模式 WRITE 与 UPDATE（第 4 节） |
+| E-4 结果观察的方式 | 已关闭（owner，2026-10-31）：项目中不存在“结果观察”这一概念，见 E-4 |
 | [P-5b 被动请求的 principal](./fifth-generation-architecture.md) | 被动请求只存在于 controller 模式；owner 倾向由登记的 Agent 反推；仍待决 |
 | 请求方类型与认证 principal 的关系 | 按两种模式的定义：controller 模式下，用户直接向 HiveMemory 的入口发出请求；plugin 模式下，没有请求进入注册入口，外部 harness 以不建进程的方式访问能力层。外部 harness 连接方的身份如何证明见 P-1c |
 
@@ -246,8 +246,7 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 | Profile read | Agent Profile 定义与授权语义 | 读取不等于实例化 Agent、改变调用方身份或已应用 system prompt；客户端可以不采用定义（与总 Idea P-10 相关；2026-09-28 决定 Profile 的两个 allow 字段演变为能力层的 operation 控制，对所有 CPU 生效，见总 Idea 15.4） |
 | Attachment read | 解析已有授权 ref、READY 检查、必要的内容快照 | lease 在服务内管理，不把 lease 对象跨网络传递 |
 | Write/update intent | 显式提交内容、目标、理由与来源引用 | Patchouli 决定生成、合并、修订或丢弃；不把日志自动当作写入命令 |
-| Pending read/resolve | 登记后读取意图与状态，结算后解析原引用 | 当前事实见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)，外部提交与回读契约见[写入意图后续方向](./pending-intent-migration.md)第 7 节；记忆任务的观察（原 `task.observe`，2026-10-10 起为只供 `system` 的 root API）不自动授予内容读取权 |
-| Result query | 提交类型及真实领域结果或任务投影 | 查询状态不授予读取最终 Memory 的权限；Patchouli 的记忆任务不暴露给 Agent（[能力层](../workspace/capability.md#1-三个调用面)第 1 节），涉及任务投影的部分需按此重新审视 |
+| Pending read/resolve | 登记后读取意图与状态，结算后解析原引用 | 当前事实见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)；记忆任务的观察（原 `task.observe`，2026-10-10 起为只供 `system` 的 root API）不自动授予内容读取权 |
 
 能力层是否覆盖执行类操作见总 Idea P-3。
 
@@ -320,13 +319,26 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质量)第 4.3 节）；同一版本的其他方向见 [Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md#0-v072生成材料修正与-topic-之后的原始证据保存)第 0 节与[多条提取与查重 Idea](./settlement-multi-memory-extraction-and-dedup.md)。计划在本步的阻塞问题决定、能够立即执行时建立。
 
 - **owner 决定**（2026-10-30）：v0.7.2 同步开放 plugin 模式下 agent 对记忆的 WRITE 与 UPDATE，两项能力与主动链路共享同一记忆更新逻辑。owner 判断，Claude Code 真实使用中暴露的生成问题约有一半是因为这两项能力没有接回：plugin 模式下 Claude Code 只获准检索与读取，显式的写入与更新从未发生；主动链路中显式的 UPDATE 能正常更新记忆。
-- **现状**（代码核对，2026-10-30）：MCP server 只提供 `memory_search` 与 `memory_read`（[MCP server](../../src/hivememory/mcp_server/server.py)）；操作入口的请求级提交 `execute_request` 只分派检索与引用解析，其余类型在分派前拒绝；`claude_code` 的访问登记只有 `memory.read` 与 `memory.search`。写入意图登记中的 `process_id` 与 `thread_id` 只供观测关联，不限制回读（[写入意图登记](../../src/hivememory/workspace/intents/registry.py)）。
-- **范围**（候选）：Claude Code 插件的 MCP server 增加写入与更新两个工具，经操作入口的请求级提交进入 actor API，按访问登记逐次授权；登记写入意图后派发到 Patchouli 的 Mode B、Mode C，与 MTP 的 WRITE、UPDATE 是同一条链路。
-- **阻塞问题**：本文 E-4（结果观察的方式）；外部 Actor 的提交与回读契约（[写入意图 Idea](./pending-intent-migration.md#7-外部-actor-的提交与回读契约)第 7 节）。
+- **owner 决定**（2026-10-31）：本步的计划同时清理 MTP 命名与文案残留，包括记忆编译文本的调整。
+- **owner 判断**（2026-10-31）：
+  - 记忆能力属于 workspace 的 actor API，不为 MTP 独占。plugin 模式开放的是 actor API 中写入与更新这两项 actor 操作；MTP 的 WRITE、UPDATE 只是 Alice 对同一组操作的协议映射。
+  - WRITE 与 UPDATE 始终产生 PendingAtom 句柄并交还前台 actor，作为读写一致性的保障；记忆生成完成后由结算事件触发重定向。这条链路任何一个环节断开，都说明 v0.7.0 没有迁移到位，需要返工，而不是另行设计。
+  - 原列为阻塞问题的 E-4 与外部 Actor 的提交与回读契约（[写入意图 Idea](./pending-intent-migration.md#7-外部-actor-的提交与回读契约)第 7 节）都是已有能力或已有决定，不阻塞本步。
+- **现状**（代码核对，2026-10-31）：
+  - MCP server 只提供 `memory_search` 与 `memory_read`（[MCP server](../../src/hivememory/mcp_server/server.py)）；操作入口的请求级提交 `execute_request` 只分派检索与引用解析，其余类型在分派前拒绝（[操作入口](../../src/hivememory/workspace/capability/operations.py)）；`claude_code` 的访问登记只有 `memory.read` 与 `memory.search`。
+  - PendingAtom 链路在 workspace 与 Patchouli 之间闭合，不经 Alice：意图登记在 workspace 的 `WriteIntentRegistry`（[写入意图登记](../../src/hivememory/workspace/intents/registry.py)），登记订阅 Patchouli 的结算事件；读取视图对在途句柄交付登记中的状态，结算后重定向到正式原子并重新授权（[读取视图](../../src/hivememory/workspace/resolution/memory.py)）。`memory_read` 已经经这一读取视图交付 pending 句柄。
+  - actor API 的写入与更新在登记前解析执行线程，从中取得进程标识、线程标识与派发话题（[actor API](../../src/hivememory/workspace/capability/actor/memory.py)）。派发话题是 prepare 为本轮选定的话题，Patchouli 以它的状态摘要与最近几轮作为主动生成的材料（[Patchouli 生成](../patchouli/generation.md#32-mode-b主动-write)第 3.2 节）。请求级 context 没有线程：进程与线程标识只供观测，派发话题见 E-8。
+  - 记忆编译是 Alice 与 MCP 共用的引擎，其中仍有按 MTP 编写的命名与文案：
+    - target 与信封按 MTP 命名：`MemoryCompileTarget.MTP_READ`、`MemoryEnvelopeTarget.MTP_READ_RESPONSE`，处理器 `compile_mtp_read` 位于 `handlers/mtp.py`，信封标题为 `[MTP READ Result]`（[记忆编译模型](../../src/hivememory/engines/memory_compiler/models.py)）；MCP 的 `memory_read` 也以 `MTP_READ` 编译。
+    - 文案写着 MTP 的调用方式（[记忆编译文案](../../src/hivememory/i18n/memory_compiler.py)）：检索上下文信封的头尾引导使用 `⟪ READ | alias | ⟫`、`⟪ CALL … ⟫`、`⟪ SEARCH ⟫` 的指令语法；截断提示让读者“使用 READ 指令”；pending 句柄与引用解析结果的提示让读者“重新发出 WRITE/UPDATE 指令”“使用 SEARCH”“在后续的 READ/RUN/UPDATE 调用中使用正式别名”。
+    - 因这些文案而存在的绕行：MCP 检索关闭检索上下文信封的头尾引导（`include_header_footer`，注释写明头尾面向 Alice 的 MTP 指令）；MCP 读取交付全文，注释写明是为了不出现指引 MTP READ 的截断提示。MCP 检索中全文呈现的条目超过长度时，截断提示仍指向 READ 指令。
+- **范围**（候选）：Claude Code 插件的 MCP server 增加写入与更新两个工具，经操作入口的请求级提交进入 actor API 的写入与更新操作，按访问登记逐次授权；登记写入意图后派发到 Patchouli 的 Mode B、Mode C，与主动链路是同一条链路；记忆编译的命名与文案不再按 MTP 编写，Alice 与 MCP 得到各自协议下可用的指引。
+- **阻塞问题**：本文 E-8（plugin 模式写入意图的话题归属）。
 - **候选设计**（分析，不是 owner 决定，可在计划评审时调整）：
   - 请求级 context 登记意图：plugin 模式不建任务进程（1.1），登记改记请求的观测标签，不伪造进程或线程；`execute_request` 的可提交类型增加写入与更新请求；`claude_code` 的访问登记增加 `memory.write` 与 `memory.update`。
-  - ACK 与 MTP 相同：表示意图已在 workspace 登记并被生成队列接纳，不表示正式记忆已经持久化；工具结果写明这一点，并给出可回读的 pending 别名。
-  - 回声：连接器把 HiveMemory 自己的写入与更新调用归一化为带 `verb` 的事件，生成视图与 MTP 的 WRITE、UPDATE 一样不渲染（[生成材料的渲染](../../src/hivememory/engines/perception/material.py)），避免 Mode A 把显式写入的内容再提取一遍。
+  - 工具结果交还 PendingAtom 句柄，写明句柄表示意图已在 workspace 登记并被生成队列接纳、正式记忆尚未持久化；之后经 `memory_read` 回读，结算后重定向到正式记忆。
+  - 回声：连接器把 HiveMemory 自己的写入与更新调用归一化为 `verb` 为 WRITE、UPDATE 的事件，生成视图不渲染这两类事件（[生成材料的渲染](../../src/hivememory/engines/perception/material.py)），避免 Mode A 把显式写入的内容再提取一遍。
+  - 记忆编译：target、信封与处理器按用途命名，不按协议命名；编译正文只写记忆内容与状态，不写任何协议的调用语法。提示读者下一步操作的文字（截断后读取全文、结算后改用正式别名、失败后重新提交、检索为空时检索）由调用方按自己的协议给出操作名：Alice 给 MTP 指令的写法，MCP 给工具名。操作名的传入方式在计划中确定。`include_header_footer` 开关与 MCP 读取为避开截断提示的注释随之复核。
 
 ### controller 模式的步骤分析（退回候选方向）
 
@@ -397,14 +409,7 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质
 
 ### E-4 结果观察的方式
 
-| 选项 | 内容 | 影响 |
-|:---|:---|:---|
-| A | 按操作类型分别查询 | 每类操作各有查询入口与保留规则 |
-| B | 统一的 receipt 定位，再按类型返回 | 需要一个只持有映射的关联记录，保留期与容量需要定义（3.7） |
-| C | 推送或回调 | 外部方需要提供可达端点；推送不能作为唯一的终态真相 |
-| D | 组合 | —— |
-
-**owner 决定（2026-09-27）**：本问题与 Q-8 联动，列入外部 Actor 形态的单独审议。同日审议为两种接入模式（1.1）；本问题主要涉及 plugin 模式，仍待决。2026-10-30 起阻塞 v0.7.2 的 plugin 模式开放 WRITE 与 UPDATE（第 4 节）。
+**已关闭**（owner，2026-10-31）：问题的定义不准确，项目中不存在“结果观察”这一概念。WRITE 与 UPDATE 始终产生 PendingAtom 句柄并交还前台 actor，记忆生成完成后由结算事件触发重定向（第 4 节的 v0.7.2 一步）。原选项（按操作类型查询、统一的 receipt 定位、推送或回调）不再讨论，最后版本见 commit `acf3ccd4`。
 
 ### E-5 外部执行单元的执行线程
 
@@ -468,6 +473,17 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质
   - 两边已经有重叠：写入 harness 记忆文件的决定，作为工具调用留在会话记录中，经对话回流也被提取进 HiveMemory 的记忆（例如任务进程不回退的决定）。
   - 候选做法：MCP 工具的说明与每条结果写明记忆的更新时间与来源，并声明优先级——仓库中的代码与文档、harness 自己的指令与记忆文件，优先于 HiveMemory 的检索结果；检索结果作为带日期的历史证据，引用前先核实。
   - 本步不做两套记忆之间的同步或去重：HiveMemory 不读取、不写入 harness 的记忆文件，两边冲突时按上述优先级处理。
+
+### E-8 plugin 模式写入意图的话题归属
+
+**背景**（代码核对，2026-10-31）：写入意图派发到 Patchouli 时必须携带话题（`MemoryIntent.topic_id` 必填，[意图契约](../../src/hivememory/patchouli/contracts/memory_intent.py)）。主动链路中它是 prepare 为本轮选定的话题，从执行线程取得；Patchouli 以该话题的状态摘要与最近几轮作为 Mode B、Mode C 的材料（不含当前一轮），话题不存在时按空材料生成（[生成协调器](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)）。plugin 模式没有进程与线程：MCP 请求只携带 principal、用户、Workspace、Agent 的声明与接入凭据，不携带外部会话标识；Import Bus 不保存外部会话到话题的映射，每轮的落点由 Gateway 在该轮回流时决定，而本轮要到轮次结束才回流。本问题阻塞第 4 节的 v0.7.2 一步。
+
+| 选项 | 内容 | 影响 |
+|:---|:---|:---|
+| A | 不绑定话题：意图的话题改为可选，只以提交内容（UPDATE 另有基础记忆）生成 | 不依赖外部会话，改动最小；材料比主动链路少，没有过去几轮的背景；主动生成的来源 Artifact 由话题的最近几轮构成，没有话题时显式写入的记忆不能回查到对话证据 |
+| B | 提交时绑定外部会话最近一轮的落点：MCP 调用携带外部会话标识，按该会话已回流的最近一轮取话题 | 材料与主动链路同形（过去几轮，不含本轮）；需要连接器在 MCP 请求中带出会话标识（Claude Code 能否提供待核实），以及按外部会话查询最近落点的入口（Import Bus 现有的进度查询按外部轮次取落点）；会话的第一轮还没有落点，退化为 A |
+| C | 推迟到本轮回流之后：提交时登记并交还句柄，本轮经 Import Bus 落位后，以本轮所在的话题派发 | 材料包含本轮；ACK 不再表示已被生成队列接纳，派发时机与主动链路不同；需要把意图关联到之后回流的那一轮，本轮始终没有回流时意图需要一个终态 |
+| D | 其他 | —— |
 
 ### P-1c 与 P-9c 身份证明与不建进程的访问 context
 
