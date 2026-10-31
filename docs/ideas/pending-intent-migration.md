@@ -13,7 +13,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # 写入意图（PendingAtom）的后续方向
@@ -40,8 +40,6 @@ PendingAtom 解决所有 Actor 共有的资源问题：Actor 明确提出 WRITE/
 
 - **按 intent_id 查询权威结果**：生成任务以 intent_id 为幂等身份，登记可以在回读时、派发结果未知之后或周期性地按 intent_id 查询任务终态并补齐。需要一条只读的查询路由，查询方不持有生成的内部状态；
 - **结算游标与重放**：结算结果持久化后按游标重放补齐，依赖第 4 节的持久化。
-
-影响：外部 Actor 在响应丢失后的查询（第 7 节）依赖同一机制。
 
 ## 3. 句柄寿命、容量与过期
 
@@ -88,13 +86,7 @@ EXPIRED 是设计中的永久终态，SETTLED、FAILED、CANCELLED 都可以迁�
 
 ## 7. 外部 Actor 的提交与回读契约
 
-[外部 Actor](./external-actor-registration-and-runtime-access.md)需要在 Alice 之外使用同一套登记与读取，尚需决定。2026-10-30 起本节阻塞 v0.7.2 的 plugin 模式开放 WRITE 与 UPDATE（外部 Actor Idea 第 4 节的 v0.7.2 一步）：
-
-- **wire**：提交、回读与结算状态的协议投影，core `ReferenceResolution` 的外部表示，以及缺少目标身份的旧结算载荷如何兼容；
-- **收据**：区分已登记、已被生成队列接纳与 canonical 已产生，不返回模糊的整体 success；接纳失败后的回读与重试契约；
-- **幂等**：客户端幂等键与 intent_id 的映射；同键同载荷定位同一提交，同键异载荷返回 conflict，响应丢失后可以查询（依赖第 2 节）；重复提交不产生第二个 canonical；
-- **归属**：提交的 scope 必须同时匹配访问 context 与已登记意图的归属，不能借提交方法挪用他人的 intent_id；外部不依赖 RuntimeScope；
-- **观察**：记忆任务的观察（root API）不自动授予意图内容或最终 Memory 的读取权。
+**已关闭**（owner，2026-10-31）：本节原列的 wire、收据、幂等、归属与观察都是已有能力或已有决定，不构成待决问题，也不阻塞 v0.7.2 的 plugin 模式 WRITE 与 UPDATE。外部 Actor 与 Alice 使用同一组 actor 操作、同一份登记与读取视图：WRITE 与 UPDATE 产生 PendingAtom 句柄交还前台 actor，记忆生成完成后由结算事件触发重定向（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)第 4 节的 v0.7.2 一步）；当前设计见[读取视图与写入意图](../workspace/read-view-and-write-intents.md)。本节最后版本见 commit `acf3ccd4`。
 
 ## 8. 生成材料
 
