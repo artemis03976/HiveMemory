@@ -43,7 +43,7 @@ Import Bus 是外部 harness 对话回流 HiveMemory 的入口。harness 中的�
 
 Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返回记忆上下文，不运行 Alice、MTP、命令或回复生成，不经任务进程的注册入口，导入的轮次也不写入 ConversationSession（plugin 模式下会话归外部 harness 所有）。为话题落位读取候选话题属于 Gateway 的分析，不算读取记忆。Gateway 的调用模式仍名为 `PASSIVE_MEMORY`。
 
-设计取舍的完整记录见[已归档的 Import Bus 重设计计划](../archive/plans/v0.7.1-import-bus-redesign.md)（历史材料），尚未实施的后续方向（流式监听、历史导入、第二个 harness）见 [Import Bus Idea](../ideas/import-bus.md)。
+设计取舍的完整记录见[已归档的 Import Bus 重设计计划](../archive/plans/v0.7.1-import-bus-redesign.md)（历史材料）；重设计之后的后续方向（流式监听、历史导入、第二个 harness）记录在已归档的 [Import Bus Idea](../archive/ideas/import-bus.md)（历史材料，2026-10-30 归档），去向见其归档说明。
 
 ## 1. 为什么一次接收一整轮
 
@@ -324,7 +324,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录）
 - Claude Code 的会话记录有时只记下同一条消息并行发出的多个调用中最后一个的结果，其余调用以没有结局的形式导入，生成材料中缺少这些结果；连接器无法补回会话记录没有保存的内容。
 - 连接器依赖 Claude Code 未公开承诺的会话记录格式；本地记录中的思考多数只有签名，连接器只能转交有正文的部分。30 分钟无新条目即按中断结束的规则，会把等待权限确认超过 30 分钟、恰逢其他会话唤醒补发的一轮按中断提交，之后写入的内容不再导入。连接器只在 Linux（WSL）上验证过，Windows 上的文件锁以持续重试取得。
 
-这些项目在真实使用中的观察见 [Import Bus 真实使用观察 Todo](../todo/import-bus-real-use-observation.md)。
+这些项目曾在 v0.7.1 期间随日常使用观察，记录见已归档的 [Import Bus 真实使用观察](../archive/todo/import-bus-real-use-observation.md)（2026-10-30 归档，之后日常使用中发现的问题另行登记）。
 
 ## 11. 代码与测试入口
 

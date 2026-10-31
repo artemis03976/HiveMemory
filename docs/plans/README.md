@@ -12,14 +12,15 @@ last_reviewed: 2026-10-30
 
 ## v0.7.1
 
-版本目标已决定（owner，2026-10-20）并已完成（2026-10-29，对话回流与记忆访问两份计划均已归档）：plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code，按小步分别建立计划；同日先定的 controller 模式目标退回候选方向，其首份计划方向（首个外部驱动的纯文本闭环）随之撤回。目标结果与验收方向见 [ROADMAP](../ROADMAP.md) 第 4.4 节。
+版本内容已收尾（2026-10-30），规范版本调整为 0.7.1，发布标签 v0.7.1 在合并后创建；版本目标的逐条判定、内容核对、未纳入的事项与验证结果见[收尾审计](../archive/plans/v0.7.1-release-closeout-audit.md)。版本目标（owner，2026-10-20）是 plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code，按小步分别建立计划，完成于 2026-10-29；同日先定的 controller 模式目标退回候选方向，其首份计划方向（首个外部驱动的纯文本闭环）随之撤回。目标结果与验收方向见 [ROADMAP](../ROADMAP.md) 第 4.4 节。
 
 | 顺序 | 方向 | 状态 | 入口 |
 |:---:|:---|:---|:---|
-| 1 | [Import Bus 重设计：以 Claude Code 对话回流为第一条真实路径](../archive/plans/v0.7.1-import-bus-redesign.md) | Archived（2026-10-21）；当前事实见 [Import Bus](../system/import-bus.md)；真实使用验收随日常使用持续观察（[Todo](../todo/import-bus-real-use-observation.md)） | —— |
-| 2 | [记忆访问：Claude Code 经 MCP 工具检索与读取记忆](../archive/plans/v0.7.1-memory-access-mcp.md) | Archived（2026-10-29）；当前事实见 [MCP 记忆访问](../contracts/mcp.md)；检索与读取的真实使用样本记入同一观察 [Todo](../todo/import-bus-real-use-observation.md) | —— |
+| 1 | [Import Bus 重设计：以 Claude Code 对话回流为第一条真实路径](../archive/plans/v0.7.1-import-bus-redesign.md) | Archived（2026-10-21）；当前事实见 [Import Bus](../system/import-bus.md)；真实使用验收随日常使用观察，观察 Todo 已于 2026-10-30 [归档](../archive/todo/import-bus-real-use-observation.md) | —— |
+| 2 | [记忆访问：Claude Code 经 MCP 工具检索与读取记忆](../archive/plans/v0.7.1-memory-access-mcp.md) | Archived（2026-10-29）；当前事实见 [MCP 记忆访问](../contracts/mcp.md)；检索与读取的真实使用样本记入同一观察 Todo（[已归档](../archive/todo/import-bus-real-use-observation.md)） | —— |
 | — | [推理模型的空闲卸载与按需加载](../archive/plans/v0.7.1-model-idle-unload.md)（plugin 模式下后端常驻时的内存开销） | Archived（2026-10-29）；当前事实见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载) | —— |
 | 3 | [工具解析链路重写：`TurnEvent` 作为唯一的交互原子事件](../archive/plans/v0.7.1-tool-call-parsing-chain.md) | Archived（2026-10-30）；当前事实见[数据模型](../architecture/data-model.md)、[感知与短期话题](../patchouli/perception.md)与 [Patchouli 生成](../patchouli/generation.md)；并入的原 Todo《导入的 MCP 读取在轨迹中显示 alias》随之解决 | —— |
+| — | [v0.7.1 版本收尾审计](../archive/plans/v0.7.1-release-closeout-audit.md) | Archived（2026-10-30）；升版 0.7.1、版本目标判定、内容核对与验证结果；Import Bus 真实使用观察 Todo 与 Import Bus Idea 随收尾归档，重排模型 int8 移出本版本 | —— |
 
 ## v0.7.0
 

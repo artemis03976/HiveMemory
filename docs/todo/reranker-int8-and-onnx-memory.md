@@ -18,7 +18,7 @@ related_docs:
   - docs/help/setup.md
   - docs/archive/todo/inference-off-event-loop.md
   - docs/archive/plans/v0.7.1-model-idle-unload.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # 重排模型 int8 与 ONNX 内存池
@@ -31,7 +31,9 @@ plugin 模式下后端与 Qdrant 需要常驻，后端进程的常驻内存主�
 
 Owner 决定（2026-10-27）：重排模型改用 int8 之前先做实验评估，按结果决定是否采用。
 
-进度（2026-10-27）：不需要实验的四项（ONNX 内存池、嵌入截断、不生效的配置、Docker 预下载）已完成，见文末实施记录；int8 评估尚未开始，样本来源与采用门槛待 owner 确定。
+Owner 决定（2026-10-30）：int8 现在不是必要项，移出 v0.7.1，未来再考虑；本 Todo 保留评估方案，未排期。空闲卸载落地后，重排模型只在使用后的驻留期间占用内存，int8 的收益只体现在这段时间内。
+
+进度（2026-10-27）：不需要实验的四项（ONNX 内存池、嵌入截断、不生效的配置、Docker 预下载）已完成，见文末实施记录；int8 评估尚未开始，重新排期时由 owner 确定样本来源与采用门槛。
 
 ## 证据
 

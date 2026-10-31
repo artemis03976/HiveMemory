@@ -34,10 +34,12 @@ last_reviewed: 2026-10-30
 
 当前版本事实如下：
 
+- 本次发布标签：`v0.7.1`（合并后创建）；
 - 最近已发布基线：`v0.7.0`（Git tag，2026-10-20）；[收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
-- 当前开发版本：`v0.7.1`，版本目标为 plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code（owner，2026-10-20），版本目标已完成（Completed，2026-10-29）：对话回流（[Import Bus 重设计](./archive/plans/v0.7.1-import-bus-redesign.md)，2026-10-21）与记忆访问（[记忆访问](./archive/plans/v0.7.1-memory-access-mcp.md)，2026-10-29）两份计划均已归档；版本内另有推理模型的空闲卸载计划（Planned，第 4.3 节）。
+- 当前内容基线：`v0.7.1`，状态为 Completed（plugin 模式接入 Claude Code 已收尾，版本内的计划均已归档）；[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
+- 下一计划版本：`v0.7.2`，冷启动、历史导入与外源文档资产化，状态为 Candidate（第 4.5 节）。
 
-当前规范代码版本为 `0.7.0`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致，与最近已发布标签 `v0.7.0` 对应；v0.7.1 开发期间合入的内容在版本收尾时升版。
+当前规范代码版本为 `0.7.1`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致；本次发布标签为 `v0.7.1`，待合并后创建，最近已发布基线为 `v0.7.0`。
 
 ## 2. 发布历史
 
@@ -112,7 +114,7 @@ last_reviewed: 2026-10-30
 
 | 目标版本或工作流 | 状态 | 目标结果 | 依赖与实施入口 |
 |:---|:---:|:---|:---|
-| `v0.7.1` 外部 harness 的 plugin 模式（首个：Claude Code） | Completed / v0.7.1 版本目标（2026-10-20）：对话回流（2026-10-21）与记忆访问（2026-10-29）均已完成 | HiveMemory 以插件形式挂载在 Claude Code 中，不接管对话：对话经 Import Bus 回流进入记忆生成，Claude Code 经 MCP 工具检索与读取记忆；在用户的日常使用中形成“外部 harness + Patchouli”的跨会话闭环 | v0.7.0 的能力层；对话回流见 [Import Bus](./system/import-bus.md)（[归档计划](./archive/plans/v0.7.1-import-bus-redesign.md)）；记忆访问见 [MCP 记忆访问](./contracts/mcp.md)（[归档计划](./archive/plans/v0.7.1-memory-access-mcp.md)） |
+| `v0.7.1` 外部 harness 的 plugin 模式（首个：Claude Code） | Completed（2026-10-30 收尾）/ v0.7.1 版本目标（2026-10-20）：对话回流（2026-10-21）与记忆访问（2026-10-29）均已完成 | HiveMemory 以插件形式挂载在 Claude Code 中，不接管对话：对话经 Import Bus 回流进入记忆生成，Claude Code 经 MCP 工具检索与读取记忆；在用户的日常使用中形成“外部 harness + Patchouli”的跨会话闭环 | v0.7.0 的能力层；对话回流见 [Import Bus](./system/import-bus.md)（[归档计划](./archive/plans/v0.7.1-import-bus-redesign.md)）；记忆访问见 [MCP 记忆访问](./contracts/mcp.md)（[归档计划](./archive/plans/v0.7.1-memory-access-mcp.md)）；[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md) |
 | `v0.7.2` Cold Start, Historical Import & Document Ingestion | Candidate | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | v0.7.0 的资源边界、外部 Actor 接入契约的身份/来源/提交语义、记忆价值策略最小切片；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md)；导入与文档分别建 Plan |
 | `v0.7.3` MTP READ 专项编译与来源表达 | Candidate | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | [v0.7.0 A2-P 完整记忆历史](archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、v0.7.2 provenance；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md)；正式 Plan 待建立 |
 | `v0.7.4` Deep Research MVP | Candidate | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 资源边界、Document/READ、实际执行能力、明确恢复范围；正式 Plan 待建立 |
@@ -121,24 +123,29 @@ last_reviewed: 2026-10-30
 | Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 可与 v0.7 并行；[Frontend](./frontend/README.md)与第 4.9 节 Todo；正式 Plan 待建立 |
 | Electron 桌面客户端 | Candidate / `v0.8.x` 产品化窗口 | 单一客户端管理本地服务、数据目录、连接、升级与诊断 | 前端传输与资源生命周期稳定；[状态与传输](./frontend/state-and-transports.md)、[配置](./system/configuration.md)；正式 Plan 待建立 |
 
-### 4.3 v0.7.1：版本目标
+### 4.3 v0.7.1：版本目标（内容已收尾）
 
-状态：Completed（版本目标 owner，2026-10-20；完成于 2026-10-29）。首份计划 [Import Bus 重设计](./archive/plans/v0.7.1-import-bus-redesign.md)已完成并归档（2026-10-21），当前事实见 [Import Bus](./system/import-bus.md)；真实使用验收随日常使用持续观察（[Todo](./todo/import-bus-real-use-observation.md)）。第二份计划[记忆访问](./archive/plans/v0.7.1-memory-access-mcp.md)已完成并归档（2026-10-29），当前事实见 [MCP 记忆访问](./contracts/mcp.md)：Claude Code 以自己的接入登记与凭据认证，对话回流随之改用这一身份；检索与读取的真实使用样本记入同一观察 Todo。
+状态：Completed（2026-10-30；版本目标 owner，2026-10-20，完成于 2026-10-29）。版本内的计划均已归档，规范版本已调整为 0.7.1，本次发布标签为 v0.7.1（合并后创建）。逐项内容、版本目标判定、未纳入的事项与验证结果见[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)，计划的实施顺序见 [Plans 导航](./plans/README.md#v071)。
 
 - **版本目标**：plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code（第 4.4 节）。目的是让外部 harness 在用户真实的日常使用中使用 Patchouli 记忆，以此开始检验记忆系统的闭环；它对应 [VISION](./VISION.md) 的兼容轨，以及第 6 节评估中的“外部 harness + Patchouli”对照组。
 - **排序依据**（owner，2026-10-20）：同日先定的 controller 模式目标改为 plugin 模式。各家 harness 的程序化接口开放程度不一（[接口调研快照](./research/harness-interface-survey-snapshot.md)），controller 模式能达到的控制效果取决于被接入方；非侵入的 plugin 模式更容易得到各家生态的支持，用户也继续在 harness 自己的界面中工作，真实的日常使用才会发生。记忆系统的核心机制自 MVP 以来进展较少，当前优先以真实使用检验它。controller 模式退回候选方向（第 5.6 节）。
-- **分步实施**：版本目标按小步分别建立计划。plugin 模式由对话回流（经 Import Bus 进入记忆生成）与记忆访问（经 MCP 工具调用能力层）两部分组成。对话回流已由首份计划完成（2026-10-21）：harness 一轮结束后提交完整记录，经统一认证网关与导入授权，Gateway 只做落位与价值信号，应用完成后才确认；话题路由失败时续接上一轮的话题；生成视图纳入思考与外部工具的三元组；Claude Code 连接器以插件形式提供，详见 [Import Bus](./system/import-bus.md)。记忆访问在其后，阻塞问题已于 2026-10-29 全部决定：多种传输各由操作适配器归一到同一能力层，支持 MCP 的 harness 以 MCP 访问记忆（外部 Actor Idea E-2）；MCP 的操作适配器放在与 server 同层的独立入口包，MTP 的留在 agent_runtime（E-3b）；plugin 模式暂不提供主动预检索，记忆只经 MCP 工具由 agent 自己选择使用（E-7）；由统一认证网关证明身份，每次操作使用一份请求级访问 context（[第五代架构 Idea](./ideas/fifth-generation-architecture.md) P-1c、P-9c）；复核后，Claude Code 以自己的 principal 与本地共享密钥接入，对话回流一并迁移，不再借用 server 的 principal。能以保留的 `system` 进入 root API 的只有 HTTP 入口的管理访问（owner，2026-10-20），登记外部来源之前在接入登记中落实（[身份与访问体系 Idea](./ideas/identity-and-access-model.md#4-已登记的暂缓与例外)第 4 节）。各步的范围见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。
 - **规模控制**（owner，2026-10-20）：v0.7.1 期间不新增只服务 controller 模式的机制；每份计划写明它针对的已观察问题或待验证的核心假设（[VISION](./VISION.md) 第 10.10 节）。真实使用开始后，后续主线转向由使用中观察到的问题驱动 Patchouli 核心机制的改进，样本同时供第 4.8 节的价值策略校准。
-- **常驻内存**（owner，2026-10-27；第 1、3 项已完成，int8 评估待开始）：plugin 模式下后端与 Qdrant 随日常使用常驻。观察到后端进程峰值常驻内存约 3.0 GB，主要来自启动后一直驻留的嵌入与重排模型，对 16 GB 内存的机器不友好。按以下顺序处理：
-  1. 先把模型推理移出事件循环（已完成，2026-10-27，[归档记录](./archive/todo/inference-off-event-loop.md)）；
-  2. 重排模型 int8 先做实验评估，与 ONNX 内存池、截断长度一并处理（[Todo](./todo/reranker-int8-and-onnx-memory.md)；内存池、截断、不生效的配置与 Docker 预下载已于 2026-10-27 完成，int8 评估待开始）；
-  3. 模型的空闲卸载、按需加载与预取（已完成，2026-10-29，[归档计划](./archive/plans/v0.7.1-model-idle-unload.md)）：两个模型默认空闲卸载、使用时重新加载，chat 在 Gateway 之前预取，重排模型未就绪时这一次跳过重排；当前事实见 [Patchouli](./patchouli/README.md#41-模型驻留与空闲卸载)。实测重新加载期间其他请求最长等待约 1～3.7 秒，记为已知限制，之后单独优化（owner，2026-10-30，[Todo](./todo/model-reload-event-loop-stall.md)）。
-- **工具解析链路重写**（owner，2026-10-30；已完成，2026-10-30，[归档计划](./archive/plans/v0.7.1-tool-call-parsing-chain.md)）：Claude Code 接入后发现 MTP 与外部 MCP 的工具调用写出的事件不同形，事件、动作、轨迹三份表达并存，下游解析来源不一致（[调查基线](./governance/baselines/tool-call-data-shapes-2026-10-30.md)）。重写后 `TurnEvent` 是唯一的交互原子事件：两种来源写出同形事件，一次工具调用与它的结局是同一个事件；交互载荷只以事件表达内容，归约器与派生的轨迹删除；感知层对事件集只解析一次，生成视图、LLM 接力摘要与 token 统计共用唯一的渲染。当前事实见[数据模型](./architecture/data-model.md)、[感知与短期话题](./patchouli/perception.md)与 [Patchouli 生成](./patchouli/generation.md)。
-- **执行基座与沙箱基线**：原排期在 v0.7.1，暂不考虑（owner，2026-10-20），见第 5.4 节。plugin 模式下 HiveMemory 不执行代码，harness 的工具由其自身管理。
+
+| 方向 | 结果 | 当前事实 |
+|:---|:---|:---|
+| 对话回流 | Import Bus 重设计：一次接收 harness 一轮已结束交互的完整记录，经统一认证网关与导入授权，Gateway 只做话题落位与价值信号，应用完成后才确认；话题路由失败时续接上一轮的话题；Claude Code 连接器以插件形式提供 | [Import Bus](./system/import-bus.md) |
+| 记忆访问 | Claude Code 经 MCP 工具检索与读取记忆：MCP 入口是与 server 同层的独立入口包，每次工具调用取得一份请求级访问 context，经操作入口的请求级提交逐次授权；Claude Code 以自己的接入登记与本地共享密钥认证，对话回流随之改用这一身份；能声明保留的 `system` 的只有登记了 `allow_system_actor` 的来源 | [MCP 记忆访问](./contracts/mcp.md)、[认证与访问登记](./workspace/authentication.md) |
+| 常驻内存 | 模型推理移出事件循环；ONNX 会话关闭 CPU 内存池，嵌入输入截断到 1024 token，删除从未生效的配置，Docker 预下载与运行时读取同一配置；两个模型默认空闲卸载、使用时重新加载，chat 在 Gateway 之前预取 | [Patchouli](./patchouli/README.md#41-模型驻留与空闲卸载) |
+| 工具解析链路 | `TurnEvent` 是唯一的交互原子事件：MTP 与外部 MCP 的工具调用写出同形事件，一次工具调用与它的结局是同一个事件；交互载荷只以事件表达内容，感知层对事件集只解析一次，生成视图、LLM 接力摘要与 token 统计共用唯一的渲染 | [数据模型](./architecture/data-model.md)、[感知与短期话题](./patchouli/perception.md)、[Patchouli 生成](./patchouli/generation.md) |
+| 真实使用中的修正 | 话题折叠移出交互应用，作为提交队列中的独立工作项；结算不再按 `worth_saving` 筛选材料；gardening 不归档 Profile 记忆；只有 Profile 记忆可以经编辑设置 `agent_config` | [感知与短期话题](./patchouli/perception.md)、[Lifecycle](./patchouli/lifecycle.md)、[Patchouli 生成](./patchouli/generation.md) |
+| 结构收敛 | 任务进程概念盘点冻结为治理基线，AGENTS.md 加入复杂度控制与可读性约束；删除任务进程中无生产使用方的代码并合并重复表达 | [任务进程](./workspace/task-process.md)、[概念盘点基线](./governance/baselines/task-process-concept-inventory-2026-10-28.md) |
+
+- **不在 v0.7.1**：重排模型 int8 现在不是必要项，未来再考虑（owner，2026-10-30，[Todo](./todo/reranker-int8-and-onnx-memory.md)）；推理模型重新加载时的事件循环停顿记为已知限制，之后单独优化（owner，2026-10-30，[Todo](./todo/model-reload-event-loop-stall.md)）；controller 模式退回候选方向（第 5.6 节），执行基座与沙箱基线暂不考虑（第 5.4 节）；写入意图经 MCP 提交需要结果观察的方式（外部 Actor Idea E-4），未排期。
+- **真实使用观察**：Import Bus 真实使用观察 Todo 随收尾归档（owner，2026-10-30，[归档记录](./archive/todo/import-bus-real-use-observation.md)），之后正常使用；观察期间需要改动的项目已登记为[生成查重的决策信号](./todo/generation-dedup-decision-signal.md)与[生成材料的筛选与截断](./todo/generation-material-filtering-and-truncation.md)。
 
 ### 4.4 v0.7.1：plugin 模式接入 Claude Code
 
-状态：Completed，v0.7.1 的版本目标（owner，2026-10-20）；对话回流已完成（2026-10-21），记忆访问已完成（2026-10-29，[归档计划](./archive/plans/v0.7.1-memory-access-mcp.md)，当前事实见 [MCP 记忆访问](./contracts/mcp.md)），真实使用验收已逐项核对，检索质量等长期表现随日常使用观察（[Todo](./todo/import-bus-real-use-observation.md)）；各步的范围与阻塞问题见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。本节的验收针对整个版本目标。
+状态：Completed，v0.7.1 的版本目标（owner，2026-10-20）；对话回流已完成（2026-10-21），记忆访问已完成（2026-10-29，[归档计划](./archive/plans/v0.7.1-memory-access-mcp.md)，当前事实见 [MCP 记忆访问](./contracts/mcp.md)），真实使用验收已逐项核对（判定见[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)第 1 节），检索质量等长期表现随日常使用观察，观察 Todo 已于 2026-10-30 [归档](./archive/todo/import-bus-real-use-observation.md)；各步的范围与阻塞问题见[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v071-的步骤与各步的阻塞问题)。本节的验收针对整个版本目标。
 
 外部 Actor 分为 plugin 与 controller 两种接入模式（[外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1，2026-09-27 决定）。plugin 模式下 HiveMemory 以插件形式挂载在外部 harness 中，用户直接使用该 harness，HiveMemory 不接管对话：对话经 Import Bus 回流，harness 经 MCP 工具响应记忆域调用；外部 harness 的任务对 HiveMemory 不可见，不建任务进程，记忆访问经能力层、不绑定进程。首个接入的 harness 为 Claude Code（owner，2026-10-20）：用户日常使用它，它的插件可以把 hooks 与 MCP server 打包为一个单元。对话回流由 [Import Bus](./system/import-bus.md) 与 Claude Code 连接器实现（2026-10-21）：Import Bus 只向网络输入、不返回记忆上下文，记忆到达 harness 由记忆访问一步承担。
 

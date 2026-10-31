@@ -252,7 +252,7 @@ Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任
 
 ## 8. 当前限制
 
-- 一次话题结算至多产出一条记忆：Mode A 的 extractor 对整段话题材料只返回一份草稿（`BaseMemoryExtractor.extract` 返回 `ExtractedMemoryDraft | None`），同一话题中讨论过的多项决定、事实或偏好只能压进一条记忆，次要内容往往只留在正文里。检索的稠密与稀疏向量以及重排输入都只由标题、类型、标签与摘要编译（MemoryCompiler 的 `DENSE_EMBEDDING`、`SPARSE_EMBEDDING` 目标），只写在正文里的内容因此检索不到。从一段话题材料中提取多条记忆，需要提取输出、查重与演化都改为逐条进行。真实样本见 [Import Bus 真实使用观察](../todo/import-bus-real-use-observation.md)；
+- 一次话题结算至多产出一条记忆：Mode A 的 extractor 对整段话题材料只返回一份草稿（`BaseMemoryExtractor.extract` 返回 `ExtractedMemoryDraft | None`），同一话题中讨论过的多项决定、事实或偏好只能压进一条记忆，次要内容往往只留在正文里。检索的稠密与稀疏向量以及重排输入都只由标题、类型、标签与摘要编译（MemoryCompiler 的 `DENSE_EMBEDDING`、`SPARSE_EMBEDDING` 目标），只写在正文里的内容因此检索不到。从一段话题材料中提取多条记忆，需要提取输出、查重与演化都改为逐条进行。真实样本见已归档的 [Import Bus 真实使用观察](../archive/todo/import-bus-real-use-observation.md)；
 - 结果未知或结算事件丢失时，句柄可能长期保持 MATERIALIZING；没有对账恢复。写入一旦开始派发就不因 CPU、进程或 CALL 子帧失败取消；
 - UPDATE 意图不携带登记时的基础版本，spec 构建时按 UUID 读取当时的最新版本，并发 UPDATE 不检测基础版本冲突；后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)第 6 节；
 - memory work、typed result 与终态快照只存在于当前进程，重启后不可恢复；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；

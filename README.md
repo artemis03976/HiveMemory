@@ -7,13 +7,13 @@
 
 HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是解决长上下文遗忘、跨会话知识无法复用、以及多 Agent 协作中的信息孤岛问题。系统会将对话中的高价值信息沉淀为可检索、可更新、可使用的记忆，并通过统一协议将这些记忆重新注入到后续任务中。
 
-当前仓库已经提供可运行的 Python 后端、前端开发界面、向量存储与缓存基础设施，以及由顶层 HiveMemory System 装配 workspace、Gateway、Patchouli 与 Alice 的 v0.7.0 发布基线。v0.7.0 完成了向 Workspace 网络与任务进程架构的演进：任务请求经唯一注册入口登记为任务进程，Agent 的资源操作经 workspace 能力层逐次授权，执行者经 CPU 端口接入、可以替换。
+当前仓库已经提供可运行的 Python 后端、前端开发界面、向量存储与缓存基础设施，以及由顶层 HiveMemory System 装配 workspace、Gateway、Patchouli 与 Alice 的 v0.7.1 内容基线。v0.7.0 完成了向 Workspace 网络与任务进程架构的演进：任务请求经唯一注册入口登记为任务进程，Agent 的资源操作经 workspace 能力层逐次授权，执行者经 CPU 端口接入、可以替换。v0.7.1 以 plugin 模式接入了第一个外部 harness Claude Code：Claude Code 的对话经 Import Bus 回流进入记忆生成，Claude Code 的 agent 经 MCP 工具检索与读取记忆。
 
 ## 发布状态
 
+- 本次发布：`v0.7.1`（plugin 模式接入 Claude Code；标签在合并后创建，见[收尾审计](docs/archive/plans/v0.7.1-release-closeout-audit.md)）
 - 最近已发布基线：`v0.7.0`（见[收尾审计](docs/archive/plans/v0.7.0-release-closeout-audit.md)）
-- 当前开发版本：`v0.7.1`（版本目标：plugin 模式的真实外部 harness 接入，首个接入 Claude Code，见 [ROADMAP](docs/ROADMAP.md)）
-- 代码与包版本：`0.7.0`
+- 代码与包版本：`0.7.1`
 - Python 要求：`>=3.12`
 - 许可证：Apache-2.0
 
@@ -26,7 +26,8 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 - **主动模式（Active mode）**：通过 `POST /api/v1/chat` 提供 SSE 流式对话。每次请求经 workspace 的唯一注册入口认证并登记为任务进程，由 `TaskProcessService` 驱动 Gateway 分析、Patchouli prepare/finalize 与经 CPU 端口的 Alice Agent 执行；`POST /api/v1/chat/stop` 停止进程，客户端断连按停止处理
 - `POST /api/v1/chat` 支持在请求体中携带 `generation_options`（`model` / `temperature` / `top_p` / `max_tokens`）作为单次对话覆盖参数，不会写入全局配置文件
 - **Import Bus（外部 harness 导入）**：通过 `POST /api/v1/import/turns` 导入外部 harness 一轮已结束交互的完整记录（用户消息、回复、思考、外部工具的调用与结果、结局）。请求经统一认证网关与导入授权，由 System 层的 Import Bus 编排 Gateway 话题落位、共用封口与 Patchouli 感知提交，交互应用完成后才确认；它只向记忆网络输入，不检索记忆，也不返回记忆上下文
-- **Claude Code 连接器插件**：`integrations/claude-code/`（插件 `hivememory-connector`，本地 marketplace `hivememory-local`，只用 Python 标准库）在轮次结束与会话开始、结束时把 Claude Code 会话记录中已结束的轮次导入 HiveMemory，网络提交在脱离 Claude Code 的后台进程中完成；通过环境变量 `HIVEMEMORY_URL`、`HIVEMEMORY_USER_ID`、`HIVEMEMORY_AGENT_ID`（默认 `claude_code`）配置，`configs/workspace_actors.yaml` 已为 `claude_code` 登记准入
+- **MCP 记忆访问**：`POST /mcp` 是外部 harness 使用的 MCP 端点（streamable HTTP，无状态，只接受本机地址），提供只读工具 `memory_search` 与 `memory_read`。每次工具调用经统一认证网关取得一份请求级访问 context，按 Workspace 访问登记的白名单逐次授权，不建任务进程
+- **Claude Code 插件**：`integrations/claude-code/`（插件 `hivememory-connector`，本地 marketplace `hivememory-local`，只用 Python 标准库）同时提供对话回流与记忆访问。连接器在轮次结束与会话开始、结束时把 Claude Code 会话记录中已结束的轮次导入 HiveMemory，网络提交在脱离 Claude Code 的后台进程中完成；插件声明的 MCP server 让 Claude Code 的 agent 检索与读取记忆。两者都以 Claude Code 自己的接入登记 `harness:claude-code` 认证，HiveMemory 一侧的 `HIVEMEMORY_CLAUDE_CODE_TOKEN` 与 Claude Code 一侧的 `HIVEMEMORY_TOKEN` 需配置同一份凭据；`configs/workspace_actors.yaml` 为 Agent `claude_code` 只登记了检索与读取。安装与配置见[安装与启动](docs/help/setup.md)
 - **会话**：支持新建、恢复、重命名与删除；Alice 按模型预算自动精简旧工具结果并生成接力摘要，原始对话完整保留，可查看摘要与压缩边界；有输出的取消与失败轮次保留结局。会话与检查点仅在后端进程内保存，重启后消失；Topic 独立作为记忆材料。
 - **系统指令**：Gateway 只解析命令，识别为命令的消息以命令终态结束、不进入普通对话；当前版本不执行内置命令。
 
@@ -124,6 +125,7 @@ HiveMemory 提供一套进程内协议，让 Worker Agent 可以在生成过程�
 | `/api/v1/sessions` | GET / POST | 列出 / 新建会话 |
 | `/api/v1/sessions/{session_id}` | GET / PATCH / DELETE | 读取全量历史 / 重命名 / 删除会话 |
 | `/api/v1/import/turns` | POST | 导入外部 harness 一轮已结束的交互（Import Bus） |
+| `/mcp` | POST | 外部 harness 经 MCP 工具检索与读取记忆 |
 | `/api/v1/memories` | GET / POST | 语义搜索或列出记忆 / 创建记忆 |
 | `/api/v1/memories/{memory_id}` | GET / PATCH / DELETE | 读取 / 编辑 / 删除单条记忆 |
 | `/api/v1/memories/{memory_id}/feedback` | POST | 提交记忆反馈 |
@@ -145,7 +147,7 @@ HiveMemory 提供一套进程内协议，让 Worker Agent 可以在生成过程�
 | `/api/v1/runtime-events/stream` | GET | 运行时事件 SSE 流 |
 | `/api/v1/ws/logs` | WS | 获取实时日志流 |
 
-请求身份经 `x-user-id` / `x-workspace-id` 请求头选择，Agent action 另带 `agent_id`；交接规则见[路由与事件契约](docs/contracts/routes-and-events.md#6-http-入口的身份交接与管理读取边界)。
+请求身份经 `x-user-id` / `x-workspace-id` 请求头选择，Agent action 另带 `agent_id`；交接规则见[路由与事件契约](docs/contracts/routes-and-events.md#6-http-入口的身份交接与管理读取边界)。`/api/v1/import/turns` 与 `/mcp` 是外部 harness 的入口，另以 `X-Principal-ID` 声明接入来源、以 `Authorization: Bearer` 携带接入凭据，见 [Import Bus](docs/system/import-bus.md) 与 [MCP 记忆访问](docs/contracts/mcp.md)。
 
 ## 环境要求
 
@@ -292,10 +294,10 @@ HiveMemory 当前采用“环境变量 + YAML”分层配置：
 
 它提供两种主要接入方式：
 
-- `process_service.register_process()` 与 `run_process()`：主动模式。先由注册入口完成认证并登记任务进程，取得进程句柄；再以 `run_process()`（默认 `stream=True` 流式，`stream=False` 非流式）运行，由 `TaskProcessService` 协调 Gateway 分析、Patchouli 记忆准备、Alice Agent 执行与 Patchouli 后处理
+- `process_service.register_process()` 与 `run_process()`：主动模式。先由注册入口完成认证并登记任务进程，取得进程句柄；再以 `run_process()` 订阅进程的流式输出，由 `TaskProcessService` 协调 Gateway 分析、Patchouli 记忆准备、Alice Agent 执行与 Patchouli 后处理
 - `import_bus_service.import_turn()`：Import Bus，导入外部 harness 一轮已结束交互的完整记录；调用方需先经统一认证网关取得请求级访问 context（HTTP 入口 `POST /api/v1/import/turns` 已完成这一步）
 
-如果你只需要 HTTP 接口，可直接使用 FastAPI 服务；如果你要让已有 Agent harness 的交互沉淀为 HiveMemory 的记忆，通常从 `POST /api/v1/import/turns` 开始更自然，Claude Code 连接器插件（`integrations/claude-code/`）是现成的接入实现。
+如果你只需要 HTTP 接口，可直接使用 FastAPI 服务；如果你要让已有 Agent harness 的交互沉淀为 HiveMemory 的记忆，并让它读取这些记忆，通常从 `POST /api/v1/import/turns` 与 `/mcp` 开始更自然，Claude Code 插件（`integrations/claude-code/`）是现成的接入实现。
 
 ## 项目结构
 
@@ -320,7 +322,8 @@ HiveMemory/
 │   ├── agent_runtime/       # 单 Agent 执行层与 Koakuma MTP/工具 runtime
 │   ├── system/              # 组合根、门面、注册表与 Import Bus
 │   ├── prompts/             # System prompts 与 prompt 组装
-│   └── server/              # FastAPI 服务入口与路由
+│   ├── server/              # FastAPI 服务入口与路由
+│   └── mcp_server/          # 外部 harness 经 MCP 访问记忆的入口（由 server 接入 /mcp）
 └── tests/                   # 单元测试、集成测试、端到端测试
 ```
 
@@ -343,7 +346,7 @@ HiveMemory/
 
 ## 贡献
 
-欢迎提交 Issue 和 Pull Request。v0.7.0 已发布，当前主干正在进行 v0.7.1 开发；提交行为变更时请遵守文档治理门禁，在开发工作明确收尾后再更新对应当前设计或契约文档，避免把仍在演进的设计稿或历史方案写入主干事实文档。
+欢迎提交 Issue 和 Pull Request。v0.7.1 内容已收尾，标签在合并后创建；提交行为变更时请遵守文档治理门禁，在开发工作明确收尾后再更新对应当前设计或契约文档，避免把仍在演进的设计稿或历史方案写入主干事实文档。
 
 ## 许可证
 
