@@ -17,7 +17,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # 子系统公共契约
@@ -81,18 +81,17 @@ Gateway 只解析命令，不执行命令：`CommandParseResult` 与 `CommandPar
 | `new_topic_title` / `new_topic_summary` | 新话题的可选初始元数据 |
 | `rewritten_query` | 下游检索使用的完整查询 |
 | `search_keywords` | 稀疏检索关键词元组 |
-| `memory_write_signal` | `WRITE`、`SKIP` 或 `UNKNOWN` |
 | `retrieval_plan` | 检索模式、`top_k` 和 dense/sparse 权重 |
 | `intent_type` | `RAG`、`WRITE`、`CHAT`、`COMPOSITE` 或 `UNKNOWN` |
 
-`worth_saving` 是从 `memory_write_signal` 派生的只读值，不是第二份状态。
+决定不携带记忆价值信号：入口只看到用户输入，一轮的长期价值由 Patchouli 在生成阶段基于完整材料判断。
 
 `GatewayDecision` 只保留下游可以稳定依赖的决策结果，而不携带 step、snapshot 或分析器内部对象。它是 Gateway 与执行链之间的交接单，不是远程操纵 Gateway workflow 的句柄。
 
 ### 2.3 模式不变量
 
 - `ACTIVE_CHAT` 可以识别（解析）系统指令，不执行；
-- `PASSIVE_MEMORY` 必须返回普通决策，绝不能返回 command outcome；它的调用方 Import Bus 只使用决定中的话题落位与新话题元数据，`worth_saving` 只进入导入的观测事件，忽略检索计划、不检索；
+- `PASSIVE_MEMORY` 必须返回普通决策，绝不能返回 command outcome；它不运行查询分析，意图与检索计划取不检索的默认值；它的调用方 Import Bus 只使用决定中的话题落位与新话题元数据，不检索；
 - `request_timeout_ms` 只能收紧配置的默认总超时，不能扩大它；
 - 局部可恢复失败可以降级，但最终结果仍必须满足完整终态不变量。
 
@@ -149,7 +148,7 @@ finalize_agent_run(
 | `model_used` | Actor 实际使用的模型展示名 |
 | `used_attachments` | 附件编译确认实际进入上下文的附件引用快照 |
 
-交互内容只以 `turn_events` 表达，载荷不携带由事件派生或与事件重复的表达：用户消息与回复正文是从事件读取的只读属性，不序列化；Gateway 的改写查询与价值预判不进入载荷。字段与事件规则见[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)。
+交互内容只以 `turn_events` 表达，载荷不携带由事件派生或与事件重复的表达：用户消息与回复正文是从事件读取的只读属性，不序列化；Gateway 的改写查询不进入载荷。字段与事件规则见[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)。
 
 附件租借由任务进程持有并在进程结束时释放，finalize 不负责。
 
@@ -401,9 +400,9 @@ Agent Profile 属于 CPU 分配，但当前在 prepare 之前解析：prepare �
 
 ## 6. Import Bus 契约
 
-Import Bus 由 System 拥有：`ImportBusService` 做导入授权并委托编排器 `ImportBusIngestor`。它接收外部 harness 一轮已经结束的交互的完整记录，以 Gateway `PASSIVE_MEMORY` 模式只取话题落位与价值信号，以共用封口函数封口，经 Patchouli 的公开交互路由提交并等待应用完成（第 3.6 节）。它不调用 Alice、不执行命令、不运行 MTP、不生成回复，不检索记忆，也不返回记忆上下文。HTTP 入口与载荷字段见[公开路由与事件](./routes-and-events.md#62-import-bus-导入)，编排细节见 [Import Bus](../system/import-bus.md)。
+Import Bus 由 System 拥有：`ImportBusService` 做导入授权并委托编排器 `ImportBusIngestor`。它接收外部 harness 一轮已经结束的交互的完整记录，以 Gateway `PASSIVE_MEMORY` 模式只取话题落位，以共用封口函数封口，经 Patchouli 的公开交互路由提交并等待应用完成（第 3.6 节）。它不调用 Alice、不执行命令、不运行 MTP、不生成回复，不检索记忆，也不返回记忆上下文。HTTP 入口与载荷字段见[公开路由与事件](./routes-and-events.md#62-import-bus-导入)，编排细节见 [Import Bus](../system/import-bus.md)。
 
-对外结果只有 `accepted`（本次提交且已应用）、`duplicate`（此前已应用）与 `skipped`（用户消息之外没有输出，与任务进程一样不封口），并带推导出的 `interaction_id`；Gateway 决定、话题、价值信号与 RuntimeEvent 不进入响应。`accepted` 与 `duplicate` 都表示这一轮已经应用，确认只在应用完成之后给出：可重试与不可重试的失败经错误区分（[错误模型](./error-model.md#43-import-bus)）。
+对外结果只有 `accepted`（本次提交且已应用）、`duplicate`（此前已应用）与 `skipped`（用户消息之外没有输出，与任务进程一样不封口），并带推导出的 `interaction_id`；Gateway 决定、话题与 RuntimeEvent 不进入响应。`accepted` 与 `duplicate` 都表示这一轮已经应用，确认只在应用完成之后给出：可重试与不可重试的失败经错误区分（[错误模型](./error-model.md#43-import-bus)）。
 
 - **交互标识**：`import_` 加上对（principal、user、Agent、来源、外部会话、外部轮次）规范化序列取 SHA-256 的前 32 位十六进制。同一轮重发得到同一标识，队列据此幂等；纳入认证通过的 actor，使代表不同用户或 Agent 的连接器不会撞号。
 - **串行与查重**：同一（user、Agent、来源、外部会话）在单进程内按到达顺序串行，串行范围包含进度查询、Gateway、提交与等待应用；不同会话可以并发。门内先查询进度：已应用（`succeeded`）或接纳过但结局已超出保留窗口（`unknown`）时返回 `duplicate`；仍在应用（`pending`）只继续等待，不再路由与提交——Gateway 的落位随提交写入，重新路由可能得到不同的提交而被队列判为冲突；未提交或应用失败的轮次才调用 Gateway 并（再次）提交。该契约不扩展为跨进程排序或持久化 mailbox。

@@ -102,7 +102,7 @@ plugin 模式有性质相近的情形（2026-10-30 发现，owner 决定之后�
 
 ### Q-5b `PASSIVE_MEMORY` 模式的去留
 
-已实施（2026-10-21）：Gateway 的 `PASSIVE_MEMORY` 模式只服务于 Import Bus，保留话题落位与价值信号（沿用 `worth_saving`），不检索；当前行为见 [Import Bus](../system/import-bus.md)，决定与理由见[归档计划](../archive/plans/v0.7.1-import-bus-redesign.md)。
+已实施（2026-10-21）：Gateway 的 `PASSIVE_MEMORY` 模式只服务于 Import Bus，保留话题落位与价值信号（沿用 `worth_saving`），不检索（2026-10-31 价值信号随 v0.7.2 生成材料修正移除，`PASSIVE_MEMORY` 只取话题落位、不再运行查询分析）；当前行为见 [Import Bus](../system/import-bus.md)，决定与理由见[归档计划](../archive/plans/v0.7.1-import-bus-redesign.md)。
 
 ### Q-7 进程表是否收录后台任务
 

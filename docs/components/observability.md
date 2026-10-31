@@ -16,7 +16,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-31
 ---
 
 # 运行时事件与可观测性
@@ -76,7 +76,7 @@ observer 不捕获后吞掉原异常，不执行重试，也不决定事务是�
 
 ## 4. 生命周期、Scheduler 与 Import Bus 事件
 
-System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopped/stop_failed`，事件 data 包含步骤列表、已完成步骤、失败步骤和耗时。Scheduler 发布 maintenance task started/completed/failed。Import Bus 以 `ImportBusEventEmitter` 投影一次导入的结局：`import.turn.accepted`（交互应用完成后发出，带实际落位的话题、是否新建与价值信号）、`import.turn.duplicate`、`import.turn.skipped`（没有输出）与 `import.turn.deferred`（可重试失败或应用失败，原因码为 `gateway_unavailable`、`queue_unavailable`、`apply_pending` 或 `apply_failed`）；事件只携带来源、外部会话与轮次标识、`interaction_id`、事件数量与结构化标签，`task_type` 为 `background`。System 停止时的 `system.stopped` 以 `import_bus_shutdown` 报告 Import Bus 等待的在途请求数。submission 的 queued/running/retry/succeeded/failed 统一使用 Work Queue Runtime 的 `WORK_*` 事件。
+System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopped/stop_failed`，事件 data 包含步骤列表、已完成步骤、失败步骤和耗时。Scheduler 发布 maintenance task started/completed/failed。Import Bus 以 `ImportBusEventEmitter` 投影一次导入的结局：`import.turn.accepted`（交互应用完成后发出，带实际落位的话题与是否新建）、`import.turn.duplicate`、`import.turn.skipped`（没有输出）与 `import.turn.deferred`（可重试失败或应用失败，原因码为 `gateway_unavailable`、`queue_unavailable`、`apply_pending` 或 `apply_failed`）；事件只携带来源、外部会话与轮次标识、`interaction_id`、事件数量与结构化标签，`task_type` 为 `background`。System 停止时的 `system.stopped` 以 `import_bus_shutdown` 报告 Import Bus 等待的在途请求数。submission 的 queued/running/retry/succeeded/failed 统一使用 Work Queue Runtime 的 `WORK_*` 事件。
 
 这些事件描述状态转换，但不会驱动转换。例如 `maintenance.task.failed` 不自动重试任务，`work.retry_scheduled` 不直接修改 work record，`chat.run.cancelled` 也不由 UI event 反向取消 run；真正的业务控制分别由 scheduler、Work Queue Runtime 和 run registry 负责。
 

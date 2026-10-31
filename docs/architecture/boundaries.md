@@ -23,7 +23,7 @@ related_docs:
   - docs/workspace/README.md
   - docs/architecture/data-model.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-31
 ---
 
 # 系统边界与所有权
@@ -125,7 +125,7 @@ Gateway 的唯一公开业务入口是 `gateway.public.process`。输入包括�
 
 ### 5.3 模式边界
 
-`ACTIVE_CHAT` 允许命令识别和分发；`PASSIVE_MEMORY` 禁止命令分支。两种模式共用决策 workflow，但后续由不同的应用服务（chat 任务进程与 Import Bus）消费：Import Bus 只使用决定中的话题落位与价值信号，忽略检索计划，不执行检索。
+`ACTIVE_CHAT` 允许命令识别和分发；`PASSIVE_MEMORY` 禁止命令分支，也不运行查询分析。两种模式共用决策 workflow 的话题前缀，但后续由不同的应用服务（chat 任务进程与 Import Bus）消费：Import Bus 只使用决定中的话题落位，不执行检索。
 
 ## 6. Patchouli 边界
 

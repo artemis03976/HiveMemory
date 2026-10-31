@@ -257,7 +257,7 @@ Alice 的流式交付事件（`mtp_start`、`mtp_result`）是交给前端的传
 | `user_message` | 删除，由序号 0 的事件得到（第 7.2 节） | 与事件重复 |
 | `assistant_final_text` | 删除，由 `assistant_message` 事件得到（第 7.2 节） | 与事件重复 |
 | `rewritten_query` | 删除 | 是 Gateway 对用户消息的改写，不是交互事件；感知层只有接力摘要使用它，改为用用户消息与本轮过程（第 8.4 节） |
-| `worth_saving` | 删除 | 不参与任何决定，只供观测；Import Bus 的观测事件直接取 Gateway 的决定，不经载荷。它与 Gateway 价值预判的整体去留仍随[生成材料 Todo](../../todo/generation-material-filtering-and-truncation.md)与记忆价值策略决定 |
+| `worth_saving` | 删除 | 不参与任何决定，只供观测；Import Bus 的观测事件直接取 Gateway 的决定，不经载荷。它与 Gateway 价值预判的整体去留仍随[生成材料 Todo](../todo/generation-material-filtering-and-truncation.md)与记忆价值策略决定 |
 | `outcome`、`model_used`、`used_attachments` | 保留（owner，2026-10-30） | 本轮的结局、执行者使用的模型与实际使用的附件，不是对事件的解析，也不与事件重复 |
 
 ### 7.2 从事件得到的两段文字
@@ -380,4 +380,4 @@ Alice 的流式交付事件（`mtp_start`、`mtp_result`）是交给前端的传
 - MTP READ 截断正式记忆正文的问题，见 [Todo](../../todo/mtp-read-content-truncation.md)。
 - 读取部分未命中在两侧都是 success，未命中的 alias 只在正文中。
 - 渲染材料的查看入口（第 8.7 节）。
-- 生成材料每轮上限的校准，见[生成材料 Todo](../../todo/generation-material-filtering-and-truncation.md)。
+- 生成材料每轮上限的校准，见[生成材料 Todo](../todo/generation-material-filtering-and-truncation.md)。

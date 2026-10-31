@@ -1,6 +1,9 @@
 ---
 title: Generation Material Filtering And Truncation
-status: todo
+status: archived
+archived_at: 2026-10-31
+implemented_by: v0.7.2 生成材料修正计划（archive/plans/v0.7.2-generation-material-and-raw-evidence.md）
+superseded_by: docs/patchouli/generation.md
 owner: patchouli
 scope: settlement-material-filtering-generation-view-limits-and-worth-saving-removal
 code_paths:
@@ -19,23 +22,25 @@ related_docs:
   - docs/system/import-bus.md
   - docs/ROADMAP.md
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
-  - docs/plans/v0.7.2-generation-material-and-raw-evidence.md
+  - docs/archive/plans/v0.7.2-generation-material-and-raw-evidence.md
   - docs/archive/todo/import-bus-real-use-observation.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # 生成材料的筛选与截断
+
+> 已归档（2026-10-31）。两项完成条件随 [v0.7.2 生成材料修正计划](../plans/v0.7.2-generation-material-and-raw-evidence.md)完成，处置见文末“归档结论”；当前事实见 [Patchouli 生成](../../patchouli/generation.md)与[感知与短期话题](../../patchouli/perception.md)。以下正文保留归档前的原文，链接已改为归档后的相对路径。
 
 ## 问题
 
 Claude Code 单个会话的上下文常达数十万 token，而每个话题送到提取模型的材料只有 1～2 万 token。2026-10-29 对真实导入做了逐段对账：读取会话记录损失的对话内容很少，缩减来自服务端两处。
 
 1. **入口价值预判整轮丢弃材料**：Gateway 在只看到用户消息的情况下判断价值，判为不值得保存的轮次在结算时被整轮过滤。
-   - Owner 决定（2026-10-29）：`worth_saving` 不得再影响材料去留。结算已于同日改为不按 `worth_saving` 筛选，当前事实见[感知与短期话题](../patchouli/perception.md)第 2 节。
+   - Owner 决定（2026-10-29）：`worth_saving` 不得再影响材料去留。结算已于同日改为不按 `worth_saving` 筛选，当前事实见[感知与短期话题](../../patchouli/perception.md)第 2 节。
    - Owner 决定（2026-10-30）：价值体系由 owner 重新设计，不在现有信号上增补；`worth_saving` 没有保留与否的问题，只做移除。
 2. **一轮交互的内容被上限数字截断**：保留下来的轮次里，思考与工具步骤大多被截断，多数工具调用只剩工具名与参数，看不到结果。
    - Owner 决定（2026-10-30）：一轮交互的内容不得被任何一个上限数字截断，最多只允许单次工具调用的结果受限。
-   - 现行生成视图的单轮上限 `max_turn_action_chars`，以及思考、参数的单条上限 `max_thought_chars`、`max_args_chars`，都违反这条规则，属于实现漂移。owner 于 2026-10-21 只决定把思考与外部工具纳入生成视图；这些上限是 [Import Bus 重设计计划](../archive/plans/v0.7.1-import-bus-redesign.md)第 4.10 节记录该决定时加入的候选默认值，后由[工具解析链路重写](../archive/plans/v0.7.1-tool-call-parsing-chain.md)沿用。单条工具结果的上限 `max_result_chars` 符合规则。
+   - 现行生成视图的单轮上限 `max_turn_action_chars`，以及思考、参数的单条上限 `max_thought_chars`、`max_args_chars`，都违反这条规则，属于实现漂移。owner 于 2026-10-21 只决定把思考与外部工具纳入生成视图；这些上限是 [Import Bus 重设计计划](../plans/v0.7.1-import-bus-redesign.md)第 4.10 节记录该决定时加入的候选默认值，后由[工具解析链路重写](../plans/v0.7.1-tool-call-parsing-chain.md)沿用。单条工具结果的上限 `max_result_chars` 符合规则。
 
 ## 证据（2026-10-29）
 
@@ -69,7 +74,7 @@ Claude Code 单个会话的上下文常达数十万 token，而每个话题送�
 
 ## 影响
 
-- 停止筛选后，被判为不值得保存的轮次也进入生成，提取 token 与折叠频率会上升；删除单轮、思考与参数上限后，生成视图还会继续变大，单个轮次也可能超过提取模型的窗口。owner 于 2026-10-30 决定不分片，单个超大轮次照常接收、照常触发折叠，更有效的方案留到流式交互接收实现时处理（[Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md#01-owner-决定2026-10-30) R-1）。
+- 停止筛选后，被判为不值得保存的轮次也进入生成，提取 token 与折叠频率会上升；删除单轮、思考与参数上限后，生成视图还会继续变大，单个轮次也可能超过提取模型的窗口。owner 于 2026-10-30 决定不分片，单个超大轮次照常接收、照常触发折叠，更有效的方案留到流式交互接收实现时处理（[Raw Evidence Idea](../../ideas/PatchouliPageFoldingRawEvidenceDesign.md#01-owner-决定2026-10-30) R-1）。
 - 上限不删除时，进入生成的实现轮次主要贡献助手正文，测试失败、报错与改动内容等工具结果大多看不到。
 - `worth_saving` 停用后不再参与任何决定，2026-10-30 起也已移出交互记录与话题 block；但 Gateway 仍为每一轮计算 `memory_write_signal`，由它得到的 `worth_saving` 仍随 `import.turn.accepted` 事件传递，只供观测。
 
@@ -79,3 +84,9 @@ Claude Code 单个会话的上下文常达数十万 token，而每个话题送�
 
 - 生成视图只保留单次工具调用结果的上限，删除 `max_turn_action_chars`、`max_thought_chars`、`max_args_chars` 及对应的降级与省略规则；
 - 移除 `worth_saving` 与只为它计算的传递链。
+
+## 归档结论（2026-10-31）
+
+两项完成条件随计划完成：生成材料只截断单条工具结果（`max_result_chars`），思考、工具参数与一轮的全部条目原样渲染；`worth_saving` 与 Gateway 的价值信号整条链路移除，`PASSIVE_MEMORY` 不再运行查询分析。计划还让 Topic 保存全部交互记录与折叠记录，来源 InteractionArtifact 覆盖已折叠的轮次，补回了证据一节所说的原文缺口。
+
+与上表 2026-10-29 数据的对比属于计划的实测项，owner 决定随日常使用进行，不作为归档条件，归档时还没有新代码产生的样本。删除上限后的超窗、折叠变频与体积风险记为 [Patchouli 生成](../../patchouli/generation.md#8-当前限制)与[感知与短期话题](../../patchouli/perception.md#8-当前限制)的已知限制。连接器读取会话记录的取舍不在本 Todo 内，保持原状。

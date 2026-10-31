@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # Artifacts 与来源追踪
@@ -47,7 +47,7 @@ Chat 附件的来源 promotion 已接入本链路（见[Chat 附件链路](../sy
 
 ### 2.1 InteractionArtifact
 
-InteractionArtifact 是一个话题材料快照，保存 `topic_id/title/summary` 和多个 `InteractionTurnSnapshot`。每个 turn 从 `LogicalBlock` 冻结得到，包括：
+InteractionArtifact 是一个话题材料快照，保存 `topic_id/title/summary`、多个 `InteractionTurnSnapshot` 与按顺序排列的折叠记录 `folds`。每个 turn 从 `LogicalBlock` 冻结得到，包括：
 
 - 块标识、`turn_id` 与写入时间；
 - user/agent/team 三轴的 `actor_identity`（不保存 session）；
@@ -56,9 +56,11 @@ InteractionArtifact 是一个话题材料快照，保存 `topic_id/title/summary
 
 事件集是本轮唯一的内容事实，快照不另存问答正文或由事件派生的动作与轨迹：用户消息与回复正文从事件读取，生成材料也由事件按当时的截断配置复现。事件以 dict 保存，运行时模型改变时不影响已写入记录的读取。
 
+每条折叠记录（`InteractionFoldSnapshot`）对应话题的一次折叠：这一次被折叠的块标识、折叠后的状态摘要与折叠时间（Unix 秒）。被折叠的块标识指向同一份 Artifact 中的 turn，读者因此能看出每段摘要概括了哪些原文。它与运行时的 `TopicFold` 分开建模，理由与事件以 dict 保存相同。`folds` 只追加、不改名，缺少该字段的旧文件读作空列表，`schema_version` 不变。
+
 它刻意不保存 memory id、alias、source intent、capture policy，也不设置顶层 Agent 来源字段：来源 provenance 由每个 block 冻结的 `actor_identity` 承载，因为同一 Workspace 话题内可以切换不同 Agent，话题级单值来源无法表达这一事实。原始交互先保持中立，哪条记忆由它派生则由 MemoryCreation/Version Artifact 表达。这样同一份证据不会因为生成出不同记忆而被重复解释为不同“原文”。
 
-当前生成任务在执行前根据 `InteractionArtifactInput` 构建它。话题结算（Mode A）使用本次结算的 blocks；主动 WRITE/UPDATE 使用话题最近五个 blocks 作为背景。若一次 finalize 产生多个主动任务，每个 task 目前会独立捕获自己的 InteractionArtifact，并不共享单一 task-group artifact。
+当前生成任务在执行前根据 `InteractionArtifactInput` 构建它。话题结算（Mode A）使用话题接收到的全部交互记录与全部折叠记录：`turns` 覆盖已折叠的轮次，而生成材料只是工作视图（[感知与短期话题](./perception.md)）。主动 WRITE/UPDATE 使用话题工作视图最近 `active_recent_blocks`（默认 5）个 blocks 作为背景，没有折叠记录。若一次 finalize 产生多个主动任务，每个 task 目前会独立捕获自己的 InteractionArtifact，并不共享单一 task-group artifact。
 
 ### 2.2 DocumentArtifact
 
@@ -106,7 +108,7 @@ capture InteractionArtifact (best effort)
   -> MidTermMemoryStore.upsert(MemoryAtom, recompute_vectors=<embedding 输入是否变化>)
 ```
 
-CREATE 会挂载 v1、creation 和 interaction refs，并追加 CREATED event；UPDATE 会挂载 version 与 interaction refs，并追加 VERSIONED event；TOUCH 不创建版本 artifact、不改内容时间与版本、不挂载 interaction ref，只经 `patch_payload` 推进访问统计；本次 InteractionArtifact 仍按 best-effort 捕获留存为证据，但不与该记忆建立新引用。DISCARD 不写 MemoryAtom。
+CREATE 会挂载 v1、creation 和 interaction refs，并追加 CREATED event；UPDATE 会挂载 version 与 interaction refs，并追加 VERSIONED event；TOUCH 不创建版本 artifact、不改内容时间与版本、不挂载 interaction ref，只经 `patch_payload` 推进访问统计；本次 InteractionArtifact 仍按 best-effort 捕获留存为证据，但不与该记忆建立新引用。DISCARD 不写 MemoryAtom。InteractionArtifact 在生成之前捕获，提取失败（包括超窗）时同样已经写入，只是没有记忆引用它。
 
 **版本记录是内容提交成功的前置条件**：版本存储未启用或写入失败时，Familiar 直接抛错，不发布无历史的新 canonical；canonical 写入失败时错误传播，已写入的版本记录保留为孤立 Artifact、不构成已提交版本。手工创建/编辑同样经过 MemoryGenerationFamiliar：手工创建使用 `MANUAL` creation intent，手工编辑生成 `MANUAL_EDIT` version artifact；传入值与当前值相同的编辑不创建版本。
 
@@ -145,12 +147,12 @@ A2-P 起版本记录是内容提交的强制前置条件：memory 组件关闭�
 同一轮 Agent 事实只以 `TurnRecord` 中的 `TurnEvent` 集保存，不另存由它归并的动作或轨迹。消费方随后产生不同视图：
 
 - 历史重放视图保留工具调用和对话顺序，服务于 Agent 上下文；
-- Generation 视图保留用户消息与按顺序穿插的助手正文、思考、能力调用的一行摘要与外部工具步骤（工具名、参数摘要与截断后的结果），服务于记忆提取，渲染与截断规则见[记忆生成](./generation.md#21-材料与渲染)；
+- Generation 视图保留用户消息与按顺序穿插的助手正文、思考、能力调用的一行摘要与外部工具步骤（工具名、完整参数与截断后的结果），服务于记忆提取，渲染与截断规则见[记忆生成](./generation.md#21-材料与渲染)；
 - InteractionArtifact 则冻结底层事件集，服务于来源追踪。
 
 三者共享同一 `TurnRecord`，但不共享一段提前压扁的 `context_messages` 字符串。新增交互事实应先进入结构化事件或 turn 模型，再由各视图渲染，不能重新引入字符串反解析主路径。
 
-两份持久化记录的分工因此不同：思考与工具结果的原文随 InteractionArtifact（可选旁路）的 `turn_events` 快照保存；MemoryCreationArtifact 的 `generation_view` 记录的是 Generation 视图，即截断后的版本，用于回答“这条记忆生成时看到了什么”，不能替代原始证据。
+两份持久化记录的分工因此不同：思考与工具结果的原文随 InteractionArtifact（可选旁路）的 `turn_events` 快照保存；MemoryCreationArtifact 的 `generation_view` 记录的是 Generation 视图，即话题工作视图（被折叠的轮次只以状态摘要出现）且工具结果截断后的版本，用于回答“这条记忆生成时看到了什么”，不能替代原始证据。
 
 ## 7. 当前限制
 
@@ -159,6 +161,8 @@ A2-P 起版本记录是内容提交的强制前置条件：memory 组件关闭�
 - 没有把能力调用中的 READ/RUN 证据自动提升为细粒度 source memory/document refs；
 - MemoryCreationArtifact 的 `generation_view` 为同一次生成新建的每条记忆各存一份截断后的材料条目（含思考与工具结果），与 InteractionArtifact 中的原文构成重复存储；
 - 交互快照与 `generation_view` 的形态于 2026-10-30 改变：此前写入的记录保留原有字段（用户问题、回复正文、动作与轨迹快照，以及生成视图中的动作段），不迁移；当前没有按类型读回这两种记录的入口，Artifact 存储只返回原始 dict；
+- 结算捕获的 InteractionArtifact 覆盖话题的全部轮次，文件大小随话题轮次增长，工具密集的话题可达 MB 级；没有大小上限、分片或压缩；
+- 来源 InteractionArtifact 写入失败只记录 warning，生成照常进行；话题随结算删除后，这次结算的原文不再保存在任何地方；
 - artifacts 与 Qdrant 写入不是原子事务；
 - 完整版本重建模型已经存在，但公开回档、diff 和 UI 浏览仍未完成。
 

@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/contracts/mcp.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # HiveMemory 项目总览
@@ -265,7 +265,7 @@ message
   -> POST /api/v1/import/turns
   -> 统一认证网关 + 导入授权
   -> Import Bus 编排（按外部会话串行，查询交互进度）
-  -> Gateway PROCESS(PASSIVE_MEMORY)：话题落位与价值信号
+  -> Gateway PROCESS(PASSIVE_MEMORY)：只取话题落位
   -> 共用封口函数 seal_interaction
   -> Patchouli interaction.submit -> 感知队列
   -> 等待应用完成后确认（accepted / duplicate / skipped）

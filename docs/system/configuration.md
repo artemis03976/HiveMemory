@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # System 配置与注册表
@@ -51,16 +51,9 @@ last_reviewed: 2026-10-30
 
 主动写入的背景轮数由 `patchouli.generation.active_recent_blocks` 控制，默认 5、最小 0；即话题过去 N 个 block 与 `state_summary`，不含当前轮。该项与 `patchouli.perception.fold_retain_recent_blocks` 的折叠保留轮数独立，见[Patchouli 生成](../patchouli/generation.md)。
 
-`patchouli.generation.transcript`（`GenerationTranscriptConfig`）约束一轮交互材料的字符长度：记忆生成视图、LLM 接力摘要与逻辑块的 token 统计使用同一组上限，折叠阈值因此反映生成实际看到的材料。上限只约束思考与外部工具步骤的渲染，能力调用（SEARCH、READ、RUN）的一行摘要不截断；单轮上限另外计入能力摘要，用户消息与助手正文不计入。四项均要求至少 1：
+`patchouli.generation.transcript`（`GenerationTranscriptConfig`）只有一项 `max_result_chars`（默认 `800`，至少 1）：一轮交互材料中单条外部工具结果的字符上限。思考、工具参数与一轮的全部条目原样渲染，不受任何总量上限约束。记忆生成视图、LLM 接力摘要与逻辑块的 token 统计使用同一个上限，折叠阈值因此反映生成实际看到的材料。默认值写在 `configs/config.yaml` 中，渲染与截断规则见 [Patchouli 生成](../patchouli/generation.md)。
 
-| 字段 | 默认值 | 作用 |
-|:---|---:|:---|
-| `max_thought_chars` | `1000` | 单条思考的字符上限 |
-| `max_args_chars` | `300` | 工具参数摘要的字符上限 |
-| `max_result_chars` | `800` | 单条工具结果的字符上限 |
-| `max_turn_action_chars` | `8000` | 一轮思考、能力摘要与外部工具步骤的字符上限：超出时较早的非出错工具步骤降为一行，仍超出时按优先级省略整条 |
-
-默认值写在 `configs/config.yaml` 中，渲染与省略规则见 [Patchouli 生成](../patchouli/generation.md)。
+该段拒绝未声明的键。本地自定义配置若仍保留 `max_thought_chars`、`max_args_chars` 或 `max_turn_action_chars`，启动时配置校验失败，需要手动删除这几项。
 
 `import_bus`（`ImportBusConfig`）只有两项：`max_request_bytes`（默认 8 MiB，即 `8388608`，大于 0）是单次导入请求体的字节上限，超出以 413 拒绝；`apply_wait_seconds`（默认 30，大于 0）是提交后等待感知应用完成的时限，超时以可重试的 503 交回。Import Bus 的 Gateway 请求时限与最近轮数沿用 Gateway 配置段。随仓库发布的 `configs/config.yaml` 不含该段，按默认值运行，语义见 [Import Bus](./import-bus.md#7-配置)。
 

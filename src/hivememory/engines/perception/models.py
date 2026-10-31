@@ -1,12 +1,10 @@
-"""
-HiveMemory 感知层数据模型
+"""感知层数据模型。
 
-- TriggerReason: 统一触发原因枚举（历史命名 ``FlushReason`` 已收敛）
-- LogicalBlock: 逻辑原子块（最小语义单元）
-- TopicMaterializeTask: 感知层 → 生成层的话题结算传输包
+- ``TriggerReason``：话题结算、折叠与驱逐的触发原因，只作结算材料的 provenance 标签；
+- ``TopicMaterializeTask``：感知层交给生成层的话题结算传输包。
 
-Note: 记录字段状态机（原 BufferState）已删除，跨 await 的占用权由
-      TopicWorkingSet 的 lease 表表达。
+话题的交互记录、折叠记录与工作视图的派生定义在 core 话题模型中，感知层与生成层
+共用。跨 await 的占用权由 TopicWorkingSet 的 lease 表达，不建模为记录字段。
 """
 
 from __future__ import annotations

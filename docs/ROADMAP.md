@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # HiveMemory 开发路线图
@@ -35,7 +35,7 @@ last_reviewed: 2026-10-30
 当前版本事实如下：
 
 - 最近已发布基线：`v0.7.1`（Git tag，2026-10-30）；[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
-- 当前开发版本：`v0.7.2`，生成质量，状态为 Planned（版本目标 owner，2026-10-30，第 4.3 节）；[生成材料修正与原始证据保存](./plans/v0.7.2-generation-material-and-raw-evidence.md)计划已建立，其余方向的阻塞问题待决定。
+- 当前开发版本：`v0.7.2`，生成质量，状态为 Planned（版本目标 owner，2026-10-30，第 4.3 节）；[生成材料修正与原始证据保存](./archive/plans/v0.7.2-generation-material-and-raw-evidence.md)已于 2026-10-31 完成归档，其余方向的阻塞问题待决定。
 
 当前规范代码版本为 `0.7.1`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致，与最近发布标签 `v0.7.1` 对应。
 
@@ -82,7 +82,7 @@ last_reviewed: 2026-10-30
 ### 3.3 发布范围边界
 
 - **不在 v0.7.1**：重排模型 int8 现在不是必要项，未来再考虑（owner，2026-10-30，[Todo](./todo/reranker-int8-and-onnx-memory.md)）；推理模型重新加载时的事件循环停顿记为已知限制，之后单独优化（owner，2026-10-30，[Todo](./todo/model-reload-event-loop-stall.md)）；controller 模式退回候选方向（第 5.6 节），执行基座与沙箱基线暂不考虑（第 5.4 节）；写入意图经 MCP 提交需要结果观察的方式（外部 Actor Idea E-4），2026-10-30 起是 v0.7.2 的方向之一（第 4.3 节）。
-- **真实使用观察**：Import Bus 真实使用观察 Todo 随收尾归档（owner，2026-10-30，[归档记录](./archive/todo/import-bus-real-use-observation.md)），之后正常使用；观察期间需要改动的项目登记为[生成查重的决策信号](./todo/generation-dedup-decision-signal.md)与[生成材料的筛选与截断](./todo/generation-material-filtering-and-truncation.md)，现为 v0.7.2 的输入。
+- **真实使用观察**：Import Bus 真实使用观察 Todo 随收尾归档（owner，2026-10-30，[归档记录](./archive/todo/import-bus-real-use-observation.md)），之后正常使用；观察期间需要改动的项目登记为[生成查重的决策信号](./todo/generation-dedup-decision-signal.md)与[生成材料的筛选与截断](./archive/todo/generation-material-filtering-and-truncation.md)，现为 v0.7.2 的输入（后者已随 v0.7.2 的生成材料修正归档）。
 
 上一个发布版本 v0.7.0（Workspace 网络与任务进程）的内容见第 2 节与[收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md)，各方向的归档计划见 [Plans 导航](./plans/README.md#v070)。
 
@@ -117,7 +117,7 @@ last_reviewed: 2026-10-30
 
 | 版本或候选方向 | 状态 | 目标结果 | 依赖与入口 |
 |:---|:---:|:---|:---|
-| `v0.7.2` 生成质量 | Planned（版本目标 owner，2026-10-30）；一份计划已建立 | 真实使用中生成的记忆可信：生成材料不被单轮上限截断，Topic 之后的原始证据可以回查；一个话题能提取多条记忆；查重与更新按新机制处理同一件事的后续阶段；Claude Code 能显式写入与更新记忆 | 第 4.3 节 |
+| `v0.7.2` 生成质量 | Planned（版本目标 owner，2026-10-30）；一份计划已完成 | 真实使用中生成的记忆可信：生成材料不被单轮上限截断，Topic 之后的原始证据可以回查；一个话题能提取多条记忆；查重与更新按新机制处理同一件事的后续阶段；Claude Code 能显式写入与更新记忆 | 第 4.3 节 |
 | 冷启动、历史导入与外源文档资产化 | Candidate / 不绑定版本 | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | 第 4.4 节；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md) |
 | MTP READ 专项编译与来源表达 | Candidate / 不绑定版本 | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | 第 4.5 节；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md) |
 | Deep Research MVP | Candidate / 不绑定版本 | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 第 4.6 节 |
@@ -128,19 +128,19 @@ last_reviewed: 2026-10-30
 
 ### 4.3 v0.7.2：生成质量
 
-状态：Planned。版本目标（owner，2026-10-30）是生成质量：v0.7.1 让 Claude Code 的日常使用开始产生记忆，真实使用随即暴露出生成链路的问题，v0.7.2 由这些问题驱动 Patchouli 核心机制的改进。下列方向各自在阻塞问题决定、能够立即执行时建立计划，彼此不预设先后，计划导航见 [Plans](./plans/README.md#v072)；目前已建立生成材料修正一份。
+状态：Planned。版本目标（owner，2026-10-30）是生成质量：v0.7.1 让 Claude Code 的日常使用开始产生记忆，真实使用随即暴露出生成链路的问题，v0.7.2 由这些问题驱动 Patchouli 核心机制的改进。下列方向各自在阻塞问题决定、能够立即执行时建立计划，彼此不预设先后，计划导航见 [Plans](./plans/README.md#v072)；生成材料修正一份已于 2026-10-31 完成归档，实测随日常使用进行。
 
 真实使用暴露的问题（证据见各 Todo 与 Idea）：
 
-- 生成视图只剩导入原文的 8%：单轮上限截断了大部分工具过程；结算曾按 `worth_saving` 整轮丢弃 39% 的材料，2026-10-29 已停用筛选；
-- 折叠裁剪的原文没有留存，结算冻结的来源只覆盖未折叠的轮次；
+- 生成视图只剩导入原文的 8%：单轮上限截断了大部分工具过程；结算曾按 `worth_saving` 整轮丢弃 39% 的材料，2026-10-29 已停用筛选（已随生成材料修正解决）；
+- 折叠裁剪的原文没有留存，结算冻结的来源只覆盖未折叠的轮次（已随生成材料修正解决）；
 - 一个话题至多产出一条记忆，只写在正文中的内容检索不到；
 - 查重分不开同一项目中相关与无关的记忆；同项目记忆增多后，查重判出的 UPDATE 整体覆盖已有记忆，已有两条记忆的主要内容在当前版本中被冲掉；
 - plugin 模式只开放了检索与读取，Claude Code 的显式写入与更新从未发生；owner 判断上述生成问题约有一半源于此。
 
 | 方向 | 内容 | owner 决定（2026-10-30） | 设计讨论与阻塞问题 |
 |:---|:---|:---|:---|
-| 生成材料修正与原始证据保存 | 生成视图只保留单次工具调用结果的上限；移除 `worth_saving`；同步完成从 Topic 往后全链路的原始证据保存覆盖面（Topic 完整资料、来源冻结、来源 Artifact、Memory 的来源关联） | 一轮交互的内容不得被任何上限数字截断，只允许单次工具调用的结果受限，现行的单轮、思考与参数上限属于实现漂移；`worth_saving` 只做移除；计划同步完成 Topic 往后的原始证据覆盖面 | R-1、R-2 已决定（2026-10-30）：不分片，生成继续读工作视图；Topic 按顺序保存全部交互记录与折叠记录，作为来源 Artifact 的数据。计划：[生成材料修正与原始证据保存](./plans/v0.7.2-generation-material-and-raw-evidence.md)；证据见[生成材料 Todo](./todo/generation-material-filtering-and-truncation.md) |
+| 生成材料修正与原始证据保存 | 生成视图只保留单次工具调用结果的上限；移除 `worth_saving`；同步完成从 Topic 往后全链路的原始证据保存覆盖面（Topic 完整资料、来源冻结、来源 Artifact、Memory 的来源关联） | 一轮交互的内容不得被任何上限数字截断，只允许单次工具调用的结果受限，现行的单轮、思考与参数上限属于实现漂移；`worth_saving` 只做移除；计划同步完成 Topic 往后的原始证据覆盖面 | R-1、R-2 已决定（2026-10-30）：不分片，生成继续读工作视图；Topic 按顺序保存全部交互记录与折叠记录，作为来源 Artifact 的数据。已完成（2026-10-31）：[归档计划](./archive/plans/v0.7.2-generation-material-and-raw-evidence.md)；证据见[生成材料 Todo](./archive/todo/generation-material-filtering-and-truncation.md)（已归档）；当前事实见[感知与短期话题](./patchouli/perception.md)与 [Patchouli 生成](./patchouli/generation.md) |
 | plugin 模式开放 WRITE 与 UPDATE | Claude Code 经 MCP 工具显式写入与更新记忆，经操作入口的请求级提交进入 actor API，派发到 Patchouli 的 Mode B、Mode C | 同步开放两项能力，与主动链路共享同一记忆更新逻辑 | [外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)的 v0.7.2 一步：E-4，以及外部 Actor 的提交与回读契约 |
 | 一个话题提取多条记忆 | 话题结算从整段材料中提取多条记忆，逐条查重与写入 | 版本内完成 | [多条提取与查重 Idea](./ideas/settlement-multi-memory-extraction-and-dedup.md)的 G-1 |
 | 查重与更新机制 | 查重的判定信号，以及命中已有记忆后的写入方式 | 设计未决定 | 同一 Idea 的 G-2、G-3；证据见[查重 Todo](./todo/generation-dedup-decision-signal.md) |
@@ -183,7 +183,7 @@ last_reviewed: 2026-10-30
 
 状态：Candidate，不绑定版本。owner（2026-10-30）将重新设计价值体系，而不是在现有信号上增补。
 
-现状：Gateway 的 WRITE/SKIP/UNKNOWN 预判与由它派生的 `worth_saving` 只供观测。Perception settlement 原先按 `worth_saving` 整轮筛选材料，Claude Code 真实导入中这一预判只看到用户消息，把“请提交”“继续”背后的整轮实现丢出了生成，2026-10-29 起不再筛选（证据见[生成材料 Todo](./todo/generation-material-filtering-and-truncation.md)）；`worth_saving` 随 v0.7.2 的生成材料修正移除（第 4.3 节）。正式 Memory 的生命周期评分另有依据，事实入口见 [Gateway Analysis](./gateway/analysis.md)、[Perception](./patchouli/perception.md)和 [Lifecycle](./patchouli/lifecycle.md)。
+现状：入口不再产生价值信号。Gateway 的 WRITE/SKIP/UNKNOWN 预判与由它派生的 `worth_saving` 已随 v0.7.2 的生成材料修正移除（第 4.3 节），`PASSIVE_MEMORY` 也不再运行查询分析。此前 Perception settlement 曾按 `worth_saving` 整轮筛选材料，Claude Code 真实导入中这一预判只看到用户消息，把“请提交”“继续”背后的整轮实现丢出了生成，2026-10-29 起不再筛选（证据见已归档的[生成材料 Todo](./archive/todo/generation-material-filtering-and-truncation.md)）。正式 Memory 的生命周期评分另有依据，事实入口见 [Gateway Analysis](./gateway/analysis.md)、[Perception](./patchouli/perception.md)和 [Lifecycle](./patchouli/lifecycle.md)。
 
 已有的约束：入口信号不能替代 Patchouli 的最终决定，也不应单独成为删除来源证据的依据；新体系不追溯性批量删除旧记忆，任何存量重评或迁移另有预览、审计和回滚范围。正式的 Idea 与 Plan 待建立。
 

@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # 数据模型与可变性边界
@@ -83,7 +83,7 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 - Gateway 的公共 decision / command outcome 及多项私有分析结果；
 - PendingAtom 领域中的 `WriteFocus`、`UpdateFocus`、`RuntimeScope`、`PendingAtomSnapshot` 和 `PendingAtomMaterializeTask`。
 
-它们通常以重新构造、tuple 聚合或 `model_copy()` 生成新值。Pydantic 的 `model_copy(update=...)` 不会完整重复构造时的字段验证，因此带有业务语义的变化仍应逐步收敛到命名方法或明确的转换器。
+它们通常以重新构造、tuple 聚合或 `model_copy()` 生成新值。Pydantic 的 `model_copy(update=...)` 不会完整重复构造时的字段验证，因此带有业务语义的变化仍应逐步收敛到命名方法或明确的转换器；`TopicData` 已经收敛为只经两个写函数以完整构造产生新快照（第 4.3 节）。
 
 ## 4. 受控可变与快照投影
 
@@ -105,9 +105,11 @@ Memory type 是系统对“这份资产应如何被使用”的结构化提示�
 
 ### 4.3 Topic 实体与读取模型
 
-短期存储 adapter 直接存储冻结的 `TopicData`（含 blocks、摘要、token 计数），Store 与 Port 只交换不可变 `TopicData` 或 `TopicSnapshot` 快照；执行占用不建模为记录字段，由 TopicWorkingSet 的 lease 表达。
+短期存储 adapter 直接存储冻结的 `TopicData`，Store 与 Port 只交换不可变 `TopicData` 或 `TopicSnapshot` 快照；执行占用不建模为记录字段，由 TopicWorkingSet 的 lease 表达。
 
-“不可变快照 + 单写者编排”是当前最清晰的聚合边界：调用方可以观察话题，但不能通过读取结果改写 Store 内部状态（frozen 模型 + adapter 原样返回存储实例）。新增 append、settle、evict 或 summary update 行为时，应继续由 Patchouli 所有者执行，不能把可变实体直接返回给 public route。当前实现中 Perception 通过不可变 `TopicData` 快照完成领域更新（读取 → model_copy → 整条替换写回），互斥由 TopicWorkingSet 的 lease 保证。
+`TopicData` 只存两份原始数据：按接收顺序、只追加的交互记录 `interactions`（`LogicalBlock` tuple），与每次折叠追加一条的折叠记录 `folds`（`TopicFold`：被折叠的块标识、折叠后的状态摘要与折叠时间）。工作视图 `blocks`、`state_summary` 与 `total_tokens` 是由二者派生的只读属性，`TopicSnapshot` 的 `block_count`、`total_tokens` 同样指工作视图。构造时校验全部折叠记录依次拼接等于交互记录开头同样数量的块标识；模型拒绝未声明字段。语义与理由见[感知与短期话题](../patchouli/perception.md#13-话题原始数据与工作视图)。
+
+“不可变快照 + 单写者编排”是当前最清晰的聚合边界：调用方可以观察话题，但不能通过读取结果改写 Store 内部状态（frozen 模型 + adapter 原样返回存储实例）。新增 append、settle、evict 或 summary update 行为时，应继续由 Patchouli 所有者执行，不能把可变实体直接返回给 public route。当前实现中 Perception 通过不可变 `TopicData` 快照完成领域更新：读取 → core 话题模型的写函数（`merge_interaction_into_topic` 追加交互，`fold_topic` 追加折叠记录）以完整构造产生新快照 → 整条替换写回；写函数不用 `model_copy`，构造校验因此不会被绕过，互斥由 TopicWorkingSet 的 lease 保证。
 
 ### 4.4 PendingAtom 状态机
 
@@ -192,7 +194,7 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 
 一轮事件集的不变量由 `validate_turn_events` 校验：首个事件是序号 0 的用户消息，且一轮只有这一条用户消息；序号轮内唯一、严格递增；调用的 `action_id` 轮内唯一。`InteractionPayload` 构造时执行这项校验，Import Bus 在请求校验阶段提前执行同一校验；违反时显式失败，不修补。
 
-`InteractionPayload`（`core/protocol/models.py`）只以 `turn_events` 表达交互内容，其余字段是本轮结局 `outcome`、执行者实际使用的模型 `model_used` 与实际进入上下文的附件 `used_attachments`，它们不是对事件的解析。用户消息与回复正文是从事件读取的只读属性，不保存、不序列化：`user_message` 取序号 0 的用户消息，`reply_text` 把全部助手正文按序号以空行拼接（没有助手正文时为空串）；执行者交给交付方的最终回复由执行者自己组装，不受它影响。Gateway 的改写查询与价值预判不进入载荷；载荷拒绝额外字段。
+`InteractionPayload`（`core/protocol/models.py`）只以 `turn_events` 表达交互内容，其余字段是本轮结局 `outcome`、执行者实际使用的模型 `model_used` 与实际进入上下文的附件 `used_attachments`，它们不是对事件的解析。用户消息与回复正文是从事件读取的只读属性，不保存、不序列化：`user_message` 取序号 0 的用户消息，`reply_text` 把全部助手正文按序号以空行拼接（没有助手正文时为空串）；执行者交给交付方的最终回复由执行者自己组装，不受它影响。Gateway 的改写查询不进入载荷；载荷拒绝额外字段。
 
 `TurnRecord` 是感知层写入话题的单轮记录，只有结局、`turn_id`、产出本轮的 actor（由构造方显式给出）与事件集 tuple。`LogicalBlock` 包装一条 `TurnRecord`，另有块标识、写入时间与对本轮渲染材料估算的 `total_tokens`；它的 `user_message` 与 `reply_text` 同样从事件读取，不另存。
 

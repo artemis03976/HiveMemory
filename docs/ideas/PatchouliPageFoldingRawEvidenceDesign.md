@@ -18,20 +18,21 @@ related_ideas:
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/settlement-multi-memory-extraction-and-dedup.md
-related_todos:
-  - docs/todo/generation-material-filtering-and-truncation.md
-last_reviewed: 2026-10-30
+related_docs:
+  - docs/archive/plans/v0.7.2-generation-material-and-raw-evidence.md
+  - docs/archive/todo/generation-material-filtering-and-truncation.md
+last_reviewed: 2026-10-31
 ---
 
 # 从 ConversationSession 到 Topic 与 Memory Artifact 的原始资料保存
 
-本文原为未排期的开放设计，2026-10-30 起为 v0.7.2 的生成材料修正计划供料（第 0 节，计划已建立）。2026-10-16 按 owner 的方向，将原先围绕 page folding 的证据旁路扩展为完整资料链：**ConversationSession 保存完整对话，Topic 保存已交接的完整资料，记忆生成阶段冻结相应来源 Artifact，再由 Memory 引用。** 会话原始数据是否持久化另行计划；本文不以新增独立原始记录仓库为前提。
+本文原为未排期的开放设计，2026-10-30 起为 v0.7.2 的生成材料修正计划供料（第 0 节，计划已于 2026-10-31 完成归档）。2026-10-16 按 owner 的方向，将原先围绕 page folding 的证据旁路扩展为完整资料链：**ConversationSession 保存完整对话，Topic 保存已交接的完整资料，记忆生成阶段冻结相应来源 Artifact，再由 Memory 引用。** 会话原始数据是否持久化另行计划；本文不以新增独立原始记录仓库为前提。
 
 当前能力仍以 [Workspace](../workspace/README.md)、[感知与短期话题](../patchouli/perception.md)、[Artifacts 与来源追踪](../patchouli/artifacts.md)和[记忆生成](../patchouli/generation.md)为准。Alice compact、Topic page folding 的算法、预算与检查点集中在[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)。本文维护原始资料的保存、交接与来源生命周期。
 
 ## 0. v0.7.2：生成材料修正与 Topic 之后的原始证据保存
 
-v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质量)第 4.3 节）。本节记录其中生成材料修正方向的 owner 决定；阻塞问题已于 2026-10-30 全部决定，计划已建立：[v0.7.2 生成材料修正与 Topic 之后的原始证据保存](../plans/v0.7.2-generation-material-and-raw-evidence.md)。现状、目标设计与验收以计划为准，本节不再重复。同一版本的其他方向见[多条提取与查重 Idea](./settlement-multi-memory-extraction-and-dedup.md)与[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)。
+v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质量)第 4.3 节）。本节记录其中生成材料修正方向的 owner 决定；阻塞问题已于 2026-10-30 全部决定，计划已于 2026-10-31 完成归档：[v0.7.2 生成材料修正与 Topic 之后的原始证据保存](../archive/plans/v0.7.2-generation-material-and-raw-evidence.md)（历史记录）。从 Topic 往后的部分已经落地：Topic 保存全部交互记录与折叠记录，折叠只推进工作视图；结算冻结全部记录，来源 InteractionArtifact 覆盖已折叠的轮次并带折叠记录。当前事实见[感知与短期话题](../patchouli/perception.md)与 [Artifacts](../patchouli/artifacts.md)。交到 Topic 之前的环节与第 7 节的保存承诺仍是本文的开放范围。同一版本的其他方向见[多条提取与查重 Idea](./settlement-multi-memory-extraction-and-dedup.md)与[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)。
 
 ### 0.1 owner 决定（2026-10-30）
 
@@ -64,6 +65,8 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质
 | Topic | [PerceptionFamiliar](../../src/hivememory/patchouli/services/perception.py)把交互投影为 block，维护 Topic；overflow 由提交队列在应用之后排入的折叠项更新摘要并移除旧前缀 | 没有与工作视图分离的完整资料集合，folding 前也不保存原文 |
 | 结算与生成 | [TopicMaterializeTask](../../src/hivememory/engines/perception/models.py)从现存 blocks 冻结结算材料（不按 `worth_saving` 筛选）；[生成协调器](../../src/hivememory/patchouli/control/memory_generation/coordinator.py)构建模型视图与 `InteractionArtifactInput`，主动生成只取近期 blocks | 进入生成的资料受当前 blocks 及近期窗口限制，不能补回此前已折叠的前缀；模型选择也不能证明全部资料已保存 |
 | 来源 Artifact | [InteractionArtifactBuilder](../../src/hivememory/engines/artifacts/interaction.py)冻结交到它的 blocks；生成链捕获 InteractionArtifact、按结果挂载来源引用 | 当前 interaction/document 来源捕获为 best-effort，不能据此宣称完整证据必然保存；强制写入的 Memory version artifact 是另一项承诺 |
+
+2026-10-31 补记：上表 Topic、结算与生成、来源 Artifact 三行中折叠丢弃原文、来源只覆盖未折叠轮次的缺口，已随 v0.7.2 生成材料修正补齐（第 0 节）；生成仍读取工作视图，来源 Artifact 的捕获仍是 best-effort。
 
 当前 Session 与 Topic 都是进程内资源；既有 Artifact 已有文件保存能力，这不等于前面两层已具备重启恢复。2026-10-13 owner 保留“未来对话流式同步到 Patchouli 需要接收容器”的方向，见[外部会话与 Topic 投影](./external-session-and-topic-projection.md)；容器、同步协议与失败恢复尚未落地。
 
