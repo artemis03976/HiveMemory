@@ -35,7 +35,7 @@ last_reviewed: 2026-10-30
 当前版本事实如下：
 
 - 最近已发布基线：`v0.7.1`（Git tag，2026-10-30）；[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
-- 当前开发版本：`v0.7.2`，生成质量，状态为 Planned（版本目标 owner，2026-10-30，第 4.3 节）；版本内尚无计划，各方向的阻塞问题待决定。
+- 当前开发版本：`v0.7.2`，生成质量，状态为 Planned（版本目标 owner，2026-10-30，第 4.3 节）；[生成材料修正与原始证据保存](./plans/v0.7.2-generation-material-and-raw-evidence.md)计划已建立，其余方向的阻塞问题待决定。
 
 当前规范代码版本为 `0.7.1`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致，与最近发布标签 `v0.7.1` 对应。
 
@@ -117,7 +117,7 @@ last_reviewed: 2026-10-30
 
 | 版本或候选方向 | 状态 | 目标结果 | 依赖与入口 |
 |:---|:---:|:---|:---|
-| `v0.7.2` 生成质量 | Planned（版本目标 owner，2026-10-30）；尚无计划 | 真实使用中生成的记忆可信：生成材料不被单轮上限截断，Topic 之后的原始证据可以回查；一个话题能提取多条记忆；查重与更新按新机制处理同一件事的后续阶段；Claude Code 能显式写入与更新记忆 | 第 4.3 节 |
+| `v0.7.2` 生成质量 | Planned（版本目标 owner，2026-10-30）；一份计划已建立 | 真实使用中生成的记忆可信：生成材料不被单轮上限截断，Topic 之后的原始证据可以回查；一个话题能提取多条记忆；查重与更新按新机制处理同一件事的后续阶段；Claude Code 能显式写入与更新记忆 | 第 4.3 节 |
 | 冷启动、历史导入与外源文档资产化 | Candidate / 不绑定版本 | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | 第 4.4 节；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md) |
 | MTP READ 专项编译与来源表达 | Candidate / 不绑定版本 | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | 第 4.5 节；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md) |
 | Deep Research MVP | Candidate / 不绑定版本 | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 第 4.6 节 |
@@ -128,7 +128,7 @@ last_reviewed: 2026-10-30
 
 ### 4.3 v0.7.2：生成质量
 
-状态：Planned。版本目标（owner，2026-10-30）是生成质量：v0.7.1 让 Claude Code 的日常使用开始产生记忆，真实使用随即暴露出生成链路的问题，v0.7.2 由这些问题驱动 Patchouli 核心机制的改进。版本内尚无计划；下列方向各自在阻塞问题决定、能够立即执行时建立计划，彼此不预设先后，计划导航见 [Plans](./plans/README.md#v072)。
+状态：Planned。版本目标（owner，2026-10-30）是生成质量：v0.7.1 让 Claude Code 的日常使用开始产生记忆，真实使用随即暴露出生成链路的问题，v0.7.2 由这些问题驱动 Patchouli 核心机制的改进。下列方向各自在阻塞问题决定、能够立即执行时建立计划，彼此不预设先后，计划导航见 [Plans](./plans/README.md#v072)；目前已建立生成材料修正一份。
 
 真实使用暴露的问题（证据见各 Todo 与 Idea）：
 
@@ -140,7 +140,7 @@ last_reviewed: 2026-10-30
 
 | 方向 | 内容 | owner 决定（2026-10-30） | 设计讨论与阻塞问题 |
 |:---|:---|:---|:---|
-| 生成材料修正与原始证据保存 | 生成视图只保留单次工具调用结果的上限；移除 `worth_saving`；同步完成从 Topic 往后全链路的原始证据保存覆盖面（Topic 完整资料、来源冻结、来源 Artifact、Memory 的来源关联） | 一轮交互的内容不得被任何上限数字截断，只允许单次工具调用的结果受限，现行的单轮、思考与参数上限属于实现漂移；`worth_saving` 只做移除；计划同步完成 Topic 往后的原始证据覆盖面 | [Raw Evidence Idea](./ideas/PatchouliPageFoldingRawEvidenceDesign.md#0-v072生成材料修正与-topic-之后的原始证据保存)第 0 节的 R-1、R-2；证据见[生成材料 Todo](./todo/generation-material-filtering-and-truncation.md) |
+| 生成材料修正与原始证据保存 | 生成视图只保留单次工具调用结果的上限；移除 `worth_saving`；同步完成从 Topic 往后全链路的原始证据保存覆盖面（Topic 完整资料、来源冻结、来源 Artifact、Memory 的来源关联） | 一轮交互的内容不得被任何上限数字截断，只允许单次工具调用的结果受限，现行的单轮、思考与参数上限属于实现漂移；`worth_saving` 只做移除；计划同步完成 Topic 往后的原始证据覆盖面 | R-1、R-2 已决定（2026-10-30）：不分片，生成继续读工作视图；Topic 按顺序保存全部交互记录与折叠记录，作为来源 Artifact 的数据。计划：[生成材料修正与原始证据保存](./plans/v0.7.2-generation-material-and-raw-evidence.md)；证据见[生成材料 Todo](./todo/generation-material-filtering-and-truncation.md) |
 | plugin 模式开放 WRITE 与 UPDATE | Claude Code 经 MCP 工具显式写入与更新记忆，经操作入口的请求级提交进入 actor API，派发到 Patchouli 的 Mode B、Mode C | 同步开放两项能力，与主动链路共享同一记忆更新逻辑 | [外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)的 v0.7.2 一步：E-4，以及外部 Actor 的提交与回读契约 |
 | 一个话题提取多条记忆 | 话题结算从整段材料中提取多条记忆，逐条查重与写入 | 版本内完成 | [多条提取与查重 Idea](./ideas/settlement-multi-memory-extraction-and-dedup.md)的 G-1 |
 | 查重与更新机制 | 查重的判定信号，以及命中已有记忆后的写入方式 | 设计未决定 | 同一 Idea 的 G-2、G-3；证据见[查重 Todo](./todo/generation-dedup-decision-signal.md) |

@@ -16,7 +16,7 @@ last_reviewed: 2026-10-30
 
 | 方向 | 状态 | 入口 |
 |:---|:---|:---|
-| 生成材料修正与 Topic 之后的原始证据保存 | 计划未建立；阻塞问题 R-1、R-2 待决定 | [Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md#0-v072生成材料修正与-topic-之后的原始证据保存)第 0 节 |
+| [生成材料修正与 Topic 之后的原始证据保存](./v0.7.2-generation-material-and-raw-evidence.md) | Planned（2026-10-30）；阻塞问题 R-1、R-2 已决定 | 设计讨论见 [Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md#0-v072生成材料修正与-topic-之后的原始证据保存)第 0 节 |
 | plugin 模式开放 WRITE 与 UPDATE | 计划未建立；阻塞问题 E-4 与外部 Actor 的提交与回读契约待决定 | [外部 Actor Idea](../ideas/external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update) |
 | 一个话题提取多条记忆 | 计划未建立；阻塞问题 G-1 待决定 | [多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md) |
 | 查重与更新机制 | 计划未建立；阻塞问题 G-2、G-3 待决定 | 同上 |

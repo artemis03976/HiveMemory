@@ -14,7 +14,7 @@ last_reviewed: 2026-10-30
 
 - [推理模型重新加载时的事件循环停顿](./model-reload-event-loop-stall.md)（2026-10-30 由空闲卸载计划的实测验收登记：onnxruntime 创建会话与卸载时的 `gc.collect()` 持有 GIL，重新加载期间其他请求最长等待约 1～3.7 秒，两个模型同时加载时最长；owner 决定记为已知限制，之后单独优化，未排期）；
 - [MTP READ 截断正式记忆的正文](./mtp-read-content-truncation.md)（2026-10-29 由记忆访问计划阶段三审查登记：MTP READ 取编译选项默认的 500 字符上限，超长正文被截断，提示“再次 READ”却得到同样结果；随 MTP READ 专项编译一起修复，该方向 2026-10-30 起不绑定版本，未排期）；
-- [生成材料的筛选与截断](./generation-material-filtering-and-truncation.md)（2026-10-29 由 Import Bus 真实使用观察登记：Gateway 价值预判只看用户消息，把整轮实现丢出生成，结算已停止按 `worth_saving` 筛选；2026-10-30 owner 决定一轮交互的内容不得被上限数字截断、只允许单次工具调用的结果受限，现行的单轮、思考与参数上限属于实现漂移，`worth_saving` 只做移除；随 v0.7.2 的生成材料修正计划完成）；
+- [生成材料的筛选与截断](./generation-material-filtering-and-truncation.md)（2026-10-29 由 Import Bus 真实使用观察登记：Gateway 价值预判只看用户消息，把整轮实现丢出生成，结算已停止按 `worth_saving` 筛选；2026-10-30 owner 决定一轮交互的内容不得被上限数字截断、只允许单次工具调用的结果受限，现行的单轮、思考与参数上限属于实现漂移，`worth_saving` 只做移除；由 [v0.7.2 生成材料修正计划](../plans/v0.7.2-generation-material-and-raw-evidence.md)承接，随计划完成归档）；
 - [生成查重的决策信号](./generation-dedup-decision-signal.md)（2026-10-29 由 Import Bus 真实使用观察登记：dense top-1 余弦在记忆对记忆的比较中分不开同一工作与同项目的其他记忆；2026-10-30 补充：同项目记忆增多后，查重判出的 UPDATE 整体覆盖了两条记忆的主要内容；新设计 owner 尚未决定，随 v0.7.2 的查重与更新计划完成）；
 - [重排模型 int8 与 ONNX 内存池](./reranker-int8-and-onnx-memory.md)（2026-10-27 排查常驻内存时登记：重排模型 int8 先做实验评估，另有 ONNX 内存池保留推理峰值、嵌入截断上限 8192 token、配置项不生效与 Docker 预下载落空；后四项已于同日完成；int8 评估 owner 2026-10-30 决定现在不是必要项，移出 v0.7.1，未排期）；
 - [WorkspaceAsset 内部归属与操作身份拆分](./workspace-asset-ownership-identity-split.md)（身份第二批明确暂缓：Store/解析旧 scope 接口与 System 物化 reader 桥接）；

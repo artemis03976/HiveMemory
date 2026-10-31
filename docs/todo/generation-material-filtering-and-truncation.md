@@ -19,6 +19,7 @@ related_docs:
   - docs/system/import-bus.md
   - docs/ROADMAP.md
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
+  - docs/plans/v0.7.2-generation-material-and-raw-evidence.md
   - docs/archive/todo/import-bus-real-use-observation.md
 last_reviewed: 2026-10-30
 ---
@@ -68,13 +69,13 @@ Claude Code 单个会话的上下文常达数十万 token，而每个话题送�
 
 ## 影响
 
-- 停止筛选后，被判为不值得保存的轮次也进入生成，提取 token 与折叠频率会上升；删除单轮、思考与参数上限后，生成视图还会继续变大，单个轮次也可能超过提取模型的窗口。材料超窗时的消费方式是 v0.7.2 的待决问题（[Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md#03-待决问题) R-1）。
+- 停止筛选后，被判为不值得保存的轮次也进入生成，提取 token 与折叠频率会上升；删除单轮、思考与参数上限后，生成视图还会继续变大，单个轮次也可能超过提取模型的窗口。owner 于 2026-10-30 决定不分片，单个超大轮次照常接收、照常触发折叠，更有效的方案留到流式交互接收实现时处理（[Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md#01-owner-决定2026-10-30) R-1）。
 - 上限不删除时，进入生成的实现轮次主要贡献助手正文，测试失败、报错与改动内容等工具结果大多看不到。
 - `worth_saving` 停用后不再参与任何决定，2026-10-30 起也已移出交互记录与话题 block；但 Gateway 仍为每一轮计算 `memory_write_signal`，由它得到的 `worth_saving` 仍随 `import.turn.accepted` 事件传递，只供观测。
 
 ## 完成条件
 
-随 v0.7.2 的生成材料修正计划完成（设计讨论见 [Raw Evidence Idea](../ideas/PatchouliPageFoldingRawEvidenceDesign.md#0-v072生成材料修正与-topic-之后的原始证据保存)第 0 节），计划建立时本 Todo 并入计划：
+由 [v0.7.2 生成材料修正与 Topic 之后的原始证据保存](../plans/v0.7.2-generation-material-and-raw-evidence.md)承接（2026-10-30 建立），本 Todo 保留上述证据，随计划完成归档：
 
 - 生成视图只保留单次工具调用结果的上限，删除 `max_turn_action_chars`、`max_thought_chars`、`max_args_chars` 及对应的降级与省略规则；
 - 移除 `worth_saving` 与只为它计算的传递链。
