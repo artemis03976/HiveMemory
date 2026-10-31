@@ -11,6 +11,7 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
     TopicData,
+    TopicFold,
 )
 from hivememory.core.models.pending import (
     PendingAtomMaterializeTask,
@@ -85,6 +86,14 @@ def _update_task(base_uuid: str, alias="draft_update"):
 
 def _topic_block(query: str = "q"):
     return make_logical_block(query, "a")
+
+
+def _fold(*blocks, summary: str) -> TopicFold:
+    return TopicFold(
+        folded_block_ids=tuple(block.block_id for block in blocks),
+        summary=summary,
+        folded_at=0.0,
+    )
 
 
 def _accepted(task_id="j1", source=MemoryGenerationSource.WRITE):
@@ -174,15 +183,18 @@ class TestMemoryGenerationCoordinator:
 
     @pytest.mark.asyncio
     async def test_submit_settlement_builds_settle_spec(self):
+        """生成材料是工作视图；来源记录携带全部交互（包括已折叠的轮次）与折叠记录。"""
         bus = Mock()
         bus.request = AsyncMock(return_value=_task_handle())
         coordinator = MemoryGenerationCoordinator(bus=bus, recent_block_limit=5)
+        blocks = tuple(_topic_block(f"q{index}") for index in range(3))
+        fold = _fold(*blocks[:2], summary="state")
         payload = TopicMaterializeTask(
             topic_id="t1",
             topic_title="title",
             topic_summary="summary",
-            blocks=[_topic_block()],
-            state_summary="state",
+            interactions=blocks,
+            folds=(fold,),
             belong_to=_identity_scope().workspace_identity,
         )
 
@@ -200,7 +212,10 @@ class TestMemoryGenerationCoordinator:
             user_id="test_user", agent_id=SYSTEM_AGENT_ID, team_id=None
         )
         assert spec.request.context.state_summary == "state"
+        assert [turn.user_message for turn in spec.request.context.turns] == ["q2"]
         assert spec.interaction_input.topic_title == "title"
+        assert spec.interaction_input.blocks == blocks
+        assert spec.interaction_input.folds == (fold,)
 
     @pytest.mark.asyncio
     async def test_submit_settlement_skips_empty_generation_context(self):
@@ -210,8 +225,6 @@ class TestMemoryGenerationCoordinator:
         payload = TopicMaterializeTask(
             topic_id="empty",
             topic_title="empty",
-            blocks=[],
-            state_summary="state",
             belong_to=_identity_scope().workspace_identity,
         )
 
@@ -399,13 +412,14 @@ class TestMemoryGenerationCoordinator:
 
     @pytest.mark.asyncio
     async def test_submit_active_uses_configured_number_of_recent_blocks(self):
-        """材料只取话题最近 recent_block_limit 个 block，并带上 state_summary。"""
+        """材料只取工作视图最近 recent_block_limit 个 block 并带上 state_summary，不带折叠记录。"""
+        interactions = tuple(_topic_block(f"q{index}") for index in range(6))
         topic = TopicData(
             topic_id="t1",
             workspace_identity=_identity_scope().workspace_identity,
             topic_title="title",
-            state_summary="state",
-            blocks=tuple(_topic_block(f"q{index}") for index in range(5)),
+            interactions=interactions,
+            folds=(_fold(interactions[0], summary="state"),),
             last_update=0.0,
         )
         bus = Mock()
@@ -427,9 +441,10 @@ class TestMemoryGenerationCoordinator:
         )
 
         spec = bus.request.await_args_list[-1].args[1]
-        assert [turn.user_message for turn in spec.request.context.turns] == ["q3", "q4"]
+        assert [turn.user_message for turn in spec.request.context.turns] == ["q4", "q5"]
         assert spec.request.context.state_summary == "state"
-        assert [block.user_message for block in spec.interaction_input.blocks] == ["q3", "q4"]
+        assert [block.user_message for block in spec.interaction_input.blocks] == ["q4", "q5"]
+        assert spec.interaction_input.folds == ()
 
     @pytest.mark.asyncio
     async def test_submit_active_rejects_intent_when_topic_read_fails(self):

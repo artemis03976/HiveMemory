@@ -5,7 +5,9 @@
 统一 settle 时序、LRU / idle / shutdown 维护，并把领域结果投影为公开报告。
 
 折叠是话题自身的维护，不属于交互应用：应用在写入 block 后即完成，是否需要
-折叠由 ``needs_compact`` 判断，``compact_topic`` 作为独立用例执行。
+折叠由 ``needs_compact`` 判断，``compact_topic`` 作为独立用例执行。话题只经
+core 话题模型的两个写函数写入：写入一轮只追加交互记录，折叠只追加折叠记录并
+推进工作视图，原文在话题结束前一直保留。
 
 占用权统一由 WorkingSet 的 lease 表达：所有写路径都是
 ``acquire → try/finally release``；Relay 摘要生成在 lease 持有期间进行，
@@ -17,7 +19,6 @@
 from __future__ import annotations
 
 import logging
-from datetime import datetime
 from typing import TYPE_CHECKING
 
 from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueStoppedError
@@ -28,6 +29,7 @@ from hivememory.core.models import (
     TopicData,
     WorkspaceAssetRef,
     WorkspaceIdentity,
+    fold_topic,
     merge_interaction_into_topic,
 )
 from hivememory.core.protocol.models import InteractionPayload
@@ -233,7 +235,7 @@ class PerceptionFamiliar:
         return topic is not None and bool(self._blocks_to_fold(topic))
 
     async def compact_topic(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
-        """折叠用例：取得话题的 lease 后，在超过阈值时折叠旧前缀。
+        """折叠用例：取得话题的 lease 后，在超过阈值时折叠工作视图的旧前缀。
 
         话题已被结算或驱逐时直接结束；正被占用时抛出 :class:`TopicBusyError`
         留待重试。摘要生成期间持有 lease，同一话题的写入与结算不会交错；写回在
@@ -250,7 +252,7 @@ class PerceptionFamiliar:
             self._working_set.release(lease)
 
     def _blocks_to_fold(self, topic: TopicData) -> list[LogicalBlock]:
-        """超过折叠阈值时返回保留后缀之前的旧 blocks；未超过或无可折叠前缀时为空。"""
+        """工作视图超过折叠阈值时返回保留后缀之前的旧 blocks；未超过或无可折叠前缀时为空。"""
         engine = self._engine
         if engine is None or topic.is_empty or not engine.should_compact(topic.total_tokens):
             return []
@@ -258,10 +260,11 @@ class PerceptionFamiliar:
         return engine.select_blocks_to_fold(topic.blocks, engine.config.fold_retain_recent_blocks)
 
     async def _compact_topic_if_needed(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
-        """token 溢出时执行 compact：生成折叠摘要并写回保留的近期 blocks。
+        """token 溢出时执行 compact：生成折叠摘要并追加一条折叠记录。
 
         调用方必须已持有该话题的 lease：Relay 摘要生成期间其他调用无法取
         得同一话题的占用权，因此写回不再需要旧的 expected_state 补偿校验。
+        被折叠的 blocks 仍留在交互记录中，结算时随全部记录冻结。
         """
         engine = self._engine
         if engine is None:  # 感知关闭：与 apply 一致，不做任何折叠
@@ -274,17 +277,7 @@ class PerceptionFamiliar:
             return
         logger.info("Token 溢出，触发 Page Folding: topic_id=%s", topic_id)
         summary = await engine.generate_fold_summary(blocks_to_fold, topic.state_summary)
-        retained = topic.blocks[len(blocks_to_fold) :]
-        self._store.put(
-            topic.model_copy(
-                update={
-                    "state_summary": summary,
-                    "blocks": retained,
-                    "total_tokens": sum(block.total_tokens for block in retained),
-                    "last_update": datetime.now().timestamp(),
-                }
-            )
-        )
+        self._store.put(fold_topic(topic, blocks_to_fold, summary))
 
     # ========== LRU / 驱逐 ==========
 
@@ -336,7 +329,7 @@ class PerceptionFamiliar:
             self._working_set.release(lease)
 
     def discard_if_empty(self, belong_to: WorkspaceIdentity, topic_id: str) -> bool:
-        """话题真正为空（无 blocks 且无非空白折叠摘要）时清理并返回 True。"""
+        """话题真正为空（没有接收过任何交互）时清理并返回 True。"""
         lease = self._working_set.acquire(belong_to, topic_id)
         if lease is None:  # 正被占用（可能正在写入首块），留给后续维护判断
             return False

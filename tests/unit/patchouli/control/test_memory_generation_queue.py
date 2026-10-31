@@ -26,6 +26,7 @@ from hivememory.core.models import (
     MemoryType,
     PayloadLayer,
     TopicAssetBinding,
+    TopicFold,
     WorkspaceAssetRef,
 )
 from hivememory.engines.generation.models import GenerationContext, GenerationRequest
@@ -181,19 +182,22 @@ def test_v1_1_registry_rejects_previous_memory_generation_versions(schema_versio
         registry.decode(adapter.kind, schema_version, payload)
 
 
-def test_codec_roundtrips_asset_bindings_without_losing_refs() -> None:
-    """settle 冻结的 binding refs 必须原样通过 codec/retry 保留。"""
+def test_codec_roundtrips_settlement_records_without_loss() -> None:
+    """settle 冻结的交互、折叠记录与 binding refs 必须原样通过 codec/retry 保留。"""
     binding = TopicAssetBinding(
         asset_ref=WorkspaceAssetRef(token="token-1", asset_id="asset-1"),
         first_bound_interaction_id="i1",
         bound_at=datetime.now(UTC),
     )
+    folded, retained = make_logical_block("q1", "a1"), make_logical_block("q2", "a2")
+    fold = TopicFold(folded_block_ids=(folded.block_id,), summary="折叠摘要", folded_at=1.0)
     spec = _spec(topic_id="topic-bind")
     spec = replace(
         spec,
         interaction_input=InteractionArtifactInput(
             topic_id="topic-bind",
-            blocks=(make_logical_block("q", "a"),),
+            blocks=(folded, retained),
+            folds=(fold,),
             asset_bindings=(binding,),
         ),
     )
@@ -204,6 +208,8 @@ def test_codec_roundtrips_asset_bindings_without_losing_refs() -> None:
     decoded = adapter.decode(encoded)
 
     assert decoded.spec.interaction_input is not None
+    assert decoded.spec.interaction_input.blocks == (folded, retained)
+    assert decoded.spec.interaction_input.folds == (fold,)
     assert decoded.spec.interaction_input.asset_bindings == (binding,)
     assert decoded.spec.interaction_input.asset_bindings[0].asset_ref.token == "token-1"
 

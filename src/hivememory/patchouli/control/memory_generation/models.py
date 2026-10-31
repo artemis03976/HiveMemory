@@ -20,6 +20,7 @@ from hivememory.core.models import (
     LogicalBlock,
     PendingAtomSettlement,
     TopicAssetBinding,
+    TopicFold,
     WorkspaceIdentity,
 )
 from hivememory.engines.generation.models import GenerationRequest
@@ -42,12 +43,17 @@ _WORK_STATE_TO_TASK_STATUS = {
 
 @dataclass(frozen=True)
 class InteractionArtifactInput:
-    """传递给记忆生成数据面的原始交互数据。"""
+    """传递给记忆生成数据面的原始交互数据。
+
+    话题结算时 ``blocks`` 是话题的全部交互记录（包括已折叠的轮次），``folds`` 是
+    全部折叠记录；主动生成只取最近的 blocks，``folds`` 为空。
+    """
 
     topic_id: str
     topic_title: str = ""
     topic_summary: str = ""
     blocks: tuple[LogicalBlock, ...] = ()
+    folds: tuple[TopicFold, ...] = ()
     # settle 前冻结的 Topic 真实使用资产关系；进入 queue 后不再依赖短期 buffer 实体。
     asset_bindings: tuple[TopicAssetBinding, ...] = ()
 

@@ -26,6 +26,7 @@ from hivememory.core.models import (
     LogicalBlock,
     MemoryAtom,
     TopicAssetBinding,
+    TopicFold,
     WorkspaceIdentity,
 )
 from hivememory.engines.generation.models import GenerationRequest
@@ -238,6 +239,7 @@ class _MemoryGenerationWorkAdapter:
             "topic_title": interaction_input.topic_title,
             "topic_summary": interaction_input.topic_summary,
             "blocks": [block.model_dump(mode="json") for block in interaction_input.blocks],
+            "folds": [fold.model_dump(mode="json") for fold in interaction_input.folds],
             "asset_bindings": [
                 binding.model_dump(mode="json") for binding in interaction_input.asset_bindings
             ],
@@ -252,6 +254,9 @@ class _MemoryGenerationWorkAdapter:
         raw_blocks = payload.get("blocks", [])
         if not isinstance(raw_blocks, list):
             raise TypeError("interaction_input.blocks must be an array")
+        raw_folds = payload.get("folds", [])
+        if not isinstance(raw_folds, list):
+            raise TypeError("interaction_input.folds must be an array")
         raw_bindings = payload.get("asset_bindings", [])
         if not isinstance(raw_bindings, list):
             raise TypeError("interaction_input.asset_bindings must be an array")
@@ -269,6 +274,7 @@ class _MemoryGenerationWorkAdapter:
                 field_name="interaction_input.topic_summary",
             ),
             blocks=tuple(LogicalBlock.model_validate(block) for block in raw_blocks),
+            folds=tuple(TopicFold.model_validate(fold) for fold in raw_folds),
             asset_bindings=tuple(
                 TopicAssetBinding.model_validate(binding) for binding in raw_bindings
             ),

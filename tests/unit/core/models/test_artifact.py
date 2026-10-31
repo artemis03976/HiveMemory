@@ -250,6 +250,24 @@ def _snapshot_payload(**overrides) -> dict:
     return payload
 
 
+def test_interaction_artifact_without_folds_reads_as_empty_list():
+    """``folds`` 只追加不改名：缺少该字段的旧文件读作空列表，已有轮次照常读取。"""
+    artifact = InteractionArtifact.model_validate(
+        {
+            "artifact_id": "legacy-interaction",
+            "artifact_type": "interaction",
+            "created_at": NOW.isoformat(),
+            "workspace_identity": _workspace().model_dump(),
+            "topic_id": "topic-1",
+            "captured_at": NOW.isoformat(),
+            "turns": [_snapshot_payload()],
+        }
+    )
+
+    assert artifact.folds == []
+    assert [turn.block_id for turn in artifact.turns] == ["block-1"]
+
+
 def test_snapshot_roundtrips_actor_identity():
     """canonical 快照：actor_identity 单字段冻结并原样读回。"""
     snapshot = InteractionTurnSnapshot.model_validate(_snapshot_payload())

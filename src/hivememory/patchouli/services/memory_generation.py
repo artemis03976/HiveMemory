@@ -494,7 +494,10 @@ class MemoryGenerationFamiliar:
         belong_to: WorkspaceIdentity,
     ) -> ArtifactRef | None:
         """
-        构建原始交互 artifact。
+        构建原始交互 artifact：结算时覆盖话题的全部轮次与折叠记录。
+
+        在生成之前捕获，失败只记录 warning、生成照常进行；提取失败或结果为
+        TOUCH、DISCARD 时，原文仍保存在 Artifact 中，只是没有记忆引用它。
         """
         if interaction_input is None:
             return None
@@ -506,6 +509,7 @@ class MemoryGenerationFamiliar:
                 topic_title=interaction_input.topic_title,
                 topic_summary=interaction_input.topic_summary,
                 blocks=interaction_input.blocks,
+                folds=interaction_input.folds,
                 belong_to=belong_to,
             )
         except Exception:

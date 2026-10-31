@@ -19,7 +19,10 @@ from hivememory.core.models import (
     LogicalBlock,
     TopicAssetBinding,
     TopicData,
+    TopicFold,
     WorkspaceIdentity,
+    topic_state_summary,
+    topic_working_blocks,
 )
 
 # ============ 枚举定义 ============
@@ -50,8 +53,10 @@ class TopicMaterializeTask(BaseModel):
     """
     Perception -> Generation 的话题结算传输包
 
-    Topic 结算时将冻结的 buffer 内容打包为此结构发送给 Generation 模块
-    进行记忆生成。字段转换统一由 :meth:`from_topic_data` 完成。
+    Topic 结算时冻结话题的全部交互记录与折叠记录，发送给 Generation 模块：
+    来源 InteractionArtifact 覆盖全部轮次（包括已折叠的轮次）并带上折叠记录；
+    生成材料仍是工作视图（``state_summary`` 与未折叠的 blocks），与 ``TopicData``
+    同一派生。字段转换统一由 :meth:`from_topic_data` 完成。
     """
 
     topic_id: str = Field(..., description="话题 ID")
@@ -59,11 +64,14 @@ class TopicMaterializeTask(BaseModel):
     topic_title: str = Field(default="", description="话题标题")
     topic_summary: str = Field(default="", description="话题展示摘要")
 
-    blocks: tuple[LogicalBlock, ...] = Field(
+    interactions: tuple[LogicalBlock, ...] = Field(
         default_factory=tuple,
-        description="话题内容块不可变快照",
+        description="话题接收到的全部交互，按接收顺序",
     )
-    state_summary: str = Field(default="", description="话题状态摘要")
+    folds: tuple[TopicFold, ...] = Field(
+        default_factory=tuple,
+        description="话题的全部折叠记录，按折叠顺序",
+    )
 
     # 结束 Topic 生命周期的 settle 在清除 buffer 前冻结的资产关系事实。进入 queue
     # 后不再依赖短期 buffer 实体；codec/retry 必须原样保留 ref，不从最近资产重推导。
@@ -76,9 +84,20 @@ class TopicMaterializeTask(BaseModel):
         default=TriggerReason.IDLE_TIMEOUT, description="话题结算触发原因"
     )
 
-    # task 会跨越 queue admission 边界；禁止字段重新赋值，并使用
-    # tuple 承载 blocks，避免冻结模型内部仍可被原地 append。
-    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True)
+    # task 会跨越 queue admission 边界；禁止字段重新赋值，并使用 tuple 承载
+    # interactions 与 folds，避免冻结模型内部仍可被原地 append。工作视图是派生
+    # 属性，以 blocks= 或 state_summary= 构造时显式失败。
+    model_config = ConfigDict(arbitrary_types_allowed=True, frozen=True, extra="forbid")
+
+    @property
+    def blocks(self) -> tuple[LogicalBlock, ...]:
+        """生成材料的工作视图：最后一次折叠之后的交互记录。"""
+        return topic_working_blocks(self.interactions, self.folds)
+
+    @property
+    def state_summary(self) -> str:
+        """最后一次折叠的摘要，没有折叠时为空串。"""
+        return topic_state_summary(self.folds)
 
     @classmethod
     def from_topic_data(
@@ -88,16 +107,15 @@ class TopicMaterializeTask(BaseModel):
         belong_to: WorkspaceIdentity,
         reason: TriggerReason,
     ) -> TopicMaterializeTask | None:
-        """从冻结 TopicData 构造生成交接任务；话题没有 block 时返回 None。
+        """从冻结 TopicData 构造生成交接任务；话题没有接收过交互时返回 None。
 
         ``belong_to`` 必须由调用方显式传入。字段映射和 no-material 判断集中在此，
         服务与调用方不得重复拼装。
         """
-        # 全部 block 都进入结算，不在入口按用户消息筛选：只看用户消息会把"请提交"
+        # 全部交互都进入结算，不在入口按用户消息筛选：只看用户消息会把"请提交"
         # "继续"这类消息背后的整轮实现丢掉。一轮有没有长期价值，由生成阶段在完整
         # 材料上判断。
-        blocks = topic_data.blocks
-        if not blocks:
+        if not topic_data.interactions:
             return None
 
         return cls(
@@ -105,8 +123,8 @@ class TopicMaterializeTask(BaseModel):
             belong_to=belong_to,
             topic_title=topic_data.topic_title,
             topic_summary=topic_data.topic_summary,
-            blocks=blocks,
-            state_summary=topic_data.state_summary,
+            interactions=topic_data.interactions,
+            folds=topic_data.folds,
             asset_bindings=topic_data.bindings,
             reason=reason,
         )

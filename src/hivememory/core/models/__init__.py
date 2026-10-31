@@ -73,9 +73,13 @@ from .reference import ReferenceResolution
 from .topic import (
     LogicalBlock,
     TopicData,
+    TopicFold,
     TopicLastTurn,
     TopicSnapshot,
+    fold_topic,
     merge_interaction_into_topic,
+    topic_state_summary,
+    topic_working_blocks,
 )
 from .workspace import (
     ISOLATION_WORKSPACE_ID,
@@ -148,8 +152,12 @@ __all__ = [
     "TopicSnapshot",
     "TopicLastTurn",
     "TopicData",
+    "TopicFold",
     "LogicalBlock",
+    "fold_topic",
     "merge_interaction_into_topic",
+    "topic_state_summary",
+    "topic_working_blocks",
     "FrozenDict",
     "freeze_mapping",
     "freeze_value",

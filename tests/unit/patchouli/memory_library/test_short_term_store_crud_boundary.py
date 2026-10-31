@@ -7,7 +7,7 @@ import inspect
 import pytest
 from pydantic import ValidationError
 
-from hivememory.core.models import IdentityScope
+from hivememory.core.models import IdentityScope, merge_interaction_into_topic
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
@@ -16,7 +16,7 @@ from tests.helpers.workspace import make_identity_scope
 def _topic_with_block(topic, scope: IdentityScope):
     actor = scope.actor_identity
     block = make_logical_block("question", "answer", identity=actor, total_tokens=2)
-    return topic.model_copy(update={"blocks": (block,), "total_tokens": 2})
+    return merge_interaction_into_topic(topic, block, (), None, None)
 
 
 @pytest.mark.unit
@@ -86,14 +86,14 @@ def test_create_applies_default_title_and_explicit_title():
 
 
 @pytest.mark.unit
-def test_non_empty_listing_keeps_summary_only_topic():
-    """include_empty=False 按内容判断：只有折叠摘要、没有 block 的话题仍然列出。"""
+def test_non_empty_listing_keeps_only_topics_with_interactions():
+    """include_empty=False 按内容判断：还没有接收交互的话题不列出。"""
     store = ShortTermMemoryStore()
     scope = make_identity_scope()
     store.create(scope.workspace_identity)
-    summary_only = store.create(scope.workspace_identity)
-    store.put(summary_only.model_copy(update={"state_summary": "已经折叠的历史内容"}))
+    with_interaction = _topic_with_block(store.create(scope.workspace_identity), scope)
+    store.put(with_interaction)
 
     topics = store.list_by_workspace(scope.workspace_identity, include_empty=False)
 
-    assert [topic.topic_id for topic in topics] == [summary_only.topic_id]
+    assert [topic.topic_id for topic in topics] == [with_interaction.topic_id]

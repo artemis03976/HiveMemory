@@ -208,8 +208,27 @@ class InteractionTurnSnapshot(BaseModel):
     model_config = ConfigDict(extra="ignore")
 
 
+class InteractionFoldSnapshot(BaseModel):
+    """一次话题折叠的冻结视图：被折叠的块标识、折叠后的状态摘要与折叠时间。
+
+    与 ``InteractionTurnSnapshot`` 一样独立于运行时的话题模型，运行时模型变更
+    不破坏已有 Artifact 的读取。
+    """
+
+    folded_block_ids: list[str]
+    summary: str
+    folded_at: float
+
+    model_config = ConfigDict(extra="ignore")
+
+
 class InteractionArtifact(BaseArtifact):
-    """话题原始交互 Artifact - 不内嵌归属 memory 信息。"""
+    """话题原始交互 Artifact - 不内嵌归属 memory 信息。
+
+    话题结算捕获的 ``turns`` 覆盖话题接收到的全部轮次（包括已折叠的轮次），
+    ``folds`` 按顺序记录话题的每次折叠；主动生成捕获的只有最近的轮次，没有
+    折叠记录。``folds`` 只追加不改名，缺少该字段的旧文件读作空列表。
+    """
 
     artifact_type: Literal[ArtifactType.INTERACTION] = ArtifactType.INTERACTION
 
@@ -218,6 +237,7 @@ class InteractionArtifact(BaseArtifact):
     topic_summary: str = ""
 
     turns: list[InteractionTurnSnapshot] = Field(default_factory=list)
+    folds: list[InteractionFoldSnapshot] = Field(default_factory=list)
     captured_at: datetime = Field(default_factory=utc_now)
 
     @field_validator("captured_at")

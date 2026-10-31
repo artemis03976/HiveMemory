@@ -19,7 +19,7 @@ def _topic(scope, topic_id: str) -> TopicData:
         workspace_identity=scope.workspace_identity,
         topic_title=f"topic-{topic_id}",
         last_update=1.0,
-        blocks=(make_logical_block("q", "a", identity=scope.actor_identity),),
+        interactions=(make_logical_block("q", "a", identity=scope.actor_identity),),
     )
 
 

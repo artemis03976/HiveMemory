@@ -54,11 +54,11 @@ def test_canonical_topic_object_graph_is_recursively_immutable() -> None:
         topic_id="topic-1",
         workspace_identity=make_identity_scope(user_id="user-1").workspace_identity,
         topic_title="Gateway",
-        blocks=[block],
+        interactions=[block],
         last_update=1.0,
     )
 
-    assert isinstance(topic.blocks, tuple)
+    assert isinstance(topic.interactions, tuple)
     assert isinstance(event.tool_args, FrozenDict)
     assert event.tool_args["filters"]["tags"] == ("gateway",)
     assert topic.recent_blocks(1) == (block,)

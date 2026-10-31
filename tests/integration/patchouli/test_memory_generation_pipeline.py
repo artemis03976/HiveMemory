@@ -14,6 +14,7 @@ from hivememory.core.models import (
     PayloadLayer,
     PendingAtomResolution,
     PendingAtomSettlement,
+    TopicFold,
     WorkspaceMemoryKey,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
@@ -66,6 +67,21 @@ class _TopicData:
 
     def recent_blocks(self, limit: int):
         return self._blocks[:limit]
+
+
+def _settlement_task() -> TopicMaterializeTask:
+    """折叠过一次的话题结算：工作视图只剩最近一轮，状态摘要来自折叠。"""
+    folded = make_logical_block("earlier question", "earlier answer")
+    return TopicMaterializeTask(
+        topic_id="topic_1",
+        topic_title="topic title",
+        topic_summary="topic summary",
+        interactions=(folded, make_logical_block("question", "answer")),
+        folds=(
+            TopicFold(folded_block_ids=(folded.block_id,), summary="state summary", folded_at=1.0),
+        ),
+        belong_to=_identity_scope().workspace_identity,
+    )
 
 
 def _memory_atom(memory_id=None) -> MemoryAtom:
@@ -154,16 +170,7 @@ async def test_passive_settlement_routes_settle_spec_through_task_controller():
     execute_spec = AsyncMock(return_value=[])
     bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, execute_spec)
 
-    memory_task = await coordinator.submit_settlement(
-        TopicMaterializeTask(
-            topic_id="topic_1",
-            topic_title="topic title",
-            topic_summary="topic summary",
-            blocks=[make_logical_block("question", "answer")],
-            state_summary="state summary",
-            belong_to=_identity_scope().workspace_identity,
-        )
-    )
+    memory_task = await coordinator.submit_settlement(_settlement_task())
     await controller.wait_task(memory_task.task_id)
     completed = await controller.get_task(memory_task.task_id)
 
@@ -439,16 +446,7 @@ async def test_passive_settlement_lands_in_real_mid_term(memory_library, artifac
     )
     _wire_generation_familiar(bus, memory_library, stub, artifact_engine)
 
-    memory_task = await coordinator.submit_settlement(
-        TopicMaterializeTask(
-            topic_id="topic_1",
-            topic_title="topic title",
-            topic_summary="topic summary",
-            blocks=[make_logical_block("question", "answer")],
-            state_summary="state summary",
-            belong_to=_identity_scope().workspace_identity,
-        )
-    )
+    memory_task = await coordinator.submit_settlement(_settlement_task())
     await controller.wait_task(memory_task.task_id)
     completed = await controller.get_task(memory_task.task_id)
 
