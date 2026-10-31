@@ -16,8 +16,8 @@
 - 能力步骤（调用带 ``verb``）：一行摘要，不渲染结果——READ、SEARCH 读回的
   是已有记忆，渲染进生成会把它们重复提取。``SEARCH: "查询"``、
   ``READ: a, b``、``RUN: 目标 (状态)``，没有结局时状态为 ``no result``；
-  WRITE、UPDATE、CALL 不渲染。外部 harness 经 HiveMemory 的 MCP 工具检索与
-  读取时调用同样带 ``verb``，渲染相同；
+  WRITE、UPDATE、CALL 不渲染。外部 harness 经 HiveMemory 的 MCP 工具调用
+  这些能力时同样带 ``verb``，渲染相同；
 - 外部工具步骤（调用带 ``tool_name``）：``- TOOL: 工具名 参数``，参数是完整的
   JSON；有结局时其后是 ``RESULT: …`` 或 ``RESULT (error): …``。没有结局不等于
   没有完成（来源可能漏记结果），因此不作断言；

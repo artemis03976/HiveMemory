@@ -40,7 +40,12 @@ async def test_lifespan_starts_and_shuts_down_hivememory_system():
             # 列出工具不经门面：只验证 /mcp 路由与会话管理器的接线。
             async with connect_mcp(app_module.app, {}) as session:
                 tools = await session.list_tools()
-            assert {tool.name for tool in tools.tools} == {"memory_search", "memory_read"}
+            assert {tool.name for tool in tools.tools} == {
+                "memory_search",
+                "memory_read",
+                "memory_write",
+                "memory_update",
+            }
 
         # 让 lifespan 中 create_task 的后台预热任务被事件循环调度执行
         await asyncio.sleep(0)

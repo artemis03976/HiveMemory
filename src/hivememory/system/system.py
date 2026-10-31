@@ -381,15 +381,18 @@ class HiveMemorySystem:
 
     @property
     def import_bus_service(self) -> ImportBusService:
-        """接收外部 harness 一轮完整交互记录的 Import Bus 服务。"""
+        """Import Bus 服务：接收外部 harness 一轮完整交互记录，也为写入中的一轮落位。
+
+        导入路由使用前者；MCP 入口在写入与更新前使用后者。
+        """
         return self._import_bus_service
 
     @property
     def operation_entry(self) -> WorkspaceOperationEntry:
         """actor API 唯一的调用方：与 Alice 共用同一实例，门面只供 MCP 入口使用。
 
-        MCP 入口以请求级 context 经 ``execute_request`` 提交检索与读取；门面
-        不交出 actor API 本身。
+        MCP 入口以请求级 context 经 ``execute_request`` 提交检索、读取、写入与
+        更新；门面不交出 actor API 本身。
         """
         return self._operation_entry
 

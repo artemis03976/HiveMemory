@@ -41,8 +41,8 @@ from hivememory.server.routers.workspace_assets import router as workspace_asset
 
 logger = logging.getLogger(__name__)
 
-# MCP 入口：外部 harness 经插件声明的 MCP server 检索与读取记忆。门面在每次
-# 工具调用时取得，因此可以在模块导入时先于系统装配构造。
+# MCP 入口：外部 harness 经插件声明的 MCP server 检索、读取、写入与更新记忆。
+# 门面在每次工具调用时取得，因此可以在模块导入时先于系统装配构造。
 mcp_server = create_mcp_server(get_system)
 mcp_app = create_http_app(mcp_server)
 

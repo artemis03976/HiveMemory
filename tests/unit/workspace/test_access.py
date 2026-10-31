@@ -19,6 +19,7 @@
   分别拒绝；按授权者自己的访问登记判定准入（``actor_not_admitted``）；
 - ``authorize_actor_operation`` 接受线程与请求级 context，目标取自驻留
   workspace，照常检查白名单；进程 context 与已撤销的 context 被拒绝；
+  要求请求级 context 时（写入与更新由调用方给出派发话题）拒绝线程 context；
 - 进程控制授权比对请求方与进程记录的驻留坐标：请求方无效按
   ``ScopeRequiredError`` 拒绝，记录侧已撤销按 ``False``（不可控）呈现；
 - ``authorize_stage`` 只检查凭据、准入与目标，不要求 actor 操作白名单；
@@ -394,24 +395,26 @@ async def test_authorize_actor_operation_checks_whitelist_for_request_context():
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("make_context", "error_type"),
+    ("make_context", "request_level", "error_type"),
     [
         # 进程 context 只服务阶段调用，不能执行 actor 操作。
-        (_process_context, ScopeRequiredError),
+        (_process_context, False, ScopeRequiredError),
         # 撤销后的请求级 context 与结束的线程一样拒绝。
-        (_revoked_request_context, ThreadEndedError),
+        (_revoked_request_context, False, ThreadEndedError),
+        # 线程 context 不经线程解析就会绕过存活判定与线程的派发话题。
+        (_thread_context, True, ScopeRequiredError),
     ],
-    ids=["process", "revoked-request"],
+    ids=["process", "revoked-request", "thread-as-request-level"],
 )
-async def test_authorize_actor_operation_rejects_process_and_revoked_contexts(
-    make_context, error_type
+async def test_authorize_actor_operation_rejects_process_revoked_and_misplaced_contexts(
+    make_context, request_level, error_type
 ):
-    """进程 context 与已撤销的 context 不能执行 actor 操作。"""
+    """进程 context、已撤销的 context 与要求请求级时的线程 context 不能执行 actor 操作。"""
     composition = _composition()
     context = await make_context(composition)
 
     with pytest.raises(error_type):
-        composition.authorizer.authorize_actor_operation(context, READ)
+        composition.authorizer.authorize_actor_operation(context, READ, request_level=request_level)
 
 
 @pytest.mark.asyncio

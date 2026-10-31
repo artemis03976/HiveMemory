@@ -102,15 +102,26 @@ class WorkspaceOperationAuthorizer:
         return self._thread_grant(access).binding
 
     def authorize_actor_operation(
-        self, access: WorkspaceAccessContext, operation: WorkspaceOperation
+        self,
+        access: WorkspaceAccessContext,
+        operation: WorkspaceOperation,
+        *,
+        request_level: bool = False,
     ) -> IdentityScope:
         """actor 只在驻留 Workspace 发起操作，目标从密封授予内容取得。
 
         接受执行线程 context 与请求级 context（不建进程的外部入口每次调用
         签发一份）；哪种提交方式能使用哪些操作由操作入口决定，不在这里区分。
         进程 context 只服务阶段调用，以 ``ScopeRequiredError`` 拒绝。
+
+        ``request_level`` 不改变上述操作规则，只约束 context 的种类：调用方
+        不经线程解析时置为真，此时只接受请求级 context。写入与更新给出派发
+        话题时就不解析线程，线程 context 走这条路径会绕过线程的存活判定与
+        派发话题，因此同样以 ``ScopeRequiredError`` 拒绝。
         """
         grant = self._actor_grant(access)
+        if request_level and grant.binding.run_type is not AccessRunType.REQUEST:
+            raise ScopeRequiredError("给出派发话题的 actor 操作需要请求级 context")
         return self.authorize_operation(access, operation, grant.workspace)
 
     @staticmethod

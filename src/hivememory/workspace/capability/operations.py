@@ -1,7 +1,7 @@
 """workspace 操作入口：actor API 唯一的调用方。
 
 执行线程的提交经线程表判定线程存活后分派，并提交线程的生命周期动作；
-不建进程的外部入口以请求级 context 提交，只能检索与读取。
+不建进程的外部入口以请求级 context 提交检索、读取、写入与更新。
 """
 
 from __future__ import annotations
@@ -24,10 +24,14 @@ from hivememory.workspace.contracts.operations import (
 from hivememory.workspace.contracts.threads import ExecutionThread
 from hivememory.workspace.thread_ports import ExecutionThreadTable
 
-# 请求级提交只开放检索与读取：RUN 的执行发生在执行单元的环境中，WRITE、
-# UPDATE 登记意图需要线程的进程关联与派发话题，CALL 只属于执行线程。
-_REQUEST_SUBMITTABLE: frozenset[type[OperationRequest[Any]]] = frozenset(
+# 请求级提交开放检索、读取、写入与更新：RUN 的执行发生在执行单元的环境中，
+# CALL 只属于执行线程。请求级 context 没有线程，写入与更新登记后以调用方给出的
+# 派发话题派发，检索与读取不涉及话题。
+_REQUEST_READS: frozenset[type[OperationRequest[Any]]] = frozenset(
     {RetrieveRequest, ResolveReferencesRequest}
+)
+_REQUEST_INTENTS: frozenset[type[OperationRequest[Any]]] = frozenset(
+    {SubmitWriteIntentRequest, SubmitUpdateIntentRequest}
 )
 
 
@@ -73,17 +77,35 @@ class WorkspaceOperationEntry:
         return cast(R, await handler(request, access=access))
 
     async def execute_request[R](
-        self, request: OperationRequest[R], *, access: WorkspaceAccessContext
+        self,
+        request: OperationRequest[R],
+        *,
+        access: WorkspaceAccessContext,
+        dispatch_topic_id: str | None = None,
     ) -> R:
-        """以请求级 context 提交检索或读取，与线程提交共用同一分派表。
+        """以请求级 context 提交检索、读取、写入或更新，与线程提交共用同一分派表。
 
-        其余请求类型在分派前以 ``TypeError`` 拒绝，没有副作用：外部入口只
-        构造这两种请求，其他类型出现即是接线缺陷。请求级 context 只在本次
-        调用内有效，不另做存活判定，撤销由授权检查。
+        写入与更新必须给出派发话题，即调用方为这一轮落位得到的话题；检索与
+        读取不得给出。其余请求类型、或派发话题与请求类型不符时，在分派前以
+        ``TypeError`` 拒绝，没有副作用：外部入口只按这两条规则构造请求，不符
+        即是接线缺陷。请求级 context 只在本次调用内有效，不另做存活判定，撤销
+        由授权检查。
         """
-        if type(request) not in _REQUEST_SUBMITTABLE:
-            raise TypeError(f"Unsupported request-level operation: {type(request).__name__}")
-        return cast(R, await self._handlers[type(request)](request, access=access))
+        request_type = type(request)
+        if request_type in _REQUEST_READS:
+            if dispatch_topic_id is not None:
+                raise TypeError(f"{request_type.__name__} does not take a dispatch topic")
+            return cast(R, await self._handlers[request_type](request, access=access))
+        if request_type in _REQUEST_INTENTS:
+            if dispatch_topic_id is None:
+                raise TypeError(f"{request_type.__name__} requires a dispatch topic")
+            return cast(
+                R,
+                await self._handlers[request_type](
+                    request, access=access, dispatch_topic_id=dispatch_topic_id
+                ),
+            )
+        raise TypeError(f"Unsupported request-level operation: {request_type.__name__}")
 
     async def derive_child_thread(
         self, request: DeriveCallThreadRequest, *, access: WorkspaceAccessContext

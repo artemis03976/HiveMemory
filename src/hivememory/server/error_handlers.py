@@ -47,6 +47,9 @@ from hivememory.system.services.import_bus import (
     ImportBusUnavailableError,
 )
 from hivememory.workspace.contracts.errors import (
+    IntentDispatchRejectedError,
+    IntentDispatchUnknownError,
+    PendingUpdateNotAllowedError,
     SessionBusyError,
     SessionCapacityError,
     SessionClosedError,
@@ -73,6 +76,7 @@ type HTTPErrorCode = Literal[
     "request.idempotency_key_too_long",
     "request.body_too_large",
     "request.not_found",
+    "request.turn_required",
 ]
 
 # 显式传输错误由调用点选择机器类别，不能根据异常 detail 反查分类。
@@ -100,6 +104,7 @@ _HTTP_ERRORS: dict[HTTPErrorCode, tuple[int, str]] = {
     "request.idempotency_key_too_long": (400, "Idempotency-Key 过长"),
     "request.body_too_large": (413, "请求体超过允许的大小上限"),
     "request.not_found": (404, "请求的资源不存在"),
+    "request.turn_required": (400, "写入与更新必须由连接器补上当前一轮的信息"),
 }
 
 
@@ -126,6 +131,21 @@ _DOMAIN_ERRORS: dict[type[Exception], tuple[int, str, str]] = {
     ResourceUnavailableError: (503, "workspace.resource.unavailable", "服务当前不可用，请稍后重试"),
     InvalidMemoryFieldError: (422, "memory.field.invalid", "记忆字段不符合要求，请检查输入"),
     MemoryAliasConflictError: (409, "workspace.memory.alias_conflict", "记忆别名冲突，请更换别名"),
+    PendingUpdateNotAllowedError: (
+        409,
+        "workspace.memory.intent.pending_update_not_allowed",
+        "这条记忆仍在生成中，不能作为更新的对象，生成完成后请改用正式 alias",
+    ),
+    IntentDispatchRejectedError: (
+        503,
+        "workspace.memory.intent.dispatch_rejected",
+        "生成队列没有接纳这次提交，请稍后重新提交",
+    ),
+    IntentDispatchUnknownError: (
+        500,
+        "workspace.memory.intent.dispatch_unknown",
+        "无法确认这次提交是否已被接纳，请稍后检索核实，避免重复提交",
+    ),
     ModelNotFoundError: (404, "model.not_found", "模型不存在"),
     DuplicateModelIdError: (409, "model.duplicate_id", "模型 ID 已存在"),
     ProviderNotFoundError: (404, "provider.not_found", "提供商不存在或不能删除"),
