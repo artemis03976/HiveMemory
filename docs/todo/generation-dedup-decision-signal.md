@@ -12,7 +12,7 @@ code_paths:
 related_docs:
   - docs/patchouli/generation.md
   - docs/patchouli/retrieval.md
-  - docs/todo/import-bus-real-use-observation.md
+  - docs/archive/todo/import-bus-real-use-observation.md
   - docs/todo/reranker-int8-and-onnx-memory.md
 last_reviewed: 2026-10-29
 ---

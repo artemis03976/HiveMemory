@@ -17,7 +17,7 @@ related_docs:
   - docs/patchouli/perception.md
   - docs/system/import-bus.md
   - docs/ideas/short-term-memory-and-context-compaction.md
-  - docs/todo/import-bus-real-use-observation.md
+  - docs/archive/todo/import-bus-real-use-observation.md
 last_reviewed: 2026-10-27
 ---
 
@@ -114,7 +114,7 @@ last_reviewed: 2026-10-27
 - [感知与短期话题](../../patchouli/perception.md)：折叠时机、Relay 与当前限制；
 - [Import Bus](../../system/import-bus.md)：应用完成后确认、错误分类与连接器重发；
 - [短期记忆与上下文压缩](../../ideas/short-term-memory-and-context-compaction.md)：Topic folding 的整体优化方向；
-- [Import Bus 真实使用观察](../../todo/import-bus-real-use-observation.md)：折叠频率与导入失败比例的观察。
+- [Import Bus 真实使用观察](./import-bus-real-use-observation.md)：折叠频率与导入失败比例的观察。
 
 ## 实施记录
 
@@ -127,4 +127,4 @@ last_reviewed: 2026-10-27
 - **偏离候选设计——移除 apply journal**：候选设计只打算删除 journal 的 `LOCAL_COMPLETED` 阶段；实施后确认写入成为应用中最后一个可能失败的步骤，应用未成功就没有写入，journal 保护的“写入后失败的重试与重放”已无路径触发，owner 决定整体移除，同一交互的幂等收敛到提交队列。Import Bus 文档中“写入后失败的重新提交因输入不同再次失败”的限制随之消失。ADR-0002 以注明日期的修订记录这一变化。
 - **不处理的审查项**：折叠项与交互共用队列容量和终态保留窗口（同一话题至多一个折叠项，驻留话题上限 5）；积压时折叠排在已入队的同话题提交之后（Import Bus 每个外部会话同时只有一轮在途）；折叠最多占用一个执行槽 60 秒。后两项记入[感知与短期话题](../../patchouli/perception.md)第 8 节的当前限制。
 
-验证：快速集 3053 passed（覆盖率 94.15%），确定性 E2E 22 passed；ruff、black、mypy 通过。归属层测试见 `tests/unit/patchouli/control/test_interaction_submission.py`（同话题等待、失败隔离、去重、关闭、drain、排入失败、构造校验）、`tests/integration/patchouli/test_perception.py`（折叠用例）与 `tests/unit/engines/perception/test_relay_controller.py`（超时回退保留旧摘要）。真实 LLM 下一次折叠的耗时未实测，留给 [Import Bus 真实使用观察](../../todo/import-bus-real-use-observation.md)。
+验证：快速集 3053 passed（覆盖率 94.15%），确定性 E2E 22 passed；ruff、black、mypy 通过。归属层测试见 `tests/unit/patchouli/control/test_interaction_submission.py`（同话题等待、失败隔离、去重、关闭、drain、排入失败、构造校验）、`tests/integration/patchouli/test_perception.py`（折叠用例）与 `tests/unit/engines/perception/test_relay_controller.py`（超时回退保留旧摘要）。真实 LLM 下一次折叠的耗时未实测，留给 [Import Bus 真实使用观察](./import-bus-real-use-observation.md)。

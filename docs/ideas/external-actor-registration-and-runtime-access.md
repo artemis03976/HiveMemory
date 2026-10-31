@@ -1,8 +1,7 @@
 ---
 title: 外部 Actor 的接入登记与运行时访问
 status: idea
-horizon: current
-serves_version: v0.7.1
+horizon: candidate
 owner: project
 scope: external-actor-registration-runtime-access-and-adapter-interface
 code_paths:
@@ -27,7 +26,7 @@ related_docs:
   - docs/VISION.md
   - docs/ideas/execution-environment.md
   - docs/archive/ideas/execution-thread-definition.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-10-30
 ---
 
 # 外部 Actor 的接入登记与运行时访问
@@ -47,11 +46,11 @@ last_reviewed: 2026-10-29
 
 本文由原 v0.7.0 计划 B（外部记忆服务与 Actor 交互契约）于 2026-09-27 退回 Idea。计划的最后版本见 commit `dda9d9d` 中的 `docs/plans/v0.7.0-external-memory-service-and-actor-interaction.md`。
 
-- owner 判定计划 B 作为计划已经作废：原被动输入（现称 Import Bus）的设计已经更新（[Import Bus Idea](./import-bus.md)第 1 节：退化为与记忆系统零主动交互的纯输入），计划中的内容也大多过时；但它要解决的问题仍然存在。
+- owner 判定计划 B 作为计划已经作废：原被动输入（现称 Import Bus）的设计已经更新（[已归档的 Import Bus Idea](../archive/ideas/import-bus.md)第 1 节：退化为与记忆系统零主动交互的纯输入），计划中的内容也大多过时；但它要解决的问题仍然存在。
 - 本文只保留这个问题以及仍然成立的设计材料。没有保留的内容：阶段划分（EMS-0–6）、交付与验收出口、A/B 交接与依赖顺序、测试矩阵、代码落点与迁移切片、文档收口清单；以 Passive Ingress 返回记忆 context 为前提的实时被动模式；以“System 应用服务 → GlobalSystemBus → Patchouli application”为主干的目标结构（已被总 Idea 第 12 节“能力层是 Actor 唯一可见的 API”这一前提取代）。
 - 现状事实按 2026-09-27 的代码核对。
 - 待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。
-- **版本归属**（owner，2026-09-27）：外部 Actor 的真实接入（真正的 adapter 接口与外部服务身份等）不在 v0.7.0。v0.7.0 不对外部 Actor 所需的基建作承诺，只验证 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构（[ROADMAP](../ROADMAP.md) 的 v0.7.0 范围）。外部 Actor 分为两种接入模式（1.1）：v0.7.1 的版本目标为 plugin 模式的真实接入，首个 harness 为 Claude Code；controller 模式退回候选方向，版本待定（1.1 的版本安排，owner，2026-10-20；2026-09-27 原定先做 controller 模式）。2026-10-20 起本文的 horizon 为 `current`，服务 v0.7.1，目标窗口见 [ROADMAP](../ROADMAP.md) 第 4.3 与 4.4 节。
+- **版本归属**（owner，2026-09-27）：外部 Actor 的真实接入（真正的 adapter 接口与外部服务身份等）不在 v0.7.0。v0.7.0 不对外部 Actor 所需的基建作承诺，只验证 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构（[ROADMAP](../ROADMAP.md) 的 v0.7.0 范围）。外部 Actor 分为两种接入模式（1.1）：v0.7.1 的版本目标为 plugin 模式的真实接入，首个 harness 为 Claude Code；controller 模式退回候选方向，版本待定（1.1 的版本安排，owner，2026-10-20；2026-09-27 原定先做 controller 模式）。2026-10-20 起本文的 horizon 为 `current`，服务 v0.7.1，目标窗口见 [ROADMAP](../ROADMAP.md) 第 4.3 与 4.4 节；2026-10-30 v0.7.1 收尾时改为 `candidate`：plugin 模式的两步均已实施，controller 模式、E-4 与写入意图经 MCP 提交等其余内容未排期。
 - **术语**（owner，2026-10-06）：本文的 adapter 即**操作适配器**（operation adapter），定义见 3.4；1.2 中执行侧面的实现，即 CPU 端口的实现，称 **CPU 驱动**。两者的分层见[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节的执行一侧用语。2026-10-20 用语修订后，执行侧面由执行单元（CPU 的常驻实例）承担，实现执行单元的代码称驱动。
 
 ## 1. 问题
@@ -79,7 +78,7 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 - **版本安排**：v0.7.0 不能同时完成两者（2026-09-27 原定先做 controller 模式，作为 v0.7.1 的首个真实外部 harness 接入，plugin 模式在其后的 v0.7.x 完善）。
   - **owner 决定（2026-10-20）**：v0.7.1 的版本目标为 plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code；controller 模式退回候选方向，版本待定。同日先定的 controller 模式目标及其首份计划的方向（首个外部驱动的纯文本闭环）随之撤回，分析保留在第 4 节的“controller 模式的步骤分析”。这是整个版本的目标，按小步分别建立计划，各步的范围与阻塞问题见第 4 节的“v0.7.1 的步骤与各步的阻塞问题”。
   - 理由（owner）：各家 harness 都在完善自己的生态，接口开放程度不一，controller 模式能达到的控制效果取决于被接入方，工程上难以统一（[接口调研快照](../research/harness-interface-survey-snapshot.md)）；非侵入的 plugin 模式更容易得到支持，用户也继续在 harness 自己的界面中工作。目标始终是让外部 harness 使用 Patchouli 记忆，并在真实的日常高强度使用中检验记忆系统的闭环。controller 模式的机制在 plugin 模式下多数用不上，但 Workspace 网络仍是整体的系统设计，任务进程、执行线程与 CPU 端口继续由 Alice 使用。
-  - **owner 决定（2026-10-20）**：首份计划的方向为 Import Bus 的重设计，以 Claude Code 的对话回流作为第一条真实路径，让记忆在真实使用中积累（第 4 节的第一步）；记忆访问在其后。Import Bus 的概念改为只向网络输入（[Import Bus Idea](./import-bus.md)前提 1），plugin 模式的设计因此需要完善。
+  - **owner 决定（2026-10-20）**：首份计划的方向为 Import Bus 的重设计，以 Claude Code 的对话回流作为第一条真实路径，让记忆在真实使用中积累（第 4 节的第一步）；记忆访问在其后。Import Bus 的概念改为只向网络输入（[已归档的 Import Bus Idea](../archive/ideas/import-bus.md)前提 1），plugin 模式的设计因此需要完善。
   - **规模控制（owner，2026-10-20）**：v0.7.1 期间不新增只服务 controller 模式的机制；每份计划写明它针对的已观察问题或待验证的核心假设（[VISION](../VISION.md) 第 10.10 节）。
 
 两种模式在各层的对应如下（分析，不是已决定的设计）：
@@ -299,11 +298,11 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 ### v0.7.1 的步骤与各步的阻塞问题
 
-问题本身仍在各自的位置，这里只按步骤汇总。v0.7.1 的版本目标为 plugin 模式接入 Claude Code（1.1，owner，2026-10-20），第一步对话回流已于 2026-10-21 实施，第二步记忆访问已于 2026-10-29 实施并归档，版本目标完成。
+问题本身仍在各自的位置，这里只按步骤汇总。v0.7.1 的版本目标为 plugin 模式接入 Claude Code（1.1，owner，2026-10-20），第一步对话回流已于 2026-10-21 实施，第二步记忆访问已于 2026-10-29 实施并归档，版本目标完成；v0.7.1 于 2026-10-30 收尾（[收尾审计](../archive/plans/v0.7.1-release-closeout-audit.md)）。
 
 plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code 文档](https://code.claude.com/docs/en/hooks)核对）：插件可以把 hooks 与 MCP server 打包为一个单元；`UserPromptSubmit` hook 可以在模型处理用户消息之前追加上下文，默认时限 30 秒，超时后追加的上下文被丢弃、消息照常送达；`Stop` hook 的输入带有会话记录文件的路径。由此插件有两条通路：对话回流由连接器经 hooks 在轮次结束时把交互交给 Import Bus；记忆访问经 MCP 工具，或者在用户提交消息时自动检索并注入（E-7）。
 
-**第一步：对话回流（Import Bus 重设计）**——已实施（2026-10-21，[归档计划](../archive/plans/v0.7.1-import-bus-redesign.md)）。Claude Code 插件在轮次结束时把该轮的完整记录交给 Import Bus，经统一认证网关与导入授权、Gateway 落位与共用封口进入 Patchouli，应用完成后才确认；不读取记忆，也不返回记忆上下文。当前事实见 [Import Bus](../system/import-bus.md)；真实使用验收随日常使用持续观察（[Todo](../todo/import-bus-real-use-observation.md)）。
+**第一步：对话回流（Import Bus 重设计）**——已实施（2026-10-21，[归档计划](../archive/plans/v0.7.1-import-bus-redesign.md)）。Claude Code 插件在轮次结束时把该轮的完整记录交给 Import Bus，经统一认证网关与导入授权、Gateway 落位与共用封口进入 Patchouli，应用完成后才确认；不读取记忆，也不返回记忆上下文。当前事实见 [Import Bus](../system/import-bus.md)；真实使用验收随日常使用观察，观察 Todo 已随 v0.7.1 收尾归档（[归档记录](../archive/todo/import-bus-real-use-observation.md)，2026-10-30）。
 
 **第二步：记忆访问**——已实施（2026-10-29，[归档计划](../archive/plans/v0.7.1-memory-access-mcp.md)），当前事实见 [MCP 记忆访问](../contracts/mcp.md)。以下是建立计划时的范围、验收方向与阻塞问题；各项决定之后的候选设计在计划中采纳或调整，落地结果以当前事实文档为准。
 
@@ -432,7 +431,7 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 
 ### E-7 plugin 模式下记忆到达 harness 的方式
 
-**背景**（2026-10-20）：plugin 模式下 HiveMemory 不控制对话，记忆只能经 harness 的扩展点到达模型。Import Bus 只向网络输入、不返回记忆上下文（[Import Bus Idea](./import-bus.md)前提 1，2026-10-21 已实施），原 `/ingest` 在 user 事件上返回记忆上下文的行为已删除。本问题阻塞第 4 节中记忆访问一步。
+**背景**（2026-10-20）：plugin 模式下 HiveMemory 不控制对话，记忆只能经 harness 的扩展点到达模型。Import Bus 只向网络输入、不返回记忆上下文（[已归档的 Import Bus Idea](../archive/ideas/import-bus.md)前提 1，2026-10-21 已实施），原 `/ingest` 在 user 事件上返回记忆上下文的行为已删除。本问题阻塞第 4 节中记忆访问一步。
 
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|
@@ -502,5 +501,5 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 | P-9c 不建进程的 actor 访问如何进入 actor API | 同上 | plugin 模式的访问不建进程（1.1）；已决定（2026-10-29）：每次操作一份请求级访问 context，见第 4 节“P-1c 与 P-9c” |
 | P-10 Agent Profile 的能力描述是否与 MTP 解耦 | 同上 | 外部 Actor 如何理解 Profile；已决定：allow 字段并入能力层的 operation 控制（总 Idea 15.4），P-10a 仍待决 |
 | Q-8 外部 CPU 的进程 | [任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) | 外部 Actor 的调用与进程的关系、回收与取消；只涉及 controller 模式（1.1） |
-| Import Bus 后续方向 | [Import Bus Idea](./import-bus.md)第 2 节 | 流式监听、历史导入另设通道、第二个 harness 的连接器；完整交互记录的接收已实施 |
+| Import Bus 后续方向 | [已归档的 Import Bus Idea](../archive/ideas/import-bus.md)第 2 节 | 流式监听、历史导入另设通道、第二个 harness 的连接器；完整交互记录的接收已实施；该 Idea 于 2026-10-30 归档，各方向的去向见其归档说明 |
 | T-1–T-6 执行单元与执行线程 | [执行线程](../workspace/execution-threads.md) | T-1（子线程身份在派生时确定）、T-2（每个线程一份 context）与 T-6（只有接入侧面的参与者不称 CPU）已决定；外部执行单元不识别子线程，见 E-5；回调通道与操作适配器的绑定（T-4）关系到 E-3b；T-1a、T-1b、T-2a 只涉及 Alice |

@@ -10,6 +10,7 @@ last_reviewed: 2026-10-30
 
 本目录保存已完成的修复与技术债处置历史；当前行为从对应事实文档进入，活动待办见 [Todo](../../todo/README.md)。
 
+- [Import Bus 真实使用观察](./import-bus-real-use-observation.md)：2026-10-30 随 v0.7.1 收尾归档，owner 决定之后正常使用即可、不再逐项跟踪。观察期间需要改动的项目已分别登记为[生成查重的决策信号](../../todo/generation-dedup-decision-signal.md)与[生成材料的筛选与截断](../../todo/generation-material-filtering-and-truncation.md)，记忆生成粒度记为 [Patchouli 生成](../../patchouli/generation.md#8-当前限制)的已知限制；其余观察项没有形成需要改动的结论。当前事实见 [Import Bus](../../system/import-bus.md) 与 [MCP 记忆访问](../../contracts/mcp.md)。
 - [任务进程中无生产使用方的代码与可合并小项](./task-process-unused-paths.md)：2026-10-30 在 `refactor/task-process-unused-paths` 完成，删除只供测试使用的非流式交付、按句柄取消、诊断查询链（`describe_context`、`AccessGrantSummary`）与重复 `process_id` 的注册预检；交付方离开的停止原因合并为 `client_disconnected`，`ExecutionLabels` 移到进程记录，删除对 prepare 结果归属的重复比对；`POST /chat` 与 `POST /chat/stop` 的公开行为不变；当前事实见[任务进程](../../workspace/task-process.md)。
 - [记忆编辑可以给非 Profile 记忆写入 agent_config](./memory-edit-agent-config-type-check.md)：2026-10-27 在 `fix/memory-edit-agent-config-type-check` 完成，Familiar 提交边界的类型约束拒绝非 `AGENT_PROFILE` 原子带 `agent_config`（`InvalidMemoryFieldError`，HTTP 422），检查在写版本记录之前；记忆与 Profile 继续共用编辑入口，不拆 Profile 专用编辑，存量数据无需清理；当前事实见 [Patchouli 生成](../../patchouli/generation.md)第 5 节。
 - [话题折叠计入交互提交的处理时限](./topic-fold-in-interaction-apply.md)：2026-10-27 在 `fix/topic-fold-in-interaction-apply` 完成，交互写入话题即完成应用，折叠作为提交队列中与该话题提交共用排序键的独立工作项，折叠期间同一话题的后续提交在队列中等待、不计入处理时限；LLM relay 摘要新增独立时限，超时与其他回退都接在已有摘要之后；写入成为应用中最后一个可能失败的步骤，apply journal 随之移除，幂等收敛到提交队列；当前事实见[感知与短期话题](../../patchouli/perception.md)第 5 节。

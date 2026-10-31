@@ -18,7 +18,7 @@ related_docs:
   - docs/ideas/external-session-and-topic-projection.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/pending-intent-migration.md
-  - docs/ideas/import-bus.md
+  - docs/system/import-bus.md
 last_reviewed: 2026-10-29
 ---
 
@@ -73,7 +73,7 @@ last_reviewed: 2026-10-29
 | 合成卡、请求器等自动下单方 | 被动请求 | 条件满足时创建任务进程，如定时任务、队列任务 |
 | 玩家在 ME 终端直接存取 | root 直接通道 | 管理操作经 root API 直接执行，不建进程 |
 | 安全终端 | 认证网关与操作授权 | 准入与逐次授权 |
-| Import Bus | Import Bus | 只向网络输入，不在核心拓扑上（[Import Bus Idea](./import-bus.md)） |
+| Import Bus | Import Bus | 只向网络输入，不在核心拓扑上（[Import Bus](../system/import-bus.md)；原 Idea 已于 2026-10-30 [归档](../archive/ideas/import-bus.md)） |
 
 两个维度要分开：**请求方**回答谁让网络做事（主动请求、被动请求），**执行者**回答谁来做（执行单元）。同一个外部 harness 可以有两个侧面：**执行侧面**是被进程经 CPU 端口驱动的执行单元，**接入侧面**是经操作适配器调用能力层的调用方。管理员与 plugin 模式的 harness 只有接入侧面，Alice 两个侧面都有。
 
@@ -321,7 +321,7 @@ flowchart TB
 各方向的设计讨论在对应子 Idea 中进行，版本安排以 [ROADMAP](../ROADMAP.md) 为准。
 
 - **外部会话与 Topic 投影**（3.9）：会话模型、workspace 共享的 Topic 池、前端回归会话模型，见[外部会话 Idea](./external-session-and-topic-projection.md)。
-- **外部 Actor 接入**（3.1、3.3）：controller 模式下外部 harness 是进程中的执行单元；plugin 模式下 HiveMemory 挂载在外部 harness 中，只有接入侧面，对话经 Import Bus 回流。见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md)与 [Import Bus Idea](./import-bus.md)。
+- **外部 Actor 接入**（3.1、3.3）：controller 模式下外部 harness 是进程中的执行单元；plugin 模式下 HiveMemory 挂载在外部 harness 中，只有接入侧面，对话经 Import Bus 回流。见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md)与 [Import Bus](../system/import-bus.md)。
 - **执行基座与执行环境**（3.3）：用户在对话开始前分别选择 agent 与执行环境，见[执行环境 Idea](./execution-environment.md)。
 - **被动请求**（3.2）：定时与队列触发创建任务进程，见[任务进程 Idea](./task-process-table-and-registration-entry.md)与第 5 节 P-5。
 - **流式同步与 turn 内上下文折叠**（3.8、3.9）：交互以更原子的结构流式同步到 Patchouli，生成材料包含当前轮已接收的消息，见[长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md)。
@@ -417,7 +417,7 @@ C 与 [engines 对上层的既有导入](../todo/engines-upward-imports.md)相�
 | [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 3.9：会话模型与 Topic 池 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | 3.1、3.3：接入侧面、操作适配器与两种接入模式 |
 | [写入意图后续方向 Idea](./pending-intent-migration.md) | 3.7、3.8：结算对账、句柄寿命与外部契约 |
-| [Import Bus Idea](./import-bus.md) | 只向网络输入的记忆来源 |
+| [Import Bus Idea](../archive/ideas/import-bus.md)（已归档，2026-10-30） | 只向网络输入的记忆来源；当前事实见 [Import Bus](../system/import-bus.md) |
 | [长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md) | 3.9：流式同步与 turn 内折叠 |
 | [AE2 Idea](./ae2-hivememory-architecture-analogy.md) | 第 2 节的网络隐喻与子网 |
 | [ADR-0006](../architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md) | 3.4：记忆库一侧的归属判据与独立工作契约 |

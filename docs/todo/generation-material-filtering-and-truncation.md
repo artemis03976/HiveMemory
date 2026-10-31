@@ -17,7 +17,7 @@ related_docs:
   - docs/gateway/analysis.md
   - docs/system/import-bus.md
   - docs/ROADMAP.md
-  - docs/todo/import-bus-real-use-observation.md
+  - docs/archive/todo/import-bus-real-use-observation.md
 last_reviewed: 2026-10-30
 ---
 

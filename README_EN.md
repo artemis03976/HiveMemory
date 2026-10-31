@@ -7,13 +7,13 @@
 
 HiveMemory is a persistent memory system for LLM agent workflows. It is designed to address long-context forgetting, lack of cross-session knowledge reuse, and information silos in multi-agent collaboration. The system turns high-value conversational information into searchable, updatable, reusable memories and injects them back into future tasks through a unified protocol.
 
-The repository includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and the v0.7.0 release baseline where the top-level HiveMemory System assembles workspace, Gateway, Patchouli, and Alice. v0.7.0 completed the move to the Workspace network and task-process architecture: every task request is registered as a task process through a single registration entry, agent resource operations are authorized one by one by the workspace capability layer, and executors plug in through a CPU port so they can be replaced.
+The repository includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and the v0.7.1 content baseline where the top-level HiveMemory System assembles workspace, Gateway, Patchouli, and Alice. v0.7.0 completed the move to the Workspace network and task-process architecture: every task request is registered as a task process through a single registration entry, agent resource operations are authorized one by one by the workspace capability layer, and executors plug in through a CPU port so they can be replaced. v0.7.1 integrates the first external harness, Claude Code, in plugin mode: Claude Code conversations flow back through the Import Bus into memory generation, and the Claude Code agent searches and reads memories through MCP tools.
 
 ## Release Status
 
+- This release: `v0.7.1` (plugin-mode integration with Claude Code; the tag is created after merge, see the [closeout audit](docs/archive/plans/v0.7.1-release-closeout-audit.md))
 - Latest published baseline: `v0.7.0` (see the [closeout audit](docs/archive/plans/v0.7.0-release-closeout-audit.md))
-- Current development version: `v0.7.1` (goal: real external harness integration in plugin mode, starting with Claude Code; see the [Roadmap](docs/ROADMAP.md))
-- Code and package version: `0.7.0`
+- Code and package version: `0.7.1`
 - Python requirement: `>=3.12`
 - License: Apache-2.0
 
@@ -26,7 +26,8 @@ See [docs/architecture/overview.md](docs/architecture/overview.md) for the curre
 - **Active mode**: `POST /api/v1/chat` provides SSE streaming chat. Each request is authenticated by the workspace registration entry and registered as a task process; `TaskProcessService` drives Gateway analysis, Patchouli prepare/finalize, and Alice agent execution through the CPU port. `POST /api/v1/chat/stop` stops a process, and a client disconnect is handled as a stop
 - `POST /api/v1/chat` supports request-scoped `generation_options` (`model` / `temperature` / `top_p` / `max_tokens`) for per-turn overrides without persisting to global config files
 - **Import Bus (external harness import)**: `POST /api/v1/import/turns` imports the complete record of one finished turn from an external harness (user message, replies, thoughts, external tool calls and results, outcome). The request goes through the unified authentication gateway and import authorization; the System-layer Import Bus orchestrates Gateway topic placement, shared sealing, and Patchouli perception submission, and confirms only after the interaction has been applied. It only feeds the memory network: it does not retrieve memories or return memory context
-- **Claude Code connector plugin**: `integrations/claude-code/` (plugin `hivememory-connector`, local marketplace `hivememory-local`, Python standard library only) imports finished turns from Claude Code transcripts when a turn ends and when a session starts or ends; network submission runs in a background process detached from Claude Code. It is configured with the environment variables `HIVEMEMORY_URL`, `HIVEMEMORY_USER_ID`, and `HIVEMEMORY_AGENT_ID` (default `claude_code`), and `configs/workspace_actors.yaml` already registers admission for `claude_code`
+- **MCP memory access**: `POST /mcp` is the MCP endpoint for external harnesses (streamable HTTP, stateless, local addresses only) with two read-only tools, `memory_search` and `memory_read`. Each tool call obtains one request-scoped access context from the unified authentication gateway and is authorized against the Workspace access registry's allowlist; no task process is created
+- **Claude Code plugin**: `integrations/claude-code/` (plugin `hivememory-connector`, local marketplace `hivememory-local`, Python standard library only) provides both conversation flow-back and memory access. The connector imports finished turns from Claude Code transcripts when a turn ends and when a session starts or ends, with network submission in a background process detached from Claude Code; the MCP server declared by the plugin lets the Claude Code agent search and read memories. Both authenticate as Claude Code's own access registration `harness:claude-code`: `HIVEMEMORY_CLAUDE_CODE_TOKEN` on the HiveMemory side and `HIVEMEMORY_TOKEN` on the Claude Code side must hold the same credential, and `configs/workspace_actors.yaml` grants the `claude_code` agent search and read only. See the [setup guide](docs/help/setup.md) for installation and configuration
 - **Sessions**: create, resume, rename, and delete conversation sessions. Alice trims old tool results and writes relay summaries within the model budget while the original conversation is kept in full, and the summary and compaction boundary can be inspected; cancelled and failed turns that produced output keep their outcome. Sessions and checkpoints live only in the backend process and disappear on restart; topics remain separate memory material.
 - **System commands**: Gateway only parses commands. A message recognized as a command ends with a command terminal state and does not enter normal chat; this version does not execute built-in commands.
 
@@ -124,6 +125,7 @@ See [docs/contracts/mtp.md](docs/contracts/mtp.md) for the current protocol and 
 | `/api/v1/sessions` | GET / POST | List / create sessions |
 | `/api/v1/sessions/{session_id}` | GET / PATCH / DELETE | Read full history / rename / delete a session |
 | `/api/v1/import/turns` | POST | Import one finished turn from an external harness (Import Bus) |
+| `/mcp` | POST | MCP tools for external harnesses to search and read memories |
 | `/api/v1/memories` | GET / POST | Semantic search or list memories / create a memory |
 | `/api/v1/memories/{memory_id}` | GET / PATCH / DELETE | Read / edit / delete a single memory |
 | `/api/v1/memories/{memory_id}/feedback` | POST | Submit memory feedback |
@@ -145,7 +147,7 @@ See [docs/contracts/mtp.md](docs/contracts/mtp.md) for the current protocol and 
 | `/api/v1/runtime-events/stream` | GET | Runtime event SSE stream |
 | `/api/v1/ws/logs` | WS | Stream runtime logs |
 
-The request identity is selected with the `x-user-id` / `x-workspace-id` headers, and agent actions also carry an `agent_id`; see the [routes and events contract](docs/contracts/routes-and-events.md#6-http-入口的身份交接与管理读取边界) for the handoff rules.
+The request identity is selected with the `x-user-id` / `x-workspace-id` headers, and agent actions also carry an `agent_id`; see the [routes and events contract](docs/contracts/routes-and-events.md#6-http-入口的身份交接与管理读取边界) for the handoff rules. `/api/v1/import/turns` and `/mcp` are entries for external harnesses and additionally declare the access source with `X-Principal-ID` and carry the access credential in `Authorization: Bearer`; see [Import Bus](docs/system/import-bus.md) and [MCP memory access](docs/contracts/mcp.md).
 
 ## Requirements
 
@@ -292,10 +294,10 @@ If you want to integrate the system directly in Python, the main entrypoint is:
 
 It exposes two primary integration modes:
 
-- `process_service.register_process()` and `run_process()`: active mode. The registration entry first authenticates and registers a task process and returns a process handle; `run_process()` (streaming by default with `stream=True`, non-streaming with `stream=False`) then runs it, with `TaskProcessService` coordinating Gateway analysis, Patchouli memory preparation, Alice agent execution, and Patchouli finalization
+- `process_service.register_process()` and `run_process()`: active mode. The registration entry first authenticates and registers a task process and returns a process handle; `run_process()` then subscribes to the process's streaming output, with `TaskProcessService` coordinating Gateway analysis, Patchouli memory preparation, Alice agent execution, and Patchouli finalization
 - `import_bus_service.import_turn()`: Import Bus, which imports the complete record of one finished turn from an external harness; the caller must first obtain a request-scoped access context from the unified authentication gateway (the HTTP entry `POST /api/v1/import/turns` does this for you)
 
-If you only need HTTP APIs, use the FastAPI service directly. If you want the interactions of an existing agent harness to become HiveMemory memories, `POST /api/v1/import/turns` is usually the most natural starting point, and the Claude Code connector plugin (`integrations/claude-code/`) is a ready-made integration.
+If you only need HTTP APIs, use the FastAPI service directly. If you want the interactions of an existing agent harness to become HiveMemory memories and let it read them back, `POST /api/v1/import/turns` and `/mcp` are usually the most natural starting points, and the Claude Code plugin (`integrations/claude-code/`) is a ready-made integration.
 
 ## Project Structure
 
@@ -320,7 +322,8 @@ HiveMemory/
 │   ├── agent_runtime/       # Single-agent execution layer and Koakuma MTP/tool runtime
 │   ├── system/              # Composition root, facade, registries, and Import Bus
 │   ├── prompts/             # System prompts and prompt assembly
-│   └── server/              # FastAPI app entrypoint and routes
+│   ├── server/              # FastAPI app entrypoint and routes
+│   └── mcp_server/          # MCP entry for external harnesses to access memory (served by server as the /mcp route)
 └── tests/                   # Unit, integration, and end-to-end tests
 ```
 
@@ -343,7 +346,7 @@ HiveMemory/
 
 ## Contributing
 
-Issues and pull requests are welcome. v0.7.0 has been released, and the main branch is under v0.7.1 development. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
+Issues and pull requests are welcome. v0.7.1 content is closed out, and its tag is created after merge. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
 
 ## License
 
