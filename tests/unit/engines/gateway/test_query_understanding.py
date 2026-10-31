@@ -10,7 +10,7 @@ import pytest
 from hivememory.config.gateway import UserQueryAnalysisConfig
 from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import ActorIdentity, TopicData
-from hivememory.core.protocol.gateway import IntentType, MemoryWriteSignal
+from hivememory.core.protocol.gateway import IntentType
 from hivememory.engines.gateway.query_understanding import (
     QueryUnderstandingEngine,
     QueryUnderstandingError,
@@ -45,7 +45,6 @@ async def test_analyze_parses_shared_result_and_renders_context() -> None:
         '{"intent_type":"RAG",'
         '"rewritten_query":"Docker OOM 内存溢出报错的排查原因与修复方案",'
         '"search_keywords":["Docker","OOM","内存溢出"],'
-        '"memory_write_signal":"WRITE",'
         '"sub_intents":[],'
         '"reason":"技术问答"}'
     )
@@ -58,7 +57,6 @@ async def test_analyze_parses_shared_result_and_renders_context() -> None:
     assert result.intent_type == IntentType.RAG
     assert result.rewritten_query == "Docker OOM 内存溢出报错的排查原因与修复方案"
     assert result.search_keywords == ("Docker", "OOM", "内存溢出")
-    assert result.memory_write_signal == MemoryWriteSignal.WRITE
     assert result.sub_intents == ()
 
     messages = llm.calls[-1].messages
@@ -92,7 +90,7 @@ async def test_model_override_replaces_only_the_model() -> None:
 async def test_analyze_without_topic_data_uses_empty_context() -> None:
     llm = ScriptedLLMService(
         '{"intent_type":"WRITE","rewritten_query":"用户偏好少盐饮食",'
-        '"search_keywords":["少盐"],"memory_write_signal":"WRITE",'
+        '"search_keywords":["少盐"],'
         '"sub_intents":[],"reason":"偏好陈述"}'
     )
     engine = QueryUnderstandingEngine(
@@ -110,7 +108,7 @@ async def test_analyze_without_topic_data_uses_empty_context() -> None:
 async def test_analyze_applies_lenient_defaults_for_optional_fields() -> None:
     llm = ScriptedLLMService(
         '{"intent_type":"NOT_A_REAL_INTENT","rewritten_query":"重写结果",'
-        '"search_keywords":"not-a-list","memory_write_signal":"BAD",'
+        '"search_keywords":"not-a-list",'
         '"sub_intents":null}'
     )
     engine = QueryUnderstandingEngine(
@@ -120,7 +118,6 @@ async def test_analyze_applies_lenient_defaults_for_optional_fields() -> None:
     result = await engine.analyze("查询", topic_data=None)
 
     assert result.intent_type == IntentType.RAG
-    assert result.memory_write_signal == MemoryWriteSignal.UNKNOWN
     assert result.search_keywords == ()
     assert result.sub_intents == ()
 
@@ -129,7 +126,7 @@ async def test_analyze_applies_lenient_defaults_for_optional_fields() -> None:
 async def test_analyze_respects_configurable_context_limits() -> None:
     payload = (
         '{"intent_type":"RAG","rewritten_query":"重写结果",'
-        '"search_keywords":[],"memory_write_signal":"UNKNOWN",'
+        '"search_keywords":[],'
         '"sub_intents":[],"reason":""}'
     )
     llm = ScriptedLLMService(payload, payload)

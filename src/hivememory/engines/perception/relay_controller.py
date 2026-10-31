@@ -153,7 +153,7 @@ class LLMRelayController(BaseRelayController):
             summary_llm: 用于生成摘要的 LLM 服务（可选）
             llm_params: 由 Librarian 组件 LLM 配置转换的请求参数（可选）
             summary_timeout_seconds: 每次摘要调用的时限，超时回退为简单摘要
-            transcript_config: 渲染近期事件的截断上限，与记忆生成视图相同
+            transcript_config: 渲染近期事件时工具结果的截断上限，与记忆生成视图相同
         """
         self.summary_llm = summary_llm
         self._llm_params = llm_params
@@ -268,7 +268,7 @@ def create_relay_controller(
         config: RelayControllerConfig 配置对象
         llm_service: LLM 服务（可选，用于 LLMRelayController）
         llm_params: 摘要调用的请求参数（可选，用于 LLMRelayController）
-        transcript_config: 记忆生成视图的截断上限，LLM 接力按同一组上限渲染近期事件
+        transcript_config: 记忆生成视图的工具结果上限，LLM 接力按同一个上限渲染近期事件
 
     Returns:
         BaseRelayController 实例

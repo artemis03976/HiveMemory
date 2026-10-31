@@ -22,7 +22,6 @@ from hivememory.core.protocol.gateway import (
     GatewayDecisionOutcome,
     GatewayIngressMode,
     IntentType,
-    MemoryWriteSignal,
     RetrievalMode,
     RetrievalPlan,
 )
@@ -91,7 +90,6 @@ def test_public_gateway_result_is_immutable_and_serializable() -> None:
         target_topic_id="NEW_TOPIC",
         rewritten_query="原问题",
         search_keywords=["gateway"],
-        memory_write_signal=MemoryWriteSignal.WRITE,
         retrieval_plan=RetrievalPlan(mode=RetrievalMode.HYBRID, top_k=8),
         intent_type=IntentType.RAG,
     )

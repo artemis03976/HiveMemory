@@ -14,7 +14,6 @@ from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayDecisionOutcome,
     IntentType,
-    MemoryWriteSignal,
     RetrievalPlan,
 )
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
@@ -74,7 +73,6 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
                 new_topic_summary="修复失败的单元测试",
                 rewritten_query="修复失败的测试",
                 intent_type=IntentType.CHAT,
-                memory_write_signal=MemoryWriteSignal.WRITE,
                 retrieval_plan=RetrievalPlan(),
             )
         )

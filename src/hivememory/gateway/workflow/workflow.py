@@ -122,10 +122,13 @@ class GatewayWorkflow:
                     deadline = 0.0
                 completed_steps += 1
 
+            # 被动记忆入口不检索记忆，查询分析的产物（重写、关键词与检索计划）没有
+            # 使用方：与简单寒暄一样以不检索的默认值收口，省去一次模型调用。
+            use_defaults = ingress_mode == GatewayIngressMode.PASSIVE_MEMORY or (
+                state.l1_result is not None and state.l1_result.intent == GatewayIntent.CHAT
+            )
             analysis_step = (
-                self._simple_chat_defaults_step
-                if state.l1_result is not None and state.l1_result.intent == GatewayIntent.CHAT
-                else self._user_query_analysis_step
+                self._simple_chat_defaults_step if use_defaults else self._user_query_analysis_step
             )
             current_step_id = analysis_step.step_id
             deadline_reached = await self._run_step(

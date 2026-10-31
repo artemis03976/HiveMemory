@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import time
 from unittest.mock import AsyncMock
 
 import pytest
@@ -11,12 +10,10 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.config.gateway import SystemGatewayConfig, UserQueryAnalysisConfig
 from hivememory.core.contracts.runtime_events import RuntimeEventType
-from hivememory.core.models import ActorIdentity, TopicData
+from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
-    GatewaySessionTurn,
     IntentType,
-    MemoryWriteSignal,
     RetrievalMode,
 )
 from hivememory.engines.gateway.models import QueryUnderstandingResult
@@ -32,7 +29,6 @@ from hivememory.gateway.runtime import GatewayRuntime
 from hivememory.gateway.service import GatewayService
 from hivememory.patchouli.contracts import PatchouliRoutes
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
-from tests.helpers.sessions import make_logical_block
 from tests.helpers.workspace import make_identity_scope
 
 
@@ -47,27 +43,6 @@ def _build_context(raw_message: str, **overrides) -> UserQueryAnalysisContext:
     return UserQueryAnalysisContext(**kwargs)
 
 
-def _build_topic_data(last_user_query: str = "") -> TopicData:
-    now = time.time()
-    return TopicData(
-        topic_id="topic-1",
-        workspace_identity=make_identity_scope(user_id="u1").workspace_identity,
-        topic_title="三餐推荐",
-        blocks=(
-            (
-                make_logical_block(
-                    last_user_query,
-                    "好的",
-                    identity=ActorIdentity(agent_id="omni_doll", user_id="u1"),
-                ),
-            )
-            if last_user_query
-            else ()
-        ),
-        last_update=now,
-    )
-
-
 def _build_engine_mock(
     result: QueryUnderstandingResult | None = None,
     error: Exception | None = None,
@@ -80,7 +55,6 @@ def _build_engine_mock(
             intent_type=IntentType.RAG,
             rewritten_query="重写后的查询",
             search_keywords=("关键词",),
-            memory_write_signal=MemoryWriteSignal.WRITE,
         )
     return engine
 
@@ -95,7 +69,6 @@ async def test_fallback_resolver_returns_fixed_conservative_result() -> None:
     assert result.intent_type == IntentType.RAG
     assert result.rewritten_query == "不要改写这个问题"
     assert result.search_keywords == ()
-    assert result.memory_write_signal == MemoryWriteSignal.WRITE
     assert result.retrieval_plan.mode == RetrievalMode.HYBRID
     assert result.retrieval_plan.top_k == 11
 
@@ -108,7 +81,6 @@ async def test_llm_resolver_maps_engine_result() -> None:
             intent_type=IntentType.RAG,
             rewritten_query="改写后的完全不同",
             search_keywords=("关键词甲", "关键词乙"),
-            memory_write_signal=MemoryWriteSignal.WRITE,
         )
     )
     resolver = LLMUserQueryAnalysisResolver(config=UserQueryAnalysisConfig(), engine=engine)
@@ -118,7 +90,6 @@ async def test_llm_resolver_maps_engine_result() -> None:
     assert result.intent_type == IntentType.RAG
     assert result.rewritten_query == "改写后的完全不同"
     assert result.search_keywords == ("关键词甲", "关键词乙")
-    assert result.memory_write_signal == MemoryWriteSignal.WRITE
     assert result.retrieval_plan.mode == RetrievalMode.HYBRID
 
 
@@ -130,26 +101,8 @@ async def test_llm_resolver_rule_overrides_explicit_write_intent() -> None:
     result = await resolver.resolve(_build_context("记住我不吃香菜"))
 
     assert result.intent_type == IntentType.WRITE
-    assert result.memory_write_signal == MemoryWriteSignal.WRITE
     assert result.retrieval_plan.mode == RetrievalMode.SKIP
     assert result.retrieval_plan.top_k == 0
-
-
-@pytest.mark.asyncio
-async def test_llm_resolver_rule_marks_repeated_input_skip() -> None:
-    engine = _build_engine_mock()
-    resolver = LLMUserQueryAnalysisResolver(config=UserQueryAnalysisConfig(), engine=engine)
-    context = _build_context(
-        "晚饭吃什么",
-        topic_id="topic-1",
-        routed_topic_data=_build_topic_data(last_user_query="其他会话的问题"),
-        session_turns=(GatewaySessionTurn(user_message="晚饭吃什么"),),
-    )
-
-    result = await resolver.resolve(context)
-
-    assert result.memory_write_signal == MemoryWriteSignal.SKIP
-    assert result.intent_type == IntentType.RAG
 
 
 @pytest.mark.asyncio
@@ -159,7 +112,6 @@ async def test_llm_resolver_derives_dense_mode_without_keywords() -> None:
             intent_type=IntentType.RAG,
             rewritten_query="重写后的查询",
             search_keywords=(),
-            memory_write_signal=MemoryWriteSignal.UNKNOWN,
         )
     )
     resolver = LLMUserQueryAnalysisResolver(
@@ -206,7 +158,6 @@ async def test_runtime_uses_topic_router_and_llm_resolver() -> None:
         '{"intent_type":"RAG",'
         '"rewritten_query":"标准查询的重写结果",'
         '"search_keywords":["标准查询"],'
-        '"memory_write_signal":"WRITE",'
         '"sub_intents":[],"reason":"技术问答"}',
     )
 
@@ -231,7 +182,6 @@ async def test_runtime_uses_topic_router_and_llm_resolver() -> None:
     assert result.kind == "decision"
     assert result.decision.rewritten_query == "标准查询的重写结果"
     assert result.decision.search_keywords == ("标准查询",)
-    assert result.decision.memory_write_signal == MemoryWriteSignal.WRITE
     assert result.decision.retrieval_plan.mode == RetrievalMode.HYBRID
     assert result.decision.retrieval_plan.top_k == 9
     assert len(llm_service.calls) == 2
@@ -279,20 +229,5 @@ async def test_runtime_falls_back_to_conservative_result_on_analysis_error() -> 
 
     assert result.kind == "decision"
     assert result.decision.rewritten_query == "继续处理标准查询"
-    assert result.decision.memory_write_signal == MemoryWriteSignal.UNKNOWN
     assert result.decision.retrieval_plan.mode == RetrievalMode.HYBRID
     assert result.decision.retrieval_plan.top_k == 9
-
-
-@pytest.mark.asyncio
-async def test_repeated_topic_input_without_session_is_not_skipped():
-    """其他会话在同一 Topic 中的重复内容不触发当前会话去重。"""
-    resolver = LLMUserQueryAnalysisResolver(
-        config=UserQueryAnalysisConfig(), engine=_build_engine_mock()
-    )
-    result = await resolver.resolve(
-        _build_context(
-            "晚饭吃什么", routed_topic_data=_build_topic_data(last_user_query="晚饭吃什么")
-        )
-    )
-    assert result.memory_write_signal == MemoryWriteSignal.WRITE

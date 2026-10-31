@@ -6,11 +6,7 @@ from enum import Enum
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.core.protocol.gateway import (
-    CommandParseResult,
-    IntentType,
-    MemoryWriteSignal,
-)
+from hivememory.core.protocol.gateway import CommandParseResult, IntentType
 
 
 class GatewayIntent(str, Enum):
@@ -52,7 +48,6 @@ class QueryUnderstandingResult(BaseModel):
     intent_type: IntentType = IntentType.RAG
     rewritten_query: str
     search_keywords: tuple[str, ...] = ()
-    memory_write_signal: MemoryWriteSignal = MemoryWriteSignal.UNKNOWN
     sub_intents: tuple[str, ...] = ()
     reason: str = ""
 

@@ -7,11 +7,11 @@ GenerationTranscriptBuilder — 记忆生成视图构建器
 
 与 HistoryTranscriptBuilder 的区别:
     - HistoryTranscriptBuilder: 历史消息视图，还原模型当时看到的完整上下文
-    - GenerationTranscriptBuilder: 记忆生成视图，按上限截断的过程材料，适合记忆提取
+    - GenerationTranscriptBuilder: 记忆生成视图，只截断工具结果的过程材料，适合记忆提取
 
 每轮的材料由感知层唯一的渲染函数从事件集得到（``engines.perception.material``）：
-助手正文与动作按出现顺序穿插，能力调用只有一行摘要、不渲染取回的记忆，思考、
-外部工具参数与结果按上限截断。这里只负责组装话题状态与各轮次。
+助手正文与动作按出现顺序穿插，能力调用只有一行摘要、不渲染取回的记忆，只有
+外部工具的结果按上限截断。这里只负责组装话题状态与各轮次。
 """
 
 from collections.abc import Sequence
@@ -27,7 +27,7 @@ class GenerationTranscriptBuilder:
     记忆生成视图构建器
 
     无状态。将 LogicalBlock 列表 + state_summary 转换为 GenerationContext，
-    材料按 ``config`` 的上限截断；同时提供 build_transcript() 将
+    工具结果按 ``config`` 的上限截断；同时提供 build_transcript() 将
     GenerationContext 渲染为 LLM 可用的文本（渲染不再截断）。
     """
 
@@ -91,9 +91,7 @@ class GenerationTranscriptBuilder:
         return GenerationTurn(
             outcome=block.turn.outcome,
             user_message=block.user_message,
-            material_entries=[
-                entry.text for entry in render_turn_material(block.turn_events, self._config)
-            ],
+            material_entries=render_turn_material(block.turn_events, self._config),
             identity=block.identity,
         )
 

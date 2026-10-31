@@ -18,7 +18,6 @@ from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayDecisionOutcome,
     IntentType,
-    MemoryWriteSignal,
     RetrievalPlan,
 )
 from hivememory.gateway.contracts import GatewayPublicRoutes
@@ -41,7 +40,6 @@ def _decision() -> GatewayDecisionOutcome:
         decision=GatewayDecision(
             target_topic_id="topic-shared-name",
             rewritten_query="question",
-            memory_write_signal=MemoryWriteSignal.WRITE,
             retrieval_plan=RetrievalPlan(),
             intent_type=IntentType.RAG,
         )

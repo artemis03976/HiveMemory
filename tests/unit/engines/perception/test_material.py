@@ -7,10 +7,9 @@
 - 没有结局的调用只渲染调用，不断言它没有完成；
 - 能力步骤只有一行摘要，不渲染结果，WRITE/UPDATE/CALL 与无法解析的指令不渲染；
   同一次读取无论来自 MTP 还是外部 harness 的 MCP 工具，渲染相同；
-- 外部工具步骤渲染工具名、参数摘要与结果，出错的结果标明状态；思考、参数与
-  结果按各自上限截断，保留首尾；
-- 单轮上限只约束思考、能力摘要与外部工具步骤：超出时先降级较早的工具步骤，
-  仍超出时按优先级省略整条，结果不超过上限；用户消息与助手正文不受约束；
+- 外部工具步骤渲染工具名、完整参数与结果，出错的结果标明状态；
+- 只有工具结果按上限截断，保留首尾；思考与参数原样渲染；
+- 一轮的条目不受总量上限约束：条目再多也全部原样渲染，不降级、不省略；
 - 空白的思考不渲染。
 """
 
@@ -20,11 +19,7 @@ from typing import Any
 
 from hivememory.config.patchouli import GenerationTranscriptConfig
 from hivememory.core.models import TurnEvent
-from hivememory.engines.perception.material import (
-    MaterialEntry,
-    render_turn_material,
-    render_turn_text,
-)
+from hivememory.engines.perception.material import render_turn_material, render_turn_text
 
 
 def _turn(*events: dict[str, Any], user: str = "修一下测试") -> list[TurnEvent]:
@@ -62,10 +57,6 @@ def _call(
     if result is not None:
         event.update(status=status, result=result)
     return event
-
-
-def _texts(entries: list[MaterialEntry]) -> list[str]:
-    return [entry.text for entry in entries]
 
 
 DEFAULTS = GenerationTranscriptConfig()
@@ -120,10 +111,7 @@ def test_capability_steps_render_one_line_without_results():
         _call("pending", None, verb="RUN", targets=("sys_python",)),
     )
 
-    entries = render_turn_material(events, DEFAULTS)
-
-    assert [entry.kind for entry in entries] == ["capability"] * 3
-    assert _texts(entries) == [
+    assert render_turn_material(events, DEFAULTS) == [
         '- SEARCH: "部署"',
         "- RUN: git_log (success)",
         "- RUN: sys_python (no result)",
@@ -146,7 +134,7 @@ def test_same_read_renders_the_same_from_mtp_and_mcp():
         _call("toolu_01", None, verb="READ", targets=("fact_a", "fact_b"), result="记忆全文"),
     )
 
-    assert _texts(render_turn_material(mtp, DEFAULTS)) == ["- READ: fact_a, fact_b"]
+    assert render_turn_material(mtp, DEFAULTS) == ["- READ: fact_a, fact_b"]
     assert render_turn_text(mtp, DEFAULTS) == render_turn_text(mcp, DEFAULTS)
 
 
@@ -162,100 +150,55 @@ def test_error_results_are_marked():
         ),
     )
 
-    assert _texts(render_turn_material(events, DEFAULTS)) == [
+    assert render_turn_material(events, DEFAULTS) == [
         '- TOOL: Read {"file_path": "a.py"}\n  RESULT (error): permission denied'
     ]
 
 
-def test_thoughts_arguments_and_results_are_clipped_keeping_head_and_tail():
-    """各部分按自身上限截断，保留首尾：长输出末尾的报错仍然可见。"""
-    config = GenerationTranscriptConfig(
-        max_thought_chars=10, max_args_chars=12, max_result_chars=20
-    )
+def test_only_tool_results_are_clipped_keeping_head_and_tail():
+    """只有工具结果按上限截断并保留首尾，长输出末尾的报错仍然可见；思考与参数再长也原样渲染。"""
+    config = GenerationTranscriptConfig(max_result_chars=20)
     events = _turn(
-        _thought("思" * 30),
+        _thought("思" * 1500),
         _call(
             "toolu-1",
-            tool_args={"command": "x" * 50},
+            tool_args={"command": "x" * 500},
             result="o" * 200 + "Traceback: boom",
             status="error",
         ),
     )
 
-    thought, tool = _texts(render_turn_material(events, config))
-    tool_line, result_line = tool.split("\n")
-    assert thought == "- THOUGHT: 思思思思思 …[20 chars omitted]… 思思思思思"
-    assert tool_line == '- TOOL: Bash {"comm …[53 chars omitted]… xxxx"}'
-    assert result_line.startswith("  RESULT (error): oooooooooo …[")
-    assert result_line.endswith(": boom")
+    thought, tool = render_turn_material(events, config)
 
-
-def test_turn_limit_keeps_thoughts_failed_and_recent_tools_before_older_ones():
-    """超出单轮上限时，思考、出错的工具步骤（即使最早）与最近的步骤保留完整形态，其余降为一行。"""
-    config = GenerationTranscriptConfig(max_result_chars=100, max_turn_action_chars=340)
-    events = _turn(
-        _thought("计划"),
-        _call("failed", tool_args={"c": "1"}, result="a" * 100, status="error"),
-        _call("middle", tool_args={"c": "2"}, result="b" * 100),
-        _call("recent", tool_args={"c": "3"}, result="c" * 100),
+    assert thought == "- THOUGHT: " + "思" * 1500
+    assert tool == "\n".join(
+        [
+            '- TOOL: Bash {"command": "' + "x" * 500 + '"}',
+            "  RESULT (error): oooooooooo …[195 chars omitted]… back: boom",
+        ]
     )
 
-    thought, failed, middle, recent = _texts(render_turn_material(events, config))
 
-    assert thought == "- THOUGHT: 计划"
-    assert failed == '- TOOL: Bash {"c": "1"}\n  RESULT (error): ' + "a" * 100
-    assert middle == '- TOOL: Bash {"c": "2"}'
-    assert recent == '- TOOL: Bash {"c": "3"}\n  RESULT: ' + "c" * 100
-
-
-def test_turn_limit_degrades_tools_before_touching_thoughts():
-    """完整步骤放不下时先降为一行；降级后放得下就不省略任何条目。"""
-    config = GenerationTranscriptConfig(max_turn_action_chars=60)
-    events = _turn(
-        _thought("第一步"),
-        _call("toolu-1", tool_args={"c": "1"}, result="done", status="error"),
-        _thought("第二步"),
-    )
-
-    assert _texts(render_turn_material(events, config)) == [
-        "- THOUGHT: 第一步",
-        '- TOOL: Bash {"c": "1"}',
-        "- THOUGHT: 第二步",
+def test_turn_renders_every_entry_in_full_without_a_turn_limit():
+    """一轮的条目没有总量上限：工具步骤与思考再多，也全部以完整形态按顺序渲染。"""
+    steps = [
+        event
+        for index in range(30)
+        for event in (
+            _thought(f"第 {index} 步" + "想" * 300),
+            _call(f"toolu-{index}", tool_args={"c": str(index)}, result="r" * 700),
+        )
     ]
 
+    entries = render_turn_material(_turn(*steps), DEFAULTS)
 
-def test_turn_limit_is_hard_and_omits_lowest_priority_entries_first():
-    """降为一行后仍超出时省略整条：先省略非出错步骤，再省略出错步骤，最后才是较早的思考。"""
-    config = GenerationTranscriptConfig(max_turn_action_chars=200)
-    events = _turn(
-        _thought("a" * 60),
-        _call("ok", tool_args={"c": "1"}, result="fine"),
-        _call("failed", tool_args={"c": "2"}, result="boom", status="error"),
-        _thought("b" * 60),
-        _thought("c" * 60),
-    )
-
-    entries = render_turn_material(events, config)
-
-    assert _texts(entries) == [
-        "- OMITTED: 3 entries over the per-turn limit",
-        "- THOUGHT: " + "b" * 60,
-        "- THOUGHT: " + "c" * 60,
-    ]
-    assert sum(len(entry.text) for entry in entries) <= 200
-
-
-def test_turn_limit_does_not_count_assistant_text():
-    """助手正文不受单轮上限约束：长回复不会挤掉思考与工具步骤。"""
-    config = GenerationTranscriptConfig(max_turn_action_chars=60)
-    events = _turn(
-        _text("长回复" * 100),
-        _call("toolu-1", tool_args={"c": "1"}, result="done"),
-    )
-
-    assert _texts(render_turn_material(events, config)) == [
-        "[Assistant]: " + "长回复" * 100,
-        '- TOOL: Bash {"c": "1"}\n  RESULT: done',
+    assert entries == [
+        entry
+        for index in range(30)
+        for entry in (
+            f"- THOUGHT: 第 {index} 步" + "想" * 300,
+            f'- TOOL: Bash {{"c": "{index}"}}\n  RESULT: ' + "r" * 700,
+        )
     ]
 
 
@@ -263,4 +206,4 @@ def test_blank_thoughts_are_not_rendered():
     """只有空白的思考（例如只有签名的思考块）不形成条目。"""
     events = _turn(_thought("   "), _thought(""), _call("toolu-1", tool_args={"c": "1"}))
 
-    assert _texts(render_turn_material(events, DEFAULTS)) == ['- TOOL: Bash {"c": "1"}']
+    assert render_turn_material(events, DEFAULTS) == ['- TOOL: Bash {"c": "1"}']

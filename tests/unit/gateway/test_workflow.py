@@ -22,7 +22,6 @@ from hivememory.core.protocol.gateway import (
     GatewayIngressMode,
     GatewaySessionTurn,
     IntentType,
-    MemoryWriteSignal,
     RetrievalMode,
     RetrievalPlan,
 )
@@ -72,7 +71,6 @@ class _Resolver:
                 rewritten_query="分析后的问题",
                 # list 输入：验证 finalize 投影前 pydantic 归一化为 tuple
                 search_keywords=["gateway"],
-                memory_write_signal=MemoryWriteSignal.WRITE,
                 retrieval_plan=RetrievalPlan(
                     mode=RetrievalMode.HYBRID,
                     top_k=7,
@@ -195,7 +193,6 @@ async def test_simple_chat_keeps_topic_prefix_and_skips_resolver() -> None:
     assert result.decision.intent_type == IntentType.CHAT
     assert result.decision.rewritten_query == "你好"
     assert result.decision.search_keywords == ()
-    assert result.decision.memory_write_signal == MemoryWriteSignal.SKIP
     assert result.decision.retrieval_plan.mode == RetrievalMode.SKIP
     provider.prepare_candidate_topics.assert_awaited_once()
     provider.prepare_routed_topic.assert_awaited_once()
@@ -246,8 +243,28 @@ async def test_passive_slash_input_is_not_a_system_command() -> None:
     )
 
     assert result.kind == "decision"
-    resolver.resolve.assert_awaited_once()
     provider.prepare_candidate_topics.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_passive_memory_routes_topic_without_query_analysis() -> None:
+    """被动入口照常路由话题，但不运行查询分析：决定以不检索的默认值收口。"""
+    router = _Router()
+    resolver = _Resolver()
+    workflow = _make_workflow(provider=_Provider(), router=router, resolver=resolver)
+
+    result = await workflow.run(
+        "继续实现 Gateway",
+        identity_scope=make_identity_scope(user_id="u1"),
+        ingress_mode=GatewayIngressMode.PASSIVE_MEMORY,
+    )
+
+    assert result.kind == "decision"
+    assert result.decision.target_topic_id == "topic-1"
+    assert result.decision.rewritten_query == "继续实现 Gateway"
+    assert result.decision.retrieval_plan.mode == RetrievalMode.SKIP
+    router.route.assert_awaited_once()
+    resolver.resolve.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -266,7 +283,6 @@ async def test_declared_fallbacks_form_a_complete_conservative_decision() -> Non
     assert result.decision.intent_type == IntentType.RAG
     assert result.decision.rewritten_query == "需要检索的问题"
     assert result.decision.search_keywords == ()
-    assert result.decision.memory_write_signal == MemoryWriteSignal.UNKNOWN
     assert result.decision.retrieval_plan.mode == RetrievalMode.HYBRID
     assert events.events[0].event_type == (RuntimeEventType.GATEWAY_WORKFLOW_STARTED.value)
     assert events.events[-1].event_type == (RuntimeEventType.GATEWAY_WORKFLOW_COMPLETED.value)

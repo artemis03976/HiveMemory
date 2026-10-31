@@ -93,9 +93,9 @@ class TopicMaterializeTask(BaseModel):
         ``belong_to`` 必须由调用方显式传入。字段映射和 no-material 判断集中在此，
         服务与调用方不得重复拼装。
         """
-        # 全部 block 都进入结算，不按 Gateway 的价值预判筛选：预判只看到用户消息，
-        # 看不到回答与工具过程，会把"请提交""继续"这类消息背后的整轮实现丢掉。
-        # 一轮有没有长期价值，由生成阶段在完整材料上判断。
+        # 全部 block 都进入结算，不在入口按用户消息筛选：只看用户消息会把"请提交"
+        # "继续"这类消息背后的整轮实现丢掉。一轮有没有长期价值，由生成阶段在完整
+        # 材料上判断。
         blocks = topic_data.blocks
         if not blocks:
             return None

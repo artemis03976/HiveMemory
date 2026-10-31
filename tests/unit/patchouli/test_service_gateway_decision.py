@@ -11,7 +11,6 @@ from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     IntentType,
-    MemoryWriteSignal,
     RetrievalMode,
     RetrievalPlan,
 )
@@ -34,7 +33,6 @@ def _decision(
         target_topic_id="topic-1",
         rewritten_query="保持原查询",
         search_keywords=("gateway",),
-        memory_write_signal=MemoryWriteSignal.WRITE,
         retrieval_plan=RetrievalPlan(mode=mode, top_k=top_k),
         intent_type=IntentType.RAG,
     )
@@ -95,7 +93,6 @@ async def test_prepare_skips_retrieval_for_simple_chat_decision() -> None:
     decision = _decision(mode=RetrievalMode.SKIP, top_k=0).model_copy(
         update={
             "intent_type": IntentType.CHAT,
-            "memory_write_signal": MemoryWriteSignal.SKIP,
         }
     )
 
@@ -113,7 +110,7 @@ async def test_prepare_skips_retrieval_for_simple_chat_decision() -> None:
 async def test_finalize_submits_received_payload_with_prepared_identity() -> None:
     """finalize 原样提交封口方交给它的交互记录，关联 ID 取自 prepared run。
 
-    payload 字段（rewritten_query/worth_saving 等）由提交方封口，进程侧
+    payload 字段由提交方封口，进程侧
     封口测试负责逐字段守护；这里只守护 Patchouli 不再改写内容。
     """
     bus, _retrieve, submit = _prepare_bus()

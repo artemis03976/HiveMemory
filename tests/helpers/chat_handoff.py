@@ -21,7 +21,6 @@ from hivememory.core.models.pending import PendingAtomMaterializeTask, WriteFocu
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     IntentType,
-    MemoryWriteSignal,
     RetrievalPlan,
 )
 from hivememory.core.protocol.models import ConversationTurn
@@ -36,7 +35,6 @@ def make_gateway_decision(**overrides) -> GatewayDecision:
     defaults = dict(
         target_topic_id="topic-1",
         rewritten_query="原查询",
-        memory_write_signal=MemoryWriteSignal.WRITE,
         retrieval_plan=RetrievalPlan(),
         intent_type=IntentType.RAG,
     )

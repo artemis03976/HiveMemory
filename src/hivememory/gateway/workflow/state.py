@@ -172,7 +172,6 @@ class GatewayExecutionState:
                 new_topic_summary=self.new_topic_summary,
                 rewritten_query=analysis.rewritten_query,
                 search_keywords=tuple(analysis.search_keywords),
-                memory_write_signal=analysis.memory_write_signal,
                 retrieval_plan=RetrievalPlan(
                     mode=analysis.retrieval_plan.mode,
                     top_k=analysis.retrieval_plan.top_k,
