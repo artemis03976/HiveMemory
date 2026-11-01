@@ -50,11 +50,11 @@ class PendingAtomStatus(str, Enum):
 class PendingAtomResolution(str, Enum):
     """SETTLED 状态下的终结分类（其他状态此字段为 None）。"""
 
-    CREATED = "created"  # 去重决策 = CREATE
-    MERGED = "merged"  # 内容已并入其他正式记忆
-    TOUCHED = "touched"  # 去重决策 = TOUCH
+    CREATED = "created"  # 新记忆已持久化
+    MERGED = "merged"  # 新建后被合并，句柄改指保留的正式记忆
+    TOUCHED = "touched"  # 内容不变，已触碰已有记忆
     UPDATED = "updated"  # Mode C UPDATE 应用完成
-    DISCARDED = "discarded"  # 去重决策 = DISCARD
+    DISCARDED = "discarded"  # 本次生成结果已丢弃
 
     @property
     def has_canonical(self) -> bool:

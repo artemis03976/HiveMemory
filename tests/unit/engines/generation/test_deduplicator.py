@@ -2,7 +2,7 @@
 查重与演化管理器 (MemoryDeduplicator) 单元测试
 
 测试覆盖:
-- 查重决策逻辑 (CREATE/UPDATE/TOUCH)
+- 查重判断逻辑 (DISTINCT/SIMILAR/IDENTICAL)
 - 文本相似度计算
 - 内容一致性检测
 - 记忆合并与演化逻辑
@@ -81,28 +81,28 @@ class TestMemoryDeduplicator:
 
         assert self.deduplicator._calculate_text_similarity(text1, text2) == 0.5
 
-    def test_check_duplicate_create(self):
-        """测试判定为 CREATE (无相似记忆)"""
+    def test_check_duplicate_distinct_without_candidates(self):
+        """测试判定为 DISTINCT (无相似记忆)"""
         candidates = []
 
         decision, memory = self.deduplicator.check_duplicate(self.draft, candidates)
 
-        assert decision == DuplicateDecision.CREATE
+        assert decision == DuplicateDecision.DISTINCT
         assert memory is None
 
-    def test_check_duplicate_touch(self):
-        """测试判定为 TOUCH (高相似度 + 内容一致)"""
+    def test_check_duplicate_identical(self):
+        """测试判定为 IDENTICAL (高相似度 + 内容一致)"""
         # 模拟找到高相似度记忆
         candidates = [{"score": 0.98, "memory": self.existing_memory}]
 
         # 内容一致 (draft 和 existing 内容相同)
         decision, memory = self.deduplicator.check_duplicate(self.draft, candidates)
 
-        assert decision == DuplicateDecision.TOUCH
+        assert decision == DuplicateDecision.IDENTICAL
         assert memory == self.existing_memory
 
-    def test_check_duplicate_update_high_score_diff_content(self):
-        """测试判定为 UPDATE (高相似度 + 内容不同)"""
+    def test_check_duplicate_similar_high_score_diff_content(self):
+        """测试判定为 SIMILAR (高相似度 + 内容不同)"""
         candidates = [{"score": 0.98, "memory": self.existing_memory}]
 
         # 修改 draft 内容
@@ -110,24 +110,26 @@ class TestMemoryDeduplicator:
 
         decision, memory = self.deduplicator.check_duplicate(self.draft, candidates)
 
-        assert decision == DuplicateDecision.UPDATE
+        assert decision == DuplicateDecision.SIMILAR
         assert memory == self.existing_memory
 
-    def test_check_duplicate_update_medium_score(self):
-        """测试判定为 UPDATE (中等相似度)"""
-        candidates = [{"score": 0.85, "memory": self.existing_memory}]  # 0.75 < 0.85 < 0.95
+    @pytest.mark.parametrize("score", [0.85, 0.95], ids=["between", "upper-bound"])
+    def test_check_duplicate_similar_medium_score(self, score):
+        """测试判定为 SIMILAR (中等相似度)"""
+        candidates = [{"score": score, "memory": self.existing_memory}]
 
         decision, memory = self.deduplicator.check_duplicate(self.draft, candidates)
 
-        assert decision == DuplicateDecision.UPDATE
+        assert decision == DuplicateDecision.SIMILAR
 
-    def test_check_duplicate_create_low_score(self):
-        """测试判定为 CREATE (低相似度)"""
-        candidates = [{"score": 0.5, "memory": self.existing_memory}]  # < 0.75
+    @pytest.mark.parametrize("score", [0.5, 0.75], ids=["below", "lower-bound"])
+    def test_check_duplicate_distinct_low_score(self, score):
+        """测试判定为 DISTINCT (低相似度)"""
+        candidates = [{"score": score, "memory": self.existing_memory}]
 
         decision, memory = self.deduplicator.check_duplicate(self.draft, candidates)
 
-        assert decision == DuplicateDecision.CREATE
+        assert decision == DuplicateDecision.DISTINCT
         assert memory == self.existing_memory
 
 

@@ -6,7 +6,7 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
 
 工作流程:
     Step 1: LLM 提取 → ExtractedMemoryDraft
-    Step 2: 查重检测 → CREATE/UPDATE/TOUCH
+    Step 2: 查重判断 → 新建、触碰已有记忆，或新建并提名合并
     Step 3: 记忆原子构建 → MemoryAtom
     Step 4: 返回 GenerationOutcome，外围 Familiar 负责持久化
 """
@@ -41,6 +41,7 @@ from hivememory.engines.generation.interfaces import (
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
+    GenerationAction,
     GenerationOutcome,
     GenerationRequest,
     RevisionResult,
@@ -111,9 +112,9 @@ class MemoryGenerationEngine:
             保留已有 metadata 的来源字段。
 
         主动模式的贡献者先记录发起 Agent 本身，再合并上下文轮次贡献者；
-        SETTLE 的贡献者来自上下文轮次身份。版本演化（dedup 合并、Mode C）
-        会把本次贡献者并入已有集合，而来源字段只记录 provenance 事实，
-        不参与读取授权。
+        SETTLE 的贡献者来自上下文轮次身份。查重判为相似时先新建独立记忆，
+        贡献者在后续合并任务中并入保留对象；Mode C 随内容修订并入贡献者。
+        来源字段只记录 provenance 事实，不参与读取授权。
 
         Args:
             request: GenerationRequest 对象
@@ -343,8 +344,7 @@ class MemoryGenerationEngine:
     async def merge(self, retained: MemoryAtom, absorbed: MemoryAtom) -> GenerationOutcome | None:
         """纯计算两条记忆的融合内容，不修改输入；版本与持久化由 Familiar 提交。
 
-        只比较索引与正文是否变化。相同时返回 TOUCH 决策供合并路径跳过写回，
-        不推进访问统计；来源主体、别名与访问状态始终沿用保留记忆。
+        来源主体、别名与访问状态始终沿用保留记忆。
         """
         result = await self.extractor.merge(retained, absorbed)
         if result is None:
@@ -363,9 +363,6 @@ class MemoryGenerationEngine:
             memory_type=memory_type,
             alias=retained.index.alias,
         )
-        if index == retained.index and result.content == retained.payload.content:
-            return GenerationOutcome(atom=retained, duplicate_decision=DuplicateDecision.TOUCH)
-
         memory = retained.model_copy(deep=True)
         memory.index = index
         memory.payload.content = result.content
@@ -377,7 +374,7 @@ class MemoryGenerationEngine:
         )
         return GenerationOutcome(
             atom=memory,
-            duplicate_decision=DuplicateDecision.UPDATE,
+            action=GenerationAction.UPDATE,
             memory_before_snapshot=retained.model_copy(deep=True),
             changelog=result.changelog,
         )
@@ -388,22 +385,20 @@ class MemoryGenerationEngine:
         result: RevisionResult,
         *,
         provenance: MemoryProvenance,
-        dedup_draft: ExtractedMemoryDraft | None = None,
     ) -> list[GenerationOutcome]:
         """
         执行内容修订（纯计算）。持久化、版本分配与内容时间由 Familiar 在
         提交边界统一决定；本方法只做：
 
         1. 捕获变更前完整原子（深拷贝，供版本记录与 embedding 输入对比）
-        2. 按需刷新 dedup index
-        3. 覆盖 payload.content
-        4. 并入本次生成的贡献者集合
+        2. 覆盖 payload.content
+        3. 并入本次生成的贡献者集合
 
         ``meta.version``/``updated_at``/``decay_anchor_at``/``confidence_score``
         的赋值全部发生在 Familiar 的提交边界（使用同一个 ``now``）。
         """
-        # 实际内容相同的重复更新不创建新版本。合并结果与现有内容一致
-        # 时降级为 TOUCH 纯决策——不合并贡献者、不刷新 dedup index、不改任何
+        # 实际内容相同的重复更新不创建新版本。修订结果与现有内容一致
+        # 时返回 TOUCH 动作——不合并贡献者、不改任何
         # 字段；访问统计由 Familiar 经受限 patch_payload 处理。
         if result.new_content == memory.payload.content:
             logger.info(
@@ -413,15 +408,12 @@ class MemoryGenerationEngine:
             return [
                 GenerationOutcome(
                     atom=memory,
-                    duplicate_decision=DuplicateDecision.TOUCH,
+                    action=GenerationAction.TOUCH,
                 )
             ]
 
         # 深拷贝保留修改前的完整原子；嵌套对象不与候选共享引用。
         before_snapshot = memory.model_copy(deep=True)
-
-        if dedup_draft is not None:
-            self._merge_dedup_index(memory, dedup_draft)
 
         # Update Head: 覆盖 payload.content
         memory.payload.content = result.new_content
@@ -441,7 +433,7 @@ class MemoryGenerationEngine:
         return [
             GenerationOutcome(
                 atom=memory,
-                duplicate_decision=DuplicateDecision.UPDATE,
+                action=GenerationAction.UPDATE,
                 memory_before_snapshot=before_snapshot,
                 changelog=result.changelog,
             )
@@ -457,7 +449,7 @@ class MemoryGenerationEngine:
         now: datetime,
     ) -> list[GenerationOutcome]:
         """
-        查重 → 构建/演化决策 (Mode A/B 共用)
+        查重 → 新建、触碰或提名合并 (Mode A/B 共用)
 
         Args:
             draft: 提取的草稿
@@ -476,8 +468,8 @@ class MemoryGenerationEngine:
 
         decision, existing_memory = self.deduplicator.check_duplicate(draft, candidates)
 
-        # 根据决策执行操作；TOUCH/UPDATE 由查重器保证携带命中的已有记忆
-        if decision == DuplicateDecision.TOUCH:
+        # IDENTICAL/SIMILAR 由查重器保证携带命中的已有记忆。
+        if decision == DuplicateDecision.IDENTICAL:
             existing_memory = _require_matched_memory(decision, existing_memory)
             # 内容相同的重复访问：引擎保持纯决策，不改任何字段。
             # 访问计数的推进与持久化由 Familiar 经受限 patch_payload 完成。
@@ -486,77 +478,40 @@ class MemoryGenerationEngine:
             return [
                 GenerationOutcome(
                     atom=existing_memory,
-                    duplicate_decision=DuplicateDecision.TOUCH,
+                    action=GenerationAction.TOUCH,
                 )
             ]
 
-        elif decision == DuplicateDecision.UPDATE:
+        logger.info("创建新记忆")
+
+        # 构建 Workspace 内唯一的 MTP 别名（唯一性第一层：生成侧先查询空闲候选）
+        alias = await self._alias_generator.generate(
+            workspace_identity=belong_to,
+            memory_type=draft.memory_type,
+            alias_suffix=draft.alias_suffix,
+            title=draft.title,
+        )
+        memory = self._draft_to_memory(draft, belong_to, provenance, alias=alias, now=now)
+
+        # 相似时也先保留独立的新记忆；策略不同或任一方是 Profile 时不提名合并，
+        # 避免扩大可见范围或覆盖承载结构化配置的 Profile。
+        merge_target_id = None
+        if decision == DuplicateDecision.SIMILAR:
             existing_memory = _require_matched_memory(decision, existing_memory)
-            logger.info("记忆演化，覆盖当前版本内容")
+            if (
+                existing_memory.meta.access_policy == memory.meta.access_policy
+                and existing_memory.index.memory_type != MemoryType.AGENT_PROFILE
+                and memory.index.memory_type != MemoryType.AGENT_PROFILE
+            ):
+                merge_target_id = str(existing_memory.id)
 
-            # TODO: 如轻量覆盖路径效果不足，可在这里引入强合并路径：
-            # 将 draft 与 existing_memory 交给 extractor.revise()，生成一个完整的新 head。
-            # 不要回退到字符串追加，历史展示应由 MemoryVersionArtifact 链路负责。
-            revision_result = RevisionResult(
-                new_content=draft.content,
-                changelog=f"Dedup update: {draft.summary[:120]}",
+        return [
+            GenerationOutcome(
+                atom=memory,
+                action=GenerationAction.CREATE,
+                merge_target_id=merge_target_id,
             )
-            return self._apply_update(
-                existing_memory,
-                revision_result,
-                provenance=provenance,
-                dedup_draft=draft,
-            )
-
-        elif decision == DuplicateDecision.CREATE:
-            logger.info("创建新记忆")
-
-            # 构建 Workspace 内唯一的 MTP 别名（唯一性第一层：生成侧先查询空闲候选）
-            alias = await self._alias_generator.generate(
-                workspace_identity=belong_to,
-                memory_type=draft.memory_type,
-                alias_suffix=draft.alias_suffix,
-                title=draft.title,
-            )
-            memory = self._draft_to_memory(draft, belong_to, provenance, alias=alias, now=now)
-
-            return [
-                GenerationOutcome(
-                    atom=memory,
-                    duplicate_decision=DuplicateDecision.CREATE,
-                )
-            ]
-
-        else:  # DISCARD
-            logger.info("低质量重复，丢弃")
-            return [
-                GenerationOutcome(
-                    atom=None,
-                    duplicate_decision=DuplicateDecision.DISCARD,
-                    message="Low-quality duplicate, discarded.",
-                )
-            ]
-
-    def _merge_dedup_index(
-        self,
-        existing: MemoryAtom,
-        draft: ExtractedMemoryDraft,
-    ) -> None:
-        """
-        用 dedup 草稿刷新检索层；历史版本由 MemoryVersionArtifact 记录。
-        """
-        merged_tags = []
-        for tag in [*existing.index.tags, *draft.tags]:
-            normalized = tag.lower().strip()
-            if normalized and normalized not in merged_tags:
-                merged_tags.append(normalized)
-        existing.index.title = draft.title
-        existing.index.summary = draft.summary
-        existing.index.tags = merged_tags[:5]
-        try:
-            existing.index.memory_type = MemoryType(draft.memory_type)
-        except ValueError:
-            logger.warning(f"未知的记忆类型: {draft.memory_type}, 保留原类型")
+        ]
 
     def _render_transcript(self, request: GenerationRequest) -> str:
         """
@@ -640,9 +595,9 @@ def _require_matched_memory(
     decision: DuplicateDecision,
     existing_memory: MemoryAtom | None,
 ) -> MemoryAtom:
-    """TOUCH/UPDATE 决策必须携带命中的已有记忆；违反查重器契约时显式失败。"""
+    """IDENTICAL/SIMILAR 判断必须携带命中的已有记忆；违反查重器契约时显式失败。"""
     if existing_memory is None:
-        raise RuntimeError(f"查重决策 {decision.value} 未返回命中的已有记忆")
+        raise RuntimeError(f"查重判断 {decision.value} 未返回命中的已有记忆")
     return existing_memory
 
 

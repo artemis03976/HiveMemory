@@ -22,6 +22,7 @@ from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
+    GenerationAction,
     GenerationContext,
     GenerationRequest,
 )
@@ -245,7 +246,7 @@ class _Extractor:
 
 class _CreateDeduplicator:
     def check_duplicate(self, draft, candidates):
-        return DuplicateDecision.CREATE, None
+        return DuplicateDecision.DISTINCT, None
 
 
 @pytest.mark.asyncio
@@ -279,5 +280,5 @@ async def test_engine_create_uses_generator_disambiguated_alias():
         from_actor=identity_scope.actor_identity,
     )
 
-    assert [outcome.duplicate_decision for outcome in outcomes] == [DuplicateDecision.CREATE]
+    assert [outcome.action for outcome in outcomes] == [GenerationAction.CREATE]
     assert outcomes[0].atom.index.alias == "fact_test_alias_2"

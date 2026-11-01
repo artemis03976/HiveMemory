@@ -6,7 +6,7 @@ MemoryGenerationEngine 单元测试
 - Mode A: LLM 提取成功 / 无价值 / 返回 None
 - Mode B: 正常 WRITE / LLM 失败 fallback
 - Mode C: 正常 UPDATE / existing_memory=None / LLM 修订失败 fallback
-- 查重分支: TOUCH / UPDATE / CREATE / DISCARD
+- 查重分支: IDENTICAL / SIMILAR / DISTINCT
 - 纯计算边界: 引擎不改 version/updated_at/decay anchor/confidence，CREATE 用传入 now 打戳；
   多轮修订的 before 快照互不污染
 """
@@ -21,6 +21,7 @@ from hivememory.core.errors import ModelProviderError
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
+    MemoryAccessPolicy,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
@@ -36,6 +37,7 @@ from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
+    GenerationAction,
     GenerationContext,
     GenerationTurn,
     MergeResult,
@@ -167,7 +169,7 @@ class TestGenerationEngineRouting:
         msgs = _make_messages()
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
@@ -187,7 +189,7 @@ class TestGenerationEngineRouting:
         focus = WriteFocus(content="保存这段代码", reason="后续复用")
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
@@ -259,7 +261,7 @@ class TestGenerationEngineModeA:
         msgs = _make_messages()
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
@@ -278,7 +280,7 @@ class TestGenerationEngineModeA:
         单 Agent 内容的贡献者集合只包含实际参与内容的 Agent。"""
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
 
         request = GenerationRequest(context=_make_context_with_agents(["a1"]))
         result = await self.engine.process(
@@ -297,7 +299,7 @@ class TestGenerationEngineModeA:
         """多 Agent 贡献按首次出现顺序去重，system 不是内容贡献者。"""
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
 
         request = GenerationRequest(context=_make_context_with_agents(["b2", "a1", "b2", "system"]))
         result = await self.engine.process(
@@ -309,9 +311,8 @@ class TestGenerationEngineModeA:
         assert result[0].atom.meta.provenance.contributing_agent_ids == ("b2", "a1")
 
     @pytest.mark.asyncio
-    async def test_mode_a_dedup_update_merges_settle_contributors(self):
-        """SETTLE 撞上已有记忆触发演化时，本轮结算的贡献者并入已有集合并进入
-        Memory（Version Artifact 从 meta 拷贝）；来源字段按约定保留不改写。"""
+    async def test_mode_a_dedup_merge_creates_with_settle_contributors(self):
+        """SETTLE 命中相似记忆后仍以 system 为来源新建，本轮贡献者记录在新记忆中。"""
         existing = MemoryAtom(
             meta=make_memory_metadata(
                 source_agent_id="creator",
@@ -328,7 +329,7 @@ class TestGenerationEngineModeA:
         )
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.UPDATE, existing)
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.SIMILAR, existing)
 
         request = GenerationRequest(context=_make_context_with_agents(["b2", "a1"]))
         result = await self.engine.process(
@@ -338,9 +339,10 @@ class TestGenerationEngineModeA:
         )
 
         atom = result[0].atom
-        assert atom is existing
-        assert atom.meta.provenance.source_agent_id == "creator"
-        assert atom.meta.provenance.contributing_agent_ids == ("creator", "b2", "a1")
+        assert atom.id != existing.id
+        assert atom.meta.provenance.source_agent_id == "system"
+        assert atom.meta.provenance.contributing_agent_ids == ("b2", "a1")
+        assert result[0].merge_target_id == str(existing.id)
 
     @pytest.mark.asyncio
     async def test_mode_a_extract_no_value(self):
@@ -415,7 +417,7 @@ class TestGenerationEngineModeB:
         focus = WriteFocus(content="重要代码片段", reason="保存备用")
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
@@ -434,7 +436,7 @@ class TestGenerationEngineModeB:
         focus = WriteFocus(content="主动写入的内容", reason="保存")
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
 
         request = GenerationRequest(
             context=_make_context_with_agents(["b2"]),
@@ -457,7 +459,7 @@ class TestGenerationEngineModeB:
         focus = WriteFocus(content="无上下文的主动写入", reason="保存")
         draft = _make_draft()
         self.mock_extractor.extract.return_value = draft
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
         result = await self.engine.process(
@@ -480,7 +482,7 @@ class TestGenerationEngineModeB:
         """没有产出或提供商失败时启用 fallback，明确的保存意图不丢失"""
         focus = WriteFocus(content="重要内容不能丢", reason="保存")
         self.mock_extractor.extract.side_effect = [extract_outcome]
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
@@ -686,7 +688,7 @@ class TestGenerationEngineModeC:
 
         assert len(result) == 1
         assert result[0].atom.payload.content == "旧内容"
-        assert result[0].duplicate_decision == DuplicateDecision.TOUCH
+        assert result[0].action == GenerationAction.TOUCH
 
     def test_apply_update_merges_content_and_captures_before_snapshot(self):
         """纯计算边界：内容合并 + before 快照；version/时间/confidence 留给提交边界"""
@@ -706,6 +708,7 @@ class TestGenerationEngineModeC:
 
         assert len(result) == 1
         mem = result[0].atom
+        assert result[0].action == GenerationAction.UPDATE
         # 引擎只合并内容，不分配版本与置信度（提交边界由 Familiar 负责）
         assert mem.payload.content == "新版本"
         assert mem.meta.version == version_before
@@ -744,7 +747,7 @@ class TestGenerationEngineModeC:
         assert existing.meta.version == version_before
 
     def test_apply_update_degrades_to_touch_when_content_unchanged(self):
-        """合并结果与现有内容一致时不创建新版本——降级为 TOUCH 纯决策。"""
+        """修订结果与现有内容一致时不创建新版本，返回 TOUCH 提交动作。"""
         existing = _make_memory()
         existing.payload.content = "旧内容"
         existing.meta.lifecycle.access_count = 3
@@ -766,7 +769,7 @@ class TestGenerationEngineModeC:
 
         assert len(result) == 1
         outcome = result[0]
-        assert outcome.duplicate_decision == DuplicateDecision.TOUCH
+        assert outcome.action == GenerationAction.TOUCH
         # 零变更：内容、版本、内容时间、贡献者集合全部原样。
         assert outcome.atom is existing
         assert outcome.atom.payload.content == "旧内容"
@@ -796,12 +799,15 @@ class TestGenerationEngineDedup:
 
     @pytest.mark.asyncio
     async def test_dedup_touch(self):
-        """TOUCH 决策保持纯计算：不改任何字段，访问统计由 Familiar patch"""
+        """内容一致时返回 TOUCH 且保持纯计算：不改任何字段，访问统计由 Familiar patch"""
         existing = _make_memory()
         existing.meta.lifecycle.access_count = 5
         draft = _make_draft()
         updated_at_before = existing.meta.updated_at
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.TOUCH, existing)
+        self.mock_deduplicator.check_duplicate.return_value = (
+            DuplicateDecision.IDENTICAL,
+            existing,
+        )
 
         result = await self.engine._dedup_and_resolve(
             draft,
@@ -813,63 +819,70 @@ class TestGenerationEngineDedup:
 
         self.mock_storage.upsert.assert_not_called()
         assert result[0].atom is existing
-        assert result[0].duplicate_decision == DuplicateDecision.TOUCH
+        assert result[0].action == GenerationAction.TOUCH
         # 引擎不改任何字段：访问计数与内容时间原样保留
         assert existing.meta.lifecycle.access_count == 5
         assert existing.meta.lifecycle.last_accessed_at is None
         assert existing.meta.updated_at == updated_at_before
 
     @pytest.mark.asyncio
-    async def test_dedup_update(self):
-        """UPDATE 决策覆盖当前 head，不持久化（持久化由 Familiar 负责）"""
-        existing = _make_memory()
-        existing_ref = ArtifactRef(
-            artifact_id="ref1",
-            artifact_type=ArtifactType.MEMORY_CREATION,
-            workspace_identity=existing.workspace_identity,
+    @pytest.mark.parametrize("restriction", [None, "policy", "retained_profile", "new_profile"])
+    async def test_dedup_merge_creates_before_nominating(self, restriction):
+        """查重先创建独立记忆；只有策略相同且双方都不是 Profile 时才提名。"""
+        existing = _make_memory(alias="fact_existing")
+        existing.payload.artifacts.refs.append(
+            ArtifactRef(
+                artifact_id="ref1",
+                artifact_type=ArtifactType.MEMORY_CREATION,
+                workspace_identity=existing.workspace_identity,
+            )
         )
-        existing.payload.artifacts.refs.append(existing_ref)
-        old_version = existing.meta.version
-        old_title = existing.index.title
-        old_summary = existing.index.summary
-        old_updated_at = existing.meta.updated_at
-        draft = _make_draft(
-            title="新版记忆",
-            alias_suffix="new_alias",
-        )
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.UPDATE, existing)
+        draft = _make_draft(title="新版记忆", alias_suffix="new_alias")
+        if restriction == "policy":
+            existing.meta.access_policy = MemoryAccessPolicy(
+                visibility="PRIVATE", target_agent_id="a1"
+            )
+        elif restriction == "retained_profile":
+            existing.index.memory_type = MemoryType.AGENT_PROFILE
+        elif restriction == "new_profile":
+            draft.memory_type = "AGENT_PROFILE"
+        before = existing.model_copy(deep=True)
+        self.mock_extractor.extract.return_value = draft
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.SIMILAR, existing)
+        identity = make_memory_identity_scope()
 
-        result = await self.engine._dedup_and_resolve(
-            draft,
-            make_memory_identity_scope().workspace_identity,
-            system_settlement_provenance(GenerationContext()),
-            from_actor=make_memory_identity_scope().actor_identity,
+        result = await self.engine.process(
+            GenerationRequest(write_focus=WriteFocus(content=draft.content)),
+            belong_to=identity.workspace_identity,
+            from_actor=identity.actor_identity,
             now=FIXED_NOW,
         )
 
-        self.mock_storage.upsert.assert_not_called()
-        assert result[0].atom is existing
-        assert result[0].duplicate_decision == DuplicateDecision.UPDATE
-        assert existing.payload.artifacts.refs == [existing_ref]
-        # 引擎不推进版本与内容时间（提交边界由 Familiar 负责）
-        assert existing.meta.version == old_version
-        assert existing.meta.updated_at == old_updated_at
-        # 内容与检索层按草稿合并
-        assert existing.payload.content == draft.content
-        assert existing.index.title == draft.title
-        assert existing.index.summary == draft.summary
-        assert set(existing.index.tags) == {"t1", "t"}
-        # before 快照保留修订前的 title/summary
-        snapshot = result[0].memory_before_snapshot
-        assert snapshot is not existing
-        assert snapshot.index.title == old_title
-        assert snapshot.index.summary == old_summary
+        outcome = result[0]
+        atom = outcome.atom
+        assert existing == before
+        assert outcome.action == GenerationAction.CREATE
+        assert outcome.merge_target_id == (str(existing.id) if restriction is None else None)
+        assert outcome.memory_before_snapshot is None
+        assert atom.id != existing.id
+        assert atom.get_alias() != existing.get_alias()
+        assert atom.payload.content == draft.content
+        assert atom.index.title == draft.title
+        assert atom.index.summary == draft.summary
+        assert atom.index.tags == draft.tags
+        assert atom.payload.artifacts.refs == []
+        assert atom.meta.version == 1
+        assert atom.meta.created_at == atom.meta.updated_at == FIXED_NOW
+        assert atom.meta.access_policy == MemoryAccessPolicy.public()
 
     @pytest.mark.asyncio
     async def test_dedup_create(self):
-        """CREATE 决策用传入 now 打创建时戳，不持久化（持久化由 Familiar 负责）"""
+        """低分候选仍为普通 CREATE，使用传入 now 打创建时戳且不提名合并。"""
         draft = _make_draft()
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+        self.mock_deduplicator.check_duplicate.return_value = (
+            DuplicateDecision.DISTINCT,
+            _make_memory(),
+        )
 
         result = await self.engine._dedup_and_resolve(
             draft,
@@ -881,6 +894,7 @@ class TestGenerationEngineDedup:
 
         self.mock_storage.upsert.assert_not_called()
         assert len(result) == 1
+        assert result[0].merge_target_id is None
         atom = result[0].atom
         assert atom.index.title == "测试记忆"
         # 创建时点 = 提交边界传入的 now（created/updated/decay 同值）
@@ -889,12 +903,12 @@ class TestGenerationEngineDedup:
         assert atom.meta.lifecycle.decay_anchor_at == FIXED_NOW
 
     @pytest.mark.asyncio
-    async def test_dedup_update_with_overlong_llm_summary_merges_truncated_index(self):
-        """LLM 摘要越界时 dedup 合并写入截断值，而不是让生成失败或写入越界原子。"""
+    async def test_dedup_merge_with_overlong_llm_summary_creates_truncated_index(self):
+        """LLM 摘要越界时新建记忆使用截断值，仍可提名合并。"""
         existing = _make_memory()
         draft = _make_draft().model_dump()
         draft["summary"] = "摘" * 600
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.UPDATE, existing)
+        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.SIMILAR, existing)
 
         result = await self.engine._dedup_and_resolve(
             ExtractedMemoryDraft(**draft),
@@ -904,27 +918,8 @@ class TestGenerationEngineDedup:
             now=FIXED_NOW,
         )
 
-        assert result[0].duplicate_decision == DuplicateDecision.UPDATE
+        assert result[0].action == GenerationAction.CREATE
         assert result[0].atom.index.summary == "摘" * MEMORY_SUMMARY_MAX_LENGTH
-
-    @pytest.mark.asyncio
-    async def test_dedup_discard(self):
-        """DISCARD 决策返回空"""
-        draft = _make_draft()
-        self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISCARD, None)
-
-        result = await self.engine._dedup_and_resolve(
-            draft,
-            make_memory_identity_scope().workspace_identity,
-            system_settlement_provenance(GenerationContext()),
-            from_actor=make_memory_identity_scope().actor_identity,
-            now=FIXED_NOW,
-        )
-
-        assert len(result) == 1
-        assert result[0].atom is None
-        assert result[0].duplicate_decision == DuplicateDecision.DISCARD
-        self.mock_storage.upsert.assert_not_called()
 
 
 class TestGenerationEngineHelpers:
@@ -995,7 +990,7 @@ class TestGenerationEngineHelpers:
 
 
 class TestMemoryMerge:
-    """两条正式记忆的纯计算融合与不变内容判定。"""
+    """两条正式记忆的纯计算融合。"""
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
@@ -1021,7 +1016,7 @@ class TestMemoryMerge:
 
         outcome = await engine.merge(retained, absorbed)
 
-        assert outcome.duplicate_decision == DuplicateDecision.UPDATE
+        assert outcome.action == GenerationAction.UPDATE
         assert (
             outcome.atom.index.title,
             outcome.atom.index.summary,
@@ -1050,44 +1045,6 @@ class TestMemoryMerge:
         outcome.atom.payload.content = "caller mutation"
         assert outcome.memory_before_snapshot == before
         assert retained == before
-
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize(
-        "changed_field", [None, "title", "summary", "tags", "memory_type", "content"]
-    )
-    async def test_merge_compares_all_content_fields(self, changed_field):
-        """正文相同但索引变化也应修订；完全相同才跳过新版本。"""
-        retained = _make_memory()
-        absorbed = _make_memory("new")
-        values = dict(
-            title=retained.index.title,
-            summary=retained.index.summary,
-            tags=[" T ", "t"],
-            memory_type="FACT",
-            content=retained.payload.content,
-            changelog="merge",
-        )
-        replacements = dict(
-            title="changed",
-            summary="changed",
-            tags=["changed"],
-            memory_type="REFLECTION",
-            content="changed",
-        )
-        if changed_field is not None:
-            values[changed_field] = replacements[changed_field]
-        extractor = AsyncMock()
-        extractor.merge.return_value = MergeResult(**values)
-        engine = MemoryGenerationEngine(mid_term=Mock(), extractor=extractor, deduplicator=Mock())
-
-        outcome = await engine.merge(retained, absorbed)
-
-        assert outcome.duplicate_decision == (
-            DuplicateDecision.UPDATE if changed_field else DuplicateDecision.TOUCH
-        )
-        if changed_field is None:
-            assert outcome.atom == retained
-            assert outcome.memory_before_snapshot is None
 
     @pytest.mark.asyncio
     async def test_merge_rejects_model_generated_profile(self):

@@ -291,3 +291,19 @@ def readable_source(
     if result.kind in {"discarded", "failed", "expired"}:
         return result
     return None
+
+
+_EMBEDDING_TARGETS = (MemoryCompileTarget.DENSE_EMBEDDING, MemoryCompileTarget.SPARSE_EMBEDDING)
+
+
+def embedding_inputs_changed(before: MemoryAtom, after: MemoryAtom) -> bool:
+    """两版原子编译出的向量输入文本是否不同；相同时完整提交可以保留既有向量。
+
+    比较的是 dense 与 sparse 两份实际编译文本，而不是字段清单：正文、
+    ``agent_config``、关系或生命周期变化不触发重算，标签顺序变化会触发。
+    """
+    compiler = MemoryCompiler()
+    return any(
+        compiler.compile(before, target).text != compiler.compile(after, target).text
+        for target in _EMBEDDING_TARGETS
+    )

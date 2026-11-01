@@ -103,12 +103,12 @@ class BaseDeduplicator(ABC):
     查重与演化器接口
 
     职责:
-        检测重复记忆，支持知识更新与合并。
+        检测重复记忆，命中相似内容时由生成引擎新建并提名合并。
 
     决策逻辑:
-        - 相似度 > 0.95 + 内容一致 → TOUCH
-        - 0.75 < 相似度 < 0.95 → UPDATE
-        - 相似度 < 0.75 → CREATE
+        - 高于上限且内容一致 → IDENTICAL
+        - 高于上限但内容不同，或高于下限且不高于上限 → SIMILAR
+        - 不高于下限 → DISTINCT
     """
 
     @abstractmethod
@@ -122,7 +122,7 @@ class BaseDeduplicator(ABC):
 
         Args:
             draft: LLM 提取的记忆草稿
-            candidates: 调用方预先检索的候选结果列表（空列表 → CREATE）
+            candidates: 调用方预先检索的候选结果列表（空列表 → DISTINCT）
 
         Returns:
             (DuplicateDecision, Optional[MemoryAtom])

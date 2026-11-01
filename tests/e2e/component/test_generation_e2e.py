@@ -6,7 +6,6 @@ HiveMemory Generation Module E2E Tests
 测试组：
     - Group 1: 记忆提取测试 (Extraction)
     - Group 2: 去重决策测试 (Deduplication Logic)
-    - Group 3: 记忆合并测试 (Merger)
     - Group 4: Schema 验证测试
 
 运行方式：
@@ -15,7 +14,7 @@ HiveMemory Generation Module E2E Tests
 核心原则：
     - 使用真实的 LiteLLMService（librarian 配置转换的请求参数）
     - 使用真实的 QdrantMemoryStore
-    - 聚焦记忆提取、去重、合并机制
+    - 聚焦记忆提取与去重机制
 """
 
 import asyncio
@@ -92,8 +91,6 @@ from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
     GenerationTurn,
-    RevisionResult,
-    system_settlement_provenance,
 )
 
 # 基础设施
@@ -113,7 +110,6 @@ from tests.fixtures.generation_test_data import (
     DEDUPLICATION_TEST_CASES,
     EXISTING_MEMORY_DATA,
     EXTRACTION_TEST_CASES,
-    MERGE_TEST_CASES,
     SCHEMA_VALIDATION_CASES,
 )
 
@@ -621,12 +617,12 @@ class TestDeduplicationLogic:
         # 重置测试环境
         reset_test_env()
 
-    def test_decision_create_new_memory(self):
+    def test_decision_distinct_new_memory(self):
         """
-        GEN-DED-001: 决策 CREATE - 新记忆
+        GEN-DED-001: 判断 DISTINCT - 新记忆
 
         验证点：
-        - 无相似记忆时返回 DuplicateDecision.CREATE
+        - 无相似记忆时返回 DuplicateDecision.DISTINCT
         """
         test_case = DEDUPLICATION_TEST_CASES[0]  # GEN-DED-001
         assert test_case["id"] == "GEN-DED-001"
@@ -649,7 +645,7 @@ class TestDeduplicationLogic:
         expected_decision = test_case["expected_decision"]
         success = decision.value == expected_decision.lower()
 
-        print_test_result(console, "GEN-DED-001: 决策 CREATE", success)
+        print_test_result(console, "GEN-DED-001: 判断 DISTINCT", success)
         console.print(
             f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()})[/dim]"
         )
@@ -658,12 +654,12 @@ class TestDeduplicationLogic:
 
         assert success, f"预期决策 {expected_decision}，实际 {decision.value}"
 
-    def test_decision_touch_duplicate(self):
+    def test_decision_identical_duplicate(self):
         """
-        GEN-DED-002: 决策 TOUCH - 完全重复
+        GEN-DED-002: 判断 IDENTICAL - 完全重复
 
         验证点：
-        - 高相似度 + 内容一致时返回 TOUCH
+        - 高相似度 + 内容一致时返回 IDENTICAL
         """
         test_case = DEDUPLICATION_TEST_CASES[1]  # GEN-DED-002
         assert test_case["id"] == "GEN-DED-002"
@@ -684,24 +680,24 @@ class TestDeduplicationLogic:
 
         # 验证结果
         expected_decision = test_case["expected_decision"]
-        # TOUCH 或 UPDATE 都可以接受（取决于内容相似度计算）
-        success = decision.value in [expected_decision.lower(), "update"]
+        # IDENTICAL 或 SIMILAR 都可以接受（取决于内容相似度计算）
+        success = decision.value in [expected_decision.lower(), "similar"]
 
-        print_test_result(console, "GEN-DED-002: 决策 TOUCH/UPDATE", success)
+        print_test_result(console, "GEN-DED-002: 判断 IDENTICAL/SIMILAR", success)
         console.print(
-            f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()} 或 update)[/dim]"
+            f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()} 或 similar)[/dim]"
         )
         if found_memory:
             console.print(f"    [dim]匹配记忆: {found_memory.index.title}[/dim]")
 
-        assert success, f"预期决策 {expected_decision} 或 UPDATE，实际 {decision.value}"
+        assert success, f"预期决策 {expected_decision} 或 SIMILAR，实际 {decision.value}"
 
-    def test_decision_update_evolution(self):
+    def test_decision_similar_evolution(self):
         """
-        GEN-DED-003: 决策 UPDATE - 知识演化
+        GEN-DED-003: 判断 SIMILAR - 知识演化
 
         验证点：
-        - 中等相似度或内容有增量时返回 UPDATE
+        - 中等相似度或内容有增量时返回 SIMILAR
         """
         test_case = DEDUPLICATION_TEST_CASES[2]  # GEN-DED-003
         assert test_case["id"] == "GEN-DED-003"
@@ -724,7 +720,7 @@ class TestDeduplicationLogic:
         expected_decision = test_case["expected_decision"]
         success = decision.value == expected_decision.lower()
 
-        print_test_result(console, "GEN-DED-003: 决策 UPDATE", success)
+        print_test_result(console, "GEN-DED-003: 判断 SIMILAR", success)
         console.print(
             f"    [dim]决策结果: {decision.value} (预期: {expected_decision.lower()})[/dim]"
         )
@@ -733,195 +729,6 @@ class TestDeduplicationLogic:
             console.print(f"    [dim]匹配记忆: {found_memory.index.title}[/dim]")
 
         assert success, f"预期决策 {expected_decision}，实际 {decision.value}"
-
-
-# ========== Group 3: 记忆合并测试 (Merger) ==========
-
-
-class TestMemoryMerger:
-    """
-    Group 3: dedup UPDATE 测试
-
-    验证 GenerationEngine 在 dedup UPDATE 下覆盖当前 head，
-    历史版本由 MemoryVersionArtifact 链路负责。
-    """
-
-    @pytest.fixture(autouse=True)
-    def setup(self):
-        """每个测试前初始化"""
-        self.engine = get_shared_engine()
-        self.identity = create_test_identity("merger")
-
-    def test_dedup_update_replaces_content_head(self):
-        """
-        GEN-MRG-001: dedup UPDATE 覆盖当前内容
-
-        验证点：
-        - payload.content 等于新草稿内容
-        - 旧内容不会拼接污染当前 head
-        """
-        test_case = MERGE_TEST_CASES[0]  # GEN-MRG-001
-        assert test_case["id"] == "GEN-MRG-001"
-
-        # 创建现有记忆
-        existing_data = test_case["existing_memory"]
-        existing_memory = MemoryAtom(
-            meta=make_memory_metadata(
-                source_agent_id=self.identity.agent_id,
-                user_id=self.identity.user_id,
-                confidence_score=existing_data["confidence_score"],
-            ),
-            index=IndexLayer(
-                title=existing_data["title"],
-                summary=existing_data["summary"],
-                tags=existing_data["tags"],
-                memory_type=MemoryType.FACT,
-            ),
-            payload=PayloadLayer(
-                content=existing_data["content"],
-            ),
-        )
-
-        # 创建新草稿
-        new_draft = create_draft_from_data(test_case["new_draft"])
-
-        old_content = existing_memory.payload.content
-        result = self.engine._apply_update(
-            existing_memory,
-            RevisionResult(
-                new_content=new_draft.content,
-                changelog=f"Dedup update: {new_draft.summary[:120]}",
-            ),
-            provenance=system_settlement_provenance(GenerationContext()),
-            dedup_draft=new_draft,
-        )
-        merged = result[0].atom
-
-        success = (
-            merged.payload.content == new_draft.content
-            and old_content not in merged.payload.content
-        )
-        print_test_result(console, "GEN-MRG-001: dedup UPDATE 覆盖当前内容", success)
-        console.print(f"    [dim]更新后内容长度: {len(merged.payload.content)} 字符[/dim]")
-
-        assert success, "dedup UPDATE 不应把旧内容追加进当前 head"
-
-    def test_dedup_update_refreshes_tags(self):
-        """
-        GEN-MRG-002: 标签并集刷新
-
-        验证点：
-        - 更新后 Tags 为两者并集（去重，最多5个）
-        """
-        test_case = MERGE_TEST_CASES[1]  # GEN-MRG-002
-        assert test_case["id"] == "GEN-MRG-002"
-
-        # 创建现有记忆
-        existing_data = test_case["existing_memory"]
-        existing_memory = MemoryAtom(
-            meta=make_memory_metadata(
-                source_agent_id=self.identity.agent_id,
-                user_id=self.identity.user_id,
-                confidence_score=existing_data["confidence_score"],
-            ),
-            index=IndexLayer(
-                title=existing_data["title"],
-                summary=existing_data["summary"],
-                tags=existing_data["tags"],
-                memory_type=MemoryType.FACT,
-            ),
-            payload=PayloadLayer(
-                content=existing_data["content"],
-            ),
-        )
-
-        # 创建新草稿
-        new_draft = create_draft_from_data(test_case["new_draft"])
-
-        # 执行 dedup UPDATE
-        merged = self.engine._apply_update(
-            existing_memory,
-            RevisionResult(
-                new_content=new_draft.content,
-                changelog=f"Dedup update: {new_draft.summary[:120]}",
-            ),
-            provenance=system_settlement_provenance(GenerationContext()),
-            dedup_draft=new_draft,
-        )[0].atom
-
-        # 验证结果
-        merged_tags = set(merged.index.tags)
-        expected_superset = set(test_case.get("expected_tags_superset", []))
-        max_tags = test_case.get("expected_max_tags", 5)
-
-        # 检查标签数量限制
-        tags_count_ok = len(merged.index.tags) <= max_tags
-
-        # 检查是否包含部分预期标签
-        common_tags = merged_tags & expected_superset
-        tags_content_ok = len(common_tags) >= 2  # 至少包含2个预期标签
-
-        success = tags_count_ok and tags_content_ok
-
-        print_test_result(console, "GEN-MRG-002: 标签并集刷新", success)
-        console.print(f"    [dim]原标签: {existing_data['tags']}[/dim]")
-        console.print(f"    [dim]新标签: {new_draft.tags}[/dim]")
-        console.print(f"    [dim]更新后: {merged.index.tags}[/dim]")
-        console.print(f"    [dim]标签数量: {len(merged.index.tags)} (最大: {max_tags})[/dim]")
-
-        assert success, "标签合并不符合预期"
-
-    def test_dedup_update_replaces_summary(self):
-        """
-        GEN-MRG-003: 摘要覆盖策略
-
-        验证点：
-        - 更新后 summary 直接采用草稿摘要，不按长度取舍
-        """
-        test_case = MERGE_TEST_CASES[2]  # GEN-MRG-003
-        assert test_case["id"] == "GEN-MRG-003"
-
-        # 创建现有记忆（短摘要）
-        existing_data = test_case["existing_memory"]
-        existing_memory = MemoryAtom(
-            meta=make_memory_metadata(
-                source_agent_id=self.identity.agent_id,
-                user_id=self.identity.user_id,
-                confidence_score=existing_data["confidence_score"],
-            ),
-            index=IndexLayer(
-                title=existing_data["title"],
-                summary=existing_data["summary"],
-                tags=existing_data["tags"],
-                memory_type=MemoryType.FACT,
-            ),
-            payload=PayloadLayer(
-                content=existing_data["content"],
-            ),
-        )
-
-        # 创建新草稿（长摘要）
-        new_draft = create_draft_from_data(test_case["new_draft"])
-
-        # 执行 dedup UPDATE
-        merged = self.engine._apply_update(
-            existing_memory,
-            RevisionResult(
-                new_content=new_draft.content,
-                changelog=f"Dedup update: {new_draft.summary[:120]}",
-            ),
-            provenance=system_settlement_provenance(GenerationContext()),
-            dedup_draft=new_draft,
-        )[0].atom
-
-        success = merged.index.summary == new_draft.summary
-
-        print_test_result(console, "GEN-MRG-003: 摘要覆盖策略", success)
-        console.print(f"    [dim]原摘要长度: {len(existing_data['summary'])}[/dim]")
-        console.print(f"    [dim]新摘要长度: {len(new_draft.summary)}[/dim]")
-        console.print(f"    [dim]更新后长度: {len(merged.index.summary)}[/dim]")
-
-        assert success, "dedup UPDATE 应直接采用草稿摘要"
 
 
 # ========== Group 4: Schema 验证测试 ==========

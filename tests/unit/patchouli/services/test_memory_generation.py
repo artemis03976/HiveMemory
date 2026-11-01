@@ -37,7 +37,7 @@ from hivememory.core.models.pending import WriteFocus
 from hivememory.engines.artifacts.interaction import InteractionArtifactBuilder
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.models import (
-    DuplicateDecision,
+    GenerationAction,
     GenerationContext,
     GenerationOutcome,
     GenerationRequest,
@@ -120,14 +120,14 @@ def _make_memory_atom(
 
 
 def _make_outcome(
-    decision=DuplicateDecision.CREATE,
+    action=GenerationAction.CREATE,
     atom=None,
     changelog=None,
     memory_before_snapshot=None,
 ):
     return GenerationOutcome(
         atom=atom,
-        duplicate_decision=decision,
+        action=action,
         changelog=changelog,
         memory_before_snapshot=memory_before_snapshot,
     )
@@ -305,7 +305,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
     @pytest.mark.asyncio
     async def test_run_generation_computes_and_returns_results(self):
-        outcome = _make_outcome(decision=DuplicateDecision.CREATE)
+        outcome = _make_outcome(action=GenerationAction.CREATE)
         gen_engine = Mock()
         gen_engine.process = AsyncMock(return_value=[outcome])
 
@@ -344,7 +344,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         atom = _make_memory_atom()
         gen_engine = Mock()
         gen_engine.process = AsyncMock(
-            return_value=[_make_outcome(decision=DuplicateDecision.CREATE, atom=atom)]
+            return_value=[_make_outcome(action=GenerationAction.CREATE, atom=atom)]
         )
 
         mid_term = Mock()
@@ -377,7 +377,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         atom = _make_memory_atom()
         gen_engine = Mock()
         gen_engine.process = AsyncMock(
-            return_value=[_make_outcome(decision=DuplicateDecision.UPDATE, atom=atom)]
+            return_value=[_make_outcome(action=GenerationAction.UPDATE, atom=atom)]
         )
 
         mid_term = Mock()
@@ -414,7 +414,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         gen_engine.process = AsyncMock(
             return_value=[
                 _make_outcome(
-                    decision=DuplicateDecision.UPDATE,
+                    action=GenerationAction.UPDATE,
                     atom=atom,
                     memory_before_snapshot=before,
                 )
@@ -446,44 +446,13 @@ class TestMemoryGenerationFamiliarRunGeneration:
         mid_term.upsert.assert_awaited_once_with(atom, recompute_vectors=False)
 
     @pytest.mark.asyncio
-    async def test_run_generation_skips_upsert_for_discard_decision(self):
-        gen_engine = Mock()
-        gen_engine.process = AsyncMock(
-            return_value=[_make_outcome(decision=DuplicateDecision.DISCARD, atom=None)]
-        )
-
-        mid_term = Mock()
-        mid_term.upsert = AsyncMock()
-
-        familiar = self._make_familiar(gen_engine=gen_engine, mid_term=mid_term)
-
-        request = GenerationRequest(
-            context=GenerationContext(),
-            write_focus=WriteFocus(content="test"),
-        )
-        spec = _make_spec()
-        spec = MemoryGenerationTaskSpec(
-            belong_to=make_memory_identity_scope().workspace_identity,
-            from_actor=make_memory_identity_scope().actor_identity,
-            topic_id=spec.topic_id,
-            label=spec.label,
-            source=spec.source,
-            request=request,
-            interaction_input=None,
-        )
-
-        await familiar._run_generation(spec)
-
-        mid_term.upsert.assert_not_called()
-
-    @pytest.mark.asyncio
     async def test_run_generation_touch_patches_access_info_without_upsert(self):
         """TOUCH 走受限 patch_payload 推进访问统计，不触发完整 upsert"""
         atom = _make_memory_atom()
         atom.meta.lifecycle.access_count = 3
         gen_engine = Mock()
         gen_engine.process = AsyncMock(
-            return_value=[_make_outcome(decision=DuplicateDecision.TOUCH, atom=atom)]
+            return_value=[_make_outcome(action=GenerationAction.TOUCH, atom=atom)]
         )
 
         mid_term = Mock()
@@ -527,7 +496,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         atom = _make_memory_atom()
         gen_engine = Mock()
         gen_engine.process = AsyncMock(
-            return_value=[_make_outcome(decision=DuplicateDecision.TOUCH, atom=atom)]
+            return_value=[_make_outcome(action=GenerationAction.TOUCH, atom=atom)]
         )
 
         mid_term = Mock()
@@ -564,7 +533,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         original_version = atom.meta.version
         gen_engine = Mock()
         gen_engine.process = AsyncMock(
-            return_value=[_make_outcome(decision=DuplicateDecision.UPDATE, atom=atom)]
+            return_value=[_make_outcome(action=GenerationAction.UPDATE, atom=atom)]
         )
 
         mid_term = Mock()
@@ -598,7 +567,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         atom = _make_memory_atom()
         gen_engine = Mock()
         gen_engine.process = AsyncMock(
-            return_value=[_make_outcome(decision=DuplicateDecision.CREATE, atom=atom)]
+            return_value=[_make_outcome(action=GenerationAction.CREATE, atom=atom)]
         )
 
         mid_term = Mock()
@@ -630,7 +599,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         atom = _make_memory_atom()
         gen_engine = Mock()
         gen_engine.process = AsyncMock(
-            return_value=[_make_outcome(decision=DuplicateDecision.CREATE, atom=atom)]
+            return_value=[_make_outcome(action=GenerationAction.CREATE, atom=atom)]
         )
 
         artifact_engine = Mock()
@@ -671,7 +640,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         atom = _make_memory_atom()
         gen_engine = Mock()
         gen_engine.process = AsyncMock(
-            return_value=[_make_outcome(decision=DuplicateDecision.CREATE, atom=atom)]
+            return_value=[_make_outcome(action=GenerationAction.CREATE, atom=atom)]
         )
 
         artifact_engine = Mock()
@@ -710,7 +679,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         spec = _make_spec(source=MemoryGenerationSource.WRITE)
         gen_engine = Mock()
         gen_engine.process = AsyncMock(
-            return_value=[_make_outcome(decision=DuplicateDecision.CREATE, atom=atom)]
+            return_value=[_make_outcome(action=GenerationAction.CREATE, atom=atom)]
         )
         mid_term = Mock()
         mid_term.upsert = AsyncMock()
@@ -728,7 +697,7 @@ class TestMemoryGenerationFamiliarRunGeneration:
         spec = _make_spec(source=MemoryGenerationSource.UPDATE)
         gen_engine = Mock()
         gen_engine.process = AsyncMock(
-            return_value=[_make_outcome(decision=DuplicateDecision.UPDATE, atom=atom)]
+            return_value=[_make_outcome(action=GenerationAction.UPDATE, atom=atom)]
         )
         mid_term = Mock()
         mid_term.upsert = AsyncMock()
@@ -740,12 +709,25 @@ class TestMemoryGenerationFamiliarRunGeneration:
         assert results[0].settlement.resolution.value == "updated"
 
     @pytest.mark.asyncio
-    async def test_run_generation_builds_merged_settlement_for_dedup_update(self):
+    @pytest.mark.parametrize(
+        "source", [MemoryGenerationSource.WRITE, MemoryGenerationSource.SETTLE]
+    )
+    async def test_run_generation_nominates_after_creating(self, source):
+        """新记忆按 CREATE 提交；只有 WRITE 提名携带句柄，首次结算仍为 CREATED。"""
         atom = _make_memory_atom()
-        spec = _make_spec(source=MemoryGenerationSource.WRITE)
+        target_id = str(uuid4())
+        spec = _make_spec(source=source)
+        if source == MemoryGenerationSource.SETTLE:
+            spec = replace(spec, request=GenerationRequest(), pending_alias=None, intent_id=None)
         gen_engine = Mock()
         gen_engine.process = AsyncMock(
-            return_value=[_make_outcome(decision=DuplicateDecision.UPDATE, atom=atom)]
+            return_value=[
+                GenerationOutcome(
+                    action=GenerationAction.CREATE,
+                    atom=atom,
+                    merge_target_id=target_id,
+                )
+            ]
         )
         mid_term = Mock()
         mid_term.upsert = AsyncMock()
@@ -753,8 +735,22 @@ class TestMemoryGenerationFamiliarRunGeneration:
 
         results = await familiar._run_generation(spec)
 
-        assert results[0].settlement is not None
-        assert results[0].settlement.resolution.value == "merged"
+        assert results[0].merge_nomination == MergeFocus(
+            retained_memory_id=target_id,
+            absorbed_memory_id=str(atom.id),
+            pending_alias=spec.pending_alias,
+            intent_id=spec.intent_id,
+        )
+        mid_term.upsert.assert_awaited_once_with(atom, recompute_vectors=True)
+        assert atom.meta.version == 1
+        assert any(
+            ref.artifact_type == ArtifactType.MEMORY_VERSION for ref in atom.payload.artifacts.refs
+        )
+        if source == MemoryGenerationSource.WRITE:
+            assert results[0].settlement.resolution.value == "created"
+            assert results[0].settlement.canonical_uuid == str(atom.id)
+        else:
+            assert results[0].settlement is None
 
 
 class TestMemoryGenerationFamiliarArtifacts:
@@ -856,7 +852,7 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         await familiar._attach_memory_artifact(
             atom=atom,
-            decision=DuplicateDecision.CREATE,
+            action=GenerationAction.CREATE,
             memory_before_snapshot=None,
             changelog=None,
             gen_context=GenerationContext(),
@@ -896,7 +892,7 @@ class TestMemoryGenerationFamiliarArtifacts:
 
         await familiar._attach_memory_artifact(
             atom=atom,
-            decision=DuplicateDecision.UPDATE,
+            action=GenerationAction.UPDATE,
             memory_before_snapshot=atom.model_copy(deep=True),
             changelog="changed",
             gen_context=GenerationContext(),
@@ -930,7 +926,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         with pytest.raises(RuntimeError, match="版本存储未产生"):
             await familiar._attach_memory_artifact(
                 atom=atom,
-                decision=DuplicateDecision.CREATE,
+                action=GenerationAction.CREATE,
                 memory_before_snapshot=None,
                 changelog=None,
                 gen_context=GenerationContext(),
@@ -962,7 +958,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         with pytest.raises(RuntimeError, match="build failed"):
             await familiar._attach_memory_artifact(
                 atom=atom,
-                decision=DuplicateDecision.CREATE,
+                action=GenerationAction.CREATE,
                 memory_before_snapshot=None,
                 changelog=None,
                 gen_context=GenerationContext(),
@@ -992,7 +988,7 @@ class TestMemoryGenerationFamiliarArtifacts:
         with pytest.raises(RuntimeError, match="build failed"):
             await familiar._attach_memory_artifact(
                 atom=atom,
-                decision=DuplicateDecision.UPDATE,
+                action=GenerationAction.UPDATE,
                 memory_before_snapshot=atom.model_copy(deep=True),
                 changelog="changed",
                 gen_context=GenerationContext(),
@@ -1205,7 +1201,7 @@ def _merge_case():
     merged = retained.model_copy(deep=True)
     merged.payload.content = "retained and absorbed content"
     outcome = _make_outcome(
-        DuplicateDecision.UPDATE, merged, "融合两个阶段", retained.model_copy(deep=True)
+        GenerationAction.UPDATE, merged, "融合两个阶段", retained.model_copy(deep=True)
     )
     engine = Mock(merge=AsyncMock(return_value=outcome))
     store = _MergeStore(retained, absorbed)
@@ -1247,7 +1243,7 @@ async def test_merge_commits_version_and_sources_before_deleting_absorbed_memory
     results = await familiar.execute(spec)
 
     stored = store.memories[retained.id]
-    assert store.operations == [("write", retained.id, True), ("delete", absorbed.id)]
+    assert store.operations == [("write", retained.id, False), ("delete", absorbed.id)]
     assert (
         stored.payload.content,
         stored.meta.version,
@@ -1276,9 +1272,9 @@ async def test_merge_commits_version_and_sources_before_deleting_absorbed_memory
 
 
 @pytest.mark.asyncio
-async def test_unchanged_merge_deletes_absorbed_without_version_or_access_change():
+async def test_merge_without_write_handle_returns_no_settlement():
+    """结算提名的合并没有写入句柄：照常写回并删除，结果不携带结算。"""
     familiar, store, engine, artifacts, spec, retained, absorbed = _merge_case()
-    engine.merge.return_value = _make_outcome(DuplicateDecision.TOUCH, retained)
     spec = replace(
         spec,
         request=GenerationRequest(
@@ -1290,9 +1286,8 @@ async def test_unchanged_merge_deletes_absorbed_without_version_or_access_change
 
     results = await familiar.execute(spec)
 
-    assert store.operations == [("delete", absorbed.id)]
-    assert store.memories[retained.id] == retained
-    assert results[0].settlement is None
+    assert store.operations == [("write", retained.id, False), ("delete", absorbed.id)]
+    assert (results[0].canonical_uuid, results[0].settlement) == (str(retained.id), None)
 
 
 @pytest.mark.asyncio
@@ -1352,11 +1347,10 @@ async def test_merge_rejects_invalid_inputs_without_writing(failure):
         "deleted",
         "policy",
         "invisible",
-        "unchanged_but_version_changed",
     ],
 )
 async def test_merge_rechecks_both_memories_after_model_call(change):
-    """模型调用期间的外部修改保持原样；无内容变化也不能跳过删除前校验。"""
+    """模型调用期间的外部修改保持原样，两条记忆都不写入也不删除。"""
     familiar, store, engine, artifacts, spec, retained, absorbed = _merge_case()
     outcome = engine.merge.return_value
     expected_reason = "version_changed"
@@ -1366,7 +1360,7 @@ async def test_merge_rechecks_both_memories_after_model_call(change):
         expected_reason = "not_mergeable"
 
     async def compute(*args):
-        if change == "retained_version" or change == "unchanged_but_version_changed":
+        if change == "retained_version":
             store.memories[retained.id].meta.version += 1
         elif change == "absorbed_version":
             store.memories[absorbed.id].meta.version += 1
@@ -1380,11 +1374,7 @@ async def test_merge_rechecks_both_memories_after_model_call(change):
             store.memories[absorbed.id].meta.access_policy = MemoryAccessPolicy(
                 visibility="PRIVATE", target_agent_id="other"
             )
-        return (
-            _make_outcome(DuplicateDecision.TOUCH, retained)
-            if change == "unchanged_but_version_changed"
-            else outcome
-        )
+        return outcome
 
     engine.merge.side_effect = compute
     with pytest.raises(MemoryMergeAbortedError) as raised:
@@ -1416,7 +1406,7 @@ async def test_merge_failure_never_deletes_unmerged_content(failure):
     assert store.memories[absorbed.id] == absorbed
     if failure == "delete":
         assert store.memories[retained.id].payload.content == "retained and absorbed content"
-        assert store.operations == [("write", retained.id, True)]
+        assert store.operations == [("write", retained.id, False)]
     else:
         assert store.memories[retained.id] == retained
         assert store.operations == []

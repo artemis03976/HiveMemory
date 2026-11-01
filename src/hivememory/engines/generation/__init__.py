@@ -33,6 +33,7 @@ from hivememory.engines.generation.interfaces import (
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
+    GenerationAction,
     GenerationOutcome,
     GenerationRequest,
     MemoryProvenance,
@@ -49,6 +50,7 @@ __all__ = [
     # 生成流水线 DTO
     "DuplicateDecision",
     "ExtractedMemoryDraft",
+    "GenerationAction",
     "GenerationOutcome",
     "GenerationRequest",
     "MemoryProvenance",

@@ -25,8 +25,8 @@ from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.engines.generation.deduplicator import MemoryDeduplicator
 from hivememory.engines.generation.engine import MemoryGenerationEngine
 from hivememory.engines.generation.models import (
-    DuplicateDecision,
     ExtractedMemoryDraft,
+    GenerationAction,
     GenerationContext,
     GenerationRequest,
     GenerationTurn,
@@ -93,7 +93,7 @@ class _LeakyVectorStore:
         self.memory = memory
 
     async def search_memories(self, **_kwargs):
-        return [{"memory": self.memory, "score": 0.9}]
+        return [{"memory": self.memory, "score": 0.98}]
 
     async def get_memory_ids_by_alias(self, *_args, **_kwargs):
         return []
@@ -104,7 +104,7 @@ class _LeakyVectorStore:
 async def test_settle_skips_restricted_dedup_but_write_keeps_actor_visibility(
     active_write: bool,
 ) -> None:
-    """SETTLE 合并受限记忆或 WRITE 丢失提交者可见性时必须失败。
+    """同一受限内容对 SETTLE 不可见，WRITE 仍以提交者可见性命中并 TOUCH。
 
     两种生成模式以不同发起者查重；受限策略的 PRIVATE/TEAM 判定矩阵归 core
     可读性单测，这里取 PRIVATE 代表。
@@ -116,10 +116,13 @@ async def test_settle_skips_restricted_dedup_but_write_keeps_actor_visibility(
     policy = MemoryAccessPolicy(visibility=MemoryVisibility.PRIVATE, target_agent_id="agent-1")
     existing = MemoryAtom(
         meta=make_memory_metadata(
-            user_id="owner-1", source_agent_id="agent-1", access_policy=policy
+            user_id="owner-1",
+            source_agent_id="agent-1",
+            access_policy=policy,
+            contributing_agent_ids=("historical",),
         ),
         index=IndexLayer(title="相似记忆", summary="旧总结", memory_type="FACT"),
-        payload=PayloadLayer(content="old content"),
+        payload=PayloadLayer(content="new content"),
     )
     engine = MemoryGenerationEngine(
         mid_term=MidTermMemoryStore(QdrantStorageAdapter(_LeakyVectorStore(existing))),
@@ -138,16 +141,19 @@ async def test_settle_skips_restricted_dedup_but_write_keeps_actor_visibility(
         from_actor=from_actor if active_write else system_actor_for_workspace(belong_to),
     )
 
-    assert [outcome.duplicate_decision for outcome in outcomes] == [
-        DuplicateDecision.UPDATE if active_write else DuplicateDecision.CREATE
+    assert [outcome.action for outcome in outcomes] == [
+        GenerationAction.TOUCH if active_write else GenerationAction.CREATE
     ]
+    assert outcomes[0].merge_target_id is None
     atom = outcomes[0].atom
     assert atom.workspace_identity == belong_to
     assert atom.payload.content == "new content"
     assert atom.meta.access_policy == (policy if active_write else MemoryAccessPolicy.public())
     assert (atom.id == existing.id) is active_write
     assert atom.meta.provenance.source_agent_id == ("agent-1" if active_write else SYSTEM_AGENT_ID)
-    assert atom.meta.provenance.contributing_agent_ids == ("agent-1",)
+    assert atom.meta.provenance.contributing_agent_ids == (
+        ("historical",) if active_write else ("agent-1",)
+    )
 
 
 class _WritableVectorStore:

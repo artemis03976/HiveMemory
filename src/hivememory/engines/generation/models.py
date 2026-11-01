@@ -31,12 +31,19 @@ from hivememory.core.models.provenance import (
 
 
 class DuplicateDecision(str, Enum):
-    """生成管线内部产出的去重决策。"""
+    """查重器对草稿与最相似候选的判断，由生成引擎翻译为提交动作。"""
+
+    DISTINCT = "distinct"  # 没有候选，或相似度不高于下限
+    SIMILAR = "similar"  # 相似但内容不同：新建后提名合并
+    IDENTICAL = "identical"  # 高相似且内容一致：只触碰已有记忆
+
+
+class GenerationAction(str, Enum):
+    """生成结果的提交动作；修订与合并写回都更新已有记忆。"""
 
     CREATE = "create"
     UPDATE = "update"
     TOUCH = "touch"
-    DISCARD = "discard"
 
 
 # ============ 提取结果模型 ============
@@ -76,7 +83,7 @@ class ExtractedMemoryDraft(BaseModel):
         """LLM 输出越界时截断到 IndexLayer 的长度上限；标题为空时从正文派生。
 
         LLM 不保证遵守提示中的长度要求。越界值在草稿入口收敛，避免一次越界
-        输出让整个生成任务失败，或经 dedup 合并写入原子。
+        输出让整个生成任务失败，或写入越界原子。
         """
         self.summary = self.summary.strip()[:MEMORY_SUMMARY_MAX_LENGTH].rstrip()
         title = self.title.strip() or _title_from_content(self.content)
@@ -270,10 +277,13 @@ class GenerationRequest(BaseModel):
 
 
 class GenerationOutcome(BaseModel):
-    """生成引擎产出的纯计算结果。"""
+    """生成引擎产出的原子与提交动作；查重判为相似时为 CREATE 并携带合并目标。"""
 
     atom: Any | None = None
-    duplicate_decision: DuplicateDecision
+    action: GenerationAction
+    merge_target_id: str | None = Field(
+        default=None, description="新建记忆待合并的保留对象 ID；持久化成功后才提交合并任务"
+    )
     memory_before_snapshot: Any | None = None
     changelog: str | None = None
     message: str | None = None
@@ -283,6 +293,7 @@ class GenerationOutcome(BaseModel):
 
 __all__ = [
     "DuplicateDecision",
+    "GenerationAction",
     "ExtractedMemoryDraft",
     "MemoryProvenance",
     "RevisionResult",
