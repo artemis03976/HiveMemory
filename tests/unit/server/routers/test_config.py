@@ -6,7 +6,6 @@ from fastapi.testclient import TestClient
 
 import hivememory.server.routers.config as config_router_module
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.config.shared import ProviderCredentials
 from hivememory.i18n import get_default_language, set_default_language
 from hivememory.server import deps
 from hivememory.server.error_handlers import install_error_handlers
@@ -22,14 +21,13 @@ def _create_test_app(mock_system):
 
 
 GATEWAY_KEY = "sk-gateway-secret-0001"
-PROVIDER_KEY = "sk-provider-secret-0002"
 QDRANT_KEY = "qdrant-secret-key-0003"
 
 
 def _config_with_secrets() -> HiveMemoryConfig:
+    """运行时配置中的密钥只来自环境变量与 .env，这里直接设在配置对象上。"""
     config = HiveMemoryConfig()
     config.shared.llm.gateway.api_key = GATEWAY_KEY
-    config.shared.providers["deepseek"] = ProviderCredentials(api_key=PROVIDER_KEY)
     config.patchouli.storage.api_key = QDRANT_KEY
     return config
 
@@ -39,7 +37,7 @@ def test_config_responses_return_only_masked_api_keys(tmp_path, monkeypatch):
     mock_system = MagicMock()
     mock_system.config = _config_with_secrets()
     monkeypatch.setenv("HIVEMEMORY_CONFIG_PATH", str(tmp_path / "config.yaml"))
-    monkeypatch.setenv("HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY", PROVIDER_KEY)
+    monkeypatch.setenv("HIVEMEMORY__QDRANT__API_KEY", QDRANT_KEY)
     client = TestClient(_create_test_app(mock_system))
 
     read = client.get("/api/v1/config")
@@ -48,17 +46,18 @@ def test_config_responses_return_only_masked_api_keys(tmp_path, monkeypatch):
 
     for response in (read, saved, defaults):
         assert response.status_code == 200
-        for secret in (GATEWAY_KEY, PROVIDER_KEY, QDRANT_KEY):
+        for secret in (GATEWAY_KEY, QDRANT_KEY):
             assert secret not in response.text
-    assert read.json()["shared"]["providers"]["deepseek"]["api_key"] == "sk-...0002"
-    assert defaults.json()["shared"]["providers"]["deepseek"]["api_key"] == "sk-...0002"
+    assert read.json()["shared"]["llm"]["gateway"]["api_key"] == "sk-...0001"
+    assert defaults.json()["patchouli"]["storage"]["api_key"] == "qdr...0003"
 
 
-def test_saving_masked_api_keys_keeps_the_current_keys(tmp_path, monkeypatch):
-    """前端把读到的配置原样提交时保留真实密钥；新的明文密钥照常替换，null 照常清除。"""
+def test_saving_config_neither_changes_nor_persists_api_keys(tmp_path, monkeypatch):
+    """密钥不经主配置接口修改：提交的值一律沿用运行时值，写入的 YAML 不含 api_key。"""
+    config_path = tmp_path / "config.yaml"
     mock_system = MagicMock()
     mock_system.config = _config_with_secrets()
-    monkeypatch.setenv("HIVEMEMORY_CONFIG_PATH", str(tmp_path / "config.yaml"))
+    monkeypatch.setenv("HIVEMEMORY_CONFIG_PATH", str(config_path))
     client = TestClient(_create_test_app(mock_system))
     payload = client.get("/api/v1/config").json()
     payload["shared"]["llm"]["gateway"]["api_key"] = "sk-new-gateway-secret"
@@ -68,9 +67,9 @@ def test_saving_masked_api_keys_keeps_the_current_keys(tmp_path, monkeypatch):
 
     assert response.status_code == 200
     saved = mock_system.config
-    assert saved.shared.providers["deepseek"].api_key == PROVIDER_KEY
-    assert saved.shared.llm.gateway.api_key == "sk-new-gateway-secret"
-    assert saved.patchouli.storage.api_key is None
+    assert saved.shared.llm.gateway.api_key == GATEWAY_KEY
+    assert saved.patchouli.storage.api_key == QDRANT_KEY
+    assert "api_key" not in config_path.read_text(encoding="utf-8")
 
 
 def test_update_config_persists_to_local_file(tmp_path, monkeypatch):

@@ -90,7 +90,7 @@ Model 页面通过 `/api/v1/models` 管理 `configs/models.yaml`，支持创建�
 
 ### 3.3 主配置表单
 
-主配置页面通过 `GET/POST /api/v1/config` 读取和原子写入 YAML，后端使用 Pydantic 重新校验，并替换 `system.config`。响应中的 `api_key` 只有打码值，页面原样提交时后端把打码值还原为当前密钥。但“配置对象已替换”不等于所有已装配组件已经热重载；Qdrant 连接、模型服务和部分 runtime 仍需要重启。
+主配置页面通过 `GET/POST /api/v1/config` 读取和原子写入 YAML，后端使用 Pydantic 重新校验，并替换 `system.config`。主配置接口不读写密钥：响应中的 `api_key` 只有打码值，保存时沿用当前密钥，写入的 YAML 不含 `api_key`；Provider 凭证由 Provider 页面管理。但“配置对象已替换”不等于所有已装配组件已经热重载；Qdrant 连接、模型服务和部分 runtime 仍需要重启。
 
 更重要的是，当前前端 `HiveMemoryConfig` 仍采用旧的顶层 `llm/embedding/qdrant/perception/...` 结构，而后端已经使用 `shared/patchouli/alice/gateway/...` 嵌套树；`ConfigResponse` 也没有完整返回前端各分类所假设的字段。这意味着 General 以外的多组旧表单可能读取 undefined、显示错误或提交不完整配置。Provider 与 Model Registry 使用独立 API，不受这一具体类型偏差影响。
 

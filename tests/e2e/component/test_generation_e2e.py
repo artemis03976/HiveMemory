@@ -70,7 +70,7 @@ sys.path.insert(0, str(project_root / "src"))
 
 # 核心模型
 # 配置
-from hivememory.config.app import load_app_config
+from hivememory.config.app import load_app_config, provider_credentials_from_env
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -195,7 +195,7 @@ def setup_test_env() -> MemoryGenerationEngine:
     # 1. 创建 LLM 服务（使用 librarian 配置）：与组合根一致，model_id 经模型注册表
     #    解析为 litellm 模型并补齐 provider 凭证。
     model_registry = ModelRegistry(
-        provider_registry=ProviderRegistry(env_providers=app_config.shared.providers)
+        provider_registry=ProviderRegistry(env_providers=provider_credentials_from_env())
     )
     llm_config = model_registry.resolve_for_llm_config(app_config.get_librarian_llm_config())
     console.print(f"[dim]LLM 模型: {llm_config.model}[/dim]")

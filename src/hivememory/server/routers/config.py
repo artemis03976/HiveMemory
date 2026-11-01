@@ -1,8 +1,12 @@
 """配置管理 API 路由
 
-配置中的 LLM、提供商凭证与 Qdrant 带有 ``api_key``。HTTP 接口对本机任何进程开放，
-响应中的密钥与提供商、模型接口一样只返回打码值；前端把读到的配置原样提交回来时，
-打码值还原为当前密钥，不会用打码值覆盖真实密钥。
+主配置接口不读写密钥。配置中的 LLM 与 Qdrant 带有 ``api_key``，运行时的值只来自
+环境变量与 ``.env``（提供商凭证由 Provider 接口管理，不属于主配置）：
+
+- 响应中的密钥与提供商、模型接口一样只返回打码值，HTTP 接口对本机任何进程开放；
+- 保存时提交中的 ``api_key`` 一律沿用当前的运行时值，前端原样提交读到的打码值
+  不会覆盖真实密钥；
+- 写入 ``config.yaml`` 的内容不含 ``api_key``：该文件受版本控制，出现密钥时加载失败。
 """
 
 import logging
@@ -16,6 +20,7 @@ from fastapi import APIRouter, Depends
 from pydantic import ValidationError
 
 from hivememory.config.app import (
+    SECRET_FIELD,
     HiveMemoryConfig,
     get_config_file_path,
 )
@@ -29,9 +34,6 @@ logger = logging.getLogger(__name__)
 
 router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["config"])
 
-# 配置树中保存密钥的字段名。
-_SECRET_FIELD = "api_key"
-
 
 def _masked_response(config: HiveMemoryConfig) -> ConfigResponse:
     return ConfigResponse(**_mask_secrets(config.model_dump(mode="json")))
@@ -40,7 +42,7 @@ def _masked_response(config: HiveMemoryConfig) -> ConfigResponse:
 def _mask_secrets(node: Any) -> Any:
     if isinstance(node, dict):
         return {
-            key: mask_api_key(value) if key == _SECRET_FIELD else _mask_secrets(value)
+            key: mask_api_key(value) if key == SECRET_FIELD else _mask_secrets(value)
             for key, value in node.items()
         }
     if isinstance(node, list):
@@ -48,18 +50,27 @@ def _mask_secrets(node: Any) -> Any:
     return node
 
 
-def _restore_secrets(submitted: Any, current: Any) -> Any:
-    """提交的密钥等于当前密钥的打码值时还原为当前密钥；新的明文与 null 照常生效。"""
-    if not isinstance(submitted, dict) or not isinstance(current, dict):
+def _keep_current_secrets(submitted: Any, current: Any) -> Any:
+    """提交中的密钥一律换成当前的运行时值：密钥不经主配置接口修改。"""
+    if not isinstance(submitted, dict):
         return submitted
-    restored: dict[str, Any] = {}
-    for key, value in submitted.items():
-        existing = current.get(key)
-        if key == _SECRET_FIELD and existing is not None and value == mask_api_key(existing):
-            restored[key] = existing
-        else:
-            restored[key] = _restore_secrets(value, existing)
-    return restored
+    current = current if isinstance(current, dict) else {}
+    return {
+        key: (
+            current.get(key)
+            if key == SECRET_FIELD
+            else _keep_current_secrets(value, current.get(key))
+        )
+        for key, value in submitted.items()
+    }
+
+
+def _without_secrets(node: Any) -> Any:
+    if isinstance(node, dict):
+        return {key: _without_secrets(value) for key, value in node.items() if key != SECRET_FIELD}
+    if isinstance(node, list):
+        return [_without_secrets(item) for item in node]
+    return node
 
 
 def _build_config_without_path_override(
@@ -89,7 +100,7 @@ def _persist_config_atomically(config: HiveMemoryConfig) -> Path:
         )
         with os.fdopen(fd, "w", encoding="utf-8") as temp_file:
             yaml.safe_dump(
-                config.model_dump(mode="json"),
+                _without_secrets(config.model_dump(mode="json")),
                 temp_file,
                 allow_unicode=True,
                 sort_keys=False,
@@ -137,7 +148,7 @@ async def update_config(
     Returns:
         更新后的配置
     """
-    submitted = _restore_secrets(new_config, system.config.model_dump(mode="json"))
+    submitted = _keep_current_secrets(new_config, system.config.model_dump(mode="json"))
     try:
         validated_config = _build_config_without_path_override(submitted)
     except ValidationError as e:

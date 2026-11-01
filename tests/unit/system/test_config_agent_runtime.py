@@ -6,8 +6,9 @@ import pytest
 from pydantic import BaseModel
 
 import hivememory.config as config_package
-from hivememory.config.app import HiveMemoryConfig
+from hivememory.config.app import HiveMemoryConfig, provider_credentials_from_env
 from hivememory.config.memory_compiler import CascadeContextStrategyConfig
+from hivememory.config.shared import ProviderCredentials
 
 
 def _config_section_models() -> list[type[BaseModel]]:
@@ -47,6 +48,51 @@ def test_config_file_rejects_unknown_top_level_sections(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="passive_ingress"):
         HiveMemoryConfig()
+
+
+def test_config_file_rejects_saved_secrets(tmp_path, monkeypatch):
+    """配置文件受版本控制：写入了密钥的字段让加载失败并指出字段，留空的不受影响。"""
+    path = tmp_path / "secrets.yaml"
+    path.write_text(
+        "shared:\n  llm:\n    gateway:\n      api_key: sk-in-file\n"
+        "patchouli:\n  storage:\n    api_key: qdrant-in-file\n"
+        "    host: 127.0.0.1\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HIVEMEMORY_CONFIG_PATH", str(path))
+
+    with pytest.raises(ValueError) as raised:
+        HiveMemoryConfig()
+
+    assert "shared.llm.gateway.api_key" in str(raised.value)
+    assert "patchouli.storage.api_key" in str(raised.value)
+    assert "sk-in-file" not in str(raised.value)
+
+
+def test_config_file_accepts_empty_secret_fields(tmp_path, monkeypatch):
+    """留空的 api_key 不算写入密钥，照常加载（运行时的值仍可来自环境变量）。"""
+    path = tmp_path / "empty-secrets.yaml"
+    path.write_text(
+        "shared:\n  llm:\n    gateway:\n      api_key: ''\n"
+        "patchouli:\n  storage:\n    api_key: null\n",
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("HIVEMEMORY_CONFIG_PATH", str(path))
+
+    HiveMemoryConfig()
+
+
+def test_provider_credentials_come_from_environment(monkeypatch):
+    """提供商凭证按 provider 名小写归组，交给 Provider 注册表，不进入主配置。"""
+    monkeypatch.setenv("HIVEMEMORY__PROVIDERS__PROBEPROV__API_KEY", "sk-probe")
+    monkeypatch.setenv("HIVEMEMORY__PROVIDERS__PROBEPROV__API_BASE", "https://probe.invalid")
+
+    credentials = provider_credentials_from_env()
+
+    assert credentials["probeprov"] == ProviderCredentials(
+        api_key="sk-probe", api_base="https://probe.invalid"
+    )
+    assert "providers" not in HiveMemoryConfig().shared.model_dump()
 
 
 def test_memory_compiler_config_accepts_cascade_strategy():

@@ -12,8 +12,8 @@ from hivememory.core.constants import (
 class LLMConfig(BaseModel):
     provider: str = "litellm"
     # model_id：引用注册表 ID（如 "deepseek-chat"）。
-    # 设置时，由 ModelRegistry.resolve_for_llm_config() 填入 model/api_key/api_base；
-    # 未设置时回落到直接使用 model 字段（向后兼容旧配置）。
+    # 设置时，ModelRegistry.resolve_for_llm_config() 返回另一份填好 model/api_key/api_base
+    # 的配置交给组件，配置对象本身不变；未设置时回落到直接使用 model 字段（向后兼容旧配置）。
     model_id: str | None = Field(default=None)
     model: str | None = Field(default=None)
     api_key: str | None = Field(default=None)
@@ -29,9 +29,9 @@ class LLMConfig(BaseModel):
 class ProviderCredentials(BaseModel):
     """单个模型提供商（provider）的凭证。
 
-    api_key / api_base 通常留空于 config.yaml（该文件被 git 跟踪），
-    由环境变量 HIVEMEMORY__PROVIDERS__<NAME>__API_KEY / __API_BASE 注入。
-    ModelRegistry 在解析模型时，按模型的 provider 字段查此表补齐凭证。
+    来自环境变量 HIVEMEMORY__PROVIDERS__<NAME>__API_KEY / __API_BASE，或经 Provider
+    设置保存在 providers.secrets.yaml，由 ProviderRegistry 管理，不属于主配置。
+    ModelRegistry 在解析模型时，按模型的 provider 字段查注册表补齐凭证。
     """
 
     api_key: str | None = Field(default=None)
@@ -80,8 +80,5 @@ class EmbeddingGlobalConfig(BaseModel):
 class SharedConfig(BaseModel):
     llm: LLMGlobalConfig = Field(default_factory=LLMGlobalConfig)
     embedding: EmbeddingGlobalConfig = Field(default_factory=EmbeddingGlobalConfig)
-    # 提供商凭证表：key 为 provider 名（如 "deepseek"、"openai"），
-    # 供 ModelRegistry 按模型的 provider 字段解析 api_key / api_base。
-    providers: dict[str, ProviderCredentials] = Field(default_factory=dict)
 
     model_config = ConfigDict(extra="forbid")

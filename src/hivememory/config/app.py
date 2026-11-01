@@ -24,12 +24,17 @@ from hivememory.config.import_bus import ImportBusConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.config.patchouli import PatchouliConfig
 from hivememory.config.runtime import RuntimeEventsConfig, SchedulerConfig
-from hivememory.config.shared import LLMConfig, SharedConfig
+from hivememory.config.shared import LLMConfig, ProviderCredentials, SharedConfig
 from hivememory.config.workspace import WorkspaceConfig
 
 logger = logging.getLogger(__name__)
 
 HIVEMEMORY_ENV_PREFIX = "HIVEMEMORY__"
+
+# 配置树中保存密钥的字段名（LLM 与 Qdrant 的 api_key）。密钥只来自环境变量、.env
+# 与 Provider 设置，不写入受版本控制的配置文件。
+SECRET_FIELD = "api_key"
+
 LEGACY_ENV_ALIASES: dict[str, tuple[str, ...]] = {
     "LLM__GATEWAY__PROVIDER": ("shared", "llm", "gateway", "provider"),
     "LLM__GATEWAY__MODEL": ("shared", "llm", "gateway", "model"),
@@ -116,18 +121,20 @@ def legacy_env_alias_settings_source() -> dict[str, Any]:
     return aliased
 
 
-def provider_credentials_settings_source() -> dict[str, Any]:
-    """扫描 HIVEMEMORY__PROVIDERS__<NAME>__API_KEY / __API_BASE 环境变量。
+def provider_credentials_from_env() -> dict[str, ProviderCredentials]:
+    """扫描 HIVEMEMORY__PROVIDERS__<NAME>__API_KEY / __API_BASE 环境变量，作为提供商凭证的环境层。
 
     provider 名是动态的（deepseek / openai / anthropic ...），无法用静态别名表
-    枚举，故单独扫描：把匹配的变量映射到 shared.providers.<name>.{api_key,api_base}。
-    provider 名统一小写，以便与 ModelDefinition.provider 匹配。
+    枚举，故单独扫描；provider 名统一小写，以便与 ModelDefinition.provider 匹配。
+    来源与其他配置相同：进程环境变量优先，其次是 ``.env``。提供商凭证不属于
+    主配置，结果直接交给 ProviderRegistry，不进入 ``HiveMemoryConfig``，也就不会
+    经主配置接口读出或写回 ``config.yaml``。
     """
     raw_values = _load_dotenv_sources()
     raw_values.update(os.environ)
 
     prefix = f"{HIVEMEMORY_ENV_PREFIX}PROVIDERS__"
-    result: dict[str, Any] = {}
+    fields: dict[str, dict[str, str]] = {}
     for key, value in raw_values.items():
         if value is None:
             continue
@@ -142,8 +149,8 @@ def provider_credentials_settings_source() -> dict[str, Any]:
         provider_name, field = parts[0].lower(), parts[1].lower()
         if field not in ("api_key", "api_base"):
             continue
-        _set_nested_value(result, ("shared", "providers", provider_name, field), value)
-    return result
+        fields.setdefault(provider_name, {})[field] = value
+    return {name: ProviderCredentials(**values) for name, values in fields.items()}
 
 
 def yaml_config_settings_source() -> dict[str, Any]:
@@ -163,6 +170,7 @@ def yaml_config_settings_source() -> dict[str, Any]:
         logger.error(f"加载 YAML 配置文件失败: {e}")
         return {}
     _reject_unknown_sections(yaml_content, path)
+    _reject_secrets(yaml_content, path)
     return yaml_content
 
 
@@ -177,6 +185,30 @@ def _reject_unknown_sections(yaml_content: Any, path: Path) -> None:
     unknown = sorted(str(key) for key in set(yaml_content) - set(HiveMemoryConfig.model_fields))
     if unknown:
         raise ValueError(f"配置文件包含未知的顶层配置段 {unknown}: {path}")
+
+
+def _reject_secrets(yaml_content: Any, path: Path) -> None:
+    """配置文件受版本控制，不保存密钥：任何非空的 ``api_key`` 都让加载失败。"""
+    found = sorted(_secret_paths(yaml_content, ()))
+    if found:
+        raise ValueError(
+            f"配置文件不保存密钥，以下字段写入了值 {found}: {path}；"
+            "提供商密钥写入 .env 的 HIVEMEMORY__PROVIDERS__<名称>__API_KEY 或在 Provider 设置中保存，"
+            "Qdrant 密钥写入 .env 的 HIVEMEMORY__QDRANT__API_KEY"
+        )
+
+
+def _secret_paths(node: Any, path: tuple[str, ...]) -> list[str]:
+    if not isinstance(node, dict):
+        return []
+    found: list[str] = []
+    for key, value in node.items():
+        child = (*path, str(key))
+        if key == SECRET_FIELD and value not in (None, ""):
+            found.append(".".join(child))
+        else:
+            found.extend(_secret_paths(value, child))
+    return found
 
 
 class _LoaderSettingsSource(PydanticBaseSettingsSource):
@@ -273,7 +305,6 @@ class HiveMemoryConfig(BaseSettings):
             env_settings,
             dotenv_settings,
             _LoaderSettingsSource(settings_cls, legacy_env_alias_settings_source),
-            _LoaderSettingsSource(settings_cls, provider_credentials_settings_source),
             _LoaderSettingsSource(settings_cls, yaml_config_settings_source),
             file_secret_settings,
         )
@@ -318,5 +349,6 @@ __all__ = [
     "get_default_config_file_path",
     "yaml_config_settings_source",
     "legacy_env_alias_settings_source",
-    "provider_credentials_settings_source",
+    "provider_credentials_from_env",
+    "SECRET_FIELD",
 ]

@@ -155,20 +155,20 @@ HIVEMEMORY__GATEWAY__WORKFLOW__DEFAULT_REQUEST_TIMEOUT_MS=8000
 HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 ```
 
-旧的 `LLM__...`、`QDRANT__...` 等形式仍通过显式 alias 映射兼容。动态 provider 名不能由静态 alias 枚举，因此由 `provider_credentials_settings_source()` 单独扫描并归入 `shared.providers`。
+旧的 `LLM__...`、`QDRANT__...` 等形式仍通过显式 alias 映射兼容。提供商凭证 `HIVEMEMORY__PROVIDERS__<NAME>__API_KEY` / `__API_BASE` 不属于主配置：动态 provider 名不能由静态 alias 枚举，由 `provider_credentials_from_env()` 单独扫描（进程环境变量优先，其次是 `.env`），结果直接交给 `ProviderRegistry` 作为只读的环境层，不进入 `HiveMemoryConfig`。
 
-默认配置文件不存在时使用默认值和环境变量；显式指定的 `HIVEMEMORY_CONFIG_PATH` 不存在会抛 `FileNotFoundError`。YAML 解析失败当前记录 error 并返回空配置源，最终由 Pydantic 默认值和其他来源继续构造。解析成功后，配置文件的顶层键必须是 `HiveMemoryConfig` 已声明的配置段：出现写错或已删除的段（例如 `passive_ingress`）时以 `ValueError` 加载失败，并指出段名与文件路径，而不是被根配置的宽松规则静默丢弃。
+默认配置文件不存在时使用默认值和环境变量；显式指定的 `HIVEMEMORY_CONFIG_PATH` 不存在会抛 `FileNotFoundError`。YAML 解析失败当前记录 error 并返回空配置源，最终由 Pydantic 默认值和其他来源继续构造。解析成功后，配置文件的顶层键必须是 `HiveMemoryConfig` 已声明的配置段：出现写错或已删除的段（例如 `passive_ingress`）时以 `ValueError` 加载失败，并指出段名与文件路径，而不是被根配置的宽松规则静默丢弃。配置文件受版本控制，不保存密钥：任何非空的 `api_key`（LLM 与 Qdrant）同样让加载失败，错误指出字段路径与密钥应在的位置，不包含密钥本身。主配置中的 `api_key` 只能来自环境变量与 `.env`。
 
 ## 3. Registry 解析
 
 `SystemAssembler` 在装配时：
 
-1. 用共享 provider 配置创建 `ProviderRegistry`；
+1. 以环境变量中的提供商凭证（`provider_credentials_from_env()`）创建 `ProviderRegistry`，它另外装载 `providers.secrets.yaml`；
 2. 创建引用该 registry 的 `ModelRegistry`；
-3. 解析 Gateway 和 Librarian 的 LLM config，把 `model_id` 对应的 model/provider/api key/api base 补齐；
+3. 解析 Gateway 和 Librarian 的 LLM config，把 `model_id` 对应的 model/provider/api key/api base 补齐；解析结果是另一份配置，不写回 `system.config`；
 4. 把两份解析结果各自转换为 LLM 请求参数（模型、凭证、temperature 与 max_tokens；组件配置中的 `top_p` 不发送），与唯一的 LLM 服务一同注入 Gateway 与 Patchouli；未配置模型的组件得到空参数并按无 LLM 运行。
 
-这一步把凭证解析从业务请求热路径移开，也避免 Gateway 和 Patchouli 对同一模型引用各自得出不同结果；两个组件的模型、凭证与采样参数只来自各自的配置段，共享的 LLM 服务不持有任何一方的配置（[System 组合根](./composition.md#13-llm-bundle)）。Alice 的模型参数不经组件配置，由 Agent Profile、会话覆盖与注册表逐帧解析。注册表提供模型和 provider 元数据，但不拥有某次请求的执行状态。
+这一步把凭证解析从业务请求热路径移开，也避免 Gateway 和 Patchouli 对同一模型引用各自得出不同结果。解析结果不写回配置对象，是因为主配置接口读写的就是这个对象：写回会让提供商密钥与解析出的模型名经 `/api/v1/config` 读出、在保存时进入 `config.yaml`，并丢掉 `model_id`，组件从此脱离注册表；两个组件的模型、凭证与采样参数只来自各自的配置段，共享的 LLM 服务不持有任何一方的配置（[System 组合根](./composition.md#13-llm-bundle)）。Alice 的模型参数不经组件配置，由 Agent Profile、会话覆盖与注册表逐帧解析。注册表提供模型和 provider 元数据，但不拥有某次请求的执行状态。
 
 ## 4. 配置所有权与兼容边界
 
@@ -180,6 +180,9 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 - 各配置段拒绝未知键（`extra="forbid"`）：写错或已删除的键让配置校验失败，启动与 `POST /config` 都显式报错，不会被静默丢弃后让人误以为生效；根配置 `HiveMemoryConfig` 例外，模型本身忽略未知的顶层键，因为它同时接收环境变量与 `.env`，其中有不属于配置树的变量（如 `HIVEMEMORY_CONFIG_PATH`）；配置文件只承载配置树，未知的顶层段在装载配置文件时另行拒绝（第 2 节）；
 - `i18n.default_language` 由组合根在装配运行配置时设为进程默认语言，并先于在构造时读取默认语言的组件；构造配置对象本身没有全局副作用，`GET /config/defaults` 与 `POST /config` 的校验都不改变运行中的默认语言，`POST /config` 保存的新值在下次启动时生效。请求级显式语言仍由调用方或 Profile 传递；
 - `logging` 段由 server 生命周期在加载配置后、装配系统之前应用，模块入口与直接运行 uvicorn 的行为一致。`level` 只接受 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL`，决定根 logger 的级别与控制台、文件输出的下限；`format` 作用于这两项输出；`console_output` 控制 stderr 输出；`file_path` 非空时追加写入该文件（相对路径按工作目录解析，缺失的目录会创建），两项都关闭时不输出。开启 WebSocket 广播且 `websocket_level` 更低时，根 logger 放宽到广播级别，控制台与文件仍只输出 `level` 及以上。入口只替换自己装上的输出，不移除测试框架或 WebSocket 广播的 handler；uvicorn 自己的访问与错误日志沿用 uvicorn 的日志配置。`POST /config` 保存的日志配置在下次启动时生效。
+- 密钥不属于受版本控制的配置文件：Provider 凭证由 `ProviderRegistry` 管理（`.env` 与 `providers.secrets.yaml`），主配置只在运行时从环境变量与 `.env` 取得 `api_key`，主配置接口响应打码、保存时既不修改也不写入密钥（[配置指南](../help/configuration.md#5-主配置与生效边界)）。
+
+升级注意（密钥移出主配置）：`shared.providers` 已从主配置删除，`config.yaml` 中留有这一段时，`shared` 段因未知键加载失败；把其中的 `api_base`（与可能写入的 `api_key`）移到 `.env` 的 `HIVEMEMORY__PROVIDERS__<NAME>__API_BASE` / `__API_KEY`，或在 Provider 页面保存，再删除这一段。曾经由主配置页面保存过的 `config.yaml`，Gateway 与 Librarian 段可能写入了解析后的 `model`、`api_key` 并丢掉了 `model_id`：加载会因 `api_key` 失败，删除这些字段并恢复 `model_id`。
 
 配置扩展必须先判断它属于哪一个所有者；不能为了方便在 `HiveMemoryConfig` 添加一个字段，然后让多个子系统各自解释不同含义。
 

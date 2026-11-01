@@ -31,9 +31,8 @@ def test_gateway_and_librarian_get_request_params_from_their_own_config():
         model="librarian-model", api_key="librarian-key", temperature=0.3, max_tokens=8192
     )
     assembler = SystemAssembler(config)
-    assembler._build_registries()
 
-    llm = assembler._build_llm()
+    llm = assembler._build_llm(assembler._build_registries())
 
     assert llm.gateway_params == LLMRequestParams(
         model="gateway-model",
@@ -45,6 +44,24 @@ def test_gateway_and_librarian_get_request_params_from_their_own_config():
     assert llm.librarian_params == LLMRequestParams(
         model="librarian-model", api_key="librarian-key", temperature=0.3, max_tokens=8192
     )
+
+
+def test_registry_credentials_reach_request_params_without_changing_the_config(monkeypatch):
+    """注册表补齐的提供商密钥只进入组件的请求参数，配置对象仍是配置文件的内容。
+
+    主配置接口读写的就是这份配置对象：写回解析结果会让密钥进入 config.yaml，
+    并丢掉 model_id。
+    """
+    monkeypatch.setenv("HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY", "sk-provider-from-env")
+    config = HiveMemoryConfig(runtime_events={"enabled": False})
+    config.shared.llm.gateway = LLMConfig(model_id="deepseek-chat", max_tokens=512)
+    assembler = SystemAssembler(config)
+
+    llm = assembler._build_llm(assembler._build_registries())
+
+    assert llm.gateway_params is not None
+    assert llm.gateway_params.api_key == "sk-provider-from-env"
+    assert config.shared.llm.gateway == LLMConfig(model_id="deepseek-chat", max_tokens=512)
 
 
 def test_component_without_model_gets_no_request_params():
