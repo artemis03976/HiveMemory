@@ -15,7 +15,7 @@ related_docs:
   - docs/archive/todo/import-bus-real-use-observation.md
   - docs/todo/reranker-int8-and-onnx-memory.md
   - docs/ideas/settlement-multi-memory-extraction-and-dedup.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-10-31
 ---
 
 # 生成查重的决策信号
@@ -61,7 +61,7 @@ Claude Code 接入后的真实使用中，登记时（2026-10-29）查重从未�
 
 ## 完成条件
 
-随 v0.7.2 的查重与更新计划完成。查重的新设计（包括 UPDATE 的机制）owner 尚未决定，判定信号与命中后的写入方式作为待决问题记在[多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md#4-待决问题)第 4 节（G-2、G-3），计划建立时本 Todo 并入计划。完成时至少满足：
+owner 于 2026-10-31 对[多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md#4-待决问题)第 4 节的两个问题分别作出决定，本 Todo 随之分成两部分处理：
 
-- 补充证据中的两条覆盖链与离线复现的样本，在新机制下得到可解释的决策；
-- `MemoryDeduplicator` 的 docstring 与实际行为一致。
+- **命中后的写入方式（G-3）**：命中后先落库，再由融合任务把两条相似的记忆融合为一条，候选设计见该 Idea 第 5.1 节。补充证据中的两条覆盖链由 v0.7.2 的查重与更新计划解决，`MemoryDeduplicator` 的 docstring 随计划与实际行为保持一致；这一部分已并入[查重与更新：先落库再合并](../plans/v0.7.2-dedup-merge.md)。
+- **判定信号（G-2）**：暂不改动，不阻塞上述计划，之后另行调研。离线复现中相关对排在第 2、相关与无关没有分数间隔的问题仍由本 Todo 跟踪；完成条件是离线复现的样本在新的判定信号下得到可解释的决策。
