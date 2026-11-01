@@ -387,8 +387,13 @@ start_backend() {
         echo "backend: 警告：Qdrant 尚未就绪（$QDRANT_READY_URL），后端可能无法连接记忆存储" >&2
     fi
     echo "backend: starting ($(describe_backend_mode "$mode"))"
-    if ! start_process_group backend "$PROJECT_ROOT" "$(log_file backend)" \
+    # The backend writes backend.log itself and rolls it over at midnight. Its
+    # stdout/stderr only carry what happens before logging is configured, such
+    # as import errors and the reloader, so they go to a separate file.
+    if ! start_process_group backend "$PROJECT_ROOT" "$(log_file backend.stdout)" \
         env "HIVEMEMORY_SERVE_FRONTEND=$serve_frontend" \
+        "HIVEMEMORY__LOGGING__FILE_PATH=$(log_file backend)" \
+        HIVEMEMORY__LOGGING__CONSOLE_OUTPUT=false \
         uv run uvicorn hivememory.server.app:app \
         --host "$BACKEND_HOST" \
         --port "$BACKEND_PORT" \
@@ -399,7 +404,7 @@ start_backend() {
     BACKEND_STARTED_BY_SCRIPT=1
 
     if ! wait_for_url "$BACKEND_HEALTH_URL" "backend" 120; then
-        tail -n 100 "$(log_file backend)" >&2 || true
+        tail -n 100 "$(log_file backend.stdout)" "$(log_file backend)" >&2 || true
         stop_managed_service backend
         BACKEND_STARTED_BY_SCRIPT=0
         return 1
@@ -612,15 +617,17 @@ show_logs() {
     local service="${1:-all}"
     if [[ "$service" == 'all' ]]; then
         echo "日志目录：$LOG_DIR"
-        for service in qdrant backend frontend; do
+        for service in qdrant backend.stdout backend frontend; do
             echo
             echo "===== $service ====="
             tail -n 40 "$(log_file "$service")" 2>/dev/null || echo '(暂无日志)'
         done
         return 0
     fi
+    # -F follows the file name, so the backend's midnight rollover moves on to
+    # the new day's file.
     case "$service" in
-        qdrant|backend|frontend) tail -n 100 -f "$(log_file "$service")" ;;
+        qdrant|backend|frontend) tail -n 100 -F "$(log_file "$service")" ;;
         *) echo "用法：$0 logs [qdrant|backend|frontend|all]" >&2; return 2 ;;
     esac
 }

@@ -28,6 +28,9 @@ from hivememory.infrastructure.llm.base import (
 
 logger = logging.getLogger(__name__)
 
+# 每次调用由本服务自己记录；SDK 逐次调用的 INFO 日志与之重复，只保留它的警告与错误。
+logging.getLogger("LiteLLM").setLevel(logging.WARNING)
+
 # SDK 确认的提供商失败；程序异常不属于提供商失败，不在此列。
 _PROVIDER_ERRORS = (
     litellm.APIError,
