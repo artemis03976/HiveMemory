@@ -2,7 +2,7 @@
 title: 主配置保存把密钥写入受版本控制的 YAML
 status: archived
 archived_at: 2026-11-01
-implemented_by: fix/config-secrets
+implemented_by: PR #159
 superseded_by: docs/system/configuration.md
 owner: system
 scope: main-config-save-persists-secrets-into-tracked-config-yaml

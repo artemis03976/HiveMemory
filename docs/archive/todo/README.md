@@ -10,7 +10,7 @@ last_reviewed: 2026-11-01
 
 本目录保存已完成的修复与技术债处置历史；当前行为从对应事实文档进入，活动待办见 [Todo](../../todo/README.md)。每条登记一行：归档日期、所在的 PR 与替代它的当前文档；处置过程见各事项自身。
 
-- [主配置保存把密钥写入受版本控制的 YAML](./config-secrets-written-to-yaml.md)：2026-11-01，分支 fix/config-secrets；[System 配置与注册表](../../system/configuration.md)、[配置指南](../../help/configuration.md#5-主配置与生效边界)
+- [主配置保存把密钥写入受版本控制的 YAML](./config-secrets-written-to-yaml.md)：2026-11-01，PR #159；[System 配置与注册表](../../system/configuration.md)、[配置指南](../../help/configuration.md#5-主配置与生效边界)
 - [生成材料的筛选与截断](./generation-material-filtering-and-truncation.md)：2026-10-31，PR #150；[Patchouli 生成](../../patchouli/generation.md)、[感知与短期话题](../../patchouli/perception.md)
 - [Import Bus 真实使用观察](./import-bus-real-use-observation.md)：2026-10-30，PR #148，owner 决定不再逐项跟踪；[生成查重的决策信号](../../todo/generation-dedup-decision-signal.md)
 - [任务进程中无生产使用方的代码与可合并小项](./task-process-unused-paths.md)：2026-10-30，PR #145；[任务进程](../../workspace/task-process.md)
