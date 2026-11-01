@@ -10,6 +10,10 @@ last_reviewed: 2026-11-01
 
 本目录保存已经完成或被替代、且当前事实已经合并进规范文档的实施计划。每条登记一行：归档日期、实现所在的 PR（未合并时为提交）与替代它的当前文档；实施过程、验收与决定见各计划自身的状态行与实施记录。
 
+## 版本之外
+
+- [DeepSeek Harness 插件接入](./dsh-plugin-integration.md)：2026-11-01，分支 feat/dsh-plugin；[Import Bus](../../system/import-bus.md#9-deepseek-harness-插件)、[接入 DeepSeek Harness](../../help/deepseek-harness-plugin.md)
+
 ## v0.7.2
 
 - [v0.7.2 版本收尾审计](./v0.7.2-release-closeout-audit.md)：2026-11-01，PR #156；[PROJECT](../../PROJECT.md)

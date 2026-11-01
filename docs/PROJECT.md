@@ -154,9 +154,9 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 - ConversationSession 的创建、列表、重命名、删除与历史恢复；会话属于 Workspace，逐轮选择 Agent，Alice 从全量原文构建带工具减重与接力摘要的预算视图，Gateway 使用最近 N 轮；原文与压缩检查点仅在进程内保存；
 - SSE 流式 Agent run；
 - 全局系统指令的注册与解析：命令以命令终态结束、不进入普通 chat，当前不执行内置命令（[Gateway 全局命令](./gateway/commands.md)）；
-- Import Bus：外部 harness 一轮已结束交互的整轮导入（`POST /api/v1/import/turns`），经统一认证与导入授权、Gateway 话题落位、共用封口后提交 Patchouli 感知，交互应用完成后才确认，不检索记忆、不返回记忆上下文；外部 harness 写入记忆时，Import Bus 为进行中的一轮就地落位，这一轮回流时沿用落点；仓库附带 Claude Code 插件（`integrations/claude-code/`），其中的连接器在轮次结束与会话开始、结束时把会话记录中已结束的轮次导入，并把插件自身记忆工具的调用标为 SEARCH、READ、WRITE、UPDATE，避免取回或显式写入的内容被再提取；
-- MCP 记忆访问：外部 harness 经 `POST /mcp` 的四个工具检索（`memory_search`）、读取（`memory_read`）、写入（`memory_write`）与更新（`memory_update`）记忆；每次工具调用以请求头中的接入身份与凭据经统一认证网关签发一份请求级 context，经操作入口的请求级提交进入 actor API、按访问登记逐次授权，不建进程；写入与更新先经 Import Bus 为这一轮落位，与主动链路共用同一意图登记与生成链路，返回 pending alias；Claude Code 插件以 `.mcp.json` 声明这个 MCP server，并以 `PreToolUse` hook 为写入与更新补上当前一轮的信息（[MCP 记忆访问](./contracts/mcp.md)）；
-- 外部 harness 的接入身份：每个外部 harness 在接入登记中有自己的 principal 与接入凭据（Claude Code 为 `harness:claude-code`），导入与 MCP 共用；能否声明保留的 `system` 由登记逐个限定；
+- Import Bus：外部 harness 一轮已结束交互的整轮导入（`POST /api/v1/import/turns`），经统一认证与导入授权、Gateway 话题落位、共用封口后提交 Patchouli 感知，交互应用完成后才确认，不检索记忆、不返回记忆上下文；外部 harness 写入记忆时，Import Bus 为进行中的一轮就地落位，这一轮回流时沿用落点；仓库附带 Claude Code 插件（`integrations/claude-code/`），其中的连接器在轮次结束与会话开始、结束时把会话记录中已结束的轮次导入，并把插件自身记忆工具的调用标为 SEARCH、READ、WRITE、UPDATE，避免取回或显式写入的内容被再提取；另附 DeepSeek Harness 插件（`integrations/deepseek-harness/`），经 dsh 的会话查询服务读取已结束的轮次导入，规则相同；
+- MCP 记忆访问：外部 harness 经 `POST /mcp` 的四个工具检索（`memory_search`）、读取（`memory_read`）、写入（`memory_write`）与更新（`memory_update`）记忆；每次工具调用以请求头中的接入身份与凭据经统一认证网关签发一份请求级 context，经操作入口的请求级提交进入 actor API、按访问登记逐次授权，不建进程；写入与更新先经 Import Bus 为这一轮落位，与主动链路共用同一意图登记与生成链路，返回 pending alias；Claude Code 插件以 `.mcp.json` 声明这个 MCP server，并以 `PreToolUse` hook 为写入与更新补上当前一轮的信息；dsh 不能在工具执行前改写参数，DeepSeek Harness 插件因此把四个工具注册为 dsh 原生工具，执行时经本端点调用，并以调用方会话的当前一轮补上轮次信息（[MCP 记忆访问](./contracts/mcp.md)）；
+- 外部 harness 的接入身份：每个外部 harness 在接入登记中有自己的 principal 与接入凭据（Claude Code 为 `harness:claude-code`，DeepSeek Harness 为 `harness:dsh`），导入与 MCP 共用；能否声明保留的 `system` 由登记逐个限定；
 - Gateway 的话题路由、查询分析、请求取消、总超时和局部保守降级。
 
 ### 5.2 记忆与知识

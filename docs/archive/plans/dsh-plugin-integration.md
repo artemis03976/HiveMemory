@@ -1,6 +1,9 @@
 ---
 title: DeepSeek Harness 插件接入
-status: active
+status: archived
+archived_at: 2026-11-01
+implemented_by: feat/dsh-plugin（2e64cef8–bdad70d3 与收尾提交）
+superseded_by: docs/system/import-bus.md
 owner: project
 target: v0.7.3 之前（版本之外的工作，owner 2026-10-31）
 scope: dsh-native-plugin-memory-tools-and-turn-import
@@ -35,11 +38,11 @@ last_reviewed: 2026-11-01
 
 # DeepSeek Harness 插件接入
 
-> 状态：Active（2026-11-01 建立并开始实施）。接入路径由 owner 决定（2026-11-01）：写成纯 dsh 原生插件，记忆工具与对话回流都在插件内完成，Python 连接器不改动。外部证据见[调研报告](../research/deepseek-harness-plugin-survey.md#7-调研结果)第 7 节；本计划记录 HiveMemory 一侧的设计、验收与收尾清单。
+> 状态：Archived（2026-11-01，插件、接入登记、测试与帮助文档完成，事实文档收尾后归档；owner 决定此时收尾，真实模型下的完整验收在日常使用中完成，记录见第 10 节）。当前事实见 [Import Bus](../../system/import-bus.md#9-deepseek-harness-插件)第 9 节、[MCP 记忆访问](../../contracts/mcp.md#6-连接器调用名轮次信息与回声标记)第 6 节与[接入 DeepSeek Harness](../../help/deepseek-harness-plugin.md)。以下为实施时的计划原文。原状态：Active（2026-11-01 建立并开始实施）。接入路径由 owner 决定（2026-11-01）：写成纯 dsh 原生插件，记忆工具与对话回流都在插件内完成，Python 连接器不改动。外部证据见[调研报告](../../research/deepseek-harness-plugin-survey.md#7-调研结果)第 7 节；本计划记录 HiveMemory 一侧的设计、验收与收尾清单。
 
 ## 1. 背景和问题
 
-owner 决定（2026-10-31）以 DeepSeek Harness（`dsh`）作为第二个接入的外部 harness，采用 plugin 模式：对话回流加经工具的记忆访问，版本之外完成，之后经它进行 agent memory 与 harness 项目的调研（[ROADMAP](../ROADMAP.md) 第 4.2 节）。owner 的方向是记忆的写入与访问主要由执行者经记忆工具主动完成，话题结算的被动提取作为兜底。
+owner 决定（2026-10-31）以 DeepSeek Harness（`dsh`）作为第二个接入的外部 harness，采用 plugin 模式：对话回流加经工具的记忆访问，版本之外完成，之后经它进行 agent memory 与 harness 项目的调研（[ROADMAP](../../ROADMAP.md) 第 4.2 节）。owner 的方向是记忆的写入与访问主要由执行者经记忆工具主动完成，话题结算的被动提取作为兜底。
 
 调研（2026-11-01 快照，dsh `0.2.2-alpha.2`）得出两点约束：
 
@@ -65,7 +68,7 @@ owner 决定（2026-10-31）以 DeepSeek Harness（`dsh`）作为第二个接入
 ## 3. 当前状态和缺口
 
 - HiveMemory 的 `/mcp` 是无状态、JSON 响应的 streamable HTTP：`initialize`（带服务说明）与 `tools/list` 不需要会话即可调用，已在本机运行的 0.7.2 服务上只读核对（2026-11-01）。写入与更新缺少 `turn` 时以 `request.turn_required` 拒绝。
-- Import Bus 按 `principal/user/agent/source/外部会话/外部轮次` 推导交互标识，写入时的落位与回流共用这一标识（[Import Bus](../system/import-bus.md#47-写入时落位)第 4.7 节）。
+- Import Bus 按 `principal/user/agent/source/外部会话/外部轮次` 推导交互标识，写入时的落位与回流共用这一标识（[Import Bus](../../system/import-bus.md#47-写入时落位)第 4.7 节）。
 - 接入登记只有 `harness:claude-code`；Workspace 访问登记只有 Agent `claude_code` 的精确记录。
 
 插件依赖的 dsh 能力均来自固定源码 `ce7073d5` 与实测：工具注册表接受原始 JSON Schema 参数（只对输出 schema 做子集校验）；`session/event` 在事件提交后同步通知；`agent/created` 在 Agent 创建与恢复时触发；`ctx.sessionQuery.readSession(id)` 优先读实时会话，冷读时为崩溃未结束的最后一轮补上 `interrupted` 收尾；`ctx.sessions.flush(session)` 把缓冲事件写入持久记录；`ctx.systemPrompt.section` 注册系统提示词的一节。owner 日常使用的 Windows 桌面端是 dsh `0.2.1-rc.5`（npm 的 `latest`，比调研快照旧），上述能力在这个版本上同样实测可用；调研中提到的 `ctx.agents.turnBoundaryOf` 在 0.2.1-rc.5 中不存在，插件因此不依赖它，当前一轮与水位都从会话记录本身得到。
@@ -117,7 +120,7 @@ owner 决定（2026-10-31）以 DeepSeek Harness（`dsh`）作为第二个接入
 - 触发：`session/event` 中的 `turn/end`（记下实际结束的轮号）与 `agent/created`（创建与恢复）同步该会话；插件加载时同步全部“实际结束的轮号大于水位”的会话。同一会话同时只有一个同步，运行期间再次触发时结束后重跑一次。监听器只做本地快速工作，任何失败只进日志，网络提交在后台进行。
 - 读取：会话在本进程存活时先 `flush` 再读实时记录，确认之后 dsh 崩溃也不会让已确认的轮次从会话记录中消失、再被新的一轮以同一轮号取代。会话不在本进程时读持久记录，只提交实际看到结束的轮次：冷读补上的收尾可能对应另一个 dsh 进程中仍在运行的一轮。
 - 水位只在确认后前进；首次见到的会话按创建时间与插件首次运行时间比较，更早创建的不回填，水位留空，第一次读取时放在当时最后一个已结束的轮次（之后开始的轮次照常提交）；会话被删除（`SESSION_QUERY_SESSION_NOT_FOUND`）时移除状态。
-- 提交结果的分类与处理与 Claude Code 连接器相同（[Import Bus](../system/import-bus.md#85-提交结果的处理)第 8.5 节）：2xx 前进；网络错误、超时、429/502/503/504 保留水位并停止；413/422 写拒绝记录后前进；其他 4xx 保留水位并停止；其他 5xx 同一轮连续第三次时写拒绝记录并前进。
+- 提交结果的分类与处理与 Claude Code 连接器相同（[Import Bus](../../system/import-bus.md#85-提交结果的处理)第 8.5 节）：2xx 前进；网络错误、超时、429/502/503/504 保留水位并停止；413/422 写拒绝记录后前进；其他 4xx 保留水位并停止；其他 5xx 同一轮连续第三次时写拒绝记录并前进。
 - 插件卸载时中止进行中的请求，水位不前进。
 
 ### 4.6 状态目录与日志
@@ -126,7 +129,7 @@ owner 决定（2026-10-31）以 DeepSeek Harness（`dsh`）作为第二个接入
 
 ### 4.7 安装
 
-安装、配置、确认、排查与更新的操作步骤（含 Windows 桌面端连接 WSL 中的 HiveMemory）只在[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md)中维护，应 owner 要求（2026-11-01）随实现写入帮助文档，不等收尾。
+安装、配置、确认、排查与更新的操作步骤（含 Windows 桌面端连接 WSL 中的 HiveMemory）只在[接入 DeepSeek Harness](../../help/deepseek-harness-plugin.md)中维护，应 owner 要求（2026-11-01）随实现写入帮助文档，不等收尾。
 
 ## 5. 受影响的系统、契约和数据
 
@@ -185,12 +188,33 @@ pytest tests/integration/workspace/test_published_registration_chain.py -q
 
 ## 9. 完成时必须更新的当前文档
 
-已随实现更新（owner 要求，2026-11-01）：帮助文档。新增[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md)；Claude Code 的接入步骤由安装与启动第 9 节移为[接入 Claude Code](../help/claude-code-plugin.md)，[安装与启动](../help/setup.md)第 9 节改为两份手册的入口；[配置指南](../help/configuration.md)与[故障排查](../help/troubleshooting.md)的相关段落与链接随之更新。
+全部已更新。帮助文档应 owner 要求随实现写入：新增[接入 DeepSeek Harness](../../help/deepseek-harness-plugin.md)；Claude Code 的接入步骤由安装与启动第 9 节移为[接入 Claude Code](../../help/claude-code-plugin.md)，[安装与启动](../../help/setup.md)第 9 节改为两份手册的入口，[配置指南](../../help/configuration.md)与[故障排查](../../help/troubleshooting.md)随之更新。收尾时更新：
 
-收尾时更新：
+- [Import Bus](../../system/import-bus.md)：新增第 9 节 DeepSeek Harness 插件，原第 9 至 11 节顺延为第 10 至 12 节；组成表、设计不变量、已知限制与代码测试入口加入插件；
+- [MCP 记忆访问](../../contracts/mcp.md)：外部 harness 列表、第 6 节的 dsh 插件（注册、调用、结果与回声标记）、已知限制与代码测试入口；
+- [配置](../../system/configuration.md)、[认证与访问登记](../../workspace/authentication.md)：`harness:dsh`、`HIVEMEMORY_DSH_TOKEN` 与 Agent `dsh`；认证与访问登记中 `claude_code` 只获准检索与读取的过时描述一并改正；
+- [PROJECT](../../PROJECT.md)、README 与 README_EN、[ROADMAP](../../ROADMAP.md)、Ideas、Research 与 Plans 索引。
 
-- [Import Bus](../system/import-bus.md)：外部 harness 连接器一节加入 dsh 插件（组成、触发、投影、水位与补发、状态目录、已知限制），与 Claude Code 连接器共用的规则只写一处。
-- [MCP 记忆访问](../contracts/mcp.md)：外部 harness 列表、dsh 插件的工具注册与轮次信息、回声标记。
-- [配置](../system/configuration.md)、[认证与访问登记](../workspace/authentication.md)：`harness:dsh`、`HIVEMEMORY_DSH_TOKEN` 与 Agent `dsh`。
-- [PROJECT](../PROJECT.md)、README 与 README_EN、[ROADMAP](../ROADMAP.md)：第二个外部 harness 的状态。
-- 归档本计划，从 [Plans 导航](./README.md)移除。
+## 10. 实施记录
+
+**提交**（分支 `feat/dsh-plugin`）：计划（`2e64cef8`）、接入登记（`662c242f`）、插件与 `node:test` 单元测试（`66b1fed5`）、一致性测试、注释守护与 CI（`434128d3`）、接入手册（`bdad70d3`），以及事实文档收尾与本归档。
+
+**实施中对设计的调整**：
+
+- owner 日常使用的 Windows 桌面端是 dsh `0.2.1-rc.5`，其中没有调研时依据的 `ctx.agents.turnBoundaryOf`。插件改为不依赖它：写入时的当前一轮取调用方会话实时记录的最后一轮；接入前已有的会话，水位在第一次读取时确定为最后一个已结束的轮次。`engines.dsh` 下限降为 `0.2.1-rc.5`，上限写成 `<0.3.0-0`：dsh 按包含预发布版本的规则判定，`<0.3.0` 会放进 0.3.0 的预发布版本。
+- 帮助文档应 owner 要求随实现写入，没有等到收尾（第 9 节）。
+
+**验证**：
+
+- 插件单元测试 37 个，在 Node 22 与 24.9 下通过；改坏回放重跑、冷读限制、回声去掉 `turn`、fork 前缀、旧会话水位时，对应测试失败；
+- 真实 dsh 运行时探针（脚本在仓库之外）在 `0.2.1-rc.5` 与 `0.2.2-alpha.2` 上通过：工具注册与 `turn` 隐藏、写入轮次信息、两轮导入与最近轮次、两次 503 之后跨进程冷读补发；
+- Windows 侧以桌面端自带的 `dsh.cmd` 在隔离的 `DSH_HOME` 中，从 Windows 本地目录与 `\\wsl.localhost` 路径安装，headless 启动时插件加载并经 `127.0.0.1`、`localhost` 连上 WSL 中的替身服务；
+- 后端：跨语言一致性测试、注释守护扩展、访问登记链路与 CI 等价门槛通过。
+
+**真实使用（2026-11-01，Windows 桌面端 `0.2.1-rc.5`）**：
+
+- 插件加载并注册四个工具，登记了 4 个会话：3 个是安装前已有的会话，不回填；1 个新会话的第 1 轮等待导入。插件的轮次投影离线核对过这些会话的真实记录（6 轮，均为 `completed`）。
+- 工具调用与导入以 `unknown_principal` 被拒：运行中的后端早于 `harness:dsh` 的登记启动，而登记只在启动时装载。处理是重启后端，排查表中有对应一行。dsh 中的 agent 把原因误判为缺少 `X-Workspace-ID`，插件不需要改动。
+- 试用中 dsh 的 agent 经本机转发读取 `/api/v1/config`，拿到了明文密钥。接口响应的打码已由 PR #157 修复，主配置保存写入密钥与 HTTP 管理接口不证明调用方登记为 Todo（[密钥写入](../../todo/config-secrets-written-to-yaml.md)、[管理接口](../../todo/local-http-management-access.md)）。含密钥的那一轮由 owner 轮换密钥后照常导入。
+
+**验收状态**：owner 决定此时收尾并合并（2026-11-01）。真实模型下的完整验收在重启后端后的日常使用中完成：写入得到 `draft_` 句柄、这一轮回流落在写入派发的话题、新会话中检索召回。dsh 配套的引导 skill 在后续分支完成（owner，2026-11-01）。

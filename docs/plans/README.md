@@ -12,7 +12,7 @@ last_reviewed: 2026-11-01
 
 ## v0.7.3
 
-下一计划版本。版本目标未定（owner，2026-11-01）：先完成 DeepSeek Harness 的接入与经它进行的批量调研，再设计 v0.7.3（[ROADMAP](../ROADMAP.md) 第 4.2 节）。当前没有计划。
+下一计划版本。版本目标未定（owner，2026-11-01）：DeepSeek Harness 已于 2026-11-01 接入，经它进行批量调研之后再设计 v0.7.3（[ROADMAP](../ROADMAP.md) 第 4.2 节）。当前没有计划。
 
 ## v0.7.2
 
@@ -24,7 +24,7 @@ v0.7.1（Git tag `v0.7.1`，2026-10-30）、v0.7.0（Git tag `v0.7.0`，2026-10-
 
 ## 未绑定版本
 
-- [DeepSeek Harness 插件接入](./dsh-plugin-integration.md)：Active（2026-11-01）。版本之外的工作，v0.7.3 之前完成；接入路径为纯原生插件（owner，2026-11-01）；插件与接入登记已实现，真实模型与真实 HiveMemory 的验收待完成。
+暂无。DeepSeek Harness 插件接入已于 2026-11-01 归档，见 [Archived Plans](../archive/plans/README.md)。
 
 ## 准入规则
 

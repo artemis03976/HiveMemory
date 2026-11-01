@@ -37,7 +37,7 @@ last_reviewed: 2026-11-01
 - 本次发布标签：`v0.7.2`（合并后创建）；
 - 最近已发布基线：`v0.7.1`（Git tag，2026-10-30）；[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
 - 当前内容基线：`v0.7.2`，状态为 Completed（生成质量已收尾，版本内的四份计划均已归档）；[收尾审计](./archive/plans/v0.7.2-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
-- 下一计划版本：`v0.7.3`，版本目标未定（owner，2026-11-01）：先完成 DeepSeek Harness 的接入与经它进行的批量调研，再设计 v0.7.3（第 4.2 节）。
+- 下一计划版本：`v0.7.3`，版本目标未定（owner，2026-11-01）：DeepSeek Harness 已以原生插件接入（2026-11-01），经它进行批量调研之后再设计 v0.7.3；在此之前先修复本机 HTTP 接口的两项安全 Todo，dsh 配套的引导 skill 在之后的分支完成（owner，2026-11-01）（第 4.2 节）。
 
 当前规范代码版本为 `0.7.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致；本次发布标签为 `v0.7.2`，待合并后创建，最近已发布基线为 `v0.7.1`。
 
@@ -121,7 +121,9 @@ last_reviewed: 2026-11-01
 |:---|:---:|:---|:---|
 | `v0.7.2` 生成质量 | Completed（2026-11-01 收尾）/ 版本目标 owner，2026-10-30：四份计划均已完成 | 真实使用中生成的记忆可信：生成材料不被单轮上限截断，Topic 之后的原始证据可以回查；一个话题能提取多条记忆；查重与更新按新机制处理同一件事的后续阶段；Claude Code 能显式写入与更新记忆 | 第 4.3 节；[收尾审计](./archive/plans/v0.7.2-release-closeout-audit.md) |
 | `v0.7.3` | 版本目标未定（owner，2026-11-01） | 在 DeepSeek Harness 接入与经它进行的批量调研之后设计 | 下一行 |
-| 第二个外部 harness：DeepSeek Harness 的 plugin 模式接入 | 版本之外的工作，v0.7.3 之前完成（owner，2026-10-31）；资料调研与无凭据机制探针已完成（2026-11-01）；接入路径为纯原生插件（owner，2026-11-01），插件与接入登记已实现，真实模型与真实 HiveMemory 的验收待完成；接入与批量调研完成后再设计 v0.7.3（owner，2026-11-01） | dsh 经对话回流与记忆工具接入 HiveMemory；之后经它进行 agent memory 与 harness 项目的调研，同时作为压测与数据积累 | [调研需求与报告](./research/deepseek-harness-plugin-survey.md)、[计划](./plans/dsh-plugin-integration.md) |
+| 第二个外部 harness：DeepSeek Harness 的 plugin 模式接入 | Completed（2026-11-01 收尾）/ 版本之外的工作（owner，2026-10-31）；接入路径为纯原生插件（owner，2026-11-01）；owner 决定收尾，真实模型下的完整验收在日常使用中完成 | dsh 经对话回流与原生记忆工具接入 HiveMemory，Windows 桌面端可以连接 WSL 中的 HiveMemory；之后经它进行 agent memory 与 harness 项目的调研，同时作为压测与数据积累 | [调研需求与报告](./research/deepseek-harness-plugin-survey.md)、[归档计划](./archive/plans/dsh-plugin-integration.md)、[接入手册](./help/deepseek-harness-plugin.md) |
+| 本机 HTTP 接口的密钥与访问控制 | 下一步修复（owner，2026-11-01）；`/api/v1/config` 响应中的明文密钥已改为打码（PR #157） | 主配置保存不再把 `.env` 中的密钥写入受版本控制的 YAML；HTTP 管理接口证明调用方，harness 中的 agent 不能绕过 Workspace 访问登记 | [密钥写入 Todo](./todo/config-secrets-written-to-yaml.md)、[管理接口 Todo](./todo/local-http-management-access.md) |
+| DeepSeek Harness 配套的引导 skill | 后续分支（owner，2026-11-01） | 引导没有原生记忆的 harness 中的 agent 主动经记忆工具写入与检索；MCP 服务说明中“对话本身会自动归档，不需要复述写入”与这一方向冲突，一并处理 | [归档计划](./archive/plans/dsh-plugin-integration.md) |
 | 冷启动、历史导入与外源文档资产化 | Candidate / 不绑定版本 | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | 第 4.4 节；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md) |
 | MTP READ 专项编译与来源表达 | Candidate / 不绑定版本 | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | 第 4.5 节；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md) |
 | Deep Research MVP | Candidate / 不绑定版本 | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 第 4.6 节 |

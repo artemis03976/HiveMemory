@@ -2,7 +2,7 @@
 title: Import Bus
 status: current
 owner: system
-scope: external-harness-complete-turn-import-and-claude-code-connector
+scope: external-harness-complete-turn-import-and-harness-connectors
 code_paths:
   - src/hivememory/server/routers/import_bus.py
   - src/hivememory/server/models/import_bus.py
@@ -15,6 +15,7 @@ code_paths:
   - src/hivememory/patchouli/control/interaction_submission.py
   - integrations/claude-code/
   - integrations/.claude-plugin/marketplace.json
+  - integrations/deepseek-harness/
   - configs/workspace_actors.yaml
   - configs/system_principals.yaml
 related_contracts:
@@ -31,16 +32,18 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/components/runtime-and-bus.md
   - docs/help/claude-code-plugin.md
+  - docs/help/deepseek-harness-plugin.md
 related_plans:
   - docs/archive/plans/v0.7.1-import-bus-redesign.md
   - docs/archive/plans/v0.7.1-memory-access-mcp.md
   - docs/archive/plans/v0.7.2-plugin-write-update.md
-last_reviewed: 2026-10-31
+  - docs/archive/plans/dsh-plugin-integration.md
+last_reviewed: 2026-11-01
 ---
 
 # Import Bus
 
-Import Bus 是外部 harness 对话回流 HiveMemory 的入口。harness 中的一轮交互结束后，连接器把这一轮的完整记录（用户消息、助手正文、思考、工具调用与结果）一次交给 Import Bus；Import Bus 经 Gateway 取得话题落位，用与任务进程相同的封口函数组装交互记录，经 Patchouli 公开路由提交，并在感知应用完成后才确认。第一个接入的 harness 是 Claude Code，连接器以插件形式位于 `integrations/claude-code/`（第 8 节）。
+Import Bus 是外部 harness 对话回流 HiveMemory 的入口。harness 中的一轮交互结束后，连接器把这一轮的完整记录（用户消息、助手正文、思考、工具调用与结果）一次交给 Import Bus；Import Bus 经 Gateway 取得话题落位，用与任务进程相同的封口函数组装交互记录，经 Patchouli 公开路由提交，并在感知应用完成后才确认。第一个接入的 harness 是 Claude Code，连接器以插件形式位于 `integrations/claude-code/`（第 8 节）；第二个是 DeepSeek Harness（dsh），插件位于 `integrations/deepseek-harness/`（第 9 节）。
 
 外部 harness 经 MCP 写入与更新记忆时，写入发生在一轮进行之中，需要这一轮最终所在的话题。Import Bus 为此在写入时为这一轮就地落位并登记落点，这一轮结束回流时沿用落点（第 4.7 节）。
 
@@ -64,6 +67,7 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 | 封口函数 `seal_interaction` | `core/protocol/sealing.py` | 两条链路共用：组装 `InteractionPayload` | 解析事件（只在感知层进行） |
 | Patchouli | 公开路由 `patchouli.public.interaction.submit` / `.status` / `.wait` | 提交队列、查重、应用、新话题的建立 | 导入的身份与重试策略 |
 | Claude Code 连接器 | `integrations/claude-code/` | 读取会话记录、切分轮次、游标与重发 | 服务端的查重与授权 |
+| DeepSeek Harness 插件 | `integrations/deepseek-harness/` | 读取 dsh 会话的逻辑记录、切分轮次、水位与重发；注册记忆工具 | 服务端的查重与授权 |
 
 编排器的状态只有串行门、在途计数与落点登记，都只在进程内。它经 `GlobalSystemBus` 调用 Gateway 与 Patchouli 的公开路由，不持有任何子系统的 Runtime 或 Patchouli 的提交队列；组合根只注入全局总线、Gateway 请求时限与最近轮数（沿用 Gateway 配置）、等待应用的时限与观测 sink，导入授权使用与其他入口相同的操作授权者。
 
@@ -337,7 +341,57 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 
 状态目录依次取 `HIVEMEMORY_CONNECTOR_STATE_DIR`、Claude Code 提供的插件数据目录 `CLAUDE_PLUGIN_DATA`，都没有时用 `~/.hivememory/claude-code-connector`；后台同步进程沿用 hook 解析出的状态目录。目录中保存 `transcripts/`（各会话记录的状态）、`connector.json`（首次运行时间）、`rejections.jsonl`（拒绝记录：会话与轮次标识、状态码、错误码与原因）与 `connector.log`（超过 1 MiB 时轮转一份）。状态、拒绝记录与日志只保存标识、位置与状态，不保存会话正文。
 
-## 9. 设计不变量
+## 9. DeepSeek Harness 插件
+
+插件是一个 dsh 原生插件（bundle `hivememory-connector`），只用 Node 标准库，不导入 HiveMemory 包，经 dsh 的插件上下文取得工具、会话、会话查询与系统提示词服务；支持的 dsh 版本由 `engines.dsh` 声明（`>=0.2.1-rc.5 <0.3.0-0`）。它同时提供对话回流与记忆工具，记忆工具见 [MCP 记忆访问](../contracts/mcp.md#6-连接器调用名轮次信息与回声标记)第 6 节。安装与配置的操作步骤见[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md)。
+
+它不沿用 Claude Code 连接器的做法，原因在 dsh 一侧：
+
+- dsh 的工具前置事件不能改写调用参数，无法像 `PreToolUse` 那样为通用 MCP 工具调用补上轮次信息，记忆工具因此由插件自己注册，回流与工具放在同一个插件中；
+- dsh 的会话文件以 Zstandard 压缩，格式随版本迁移，插件不读文件，经会话查询服务读取会话的逻辑事件流，存活的会话读实时记录。
+
+确认后前进、提交结果的分类与重发去重与 Claude Code 连接器相同（第 8.5 节），以 JavaScript 另外实现，不共用 Python 骨架（owner 决定，2026-11-01）。
+
+### 9.1 组成
+
+| 位置 | 负责 |
+|:---|:---|
+| `package.json`、`cordis.patch.yml` | bundle 清单与插入插件行 `hivememory` 的配置层 |
+| `index.js` | 装配，监听 Agent 创建与会话事件，连接 HiveMemory 并注册记忆工具 |
+| `lib/turns.js` | 会话事件到导入轮次与在途轮次的投影、回声标记、结局映射 |
+| `lib/sync.js`、`lib/state.js` | 同步循环与按会话保存的水位 |
+| `lib/client.js` | MCP 工具调用与导入提交，提交结果的分类 |
+| `lib/tools.js`、`lib/config.js`、`lib/log.js` | 记忆工具定义、环境变量配置、日志 |
+
+### 9.2 触发与读取
+
+- **触发**：一轮结束（会话事件 `turn/end`，记下实际结束的轮号）与 Agent 创建或恢复时，同步该会话；插件加载时，同步全部还有实际结束但未确认的轮次、或水位尚未确定的会话。同一会话同时只有一个同步，运行期间再次触发时，结束后再同步一次。监听器在 dsh 的执行路径上同步运行，只做本地的快速工作，任何失败只进日志，网络提交在后台进行。
+- **先落盘再读取**：会话在本进程中存活时，读取前先让 dsh 把缓冲的事件写入持久记录：确认之后 dsh 崩溃，已确认的轮次不会从会话记录中消失、再被新的一轮以同一轮号取代。
+- **不在本进程的会话**：读到的是持久记录，读取方会为最后一轮未结束的记录补上 `interrupted` 收尾，而该会话可能正在另一个 dsh 进程中运行这一轮，因此只提交实际看到结束的轮次。崩溃时进行中的一轮，由 dsh 在会话恢复时补上收尾，之后照常回流。
+
+### 9.3 轮次的切分与映射
+
+- 一轮从 `turn/start` 到同一轮号的 `turn/end`，没有 `turn/end` 的一轮仍在进行，不提交。外部会话标识取会话标识，外部轮次标识取轮号：轮号在会话内唯一且递增，恢复与 fork 都接着已有的最大轮号编号。fork 出的会话只读继承前缀之后的事件；继承前缀中未结束的一轮由 fork 补上的收尾结束，它的 `turn/start` 在前缀中，因此不形成轮次。
+- **用户消息**：来源为 `user` 的消息（一轮的提示、运行中追加的消息、父 Agent 委托给子 Agent 的任务）按顺序以空行拼接，图片与文件写占位；harness 注入的上下文（技能正文、目录说明、压缩摘要、子 Agent 的结束通知等）不读取。一轮可能没有这类消息，例如由子 Agent 的结束通知唤醒，用户消息因此为空。
+- **事件**：助手消息的 `text` 块写为 `assistant_message`，`reasoning` 块写为 `thought`（没有正文的跳过），`tool-call` 块不读取，调用以独立的 `tool/call` 事件为准，写为 `tool_call`；`tool/result` 按调用标识补全到同一轮的调用上（`isError` 为真时 `status` 为 `error`，否则为 `success`），找不到调用的结果跳过。没有形成助手消息的尝试不读取。`model_used` 取最后一条助手消息的模型。
+- **回声标记**：本插件四个记忆工具的调用归一化为 `SEARCH`、`READ`、`WRITE`、`UPDATE`，规则与 Claude Code 连接器相同（第 8.3 节）。插件注册的工具名就是 MCP 工具的名字，dsh 的工具注册表中同名工具只能有一个，工具名因此就是识别依据。
+- **结局**：`completed` 为 `completed`；被取消（`aborted`）、崩溃后收尾（`interrupted`）与 fork 收尾为 `cancelled`；出错、被拦截（`blocked`）、输出达到上限（`max-tokens`）与插件扩展的未知原因为 `failed`。
+- **最近轮次**：该轮之前最近三个已结束轮次的用户消息、全部助手正文与外部轮次标识，正文按字符截断到 2000。写入时补上的轮次信息以同一函数从同一份会话记录构造，回流时服务端推导出同一个交互标识。
+- **子 Agent**：子 Agent 的会话作为独立的外部会话导入，子 Agent 中的写入落在它自己的当前一轮；父会话只导入委托子 Agent 的那次工具调用。
+
+### 9.4 水位与首次见到的会话
+
+- 每个会话的状态是：来源（`new` 或 `existing`）、水位（轮号不大于它的轮次都已确认、被不可重试地拒绝，或在登记时就已存在而不回填）、实际结束的最大轮号，以及各轮连续得到服务器内部错误的次数。水位只在确认之后、或写入拒绝记录之后前进，提交结果的处理见第 8.5 节。
+- 首次见到的会话按创建时间与插件首次运行时间比较：之后创建的从头导入；更早创建的不回填，水位留空，第一次读取时放在当时最后一个已经结束的轮次，之后开始的轮次照常导入。
+- 会话被删除（会话查询返回不存在）时移除它的状态，不再补发。插件卸载时中止进行中的请求，水位不前进。
+
+### 9.5 配置与状态目录
+
+插件从环境变量读取配置，变量名与 Claude Code 连接器相同，默认 Agent 为 `dsh`、默认状态目录为 `~/.hivememory/dsh-connector`（表格见[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md#3-配置插件)第 3 节）。每次请求以常量 `harness:dsh` 作为 `X-Principal-ID` 发送，来源标识为 `dsh`；服务端一侧的凭据环境变量是 `HIVEMEMORY_DSH_TOKEN`（[配置](./configuration.md)）。
+
+状态目录中保存 `sessions/`（各会话的状态）、`connector.json`（首次运行时间）、`rejections.jsonl`（拒绝记录：会话标识、轮号、状态码、错误码与原因）与 `connector.log`（超过 1 MiB 时轮转一份），只保存标识、轮号与状态，不保存会话正文。dsh 的插件代码在一个线程中运行，状态以同步文件操作读改写、替换写入，同一进程内不需要文件锁。
+
+## 10. 设计不变量
 
 - Import Bus 不检索记忆、不返回记忆上下文，不运行 Alice、MTP、命令或回复生成，不写入 ConversationSession；`PASSIVE_MEMORY` 只能得到 Gateway 决定。
 - 确认只在感知应用成功之后：`accepted` 与 `duplicate` 都表示这一轮已经应用，应用失败或等待超时都不确认。
@@ -350,9 +404,9 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 - 交互记录由共用的 `seal_interaction` 产出，与任务进程的交互记录同形，只以事件表达交互内容；Gateway 决定不进入交互记录，也不得删除原始交互。
 - 编排器不持有提交队列、不注册维护任务；关闭时只等待在途请求，不排空队列。
 - RuntimeEvent 不携带正文，发布失败不改变结果。
-- 连接器只在得到确认，或判定这一轮不可重试并写入拒绝记录之后前进游标；hook 不做网络提交，不阻塞 Claude Code。
+- 连接器只在得到确认，或判定这一轮不可重试并写入拒绝记录之后前进游标；hook 不做网络提交，不阻塞 Claude Code。dsh 插件的水位遵循同一规则，事件监听只做本地工作，不阻塞 dsh。
 
-## 10. 已知限制
+## 11. 已知限制
 
 - 查重依赖 Patchouli 提交队列的进程内记录，终态记录有保留上限：确认送达之前服务重启，或超出保留窗口后重发，会形成重复的交互。
 - 话题路由失败时续接上一轮的兜底，会把用户恰在故障期间换了话题的轮次归入旧话题。
@@ -366,9 +420,13 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 - Claude Code 的会话记录有时只记下同一条消息并行发出的多个调用中最后一个的结果，其余调用以没有结局的形式导入，生成材料中缺少这些结果；连接器无法补回会话记录没有保存的内容。
 - 连接器依赖 Claude Code 未公开承诺的会话记录格式；本地记录中的思考多数只有签名，连接器只能转交有正文的部分。30 分钟无新条目即按中断结束的规则，会把等待权限确认超过 30 分钟、恰逢其他会话唤醒补发的一轮按中断提交，之后写入的内容不再导入。连接器只在 Linux（WSL）上验证过，Windows 上的文件锁以持续重试取得。
 
+- dsh 插件依赖 dsh 开发者预览版的插件服务与会话事件，跨版本可能不兼容：`engines.dsh` 限定在 0.2.x，桌面端升级会同时升级 dsh。dsh 的 PTC 模式（默认关闭）下记忆工具在 `run_code` 内部调用，会话记录只有外层调用，回声标记不生效。
+- dsh 一轮中运行时追加的用户消息并入用户消息，与助手事件的相对位置不保留；子 Agent 的会话独立导入，子 Agent 的轨迹也进入记忆生成。
+- dsh 插件每次同步与每次写入都读取整个会话记录，开销随会话长度增长；崩溃时进行中的一轮只在会话恢复后回流，不再恢复的会话不回流这一轮；多个 dsh 进程共用状态目录时没有跨进程互斥，同一轮可能提交两次，由服务端按交互标识去重。
+
 这些项目曾在 v0.7.1 期间随日常使用观察，记录见已归档的 [Import Bus 真实使用观察](../archive/todo/import-bus-real-use-observation.md)（2026-10-30 归档，之后日常使用中发现的问题另行登记）。
 
-## 11. 代码与测试入口
+## 12. 代码与测试入口
 
 代码：
 
@@ -378,7 +436,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 - 封口：[`core/protocol/sealing.py`](../../src/hivememory/core/protocol/sealing.py)；
 - Patchouli 公开路由与提交队列：[`patchouli/contracts/public_routes.py`](../../src/hivememory/patchouli/contracts/public_routes.py)、[`patchouli/contracts/interaction_submission.py`](../../src/hivememory/patchouli/contracts/interaction_submission.py)、[`patchouli/control/interaction_submission.py`](../../src/hivememory/patchouli/control/interaction_submission.py)；
 - 配置：[`config/import_bus.py`](../../src/hivememory/config/import_bus.py)；访问登记：[`configs/workspace_actors.yaml`](../../configs/workspace_actors.yaml)；
-- 连接器：[`integrations/claude-code/`](../../integrations/claude-code/)、[`integrations/.claude-plugin/marketplace.json`](../../integrations/.claude-plugin/marketplace.json)。
+- 连接器：[`integrations/claude-code/`](../../integrations/claude-code/)、[`integrations/.claude-plugin/marketplace.json`](../../integrations/.claude-plugin/marketplace.json)；dsh 插件：[`integrations/deepseek-harness/`](../../integrations/deepseek-harness/)。
 
 测试：
 
@@ -388,4 +446,5 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 - 封口：`tests/unit/core/protocol/test_seal_interaction.py`；提交队列的状态、等待与失败后重交：`tests/unit/patchouli/control/test_interaction_submission.py`；
 - 装配与关闭：`tests/unit/system/application/test_api_services.py`、`tests/unit/system/test_hivememory_system.py`、`tests/unit/system/test_lifecycle.py`；配置：`tests/unit/system/test_config_agent_runtime.py`；
 - 真实队列与感知的协作：`tests/integration/system/test_import_bus_submission.py`；经 MCP 写入后回流落在写入派发的话题：`tests/integration/system/test_mcp_memory_access.py`；离线 E2E：`tests/e2e/system/test_import_turns.py`；
-- 连接器（含回声标记、`PreToolUse` 的轮次信息与之后的导入一致、插件声明与 hooks matcher 和常量一致、principal 与凭据请求头）：`tests/unit/connectors/test_claude_code_reader.py`、`tests/unit/connectors/test_claude_code_hooks.py`、`tests/unit/connectors/test_sync.py`。
+- 连接器（含回声标记、`PreToolUse` 的轮次信息与之后的导入一致、插件声明与 hooks matcher 和常量一致、principal 与凭据请求头）：`tests/unit/connectors/test_claude_code_reader.py`、`tests/unit/connectors/test_claude_code_hooks.py`、`tests/unit/connectors/test_sync.py`；
+- dsh 插件（轮次投影、回声标记与结局、写入时的轮次信息与之后的导入一致、提交分类、水位与补发）：`integrations/deepseek-harness/test/`，以 `npm test` 运行（CI 的 `dsh-plugin` 任务）；插件的工具名、参数与 MCP server 一致，principal 与 Agent 在发布的登记中：`tests/unit/connectors/test_deepseek_harness_plugin.py`。
