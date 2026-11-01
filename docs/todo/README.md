@@ -12,6 +12,8 @@ last_reviewed: 2026-11-01
 
 当前事项：
 
+- [Gateway 与 Librarian 的旧式直配路径](./legacy-llm-direct-config.md)（2026-11-01 由密钥移出主配置登记：没有 `model_id` 时直接使用配置中的 `model`、`api_key`、`api_base`，经 `HIVEMEMORY__LLM__*__API_KEY` 等环境变量注入，绕过模型与 Provider 注册表；owner 选择修复范围时未纳入，未排期）；
+- [模型级密钥覆盖写入受版本控制的 models.yaml](./model-registry-api-key-override.md)（2026-11-01 由密钥移出主配置登记：模型页面的“高级覆盖”把模型级 `api_key` 写入 `configs/models.yaml`；owner 选择修复范围时未纳入，未排期）；
 - [本机 HTTP 管理接口不证明调用方](./local-http-management-access.md)（2026-11-01 由 dsh 接入试用登记：管理接口以 server 的 principal 接入或不经认证网关，本机任何进程包括 harness 中的 agent 都能读写记忆、配置与密钥；会改变 HTTP 的信任模型，实施前先形成 Idea 或计划；owner 决定下一步修复）；
 - [生成组件测试的分类与重复覆盖](./generation-component-test-classification.md)（2026-10-31 查重与更新修正审查登记：组件调用位于 E2E 目录，查重集成断言同时接受多种决策；后续按归属层收敛，未排期）；
 - [推理模型重新加载时的事件循环停顿](./model-reload-event-loop-stall.md)（2026-10-30 由空闲卸载计划的实测验收登记：onnxruntime 创建会话与卸载时的 `gc.collect()` 持有 GIL，重新加载期间其他请求最长等待约 1～3.7 秒，两个模型同时加载时最长；owner 决定记为已知限制，之后单独优化，未排期）；
