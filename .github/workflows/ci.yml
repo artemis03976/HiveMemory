@@ -85,12 +85,13 @@ jobs:
         # 显式包含 src，避免本地包被当作未提供 py.typed 的第三方包跳过。
         run: uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 
-  # ========== E2E（手动触发，真实 LLM + Qdrant） ==========
-  # 依赖真实外部服务，仅在 workflow_dispatch 手动运行时执行。
+  # ========== E2E 与真实资源测试（手动触发，真实 LLM + Qdrant） ==========
+  # 依赖真实外部服务，仅在 workflow_dispatch 手动运行时执行：e2e，以及 integration 中
+  # 需要真实 LLM 或真实基础设施（Qdrant、embedding、重排模型）的测试。
   # 需要仓库 Secrets：
   #   OPENAI_API_KEY / DEEPSEEK_API_KEY / ANTHROPIC_API_KEY（按使用的 provider 配置其一）
   e2e:
-    name: E2E (real LLM + Qdrant)
+    name: E2E and real-resource tests (real LLM + Qdrant)
     runs-on: ubuntu-latest
     timeout-minutes: 60
     if: github.event_name == 'workflow_dispatch'
@@ -110,7 +111,8 @@ jobs:
 
       - name: Start Qdrant
         run: |
-          docker run -d --name qdrant-e2e -p 6333:6333 -p 6334:6334 qdrant/qdrant:v1.16.3
+          # 与 qdrant-client 保持同一小版本。
+          docker run -d --name qdrant-e2e -p 6333:6333 -p 6334:6334 qdrant/qdrant:v1.19.2
           for i in $(seq 1 30); do
             if curl -sf http://localhost:6333/readyz >/dev/null; then
               echo "Qdrant ready"
@@ -121,7 +123,7 @@ jobs:
           echo "Qdrant failed to become ready"
           exit 1
 
-      - name: Run E2E tests
+      - name: Run E2E and real-resource tests
         env:
           LLM__GATEWAY__API_KEY: ${{ secrets.OPENAI_API_KEY }}
           LLM__LIBRARIAN__API_KEY: ${{ secrets.OPENAI_API_KEY }}
@@ -130,7 +132,7 @@ jobs:
           HIVEMEMORY__PATCHOULI__STORAGE__PORT: 6333
           HIVEMEMORY__PATCHOULI__STORAGE__GRPC_PORT: 6334
         run: |
-          pytest tests/e2e -v --tb=short -m "e2e"
+          pytest tests/e2e tests/integration -v --tb=short -m "e2e or live_llm or real_infra"
 
       - name: Cleanup Qdrant container
         if: always()
