@@ -17,15 +17,16 @@ from typing import Any
 
 from hivememory.config.patchouli import ExtractorConfig
 from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
+from hivememory.core.models import MemoryAtom
 from hivememory.engines.generation.interfaces import BaseMemoryExtractor
-from hivememory.engines.generation.models import ExtractedMemoryDraft, MergeResult
+from hivememory.engines.generation.models import ExtractedMemoryDraft, MergeResult, RevisionResult
 from hivememory.i18n import get_generation_prompt_text, resolve_language
 from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
 from hivememory.utils.json_parser import JSONParseError, parse_llm_json
 
 logger = logging.getLogger(__name__)
 
-# 一次提取或合并对提供商的最多请求次数（含首次）。
+# 一次提取、修订或合并对提供商的最多请求次数（含首次）。
 _MAX_LLM_ATTEMPTS = 2
 
 
@@ -121,6 +122,10 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         )
 
         self.format_instructions = self._build_format_instructions()
+        self.merge_system_prompt = get_generation_prompt_text(
+            "merge", "system_prompt", self.language
+        )
+        self.merge_user_prompt = get_generation_prompt_text("merge", "user_prompt", self.language)
 
         logger.info(f"LLMMemoryExtractor 初始化完成 (模型: {llm_params.model})")
 
@@ -158,7 +163,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
                 承载，不在此传递），实际调用包含:
                 - mode: 生成模式（"write" / "update"）
                 - write_content / write_reason: Mode B WRITE 指令内容与理由
-                - instruction / new_content / memory_title 等: Mode C merge 上下文
+                - instruction / new_content / memory_title 等: Mode C revise 上下文
 
         Returns:
             ExtractedMemoryDraft: 提取的草稿；模型输出为空或无法解析时返回 None
@@ -236,13 +241,13 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         schema = ExtractedMemoryDraft.model_json_schema()
         return json.dumps(schema, ensure_ascii=False, indent=2)
 
-    async def merge(
+    async def revise(
         self,
         old_content: str,
         metadata: dict[str, Any],
-    ) -> MergeResult | None:
+    ) -> RevisionResult | None:
         """
-        Mode C: 执行 LLM 驱动的记忆合并 (UPDATE 指令)
+        Mode C: 执行 LLM 驱动的记忆修订 (UPDATE 指令)
 
         Args:
             old_content: 目标记忆的当前内容
@@ -254,12 +259,12 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
                 - transcript: 近期对话上下文
 
         Returns:
-            MergeResult: 合并结果；模型输出为空或无法解析时返回 None
+            RevisionResult: 修订结果；模型输出为空或无法解析时返回 None
 
         Raises:
             ModelProviderError: 提供商失败且重试耗尽，或上下文超窗
         """
-        # Step 1: 构建 Merge Prompt
+        # Step 1: 构建修订提示词
         new_content = metadata.get("new_content", "")
         messages = [
             {
@@ -278,7 +283,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
                 ),
             },
         ]
-        logger.info("Mode C (合并更新): 使用 UPDATE 专用提示词")
+        logger.info("Mode C (修订): 使用 UPDATE 专用提示词")
 
         # Step 2: 调用 LLM（只对提供商失败重试）
         raw_output = await self._complete(messages)
@@ -287,15 +292,54 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             logger.error("LLM 返回空响应 (Mode C)")
             return None
 
-        # Step 3: 解析 JSON → MergeResult；只把模型文本无法解析或不符合结构视为没有产出
+        # Step 3: 解析 JSON → RevisionResult；只把模型文本无法解析或不符合结构视为没有产出
         try:
-            result = parse_llm_json(raw_output, as_model=MergeResult)
+            result = parse_llm_json(raw_output, as_model=RevisionResult)
         except JSONParseError:
             logger.warning("Mode C JSON 解析失败")
             return None
 
-        logger.info(f"成功合并记忆: changelog='{result.changelog}'")
+        logger.info(f"成功修订记忆: changelog='{result.changelog}'")
         return result
+
+    async def merge(self, retained: MemoryAtom, absorbed: MemoryAtom) -> MergeResult | None:
+        """合并两条记忆；只重试提供商失败，无效输出不使用追加或覆盖回退。"""
+        # 以内容更新时间标明新旧，不能用访问时间或版本号比较两条独立记忆。
+        newer = "M" if retained.meta.updated_at >= absorbed.meta.updated_at else "N"
+        messages = [
+            {"role": "system", "content": self.merge_system_prompt},
+            {
+                "role": "user",
+                "content": self.merge_user_prompt.format(
+                    retained=self._merge_material(retained),
+                    absorbed=self._merge_material(absorbed),
+                    newer=newer,
+                ),
+            },
+        ]
+        raw_output = await self._complete(messages)
+        if not raw_output:
+            logger.warning("合并模型返回空响应")
+            return None
+        try:
+            return parse_llm_json(raw_output, as_model=MergeResult)
+        except JSONParseError:
+            logger.warning("合并模型输出无法解析")
+            return None
+
+    @staticmethod
+    def _merge_material(memory: MemoryAtom) -> str:
+        """只向模型提供融合所需的内容字段，正式身份不由模型决定。"""
+        return json.dumps(
+            {
+                "title": memory.index.title,
+                "summary": memory.index.summary,
+                "tags": memory.index.tags,
+                "memory_type": memory.index.memory_type.value,
+                "content": memory.payload.content,
+            },
+            ensure_ascii=False,
+        )
 
 
 class NoOpMemoryExtractor(BaseMemoryExtractor):

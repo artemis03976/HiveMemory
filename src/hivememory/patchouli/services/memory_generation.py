@@ -12,9 +12,11 @@ from pydantic import ValidationError
 
 from hivememory.core.errors import (
     InvalidMemoryFieldError,
+    MemoryMergeAbortedError,
     WorkspaceDomainError,
     WorkspaceMismatchError,
 )
+from hivememory.core.memory_access import memory_is_readable
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -31,6 +33,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.artifact import (
     ArtifactRef,
+    ArtifactType,
     DocumentSourceType,
     MemoryEventLog,
     MemoryEventType,
@@ -41,10 +44,12 @@ from hivememory.core.models.workspace_asset import TopicAssetBinding
 from hivememory.core.ports.workspace_assets import WorkspaceAssetMaterializationReaderPort
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.models import (
-    DuplicateDecision,
+    GenerationAction,
     GenerationContext,
     GenerationOutcome,
+    MergeFocus,
 )
+from hivememory.engines.memory_compiler import embedding_inputs_changed
 from hivememory.patchouli.control.memory_generation.models import (
     InteractionArtifactInput,
     MemoryGenerationResult,
@@ -86,47 +91,6 @@ class MemoryGenerationFamiliar:
 
         logger.info("MemoryGenerationFamiliar 初始化完成")
 
-    @staticmethod
-    def _embedding_inputs_changed(
-        before: MemoryAtom | dict | None,
-        after: MemoryAtom,
-    ) -> bool:
-        """判断一次完整提交是否改变了 embedding 输入。
-
-        embedding 只编译 ``index.title/memory_type/tags/summary``；仅
-        ``payload.agent_config``、关系或 lifecycle 变化时无需重算向量。
-        ``before`` 可为完整原子或其 canonical JSON dict。
-        """
-        if before is None:
-            return True
-        if isinstance(before, MemoryAtom):
-            before_index = before.index
-            old: tuple[str, str, list[str], str] = (
-                before_index.title,
-                before_index.memory_type.value,
-                sorted(before_index.tags or []),
-                before_index.summary,
-            )
-        elif isinstance(before, dict):
-            raw_index: dict[str, Any] = before.get("index") or {}
-            raw_type = raw_index.get("memory_type")
-            memory_type = str(getattr(raw_type, "value", raw_type))
-            old = (
-                str(raw_index.get("title")),
-                memory_type,
-                sorted(str(tag) for tag in (raw_index.get("tags") or [])),
-                str(raw_index.get("summary")),
-            )
-        else:
-            return True
-        new = (
-            after.index.title,
-            after.index.memory_type.value,
-            sorted(after.index.tags or []),
-            after.index.summary,
-        )
-        return old != new
-
     async def execute(
         self,
         spec: MemoryGenerationTaskSpec,
@@ -134,6 +98,8 @@ class MemoryGenerationFamiliar:
         """
         执行统一生成任务规范，只返回结果不发布事件。
         """
+        if spec.request.merge_focus is not None:
+            return await self._run_merge(spec, spec.request.merge_focus)
         interaction_ref = await self._capture_interaction_artifact(
             spec.interaction_input,
             spec.belong_to,
@@ -142,6 +108,98 @@ class MemoryGenerationFamiliar:
             spec,
             interaction_ref=interaction_ref,
         )
+
+    async def _run_merge(
+        self, spec: MemoryGenerationTaskSpec, focus: MergeFocus
+    ) -> list[MemoryGenerationResult]:
+        """先写回保留记忆，再删除被吸收记忆；失败最多留下重复，不回退为覆盖。"""
+        retained = await self._mid_term.get(
+            spec.belong_to, UUID(focus.retained_memory_id), from_actor=spec.from_actor
+        )
+        absorbed = await self._mid_term.get(
+            spec.belong_to, UUID(focus.absorbed_memory_id), from_actor=spec.from_actor
+        )
+        if retained is None or absorbed is None:
+            raise MemoryMergeAbortedError(details={"reason": "memory_missing"})
+        self._require_mergeable(retained, absorbed)
+
+        outcome = await self._generation_engine.merge(retained, absorbed)
+        if outcome is None:
+            raise MemoryMergeAbortedError(details={"reason": "model_output_invalid"})
+
+        # 模型调用期间可能发生修订、删除或策略变更，写回前必须重验。
+        current_retained = await self._read_merge_version(spec, retained)
+        current_absorbed = await self._read_merge_version(spec, absorbed)
+        self._require_mergeable(current_retained, current_absorbed)
+        atom = outcome.atom
+        if atom is None:
+            raise RuntimeError("合并计算未返回待提交的记忆")
+        # 访问与策略变动不推进内容版本，保留重读得到的动态状态。
+        atom.meta.lifecycle = current_retained.meta.lifecycle.model_copy(deep=True)
+        atom.meta.access_policy = current_retained.meta.access_policy.model_copy(deep=True)
+        for ref in absorbed.payload.artifacts.refs:
+            if ref.artifact_type == ArtifactType.INTERACTION:
+                self._append_artifact_ref_once(atom, ref)
+        await self._commit_outcome(
+            outcome,
+            belong_to=spec.belong_to,
+            now=require_utc(self._now()),
+            interaction_ref=None,
+            gen_context=spec.request.context,
+            creation_source=spec.source.creation_artifact_intent,
+            update_source=spec.source.version_update_source,
+            source_artifact_refs=absorbed.payload.artifacts.refs,
+        )
+
+        await self._mid_term.delete_by_key(
+            WorkspaceMemoryKey(workspace_identity=spec.belong_to, memory_id=absorbed.id)
+        )
+        settlement = None
+        if focus.pending_alias is not None and focus.intent_id is not None:
+            settlement = PendingAtomSettlement(
+                pending_alias=focus.pending_alias,
+                intent_id=focus.intent_id,
+                resolution=PendingAtomResolution.MERGED,
+                canonical_alias=retained.get_alias(),
+                canonical_uuid=str(retained.id),
+            )
+        return [
+            MemoryGenerationResult(
+                canonical_alias=retained.get_alias(),
+                canonical_uuid=str(retained.id),
+                settlement=settlement,
+                absorbed_memory_uuid=str(absorbed.id),
+            )
+        ]
+
+    @staticmethod
+    def _require_mergeable(retained: MemoryAtom, absorbed: MemoryAtom) -> None:
+        """不同策略或 Profile 不能融合；同一条记忆也不能吸收自身。"""
+        if (
+            retained.id == absorbed.id
+            or retained.meta.access_policy != absorbed.meta.access_policy
+            or MemoryType.AGENT_PROFILE in {retained.index.memory_type, absorbed.index.memory_type}
+        ):
+            raise MemoryMergeAbortedError(details={"reason": "not_mergeable"})
+
+    async def _read_merge_version(
+        self, spec: MemoryGenerationTaskSpec, original: MemoryAtom
+    ) -> MemoryAtom:
+        """按复合归属键重读，拒绝消失、不可见或内容版本变化的合并对象。"""
+        current = await self._mid_term.get_by_key(
+            WorkspaceMemoryKey(workspace_identity=spec.belong_to, memory_id=original.id)
+        )
+        if current is None or not memory_is_readable(
+            current, workspace_identity=spec.belong_to, actor_identity=spec.from_actor
+        ):
+            raise MemoryMergeAbortedError(
+                details={"reason": "memory_missing", "memory_id": str(original.id)}
+            )
+        if current.meta.version != original.meta.version:
+            raise MemoryMergeAbortedError(
+                details={"reason": "version_changed", "memory_id": str(original.id)}
+            )
+        return current
 
     async def create_external_memory(
         self,
@@ -192,7 +250,7 @@ class MemoryGenerationFamiliar:
         )
         await self._attach_memory_artifact(
             atom=atom,
-            decision=DuplicateDecision.CREATE,
+            action=GenerationAction.CREATE,
             memory_before_snapshot=None,
             changelog=None,
             gen_context=GenerationContext(),
@@ -225,8 +283,8 @@ class MemoryGenerationFamiliar:
             return None
 
         commit_now = require_utc(self._now())
-        # 修改前完整原子 canonical JSON；版本记录 snapshot_before 直接嵌入。
-        before_snapshot = snapshot_memory_atom(atom)
+        # 修改前的完整原子：版本记录的 snapshot_before 与向量输入比较都以它为准。
+        before_snapshot = atom.model_copy(deep=True)
         changed_fields = self._apply_external_update(
             atom,
             title=title,
@@ -248,7 +306,7 @@ class MemoryGenerationFamiliar:
 
         await self._attach_memory_artifact(
             atom=atom,
-            decision=DuplicateDecision.UPDATE,
+            action=GenerationAction.UPDATE,
             memory_before_snapshot=before_snapshot,
             changelog=_manual_changelog(changed_fields),
             gen_context=GenerationContext(),
@@ -257,7 +315,7 @@ class MemoryGenerationFamiliar:
             update_source="MANUAL_EDIT",
             now=commit_now,
         )
-        recompute = self._embedding_inputs_changed(before_snapshot, atom)
+        recompute = embedding_inputs_changed(before_snapshot, atom)
         await self._mid_term.upsert(atom, recompute_vectors=recompute)
         return atom
 
@@ -326,7 +384,7 @@ class MemoryGenerationFamiliar:
 
         # Step 2/3：按 outcome 依次完成提交字段分配、artifact 挂载与持久化。
         for outcome in outcomes:
-            if outcome.duplicate_decision == DuplicateDecision.DISCARD or outcome.atom is None:
+            if outcome.atom is None:
                 continue
             await self._commit_outcome(
                 outcome,
@@ -339,10 +397,10 @@ class MemoryGenerationFamiliar:
             )
 
         # Step 4：只有确实产生 Memory CREATE/UPDATE 时才对 topic
-        # bindings 做附件 Artifact promotion；TOUCH/DISCARD 与纯上传/选择
+        # bindings 做附件 Artifact promotion；TOUCH 与纯上传/选择
         # 不提升。失败沿 best-effort 语义记录 warning，不回滚本轮结果。
         if any(
-            outcome.duplicate_decision in {DuplicateDecision.CREATE, DuplicateDecision.UPDATE}
+            outcome.action in {GenerationAction.CREATE, GenerationAction.UPDATE}
             for outcome in outcomes
         ):
             bindings = (
@@ -442,12 +500,24 @@ class MemoryGenerationFamiliar:
         atom = outcome.atom
         canonical_alias = atom.get_alias() if atom is not None else None
         canonical_uuid = str(atom.id) if atom is not None else None
+        merge_nomination = None
+        if outcome.merge_target_id is not None and canonical_uuid is not None:
+            # 新记忆已经完成持久化；WRITE 的首次结算仍为 CREATED，
+            # 句柄身份只交给后续合并任务用于成功后的改指。
+            is_write = spec.source == MemoryGenerationSource.WRITE
+            merge_nomination = MergeFocus(
+                retained_memory_id=outcome.merge_target_id,
+                absorbed_memory_id=canonical_uuid,
+                pending_alias=spec.pending_alias if is_write else None,
+                intent_id=spec.intent_id if is_write else None,
+            )
         return MemoryGenerationResult(
             canonical_alias=canonical_alias,
             canonical_uuid=canonical_uuid,
+            merge_nomination=merge_nomination,
             settlement=self._build_settlement(
                 spec,
-                outcome.duplicate_decision,
+                outcome.action,
                 canonical_alias=canonical_alias,
                 canonical_uuid=canonical_uuid,
             ),
@@ -456,14 +526,14 @@ class MemoryGenerationFamiliar:
     def _build_settlement(
         self,
         spec: MemoryGenerationTaskSpec,
-        decision: DuplicateDecision,
+        action: GenerationAction,
         *,
         canonical_alias: str | None,
         canonical_uuid: str | None,
     ) -> PendingAtomSettlement | None:
         if not spec.intent_id or not spec.pending_alias:
             return None
-        resolution = self._resolution_for(spec, decision)
+        resolution = self._resolution_for(action)
         return PendingAtomSettlement(
             pending_alias=spec.pending_alias,
             intent_id=spec.intent_id,
@@ -475,18 +545,13 @@ class MemoryGenerationFamiliar:
 
     def _resolution_for(
         self,
-        spec: MemoryGenerationTaskSpec,
-        decision: DuplicateDecision,
+        action: GenerationAction,
     ) -> PendingAtomResolution:
-        if decision == DuplicateDecision.CREATE:
+        if action == GenerationAction.CREATE:
             return PendingAtomResolution.CREATED
-        if decision == DuplicateDecision.TOUCH:
+        if action == GenerationAction.TOUCH:
             return PendingAtomResolution.TOUCHED
-        if decision == DuplicateDecision.UPDATE:
-            if spec.source == MemoryGenerationSource.UPDATE:
-                return PendingAtomResolution.UPDATED
-            return PendingAtomResolution.MERGED
-        return PendingAtomResolution.DISCARDED
+        return PendingAtomResolution.UPDATED
 
     async def _capture_interaction_artifact(
         self,
@@ -496,8 +561,8 @@ class MemoryGenerationFamiliar:
         """
         构建原始交互 artifact：结算时覆盖话题的全部轮次与折叠记录。
 
-        在生成之前捕获，失败只记录 warning、生成照常进行；提取失败或结果为
-        TOUCH、DISCARD 时，原文仍保存在 Artifact 中，只是没有记忆引用它。
+        在生成之前捕获，失败只记录 warning、生成照常进行；提取失败、没有产出
+        或结果为 TOUCH 时，原文仍保存在 Artifact 中，只是没有记忆引用它。
         """
         if interaction_input is None:
             return None
@@ -526,6 +591,7 @@ class MemoryGenerationFamiliar:
         gen_context: GenerationContext,
         creation_source: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
+        source_artifact_refs: list[ArtifactRef] | None = None,
     ) -> None:
         """单个 outcome 的提交流水线：字段分配 → artifact 挂载 → 持久化。
 
@@ -535,11 +601,11 @@ class MemoryGenerationFamiliar:
           内容提交成功的前置条件（builder 失败直接传播，不静默降级）。
         """
         atom = outcome.atom
-        if atom is None:  # 调用方已跳过 DISCARD/空 atom；此处守卫保证类型收窄。
+        if atom is None:  # 调用方已跳过空 atom；此处守卫保证类型收窄。
             return
-        decision = outcome.duplicate_decision
+        action = outcome.action
 
-        if decision == DuplicateDecision.TOUCH:
+        if action == GenerationAction.TOUCH:
             key = WorkspaceMemoryKey(
                 workspace_identity=belong_to,
                 memory_id=atom.id,
@@ -556,7 +622,7 @@ class MemoryGenerationFamiliar:
                 return
             return
 
-        if decision == DuplicateDecision.UPDATE:
+        if action == GenerationAction.UPDATE:
             # 引擎是纯计算，outcome.atom 携带的即提交前版本；内容修订在此
             # 提交边界推进一次版本与内容时间，衰减基准随之推进。
             atom.meta.version += 1
@@ -566,7 +632,7 @@ class MemoryGenerationFamiliar:
 
         await self._attach_memory_artifact(
             atom=atom,
-            decision=decision,
+            action=action,
             memory_before_snapshot=outcome.memory_before_snapshot,
             changelog=outcome.changelog,
             gen_context=gen_context,
@@ -574,29 +640,31 @@ class MemoryGenerationFamiliar:
             creation_source=creation_source,
             update_source=update_source,
             now=now,
+            source_artifact_refs=source_artifact_refs,
         )
 
-        recompute = decision == DuplicateDecision.CREATE or self._embedding_inputs_changed(
-            outcome.memory_before_snapshot, atom
-        )
+        # 新建没有上一版向量可保留；修订与合并写回只在向量输入文本变化时重算。
+        before = outcome.memory_before_snapshot
+        recompute = before is None or embedding_inputs_changed(before, atom)
         await self._mid_term.upsert(atom, recompute_vectors=recompute)
         logger.info(
             f"记忆已存储 '{atom.index.title}' (ID: {atom.id}, "
-            f"decision={decision.value}, recompute_vectors={recompute})"
+            f"action={action.value}, recompute_vectors={recompute})"
         )
 
     async def _attach_memory_artifact(
         self,
         *,
         atom: MemoryAtom,
-        decision: DuplicateDecision,
-        memory_before_snapshot: MemoryAtom | dict | None,
+        action: GenerationAction,
+        memory_before_snapshot: MemoryAtom | None,
         changelog: str | None,
         gen_context: GenerationContext,
         interaction_ref: ArtifactRef | None,
         creation_source: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"] = "UPDATE",
         now: datetime | None = None,
+        source_artifact_refs: list[ArtifactRef] | None = None,
     ) -> None:
         """为单个已生成或外部编辑的 MemoryAtom 挂载 artifact。
 
@@ -610,8 +678,10 @@ class MemoryGenerationFamiliar:
         await self._mid_term.ensure_alias_available(atom)
         commit_now = require_utc(now) if now is not None else require_utc(self._now())
 
-        src_refs = [interaction_ref] if interaction_ref else []
-        if decision == DuplicateDecision.CREATE:
+        src_refs = list(source_artifact_refs or ())
+        if interaction_ref is not None:
+            src_refs.append(interaction_ref)
+        if action == GenerationAction.CREATE:
             bundle = await self._build_creation_artifacts(
                 atom=atom,
                 gen_context=gen_context,
@@ -628,7 +698,7 @@ class MemoryGenerationFamiliar:
                 )
             )
 
-        elif decision == DuplicateDecision.UPDATE:
+        elif action == GenerationAction.UPDATE:
             version_ref = await self._build_update_artifact(
                 atom=atom,
                 memory_before_snapshot=memory_before_snapshot,
@@ -681,18 +751,18 @@ class MemoryGenerationFamiliar:
         self,
         *,
         atom: MemoryAtom,
-        memory_before_snapshot: MemoryAtom | dict | None,
+        memory_before_snapshot: MemoryAtom | None,
         changelog: str | None,
         source_artifact_refs: list[ArtifactRef],
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
         now: datetime,
     ) -> ArtifactRef:
         """构建版本记录；失败直接传播：版本记录是提交成功的前置条件。"""
-        snapshot_before: dict | None = None
-        if isinstance(memory_before_snapshot, MemoryAtom):
-            snapshot_before = snapshot_memory_atom(memory_before_snapshot)
-        elif isinstance(memory_before_snapshot, dict):
-            snapshot_before = memory_before_snapshot
+        snapshot_before = (
+            snapshot_memory_atom(memory_before_snapshot)
+            if memory_before_snapshot is not None
+            else None
+        )
         version_ref = await self._artifact_engine.memory.build_for_update(
             memory_after=atom,
             snapshot_before=snapshot_before,

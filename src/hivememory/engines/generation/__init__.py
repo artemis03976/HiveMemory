@@ -33,10 +33,11 @@ from hivememory.engines.generation.interfaces import (
 from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
+    GenerationAction,
     GenerationOutcome,
     GenerationRequest,
     MemoryProvenance,
-    MergeResult,
+    RevisionResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,10 +50,11 @@ __all__ = [
     # 生成流水线 DTO
     "DuplicateDecision",
     "ExtractedMemoryDraft",
+    "GenerationAction",
     "GenerationOutcome",
     "GenerationRequest",
     "MemoryProvenance",
-    "MergeResult",
+    "RevisionResult",
     # 记忆提取
     "LLMMemoryExtractor",
     "NoOpMemoryExtractor",

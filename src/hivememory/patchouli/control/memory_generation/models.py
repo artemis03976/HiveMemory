@@ -23,7 +23,7 @@ from hivememory.core.models import (
     TopicFold,
     WorkspaceIdentity,
 )
-from hivememory.engines.generation.models import GenerationRequest
+from hivememory.engines.generation.models import GenerationRequest, MergeFocus
 from hivememory.patchouli.contracts.memory_tasks import (
     MemoryGenerationSource,
     MemoryGenerationTask,
@@ -82,6 +82,19 @@ class MemoryGenerationTaskSpec:
     def __post_init__(self) -> None:
         if (self.intent_id is None) != (self.pending_alias is None):
             raise ValueError("intent_id 与 pending_alias 必须同时提供或同时缺省")
+        is_merge = self.source == MemoryGenerationSource.MERGE
+        if is_merge != (self.request.merge_focus is not None):
+            raise ValueError("MERGE 来源必须且只能携带 merge_focus")
+        if is_merge and (
+            self.intent_id is not None
+            or self.interaction_input is not None
+            or self.request.write_focus is not None
+            or self.request.update_focus is not None
+            or self.request.existing_memory is not None
+            or self.request.context.turns
+            or self.request.context.state_summary
+        ):
+            raise ValueError("合并任务不能携带交互输入、修订输入或意图终态结算权")
 
 
 @dataclass(frozen=True)
@@ -96,6 +109,9 @@ class MemoryGenerationResult:
     canonical_alias: str | None = None
     canonical_uuid: str | None = None
     settlement: PendingAtomSettlement | None = None
+    merge_nomination: MergeFocus | None = None
+    # 非空时 settlement 是已结算句柄的改指，不是首次终态。
+    absorbed_memory_uuid: str | None = None
 
 
 def memory_task_from_spec(

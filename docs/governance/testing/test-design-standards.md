@@ -9,7 +9,7 @@ related_docs:
   - pyproject.toml
   - .github/workflows/ci.yml
   - docs/DOCUMENTATION.md
-last_reviewed: 2026-10-16
+last_reviewed: 2026-10-31
 ---
 
 # 测试设计规范
@@ -111,7 +111,7 @@ last_reviewed: 2026-10-16
 
 | 场景 | 归类 |
 |:---|:---|
-| `MemoryDeduplicator` 使用 fake store 验证 CREATE/UPDATE/DISCARD 决策 | `unit` |
+| `MemoryDeduplicator` 使用 fake store 验证 DISTINCT/SIMILAR/IDENTICAL 判断 | `unit` |
 | `MemoryGenerationService + RealBus + InMemoryStore` 验证内部组件协作 | `integration` |
 | `QdrantMemoryStore` 连接真实 Qdrant 验证写入、过滤与查询 | `integration + real_infra` |
 | LiteLLM 适配器调用真实 Provider 验证请求/响应协议 | `integration + live_llm` |

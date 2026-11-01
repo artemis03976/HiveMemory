@@ -10,12 +10,15 @@
 
 import asyncio
 import json
+from datetime import UTC, datetime
 
 import pytest
 
 from hivememory.config.patchouli import ExtractorConfig
 from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
-from hivememory.engines.generation.extractor import LLMMemoryExtractor
+from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
+from hivememory.core.models.memory import MEMORY_SUMMARY_MAX_LENGTH, MEMORY_TITLE_MAX_LENGTH
+from hivememory.engines.generation.extractor import LLMMemoryExtractor, NoOpMemoryExtractor
 from hivememory.i18n import set_default_language
 from hivememory.infrastructure.llm.base import (
     BaseLLMService,
@@ -23,6 +26,7 @@ from hivememory.infrastructure.llm.base import (
     LLMRequestParams,
 )
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
+from tests.helpers.memory import make_memory_metadata
 
 _DRAFT_JSON = json.dumps(
     {
@@ -51,7 +55,7 @@ def _extractor(llm: BaseLLMService) -> LLMMemoryExtractor:
 
 
 class TestLLMMemoryExtractorPrompts:
-    """提取与合并发送的消息与组件请求参数。"""
+    """提取、修订与合并发送的消息与组件请求参数。"""
 
     @pytest.mark.asyncio
     async def test_extract_sends_system_and_user_messages_with_component_params(self):
@@ -102,7 +106,7 @@ class TestLLMMemoryExtractorPrompts:
             json.dumps({"new_content": "New content", "changelog": "Updated content"})
         )
 
-        await _extractor(llm).merge(
+        await _extractor(llm).revise(
             old_content="Old content",
             metadata={
                 "instruction": "Update it",
@@ -151,7 +155,7 @@ class TestLLMMemoryExtractorResults:
         llm = ScriptedLLMService(ModelProviderError("transient"), last_failure)
 
         with pytest.raises(ModelProviderError) as raised:
-            await _extractor(llm).merge("Old content", {"instruction": "Update it"})
+            await _extractor(llm).merge(*_merge_memories())
 
         assert raised.value is last_failure
         assert len(llm.calls) == 2
@@ -205,3 +209,98 @@ async def test_waiting_for_llm_lets_the_event_loop_run_other_tasks():
 
     assert draft is not None
     assert draft.title == "Extracted"
+
+
+def _merge_memories():
+    """提供更新时间与内容都不同的两条正式记忆。"""
+    retained = MemoryAtom(
+        meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
+        index=IndexLayer(
+            title="Design", summary="Decision", tags=["design"], memory_type=MemoryType.FACT
+        ),
+        payload=PayloadLayer(content="Earlier decision"),
+    )
+    retained.meta.updated_at = datetime(2026, 10, 1, tzinfo=UTC)
+    absorbed = retained.model_copy(deep=True)
+    absorbed.index.title = "Progress"
+    absorbed.payload.content = "Later progress"
+    absorbed.meta.updated_at = datetime(2026, 10, 2, tzinfo=UTC)
+    return retained, absorbed
+
+
+def _merge_json(**changes):
+    fields = dict(
+        title="Merged",
+        summary="Decision and progress",
+        tags=["work"],
+        memory_type="FACT",
+        content="Both pieces",
+        changelog="Preserved both stages",
+    )
+    fields.update(changes)
+    return json.dumps(fields)
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("language", ["zh", "en"])
+async def test_merge_sends_both_memories_and_newer_marker(language):
+    """两种语言都携带完整内容、较新标记与 Librarian 请求参数。"""
+    set_default_language(language)
+    llm = ScriptedLLMService(_merge_json())
+    result = await _extractor(llm).merge(*_merge_memories())
+    call = llm.calls[0]
+    assert call.params == DEFAULT_LLM_PARAMS
+    assert result.content == "Both pieces"
+    user_prompt = call.messages[1]["content"]
+    assert all(
+        text in user_prompt
+        for text in (
+            "Design",
+            "Decision",
+            "design",
+            "FACT",
+            "Earlier decision",
+            "Progress",
+            "Later progress",
+        )
+    )
+    assert ("较新的是：N" if language == "zh" else "newer content update is: N") in user_prompt
+
+
+@pytest.mark.asyncio
+async def test_merge_parses_and_truncates_model_output_after_provider_retry():
+    """合并重用提供商重试，输出在进入索引前收敛长度。"""
+    llm = ScriptedLLMService(
+        ModelProviderError("transient"),
+        _merge_json(
+            title="题" * (MEMORY_TITLE_MAX_LENGTH + 50),
+            summary="摘" * (MEMORY_SUMMARY_MAX_LENGTH + 50),
+        ),
+    )
+    result = await _extractor(llm).merge(*_merge_memories())
+    assert (result.title, result.summary, result.tags, result.memory_type, result.changelog) == (
+        "题" * MEMORY_TITLE_MAX_LENGTH,
+        "摘" * MEMORY_SUMMARY_MAX_LENGTH,
+        ["work"],
+        "FACT",
+        "Preserved both stages",
+    )
+    assert len(llm.calls) == 2
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "output",
+    ["", "not json", '{"content":"partial"}', _merge_json(title="", content="")],
+    ids=["empty", "unparseable", "missing-fields", "blank-title-and-body"],
+)
+async def test_merge_invalid_output_returns_none_without_retry(output):
+    """没有完整合并内容时不能用追加或原始材料替代。"""
+    llm = ScriptedLLMService(output)
+    assert await _extractor(llm).merge(*_merge_memories()) is None
+    assert len(llm.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_noop_merge_has_no_output():
+    assert await NoOpMemoryExtractor().merge(*_merge_memories()) is None

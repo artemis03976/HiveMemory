@@ -25,5 +25,6 @@ class GlobalEvents:
     # settlement 与 failed/cancelled 的载荷都带 pending_alias 与 intent_id，
     # 登记按两者严格匹配。
     PENDING_ATOM_SETTLED = "patchouli.events.pending_atom.settled"
+    PENDING_ATOM_MERGED = "patchouli.events.pending_atom.merged"
     PENDING_ATOM_FAILED = "patchouli.events.pending_atom.failed"
     PENDING_ATOM_CANCELLED = "patchouli.events.pending_atom.cancelled"

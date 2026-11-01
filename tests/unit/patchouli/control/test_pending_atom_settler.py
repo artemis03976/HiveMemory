@@ -124,3 +124,55 @@ async def test_bounded_retention_allows_evicted_alias_to_be_published_again() ->
         )
 
     assert bus.publish.await_args_list == [failed("first"), failed("second"), failed("first")]
+
+
+@pytest.mark.asyncio
+async def test_merge_redirect_publishes_after_terminal_without_reserving_another_terminal():
+    """改指不被首次结算的保留拦住，也不抢占其他 alias 的首次终态。"""
+    bus = AsyncMock()
+    settler = PendingAtomSettler(bus)
+    created = _settlement()
+    merged = created.model_copy(
+        update={"resolution": PendingAtomResolution.MERGED, "canonical_uuid": "retained"}
+    )
+
+    await settler.settled(created)
+    await settler.merged(merged, absorbed_memory_uuid="memory-uuid")
+    other = _settlement("other")
+    await settler.merged(other, absorbed_memory_uuid="absorbed")
+    await settler.settled(other)
+
+    assert bus.publish.await_args_list == [
+        call(PatchouliLocalEvents.PENDING_ATOM_SETTLED, settlement=created),
+        call(
+            PatchouliLocalEvents.PENDING_ATOM_MERGED,
+            settlement=merged,
+            absorbed_memory_uuid="memory-uuid",
+        ),
+        call(
+            PatchouliLocalEvents.PENDING_ATOM_MERGED,
+            settlement=other,
+            absorbed_memory_uuid="absorbed",
+        ),
+        call(PatchouliLocalEvents.PENDING_ATOM_SETTLED, settlement=other),
+    ]
+
+
+@pytest.mark.asyncio
+async def test_merge_publish_failure_only_logs_warning(caplog):
+    """正式写入已成功，改指事件发布失败不能再发 FAILED。"""
+    bus = AsyncMock()
+    bus.publish.side_effect = ConnectionError("bus unavailable")
+    settler = PendingAtomSettler(bus)
+    settlement = _settlement().model_copy(update={"resolution": PendingAtomResolution.MERGED})
+
+    await settler.merged(settlement, absorbed_memory_uuid="absorbed")
+
+    assert bus.publish.await_args_list == [
+        call(
+            PatchouliLocalEvents.PENDING_ATOM_MERGED,
+            settlement=settlement,
+            absorbed_memory_uuid="absorbed",
+        )
+    ]
+    assert "MERGED event publish failed" in caplog.text

@@ -131,4 +131,4 @@ Gardening 作为全局 maintenance task 运行，调度器提供 interval、非�
 - `force` 当前不改变 collector 行为；
 - 生命力高不等于事实正确，生命周期不能替代 provenance、版本和用户修订。
 
-未来的 split/merge、版本回档或自动复活都应建立在当前所有权上：Lifecycle 提供信号，MemoryLibrary 执行状态转移，Artifact 保存历史；任何一个组件都不应独自取得三者的全部职责。
+两条记忆的合并已经按这一所有权落地：信号来自生成查重，合并内容由 Generation 的合并任务计算，写回与删除经 MemoryLibrary 执行，Artifact 以 `MERGE` 来源的版本记录保存两边的历史（[记忆生成](./generation.md#41-合并任务)）。Lifecycle 目前不发现合并候选；它若要提供合并信号，也只提交同一个合并任务，不另建写入路径。split、版本回档或自动复活同样应建立在当前所有权上：Lifecycle 提供信号，MemoryLibrary 执行状态转移，Artifact 保存历史；任何一个组件都不应独自取得三者的全部职责。

@@ -149,3 +149,73 @@ def test_rejection_marks_only_matching_intent_failed():
     registry.mark_failed(atom.pending_alias, intent_id=atom.intent_id)
     assert registry.get(atom.pending_alias, WORKSPACE).status == PendingAtomStatus.FAILED
     assert registry.get(other.pending_alias, WORKSPACE).status == PendingAtomStatus.MATERIALIZING
+
+
+@pytest.mark.asyncio
+async def test_merge_redirect_replaces_created_settlement_without_changing_status():
+    """改指保留 SETTLED 状态、交付独立副本，重复与旧终态事件不会逆转结果。"""
+    registry = WriteIntentRegistry()
+    atom = _write(registry)
+    created = PendingAtomSettlement(
+        pending_alias=atom.pending_alias,
+        intent_id=atom.intent_id,
+        resolution=PendingAtomResolution.CREATED,
+        canonical_uuid="absorbed",
+    )
+    await registry.on_settled(settlement=created)
+    merged = created.model_copy(
+        update={
+            "resolution": PendingAtomResolution.MERGED,
+            "canonical_uuid": "retained",
+            "canonical_alias": "fact_retained",
+        }
+    )
+    await registry.on_merged(settlement=merged, absorbed_memory_uuid="absorbed")
+    merged.canonical_uuid = "caller mutation"
+    await registry.on_merged(settlement=merged, absorbed_memory_uuid="retained")
+    await registry.on_settled(settlement=created)
+    await registry.on_failed(pending_alias=atom.pending_alias, intent_id=atom.intent_id)
+
+    stored = registry.get(atom.pending_alias, WORKSPACE)
+    assert (
+        stored.status,
+        stored.settlement.resolution,
+        stored.settlement.canonical_uuid,
+        stored.settlement.canonical_alias,
+    ) == (PendingAtomStatus.SETTLED, PendingAtomResolution.MERGED, "retained", "fact_retained")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "mismatch", ["alias", "intent", "materializing", "failed", "resolution", "canonical"]
+)
+async def test_merge_redirect_ignores_unmatched_original_settlement(mismatch):
+    """仅匹配的 CREATED 终态允许改指，其他意图与尚未结算的句柄保持原样。"""
+    registry = WriteIntentRegistry()
+    atom = _write(registry)
+    created = PendingAtomSettlement(
+        pending_alias=atom.pending_alias,
+        intent_id=atom.intent_id,
+        resolution=PendingAtomResolution.CREATED,
+        canonical_uuid="absorbed",
+    )
+    if mismatch == "failed":
+        registry.mark_failed(atom.pending_alias, intent_id=atom.intent_id)
+    elif mismatch != "materializing":
+        if mismatch == "resolution":
+            created.resolution = PendingAtomResolution.TOUCHED
+        await registry.on_settled(settlement=created)
+    before = registry.get(atom.pending_alias, WORKSPACE)
+    merged = created.model_copy(
+        update={"resolution": PendingAtomResolution.MERGED, "canonical_uuid": "retained"}
+    )
+    if mismatch == "alias":
+        merged.pending_alias = "missing"
+    elif mismatch == "intent":
+        merged.intent_id = "wrong"
+
+    await registry.on_merged(
+        settlement=merged, absorbed_memory_uuid="other" if mismatch == "canonical" else "absorbed"
+    )
+
+    assert registry.get(atom.pending_alias, WORKSPACE) == before

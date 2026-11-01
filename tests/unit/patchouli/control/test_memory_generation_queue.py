@@ -29,7 +29,7 @@ from hivememory.core.models import (
     TopicFold,
     WorkspaceAssetRef,
 )
-from hivememory.engines.generation.models import GenerationContext, GenerationRequest
+from hivememory.engines.generation.models import GenerationContext, GenerationRequest, MergeFocus
 from hivememory.patchouli.control.memory_generation.controller import (
     MemoryGenerationTaskController,
 )
@@ -104,7 +104,8 @@ def _controller(
     )
 
 
-def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() -> None:
+@pytest.mark.parametrize("merge", [False, True], ids=["revision", "merge"])
+def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types(merge) -> None:
     atom = _memory_atom()
     block = make_logical_block("question", "answer")
     spec = MemoryGenerationTaskSpec(
@@ -126,6 +127,22 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
         intent_id="intent-codec",
         pending_alias="draft-codec",
     )
+    if merge:
+        spec = replace(
+            spec,
+            source=MemoryGenerationSource.MERGE,
+            intent_id=None,
+            pending_alias=None,
+            interaction_input=None,
+            request=GenerationRequest(
+                merge_focus=MergeFocus(
+                    retained_memory_id="retained",
+                    absorbed_memory_id="absorbed",
+                    pending_alias="draft-codec",
+                    intent_id="intent-codec",
+                )
+            ),
+        )
     codecs = WorkPayloadCodecRegistry()
     codecs.register(_MemoryGenerationWorkAdapter())
     work = _MemoryGenerationWork(task_id="task-codec", spec=spec)
@@ -153,6 +170,17 @@ def test_spec_codec_creates_canonical_deep_snapshot_and_restores_domain_types() 
     assert first.spec.belong_to == spec.belong_to
     assert first.spec.belong_to is not spec.belong_to
     assert first.spec.belong_to is not second.spec.belong_to
+    if merge:
+        assert first.spec.source == MemoryGenerationSource.MERGE
+        assert first.spec.request.merge_focus == MergeFocus(
+            retained_memory_id="retained",
+            absorbed_memory_id="absorbed",
+            pending_alias="draft-codec",
+            intent_id="intent-codec",
+        )
+        first.spec.request.merge_focus.retained_memory_id = "external change"
+        assert second.spec.request.merge_focus.retained_memory_id == "retained"
+        return
     assert first.spec.request.context.state_summary == "original summary"
     assert isinstance(first.spec.request.existing_memory, MemoryAtom)
     assert first.spec.request.existing_memory.payload.content == "original content"

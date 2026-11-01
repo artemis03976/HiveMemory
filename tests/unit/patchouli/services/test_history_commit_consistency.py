@@ -31,7 +31,7 @@ from hivememory.core.models import (
 from hivememory.core.models.artifact import MemoryEventLog, MemoryEventType
 from hivememory.engines.artifacts.engine import ArtifactEngine
 from hivememory.engines.generation.models import (
-    DuplicateDecision,
+    GenerationAction,
     GenerationContext,
     GenerationOutcome,
     GenerationRequest,
@@ -204,7 +204,7 @@ def _update_outcome(before: MemoryAtom, new_content: str) -> GenerationOutcome:
     atom.payload.content = new_content
     return GenerationOutcome(
         atom=atom,
-        duplicate_decision=DuplicateDecision.UPDATE,
+        action=GenerationAction.UPDATE,
         memory_before_snapshot=before.model_copy(deep=True),
         changelog="merge to new content",
     )
@@ -403,7 +403,7 @@ async def test_noop_version_store_fails_content_creation(tmp_path):
         [
             GenerationOutcome(
                 atom=draft,
-                duplicate_decision=DuplicateDecision.CREATE,
+                action=GenerationAction.CREATE,
             )
         ],
         ArtifactEngine.noop(),

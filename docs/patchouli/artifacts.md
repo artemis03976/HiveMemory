@@ -87,7 +87,9 @@ MemoryCreationArtifact（schema `"2"`）是一条记忆的 genesis record，记�
 
 `MemoryVersionArtifact`（schema `"2"`，独立于 Memory 的 `"2.1"` 版本轴）保存 `memory_id`、`version_number`、`update_source`、结构化 `provenance`、`snapshot_before`、`snapshot_after`、changelog、source artifacts/memories 与 `changed_at`。两个快照字段直接嵌入捕获时点完整 `MemoryAtom` 的 canonical JSON（含 `meta.provenance`、`meta.lifecycle`、`payload.agent_config`、`payload.artifacts` 与 relations），经结构约束校验（缺键、未知内嵌 schema 拒绝），因此单个版本足以完整重建当时的原子，不依赖从 v1 顺序重放。
 
-捕获时点在 Familiar 提交边界：完成内容与 lifecycle 合并、分配版本与内容时间之后，追加本次版本记录自身的 refs/events 之前——快照因此不含自身引用。创建时先写 v1（`snapshot_before` 为 `null`），再写 creation artifact；更新、去重合并和手工编辑分别使用 `UPDATE / MERGE / MANUAL_EDIT / SYSTEM_REWRITE` 来源。`history_summary` 字段已从 Memory schema 删除，正式来源与版本事实只由 artifacts 承载。
+捕获时点在 Familiar 提交边界：完成内容与 lifecycle 合并、分配版本与内容时间之后，追加本次版本记录自身的 refs/events 之前——快照因此不含自身引用。创建时先写 v1（`snapshot_before` 为 `null`），再写 creation artifact。来源类型 `update_source` 区分版本的成因：Mode C 修订为 `UPDATE`，两条记忆合并为 `MERGE`，手工编辑为 `MANUAL_EDIT`；`SYSTEM_REWRITE` 在类型中保留，当前没有生产入口。
+
+合并写出的版本记录在保留记忆 M 上：`snapshot_before` 是合并前的 M，`snapshot_after` 是融合后的 M，`source_artifacts` 包含被吸收记忆 N 的全部引用——N 的交互来源、创建记录与 v1 版本记录，N 的交互来源引用同时并入 M 的来源引用。N 随后被删除，但它的创建记录与 v1 版本记录仍然保存，从 M 的这一版可以追到 N 被吸收前的完整内容与它当初的生成材料（[记忆生成](./generation.md#41-合并任务)）。`history_summary` 字段已从 Memory schema 删除，正式来源与版本事实只由 artifacts 承载。
 
 ### 2.5 来源与归属语义
 
@@ -101,14 +103,14 @@ MemoryGenerationFamiliar 当前执行：
 
 ```text
 capture InteractionArtifact (best effort)
-  -> GenerationEngine.process()（纯计算；内容一致的重复更新降级 TOUCH）
+  -> GenerationEngine.process()（纯计算；内容一致的重复更新为 TOUCH）
   -> 提交边界：一次取 now；分配 version / updated_at / decay_anchor_at / confidence
   -> build MemoryCreation/Version Artifacts（mandatory；changed_at 使用同一 now）
   -> attach ArtifactRef + MemoryEventLog to MemoryAtom
   -> MidTermMemoryStore.upsert(MemoryAtom, recompute_vectors=<embedding 输入是否变化>)
 ```
 
-CREATE 会挂载 v1、creation 和 interaction refs，并追加 CREATED event；UPDATE 会挂载 version 与 interaction refs，并追加 VERSIONED event；TOUCH 不创建版本 artifact、不改内容时间与版本、不挂载 interaction ref，只经 `patch_payload` 推进访问统计；本次 InteractionArtifact 仍按 best-effort 捕获留存为证据，但不与该记忆建立新引用。DISCARD 不写 MemoryAtom。InteractionArtifact 在生成之前捕获，提取失败（包括超窗）时同样已经写入，只是没有记忆引用它。
+CREATE 会挂载 v1、creation 和 interaction refs，并追加 CREATED event；UPDATE 会挂载 version 与 interaction refs，并追加 VERSIONED event；TOUCH 不创建版本 artifact、不改内容时间与版本、不挂载 interaction ref，只经 `patch_payload` 推进访问统计；本次 InteractionArtifact 仍按 best-effort 捕获留存为证据，但不与该记忆建立新引用。InteractionArtifact 在生成之前捕获，提取失败（包括超窗）或没有产出时同样已经写入，只是没有记忆引用它。合并任务不捕获新的 InteractionArtifact，只以 `MERGE` 来源写保留记忆的版本记录，引用见第 2.4 节。
 
 **版本记录是内容提交成功的前置条件**：版本存储未启用或写入失败时，Familiar 直接抛错，不发布无历史的新 canonical；canonical 写入失败时错误传播，已写入的版本记录保留为孤立 Artifact、不构成已提交版本。手工创建/编辑同样经过 MemoryGenerationFamiliar：手工创建使用 `MANUAL` creation intent，手工编辑生成 `MANUAL_EDIT` version artifact；传入值与当前值相同的编辑不创建版本。
 

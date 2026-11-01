@@ -16,56 +16,18 @@ last_reviewed: 2026-10-31
 
 | 方向 | 状态 | 入口 |
 |:---|:---|:---|
-| [生成材料修正与 Topic 之后的原始证据保存](../archive/plans/v0.7.2-generation-material-and-raw-evidence.md) | Archived（2026-10-31）；当前事实见[感知与短期话题](../patchouli/perception.md)、[Patchouli 生成](../patchouli/generation.md)与 [Artifacts](../patchouli/artifacts.md)；实测随日常使用进行，不作为归档条件；并入的生成材料 Todo 随之[归档](../archive/todo/generation-material-filtering-and-truncation.md) | —— |
-| [plugin 模式开放 WRITE 与 UPDATE](../archive/plans/v0.7.2-plugin-write-update.md) | Archived（2026-10-31）；当前事实见 [MCP 记忆访问](../contracts/mcp.md)、[Import Bus](../system/import-bus.md#47-写入时落位)与[记忆编译](../patchouli/memory-compiler.md)；第 9.3 节以 Claude Code 的真实会话完成实测验收 | —— |
 | 一个话题提取多条记忆 | 计划未建立；阻塞问题 G-1 待决定 | [多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md) |
-| [查重与更新：先落库再合并](./v0.7.2-dedup-merge.md) | Planned（2026-10-31 建立）；G-3 已决定，G-2 不阻塞 | [多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md)第 5.1 节 |
 
-## v0.7.1
+本版本已完成的计划（生成材料修正与原始证据保存、plugin 模式开放 WRITE 与 UPDATE、查重与更新）登记在 [Archived Plans](../archive/plans/README.md#v072)。
 
-已发布（Git tag `v0.7.1`，2026-10-30）。版本内容于 2026-10-30 收尾，规范版本调整为 0.7.1；版本目标的逐条判定、内容核对、未纳入的事项与验证结果见[收尾审计](../archive/plans/v0.7.1-release-closeout-audit.md)。版本目标（owner，2026-10-20）是 plugin 模式的真实外部 harness 接入，首个接入的 harness 为 Claude Code，按小步分别建立计划，完成于 2026-10-29；同日先定的 controller 模式目标退回候选方向，其首份计划方向（首个外部驱动的纯文本闭环）随之撤回。目标结果与验收方向见 [ROADMAP](../ROADMAP.md) 第 3 节。
+## 已发布的版本
 
-| 顺序 | 方向 | 状态 | 入口 |
-|:---:|:---|:---|:---|
-| 1 | [Import Bus 重设计：以 Claude Code 对话回流为第一条真实路径](../archive/plans/v0.7.1-import-bus-redesign.md) | Archived（2026-10-21）；当前事实见 [Import Bus](../system/import-bus.md)；真实使用验收随日常使用观察，观察 Todo 已于 2026-10-30 [归档](../archive/todo/import-bus-real-use-observation.md) | —— |
-| 2 | [记忆访问：Claude Code 经 MCP 工具检索与读取记忆](../archive/plans/v0.7.1-memory-access-mcp.md) | Archived（2026-10-29）；当前事实见 [MCP 记忆访问](../contracts/mcp.md)；检索与读取的真实使用样本记入同一观察 Todo（[已归档](../archive/todo/import-bus-real-use-observation.md)） | —— |
-| — | [推理模型的空闲卸载与按需加载](../archive/plans/v0.7.1-model-idle-unload.md)（plugin 模式下后端常驻时的内存开销） | Archived（2026-10-29）；当前事实见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载) | —— |
-| 3 | [工具解析链路重写：`TurnEvent` 作为唯一的交互原子事件](../archive/plans/v0.7.1-tool-call-parsing-chain.md) | Archived（2026-10-30）；当前事实见[数据模型](../architecture/data-model.md)、[感知与短期话题](../patchouli/perception.md)与 [Patchouli 生成](../patchouli/generation.md)；并入的原 Todo《导入的 MCP 读取在轨迹中显示 alias》随之解决 | —— |
-| — | [v0.7.1 版本收尾审计](../archive/plans/v0.7.1-release-closeout-audit.md) | Archived（2026-10-30）；升版 0.7.1、版本目标判定、内容核对与验证结果；Import Bus 真实使用观察 Todo 与 Import Bus Idea 随收尾归档，重排模型 int8 移出本版本 | —— |
-
-## v0.7.0
-
-已发布（Git tag `v0.7.0`，2026-10-20）。范围（owner，2026-09-27）是完全完成项目向新架构的演进，使 workspace 体系在项目架构中稳定存在，首条迁移流程为 Alice 的 chat 链路；版本目标的逐条判定、各方向与归档计划的核对、收尾时搁置的事项和验证结果见[收尾审计](../archive/plans/v0.7.0-release-closeout-audit.md)，版本摘要见 [ROADMAP](../ROADMAP.md) 第 2 节。版本内按小批量逐次实施，同一方向同时只有一份生效计划，下表按方向列出已归档的计划。
-
-| 方向 | 归档计划 |
-|:---|:---|
-| 任务进程 | [落位与进程标识](../archive/plans/v0.7.0-task-process-table.md)、[prepare 拆分与 CPU 输入清单](../archive/plans/v0.7.0-task-process-prepare-split.md)、[结算阶段的中立输入](../archive/plans/v0.7.0-task-process-finalize-neutral-input.md)、[CPU 端口与测试 CPU](../archive/plans/v0.7.0-task-process-cpu-port.md)、[命令只解析不执行](../archive/plans/v0.7.0-task-process-command-parse-only.md)、[任务进程拥有执行流](../archive/plans/v0.7.0-task-process-owned-execution.md) |
-| 访问边界与身份 | [A1 访问边界](../archive/plans/v0.7.0-a1-workspace-access-boundary.md)、[A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)、[身份与访问体系第二批](../archive/plans/v0.7.0-identity-access-batch-2.md) |
-| 能力层 | [Alice 的能力层调用迁移](../archive/plans/v0.7.0-alice-capability-migration.md)、[能力层分层](../archive/plans/v0.7.0-capability-surface-split.md)、[Agent 操作白名单](../archive/plans/v0.7.0-agent-operation-whitelist.md) |
-| 执行线程 | [线程 context 取代执行凭据](../archive/plans/v0.7.0-thread-context.md)、[执行线程层](../archive/plans/v0.7.0-execution-thread-layer.md)、[执行线程的正式定义](../archive/plans/v0.7.0-execution-thread-definition.md) |
-| 写入意图与读取视图 | [登记迁入 workspace 与读取缓存失效](../archive/plans/v0.7.0-intent-registry-and-read-cache.md)、[写入意图实时派发](../archive/plans/v0.7.0-intent-inflight-dispatch.md) |
-| 会话 | [会话与 Alice 迁移](../archive/plans/v0.7.0-conversation-session.md)、[Alice 会话压缩](../archive/plans/v0.7.0-alice-session-compaction.md) |
-| 记忆模型 | [A2-P 记忆内容版本与 Lifecycle](../archive/plans/v0.7.0-a2-pre-memory-version-and-lifecycle.md)、[时间语义与可控时钟](../archive/plans/v0.7.0-time-semantics-and-controllable-clock.md) |
-| 结构收敛 | [Alice 与 agent_runtime 结构重构](../archive/plans/v0.7.0-alice-agent-runtime-restructure.md)、[提示词编译前移](../archive/plans/v0.7.0-cpu-prompt-compilation.md)、[异常体系收敛](../archive/plans/v0.7.0-error-model-convergence.md)、[LLM 访问收敛](../archive/plans/v0.7.0-llm-access-port.md)、[总线路由类型化与 mypy 门禁](../archive/plans/v0.7.0-typed-bus-routes.md)、[代码收敛清单](../archive/todo/v0.7.0-code-convergence.md) |
-
-版本期间删除的计划（A2 未完成部分、A5、A6、WRX-0 清单、计划 A 协调入口与边界宪章）删除前的最后版本见 commit `dda9d9d`，处置记录见 commit `6add90f` 版本的《Workspace 网络与任务进程架构》Idea 第 5.5 节。
+v0.7.1（Git tag `v0.7.1`，2026-10-30）、v0.7.0（Git tag `v0.7.0`，2026-10-20）与更早版本的计划都已归档，按版本登记在 [Archived Plans](../archive/plans/README.md)；版本目标与摘要见 [ROADMAP](../ROADMAP.md) 第 2、3 节，逐项核对见各版本的收尾审计。
 
 ## 未绑定版本
 
-| 计划 | 状态 | 说明 |
-|:---|:---:|:---|
-| 暂无 | — | 原占位计划“话题折叠、Actor 上下文与原始证据统一改造”于 2026-10-01 退回 Idea 后删除（删除前最后版本见 commit `74b5056`）：后台部分并入 [Page Folding Raw Evidence](../ideas/PatchouliPageFoldingRawEvidenceDesign.md)，前台部分并入[长时间运行 Agent 的 Turn 内上下文折叠](../ideas/long-running-agent-intra-turn-context-folding.md) |
-
-## 已完成的计划
-
-已完成或被替代的计划移入 [Archived Plans](../archive/plans/README.md)，那里按时间倒序登记全部归档计划及其事实入口；各版本的逐项核对见版本收尾审计（[v0.7.0](../archive/plans/v0.7.0-release-closeout-audit.md)、[v0.6.2](../archive/plans/v0.6.2-release-closeout-audit.md)）。
+暂无。
 
 ## 准入规则
 
-- 只在能够立即执行时建立（owner，2026-10-30）：阻塞问题已经决定、依赖已经成为事实；不能立即实施的方向留在 [Ideas](../ideas/README.md)，计划之间不预设先后；一个版本由多份计划完成；
-- 必须填写明确 `target` 或在标题/范围中绑定当前版本；
-- 必须具有独立目标、非目标、迁移方式、测试和验收出口；
-- 计划之间的关系满足[文档治理规范](../DOCUMENTATION.md)第 8.3 节的三条约束：同一目标方向只有一份生效计划、不设总分结构；设计依据只来自事实文档、代码、ADR、已归档计划、已冻结的 Research 报告与背景 Idea；计划之间只有整份粒度的顺序依赖；
-- 本索引只做导航，不记录设计决定；
-- 未排期治理主题进入 [Governance](../governance/README.md)；尚需验证价值、样本或所有权的候选进入 [Ideas](../ideas/README.md)；范围较小的缺陷和技术债进入 [Todo](../todo/README.md)；
-- 已完成或被替代的实施稿进入 [Archived Plans](../archive/plans/README.md)；未完成实施即作废的计划直接删除，方向保留但前提改变的未实施计划退回 Idea，入链与遗留事项按文档治理规范第 8.4、10 节处理。
+计划的准入条件、内容要求、计划之间的关系与归档去向见[文档治理规范](../DOCUMENTATION.md)第 8.3、10 节；本索引只做导航，不记录设计决定。

@@ -5,8 +5,7 @@ HiveMemory Generation Module Test Data Fixtures
 
 设计原则:
     - 覆盖记忆提取的各种场景（标准信息、噪音、代码片段）
-    - 覆盖去重决策的各种情况（CREATE、UPDATE、TOUCH）
-    - 覆盖记忆合并的各种策略
+    - 覆盖去重判断的各种情况（DISTINCT、SIMILAR、IDENTICAL）
 """
 
 from typing import Any
@@ -178,7 +177,7 @@ EXISTING_MEMORY_DATA = {
 DEDUPLICATION_TEST_CASES = [
     {
         "id": "GEN-DED-001",
-        "name": "决策 CREATE - 新记忆",
+        "name": "判断 DISTINCT - 新记忆",
         "description": "与现有记忆相似度极低，应创建新记忆",
         "priority": "P0",
         "draft_data": {
@@ -191,11 +190,11 @@ DEDUPLICATION_TEST_CASES = [
             "has_value": True,
         },
         "existing_memory_key": "pytorch_install",
-        "expected_decision": "CREATE",
+        "expected_decision": "DISTINCT",
     },
     {
         "id": "GEN-DED-002",
-        "name": "决策 TOUCH - 完全重复",
+        "name": "判断 IDENTICAL - 完全重复",
         "description": "与现有记忆高度相似且内容一致，仅更新访问时间",
         "priority": "P1",
         "draft_data": {
@@ -221,11 +220,11 @@ DEDUPLICATION_TEST_CASES = [
             "has_value": True,
         },
         "existing_memory_key": "pytorch_install",
-        "expected_decision": "TOUCH",
+        "expected_decision": "IDENTICAL",
     },
     {
         "id": "GEN-DED-003",
-        "name": "决策 UPDATE - 知识演化",
+        "name": "判断 SIMILAR - 知识演化",
         "description": "与现有记忆相似但内容有增量，应合并更新",
         "priority": "P0",
         "draft_data": {
@@ -238,86 +237,7 @@ DEDUPLICATION_TEST_CASES = [
             "has_value": True,
         },
         "existing_memory_key": "meeting_time",
-        "expected_decision": "UPDATE",
-    },
-]
-
-
-# ========== Group 3: 记忆合并测试数据 ==========
-
-MERGE_TEST_CASES = [
-    {
-        "id": "GEN-MRG-001",
-        "name": "dedup UPDATE 覆盖当前内容",
-        "description": "验证更新后 content 采用新草稿内容，不追加旧内容",
-        "priority": "P0",
-        "existing_memory": {
-            "title": "Python 虚拟环境",
-            "summary": "Python 虚拟环境的创建方法",
-            "tags": ["Python", "虚拟环境"],
-            "content": "使用 venv 创建虚拟环境：python -m venv myenv",
-            "confidence_score": 0.80,
-        },
-        "new_draft": {
-            "title": "Python 虚拟环境管理",
-            "summary": "Python 虚拟环境的创建和激活方法，包括 Windows 和 Linux",
-            "tags": ["Python", "虚拟环境", "环境管理"],
-            "memory_type": "FACT",
-            "content": """激活虚拟环境：
-- Windows: myenv\\Scripts\\activate
-- Linux/Mac: source myenv/bin/activate""",
-            "confidence_score": 0.85,
-            "has_value": True,
-        },
-        "expected_content_contains": ["venv", "activate", "Windows", "Linux"],
-        "expected_tags": ["Python", "虚拟环境", "环境管理"],
-    },
-    {
-        "id": "GEN-MRG-002",
-        "name": "标签并集合并",
-        "description": "验证合并后标签为两者并集",
-        "priority": "P1",
-        "existing_memory": {
-            "title": "Docker 基础",
-            "summary": "Docker 容器技术基础",
-            "tags": ["Docker", "容器", "DevOps"],
-            "content": "Docker 是一个容器化平台...",
-            "confidence_score": 0.75,
-        },
-        "new_draft": {
-            "title": "Docker 基础与实践",
-            "summary": "Docker 容器技术基础和常用命令",
-            "tags": ["Docker", "容器", "部署", "微服务"],
-            "memory_type": "FACT",
-            "content": "常用 Docker 命令：docker run, docker build...",
-            "confidence_score": 0.80,
-            "has_value": True,
-        },
-        "expected_tags_superset": ["Docker", "容器", "DevOps", "部署", "微服务"],
-        "expected_max_tags": 5,
-    },
-    {
-        "id": "GEN-MRG-003",
-        "name": "摘要覆盖策略",
-        "description": "验证更新后直接采用草稿摘要，不按长度取舍",
-        "priority": "P2",
-        "existing_memory": {
-            "title": "Git 分支管理",
-            "summary": "Git 分支操作的基本命令和使用方法",
-            "tags": ["Git", "版本控制"],
-            "content": "git branch, git checkout...",
-            "confidence_score": 0.70,
-        },
-        "new_draft": {
-            "title": "Git 分支管理最佳实践",
-            "summary": "Git 分支的创建、切换、合并和删除操作，以及 GitFlow 工作流介绍",
-            "tags": ["Git", "版本控制", "GitFlow"],
-            "memory_type": "FACT",
-            "content": "GitFlow 工作流包括 main, develop, feature, release, hotfix 分支...",
-            "confidence_score": 0.85,
-            "has_value": True,
-        },
-        "expected_summary_longer": True,
+        "expected_decision": "SIMILAR",
     },
 ]
 
@@ -373,14 +293,6 @@ def get_deduplication_test_by_id(test_id: str) -> dict[str, Any]:
     raise ValueError(f"Test case not found: {test_id}")
 
 
-def get_merge_test_by_id(test_id: str) -> dict[str, Any]:
-    """根据 ID 获取合并测试用例"""
-    for case in MERGE_TEST_CASES:
-        if case["id"] == test_id:
-            return case
-    raise ValueError(f"Test case not found: {test_id}")
-
-
 def get_p0_test_cases() -> list[dict[str, Any]]:
     """获取所有 P0 优先级测试用例"""
     p0_cases = []
@@ -388,9 +300,6 @@ def get_p0_test_cases() -> list[dict[str, Any]]:
         if case.get("priority") == "P0":
             p0_cases.append(case)
     for case in DEDUPLICATION_TEST_CASES:
-        if case.get("priority") == "P0":
-            p0_cases.append(case)
-    for case in MERGE_TEST_CASES:
         if case.get("priority") == "P0":
             p0_cases.append(case)
     for case in SCHEMA_VALIDATION_CASES:
@@ -405,13 +314,11 @@ __all__ = [
     # 测试用例
     "EXTRACTION_TEST_CASES",
     "DEDUPLICATION_TEST_CASES",
-    "MERGE_TEST_CASES",
     "SCHEMA_VALIDATION_CASES",
     # 预置数据
     "EXISTING_MEMORY_DATA",
     # 辅助函数
     "get_extraction_test_by_id",
     "get_deduplication_test_by_id",
-    "get_merge_test_by_id",
     "get_p0_test_cases",
 ]

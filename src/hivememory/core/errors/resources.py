@@ -87,6 +87,12 @@ class ResourceUnavailableError(WorkspaceDomainError):
     code = "workspace.resource.unavailable"
 
 
+class MemoryMergeAbortedError(WorkspaceDomainError):
+    """合并的读取、条件、版本或模型输出不满足要求；reason 区分拒绝原因。"""
+
+    code = "workspace.memory.merge_aborted"
+
+
 class MemoryAliasConflictError(WorkspaceDomainError):
     """同一 Workspace 中期库内的 Memory alias 唯一性不变量被破坏。
 
@@ -117,4 +123,5 @@ __all__ = [
     "ResourceNotVisibleError",
     "ResourceUnavailableError",
     "MemoryAliasConflictError",
+    "MemoryMergeAbortedError",
 ]

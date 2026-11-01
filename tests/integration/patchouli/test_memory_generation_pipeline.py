@@ -19,7 +19,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
 from hivememory.engines.artifacts.engine import ArtifactEngine
-from hivememory.engines.generation.models import DuplicateDecision, GenerationOutcome
+from hivememory.engines.generation.models import GenerationAction, GenerationOutcome
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -441,9 +441,7 @@ async def test_passive_settlement_lands_in_real_mid_term(memory_library, artifac
     await controller.start()
 
     atom = _memory_atom()
-    stub = _StubGenerationEngine(
-        [GenerationOutcome(atom=atom, duplicate_decision=DuplicateDecision.CREATE)]
-    )
+    stub = _StubGenerationEngine([GenerationOutcome(atom=atom, action=GenerationAction.CREATE)])
     _wire_generation_familiar(bus, memory_library, stub, artifact_engine)
 
     memory_task = await coordinator.submit_settlement(_settlement_task())
@@ -470,9 +468,7 @@ async def test_active_write_lands_in_real_mid_term(memory_library, artifact_engi
     published = []
 
     atom = _memory_atom()
-    stub = _StubGenerationEngine(
-        [GenerationOutcome(atom=atom, duplicate_decision=DuplicateDecision.CREATE)]
-    )
+    stub = _StubGenerationEngine([GenerationOutcome(atom=atom, action=GenerationAction.CREATE)])
     _wire_generation_familiar(bus, memory_library, stub, artifact_engine)
     bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
     bus.subscribe(

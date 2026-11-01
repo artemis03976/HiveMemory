@@ -19,6 +19,7 @@ from hivememory.engines.memory_compiler import (
     MemoryCompileTarget,
     MemoryEnvelopeSection,
     MemoryEnvelopeTarget,
+    embedding_inputs_changed,
 )
 from hivememory.engines.memory_compiler.builders import build_memory_atom_ir
 from hivememory.engines.memory_compiler.envelopes import compile_envelope_from_ir
@@ -190,6 +191,22 @@ class TestMemoryAtomCompilation:
         artifact = compiler.compile(sample_atom, MemoryCompileTarget.SPARSE_EMBEDDING)
         assert artifact.target == MemoryCompileTarget.SPARSE_EMBEDDING
         assert artifact.text.count("Python parse_date 函数") == 2
+
+    @pytest.mark.parametrize(
+        "change, expected",
+        [("content", False), ("summary", True), ("tag_order", True)],
+    )
+    def test_embedding_inputs_changed_follows_compiled_text(self, sample_atom, change, expected):
+        """正文变化可以保留向量；摘要或标签顺序改变了向量文本时需要重算。"""
+        after = sample_atom.model_copy(deep=True)
+        if change == "content":
+            after.payload.content = "def parse_date(s):\n    return None"
+        elif change == "summary":
+            after.index.summary = "改写后的摘要"
+        else:
+            after.index.tags = list(reversed(after.index.tags))
+
+        assert embedding_inputs_changed(sample_atom, after) is expected
 
     def test_agent_profile_menu(self, compiler, agent_profile_atom):
         artifact = compiler.compile(agent_profile_atom, MemoryCompileTarget.AGENT_PROFILE_MENU)

@@ -17,6 +17,7 @@ from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
     MergeResult,
+    RevisionResult,
 )
 
 # ========== 接口定义 ==========
@@ -64,13 +65,13 @@ class BaseMemoryExtractor(ABC):
         """
         pass
 
-    async def merge(
+    async def revise(
         self,
         old_content: str,
         metadata: dict[str, Any],
-    ) -> Optional["MergeResult"]:
+    ) -> Optional["RevisionResult"]:
         """
-        执行记忆合并 (Mode C: UPDATE)
+        执行记忆修订 (Mode C: UPDATE)
 
         调用 LLM 将旧内容与修改指令合并，生成新内容和变更日志。
         默认实现返回 None (NoOp)，子类可覆盖。
@@ -85,11 +86,15 @@ class BaseMemoryExtractor(ABC):
                 - transcript: 近期对话上下文
 
         Returns:
-            MergeResult: 合并结果；模型输出为空或无法解析时返回 None
+            RevisionResult: 修订结果；模型输出为空或无法解析时返回 None
 
         Raises:
             ModelProviderError: 提供商失败且重试耗尽
         """
+        return None
+
+    async def merge(self, retained: MemoryAtom, absorbed: MemoryAtom) -> MergeResult | None:
+        """融合两条正式记忆，返回完整索引与正文；未启用模型时没有产出。"""
         return None
 
 
@@ -98,12 +103,12 @@ class BaseDeduplicator(ABC):
     查重与演化器接口
 
     职责:
-        检测重复记忆，支持知识更新与合并。
+        检测重复记忆，命中相似内容时由生成引擎新建并提名合并。
 
     决策逻辑:
-        - 相似度 > 0.95 + 内容一致 → TOUCH
-        - 0.75 < 相似度 < 0.95 → UPDATE
-        - 相似度 < 0.75 → CREATE
+        - 高于上限且内容一致 → IDENTICAL
+        - 高于上限但内容不同，或高于下限且不高于上限 → SIMILAR
+        - 不高于下限 → DISTINCT
     """
 
     @abstractmethod
@@ -117,7 +122,7 @@ class BaseDeduplicator(ABC):
 
         Args:
             draft: LLM 提取的记忆草稿
-            candidates: 调用方预先检索的候选结果列表（空列表 → CREATE）
+            candidates: 调用方预先检索的候选结果列表（空列表 → DISTINCT）
 
         Returns:
             (DuplicateDecision, Optional[MemoryAtom])

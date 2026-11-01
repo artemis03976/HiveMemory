@@ -28,7 +28,6 @@ from hivememory.core.models import (
     WriteFocus,
 )
 from hivememory.core.mtp import MTP_LEFT_DELIMITER, MTP_RIGHT_DELIMITER
-from hivememory.engines.generation.models import DuplicateDecision
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.operations import HarnessKoakumaRuntime
 from tests.helpers.workspace import make_identity_scope, make_runtime_scope, make_workspace_identity
@@ -249,7 +248,6 @@ class TestReadAliasResolution:
                     pending_alias=pending.pending_alias,
                     intent_id=pending.intent_id,
                     resolution=PendingAtomResolution.CREATED,
-                    duplicate_decision=DuplicateDecision.CREATE,
                     canonical_alias="fact_canonical",
                     canonical_uuid=str(canonical.id),
                 )
@@ -283,7 +281,6 @@ class TestReadAliasResolution:
                     pending_alias=pending.pending_alias,
                     intent_id=pending.intent_id,
                     resolution=PendingAtomResolution.DISCARDED,
-                    duplicate_decision=DuplicateDecision.DISCARD,
                     message="Not materialized.",
                 )
             )
@@ -560,7 +557,6 @@ class TestReadPendingScopeIsolation:
                     pending_alias=pending.pending_alias,
                     intent_id=pending.intent_id,
                     resolution=PendingAtomResolution.CREATED,
-                    duplicate_decision=DuplicateDecision.CREATE,
                     canonical_alias="fact_canonical",
                     canonical_uuid=str(canonical.id),
                 )

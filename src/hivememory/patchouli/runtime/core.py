@@ -292,6 +292,7 @@ class PatchouliRuntime:
         perception_result = await self.perception_familiar.flush_all_for_shutdown()
         generation_tasks = await self._task_controller.wait_all(
             timeout=(self._patchouli_config.shutdown.generation_wait_timeout_seconds),
+            include_merges=False,
         )
         timed_out_task_ids = [
             task.task_id

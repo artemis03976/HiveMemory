@@ -76,9 +76,12 @@ UPDATE 的基础冷读在登记的同步段之前完成，冷读跨越线程结�
 
 确定性拒绝同步以 `mark_failed` 把句柄推进为 FAILED，并向 agent 返回结构化错误；结果未知保持 MATERIALIZING。结算事件仍由 Patchouli 发布，同步失败与随后失败通知幂等；三个结算事件都携带 pending_alias 与 intent_id，登记只在两者都匹配时迁移状态。状态终结后不再被晚到通知重写。
 
+句柄可以在结算之后改指一次。WRITE 的草稿在查重中与已有记忆 M 相似时，生成链先把它保存为新记忆 N，句柄以 `CREATED` 结算到 N；随后的合并任务把 N 并入 M 并删除 N，Patchouli 再发布改指事件（`pending_atom.merged`），携带指向 M 的 `MERGED` 结算与 N 的 ID（[记忆生成](../patchouli/generation.md#41-合并任务)）。登记只在 alias 与 `intent_id` 都匹配、句柄处于 SETTLED、现有结算为 `CREATED` 且正式身份仍是 N 时，用新结算替换旧结算，其余情况一律忽略，晚到或重复的改指因此不会改写其他句柄。改指不是状态迁移，句柄仍为 SETTLED。合并之前读取句柄得到 N，改指之后按新结算的 `canonical_uuid` 得到 M。
+
 ## 6. 已知限制
 
 - 读取视图与写入意图登记均为进程内状态；失效通知不处理未送达补齐，意图句柄不回收也不跨重启恢复，实时派发的结果未知时可能长期保持 MATERIALIZING；
+- 改指事件与结算事件同样没有补偿：改指丢失时句柄仍指向已删除的 N，SETTLED redirect 读不到正式目标，按不可读处理；
 - 写入意图不设 policy，同 Workspace 内持有别名即可回读；别名由标题或内容片段（UPDATE 为基础 alias）加 4 位十六进制后缀组成，不能充当访问控制。结算对账、句柄保留期、意图 policy 与外部提交契约等后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)；
 - 原子缓存与意图读取交付独立副本，但对象仍可变，不宣称递归冻结。
 

@@ -25,6 +25,7 @@ from hivememory.components.work_queue import (
     WorkQueueStoppedError,
     WorkState,
 )
+from hivememory.engines.generation.models import GenerationRequest
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationAdmission
 from hivememory.patchouli.control.memory_generation.events import (
@@ -352,6 +353,7 @@ class MemoryGenerationTaskController:
             # 队列成功已经锁定 chat/生成执行终态；settlement 和领域事件属于后续
             # finalize，失败只影响可观测副作用，不回写通用 work 状态。
             await self._publish_settlements(results)
+            await self._submit_nominated_merges(entry.spec, results)
         elif record.state != WorkState.CANCELLED:
             logger.error(
                 "Memory generation failed: label=%s, err=%s",
@@ -360,6 +362,32 @@ class MemoryGenerationTaskController:
             )
         await self._publish_terminal(entry, snapshot)
         return snapshot
+
+    async def _submit_nominated_merges(
+        self, spec: MemoryGenerationTaskSpec, results: list[MemoryGenerationResult]
+    ) -> None:
+        """首次持久化与结算成功后提交后续合并；队列拒绝只留下两条正式记忆。"""
+        for result in results:
+            if result.merge_nomination is None:
+                continue
+            merge_spec = MemoryGenerationTaskSpec(
+                belong_to=spec.belong_to,
+                from_actor=spec.from_actor,
+                topic_id=spec.topic_id,
+                label=f"Merge: {spec.label}",
+                source=MemoryGenerationSource.MERGE,
+                request=GenerationRequest(merge_focus=result.merge_nomination),
+            )
+            try:
+                await self.submit_generation(merge_spec)
+            except (WorkQueueStoppedError, WorkQueueCapacityError):
+                logger.warning(
+                    "Memory merge submission rejected: topic_id=%s, retained=%s, absorbed=%s",
+                    spec.topic_id,
+                    result.merge_nomination.retained_memory_id,
+                    result.merge_nomination.absorbed_memory_id,
+                    exc_info=True,
+                )
 
     async def get_task(self, task_id: str) -> MemoryGenerationTask | None:
         """按任务标识查询当前只读领域快照。"""
@@ -459,13 +487,17 @@ class MemoryGenerationTaskController:
     async def wait_all(
         self,
         timeout: float | None = None,
+        *,
+        include_merges: bool = True,
     ) -> list[MemoryGenerationTask]:
-        """等待调用时所有尚未进入领域终态的记忆生成任务。"""
+        """等待调用时尚未终结的任务；关闭排空可排除不承载保存承诺的合并。"""
 
         task_ids = [
             task_id
             for task_id, entry in self._entries.items()
-            if entry.final_snapshot is None and entry.finalizer is not None
+            if entry.final_snapshot is None
+            and entry.finalizer is not None
+            and (include_merges or entry.spec.source != MemoryGenerationSource.MERGE)
         ]
         results = await self.wait_many(task_ids, timeout=timeout)
         # task_ids 来自当前 entry 集合，因此此处不会产生缺失项；过滤只用于
@@ -567,7 +599,12 @@ class MemoryGenerationTaskController:
         for result in results:
             if result.settlement is None:
                 continue
-            await self._pending_atom_settler.settled(result.settlement)
+            if result.absorbed_memory_uuid is not None:
+                await self._pending_atom_settler.merged(
+                    result.settlement, absorbed_memory_uuid=result.absorbed_memory_uuid
+                )
+            else:
+                await self._pending_atom_settler.settled(result.settlement)
 
 
 __all__ = ["MemoryGenerationTaskController"]

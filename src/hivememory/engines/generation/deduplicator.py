@@ -2,12 +2,12 @@
 HiveMemory - 查重与演化管理器 (Deduplicator)
 
 职责:
-    检测重复记忆，输出 CREATE / UPDATE / TOUCH / DISCARD 决策。
+    检测重复记忆，输出 DISTINCT / SIMILAR / IDENTICAL 判断。
 
 决策逻辑:
-    - 相似度 > 0.95 + 内容一致 → TOUCH (仅更新访问时间)
-    - 0.75 < 相似度 < 0.95 → UPDATE (知识演化)
-    - 相似度 < 0.75 → CREATE (创建新记忆)
+    - 高于上限且内容一致 → IDENTICAL (仅更新访问状态)
+    - 高于上限但内容不同，或高于下限且不高于上限 → SIMILAR (新建并提名合并)
+    - 不高于下限 → DISTINCT (创建新记忆)
 """
 
 import logging
@@ -28,18 +28,19 @@ class MemoryDeduplicator(BaseDeduplicator):
     记忆查重与演化管理器
 
     工作流程:
-        1. 向量检索 Top-1 最相似记忆
-        2. 计算相似度分数
-        3. 根据决策矩阵判断操作
-        4. 将是否合并的决策交给 generation engine 执行
+        1. 接收调用方检索的 Top-1 最相似记忆及分数
+        2. 根据决策矩阵判断操作
+        3. 交给 generation engine 新建记忆并按合并条件提名
 
     决策矩阵:
-        | 相似度范围      | 内容一致性  | 决策      | 操作           |
-        |----------------|------------|----------|---------------|
-        | > 0.95         | 是         | TOUCH    | 更新访问时间   |
-        | > 0.95         | 否         | UPDATE   | 内容演化       |
-        | 0.75 - 0.95    | -          | UPDATE   | 内容合并       |
-        | < 0.75         | -          | CREATE   | 创建新记忆     |
+        | 相似度范围      | 内容一致性  | 判断       | 操作           |
+        |----------------|------------|-----------|---------------|
+        | > 0.95         | 是         | IDENTICAL | 更新访问时间   |
+        | > 0.95         | 否         | SIMILAR   | 新建并提名合并 |
+        | (0.75, 0.95]   | -          | SIMILAR   | 新建并提名合并 |
+        | <= 0.75        | -          | DISTINCT  | 创建新记忆     |
+
+    表中数值为默认阈值，实际以配置为准。
 
     Examples:
         >>> dedup = MemoryDeduplicator(config)
@@ -68,7 +69,7 @@ class MemoryDeduplicator(BaseDeduplicator):
             (DuplicateDecision, Optional[MemoryAtom])
         """
         if not candidates:
-            return DuplicateDecision.CREATE, None
+            return DuplicateDecision.DISTINCT, None
 
         top_result = candidates[0]
         similarity_score = top_result["score"]
@@ -104,21 +105,21 @@ class MemoryDeduplicator(BaseDeduplicator):
         if similarity_score > self.config.high_similarity_threshold:
             # 检查内容是否完全一致
             if self._is_content_identical(draft, existing):
-                logger.debug("高相似度 + 内容一致 → TOUCH")
-                return DuplicateDecision.TOUCH
+                logger.debug("高相似度 + 内容一致 → IDENTICAL")
+                return DuplicateDecision.IDENTICAL
             else:
-                logger.debug("高相似度 + 内容不同 → UPDATE (微小演化)")
-                return DuplicateDecision.UPDATE
+                logger.debug("高相似度 + 内容不同 → SIMILAR (新建并提名合并)")
+                return DuplicateDecision.SIMILAR
 
-        # 情况 2: 中等相似度 (0.75 - 0.95)
+        # 情况 2: 高于下限且不高于上限
         elif similarity_score > self.config.low_similarity_threshold:
-            logger.debug("中等相似度 → UPDATE (知识合并)")
-            return DuplicateDecision.UPDATE
+            logger.debug("中等相似度 → SIMILAR (新建并提名合并)")
+            return DuplicateDecision.SIMILAR
 
-        # 情况 3: 低相似度 (< 0.75)
+        # 情况 3: 不高于下限
         else:
-            logger.debug("低相似度 → CREATE (新记忆)")
-            return DuplicateDecision.CREATE
+            logger.debug("低相似度 → DISTINCT (新记忆)")
+            return DuplicateDecision.DISTINCT
 
     def _is_content_identical(self, draft: ExtractedMemoryDraft, existing: MemoryAtom) -> bool:
         """
@@ -174,7 +175,7 @@ class NoOpDeduplicator(BaseDeduplicator):
     """
     No-Op 查重器
 
-    不执行查重操作，总是返回 CREATE (判定为新记忆)。
+    不执行查重操作，总是返回 DISTINCT (判定为新记忆)。
     用于在配置未启用查重器时作为默认实现。
     """
 
@@ -183,7 +184,7 @@ class NoOpDeduplicator(BaseDeduplicator):
         draft: ExtractedMemoryDraft,
         candidates: list,
     ) -> tuple[DuplicateDecision, MemoryAtom | None]:
-        return DuplicateDecision.CREATE, None
+        return DuplicateDecision.DISTINCT, None
 
 
 # 便捷函数

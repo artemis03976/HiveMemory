@@ -84,18 +84,20 @@ Artifact 的 get、exists、list 与 verify 只接收 `belong_to`；ref 中的�
 
 ### 2.1 短期到中期
 
-短期 blocks 不由 MemoryLibrary 直接“升级”。Perception 冻结话题的全部交互记录与折叠记录，形成 `TopicMaterializeTask`，Generation 从中提取、去重或更新记忆，MemoryGenerationFamiliar 在提交边界（一次取时）分配版本与内容时间、挂载版本 artifacts 后再写入 MidTermMemoryStore；内容相同的重复更新不创建新版本，只经 `patch_payload` 推进访问统计。
+短期 blocks 不由 MemoryLibrary 直接“升级”。Perception 冻结话题的全部交互记录与折叠记录，形成 `TopicMaterializeTask`，Generation 从中提取记忆并查重，MemoryGenerationFamiliar 在提交边界（一次取时）分配版本与内容时间、挂载版本 artifacts 后再写入 MidTermMemoryStore；内容相同的重复更新不创建新版本，只经 `patch_payload` 推进访问统计。
 
 ```text
 TopicData 快照
   -> TopicMaterializeTask
   -> GenerationRequest
-  -> GenerationOutcome（TOUCH 降级：内容一致的重复更新）
+  -> GenerationOutcome（CREATE；与已有记忆内容一致时为 TOUCH）
   -> artifact side effects, including promoted external sources when present
   -> MidTermMemoryStore.upsert(MemoryAtom) / patch_payload（TOUCH）
 ```
 
 这种设计保留了一个重要区分：话题结算只是提供候选材料，不等于每组 blocks 必然产生正式记忆。
+
+查重判为相似时，草稿先作为独立记忆写入中期库，之后由合并任务把它并入命中的记忆（[记忆生成](./generation.md#41-合并任务)）。对中期库而言，合并是同一 Workspace 内两次顺序提交：先以完整 `upsert` 写入保留记忆 M 的新版本，再以 `delete_by_key` 删除被吸收记忆 N。顺序保证任何时刻都不会丢失 N 的内容：删除失败时 N 作为重复留下，M 已包含它的内容。两次提交各自发布变更事件，读取视图分别失效 M 与 N。
 
 ### 2.2 中期到长期：archive
 
@@ -147,6 +149,7 @@ Runtime 是唯一装配入口。Engine、Familiar 和应用服务不能自行重
 - 短期 store 只在内存中，异常退出不会自动恢复；
 - archive/revive 是跨两个后端的顺序操作，没有事务、补偿日志或幂等 job；前一步成功而后一步失败时，可能暂时形成重复副本；
 - MidTerm secondary 写入虽有接口，但当前没有原子提交和回滚语义；
+- 合并的写回与删除是两次顺序提交，没有事务；两步之间检索可能同时看到 M 的新版本与 N；
 - canonical 变更事件只支持进程内内联失效，没有 durable outbox、未送达重试或跨重启 replay；
 - 长期记忆不会被普通 Retrieval 自动召回，revive 需要显式触发；
 - 健康检查验证可访问性，不扫描缺失副本、悬空 ArtifactRef 或 archive/revive 中间态；

@@ -24,7 +24,7 @@ from hivememory.core.models import (
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType
 from hivememory.core.models.workspace_asset import WorkspaceAssetRef
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
-from hivememory.engines.generation.models import DuplicateDecision
+from hivememory.engines.generation.models import GenerationAction
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmissionHandler,
 )
@@ -143,37 +143,35 @@ class _StubMidTerm:
 
 
 class _StubGenerationEngine:
-    """按预设 decision 返回 outcome 的生成引擎替身。
+    """按预设 action 返回 outcome 的生成引擎替身。
 
-    除 DISCARD 外都携带真实 atom：CREATE/UPDATE 走完整 upsert，TOUCH 走
+    每个 outcome 都携带真实 atom：CREATE/UPDATE 走完整 upsert，TOUCH 走
     ``patch_payload``，提交边界需要可用的 memory id 与 Workspace 归属。
     """
 
-    def __init__(self, decisions: list[DuplicateDecision]) -> None:
-        self._decisions = decisions
+    def __init__(self, actions: list[GenerationAction]) -> None:
+        self._actions = actions
 
     async def process(self, _request, *, belong_to, from_actor, now=None):
         from hivememory.engines.generation.models import GenerationOutcome
 
         outcomes = []
-        for decision in self._decisions:
-            atom = None
-            if decision != DuplicateDecision.DISCARD:
-                atom = MemoryAtom(
-                    meta=make_memory_metadata(
-                        source_agent_id=from_actor.agent_id,
-                        user_id=belong_to.owner_user_id,
-                    ),
-                    index=IndexLayer(
-                        title="generation target",
-                        summary="Stub memory used for gating tests.",
-                        tags=["t"],
-                        memory_type=MemoryType.FACT,
-                        alias="fact_generation_target",
-                    ),
-                    payload=PayloadLayer(content="content"),
-                )
-            outcomes.append(GenerationOutcome(atom=atom, duplicate_decision=decision))
+        for action in self._actions:
+            atom = MemoryAtom(
+                meta=make_memory_metadata(
+                    source_agent_id=from_actor.agent_id,
+                    user_id=belong_to.owner_user_id,
+                ),
+                index=IndexLayer(
+                    title="generation target",
+                    summary="Stub memory used for gating tests.",
+                    tags=["t"],
+                    memory_type=MemoryType.FACT,
+                    alias="fact_generation_target",
+                ),
+                payload=PayloadLayer(content="content"),
+            )
+            outcomes.append(GenerationOutcome(atom=atom, action=action))
         return outcomes
 
 
@@ -214,10 +212,10 @@ class _StubMemoryBuilder:
 def _familiar(
     store: InMemoryWorkspaceAssetStore,
     document_builder: _RecordingDocumentBuilder,
-    decisions: list[DuplicateDecision],
+    actions: list[GenerationAction],
 ) -> MemoryGenerationFamiliar:
     return MemoryGenerationFamiliar(
-        generation_engine=_StubGenerationEngine(decisions),
+        generation_engine=_StubGenerationEngine(actions),
         memory_library=SimpleNamespace(mid_term=_StubMidTerm()),
         artifact_engine=_StubArtifactEngine(document_builder),
         asset_reader=AssetMaterializationReader(store),
@@ -275,7 +273,7 @@ async def test_promotion_runs_on_create_and_pins_frozen_source_mapping() -> None
     store = InMemoryWorkspaceAssetStore()
     ref = _make_ready_asset(store, operation_id="op-a")
     builder = _RecordingDocumentBuilder()
-    familiar = _familiar(store, builder, [DuplicateDecision.CREATE])
+    familiar = _familiar(store, builder, [GenerationAction.CREATE])
     scope = _scope()
     binding = _binding(store, ref)
 
@@ -303,8 +301,8 @@ async def test_promotion_runs_on_create_and_pins_frozen_source_mapping() -> None
 
 
 @pytest.mark.asyncio
-async def test_generation_gating_skips_promotion_for_touch_and_discard() -> None:
-    """捕获 TOUCH/DISCARD 结果触发附件 promotion。"""
+async def test_generation_gating_skips_promotion_for_touch() -> None:
+    """捕获 TOUCH 结果触发附件 promotion。"""
     from hivememory.engines.generation.models import GenerationContext
 
     store = InMemoryWorkspaceAssetStore()
@@ -313,7 +311,7 @@ async def test_generation_gating_skips_promotion_for_touch_and_discard() -> None
     familiar = _familiar(
         store,
         builder,
-        [DuplicateDecision.TOUCH, DuplicateDecision.DISCARD],
+        [GenerationAction.TOUCH],
     )
     binding = _binding(store, ref)
     spec = SimpleNamespace(
@@ -322,12 +320,12 @@ async def test_generation_gating_skips_promotion_for_touch_and_discard() -> None
         interaction_input=SimpleNamespace(asset_bindings=(binding,)),
         request=SimpleNamespace(context=GenerationContext()),
         source=MemoryGenerationSource.SETTLE,
-        # promotion 之后的结果收缩路径需要的占位坐标（TOUCH/DISCARD 无 pending）。
+        # promotion 之后的结果收缩路径需要的占位坐标（TOUCH 无 pending）。
         intent_id=None,
         pending_alias=None,
     )
 
-    # 门控位于 _run_generation 内部：TOUCH/DISCARD 不触发 promotion。
+    # 门控位于 _run_generation 内部：TOUCH 不触发 promotion。
     # TOUCH 走受限 patch_payload 而非完整 upsert。
     await familiar._run_generation(spec, interaction_ref=None)
     assert builder.calls == []
@@ -341,8 +339,8 @@ async def test_generation_gating_skips_promotion_for_touch_and_discard() -> None
     }
     assert patch_fields["meta.lifecycle.access_count"] == 1
 
-    # 同一 spec、同一 binding：CREATE 决策才提升。
-    familiar._generation_engine._decisions = [DuplicateDecision.CREATE]
+    # 同一 spec、同一 binding：改为 CREATE 提交动作后才提升。
+    familiar._generation_engine._actions = [GenerationAction.CREATE]
     await familiar._run_generation(spec, interaction_ref=None)
     assert len(builder.calls) == 1
     # CREATE 走完整 upsert 且必重算向量
@@ -356,7 +354,7 @@ async def test_promotion_degrades_when_ref_removed() -> None:
     ref = _make_ready_asset(store, operation_id="op-a")
     store.remove_asset(_scope(), ref)
     builder = _RecordingDocumentBuilder()
-    familiar = _familiar(store, builder, [DuplicateDecision.CREATE])
+    familiar = _familiar(store, builder, [GenerationAction.CREATE])
     binding = _binding(store, ref)
 
     # 不抛错：按 best-effort 降级，不写入 artifact。
@@ -370,7 +368,7 @@ async def test_promotion_degrades_when_store_closed() -> None:
     store = InMemoryWorkspaceAssetStore()
     ref = _make_ready_asset(store, operation_id="op-a")
     builder = _RecordingDocumentBuilder()
-    familiar = _familiar(store, builder, [DuplicateDecision.CREATE])
+    familiar = _familiar(store, builder, [GenerationAction.CREATE])
     binding = _binding(store, ref)
     store.close_and_clear()
 
@@ -384,7 +382,7 @@ async def test_promotion_write_failure_is_best_effort_and_releases_lease() -> No
     store = InMemoryWorkspaceAssetStore()
     ref = _make_ready_asset(store, operation_id="op-a")
     builder = _RecordingDocumentBuilder(fail=True)
-    familiar = _familiar(store, builder, [DuplicateDecision.CREATE])
+    familiar = _familiar(store, builder, [GenerationAction.CREATE])
     binding = _binding(store, ref)
 
     await familiar._promote_attachment_bindings((binding,), belong_to=_scope().workspace_identity)

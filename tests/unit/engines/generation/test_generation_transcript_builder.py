@@ -274,7 +274,7 @@ class TestEngineWithGenerationContext:
             has_value=True,
         )
         extractor.extract.return_value = draft
-        deduplicator.check_duplicate.return_value = (DuplicateDecision.CREATE, None)
+        deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
 
         ctx = GenerationContext(turns=[_turn("q", "[Assistant]: a")])
         focus = WriteFocus(content="content to write")

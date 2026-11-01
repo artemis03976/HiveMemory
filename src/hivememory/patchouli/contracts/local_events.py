@@ -6,6 +6,7 @@ class PatchouliLocalEvents:
 
     MEMORY_CHANGED = "patchouli.events.memory.changed"
     PENDING_ATOM_SETTLED = "patchouli.events.pending_atom.settled"
+    PENDING_ATOM_MERGED = "patchouli.events.pending_atom.merged"
     PENDING_ATOM_FAILED = "patchouli.events.pending_atom.failed"
     PENDING_ATOM_CANCELLED = "patchouli.events.pending_atom.cancelled"
 
