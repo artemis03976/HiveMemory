@@ -150,7 +150,7 @@ Engine 用 extractor 的修订（`revise`，结果为 `RevisionResult`）生成�
 
 ## 4. 查重与合并
 
-Mode A 的每条草稿与 Mode B 的草稿都以 `title + summary` 对中期库执行 dense top-1 搜索。Deduplicator 按相似度与内容一致性给出判断（`DuplicateDecision`），GenerationEngine 再把判断翻译为提交动作（`GenerationAction`）：
+Mode A 的每条草稿与 Mode B 的草稿都按 MemoryCompiler 的 `DENSE_EMBEDDING` 目标编译为查询文本，对中期库执行 dense top-1 搜索。已有记忆的稠密向量由同一目标的编译文本编码，查询与入库的文本形态一致，内容相同的草稿才能达到 IDENTICAL 所需的相似度；早先查询只拼接 `title summary`，与带字段标签的入库文本形态不同，内容完全相同的草稿也只有约 0.90，触碰分支实际走不到。真实 embedding 与 Qdrant 下内容相同的草稿只触碰已有记忆，由[查重召回测试](../../tests/integration/patchouli/test_generation_dedup_recall.py)验证。Deduplicator 按相似度与内容一致性给出判断（`DuplicateDecision`），GenerationEngine 再把判断翻译为提交动作（`GenerationAction`）：
 
 | 判断 | 条件（默认阈值） | 提交动作 |
 |:---|:---|:---|

@@ -5,6 +5,11 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from hivememory.config.memory_compiler import (
+    CascadeContextStrategyConfig,
+    CompactContextStrategyConfig,
+    FullContextStrategyConfig,
+)
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -80,6 +85,21 @@ def agent_profile_atom():
             confidence_score=1.0,
         ),
     )
+
+
+def _fact(title: str, summary: str, content: str) -> MemoryAtom:
+    return MemoryAtom(
+        index=IndexLayer(title=title, summary=summary, memory_type=MemoryType.FACT, tags=["t"]),
+        payload=PayloadLayer(content=content),
+        meta=make_memory_metadata(source_agent_id="test", user_id="u1"),
+    )
+
+
+# 检索上下文的策略只决定每条记忆给完整正文还是索引视图，用两条正文各不相同的记忆区分。
+_STRATEGY_MEMORIES = [
+    _fact("香蕉的营养", "香蕉营养成分概述", "香蕉富含钾元素"),
+    _fact("苹果的营养", "苹果营养成分概述", "苹果富含膳食纤维"),
+]
 
 
 class TestMemoryAtomCompilation:
@@ -829,6 +849,45 @@ class TestEnvelopeCompilation:
         assert "相关记忆" not in envelope.text
         assert envelope.sections[0].kind == "memories"
         assert isinstance(envelope.sections[0], MemoryEnvelopeSection)
+
+    def test_retrieval_context_full_strategy_keeps_every_payload(self, compiler):
+        text = compiler.compile(
+            _STRATEGY_MEMORIES,
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            MemoryCompileOptions(
+                retrieval_strategy_config=FullContextStrategyConfig(max_tokens=4000)
+            ),
+        ).text
+
+        assert "香蕉富含钾元素" in text
+        assert "苹果富含膳食纤维" in text
+
+    def test_retrieval_context_compact_strategy_keeps_only_index_views(self, compiler):
+        text = compiler.compile(
+            _STRATEGY_MEMORIES,
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            MemoryCompileOptions(
+                retrieval_strategy_config=CompactContextStrategyConfig(max_memory_tokens=4000)
+            ),
+        ).text
+
+        assert "香蕉营养成分概述" in text and "苹果营养成分概述" in text
+        assert "香蕉富含钾元素" not in text and "苹果富含膳食纤维" not in text
+
+    def test_retrieval_context_cascade_strategy_gives_payload_to_leading_memories(self, compiler):
+        text = compiler.compile(
+            _STRATEGY_MEMORIES,
+            MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
+            MemoryCompileOptions(
+                retrieval_strategy_config=CascadeContextStrategyConfig(
+                    full_payload_count=1, max_memory_tokens=4000
+                )
+            ),
+        ).text
+
+        assert "香蕉富含钾元素" in text
+        assert "苹果营养成分概述" in text
+        assert "苹果富含膳食纤维" not in text
 
     def test_shared_context_injection_compile(self, compiler, sample_atom):
         envelope = compiler.compile(

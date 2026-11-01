@@ -49,12 +49,15 @@ from hivememory.engines.generation.models import (
     provenance_from_actor,
     system_settlement_provenance,
 )
+from hivememory.engines.memory_compiler import MemoryCompiler, MemoryCompileTarget
 from hivememory.utils.time import require_utc, utc_now
 
 if TYPE_CHECKING:
     from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 
 logger = logging.getLogger(__name__)
+
+_compiler = MemoryCompiler()
 
 
 class MemoryGenerationEngine:
@@ -469,7 +472,13 @@ class MemoryGenerationEngine:
             provenance: 本次生成的来源裁定（操作来源主体与内容贡献者）
             taken_aliases: 同一批中已分配、尚未落库的别名，新建时视为已占用
         """
-        query_text = f"{draft.title} {draft.summary}"
+        # 已有记忆的稠密向量由 DENSE_EMBEDDING 编译文本编码；查询用同一目标编译草稿，
+        # 两边文本形态一致，内容相同的草稿才能达到 IDENTICAL 的相似度。别名不进入
+        # 编译文本，查询时还没有分配。
+        query_text = _compiler.compile(
+            self._draft_to_memory(draft, belong_to, provenance, alias=None, now=now),
+            MemoryCompileTarget.DENSE_EMBEDDING,
+        ).text
         candidates = await self._mid_term.search(
             belong_to,
             query=query_text,
