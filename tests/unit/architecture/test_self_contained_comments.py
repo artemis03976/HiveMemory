@@ -6,7 +6,7 @@
 
 扫描范围：``src``、``tests``、``scripts``、``integrations`` 下的 Python 注释、裸字符串表达式
 （含 docstring）与 ``description=`` 字符串参数，以及 ``frontend/src`` 下
-TypeScript 的注释。变量名、用户可见的提示文案与其他字符串字面量不在范围内。
+TypeScript 与 ``integrations`` 下 JavaScript 的注释。变量名、用户可见的提示文案与其他字符串字面量不在范围内。
 同样的目录下也不放 README：模块用途写在 docstring 中，设计说明只在文档里维护。
 """
 
@@ -47,7 +47,7 @@ FORBIDDEN_PATTERNS: dict[str, re.Pattern[str]] = {
     "文档中的编号条目": re.compile(r"(?:不变量|证据|验收项|条目)\s*#?\d"),
 }
 
-_TS_COMMENT = re.compile(r"(?<![:\w])//[^\n]*|/\*[\s\S]*?\*/")
+_SCRIPT_COMMENT = re.compile(r"(?<![:\w])//[^\n]*|/\*[\s\S]*?\*/")
 
 
 def _python_files() -> Iterator[Path]:
@@ -73,9 +73,9 @@ def _python_texts(path: Path) -> Iterator[tuple[int, str]]:
                 yield node.value.lineno, node.value.value
 
 
-def _frontend_texts(path: Path) -> Iterator[tuple[int, str]]:
+def _script_comments(path: Path) -> Iterator[tuple[int, str]]:
     source = path.read_text(encoding="utf-8")
-    for match in _TS_COMMENT.finditer(source):
+    for match in _SCRIPT_COMMENT.finditer(source):
         yield source.count("\n", 0, match.start()) + 1, match.group()
 
 
@@ -93,7 +93,9 @@ def test_comments_and_docstrings_do_not_reference_documents_or_plans() -> None:
     for path in _python_files():
         violations.extend(_violations(path, _python_texts(path)))
     for path in sorted(FRONTEND_ROOT.rglob("*.ts*")):
-        violations.extend(_violations(path, _frontend_texts(path)))
+        violations.extend(_violations(path, _script_comments(path)))
+    for path in sorted((REPO_ROOT / "integrations").rglob("*.js")):
+        violations.extend(_violations(path, _script_comments(path)))
     assert (
         not violations
     ), "注释与说明文本应直接写出行为、不变量与理由，不引用文档、计划或决定编号：\n" + "\n".join(

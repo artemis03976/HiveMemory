@@ -39,3 +39,13 @@ principals:
       - "mcp"
       - "import"
     credential_env: "HIVEMEMORY_CLAUDE_CODE_TOKEN"
+
+  # DeepSeek Harness（dsh 插件中的回流与记忆工具共用）：经 import 导入已结束的
+  # 交互，经 mcp 检索、读取、写入与更新记忆，两者都以同一凭据认证；不能声明 system。
+  - principal_id: "harness:dsh"
+    kind: "harness"
+    enabled: true
+    adapters:
+      - "mcp"
+      - "import"
+    credential_env: "HIVEMEMORY_DSH_TOKEN"

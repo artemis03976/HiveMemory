@@ -16,6 +16,7 @@ code_paths:
   - integrations/claude-code/hooks/hooks.json
   - integrations/claude-code/connector/claude_code/hooks.py
   - integrations/claude-code/connector/claude_code/reader.py
+  - integrations/deepseek-harness/
 related_contracts:
   - docs/contracts/mtp.md
   - docs/contracts/routes-and-events.md
@@ -25,12 +26,12 @@ related_docs:
   - docs/workspace/authentication.md
   - docs/workspace/read-view-and-write-intents.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-01
 ---
 
 # MCP 记忆访问
 
-外部 harness（当前为 Claude Code）经 HiveMemory 的 MCP 端点检索、读取、写入与更新记忆。它与 [MTP](./mtp.md) 并列：MTP 是 Alice 在生成循环中使用的文本协议，MCP 是外部 harness 使用的工具协议。两者都是**操作适配器**：把协议调用解析为固定类型的操作请求，经 workspace 的单一操作入口进入 actor API，不直接调用能力层，也不自行判定身份或权限。记忆能力属于 actor API，不为哪一种协议独占；写入与更新经两种协议进入的是同一组 actor 操作、同一条生成链路。
+外部 harness（当前为 Claude Code 与 DeepSeek Harness）经 HiveMemory 的 MCP 端点检索、读取、写入与更新记忆。它与 [MTP](./mtp.md) 并列：MTP 是 Alice 在生成循环中使用的文本协议，MCP 是外部 harness 使用的工具协议。两者都是**操作适配器**：把协议调用解析为固定类型的操作请求，经 workspace 的单一操作入口进入 actor API，不直接调用能力层，也不自行判定身份或权限。记忆能力属于 actor API，不为哪一种协议独占；写入与更新经两种协议进入的是同一组 actor 操作、同一条生成链路。
 
 plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任务进程，也就没有执行线程。每次工具调用因此只取得一份**请求级访问 context**，按 Workspace 访问登记逐次授权，调用结束即撤销。写入与更新需要一个派发话题：线程提交从线程取得 prepare 为本轮选定的话题，请求级提交没有线程，改由 Import Bus 在写入时为这一轮就地落位（第 4 节）。RUN 的执行发生在执行单元的环境中，CALL 只属于 Alice，端点不提供这两项。
 
@@ -50,7 +51,7 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 
 | 请求头 | 规则 |
 |:---|:---|
-| `X-Principal-ID` | 必填，声明调用来源（Claude Code 为 `harness:claude-code`）；缺省或空串返回 `request.principal_required`，只含空白返回 `request.identity_empty` |
+| `X-Principal-ID` | 必填，声明调用来源（Claude Code 为 `harness:claude-code`，DeepSeek Harness 为 `harness:dsh`）；缺省或空串返回 `request.principal_required`，只含空白返回 `request.identity_empty` |
 | `Authorization` | `Bearer <凭据>`；缺省或不是 Bearer 方案时凭据为空，同样交给网关，由网关以 `invalid_credential` 拒绝 |
 | `X-User-ID` | 用户声明，缺省回退到默认用户；用户身份不做证明，沿用本地单用户部署的信任假设，由接入登记的 `allowed_user_ids` 收紧 |
 | `X-Workspace-ID` | 只接受 `main_workspace`，其他值返回 `request.workspace_not_found` |
@@ -131,6 +132,13 @@ Claude Code 为插件 MCP 工具生成的调用名为 `mcp__plugin_<插件名>_<
 
 Claude Code 改变命名规则时识别会静默失效，回声恢复，表现为重复记忆；`PreToolUse` 的 matcher 同样失效，写入与更新以缺少轮次信息被拒绝，模型在工具结果中看到错误。连接器单元测试把调用名固定为上表的格式，并核对插件清单、`.mcp.json`、`hooks.json` 的 matcher 与连接器常量一致。工具参数改名时，MCP server、识别表与 matcher 同时修改。
 
+**DeepSeek Harness 插件**：dsh 的工具前置事件不能改写调用参数，上面的 `PreToolUse` 做法在 dsh 中不可行。插件因此不把这个端点配置为 dsh 的通用 MCP server，而是自己注册四个同名的 dsh 原生工具，执行时经本端点调用对应的 MCP 工具：
+
+- **注册**：插件加载时请求 `initialize`（取服务说明）与 `tools/list`（无状态端点不需要先建立会话），把四个工具的说明与参数 schema 原样用于 dsh 工具，服务说明注册为 dsh 系统提示词的一节 `hivememory`；交给模型的 schema 去掉 `turn` 与只承载它的 `$defs`，模型看不到也无法填写。四个工具全部注册或全部不注册；连接失败时工具不出现，之后每次创建 Agent 时重试，直到成功一次。
+- **调用**：请求头为 `X-Principal-ID: harness:dsh`、`Authorization: Bearer`、配置时的 `X-User-ID` 与 `X-Agent-ID`（默认 `dsh`）。写入与更新执行时，插件以调用方 Agent 的会话构造 `turn`：读取会话的实时记录，工具在一轮之中执行，最后一轮就是当前一轮；之前几轮与导入时取同样的已结束轮次，生成导入请求体对应字段的是同一个函数（[Import Bus](../system/import-bus.md#93-轮次的切分与映射)第 9.3 节）。模型给出的 `turn` 被覆盖；最后一轮已经结束时以工具错误拒绝，不发出请求。子 Agent 中的调用以子 Agent 自己的会话与当前一轮落位。
+- **结果**：工具结果的正文原样交给模型；`isError` 结果与网络错误作为 dsh 的工具错误交给模型。调用超时 60 秒，并随 dsh 的取消信号取消。
+- **回声标记**：dsh 会话记录中的调用名就是工具名（`memory_search`、`memory_read`、`memory_write`、`memory_update`），回流时按上表归一化。插件测试与 `tests/unit/connectors/test_deepseek_harness_plugin.py` 核对插件的工具名、作用对象参数与 `turn` 参数与本 server 一致。
+
 ## 7. 观测
 
 - 现有请求日志记录每个 `POST /mcp`，只记录路径与状态。
@@ -140,6 +148,7 @@ Claude Code 改变命名规则时识别会静默失效，回声恢复，表现�
 ## 8. 已知限制
 
 - Host 检查只接受带端口的本机地址，远程部署与传输安全（TLS、OAuth）不在当前范围内。
+- dsh 的 PTC 模式（默认关闭）下，记忆工具在 `run_code` 内部调用，会话记录只有外层调用，回声标记不生效；写入与更新仍以调用方会话的当前一轮落位。
 - `turn` 声明在工具 schema 中：hook 未运行（被禁用或超时）时，模型若自行填写，写入会落到按编造内容路由的话题，编造的轮次不会回流，它的落点留到进程重启。
 - 后台运行的子代理在用户发出下一条消息之后才写入时，写入落在那时的当前一轮，而不是启动它的那一轮：hook 输入只给出会话当时的当前一轮。
 - 第一次写入要等一次 Gateway 路由，再等生成队列接纳；同一外部会话的上一轮仍在应用时，还要等它完成。
@@ -149,5 +158,5 @@ Claude Code 改变命名规则时识别会静默失效，回声恢复，表现�
 
 - 入口包：`src/hivememory/mcp_server/server.py`（服务、工具、错误投影与日志）；接入：`src/hivememory/server/app.py`（路由与 lifespan）；声明解析：`src/hivememory/server/deps.py`；错误投影：`src/hivememory/server/error_handlers.py`。
 - 操作入口：`src/hivememory/workspace/capability/operations.py`；落位：`src/hivememory/system/application/import_bus_service.py` 与 `src/hivememory/system/services/import_bus/ingestor.py`；编译：`src/hivememory/engines/memory_compiler/`。
-- 插件声明：`integrations/claude-code/.mcp.json`、`integrations/claude-code/hooks/hooks.json`；轮次信息：`integrations/claude-code/connector/claude_code/hooks.py`；回声标记：`integrations/claude-code/connector/claude_code/reader.py`。
-- 测试：`tests/unit/mcp_server/`（身份取自请求头、一次调用一份 context 并撤销、写入与更新先落位再带落点提交、缺少轮次信息与落位失败、错误投影、结果编译、不提供订阅）；`tests/integration/system/test_mcp_memory_access.py`（真实认证授权与操作入口下的检索、读取、拒绝，以及写入后读到在途句柄、结算后重定向、回流落在写入派发的话题）；`tests/integration/workspace/test_operation_requests.py`（请求级写入与更新、派发话题与请求类型不符时的拒绝）；`tests/unit/server/routers/test_app_lifespan.py`（`/mcp` 路由与会话管理器接线）；`tests/unit/architecture/test_access_boundaries.py`（调用面守护）；`tests/unit/connectors/`（`PreToolUse` 的轮次信息、回声标记与清单一致性）。
+- 插件声明：`integrations/claude-code/.mcp.json`、`integrations/claude-code/hooks/hooks.json`；轮次信息：`integrations/claude-code/connector/claude_code/hooks.py`；回声标记：`integrations/claude-code/connector/claude_code/reader.py`；dsh 插件的工具注册与轮次信息：`integrations/deepseek-harness/lib/tools.js`，回声标记：`integrations/deepseek-harness/lib/turns.js`。
+- 测试：`tests/unit/mcp_server/`（身份取自请求头、一次调用一份 context 并撤销、写入与更新先落位再带落点提交、缺少轮次信息与落位失败、错误投影、结果编译、不提供订阅）；`tests/integration/system/test_mcp_memory_access.py`（真实认证授权与操作入口下的检索、读取、拒绝，以及写入后读到在途句柄、结算后重定向、回流落在写入派发的话题）；`tests/integration/workspace/test_operation_requests.py`（请求级写入与更新、派发话题与请求类型不符时的拒绝）；`tests/unit/server/routers/test_app_lifespan.py`（`/mcp` 路由与会话管理器接线）；`tests/unit/architecture/test_access_boundaries.py`（调用面守护）；`tests/unit/connectors/`（`PreToolUse` 的轮次信息、回声标记与清单一致性，dsh 插件与本 server 的工具名、参数一致）；`integrations/deepseek-harness/test/`（dsh 插件的工具注册、轮次信息与回声标记，`npm test`）。

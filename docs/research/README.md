@@ -17,14 +17,14 @@ last_reviewed: 2026-11-01
 | 需求 | 对应报告与验证状态 |
 |:---|:---|
 | [外部 harness 接口调研需求](./harness-interface-survey.md) | [2026-10-20 调研快照](./harness-interface-survey-snapshot.md)已完成资料调研；模型实测待验证，随 controller 模式退回候选方向暂缓（2026-10-20）。 |
-| [DeepSeek Harness 插件接入调研需求与报告](./deepseek-harness-plugin-survey.md) | 同文第 7 节已形成 2026-11-01 证据快照；27 项能力、hook 对应、路径比较与接入要求已核对，无真实凭据机制探针通过，真实模型及 HiveMemory 端到端待验证。 |
+| [DeepSeek Harness 插件接入调研需求与报告](./deepseek-harness-plugin-survey.md) | 同文第 7 节已形成 2026-11-01 证据快照；27 项能力、hook 对应、路径比较与接入要求已核对，无真实凭据机制探针通过。接入路径由 owner 选为原生插件，已于 2026-11-01 实施（[归档计划](../archive/plans/dsh-plugin-integration.md)）。 |
 
 ## 报告索引
 
 | 主题 | 报告 | 证据日期 | 范围与验证边界 |
 |:---|:---|:---|:---|
 | Agent harness 接口与接入 | [外部 harness 程序化接口调研快照](./harness-interface-survey-snapshot.md) | 2026-10-20 | Codex、Claude Code、pi 与 ACP；接口对比、会话、取消、输入、权限、MCP 与许可。资料核对及本地版本/离线 schema 检查；模型实测待验证。调研需求见[外部 harness 接口调研需求](./harness-interface-survey.md)。 |
-| Agent harness 插件接入 | [DeepSeek Harness 插件接入调研](./deepseek-harness-plugin-survey.md#7-调研结果) | 2026-11-01 | dsh 0.2.2-alpha.2 固定源码、插件/MCP/会话/skill 与 HiveMemory 适配要求；本地脚本化模型及 HTTP MCP 探针通过，真实模型和后端链路待验证，接入路径尚未选择。 |
+| Agent harness 插件接入 | [DeepSeek Harness 插件接入调研](./deepseek-harness-plugin-survey.md#7-调研结果) | 2026-11-01 | dsh 0.2.2-alpha.2 固定源码、插件/MCP/会话/skill 与 HiveMemory 适配要求；本地脚本化模型及 HTTP MCP 探针通过；之后选定原生插件并实施（[归档计划](../archive/plans/dsh-plugin-integration.md)）。 |
 | Agent 上下文与记忆管理 | [Agent Harness 会话压缩技术调研](./agent-context-compaction-research.md) | 2026-10-16 | Claude Code、Codex、Hermes、pi、OpenCode V2 的固定源码/文档快照；预算、历史投影、检查点、取消与恢复。保留当时的适配建议，未做真实长会话质量对比。 |
 
 新报告按主题加入本索引；Memory 系统设计、Agent 架构、检索与存储、论文与算法等方向均可在此积累。报告增多后再按稳定主题拆分子目录。
