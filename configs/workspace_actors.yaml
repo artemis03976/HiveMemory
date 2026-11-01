@@ -48,3 +48,16 @@ workspace_actors:
       - "memory.search"
       - "memory.write"
       - "memory.update"
+
+  # DeepSeek Harness：插件以 (default, dsh) 声明导入已结束的交互，记忆工具以同一
+  # 声明经 MCP 检索、读取、写入与更新记忆；授权规则与 claude_code 相同，同样不继承
+  # memory.run 与 agent.call。
+  - owner_user_id: "default"
+    workspace_id: "main_workspace"
+    user_id: "default"
+    agent_id: "dsh"
+    allowed_operations:
+      - "memory.read"
+      - "memory.search"
+      - "memory.write"
+      - "memory.update"
