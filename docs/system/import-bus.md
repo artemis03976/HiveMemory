@@ -30,7 +30,7 @@ related_docs:
   - docs/patchouli/perception.md
   - docs/patchouli/generation.md
   - docs/components/runtime-and-bus.md
-  - docs/help/setup.md
+  - docs/help/claude-code-plugin.md
 related_plans:
   - docs/archive/plans/v0.7.1-import-bus-redesign.md
   - docs/archive/plans/v0.7.1-memory-access-mcp.md
@@ -261,7 +261,7 @@ Gateway 请求时限（`gateway.workflow.default_request_timeout_ms`，默认 80
 
 ## 8. Claude Code 连接器
 
-连接器不属于 HiveMemory 包：它只用 Python 标准库、不导入 `hivememory`，由 Claude Code 所在环境的 `python3` 直接运行。安装与配置的操作步骤见[安装与启动](../help/setup.md#9-接入-claude-code)。
+连接器不属于 HiveMemory 包：它只用 Python 标准库、不导入 `hivememory`，由 Claude Code 所在环境的 `python3` 直接运行。安装与配置的操作步骤见[接入 Claude Code](../help/claude-code-plugin.md)。
 
 ### 8.1 组成
 

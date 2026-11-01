@@ -9,7 +9,7 @@ related_docs:
   - docs/contracts/mcp.md
   - docs/system/import-bus.md
   - docs/system/configuration.md
-  - docs/help/setup.md
+  - docs/help/deepseek-harness-plugin.md
 code_paths:
   - integrations/deepseek-harness/
   - configs/system_principals.yaml
@@ -21,6 +21,8 @@ updates:
   - docs/contracts/mcp.md
   - docs/system/configuration.md
   - docs/workspace/authentication.md
+  - docs/help/deepseek-harness-plugin.md
+  - docs/help/claude-code-plugin.md
   - docs/help/setup.md
   - docs/help/configuration.md
   - docs/help/troubleshooting.md
@@ -124,34 +126,7 @@ owner 决定（2026-10-31）以 DeepSeek Harness（`dsh`）作为第二个接入
 
 ### 4.7 安装
 
-HiveMemory 一侧：在仓库根 `.env` 写入 `HIVEMEMORY_DSH_TOKEN=<凭据>`，重启后端（接入登记与凭据都在启动时装载）。
-
-dsh 在 Linux 中运行时（需要 Node >= 24.9 与 PATH 上的 pnpm）：
-
-```bash
-export HIVEMEMORY_URL=http://localhost:8000 HIVEMEMORY_TOKEN=<同一凭据>
-dsh plugin --profile <profile> add /path/to/HiveMemory/integrations/deepseek-harness
-dsh --profile <profile> --dump-config   # 出现 "# == hivememory-connector" 一层
-```
-
-Windows 桌面端加 WSL 中的 HiveMemory（owner 的日常环境）：
-
-- 桌面端自带 Electron Node 与 pnpm，不需要 Windows 上另装 Node 或 pnpm；桌面端 profile 是 `%USERPROFILE%\.dsh\profiles\desktop`，由桌面端独占。先从托盘完全退出桌面端，再用桌面端自带的命令安装，重新打开后生效：
-
-  ```powershell
-  & "$env:LOCALAPPDATA\Programs\DeepSeek Harness\resources\runtime\cli\bin\dsh.cmd" plugin --profile desktop add '\\wsl.localhost\<发行版>\home\<用户>\path\to\HiveMemory\integrations\deepseek-harness'
-  ```
-
-  pnpm 以 `link:` 指向 WSL 中的仓库目录，插件代码更新后重启桌面端即生效。也可以先复制到 Windows 本地目录再安装，代价是每次更新都要重新复制。
-- 环境变量要设在 Windows 用户环境中（桌面端从注册表继承，不读 WSL 的 shell 配置），设置后完全退出并重新打开桌面端：
-
-  ```powershell
-  setx HIVEMEMORY_URL http://127.0.0.1:8769
-  setx HIVEMEMORY_TOKEN <同一凭据>
-  ```
-
-- 网络：WSL2 默认的 NAT 模式会把 Windows 的 `localhost`/`127.0.0.1` 转发到 WSL 中监听 `127.0.0.1` 的服务，Host 头因此是本机地址，通过 MCP 端点的 Host 检查；不能改用 WSL 虚拟机的 IP，那样会被 Host 检查以 421 拒绝。
-- 插件状态在 Windows 一侧的 `%USERPROFILE%\.hivememory\dsh-connector`。
+安装、配置、确认、排查与更新的操作步骤（含 Windows 桌面端连接 WSL 中的 HiveMemory）只在[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md)中维护，应 owner 要求（2026-11-01）随实现写入帮助文档，不等收尾。
 
 ## 5. 受影响的系统、契约和数据
 
@@ -210,8 +185,12 @@ pytest tests/integration/workspace/test_published_registration_chain.py -q
 
 ## 9. 完成时必须更新的当前文档
 
+已随实现更新（owner 要求，2026-11-01）：帮助文档。新增[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md)；Claude Code 的接入步骤由安装与启动第 9 节移为[接入 Claude Code](../help/claude-code-plugin.md)，[安装与启动](../help/setup.md)第 9 节改为两份手册的入口；[配置指南](../help/configuration.md)与[故障排查](../help/troubleshooting.md)的相关段落与链接随之更新。
+
+收尾时更新：
+
 - [Import Bus](../system/import-bus.md)：外部 harness 连接器一节加入 dsh 插件（组成、触发、投影、水位与补发、状态目录、已知限制），与 Claude Code 连接器共用的规则只写一处。
 - [MCP 记忆访问](../contracts/mcp.md)：外部 harness 列表、dsh 插件的工具注册与轮次信息、回声标记。
-- [配置](../system/configuration.md)、[认证与访问登记](../workspace/authentication.md)、[帮助：安装与启动](../help/setup.md)、[帮助：配置](../help/configuration.md)、[帮助：排查](../help/troubleshooting.md)：`harness:dsh`、`HIVEMEMORY_DSH_TOKEN`、Agent `dsh` 与安装步骤。
+- [配置](../system/configuration.md)、[认证与访问登记](../workspace/authentication.md)：`harness:dsh`、`HIVEMEMORY_DSH_TOKEN` 与 Agent `dsh`。
 - [PROJECT](../PROJECT.md)、README 与 README_EN、[ROADMAP](../ROADMAP.md)：第二个外部 harness 的状态。
 - 归档本计划，从 [Plans 导航](./README.md)移除。
