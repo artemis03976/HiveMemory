@@ -24,7 +24,7 @@ related_docs:
   - docs/system/import-bus.md
 related_decisions:
   - docs/architecture/decisions/0002-unique-identities-and-minimal-concurrency.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-01
 ---
 
 # HiveMemory 当前系统架构
@@ -54,10 +54,11 @@ HiveMemory 因而保留了原项目“双系统”的核心思想：热路径负
 ## 2. 当前基线
 
 - 最新已发布 Git 标签：`v0.7.1`（2026-10-30）；
-- 当前发布基线：`v0.7.1`；
-- 当前代码、构建与运行时版本：`0.7.1`，唯一声明位于 `src/hivememory/_version.py`；
+- 当前内容基线：`v0.7.2`（2026-11-01 收尾，发布标签在合并后创建）；
+- 当前代码、构建与运行时版本：`0.7.2`，唯一声明位于 `src/hivememory/_version.py`；
 - v0.7.0 在 v0.6.x 的独立 Gateway、Gateway workflow、Passive Ingress 与 Local Work Queue Runtime 之上，完成了 workspace 体系：任务请求的唯一注册入口与任务进程、两阶段认证与授权、能力层、执行线程、会话资源与写入意图登记；全局命令只解析、不执行；
 - v0.7.1 以 plugin 模式接入第一个外部 harness Claude Code：对话经 Import Bus 回流（第 6 节），记忆经 MCP 入口检索与读取（第 6.1 节）；`TurnEvent` 成为唯一的交互原子事件，推理模型默认空闲卸载、按需加载；
+- v0.7.2 改进生成质量：生成材料只限制单次工具调用的结果，结算来源覆盖已折叠的轮次；一个话题一次提取多条记忆；查重命中后先落库、再由合并任务融合两条记忆；外部 harness 经 MCP 写入与更新记忆（第 6.1 节）；
 - Python 包、FastAPI/OpenAPI、health 响应和前端包清单保持同一版本；Git tag 仍是“已经发布”的唯一判断依据。
 
 版本规划与完成度以[路线图](../ROADMAP.md)为准，系统当前由什么组件组成则以本文和代码为准。

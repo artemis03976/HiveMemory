@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/contracts/mcp.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-01
 ---
 
 # HiveMemory 项目总览
@@ -138,10 +138,10 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 | 口径 | 当前值 | 含义 |
 |:---|:---|:---|
 | 最近已发布基线 | `v0.7.1` | Git tag 创建于 2026-10-30；plugin 模式接入 Claude Code：对话经 Import Bus 回流进入记忆生成，Claude Code 经 MCP 工具检索与读取记忆；另有推理模型的空闲卸载与工具解析链路重写 |
-| 当前开发版本 | `v0.7.2` | Planned：版本目标为生成质量，见 [ROADMAP](./ROADMAP.md) |
-| 规范代码版本 | `0.7.1` | 由 `src/hivememory/_version.py` 唯一声明，Python 构建、运行时、HTTP API 与前端包清单保持一致 |
+| 当前内容基线 | `v0.7.2` | Completed（2026-11-01）：生成质量——生成材料不再按单轮截断，结算来源覆盖已折叠的轮次；一个话题提取多条记忆；查重命中后先落库再合并；Claude Code 经 MCP 写入与更新记忆。本次发布标签 `v0.7.2` 在合并后创建，见 [ROADMAP](./ROADMAP.md) |
+| 规范代码版本 | `0.7.2` | 由 `src/hivememory/_version.py` 唯一声明，Python 构建、运行时、HTTP API 与前端包清单保持一致 |
 
-版本号与发布状态是两个不同事实。`pyproject.toml` 通过 setuptools dynamic metadata 读取规范代码版本，FastAPI/OpenAPI 与 `/health` 直接复用运行时版本，前端清单由 CI 一致性检查约束。当前代码和前后端清单为 0.7.1，与最近已发布标签 v0.7.1 对应；v0.7.2 开发期间合入的内容在版本收尾时升版。版本目标判定与核对记录见 [v0.7.1 收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)，上一个版本见 [v0.7.0 收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md)。Python PEP 440 与 npm SemVer 对预发布后缀的规范化方式不同，因此当前门禁不发布预发布包；未来若需要 rc/beta，必须先为两种生态补充显式映射和构建产物校验，不能绕过一致性检查。
+版本号与发布状态是两个不同事实。`pyproject.toml` 通过 setuptools dynamic metadata 读取规范代码版本，FastAPI/OpenAPI 与 `/health` 直接复用运行时版本，前端清单由 CI 一致性检查约束。当前代码和前后端清单为 0.7.2，本次发布标签 v0.7.2 在合并后创建，最近已发布标签为 v0.7.1。版本目标判定与核对记录见 [v0.7.2 收尾审计](./archive/plans/v0.7.2-release-closeout-audit.md)，上一个版本见 [v0.7.1 收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)。Python PEP 440 与 npm SemVer 对预发布后缀的规范化方式不同，因此当前门禁不发布预发布包；未来若需要 rc/beta，必须先为两种生态补充显式映射和构建产物校验，不能绕过一致性检查。
 
 发布信息以 Git tag 为准，开发中的设计状态以本文、[当前架构](./architecture/overview.md)和[路线图](./ROADMAP.md)为准。
 
