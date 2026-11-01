@@ -1,6 +1,7 @@
 """按根配置的 logging 段设置进程日志输出。"""
 
 import logging
+from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
 from hivememory.components.trace_context import TraceInjectFilter
@@ -14,10 +15,15 @@ _installed_handlers: list[logging.Handler] = []
 def configure_logging(config: LoggingConfig) -> None:
     """按 ``level``、``format``、``console_output``、``file_path`` 设置根 logger 的输出。
 
-    控制台与文件输出只输出 ``level`` 及以上的记录。开启 WebSocket 广播且广播级别更低时，
-    根 logger 的级别放宽到广播级别，低于 ``level`` 的记录只由广播 handler 按自己的
-    级别过滤。两项输出都关闭时装上空输出，避免 Python 的兜底 handler 继续向 stderr
-    打印警告。uvicorn 自己的访问与错误日志不经根 logger，不受本配置影响。
+    控制台与文件输出只输出 ``level`` 及以上的记录。文件按本地日期切分：``file_path``
+    始终是当天的日志，跨过零点后的第一条记录触发滚动，此前的内容改名为
+    ``<file_path>.YYYY-MM-DD``（日期为这些内容所属的那一天），归档全部保留。开启
+    WebSocket 广播且广播级别更低时，根 logger 的级别放宽到广播级别，低于 ``level`` 的
+    记录只由广播 handler 按自己的级别过滤。两项输出都关闭时装上空输出，避免 Python 的
+    兜底 handler 继续向 stderr 打印警告。
+
+    uvicorn 的服务日志（启动、关闭与 ASGI 异常）与 ``warnings`` 的警告也交给根 logger，
+    和应用日志同一格式、同一去处；每个请求已由请求日志中间件记录，uvicorn 的访问日志关闭。
     """
     root = logging.getLogger()
     for handler in _installed_handlers:
@@ -32,7 +38,7 @@ def configure_logging(config: LoggingConfig) -> None:
     if config.file_path:
         path = Path(config.file_path)
         path.parent.mkdir(parents=True, exist_ok=True)
-        handlers.append(logging.FileHandler(path, encoding="utf-8"))
+        handlers.append(TimedRotatingFileHandler(path, when="midnight", encoding="utf-8"))
     if not handlers:
         handlers.append(logging.NullHandler())
 
@@ -43,6 +49,13 @@ def configure_logging(config: LoggingConfig) -> None:
         handler.addFilter(TraceInjectFilter())
         root.addHandler(handler)
         _installed_handlers.append(handler)
+
+    # uvicorn 在应用启动前已给自己的 logger 装上输出并阻止冒泡，这里撤掉它们。
+    uvicorn_logger = logging.getLogger("uvicorn")
+    uvicorn_logger.handlers.clear()
+    uvicorn_logger.propagate = True
+    logging.getLogger("uvicorn.access").disabled = True
+    logging.captureWarnings(True)
 
     if config.websocket_enabled:
         level = min(level, logging.getLevelNamesMapping()[config.websocket_level])
