@@ -141,7 +141,7 @@ def _run(coro: Any) -> Any:
 
 @pytest.fixture(scope="module", autouse=True)
 def _shared_event_loop():
-    """先于共享存储创建事件循环；模块结束时关闭 Qdrant 客户端与循环并清空共享状态。"""
+    """先于共享存储创建事件循环；模块结束时删除测试集合，关闭 Qdrant 客户端与循环并清空共享状态。"""
     global _loop, _shared_storage, _shared_mid_term, _shared_retriever
     global _shared_reranker_service, _shared_engine, _golden_memories_injected, _golden_identity
     global _shared_retrieval_config
@@ -153,7 +153,14 @@ def _shared_event_loop():
         loop = _loop
         if loop is not None and not loop.is_closed():
             if _shared_storage is not None:
-                loop.run_until_complete(_shared_storage.client.close())
+                # 测试集合建在开发用的 Qdrant 上，留下来会在之后的运行中累积旧数据。
+                client = _shared_storage.client
+                try:
+                    loop.run_until_complete(
+                        client.delete_collection(collection_name=_test_collection_name)
+                    )
+                finally:
+                    loop.run_until_complete(client.close())
             loop.close()
         asyncio.set_event_loop(None)
         _loop = None

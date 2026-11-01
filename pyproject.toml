@@ -23,7 +23,8 @@ classifiers = [
 
 dependencies = [
     "litellm>=1.30.0",
-    "qdrant-client>=1.7.0",
+    # 与 Qdrant 服务端保持同一小版本，两者一起升级。
+    "qdrant-client>=1.19,<1.20",
     "fastembed>=0.3.0",
     "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
