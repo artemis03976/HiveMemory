@@ -1,4 +1,9 @@
-"""配置管理 API 路由"""
+"""配置管理 API 路由
+
+配置中的 LLM、提供商凭证与 Qdrant 带有 ``api_key``。HTTP 接口对本机任何进程开放，
+响应中的密钥与提供商、模型接口一样只返回打码值；前端把读到的配置原样提交回来时，
+打码值还原为当前密钥，不会用打码值覆盖真实密钥。
+"""
 
 import logging
 import os
@@ -17,11 +22,44 @@ from hivememory.config.app import (
 from hivememory.server.deps import get_system
 from hivememory.server.error_handlers import APIError, error_responses, validation_issues
 from hivememory.server.models.config import ConfigResponse
+from hivememory.server.models.secrets import mask_api_key
 from hivememory.system import HiveMemorySystem
 
 logger = logging.getLogger(__name__)
 
 router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["config"])
+
+# 配置树中保存密钥的字段名。
+_SECRET_FIELD = "api_key"
+
+
+def _masked_response(config: HiveMemoryConfig) -> ConfigResponse:
+    return ConfigResponse(**_mask_secrets(config.model_dump(mode="json")))
+
+
+def _mask_secrets(node: Any) -> Any:
+    if isinstance(node, dict):
+        return {
+            key: mask_api_key(value) if key == _SECRET_FIELD else _mask_secrets(value)
+            for key, value in node.items()
+        }
+    if isinstance(node, list):
+        return [_mask_secrets(item) for item in node]
+    return node
+
+
+def _restore_secrets(submitted: Any, current: Any) -> Any:
+    """提交的密钥等于当前密钥的打码值时还原为当前密钥；新的明文与 null 照常生效。"""
+    if not isinstance(submitted, dict) or not isinstance(current, dict):
+        return submitted
+    restored: dict[str, Any] = {}
+    for key, value in submitted.items():
+        existing = current.get(key)
+        if key == _SECRET_FIELD and existing is not None and value == mask_api_key(existing):
+            restored[key] = existing
+        else:
+            restored[key] = _restore_secrets(value, existing)
+    return restored
 
 
 def _build_config_without_path_override(
@@ -77,11 +115,9 @@ async def get_config(
     """
     获取当前系统配置
 
-    返回当前运行时的完整配置，包括所有模块的参数设置。
+    返回当前运行时的完整配置，包括所有模块的参数设置；密钥只返回打码值。
     """
-    config = system.config
-    config_dict = config.model_dump(mode="json")
-    return ConfigResponse(**config_dict)
+    return _masked_response(system.config)
 
 
 @router.post("/config")
@@ -101,16 +137,16 @@ async def update_config(
     Returns:
         更新后的配置
     """
+    submitted = _restore_secrets(new_config, system.config.model_dump(mode="json"))
     try:
-        validated_config = _build_config_without_path_override(new_config)
+        validated_config = _build_config_without_path_override(submitted)
     except ValidationError as e:
         # 校验异常含完整 input；响应与常规日志均不复制该输入。
         raise APIError("request.validation_failed", issues=validation_issues(e.errors())) from e
     _persist_config_atomically(validated_config)
     system.config = validated_config
     logger.info("配置已更新")
-    config_dict = validated_config.model_dump(mode="json")
-    return ConfigResponse(**config_dict)
+    return _masked_response(validated_config)
 
 
 @router.get("/config/defaults", response_model=ConfigResponse)
@@ -119,8 +155,6 @@ async def get_default_config():
     获取默认配置
 
     返回系统的默认配置值，不包含任何环境变量或YAML文件的覆盖。
-    可用于重置配置或查看默认值。
+    可用于重置配置或查看默认值；密钥只返回打码值。
     """
-    default_config = _build_config_without_path_override()
-    config_dict = default_config.model_dump(mode="json")
-    return ConfigResponse(**config_dict)
+    return _masked_response(_build_config_without_path_override())

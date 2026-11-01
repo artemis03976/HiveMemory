@@ -10,22 +10,7 @@ from hivememory.core.constants import (
     DEFAULT_TOP_P,
 )
 from hivememory.core.models.model_definition import ModelDefinition
-
-
-def _mask_api_key(api_key: str | None) -> str | None:
-    """
-    对 API 密钥做脱敏处理，避免通过 API 泄露明文密钥。
-
-    规则：
-    - None → None（未设置）
-    - 长度 ≤ 8 → "***"
-    - 长度 > 8 → 保留前 3 位 + "..." + 后 4 位，如 "sk-...abcd"
-    """
-    if api_key is None:
-        return None
-    if len(api_key) <= 8:
-        return "***"
-    return f"{api_key[:3]}...{api_key[-4:]}"
+from hivememory.server.models.secrets import mask_api_key
 
 
 class ModelResponse(BaseModel):
@@ -52,7 +37,7 @@ class ModelResponse(BaseModel):
             display_name=model.display_name,
             litellm_model=model.litellm_model,
             provider=model.provider,
-            api_key_masked=_mask_api_key(model.api_key),
+            api_key_masked=mask_api_key(model.api_key),
             api_base=model.api_base,
             temperature=model.temperature,
             max_tokens=model.max_tokens,
