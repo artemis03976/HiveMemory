@@ -1,8 +1,9 @@
 ---
 title: 话题结算的多条提取、查重与更新
-status: idea
-horizon: current
-serves_version: v0.7.2
+status: archived
+archived_at: 2026-11-01
+implemented_by: v0.7.2 查重与更新（archive/plans/v0.7.2-dedup-merge.md，PR #154）与一个话题提取多条记忆（archive/plans/v0.7.2-multi-memory-extraction.md，feat/multi-memory-extraction）
+superseded_by: docs/patchouli/generation.md
 owner: patchouli
 scope: settlement-multi-memory-extraction-dedup-signal-and-update-mechanism
 related_current:
@@ -22,11 +23,13 @@ last_reviewed: 2026-11-01
 
 # 话题结算的多条提取、查重与更新
 
+> 已归档（2026-11-01，v0.7.2）。G-1、G-3 已随两份计划实施，当前事实见 [Patchouli 生成](../../patchouli/generation.md)；未决定的 G-2 判定信号移交[查重 Todo](../../todo/generation-dedup-decision-signal.md)，其余事项的去向见文末“归档说明”。以下正文保留归档前的原文，链接已改为归档后的相对路径。
+
 ## 0. 文档性质
 
-本文是 v0.7.2（生成质量）的设计讨论，为两份计划供料：一个话题提取多条记忆，以及查重与更新机制。两份计划各自在阻塞问题决定、能够立即执行时建立，彼此不预设先后。当前行为以 [Patchouli 生成](../patchouli/generation.md)为准；查重失灵的证据与完成条件见[生成查重的决策信号 Todo](../todo/generation-dedup-decision-signal.md)。
+本文是 v0.7.2（生成质量）的设计讨论，为两份计划供料：一个话题提取多条记忆，以及查重与更新机制。两份计划各自在阻塞问题决定、能够立即执行时建立，彼此不预设先后。当前行为以 [Patchouli 生成](../../patchouli/generation.md)为准；查重失灵的证据与完成条件见[生成查重的决策信号 Todo](../../todo/generation-dedup-decision-signal.md)。
 
-同一版本的另外两个方向分别在其他 Idea 中讨论：生成材料修正与 Topic 之后的原始证据保存见 [Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md#0-v072生成材料修正与-topic-之后的原始证据保存) 第 0 节；plugin 模式开放 WRITE 与 UPDATE 见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)。
+同一版本的另外两个方向分别在其他 Idea 中讨论：生成材料修正与 Topic 之后的原始证据保存见 [Raw Evidence Idea](../../ideas/PatchouliPageFoldingRawEvidenceDesign.md#0-v072生成材料修正与-topic-之后的原始证据保存) 第 0 节；plugin 模式开放 WRITE 与 UPDATE 见[外部 Actor Idea](../../ideas/external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)。
 
 ## 1. owner 决定
 
@@ -36,14 +39,14 @@ last_reviewed: 2026-11-01
   - 这种融合接近原本为记忆生命周期安排的合并：输入是两条正式记忆。
   - 不复用 Mode C。Mode C 的输入是一条记忆加修改指令与新素材，强制它接收两条记忆，会让它失去对 UPDATE 的支持。
 - （2026-10-31）查重的判定信号（G-2）暂不改动，不阻塞查重与更新的计划。理由是现行信号姑且能达成查重的目的；之后可能另行调研新技术来解决。
-- （2026-10-31）记忆的写入与访问主要由执行者经记忆工具主动完成：只有执行者知道什么是一手且重要的。话题结算的被动提取（Mode A）作为兜底。owner 之后为没有原生记忆的 harness 编写 skill，引导 agent 主动使用记忆工具（第二个 harness 见 [DeepSeek Harness 调研需求](../research/deepseek-harness-plugin-survey.md)）。多条提取仍在版本内完成，G-1 先以 HiveMemory 自己的话题离线回放取证（第 4 节）。
-- （2026-11-01）多条提取采用 G-1 的选项 A：extractor 一次调用输出草稿列表；同时把 Librarian 的输出上限提高到 16384 或更高。主动写入的内容被 Mode A 再提取一遍，是早已接受的代价，依赖查重与合并完成去重与迭代更新。计划：[一个话题提取多条记忆](../plans/v0.7.2-multi-memory-extraction.md)。
+- （2026-10-31）记忆的写入与访问主要由执行者经记忆工具主动完成：只有执行者知道什么是一手且重要的。话题结算的被动提取（Mode A）作为兜底。owner 之后为没有原生记忆的 harness 编写 skill，引导 agent 主动使用记忆工具（第二个 harness 见 [DeepSeek Harness 调研需求](../../research/deepseek-harness-plugin-survey.md)）。多条提取仍在版本内完成，G-1 先以 HiveMemory 自己的话题离线回放取证（第 4 节）。
+- （2026-11-01）多条提取采用 G-1 的选项 A：extractor 一次调用输出草稿列表；同时把 Librarian 的输出上限提高到 16384 或更高。主动写入的内容被 Mode A 再提取一遍，是早已接受的代价，依赖查重与合并完成去重与迭代更新。计划：[一个话题提取多条记忆](../plans/v0.7.2-multi-memory-extraction.md)（2026-11-01 归档）。
 
 ## 2. 问题
 
 ### 2.1 一个话题至多一条记忆
 
-Mode A 的 extractor 对整段话题材料只返回一份草稿，同一话题中讨论过的多项决定、事实或偏好只能压进一条记忆，次要内容往往只留在正文里。检索的稠密与稀疏向量只由标题、类型、标签与摘要编译，只写在正文中的内容因此检索不到（[Patchouli 生成](../patchouli/generation.md#8-当前限制)第 8 节）。MCP 记忆访问的第一个检索落空样本，原因之一就是这一点（[已归档的观察 Todo](../archive/todo/import-bus-real-use-observation.md)）。
+Mode A 的 extractor 对整段话题材料只返回一份草稿，同一话题中讨论过的多项决定、事实或偏好只能压进一条记忆，次要内容往往只留在正文里。检索的稠密与稀疏向量只由标题、类型、标签与摘要编译，只写在正文中的内容因此检索不到（[Patchouli 生成](../../patchouli/generation.md#8-当前限制)第 8 节）。MCP 记忆访问的第一个检索落空样本，原因之一就是这一点（[已归档的观察 Todo](../todo/import-bus-real-use-observation.md)）。
 
 ### 2.2 查重分不开相关记忆，命中后整体覆盖
 
@@ -60,13 +63,13 @@ Todo 登记时查重只做过 CREATE。2026-10-29 晚至 10-30，同一项目的
 
 ## 3. 现状事实（代码核对，2026-10-30）
 
-> 查重与两种 UPDATE 两条已随[查重与更新计划](../archive/plans/v0.7.2-dedup-merge.md)改变（2026-10-31），当前行为见 [Patchouli 生成](../patchouli/generation.md#4-查重与合并)第 4 节；其余各条仍然成立。
+> 查重与两种 UPDATE 两条已随[查重与更新计划](../plans/v0.7.2-dedup-merge.md)改变（2026-10-31），提取一条已随[多条提取计划](../plans/v0.7.2-multi-memory-extraction.md)改变（2026-11-01），当前行为见 [Patchouli 生成](../../patchouli/generation.md)第 3.1、4 节；其余各条仍然成立。
 
-- **提取**：`BaseMemoryExtractor.extract` 返回 `ExtractedMemoryDraft | None`（[生成接口](../../src/hivememory/engines/generation/interfaces.py)）；Mode B 以 `WriteFocus` 为核心，Mode C 以 `UpdateFocus` 为核心，各自只产出一份草稿。
-- **查重**：Mode A/B 以 `title + summary` 对中期库做 dense top-1 检索；大于 0.95 时按内容是否一致判为 TOUCH 或 UPDATE，0.75～0.95 判为 UPDATE，其余判为 CREATE（[Deduplicator](../../src/hivememory/engines/generation/deduplicator.py)，阈值见 `configs/config.yaml` 的 `patchouli.generation.deduplicator`）。
-- **两种 UPDATE**：查重判出的 UPDATE 用草稿内容整体覆盖已有记忆的 head；显式的 UPDATE（Mode C）用 extractor merge 生成新正文与 changelog，merge 失败时有追加或保留旧正文的回退（[Patchouli 生成](../patchouli/generation.md#33-mode-c主动-update)第 3.3、4 节）。
-- **嵌入文本**：入库按 `Title/Type/Tags/Summary` 模板编译，查询文本是 `title summary`，两者形态不同（[嵌入处理器](../../src/hivememory/engines/memory_compiler/handlers/embedding.py)）。
-- **来源**：一次结算捕获一份 InteractionArtifact，按生成结果挂载来源引用（[Artifacts](../patchouli/artifacts.md)）。
+- **提取**：`BaseMemoryExtractor.extract` 返回 `ExtractedMemoryDraft | None`（[生成接口](../../../src/hivememory/engines/generation/interfaces.py)）；Mode B 以 `WriteFocus` 为核心，Mode C 以 `UpdateFocus` 为核心，各自只产出一份草稿。
+- **查重**：Mode A/B 以 `title + summary` 对中期库做 dense top-1 检索；大于 0.95 时按内容是否一致判为 TOUCH 或 UPDATE，0.75～0.95 判为 UPDATE，其余判为 CREATE（[Deduplicator](../../../src/hivememory/engines/generation/deduplicator.py)，阈值见 `configs/config.yaml` 的 `patchouli.generation.deduplicator`）。
+- **两种 UPDATE**：查重判出的 UPDATE 用草稿内容整体覆盖已有记忆的 head；显式的 UPDATE（Mode C）用 extractor merge 生成新正文与 changelog，merge 失败时有追加或保留旧正文的回退（[Patchouli 生成](../../patchouli/generation.md#33-mode-c主动-update)第 3.3、4 节）。
+- **嵌入文本**：入库按 `Title/Type/Tags/Summary` 模板编译，查询文本是 `title summary`，两者形态不同（[嵌入处理器](../../../src/hivememory/engines/memory_compiler/handlers/embedding.py)）。
+- **来源**：一次结算捕获一份 InteractionArtifact，按生成结果挂载来源引用（[Artifacts](../../patchouli/artifacts.md)）。
 
 ## 4. 待决问题
 
@@ -78,6 +81,8 @@ Todo 登记时查重只做过 CREATE。2026-10-29 晚至 10-30，同一项目的
 
 **owner（2026-11-01）**：采用选项 A，Librarian 的输出上限提高到 16384 或更高；问题关闭（第 1 节）。
 
+> 2026-11-01 已随[多条提取计划](../plans/v0.7.2-multi-memory-extraction.md)落地，当前事实以 [Patchouli 生成](../../patchouli/generation.md#31-mode-a被动观察--archive)第 3.1 节为准；本节的选项、影响与回放记录保留为设计依据，不再随实现更新。
+
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|
 | A | extractor 一次调用输出草稿列表 | 每个话题仍是一次模型调用；草稿之间的边界完全由模型决定；全部草稿共用 Librarian 的输出上限（`max_tokens` 8192），而现在单条正文就可达数千字；输出截断或无法解析时全部草稿失效，Mode A 把它记为没有产出、不报错（生成侧不读 `finish_reason`） |
@@ -85,7 +90,7 @@ Todo 登记时查重只做过 CREATE。2026-10-29 晚至 10-30，同一项目的
 | C | 按材料的稳定范围（例如连续的轮次段）分片，逐片提取 | 与原始证据的分片读取一致，可以承接超出模型窗口的材料；同一议题跨片时会拆成多条，依赖查重合并 |
 | D | 其他 | —— |
 
-**owner（2026-10-30）**：选项 C 不予采纳。话题本来就是用来聚合同一语义的片段，再按范围分片生成相当于人为打散这一结构；理由与 [Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md#01-owner-决定2026-10-30) 第 0.1 节的 R-1 相同。G-1 仍在其余选项之间待决。
+**owner（2026-10-30）**：选项 C 不予采纳。话题本来就是用来聚合同一语义的片段，再按范围分片生成相当于人为打散这一结构；理由与 [Raw Evidence Idea](../../ideas/PatchouliPageFoldingRawEvidenceDesign.md#01-owner-决定2026-10-30) 第 0.1 节的 R-1 相同。G-1 仍在其余选项之间待决。
 
 两种选项共同的影响（分析，2026-10-31）：
 
@@ -154,19 +159,19 @@ Todo 登记时查重只做过 CREATE。2026-10-29 晚至 10-30，同一项目的
 - **两份计划的关系**：两份计划互不为前提，每条草稿逐条经过查重。
   - 多条提取先实施：草稿变多，查重命中更频繁；在融合落地之前，整体覆盖的影响也随之放大，计划需写明这一风险。
   - 融合先实施：之后同一次结算的多条草稿可能命中同一条记忆，融合的版本冲突会更常见（第 5.1 节）。
-- **来源**：同一次结算产出的多条记忆共享这次结算冻结的来源 Artifact，各自挂载来源引用；一份来源可以支撑多条 Memory（[Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md#53-memory-的来源关联)第 5.3 节）。
+- **来源**：同一次结算产出的多条记忆共享这次结算冻结的来源 Artifact，各自挂载来源引用；一份来源可以支撑多条 Memory（[Raw Evidence Idea](../../ideas/PatchouliPageFoldingRawEvidenceDesign.md#53-memory-的来源关联)第 5.3 节）。
 - **评估样本**：判定信号暂不改动。覆盖四类关系（重复、同一工作的不同阶段、同项目但无关、完全无关）的标注样本，留到重新讨论 G-2 时整理。融合的验收样本取第 2.2 节的两条覆盖链（第 5.1 节）。
 - **docstring**：`MemoryDeduplicator` 把 0.75～0.95 区间写成“内容合并”，与整体覆盖的行为不符。融合落地后，这一区间的实际行为是“新建并提名融合”，docstring 随查重与更新的计划改写。
 
 ### 5.1 先落库再融合
 
-> 2026-10-31 已随[查重与更新计划](../archive/plans/v0.7.2-dedup-merge.md)落地，当前事实以 [Patchouli 生成](../patchouli/generation.md#4-查重与合并)第 4 节为准；本节保留为设计依据，不再随实现更新。
+> 2026-10-31 已随[查重与更新计划](../plans/v0.7.2-dedup-merge.md)落地，当前事实以 [Patchouli 生成](../../patchouli/generation.md#4-查重与合并)第 4 节为准；本节保留为设计依据，不再随实现更新。
 
 现状核对（2026-10-31）：
 
-- 记忆没有“已被合并”的状态。离开中期库只有删除与归档两种方式；归档进入长期库，是可以复活的冷存储（[MemoryLibrary](../patchouli/memory-library.md#13-长期冷藏库)第 1.3 节）。
-- 读取视图的重定向只用于写入句柄：句柄结算后，按结算中的 canonical 身份读取正式记忆（[读取视图](../../src/hivememory/workspace/resolution/memory.py)）。
-- 已结算的句柄只能转入 EXPIRED（[PendingAtom 模型](../../src/hivememory/core/models/pending.py)）。
+- 记忆没有“已被合并”的状态。离开中期库只有删除与归档两种方式；归档进入长期库，是可以复活的冷存储（[MemoryLibrary](../../patchouli/memory-library.md#13-长期冷藏库)第 1.3 节）。
+- 读取视图的重定向只用于写入句柄：句柄结算后，按结算中的 canonical 身份读取正式记忆（[读取视图](../../../src/hivememory/workspace/resolution/memory.py)）。
+- 已结算的句柄只能转入 EXPIRED（[PendingAtom 模型](../../../src/hivememory/core/models/pending.py)）。
 
 ```text
 草稿 -> 查重（信号与阈值不变）
@@ -208,7 +213,7 @@ Todo 登记时查重只做过 CREATE。2026-10-29 晚至 10-30，同一项目的
   - 融合失败不改变这个句柄。
   - `MERGED` 现在表示“查重判出 UPDATE”，这个产生方随覆盖路径一起删除，此后它的含义改为“新建后被融合”。
 - **失败**：以下情况任务失败，两条记忆都保留，不回退为追加或覆盖：提供商失败、输出无法解析、任一记忆缺失、不再满足融合条件、版本冲突。关闭时尚未执行的融合任务会丢失，结果同样是两条都保留，排空不需要等待它们。
-- **所有权**：查重提供这一次的融合信号，融合任务在 Generation 中计算内容，写回与删除经 MemoryLibrary 执行，Artifact 保存两边的历史。这与 [Lifecycle](../patchouli/lifecycle.md#8-当前限制)第 8 节对将来 split/merge 的所有权约定一致。以后由 Lifecycle 定期发现的合并（[生命力演进 Idea](./VitalityScoringLongTermEvolutionIdeas.md) 方向 2）可以复用同一个融合任务。
+- **所有权**：查重提供这一次的融合信号，融合任务在 Generation 中计算内容，写回与删除经 MemoryLibrary 执行，Artifact 保存两边的历史。这与 [Lifecycle](../../patchouli/lifecycle.md#8-当前限制)第 8 节对将来 split/merge 的所有权约定一致。以后由 Lifecycle 定期发现的合并（[生命力演进 Idea](../../ideas/VitalityScoringLongTermEvolutionIdeas.md) 方向 2）可以复用同一个融合任务。
 - **暂不处理**：
   - 不经句柄、直接按 N 的 alias 或 UUID 读取或更新时得不到结果，与访问已归档的记忆相同；融合紧随新建，这个窗口通常很短。更完整的可选做法是为被吸收的记忆保留重定向记录；
   - 同一条 M 上的并发融合：后写回的一方版本冲突失败，留下重复；
@@ -220,12 +225,23 @@ Todo 登记时查重只做过 CREATE。2026-10-29 晚至 10-30，同一项目的
 ## 6. 不在本文
 
 - 正文进入检索索引：只写在正文中的内容召回不到的另一条处理路径，搁置。
-- 价值体系：由 owner 重新设计，见 [ROADMAP](../ROADMAP.md#47-记忆价值体系重新设计候选)。
-- 重排模型 int8：未排期，见 [Todo](../todo/reranker-int8-and-onnx-memory.md)。
+- 价值体系：由 owner 重新设计，见 [ROADMAP](../../ROADMAP.md#47-记忆价值体系重新设计候选)。
+- 重排模型 int8：未排期，见 [Todo](../../todo/reranker-int8-and-onnx-memory.md)。
 
 ## 7. 升级为 Plan 的条件
 
-- 多条提取的计划：G-1 已决定（2026-11-01），计划已建立：[一个话题提取多条记忆](../plans/v0.7.2-multi-memory-extraction.md)。
-- 查重与更新的计划：G-3 已决定（2026-10-31），G-2 不阻塞，验收样本取第 5.1 节的两条覆盖链。计划已于 2026-10-31 建立并实施，同日归档：[查重与更新：先落库再合并](../archive/plans/v0.7.2-dedup-merge.md)；当前事实见 [Patchouli 生成](../patchouli/generation.md#4-查重与合并)。
+- 多条提取的计划：G-1 已决定（2026-11-01）。计划已于同日建立并实施、归档：[一个话题提取多条记忆](../plans/v0.7.2-multi-memory-extraction.md)；当前事实见 [Patchouli 生成](../../patchouli/generation.md#31-mode-a被动观察--archive)。
+- 查重与更新的计划：G-3 已决定（2026-10-31），G-2 不阻塞，验收样本取第 5.1 节的两条覆盖链。计划已于 2026-10-31 建立并实施，同日归档：[查重与更新：先落库再合并](../plans/v0.7.2-dedup-merge.md)；当前事实见 [Patchouli 生成](../../patchouli/generation.md#4-查重与合并)。
 
-两份计划都以 `target: v0.7.2` 建立，在 [Plans 导航](../plans/README.md#v072)登记；实施、验收与代码审查完成后，按最终代码更新 [Patchouli 生成](../patchouli/generation.md)与相关事实文档。
+两份计划都以 `target: v0.7.2` 建立，在 [Plans 导航](../../plans/README.md#v072)登记；实施、验收与代码审查完成后，按最终代码更新 [Patchouli 生成](../../patchouli/generation.md)与相关事实文档。
+
+## 归档说明（2026-11-01）
+
+v0.7.2 的两份计划都已实施并归档，本文不再跟踪以下事项：
+
+| 事项 | 去向 |
+|:---|:---|
+| G-2 查重的判定信号 | [查重 Todo](../../todo/generation-dedup-decision-signal.md)：第 4 节 G-2 的选项与影响、第 5 节的评估样本，以及 G-1 回放中草稿两两比较的结果一并移入 |
+| 正文进入检索索引（第 6 节） | 搁置，不单独跟踪；限制见 [Patchouli 生成](../../patchouli/generation.md#8-当前限制)第 8 节 |
+| 第 5.1 节“暂不处理”的各项 | 随查重与更新计划收口，当前限制以 Patchouli 生成第 8 节为准；Lifecycle 定期发现的合并见[生命力演进 Idea](../../ideas/VitalityScoringLongTermEvolutionIdeas.md)方向 2 |
+| G-1 回放中的进度与状态类条目 | 不单独跟踪 |

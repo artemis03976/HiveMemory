@@ -15,7 +15,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/attachments.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-01
 ---
 
 # Artifacts 与来源追踪
@@ -60,7 +60,7 @@ InteractionArtifact 是一个话题材料快照，保存 `topic_id/title/summary
 
 它刻意不保存 memory id、alias、source intent、capture policy，也不设置顶层 Agent 来源字段：来源 provenance 由每个 block 冻结的 `actor_identity` 承载，因为同一 Workspace 话题内可以切换不同 Agent，话题级单值来源无法表达这一事实。原始交互先保持中立，哪条记忆由它派生则由 MemoryCreation/Version Artifact 表达。这样同一份证据不会因为生成出不同记忆而被重复解释为不同“原文”。
 
-当前生成任务在执行前根据 `InteractionArtifactInput` 构建它。话题结算（Mode A）使用话题接收到的全部交互记录与全部折叠记录：`turns` 覆盖已折叠的轮次，而生成材料只是工作视图（[感知与短期话题](./perception.md)）。主动 WRITE/UPDATE 使用话题工作视图最近 `active_recent_blocks`（默认 5）个 blocks 作为背景，没有折叠记录。若一次 finalize 产生多个主动任务，每个 task 目前会独立捕获自己的 InteractionArtifact，并不共享单一 task-group artifact。
+当前生成任务在执行前根据 `InteractionArtifactInput` 构建它。话题结算（Mode A）使用话题接收到的全部交互记录与全部折叠记录：`turns` 覆盖已折叠的轮次，而生成材料只是工作视图（[感知与短期话题](./perception.md)）。话题结算提取出多条记忆时，它们共享这一份 InteractionArtifact，各自在来源引用与创建记录中指向它。主动 WRITE/UPDATE 使用话题工作视图最近 `active_recent_blocks`（默认 5）个 blocks 作为背景，没有折叠记录。若一次 finalize 产生多个主动任务，每个 task 目前会独立捕获自己的 InteractionArtifact，并不共享单一 task-group artifact。
 
 ### 2.2 DocumentArtifact
 

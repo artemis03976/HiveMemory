@@ -316,7 +316,7 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 
 ### v0.7.2：plugin 模式开放 WRITE 与 UPDATE
 
-v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质量)第 4.3 节）；同一版本的其他方向见 [Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md#0-v072生成材料修正与-topic-之后的原始证据保存)第 0 节与[多条提取与查重 Idea](./settlement-multi-memory-extraction-and-dedup.md)。计划在本步的阻塞问题决定、能够立即执行时建立。
+v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质量)第 4.3 节）；同一版本的其他方向见 [Raw Evidence Idea](./PatchouliPageFoldingRawEvidenceDesign.md#0-v072生成材料修正与-topic-之后的原始证据保存)第 0 节与[多条提取与查重 Idea](../archive/ideas/settlement-multi-memory-extraction-and-dedup.md)（已归档）。计划在本步的阻塞问题决定、能够立即执行时建立。
 
 - **owner 决定**（2026-10-30）：v0.7.2 同步开放 plugin 模式下 agent 对记忆的 WRITE 与 UPDATE，两项能力与主动链路共享同一记忆更新逻辑。owner 判断，Claude Code 真实使用中暴露的生成问题约有一半是因为这两项能力没有接回：plugin 模式下 Claude Code 只获准检索与读取，显式的写入与更新从未发生；主动链路中显式的 UPDATE 能正常更新记忆。
 - **owner 决定**（2026-10-31）：本步的计划同时清理 MTP 命名与文案残留，包括记忆编译文本的调整。

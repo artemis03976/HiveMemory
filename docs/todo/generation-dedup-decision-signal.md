@@ -14,8 +14,8 @@ related_docs:
   - docs/patchouli/retrieval.md
   - docs/archive/todo/import-bus-real-use-observation.md
   - docs/todo/reranker-int8-and-onnx-memory.md
-  - docs/ideas/settlement-multi-memory-extraction-and-dedup.md
-last_reviewed: 2026-10-31
+  - docs/archive/ideas/settlement-multi-memory-extraction-and-dedup.md
+last_reviewed: 2026-11-01
 ---
 
 # 生成查重的决策信号
@@ -49,7 +49,28 @@ Claude Code 接入后的真实使用中，登记时（2026-10-29）查重从未�
 - 「v0.7.1 记忆访问设计决定：P-1c/P-9c/E-2/E-3b/E-7 与 harness principal 复核」两次被后续实现阶段的草稿覆盖，当前正文只剩阶段二的返工；
 - 「v0.7.1 版本剩余工作梳理与收尾建议」两次被收尾阶段的草稿覆盖，当前正文是提交与开 PR 的记录。
 
-两条链都出自同一会话中先后进行的几段工作，被空闲结算拆成不同话题。被覆盖的版本保留在 MemoryVersionArtifact 中，检索与读取只看到最新版本。逐条对照见[多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md#22-查重分不开相关记忆命中后整体覆盖)第 2.2 节。
+两条链都出自同一会话中先后进行的几段工作，被空闲结算拆成不同话题。被覆盖的版本保留在 MemoryVersionArtifact 中，检索与读取只看到最新版本。逐条对照见已归档的[多条提取与查重 Idea](../archive/ideas/settlement-multi-memory-extraction-and-dedup.md#22-查重分不开相关记忆命中后整体覆盖)第 2.2 节。
+
+## 补充证据（2026-11-01）
+
+一个话题提取多条记忆的计划决定前，用 10 个真实结算原文离线回放提取（都是 Claude Code 开发 HiveMemory 的会话），一次调用输出草稿列表的做法共得到 73 条草稿。把它们两两比较，模拟全部入库之后再查重：
+
+- 73 条中有 18 条（25%）在其他话题中有高于 0.75 的近邻。其中 17 对是同一件事或同一工作的不同阶段，1 对是不同的 PR（#148 与 #153）。
+- 阈值附近两侧都有例外：低于阈值的真重复（0.744），以及刚低于阈值的误配（0.748）。
+- 在拆细的记忆上，现行阈值大体能区分，但边界两侧仍有重叠；合并任务的数量随之增加。
+- 样本全部来自同一项目的开发会话，内容高度同质，结论能否推广到其他领域未知。
+
+回放方法与逐话题结果见已归档的[多条提取与查重 Idea](../archive/ideas/settlement-multi-memory-extraction-and-dedup.md#g-1-一个话题的多条记忆怎样提取) G-1 一节。
+
+## 可能的方向（分析，未决定）
+
+| 方向 | 内容 | 影响 |
+|:---|:---|:---|
+| A | 保留 dense top-1 与固定阈值，对齐查询与入库的嵌入文本后重新标定 | 不增加模型调用；离线复现显示相关对与无关对没有分数间隔，对齐文本只解决自相似够不到 TOUCH |
+| B | dense top-k 召回后由已常驻的交叉编码器打分，按分数判定 | 不增加 LLM 调用；唯一一组记忆对样本中分开了相关与无关，问题式短查询上排序不稳定；原始分数会随重排模型量化改变（int8 暂不做） |
+| C | dense 宽门槛召回 top-k，由 LLM 判定新建、更新、合并或只建立关联 | 每条草稿多一次模型调用；判定理由可以记录；需要输出契约与提供商失败时的回退 |
+
+比较之前先整理标注样本，覆盖四类关系：重复、同一工作的不同阶段、同项目但无关、完全无关。
 
 ## 影响
 
@@ -58,7 +79,7 @@ Claude Code 接入后的真实使用中，登记时（2026-10-29）查重从未�
 
 ## 完成条件
 
-owner 于 2026-10-31 对[多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md#4-待决问题)第 4 节的两个问题分别作出决定，本 Todo 随之分成两部分处理：
+owner 于 2026-10-31 对[多条提取与查重 Idea](../archive/ideas/settlement-multi-memory-extraction-and-dedup.md#4-待决问题)（已归档）第 4 节的两个问题分别作出决定，本 Todo 随之分成两部分处理：
 
 - **命中后的写入方式（G-3）**：已完成。命中后先落库，再由合并任务把两条相似的记忆融合为一条，随 v0.7.2 的[查重与更新：先落库再合并](../archive/plans/v0.7.2-dedup-merge.md)实施并于 2026-10-31 归档；补充证据中的两条覆盖链经合并回放，最初版本的内容都得到保留（该计划第 12.3 节），`MemoryDeduplicator` 的 docstring 已与实际行为一致。
 - **判定信号（G-2）**：暂不改动，不阻塞上述计划，之后另行调研。离线复现中相关对排在第 2、相关与无关没有分数间隔的问题仍由本 Todo 跟踪；完成条件是离线复现的样本在新的判定信号下得到可解释的决策。

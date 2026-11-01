@@ -29,7 +29,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-01
 ---
 
 # 跨边界错误模型
@@ -301,12 +301,12 @@ Topic 缺失使用 `ResourceNotFoundError`，忙碌使用 `TopicBusyError`，明
 
 ### 4.6 模型调用错误
 
-`ModelProviderError` 与其子类 `ModelContextWindowExceededError` 定义在 `core.errors.model`，与 `ModelNotFoundError` 同处。它们只由 LLM 服务的实现（`LiteLLMService`）在 SDK 边界产生：完整调用、流式启动与流式拉取采用同一转换，超窗先于其他请求错误识别；由 SDK 异常转换而来时原始异常保留在原因链，异常文本是固定说明。提供商没有返回文本时同样抛出 `ModelProviderError`，此时没有原始异常。程序错误与取消不转换，原样传播。超窗作为提供商失败的子类，与 SDK 中超窗属于请求错误一致：按提供商失败处理的调用方无需单独捕获，需要区分超窗的调用方先判断子类。
+`ModelProviderError` 与其子类 `ModelContextWindowExceededError` 定义在 `core.errors.model`，与 `ModelNotFoundError` 同处。它们只由 LLM 服务的实现（`LiteLLMService`）在 SDK 边界产生：完整调用、流式启动与流式拉取采用同一转换，超窗先于其他请求错误识别；由 SDK 异常转换而来时原始异常保留在原因链，异常文本是固定说明。提供商没有返回文本时同样抛出 `ModelProviderError`，此时没有原始异常。记忆提取是 LLM 服务之外唯一的产生方：话题结算的提取输出达到 `max_tokens` 上限被截断时，提取器以固定说明抛出 `ModelProviderError`。程序错误与取消不转换，原样传播。超窗作为提供商失败的子类，与 SDK 中超窗属于请求错误一致：按提供商失败处理的调用方无需单独捕获，需要区分超窗的调用方先判断子类。
 
 | 使用方 | 处理 |
 |:---|:---|
 | Gateway 查询理解与话题路由 | 转为各自的能力错误，由 workflow 保守降级（第 4.2 节） |
-| Patchouli 记忆抽取与合并 | 只对提供商失败重试，一次提取或合并最多两次请求；超窗与程序错误不重试。重试耗尽后抛出最后一次的 `ModelProviderError`；模型输出为空或无法解析是“没有产出”，不是失败 |
+| Patchouli 记忆抽取与合并 | 只对提供商失败重试，一次提取或合并最多两次请求；超窗与程序错误不重试。重试耗尽后抛出最后一次的 `ModelProviderError`；模型输出为空或无法解析是“没有产出”，不是失败。话题结算的提取输出被截断时抛出 `ModelProviderError`、不重试：截断的草稿列表无法解析，当作没有产出会让整段话题不留记忆 |
 | Patchouli 生成引擎 | Mode A 不捕获提供商失败，生成任务以 `memory_generation_failed` 失败收尾，不再记录为没有产出；Mode B/C 对提供商失败使用既有 fallback，保证明确的保存与更新意图不因 Librarian LLM 暂时失败而丢失；程序错误不降级 |
 | Page Folding 摘要 | 只在提供商失败时回退为规则摘要，程序错误沿 compact 路径传播 |
 | Alice 帧生成 | frame 形成 `FAILED`；超窗投影为 `model_context_window_exceeded`，其他提供商失败不填原因码（第 2.2 节） |

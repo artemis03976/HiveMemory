@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-01
 ---
 
 # Archived Plans
@@ -12,7 +12,8 @@ last_reviewed: 2026-10-31
 
 ## v0.7.2
 
-- [查重与更新：先落库再合并](./v0.7.2-dedup-merge.md)：2026-10-31，`e1520abc`、`991ba39c`、`47ac5b90`；[Patchouli 生成](../../patchouli/generation.md#4-查重与合并)、[读取视图与写入意图](../../workspace/read-view-and-write-intents.md)
+- [一个话题提取多条记忆](./v0.7.2-multi-memory-extraction.md)：2026-11-01，`8ddd27ce`、`54cbee93`；[Patchouli 生成](../../patchouli/generation.md#31-mode-a被动观察--archive)
+- [查重与更新：先落库再合并](./v0.7.2-dedup-merge.md)：2026-10-31，PR #154；[Patchouli 生成](../../patchouli/generation.md#4-查重与合并)、[读取视图与写入意图](../../workspace/read-view-and-write-intents.md)
 - [plugin 模式开放 WRITE 与 UPDATE](./v0.7.2-plugin-write-update.md)：2026-10-31，PR #152；[MCP 记忆访问](../../contracts/mcp.md)、[Import Bus](../../system/import-bus.md#47-写入时落位)
 - [生成材料修正与 Topic 之后的原始证据保存](./v0.7.2-generation-material-and-raw-evidence.md)：2026-10-31，PR #150；[感知与短期话题](../../patchouli/perception.md)、[Patchouli 生成](../../patchouli/generation.md)
 
