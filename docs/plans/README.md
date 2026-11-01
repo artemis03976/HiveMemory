@@ -12,15 +12,11 @@ last_reviewed: 2026-11-01
 
 ## v0.7.3
 
-下一计划版本。版本目标未定（owner，2026-11-01）：DeepSeek Harness 已于 2026-11-01 接入，经它进行批量调研之后再设计 v0.7.3（[ROADMAP](../ROADMAP.md) 第 4.2 节）。当前没有计划。
-
-## v0.7.2
-
-版本内容已收尾（2026-11-01），规范版本调整为 0.7.2，发布标签 v0.7.2 在合并后创建；版本目标的逐条判定、内容核对、未纳入的事项与验证结果见[收尾审计](../archive/plans/v0.7.2-release-closeout-audit.md)。版本内的四份计划与收尾审计登记在 [Archived Plans](../archive/plans/README.md#v072)。
+下一计划版本。版本目标未定（owner，2026-11-01）：DeepSeek Harness 已于 2026-11-01 接入，经它进行批量调研之后再设计 v0.7.3（[ROADMAP](../ROADMAP.md#43-v073版本目标未定) 第 4.3 节）。当前没有计划。
 
 ## 已发布的版本
 
-v0.7.1（Git tag `v0.7.1`，2026-10-30）、v0.7.0（Git tag `v0.7.0`，2026-10-20）与更早版本的计划都已归档，按版本登记在 [Archived Plans](../archive/plans/README.md)；版本目标与摘要见 [ROADMAP](../ROADMAP.md) 第 2、3 节，逐项核对见各版本的收尾审计。
+v0.7.2（Git tag `v0.7.2`，2026-11-01）、v0.7.1（Git tag `v0.7.1`，2026-10-30）、v0.7.0（Git tag `v0.7.0`，2026-10-20）与更早版本的计划都已归档，按版本登记在 [Archived Plans](../archive/plans/README.md)；版本目标与摘要见 [ROADMAP](../ROADMAP.md) 第 2、3 节，逐项核对见各版本的收尾审计。
 
 ## 未绑定版本
 

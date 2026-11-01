@@ -233,7 +233,7 @@ Todo 登记时查重只做过 CREATE。2026-10-29 晚至 10-30，同一项目的
 - 多条提取的计划：G-1 已决定（2026-11-01）。计划已于同日建立并实施、归档：[一个话题提取多条记忆](../plans/v0.7.2-multi-memory-extraction.md)；当前事实见 [Patchouli 生成](../../patchouli/generation.md#31-mode-a被动观察--archive)。
 - 查重与更新的计划：G-3 已决定（2026-10-31），G-2 不阻塞，验收样本取第 5.1 节的两条覆盖链。计划已于 2026-10-31 建立并实施，同日归档：[查重与更新：先落库再合并](../plans/v0.7.2-dedup-merge.md)；当前事实见 [Patchouli 生成](../../patchouli/generation.md#4-查重与合并)。
 
-两份计划都以 `target: v0.7.2` 建立，在 [Plans 导航](../../plans/README.md#v072)登记；实施、验收与代码审查完成后，按最终代码更新 [Patchouli 生成](../../patchouli/generation.md)与相关事实文档。
+两份计划都以 `target: v0.7.2` 建立，在 [Plans 导航](../../plans/README.md)登记（已归档，见 [Archived Plans](../plans/README.md#v072)）；实施、验收与代码审查完成后，按最终代码更新 [Patchouli 生成](../../patchouli/generation.md)与相关事实文档。
 
 ## 归档说明（2026-11-01）
 

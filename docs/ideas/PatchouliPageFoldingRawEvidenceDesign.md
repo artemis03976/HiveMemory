@@ -31,7 +31,7 @@ last_reviewed: 2026-11-01
 
 ## 0. v0.7.2：生成材料修正与 Topic 之后的原始证据保存
 
-v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质量)第 4.3 节）。本节记录其中生成材料修正方向的 owner 决定；阻塞问题已于 2026-10-30 全部决定，计划已于 2026-10-31 完成归档：[v0.7.2 生成材料修正与 Topic 之后的原始证据保存](../archive/plans/v0.7.2-generation-material-and-raw-evidence.md)（历史记录）。从 Topic 往后的部分已经落地：Topic 保存全部交互记录与折叠记录，折叠只推进工作视图；结算冻结全部记录，来源 InteractionArtifact 覆盖已折叠的轮次并带折叠记录。当前事实见[感知与短期话题](../patchouli/perception.md)与 [Artifacts](../patchouli/artifacts.md)。交到 Topic 之前的环节与第 7 节的保存承诺仍是本文的开放范围。同一版本的其他方向见[多条提取与查重 Idea](../archive/ideas/settlement-multi-memory-extraction-and-dedup.md)（已归档）与[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)。
+v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发布基线v072)第 3 节）。本节记录其中生成材料修正方向的 owner 决定；阻塞问题已于 2026-10-30 全部决定，计划已于 2026-10-31 完成归档：[v0.7.2 生成材料修正与 Topic 之后的原始证据保存](../archive/plans/v0.7.2-generation-material-and-raw-evidence.md)（历史记录）。从 Topic 往后的部分已经落地：Topic 保存全部交互记录与折叠记录，折叠只推进工作视图；结算冻结全部记录，来源 InteractionArtifact 覆盖已折叠的轮次并带折叠记录。当前事实见[感知与短期话题](../patchouli/perception.md)与 [Artifacts](../patchouli/artifacts.md)。交到 Topic 之前的环节与第 7 节的保存承诺仍是本文的开放范围。同一版本的其他方向见[多条提取与查重 Idea](../archive/ideas/settlement-multi-memory-extraction-and-dedup.md)（已归档）与[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)。
 
 ### 0.1 owner 决定（2026-10-30）
 

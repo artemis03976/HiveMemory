@@ -11,8 +11,8 @@ The repository includes a runnable Python backend, a frontend development UI, ve
 
 ## Release Status
 
-- This release: `v0.7.2` (generation quality; the tag is created after merge, see the [closeout audit](docs/archive/plans/v0.7.2-release-closeout-audit.md))
-- Latest published baseline: `v0.7.1` (plugin-mode integration with Claude Code, see the [closeout audit](docs/archive/plans/v0.7.1-release-closeout-audit.md))
+- Latest published baseline: `v0.7.2` (generation quality, see the [closeout audit](docs/archive/plans/v0.7.2-release-closeout-audit.md))
+- Next planned version: `v0.7.3` (goal not yet decided; see the [Roadmap](docs/ROADMAP.md))
 - Code and package version: `0.7.2`
 - Python requirement: `>=3.12`
 - License: Apache-2.0
@@ -29,6 +29,7 @@ See [docs/architecture/overview.md](docs/architecture/overview.md) for the curre
 - **MCP memory access**: `POST /mcp` is the MCP endpoint for external harnesses (streamable HTTP, stateless, local addresses only) with four tools to search, read, write, and update memories (`memory_search`, `memory_read`, `memory_write`, `memory_update`). Each tool call obtains one request-scoped access context from the unified authentication gateway and is authorized against the Workspace access registry's allowlist; no task process is created. Writes and updates share the intent registry and generation chain with the active path and return a pending alias
 - **Claude Code plugin**: `integrations/claude-code/` (plugin `hivememory-connector`, local marketplace `hivememory-local`, Python standard library only) provides both conversation flow-back and memory access. The connector imports finished turns from Claude Code transcripts when a turn ends and when a session starts or ends, with network submission in a background process detached from Claude Code; the MCP server declared by the plugin lets the Claude Code agent search, read, write, and update memories, and a `PreToolUse` hook adds the current turn's information before writes and updates. Both authenticate as Claude Code's own access registration `harness:claude-code`: `HIVEMEMORY_CLAUDE_CODE_TOKEN` on the HiveMemory side and `HIVEMEMORY_TOKEN` on the Claude Code side must hold the same credential, and `configs/workspace_actors.yaml` grants the `claude_code` agent search, read, write, and update. See [Connect Claude Code](docs/help/claude-code-plugin.md) for installation and configuration
 - **DeepSeek Harness plugin**: `integrations/deepseek-harness/` (dsh bundle `hivememory-connector`, Node standard library only) provides both conversation flow-back and memory tools. When a dsh turn ends or a session is created or resumed, the plugin reads finished turns through dsh's session query service and imports them into HiveMemory; the four memory tools are registered as native dsh tools, and the plugin adds the current turn of the calling session before writes and updates. It authenticates as `harness:dsh`: `HIVEMEMORY_DSH_TOKEN` on the HiveMemory side and `HIVEMEMORY_TOKEN` on the dsh side must hold the same credential, and `configs/workspace_actors.yaml` grants the `dsh` agent search, read, write, and update. The Windows Desktop app can connect to HiveMemory running in WSL; see [Connect DeepSeek Harness](docs/help/deepseek-harness-plugin.md) for installation and configuration
+- **HiveMemory usage skill**: `integrations/claude-code/skills/hivememory/SKILL.md` guides agents to search, write, and correct memories on their own initiative, alongside the harness's own memory. The Claude Code plugin loads it automatically; DeepSeek Harness and other harnesses use it by copying it into their own skill directory, as described in the two connection guides
 - **Sessions**: create, resume, rename, and delete conversation sessions. Alice trims old tool results and writes relay summaries within the model budget while the original conversation is kept in full, and the summary and compaction boundary can be inspected; cancelled and failed turns that produced output keep their outcome. Sessions and checkpoints live only in the backend process and disappear on restart; topics remain separate memory material.
 - **System commands**: Gateway only parses commands. A message recognized as a command ends with a command terminal state and does not enter normal chat; this version does not execute built-in commands.
 
@@ -347,7 +348,7 @@ HiveMemory/
 
 ## Contributing
 
-Issues and pull requests are welcome. v0.7.2 content has been closed out, and its tag is created after merge. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
+Issues and pull requests are welcome. v0.7.2 has been released, and the goal of the next version, v0.7.3, is not yet decided. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
 
 ## License
 

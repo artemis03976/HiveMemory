@@ -11,8 +11,8 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 
 ## 发布状态
 
-- 本次发布：`v0.7.2`（生成质量；标签在合并后创建，见[收尾审计](docs/archive/plans/v0.7.2-release-closeout-audit.md)）
-- 最近已发布基线：`v0.7.1`（plugin 模式接入 Claude Code，见[收尾审计](docs/archive/plans/v0.7.1-release-closeout-audit.md)）
+- 最近已发布基线：`v0.7.2`（生成质量，见[收尾审计](docs/archive/plans/v0.7.2-release-closeout-audit.md)）
+- 下一计划版本：`v0.7.3`（版本目标未定，见 [ROADMAP](docs/ROADMAP.md)）
 - 代码与包版本：`0.7.2`
 - Python 要求：`>=3.12`
 - 许可证：Apache-2.0
@@ -29,6 +29,7 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 - **MCP 记忆访问**：`POST /mcp` 是外部 harness 使用的 MCP 端点（streamable HTTP，无状态，只接受本机地址），提供检索、读取、写入与更新四个工具（`memory_search`、`memory_read`、`memory_write`、`memory_update`）。每次工具调用经统一认证网关取得一份请求级访问 context，按 Workspace 访问登记的白名单逐次授权，不建任务进程；写入与更新与主动链路共用同一意图登记与生成链路，返回 pending alias
 - **Claude Code 插件**：`integrations/claude-code/`（插件 `hivememory-connector`，本地 marketplace `hivememory-local`，只用 Python 标准库）同时提供对话回流与记忆访问。连接器在轮次结束与会话开始、结束时把 Claude Code 会话记录中已结束的轮次导入 HiveMemory，网络提交在脱离 Claude Code 的后台进程中完成；插件声明的 MCP server 让 Claude Code 的 agent 检索、读取、写入与更新记忆，`PreToolUse` hook 在写入与更新前补上当前一轮的信息。两者都以 Claude Code 自己的接入登记 `harness:claude-code` 认证，HiveMemory 一侧的 `HIVEMEMORY_CLAUDE_CODE_TOKEN` 与 Claude Code 一侧的 `HIVEMEMORY_TOKEN` 需配置同一份凭据；`configs/workspace_actors.yaml` 为 Agent `claude_code` 登记了检索、读取、写入与更新。安装与配置见[接入 Claude Code](docs/help/claude-code-plugin.md)
 - **DeepSeek Harness 插件**：`integrations/deepseek-harness/`（dsh bundle `hivememory-connector`，只用 Node 标准库）同时提供对话回流与记忆工具。dsh 中一轮结束、会话创建或恢复时，插件经 dsh 的会话查询服务读取已结束的轮次导入 HiveMemory；四个记忆工具注册为 dsh 原生工具，写入与更新时插件以调用方会话的当前一轮补上轮次信息。以 `harness:dsh` 认证，HiveMemory 一侧的 `HIVEMEMORY_DSH_TOKEN` 与 dsh 一侧的 `HIVEMEMORY_TOKEN` 需配置同一份凭据，`configs/workspace_actors.yaml` 为 Agent `dsh` 登记了检索、读取、写入与更新。支持 Windows 桌面端连接 WSL 中的 HiveMemory，安装与配置见[接入 DeepSeek Harness](docs/help/deepseek-harness-plugin.md)
+- **HiveMemory 使用手册 skill**：`integrations/claude-code/skills/hivememory/SKILL.md` 引导 agent 主动检索、写入与修正记忆，并与 harness 自己的记忆共存。Claude Code 插件自动加载它；DeepSeek Harness 等其他 harness 把它复制到自己的 skill 目录使用，见两份接入手册
 - **会话**：支持新建、恢复、重命名与删除；Alice 按模型预算自动精简旧工具结果并生成接力摘要，原始对话完整保留，可查看摘要与压缩边界；有输出的取消与失败轮次保留结局。会话与检查点仅在后端进程内保存，重启后消失；Topic 独立作为记忆材料。
 - **系统指令**：Gateway 只解析命令，识别为命令的消息以命令终态结束、不进入普通对话；当前版本不执行内置命令。
 
@@ -347,7 +348,7 @@ HiveMemory/
 
 ## 贡献
 
-欢迎提交 Issue 和 Pull Request。v0.7.2 内容已收尾，标签在合并后创建；提交行为变更时请遵守文档治理门禁，在开发工作明确收尾后再更新对应当前设计或契约文档，避免把仍在演进的设计稿或历史方案写入主干事实文档。
+欢迎提交 Issue 和 Pull Request。v0.7.2 已发布，下一版本 v0.7.3 的目标尚未确定；提交行为变更时请遵守文档治理门禁，在开发工作明确收尾后再更新对应当前设计或契约文档，避免把仍在演进的设计稿或历史方案写入主干事实文档。
 
 ## 许可证
 
