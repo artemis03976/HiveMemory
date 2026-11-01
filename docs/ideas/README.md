@@ -18,12 +18,7 @@ Idea 以 frontmatter 的 `horizon` 字段分为 `current`、`candidate` 与 `lon
 
 ## 当前版本的设计讨论（`current`）
 
-v0.7.2 的版本目标是生成质量（owner，2026-10-30，[ROADMAP](../ROADMAP.md#43-v072生成质量)第 4.3 节）。版本由多份计划完成，各方向在阻塞问题决定、能够立即执行时建立计划（[Plans 导航](../plans/README.md#v072)）。
-
-| Idea | 为 v0.7.2 供料的方向 | 阻塞问题 |
-|:---|:---|:---|
-| [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md) | 生成材料修正，同步完成从 Topic 往后全链路的原始证据保存覆盖面（第 0 节；2026-10-30 由 `candidate` 改为 `current`） | R-1、R-2 已于 2026-10-30 决定；计划已于 2026-10-31 完成归档：[生成材料修正与原始证据保存](../archive/plans/v0.7.2-generation-material-and-raw-evidence.md)，交到 Topic 之前的环节仍是候选 |
-| [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | plugin 模式开放 WRITE 与 UPDATE，与主动链路共享同一记忆更新逻辑（第 4 节的 v0.7.2 一步；2026-10-30 v0.7.1 收尾时改为 `candidate`，同日改回 `current`）；controller 模式、E-1 等其余内容仍是候选 | 无；E-8 已于 2026-10-31 决定（写入时就地落位），计划已于同日完成归档：[plugin 模式开放 WRITE 与 UPDATE](../archive/plans/v0.7.2-plugin-write-update.md)；controller 模式等其余内容仍是候选 |
+当前没有 `current` 的 Idea。v0.7.2（生成质量）已于 2026-11-01 收尾（[收尾审计](../archive/plans/v0.7.2-release-closeout-audit.md)），为它供料的全链路原始资料保存与外部 Actor 两篇 Idea 随之改回候选方向，多条提取与查重 Idea 已归档。v0.7.3 的版本目标未定（owner，2026-11-01）：先完成 DeepSeek Harness 的接入与经它进行的批量调研，再设计（[ROADMAP](../ROADMAP.md) 第 4.2 节）。
 
 已实现、被替代或不再跟踪的 Idea 登记在 [Archived Ideas](../archive/ideas/README.md)。
 
@@ -31,6 +26,8 @@ v0.7.2 的版本目标是生成质量（owner，2026-10-30，[ROADMAP](../ROADMA
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
+| [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两类接入登记、统一认证网关（外部 principal 以接入凭据证明）、Import Bus 与 Claude Code 插件：plugin 模式的对话回流、MCP 检索、读取、写入与更新，写入时就地落位 | plugin 模式的 Claude Code 接入（v0.7.1）与写入、更新（v0.7.2）已实施，2026-11-01 随 v0.7.2 收尾由 `current` 改为候选；仍开放的是 controller 模式（候选方向，不绑定版本）与 E-1 等其余问题；第二个 harness 的接入见 [DeepSeek Harness 调研](../research/deepseek-harness-plugin-survey.md) |
+| [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md) | Topic 按顺序保存全部交互记录与折叠记录；结算冻结全部记录，来源 InteractionArtifact 覆盖已折叠的轮次 | 从 Topic 往后的部分已随 v0.7.2 实施，2026-11-01 随收尾由 `current` 改为候选；交到 Topic 之前的环节（Session 原文与交接）与第 7 节的保存承诺仍开放，会话持久化另行计划 |
 | [执行环境](./execution-environment.md) | Alice 是唯一的执行环境；CPU 端口与中立输入清单已落地，当前事实见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；2026-10-19 由《执行单元、执行线程与执行环境》改名，执行线程部分以[执行线程 Idea](../archive/ideas/execution-thread-definition.md)为准，跨 Workspace 目标（T-5b）移入身份 Idea | controller 模式退回候选方向后随之改为候选（2026-10-20）：agent 与执行环境分别选择（前提 9、10）；组合的有效性（T-7）、选择的承载与系统层级控制（T-8）、CPU 输出与会话历史的词汇归属（T-10）、harness 自身工具的权限应答与工作目录（T-11） |
 | [短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md) | Alice 自动压缩已完成；Topic page folding 现有实现 | Topic folding 优化、真实模型摘要质量与成本评估；两边独立维护视图 |
 | [外部会话消息的接收与 Topic 投影](./external-session-and-topic-projection.md) | 会话与 Alice 迁移已于 2026-10-15 完成，当前事实见[归档计划](../archive/plans/v0.7.0-conversation-session.md)和[会话资源](../workspace/sessions.md) | 外部输入、流式交接、路由结果、会话持久化与 Gateway 会话提示；Alice compact 已迁入独立 Idea |

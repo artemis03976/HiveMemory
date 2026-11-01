@@ -10,11 +10,13 @@ last_reviewed: 2026-11-01
 
 本目录存放已经绑定版本或里程碑、能够独立实施和验收，但尚未成为当前事实的计划。本索引是**版本内的计划导航**：按版本列出计划的状态与链接，不记录设计决定。设计讨论见 [Ideas](../ideas/README.md)，版本规划摘要见 [ROADMAP](../ROADMAP.md)，已完成的计划见 [Archived Plans](../archive/plans/README.md)。
 
+## v0.7.3
+
+下一计划版本。版本目标未定（owner，2026-11-01）：先完成 DeepSeek Harness 的接入与经它进行的批量调研，再设计 v0.7.3（[ROADMAP](../ROADMAP.md) 第 4.2 节）。当前没有计划。
+
 ## v0.7.2
 
-当前开发版本。版本目标（owner，2026-10-30）是生成质量，目标结果与验收方向见 [ROADMAP](../ROADMAP.md#43-v072生成质量)第 4.3 节。版本由多份计划完成；计划之间不预设先后，各方向在阻塞问题决定、能够立即执行时建立计划，在此之前设计讨论留在对应的 Idea。
-
-当前没有进行中的计划。本版本已完成的计划（生成材料修正与原始证据保存、plugin 模式开放 WRITE 与 UPDATE、查重与更新、一个话题提取多条记忆）登记在 [Archived Plans](../archive/plans/README.md#v072)。
+版本内容已收尾（2026-11-01），规范版本调整为 0.7.2，发布标签 v0.7.2 在合并后创建；版本目标的逐条判定、内容核对、未纳入的事项与验证结果见[收尾审计](../archive/plans/v0.7.2-release-closeout-audit.md)。版本内的四份计划与收尾审计登记在 [Archived Plans](../archive/plans/README.md#v072)。
 
 ## 已发布的版本
 
