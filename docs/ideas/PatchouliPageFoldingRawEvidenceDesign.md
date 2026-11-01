@@ -17,7 +17,7 @@ related_ideas:
   - docs/ideas/short-term-memory-and-context-compaction.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/ideas/external-session-and-topic-projection.md
-  - docs/ideas/settlement-multi-memory-extraction-and-dedup.md
+  - docs/archive/ideas/settlement-multi-memory-extraction-and-dedup.md
 related_docs:
   - docs/archive/plans/v0.7.2-generation-material-and-raw-evidence.md
   - docs/archive/todo/generation-material-filtering-and-truncation.md
@@ -32,14 +32,14 @@ last_reviewed: 2026-10-31
 
 ## 0. v0.7.2：生成材料修正与 Topic 之后的原始证据保存
 
-v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质量)第 4.3 节）。本节记录其中生成材料修正方向的 owner 决定；阻塞问题已于 2026-10-30 全部决定，计划已于 2026-10-31 完成归档：[v0.7.2 生成材料修正与 Topic 之后的原始证据保存](../archive/plans/v0.7.2-generation-material-and-raw-evidence.md)（历史记录）。从 Topic 往后的部分已经落地：Topic 保存全部交互记录与折叠记录，折叠只推进工作视图；结算冻结全部记录，来源 InteractionArtifact 覆盖已折叠的轮次并带折叠记录。当前事实见[感知与短期话题](../patchouli/perception.md)与 [Artifacts](../patchouli/artifacts.md)。交到 Topic 之前的环节与第 7 节的保存承诺仍是本文的开放范围。同一版本的其他方向见[多条提取与查重 Idea](./settlement-multi-memory-extraction-and-dedup.md)与[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)。
+v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#43-v072生成质量)第 4.3 节）。本节记录其中生成材料修正方向的 owner 决定；阻塞问题已于 2026-10-30 全部决定，计划已于 2026-10-31 完成归档：[v0.7.2 生成材料修正与 Topic 之后的原始证据保存](../archive/plans/v0.7.2-generation-material-and-raw-evidence.md)（历史记录）。从 Topic 往后的部分已经落地：Topic 保存全部交互记录与折叠记录，折叠只推进工作视图；结算冻结全部记录，来源 InteractionArtifact 覆盖已折叠的轮次并带折叠记录。当前事实见[感知与短期话题](../patchouli/perception.md)与 [Artifacts](../patchouli/artifacts.md)。交到 Topic 之前的环节与第 7 节的保存承诺仍是本文的开放范围。同一版本的其他方向见[多条提取与查重 Idea](../archive/ideas/settlement-multi-memory-extraction-and-dedup.md)（已归档）与[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#v072plugin-模式开放-write-与-update)。
 
 ### 0.1 owner 决定（2026-10-30）
 
 - **范围**：生成材料修正计划同步完成本文中从 Topic 往后所有链路的原始证据保存覆盖面，即第 3 节资料链中的 Topic 完整资料集合、生成阶段的来源冻结、来源 Artifact 与 Memory 的来源关联。按“从 Topic 往后”理解，交到 Topic 之前的环节（Session 侧的保存、进程与入口的交接、会话持久化、流式接收）不在这份计划内。
 - **不截断一轮交互**：一轮交互的内容不得被任何一个上限数字截断，最多只允许单次工具调用的结果受限。现行生成视图的单轮上限（`max_turn_action_chars`）以及思考、参数的单条上限（`max_thought_chars`、`max_args_chars`）不符合这条规则，属于实现漂移：owner 于 2026-10-21 只决定把思考与外部工具纳入生成视图，这些上限是[Import Bus 重设计计划](../archive/plans/v0.7.1-import-bus-redesign.md)第 4.10 节记录该决定时加入的候选默认值，后由[工具解析链路重写](../archive/plans/v0.7.1-tool-call-parsing-chain.md)沿用。单条工具结果的上限（`max_result_chars`）符合规则。
 - **`worth_saving` 只做移除**：价值体系由 owner 重新设计，不在现有信号上增补，`worth_saving` 没有保留与否的问题。结算已于 2026-10-29 停止按它筛选材料。
-- **R-1 完整材料超出提取模型窗口时如何消费**（已关闭）：不采用分片。话题本来就是用来聚合同一语义的片段，再按范围分片生成，相当于人为打散这一结构；[多条提取 Idea](./settlement-multi-memory-extraction-and-dedup.md#g-1-一个话题的多条记忆怎样提取) G-1 中按范围分片的选项同理不予采纳。单个超大轮次照常接收，照常触发话题折叠；更有效的方案留到流式交互接收实现时处理。生成因此继续读取话题的工作视图（`state_summary` 与未折叠的 blocks），完整资料只做保存。
+- **R-1 完整材料超出提取模型窗口时如何消费**（已关闭）：不采用分片。话题本来就是用来聚合同一语义的片段，再按范围分片生成，相当于人为打散这一结构；[多条提取 Idea](../archive/ideas/settlement-multi-memory-extraction-and-dedup.md#g-1-一个话题的多条记忆怎样提取)（已归档） G-1 中按范围分片的选项同理不予采纳。单个超大轮次照常接收，照常触发话题折叠；更有效的方案留到流式交互接收实现时处理。生成因此继续读取话题的工作视图（`state_summary` 与未折叠的 blocks），完整资料只做保存。
 - **R-2 Topic 完整资料的保全承诺**（已关闭）：Topic 在原始数据上按顺序保存全部接收到的交互记录列表，以及一份话题折叠的记录列表，作为之后来源 Artifact 的数据。折叠因此只推进工作视图，不再丢弃原文。
 
 ## 1. 问题与范围

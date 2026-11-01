@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-01
 ---
 
 # Plans
@@ -14,11 +14,7 @@ last_reviewed: 2026-10-31
 
 当前开发版本。版本目标（owner，2026-10-30）是生成质量，目标结果与验收方向见 [ROADMAP](../ROADMAP.md#43-v072生成质量)第 4.3 节。版本由多份计划完成；计划之间不预设先后，各方向在阻塞问题决定、能够立即执行时建立计划，在此之前设计讨论留在对应的 Idea。
 
-| 方向 | 状态 | 入口 |
-|:---|:---|:---|
-| 一个话题提取多条记忆 | 计划未建立；阻塞问题 G-1 待决定 | [多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md) |
-
-本版本已完成的计划（生成材料修正与原始证据保存、plugin 模式开放 WRITE 与 UPDATE、查重与更新）登记在 [Archived Plans](../archive/plans/README.md#v072)。
+当前没有进行中的计划。本版本已完成的计划（生成材料修正与原始证据保存、plugin 模式开放 WRITE 与 UPDATE、查重与更新、一个话题提取多条记忆）登记在 [Archived Plans](../archive/plans/README.md#v072)。
 
 ## 已发布的版本
 

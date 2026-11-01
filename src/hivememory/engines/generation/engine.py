@@ -5,13 +5,14 @@ HiveMemory - 记忆生成编排器 (Memory Generation Orchestrator)
     协调所有组件，执行完整的记忆生成流程。
 
 工作流程:
-    Step 1: LLM 提取 → ExtractedMemoryDraft
-    Step 2: 查重判断 → 新建、触碰已有记忆，或新建并提名合并
+    Step 1: LLM 提取 → ExtractedMemoryDraft（话题结算可以提取多条）
+    Step 2: 逐条查重判断 → 新建、触碰已有记忆，或新建并提名合并
     Step 3: 记忆原子构建 → MemoryAtom
     Step 4: 返回 GenerationOutcome，外围 Familiar 负责持久化
 """
 
 import logging
+from collections.abc import Collection
 from datetime import datetime
 from typing import TYPE_CHECKING
 
@@ -157,8 +158,12 @@ class MemoryGenerationEngine:
         结算没有具体 Agent 作为操作来源主体，来源记录使用保留
         ``SYSTEM_AGENT_ID``，实际参与内容的 Agent 进入贡献者集合。
 
-        模型判断无价值或输出无法解析时没有产出；提取器的提供商失败向上
-        传播，由生成任务按失败收尾，不被记录为没有产出。
+        一段话题可以提取出多条彼此独立的草稿，每条各自查重并产出结果，
+        顺序与草稿一致。同一批草稿尚未落库，别名生成器查不到彼此的占用，
+        因此本批已分配的别名随后续草稿传入。
+
+        模型判断无价值或输出无法解析时没有产出；提取器的提供商失败（含输出
+        被截断）向上传播，由生成任务按失败收尾，不被记录为没有产出。
         """
         logger.info("[Mode A] 开始处理...")
 
@@ -167,20 +172,31 @@ class MemoryGenerationEngine:
         if not transcript:
             return []
 
-        draft = await self.extractor.extract(transcript=transcript, metadata={})
-
-        if not draft or not draft.has_value:
+        drafts = [draft for draft in await self.extractor.extract(transcript) if draft.has_value]
+        if not drafts:
             logger.info("[Mode A] LLM 判断对话无价值，跳过存储")
             return []
 
-        # Step 2-4: 查重 → 构建/更新 → 返回 outcome
-        return await self._dedup_and_resolve(
-            draft,
-            belong_to,
-            system_settlement_provenance(request.context),
-            from_actor=from_actor,
-            now=now,
-        )
+        # Step 2-4: 逐条查重 → 构建 → 返回 outcome
+        provenance = system_settlement_provenance(request.context)
+        outcomes: list[GenerationOutcome] = []
+        taken_aliases: set[str] = set()
+        for draft in drafts:
+            resolved = await self._dedup_and_resolve(
+                draft,
+                belong_to,
+                provenance,
+                from_actor=from_actor,
+                now=now,
+                taken_aliases=taken_aliases,
+            )
+            outcomes.extend(resolved)
+            taken_aliases.update(
+                outcome.atom.index.alias
+                for outcome in resolved
+                if outcome.atom is not None and outcome.atom.index.alias
+            )
+        return outcomes
 
     async def _process_mode_b(
         self,
@@ -205,13 +221,8 @@ class MemoryGenerationEngine:
 
         # Step 1: LLM 提取 (Mode B prompt)
         try:
-            draft = await self.extractor.extract(
-                transcript=transcript,
-                metadata={
-                    "mode": "write",
-                    "write_content": focus.content,
-                    "write_reason": focus.reason or "(未提供)",
-                },
+            draft = await self.extractor.extract_write(
+                transcript, content=focus.content, reason=focus.reason
             )
         except ModelProviderError as error:
             logger.warning("[Mode B] LLM 提供商失败: %s", error)
@@ -447,6 +458,7 @@ class MemoryGenerationEngine:
         *,
         from_actor: ActorIdentity,
         now: datetime,
+        taken_aliases: Collection[str] = (),
     ) -> list[GenerationOutcome]:
         """
         查重 → 新建、触碰或提名合并 (Mode A/B 共用)
@@ -455,6 +467,7 @@ class MemoryGenerationEngine:
             draft: 提取的草稿
             belong_to: 已验证的 Workspace ownership 来源
             provenance: 本次生成的来源裁定（操作来源主体与内容贡献者）
+            taken_aliases: 同一批中已分配、尚未落库的别名，新建时视为已占用
         """
         query_text = f"{draft.title} {draft.summary}"
         candidates = await self._mid_term.search(
@@ -490,6 +503,7 @@ class MemoryGenerationEngine:
             memory_type=draft.memory_type,
             alias_suffix=draft.alias_suffix,
             title=draft.title,
+            taken=taken_aliases,
         )
         memory = self._draft_to_memory(draft, belong_to, provenance, alias=alias, now=now)
 

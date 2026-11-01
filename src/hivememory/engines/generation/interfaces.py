@@ -37,33 +37,41 @@ class BaseMemoryExtractor(ABC):
     """
 
     @abstractmethod
-    async def extract(
-        self, transcript: str, metadata: dict[str, Any]
-    ) -> Optional["ExtractedMemoryDraft"]:
+    async def extract(self, transcript: str) -> list["ExtractedMemoryDraft"]:
         """
-        提取记忆草稿
+        Mode A：从一段话题材料中提取彼此独立的记忆草稿
 
         Args:
-            transcript: 格式化的对话文本
-            metadata: 模式相关的生成元信息 (mode / write_content 等)；
-                身份归属一律由 WorkspaceIdentity 承载，不在此传递
+            transcript: 格式化的话题材料
 
         Returns:
-            ExtractedMemoryDraft: 提取的记忆草稿；模型输出为空或无法解析时返回 None
+            记忆草稿列表；模型输出为空或无法解析时为空列表
+
+        Raises:
+            ModelProviderError: 提供商失败且重试耗尽，或输出达到上限被截断
+        """
+        pass
+
+    async def extract_write(
+        self, transcript: str, *, content: str, reason: str | None
+    ) -> Optional["ExtractedMemoryDraft"]:
+        """
+        Mode B：以 WRITE 提交的内容为核心，结合背景对话结构化为一条草稿
+
+        默认实现返回 None (NoOp)，调用方据此使用 fallback 草稿。
+
+        Args:
+            transcript: 格式化的背景对话
+            content: WRITE 提交的内容
+            reason: WRITE 给出的理由，可能为空
+
+        Returns:
+            ExtractedMemoryDraft: 草稿；模型输出为空或无法解析时返回 None
 
         Raises:
             ModelProviderError: 提供商失败且重试耗尽
-
-        Examples:
-            >>> extractor = LLMMemoryExtractor(config, llm_service, llm_params)
-            >>> draft = await extractor.extract(
-            ...     transcript="User: 如何解析日期?\nAssistant: 使用 datetime...",
-            ...     metadata={"mode": "B", "write_content": "待写入的记忆内容"}
-            ... )
-            >>> print(draft.title)
-            "Python 日期解析方法"
         """
-        pass
+        return None
 
     async def revise(
         self,

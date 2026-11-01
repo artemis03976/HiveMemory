@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-01
 ---
 
 # 记忆生成
@@ -105,9 +105,19 @@ Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示�
 
 当 idle、LRU、shutdown 或 manual settle 形成 `TopicMaterializeTask` 时，Coordinator 用其中的工作视图（未折叠的 blocks 与 `state_summary`）构造 GenerationContext，被折叠的轮次只以摘要进入生成；同一任务的 `InteractionArtifactInput` 携带话题的全部交互记录与折叠记录，来源 InteractionArtifact 因此覆盖已折叠的轮次（第 5 节）。没有 turns 时跳过任务。
 
-GenerationEngine 渲染 transcript，调用 extractor 判断长期价值并生成 `ExtractedMemoryDraft`；没有草稿或 `has_value=false` 时不产生记忆。有效草稿随后进入 dense top-1 查重。
+GenerationEngine 渲染 transcript，调用 extractor 的话题提取（`extract`）。一段话题常包含多项彼此独立的决定、事实与经验，而检索向量只由标题、类型、标签与摘要编译，压进同一条记忆的次要内容只留在正文里，检索不到；因此模型一次输出一组记忆草稿（`ExtractionResult`），每件之后会被单独查找的事写成一条：一项决定及其理由、一个事实或配置、一个已解决的问题及其解法、一条偏好或经验、一项工作的当前状态。提示词同时要求同一件事的背景、过程与结论不拆开，顺带提及、没有结论的内容不单独成条，也不为凑数拆分；整段没有值得保存的内容时输出空列表。
 
-Extractor 经组合根注入的共享 LLM 服务异步调用模型，请求参数由 `shared.llm.librarian` 转换而来，等待模型期间不阻塞事件循环；Librarian 未配置模型时 extractor 以 No-Op 运行。它区分两种结果：模型输出为空或无法解析为草稿是“没有产出”；提供商失败只重试一次，耗尽后抛出 `ModelProviderError`。Mode A 不捕获该错误，生成任务以 `memory_generation_failed` 失败收尾，不再把提供商故障记录成“对话没有价值”。超窗、程序错误与取消不重试，原样传播；分类见[错误模型](../contracts/error-model.md#46-模型调用错误)。
+`has_value=false` 的草稿被丢弃，没有草稿时不产生记忆。其余草稿按输出顺序逐条查重，各自产出一条结果（第 4 节）。
+
+Extractor 经组合根注入的共享 LLM 服务异步调用模型，请求参数由 `shared.llm.librarian` 转换而来，等待模型期间不阻塞事件循环；Librarian 未配置模型时 extractor 以 No-Op 运行。一段话题的全部草稿共用一次调用的输出上限，Librarian 的 `max_tokens` 默认为 32768。
+
+Extractor 区分以下结果：
+
+- **没有产出**：模型输出为空，或无法解析为草稿列表（包括只给出一条草稿对象、没有 `memories` 列表）。整段输出按一个对象解析，任一条草稿不符合结构时整段都没有产出。
+- **输出被截断**：输出达到 `max_tokens` 上限时抛出 `ModelProviderError`，不重试，因为同一请求会再次截断。截断的列表无法解析，若当作没有产出，整段话题不留记忆而任务成功结束。
+- **提供商失败**：只重试一次，耗尽后抛出 `ModelProviderError`。
+
+Mode A 不捕获 `ModelProviderError`，生成任务以 `memory_generation_failed` 失败收尾，不再把提供商故障或截断记录成“对话没有价值”。超窗、程序错误与取消不重试，原样传播；分类见[错误模型](../contracts/error-model.md#46-模型调用错误)。
 
 Mode A 的“被动”指没有显式 WRITE/UPDATE focus，而不是同步发生在用户响应内，也与 Import Bus 无关：导入的轮次与主动链路的轮次一样进入话题，之后经 settle 参与 Mode A。它仍作为 Patchouli 后台 memory task 执行。
 
@@ -140,7 +150,7 @@ Engine 用 extractor 的修订（`revise`，结果为 `RevisionResult`）生成�
 
 ## 4. 查重与合并
 
-Mode A/B 使用 `title + summary` 对中期库执行 dense top-1 搜索。Deduplicator 按相似度与内容一致性给出判断（`DuplicateDecision`），GenerationEngine 再把判断翻译为提交动作（`GenerationAction`）：
+Mode A 的每条草稿与 Mode B 的草稿都以 `title + summary` 对中期库执行 dense top-1 搜索。Deduplicator 按相似度与内容一致性给出判断（`DuplicateDecision`），GenerationEngine 再把判断翻译为提交动作（`GenerationAction`）：
 
 | 判断 | 条件（默认阈值） | 提交动作 |
 |:---|:---|:---|
@@ -170,7 +180,7 @@ Familiar 的合并路径：
 
 以下情况以 `MemoryMergeAbortedError`（`workspace.memory.merge_aborted`）让任务失败，两条记忆都不变，不回退为追加或覆盖：任一记忆缺失或不可见（`memory_missing`）、合并条件不满足（`not_mergeable`）、写回前版本已变（`version_changed`）、模型输出为空、无法解析或把类型改为 Profile（`model_output_invalid`）。提供商失败重试一次后原样传播 `ModelProviderError`。版本检查与写回之间没有原子保证，与 alias 唯一性的“检查→写入”相同。
 
-Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前缀和 extractor 给出的 suffix 构造候选，例如 `code_* / fact_* / url_* / ref_* / user_* / wip_* / agent_*`；suffix 清洗后为空时改由 title 派生，仍为空则该记忆没有 alias。候选先经中期库确认在同一 Workspace 内空闲，被占用时依次追加 `_2`、`_3`…… 消歧后缀重试，全部被占用时抛 `MemoryAliasConflictError`（`reason=alias_candidates_exhausted`）。生成侧只负责让正常路径避开冲突；同一 Workspace 内 alias 唯一的不变量由中期库写入前校验兜底，见 [MemoryLibrary](./memory-library.md)第 1.2 节。Pending alias 只在 Alice 运行期定位候选意图；settlement 后的 canonical alias 才属于正式 MemoryAtom。
+Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前缀和 extractor 给出的 suffix 构造候选，例如 `code_* / fact_* / url_* / ref_* / user_* / wip_* / agent_*`；suffix 清洗后为空时改由 title 派生，仍为空则该记忆没有 alias。候选先经中期库确认在同一 Workspace 内空闲，被占用时依次追加 `_2`、`_3`…… 消歧后缀重试，全部被占用时抛 `MemoryAliasConflictError`（`reason=alias_candidates_exhausted`）。同一次结算的多条草稿全部算完之后才由 Familiar 依次落库，中期库查不到本批已分配的 alias，因此引擎把它们作为已占用传给后续草稿，后缀相同的草稿得到消歧后缀。生成侧只负责让正常路径避开冲突；同一 Workspace 内 alias 唯一的不变量由中期库写入前校验兜底，见 [MemoryLibrary](./memory-library.md)第 1.2 节。Pending alias 只在 Alice 运行期定位候选意图；settlement 后的 canonical alias 才属于正式 MemoryAtom。
 
 ## 5. Artifact 与持久化顺序
 
@@ -182,7 +192,7 @@ MemoryGenerationFamiliar 执行：
 4. 执行 MidTerm `upsert(atom, recompute_vectors=<embedding 输入是否变化>)`；TOUCH 走受限 `patch_payload`；
 5. 把 outcome 投影为 `MemoryGenerationResult`，附可选的 PendingAtomSettlement 与合并提名（第 4.1 节），并通知变更。
 
-InteractionArtifact 在生成之前捕获，失败只记录 warning、生成照常进行。因此提取失败（包括超窗）、没有产出或结果为 TOUCH 时，原文仍保存在 InteractionArtifact 中，只是没有记忆引用它。
+InteractionArtifact 在生成之前捕获，失败只记录 warning、生成照常进行。因此提取失败（包括超窗与截断）、没有产出或结果为 TOUCH 时，原文仍保存在 InteractionArtifact 中，只是没有记忆引用它。一次结算产出的多条记忆共享这一份 InteractionArtifact，各自挂载对它的来源引用。
 
 `InteractionArtifactInput.asset_bindings` 随 settlement task 一起冻结并穿过队列边界；它是 Topic 已确认使用过的资产关系，而不是 Artifact 本身。CREATE/UPDATE 持久化后，Familiar 通过注入的 `WorkspaceAssetMaterializationReaderPort`，按归属与 `asset_ref` 租借 READY representation、创建独立 DocumentArtifact 并释放租借；失败按 best-effort 跳过，不回滚已提交的 Memory。该端口不携带 actor 或 scope，Store 的既有访问接口适配由组合根承担；详情见[Artifacts 与来源追踪](./artifacts.md)。
 
@@ -268,7 +278,10 @@ Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任
 
 ## 8. 当前限制
 
-- 一次话题结算至多产出一条记忆：Mode A 的 extractor 对整段话题材料只返回一份草稿（`BaseMemoryExtractor.extract` 返回 `ExtractedMemoryDraft | None`），同一话题中讨论过的多项决定、事实或偏好只能压进一条记忆，次要内容往往只留在正文里。检索的稠密与稀疏向量以及重排输入都只由标题、类型、标签与摘要编译（MemoryCompiler 的 `DENSE_EMBEDDING`、`SPARSE_EMBEDDING` 目标），只写在正文里的内容因此检索不到。从一段话题材料中提取多条记忆，需要提取输出、查重与演化都改为逐条进行。真实样本见已归档的 [Import Bus 真实使用观察](../archive/todo/import-bus-real-use-observation.md)；
+- 检索的稠密与稀疏向量以及重排输入都只由标题、类型、标签与摘要编译（MemoryCompiler 的 `DENSE_EMBEDDING`、`SPARSE_EMBEDDING` 目标），只写在一条记忆正文里的细节检索不到。话题结算把彼此独立的事拆成多条记忆，各自有标题与摘要，但拆分粒度由模型按提示词判断，没有校验。真实样本见已归档的 [Import Bus 真实使用观察](../archive/todo/import-bus-real-use-observation.md)；
+- 同一次结算的多条草稿之间不互相查重，只与已经落库的记忆比较；两条描述同一件事的草稿会各自新建；
+- 一次结算的多条结果依次提交，中途失败（例如存储或版本记录故障）时已提交的记忆保留而任务失败；控制面只在任务成功时提交合并提名，这一批的合并因此不会发生，留下重复；
+- 一段话题的全部草稿共用一次调用的输出上限：草稿多、正文长的话题被截断时任务失败，原文仍在来源 InteractionArtifact 中，但没有记忆引用它；
 - 结果未知或结算事件丢失时，句柄可能长期保持 MATERIALIZING；没有对账恢复。写入一旦开始派发就不因 CPU、进程或 CALL 子帧失败取消；
 - UPDATE 意图不携带登记时的基础版本，spec 构建时按 UUID 读取当时的最新版本，并发 UPDATE 不检测基础版本冲突；后续方向见[写入意图后续方向 Idea](../ideas/pending-intent-migration.md)第 6 节；
 - memory work、typed result 与终态快照只存在于当前进程，重启后不可恢复；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；

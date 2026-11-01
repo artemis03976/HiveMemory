@@ -44,7 +44,7 @@ class LLMGlobalConfig(BaseModel):
     # model_id 引用注册表；temperature/max_tokens 是组件级调参，覆盖注册表模型默认值。
     # worker 已完全由 agent profile + ModelRegistry 在运行时决定，不再需要静态配置段。
     librarian: LLMConfig = Field(
-        default_factory=lambda: LLMConfig(model_id="default", temperature=0.3, max_tokens=8192)
+        default_factory=lambda: LLMConfig(model_id="default", temperature=0.3, max_tokens=32768)
     )
     gateway: LLMConfig = Field(
         default_factory=lambda: LLMConfig(model_id="default", temperature=0.0, max_tokens=512)
