@@ -58,7 +58,7 @@ last_reviewed: 2026-10-31
 
 ## 3. 最近已发布基线：v0.7.1
 
-主题：**plugin 模式接入 Claude Code**。Git tag `v0.7.1` 创建于 2026-10-30。逐项内容、版本目标判定、未纳入的事项与验证结果见[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)，各计划见 [Plans 导航](./plans/README.md#v071)。
+主题：**plugin 模式接入 Claude Code**。Git tag `v0.7.1` 创建于 2026-10-30。逐项内容、版本目标判定、未纳入的事项与验证结果见[收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)，各计划见 [Archived Plans](./archive/plans/README.md#v071)。
 
 ### 3.1 版本目标
 
@@ -84,7 +84,7 @@ last_reviewed: 2026-10-31
 - **不在 v0.7.1**：重排模型 int8 现在不是必要项，未来再考虑（owner，2026-10-30，[Todo](./todo/reranker-int8-and-onnx-memory.md)）；推理模型重新加载时的事件循环停顿记为已知限制，之后单独优化（owner，2026-10-30，[Todo](./todo/model-reload-event-loop-stall.md)）；controller 模式退回候选方向（第 5.6 节），执行基座与沙箱基线暂不考虑（第 5.4 节）；写入意图经 MCP 提交 2026-10-30 起是 v0.7.2 的方向之一（第 4.3 节）。
 - **真实使用观察**：Import Bus 真实使用观察 Todo 随收尾归档（owner，2026-10-30，[归档记录](./archive/todo/import-bus-real-use-observation.md)），之后正常使用；观察期间需要改动的项目登记为[生成查重的决策信号](./todo/generation-dedup-decision-signal.md)与[生成材料的筛选与截断](./archive/todo/generation-material-filtering-and-truncation.md)，现为 v0.7.2 的输入（后者已随 v0.7.2 的生成材料修正归档）。
 
-上一个发布版本 v0.7.0（Workspace 网络与任务进程）的内容见第 2 节与[收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md)，各方向的归档计划见 [Plans 导航](./plans/README.md#v070)。
+上一个发布版本 v0.7.0（Workspace 网络与任务进程）的内容见第 2 节与[收尾审计](./archive/plans/v0.7.0-release-closeout-audit.md)，各方向的归档计划见 [Archived Plans](./archive/plans/README.md#v070)。
 
 ## 4. 近期计划
 

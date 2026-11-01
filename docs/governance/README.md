@@ -3,7 +3,7 @@ title: Engineering Governance
 status: current
 owner: project
 scope: cross-version-engineering-governance
-last_reviewed: 2026-08-13
+last_reviewed: 2026-10-31
 ---
 
 # Engineering Governance
@@ -33,6 +33,8 @@ last_reviewed: 2026-08-13
 
 [Baselines](./baselines/README.md) 保存已经完成的 point-in-time 清单和风险证据。基线用于说明治理判断建立在什么事实之上，不代表对应治理目标已经实现，也不作为当前系统行为的唯一来源。
 
+每份基线记录某个时间点的代码入口、现状矩阵、风险证据和优先级，必须填写 `snapshot_at`，状态为 `baseline`。基线原则上冻结：实现演进后不反复改写旧清单来制造“永远当前”的调查文档，需要新一轮全量调研时另建基线并记录替代关系。本目录只收针对 HiveMemory 自身治理问题的代码调查；外部系统、论文和技术方案的调研报告放在 [Research](../research/README.md)。
+
 ## 与其他目录的边界
 
 - `architecture/` 和各子系统目录描述当前已经生效的设计；
@@ -43,6 +45,14 @@ last_reviewed: 2026-08-13
 - `todo/` 保存范围较小、排期灵活的缺陷和技术债。
 
 ## 治理主题的使用规则
+
+治理主题文档的状态为 `governance`，至少区分：
+
+- 当前最低约束；
+- 当前成熟度和已知缺口；
+- 长期目标与非目标；
+- 尚未排期的工作包，以及工作包升级为独立 Plan 的门槛；
+- 当前设计、契约、ADR 和调研基线入口。
 
 治理文档可以维护成熟度等级、长期目标、未排期工作包和升级门槛，但不得：
 

@@ -3,12 +3,22 @@ title: Architecture Decision Records
 status: current
 owner: project
 scope: architecture-decisions
-last_reviewed: 2026-09-27
+last_reviewed: 2026-10-31
 ---
 
 # Architecture Decision Records
 
 本目录保存具有长期解释价值的架构决策。ADR 使用 `NNNN-kebab-case-title.md` 命名，并包含 Context、Decision、Consequences、Alternatives、Status 和相关文档。
+
+## 编写规则
+
+适合写成 ADR 的是已经做出、在较长时间内仍有解释价值的选择：子系统边界为何形成，为什么选择某种数据所有权或通信模式，为什么拒绝一个重要备选方案，哪些约束导致当前设计，以及什么条件变化后可以重新评估。ADR 保持简短。
+
+- **只叙述已成立的内容**：已经做出的决定、理由与已成立的事实。ADR 不得反向依赖计划：不以活动计划为依据，也不把未完成事项、替代条件或后续收口交由计划承担；需要追溯实施过程时，只链接已归档计划。
+- **状态**：已接受且仍有效为 `accepted`。被替代的 ADR 不删除，状态改为 `superseded` 并链接新的 ADR；决策不再成立且没有替代时改为 `deprecated`，注明失效日期与原因，同样不删除，当前设计文档不再以它为依据。
+- **与当前文档的关系**：当前设计文档可以链接 ADR 解释“为什么”，但仍应独立说明“现在是什么”。
+
+## 决策索引
 
 当前决策：
 
