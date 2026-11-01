@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-01
 ---
 
 # Plans
@@ -16,7 +16,7 @@ last_reviewed: 2026-10-31
 
 | 方向 | 状态 | 入口 |
 |:---|:---|:---|
-| 一个话题提取多条记忆 | 计划未建立；阻塞问题 G-1 待决定 | [多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md) |
+| 一个话题提取多条记忆 | active（2026-11-01） | [一个话题提取多条记忆](./v0.7.2-multi-memory-extraction.md)；设计讨论见[多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md) |
 
 本版本已完成的计划（生成材料修正与原始证据保存、plugin 模式开放 WRITE 与 UPDATE、查重与更新）登记在 [Archived Plans](../archive/plans/README.md#v072)。
 
