@@ -51,7 +51,7 @@ class PendingAtomResolution(str, Enum):
     """SETTLED 状态下的终结分类（其他状态此字段为 None）。"""
 
     CREATED = "created"  # 去重决策 = CREATE
-    MERGED = "merged"  # 去重决策 = UPDATE
+    MERGED = "merged"  # 内容已并入其他正式记忆
     TOUCHED = "touched"  # 去重决策 = TOUCH
     UPDATED = "updated"  # Mode C UPDATE 应用完成
     DISCARDED = "discarded"  # 去重决策 = DISCARD

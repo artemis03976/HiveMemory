@@ -17,6 +17,7 @@ from hivememory.engines.generation.models import (
     DuplicateDecision,
     ExtractedMemoryDraft,
     MergeResult,
+    RevisionResult,
 )
 
 # ========== 接口定义 ==========
@@ -64,13 +65,13 @@ class BaseMemoryExtractor(ABC):
         """
         pass
 
-    async def merge(
+    async def revise(
         self,
         old_content: str,
         metadata: dict[str, Any],
-    ) -> Optional["MergeResult"]:
+    ) -> Optional["RevisionResult"]:
         """
-        执行记忆合并 (Mode C: UPDATE)
+        执行记忆修订 (Mode C: UPDATE)
 
         调用 LLM 将旧内容与修改指令合并，生成新内容和变更日志。
         默认实现返回 None (NoOp)，子类可覆盖。
@@ -85,11 +86,15 @@ class BaseMemoryExtractor(ABC):
                 - transcript: 近期对话上下文
 
         Returns:
-            MergeResult: 合并结果；模型输出为空或无法解析时返回 None
+            RevisionResult: 修订结果；模型输出为空或无法解析时返回 None
 
         Raises:
             ModelProviderError: 提供商失败且重试耗尽
         """
+        return None
+
+    async def merge(self, retained: MemoryAtom, absorbed: MemoryAtom) -> MergeResult | None:
+        """融合两条正式记忆，返回完整索引与正文；未启用模型时没有产出。"""
         return None
 
 

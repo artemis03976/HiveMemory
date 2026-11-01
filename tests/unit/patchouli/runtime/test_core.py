@@ -94,7 +94,9 @@ class TestRuntimeShutdownDrain:
         result = await runtime.shutdown_drain()
 
         runtime.perception_familiar.flush_all_for_shutdown.assert_awaited_once()
-        runtime._task_controller.wait_all.assert_awaited_once_with(timeout=30.0)
+        runtime._task_controller.wait_all.assert_awaited_once_with(
+            timeout=30.0, include_merges=False
+        )
         runtime._task_controller.cancel_many.assert_not_awaited()
         assert result["reentrant"] is False
         assert result["perception"].settled_topic_ids == ("t1", "t2")

@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 from hivememory.components.bus.binding import RouteBinding
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.contracts.events import GlobalEvents
+from hivememory.core.models import PendingAtomSettlement
 from hivememory.core.models.memory_change import MemoryChangeEvent
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.public_routes import PatchouliRoutes
@@ -224,6 +225,10 @@ class PatchouliBridge:
 
     def _register_local_event_bridges(self) -> None:
         self._local_bus.subscribe(
+            PatchouliLocalEvents.PENDING_ATOM_MERGED,
+            self._forward_pending_atom_merged,
+        )
+        self._local_bus.subscribe(
             PatchouliLocalEvents.MEMORY_CHANGED,
             self._forward_memory_changed,
         )
@@ -241,6 +246,10 @@ class PatchouliBridge:
         )
 
     def _unregister_local_event_bridges(self) -> None:
+        self._local_bus.unsubscribe(
+            PatchouliLocalEvents.PENDING_ATOM_MERGED,
+            self._forward_pending_atom_merged,
+        )
         self._local_bus.unsubscribe(
             PatchouliLocalEvents.MEMORY_CHANGED,
             self._forward_memory_changed,
@@ -279,6 +288,18 @@ class PatchouliBridge:
             GlobalEvents.PENDING_ATOM_FAILED,
             pending_alias=pending_alias,
             intent_id=intent_id,
+        )
+
+    async def _forward_pending_atom_merged(
+        self, *, settlement: PendingAtomSettlement, absorbed_memory_uuid: str
+    ) -> None:
+        """转发合并后的句柄改指，保留用于匹配旧结算的被吸收身份。"""
+        if self._global_bus is None:
+            return
+        await self._global_bus.publish(
+            GlobalEvents.PENDING_ATOM_MERGED,
+            settlement=settlement,
+            absorbed_memory_uuid=absorbed_memory_uuid,
         )
 
     async def _forward_pending_atom_cancelled(self, *, pending_alias: str, intent_id: str) -> None:

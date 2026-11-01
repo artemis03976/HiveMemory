@@ -5,7 +5,7 @@ MemoryGenerationEngine 单元测试
 - Mode 路由: A (被动) / B (WRITE) / C (UPDATE)
 - Mode A: LLM 提取成功 / 无价值 / 返回 None
 - Mode B: 正常 WRITE / LLM 失败 fallback
-- Mode C: 正常 UPDATE / existing_memory=None / LLM 合并失败 fallback
+- Mode C: 正常 UPDATE / existing_memory=None / LLM 修订失败 fallback
 - 查重分支: TOUCH / UPDATE / CREATE / DISCARD
 - 纯计算边界: 引擎不改 version/updated_at/decay anchor/confidence，CREATE 用传入 now 打戳；
   多轮修订的 before 快照互不污染
@@ -39,6 +39,7 @@ from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationTurn,
     MergeResult,
+    RevisionResult,
     provenance_from_actor,
     system_settlement_provenance,
 )
@@ -205,15 +206,15 @@ class TestGenerationEngineRouting:
 
     @pytest.mark.asyncio
     async def test_routes_to_mode_c(self):
-        """有 update_focus 时走 Mode C：调用 merge 而非 extract，并携带修订指令"""
+        """有 update_focus 时走 Mode C：调用 revise 而非 extract，并携带修订指令"""
         existing = _make_memory()
         uf = UpdateFocus(
             instruction="添加错误处理",
             base_uuid=str(existing.id),
             base_alias="fact_test",
         )
-        merge_result = MergeResult(new_content="新内容", changelog="添加了错误处理")
-        self.mock_extractor.merge.return_value = merge_result
+        revision_result = RevisionResult(new_content="新内容", changelog="添加了错误处理")
+        self.mock_extractor.revise.return_value = revision_result
         self.mock_storage.upsert = AsyncMock()
 
         request = GenerationRequest(
@@ -227,9 +228,9 @@ class TestGenerationEngineRouting:
             from_actor=make_memory_identity_scope().actor_identity,
         )
 
-        self.mock_extractor.merge.assert_called_once()
+        self.mock_extractor.revise.assert_called_once()
         self.mock_extractor.extract.assert_not_called()
-        metadata = self.mock_extractor.merge.call_args.kwargs["metadata"]
+        metadata = self.mock_extractor.revise.call_args.kwargs["metadata"]
         assert metadata["mode"] == "update"
         assert metadata["instruction"] == "添加错误处理"
         assert len(result) == 1
@@ -534,7 +535,7 @@ class TestGenerationEngineModeB:
 
 
 class TestGenerationEngineModeC:
-    """Mode C (UPDATE 合并更新) 测试"""
+    """Mode C (UPDATE 修订) 测试"""
 
     def setup_method(self):
         self.mock_storage = Mock()
@@ -566,10 +567,10 @@ class TestGenerationEngineModeC:
         )
 
     @pytest.mark.asyncio
-    async def test_mode_c_merge_success(self):
-        """正常 UPDATE 合并流程"""
-        merge_result = MergeResult(new_content="合并后内容", changelog="更新了内容")
-        self.mock_extractor.merge.return_value = merge_result
+    async def test_mode_c_revision_success(self):
+        """正常 UPDATE 修订流程"""
+        revision_result = RevisionResult(new_content="合并后内容", changelog="更新了内容")
+        self.mock_extractor.revise.return_value = revision_result
         self.mock_storage.upsert = AsyncMock()
         existing = _make_memory(alias="fact_test")
         memory_id = existing.id
@@ -604,8 +605,8 @@ class TestGenerationEngineModeC:
             ),
             payload=PayloadLayer(content="旧内容"),
         )
-        merge_result = MergeResult(new_content="合并后内容", changelog="更新了内容")
-        self.mock_extractor.merge.return_value = merge_result
+        revision_result = RevisionResult(new_content="合并后内容", changelog="更新了内容")
+        self.mock_extractor.revise.return_value = revision_result
         self.mock_storage.upsert = AsyncMock()
 
         uf = UpdateFocus(
@@ -644,17 +645,17 @@ class TestGenerationEngineModeC:
         )
 
         assert result == []
-        self.mock_extractor.merge.assert_not_called()
+        self.mock_extractor.revise.assert_not_called()
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(
-        "merge_outcome",
+        "revision_outcome",
         [None, ModelProviderError("provider down")],
         ids=["no-output", "provider-failure"],
     )
-    async def test_mode_c_fallback_on_merge_failure(self, merge_outcome):
+    async def test_mode_c_fallback_on_revision_failure(self, revision_outcome):
         """没有产出或提供商失败时以提交时点日期把新内容追加到旧内容之后"""
-        self.mock_extractor.merge.side_effect = [merge_outcome]
+        self.mock_extractor.revise.side_effect = [revision_outcome]
         self.mock_storage.upsert = AsyncMock()
 
         request = self._make_update_request(content="追加内容")
@@ -673,7 +674,7 @@ class TestGenerationEngineModeC:
     async def test_mode_c_fallback_no_content(self):
         """fallback 仅有 instruction 无 content 时内容不变，降级为 TOUCH 而不创建版本"""
         existing = _make_memory()
-        self.mock_extractor.merge.return_value = None
+        self.mock_extractor.revise.return_value = None
         self.mock_storage.upsert = AsyncMock()
 
         request = self._make_update_request(existing=existing, content=None)
@@ -694,12 +695,12 @@ class TestGenerationEngineModeC:
         version_before = existing.meta.version
         updated_at_before = existing.meta.updated_at
         decay_anchor_before = existing.meta.lifecycle.decay_anchor_at
-        merge_result = MergeResult(new_content="新版本", changelog="v2 更新")
+        revision_result = RevisionResult(new_content="新版本", changelog="v2 更新")
         self.mock_storage.upsert = Mock()
 
         result = self.engine._apply_update(
             existing,
-            merge_result,
+            revision_result,
             provenance=system_settlement_provenance(GenerationContext()),
         )
 
@@ -726,12 +727,12 @@ class TestGenerationEngineModeC:
 
         first = self.engine._apply_update(
             existing,
-            MergeResult(new_content="v2 content", changelog="first"),
+            RevisionResult(new_content="v2 content", changelog="first"),
             provenance=provenance,
         )
         second = self.engine._apply_update(
             existing,
-            MergeResult(new_content="v3 content", changelog="second"),
+            RevisionResult(new_content="v3 content", changelog="second"),
             provenance=provenance,
         )
 
@@ -755,11 +756,11 @@ class TestGenerationEngineModeC:
             source_agent_id="a1",
             contributing_agent_ids=("new-contributor",),
         )
-        merge_result = MergeResult(new_content="旧内容", changelog="Fallback (无变更)")
+        revision_result = RevisionResult(new_content="旧内容", changelog="Fallback (无变更)")
 
         result = self.engine._apply_update(
             existing,
-            merge_result,
+            revision_result,
             provenance=provenance,
         )
 
@@ -991,3 +992,113 @@ class TestGenerationEngineHelpers:
         )
 
         assert memory.index.memory_type == MemoryType.FACT
+
+
+class TestMemoryMerge:
+    """两条正式记忆的纯计算融合与不变内容判定。"""
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "memory_type, expected_type",
+        [("REFLECTION", MemoryType.REFLECTION), ("UNKNOWN", MemoryType.FACT)],
+    )
+    async def test_merge_preserves_identity_and_captures_snapshot(self, memory_type, expected_type):
+        retained = _make_memory(alias="fact_original")
+        retained.meta.provenance.contributing_agent_ids = ["a1", "shared"]
+        absorbed = _make_memory("新进展")
+        absorbed.meta.provenance.contributing_agent_ids = ["shared", "a2"]
+        before = retained.model_copy(deep=True)
+        extractor = AsyncMock()
+        extractor.merge.return_value = MergeResult(
+            title="设计与进展",
+            summary="保留设计并补充进展",
+            tags=[" WORK ", "work", "new"],
+            memory_type=memory_type,
+            content="旧决定与新进展",
+            changelog="补充进展",
+        )
+        engine = MemoryGenerationEngine(mid_term=Mock(), extractor=extractor, deduplicator=Mock())
+
+        outcome = await engine.merge(retained, absorbed)
+
+        assert outcome.duplicate_decision == DuplicateDecision.UPDATE
+        assert (
+            outcome.atom.index.title,
+            outcome.atom.index.summary,
+            outcome.atom.index.tags,
+            outcome.atom.index.memory_type,
+            outcome.atom.payload.content,
+        ) == ("设计与进展", "保留设计并补充进展", ["work", "new"], expected_type, "旧决定与新进展")
+        assert (
+            outcome.atom.id,
+            outcome.atom.index.alias,
+            outcome.atom.meta.provenance.source_agent_id,
+            outcome.atom.meta.provenance.source_team_id,
+        ) == (
+            before.id,
+            "fact_original",
+            before.meta.provenance.source_agent_id,
+            before.meta.provenance.source_team_id,
+        )
+        assert outcome.atom.meta.provenance.contributing_agent_ids == ("a1", "shared", "a2")
+        assert (
+            outcome.atom.meta.version,
+            outcome.atom.meta.updated_at,
+            outcome.atom.meta.lifecycle,
+        ) == (before.meta.version, before.meta.updated_at, before.meta.lifecycle)
+        assert outcome.changelog == "补充进展"
+        outcome.atom.payload.content = "caller mutation"
+        assert outcome.memory_before_snapshot == before
+        assert retained == before
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        "changed_field", [None, "title", "summary", "tags", "memory_type", "content"]
+    )
+    async def test_merge_compares_all_content_fields(self, changed_field):
+        """正文相同但索引变化也应修订；完全相同才跳过新版本。"""
+        retained = _make_memory()
+        absorbed = _make_memory("new")
+        values = dict(
+            title=retained.index.title,
+            summary=retained.index.summary,
+            tags=[" T ", "t"],
+            memory_type="FACT",
+            content=retained.payload.content,
+            changelog="merge",
+        )
+        replacements = dict(
+            title="changed",
+            summary="changed",
+            tags=["changed"],
+            memory_type="REFLECTION",
+            content="changed",
+        )
+        if changed_field is not None:
+            values[changed_field] = replacements[changed_field]
+        extractor = AsyncMock()
+        extractor.merge.return_value = MergeResult(**values)
+        engine = MemoryGenerationEngine(mid_term=Mock(), extractor=extractor, deduplicator=Mock())
+
+        outcome = await engine.merge(retained, absorbed)
+
+        assert outcome.duplicate_decision == (
+            DuplicateDecision.UPDATE if changed_field else DuplicateDecision.TOUCH
+        )
+        if changed_field is None:
+            assert outcome.atom == retained
+            assert outcome.memory_before_snapshot is None
+
+    @pytest.mark.asyncio
+    async def test_merge_rejects_model_generated_profile(self):
+        extractor = AsyncMock()
+        extractor.merge.return_value = MergeResult(
+            title="profile",
+            summary="",
+            tags=[],
+            memory_type="AGENT_PROFILE",
+            content="config",
+            changelog="change type",
+        )
+        engine = MemoryGenerationEngine(mid_term=Mock(), extractor=extractor, deduplicator=Mock())
+        assert await engine.merge(_make_memory(), _make_memory()) is None

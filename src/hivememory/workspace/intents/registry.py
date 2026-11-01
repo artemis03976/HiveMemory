@@ -11,6 +11,7 @@ from hivememory.core.contracts.events import GlobalEvents
 from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.core.models.pending import (
     PendingAtom,
+    PendingAtomResolution,
     PendingAtomSettlement,
     PendingAtomStatus,
     UpdateFocus,
@@ -122,6 +123,7 @@ class WriteIntentRegistry:
         self.unsubscribe()
         self._bus = bus
         bus.subscribe(GlobalEvents.PENDING_ATOM_SETTLED, self.on_settled)
+        bus.subscribe(GlobalEvents.PENDING_ATOM_MERGED, self.on_merged)
         bus.subscribe(GlobalEvents.PENDING_ATOM_FAILED, self.on_failed)
         bus.subscribe(GlobalEvents.PENDING_ATOM_CANCELLED, self.on_cancelled)
 
@@ -130,6 +132,7 @@ class WriteIntentRegistry:
         if self._bus is None:
             return
         self._bus.unsubscribe(GlobalEvents.PENDING_ATOM_SETTLED, self.on_settled)
+        self._bus.unsubscribe(GlobalEvents.PENDING_ATOM_MERGED, self.on_merged)
         self._bus.unsubscribe(GlobalEvents.PENDING_ATOM_FAILED, self.on_failed)
         self._bus.unsubscribe(GlobalEvents.PENDING_ATOM_CANCELLED, self.on_cancelled)
         self._bus = None
@@ -147,6 +150,21 @@ class WriteIntentRegistry:
         atom = self._matching(pending_alias, intent_id)
         if atom is not None and is_legal_transition(atom.status, PendingAtomStatus.FAILED):
             atom.status = PendingAtomStatus.FAILED
+
+    async def on_merged(
+        self, *, settlement: PendingAtomSettlement, absorbed_memory_uuid: str
+    ) -> None:
+        """只替换仍指向被吸收记忆的 CREATED 结算；改指不构成状态迁移。"""
+        atom = self._matching(settlement.pending_alias, settlement.intent_id)
+        if (
+            atom is None
+            or atom.status != PendingAtomStatus.SETTLED
+            or atom.settlement is None
+            or atom.settlement.resolution != PendingAtomResolution.CREATED
+            or atom.settlement.canonical_uuid != absorbed_memory_uuid
+        ):
+            return
+        atom.settlement = settlement.model_copy(deep=True)
 
     async def on_cancelled(self, *, pending_alias: str, intent_id: str) -> None:
         """严格匹配 intent_id 后应用取消事件，保持既有 in-flight 状态机语义。"""

@@ -1,14 +1,18 @@
+"""生成控制器的接纳、终态发布与后续合并调度测试。"""
+
 import asyncio
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 
 from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueStoppedError
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement
 from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
+    MergeFocus,
 )
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -47,6 +51,7 @@ def _spec(
     source=MemoryGenerationSource.SETTLE,
     intent_id=None,
     pending_alias=None,
+    request=None,
 ):
     return MemoryGenerationTaskSpec(
         belong_to=make_memory_identity_scope().workspace_identity,
@@ -54,7 +59,8 @@ def _spec(
         topic_id=topic_id,
         label=label,
         source=source,
-        request=GenerationRequest(
+        request=request
+        or GenerationRequest(
             context=GenerationContext(),
         ),
         intent_id=intent_id,
@@ -555,3 +561,197 @@ class TestMemoryGenerationTaskController:
             first.task_id,
             second.task_id,
         }
+
+
+def _merge_spec():
+    """合并规范只在 focus 中保留改指坐标，任务本身不持有写入意图。"""
+    return _spec(
+        source=MemoryGenerationSource.MERGE,
+        request=GenerationRequest(
+            merge_focus=MergeFocus(
+                retained_memory_id="retained",
+                absorbed_memory_id="absorbed",
+                intent_id="original",
+                pending_alias="draft",
+            )
+        ),
+    )
+
+
+@pytest.mark.asyncio
+async def test_successful_nomination_settles_first_then_submits_and_redirects():
+    """提名沿用原任务归属与话题，首次结算先于合并，成功后发布独立改指事件。"""
+    events = []
+    executed = []
+    created = PendingAtomSettlement(
+        pending_alias="draft",
+        intent_id="original",
+        resolution=PendingAtomResolution.CREATED,
+        canonical_uuid="absorbed",
+    )
+    merged = created.model_copy(
+        update={
+            "resolution": PendingAtomResolution.MERGED,
+            "canonical_uuid": "retained",
+            "canonical_alias": "fact_retained",
+        }
+    )
+
+    async def execute(route, spec):
+        executed.append(spec)
+        if spec.source == MemoryGenerationSource.WRITE:
+            return [
+                MemoryGenerationResult(
+                    settlement=created, merge_nomination=_merge_spec().request.merge_focus
+                )
+            ]
+        assert events == [(PatchouliLocalEvents.PENDING_ATOM_SETTLED, {"settlement": created})]
+        return [MemoryGenerationResult(settlement=merged, absorbed_memory_uuid="absorbed")]
+
+    async def publish(event, **payload):
+        events.append((event, payload))
+
+    controller = MemoryGenerationTaskController(
+        bus=Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock(side_effect=publish))
+    )
+    await controller.start()
+    try:
+        original = _spec(
+            source=MemoryGenerationSource.WRITE, pending_alias="draft", intent_id="original"
+        )
+        task = await controller.submit_generation(original)
+        completed = await controller.wait_task(task.task_id)
+        tasks = await controller.list_tasks()
+        merge_task = next(item for item in tasks if item.source == MemoryGenerationSource.MERGE)
+        merged_task = await controller.wait_task(merge_task.task_id)
+
+        assert (completed.status, merged_task.status, merged_task.canonical_alias) == (
+            MemoryGenerationTaskStatus.COMPLETED,
+            MemoryGenerationTaskStatus.COMPLETED,
+            "fact_retained",
+        )
+        spec = executed[1]
+        assert (spec.belong_to, spec.from_actor, spec.topic_id) == (
+            original.belong_to,
+            original.from_actor,
+            original.topic_id,
+        )
+        assert (
+            spec.intent_id,
+            spec.pending_alias,
+            spec.interaction_input,
+            spec.request.context.turns,
+        ) == (None, None, None, [])
+        assert merge_task.task_id != task.task_id
+        assert events[-1] == (
+            PatchouliLocalEvents.PENDING_ATOM_MERGED,
+            {"settlement": merged, "absorbed_memory_uuid": "absorbed"},
+        )
+    finally:
+        await controller.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "error", [WorkQueueStoppedError("stopped"), WorkQueueCapacityError("generation", 1)]
+)
+async def test_merge_submission_rejection_keeps_original_success(error, monkeypatch, caplog):
+    created = PendingAtomSettlement(
+        pending_alias="draft",
+        intent_id="original",
+        resolution=PendingAtomResolution.CREATED,
+        canonical_uuid="absorbed",
+    )
+    bus = Mock(
+        request=AsyncMock(
+            return_value=[
+                MemoryGenerationResult(
+                    settlement=created, merge_nomination=_merge_spec().request.merge_focus
+                )
+            ]
+        ),
+        publish=AsyncMock(),
+    )
+    controller = MemoryGenerationTaskController(bus=bus)
+    submit = controller.queue.submit
+
+    async def submit_or_reject(task_id, spec):
+        if spec.source == MemoryGenerationSource.MERGE:
+            raise error
+        return await submit(task_id, spec)
+
+    monkeypatch.setattr(controller.queue, "submit", submit_or_reject)
+    await controller.start()
+    try:
+        task = await controller.submit_generation(
+            _spec(source=MemoryGenerationSource.WRITE, pending_alias="draft", intent_id="original")
+        )
+        completed = await controller.wait_task(task.task_id)
+        assert completed.status == MemoryGenerationTaskStatus.COMPLETED
+        assert [item.task_id for item in await controller.list_tasks()] == [task.task_id]
+        bus.publish.assert_awaited_once_with(
+            PatchouliLocalEvents.PENDING_ATOM_SETTLED, settlement=created
+        )
+        assert "Memory merge submission rejected" in caplog.text
+    finally:
+        await controller.stop()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("cancel", [False, True], ids=["failure", "cancel"])
+async def test_merge_failure_or_cancel_never_settles_original_intent(cancel):
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def execute(route, spec):
+        entered.set()
+        await release.wait()
+        raise RuntimeError("merge failed")
+
+    bus = Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
+    controller = MemoryGenerationTaskController(bus=bus)
+    await controller.start()
+    try:
+        task = await controller.submit_generation(_merge_spec())
+        async with asyncio.timeout(5):
+            await entered.wait()
+        if cancel:
+            assert await controller.cancel_task(task.task_id)
+        else:
+            release.set()
+        completed = await controller.wait_task(task.task_id)
+        assert completed.status == (
+            MemoryGenerationTaskStatus.CANCELLED if cancel else MemoryGenerationTaskStatus.FAILED
+        )
+        bus.publish.assert_not_awaited()
+    finally:
+        release.set()
+        await controller.stop()
+
+
+@pytest.mark.asyncio
+async def test_shutdown_wait_excludes_pending_merge():
+    entered = asyncio.Event()
+    release = asyncio.Event()
+
+    async def execute(route, spec):
+        entered.set()
+        await release.wait()
+        return []
+
+    controller = MemoryGenerationTaskController(
+        bus=Mock(request=AsyncMock(side_effect=execute), publish=AsyncMock())
+    )
+    await controller.start()
+    try:
+        task = await controller.submit_generation(_merge_spec())
+        async with asyncio.timeout(5):
+            await entered.wait()
+            tasks = await controller.wait_all(include_merges=False)
+        assert tasks == []
+        assert (
+            await controller.get_task(task.task_id)
+        ).status == MemoryGenerationTaskStatus.RUNNING
+    finally:
+        release.set()
+        await controller.stop()

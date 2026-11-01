@@ -43,7 +43,7 @@ from hivememory.engines.generation.models import (
     ExtractedMemoryDraft,
     GenerationOutcome,
     GenerationRequest,
-    MergeResult,
+    RevisionResult,
     provenance_from_actor,
     system_settlement_provenance,
 )
@@ -107,7 +107,7 @@ class MemoryGenerationEngine:
             没有具体 Agent 作为操作来源主体，来源记录使用保留 system；
         Mode B (主动响应): request.is_write=True (WRITE 指令触发)
             以提交操作的 actor Agent 为来源；
-        Mode C (合并更新): request.is_update=True (UPDATE 指令触发)
+        Mode C (修订): request.is_update=True (UPDATE 指令触发)
             保留已有 metadata 的来源字段。
 
         主动模式的贡献者先记录发起 Agent 本身，再合并上下文轮次贡献者；
@@ -259,10 +259,10 @@ class MemoryGenerationEngine:
         now: datetime,
     ) -> list[GenerationOutcome]:
         """
-        Mode C: 合并更新模式 (UPDATE 指令触发)
+        Mode C: 修订模式 (UPDATE 指令触发)
 
         Agent 请求修改已有记忆，以 UpdateFocus 为核心。
-        LLM 执行智能合并，生成新内容和变更日志。
+        LLM 执行修订，生成新内容和变更日志。
         包含 fallback 机制：提供商失败或输出无法解析时直接拼接；程序错误不降级。
         """
         # 从内存索引中获取原始记忆
@@ -281,16 +281,16 @@ class MemoryGenerationEngine:
             )
 
         logger.info(
-            f"[Mode C] UPDATE 合并: alias='{uf.base_alias}', "
+            f"[Mode C] UPDATE 修订: alias='{uf.base_alias}', "
             f"instruction='{uf.instruction[:50]}...'"
         )
 
         # 格式化对话上下文；空上下文时由 _render_transcript() 统一返回占位文本
         transcript = self._render_transcript(request)
 
-        # Step 1: 调用 extractor.merge() (Mode C Merge Prompt)
+        # Step 1: 调用 extractor.revise() (Mode C Update Prompt)
         try:
-            merge_result = await self.extractor.merge(
+            revision_result = await self.extractor.revise(
                 old_content=existing.payload.content,
                 metadata={
                     "mode": "update",
@@ -303,26 +303,26 @@ class MemoryGenerationEngine:
             )
         except ModelProviderError as error:
             logger.warning("[Mode C] LLM 提供商失败: %s", error)
-            merge_result = None
+            revision_result = None
 
-        # Fallback: LLM 合并失败时直接拼接
-        if merge_result is None:
-            logger.warning("[Mode C] LLM 合并失败，启用 fallback")
-            merge_result = self._build_update_fallback(uf, existing, now=now)
+        # Fallback: LLM 修订失败时直接拼接
+        if revision_result is None:
+            logger.warning("[Mode C] LLM 修订失败，启用 fallback")
+            revision_result = self._build_update_fallback(uf, existing, now=now)
 
         # Step 2: 版本历史 + 更新，持久化由 Familiar 负责；
         # 主动 UPDATE 以发起 Agent 及上下文贡献者演化已有记忆的贡献者集合。
         return self._apply_update(
             existing,
-            merge_result,
+            revision_result,
             provenance=provenance_from_actor(from_actor, request.context),
         )
 
     def _build_update_fallback(
         self, uf: UpdateFocus, existing: MemoryAtom, *, now: datetime
-    ) -> MergeResult:
+    ) -> RevisionResult:
         """
-        UPDATE fallback: LLM 合并失败时的保底策略
+        UPDATE fallback: LLM 修订失败时的保底策略
 
         - 有 content: 追加到旧内容末尾
         - 仅有 instruction: 保留旧内容不变，changelog 记录 instruction
@@ -338,12 +338,54 @@ class MemoryGenerationEngine:
             new_content = existing.payload.content
             changelog = f"Fallback (无变更): {uf.instruction[:80]}"
 
-        return MergeResult(new_content=new_content, changelog=changelog)
+        return RevisionResult(new_content=new_content, changelog=changelog)
+
+    async def merge(self, retained: MemoryAtom, absorbed: MemoryAtom) -> GenerationOutcome | None:
+        """纯计算两条记忆的融合内容，不修改输入；版本与持久化由 Familiar 提交。
+
+        只比较索引与正文是否变化。相同时返回 TOUCH 决策供合并路径跳过写回，
+        不推进访问统计；来源主体、别名与访问状态始终沿用保留记忆。
+        """
+        result = await self.extractor.merge(retained, absorbed)
+        if result is None:
+            return None
+        try:
+            memory_type = MemoryType(result.memory_type)
+        except ValueError:
+            memory_type = retained.index.memory_type
+        # 普通记忆不能经模型输出变为 Profile；Profile 的创建有独立入口。
+        if memory_type == MemoryType.AGENT_PROFILE:
+            return None
+        index = IndexLayer(
+            title=result.title,
+            summary=result.summary,
+            tags=result.tags,
+            memory_type=memory_type,
+            alias=retained.index.alias,
+        )
+        if index == retained.index and result.content == retained.payload.content:
+            return GenerationOutcome(atom=retained, duplicate_decision=DuplicateDecision.TOUCH)
+
+        memory = retained.model_copy(deep=True)
+        memory.index = index
+        memory.payload.content = result.content
+        memory.meta.provenance.contributing_agent_ids = normalize_contributing_agent_ids(
+            [
+                *retained.meta.provenance.contributing_agent_ids,
+                *absorbed.meta.provenance.contributing_agent_ids,
+            ]
+        )
+        return GenerationOutcome(
+            atom=memory,
+            duplicate_decision=DuplicateDecision.UPDATE,
+            memory_before_snapshot=retained.model_copy(deep=True),
+            changelog=result.changelog,
+        )
 
     def _apply_update(
         self,
         memory: MemoryAtom,
-        result: MergeResult,
+        result: RevisionResult,
         *,
         provenance: MemoryProvenance,
         dedup_draft: ExtractedMemoryDraft | None = None,
@@ -365,7 +407,7 @@ class MemoryGenerationEngine:
         # 字段；访问统计由 Familiar 经受限 patch_payload 处理。
         if result.new_content == memory.payload.content:
             logger.info(
-                "[Mode C] UPDATE 合并结果与现有内容一致，降级为 TOUCH: '%s'",
+                "[Mode C] UPDATE 修订结果与现有内容一致，降级为 TOUCH: '%s'",
                 memory.index.title,
             )
             return [
@@ -392,7 +434,7 @@ class MemoryGenerationEngine:
         )
 
         logger.info(
-            f"[Mode C] UPDATE 内容已合并（待提交边界分配版本与内容时间）: "
+            f"[Mode C] UPDATE 内容已修订（待提交边界分配版本与内容时间）: "
             f"'{memory.index.title}', changelog='{result.changelog}'"
         )
 
@@ -453,15 +495,15 @@ class MemoryGenerationEngine:
             logger.info("记忆演化，覆盖当前版本内容")
 
             # TODO: 如轻量覆盖路径效果不足，可在这里引入强合并路径：
-            # 将 draft 与 existing_memory 交给 extractor.merge()，生成一个完整的新 head。
+            # 将 draft 与 existing_memory 交给 extractor.revise()，生成一个完整的新 head。
             # 不要回退到字符串追加，历史展示应由 MemoryVersionArtifact 链路负责。
-            merge_result = MergeResult(
+            revision_result = RevisionResult(
                 new_content=draft.content,
                 changelog=f"Dedup update: {draft.summary[:120]}",
             )
             return self._apply_update(
                 existing_memory,
-                merge_result,
+                revision_result,
                 provenance=provenance,
                 dedup_draft=draft,
             )

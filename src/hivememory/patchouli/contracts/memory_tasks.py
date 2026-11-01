@@ -33,6 +33,7 @@ class MemoryGenerationSource(str, Enum):
     WRITE = "WRITE"
     UPDATE = "UPDATE"
     SETTLE = "SETTLE"
+    MERGE = "MERGE"
 
     @property
     def creation_artifact_intent(
@@ -49,10 +50,10 @@ class MemoryGenerationSource(str, Enum):
     @property
     def version_update_source(
         self,
-    ) -> Literal["UPDATE"]:
+    ) -> Literal["UPDATE", "MERGE"]:
         """映射记忆版本更新使用的来源类型。"""
 
-        return "UPDATE"
+        return "MERGE" if self == MemoryGenerationSource.MERGE else "UPDATE"
 
 
 @dataclass(frozen=True)

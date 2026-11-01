@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from dataclasses import dataclass
 
 import pytest
 import pytest_asyncio
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.config.patchouli import ExtractorConfig
 from hivememory.core.access import RunBinding, WorkspaceAccessContext
 from hivememory.core.contracts.events import GlobalEvents
 from hivememory.core.errors import ResourceNotFoundError
@@ -25,7 +27,12 @@ from hivememory.core.models import (
     WorkspaceMemoryKey,
     WriteFocus,
 )
+from hivememory.core.models.artifact import ArtifactType
 from hivememory.engines.artifacts.engine import ArtifactEngine
+from hivememory.engines.generation.deduplicator import NoOpDeduplicator
+from hivememory.engines.generation.engine import MemoryGenerationEngine
+from hivememory.engines.generation.extractor import LLMMemoryExtractor
+from hivememory.engines.generation.models import GenerationRequest, MergeFocus
 from hivememory.patchouli.application.agent_profile_management_service import (
     AgentProfileManagementService,
 )
@@ -33,6 +40,13 @@ from hivememory.patchouli.application.memory_management_service import MemoryMan
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.memory_change_publisher import MemoryChangePublisher
+from hivememory.patchouli.control.memory_generation.controller import MemoryGenerationTaskController
+from hivememory.patchouli.control.memory_generation.models import (
+    MemoryGenerationSource,
+    MemoryGenerationTaskSpec,
+    MemoryGenerationTaskStatus,
+)
+from hivememory.patchouli.control.pending_atom_settler import PendingAtomSettler
 from hivememory.patchouli.memory_library.adapters.artifact import FilesystemArtifactStorageAdapter
 from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
 from hivememory.patchouli.memory_library.library import MemoryLibrary
@@ -59,6 +73,7 @@ from hivememory.workspace.contracts.errors import PendingUpdateNotAllowedError
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.read_view import WorkspaceReadView
 from tests.helpers.intent_dispatch import install_intent_admission
+from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import (
     AccessTestComposition,
@@ -92,6 +107,9 @@ class _VectorStore:
         key = WorkspaceMemoryKey(workspace_identity=atom.workspace_identity, memory_id=atom.id)
         self.atoms[key] = atom.model_copy(deep=True)
 
+    async def delete_memory(self, key):
+        return self.atoms.pop(key, None) is not None
+
     async def get_memory(self, key):
         atom = self.atoms.get(key)
         return atom.model_copy(deep=True) if atom is not None else None
@@ -116,6 +134,7 @@ class _Chain:
     """每个测试独立装配的协作边界。"""
 
     bus: GlobalSystemBus
+    local_bus: PatchouliBus
     store: MidTermMemoryStore
     runtime: WorkspaceReadView
     memories: ActorMemoryService
@@ -178,6 +197,7 @@ async def chain(tmp_path):
     )
     result = _Chain(
         bus=bus,
+        local_bus=local_bus,
         store=store,
         runtime=runtime,
         composition=composition,
@@ -315,39 +335,134 @@ async def test_cpu_profile_without_actor_operations_rejects_other_agents_private
 
 
 @pytest.mark.asyncio
-async def test_write_ack_is_shared_then_global_settlement_redirects(chain):
-    """WRITE 登记可跨进程回读，结算事件经登记更新为 canonical redirect。"""
+async def test_write_handle_follows_created_memory_through_real_merge(chain, tmp_path):
+    """句柄先指向新记忆，真实合并、版本落库与跨总线改指后读到保留记忆。"""
     pending = await chain.memories.submit_write_intent(
-        SubmitWriteIntentRequest(WriteFocus(content="intent body")),
-        access=await chain.composition.authenticate_thread(
-            agent_id="writer", process_id="first_process", register_process=True
-        ),
+        SubmitWriteIntentRequest(WriteFocus(content="later progress")),
+        access=chain.writer,
     )
     before = await chain.memories.resolve_references(
         ResolveReferencesRequest((pending.pending_alias,)), access=chain.reader
     )
-    assert (before[0].kind, before[0].pending.focus.content) == ("pending", "intent body")
-    atom = _atom()
-    await chain.store.upsert(atom)
-    await chain.bus.publish(
-        GlobalEvents.PENDING_ATOM_SETTLED,
-        settlement=PendingAtomSettlement(
+    assert (before[0].kind, before[0].pending.focus.content) == ("pending", "later progress")
+    artifacts = ArtifactStore(FilesystemArtifactStorageAdapter(str(tmp_path / "merge_artifacts")))
+    llm = ScriptedLLMService(
+        json.dumps(
+            dict(
+                title="Design and progress",
+                summary="Decisions and later progress",
+                tags=["project"],
+                memory_type="FACT",
+                content="earlier decisions and later progress",
+                changelog="Preserved both stages",
+            )
+        )
+    )
+    engine = MemoryGenerationEngine(
+        mid_term=chain.store,
+        extractor=LLMMemoryExtractor(ExtractorConfig(), llm, DEFAULT_LLM_PARAMS),
+        deduplicator=NoOpDeduplicator(),
+    )
+    familiar = MemoryGenerationFamiliar(
+        generation_engine=engine,
+        memory_library=MemoryLibrary(ShortTermMemoryStore(), chain.store, _UnusedPort()),
+        artifact_engine=ArtifactEngine.from_store(artifacts),
+    )
+    retained = await familiar.create_external_memory(
+        WORKSPACE,
+        from_actor=pending.from_actor,
+        memory_type=MemoryType.FACT,
+        title="Design",
+        content="earlier decisions",
+        alias="fact_design",
+    )
+    absorbed = await familiar.create_external_memory(
+        WORKSPACE,
+        from_actor=pending.from_actor,
+        memory_type=MemoryType.FACT,
+        title="Progress",
+        content="later progress",
+        alias="fact_progress",
+    )
+    absorbed_version = next(
+        ref
+        for ref in absorbed.payload.artifacts.refs
+        if ref.artifact_type == ArtifactType.MEMORY_VERSION
+    )
+    await PendingAtomSettler(chain.local_bus).settled(
+        PendingAtomSettlement(
             pending_alias=pending.pending_alias,
             intent_id=pending.intent_id,
             resolution=PendingAtomResolution.CREATED,
-            canonical_alias="canonical",
-            canonical_uuid=str(atom.id),
-        ),
+            canonical_alias=absorbed.index.alias,
+            canonical_uuid=str(absorbed.id),
+        )
     )
-    after = await chain.memories.resolve_references(
-        ResolveReferencesRequest((pending.pending_alias,)), access=chain.reader
+    created_read = (
+        await chain.memories.resolve_references(
+            ResolveReferencesRequest((pending.pending_alias,)), access=chain.reader
+        )
+    )[0]
+    assert (created_read.kind, created_read.atom.id, created_read.atom.payload.content) == (
+        "redirect",
+        absorbed.id,
+        "later progress",
     )
 
-    assert (after[0].kind, after[0].canonical_uuid, after[0].atom.payload.content) == (
-        "redirect",
-        str(atom.id),
-        "old content",
-    )
+    chain.local_bus.register(PatchouliLocalRoutes.GENERATION_EXECUTE_SPEC, familiar.execute)
+    controller = MemoryGenerationTaskController(bus=chain.local_bus)
+    await controller.start()
+    try:
+        task = await controller.submit_generation(
+            MemoryGenerationTaskSpec(
+                belong_to=WORKSPACE,
+                from_actor=pending.from_actor,
+                topic_id="merge_topic",
+                label="merge",
+                source=MemoryGenerationSource.MERGE,
+                request=GenerationRequest(
+                    merge_focus=MergeFocus(
+                        retained_memory_id=str(retained.id),
+                        absorbed_memory_id=str(absorbed.id),
+                        pending_alias=pending.pending_alias,
+                        intent_id=pending.intent_id,
+                    )
+                ),
+            )
+        )
+        completed = await controller.wait_task(task.task_id, timeout=5)
+        assert completed.status == MemoryGenerationTaskStatus.COMPLETED
+        merged_read = (
+            await chain.memories.resolve_references(
+                ResolveReferencesRequest((pending.pending_alias,)), access=chain.reader
+            )
+        )[0]
+        assert (
+            merged_read.kind,
+            merged_read.atom.id,
+            merged_read.atom.meta.version,
+            merged_read.atom.payload.content,
+        ) == ("redirect", retained.id, 2, "earlier decisions and later progress")
+        assert (
+            await chain.store.get_by_key(
+                WorkspaceMemoryKey(workspace_identity=WORKSPACE, memory_id=absorbed.id)
+            )
+            is None
+        )
+        version_ref = merged_read.atom.payload.artifacts.events[-1].artifact_refs[0]
+        version = await artifacts.get(WORKSPACE, version_ref)
+        assert (
+            version["update_source"],
+            version["snapshot_before"]["payload"]["content"],
+            version["snapshot_after"]["payload"]["content"],
+        ) == ("MERGE", "earlier decisions", "earlier decisions and later progress")
+        assert absorbed_version.artifact_id in {
+            ref["artifact_id"] for ref in version["source_artifacts"]
+        }
+        original = await artifacts.get(WORKSPACE, absorbed_version)
+        assert original["snapshot_after"]["payload"]["content"] == "later progress"
+    finally:
+        await controller.stop()
 
 
 @pytest.mark.asyncio

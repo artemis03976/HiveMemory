@@ -70,6 +70,21 @@ class PendingAtomSettler:
             intent_id=intent_id,
         )
 
+    async def merged(self, settlement: PendingAtomSettlement, *, absorbed_memory_uuid: str) -> None:
+        """发布已结算句柄的改指，不占用终态保留，也不把发布失败改成写入失败。"""
+        try:
+            await self._bus.publish(
+                PatchouliLocalEvents.PENDING_ATOM_MERGED,
+                settlement=settlement,
+                absorbed_memory_uuid=absorbed_memory_uuid,
+            )
+        except Exception:
+            logger.warning(
+                "PendingAtom MERGED event publish failed: pending_alias=%s",
+                settlement.pending_alias,
+                exc_info=True,
+            )
+
     async def cancelled(self, pending_alias: str, intent_id: str) -> None:
         """为指定写入意图发布一次 best-effort 取消事件。"""
 

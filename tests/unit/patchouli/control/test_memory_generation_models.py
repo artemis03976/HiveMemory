@@ -1,4 +1,6 @@
-from dataclasses import FrozenInstanceError
+"""生成任务规范的输入约束与只读快照投影。"""
+
+from dataclasses import FrozenInstanceError, replace
 from datetime import UTC, datetime
 
 import pytest
@@ -9,7 +11,7 @@ from hivememory.components.work_queue import (
     WorkRecord,
     WorkState,
 )
-from hivememory.engines.generation.models import GenerationContext, GenerationRequest
+from hivememory.engines.generation.models import GenerationContext, GenerationRequest, MergeFocus
 from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationResult,
     MemoryGenerationSource,
@@ -247,3 +249,24 @@ def test_memory_task_to_payload_contains_public_fields():
 
 def test_memory_task_to_payload_accepts_explicit_reason():
     assert memory_task_to_payload(_task_snapshot(), reason="system")["reason"] == "system"
+
+
+@pytest.mark.parametrize("mismatch", ["source", "focus", "intent", "interaction"])
+def test_merge_spec_rejects_wrong_source_or_terminal_ownership(mismatch):
+    """合并规范不能被当成普通生成，或在失败时抢占原写入的终态结算权。"""
+    focus = MergeFocus(retained_memory_id="retained", absorbed_memory_id="absorbed")
+    spec = replace(
+        _spec(), source=MemoryGenerationSource.MERGE, request=GenerationRequest(merge_focus=focus)
+    )
+    changes = {
+        "source": {"source": MemoryGenerationSource.WRITE},
+        "focus": {"request": GenerationRequest()},
+        "intent": {"intent_id": "original", "pending_alias": "draft"},
+        "interaction": {
+            "request": GenerationRequest(
+                merge_focus=focus, context=GenerationContext(state_summary="context")
+            )
+        },
+    }
+    with pytest.raises(ValueError, match="MERGE 来源|合并任务不能"):
+        replace(spec, **changes[mismatch])

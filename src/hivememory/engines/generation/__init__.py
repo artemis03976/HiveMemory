@@ -36,7 +36,7 @@ from hivememory.engines.generation.models import (
     GenerationOutcome,
     GenerationRequest,
     MemoryProvenance,
-    MergeResult,
+    RevisionResult,
 )
 
 logger = logging.getLogger(__name__)
@@ -52,7 +52,7 @@ __all__ = [
     "GenerationOutcome",
     "GenerationRequest",
     "MemoryProvenance",
-    "MergeResult",
+    "RevisionResult",
     # 记忆提取
     "LLMMemoryExtractor",
     "NoOpMemoryExtractor",

@@ -1,7 +1,7 @@
 """
 HiveMemory Generation 模块数据模型
 
-仅保留生成流水线内部 DTO（``ExtractedMemoryDraft`` / ``MergeResult`` /
+仅保留生成流水线内部 DTO（``ExtractedMemoryDraft`` / ``RevisionResult`` / ``MergeResult`` /
 ``GenerationRequest`` / ``GenerationContext`` / ``GenerationTurn`` /
 ``GenerationOutcome``）。
 
@@ -100,19 +100,56 @@ def _title_from_content(content: str) -> str:
     return ""
 
 
-class MergeResult(BaseModel):
+class RevisionResult(BaseModel):
     """
-    LLM Merge Prompt 的输出结果
+    LLM 修订提示词的输出结果
 
-    Mode C (UPDATE) 中 LLM 执行合并后的结构化输出。
+    Mode C (UPDATE) 中 LLM 执行修订后的结构化输出。
 
     Attributes:
-        new_content: 合并后的新内容
+        new_content: 修订后的新内容
         changelog: 变更日志 (一句话总结此次修改)
     """
 
     new_content: str
     changelog: str
+
+
+class MergeResult(BaseModel):
+    """两条正式记忆融合后的完整内容；别名与来源主体由保留记忆决定。"""
+
+    title: str
+    summary: str
+    tags: list[str]
+    memory_type: str
+    content: str
+    changelog: str
+
+    @model_validator(mode="after")
+    def _fit_index_limits(self) -> "MergeResult":
+        """与草稿使用相同的索引长度上限，空标题从正文派生。"""
+        self.summary = self.summary.strip()[:MEMORY_SUMMARY_MAX_LENGTH].rstrip()
+        title = self.title.strip() or _title_from_content(self.content)
+        self.title = title[:MEMORY_TITLE_MAX_LENGTH].rstrip()
+        if not self.title:
+            raise ValueError("合并结果必须包含标题或可派生标题的正文")
+        return self
+
+
+class MergeFocus(BaseModel):
+    """合并的保留与吸收对象；可选意图只用于成功后的改指，不拥有终态结算权。"""
+
+    retained_memory_id: str
+    absorbed_memory_id: str
+    pending_alias: str | None = None
+    intent_id: str | None = None
+
+    @model_validator(mode="after")
+    def _require_redirect_pair(self) -> "MergeFocus":
+        """句柄改指必须携带完整的 alias 与意图标识。"""
+        if (self.intent_id is None) != (self.pending_alias is None):
+            raise ValueError("intent_id 与 pending_alias 必须同时提供或同时缺省")
+        return self
 
 
 # ============ 记忆生成视图数据模型 ============
@@ -199,7 +236,8 @@ class GenerationRequest(BaseModel):
 
     Mode A (被动观察): write_focus=None, update_focus=None
     Mode B (主动响应): write_focus=WriteFocus (WRITE 指令)
-    Mode C (合并更新): update_focus=UpdateFocus (UPDATE 指令)
+    Mode C (修订): update_focus=UpdateFocus (UPDATE 指令)
+    两条正式记忆的合并: merge_focus=MergeFocus，由 Familiar 读取后调用合并计算。
 
     本协议不携带任何身份/ownership 字段；Memory ownership 由调用方通过
     ``MemoryGenerationTaskSpec.belong_to`` 传入。
@@ -210,6 +248,7 @@ class GenerationRequest(BaseModel):
     )
     write_focus: WriteFocus | None = None
     update_focus: UpdateFocus | None = None
+    merge_focus: MergeFocus | None = None
     existing_memory: Any | None = None
 
     @property
@@ -219,7 +258,7 @@ class GenerationRequest(BaseModel):
 
     @property
     def is_update(self) -> bool:
-        """是否为 Mode C (合并更新模式)"""
+        """是否为 Mode C (修订模式)"""
         return self.update_focus is not None
 
     @property
@@ -246,7 +285,9 @@ __all__ = [
     "DuplicateDecision",
     "ExtractedMemoryDraft",
     "MemoryProvenance",
+    "RevisionResult",
     "MergeResult",
+    "MergeFocus",
     "GenerationRequest",
     "GenerationTurn",
     "GenerationContext",

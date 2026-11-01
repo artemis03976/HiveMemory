@@ -92,7 +92,7 @@ from hivememory.engines.generation.models import (
     GenerationContext,
     GenerationRequest,
     GenerationTurn,
-    MergeResult,
+    RevisionResult,
     system_settlement_provenance,
 )
 
@@ -788,7 +788,7 @@ class TestMemoryMerger:
         old_content = existing_memory.payload.content
         result = self.engine._apply_update(
             existing_memory,
-            MergeResult(
+            RevisionResult(
                 new_content=new_draft.content,
                 changelog=f"Dedup update: {new_draft.summary[:120]}",
             ),
@@ -841,7 +841,7 @@ class TestMemoryMerger:
         # 执行 dedup UPDATE
         merged = self.engine._apply_update(
             existing_memory,
-            MergeResult(
+            RevisionResult(
                 new_content=new_draft.content,
                 changelog=f"Dedup update: {new_draft.summary[:120]}",
             ),
@@ -906,7 +906,7 @@ class TestMemoryMerger:
         # 执行 dedup UPDATE
         merged = self.engine._apply_update(
             existing_memory,
-            MergeResult(
+            RevisionResult(
                 new_content=new_draft.content,
                 changelog=f"Dedup update: {new_draft.summary[:120]}",
             ),

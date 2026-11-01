@@ -12,9 +12,11 @@ from pydantic import ValidationError
 
 from hivememory.core.errors import (
     InvalidMemoryFieldError,
+    MemoryMergeAbortedError,
     WorkspaceDomainError,
     WorkspaceMismatchError,
 )
+from hivememory.core.memory_access import memory_is_readable
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -31,6 +33,7 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.artifact import (
     ArtifactRef,
+    ArtifactType,
     DocumentSourceType,
     MemoryEventLog,
     MemoryEventType,
@@ -44,6 +47,7 @@ from hivememory.engines.generation.models import (
     DuplicateDecision,
     GenerationContext,
     GenerationOutcome,
+    MergeFocus,
 )
 from hivememory.patchouli.control.memory_generation.models import (
     InteractionArtifactInput,
@@ -134,6 +138,8 @@ class MemoryGenerationFamiliar:
         """
         执行统一生成任务规范，只返回结果不发布事件。
         """
+        if spec.request.merge_focus is not None:
+            return await self._run_merge(spec, spec.request.merge_focus)
         interaction_ref = await self._capture_interaction_artifact(
             spec.interaction_input,
             spec.belong_to,
@@ -142,6 +148,100 @@ class MemoryGenerationFamiliar:
             spec,
             interaction_ref=interaction_ref,
         )
+
+    async def _run_merge(
+        self, spec: MemoryGenerationTaskSpec, focus: MergeFocus
+    ) -> list[MemoryGenerationResult]:
+        """先写回保留记忆，再删除被吸收记忆；失败最多留下重复，不回退为覆盖。"""
+        retained = await self._mid_term.get(
+            spec.belong_to, UUID(focus.retained_memory_id), from_actor=spec.from_actor
+        )
+        absorbed = await self._mid_term.get(
+            spec.belong_to, UUID(focus.absorbed_memory_id), from_actor=spec.from_actor
+        )
+        if retained is None or absorbed is None:
+            raise MemoryMergeAbortedError(details={"reason": "memory_missing"})
+        self._require_mergeable(retained, absorbed)
+
+        outcome = await self._generation_engine.merge(retained, absorbed)
+        if outcome is None:
+            raise MemoryMergeAbortedError(details={"reason": "model_output_invalid"})
+
+        # 模型调用期间可能发生修订、删除或策略变更；即使内容不变，也必须在删除前重验。
+        current_retained = await self._read_merge_version(spec, retained)
+        current_absorbed = await self._read_merge_version(spec, absorbed)
+        self._require_mergeable(current_retained, current_absorbed)
+        if outcome.duplicate_decision == DuplicateDecision.UPDATE:
+            atom = outcome.atom
+            if atom is None:
+                raise RuntimeError("合并计算未返回待提交的记忆")
+            # 访问与策略变动不推进内容版本，保留重读得到的动态状态。
+            atom.meta.lifecycle = current_retained.meta.lifecycle.model_copy(deep=True)
+            atom.meta.access_policy = current_retained.meta.access_policy.model_copy(deep=True)
+            for ref in absorbed.payload.artifacts.refs:
+                if ref.artifact_type == ArtifactType.INTERACTION:
+                    self._append_artifact_ref_once(atom, ref)
+            await self._commit_outcome(
+                outcome,
+                belong_to=spec.belong_to,
+                now=require_utc(self._now()),
+                interaction_ref=None,
+                gen_context=spec.request.context,
+                creation_source=spec.source.creation_artifact_intent,
+                update_source=spec.source.version_update_source,
+                source_artifact_refs=absorbed.payload.artifacts.refs,
+            )
+
+        # 不改变内容时也不 TOUCH；合并不构成用户对保留记忆的一次访问。
+        await self._mid_term.delete_by_key(
+            WorkspaceMemoryKey(workspace_identity=spec.belong_to, memory_id=absorbed.id)
+        )
+        settlement = None
+        if focus.pending_alias is not None and focus.intent_id is not None:
+            settlement = PendingAtomSettlement(
+                pending_alias=focus.pending_alias,
+                intent_id=focus.intent_id,
+                resolution=PendingAtomResolution.MERGED,
+                canonical_alias=retained.get_alias(),
+                canonical_uuid=str(retained.id),
+            )
+        return [
+            MemoryGenerationResult(
+                canonical_alias=retained.get_alias(),
+                canonical_uuid=str(retained.id),
+                settlement=settlement,
+                absorbed_memory_uuid=str(absorbed.id),
+            )
+        ]
+
+    @staticmethod
+    def _require_mergeable(retained: MemoryAtom, absorbed: MemoryAtom) -> None:
+        """不同策略或 Profile 不能融合；同一条记忆也不能吸收自身。"""
+        if (
+            retained.id == absorbed.id
+            or retained.meta.access_policy != absorbed.meta.access_policy
+            or MemoryType.AGENT_PROFILE in {retained.index.memory_type, absorbed.index.memory_type}
+        ):
+            raise MemoryMergeAbortedError(details={"reason": "not_mergeable"})
+
+    async def _read_merge_version(
+        self, spec: MemoryGenerationTaskSpec, original: MemoryAtom
+    ) -> MemoryAtom:
+        """按复合归属键重读，拒绝消失、不可见或内容版本变化的合并对象。"""
+        current = await self._mid_term.get_by_key(
+            WorkspaceMemoryKey(workspace_identity=spec.belong_to, memory_id=original.id)
+        )
+        if current is None or not memory_is_readable(
+            current, workspace_identity=spec.belong_to, actor_identity=spec.from_actor
+        ):
+            raise MemoryMergeAbortedError(
+                details={"reason": "memory_missing", "memory_id": str(original.id)}
+            )
+        if current.meta.version != original.meta.version:
+            raise MemoryMergeAbortedError(
+                details={"reason": "version_changed", "memory_id": str(original.id)}
+            )
+        return current
 
     async def create_external_memory(
         self,
@@ -526,6 +626,7 @@ class MemoryGenerationFamiliar:
         gen_context: GenerationContext,
         creation_source: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"],
+        source_artifact_refs: list[ArtifactRef] | None = None,
     ) -> None:
         """单个 outcome 的提交流水线：字段分配 → artifact 挂载 → 持久化。
 
@@ -574,10 +675,13 @@ class MemoryGenerationFamiliar:
             creation_source=creation_source,
             update_source=update_source,
             now=now,
+            source_artifact_refs=source_artifact_refs,
         )
 
-        recompute = decision == DuplicateDecision.CREATE or self._embedding_inputs_changed(
-            outcome.memory_before_snapshot, atom
+        recompute = (
+            decision == DuplicateDecision.CREATE
+            or update_source == "MERGE"
+            or self._embedding_inputs_changed(outcome.memory_before_snapshot, atom)
         )
         await self._mid_term.upsert(atom, recompute_vectors=recompute)
         logger.info(
@@ -597,6 +701,7 @@ class MemoryGenerationFamiliar:
         creation_source: Literal["ARCHIVE", "WRITE", "IMPORT", "MANUAL", "SYSTEM"],
         update_source: Literal["UPDATE", "MERGE", "MANUAL_EDIT", "SYSTEM_REWRITE"] = "UPDATE",
         now: datetime | None = None,
+        source_artifact_refs: list[ArtifactRef] | None = None,
     ) -> None:
         """为单个已生成或外部编辑的 MemoryAtom 挂载 artifact。
 
@@ -610,7 +715,9 @@ class MemoryGenerationFamiliar:
         await self._mid_term.ensure_alias_available(atom)
         commit_now = require_utc(now) if now is not None else require_utc(self._now())
 
-        src_refs = [interaction_ref] if interaction_ref else []
+        src_refs = list(source_artifact_refs or ())
+        if interaction_ref is not None:
+            src_refs.append(interaction_ref)
         if decision == DuplicateDecision.CREATE:
             bundle = await self._build_creation_artifacts(
                 atom=atom,
