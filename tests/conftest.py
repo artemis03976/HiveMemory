@@ -10,16 +10,9 @@ import os
 # 禁用，避免其 SDK 把内存缓存的会话旁文件写成工作目录里的 :memory:.ses。
 os.environ["ORT_DISABLE_TELEMETRY"] = "1"
 
-# 添加项目根目录到路径
-import sys
-from pathlib import Path
+from unittest.mock import patch
 
 import pytest
-
-project_root = Path(__file__).parent.parent
-sys.path.insert(0, str(project_root / "src"))
-
-from unittest.mock import patch
 
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.i18n import set_default_language
