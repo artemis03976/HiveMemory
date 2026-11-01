@@ -16,7 +16,7 @@ last_reviewed: 2026-10-16
 
 # 测试套件冗余收敛后续
 
-本 Todo 已于 2026-10-16 完成并归档。现行规则见[测试设计规范](../../governance/testing/test-design-standards.md)第 4 节，各轮结果记录在该规范第 11 节第 6 项。
+本 Todo 已于 2026-10-16 完成并归档。现行规则见[测试设计规范](../../governance/testing/test-design-standards.md)第 4 节，各轮结果曾记录在该规范第 11 节第 6 项（2026-11-01 精简规范时删除，见 Git 历史），第二轮与生命周期组的结果见下文。
 
 ## 问题与证据
 
@@ -105,4 +105,4 @@ last_reviewed: 2026-10-16
 
 ## 未纳入本 Todo 的遗留
 
-[测试设计规范](../../governance/testing/test-design-standards.md)第 13 节登记的 Patchouli application 薄转发测试是独立遗留项，同日另行处理，结果记录在该节。
+[测试设计规范](../../governance/testing/test-design-standards.md)第 13 节登记的 Patchouli application 薄转发测试是独立遗留项，同日另行处理，结果记录在该节（该节已于 2026-11-01 删除，见 Git 历史）。
