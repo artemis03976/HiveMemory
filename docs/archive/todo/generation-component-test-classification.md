@@ -2,7 +2,7 @@
 title: 生成组件测试的分类与重复覆盖
 status: archived
 archived_at: 2026-11-01
-implemented_by: 分支 fix/dedup-query-and-component-tests
+implemented_by: PR #164
 superseded_by: docs/patchouli/generation.md
 owner: patchouli
 scope: generation-component-test-classification-and-dedup-assertions
