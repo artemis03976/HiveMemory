@@ -19,7 +19,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/system/import-bus.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-01
 ---
 
 # HiveMemory 配置指南
@@ -109,12 +109,17 @@ Settings -> Model Registry 或 `/api/v1/models` 可以运行时 CRUD，并原子
 
 ## 5. 主配置与生效边界
 
+`GET /api/v1/config`、`GET /api/v1/config/defaults` 与 `POST /api/v1/config` 的响应中，所有 `api_key`（LLM、Provider 凭证与 Qdrant）都只返回打码值（如 `sk-...abcd`），与 Provider 和 Model 接口相同：这些 HTTP 接口对本机任何进程开放。
+
 `POST /api/v1/config` 会：
 
-1. 用 `HiveMemoryConfig` 校验提交内容；
-2. 原子写入当前 YAML 主配置；
-3. 替换进程中的 `system.config`；
-4. 返回校验后的配置。
+1. 把提交中等于当前密钥打码值的 `api_key` 还原为当前密钥，原样提交读到的配置不会用打码值覆盖真实密钥；新的明文密钥照常替换，`null` 照常清除；
+2. 用 `HiveMemoryConfig` 校验提交内容；
+3. 原子写入当前 YAML 主配置；
+4. 替换进程中的 `system.config`；
+5. 返回校验后的配置。
+
+写入 YAML 的是校验后的完整配置，其中包括从环境变量与 `.env` 读到的密钥。`configs/config.yaml` 受版本控制，经这个接口保存过之后，提交前检查其中有没有密钥。
 
 这不保证所有组件热重载。已经在启动时创建的 Qdrant/Embedding/Reranker、Gateway/Librarian LLM config、scheduler 和部分 runtime 可能仍持有旧对象。涉及基础设施、模型装配、调度或子系统行为的变更，当前最安全做法是保存后重启服务，再用 readiness 和实际请求确认。
 

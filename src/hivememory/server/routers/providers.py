@@ -6,23 +6,10 @@ from hivememory.config.shared import ProviderCredentials
 from hivememory.server.deps import get_provider_registry
 from hivememory.server.error_handlers import error_responses
 from hivememory.server.models.provider import ProviderResponse, ProviderUpsertRequest
+from hivememory.server.models.secrets import mask_api_key
 from hivememory.system.provider_registry import ProviderRegistry
 
 router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503), tags=["providers"])
-
-
-# ------------------------------------------------------------------
-# 辅助函数
-# ------------------------------------------------------------------
-
-
-def _mask_api_key(api_key: str | None) -> str | None:
-    """对 API 密钥做脱敏处理，只返回前后片段。"""
-    if api_key is None:
-        return None
-    if len(api_key) <= 8:
-        return "***"
-    return f"{api_key[:3]}...{api_key[-4:]}"
 
 
 # ------------------------------------------------------------------
@@ -38,7 +25,7 @@ def list_providers(
     return [
         ProviderResponse(
             name=name,
-            api_key_masked=_mask_api_key(cred.api_key),
+            api_key_masked=mask_api_key(cred.api_key),
             api_base=cred.api_base,
             is_from_env=from_env,
         )
@@ -76,7 +63,7 @@ def upsert_provider(
     from_env = lower in registry._env
     return ProviderResponse(
         name=lower,
-        api_key_masked=_mask_api_key(final_cred.api_key),
+        api_key_masked=mask_api_key(final_cred.api_key),
         api_base=final_cred.api_base,
         is_from_env=from_env,
     )
