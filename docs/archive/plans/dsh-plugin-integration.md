@@ -2,7 +2,7 @@
 title: DeepSeek Harness 插件接入
 status: archived
 archived_at: 2026-11-01
-implemented_by: feat/dsh-plugin（2e64cef8–bdad70d3 与收尾提交）
+implemented_by: PR #158（feat/dsh-plugin）
 superseded_by: docs/system/import-bus.md
 owner: project
 target: v0.7.3 之前（版本之外的工作，owner 2026-10-31）
@@ -197,7 +197,7 @@ pytest tests/integration/workspace/test_published_registration_chain.py -q
 
 ## 10. 实施记录
 
-**提交**（分支 `feat/dsh-plugin`）：计划（`2e64cef8`）、接入登记（`662c242f`）、插件与 `node:test` 单元测试（`66b1fed5`）、一致性测试、注释守护与 CI（`434128d3`）、接入手册（`bdad70d3`），以及事实文档收尾与本归档。
+**提交**（PR #158，分支 `feat/dsh-plugin`）：计划（`865200a8`）、接入登记（`170ca134`）、插件与 `node:test` 单元测试（`058b9655`）、一致性测试、注释守护与 CI（`05257511`）、接入手册（`34456bac`）、事实文档收尾与本归档（`51c4feda`）。
 
 **实施中对设计的调整**：
 

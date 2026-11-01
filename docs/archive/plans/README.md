@@ -12,7 +12,7 @@ last_reviewed: 2026-11-01
 
 ## 版本之外
 
-- [DeepSeek Harness 插件接入](./dsh-plugin-integration.md)：2026-11-01，分支 feat/dsh-plugin；[Import Bus](../../system/import-bus.md#9-deepseek-harness-插件)、[接入 DeepSeek Harness](../../help/deepseek-harness-plugin.md)
+- [DeepSeek Harness 插件接入](./dsh-plugin-integration.md)：2026-11-01，PR #158；[Import Bus](../../system/import-bus.md#9-deepseek-harness-插件)、[接入 DeepSeek Harness](../../help/deepseek-harness-plugin.md)
 
 ## v0.7.2
 
