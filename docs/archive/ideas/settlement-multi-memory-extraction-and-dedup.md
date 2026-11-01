@@ -2,7 +2,7 @@
 title: 话题结算的多条提取、查重与更新
 status: archived
 archived_at: 2026-11-01
-implemented_by: v0.7.2 查重与更新（archive/plans/v0.7.2-dedup-merge.md，PR #154）与一个话题提取多条记忆（archive/plans/v0.7.2-multi-memory-extraction.md，feat/multi-memory-extraction）
+implemented_by: v0.7.2 查重与更新（archive/plans/v0.7.2-dedup-merge.md，PR #154）与一个话题提取多条记忆（archive/plans/v0.7.2-multi-memory-extraction.md，PR #155）
 superseded_by: docs/patchouli/generation.md
 owner: patchouli
 scope: settlement-multi-memory-extraction-dedup-signal-and-update-mechanism
