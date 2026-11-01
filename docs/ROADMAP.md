@@ -121,7 +121,7 @@ last_reviewed: 2026-11-01
 |:---|:---:|:---|:---|
 | `v0.7.2` 生成质量 | Completed（2026-11-01 收尾）/ 版本目标 owner，2026-10-30：四份计划均已完成 | 真实使用中生成的记忆可信：生成材料不被单轮上限截断，Topic 之后的原始证据可以回查；一个话题能提取多条记忆；查重与更新按新机制处理同一件事的后续阶段；Claude Code 能显式写入与更新记忆 | 第 4.3 节；[收尾审计](./archive/plans/v0.7.2-release-closeout-audit.md) |
 | `v0.7.3` | 版本目标未定（owner，2026-11-01） | 在 DeepSeek Harness 接入与经它进行的批量调研之后设计 | 下一行 |
-| 第二个外部 harness：DeepSeek Harness 的 plugin 模式接入 | 版本之外的工作，v0.7.3 之前完成（owner，2026-10-31）；资料调研与无凭据机制探针已完成（2026-11-01），接入路径未选择；接入与批量调研完成后再设计 v0.7.3（owner，2026-11-01） | dsh 经对话回流与记忆工具接入 HiveMemory；之后经它进行 agent memory 与 harness 项目的调研，同时作为压测与数据积累 | [调研需求与报告](./research/deepseek-harness-plugin-survey.md) |
+| 第二个外部 harness：DeepSeek Harness 的 plugin 模式接入 | 版本之外的工作，v0.7.3 之前完成（owner，2026-10-31）；资料调研与无凭据机制探针已完成（2026-11-01）；接入路径为纯原生插件（owner，2026-11-01），插件与接入登记已实现，真实模型与真实 HiveMemory 的验收待完成；接入与批量调研完成后再设计 v0.7.3（owner，2026-11-01） | dsh 经对话回流与记忆工具接入 HiveMemory；之后经它进行 agent memory 与 harness 项目的调研，同时作为压测与数据积累 | [调研需求与报告](./research/deepseek-harness-plugin-survey.md)、[计划](./plans/dsh-plugin-integration.md) |
 | 冷启动、历史导入与外源文档资产化 | Candidate / 不绑定版本 | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | 第 4.4 节；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md) |
 | MTP READ 专项编译与来源表达 | Candidate / 不绑定版本 | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | 第 4.5 节；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md) |
 | Deep Research MVP | Candidate / 不绑定版本 | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 第 4.6 节 |
