@@ -62,15 +62,11 @@ shared:
       idle_timeout_seconds: 1800
 
   # ========== 模型提供商凭证 ==========
-  # 供模型注册表（configs/models.yaml）按 provider 补齐 api_key / api_base。
-  # api_key 一律留空于此文件（本文件被 git 跟踪），由环境变量注入：
-  #   HIVEMEMORY__PROVIDERS__<NAME>__API_KEY
-  #   HIVEMEMORY__PROVIDERS__<NAME>__API_BASE
+  # 不写在本文件（本文件被 git 跟踪，出现非空 api_key 时加载失败）。模型注册表
+  # （configs/models.yaml）按模型的 provider 字段向 Provider 注册表取 api_key / api_base：
+  #   - .env 或环境变量：HIVEMEMORY__PROVIDERS__<NAME>__API_KEY / __API_BASE
+  #   - Settings 的 Provider 设置：保存在 configs/providers.secrets.yaml（不提交）
   # <NAME> 对应模型定义的 provider 字段（大小写不敏感），如 DEEPSEEK / OPENAI。
-  providers:
-    deepseek:
-      api_key: null
-      api_base: "https://api.deepseek.com"
 
 # ========== Patchouli 子系统配置 ==========
 memory_compiler:

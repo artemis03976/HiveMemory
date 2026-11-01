@@ -29,7 +29,7 @@ from hivememory.components.events.bus import (
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.config.access import load_access_registration
-from hivememory.config.app import HiveMemoryConfig
+from hivememory.config.app import HiveMemoryConfig, provider_credentials_from_env
 from hivememory.config.shared import LLMConfig
 from hivememory.core.access import WorkspaceOperation
 from hivememory.gateway import GatewaySystem
@@ -221,7 +221,7 @@ class SystemAssembler:
         set_default_language(self._config.i18n.default_language)
         runtime = self._build_runtime()
         registries = self._build_registries()
-        llm = self._build_llm()
+        llm = self._build_llm(registries)
         access_control = self._build_access_control()
         processes = self._build_process_facilities(access_control)
         capabilities = self._build_capabilities(runtime, access_control, processes)
@@ -294,42 +294,34 @@ class SystemAssembler:
         )
 
     # ------------------------------------------------------------------
-    # 层二：注册表 + LLM 配置预解析
+    # 层二：注册表 + LLM 服务与组件请求参数
     # ------------------------------------------------------------------
 
     def _build_registries(self) -> _RegistriesBundle:
         # ProviderRegistry 合并 env 层与 yaml 层凭证
-        provider_registry = ProviderRegistry(
-            env_providers=self._config.shared.providers,
-        )
+        provider_registry = ProviderRegistry(env_providers=provider_credentials_from_env())
         # ModelRegistry 注入 ProviderRegistry 引用（动态查询）
         model_registry = ModelRegistry(provider_registry=provider_registry)
-
-        # 预解析 gateway / librarian 的 LLM 配置：
-        # model_id 引用注册表，凭证由 provider 表补齐，
-        # temperature/max_tokens 保留组件值。
-        self._config.shared.llm.gateway = model_registry.resolve_for_llm_config(
-            self._config.shared.llm.gateway
-        )
-        self._config.shared.llm.librarian = model_registry.resolve_for_llm_config(
-            self._config.shared.llm.librarian
-        )
 
         return _RegistriesBundle(
             provider_registry=provider_registry,
             model_registry=model_registry,
         )
 
-    def _build_llm(self) -> _LLMBundle:
-        """创建唯一的 LLM 服务，并把已预解析的组件配置各自转换为请求参数。
+    def _build_llm(self, registries: _RegistriesBundle) -> _LLMBundle:
+        """创建唯一的 LLM 服务，并把两个组件的配置经注册表解析后各自转换为请求参数。
 
         服务无状态、可被全部使用方共享；两个组件的模型、凭证与采样参数只由
-        各自的配置段决定，互不影响。
+        各自的配置段决定，互不影响。model_id 引用注册表，凭证由 provider 表补齐，
+        temperature/max_tokens 保留组件值。解析结果带有提供商密钥，只用于构造
+        请求参数、不写回配置对象：主配置接口读写的是配置文件的内容，写回会让密钥
+        与解析出的模型名进入 config.yaml，并丢掉 model_id。
         """
+        resolve = registries.model_registry.resolve_for_llm_config
         return _LLMBundle(
             service=LiteLLMService(),
-            gateway_params=component_llm_params(self._config.shared.llm.gateway),
-            librarian_params=component_llm_params(self._config.shared.llm.librarian),
+            gateway_params=component_llm_params(resolve(self._config.shared.llm.gateway)),
+            librarian_params=component_llm_params(resolve(self._config.shared.llm.librarian)),
         )
 
     # ------------------------------------------------------------------

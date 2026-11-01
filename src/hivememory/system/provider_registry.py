@@ -54,7 +54,8 @@ class ProviderRegistry:
         """
         Args:
             secrets_path: providers.secrets.yaml 路径。None 时使用项目默认路径。
-            env_providers: 环境变量注入的凭证（来自 SharedConfig.providers）。
+            env_providers: 环境变量与 .env 注入的凭证，由组合根以
+                          ``provider_credentials_from_env()`` 读取。
                           这层优先级最高，API 写操作不会影响它。
         """
         self._path = secrets_path or self._default_path()

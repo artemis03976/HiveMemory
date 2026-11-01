@@ -11,7 +11,7 @@ code_paths:
 related_docs:
   - docs/help/configuration.md
   - docs/workspace/authentication.md
-  - docs/todo/config-secrets-written-to-yaml.md
+  - docs/archive/todo/config-secrets-written-to-yaml.md
 last_reviewed: 2026-11-01
 ---
 
@@ -27,7 +27,7 @@ HTTP 接口按本地单用户部署的信任假设设计：
 
 本机任何进程都能调用前两类接口。外部 harness 接入之后，这类进程包括 harness 中带 shell 或网络工具的 agent。WSL2 默认的网络模式还会把 Windows 上的 `127.0.0.1` 转发到 WSL 中监听本机地址的服务，Windows 上的进程同样能访问。
 
-证据：2026-11-01 dsh 接入试用中，Windows 桌面端里的 agent 经本机转发直接调用了 `/api/v1/config`，取得了明文密钥。接口自身的明文泄露已在同日改为打码；主配置保存把密钥写进 YAML 是另一个问题，见 [Todo](./config-secrets-written-to-yaml.md)。
+证据：2026-11-01 dsh 接入试用中，Windows 桌面端里的 agent 经本机转发直接调用了 `/api/v1/config`，取得了明文密钥。接口自身的明文泄露已在同日改为打码；主配置保存把密钥写进 YAML 是另一个问题，已于同日修复（[归档 Todo](../archive/todo/config-secrets-written-to-yaml.md)）。
 
 ## 影响范围
 
