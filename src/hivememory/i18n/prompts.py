@@ -454,8 +454,14 @@ title 不超过 100 字，summary 不超过 200 字，changelog 用一句话说�
 ## 敏感信息
 不要把密钥、令牌、密码、证书或连接串中的凭据写入记忆；需要记录相关配置时，只保留名称与用途，省略具体取值。
 
+## 拆分粒度
+一段对话可能包含多件彼此独立、之后会被分别查找的事：一项决定及其理由、一个事实或配置、一个已解决的问题及其解法、一条偏好或经验、一项工作的当前状态。每件事写成一条记忆，标题与摘要要让人能单独检索到它。
+- 同一件事的背景、过程与结论放在同一条里，不拆开
+- 只是顺带提及、没有结论的内容不单独成条
+- 不为凑数拆分：整段只讨论一件事时只输出一条
+
 ## 输出格式
-严格按照JSON Schema输出:
+严格按照JSON Schema输出，memories 中每一项是一条记忆:
 {format_instructions}
 
 ## 价值判断标准
@@ -469,6 +475,8 @@ title 不超过 100 字，summary 不超过 200 字，changelog 用一句话说�
 - 简单的"好的"、"谢谢"等确认
 - 纯闲聊内容
 - 报错后的失败尝试 (仅保留最终成功版本)
+
+整段对话都没有值得保存的内容时，memories 输出空列表。
 
 ## 别名后缀 (alias_suffix)
 为每条记忆生成一个简短的 snake_case 别名后缀，用于语义化寻址。
@@ -484,7 +492,7 @@ title 不超过 100 字，summary 不超过 200 字，changelog 用一句话说�
 - 如果对话无价值 (has_value=false)，alias_suffix 可以为空字符串
 """,
         "user_prompt": """
-请分析以下对话片段并输出结构化的记忆原子JSON:
+请分析以下对话片段，输出其中值得长期保存的记忆原子列表JSON:
 
 ## 对话内容
 {transcript}
@@ -694,8 +702,14 @@ Each turn of a conversation snippet starts with [User], followed in order by the
 ## Sensitive Information
 Never write credentials such as API keys, tokens, passwords, certificates, or secrets in connection strings into memories. When a configuration is worth recording, keep only its name and purpose and omit the actual value.
 
+## Granularity
+A conversation may contain several independent things that will later be looked up separately: a decision and its reasons, a fact or configuration, a solved problem and its fix, a preference or lesson, the current state of a piece of work. Write each one as its own memory, with a title and summary that let it be retrieved on its own.
+- Keep the background, process, and conclusion of the same thing in one memory; do not split them.
+- Do not make a separate memory for something mentioned only in passing without a conclusion.
+- Do not split for the sake of numbers: if the whole conversation is about one thing, output one memory.
+
 ## Output Format
-Strictly follow this JSON Schema:
+Strictly follow this JSON Schema; each item in memories is one memory:
 {format_instructions}
 
 ## Value Criteria
@@ -709,6 +723,8 @@ Strictly follow this JSON Schema:
 - Simple acknowledgements such as "OK" or "thanks".
 - Pure casual chat.
 - Failed attempts after an error. Preserve only the final successful version.
+
+If nothing in the whole conversation is worth keeping, output an empty memories list.
 
 ## Alias Suffix (alias_suffix)
 Generate a short snake_case alias suffix for each memory for semantic addressing.
@@ -724,7 +740,7 @@ Generate a short snake_case alias suffix for each memory for semantic addressing
 - If the conversation has no value (has_value=false), alias_suffix may be an empty string.
 """,
         "user_prompt": """
-Analyze the following conversation snippet and output structured Memory Atom JSON:
+Analyze the following conversation snippet and output a JSON list of the Memory Atoms worth keeping long term:
 
 ## Conversation
 {transcript}

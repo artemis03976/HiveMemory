@@ -240,7 +240,7 @@ class _Extractor:
     def __init__(self, draft: ExtractedMemoryDraft) -> None:
         self._draft = draft
 
-    async def extract(self, **kwargs):
+    async def extract_write(self, transcript, *, content, reason):
         return self._draft
 
 

@@ -91,6 +91,14 @@ class ExtractedMemoryDraft(BaseModel):
         return self
 
 
+class ExtractionResult(BaseModel):
+    """话题结算的提取输出：一段话题中彼此独立、各自值得保存的记忆草稿。"""
+
+    memories: list[ExtractedMemoryDraft] = Field(
+        ..., description="记忆草稿列表，没有值得保存的内容时为空"
+    )
+
+
 # 派生标题的截取长度，与 fallback 草稿从正文截取标题的长度一致。
 _DERIVED_TITLE_LENGTH = 50
 
@@ -295,6 +303,7 @@ __all__ = [
     "DuplicateDecision",
     "GenerationAction",
     "ExtractedMemoryDraft",
+    "ExtractionResult",
     "MemoryProvenance",
     "RevisionResult",
     "MergeResult",

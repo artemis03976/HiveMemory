@@ -126,8 +126,10 @@ class _Extractor:
     def __init__(self) -> None:
         self.inputs: list[dict[str, Any]] = []
 
-    async def extract(self, **_kwargs: Any) -> ExtractedMemoryDraft:
-        self.inputs.append(_kwargs)
+    async def extract_write(
+        self, transcript: str, *, content: str, reason: str | None
+    ) -> ExtractedMemoryDraft:
+        self.inputs.append({"transcript": transcript, "content": content, "reason": reason})
         return ExtractedMemoryDraft(
             title="跨边界写入",
             alias_suffix="http_chat",

@@ -3,7 +3,7 @@
 
 测试覆盖:
 - LLM 消息格式与按语言选择的提示词
-- 提取结果解析与“没有产出”
+- 话题提取的草稿列表解析、“没有产出”与输出截断
 - 只对提供商失败重试，耗尽后显式失败
 - 等待 LLM 期间不阻塞事件循环
 """
@@ -28,16 +28,18 @@ from hivememory.infrastructure.llm.base import (
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
 from tests.helpers.memory import make_memory_metadata
 
-_DRAFT_JSON = json.dumps(
-    {
-        "title": "Extracted",
-        "summary": "Summary",
-        "tags": ["t1"],
-        "memory_type": "FACT",
-        "content": "Content",
-        "confidence_score": 0.95,
-        "has_value": True,
-    }
+_DRAFT = {
+    "title": "Extracted",
+    "summary": "Summary",
+    "tags": ["t1"],
+    "memory_type": "FACT",
+    "content": "Content",
+    "confidence_score": 0.95,
+    "has_value": True,
+}
+_DRAFT_JSON = json.dumps(_DRAFT)
+_EXTRACTION_JSON = json.dumps(
+    {"memories": [_DRAFT, {**_DRAFT, "title": "Second", "content": "Other content"}]}
 )
 
 
@@ -59,21 +61,23 @@ class TestLLMMemoryExtractorPrompts:
 
     @pytest.mark.asyncio
     async def test_extract_sends_system_and_user_messages_with_component_params(self):
-        llm = ScriptedLLMService(_DRAFT_JSON)
+        llm = ScriptedLLMService(_EXTRACTION_JSON)
 
-        await _extractor(llm).extract("User: Hi\nAssistant: Hello", {})
+        await _extractor(llm).extract("User: Hi\nAssistant: Hello")
 
         call = llm.calls[-1]
         assert [message["role"] for message in call.messages] == ["system", "user"]
         assert call.params == DEFAULT_LLM_PARAMS
+        # 话题提取要求输出草稿列表，格式说明必须是列表的 Schema。
+        assert '"memories"' in call.messages[0]["content"]
 
     @pytest.mark.asyncio
     async def test_default_language_selects_english_passive_prompts(self):
         """测试全局语言驱动被动提取模板"""
         set_default_language("en")
-        llm = ScriptedLLMService(_DRAFT_JSON)
+        llm = ScriptedLLMService(_EXTRACTION_JSON)
 
-        await _extractor(llm).extract("User: Hi", {})
+        await _extractor(llm).extract("User: Hi")
 
         messages = llm.calls[-1].messages
         assert "memory manager" in messages[0]["content"]
@@ -85,12 +89,8 @@ class TestLLMMemoryExtractorPrompts:
         set_default_language("en")
         llm = ScriptedLLMService(_DRAFT_JSON)
 
-        await _extractor(llm).extract(
-            "User: Save this",
-            {
-                "mode": "write",
-                "write_content": "Content to save",
-            },
+        await _extractor(llm).extract_write(
+            "User: Save this", content="Content to save", reason=None
         )
 
         messages = llm.calls[-1].messages
@@ -126,26 +126,44 @@ class TestLLMMemoryExtractorResults:
     """模型输出到草稿的解析，以及没有产出与提供商失败的区分。"""
 
     @pytest.mark.asyncio
-    async def test_extract_parses_model_output_into_draft(self):
-        draft = await _extractor(ScriptedLLMService(_DRAFT_JSON)).extract("User: Hi", {})
+    async def test_extract_parses_model_output_into_drafts_in_order(self):
+        drafts = await _extractor(ScriptedLLMService(_EXTRACTION_JSON)).extract("User: Hi")
 
-        assert draft is not None
-        assert (draft.title, draft.content) == ("Extracted", "Content")
+        assert [(d.title, d.content) for d in drafts] == [
+            ("Extracted", "Content"),
+            ("Second", "Other content"),
+        ]
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("output", ["", "not json"], ids=["empty", "unparseable"])
+    @pytest.mark.parametrize(
+        "output",
+        ["", "not json", _DRAFT_JSON],
+        ids=["empty", "unparseable", "bare-draft"],
+    )
     async def test_empty_or_unparseable_output_is_no_output(self, output):
-        """模型给出空文本或无法解析的文本时没有产出，而不是失败。"""
-        assert await _extractor(ScriptedLLMService(output)).extract("User: Hi", {}) is None
+        """模型给出空文本、无法解析的文本或缺少草稿列表时没有产出，而不是失败。"""
+        assert await _extractor(ScriptedLLMService(output)).extract("User: Hi") == []
+
+    @pytest.mark.asyncio
+    async def test_truncated_output_fails_without_retry(self):
+        """截断的列表不能记为没有产出，否则整段话题不留记忆而任务成功；重发会再次截断。"""
+        llm = ScriptedLLMService(
+            LLMCompletion(text='{"memories": [' + _DRAFT_JSON, finish_reason="length"),
+            _EXTRACTION_JSON,
+        )
+
+        with pytest.raises(ModelProviderError):
+            await _extractor(llm).extract("User: Hi")
+
+        assert len(llm.calls) == 1
 
     @pytest.mark.asyncio
     async def test_provider_failure_is_retried_once(self):
-        llm = ScriptedLLMService(ModelProviderError("transient"), _DRAFT_JSON)
+        llm = ScriptedLLMService(ModelProviderError("transient"), _EXTRACTION_JSON)
 
-        draft = await _extractor(llm).extract("User: Hi", {})
+        drafts = await _extractor(llm).extract("User: Hi")
 
-        assert draft is not None
-        assert draft.title == "Extracted"
+        assert [d.title for d in drafts] == ["Extracted", "Second"]
         assert len(llm.calls) == 2
 
     @pytest.mark.asyncio
@@ -168,10 +186,10 @@ class TestLLMMemoryExtractorResults:
     )
     async def test_non_retryable_failures_propagate_after_one_attempt(self, failure):
         """超窗时同一请求必然再次失败，程序错误不属于提供商失败；两者都不重试。"""
-        llm = ScriptedLLMService(failure, _DRAFT_JSON)
+        llm = ScriptedLLMService(failure, _EXTRACTION_JSON)
 
         with pytest.raises(type(failure)) as raised:
-            await _extractor(llm).extract("User: Hi", {})
+            await _extractor(llm).extract("User: Hi")
 
         assert raised.value is failure
         assert len(llm.calls) == 1
@@ -189,7 +207,7 @@ class _GatedLLMService(BaseLLMService):
     ) -> LLMCompletion:
         self.started.set()
         await self.release.wait()
-        return LLMCompletion(text=_DRAFT_JSON)
+        return LLMCompletion(text=_EXTRACTION_JSON)
 
     def _stream(self, messages, params):
         raise AssertionError("提取器不使用流式调用")
@@ -198,17 +216,16 @@ class _GatedLLMService(BaseLLMService):
 @pytest.mark.asyncio
 async def test_waiting_for_llm_lets_the_event_loop_run_other_tasks():
     llm = _GatedLLMService()
-    extraction = asyncio.create_task(_extractor(llm).extract("User: Hi", {}))
+    extraction = asyncio.create_task(_extractor(llm).extract("User: Hi"))
 
     async with asyncio.timeout(5):
         await llm.started.wait()
     # 提取仍在等待模型时，测试协程照常推进并负责放行。
     assert not extraction.done()
     llm.release.set()
-    draft = await extraction
+    drafts = await extraction
 
-    assert draft is not None
-    assert draft.title == "Extracted"
+    assert drafts[0].title == "Extracted"
 
 
 def _merge_memories():

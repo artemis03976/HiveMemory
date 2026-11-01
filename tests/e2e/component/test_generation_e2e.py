@@ -56,7 +56,6 @@ for logger_name, level in _log_levels_to_disable.items():
 # ========== 其他导入 ==========
 
 import uuid
-from datetime import UTC, datetime
 from typing import Any
 
 import pytest
@@ -145,6 +144,11 @@ def _get_loop() -> asyncio.AbstractEventLoop:
 def _run(coro: Any) -> Any:
     """在模块共享的事件循环中执行协程。"""
     return _get_loop().run_until_complete(coro)
+
+
+def _first_valuable(drafts: list[Any]) -> Any:
+    """样例对话各只讨论一件事，取话题提取结果中第一条有价值的草稿；没有时为 None。"""
+    return next((draft for draft in drafts if draft.has_value), None)
 
 
 @pytest.fixture(scope="module", autouse=True)
@@ -407,16 +411,7 @@ class TestMemoryExtraction:
         transcript = self._format_transcript(test_case["messages"])
 
         # 调用提取器
-        draft = _run(
-            self.extractor.extract(
-                transcript=transcript,
-                metadata={
-                    "user_id": self.identity.user_id,
-                    "agent_id": self.identity.agent_id,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                },
-            )
-        )
+        draft = _first_valuable(_run(self.extractor.extract(transcript)))
 
         # 验证结果
         success = True
@@ -462,16 +457,7 @@ class TestMemoryExtraction:
         transcript = self._format_transcript(test_case["messages"])
 
         # 调用提取器
-        draft = _run(
-            self.extractor.extract(
-                transcript=transcript,
-                metadata={
-                    "user_id": self.identity.user_id,
-                    "agent_id": self.identity.agent_id,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                },
-            )
-        )
+        draft = _first_valuable(_run(self.extractor.extract(transcript)))
 
         # 验证结果：应该返回 None 或 has_value=False
         success = (draft is None) or (not draft.has_value)
@@ -501,16 +487,7 @@ class TestMemoryExtraction:
         transcript = self._format_transcript(test_case["messages"])
 
         # 调用提取器
-        draft = _run(
-            self.extractor.extract(
-                transcript=transcript,
-                metadata={
-                    "user_id": self.identity.user_id,
-                    "agent_id": self.identity.agent_id,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                },
-            )
-        )
+        draft = _first_valuable(_run(self.extractor.extract(transcript)))
 
         # 验证结果
         success = True
@@ -562,16 +539,7 @@ class TestMemoryExtraction:
         transcript = self._format_transcript(test_case["messages"])
 
         # 调用提取器
-        draft = _run(
-            self.extractor.extract(
-                transcript=transcript,
-                metadata={
-                    "user_id": self.identity.user_id,
-                    "agent_id": self.identity.agent_id,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                },
-            )
-        )
+        draft = _first_valuable(_run(self.extractor.extract(transcript)))
 
         # 验证结果
         success = draft is not None and draft.has_value
@@ -763,16 +731,7 @@ class TestSchemaValidation:
         transcript = self._format_transcript(test_case["messages"])
 
         # 调用提取器
-        draft = _run(
-            self.extractor.extract(
-                transcript=transcript,
-                metadata={
-                    "user_id": self.identity.user_id,
-                    "agent_id": self.identity.agent_id,
-                    "timestamp": datetime.now(UTC).isoformat(),
-                },
-            )
-        )
+        draft = _first_valuable(_run(self.extractor.extract(transcript)))
 
         # 验证 draft 不为空
         assert draft is not None and draft.has_value, "Schema 合规测试需要非空提取结果"

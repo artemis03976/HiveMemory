@@ -51,7 +51,7 @@ shared:
     librarian:
       model_id: "deepseek-chat"
       temperature: 0.3           # 记忆整理用低温，输出稳定
-      max_tokens: 8192           # 需要处理较长上下文
+      max_tokens: 32768          # 一次结算输出多条记忆，需要较大的输出上限
 
   embedding:
     default:

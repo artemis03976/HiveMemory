@@ -15,6 +15,7 @@ HiveMemory - 记忆别名生成器 (Alias Generator)
 from __future__ import annotations
 
 import re
+from collections.abc import Collection
 from typing import Protocol
 from uuid import UUID
 
@@ -82,6 +83,7 @@ class AliasGenerator:
         memory_type: str,
         alias_suffix: str,
         title: str,
+        taken: Collection[str] = (),
     ) -> str | None:
         """
         生成 Workspace 内唯一的别名。
@@ -91,6 +93,7 @@ class AliasGenerator:
             memory_type: 记忆类型字符串 (e.g. "CODE_SNIPPET")
             alias_suffix: LLM 生成的别名后缀 (可能为空)
             title: 记忆标题 (用于 fallback)
+            taken: 调用方已分配但尚未落库的别名，中期库查不到，同样视为已占用
 
         Returns:
             空闲的完整别名；后缀与标题都无法构造候选时返回 None
@@ -103,6 +106,8 @@ class AliasGenerator:
             return None
         for attempt in range(1, self._max_attempts + 1):
             candidate = base if attempt == 1 else f"{base}_{attempt}"
+            if candidate in taken:
+                continue
             holders = await self._holders.list_alias_holders(
                 workspace_identity,
                 candidate,

@@ -619,7 +619,7 @@ async def test_http_write_survives_cancelled_cpu_and_process_close(patchouli_cha
         assert stack.short_term.get(workspace, task.topic_id) is None
         (extraction,) = stack.extractor.inputs
         assert "当前一轮不应进入生成背景" not in extraction["transcript"]
-        assert extraction["metadata"]["write_content"] == "保留失败轮的写入"
+        assert extraction["content"] == "保留失败轮的写入"
         assert cpu.finished is True
         assert [
             event.event_type

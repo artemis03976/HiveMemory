@@ -71,9 +71,10 @@ class _Relay:
 
 
 class _Extractor:
-    """LLM 提取边界的确定性草稿替身。"""
+    """LLM 提取边界的确定性草稿替身；结算与 WRITE 得到同一份草稿。"""
 
-    async def extract(self, **_kwargs):
+    @staticmethod
+    def _draft() -> ExtractedMemoryDraft:
         return ExtractedMemoryDraft(
             title="相似记忆",
             summary="新的总结",
@@ -84,6 +85,12 @@ class _Extractor:
             has_value=True,
             alias_suffix="shared_fact",
         )
+
+    async def extract(self, transcript):
+        return [self._draft()]
+
+    async def extract_write(self, transcript, *, content, reason):
+        return self._draft()
 
 
 class _LeakyVectorStore:

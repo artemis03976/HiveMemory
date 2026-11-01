@@ -15,13 +15,20 @@ import json
 import logging
 from typing import Any
 
+from pydantic import BaseModel
+
 from hivememory.config.patchouli import ExtractorConfig
 from hivememory.core.errors import ModelContextWindowExceededError, ModelProviderError
 from hivememory.core.models import MemoryAtom
 from hivememory.engines.generation.interfaces import BaseMemoryExtractor
-from hivememory.engines.generation.models import ExtractedMemoryDraft, MergeResult, RevisionResult
+from hivememory.engines.generation.models import (
+    ExtractedMemoryDraft,
+    ExtractionResult,
+    MergeResult,
+    RevisionResult,
+)
 from hivememory.i18n import get_generation_prompt_text, resolve_language
-from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
+from hivememory.infrastructure.llm.base import BaseLLMService, LLMCompletion, LLMRequestParams
 from hivememory.utils.json_parser import JSONParseError, parse_llm_json
 
 logger = logging.getLogger(__name__)
@@ -43,17 +50,15 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         - 详细日志记录
 
     失败语义:
-        模型输出为空或无法解析时返回 ``None``，表示没有产出；提供商失败在
-        重试耗尽后抛出 ``ModelProviderError``，上下文超窗不重试；程序错误与
+        模型输出为空或无法解析时没有产出（话题提取为空列表，其余为 ``None``）；
+        提供商失败在重试耗尽后抛出 ``ModelProviderError``，上下文超窗不重试；
+        话题提取的输出被截断时同样抛出 ``ModelProviderError``；程序错误与
         取消原样传播。
 
     Examples:
         >>> extractor = LLMMemoryExtractor(config, llm_service, llm_params)
-        >>> draft = await extractor.extract(
-        ...     transcript="User: 如何解析日期?\nAssistant: 使用 datetime...",
-        ...     metadata={"mode": "write", "write_content": "如何解析日期"}
-        ... )
-        >>> print(draft.title)
+        >>> drafts = await extractor.extract("User: 如何解析日期?\nAssistant: 使用 datetime...")
+        >>> print(drafts[0].title)
         "Python 日期解析方法"
     """
 
@@ -121,7 +126,9 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             self.language,
         )
 
-        self.format_instructions = self._build_format_instructions()
+        # 话题提取输出草稿列表，WRITE 只输出一条草稿，两者的 JSON Schema 不同。
+        self.passive_format_instructions = _schema_text(ExtractionResult)
+        self.write_format_instructions = _schema_text(ExtractedMemoryDraft)
         self.merge_system_prompt = get_generation_prompt_text(
             "merge", "system_prompt", self.language
         )
@@ -129,117 +136,95 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
 
         logger.info(f"LLMMemoryExtractor 初始化完成 (模型: {llm_params.model})")
 
-    async def _complete(self, messages: list[dict[str, str]]) -> str:
-        """调用 LLM 并返回文本；只对提供商失败重试，最后一次的失败原样抛出。
+    async def _complete(self, messages: list[dict[str, str]]) -> LLMCompletion:
+        """调用 LLM 并返回完整结果；只对提供商失败重试，最后一次的失败原样抛出。
 
         超窗时同一请求必然再次失败，不重试；程序错误与取消不重试、原样传播。
         """
         for attempt in range(1, _MAX_LLM_ATTEMPTS):
             try:
-                completion = await self._llm_service.complete(messages, self._llm_params)
-                return completion.text
+                return await self._llm_service.complete(messages, self._llm_params)
             except ModelContextWindowExceededError:
                 raise
             except ModelProviderError as error:
                 logger.warning(f"LLM 调用失败 (尝试 {attempt}/{_MAX_LLM_ATTEMPTS}): {error}")
-        completion = await self._llm_service.complete(messages, self._llm_params)
-        return completion.text
+        return await self._llm_service.complete(messages, self._llm_params)
 
-    async def extract(
-        self, transcript: str, metadata: dict[str, Any]
+    async def extract(self, transcript: str) -> list[ExtractedMemoryDraft]:
+        """
+        Mode A：从一段话题材料中提取彼此独立的记忆草稿。
+
+        整段输出按一个对象解析，任一条草稿不符合结构时整段视为没有产出。
+        输出达到上限被截断时抛出提供商失败而不是视为没有产出：截断的列表
+        无法解析，当作没有产出会让整段话题不留记忆、任务却成功结束。同一
+        请求会再次截断，因此不重试。
+
+        Raises:
+            ModelProviderError: 提供商失败且重试耗尽，或输出被截断
+        """
+        messages = [
+            {
+                "role": "system",
+                "content": self.normal_system_prompt.format(
+                    format_instructions=self.passive_format_instructions
+                ),
+            },
+            {"role": "user", "content": self.normal_user_prompt.format(transcript=transcript)},
+        ]
+        completion = await self._complete(messages)
+        if completion.finish_reason == "length":
+            raise ModelProviderError("话题提取的输出达到 max_tokens 上限被截断")
+        if not completion.text:
+            logger.error("LLM 返回空响应")
+            return []
+        try:
+            result = parse_llm_json(completion.text, as_model=ExtractionResult)
+        except JSONParseError:
+            logger.warning("JSON 解析失败")
+            return []
+        logger.info(f"成功提取 {len(result.memories)} 条记忆草稿")
+        return result.memories
+
+    async def extract_write(
+        self, transcript: str, *, content: str, reason: str | None
     ) -> ExtractedMemoryDraft | None:
         """
-        提取记忆草稿
+        Mode B：以 WRITE 提交的内容为核心，结合背景对话结构化为一条草稿。
 
-        工作流程:
-            1. 构建 Prompt (注入格式说明和元信息)
-            2. 调用 LLM API
-            3. 解析 JSON 输出
-            4. 验证 Schema
-
-        Args:
-            transcript: 格式化的对话文本
-            metadata: 模式相关的生成元信息（身份归属一律由 WorkspaceIdentity
-                承载，不在此传递），实际调用包含:
-                - mode: 生成模式（"write" / "update"）
-                - write_content / write_reason: Mode B WRITE 指令内容与理由
-                - instruction / new_content / memory_title 等: Mode C revise 上下文
-
-        Returns:
-            ExtractedMemoryDraft: 提取的草稿；模型输出为空或无法解析时返回 None
+        明确的保存意图强制入库：草稿的 has_value 为真、置信度为 1.0。
 
         Raises:
             ModelProviderError: 提供商失败且重试耗尽，或上下文超窗
-
-        Examples:
-            >>> draft = await extractor.extract(
-            ...     transcript="User: 帮我写快排\nAssistant: 这是代码...",
-            ...     metadata={"mode": "write", "write_content": "帮我写快排",
-            ...               "write_reason": "用户明确要求"}
-            ... )
-            >>> draft.memory_type
-            'CODE_SNIPPET'
         """
-        # 检测模式: Mode B (WRITE) vs Mode A (默认)
-        is_write_mode = metadata.get("mode") == "write"
-
-        # Step 1: 构建 Prompt
-        if is_write_mode:
-            messages = [
-                {
-                    "role": "system",
-                    "content": self.write_system_prompt.format(
-                        format_instructions=self.format_instructions
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": self.write_user_prompt.format(
-                        write_content=metadata.get("write_content", ""),
-                        write_reason=metadata.get("write_reason") or self.write_reason_empty,
-                        transcript=transcript,
-                    ),
-                },
-            ]
-            logger.info("Mode B (主动响应): 使用 WRITE 专用提示词")
-        else:
-            messages = [
-                {
-                    "role": "system",
-                    "content": self.normal_system_prompt.format(
-                        format_instructions=self.format_instructions
-                    ),
-                },
-                {
-                    "role": "user",
-                    "content": self.normal_user_prompt.format(transcript=transcript),
-                },
-            ]
-
-        # Step 2: 调用 LLM（只对提供商失败重试）
-        raw_output = await self._complete(messages)
-
+        messages = [
+            {
+                "role": "system",
+                "content": self.write_system_prompt.format(
+                    format_instructions=self.write_format_instructions
+                ),
+            },
+            {
+                "role": "user",
+                "content": self.write_user_prompt.format(
+                    write_content=content,
+                    write_reason=reason or self.write_reason_empty,
+                    transcript=transcript,
+                ),
+            },
+        ]
+        raw_output = (await self._complete(messages)).text
         if not raw_output:
-            logger.error("LLM 返回空响应")
+            logger.error("LLM 返回空响应 (Mode B)")
             return None
-
-        # Step 3: 解析 JSON；只把模型文本无法解析或不符合草稿结构视为没有产出
         try:
             draft = parse_llm_json(raw_output, as_model=ExtractedMemoryDraft)
         except JSONParseError:
-            logger.warning("JSON 解析失败")
+            logger.warning("Mode B JSON 解析失败")
             return None
-
-        # Mode B 强制入库: has_value=True, confidence_score=1.0
-        if is_write_mode:
-            draft.has_value = True
-            draft.confidence_score = 1.0
-        logger.info(f"成功提取记忆草稿: '{draft.title}' (has_value={draft.has_value})")
+        draft.has_value = True
+        draft.confidence_score = 1.0
+        logger.info(f"成功提取记忆草稿: '{draft.title}'")
         return draft
-
-    def _build_format_instructions(self) -> str:
-        schema = ExtractedMemoryDraft.model_json_schema()
-        return json.dumps(schema, ensure_ascii=False, indent=2)
 
     async def revise(
         self,
@@ -286,7 +271,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         logger.info("Mode C (修订): 使用 UPDATE 专用提示词")
 
         # Step 2: 调用 LLM（只对提供商失败重试）
-        raw_output = await self._complete(messages)
+        raw_output = (await self._complete(messages)).text
 
         if not raw_output:
             logger.error("LLM 返回空响应 (Mode C)")
@@ -317,7 +302,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
                 ),
             },
         ]
-        raw_output = await self._complete(messages)
+        raw_output = (await self._complete(messages)).text
         if not raw_output:
             logger.warning("合并模型返回空响应")
             return None
@@ -346,24 +331,17 @@ class NoOpMemoryExtractor(BaseMemoryExtractor):
     """
     No-Op 记忆提取器
 
-    不执行任何提取操作，总是返回 None。
+    不执行任何提取操作：话题提取总是返回空列表，其余均没有产出。
     用于提取器未启用或没有可用 LLM 时的默认实现。
     """
 
-    async def extract(
-        self, transcript: str, metadata: dict[str, Any]
-    ) -> ExtractedMemoryDraft | None:
-        """
-        提取记忆草稿 (No-Op)
+    async def extract(self, transcript: str) -> list[ExtractedMemoryDraft]:
+        return []
 
-        Args:
-            transcript: 格式化的对话文本
-            metadata: 元信息
 
-        Returns:
-            None
-        """
-        return None
+def _schema_text(model: type[BaseModel]) -> str:
+    """把输出模型的 JSON Schema 渲染为提示词中的格式说明。"""
+    return json.dumps(model.model_json_schema(), ensure_ascii=False, indent=2)
 
 
 # 便捷函数

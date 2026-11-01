@@ -191,12 +191,7 @@ class TestEngineWithGenerationContext:
         extractor = AsyncMock()
         deduplicator = MagicMock()
 
-        if extractor_returns is not None:
-            extractor.extract.return_value = extractor_returns
-        else:
-            draft = MagicMock()
-            draft.has_value = False
-            extractor.extract.return_value = draft
+        extractor.extract.return_value = [] if extractor_returns is None else extractor_returns
 
         if deduplicator_returns is not None:
             deduplicator.check_duplicate.return_value = deduplicator_returns
@@ -225,7 +220,7 @@ class TestEngineWithGenerationContext:
             from_actor=make_memory_identity_scope().actor_identity,
         )
         extractor.extract.assert_called_once()
-        transcript = extractor.extract.call_args[1]["transcript"]
+        transcript = extractor.extract.call_args.args[0]
         assert "[Turn 1]" in transcript
         assert "摘要" in transcript
         assert "[Topic State]" in transcript
@@ -273,7 +268,7 @@ class TestEngineWithGenerationContext:
             confidence_score=0.9,
             has_value=True,
         )
-        extractor.extract.return_value = draft
+        extractor.extract_write.return_value = draft
         deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
 
         ctx = GenerationContext(turns=[_turn("q", "[Assistant]: a")])
@@ -285,7 +280,5 @@ class TestEngineWithGenerationContext:
             from_actor=make_memory_identity_scope().actor_identity,
         )
 
-        extractor.extract.assert_called_once()
-        call_kwargs = extractor.extract.call_args[1]
-        assert call_kwargs["metadata"]["mode"] == "write"
-        assert "[Turn 1]" in call_kwargs["transcript"]
+        extractor.extract_write.assert_called_once()
+        assert "[Turn 1]" in extractor.extract_write.call_args.args[0]

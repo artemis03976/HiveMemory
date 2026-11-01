@@ -3,7 +3,7 @@ MemoryGenerationEngine 单元测试
 
 测试覆盖:
 - Mode 路由: A (被动) / B (WRITE) / C (UPDATE)
-- Mode A: LLM 提取成功 / 无价值 / 返回 None
+- Mode A: 多条草稿逐条查重 / 无价值草稿丢弃 / 没有草稿 / 同批别名不冲突
 - Mode B: 正常 WRITE / LLM 失败 fallback
 - Mode C: 正常 UPDATE / existing_memory=None / LLM 修订失败 fallback
 - 查重分支: IDENTICAL / SIMILAR / DISTINCT
@@ -168,7 +168,7 @@ class TestGenerationEngineRouting:
         """无 focus 时走 Mode A"""
         msgs = _make_messages()
         draft = _make_draft()
-        self.mock_extractor.extract.return_value = draft
+        self.mock_extractor.extract.return_value = [draft]
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
         self.mock_storage.upsert = AsyncMock()
 
@@ -180,15 +180,15 @@ class TestGenerationEngineRouting:
         )
 
         self.mock_extractor.extract.assert_called_once()
-        assert "mode" not in self.mock_extractor.extract.call_args.kwargs["metadata"]
+        self.mock_extractor.extract_write.assert_not_called()
         assert len(result) == 1
 
     @pytest.mark.asyncio
     async def test_routes_to_mode_b(self):
-        """有 write_focus 时走 Mode B，提取元数据携带写入内容与理由"""
+        """有 write_focus 时走 Mode B，结构化调用携带写入内容与理由"""
         focus = WriteFocus(content="保存这段代码", reason="后续复用")
         draft = _make_draft()
-        self.mock_extractor.extract.return_value = draft
+        self.mock_extractor.extract_write.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
         self.mock_storage.upsert = AsyncMock()
 
@@ -199,10 +199,9 @@ class TestGenerationEngineRouting:
             from_actor=make_memory_identity_scope().actor_identity,
         )
 
-        metadata = self.mock_extractor.extract.call_args.kwargs["metadata"]
-        assert metadata["mode"] == "write"
-        assert metadata["write_content"] == "保存这段代码"
-        assert metadata["write_reason"] == "后续复用"
+        kwargs = self.mock_extractor.extract_write.call_args.kwargs
+        assert (kwargs["content"], kwargs["reason"]) == ("保存这段代码", "后续复用")
+        self.mock_extractor.extract.assert_not_called()
         assert len(result) == 1
         assert result[0].atom.index.title == "测试记忆"
 
@@ -260,7 +259,7 @@ class TestGenerationEngineModeA:
         """正常提取流程"""
         msgs = _make_messages()
         draft = _make_draft()
-        self.mock_extractor.extract.return_value = draft
+        self.mock_extractor.extract.return_value = [draft]
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
         self.mock_storage.upsert = AsyncMock()
 
@@ -279,7 +278,7 @@ class TestGenerationEngineModeA:
         """被动结算没有具体 Agent 作为操作来源主体：来源为保留 system，
         单 Agent 内容的贡献者集合只包含实际参与内容的 Agent。"""
         draft = _make_draft()
-        self.mock_extractor.extract.return_value = draft
+        self.mock_extractor.extract.return_value = [draft]
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
 
         request = GenerationRequest(context=_make_context_with_agents(["a1"]))
@@ -298,7 +297,7 @@ class TestGenerationEngineModeA:
     async def test_mode_a_contributors_dedup_keep_order_and_exclude_system(self):
         """多 Agent 贡献按首次出现顺序去重，system 不是内容贡献者。"""
         draft = _make_draft()
-        self.mock_extractor.extract.return_value = draft
+        self.mock_extractor.extract.return_value = [draft]
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
 
         request = GenerationRequest(context=_make_context_with_agents(["b2", "a1", "b2", "system"]))
@@ -328,7 +327,7 @@ class TestGenerationEngineModeA:
             payload=PayloadLayer(content="旧内容"),
         )
         draft = _make_draft()
-        self.mock_extractor.extract.return_value = draft
+        self.mock_extractor.extract.return_value = [draft]
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.SIMILAR, existing)
 
         request = GenerationRequest(context=_make_context_with_agents(["b2", "a1"]))
@@ -345,11 +344,41 @@ class TestGenerationEngineModeA:
         assert result[0].merge_target_id == str(existing.id)
 
     @pytest.mark.asyncio
+    async def test_mode_a_resolves_each_draft_with_distinct_aliases(self):
+        """一段话题的多条草稿按顺序逐条查重并各自产出结果；无价值的草稿不进入查重。
+
+        同一批草稿尚未落库，后缀相同时第二条仍要得到消歧后的别名。
+        """
+        existing = _make_memory()
+        self.mock_extractor.extract.return_value = [
+            _make_draft(title="决定", alias_suffix="same_topic"),
+            _make_draft(has_value=False, title="寒暄"),
+            _make_draft(title="进展", alias_suffix="same_topic"),
+        ]
+        self.mock_deduplicator.check_duplicate.side_effect = [
+            (DuplicateDecision.DISTINCT, None),
+            (DuplicateDecision.SIMILAR, existing),
+        ]
+
+        request = GenerationRequest(context=_make_context_from_messages(_make_messages()))
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
+
+        assert [(o.action, o.atom.index.title, o.atom.index.alias) for o in result] == [
+            (GenerationAction.CREATE, "决定", "fact_same_topic"),
+            (GenerationAction.CREATE, "进展", "fact_same_topic_2"),
+        ]
+        assert [o.merge_target_id for o in result] == [None, str(existing.id)]
+
+    @pytest.mark.asyncio
     async def test_mode_a_extract_no_value(self):
         """LLM 判断无价值返回空"""
         msgs = _make_messages()
         draft = _make_draft(has_value=False)
-        self.mock_extractor.extract.return_value = draft
+        self.mock_extractor.extract.return_value = [draft]
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
         result = await self.engine.process(
@@ -362,10 +391,10 @@ class TestGenerationEngineModeA:
         self.mock_deduplicator.check_duplicate.assert_not_called()
 
     @pytest.mark.asyncio
-    async def test_mode_a_extract_returns_none(self):
-        """LLM 返回 None 时返回空"""
+    async def test_mode_a_without_drafts_returns_empty(self):
+        """模型没有给出草稿时没有产出"""
         msgs = _make_messages()
-        self.mock_extractor.extract.return_value = None
+        self.mock_extractor.extract.return_value = []
 
         request = GenerationRequest(context=_make_context_from_messages(msgs))
         result = await self.engine.process(
@@ -416,7 +445,7 @@ class TestGenerationEngineModeB:
         """正常 WRITE 流程"""
         focus = WriteFocus(content="重要代码片段", reason="保存备用")
         draft = _make_draft()
-        self.mock_extractor.extract.return_value = draft
+        self.mock_extractor.extract_write.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
         self.mock_storage.upsert = AsyncMock()
 
@@ -435,7 +464,7 @@ class TestGenerationEngineModeB:
         再合并上下文轮次贡献者。"""
         focus = WriteFocus(content="主动写入的内容", reason="保存")
         draft = _make_draft()
-        self.mock_extractor.extract.return_value = draft
+        self.mock_extractor.extract_write.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
 
         request = GenerationRequest(
@@ -458,7 +487,7 @@ class TestGenerationEngineModeB:
         """无背景上下文的主动 WRITE：发起 Agent 本身仍作为内容贡献者记录。"""
         focus = WriteFocus(content="无上下文的主动写入", reason="保存")
         draft = _make_draft()
-        self.mock_extractor.extract.return_value = draft
+        self.mock_extractor.extract_write.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
 
         request = GenerationRequest(context=GenerationContext(), write_focus=focus)
@@ -481,7 +510,7 @@ class TestGenerationEngineModeB:
     async def test_mode_b_fallback_on_extract_failure(self, extract_outcome):
         """没有产出或提供商失败时启用 fallback，明确的保存意图不丢失"""
         focus = WriteFocus(content="重要内容不能丢", reason="保存")
-        self.mock_extractor.extract.side_effect = [extract_outcome]
+        self.mock_extractor.extract_write.side_effect = [extract_outcome]
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
         self.mock_storage.upsert = AsyncMock()
 
@@ -500,7 +529,7 @@ class TestGenerationEngineModeB:
     async def test_mode_b_program_error_is_not_replaced_by_fallback(self):
         """程序错误不属于 LLM 失败，不能由 fallback 掩盖。"""
         failure = TypeError("broken prompt wiring")
-        self.mock_extractor.extract.side_effect = failure
+        self.mock_extractor.extract_write.side_effect = failure
 
         request = GenerationRequest(
             context=GenerationContext(), write_focus=WriteFocus(content="内容", reason="保存")
@@ -847,7 +876,7 @@ class TestGenerationEngineDedup:
         elif restriction == "new_profile":
             draft.memory_type = "AGENT_PROFILE"
         before = existing.model_copy(deep=True)
-        self.mock_extractor.extract.return_value = draft
+        self.mock_extractor.extract_write.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.SIMILAR, existing)
         identity = make_memory_identity_scope()
 
