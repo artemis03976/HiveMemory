@@ -39,6 +39,8 @@ Docker 路径还需要 Docker Engine 与 Compose v2。开发路径需要：
 - Node.js 20 LTS 或更高版本，以及 npm；
 - 可访问的 Qdrant，本文使用 Docker 单独启动。
 
+Qdrant 服务端与依赖中的 `qdrant-client` 保持同一小版本，当前为 1.19：Compose 使用 `qdrant/qdrant:v1.19.2`，脚本模式下 `QDRANT_BIN` 也应指向 1.19.x 的可执行文件。两者一起升级。已有数据时，Qdrant 只能逐个小版本升级，每个中间小版本都要换成它的最新补丁版本启动一次，完成存储迁移（例如从 1.16.3 依次经 1.17.1、1.18.3 再到 1.19.2），单节点也不能跳过。升级后不能降级，升级前先在 Qdrant 停止时备份存储目录或数据卷。
+
 首次构建或运行可能下载 Embedding/Reranker 模型，需要数 GB 磁盘空间和较长等待时间。GPU 不是当前默认运行的必需条件。
 
 ## 2. 获取源码与准备凭证
@@ -80,8 +82,7 @@ docker compose -f docker/docker-compose.yml up -d --build
 Compose 会启动：
 
 - `hivememory-app`：FastAPI、构建后的 React 前端和配置挂载；
-- `qdrant`：向量存储；
-- 可选的 `qdrant-web-ui` 不会在默认 profile 中启动。
+- `qdrant`：向量存储。
 
 打开：
 
@@ -89,13 +90,7 @@ Compose 会启动：
 - Liveness：`http://localhost:8000/health`
 - Readiness：`http://localhost:8000/health/ready`
 
-可选调试 UI：
-
-```text
-docker compose -f docker/docker-compose.yml --profile debug up -d
-```
-
-随后访问 `http://localhost:6335`。Qdrant HTTP/gRPC 分别暴露在 `6333/6334`。
+Qdrant HTTP/gRPC 分别暴露在 `6333/6334`，Qdrant 镜像自带的管理界面位于 `http://localhost:6333/dashboard`。
 
 Dockerfile 默认在镜像构建阶段预下载模型，经运行时同一套配置加载与模型服务完成，模型落在配置的 `cache_dir`（默认 `data/model_cache`），运行时直接使用，因此首次 `--build` 可能耗时很长；运行容器仍会在后台完成模型 warmup。Compose healthcheck 当前检查 `/health`，它只证明 Web 服务存活，不代表模型已经 ready。
 
@@ -198,7 +193,6 @@ cp scripts/hivememory-dev.env.example .hivememory/dev.env
 | `8000` | 未使用 | 未使用 | FastAPI + 构建后的前端 |
 | `6333` | Qdrant HTTP | Qdrant HTTP | Qdrant HTTP |
 | `6334` | Qdrant gRPC | Qdrant gRPC | Qdrant gRPC |
-| `6335` | 可选 debug UI | 未使用 | 可选 debug UI |
 
 ## 6. 健康检查的含义
 
