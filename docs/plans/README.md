@@ -19,7 +19,7 @@ last_reviewed: 2026-10-31
 | [生成材料修正与 Topic 之后的原始证据保存](../archive/plans/v0.7.2-generation-material-and-raw-evidence.md) | Archived（2026-10-31）；当前事实见[感知与短期话题](../patchouli/perception.md)、[Patchouli 生成](../patchouli/generation.md)与 [Artifacts](../patchouli/artifacts.md)；实测随日常使用进行，不作为归档条件；并入的生成材料 Todo 随之[归档](../archive/todo/generation-material-filtering-and-truncation.md) | —— |
 | [plugin 模式开放 WRITE 与 UPDATE](../archive/plans/v0.7.2-plugin-write-update.md) | Archived（2026-10-31）；当前事实见 [MCP 记忆访问](../contracts/mcp.md)、[Import Bus](../system/import-bus.md#47-写入时落位)与[记忆编译](../patchouli/memory-compiler.md)；第 9.3 节以 Claude Code 的真实会话完成实测验收 | —— |
 | 一个话题提取多条记忆 | 计划未建立；阻塞问题 G-1 待决定 | [多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md) |
-| [查重与更新：先落库再合并](./v0.7.2-dedup-merge.md) | Active（2026-10-31）；阶段一、二已完成审查与验证，阶段三待继续 | [多条提取与查重 Idea](../ideas/settlement-multi-memory-extraction-and-dedup.md)第 5.1 节 |
+| [查重与更新：先落库再合并](../archive/plans/v0.7.2-dedup-merge.md) | Archived（2026-10-31）；当前事实见 [Patchouli 生成](../patchouli/generation.md#4-查重与合并)、[读取视图与写入意图](../workspace/read-view-and-write-intents.md)与[路由与事件](../contracts/routes-and-events.md)；两条覆盖链的回放保留了最初版本的内容，真实会话实测随日常使用进行，不作为归档条件 | —— |
 
 ## v0.7.1
 

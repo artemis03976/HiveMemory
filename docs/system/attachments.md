@@ -39,7 +39,7 @@ related_docs:
   - docs/patchouli/artifacts.md
 related_plans:
   - docs/archive/plans/v0.6.2-w1-chat-attachments.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-10-31
 ---
 
 # Chat 附件链路
@@ -152,7 +152,7 @@ Perception 在 Interaction 成功 apply 的同一 Topic 快照更新中，把去
 
 Topic settle 在删除 Topic 前把 `TopicData.bindings` 冻结进 `TopicMaterializeTask`，经既有 queue codec 传入 `InteractionArtifactInput.asset_bindings`；不新增第二份使用明细，也不把正文、representation snapshot、lease_id 或文件字节写入 Topic、task、queue 或 Memory 数据。
 
-Memory generation 只有在确实产生 CREATE/UPDATE 时才对 task 中的 bindings 做 promotion（TOUCH/DISCARD 不提升）：按任务 `belong_to` 与 `binding.asset_ref` acquire READY representation、构建独立 `DocumentArtifact`、释放 lease。Patchouli 使用归属读取端口，组合根的 `AssetMaterializationReader` 在一次租借调用内临时组装 system scope，桥接仍接收 scope 的 WorkspaceAsset reader；Store 与解析服务的身份拆分见[后续 Todo](../todo/workspace-asset-ownership-identity-split.md)。提升产物的 `source_uri` 钉住源 asset/representation 标识、revision 与 parser producer/version，`content_hash` 单列，使产物自身锁定来源版本；这是创建独立证据快照，不是把 WorkspaceAsset 原地转换。
+Memory generation 只有在确实产生 CREATE/UPDATE 时才对 task 中的 bindings 做 promotion（TOUCH 与合并任务不提升）：按任务 `belong_to` 与 `binding.asset_ref` acquire READY representation、构建独立 `DocumentArtifact`、释放 lease。Patchouli 使用归属读取端口，组合根的 `AssetMaterializationReader` 在一次租借调用内临时组装 system scope，桥接仍接收 scope 的 WorkspaceAsset reader；Store 与解析服务的身份拆分见[后续 Todo](../todo/workspace-asset-ownership-identity-split.md)。提升产物的 `source_uri` 钉住源 asset/representation 标识、revision 与 parser producer/version，`content_hash` 单列，使产物自身锁定来源版本；这是创建独立证据快照，不是把 WorkspaceAsset 原地转换。
 
 ref 已 remove、Store 已关闭或写入失败时跳过该 binding 的 promotion 并记录结构化 warning；已提交的 binding 保持不变，不回滚 Interaction 或 Memory 结果。promotion retry 复用现有 generation operation identity 与同一 binding payload。
 

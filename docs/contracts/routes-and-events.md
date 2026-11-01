@@ -144,7 +144,7 @@ Alice 不缓存交互事件，背压由进程的输出通道施加：通道写�
 
 ## 3. 全局业务事件
 
-当前 `GlobalEvents` 包含 canonical 失效与既有 PendingAtom 结算通知：
+当前 `GlobalEvents` 包含 canonical 失效、PendingAtom 结算通知与结算后的改指：
 
 | Event | Publisher | Subscriber | Payload |
 |:---|:---|:---|:---|
@@ -152,10 +152,11 @@ Alice 不缓存交互事件，背压由进程的输出通道施加：通道写�
 | `patchouli.events.pending_atom.settled` | PatchouliBridge | workspace WriteIntentRegistry | `settlement`（含 `pending_alias`、`intent_id`） |
 | `patchouli.events.pending_atom.failed` | PatchouliBridge | workspace WriteIntentRegistry | `pending_alias`、`intent_id` |
 | `patchouli.events.pending_atom.cancelled` | PatchouliBridge | workspace WriteIntentRegistry | `pending_alias`、`intent_id` |
+| `patchouli.events.pending_atom.merged` | PatchouliBridge | workspace WriteIntentRegistry | `settlement`（`MERGED`，指向保留的记忆，含 `pending_alias`、`intent_id`）、`absorbed_memory_uuid` |
 
 中期库的 upsert、patch_payload、delete 与 delete_by_key 在提交调用的 finally 中各内联发布一次变更通知，包括 primary/secondary 失败与删除未命中；只改 `meta.lifecycle` 动态状态的 patch_payload 不发布；通知不证明提交成功。store 只依赖注入发布端口，本地发布器与 bridge 顺序 await 转发，写入返回前失效订阅者已执行。订阅者先清原子及 alias、清源 Profile，再推进 Workspace 代次，之后不回填值；普通订阅异常由总线记录，不反向改变存储结果。首版不补齐未送达或重试。
 
-结算的权威发布方是 Patchouli，事件名使用发布方的命名空间，由 bridge 从 Patchouli 本地总线以同名转发到全局总线、交给 workspace 登记。三个事件都携带 `pending_alias` 与 `intent_id`：alias 永不复用，intent_id 再区分过时事件，登记只在两者都匹配时迁移状态。主动生成任务规范中的两者总是同时出现，缺一即构造失败。登记不回填 canonical 缓存，正式物化写入触发上述失效。
+结算的权威发布方是 Patchouli，事件名使用发布方的命名空间，由 bridge 从 Patchouli 本地总线以同名转发到全局总线、交给 workspace 登记。四个事件都携带 `pending_alias` 与 `intent_id`：alias 永不复用，intent_id 再区分过时事件，登记只在两者都匹配时迁移状态。settled、failed、cancelled 是终态通知，每个 alias 至多发布一次；merged 是合并任务成功后的改指，发生在句柄已以 `CREATED` 结算之后，不占用这一次终态，登记只对仍以 `CREATED` 指向 `absorbed_memory_uuid` 的句柄替换结算，不迁移状态（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。主动生成任务规范中的两者总是同时出现，缺一即构造失败。登记不回填 canonical 缓存，正式物化写入触发上述失效。
 
 ## 4. RuntimeEvent 观测契约
 
