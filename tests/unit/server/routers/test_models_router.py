@@ -2,12 +2,11 @@
 Models 路由单元测试
 
 覆盖范围：
-- GET /models — 列出所有模型（api_key 已脱敏）
+- GET /models — 列出所有模型
 - POST /models — 创建成功 / 重复 ID → 409
 - GET /models/{id} — 找到 / 不存在 → 404
 - PUT /models/{id} — 更新成功 / 不存在 → 404 / 空 body → 400
 - DELETE /models/{id} — 删除成功 / 不存在 → 404
-- api_key 脱敏规则验证
 """
 
 from unittest.mock import MagicMock
@@ -42,7 +41,6 @@ def _make_model(
     display_name: str = "Test Model",
     litellm_model: str = "deepseek/deepseek-chat",
     is_default: bool = False,
-    api_key: str | None = None,
     provider: str = "deepseek",
 ) -> ModelDefinition:
     return ModelDefinition(
@@ -50,7 +48,6 @@ def _make_model(
         display_name=display_name,
         litellm_model=litellm_model,
         is_default=is_default,
-        api_key=api_key,
         provider=provider,
     )
 
@@ -84,29 +81,6 @@ class TestListModels:
         assert len(data) == 2
         assert data[0]["id"] == "m1"
         assert data[1]["id"] == "m2"
-
-    def test_api_key_masked_in_response(self):
-        """明文 api_key 不应出现在响应中，只返回脱敏形式。"""
-        registry = MagicMock()
-        registry.list_models.return_value = [
-            _make_model("m1", api_key="sk-verylongapikey1234"),
-        ]
-        client = _create_app(registry)
-
-        resp = client.get("/api/v1/models")
-        model = resp.json()[0]
-        assert "api_key" not in model
-        masked = model.get("api_key_masked", "")
-        assert "verylongapikey" not in masked
-        assert masked.startswith("sk-")
-
-    def test_api_key_none_returns_null_masked(self):
-        registry = MagicMock()
-        registry.list_models.return_value = [_make_model("m1", api_key=None)]
-        client = _create_app(registry)
-
-        resp = client.get("/api/v1/models")
-        assert resp.json()[0]["api_key_masked"] is None
 
 
 # ---------------------------------------------------------------------------
@@ -236,19 +210,6 @@ class TestUpdateModel:
         resp = client.put("/api/v1/models/m1", json={})
         assert resp.status_code == 400
         registry.update_model.assert_not_called()
-
-    def test_update_api_key_empty_string_clears_key(self):
-        """api_key="" 被转换为 None（清除密钥）。"""
-        updated = _make_model("m1", api_key=None)
-        registry = MagicMock()
-        registry.update_model.return_value = updated
-        client = _create_app(registry)
-
-        resp = client.put("/api/v1/models/m1", json={"api_key": ""})
-        assert resp.status_code == 200
-        # to_updates_dict 把 "" 转为 None
-        call_updates = registry.update_model.call_args[0][1]
-        assert call_updates.get("api_key") is None
 
 
 # ---------------------------------------------------------------------------

@@ -27,7 +27,7 @@ router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503),
 def list_models(
     registry: ModelRegistry = Depends(get_model_registry),
 ):
-    """列出注册表中的所有模型（API 密钥已脱敏）"""
+    """列出注册表中的所有模型"""
     return [ModelResponse.from_definition(m) for m in registry.list_models()]
 
 
@@ -42,7 +42,6 @@ def create_model(
         display_name=body.display_name,
         litellm_model=body.litellm_model,
         provider=body.provider,
-        api_key=body.api_key,
         api_base=body.api_base,
         temperature=body.temperature,
         max_tokens=body.max_tokens,
@@ -60,7 +59,7 @@ def get_model(
     model_id: str,
     registry: ModelRegistry = Depends(get_model_registry),
 ):
-    """获取指定模型的详情（API 密钥已脱敏）"""
+    """获取指定模型的详情"""
     model = registry.get_model(model_id)
     if model is None:
         raise ModelNotFoundError()
@@ -77,7 +76,6 @@ def update_model(
     更新指定模型的字段。
 
     只需传入要修改的字段，未传入的字段保持不变。
-    传入 api_key="" 可清除已设置的密钥。
     """
     updates = body.to_updates_dict()
     if not updates:

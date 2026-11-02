@@ -106,6 +106,13 @@ class ModelRegistry:
 
             raw_models: list[dict] = data.get("models", [])
             for raw in raw_models:
+                if raw.get("api_key") not in (None, ""):
+                    logger.error(
+                        f"跳过模型定义 {raw.get('id', '?')}：models.yaml 受版本控制，不保存密钥；"
+                        "删除这条模型的 api_key，密钥写入 .env 的 "
+                        "HIVEMEMORY__PROVIDERS__<名称>__API_KEY 或在 Provider 设置中保存"
+                    )
+                    continue
                 try:
                     model = ModelDefinition(**raw)
                     self._models[model.id] = model
@@ -255,14 +262,13 @@ class ModelRegistry:
     def _resolve_credentials(self, model: ModelDefinition) -> tuple[str | None, str | None]:
         """解析模型的 (api_key, api_base)。
 
-        优先级：模型自身显式设置（高级覆盖）> provider 凭证 > None（litellm 环境变量兜底）。
+        api_key 只来自 provider 凭证：models.yaml 受版本控制，模型定义不保存密钥。
+        api_base 的优先级：模型自身设置（高级覆盖）> provider 凭证。两者都没有时为
+        None，由 litellm 从环境变量读取。
 
         provider 凭证查询：
         - 若注入了 ProviderRegistry，动态查询（支持运行时 CRUD，修改立即生效）
         - 否则使用构造时传入的静态字典（兼容测试 / 旧调用路径）
-
-        models.yaml 被 git 跟踪，通常 api_key/api_base 均为 null，
-        凭证由 providers.secrets.yaml 或环境变量通过 provider 表补齐。
         """
         # 查询 provider 凭证（动态注册表优先，兜底静态字典）
         cred = None
@@ -272,7 +278,7 @@ class ModelRegistry:
             else:
                 cred = self._provider_credentials.get(model.provider.lower())
 
-        api_key = model.api_key if model.api_key is not None else (cred.api_key if cred else None)
+        api_key = cred.api_key if cred else None
         api_base = (
             model.api_base if model.api_base is not None else (cred.api_base if cred else None)
         )

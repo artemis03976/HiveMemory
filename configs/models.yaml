@@ -7,16 +7,16 @@
 #   id            - 全局唯一标识符，供 AgentProfile.model_name 引用
 #   display_name  - 前端展示名称
 #   litellm_model - 传给 litellm 的完整模型标识符（格式：provider/model-name）
-#   provider      - 提供商标识，用于按 shared.providers 解析凭证；留空自动从
+#   provider      - 提供商标识，用于查 Provider 凭证；留空自动从
 #                   litellm_model 前缀推导（'deepseek/xxx' → 'deepseek'）
-#   api_key       - 留空（本文件被 git 跟踪，勿存明文）；凭证由 provider 表补齐
 #   api_base      - 留空则回落到 provider 凭证或提供商默认地址
 #   temperature   - 默认推理温度（0.0 ~ 2.0）
 #   max_tokens    - 默认最大生成 token 数
 #   context_window - 模型总上下文窗口 token 数，留空时使用 Alice 的默认窗口
 #   is_default    - 是否为系统默认模型（有且仅有一条记录应为 true）
 #
-# 密钥不写入本文件，改由环境变量注入（见 .env）：
+# 本文件受版本控制，不保存密钥；写入 api_key 的模型在加载时被跳过。
+# 密钥属于 Provider 凭证，由环境变量注入（见 .env）或在 Provider 设置中保存：
 #   HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=sk-...
 # ============================================================
 
@@ -25,7 +25,6 @@ models:
     display_name: "DeepSeek V4"
     litellm_model: "deepseek/deepseek-chat"
     provider: "deepseek"
-    api_key: null
     api_base: null
     temperature: 0.7
     max_tokens: 4096
