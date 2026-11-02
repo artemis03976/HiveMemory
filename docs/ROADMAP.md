@@ -128,7 +128,7 @@ last_reviewed: 2026-11-01
 
 ### 4.3 v0.7.3：版本目标未定
 
-状态：版本目标未定（owner，2026-11-01），尚无计划（[Plans 导航](./plans/README.md#v073)）。DeepSeek Harness 已以原生插件接入（2026-11-01），owner 将经它进行 agent memory 与 harness 项目的批量调研，同时作为 HiveMemory 的压测与记忆、交互轨迹的积累，之后再设计 v0.7.3。版本之外的工作还有本机 HTTP 管理接口证明调用方（[管理接口 Todo](./todo/local-http-management-access.md)）与 HiveMemory 使用手册 skill 的定稿（第 4.2 节）。
+状态：版本目标未定（owner，2026-11-01），尚无计划（[Plans 导航](./plans/README.md#v073)）。DeepSeek Harness 已以原生插件接入（2026-11-01），owner 将经它进行 agent memory 与 harness 项目的批量调研，同时作为 HiveMemory 的压测与记忆、交互轨迹的积累，之后再设计 v0.7.3。版本之外的工作还有本机 HTTP 管理接口证明调用方（[管理接口 Todo](./todo/local-http-management-access.md)）、HiveMemory 使用手册 skill 的定稿（第 4.2 节），以及 Gateway 与 Librarian 只经注册表选择模型、组件配置移到各自子系统下（Active，[计划](./plans/llm-config-retirement.md)）。
 
 ### 4.4 冷启动、历史导入与外源文档资产化（候选）
 
