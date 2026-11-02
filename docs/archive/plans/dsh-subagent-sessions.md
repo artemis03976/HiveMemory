@@ -1,6 +1,9 @@
 ---
 title: dsh 子 Agent 会话不再独立导入，交回的消息进入父会话的一轮
-status: active
+status: archived
+archived_at: 2026-11-02
+implemented_by: 提交 4a16b46a（分支 fix/dsh-subagent-sessions）
+superseded_by: docs/system/import-bus.md
 owner: project
 target: v0.7.3 之前（版本之外的工作）
 scope: dsh-subagent-sessions-and-subagent-messages-in-turn-material
@@ -35,11 +38,11 @@ last_reviewed: 2026-11-02
 
 # dsh 子 Agent 会话不再独立导入，交回的消息进入父会话的一轮
 
-> 状态：Active（2026-11-02 建立并开始实施）。owner 决定（2026-11-02）：dsh 子 Agent 的会话独立导入属于实现漂移，改为只导入顶层会话，子 Agent 的内部过程不进入生成材料；子 Agent 交回的最终输出保留在父会话这一轮的材料中，以交互记录中新增的一种事件表达，来源只取 dsh 的结算通知。
+> 状态：Archived（2026-11-02，实现、测试与离线回放完成，事实文档收尾后归档；owner 决定此时收尾，派生子 Agent 的调研在日常使用中验收）。当前事实见 [Import Bus](../../system/import-bus.md#93-轮次的切分与映射)第 9.3 节、[数据模型](../../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)第 4.9 节与[记忆生成](../../patchouli/generation.md)。以下为实施时的计划原文。原状态：Active（2026-11-02 建立并开始实施）。owner 决定（2026-11-02）：dsh 子 Agent 的会话独立导入属于实现漂移，改为只导入顶层会话，子 Agent 的内部过程不进入生成材料；子 Agent 交回的最终输出保留在父会话这一轮的材料中，以交互记录中新增的一种事件表达，来源只取 dsh 的结算通知。
 
 ## 1. 背景和问题
 
-dsh 插件接入（PR #158）把子 Agent 的会话作为独立的外部会话导入，子 Agent 中的写入落在它自己的一轮。这在[接入计划](../archive/plans/dsh-plugin-integration.md)第 8 节记为候选设计，同一处记了另一种做法：与 Claude Code 相同，只导入顶层会话。
+dsh 插件接入（PR #158）把子 Agent 的会话作为独立的外部会话导入，子 Agent 中的写入落在它自己的一轮。这在[接入计划](./dsh-plugin-integration.md)第 8 节记为候选设计，同一处记了另一种做法：与 Claude Code 相同，只导入顶层会话。
 
 owner 在 2026-11-01 与 11-02 经 dsh 做了两次仓库调研，主 Agent 各派生 5 个子 Agent，观察到话题被挤掉与记忆碎片化。核对插件日志、后端日志与 dsh 本地会话记录，得到以下事实：
 
@@ -78,9 +81,9 @@ dsh 一侧的事实，依据桌面端自带的 dsh `0.2.1-rc.5` 源码（`dsh-su
 
 HiveMemory 一侧：
 
-- **插件**：[`turns.js`](../../integrations/deepseek-harness/lib/turns.js) 只把来源为 `user` 的消息拼入用户消息，其他来源一律不读；[`index.js`](../../integrations/deepseek-harness/index.js) 对每个会话（含子会话）登记并同步；[`tools.js`](../../integrations/deepseek-harness/lib/tools.js) 以调用方 Agent 自己的会话构造轮次信息，最后一轮已经结束时拒绝。
-- **交互记录**（[数据模型](../architecture/data-model.md)第 4.9 节）：`TurnEvent` 只有 `user_message`、`assistant_message`、`thought`、`tool_call` 四种，一轮只有一条用户消息；导入事件只接受后三种。
-- **生成材料**（[记忆生成](../patchouli/generation.md)）：用户消息与助手正文全文渲染，外部工具的结果按 `max_result_chars`（默认 800）截断，CALL 不渲染。Gateway 的话题路由读取用户消息全文，请求时限 8 秒，没有输入上限。
+- **插件**：[`turns.js`](../../../integrations/deepseek-harness/lib/turns.js) 只把来源为 `user` 的消息拼入用户消息，其他来源一律不读；[`index.js`](../../../integrations/deepseek-harness/index.js) 对每个会话（含子会话）登记并同步；[`tools.js`](../../../integrations/deepseek-harness/lib/tools.js) 以调用方 Agent 自己的会话构造轮次信息，最后一轮已经结束时拒绝。
+- **交互记录**（[数据模型](../../architecture/data-model.md)第 4.9 节）：`TurnEvent` 只有 `user_message`、`assistant_message`、`thought`、`tool_call` 四种，一轮只有一条用户消息；导入事件只接受后三种。
+- **生成材料**（[记忆生成](../../patchouli/generation.md)）：用户消息与助手正文全文渲染，外部工具的结果按 `max_result_chars`（默认 800）截断，CALL 不渲染。Gateway 的话题路由读取用户消息全文，请求时限 8 秒，没有输入上限。
 
 子 Agent 交回的消息因此没有合适的位置：并入用户消息，话题路由要读取调研轮的全部报告（一次 9 万到 12 万字符）；作为委托调用的结局，会被截到 800 字符。owner 选择（2026-11-02）在交互记录中新增一种事件。
 
@@ -107,7 +110,7 @@ HiveMemory 一侧：
   - 其他注入的上下文（技能正文、时间、后台任务通知等）仍不读取。
 - **由结算通知开启的一轮**：用户消息为空，事件中有这条子 Agent 消息，照常导入。owner 的记录中尚未出现这种轮次。
 - **子 Agent 中的写入与更新**（owner，2026-11-02，落在顶层会话的一轮）：沿会话头的 `parentSession` 逐级读取父会话的会话头，找到顶层会话，以顶层会话最近的一轮构造轮次信息，与这一轮回流时的同名字段相同，服务端因此推导出同一个交互标识。
-  - 最近一轮已经结束也照用（候选）：这一轮已经应用时，服务端直接返回它实际所在的话题；已经提交、仍在应用时以 `apply_pending` 交回，由 Agent 重试；尚未回流时为它落位，回流时沿用落点（[Import Bus](../system/import-bus.md)第 4.7 节）。这与 Claude Code 后台子代理的写入落在会话当时的当前一轮相同。
+  - 最近一轮已经结束也照用（候选）：这一轮已经应用时，服务端直接返回它实际所在的话题；已经提交、仍在应用时以 `apply_pending` 交回，由 Agent 重试；尚未回流时为它落位，回流时沿用落点（[Import Bus](../../system/import-bus.md)第 4.7 节）。这与 Claude Code 后台子代理的写入落在会话当时的当前一轮相同。
   - 顶层会话自己的调用不变：工具总在一轮之中执行，最后一轮已经结束时仍然拒绝。
 - 插件的模块说明与注释随之改写，写出规则本身，不引用文档。
 
@@ -168,14 +171,16 @@ pytest tests/integration/system/test_import_bus_submission.py -q
 
 ## 9. 完成时必须更新的当前文档
 
-- [Import Bus](../system/import-bus.md)：第 9.3 节的用户消息与子 Agent 两条，加入子 Agent 消息事件；第 11 节已知限制中 dsh 子会话独立导入一条；
-- [路由与事件](../contracts/routes-and-events.md)：导入请求体的 `events[].kind`；
-- [MCP 记忆访问](../contracts/mcp.md)：第 6 节 dsh 插件写入与更新的轮次信息，第 8 节已知限制；
-- [子系统契约](../contracts/subsystem-contracts.md)：Interaction codec v7；
-- [数据模型](../architecture/data-model.md)：第 4.9 节的事件种类表；
-- [记忆生成](../patchouli/generation.md)：材料渲染表与提示词的材料格式说明；
-- [接入 DeepSeek Harness](../help/deepseek-harness-plugin.md)：第 7 节哪些会话会导入、子 Agent 中的写入，第 9 节服务端与插件的更新顺序；
-- [ROADMAP](../ROADMAP.md)、[Plans](./README.md) 与[归档计划索引](../archive/plans/README.md)。
+全部已更新（2026-11-02）：
+
+- [Import Bus](../../system/import-bus.md)：第 9.3 节的用户消息与子 Agent 两条，加入子 Agent 消息事件；第 11 节已知限制中 dsh 子会话独立导入一条；
+- [路由与事件](../../contracts/routes-and-events.md)：导入请求体的 `events[].kind`；
+- [MCP 记忆访问](../../contracts/mcp.md)：第 6 节 dsh 插件写入与更新的轮次信息，第 8 节已知限制；
+- [子系统契约](../../contracts/subsystem-contracts.md)：Interaction codec v7；
+- [数据模型](../../architecture/data-model.md)：第 4.9 节的事件种类表；
+- [记忆生成](../../patchouli/generation.md)：材料渲染表与提示词的材料格式说明；
+- [接入 DeepSeek Harness](../../help/deepseek-harness-plugin.md)：第 7 节哪些会话会导入、子 Agent 中的写入，第 9 节服务端与插件的更新顺序；
+- [ROADMAP](../../ROADMAP.md)、[Plans](../../plans/README.md) 与[归档计划索引](./README.md)。
 
 ## 10. 实施记录
 
@@ -198,4 +203,4 @@ pytest tests/integration/system/test_import_bus_submission.py -q
 - 两种都读时，两个话题都超过折叠阈值 131072 token；话题中的块多于保留数（2）时第一轮会被折叠（第二个会话的第三轮之后即是如此），按 Page Folding 的现有语义，被折叠的轮次只以接力摘要进入结算时的生成。只读结算通知时，两个话题都低于阈值。
 - 10 个子 Agent 的结算通知都带完整报告：9 个与 `send_message` 的内容相同，1 个的 `send_message` 只是摘要。
 
-**未完成**：代码审查、日常使用验收（第 7 节）与第 9 节的收尾文档。
+**收尾**（2026-11-02）：自查代码改动，没有会改变公共设计的问题；第 9 节的当前文档已更新，Interaction codec 版本同时在[身份与授权](../../workspace/identity-and-authorization.md)与[数据模型](../../architecture/data-model.md)中改为 v7。日常使用验收（第 7 节）在归档后进行。

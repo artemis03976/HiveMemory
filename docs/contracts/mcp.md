@@ -26,7 +26,7 @@ related_docs:
   - docs/workspace/authentication.md
   - docs/workspace/read-view-and-write-intents.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-02
 ---
 
 # MCP 记忆访问
@@ -135,7 +135,7 @@ Claude Code 改变命名规则时识别会静默失效，回声恢复，表现�
 **DeepSeek Harness 插件**：dsh 的工具前置事件不能改写调用参数，上面的 `PreToolUse` 做法在 dsh 中不可行。插件因此不把这个端点配置为 dsh 的通用 MCP server，而是自己注册四个同名的 dsh 原生工具，执行时经本端点调用对应的 MCP 工具：
 
 - **注册**：插件加载时请求 `initialize`（取服务说明）与 `tools/list`（无状态端点不需要先建立会话），把四个工具的说明与参数 schema 原样用于 dsh 工具，服务说明注册为 dsh 系统提示词的一节 `hivememory`；交给模型的 schema 去掉 `turn` 与只承载它的 `$defs`，模型看不到也无法填写。四个工具全部注册或全部不注册；连接失败时工具不出现，之后每次创建 Agent 时重试，直到成功一次。
-- **调用**：请求头为 `X-Principal-ID: harness:dsh`、`Authorization: Bearer`、配置时的 `X-User-ID` 与 `X-Agent-ID`（默认 `dsh`）。写入与更新执行时，插件以调用方 Agent 的会话构造 `turn`：读取会话的实时记录，工具在一轮之中执行，最后一轮就是当前一轮；之前几轮与导入时取同样的已结束轮次，生成导入请求体对应字段的是同一个函数（[Import Bus](../system/import-bus.md#93-轮次的切分与映射)第 9.3 节）。模型给出的 `turn` 被覆盖；最后一轮已经结束时以工具错误拒绝，不发出请求。子 Agent 中的调用以子 Agent 自己的会话与当前一轮落位。
+- **调用**：请求头为 `X-Principal-ID: harness:dsh`、`Authorization: Bearer`、配置时的 `X-User-ID` 与 `X-Agent-ID`（默认 `dsh`）。写入与更新执行时，插件以调用方 Agent 的会话构造 `turn`：读取会话的实时记录，工具在一轮之中执行，最后一轮就是当前一轮；之前几轮与导入时取同样的已结束轮次，生成导入请求体对应字段的是同一个函数（[Import Bus](../system/import-bus.md#93-轮次的切分与映射)第 9.3 节）。模型给出的 `turn` 被覆盖；最后一轮已经结束时以工具错误拒绝，不发出请求。子 Agent 的会话不导入，子 Agent 中的调用沿会话头的 `parentSession` 找到顶层会话，以顶层会话最近的一轮构造 `turn`，这一轮已经结束也照用：已经回流时服务端返回它实际所在的话题（[Import Bus](../system/import-bus.md#93-轮次的切分与映射)第 9.3 节）。
 - **结果**：工具结果的正文原样交给模型；`isError` 结果与网络错误作为 dsh 的工具错误交给模型。调用超时 60 秒，并随 dsh 的取消信号取消。
 - **回声标记**：dsh 会话记录中的调用名就是工具名（`memory_search`、`memory_read`、`memory_write`、`memory_update`），回流时按上表归一化。插件测试与 `tests/unit/connectors/test_deepseek_harness_plugin.py` 核对插件的工具名、作用对象参数与 `turn` 参数与本 server 一致。
 
@@ -150,7 +150,7 @@ Claude Code 改变命名规则时识别会静默失效，回声恢复，表现�
 - Host 检查只接受带端口的本机地址，远程部署与传输安全（TLS、OAuth）不在当前范围内。
 - dsh 的 PTC 模式（默认关闭）下，记忆工具在 `run_code` 内部调用，会话记录只有外层调用，回声标记不生效；写入与更新仍以调用方会话的当前一轮落位。
 - `turn` 声明在工具 schema 中：hook 未运行（被禁用或超时）时，模型若自行填写，写入会落到按编造内容路由的话题，编造的轮次不会回流，它的落点留到进程重启。
-- 后台运行的子代理在用户发出下一条消息之后才写入时，写入落在那时的当前一轮，而不是启动它的那一轮：hook 输入只给出会话当时的当前一轮。
+- 后台运行的子代理在用户发出下一条消息之后才写入时，写入落在那时的当前一轮，而不是启动它的那一轮：hook 输入只给出会话当时的当前一轮。dsh 的子 Agent 同样落在顶层会话那时最近的一轮。
 - 第一次写入要等一次 Gateway 路由，再等生成队列接纳；同一外部会话的上一轮仍在应用时，还要等它完成。
 - 写入经过查重：与已有记忆相似时，内容先保存为一条新记忆，之后由合并任务并入已有记忆，`memory_write` 返回的句柄随之改指到保留的记忆；合并完成之前读取句柄得到新建的那条（[记忆生成](../patchouli/generation.md#41-合并任务)）。改指事件丢失时句柄指向已删除的记忆，读不到正式目标。
 
