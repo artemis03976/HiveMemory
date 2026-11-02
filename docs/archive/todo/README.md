@@ -10,6 +10,7 @@ last_reviewed: 2026-11-01
 
 本目录保存已完成的修复与技术债处置历史；当前行为从对应事实文档进入，活动待办见 [Todo](../../todo/README.md)。每条登记一行：归档日期、所在的 PR 与替代它的当前文档；处置过程见各事项自身。
 
+- [MTP READ 截断正式记忆的正文](./mtp-read-content-truncation.md)：2026-11-01，PR #165；[MemoryCompiler](../../patchouli/memory-compiler.md#4-envelope-targets)、[MTP 契约](../../contracts/mtp.md#32-read)
 - [生成组件测试的分类与重复覆盖](./generation-component-test-classification.md)：2026-11-01，PR #164；[Patchouli 生成](../../patchouli/generation.md#4-查重与合并)
 - [主配置保存把密钥写入受版本控制的 YAML](./config-secrets-written-to-yaml.md)：2026-11-01，PR #159；[System 配置与注册表](../../system/configuration.md)、[配置指南](../../help/configuration.md#5-主配置与生效边界)
 - [生成材料的筛选与截断](./generation-material-filtering-and-truncation.md)：2026-10-31，PR #150；[Patchouli 生成](../../patchouli/generation.md)、[感知与短期话题](../../patchouli/perception.md)

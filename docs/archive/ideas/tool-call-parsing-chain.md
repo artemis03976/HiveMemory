@@ -377,7 +377,7 @@ Alice 的流式交付事件（`mtp_start`、`mtp_result`）是交给前端的传
 
 - Alice 流式交付事件的字段与 `TurnEvent` 不同名（`target`、`args`），只影响前端实时视图。
 - `MTPExecutionResult.command` 的类型为 `Any`。
-- MTP READ 截断正式记忆正文的问题，见 [Todo](../../todo/mtp-read-content-truncation.md)。
+- MTP READ 截断正式记忆正文的问题，见 [Todo](../todo/mtp-read-content-truncation.md)。
 - 读取部分未命中在两侧都是 success，未命中的 alias 只在正文中。
 - 渲染材料的查看入口（第 8.7 节）。
 - 生成材料每轮上限的校准，见[生成材料 Todo](../todo/generation-material-filtering-and-truncation.md)。

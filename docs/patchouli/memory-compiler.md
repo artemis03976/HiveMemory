@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/system/i18n.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-01
 ---
 
 # MemoryCompiler
@@ -73,7 +73,7 @@ Envelope 把多个 unit 分 section 组织成完整上下文：
 - `RETRIEVAL_CONTEXT`：区分普通 memories 与 agent profiles，添加本地化 header/footer；header/footer 是提示词中预检索上下文的引导，调用方可以以 `include_header_footer=False` 关闭，工具结果（MCP 的 `memory_search`）因此不带它们；
 - `SHARED_CONTEXT_INJECTION`：为子 Agent 生成带说明的共享上下文。
 
-读取结果没有 envelope：调用方逐项编译 `READ_RESULT`，自己组合多项结果与局部提示。
+读取结果没有 envelope：调用方逐项编译 `READ_RESULT`，自己组合多项结果与局部提示。读取是取得正文全文的途径，`READ_RESULT` 因此不截断：`PROMPT_FULL` 与 `SHARED_CONTEXT` 按 `max_content_length` 截断正文时，附带的提示指引 Agent 读取这条记忆；读取若同样截断，照提示读取只会得到相同的文本。
 
 Retrieval context 中，Agent Profile 使用 `AGENT_PROFILE_MENU`，普通记忆按 retrieval strategy 选择 full/index。其他默认 section 当前使用 `SHARED_CONTEXT` 编译。
 
@@ -99,7 +99,7 @@ Compiler 维持输入顺序，不重新排序。top-k、分数和权限必须在
 
 - workspace 任务进程：在 CPU 分配时把 Patchouli prepare 返回的检索原子编译为 `RETRIEVAL_CONTEXT` 文本，再经中立提示词编译置于附件段之前，写入输入清单的 `turn_context`（Patchouli prepare 本身不编译）；
 - Koakuma MTP：编译 SEARCH envelope 与 READ 的 atom/pending/redirect/terminal 结果；
-- MCP 入口：`memory_search` 编译关闭 header/footer 的 `RETRIEVAL_CONTEXT`，`memory_read` 逐项编译 `READ_RESULT` 且不截断正文（[MCP 记忆访问](../contracts/mcp.md)）；
+- MCP 入口：`memory_search` 编译关闭 header/footer 的 `RETRIEVAL_CONTEXT`，`memory_read` 逐项编译 `READ_RESULT`（[MCP 记忆访问](../contracts/mcp.md)）；
 - Alice orchestration：编译子 Agent shared context injection；
 - Qdrant storage：为 MemoryAtom 生成 dense/sparse embedding 文本；
 - Retrieval reranker：为 cross-encoder 生成候选文本。

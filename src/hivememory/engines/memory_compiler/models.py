@@ -61,6 +61,7 @@ CompiledMemoryEnvelope = CompiledMemory
 class MemoryCompileOptions(BaseModel):
     """单次编译的选项参数。"""
 
+    # 读取结果交付正式原子的全文，不读取此项。
     max_content_length: int = 500
     max_summary_length: int = 100
     stale_days: int = 90
