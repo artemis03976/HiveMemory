@@ -4,15 +4,17 @@
 满足一轮不变量的事件集与截断配置；同样的输入总得到同样的材料，感知层不另
 写渲染规则。
 
-**步骤**：用户消息之后的事件按序号就是步骤，每一步是一段助手正文、一段思考，
-或一次工具调用（结局记在同一个事件上，可能没有结局）。思考只按先后排列，不归属
-动作。
+**步骤**：用户消息之后的事件按序号就是步骤，每一步是一段助手正文、一段思考、
+一条子 Agent 交回的消息，或一次工具调用（结局记在同一个事件上，可能没有结局）。
+思考只按先后排列，不归属动作。
 
 **渲染**：
 
 - 用户消息：``[User]: …``；
 - 助手正文：``[Assistant]: …``，按出现位置穿插在动作之间；
 - 思考：``- THOUGHT: …``，原样渲染；
+- 子 Agent 消息：``[Subagent]: …``，全文渲染。它是被委托的子 Agent 交回的结论，
+  子 Agent 自己的过程不在材料中，这条消息是它唯一留下的内容；
 - 能力步骤（调用带 ``verb``）：一行摘要，不渲染结果——READ、SEARCH 读回的
   是已有记忆，渲染进生成会把它们重复提取。``SEARCH: "查询"``、
   ``READ: a, b``、``RUN: 目标 (状态)``，没有结局时状态为 ``no result``；
@@ -24,8 +26,8 @@
 - 无法解析的 MTP 指令（二者都为空）不渲染；空白的思考不渲染。
 
 **截断**只作用于单条外部工具结果：工具输出可能是整份文件或日志，一轮的其余
-内容（思考、参数与全部条目）原样保留，不受任何总量上限约束。截断保留首尾、
-省略中段：工具输出的报错常在末尾。
+内容（思考、子 Agent 消息、参数与全部条目）原样保留，不受任何总量上限约束。
+截断保留首尾、省略中段：工具输出的报错常在末尾。
 """
 
 from __future__ import annotations
@@ -56,6 +58,8 @@ def render_turn_material(
                 entries.append(_bullet(f"THOUGHT: {event.content.strip()}"))
         elif event.kind == "assistant_message":
             entries.append(f"[Assistant]: {event.content}")
+        elif event.kind == "subagent_message":
+            entries.append(f"[Subagent]: {event.content}")
     return entries
 
 

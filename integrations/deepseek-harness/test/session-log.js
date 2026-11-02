@@ -1,9 +1,11 @@
 /** 测试辅助：按 dsh 会话事件的形状构造 `sessionQuery.readSession` 的读取结果。 */
 
 export class SessionLog {
-  constructor({ id = 'session-1', inheritedEventCount = 0 } = {}) {
+  /** `parentSession` 给出时是 dsh 为子 Agent 创建的会话，会话头带来源 `subagent`。 */
+  constructor({ id = 'session-1', inheritedEventCount = 0, parentSession } = {}) {
     this.id = id
     this.inheritedEventCount = inheritedEventCount
+    this.header = parentSession === undefined ? { id } : { id, parentSession, origin: 'subagent' }
     this.events = []
   }
 
@@ -59,7 +61,7 @@ export class SessionLog {
 
   snapshot() {
     return {
-      session: { id: this.id },
+      session: structuredClone(this.header),
       inheritedEventCount: this.inheritedEventCount,
       events: structuredClone(this.events),
     }

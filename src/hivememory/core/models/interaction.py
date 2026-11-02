@@ -37,6 +37,7 @@ _EVENT_OPTIONAL_FIELDS: dict[str, frozenset[str]] = {
     "user_message": frozenset(),
     "assistant_message": frozenset(),
     "thought": frozenset(),
+    "subagent_message": frozenset(),
     "tool_call": frozenset(
         {
             "action_id",
@@ -109,6 +110,9 @@ class TurnEvent(BaseModel):
     - ``content`` 是执行者写出的原文：用户消息、助手正文、思考或 MTP 指令
       片段（结构化工具调用没有调用原文，为空串）。原文供重放，对工具调用的
       解读只看结构化字段；MTP 指令解析失败时只有原文。
+    - ``subagent_message`` 是被委托的子 Agent 结束时交回执行者的消息，带它的
+      结局与最后的输出；``content`` 是消息原文，不带其他字段。它属于这一轮的
+      过程，不是用户消息，也不是回复正文。
     - 一次工具调用与它的结局是同一个 ``tool_call`` 事件：调用在执行前写出，
       结局到达时由 ``with_outcome`` 补全。``action_id`` 标识这次调用。
     - ``verb`` 与 ``tool_name`` 互斥，回答“调用了什么”：前者是 HiveMemory
@@ -131,6 +135,7 @@ class TurnEvent(BaseModel):
         "user_message",
         "assistant_message",
         "thought",
+        "subagent_message",
         "tool_call",
     ]
     sequence: int

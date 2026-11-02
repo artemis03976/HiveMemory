@@ -8,7 +8,7 @@
 - 能力步骤只有一行摘要，不渲染结果，WRITE/UPDATE/CALL 与无法解析的指令不渲染；
   同一次读取无论来自 MTP 还是外部 harness 的 MCP 工具，渲染相同；
 - 外部工具步骤渲染工具名、完整参数与结果，出错的结果标明状态；
-- 只有工具结果按上限截断，保留首尾；思考与参数原样渲染；
+- 只有工具结果按上限截断，保留首尾；思考、子 Agent 交回的消息与参数原样渲染；
 - 一轮的条目不受总量上限约束：条目再多也全部原样渲染，不降级、不省略；
 - 空白的思考不渲染。
 """
@@ -156,10 +156,15 @@ def test_error_results_are_marked():
 
 
 def test_only_tool_results_are_clipped_keeping_head_and_tail():
-    """只有工具结果按上限截断并保留首尾，长输出末尾的报错仍然可见；思考与参数再长也原样渲染。"""
+    """只有工具结果按上限截断并保留首尾，长输出末尾的报错仍然可见。
+
+    思考、子 Agent 交回的消息与参数再长也在原位原样渲染：子 Agent 的过程不在
+    材料中，它交回的报告是唯一留下的内容。
+    """
     config = GenerationTranscriptConfig(max_result_chars=20)
     events = _turn(
         _thought("思" * 1500),
+        {"kind": "subagent_message", "content": "报告" * 1000},
         _call(
             "toolu-1",
             tool_args={"command": "x" * 500},
@@ -168,9 +173,10 @@ def test_only_tool_results_are_clipped_keeping_head_and_tail():
         ),
     )
 
-    thought, tool = render_turn_material(events, config)
+    thought, report, tool = render_turn_material(events, config)
 
     assert thought == "- THOUGHT: " + "思" * 1500
+    assert report == "[Subagent]: " + "报告" * 1000
     assert tool == "\n".join(
         [
             '- TOOL: Bash {"command": "' + "x" * 500 + '"}',

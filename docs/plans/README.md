@@ -22,7 +22,7 @@ v0.7.2（Git tag `v0.7.2`，2026-11-01）、v0.7.1（Git tag `v0.7.1`，2026-10-
 
 | 计划 | 状态 | 目标 |
 |:---|:---:|:---|
-| [dsh 子 Agent 会话不再独立导入](./dsh-subagent-sessions.md) | Planned（2026-11-02） | 版本之外的工作，v0.7.3 之前：只导入顶层会话，子 Agent 交回的消息进入父会话这一轮的生成材料 |
+| [dsh 子 Agent 会话不再独立导入](./dsh-subagent-sessions.md) | Active（2026-11-02） | 版本之外的工作，v0.7.3 之前：只导入顶层会话，子 Agent 交回的消息进入父会话这一轮的生成材料 |
 
 DeepSeek Harness 插件接入与模型选择统一已于 2026-11-01 归档，见 [Archived Plans](../archive/plans/README.md)。
 

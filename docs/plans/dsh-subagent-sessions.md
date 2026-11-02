@@ -1,6 +1,6 @@
 ---
 title: dsh 子 Agent 会话不再独立导入，交回的消息进入父会话的一轮
-status: planned
+status: active
 owner: project
 target: v0.7.3 之前（版本之外的工作）
 scope: dsh-subagent-sessions-and-subagent-messages-in-turn-material
@@ -35,7 +35,7 @@ last_reviewed: 2026-11-02
 
 # dsh 子 Agent 会话不再独立导入，交回的消息进入父会话的一轮
 
-> 状态：Planned（2026-11-02 建立）。owner 决定（2026-11-02）：dsh 子 Agent 的会话独立导入属于实现漂移，改为只导入顶层会话，子 Agent 的内部过程不进入生成材料；子 Agent 交回的最终输出保留在父会话这一轮的材料中，以交互记录中新增的一种事件表达。
+> 状态：Active（2026-11-02 建立并开始实施）。owner 决定（2026-11-02）：dsh 子 Agent 的会话独立导入属于实现漂移，改为只导入顶层会话，子 Agent 的内部过程不进入生成材料；子 Agent 交回的最终输出保留在父会话这一轮的材料中，以交互记录中新增的一种事件表达，来源只取 dsh 的结算通知。
 
 ## 1. 背景和问题
 
@@ -102,10 +102,10 @@ HiveMemory 一侧：
 
 - **识别子会话**：会话头 `origin` 为 `subagent` 的会话是子会话。
 - **不导入子会话**（owner，2026-11-02）：Agent 创建与轮次结束的监听跳过子会话，不登记、不同步。
-- **子 Agent 交回的消息**（owner，2026-11-02，保留子 Agent 的最终输出）：顶层会话一轮中来源为 `agent-message` 与 `subagent-settled` 的消息，按出现位置写为 `subagent_message` 事件，正文按现有规则取文本（图片与文件写占位）。dsh 加上的开头（`Agent <id> sent a message:` 与结局一行）原样保留，说明消息来自哪个子 Agent、以什么结局结束。其他注入的上下文（技能正文、时间、后台任务通知等）仍不读取。
-  - 两种消息都读（候选）：dsh 要求子 Agent 用 `send_message` 交回结果，结算通知带子 Agent 最后的输出，实际数据中哪一种是完整报告并不固定。两种都读不会丢失结果，代价是多数情况下同一份报告在材料中出现两次。
-  - 另一种做法是只读结算通知，可以避免重复；子 Agent 只用 `send_message` 交回完整结果、最后只说"已完成"时，结果会丢失。
-- **由子 Agent 消息开启的一轮**：用户消息为空，事件中有这条子 Agent 消息，照常导入。owner 的记录中尚未出现这种轮次。
+- **子 Agent 交回的消息**（owner，2026-11-02，保留子 Agent 的最终输出，只取结算通知）：顶层会话一轮中来源为 `subagent-settled` 的消息按出现位置写为 `subagent_message` 事件，正文按现有规则取文本（图片与文件写占位）。dsh 加上的结局一行原样保留，说明消息来自哪个子 Agent、以什么结局结束。
+  - 子 Agent 运行中用 `send_message` 发来的消息（`agent-message`）不读取：结算通知已经带有子 Agent 最后的输出，两者都读会让同一份报告重复进入材料，并让调研轮的话题越过折叠阈值（第 10 节的离线回放）。
+  - 其他注入的上下文（技能正文、时间、后台任务通知等）仍不读取。
+- **由结算通知开启的一轮**：用户消息为空，事件中有这条子 Agent 消息，照常导入。owner 的记录中尚未出现这种轮次。
 - **子 Agent 中的写入与更新**（owner，2026-11-02，落在顶层会话的一轮）：沿会话头的 `parentSession` 逐级读取父会话的会话头，找到顶层会话，以顶层会话最近的一轮构造轮次信息，与这一轮回流时的同名字段相同，服务端因此推导出同一个交互标识。
   - 最近一轮已经结束也照用（候选）：这一轮已经应用时，服务端直接返回它实际所在的话题；已经提交、仍在应用时以 `apply_pending` 交回，由 Agent 重试；尚未回流时为它落位，回流时沿用落点（[Import Bus](../system/import-bus.md)第 4.7 节）。这与 Claude Code 后台子代理的写入落在会话当时的当前一轮相同。
   - 顶层会话自己的调用不变：工具总在一轮之中执行，最后一轮已经结束时仍然拒绝。
@@ -140,7 +140,7 @@ HiveMemory 一侧：
 | 生成材料按序全文渲染子 Agent 消息，不受单条工具结果上限截断 | `tests/unit/engines/perception/test_material.py` |
 | codec v7 往返保留子 Agent 消息 | `tests/unit/patchouli/control/test_interaction_submission.py` |
 | 导入的子 Agent 消息经封口、提交与感知进入话题的材料（一个代表性用例） | `tests/integration/system/test_import_bus_submission.py` |
-| 子会话的识别；两种子 Agent 消息按位置写为子 Agent 消息事件，用户消息不变；由子 Agent 消息开启的一轮用户消息为空；其他注入的上下文仍不读取 | 插件 `test/turns.test.js`（现有"子 Agent 结束通知不读取"的用例按新契约改写） |
+| 结算通知按位置写为子 Agent 消息事件，用户消息不变；`send_message` 发来的消息与其他注入的上下文不读取；由结算通知开启的一轮用户消息为空 | 插件 `test/turns.test.js`（现有"子 Agent 结束通知不读取"的用例按新契约改写） |
 | 子会话中的写入以顶层会话最近一轮（进行中或已结束）构造轮次信息，多级委托同样找到顶层会话；顶层会话的规则不变 | 插件 `test/tools.test.js` |
 | 插件写出的事件种类都是导入接受的种类 | `tests/unit/connectors/test_deepseek_harness_plugin.py` |
 
@@ -154,17 +154,17 @@ pytest tests/integration/system/test_import_bus_submission.py -q
 
 验收：
 
-- **离线回放**：以插件的投影读取 owner 两次调研的会话记录（主会话 `session-1b78a114…`、`session-4daa4db5…` 与各自的 5 个子会话）。子会话被识别并跳过；两个主会话的第一轮各有 10 条子 Agent 消息，导入请求通过服务端模型校验，渲染后的材料保留全部报告。记录这一轮材料的字符数与 token 估计，以及是否触发 Page Folding。
+- **离线回放**：以插件的投影读取 owner 两次调研的会话记录（主会话 `session-1b78a114…`、`session-4daa4db5…` 与各自的 5 个子会话）。子会话被识别并跳过；两个主会话的第一轮各有 5 条子 Agent 消息，导入请求通过服务端模型校验，渲染后的材料保留全部报告。记录这一轮材料的字符数与 token 估计，以及是否触发 Page Folding。
 - **日常使用**：一次派生子 Agent 的调研只建立主会话的话题；子 Agent 中如有写入，落在主会话这一轮的话题。这项验证要等使用中自然发生，是否作为归档条件由 owner 决定。
 
 ## 8. 风险与已知限制
 
-- **调研轮的材料变大**：一轮带 5 个子 Agent 时多出 9 万到 12 万字符，两种消息都读时接近翻倍。这会更早触发 Page Folding（阈值 131072 token），结算时一次提取的输入也更大；离线回放给出实际数字。
-- **子 Agent 的内部过程不再进入任何材料**：读了哪些文件、工具输出了什么都不保留。子 Agent 没有写入、交回的消息也没有提到的发现会丢失，这是 owner 接受的代价。
-- **重复的报告**：两种消息都读时，生成会看到同一份报告两次，提示词不区分它们。
+- **调研轮的材料变大**：一轮带 5 个子 Agent 时多出约 10 万到 12 万字符，会更早触发 Page Folding（阈值 131072 token），结算时一次提取的输入也更大。owner 的两次调研中话题合计约 11.9 万 token，仍在阈值以下（第 10 节）。
+- **子 Agent 的内部过程不再进入任何材料**：读了哪些文件、工具输出了什么都不保留。子 Agent 没有写入、结束时的输出也没有提到的发现会丢失，这是 owner 接受的代价。
+- **只用 `send_message` 交回的结果会丢失**：子 Agent 把完整结果只经 `send_message` 发给父 Agent、结束时只说"已完成"时，材料中只有这句话。owner 的记录中 10 个子 Agent 的结算通知都带完整报告。
 - **写入可能落在之后的一轮**：子 Agent 在顶层会话这一轮结束、用户又发出下一条消息之后才写入时，写入落在那时最近的一轮，与 Claude Code 后台子代理相同。
 - **依赖 dsh 会话头**：识别与向上查找依赖 dsh 会话头的 `origin` 与 `parentSession`，跨版本可能变化；插件限定在 dsh 0.2.x。
-- **由子 Agent 消息开启的一轮**：父 Agent 空闲时，子 Agent 的消息开启新的一轮。这一轮的用户消息为空，话题路由只能依据最近几轮。
+- **由结算通知开启的一轮**：父 Agent 空闲时，子 Agent 的结算通知开启新的一轮。这一轮的用户消息为空，话题路由只能依据最近几轮。
 
 ## 9. 完成时必须更新的当前文档
 
@@ -176,3 +176,26 @@ pytest tests/integration/system/test_import_bus_submission.py -q
 - [记忆生成](../patchouli/generation.md)：材料渲染表与提示词的材料格式说明；
 - [接入 DeepSeek Harness](../help/deepseek-harness-plugin.md)：第 7 节哪些会话会导入、子 Agent 中的写入，第 9 节服务端与插件的更新顺序；
 - [ROADMAP](../ROADMAP.md)、[Plans](./README.md) 与[归档计划索引](../archive/plans/README.md)。
+
+## 10. 实施记录
+
+**实现**（2026-11-02，分支 `fix/dsh-subagent-sessions`，尚未提交审查）：
+
+- 服务端：`TurnEvent` 新增 `subagent_message`，只带原文；导入事件接受这一种类；生成材料渲染为全文的 `[Subagent]: …`；三种生成模式的提取提示词（中英文）加入这一条；`InteractionSubmission` codec 升为 v7。
+- 插件：`isSubagentSession` 按会话头识别子会话；两个监听跳过子会话；顶层会话中来源为 `subagent-settled` 的结算通知按位置写为 `subagent_message` 事件，`send_message` 发来的消息不读取；子会话中的写入沿 `parentSession` 找到顶层会话，取它最近的一轮。
+- 测试按第 7 节写入归属层的现有文件；插件中"子 Agent 结束通知不读取"的旧用例按新契约改写为两条用例（结算通知按位置写为事件、`send_message` 发来的消息不读取，由结算通知开启的一轮用户消息为空）。去掉材料渲染、子会话写入的分支或子 Agent 消息的投影时，对应用例失败（已逐一核对）。
+
+**验证**：`npm test`（40 通过）；`ruff check .`、`black --check .`、`mypy`（444 个文件）通过；`pytest tests/unit tests/integration -m "not live_llm and not e2e and not slow" -n auto --cov=hivememory --cov-fail-under=85`：3178 通过，覆盖率 94.63%，警告只有 starlette 测试客户端的第三方弃用提示。
+
+**离线回放**（第 7 节，2026-11-02）：以插件的投影读取 owner 两次调研的持久会话记录，服务端 `ImportTurnRequest` 校验全部通过。最初的实现两种消息都读，回放后改为只读结算通知（owner，2026-11-02）；下表同时列出两种做法与都不读时的话题合计。
+
+| 主会话 | 子会话 | 第一轮子 Agent 消息 | 第一轮材料 | 话题合计（只读结算通知 / 两种都读 / 都不读） |
+|:---|:---:|:---:|:---:|:---:|
+| `session-1b78a114…`（2 轮） | 5 个，全部识别并跳过 | 5 条，115571 字符 | 428368 字符，约 110723 token | 约 119044 / 147870 / 90126 token |
+| `session-4daa4db5…`（3 轮） | 5 个，全部识别并跳过 | 5 条，95632 字符 | 346402 字符，约 97211 token | 约 119691 / 142073 / 90960 token |
+
+- 第一轮材料的其余部分主要是主 Agent 的思考（9 万到 14 万字符）与工具调用（`write`、`edit` 的完整参数，按上限截断的读取结果等）。
+- 两种都读时，两个话题都超过折叠阈值 131072 token；话题中的块多于保留数（2）时第一轮会被折叠（第二个会话的第三轮之后即是如此），按 Page Folding 的现有语义，被折叠的轮次只以接力摘要进入结算时的生成。只读结算通知时，两个话题都低于阈值。
+- 10 个子 Agent 的结算通知都带完整报告：9 个与 `send_message` 的内容相同，1 个的 `send_message` 只是摘要。
+
+**未完成**：代码审查、日常使用验收（第 7 节）与第 9 节的收尾文档。

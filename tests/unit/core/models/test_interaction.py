@@ -34,17 +34,18 @@ class TestTurnEventFields:
         assert (unparsed.verb, unparsed.tool_name, unparsed.targets) == (None, None, ())
 
     @pytest.mark.parametrize(
-        ("fields", "match"),
+        ("kind", "fields", "match"),
         [
-            ({"status": "success", "result": "ok"}, "cannot carry: result, status"),
-            ({"action_id": "a1"}, "cannot carry: action_id"),
+            ("assistant_message", {"status": "success", "result": "ok"}, "cannot carry"),
+            ("assistant_message", {"action_id": "a1"}, "cannot carry: action_id"),
+            ("subagent_message", {"status": "success", "result": "ok"}, "cannot carry"),
         ],
-        ids=["outcome-on-text", "action-id-on-text"],
+        ids=["outcome-on-text", "action-id-on-text", "outcome-on-subagent-message"],
     )
-    def test_call_fields_only_appear_on_tool_calls(self, fields, match):
-        """调用标识与结局只在工具调用上，正文不带。"""
+    def test_call_fields_only_appear_on_tool_calls(self, kind, fields, match):
+        """调用标识与结局只在工具调用上；正文与子 Agent 交回的消息只有原文。"""
         with pytest.raises(ValidationError, match=match):
-            TurnEvent(kind="assistant_message", sequence=1, content="", **fields)
+            TurnEvent(kind=kind, sequence=1, content="", **fields)
 
     @pytest.mark.parametrize(
         ("fields", "match"),
@@ -136,13 +137,18 @@ class TestValidateTurnEvents:
 
 
 def test_reply_text_joins_assistant_messages_in_sequence_order_with_blank_lines():
-    """回复正文只取助手正文，按序号以空行拼接；没有助手正文时为空串。"""
+    """回复正文只取助手正文，按序号以空行拼接；没有助手正文时为空串。
+
+    思考与子 Agent 交回的消息不是回复：回复正文是 Gateway 的最近轮次上文，
+    混入子 Agent 的报告会让话题路由读取它们的全文。
+    """
     events = [
         _user(),
         TurnEvent(kind="assistant_message", sequence=4, content="结论"),
         TurnEvent(kind="thought", sequence=1, content="思考"),
         TurnEvent(kind="assistant_message", sequence=2, content="先读一下"),
         _call(3, verb="READ", targets=("fact_a",)),
+        TurnEvent(kind="subagent_message", sequence=5, content="子 Agent 的报告"),
     ]
 
     assert turn_reply_text(events) == "先读一下\n\n结论"
