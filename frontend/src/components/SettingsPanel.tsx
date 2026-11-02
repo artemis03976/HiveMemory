@@ -5,13 +5,6 @@ import { GeneralSettings } from './settings/GeneralSettings';
 import { ModelRegistrySettings } from './settings/ModelRegistrySettings';
 import { ProviderSettings } from './settings/ProviderSettings';
 import { EngineSettings } from './settings/EngineSettings';
-import { InfrastructureSettings } from './settings/InfrastructureSettings';
-import { GatewaySettings } from './settings/GatewaySettings';
-import { PerceptionSettings } from './settings/PerceptionSettings';
-import { GenerationSettings } from './settings/GenerationSettings';
-import { RetrievalSettings } from './settings/RetrievalSettings';
-import { LifecycleSettings } from './settings/LifecycleSettings';
-import { KoakumaSettings } from './settings/KoakumaSettings';
 
 const CATEGORIES = [
   { id: 'general', label: '通用设置', icon: SettingsIcon },
@@ -26,6 +19,27 @@ const CATEGORIES = [
   { id: 'lifecycle', label: '生命周期', icon: Activity },
   { id: 'koakuma', label: 'MTP引擎 (Koakuma)', icon: TerminalSquare },
 ];
+
+// 这些分类的表单仍按旧的前端配置结构读写，后端配置中没有对应的段，渲染真实配置会报错。
+const UNALIGNED_CATEGORIES = new Set([
+  'infrastructure',
+  'gateway',
+  'perception',
+  'generation',
+  'retrieval',
+  'lifecycle',
+  'koakuma',
+]);
+
+function UnalignedCategoryNotice() {
+  return (
+    <div className="rounded-xl border border-amber-500/20 bg-amber-500/5 px-5 py-4 text-sm text-slate-300 leading-relaxed">
+      该分类尚未与后端配置结构对齐，暂不提供表单。需要修改时，请直接编辑
+      <code className="mx-1 font-mono text-amber-300/80">configs/config.yaml</code>
+      并重启服务。
+    </div>
+  );
+}
 
 export default function Settings() {
   const { settingsActiveCategory: activeCategory, setSettingsActiveCategory: setActiveCategory } = useChatUiStore();
@@ -153,13 +167,7 @@ export default function Settings() {
             {activeCategory === 'providers' && <ProviderSettings />}
             {activeCategory === 'models' && <ModelRegistrySettings />}
             {activeCategory === 'engines' && <EngineSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
-            {activeCategory === 'infrastructure' && <InfrastructureSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
-            {activeCategory === 'gateway' && <GatewaySettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
-            {activeCategory === 'perception' && <PerceptionSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
-            {activeCategory === 'generation' && <GenerationSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
-            {activeCategory === 'retrieval' && <RetrievalSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
-            {activeCategory === 'lifecycle' && <LifecycleSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
-            {activeCategory === 'koakuma' && <KoakumaSettings config={config} updateConfig={updateConfig} getFieldError={getFieldError} />}
+            {UNALIGNED_CATEGORIES.has(activeCategory) && <UnalignedCategoryNotice />}
           </div>
         </div>
       </div>

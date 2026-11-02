@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-11-01
 ---
 
 # Agent Runtime
@@ -133,7 +133,7 @@ session generation_options
 - api key/base 来自注册表解析结果，为空时由提供商 SDK 从环境变量读取；
 - session 可以覆盖 temperature、top_p 和 max_tokens；
 - 注册表解析失败在 `run_frame()` 边界形成 `FAILED`，不静默换成另一个模型；
-- 模型解析经 `agent_runtime.ModelResolver` 端口进行，System 的 ModelRegistry 实现该端口并由组合根注入；未注入时，调用方必须在 generation options 中直接提供可执行 model，未给出的 temperature、top_p 与 max_tokens 取全局默认值，缺少 model 时以 `ModelNotFoundError` 在解析边界形成 `FAILED`，不调用模型。
+- 模型解析经 `agent_runtime.ModelResolver` 端口进行，System 的 ModelRegistry 实现该端口并由组合根注入；端口返回已合并覆盖值的请求参数与所选的模型定义，上下文窗口与展示名从模型定义读取；未注入时，调用方必须在 generation options 中直接提供可执行 model，未给出的 temperature、top_p 与 max_tokens 取全局默认值，缺少 model 时以 `ModelNotFoundError` 在解析边界形成 `FAILED`，不调用模型。
 
 模型注册表启用时，frame 记录的是展示名，供执行结果的 `model_used` 与话题 UI 使用。未启用注册表的兼容路径可以正常生成，但当前不会把生成结果中的底层 model 名写入 frame，因此 `model_used` 可能为空。
 

@@ -15,8 +15,8 @@ from hivememory.alice.run.service import AgentRunService
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.config.shared import LLMConfig
-from hivememory.infrastructure.llm.base import BaseLLMService
+from hivememory.core.models.model_definition import ModelDefinition
+from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUInputManifest,
@@ -84,16 +84,15 @@ class StaticModelResolver:
         temperature_override: float | None = None,
         max_tokens_override: int | None = None,
         top_p_override: float | None = None,
-    ) -> tuple[LLMConfig, str]:
-        overrides = {
-            "temperature": temperature_override,
-            "max_tokens": max_tokens_override,
-            "top_p": top_p_override,
-        }
-        config = LLMConfig(model=self._model).model_copy(
-            update={key: value for key, value in overrides.items() if value is not None}
+    ) -> tuple[LLMRequestParams, ModelDefinition]:
+        model = ModelDefinition(id=model_name, display_name=model_name, litellm_model=self._model)
+        params = LLMRequestParams(
+            model=self._model,
+            temperature=model.temperature if temperature_override is None else temperature_override,
+            max_tokens=model.max_tokens if max_tokens_override is None else max_tokens_override,
+            top_p=model.top_p if top_p_override is None else top_p_override,
         )
-        return config, model_name
+        return params, model
 
 
 def build_run_service(

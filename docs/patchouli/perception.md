@@ -19,7 +19,7 @@ related_contracts:
   - docs/system/import-bus.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-01
 ---
 
 # 感知与短期话题
@@ -169,7 +169,7 @@ Engine 持有 `RelayController`，封装了完整的 compact 算法能力。`Per
 RelayController 有三种实现：
 
 - **SimpleRelayController**: 以确定性规则形成简要接力摘要：用户请求数、用到的工具（能力调用取动词的小写，外部工具取工具名，无法解析的 MTP 指令不计）与 token 总数；
-- **LLMRelayController**: 经组合根注入的共享 LLM 服务，以 `shared.llm.librarian` 转换的请求参数异步生成更丰富摘要。近期事件是各块与记忆生成视图相同的材料，块之间空一行：被折叠的块此后只以摘要参与工作视图与生成，近期事件因此保留思考与外部工具过程，不只有问答；每次调用以 `patchouli.perception.engine.relay.engine.summary_timeout_seconds`（默认 60 秒）为时限。只在没有可用 LLM（Librarian 未配置模型）、提供商失败（`ModelProviderError`，含超窗）或调用超时时回退为规则摘要，回退的规则摘要接在 previous summary 之后，已折叠的历史不丢失；程序错误不被规则摘要掩盖，沿 compact 路径传播；
+- **LLMRelayController**: 经组合根注入的共享 LLM 服务，以 `patchouli.llm` 经模型注册表解析得到的请求参数异步生成更丰富摘要。近期事件是各块与记忆生成视图相同的材料，块之间空一行：被折叠的块此后只以摘要参与工作视图与生成，近期事件因此保留思考与外部工具过程，不只有问答；每次调用以 `patchouli.perception.engine.relay.engine.summary_timeout_seconds`（默认 60 秒）为时限。只在没有可用 LLM（Librarian 未配置模型）、提供商失败（`ModelProviderError`，含超窗）或调用超时时回退为规则摘要，回退的规则摘要接在 previous summary 之后，已折叠的历史不丢失；程序错误不被规则摘要掩盖，沿 compact 路径传播；
 - **NoOpRelayController**: 用于关闭折叠能力。
 
 Relay 控制器由 Runtime 按配置创建并注入 Engine 构造。关闭 perception（`engine.enable=false`）时 Runtime 注入 `engine=None`，Familiar 的摄入路径变为无副作用 no-op（原 NullPerceptionLayer 语义），维护用例对空存储自然空转。

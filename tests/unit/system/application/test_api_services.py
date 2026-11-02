@@ -42,7 +42,7 @@ class TestApiApplicationServices:
             patch("hivememory.system.assembler.AliceSystem"),
             patch("hivememory.system.assembler.ModelRegistry"),
             patch("hivememory.system.assembler.ProviderRegistry"),
-            # 注册表被替换后组件配置不再是真实 LLMConfig，转换一并替换。
+            # 注册表被替换后解析不出真实的请求参数，组件参数的解析一并替换。
             patch("hivememory.system.assembler.component_llm_params"),
         ):
             system = HiveMemorySystem.build(config=system_config)
@@ -67,7 +67,7 @@ class TestApiApplicationServices:
                 patch("hivememory.system.assembler.AliceSystem"),
                 patch("hivememory.system.assembler.ModelRegistry"),
                 patch("hivememory.system.assembler.ProviderRegistry"),
-                # 注册表被替换后组件配置不再是真实 LLMConfig，转换一并替换。
+                # 注册表被替换后解析不出真实的请求参数，组件参数的解析一并替换。
                 patch("hivememory.system.assembler.component_llm_params"),
             ):
                 system = HiveMemorySystem.build(config=system_config)

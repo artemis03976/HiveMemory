@@ -65,7 +65,7 @@ HIVEMEMORY__GATEWAY__WORKFLOW__DEFAULT_REQUEST_TIMEOUT_MS=8000
 HIVEMEMORY__LOGGING__LEVEL=INFO
 ```
 
-旧 `HIVEMEMORY__QDRANT__HOST`、`HIVEMEMORY__LLM__GATEWAY__...` 等形式仍由兼容 alias 接受，但新部署应使用当前配置树。显式指定的 `HIVEMEMORY_CONFIG_PATH` 若不存在会阻止配置加载；默认 `configs/config.yaml` 不存在时则回退到环境变量和代码默认值。
+旧 `HIVEMEMORY__QDRANT__HOST` 等形式，以及 `HIVEMEMORY__LLM__GATEWAY__TEMPERATURE` 这类 Gateway、Librarian 生成参数的旧变量，仍由兼容 alias 接受，但新部署应使用当前配置树；直接指定这两个组件的模型、密钥或地址的旧变量不再生效。显式指定的 `HIVEMEMORY_CONFIG_PATH` 若不存在会阻止配置加载；默认 `configs/config.yaml` 不存在时则回退到环境变量和代码默认值。
 
 ## 3. 配置 Provider 凭证
 
@@ -107,11 +107,13 @@ Settings -> Model Registry 或 `/api/v1/models` 可以运行时 CRUD，并原子
 
 模型定义不保存连接凭证：密钥与 API 地址只在 Provider Registry 中保存，模型按 `provider` 取得。`models.yaml` 受版本控制，其中写入非空 `api_key` 或 `api_base` 的模型在加载时被跳过，日志指出模型 ID 与它们应在的位置；删除这两个字段、把值移到 Provider 后重启。单个模型需要不同的密钥或地址时（例如经代理访问），另登记一个 Provider 名称并让这个模型引用它。
 
+Gateway 与 Librarian 的模型在 `configs/config.yaml` 的 `gateway.llm` 与 `patchouli.llm` 中以 `model_id` 引用这里的模型（`default` 表示默认模型，`null` 表示不使用 LLM），也可以在设置页的“内部引擎”中选择。两段的 `temperature` 与 `max_tokens` 是组件任务要求的生成参数，覆盖模型定义的默认值，例如 Librarian 一次结算输出多条记忆，`max_tokens` 默认为 32768。这两个组件在启动时解析模型，修改模型、Provider 或这两段之后重启生效。
+
 ## 5. 主配置与生效边界
 
-主配置接口不读写密钥。Provider 凭证不属于主配置，由 Provider 页面与 `.env` 管理；主配置中的 `api_key`（Gateway、Librarian 的 LLM 配置与 Qdrant）只来自环境变量与 `.env`。`configs/config.yaml` 受版本控制，其中出现非空 `api_key` 时启动失败，错误指出字段路径。
+主配置接口不读写密钥。Provider 凭证不属于主配置，由 Provider 页面与 `.env` 管理；主配置中只有 Qdrant 的 `api_key`，只来自环境变量与 `.env`。`configs/config.yaml` 受版本控制，其中出现非空 `api_key` 时启动失败，错误指出字段路径。
 
-`GET /api/v1/config` 与 `GET /api/v1/config/defaults` 的响应中，`api_key` 只返回打码值（如 `sk-...abcd`），与 Provider 和 Model 接口相同：这些 HTTP 接口对本机任何进程开放。
+`GET /api/v1/config` 与 `GET /api/v1/config/defaults` 的响应中，`api_key` 只返回打码值（如 `sk-...abcd`），与 Provider 接口相同：这些 HTTP 接口对本机任何进程开放。
 
 `POST /api/v1/config` 会：
 
@@ -121,7 +123,7 @@ Settings -> Model Registry 或 `/api/v1/models` 可以运行时 CRUD，并原子
 4. 替换进程中的 `system.config`；
 5. 返回校验后的配置，`api_key` 同样打码。
 
-这不保证所有组件热重载。已经在启动时创建的 Qdrant/Embedding/Reranker、Gateway/Librarian LLM config、scheduler 和部分 runtime 可能仍持有旧对象。涉及基础设施、模型装配、调度或子系统行为的变更，当前最安全做法是保存后重启服务，再用 readiness 和实际请求确认。
+这不保证所有组件热重载。已经在启动时创建的 Qdrant/Embedding/Reranker、Gateway/Librarian 的模型请求参数、scheduler 和部分 runtime 可能仍持有旧对象。涉及基础设施、模型装配、调度或子系统行为的变更，当前最安全做法是保存后重启服务，再用 readiness 和实际请求确认。
 
 ProviderRegistry 和 ModelRegistry 自身支持运行时 CRUD；Provider 凭证在后续动态解析时可立即被读取。但已经解析并交给长期存活组件的配置仍可能需要重启。
 

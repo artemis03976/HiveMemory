@@ -24,30 +24,22 @@ from hivememory.config.import_bus import ImportBusConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
 from hivememory.config.patchouli import PatchouliConfig
 from hivememory.config.runtime import RuntimeEventsConfig, SchedulerConfig
-from hivememory.config.shared import LLMConfig, ProviderCredentials, SharedConfig
+from hivememory.config.shared import ProviderCredentials, SharedConfig
 from hivememory.config.workspace import WorkspaceConfig
 
 logger = logging.getLogger(__name__)
 
 HIVEMEMORY_ENV_PREFIX = "HIVEMEMORY__"
 
-# 配置树中保存密钥的字段名（LLM 与 Qdrant 的 api_key）。密钥只来自环境变量、.env
+# 配置树中保存密钥的字段名（Qdrant 的 api_key）。密钥只来自环境变量、.env
 # 与 Provider 设置，不写入受版本控制的配置文件。
 SECRET_FIELD = "api_key"
 
 LEGACY_ENV_ALIASES: dict[str, tuple[str, ...]] = {
-    "LLM__GATEWAY__PROVIDER": ("shared", "llm", "gateway", "provider"),
-    "LLM__GATEWAY__MODEL": ("shared", "llm", "gateway", "model"),
-    "LLM__GATEWAY__API_KEY": ("shared", "llm", "gateway", "api_key"),
-    "LLM__GATEWAY__API_BASE": ("shared", "llm", "gateway", "api_base"),
-    "LLM__GATEWAY__TEMPERATURE": ("shared", "llm", "gateway", "temperature"),
-    "LLM__GATEWAY__MAX_TOKENS": ("shared", "llm", "gateway", "max_tokens"),
-    "LLM__LIBRARIAN__PROVIDER": ("shared", "llm", "librarian", "provider"),
-    "LLM__LIBRARIAN__MODEL": ("shared", "llm", "librarian", "model"),
-    "LLM__LIBRARIAN__API_KEY": ("shared", "llm", "librarian", "api_key"),
-    "LLM__LIBRARIAN__API_BASE": ("shared", "llm", "librarian", "api_base"),
-    "LLM__LIBRARIAN__TEMPERATURE": ("shared", "llm", "librarian", "temperature"),
-    "LLM__LIBRARIAN__MAX_TOKENS": ("shared", "llm", "librarian", "max_tokens"),
+    "LLM__GATEWAY__TEMPERATURE": ("gateway", "llm", "temperature"),
+    "LLM__GATEWAY__MAX_TOKENS": ("gateway", "llm", "max_tokens"),
+    "LLM__LIBRARIAN__TEMPERATURE": ("patchouli", "llm", "temperature"),
+    "LLM__LIBRARIAN__MAX_TOKENS": ("patchouli", "llm", "max_tokens"),
     "QDRANT__HOST": ("patchouli", "storage", "host"),
     "QDRANT__PORT": ("patchouli", "storage", "port"),
     "QDRANT__GRPC_PORT": ("patchouli", "storage", "grpc_port"),
@@ -309,25 +301,11 @@ class HiveMemoryConfig(BaseSettings):
             file_secret_settings,
         )
 
-    def get_librarian_llm_config(self) -> LLMConfig:
-        return self.shared.llm.librarian
-
-    def get_gateway_llm_config(self) -> LLMConfig:
-        return self.shared.llm.gateway
-
 
 def load_app_config(config_path: str | None = None) -> HiveMemoryConfig:
     if config_path:
         os.environ["HIVEMEMORY_CONFIG_PATH"] = str(config_path)
     return HiveMemoryConfig()
-
-
-def get_librarian_llm_config() -> LLMConfig:
-    return load_app_config().get_librarian_llm_config()
-
-
-def get_gateway_llm_config() -> LLMConfig:
-    return load_app_config().get_gateway_llm_config()
 
 
 __all__ = [
@@ -340,8 +318,6 @@ __all__ = [
     "HiveMemoryConfig",
     # 加载与工厂函数
     "load_app_config",
-    "get_librarian_llm_config",
-    "get_gateway_llm_config",
     "HIVEMEMORY_ENV_PREFIX",
     "LEGACY_ENV_ALIASES",
     "environment_value",

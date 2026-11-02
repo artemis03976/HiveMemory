@@ -50,9 +50,7 @@ def _engine() -> MemoryGenerationEngine:
     registry = ModelRegistry(
         provider_registry=ProviderRegistry(env_providers=provider_credentials_from_env())
     )
-    llm_params = component_llm_params(
-        registry.resolve_for_llm_config(config.get_librarian_llm_config())
-    )
+    llm_params = component_llm_params(config.patchouli.llm, registry)
     assert llm_params is not None, "Librarian 未配置可用模型"
     return MemoryGenerationEngine(
         mid_term=_EmptyMidTerm(),

@@ -6,9 +6,9 @@ ModelRegistry 是管理所有可用 LLM 模型的单一数据源（SSOT）。
 
 使用方式：
     registry = ModelRegistry()
-    llm_config, display_name = registry.resolve("deepseek-chat")
+    params, model = registry.resolve("deepseek-chat")
     # 或者 model_name='default' 自动选取默认模型
-    llm_config, display_name = registry.resolve("default")
+    params, model = registry.resolve("default")
 """
 
 import logging
@@ -19,12 +19,10 @@ from typing import TYPE_CHECKING, Optional
 
 import yaml
 
-from hivememory.config.shared import (
-    LLMConfig,
-    ProviderCredentials,
-)
+from hivememory.config.shared import ProviderCredentials
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models.model_definition import ModelDefinition
+from hivememory.infrastructure.llm.base import LLMRequestParams
 
 if TYPE_CHECKING:
     from hivememory.system.provider_registry import ProviderRegistry
@@ -43,7 +41,7 @@ class ModelRegistry:
     职责：
     - 从 configs/models.yaml 加载模型列表
     - 提供 CRUD 操作（list / get / add / update / delete）
-    - 将 ModelDefinition 转换为运行时所需的 LLMConfig
+    - 把模型 ID 解析为 LLM 调用的请求参数（Alice 与组件共用）
     - 将变更原子性地持久化到 YAML 文件
 
     不变量：
@@ -259,7 +257,7 @@ class ModelRegistry:
         logger.info(f"已删除模型: {model_id}")
 
     # ------------------------------------------------------------------
-    # LLM 配置解析
+    # 模型解析
     # ------------------------------------------------------------------
 
     def _resolve_credentials(self, model: ModelDefinition) -> tuple[str | None, str | None]:
@@ -284,91 +282,19 @@ class ModelRegistry:
             return None, None
         return cred.api_key, cred.api_base
 
-    def to_llm_config(self, model_id: str) -> LLMConfig:
-        """
-        将注册表中的模型定义转换为 LLMConfig。
-
-        Args:
-            model_id: 模型 ID
-
-        Returns:
-            LLMConfig 实例，由使用方转换为 LLM 调用的请求参数
-
-        Raises:
-            ModelNotFoundError: 模型不存在
-        """
-        model = self._models.get(model_id)
-        if model is None:
-            raise ModelNotFoundError(f"模型 '{model_id}' 不存在")
-
-        api_key, api_base = self._resolve_credentials(model)
-        return LLMConfig(
-            model=model.litellm_model,
-            context_window=model.context_window,
-            api_key=api_key,
-            api_base=api_base,
-            temperature=model.temperature,
-            max_tokens=model.max_tokens,
-            top_p=model.top_p,
-        )
-
-    def resolve_for_llm_config(self, llm_config: "LLMConfig") -> "LLMConfig":
-        """
-        将带有 model_id 的 LLMConfig（如 gateway/librarian 配置）解析为可直接使用的 LLMConfig。
-
-        规则：
-        - llm_config.model_id 有值 → 通过注册表查 litellm_model + 补齐凭证
-        - llm_config.model_id 为空 → 直接使用 llm_config.model（向后兼容旧配置）
-        - temperature / max_tokens / top_p 始终以 llm_config 自身值为准（组件调参优先于注册表默认）
-
-        Args:
-            llm_config: 含有 model_id（或旧 model 字符串）的配置
-
-        Returns:
-            完全填充（model + api_key + api_base + 温度参数）的 LLMConfig
-
-        Raises:
-            ModelNotFoundError: model_id 不在注册表中，且注册表非空时
-        """
-        if not llm_config.model_id:
-            # 向后兼容路径：没有 model_id，直接使用 model 字段（旧式 litellm 字符串）
-            return llm_config
-
-        # 解析注册表模型
-        if llm_config.model_id == "default":
-            model = self.get_default_model()
-            if model is None:
-                raise ModelNotFoundError("注册表为空，无法解析默认模型")
-        else:
-            model = self._models.get(llm_config.model_id)
-            if model is None:
-                raise ModelNotFoundError(f"模型 '{llm_config.model_id}' 不存在于注册表中")
-
-        api_key, api_base = self._resolve_credentials(model)
-        return LLMConfig(
-            # 模型名和凭证来自注册表
-            model=model.litellm_model,
-            context_window=model.context_window,
-            api_key=api_key,
-            api_base=api_base,
-            # temperature / max_tokens / top_p 以组件自身配置为准（覆盖注册表默认值）
-            temperature=llm_config.temperature,
-            max_tokens=llm_config.max_tokens,
-            top_p=llm_config.top_p,
-        )
-
     def resolve(
         self,
         model_name: str,
         temperature_override: float | None = None,
         max_tokens_override: int | None = None,
         top_p_override: float | None = None,
-    ) -> tuple[LLMConfig, str]:
+    ) -> tuple[LLMRequestParams, ModelDefinition]:
         """
-        解析模型名称，返回运行时所需的 LLMConfig 和展示名称。
+        解析模型名称，返回这次调用的请求参数与所选的模型定义。
 
-        这是 Agent 运行时使用的核心方法，实现了配置优先级链：
-            会话/Profile 覆盖（temperature/max_tokens/top_p） > 模型注册表默认值
+        Alice 与 Gateway、Patchouli 的组件共用这一入口。采样参数的优先级：
+            调用方覆盖值（会话、Agent Profile 或组件配置） > 模型定义的默认值
+        上下文窗口与展示名不属于请求参数，调用方从返回的模型定义中读取。
 
         Args:
             model_name: 模型 ID，或 'default' 表示使用注册表默认模型
@@ -377,10 +303,10 @@ class ModelRegistry:
             top_p_override: top_p 覆盖，None 表示使用模型默认值
 
         Returns:
-            (LLMConfig, display_name) — 配置对象和前端可展示的模型名称
+            (LLMRequestParams, ModelDefinition)
 
         Raises:
-            ModelNotFoundError: model_name 不是 'default' 且对应 ID 不存在
+            ModelNotFoundError: model_name 不是 'default' 且对应 ID 不存在，或注册表为空
         """
         if model_name == "default":
             model = self.get_default_model()
@@ -392,9 +318,8 @@ class ModelRegistry:
                 raise ModelNotFoundError(f"模型 '{model_name}' 不存在于注册表中")
 
         api_key, api_base = self._resolve_credentials(model)
-        config = LLMConfig(
+        params = LLMRequestParams(
             model=model.litellm_model,
-            context_window=model.context_window,
             api_key=api_key,
             api_base=api_base,
             temperature=(
@@ -403,7 +328,7 @@ class ModelRegistry:
             max_tokens=max_tokens_override if max_tokens_override is not None else model.max_tokens,
             top_p=top_p_override if top_p_override is not None else model.top_p,
         )
-        return config, model.display_name
+        return params, model
 
     # ------------------------------------------------------------------
     # 内部辅助

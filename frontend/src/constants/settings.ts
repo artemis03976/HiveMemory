@@ -13,29 +13,16 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
     file_path: null,
     console_output: true,
   },
-  llm: {
-    gateway: {
-      provider: 'litellm',
-      model: 'deepseek/deepseek-chat',
-      api_key: null,
-      api_base: null,
-      temperature: 0.7,
-      max_tokens: 4096,
-    },
-    librarian: {
-      provider: 'litellm',
-      model: 'deepseek/deepseek-chat',
-      api_key: null,
-      api_base: null,
-      temperature: 0.3,
-      max_tokens: 2048,
+  shared: {
+    embedding: {
+      default: {
+        model_name: 'Xenova/bge-m3',
+        cache_dir: null,
+      },
     },
   },
-  embedding: {
-    default: {
-      model_name: 'BAAI/bge-m3',
-      cache_dir: null,
-    },
+  patchouli: {
+    llm: { model_id: 'default', temperature: 0.3, max_tokens: 32768 },
   },
   qdrant: {
     host: 'localhost',
@@ -48,6 +35,7 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
     on_disk_payload: true,
   },
   gateway: {
+    llm: { model_id: 'default', temperature: 0.0, max_tokens: 512 },
     interceptor: {
       enabled: true,
       enable_system: true,

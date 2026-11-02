@@ -12,18 +12,33 @@ from hivememory.agent_runtime.frame import (
 from hivememory.agent_runtime.loop import AgentLoopExecutor
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.config.alice import AgentRuntimeConfig
-from hivememory.config.shared import LLMConfig
 from hivememory.core.constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     TurnEvent,
 )
+from hivememory.core.models.model_definition import ModelDefinition
 from hivememory.infrastructure.llm.base import LLMRequestParams
 from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.llm import CallbackLLMService
 from tests.helpers.outputs import NullFrameOutputSink
 from tests.helpers.workspace import make_runtime_scope
+
+
+def _registry_result(
+    *, max_tokens: int, context_window: int | None = None
+) -> tuple[LLMRequestParams, ModelDefinition]:
+    """注册表替身的解析结果：请求参数与所选的模型定义。"""
+    return (
+        LLMRequestParams(model="provider/model", max_tokens=max_tokens),
+        ModelDefinition(
+            id="model",
+            display_name="显示名称",
+            litellm_model="provider/model",
+            context_window=context_window,
+        ),
+    )
 
 
 def _frame(*, run_id: str = "run-1", frame_id: str = "frame-1") -> ExecutionFrame:
@@ -166,12 +181,10 @@ def test_finalize_unsuccessful_frame_does_not_harvest_aliases():
     [(10000, 2000, 7500), (None, 2000, 17500), (1000, 1000, -500)],
 )
 def test_resolved_model_budget_reserves_output_and_margin(window, max_tokens, expected_limit):
-    """窗口缺省时回落配置；生成预算挤满窗口时保留非正上限供输入检查拒绝。"""
+    """输入上限由所选模型的窗口与请求的生成上限得出；窗口缺省时回落配置，
+    生成预算挤满窗口时保留非正上限供输入检查拒绝。展示名取模型定义。"""
     resolver = MagicMock()
-    resolver.resolve.return_value = (
-        LLMConfig(model="provider/model", context_window=window, max_tokens=max_tokens),
-        "显示名称",
-    )
+    resolver.resolve.return_value = _registry_result(max_tokens=max_tokens, context_window=window)
     runtime = AgentRuntime(
         runtime_config=AgentRuntimeConfig(default_context_window=20000, safety_margin=500),
         loop_executor=MagicMock(),
@@ -180,40 +193,6 @@ def test_resolved_model_budget_reserves_output_and_margin(window, max_tokens, ex
     resolved = runtime.resolve_model(OMNI_DOLL_PROFILE, None)
 
     assert resolved.input_token_limit == expected_limit
-    assert resolved.params.model == "provider/model"
-
-
-def test_registry_resolution_converts_merged_config_to_request_params():
-    """注册表合并后的模型、凭证与采样参数原样成为请求参数，展示名与窗口不进入请求。"""
-    resolver = MagicMock()
-    resolver.resolve.return_value = (
-        LLMConfig(
-            model="provider/model",
-            api_key="key",
-            api_base="https://example.invalid",
-            temperature=0.4,
-            top_p=0.8,
-            max_tokens=1024,
-            context_window=8192,
-        ),
-        "显示名称",
-    )
-    runtime = AgentRuntime(
-        runtime_config=AgentRuntimeConfig(),
-        loop_executor=MagicMock(),
-        model_registry=resolver,
-    )
-
-    resolved = runtime.resolve_model(OMNI_DOLL_PROFILE, None)
-
-    assert resolved.params == LLMRequestParams(
-        model="provider/model",
-        api_key="key",
-        api_base="https://example.invalid",
-        temperature=0.4,
-        top_p=0.8,
-        max_tokens=1024,
-    )
     assert resolved.display_name == "显示名称"
 
 
@@ -253,7 +232,7 @@ async def test_frame_reentry_keeps_resolved_model_and_budget():
         yield StreamChunk(is_final=True, result=GenerationResult(text="完成"))
 
     resolver = MagicMock()
-    resolver.resolve.return_value = (LLMConfig(model="model", max_tokens=100), "模型")
+    resolver.resolve.return_value = _registry_result(max_tokens=100)
     worker = MagicMock(generate=generate_done)
     runtime = AgentRuntime(
         runtime_config=AgentRuntimeConfig(),
@@ -268,4 +247,4 @@ async def test_frame_reentry_keeps_resolved_model_and_budget():
 
     assert result.status == FrameExecutionStatus.COMPLETED
     assert frame.progress.text_segments == ["完成"]
-    assert frame.progress.model_used == "模型"
+    assert frame.progress.model_used == "显示名称"

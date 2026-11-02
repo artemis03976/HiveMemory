@@ -1,6 +1,9 @@
 ---
 title: 组件模型只经注册表解析，LLMConfig 退出中间翻译
-status: active
+status: archived
+archived_at: 2026-11-01
+implemented_by: PR #167
+superseded_by: docs/system/configuration.md
 owner: system
 target: v0.7.3 之前（版本之外的工作）
 scope: component-llm-selection-through-registries-and-llmconfig-retirement
@@ -24,6 +27,7 @@ code_paths:
   - src/hivememory/agent_runtime/model/resolution.py
   - src/hivememory/engines/gateway/llm.py
   - src/hivememory/server/routers/config.py
+  - src/hivememory/server/models/config.py
   - configs/config.yaml
   - frontend/src/components/settings/EngineSettings.tsx
   - frontend/src/components/SettingsPanel.tsx
@@ -43,7 +47,7 @@ last_reviewed: 2026-11-01
 
 # 组件模型只经注册表解析，LLMConfig 退出中间翻译
 
-> 状态：Active（2026-11-01 建立，owner 同日审阅后开始实施）。由 Todo“Gateway 与 Librarian 的旧式直配路径”升级而来，删除前的最后版本见 commit `190accd2`。owner 决定（2026-11-01）：
+> 状态：Archived（2026-11-01，实现、测试与事实文档完成；设置页在浏览器中的核对未进行，见第 10 节）。当前事实见 [System 配置与注册表](../../system/configuration.md#3-registry-解析)第 3 节。以下为实施时的计划原文，相对链接已随归档改正。原状态：Active（2026-11-01 建立，owner 同日审阅后开始实施）。由 Todo“Gateway 与 Librarian 的旧式直配路径”升级而来，删除前的最后版本见 commit `190accd2`。owner 决定（2026-11-01）：
 >
 > - Gateway 两个分析器的 `model_override` 删除；
 > - 解析结果由 `LLMRequestParams` 与 `ModelDefinition` 表达，`LLMConfig` 不再充当配置与请求参数之间的中间翻译；
@@ -57,7 +61,7 @@ last_reviewed: 2026-11-01
 
 ## 1. 背景和问题
 
-Alice 的模型由 Agent Profile 选择、经模型注册表与 Provider 注册表逐帧解析。Gateway 与 Librarian 的模型配置在 `shared.llm.gateway` / `librarian`（类型 `LLMConfig`），有两种写法：以 `model_id` 引用模型注册表，或者不写 `model_id`，直接给出 `model`、`api_key`、`api_base`。后一种写法完全绕过两个注册表，经环境变量注入时，模型与密钥也不出现在 Provider 页面与模型页面中。2026-11-01 主配置的密钥移出 `config.yaml` 时（[归档 Todo](../archive/todo/config-secrets-written-to-yaml.md)），这条路径未纳入当时的范围，登记为 Todo。
+Alice 的模型由 Agent Profile 选择、经模型注册表与 Provider 注册表逐帧解析。Gateway 与 Librarian 的模型配置在 `shared.llm.gateway` / `librarian`（类型 `LLMConfig`），有两种写法：以 `model_id` 引用模型注册表，或者不写 `model_id`，直接给出 `model`、`api_key`、`api_base`。后一种写法完全绕过两个注册表，经环境变量注入时，模型与密钥也不出现在 Provider 页面与模型页面中。2026-11-01 主配置的密钥移出 `config.yaml` 时（[归档 Todo](../todo/config-secrets-written-to-yaml.md)），这条路径未纳入当时的范围，登记为 Todo。
 
 owner 的方向是：Gateway 与 Librarian 与 Alice 一样，只经项目级的 Provider 与模型注册表选择模型。核对代码时还看到 `LLMConfig` 同时承担两种角色：配置文件中的组件配置，以及注册表解析后的运行时结果（Alice 的解析也返回它）；每个使用方再把它翻译为请求参数 `LLMRequestParams`。解析结果需要的模型、凭证与采样参数已由 `LLMRequestParams` 表达，上下文窗口与展示名属于 `ModelDefinition`，中间这一层翻译没有独立的含义。
 
@@ -83,13 +87,13 @@ owner 的方向是：Gateway 与 Librarian 与 Alice 一样，只经项目级的
 
 以下按 2026-11-01 的代码核对。
 
-1. **`LLMConfig` 的两种角色**（[`config/shared.py`](../../src/hivememory/config/shared.py)）：字段有 `provider`、`model_id`、`model`、`api_key`、`api_base`、`temperature`、`max_tokens`、`context_window`、`top_p`。作为组件配置时，只有 `model_id`、`temperature`、`max_tokens` 由写入者设置；`provider` 没有任何读取方，`context_window` 与 `top_p` 不被组件使用（[`component_llm_params`](../../src/hivememory/system/assembler.py) 只发送模型、凭证、temperature 与 max_tokens）。
-2. **注册表的三个解析方法都返回 `LLMConfig`**（[`ModelRegistry`](../../src/hivememory/system/model_registry.py)）：`resolve_for_llm_config` 服务组件，没有 `model_id` 时原样返回配置；`resolve` 经 `agent_runtime.ModelResolver` 端口服务 Alice；`to_llm_config` 只有测试调用。组合根与 [Alice 的帧模型解析](../../src/hivememory/agent_runtime/model/resolution.py)各自再把结果翻译为 `LLMRequestParams`。
+1. **`LLMConfig` 的两种角色**（[`config/shared.py`](../../../src/hivememory/config/shared.py)）：字段有 `provider`、`model_id`、`model`、`api_key`、`api_base`、`temperature`、`max_tokens`、`context_window`、`top_p`。作为组件配置时，只有 `model_id`、`temperature`、`max_tokens` 由写入者设置；`provider` 没有任何读取方，`context_window` 与 `top_p` 不被组件使用（[`component_llm_params`](../../../src/hivememory/system/assembler.py) 只发送模型、凭证、temperature 与 max_tokens）。
+2. **注册表的三个解析方法都返回 `LLMConfig`**（[`ModelRegistry`](../../../src/hivememory/system/model_registry.py)）：`resolve_for_llm_config` 服务组件，没有 `model_id` 时原样返回配置；`resolve` 经 `agent_runtime.ModelResolver` 端口服务 Alice；`to_llm_config` 只有测试调用。组合根与 [Alice 的帧模型解析](../../../src/hivememory/agent_runtime/model/resolution.py)各自再把结果翻译为 `LLMRequestParams`。
 3. **配置位置**：两段位于 `shared.llm`（`LLMGlobalConfig`），由组合根读取后把请求参数分别注入 Gateway 与 Patchouli；`shared` 中另一项是嵌入模型配置 `shared.embedding`。
-4. **旧式环境变量别名**（[`LEGACY_ENV_ALIASES`](../../src/hivememory/config/app.py)）：`HIVEMEMORY__LLM__GATEWAY__` 与 `__LIBRARIAN__` 下的 `PROVIDER`、`MODEL`、`API_KEY`、`API_BASE` 共 8 条，只服务直配写法；同一前缀下的 `TEMPERATURE`、`MAX_TOKENS` 对应保留的字段。
-5. **`model_override`**（[`config/gateway.py`](../../src/hivememory/config/gateway.py) 的 `TopicRouterConfig` 与 `UserQueryAnalysisConfig`）：直接写 LiteLLM 模型名，[`json_analysis_params`](../../src/hivememory/engines/gateway/llm.py) 只替换模型、沿用 Gateway 的凭证，不经过注册表。仓库的 `config.yaml` 没有设置它。
+4. **旧式环境变量别名**（[`LEGACY_ENV_ALIASES`](../../../src/hivememory/config/app.py)）：`HIVEMEMORY__LLM__GATEWAY__` 与 `__LIBRARIAN__` 下的 `PROVIDER`、`MODEL`、`API_KEY`、`API_BASE` 共 8 条，只服务直配写法；同一前缀下的 `TEMPERATURE`、`MAX_TOKENS` 对应保留的字段。
+5. **`model_override`**（[`config/gateway.py`](../../../src/hivememory/config/gateway.py) 的 `TopicRouterConfig` 与 `UserQueryAnalysisConfig`）：直接写 LiteLLM 模型名，[`json_analysis_params`](../../../src/hivememory/engines/gateway/llm.py) 只替换模型、沿用 Gateway 的凭证，不经过注册表。仓库的 `config.yaml` 没有设置它。
 6. **只在启动时解析**：组合根装配时把两段解析为请求参数注入 Gateway 与 Patchouli，之后不再变化；模型页面与 Provider 页面的修改，Alice 下一帧生效，Gateway 与 Librarian 要重启。
-7. **前端主配置页实际显示 mock 数据**：前端的 `HiveMemoryConfig` 仍是旧的顶层结构（`llm`、`embedding`、`qdrant`、`retrieval`、`generation`、`lifecycle`、`perception`、`koakuma`），后端的顶层段中只有 `system`、`logging`、`gateway` 与之同名，`gateway` 的子结构也不同。设置页加载后先执行 [`validateConfig`](../../frontend/src/utils/configValidation.ts)，它读取 `config.llm.gateway.temperature` 时抛出 TypeError，页面退回 `MOCK_CONFIG` 并显示错误；此时保存提交的是 mock 数据，后端以校验错误拒绝。[`EngineSettings`](../../frontend/src/components/settings/EngineSettings.tsx) 虽已提供按 `model_id` 选择的下拉框，读写的却是 `config.llm.*`。
+7. **前端主配置页实际显示 mock 数据**：前端的 `HiveMemoryConfig` 仍是旧的顶层结构（`llm`、`embedding`、`qdrant`、`retrieval`、`generation`、`lifecycle`、`perception`、`koakuma`），后端的顶层段中只有 `system`、`logging`、`gateway` 与之同名，`gateway` 的子结构也不同。设置页加载后先执行 [`validateConfig`](../../../frontend/src/utils/configValidation.ts)，它读取 `config.llm.gateway.temperature` 时抛出 TypeError，页面退回 `MOCK_CONFIG` 并显示错误；此时保存提交的是 mock 数据，后端以校验错误拒绝。[`EngineSettings`](../../../frontend/src/components/settings/EngineSettings.tsx) 虽已提供按 `model_id` 选择的下拉框，读写的却是 `config.llm.*`。
 8. **`get_librarian_llm_config` / `get_gateway_llm_config`**（`config/app.py` 中的方法与同名模块函数）没有生产调用方，只有一个集成测试使用。
 
 仓库的 `configs/config.yaml` 与当前运行的部署，两段都以 `model_id` 引用注册表，不使用上述直配写法与 `model_override`。
@@ -154,7 +158,7 @@ def resolve(
 ### 4.6 配置加载与环境变量
 
 - `shared.llm` 迁到了别处，按 `retrieval.retriever.reranker` 的先例显式拒绝：`SharedConfig` 在校验前检查到 `llm` 时加载失败，错误指出两段的新位置。
-- 组件配置中残留的 `model`、`api_base`、`provider`、`context_window`、`top_p`，以及 `gateway.topic_router` / `gateway.user_query_analysis` 的 `model_override`，都是删除而不是迁移，由配置段拒绝未知键而加载失败，错误带字段路径；迁移方式写在 [System 配置](../system/configuration.md)的升级注意中。配置文件中非空的 `api_key` 仍先由已有的密钥检查拒绝，错误指出密钥应在的位置。
+- 组件配置中残留的 `model`、`api_base`、`provider`、`context_window`、`top_p`，以及 `gateway.topic_router` / `gateway.user_query_analysis` 的 `model_override`，都是删除而不是迁移，由配置段拒绝未知键而加载失败，错误带字段路径；迁移方式写在 [System 配置](../../system/configuration.md)的升级注意中。配置文件中非空的 `api_key` 仍先由已有的密钥检查拒绝，错误指出密钥应在的位置。
 - 删除第 3 节第 4 条中的 8 条环境变量别名；`HIVEMEMORY__LLM__GATEWAY__TEMPERATURE` 等 4 条改为指向新位置（`gateway.llm` 与 `patchouli.llm`）。嵌套形式的旧变量（`HIVEMEMORY__SHARED__LLM__...`）落到 `shared.llm`，同样以迁移错误失败。
 - 删除 `get_librarian_llm_config` / `get_gateway_llm_config`。
 - 主配置接口的密钥机制不变，说明中的“LLM 与 Qdrant”改为只有 Qdrant。
@@ -167,10 +171,11 @@ def resolve(
 - `validateConfig` 只校验后端存在的字段：两段 LLM 的 temperature 改用新路径；针对后端不存在的段的校验（`qdrant`、`gateway.analyzer` 等）删除，否则真实配置仍会让校验抛出。
 - 候选：真实配置能够加载之后，仍按旧结构读取的分类一打开就会在渲染时报错。因此 `SettingsPanel` 对这些分类（Infrastructure、Retrieval、Generation、Lifecycle、Perception、Koakuma，以及子结构不同的 Gateway）显示“该分类尚未与后端配置结构对齐”的提示，不渲染表单；General、引擎、Provider 与模型页照常渲染。现在这些分类显示的是 mock 数据，看起来正常、保存却会失败；改为提示之后表达的是真实状态。另一种做法是一次对齐全部分类，范围明显更大，宜另立计划。
 - `MOCK_CONFIG` 中引擎页使用的字段按新结构更新。
+- 实施中发现：主配置接口的响应模型 `ConfigResponse` 原先不返回 `gateway` 段，引擎页读不到 `gateway.llm`，加载校验仍会退回 mock 数据，因此响应加入 `gateway`（不含密钥）。`workspace`、`memory_compiler`、`import_bus` 与附件配置仍不在响应中；保存时这些段取配置文件中的值，不会被重置为默认值（实测）。
 
 ## 5. 受影响的系统、契约和数据
 
-- **配置契约**：`shared.llm` 删除，两段移到 `gateway.llm` 与 `patchouli.llm`，且只剩三项；`gateway.topic_router` / `user_query_analysis` 的 `model_override` 删除；环境变量别名删除 8 条、改向 4 条。`GET /api/v1/config` 与 `GET /api/v1/config/defaults` 的响应随配置模型变化，消费方只有前端设置页。
+- **配置契约**：`shared.llm` 删除，两段移到 `gateway.llm` 与 `patchouli.llm`，且只剩三项；`gateway.topic_router` / `user_query_analysis` 的 `model_override` 删除；环境变量别名删除 8 条、改向 4 条。`GET /api/v1/config` 与 `GET /api/v1/config/defaults` 的响应随配置模型变化，并加入 `gateway` 段；消费方只有前端设置页。
 - **System**：模型注册表、组合根的组件参数、配置加载与主配置接口的说明。
 - **agent_runtime / Alice**：`ModelResolver` 端口的返回类型。System 的模型注册表实现该端口，由组合根注入。
 - **Gateway / Patchouli**：配置段各多一个 `llm`；Gateway 两个分析器与 `json_analysis_params`。两个子系统的构造参数不变。
@@ -219,11 +224,24 @@ cd frontend && npm run lint && npm run build
 
 ## 9. 完成时必须更新的当前文档
 
-- [System 配置与注册表](../system/configuration.md)：第 1 节配置树中 `shared`、`gateway`、`patchouli` 的说明，第 2 节的兼容别名说明，第 3 节的解析步骤，第 4 节的密钥与组件配置说明，并加入升级注意；
-- [System 组合根](../system/composition.md)第 1.3 节：组件请求参数的来源与 `model_id: null` 的含义；
-- [Agent Runtime](../alice/agent-runtime.md)第 4 节：`ModelResolver` 返回请求参数与模型定义；
-- [Gateway 话题与查询分析](../gateway/analysis.md)：请求参数改由 `gateway.llm` 转换，删除 `model_override` 的说明；
-- [Patchouli 生成](../patchouli/generation.md)与[感知与短期话题](../patchouli/perception.md)：Librarian 的请求参数改由 `patchouli.llm` 转换；
-- [配置指南](../help/configuration.md)：环境变量别名与组件模型选择；
-- [管理页面](../frontend/management-views.md)第 3.3 节：引擎页已对齐，其余分类的提示；
-- [ROADMAP](../ROADMAP.md)、[Plans 导航](./README.md)与归档索引中本计划的状态。
+- [System 配置与注册表](../../system/configuration.md)：第 1 节配置树中 `shared`、`gateway`、`patchouli` 的说明，第 2 节的兼容别名说明，第 3 节的解析步骤，第 4 节的密钥与组件配置说明，并加入升级注意；
+- [System 组合根](../../system/composition.md)第 1.3 节：组件请求参数的来源与 `model_id: null` 的含义；
+- [Agent Runtime](../../alice/agent-runtime.md)第 4 节：`ModelResolver` 返回请求参数与模型定义；
+- [Gateway 话题与查询分析](../../gateway/analysis.md)：请求参数改由 `gateway.llm` 转换，删除 `model_override` 的说明；
+- [Patchouli 生成](../../patchouli/generation.md)与[感知与短期话题](../../patchouli/perception.md)：Librarian 的请求参数改由 `patchouli.llm` 转换；
+- [配置指南](../../help/configuration.md)：环境变量别名与组件模型选择；
+- [管理页面](../../frontend/management-views.md)第 3.3 节：引擎页已对齐，其余分类的提示；
+- [ROADMAP](../../ROADMAP.md)、[Plans 导航](../../plans/README.md)与归档索引中本计划的状态。
+
+## 10. 实施记录
+
+**提交**（PR #167，分支 `refactor/llm-config-retirement`）：计划（`18469be7`）、实现、测试与事实文档收尾（本次提交）。
+
+**实现**：按第 4 节落地，第 4 节的候选项均按 owner 的确认实施。另外发现并处理了第 4.7 节最后一项：`ConfigResponse` 加入 `gateway`。
+
+**验证**：
+
+- `pytest tests/unit tests/integration -m "not live_llm and not e2e and not slow" -n auto --cov=hivememory --cov-fail-under=85` 通过；ruff、black、mypy 通过；前端 `npm run lint`、`npm run build` 通过。
+- `tests/integration/patchouli/test_generation_topic_extraction.py`（`live_llm`）只核对了收集，未调用真实模型。
+- 设置页的数据路径以命令行核对（脚本在仓库之外）：以本分支的 `configs/config.yaml` 与 `.env` 构造配置，经主配置接口读出的 JSON 交给编译后的 `validateConfig` 没有错误，引擎页读取的 `gateway.llm.*`、`patchouli.llm.*` 与 `shared.embedding.default.model_name` 都有值；按引擎页的方式修改后提交，写出的文件中 `gateway.llm` 与 `patchouli.llm` 随之改变，`shared` 只剩 `embedding`。
+- 未在浏览器中渲染设置页：本机没有浏览器自动化工具，正在运行的后端仍是旧代码，重启会中断 owner 正在使用的 Claude Code 与 dsh 会话。待重启后在浏览器中核对第 7 节的前端项。

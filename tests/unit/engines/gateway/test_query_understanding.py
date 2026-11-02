@@ -73,24 +73,6 @@ async def test_analyze_parses_shared_result_and_renders_context() -> None:
 
 
 @pytest.mark.asyncio
-async def test_model_override_replaces_only_the_model() -> None:
-    """配置的模型覆盖只替换模型，凭证与采样参数沿用 Gateway 组件配置。"""
-    llm = ScriptedLLMService('{"intent_type":"RAG","rewritten_query":"重写结果"}')
-    params = DEFAULT_LLM_PARAMS.model_copy(update={"api_key": "gateway-key"})
-    engine = QueryUnderstandingEngine(
-        config=UserQueryAnalysisConfig(model_override="override-model"),
-        llm_service=llm,
-        llm_params=params,
-    )
-
-    await engine.analyze("查询")
-
-    assert llm.calls[-1].params == params.model_copy(
-        update={"model": "override-model", "json_output": True}
-    )
-
-
-@pytest.mark.asyncio
 async def test_analyze_without_topic_data_uses_empty_context() -> None:
     llm = ScriptedLLMService(
         '{"intent_type":"WRITE","rewritten_query":"用户偏好少盐饮食",'

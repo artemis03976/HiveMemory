@@ -64,4 +64,4 @@ owner 选定的范围（2026-11-01）是修复 1、2，增加加载时的拒绝�
 - `config.yaml` 中出现非空 `api_key` 时加载失败，错误指出字段路径与密钥应在的位置；
 - `shared.providers` 从主配置删除，提供商凭证由 `provider_credentials_from_env()` 从环境变量与 `.env` 读取后直接交给 Provider 注册表；`config.yaml` 中 DeepSeek 的 `api_base` 是提供商的默认地址，随这一段删除。
 
-未纳入本次范围，各自登记为 Todo：Gateway、Librarian 的旧式直配路径（`model`、`api_key`、`api_base` 字段与 `HIVEMEMORY__LLM__*__API_KEY` 别名，2026-11-01 升级为[计划](../../plans/llm-config-retirement.md)），以及模型注册表“高级覆盖”把模型级密钥写入受版本控制的 `models.yaml`（[已归档](./model-registry-api-key-override.md)）。
+未纳入本次范围，各自登记为 Todo：Gateway、Librarian 的旧式直配路径（`model`、`api_key`、`api_base` 字段与 `HIVEMEMORY__LLM__*__API_KEY` 别名，2026-11-01 升级为[计划](../plans/llm-config-retirement.md)，同日归档），以及模型注册表“高级覆盖”把模型级密钥写入受版本控制的 `models.yaml`（[已归档](./model-registry-api-key-override.md)）。

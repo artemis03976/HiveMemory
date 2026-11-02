@@ -21,10 +21,8 @@ class ModelDefinition(BaseModel):
     每条记录描述一个可用的 LLM，包含前端展示所需的显示信息
     以及 litellm 调用所需的技术参数。
 
-    与 LLMConfig 的关系：
-    - LLMConfig 是解析后的运行时配置，再由使用方转换为每次 LLM 调用的请求参数
-    - ModelDefinition 是持久化的"模型档案"，可以通过
-      ModelRegistry.to_llm_config() 转换为 LLMConfig
+    ModelRegistry.resolve() 按模型 ID 选出一条记录，与调用方的覆盖值合并为 LLM 调用的
+    请求参数；上下文窗口与展示名不属于请求参数，调用方直接从记录读取。
 
     凭证解析（见 ModelRegistry.resolve）：
     - 密钥与 API 地址只来自 provider 字段对应的 Provider 凭证；models.yaml 受版本控制，

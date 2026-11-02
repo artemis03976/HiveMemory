@@ -20,9 +20,7 @@ v0.7.2（Git tag `v0.7.2`，2026-11-01）、v0.7.1（Git tag `v0.7.1`，2026-10-
 
 ## 未绑定版本
 
-- [组件模型只经注册表解析，LLMConfig 退出中间翻译](./llm-config-retirement.md)：Active（2026-11-01 由 Todo 升级，同日开始实施），v0.7.3 之前的版本之外工作。
-
-DeepSeek Harness 插件接入已于 2026-11-01 归档，见 [Archived Plans](../archive/plans/README.md)。
+暂无。DeepSeek Harness 插件接入与组件模型只经注册表解析已于 2026-11-01 归档，见 [Archived Plans](../archive/plans/README.md)。
 
 ## 准入规则
 

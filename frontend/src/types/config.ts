@@ -13,20 +13,15 @@ export interface LoggingConfig {
   console_output: boolean;
 }
 
+/**
+ * 组件（Gateway、Patchouli）的模型选择与组件任务要求的生成参数。
+ * 模型与凭证只经模型注册表与 Provider 取得，启动时解析，保存后重启生效。
+ */
 export interface LLMConfig {
-  provider: string;
-  /** 引用注册表模型 ID（如 "deepseek-chat"）。设置时优先于 model 字段。 */
-  model_id?: string | null;
-  model: string;
-  api_key: string | null;
-  api_base: string | null;
+  /** 模型注册表 ID；'default' 表示注册表的默认模型，null 表示组件不使用 LLM */
+  model_id: string | null;
   temperature: number;
   max_tokens: number;
-}
-
-export interface LLMsConfig {
-  gateway: LLMConfig;
-  librarian: LLMConfig;
 }
 
 export interface EmbeddingConfig {
@@ -36,6 +31,14 @@ export interface EmbeddingConfig {
 
 export interface EmbeddingsConfig {
   default: EmbeddingConfig;
+}
+
+export interface SharedConfig {
+  embedding: EmbeddingsConfig;
+}
+
+export interface PatchouliConfig {
+  llm: LLMConfig;
 }
 
 export interface QdrantConfig {
@@ -63,6 +66,7 @@ export interface AnalyzerConfig {
 }
 
 export interface GatewayConfig {
+  llm: LLMConfig;
   interceptor: InterceptorConfig;
   analyzer: AnalyzerConfig;
 }
@@ -232,8 +236,8 @@ export interface KoakumaConfig {
 export interface HiveMemoryConfig {
   system: SystemConfig;
   logging: LoggingConfig;
-  llm: LLMsConfig;
-  embedding: EmbeddingsConfig;
+  shared: SharedConfig;
+  patchouli: PatchouliConfig;
   qdrant: QdrantConfig;
   gateway: GatewayConfig;
   perception: PerceptionConfig;
