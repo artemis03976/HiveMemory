@@ -86,7 +86,7 @@ Provider 页面通过独立 `/api/v1/providers` API 管理 `configs/providers.se
 
 ### 3.2 Model Registry
 
-Model 页面通过 `/api/v1/models` 管理 `configs/models.yaml`，支持创建、查询、更新、删除和默认模型标记。模型的密钥只来自 Provider 凭证，页面与 API 都不读写模型级密钥；展开高级覆盖只能为单个模型改写 api base，写入受版本控制的模型文件。
+Model 页面通过 `/api/v1/models` 管理 `configs/models.yaml`，支持创建、查询、更新、删除和默认模型标记。模型的密钥与 API 地址只来自所选 Provider 的凭证，页面与 API 都不读写模型级的 api key 或 api base；单个模型需要不同的密钥或地址时，在 Provider 页面另登记一个 Provider 再选择它。
 
 ### 3.3 主配置表单
 

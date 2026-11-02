@@ -42,7 +42,6 @@ def create_model(
         display_name=body.display_name,
         litellm_model=body.litellm_model,
         provider=body.provider,
-        api_base=body.api_base,
         temperature=body.temperature,
         max_tokens=body.max_tokens,
         context_window=body.context_window,

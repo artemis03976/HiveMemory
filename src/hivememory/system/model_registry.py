@@ -106,11 +106,14 @@ class ModelRegistry:
 
             raw_models: list[dict] = data.get("models", [])
             for raw in raw_models:
-                if raw.get("api_key") not in (None, ""):
+                # 残留的 api_key、api_base 不静默忽略：忽略它们会让请求改用 provider
+                # 的密钥或地址，而不是写入者以为的那一个。
+                if any(raw.get(field) not in (None, "") for field in ("api_key", "api_base")):
                     logger.error(
-                        f"跳过模型定义 {raw.get('id', '?')}：models.yaml 受版本控制，不保存密钥；"
-                        "删除这条模型的 api_key，密钥写入 .env 的 "
-                        "HIVEMEMORY__PROVIDERS__<名称>__API_KEY 或在 Provider 设置中保存"
+                        f"跳过模型定义 {raw.get('id', '?')}：模型定义不保存 api_key 与 api_base，"
+                        "它们属于 Provider 凭证；删除这两个字段，写入 .env 的 "
+                        "HIVEMEMORY__PROVIDERS__<名称>__API_KEY / __API_BASE 或在 Provider 设置中"
+                        "保存，需要不同的密钥或地址时另登记一个 Provider"
                     )
                     continue
                 try:
@@ -262,9 +265,8 @@ class ModelRegistry:
     def _resolve_credentials(self, model: ModelDefinition) -> tuple[str | None, str | None]:
         """解析模型的 (api_key, api_base)。
 
-        api_key 只来自 provider 凭证：models.yaml 受版本控制，模型定义不保存密钥。
-        api_base 的优先级：模型自身设置（高级覆盖）> provider 凭证。两者都没有时为
-        None，由 litellm 从环境变量读取。
+        两者只来自 provider 凭证：models.yaml 受版本控制，模型定义不保存连接凭证。
+        没有对应的 provider 凭证时为 None，由 litellm 从环境变量读取。
 
         provider 凭证查询：
         - 若注入了 ProviderRegistry，动态查询（支持运行时 CRUD，修改立即生效）
@@ -278,11 +280,9 @@ class ModelRegistry:
             else:
                 cred = self._provider_credentials.get(model.provider.lower())
 
-        api_key = cred.api_key if cred else None
-        api_base = (
-            model.api_base if model.api_base is not None else (cred.api_base if cred else None)
-        )
-        return api_key, api_base
+        if cred is None:
+            return None, None
+        return cred.api_key, cred.api_base
 
     def to_llm_config(self, model_id: str) -> LLMConfig:
         """

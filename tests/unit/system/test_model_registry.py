@@ -5,7 +5,7 @@ ModelRegistry 单元测试
 - YAML 加载与持久化（原子写入）
 - CRUD：add_model / update_model / delete_model / get_model / list_models
 - 默认模型不变量（有且仅有一条 is_default=True）
-- 凭证解析：api_key 只来自 provider 凭证（ProviderRegistry > 静态字典 > None），api_base 可由模型覆盖
+- 凭证解析：api_key 与 api_base 只来自 provider 凭证（ProviderRegistry > 静态字典 > None）
 - resolve() / resolve_for_llm_config() / to_llm_config()
 - 异常路径：ModelNotFoundError / DuplicateModelIdError
 """
@@ -38,7 +38,6 @@ def _make_model(
     max_tokens: int = 4096,
     context_window: int | None = None,
     top_p: float = 1.0,
-    api_base: str | None = None,
     provider: str = "",
 ) -> ModelDefinition:
     return ModelDefinition(
@@ -50,7 +49,6 @@ def _make_model(
         max_tokens=max_tokens,
         context_window=context_window,
         top_p=top_p,
-        api_base=api_base,
         provider=provider,
     )
 
@@ -119,8 +117,12 @@ class TestLoad:
         assert len(registry) == 1
         assert registry.get_model("good") is not None
 
-    def test_model_entry_with_api_key_skipped(self, tmp_path):
-        """models.yaml 不保存密钥：写入 api_key 的模型被跳过，旧文件中的 api_key: null 照常加载。"""
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [("api_key", "sk-in-tracked-file"), ("api_base", "https://proxy.example.com")],
+    )
+    def test_model_entry_with_connection_credential_skipped(self, tmp_path, field, value):
+        """连接凭证只属于 Provider：写入 api_key 或 api_base 的模型被跳过，两项为 null 的旧文件照常加载。"""
         registry_path = tmp_path / "models.yaml"
         data = {
             "models": [
@@ -128,13 +130,14 @@ class TestLoad:
                     "id": "leaky",
                     "display_name": "Leaky",
                     "litellm_model": "openai/gpt-4o",
-                    "api_key": "sk-in-tracked-file",
+                    field: value,
                 },
                 {
                     "id": "legacy",
                     "display_name": "Legacy",
                     "litellm_model": "deepseek/deepseek-chat",
                     "api_key": None,
+                    "api_base": None,
                 },
             ]
         }
@@ -296,26 +299,8 @@ class TestPersistence:
 
 
 class TestCredentialResolution:
-    def test_model_api_base_overrides_provider_while_key_comes_from_provider(self, tmp_path):
-        """模型只能覆盖 api_base；密钥仍取 provider 凭证，不因覆盖而丢失。"""
-        model = _make_model(
-            "m1",
-            litellm_model="deepseek/deepseek-chat",
-            api_base="https://proxy.example.com",
-        )
-        creds = {
-            "deepseek": ProviderCredentials(
-                api_key="provider-key", api_base="https://api.deepseek.com"
-            )
-        }
-        registry = _make_registry(tmp_path, models=[model], provider_credentials=creds)
-
-        llm_config = registry.to_llm_config("m1")
-        assert llm_config.api_key == "provider-key"
-        assert llm_config.api_base == "https://proxy.example.com"
-
     def test_provider_credentials_fill_key_and_base(self, tmp_path):
-        """模型未覆盖 api_base 时，密钥与地址都从 provider 凭证中补齐。"""
+        """密钥与地址都从 provider 凭证中补齐。"""
         model = _make_model("m1", litellm_model="openai/gpt-4o")
         creds = {
             "openai": ProviderCredentials(

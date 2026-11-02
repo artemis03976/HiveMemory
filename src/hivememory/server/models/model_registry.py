@@ -19,7 +19,6 @@ class ModelResponse(BaseModel):
     display_name: str
     litellm_model: str
     provider: str
-    api_base: str | None = None
     temperature: float
     max_tokens: int
     context_window: int | None = None
@@ -33,7 +32,6 @@ class ModelResponse(BaseModel):
             display_name=model.display_name,
             litellm_model=model.litellm_model,
             provider=model.provider,
-            api_base=model.api_base,
             temperature=model.temperature,
             max_tokens=model.max_tokens,
             context_window=model.context_window,
@@ -49,7 +47,6 @@ class ModelCreateRequest(BaseModel):
     display_name: str = Field(description="前端展示名称，如 'GPT-4o'")
     litellm_model: str = Field(description="litellm 模型标识符，如 'gpt-4o'")
     provider: str = Field(default="", description="提供商标识，留空自动从 litellm_model 前缀推导")
-    api_base: str | None = Field(default=None, description="自定义 API 地址，留空使用默认")
     temperature: float = Field(default=DEFAULT_TEMPERATURE, ge=0.0, le=2.0)
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, gt=0)
     context_window: int | None = Field(default=None, gt=0, description="模型总上下文窗口 token 数")
@@ -63,7 +60,6 @@ class ModelUpdateRequest(BaseModel):
     display_name: str | None = None
     litellm_model: str | None = None
     provider: str | None = None
-    api_base: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_tokens: int | None = Field(default=None, gt=0)
     context_window: int | None = Field(

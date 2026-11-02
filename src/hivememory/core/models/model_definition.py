@@ -27,8 +27,8 @@ class ModelDefinition(BaseModel):
       ModelRegistry.to_llm_config() 转换为 LLMConfig
 
     凭证解析（见 ModelRegistry.resolve）：
-    - 密钥只来自 provider 字段对应的 Provider 凭证；models.yaml 受版本控制，模型定义不保存密钥
-    - api_base 可以单独覆盖，留空时同样由 Provider 凭证补齐
+    - 密钥与 API 地址只来自 provider 字段对应的 Provider 凭证；models.yaml 受版本控制，
+      模型定义不保存连接凭证。单个模型需要不同的密钥或地址时，另登记一个 provider
     """
 
     id: str = Field(
@@ -47,10 +47,6 @@ class ModelDefinition(BaseModel):
             "提供商标识，用于查 Provider 凭证，如 'deepseek'、'openai'。"
             "留空时自动从 litellm_model 的前缀推导（'deepseek/xxx' → 'deepseek'）"
         ),
-    )
-    api_base: str | None = Field(
-        default=None,
-        description="自定义 API 基础 URL。None 表示回落到 provider 凭证或提供商默认地址",
     )
     temperature: float = Field(
         default=DEFAULT_TEMPERATURE,

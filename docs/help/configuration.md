@@ -99,14 +99,13 @@ configs/providers.secrets.example.yaml
 - `display_name`：前端展示名；
 - `litellm_model`：交给 LiteLLM 的实际模型名；
 - `provider`：用于解析凭证；
-- 可选的 `api_base`：只覆盖这个模型的 API 地址，留空时使用 Provider 凭证中的地址；
 - temperature、top_p、max_tokens 默认值；
 - 可选的 `context_window`：提供商支持的总上下文窗口 token 数，用于 Alice 计算输入预算；
 - `is_default`：系统默认模型标记。
 
 Settings -> Model Registry 或 `/api/v1/models` 可以运行时 CRUD，并原子写回 YAML。注册表会在新增/更新默认模型时清除其他默认标记；如果没有显式默认，解析 `default` 会回退到第一条记录。
 
-模型定义不保存密钥：密钥只在 Provider Registry 中保存，模型按 `provider` 取得。`models.yaml` 受版本控制，其中写入非空 `api_key` 的模型在加载时被跳过，日志指出模型 ID 与密钥应在的位置；删除这一字段、把密钥移到 Provider 后重启。单个模型需要不同的密钥时，另登记一个 Provider 名称并让这个模型引用它。
+模型定义不保存连接凭证：密钥与 API 地址只在 Provider Registry 中保存，模型按 `provider` 取得。`models.yaml` 受版本控制，其中写入非空 `api_key` 或 `api_base` 的模型在加载时被跳过，日志指出模型 ID 与它们应在的位置；删除这两个字段、把值移到 Provider 后重启。单个模型需要不同的密钥或地址时（例如经代理访问），另登记一个 Provider 名称并让这个模型引用它。
 
 ## 5. 主配置与生效边界
 
