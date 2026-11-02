@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-02
 ---
 
 # 数据模型与可变性边界
@@ -144,7 +144,7 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 
 - `InteractionTurnSnapshot` 的执行者身份由单一 `actor_identity: ActorIdentity` 承载，不再平铺 `user_id/agent_id/team_id` 三元组；旧平铺 JSON 的读取升级分支已随 V1 存量数据迁移完成而删除，缺 `actor_identity` 的记录反序列化 fail closed，历史记录只能通过迁移工具的 canonical replacement 访问。
 - `ActorIdentity.session_id` 已删除；历史 Artifact 中 actor 的额外 `session_id` 字段按 Pydantic 的额外字段忽略行为读取，重新输出时不保留。Chat 请求体使用 `session_id` 绑定会话资源；它仍不构造身份，finalize 使用进程关联。
-- Interaction submission codec 为 v6，generation codec 的 `schema_version` 为字符串 `"1.1"`，归属与发起者分别 round-trip；进程内队列只注册当前版本，不提供旧任务 scope payload 的兼容重放。
+- Interaction submission codec 为 v7，generation codec 的 `schema_version` 为字符串 `"1.1"`，归属与发起者分别 round-trip；进程内队列只注册当前版本，不提供旧任务 scope payload 的兼容重放。
 - V1 存储数据迁移与 legacy 兼容分支删除已完成：Qdrant 中 Memory payload 只接受 schema v2（`decode_memory_payload` 不再解释缺 `schema_version` 的记录），检索过滤只按 canonical owner/workspace 投影与 v2 actor read policy（`meta.user_id` OR 分支与 legacy visibility 分支已删除），ArtifactStore 不再把仅含 owner 字段的历史文件解释为 `main_workspace` 归属。迁移报告与旧新 ID 映射见归档 Plan（[v0.6.2 V1 Memory Legacy 迁移](../archive/plans/v0.6.2-v1-memory-legacy-migration.md)）。
 - 读侧兼容属性已收口：`TopicData.user_id`、`TopicMaterializeTask.user_id`、`StreamMessage` 的 `user_id/agent_id/session_id` 兼容 property 与 `ActorIdentity.buffer_key` 已删除；`ExecutionFrame` 与 `MTPExecutionContext` 不再派生 `.identity` 或 `identity_scope`。`RuntimeScope` 与 `CPUInputManifest` 只保存 `labels: ExecutionLabels`，资源身份由 CPU 持有的线程 context 与逐次授权决定。
 - Import Bus 的 `ImportConversationKey` 由认证通过的 actor 平铺的 `user_id`、`agent_id` 与外部 `source`、外部会话标识组成，只作进程内串行门的稳定命名域，不解释 scope 对象、不参与授权；`MemoryAccessPolicy` 对 `PUBLIC/PRIVATE/TEAM` 的 target 组合校验在模型层完整执行，管理读取（owner-management 语义）跳过 actor 可见性过滤但保留 ownership hard boundary。
@@ -178,9 +178,10 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 | `user_message` | 用户消息 | — |
 | `assistant_message` | 助手正文的一段 | — |
 | `thought` | 思考正文 | — |
+| `subagent_message` | 被委托的子 Agent 结束时交回执行者的消息原文 | — |
 | `tool_call` | 调用原文：MTP 为指令片段，结构化调用为空串 | `action_id`（必填）、`verb` 或 `tool_name`、`targets`、`tool_args`；结局 `status`、`result`、`produced_aliases` |
 
-一次工具调用与它的结局是同一个 `tool_call` 事件，读取方不需要配对。字段语义：
+一次工具调用与它的结局是同一个 `tool_call` 事件，读取方不需要配对。`subagent_message` 由外部 harness 的导入写出（当前是 dsh 插件，取子 Agent 的结算通知，[Import Bus](../system/import-bus.md#93-轮次的切分与映射)第 9.3 节）：子 Agent 的过程不进入交互记录，它交回的最终输出作为这一轮的一步保留。它不是用户消息，也不计入回复正文。字段语义：
 
 - **`content`**：执行者写出的原文，重放据此还原。MTP 调用事件只存指令片段，指令前的正文只在它前面那条 `assistant_message` 中。对调用的解读只看结构化字段；MTP 指令无法解析时只有原文，`verb` 与 `tool_name` 都为空。
 - **`action_id`**：一次调用的标识，轮内唯一。MTP 为 `action_{iteration}_{sequence}`，Claude Code 为 `tool_use.id`；CALL 回填按它找到挂起的调用。

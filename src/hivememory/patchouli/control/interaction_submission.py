@@ -125,10 +125,13 @@ class InteractionSubmission:
 
 
 class InteractionSubmissionCodec:
-    """InteractionSubmission 的 v6 canonical JSON codec，携带新话题的标题与摘要。"""
+    """InteractionSubmission 的 v7 canonical JSON codec。
+
+    携带新话题的标题与摘要；载荷的事件可以包含子 Agent 交回的消息。
+    """
 
     kind = "patchouli.interaction_submission"
-    schema_version = 6
+    schema_version = 7
 
     def encode(self, submission: InteractionSubmission) -> object:
         if not isinstance(submission, InteractionSubmission):

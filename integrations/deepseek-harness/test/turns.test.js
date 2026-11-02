@@ -119,14 +119,51 @@ test('the user message joins human messages in order and skips injected context'
   assert.equal(body(log).user_message, 'first ask\n\nand this\n[image]')
 })
 
-test('a turn woken without a human message has an empty user message', () => {
+test('subagent settlement notices become subagent events in place, not user text', () => {
   const log = new SessionLog()
     .startTurn(1)
-    .user('child finished', { kind: 'subagent-settled', form: 'notice', summary: 'done' })
+    .user('research this repo')
+    .toolCall('c1', 'subagent', { prompt: 'dig into storage' })
+    .toolResult('c1', 'started subagent child-1')
+    .user('Agent child-1 sent a message: report', { kind: 'agent-message', form: 'relay', senderSessionId: 'child-1' })
+    .add('user/message', {
+      role: 'user',
+      content: [
+        { type: 'text', text: 'Background subagent child-1 finished.' },
+        { type: 'text', text: 'Its closing message:' },
+        { type: 'text', text: 'report' },
+      ],
+      source: { kind: 'subagent-settled', form: 'notice', senderSessionId: 'child-1' },
+    })
+    .user('background job done', { kind: 'tool-jobs', form: 'notice' })
+    .assistant([{ type: 'text', text: 'summary' }])
+    .endTurn(1)
+
+  const imported = body(log)
+
+  assert.equal(imported.user_message, 'research this repo')
+  assert.deepEqual(imported.events.map(event => [event.kind, event.content]), [
+    ['tool_call', ''],
+    ['subagent_message', 'Background subagent child-1 finished.\nIts closing message:\nreport'],
+    ['assistant_message', 'summary'],
+  ])
+})
+
+test('a turn woken by a subagent settlement notice has an empty user message', () => {
+  const log = new SessionLog()
+    .startTurn(1)
+    .user('Background subagent child-1 finished.', { kind: 'subagent-settled', form: 'notice' })
     .assistant([{ type: 'text', text: 'noted' }])
     .endTurn(1)
 
-  assert.equal(body(log).user_message, '')
+  const imported = body(log)
+
+  assert.equal(imported.user_message, '')
+  assert.deepEqual(imported.events[0], {
+    kind: 'subagent_message',
+    sequence: 1,
+    content: 'Background subagent child-1 finished.',
+  })
 })
 
 test('turn end reasons map to completed, cancelled or failed', () => {

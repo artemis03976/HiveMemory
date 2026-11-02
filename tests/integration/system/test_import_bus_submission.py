@@ -1,4 +1,4 @@
-"""Import Bus、真实交互队列与感知存储之间的身份拆分、查重与新话题标题回归。
+"""Import Bus、真实交互队列与感知存储之间的身份拆分、查重、新话题标题与生成材料回归。
 
 真实协作：统一认证网关与操作授权者、``ImportBusService`` 与编排器、
 Patchouli 的公开提交服务、内存提交队列与 ``PerceptionFamiliar``；Gateway 的
@@ -124,7 +124,12 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
                     "status": "success",
                     "result": "已有记忆正文",
                 },
-                {"kind": "assistant_message", "sequence": 3, "content": "已修复断言"},
+                {
+                    "kind": "subagent_message",
+                    "sequence": 3,
+                    "content": "子 Agent 的报告：断言比较的是旧字段",
+                },
+                {"kind": "assistant_message", "sequence": 4, "content": "已修复断言"},
             ],
         }
     )
@@ -160,4 +165,6 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
     transcript = generation.build_transcript(generation.build_context([block]))
     assert "READ: fact_a, fact_b" in transcript
     assert "已有记忆正文" not in transcript
+    # 子 Agent 交回的消息随这一轮进入生成材料，不混入回复正文。
+    assert "[Subagent]: 子 Agent 的报告：断言比较的是旧字段" in transcript
     assert await queue.pending_count() == 0

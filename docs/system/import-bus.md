@@ -38,7 +38,7 @@ related_plans:
   - docs/archive/plans/v0.7.1-memory-access-mcp.md
   - docs/archive/plans/v0.7.2-plugin-write-update.md
   - docs/archive/plans/dsh-plugin-integration.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-02
 ---
 
 # Import Bus
@@ -83,7 +83,7 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 | `agent_id` | 连接器所代表的具体 Agent，只作为认证声明，不进入导入记录 |
 | `outcome` | `completed`、`cancelled` 或 `failed`，与 `InteractionOutcome` 相同 |
 | `user_message` | 该轮的用户消息 |
-| `events` | 用户消息之后的事件，与 `TurnEvent` 同形（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)）：`kind`（`assistant_message`、`thought`、`tool_call`）、`sequence`（从 1 起严格递增）、`content`；工具调用另带轮内唯一的 `action_id`、`tool_name` 或 `verb`、`targets`、`tool_args`，有结局时带成对的 `status` 与 `result` |
+| `events` | 用户消息之后的事件，与 `TurnEvent` 同形（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)）：`kind`（`assistant_message`、`thought`、`subagent_message`、`tool_call`）、`sequence`（从 1 起严格递增）、`content`；`subagent_message` 是被委托的子 Agent 结束时交回的消息，只带 `content`；工具调用另带轮内唯一的 `action_id`、`tool_name` 或 `verb`、`targets`、`tool_args`，有结局时带成对的 `status` 与 `result` |
 | `model_used` | 实际使用的模型名，可为空 |
 | `recent_turns` | 该轮之前的若干轮（`user_message`、`assistant_text`、可选 `external_turn_id`），只供 Gateway 落位，不进入交互记录 |
 
@@ -372,12 +372,16 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 ### 9.3 轮次的切分与映射
 
 - 一轮从 `turn/start` 到同一轮号的 `turn/end`，没有 `turn/end` 的一轮仍在进行，不提交。外部会话标识取会话标识，外部轮次标识取轮号：轮号在会话内唯一且递增，恢复与 fork 都接着已有的最大轮号编号。fork 出的会话只读继承前缀之后的事件；继承前缀中未结束的一轮由 fork 补上的收尾结束，它的 `turn/start` 在前缀中，因此不形成轮次。
-- **用户消息**：来源为 `user` 的消息（一轮的提示、运行中追加的消息、父 Agent 委托给子 Agent 的任务）按顺序以空行拼接，图片与文件写占位；harness 注入的上下文（技能正文、目录说明、压缩摘要、子 Agent 的结束通知等）不读取。一轮可能没有这类消息，例如由子 Agent 的结束通知唤醒，用户消息因此为空。
+- **用户消息**：来源为 `user` 的消息（一轮的提示与运行中追加的消息）按顺序以空行拼接，图片与文件写占位；harness 注入的上下文（技能正文、目录说明、压缩摘要、后台任务通知等）不读取。一轮可能没有这类消息，例如由子 Agent 的结算通知唤醒，用户消息因此为空。
 - **事件**：助手消息的 `text` 块写为 `assistant_message`，`reasoning` 块写为 `thought`（没有正文的跳过），`tool-call` 块不读取，调用以独立的 `tool/call` 事件为准，写为 `tool_call`；`tool/result` 按调用标识补全到同一轮的调用上（`isError` 为真时 `status` 为 `error`，否则为 `success`），找不到调用的结果跳过。没有形成助手消息的尝试不读取。`model_used` 取最后一条助手消息的模型。
 - **回声标记**：本插件四个记忆工具的调用归一化为 `SEARCH`、`READ`、`WRITE`、`UPDATE`，规则与 Claude Code 连接器相同（第 8.3 节）。插件注册的工具名就是 MCP 工具的名字，dsh 的工具注册表中同名工具只能有一个，工具名因此就是识别依据。
 - **结局**：`completed` 为 `completed`；被取消（`aborted`）、崩溃后收尾（`interrupted`）与 fork 收尾为 `cancelled`；出错、被拦截（`blocked`）、输出达到上限（`max-tokens`）与插件扩展的未知原因为 `failed`。
 - **最近轮次**：该轮之前最近三个已结束轮次的用户消息、全部助手正文与外部轮次标识，正文按字符截断到 2000。写入时补上的轮次信息以同一函数从同一份会话记录构造，回流时服务端推导出同一个交互标识。
-- **子 Agent**：子 Agent 的会话作为独立的外部会话导入，子 Agent 中的写入落在它自己的当前一轮；父会话只导入委托子 Agent 的那次工具调用。
+- **子 Agent**：子 Agent 是父 Agent 临时委托的执行线程，与 Alice 的 CALL 子帧一样，它的过程不进入记忆生成，要保留的内容由它自己写入记忆；父会话的一轮保留它交回的最终输出（owner 决定，2026-11-02）。
+  - 会话头来源为 `subagent` 的会话（进程内 spawn 与 fork 出的子 Agent）不登记、不导入，也就不建立话题。子会话若各自导入，每个子 Agent 都会占一个新话题、挤掉驻留话题，它的轨迹也会被单独提取成一批粒度与父 Agent 不一致的记忆。
+  - 子 Agent 结算后 dsh 发给父 Agent 的通知（来源 `subagent-settled`：结局一行、子 Agent 最后的输出，有时附结构化结果与诊断）按出现位置写为 `subagent_message` 事件，原文保留；父 Agent 忙时通知并入进行中的一轮，空闲时开启新的一轮。它不并入用户消息，因为话题路由读取用户消息全文，一次调研交回的报告可达十万字符；也不作为委托调用的结局，因为生成材料中单条工具结果按上限截断。
+  - 子 Agent 运行中用 `send_message` 发来的消息（来源 `agent-message`）不读取：结算通知已经带有它最后的输出，两者都读会让同一份报告重复进入材料。
+  - 子 Agent 中的写入与更新沿会话头的 `parentSession` 逐级找到顶层会话，以顶层会话最近的一轮构造轮次信息，与这一轮回流时的同名字段相同；这一轮已经结束也照用，按第 4.7 节的迟到写入处理。
 
 ### 9.4 水位与首次见到的会话
 
@@ -415,13 +419,14 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 - 请求头中的用户身份不做证明，只适用于本地单用户部署；接入凭据是本地共享密钥，修改经重启生效。
 - 回声标记依赖 Claude Code 的工具调用命名规则：规则变化时标记静默失效，回声恢复，表现为重复记忆；`PreToolUse` 的 matcher 写的也是这些调用名，同样失效，写入与更新以缺少轮次信息被拒绝。
 - 写入时落位的轮次始终没有回流（连接器长期不可用，或 hook 未运行时模型编造了轮次信息）时，落点留到进程重启，预建的空话题由空闲结算清理。
-- 后台运行的子代理在用户发出下一条消息之后才写入时，写入落在那时的当前一轮：`PreToolUse` 的输入只给出会话当时的当前一轮。
+- 后台运行的子代理在用户发出下一条消息之后才写入时，写入落在那时的当前一轮：`PreToolUse` 的输入只给出会话当时的当前一轮。dsh 的子 Agent 同样落在顶层会话那时最近的一轮。
 - 第一次写入要等一次 Gateway 路由；同一外部会话的上一轮仍持有串行门等待应用时，还要等它完成。
 - Claude Code 的会话记录有时只记下同一条消息并行发出的多个调用中最后一个的结果，其余调用以没有结局的形式导入，生成材料中缺少这些结果；连接器无法补回会话记录没有保存的内容。
 - 连接器依赖 Claude Code 未公开承诺的会话记录格式；本地记录中的思考多数只有签名，连接器只能转交有正文的部分。30 分钟无新条目即按中断结束的规则，会把等待权限确认超过 30 分钟、恰逢其他会话唤醒补发的一轮按中断提交，之后写入的内容不再导入。连接器只在 Linux（WSL）上验证过，Windows 上的文件锁以持续重试取得。
 
 - dsh 插件依赖 dsh 开发者预览版的插件服务与会话事件，跨版本可能不兼容：`engines.dsh` 限定在 0.2.x，桌面端升级会同时升级 dsh。dsh 的 PTC 模式（默认关闭）下记忆工具在 `run_code` 内部调用，会话记录只有外层调用，回声标记不生效。
-- dsh 一轮中运行时追加的用户消息并入用户消息，与助手事件的相对位置不保留；子 Agent 的会话独立导入，子 Agent 的轨迹也进入记忆生成。
+- dsh 一轮中运行时追加的用户消息并入用户消息，与助手事件的相对位置不保留。
+- dsh 子 Agent 的过程（读了哪些文件、工具输出了什么）不进入任何材料：子 Agent 没有写入、最后的输出也没有提到的发现会丢失；子 Agent 只经 `send_message` 交回完整结果、最后只说“已完成”时，材料中只有这句话。一轮带多个子 Agent 时结算通知让材料明显变大（一次 5 个子 Agent 的调研多出约 10 万字符），会更早触发 Page Folding，被折叠的轮次只以接力摘要进入结算时的生成。
 - dsh 插件每次同步与每次写入都读取整个会话记录，开销随会话长度增长；崩溃时进行中的一轮只在会话恢复后回流，不再恢复的会话不回流这一轮；多个 dsh 进程共用状态目录时没有跨进程互斥，同一轮可能提交两次，由服务端按交互标识去重。
 
 这些项目曾在 v0.7.1 期间随日常使用观察，记录见已归档的 [Import Bus 真实使用观察](../archive/todo/import-bus-real-use-observation.md)（2026-10-30 归档，之后日常使用中发现的问题另行登记）。

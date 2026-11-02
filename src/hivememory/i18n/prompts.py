@@ -445,7 +445,8 @@ title 不超过 100 字，summary 不超过 200 字，changelog 用一句话说�
 - **WORK_IN_PROGRESS**: 未完成的任务状态
 
 ## 过程条目
-对话片段中每轮以 [User] 开头，其后按发生顺序排列助手正文（[Assistant]）与以 "- " 开头的过程条目：
+对话片段中每轮以 [User] 开头，其后按发生顺序排列助手正文（[Assistant]）、子 Agent 交回的消息（[Subagent]）与以 "- " 开头的过程条目：
+- **[Subagent]**: 被委托的子 Agent 结束时交回当前 Agent 的通知，带它的结局与最后的输出，是子 Agent 的结论，与助手正文同等对待；子 Agent 依据的工具观察不在片段中
 - **THOUGHT**: Agent 的推理与思考，不是用户的陈述，也不是已经验证的事实；不能单独作为记忆的事实依据，主要由它得出的内容应降低置信度
 - **TOOL / RESULT**: 外部工具的调用（工具名与参数）及其返回结果。结果是对外部系统的观察，可以作为事实依据；标为 (error) 的结果表示调用出错，可用于提炼错误原因与修复经验
 - **SEARCH / READ / RUN**: 记忆系统内部操作（检索、读取记忆与运行记忆中的工具）的一行摘要；SEARCH 与 READ 读回的是已有记忆，不要把它们重复提取为新记忆
@@ -522,7 +523,8 @@ title 不超过 100 字，summary 不超过 200 字，changelog 用一句话说�
 - **WORK_IN_PROGRESS**: 未完成的任务状态
 
 ## 背景对话中的过程条目
-- 每轮以 [User] 开头，其后按发生顺序排列助手正文（[Assistant]）与以 "- " 开头的过程条目
+- 每轮以 [User] 开头，其后按发生顺序排列助手正文（[Assistant]）、子 Agent 交回的消息（[Subagent]）与以 "- " 开头的过程条目
+- **[Subagent]** 是被委托的子 Agent 结束时交回的通知，带它的结局与最后的输出，是子 Agent 的结论，与助手正文同等对待
 - **THOUGHT** 是 Agent 的推理，不能用来证实草稿；**TOOL / RESULT** 是外部工具的调用与返回结果，可以用来验证与补全草稿，标为 (error) 的结果表示调用出错
 - **SEARCH / READ / RUN** 是记忆系统内部操作（检索、读取记忆与运行记忆中的工具）的一行摘要
 - "…[N chars omitted]…" 处省略了过长工具结果的中段，不要推测被省略的内容
@@ -588,7 +590,8 @@ title 不超过 100 字，summary 不超过 200 字，changelog 用一句话说�
 - **Append (追加)**: 在末尾追加新内容
 
 ## 参考上下文中的过程条目
-- 每轮以 [User] 开头，其后按发生顺序排列助手正文（[Assistant]）与以 "- " 开头的过程条目
+- 每轮以 [User] 开头，其后按发生顺序排列助手正文（[Assistant]）、子 Agent 交回的消息（[Subagent]）与以 "- " 开头的过程条目
+- **[Subagent]** 是被委托的子 Agent 结束时交回的通知，带它的结局与最后的输出，是子 Agent 的结论，与助手正文同等对待
 - **THOUGHT** 是 Agent 的推理，不能作为修改的事实依据；**TOOL / RESULT** 是外部工具的调用与返回结果，可以作为修改的参考，标为 (error) 的结果表示调用出错
 - **SEARCH / READ / RUN** 是记忆系统内部操作的一行摘要；"…[N chars omitted]…" 处省略了过长工具结果的中段，不要推测
 
@@ -693,7 +696,8 @@ Analyze conversation snippets between the user and the AI assistant, extract and
 - **WORK_IN_PROGRESS**: Unfinished task state.
 
 ## Process Entries
-Each turn of a conversation snippet starts with [User], followed in order by the assistant's text ([Assistant]) and process entries starting with "- ":
+Each turn of a conversation snippet starts with [User], followed in order by the assistant's text ([Assistant]), messages handed back by subagents ([Subagent]), and process entries starting with "- ":
+- **[Subagent]**: The notice a delegated subagent handed back to the current Agent when it finished, carrying its outcome and final output. Treat it as the subagent's conclusions, like the assistant's text; the tool observations behind it are not in the snippet.
 - **THOUGHT**: The Agent's reasoning. It is neither a user statement nor a verified fact; do not use it alone as the factual basis of a memory, and lower the confidence of content that mainly comes from it.
 - **TOOL / RESULT**: A call to an external tool (tool name and arguments) and what it returned. Results are observations of external systems and may serve as factual basis; a result marked (error) means the call failed and can be used to extract causes and fixes.
 - **SEARCH / READ / RUN**: One-line summaries of internal memory-system operations (searching and reading memories, and running tools stored in memories). What SEARCH and READ read back are existing memories; do not extract them again as new memories.
@@ -770,7 +774,8 @@ Your task is not to discover value from the conversation, but to verify and stru
 - **WORK_IN_PROGRESS**: Unfinished task state.
 
 ## Process Entries in the Background Conversation
-- Each turn starts with [User], followed in order by the assistant's text ([Assistant]) and process entries starting with "- ".
+- Each turn starts with [User], followed in order by the assistant's text ([Assistant]), messages handed back by subagents ([Subagent]), and process entries starting with "- ".
+- **[Subagent]** is the notice a delegated subagent handed back when it finished, carrying its outcome and final output; treat it as the subagent's conclusions, like the assistant's text.
 - **THOUGHT** is the Agent's reasoning and cannot confirm the draft; **TOOL / RESULT** is a call to an external tool and what it returned, which may be used to verify and enrich the draft. A result marked (error) means the call failed.
 - **SEARCH / READ / RUN** are one-line summaries of internal memory-system operations (searching and reading memories, and running tools stored in memories).
 - "…[N chars omitted]…" marks an omitted middle part of an overlong tool result. Do not guess the omitted content.
@@ -836,7 +841,8 @@ Automatically infer the mode from the instruction:
 - **Append**: Append new content at the end.
 
 ## Process Entries in the Reference Context
-- Each turn starts with [User], followed in order by the assistant's text ([Assistant]) and process entries starting with "- ".
+- Each turn starts with [User], followed in order by the assistant's text ([Assistant]), messages handed back by subagents ([Subagent]), and process entries starting with "- ".
+- **[Subagent]** is the notice a delegated subagent handed back when it finished, carrying its outcome and final output; treat it as the subagent's conclusions, like the assistant's text.
 - **THOUGHT** is the Agent's reasoning and is not a factual basis for the update; **TOOL / RESULT** is a call to an external tool and what it returned, which may inform the update. A result marked (error) means the call failed.
 - **SEARCH / READ / RUN** are one-line summaries of internal memory-system operations. "…[N chars omitted]…" marks an omitted middle part of an overlong tool result; do not guess it.
 

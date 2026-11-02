@@ -17,7 +17,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-02
 ---
 
 # 子系统公共契约
@@ -229,7 +229,7 @@ interaction.wait(*, identity_scope, interaction_id, timeout_seconds) -> Interact
 - **等待**：`interaction.wait` 先按状态查询校验归属；仍为 `pending` 时等待交互应用到终态或超时，返回此时的进度，超时仍为 `pending`，队列停止时返回停止那一刻的进度。
 - **重发**：同一 `interaction_id` 在等待中或已成功时，相同载荷返回原收据，不同载荷报冲突；到达终态而未成功的交互允许以同一标识重新提交，载荷可以不同（例如落位的话题在应用前已被驱逐，提交方重新路由后再交），新提交以递增的尝试号作为工作项标识入队。为查重保留的旁路索引只存编码载荷的摘要，冲突比较不需要留住整份载荷。
 
-Interaction codec 为 v6，编码新话题的标题与摘要；当前进程内队列不注册旧版本。查重与进度都只覆盖进程内的保留窗口，不跨重启。
+Interaction codec 为 v7，编码新话题的标题与摘要，载荷的事件可以包含子 Agent 交回的消息；当前进程内队列不注册旧版本。查重与进度都只覆盖进程内的保留窗口，不跨重启。
 
 ## 4. CPU 端口与 Alice 实现
 
@@ -416,7 +416,7 @@ Import Bus 由 System 拥有：`ImportBusService` 做导入授权并委托编排
 
 主动链路与 Import Bus 的消息来源和入口流程不同，但二者最终都向 Topic 追加 Interaction，因此共享同一组时序职责：
 
-`InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：必需的 `belong_to` 与 `from_actor` 独立保存归属与发起者，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容，不嵌入操作 scope。Interaction codec v6 与 `schema_version="1.1"`（字符串）的 generation codec 分别 round-trip 两种身份；当前进程内队列不注册旧 codec，retry 恢复相同字段，不重跑身份解析、不重新组装 scope。同一 `interaction_id` 的幂等只由提交队列负责：等待中与已成功的提交以相同载荷重交时复用原收据、载荷不同时冲突，只有应用未成功的交互可以重新提交；应用把 block 写入话题是它最后一个可能失败的步骤，未成功的应用没有写入，重新提交因此不会重复写入。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
+`InteractionSubmission` 是进入 Patchouli submission lane 的稳定交接包：必需的 `belong_to` 与 `from_actor` 独立保存归属与发起者，`interaction_id` 负责幂等关联，`InteractionPayload` 只承载本轮内容，不嵌入操作 scope。Interaction codec v7 与 `schema_version="1.1"`（字符串）的 generation codec 分别 round-trip 两种身份；当前进程内队列不注册旧 codec，retry 恢复相同字段，不重跑身份解析、不重新组装 scope。同一 `interaction_id` 的幂等只由提交队列负责：等待中与已成功的提交以相同载荷重交时复用原收据、载荷不同时冲突，只有应用未成功的交互可以重新提交；应用把 block 写入话题是它最后一个可能失败的步骤，未成功的应用没有写入，重新提交因此不会重复写入。`TopicAssetBinding` 只有在该 Interaction 成功应用且用户明确使用 asset ref 时才成立；上传或 UI 选择不会单独产生 binding。
 
 `InteractionPayload.used_attachments` 携带任务进程的 `AttachmentCompiler` 确认实际进入上下文的 bound ref 快照（由任务进程封口时写入）：submission handler 把这份快照以 `asset_refs` 形参一次性传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
 

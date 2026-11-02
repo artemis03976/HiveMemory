@@ -8,11 +8,11 @@
  * 写入与更新必须带上这一轮的信息，HiveMemory 据此在写入时为这一轮落位。dsh
  * 不允许在工具执行前改写模型给出的参数，插件因此在自己的工具中，以调用方
  * Agent 的会话构造轮次信息再交给 HiveMemory：参数 `turn` 从交给模型的 schema
- * 中去掉，模型无法填写，也无法绕过；子 Agent 中的调用以子 Agent 自己的会话与
- * 当前一轮落位。
+ * 中去掉，模型无法填写，也无法绕过。子 Agent 的会话不导入，子 Agent 中的调用
+ * 落在顶层会话最近的一轮，与这一轮回流时在同一个话题。
  */
 
-import { MEMORY_TOOLS, sessionTurns, TURN_PARAM, turnInfo } from './turns.js'
+import { isSubagentSession, MEMORY_TOOLS, sessionTurns, TURN_PARAM, turnInfo } from './turns.js'
 
 /**
  * 服务端工具列表中本插件认识的工具，转为 dsh 工具定义。
@@ -26,20 +26,36 @@ export function memoryToolDefinitions(serverTools, { client, turnInfoFor }) {
 }
 
 /**
- * 调用方会话当前一轮的轮次信息，与这一轮结束后导入时的同名字段相同。
+ * 写入所属一轮的轮次信息，与这一轮结束后导入时的同名字段相同。
  *
  * 工具在一轮之中执行，调用方会话实时记录的最后一轮就是当前一轮，它还没有
  * 结束；之前几轮与导入时一样取该轮之前最近的已结束轮次，服务端因此推导出
  * 同一个交互标识。最后一轮已经结束（或会话还没有轮次）时抛出错误，由 dsh
- * 作为工具错误交给模型。
+ * 作为工具错误交给模型。调用方是子 Agent 时取顶层会话最近的一轮。
  */
 export async function currentTurnInfo(session, { readSession }) {
+  if (isSubagentSession(session.header)) return topLevelTurnInfo(session.header, { readSession })
   const turns = sessionTurns(await readSession(session.id))
   const index = turns.length - 1
   if (index === -1 || turns[index].closed) {
     throw new Error('当前没有进行中的一轮，无法确定写入属于哪一轮')
   }
   return turnInfo(session.id, turns, index)
+}
+
+/**
+ * 子 Agent 中的写入属于顶层会话最近的一轮：沿 `parentSession` 逐级向上找到
+ * 顶层会话。
+ *
+ * 这一轮可能已经结束（父 Agent 结束这一轮之后，后台的子 Agent 仍在运行），
+ * 照样使用：HiveMemory 对已经回流的一轮返回它实际所在的话题，对尚未回流的
+ * 一轮先为它落位。
+ */
+async function topLevelTurnInfo(header, { readSession }) {
+  let snapshot = await readSession(header.parentSession)
+  while (isSubagentSession(snapshot.session)) snapshot = await readSession(snapshot.session.parentSession)
+  const turns = sessionTurns(snapshot)
+  return turnInfo(snapshot.session.id, turns, turns.length - 1)
 }
 
 function toolDefinition(tool, { client, turnInfoFor }) {

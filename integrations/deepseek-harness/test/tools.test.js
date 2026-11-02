@@ -105,3 +105,35 @@ test('writing outside a running turn is refused', async () => {
     await assert.rejects(pending, /没有进行中的一轮/)
   }
 })
+
+/** 按会话标识读取若干会话记录的 `readSession`。 */
+function readSessionOf(...logs) {
+  const byId = new Map(logs.map(log => [log.id, log]))
+  return async sessionId => byId.get(sessionId).snapshot()
+}
+
+test('writes from a nested subagent identify the running turn of the top-level session', async () => {
+  const root = new SessionLog({ id: 'root' }).turn(1, 'earlier').startTurn(2).user('research this repo')
+  const child = new SessionLog({ id: 'child', parentSession: 'root' }).turn(1, 'dig into storage')
+  const grandchild = new SessionLog({ id: 'grandchild', parentSession: 'child' }).startTurn(1).user('read one file')
+
+  const info = await currentTurnInfo(
+    { id: 'grandchild', header: grandchild.header },
+    { readSession: readSessionOf(root, child, grandchild) },
+  )
+  root.assistant([{ type: 'text', text: 'done' }]).endTurn(2)
+  const imported = importBody('root', sessionTurns(root.snapshot()), 1, 'dsh')
+
+  for (const field of ['source', 'external_conversation_id', 'external_turn_id', 'user_message', 'recent_turns']) {
+    assert.deepEqual(info[field], imported[field], field)
+  }
+})
+
+test('a subagent still writing after the top-level turn ended uses that turn instead of being refused', async () => {
+  const root = new SessionLog({ id: 'root' }).turn(1, 'research this repo')
+  const child = new SessionLog({ id: 'child', parentSession: 'root' }).startTurn(1).user('dig into storage')
+
+  const info = await currentTurnInfo({ id: 'child', header: child.header }, { readSession: readSessionOf(root, child) })
+
+  assert.deepEqual([info.external_conversation_id, info.external_turn_id, info.user_message], ['root', '1', 'research this repo'])
+})

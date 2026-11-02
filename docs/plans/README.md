@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-02
 ---
 
 # Plans
@@ -20,7 +20,7 @@ v0.7.2（Git tag `v0.7.2`，2026-11-01）、v0.7.1（Git tag `v0.7.1`，2026-10-
 
 ## 未绑定版本
 
-暂无。DeepSeek Harness 插件接入与模型选择统一已于 2026-11-01 归档，见 [Archived Plans](../archive/plans/README.md)。
+暂无。DeepSeek Harness 插件接入、模型选择统一（2026-11-01）与 dsh 子 Agent 会话不再独立导入（2026-11-02）已归档，见 [Archived Plans](../archive/plans/README.md)。
 
 ## 准入规则
 

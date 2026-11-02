@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-02
 ---
 
 # Archived Plans
@@ -12,6 +12,7 @@ last_reviewed: 2026-11-01
 
 ## 版本之外
 
+- [dsh 子 Agent 会话不再独立导入，交回的消息进入父会话的一轮](./dsh-subagent-sessions.md)：2026-11-02，提交 4a16b46a；[Import Bus](../../system/import-bus.md#93-轮次的切分与映射)、[数据模型](../../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)
 - [模型选择统一为 ModelSelection，组件模型只经注册表解析](./llm-config-retirement.md)：2026-11-01，PR #167；[System 配置与注册表](../../system/configuration.md#3-registry-解析)、[System 组合根](../../system/composition.md#13-llm-bundle)
 - [DeepSeek Harness 插件接入](./dsh-plugin-integration.md)：2026-11-01，PR #158；[Import Bus](../../system/import-bus.md#9-deepseek-harness-插件)、[接入 DeepSeek Harness](../../help/deepseek-harness-plugin.md)
 

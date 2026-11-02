@@ -1,7 +1,8 @@
 """DeepSeek Harness 插件与 HiveMemory 一侧声明的一致性（插件代码是 JavaScript，按文本读取常量）。
 
 保护的契约：插件认识的记忆工具就是 MCP server 的四个工具，作用对象参数与轮次
-信息参数是这些工具的参数，归一化得到的动词是导入接受的动词；插件声明的
+信息参数是这些工具的参数，归一化得到的动词是导入接受的动词，写出的事件种类
+是导入接受的种类；插件声明的
 principal 在随仓库发布的接入登记中、开放 mcp 与 import 并要求凭据，默认 Agent
 在 Workspace 访问登记中持有四项记忆操作，来源标识符合导入的格式。插件的轮次
 投影、回流与工具行为由插件自己的测试守护（``node --test``）。
@@ -18,7 +19,11 @@ import yaml
 
 from hivememory.config.access import SystemPrincipalsFile, WorkspaceActorsFile
 from hivememory.mcp_server.server import create_mcp_server
-from hivememory.system.services.import_bus.models import ImportedVerb, InFlightTurn
+from hivememory.system.services.import_bus.models import (
+    ImportedEventKind,
+    ImportedVerb,
+    InFlightTurn,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 PLUGIN_LIB = REPO_ROOT / "integrations" / "deepseek-harness" / "lib"
@@ -63,6 +68,15 @@ def test_plugin_memory_tools_match_the_mcp_server():
         if "targetParam" in fields:
             assert fields["targetParam"] in server_tools[name], name
         assert (turn_param in server_tools[name]) == ("needsTurn" in fields), name
+
+
+def test_plugin_event_kinds_are_accepted_by_import():
+    """导入的事件种类改名或删除时这里失败：插件写出的轮次会被整轮以 422 拒绝并跳过。"""
+    source = (PLUGIN_LIB / "turns.js").read_text(encoding="utf-8")
+    kinds = set(re.findall(r"addEvent\('(\w+)'", source))
+
+    assert kinds == {"assistant_message", "thought", "subagent_message", "tool_call"}
+    assert kinds <= set(get_args(ImportedEventKind))
 
 
 def test_plugin_identity_is_registered_for_mcp_and_import():

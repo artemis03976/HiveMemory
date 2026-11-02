@@ -38,7 +38,9 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.interaction import InteractionOutcome, ToolResultStatus
 
-ImportedEventKind = Literal["assistant_message", "thought", "tool_call"]
+# 导入事件的种类，用户消息不作为事件导入。子 Agent 消息是 harness 中被委托的
+# 子 Agent 交回这一轮的消息。
+ImportedEventKind = Literal["assistant_message", "thought", "subagent_message", "tool_call"]
 
 # 导入事件可以携带的能力动词：外部 harness 经 MCP 检索、读取、写入与更新记忆。
 ImportedVerb = Literal["SEARCH", "READ", "WRITE", "UPDATE"]
@@ -54,7 +56,9 @@ class ImportedTurnEvent(BaseModel):
 
     kind: ImportedEventKind = Field(description="事件种类；用户消息不作为事件导入")
     sequence: int = Field(ge=1, description="轮内序号，从 1 起严格递增；0 留给用户消息")
-    content: str = Field(description="事件正文；工具调用为空字符串")
+    content: str = Field(
+        description="事件正文：助手正文、思考或子 Agent 交回的消息原文；工具调用为空字符串"
+    )
     action_id: str | None = Field(default=None, description="工具调用标识，工具调用必带，轮内唯一")
     tool_name: str | None = Field(
         default=None, description="外部工具的名字；调用 HiveMemory 能力时不设置"

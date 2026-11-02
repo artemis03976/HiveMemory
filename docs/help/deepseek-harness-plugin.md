@@ -14,7 +14,7 @@ related_docs:
   - docs/system/import-bus.md
   - docs/help/setup.md
   - docs/help/configuration.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-02
 ---
 
 # 接入 DeepSeek Harness
@@ -175,7 +175,8 @@ cp <HiveMemory 仓库路径>/integrations/claude-code/skills/hivememory/SKILL.md
 
 ## 7. 使用中的行为
 
-- **哪些会话会导入**：只导入插件首次运行之后创建的会话。安装前已存在的会话不回填，恢复这类会话后只导入之后开始的轮次。子 Agent 的会话作为独立的会话导入，子 Agent 中的写入落在它自己的当前一轮。
+- **哪些会话会导入**：只导入插件首次运行之后创建的会话。安装前已存在的会话不回填，恢复这类会话后只导入之后开始的轮次。
+- **子 Agent**：Agent 委托出去的子 Agent 的会话不导入，也不会建立新话题；子 Agent 结束时交回的输出（dsh 发给父 Agent 的结算通知）随父会话这一轮导入，子 Agent 读文件、调用工具的过程不进入记忆。子 Agent 认为值得长期保留的发现，应当自己用 `memory_write` 写入，写入落在父会话（顶层会话）最近的一轮所在的话题。子 Agent 运行中用 `send_message` 发给父 Agent 的消息不导入，要保留的结果应当出现在它最后的输出中。
 - **一轮何时导入**：一轮在结束后才导入。正常结束为 `completed`；被停止、或 dsh 崩溃后在会话恢复时补上收尾的为 `cancelled`；出错、被拦截或输出达到上限的为 `failed`。崩溃时进行中的一轮，只有在之后恢复这个会话时才会导入。
 - **何时同步与补发**：一轮结束、新建或恢复会话时同步该会话，dsh 启动时补发此前没有得到确认的轮次。HiveMemory 暂不可用（连接失败、超时、503）或插件配置有误（400、403、404）时，插件保留进度、停止提交，在下一次同步时补发。
 - **被跳过的轮次**：单轮内容超过服务端的请求体上限（413，默认 8 MiB）或格式被拒绝（422）时，这一轮写入 `rejections.jsonl` 后跳过，不阻塞后续轮次；同一轮连续三次得到 500 也会被跳过。
@@ -200,5 +201,5 @@ cp <HiveMemory 仓库路径>/integrations/claude-code/skills/hivememory/SKILL.md
 
 ## 9. 更新与卸载
 
-- **更新**：链接安装（第 4.1 节的 `\\wsl.localhost` 路径或第 4.2 节的仓库路径）的插件随仓库更新，重新打开 dsh 即生效；复制安装的需要重新复制，使用手册 skill（第 4.3 节）同样要重新复制。插件与 HiveMemory 需要一起更新。dsh 升级到支持范围之外的版本时，插件不再加载。
+- **更新**：链接安装（第 4.1 节的 `\\wsl.localhost` 路径或第 4.2 节的仓库路径）的插件随仓库更新，重新打开 dsh 即生效；复制安装的需要重新复制，使用手册 skill（第 4.3 节）同样要重新复制。插件与 HiveMemory 需要一起更新，并且先重启 HiveMemory、再重新打开 dsh：新版本插件可能发出旧版 HiveMemory 不认识的内容（例如子 Agent 交回的消息），旧服务端以 422 拒绝这样的一轮，插件会把它写入拒绝记录并跳过。dsh 升级到支持范围之外的版本时，插件不再加载。
 - **卸载**：桌面端从托盘退出后执行 `& $dsh plugin --profile desktop remove hivememory-connector`，命令行执行 `dsh plugin --profile <profile> remove hivememory-connector`，再重新打开 dsh。使用手册 skill 删除 skill 目录中的 `hivememory` 目录即可。
