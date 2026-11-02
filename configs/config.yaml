@@ -64,9 +64,9 @@ memory_compiler:
 
 # ========== System Gateway 配置 ==========
 gateway:
-  # 话题路由与查询分析使用的模型：model_id 引用 configs/models.yaml 中的模型，凭证由
-  # Provider 凭证补齐；temperature/max_tokens 是组件任务要求的生成参数，覆盖模型默认值。
-  # 启动时解析，修改后重启生效。
+  # 话题路由与查询分析使用的模型：model_id 引用 configs/models.yaml 中的模型（不写为默认模型），
+  # 凭证由 Provider 凭证补齐；temperature/top_p/max_tokens 覆盖模型默认值，不写时沿用。
+  # 这里写的是组件任务要求的值。整段写为 null 表示不使用 LLM。启动时解析，修改后重启生效。
   llm:
     model_id: "deepseek-chat"
     temperature: 0.0           # 网关用极低温，确保路由稳定

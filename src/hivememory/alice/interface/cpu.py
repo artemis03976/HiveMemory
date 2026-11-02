@@ -2,10 +2,9 @@
 
 from __future__ import annotations
 
-from typing import Any
-
 from hivememory.alice.interface.output import SinkRunOutput
 from hivememory.alice.run.service import AgentRunService
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.workspace.contracts import (
     CPUEventSink,
     CPUExecutionResult,
@@ -51,7 +50,7 @@ class AliceCPU:
         manifest: CPUInputManifest,
         *,
         thread: ExecutionThread,
-        generation_options: dict[str, Any] | None,
+        model_selection: ModelSelection | None,
         events: CPUEventSink,
     ) -> CPUExecutionResult:
         # 在首次 await 时检查，错误由任务进程的 Actor 阶段按失败收尾。
@@ -59,7 +58,7 @@ class AliceCPU:
             raise AliceUnavailableError()
         return await self._service.run_agent(
             manifest,
-            generation_options=generation_options,
+            model_selection=model_selection,
             submit_operation=ThreadOperationSubmitter(self._operation_entry, thread),
             run_output=SinkRunOutput(events),
         )

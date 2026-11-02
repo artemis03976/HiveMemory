@@ -107,7 +107,7 @@ Settings -> Model Registry 或 `/api/v1/models` 可以运行时 CRUD，并原子
 
 模型定义不保存连接凭证：密钥与 API 地址只在 Provider Registry 中保存，模型按 `provider` 取得。`models.yaml` 受版本控制，其中写入非空 `api_key` 或 `api_base` 的模型在加载时被跳过，日志指出模型 ID 与它们应在的位置；删除这两个字段、把值移到 Provider 后重启。单个模型需要不同的密钥或地址时（例如经代理访问），另登记一个 Provider 名称并让这个模型引用它。
 
-Gateway 与 Librarian 的模型在 `configs/config.yaml` 的 `gateway.llm` 与 `patchouli.llm` 中以 `model_id` 引用这里的模型（`default` 表示默认模型，`null` 表示不使用 LLM），也可以在设置页的“内部引擎”中选择。两段的 `temperature` 与 `max_tokens` 是组件任务要求的生成参数，覆盖模型定义的默认值，例如 Librarian 一次结算输出多条记忆，`max_tokens` 默认为 32768。这两个组件在启动时解析模型，修改模型、Provider 或这两段之后重启生效。
+Gateway 与 Librarian 的模型在 `configs/config.yaml` 的 `gateway.llm` 与 `patchouli.llm` 中以 `model_id` 引用这里的模型（不写或写 `default` 为默认模型），也可以在设置页的“内部引擎”中选择；整段写为 `null` 表示这个组件不使用 LLM。两段的 `temperature`、`top_p` 与 `max_tokens` 覆盖模型定义的默认值，不写时沿用；随仓库发布的配置写了组件任务要求的值，例如 Librarian 一次结算输出多条记忆，`max_tokens` 为 32768。这两个组件在启动时解析模型，修改模型、Provider 或这两段之后重启生效。
 
 ## 5. 主配置与生效边界
 

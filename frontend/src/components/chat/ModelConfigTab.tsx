@@ -7,7 +7,7 @@ import { fetchModels } from '@/services/modelRegistryApi';
 import type { RegisteredModel } from '@/types/model';
 
 export default function ModelConfigTab() {
-  const { generationOptions, updateGenerationOptions, overrideParams, setOverrideParams } =
+  const { modelSelection, updateModelSelection, overrideParams, setOverrideParams } =
     useChatRuntimeConfigStore();
   const [models, setModels] = useState<RegisteredModel[]>([]);
 
@@ -28,8 +28,8 @@ export default function ModelConfigTab() {
 
         <div className="relative">
           <select
-            value={generationOptions.model}
-            onChange={(e) => updateGenerationOptions({ model: e.target.value })}
+            value={modelSelection.model_id}
+            onChange={(e) => updateModelSelection({ model_id: e.target.value })}
             className="w-full bg-black/20 border border-white/10 rounded-xl p-3 text-sm text-slate-300 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all appearance-none cursor-pointer ghost-border"
           >
             {/* 空值 = 跟随 Agent Profile 的默认模型 */}
@@ -71,8 +71,8 @@ export default function ModelConfigTab() {
             max={2}
             step={0.1}
             defaultValue={1.0}
-            value={generationOptions.temperature}
-            onChange={(value) => updateGenerationOptions({ temperature: value })}
+            value={modelSelection.temperature}
+            onChange={(value) => updateModelSelection({ temperature: value })}
           />
           <RangeSlider
             label="Top P 采样率"
@@ -80,8 +80,8 @@ export default function ModelConfigTab() {
             max={1}
             step={0.05}
             defaultValue={1}
-            value={generationOptions.top_p}
-            onChange={(value) => updateGenerationOptions({ top_p: value })}
+            value={modelSelection.top_p}
+            onChange={(value) => updateModelSelection({ top_p: value })}
           />
           <RangeSlider
             label="最大生成长度 (Max Tokens)"
@@ -89,8 +89,8 @@ export default function ModelConfigTab() {
             max={32768}
             step={256}
             defaultValue={32768}
-            value={generationOptions.max_tokens}
-            onChange={(value) => updateGenerationOptions({ max_tokens: value })}
+            value={modelSelection.max_tokens}
+            onChange={(value) => updateModelSelection({ max_tokens: value })}
           />
         </div>
       </div>

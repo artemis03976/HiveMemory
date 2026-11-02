@@ -1,6 +1,6 @@
 from pydantic import BaseModel, ConfigDict, Field
 
-from hivememory.config.shared import LLMConfig
+from hivememory.core.models.model_definition import ModelSelection
 
 
 class RuleInterceptorConfig(BaseModel):
@@ -69,7 +69,10 @@ class UserQueryAnalysisConfig(BaseModel):
 
 class SystemGatewayConfig(BaseModel):
     # 话题路由与查询分析共用的模型；两者都要稳定的短 JSON 输出，因此低温、短输出。
-    llm: LLMConfig = Field(default_factory=lambda: LLMConfig(temperature=0.0, max_tokens=512))
+    # None 表示不使用 LLM，两个分析器按无 LLM 降级。
+    llm: ModelSelection | None = Field(
+        default_factory=lambda: ModelSelection(temperature=0.0, max_tokens=512)
+    )
     interceptor: RuleInterceptorConfig = Field(default_factory=RuleInterceptorConfig)
     commands: SystemCommandConfig = Field(default_factory=SystemCommandConfig)
     workflow: GatewayWorkflowConfig = Field(default_factory=GatewayWorkflowConfig)

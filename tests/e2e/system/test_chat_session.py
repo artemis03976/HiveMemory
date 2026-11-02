@@ -143,7 +143,7 @@ async def test_http_session_resume_after_partial_stop(patchouli_chat_stack):
                         "session_id": session_id,
                         "agent_id": "omni_doll",
                         "enable_memory_retrieval": False,
-                        "generation_options": {"model": "fake-test-model"},
+                        "model_selection": {"model_id": "fake-test-model"},
                     },
                 )
 
@@ -368,7 +368,7 @@ async def test_http_long_session_reuses_compacted_history_and_seals_budget_failu
                         "session_id": session_id,
                         "agent_id": "omni_doll",
                         "enable_memory_retrieval": False,
-                        "generation_options": {"model": "fake-test-model", "max_tokens": 1000},
+                        "model_selection": {"model_id": "fake-test-model", "max_tokens": 1000},
                     },
                 )
                 assert response.status_code == 200

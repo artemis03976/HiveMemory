@@ -44,6 +44,7 @@ from hivememory.core.models import (
     ExecutionLabels,
     WorkspaceIdentity,
 )
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 from hivememory.workspace.process.events import TaskProcessEventEmitter
@@ -147,7 +148,7 @@ class TaskProcessService:
         process_id: str,
         message: str,
         enable_memory_retrieval: bool = True,
-        generation_options: dict[str, Any] | None = None,
+        model_selection: ModelSelection | None = None,
         attachments: list[AttachmentSelectionRequest] | None = None,
         session_id: str | None = None,
     ) -> ProcessHandle:
@@ -202,7 +203,7 @@ class TaskProcessService:
                 target_workspace=workspace,
                 session_id=session_id,
                 enable_memory_retrieval=enable_memory_retrieval,
-                generation_options=generation_options,
+                model_selection=model_selection,
                 attachments=tuple(attachments or ()),
             )
             process = TaskProcess(record=record, request=request, trace_id=trace_id)

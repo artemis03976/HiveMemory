@@ -333,7 +333,7 @@ class TaskProcessRunner:
             returned.result = await self._cpu.execute(
                 manifest,
                 thread=thread,
-                generation_options=process.request.generation_options,
+                model_selection=process.request.model_selection,
                 events=publish,
             )
 

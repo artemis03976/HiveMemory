@@ -22,7 +22,7 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
     },
   },
   patchouli: {
-    llm: { model_id: 'default', temperature: 0.3, max_tokens: 32768 },
+    llm: { model_id: null, temperature: 0.3, top_p: null, max_tokens: 32768 },
   },
   qdrant: {
     host: 'localhost',
@@ -35,7 +35,7 @@ export const MOCK_CONFIG: HiveMemoryConfig = {
     on_disk_payload: true,
   },
   gateway: {
-    llm: { model_id: 'default', temperature: 0.0, max_tokens: 512 },
+    llm: { model_id: null, temperature: 0.0, top_p: null, max_tokens: 512 },
     interceptor: {
       enabled: true,
       enable_system: true,

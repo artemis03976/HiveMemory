@@ -107,7 +107,7 @@ last_reviewed: 2026-11-01
 
 ### 1.2 Alice 会话预算与压缩
 
-`ModelDefinition.context_window` 与解析后的 `LLMConfig.context_window` 是可选的正整数，单位为总窗口 token；模型登记在 `configs/models.yaml`，模型管理 API 支持读写，显式 null 清除登记。它不作为生成参数透传给提供商。Alice 按实际解析模型与请求覆盖后的 `max_tokens` 计算输入上限：总窗口减去生成上限和安全余量，未登记窗口时使用下表默认值。
+`ModelDefinition.context_window` 是可选的正整数，单位为总窗口 token；模型登记在 `configs/models.yaml`，模型管理 API 支持读写，显式 null 清除登记。它不作为生成参数透传给提供商。Alice 按实际解析模型与请求覆盖后的 `max_tokens` 计算输入上限：总窗口减去生成上限和安全余量，未登记窗口时使用下表默认值。
 
 输入预算由 `AgentRuntimeConfig`（`alice.runtime`）解释，独立于历史压缩：
 
@@ -165,10 +165,10 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 
 1. 以环境变量中的提供商凭证（`provider_credentials_from_env()`）创建 `ProviderRegistry`，它另外装载 `providers.secrets.yaml`；
 2. 创建引用该 registry 的 `ModelRegistry`；
-3. 把 Gateway 的 `gateway.llm` 与 Librarian 的 `patchouli.llm` 各自经 `ModelRegistry.resolve` 解析为 LLM 请求参数：模型取 `model_id` 对应的模型定义（`"default"` 为注册表的默认模型），凭证取该模型 provider 的 Provider 凭证，组件配置的 temperature 与 max_tokens 覆盖模型默认值，其余采样参数取模型默认值；`model_id` 为 `null` 的组件没有请求参数，按无 LLM 运行；
+3. 把 Gateway 的 `gateway.llm` 与 Librarian 的 `patchouli.llm` 各自经 `ModelRegistry.resolve` 解析为 LLM 请求参数：模型取 `model_id` 对应的模型定义（`"default"` 或不给为注册表的默认模型），凭证取该模型 provider 的 Provider 凭证，选择中给出的 temperature、top_p 与 max_tokens 覆盖模型默认值，未给出的取模型默认值；配置为 `null` 的组件没有请求参数，按无 LLM 运行；
 4. 把两份请求参数与唯一的 LLM 服务一同注入 Gateway 与 Patchouli。
 
-组件配置只有 `model_id`、`temperature` 与 `max_tokens`（类型 `LLMConfig`），模型与凭证不能在配置文件或环境变量中直接指定。temperature 与 max_tokens 跟着组件而不是模型定义，因为它们是组件任务的要求：Gateway 的话题路由与查询分析需要稳定的短 JSON 输出，Librarian 一次结算输出多条记忆，输出被截断时任务失败；放进模型定义会让它们随模型记录被其他使用方连带修改。
+组件配置的类型是 `ModelSelection`（`core.models.model_definition`），与 Alice 会话请求的选择同一类型：`model_id` 与三个生成参数都可以不给，模型与凭证不能在配置文件或环境变量中直接指定。随仓库发布的配置为两个组件写了生成参数，因为它们是组件任务的要求：Gateway 的话题路由与查询分析需要稳定的短 JSON 输出（temperature 0、max_tokens 512），Librarian 一次结算输出多条记忆，输出被截断时任务失败（max_tokens 32768）；放进模型定义会让它们随模型记录被其他使用方连带修改。
 
 这一步把凭证解析从业务请求热路径移开，也避免 Gateway 和 Patchouli 对同一模型引用各自得出不同结果。解析只在装配时进行一次：模型页面与 Provider 页面的修改，Gateway 与 Patchouli 在重启后生效。请求参数不写回配置对象，是因为主配置接口读写的就是这个对象：写回会让提供商密钥经 `/api/v1/config` 读出、在保存时进入 `config.yaml`；两个组件的模型、凭证与采样参数只来自各自的配置段，共享的 LLM 服务不持有任何一方的配置（[System 组合根](./composition.md#13-llm-bundle)）。Alice 的模型参数不经组件配置，由 Agent Profile、会话覆盖经同一个 `ModelRegistry.resolve` 逐帧解析。注册表提供模型和 provider 元数据，但不拥有某次请求的执行状态。
 
@@ -184,7 +184,7 @@ HIVEMEMORY__PROVIDERS__DEEPSEEK__API_KEY=...
 - `logging` 段由 server 生命周期在加载配置后、装配系统之前应用，模块入口与直接运行 uvicorn 的行为一致。`level` 只接受 `DEBUG`、`INFO`、`WARNING`、`ERROR`、`CRITICAL`，决定根 logger 的级别与控制台、文件输出的下限；`format` 作用于这两项输出；`console_output` 控制 stderr 输出；`file_path` 非空时追加写入该文件（相对路径按工作目录解析，缺失的目录会创建），并按本地日期切分：`file_path` 始终是当天的日志，跨过零点后的第一条记录把此前的内容改名为 `<file_path>.YYYY-MM-DD`，归档全部保留、不自动清理；两项都关闭时不输出。开启 WebSocket 广播且 `websocket_level` 更低时，根 logger 放宽到广播级别，控制台与文件仍只输出 `level` 及以上。入口只替换自己装上的输出，不移除测试框架或 WebSocket 广播的 handler。uvicorn 的服务日志（启动、关闭与 ASGI 异常）与 `warnings` 的警告并入根 logger，与应用日志同一格式、同一去处，只有 uvicorn 在应用启动前打印的几行仍走它自己的 stderr；请求由请求日志中间件逐条记录，uvicorn 的访问日志关闭；LiteLLM 自身逐次调用的 INFO 日志不输出，调用由 `LiteLLMService` 记录。`POST /config` 保存的日志配置在下次启动时生效。
 - 密钥不属于受版本控制的配置文件：Provider 凭证由 `ProviderRegistry` 管理（`.env` 与 `providers.secrets.yaml`），主配置中只有 Qdrant 的 `api_key`，运行时从环境变量与 `.env` 取得，主配置接口响应打码、保存时既不修改也不写入密钥（[配置指南](../help/configuration.md#5-主配置与生效边界)）。模型定义没有 `api_key` 与 `api_base`：`ModelRegistry` 解析的密钥与地址只来自模型 `provider` 对应的 Provider 凭证，同一提供商的连接凭证因此只有一处，单个模型需要不同的密钥或地址时另登记一个 provider 名称；`models.yaml` 中写入非空 `api_key` 或 `api_base` 的模型在加载时被跳过并记录错误，与其他无效的模型定义一样不进入注册表。忽略这些残留值会让请求改用 provider 的密钥或地址，而不是写入者以为的那一个，因此不静默丢弃。
 
-升级注意（组件模型配置移到各自子系统）：`shared.llm` 已删除，`shared.llm.gateway` 移到 `gateway.llm`、`shared.llm.librarian` 移到 `patchouli.llm`；`config.yaml` 中留有 `shared.llm` 时加载失败，错误指出两段的新位置。两段只保留 `model_id`、`temperature`、`max_tokens`：写了 `model`、`api_base`、`provider`、`context_window` 或 `top_p` 的，因未知键加载失败，先在 `models.yaml` 登记模型、在 Provider 页面或 `.env` 保存凭证，再改为 `model_id`。`gateway.topic_router` 与 `gateway.user_query_analysis` 的 `model_override` 已删除，残留时同样加载失败，需要不同的分析模型时改 `gateway.llm.model_id`。环境变量 `HIVEMEMORY__LLM__GATEWAY__MODEL` / `__API_KEY` / `__API_BASE` / `__PROVIDER` 及 `LIBRARIAN` 下的同名变量不再生效，嵌套形式的 `HIVEMEMORY__SHARED__LLM__...` 让加载失败。
+升级注意（组件模型配置移到各自子系统）：`shared.llm` 已删除，`shared.llm.gateway` 移到 `gateway.llm`、`shared.llm.librarian` 移到 `patchouli.llm`；`config.yaml` 中留有 `shared.llm` 时加载失败，错误指出两段的新位置。两段的类型是 `ModelSelection`，只有 `model_id`、`temperature`、`top_p`、`max_tokens`，写为 `null` 表示组件不使用 LLM：写了 `model`、`api_base`、`provider` 或 `context_window` 的，因未知键加载失败，先在 `models.yaml` 登记模型、在 Provider 页面或 `.env` 保存凭证，再改为 `model_id`。`gateway.topic_router` 与 `gateway.user_query_analysis` 的 `model_override` 已删除，残留时同样加载失败，需要不同的分析模型时改 `gateway.llm.model_id`。环境变量 `HIVEMEMORY__LLM__GATEWAY__MODEL` / `__API_KEY` / `__API_BASE` / `__PROVIDER` 及 `LIBRARIAN` 下的同名变量不再生效，嵌套形式的 `HIVEMEMORY__SHARED__LLM__...` 让加载失败。`POST /api/v1/chat` 的会话覆盖字段由 `generation_options` 改为 `model_selection`，其中的 `model` 改为 `model_id`；前端随之更新，浏览器中保存的会话覆盖在加载时迁移。
 
 升级注意（密钥移出主配置）：`shared.providers` 已从主配置删除，`config.yaml` 中留有这一段时，`shared` 段因未知键加载失败；把其中的 `api_base`（与可能写入的 `api_key`）移到 `.env` 的 `HIVEMEMORY__PROVIDERS__<NAME>__API_BASE` / `__API_KEY`，或在 Provider 页面保存，再删除这一段。曾经由主配置页面保存过的 `config.yaml`，Gateway 与 Librarian 段可能写入了解析后的 `model`、`api_key` 并丢掉了 `model_id`：加载会因 `api_key` 失败，删除这些字段并恢复 `model_id`。
 

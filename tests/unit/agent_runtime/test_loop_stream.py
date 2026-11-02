@@ -10,7 +10,6 @@ from hivememory.agent_runtime.frame import (
 )
 from hivememory.agent_runtime.loop import AgentLoopExecutor
 from hivememory.agent_runtime.model.generator import GenerationResult, StreamChunk
-from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
 from hivememory.agent_runtime.output import FrameOutput, TokenDelta
 from hivememory.core.models import OMNI_DOLL_PROFILE, TurnEvent
 from tests.helpers.call import StubOperationSubmitter
@@ -29,7 +28,8 @@ def _frame() -> ExecutionFrame:
         working_history=[{"role": "user", "content": "task"}],
         topic_id="topic-1",
         language="zh",
-        resolved_model=ResolvedFrameModel(DEFAULT_LLM_PARAMS, input_token_limit=65536),
+        llm_params=DEFAULT_LLM_PARAMS,
+        input_token_limit=65536,
     )
 
 

@@ -17,9 +17,9 @@ export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
     });
   }
 
-  // Validate LLM temperatures (0-2)
-  const validateTemperature = (temp: number, field: string) => {
-    if (temp < 0 || temp > 2) {
+  // Validate LLM temperatures (0-2); null 表示沿用模型定义的默认值
+  const validateTemperature = (temp: number | null | undefined, field: string) => {
+    if (temp != null && (temp < 0 || temp > 2)) {
       errors.push({
         field,
         message: 'Temperature must be between 0 and 2',
@@ -28,8 +28,8 @@ export const validateConfig = (config: HiveMemoryConfig): ValidationError[] => {
     }
   };
 
-  validateTemperature(config.gateway.llm.temperature, 'gateway.llm.temperature');
-  validateTemperature(config.patchouli.llm.temperature, 'patchouli.llm.temperature');
+  validateTemperature(config.gateway.llm?.temperature, 'gateway.llm.temperature');
+  validateTemperature(config.patchouli.llm?.temperature, 'patchouli.llm.temperature');
 
   return errors;
 };

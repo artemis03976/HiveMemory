@@ -14,14 +14,15 @@ export interface LoggingConfig {
 }
 
 /**
- * 组件（Gateway、Patchouli）的模型选择与组件任务要求的生成参数。
- * 模型与凭证只经模型注册表与 Provider 取得，启动时解析，保存后重启生效。
+ * 对注册表模型的选择与生成参数覆盖，对应后端的 ModelSelection。
+ * 各项为 null 时不覆盖：model_id 取注册表的默认模型，生成参数取模型定义的默认值。
+ * 组件（Gateway、Patchouli）在启动时解析，保存后重启生效。
  */
-export interface LLMConfig {
-  /** 模型注册表 ID；'default' 表示注册表的默认模型，null 表示组件不使用 LLM */
+export interface ModelSelection {
   model_id: string | null;
-  temperature: number;
-  max_tokens: number;
+  temperature: number | null;
+  top_p: number | null;
+  max_tokens: number | null;
 }
 
 export interface EmbeddingConfig {
@@ -38,7 +39,8 @@ export interface SharedConfig {
 }
 
 export interface PatchouliConfig {
-  llm: LLMConfig;
+  /** null 表示 Patchouli 不使用 LLM */
+  llm: ModelSelection | null;
 }
 
 export interface QdrantConfig {
@@ -66,7 +68,8 @@ export interface AnalyzerConfig {
 }
 
 export interface GatewayConfig {
-  llm: LLMConfig;
+  /** null 表示 Gateway 不使用 LLM */
+  llm: ModelSelection | null;
   interceptor: InterceptorConfig;
   analyzer: AnalyzerConfig;
 }

@@ -16,9 +16,9 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass, field
-from typing import Any
 
 from hivememory.core.models import AttachmentSelectionRequest, WorkspaceIdentity
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.workspace.process.outputs import ProcessOutputChannel
 from hivememory.workspace.process.table import ProcessRecord
 from hivememory.workspace.process.threads import ProcessThreadTable
@@ -39,7 +39,7 @@ class ProcessRequest:
     target_workspace: WorkspaceIdentity
     session_id: str
     enable_memory_retrieval: bool = True
-    generation_options: dict[str, Any] | None = None
+    model_selection: ModelSelection | None = None
     attachments: tuple[AttachmentSelectionRequest, ...] = ()
 
 

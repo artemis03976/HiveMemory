@@ -23,7 +23,6 @@ from hivememory.agent_runtime.model.generator import (
 )
 from hivememory.agent_runtime.model.resolution import (
     ModelResolver,
-    ResolvedFrameModel,
 )
 from hivememory.agent_runtime.mtp.error_mapping import mtp_error_info, storage_error_info
 from hivememory.agent_runtime.output import (
@@ -60,7 +59,6 @@ __all__ = [
     "StreamChunk",
     "ModelProviderError",
     "ModelResolver",
-    "ResolvedFrameModel",
     "TokenDelta",
     "MTPStarted",
     "MTPFinished",

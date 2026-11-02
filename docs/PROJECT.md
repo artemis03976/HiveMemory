@@ -186,7 +186,7 @@ Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX �
 - chat、Gateway、Agent、memory task、maintenance、Import Bus、system lifecycle 等 RuntimeEvent；
 - 有界事件回放与 stream gap 表达；
 - 全局维护调度器、模型 warmup、health/readiness；
-- Provider / Model 注册表和单次 generation options 覆盖。
+- Provider / Model 注册表，以及会话与 Gateway、Patchouli 组件共用的模型选择（`ModelSelection`）。
 
 ## 6. 当前系统结构
 

@@ -108,7 +108,7 @@ class _WorkspaceEchoCPU:
     轮次事件以本轮用户消息开头，回复正文由封口补成事件。
     """
 
-    async def execute(self, manifest, *, thread, generation_options=None, events):
+    async def execute(self, manifest, *, thread, model_selection=None, events):
         return CPUExecutionResult(
             final_text=manifest.labels.workspace_id,
             turn_events=[TurnEvent(kind="user_message", sequence=0, content=manifest.user_message)],

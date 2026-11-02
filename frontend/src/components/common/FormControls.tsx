@@ -82,6 +82,33 @@ export function Input({ type = 'text', value, onChange, placeholder, className =
   );
 }
 
+/** 允许留空的数字输入：清空时回传 null，由调用方解释为“不覆盖、沿用默认值”。 */
+export function NullableNumberInput({
+  value,
+  onChange,
+  placeholder,
+  className = 'w-48',
+  step,
+  error,
+}: Omit<BaseInputProps, 'disabled'> & {
+  value: number | null;
+  onChange: (v: number | null) => void;
+}) {
+  return (
+    <div className="flex flex-col gap-1 items-end">
+      <input
+        type="number"
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value === '' ? null : Number(e.target.value))}
+        placeholder={placeholder}
+        step={step}
+        className={`bg-black/20 border ${error ? 'border-red-500/50 focus:ring-red-500/50 focus:border-red-500/50' : 'border-white/10 focus:ring-primary/50 focus:border-primary/50'} rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 transition-all font-mono ${className}`}
+      />
+      {error && <span className="text-xs text-red-400 max-w-50 text-right">{error}</span>}
+    </div>
+  );
+}
+
 export function Select({ options, value, onChange, error }: { options: {label: string, value: string}[], value?: string, onChange?: (v: string) => void, error?: string }) {
   return (
     <div className="flex flex-col gap-1 items-end">

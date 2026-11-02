@@ -1,7 +1,7 @@
 from __future__ import annotations
 
-from collections.abc import Mapping, Sequence
-from typing import TYPE_CHECKING, Any, Literal
+from collections.abc import Sequence
+from typing import TYPE_CHECKING, Literal
 
 from hivememory.agent_runtime import FrameExecutionResult, FrameExecutionStatus, mtp_error_info
 from hivememory.core.errors import (
@@ -15,6 +15,7 @@ from hivememory.core.errors import (
     StorageWriteError,
     ThreadEndedError,
 )
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.core.mtp.exceptions import MTPError
 from hivememory.core.mtp.models import (
     MTPCallResponse,
@@ -154,7 +155,7 @@ def response_for_frame_result(
     reply: str = "",
     artifact_aliases: Sequence[str] = (),
     profile: AgentProfile | None = None,
-    generation_options: Mapping[str, Any] | None = None,
+    model_selection: ModelSelection | None = None,
 ) -> MTPCallResponse:
     """把被调方已定稿的结果映射为调用方唯一可见的响应。"""
     match result.status:
@@ -175,7 +176,7 @@ def response_for_frame_result(
             if isinstance(result.error, ThreadEndedError):
                 return error_response(agent_alias, mtp_error_info(result.error, verb="CALL"))
             if isinstance(result.error, ModelNotFoundError):
-                model_name = (generation_options or {}).get("model") or getattr(
+                model_name = (model_selection and model_selection.model_id) or getattr(
                     profile, "model_name", "unknown"
                 )
                 return error_response(

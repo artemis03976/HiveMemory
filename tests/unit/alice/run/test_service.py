@@ -22,6 +22,7 @@ from hivememory.core.errors import ModelContextWindowExceededError
 from hivememory.core.models import (
     AgentProfile,
 )
+from hivememory.core.models.model_definition import ModelSelection
 from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.chat_handoff import make_input_manifest, make_thread_descriptor
 from tests.helpers.llm import ScriptedLLMService
@@ -40,7 +41,7 @@ def _build_input_manifest():
 
 
 # 未注入模型注册表：生成参数直接给出可执行的模型。
-_GENERATION_OPTIONS = {"model": "test-model"}
+_MODEL_SELECTION = ModelSelection(model_id="test-model")
 
 
 def _build_service(*, runtime_events=None, config=None) -> tuple[AgentRuntime, AgentRunService]:
@@ -98,7 +99,7 @@ async def test_root_uses_compiled_blocks_and_language_with_its_own_teaching(mode
     )
     result = await service.run_agent(
         manifest,
-        generation_options=_GENERATION_OPTIONS,
+        model_selection=_MODEL_SELECTION,
         run_output=NullRunOutput(),
         submit_operation=StubOperationSubmitter(thread=thread),
     )
@@ -127,7 +128,7 @@ async def test_fixed_input_over_budget_fails_without_calling_model():
     runtime.run_frame = AsyncMock(side_effect=AssertionError("不应调用模型"))
     result = await service.run_agent(
         manifest,
-        generation_options=_GENERATION_OPTIONS,
+        model_selection=_MODEL_SELECTION,
         run_output=NullRunOutput(),
         submit_operation=StubOperationSubmitter(),
     )
@@ -154,7 +155,7 @@ async def test_frame_error_maps_only_stable_cpu_reason(error, reason):
     )
     result = await service.run_agent(
         _build_input_manifest(),
-        generation_options=_GENERATION_OPTIONS,
+        model_selection=_MODEL_SELECTION,
         run_output=NullRunOutput(),
         submit_operation=StubOperationSubmitter(),
     )

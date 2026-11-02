@@ -133,20 +133,19 @@ class AgentLoopExecutor:
 
         累积产物写入 frame.progress；重入同一 frame 时续接。
         命中 CALL 时不 fork、不 resume、不组 CALL response，直接返回 SUSPENDED。
-        帧必须已解析模型：请求参数与输入预算都取自 ``frame.resolved_model``。
+        帧必须已解析模型：请求参数与输入预算取自 ``frame.llm_params`` 与 ``frame.input_token_limit``。
 
         Returns:
             FrameExecutionResult: 帧停止原因；只有自然收敛返回 COMPLETED。
         """
-        resolved_model = frame.resolved_model
-        if resolved_model is None:
+        params, limit = frame.llm_params, frame.input_token_limit
+        if params is None or limit is None:
             raise ValueError("Frame model must be resolved before execution.")
         p = frame.progress  # PCB 累积器，重入时续接
 
         while p.iteration < max_iterations:
             # 工具结果与 CALL 回填都可能扩大历史；必须在下一次生成前重新检查。
             estimated_tokens = estimate_context_tokens(frame.working_history)
-            limit = resolved_model.input_token_limit
             if estimated_tokens > limit:
                 return FrameExecutionResult(
                     status=FrameExecutionStatus.FAILED,
@@ -155,7 +154,7 @@ class AgentLoopExecutor:
             p.iteration += 1
 
             try:
-                result = await self._generate_turn(frame, resolved_model.params, output_sink)
+                result = await self._generate_turn(frame, params, output_sink)
             except asyncio.CancelledError:
                 self._seal_partial_text(frame)
                 raise

@@ -6,7 +6,7 @@ ModelRegistry 单元测试
 - CRUD：add_model / update_model / delete_model / get_model / list_models
 - 默认模型不变量（有且仅有一条 is_default=True）
 - 凭证解析：api_key 与 api_base 只来自 provider 凭证（ProviderRegistry > 静态字典 > None）
-- resolve()：请求参数与所选模型定义
+- select_model() / resolve()：按 ID 取模型定义，按选择取请求参数
 - 异常路径：ModelNotFoundError / DuplicateModelIdError
 """
 
@@ -15,7 +15,7 @@ import yaml
 
 from hivememory.config.shared import ProviderCredentials
 from hivememory.core.errors import ModelNotFoundError
-from hivememory.core.models.model_definition import ModelDefinition
+from hivememory.core.models.model_definition import ModelDefinition, ModelSelection
 from hivememory.system.model_registry import (
     DuplicateModelIdError,
     ModelRegistry,
@@ -306,7 +306,7 @@ class TestCredentialResolution:
         }
         registry = _make_registry(tmp_path, models=[model], provider_credentials=creds)
 
-        params, _ = registry.resolve("m1")
+        params = registry.resolve(ModelSelection(model_id="m1"))
         assert params.api_key == "provider-openai-key"
         assert params.api_base == "https://api.openai.com"
 
@@ -315,7 +315,7 @@ class TestCredentialResolution:
         model = _make_model("m1", litellm_model="deepseek/deepseek-chat")
         registry = _make_registry(tmp_path, models=[model])
 
-        params, _ = registry.resolve("m1")
+        params = registry.resolve(ModelSelection(model_id="m1"))
         assert params.api_key is None
         assert params.api_base is None
 
@@ -333,7 +333,7 @@ class TestCredentialResolution:
             provider_registry=mock_pr,
         )
 
-        params, _ = registry.resolve("m1")
+        params = registry.resolve(ModelSelection(model_id="m1"))
         assert params.api_key == "dynamic-key"
 
 
@@ -348,15 +348,15 @@ class TestResolve:
         model = _make_model("m1", temperature=0.8, max_tokens=2048, top_p=0.9)
         registry = _make_registry(tmp_path, models=[model, _make_model("m2")])
 
-        params, resolved = registry.resolve("m1")
+        params = registry.resolve(ModelSelection(model_id="m1"))
         assert params.model == model.litellm_model
         assert params.temperature == 0.8
         assert params.max_tokens == 2048
         assert params.top_p == 0.9
-        assert resolved.id == "m1"
 
-    def test_resolve_default(self, tmp_path):
-        """'default' 选中注册表的默认模型，返回它的定义。"""
+    @pytest.mark.parametrize("model_id", ["default", None])
+    def test_default_and_unselected_model_resolve_to_registry_default(self, tmp_path, model_id):
+        """'default' 与未选择模型都取注册表的默认模型。"""
         registry = _make_registry(
             tmp_path,
             models=[
@@ -365,31 +365,33 @@ class TestResolve:
             ],
         )
 
-        params, resolved = registry.resolve("default")
-        assert params.model == "deepseek/deepseek-chat"
-        assert resolved.id == "m2"
+        assert registry.resolve(ModelSelection(model_id=model_id)).model == "deepseek/deepseek-chat"
+
+    def test_select_model_default_returns_the_default_definition(self, tmp_path):
+        registry = _make_registry(
+            tmp_path, models=[_make_model("m1"), _make_model("m2", is_default=True)]
+        )
+
+        assert registry.select_model("default").id == "m2"
 
     def test_resolve_with_overrides(self, tmp_path):
         """temperature/max_tokens/top_p 覆盖参数优先于模型默认值。"""
         model = _make_model("m1", temperature=0.7, max_tokens=4096, top_p=1.0)
         registry = _make_registry(tmp_path, models=[model])
 
-        params, _ = registry.resolve(
-            "m1",
-            temperature_override=0.1,
-            max_tokens_override=512,
-            top_p_override=0.5,
+        params = registry.resolve(
+            ModelSelection(model_id="m1", temperature=0.1, max_tokens=512, top_p=0.5)
         )
         assert params.temperature == 0.1
         assert params.max_tokens == 512
         assert params.top_p == 0.5
 
-    def test_resolve_not_found_raises(self, tmp_path):
+    def test_select_model_not_found_raises(self, tmp_path):
         registry = _make_registry(tmp_path)
         with pytest.raises(ModelNotFoundError):
-            registry.resolve("ghost")
+            registry.select_model("ghost")
 
-    def test_resolve_default_empty_registry_raises(self, tmp_path):
+    def test_select_model_default_empty_registry_raises(self, tmp_path):
         registry = _make_registry(tmp_path)
         with pytest.raises(ModelNotFoundError):
-            registry.resolve("default")
+            registry.select_model("default")

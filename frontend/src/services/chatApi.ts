@@ -39,7 +39,7 @@ export class ChatSSEClient {
       agent_id: params.agent_id || DEFAULT_AGENT_ID,
       session_id: params.session_id || null,
       enable_memory_retrieval: params.enable_memory_retrieval ?? true,
-      generation_options: params.generation_options,
+      model_selection: params.model_selection,
       // 发送时冻结的附件选择快照；空数组与缺省等价，后端按 prepare 边界校验
       attachments: params.attachments && params.attachments.length > 0
         ? params.attachments

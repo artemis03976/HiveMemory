@@ -7,6 +7,7 @@ import pytest
 
 from hivememory.alice.interface.cpu import AliceCPU, AliceUnavailableError
 from hivememory.core.access import WorkspaceAccessContext
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.core.models.reference import ReferenceResolution
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
@@ -71,9 +72,9 @@ async def test_cpu_returns_service_result_and_pushes_run_output_to_sink():
         compaction_checkpoint=make_compaction_checkpoint(reduced_through="old"),
     )
 
-    async def run_agent(manifest, *, run_output, generation_options, **kwargs):
+    async def run_agent(manifest, *, run_output, model_selection, **kwargs):
         assert manifest.process_id == "process-1"
-        assert generation_options == {"temperature": 0.5}
+        assert model_selection == ModelSelection(temperature=0.5)
         run_output.bind_run("run-1")
         await run_output.context_compaction(status="started", data={})
         return expected
@@ -85,7 +86,7 @@ async def test_cpu_returns_service_result_and_pushes_run_output_to_sink():
 
     result = await _cpu(run_agent).execute(
         make_input_manifest(process_id="process-1"),
-        generation_options={"temperature": 0.5},
+        model_selection=ModelSelection(temperature=0.5),
         thread=await _thread(),
         events=sink,
     )
@@ -111,7 +112,7 @@ async def test_unavailable_cpu_fails_when_awaited_without_entering_service(stopp
         cpu.start()
         cpu.stop()
     execution = cpu.execute(
-        make_input_manifest(), generation_options=None, thread=await _thread(), events=_discard
+        make_input_manifest(), model_selection=None, thread=await _thread(), events=_discard
     )
     with pytest.raises(AliceUnavailableError, match="Alice CPU is not running") as caught:
         await execution
@@ -139,7 +140,7 @@ async def test_cpu_binds_each_main_thread_to_its_operation_submitter() -> None:
     cpu = _cpu(route, entry)
     results = [
         await cpu.execute(
-            make_input_manifest(), thread=thread, generation_options=None, events=_discard
+            make_input_manifest(), thread=thread, model_selection=None, events=_discard
         )
         for thread in (first, second)
     ]

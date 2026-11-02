@@ -30,7 +30,6 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.config.access import load_access_registration
 from hivememory.config.app import HiveMemoryConfig, provider_credentials_from_env
-from hivememory.config.shared import LLMConfig
 from hivememory.core.access import WorkspaceOperation
 from hivememory.gateway import GatewaySystem
 from hivememory.i18n import set_default_language
@@ -172,27 +171,6 @@ class _ServicesBundle:
 
 
 # ---------------------------------------------------------------------------
-# 组件 LLM 请求参数
-# ---------------------------------------------------------------------------
-
-
-def component_llm_params(config: LLMConfig, registry: ModelRegistry) -> LLMRequestParams | None:
-    """经模型注册表把组件的模型选择解析为请求参数；``model_id`` 为 None 时返回 ``None``。
-
-    组件配置的 temperature 与 max_tokens 覆盖模型定义的默认值，其余采样参数取模型
-    定义的默认值，凭证由 Provider 凭证补齐。
-    """
-    if config.model_id is None:
-        return None
-    params, _ = registry.resolve(
-        config.model_id,
-        temperature_override=config.temperature,
-        max_tokens_override=config.max_tokens,
-    )
-    return params
-
-
-# ---------------------------------------------------------------------------
 # SystemAssembler
 # ---------------------------------------------------------------------------
 
@@ -308,18 +286,20 @@ class SystemAssembler:
         )
 
     def _build_llm(self, registries: _RegistriesBundle) -> _LLMBundle:
-        """创建唯一的 LLM 服务，并把两个组件的配置经注册表解析后各自转换为请求参数。
+        """创建唯一的 LLM 服务，并把两个组件的模型选择经注册表解析为各自的请求参数。
 
         服务无状态、可被全部使用方共享；两个组件的模型、凭证与采样参数只由
-        各自的配置段（``gateway.llm`` 与 ``patchouli.llm``）决定，互不影响。请求参数
-        带有提供商密钥，只交给组件，不写回配置对象：主配置接口读写的是配置文件的
-        内容，写回会让密钥进入 config.yaml。
+        各自的配置段（``gateway.llm`` 与 ``patchouli.llm``）决定，互不影响。配置为
+        None 的组件没有请求参数，按无 LLM 运行。请求参数带有提供商密钥，只交给组件，
+        不写回配置对象：主配置接口读写的是配置文件的内容，写回会让密钥进入 config.yaml。
         """
-        registry = registries.model_registry
+        resolve = registries.model_registry.resolve
+        gateway = self._config.gateway.llm
+        librarian = self._config.patchouli.llm
         return _LLMBundle(
             service=LiteLLMService(),
-            gateway_params=component_llm_params(self._config.gateway.llm, registry),
-            librarian_params=component_llm_params(self._config.patchouli.llm, registry),
+            gateway_params=None if gateway is None else resolve(gateway),
+            librarian_params=None if librarian is None else resolve(librarian),
         )
 
     # ------------------------------------------------------------------

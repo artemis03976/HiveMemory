@@ -162,13 +162,18 @@ export interface ChatRequestParams {
   agent_id?: string;
   session_id?: string | null;
   enable_memory_retrieval?: boolean;
-  generation_options?: ChatGenerationOptions;
+  model_selection?: ChatModelSelection;
   /** 发送时冻结的附件选择快照；空数组与缺省等价 */
   attachments?: ChatAttachmentSelection[];
 }
 
-export interface ChatGenerationOptions {
-  model?: string;
+/**
+ * 会话这一层的模型选择与生成参数覆盖，对应后端的 ModelSelection。
+ * 未给出的项沿用 Agent Profile，Profile 也没有的生成参数取模型定义的默认值。
+ */
+export interface ChatModelSelection {
+  /** 模型注册表 ID */
+  model_id?: string;
   temperature?: number;
   top_p?: number;
   max_tokens?: number;

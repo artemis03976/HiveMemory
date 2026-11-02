@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-from typing import Any
 
 import pytest
 from fastapi import FastAPI
@@ -26,6 +25,7 @@ from hivememory.core.models import (
     MemoryVisibility,
     PayloadLayer,
 )
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.server import deps
 from hivememory.server.routers.chat import router
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
@@ -143,7 +143,7 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
                     json={
                         "message": "根据已有资料回答",
                         "agent_id": actor.agent_id,
-                        "generation_options": {"model": "fake-test-model"},
+                        "model_selection": {"model_id": "fake-test-model"},
                     },
                 ),
                 timeout=10,
@@ -193,7 +193,7 @@ class _RecordingCPU:
         manifest: CPUInputManifest,
         *,
         thread: ExecutionThread,
-        generation_options: dict[str, Any] | None,
+        model_selection: ModelSelection | None,
         events: CPUEventSink,
     ) -> CPUExecutionResult:
         self.manifests.append(manifest)
@@ -201,7 +201,7 @@ class _RecordingCPU:
         return await self._delegate.execute(
             manifest,
             thread=thread,
-            generation_options=generation_options,
+            model_selection=model_selection,
             events=events,
         )
 
@@ -318,7 +318,7 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
                     json={
                         "message": message,
                         "agent_id": actor.agent_id,
-                        "generation_options": {"model": "fake-test-model"},
+                        "model_selection": {"model_id": "fake-test-model"},
                         "attachments": [
                             AttachmentSelectionRequest(asset_ref=asset_ref).model_dump(mode="json")
                         ],

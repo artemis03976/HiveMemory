@@ -10,7 +10,6 @@ from typing import Literal
 
 from hivememory.agent_runtime import (
     MTPGenerator,
-    ResolvedFrameModel,
     estimate_context_tokens,
 )
 from hivememory.alice.context.summarizer import RelaySummarizer
@@ -157,9 +156,7 @@ async def main() -> None:
             # 替身实现 LLM 服务接口，摘要仍经真实 MTP 生成器，不创建任何网络客户端。
             result = await view.compact(
                 summarizer=RelaySummarizer(MTPGenerator(service)),
-                model=ResolvedFrameModel(
-                    LLMRequestParams(model="fixed-sample", max_tokens=32768), input_limit
-                ),
+                params=LLMRequestParams(model="fixed-sample", max_tokens=32768),
             )
             rows.append(
                 {

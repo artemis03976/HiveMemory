@@ -5,6 +5,7 @@ import pytest
 from hivememory.alice import AliceSystem
 from hivememory.alice.interface.cpu import AliceUnavailableError
 from hivememory.config.alice import AliceConfig
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.workspace.contracts import ExecutionThread
 from tests.helpers.alice import CollectedEvents
 from tests.helpers.chat_handoff import make_input_manifest, make_thread_descriptor
@@ -28,7 +29,7 @@ async def test_system_lifecycle_controls_cpu_execution():
         return await system.cpu_port.execute(
             make_input_manifest(),
             thread=thread,
-            generation_options={"model": "test-model"},
+            model_selection=ModelSelection(model_id="test-model"),
             events=CollectedEvents(),
         )
 

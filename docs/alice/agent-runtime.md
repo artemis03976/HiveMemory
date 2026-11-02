@@ -50,7 +50,7 @@ AgentRunService
 
 Koakuma 直接满足 `MTPExecutor` 协议。`ExecutionFrame`、`FrameSpec` 与 `MTPExecutionContext` 都要求显式提交函数和策略，`FrameExecutionPolicy` 要求显式动词集合；不存在缺省放行。帧未覆盖迭代上限时由门面从 runtime 配置统一取值。写入意图登记、完整引用解析、原子与 Profile 缓存由 workspace 持有，执行层只消费 CPU 驱动交付的线程句柄（提交函数）。
 
-当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, generation_options, output_sink)`，`output_sink` 必填。帧生成总是流式：自然语言增量逐条送达 sink，不需要增量的调用方由 sink 自行丢弃；Agent Runtime 不接收 generation mode。这样同一帧只有一种模型调用形态，模型无文本、停止时的部分输出等语义不随调用方变化。Agent Runtime 不接收 Chat Run 取消句柄，也不轮询取消状态；外层 task cancellation 直接沿 await 传播。
+当前对外只有一个 frame 执行入口：`AgentRuntime.run_frame(frame, *, model_selection, output_sink)`，`output_sink` 必填。帧生成总是流式：自然语言增量逐条送达 sink，不需要增量的调用方由 sink 自行丢弃；Agent Runtime 不接收 generation mode。这样同一帧只有一种模型调用形态，模型无文本、停止时的部分输出等语义不随调用方变化。Agent Runtime 不接收 Chat Run 取消句柄，也不轮询取消状态；外层 task cancellation 直接沿 await 传播。
 
 ## 2. ExecutionFrame：可恢复的运行 PCB
 
@@ -61,7 +61,7 @@ ExecutionFrame
   ├─ RuntimeScope(labels, run_id, frame_id, action_id)
   ├─ AgentProfile
   ├─ working_history[]
-  ├─ resolved_model（生成参数、展示名、input_token_limit 的解析快照）
+  ├─ llm_params / input_token_limit（模型解析快照：请求参数与输入上限）
   ├─ topic_id | None
   ├─ submit_operation（本帧所属线程的句柄：线程描述与提交函数）
   ├─ language（已解析语言：根帧取自输入清单，子帧由 CALL 编排解析）
@@ -124,20 +124,21 @@ User    current user message
 每个 frame 开始时，AgentRuntime 根据以下优先级解析运行参数：
 
 ```text
-session generation_options
-  > Agent Profile model/temperature/top_p
+会话的 model_selection（ModelSelection）
+  > Agent Profile model_name/temperature/top_p
   > ModelRegistry definition
 ```
 
-- 会话 `model` 与 Profile `model_name` 都被解释为注册表 ID；
+- 会话的选择与 Gateway、Patchouli 的组件配置是同一个类型 `ModelSelection`（`core.models.model_definition`）：`model_id` 与 temperature、top_p、max_tokens 都可以不给，不给的项沿用下一层；Alice 按上面的顺序拼出这一帧的选择；
+- 会话 `model_id` 与 Profile `model_name` 都被解释为注册表 ID；
 - api key/base 来自注册表解析结果，为空时由提供商 SDK 从环境变量读取；
-- session 可以覆盖 temperature、top_p 和 max_tokens；
 - 注册表解析失败在 `run_frame()` 边界形成 `FAILED`，不静默换成另一个模型；
-- 模型解析经 `agent_runtime.ModelResolver` 端口进行，System 的 ModelRegistry 实现该端口并由组合根注入；端口返回已合并覆盖值的请求参数与所选的模型定义，上下文窗口与展示名从模型定义读取；未注入时，调用方必须在 generation options 中直接提供可执行 model，未给出的 temperature、top_p 与 max_tokens 取全局默认值，缺少 model 时以 `ModelNotFoundError` 在解析边界形成 `FAILED`，不调用模型。
+- 模型解析经 `agent_runtime.ModelResolver` 端口进行，System 的 ModelRegistry 实现该端口并由组合根注入。端口回答两个问题，各返回一个已有类型：`select_model(model_id)` 按 ID 取模型定义（`"default"` 为默认模型），Alice 从中读上下文窗口与展示名；`resolve(selection)` 返回合并后的请求参数 `LLMRequestParams`，Gateway 与 Patchouli 也只调用它。两次查询之间没有 `await`，`"default"` 不会在中途指向另一个模型；
+- 未注入注册表时，会话选择的 `model_id` 直接作为可执行的模型标识符，未给出的 temperature、top_p 与 max_tokens 取全局默认值，缺少 `model_id` 时以 `ModelNotFoundError` 在解析边界形成 `FAILED`，不调用模型。
 
 模型注册表启用时，frame 记录的是展示名，供执行结果的 `model_used` 与话题 UI 使用。未启用注册表的兼容路径可以正常生成，但当前不会把生成结果中的底层 model 名写入 frame，因此 `model_used` 可能为空。
 
-`AgentRuntime.resolve_model()` 返回 `ResolvedFrameModel`：固定本帧的请求参数（`LLMRequestParams`：模型、凭证、temperature、top_p 与 max_tokens，不含停止符）、展示名与输入上限。根 frame 在上下文组装前解析，CALL 子 frame 按自身模型独立解析；同一 frame 从 CALL 恢复时复用快照，避免注册表变动导致预算与请求漂移。输入上限为总 `context_window` 减去解析后的 `max_tokens` 和安全余量，缺少窗口登记时采用保守默认；非正上限不会自动扩大。预算与展示名不进入请求参数。
+`AgentRuntime.resolve_model()` 返回本帧的请求参数（`LLMRequestParams`：模型、凭证、temperature、top_p 与 max_tokens，不含停止符）、输入上限与展示名。帧直接保存前两项（`ExecutionFrame.llm_params` 与 `input_token_limit`，在同一处一起赋值），展示名写入 `progress.model_used`。根 frame 在上下文组装前解析，由上下文构建器把这两项交给运行层挂到帧上；CALL 子 frame 按自身模型独立解析；同一 frame 从 CALL 恢复时沿用已保存的两项，避免注册表变动导致预算与请求漂移。会话摘要器复用本帧的请求参数（只把输出上限收紧到摘要预算）与输入上限。输入上限为总 `context_window` 减去解析后的 `max_tokens` 和安全余量，缺少窗口登记时采用保守默认；非正上限不会自动扩大。预算与展示名不进入请求参数。
 
 帧生成没有文本增量时按空文本收敛。只有会话摘要器使用完整调用：提供商没有返回文本时，LLM 服务以 `ModelProviderError` 结束。估算沿用 `TokenEstimator`，另计每条消息 4 token 开销；配置与默认值见 [System 配置](../system/configuration.md#12-alice-会话预算与压缩)。
 

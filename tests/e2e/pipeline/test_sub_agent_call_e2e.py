@@ -14,6 +14,7 @@ from typing import Any
 
 import pytest
 
+from hivememory.core.models.model_definition import ModelSelection
 from tests.e2e.conftest import root_access, workspace_for
 from tests.helpers.registered_chat import stream_registered_chat
 
@@ -81,7 +82,7 @@ async def _collect_stream_events(
         user_id=user_id,
         agent_id=agent_id,
         enable_memory_retrieval=False,
-        generation_options={"temperature": 0, "top_p": 1},
+        model_selection=ModelSelection(temperature=0, top_p=1),
     ):
         events.append(event)
     return events

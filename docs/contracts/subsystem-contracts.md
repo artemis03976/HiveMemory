@@ -245,7 +245,7 @@ class CPUPort(Protocol):
         manifest: CPUInputManifest,
         *,
         thread: ExecutionThread,
-        generation_options: dict[str, Any] | None,
+        model_selection: ModelSelection | None,
         events: CPUEventSink,
     ) -> CPUExecutionResult: ...
 ```
@@ -282,7 +282,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 - **结局**：执行者自报的结局经终态结果的 `status` 表达；执行者抛出普通异常，由进程按失败处理，不接受任何候选结果。
 - **取消**：用户停止时，进程以原生 `asyncio.CancelledError` 取消正在执行的协程。CPU 内部各层原样传播取消并完成收尾，只在最外层把取消转换为返回值：返回 cancelled 结果，携带已产生的输出与已完成的检查点，`status` 如实描述 CPU 的结局。没有转换、直接传播取消的 CPU 按无输出的取消处理，`has_output` 排除初始用户输入事件。CPU 返回之后到达的停止不改写这个结局（停止晚于终态时仍是 completed）。
 - **取消后的收尾**：停止被接受时全部线程即已结束，此后的提交都以线程已结束拒绝；CPU 收到取消后的收尾不得依赖 actor 操作，只能用已经产生的内容组装结果。
-- **`generation_options`**：由各个执行者自行解释，进程原样传递。
+- **`model_selection`**：这次请求对模型与生成参数的选择（`core.models.model_definition.ModelSelection`），各项都可以不给，进程原样传递；未给出的项如何沿用由执行者决定，Alice 沿用 Agent Profile 与模型定义（[Agent Runtime](../alice/agent-runtime.md#4-模型选择与-mtp-生成器)）。
 
 ### 4.2 执行结果
 

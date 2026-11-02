@@ -8,12 +8,12 @@ from hivememory.agent_runtime import (
     ModelContextWindowExceededError,
     ModelProviderError,
     MTPGenerator,
-    ResolvedFrameModel,
     estimate_context_tokens,
 )
 from hivememory.config.alice import CompactionConfig
 from hivememory.core.constants import DEFAULT_MAX_TOKENS
 from hivememory.core.mtp.models import MTP_LEFT_DELIMITER, MTP_STOP_SEQUENCE
+from hivememory.infrastructure.llm.base import LLMRequestParams
 from hivememory.prompts.session_compaction import SummaryRequest, encode_summary_turn
 from hivememory.utils.token_estimator import TokenEstimator
 
@@ -41,7 +41,8 @@ class RelaySummarizer:
         previous_summary: str,
         turns: list[dict[str, Any]],
         *,
-        model: ResolvedFrameModel,
+        params: LLMRequestParams,
+        input_token_limit: int,
         config: CompactionConfig,
         language: str,
     ) -> str:
@@ -50,9 +51,9 @@ class RelaySummarizer:
         cursor = 0
         output_limit = min(
             config.summary_max_tokens,
-            model.params.max_tokens or DEFAULT_MAX_TOKENS,
+            params.max_tokens or DEFAULT_MAX_TOKENS,
         )
-        params = model.params.model_copy(update={"max_tokens": output_limit})
+        summary_params = params.model_copy(update={"max_tokens": output_limit})
         # 每轮只编码、计数一次；候选批次的估算按字符数累加，开销随轮数线性增长。
         encoded = [encode_summary_turn(turn) for turn in turns]
         turn_counts = [_char_counts(text) for text in encoded]
@@ -72,7 +73,7 @@ class RelaySummarizer:
                     + TokenEstimator.estimate_from_counts(cjk + turn_cjk, other + turn_other)
                     + MESSAGE_OVERHEAD_TOKENS
                 )
-                if request_tokens > model.input_token_limit:
+                if request_tokens > input_token_limit:
                     break
                 cjk, other, end = cjk + turn_cjk, other + turn_other, end + 1
             if end == cursor:
@@ -80,7 +81,7 @@ class RelaySummarizer:
             messages = request.messages(encoded[cursor:end])
             try:
                 async with asyncio.timeout(config.summary_timeout_seconds):
-                    result = await self._generator.generate(messages, params)
+                    result = await self._generator.generate(messages, summary_params)
             except TimeoutError as error:
                 raise SummaryRejectedError("summary_timeout") from error
             except ModelContextWindowExceededError as error:

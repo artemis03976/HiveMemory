@@ -45,7 +45,7 @@ OmniInput 在发送前组装：
 - 当前选中的 `agent_id`，默认 `omni_doll`（Chat 是 Agent action，必须携带具体 Agent，后端不回退到保留 `system`）；
 - 当前 `session_id`（没有选择时由后端自动创建）；
 - `enable_memory_retrieval`；
-- 可选的模型注册表 ID，以及 temperature、top_p、max_tokens 单轮覆盖。
+- 可选的 `model_selection`（对应后端的 `ModelSelection`）：模型注册表 ID `model_id`，以及开启覆盖时的 temperature、top_p、max_tokens；没有选择模型时不发送 `model_id`，沿用 Agent 的模型。
 
 用户导向基础选择（`user_id + workspace_id`）不在请求体中重复传递：`services/identity.ts` 统一以请求头 `x-user-id`/`x-workspace-id` 携带。server 解析身份声明，任务进程的注册入口经认证网关取得访问 context，各阶段授权时才组装 `IdentityScope`。请求体中的 `session_id` 指定本次使用的会话资源，不参与身份构造；后端校验会话属于请求的 Workspace，且没有其他进程占用。发送时冻结当前会话与 Agent，防止流中切换目标。
 

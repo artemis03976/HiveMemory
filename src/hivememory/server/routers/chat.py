@@ -94,11 +94,7 @@ async def chat(
         message=body.message,
         session_id=body.session_id,
         enable_memory_retrieval=body.enable_memory_retrieval,
-        generation_options=(
-            body.generation_options.model_dump(exclude_none=True)
-            if body.generation_options
-            else None
-        ),
+        model_selection=body.model_selection,
         attachments=body.attachments,
     )
     started = False

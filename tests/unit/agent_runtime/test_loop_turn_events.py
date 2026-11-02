@@ -22,7 +22,6 @@ from hivememory.agent_runtime.frame import (
 from hivememory.agent_runtime.loop import AgentLoopExecutor
 from hivememory.agent_runtime.model.budget import TurnContextBudgetExceededError
 from hivememory.agent_runtime.model.generator import GenerationResult, StreamChunk
-from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
 from hivememory.agent_runtime.mtp.context import MTPExecutionContext, MTPExecutionResult
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.alice.orchestration.call import CallContextProvider, CallCoordinator
@@ -34,6 +33,7 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     TurnEvent,
 )
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.core.mtp import MTP_RIGHT_DELIMITER, MTPCallRequest
 from hivememory.workspace.contracts import DeriveCallThreadRequest
 from tests.helpers.call import StubOperationSubmitter, make_callee
@@ -123,7 +123,8 @@ def _make_frame() -> ExecutionFrame:
         working_history=[{"role": "user", "content": "hello"}],
         topic_id="topic_1",
         language="zh",
-        resolved_model=ResolvedFrameModel(DEFAULT_LLM_PARAMS, input_token_limit=65536),
+        llm_params=DEFAULT_LLM_PARAMS,
+        input_token_limit=65536,
     )
 
 
@@ -201,7 +202,7 @@ async def test_iteration_limit_returns_budget_exhausted():
 async def test_tool_result_growth_stops_before_next_generation():
     """巨大工具结果保留在事件中，但不会再发送已经超预算的模型请求。"""
     frame = _make_frame()
-    frame.resolved_model = ResolvedFrameModel(DEFAULT_LLM_PARAMS, input_token_limit=40)
+    frame.llm_params, frame.input_token_limit = DEFAULT_LLM_PARAMS, 40
     executor = _build_executor([_mtp_result("正在读取", "<< READ | alias_x >>")])
     tool_result = _mtp_exec_result("READ")
     tool_result.formatted_response = "x" * 400
@@ -223,7 +224,7 @@ async def test_tool_result_growth_stops_before_next_generation():
 async def test_context_guard_counts_message_overhead_and_allows_exact_budget(limit, status):
     """文本一 token 加消息开销，恰好等于上限时允许生成。"""
     frame = _make_frame()
-    frame.resolved_model = ResolvedFrameModel(DEFAULT_LLM_PARAMS, input_token_limit=limit)
+    frame.llm_params, frame.input_token_limit = DEFAULT_LLM_PARAMS, limit
     executor = _build_executor([_natural_result("完成")])
 
     result = await executor.execute_frame(
@@ -514,7 +515,9 @@ async def test_call_backfill_completes_the_suspended_call_with_child_outcome():
 
     # 未注入模型注册表：被调用帧的模型由运行的生成参数直接给出。
     executor_result = await executor.run(
-        frame, generation_options={"model": "test-model"}, run_output=NullAgentRunOutput()
+        frame,
+        model_selection=ModelSelection(model_id="test-model"),
+        run_output=NullAgentRunOutput(),
     )
 
     assert executor_result.status == FrameExecutionStatus.COMPLETED

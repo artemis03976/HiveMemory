@@ -22,6 +22,7 @@ from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import (
     AgentProfile,
 )
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.core.mtp import MTP_STOP_SEQUENCE
 from hivememory.infrastructure.llm.base import LLMCompletion, LLMRequestParams
 from hivememory.workspace.contracts import CPUExecutionStatus
@@ -81,14 +82,17 @@ async def test_session_model_and_output_override_control_budget_and_provider_req
     manifest = make_input_manifest(user_message="x" * 2000)
 
     rejected = await service.run_agent(
-        manifest, {"model": "small"}, run_output=NullRunOutput(), submit_operation=_main(profile)
+        manifest,
+        ModelSelection(model_id="small"),
+        run_output=NullRunOutput(),
+        submit_operation=_main(profile),
     )
     assert rejected.failure_reason == "input_too_large"
     assert llm.calls == []
 
     completed = await service.run_agent(
         manifest,
-        {"model": "small", "max_tokens": 100},
+        ModelSelection(model_id="small", max_tokens=100),
         run_output=NullRunOutput(),
         submit_operation=_main(profile),
     )
@@ -271,7 +275,7 @@ async def test_registered_labels_drive_runtime_events_and_profile_controls_strea
     result, events = await run_with_events(
         service,
         manifest,
-        {"model": "test-model"},
+        ModelSelection(model_id="test-model"),
         submit_operation=_main(AgentProfile(agent_id=profile_agent_id), labels=labels),
     )
 

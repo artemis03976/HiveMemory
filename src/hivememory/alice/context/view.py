@@ -5,11 +5,12 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Literal
 
-from hivememory.agent_runtime import InputTooLargeError, ResolvedFrameModel, estimate_context_tokens
+from hivememory.agent_runtime import InputTooLargeError, estimate_context_tokens
 from hivememory.alice.context.references import extend_references
 from hivememory.alice.context.summarizer import RelaySummarizer, SummaryRejectedError
 from hivememory.config.alice import CompactionConfig
 from hivememory.core.protocol.models import ConversationTurn, SessionCompactionCheckpoint
+from hivememory.infrastructure.llm.base import LLMRequestParams
 from hivememory.prompts.session_compaction import render_session_summary
 from hivememory.prompts.transcript import HistoryTranscriptBuilder
 from hivememory.utils.time import utc_now
@@ -170,7 +171,7 @@ class SessionContextView:
         return self._result(checkpoint)
 
     async def compact(
-        self, *, summarizer: RelaySummarizer, model: ResolvedFrameModel
+        self, *, summarizer: RelaySummarizer, params: LLMRequestParams
     ) -> CompactionResult:
         """减重后按需接力摘要；任一折叠失败都不提交局部摘要，取消不降级。"""
         reduced = self.reduce()
@@ -230,7 +231,8 @@ class SessionContextView:
             summary = await summarizer.fold(
                 reduced.checkpoint.summary,
                 serialized,
-                model=model,
+                params=params,
+                input_token_limit=self._input_token_limit,
                 config=self._config,
                 language=self._language,
             )

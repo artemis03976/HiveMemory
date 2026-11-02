@@ -2,30 +2,6 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
-from hivememory.core.constants import (
-    DEFAULT_MAX_TOKENS,
-    DEFAULT_TEMPERATURE,
-)
-
-
-class LLMConfig(BaseModel):
-    """组件的模型选择与组件任务要求的生成参数（Gateway 与 Patchouli 各一份）。
-
-    模型与凭证只经注册表取得：组合根按 ``model_id`` 查模型注册表、补齐 Provider
-    凭证，得到这个组件的请求参数。生成参数是组件任务的要求（例如 Patchouli 一次
-    结算输出多条记忆所需的输出上限），不是模型的属性，因此跟着组件走，覆盖模型
-    定义的默认值。
-    """
-
-    model_id: str | None = Field(
-        default="default",
-        description="模型注册表 ID，'default' 表示注册表的默认模型；None 表示组件不使用 LLM",
-    )
-    temperature: float = Field(default=DEFAULT_TEMPERATURE)
-    max_tokens: int = Field(default=DEFAULT_MAX_TOKENS)
-
-    model_config = ConfigDict(extra="forbid")
-
 
 class ProviderCredentials(BaseModel):
     """单个模型提供商（provider）的凭证。

@@ -2,14 +2,7 @@
 
 from pydantic import BaseModel, Field, model_validator
 
-from hivememory.core.models import AttachmentSelectionRequest
-
-
-class GenerationOptions(BaseModel):
-    model: str | None = Field(default=None, min_length=1, description="模型名称")
-    temperature: float | None = Field(default=None, ge=0, le=2, description="采样温度")
-    top_p: float | None = Field(default=None, ge=0, le=1, description="Top-p 采样率")
-    max_tokens: int | None = Field(default=None, ge=1, le=32768, description="最大生成长度")
+from hivememory.core.models import AttachmentSelectionRequest, ModelSelection
 
 
 class ChatRequest(BaseModel):
@@ -33,8 +26,9 @@ class ChatRequest(BaseModel):
         default=None, description="会话 ID；缺少时新建会话，不参与身份授权"
     )
     enable_memory_retrieval: bool = Field(default=True, description="是否启用记忆检索")
-    generation_options: GenerationOptions | None = Field(
-        default=None, description="本次请求的生成参数覆盖"
+    model_selection: ModelSelection | None = Field(
+        default=None,
+        description="本次请求的模型选择与生成参数覆盖；未给出的项沿用 Agent Profile 与模型定义",
     )
     attachments: list[AttachmentSelectionRequest] = Field(
         default_factory=list,

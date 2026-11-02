@@ -6,9 +6,9 @@ ModelRegistry 是管理所有可用 LLM 模型的单一数据源（SSOT）。
 
 使用方式：
     registry = ModelRegistry()
-    params, model = registry.resolve("deepseek-chat")
-    # 或者 model_name='default' 自动选取默认模型
-    params, model = registry.resolve("default")
+    params = registry.resolve(ModelSelection(model_id="deepseek-chat", temperature=0.2))
+    # model_id='default' 选取默认模型；上下文窗口与展示名从模型定义读取
+    model = registry.select_model("default")
 """
 
 import logging
@@ -21,7 +21,7 @@ import yaml
 
 from hivememory.config.shared import ProviderCredentials
 from hivememory.core.errors import ModelNotFoundError
-from hivememory.core.models.model_definition import ModelDefinition
+from hivememory.core.models.model_definition import ModelDefinition, ModelSelection
 from hivememory.infrastructure.llm.base import LLMRequestParams
 
 if TYPE_CHECKING:
@@ -282,53 +282,42 @@ class ModelRegistry:
             return None, None
         return cred.api_key, cred.api_base
 
-    def resolve(
-        self,
-        model_name: str,
-        temperature_override: float | None = None,
-        max_tokens_override: int | None = None,
-        top_p_override: float | None = None,
-    ) -> tuple[LLMRequestParams, ModelDefinition]:
-        """
-        解析模型名称，返回这次调用的请求参数与所选的模型定义。
-
-        Alice 与 Gateway、Patchouli 的组件共用这一入口。采样参数的优先级：
-            调用方覆盖值（会话、Agent Profile 或组件配置） > 模型定义的默认值
-        上下文窗口与展示名不属于请求参数，调用方从返回的模型定义中读取。
-
-        Args:
-            model_name: 模型 ID，或 'default' 表示使用注册表默认模型
-            temperature_override: 温度覆盖，None 表示使用模型默认值
-            max_tokens_override: max_tokens 覆盖，None 表示使用模型默认值
-            top_p_override: top_p 覆盖，None 表示使用模型默认值
-
-        Returns:
-            (LLMRequestParams, ModelDefinition)
+    def select_model(self, model_id: str) -> ModelDefinition:
+        """按 ID 选出模型定义；'default' 选出注册表的默认模型。
 
         Raises:
-            ModelNotFoundError: model_name 不是 'default' 且对应 ID 不存在，或注册表为空
+            ModelNotFoundError: 模型不存在，或注册表为空时选 'default'
         """
-        if model_name == "default":
+        if model_id == "default":
             model = self.get_default_model()
             if model is None:
                 raise ModelNotFoundError("注册表为空，无法解析默认模型")
-        else:
-            model = self._models.get(model_name)
-            if model is None:
-                raise ModelNotFoundError(f"模型 '{model_name}' 不存在于注册表中")
+            return model
+        model = self._models.get(model_id)
+        if model is None:
+            raise ModelNotFoundError(f"模型 '{model_id}' 不存在于注册表中")
+        return model
 
+    def resolve(self, selection: ModelSelection) -> LLMRequestParams:
+        """把使用方的选择解析为这次 LLM 调用的请求参数。
+
+        Alice 与 Gateway、Patchouli 的组件共用这一入口：模型取选中定义的
+        litellm_model（``model_id`` 为 None 时取默认模型），凭证取它的 provider 凭证；
+        生成参数以选择中的覆盖值优先，为 None 时取模型定义的默认值。
+
+        Raises:
+            ModelNotFoundError: 同 select_model
+        """
+        model = self.select_model(selection.model_id or "default")
         api_key, api_base = self._resolve_credentials(model)
-        params = LLMRequestParams(
+        return LLMRequestParams(
             model=model.litellm_model,
             api_key=api_key,
             api_base=api_base,
-            temperature=(
-                temperature_override if temperature_override is not None else model.temperature
-            ),
-            max_tokens=max_tokens_override if max_tokens_override is not None else model.max_tokens,
-            top_p=top_p_override if top_p_override is not None else model.top_p,
+            temperature=_or_default(selection.temperature, model.temperature),
+            top_p=_or_default(selection.top_p, model.top_p),
+            max_tokens=_or_default(selection.max_tokens, model.max_tokens),
         )
-        return params, model
 
     # ------------------------------------------------------------------
     # 内部辅助
@@ -349,3 +338,7 @@ class ModelRegistry:
 
     def __repr__(self) -> str:
         return f"ModelRegistry(models={list(self._models.keys())}, path={self._path})"
+
+
+def _or_default[T](value: T | None, default: T) -> T:
+    return default if value is None else value

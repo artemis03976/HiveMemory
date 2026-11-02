@@ -80,7 +80,7 @@ async def test_compaction_replaces_summary_without_changing_opaque_blocks():
         summarized_through="t0",
         summary="OLD SUMMARY",
     )
-    summarizer, model, _ = _summary_dependencies()
+    summarizer, params, _ = _summary_dependencies()
     view = _view(
         turns,
         checkpoint=checkpoint,
@@ -88,7 +88,7 @@ async def test_compaction_replaces_summary_without_changing_opaque_blocks():
         turn_context=turn_context,
         config=CompactionConfig(summary_max_tokens=64),
     )
-    result = await view.compact(summarizer=summarizer, model=model)
+    result = await view.compact(summarizer=summarizer, params=params)
     system = result.messages[0]["content"]
     assert result.error is None
     assert result.summary_status == "completed"
@@ -250,10 +250,9 @@ def test_disabled_compaction_reports_history_overflow_as_compaction_failure():
         )
 
 
-def _summary_dependencies(limit=1000, results=None):
+def _summary_dependencies(results=None):
     """LLM 服务是唯一替身，生成器、选择、折叠与提示词组装使用真实实现。"""
     from hivememory.agent_runtime.model.generator import MTPGenerator
-    from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
     from hivememory.alice.context.summarizer import RelaySummarizer
     from hivememory.infrastructure.llm.base import LLMRequestParams
     from tests.helpers.llm import CallbackLLMService, ScriptedLLMService
@@ -264,7 +263,7 @@ def _summary_dependencies(limit=1000, results=None):
     llm = ScriptedLLMService(*results) if results else CallbackLLMService(complete=preserved)
     return (
         RelaySummarizer(MTPGenerator(llm)),
-        ResolvedFrameModel(LLMRequestParams(model="test/model", max_tokens=512), limit),
+        LLMRequestParams(model="test/model", max_tokens=512),
         llm,
     )
 
@@ -285,9 +284,9 @@ async def test_summary_covers_complete_prefix_and_next_compaction_only_folds_new
 
     config = CompactionConfig(summary_max_tokens=64)
     turns = tuple(_plain_turn(f"t{i}") for i in range(4))
-    summarizer, model, generate = _summary_dependencies()
+    summarizer, params, generate = _summary_dependencies()
     view = _view(turns, config=config)
-    result = await view.compact(summarizer=summarizer, model=model)
+    result = await view.compact(summarizer=summarizer, params=params)
     assert result.checkpoint.summarized_through == "t2"
     assert result.tokens_after <= 500
     assert result.messages[-3:] == view.messages[-3:]
@@ -303,7 +302,7 @@ async def test_summary_covers_complete_prefix_and_next_compaction_only_folds_new
     continued = _view(
         (*turns, _plain_turn("t4"), _plain_turn("t5")), config=config, checkpoint=result.checkpoint
     )
-    second = await continued.compact(summarizer=summarizer, model=model)
+    second = await continued.compact(summarizer=summarizer, params=params)
     request = json.loads(generate.calls[0].messages[1]["content"])
     assert request["previous_summary"] == result.checkpoint.summary
     assert request["turns"][0]["interaction_id"] == "t3"
@@ -321,9 +320,9 @@ async def test_later_fold_failure_keeps_previous_summary_and_only_advances_reduc
     )
     turns = tuple(_plain_turn(f"t{i}", 1100) for i in range(4))
     config = CompactionConfig(summary_max_tokens=64)
-    summarizer, model, generate = _summary_dependencies(results=["Partial new summary", ""])
+    summarizer, params, generate = _summary_dependencies(results=["Partial new summary", ""])
     result = await _view(turns, config=config, checkpoint=old).compact(
-        summarizer=summarizer, model=model
+        summarizer=summarizer, params=params
     )
     assert len(generate.calls) == 2
     assert result.summary_status == "abandoned"
@@ -344,9 +343,9 @@ async def test_later_fold_failure_keeps_previous_summary_and_only_advances_reduc
 async def test_large_fixed_reservation_avoids_paid_summary_when_view_still_fits():
     """摘要预留超过目标、视图仍在硬上限内时不反复生成摘要。"""
     config = CompactionConfig(summary_max_tokens=600)
-    summarizer, model, generate = _summary_dependencies()
+    summarizer, params, generate = _summary_dependencies()
     result = await _view((_plain_turn("t0", 1500),), config=config).compact(
-        summarizer=summarizer, model=model
+        summarizer=summarizer, params=params
     )
     assert result.error is None
     assert result.summary_status == "not_needed"
@@ -358,9 +357,9 @@ async def test_large_fixed_reservation_avoids_paid_summary_when_view_still_fits(
 async def test_large_reservation_uses_hard_limit_when_history_no_longer_fits():
     """目标放不下摘要但硬上限放得下时，先用摘要恢复可执行的请求。"""
     config = CompactionConfig(summary_max_tokens=600)
-    summarizer, model, generate = _summary_dependencies()
+    summarizer, params, generate = _summary_dependencies()
     result = await _view(tuple(_plain_turn(f"t{i}", 500) for i in range(5)), config=config).compact(
-        summarizer=summarizer, model=model
+        summarizer=summarizer, params=params
     )
     assert result.error is None
     assert result.summary_status == "completed"
@@ -375,9 +374,9 @@ async def test_summary_reservation_exceeding_hard_limit_reports_input_too_large(
     from hivememory.agent_runtime.model.budget import InputTooLargeError
 
     config = CompactionConfig(summary_max_tokens=1200)
-    summarizer, model, generate = _summary_dependencies()
+    summarizer, params, generate = _summary_dependencies()
     result = await _view((_plain_turn("t0", 3000),), config=config).compact(
-        summarizer=summarizer, model=model
+        summarizer=summarizer, params=params
     )
     assert isinstance(result.error, InputTooLargeError)
     assert result.checkpoint.summarized_through is None
@@ -409,8 +408,8 @@ async def test_summary_input_bounds_tool_messages_but_preserves_agent_and_failed
         ],
     )
     config = CompactionConfig(summary_max_tokens=64, summary_input_tool_chars=100, target_ratio=0.2)
-    summarizer, model, generate = _summary_dependencies()
-    result = await _view((turn,), config=config).compact(summarizer=summarizer, model=model)
+    summarizer, params, generate = _summary_dependencies()
+    result = await _view((turn,), config=config).compact(summarizer=summarizer, params=params)
     request = json.loads(generate.calls[-1].messages[1]["content"])
     item = request["turns"][0]
     assert (item["agent_id"], item["outcome"]) == ("coder", "failed")
@@ -425,8 +424,8 @@ async def test_summary_reserves_only_references_from_the_selected_prefix():
     config = CompactionConfig(summary_max_tokens=64, reference_max_chars=2000)
     old = _plain_turn("old", 1500)
     recent = _read_turn("z" * 1800, 40)
-    summarizer, model, generate = _summary_dependencies()
-    result = await _view((old, recent), config=config).compact(summarizer=summarizer, model=model)
+    summarizer, params, generate = _summary_dependencies()
+    result = await _view((old, recent), config=config).compact(summarizer=summarizer, params=params)
     assert result.error is None
     assert result.checkpoint.summarized_through == "old"
     assert result.checkpoint.references == ()
