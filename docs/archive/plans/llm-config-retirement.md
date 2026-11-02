@@ -92,7 +92,7 @@ Gateway 与 Librarian 的模型配置原先在 `shared.llm.gateway` / `librarian
 
 - 热重载：维持启动时解析，修改后重启生效。
 - 前端主配置其余分类与后端配置结构的对齐。本计划只让它们在真实配置加载后不再渲染出错（第 4.7 节）。
-- Agent Profile 的持久化结构不变：它的 `model_name`、temperature、top_p 在 Alice 内部拼入 `ModelSelection`；让 Profile 直接持有 `ModelSelection`（顺带补上 max_tokens）要改持久化结构与 Agent 编辑页，另行处理。
+- Agent Profile 的持久化结构不变：它的 `model_name`、temperature、top_p 在 Alice 内部拼入 `ModelSelection`；让 Profile 直接持有 `ModelSelection`（顺带补上 max_tokens）要改持久化结构与 Agent 编辑页，另行处理（[Todo](../../todo/agent-profile-model-selection.md)）。
 - Qdrant 的 `api_key` 与主配置接口的密钥机制不变。
 
 ## 3. 当前状态和缺口
@@ -199,7 +199,7 @@ cd frontend && npm run lint && npm run build && npm run test:session
 
 - 设置页未在浏览器中渲染核对（第 10 节）。
 - 旧式环境变量名被静默忽略。
-- Agent Profile 仍以三个平铺字段表达模型选择，且没有 max_tokens；会话与组件之外的第 2 层仍有这一种形状（第 2 节非目标）。
+- Agent Profile 仍以三个平铺字段表达模型选择，且没有 max_tokens；会话与组件之外的第 2 层仍有这一种形状（第 2 节非目标，[Todo](../../todo/agent-profile-model-selection.md)）。
 - `configApi.ts` 的 `fetchFoldTokenThreshold` 读取后端不存在的 `config.perception`，且没有调用方；General 页读取的 `system.version` 已从后端配置删除，显示为空。
 
 ## 9. 完成时必须更新的当前文档
