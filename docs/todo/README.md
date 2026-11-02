@@ -13,7 +13,6 @@ last_reviewed: 2026-11-01
 当前事项：
 
 - [Gateway 与 Librarian 的旧式直配路径](./legacy-llm-direct-config.md)（2026-11-01 由密钥移出主配置登记：没有 `model_id` 时直接使用配置中的 `model`、`api_key`、`api_base`，经 `HIVEMEMORY__LLM__*__API_KEY` 等环境变量注入，绕过模型与 Provider 注册表；owner 选择修复范围时未纳入，未排期）；
-- [模型级密钥覆盖写入受版本控制的 models.yaml](./model-registry-api-key-override.md)（2026-11-01 由密钥移出主配置登记：模型页面的“高级覆盖”把模型级 `api_key` 写入 `configs/models.yaml`；owner 选择修复范围时未纳入，未排期）；
 - [本机 HTTP 管理接口不证明调用方](./local-http-management-access.md)（2026-11-01 由 dsh 接入试用登记：管理接口以 server 的 principal 接入或不经认证网关，本机任何进程包括 harness 中的 agent 都能读写记忆、配置与密钥；会改变 HTTP 的信任模型，实施前先形成 Idea 或计划；owner 决定下一步修复）；
 - [推理模型重新加载时的事件循环停顿](./model-reload-event-loop-stall.md)（2026-10-30 由空闲卸载计划的实测验收登记：onnxruntime 创建会话与卸载时的 `gc.collect()` 持有 GIL，重新加载期间其他请求最长等待约 1～3.7 秒，两个模型同时加载时最长；owner 决定记为已知限制，之后单独优化，未排期）；
 - [生成查重的决策信号](./generation-dedup-decision-signal.md)（2026-10-29 由 Import Bus 真实使用观察登记：dense top-1 余弦在记忆对记忆的比较中分不开同一工作与同项目的其他记忆；2026-10-30 补充：同项目记忆增多后，查重判出的 UPDATE 整体覆盖了两条记忆的主要内容；2026-10-31 owner 决定命中后先落库再融合，覆盖问题随 v0.7.2 的[查重与更新计划](../archive/plans/v0.7.2-dedup-merge.md)解决并于同日归档；判定信号暂不改动，信号部分留在本 Todo；2026-11-01 查询改为与入库的嵌入文本同形，阈值不变）；

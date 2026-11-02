@@ -10,20 +10,15 @@ from hivememory.core.constants import (
     DEFAULT_TOP_P,
 )
 from hivememory.core.models.model_definition import ModelDefinition
-from hivememory.server.models.secrets import mask_api_key
 
 
 class ModelResponse(BaseModel):
-    """模型定义的 API 响应体（api_key 已脱敏）"""
+    """模型定义的 API 响应体"""
 
     id: str
     display_name: str
     litellm_model: str
     provider: str
-    api_key_masked: str | None = Field(
-        default=None, description="脱敏后的 API 密钥，如 'sk-...abcd'；未设置则为 null"
-    )
-    api_base: str | None = None
     temperature: float
     max_tokens: int
     context_window: int | None = None
@@ -37,8 +32,6 @@ class ModelResponse(BaseModel):
             display_name=model.display_name,
             litellm_model=model.litellm_model,
             provider=model.provider,
-            api_key_masked=mask_api_key(model.api_key),
-            api_base=model.api_base,
             temperature=model.temperature,
             max_tokens=model.max_tokens,
             context_window=model.context_window,
@@ -54,10 +47,6 @@ class ModelCreateRequest(BaseModel):
     display_name: str = Field(description="前端展示名称，如 'GPT-4o'")
     litellm_model: str = Field(description="litellm 模型标识符，如 'gpt-4o'")
     provider: str = Field(default="", description="提供商标识，留空自动从 litellm_model 前缀推导")
-    api_key: str | None = Field(
-        default=None, description="API 密钥，留空则由 provider 凭证或环境变量提供"
-    )
-    api_base: str | None = Field(default=None, description="自定义 API 地址，留空使用默认")
     temperature: float = Field(default=DEFAULT_TEMPERATURE, ge=0.0, le=2.0)
     max_tokens: int = Field(default=DEFAULT_MAX_TOKENS, gt=0)
     context_window: int | None = Field(default=None, gt=0, description="模型总上下文窗口 token 数")
@@ -66,17 +55,11 @@ class ModelCreateRequest(BaseModel):
 
 
 class ModelUpdateRequest(BaseModel):
-    """
-    更新模型的请求体 — 所有字段均为可选，只发送需要修改的字段。
-
-    注意：api_key 传空字符串 "" 可清除已设置的密钥（改为从环境变量读取）。
-    """
+    """更新模型的请求体 — 所有字段均为可选，只发送需要修改的字段。"""
 
     display_name: str | None = None
     litellm_model: str | None = None
     provider: str | None = None
-    api_key: str | None = None
-    api_base: str | None = None
     temperature: float | None = Field(default=None, ge=0.0, le=2.0)
     max_tokens: int | None = Field(default=None, gt=0)
     context_window: int | None = Field(
@@ -90,15 +73,9 @@ class ModelUpdateRequest(BaseModel):
         只返回客户端实际传入（非 None）的字段，
         防止把未设置的字段误覆盖为 None。
 
-        特殊处理：api_key="" 表示"清除密钥"，转换为 None 存储。
         context_window 显式传 null 时清除登记值，使 Alice 使用配置的默认窗口。
         """
-        result: dict[str, Any] = {}
-        for field_name, value in self.model_dump(exclude_none=True).items():
-            if field_name == "api_key" and value == "":
-                result[field_name] = None
-            else:
-                result[field_name] = value
+        result: dict[str, Any] = self.model_dump(exclude_none=True)
         if "context_window" in self.model_fields_set:
             result["context_window"] = self.context_window
         return result

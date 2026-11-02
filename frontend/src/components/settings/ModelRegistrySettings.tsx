@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { Plus, Pencil, Trash2, Star, RefreshCw, ChevronDown, ChevronRight } from 'lucide-react';
+import { Plus, Pencil, Trash2, Star, RefreshCw } from 'lucide-react';
 
 import { Input } from '../common/FormControls';
 import { useToastStore } from '@/stores';
@@ -23,9 +23,6 @@ interface ModelDraft {
   display_name: string;
   litellm_model: string;
   provider: string;
-  // api_key / api_base 仅在"高级覆盖"展开时使用
-  api_key: string;
-  api_base: string;
   temperature: number;
   max_tokens: number;
   top_p: number;
@@ -37,8 +34,6 @@ const EMPTY_DRAFT: ModelDraft = {
   display_name: '',
   litellm_model: '',
   provider: '',
-  api_key: '',
-  api_base: '',
   temperature: 1.0,
   max_tokens: 32768,
   top_p: 1.0,
@@ -63,7 +58,6 @@ function ModelEditor({
   onSubmit: () => void;
   onCancel: () => void;
 }) {
-  const [showOverride, setShowOverride] = useState(false);
   const rowCls = 'flex items-center justify-between gap-4 py-2';
   const labelCls = 'text-sm text-slate-300 shrink-0 w-28';
 
@@ -164,43 +158,6 @@ function ModelEditor({
         </button>
       </div>
 
-      {/* 高级：覆盖 API 凭证（折叠，仅需特殊处理时展开） */}
-      <div className="pt-2">
-        <button
-          type="button"
-          onClick={() => setShowOverride((v) => !v)}
-          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
-        >
-          {showOverride ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-          高级：为本模型单独覆盖 API 凭证
-        </button>
-        {showOverride && (
-          <div className="mt-2 pl-4 border-l border-white/10 space-y-1">
-            <p className="text-xs text-slate-500 mb-2">
-              通常无需填写，凭证由上方 Provider 提供。仅在此模型需要不同密钥时使用（如同 Provider 下的不同账单主体）。
-            </p>
-            <div className={rowCls}>
-              <span className={labelCls}>API Key</span>
-              <Input
-                value={draft.api_key}
-                onChange={(v: string) => onChange({ api_key: v })}
-                placeholder={isNew ? '留空则用 Provider 凭证' : '留空保持不变'}
-                className="w-64"
-              />
-            </div>
-            <div className={rowCls}>
-              <span className={labelCls}>API Base</span>
-              <Input
-                value={draft.api_base}
-                onChange={(v: string) => onChange({ api_base: v })}
-                placeholder="可选，留空用 Provider 默认地址"
-                className="w-64"
-              />
-            </div>
-          </div>
-        )}
-      </div>
-
       <div className="flex justify-end gap-2 pt-3">
         <button
           onClick={onCancel}
@@ -251,9 +208,6 @@ function ModelRow({
           </div>
           <div className="text-xs text-slate-500 mt-0.5 font-mono truncate">
             {model.litellm_model}
-            {model.api_key_masked && (
-              <span className="ml-2 text-slate-600">· {model.api_key_masked} <span className="text-amber-500/70">(覆盖)</span></span>
-            )}
           </div>
         </div>
       </div>
@@ -303,14 +257,11 @@ export function ModelRegistrySettings() {
 
   const startEdit = (m: RegisteredModel) => {
     setEditingId(m.id);
-    // api_key 脱敏值不回填（留空表示保持不变）
     setDraft({
       id: m.id,
       display_name: m.display_name,
       litellm_model: m.litellm_model,
       provider: m.provider,
-      api_key: '',
-      api_base: m.api_base ?? '',
       temperature: m.temperature,
       max_tokens: m.max_tokens,
       top_p: m.top_p,
@@ -337,8 +288,6 @@ export function ModelRegistrySettings() {
           display_name: draft.display_name.trim(),
           litellm_model: draft.litellm_model.trim(),
           provider: draft.provider.trim() || undefined,
-          api_key: draft.api_key.trim() || null,
-          api_base: draft.api_base.trim() || null,
           temperature: draft.temperature,
           max_tokens: draft.max_tokens,
           top_p: draft.top_p,
@@ -347,18 +296,15 @@ export function ModelRegistrySettings() {
         await createModel(payload);
         addToast('模型已添加', 'success');
       } else {
-        // 更新：api_key 留空表示保持不变
         const payload: ModelUpdatePayload = {
           display_name: draft.display_name.trim(),
           litellm_model: draft.litellm_model.trim(),
           provider: draft.provider.trim() || undefined,
-          api_base: draft.api_base.trim() || null,
           temperature: draft.temperature,
           max_tokens: draft.max_tokens,
           top_p: draft.top_p,
           is_default: draft.is_default,
         };
-        if (draft.api_key.trim()) payload.api_key = draft.api_key.trim();
         await updateModel(editingId, payload);
         addToast('模型已更新', 'success');
       }

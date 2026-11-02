@@ -5,7 +5,7 @@ ModelRegistry 单元测试
 - YAML 加载与持久化（原子写入）
 - CRUD：add_model / update_model / delete_model / get_model / list_models
 - 默认模型不变量（有且仅有一条 is_default=True）
-- 凭证解析优先级：model 显式 > ProviderRegistry > provider_credentials 静态字典 > None
+- 凭证解析：api_key 与 api_base 只来自 provider 凭证（ProviderRegistry > 静态字典 > None）
 - resolve() / resolve_for_llm_config() / to_llm_config()
 - 异常路径：ModelNotFoundError / DuplicateModelIdError
 """
@@ -38,8 +38,6 @@ def _make_model(
     max_tokens: int = 4096,
     context_window: int | None = None,
     top_p: float = 1.0,
-    api_key: str | None = None,
-    api_base: str | None = None,
     provider: str = "",
 ) -> ModelDefinition:
     return ModelDefinition(
@@ -51,8 +49,6 @@ def _make_model(
         max_tokens=max_tokens,
         context_window=context_window,
         top_p=top_p,
-        api_key=api_key,
-        api_base=api_base,
         provider=provider,
     )
 
@@ -120,6 +116,37 @@ class TestLoad:
         registry = ModelRegistry(registry_path=registry_path)
         assert len(registry) == 1
         assert registry.get_model("good") is not None
+
+    @pytest.mark.parametrize(
+        ("field", "value"),
+        [("api_key", "sk-in-tracked-file"), ("api_base", "https://proxy.example.com")],
+    )
+    def test_model_entry_with_connection_credential_skipped(self, tmp_path, field, value):
+        """连接凭证只属于 Provider：写入 api_key 或 api_base 的模型被跳过，两项为 null 的旧文件照常加载。"""
+        registry_path = tmp_path / "models.yaml"
+        data = {
+            "models": [
+                {
+                    "id": "leaky",
+                    "display_name": "Leaky",
+                    "litellm_model": "openai/gpt-4o",
+                    field: value,
+                },
+                {
+                    "id": "legacy",
+                    "display_name": "Legacy",
+                    "litellm_model": "deepseek/deepseek-chat",
+                    "api_key": None,
+                    "api_base": None,
+                },
+            ]
+        }
+        registry_path.write_text(yaml.safe_dump(data), encoding="utf-8")
+
+        registry = ModelRegistry(registry_path=registry_path)
+
+        assert registry.get_model("leaky") is None
+        assert registry.get_model("legacy") is not None
 
 
 # ---------------------------------------------------------------------------
@@ -272,22 +299,9 @@ class TestPersistence:
 
 
 class TestCredentialResolution:
-    def test_model_explicit_api_key_takes_priority(self, tmp_path):
-        """模型自身的 api_key 优先于 provider 凭证。"""
-        model = _make_model(
-            "m1",
-            litellm_model="deepseek/deepseek-chat",
-            api_key="model-explicit-key",
-        )
-        creds = {"deepseek": ProviderCredentials(api_key="provider-key")}
-        registry = _make_registry(tmp_path, models=[model], provider_credentials=creds)
-
-        llm_config = registry.to_llm_config("m1")
-        assert llm_config.api_key == "model-explicit-key"
-
-    def test_provider_credentials_used_when_model_key_is_none(self, tmp_path):
-        """model.api_key=None 时从 provider 凭证中补齐。"""
-        model = _make_model("m1", litellm_model="openai/gpt-4o", api_key=None)
+    def test_provider_credentials_fill_key_and_base(self, tmp_path):
+        """密钥与地址都从 provider 凭证中补齐。"""
+        model = _make_model("m1", litellm_model="openai/gpt-4o")
         creds = {
             "openai": ProviderCredentials(
                 api_key="provider-openai-key", api_base="https://api.openai.com"
@@ -300,10 +314,8 @@ class TestCredentialResolution:
         assert llm_config.api_base == "https://api.openai.com"
 
     def test_no_credentials_returns_none(self, tmp_path):
-        """既无 model key 又无 provider 凭证时，返回 None（litellm 自行从环境变量读取）。"""
-        model = _make_model(
-            "m1", litellm_model="deepseek/deepseek-chat", api_key=None, context_window=8000
-        )
+        """没有 provider 凭证时，返回 None（litellm 自行从环境变量读取）。"""
+        model = _make_model("m1", litellm_model="deepseek/deepseek-chat", context_window=8000)
         registry = _make_registry(tmp_path, models=[model])
 
         llm_config = registry.to_llm_config("m1")
@@ -315,7 +327,7 @@ class TestCredentialResolution:
         """注入 ProviderRegistry 时，_resolve_credentials 通过它动态查询。"""
         from unittest.mock import MagicMock
 
-        model = _make_model("m1", litellm_model="anthropic/claude-3", api_key=None)
+        model = _make_model("m1", litellm_model="anthropic/claude-3")
 
         mock_pr = MagicMock()
         mock_pr.get.return_value = ProviderCredentials(api_key="dynamic-key", api_base=None)

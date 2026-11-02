@@ -105,7 +105,7 @@ configs/providers.secrets.example.yaml
 
 Settings -> Model Registry 或 `/api/v1/models` 可以运行时 CRUD，并原子写回 YAML。注册表会在新增/更新默认模型时清除其他默认标记；如果没有显式默认，解析 `default` 会回退到第一条记录。
 
-优先在 Provider Registry 保存密钥。Model 页面允许高级单模型 api key 覆盖，但 `models.yaml` 受版本控制，除非有明确的本地隔离措施，否则不要使用这一入口保存真实密钥。
+模型定义不保存连接凭证：密钥与 API 地址只在 Provider Registry 中保存，模型按 `provider` 取得。`models.yaml` 受版本控制，其中写入非空 `api_key` 或 `api_base` 的模型在加载时被跳过，日志指出模型 ID 与它们应在的位置；删除这两个字段、把值移到 Provider 后重启。单个模型需要不同的密钥或地址时（例如经代理访问），另登记一个 Provider 名称并让这个模型引用它。
 
 ## 5. 主配置与生效边界
 
@@ -166,7 +166,6 @@ Provider 与 Model Registry 使用独立、已对齐的 API。其余主配置表
 ## 7. 安全检查
 
 - 不提交 `.env`、`configs/providers.secrets.yaml` 或任何真实 API key；
-- 不因为 API 响应会脱敏，就在 `models.yaml` 的高级覆盖中保存密钥；
 - 生产环境优先使用进程/编排环境注入，并限制配置 API 的网络可达性；当前服务没有登录系统，请求头中的用户身份不做证明，访问登记只适用于本地单用户部署；
 - 修改 Provider/Model/Config 后检查实际进程使用的模型，而不只看页面保存 toast；
 - 项目版本不是可覆盖配置；代码、Python 包、FastAPI 与 health 使用同一规范版本，是否已经发布仍以匹配的 Git tag 为准，完整口径见 [Project](../PROJECT.md)。
