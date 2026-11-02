@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from typing import Any
 
 from hivememory.core.models import TurnEvent
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.core.protocol.models import SessionCompactionCheckpoint
 from hivememory.workspace.contracts import (
     CPUEventSink,
@@ -34,7 +35,7 @@ class CPUCall:
     """一次 ``execute`` 调用的入参快照；``thread`` 是进程交来的主线程。"""
 
     manifest: CPUInputManifest
-    generation_options: dict[str, Any] | None
+    model_selection: ModelSelection | None
     thread: ExecutionThread
 
 
@@ -101,11 +102,11 @@ class ScriptedCPU:
         manifest: CPUInputManifest,
         *,
         thread: ExecutionThread,
-        generation_options: dict[str, Any] | None,
+        model_selection: ModelSelection | None,
         events: CPUEventSink,
     ) -> CPUExecutionResult:
         self.calls.append(
-            CPUCall(manifest=manifest, generation_options=generation_options, thread=thread)
+            CPUCall(manifest=manifest, model_selection=model_selection, thread=thread)
         )
         try:
             if self._operation_script is not None:

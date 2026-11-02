@@ -33,7 +33,7 @@ class TopicRouterEngine:
         """``llm_params`` 来自 Gateway 的组件 LLM 配置，缺少服务或参数时能力不可用。"""
         self._config = config
         self._llm_service = llm_service
-        self._llm_params = json_analysis_params(llm_params, config.model_override)
+        self._llm_params = json_analysis_params(llm_params)
         self._language = resolve_language().value
 
     async def route(

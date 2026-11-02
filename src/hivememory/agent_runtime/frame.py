@@ -13,7 +13,7 @@ from hivememory.core.models import AgentProfile, ExecutionLabels, TurnEvent
 from hivememory.core.mtp.models import MTPCallRequest
 
 if TYPE_CHECKING:
-    from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
+    from hivememory.infrastructure.llm.base import LLMRequestParams
     from hivememory.workspace.contracts import OperationSubmitter
 
 
@@ -111,8 +111,10 @@ class ExecutionFrame:
     # PCB 的"程序状态"：单帧执行的累积产物。累积器放在此处而不是
     # execute_frame 的局部变量中，使 CALL 挂起后重入续接、编号连续。
     progress: ExecutionProgress = field(default_factory=ExecutionProgress)
-    # 预算随实际模型解析一次；CALL 恢复时继续使用同一组模型参数与预算。
-    resolved_model: ResolvedFrameModel | None = None
+    # 请求参数与输入上限随模型解析一次、一起赋值；CALL 恢复时继续使用同一组，
+    # 不重新读取注册表，以免预算与已经组装的请求发生漂移。
+    llm_params: LLMRequestParams | None = None
+    input_token_limit: int | None = None
 
     def is_transient(self) -> bool:
         """判断本帧是否未挂载话题（子帧为瞬态帧，topic_id 为 None）。"""

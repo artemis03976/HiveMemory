@@ -20,14 +20,12 @@ def _create_test_app(mock_system):
     return app
 
 
-GATEWAY_KEY = "sk-gateway-secret-0001"
 QDRANT_KEY = "qdrant-secret-key-0003"
 
 
 def _config_with_secrets() -> HiveMemoryConfig:
     """运行时配置中的密钥只来自环境变量与 .env，这里直接设在配置对象上。"""
     config = HiveMemoryConfig()
-    config.shared.llm.gateway.api_key = GATEWAY_KEY
     config.patchouli.storage.api_key = QDRANT_KEY
     return config
 
@@ -46,9 +44,8 @@ def test_config_responses_return_only_masked_api_keys(tmp_path, monkeypatch):
 
     for response in (read, saved, defaults):
         assert response.status_code == 200
-        for secret in (GATEWAY_KEY, QDRANT_KEY):
-            assert secret not in response.text
-    assert read.json()["shared"]["llm"]["gateway"]["api_key"] == "sk-...0001"
+        assert QDRANT_KEY not in response.text
+    assert read.json()["patchouli"]["storage"]["api_key"] == "qdr...0003"
     assert defaults.json()["patchouli"]["storage"]["api_key"] == "qdr...0003"
 
 
@@ -60,15 +57,12 @@ def test_saving_config_neither_changes_nor_persists_api_keys(tmp_path, monkeypat
     monkeypatch.setenv("HIVEMEMORY_CONFIG_PATH", str(config_path))
     client = TestClient(_create_test_app(mock_system))
     payload = client.get("/api/v1/config").json()
-    payload["shared"]["llm"]["gateway"]["api_key"] = "sk-new-gateway-secret"
-    payload["patchouli"]["storage"]["api_key"] = None
+    payload["patchouli"]["storage"]["api_key"] = "new-qdrant-secret"
 
     response = client.post("/api/v1/config", json=payload)
 
     assert response.status_code == 200
-    saved = mock_system.config
-    assert saved.shared.llm.gateway.api_key == GATEWAY_KEY
-    assert saved.patchouli.storage.api_key == QDRANT_KEY
+    assert mock_system.config.patchouli.storage.api_key == QDRANT_KEY
     assert "api_key" not in config_path.read_text(encoding="utf-8")
 
 

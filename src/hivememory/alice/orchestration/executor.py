@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Literal
 
 from hivememory.agent_runtime import (
     ExecutionFrame,
@@ -18,6 +18,7 @@ from hivememory.alice.orchestration.call.coordinator import (
 from hivememory.alice.orchestration.call.record import CallRecord
 from hivememory.alice.orchestration.output import AgentRunOutput
 from hivememory.alice.orchestration.session import RunSession
+from hivememory.core.models.model_definition import ModelSelection
 
 if TYPE_CHECKING:
     from hivememory.agent_runtime import AgentRuntime
@@ -68,7 +69,7 @@ class RunExecutor:
         self,
         frame: ExecutionFrame,
         *,
-        generation_options: dict[str, Any] | None = None,
+        model_selection: ModelSelection | None = None,
         run_output: AgentRunOutput,
     ) -> FrameExecutionResult:
         self._require_root(frame)
@@ -79,7 +80,7 @@ class RunExecutor:
         try:
             result = await self._execute_frame(
                 frame,
-                generation_options=generation_options,
+                model_selection=model_selection,
                 run_output=run_output,
                 output_context=_FrameOutputContext(),
             )
@@ -96,7 +97,7 @@ class RunExecutor:
         self,
         frame: ExecutionFrame,
         *,
-        generation_options: dict[str, Any] | None,
+        model_selection: ModelSelection | None,
         run_output: AgentRunOutput,
         output_context: _FrameOutputContext,
     ) -> FrameExecutionResult:
@@ -112,7 +113,7 @@ class RunExecutor:
         while True:
             result = await self._agent_runtime.run_frame(
                 frame,
-                generation_options=generation_options,
+                model_selection=model_selection,
                 output_sink=frame_output,
             )
             if (
@@ -139,7 +140,7 @@ class RunExecutor:
                     outcome = await self._execute_call(
                         frame,
                         result,
-                        generation_options=generation_options,
+                        model_selection=model_selection,
                         run_output=run_output,
                         output_context=output_context,
                     )
@@ -171,7 +172,7 @@ class RunExecutor:
         caller_frame: ExecutionFrame,
         suspension: FrameExecutionResult,
         *,
-        generation_options: dict[str, Any] | None,
+        model_selection: ModelSelection | None,
         run_output: AgentRunOutput,
         output_context: _FrameOutputContext,
     ) -> ResumeCaller:
@@ -189,7 +190,7 @@ class RunExecutor:
 
                     callee_result = await self._execute_frame(
                         callee_frame,
-                        generation_options=generation_options,
+                        model_selection=model_selection,
                         run_output=run_output,
                         output_context=output_context.child(action_id=action_id),
                     )
@@ -200,7 +201,7 @@ class RunExecutor:
                         callee_frame,
                         callee_result,
                         session=self._session,
-                        generation_options=generation_options,
+                        model_selection=model_selection,
                         run_output=run_output,
                     )
                     match completion:

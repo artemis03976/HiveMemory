@@ -14,5 +14,6 @@ class ConfigResponse(BaseModel):
     runtime_events: dict[str, Any]
     i18n: dict[str, Any]
     shared: dict[str, Any]
+    gateway: dict[str, Any]
     patchouli: dict[str, Any]
     alice: dict[str, Any]

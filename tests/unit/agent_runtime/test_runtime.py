@@ -12,18 +12,31 @@ from hivememory.agent_runtime.frame import (
 from hivememory.agent_runtime.loop import AgentLoopExecutor
 from hivememory.agent_runtime.runtime import AgentRuntime
 from hivememory.config.alice import AgentRuntimeConfig
-from hivememory.config.shared import LLMConfig
 from hivememory.core.constants import DEFAULT_MAX_TOKENS, DEFAULT_TEMPERATURE
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     TurnEvent,
 )
+from hivememory.core.models.model_definition import ModelDefinition, ModelSelection
 from hivememory.infrastructure.llm.base import LLMRequestParams
 from tests.helpers.call import StubOperationSubmitter
 from tests.helpers.llm import CallbackLLMService
 from tests.helpers.outputs import NullFrameOutputSink
 from tests.helpers.workspace import make_runtime_scope
+
+
+def _resolver(*, max_tokens: int, context_window: int | None = None) -> MagicMock:
+    """注册表替身：模型定义与请求参数各由一次查询给出。"""
+    resolver = MagicMock()
+    resolver.select_model.return_value = ModelDefinition(
+        id="model",
+        display_name="显示名称",
+        litellm_model="provider/model",
+        context_window=context_window,
+    )
+    resolver.resolve.return_value = LLMRequestParams(model="provider/model", max_tokens=max_tokens)
+    return resolver
 
 
 def _frame(*, run_id: str = "run-1", frame_id: str = "frame-1") -> ExecutionFrame:
@@ -63,7 +76,9 @@ async def test_built_runtime_uses_config_budget_unless_frame_overrides(
     frame.execution_policy = FrameExecutionPolicy.from_verbs({"RUN"}, max_iterations=frame_limit)
 
     result = await runtime.run_frame(
-        frame, generation_options={"model": "test-model"}, output_sink=NullFrameOutputSink()
+        frame,
+        model_selection=ModelSelection(model_id="test-model"),
+        output_sink=NullFrameOutputSink(),
     )
 
     assert result.status == FrameExecutionStatus.BUDGET_EXHAUSTED
@@ -89,7 +104,7 @@ async def test_agent_runtime_uses_injected_loop_executor():
 
     actual = await runtime.run_frame(
         _frame(),
-        generation_options={"model": "test-model"},
+        model_selection=ModelSelection(model_id="test-model"),
         output_sink=NullFrameOutputSink(),
     )
 
@@ -166,64 +181,45 @@ def test_finalize_unsuccessful_frame_does_not_harvest_aliases():
     [(10000, 2000, 7500), (None, 2000, 17500), (1000, 1000, -500)],
 )
 def test_resolved_model_budget_reserves_output_and_margin(window, max_tokens, expected_limit):
-    """窗口缺省时回落配置；生成预算挤满窗口时保留非正上限供输入检查拒绝。"""
-    resolver = MagicMock()
-    resolver.resolve.return_value = (
-        LLMConfig(model="provider/model", context_window=window, max_tokens=max_tokens),
-        "显示名称",
-    )
+    """输入上限由所选模型的窗口与请求的生成上限得出；窗口缺省时回落配置，
+    生成预算挤满窗口时保留非正上限供输入检查拒绝。展示名取模型定义。"""
     runtime = AgentRuntime(
         runtime_config=AgentRuntimeConfig(default_context_window=20000, safety_margin=500),
         loop_executor=MagicMock(),
-        model_registry=resolver,
+        model_registry=_resolver(max_tokens=max_tokens, context_window=window),
     )
-    resolved = runtime.resolve_model(OMNI_DOLL_PROFILE, None)
+    _, limit, display_name = runtime.resolve_model(OMNI_DOLL_PROFILE, None)
 
-    assert resolved.input_token_limit == expected_limit
-    assert resolved.params.model == "provider/model"
+    assert limit == expected_limit
+    assert display_name == "显示名称"
 
 
-def test_registry_resolution_converts_merged_config_to_request_params():
-    """注册表合并后的模型、凭证与采样参数原样成为请求参数，展示名与窗口不进入请求。"""
-    resolver = MagicMock()
-    resolver.resolve.return_value = (
-        LLMConfig(
-            model="provider/model",
-            api_key="key",
-            api_base="https://example.invalid",
-            temperature=0.4,
-            top_p=0.8,
-            max_tokens=1024,
-            context_window=8192,
-        ),
-        "显示名称",
-    )
+def test_session_selection_overrides_profile_before_registry_defaults():
+    """会话给出的项优先于 Agent Profile；两者都没给的项留给注册表回落到模型定义。"""
+    resolver = _resolver(max_tokens=100)
     runtime = AgentRuntime(
-        runtime_config=AgentRuntimeConfig(),
-        loop_executor=MagicMock(),
-        model_registry=resolver,
+        runtime_config=AgentRuntimeConfig(), loop_executor=MagicMock(), model_registry=resolver
+    )
+    profile = OMNI_DOLL_PROFILE.model_copy(
+        update={"model_name": "profile-model", "temperature": 0.9, "top_p": 0.7}
     )
 
-    resolved = runtime.resolve_model(OMNI_DOLL_PROFILE, None)
+    runtime.resolve_model(profile, ModelSelection(temperature=0.2, max_tokens=256))
 
-    assert resolved.params == LLMRequestParams(
-        model="provider/model",
-        api_key="key",
-        api_base="https://example.invalid",
-        temperature=0.4,
-        top_p=0.8,
-        max_tokens=1024,
+    resolver.resolve.assert_called_once_with(
+        ModelSelection(model_id="profile-model", temperature=0.2, top_p=0.7, max_tokens=256)
     )
-    assert resolved.display_name == "显示名称"
 
 
 def test_resolution_without_registry_fills_unset_sampling_params_with_defaults():
     """未注入注册表时直接使用会话给出的 model，缺省的采样参数取全局默认值。"""
     runtime = AgentRuntime(runtime_config=AgentRuntimeConfig(), loop_executor=MagicMock())
 
-    resolved = runtime.resolve_model(OMNI_DOLL_PROFILE, {"model": "provider/model", "top_p": 0.5})
+    params, _, _ = runtime.resolve_model(
+        OMNI_DOLL_PROFILE, ModelSelection(model_id="provider/model", top_p=0.5)
+    )
 
-    assert resolved.params == LLMRequestParams(
+    assert params == LLMRequestParams(
         model="provider/model",
         temperature=DEFAULT_TEMPERATURE,
         top_p=0.5,
@@ -252,8 +248,7 @@ async def test_frame_reentry_keeps_resolved_model_and_budget():
     async def generate_done(*_args, **_kwargs):
         yield StreamChunk(is_final=True, result=GenerationResult(text="完成"))
 
-    resolver = MagicMock()
-    resolver.resolve.return_value = (LLMConfig(model="model", max_tokens=100), "模型")
+    resolver = _resolver(max_tokens=100)
     worker = MagicMock(generate=generate_done)
     runtime = AgentRuntime(
         runtime_config=AgentRuntimeConfig(),
@@ -261,11 +256,14 @@ async def test_frame_reentry_keeps_resolved_model_and_budget():
         model_registry=resolver,
     )
     frame = _frame()
-    frame.resolved_model = runtime.resolve_model(frame.agent_profile, None)
+    frame.llm_params, frame.input_token_limit, frame.progress.model_used = runtime.resolve_model(
+        frame.agent_profile, None
+    )
+    resolver.select_model.side_effect = ModelNotFoundError("模型已被移除")
     resolver.resolve.side_effect = ModelNotFoundError("模型已被移除")
 
     result = await runtime.run_frame(frame, output_sink=NullFrameOutputSink())
 
     assert result.status == FrameExecutionStatus.COMPLETED
     assert frame.progress.text_segments == ["完成"]
-    assert frame.progress.model_used == "模型"
+    assert frame.progress.model_used == "显示名称"

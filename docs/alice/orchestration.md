@@ -72,7 +72,7 @@ AliceSystem
 - `submit_operation` 是主线程的句柄，也是资源请求的唯一交付入口，只交出主线程描述，不暴露访问 context 或目标选择；
 - `ExecutionLabels` 取自主线程描述，即注册时绑定的 agent/workspace 观测标签，不参与资源授权；
 - `agent_profile` 是主线程描述中的图纸（进程在 prepare 之前解析），模型解析也用它；MTP 动词由主线程描述的操作快照翻译。`agent.run.*` 与历史中的当前 Agent 取输入清单的注册标签，与主线程标签相同；
-- `working_history` 来自 `SessionContextView` 组装的预算内视图，预算与生成参数来自同一个 `ResolvedFrameModel`。
+- `working_history` 来自 `SessionContextView` 组装的预算内视图，预算与请求参数来自同一次模型解析（帧上的 `input_token_limit` 与 `llm_params`）。
 
 根 frame 创建前只构建一次会话视图：先解析模型，再检查固定输入、复用已有检查点并按需减重/摘要。算法见 [Agent Runtime](./agent-runtime.md#31-会话上下文视图)。Alice 不拥有跨 run 的检查点存储；完整压缩结束才保存本次产物，由 CPU 结果交回会话服务。CALL 子 frame 不接收会话历史或检查点，只按自身模型执行轮内守卫；caller 重入复用原解析快照。
 

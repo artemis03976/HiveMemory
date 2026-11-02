@@ -39,20 +39,6 @@ runtime_events:
 
 # ========== 跨子系统共享配置 ==========
 shared:
-  llm:
-    # gateway 和 librarian 通过 model_id 引用模型注册表（configs/models.yaml）。
-    # model/api_key/api_base 由 ModelRegistry.resolve_for_llm_config() 在启动时填充，无需手动配置。
-    # temperature/max_tokens 是组件专属调参，始终覆盖注册表模型的默认值。
-    gateway:
-      model_id: "deepseek-chat"  # 引用 models.yaml 中的模型 ID
-      temperature: 0.0           # 网关用极低温，确保路由稳定
-      max_tokens: 512
-
-    librarian:
-      model_id: "deepseek-chat"
-      temperature: 0.3           # 记忆整理用低温，输出稳定
-      max_tokens: 32768          # 一次结算输出多条记忆，需要较大的输出上限
-
   embedding:
     default:
       model_name: "Xenova/bge-m3"
@@ -78,6 +64,14 @@ memory_compiler:
 
 # ========== System Gateway 配置 ==========
 gateway:
+  # 话题路由与查询分析使用的模型：model_id 引用 configs/models.yaml 中的模型（不写为默认模型），
+  # 凭证由 Provider 凭证补齐；temperature/top_p/max_tokens 覆盖模型默认值，不写时沿用。
+  # 这里写的是组件任务要求的值。整段写为 null 表示不使用 LLM。启动时解析，修改后重启生效。
+  llm:
+    model_id: "deepseek-chat"
+    temperature: 0.0           # 网关用极低温，确保路由稳定
+    max_tokens: 512
+
   context_preparation:
     session_turn_limit: 3
   interceptor:
@@ -86,6 +80,12 @@ gateway:
     enable_chat: true
 
 patchouli:
+  # Librarian 的模型（记忆提取、合并与话题折叠摘要），写法同 gateway.llm。
+  llm:
+    model_id: "deepseek-chat"
+    temperature: 0.3           # 记忆整理用低温，输出稳定
+    max_tokens: 32768          # 一次结算输出多条记忆，需要较大的输出上限
+
   storage:
     host: "127.0.0.1"
     port: 6333

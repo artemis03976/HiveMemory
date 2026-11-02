@@ -13,20 +13,16 @@ export interface LoggingConfig {
   console_output: boolean;
 }
 
-export interface LLMConfig {
-  provider: string;
-  /** 引用注册表模型 ID（如 "deepseek-chat"）。设置时优先于 model 字段。 */
-  model_id?: string | null;
-  model: string;
-  api_key: string | null;
-  api_base: string | null;
-  temperature: number;
-  max_tokens: number;
-}
-
-export interface LLMsConfig {
-  gateway: LLMConfig;
-  librarian: LLMConfig;
+/**
+ * 对注册表模型的选择与生成参数覆盖，对应后端的 ModelSelection。
+ * 各项为 null 时不覆盖：model_id 取注册表的默认模型，生成参数取模型定义的默认值。
+ * 组件（Gateway、Patchouli）在启动时解析，保存后重启生效。
+ */
+export interface ModelSelection {
+  model_id: string | null;
+  temperature: number | null;
+  top_p: number | null;
+  max_tokens: number | null;
 }
 
 export interface EmbeddingConfig {
@@ -36,6 +32,15 @@ export interface EmbeddingConfig {
 
 export interface EmbeddingsConfig {
   default: EmbeddingConfig;
+}
+
+export interface SharedConfig {
+  embedding: EmbeddingsConfig;
+}
+
+export interface PatchouliConfig {
+  /** null 表示 Patchouli 不使用 LLM */
+  llm: ModelSelection | null;
 }
 
 export interface QdrantConfig {
@@ -63,6 +68,8 @@ export interface AnalyzerConfig {
 }
 
 export interface GatewayConfig {
+  /** null 表示 Gateway 不使用 LLM */
+  llm: ModelSelection | null;
   interceptor: InterceptorConfig;
   analyzer: AnalyzerConfig;
 }
@@ -232,8 +239,8 @@ export interface KoakumaConfig {
 export interface HiveMemoryConfig {
   system: SystemConfig;
   logging: LoggingConfig;
-  llm: LLMsConfig;
-  embedding: EmbeddingsConfig;
+  shared: SharedConfig;
+  patchouli: PatchouliConfig;
   qdrant: QdrantConfig;
   gateway: GatewayConfig;
   perception: PerceptionConfig;

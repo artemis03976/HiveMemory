@@ -25,6 +25,7 @@ from sse_starlette.sse import AppStatus
 
 from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.errors import AdmissionDeniedError
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.server import deps
 from hivememory.server.deps import RequestIdentitySelection
 from hivememory.server.error_handlers import install_error_handlers
@@ -168,7 +169,7 @@ class TestChatRegistration:
         assert response.status_code == 422
         mock_service.register_process.assert_not_called()
 
-    def test_runtime_generation_options_are_forwarded_to_registration(self):
+    def test_runtime_model_selection_is_forwarded_to_registration(self):
         mock_service = _wired_chat_service(
             lambda *args, **kw: _simple_stream(
                 {
@@ -186,8 +187,8 @@ class TestChatRegistration:
             json={
                 "message": "hello",
                 "agent_id": "test_agent",
-                "generation_options": {
-                    "model": "gpt-4o",
+                "model_selection": {
+                    "model_id": "gpt-4o",
                     "temperature": 0.2,
                     "top_p": 0.8,
                     "max_tokens": 1024,
@@ -196,12 +197,9 @@ class TestChatRegistration:
         )
         assert response.status_code == 200
         register_kwargs = mock_service.register_process.call_args.kwargs
-        assert register_kwargs["generation_options"] == {
-            "model": "gpt-4o",
-            "temperature": 0.2,
-            "top_p": 0.8,
-            "max_tokens": 1024,
-        }
+        assert register_kwargs["model_selection"] == ModelSelection(
+            model_id="gpt-4o", temperature=0.2, top_p=0.8, max_tokens=1024
+        )
         # run_process 收到注册返回的不透明进程句柄
         run_args, _ = mock_service.run_process.call_args
         assert run_args[0].process_id == register_kwargs["process_id"]

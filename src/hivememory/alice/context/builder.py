@@ -1,16 +1,18 @@
 """按模型预算准备根帧输入，保留可在取消收尾时读取的完整检查点。"""
 
 from time import perf_counter
-from typing import Any, Protocol
+from typing import Protocol
 
-from hivememory.agent_runtime import AgentRuntime, InputTooLargeError, ResolvedFrameModel
+from hivememory.agent_runtime import AgentRuntime, InputTooLargeError
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.context.view import CompactionFailedError, SessionContextView
 from hivememory.alice.events import BoundAgentRunEvents
 from hivememory.config.alice import CompactionConfig, KoakumaConfig
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import AgentProfile
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.core.protocol.models import SessionCompactionCheckpoint
+from hivememory.infrastructure.llm.base import LLMRequestParams
 from hivememory.prompts.mtp import render_mtp_teaching
 from hivememory.workspace.contracts import CPUInputManifest
 
@@ -37,7 +39,10 @@ class RootContextBuilder:
         self._config = config
         self._summarizer = summarizer
         self.messages: list[dict[str, str]] = []
-        self.model: ResolvedFrameModel | None = None
+        # 解析得到的请求参数与输入上限，由运行层挂到根帧上；两者一起赋值。
+        self.llm_params: LLMRequestParams | None = None
+        self.input_token_limit: int | None = None
+        self.model_used = ""
         self.checkpoint: SessionCompactionCheckpoint | None = None
         self.error: Exception | None = None
 
@@ -47,7 +52,7 @@ class RootContextBuilder:
         *,
         agent_profile: AgentProfile,
         permitted_verbs: frozenset[str],
-        generation_options: dict[str, Any] | None,
+        model_selection: ModelSelection | None,
         events: BoundAgentRunEvents,
         output: ContextProgressOutput,
     ) -> None:
@@ -57,7 +62,10 @@ class RootContextBuilder:
         Agent 仍取清单的注册标签。
         """
         try:
-            self.model = self._runtime.resolve_model(agent_profile, generation_options)
+            params, limit, self.model_used = self._runtime.resolve_model(
+                agent_profile, model_selection
+            )
+            self.llm_params, self.input_token_limit = params, limit
             # 工具教学属于 Alice；语言沿用进程的解析结果，不能重新读取默认语言。
             mtp_prompt = render_mtp_teaching(
                 self._koakuma_config,
@@ -73,7 +81,7 @@ class RootContextBuilder:
                 session_history=manifest.session_history,
                 current_agent_id=manifest.labels.agent_id,
                 checkpoint=manifest.compaction_checkpoint,
-                input_token_limit=self.model.input_token_limit,
+                input_token_limit=limit,
                 config=self._config,
             )
             self.messages = view.messages
@@ -88,7 +96,7 @@ class RootContextBuilder:
             events.compaction(status="started", data=progress)
             await output.context_compaction(status="started", data=progress)
             started_at = perf_counter()
-            compacted = await view.compact(summarizer=self._summarizer, model=self.model)
+            compacted = await view.compact(summarizer=self._summarizer, params=params)
             self.messages = compacted.messages
             self.checkpoint = compacted.checkpoint
             progress = {

@@ -7,7 +7,6 @@ import pytest
 
 from hivememory.agent_runtime.model.budget import estimate_context_tokens
 from hivememory.agent_runtime.model.generator import MTPGenerator
-from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
 from hivememory.alice.context.summarizer import RelaySummarizer, SummaryRejectedError
 from hivememory.config.alice import CompactionConfig
 from hivememory.core.errors import ModelProviderError
@@ -16,8 +15,12 @@ from hivememory.infrastructure.llm.base import BaseLLMService, LLMCompletion, LL
 from tests.helpers.llm import CallbackLLMService, ScriptedLLMService
 
 
-def _model(limit: int, **params) -> ResolvedFrameModel:
-    return ResolvedFrameModel(LLMRequestParams(model="provider/resolved", **params), limit)
+def _model(limit: int, **params) -> dict:
+    """``fold`` 的模型参数：本帧的请求参数与输入上限。"""
+    return {
+        "params": LLMRequestParams(model="provider/resolved", **params),
+        "input_token_limit": limit,
+    }
 
 
 def _summarizer(llm: BaseLLMService) -> RelaySummarizer:
@@ -40,7 +43,7 @@ async def test_fold_splits_complete_turns_and_uses_previous_fold_with_same_model
     result = await _summarizer(llm).fold(
         "old summary",
         turns,
-        model=model,
+        **model,
         config=CompactionConfig(summary_max_tokens=64),
         language="en",
     )
@@ -57,7 +60,7 @@ async def test_fold_splits_complete_turns_and_uses_previous_fold_with_same_model
     assert all(estimate_context_tokens(messages) <= 600 for messages in requests)
     # 沿用本次解析的模型参数，只把输出上限收紧到摘要预算。
     assert [call.params for call in llm.calls] == [
-        model.params.model_copy(update={"max_tokens": 64, "stop": (MTP_STOP_SEQUENCE,)})
+        model["params"].model_copy(update={"max_tokens": 64, "stop": (MTP_STOP_SEQUENCE,)})
     ] * 2
 
 
@@ -74,7 +77,7 @@ async def test_batch_boundary_matches_the_estimate_of_the_assembled_request():
         await _summarizer(llm).fold(
             "旧摘要",
             turns,
-            model=_model(limit),
+            **_model(limit),
             config=CompactionConfig(summary_max_tokens=64),
             language="zh",
         )
@@ -117,7 +120,7 @@ async def test_invalid_summary_is_rejected_without_retry(completion, reason):
         await _summarizer(llm).fold(
             "",
             [{"text": "history"}],
-            model=_model(1000),
+            **_model(1000),
             config=CompactionConfig(summary_max_tokens=32),
             language="zh",
         )
@@ -132,7 +135,7 @@ async def test_oversized_single_turn_is_rejected_before_model_call():
         await _summarizer(llm).fold(
             "",
             [{"text": "x" * 8000}],
-            model=_model(1000),
+            **_model(1000),
             config=CompactionConfig(),
             language="en",
         )
@@ -151,7 +154,7 @@ async def test_provider_failure_is_typed_but_programming_errors_propagate():
         await summarizer.fold(
             "",
             [{"text": "history"}],
-            model=_model(1000),
+            **_model(1000),
             config=CompactionConfig(),
             language="en",
         )
@@ -159,7 +162,7 @@ async def test_provider_failure_is_typed_but_programming_errors_propagate():
         await summarizer.fold(
             "",
             [{"text": "history"}],
-            model=_model(1000),
+            **_model(1000),
             config=CompactionConfig(),
             language="en",
         )
@@ -180,7 +183,7 @@ async def test_summary_deadline_cancels_worker_and_returns_typed_timeout():
         await _summarizer(CallbackLLMService(complete=generate)).fold(
             "",
             [{"text": "history"}],
-            model=_model(1000),
+            **_model(1000),
             config=CompactionConfig(summary_timeout_seconds=0.001),
             language="en",
         )
@@ -204,7 +207,7 @@ async def test_summary_task_cancellation_propagates_after_worker_cleanup():
         _summarizer(CallbackLLMService(complete=generate)).fold(
             "",
             [{"text": "history"}],
-            model=_model(1000),
+            **_model(1000),
             config=CompactionConfig(),
             language="en",
         )

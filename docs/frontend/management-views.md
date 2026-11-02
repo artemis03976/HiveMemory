@@ -92,7 +92,9 @@ Model 页面通过 `/api/v1/models` 管理 `configs/models.yaml`，支持创建�
 
 主配置页面通过 `GET/POST /api/v1/config` 读取和原子写入 YAML，后端使用 Pydantic 重新校验，并替换 `system.config`。主配置接口不读写密钥：响应中的 `api_key` 只有打码值，保存时沿用当前密钥，写入的 YAML 不含 `api_key`；Provider 凭证由 Provider 页面管理。但“配置对象已替换”不等于所有已装配组件已经热重载；Qdrant 连接、模型服务和部分 runtime 仍需要重启。
 
-更重要的是，当前前端 `HiveMemoryConfig` 仍采用旧的顶层 `llm/embedding/qdrant/perception/...` 结构，而后端已经使用 `shared/patchouli/alice/gateway/...` 嵌套树；`ConfigResponse` 也没有完整返回前端各分类所假设的字段。这意味着 General 以外的多组旧表单可能读取 undefined、显示错误或提交不完整配置。Provider 与 Model Registry 使用独立 API，不受这一具体类型偏差影响。
+与后端配置结构一致的只有 General 与“内部引擎”两个分类。内部引擎读写 `gateway.llm`、`patchouli.llm` 与 `shared.embedding.default.model_name`：两个组件各有一份模型选择（`ModelSelection`），模型从模型注册表中选择（另有“注册表默认模型”一项），temperature、top_p 与 max_tokens 可以留空表示沿用模型默认值，保存后重启生效；配置为 `null`（不使用 LLM）时只显示提示，需要在 `configs/config.yaml` 中改回，因为页面不知道各组件的默认生成参数，从页面重新启用会丢掉它们。 General 读取的 `system.version` 已从后端配置删除，显示为空。
+
+其余分类（基础设施、全局网关、记忆感知、记忆生成、记忆检索、生命周期、MTP 引擎）的表单仍按旧的前端配置结构读写，后端配置中没有对应的段或子结构不同，渲染真实配置会报错；页面对这些分类只显示“尚未与后端配置结构对齐”的提示，不渲染表单，需要修改时直接编辑 `configs/config.yaml` 并重启。加载时的校验同样只检查与后端一致的字段，读取不存在的段会让页面退回 mock 数据。`ConfigResponse` 返回的段也不是完整配置：`workspace`、`memory_compiler`、`import_bus` 与附件配置不在响应中，保存时由当前的 `config.yaml` 补齐。Provider 与 Model Registry 使用独立 API，不受这一具体类型偏差影响。
 
 后端不可达时，主配置页会加载 `MOCK_CONFIG` 并保留 error；页面仍可能显示完整表单，但保存会失败。Settings 草稿只存在内存中，不会跨刷新恢复。
 

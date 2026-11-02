@@ -15,8 +15,8 @@ from hivememory.alice.run.service import AgentRunService
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.config.shared import LLMConfig
-from hivememory.infrastructure.llm.base import BaseLLMService
+from hivememory.core.models.model_definition import ModelDefinition, ModelSelection
+from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUInputManifest,
@@ -56,7 +56,7 @@ class CollectedEvents:
 async def run_with_events(
     service: AgentRunService,
     manifest: CPUInputManifest,
-    generation_options: dict[str, Any] | None = None,
+    model_selection: ModelSelection | None = None,
     *,
     submit_operation: OperationSubmitter,
     events: CollectedEvents | None = None,
@@ -65,7 +65,7 @@ async def run_with_events(
     sink = events or CollectedEvents()
     result = await service.run_agent(
         manifest,
-        generation_options=generation_options,
+        model_selection=model_selection,
         submit_operation=submit_operation,
         run_output=SinkRunOutput(sink),
     )
@@ -78,22 +78,19 @@ class StaticModelResolver:
     def __init__(self, model: str = "test-model") -> None:
         self._model = model
 
-    def resolve(
-        self,
-        model_name: str,
-        temperature_override: float | None = None,
-        max_tokens_override: int | None = None,
-        top_p_override: float | None = None,
-    ) -> tuple[LLMConfig, str]:
-        overrides = {
-            "temperature": temperature_override,
-            "max_tokens": max_tokens_override,
-            "top_p": top_p_override,
-        }
-        config = LLMConfig(model=self._model).model_copy(
-            update={key: value for key, value in overrides.items() if value is not None}
+    def select_model(self, model_id: str) -> ModelDefinition:
+        return ModelDefinition(id=model_id, display_name=model_id, litellm_model=self._model)
+
+    def resolve(self, selection: ModelSelection) -> LLMRequestParams:
+        model = self.select_model(selection.model_id or "default")
+        return LLMRequestParams(
+            model=self._model,
+            temperature=(
+                model.temperature if selection.temperature is None else selection.temperature
+            ),
+            max_tokens=model.max_tokens if selection.max_tokens is None else selection.max_tokens,
+            top_p=model.top_p if selection.top_p is None else selection.top_p,
         )
-        return config, model_name
 
 
 def build_run_service(

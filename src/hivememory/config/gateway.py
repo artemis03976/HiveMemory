@@ -1,5 +1,7 @@
 from pydantic import BaseModel, ConfigDict, Field
 
+from hivememory.core.models.model_definition import ModelSelection
+
 
 class RuleInterceptorConfig(BaseModel):
     enabled: bool = Field(default=True)
@@ -49,7 +51,6 @@ class TopicRouterConfig(BaseModel):
 
     enabled: bool = True
     timeout_ms: int = Field(default=3000, ge=1)
-    model_override: str | None = None
 
     model_config = ConfigDict(extra="forbid")
 
@@ -60,7 +61,6 @@ class UserQueryAnalysisConfig(BaseModel):
     enabled: bool = True
     overall_timeout_ms: int = Field(default=5000, ge=1)
     default_top_k: int = Field(default=5, ge=0)
-    model_override: str | None = None
     context_block_limit: int = Field(default=3, ge=0)
     context_text_limit: int = Field(default=200, ge=1)
 
@@ -68,6 +68,11 @@ class UserQueryAnalysisConfig(BaseModel):
 
 
 class SystemGatewayConfig(BaseModel):
+    # 话题路由与查询分析共用的模型；两者都要稳定的短 JSON 输出，因此低温、短输出。
+    # None 表示不使用 LLM，两个分析器按无 LLM 降级。
+    llm: ModelSelection | None = Field(
+        default_factory=lambda: ModelSelection(temperature=0.0, max_tokens=512)
+    )
     interceptor: RuleInterceptorConfig = Field(default_factory=RuleInterceptorConfig)
     commands: SystemCommandConfig = Field(default_factory=SystemCommandConfig)
     workflow: GatewayWorkflowConfig = Field(default_factory=GatewayWorkflowConfig)

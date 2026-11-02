@@ -1,29 +1,6 @@
-from typing import Literal
+from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
-
-from hivememory.core.constants import (
-    DEFAULT_MAX_TOKENS,
-    DEFAULT_TEMPERATURE,
-    DEFAULT_TOP_P,
-)
-
-
-class LLMConfig(BaseModel):
-    provider: str = "litellm"
-    # model_id：引用注册表 ID（如 "deepseek-chat"）。
-    # 设置时，ModelRegistry.resolve_for_llm_config() 返回另一份填好 model/api_key/api_base
-    # 的配置交给组件，配置对象本身不变；未设置时回落到直接使用 model 字段（向后兼容旧配置）。
-    model_id: str | None = Field(default=None)
-    model: str | None = Field(default=None)
-    api_key: str | None = Field(default=None)
-    api_base: str | None = Field(default=None)
-    temperature: float = Field(default=DEFAULT_TEMPERATURE)
-    max_tokens: int = Field(default=DEFAULT_MAX_TOKENS)
-    context_window: int | None = Field(default=None, gt=0, description="模型总上下文窗口 token 数")
-    top_p: float = Field(default=DEFAULT_TOP_P)
-
-    model_config = ConfigDict(extra="forbid")
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class ProviderCredentials(BaseModel):
@@ -36,19 +13,6 @@ class ProviderCredentials(BaseModel):
 
     api_key: str | None = Field(default=None)
     api_base: str | None = Field(default=None)
-
-    model_config = ConfigDict(extra="forbid")
-
-
-class LLMGlobalConfig(BaseModel):
-    # model_id 引用注册表；temperature/max_tokens 是组件级调参，覆盖注册表模型默认值。
-    # worker 已完全由 agent profile + ModelRegistry 在运行时决定，不再需要静态配置段。
-    librarian: LLMConfig = Field(
-        default_factory=lambda: LLMConfig(model_id="default", temperature=0.3, max_tokens=32768)
-    )
-    gateway: LLMConfig = Field(
-        default_factory=lambda: LLMConfig(model_id="default", temperature=0.0, max_tokens=512)
-    )
 
     model_config = ConfigDict(extra="forbid")
 
@@ -78,7 +42,17 @@ class EmbeddingGlobalConfig(BaseModel):
 
 
 class SharedConfig(BaseModel):
-    llm: LLMGlobalConfig = Field(default_factory=LLMGlobalConfig)
     embedding: EmbeddingGlobalConfig = Field(default_factory=EmbeddingGlobalConfig)
 
     model_config = ConfigDict(extra="forbid")
+
+    @model_validator(mode="before")
+    @classmethod
+    def _reject_moved_llm(cls, data: Any) -> Any:
+        # 两段组件模型配置各属一个子系统；指出新位置，比通用的未知键错误更好迁移。
+        if isinstance(data, dict) and "llm" in data:
+            raise ValueError(
+                "shared.llm 已移至各自子系统的配置：shared.llm.gateway 改为 gateway.llm，"
+                "shared.llm.librarian 改为 patchouli.llm"
+            )
+        return data

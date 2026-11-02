@@ -854,7 +854,7 @@ class _SlowStoppingCPU:
         self.cancel_entered = asyncio.Event()
         self.release_cancel = asyncio.Event()
 
-    async def execute(self, manifest, *, thread, generation_options, events):
+    async def execute(self, manifest, *, thread, model_selection, events):
         await events({"event": "token", "data": {"content": "一"}})
         try:
             await asyncio.Event().wait()

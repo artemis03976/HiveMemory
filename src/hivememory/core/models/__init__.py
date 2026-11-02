@@ -52,7 +52,7 @@ from .memory import (
     WorkspaceMemoryKey,
 )
 from .memory_change import MemoryChangeEvent
-from .model_definition import ModelDefinition
+from .model_definition import ModelDefinition, ModelSelection
 from .pending import (
     PendingAtom,
     PendingAtomResolution,
@@ -164,6 +164,7 @@ __all__ = [
     "AgentProfile",
     "OMNI_DOLL_PROFILE",
     "ModelDefinition",
+    "ModelSelection",
     "MemoryChangeEvent",
     "ReferenceResolution",
     "PendingAtomStatus",

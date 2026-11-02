@@ -30,7 +30,6 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.config.access import load_access_registration
 from hivememory.config.app import HiveMemoryConfig, provider_credentials_from_env
-from hivememory.config.shared import LLMConfig
 from hivememory.core.access import WorkspaceOperation
 from hivememory.gateway import GatewaySystem
 from hivememory.i18n import set_default_language
@@ -172,28 +171,6 @@ class _ServicesBundle:
 
 
 # ---------------------------------------------------------------------------
-# 组件 LLM 请求参数
-# ---------------------------------------------------------------------------
-
-
-def component_llm_params(config: LLMConfig) -> LLMRequestParams | None:
-    """把已解析的组件 LLM 配置转换为请求参数；未配置模型时返回 ``None``。
-
-    组件侧只发送模型、凭证、temperature 与 max_tokens：``top_p`` 与停止序列
-    不属于组件调参，交给提供商默认值。
-    """
-    if config.model is None:
-        return None
-    return LLMRequestParams(
-        model=config.model,
-        api_key=config.api_key,
-        api_base=config.api_base,
-        temperature=config.temperature,
-        max_tokens=config.max_tokens,
-    )
-
-
-# ---------------------------------------------------------------------------
 # SystemAssembler
 # ---------------------------------------------------------------------------
 
@@ -309,19 +286,20 @@ class SystemAssembler:
         )
 
     def _build_llm(self, registries: _RegistriesBundle) -> _LLMBundle:
-        """创建唯一的 LLM 服务，并把两个组件的配置经注册表解析后各自转换为请求参数。
+        """创建唯一的 LLM 服务，并把两个组件的模型选择经注册表解析为各自的请求参数。
 
         服务无状态、可被全部使用方共享；两个组件的模型、凭证与采样参数只由
-        各自的配置段决定，互不影响。model_id 引用注册表，凭证由 provider 表补齐，
-        temperature/max_tokens 保留组件值。解析结果带有提供商密钥，只用于构造
-        请求参数、不写回配置对象：主配置接口读写的是配置文件的内容，写回会让密钥
-        与解析出的模型名进入 config.yaml，并丢掉 model_id。
+        各自的配置段（``gateway.llm`` 与 ``patchouli.llm``）决定，互不影响。配置为
+        None 的组件没有请求参数，按无 LLM 运行。请求参数带有提供商密钥，只交给组件，
+        不写回配置对象：主配置接口读写的是配置文件的内容，写回会让密钥进入 config.yaml。
         """
-        resolve = registries.model_registry.resolve_for_llm_config
+        resolve = registries.model_registry.resolve
+        gateway = self._config.gateway.llm
+        librarian = self._config.patchouli.llm
         return _LLMBundle(
             service=LiteLLMService(),
-            gateway_params=component_llm_params(resolve(self._config.shared.llm.gateway)),
-            librarian_params=component_llm_params(resolve(self._config.shared.llm.librarian)),
+            gateway_params=None if gateway is None else resolve(gateway),
+            librarian_params=None if librarian is None else resolve(librarian),
         )
 
     # ------------------------------------------------------------------

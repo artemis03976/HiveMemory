@@ -15,6 +15,7 @@ from typing import Any, Protocol
 from pydantic import BaseModel, ConfigDict, Field
 
 from hivememory.core.models import TurnEvent
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.core.protocol.models import SessionCompactionCheckpoint
 from hivememory.workspace.contracts.process import CPUInputManifest
 from hivememory.workspace.contracts.threads import ExecutionThread
@@ -95,7 +96,8 @@ class CPUPort(Protocol):
       停止被接受时全部线程已经结束，此后的提交都以线程已结束拒绝。
     - CPU 自报的结局经终态结果的 ``status`` 表达；实现抛出普通异常时由进程
       按失败处理，不接受任何候选结果。
-    - ``generation_options`` 由各个 CPU 自行解释，进程原样传递。
+    - ``model_selection`` 是这次请求对模型与生成参数的选择，进程原样传递；未给出的项
+      如何沿用（例如沿用 Agent Profile）由各个 CPU 决定。
 
     ``thread`` 是本次的主线程：输入清单回答“处理什么”，线程描述回答“谁来
     处理”（标识、观测标签、图纸与操作快照）。CPU 驱动把它绑定为主线程的
@@ -108,7 +110,7 @@ class CPUPort(Protocol):
         manifest: CPUInputManifest,
         *,
         thread: ExecutionThread,
-        generation_options: dict[str, Any] | None,
+        model_selection: ModelSelection | None,
         events: CPUEventSink,
     ) -> CPUExecutionResult: ...
 

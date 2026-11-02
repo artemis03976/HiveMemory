@@ -48,7 +48,7 @@ Chat tokens / logs / RuntimeEvents
 | Store | 持久化 | 明确不持久化 |
 |:---|:---|:---|
 | `chat-ui-store` | 主导航、主题、左右面板折叠、侧栏 tab、Settings 分类、记忆预检索开关 | toast、页面业务数据 |
-| `chat-runtime-config-store` | model override、temperature/top_p/max_tokens、是否覆盖参数 | 某次请求终态 |
+| `chat-runtime-config-store` | 会话的模型选择 `modelSelection`（`model_id` 与 temperature/top_p/max_tokens）、是否覆盖参数；持久化版本 3，旧版本的 `generationOptions` 在加载时迁移 | 某次请求终态 |
 | `chat-store` | 当前 Session ID 与 Agent ID | messages、会话列表/历史、输入草稿、引用记忆、连接、process ID、run status、压缩进度/检查点、本轮失败码 |
 | `memory-view-store` | search mode、类型、status filter、排序、grid/list | search query、selected tags、Memory 数据 |
 | `memory-task-store` | 是否显示 terminal tasks | task、选中 task、请求状态 |

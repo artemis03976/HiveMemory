@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from hivememory.agent_runtime import (
     ExecutionFrame,
@@ -25,6 +25,7 @@ from hivememory.alice.orchestration.output import (
 )
 from hivememory.alice.orchestration.verbs import mtp_verbs_for_operations
 from hivememory.config.alice import KoakumaConfig
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.core.mtp import MTPCallRequest, MTPCallResponse, MTPResponseStatus
 from hivememory.core.mtp.models import MTPErrorSeverity
 from hivememory.i18n import resolve_language
@@ -235,7 +236,7 @@ class CallCoordinator:
         callee_result: FrameExecutionResult,
         *,
         session: RunSession,
-        generation_options: dict[str, Any] | None = None,
+        model_selection: ModelSelection | None = None,
         run_output: AgentRunOutput,
     ) -> CallCompletionResult:
         """把 callee outcome 收口为 caller 可消费的 CALL response。
@@ -270,7 +271,7 @@ class CallCoordinator:
             reply="".join(callee_frame.progress.text_segments),
             artifact_aliases=frame_products.artifact_aliases,
             profile=callee_frame.agent_profile,
-            generation_options=generation_options,
+            model_selection=model_selection,
         )
 
         return await self._commit_response(

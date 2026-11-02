@@ -23,6 +23,7 @@ from hivememory.core.models import (
     WorkspaceIdentity,
     WriteFocus,
 )
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
@@ -248,7 +249,7 @@ async def test_test_cpu_completes_streaming_process_and_relays_events() -> None:
 
 
 @pytest.mark.asyncio
-async def test_test_cpu_receives_generation_options_and_manifest() -> None:
+async def test_test_cpu_receives_model_selection_and_manifest() -> None:
     """进程把输入清单与生成参数原样传给 CPU 端口。"""
     bus = GlobalSystemBus()
     cpu = ScriptedCPU(result=make_cpu_result())
@@ -263,13 +264,13 @@ async def test_test_cpu_receives_generation_options_and_manifest() -> None:
         service,
         "问题",
         process_id="process-cpu-options",
-        generation_options={"temperature": 0.3},
+        model_selection=ModelSelection(temperature=0.3),
     )
 
     call = cpu.calls[0]
     assert call.manifest.process_id == "process-cpu-options"
     assert call.manifest.user_message == "问题"
-    assert call.generation_options == {"temperature": 0.3}
+    assert call.model_selection == ModelSelection(temperature=0.3)
 
 
 # ========== 进入 Actor 前的阶段授权 ==========

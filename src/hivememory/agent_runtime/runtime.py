@@ -6,12 +6,13 @@ from typing import TYPE_CHECKING, Any, cast
 from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus, FrameProducts
 from hivememory.agent_runtime.loop import AgentLoopExecutor
 from hivememory.agent_runtime.model.generator import MTPGenerator
-from hivememory.agent_runtime.model.resolution import ResolvedFrameModel, resolve_frame_model
+from hivememory.agent_runtime.model.resolution import resolve_frame_model
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.agent_runtime.output import FrameOutputSink
 from hivememory.core.errors import ModelNotFoundError
 from hivememory.core.models import AgentProfile
 from hivememory.core.models.interaction import ToolResultStatus
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.core.mtp import MTPCallResponse, MTPFormatter
 
 if TYPE_CHECKING:
@@ -19,7 +20,7 @@ if TYPE_CHECKING:
     from hivememory.agent_runtime.model.resolution import ModelResolver
     from hivememory.config.alice import AgentRuntimeConfig, KoakumaConfig
     from hivememory.config.memory_compiler import MemoryCompilerConfig
-    from hivememory.infrastructure.llm.base import BaseLLMService
+    from hivememory.infrastructure.llm.base import BaseLLMService, LLMRequestParams
 
 logger = logging.getLogger(__name__)
 
@@ -43,7 +44,7 @@ class AgentRuntime:
         model_registry: ModelResolver | None = None,
     ) -> None:
         # 模型注册表：在每个 frame 开始时根据 agent_profile.model_name 解析实际模型。
-        # 若未提供，generation_options 中必须已包含可执行的 model，否则帧解析失败。
+        # 若未提供，会话的 model_selection 必须给出可执行的 model_id，否则帧解析失败。
         self._model_registry = model_registry
         self._config = runtime_config
         self._loop_executor = loop_executor
@@ -57,14 +58,15 @@ class AgentRuntime:
         self,
         frame: ExecutionFrame,
         *,
-        generation_options: dict[str, Any] | None = None,
+        model_selection: ModelSelection | None = None,
         output_sink: FrameOutputSink,
     ) -> FrameExecutionResult:
         """按输出端口生成，推进当前帧直到自然收敛、CALL 挂起或失败。"""
         try:
-            if frame.resolved_model is None:
-                frame.resolved_model = self.resolve_model(frame.agent_profile, generation_options)
-            frame.progress.model_used = frame.resolved_model.display_name
+            if frame.llm_params is None:
+                frame.llm_params, frame.input_token_limit, frame.progress.model_used = (
+                    self.resolve_model(frame.agent_profile, model_selection)
+                )
         except ModelNotFoundError as error:
             logger.error("Frame model resolution failed: %s", error)
             return FrameExecutionResult(
@@ -131,11 +133,11 @@ class AgentRuntime:
     def resolve_model(
         self,
         profile: AgentProfile,
-        generation_options: dict[str, Any] | None,
-    ) -> ResolvedFrameModel:
-        """解析帧模型与输入预算；解析结果随帧保留，恢复时不重新读取注册表。"""
+        model_selection: ModelSelection | None,
+    ) -> tuple[LLMRequestParams, int, str]:
+        """解析帧的 ``(请求参数, 输入上限, 展示名)``；前两项随帧保留，恢复时不重新读取注册表。"""
         return resolve_frame_model(
-            profile, generation_options, model_registry=self._model_registry, config=self._config
+            profile, model_selection, model_registry=self._model_registry, config=self._config
         )
 
     def finalize_frame(

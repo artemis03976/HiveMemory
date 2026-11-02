@@ -109,7 +109,7 @@ GenerationEngine 渲染 transcript，调用 extractor 的话题提取（`extract
 
 `has_value=false` 的草稿被丢弃，没有草稿时不产生记忆。其余草稿按输出顺序逐条查重，各自产出一条结果（第 4 节）。
 
-Extractor 经组合根注入的共享 LLM 服务异步调用模型，请求参数由 `shared.llm.librarian` 转换而来，等待模型期间不阻塞事件循环；Librarian 未配置模型时 extractor 以 No-Op 运行。一段话题的全部草稿共用一次调用的输出上限，Librarian 的 `max_tokens` 默认为 32768。
+Extractor 经组合根注入的共享 LLM 服务异步调用模型，请求参数由 `patchouli.llm` 经模型注册表解析得到，等待模型期间不阻塞事件循环；Librarian 未配置模型时 extractor 以 No-Op 运行。一段话题的全部草稿共用一次调用的输出上限，Librarian 的 `max_tokens` 默认为 32768。
 
 Extractor 区分以下结果：
 

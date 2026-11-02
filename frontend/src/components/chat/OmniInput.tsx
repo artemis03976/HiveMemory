@@ -9,7 +9,7 @@ import { Toggle } from '../common/FormControls';
 import { useAgents } from '@/hooks/useAgents';
 import { useAttachmentUpload } from '@/hooks/useAttachmentUpload';
 import { ATTACHMENT_ACCEPT_ATTR } from '@/constants/attachments';
-import type { ChatGenerationOptions } from '@/types/chat';
+import type { ChatModelSelection } from '@/types/chat';
 import { motion, AnimatePresence } from 'motion/react';
 import AttachmentQueue from './AttachmentQueue';
 
@@ -28,7 +28,7 @@ export default function OmniInput() {
   const clearAttachmentSelection = useAttachmentStore((state) => state.clearSelection);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
-  const generationOptions = useChatRuntimeConfigStore((state) => state.generationOptions);
+  const modelSelection = useChatRuntimeConfigStore((state) => state.modelSelection);
   const overrideParams = useChatRuntimeConfigStore((state) => state.overrideParams);
   const { agents, loading: agentsLoading, fetchError: agentsFetchError } = useAgents();
 
@@ -127,22 +127,22 @@ export default function OmniInput() {
   const handleSend = () => {
     if (message.trim() && !isStreaming && !isLoadingHistory && (!currentSessionId || historyReady)) {
       // 会话级覆盖按需下发：
-      // - model 为空 = 跟随 Agent 默认（不下发，避免后端 min_length=1 校验失败）
+      // - model_id 为空 = 跟随 Agent 默认（不下发，避免后端 min_length=1 校验失败）
       // - overrideParams 关闭时不下发 temperature/top_p/max_tokens，跟随 profile/模型定义
-      const options: ChatGenerationOptions = {};
-      if (generationOptions.model) {
-        options.model = generationOptions.model;
+      const selection: ChatModelSelection = {};
+      if (modelSelection.model_id) {
+        selection.model_id = modelSelection.model_id;
       }
       if (overrideParams) {
-        options.temperature = generationOptions.temperature;
-        options.top_p = generationOptions.top_p;
-        options.max_tokens = generationOptions.max_tokens;
+        selection.temperature = modelSelection.temperature;
+        selection.top_p = modelSelection.top_p;
+        selection.max_tokens = modelSelection.max_tokens;
       }
       // 发送时冻结附件选择快照：发送后再修改选择不影响已开始的 Chat run
       const attachments = buildAttachmentSelection(attachmentItems, selectedAttachmentIds);
       sendMessage(message, {
         enable_memory_retrieval: enableMemory,
-        generation_options: options,
+        model_selection: selection,
         attachments,
       });
       setMessage('');

@@ -6,19 +6,16 @@ ModelRegistry 单元测试
 - CRUD：add_model / update_model / delete_model / get_model / list_models
 - 默认模型不变量（有且仅有一条 is_default=True）
 - 凭证解析：api_key 与 api_base 只来自 provider 凭证（ProviderRegistry > 静态字典 > None）
-- resolve() / resolve_for_llm_config() / to_llm_config()
+- select_model() / resolve()：按 ID 取模型定义，按选择取请求参数
 - 异常路径：ModelNotFoundError / DuplicateModelIdError
 """
 
 import pytest
 import yaml
 
-from hivememory.config.shared import (
-    LLMConfig,
-    ProviderCredentials,
-)
+from hivememory.config.shared import ProviderCredentials
 from hivememory.core.errors import ModelNotFoundError
-from hivememory.core.models.model_definition import ModelDefinition
+from hivememory.core.models.model_definition import ModelDefinition, ModelSelection
 from hivememory.system.model_registry import (
     DuplicateModelIdError,
     ModelRegistry,
@@ -309,19 +306,18 @@ class TestCredentialResolution:
         }
         registry = _make_registry(tmp_path, models=[model], provider_credentials=creds)
 
-        llm_config = registry.to_llm_config("m1")
-        assert llm_config.api_key == "provider-openai-key"
-        assert llm_config.api_base == "https://api.openai.com"
+        params = registry.resolve(ModelSelection(model_id="m1"))
+        assert params.api_key == "provider-openai-key"
+        assert params.api_base == "https://api.openai.com"
 
     def test_no_credentials_returns_none(self, tmp_path):
         """没有 provider 凭证时，返回 None（litellm 自行从环境变量读取）。"""
-        model = _make_model("m1", litellm_model="deepseek/deepseek-chat", context_window=8000)
+        model = _make_model("m1", litellm_model="deepseek/deepseek-chat")
         registry = _make_registry(tmp_path, models=[model])
 
-        llm_config = registry.to_llm_config("m1")
-        assert llm_config.api_key is None
-        assert llm_config.context_window == 8000
-        assert llm_config.api_base is None
+        params = registry.resolve(ModelSelection(model_id="m1"))
+        assert params.api_key is None
+        assert params.api_base is None
 
     def test_provider_registry_injected(self, tmp_path):
         """注入 ProviderRegistry 时，_resolve_credentials 通过它动态查询。"""
@@ -337,97 +333,65 @@ class TestCredentialResolution:
             provider_registry=mock_pr,
         )
 
-        llm_config = registry.to_llm_config("m1")
-        assert llm_config.api_key == "dynamic-key"
+        params = registry.resolve(ModelSelection(model_id="m1"))
+        assert params.api_key == "dynamic-key"
 
 
 # ---------------------------------------------------------------------------
-# resolve() / resolve_for_llm_config()
+# resolve()
 # ---------------------------------------------------------------------------
 
 
 class TestResolve:
     def test_resolve_by_id(self, tmp_path):
-        model = _make_model("m1", temperature=0.8, max_tokens=2048, top_p=0.9, context_window=16000)
-        registry = _make_registry(tmp_path, models=[model])
+        """未给覆盖值时，请求参数取模型定义的默认值。"""
+        model = _make_model("m1", temperature=0.8, max_tokens=2048, top_p=0.9)
+        registry = _make_registry(tmp_path, models=[model, _make_model("m2")])
 
-        llm_config, display_name = registry.resolve("m1")
-        assert llm_config.model == model.litellm_model
-        assert llm_config.temperature == 0.8
-        assert llm_config.context_window == 16000
-        assert llm_config.max_tokens == 2048
-        assert llm_config.top_p == 0.9
-        assert display_name == model.display_name
+        params = registry.resolve(ModelSelection(model_id="m1"))
+        assert params.model == model.litellm_model
+        assert params.temperature == 0.8
+        assert params.max_tokens == 2048
+        assert params.top_p == 0.9
 
-    def test_resolve_default(self, tmp_path):
-        model = _make_model("m1", is_default=True)
-        registry = _make_registry(tmp_path, models=[model])
+    @pytest.mark.parametrize("model_id", ["default", None])
+    def test_default_and_unselected_model_resolve_to_registry_default(self, tmp_path, model_id):
+        """'default' 与未选择模型都取注册表的默认模型。"""
+        registry = _make_registry(
+            tmp_path,
+            models=[
+                _make_model("m1", litellm_model="openai/gpt-4o"),
+                _make_model("m2", litellm_model="deepseek/deepseek-chat", is_default=True),
+            ],
+        )
 
-        llm_config, _ = registry.resolve("default")
-        assert llm_config.model == model.litellm_model
+        assert registry.resolve(ModelSelection(model_id=model_id)).model == "deepseek/deepseek-chat"
+
+    def test_select_model_default_returns_the_default_definition(self, tmp_path):
+        registry = _make_registry(
+            tmp_path, models=[_make_model("m1"), _make_model("m2", is_default=True)]
+        )
+
+        assert registry.select_model("default").id == "m2"
 
     def test_resolve_with_overrides(self, tmp_path):
         """temperature/max_tokens/top_p 覆盖参数优先于模型默认值。"""
-        model = _make_model("m1", temperature=0.7, max_tokens=4096, top_p=1.0, context_window=8000)
+        model = _make_model("m1", temperature=0.7, max_tokens=4096, top_p=1.0)
         registry = _make_registry(tmp_path, models=[model])
 
-        llm_config, _ = registry.resolve(
-            "m1",
-            temperature_override=0.1,
-            max_tokens_override=512,
-            top_p_override=0.5,
+        params = registry.resolve(
+            ModelSelection(model_id="m1", temperature=0.1, max_tokens=512, top_p=0.5)
         )
-        assert llm_config.temperature == 0.1
-        assert llm_config.max_tokens == 512
-        assert llm_config.context_window == 8000
-        assert llm_config.top_p == 0.5
+        assert params.temperature == 0.1
+        assert params.max_tokens == 512
+        assert params.top_p == 0.5
 
-    def test_resolve_not_found_raises(self, tmp_path):
+    def test_select_model_not_found_raises(self, tmp_path):
         registry = _make_registry(tmp_path)
         with pytest.raises(ModelNotFoundError):
-            registry.resolve("ghost")
+            registry.select_model("ghost")
 
-    def test_resolve_default_empty_registry_raises(self, tmp_path):
+    def test_select_model_default_empty_registry_raises(self, tmp_path):
         registry = _make_registry(tmp_path)
         with pytest.raises(ModelNotFoundError):
-            registry.resolve("default")
-
-    def test_resolve_for_llm_config_with_model_id(self, tmp_path):
-        """model_id 存在时补齐 model/api_key/api_base，保留组件的 temperature/max_tokens。"""
-        model = _make_model("m1", litellm_model="deepseek/deepseek-chat", context_window=32000)
-        creds = {
-            "deepseek": ProviderCredentials(api_key="sk-test", api_base="https://api.deepseek.com")
-        }
-        registry = _make_registry(tmp_path, models=[model], provider_credentials=creds)
-
-        llm_in = LLMConfig(model_id="m1", temperature=0.1, max_tokens=512)
-        llm_out = registry.resolve_for_llm_config(llm_in)
-
-        assert llm_out.model == "deepseek/deepseek-chat"
-        assert llm_out.api_key == "sk-test"
-        assert llm_out.api_base == "https://api.deepseek.com"
-        # 组件的 temperature/max_tokens 被保留
-        assert llm_out.temperature == 0.1
-        assert llm_out.max_tokens == 512
-        assert llm_out.context_window == 32000
-
-    def test_resolve_for_llm_config_passthrough_when_no_model_id(self, tmp_path):
-        """model_id 为空时直接返回原 LLMConfig（向后兼容路径）。"""
-        registry = _make_registry(tmp_path)
-        llm = LLMConfig(model="openai/gpt-4o", api_key="direct-key")
-        result = registry.resolve_for_llm_config(llm)
-        assert result is llm  # 同一对象，未修改
-
-    def test_resolve_for_llm_config_default_model_id(self, tmp_path):
-        model = _make_model("m1", is_default=True)
-        registry = _make_registry(tmp_path, models=[model])
-        llm_in = LLMConfig(model_id="default")
-        llm_out = registry.resolve_for_llm_config(llm_in)
-        assert llm_out.model == model.litellm_model
-
-    def test_resolve_for_llm_config_unknown_model_id_raises(self, tmp_path):
-        model = _make_model("m1")
-        registry = _make_registry(tmp_path, models=[model])
-        llm_in = LLMConfig(model_id="does-not-exist")
-        with pytest.raises(ModelNotFoundError):
-            registry.resolve_for_llm_config(llm_in)
+            registry.select_model("default")

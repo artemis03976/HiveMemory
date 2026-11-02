@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import uuid
 from dataclasses import dataclass
-from typing import Any
 
 from hivememory.agent_runtime import (
     AgentRuntime,
@@ -25,6 +24,7 @@ from hivememory.alice.orchestration.verbs import mtp_verbs_for_operations
 from hivememory.alice.run.output import RunOutput
 from hivememory.alice.run.result import assemble_execution_result, publish_terminal, stats_for
 from hivememory.config.alice import CompactionConfig, KoakumaConfig
+from hivememory.core.models.model_definition import ModelSelection
 from hivememory.core.protocol.models import SessionCompactionCheckpoint
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
@@ -68,7 +68,7 @@ class AgentRunService:
     async def run_agent(
         self,
         input_manifest: CPUInputManifest,
-        generation_options: dict[str, Any] | None = None,
+        model_selection: ModelSelection | None = None,
         *,
         submit_operation: OperationSubmitter,
         run_output: RunOutput,
@@ -107,7 +107,7 @@ class AgentRunService:
                 input_manifest,
                 agent_profile=submit_operation.thread.agent_profile,
                 permitted_verbs=preparation.permitted_verbs,
-                generation_options=generation_options,
+                model_selection=model_selection,
                 events=events,
                 output=run_output,
             )
@@ -119,16 +119,16 @@ class AgentRunService:
                 language=input_manifest.language,
                 permitted_verbs=preparation.permitted_verbs,
             )
-            frame.resolved_model = inputs.model
-            if inputs.model is not None:
-                frame.progress.model_used = inputs.model.display_name
+            frame.llm_params = inputs.llm_params
+            frame.input_token_limit = inputs.input_token_limit
+            frame.progress.model_used = inputs.model_used
             if inputs.error is not None:
                 terminal = FrameExecutionResult(
                     status=FrameExecutionStatus.FAILED, error=inputs.error
                 )
             else:
                 terminal = await executor.run(
-                    frame, generation_options=generation_options, run_output=run_output
+                    frame, model_selection=model_selection, run_output=run_output
                 )
             result = assemble_execution_result(frame, terminal, inputs.checkpoint)
             publish_terminal(events, result, stats_for(frame))

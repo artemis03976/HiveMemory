@@ -19,7 +19,6 @@ from hivememory.agent_runtime.frame import (
     FrameProducts,
 )
 from hivememory.agent_runtime.model.generator import MTPGenerator
-from hivememory.agent_runtime.model.resolution import ResolvedFrameModel
 from hivememory.alice.context.summarizer import RelaySummarizer
 from hivememory.alice.events import AgentRunEventEmitter
 from hivememory.alice.orchestration.frames import FrameFactory, FrameSpec
@@ -76,9 +75,7 @@ def _runtime_for_frame(
         ),
         finalize_frame=MagicMock(return_value=FrameProducts()),
     )
-    resolved_agent_runtime.resolve_model = lambda *_args: ResolvedFrameModel(
-        params=DEFAULT_LLM_PARAMS, input_token_limit=65536
-    )
+    resolved_agent_runtime.resolve_model = lambda *_args: (DEFAULT_LLM_PARAMS, 65536, "")
     factory = MagicMock(spec=FrameFactory)
     factory.scope.side_effect = FrameFactory.scope
     factory.create.return_value = frame

@@ -12,6 +12,7 @@ last_reviewed: 2026-11-01
 
 ## 版本之外
 
+- [模型选择统一为 ModelSelection，组件模型只经注册表解析](./llm-config-retirement.md)：2026-11-01，PR #167；[System 配置与注册表](../../system/configuration.md#3-registry-解析)、[System 组合根](../../system/composition.md#13-llm-bundle)
 - [DeepSeek Harness 插件接入](./dsh-plugin-integration.md)：2026-11-01，PR #158；[Import Bus](../../system/import-bus.md#9-deepseek-harness-插件)、[接入 DeepSeek Harness](../../help/deepseek-harness-plugin.md)
 
 ## v0.7.2

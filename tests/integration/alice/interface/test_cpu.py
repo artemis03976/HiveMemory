@@ -39,7 +39,7 @@ async def test_cpu_pushes_events_then_returns_result_from_real_service():
     cpu.start()
     events = CollectedEvents()
     result = await cpu.execute(
-        make_input_manifest(), thread=await _main_thread(), generation_options=None, events=events
+        make_input_manifest(), thread=await _main_thread(), model_selection=None, events=events
     )
     assert [event["event"] for event in events.events] == ["token"]
     assert events.events[0]["data"]["content"] == "执行完成"
@@ -72,7 +72,7 @@ async def test_cancelled_cpu_finishes_cleanup_before_returning_cancelled_result(
         cpu.execute(
             make_input_manifest(),
             thread=await _main_thread(),
-            generation_options=None,
+            model_selection=None,
             events=events,
         )
     )

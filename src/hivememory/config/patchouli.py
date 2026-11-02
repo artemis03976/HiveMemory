@@ -3,6 +3,7 @@ from typing import Any, Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from hivememory.config.shared import ModelResidency
+from hivememory.core.models.model_definition import ModelSelection
 
 # ========== 存储 ==========
 
@@ -398,6 +399,12 @@ class PatchouliShutdownConfig(BaseModel):
 
 
 class PatchouliConfig(BaseModel):
+    # Librarian 的模型：记忆提取、合并与话题折叠摘要共用。一次结算输出多条记忆，
+    # 输出被截断时任务失败，因此输出上限较大。None 表示不使用 LLM：记忆提取以
+    # No-Op 运行，话题折叠回退为规则摘要。
+    llm: ModelSelection | None = Field(
+        default_factory=lambda: ModelSelection(temperature=0.3, max_tokens=32768)
+    )
     storage: QdrantConfig = Field(default_factory=QdrantConfig)
     perception: MemoryPerceptionConfig = Field(default_factory=MemoryPerceptionConfig)
     generation: MemoryGenerationConfig = Field(default_factory=MemoryGenerationConfig)

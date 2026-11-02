@@ -25,7 +25,6 @@ from hivememory.engines.generation.models import (
     GenerationTurn,
 )
 from hivememory.infrastructure.llm import LiteLLMService
-from hivememory.system.assembler import component_llm_params
 from hivememory.system.model_registry import ModelRegistry
 from hivememory.system.provider_registry import ProviderRegistry
 
@@ -50,10 +49,8 @@ def _engine() -> MemoryGenerationEngine:
     registry = ModelRegistry(
         provider_registry=ProviderRegistry(env_providers=provider_credentials_from_env())
     )
-    llm_params = component_llm_params(
-        registry.resolve_for_llm_config(config.get_librarian_llm_config())
-    )
-    assert llm_params is not None, "Librarian 未配置可用模型"
+    assert config.patchouli.llm is not None, "Librarian 未配置模型"
+    llm_params = registry.resolve(config.patchouli.llm)
     return MemoryGenerationEngine(
         mid_term=_EmptyMidTerm(),
         extractor=LLMMemoryExtractor(
