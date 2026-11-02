@@ -18,6 +18,25 @@ def reset_language():
     set_default_language("zh")
 
 
+def test_compile_read_result_delivers_full_atom_content_beyond_content_limit():
+    """读取是取得正文全文的唯一途径：正式原子不按编译选项的正文上限截断。"""
+    content = "Deploy step. " * 100
+    unit = MemoryUnitIR(
+        identity=MemoryIdentityIR(source_kind="atom", alias="fact_deploy"),
+        content=MemoryContentIR(title="Deploy", content=content),
+        status=MemoryStatusIR(),
+    )
+
+    artifact = compile_read_result(
+        unit,
+        MemoryCompileTarget.READ_RESULT,
+        MemoryCompileOptions(language="en", max_content_length=100),
+    )
+
+    assert content in artifact.text
+    assert "content truncated" not in artifact.text
+
+
 def test_compile_read_result_renders_redirect():
     unit = MemoryUnitIR(
         identity=MemoryIdentityIR(

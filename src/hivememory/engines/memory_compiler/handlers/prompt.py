@@ -86,11 +86,14 @@ def compile_shared_context(
 
 def _render_full_from_ir(
     unit: MemoryUnitIR,
-    max_content_length: int = 500,
+    max_content_length: int | None = 500,
     stale_days: int = 90,
     language: str | None = None,
 ) -> str:
-    content = _truncate_content(unit.content.content or "", max_content_length, language)
+    """渲染单条记忆的完整条目；``max_content_length`` 为 None 时交付正文全文。"""
+    content = unit.content.content or ""
+    if max_content_length is not None:
+        content = _truncate_content(content, max_content_length, language)
     confidence_str = _format_confidence_from_ir(unit, language)
     alias = unit.identity.alias or ""
     tags = ", ".join(f"`{tag}`" for tag in unit.content.tags) or _text(

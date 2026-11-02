@@ -11,7 +11,6 @@
 from __future__ import annotations
 
 import logging
-import sys
 import time
 from collections.abc import Callable, Mapping
 from contextlib import AbstractAsyncContextManager
@@ -107,9 +106,6 @@ _READ_ONLY = ToolAnnotations(read_only_hint=True)
 # 写入只新增记忆，不改动已有内容；更新改写一条已有记忆的当前版本。
 _WRITE = ToolAnnotations(read_only_hint=False, destructive_hint=False)
 _UPDATE = ToolAnnotations(read_only_hint=False, destructive_hint=True)
-
-# memory_read 用于取得检索结果中摘要之外的全文，因此不截断。
-_FULL_CONTENT = sys.maxsize
 
 
 def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
@@ -348,9 +344,7 @@ def _read_text(
             continue
         # pending 句柄自带 alias；其余结果按请求的 alias 呈现，redirect 才能标出原名。
         requested_alias = None if isinstance(source, PendingAtom) else alias
-        options = MemoryCompileOptions(
-            requested_alias=requested_alias, max_content_length=_FULL_CONTENT
-        )
+        options = MemoryCompileOptions(requested_alias=requested_alias)
         blocks.append(compiler.compile(source, MemoryCompileTarget.READ_RESULT, options).text)
     if not blocks:
         raise ResourceNotFoundError(details={"aliases": unresolved})

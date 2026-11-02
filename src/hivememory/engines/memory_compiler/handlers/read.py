@@ -29,12 +29,8 @@ def compile_read_result(
     if unit.status.is_redirect:
         text = _render_redirect_read(unit, options)
     elif unit.identity.source_kind == "atom":
-        text = _render_full_from_ir(
-            unit,
-            options.max_content_length,
-            options.stale_days,
-            options.language,
-        )
+        # 读取是取得正文全文的途径，因此不截断。
+        text = _render_full_from_ir(unit, None, options.stale_days, options.language)
     elif unit.identity.source_kind == "pending":
         text = _render_pending_read(unit, options.language)
     elif is_resolve_terminal(unit):

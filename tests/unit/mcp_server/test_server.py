@@ -220,9 +220,8 @@ async def test_search_result_omits_prompt_guidance():
 
 
 @pytest.mark.asyncio
-async def test_read_delivers_full_content_in_order_and_lists_unresolved_last():
-    """按请求顺序交付全文（不截断），未解析的 alias 列在末尾。"""
-    long_content = "部署说明。" * 200
+async def test_read_delivers_in_order_and_lists_unresolved_last():
+    """按请求顺序交付编译结果，未解析的 alias 列在末尾。"""
     system = _system(
         _Entry(
             result=[
@@ -230,7 +229,7 @@ async def test_read_delivers_full_content_in_order_and_lists_unresolved_last():
                 ReferenceResolution(
                     kind="atom",
                     requested_alias="deploy_flow",
-                    atom=_atom("deploy_flow", long_content),
+                    atom=_atom("deploy_flow", "部署走 CI"),
                 ),
             ]
         )
@@ -240,7 +239,7 @@ async def test_read_delivers_full_content_in_order_and_lists_unresolved_last():
         result = await session.call_tool("memory_read", {"aliases": ["missing", "deploy_flow"]})
 
     text = tool_text(result)
-    assert long_content in text
+    assert "部署走 CI" in text
     assert text.endswith("未找到以下 alias：missing")
     assert system.operation_entry.calls[0][0] == ResolveReferencesRequest(
         aliases=("missing", "deploy_flow")
