@@ -43,8 +43,8 @@ Memory Library 首次加载调用 `GET /api/v1/memories?limit=100`，随后在�
 
 ### 1.3 当前偏差
 
-- 所谓 semantic 模式只是对已加载 100 条记录执行 title/summary/content/tag substring matching，没有调用后端 embedding retrieval；
-- 没有分页，页面的 `total` 是客户端过滤后的数量，不是完整库总数；
+- 所谓 semantic 模式只是对已加载的记录执行 title/summary/content/tag substring matching，没有调用后端 embedding retrieval；
+- 没有分页：首次加载只取 `limit=100` 的一页。后端按 Qdrant 的 point ID 顺序取这一页，之后才排除 Agent Profile，所以库超过 100 条后，页面看到的是一个与创建时间无关、且不足 100 条的子集（2026-11-02 库内 143 条记忆，页面显示 98 条，缺了最新的几条）。页面的 `total` 是客户端过滤后的数量，不是完整库总数。修复见[列表与检索 Todo](../todo/frontend-memory-library-listing.md)；
 - `statusFilter` 已存在于 store，但过滤计算没有使用它；`selectedTags` 也没有对应 CommandBar UI；
 - Pin 按钮只显示“施工中”，没有免疫 GC 或锁定语义；没有 archive/revive 操作和统计大屏；
 - delete 先乐观移除，API 失败后不回滚，可能让页面暂时偏离后端；

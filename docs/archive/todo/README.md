@@ -3,7 +3,7 @@ title: Archived Todo
 status: current
 owner: project
 scope: completed-todo-history
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-02
 ---
 
 # Archived Todo
@@ -40,6 +40,7 @@ last_reviewed: 2026-11-01
 
 这些事项没有归档文件，历史由版本控制保留：
 
+- “Memory Garden 接入真实语义检索”：2026-11-02 并入 [Memory 管理页列表不全与检索](../../todo/frontend-memory-library-listing.md)，删除前的最后版本见 commit `46c82c8c`；
 - “Gateway 与 Librarian 的旧式直配路径”：2026-11-01 升级为[模型选择统一为 ModelSelection，组件模型只经注册表解析](../plans/llm-config-retirement.md)（已归档），删除前的最后版本见 commit `190accd2`；
 - “导入的 MCP 读取在轨迹中显示 alias”：2026-10-30 并入[工具解析链路重写计划](../plans/v0.7.1-tool-call-parsing-chain.md)，删除前的最后版本见 commit `051625d9`；
 - “总线路由的类型化与静态签名检查”：2026-10-12 升级为[总线路由类型化与 mypy 门禁](../plans/v0.7.0-typed-bus-routes.md)，删除前的最后版本见 commit `8faa0b7`；
