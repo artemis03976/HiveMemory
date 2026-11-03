@@ -15,7 +15,7 @@ related_docs:
   - docs/archive/todo/import-bus-real-use-observation.md
   - docs/todo/reranker-int8-and-onnx-memory.md
   - docs/archive/ideas/settlement-multi-memory-extraction-and-dedup.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-02
 ---
 
 # 生成查重的决策信号
@@ -61,6 +61,17 @@ Claude Code 接入后的真实使用中，登记时（2026-10-29）查重从未�
 - 样本全部来自同一项目的开发会话，内容高度同质，结论能否推广到其他领域未知。
 
 回放方法与逐话题结果见已归档的[多条提取与查重 Idea](../archive/ideas/settlement-multi-memory-extraction-and-dedup.md#g-1-一个话题的多条记忆怎样提取) G-1 一节。
+
+## 补充证据（2026-11-02）
+
+dsh 调研 Gliding Horse 时，agent 有意把结论写成 1 条架构记忆与 3 条机制记忆。合并落地后，同项目的不同记忆被合在了一起：
+
+- 架构记忆与证据收据门以 0.768 判为 SIMILAR；
+- 收尾门又以 0.772 命中合并结果；
+- 三条融成一条 6069 字符的记忆，只能人工拆开；
+- 工作区租约为 0.671，保持独立。
+
+同一时期 SME 调研的主动写入之间为 0.714～0.724，都判为 DISTINCT。同项目的不同记忆正落在 0.75 阈值两侧，这些对可以补进标注样本中"同项目但无关"一类。样本与来源见[主动写入与被动提取的收敛 Idea](../ideas/generation-source-convergence.md#24-同一项目的主动写入在写入时互相合并)第 2.4 节。
 
 ## 查询对齐入库文本（2026-11-01）
 
