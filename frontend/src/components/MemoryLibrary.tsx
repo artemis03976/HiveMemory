@@ -26,8 +26,13 @@ export default function MemoryLibrary() {
     loading,
     error,
     total,
+    loadedCount,
     searchQuery,
     setSearchQuery,
+    searchMode,
+    setSearchMode,
+    semanticStatus,
+    semanticError,
     viewMode,
     setViewMode,
     sortBy,
@@ -80,6 +85,7 @@ export default function MemoryLibrary() {
       {/* Header & Stats */}
       <MemoryHeader
         totalMemories={total}
+        loadedMemories={loadedCount}
         warnings={0}
         onNewMemory={() => setShowCreateModal(true)}
       />
@@ -88,6 +94,8 @@ export default function MemoryLibrary() {
       <CommandBar 
         searchQuery={searchQuery}
         onSearchChange={setSearchQuery}
+        searchMode={searchMode}
+        onSearchModeChange={setSearchMode}
         viewMode={viewMode}
         onViewModeChange={setViewMode}
         sortBy={sortBy}
@@ -105,6 +113,11 @@ export default function MemoryLibrary() {
             <TopicTab topics={topics} activeTopicId={selectedTopic} onTopicSelect={setSelectedTopic} />
           </div>
         </details>
+        {semanticStatus === 'done' && memories.length > 0 && (
+          <p className="mb-4 text-xs text-slate-500">
+            语义检索：{memories.length} 条结果，按相关度排列（排序选项对检索结果不生效）
+          </p>
+        )}
         {loading ? (
           <div className="flex items-center justify-center h-full text-slate-500">
             <span className="animate-pulse">加载记忆中...</span>
@@ -113,9 +126,17 @@ export default function MemoryLibrary() {
           <div className="flex items-center justify-center h-full text-red-400">
             {error}
           </div>
+        ) : semanticStatus === 'loading' ? (
+          <div className="flex items-center justify-center h-full text-slate-500">
+            <span className="animate-pulse">语义检索中...</span>
+          </div>
+        ) : semanticStatus === 'error' ? (
+          <div className="flex items-center justify-center h-full text-red-400">
+            语义检索失败：{semanticError}
+          </div>
         ) : memories.length === 0 ? (
           <div className="flex items-center justify-center h-full text-slate-500">
-            未找到记忆数据。
+            {semanticStatus === 'done' ? '没有找到语义相关的记忆。' : '未找到记忆数据。'}
           </div>
         ) : (
           <motion.div 

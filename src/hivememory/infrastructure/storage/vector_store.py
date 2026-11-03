@@ -345,24 +345,41 @@ class QdrantMemoryStore:
         logger.debug(f"✓ 成功删除记忆: {key.memory_id}")
         return True
 
-    async def get_all_memories(
+    async def get_memories_page(
         self,
         *,
         filters: Filter,
         limit: int = 100,
-    ) -> list[MemoryAtom]:
+        offset: str | None = None,
+    ) -> tuple[list[MemoryAtom], str | None]:
         """
-        按过滤条件 scroll 记忆（不做相似度排序）。
+        按过滤条件 scroll 一页记忆（按 point ID 顺序，不做相似度排序）。
 
         Args:
             filters: 已构造的过滤条件，必须包含 Workspace ownership 边界
-            limit: 最多返回多少条（默认100）
+            limit: 本页最多返回多少条（默认100）
+            offset: 上一页返回的下一页起点；为 None 时从头开始
 
         Returns:
-            MemoryAtom 列表
+            本页的 MemoryAtom 列表，以及下一页的起点；已经取完时起点为 None
         """
-        points = await self._scroll(filters, limit=limit, operation="get_all_memories")
-        return [memory for _, memory in self._decode_points(points, operation="get_all_memories")]
+        points, next_offset = await self._scroll(
+            filters, limit=limit, offset=offset, operation="get_memories_page"
+        )
+        memories = [
+            memory for _, memory in self._decode_points(points, operation="get_memories_page")
+        ]
+        return memories, None if next_offset is None else str(next_offset)
+
+    async def count_memories(self, *, filters: Filter) -> int:
+        """按过滤条件精确计数；过滤条件必须包含 Workspace ownership 边界。"""
+        with storage_operation("count_memories", write=False):
+            result = await self.client.count(
+                collection_name=self.collection_name,
+                count_filter=filters,
+                exact=True,
+            )
+        return result.count
 
     async def get_all_memories_for_maintenance(
         self,
@@ -370,7 +387,9 @@ class QdrantMemoryStore:
         limit: int = 10000,
     ) -> list[MemoryAtom]:
         """进程级维护遍历（不限 Workspace）；无法解码的记录跳过并告警。"""
-        points = await self._scroll(None, limit=limit, operation="get_all_memories_for_maintenance")
+        points, _ = await self._scroll(
+            None, limit=limit, operation="get_all_memories_for_maintenance"
+        )
         return [
             memory
             for _, memory in self._decode_points(
@@ -380,17 +399,25 @@ class QdrantMemoryStore:
 
     # ========== 内部辅助方法 ==========
 
-    async def _scroll(self, filters: Filter | None, *, limit: int, operation: str) -> list[Any]:
-        """读取一页 payload（不含向量）；失败以结构化读取错误传播。"""
+    async def _scroll(
+        self,
+        filters: Filter | None,
+        *,
+        limit: int,
+        operation: str,
+        offset: str | None = None,
+    ) -> tuple[list[Any], Any]:
+        """读取一页 payload（不含向量）与下一页起点；失败以结构化读取错误传播。"""
         with storage_operation(operation, write=False):
-            points, _ = await self.client.scroll(
+            points, next_offset = await self.client.scroll(
                 collection_name=self.collection_name,
                 scroll_filter=filters,
                 limit=limit,
+                offset=offset,
                 with_payload=True,
                 with_vectors=False,
             )
-        return points
+        return points, next_offset
 
     @staticmethod
     def _decode_points(points: Iterable[Any], *, operation: str) -> list[tuple[Any, MemoryAtom]]:

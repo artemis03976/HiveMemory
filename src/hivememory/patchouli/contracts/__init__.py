@@ -12,6 +12,7 @@ from hivememory.patchouli.contracts.memory_management import (
     AgentProfileCreation,
     MemoryCreation,
     MemoryEdit,
+    MemoryListPage,
 )
 from hivememory.patchouli.contracts.memory_tasks import (
     MemoryGenerationAdmission,
@@ -31,6 +32,7 @@ __all__ = [
     "AgentProfileCreation",
     "MemoryCreation",
     "MemoryEdit",
+    "MemoryListPage",
     "MemoryIntent",
     "MemoryIntentSubmissionResult",
     "InteractionOrigin",

@@ -13,6 +13,9 @@ class QueryFilters(BaseModel):
     """不含授权语义的结构化业务过滤条件。"""
 
     memory_type: MemoryType | None = None
+    # 存储侧直接排除这些类型，而不是取回后再丢弃：取回后丢弃会让一页结果
+    # 少于请求的条数，计数也会与列表不一致。
+    exclude_memory_types: list[MemoryType] = Field(default_factory=list)
     # 匹配 meta.provenance.contributing_agent_ids 贡献者集合（可检出"参与
     # 过但未收尾"的 Agent），并保留 meta.provenance.source_agent_id 分支兼容
     # 无贡献者集合的记录。
@@ -26,6 +29,7 @@ class QueryFilters(BaseModel):
     def is_empty(self) -> bool:
         return (
             self.memory_type is None
+            and len(self.exclude_memory_types) == 0
             and self.source_agent_id is None
             and self.time_range is None
             and len(self.tags) == 0

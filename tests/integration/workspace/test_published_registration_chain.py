@@ -73,7 +73,7 @@ from hivememory.core.models.workspace import (
 )
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
-from hivememory.patchouli.contracts import PatchouliRoutes
+from hivememory.patchouli.contracts import MemoryListPage, PatchouliRoutes
 from hivememory.patchouli.contracts.memory_tasks import (
     MemoryGenerationSource,
     MemoryGenerationTask,
@@ -246,7 +246,8 @@ async def published_stack():
 
     async def memory_list(*, identity_scope, **_kwargs):
         seen.memory_list_scopes.append(identity_scope)
-        return list(created_atoms.values())
+        atoms = tuple(created_atoms.values())
+        return MemoryListPage(memories=atoms, next_cursor=None, total=len(atoms))
 
     async def topic_list_active(*, identity_scope, **_kwargs):
         seen.topic_list_scopes.append(identity_scope)

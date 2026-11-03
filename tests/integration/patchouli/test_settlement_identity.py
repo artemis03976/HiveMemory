@@ -187,8 +187,8 @@ class _WritableVectorStore:
         memory = self._memories.get(key.memory_id)
         return memory.model_copy(deep=True) if memory is not None else None
 
-    async def get_all_memories(self, **_kwargs):
-        return [memory.model_copy(deep=True) for memory in self._memories.values()]
+    async def get_memories_page(self, **_kwargs):
+        return [memory.model_copy(deep=True) for memory in self._memories.values()], None
 
 
 @pytest.mark.asyncio
@@ -270,7 +270,7 @@ async def test_idle_settlement_persists_public_memory_without_merging_similar_pr
         assert stored_private.payload.content == "old private content"
         assert stored_private.meta.version == 1
         assert stored_private.meta.access_policy.visibility == MemoryVisibility.PRIVATE
-        (public,) = await mid_term.scroll(
+        (public,), _ = await mid_term.scroll(
             belong_to, from_actor=system_actor_for_workspace(belong_to)
         )
         assert public.id != private.id

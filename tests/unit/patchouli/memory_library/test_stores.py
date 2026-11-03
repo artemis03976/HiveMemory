@@ -23,6 +23,7 @@ from hivememory.core.models import (
     PayloadLayer,
     WorkspaceMemoryKey,
 )
+from hivememory.patchouli.contracts import MemoryListPage
 from hivememory.patchouli.memory_library.ports import MidTermStoragePort
 from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
@@ -32,7 +33,7 @@ from tests.helpers.workspace import make_identity_scope
 
 
 class _RecordingPort(MidTermStoragePort):
-    """记录 get/get_by_alias/search/scroll/patch_payload 收到的参数；其余方法不应被触达。"""
+    """记录 get/get_by_alias/search/scroll/count/patch_payload 收到的参数；其余方法不应被触达。"""
 
     def __init__(self, *, name: str = "port", call_order: list[str] | None = None):
         self.enforce_seen: list[bool] = []
@@ -92,11 +93,18 @@ class _RecordingPort(MidTermStoragePort):
         filters=None,
         limit=100,
         *,
+        cursor=None,
         from_actor,
         enforce_actor_visibility=True,
     ):
         self.enforce_seen.append(enforce_actor_visibility)
-        return []
+        return [], None
+
+    async def count(
+        self, identity_scope, filters=None, *, from_actor, enforce_actor_visibility=True
+    ):
+        self.enforce_seen.append(enforce_actor_visibility)
+        return 0
 
     async def list_all_for_maintenance(self):  # pragma: no cover
         raise AssertionError("not expected")
@@ -163,8 +171,8 @@ def test_store_forwards_enforce_flag_for_point_read():
     assert port.enforce_seen == [False, False]
 
 
-def test_store_forwards_enforce_flag_for_search_and_scroll():
-    """门面 search/scroll 同样必须透传 enforce_actor_visibility。"""
+def test_store_forwards_enforce_flag_for_search_scroll_and_count():
+    """门面 search/scroll/count 同样必须透传 enforce_actor_visibility。"""
     port = _RecordingPort()
     store = MidTermMemoryStore(port)
     scope = make_identity_scope()
@@ -186,8 +194,15 @@ def test_store_forwards_enforce_flag_for_search_and_scroll():
             enforce_actor_visibility=False,
         )
     )
+    asyncio.run(
+        store.count(
+            scope.workspace_identity,
+            from_actor=scope.actor_identity,
+            enforce_actor_visibility=False,
+        )
+    )
 
-    assert port.enforce_seen == [False, False]
+    assert port.enforce_seen == [False, False, False]
 
 
 def test_store_forwards_patch_payload_to_primary_and_secondary():
@@ -306,5 +321,5 @@ def test_retrieval_familiar_list_memories_scroll_does_not_raise_type_error():
         )
     )
 
-    assert result == []
-    assert port.enforce_seen == [False]
+    assert result == MemoryListPage(memories=(), next_cursor=None, total=0)
+    assert port.enforce_seen == [False, False]

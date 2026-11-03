@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         AgentProfileCreation,
         MemoryCreation,
         MemoryEdit,
+        MemoryListPage,
     )
     from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationTask
     from hivememory.patchouli.contracts.prepare import PreparedAgentRun
@@ -60,9 +61,10 @@ class PatchouliRoutes:
         filters: dict[str, str] | None = None,
         limit: int = 20,
         exclude_types: list[str] | None = None,
+        cursor: str | None = None,
         refresh_vitality: bool = True,
-    ) -> list[MemoryAtom]:
-        """按管理读取视角列出目标 Workspace 的记忆。"""
+    ) -> MemoryListPage:
+        """按管理读取视角列出目标 Workspace 的一页记忆；``cursor`` 取上一页的游标。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.memory.get")

@@ -192,9 +192,22 @@ class MidTermStoragePort(ABC):
         filters: QueryFilters | None = None,
         limit: int = 100,
         *,
+        cursor: str | None = None,
         from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
-    ) -> list[MemoryAtom]: ...
+    ) -> tuple[list[MemoryAtom], str | None]:
+        """按存储顺序读取一页，返回本页记忆与下一页的游标（取完时为 None）。"""
+
+    @abstractmethod
+    async def count(
+        self,
+        belong_to: WorkspaceIdentity,
+        filters: QueryFilters | None = None,
+        *,
+        from_actor: ActorIdentity,
+        enforce_actor_visibility: bool = True,
+    ) -> int:
+        """按与 ``scroll`` 相同的归属、可见性与业务过滤条件计数。"""
 
     @abstractmethod
     async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]: ...

@@ -1,4 +1,4 @@
-"""手工管理记忆与 Agent Profile 的公共输入契约：创建与编辑的材料。
+"""手工管理记忆与 Agent Profile 的公共契约：创建与编辑的材料，以及列表的一页结果。
 
 调用方只提交材料；记忆 ID、时间戳、来源记录、默认访问策略与生命周期
 状态都由 Patchouli 在提交边界确定，来源记录取自本次请求的发起者。字段的
@@ -11,7 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-from hivememory.core.models import MemoryType
+from hivememory.core.models import MemoryAtom, MemoryType
 
 
 @dataclass(frozen=True)
@@ -60,4 +60,21 @@ class MemoryEdit:
     agent_config: dict[str, Any] | None = None
 
 
-__all__ = ["AgentProfileCreation", "MemoryCreation", "MemoryEdit"]
+@dataclass(frozen=True)
+class MemoryListPage:
+    """记忆列表的一页。
+
+    没有检索词时按存储顺序翻页：把 ``next_cursor`` 交回下一次请求即取得下一页，
+    为 ``None`` 表示已经取完；存储顺序与时间无关，需要按时间排列的调用方取全后
+    自行排序。``total`` 是同一过滤条件下目标 Workspace 的记忆总数。
+
+    有检索词时结果按相关度排列、不翻页：``next_cursor`` 为 ``None``，``total``
+    是本次返回的条数。
+    """
+
+    memories: tuple[MemoryAtom, ...]
+    next_cursor: str | None
+    total: int
+
+
+__all__ = ["AgentProfileCreation", "MemoryCreation", "MemoryEdit", "MemoryListPage"]

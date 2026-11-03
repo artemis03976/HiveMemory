@@ -7,9 +7,21 @@ export type UpdateMemoryPatch = Partial<Pick<
   'title' | 'summary' | 'content' | 'alias' | 'tags'
 >>;
 
-export async function fetchMemories(limit = 100): Promise<MemoryListResponse> {
+interface MemoryPageQuery {
+  limit?: number;
+  cursor?: string | null;
+  query?: string;
+}
+
+/** 取一页记忆：没有 query 时按存储顺序翻页，有 query 时按相关度语义检索、不翻页。 */
+export async function fetchMemoryPage(
+  { limit = 100, cursor = null, query }: MemoryPageQuery = {},
+): Promise<MemoryListResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (cursor) params.set('cursor', cursor);
+  if (query) params.set('query', query);
   // Memory 管理请求统一携带 x-user-id / x-workspace-id 基础选择
-  const response = await fetch(`/api/v1/memories?limit=${encodeURIComponent(limit)}`, {
+  const response = await fetch(`/api/v1/memories?${params}`, {
     headers: identityHeaders(),
   });
 
@@ -18,6 +30,31 @@ export async function fetchMemories(limit = 100): Promise<MemoryListResponse> {
   }
 
   return response.json();
+}
+
+/**
+ * 跟随 next_cursor 取完整个记忆库。
+ *
+ * 后端按存储顺序翻页，顺序与时间无关，只取一页会得到与时间无关的子集；
+ * 因此必须取全后再由页面排序。total 是库内总数。
+ */
+export async function fetchAllMemories(): Promise<{ memories: MemoryAtom[]; total: number }> {
+  const memories: MemoryAtom[] = [];
+  let total = 0;
+  let cursor: string | null = null;
+  do {
+    const page = await fetchMemoryPage({ cursor });
+    memories.push(...page.memories);
+    total = page.total;
+    cursor = page.next_cursor;
+  } while (cursor);
+  return { memories, total };
+}
+
+/** 在整个记忆库中语义检索，结果按相关度排列。 */
+export async function searchMemories(query: string, limit = 50): Promise<MemoryAtom[]> {
+  const page = await fetchMemoryPage({ query, limit });
+  return page.memories;
 }
 
 export interface CreateMemoryPayload {

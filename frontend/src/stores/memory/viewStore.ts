@@ -15,9 +15,6 @@ interface MemoryViewStore {
   selectedTags: string[];
   setSelectedTags: (tags: string[]) => void;
 
-  statusFilter: 'all' | 'active' | 'archived';
-  setStatusFilter: (status: 'all' | 'active' | 'archived') => void;
-
   sortBy: SortOption;
   setSortBy: (sort: SortOption) => void;
 
@@ -41,9 +38,6 @@ export const useMemoryViewStore = create<MemoryViewStore>()(
         selectedTags: [],
         setSelectedTags: (tags) => set({ selectedTags: tags }),
 
-        statusFilter: 'all',
-        setStatusFilter: (status) => set({ statusFilter: status }),
-
         sortBy: 'created_desc',
         setSortBy: (sort) => set({ sortBy: sort }),
 
@@ -56,7 +50,6 @@ export const useMemoryViewStore = create<MemoryViewStore>()(
         partialize: (state) => ({
           searchMode: state.searchMode,
           selectedType: state.selectedType,
-          statusFilter: state.statusFilter,
           sortBy: state.sortBy,
           viewMode: state.viewMode,
         }),

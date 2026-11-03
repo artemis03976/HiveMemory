@@ -16,7 +16,12 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
 )
-from hivememory.patchouli.contracts import MemoryCreation, MemoryEdit, PatchouliRoutes
+from hivememory.patchouli.contracts import (
+    MemoryCreation,
+    MemoryEdit,
+    MemoryListPage,
+    PatchouliRoutes,
+)
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
@@ -77,12 +82,14 @@ class RootMemoryService:
         query: str | None = None,
         memory_type: str | None = None,
         limit: int = 20,
+        cursor: str | None = None,
         access: WorkspaceAccessContext,
-    ) -> list[MemoryAtom]:
-        """管理读取入口（root 授权）：在目标 Workspace 中列出 Memory。
+    ) -> MemoryListPage:
+        """管理读取入口（root 授权）：在目标 Workspace 中列出一页 Memory。
 
-        按 owner-management 语义返回该 Workspace 的全部 Memory（不含
-        Agent Profile），不做 Agent ``MemoryAccessPolicy`` 过滤。
+        按 owner-management 语义列出该 Workspace 的 Memory（不含 Agent
+        Profile），不做 Agent ``MemoryAccessPolicy`` 过滤；没有 ``query``
+        时把上一页的 ``next_cursor`` 作为 ``cursor`` 传回即取得下一页。
         """
         scope = self._authorizer.authorize_root(access, target_workspace)
         filters = self._build_filters(memory_type=memory_type)
@@ -93,6 +100,7 @@ class RootMemoryService:
             filters=filters if filters else None,
             limit=limit,
             exclude_types=[MemoryType.AGENT_PROFILE.value],
+            cursor=cursor,
             refresh_vitality=True,
         )
 

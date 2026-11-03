@@ -81,6 +81,7 @@ class MemoryFeedbackResponse(BaseModel):
 class MemoryListResponse(BaseModel):
     memories: list[MemoryResponse]
     total: int
+    next_cursor: str | None = None
 
 
 class MemoryCreateRequest(BaseModel):

@@ -362,12 +362,22 @@ class _InMemoryMidTermPort(MidTermStoragePort):
         filters=None,
         limit: int = 100,
         *,
+        cursor=None,
         from_actor,
         enforce_actor_visibility: bool = True,
-    ) -> list[MemoryAtom]:
-        return [memory for memory in self.memories.values() if memory.workspace_identity == scope][
-            :limit
-        ]
+    ) -> tuple[list[MemoryAtom], str | None]:
+        in_scope = [m for m in self.memories.values() if m.workspace_identity == scope]
+        return in_scope[:limit], None
+
+    async def count(
+        self,
+        scope,
+        filters=None,
+        *,
+        from_actor,
+        enforce_actor_visibility: bool = True,
+    ) -> int:
+        return sum(1 for m in self.memories.values() if m.workspace_identity == scope)
 
     async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]:
         return list(self.memories.values())[:limit]
