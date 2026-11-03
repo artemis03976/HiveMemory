@@ -57,7 +57,6 @@ class RuntimeEventType(str, Enum):
     WORK_CANCELLED = "work.cancelled"
     WORK_REJECTED = "work.rejected"
 
-    MAINTENANCE_TASK_STARTED = "maintenance.task.started"
     MAINTENANCE_TASK_COMPLETED = "maintenance.task.completed"
     MAINTENANCE_TASK_FAILED = "maintenance.task.failed"
 

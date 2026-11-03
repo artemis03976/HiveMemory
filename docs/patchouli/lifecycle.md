@@ -10,7 +10,7 @@ code_paths:
 related_contracts:
   - docs/components/runtime-and-bus.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-03
 ---
 
 # 记忆生命周期
@@ -115,7 +115,7 @@ Lifecycle 不使用任何入口阶段的判断调整分数：Gateway 的决定�
 
 ## 7. 维护与可观测性
 
-Gardening 作为全局 maintenance task 运行，调度器提供 interval、非重入、启停和 RuntimeEvent；LifecycleFamiliar 捕获业务异常并返回 `success/error/duration_ms/archived_count`。GC 还维护当前进程累计 scanned/archived/skipped/runs stats。
+Gardening 作为全局 maintenance task 运行，调度器提供 interval、非重入、启停和 RuntimeEvent；LifecycleFamiliar 返回 `archived_count` 与 `duration_ms`，不捕获异常，失败由调度器发出 `maintenance.task.failed`。GC 还维护当前进程累计 scanned/archived/skipped/runs stats。
 
 业务状态与观测状态保持分开：事件发布或统计失败不能改变已经完成的 archive，日志也不能作为恢复 MemoryAtom 的来源。
 

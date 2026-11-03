@@ -95,11 +95,11 @@ async def test_idle_unload_unloads_only_after_idle_timeout(make_service):
     await service.infer(lambda _model: None)
 
     clock.advance(_IDLE_TIMEOUT_SECONDS - 1)
-    await service.unload_if_idle()
+    assert await service.unload_if_idle() is False
     assert service.state is ModelLoadState.LOADED
 
     clock.advance(2)
-    await service.unload_if_idle()
+    assert await service.unload_if_idle() is True
     assert service.state is ModelLoadState.UNLOADED
 
 
@@ -109,8 +109,8 @@ async def test_resident_model_is_never_unloaded(make_service):
     await service.load()
 
     clock.advance(_IDLE_TIMEOUT_SECONDS * 100)
-    await service.unload_if_idle()
 
+    assert await service.unload_if_idle() is False
     assert service.state is ModelLoadState.LOADED
 
 

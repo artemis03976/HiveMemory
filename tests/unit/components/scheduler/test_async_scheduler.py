@@ -235,7 +235,7 @@ class TestSchedulerExecution:
         assert status[f"{TEST_OWNER}.slow"]["skip_count"] >= 1
 
     @pytest.mark.asyncio
-    async def test_success_task_emits_runtime_events(self, fake_clock):
+    async def test_task_that_did_work_emits_only_completed(self, fake_clock):
         recorder = RecordingRuntimeEventSink()
 
         async def callback():
@@ -254,9 +254,34 @@ class TestSchedulerExecution:
         finally:
             await scheduler.stop()
 
+        assert [event.event_type for event in recorder.events] == [
+            RuntimeEventType.MAINTENANCE_TASK_COMPLETED
+        ]
         assert completed.status == "completed"
         assert completed.data["task_key"] == f"{TEST_OWNER}.success"
         assert completed.data["result"] == {"flushed": 2}
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("idle_result", [None, []], ids=["none", "empty-list"])
+    async def test_idle_cycle_emits_no_runtime_events(self, fake_clock, idle_result):
+        """回调以空结果表示这一周期没有做事，调度器照常计数但不发事件。"""
+        recorder = RecordingRuntimeEventSink()
+        callback = AsyncMock(return_value=idle_result)
+        scheduler = AsyncMaintenanceScheduler(
+            tick_seconds=0.01,
+            runtime_events=recorder,
+        )
+        scheduler.register(make_spec(name="idle", interval_seconds=1.0), callback)
+        fake_clock.advance(1.0)
+
+        scheduler.start()
+        try:
+            await _wait_for_call_count(callback, 1)
+        finally:
+            await scheduler.stop()
+
+        assert recorder.events == []
+        assert scheduler.get_status()[f"{TEST_OWNER}.idle"]["run_count"] == 1
 
     @pytest.mark.asyncio
     async def test_failed_task_emits_runtime_event_and_keeps_scheduler_alive(self, fake_clock):
@@ -278,6 +303,9 @@ class TestSchedulerExecution:
         finally:
             await scheduler.stop()
 
+        assert [event.event_type for event in recorder.events] == [
+            RuntimeEventType.MAINTENANCE_TASK_FAILED
+        ]
         assert failed.status == "failed"
         assert failed.severity == "error"
         assert failed.reason == "maintenance_task_failed"
@@ -309,12 +337,16 @@ class TestSchedulerExecution:
         assert recorder.events == []
 
     @pytest.mark.asyncio
-    async def test_non_reentrant_skip_emits_no_extra_runtime_events(self, fake_clock):
+    async def test_non_reentrant_skip_emits_no_runtime_events(self, fake_clock):
+        """被跳过的周期不发事件，只有真正运行完的那次发 completed。"""
         recorder = RecordingRuntimeEventSink()
+        entered = asyncio.Event()
 
         async def slow_task():
+            entered.set()
             # 模拟耗时任务：必须真实占用事件循环，时钟无法替代
             await asyncio.sleep(0.1)
+            return {"flushed": 1}
 
         scheduler = AsyncMaintenanceScheduler(
             tick_seconds=0.01,
@@ -333,21 +365,16 @@ class TestSchedulerExecution:
 
         scheduler.start()
         try:
-            # 等任务已派发（产生 STARTED 事件）后，任务运行中再次到期 → skip
-            await _wait_for_event(recorder, RuntimeEventType.MAINTENANCE_TASK_STARTED)
+            # 任务已在运行时再次到期 → skip；stop 等运行中的任务结束
+            await asyncio.wait_for(entered.wait(), timeout=1.0)
             fake_clock.advance(0.5)
             await _wait_for_skip_count(scheduler, f"{TEST_OWNER}.slow_events", 1)
+        finally:
             await scheduler.stop()
-        except TimeoutError:
-            await scheduler.stop()
-            raise
 
-        event_types = [event.event_type for event in recorder.events]
-        # skip 不产生额外 started 事件：每次运行都是成对的 STARTED/COMPLETED
-        assert event_types.count(RuntimeEventType.MAINTENANCE_TASK_STARTED) == event_types.count(
+        assert [event.event_type for event in recorder.events] == [
             RuntimeEventType.MAINTENANCE_TASK_COMPLETED
-        )
-        assert event_types.count(RuntimeEventType.MAINTENANCE_TASK_STARTED) >= 1
+        ]
 
     @pytest.mark.asyncio
     async def test_default_null_runtime_event_sink_does_not_affect_task(self, fake_clock):
