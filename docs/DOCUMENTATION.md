@@ -3,7 +3,7 @@ title: HiveMemory Documentation Governance
 status: current
 owner: project
 scope: documentation-governance-and-maintenance
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-03
 ---
 
 # HiveMemory 文档治理与维护规范
@@ -383,7 +383,7 @@ Plan 是实施过程的工作依据，但在功能落地后不能继续承担当
 - 文档状态只能是 `planned` 或 `active`；
 - 工作完成后立即合并当前事实并进入 `archive/plans/`。
 
-计划只在能够立即执行时建立：阻塞问题已经决定、依赖已经成为事实（owner，2026-10-30）。不能立即实施的方向留在 Idea，计划之间不预设先后，一个版本由多份计划完成。不满足进入条件的工作另有去向：未排期的治理主题进入 Governance，尚需验证价值、样本或所有权的候选进入 Ideas，范围较小的缺陷和技术债进入 Todo。
+计划只在能够立即执行时建立：阻塞问题已经决定、依赖已经成为事实（owner，2026-10-30）。不能立即实施的方向留在 Idea，计划之间不预设先后，一个版本由多份计划依次完成。不满足进入条件的工作另有去向：未排期的治理主题进入 Governance，尚需验证价值、样本或所有权的候选进入 Ideas，范围较小的缺陷和技术债进入 Todo。
 
 计划之间的关系必须满足以下三条约束。它们用于防止多份计划互相引用对方仍在变化的设计，使一处设计变更不得不联动修改一组计划：
 
