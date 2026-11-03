@@ -283,9 +283,10 @@ async def test_failed_event_carries_domain_error_code() -> None:
 
     failed = _chat_events(sink)[-1]
     assert failed.event_type == RuntimeEventType.CHAT_RUN_FAILED
-    assert (failed.severity, failed.status, failed.message, failed.topic_id) == (
+    assert (failed.severity, failed.status, failed.reason, failed.message, failed.topic_id) == (
         "error",
         "failed",
+        "workspace.asset.not_ready",
         "workspace.asset.not_ready",
         _TOPIC_ID,
     )
@@ -293,7 +294,7 @@ async def test_failed_event_carries_domain_error_code() -> None:
 
 @pytest.mark.asyncio
 async def test_failed_event_does_not_expose_exception_text() -> None:
-    """非领域异常的失败事件使用固定摘要，异常正文不进入公共观测信封。"""
+    """非领域异常的失败事件带固定原因码与异常类名，异常正文不进入公共观测信封。"""
     bus = _bus_until_actor()
     cpu = ScriptedCPU(error=RuntimeError("internal-secret-detail"))
     sink = RecordingRuntimeEventSink()
@@ -304,14 +305,18 @@ async def test_failed_event_does_not_expose_exception_text() -> None:
 
     failed = _chat_events(sink)[-1]
     assert failed.event_type == RuntimeEventType.CHAT_RUN_FAILED
-    assert failed.message == "Task process failed."
+    assert (failed.reason, failed.message, failed.data) == (
+        "task_process_failed",
+        "Task process failed.",
+        {"error_class": "RuntimeError"},
+    )
     assert "internal-secret-detail" not in failed.model_dump_json()
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("reason", [None, CPUFailureReason.TURN_CONTEXT_BUDGET_EXCEEDED])
 async def test_cpu_failure_reason_reaches_done_and_runtime_event(reason):
-    """CPU 自报失败透传稳定原因码，未填写时保留既有 done 与观测语义。"""
+    """CPU 自报失败透传稳定原因码，未填写时原因码为 ``agent_run_failed``。"""
     bus = _bus_until_actor()
     sink = RecordingRuntimeEventSink()
     cpu = ScriptedCPU(result=make_cpu_result(status="failed", final_text="", failure_reason=reason))
@@ -325,6 +330,7 @@ async def test_cpu_failure_reason_reaches_done_and_runtime_event(reason):
     assert done.get("failure_reason") == reason
     failed = _chat_events(sink)[-1]
     assert failed.event_type == RuntimeEventType.CHAT_RUN_FAILED
+    assert failed.reason == (reason or "agent_run_failed")
     assert failed.message == reason
 
 

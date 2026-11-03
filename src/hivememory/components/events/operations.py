@@ -109,16 +109,17 @@ class RuntimeOperationObserver:
         duration_ms: float | None = None,
         data: dict[str, Any] | None = None,
     ) -> None:
+        """失败事件只带原因码与异常类名；异常由 ``observe`` 重新抛出，正文留给调用方记录。"""
         self._emit(
             RuntimeEventType.SUBSYSTEM_OPERATION_FAILED,
             status="failed",
             severity="error",
-            reason=str(exc),
+            reason="operation_failed",
             duration_ms=duration_ms,
             data={
                 "success": False,
                 **(data or {}),
-                "error": str(exc),
+                "error_class": type(exc).__name__,
             },
         )
 

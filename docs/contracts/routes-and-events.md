@@ -18,6 +18,10 @@ code_paths:
   - src/hivememory/core/contracts/runtime_events.py
   - src/hivememory/components/bus/
   - src/hivememory/components/events/bus.py
+  - src/hivememory/components/events/operations.py
+  - src/hivememory/components/scheduler/async_scheduler.py
+  - src/hivememory/alice/events.py
+  - src/hivememory/workspace/process/events.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/error-model.md
@@ -25,7 +29,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-02
+last_reviewed: 2026-11-03
 ---
 
 # 公开路由与事件
@@ -224,6 +228,11 @@ Alice CPU 端口的交互输出与 `/runtime-events/stream` 是两条独立通�
 | Gateway step 的 `data.fallback_reason` | `request_deadline_exceeded`、`step_timeout` 或 `dependency_unavailable`；无 fallback 为 None |
 | 查询分析 capability 的 `data.error` | 失败为 `query_understanding_failed`，成功为 None |
 | Work Queue 接纳观测的 `reason` | `unknown_lane`、`runtime_stopped`、`unknown_payload_codec`、`capacity_rejected`、`duplicate_work_item`；未确认接纳为 `admission_unknown` |
+| `maintenance.task.failed.reason` | `maintenance_task_failed`；`data.error_class` 为维护回调抛出的异常类名，堆栈由调度器写入日志 |
+| `system.start_failed.reason` / `system.stop_failed.reason` | `start_step_failed` / `stop_step_failed`；`data.failed_step` 为第一个未完成的步骤，`data.error_class` 为异常类名 |
+| `subsystem.operation.failed.reason` | `operation_failed`；`data.error_class` 为异常类名，异常由操作观测重新抛出 |
+| `agent.run.failed.reason` | CPU 失败原因码（[错误模型](./error-model.md#22-agent-run)的四类预算原因），没有时为 `agent_run_failed`；帧执行失败或 run 抛出异常时 `data.error_class` 为异常类名 |
+| `chat.run.failed.reason` | Actor 上报的 CPU 失败原因码（没有时为 `agent_run_failed`）、Workspace 错误码或 `task_process_failed`；前两种的 `message` 同为该码（Actor 没有上报原因码时为空），`task_process_failed` 的 `message` 为固定说明、`data.error_class` 为异常类名 |
 
 `data.error_class` 只作 Python 类型诊断，不是稳定机器分类或重试依据；上述事件不包含异常正文。`WORK_REJECTED` 的未知原因只说明 enqueue 没有确认成功，不证明 work 没有入库；调用方仍以返回值、异常和 Store 记录为准。编码失败在接纳前，已接纳 payload 解码失败仍进入 dead letter，执行重试仅由 lane 的 classifier 决定。
 
@@ -257,7 +266,7 @@ Chat SSE 订阅任务进程的输出通道：进程在自己的 task 中运行�
 
 Chat 首个 `process_id` SSE 事件携带 `{process_id, session_id}`。`memory_refs` 保留；不再发布 `topic_info`。有输出的 completed/cancelled/failed 的 done 包含 `topic_id`，对应会话本轮标注；没有 `pool_topics`。无输出的 done 不含 `final_text` 与 `topic_id`。前端通过独立 Topic 列表接口管理短期话题。取消、失败有输出时先 finalize 再交付终态，详见[任务进程](../workspace/task-process.md#8-封口部分输出与结算)。
 
-failed done 保留 `reason=agent_run_failed`，CPU 有稳定原因时另带 `failure_reason`；`chat.run.failed.message` 使用该码，不下发异常正文。四类预算原因见[错误模型](./error-model.md#22-agent-run)。done 不包含 `turn_events` 或 `compaction_checkpoint`；检查点以会话读取结果为准，压缩结束事件不代表会话已接受。
+failed done 保留 `reason=agent_run_failed`，CPU 有稳定原因时另带 `failure_reason`；`chat.run.failed` 的 `reason` 与 `message` 使用该码（第 4.4 节），不下发异常正文。四类预算原因见[错误模型](./error-model.md#22-agent-run)。done 不包含 `turn_events` 或 `compaction_checkpoint`；检查点以会话读取结果为准，压缩结束事件不代表会话已接受。
 
 Alice 在创建根 frame 前可推送 `context_compaction`，经 CPU 事件 sink 与任务进程原样交付；它与其他交互事件一样只受通道背压，不等待交付方确认：
 

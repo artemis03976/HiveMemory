@@ -280,8 +280,9 @@ class TestSchedulerExecution:
 
         assert failed.status == "failed"
         assert failed.severity == "error"
-        assert failed.reason == "boom"
-        assert failed.data["error"] == "boom"
+        assert failed.reason == "maintenance_task_failed"
+        assert failed.data["error_class"] == "RuntimeError"
+        assert "boom" not in failed.model_dump_json()
         assert failed.data["failure_count"] == 1
         assert scheduler.get_status()[f"{TEST_OWNER}.failing"]["last_error"] == "boom"
 

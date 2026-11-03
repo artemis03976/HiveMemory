@@ -29,7 +29,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-03
 ---
 
 # 跨边界错误模型
@@ -89,7 +89,7 @@ CPU 执行结果（`CPUExecutionResult`）的 `status` 为 `completed`、`cancel
 | `turn_context_budget_exceeded` | frame 每次生成前的预算守卫拦截，不再调用模型；CALL 子帧沿 CALL error 返回父帧 |
 | `model_context_window_exceeded` | 提供商仍报告上下文超窗；LLM 服务在 SDK 边界转换为 `ModelContextWindowExceededError`，Alice 按该类型识别，不重试 |
 
-任务进程的 failed done 保留 `reason=agent_run_failed`，另投影非空 `failure_reason`；`chat.run.failed.message` 使用相同原因码。原因不含异常正文，不写入交互原文。可用的历史检查点可以随 failed 或无输出结果交回，接受与本轮是否封口独立；原生取消仍传播 `CancelledError`。
+任务进程的 failed done 保留 `reason=agent_run_failed`，另投影非空 `failure_reason`；`chat.run.failed` 的 `reason` 与 `message` 使用相同原因码，`agent.run.failed` 的 `reason` 同样取它（[事件契约](./routes-and-events.md#44-失败与降级观测)第 4.4 节）。原因不含异常正文，不写入交互原文。可用的历史检查点可以随 failed 或无输出结果交回，接受与本轮是否封口独立；原生取消仍传播 `CancelledError`。
 
 Alice CPU 宿主未启动或已停止时，await `execute()` 抛出 `AliceUnavailableError`（`RuntimeError`）。这是执行准入异常，任务进程按失败清理，不投影为四类预算原因。该类型定义在 Alice 接口层，不属于跨子系统可导入的契约类型；异常上的 `code=alice.unavailable`、`details.reason=not_running` 只供日志诊断，任务进程不据此分支，SSE 与 `chat.run.failed` 仍按未分类的进程异常投影。生命周期与交付边界见[CPU 契约](./subsystem-contracts.md#43-alice-的执行入口)。
 

@@ -131,7 +131,7 @@ class AgentRunService:
                     frame, model_selection=model_selection, run_output=run_output
                 )
             result = assemble_execution_result(frame, terminal, inputs.checkpoint)
-            publish_terminal(events, result, stats_for(frame))
+            publish_terminal(events, result, stats_for(frame), terminal.error)
             return result
         except asyncio.CancelledError:
             events.cancelled(
@@ -142,8 +142,8 @@ class AgentRunService:
             if cancelled is None:
                 raise
             return cancelled
-        except Exception:
-            events.failed(message="Agent run failed.")
+        except Exception as exc:
+            events.failed(error=exc, message="Agent run failed.")
             raise
 
     def _prepare_run(

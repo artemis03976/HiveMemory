@@ -16,7 +16,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-03
 ---
 
 # 运行时事件与可观测性
@@ -41,7 +41,7 @@ HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么
 - 关联：process、agent run、task、agent、frame、topic、atom；
 - 结果：`status`、`reason`、`message`、摘要化 `data`。
 
-失败 reason 使用稳定原因码，message 使用可公开的说明；异常类名只放在诊断字段 `data.error_class`，不用于恢复决策。Gateway、Import Bus 与队列的具体分类由[事件契约](../contracts/routes-and-events.md#44-失败与降级观测)维护，事件不承载原始异常正文。
+失败 reason 使用稳定原因码，message 使用可公开的说明；异常类名只放在诊断字段 `data.error_class`，不用于恢复决策。各失败事件的原因码由[事件契约](../contracts/routes-and-events.md#44-失败与降级观测)维护，事件不承载原始异常正文。
 
 `workspace_id` 是可选的观测关联字段，用于把事件按资源归属域展示或筛选。它不代表完整的 `IdentityScope`，也不参与 EventBus 路由、订阅、sequence、授权、幂等判断或任何业务状态迁移；需要作出业务决定时必须回到领域返回值、异常或 Store 状态。
 
@@ -69,14 +69,14 @@ observe(operation)
   -> emit started
   -> await operation
   -> success: emit completed + duration + summary
-  -> exception: emit failed + reason + duration, re-raise
+  -> exception: emit failed + operation_failed + error_class + duration, re-raise
 ```
 
 observer 不捕获后吞掉原异常，不执行重试，也不决定事务是否提交。业务代码必须先处理正确性，再把结果投影为安全摘要。
 
 ## 4. 生命周期、Scheduler 与 Import Bus 事件
 
-System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopped/stop_failed`，事件 data 包含步骤列表、已完成步骤、失败步骤和耗时。Scheduler 发布 maintenance task started/completed/failed。Import Bus 以 `ImportBusEventEmitter` 投影一次导入的结局：`import.turn.accepted`（交互应用完成后发出，带实际落位的话题与是否新建）、`import.turn.duplicate`、`import.turn.skipped`（没有输出）与 `import.turn.deferred`（可重试失败或应用失败，原因码为 `gateway_unavailable`、`queue_unavailable`、`apply_pending` 或 `apply_failed`）；事件只携带来源、外部会话与轮次标识、`interaction_id`、事件数量与结构化标签，`task_type` 为 `background`。System 停止时的 `system.stopped` 以 `import_bus_shutdown` 报告 Import Bus 等待的在途请求数。submission 的 queued/running/retry/succeeded/failed 统一使用 Work Queue Runtime 的 `WORK_*` 事件。
+System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopped/stop_failed`，事件 data 包含步骤列表、已完成步骤、失败步骤和耗时。Scheduler 发布 maintenance task started/completed/failed：维护回调抛出异常时发布 failed 并记录带堆栈的日志，生命周期整理不自行捕获失败。Import Bus 以 `ImportBusEventEmitter` 投影一次导入的结局：`import.turn.accepted`（交互应用完成后发出，带实际落位的话题与是否新建）、`import.turn.duplicate`、`import.turn.skipped`（没有输出）与 `import.turn.deferred`（可重试失败或应用失败，原因码为 `gateway_unavailable`、`queue_unavailable`、`apply_pending` 或 `apply_failed`）；事件只携带来源、外部会话与轮次标识、`interaction_id`、事件数量与结构化标签，`task_type` 为 `background`。System 停止时的 `system.stopped` 以 `import_bus_shutdown` 报告 Import Bus 等待的在途请求数。submission 的 queued/running/retry/succeeded/failed 统一使用 Work Queue Runtime 的 `WORK_*` 事件。
 
 这些事件描述状态转换，但不会驱动转换。例如 `maintenance.task.failed` 不自动重试任务，`work.retry_scheduled` 不直接修改 work record，`chat.run.cancelled` 也不由 UI event 反向取消 run；真正的业务控制分别由 scheduler、Work Queue Runtime 和 run registry 负责。
 

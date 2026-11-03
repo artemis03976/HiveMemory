@@ -2,7 +2,7 @@
 LifecycleFamiliar 单元测试
 
 测试覆盖:
-- run_gardening_once: 全局维护调度器入口（编排合约 + 异常处理）
+- run_gardening_once: 全局维护调度器入口（编排合约 + 失败交给调度器）
 - record_hit: 字符串 ID 归一化为 UUID
 """
 
@@ -34,21 +34,18 @@ class TestLifecycleFamiliar:
 
         result = await familiar.run_gardening_once()
 
-        assert result["success"] is True
         assert result["archived_count"] == 3
         lifecycle.run_garbage_collection.assert_awaited_once_with(force=False)
 
     @pytest.mark.asyncio
-    async def test_run_gardening_once_handles_exception(self):
+    async def test_run_gardening_once_propagates_failure_to_scheduler(self):
+        """整理失败不能被吞成成功结果，否则调度器只会发出 completed。"""
         lifecycle = Mock()
         lifecycle.run_garbage_collection = AsyncMock(side_effect=RuntimeError("GC failed"))
         familiar = self._make_familiar(lifecycle=lifecycle)
 
-        result = await familiar.run_gardening_once()
-
-        assert result["success"] is False
-        assert "GC failed" in result["error"]
-        assert result["archived_count"] == 0
+        with pytest.raises(RuntimeError, match="GC failed"):
+            await familiar.run_gardening_once()
 
     @pytest.mark.asyncio
     async def test_normalize_uuid_converts_string_to_uuid(self):

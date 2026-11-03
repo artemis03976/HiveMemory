@@ -14,7 +14,6 @@ last_reviewed: 2026-11-03
 
 - [警告与失败事件没有持久的观察者](./failure-events-not-persisted.md)（2026-11-03 由观测与日志评估登记：事件流只有前端实时面板消费，失败事件事后无从排查；owner 决定并入后端日志，版本之外的工作，随时可以开始）；
 - [维护任务空转也发事件](./maintenance-event-noise.md)（2026-11-03 同上登记：调度器每次运行都发 started 与 completed，事件缓冲约 2.8 小时被心跳轮换一遍）；
-- [部分失败事件没有稳定原因码](./failure-event-reason-codes.md)（2026-11-03 同上登记：维护任务、系统启停与操作观测的失败事件带原始异常文本，Agent run 与任务进程的失败事件 `reason` 为空）；
 - [导入轮次被落进另一个外部会话的话题](./cross-conversation-topic-placement.md)（2026-11-03 由 dsh 调研取证登记：外部会话的第一轮没有会话上下文，Gateway 凭标题中的通用词把一次 dsh 调研落进了同时进行的 Claude Code 会话的话题，结算材料混合了两段无关对话，主动写入的贡献者被污染；一个话题能否跨外部会话待 owner 决定，未排期）；
 - [Agent Profile 以 ModelSelection 表达模型选择](./agent-profile-model-selection.md)（2026-11-01 由模型选择统一计划登记：Profile 仍以平铺的 `model_name`、`temperature`、`top_p` 表达模型选择，没有 `max_tokens`；改动涉及已存 Profile 的读取与 Agent 编辑页，owner 决定另行处理，未排期）；
 - [本机 HTTP 管理接口不证明调用方](./local-http-management-access.md)（2026-11-01 由 dsh 接入试用登记：管理接口以 server 的 principal 接入或不经认证网关，本机任何进程包括 harness 中的 agent 都能读写记忆、配置与密钥；会改变 HTTP 的信任模型，实施前先形成 Idea 或计划；owner 决定下一步修复）；

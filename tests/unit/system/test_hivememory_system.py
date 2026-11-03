@@ -162,13 +162,14 @@ class TestHiveMemorySystem:
         failed = events[-1]
         assert failed.status == "failed"
         assert failed.severity == "error"
-        assert failed.reason == "boom"
+        assert failed.reason == "start_step_failed"
         assert failed.data["completed_steps"] == [
             "gateway.start",
             "patchouli.start",
         ]
         assert failed.data["failed_step"] == "alice.start"
-        assert failed.data["error"] == "boom"
+        assert failed.data["error_class"] == "RuntimeError"
+        assert "boom" not in failed.model_dump_json()
         assert system._started is False
 
     @pytest.mark.asyncio
@@ -291,7 +292,7 @@ class TestHiveMemorySystem:
         failed = events[-1]
         assert failed.status == "failed"
         assert failed.severity == "error"
-        assert failed.reason == "stop boom"
+        assert failed.reason == "stop_step_failed"
         assert failed.data["completed_steps"] == [
             "access_gateway.close",
             "scheduler.stop",
@@ -302,7 +303,8 @@ class TestHiveMemorySystem:
         assert failed.data["failed_step"] == "alice.stop"
         assert failed.data["scheduler_stopped"] is True
         assert failed.data["import_bus_shutdown"] == {"waited_requests": 0}
-        assert failed.data["error"] == "stop boom"
+        assert failed.data["error_class"] == "RuntimeError"
+        assert "stop boom" not in failed.model_dump_json()
 
     @pytest.mark.asyncio
     async def test_health_returns_structure(self, system):

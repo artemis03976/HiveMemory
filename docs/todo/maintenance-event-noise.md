@@ -39,7 +39,7 @@ last_reviewed: 2026-11-03
 - `MAINTENANCE_TASK_STARTED` 没有生产者后从 `RuntimeEventType` 删除，契约文档同步。前端按类型通用显示维护事件，没有依赖 started 的逻辑。
 - `unload_if_idle` 返回是否卸载，`unload_idle_models` 返回本次卸载的模型名列表。
 
-**暂不处理**：调度节奏、重入与跳过策略；失败事件的原因码（见[失败事件原因码 Todo](./failure-event-reason-codes.md)）。
+**暂不处理**：调度节奏、重入与跳过策略；失败事件的原因码（已完成，见[归档 Todo](../archive/todo/failure-event-reason-codes.md)）。
 
 ## 完成条件
 
