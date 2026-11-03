@@ -23,7 +23,7 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-10-27
+last_reviewed: 2026-11-03
 ---
 
 # 运行时机制：总线、调度器与 Work Queue
@@ -104,14 +104,20 @@ jitter_seconds     -> 可选启动抖动
 
 当前 System 通过同一调度器承载：
 
-- Patchouli 注册的维护任务（perception idle flush 与 memory gardening）；
+- Patchouli 注册的维护任务（perception idle flush、memory gardening 与 model idle unload）；
 - 其他已经实现的 subsystem maintenance callbacks。
 
 System 自身不注册维护任务：Import Bus 一次请求导入一轮完整记录，不在服务端累积待封口的轮次，因此没有需要定时冲刷的缓冲。
 
 这是一套运行时底座，不代表所有维护业务已经统一成一个算法。
 
-### 2.2 启停与 drain
+### 2.2 运行结果与事件
+
+callback 以返回值表明这一周期是否做了事。返回假值（None 或空容器）表示没有做事，调度器只更新运行次数与结束时间，不发事件；其余返回值随 `maintenance.task.completed` 的 `data.result` 发出；抛出异常时发出 `maintenance.task.failed` 并记录带堆栈的日志。被跳过的周期不发事件，调度器也不发开始事件。
+
+理由是高频任务的空转：话题空闲扫描默认每 30 秒、模型卸载检查默认每 60 秒运行一次，绝大多数周期什么也不做；如果每次都发事件，进程内的事件缓冲会被心跳占满，真正的状态转换很快被挤出。Patchouli 的三个任务据此返回本周期的结果：话题扫描返回结算的话题 ID，模型卸载检查返回卸载的模型名，生命周期整理返回归档数与耗时（默认每天一次，总会发出）。
+
+### 2.3 启停与 drain
 
 `start()` 必须在运行中的 event loop 内调用，重复启动只记录 warning。`stop()` 先停止调度 loop，再在 shutdown wait 窗口内等待正在运行的 task；超时后取消 loop 和仍未结束的任务。scheduler 的 stop 只负责调度资源，不负责撤销任务已经产生的业务副作用。
 

@@ -245,10 +245,16 @@ class PatchouliRuntime:
         """
         return all(service.is_ready() for service in self._model_services())
 
-    async def unload_idle_models(self) -> None:
-        """卸载空闲超过各自时限的 ``idle_unload`` 模型；由全局维护调度器周期调用。"""
+    async def unload_idle_models(self) -> list[str]:
+        """卸载空闲超过各自时限的 ``idle_unload`` 模型，返回本次卸载的模型名。
+
+        由全局维护调度器周期调用；没有卸载时返回空列表，调度器不发事件。
+        """
+        unloaded: list[str] = []
         for service in self._model_services():
-            await service.unload_if_idle()
+            if await service.unload_if_idle():
+                unloaded.append(service.model_name)
+        return unloaded
 
     async def shutdown_drain(self) -> dict[str, Any]:
         """

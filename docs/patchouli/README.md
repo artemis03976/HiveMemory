@@ -22,7 +22,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-11-03
 ---
 
 # Patchouli
@@ -181,9 +181,11 @@ RetrievalRequest
 
 Patchouli 向全局调度器注册三个维护任务：
 
-- `perception_idle_flush`：扫描空闲话题并提交结算任务；
-- `memory_gardening`：刷新生命力并归档低生命力中期记忆；
-- `model_idle_unload`：卸载空闲超过各自时限的 `idle_unload` 模型（第 4.1 节）。
+- `perception_idle_flush`：扫描空闲话题并提交结算任务，返回结算的话题 ID；
+- `memory_gardening`：刷新生命力并归档低生命力中期记忆，返回归档数与耗时；
+- `model_idle_unload`：卸载空闲超过各自时限的 `idle_unload` 模型（第 4.1 节），返回本次卸载的模型名。
+
+返回空列表的周期没有做事，调度器不为它发事件（[运行时机制](../components/runtime-and-bus.md#22-运行结果与事件)第 2.2 节）。
 
 调度器只拥有时钟、非重入与停止语义，Perception、Lifecycle 与模型服务仍拥有各自的业务规则。关闭时 Patchouli 先结算全部非空活跃话题，再等待当时仍运行的记忆任务；超过 `generation_wait_timeout_seconds` 的任务会被请求取消；生成 lane 停止后取消尚未结束的模型预取，并释放两个模型的推理线程（等待在途推理与已经开始的加载结束，后续使用会重新创建；模型保持当时的驻留状态），随后才卸载 bridge 与 local routes。
 

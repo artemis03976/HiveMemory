@@ -24,6 +24,8 @@ RuntimeEvent 唯一的消费方是 SSE 路由，供前端 Workspace Vision 实�
 
 详见[日志与运行时事件](../governance/observability/logs-and-events.md)第 1、3 节。
 
+2026-11-03 起维护任务空转不再发事件（[归档 Todo](../archive/todo/maintenance-event-noise.md)），缓冲不再被心跳占满；事件仍只在进程内，页面关闭或进程重启后不留记录，本 Todo 的问题仍在。
+
 ## 影响
 
 失败只在有人恰好开着前端时可见，事后无法排查。

@@ -147,19 +147,20 @@ class SingletonModelService[M](ABC):
         except Exception as e:
             logger.warning(f"推理模型预取失败: model={self.model_name}: {e}")
 
-    async def unload_if_idle(self) -> None:
-        """``idle_unload`` 模式下，模型空闲超过时限时卸载并归还内存。
+    async def unload_if_idle(self) -> bool:
+        """``idle_unload`` 模式下，模型空闲超过时限时卸载并归还内存，返回是否卸载。
 
         模型不处于已加载状态，或有在途推理时不卸载。判定之后、卸载执行之前新到的推理
         排在卸载之后，执行时重新加载。
         """
         if self.config.residency != "idle_unload" or self._state is not ModelLoadState.LOADED:
-            return
+            return False
         if self._in_flight > 0:
-            return
+            return False
         if self._clock() - self._last_used < self.config.idle_timeout_seconds:
-            return
+            return False
         await self._inference.run(self._unload)
+        return True
 
     async def close(self) -> None:
         """取消在途的预取，等待在途调用结束并释放推理线程。

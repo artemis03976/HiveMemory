@@ -66,6 +66,12 @@ class AsyncMaintenanceScheduler:
         spec: MaintenanceTaskSpec,
         callback: Callable[[], Awaitable[Any]],
     ) -> None:
+        """注册维护任务。
+
+        ``callback`` 以返回值表明这一周期是否做了事：返回假值（None 或空容器）表示
+        没有做事，调度器不发事件；其余返回值随 ``maintenance.task.completed`` 发出；
+        抛出异常时发出 ``maintenance.task.failed``。
+        """
         key = spec.task_key
         if key in self._tasks:
             logger.warning(f"Maintenance task '{key}' already registered, overwriting")
@@ -208,16 +214,13 @@ class AsyncMaintenanceScheduler:
         start = monotonic()
         state.last_started_at = start
         state.run_count += 1
-        self._emit_task_event(
-            RuntimeEventType.MAINTENANCE_TASK_STARTED,
-            state,
-            status="started",
-            duration_ms=0.0,
-        )
         try:
             result = await state.callback()
             state.last_finished_at = monotonic()
             state.last_error = None
+            # 空转的周期不发事件：高频任务的心跳会把真正的状态转换挤出事件缓冲。
+            if not result:
+                return
             self._emit_task_event(
                 RuntimeEventType.MAINTENANCE_TASK_COMPLETED,
                 state,

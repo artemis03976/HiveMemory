@@ -361,6 +361,17 @@ class TestRuntimeModelReadiness:
         assert runtime.is_models_ready() is True
 
     @pytest.mark.asyncio
+    async def test_unload_idle_models_reports_only_models_unloaded_this_cycle(self):
+        """只返回本次卸载的模型名；都没有卸载时为空，调度器据此不发事件。"""
+        runtime = _create_runtime()
+        runtime.storage.embedding_service = Mock(model_name="embedding-model")
+        runtime.storage.embedding_service.unload_if_idle = AsyncMock(return_value=True)
+        runtime.reranker_service = Mock(model_name="reranker-model")
+        runtime.reranker_service.unload_if_idle = AsyncMock(return_value=False)
+
+        assert await runtime.unload_idle_models() == ["embedding-model"]
+
+    @pytest.mark.asyncio
     async def test_warmup_failure_of_one_model_does_not_skip_the_others(self):
         """预热失败只记录日志，其余模型照常加载。"""
         runtime = _create_runtime()
