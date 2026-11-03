@@ -16,7 +16,7 @@ code_paths:
   - frontend/src/stores/chat/
 related_docs:
   - docs/archive/plans/chat-run-cancellation-unified.md
-  - docs/todo/runtime-event-producer-migration.md
+  - docs/governance/observability/logs-and-events.md
   - docs/governance/reliability/idempotency-and-retry.md
   - docs/components/observability.md
   - docs/contracts/routes-and-events.md
@@ -198,7 +198,7 @@ chat.run.cancel_requested
 ### 5.2 与现有治理事项的关系
 
 事件 emitter、payload 安全和 best-effort 边界依赖
-[RuntimeEvent 生产端迁移后续](../todo/runtime-event-producer-migration.md)。
+RuntimeEvent 生产端收敛（[日志与运行时事件](../governance/observability/logs-and-events.md)治理主题的工作包 W6）。
 在该依赖完成前，不应只为取消建立另一套专用事件总线。
 
 ### 5.3 启用条件

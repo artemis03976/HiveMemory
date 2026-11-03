@@ -17,7 +17,7 @@ archived_at: 2026-08-13
 superseded_by:
   - docs/components/observability.md
   - docs/contracts/routes-and-events.md
-  - docs/todo/runtime-event-producer-migration.md
+  - docs/governance/observability/logs-and-events.md
 ---
 
 # RuntimeEvent 生产端发布抽象重构
@@ -26,7 +26,7 @@ superseded_by:
 
 本文档描述 HiveMemory `RuntimeEvent` 生产端的发布抽象重构方案，重点解决事件构造与发布逻辑侵入业务主流程、不同生产域重复实现 `_emit_*`、payload 缺少类型约束等问题。
 
-> 本文已归档，只保存 RuntimeEvent 生产端抽象的设计演进。当前规范见 [System 可观测性](../../components/observability.md)和[公开路由与事件](../../contracts/routes-and-events.md)，未完成迁移见 [RuntimeEvent 生产端迁移后续](../../todo/runtime-event-producer-migration.md)。
+> 本文已归档，只保存 RuntimeEvent 生产端抽象的设计演进。当前规范见 [System 可观测性](../../components/observability.md)和[公开路由与事件](../../contracts/routes-and-events.md)，未完成迁移见 [RuntimeEvent 生产端迁移后续](../../governance/observability/logs-and-events.md)。
 
 本文档是 [System 可观测性](../../components/observability.md)当前设计之上的历史生产端重构稿。它沿用 v0.4.0 已经落地的 RuntimeEvent 体系，但不把下列“已生效的不变量”与当时尚未实现的 Publisher/Emitter 代码混为一谈：
 

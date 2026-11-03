@@ -134,7 +134,7 @@ source_inventory: docs/archive/plans/documentation-migration-inventory.md
 
 ### 4.1 `RuntimeEventPublishingRefactorDesign.md`
 
-**分类与动作（后续更新）：** 当时曾迁移为 RuntimeEvent 生产端重构 Plan；随着 Publisher/Alice/Memory emitter 部分落地，当前规范已由 System/Contracts 承接，剩余工作缩减为 [Todo](../../todo/runtime-event-producer-migration.md)，原完整设计现已[归档](./runtime-event-publishing-refactor.md)。
+**分类与动作（后续更新）：** 当时曾迁移为 RuntimeEvent 生产端重构 Plan；随着 Publisher/Alice/Memory emitter 部分落地，当前规范已由 System/Contracts 承接，剩余工作缩减为 [Todo](../../governance/observability/logs-and-events.md)，原完整设计现已[归档](./runtime-event-publishing-refactor.md)。
 
 **当前承接与缺口：** [System 可观测性](../../components/observability.md)已经承接 RuntimeEvent 是 best-effort 旁路、单一顶层扁平流、scope、payload 摘要和 observer 不驱动业务等稳定不变量；但 `RuntimeEventPublisher`、不可变 bind context、全域领域 emitter 与关键 payload 类型化并不存在。代码仍保留 `ChatApplicationService._emit_chat_event()`、`GatewayWorkflow._emit()`、`AliceRuntime._emit_agent_event()`、`MemoryGenerationTaskController._emit_memory_task_event()`、Scheduler/System lifecycle 私有发布方法。
 

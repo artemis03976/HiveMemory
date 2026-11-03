@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-11-02
+last_reviewed: 2026-11-03
 ---
 
 # Plans
@@ -12,7 +12,13 @@ last_reviewed: 2026-11-02
 
 ## v0.7.3
 
-下一计划版本。版本目标未定（owner，2026-11-01）：DeepSeek Harness 已于 2026-11-01 接入，经它进行批量调研之后再设计 v0.7.3（[ROADMAP](../ROADMAP.md#43-v073版本目标未定) 第 4.3 节）。当前没有计划。
+当前开发版本：以主动写入为主体改进记忆生成（owner，2026-11-03，[ROADMAP](../ROADMAP.md#43-v073以主动写入为主体的记忆生成) 第 4.3 节）。设计讨论见[主动写入与被动提取的收敛 Idea](../ideas/generation-source-convergence.md)。
+
+| 计划 | 状态 | 内容 |
+|:---|:---|:---|
+| [话题内主动写入优先](./v0.7.3-topic-active-write-precedence.md) | planned | 被动草稿命中本话题主动写入结算到的记忆时丢弃；同一话题的主动写入之间不合并 |
+
+尚未建立计划的方向：主动写入沿用 agent 的标题、生成任务失败带原因码，设计见收敛 Idea 第 4.2、4.3 节。
 
 ## 已发布的版本
 
@@ -20,7 +26,7 @@ v0.7.2（Git tag `v0.7.2`，2026-11-01）、v0.7.1（Git tag `v0.7.1`，2026-10-
 
 ## 未绑定版本
 
-暂无。DeepSeek Harness 插件接入、模型选择统一（2026-11-01）与 dsh 子 Agent 会话不再独立导入（2026-11-02）已归档，见 [Archived Plans](../archive/plans/README.md)。
+暂无。DeepSeek Harness 插件接入、模型选择统一（2026-11-01）与 dsh 子 Agent 会话不再独立导入（2026-11-02）已归档，见 [Archived Plans](../archive/plans/README.md)。观测与日志是版本之外的工作，目前以治理主题与 Todo 跟踪，见[日志与运行时事件](../governance/observability/logs-and-events.md)。
 
 ## 准入规则
 

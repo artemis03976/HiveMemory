@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-11-02
+last_reviewed: 2026-11-03
 ---
 
 # HiveMemory 开发路线图
@@ -35,7 +35,7 @@ last_reviewed: 2026-11-02
 当前版本事实如下：
 
 - 最近已发布基线：`v0.7.2`（Git tag，2026-11-01）；[收尾审计](./archive/plans/v0.7.2-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
-- 下一计划版本：`v0.7.3`，版本目标未定（owner，2026-11-01）：DeepSeek Harness 已以原生插件接入（2026-11-01），经它进行批量调研之后再设计 v0.7.3；在此之前先修复本机 HTTP 接口的两项安全 Todo（owner，2026-11-01），其中密钥一项已于 2026-11-01 完成；HiveMemory 使用手册 skill 的初稿已于 2026-11-01 合并（第 4.2、4.3 节）。
+- 当前开发版本：`v0.7.3`，以主动写入为主体改进记忆生成（owner，2026-11-03）：经 DeepSeek Harness 调研四个仓库后，被动提取复现并改写主动写入、同轮写入互相合并、Mode B 丢掉 agent 的标题；当前计划为话题内主动写入优先（第 4.3 节）。版本之外，观测与日志随时可以开始（owner，2026-11-03，第 4.2 节），本机 HTTP 管理接口证明调用方仍待修复；HiveMemory 使用手册 skill 已基本稳定，在使用中逐步完善（owner，2026-11-03，第 4.2 节）。
 
 当前规范代码版本为 `0.7.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致，与最近发布标签 `v0.7.2` 对应。
 
@@ -114,10 +114,11 @@ last_reviewed: 2026-11-02
 
 | 版本或候选方向 | 状态 | 目标结果 | 依赖与入口 |
 |:---|:---:|:---|:---|
-| `v0.7.3` | 版本目标未定（owner，2026-11-01） | 在 DeepSeek Harness 接入与经它进行的批量调研之后设计 | 第 4.3 节 |
+| `v0.7.3` | Planned（owner，2026-11-03） | 以主动写入为主体改进记忆生成：被动提取不再改写本话题的主动写入，主动写入沿用 agent 的标题，生成失败可诊断 | 第 4.3 节；[收敛 Idea](./ideas/generation-source-convergence.md) |
 | 第二个外部 harness：DeepSeek Harness 的 plugin 模式接入 | Completed（2026-11-01 收尾）/ 版本之外的工作（owner，2026-10-31）；接入路径为纯原生插件（owner，2026-11-01）；owner 决定收尾，真实模型下的完整验收在日常使用中完成；调研中发现子 Agent 会话独立导入属于实现漂移（owner，2026-11-02），已于 2026-11-02 修复：只导入顶层会话，子 Agent 的结算通知进入父会话这一轮的生成材料 | dsh 经对话回流与原生记忆工具接入 HiveMemory，Windows 桌面端可以连接 WSL 中的 HiveMemory；之后经它进行 agent memory 与 harness 项目的调研，同时作为压测与数据积累 | [调研需求与报告](./research/deepseek-harness-plugin-survey.md)、[归档计划](./archive/plans/dsh-plugin-integration.md)、[接入手册](./help/deepseek-harness-plugin.md)、[子 Agent 会话的归档计划](./archive/plans/dsh-subagent-sessions.md) |
 | 本机 HTTP 接口的密钥与访问控制 | Partially Landed（owner，2026-11-01 决定下一步修复）：`/api/v1/config` 响应打码（PR #157）；密钥移出主配置与 `config.yaml`，提供商凭证收归 Provider 注册表（2026-11-01，PR #159，[归档 Todo](./archive/todo/config-secrets-written-to-yaml.md)）；模型定义不再保存连接凭证（2026-11-01，PR #166，[归档 Todo](./archive/todo/model-registry-api-key-override.md)）；Gateway 与 Librarian 只经模型与 Provider 注册表选择模型，主配置不再有 LLM 密钥（2026-11-01，PR #167，[归档计划](./archive/plans/llm-config-retirement.md)）；HTTP 管理接口证明调用方仍待修复 | HTTP 管理接口证明调用方，harness 中的 agent 不能绕过 Workspace 访问登记 | [管理接口 Todo](./todo/local-http-management-access.md) |
-| HiveMemory 使用手册 skill | Partially Landed（2026-11-01）：初稿已合并（PR #162）；owner 决定做成跨 harness 通用的 skill，不只服务 DeepSeek Harness（2026-11-01） | 引导各 harness 中的 agent 主动检索、写入与修正记忆，并与 harness 自己的记忆共存；dsh 插件还不能自动加载这份 skill；MCP 写入工具说明中“对话在每轮结束后会自动归档，不需要把对话过程复述写入”与主动写入的方向冲突，是否改写待 owner 决定 | [skill](../integrations/claude-code/skills/hivememory/SKILL.md)、[接入 Claude Code](./help/claude-code-plugin.md)、[接入 DeepSeek Harness](./help/deepseek-harness-plugin.md) |
+| 观测与日志 | Unscheduled / 版本之外的工作（owner，2026-11-03），随时可以开始；失败事件的持久观察者并入后端日志 | 排查一次失败只需要后端日志：警告与失败事件写入后端日志、维护任务空转不发事件、失败事件带稳定原因码，三项各有 Todo；日志写法规范与存量收敛见治理主题 | [日志与运行时事件](./governance/observability/logs-and-events.md) |
+| HiveMemory 使用手册 skill | Landed（2026-11-01，PR #162）：owner 决定做成跨 harness 通用的 skill，不只服务 DeepSeek Harness（2026-11-01）；已基本稳定，不再单独定稿，在使用中逐步完善（owner，2026-11-03） | 引导各 harness 中的 agent 主动检索、写入与修正记忆，并与 harness 自己的记忆共存；dsh 插件还不能自动加载这份 skill；MCP 写入工具说明中“对话在每轮结束后会自动归档，不需要把对话过程复述写入”与主动写入的方向冲突，是否改写待 owner 决定 | [skill](../integrations/claude-code/skills/hivememory/SKILL.md)、[接入 Claude Code](./help/claude-code-plugin.md)、[接入 DeepSeek Harness](./help/deepseek-harness-plugin.md) |
 | 冷启动、历史导入与外源文档资产化 | Candidate / 不绑定版本 | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | 第 4.4 节；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md) |
 | MTP READ 专项编译与来源表达 | Candidate / 不绑定版本 | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | 第 4.5 节；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md) |
 | Deep Research MVP | Candidate / 不绑定版本 | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 第 4.6 节 |
@@ -126,9 +127,22 @@ last_reviewed: 2026-11-02
 | Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 随受影响的 API 并行；[Frontend](./frontend/README.md)与第 4.8 节 Todo |
 | Electron 桌面客户端 | Candidate / 不绑定版本 | 单一客户端管理本地服务、数据目录、连接、升级与诊断 | 第 5.1 节；[状态与传输](./frontend/state-and-transports.md)、[配置](./system/configuration.md) |
 
-### 4.3 v0.7.3：版本目标未定
+### 4.3 v0.7.3：以主动写入为主体的记忆生成
 
-状态：版本目标未定（owner，2026-11-01），尚无计划（[Plans 导航](./plans/README.md#v073)）。DeepSeek Harness 已以原生插件接入（2026-11-01），owner 将经它进行 agent memory 与 harness 项目的批量调研，同时作为 HiveMemory 的压测与记忆、交互轨迹的积累，之后再设计 v0.7.3。版本之外的工作还有本机 HTTP 管理接口证明调用方（[管理接口 Todo](./todo/local-http-management-access.md)）与 HiveMemory 使用手册 skill 的定稿（第 4.2 节）。
+状态：Planned（owner，2026-11-03），计划见 [Plans 导航](./plans/README.md#v073)。
+
+目标：执行者经记忆工具主动写入的内容是记忆的主体，话题结算的被动提取只做兜底。DeepSeek Harness 接入后（2026-11-01），owner 经它调研了四个仓库，这是第一批以主动写入为主的真实样本：
+
+- 被动提取从同一份材料里复现了全部主动写入，合并按新旧以被动草稿为骨架改写了它们；
+- 同一轮里 agent 有意分开写的记忆被查重合并；
+- 主动写入的标题在生成时被丢弃；
+- 合并失败只能凭时序推断原因。
+
+owner 决定先做这一组最小优化，更好的记忆生成策略之后再议。证据、离线回放与决定见[收敛 Idea](./ideas/generation-source-convergence.md)。
+
+当前计划是[话题内主动写入优先](./plans/v0.7.3-topic-active-write-precedence.md)：被动草稿不再改写本话题的主动写入。主动写入沿用 agent 的标题、生成任务失败带原因码已有 owner 决定，尚未建立计划，设计在收敛 Idea 第 4.2、4.3 节。
+
+版本之外的工作还有本机 HTTP 管理接口证明调用方（[管理接口 Todo](./todo/local-http-management-access.md)）与导入轮次的跨会话落位（[跨会话落位 Todo](./todo/cross-conversation-topic-placement.md)）。
 
 ### 4.4 冷启动、历史导入与外源文档资产化（候选）
 
@@ -183,7 +197,7 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 | [MTP 缓存作用域重验（归档）](./archive/todo/mtp-cache-scope-revalidation.md) | Completed / Archived；保留为 v0.7.0 回归基线 | 已修复的 L0/L1/L2 隔离语义不重排为待开发功能 |
 | [总线路由类型化与 mypy 门禁（归档）](./archive/plans/v0.7.0-typed-bus-routes.md) | Completed / Archived（2026-10-12）：三阶段实现、验收与审查完成，`mypy src` 清零；属于 v0.7.0 内容 | 提供方 contracts 声明类型化 route；运行时参数检查保留，CI 按 `uv.lock` 检查源码和类型回归样例 |
 | [Alice 健康探针](./todo/alice-health-probes.md) | v0.7.0 收尾时搁置（2026-10-19），未绑定版本 | 反映执行器实际就绪/故障；不令资源 readiness 依赖 Alice 在线 |
-| [RuntimeEvent 生产端迁移](./todo/runtime-event-producer-migration.md) | v0.7.0 收尾时搁置；按受影响生产域迁移，未绑定版本 | 保持事件只做观测，不以事件投递成功控制业务状态 |
+| [日志与运行时事件](./governance/observability/logs-and-events.md)（原 RuntimeEvent 生产端迁移 Todo，2026-11-03 转入治理主题 W6） | 版本之外的工作（owner，2026-11-03），随时可以开始 | 保持事件只做观测，不以事件投递成功控制业务状态 |
 | [前端身份所有权](./todo/frontend-identity-ownership.md) | 前端可靠性优先项 | 不把固定 main_workspace 选择冒充认证或 Workspace 管理 |
 | [Mock fallback 披露](./todo/frontend-mock-fallback-disclosure.md) | 前端可靠性优先项 | 可辨认的数据来源与可兑现的写操作 |
 | [Memory 管理页列表与检索（归档）](./archive/todo/frontend-memory-library-listing.md) | Completed / Archived（2026-11-02）：列表跟随游标取全，语义检索请求后端 | 列表取全并显示真实总量；语义检索复用真实后端能力，保留失败和空结果 |
