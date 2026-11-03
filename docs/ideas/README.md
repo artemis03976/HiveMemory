@@ -3,7 +3,7 @@ title: Ideas
 status: current
 owner: project
 scope: uncommitted-exploration
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-02
 ---
 
 # Ideas
@@ -34,6 +34,7 @@ Idea 以 frontmatter 的 `horizon` 字段分为 `current`、`candidate` 与 `lon
 | [任务进程表与任务请求唯一注册入口](./task-process-table-and-registration-entry.md) | 注册入口、进程表、四阶段骨架、CPU 分配与 CPU 端口已落地，当前事实见 [任务进程](../workspace/task-process.md) | 交互被接纳后即关闭进程与 Profile 解析时点（随话题是否预建决定）、进程记录与工作集的剩余槽位、四阶段骨架的失效条件、被动请求；Q-3b、Q-5a、Q-7、Q-8；plugin 与 controller 模式并存时交互记录的去重（Q-5b 与 plugin 模式的 `interaction_id` 推导已随 Import Bus 实施） |
 | [身份与访问体系](./identity-and-access-model.md) | 身份模型、两阶段认证与两阶段授权、密封的访问 context、资源归属与发起者的拆分已落地，当前事实见 [身份与授权](../workspace/identity-and-authorization.md)与[认证与访问登记](../workspace/authentication.md) | 受限穿透访问的授予模型与跨 Workspace 目标的表达（T-5b）、资源授权的扩展约束、访问 context 可能增加的内容；WorkspaceAsset 一项已登记例外；root 的声明范围 |
 | [写入意图（PendingAtom）的后续方向](./pending-intent-migration.md) | workspace 唯一登记与统一引用解析，actor 操作内实时派发（生成队列接纳后 ACK），结算事件订阅；当前事实见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)与 [Patchouli 生成](../patchouli/generation.md) | 结算对账与结果未知、句柄寿命与过期、持久化、意图可见性与 policy、UPDATE 的基础版本、完整的生成材料 |
+| [主动写入与被动提取的收敛](./generation-source-convergence.md) | 主动写入经 actor API 即时派发，话题结算以 Mode A 提取多条草稿，查重命中后先落库再由合并任务融合；当前事实见 [Patchouli 生成](../patchouli/generation.md) | 2026-11-02 的 dsh 调研中，Mode A 复现了主动写入的全集，合并按新旧以被动草稿为骨架改写了主动写入，同一次结算的多条草稿并发合并同一条记忆而失败；查重与合并怎样对待主动写入（来源是否参与合并或提取） |
 | [长时间运行 Agent 的 Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md) | TurnEvent、封口交互、运行时与被动事件接入 | 原子事件流、长 turn 分段、封口、跨入口与恢复；CPU 检查点与 Patchouli 摄入水位分别推进，通用压缩与证据保存见各自 Idea |
 | [Chat Run 生命周期后续候选](./chat-run-lifecycle-follow-ups.md) | 已完成的取消最小闭环、SSE 与 run registry | 哪些候选具有独立收益，是否值得分别立项，而不是实施一次性大重构 |
 | [复合意图分解](./composite-intent-decomposition.md) | `COMPOSITE` 分类信号与私有 `sub_intents` | 真实样本能否证明单主意图路径存在稳定缺口，以及 envelope、消费所有权与 fallback 如何冻结 |
