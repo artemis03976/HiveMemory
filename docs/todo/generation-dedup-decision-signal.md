@@ -15,7 +15,7 @@ related_docs:
   - docs/archive/todo/import-bus-real-use-observation.md
   - docs/todo/reranker-int8-and-onnx-memory.md
   - docs/archive/ideas/settlement-multi-memory-extraction-and-dedup.md
-last_reviewed: 2026-11-02
+last_reviewed: 2026-11-03
 ---
 
 # 生成查重的决策信号
@@ -71,7 +71,7 @@ dsh 调研 Gliding Horse 时，agent 有意把结论写成 1 条架构记忆与 
 - 三条融成一条 6069 字符的记忆，只能人工拆开；
 - 工作区租约为 0.671，保持独立。
 
-同一时期 SME 调研的主动写入之间为 0.714～0.724，都判为 DISTINCT。同项目的不同记忆正落在 0.75 阈值两侧，这些对可以补进标注样本中"同项目但无关"一类。样本与来源见[主动写入与被动提取的收敛 Idea](../ideas/generation-source-convergence.md#24-同一项目的主动写入在写入时互相合并)第 2.4 节。
+同一时期 SME 调研的主动写入之间为 0.714～0.724，都判为 DISTINCT。2026-11-03 的两次调研又各有一对被合并：dsh-agent-soul 的架构总览与「能力半与身份半」判据为 0.783，EverOS 的 Scope 隔离与检索分派为 0.766；没有合并的也贴着阈值（0.749、0.737）。同项目的不同记忆正落在 0.75 阈值两侧，这些对可以补进标注样本中"同项目但无关"一类。v0.7.3 的[话题内主动写入优先](../plans/v0.7.3-topic-active-write-precedence.md)让同一话题的主动写入之间不再合并，但不改变判定信号，跨话题的同类误判仍在。样本与来源见[主动写入与被动提取的收敛 Idea](../ideas/generation-source-convergence.md#24-同一项目的主动写入在写入时互相合并)第 2.4 节。
 
 ## 查询对齐入库文本（2026-11-01）
 
