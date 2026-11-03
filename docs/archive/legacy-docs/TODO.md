@@ -5,11 +5,11 @@ owner: project
 scope: legacy-top-level-todo
 archived_at: 2026-07-29
 superseded_by:
-  - docs/todo/frontend-memory-semantic-search.md
+  - docs/todo/frontend-memory-library-listing.md
   - docs/todo/frontend-identity-ownership.md
 ---
 
-> 本文是已拆分的旧顶层待办，只保留历史方案。当前问题、证据和完成条件见 [Memory Garden 语义检索](../../todo/frontend-memory-semantic-search.md)与[前端身份所有权](../../todo/frontend-identity-ownership.md)。
+> 本文是已拆分的旧顶层待办，只保留历史方案。当前问题、证据和完成条件见 [Memory 管理页列表不全与检索](../../todo/frontend-memory-library-listing.md)（2026-11-02 并入了原 Memory Garden 语义检索 Todo）与[前端身份所有权](../../todo/frontend-identity-ownership.md)。
 
 - [ ] 令记忆花园搜索框支持基于全局记忆库的搜索，而非当前的本地形式
 

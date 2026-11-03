@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-02
 ---
 
 # Todo
@@ -20,7 +20,7 @@ last_reviewed: 2026-11-01
 - [WorkspaceAsset 内部归属与操作身份拆分](./workspace-asset-ownership-identity-split.md)（身份第二批明确暂缓：Store/解析旧 scope 接口与 System 物化 reader 桥接）；
 - [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：无 alias 记忆的寻址、alias 查询索引）；
 - [会话 `/compact` 指令](./conversation-compact-command.md)（2026-10-01 由原 Topic `/compact` 系统指令接入重写：compact 归属前台的 CPU 会话上下文，依赖 ConversationSession、命令运行位置与 Alice 会话压缩）；
-- [Memory Garden 接入真实语义检索](./frontend-memory-semantic-search.md)；
+- [Memory 管理页列表不全与检索](./frontend-memory-library-listing.md)（2026-11-02 由 owner 发现列表停在 98 条登记：列表接口只取按 point ID 排列的一页，取完才排除 Agent Profile，库超过 100 条后页面看到的是与时间无关的子集；同日并入原 Memory Garden 语义检索 Todo）；
 - [建立前端身份状态所有权](./frontend-identity-ownership.md)；
 - [Work Queue Runtime 多 lane 拓扑技术债](./work-queue-runtime-lane-topology.md)；
 - [RuntimeEvent 生产端迁移后续](./runtime-event-producer-migration.md)；
