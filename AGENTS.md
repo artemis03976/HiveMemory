@@ -108,6 +108,7 @@ Workspace 的访问、能力层与任务进程规则较多。改动这些区域�
 - 异步代码必须正确传播 `asyncio.CancelledError`，给外部调用设置已有的 timeout/deadline，并在 service/runtime 关闭时释放自己创建的任务和资源。
 - 时间敏感逻辑注入可控时钟或使用相对时间；测试中不得通过固定 `sleep` 等待状态落定。
 - 错误要保留结构化类型、阶段和可诊断上下文；不要用宽泛 `except Exception` 把程序错误改成成功或空结果。
+- 新写与改动的日志按[日志与运行时事件](docs/governance/observability/logs-and-events.md)第 2 节写：`%` 占位符、级别含义、`key=value` 关联标识、不记录内容；失败事件带稳定原因码，异常类名放在 `data.error_class`。
 - 环境变量用于密钥、地址、端口和运行开关；业务参数使用 `configs/config.yaml`，模型清单使用 `configs/models.yaml`。绝不提交真实密钥、`.env`、Qdrant 数据或日志。
 - 配置模型位于 `src/hivememory/config/`（按子系统分段）；组件只接收并导入自己的配置段，不持有根配置 `HiveMemoryConfig`，也不自行调用 `load_app_config`，缺配置时显式失败。
 - 版本唯一来源是 `src/hivememory/_version.py`；涉及版本时运行 `python scripts/check_version_consistency.py`。

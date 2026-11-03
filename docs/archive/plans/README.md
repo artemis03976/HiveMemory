@@ -71,7 +71,7 @@ last_reviewed: 2026-11-02
 ## v0.6.1 及更早
 
 - [Local Work Queue Runtime](./v0.6.1-local-work-queue-runtime.md)：2026-08-16，PR #88；[运行时机制](../../components/runtime-and-bus.md)
-- [RuntimeEvent 生产端发布抽象重构](./runtime-event-publishing-refactor.md)：2026-08-13，PR #86，部分落地；[RuntimeEvent 观测契约](../../contracts/routes-and-events.md#4-runtimeevent-观测契约)、[生产端迁移 Todo](../../todo/runtime-event-producer-migration.md)
+- [RuntimeEvent 生产端发布抽象重构](./runtime-event-publishing-refactor.md)：2026-08-13，PR #86，部分落地；[RuntimeEvent 观测契约](../../contracts/routes-and-events.md#4-runtimeevent-观测契约)、[生产端迁移 Todo](../../governance/observability/logs-and-events.md)
 - [Chat Run 取消重构最小闭环](./chat-run-cancellation-unified.md)：2026-08-05，PR #82；[任务进程](../../workspace/task-process.md)
 - [Alice 父子 Agent 进程调度流程收口](./alice-parent-child-run-scheduler.md)、[Alice Agent Runtime 控制流重构](./alice-agent-runtime-control-flow-refactor.md)：2026-08-03 至 08-05，PR #81；[Alice](../../alice/README.md)、[Agent Runtime](../../alice/agent-runtime.md)
 - [文档体系迁移清单](./documentation-migration-inventory.md)：2026-07-30，PR #78；[文档治理规范](../../DOCUMENTATION.md)

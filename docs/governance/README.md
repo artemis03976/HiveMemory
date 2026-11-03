@@ -3,7 +3,7 @@ title: Engineering Governance
 status: current
 owner: project
 scope: cross-version-engineering-governance
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-03
 ---
 
 # Engineering Governance
@@ -24,6 +24,10 @@ last_reviewed: 2026-10-31
 ### Data Model
 
 - [数据模型可变性治理](./data-model/mutability.md)：模型角色、冻结深度、聚合所有权与跨边界投影规则。
+
+### Observability
+
+- [日志与运行时事件](./observability/logs-and-events.md)：日志写法、失败事件的原因码与持久观察者、事件流降噪，以及存量收敛的工作包。
 
 ### Testing
 

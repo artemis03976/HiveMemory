@@ -3,13 +3,14 @@ title: Archived Todo
 status: current
 owner: project
 scope: completed-todo-history
-last_reviewed: 2026-11-02
+last_reviewed: 2026-11-03
 ---
 
 # Archived Todo
 
 本目录保存已完成的修复与技术债处置历史；当前行为从对应事实文档进入，活动待办见 [Todo](../../todo/README.md)。每条登记一行：归档日期、所在的 PR 与替代它的当前文档；处置过程见各事项自身。
 
+- RuntimeEvent 生产端迁移后续：2026-11-03 转入[日志与运行时事件](../../governance/observability/logs-and-events.md)治理主题的工作包 W6，文件删除，删除前最后版本在 commit `afbd7075`
 - [Memory 管理页列表不全与检索](./frontend-memory-library-listing.md)：2026-11-02，PR #171；[前端管理页面](../../frontend/management-views.md#11-当前能力)、[MemoryLibrary](../../patchouli/memory-library.md)
 - [模型级密钥覆盖写入受版本控制的 models.yaml](./model-registry-api-key-override.md)：2026-11-01，PR #166；[System 配置与注册表](../../system/configuration.md#4-配置所有权与兼容边界)、[配置指南](../../help/configuration.md#4-配置-model-registry)
 - [MTP READ 截断正式记忆的正文](./mtp-read-content-truncation.md)：2026-11-01，PR #165；[MemoryCompiler](../../patchouli/memory-compiler.md#4-envelope-targets)、[MTP 契约](../../contracts/mtp.md#32-read)
