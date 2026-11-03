@@ -17,7 +17,11 @@ from hivememory.core.models.query import QueryFilters
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.engines.retrieval.models import RetrievalQuery
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.contracts.memory_management import MemoryCreation, MemoryEdit
+from hivememory.patchouli.contracts.memory_management import (
+    MemoryCreation,
+    MemoryEdit,
+    MemoryListPage,
+)
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.utils.uuid import normalize_uuid
 
@@ -66,30 +70,27 @@ class MemoryManagementService:
         filters: dict[str, str] | None = None,
         limit: int = 20,
         exclude_types: list[str] | None = None,
+        cursor: str | None = None,
         refresh_vitality: bool = True,
-    ) -> list[MemoryAtom]:
+    ) -> MemoryListPage:
         scope = require_identity_scope(identity_scope)
-        excluded = set(exclude_types or [])
-        atoms = await self._bus.request(
+        page: MemoryListPage = await self._bus.request(
             PatchouliLocalRoutes.MEMORY_LIST,
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
             query=query,
             filters=filters,
+            exclude_types=exclude_types,
             limit=limit,
+            cursor=cursor,
             # owner 管理读取：ownership hard boundary 之内
             # 读取该 Workspace 全部 Memory，不执行 Agent 可见性过滤；
             # 该语义只供经 root API 授权的管理读取使用。
             enforce_actor_visibility=False,
         )
-        atoms = [
-            atom
-            for atom in atoms
-            if self._memory_type_value(atom.index.memory_type) not in excluded
-        ]
         if refresh_vitality:
-            await self._refresh_vitality_for_response(atoms)
-        return atoms
+            await self._refresh_vitality_for_response(list(page.memories))
+        return page
 
     async def get_memory(
         self,
@@ -228,10 +229,6 @@ class MemoryManagementService:
             scope.workspace_identity,
             from_actor=scope.actor_identity,
         )
-
-    @staticmethod
-    def _memory_type_value(memory_type: MemoryType | str) -> str:
-        return memory_type.value if hasattr(memory_type, "value") else str(memory_type)
 
     async def _refresh_vitality_for_response(self, atoms: list[MemoryAtom]) -> None:
         if not atoms:

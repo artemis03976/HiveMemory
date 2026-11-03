@@ -25,7 +25,7 @@ from hivememory.core.models import (
     PayloadLayer,
 )
 from hivememory.engines.lifecycle.models import EventType, ReinforcementResult
-from hivememory.patchouli.contracts import PatchouliRoutes
+from hivememory.patchouli.contracts import MemoryListPage, PatchouliRoutes
 from hivememory.server import deps
 from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.memories import router
@@ -98,6 +98,7 @@ class _MemoryManagementStub:
         filters=None,
         limit=20,
         exclude_types=None,
+        cursor=None,
         refresh_vitality=True,
     ):
         if query:
@@ -107,22 +108,21 @@ class _MemoryManagementStub:
                 filters=filters,
             )
             atoms = [r["memory"] for r in results if "memory" in r]
+            next_cursor, total = None, len(atoms)
         else:
-            atoms = self.storage.get_all_memories(filters=filters, limit=limit)
+            atoms, next_cursor = self.storage.get_memories_page(
+                filters=filters, limit=limit, offset=cursor
+            )
+            total = self.storage.count_memories(filters=filters)
         if refresh_vitality and self.lifecycle_engine is not None:
             self.lifecycle_engine.refresh_vitality_batch(atoms, persist=False)
         # 对齐生产的 owner 管理读取：ownership hard boundary 之内不过滤 actor 可见性
-        return [
+        visible = tuple(
             atom
             for atom in atoms
-            if (
-                atom.index.memory_type.value not in set(exclude_types or [])
-                and memory_belongs_to_workspace(
-                    atom,
-                    identity_scope.workspace_identity,
-                )
-            )
-        ]
+            if memory_belongs_to_workspace(atom, identity_scope.workspace_identity)
+        )
+        return MemoryListPage(memories=visible, next_cursor=next_cursor, total=total)
 
     async def get_memory(self, memory_id, *, identity_scope, refresh_vitality=True):
         atom = self.storage.get_memory(memory_id)
@@ -373,7 +373,8 @@ class TestMemoriesRouter:
     def test_list_memories_no_query(self):
         atom = _make_atom()
         storage = MagicMock()
-        storage.get_all_memories.return_value = [atom]
+        storage.get_memories_page.return_value = ([atom], None)
+        storage.count_memories.return_value = 1
         lifecycle = MagicMock()
         lifecycle.refresh_vitality_batch.side_effect = lambda atoms, persist=False: setattr(
             atoms[0].meta.lifecycle, "vitality_score", 33.0
@@ -387,9 +388,27 @@ class TestMemoriesRouter:
         assert response.status_code == 200
         data = response.json()
         assert data["total"] == 1
+        assert data["next_cursor"] is None
         assert data["memories"][0]["title"] == "Test"
         assert data["memories"][0]["vitality_score"] == 33.0
         lifecycle.refresh_vitality_batch.assert_called_once_with([atom], persist=False)
+
+    def test_list_memories_forwards_cursor_and_returns_library_total(self):
+        """请求的游标原样交给下一页的读取；响应带下一页游标与库内总数，而不是本页条数。"""
+        atom = _make_atom()
+        cursor = uuid4()
+        storage = MagicMock()
+        storage.get_memories_page.return_value = ([atom], "next-page")
+        storage.count_memories.return_value = 143
+
+        client = TestClient(_create_test_app(storage))
+        response = client.get(f"/api/v1/memories?limit=1&cursor={cursor}")
+
+        assert response.status_code == 200
+        data = response.json()
+        assert (data["total"], data["next_cursor"]) == (143, "next-page")
+        assert [m["id"] for m in data["memories"]] == [str(atom.id)]
+        assert storage.get_memories_page.call_args.kwargs["offset"] == str(cursor)
 
     def test_list_memories_with_query(self):
         atom = _make_atom()
@@ -412,16 +431,18 @@ class TestMemoriesRouter:
 
     def test_list_memories_filters_map_to_payload_paths(self):
         storage = MagicMock()
-        storage.get_all_memories.return_value = []
+        storage.get_memories_page.return_value = ([], None)
+        storage.count_memories.return_value = 0
 
         app = _create_test_app(storage)
         client = TestClient(app)
 
         response = client.get("/api/v1/memories?memory_type=FACT&limit=10")
         assert response.status_code == 200
-        storage.get_all_memories.assert_called_once_with(
+        storage.get_memories_page.assert_called_once_with(
             filters={"index.memory_type": "FACT"},
             limit=10,
+            offset=None,
         )
 
     def test_get_memory_by_id(self):

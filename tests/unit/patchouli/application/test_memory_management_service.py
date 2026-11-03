@@ -8,7 +8,7 @@
 自己的判断：
 - scope 类型与资源归属校验，拒绝时不触达后端；
 - 管理读取（owner-management，不做 Agent 可见性过滤）与 actor 读取的语义区分；
-- 列表的类型排除与生命力刷新编排；
+- 列表的生命力刷新编排；
 - 检索请求在边界拆分为归属与可见性主体。
 """
 
@@ -27,7 +27,7 @@ from hivememory.core.models import IdentityScope, IndexLayer, MemoryAtom, Memory
 from hivememory.core.protocol.models import RetrievalRequest
 from hivememory.patchouli.application import MemoryManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.contracts.memory_management import MemoryCreation
+from hivememory.patchouli.contracts.memory_management import MemoryCreation, MemoryListPage
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 
@@ -164,7 +164,9 @@ def test_read_entries_carry_their_visibility_semantics(invoke, route, enforce_ac
 
     每个入口各自声明可见性语义，任一入口取错值都会让管理视图漏项或让 actor 越权读取。
     """
-    bus = RecordingBus({PatchouliLocalRoutes.MEMORY_LIST: []})
+    bus = RecordingBus(
+        {PatchouliLocalRoutes.MEMORY_LIST: MemoryListPage(memories=(), next_cursor=None, total=0)}
+    )
     scope = _scope()
 
     _run(invoke(MemoryManagementService(bus=bus), scope))
@@ -179,29 +181,23 @@ def test_read_entries_carry_their_visibility_semantics(invoke, route, enforce_ac
 # ---- 列表与点读的编排 ----
 
 
-def test_list_memories_excludes_types_then_refreshes_remaining_without_persisting():
-    """类型排除在路由返回后执行，只为保留的原子刷新生命力，刷新不持久化。"""
+def test_list_memories_refreshes_page_memories_without_persisting():
+    """只为本页的原子刷新生命力，刷新不持久化；类型排除在存储侧完成，本层不再过滤。"""
     fact = _make_memory_atom(title="Fact")
-    profile = _make_memory_atom(title="Agent")
-    profile.index.memory_type = MemoryType.AGENT_PROFILE
-    bus = RecordingBus({PatchouliLocalRoutes.MEMORY_LIST: [fact, profile]})
+    page = MemoryListPage(memories=(fact,), next_cursor="next", total=3)
+    bus = RecordingBus({PatchouliLocalRoutes.MEMORY_LIST: page})
 
-    atoms = _run(
+    _run(
         MemoryManagementService(bus=bus).list_memories(
             identity_scope=_scope(),
-            filters={"index.memory_type": "FACT"},
-            limit=10,
             exclude_types=[MemoryType.AGENT_PROFILE.value],
         )
     )
 
-    assert atoms == [fact]
     assert [route for route, _, _ in bus.calls] == [
         PatchouliLocalRoutes.MEMORY_LIST,
         PatchouliLocalRoutes.REFRESH_MEMORY_VITALITY,
     ]
-    list_kwargs = bus.calls[0][2]
-    assert (list_kwargs["filters"], list_kwargs["limit"]) == ({"index.memory_type": "FACT"}, 10)
     assert bus.calls[1][1:] == (([fact],), {"persist": False})
 
 

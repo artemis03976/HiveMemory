@@ -28,8 +28,8 @@ class _LeakySearchStore:
     async def search_memories(self, **_kwargs):
         return [{"memory": self._memory, "score": 0.9, "id": "foreign-hit"}]
 
-    async def get_all_memories(self, **_kwargs):
-        return [self._memory]
+    async def get_memories_page(self, **_kwargs):
+        return [self._memory], None
 
 
 def _private_memory() -> MemoryAtom:
@@ -84,7 +84,7 @@ async def test_management_read_returns_private_memory_within_owning_workspace() 
     reader_access = make_identity_scope(user_id="u1", agent_id="other-agent")
     adapter = QdrantStorageAdapter(_SingleMemoryStore(private_memory))
 
-    memories = await adapter.scroll(
+    memories, _ = await adapter.scroll(
         reader_access.workspace_identity,
         from_actor=reader_access.actor_identity,
         enforce_actor_visibility=False,
@@ -116,14 +116,12 @@ async def test_management_read_still_rejects_cross_workspace_memory() -> None:
     )
     adapter = QdrantStorageAdapter(_SingleMemoryStore(_private_memory()))
 
-    assert (
-        await adapter.scroll(
-            other_workspace_access.workspace_identity,
-            from_actor=other_workspace_access.actor_identity,
-            enforce_actor_visibility=False,
-        )
-        == []
+    memories, _ = await adapter.scroll(
+        other_workspace_access.workspace_identity,
+        from_actor=other_workspace_access.actor_identity,
+        enforce_actor_visibility=False,
     )
+    assert memories == []
     assert (
         await adapter.get(
             other_workspace_access.workspace_identity,
@@ -190,7 +188,7 @@ async def test_scroll_discards_private_memory_not_authorized_for_actor() -> None
     reader_access = make_identity_scope(user_id="u1", agent_id="other-agent")
     adapter = QdrantStorageAdapter(_LeakySearchStore(_private_memory()))
 
-    memories = await adapter.scroll(
+    memories, _ = await adapter.scroll(
         reader_access.workspace_identity, from_actor=reader_access.actor_identity
     )
 

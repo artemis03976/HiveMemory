@@ -51,7 +51,7 @@ class AgentProfileManagementService:
         limit: int = 100,
     ) -> list[MemoryAtom]:
         scope = require_identity_scope(identity_scope)
-        return await self._bus.request(
+        page = await self._bus.request(
             PatchouliLocalRoutes.MEMORY_LIST,
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
@@ -61,6 +61,7 @@ class AgentProfileManagementService:
             # 列出全部 Profile，不按 system 的 Agent 可见性过滤 PRIVATE/TEAM。
             enforce_actor_visibility=False,
         )
+        return list(page.memories)
 
     async def get_agent_profile(
         self,

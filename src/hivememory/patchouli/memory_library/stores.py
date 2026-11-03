@@ -318,13 +318,30 @@ class MidTermMemoryStore:
         filters=None,
         limit: int = 100,
         *,
+        cursor: str | None = None,
         from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
-    ) -> list[MemoryAtom]:
+    ) -> tuple[list[MemoryAtom], str | None]:
         return await self._primary.scroll(
             belong_to,
             filters,
             limit,
+            cursor=cursor,
+            from_actor=from_actor,
+            enforce_actor_visibility=enforce_actor_visibility,
+        )
+
+    async def count(
+        self,
+        belong_to: WorkspaceIdentity,
+        filters=None,
+        *,
+        from_actor: ActorIdentity,
+        enforce_actor_visibility: bool = True,
+    ) -> int:
+        return await self._primary.count(
+            belong_to,
+            filters,
             from_actor=from_actor,
             enforce_actor_visibility=enforce_actor_visibility,
         )

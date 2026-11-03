@@ -13,6 +13,7 @@ from qdrant_client.models import (
     Condition,
     FieldCondition,
     Filter,
+    MatchAny,
     MatchValue,
     Range,
 )
@@ -80,6 +81,7 @@ class QdrantFilterConverter(FilterConverter):
            actor 读取策略。
         2. 业务过滤条件：按 memory_type、来源 Agent（匹配贡献者集合）、
            min_confidence 等字段进一步缩小候选集合。
+        3. must_not 条件：排除 exclude_memory_types 中的类型。
 
         Args:
             filters: 查询过滤器数据模型
@@ -112,8 +114,17 @@ class QdrantFilterConverter(FilterConverter):
                 )
             )
 
+        must_not_conditions: list[Any] = []
+        if filters.exclude_memory_types:
+            must_not_conditions.append(
+                FieldCondition(
+                    key="index.memory_type",
+                    match=MatchAny(any=[t.value for t in filters.exclude_memory_types]),
+                )
+            )
+
         # 组装最终 Filter
-        return Filter(must=must_conditions)
+        return Filter(must=must_conditions, must_not=must_not_conditions or None)
 
     @staticmethod
     def _source_agent_filter(agent_id: str) -> Filter:

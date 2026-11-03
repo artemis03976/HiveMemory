@@ -26,6 +26,7 @@ if TYPE_CHECKING:
     from hivememory.core.models.pending import PendingAtomMaterializeTask
     from hivememory.engines.perception.models import TopicMaterializeTask
     from hivememory.engines.retrieval.models import RetrievalQuery
+    from hivememory.patchouli.contracts.memory_management import MemoryListPage
     from hivememory.patchouli.contracts.memory_tasks import (
         MemoryGenerationAdmission,
         MemoryGenerationTask,
@@ -69,10 +70,12 @@ class PatchouliLocalRoutes:
         from_actor: ActorIdentity,
         query: str | None = None,
         filters: dict[str, Any] | None = None,
+        exclude_types: list[str] | None = None,
         limit: int = 20,
+        cursor: str | None = None,
         enforce_actor_visibility: bool = True,
-    ) -> list[MemoryAtom]:
-        """根据查询和过滤条件列出中期记忆原子。"""
+    ) -> MemoryListPage:
+        """根据查询和过滤条件列出一页中期记忆原子。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("memory.get")

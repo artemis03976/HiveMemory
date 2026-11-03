@@ -30,6 +30,7 @@ from hivememory.engines.retrieval.engine import RetrievalEngine
 from hivememory.engines.retrieval.models import RetrievalQuery
 from hivememory.patchouli.contracts.errors import ProfileResolutionError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.contracts.memory_management import MemoryListPage
 from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.utils.time import utc_now
@@ -148,19 +149,26 @@ class RetrievalFamiliar:
         from_actor: ActorIdentity,
         query: str | None = None,
         filters: dict[str, Any] | None = None,
+        exclude_types: list[str] | None = None,
         limit: int = 20,
+        cursor: str | None = None,
         enforce_actor_visibility: bool = True,
-    ) -> list[MemoryAtom]:
+    ) -> MemoryListPage:
         """
-        根据查询和过滤条件列出中期记忆原子。
+        根据查询和过滤条件列出一页中期记忆原子。
+
+        没有 ``query`` 时按存储顺序翻页，``cursor`` 取上一页的 ``next_cursor``，
+        ``total`` 按同一过滤条件计数；有 ``query`` 时按相关度返回至多 ``limit``
+        条，不翻页。``exclude_types`` 在存储侧排除，每页条数与计数都不受影响。
 
         ``enforce_actor_visibility=False`` 供 owner 管理入口使用：管理读取要看到
         Workspace 内的全部记忆，ownership hard boundary 仍生效，只跳过 actor
         可见性过滤；Agent retrieval 不得使用该开关。
         """
-        query_filters = self._build_business_filters(filters)
+        query_filters = self._build_business_filters(filters, exclude_types)
+        mid_term = self._memory_library.mid_term
         if query:
-            results = await self._memory_library.mid_term.search(
+            results = await mid_term.search(
                 belong_to,
                 query=query,
                 top_k=limit,
@@ -168,14 +176,23 @@ class RetrievalFamiliar:
                 from_actor=from_actor,
                 enforce_actor_visibility=enforce_actor_visibility,
             )
-            return [result["memory"] for result in results if "memory" in result]
-        return await self._memory_library.mid_term.scroll(
+            found = tuple(result["memory"] for result in results if "memory" in result)
+            return MemoryListPage(memories=found, next_cursor=None, total=len(found))
+        memories, next_cursor = await mid_term.scroll(
+            belong_to,
+            filters=query_filters,
+            limit=limit,
+            cursor=cursor,
+            from_actor=from_actor,
+            enforce_actor_visibility=enforce_actor_visibility,
+        )
+        total = await mid_term.count(
             belong_to,
             filters=query_filters,
             from_actor=from_actor,
-            limit=limit,
             enforce_actor_visibility=enforce_actor_visibility,
         )
+        return MemoryListPage(memories=tuple(memories), next_cursor=next_cursor, total=total)
 
     async def get_agent_profile(
         self,
@@ -348,10 +365,13 @@ class RetrievalFamiliar:
             logger.warning(f"Failed to refresh retrieval vitality scores: {e}")
 
     @staticmethod
-    def _build_business_filters(filters: dict[str, Any] | None) -> QueryFilters:
+    def _build_business_filters(
+        filters: dict[str, Any] | None, exclude_types: list[str] | None = None
+    ) -> QueryFilters:
         """只接纳业务维度，拒绝调用方用裸字典覆盖 Workspace hard boundary。"""
+        excluded = [MemoryType(t) for t in exclude_types or []]
         if not filters:
-            return QueryFilters()
+            return QueryFilters(exclude_memory_types=excluded)
         allowed = {"index.memory_type", "meta.lifecycle.confidence_score"}
         unsupported = set(filters) - allowed
         if unsupported:
@@ -362,6 +382,7 @@ class RetrievalFamiliar:
             confidence = confidence.get("gte", 0.0)
         return QueryFilters(
             memory_type=MemoryType(memory_type) if memory_type else None,
+            exclude_memory_types=excluded,
             min_confidence=float(confidence),
         )
 

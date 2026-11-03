@@ -435,19 +435,23 @@ class TestQdrantMemoryStore:
     @pytest.mark.parametrize(
         "list_call",
         [
-            lambda store: store.get_all_memories(
+            lambda store: store.get_memories_page(
+                filters=_alias_filter(_identity_scope()),
+            ),
+            lambda store: store.count_memories(
                 filters=_alias_filter(_identity_scope()),
             ),
             lambda store: store.get_all_memories_for_maintenance(),
         ],
-        ids=["get_all_memories", "get_all_memories_for_maintenance"],
+        ids=["get_memories_page", "count_memories", "get_all_memories_for_maintenance"],
     )
     @pytest.mark.asyncio
     async def test_list_failure_raises_storage_read_error_instead_of_empty(
         self, storage, list_call
     ):
-        """列表读取失败不能伪装成"没有记忆"的空列表。"""
+        """列表读取与计数失败不能伪装成"没有记忆"的空列表或零。"""
         storage.client.scroll = AsyncMock(side_effect=_sdk_rejection())
+        storage.client.count = AsyncMock(side_effect=_sdk_rejection())
 
         with pytest.raises(StorageReadError):
             await list_call(storage)

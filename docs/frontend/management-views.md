@@ -15,7 +15,7 @@ code_paths:
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-02
 ---
 
 # 前端管理页面
@@ -26,13 +26,20 @@ last_reviewed: 2026-11-01
 
 ### 1.1 当前能力
 
-Memory Library 首次加载调用 `GET /api/v1/memories?limit=100`，随后在浏览器中完成搜索、类型过滤、排序和 grid/list 切换。卡片和列表展示 title、alias、类型、摘要、标签、confidence、vitality、访问次数和时间；详情弹层可查看正文并修改 title、summary、content、alias 与 tags。
+Memory Library 加载时逐页调用 `GET /api/v1/memories?limit=100`，跟随响应的 `next_cursor` 取完整个记忆库（不含 Agent Profile）。后端按存储顺序翻页，顺序与写入时间无关，只取一页会得到与时间无关的子集，所以必须取全后由浏览器排序。页面头部显示库内总数（响应的 `total`），已加载的条数少于总数时一并提示。
+
+搜索分两种模式：
+
+- **语义检索**：停止输入 400 毫秒后，以 `query` 调用同一接口，在整个记忆库中返回按相关度排列的至多 50 条。结果保持相关度顺序，排序选项对它不生效；页面分别显示检索中、检索失败与没有结果。
+- **本地过滤**：只匹配已加载记忆的标题、摘要、正文与标签，`alias:`、`tag:` 前缀把匹配限定在对应字段。
+
+类型过滤、排序和 grid/list 切换都在浏览器中完成。卡片和列表展示 title、alias、类型、摘要、标签、confidence、vitality、访问次数和时间；详情弹层可查看正文并修改 title、summary、content、alias 与 tags。
 
 用户还可以：
 
 - 通过 `POST /api/v1/memories` 手动创建普通 MemoryAtom；
 - 通过 `PATCH /api/v1/memories/{id}` 修改上述可编辑字段；
-- 通过 `DELETE /api/v1/memories/{id}` 删除记忆；
+- 通过 `DELETE /api/v1/memories/{id}` 删除记忆：页面先移除，后端删除失败时放回并提示；
 - 从 Chat 的引用记忆面板提交 feedback。
 
 创建菜单不提供 `AGENT_PROFILE` 与 `TOOL`，避免把专业 Profile 和工具资产当成普通文本记忆随意播种。Agent Profile 由独立页面管理。
@@ -43,14 +50,12 @@ Memory Library 首次加载调用 `GET /api/v1/memories?limit=100`，随后在�
 
 ### 1.3 当前偏差
 
-- 所谓 semantic 模式只是对已加载的记录执行 title/summary/content/tag substring matching，没有调用后端 embedding retrieval；
-- 没有分页：首次加载只取 `limit=100` 的一页。后端按 Qdrant 的 point ID 顺序取这一页，之后才排除 Agent Profile，所以库超过 100 条后，页面看到的是一个与创建时间无关、且不足 100 条的子集（2026-11-02 库内 143 条记忆，页面显示 98 条，缺了最新的几条）。页面的 `total` 是客户端过滤后的数量，不是完整库总数。修复见[列表与检索 Todo](../todo/frontend-memory-library-listing.md)；
-- `statusFilter` 已存在于 store，但过滤计算没有使用它；`selectedTags` 也没有对应 CommandBar UI；
+- 加载时取全整个记忆库，记忆数到数千条时首次加载会变慢；页面只在进入和创建记忆后重新加载，后台生成的新记忆要重新进入页面才会出现；
+- `selectedTags` 参与过滤，但没有对应的 CommandBar UI；
 - Pin 按钮只显示“施工中”，没有免疫 GC 或锁定语义；没有 archive/revive 操作和统计大屏；
-- delete 先乐观移除，API 失败后不回滚，可能让页面暂时偏离后端；
 - 读取失败会静默改用 `MOCK_MEMORIES` 并清除页面错误，用户可能把演示数据误认为真实记忆；在 mock 状态下继续编辑、创建或删除仍会请求后端并失败。
 
-因此旧 Memory Garden 设计中的真正语义检索、Pin/Lock、归档筛选和完整统计仍是设想，不属于当前事实。
+因此旧 Memory Garden 设计中的 Pin/Lock、归档筛选和完整统计仍是设想，不属于当前事实。
 
 ## 2. Agent Management
 
@@ -105,13 +110,13 @@ Model 页面通过 `/api/v1/models` 管理 `configs/models.yaml`，支持创建�
 - Agent persona 与权限字段分离，权限以 runtime 校验为准；
 - API key 不在列表响应中返回明文，不把密钥写进受版本控制的配置或模型文件；
 - 配置保存与配置生效是两个阶段，只有被重新装配或动态读取的组件才能宣称即时生效；
-- 设计稿中的 Pin、Memory Library 的 Archive、统计、状态切换或 semantic search，只有后端契约和失败语义同时落地后才可进入当前能力表；Topic 生命周期使用 `settle`，不在此处复用 `archive`。
+- 设计稿中的 Pin、Memory Library 的 Archive、统计或状态切换，只有后端契约和失败语义同时落地后才可进入当前能力表；Topic 生命周期使用 `settle`，不在此处复用 `archive`。
 
 ## 5. 代码与测试入口
 
 | 页面 | 前端入口 | 后端验证 |
 |:---|:---|:---|
-| Memory Library | `hooks/useMemories.ts`、`components/memory/`、`services/memoryApi.ts` | `tests/unit/server/routers/test_memories.py` |
+| Memory Library | `hooks/useMemories.ts`、`components/memory/`、`services/memoryApi.ts`；翻页取全由 `frontend/tests/memory-api.test.mjs`（`node --test`）验证 | `tests/unit/server/routers/test_memories.py`；翻页、类型排除与计数经真实 Qdrant 内存模式的 `tests/integration/patchouli/test_memory_management_listing.py` |
 | Agent Management | `hooks/useAgents.ts`、`useAgentManagement.ts`、`components/agent/` | `test_agents.py`、Patchouli agent profile tests |
 | Settings | `hooks/useSettings.ts`、`components/settings/`、`services/configApi.ts` | `test_config.py` |
 | Provider Registry | `ProviderSettings.tsx`、`providerRegistryApi.ts` | `test_providers_router.py`、`test_provider_registry.py` |

@@ -47,20 +47,29 @@ async def create_memory(
 async def list_memories(
     query: str = Query(default=None, description="语义搜索查询"),
     memory_type: str = Query(default=None, description="按记忆类型过滤"),
-    limit: int = Query(default=20, le=100, description="最大返回数量"),
+    limit: int = Query(default=20, le=100, description="每页最大返回数量"),
+    cursor: UUID | None = Query(default=None, description="上一页返回的 next_cursor"),
     service: RootMemoryService = Depends(get_root_memory_service),
     request_access: RequestAccess = Depends(get_request_access),
 ):
-    """检索记忆 — 支持语义搜索和过滤（owner-management 语义，不做 Agent 可见性过滤）"""
-    atoms = await service.list_memories(
+    """列出一页记忆，或按 query 语义检索（owner-management 语义，不做 Agent 可见性过滤）。
+
+    没有 query 时按存储顺序翻页，``next_cursor`` 为空表示已经取完，``total`` 是
+    库内记忆总数；有 query 时按相关度返回，不翻页。
+    """
+    page = await service.list_memories(
         target_workspace=request_access.target_workspace,
         query=query,
         memory_type=memory_type,
         limit=limit,
+        cursor=str(cursor) if cursor is not None else None,
         access=request_access.access,
     )
-    memories = [MemoryResponse.from_atom(a) for a in atoms]
-    return MemoryListResponse(memories=memories, total=len(memories))
+    return MemoryListResponse(
+        memories=[MemoryResponse.from_atom(a) for a in page.memories],
+        total=page.total,
+        next_cursor=page.next_cursor,
+    )
 
 
 @router.get("/memories/{memory_id}", response_model=MemoryResponse)

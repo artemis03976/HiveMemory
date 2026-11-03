@@ -1,10 +1,12 @@
 import { Search, Filter, SortDesc, LayoutGrid, List } from 'lucide-react';
-import type { SortOption, MemoryType } from '@/types/memory';
+import type { SearchMode, SortOption, MemoryType } from '@/types/memory';
 import { memoryTypeLabels } from '@/types/memory';
 
 interface CommandBarProps {
   searchQuery: string;
   onSearchChange: (query: string) => void;
+  searchMode: SearchMode;
+  onSearchModeChange: (mode: SearchMode) => void;
   viewMode: 'grid' | 'list';
   onViewModeChange: (mode: 'grid' | 'list') => void;
   sortBy: SortOption;
@@ -16,6 +18,8 @@ interface CommandBarProps {
 export default function CommandBar({
   searchQuery,
   onSearchChange,
+  searchMode,
+  onSearchModeChange,
   viewMode,
   onViewModeChange,
   sortBy,
@@ -25,12 +29,23 @@ export default function CommandBar({
 }: CommandBarProps) {
   return (
     <div className="px-8 py-4 flex items-center gap-4 border-b border-white/5 bg-surface-container-low/50">
-      {/* Hybrid Search */}
+      {/* 搜索：语义检索请求后端覆盖整个记忆库，本地过滤只匹配已加载的记忆 */}
+      <div className="flex bg-black/20 p-1 rounded-lg border border-white/5 shrink-0">
+        {([['semantic', '语义检索'], ['exact', '本地过滤']] as [SearchMode, string][]).map(([mode, label]) => (
+          <button
+            key={mode}
+            onClick={() => onSearchModeChange(mode)}
+            className={`px-2.5 py-1 rounded-md text-xs transition-all ${searchMode === mode ? 'bg-white/10 text-primary shadow-sm' : 'text-slate-500 hover:text-slate-300'}`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
       <div className="flex-1 relative group">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-500 group-focus-within:text-primary transition-colors" />
         <input
           type="text"
-          placeholder="搜索记忆网络..."
+          placeholder={searchMode === 'semantic' ? '按语义检索整个记忆库...' : '过滤已加载的记忆（支持 alias: 与 tag: 前缀）...'}
           value={searchQuery}
           onChange={(e) => onSearchChange(e.target.value)}
           className="w-full bg-black/20 border border-white/10 rounded-xl py-2 pl-10 pr-4 text-sm text-white placeholder:text-slate-600 focus:outline-none focus:border-primary/50 focus:ring-1 focus:ring-primary/50 transition-all font-mono"

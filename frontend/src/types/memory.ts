@@ -35,7 +35,10 @@ export interface MemoryAtom {
 
 export interface MemoryListResponse {
   memories: MemoryAtom[];
+  /** 没有检索词时是库内总数；有检索词时是本次返回的条数。 */
   total: number;
+  /** 下一页的游标；为 null 表示已经取完，检索结果始终为 null。 */
+  next_cursor: string | null;
 }
 
 export type SearchMode = 'semantic' | 'exact';

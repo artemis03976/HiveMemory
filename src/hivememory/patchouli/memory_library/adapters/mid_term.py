@@ -213,10 +213,11 @@ class QdrantStorageAdapter(MidTermStoragePort):
         filters: QueryFilters | None = None,
         limit: int = 100,
         *,
+        cursor: str | None = None,
         from_actor: ActorIdentity,
         enforce_actor_visibility: bool = True,
-    ) -> list[MemoryAtom]:
-        memories = await self._store.get_all_memories(
+    ) -> tuple[list[MemoryAtom], str | None]:
+        memories, next_cursor = await self._store.get_memories_page(
             filters=self._filter_converter.convert(
                 filters or QueryFilters(),
                 belong_to,
@@ -224,12 +225,31 @@ class QdrantStorageAdapter(MidTermStoragePort):
                 enforce_actor_visibility=enforce_actor_visibility,
             ),
             limit=limit,
+            offset=cursor,
         )
-        return [
+        readable = [
             memory
             for memory in memories
             if _readable(memory, belong_to, from_actor, enforce_actor_visibility)
         ]
+        return readable, next_cursor
+
+    async def count(
+        self,
+        belong_to: WorkspaceIdentity,
+        filters: QueryFilters | None = None,
+        *,
+        from_actor: ActorIdentity,
+        enforce_actor_visibility: bool = True,
+    ) -> int:
+        return await self._store.count_memories(
+            filters=self._filter_converter.convert(
+                filters or QueryFilters(),
+                belong_to,
+                from_actor=from_actor,
+                enforce_actor_visibility=enforce_actor_visibility,
+            )
+        )
 
     async def list_all_for_maintenance(self, limit: int = 10000) -> list[MemoryAtom]:
         return await self._store.get_all_memories_for_maintenance(limit=limit)
