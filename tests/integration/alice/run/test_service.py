@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hivememory.agent_runtime import TurnContextBudgetExceededError
 from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import TokenDelta
 from hivememory.agent_runtime.runtime import AgentRuntime
@@ -317,17 +318,28 @@ async def test_run_agent_correlates_runtime_scope_and_process_id():
 
 @pytest.mark.asyncio
 async def test_run_agent_failed_result_emits_failed_runtime_event():
+    """失败终态的事件带 CPU 失败原因码与帧异常的类名。"""
     recorder = RecordingRuntimeEventSink()
     runtime, service = build_run_service(runtime_events=recorder)
     context = _build_input_manifest()
-    _stub_terminal_execution(runtime, FrameExecutionStatus.FAILED)
+    runtime.run_frame = AsyncMock(
+        return_value=FrameExecutionResult(
+            status=FrameExecutionStatus.FAILED,
+            error=TurnContextBudgetExceededError(estimated_tokens=10, input_token_limit=5),
+        )
+    )
 
     result = await service.run_agent(context, run_output=NullRunOutput(), submit_operation=_main())
 
     assert result.status == CPUExecutionStatus.FAILED.value
-    assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
-    assert recorder.events[-1].status == CPUExecutionStatus.FAILED.value
-    assert recorder.events[-1].severity == "error"
+    failed = recorder.events[-1]
+    assert failed.event_type == RuntimeEventType.AGENT_RUN_FAILED
+    assert (failed.status, failed.severity, failed.reason) == (
+        "failed",
+        "error",
+        "turn_context_budget_exceeded",
+    )
+    assert failed.data["error_class"] == "TurnContextBudgetExceededError"
 
 
 @pytest.mark.asyncio
@@ -370,8 +382,11 @@ async def test_run_agent_error_publishes_failed_runtime_event():
     with pytest.raises(RuntimeError, match="network unavailable"):
         await run_with_events(service, context, submit_operation=_main())
 
-    assert recorder.events[-1].event_type == RuntimeEventType.AGENT_RUN_FAILED
-    assert recorder.events[-1].status == "failed"
+    failed = recorder.events[-1]
+    assert failed.event_type == RuntimeEventType.AGENT_RUN_FAILED
+    assert (failed.status, failed.reason) == ("failed", "agent_run_failed")
+    assert failed.data == {"error_class": "RuntimeError"}
+    assert "network unavailable" not in failed.model_dump_json()
 
 
 @pytest.mark.asyncio

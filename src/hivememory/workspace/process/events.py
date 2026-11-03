@@ -161,19 +161,27 @@ class BoundProcessEvents:
     ) -> None:
         """进程失败；``error`` 为空表示 Actor 自行报告失败。
 
-        公共事件只携带 CPU 失败原因码或 Workspace 安全错误码，不写入异常正文。
+        原因码按失败来源取：Actor 上报的 CPU 失败原因码（没有时为 ``agent_run_failed``）、
+        Workspace 错误码或 ``task_process_failed``；未预期的异常只带类名，不写入正文。
         """
+        data: dict[str, object] | None = None
         if error is None:
             message = failure_reason.value if failure_reason is not None else None
+            reason = message or "agent_run_failed"
         elif isinstance(error, WorkspaceDomainError):
-            message = error.code
+            message = reason = error.code
         else:
             message = "Task process failed."
-        self._emit(
-            record,
+            reason = "task_process_failed"
+            data = {"error_class": type(error).__name__}
+        # 失败事件的原因是失败本身，不沿用进程记录的停止原因。
+        self._publisher.emit(
             RuntimeEventType.CHAT_RUN_FAILED,
+            status=_event_status(record),
+            reason=reason,
             severity="error",
             message=message,
+            data=data,
         )
 
     def _emit(

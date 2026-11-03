@@ -6,6 +6,7 @@ from dataclasses import dataclass
 
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.contracts.runtime_events import RuntimeEventType
+from hivememory.workspace.contracts import CPUFailureReason
 
 
 @dataclass(frozen=True, slots=True)
@@ -110,16 +111,21 @@ class BoundAgentRunEvents:
         self,
         stats: AgentRunStats | None = None,
         *,
+        failure_reason: CPUFailureReason | None = None,
+        error: BaseException | None = None,
         message: str | None = None,
-        reason: str | None = None,
     ) -> None:
+        """原因码取 CPU 失败原因，没有时为 ``agent_run_failed``；异常只带类名，不带正文。"""
+        data = self._terminal_data(stats) if stats is not None else {}
+        if error is not None:
+            data["error_class"] = type(error).__name__
         self._publisher.emit(
             RuntimeEventType.AGENT_RUN_FAILED,
             status="failed",
             severity="error",
-            reason=reason,
+            reason=failure_reason.value if failure_reason is not None else "agent_run_failed",
             message=message,
-            data=self._terminal_data(stats) if stats is not None else None,
+            data=data,
         )
 
     @staticmethod

@@ -8,10 +8,13 @@ AgentRunEventEmitter 集成测试 — 真实 Emitter → Publisher → Sink 发�
 
 from __future__ import annotations
 
+import pytest
+
 from hivememory.alice.events import AgentRunEventEmitter, AgentRunStats
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.contracts.runtime_events import RuntimeEventType
+from hivememory.workspace.contracts import CPUFailureReason
 
 
 def test_agent_run_event_emitter_binds_run_context_and_terminal_summary() -> None:
@@ -66,3 +69,44 @@ def test_agent_run_event_emitter_records_stream_close_without_business_effects()
     assert event.status == "cancelled"
     assert event.message == "closed"
     assert event.data == {"close_reason": "stream_closed"}
+
+
+@pytest.mark.parametrize(
+    ("failure_reason", "error", "expected_reason", "expected_data"),
+    [
+        (
+            CPUFailureReason.INPUT_TOO_LARGE,
+            None,
+            "input_too_large",
+            {"mtp_iterations": 0, "total_iterations": 1},
+        ),
+        (
+            None,
+            RuntimeError("provider said: secret-detail"),
+            "agent_run_failed",
+            {"mtp_iterations": 0, "total_iterations": 1, "error_class": "RuntimeError"},
+        ),
+    ],
+)
+def test_agent_run_failed_carries_reason_code_and_error_class_only(
+    failure_reason, error, expected_reason, expected_data
+) -> None:
+    """原因码取 CPU 失败原因，没有时为 agent_run_failed；异常只留类名。"""
+    sink = RecordingRuntimeEventSink()
+    events = AgentRunEventEmitter(RuntimeEventPublisher(sink)).for_run(
+        agent_run_id="run-1",
+        process_id=None,
+        topic_id=None,
+        agent_id=None,
+    )
+
+    events.failed(
+        AgentRunStats(mtp_iterations=0, total_iterations=1),
+        failure_reason=failure_reason,
+        error=error,
+    )
+
+    event = sink.events[0]
+    assert event.event_type == RuntimeEventType.AGENT_RUN_FAILED
+    assert (event.reason, event.data) == (expected_reason, expected_data)
+    assert "secret-detail" not in event.model_dump_json()

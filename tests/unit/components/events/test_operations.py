@@ -76,10 +76,11 @@ async def test_runtime_operation_observer_emits_failed_and_reraises():
     failed = recorder.events[-1]
     assert failed.status == "failed"
     assert failed.severity == "error"
-    assert failed.reason == "boom"
+    assert failed.reason == "operation_failed"
     assert failed.data["success"] is False
     assert failed.data["failure_stage"] == "run"
-    assert failed.data["error"] == "boom"
+    assert failed.data["error_class"] == "RuntimeError"
+    assert "boom" not in failed.model_dump_json()
 
 
 @pytest.mark.asyncio

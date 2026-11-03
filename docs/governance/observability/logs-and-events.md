@@ -59,8 +59,7 @@ owner 2026-11-03 决定把观测与日志作为版本之外的工作，随时可
 | 日志写法 | 约 300 处日志调用，约 120 处 f-string、约 89 处 `%` 格式；中文约 190 处、英文约 111 处；关联标识只在部分消息中随手写出 |
 | 失败事件的消费 | 只有前端实时面板，没有持久的观察者 |
 | 事件流噪声 | 调度器每次运行都发 started 与 completed，不论有没有做事 |
-| 失败事件的原因码 | Import Bus、Gateway workflow、Work Queue 接纳与执行、`agent.context.budget_exceeded` 有稳定原因码。生成任务的原因固定为 `memory_generation_failed`；`maintenance.task.failed`、`system.start_failed`/`stop_failed`、`subsystem.operation.failed` 以原始异常文本作 `reason` 与 `data.error`；`agent.run.failed` 与 `chat.run.failed` 的 `reason` 为空 |
-| 被吞掉的失败 | 生命周期整理（gardening）捕获异常后返回结果，失败以 info 级的 `maintenance.task.completed` 出现 |
+| 失败事件的原因码 | 生成任务之外的失败事件都有稳定原因码，异常类名在 `data.error_class`（[事件契约](../../contracts/routes-and-events.md#44-失败与降级观测)第 4.4 节）。生成任务的原因固定为 `memory_generation_failed` |
 | 只有事件没有日志 | Gateway workflow 与查询分析的失败只发事件，不记日志 |
 | 内容进日志 | Gateway L1 拦截器在 debug 级别记录原始用户消息 |
 
@@ -70,12 +69,12 @@ owner 2026-11-03 决定把观测与日志作为版本之外的工作，随时可
 |:---|:---|:---|
 | W1 | 警告与失败事件写入后端日志 | [Todo](../../todo/failure-events-not-persisted.md) |
 | W2 | 维护任务空转不发事件 | [Todo](../../todo/maintenance-event-noise.md) |
-| W3 | 失败事件带稳定原因码（生成任务之外） | [Todo](../../todo/failure-event-reason-codes.md)；生成任务属于 v0.7.3，见[收敛 Idea](../../ideas/generation-source-convergence.md) 第 4.3 节 |
+| W3 | 失败事件带稳定原因码（生成任务之外） | 已完成（2026-11-03，[归档 Todo](../../archive/todo/failure-event-reason-codes.md)）；生成任务属于 v0.7.3，见[收敛 Idea](../../ideas/generation-source-convergence.md) 第 4.3 节 |
 | W4 | 默认日志格式带 `trace_id` 与 `span_name` | 未排期 |
 | W5 | 存量日志按领域收敛到第 2.2 节的写法 | 未排期；先处理 Gateway 拦截器记录原始用户消息、调度器的 f-string、任务进程中不带 `process_id` 的失败日志；W1 落地后，同一失败既有事件又有同级日志的位置一并去重 |
 | W6 | RuntimeEvent 生产端收敛 | 未排期：Gateway、Scheduler 与 System lifecycle 仍各自组装信封，按领域迁移到窄领域 emitter 或 scoped publisher，迁移不得改变 wire format；由原 RuntimeEvent 生产端迁移 Todo 转入（2026-11-03） |
 
-W1～W3 互不依赖，以 Todo 跟踪；同一时间只有一份生效计划，轮到时再升级为计划。W4～W6 在动到对应领域、或 owner 排期时登记为 Todo 或计划。
+W1、W2 互不依赖，以 Todo 跟踪；同一时间只有一份生效计划，轮到时再升级为计划。W4～W6 在动到对应领域、或 owner 排期时登记为 Todo 或计划。
 
 ## 5. 长期目标与非目标
 

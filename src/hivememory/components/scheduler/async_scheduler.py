@@ -231,17 +231,15 @@ class AsyncMaintenanceScheduler:
             state.failure_count += 1
             state.last_error = str(e)
             state.last_finished_at = monotonic()
+            # 事件只带原因码与异常类名，原始异常与堆栈只进日志。
             self._emit_task_event(
                 RuntimeEventType.MAINTENANCE_TASK_FAILED,
                 state,
                 status="failed",
                 duration_ms=(state.last_finished_at - start) * 1000,
-                error=str(e),
+                error_class=type(e).__name__,
             )
-            logger.error(
-                f"Maintenance task '{key}' failed: {e}",
-                exc_info=True,
-            )
+            logger.error("Maintenance task failed: task_key=%s", key, exc_info=True)
 
     def _emit_task_event(
         self,
@@ -251,10 +249,11 @@ class AsyncMaintenanceScheduler:
         status: str,
         duration_ms: float | None = None,
         result: Any = None,
-        error: str | None = None,
+        error_class: str | None = None,
     ) -> None:
         # 维护任务事件是旁路观测事实，不驱动调度、重试或业务状态推进。
         spec = state.spec
+        failed = event_type == RuntimeEventType.MAINTENANCE_TASK_FAILED
         data = {
             "task_key": spec.task_key,
             "owner": spec.owner,
@@ -264,7 +263,7 @@ class AsyncMaintenanceScheduler:
             "skip_count": state.skip_count,
             "duration_ms": duration_ms,
             "result": safe_runtime_event_value(result),
-            "error": error,
+            "error_class": error_class,
         }
         self._runtime_events.emit(
             RuntimeEvent(
@@ -273,11 +272,9 @@ class AsyncMaintenanceScheduler:
                 source=spec.task_key,
                 subsystem=self._subsystem_for_owner(spec.owner),
                 component="maintenance_scheduler",
-                severity=(
-                    "error" if event_type == RuntimeEventType.MAINTENANCE_TASK_FAILED else "info"
-                ),
+                severity="error" if failed else "info",
                 status=status,
-                reason=error,
+                reason="maintenance_task_failed" if failed else None,
                 data=data,
             )
         )

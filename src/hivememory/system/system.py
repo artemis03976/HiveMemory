@@ -167,7 +167,7 @@ class HiveMemorySystem:
                 RuntimeEventType.SYSTEM_START_FAILED,
                 status="failed",
                 severity="error",
-                reason=str(exc),
+                reason="start_step_failed",
                 duration_ms=(monotonic() - start_time) * 1000,
                 data={
                     "already_started": False,
@@ -177,7 +177,7 @@ class HiveMemorySystem:
                         steps,
                         completed_steps,
                     ),
-                    "error": str(exc),
+                    "error_class": type(exc).__name__,
                 },
             )
             raise
@@ -284,7 +284,7 @@ class HiveMemorySystem:
                 RuntimeEventType.SYSTEM_STOP_FAILED,
                 status="failed",
                 severity="error",
-                reason=str(exc),
+                reason="stop_step_failed",
                 duration_ms=(monotonic() - start_time) * 1000,
                 data={
                     "already_stopped": not was_started,
@@ -296,7 +296,7 @@ class HiveMemorySystem:
                     ),
                     "scheduler_stopped": scheduler_stopped,
                     "import_bus_shutdown": import_bus_shutdown,
-                    "error": str(exc),
+                    "error_class": type(exc).__name__,
                 },
             )
             raise

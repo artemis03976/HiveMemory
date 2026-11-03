@@ -211,11 +211,11 @@ class TestRuntimeShutdownDrain:
         failed = events[-1]
         assert failed.status == "failed"
         assert failed.severity == "error"
-        assert failed.reason == "flush boom"
+        assert failed.reason == "operation_failed"
         assert failed.data["success"] is False
         assert failed.data["perception"] is None
         assert failed.data["generation"] is None
-        assert failed.data["error"] == "flush boom"
+        assert failed.data["error_class"] == "RuntimeError"
 
 
 class TestRuntimeLocalRoutes:

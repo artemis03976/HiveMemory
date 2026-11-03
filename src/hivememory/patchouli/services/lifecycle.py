@@ -38,24 +38,16 @@ class LifecycleFamiliar:
         logger.info("LifecycleFamiliar 初始化完成")
 
     async def run_gardening_once(self) -> dict[str, Any]:
-        """执行一次生命周期垃圾回收，供全局调度器调用。"""
+        """执行一次生命周期垃圾回收，供全局调度器调用。
+
+        失败不在这里捕获：异常交给调度器，由它发出失败事件并记录堆栈。
+        """
         start = monotonic()
-        result: dict[str, Any] = {
-            "success": False,
-            "archived_count": 0,
-            "duration_ms": 0.0,
-            "error": None,
+        archived = await self.lifecycle_engine.run_garbage_collection(force=False)
+        return {
+            "archived_count": int(archived or 0),
+            "duration_ms": (monotonic() - start) * 1000,
         }
-        try:
-            archived = await self.lifecycle_engine.run_garbage_collection(force=False)
-            result["success"] = True
-            result["archived_count"] = int(archived or 0)
-        except Exception as exc:
-            result["error"] = str(exc)
-            logger.error("Lifecycle gardening failed: %s", exc, exc_info=True)
-        finally:
-            result["duration_ms"] = (monotonic() - start) * 1000
-        return result
 
     async def refresh_memory_vitality(
         self,

@@ -60,10 +60,12 @@ def publish_terminal(
     run_events: BoundAgentRunEvents,
     result: CPUExecutionResult,
     stats: AgentRunStats,
+    error: BaseException | None = None,
 ) -> None:
+    """发布 run 终态；``error`` 是帧执行失败时的异常，只用于失败事件的类名。"""
     if result.status is CPUExecutionStatus.CANCELLED:
         run_events.cancelled(stats)
     elif result.status is CPUExecutionStatus.FAILED:
-        run_events.failed(stats)
+        run_events.failed(stats, failure_reason=result.failure_reason, error=error)
     else:
         run_events.completed(stats)
