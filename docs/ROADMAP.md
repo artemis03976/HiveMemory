@@ -186,7 +186,7 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 | [RuntimeEvent 生产端迁移](./todo/runtime-event-producer-migration.md) | v0.7.0 收尾时搁置；按受影响生产域迁移，未绑定版本 | 保持事件只做观测，不以事件投递成功控制业务状态 |
 | [前端身份所有权](./todo/frontend-identity-ownership.md) | 前端可靠性优先项 | 不把固定 main_workspace 选择冒充认证或 Workspace 管理 |
 | [Mock fallback 披露](./todo/frontend-mock-fallback-disclosure.md) | 前端可靠性优先项 | 可辨认的数据来源与可兑现的写操作 |
-| [Memory 管理页列表与检索](./todo/frontend-memory-library-listing.md) | 前端可靠性优先项：管理页是 owner 唯一的记忆管理入口，库超过 100 条后列表不全（2026-11-02） | 列表取全并显示真实总量；语义检索复用真实后端能力，保留失败和空结果 |
+| [Memory 管理页列表与检索（归档）](./archive/todo/frontend-memory-library-listing.md) | Completed / Archived（2026-11-02）：列表跟随游标取全，语义检索请求后端 | 列表取全并显示真实总量；语义检索复用真实后端能力，保留失败和空结果 |
 | [Memory visibility policy UI](./todo/memory-visibility-policy-ui.md) | 后端契约稳定后进入资源体验 | UI 编辑策略不能替代后端授权 |
 | [会话 /compact 指令](./todo/conversation-compact-command.md) | 会话与 Alice 自动压缩已完成，仍依赖命令运行位置与命令系统接回 | compact 只作用于 CPU 的会话上下文，不改写 Session 记录与 Topic；后台 Topic 的 page folding 是另一个问题 |
 | [Work Queue 多 lane 拓扑](./todo/work-queue-runtime-lane-topology.md) | 保持 Deferred | 只有共享 Store、跨 lane 调度或可复现故障触发才重评 |

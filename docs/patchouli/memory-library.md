@@ -48,7 +48,9 @@ MemoryLibrary
 
 ### 1.2 中期：当前可检索书库
 
-中期存储以 `MemoryAtom` 为边界，当前主后端是 Qdrant。它提供完整原子提交 `upsert(memory, recompute_vectors=...)`、受限局部更新 `patch_payload(key, patch)`、UUID/alias 读取、删除、scroll、维护遍历以及 dense/sparse search，是 Retrieval、Generation 和 Lifecycle 共同依赖的当前记忆事实库。
+中期存储以 `MemoryAtom` 为边界，当前主后端是 Qdrant。它提供完整原子提交 `upsert(memory, recompute_vectors=...)`、受限局部更新 `patch_payload(key, patch)`、UUID/alias 读取、删除、scroll、计数、维护遍历以及 dense/sparse search，是 Retrieval、Generation 和 Lifecycle 共同依赖的当前记忆事实库。
+
+scroll 按 Qdrant 的 point ID 顺序读取一页，返回本页与下一页的游标（取完时为空），顺序与写入时间无关；需要完整列表的调用方跟随游标取全后自行排序。计数与 scroll 使用同一组归属、可见性与业务过滤条件；业务过滤可以排除指定类型，排除在存储侧完成，所以每页条数与计数都不受影响。管理列表以此排除 Agent Profile。
 
 Actor 读取（UUID、alias、scroll 与 search）独立接收 `belong_to` 和必填 `from_actor`，先检查资源归属，再应用 `MemoryAccessPolicy`。Qdrant 条件只是预过滤，adapter 在返回对象前再次校验归属与 actor 可见性；管理读取可以显式关闭 actor policy，但不能关闭归属校验。已获管理授权的内容编辑、删除、生命周期 patch 与按复合键读取只按资源归属定位，不把来源 Agent 当作授权条件，也不在 Store 内重组 `IdentityScope`。
 
