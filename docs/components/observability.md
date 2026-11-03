@@ -7,6 +7,8 @@ code_paths:
   - src/hivememory/components/events/bus.py
   - src/hivememory/components/events/publisher.py
   - src/hivememory/components/events/operations.py
+  - src/hivememory/server/logging_setup.py
+  - scripts/runtime_event_timeline.py
   - src/hivememory/core/contracts/runtime_events.py
   - src/hivememory/system/system.py
   - src/hivememory/system/services/import_bus/events.py
@@ -54,7 +56,8 @@ HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么
 - `subscribe()` 支持 replay last 或从 `last_event_id` 之后回放；
 - 找不到 `last_event_id` 时发布 `event.stream.gap`，说明回放窗口已不再覆盖请求点；
 - 每个订阅者拥有有界队列，队列满时丢弃最旧事件并累计 dropped count；
-- 不承诺跨进程连续、持久化、全量不丢或 exactly-once。
+- 配置了事件记录文件时，补全后的事件在进入缓冲与分发之后写成一行 JSON（第 5.1 节）；回放事件中的 `event.stream.gap` 只发给请求回放的订阅者，不进入缓冲，也不记录；
+- 不承诺跨进程连续、全量不丢或 exactly-once；事件记录文件是旁路的记录，不回放到总线。
 
 事件的顺序只在当前进程 RuntimeEventBus 内有意义。它不能被用来推断“没有看到失败事件就一定成功”，也不能替代 Patchouli 的 memory task 状态、Topic/AssetStore 状态或 System 的 chat run 状态。
 
@@ -88,6 +91,15 @@ System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopp
 
 Agent token/MTP/CALL 交互输出不属于 RuntimeEvent。它由 Alice 的 `FrameOutputSink -> AgentRunOutput -> SinkRunOutput` 链路推送到任务进程的输出通道，再由交付方订阅，具有请求级背压；交付方离开时以停止请求取消本次 run；RuntimeEventBus 则面向全局观测，允许慢订阅者丢弃旧事件。两者只共享 correlation ID，不自动桥接，也不把 token 或完整 tool args 复制进观测信封。
 
+### 5.1 事件记录文件
+
+运行时事件可以写入单独的事件记录文件，与日志文件分开：日志看原因（异常与堆栈），事件记录看经过（状态转换、原因码与关联标识），两边靠 `task_id`、`process_id` 等标识对应。
+
+- **写入**：`RuntimeEventBus.emit` 把补全序号、时间戳与 trace 之后的事件写成一行 JSON，交给专用 logger `hivememory.runtime_events`。这个 logger 不向上传递，事件不进入日志文件与 WebSocket 日志广播；级别固定为 INFO，不随 `logging.level` 丢弃事件；没有输出时总线不序列化事件。
+- **文件**：`logging.event_file_path` 非空时由入口装上文件输出，每行只有事件的 JSON，按本地日期切分，方式与日志文件相同（[System 配置](../system/configuration.md)）。为空时不记录。`runtime_events.enabled` 关闭时没有总线，也就没有事件可记。开发脚本把它设为 `.hivememory/logs/runtime-events.jsonl`。
+- **内容**：与 SSE 下发的信封相同，`data` 只有摘要（第 5 节的约束同样适用）；一条违反约束的事件会被永久留在文件中。
+- **用途**：它只追加写入，不提供查询接口，也不回放到总线。`scripts/runtime_event_timeline.py <字段>=<值> <文件...>` 按一个关联标识（`task_id`、`process_id`、`topic_id`、`trace_id` 或 `agent_run_id`）筛出事件，按写入顺序排成时间线：系统时钟可能回跳，时间戳不一定递增。
+
 ## 6. 设计矛盾检查
 
 评审观测改动时，检查：
@@ -109,6 +121,7 @@ RuntimeEvent 的消费语义已经稳定，生产端迁移则处于渐进阶段�
 ## 8. 验证入口
 
 - `tests/unit/components/events/test_bus.py`
+- `tests/unit/server/test_logging_setup.py`
 - `tests/unit/components/events/test_publisher.py`
 - `tests/integration/alice/test_events.py`
 - `tests/unit/workspace/process/test_process_events.py`

@@ -27,7 +27,7 @@ last_reviewed: 2026-11-03
 
 ### Observability
 
-- [日志与运行时事件](./observability/logs-and-events.md)：日志写法、失败事件的原因码与持久观察者、事件流降噪，以及存量收敛的工作包。
+- [日志与运行时事件](./observability/logs-and-events.md)：日志写法、失败事件的原因码、运行时事件的持久记录、事件流降噪，以及存量收敛的工作包。
 
 ### Testing
 

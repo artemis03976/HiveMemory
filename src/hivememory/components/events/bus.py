@@ -22,6 +22,14 @@ from hivememory.core.contracts.runtime_events import (
 
 logger = logging.getLogger(__name__)
 
+RUNTIME_EVENT_RECORD_LOGGER = "hivememory.runtime_events"
+# 运行时事件的持久记录：总线把每个事件写成一行 JSON 交给这个 logger。它不向上传递，
+# 事件不进入通用日志；级别固定为 INFO，不随日志级别的配置丢弃事件。文件输出由入口
+# 按配置装上，没有装时总线不序列化事件。
+_event_record = logging.getLogger(RUNTIME_EVENT_RECORD_LOGGER)
+_event_record.propagate = False
+_event_record.setLevel(logging.INFO)
+
 
 def safe_runtime_event_value(value: Any) -> Any:
     # RuntimeEvent payload 只保留 JSON 友好的摘要值，复杂对象降级为 repr。
@@ -160,6 +168,9 @@ class RuntimeEventBus:
             self._buffer.append(prepared)
             for subscription in list(self._subscriptions):
                 subscription.drop_oldest_and_put(prepared)
+            # 在补全序号、时间戳与 trace 之后记录，文件中的事件与缓冲中的一致。
+            if _event_record.hasHandlers():
+                _event_record.info("%s", prepared.model_dump_json())
         except Exception:
             logger.warning("RuntimeEventBus emit failed", exc_info=True)
 
@@ -307,6 +318,7 @@ class ScopedRuntimeEventSink:
 
 
 __all__ = [
+    "RUNTIME_EVENT_RECORD_LOGGER",
     "NullRuntimeEventSink",
     "RecordingRuntimeEventSink",
     "RuntimeEventBus",

@@ -1,8 +1,12 @@
 from __future__ import annotations
 
+import json
+import logging
+
 import pytest
 
 from hivememory.components.events.bus import (
+    RUNTIME_EVENT_RECORD_LOGGER,
     NullRuntimeEventSink,
     RecordingRuntimeEventSink,
     RuntimeEventBus,
@@ -42,6 +46,35 @@ async def test_runtime_event_bus_assigns_sequence_and_replays_after_last_id():
     await stream.aclose()
 
     assert replay_event.event_id == second.event_id
+
+
+class _MessageHandler(logging.Handler):
+    def __init__(self) -> None:
+        super().__init__()
+        self.messages: list[str] = []
+
+    def emit(self, record: logging.LogRecord) -> None:
+        self.messages.append(record.getMessage())
+
+
+def test_runtime_event_bus_records_each_stamped_event_as_one_json_line():
+    """记录的是总线补全序号、时间戳与 scope 之后的事件，与缓冲中的同一份一致。"""
+    handler = _MessageHandler()
+    record_logger = logging.getLogger(RUNTIME_EVENT_RECORD_LOGGER)
+    record_logger.addHandler(handler)
+    try:
+        bus = RuntimeEventBus(buffer_size=10)
+        bus.scoped("patchouli", component="maintenance_scheduler").emit(
+            RuntimeEvent(event_type=RuntimeEventType.MAINTENANCE_TASK_COMPLETED, task_id="t-1")
+        )
+    finally:
+        record_logger.removeHandler(handler)
+
+    (line,) = handler.messages
+    (buffered,) = bus.buffer_snapshot
+    assert json.loads(line) == buffered.model_dump(mode="json")
+    assert buffered.sequence == 1
+    assert buffered.subsystem == "patchouli"
 
 
 @pytest.mark.asyncio
