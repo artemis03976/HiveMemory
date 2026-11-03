@@ -2,7 +2,7 @@
 title: Frontend Memory Library Listing and Search
 status: archived
 archived_at: 2026-11-02
-implemented_by: branch fix/memory-library-listing
+implemented_by: PR #171
 superseded_by: docs/frontend/management-views.md
 owner: frontend
 scope: memory-library-full-listing-total-ordering-and-search
@@ -91,7 +91,7 @@ Memory Library 目前是 owner 唯一的记忆管理入口。
 
 ## 处置（2026-11-02）
 
-按默认做法修复，分支 `fix/memory-library-listing`。
+按默认做法修复，PR #171。
 
 - **后端**：
   - 列表接口 `GET /api/v1/memories` 新增 `cursor` 参数，响应新增 `next_cursor`；`total` 改为库内总数。

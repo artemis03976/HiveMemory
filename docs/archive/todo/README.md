@@ -10,7 +10,7 @@ last_reviewed: 2026-11-02
 
 本目录保存已完成的修复与技术债处置历史；当前行为从对应事实文档进入，活动待办见 [Todo](../../todo/README.md)。每条登记一行：归档日期、所在的 PR 与替代它的当前文档；处置过程见各事项自身。
 
-- [Memory 管理页列表不全与检索](./frontend-memory-library-listing.md)：2026-11-02，分支 `fix/memory-library-listing`；[前端管理页面](../../frontend/management-views.md#11-当前能力)、[MemoryLibrary](../../patchouli/memory-library.md)
+- [Memory 管理页列表不全与检索](./frontend-memory-library-listing.md)：2026-11-02，PR #171；[前端管理页面](../../frontend/management-views.md#11-当前能力)、[MemoryLibrary](../../patchouli/memory-library.md)
 - [模型级密钥覆盖写入受版本控制的 models.yaml](./model-registry-api-key-override.md)：2026-11-01，PR #166；[System 配置与注册表](../../system/configuration.md#4-配置所有权与兼容边界)、[配置指南](../../help/configuration.md#4-配置-model-registry)
 - [MTP READ 截断正式记忆的正文](./mtp-read-content-truncation.md)：2026-11-01，PR #165；[MemoryCompiler](../../patchouli/memory-compiler.md#4-envelope-targets)、[MTP 契约](../../contracts/mtp.md#32-read)
 - [生成组件测试的分类与重复覆盖](./generation-component-test-classification.md)：2026-11-01，PR #164；[Patchouli 生成](../../patchouli/generation.md#4-查重与合并)
