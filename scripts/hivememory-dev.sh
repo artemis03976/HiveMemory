@@ -387,12 +387,14 @@ start_backend() {
         echo "backend: 警告：Qdrant 尚未就绪（$QDRANT_READY_URL），后端可能无法连接记忆存储" >&2
     fi
     echo "backend: starting ($(describe_backend_mode "$mode"))"
-    # The backend writes backend.log itself and rolls it over at midnight. Its
-    # stdout/stderr only carry what happens before logging is configured, such
-    # as import errors and the reloader, so they go to a separate file.
+    # The backend writes backend.log and runtime-events.jsonl (one RuntimeEvent
+    # per line) itself and rolls both over at midnight. Its stdout/stderr only
+    # carry what happens before logging is configured, such as import errors
+    # and the reloader, so they go to a separate file.
     if ! start_process_group backend "$PROJECT_ROOT" "$(log_file backend.stdout)" \
         env "HIVEMEMORY_SERVE_FRONTEND=$serve_frontend" \
         "HIVEMEMORY__LOGGING__FILE_PATH=$(log_file backend)" \
+        "HIVEMEMORY__LOGGING__EVENT_FILE_PATH=$LOG_DIR/runtime-events.jsonl" \
         HIVEMEMORY__LOGGING__CONSOLE_OUTPUT=false \
         uv run uvicorn hivememory.server.app:app \
         --host "$BACKEND_HOST" \

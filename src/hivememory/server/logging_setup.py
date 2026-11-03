@@ -4,6 +4,7 @@ import logging
 from logging.handlers import TimedRotatingFileHandler
 from pathlib import Path
 
+from hivememory.components.events.bus import RUNTIME_EVENT_RECORD_LOGGER
 from hivememory.components.trace_context import TraceInjectFilter
 from hivememory.config.app import LoggingConfig
 
@@ -24,6 +25,8 @@ def configure_logging(config: LoggingConfig) -> None:
 
     uvicorn 的服务日志（启动、关闭与 ASGI 异常）与 ``warnings`` 的警告也交给根 logger，
     和应用日志同一格式、同一去处；每个请求已由请求日志中间件记录，uvicorn 的访问日志关闭。
+
+    运行时事件的记录按 ``event_file_path`` 单独设置，见 :func:`_configure_event_record`。
     """
     root = logging.getLogger()
     for handler in _installed_handlers:
@@ -60,3 +63,24 @@ def configure_logging(config: LoggingConfig) -> None:
     if config.websocket_enabled:
         level = min(level, logging.getLevelNamesMapping()[config.websocket_level])
     root.setLevel(level)
+
+    _configure_event_record(config.event_file_path)
+
+
+def _configure_event_record(file_path: str | None) -> None:
+    """按 ``file_path`` 装上运行时事件记录的文件输出；为空时不装，事件不被记录。
+
+    这个 logger 只由本函数装输出，重新配置时整体替换；它不向上传递，也不受 ``level``
+    影响。文件与日志文件同样按本地日期切分，每行只有事件的 JSON。
+    """
+    record = logging.getLogger(RUNTIME_EVENT_RECORD_LOGGER)
+    for handler in record.handlers[:]:
+        record.removeHandler(handler)
+        handler.close()
+    if not file_path:
+        return
+    path = Path(file_path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    handler = TimedRotatingFileHandler(path, when="midnight", encoding="utf-8")
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    record.addHandler(handler)

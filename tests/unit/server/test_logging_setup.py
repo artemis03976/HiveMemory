@@ -7,6 +7,7 @@ import time
 
 import pytest
 
+from hivememory.components.events.bus import RUNTIME_EVENT_RECORD_LOGGER
 from hivememory.config.app import LoggingConfig
 from hivememory.server.logging_setup import configure_logging
 
@@ -26,7 +27,7 @@ class _RecordingHandler(logging.Handler):
 
 @pytest.fixture(autouse=True)
 def _restore_global_logging():
-    """还原入口改动的全局状态：根 logger、uvicorn 的 logger 与 warnings 捕获。"""
+    """还原入口改动的全局状态：根 logger、uvicorn 的 logger、事件记录与 warnings 捕获。"""
     root = logging.getLogger()
     handlers = root.handlers[:]
     level = root.level
@@ -34,7 +35,13 @@ def _restore_global_logging():
         (logger, logger.handlers[:], logger.propagate, logger.disabled)
         for logger in (logging.getLogger("uvicorn"), logging.getLogger("uvicorn.access"))
     ]
+    event_record = logging.getLogger(RUNTIME_EVENT_RECORD_LOGGER)
+    event_record_handlers = event_record.handlers[:]
     yield
+    for handler in event_record.handlers[:]:
+        if handler not in event_record_handlers:
+            event_record.removeHandler(handler)
+            handler.close()
     for handler in root.handlers[:]:
         if handler not in handlers:
             root.removeHandler(handler)
@@ -137,3 +144,45 @@ def test_lower_websocket_level_reaches_broadcast_without_loosening_outputs(capsy
 
     assert broadcast.messages == ["detail"]
     assert "detail" not in capsys.readouterr().err
+
+
+@pytest.mark.parametrize(
+    "level",
+    # INFO 时日志文件也收 INFO，能看出事件是否漏进日志；WARNING 时能看出事件是否随级别被丢弃。
+    ["INFO", "WARNING"],
+)
+def test_event_record_goes_only_to_its_own_file_regardless_of_level(tmp_path, log, level):
+    """事件记录单独成文件，不进入日志文件，也不随日志级别丢弃。"""
+    log_file = tmp_path / "backend.log"
+    event_file = tmp_path / "events" / "runtime-events.jsonl"
+    configure_logging(
+        LoggingConfig(
+            level=level,
+            format=_FORMAT,
+            console_output=False,
+            file_path=str(log_file),
+            event_file_path=str(event_file),
+        )
+    )
+
+    logging.getLogger(RUNTIME_EVENT_RECORD_LOGGER).info('{"event_type": "work.failed"}')
+    log.warning("application warning")
+
+    assert event_file.read_text(encoding="utf-8") == '{"event_type": "work.failed"}\n'
+    assert log_file.read_text(encoding="utf-8") == (
+        "WARNING|tests.logging_setup|application warning\n"
+    )
+
+
+def test_reconfigure_replaces_the_event_record_output(tmp_path):
+    """重新配置时替换事件记录的输出：同一路径不重复写，去掉路径后不再写。"""
+    event_file = tmp_path / "runtime-events.jsonl"
+    event_record = logging.getLogger(RUNTIME_EVENT_RECORD_LOGGER)
+    configure_logging(LoggingConfig(console_output=False, event_file_path=str(event_file)))
+    configure_logging(LoggingConfig(console_output=False, event_file_path=str(event_file)))
+
+    event_record.info("first")
+    configure_logging(LoggingConfig(console_output=False))
+    event_record.info("second")
+
+    assert event_file.read_text(encoding="utf-8") == "first\n"

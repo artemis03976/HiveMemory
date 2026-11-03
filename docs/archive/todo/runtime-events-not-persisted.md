@@ -1,6 +1,9 @@
 ---
 title: 运行时事件没有持久的记录
-status: todo
+status: archived
+archived_at: 2026-11-03
+implemented_by: PR #175
+superseded_by: docs/components/observability.md
 owner: components
 scope: runtime-events-are-only-visible-in-the-frontend-live-panel-and-leave-no-record
 code_paths:
@@ -17,6 +20,8 @@ last_reviewed: 2026-11-03
 
 # 运行时事件没有持久的记录
 
+> 状态：Archived（2026-11-03，已按默认做法实现，处置见文末一节）。当前事实见[可观测性](../../components/observability.md#51-事件记录文件)第 5.1 节、[System 配置](../../system/configuration.md)与[开发环境](../../help/setup.md)；观测治理见[日志与运行时事件](../../governance/observability/logs-and-events.md)。以下为登记时的原文，相对链接已随归档改正。
+
 ## 问题与证据（2026-11-03）
 
 RuntimeEvent 唯一的消费方是 SSE 路由，供前端 Workspace Vision 实时显示，页面关闭或刷新后什么也不留下。进程内缓冲 1000 条，被调度器心跳占满，约 2.8 小时就轮换一遍。日常以 plugin 模式使用时没有人打开这个面板：
@@ -24,9 +29,9 @@ RuntimeEvent 唯一的消费方是 SSE 路由，供前端 Workspace Vision 实�
 - 2026-11-03 排查合并失败时，`work.failed` 事件本来带了异常类名，但取证时已经被冲掉；
 - Gateway workflow 与查询分析的失败只发事件、不记日志，完全看不到。
 
-详见[日志与运行时事件](../governance/observability/logs-and-events.md)第 1、3 节。
+详见[日志与运行时事件](../../governance/observability/logs-and-events.md)第 1、3 节。
 
-2026-11-03 起维护任务空转不再发事件（[归档 Todo](../archive/todo/maintenance-event-noise.md)），缓冲不再被心跳占满；事件仍只在进程内，页面关闭或进程重启后不留记录，本 Todo 的问题仍在。
+2026-11-03 起维护任务空转不再发事件（[归档 Todo](./maintenance-event-noise.md)），缓冲不再被心跳占满；事件仍只在进程内，页面关闭或进程重启后不留记录，本 Todo 的问题仍在。
 
 ## 影响
 
@@ -67,5 +72,17 @@ owner 2026-11-03 决定：运行时事件写入单独的事件日志文件，与
   - 总线写给专用 logger 的内容放在 `tests/unit/components/events/test_bus.py`；
   - 入口的文件输出与不进入根 logger 放在 `tests/unit/server/test_logging_setup.py`；
   - 时间线脚本是开发工具，仓库没有脚本测试的先例，以实际生成的事件文件手动验证；
-- 更新[可观测性](../components/observability.md)第 2、5 节、[System 配置](../system/configuration.md)的日志配置与治理主题第 3、4、5 节。
+- 更新[可观测性](../../components/observability.md)第 2、5 节、[System 配置](../../system/configuration.md)的日志配置与治理主题第 3、4、5 节。
 
+## 处置（2026-11-03）
+
+按默认做法实现，PR #175。
+
+- **写入**：`RuntimeEventBus.emit` 在事件进入缓冲与分发之后，把它写成一行 JSON 交给 `hivememory.runtime_events`。这个 logger 在总线模块中设为不向上传递、级别固定为 INFO；后一点是实现时补上的：不设级别时它继承根 logger，日志级别为 WARNING 时事件会被丢弃。没有输出时不序列化。
+- **配置与入口**：新增 `logging.event_file_path`（`configs/config.yaml` 默认 null），由 `server/logging_setup.py` 装上按日切分的文件输出，重新配置时整体替换。开发脚本写到 `.hivememory/logs/runtime-events.jsonl`。前端设置页没有加这一项：配置保存时原样提交读到的整个配置，新字段不会丢失。
+- **时间线脚本**：`scripts/runtime_event_timeline.py <字段>=<值> <文件...>` 按关联标识筛选，按写入顺序输出，不按时间戳排序（WSL 的系统时钟会回跳）；按天切分出的旧文件排在当天文件之前。
+- **测试**：
+  - 总线写入的内容与缓冲中的事件一致，用例在 `tests/unit/components/events/test_bus.py`；
+  - 事件文件与日志文件分开、不随日志级别丢弃（参数化 INFO 与 WARNING），以及重新配置时替换输出，用例在 `tests/unit/server/test_logging_setup.py`；
+  - 分别临时去掉"不向上传递"、固定级别与重新配置时的替换，对应用例失败。
+- **手动验证**：以真实的总线、发布器与日志配置生成事件文件，`backend.log` 中没有事件行；脚本按任务与话题筛出的时间线正确，旧日期文件排在前面，非法的筛选条件给出说明。

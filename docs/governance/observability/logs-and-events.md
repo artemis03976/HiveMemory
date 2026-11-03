@@ -33,6 +33,7 @@ owner 2026-11-03 决定把观测与日志作为版本之外的工作，随时可
 ### 2.1 日志与事件的分工
 
 - 日志记录异常与调试上下文，事件记录跨组件的状态转换，供关联与流式消费；两者都不是业务事实（[可观测性](../../components/observability.md#5-健康与日志的关系)第 5 节）。
+- 排查时日志看原因，事件记录文件看经过，两边靠领域标识对应（[可观测性](../../components/observability.md#51-事件记录文件)第 5.1 节）；日志不复写事件。
 - 事件只携带稳定原因码、可公开的说明与摘要化数据，异常类名放在 `data.error_class`；原始异常正文、消息、工具参数与结果、记忆正文、密钥和绝对路径不进事件。需要原始 cause 时看日志。
 
 ### 2.2 日志写法
@@ -57,7 +58,7 @@ owner 2026-11-03 决定把观测与日志作为版本之外的工作，随时可
 |:---|:---|
 | 日志配置 | 按天切分、只替换自己装上的输出、uvicorn 与 `warnings` 并入根 logger，已经成熟（`server/logging_setup.py`）。默认格式 `%(asctime)s - %(name)s - %(levelname)s - %(message)s` 不含 `TraceInjectFilter` 已经注入的 `trace_id` 与 `span_name` |
 | 日志写法 | 约 300 处日志调用，约 120 处 f-string、约 89 处 `%` 格式；中文约 190 处、英文约 111 处；关联标识只在部分消息中随手写出 |
-| 失败事件的消费 | 只有前端实时面板，没有持久的观察者 |
+| 事件的消费与记录 | 前端实时面板，以及配置后单独写入的事件记录文件；开发脚本写到 `.hivememory/logs/runtime-events.jsonl`，`scripts/runtime_event_timeline.py` 按关联标识排时间线 |
 | 失败事件的原因码 | 生成任务之外的失败事件都有稳定原因码，异常类名在 `data.error_class`（[事件契约](../../contracts/routes-and-events.md#44-失败与降级观测)第 4.4 节）。生成任务的原因固定为 `memory_generation_failed` |
 | 只有事件没有日志 | Gateway workflow 与查询分析的失败只发事件，不记日志 |
 | 内容进日志 | Gateway L1 拦截器在 debug 级别记录原始用户消息 |
@@ -66,14 +67,14 @@ owner 2026-11-03 决定把观测与日志作为版本之外的工作，随时可
 
 | 编号 | 工作包 | 状态 |
 |:---|:---|:---|
-| W1 | 运行时事件写入单独的事件日志文件，配离线时间线脚本 | [Todo](../../todo/runtime-events-not-persisted.md) |
+| W1 | 运行时事件写入单独的事件日志文件，配离线时间线脚本 | 已完成（2026-11-03，[归档 Todo](../../archive/todo/runtime-events-not-persisted.md)） |
 | W2 | 维护任务空转不发事件 | 已完成（2026-11-03，[归档 Todo](../../archive/todo/maintenance-event-noise.md)） |
 | W3 | 失败事件带稳定原因码（生成任务之外） | 已完成（2026-11-03，[归档 Todo](../../archive/todo/failure-event-reason-codes.md)）；生成任务属于 v0.7.3，见[收敛 Idea](../../ideas/generation-source-convergence.md) 第 4.3 节 |
 | W4 | 默认日志格式带 `trace_id` 与 `span_name` | 未排期 |
 | W5 | 存量日志按领域收敛到第 2.2 节的写法 | 未排期；先处理 Gateway 拦截器记录原始用户消息、调度器的 f-string、任务进程中不带 `process_id` 的失败日志 |
 | W6 | RuntimeEvent 生产端收敛 | 未排期：Gateway、Scheduler 与 System lifecycle 仍各自组装信封，按领域迁移到窄领域 emitter 或 scoped publisher，迁移不得改变 wire format；由原 RuntimeEvent 生产端迁移 Todo 转入（2026-11-03） |
 
-W1 以 Todo 跟踪；同一时间只有一份生效计划，轮到时再升级为计划。W4～W6 在动到对应领域、或 owner 排期时登记为 Todo 或计划。
+W1～W3 已于 2026-11-03 完成。W4～W6 在动到对应领域、或 owner 排期时登记为 Todo 或计划。
 
 ## 5. 长期目标与非目标
 
