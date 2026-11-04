@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-04
 ---
 
 # HiveMemory 开发路线图
@@ -35,9 +35,10 @@ last_reviewed: 2026-11-03
 当前版本事实如下：
 
 - 最近已发布基线：`v0.7.2`（Git tag，2026-11-01）；[收尾审计](./archive/plans/v0.7.2-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
-- 当前开发版本：`v0.7.3`，主动写入与被动提取的收敛，作为过渡措施（owner，2026-11-03）：经 DeepSeek Harness 调研四个仓库后，被动提取复现并改写主动写入、同轮写入互相合并、Mode B 丢掉 agent 的标题；话题内主动写入优先、生成任务失败带原因码与主动写入沿用 agent 的标题均已完成（第 4.3 节）。版本之外，观测与日志随时可以开始（owner，2026-11-03，第 4.2 节），本机 HTTP 管理接口证明调用方仍待修复；HiveMemory 使用手册 skill 已基本稳定，在使用中逐步完善（owner，2026-11-03，第 4.2 节）。
+- 当前内容基线：`v0.7.3`，主动写入与被动提取的收敛，作为过渡措施（owner，2026-11-03），2026-11-04 收尾：话题内主动写入优先、生成任务失败带原因码与主动写入沿用 agent 的标题三份计划均已完成，发布标签 `v0.7.3` 在合并后创建；[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果（第 4.3 节）。v0.7.3 之后的版本目标尚未确定；
+- 版本之外：观测与日志的其余工作包随时可以开始（owner，2026-11-03，第 4.2 节），本机 HTTP 管理接口证明调用方仍待修复；HiveMemory 使用手册 skill 已基本稳定，在使用中逐步完善（owner，2026-11-03，第 4.2 节）。
 
-当前规范代码版本为 `0.7.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致，与最近发布标签 `v0.7.2` 对应。
+当前规范代码版本为 `0.7.3`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致；本次发布标签为 `v0.7.3`，待合并后创建，最近已发布基线为 `v0.7.2`。
 
 ## 2. 发布历史
 
@@ -114,7 +115,7 @@ last_reviewed: 2026-11-03
 
 | 版本或候选方向 | 状态 | 目标结果 | 依赖与入口 |
 |:---|:---:|:---|:---|
-| `v0.7.3` | Planned（owner，2026-11-03） | 主动写入与被动提取的收敛（过渡措施）：被动提取不再改写本话题的主动写入，主动写入沿用 agent 的标题，生成失败可诊断 | 第 4.3 节；[收敛 Idea](./ideas/generation-source-convergence.md) |
+| `v0.7.3` 主动写入与被动提取的收敛 | Completed（2026-11-04 收尾）/ 版本目标 owner，2026-11-03：三份计划均已完成 | 在统一的记忆架构成形之前止住两种生成方式互相改写（过渡措施）：被动提取不再改写本话题的主动写入，主动写入沿用 agent 的标题，生成失败可诊断 | 第 4.3 节；[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md) |
 | 第二个外部 harness：DeepSeek Harness 的 plugin 模式接入 | Completed（2026-11-01 收尾）/ 版本之外的工作（owner，2026-10-31）；接入路径为纯原生插件（owner，2026-11-01）；owner 决定收尾，真实模型下的完整验收在日常使用中完成；调研中发现子 Agent 会话独立导入属于实现漂移（owner，2026-11-02），已于 2026-11-02 修复：只导入顶层会话，子 Agent 的结算通知进入父会话这一轮的生成材料 | dsh 经对话回流与原生记忆工具接入 HiveMemory，Windows 桌面端可以连接 WSL 中的 HiveMemory；之后经它进行 agent memory 与 harness 项目的调研，同时作为压测与数据积累 | [调研需求与报告](./research/deepseek-harness-plugin-survey.md)、[归档计划](./archive/plans/dsh-plugin-integration.md)、[接入手册](./help/deepseek-harness-plugin.md)、[子 Agent 会话的归档计划](./archive/plans/dsh-subagent-sessions.md) |
 | 本机 HTTP 接口的密钥与访问控制 | Partially Landed（owner，2026-11-01 决定下一步修复）：`/api/v1/config` 响应打码（PR #157）；密钥移出主配置与 `config.yaml`，提供商凭证收归 Provider 注册表（2026-11-01，PR #159，[归档 Todo](./archive/todo/config-secrets-written-to-yaml.md)）；模型定义不再保存连接凭证（2026-11-01，PR #166，[归档 Todo](./archive/todo/model-registry-api-key-override.md)）；Gateway 与 Librarian 只经模型与 Provider 注册表选择模型，主配置不再有 LLM 密钥（2026-11-01，PR #167，[归档计划](./archive/plans/llm-config-retirement.md)）；HTTP 管理接口证明调用方仍待修复 | HTTP 管理接口证明调用方，harness 中的 agent 不能绕过 Workspace 访问登记 | [管理接口 Todo](./todo/local-http-management-access.md) |
 | 观测与日志 | Unscheduled / 版本之外的工作（owner，2026-11-03）；W1～W3 已完成（2026-11-03），其余未排期 | 排查一次失败只需要后端日志与事件文件：运行时事件写入单独的事件记录文件并可按关联标识排时间线、生成任务之外的失败事件带稳定原因码、维护任务空转不发事件，均已完成；日志格式带 trace、存量日志收敛与事件生产端收敛（W4～W6）见治理主题 | [日志与运行时事件](./governance/observability/logs-and-events.md) |
@@ -130,20 +131,18 @@ last_reviewed: 2026-11-03
 
 ### 4.3 v0.7.3：主动写入与被动提取的收敛
 
-状态：Planned（owner，2026-11-03），计划见 [Plans 导航](./plans/README.md#v073)。
+状态：Completed（2026-11-04；版本目标 owner，2026-11-03）。版本内的三份计划均已归档，规范版本已调整为 0.7.3，本次发布标签为 v0.7.3（合并后创建）。逐项内容、版本目标判定、未纳入的事项与验证结果见[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md)，各计划见 [Archived Plans](./archive/plans/README.md#v073)；证据、离线回放与决定见已归档的[收敛 Idea](./archive/ideas/generation-source-convergence.md)。
 
-目标：在统一的记忆架构成形之前，先止住两种生成方式互相改写。这是过渡措施，不代表主动写入优先是更好的选择（owner，2026-11-03）；之后的方向见[统一的交互记忆](./ideas/unified-interaction-memory.md)。DeepSeek Harness 接入后（2026-11-01），owner 经它调研了四个仓库，这是第一批以主动写入为主的真实样本：
+- **版本目标**（owner，2026-11-03）：在统一的记忆架构成形之前，先止住两种生成方式互相改写。这是过渡措施，不代表主动写入优先是更好的选择；之后的方向见[统一的交互记忆](./ideas/unified-interaction-memory.md)。DeepSeek Harness 接入后（2026-11-01），owner 经它调研了四个仓库，这是第一批以主动写入为主的真实样本：被动提取复现并改写了主动写入，同一轮里 agent 有意分开写的记忆被查重合并，主动写入的标题在生成时被丢弃，合并失败只能凭时序推断原因。
+- **验收**：各计划以离线回放验收；日常使用中的实测依赖自然发生的结算、写入与失败，不作为归档条件。收尾审计第 1 节逐条判定。
 
-- 被动提取从同一份材料里复现了全部主动写入，合并按新旧以被动草稿为骨架改写了它们；
-- 同一轮里 agent 有意分开写的记忆被查重合并；
-- 主动写入的标题在生成时被丢弃；
-- 合并失败只能凭时序推断原因。
+| 方向 | 结果 | 当前事实 |
+|:---|:---|:---|
+| 话题内主动写入优先（过渡措施） | 被动草稿查重命中本话题主动写入结算到的记忆时丢弃，同一话题的主动写入之间不再提名合并；记录只在进程内 | [Patchouli 生成](./patchouli/generation.md#42-本话题的主动写入) |
+| 生成任务失败带原因码 | 失败分类按异常给出稳定原因码，进入工作记录、`work.failed`、`memory.task.failed` 与分类处的一行日志；任务事件载荷带 `error_class` | [Patchouli 生成](./patchouli/generation.md#61-失败原因码)、[事件契约](./contracts/routes-and-events.md#44-失败与降级观测) |
+| 主动写入沿用 agent 的标题 | Mode B 把 agent 拟定的标题交给模型并要求沿用，只在与内容不符或缺少检索名词时修改；MCP 写入工具说明与使用手册 skill 同步 | [Patchouli 生成](./patchouli/generation.md#32-mode-b主动-write)、[MCP 记忆访问](./contracts/mcp.md#3-工具) |
 
-owner 决定先做这一组最小优化，更好的记忆生成策略之后再议。证据、离线回放与决定见[收敛 Idea](./ideas/generation-source-convergence.md)。
-
-[话题内主动写入优先](./archive/plans/v0.7.3-topic-active-write-precedence.md)已完成（2026-11-03，PR #176）：被动草稿不再改写本话题的主动写入，同一话题的主动写入之间不再合并。实施前以对照断言清单标注做过离线回放，它能标出复述，但不覆盖后一半，被动提取补回的审计细节也待 owner 判断，owner 决定仍以这一规则作为过渡措施（[统一的交互记忆](./ideas/unified-interaction-memory.md)第 4 节）。[生成任务失败带原因码](./archive/plans/v0.7.3-generation-failure-reason-codes.md)已完成（2026-11-03，PR #177）：失败分类按异常给出原因码，进入工作记录、事件与日志。[主动写入沿用 agent 的标题](./archive/plans/v0.7.3-write-title-kept.md)已完成（2026-11-03，PR #178）：Mode B 把 agent 拟定的标题交给模型并要求沿用，只在与内容不符或缺少检索名词时修改。
-
-版本之外的工作还有本机 HTTP 管理接口证明调用方（[管理接口 Todo](./todo/local-http-management-access.md)）与导入轮次的跨会话落位（[跨会话落位 Todo](./todo/cross-conversation-topic-placement.md)）。
+不在 v0.7.3：合并遇到版本冲突时是否重做（[合并版本冲突 Todo](./todo/merge-version-conflict.md)）；多条提取后被动提取的膨胀与低留存（[被动提取膨胀 Todo](./todo/passive-extraction-volume-and-retention.md)）；两种生成方式在统一架构中的兼容（[统一的交互记忆](./ideas/unified-interaction-memory.md)，候选方向）；查重的判定信号（[查重 Todo](./todo/generation-dedup-decision-signal.md)）；导入轮次的跨会话落位（[跨会话落位 Todo](./todo/cross-conversation-topic-placement.md)）；本机 HTTP 管理接口证明调用方（[管理接口 Todo](./todo/local-http-management-access.md)）。
 
 ### 4.4 冷启动、历史导入与外源文档资产化（候选）
 
@@ -214,6 +213,8 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 v0.7.1（已发布）：plugin 模式接入 Claude Code，真实使用开始产生样本
         |
         +-> v0.7.2（已发布）生成质量：生成材料与原始证据 / plugin 模式的写入与更新 / 多条提取 / 查重与更新
+        |
+        +-> v0.7.3（已收尾）主动写入与被动提取的收敛（过渡措施）：话题内主动写入优先 / 生成失败原因码 / 沿用 agent 的标题
 
 候选方向之间的依赖（用于判断一份计划能否立即执行，不表示排期）：
 外部 Actor 的身份 / 来源 / 提交语义 -> 历史导入契约与批次能力

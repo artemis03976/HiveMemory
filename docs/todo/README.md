@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-04
 ---
 
 # Todo
@@ -12,6 +12,7 @@ last_reviewed: 2026-11-03
 
 当前事项：
 
+- [并发合并同一条记忆时，后写回的合并失败并留下重复](./merge-version-conflict.md)（2026-11-04 随 v0.7.3 收尾由收敛 Idea 第 4.4 节移入：同一次结算的两条草稿命中同一条记忆时，后写回的合并以版本冲突放弃，留下重复；话题内主动写入优先之后仍出现一次；是否重做等以原因码记录的真实失败再判断，未排期）；
 - [多条提取后被动提取的记忆膨胀与低留存](./passive-extraction-volume-and-retention.md)（2026-11-03 由记忆增长统计登记：多条提取后每次结算的 Mode A 新建从 1 条变为平均 5.2 条，其中仅 52% 留存，owner 手动清理；owner 的目标是全自主记忆维护，本 Todo 保留证据与度量，可合进任一 Idea 或计划）；
 - [导入轮次被落进另一个外部会话的话题](./cross-conversation-topic-placement.md)（2026-11-03 由 dsh 调研取证登记：外部会话的第一轮没有会话上下文，Gateway 凭标题中的通用词把一次 dsh 调研落进了同时进行的 Claude Code 会话的话题，结算材料混合了两段无关对话，主动写入的贡献者被污染；一个话题能否跨外部会话待 owner 决定，未排期）；
 - [Agent Profile 以 ModelSelection 表达模型选择](./agent-profile-model-selection.md)（2026-11-01 由模型选择统一计划登记：Profile 仍以平铺的 `model_name`、`temperature`、`top_p` 表达模型选择，没有 `max_tokens`；改动涉及已存 Profile 的读取与 Agent 编辑页，owner 决定另行处理，未排期）；

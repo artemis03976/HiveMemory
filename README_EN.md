@@ -7,13 +7,13 @@
 
 HiveMemory is a persistent memory system for LLM agent workflows. It is designed to address long-context forgetting, lack of cross-session knowledge reuse, and information silos in multi-agent collaboration. The system turns high-value conversational information into searchable, updatable, reusable memories and injects them back into future tasks through a unified protocol.
 
-The repository includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and the v0.7.2 content baseline where the top-level HiveMemory System assembles workspace, Gateway, Patchouli, and Alice. v0.7.0 completed the move to the Workspace network and task-process architecture: every task request is registered as a task process through a single registration entry, agent resource operations are authorized one by one by the workspace capability layer, and executors plug in through a CPU port so they can be replaced. v0.7.1 integrates the first external harness, Claude Code, in plugin mode: Claude Code conversations flow back through the Import Bus into memory generation, and the Claude Code agent searches and reads memories through MCP tools. v0.7.2 improves generation quality: generation material is no longer truncated per turn, and the settlement source covers folded turns; one topic yields several memories in a single extraction; a duplicate hit first stores the draft and then merges the two similar memories instead of overwriting the existing one; and the Claude Code agent can also write and update memories through MCP tools.
+The repository includes a runnable Python backend, a frontend development UI, vector storage and caching infrastructure, and the v0.7.3 content baseline where the top-level HiveMemory System assembles workspace, Gateway, Patchouli, and Alice. v0.7.0 completed the move to the Workspace network and task-process architecture: every task request is registered as a task process through a single registration entry, agent resource operations are authorized one by one by the workspace capability layer, and executors plug in through a CPU port so they can be replaced. v0.7.1 integrates the first external harness, Claude Code, in plugin mode: Claude Code conversations flow back through the Import Bus into memory generation, and the Claude Code agent searches and reads memories through MCP tools. v0.7.2 improves generation quality: generation material is no longer truncated per turn, and the settlement source covers folded turns; one topic yields several memories in a single extraction; a duplicate hit first stores the draft and then merges the two similar memories instead of overwriting the existing one; and the Claude Code agent can also write and update memories through MCP tools. v0.7.3 is a stopgap that reconciles active writes and passive extraction: topic settlement no longer rewrites the memories an agent actively wrote in the same topic, and active writes in the same topic no longer merge into each other; active writes keep the title the agent proposed; and failed generation tasks carry stable reason codes.
 
 ## Release Status
 
 - Latest published baseline: `v0.7.2` (generation quality, see the [closeout audit](docs/archive/plans/v0.7.2-release-closeout-audit.md))
-- Next planned version: `v0.7.3` (goal not yet decided; see the [Roadmap](docs/ROADMAP.md))
-- Code and package version: `0.7.2`
+- Current content baseline: `v0.7.3` (reconciling active writes and passive extraction as a stopgap; see the [closeout audit](docs/archive/plans/v0.7.3-release-closeout-audit.md); the tag is created after merge)
+- Code and package version: `0.7.3`
 - Python requirement: `>=3.12`
 - License: Apache-2.0
 
@@ -57,7 +57,7 @@ See [docs/architecture/overview.md](docs/architecture/overview.md) for the curre
 
 - Read, update, and view defaults of the runtime config: `/api/v1/config`
 - Model and provider registries: `/api/v1/models`, `/api/v1/providers`
-- Runtime event status and SSE stream: `/api/v1/runtime-events`
+- Runtime event status and SSE stream: `/api/v1/runtime-events`; when `logging.event_file_path` is set, events are also written to a daily-rotated JSONL record file, and `scripts/runtime_event_timeline.py` orders them into a timeline by a correlation id such as the task, process, or topic id
 - WebSocket log stream: `WS /api/v1/ws/logs`
 - Health and readiness checks: `GET /health`, `GET /health/ready`
 
@@ -348,7 +348,7 @@ HiveMemory/
 
 ## Contributing
 
-Issues and pull requests are welcome. v0.7.2 has been released, and the goal of the next version, v0.7.3, is not yet decided. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
+Issues and pull requests are welcome. v0.7.3 content has been closed out, and its tag is created after merge. Follow the documentation promotion gate for behavioral changes: update current design or contract documents only when branch development is explicitly entering final closeout, not while the design is still evolving.
 
 ## License
 

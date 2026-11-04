@@ -10,21 +10,21 @@ code_paths:
   - src/hivememory/patchouli/control/memory_generation/
   - src/hivememory/workspace/intents/
 related_docs:
-  - docs/ideas/generation-source-convergence.md
+  - docs/archive/ideas/generation-source-convergence.md
   - docs/ideas/pending-intent-migration.md
   - docs/ideas/PatchouliPageFoldingRawEvidenceDesign.md
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/patchouli/generation.md
   - docs/patchouli/perception.md
   - docs/governance/reliability/durability-and-recovery.md
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-04
 ---
 
 # 统一的交互记忆：轨迹、断言与整理
 
 ## 0. 文档性质
 
-本文记录一个尚未排期的方向：用同一套记忆架构，把任何形式的交互整理成记忆资产。它不描述当前行为，也不代表排期。当前的生成设计见 [Patchouli 生成](../patchouli/generation.md)与[感知与短期话题](../patchouli/perception.md)；v0.7.3 的过渡措施见[主动写入与被动提取的收敛](./generation-source-convergence.md)。
+本文记录一个尚未排期的方向：用同一套记忆架构，把任何形式的交互整理成记忆资产。它不描述当前行为，也不代表排期。当前的生成设计见 [Patchouli 生成](../patchouli/generation.md)与[感知与短期话题](../patchouli/perception.md)；v0.7.3 的过渡措施与证据见已归档的[主动写入与被动提取的收敛](../archive/ideas/generation-source-convergence.md)。
 
 ## 1. 出发点（owner，2026-11-03）
 
@@ -130,7 +130,7 @@ Patchouli 的权威据此落在记录上：谁说的、何时、依据什么、�
 
 ## 6. 与其他文档的关系
 
-- [主动写入与被动提取的收敛](./generation-source-convergence.md)：v0.7.3 的过渡措施与证据；本文是它之后的方向。
+- [主动写入与被动提取的收敛](../archive/ideas/generation-source-convergence.md)（2026-11-04 随 v0.7.3 收尾归档）：v0.7.3 的过渡措施与证据；本文是它之后的方向。
 - [写入意图的后续方向](./pending-intent-migration.md)：结算对账、意图持久化与"完整的生成材料"会落在断言层。
 - [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md)与 [Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md)：分别对应轨迹层的保存承诺与长程 run 的分段。
 - 记忆价值体系的重新设计（[ROADMAP](../ROADMAP.md) 第 4.7 节）："谁断言的、带着什么意图"是价值信号的一部分。
