@@ -12,6 +12,7 @@ last_reviewed: 2026-11-03
 
 ## v0.7.3
 
+- [主动写入沿用 agent 的标题](./v0.7.3-write-title-kept.md)：2026-11-03，PR #178；[Patchouli 生成](../../patchouli/generation.md#32-mode-b主动-write)、[MCP 记忆访问](../../contracts/mcp.md#3-工具)
 - [生成任务失败带原因码](./v0.7.3-generation-failure-reason-codes.md)：2026-11-03，PR #177；[Patchouli 生成](../../patchouli/generation.md#61-失败原因码)、[事件契约](../../contracts/routes-and-events.md#44-失败与降级观测)
 - [话题内主动写入优先](./v0.7.3-topic-active-write-precedence.md)：2026-11-03，PR #176；[Patchouli 生成](../../patchouli/generation.md#42-本话题的主动写入)
 

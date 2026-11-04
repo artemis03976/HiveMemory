@@ -186,8 +186,8 @@ class TestGenerationEngineRouting:
 
     @pytest.mark.asyncio
     async def test_routes_to_mode_b(self):
-        """有 write_focus 时走 Mode B，结构化调用携带写入内容与理由"""
-        focus = WriteFocus(content="保存这段代码", reason="后续复用")
+        """有 write_focus 时走 Mode B，结构化调用携带写入内容、理由与 agent 拟定的标题"""
+        focus = WriteFocus(content="保存这段代码", reason="后续复用", title="排序函数的实现")
         draft = _make_draft()
         self.mock_extractor.extract_write.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.DISTINCT, None)
@@ -201,7 +201,11 @@ class TestGenerationEngineRouting:
         )
 
         kwargs = self.mock_extractor.extract_write.call_args.kwargs
-        assert (kwargs["content"], kwargs["reason"]) == ("保存这段代码", "后续复用")
+        assert (kwargs["content"], kwargs["reason"], kwargs["title"]) == (
+            "保存这段代码",
+            "后续复用",
+            "排序函数的实现",
+        )
         self.mock_extractor.extract.assert_not_called()
         assert len(result) == 1
         assert result[0].atom.index.title == "测试记忆"

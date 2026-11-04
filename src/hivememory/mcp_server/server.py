@@ -83,7 +83,8 @@ _READ_DESCRIPTION = """\
 _WRITE_DESCRIPTION = """\
 把值得长期保存的内容写入 HiveMemory：用户要求记住的事、新做出的决定、偏好与禁忌、经验与教训。\
 对话在每轮结束后会自动归档，不需要把对话过程复述写入。
-content 写完整、可以独立理解的正文；title 简短概括；reason 说明为什么值得保存。
+content 写完整、可以独立理解的正文；title 写这件事本身，具体、可检索，正式记忆沿用它；\
+reason 说明为什么值得保存。
 返回句柄 alias（draft_ 开头）：写入已被接纳，正式记忆在后台生成、尚未保存；\
 可以用 memory_read 读取句柄，生成完成后读取会转到正式记忆。"""
 
@@ -171,7 +172,9 @@ def create_mcp_server(get_system: Callable[[], HiveMemorySystem]) -> MCPServer:
     async def memory_write(
         content: Annotated[str, Field(min_length=1, description="要保存的完整正文")],
         ctx: Context,
-        title: Annotated[str | None, Field(description="简短的标题")] = None,
+        title: Annotated[
+            str | None, Field(description="正式记忆沿用的标题：具体、可检索，带项目或组件名")
+        ] = None,
         reason: Annotated[str | None, Field(description="为什么值得保存")] = None,
         turn: Annotated[InFlightTurn | None, Field(description=_TURN_DESCRIPTION)] = None,
     ) -> CallToolResult:

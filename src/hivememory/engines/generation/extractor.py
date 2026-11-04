@@ -105,6 +105,11 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             "reason_empty",
             self.language,
         )
+        self.write_title_empty = get_generation_prompt_text(
+            "write",
+            "title_empty",
+            self.language,
+        )
         self.update_system_prompt = get_generation_prompt_text(
             "update",
             "system_prompt",
@@ -186,12 +191,13 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         return result.memories
 
     async def extract_write(
-        self, transcript: str, *, content: str, reason: str | None
+        self, transcript: str, *, content: str, reason: str | None, title: str | None
     ) -> ExtractedMemoryDraft | None:
         """
         Mode B：以 WRITE 提交的内容为核心，结合背景对话结构化为一条草稿。
 
-        明确的保存意图强制入库：草稿的 has_value 为真、置信度为 1.0。
+        明确的保存意图强制入库：草稿的 has_value 为真、置信度为 1.0。agent 拟定的标题
+        随提示词交给模型，由模型按提示词沿用，只在它与内容不符或缺少检索名词时修改。
 
         Raises:
             ModelProviderError: 提供商失败且重试耗尽，或上下文超窗
@@ -206,6 +212,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             {
                 "role": "user",
                 "content": self.write_user_prompt.format(
+                    write_title=title or self.write_title_empty,
                     write_content=content,
                     write_reason=reason or self.write_reason_empty,
                     transcript=transcript,

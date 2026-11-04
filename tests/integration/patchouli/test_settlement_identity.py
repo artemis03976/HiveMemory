@@ -89,7 +89,7 @@ class _Extractor:
     async def extract(self, transcript):
         return [self._draft()]
 
-    async def extract_write(self, transcript, *, content, reason):
+    async def extract_write(self, transcript, *, content, reason, title):
         return self._draft()
 
 

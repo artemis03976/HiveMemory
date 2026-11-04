@@ -26,7 +26,7 @@ related_docs:
   - docs/workspace/authentication.md
   - docs/workspace/read-view-and-write-intents.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-02
+last_reviewed: 2026-11-03
 ---
 
 # MCP 记忆访问
@@ -72,7 +72,7 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 |:---|:---|:---|:---|:---|
 | `memory_search` | `query`：非空字符串 | `RetrieveRequest(semantic_query=query)` | `memory.search` | 检索上下文信封，每条含 alias、存档时间（记忆的更新时间）与置信度；没有结果时返回“没有检索到相关记忆。”，不算错误 |
 | `memory_read` | `aliases`：非空的 alias 列表 | `ResolveReferencesRequest(aliases)` | `memory.read` | 按请求顺序逐项交付全文；未解析的 alias 以“未找到以下 alias：…”列在末尾；全部未解析时返回 `workspace.resource.not_found` 错误。交付正式原子时记录 `workspace.reference_read` 引用 |
-| `memory_write` | `content`：非空字符串；`title`、`reason` 可选；`turn` | `SubmitWriteIntentRequest(WriteFocus(content, title, reason))` | `memory.write` | pending alias（`draft_` 开头），写明意图已登记并被生成队列接纳、正式记忆尚未保存，可以用 `memory_read` 读取 |
+| `memory_write` | `content`：非空字符串；`title`、`reason` 可选，`title` 由正式记忆沿用（[生成](../patchouli/generation.md#32-mode-b主动-write)第 3.2 节）；`turn` | `SubmitWriteIntentRequest(WriteFocus(content, title, reason))` | `memory.write` | pending alias（`draft_` 开头），写明意图已登记并被生成队列接纳、正式记忆尚未保存，可以用 `memory_read` 读取 |
 | `memory_update` | `alias`：要修正的正式记忆；`instruction`：非空字符串；`content` 可选；`turn` | `SubmitUpdateIntentRequest(base_alias=alias, instruction, content)` | `memory.update` | pending alias（`rev_` 开头），说明同上 |
 
 - **参数**：检索不开放条数、过滤与关键词，使用默认条数。参数名 `query` 与生成视图读取 SEARCH 查询的参数名（`tool_args["query"]`）一致；`aliases`、`alias` 由连接器移为 READ、UPDATE 的作用对象，回声标记（第 6 节）因此得到带查询或 alias 的一行摘要。
