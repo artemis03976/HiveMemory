@@ -14,9 +14,13 @@ last_reviewed: 2026-11-03
 
 当前开发版本：主动写入与被动提取的收敛，作为过渡措施（owner，2026-11-03，[ROADMAP](../ROADMAP.md#43-v073主动写入与被动提取的收敛) 第 4.3 节）。之后的方向见候选 Idea [统一的交互记忆](../ideas/unified-interaction-memory.md)。设计讨论见[主动写入与被动提取的收敛 Idea](../ideas/generation-source-convergence.md)。
 
-当前没有生效计划。话题内主动写入优先已于 2026-11-03 完成，见 [Archived Plans](../archive/plans/README.md#v073)。
+| 计划 | 状态 | 内容 |
+|:---|:---|:---|
+| [生成任务失败带原因码](./v0.7.3-generation-failure-reason-codes.md) | planned | 失败分类按异常给出原因码，进入工作记录、`work.failed`、`memory.task.failed` 与分类处的日志 |
 
-尚未建立计划的方向：主动写入沿用 agent 的标题、生成任务失败带原因码，设计见收敛 Idea 第 4.2、4.3 节。
+话题内主动写入优先已于 2026-11-03 完成，见 [Archived Plans](../archive/plans/README.md#v073)。
+
+尚未建立计划的方向：主动写入沿用 agent 的标题，设计见收敛 Idea 第 4.2 节。
 
 ## 已发布的版本
 

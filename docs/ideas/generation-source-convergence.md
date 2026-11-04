@@ -261,7 +261,8 @@ Work Queue Runtime 已经把分类的原因写进工作记录并由 `work.failed
 同一时间只有一份生效计划：
 
 - 已完成：[话题内主动写入优先](../archive/plans/v0.7.3-topic-active-write-precedence.md)（第 4.1 节，2026-11-03，PR #176），作为过渡措施；
-- 尚未建立计划：主动写入沿用 agent 的标题（第 4.2 节）、生成任务失败带原因码（第 4.3 节），都已有 owner 决定，轮到时依据本文建立计划；
+- 当前计划：[生成任务失败带原因码](../plans/v0.7.3-generation-failure-reason-codes.md)（第 4.3 节）；
+- 尚未建立计划：主动写入沿用 agent 的标题（第 4.2 节），已有 owner 决定，轮到时依据本文建立计划；
 - 第 4.4 节等失败原因的数据。
 
 ## 附录：样本现状与处置建议
