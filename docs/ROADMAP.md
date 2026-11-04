@@ -35,7 +35,7 @@ last_reviewed: 2026-11-03
 当前版本事实如下：
 
 - 最近已发布基线：`v0.7.2`（Git tag，2026-11-01）；[收尾审计](./archive/plans/v0.7.2-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
-- 当前开发版本：`v0.7.3`，以主动写入为主体改进记忆生成（owner，2026-11-03）：经 DeepSeek Harness 调研四个仓库后，被动提取复现并改写主动写入、同轮写入互相合并、Mode B 丢掉 agent 的标题；当前计划为话题内主动写入优先（第 4.3 节）。版本之外，观测与日志随时可以开始（owner，2026-11-03，第 4.2 节），本机 HTTP 管理接口证明调用方仍待修复；HiveMemory 使用手册 skill 已基本稳定，在使用中逐步完善（owner，2026-11-03，第 4.2 节）。
+- 当前开发版本：`v0.7.3`，主动写入与被动提取的收敛，作为过渡措施（owner，2026-11-03）：经 DeepSeek Harness 调研四个仓库后，被动提取复现并改写主动写入、同轮写入互相合并、Mode B 丢掉 agent 的标题；话题内主动写入优先已完成，沿用 agent 的标题与生成失败原因码尚未建立计划（第 4.3 节）。版本之外，观测与日志随时可以开始（owner，2026-11-03，第 4.2 节），本机 HTTP 管理接口证明调用方仍待修复；HiveMemory 使用手册 skill 已基本稳定，在使用中逐步完善（owner，2026-11-03，第 4.2 节）。
 
 当前规范代码版本为 `0.7.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致，与最近发布标签 `v0.7.2` 对应。
 
@@ -114,7 +114,7 @@ last_reviewed: 2026-11-03
 
 | 版本或候选方向 | 状态 | 目标结果 | 依赖与入口 |
 |:---|:---:|:---|:---|
-| `v0.7.3` | Planned（owner，2026-11-03） | 以主动写入为主体改进记忆生成：被动提取不再改写本话题的主动写入，主动写入沿用 agent 的标题，生成失败可诊断 | 第 4.3 节；[收敛 Idea](./ideas/generation-source-convergence.md) |
+| `v0.7.3` | Planned（owner，2026-11-03） | 主动写入与被动提取的收敛（过渡措施）：被动提取不再改写本话题的主动写入，主动写入沿用 agent 的标题，生成失败可诊断 | 第 4.3 节；[收敛 Idea](./ideas/generation-source-convergence.md) |
 | 第二个外部 harness：DeepSeek Harness 的 plugin 模式接入 | Completed（2026-11-01 收尾）/ 版本之外的工作（owner，2026-10-31）；接入路径为纯原生插件（owner，2026-11-01）；owner 决定收尾，真实模型下的完整验收在日常使用中完成；调研中发现子 Agent 会话独立导入属于实现漂移（owner，2026-11-02），已于 2026-11-02 修复：只导入顶层会话，子 Agent 的结算通知进入父会话这一轮的生成材料 | dsh 经对话回流与原生记忆工具接入 HiveMemory，Windows 桌面端可以连接 WSL 中的 HiveMemory；之后经它进行 agent memory 与 harness 项目的调研，同时作为压测与数据积累 | [调研需求与报告](./research/deepseek-harness-plugin-survey.md)、[归档计划](./archive/plans/dsh-plugin-integration.md)、[接入手册](./help/deepseek-harness-plugin.md)、[子 Agent 会话的归档计划](./archive/plans/dsh-subagent-sessions.md) |
 | 本机 HTTP 接口的密钥与访问控制 | Partially Landed（owner，2026-11-01 决定下一步修复）：`/api/v1/config` 响应打码（PR #157）；密钥移出主配置与 `config.yaml`，提供商凭证收归 Provider 注册表（2026-11-01，PR #159，[归档 Todo](./archive/todo/config-secrets-written-to-yaml.md)）；模型定义不再保存连接凭证（2026-11-01，PR #166，[归档 Todo](./archive/todo/model-registry-api-key-override.md)）；Gateway 与 Librarian 只经模型与 Provider 注册表选择模型，主配置不再有 LLM 密钥（2026-11-01，PR #167，[归档计划](./archive/plans/llm-config-retirement.md)）；HTTP 管理接口证明调用方仍待修复 | HTTP 管理接口证明调用方，harness 中的 agent 不能绕过 Workspace 访问登记 | [管理接口 Todo](./todo/local-http-management-access.md) |
 | 观测与日志 | Unscheduled / 版本之外的工作（owner，2026-11-03）；W1～W3 已完成（2026-11-03），其余未排期 | 排查一次失败只需要后端日志与事件文件：运行时事件写入单独的事件记录文件并可按关联标识排时间线、生成任务之外的失败事件带稳定原因码、维护任务空转不发事件，均已完成；日志格式带 trace、存量日志收敛与事件生产端收敛（W4～W6）见治理主题 | [日志与运行时事件](./governance/observability/logs-and-events.md) |
@@ -122,16 +122,17 @@ last_reviewed: 2026-11-03
 | 冷启动、历史导入与外源文档资产化 | Candidate / 不绑定版本 | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | 第 4.4 节；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md) |
 | MTP READ 专项编译与来源表达 | Candidate / 不绑定版本 | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | 第 4.5 节；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md) |
 | Deep Research MVP | Candidate / 不绑定版本 | 研究状态、来源、证据、发现和报告闭环，执行提供者可替换 | 第 4.6 节 |
+| 统一的交互记忆：轨迹、断言与整理 | Candidate / 不绑定版本（owner，2026-11-03） | 同一套架构把对话与长程 agent 的交互都整理成记忆资产：候选记忆是带归属、证据位置与发生时间的断言，唯一写入者按断言的属性整理；对照断言清单标注已做离线回放 | [统一的交互记忆](./ideas/unified-interaction-memory.md) |
 | 外部 harness 的 controller 模式 | Candidate / 不绑定版本（2026-10-20 由 v0.7.1 版本目标退回） | 外部 harness 作为执行环境运行用户选择的 agent，请求登记为任务进程并交给该 harness 执行 | 第 5.6 节；[接口调研快照](./research/harness-interface-survey-snapshot.md) |
 | 记忆价值体系重新设计 | Candidate / 不绑定版本 | owner 重新设计价值体系，不在现有信号上增补 | 第 4.7 节 |
 | Frontend Reliability & Resource UX | Partially Landed / 后续 Candidate | 先修身份、数据来源和状态可信性，再完善资源操作、来源和导入体验 | 随受影响的 API 并行；[Frontend](./frontend/README.md)与第 4.8 节 Todo |
 | Electron 桌面客户端 | Candidate / 不绑定版本 | 单一客户端管理本地服务、数据目录、连接、升级与诊断 | 第 5.1 节；[状态与传输](./frontend/state-and-transports.md)、[配置](./system/configuration.md) |
 
-### 4.3 v0.7.3：以主动写入为主体的记忆生成
+### 4.3 v0.7.3：主动写入与被动提取的收敛
 
 状态：Planned（owner，2026-11-03），计划见 [Plans 导航](./plans/README.md#v073)。
 
-目标：执行者经记忆工具主动写入的内容是记忆的主体，话题结算的被动提取只做兜底。DeepSeek Harness 接入后（2026-11-01），owner 经它调研了四个仓库，这是第一批以主动写入为主的真实样本：
+目标：在统一的记忆架构成形之前，先止住两种生成方式互相改写。这是过渡措施，不代表主动写入优先是更好的选择（owner，2026-11-03）；之后的方向见[统一的交互记忆](./ideas/unified-interaction-memory.md)。DeepSeek Harness 接入后（2026-11-01），owner 经它调研了四个仓库，这是第一批以主动写入为主的真实样本：
 
 - 被动提取从同一份材料里复现了全部主动写入，合并按新旧以被动草稿为骨架改写了它们；
 - 同一轮里 agent 有意分开写的记忆被查重合并；
@@ -140,7 +141,7 @@ last_reviewed: 2026-11-03
 
 owner 决定先做这一组最小优化，更好的记忆生成策略之后再议。证据、离线回放与决定见[收敛 Idea](./ideas/generation-source-convergence.md)。
 
-当前计划是[话题内主动写入优先](./plans/v0.7.3-topic-active-write-precedence.md)：被动草稿不再改写本话题的主动写入。主动写入沿用 agent 的标题、生成任务失败带原因码已有 owner 决定，尚未建立计划，设计在收敛 Idea 第 4.2、4.3 节。
+[话题内主动写入优先](./archive/plans/v0.7.3-topic-active-write-precedence.md)已完成（2026-11-03，PR #176）：被动草稿不再改写本话题的主动写入，同一话题的主动写入之间不再合并。实施前以对照断言清单标注做过离线回放，它能标出复述，但不覆盖后一半，被动提取补回的审计细节也待 owner 判断，owner 决定仍以这一规则作为过渡措施（[统一的交互记忆](./ideas/unified-interaction-memory.md)第 4 节）。主动写入沿用 agent 的标题、生成任务失败带原因码已有 owner 决定，尚未建立计划，设计在收敛 Idea 第 4.2、4.3 节。
 
 版本之外的工作还有本机 HTTP 管理接口证明调用方（[管理接口 Todo](./todo/local-http-management-access.md)）与导入轮次的跨会话落位（[跨会话落位 Todo](./todo/cross-conversation-topic-placement.md)）。
 

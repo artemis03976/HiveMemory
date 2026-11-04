@@ -138,7 +138,7 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 | 口径 | 当前值 | 含义 |
 |:---|:---|:---|
 | 最近已发布基线 | `v0.7.2` | Git tag 创建于 2026-11-01；生成质量：生成材料不再按单轮截断，结算来源覆盖已折叠的轮次；一个话题提取多条记忆；查重命中后先落库再合并；Claude Code 经 MCP 写入与更新记忆 |
-| 下一计划版本 | `v0.7.3` | Planned，以主动写入为主体改进记忆生成，见 [ROADMAP](./ROADMAP.md) 第 4.3 节 |
+| 下一计划版本 | `v0.7.3` | Planned，主动写入与被动提取的收敛（过渡措施），见 [ROADMAP](./ROADMAP.md) 第 4.3 节 |
 | 规范代码版本 | `0.7.2` | 由 `src/hivememory/_version.py` 唯一声明，Python 构建、运行时、HTTP API 与前端包清单保持一致 |
 
 版本号与发布状态是两个不同事实。`pyproject.toml` 通过 setuptools dynamic metadata 读取规范代码版本，FastAPI/OpenAPI 与 `/health` 直接复用运行时版本，前端清单由 CI 一致性检查约束。当前代码和前后端清单为 0.7.2，与最近已发布标签 v0.7.2 对应。版本目标判定与核对记录见 [v0.7.2 收尾审计](./archive/plans/v0.7.2-release-closeout-audit.md)，上一个版本见 [v0.7.1 收尾审计](./archive/plans/v0.7.1-release-closeout-audit.md)。Python PEP 440 与 npm SemVer 对预发布后缀的规范化方式不同，因此当前门禁不发布预发布包；未来若需要 rc/beta，必须先为两种生态补充显式映射和构建产物校验，不能绕过一致性检查。

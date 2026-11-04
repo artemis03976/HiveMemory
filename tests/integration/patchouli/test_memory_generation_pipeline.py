@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 
-from hivememory.config.patchouli import ArtifactConfig
+from hivememory.config.patchouli import ArtifactConfig, DeduplicatorConfig
 from hivememory.core.models import (
     IndexLayer,
     MemoryAtom,
@@ -19,7 +19,13 @@ from hivememory.core.models import (
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, UpdateFocus, WriteFocus
 from hivememory.engines.artifacts.engine import ArtifactEngine
-from hivememory.engines.generation.models import GenerationAction, GenerationOutcome
+from hivememory.engines.generation.deduplicator import MemoryDeduplicator
+from hivememory.engines.generation.engine import MemoryGenerationEngine
+from hivememory.engines.generation.models import (
+    ExtractedMemoryDraft,
+    GenerationAction,
+    GenerationOutcome,
+)
 from hivememory.engines.perception.models import TopicMaterializeTask
 from hivememory.patchouli.contracts.local_events import PatchouliLocalEvents
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -505,3 +511,57 @@ async def test_active_write_lands_in_real_mid_term(memory_library, artifact_engi
     assert published, "应发布 PENDING_ATOM_SETTLED 事件"
     assert published[0]["settlement"].pending_alias == "draft_write"
     assert published[0]["settlement"].canonical_alias == "memory_alias"
+
+
+def _draft(title: str, content: str) -> ExtractedMemoryDraft:
+    return ExtractedMemoryDraft(
+        title=title,
+        summary="summary of the drafted memory",
+        tags=["tag"],
+        memory_type="FACT",
+        content=content,
+        confidence_score=0.9,
+        has_value=True,
+        alias_suffix="drafted",
+    )
+
+
+@pytest.mark.asyncio
+async def test_passive_draft_restating_this_topics_write_does_not_rewrite_it(
+    memory_library, artifact_engine
+):
+    """同一话题先写入、后结算：复述写入的被动草稿被丢弃，不产生合并任务，库中只有写入的那条。"""
+    bus = PatchouliBus()
+    coordinator, controller = _wire_generation_pipeline(bus)
+    await controller.start()
+    extractor = AsyncMock()
+    extractor.extract_write.return_value = _draft("agent title", "what the agent wrote")
+    extractor.extract.return_value = [_draft("restated title", "the agent's write, restated")]
+    engine = MemoryGenerationEngine(
+        mid_term=memory_library.mid_term,
+        extractor=extractor,
+        deduplicator=MemoryDeduplicator(DeduplicatorConfig()),
+    )
+    _wire_generation_familiar(bus, memory_library, engine, artifact_engine)
+    bus.register(PatchouliLocalRoutes.TOPIC_GET, AsyncMock(return_value=_TopicData()))
+    scope = _identity_scope()
+
+    admission = await coordinator.submit_active(
+        _write_task("draft_write"), "topic_1", belong_to=scope.workspace_identity
+    )
+    await controller.wait_task(admission.task.task_id)
+    settle_task = await coordinator.submit_settlement(_settlement_task())
+    await controller.wait_task(settle_task.task_id)
+
+    assert [task.source for task in await controller.list_tasks()] == [
+        MemoryGenerationSource.WRITE,
+        MemoryGenerationSource.SETTLE,
+    ]
+    stored = await memory_library.mid_term.search(
+        scope.workspace_identity,
+        query="any",
+        top_k=10,
+        mode="dense",
+        from_actor=scope.actor_identity,
+    )
+    assert [hit["memory"].payload.content for hit in stored] == ["what the agent wrote"]

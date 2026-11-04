@@ -18,11 +18,11 @@ Idea 以 frontmatter 的 `horizon` 字段分为 `current`、`candidate` 与 `lon
 
 ## 当前版本的设计讨论（`current`）
 
-v0.7.3 以主动写入为主体改进记忆生成（owner，2026-11-03，[ROADMAP](../ROADMAP.md) 第 4.3 节）。
+v0.7.3 是主动写入与被动提取的收敛，作为过渡措施（owner，2026-11-03，[ROADMAP](../ROADMAP.md) 第 4.3 节）。
 
 | Idea | 服务的版本 | 状态 |
 |:---|:---|:---|
-| [主动写入与被动提取的收敛](./generation-source-convergence.md) | v0.7.3 | 2026-11-03 由候选改为当前：以 dsh 的四个调研仓库为证据，Mode A 复现主动写入的全集、合并以被动草稿为骨架、同轮主动写入互相合并、Mode B 丢掉 agent 的标题；owner 决定采用"话题内主动写入优先"（提示词约束的两种做法经离线回放否定）、Mode B 沿用标题、生成任务失败带原因码；当前计划为话题内主动写入优先，另两项尚未建立计划；合并遇到版本冲突时是否重做，等失败原因的数据 |
+| [主动写入与被动提取的收敛](./generation-source-convergence.md) | v0.7.3 | 2026-11-03 由候选改为当前：以 dsh 的四个调研仓库为证据，Mode A 复现主动写入的全集、合并以被动草稿为骨架、同轮主动写入互相合并、Mode B 丢掉 agent 的标题；owner 决定采用"话题内主动写入优先"（提示词约束的两种做法经离线回放否定）、Mode B 沿用标题、生成任务失败带原因码；话题内主动写入优先已于 2026-11-03 完成（过渡措施；对照断言清单标注的回放见统一的交互记忆 Idea），另两项尚未建立计划；合并遇到版本冲突时是否重做，等失败原因的数据 |
 
 已实现、被替代或不再跟踪的 Idea 登记在 [Archived Ideas](../archive/ideas/README.md)。
 
@@ -30,6 +30,7 @@ v0.7.3 以主动写入为主体改进记忆生成（owner，2026-11-03，[ROADMA
 
 | Idea | 当前已经具备的基础 | 仍需验证的核心问题 |
 |:---|:---|:---|
+| [统一的交互记忆：轨迹、断言与整理](./unified-interaction-memory.md) | 轨迹层（话题路由、轮次事件、全交互轨迹保存）与唯一写入者原则已落地；2026-11-03 登记 owner 的出发点与消费水位设想，对照断言清单标注做过离线回放（41 条复述标对 38 条） | 第一当事人"没写"算不算判断（被动提取会补回 agent 有意精简的审计细节）；第一当事人的断言何时成为正式记忆；断言的归属与证据位置怎样落到数据模型 |
 | [外部 Actor 的接入登记与运行时访问](./external-actor-registration-and-runtime-access.md) | 两类接入登记、统一认证网关（外部 principal 以接入凭据证明）、Import Bus 与 Claude Code 插件：plugin 模式的对话回流、MCP 检索、读取、写入与更新，写入时就地落位 | plugin 模式的 Claude Code 接入（v0.7.1）与写入、更新（v0.7.2）已实施，2026-11-01 随 v0.7.2 收尾由 `current` 改为候选；仍开放的是 controller 模式（候选方向，不绑定版本）与 E-1 等其余问题；第二个 harness 以 dsh 原生插件接入（2026-11-01，[归档计划](../archive/plans/dsh-plugin-integration.md)） |
 | [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md) | Topic 按顺序保存全部交互记录与折叠记录；结算冻结全部记录，来源 InteractionArtifact 覆盖已折叠的轮次 | 从 Topic 往后的部分已随 v0.7.2 实施，2026-11-01 随收尾由 `current` 改为候选；交到 Topic 之前的环节（Session 原文与交接）与第 7 节的保存承诺仍开放，会话持久化另行计划 |
 | [执行环境](./execution-environment.md) | Alice 是唯一的执行环境；CPU 端口与中立输入清单已落地，当前事实见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；2026-10-19 由《执行单元、执行线程与执行环境》改名，执行线程部分以[执行线程 Idea](../archive/ideas/execution-thread-definition.md)为准，跨 Workspace 目标（T-5b）移入身份 Idea | controller 模式退回候选方向后随之改为候选（2026-10-20）：agent 与执行环境分别选择（前提 9、10）；组合的有效性（T-7）、选择的承载与系统层级控制（T-8）、CPU 输出与会话历史的词汇归属（T-10）、harness 自身工具的权限应答与工作目录（T-11） |

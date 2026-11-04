@@ -295,6 +295,79 @@ class TestMemoryGenerationTaskController:
         _assert_runtime_event_task_payload(recorder.events[-1], completed)
 
     @pytest.mark.asyncio
+    async def test_topic_write_memories_reach_later_write_and_settle_of_that_topic(self):
+        """主动写入结算到的记忆记入任务话题：之后同一话题的 WRITE 执行时带上、不清除，
+        SETTLE 执行时带上并清除；其他话题与 UPDATE 不读取这个话题的记录。"""
+
+        def written(label, memory_id, resolution=PendingAtomResolution.CREATED):
+            return [
+                MemoryGenerationResult(
+                    canonical_alias=f"fact_{label}",
+                    settlement=PendingAtomSettlement(
+                        pending_alias=label,
+                        intent_id=f"intent_{label}",
+                        resolution=resolution,
+                        canonical_alias=f"fact_{label}",
+                        canonical_uuid=memory_id,
+                    ),
+                )
+            ]
+
+        replies = {
+            "w1": written("w1", "m1"),
+            "u1": written("u1", "m2", PendingAtomResolution.UPDATED),
+            "wb": written("wb", "mb"),
+            "w2": written("w2", "m3"),
+        }
+        seen = []
+
+        async def request(route, spec):
+            seen.append((spec.label, spec.request.topic_write_memory_ids))
+            return replies.get(spec.label, [])
+
+        bus = Mock()
+        bus.request = AsyncMock(side_effect=request)
+        bus.publish = AsyncMock()
+        controller = MemoryGenerationTaskController(bus=bus)
+        await controller.start()
+
+        write, update, settle = (
+            MemoryGenerationSource.WRITE,
+            MemoryGenerationSource.UPDATE,
+            MemoryGenerationSource.SETTLE,
+        )
+        for topic_id, label, source in [
+            ("topic_a", "w1", write),
+            ("topic_a", "u1", update),
+            ("topic_b", "wb", write),
+            ("topic_a", "w2", write),
+            ("topic_a", "settle_a", settle),
+            ("topic_a", "settle_a_again", settle),
+            ("topic_b", "settle_b", settle),
+        ]:
+            intent = (f"intent_{label}", label) if source != settle else (None, None)
+            memory_task = await controller.submit_generation(
+                _spec(
+                    topic_id=topic_id,
+                    label=label,
+                    source=source,
+                    intent_id=intent[0],
+                    pending_alias=intent[1],
+                )
+            )
+            await controller.wait_task(memory_task.task_id)
+
+        assert seen == [
+            ("w1", frozenset()),
+            ("u1", frozenset()),
+            ("wb", frozenset()),
+            ("w2", frozenset({"m1", "m2"})),
+            ("settle_a", frozenset({"m1", "m2", "m3"})),
+            ("settle_a_again", frozenset()),
+            ("settle_b", frozenset({"mb"})),
+        ]
+
+    @pytest.mark.asyncio
     async def test_cancel_task_via_registry_cancels_background_task(self):
         started = asyncio.Event()
         released = asyncio.Event()
