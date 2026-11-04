@@ -118,7 +118,7 @@ Extractor 区分以下结果：
 - **输出被截断**：输出达到 `max_tokens` 上限时抛出 `ModelProviderError`，不重试，因为同一请求会再次截断。截断的列表无法解析，若当作没有产出，整段话题不留记忆而任务成功结束。
 - **提供商失败**：只重试一次，耗尽后抛出 `ModelProviderError`。
 
-Mode A 不捕获 `ModelProviderError`，生成任务以 `memory_generation_failed` 失败收尾，不再把提供商故障或截断记录成“对话没有价值”。超窗、程序错误与取消不重试，原样传播；分类见[错误模型](../contracts/error-model.md#46-模型调用错误)。
+Mode A 不捕获 `ModelProviderError`，生成任务以 `model_provider_failed`（超窗为 `model_context_window_exceeded`）失败收尾（第 6.1 节），不再把提供商故障或截断记录成“对话没有价值”。超窗、程序错误与取消不重试，原样传播；分类见[错误模型](../contracts/error-model.md#46-模型调用错误)。
 
 Mode A 的“被动”指没有显式 WRITE/UPDATE focus，而不是同步发生在用户响应内，也与 Import Bus 无关：导入的轮次与主动链路的轮次一样进入话题，之后经 settle 参与 Mode A。它仍作为 Patchouli 后台 memory task 执行。
 
@@ -265,6 +265,23 @@ WaitResult/WaitSummary。等待使用 `asyncio.shield`，超时返回当前 `PEN
 
 PendingAtom settlement 只更新意图状态，不回填 canonical 缓存。中期 Store 的独立变更事件负责原子、alias 与 Profile 派生项失效，所有正式记忆重新读取都经过当前授权；两种事件的作用见[MemoryLibrary](./memory-library.md#12-中期当前可检索书库)。
 
+### 6.1 失败原因码
+
+生成 lane 固定单次尝试，失败分类（`MemoryGenerationHandler.classify_failure`）只决定原因码，不驱动重试或业务判断。按异常自上而下判断：
+
+| 异常 | 原因码 |
+|:---|:---|
+| `MemoryMergeAbortedError` | `merge_aborted.<details 中的 reason>`，即 `memory_missing`、`not_mergeable`、`version_changed` 或 `model_output_invalid`（第 4.1 节） |
+| `ModelContextWindowExceededError` | `model_context_window_exceeded` |
+| `ModelProviderError` | `model_provider_failed` |
+| `TimeoutError` | `memory_generation_timed_out`：生成 lane 的时限（`patchouli.generation.queue_timeout_seconds`，默认 300 秒）到期，或数据面内部抛出的超时 |
+| 其他领域错误（`DomainError`） | 该错误的 `code` |
+| 其他异常 | `memory_generation_failed` |
+
+超窗是提供商失败的子类，先于它判断。原因码写入工作记录，由 `work.failed` 投影；Controller 发布 `memory.task.failed` 时 `reason` 取工作记录中的原因码，载荷的 `error_class` 为异常类名，取消终态的 `reason` 仍是取消原因。payload 解码失败与分类器自身出错不经过这张表，原因分别为 `invalid_work_payload` 与 `failure_classifier_error`。
+
+同一次失败只在分类处记一行 error 日志：`work_id`（`memory_generation:<task_id>`）、原因码与异常类名；领域错误另记 `details`，未预期的异常带堆栈，提供商失败与超时不带堆栈（提取器重试前已以 warning 记录第一次失败的原因）。日志不带话题与来源，它们在同一任务的 `memory.task.failed` 中，按 `task_id` 在运行时事件记录文件里对应（[可观测性](../components/observability.md#51-事件记录文件)第 5.1 节）。任务快照与任务 API 不变，公开 `error` 仍是固定说明；写入意图的失败结算不带原因。分类与日志由生成队列的单元测试覆盖，原因码到 `work.failed` 与 `memory.task.failed` 的传递由控制器的单元测试覆盖。
+
 ## 7. 实时派发与交互 finalize
 
 主动写入与交互提交分别执行：
@@ -300,7 +317,7 @@ Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任
 - memory work、typed result 与终态快照只存在于当前进程，重启后不可恢复；持久化与恢复边界见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)；
 - 终态快照与 Queue 使用同一 `terminal_retention` 上限；
 - Controller 的 admission 持有同一把锁串行执行，并发提交的意图按取得锁的顺序入队；
-- 提取、修订与合并的 LLM 调用没有独立超时，提供商长时间无响应时任务一直等待，只受取消与 shutdown drain 约束；
+- 提取、修订与合并的 LLM 调用没有独立超时，只受生成 lane 的时限（默认 300 秒，到期以 `memory_generation_timed_out` 失败）、取消与 shutdown drain 约束；
 - 后台抽取与 chat 共用提供商配额，限流表现为提供商失败：Mode A 与合并任务按任务失败收尾（合并失败时两条记忆都保留），Mode B/C 使用 fallback；当前没有生成侧的并发控制；
 - Mode A/B 去重仍只取 dense top-1；检索调用链独立携带归属与发起者，Memory store/adapter 先强制 Workspace ownership hard filter，再重验 actor policy；其他去重策略限制仍待收敛；
 - 查重只按 dense top-1 余弦与固定阈值判断，分不开同一工作与同项目的其他记忆：误判的两条无关记忆也会被合并，只能经版本记录与人工编辑纠正；判定信号的证据与后续见[查重决策信号 Todo](../todo/generation-dedup-decision-signal.md)；

@@ -228,6 +228,7 @@ Alice CPU 端口的交互输出与 `/runtime-events/stream` 是两条独立通�
 | Gateway step 的 `data.fallback_reason` | `request_deadline_exceeded`、`step_timeout` 或 `dependency_unavailable`；无 fallback 为 None |
 | 查询分析 capability 的 `data.error` | 失败为 `query_understanding_failed`，成功为 None |
 | Work Queue 接纳观测的 `reason` | `unknown_lane`、`runtime_stopped`、`unknown_payload_codec`、`capacity_rejected`、`duplicate_work_item`；未确认接纳为 `admission_unknown` |
+| 生成 lane 的 `work.failed.reason` 与 `memory.task.failed.reason` | `merge_aborted.<memory_missing、not_mergeable、version_changed 或 model_output_invalid>`、`model_context_window_exceeded`、`model_provider_failed`、`memory_generation_timed_out`、其他领域错误的 `code`，其余为 `memory_generation_failed`（[Patchouli 生成](../patchouli/generation.md#61-失败原因码)第 6.1 节）；`memory.task.failed` 的 `data.error_class` 为异常类名，取消终态的 `reason` 为取消原因 |
 | `maintenance.task.failed.reason` | `maintenance_task_failed`；`data.error_class` 为维护回调抛出的异常类名，堆栈由调度器写入日志 |
 | `system.start_failed.reason` / `system.stop_failed.reason` | `start_step_failed` / `stop_step_failed`；`data.failed_step` 为第一个未完成的步骤，`data.error_class` 为异常类名 |
 | `subsystem.operation.failed.reason` | `operation_failed`；`data.error_class` 为异常类名，异常由操作观测重新抛出 |

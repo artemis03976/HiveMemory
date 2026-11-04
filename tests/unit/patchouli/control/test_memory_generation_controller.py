@@ -8,6 +8,7 @@ import pytest
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueStoppedError
 from hivememory.core.contracts.runtime_events import RuntimeEventType
+from hivememory.core.errors import MemoryMergeAbortedError
 from hivememory.core.models import PendingAtomResolution, PendingAtomSettlement
 from hivememory.engines.generation.models import (
     GenerationContext,
@@ -246,6 +247,43 @@ class TestMemoryGenerationTaskController:
 
         assert failed.status == MemoryGenerationTaskStatus.FAILED
         assert failed.error == "记忆生成失败，请检查服务状态"
+
+    @pytest.mark.asyncio
+    async def test_failed_task_events_carry_the_work_record_reason_code(self):
+        """工作记录、work.failed 与 memory.task.failed 带同一个原因码，任务事件载荷带异常类名。"""
+        recorder = RecordingRuntimeEventSink()
+        bus = Mock()
+        bus.request = AsyncMock(
+            side_effect=MemoryMergeAbortedError(
+                details={"reason": "version_changed", "memory_id": "m1"}
+            )
+        )
+        bus.publish = AsyncMock()
+        controller = MemoryGenerationTaskController(bus=bus, runtime_events=recorder)
+        await controller.start()
+
+        memory_task = await controller.submit_generation(_spec())
+        await controller.wait_task(memory_task.task_id)
+        record = await controller.queue.get(controller.queue.work_id_for(memory_task.task_id))
+
+        reason = "merge_aborted.version_changed"
+        assert record.last_error.message == reason
+        (work_failed,) = [
+            e for e in recorder.events if e.event_type == RuntimeEventType.WORK_FAILED
+        ]
+        (task_failed,) = [
+            e for e in recorder.events if e.event_type == RuntimeEventType.MEMORY_TASK_FAILED
+        ]
+        assert work_failed.reason == reason
+        assert (
+            task_failed.reason,
+            task_failed.data["reason"],
+            task_failed.data["error_class"],
+        ) == (
+            reason,
+            reason,
+            "MemoryMergeAbortedError",
+        )
 
     @pytest.mark.asyncio
     async def test_active_success_publishes_settlement_and_runtime_events(self):

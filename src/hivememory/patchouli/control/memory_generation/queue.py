@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 
@@ -21,6 +22,12 @@ from hivememory.components.work_queue import (
     WorkQueueShutdownSummary,
     adapt_queue_task,
 )
+from hivememory.core.errors import (
+    DomainError,
+    MemoryMergeAbortedError,
+    ModelContextWindowExceededError,
+    ModelProviderError,
+)
 from hivememory.core.models import (
     ActorIdentity,
     LogicalBlock,
@@ -37,6 +44,8 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTaskSpec,
 )
+
+logger = logging.getLogger(__name__)
 
 MemoryGenerationResults = tuple[MemoryGenerationResult, ...]
 ExecuteGeneration = Callable[
@@ -304,6 +313,25 @@ class MemoryGenerationHandle(TaskHandle[MemoryGenerationResults]):
         return self._payload_bytes == payload_bytes
 
 
+def memory_generation_failure_reason(error: Exception) -> str:
+    """把生成数据面抛出的异常映射为稳定原因码，只用于观测与诊断，不驱动重试。
+
+    超窗是提供商失败的子类，必须先于它判断。合并中止的拒绝原因在 ``details``
+    中，各抛出点都带 ``reason``；缺少时这里抛错，由运行时按分类器失败收尾。
+    """
+    if isinstance(error, MemoryMergeAbortedError):
+        return f"merge_aborted.{error.details['reason']}"
+    if isinstance(error, ModelContextWindowExceededError):
+        return "model_context_window_exceeded"
+    if isinstance(error, ModelProviderError):
+        return "model_provider_failed"
+    if isinstance(error, TimeoutError):
+        return "memory_generation_timed_out"
+    if isinstance(error, DomainError):
+        return error.code
+    return "memory_generation_failed"
+
+
 class MemoryGenerationHandler(WorkHandlerPort[_MemoryGenerationWork, str]):
     """将单次队列执行尝试适配到现有的记忆生成数据面。
 
@@ -342,15 +370,26 @@ class MemoryGenerationHandler(WorkHandlerPort[_MemoryGenerationWork, str]):
         error: Exception,
         context: WorkExecutionContext,
     ) -> FailureDecision:
-        """记录失败，并禁止自动重放整条记忆生成数据面。"""
+        """按异常给出原因码并记录失败，禁止自动重放整条记忆生成数据面。
+
+        这里是持有原始异常的一层，同一次失败只在这里记日志：领域错误记 ``details``，
+        提供商失败与超时由原因码说明，其余异常带堆栈。
+        """
 
         handle = self._handles.get(context.work_id)
         if handle is not None:
             handle._record_execution_error(error)
-        return FailureDecision(
-            action=FailureAction.FAIL,
-            reason="memory_generation_failed",
+        reason = memory_generation_failure_reason(error)
+        expected = isinstance(error, DomainError | ModelProviderError | TimeoutError)
+        logger.error(
+            "Memory generation failed: work_id=%s, reason=%s, error_class=%s, details=%s",
+            context.work_id,
+            reason,
+            type(error).__name__,
+            error.details if isinstance(error, DomainError) else None,
+            exc_info=None if expected else error,
         )
+        return FailureDecision(action=FailureAction.FAIL, reason=reason)
 
 
 class MemoryGenerationQueue:
@@ -501,4 +540,5 @@ __all__ = [
     "MemoryGenerationQueue",
     "MemoryGenerationResults",
     "TaskOutcome",
+    "memory_generation_failure_reason",
 ]
