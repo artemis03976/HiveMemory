@@ -167,6 +167,9 @@ class MemoryGenerationEngine:
 
         模型判断无价值或输出无法解析时没有产出；提取器的提供商失败（含输出
         被截断）向上传播，由生成任务按失败收尾，不被记录为没有产出。
+
+        查重命中本话题主动写入结算到的记忆时丢弃草稿：被动提取会从同一份材料
+        里重新推导出 agent 已经写入的内容，并入后会以较新的被动草稿为骨架改写它。
         """
         logger.info("[Mode A] 开始处理...")
 
@@ -192,6 +195,7 @@ class MemoryGenerationEngine:
                 from_actor=from_actor,
                 now=now,
                 taken_aliases=taken_aliases,
+                dropped_on_hit=request.topic_write_memory_ids,
             )
             outcomes.extend(resolved)
             taken_aliases.update(
@@ -216,6 +220,9 @@ class MemoryGenerationEngine:
         Agent 明确要求保存，以 WriteFocus 为核心，对话历史为背景。
         包含 fallback 机制：提供商失败或输出无法解析时直接从 WriteFocus 构建
         草稿，明确的保存意图不因 Librarian LLM 暂时失败而丢失；程序错误不降级。
+
+        相似命中本话题其他主动写入结算到的记忆时照常新建、不提名合并：同一话题里
+        agent 分开写的记忆是有意分开的。
         """
         logger.info(f"[Mode B] WRITE 主动响应: content='{focus.content[:50]}...'")
 
@@ -243,6 +250,7 @@ class MemoryGenerationEngine:
             provenance_from_actor(from_actor, request.context),
             from_actor=from_actor,
             now=now,
+            kept_apart_from=request.topic_write_memory_ids,
         )
 
     def _build_fallback_draft(self, focus: WriteFocus) -> ExtractedMemoryDraft:
@@ -462,6 +470,8 @@ class MemoryGenerationEngine:
         from_actor: ActorIdentity,
         now: datetime,
         taken_aliases: Collection[str] = (),
+        dropped_on_hit: Collection[str] = (),
+        kept_apart_from: Collection[str] = (),
     ) -> list[GenerationOutcome]:
         """
         查重 → 新建、触碰或提名合并 (Mode A/B 共用)
@@ -471,6 +481,10 @@ class MemoryGenerationEngine:
             belong_to: 已验证的 Workspace ownership 来源
             provenance: 本次生成的来源裁定（操作来源主体与内容贡献者）
             taken_aliases: 同一批中已分配、尚未落库的别名，新建时视为已占用
+            dropped_on_hit: 记忆 ID；查重为 IDENTICAL 或 SIMILAR 且命中其中一条时
+                丢弃草稿，不新建、不触碰、不提名合并
+            kept_apart_from: 记忆 ID；查重为 SIMILAR 且命中其中一条时照常新建，
+                但不提名合并
         """
         # 已有记忆的稠密向量由 DENSE_EMBEDDING 编译文本编码；查询用同一目标编译草稿，
         # 两边文本形态一致，内容相同的草稿才能达到 IDENTICAL 的相似度。别名不进入
@@ -489,6 +503,19 @@ class MemoryGenerationEngine:
         )
 
         decision, existing_memory = self.deduplicator.check_duplicate(draft, candidates)
+
+        if (
+            decision in (DuplicateDecision.IDENTICAL, DuplicateDecision.SIMILAR)
+            and existing_memory is not None
+            and str(existing_memory.id) in dropped_on_hit
+        ):
+            logger.info(
+                "草稿命中本话题主动写入结算到的记忆，丢弃: memory_id=%s, decision=%s, score=%.3f",
+                existing_memory.id,
+                decision.value,
+                candidates[0]["score"],
+            )
+            return []
 
         # IDENTICAL/SIMILAR 由查重器保证携带命中的已有记忆。
         if decision == DuplicateDecision.IDENTICAL:
@@ -517,7 +544,8 @@ class MemoryGenerationEngine:
         memory = self._draft_to_memory(draft, belong_to, provenance, alias=alias, now=now)
 
         # 相似时也先保留独立的新记忆；策略不同或任一方是 Profile 时不提名合并，
-        # 避免扩大可见范围或覆盖承载结构化配置的 Profile。
+        # 避免扩大可见范围或覆盖承载结构化配置的 Profile；命中 kept_apart_from
+        # 中的记忆时也不提名。
         merge_target_id = None
         if decision == DuplicateDecision.SIMILAR:
             existing_memory = _require_matched_memory(decision, existing_memory)
@@ -525,6 +553,7 @@ class MemoryGenerationEngine:
                 existing_memory.meta.access_policy == memory.meta.access_policy
                 and existing_memory.index.memory_type != MemoryType.AGENT_PROFILE
                 and memory.index.memory_type != MemoryType.AGENT_PROFILE
+                and str(existing_memory.id) not in kept_apart_from
             ):
                 merge_target_id = str(existing_memory.id)
 

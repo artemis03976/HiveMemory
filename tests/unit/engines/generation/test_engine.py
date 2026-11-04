@@ -6,7 +6,8 @@ MemoryGenerationEngine 单元测试
 - Mode A: 多条草稿逐条查重 / 无价值草稿丢弃 / 没有草稿 / 同批别名不冲突
 - Mode B: 正常 WRITE / LLM 失败 fallback
 - Mode C: 正常 UPDATE / existing_memory=None / LLM 修订失败 fallback
-- 查重分支: IDENTICAL / SIMILAR / DISTINCT
+- 查重分支: IDENTICAL / SIMILAR / DISTINCT；命中本话题主动写入结算到的记忆时 Mode A 丢弃、
+  Mode B 不提名合并
 - 纯计算边界: 引擎不改 version/updated_at/decay anchor/confidence，CREATE 用传入 now 打戳；
   多轮修订的 before 快照互不污染
 """
@@ -372,6 +373,39 @@ class TestGenerationEngineModeA:
             (GenerationAction.CREATE, "进展", "fact_same_topic_2"),
         ]
         assert [o.merge_target_id for o in result] == [None, str(existing.id)]
+
+    @pytest.mark.asyncio
+    async def test_mode_a_drops_drafts_hitting_this_topics_written_memories(self):
+        """命中本话题主动写入结算到的记忆时，相似或相同都丢弃草稿：不新建、不触碰、
+        不提名合并；命中其他记忆的草稿照常新建并提名合并。"""
+        written_similar = _make_memory(alias="fact_written_one")
+        written_identical = _make_memory(alias="fact_written_two")
+        other = _make_memory(alias="fact_other")
+        self.mock_extractor.extract.return_value = [
+            _make_draft(title="复述一", alias_suffix="restated_one"),
+            _make_draft(title="复述二", alias_suffix="restated_two"),
+            _make_draft(title="新发现", alias_suffix="new_finding"),
+        ]
+        self.mock_storage.search = AsyncMock(return_value=[{"memory": other, "score": 0.8}])
+        self.mock_deduplicator.check_duplicate.side_effect = [
+            (DuplicateDecision.SIMILAR, written_similar),
+            (DuplicateDecision.IDENTICAL, written_identical),
+            (DuplicateDecision.SIMILAR, other),
+        ]
+
+        request = GenerationRequest(
+            context=_make_context_from_messages(_make_messages()),
+            topic_write_memory_ids=frozenset({str(written_similar.id), str(written_identical.id)}),
+        )
+        result = await self.engine.process(
+            request,
+            belong_to=make_memory_identity_scope().workspace_identity,
+            from_actor=make_memory_identity_scope().actor_identity,
+        )
+
+        assert [(o.action, o.atom.index.title, o.merge_target_id) for o in result] == [
+            (GenerationAction.CREATE, "新发现", str(other.id))
+        ]
 
     @pytest.mark.asyncio
     async def test_mode_a_extract_no_value(self):
@@ -855,9 +889,12 @@ class TestGenerationEngineDedup:
         assert existing.meta.updated_at == updated_at_before
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("restriction", [None, "policy", "retained_profile", "new_profile"])
+    @pytest.mark.parametrize(
+        "restriction", [None, "policy", "retained_profile", "new_profile", "topic_write"]
+    )
     async def test_dedup_merge_creates_before_nominating(self, restriction):
-        """查重先创建独立记忆；只有策略相同且双方都不是 Profile 时才提名。"""
+        """查重先创建独立记忆；只有策略相同、双方都不是 Profile，且命中的不是本话题
+        主动写入结算到的记忆时才提名。"""
         existing = _make_memory(alias="fact_existing")
         existing.payload.artifacts.refs.append(
             ArtifactRef(
@@ -875,13 +912,19 @@ class TestGenerationEngineDedup:
             existing.index.memory_type = MemoryType.AGENT_PROFILE
         elif restriction == "new_profile":
             draft.memory_type = "AGENT_PROFILE"
+        topic_writes = (
+            frozenset({str(existing.id)}) if restriction == "topic_write" else frozenset()
+        )
         before = existing.model_copy(deep=True)
         self.mock_extractor.extract_write.return_value = draft
         self.mock_deduplicator.check_duplicate.return_value = (DuplicateDecision.SIMILAR, existing)
         identity = make_memory_identity_scope()
 
         result = await self.engine.process(
-            GenerationRequest(write_focus=WriteFocus(content=draft.content)),
+            GenerationRequest(
+                write_focus=WriteFocus(content=draft.content),
+                topic_write_memory_ids=topic_writes,
+            ),
             belong_to=identity.workspace_identity,
             from_actor=identity.actor_identity,
             now=FIXED_NOW,

@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-02
+last_reviewed: 2026-11-03
 ---
 
 # 记忆生成
@@ -108,7 +108,7 @@ Mode B/C 的背景同样经这个构建器生成。三种模式的提取提示�
 
 GenerationEngine 渲染 transcript，调用 extractor 的话题提取（`extract`）。一段话题常包含多项彼此独立的决定、事实与经验，而检索向量只由标题、类型、标签与摘要编译，压进同一条记忆的次要内容只留在正文里，检索不到；因此模型一次输出一组记忆草稿（`ExtractionResult`），每件之后会被单独查找的事写成一条：一项决定及其理由、一个事实或配置、一个已解决的问题及其解法、一条偏好或经验、一项工作的当前状态。提示词同时要求同一件事的背景、过程与结论不拆开，顺带提及、没有结论的内容不单独成条，也不为凑数拆分；整段没有值得保存的内容时输出空列表。
 
-`has_value=false` 的草稿被丢弃，没有草稿时不产生记忆。其余草稿按输出顺序逐条查重，各自产出一条结果（第 4 节）。
+`has_value=false` 的草稿被丢弃，没有草稿时不产生记忆。其余草稿按输出顺序逐条查重，各自产出一条结果（第 4 节）；查重命中本话题主动写入结算到的记忆时，草稿被丢弃（第 4.2 节）。
 
 Extractor 经组合根注入的共享 LLM 服务异步调用模型，请求参数由 `patchouli.llm` 经模型注册表解析得到，等待模型期间不阻塞事件循环；Librarian 未配置模型时 extractor 以 No-Op 运行。一段话题的全部草稿共用一次调用的输出上限，Librarian 的 `max_tokens` 默认为 32768。
 
@@ -134,7 +134,7 @@ WRITE 经操作请求进入 workspace 能力层，在共享 `WriteIntentRegistry
 
 Coordinator 使用话题的 `state_summary` 与过去 N 个 block 作为背景，以 `WriteFocus` 为保存核心。N 由 `patchouli.generation.active_recent_blocks` 配置（默认 5，允许 0），与感知折叠保留轮数无关。派发发生在交互封口前，当前轮不进入背景；新话题为空时只依赖 focus。plugin 模式下同样如此：落位预建的新话题在派发时为空，落到已有话题时背景是该话题此前回流的几轮。话题不存在时按空材料生成，话题读取抛错时因尚无任务入队，逐项结算 FAILED 并拒绝。
 
-Extractor 遇到提供商失败（重试耗尽）或输出无法解析时，Mode B 会直接从 WriteFocus 构建 fallback draft，保证明确保存意图不会因为 Librarian LLM 暂时失败而无声丢失；程序错误不进入 fallback，任务按失败收尾。Fallback 仍要经过查重，因而最终可能新建、只触碰已有记忆，或新建后被合并进已有记忆；ACK 从未承诺“一定保留为一条独立记忆”。
+Extractor 遇到提供商失败（重试耗尽）或输出无法解析时，Mode B 会直接从 WriteFocus 构建 fallback draft，保证明确保存意图不会因为 Librarian LLM 暂时失败而无声丢失；程序错误不进入 fallback，任务按失败收尾。Fallback 仍要经过查重，因而最终可能新建、只触碰已有记忆，或新建后被合并进已有记忆；ACK 从未承诺“一定保留为一条独立记忆”。相似命中本话题其他主动写入结算到的记忆时照常新建、不提名合并（第 4.2 节）。
 
 ### 3.3 Mode C：主动 UPDATE
 
@@ -163,7 +163,7 @@ Mode A 的每条草稿与 Mode B 的草稿都按 MemoryCompiler 的 `DENSE_EMBED
 
 查重命中后不改写已有记忆。早先的实现用草稿整体覆盖命中的记忆：同一项目的记忆增多后，同一工作的前后阶段被空闲结算拆到不同话题，后一阶段的草稿连续覆盖前一阶段的记忆，最初的设计决定只剩在版本记录里。现在命中时先把草稿保存为独立的新记忆，再由生成队列中的合并任务把两条记忆融合为一条。草稿先落库，因此关闭、队列拒绝或合并失败最多留下两条相似的记忆，不会丢失内容。合并不复用 Mode C：Mode C 的输入是一条记忆加修改指令与新材料，合并的输入是两条地位对等的正式记忆。
 
-合并条件是 M 与 N 的访问策略相同，且两者都不是 `AGENT_PROFILE`。策略不同的两条记忆合并后会改变一方的可见范围；Profile 承载结构化配置，不能交给模型融合。生成的记忆都是 PUBLIC，策略不同只会出现在经管理入口改过策略的记忆上。不满足条件时 N 是一条普通的新记忆。
+合并条件是 M 与 N 的访问策略相同，两者都不是 `AGENT_PROFILE`，且对 WRITE 而言 M 不是本话题主动写入结算到的记忆（第 4.2 节）。策略不同的两条记忆合并后会改变一方的可见范围；Profile 承载结构化配置，不能交给模型融合。生成的记忆都是 PUBLIC，策略不同只会出现在经管理入口改过策略的记忆上。不满足条件时 N 是一条普通的新记忆。
 
 ### 4.1 合并任务
 
@@ -182,6 +182,18 @@ Familiar 的合并路径：
 以下情况以 `MemoryMergeAbortedError`（`workspace.memory.merge_aborted`）让任务失败，两条记忆都不变，不回退为追加或覆盖：任一记忆缺失或不可见（`memory_missing`）、合并条件不满足（`not_mergeable`）、写回前版本已变（`version_changed`）、模型输出为空、无法解析或把类型改为 Profile（`model_output_invalid`）。提供商失败重试一次后原样传播 `ModelProviderError`。版本检查与写回之间没有原子保证，与 alias 唯一性的“检查→写入”相同。
 
 Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前缀和 extractor 给出的 suffix 构造候选，例如 `code_* / fact_* / url_* / ref_* / user_* / wip_* / agent_*`；suffix 清洗后为空时改由 title 派生，仍为空则该记忆没有 alias。候选先经中期库确认在同一 Workspace 内空闲，被占用时依次追加 `_2`、`_3`…… 消歧后缀重试，全部被占用时抛 `MemoryAliasConflictError`（`reason=alias_candidates_exhausted`）。同一次结算的多条草稿全部算完之后才由 Familiar 依次落库，中期库查不到本批已分配的 alias，因此引擎把它们作为已占用传给后续草稿，后缀相同的草稿得到消歧后缀。生成侧只负责让正常路径避开冲突；同一 Workspace 内 alias 唯一的不变量由中期库写入前校验兜底，见 [MemoryLibrary](./memory-library.md)第 1.2 节。Pending alias 只在 Alice 运行期定位候选意图；settlement 后的 canonical alias 才属于正式 MemoryAtom。
+
+### 4.2 本话题的主动写入
+
+查重与合并本身不区分来源。只按相似度判断时，被动提取会从同一份材料里重新推导出 agent 已经写入的内容，判为相似后并入；合并按新旧定主次，较新的被动草稿成为骨架，把 agent 有意精简掉的风险清单、行号与未决问题带回记忆。同一轮里 agent 有意分开写的几条记忆，也会因相似度越过阈值而互相合并。证据与考虑过的做法见[收敛 Idea](../ideas/generation-source-convergence.md)第 2、3 节。因此同一话题内，主动写入结算到的记忆优先：
+
+- **记录**：控制器在进程内按话题记录本话题主动写入结算到的正式记忆，即 WRITE、UPDATE 的结算目标，以及吸收了写入新建记忆的合并所保留的那条。带 settlement 的结果只来自主动写入链路，数据面返回后即记下。
+- **传递**：WRITE 与 SETTLE 执行时，控制器把该话题当前的记录放进生成请求（`GenerationRequest.topic_write_memory_ids`）；SETTLE 取出后清除这个话题的记录，话题结算之后不再接收写入。读取发生在执行时而不是接纳时：同一话题先后派发的写入，前一条完成后，后一条执行时才能看到它。
+- **Mode A**：草稿查重为 IDENTICAL 或 SIMILAR、且命中记录中的记忆时丢弃，不新建、不触碰、不提名合并，只记一行日志。一段话题的草稿全部被丢弃时任务照常成功，没有新记忆，来源 InteractionArtifact 照常保存。被动提取照常运行，写入没有覆盖的事实照常进入记忆。
+- **Mode B**：SIMILAR 命中记录中的记忆时照常新建、不提名合并；IDENTICAL 照常只触碰，同一轮写了两次相同的内容时触碰仍然正确。
+- **不变的部分**：跨话题的查重、合并提名与合并语义不变；Mode C 不查重，不受影响；结算事件、任务快照与任务 API 不变。
+
+这一规则按话题判定，不知道一条被动草稿复述的是哪一次写入；两种生成方式在同一套架构中的整理方向见[统一的交互记忆 Idea](../ideas/unified-interaction-memory.md)。引擎的丢弃与不提名、控制器的记录与传递分别由引擎与控制器的单元测试覆盖，"先写入、后结算时复述写入的草稿不产生合并、库中只有写入的那条"由[生成流水线集成测试](../../tests/integration/patchouli/test_memory_generation_pipeline.py)验证。
 
 ## 5. Artifact 与持久化顺序
 
@@ -275,7 +287,7 @@ Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任
 
 这条解耦边界是对旧链路实际问题的回应。旧实现曾把 MTP WRITE/UPDATE 当作话题结算理由，执行 `archive + compact + clear`：连续两次 WRITE 时，第二次只能看到已经被压扁的 summary；每次主动写还会额外触发一次 summary，使原始细节在明确保存意图下反复丢失。当前实现直接使用 topic 最近 context，并以 `WriteFocus`/`UpdateFocus` 驱动 Mode B/C；主动生成与被动归档保持两条正交流，主动写入后的 blocks 仍可在之后进入 Mode A。
 
-这并不保证主动写出的正文与被动归档结果完全不重复。重复是当前可接受的成本，由查重决定新建、只触碰已有记忆，或新建后合并进已有记忆；为了消除重复，不能重新让 Perception 感知 focus 或 pending 状态，否则会把控制意图污染为对话事实。当前每个主动 task 也会独立捕获 `InteractionArtifact`，因此 provenance 可能重复，这是已知的可追踪性成本，而不是重新合并任务输入的理由。
+这并不保证主动写出的正文与被动归档结果完全不重复。同一话题内复述主动写入的被动草稿由查重丢弃（第 4.2 节）；跨话题或相似度不高于下限的重复是当前可接受的成本，由查重决定新建、只触碰已有记忆，或新建后合并进已有记忆；为了消除重复，不能重新让 Perception 感知 focus 或 pending 状态，否则会把控制意图污染为对话事实。当前每个主动 task 也会独立捕获 `InteractionArtifact`，因此 provenance 可能重复，这是已知的可追踪性成本，而不是重新合并任务输入的理由。
 
 ## 8. 当前限制
 
@@ -296,6 +308,9 @@ Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任
 - 新建到合并完成之间，检索与前端同时看到 M 与 N；
 - 改指事件与结算事件属于同一可靠性等级，没有补偿：丢失时句柄仍指向已删除的 N，读取得到不带原子的重定向；
 - 两个话题同时命中同一条 M 时（生成队列并发为 2），后写回的合并因版本已变失败，留下重复；
+- 本话题主动写入的记录只在进程内，进程崩溃时丢失，之后的结算退回不区分来源的查重；话题未经结算即被删除，或结算开始之后才完成的同话题写入，留下的记录保留到进程结束；
+- 生成 lane 不按话题排序：结算开始时仍在执行的同话题写入不在记录中，它与被动草稿之间照旧按查重合并；
+- 复述写入但相似度不高于下限的被动草稿照常新建；话题落位错误时（[跨会话落位 Todo](../todo/cross-conversation-topic-placement.md)），另一段对话里与这些写入相似的草稿也会被丢弃；被动草稿里比主动写入更细的内容随草稿一起丢弃；
 - 生成材料只截断工具结果，单个轮次没有总量上限，生成也不分片读取：工作视图保留的 blocks 很大时（例如单轮上百次工具调用），结算的提取可能超出模型窗口，任务以 `memory_generation_failed` 失败（超窗不重试），原文仍在来源 InteractionArtifact 中但没有记忆引用；
 - Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；
 - memory 版本 Artifact 失败会阻断该次内容提交（无历史不成功）；provenance 写入与 MemoryAtom 发布仍不是原子事务，canonical 失败会留下孤立 Artifact。

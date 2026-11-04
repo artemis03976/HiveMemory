@@ -13,7 +13,7 @@ code_paths:
 related_docs:
   - docs/patchouli/generation.md
   - docs/patchouli/memory-library.md
-  - docs/plans/v0.7.3-topic-active-write-precedence.md
+  - docs/archive/plans/v0.7.3-topic-active-write-precedence.md
   - docs/todo/generation-dedup-decision-signal.md
   - docs/todo/cross-conversation-topic-placement.md
   - docs/ideas/unified-interaction-memory.md
@@ -200,6 +200,7 @@ E 不依赖模型遵从提示词。按生产中实际的查重结果估算：上
 - Mode B 沿用 agent 写的标题；
 - 生成任务失败带原因码，经失败分类进入工作记录、事件与日志（owner 评估事件与日志的现状后，由"只在执行处记日志"改定）；运行时事件的持久记录、调度器降噪与日志写法规范作为版本之外的观测工作，随时可以开始，不在本文范围；
 - 这三项都归入 v0.7.3。
+- （2026-11-03 晚）对照断言清单标注的离线回放（[统一的交互记忆](./unified-interaction-memory.md)第 4 节）能标出复述，但不覆盖 E 中 Mode B 的一半，被动提取补回的审计细节怎样处置也待判断；owner 决定 E 仍作为过渡措施实施。
 
 ## 4. 候选设计（分析，不是 owner 决定，可在计划评审时调整）
 
@@ -259,7 +260,7 @@ Work Queue Runtime 已经把分类的原因写进工作记录并由 `work.failed
 
 同一时间只有一份生效计划：
 
-- 当前计划：[话题内主动写入优先](../plans/v0.7.3-topic-active-write-precedence.md)（第 4.1 节）；
+- 已完成：[话题内主动写入优先](../archive/plans/v0.7.3-topic-active-write-precedence.md)（第 4.1 节，2026-11-03，PR #176），作为过渡措施；
 - 尚未建立计划：主动写入沿用 agent 的标题（第 4.2 节）、生成任务失败带原因码（第 4.3 节），都已有 owner 决定，轮到时依据本文建立计划；
 - 第 4.4 节等失败原因的数据。
 

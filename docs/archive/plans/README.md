@@ -3,12 +3,16 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-11-02
+last_reviewed: 2026-11-03
 ---
 
 # Archived Plans
 
 本目录保存已经完成或被替代、且当前事实已经合并进规范文档的实施计划。每条登记一行：归档日期、实现所在的 PR（未合并时为提交）与替代它的当前文档；实施过程、验收与决定见各计划自身的状态行与实施记录。
+
+## v0.7.3
+
+- [话题内主动写入优先](./v0.7.3-topic-active-write-precedence.md)：2026-11-03，PR #176；[Patchouli 生成](../../patchouli/generation.md#42-本话题的主动写入)
 
 ## 版本之外
 

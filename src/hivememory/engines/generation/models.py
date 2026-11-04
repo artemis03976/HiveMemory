@@ -265,6 +265,14 @@ class GenerationRequest(BaseModel):
     update_focus: UpdateFocus | None = None
     merge_focus: MergeFocus | None = None
     existing_memory: Any | None = None
+    topic_write_memory_ids: frozenset[str] = Field(
+        default_factory=frozenset,
+        description=(
+            "本话题的主动写入（WRITE/UPDATE）已结算到的正式记忆 ID，由控制面在执行时填入。"
+            "Mode A 草稿查重命中其中一条时丢弃；Mode B 草稿相似命中其中一条时照常新建、"
+            "不提名合并"
+        ),
+    )
 
     @property
     def is_write(self) -> bool:
