@@ -3,7 +3,7 @@ title: Ideas
 status: current
 owner: project
 scope: uncommitted-exploration
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-04
 ---
 
 # Ideas
@@ -18,11 +18,7 @@ Idea 以 frontmatter 的 `horizon` 字段分为 `current`、`candidate` 与 `lon
 
 ## 当前版本的设计讨论（`current`）
 
-v0.7.3 是主动写入与被动提取的收敛，作为过渡措施（owner，2026-11-03，[ROADMAP](../ROADMAP.md) 第 4.3 节）。
-
-| Idea | 服务的版本 | 状态 |
-|:---|:---|:---|
-| [主动写入与被动提取的收敛](./generation-source-convergence.md) | v0.7.3 | 2026-11-03 由候选改为当前：以 dsh 的四个调研仓库为证据，Mode A 复现主动写入的全集、合并以被动草稿为骨架、同轮主动写入互相合并、Mode B 丢掉 agent 的标题；owner 决定采用"话题内主动写入优先"（提示词约束的两种做法经离线回放否定）、Mode B 沿用标题、生成任务失败带原因码；话题内主动写入优先已于 2026-11-03 完成（过渡措施；对照断言清单标注的回放见统一的交互记忆 Idea）；生成任务失败带原因码与主动写入沿用 agent 的标题同日完成；合并遇到版本冲突时是否重做，等失败原因的数据 |
+当前没有 `current` 的 Idea。v0.7.3（主动写入与被动提取的收敛，过渡措施）已于 2026-11-04 收尾（[收尾审计](../archive/plans/v0.7.3-release-closeout-audit.md)），为它供料的收敛 Idea 已归档，之后的方向见候选 Idea [统一的交互记忆](./unified-interaction-memory.md)。v0.7.3 之后的版本目标尚未确定。
 
 已实现、被替代或不再跟踪的 Idea 登记在 [Archived Ideas](../archive/ideas/README.md)。
 

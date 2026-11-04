@@ -38,7 +38,7 @@ last_reviewed: 2026-11-03
 | `agent.run.failed` | Alice 的运行结果投影与运行服务的异常路径 | `reason` 为空，CPU 失败原因没有传入 |
 | `chat.run.failed` | 任务进程的事件投影 | `reason` 为空，失败原因码放在 `message` |
 
-生成任务的原因码属于 v0.7.3（[收敛 Idea](../../ideas/generation-source-convergence.md) 第 4.3 节），不在本 Todo。
+生成任务的原因码属于 v0.7.3（[收敛 Idea](../ideas/generation-source-convergence.md) 第 4.3 节），不在本 Todo。
 
 ## 影响
 

@@ -11,7 +11,7 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/archive/plans/v0.7.2-multi-memory-extraction.md
   - docs/ideas/unified-interaction-memory.md
-  - docs/ideas/generation-source-convergence.md
+  - docs/archive/ideas/generation-source-convergence.md
   - docs/todo/generation-dedup-decision-signal.md
 last_reviewed: 2026-11-03
 ---

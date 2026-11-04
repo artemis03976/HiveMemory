@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-04
 ---
 
 # 记忆生成
@@ -187,7 +187,7 @@ Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前
 
 ### 4.2 本话题的主动写入
 
-查重与合并本身不区分来源。只按相似度判断时，被动提取会从同一份材料里重新推导出 agent 已经写入的内容，判为相似后并入；合并按新旧定主次，较新的被动草稿成为骨架，把 agent 有意精简掉的风险清单、行号与未决问题带回记忆。同一轮里 agent 有意分开写的几条记忆，也会因相似度越过阈值而互相合并。证据与考虑过的做法见[收敛 Idea](../ideas/generation-source-convergence.md)第 2、3 节。因此同一话题内，主动写入结算到的记忆优先：
+查重与合并本身不区分来源。只按相似度判断时，被动提取会从同一份材料里重新推导出 agent 已经写入的内容，判为相似后并入；合并按新旧定主次，较新的被动草稿成为骨架，把 agent 有意精简掉的风险清单、行号与未决问题带回记忆。同一轮里 agent 有意分开写的几条记忆，也会因相似度越过阈值而互相合并。证据与考虑过的做法见[已归档的收敛 Idea](../archive/ideas/generation-source-convergence.md)第 2、3 节。因此同一话题内，主动写入结算到的记忆优先：
 
 - **记录**：控制器在进程内按话题记录本话题主动写入结算到的正式记忆，即 WRITE、UPDATE 的结算目标，以及吸收了写入新建记忆的合并所保留的那条。带 settlement 的结果只来自主动写入链路，数据面返回后即记下。
 - **传递**：WRITE 与 SETTLE 执行时，控制器把该话题当前的记录放进生成请求（`GenerationRequest.topic_write_memory_ids`）；SETTLE 取出后清除这个话题的记录，话题结算之后不再接收写入。读取发生在执行时而不是接纳时：同一话题先后派发的写入，前一条完成后，后一条执行时才能看到它。
@@ -326,11 +326,11 @@ Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任
 - 同一工作的各阶段不断并入同一条记忆，正文持续变长，摘要越来越难覆盖全部要点；正文过长时合并可能超出模型窗口，任务失败，两条记忆都保留；
 - 新建到合并完成之间，检索与前端同时看到 M 与 N；
 - 改指事件与结算事件属于同一可靠性等级，没有补偿：丢失时句柄仍指向已删除的 N，读取得到不带原子的重定向；
-- 两个话题同时命中同一条 M 时（生成队列并发为 2），后写回的合并因版本已变失败，留下重复；
+- 两个合并同时以同一条 M 为保留记忆时（同一次结算的两条草稿命中同一条 M，或两个话题同时命中；生成队列并发为 2），后写回的合并以 `merge_aborted.version_changed` 失败，留下重复；真实样本见[合并版本冲突 Todo](../todo/merge-version-conflict.md)；
 - 本话题主动写入的记录只在进程内，进程崩溃时丢失，之后的结算退回不区分来源的查重；话题未经结算即被删除，或结算开始之后才完成的同话题写入，留下的记录保留到进程结束；
 - 生成 lane 不按话题排序：结算开始时仍在执行的同话题写入不在记录中，它与被动草稿之间照旧按查重合并；
 - 复述写入但相似度不高于下限的被动草稿照常新建；话题落位错误时（[跨会话落位 Todo](../todo/cross-conversation-topic-placement.md)），另一段对话里与这些写入相似的草稿也会被丢弃；被动草稿里比主动写入更细的内容随草稿一起丢弃；
-- 生成材料只截断工具结果，单个轮次没有总量上限，生成也不分片读取：工作视图保留的 blocks 很大时（例如单轮上百次工具调用），结算的提取可能超出模型窗口，任务以 `memory_generation_failed` 失败（超窗不重试），原文仍在来源 InteractionArtifact 中但没有记忆引用；
+- 生成材料只截断工具结果，单个轮次没有总量上限，生成也不分片读取：工作视图保留的 blocks 很大时（例如单轮上百次工具调用），结算的提取可能超出模型窗口，任务以 `model_context_window_exceeded` 失败（超窗不重试），原文仍在来源 InteractionArtifact 中但没有记忆引用；
 - Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；
 - memory 版本 Artifact 失败会阻断该次内容提交（无历史不成功）；provenance 写入与 MemoryAtom 发布仍不是原子事务，canonical 失败会留下孤立 Artifact。
 

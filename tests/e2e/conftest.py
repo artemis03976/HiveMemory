@@ -204,9 +204,10 @@ async def wait_for_workspace_memories(
     deadline = loop.time() + timeout
     while True:
         async with root_access(system, workspace) as access:
-            memories = await system.root_memory_service.list_memories(
+            page = await system.root_memory_service.list_memories(
                 target_workspace=workspace, limit=100, access=access
             )
+        memories = list(page.memories)
         if len(memories) >= min_count:
             logger.info("用户 %s 记忆已持久化: %d 条", user_id, len(memories))
             return memories

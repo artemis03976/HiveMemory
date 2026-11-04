@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-04
 ---
 
 # Plans
@@ -12,9 +12,9 @@ last_reviewed: 2026-11-03
 
 ## v0.7.3
 
-当前开发版本：主动写入与被动提取的收敛，作为过渡措施（owner，2026-11-03，[ROADMAP](../ROADMAP.md#43-v073主动写入与被动提取的收敛) 第 4.3 节）。之后的方向见候选 Idea [统一的交互记忆](../ideas/unified-interaction-memory.md)。设计讨论见[主动写入与被动提取的收敛 Idea](../ideas/generation-source-convergence.md)。
+版本内容已收尾（2026-11-04），规范版本调整为 0.7.3，发布标签 v0.7.3 在合并后创建；版本目标的逐条判定、内容核对、未纳入的事项与验证结果见[收尾审计](../archive/plans/v0.7.3-release-closeout-audit.md)。版本内的三份计划（话题内主动写入优先、生成任务失败带原因码、主动写入沿用 agent 的标题）与收尾审计登记在 [Archived Plans](../archive/plans/README.md#v073)。
 
-当前没有生效计划。v0.7.3 已决定的三项（话题内主动写入优先、生成任务失败带原因码、主动写入沿用 agent 的标题）都已于 2026-11-03 完成，见 [Archived Plans](../archive/plans/README.md#v073)。
+v0.7.3 之后的版本目标尚未确定，当前没有生效计划。
 
 ## 已发布的版本
 

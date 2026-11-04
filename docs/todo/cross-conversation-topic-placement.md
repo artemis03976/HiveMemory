@@ -11,7 +11,7 @@ related_docs:
   - docs/gateway/analysis.md
   - docs/system/import-bus.md
   - docs/patchouli/generation.md
-  - docs/ideas/generation-source-convergence.md
+  - docs/archive/ideas/generation-source-convergence.md
 last_reviewed: 2026-11-03
 ---
 
@@ -32,7 +32,7 @@ Import Bus 为导入轮次与写入时的在途轮次落位，经 Gateway 的话
 
 ## 影响
 
-- 两段无关对话合进一次提取，材料变长，提取的取舍受另一段对话影响；这次结算没有提取调研的结论，只提取了一条调研轮次里的环境事实（[收敛 Idea](../ideas/generation-source-convergence.md) 第 2 节）。
+- 两段无关对话合进一次提取，材料变长，提取的取舍受另一段对话影响；这次结算没有提取调研的结论，只提取了一条调研轮次里的环境事实（[已归档的收敛 Idea](../archive/ideas/generation-source-convergence.md) 第 2 节）。
 - 主动写入的贡献者被话题中的其他参与者污染，来源追踪失真。
 - 同一个 Workspace 中有多个 harness 或多段会话同时工作时，话题名里的通用词（项目名、工具名）越多，这种误判越容易发生。
 
@@ -54,5 +54,5 @@ Import Bus 为导入轮次与写入时的在途轮次落位，经 Gateway 的话
 
 ## 非目标
 
-- 话题内多条记忆的查重与合并，见[收敛 Idea](../ideas/generation-source-convergence.md)；
+- 话题内多条记忆的查重与合并，见[已归档的收敛 Idea](../archive/ideas/generation-source-convergence.md)；
 - 主动写入的贡献者计算方式本身。

@@ -1,8 +1,9 @@
 ---
 title: 主动写入与被动提取的收敛
-status: idea
-horizon: current
-serves_version: v0.7.3
+status: archived
+archived_at: 2026-11-04
+implemented_by: v0.7.3 话题内主动写入优先（PR #176）、生成任务失败带原因码（PR #177）与主动写入沿用 agent 的标题（PR #178）
+superseded_by: docs/patchouli/generation.md
 owner: patchouli
 scope: active-write-and-passive-extraction-overlap-merge-precedence-and-merge-conflicts
 code_paths:
@@ -16,18 +17,22 @@ related_docs:
   - docs/archive/plans/v0.7.3-topic-active-write-precedence.md
   - docs/todo/generation-dedup-decision-signal.md
   - docs/todo/cross-conversation-topic-placement.md
+  - docs/todo/merge-version-conflict.md
+  - docs/todo/passive-extraction-volume-and-retention.md
   - docs/ideas/unified-interaction-memory.md
   - docs/ideas/pending-intent-migration.md
   - docs/archive/ideas/settlement-multi-memory-extraction-and-dedup.md
   - docs/research/deepseek-harness-plugin-survey.md
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-04
 ---
 
 # 主动写入与被动提取的收敛
 
+> 已归档（2026-11-04，v0.7.3 收尾）。第 3.3 节决定的三项已随三份计划实施，当前事实见 [Patchouli 生成](../../patchouli/generation.md)第 3.2、4.2、6.1 节；"话题内主动写入优先"是过渡措施，之后的方向见[统一的交互记忆](../../ideas/unified-interaction-memory.md)。第 4.4 节移交[合并版本冲突 Todo](../../todo/merge-version-conflict.md)，其余事项的去向见文末"归档说明"。以下正文保留归档前的原文，链接已改为归档后的相对路径。
+
 ## 0. 文档性质
 
-本文是 v0.7.3 的设计讨论，为该版本的计划供料，不描述当前行为。主动写入、话题结算的被动提取、查重与合并的当前设计见 [Patchouli 生成](../patchouli/generation.md)第 2.1、3、4、7、8 节。查重的判定信号由[查重决策信号 Todo](../todo/generation-dedup-decision-signal.md)跟踪，本文不讨论信号本身；写入意图的登记、派发与结算见[写入意图 Idea](./pending-intent-migration.md)。
+本文是 v0.7.3 的设计讨论，为该版本的计划供料，不描述当前行为。主动写入、话题结算的被动提取、查重与合并的当前设计见 [Patchouli 生成](../../patchouli/generation.md)第 2.1、3、4、7、8 节。查重的判定信号由[查重决策信号 Todo](../../todo/generation-dedup-decision-signal.md)跟踪，本文不讨论信号本身；写入意图的登记、派发与结算见[写入意图 Idea](../../ideas/pending-intent-migration.md)。
 
 第 3 节的问题已由 owner 于 2026-11-03 决定，第 4 节是据此展开的候选设计。计划的状态见第 7 节。
 
@@ -35,15 +40,15 @@ last_reviewed: 2026-11-03
 
 owner 对记忆来源的定位与判断：
 
-- （2026-10-31）记忆主要由执行者经记忆工具主动写入，因为只有执行者知道什么是一手且重要的；话题结算的被动提取（Mode A）作为兜底（[已归档的多条提取与查重 Idea](../archive/ideas/settlement-multi-memory-extraction-and-dedup.md#1-owner-决定)第 1 节）。
+- （2026-10-31）记忆主要由执行者经记忆工具主动写入，因为只有执行者知道什么是一手且重要的；话题结算的被动提取（Mode A）作为兜底（[已归档的多条提取与查重 Idea](./settlement-multi-memory-extraction-and-dedup.md#1-owner-决定)第 1 节）。
 - （2026-11-01）多条提取定案时确认：主动写入的内容被 Mode A 再提取一遍是早已接受的代价，由查重与合并完成去重与迭代更新（同上）。
 - （2026-11-02）复盘 dsh 的调研记忆后：被动提取对主动写入再做一轮合并是已知缺陷，确实会导致记忆生成的质量降级；合并失败后留下重复本是已知行为，但同样让记忆库变乱；这些改动都涉及记忆库的底层机制，适合写成 Idea 而不是 Todo。
 - （2026-11-03）又完成两个仓库的调研之后：v0.7.3 回到记忆主线，先做主动写入与被动提取收敛的最小优化；这是 owner 想到更好的记忆生成策略之前能做的（第 3.3 节）。
-- （2026-11-03 晚）owner 澄清：话题内主动写入优先只是过渡措施，不代表主动写入优先是更好的选择；两种形式理应在统一的记忆架构中兼容，方向见[统一的交互记忆](./unified-interaction-memory.md)。
+- （2026-11-03 晚）owner 澄清：话题内主动写入优先只是过渡措施，不代表主动写入优先是更好的选择；两种形式理应在统一的记忆架构中兼容，方向见[统一的交互记忆](../../ideas/unified-interaction-memory.md)。
 
 现行设计接受这份代价，依赖三条前提：
 
-1. 显式写入与更新不渲染进生成材料，Mode A 就不会把它们的内容再提取一遍（[生成](../patchouli/generation.md#21-材料与渲染)第 2.1 节）；
+1. 显式写入与更新不渲染进生成材料，Mode A 就不会把它们的内容再提取一遍（[生成](../../patchouli/generation.md#21-材料与渲染)第 2.1 节）；
 2. 查重命中的两条记忆地位对等，合并时模型按内容更新时间得知哪条较新，状态冲突时以较新的为准（第 4、4.1 节；提示词见 `i18n/prompts.py` 的合并提示）；
 3. 先落库再合并，关闭、队列拒绝或合并失败最多留下两条相似的记忆，不会丢失内容（第 4 节）；并发合并同一条记忆时后写回的失败，已列为当前限制（第 8 节）。
 
@@ -56,7 +61,7 @@ owner 对记忆来源的定位与判断：
 - **调研对象**：
   - 2026-11-02：`jack66g/spatial-memory-engine`（SME）调研两轮，两轮之间 owner 改过 skill，第二轮为 standard 档，另有两轮追问；`doiito/gliding_horse`（Gliding Horse）为 deep 档，另有一轮追问。
   - 2026-11-03（UTC）：`cyanwell/dsh-agent-soul`（standard 档）与 `EverMind-AI/EverOS`（deep 档），都使用 2026-11-02 改写后的 repo-deep-dive。
-- **统计范围**：SME 第一轮与第二轮在 PR #168（[已归档的子 Agent 会话计划](../archive/plans/dsh-subagent-sessions.md)）部署之前进行，子 Agent 会话被独立导入，生成了以子任务命名的话题与记忆。下文的统计只取主会话话题，子 Agent 话题的记忆只在附录中处置。其余三个仓库都在修复部署之后。
+- **统计范围**：SME 第一轮与第二轮在 PR #168（[已归档的子 Agent 会话计划](../plans/dsh-subagent-sessions.md)）部署之前进行，子 Agent 会话被独立导入，生成了以子任务命名的话题与记忆。下文的统计只取主会话话题，子 Agent 话题的记忆只在附录中处置。其余三个仓库都在修复部署之后。
 - **数据来源**：
   - 中期库的当前原子；
   - `memory_creation` 与 `memory_version` Artifact：来源意图、每个版本的来源与被吸收的记忆，以及 Mode A 的完整生成视图；
@@ -84,7 +89,7 @@ owner 对记忆来源的定位与判断：
 
 只含调研的这四个话题上，Mode A 没有贡献主动写入之外的新记忆（唯一另立的收尾门与已有内容重复）。它的实际作用是触发合并，改写 agent 写入的记忆（第 2.3 节）。
 
-dsh-agent-soul 是一个例外，但原因不在生成：它的第一轮被落进了另一段 Claude Code 会话的话题（[跨会话落位 Todo](../todo/cross-conversation-topic-placement.md)），结算时材料混合了 4 轮 Claude Code 与 1 轮调研。这一次 Mode A 只从调研轮次提取了一条 agent 在回答里提到、但没有写入的环境事实（Windows 沙箱下目录写入被拒，用 `icacls /reset` 恢复），其余草稿都来自 Claude Code 的轮次，其中 2 条重复了 Claude Code 同一话题里主动写入的用户偏好。第 3.2 节的回放中，同一份材料再跑一次，Mode A 就复现了 9 条调研写入。
+dsh-agent-soul 是一个例外，但原因不在生成：它的第一轮被落进了另一段 Claude Code 会话的话题（[跨会话落位 Todo](../../todo/cross-conversation-topic-placement.md)），结算时材料混合了 4 轮 Claude Code 与 1 轮调研。这一次 Mode A 只从调研轮次提取了一条 agent 在回答里提到、但没有写入的环境事实（Windows 沙箱下目录写入被拒，用 `icacls /reset` 恢复），其余草稿都来自 Claude Code 的轮次，其中 2 条重复了 Claude Code 同一话题里主动写入的用户偏好。第 3.2 节的回放中，同一份材料再跑一次，Mode A 就复现了 9 条调研写入。
 
 ### 2.3 合并按新旧定主次，被动草稿成了骨架
 
@@ -195,12 +200,12 @@ E 不依赖模型遵从提示词。按生产中实际的查重结果估算：上
 
 ### 3.3 决定（owner，2026-11-03）
 
-- v0.7.3 回到记忆主线，在想到更好的记忆生成策略之前，先做这一组主动写入与被动提取收敛的最小优化，作为过渡措施；它不代表主动写入优先是更好的选择（owner 澄清，2026-11-03 晚，见[统一的交互记忆](./unified-interaction-memory.md)）；
+- v0.7.3 回到记忆主线，在想到更好的记忆生成策略之前，先做这一组主动写入与被动提取收敛的最小优化，作为过渡措施；它不代表主动写入优先是更好的选择（owner 澄清，2026-11-03 晚，见[统一的交互记忆](../../ideas/unified-interaction-memory.md)）；
 - Mode A 的改动采用 E；owner 先选了 C，回放否定 C 之后改选 E；
 - Mode B 沿用 agent 写的标题；
 - 生成任务失败带原因码，经失败分类进入工作记录、事件与日志（owner 评估事件与日志的现状后，由"只在执行处记日志"改定）；运行时事件的持久记录、调度器降噪与日志写法规范作为版本之外的观测工作，随时可以开始，不在本文范围；
 - 这三项都归入 v0.7.3。
-- （2026-11-03 晚）对照断言清单标注的离线回放（[统一的交互记忆](./unified-interaction-memory.md)第 4 节）能标出复述，但不覆盖 E 中 Mode B 的一半，被动提取补回的审计细节怎样处置也待判断；owner 决定 E 仍作为过渡措施实施。
+- （2026-11-03 晚）对照断言清单标注的离线回放（[统一的交互记忆](../../ideas/unified-interaction-memory.md)第 4 节）能标出复述，但不覆盖 E 中 Mode B 的一半，被动提取补回的审计细节怎样处置也待判断；owner 决定 E 仍作为过渡措施实施。
 
 ## 4. 候选设计（分析，不是 owner 决定，可在计划评审时调整）
 
@@ -242,7 +247,7 @@ Work Queue Runtime 已经把分类的原因写进工作记录并由 `work.failed
 
 - 同一个发现写进多条主动写入：属于 agent 写法，已由 DeeperResearch 工作区的 repo-deep-dive skill 改写处理（2026-11-02，不在本仓库）。
 - Mode A 在调研话题上仍然完整提取一遍，E 只在查重之后丢弃，模型调用的成本不变。
-- dsh-agent-soul 的调研被落进 Claude Code 话题，见[跨会话落位 Todo](../todo/cross-conversation-topic-placement.md)；它不改变本文的结论。
+- dsh-agent-soul 的调研被落进 Claude Code 话题，见[跨会话落位 Todo](../../todo/cross-conversation-topic-placement.md)；它不改变本文的结论。
 
 ## 6. 验证方式与指标
 
@@ -260,9 +265,9 @@ Work Queue Runtime 已经把分类的原因写进工作记录并由 `work.failed
 
 同一时间只有一份生效计划：
 
-- 已完成：[话题内主动写入优先](../archive/plans/v0.7.3-topic-active-write-precedence.md)（第 4.1 节，2026-11-03，PR #176），作为过渡措施；
-- 已完成：[生成任务失败带原因码](../archive/plans/v0.7.3-generation-failure-reason-codes.md)（第 4.3 节，2026-11-03，PR #177）；
-- 已完成：[主动写入沿用 agent 的标题](../archive/plans/v0.7.3-write-title-kept.md)（第 4.2 节，2026-11-03，PR #178）；
+- 已完成：[话题内主动写入优先](../plans/v0.7.3-topic-active-write-precedence.md)（第 4.1 节，2026-11-03，PR #176），作为过渡措施；
+- 已完成：[生成任务失败带原因码](../plans/v0.7.3-generation-failure-reason-codes.md)（第 4.3 节，2026-11-03，PR #177）；
+- 已完成：[主动写入沿用 agent 的标题](../plans/v0.7.3-write-title-kept.md)（第 4.2 节，2026-11-03，PR #178）；
 - 第 4.4 节等失败原因的数据：原因码已经落地，下一批合并失败的原因可以直接从后端日志与运行时事件记录文件读出。
 
 ## 附录：样本现状与处置建议
@@ -318,3 +323,16 @@ Work Queue Runtime 已经把分类的原因写进工作记录并由 `work.failed
 | `fact_everos_memory_scope` | 主动写入，写入时并入检索分派一条，结算时再并入两条被动草稿，4791 字符 | 保留；Scope 隔离与检索分派是两个机制，可以人工拆开，或下次调研时重写 |
 | `fact_dsh_agent_soul_overview` | 主动写入，写入时并入「能力半与身份半」一条，之后被 agent 修正 | 保留 |
 | dsh-agent-soul 的 9 条主动写入 | 贡献者里多了 `claude_code`（跨会话落位所致） | 保留；贡献者不影响检索与读取 |
+
+## 归档说明（2026-11-04）
+
+v0.7.3 的三份计划都已实施并归档，本文不再跟踪以下事项：
+
+| 事项 | 去向 |
+|:---|:---|
+| 第 4.4 节：合并遇到版本冲突时是否重做 | [合并版本冲突 Todo](../../todo/merge-version-conflict.md)：第 2.5 节的四次失败与 2026-11-04 的第五次一并移入 |
+| 两种生成方式在统一架构中的兼容 | [统一的交互记忆](../../ideas/unified-interaction-memory.md)（候选方向） |
+| 多条提取后被动提取的膨胀与低留存 | [被动提取膨胀 Todo](../../todo/passive-extraction-volume-and-retention.md) |
+| 第 5 节搁置项：Mode A 在调研话题上仍完整提取一遍 | 不单独跟踪；模型调用的成本随上一项的方向一并考虑 |
+| 第 5 节搁置项：跨会话落位 | [跨会话落位 Todo](../../todo/cross-conversation-topic-placement.md) |
+| 附录的处置建议 | 由 owner 经管理入口执行，不再跟踪；Gliding Horse 的记忆已由 owner 于 2026-11-04 依据调研报告重建 |
