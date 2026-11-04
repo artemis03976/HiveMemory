@@ -35,7 +35,7 @@ last_reviewed: 2026-11-03
 当前版本事实如下：
 
 - 最近已发布基线：`v0.7.2`（Git tag，2026-11-01）；[收尾审计](./archive/plans/v0.7.2-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
-- 当前开发版本：`v0.7.3`，主动写入与被动提取的收敛，作为过渡措施（owner，2026-11-03）：经 DeepSeek Harness 调研四个仓库后，被动提取复现并改写主动写入、同轮写入互相合并、Mode B 丢掉 agent 的标题；话题内主动写入优先与生成任务失败带原因码已完成，沿用 agent 的标题尚未建立计划（第 4.3 节）。版本之外，观测与日志随时可以开始（owner，2026-11-03，第 4.2 节），本机 HTTP 管理接口证明调用方仍待修复；HiveMemory 使用手册 skill 已基本稳定，在使用中逐步完善（owner，2026-11-03，第 4.2 节）。
+- 当前开发版本：`v0.7.3`，主动写入与被动提取的收敛，作为过渡措施（owner，2026-11-03）：经 DeepSeek Harness 调研四个仓库后，被动提取复现并改写主动写入、同轮写入互相合并、Mode B 丢掉 agent 的标题；话题内主动写入优先与生成任务失败带原因码已完成，当前计划为主动写入沿用 agent 的标题（第 4.3 节）。版本之外，观测与日志随时可以开始（owner，2026-11-03，第 4.2 节），本机 HTTP 管理接口证明调用方仍待修复；HiveMemory 使用手册 skill 已基本稳定，在使用中逐步完善（owner，2026-11-03，第 4.2 节）。
 
 当前规范代码版本为 `0.7.2`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致，与最近发布标签 `v0.7.2` 对应。
 
@@ -141,7 +141,7 @@ last_reviewed: 2026-11-03
 
 owner 决定先做这一组最小优化，更好的记忆生成策略之后再议。证据、离线回放与决定见[收敛 Idea](./ideas/generation-source-convergence.md)。
 
-[话题内主动写入优先](./archive/plans/v0.7.3-topic-active-write-precedence.md)已完成（2026-11-03，PR #176）：被动草稿不再改写本话题的主动写入，同一话题的主动写入之间不再合并。实施前以对照断言清单标注做过离线回放，它能标出复述，但不覆盖后一半，被动提取补回的审计细节也待 owner 判断，owner 决定仍以这一规则作为过渡措施（[统一的交互记忆](./ideas/unified-interaction-memory.md)第 4 节）。[生成任务失败带原因码](./archive/plans/v0.7.3-generation-failure-reason-codes.md)已完成（2026-11-03，PR #177）：失败分类按异常给出原因码，进入工作记录、事件与日志。主动写入沿用 agent 的标题已有 owner 决定，尚未建立计划，设计在收敛 Idea 第 4.2 节。
+[话题内主动写入优先](./archive/plans/v0.7.3-topic-active-write-precedence.md)已完成（2026-11-03，PR #176）：被动草稿不再改写本话题的主动写入，同一话题的主动写入之间不再合并。实施前以对照断言清单标注做过离线回放，它能标出复述，但不覆盖后一半，被动提取补回的审计细节也待 owner 判断，owner 决定仍以这一规则作为过渡措施（[统一的交互记忆](./ideas/unified-interaction-memory.md)第 4 节）。[生成任务失败带原因码](./archive/plans/v0.7.3-generation-failure-reason-codes.md)已完成（2026-11-03，PR #177）：失败分类按异常给出原因码，进入工作记录、事件与日志。当前计划是[主动写入沿用 agent 的标题](./plans/v0.7.3-write-title-kept.md)：Mode B 把 agent 拟定的标题交给模型并要求沿用，只在与内容不符或缺少检索名词时修改。
 
 版本之外的工作还有本机 HTTP 管理接口证明调用方（[管理接口 Todo](./todo/local-http-management-access.md)）与导入轮次的跨会话落位（[跨会话落位 Todo](./todo/cross-conversation-topic-placement.md)）。
 

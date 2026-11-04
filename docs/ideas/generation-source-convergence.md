@@ -262,7 +262,7 @@ Work Queue Runtime 已经把分类的原因写进工作记录并由 `work.failed
 
 - 已完成：[话题内主动写入优先](../archive/plans/v0.7.3-topic-active-write-precedence.md)（第 4.1 节，2026-11-03，PR #176），作为过渡措施；
 - 已完成：[生成任务失败带原因码](../archive/plans/v0.7.3-generation-failure-reason-codes.md)（第 4.3 节，2026-11-03，PR #177）；
-- 尚未建立计划：主动写入沿用 agent 的标题（第 4.2 节），已有 owner 决定，轮到时依据本文建立计划；
+- 当前计划：[主动写入沿用 agent 的标题](../plans/v0.7.3-write-title-kept.md)（第 4.2 节）；
 - 第 4.4 节等失败原因的数据：原因码已经落地，下一批合并失败的原因可以直接从后端日志与运行时事件记录文件读出。
 
 ## 附录：样本现状与处置建议
