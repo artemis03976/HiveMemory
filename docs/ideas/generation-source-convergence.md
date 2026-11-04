@@ -16,6 +16,7 @@ related_docs:
   - docs/plans/v0.7.3-topic-active-write-precedence.md
   - docs/todo/generation-dedup-decision-signal.md
   - docs/todo/cross-conversation-topic-placement.md
+  - docs/ideas/unified-interaction-memory.md
   - docs/ideas/pending-intent-migration.md
   - docs/archive/ideas/settlement-multi-memory-extraction-and-dedup.md
   - docs/research/deepseek-harness-plugin-survey.md
@@ -37,7 +38,8 @@ owner 对记忆来源的定位与判断：
 - （2026-10-31）记忆主要由执行者经记忆工具主动写入，因为只有执行者知道什么是一手且重要的；话题结算的被动提取（Mode A）作为兜底（[已归档的多条提取与查重 Idea](../archive/ideas/settlement-multi-memory-extraction-and-dedup.md#1-owner-决定)第 1 节）。
 - （2026-11-01）多条提取定案时确认：主动写入的内容被 Mode A 再提取一遍是早已接受的代价，由查重与合并完成去重与迭代更新（同上）。
 - （2026-11-02）复盘 dsh 的调研记忆后：被动提取对主动写入再做一轮合并是已知缺陷，确实会导致记忆生成的质量降级；合并失败后留下重复本是已知行为，但同样让记忆库变乱；这些改动都涉及记忆库的底层机制，适合写成 Idea 而不是 Todo。
-- （2026-11-03）又完成两个仓库的调研之后：v0.7.3 回到记忆主线，以主动写入为主体改进生成；这是 owner 想到更好的记忆生成策略之前能做的最小优化（第 3.3 节）。
+- （2026-11-03）又完成两个仓库的调研之后：v0.7.3 回到记忆主线，先做主动写入与被动提取收敛的最小优化；这是 owner 想到更好的记忆生成策略之前能做的（第 3.3 节）。
+- （2026-11-03 晚）owner 澄清：话题内主动写入优先只是过渡措施，不代表主动写入优先是更好的选择；两种形式理应在统一的记忆架构中兼容，方向见[统一的交互记忆](./unified-interaction-memory.md)。
 
 现行设计接受这份代价，依赖三条前提：
 
@@ -193,7 +195,7 @@ E 不依赖模型遵从提示词。按生产中实际的查重结果估算：上
 
 ### 3.3 决定（owner，2026-11-03）
 
-- v0.7.3 回到记忆主线，以主动写入为主体改进生成，在想到更好的记忆生成策略之前先做这一组最小优化；
+- v0.7.3 回到记忆主线，在想到更好的记忆生成策略之前，先做这一组主动写入与被动提取收敛的最小优化，作为过渡措施；它不代表主动写入优先是更好的选择（owner 澄清，2026-11-03 晚，见[统一的交互记忆](./unified-interaction-memory.md)）；
 - Mode A 的改动采用 E；owner 先选了 C，回放否定 C 之后改选 E；
 - Mode B 沿用 agent 写的标题；
 - 生成任务失败带原因码，经失败分类进入工作记录、事件与日志（owner 评估事件与日志的现状后，由"只在执行处记日志"改定）；运行时事件的持久记录、调度器降噪与日志写法规范作为版本之外的观测工作，随时可以开始，不在本文范围；

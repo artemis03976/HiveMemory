@@ -12,7 +12,7 @@ last_reviewed: 2026-11-03
 
 ## v0.7.3
 
-当前开发版本：以主动写入为主体改进记忆生成（owner，2026-11-03，[ROADMAP](../ROADMAP.md#43-v073以主动写入为主体的记忆生成) 第 4.3 节）。设计讨论见[主动写入与被动提取的收敛 Idea](../ideas/generation-source-convergence.md)。
+当前开发版本：主动写入与被动提取的收敛，作为过渡措施（owner，2026-11-03，[ROADMAP](../ROADMAP.md#43-v073主动写入与被动提取的收敛) 第 4.3 节）。之后的方向见候选 Idea [统一的交互记忆](../ideas/unified-interaction-memory.md)。设计讨论见[主动写入与被动提取的收敛 Idea](../ideas/generation-source-convergence.md)。
 
 | 计划 | 状态 | 内容 |
 |:---|:---|:---|
