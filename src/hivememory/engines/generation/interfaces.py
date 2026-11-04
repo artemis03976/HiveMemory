@@ -53,7 +53,7 @@ class BaseMemoryExtractor(ABC):
         pass
 
     async def extract_write(
-        self, transcript: str, *, content: str, reason: str | None
+        self, transcript: str, *, content: str, reason: str | None, title: str | None
     ) -> Optional["ExtractedMemoryDraft"]:
         """
         Mode B：以 WRITE 提交的内容为核心，结合背景对话结构化为一条草稿
@@ -64,6 +64,7 @@ class BaseMemoryExtractor(ABC):
             transcript: 格式化的背景对话
             content: WRITE 提交的内容
             reason: WRITE 给出的理由，可能为空
+            title: WRITE 拟定的标题，可能为空
 
         Returns:
             ExtractedMemoryDraft: 草稿；模型输出为空或无法解析时返回 None

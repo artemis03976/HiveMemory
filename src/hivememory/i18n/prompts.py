@@ -532,6 +532,9 @@ title 不超过 100 字，summary 不超过 200 字，changelog 用一句话说�
 ## 敏感信息
 不要把密钥、令牌、密码、证书或连接串中的凭据写入记忆；需要记录相关配置时，只保留名称与用途，省略具体取值。
 
+## 标题
+Agent 拟定了标题时沿用它，不改写措辞；只有它与草稿内容不符，或缺少让人检索到它的关键名词（项目、组件、工具名）时才修改，修改时保留原标题的判断与表述。
+
 ## 输出格式
 严格按照JSON Schema输出:
 {format_instructions}
@@ -548,6 +551,9 @@ title 不超过 100 字，summary 不超过 200 字，changelog 用一句话说�
 """,
         "user_prompt": """
 ## Agent 提交的记忆草稿
+
+**Agent 拟定的标题**:
+{write_title}
 
 **草稿内容**:
 {write_content}
@@ -567,6 +573,7 @@ title 不超过 100 字，summary 不超过 200 字，changelog 用一句话说�
 请输出结构化的记忆原子JSON。
 """,
         "reason_empty": "(未提供)",
+        "title_empty": "(未提供)",
     },
     "update": {
         "system_prompt": """
@@ -783,6 +790,9 @@ Your task is not to discover value from the conversation, but to verify and stru
 ## Sensitive Information
 Never write credentials such as API keys, tokens, passwords, certificates, or secrets in connection strings into memories. When a configuration is worth recording, keep only its name and purpose and omit the actual value.
 
+## Title
+When the Agent proposed a title, keep it and do not reword it. Change it only when it does not match the draft content or lacks the key nouns (project, component, or tool names) that let someone find it; when you change it, keep the original title's judgment and wording.
+
 ## Output Format
 Strictly follow this JSON Schema:
 {format_instructions}
@@ -799,6 +809,9 @@ Generate a short snake_case alias suffix for each memory for semantic addressing
 """,
         "user_prompt": """
 ## Agent-submitted Memory Draft
+
+**Agent-proposed Title**:
+{write_title}
 
 **Draft Content**:
 {write_content}
@@ -818,6 +831,7 @@ Perform the following:
 Output structured Memory Atom JSON.
 """,
         "reason_empty": "(Not provided)",
+        "title_empty": "(Not provided)",
     },
     "update": {
         "system_prompt": """

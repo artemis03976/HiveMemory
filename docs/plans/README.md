@@ -14,11 +14,7 @@ last_reviewed: 2026-11-03
 
 当前开发版本：主动写入与被动提取的收敛，作为过渡措施（owner，2026-11-03，[ROADMAP](../ROADMAP.md#43-v073主动写入与被动提取的收敛) 第 4.3 节）。之后的方向见候选 Idea [统一的交互记忆](../ideas/unified-interaction-memory.md)。设计讨论见[主动写入与被动提取的收敛 Idea](../ideas/generation-source-convergence.md)。
 
-| 计划 | 状态 | 内容 |
-|:---|:---|:---|
-| [主动写入沿用 agent 的标题](./v0.7.3-write-title-kept.md) | planned | Mode B 把 agent 拟定的标题交给模型并要求沿用；MCP 写入说明与使用手册 skill 同步 |
-
-话题内主动写入优先与生成任务失败带原因码已于 2026-11-03 完成，见 [Archived Plans](../archive/plans/README.md#v073)。v0.7.3 已决定的方向都已建立计划。
+当前没有生效计划。v0.7.3 已决定的三项（话题内主动写入优先、生成任务失败带原因码、主动写入沿用 agent 的标题）都已于 2026-11-03 完成，见 [Archived Plans](../archive/plans/README.md#v073)。
 
 ## 已发布的版本
 

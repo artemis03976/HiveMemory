@@ -85,18 +85,42 @@ class TestLLMMemoryExtractorPrompts:
 
     @pytest.mark.asyncio
     async def test_default_language_selects_english_write_prompts(self):
-        """测试全局语言驱动 WRITE 模板"""
+        """测试全局语言驱动 WRITE 模板；没有标题时标题一栏写"未提供"。"""
         set_default_language("en")
         llm = ScriptedLLMService(_DRAFT_JSON)
 
         await _extractor(llm).extract_write(
-            "User: Save this", content="Content to save", reason=None
+            "User: Save this", content="Content to save", reason="Reuse later", title=None
         )
 
         messages = llm.calls[-1].messages
         assert "Active Response Mode" in messages[0]["content"]
         assert "Agent-submitted Memory Draft" in messages[1]["content"]
-        assert "(Not provided)" in messages[1]["content"]
+        assert "**Agent-proposed Title**:\n(Not provided)" in messages[1]["content"]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("language", "keep_rule"),
+        [
+            ("zh", "Agent 拟定了标题时沿用它，不改写措辞"),
+            ("en", "When the Agent proposed a title, keep it and do not reword it"),
+        ],
+    )
+    async def test_write_prompts_carry_agent_title_and_keep_rule(self, language, keep_rule):
+        """Mode B 的系统提示词带沿用规则，用户提示词带 agent 拟定的标题。"""
+        set_default_language(language)
+        llm = ScriptedLLMService(_DRAFT_JSON)
+
+        await _extractor(llm).extract_write(
+            "User: Save this",
+            content="正文",
+            reason=None,
+            title="报表服务的每日汇总改由进程内 APScheduler 调度",
+        )
+
+        system, user = (message["content"] for message in llm.calls[-1].messages)
+        assert keep_rule in system
+        assert "报表服务的每日汇总改由进程内 APScheduler 调度" in user
 
     @pytest.mark.asyncio
     async def test_default_language_selects_english_update_prompts(self):

@@ -232,7 +232,7 @@ class MemoryGenerationEngine:
         # Step 1: LLM 提取 (Mode B prompt)
         try:
             draft = await self.extractor.extract_write(
-                transcript, content=focus.content, reason=focus.reason
+                transcript, content=focus.content, reason=focus.reason, title=focus.title
             )
         except ModelProviderError as error:
             logger.warning("[Mode B] LLM 提供商失败: %s", error)
