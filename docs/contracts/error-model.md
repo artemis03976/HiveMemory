@@ -288,7 +288,7 @@ WRITE/UPDATE 登记后的派发错误携带 `pending_alias` 与 `intent_id`，�
 | `InvalidMemoryFieldError` | 接收外部输入的 Memory 构造/编辑点（管理创建、外部编辑），包装 Pydantic `ValidationError` | 422 | 调用方提交的字段取值不满足领域约束；内部保留字段诊断，HTTP 返回固定安全提示，与程序错误区分 |
 | `StorageWriteError` | Qdrant 写入路径（`upsert_memory` / `patch_memory_payload` 等） | 5xx | 存储写入失败的结构化表达，与 `StorageOfflineError`/`StorageReadError` 同族；失败沿调用链传播，不能被吞成成功或空结果 |
 | `MemoryAliasConflictError`（`workspace.memory.alias_conflict`） | 中期库 `upsert` 写入前校验、生成侧 `AliasGenerator`、精确 alias 查询 | 409（Memory 与 Agent Profile 管理 HTTP 入口） | 同一 Workspace 中期库内的 alias 唯一性不变量被破坏；`details.reason` 区分 `alias_occupied`（被其他 Memory 占用，本次不写入）、`alias_candidates_exhausted`（消歧候选耗尽）与 `ambiguous_alias`（精确查询命中多条，读取 fail closed） |
-| `MemoryMergeAbortedError`（`workspace.memory.merge_aborted`） | Familiar 的合并路径 | 不经 HTTP 呈现；合并任务以 `memory_generation_failed` 失败收尾，任务快照记录该错误 | 两条记忆的合并在读取、条件、版本或模型输出上不满足要求，两条记忆都保持不变，不回退为追加或覆盖；`details.reason` 区分 `memory_missing`（任一记忆缺失或对发起者不可见）、`not_mergeable`（访问策略不同、任一方是 Profile，或吸收自身）、`version_changed`（写回前内容版本已变）与 `model_output_invalid`（模型输出为空、无法解析或把类型改为 Profile） |
+| `MemoryMergeAbortedError`（`workspace.memory.merge_aborted`） | Familiar 的合并路径 | 不经 HTTP 呈现；合并任务以 `merge_aborted.<details.reason>` 失败收尾，任务快照的公开 error 仍是固定说明 | 两条记忆的合并在读取、条件、版本或模型输出上不满足要求，两条记忆都保持不变，不回退为追加或覆盖；`details.reason` 区分 `memory_missing`（任一记忆缺失或对发起者不可见）、`not_mergeable`（访问策略不同、任一方是 Profile，或吸收自身）、`version_changed`（写回前内容版本已变）与 `model_output_invalid`（模型输出为空、无法解析或把类型改为 Profile） |
 | `MemoryDecodeError` | Memory codec 读取边界 | 5xx | payload 无法安全归一化为 schema `"2.1"`（缺 `schema_version`、未知版本、投影不一致等），fail closed |
 
 Memory 领域模型的 `validate_assignment` 使构造与就地赋值执行同一套约束；外部编辑入口把值相等判定为无变化时不产生版本（§3.2 语义见 Patchouli 生成文档）。
@@ -307,7 +307,7 @@ Topic 缺失使用 `ResourceNotFoundError`，忙碌使用 `TopicBusyError`，明
 |:---|:---|
 | Gateway 查询理解与话题路由 | 转为各自的能力错误，由 workflow 保守降级（第 4.2 节） |
 | Patchouli 记忆抽取与合并 | 只对提供商失败重试，一次提取或合并最多两次请求；超窗与程序错误不重试。重试耗尽后抛出最后一次的 `ModelProviderError`；模型输出为空或无法解析是“没有产出”，不是失败。话题结算的提取输出被截断时抛出 `ModelProviderError`、不重试：截断的草稿列表无法解析，当作没有产出会让整段话题不留记忆 |
-| Patchouli 生成引擎 | Mode A 不捕获提供商失败，生成任务以 `memory_generation_failed` 失败收尾，不再记录为没有产出；Mode B/C 对提供商失败使用既有 fallback，保证明确的保存与更新意图不因 Librarian LLM 暂时失败而丢失；程序错误不降级 |
+| Patchouli 生成引擎 | Mode A 不捕获提供商失败，生成任务以 `model_provider_failed`（超窗为 `model_context_window_exceeded`）失败收尾，不再记录为没有产出；Mode B/C 对提供商失败使用既有 fallback，保证明确的保存与更新意图不因 Librarian LLM 暂时失败而丢失；程序错误不降级 |
 | Page Folding 摘要 | 只在提供商失败时回退为规则摘要，程序错误沿 compact 路径传播 |
 | Alice 帧生成 | frame 形成 `FAILED`；超窗投影为 `model_context_window_exceeded`，其他提供商失败不填原因码（第 2.2 节） |
 | Alice 会话摘要器 | 以 `summary_model_context_exceeded` / `summary_provider_error` 拒绝本次摘要并保守回退 |
@@ -325,7 +325,7 @@ RuntimeEventSink 是 best-effort：
 
 这也是错误机制不能合并的一个现实原因：观测流允许丢失、回放缺口和慢订阅者隔离，业务终态却必须在调用点得到确定答案。把 `*.failed` RuntimeEvent 当成唯一失败事实，会让断连后的客户端无法知道任务究竟失败还是只是漏掉了事件。
 
-观测中的 `error_class` 只作诊断，不是稳定分类或重试依据；类合并或迁移后可变化。`import.turn.deferred` 的 reason 使用 `gateway_unavailable` / `queue_unavailable` / `apply_pending` / `apply_failed`。Import Bus、Gateway 与 Work Queue 的具体原因码见[事件契约](./routes-and-events.md#44-失败与降级观测)，不携带异常正文；生成任务的公开 error 使用固定说明，原始 WorkOutcome.error 仅留在进程内。
+观测中的 `error_class` 只作诊断，不是稳定分类或重试依据；类合并或迁移后可变化。`import.turn.deferred` 的 reason 使用 `gateway_unavailable` / `queue_unavailable` / `apply_pending` / `apply_failed`。Import Bus、Gateway 与 Work Queue 的具体原因码见[事件契约](./routes-and-events.md#44-失败与降级观测)，不携带异常正文；生成任务的公开 error 使用固定说明，原始 WorkOutcome.error 仅留在进程内；失败原因码见[Patchouli 生成](../patchouli/generation.md#61-失败原因码)第 6.1 节。
 
 ## 6. i18n 与信息泄漏
 

@@ -12,6 +12,7 @@ last_reviewed: 2026-11-03
 
 ## v0.7.3
 
+- [生成任务失败带原因码](./v0.7.3-generation-failure-reason-codes.md)：2026-11-03，PR #177；[Patchouli 生成](../../patchouli/generation.md#61-失败原因码)、[事件契约](../../contracts/routes-and-events.md#44-失败与降级观测)
 - [话题内主动写入优先](./v0.7.3-topic-active-write-precedence.md)：2026-11-03，PR #176；[Patchouli 生成](../../patchouli/generation.md#42-本话题的主动写入)
 
 ## 版本之外

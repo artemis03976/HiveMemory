@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from dataclasses import replace
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
@@ -13,11 +14,18 @@ import pytest
 from hivememory.components.work_queue import (
     QueuePolicy,
     UnknownWorkPayloadCodecError,
+    WorkExecutionContext,
     WorkPayloadCodecRegistry,
     WorkPayloadDecodeError,
     WorkQueueStoppedError,
     WorkState,
     encode_canonical_json,
+)
+from hivememory.core.errors import (
+    MemoryAliasConflictError,
+    MemoryMergeAbortedError,
+    ModelContextWindowExceededError,
+    ModelProviderError,
 )
 from hivememory.core.models import (
     IndexLayer,
@@ -40,9 +48,11 @@ from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationTaskStatus,
 )
 from hivememory.patchouli.control.memory_generation.queue import (
+    MemoryGenerationHandler,
     MemoryGenerationQueue,
     _MemoryGenerationWork,
     _MemoryGenerationWorkAdapter,
+    memory_generation_failure_reason,
 )
 from tests.helpers.memory import make_memory_identity_scope, make_memory_metadata
 from tests.helpers.sessions import make_logical_block
@@ -498,4 +508,59 @@ async def test_timeout_fails_without_retry() -> None:
     assert result.error == "记忆生成失败，请检查服务状态"
     assert record is not None
     assert record.state == WorkState.FAILED
+    assert record.last_error.message == "memory_generation_timed_out"
     assert bus.request.await_count == 1
+
+
+def _merge_aborted() -> MemoryMergeAbortedError:
+    return MemoryMergeAbortedError(details={"reason": "version_changed", "memory_id": "m1"})
+
+
+@pytest.mark.parametrize(
+    ("error", "reason"),
+    [
+        (_merge_aborted(), "merge_aborted.version_changed"),
+        (ModelContextWindowExceededError("window"), "model_context_window_exceeded"),
+        (ModelProviderError("rate limited"), "model_provider_failed"),
+        (TimeoutError(), "memory_generation_timed_out"),
+        (MemoryAliasConflictError(), "workspace.memory.alias_conflict"),
+        (ValueError("bug"), "memory_generation_failed"),
+    ],
+    ids=["merge-aborted", "context-window", "provider", "timeout", "domain-error", "unexpected"],
+)
+def test_failure_reason_maps_each_error_kind(error, reason) -> None:
+    """合并中止带拒绝原因，超窗先于提供商失败判断，其他领域错误取自己的 code。"""
+    assert memory_generation_failure_reason(error) == reason
+
+
+@pytest.mark.parametrize(
+    ("error", "with_stack", "logged_detail"),
+    [
+        (ValueError("bug"), True, "details=None"),
+        (_merge_aborted(), False, "'memory_id': 'm1'"),
+    ],
+    ids=["unexpected", "domain-error"],
+)
+def test_classifier_logs_each_failure_once_with_reason(
+    caplog, error, with_stack, logged_detail
+) -> None:
+    """分类处记一次带原因码的 error 日志：未预期的异常带堆栈，领域错误带 details。"""
+    handler = MemoryGenerationHandler(AsyncMock(), handles={})
+    context = WorkExecutionContext(
+        work_id="memory_generation:t1",
+        lane=MemoryGenerationQueue.LANE,
+        kind="patchouli.memory_generation",
+        schema_version="1.1",
+        attempt_count=1,
+    )
+
+    with caplog.at_level(logging.ERROR, logger="hivememory.patchouli.control.memory_generation"):
+        decision = handler.classify_failure(error, context)
+
+    (record,) = caplog.records
+    message = record.getMessage()
+    assert record.levelno == logging.ERROR
+    assert f"reason={decision.reason}" in message
+    assert "work_id=memory_generation:t1" in message
+    assert logged_detail in message
+    assert (record.exc_info is not None) is with_stack

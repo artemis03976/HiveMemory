@@ -211,7 +211,7 @@ Memory Generation 的生成、artifact 写入、Memory upsert 与 settlement 含
 整条数据面。确定性 spec/admission rejection 与执行失败由 Patchouli 按 PendingAtom 所有权结算；模糊失败
 不得被统一包装为成功或安全重试。
 
-Codec 编码失败在接纳前拒绝，解码失败在已接纳 work 的 attempt 内进入 dead letter，两类异常分别保留。Controller 只将明确的 codec/lane/容量/停止接纳错误视为 REJECTED；未知异常保留 UNKNOWN，不抢先结算可能已接纳的意图。公开任务 error 使用固定说明，原始 WorkOutcome.error 只作内部诊断。队列观测原因码与诊断类名的边界见[事件契约](../contracts/routes-and-events.md#44-失败与降级观测)。
+Codec 编码失败在接纳前拒绝，解码失败在已接纳 work 的 attempt 内进入 dead letter，两类异常分别保留。Controller 只将明确的 codec/lane/容量/停止接纳错误视为 REJECTED；未知异常保留 UNKNOWN，不抢先结算可能已接纳的意图。公开任务 error 使用固定说明，原始 WorkOutcome.error 只作内部诊断；失败原因码由生成 lane 的分类器按异常给出，进入工作记录、`work.failed` 与 `memory.task.failed`（[Patchouli 生成](../patchouli/generation.md#61-失败原因码)第 6.1 节）。队列观测原因码与诊断类名的边界见[事件契约](../contracts/routes-and-events.md#44-失败与降级观测)。
 
 ### 3.5 Backpressure、取消与关闭
 

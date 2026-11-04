@@ -20,6 +20,7 @@ from hivememory.components.work_queue import (
     TaskOutcome,
     UnknownWorkLaneError,
     UnknownWorkPayloadCodecError,
+    WorkErrorSnapshot,
     WorkPayloadEncodeError,
     WorkQueueCapacityError,
     WorkQueueShutdownSummary,
@@ -378,13 +379,11 @@ class MemoryGenerationTaskController:
             # finalize，失败只影响可观测副作用，不回写通用 work 状态。
             await self._publish_settlements(results)
             await self._submit_nominated_merges(entry.spec, results)
-        elif record.state != WorkState.CANCELLED:
-            logger.error(
-                "Memory generation failed: label=%s, err=%s",
-                entry.spec.label,
-                snapshot.error,
-            )
-        await self._publish_terminal(entry, snapshot)
+        # 失败已由生成队列的分类器按原因码记录日志；这里只把原因码带进领域终态事件。
+        failure = (
+            record.last_error if snapshot.status == MemoryGenerationTaskStatus.FAILED else None
+        )
+        await self._publish_terminal(entry, snapshot, failure=failure)
         return snapshot
 
     async def _submit_nominated_merges(
@@ -598,8 +597,14 @@ class MemoryGenerationTaskController:
         self,
         entry: _MemoryTaskEntry,
         snapshot: MemoryGenerationTask,
+        *,
+        failure: WorkErrorSnapshot | None = None,
     ) -> None:
-        """以 best-effort 方式发布领域终态及关联 PendingAtom 事件。"""
+        """以 best-effort 方式发布领域终态及关联 PendingAtom 事件。
+
+        ``failure`` 是失败工作记录的错误快照：失败事件的 reason 取它的原因码，
+        载荷带异常类名；其余终态的 reason 是取消原因。
+        """
 
         pending_alias = entry.spec.pending_alias
         intent_id = entry.spec.intent_id
@@ -611,7 +616,8 @@ class MemoryGenerationTaskController:
 
         self._task_events.terminal(
             snapshot,
-            reason=snapshot.cancel_reason,
+            reason=failure.message if failure is not None else snapshot.cancel_reason,
+            error_class=failure.error_class if failure is not None else None,
         )
 
     def _record_topic_writes(self, topic_id: str, results: list[MemoryGenerationResult]) -> None:

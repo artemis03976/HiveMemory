@@ -50,13 +50,14 @@ class MemoryTaskEventEmitter:
         snapshot: MemoryGenerationTask,
         *,
         reason: str | None = None,
+        error_class: str | None = None,
     ) -> None:
-        """按领域终态发布完成、取消或失败事件。"""
+        """按领域终态发布完成、取消或失败事件；失败事件带原因码与异常类名。"""
 
         event_type = _TERMINAL_EVENT_TYPES.get(snapshot.status)
         if event_type is None:
             raise ValueError(f"Memory task status is not terminal: {snapshot.status.value}")
-        self._emit(event_type, snapshot, reason=reason)
+        self._emit(event_type, snapshot, reason=reason, error_class=error_class)
 
     def cancel_requested(
         self,
@@ -79,6 +80,7 @@ class MemoryTaskEventEmitter:
         *,
         reason: str | None = None,
         message: str | None = None,
+        error_class: str | None = None,
     ) -> None:
         self._publisher.bind(
             task_type="background",
@@ -90,7 +92,7 @@ class MemoryTaskEventEmitter:
             severity=("error" if event_type == RuntimeEventType.MEMORY_TASK_FAILED else "info"),
             reason=reason,
             message=message,
-            data=memory_task_to_payload(snapshot, reason=reason),
+            data=memory_task_to_payload(snapshot, reason=reason, error_class=error_class),
         )
 
 

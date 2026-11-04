@@ -215,8 +215,9 @@ def memory_task_to_payload(
     memory_task: MemoryGenerationTask,
     *,
     reason: str | None = None,
+    error_class: str | None = None,
 ) -> dict[str, object]:
-    """将单个任务序列化为稳定的事件载荷快照。"""
+    """将单个任务序列化为稳定的事件载荷快照；``error_class`` 只在失败时有值，仅作诊断。"""
 
     cancelled = memory_task.status == MemoryGenerationTaskStatus.CANCELLED
     return {
@@ -238,6 +239,7 @@ def memory_task_to_payload(
         "cancel_requested": memory_task.cancel_requested,
         "cancelled": cancelled,
         "reason": reason or memory_task.cancel_reason,
+        "error_class": error_class,
     }
 
 
