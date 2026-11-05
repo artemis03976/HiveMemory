@@ -28,12 +28,12 @@ related_docs:
   - docs/VISION.md
   - docs/ideas/execution-environment.md
   - docs/archive/ideas/execution-thread-definition.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-04
 ---
 
 # 外部 Actor 的接入登记与运行时访问
 
-**文档状态**：Idea，外部 harness 接入未形成实施承诺
+**文档状态**：Idea。plugin 模式已于 v0.7.1–v0.7.2 实施（第 4 节），当前事实见 [MCP 记忆访问](../contracts/mcp.md)与 [Import Bus](../system/import-bus.md)；controller 模式与其余开放问题未形成实施承诺
 
 **实施关联（2026-10-09）**：Alice 的操作请求、执行凭据与观测标签已通过 [迁移计划验收](../archive/plans/v0.7.0-alice-capability-migration.md)，当前接口见 [子系统契约](../contracts/subsystem-contracts.md)。本 Idea 的 controller/plugin 模式、传输会话到凭据的映射和独立子线程身份仍是后续方向，不能从 Alice 迁移完成推断它们已实现。
 **记录日期**：2026-09-27，由原 v0.7.0 计划 B 退回
@@ -50,9 +50,9 @@ last_reviewed: 2026-11-01
 
 - owner 判定计划 B 作为计划已经作废：原被动输入（现称 Import Bus）的设计已经更新（[已归档的 Import Bus Idea](../archive/ideas/import-bus.md)第 1 节：退化为与记忆系统零主动交互的纯输入），计划中的内容也大多过时；但它要解决的问题仍然存在。
 - 本文只保留这个问题以及仍然成立的设计材料。没有保留的内容：阶段划分（EMS-0–6）、交付与验收出口、A/B 交接与依赖顺序、测试矩阵、代码落点与迁移切片、文档收口清单；以 Passive Ingress 返回记忆 context 为前提的实时被动模式；以“System 应用服务 → GlobalSystemBus → Patchouli application”为主干的目标结构（已被总 Idea 第 12 节“能力层是 Actor 唯一可见的 API”这一前提取代）。
-- 现状事实按 2026-09-27 的代码核对。
+- 第 2 节的现状事实于 2026-11-04 重新核对；2026-09-27 的原始核对见 commit `42522fe7` 中的本文。
 - 待决问题只列出选项及其影响，不替 owner 作出选择；选项顺序不代表倾向。
-- **版本归属**（owner，2026-09-27）：外部 Actor 的真实接入（真正的 adapter 接口与外部服务身份等）不在 v0.7.0。v0.7.0 不对外部 Actor 所需的基建作承诺，只验证 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构（[ROADMAP](../ROADMAP.md) 的 v0.7.0 范围）。外部 Actor 分为两种接入模式（1.1）：v0.7.1 的版本目标为 plugin 模式的真实接入，首个 harness 为 Claude Code；controller 模式退回候选方向，版本待定（1.1 的版本安排，owner，2026-10-20；2026-09-27 原定先做 controller 模式）。2026-10-20 起本文的 horizon 为 `current`，服务 v0.7.1，目标窗口见 [ROADMAP](../ROADMAP.md) 第 3 节（v0.7.1 发布后的位置）；2026-10-30 v0.7.1 收尾时改为 `candidate`：plugin 模式的两步均已实施，controller 模式、E-4 与写入意图经 MCP 提交等其余内容未排期。同日 v0.7.2（生成质量）定下后改回 `current`，服务 v0.7.2：plugin 模式开放 WRITE 与 UPDATE 是该版本的方向之一（第 4 节的 v0.7.2 一步）；controller 模式仍留在候选池。
+- **版本归属**（owner，2026-09-27）：外部 Actor 的真实接入（真正的 adapter 接口与外部服务身份等）不在 v0.7.0。v0.7.0 不对外部 Actor 所需的基建作承诺，只验证 Alice 在新架构下跑通、各流程协作无误，使之后的 adapter 不需要再大改系统拓扑结构（[ROADMAP](../ROADMAP.md) 的 v0.7.0 范围）。外部 Actor 分为两种接入模式（1.1）：v0.7.1 的版本目标为 plugin 模式的真实接入，首个 harness 为 Claude Code；controller 模式退回候选方向，版本待定（1.1 的版本安排，owner，2026-10-20；2026-09-27 原定先做 controller 模式）。2026-10-20 起本文的 horizon 为 `current`，服务 v0.7.1，目标窗口见 [ROADMAP](../ROADMAP.md) 第 3 节（v0.7.1 发布后的位置）；2026-10-30 v0.7.1 收尾时改为 `candidate`：plugin 模式的两步均已实施，controller 模式、E-4 与写入意图经 MCP 提交等其余内容未排期。同日 v0.7.2（生成质量）定下后改回 `current`，服务 v0.7.2：plugin 模式开放 WRITE 与 UPDATE 是该版本的方向之一（第 4 节的 v0.7.2 一步）；controller 模式仍留在候选池。2026-11-01 v0.7.2 收尾后改回 `candidate`。
 - **术语**（owner，2026-10-06）：本文的 adapter 即**操作适配器**（operation adapter），定义见 3.4；1.2 中执行侧面的实现，即 CPU 端口的实现，称 **CPU 驱动**。两者的分层见[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节的执行一侧用语。2026-10-20 用语修订后，执行侧面由执行单元（CPU 的常驻实例）承担，实现执行单元的代码称驱动。
 
 ## 1. 问题
@@ -134,34 +134,30 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
   - 2026-10-06：按执行单元 Idea前提 9、10，agent 与执行环境解耦，不存在固定的“actor 对应哪个 CPU”的映射：用户在对话开始前分别选择 agent 与执行环境，选择执行环境不是 workspace 的能力，倾向由系统层级控制、在 CPU 分配时决定 backend（E-6a）。选择的承载、默认值与可用范围见执行单元 Idea T-8。
 - 仍待决：登记记录的结构，以及它与 Workspace Actor 访问登记的关系（E-1a）。
 
-## 2. 现状事实（代码核对，2026-09-27）
+## 2. 现状事实（代码核对，2026-11-04）
+
+plugin 模式的两步已经实施（第 4 节）。本节只列与本文开放问题相关的现状，完整事实以链接的当前文档为准。
 
 ### 2.1 接入登记
 
-- 两类登记在启动时从配置装载，运行中不可变，修改需要重启：
-  - System 接入登记（[`system/access/registry.py`](../../src/hivememory/system/access/registry.py)）：`SystemActorAccessEntry` 包含 `principal_id`、`kind`、`enabled`、`adapters`（该来源可经哪些 adapter 接入）与可选的 `allowed_user_ids`；
-  - Workspace Actor 访问登记（[`workspace/registry.py`](../../src/hivememory/workspace/registry.py)）：`WorkspaceActorAccessRecord` 按 (owner, workspace, user, agent) 登记 `enabled` 与 `allowed_operations`；
-  - 配置模型位于 [`config/access.py`](../../src/hivememory/config/access.py)（`AccessControlConfig`：`principals`、`workspace_actors`、`context_ttl_seconds`）。`configs/config.yaml` 中没有 access 配置段，按设计 fail closed。
+- 两类登记仍在启动时从配置装载，运行中不可变，修改需要重启（E-1 选项 A）：System 接入登记来自 `configs/system_principals.yaml`（[`system/access/registry.py`](../../src/hivememory/system/access/registry.py)），Workspace Actor 访问登记来自 `configs/workspace_actors.yaml`（[`workspace/registry.py`](../../src/hivememory/workspace/registry.py)），字段见[认证与访问登记](../workspace/authentication.md)。
 - 除配置文件外，没有登记、修改或撤销接入的入口。
 
 ### 2.2 认证
 
-- [`ActorAuthenticationGateway`](../../src/hivememory/workspace/authentication.py) 执行两阶段认证：Principal authentication 由 System 的 `SystemPrincipalAuthenticator` 经 `core.access.PrincipalAuthenticator` 端口实现，Workspace 准入由 `WorkspaceAccessGuard` 完成；两步都通过才签发 `WorkspaceAccessContext`。
-- context 是进程内对象，只携带 `IdentityScope`，不作为可序列化的远端凭据。
-- 认证网关没有生产调用方。principal 的身份证明应由 adapter 依据接入证据构造，目前没有 adapter 实现这一证明（总 Idea P-1）。
+- 统一认证网关执行两阶段认证，任务进程注册、Import Bus 与 MCP 入口都经它取得访问 context；外部 principal 以各自的本地共享密钥证明身份（P-1c，[认证与访问登记](../workspace/authentication.md)）。
+- HTTP 管理接口中仍有不经认证网关、不证明调用方的部分，本机任何进程都能调用，见[本机 HTTP 管理接口 Todo](../todo/local-http-management-access.md)。
 
-### 2.3 HTTP 入口
+### 2.3 外部入口
 
-（2026-10-21：Import Bus 重设计删除了下述 `/ingest` 入口与记忆上下文的返回，现状见 [Import Bus](../system/import-bus.md)。）
-
-- `/api/v1/ingest` 与 `/api/v1/ingest/flush` 是现有的外部对话事件入口：要求显式 `agent_id`（参与外部会话命名空间），body 中的身份与请求头身份冲突时拒绝。
-- 其他资源路由的身份取自请求头 `x-user-id` / `x-workspace-id`，不经认证网关。
-- `PassiveIngressService.ingest_event` 在 user 事件上返回编译后的记忆 context，与 Import Bus 的新前提不一致（总 Idea 2.3、3.3）。
+- 对话回流：`POST /api/v1/import/turns` 每次接收一整轮，经导入授权、Gateway 落位与共用封口提交，应用完成后才确认；不读取记忆，也不返回记忆上下文（[Import Bus](../system/import-bus.md)）。
+- 记忆访问：MCP 端点提供 `memory_search`、`memory_read`、`memory_write` 与 `memory_update`，每次工具调用签发一份请求级 context；写入与更新先经 Import Bus 为这一轮落位（[MCP 记忆访问](../contracts/mcp.md)）。
+- 已接入的 harness：Claude Code（hooks 与 MCP server 打包为插件）与 DeepSeek Harness（原生插件），见[接入 Claude Code](../help/claude-code-plugin.md)与[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md)。
 
 ### 2.4 能力层
 
-- `workspace/capability/` 下有 memory、agent_profiles、topic、memory_tasks、assets 五类能力服务。读取方法在 backing 调用前执行 `authorize_operation`；写入与管理路径的 operation 检查仍在 Patchouli application，见 [A1 访问边界返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)。workspace 包的现有实现需要重新调查（总 Idea 5.5）。
-- `WorkspaceOperation` 共 11 项，没有代码执行、工具调用、CALL 或创建任务类操作（总 Idea 13.1）。
+- 能力层分为 root API、actor API 与任务进程的阶段调用三个调用面；actor API 的六项 actor 操作与 MTP 的六个动词一一对应，包括 `agent.call`（[能力层](../workspace/capability.md)）。
+- 操作入口是 actor API 唯一的调用方：执行线程经线程提交，MCP 入口经请求级提交，后者只开放检索、读取、写入与更新。
 
 ## 3. 仍然成立的设计材料（来自原计划 B）
 
@@ -323,31 +319,8 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
   - 记忆能力属于 workspace 的 actor API，不为 MTP 独占。plugin 模式开放的是 actor API 中写入与更新这两项 actor 操作；MTP 的 WRITE、UPDATE 只是 Alice 对同一组操作的协议映射。
   - WRITE 与 UPDATE 始终产生 PendingAtom 句柄并交还前台 actor，作为读写一致性的保障；记忆生成完成后由结算事件触发重定向。这条链路任何一个环节断开，都说明 v0.7.0 没有迁移到位，需要返工，而不是另行设计。
   - 原列为阻塞问题的 E-4 与外部 Actor 的提交与回读契约（[写入意图 Idea](./pending-intent-migration.md#7-外部-actor-的提交与回读契约)第 7 节）都是已有能力或已有决定，不阻塞本步。
-- **现状**（代码核对，2026-10-31）：
-  - MCP server 只提供 `memory_search` 与 `memory_read`（[MCP server](../../src/hivememory/mcp_server/server.py)）；操作入口的请求级提交 `execute_request` 只分派检索与引用解析，其余类型在分派前拒绝（[操作入口](../../src/hivememory/workspace/capability/operations.py)）；`claude_code` 的访问登记只有 `memory.read` 与 `memory.search`。
-  - PendingAtom 链路在 workspace 与 Patchouli 之间闭合，不经 Alice：意图登记在 workspace 的 `WriteIntentRegistry`（[写入意图登记](../../src/hivememory/workspace/intents/registry.py)），登记订阅 Patchouli 的结算事件；读取视图对在途句柄交付登记中的状态，结算后重定向到正式原子并重新授权（[读取视图](../../src/hivememory/workspace/resolution/memory.py)）。`memory_read` 已经经这一读取视图交付 pending 句柄。
-  - actor API 的写入与更新在登记前解析执行线程，从中取得进程标识、线程标识与派发话题（[actor API](../../src/hivememory/workspace/capability/actor/memory.py)）。派发话题是 prepare 为本轮选定的话题，Patchouli 以它的状态摘要与最近几轮作为主动生成的材料（[Patchouli 生成](../patchouli/generation.md#32-mode-b主动-write)第 3.2 节）。请求级 context 没有线程：进程与线程标识只供观测，派发话题按 E-8 的决定在写入时就地落位取得。
-  - 记忆编译是 Alice 与 MCP 共用的引擎，其中仍有按 MTP 编写的命名与文案：
-    - target 与信封按 MTP 命名：`MemoryCompileTarget.MTP_READ`、`MemoryEnvelopeTarget.MTP_READ_RESPONSE`，处理器 `compile_mtp_read` 位于 `handlers/mtp.py`，信封标题为 `[MTP READ Result]`（[记忆编译模型](../../src/hivememory/engines/memory_compiler/models.py)）；MCP 的 `memory_read` 也以 `MTP_READ` 编译。
-    - 文案写着 MTP 的调用方式（[记忆编译文案](../../src/hivememory/i18n/memory_compiler.py)）：检索上下文信封的头尾引导使用 `⟪ READ | alias | ⟫`、`⟪ CALL … ⟫`、`⟪ SEARCH ⟫` 的指令语法；截断提示让读者“使用 READ 指令”；pending 句柄与引用解析结果的提示让读者“重新发出 WRITE/UPDATE 指令”“使用 SEARCH”“在后续的 READ/RUN/UPDATE 调用中使用正式别名”。
-    - 因这些文案而存在的绕行：MCP 检索关闭检索上下文信封的头尾引导（`include_header_footer`，注释写明头尾面向 Alice 的 MTP 指令）；MCP 读取交付全文，注释写明是为了不出现指引 MTP READ 的截断提示。MCP 检索中全文呈现的条目超过长度时，截断提示仍指向 READ 指令。
-- **范围**（候选）：Claude Code 插件的 MCP server 增加写入与更新两个工具，经操作入口的请求级提交进入 actor API 的写入与更新操作，按访问登记逐次授权；写入时就地为本轮落位（E-8），以本轮所在的话题派发；登记写入意图后派发到 Patchouli 的 Mode B、Mode C，与主动链路是同一条链路；记忆编译的命名与文案不再按 MTP 编写，Alice 与 MCP 得到各自协议下可用的指引。
-- **阻塞问题**：无。E-8 已于 2026-10-31 决定（选项 D）。计划已于 2026-10-31 实施并归档：[plugin 模式开放 WRITE 与 UPDATE](../archive/plans/v0.7.2-plugin-write-update.md)，当前事实见 [MCP 记忆访问](../contracts/mcp.md)与 [Import Bus](../system/import-bus.md#47-写入时落位)。以下候选设计在计划中采纳或调整，保留为讨论记录：落点登记按 `interaction_id` 保存，而不是每个外部会话只保留一轮；回流之后才到达的写入（后台子代理）沿用这一轮实际所在的话题。
-- **候选设计**（分析，不是 owner 决定，可在计划评审时调整）：
-  - 请求级 context 登记意图：plugin 模式不建任务进程（1.1），登记改记请求的观测标签，不伪造进程或线程；`execute_request` 的可提交类型增加写入与更新请求；`claude_code` 的访问登记增加 `memory.write` 与 `memory.update`。
-  - 写入时就地落位（E-8 选项 D）的完整链路：
-    - **连接器**：插件为 HiveMemory 的写入与更新工具注册 `PreToolUse` hook。hook 从会话记录读出当前一轮与之前几轮：外部轮次标识取本轮用户消息条目的 `uuid`，与轮次结束时的回流一致；把外部会话、外部轮次、本轮用户消息与最近几轮，也就是轮次结束时 Import Bus 用于路由的同一份输入，经 `updatedInput` 补进工具参数。hook 不给权限决定，改写后的参数照常经过 Claude Code 的权限评估，用户对写入工具的确认不变。
-    - **MCP 入口**：写入与更新工具把连接器补上的轮次信息与操作参数分开。轮次信息交给 Import Bus 取得落点；操作请求只携带操作参数，不携带 topic_id（W6）。缺少轮次信息时以结构化错误拒绝，不退化为不绑定话题。
-    - **轮次落位**（System 的 Import Bus 服务）：以导入同样的推导得到这一轮的 `interaction_id`，在同一外部会话的串行门内处理。已有落点直接返回；否则以 `PASSIVE_MEMORY` 做话题路由，经 Patchouli 的 `prepare_agent_run`（关闭检索）准备话题，新话题在此预建，然后登记落点。同一轮的多次写入共用第一次的落点。落位不读取记忆，也不返回记忆上下文，Import Bus 只向网络输入的前提不变。
-    - **落点登记**：属于 Import Bus 的进程内控制状态。每个外部会话只保留正在进行的一轮的落点，该轮回流或该会话的下一轮登记落点时作废；不持久化，进程重启后落点丢失，回流时按现行规则路由。
-    - **派发**：请求级提交把落点话题交给 actor API，作为写入与更新的派发话题。它与线程的派发话题同义，都是本轮最终所在的话题。请求级提交如何携带派发话题，在计划中确定。
-    - **回流**：轮次结束时，Import Bus 对已有落点的轮次不再调用 Gateway，以落点话题提交。落点话题若已结束生命周期（轮次超过空闲时限被空闲结算，或被 LRU 驱逐），按现行规则重新路由；写入的材料在派发时已经读取，不受影响。没有发生写入的轮次与现在完全相同。
-    - **预建话题的清理**：本轮始终没有回流时，预建的话题保持为空，由空闲结算按没有材料的话题结束生命周期（[感知与短期话题](../patchouli/perception.md)），不另设清理机制。
-    - **材料**：与主动链路相同，取话题过去若干轮与状态摘要，不含本轮（W10）；新话题为空时只凭意图本身生成。
-    - **子代理**：Claude Code 子代理发起的写入按主会话的当前一轮落位；子代理中的 hook 如何读到主会话的当前一轮，在计划中核实。
-  - 工具结果交还 PendingAtom 句柄，写明句柄表示意图已在 workspace 登记并被生成队列接纳、正式记忆尚未持久化；之后经 `memory_read` 回读，结算后重定向到正式记忆。
-  - 回声：连接器把 HiveMemory 自己的写入与更新调用归一化为 `verb` 为 WRITE、UPDATE 的事件，生成视图不渲染这两类事件（[生成材料的渲染](../../src/hivememory/engines/perception/material.py)），避免 Mode A 把显式写入的内容再提取一遍。
-  - 记忆编译：target、信封与处理器按用途命名，不按协议命名；编译正文只写记忆内容与状态，不写任何协议的调用语法。提示读者下一步操作的文字（截断后读取全文、结算后改用正式别名、失败后重新提交、检索为空时检索）只写能力，不指向任何协议的指令或工具名；工具名随 harness 与安装方式变化，能力是固定的（owner，2026-10-31）。`include_header_footer` 开关与 MCP 读取为避开截断提示的注释随之复核。
+- **阻塞问题**：无。E-8 已于 2026-10-31 决定（选项 D）。
+- **实施结果**：本步已按[归档计划](../archive/plans/v0.7.2-plugin-write-update.md)实施。计划建立时的代码现状、范围与候选设计（请求级 context 登记意图、写入时就地落位的完整链路、回声标记、记忆编译的命名与文案不再按 MTP 编写）及其在计划中的采纳与调整都保存在归档计划中，2026-11-04 从本文移出；落地结果见 [MCP 记忆访问](../contracts/mcp.md)、[Import Bus](../system/import-bus.md#47-写入时落位)与[读取视图与写入意图](../workspace/read-view-and-write-intents.md)。
 
 ### controller 模式的步骤分析（退回候选方向）
 
@@ -542,7 +515,7 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
 - 候选设计（分析，不是 owner 决定，可在计划评审时调整）：
   - 授权：actor 授权接受请求级绑定，目标取驻留 Workspace（与线程相同，请求不能切换 Workspace），白名单照常逐次授权；线程绑定的路径不变。
   - 调用路径（已作废，见下方复核）：请求级访问不经线程专用的 `WorkspaceOperationEntry`，MCP 端点经门面取得 actor API 的读取方法。
-  - 写入：目前不开放写入类 MCP 工具。写入意图的登记需要进程关联与派发话题，不建进程的写入如何取得它们是后续必须解决的问题，随第 4 节后续步骤“写入意图经 MCP 提交”设计。
+  - 写入：目前不开放写入类 MCP 工具。写入意图的登记需要进程关联与派发话题，不建进程的写入如何取得它们是后续必须解决的问题，随第 4 节后续步骤“写入意图经 MCP 提交”设计。（2026-10-31 已解决：E-8 选项 D 在写入时就地落位，请求级提交随 v0.7.2 开放写入与更新，见第 4 节的 v0.7.2 一步。）
 - **复核（owner，2026-10-29，记忆访问计划阶段二实施后）**：上面的调用路径让 actor API 有了两个出口，MCP 绕过操作入口的调用约束，违背 3.4 的细化（2026-10-09）——操作适配器经 workspace 的单一操作入口调用能力层。
   - **owner 决定**：actor API 只经操作入口，门面不交出 actor API；
   - **owner 决定**：操作入口新增请求级提交，只开放检索与读取，门面交出操作入口供 MCP 入口使用；

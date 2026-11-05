@@ -34,9 +34,9 @@ last_reviewed: 2026-10-19
 最小闭环已完成。只有在产品需求、运行指标或真实故障证明有必要时，才按本文各节的
 独立启用条件立项。不得以“架构最终会需要”为理由一次性实施全部内容。
 
-**2026-10-01 核对**：chat 编排已迁入 workspace 的任务进程（[任务进程 Idea](./task-process-table-and-registration-entry.md)），本文沿用的旧名按以下对应理解：`chat_stream()` 与 `chat_service` 对应执行器的 `TaskProcessRunner.run(process)`（`workspace/process/runner.py`；2026-10-04 起四阶段骨架从进程容器 `TaskProcess` 拆出），Chat Run 注册表对应进程表 `ProcessTable`（`workspace/process/table.py`），`generation_id` 对应 `process_id`，Alice 阶段对应经 CPU 端口执行的 Actor 阶段。候选 F 的前提已经变化，见第 8 节。
+**2026-10-01 核对**：chat 编排已迁入 workspace 的任务进程（[任务进程 Idea](./task-process-table-and-registration-entry.md)），本文沿用的旧名按以下对应理解：`chat_stream()` 与 `chat_service` 对应执行器的 `TaskProcessRunner.run(process)`（`workspace/process/runner.py`；2026-10-04 起四阶段骨架从进程容器 `TaskProcess` 拆出），Chat Run 注册表对应进程表 `ProcessTable`（`workspace/process/table.py`），`generation_id` 对应 `process_id`，Alice 阶段对应经 CPU 端口执行的 Actor 阶段。候选 F 的前提已经变化，见第 7 节。
 
-**2026-10-15**：[会话计划](../archive/plans/v0.7.0-conversation-session.md)已完成并归档，原候选 D 和第 3.4 节问题移出本文：有输出的取消/失败轮次可恢复，finalizing 处关闭也等待提交完成。当前事实见 [任务进程](../workspace/task-process.md#8-封口部分输出与结算)，原候选全文见 commit `c7e912a9` 中的本文。停止仍只经 `Task.cancel()` 与原生 `CancelledError`。
+**2026-10-15**：[会话计划](../archive/plans/v0.7.0-conversation-session.md)已完成并归档，原候选 D 和第 3.4 节问题移出本文（2026-11-04 起原第 7–11 节顺次改为第 6–10 节）：有输出的取消/失败轮次可恢复，finalizing 处关闭也等待提交完成。当前事实见 [任务进程](../workspace/task-process.md#8-封口部分输出与结算)，原候选全文见 commit `c7e912a9` 中的本文。停止仍只经 `Task.cancel()` 与原生 `CancelledError`。
 
 **2026-10-19**：候选 A 中“执行所有权从 SSE 移到进程”的部分已经落地，[任务进程拥有执行流计划](../archive/plans/v0.7.0-task-process-owned-execution.md)已归档，触发条件见[代码结构成因基线](../governance/baselines/v0.7.0-code-structure-causes-2026-10-18.md)第 3.1 节。现在：
 - 进程持有自己的 task 与单订阅者输出通道，交付方只订阅或等待终态，进程只在自己的 task 中收尾；
@@ -209,21 +209,23 @@ RuntimeEvent 生产端收敛（[日志与运行时事件](../governance/observab
 
 ---
 
-## 7. 候选 E：`PreparedRunLease`——默认无限期延后，可删除
+## 6. 候选 E：`PreparedRunLease`——默认无限期延后，可删除
 
-### 7.1 当前决策
+### 6.1 当前决策
 
 **默认不实施 `PreparedRunLease`。** 最小方案规定 Patchouli prepare 不响应用户 stop：
 
-1. stop 在 prepare 运行中只写入 run 级停止事实；
-2. prepare 继续完成并把 `PreparedAgentRun` 返回给 `chat_service`；
-3. Chat application 检查到停止后跳过 Alice/finalize；
-4. 现有 `PATCHOULI_CLEANUP_PREPARED_AGENT_RUN` 处理已返回的 prepared resource。
+1. stop 在 prepare 运行中只记录停止请求；
+2. prepare 照常完成，把 `PreparedAgentRun` 交给执行器并登记在进程工作集中；
+3. 进入 Actor 执行前的停止检查命中，跳过 Actor 执行与 finalize；
+4. 进程关闭时对尚未交接的 prepare 结果请求 Patchouli 的 `cleanup_prepared_agent_run`，只补偿 prepare 新建且仍为空的话题。
+
+现行行为见[任务进程](../workspace/task-process.md)第 9、12 节。
 
 这消除了“用户取消恰好发生在资源创建成功、但资源 id 尚未返回上层”这一主要租约动机。
 只要 prepare 保持短时且不可被用户取消，引入 lease 的成本高于收益。
 
-### 7.2 删除候选条件
+### 6.2 删除候选条件
 
 长期满足以下条件时，可从路线图彻底删除 `PreparedRunLease`：
 
@@ -233,7 +235,7 @@ RuntimeEvent 生产端收敛（[日志与运行时事件](../governance/observab
 - 没有可归因于 prepare 中断的资源孤儿事故；
 - 产品不要求用户在 prepare 中途立即停止。
 
-### 7.3 重新启用条件
+### 6.3 重新启用条件
 
 只有出现至少一项真实需求时才重新设计：
 
@@ -244,9 +246,9 @@ RuntimeEvent 生产端收敛（[日志与运行时事件](../governance/observab
 - 线上出现可复现的 topic/resource orphan；
 - prepare 需要跨进程恢复或补偿。
 
-### 7.4 若重新启用的最小不变量
+### 6.4 若重新启用的最小不变量
 
-只有触发 §7.3 后，才采用类似状态：
+只有触发 §6.3 后，才采用类似状态：
 
 ```text
 OPEN -> ABORTED
@@ -266,7 +268,7 @@ OPEN -> COMMITTED
 
 ---
 
-## 8. 候选 F：Gateway command 提交屏障
+## 7. 候选 F：Gateway command 提交屏障
 
 > 2026-10-01：Gateway 命令已改为只解析、不执行，命令分发与执行已删除（[Gateway 全局命令](../gateway/commands.md)），当前不存在会在 Gateway 中产生副作用的命令。命令在任务进程中何时、由谁运行尚未决定，本节内容待命令系统接回时按新的运行位置重新审视。
 
@@ -286,7 +288,7 @@ Gateway 最小方案取消整个 workflow task，因此取消可能在 command a
 
 ---
 
-## 9. generation done 与 Chat Run completed
+## 8. generation done 与 Chat Run completed
 
 独立 Job 和后台 finalize 启用后，需要区分两个事实：
 
@@ -308,7 +310,7 @@ Gateway 最小方案取消整个 workflow task，因此取消可能在 command a
 
 ---
 
-## 10. 候选实施优先级
+## 9. 候选实施优先级
 
 | 候选 | 默认状态 | 何时优先 |
 |:---|:---|:---|
@@ -324,7 +326,7 @@ Gateway 最小方案取消整个 workflow task，因此取消可能在 command a
 
 ---
 
-## 11. 未来方案验收原则
+## 10. 未来方案验收原则
 
 无论启用哪一项，都必须验证：
 

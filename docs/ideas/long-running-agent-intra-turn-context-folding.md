@@ -21,7 +21,7 @@ last_reviewed: 2026-10-17
 
 # 长时间运行 Agent 的 Turn 内上下文折叠
 
-本文记录一项面向未来生产级长时间运行 Agent 的开放设计，不是当前能力说明，也不代表近期排期。当前短期话题、Agent runtime、Passive Ingress、Generation 和 Artifact 的真实行为分别以 front matter 中列出的当前文档为准。
+本文记录一项面向未来生产级长时间运行 Agent 的开放设计，不是当前能力说明，也不代表近期排期。当前短期话题、Agent runtime、Import Bus、Generation 和 Artifact 的真实行为分别以 front matter 中列出的当前文档为准。
 
 通用的执行工作记忆、Topic 记忆形成工作集、Alice compact 与 page folding 关系集中在[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)；Session → Topic 完整资料 → Artifact 的原始数据保存链集中在[全链路原始证据 Idea](./PatchouliPageFoldingRawEvidenceDesign.md)。本文只讨论未结束 turn 的事件流接入、语义分段、独立覆盖进度、超大事件和封口恢复，不重复定义通用压缩算法或证据存储。
 
@@ -79,7 +79,7 @@ Turn 仍表示一次 user 请求到最终 assistant outcome 的完整因果过�
 - 原始 user query；
 - 最终 assistant 结果与终态；
 - 完整操作链的归属；
-- worth-saving 与记忆生成边界；
+- 记忆生成的边界；
 - settlement、InteractionArtifact 和用户可见历史的默认分组。
 
 Turn 不应因为运行中发生一次 context compact 就提前结束。
@@ -314,7 +314,7 @@ bounded turn summary
 important recent segments
 memory-view coverage
 raw evidence refs
-worth-saving / identity / provenance
+identity / provenance
 ```
 
 在封口前，生成材料可以选择当前轮已流式接收的资料，与过去的 Interaction 记录共同使用；这不等于提前执行 Topic settlement。封口后的有界工作视图与完整资料继续分离，Generation 按需求读取来源，并由 Artifact 固定相应关联。材料选择、生成和实际持久化是各自独立的进度。
@@ -332,7 +332,7 @@ Generation 需要保留 parent interaction 的分组与来源范围，避免把�
 
 ### 10.1 直接把每个 segment 当作 LogicalBlock
 
-会让 partial turn 提前进入 settlement，导致重复记忆、缺少最终 assistant outcome、worth-saving 漂移和 InteractionArtifact 碎片化。
+会让 partial turn 提前进入 settlement，导致重复记忆、缺少最终 assistant outcome 和 InteractionArtifact 碎片化。
 
 ### 10.2 只在 turn 完成后切大 block
 
@@ -448,7 +448,7 @@ summary 自身最终也会溢出，必须拥有独立预算、版本和再压缩
 
 ### 14.1 已知缺口（代码核对，2026-07-30 记录）
 
-- **没有托管上下文能力**：Passive Ingress 默认由外部 harness 管理 prompt history，公共响应只返回 retrieval memory，不返回 `state_summary` 与 recent blocks（2026-10-21：取代它的 Import Bus 只向记忆网络输入，响应不再返回任何记忆上下文，见 [Import Bus](../system/import-bus.md)）。系统没有 `external | hivememory` 这类显式的上下文所有权能力，也没有带版本或覆盖游标的压缩后上下文输出。因此 Discord 等轻量 bot 不能把 HiveMemory 内部的折叠当作外部 prompt 压缩服务使用（对应第 8.3 节）。
+- **没有托管上下文能力**：外部 harness 自己管理 prompt history；Import Bus 只向记忆网络输入，响应不返回任何记忆上下文（[Import Bus](../system/import-bus.md)）。系统没有 `external | hivememory` 这类显式的上下文所有权能力，也没有带版本或覆盖游标的压缩后上下文输出。因此 Discord 等轻量 bot 不能把 HiveMemory 内部的折叠当作外部 prompt 压缩服务使用（对应第 8.3 节）。
 - 按开头的定位调整，前台上下文的压缩归 CPU。若要支持由 HiveMemory 托管的 bot 上下文，需要形成独立 Plan，定义上下文所有权、版本/覆盖游标、返回模型，以及调用方替换历史的幂等契约（候选，未决定；与第 13 节问题 8 相关）。
 
 ### 14.2 待设计范围（原占位计划的前台部分）

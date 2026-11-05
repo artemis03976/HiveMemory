@@ -11,14 +11,14 @@ related_contracts:
   - docs/gateway/analysis.md
   - docs/gateway/workflow.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-08-10
+last_reviewed: 2026-11-04
 ---
 
 # 复合意图分解
 
 **文档状态**: Idea  
 **目标阶段**: Unscheduled  
-**适用范围**: `gateway/`、`engines/gateway/intent_decomposer.py`、`patchouli/`、`alice/`
+**适用范围**: `gateway/`、`engines/gateway/`、`patchouli/`、`alice/`
 **前置条件**: 当前固定单主意图 workflow 与公共 `GatewayDecision` 保持稳定  
 **核心目标**: 为复合意图分解、多分支消费和合并语义建立清晰边界。具体算法、Prompt、执行策略仍需在实现前以真实样本收敛。
 
@@ -38,7 +38,7 @@ last_reviewed: 2026-08-10
 
 1. 复合意图识别与入口级分解属于 Gateway，但 branch 的业务执行仍由对应下游所有者完成。
 2. 是否引入独立 `IntentDecomposerStep` 应由质量与延迟数据决定，不能从当前私有 `sub_intents` 直接反推固定实现结构。
-3. 对应 engine 原语为 `IntentDecomposerEngine`，放在 `engines/gateway/intent_decomposer.py`。
+3. 对应 engine 原语为 `IntentDecomposerEngine`，放在 `engines/gateway/intent_decomposer.py`（文件尚不存在；当前私有 `sub_intents` 由 `engines/gateway/query_understanding.py` 解析）。
 4. `IntentDecomposer` 可以调用 LLM，但必须被固定 workflow 包裹，不能演化为自由 Agent Router。
 5. `IntentDecomposer` 只负责边界识别、子意图类型、顺序、依赖、置信度，不做 topic routing、query rewrite、retrieval planning 或执行。
 6. 多分支结果不能直接暴露为 `list[GatewayState]`。
@@ -123,7 +123,7 @@ class BranchIntentKind(str, Enum):
 说明：
 
 - 当前 `COMPOSITE` 只应作为 parent 分类信号，不应作为分解后的 branch 类型。
-- `FUTURE_JOB` 只是现有 route placeholder，不代表已经存在对应队列或版本计划。
+- `FUTURE_JOB` 只是草案中的预留值，代码中没有对应的 route placeholder、队列或版本计划。
 
 ### 5.2 SubIntent
 
@@ -362,7 +362,7 @@ Phase C0 应从当前 `COMPOSITE` 分类、私有 `sub_intents`、fallback 与�
 
 1. `SubIntent` 是否直接绑定 `route_target`，还是只绑定 intent type，由后续 PlannerRouter 决定目标？
 2. 多个 QUERY 子意图是分别检索后交给 Alice 合成，还是先在 Gateway 层生成统一 retrieval plan？
-3. WRITE 子意图应在 Gateway 阶段生成 memory write request，还是只生成 `memory_write_signal` 供 Patchouli finalize 使用？
+3. WRITE 子意图应在 Gateway 阶段生成 memory write request，还是不在 Gateway 处理、只交给下游？入口的写入预判（WRITE/SKIP/UNKNOWN 与由它派生的 `worth_saving`）已于 v0.7.2 移除，入口不再产生价值信号（[ROADMAP](../ROADMAP.md) 第 4.7 节），原先“只生成供 Patchouli finalize 使用的写入信号”的选项不再有承接方。
 4. 复合输入中的系统指令是否允许和普通聊天共享一次响应，还是拆成 command result + chat result 两条事件？
 5. 本方向是否需要 lightweight planner，还是只做 decomposition？
 6. IntentDecomposer prompt、置信度阈值和 golden dataset 如何设计，才能避免过度分解与漏分解？

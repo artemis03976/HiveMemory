@@ -23,7 +23,7 @@ last_reviewed: 2026-11-04
 - [WorkspaceAsset 内部归属与操作身份拆分](./workspace-asset-ownership-identity-split.md)（身份第二批明确暂缓：Store/解析旧 scope 接口与 System 物化 reader 桥接）；
 - [Memory alias 后续事项](./memory-alias-follow-ups.md)（未排期：无 alias 记忆的寻址、alias 查询索引）；
 - [会话 `/compact` 指令](./conversation-compact-command.md)（2026-10-01 由原 Topic `/compact` 系统指令接入重写：compact 归属前台的 CPU 会话上下文，依赖 ConversationSession、命令运行位置与 Alice 会话压缩）；
-- [建立前端身份状态所有权](./frontend-identity-ownership.md)；
+- [建立前端身份状态所有权](./frontend-identity-ownership.md)（单一身份入口已建立，剩下切换时的持久化、失效与清理，在登录或 Workspace 切换出现前没有使用方）；
 - [Work Queue Runtime 多 lane 拓扑技术债](./work-queue-runtime-lane-topology.md)；
 - [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)；
 - [Memory 可见性策略前端组件](./memory-visibility-policy-ui.md)（依赖 Memory CRUD 契约先支持 `access_policy` 读写）；

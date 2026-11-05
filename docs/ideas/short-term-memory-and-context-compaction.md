@@ -18,7 +18,7 @@ related_docs:
   - docs/research/agent-context-compaction-research.md
 related_todos:
   - docs/todo/conversation-compact-command.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-11-04
 ---
 
 # 短期记忆与上下文压缩
@@ -72,9 +72,9 @@ Alice 基线于 2026-10-17 更新；Patchouli 缺口沿用 2026-10-16 的核对�
 ### 3.2 Patchouli
 
 - page folding 按 token 软水位触发，再按固定 block 数保留后缀；blocks 不足时无法继续折叠，单个超大 block 也不能据此得到严格预算保证。[感知引擎](../../src/hivememory/engines/perception/memory_perception_engine.py)
-- 写回 `total_tokens` 只累计保留 blocks，不包含 `state_summary`。默认 SimpleRelay 追加旧摘要与本批统计，没有摘要自身的有界重写。[折叠写回](../../src/hivememory/patchouli/services/perception.py)、[Relay](../../src/hivememory/engines/perception/relay_controller.py)、[默认配置](../../src/hivememory/config/patchouli.py)
+- 写回 `total_tokens` 只累计保留 blocks，不包含 `state_summary`。代码默认的 SimpleRelay 追加旧摘要与本批统计，没有摘要自身的有界重写；仓库随附的 `configs/config.yaml` 选用 LLMRelay。[折叠写回](../../src/hivememory/patchouli/services/perception.py)、[Relay](../../src/hivememory/engines/perception/relay_controller.py)、[默认配置](../../src/hivememory/config/patchouli.py)
 - SimpleRelay 主要记录请求数、工具名、token 数与最近问题片段；LLMRelay 在缺少模型、提供商失败或摘要超时时回退为规则摘要，自 2026-10-27 起接在 previous summary 之后。现有字符串返回也未完整表达空、截断或拒绝等摘要终态。[Relay 实现](../../src/hivememory/engines/perception/relay_controller.py)
-- Generation 视图保留用户文本、最终回复和动作摘要，默认不消费工具结果全文；READ 仅渲染目标，RUN 仅渲染工具与状态。需要区分可去掉的日志和决定事实含义的关键证据。[生成投影](../../src/hivememory/prompts/transcript/generation.py)
+- Generation 视图按出现顺序保留用户消息、助手正文、思考与子 Agent 消息；外部工具保留调用参数与结果，单条结果按 `max_result_chars`（默认 800 字符）保留首尾截断；SEARCH、READ、RUN 只有一行摘要，不渲染取回的记忆；WRITE、UPDATE、CALL 不进入材料。截断只依长度，仍需区分可去掉的日志和决定事实含义的关键证据。[材料渲染](../../src/hivememory/engines/perception/material.py)、[生成投影](../../src/hivememory/prompts/transcript/generation.py)、[Patchouli 生成](../patchouli/generation.md)
 - 已折叠前缀未由 folding 自动保存为原文。原文交接、Topic 完整资料与生成来源 Artifact 的缺口归 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)，不由摘要算法解决。
 
 ## 4. 两边的关系与不变量
