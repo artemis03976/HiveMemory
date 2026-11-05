@@ -65,13 +65,7 @@ EXPIRED 是设计中的永久终态，SETTLED、FAILED、CANCELLED 都可以迁�
 
 ## 5. 可见性与 policy
 
-问题：意图不设 policy，同 Workspace 内持有别名即可回读（UPDATE 意图跟随基础原子的可读性）。别名由标题或内容片段加 4 位十六进制后缀组成，“只有写入者知道别名”是惯例，不是访问控制，真正的边界是 Workspace。`WriteFocus` 只有 content、reason、title，不携带目标 policy。
-
-需要回答：
-
-- WRITE 若能声明目标 policy，落库前的意图可见性是否跟随该 policy；
-- 增加意图 policy 时，不要求外部构造 RuntimeScope，也不把整个 scope 相等重新变成权限条件；
-- 读取正式原子时，是否提示调用者自己仍在进行的 UPDATE 修订；不提示时，Pending 正文不能静默叠加到已提交版本上。
+2026-11-05 移入[身份与访问体系 Idea](./identity-and-access-model.md#写入意图的可见性与-policy)第 6 节，与资源可见性一起维护。
 
 ## 6. UPDATE 的基础版本
 

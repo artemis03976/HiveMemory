@@ -31,7 +31,7 @@ last_reviewed: 2026-10-30
 **演变**：
 - **原名**：本文原为《执行单元、执行线程与执行环境》（`execution-unit-thread-and-environment.md`），2026-10-19 改为现名。
 - **执行线程**：执行线程的身份与访问 context、操作请求与单一操作入口、子线程的派生与撤销等已实施的决定，在 2026-10-13 精简时删除，删除前版本见 commit `a384688`。执行线程的正式定义已实施，当前事实见 [执行线程](../workspace/execution-threads.md)，设计推导见已归档的[执行线程 Idea](../archive/ideas/execution-thread-definition.md)。
-- **跨 Workspace 目标**：前提 2 与 T-5b 移入[身份与访问体系 Idea](./identity-and-access-model.md)第 1 节。
+- **跨 Workspace 目标**：前提 2 与 T-5b 移入[身份与访问体系 Idea](./identity-and-access-model.md#7-受限穿透访问)第 7 节。
 
 ## 1. 前提（owner 提出）
 
@@ -100,7 +100,7 @@ last_reviewed: 2026-10-30
 |:---|:---|
 | [第五代架构 Idea](./fifth-generation-architecture.md) | 3.3 的理念、第 2 节的执行一侧用语；P-10a 与 T-7b 相互约束 |
 | [执行线程](../workspace/execution-threads.md)（已归档的[执行线程 Idea](../archive/ideas/execution-thread-definition.md)） | 执行线程的定义与生命周期（当前事实）；执行环境只决定线程在哪个 CPU 中运行，不改变线程的身份与能力（前提 9） |
-| [身份与访问体系 Idea](./identity-and-access-model.md) | 受限穿透访问；原本文的前提 2 与 T-5b（跨 Workspace 目标的表达）已移入其第 1 节 |
+| [身份与访问体系 Idea](./identity-and-access-model.md) | 受限穿透访问；原本文的前提 2 与 T-5b（跨 Workspace 目标的表达）已移入其第 7 节 |
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | Profile 的解析时点（2.2）与 CPU 分配记入进程记录（2.3） |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | harness 登记的两个侧面（1.2）；controller 模式下 harness 自管上下文，是 T-10 的背景（1.1）；外部执行单元不识别子线程（E-5）；外部 harness 是执行环境（E-6a） |
 | [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 会话模型，T-8a 的承载位置之一 |

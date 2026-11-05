@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-11-04
+last_reviewed: 2026-11-05
 ---
 
 # HiveMemory 开发路线图
@@ -117,7 +117,8 @@ last_reviewed: 2026-11-04
 |:---|:---:|:---|:---|
 | `v0.7.3` 主动写入与被动提取的收敛 | Completed（2026-11-04 收尾）/ 版本目标 owner，2026-11-03：三份计划均已完成 | 在统一的记忆架构成形之前止住两种生成方式互相改写（过渡措施）：被动提取不再改写本话题的主动写入，主动写入沿用 agent 的标题，生成失败可诊断 | 第 4.3 节；[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md) |
 | 第二个外部 harness：DeepSeek Harness 的 plugin 模式接入 | Completed（2026-11-01 收尾）/ 版本之外的工作（owner，2026-10-31）；接入路径为纯原生插件（owner，2026-11-01）；owner 决定收尾，真实模型下的完整验收在日常使用中完成；调研中发现子 Agent 会话独立导入属于实现漂移（owner，2026-11-02），已于 2026-11-02 修复：只导入顶层会话，子 Agent 的结算通知进入父会话这一轮的生成材料 | dsh 经对话回流与原生记忆工具接入 HiveMemory，Windows 桌面端可以连接 WSL 中的 HiveMemory；之后经它进行 agent memory 与 harness 项目的调研，同时作为压测与数据积累 | [调研需求与报告](./research/deepseek-harness-plugin-survey.md)、[归档计划](./archive/plans/dsh-plugin-integration.md)、[接入手册](./help/deepseek-harness-plugin.md)、[子 Agent 会话的归档计划](./archive/plans/dsh-subagent-sessions.md) |
-| 本机 HTTP 接口的密钥与访问控制 | Partially Landed（owner，2026-11-01 决定下一步修复）：`/api/v1/config` 响应打码（PR #157）；密钥移出主配置与 `config.yaml`，提供商凭证收归 Provider 注册表（2026-11-01，PR #159，[归档 Todo](./archive/todo/config-secrets-written-to-yaml.md)）；模型定义不再保存连接凭证（2026-11-01，PR #166，[归档 Todo](./archive/todo/model-registry-api-key-override.md)）；Gateway 与 Librarian 只经模型与 Provider 注册表选择模型，主配置不再有 LLM 密钥（2026-11-01，PR #167，[归档计划](./archive/plans/llm-config-retirement.md)）；HTTP 管理接口证明调用方仍待修复 | HTTP 管理接口证明调用方，harness 中的 agent 不能绕过 Workspace 访问登记 | [管理接口 Todo](./todo/local-http-management-access.md) |
+| 本机 HTTP 接口的密钥与访问控制 | Partially Landed（owner，2026-11-01 决定下一步修复）：`/api/v1/config` 响应打码（PR #157）；密钥移出主配置与 `config.yaml`，提供商凭证收归 Provider 注册表（2026-11-01，PR #159，[归档 Todo](./archive/todo/config-secrets-written-to-yaml.md)）；模型定义不再保存连接凭证（2026-11-01，PR #166，[归档 Todo](./archive/todo/model-registry-api-key-override.md)）；Gateway 与 Librarian 只经模型与 Provider 注册表选择模型，主配置不再有 LLM 密钥（2026-11-01，PR #167，[归档计划](./archive/plans/llm-config-retirement.md)）；HTTP 管理接口证明调用方仍待修复 | HTTP 管理接口证明调用方，harness 中的 agent 不能绕过 Workspace 访问登记 | [管理接口 Todo](./todo/local-http-management-access.md)；认证方式的选项见[身份与访问体系 Idea](./ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节 |
+| 身份与访问体系 | Candidate / 不绑定版本；owner（2026-11-05）定为单独的主线方向，最好在发布前打好地基 | 从 principal 的登记与调用方证明，到进入 Workspace 的身份、操作调用的授权与资源可见性，收敛 v0.7.0 以来多轮返工留下的例外与补丁；controller 与 plugin 两种接入都以它为基础 | [身份与访问体系 Idea](./ideas/identity-and-access-model.md)、[身份治理](./governance/security/identity-and-execution-safety.md) |
 | 观测与日志 | Unscheduled / 版本之外的工作（owner，2026-11-03）；W1～W3 已完成（2026-11-03），其余未排期 | 排查一次失败只需要后端日志与事件文件：运行时事件写入单独的事件记录文件并可按关联标识排时间线、生成任务之外的失败事件带稳定原因码、维护任务空转不发事件，均已完成；日志格式带 trace、存量日志收敛与事件生产端收敛（W4～W6）见治理主题 | [日志与运行时事件](./governance/observability/logs-and-events.md) |
 | HiveMemory 使用手册 skill | Landed（2026-11-01，PR #162）：owner 决定做成跨 harness 通用的 skill，不只服务 DeepSeek Harness（2026-11-01）；已基本稳定，不再单独定稿，在使用中逐步完善（owner，2026-11-03） | 引导各 harness 中的 agent 主动检索、写入与修正记忆，并与 harness 自己的记忆共存；dsh 插件还不能自动加载这份 skill；MCP 写入工具说明中“对话在每轮结束后会自动归档，不需要把对话过程复述写入”与主动写入的方向冲突，是否改写待 owner 决定 | [skill](../integrations/claude-code/skills/hivememory/SKILL.md)、[接入 Claude Code](./help/claude-code-plugin.md)、[接入 DeepSeek Harness](./help/deepseek-harness-plugin.md) |
 | 冷启动、历史导入与外源文档资产化 | Candidate / 不绑定版本 | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | 第 4.4 节；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md) |
@@ -222,6 +223,7 @@ v0.7.1（已发布）：plugin 模式接入 Claude Code，真实使用开始产�
 v0.7.0 A2-P 完整记忆历史 + 文档来源 / 版本 -> MTP READ 专项编译
 可靠执行提供者 + 证据 / READ + 研究状态恢复契约 -> Deep Research
 任务进程表与唯一注册入口 + 外部 Actor 接入契约 -> controller 模式
+身份与访问体系的地基（调用方证明、登记生效时点等） -> controller 模式；更多外部 harness 的 plugin 接入与桌面化
 服务生命周期 / 传输 / 数据升级稳定 -> Electron 产品化
 前端可靠性与资源体验 -> 随受影响的 API 并行交付
 ```
@@ -273,10 +275,10 @@ Electron renderer 使用公开资源 API，main process 只持有必要的原生
 | 领域持久化与恢复 | Unscheduled 剩余范围；导入、Research、桌面化按各自承诺提取最小切片，通用 checkpoint/saga 平台不提前展开 | [Durability Governance](./governance/reliability/durability-and-recovery.md) |
 | 领域幂等与 reconciliation | Unscheduled 剩余范围；新的提交/导入入口先明确所需业务幂等，再独立设计存量领域操作补偿 | [Idempotency Governance](./governance/reliability/idempotency-and-retry.md) |
 | 数据模型可变性治理 | Unscheduled；按具体 DTO/聚合风险分批，不混入完整 PendingAtom 重写 | [Mutability Governance](./governance/data-model/mutability.md) |
-| 跨用户认证及权限治理 | Unscheduled 的完整范围；外部 connector 先落实所需身份映射，不能把 scope 字段当作认证 | [Identity Governance](./governance/security/identity-and-execution-safety.md) |
+| 跨用户认证及权限治理 | Unscheduled 的完整范围；外部 connector 先落实所需身份映射，不能把 scope 字段当作认证 | [Identity Governance](./governance/security/identity-and-execution-safety.md)；设计方向见[身份与访问体系 Idea](./ideas/identity-and-access-model.md) |
 | 通用长期 workflow / DAG | Unscheduled；Research 先验证最小真实流程，再决定是否提炼通用机制 | [VISION](./VISION.md)；独立 Plan 待建立 |
 | Conversation Branching | Unscheduled；依赖来源、生命周期和真实编辑需求 | [Raw Evidence Idea](./ideas/PatchouliPageFoldingRawEvidenceDesign.md#8-与编辑回退和分支的关系)第 8 节；[Issue #6](https://github.com/artemis03976/HiveMemory/issues/6)（对话气泡编辑与回档） |
-| 配置热更新 | Unscheduled；包括接入登记的运行时登记、Workspace 访问登记中 Agent 操作白名单的运行时编辑（含前端开关，2026-10-10 决定并入）与其他配置文件的持久化与热更新，未来单独建立 Plan | [外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md) E-1；正式 Plan 待建立 |
+| 配置热更新 | Unscheduled；包括接入登记的运行时登记、Workspace 访问登记中 Agent 操作白名单的运行时编辑（含前端开关，2026-10-10 决定并入）与其他配置文件的持久化与热更新，未来单独建立 Plan | [身份与访问体系 Idea](./ideas/identity-and-access-model.md#3-principal-登记的来源与生效时点e-1) E-1；正式 Plan 待建立 |
 | 其他历史存储转换 | Unscheduled；若发现仍有未迁移存量，先列证据再建迁移 Plan | 已完成的 [V1 迁移历史](./archive/plans/v0.6.2-v1-memory-legacy-migration.md)不重新列为待办 |
 
 ### 5.6 controller 模式的外部 harness 接入
