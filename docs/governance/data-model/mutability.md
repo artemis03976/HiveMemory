@@ -13,7 +13,6 @@ related_docs:
   - docs/governance/baselines/data-model-phase-i-inventory.md
   - docs/governance/baselines/durability-d0-state-inventory.md
   - docs/governance/baselines/idempotency-i0-operations-inventory.md
-  - docs/governance/baselines/identity-s0-threat-model-inventory.md
 last_reviewed: 2026-10-19
 ---
 

@@ -17,7 +17,6 @@ related_docs:
   - docs/governance/data-model/mutability.md
   - docs/governance/baselines/durability-d0-state-inventory.md
   - docs/governance/baselines/idempotency-i0-operations-inventory.md
-  - docs/governance/baselines/identity-s0-threat-model-inventory.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
   - docs/architecture/data-model.md
   - docs/architecture/decisions/0001-data-model-mutability-and-boundary-projection.md
@@ -33,7 +32,7 @@ snapshot_at: 2026-08-12
 
 - [D0](./durability-d0-state-inventory.md)回答“状态保存在哪里、跨重启承诺到什么程度”；
 - [I0](./idempotency-i0-operations-inventory.md)回答“哪个业务操作可以安全重放”；
-- [S0](./identity-s0-threat-model-inventory.md)回答“模型属于谁、谁有权读取或执行”；
+- S0（已删除，最后版本见 commit `8c66f594`；身份与访问的现状见[身份与访问体系现状调查](./identity-access-current-state-2026-11-05.md)）回答“模型属于谁、谁有权读取或执行”；
 - 本文回答“跨边界实际传递的对象是什么、谁可以修改、是否与源状态脱钩、复制成本如何”。
 
 Phase I 的四项任务：
