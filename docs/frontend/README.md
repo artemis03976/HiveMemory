@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/mtp.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-04
+last_reviewed: 2026-11-04
 ---
 
 # HiveMemory Frontend
@@ -37,7 +37,7 @@ MTP 和子 Agent 不是普通聊天文本。当前 SSE handler 将 `mtp_start`�
 
 ### 1.3 控制面应暴露真实能力
 
-Memory Library、Agent Management 与 Settings 为用户提供人工干预入口，但按钮和表单只有在后端存在对应语义时才是控制面。当前仍有若干仅具外观、尚未接线的入口，文档会明确列出，而不会把设计稿中的 Pin、真正语义搜索、账户头像或全部配置热更新写成现有能力。
+Memory Library、Agent Management 与 Settings 为用户提供人工干预入口，但按钮和表单只有在后端存在对应语义时才是控制面。当前仍有若干仅具外观、尚未接线的入口，文档会明确列出，而不会把设计稿中的 Pin、账户头像或全部配置热更新写成现有能力。
 
 ### 1.4 日月交辉与水晶工作台
 
@@ -51,8 +51,8 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 
 | 页面 | 当前责任 | 当前事实来源 |
 |:---|:---|:---|
-| Chat | 对话、Agent 选择、Topic 概览、MTP/子 Agent 卡片、引用记忆与运行观测 | chat SSE、topics、memory tasks、RuntimeEvent、logs |
-| Memory Library | 记忆浏览、客户端筛选、创建、编辑与删除 | memories API；失败时可能回退 mock |
+| Chat | 会话管理与历史恢复、逐轮 Agent 选择、MTP/子 Agent 卡片、逐轮 Topic 标注、引用记忆与运行观测 | sessions API、chat SSE、memory tasks、RuntimeEvent、logs |
+| Memory Library | 记忆浏览、客户端筛选、语义检索、创建、编辑与删除；短期话题池的 settle 与 delete | memories API、topics API；读取失败时回退 mock |
 | Agent Management | Agent Profile 列表、创建、编辑与删除 | agents API + generic memories API；失败时可能回退 mock |
 | Settings | 通用配置草稿、Provider 凭证和 Model Registry 管理 | config/providers/models API |
 
@@ -80,7 +80,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 ## 4. 当前文档
 
 - [应用壳与视觉系统](./application-shell.md)：导航、布局、主题、视觉隐喻与部署方式；
-- [Chat 视图](./chat-view.md)：对话主流程、SSE 事件、Topic、MTP、子 Agent 与 Workspace Vision；
+- [Chat 视图](./chat-view.md)：会话管理与历史恢复、对话主流程、SSE 事件、Topic 标注、MTP、子 Agent 与 Workspace Vision；
 - [管理页面](./management-views.md)：Memory Library、Agent Management、Settings 与人工干预边界；
 - [状态、持久化与传输](./state-and-transports.md)：状态所有权、本地持久化矩阵、HTTP/SSE/WebSocket 和 mock 降级。
 
@@ -100,14 +100,13 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 | 主题与视觉 token | `frontend/src/index.css` |
 | 开发代理与构建 | `frontend/vite.config.ts`、`package.json` |
 
-前端当前没有独立自动化测试套件，主要可执行门槛是 `npm run lint` 与 `npm run build`；后端路由行为由 `tests/unit/server/routers/` 覆盖。安装与运行方式见 [Help](../help/README.md)。
+前端的可执行门槛是 `npm run lint` 与 `npm run build`。`frontend/tests/` 下是 Node 内置测试运行器的测试，会话行为测试由 `npm run test:session` 运行（[Chat 视图](./chat-view.md)），其余以 `node --test` 直接运行；后端路由行为由 `tests/unit/server/routers/` 覆盖。安装与运行方式见 [Help](../help/README.md)。
 
 ## 6. 当前总体限制
 
-- chat message 与 `currentTopicId` 明确不持久化，刷新后不会恢复会话；后端也没有 session/message history API；
-- 点击历史 Topic 只改变本地标题和高亮，不会加载历史消息，也不会把所选 Topic 送入下一次 chat 请求；
+- 会话历史由后端进程内的 ConversationSession 持有，刷新页面可以恢复，后端重启后丢失；SSE 断线不续传；
 - Memory、Agent 与 Settings 在后端失败时采用不同程度的 mock fallback，部分页面可能看似可用但写操作仍会失败；
-- Settings 的主配置类型仍采用旧扁平结构，与当前后端嵌套配置响应不一致，多组分类页尚不能视为可靠控制面；
+- Settings 的主配置中只有 General 与“内部引擎”两个分类与后端配置结构一致，其余分类尚未对齐，不能视为可靠控制面；
 - `#` 引用、消息复制/点赞/重试、Memory Pin 和顶层 Terminal 页面仍是未接线入口；
 - UI 为固定桌面工作台布局，尚没有路由级深链接、正式响应式策略、账户系统或无障碍验收证据。
 

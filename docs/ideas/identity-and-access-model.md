@@ -73,8 +73,9 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 访问 context 的授予内容只包含 actor、驻留 Workspace、principal 与运行绑定。以下方向可能改变这一点，各自随相应问题决定：
 
 - **adapter**：context 暂存签发时的 principal（I-2），adapter 是否一并保存未决，随第五代架构 Idea P-1b（请求与进程的归属校验）一并决定；
-- **本次运行的操作上限**：只有 P-4a 采用“进程持有白名单的子集”时，context 才需要携带它；
-- **有效期**：context 没有固定有效期，随绑定的运行结束失效；plugin 模式需要长连接时，再随其设计决定是否需要有效期。
+- **本次运行的操作上限**：只有 P-4a 采用“进程持有白名单的子集”时，context 才需要携带它。
+
+context 没有固定有效期，随绑定的运行结束失效。原先列为开放方向的“plugin 模式需要长连接时是否加有效期”已不再成立：plugin 模式的 MCP 访问每次工具调用签发一份请求级 context，调用结束即撤销（P-9c，[MCP 记忆访问](../contracts/mcp.md)），没有长连接持有 context。
 
 ## 4. 已登记的暂缓与例外
 

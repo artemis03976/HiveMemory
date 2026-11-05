@@ -55,7 +55,7 @@ Chat tokens / logs / RuntimeEvents
 | `workspace-store` | filters、trace/span UI | logs、trace groups、RuntimeEvents、连接、主窗口状态 |
 | `topic-store` | 无 | Topic 池、loading、error |
 
-Settings 草稿使用组件 state/useDraft；OmniInput 草稿使用 chat store 的运行期字段，供无输出停止时回填，两者都不跨刷新恢复。Topic `settle`/`delete` 使用乐观移除并在失败时回滚；这里的 `settle` 是结束 Topic 生命周期并交给记忆生成，不是 Memory Library 的 `archive`。Memory delete 当前不回滚，是需要修正的不一致。
+Settings 草稿使用组件 state/useDraft；OmniInput 草稿使用 chat store 的运行期字段，供无输出停止时回填，两者都不跨刷新恢复。Topic `settle`/`delete` 使用乐观移除并在失败时回滚；这里的 `settle` 是结束 Topic 生命周期并交给记忆生成，不是 Memory Library 的 `archive`。Memory 删除同样先移除，后端删除失败时放回并提示（[管理页面](./management-views.md)）。
 
 ## 3. 当前传输
 

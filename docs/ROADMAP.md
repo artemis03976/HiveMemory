@@ -275,7 +275,7 @@ Electron renderer 使用公开资源 API，main process 只持有必要的原生
 | 数据模型可变性治理 | Unscheduled；按具体 DTO/聚合风险分批，不混入完整 PendingAtom 重写 | [Mutability Governance](./governance/data-model/mutability.md) |
 | 跨用户认证及权限治理 | Unscheduled 的完整范围；外部 connector 先落实所需身份映射，不能把 scope 字段当作认证 | [Identity Governance](./governance/security/identity-and-execution-safety.md) |
 | 通用长期 workflow / DAG | Unscheduled；Research 先验证最小真实流程，再决定是否提炼通用机制 | [VISION](./VISION.md)；独立 Plan 待建立 |
-| Conversation Branching | Unscheduled；依赖来源、生命周期和真实编辑需求 | [聊天运行后续 Idea](./ideas/chat-run-lifecycle-follow-ups.md) |
+| Conversation Branching | Unscheduled；依赖来源、生命周期和真实编辑需求 | [Raw Evidence Idea](./ideas/PatchouliPageFoldingRawEvidenceDesign.md#8-与编辑回退和分支的关系)第 8 节；[Issue #6](https://github.com/artemis03976/HiveMemory/issues/6)（对话气泡编辑与回档） |
 | 配置热更新 | Unscheduled；包括接入登记的运行时登记、Workspace 访问登记中 Agent 操作白名单的运行时编辑（含前端开关，2026-10-10 决定并入）与其他配置文件的持久化与热更新，未来单独建立 Plan | [外部 Actor Idea](./ideas/external-actor-registration-and-runtime-access.md) E-1；正式 Plan 待建立 |
 | 其他历史存储转换 | Unscheduled；若发现仍有未迁移存量，先列证据再建迁移 Plan | 已完成的 [V1 迁移历史](./archive/plans/v0.6.2-v1-memory-legacy-migration.md)不重新列为待办 |
 
