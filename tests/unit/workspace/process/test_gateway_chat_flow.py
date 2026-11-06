@@ -620,6 +620,51 @@ async def test_prepare_without_retrieval_scope_still_completes(
     assert captured["finalize"]["participant"] == _actor()
 
 
+class _ExecutorAdmissionLostAtRetrieval:
+    """真实授权者的代理：检索授权时执行者的准入已失效，system 的 root 授权照常。"""
+
+    def __init__(self, delegate):
+        self._delegate = delegate
+        self._without_executor = make_access_composition(
+            [make_actor_access_record(owner_user_id=_USER, agent_id=SYSTEM_AGENT_ID)]
+        ).authorizer
+
+    def __getattr__(self, name):
+        return getattr(self._delegate, name)
+
+    def authorize_agent(self, actor, operation, target_workspace):
+        return self._without_executor.authorize_agent(actor, operation, target_workspace)
+
+
+@pytest.mark.asyncio
+async def test_retrieval_authorization_failure_other_than_missing_search_fails_process() -> None:
+    """检索授权只把“没有 memory.search”译为不检索：执行者的准入失效时进程失败，不会悄悄不检索。"""
+    bus = GlobalSystemBus()
+    prepared: list[dict] = []
+
+    async def prepare(**kwargs):
+        prepared.append(kwargs)
+        return await _scoped_prepared_route()(**kwargs)
+
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
+    _register_profile(bus)
+    composition = _composition()
+    cpu = ScriptedCPU(result=make_cpu_result())
+    service = make_task_process_service(
+        bus,
+        cpu=cpu,
+        access_gateway=composition.gateway,
+        operation_authorizer=_ExecutorAdmissionLostAtRetrieval(composition.authorizer),
+    )
+
+    events = await _run_once(composition, service, "问题", process_id="process-retrieval-denied")
+
+    assert error_code(events) == ScopeRequiredError.code
+    assert prepared == []
+    assert cpu.calls == []
+
+
 class _AdmissionChangingAuthorizer:
     """系统阶段的 root 授权使用实时准入：Actor 执行后切换到已失效的真实访问登记。"""
 

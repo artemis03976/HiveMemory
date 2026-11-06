@@ -30,7 +30,7 @@ from hivememory.components.trace_context import (
     set_trace_context,
 )
 from hivememory.core.access import WorkspaceOperation
-from hivememory.core.errors import WorkspaceDomainError
+from hivememory.core.errors import OperationDeniedError, WorkspaceDomainError
 from hivememory.core.models import AgentProfile, IdentityScope
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode, GatewaySessionTurn
 from hivememory.core.protocol.models import InteractionPayload
@@ -526,19 +526,24 @@ class TaskProcessRunner:
     def _retrieval_scope(self, process: TaskProcess) -> IdentityScope | None:
         """prepare 是否检索的唯一判定：返回检索 scope，为空即不检索。
 
-        请求关闭了记忆检索，或执行者没有 ``memory.search`` 时不检索；否则检索
-        是执行者的 actor 操作，按执行者的白名单授权，结果按执行者的可见性过滤。
-        没有 ``memory.search`` 是正常的“不检索”，因此先查操作集合，而不是以授权
-        拒绝的异常表达这个分支。
+        请求关闭了记忆检索时不检索；否则检索是执行者的 actor 操作，以
+        ``authorize_agent`` 授权一次，结果按执行者的可见性过滤。执行者没有
+        ``memory.search`` 时授权以 ``operation_not_allowed`` 拒绝，这里把它译为
+        不检索，对话照常进行；只译这一种拒绝，准入失效等其他授权失败照常传播，
+        进程按失败收口。
         """
-        actor = process.record.actor
         if not process.request.enable_memory_retrieval:
             return None
-        if WorkspaceOperation.MEMORY_SEARCH not in self._authorizer.allowed_operations(actor):
+        try:
+            return self._authorizer.authorize_agent(
+                process.record.actor,
+                WorkspaceOperation.MEMORY_SEARCH,
+                process.request.target_workspace,
+            )
+        except OperationDeniedError as error:
+            if error.details.get("reason") != "operation_not_allowed":
+                raise
             return None
-        return self._authorizer.authorize_agent(
-            actor, WorkspaceOperation.MEMORY_SEARCH, process.request.target_workspace
-        )
 
     # ========== 关闭流程 ==========
 

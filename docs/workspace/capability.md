@@ -113,7 +113,7 @@ CALL 的派生与子线程的结束是入口的另外两个生命周期方法 `d
 
 架构测试限定：
 
-- `authorize_agent` 只在 actor API 与 `workspace/process/runner.py`（prepare 的检索）中调用，`authorize_root` 只在 root API、`workspace/process/` 的 runner、CPU 分配与注册入口，以及 System 的 Import Bus 服务中调用；操作集合的查询 `allowed_operations` 只在进程线程管理与 runner 中调用；子工作 actor 的准入只由进程线程管理调用；
+- `authorize_agent` 只在 actor API 与 `workspace/process/runner.py`（prepare 的检索）中调用，`authorize_root` 只在 root API、`workspace/process/` 的 runner、CPU 分配与注册入口，以及 System 的 Import Bus 服务中调用；操作集合的查询 `allowed_operations` 只在进程线程管理中调用；子工作 actor 的准入只由进程线程管理调用；
 - 工作 actor 只由认证一侧构造，`IdentityScope` 只由授权者与登记例外的资产桥接构造；跳过 Agent 可见性的 Profile 管理读取只由 CPU 分配发起；
 - Alice 除 CPU 驱动与组合入口外不引用线程句柄、执行线程或操作入口；CPU 可见的对象（输入清单、线程描述、提交函数交出的描述）不含工作 actor 与 `IdentityScope`；
 - 入口的 `execute` 只把五项记忆请求直接分派到 actor API 方法，没有拆参 handler，请求级提交 `execute_request` 共用同一分派表，CALL 的派生与结束是入口的两个生命周期方法；

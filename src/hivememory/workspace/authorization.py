@@ -87,8 +87,8 @@ class WorkspaceOperationAuthorizer:
     def allowed_operations(self, actor: WorkingActor) -> frozenset[WorkspaceOperation]:
         """读取工作 actor 当前获准的 actor 操作集合；只读查询，不授予权限。
 
-        供线程表生成线程描述中的操作快照，以及任务进程判断 prepare 是否检索；
-        actor API 仍逐次授权。准入记录已不再有效时与授权一样以
+        供线程表生成线程描述中的操作快照（提示词与执行策略）；actor API 与
+        prepare 的检索仍逐次授权。准入记录已不再有效时与授权一样以
         ``actor_not_admitted`` 拒绝；空白名单照常返回。
         """
         return self._admission_record(actor).allowed_operations

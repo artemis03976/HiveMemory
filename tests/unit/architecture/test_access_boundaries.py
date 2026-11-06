@@ -148,15 +148,12 @@ def test_root_authorization_is_only_called_by_root_api_task_process_and_import_b
     }
 
 
-def test_allowed_operations_query_is_only_called_by_task_process():
-    """操作集合的查询只在任务进程中调用（线程描述的快照、prepare 是否检索），不能成为授权旁路。
+def test_allowed_operations_query_is_only_called_by_process_threads():
+    """操作集合的查询只供线程表生成线程描述的快照，不能成为授权旁路。
 
     同名的线程描述字段与访问记录字段是普通读取，不在此列。
     """
-    assert _method_call_sites("allowed_operations") == {
-        "workspace/process/threads.py",
-        "workspace/process/runner.py",
-    }
+    assert _method_call_sites("allowed_operations") == {"workspace/process/threads.py"}
 
 
 def test_sub_actor_admission_is_only_consumed_by_process_threads():

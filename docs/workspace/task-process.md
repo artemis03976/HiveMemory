@@ -126,7 +126,7 @@ Gateway 阶段从会话取最近 `gateway.context_preparation.session_turn_limit
 | Gateway 的话题读取、话题准备、cleanup 补偿 | 系统 | `authorize_root(system_actor, 目标)`：话题属于 Workspace，与 Agent 无关 |
 | Profile 解析、附件租借 | 系统 | `authorize_root(system_actor, 目标)`：两者是用户的选择，对用户可见 |
 | finalize | 系统，执行者作为参与者 | `authorize_root(system_actor, 目标)`，`participant` 为执行者 |
-| prepare 的检索 | 执行者 | 请求未关闭记忆检索（`enable_memory_retrieval`）且执行者持有 `memory.search` 时，`authorize_agent(actor, memory.search, 目标)` 得到检索 scope；否则检索 scope 为空、不检索 |
+| prepare 的检索 | 执行者 | 请求未关闭记忆检索（`enable_memory_retrieval`）时以 `authorize_agent(actor, memory.search, 目标)` 授权一次，得到检索 scope；执行者没有 `memory.search`（`operation_not_allowed`）时检索 scope 为空、不检索，其他授权失败照常使进程失败 |
 
 是否检索只在执行器判定一次，结果就是检索 scope 是否为空，prepare 路由没有另外的检索开关。系统阶段不检查 actor 操作白名单，因此没有任何 actor 操作的 Agent 也能完成对话；它只是不预检索，对话照常进行。检索 scope 以执行者为发起者，资源 owner 照常按执行者过滤可见性：预检索结果中不会出现其他 Agent 的 PRIVATE 记忆。prepare 仍是一次调用：话题与归属取 root scope，检索与可见性取检索 scope，Patchouli 在任何副作用之前要求两者的 Workspace 相同（[Patchouli](../patchouli/README.md)）。
 

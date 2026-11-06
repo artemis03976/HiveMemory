@@ -122,7 +122,7 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 | `authorize_agent(actor, operation, target)` | `operation` 是六项 `WorkspaceOperation` 之一，且在访问登记的白名单中 | `operation_not_allowed` | actor API 的方法入口；任务进程中 prepare 的检索 |
 | `authorize_root(actor, target)` | actor 是保留的 `system` | `root_required` | root API 的方法入口；任务进程的系统阶段与取消；Import Bus 服务 |
 
-两个方法共用三项前提，按顺序检查：准入记录仍然有效，否则 `ScopeRequiredError`（`actor_not_admitted`）；目标等于驻留 Workspace，否则 `OperationDeniedError`（`target_workspace_not_resident`）；actor 用户是目标 Workspace 的 owner，否则 `OperationDeniedError`（`target_owner_mismatch`）。全部通过才返回 `IdentityScope(actor, target)`。owner 检查因此分在两处：第 2 阶段检查要进入的 Workspace，第 3 阶段检查操作的目标。行为白名单不进入工作 actor：每次授权都按访问登记即时查询，不缓存授权结论。另有只读查询 `allowed_operations(actor)`：返回白名单，供线程描述的操作快照与 prepare 判断是否检索，不授予权限。
+两个方法共用三项前提，按顺序检查：准入记录仍然有效，否则 `ScopeRequiredError`（`actor_not_admitted`）；目标等于驻留 Workspace，否则 `OperationDeniedError`（`target_workspace_not_resident`）；actor 用户是目标 Workspace 的 owner，否则 `OperationDeniedError`（`target_owner_mismatch`）。全部通过才返回 `IdentityScope(actor, target)`。owner 检查因此分在两处：第 2 阶段检查要进入的 Workspace，第 3 阶段检查操作的目标。行为白名单不进入工作 actor：每次授权都按访问登记即时查询，不缓存授权结论。另有只读查询 `allowed_operations(actor)`：返回白名单，只供线程表生成线程描述的操作快照，不授予权限。
 
 **操作授权只在 actor 执行期间生效。** 其余检查之所以存在，是因为所有 API 都收拢到了 Workspace 能力层：能力层的 API 代表谁在执行这项操作，每个方法在入口以执行者授权。各调用面的执行者：
 
