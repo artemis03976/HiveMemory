@@ -44,13 +44,13 @@ class TestRootAgentProfileService:
 
     @pytest.fixture
     def workspace(self):
-        """管理入口的目标 workspace（等于 context 的驻留 workspace）。"""
+        """管理入口的目标 workspace（等于工作 actor 的驻留 workspace）。"""
         return make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 
     @pytest.fixture
     def composition(self, workspace):
         # root 管理授权在本层执行：用真实
-        # 组合为 (u1, system) 签发管理 context。
+        # 组合为 (u1, system) 认证管理入口的工作 actor。
         return make_access_composition(
             [
                 make_actor_access_record(
@@ -75,13 +75,13 @@ class TestRootAgentProfileService:
         )
 
     @pytest_asyncio.fixture
-    async def access(self, composition):
-        """管理入口的访问 context（经真实网关两阶段认证签发）。"""
+    async def actor(self, composition):
+        """管理入口的工作 actor（经真实网关两阶段认证）。"""
         return await composition.authenticate(agent_id="system", user_id="u1")
 
     @pytest.mark.asyncio
     async def test_create_agent_profile_uses_public_route(
-        self, service, mock_global_bus, workspace, access
+        self, service, mock_global_bus, workspace, actor
     ):
         created = _make_memory_atom(title="Worker")
         mock_global_bus.request.return_value = created
@@ -94,10 +94,10 @@ class TestRootAgentProfileService:
             content="persona",
             tags=["agent"],
             agent_config={"allowed_mtp_verbs": ["SEARCH"]},
-            access=access,
+            actor=actor,
         )
 
-        # 只提交创建材料：原子由 Patchouli 构造，scope 来自 root 授权，access 不向下游传递
+        # 只提交创建材料：原子由 Patchouli 构造，scope 来自 root 授权，工作 actor 不向下游传递
         mock_global_bus.request.assert_awaited_once_with(
             PatchouliRoutes.AGENT_PROFILE_CREATE,
             identity_scope=IdentityScope(
@@ -116,11 +116,11 @@ class TestRootAgentProfileService:
 
     @pytest.mark.asyncio
     async def test_list_agent_profiles_uses_public_route(
-        self, service, mock_global_bus, workspace, access
+        self, service, mock_global_bus, workspace, actor
     ):
         mock_global_bus.request.return_value = []
 
-        await service.list_agent_profiles(target_workspace=workspace, access=access)
+        await service.list_agent_profiles(target_workspace=workspace, actor=actor)
 
         # 路由 + 默认 limit=100 是真实生产参数契约
         mock_global_bus.request.assert_awaited_once()
@@ -130,4 +130,4 @@ class TestRootAgentProfileService:
         assert bus_scope.actor_identity == ActorIdentity(user_id="u1", agent_id="system")
         assert bus_scope.workspace_identity == workspace
         assert mock_global_bus.request.await_args.kwargs["limit"] == 100
-        assert "access" not in mock_global_bus.request.await_args.kwargs
+        assert "actor" not in mock_global_bus.request.await_args.kwargs

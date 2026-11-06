@@ -38,7 +38,7 @@ async def test_root_crud_and_actor_rejection():
     root = RootSessionService(store, operation_authorizer=access.authorizer)
     management = dict(
         target_workspace=access.default_workspace,
-        access=await access.authenticate(agent_id="system"),
+        actor=await access.authenticate(agent_id="system"),
     )
     session = root.create_session(**management)
     root.rename_session(session.session_id, title="恢复的会话", **management)
@@ -48,9 +48,7 @@ async def test_root_crud_and_actor_rejection():
     assert root.get_session(session.session_id, **management).turns == ()
     actor = await access.authenticate(agent_id="a")
     with pytest.raises(OperationDeniedError):
-        root.get_session(
-            session.session_id, target_workspace=access.default_workspace, access=actor
-        )
+        root.get_session(session.session_id, target_workspace=access.default_workspace, actor=actor)
     root.delete_session(session.session_id, **management)
     assert root.list_sessions(**management) == ()
 

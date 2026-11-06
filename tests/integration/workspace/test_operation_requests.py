@@ -1,4 +1,4 @@
-"""真实操作入口、线程与请求级 context 与能力层协作，验证分派、权限和撤销语义。"""
+"""真实操作入口、线程句柄与请求的工作 actor 与能力层协作，验证分派、权限与线程结束语义。"""
 
 from __future__ import annotations
 
@@ -7,8 +7,8 @@ import asyncio
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import RunBinding, WorkspaceOperation
-from hivememory.core.errors import OperationDeniedError, ResourceNotFoundError, ScopeRequiredError
+from hivememory.core.access import WorkspaceOperation
+from hivememory.core.errors import OperationDeniedError, ResourceNotFoundError
 from hivememory.core.models import (
     ActorIdentity,
     AgentProfile,
@@ -101,7 +101,7 @@ class _OperationHarness:
         self.owner_calls.append(PatchouliRoutes.MEMORY_RETRIEVE)
         return list(self.memories.values())[: request.top_k]
 
-    async def _get_profile(self, agent_alias, *, identity_scope):
+    async def _get_profile(self, agent_alias, *, identity_scope, enforce_actor_visibility=True):
         self.owner_calls.append(PatchouliRoutes.GET_AGENT_PROFILE)
         if agent_alias != self.profile_source.index.alias:
             raise ResourceNotFoundError(
@@ -157,34 +157,31 @@ def operation_setup():
     yield harness, access
     harness.runtime.close()
     access.gateway.close()
-    access.gateway.revoke_all_contexts()
 
 
-async def _submit(entry, request, *, access):
+async def _submit(entry, request, *, thread):
     """CPU 侧的提交面：CALL 派生走入口的生命周期方法，记忆请求走统一分派。"""
     if isinstance(request, DeriveCallThreadRequest):
-        return await entry.derive_child_thread(request, access=access)
-    return await entry.execute(request, access=access)
+        return await entry.derive_child_thread(request, thread=thread)
+    return await entry.execute(request, thread=thread)
 
 
 async def _derive_thread(access, process_id="process", *, agent_id="test_agent"):
-    """入口身份来自真实认证，不能由请求构造者指定。"""
-    context = await access.authenticate(
-        agent_id=agent_id, binding=RunBinding.for_task_process(process_id)
-    )
-    return access.register_main_thread(context, process_id=process_id, agent_id=agent_id).access
+    """登记主线程并返回它的句柄；线程的工作 actor 来自真实认证，不能由请求构造者指定。"""
+    executor = await access.authenticate(agent_id=agent_id)
+    return access.register_main_thread(executor, process_id=process_id).handle
 
 
 @pytest.mark.asyncio
-async def test_write_request_registers_once_with_thread_context_actor_workspace_and_process(
+async def test_write_request_registers_once_with_thread_actor_workspace_and_process(
     operation_setup,
 ):
     """错误分派、重复提交或遗失线程解析都会改变登记结果；进程与线程标识来自线程表。"""
     harness, access = operation_setup
-    thread_access = await _derive_thread(access)
+    thread = await _derive_thread(access)
     pending = await harness.entry.execute(
         SubmitWriteIntentRequest(WriteFocus(content="请求正文", title="请求标题")),
-        access=thread_access,
+        thread=thread,
     )
     stored = harness.registry.get(pending.pending_alias, access.default_workspace)
     assert harness.registry.size == 1
@@ -202,9 +199,9 @@ async def test_update_request_resolves_base_and_registers_supplied_instruction_o
 ):
     """UPDATE 必须由能力层解析基础原子并保留指令与内容参数。"""
     harness, access = operation_setup
-    thread_access = await _derive_thread(access)
+    thread = await _derive_thread(access)
     pending = await harness.entry.execute(
-        SubmitUpdateIntentRequest("base", "更新指令", "更新正文"), access=thread_access
+        SubmitUpdateIntentRequest("base", "更新指令", "更新正文"), thread=thread
     )
     assert harness.registry.size == 1
     stored = harness.registry.get(pending.pending_alias, access.default_workspace)
@@ -225,13 +222,13 @@ async def test_write_and_update_dispatch_every_focus_field_with_registered_ident
 ):
     """派发给 Patchouli 的公共意图逐字段对应登记内容，标识与话题来自登记和进程。"""
     harness, access = operation_setup
-    thread_access = await _derive_thread(access)
+    thread = await _derive_thread(access)
     write = await harness.entry.execute(
         SubmitWriteIntentRequest(WriteFocus(content="写入正文", title="写入标题", reason="原因")),
-        access=thread_access,
+        thread=thread,
     )
     update = await harness.entry.execute(
-        SubmitUpdateIntentRequest("base", "更新指令", "更新正文"), access=thread_access
+        SubmitUpdateIntentRequest("base", "更新指令", "更新正文"), thread=thread
     )
     assert [intent for intent, _scope in harness.admission.submissions] == [
         MemoryIntent(
@@ -260,9 +257,9 @@ async def test_write_and_update_dispatch_every_focus_field_with_registered_ident
 async def test_reference_request_preserves_order_and_missing_items(operation_setup):
     """读取请求交付逐项结果，不因不存在的引用丢失原始顺序。"""
     harness, access = operation_setup
-    thread_access = await _derive_thread(access)
+    thread = await _derive_thread(access)
     results = await harness.entry.execute(
-        ResolveReferencesRequest(("missing", "base", "base")), access=thread_access
+        ResolveReferencesRequest(("missing", "base", "base")), thread=thread
     )
     assert [(item.requested_alias, item.kind) for item in results] == [
         ("missing", "not_found"),
@@ -320,16 +317,15 @@ def single_operation_setup():
     for harness, access in created:
         harness.runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()
 
 
 @pytest.mark.asyncio
 async def test_write_with_only_memory_write_registers_without_reading(single_operation_setup):
-    """WRITE 只需 memory.write：意图带线程 context 绑定的进程与 actor，不读取任何记忆。"""
-    harness, access, thread_access = await single_operation_setup(WorkspaceOperation.MEMORY_WRITE)
+    """WRITE 只需 memory.write：意图带线程所属的进程与线程的 actor，不读取任何记忆。"""
+    harness, access, thread = await single_operation_setup(WorkspaceOperation.MEMORY_WRITE)
 
     pending = await harness.entry.execute(
-        SubmitWriteIntentRequest(WriteFocus(content="请求正文")), access=thread_access
+        SubmitWriteIntentRequest(WriteFocus(content="请求正文")), thread=thread
     )
 
     stored = harness.registry.get(pending.pending_alias, access.default_workspace)
@@ -348,10 +344,10 @@ async def test_update_with_only_memory_update_resolves_base_without_citation(
     single_operation_setup,
 ):
     """UPDATE 只需 memory.update：基础原子的解析不借用 READ，也不记录正式引用。"""
-    harness, access, thread_access = await single_operation_setup(WorkspaceOperation.MEMORY_UPDATE)
+    harness, access, thread = await single_operation_setup(WorkspaceOperation.MEMORY_UPDATE)
 
     pending = await harness.entry.execute(
-        SubmitUpdateIntentRequest("base", "更新指令"), access=thread_access
+        SubmitUpdateIntentRequest("base", "更新指令"), thread=thread
     )
 
     stored = harness.registry.get(pending.pending_alias, access.default_workspace)
@@ -371,9 +367,9 @@ async def test_update_with_only_memory_update_resolves_base_without_citation(
 @pytest.mark.asyncio
 async def test_read_with_only_memory_read_delivers_and_records_citation(single_operation_setup):
     """READ 只需 memory.read：交付逐项结果并为正式原子记录一次引用。"""
-    harness, _access, thread_access = await single_operation_setup(WorkspaceOperation.MEMORY_READ)
+    harness, _access, thread = await single_operation_setup(WorkspaceOperation.MEMORY_READ)
 
-    results = await harness.entry.execute(ResolveReferencesRequest(("base",)), access=thread_access)
+    results = await harness.entry.execute(ResolveReferencesRequest(("base",)), thread=thread)
 
     assert [(item.requested_alias, item.kind) for item in results] == [("base", "atom")]
     assert results[0].atom.payload.content == "正式基础内容"
@@ -387,9 +383,9 @@ async def test_run_with_only_memory_run_delivers_target_and_records_citation(
     single_operation_setup,
 ):
     """RUN 只需 memory.run：交付单个执行目标，引用记录与 READ 相同。"""
-    harness, _access, thread_access = await single_operation_setup(WorkspaceOperation.MEMORY_RUN)
+    harness, _access, thread = await single_operation_setup(WorkspaceOperation.MEMORY_RUN)
 
-    result = await harness.entry.execute(ResolveRunTargetRequest("base"), access=thread_access)
+    result = await harness.entry.execute(ResolveRunTargetRequest("base"), thread=thread)
 
     assert (result.requested_alias, result.kind) == ("base", "atom")
     assert result.atom.payload.content == "正式基础内容"
@@ -401,9 +397,9 @@ async def test_run_with_only_memory_run_delivers_target_and_records_citation(
 @pytest.mark.asyncio
 async def test_search_with_only_memory_search_delivers_without_citation(single_operation_setup):
     """SEARCH 只需 memory.search：检索结果预热读取视图，但检索不是引用。"""
-    harness, _access, thread_access = await single_operation_setup(WorkspaceOperation.MEMORY_SEARCH)
+    harness, _access, thread = await single_operation_setup(WorkspaceOperation.MEMORY_SEARCH)
 
-    atoms = await harness.entry.execute(RetrieveRequest("查询基础内容"), access=thread_access)
+    atoms = await harness.entry.execute(RetrieveRequest("查询基础内容"), thread=thread)
 
     assert [(atom.index.alias, atom.payload.content) for atom in atoms] == [
         ("base", "正式基础内容")
@@ -416,10 +412,10 @@ async def test_search_with_only_memory_search_delivers_without_citation(single_o
 @pytest.mark.asyncio
 async def test_call_target_with_only_agent_call_delivers_profile(single_operation_setup):
     """CALL 目标读取只需 agent.call：经 Profile 读取视图交付目标图纸，不记录记忆引用。"""
-    harness, _access, thread_access = await single_operation_setup(WorkspaceOperation.AGENT_CALL)
+    harness, _access, thread = await single_operation_setup(WorkspaceOperation.AGENT_CALL)
 
     child = await harness.entry.derive_child_thread(
-        DeriveCallThreadRequest("call_target"), access=thread_access
+        DeriveCallThreadRequest("call_target"), thread=thread
     )
 
     profile = child.descriptor.agent_profile
@@ -436,15 +432,15 @@ async def test_call_target_with_only_agent_call_delivers_profile(single_operatio
 @pytest.mark.asyncio
 async def test_child_thread_ended_through_entry_rejects_later_submissions(single_operation_setup):
     """入口的生命周期方法派生并结束子线程：结束之后以子线程提交的请求按线程已结束拒绝。"""
-    harness, _access, thread_access = await single_operation_setup(WorkspaceOperation.AGENT_CALL)
+    harness, _access, thread = await single_operation_setup(WorkspaceOperation.AGENT_CALL)
     child = await harness.entry.derive_child_thread(
-        DeriveCallThreadRequest("call_target"), access=thread_access
+        DeriveCallThreadRequest("call_target"), thread=thread
     )
 
-    harness.entry.end_thread(access=child.access)
+    harness.entry.end_thread(thread=child.handle)
 
     with pytest.raises(ThreadEndedError):
-        await harness.entry.execute(ResolveReferencesRequest(("base",)), access=child.access)
+        await harness.entry.execute(ResolveReferencesRequest(("base",)), thread=child.handle)
     assert harness.owner_calls == [PatchouliRoutes.GET_AGENT_PROFILE]
 
 
@@ -459,7 +455,7 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
     )
     harness = _OperationHarness(access=access)
     _seed_base(harness)
-    thread_access = await _derive_thread(access)
+    thread = await _derive_thread(access)
     prior = harness.registry.register_write(
         WriteFocus(content="保留意图"),
         belong_to=access.default_workspace,
@@ -469,7 +465,7 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
     )
     try:
         with pytest.raises(OperationDeniedError) as error:
-            await _submit(harness.entry, operation_request, access=thread_access)
+            await _submit(harness.entry, operation_request, thread=thread)
         assert error.value.details["operation"] == operation.value
         assert error.value.details["reason"] == "operation_not_allowed"
         assert harness.registry.size == 1
@@ -483,7 +479,6 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
     finally:
         harness.runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()
 
 
 @pytest.mark.asyncio
@@ -520,14 +515,14 @@ async def test_paired_operations_remain_independent_after_an_authorized_request(
     )
     harness = _OperationHarness(access=access)
     _seed_base(harness)
-    thread_access = await _derive_thread(access)
+    thread = await _derive_thread(access)
     try:
-        await harness.entry.execute(allowed_request, access=thread_access)
+        await harness.entry.execute(allowed_request, thread=thread)
         before_calls = list(harness.owner_calls)
         before_citations = list(harness.citations)
         before_size = harness.registry.size
         with pytest.raises(OperationDeniedError) as error:
-            await harness.entry.execute(denied_request, access=thread_access)
+            await harness.entry.execute(denied_request, thread=thread)
 
         assert error.value.details == {
             "operation": denied_operation.value,
@@ -539,20 +534,19 @@ async def test_paired_operations_remain_independent_after_an_authorized_request(
     finally:
         harness.runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()
 
 
 @pytest.mark.asyncio
-async def test_revoked_thread_context_rejects_request_before_dispatch_without_side_effects(
+async def test_ended_thread_rejects_request_before_dispatch_without_side_effects(
     operation_setup,
 ):
-    """线程已结束（凭据已撤销）时入口在分派前拒绝；各拒绝分支由线程表测试逐项守护。"""
+    """线程已结束时入口在分派前拒绝；各拒绝分支由线程表测试逐项守护。"""
     harness, access = operation_setup
-    context = await _derive_thread(access)
-    access.gateway.revoke_thread_context(context)
+    thread = await _derive_thread(access)
+    access.threads.end_all(access.process_table.get("process"))
     with pytest.raises(ThreadEndedError):
         await harness.entry.execute(
-            SubmitWriteIntentRequest(WriteFocus(content="请求正文")), access=context
+            SubmitWriteIntentRequest(WriteFocus(content="请求正文")), thread=thread
         )
     assert harness.registry.size == 0
     assert _cold_reads(harness) == 0
@@ -564,43 +558,20 @@ async def test_revoked_thread_context_rejects_request_before_dispatch_without_si
 async def test_unknown_request_type_is_programming_error(operation_setup):
     """入口不把尚未注册的请求降级为成功或领域拒绝。"""
     harness, access = operation_setup
-    thread_access = await _derive_thread(access)
+    thread = await _derive_thread(access)
     with pytest.raises(TypeError, match="Unsupported operation request: OperationRequest"):
-        await harness.entry.execute(OperationRequest[None](), access=thread_access)
+        await harness.entry.execute(OperationRequest[None](), thread=thread)
     assert harness.registry.size == 0
     assert _cold_reads(harness) == 0
 
 
 @pytest.mark.asyncio
-async def test_wrong_context_type_cannot_submit_or_revoke_thread(operation_setup):
-    """非密封对象不能代替线程 context，也不能误撤已派生的线程。"""
-    harness, access = operation_setup
-    issued = await _derive_thread(access)
-    with pytest.raises(ScopeRequiredError):
-        await harness.entry.execute(
-            SubmitWriteIntentRequest(WriteFocus(content="拒绝")), access=object()
-        )
-    with pytest.raises(ScopeRequiredError):
-        access.gateway.revoke_thread_context(object())
-    pending = await harness.entry.execute(
-        SubmitWriteIntentRequest(WriteFocus(content="仍有效")), access=issued
-    )
-    assert harness.registry.size == 1
-    assert (
-        harness.registry.get(pending.pending_alias, access.default_workspace).focus.content
-        == "仍有效"
-    )
-
-
-@pytest.mark.asyncio
 async def test_request_level_read_delivers_and_records_citation(operation_setup):
-    """请求级 context 经请求级提交读取：交付正式原子，与线程读取一样记录一次引用。"""
+    """以请求的工作 actor 经请求级提交读取：交付正式原子，与线程读取一样记录一次引用。"""
     harness, access = operation_setup
-    request_access = await access.authenticate()
+    actor = await access.authenticate()
 
-    results = await harness.entry.execute_request(
-        ResolveReferencesRequest(("base",)), access=request_access
-    )
+    results = await harness.entry.execute_request(ResolveReferencesRequest(("base",)), actor=actor)
 
     assert [(item.requested_alias, item.kind) for item in results] == [("base", "atom")]
     assert [item["memory_id"] for item in harness.citations] == [harness.memories["base"].id]
@@ -608,13 +579,11 @@ async def test_request_level_read_delivers_and_records_citation(operation_setup)
 
 @pytest.mark.asyncio
 async def test_request_level_search_delivers_without_citation(operation_setup):
-    """请求级 context 经请求级提交检索：交付检索结果，检索不是引用。"""
+    """以请求的工作 actor 经请求级提交检索：交付检索结果，检索不是引用。"""
     harness, access = operation_setup
-    request_access = await access.authenticate()
+    actor = await access.authenticate()
 
-    atoms = await harness.entry.execute_request(
-        RetrieveRequest("查询基础内容"), access=request_access
-    )
+    atoms = await harness.entry.execute_request(RetrieveRequest("查询基础内容"), actor=actor)
 
     assert [atom.index.alias for atom in atoms] == ["base"]
     assert harness.citations == []
@@ -626,16 +595,16 @@ async def test_request_level_write_and_update_register_without_thread_and_dispat
 ):
     """请求级写入与更新：登记不带进程与线程关联，以调用方给出的派发话题派发，接纳后返回句柄。"""
     harness, access = operation_setup
-    request_access = await access.authenticate()
+    actor = await access.authenticate()
 
     write = await harness.entry.execute_request(
         SubmitWriteIntentRequest(WriteFocus(content="写入正文")),
-        access=request_access,
+        actor=actor,
         dispatch_topic_id="placed-topic",
     )
     update = await harness.entry.execute_request(
         SubmitUpdateIntentRequest("base", "更新指令"),
-        access=request_access,
+        actor=actor,
         dispatch_topic_id="placed-topic",
     )
 
@@ -654,41 +623,29 @@ async def test_request_level_write_and_update_register_without_thread_and_dispat
     ]
 
 
-async def _request_access(access):
-    """不建进程的外部入口为一次调用签发的请求级 context。"""
-    return await access.authenticate()
-
-
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("request_", "dispatch_topic_id", "make_access", "error_type"),
+    ("request_", "dispatch_topic_id"),
     [
         # RUN 授权本会通过：执行发生在执行单元的环境中，请求级提交不开放。
-        (ResolveRunTargetRequest("base"), None, _request_access, TypeError),
+        (ResolveRunTargetRequest("base"), None),
         # 写入没有落位的话题就无处派发。
-        (SubmitWriteIntentRequest(WriteFocus(content="正文")), None, _request_access, TypeError),
+        (SubmitWriteIntentRequest(WriteFocus(content="正文")), None),
         # 读取不涉及话题，给出派发话题即是接线错误。
-        (ResolveReferencesRequest(("base",)), "placed-topic", _request_access, TypeError),
-        # 线程 context 带派发话题会绕过线程的存活判定与派发话题，由授权拒绝。
-        (
-            SubmitWriteIntentRequest(WriteFocus(content="正文")),
-            "placed-topic",
-            _derive_thread,
-            ScopeRequiredError,
-        ),
+        (ResolveReferencesRequest(("base",)), "placed-topic"),
     ],
-    ids=["run", "write-without-topic", "read-with-topic", "thread-context-with-topic"],
+    ids=["run", "write-without-topic", "read-with-topic"],
 )
 async def test_request_level_submission_rejects_mismatched_requests_without_side_effects(
-    operation_setup, request_, dispatch_topic_id, make_access, error_type
+    operation_setup, request_, dispatch_topic_id
 ):
     """请求级提交只按请求类型接受派发话题：不符时在登记、读取与派发之前拒绝。"""
     harness, access = operation_setup
-    submit_access = await make_access(access)
+    actor = await access.authenticate()
 
-    with pytest.raises(error_type):
+    with pytest.raises(TypeError):
         await harness.entry.execute_request(
-            request_, access=submit_access, dispatch_topic_id=dispatch_topic_id
+            request_, actor=actor, dispatch_topic_id=dispatch_topic_id
         )
 
     assert harness.registry.size == 0
@@ -698,23 +655,10 @@ async def test_request_level_submission_rejects_mismatched_requests_without_side
 
 
 @pytest.mark.asyncio
-async def test_thread_submission_rejects_request_level_context(operation_setup):
-    """请求级 context 不能经线程提交绕过类型限制：线程表在分派前拒绝。"""
+async def test_inflight_read_finishes_after_thread_end(operation_setup):
+    """只读操作已通过入口时自然完成，线程结束不取消调用方或改变读取结果。"""
     harness, access = operation_setup
-    request_access = await access.authenticate()
-
-    with pytest.raises(ScopeRequiredError):
-        await harness.entry.execute(ResolveRunTargetRequest("base"), access=request_access)
-
-    assert harness.citations == []
-    assert harness.owner_calls == []
-
-
-@pytest.mark.asyncio
-async def test_inflight_read_finishes_after_thread_context_revocation(operation_setup):
-    """只读操作已通过入口时自然完成，撤销不取消调用方或改变读取结果。"""
-    harness, access = operation_setup
-    thread_access = await _derive_thread(access)
+    thread = await _derive_thread(access)
     started = asyncio.Event()
     release = asyncio.Event()
     original_read = harness.backing.retrieve_by_aliases
@@ -726,18 +670,18 @@ async def test_inflight_read_finishes_after_thread_context_revocation(operation_
 
     harness.backing.retrieve_by_aliases = delayed_read
     task = asyncio.create_task(
-        harness.entry.execute(ResolveReferencesRequest(("base",)), access=thread_access)
+        harness.entry.execute(ResolveReferencesRequest(("base",)), thread=thread)
     )
     try:
         await asyncio.wait_for(started.wait(), timeout=2)
-        access.gateway.revoke_thread_context(thread_access)
+        access.threads.end_all(access.process_table.get("process"))
         assert task.cancelling() == 0
         release.set()
         (result,) = await asyncio.wait_for(task, timeout=2)
         assert result.kind == "atom"
         assert result.atom.payload.content == "正式基础内容"
-        with pytest.raises(ThreadEndedError, match="revoked"):
-            await harness.entry.execute(ResolveReferencesRequest(("base",)), access=thread_access)
+        with pytest.raises(ThreadEndedError):
+            await harness.entry.execute(ResolveReferencesRequest(("base",)), thread=thread)
     finally:
         release.set()
         if not task.done():
@@ -746,7 +690,7 @@ async def test_inflight_read_finishes_after_thread_context_revocation(operation_
 
 
 class _WriteAwaitingBeforeReturn(ActorMemoryService):
-    """真实能力服务，只在 WRITE 登记后、返回入口前插入一次等待，验证接纳不随线程撤销回滚。"""
+    """真实能力服务，只在 WRITE 登记后、返回入口前插入一次等待，验证接纳不随线程结束回滚。"""
 
     def __init__(self, *args, started: asyncio.Event, release: asyncio.Event, **kwargs) -> None:
         super().__init__(*args, **kwargs)
@@ -761,10 +705,10 @@ class _WriteAwaitingBeforeReturn(ActorMemoryService):
 
 
 @pytest.mark.asyncio
-async def test_write_returning_after_revocation_preserves_admitted_intent(
+async def test_write_returning_after_thread_end_preserves_admitted_intent(
     operation_setup,
 ):
-    """WRITE 已被接纳后线程撤销，不撤回已派发的意图。"""
+    """WRITE 已被接纳后线程结束，不撤回已派发的意图。"""
     harness, access = operation_setup
     started = asyncio.Event()
     release = asyncio.Event()
@@ -783,15 +727,13 @@ async def test_write_returning_after_revocation_preserves_admitted_intent(
         ),
         threads=access.threads,
     )
-    thread_access = await _derive_thread(access)
+    thread = await _derive_thread(access)
     task = asyncio.create_task(
-        entry.execute(
-            SubmitWriteIntentRequest(WriteFocus(content="迟到的写入")), access=thread_access
-        )
+        entry.execute(SubmitWriteIntentRequest(WriteFocus(content="迟到的写入")), thread=thread)
     )
     try:
         await asyncio.wait_for(started.wait(), timeout=2)
-        access.gateway.revoke_thread_context(thread_access)
+        access.threads.end_all(access.process_table.get("process"))
         assert task.cancelling() == 0
         release.set()
         pending = await asyncio.wait_for(task, timeout=2)
@@ -813,7 +755,7 @@ def _end_threads(process, threads):
 
 
 def _stop_process(process, threads):
-    """进程收到停止：线程随之结束，凭据仍待 Actor 阶段收尾撤销。"""
+    """进程收到停止：线程随之结束，线程表仍待 Actor 阶段收尾才标记结束。"""
     process.record.request_stop()
 
 
@@ -828,20 +770,20 @@ _CROSSING_CASES = [
 async def test_call_finishing_profile_load_after_thread_end_cannot_register_child(
     operation_setup, interrupt
 ):
-    """Profile 冷读跨越线程结束或进程停止时重新判定存活，不签发或登记迟到子线程。"""
+    """Profile 冷读跨越线程结束或进程停止时重新判定存活，不准入或登记迟到子线程。"""
     harness, access = operation_setup
     thread = await _derive_thread(access)
     entered, release = asyncio.Event(), asyncio.Event()
     original = harness.backing.get_agent_profile
 
-    async def delayed(alias, *, scope):
+    async def delayed(alias, *, scope, enforce_actor_visibility=True):
         entered.set()
         await release.wait()
-        return await original(alias, scope=scope)
+        return await original(alias, scope=scope, enforce_actor_visibility=enforce_actor_visibility)
 
     harness.backing.get_agent_profile = delayed
     task = asyncio.create_task(
-        harness.entry.derive_child_thread(DeriveCallThreadRequest("call_target"), access=thread)
+        harness.entry.derive_child_thread(DeriveCallThreadRequest("call_target"), thread=thread)
     )
     try:
         await asyncio.wait_for(entered.wait(), timeout=2)
@@ -873,7 +815,7 @@ async def test_update_base_read_crossing_thread_end_registers_no_intent(operatio
 
     harness.backing.retrieve_by_aliases = delayed
     task = asyncio.create_task(
-        harness.entry.execute(SubmitUpdateIntentRequest("base", "更新指令"), access=thread)
+        harness.entry.execute(SubmitUpdateIntentRequest("base", "更新指令"), thread=thread)
     )
     try:
         await asyncio.wait_for(entered.wait(), timeout=2)
@@ -896,7 +838,7 @@ async def test_every_actor_request_is_rejected_after_stop_without_side_effects(
 ):
     """停止被接受后线程即已结束：六项 actor 请求都以生命周期错误拒绝，且不读取、不登记、不派生。
 
-    即使白名单允许该操作、线程凭据尚未撤销，拒绝也发生在分派之前。
+    即使白名单允许该操作、线程表尚未把线程标记为结束，拒绝也发生在分派之前。
     """
     access = make_access_composition(
         [
@@ -906,12 +848,12 @@ async def test_every_actor_request_is_rejected_after_stop_without_side_effects(
     )
     harness = _OperationHarness(access=access)
     _seed_base(harness)
-    thread_access = await _derive_thread(access)
+    thread = await _derive_thread(access)
     process = access.process_table.get("process")
     try:
         process.record.request_stop()
         with pytest.raises(ThreadEndedError):
-            await _submit(harness.entry, operation_request, access=thread_access)
+            await _submit(harness.entry, operation_request, thread=thread)
         assert harness.registry.size == 0
         assert _cold_reads(harness) == 0
         assert harness.owner_calls == []
@@ -919,4 +861,3 @@ async def test_every_actor_request_is_rejected_after_stop_without_side_effects(
     finally:
         harness.runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()

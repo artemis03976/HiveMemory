@@ -11,6 +11,7 @@ from hivememory.config.attachments import AttachmentParserConfig
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import (
+    ActorIdentity,
     IdentityScope,
     IndexLayer,
     MemoryAtom,
@@ -24,12 +25,14 @@ from hivememory.patchouli.contracts.topic_management import TopicEvictionResult,
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.capability.root import (
     RootAgentProfileService,
+    RootInteractionService,
     RootMemoryService,
     RootMemoryTaskService,
     RootTopicService,
 )
 from tests.helpers.attachment_parsing import ChunkedSource, make_upload_service
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -97,6 +100,18 @@ _ROUTED_CASES = [
     _Case("tasks", "list_memory_tasks", PatchouliRoutes.MEMORY_TASK_LIST),
     _Case("tasks", "get_memory_task", PatchouliRoutes.MEMORY_TASK_GET, ("task-1",)),
     _Case("tasks", "cancel_memory_task", PatchouliRoutes.MEMORY_TASK_CANCEL, ("task-1",)),
+    _Case(
+        "interaction",
+        "submit_interaction",
+        PatchouliRoutes.INTERACTION_SUBMIT,
+        keywords=(
+            ("participant", ActorIdentity(user_id="u1", agent_id="test_agent")),
+            ("payload", make_interaction_payload()),
+            ("requested_topic_id", "NEW_TOPIC"),
+            ("interaction_id", "import_1"),
+            ("origin", "import_bus"),
+        ),
+    ),
 ]
 # 上传不经 Patchouli 路由，副作用落在进程内资产 Store。
 _UPLOAD_CASE = _Case(
@@ -175,6 +190,7 @@ def _services(composition):
         "profiles": RootAgentProfileService(bus, operation_authorizer=composition.authorizer),
         "topic": RootTopicService(bus, operation_authorizer=composition.authorizer),
         "tasks": RootMemoryTaskService(bus, operation_authorizer=composition.authorizer),
+        "interaction": RootInteractionService(bus, operation_authorizer=composition.authorizer),
         "assets": make_upload_service(
             store=store, parser_config=AttachmentParserConfig(), access_composition=composition
         ),
@@ -194,13 +210,13 @@ class _UploadSource(ChunkedSource):
         return await super().read(size)
 
 
-async def _invoke(case, services, composition, access, upload_source=None):
+async def _invoke(case, services, composition, actor, upload_source=None):
     """以请求输入调用真实管理入口，上传字节源由每次场景独立创建。"""
     kwargs = dict(case.keywords)
     if case.service == "assets":
         kwargs["source"] = upload_source or _UploadSource()
     return await getattr(services[case.service], case.method)(
-        *case.arguments, **kwargs, target_workspace=composition.default_workspace, access=access
+        *case.arguments, **kwargs, target_workspace=composition.default_workspace, actor=actor
     )
 
 
@@ -216,11 +232,11 @@ async def test_each_root_method_rejects_non_system_before_owner_or_asset_effects
         ]
     )
     services, owner, store = _services(composition)
-    access = await composition.authenticate()
+    actor = await composition.authenticate()
     upload_source = _UploadSource()
 
     with pytest.raises(OperationDeniedError) as excinfo:
-        await _invoke(case, services, composition, access, upload_source=upload_source)
+        await _invoke(case, services, composition, actor, upload_source=upload_source)
 
     assert excinfo.value.details["reason"] == "root_required"
     assert owner.accepted == []
@@ -238,17 +254,17 @@ async def _system_root_services():
         ]
     )
     services, owner, store = _services(composition)
-    access = await composition.authenticate(agent_id="system")
-    return composition, services, owner, store, access
+    actor = await composition.authenticate(agent_id="system")
+    return composition, services, owner, store, actor
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("case", _ROUTED_CASES, ids=lambda case: case.method)
 async def test_each_routed_root_method_reaches_owner_as_system_without_actor_operations(case):
     """system 只经准入与目标校验即可调用管理路由，owner 收到 system 发起的可信 scope。"""
-    composition, services, owner, _store, access = await _system_root_services()
+    composition, services, owner, _store, actor = await _system_root_services()
 
-    await _invoke(case, services, composition, access)
+    await _invoke(case, services, composition, actor)
 
     assert len(owner.accepted) == 1
     route, scope = owner.accepted[0]
@@ -261,9 +277,9 @@ async def test_each_routed_root_method_reaches_owner_as_system_without_actor_ope
 @pytest.mark.asyncio
 async def test_root_upload_registers_asset_as_system_without_actor_operations():
     """上传经 root 授权后注册并解析资产，不经过 Patchouli 路由。"""
-    composition, services, owner, store, access = await _system_root_services()
+    composition, services, owner, store, actor = await _system_root_services()
 
-    receipt = await _invoke(_UPLOAD_CASE, services, composition, access)
+    receipt = await _invoke(_UPLOAD_CASE, services, composition, actor)
 
     assert receipt.handle.asset.state == WorkspaceAssetState.READY
     assert receipt.handle.asset.representations[1].content_object["text"] == "root upload"

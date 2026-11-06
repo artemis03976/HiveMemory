@@ -2,11 +2,14 @@
 
 被测对象：``ImportBusIngestor`` 在串行门内的进度查询、跳过、Gateway 落位、
 封口、提交与等待应用，写入时为在途轮次落位与回流沿用落点，以及关闭时等待
-在途导入。Patchouli 的提交、进度查询与等待使用真实的
-``InteractionSubmissionService`` 与内存队列（只在进程内）；Gateway 与
-Patchouli 的 prepare 是边界之外的协作者，以确定性的替身给出决定、话题或失败。
+在途导入。提交经真实的 root 交互提交 API（以系统的 root 工作 actor 授权）；
+Patchouli 的提交、进度查询与等待使用真实的 ``InteractionSubmissionService`` 与
+内存队列（只在进程内）；Gateway 与 Patchouli 的 prepare 是边界之外的协作者，
+以确定性的替身给出决定、话题或失败。
 
 保护的契约：
+- 路由、落位与提交都在系统的 root scope 下进行，提交的交互以参与的 Agent 为
+  发起者、以目标 Workspace 为归属；
 - 只有应用完成后才确认；应用失败与等待超时不确认，重发时失败的重新路由并
   再次提交、仍在应用的继续等待；
 - 已应用的轮次返回 duplicate、不再调用 Gateway；没有输出的轮次返回 skipped；
@@ -34,7 +37,10 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.work_queue import QueuePolicy
+from hivememory.core.access import WorkingActor
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.contracts.runtime_events import RuntimeEventType
+from hivememory.core.models import ActorIdentity, IdentityScope
 from hivememory.core.protocol.gateway import (
     CommandParseResult,
     CommandParseStatus,
@@ -59,9 +65,15 @@ from hivememory.system.services.import_bus import (
     ImportedTurn,
     InFlightTurn,
 )
-from tests.helpers.workspace import make_identity_scope
+from hivememory.workspace.capability.root.interaction import RootInteractionService
+from tests.helpers.workspace import (
+    make_access_composition,
+    make_actor_access_record,
+    make_workspace_identity,
+)
 
-SCOPE = make_identity_scope(user_id="default", agent_id="claude_code")
+WORKSPACE = make_workspace_identity(owner_user_id="default")
+PARTICIPANT = ActorIdentity(user_id="default", agent_id="claude_code")
 PRINCIPAL = "hivememory:http-server"
 SECRET = "sk-secret-token"
 
@@ -117,15 +129,26 @@ class _Harness:
     ingestor: ImportBusIngestor
     queue: InteractionSubmissionQueue
     events: RecordingRuntimeEventSink
+    # 系统的 root 工作 actor 与以它 root 授权得到的 scope，与 Import Bus 服务交给编排器的相同。
+    system_actor: WorkingActor
+    scope: IdentityScope
     gateway_calls: list[dict] = field(default_factory=list)
     prepare_calls: list[dict] = field(default_factory=list)
     applied: list[tuple[InteractionPayload, dict]] = field(default_factory=list)
 
     async def ingest(self, turn: ImportedTurn):
-        return await self.ingestor.ingest(turn, identity_scope=SCOPE, principal_id=PRINCIPAL)
+        return await self.ingestor.ingest(
+            turn,
+            system_actor=self.system_actor,
+            identity_scope=self.scope,
+            participant=PARTICIPANT,
+            principal_id=PRINCIPAL,
+        )
 
     async def place(self, turn: InFlightTurn) -> str:
-        return await self.ingestor.place(turn, identity_scope=SCOPE, principal_id=PRINCIPAL)
+        return await self.ingestor.place(
+            turn, identity_scope=self.scope, participant=PARTICIPANT, principal_id=PRINCIPAL
+        )
 
 
 @asynccontextmanager
@@ -138,10 +161,16 @@ async def _harness(
     apply=None,
     apply_wait_seconds: float = 2.0,
 ) -> AsyncIterator[_Harness]:
-    """装配编排器、真实提交服务与内存队列；``gateway`` 缺省返回新话题决定。
+    """装配编排器、真实 root 提交 API、提交服务与内存队列；``gateway`` 缺省返回新话题决定。
 
-    prepare 的替身把新话题预建为 ``topic-placed``，已有话题原样返回。
+    系统的 root 工作 actor 经真实认证网关以系统自身的 principal 认证；prepare
+    的替身把新话题预建为 ``topic-placed``，已有话题原样返回。
     """
+    access = make_access_composition(
+        [make_actor_access_record(owner_user_id="default", agent_id=SYSTEM_AGENT_ID)],
+        default_workspace=WORKSPACE,
+    )
+    system_actor = await access.authenticate_system()
     bus = GlobalSystemBus()
     events = RecordingRuntimeEventSink()
     harness_ref: list[_Harness] = []
@@ -187,6 +216,7 @@ async def _harness(
     harness = _Harness(
         ingestor=ImportBusIngestor(
             bus,
+            interactions=RootInteractionService(bus, operation_authorizer=access.authorizer),
             gateway_request_timeout_ms=1234,
             gateway_session_turn_limit=session_turn_limit,
             apply_wait_seconds=apply_wait_seconds,
@@ -194,6 +224,8 @@ async def _harness(
         ),
         queue=queue,
         events=events,
+        system_actor=system_actor,
+        scope=access.authorizer.authorize_root(system_actor, WORKSPACE),
     )
     harness_ref.append(harness)
     if start_queue:
@@ -215,8 +247,9 @@ async def test_accepted_turn_is_sealed_and_submitted_with_new_topic_title() -> N
     assert result.interaction_id.startswith("import_")
     [(payload, kwargs)] = harness.applied
     assert kwargs["interaction_id"] == result.interaction_id
-    assert kwargs["belong_to"] == SCOPE.workspace_identity
-    assert kwargs["from_actor"] == SCOPE.actor_identity
+    # 提交由系统执行：归属是目标 Workspace，发起者是参与的 Agent，不是 system。
+    assert kwargs["belong_to"] == WORKSPACE
+    assert kwargs["from_actor"] == PARTICIPANT
     assert kwargs["target_topic_id"] == "NEW_TOPIC"
     assert (kwargs["new_topic_title"], kwargs["new_topic_summary"]) == ("部署", "讨论部署步骤")
     assert payload.outcome == "completed"
@@ -363,7 +396,8 @@ async def test_gateway_receives_passive_mode_and_truncated_recent_turns() -> Non
     assert call["message"] == f"部署时用 {SECRET}"
     assert call["ingress_mode"].value == "passive_memory"
     assert call["request_timeout_ms"] == 1234
-    assert call["identity_scope"] == SCOPE
+    assert call["identity_scope"] == harness.scope
+    assert call["identity_scope"].actor_identity.agent_id == SYSTEM_AGENT_ID
     assert call["session_turns"] == (
         GatewaySessionTurn(user_message="问题 1", assistant_text="回答 1"),
         GatewaySessionTurn(user_message="问题 2", assistant_text="回答 2"),
@@ -594,7 +628,10 @@ async def test_first_placement_routes_and_prepares_once_and_later_placements_reu
     [gateway_call] = harness.gateway_calls
     assert gateway_call["ingress_mode"].value == "passive_memory"
     [prepare] = harness.prepare_calls
-    assert prepare["identity_scope"] == SCOPE
+    assert prepare["identity_scope"] == harness.scope
+    assert prepare["identity_scope"].actor_identity.agent_id == SYSTEM_AGENT_ID
+    # 落位只准备话题：不带检索 scope，prepare 不检索。
+    assert prepare.get("retrieval_scope") is None
     assert prepare["gateway_decision"] == _decision()
     assert prepare["enable_memory_retrieval"] is False
 

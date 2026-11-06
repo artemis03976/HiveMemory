@@ -42,7 +42,9 @@ async def test_interleaved_sessions_share_topic_but_not_cpu_or_gateway_history()
 
     交给 Gateway 的轮次带各自落位的话题，话题路由失败时据此续接上一轮。
     """
-    access = make_access_composition([make_actor_access_record(agent_id="a")])
+    access = make_access_composition(
+        [make_actor_access_record(agent_id="a"), make_actor_access_record(agent_id="system")]
+    )
     bus = GlobalSystemBus()
     gateway_history = []
 

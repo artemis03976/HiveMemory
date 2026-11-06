@@ -140,7 +140,6 @@ def test_domain_errors_keep_http_categories_without_diagnostics(error_type, stat
             403,
             "target_owner_mismatch",
         ),
-        (OperationDeniedError(details={"reason": "agent_required"}), 403, "agent_required"),
         (OperationDeniedError(details={"reason": "secret-token"}), 403, None),
     ],
 )

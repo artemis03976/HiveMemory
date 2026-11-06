@@ -1,4 +1,8 @@
-"""Patchouli 消费 GatewayDecision 的契约测试。"""
+"""Patchouli 消费 GatewayDecision 的契约测试。
+
+prepare 与 finalize 由系统以 root scope 调用：话题与归属取 root scope，检索
+按单独的检索 scope 的 actor 可见性进行，交互的发起者取显式的参与者。
+"""
 
 from __future__ import annotations
 
@@ -6,6 +10,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import ScopeRequiredError, WorkspaceMismatchError
 from hivememory.core.models import ActorIdentity
 from hivememory.core.protocol.gateway import (
@@ -22,6 +27,12 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
 from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope
+
+# 系统阶段的 root scope 与执行者经 memory.search 授权得到的检索 scope。
+ROOT_SCOPE = make_identity_scope(user_id="u1", agent_id=SYSTEM_AGENT_ID)
+RETRIEVAL_SCOPE = make_identity_scope(user_id="u1", agent_id="omni_doll")
+# 交互中的 Agent：finalize 显式传入的参与者。
+PARTICIPANT = ActorIdentity(user_id="u1", agent_id="omni_doll")
 
 
 def _decision(
@@ -70,11 +81,13 @@ def _service(bus: PatchouliBus, submit: AsyncMock) -> PatchouliService:
 
 @pytest.mark.asyncio
 async def test_prepare_derives_retrieval_request_from_decision() -> None:
+    """检索请求取自决定；可见性按检索 scope 的执行者，而不是 root scope 的 system。"""
     bus, retrieve, _submit = _prepare_bus()
     decision = _decision(top_k=9)
 
     await _service(bus, _submit).prepare_agent_run(
-        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
+        identity_scope=ROOT_SCOPE,
+        retrieval_scope=RETRIEVAL_SCOPE,
         interaction_id="interaction-test",
         gateway_decision=decision,
     )
@@ -84,7 +97,50 @@ async def test_prepare_derives_retrieval_request_from_decision() -> None:
     assert request.keywords == ["gateway"]
     assert retrieve.await_args.kwargs["top_k"] == 9
     assert request.from_actor == ActorIdentity(user_id="u1", agent_id="omni_doll")
-    assert request.belong_to.owner_user_id == "u1"
+    assert request.belong_to == ROOT_SCOPE.workspace_identity
+
+
+@pytest.mark.asyncio
+async def test_prepare_without_retrieval_scope_prepares_topic_without_retrieval() -> None:
+    """执行者没有检索许可时不给检索 scope：话题照常准备，决定要求检索也不检索。"""
+    bus, retrieve, _submit = _prepare_bus()
+
+    prepared = await _service(bus, _submit).prepare_agent_run(
+        identity_scope=ROOT_SCOPE,
+        interaction_id="interaction-test",
+        gateway_decision=_decision(top_k=9),
+    )
+
+    retrieve.assert_not_awaited()
+    assert (prepared.topic_id, prepared.memories) == ("topic-1", ())
+
+
+@pytest.mark.asyncio
+async def test_prepare_rejects_retrieval_scope_of_another_workspace_before_topic_preparation():
+    """检索 scope 与 root scope 不在同一 Workspace 时拒绝，不准备话题也不检索。"""
+    retrieve = AsyncMock(return_value=[])
+    prepared_topics = []
+
+    async def prepare_topic(**kwargs):
+        prepared_topics.append(kwargs)
+        return "topic-1"
+
+    bus = PatchouliBus()
+    bus.register(PatchouliLocalRoutes.TOPIC_PREPARE, prepare_topic)
+    bus.register(PatchouliLocalRoutes.MEMORY_RETRIEVE, retrieve)
+
+    with pytest.raises(WorkspaceMismatchError):
+        await _service(bus, AsyncMock()).prepare_agent_run(
+            identity_scope=ROOT_SCOPE,
+            retrieval_scope=make_identity_scope(
+                user_id="u1", agent_id="omni_doll", workspace_id="isolation_workspace"
+            ),
+            interaction_id="interaction-test",
+            gateway_decision=_decision(),
+        )
+
+    assert prepared_topics == []
+    retrieve.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -97,7 +153,8 @@ async def test_prepare_skips_retrieval_for_simple_chat_decision() -> None:
     )
 
     prepared = await _service(bus, _submit).prepare_agent_run(
-        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
+        identity_scope=ROOT_SCOPE,
+        retrieval_scope=RETRIEVAL_SCOPE,
         interaction_id="interaction-test",
         gateway_decision=decision,
     )
@@ -117,7 +174,8 @@ async def test_finalize_submits_received_payload_with_prepared_identity() -> Non
     queue = InteractionSubmissionQueue(submit)
     service = PatchouliService(bus, interaction_queue=queue)
     prepared = await service.prepare_agent_run(
-        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
+        identity_scope=ROOT_SCOPE,
+        retrieval_scope=RETRIEVAL_SCOPE,
         interaction_id="interaction-test",
         gateway_decision=_decision(),
     )
@@ -126,9 +184,7 @@ async def test_finalize_submits_received_payload_with_prepared_identity() -> Non
     try:
         await queue.start()
         await service.finalize_agent_run(
-            prepared,
-            payload,
-            identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
+            prepared, payload, identity_scope=ROOT_SCOPE, participant=PARTICIPANT
         )
     finally:
         await queue.stop()
@@ -161,11 +217,13 @@ async def test_finalize_and_cleanup_reject_foreign_prepared_workspace() -> None:
     queue = InteractionSubmissionQueue(submit)
     service = PatchouliService(bus, interaction_queue=queue)
     prepared = await service.prepare_agent_run(
-        identity_scope=make_identity_scope(user_id="u1", agent_id="omni_doll"),
+        identity_scope=ROOT_SCOPE,
         interaction_id="foreign-finalize",
         gateway_decision=_decision().model_copy(update={"target_topic_id": "NEW_TOPIC"}),
     )
-    scope = make_identity_scope(user_id="u1", workspace_id="isolation_workspace")
+    scope = make_identity_scope(
+        user_id="u1", agent_id=SYSTEM_AGENT_ID, workspace_id="isolation_workspace"
+    )
     discarded = []
 
     async def discard(topic_id, *, belong_to):
@@ -175,7 +233,10 @@ async def test_finalize_and_cleanup_reject_foreign_prepared_workspace() -> None:
     bus.register(PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY, discard)
     with pytest.raises(WorkspaceMismatchError, match="workspace.mismatch"):
         await service.finalize_agent_run(
-            prepared, make_interaction_payload("问题"), identity_scope=scope
+            prepared,
+            make_interaction_payload("问题"),
+            identity_scope=scope,
+            participant=PARTICIPANT,
         )
 
     assert await queue.is_accepted(prepared.interaction_id) is False
@@ -184,8 +245,11 @@ async def test_finalize_and_cleanup_reject_foreign_prepared_workspace() -> None:
 
 
 @pytest.mark.asyncio
-async def test_finalize_uses_current_submission_actor_instead_of_prepare_actor() -> None:
-    """同一归属的提交必须使用当前阶段发起者，prepare 结果不冻结执行者。"""
+async def test_finalize_records_explicit_participant_instead_of_scope_actor() -> None:
+    """交互由 system 以 root scope 提交：发起者是显式的参与者，归属取 prepare 结果。
+
+    prepare 结果不冻结任何身份，发起者也不取自 scope 的 actor。
+    """
     bus, _retrieve, _submit = _prepare_bus()
     applied = []
 
@@ -196,15 +260,18 @@ async def test_finalize_uses_current_submission_actor_instead_of_prepare_actor()
     queue = InteractionSubmissionQueue(apply)
     service = PatchouliService(bus, interaction_queue=queue)
     prepared = await service.prepare_agent_run(
-        identity_scope=make_identity_scope(user_id="u1", agent_id="prepare-actor"),
+        identity_scope=ROOT_SCOPE,
+        retrieval_scope=make_identity_scope(user_id="u1", agent_id="prepare-actor"),
         interaction_id="current-finalize-actor",
         gateway_decision=_decision(),
     )
-    scope = make_identity_scope(user_id="u1", agent_id="submit-actor")
     try:
         await queue.start()
         result = await service.finalize_agent_run(
-            prepared, make_interaction_payload("问题"), identity_scope=scope
+            prepared,
+            make_interaction_payload("问题"),
+            identity_scope=ROOT_SCOPE,
+            participant=ActorIdentity(user_id="u1", agent_id="submit-actor"),
         )
     finally:
         await queue.stop()
@@ -222,9 +289,8 @@ async def test_finalize_unknown_admission_preserves_cause_and_uncertainty() -> N
 
     bus, _, submit = _prepare_bus()
     service = _service(bus, submit)
-    scope = make_identity_scope(user_id="u1", agent_id="omni_doll")
     prepared = await service.prepare_agent_run(
-        identity_scope=scope, interaction_id="uncertain", gateway_decision=_decision()
+        identity_scope=ROOT_SCOPE, interaction_id="uncertain", gateway_decision=_decision()
     )
     failure = ValueError("private admission detail")
     queue = AsyncMock(spec=InteractionSubmissionQueue)
@@ -232,7 +298,10 @@ async def test_finalize_unknown_admission_preserves_cause_and_uncertainty() -> N
     finalizer = PatchouliService(bus, interaction_queue=queue)
     with pytest.raises(ActiveInteractionFinalizationError) as caught:
         await finalizer.finalize_agent_run(
-            prepared, make_interaction_payload("q"), identity_scope=scope
+            prepared,
+            make_interaction_payload("q"),
+            identity_scope=ROOT_SCOPE,
+            participant=PARTICIPANT,
         )
     assert caught.value.stage == "interaction_admission"
     assert caught.value.reason == "admission_unknown"

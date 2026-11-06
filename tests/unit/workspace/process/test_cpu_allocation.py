@@ -1,10 +1,10 @@
 """任务进程 CPU 分配与主线程交接的行为测试。
 
 被测边界：``TaskProcessService`` 在 prepare 之后、进入 Actor 执行之前完成
-Profile 解析、附件租借与编译，并组装 ``CPUInputManifest``；Profile 解析与
-附件租借的阶段授权在分配层、副作用前执行，不检查 actor 操作，CPU 清单只接收注册
-时绑定的观测标签。图纸与操作快照随主线程的线程描述交给 CPU，快照在进入
-Actor 阶段派生主线程时读取。
+Profile 解析、附件租借与编译，并组装 ``CPUInputManifest``；Profile 与附件是
+用户的选择，由系统以 root 授权在分配层、副作用前执行，不检查 actor 操作，Profile
+按管理语义读取执行者的图纸；CPU 清单只接收注册时绑定的观测标签。图纸与操作快照
+随主线程的线程描述交给 CPU，快照在进入 Actor 阶段派生主线程时读取。
 Patchouli 以总线路由替身隔离；Actor 阶段以测试 CPU 替换 Alice（总线上不注册
 Alice 路由）；附件租借以真实 ``InMemoryWorkspaceAssetStore`` 的公开可观察状态
 验收，不断言私有字段。
@@ -23,6 +23,7 @@ from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.core.access import WorkspaceOperation
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import (
     AssetNotFoundError,
     AssetOperationConflictError,
@@ -84,9 +85,19 @@ def _workspace() -> WorkspaceIdentity:
     return make_workspace_identity(owner_user_id=_USER)
 
 
-def _expected_scope() -> IdentityScope:
-    """认证声明经操作授权者授权规则应组装出的 IdentityScope。"""
-    return IdentityScope(actor_identity=_actor(), workspace_identity=_workspace())
+def _root_scope() -> IdentityScope:
+    """系统阶段的 scope：root 授权以系统的 root 工作 actor 组装。"""
+    return IdentityScope(
+        actor_identity=ActorIdentity(user_id=_USER, agent_id=SYSTEM_AGENT_ID),
+        workspace_identity=_workspace(),
+    )
+
+
+def _system_record(*, workspace_id: str = "main_workspace"):
+    """u1 的 system 访问记录：注册入口以它认证系统的 root 工作 actor。"""
+    return make_actor_access_record(
+        owner_user_id=_USER, workspace_id=workspace_id, agent_id=SYSTEM_AGENT_ID
+    )
 
 
 def _composition(
@@ -101,7 +112,8 @@ def _composition(
                 owner_user_id=_USER,
                 agent_id=_AGENT,
                 allowed_operations=allowed,
-            )
+            ),
+            _system_record(),
         ]
     )
 
@@ -130,11 +142,8 @@ def _memory_atom(title: str) -> MemoryAtom:
 
 
 async def _store_scope(composition: AccessTestComposition) -> IdentityScope:
-    """构造 Store 测试资产的 scope：经操作授权者授权组装，与进程内阶段授权同源。"""
-    context = await composition.authenticate(agent_id=_AGENT)
-    return composition.authorizer.authorize_operation(
-        context, WorkspaceOperation.MEMORY_READ, composition.default_workspace
-    )
+    """构造 Store 测试资产的 scope：资产归属只取其中的 Workspace。"""
+    return IdentityScope(actor_identity=_actor(), workspace_identity=composition.default_workspace)
 
 
 def _constant(value):
@@ -162,15 +171,15 @@ def _profile_route(
     started: asyncio.Event | None = None,
     gate: asyncio.Event | None = None,
 ):
-    """PATCHOULI_GET_AGENT_PROFILE 替身：记录调用并返回固定解析结果。
+    """PATCHOULI_GET_AGENT_PROFILE 替身：记录（agent_id, scope, 是否检查可见性）并返回固定结果。
 
     ``started``/``gate`` 语义同 ``_prepare_route``，用于在 CPU 分配期间
     注入 stop 请求。
     """
 
-    async def route(agent_id, *, identity_scope, **_kwargs):
+    async def route(agent_id, *, identity_scope, enforce_actor_visibility=True, **_kwargs):
         if calls is not None:
-            calls.append((agent_id, identity_scope))
+            calls.append((agent_id, identity_scope, enforce_actor_visibility))
         if started is not None:
             started.set()
         if gate is not None:
@@ -226,7 +235,7 @@ async def _service(
     composition: AccessTestComposition | None = None,
     process_table: ProcessTable | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
-    """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
+    """构造被测服务与配套认证组合：注册、系统阶段与取消使用同一网关/授权者实例。"""
     composition = composition or _composition()
     service = make_task_process_service(
         bus,
@@ -291,7 +300,7 @@ async def test_main_thread_operations_follow_access_record_precedence():
     exact_record = make_actor_access_record(
         owner_user_id=_USER, agent_id=_AGENT, allowed_operations=frozenset()
     )
-    composition = make_access_composition([user_record, exact_record])
+    composition = make_access_composition([user_record, exact_record, _system_record()])
     bus = GlobalSystemBus()
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
@@ -325,9 +334,8 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
     events = await _run_once(composition, service, "问题", process_id="process-manifest")
 
     assert done_data(events)["status"] == "completed"
-    # Profile 以操作授权者组装的 identity_scope 经公开路由按 agent_id 解析。
-    assert [agent_id for agent_id, _scope in profile_calls] == ["omni_doll"]
-    assert profile_calls[0][1] == _expected_scope()
+    # Profile 由系统以 root scope 经公开路由按执行者的 agent_id、以管理语义解析。
+    assert profile_calls == [("omni_doll", _root_scope(), False)]
 
     manifest = cpu.calls[0].manifest
     descriptor = cpu.calls[0].thread.descriptor
@@ -365,7 +373,8 @@ async def test_manifest_labels_match_registration_and_process_event_labels() -> 
                 owner_user_id="u1",
                 workspace_id="labels_workspace",
                 agent_id="registered_agent",
-            )
+            ),
+            _system_record(workspace_id="labels_workspace"),
         ],
         default_workspace=workspace,
     )
@@ -444,7 +453,7 @@ def _recording(calls: list):
 
 @pytest.mark.asyncio
 async def test_no_actor_operations_still_allocates_execution_profile() -> None:
-    """没有 actor 操作仍能解析执行 Profile，阶段读取保持进程 actor 身份。"""
+    """没有 actor 操作仍能解析执行 Profile：Profile 由系统按管理语义读取，不需要执行者的许可。"""
     bus = GlobalSystemBus()
     profile_calls: list = []
     profile = AgentProfile(persona="阶段读取配置", language="zh")
@@ -463,43 +472,53 @@ async def test_no_actor_operations_still_allocates_execution_profile() -> None:
 
     assert done_data(events)["status"] == "completed"
     assert cpu.calls[0].thread.descriptor.agent_profile.persona == "阶段读取配置"
-    assert profile_calls == [("omni_doll", _expected_scope())]
+    assert profile_calls == [("omni_doll", _root_scope(), False)]
 
 
-class _AdmissionRevokedAtActorEntry:
-    """真实授权者的代理：只有派生主线程时读取的操作快照遇到已撤销的准入。"""
+class _AdmissionRevokedAfterPrepare:
+    """真实授权者的代理：prepare 之后读取执行者的操作集合时遇到已失效的准入。"""
 
     def __init__(self, inner):
         self._inner = inner
-        self._revoked = make_access_composition([]).authorizer
+        self._revoked_registry = make_access_composition([]).authorizer
+        self.revoked = False
 
     def __getattr__(self, name):
         return getattr(self._inner, name)
 
-    def get_stage_operations(self, access, target_workspace):
-        return self._revoked.get_stage_operations(access, target_workspace)
+    def allowed_operations(self, actor):
+        authorizer = self._revoked_registry if self.revoked else self._inner
+        return authorizer.allowed_operations(actor)
 
 
 @pytest.mark.asyncio
 async def test_admission_revoked_before_actor_fails_main_thread_derivation() -> None:
-    """准入在 prepare 与进入 Actor 之间撤销：主线程派生时读取快照失败，进程在 Actor 阶段失败。
+    """执行者的准入在 prepare 与进入 Actor 之间失效：派生主线程读取快照失败，进程在 Actor 阶段失败。
 
-    CPU 不会被调用，刚签发的主线程凭据随失败撤销，prepare 结果照常补偿。
+    CPU 不会被调用，主线程不登记，prepare 结果照常补偿。
     """
     bus = GlobalSystemBus()
     cleaned: list = []
+    composition = _composition()
+    authorizer = _AdmissionRevokedAfterPrepare(composition.authorizer)
+    prepare = _prepare_route()
+
+    async def prepare_then_revoke(**kwargs):
+        prepared = await prepare(**kwargs)
+        authorizer.revoked = True
+        return prepared
+
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare_then_revoke)
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _recording(cleaned))
     cpu = ScriptedCPU(result=make_cpu_result())
-    composition = _composition()
     sink = RecordingRuntimeEventSink()
     service = make_task_process_service(
         bus,
         cpu=cpu,
         access_gateway=composition.gateway,
-        operation_authorizer=_AdmissionRevokedAtActorEntry(composition.authorizer),
+        operation_authorizer=authorizer,
         event_publisher=RuntimeEventPublisher(sink),
     )
 
@@ -543,9 +562,24 @@ async def test_profile_resolution_failure_fails_stream_before_prepare() -> None:
 # ========== 附件租借（CPU 分配边界） ==========
 
 
+class _ScopeRecordingReader:
+    """资产库只读端口的代理：记录每次租借收到的 scope，其余行为来自真实 Store。"""
+
+    def __init__(self, store: InMemoryWorkspaceAssetStore) -> None:
+        self._store = store
+        self.acquire_scopes: list[IdentityScope] = []
+
+    def __getattr__(self, name):
+        return getattr(self._store, name)
+
+    def acquire_ready_representation(self, scope, asset_ref):
+        self.acquire_scopes.append(scope)
+        return self._store.acquire_ready_representation(scope, asset_ref)
+
+
 @pytest.mark.asyncio
 async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> None:
-    """按用户选择顺序 acquire 并编译；prepare 路由不再接收附件参数。"""
+    """按用户选择顺序由系统以 root scope 租借并编译；prepare 路由不再接收附件参数。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
     scope = await _store_scope(composition)
@@ -576,7 +610,8 @@ async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> N
 
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
-    service, composition = await _service(bus, store=store)
+    reader = _ScopeRecordingReader(store)
+    service, composition = await _service(bus, store=reader)
     events = await _run_once(
         composition,
         service,
@@ -592,6 +627,8 @@ async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> N
     assert "selected_attachments" not in prepare_kwargs
     # 用户顺序：第二份在前；实际使用引用按编译顺序冻结，经封口 payload 交给 finalize。
     assert list(finalize_kwargs["payload"].used_attachments) == [ref_b, ref_a]
+    # 附件是用户的选择：租借以系统的 root scope 进行，不以执行者的身份。
+    assert reader.acquire_scopes == [_root_scope(), _root_scope()]
     assert store.close_and_clear().leases_cleared == 0
 
 
@@ -934,7 +971,7 @@ async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() ->
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, store=store, cpu=cpu)
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    requestor = await composition.authenticate(agent_id=SYSTEM_AGENT_ID)
     handle = await _register(
         composition,
         service,
@@ -944,7 +981,7 @@ async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() ->
     )
     task = asyncio.create_task(collect_events(service, handle))
     await prepare_started.wait()
-    stop_result = service.cancel_process("process-stop-before-actor", access=requestor)
+    stop_result = service.cancel_process("process-stop-before-actor", actor=requestor)
     release_prepare.set()
     events = await task
 
@@ -992,7 +1029,7 @@ async def test_stop_during_profile_resolution_takes_effect_before_actor() -> Non
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, store=store, cpu=cpu)
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    requestor = await composition.authenticate(agent_id=SYSTEM_AGENT_ID)
     handle = await _register(
         composition,
         service,
@@ -1002,7 +1039,7 @@ async def test_stop_during_profile_resolution_takes_effect_before_actor() -> Non
     )
     task = asyncio.create_task(collect_events(service, handle))
     await allocation_started.wait()
-    stop_result = service.cancel_process("process-stop-during-allocation", access=requestor)
+    stop_result = service.cancel_process("process-stop-during-allocation", actor=requestor)
     release_allocation.set()
     events = await task
 

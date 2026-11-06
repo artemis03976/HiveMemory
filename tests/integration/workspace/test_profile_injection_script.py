@@ -51,16 +51,16 @@ class _ScriptSystems:
 
         bus.register(PatchouliRoutes.AGENT_PROFILE_LIST, list_profiles)
         bus.register(PatchouliRoutes.AGENT_PROFILE_CREATE, create_profile)
-        issued = []
+        authenticated = []
         authenticate = composition.gateway.authenticate
 
         async def recording_authenticate(**kwargs):
-            context = await authenticate(**kwargs)
-            issued.append(context)
-            return context
+            actor = await authenticate(**kwargs)
+            authenticated.append(actor)
+            return actor
 
         composition.gateway.authenticate = recording_authenticate
-        self.compositions.append((composition, issued))
+        self.compositions.append((composition, authenticated))
 
         async def start():
             return None
@@ -68,7 +68,6 @@ class _ScriptSystems:
         async def stop():
             self.stopped += 1
             composition.gateway.close()
-            composition.gateway.revoke_all_contexts()
 
         return SimpleNamespace(
             access_gateway=composition.gateway,
@@ -89,8 +88,8 @@ def script_systems(monkeypatch):
 
 
 @pytest.mark.asyncio
-async def test_profile_injection_is_idempotent_and_releases_each_context(script_systems):
-    """登记的本地来源以 system 经 root API 注入；重复执行不重写，每次都撤销 context。"""
+async def test_profile_injection_is_idempotent_and_authenticates_once_per_run(script_systems):
+    """登记的本地来源以 system 经 root API 注入；重复执行不重写，每次运行只认证一次。"""
     await inject_profiles.main("u1", "hivememory:profile-injector")
     original_ids = {alias: atom.id for alias, atom in script_systems.atoms.items()}
     await inject_profiles.main("u1", "hivememory:profile-injector")
@@ -104,9 +103,10 @@ async def test_profile_injection_is_idempotent_and_releases_each_context(script_
         atom.meta.workspace_identity.owner_user_id for atom in script_systems.atoms.values()
     } == {"u1"}
     assert script_systems.stopped == 2
-    for composition, issued in script_systems.compositions:
-        (context,) = issued
-        assert composition.is_revoked(context) is True
+    for _composition, authenticated in script_systems.compositions:
+        (actor,) = authenticated
+        assert actor.principal.principal_id == "hivememory:profile-injector"
+        assert actor.actor.agent_id == "system"
 
 
 @pytest.mark.asyncio
@@ -120,5 +120,5 @@ async def test_profile_injection_from_unknown_principal_is_denied_and_stops_syst
     assert error.value.details["reason"] == "unknown_principal"
     assert script_systems.atoms == {}
     assert script_systems.stopped == 1
-    ((_composition, issued),) = script_systems.compositions
-    assert issued == []
+    ((_composition, authenticated),) = script_systems.compositions
+    assert authenticated == []

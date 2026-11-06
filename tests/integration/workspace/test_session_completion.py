@@ -10,6 +10,7 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.workspace import WorkspaceSessionConfig
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, ResolvedAgentProfile
 from hivememory.core.models.interaction import TurnEvent
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
@@ -29,8 +30,8 @@ from tests.helpers.workspace import make_access_composition, make_actor_access_r
 class CompletionProbe:
     """记录外部 Patchouli 边界的交互接管与清理，提供可控提交屏障与用户停止入口。
 
-    ``stop`` 以同一 Workspace 已获准入的请求方 context 对本进程发起停止，
-    与 ``/chat/stop`` 走同一个取消方法。
+    ``stop`` 以同一 Workspace 的 system 工作 actor 对本进程发起停止，与
+    ``/chat/stop`` 走同一个取消方法。
     """
 
     submitted: list = field(default_factory=list)
@@ -44,7 +45,12 @@ async def completion_chain(
     cpu, *, block_finalize=False, shutdown_wait_seconds=10.0, seed_history=False
 ):
     """组装进程与会话，只有 Gateway/Patchouli 服务边界使用确定性替身。"""
-    access = make_access_composition([make_actor_access_record(agent_id="omni_doll")])
+    access = make_access_composition(
+        [
+            make_actor_access_record(agent_id="omni_doll"),
+            make_actor_access_record(agent_id=SYSTEM_AGENT_ID),
+        ]
+    )
     sessions = ConversationSessionService(WorkspaceSessionConfig())
     bus = GlobalSystemBus()
     probe = CompletionProbe()
@@ -115,8 +121,8 @@ async def completion_chain(
         session_id=session_id,
         message="请继续分析",
     )
-    requestor = await access.authenticate(agent_id="omni_doll")
-    probe.stop = partial(service.cancel_process, handle.process_id, access=requestor)
+    requestor = await access.authenticate(agent_id=SYSTEM_AGENT_ID)
+    probe.stop = partial(service.cancel_process, handle.process_id, actor=requestor)
     return service, handle, sessions, access.default_workspace, probe
 
 

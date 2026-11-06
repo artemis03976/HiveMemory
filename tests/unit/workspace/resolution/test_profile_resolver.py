@@ -1,11 +1,12 @@
 """ProfileResolver（Profile 读取 resolver）的单元测试。
 
 被测对象：builtin 结果不进缓存、命中按条目随存的源原子 policy 对每个 Actor
-逐次授权且不回源、交付副本隔离，以及冷读的代次守护。backing 以内存替身
-实现（被测单元边界之外的 Patchouli ``GET_AGENT_PROFILE``）。
+逐次授权且不回源、管理读取在命中与冷读两条路径都不检查可见性、交付副本
+隔离，以及冷读的代次守护。backing 以内存替身实现（被测单元边界之外的
+Patchouli ``GET_AGENT_PROFILE``，同样按可见性过滤，管理读取除外）。
 
 resolver 与 backing 位于授权点以下：只流动
-授权点组装的可信 ``IdentityScope``，不接收访问 context。
+授权点组装的可信 ``IdentityScope``，不接收工作 actor。
 """
 
 from __future__ import annotations
@@ -16,7 +17,9 @@ from uuid import uuid4
 
 import pytest
 
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import ResourceNotFoundError, ResourceUnavailableError
+from hivememory.core.memory_access import access_policy_permits
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
@@ -32,6 +35,8 @@ from tests.helpers.workspace import make_identity_scope
 
 A1 = make_identity_scope(user_id="u1", agent_id="a1")
 A2 = make_identity_scope(user_id="u1", agent_id="a2")
+# 任务进程以系统的 root scope 加载执行者的图纸。
+ROOT = make_identity_scope(user_id="u1", agent_id=SYSTEM_AGENT_ID)
 MAIN = A1.workspace_identity
 
 
@@ -50,21 +55,24 @@ def _resolved(agent_id: str, *, persona: str = "persona", private_to: str | None
 
 
 class _FakeProfileBacking:
-    """内存版 Profile backing：按 alias 返回预置解析结果，builtin 规则同 Patchouli。"""
+    """内存版 Profile backing：按 alias 返回预置解析结果，builtin 与可见性规则同 Patchouli。"""
 
     def __init__(self) -> None:
         self.profiles: dict[str, ResolvedAgentProfile] = {}
         self.calls = 0
         self.on_fetch: Callable[[], None] | None = None
 
-    async def get_agent_profile(self, agent_alias, *, scope):
+    async def get_agent_profile(self, agent_alias, *, scope, enforce_actor_visibility=True):
         self.calls += 1
         if self.on_fetch is not None:
             self.on_fetch()
         if agent_alias in (None, "", "default", "omni_doll"):
             return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE.model_copy(deep=True))
         resolved = self.profiles.get(agent_alias)
-        if resolved is None:
+        if resolved is None or (
+            enforce_actor_visibility
+            and not access_policy_permits(resolved.access_policy, scope.actor_identity)
+        ):
             raise ResourceNotFoundError()
         return resolved.model_copy(deep=True)
 
@@ -115,6 +123,36 @@ async def test_cached_profile_is_authorized_per_actor_by_source_policy():
 
 
 @pytest.mark.asyncio
+async def test_management_read_delivers_private_profile_on_cold_read_and_hit():
+    """管理读取只检查归属：root scope 在冷读与命中两条路径都能读到指向其他 Agent 的私有图纸。
+
+    同一 root scope 按默认的 actor 可见性读取仍按"不存在"拒绝，说明放行来自
+    管理语义而不是 policy；第二次管理读取命中缓存、不回源。
+    """
+    backing = _FakeProfileBacking()
+    backing.profiles["coder_doll"] = _resolved("coder_doll", private_to="coder_doll")
+    resolver, _, _ = _resolver(backing)
+
+    cold = await resolver.get("coder_doll", scope=ROOT, enforce_actor_visibility=False)
+    hit = await resolver.get("coder_doll", scope=ROOT, enforce_actor_visibility=False)
+    with pytest.raises(ResourceNotFoundError):
+        await resolver.get("coder_doll", scope=ROOT)
+
+    assert (cold.agent_id, hit.agent_id, backing.calls) == ("coder_doll", "coder_doll", 1)
+
+
+@pytest.mark.asyncio
+async def test_default_cold_read_keeps_actor_visibility():
+    """未声明管理读取时，冷读把 actor 可见性交给 backing：root scope 读不到私有图纸。"""
+    backing = _FakeProfileBacking()
+    backing.profiles["coder_doll"] = _resolved("coder_doll", private_to="coder_doll")
+    resolver, _, _ = _resolver(backing)
+
+    with pytest.raises(ResourceNotFoundError):
+        await resolver.get("coder_doll", scope=ROOT)
+
+
+@pytest.mark.asyncio
 async def test_hit_delivers_isolated_profile_copy():
     """调用方修改交付的 Profile 不影响后续读取。"""
     backing = _FakeProfileBacking()
@@ -153,7 +191,7 @@ async def test_same_profile_alias_is_cached_separately_for_each_workspace():
     isolated = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="isolated")
 
     class WorkspaceBacking:
-        async def get_agent_profile(self, alias, *, scope):
+        async def get_agent_profile(self, alias, *, scope, enforce_actor_visibility=True):
             return _resolved(alias, persona=scope.workspace_identity.workspace_id)
 
     resolver, _, _ = _resolver(WorkspaceBacking())
@@ -178,11 +216,13 @@ async def test_failed_profile_read_does_not_cache_and_next_read_can_recover(fail
     class RecoveringBacking(_FakeProfileBacking):
         first_read = True
 
-        async def get_agent_profile(self, alias, *, scope):
+        async def get_agent_profile(self, alias, *, scope, enforce_actor_visibility=True):
             if self.first_read:
                 self.first_read = False
                 raise failure
-            return await super().get_agent_profile(alias, scope=scope)
+            return await super().get_agent_profile(
+                alias, scope=scope, enforce_actor_visibility=enforce_actor_visibility
+            )
 
     backing = RecoveringBacking()
     backing.profiles["coder_doll"] = _resolved("coder_doll", persona="recovered")

@@ -1,14 +1,15 @@
 """ActorAuthenticationGateway 的单元测试。
 
 被测对象：System 统一认证网关。保护的契约：
-一次认证调用完成两项认证并签发密封的 context，授予内容（actor、来源
-principal 与运行绑定）在签发时写入 context，经操作授权者的授权结果与派生
-线程的运行绑定可见；未登记/禁用折叠为同一 reason
-（不泄漏配置）、adapter 不匹配、凭据缺失或不一致（含凭据环境变量未设置）、
-身份解析收紧、未获允许的 system 声明、owner 准入约束与缺失
-Workspace 访问记录分别拒绝；同一 principal 服务多个 Actor 不是失败；
-生命周期语义可区分：``gateway.close`` 只拒新认证，已签发 context 照常
-可用；``revoke_all_contexts`` 才使已签发 context 失效。
+一次认证调用完成两项认证并返回工作 actor（来源 principal、actor 与驻留
+workspace）；未登记/禁用折叠为同一 reason（不泄漏配置）、adapter 不匹配、
+凭据缺失或不一致（含凭据环境变量未设置）、身份解析收紧、未获允许的
+system 声明、owner 准入约束与缺失 Workspace 访问记录分别拒绝；同一
+principal 服务多个 Actor 不是失败；``gateway.close`` 只拒新认证。
+
+子工作 actor 的准入（线程表派生子线程时调用）沿用主工作 actor 的来源与驻留
+workspace、只换 Agent：拒绝保留的 system 与未准入的 Agent，网关关闭后已有
+进程仍可准入。
 """
 
 from __future__ import annotations
@@ -17,13 +18,12 @@ import pytest
 
 from hivememory.core.access import (
     CallerPrincipal,
-    RunBinding,
-    WorkspaceAccessContext,
+    WorkingActor,
     WorkspaceOperation,
 )
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.errors import AdmissionDeniedError, ScopeRequiredError
-from hivememory.core.models import ActorIdentity, IdentityScope
+from hivememory.core.errors import AdmissionDeniedError
+from hivememory.core.models import ActorIdentity
 from hivememory.system.access import (
     SystemActorAccessEntry,
     SystemActorAccessRegistry,
@@ -44,8 +44,8 @@ MAIN = make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace"
 
 
 @pytest.mark.asyncio
-async def test_authenticate_issues_reusable_context_without_operation():
-    """两项认证通过签发不透明 context；context 与单次 operation 解耦、可重复认证。"""
+async def test_authenticate_returns_working_actor_without_operation():
+    """两项认证通过返回工作 actor：核对通过的来源、actor 与驻留 workspace，不绑定 operation。"""
     composition = make_access_composition(
         [
             make_actor_access_record(
@@ -55,52 +55,19 @@ async def test_authenticate_issues_reusable_context_without_operation():
             )
         ],
         default_workspace=MAIN,
+        principal_id="local-process:test",
     )
 
     first = await composition.authenticate(agent_id="a1", user_id="u1")
     second = await composition.authenticate(agent_id="a1", user_id="u1")
 
-    # context 没有公开字段：授予内容密封在内，也不携带 operation。
-    assert not hasattr(first, "operation")
-    assert not hasattr(first, "identity_scope")
-    assert composition.authorizer.authorize_stage(first, MAIN) == IdentityScope(
-        actor_identity=ActorIdentity(user_id="u1", agent_id="a1"), workspace_identity=MAIN
+    assert first == WorkingActor(
+        principal=CallerPrincipal("local-process:test"),
+        actor=ActorIdentity(user_id="u1", agent_id="a1"),
+        workspace=MAIN,
     )
-    # 认证可重复调用：每次签发独立 context，签发入口不绑定 operation
-    assert second is not first
-    assert composition.is_revoked(second) is False
-
-
-@pytest.mark.asyncio
-async def test_grant_record_keeps_principal_and_run_binding():
-    """授予内容携带来源 principal 与运行绑定：进程 context 派生的线程归属该进程。"""
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
-        default_workspace=MAIN,
-        principal_id="local-process:test",
-    )
-
-    request_context = await composition.authenticate(
-        agent_id="a1",
-        user_id="u1",
-        binding=RunBinding.for_request("request-42"),
-    )
-    process_context = await composition.authenticate(
-        agent_id="a1",
-        user_id="u1",
-        binding=RunBinding.for_task_process("process-7"),
-    )
-
-    for context in (request_context, process_context):
-        authorization = composition.authorizer.authorize_import(context, MAIN)
-        assert authorization.principal_id == "local-process:test"
-    thread = composition.gateway.derive_thread_context(process_context)
-    assert composition.authorizer.get_thread_binding(thread) == RunBinding.for_execution_thread(
-        "process-7", "main"
-    )
-    # 请求级运行绑定不是任务进程：不能派生执行线程。
-    with pytest.raises(ScopeRequiredError):
-        composition.gateway.derive_thread_context(request_context)
+    # 认证可重复调用，结果只取决于认证输入；白名单不进入工作 actor。
+    assert second == first
 
 
 @pytest.mark.asyncio
@@ -129,18 +96,16 @@ async def test_unregistered_and_disabled_principal_share_same_denial_reason():
                 credential=None,
                 actor=ActorIdentity(user_id="u1", agent_id="a1"),
                 workspace=MAIN,
-                binding=RunBinding.for_request("request-denied"),
             )
         assert exc_info.value.details["reason"] == "unknown_principal"
 
-    # 正常登记不受影响：同一网关照常签发
+    # 正常登记不受影响：同一网关照常认证
     await gateway.authenticate(
         adapter="local",
         principal=CallerPrincipal("local-process:test"),
         credential=None,
         actor=ActorIdentity(user_id="u1", agent_id="a1"),
         workspace=MAIN,
-        binding=RunBinding.for_request("request-ok"),
     )
 
 
@@ -173,7 +138,7 @@ def _credential_gateway(entry: SystemActorAccessEntry) -> ActorAuthenticationGat
 
 async def _authenticate_harness(
     gateway: ActorAuthenticationGateway, credential: str | None
-) -> WorkspaceAccessContext:
+) -> WorkingActor:
     """以外部来源 harness:test 经 mcp adapter 携带给定凭据认证 (u1, a1)。"""
     return await gateway.authenticate(
         adapter="mcp",
@@ -181,7 +146,6 @@ async def _authenticate_harness(
         credential=credential,
         actor=ActorIdentity(user_id="u1", agent_id="a1"),
         workspace=MAIN,
-        binding=RunBinding.for_request("request-harness"),
     )
 
 
@@ -203,7 +167,7 @@ async def test_registered_credential_rejects_missing_or_different_credential(cre
     assert exc_info.value.details["reason"] == "invalid_credential"
     assert "s3cret-token" not in str(exc_info.value.details)
 
-    # 一致的凭据照常签发
+    # 一致的凭据照常认证
     await _authenticate_harness(gateway, "s3cret-token")
 
 
@@ -245,21 +209,20 @@ async def test_only_principals_allowed_to_declare_system_can_use_it():
         ),
     )
 
-    async def authenticate_system(principal_id: str) -> WorkspaceAccessContext:
+    async def authenticate_system(principal_id: str) -> WorkingActor:
         return await gateway.authenticate(
             adapter="local",
             principal=CallerPrincipal(principal_id),
             credential=None,
             actor=ActorIdentity(user_id="u1", agent_id=SYSTEM_AGENT_ID),
             workspace=MAIN,
-            binding=RunBinding.for_request("request-system"),
         )
 
     with pytest.raises(AdmissionDeniedError) as exc_info:
         await authenticate_system("local-process:plain")
     assert exc_info.value.details["reason"] == "system_actor_not_allowed"
 
-    # 允许声明 system 的来源照常签发
+    # 允许声明 system 的来源照常认证
     await authenticate_system("local-process:admin")
 
 
@@ -291,7 +254,6 @@ async def test_principal_identity_rule_rejects_foreign_user():
             credential=None,
             actor=ActorIdentity(user_id="mallory", agent_id="a1"),
             workspace=MAIN,
-            binding=RunBinding.for_request("request-foreign-user"),
         )
     assert exc_info.value.details["reason"] == "actor_not_allowed_for_principal"
 
@@ -338,10 +300,8 @@ async def test_same_principal_serves_multiple_actors():
     first = await composition.authenticate(agent_id="a1", user_id="u1")
     second = await composition.authenticate(agent_id="a2", user_id="u1")
 
-    assert [
-        composition.authorizer.authorize_stage(context, MAIN).actor_identity.agent_id
-        for context in (first, second)
-    ] == ["a1", "a2"]
+    assert [actor.actor.agent_id for actor in (first, second)] == ["a1", "a2"]
+    assert first.principal == second.principal
 
 
 @pytest.mark.asyncio
@@ -359,38 +319,61 @@ async def test_close_rejects_new_authentication():
     assert exc_info.value.details["reason"] == "authentication_gateway_closed"
 
 
-@pytest.mark.asyncio
-async def test_gateway_close_only_blocks_new_authentication_and_keeps_issued_contexts():
-    """gateway.close 只拒新认证：已签发 context 照常通过授权，直到被撤销。
+# ---------------------------------------------------------------------------
+# 子工作 actor 的准入
+# ---------------------------------------------------------------------------
 
-    关闭网关不等于撤销——已签发 context 的剩余生命周期（单个撤销、撤销
-    全部）由各自所有者与 System 停止顺序完成，不经网关的 close。
-    """
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
+
+def _sub_actor_composition():
+    """u1 的 a1 与 a2 准入 MAIN；a3 没有访问记录，system 只有准入记录。"""
+    return make_access_composition(
+        [
+            make_actor_access_record(owner_user_id="u1", agent_id="a1"),
+            make_actor_access_record(owner_user_id="u1", agent_id="a2"),
+            make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
+        ],
         default_workspace=MAIN,
     )
-    context = await composition.authenticate(agent_id="a1", user_id="u1")
+
+
+@pytest.mark.asyncio
+async def test_sub_actor_keeps_principal_and_workspace_and_only_swaps_agent():
+    """子工作 actor 沿用主工作 actor 的来源与驻留 workspace，只换成被调用的 Agent。"""
+    composition = _sub_actor_composition()
+    main = await composition.authenticate(agent_id="a1", user_id="u1")
+
+    sub = composition.gateway.admit_sub_actor(main, "a2")
+
+    assert sub == WorkingActor(
+        principal=main.principal,
+        actor=ActorIdentity(user_id="u1", agent_id="a2"),
+        workspace=MAIN,
+    )
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("agent_id", "reason"),
+    [(SYSTEM_AGENT_ID, "system_actor_not_allowed"), ("a3", "actor_not_admitted")],
+    ids=["system", "not-admitted"],
+)
+async def test_sub_actor_admission_rejects_system_and_unadmitted_agent(agent_id, reason):
+    """被调用方不能是保留的 system（即使它已准入），也必须在本 Workspace 准入。"""
+    composition = _sub_actor_composition()
+    main = await composition.authenticate(agent_id="a1", user_id="u1")
+
+    with pytest.raises(AdmissionDeniedError) as exc_info:
+        composition.gateway.admit_sub_actor(main, agent_id)
+
+    assert exc_info.value.details["reason"] == reason
+
+
+@pytest.mark.asyncio
+async def test_gateway_close_does_not_block_sub_actor_admission():
+    """网关关闭只拒绝新认证：已有进程仍可为子线程的被调用方做准入。"""
+    composition = _sub_actor_composition()
+    main = await composition.authenticate(agent_id="a1", user_id="u1")
 
     composition.gateway.close()
 
-    scope = composition.authorizer.authorize_operation(
-        context, WorkspaceOperation.MEMORY_READ, MAIN
-    )
-    assert scope.workspace_identity == MAIN
-
-
-@pytest.mark.asyncio
-async def test_revoke_all_through_gateway_revokes_issued_contexts():
-    """网关转交撤销全部：已签发 context 不再能通过授权。"""
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="a1")],
-        default_workspace=MAIN,
-    )
-    context = await composition.authenticate(agent_id="a1", user_id="u1")
-
-    composition.gateway.revoke_all_contexts()
-
-    with pytest.raises(ScopeRequiredError) as exc_info:
-        composition.authorizer.authorize_operation(context, WorkspaceOperation.MEMORY_READ, MAIN)
-    assert exc_info.value.details["reason"] == "context_not_issued"
+    assert composition.gateway.admit_sub_actor(main, "a2").actor.agent_id == "a2"

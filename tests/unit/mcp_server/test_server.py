@@ -1,4 +1,4 @@
-"""MCP 入口：身份取自请求头、每次调用一份请求级 context、结果编译与错误投影。
+"""MCP 入口：身份取自请求头、每次调用认证一次、结果编译与错误投影。
 
 真实协作：MCP SDK 的 streamable HTTP 应用与客户端（经 ASGI）、server 的声明
 解析与错误投影、MemoryCompiler；认证网关、Import Bus 的落位与操作入口在本单元
@@ -17,7 +17,7 @@ from mcp.shared.exceptions import MCPError
 from mcp.types import METHOD_NOT_FOUND
 
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.core.access import AccessRunType, CallerPrincipal
+from hivememory.core.access import CallerPrincipal, WorkingActor
 from hivememory.core.errors import OperationDeniedError
 from hivememory.core.models import (
     ActorIdentity,
@@ -51,19 +51,19 @@ _HEADERS = {
 
 
 class _Gateway:
-    """记录认证声明与撤销；签发的 context 只是一个可比对的占位对象。"""
+    """记录认证声明，按声明返回工作 actor；准入检查在本单元边界之外。"""
 
     def __init__(self) -> None:
-        self.context = object()
         self.authentications: list[dict] = []
-        self.revoked: list[object] = []
+        self.actors: list[WorkingActor] = []
 
     async def authenticate(self, **claims):
         self.authentications.append(claims)
-        return self.context
-
-    def revoke_context(self, access) -> None:
-        self.revoked.append(access)
+        actor = WorkingActor(
+            principal=claims["principal"], actor=claims["actor"], workspace=claims["workspace"]
+        )
+        self.actors.append(actor)
+        return actor
 
 
 class _Entry:
@@ -75,8 +75,8 @@ class _Entry:
         self.calls: list[tuple[object, object]] = []
         self.dispatch_topics: list[str | None] = []
 
-    async def execute_request(self, request, *, access, dispatch_topic_id=None):
-        self.calls.append((request, access))
+    async def execute_request(self, request, *, actor, dispatch_topic_id=None):
+        self.calls.append((request, actor))
         self.dispatch_topics.append(dispatch_topic_id)
         if self.error is not None:
             raise self.error
@@ -90,8 +90,8 @@ class _ImportBus:
         self.error = error
         self.placements: list[tuple[object, object, object]] = []
 
-    async def place_turn(self, turn, *, access, target_workspace):
-        self.placements.append((turn, access, target_workspace))
+    async def place_turn(self, turn, *, actor, target_workspace):
+        self.placements.append((turn, actor, target_workspace))
         if self.error is not None:
             raise self.error
         return "topic-placed"
@@ -136,8 +136,8 @@ def _atom(alias: str, content: str) -> MemoryAtom:
 
 
 @pytest.mark.asyncio
-async def test_search_authenticates_with_header_claims_and_revokes_after_submission():
-    """principal、凭据与 actor 取自请求头，以 mcp adapter 签发一份请求级 context，提交后撤销。"""
+async def test_search_authenticates_once_with_header_claims():
+    """principal、凭据与 actor 取自请求头，以 mcp adapter 认证一次，以得到的工作 actor 提交。"""
     system = _system(_Entry(result=[]))
     gateway = system.access_gateway
 
@@ -150,11 +150,9 @@ async def test_search_authenticates_with_header_claims_and_revokes_after_submiss
     assert claims["principal"] == CallerPrincipal("harness:claude-code")
     assert claims["credential"] == "token-1"
     assert claims["actor"] == ActorIdentity(user_id="u1", agent_id="claude_code")
-    assert claims["binding"].run_type is AccessRunType.REQUEST
     assert system.operation_entry.calls == [
-        (RetrieveRequest(semantic_query="部署流程"), gateway.context)
+        (RetrieveRequest(semantic_query="部署流程"), gateway.actors[0])
     ]
-    assert gateway.revoked == [gateway.context]
 
 
 @pytest.mark.asyncio
@@ -171,8 +169,8 @@ async def test_missing_principal_declaration_is_rejected_before_authentication()
 
 
 @pytest.mark.asyncio
-async def test_denied_submission_is_projected_and_context_still_revoked():
-    """领域错误按 HTTP 出口的投影写入 isError 结果，失败时同样撤销 context。"""
+async def test_denied_submission_is_projected():
+    """领域错误按 HTTP 出口的投影写入 isError 结果。"""
     denied = OperationDeniedError(
         details={"operation": "memory.search", "reason": "operation_not_allowed"}
     )
@@ -186,7 +184,6 @@ async def test_denied_submission_is_projected_and_context_still_revoked():
         "workspace.operation_denied",
         "operation_not_allowed",
     )
-    assert system.access_gateway.revoked == [system.access_gateway.context]
 
 
 @pytest.mark.asyncio
@@ -300,10 +297,10 @@ async def test_subscriptions_listen_is_neither_advertised_nor_served():
     ],
     ids=["write", "update"],
 )
-async def test_intent_places_the_turn_then_submits_with_its_topic_under_one_context(
+async def test_intent_places_the_turn_then_submits_with_its_topic_under_one_actor(
     tool, arguments, expected
 ):
-    """先以连接器补上的轮次落位，再带落点话题经请求级提交；两步共用一份 context，结束后撤销。"""
+    """先以连接器补上的轮次落位，再带落点话题经请求级提交；只认证一次，两步共用同一个工作 actor。"""
     pending = _pending()
     system = _system(_Entry(result=pending))
     gateway = system.access_gateway
@@ -312,16 +309,16 @@ async def test_intent_places_the_turn_then_submits_with_its_topic_under_one_cont
         result = await session.call_tool(tool, {**arguments, "turn": _TURN})
 
     assert pending.pending_alias in tool_text(result)
+    [actor] = gateway.actors
     assert system.import_bus_service.placements == [
         (
             InFlightTurn.model_validate(_TURN),
-            gateway.context,
+            actor,
             resolve_default_workspace_identity("u1"),
         )
     ]
-    assert system.operation_entry.calls == [(expected, gateway.context)]
+    assert system.operation_entry.calls == [(expected, actor)]
     assert system.operation_entry.dispatch_topics == ["topic-placed"]
-    assert gateway.revoked == [gateway.context]
 
 
 @pytest.mark.asyncio
@@ -340,7 +337,7 @@ async def test_intent_without_turn_is_rejected_before_authentication():
 
 @pytest.mark.asyncio
 async def test_placement_failure_is_projected_without_submission():
-    """落位失败按 HTTP 出口的投影返回，不提交写入，context 照常撤销。"""
+    """落位失败按 HTTP 出口的投影返回，不提交写入。"""
     system = _system(
         _Entry(result=_pending()),
         import_bus=_ImportBus(error=ImportBusUnavailableError(reason="gateway_unavailable")),
@@ -352,4 +349,3 @@ async def test_placement_failure_is_projected_without_submission():
     error = tool_error(result)
     assert (error["error"], error["reason"]) == ("import_bus.unavailable", "gateway_unavailable")
     assert system.operation_entry.calls == []
-    assert system.access_gateway.revoked == [system.access_gateway.context]

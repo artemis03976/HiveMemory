@@ -4,7 +4,7 @@
 （``configs/system_principals.yaml`` 与 ``configs/workspace_actors.yaml``），
 按组合根 ``SystemAssembler._build_access_control`` 的同一方式构造真实认证
 组合——``SystemPrincipalAuthenticator``（第 1 阶段）+
-``WorkspaceAuthenticator``（第 2 阶段、签发与撤销）+ ``WorkspaceOperationAuthorizer``
+``WorkspaceAuthenticator``（第 2 阶段准入，产出工作 actor）+ ``WorkspaceOperationAuthorizer``
 （第 3 阶段授权，与认证一侧互不依赖）+ ``ActorAuthenticationGateway``（唯一对外认证入口）。
 HTTP 入口经 FastAPI TestClient 与依赖覆盖驱动 memories / topics /
 memory-tasks 管理路由与 chat 注册入口；server principal 配置取自
@@ -20,9 +20,10 @@ Patchouli/Alice/Qdrant）：替身记录授权点组装后传入的 ``IdentitySc
 
 1. HTTP 管理操作（memories 创建/列表、管理员的话题列表、memory-tasks
    列表）与 chat 全链路（fake CPU）经网关成功；用户 actor 使用 default
-   用户 + 具体 ``agent_id``，命中发布登记的用户级记录；
+   用户 + 具体 ``agent_id``，命中发布登记的用户级记录；chat 的系统阶段以
+   发布登记的系统自身 principal 与 system 记录执行；
 2. ``system`` 不持有 actor 可见的操作（发布登记的 system 记录只有准入）：以 (default, system) 声明
-   认证取得的 context 调用能力层 ``resolve_references`` / ``resolve_run_target`` 被拒；
+   认证得到的工作 actor 调用能力层 ``resolve_references`` / ``resolve_run_target`` 被拒；
 3. chat 认证失败（未登记用户）返回 403 且不创建进程；未登记 principal /
    不匹配 adapter 分别以 ``unknown_principal`` / ``adapter_mismatch`` 拒绝
    （403）。
@@ -44,17 +45,11 @@ from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.access import load_access_registration
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.core.access import (
-    CallerPrincipal,
-    RunBinding,
-    WorkspaceAccessContext,
-    WorkspaceOperation,
-)
+from hivememory.core.access import CallerPrincipal, WorkspaceOperation
 from hivememory.core.constants import DEFAULT_USER_ID
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import (
     OperationDeniedError,
-    ScopeRequiredError,
 )
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -162,6 +157,7 @@ class _BusRecordings:
         self.topic_list_scopes: list = []
         self.task_list_scopes: list = []
         self.gateway_calls = 0
+        #: prepare 收到的（话题与归属的 scope, 检索 scope）。
         self.prepare_scopes: list = []
 
     @property
@@ -261,8 +257,8 @@ async def published_stack():
         seen.gateway_calls += 1
         return GatewayDecisionOutcome(decision=make_gateway_decision())
 
-    async def prepare_agent_run(*, identity_scope, **_kwargs):
-        seen.prepare_scopes.append(identity_scope)
+    async def prepare_agent_run(*, identity_scope, retrieval_scope=None, **_kwargs):
+        seen.prepare_scopes.append((identity_scope, retrieval_scope))
         return _prepared_run(identity_scope)
 
     async def get_agent_profile(agent_id, *, identity_scope, **_kwargs):
@@ -288,7 +284,7 @@ async def published_stack():
         operation_authorizer=registration.authorizer,
         memory_reader=make_workspace_read_view(bus).memory,
         threads=ProcessThreads(
-            ProcessTable(), lifecycle=registration.gateway, authorizer=registration.authorizer
+            ProcessTable(), admission=registration.gateway, authorizer=registration.authorizer
         ),
     )
     topic_service = RootTopicService(bus, operation_authorizer=registration.authorizer)
@@ -308,7 +304,7 @@ async def published_stack():
     app.include_router(memory_tasks_router, prefix="/api/v1")
     app.include_router(chat_router, prefix="/api/v1")
     # server 依赖只覆盖访问侧：网关、server principal 与四个能力/编排服务；
-    # 管理路由的请求级 context 由真实 get_request_access 依赖经网关取得。
+    # 管理路由的工作 actor 由真实 get_request_actor 依赖经网关认证。
     app.dependency_overrides[deps.get_access_gateway] = lambda: registration.gateway
     app.dependency_overrides[deps.get_server_principal_id] = lambda: registration.principal_id
     app.dependency_overrides[deps.get_root_memory_service] = lambda: root_memory_service
@@ -384,8 +380,8 @@ def test_management_http_operations_succeed_through_published_registration(
 ) -> None:
     """memories 创建/列表、管理员话题列表与 memory-tasks 列表经网关成功。
 
-    管理路由以 (default, system) 声明经真实 ``get_request_access`` 取得
-    请求级 context：发布登记的 system 记录只有准入，管理能力通过 root 授权；替身路由
+    管理路由以 (default, system) 声明经真实 ``get_request_actor`` 认证为工作
+    actor：发布登记的 system 记录只有准入，管理能力通过 root 授权；替身路由
     收到的 scope 证明授权组装的身份是保留 system actor + default 用户的
     main_workspace。
     """
@@ -439,8 +435,9 @@ async def test_chat_full_chain_succeeds_through_published_registration(published
     """chat 注册 → 四阶段编排（fake CPU）经发布登记的用户级记录全链路成功。
 
     用户 actor 为 default 用户 + 具体 ``agent_id``：发布登记的用户级记录
-    （省略 agent_id，覆盖所有具体 Agent）完成准入。四阶段调用只做阶段
-    授权，保留该 actor 的可见性，不借用六项 actor 操作。
+    （省略 agent_id，覆盖所有具体 Agent）完成准入；系统阶段由发布登记的
+    系统自身 principal 认证的 (default, system) 以 root 授权执行，prepare 的
+    检索按执行者在发布登记中的 ``memory.search`` 授权。
     """
     stack = published_stack
 
@@ -467,8 +464,10 @@ async def test_chat_full_chain_succeeds_through_published_registration(published
         "agent_id": "test_agent",
         "workspace_id": MAIN_WORKSPACE_ID,
     }
-    # prepare 收到的是授权返回的 scope（由进程绑定 context 的授予内容组装）。
-    assert stack.seen.prepare_scopes[-1].actor_identity.agent_id == "test_agent"
+    # prepare 的话题准备由 system 执行，检索按执行者的可见性进行。
+    root_scope, retrieval_scope = stack.seen.prepare_scopes[-1]
+    assert root_scope.actor_identity == ActorIdentity(user_id="default", agent_id="system")
+    assert retrieval_scope.actor_identity == ActorIdentity(user_id="default", agent_id="test_agent")
 
 
 # ---------------------------------------------------------------------------
@@ -479,16 +478,14 @@ async def test_chat_full_chain_succeeds_through_published_registration(published
 @pytest.mark.asyncio
 async def test_chat_stop_cancels_running_process_through_published_registration(
     published_stack: _Stack,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    """/chat/stop 以请求级 context 经发布登记取消运行中的进程。
+    """/chat/stop 以 (default, system) 的工作 actor 经发布登记取消运行中的进程。
 
     进程经注册入口以 default 用户 + 具体 ``agent_id`` 注册（命中用户级
     记录），CPU 在终态前挂起模拟执行中；取消经 /chat/stop 路由处理函数
-    发起——(default, system) 声明经真实网关取得请求级 context（发布登记
-    的 system 记录），操作授权者的进程控制授权比对双方驻留坐标（同为
-    default 用户的 main_workspace）后接受停止；被取消进程的绑定 context
-    随交付收口失效。
+    发起——(default, system) 声明经真实网关认证（发布登记的 system 记录），
+    对进程的 Workspace（default 用户的 main_workspace）通过 root 授权后接受
+    停止。
     """
     stack = published_stack
     hang_cpu = ScriptedCPU(result=make_cpu_result(final_text="不该到达"), hang_before_result=True)
@@ -500,17 +497,6 @@ async def test_chat_stop_cancels_running_process_through_published_registration(
         access_gateway=stack.registration.gateway,
         operation_authorizer=stack.registration.authorizer,
     )
-    # 捕获注册签发的进程 context：取消收口后断言它已被撤销。
-    original_authenticate = stack.registration.gateway.authenticate
-    issued_contexts: list[WorkspaceAccessContext] = []
-
-    async def capturing_authenticate(**kwargs):
-        context = await original_authenticate(**kwargs)
-        issued_contexts.append(context)
-        return context
-
-    monkeypatch.setattr(stack.registration.gateway, "authenticate", capturing_authenticate)
-
     handle = await process_service.register_process(
         adapter="http",
         principal=CallerPrincipal(stack.registration.principal_id),
@@ -530,18 +516,18 @@ async def test_chat_stop_cancels_running_process_through_published_registration(
     claims = deps.resolve_request_identity_claims(
         RequestIdentitySelection(user_id=DEFAULT_USER_ID, workspace_id=None)
     )
-    async with deps.request_access_for_claims(
+    requester = await deps.authenticate_request_actor(
         claims,
         gateway=stack.registration.gateway,
         principal_id=stack.registration.principal_id,
         adapter=deps.HTTP_ADAPTER,
         credential=None,
-    ) as request_access:
-        result = await stop_chat(
-            request=StopChatRequest(process_id="process-published-stop"),
-            access=request_access,
-            service=process_service,
-        )
+    )
+    result = await stop_chat(
+        request=StopChatRequest(process_id="process-published-stop"),
+        actor=requester,
+        service=process_service,
+    )
     assert (result["process_id"], result["cancelled"], result["status"]) == (
         "process-published-stop",
         True,
@@ -549,13 +535,6 @@ async def test_chat_stop_cancels_running_process_through_published_registration(
     )
 
     await asyncio.wait_for(run_task, timeout=2)
-    # 取消终态后，进程绑定的 context 已随进程关闭失效，授权以 context_not_issued 拒绝。
-    assert issued_contexts, "进程 context 未被捕获"
-    with pytest.raises(ScopeRequiredError) as revoked:
-        stack.registration.authorizer.authorize_stage(
-            issued_contexts[0], stack.registration.default_workspace
-        )
-    assert revoked.value.details["reason"] == "context_not_issued"
     # 取消事件的即时判定与终态投影都按注册时绑定的观测标签发布。
     cancel_events = [
         event
@@ -578,37 +557,32 @@ async def test_chat_stop_cancels_running_process_through_published_registration(
 
 
 @pytest.mark.asyncio
-async def test_system_context_cannot_use_actor_visible_read_operations(published_stack):
+async def test_system_actor_cannot_use_actor_visible_read_operations(published_stack):
     """发布登记的 system 不持有 actor 操作：READ 与 RUN 均在授权点被拒。
 
-    以 (default, system) 声明经网关认证取得 context（发布登记的 system
+    以 (default, system) 声明经网关认证得到工作 actor（发布登记的 system
     记录允许进入），能力层 ``resolve_references`` / ``resolve_run_target`` 分别绑定
     ``memory.read`` / ``memory.run``，在 backing 调用前按 ``operation_not_allowed`` 拒绝。
     """
     stack = published_stack
     workspace = stack.registration.default_workspace
-    context = await stack.registration.gateway.authenticate(
+    actor = await stack.registration.gateway.authenticate(
         adapter="http",
         principal=CallerPrincipal(stack.registration.principal_id),
         credential=None,
         actor=ActorIdentity(user_id="default", agent_id="system"),
         workspace=workspace,
-        binding=RunBinding.for_task_process("published_system_process"),
     )
 
-    context = stack.registration.gateway.derive_thread_context(context)
-
     with pytest.raises(OperationDeniedError) as read_error:
-        (
-            await stack.memory_service.resolve_references(
-                ResolveReferencesRequest((str(str(uuid4())),)), access=context
-            )
-        )[0].atom
+        await stack.memory_service.resolve_references(
+            ResolveReferencesRequest((str(uuid4()),)), actor=actor
+        )
     assert read_error.value.details["reason"] == "operation_not_allowed"
 
     with pytest.raises(OperationDeniedError) as aliases_error:
         await stack.memory_service.resolve_run_target(
-            ResolveRunTargetRequest("some-alias"), access=context
+            ResolveRunTargetRequest("some-alias"), actor=actor
         )
     assert aliases_error.value.details["reason"] == "operation_not_allowed"
 

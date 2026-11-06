@@ -16,9 +16,9 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.access import WorkspaceOperation
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
     ActorIdentity,
-    IdentityScope,
     TurnEvent,
     WorkspaceIdentity,
     WriteFocus,
@@ -63,16 +63,14 @@ def _workspace() -> WorkspaceIdentity:
     return make_workspace_identity(owner_user_id=_USER)
 
 
-def _expected_scope() -> IdentityScope:
-    """认证声明经操作授权者授权规则应组装出的 IdentityScope。"""
-    return IdentityScope(actor_identity=_actor(), workspace_identity=_workspace())
-
-
 def _composition(
     *,
     excluded_operations: frozenset[WorkspaceOperation] = frozenset(),
 ) -> AccessTestComposition:
-    """构造访问组合：默认授予全部 operation，可排除指定 operation 复现缺许可场景。"""
+    """构造访问组合：默认授予全部 operation，可排除指定 operation 复现缺许可场景。
+
+    另登记 u1 的 system：注册入口以它认证执行系统阶段的 root 工作 actor。
+    """
     allowed = frozenset(WorkspaceOperation) - excluded_operations
     return make_access_composition(
         [
@@ -80,7 +78,8 @@ def _composition(
                 owner_user_id=_USER,
                 agent_id=_AGENT,
                 allowed_operations=allowed,
-            )
+            ),
+            make_actor_access_record(owner_user_id=_USER, agent_id=SYSTEM_AGENT_ID),
         ]
     )
 
@@ -122,7 +121,7 @@ async def _service(
     composition: AccessTestComposition | None = None,
     process_table: ProcessTable | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
-    """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
+    """构造被测服务与配套认证组合：注册、系统阶段与取消使用同一网关/授权者实例。"""
     composition = composition or _composition()
     service = make_task_process_service(
         bus,
@@ -273,12 +272,12 @@ async def test_test_cpu_receives_model_selection_and_manifest() -> None:
     assert call.model_selection == ModelSelection(temperature=0.3)
 
 
-# ========== 进入 Actor 前的阶段授权 ==========
+# ========== 系统阶段不依赖执行者的操作白名单 ==========
 
 
 @pytest.mark.asyncio
 async def test_no_actor_operations_still_executes_cpu_and_finalizes() -> None:
-    """空操作白名单不阻止系统编排：CPU 完成后仍封口交互并 finalize。"""
+    """空操作白名单不阻止系统编排：系统阶段由 system 执行，CPU 完成后仍封口交互并 finalize。"""
     bus = GlobalSystemBus()
     cpu = ScriptedCPU(result=make_cpu_result(final_text="无操作权限也完成"))
     submitted_texts: list[str] = []

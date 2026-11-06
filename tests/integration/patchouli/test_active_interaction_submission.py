@@ -12,6 +12,7 @@ from hivememory.components.work_queue import (
     QueuePolicy,
     WorkState,
 )
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -33,6 +34,10 @@ from hivememory.patchouli.service import PatchouliService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import make_identity_scope
+
+# finalize 由任务进程以系统的 root scope 调用；本轮的执行 Agent 作为参与者显式传入。
+ROOT_SCOPE = make_identity_scope(user_id="u1", agent_id=SYSTEM_AGENT_ID)
+PARTICIPANT = ActorIdentity(user_id="u1", agent_id="a1")
 
 
 def _queue_policy(*, capacity: int = 8) -> QueuePolicy:
@@ -130,7 +135,7 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
         await queue.start()
         finalize_task = asyncio.create_task(
             service.finalize_agent_run(
-                prepared, payload, identity_scope=make_identity_scope(user_id="u1", agent_id="a1")
+                prepared, payload, identity_scope=ROOT_SCOPE, participant=PARTICIPANT
             )
         )
         await asyncio.wait_for(apply_started.wait(), timeout=1)
@@ -145,9 +150,8 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
         assert submission.payload is payload
         assert submission.origin == "active_chat"
         assert submission.belong_to == prepared.belong_to
-        assert (
-            submission.from_actor == make_identity_scope(user_id="u1", agent_id="a1").actor_identity
-        )
+        # 交互由 system 提交，发起者是显式的参与者。
+        assert submission.from_actor == PARTICIPANT
         assert submission.requested_topic_id == prepared.topic_id
         assert submission.ordering_key == f"topic:{prepared.topic_id}"
         assert calls == ["apply_started", "apply"]
@@ -155,7 +159,7 @@ async def test_active_finalize_waits_for_apply_before_follow_up_side_effects() -
 
         # 重复 finalize 复用原 work，interaction apply 不会再次执行。
         await service.finalize_agent_run(
-            prepared, payload, identity_scope=make_identity_scope(user_id="u1", agent_id="a1")
+            prepared, payload, identity_scope=ROOT_SCOPE, participant=PARTICIPANT
         )
         assert calls.count("apply_started") == 1
         assert calls.count("materialize") == 0
@@ -191,7 +195,8 @@ async def test_active_finalize_keeps_retrieval_hit_in_owned_continuation() -> No
             service.finalize_agent_run(
                 prepared,
                 _sealed_payload(),
-                identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+                identity_scope=ROOT_SCOPE,
+                participant=PARTICIPANT,
             )
         )
 
@@ -233,7 +238,8 @@ async def test_terminal_apply_failure_stops_materialization_and_hit_record() -> 
             await service.finalize_agent_run(
                 prepared,
                 _sealed_payload(),
-                identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+                identity_scope=ROOT_SCOPE,
+                participant=PARTICIPANT,
             )
     finally:
         await queue.stop()
@@ -260,7 +266,8 @@ async def test_queue_shutdown_returns_explicit_active_finalize_error() -> None:
         service.finalize_agent_run(
             prepared,
             _sealed_payload(),
-            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+            identity_scope=ROOT_SCOPE,
+            participant=PARTICIPANT,
         )
     )
     for _ in range(20):
@@ -318,7 +325,8 @@ async def test_import_backlog_capacity_rejects_active_before_side_effects() -> N
             await service.finalize_agent_run(
                 prepared,
                 _sealed_payload(),
-                identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+                identity_scope=ROOT_SCOPE,
+                participant=PARTICIPANT,
             )
 
         assert exc_info.value.stage == "interaction_admission"
@@ -326,12 +334,7 @@ async def test_import_backlog_capacity_rejects_active_before_side_effects() -> N
         materialize.assert_not_awaited()
         apply.assert_not_awaited()
 
-        assert (
-            await service.cleanup_prepared_agent_run(
-                prepared, identity_scope=make_identity_scope(user_id="u1", agent_id="a1")
-            )
-            is True
-        )
+        assert await service.cleanup_prepared_agent_run(prepared, identity_scope=ROOT_SCOPE) is True
         discard.assert_awaited_once_with(
             topic_id=prepared.topic_id,
             belong_to=prepared.belong_to,
@@ -377,7 +380,8 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
             service.finalize_agent_run(
                 prepared,
                 _sealed_payload(),
-                identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+                identity_scope=ROOT_SCOPE,
+                participant=PARTICIPANT,
             )
         )
         await asyncio.wait_for(apply_started.wait(), timeout=1)
@@ -386,10 +390,7 @@ async def test_cancelled_wait_does_not_cancel_work_or_cleanup_topic() -> None:
             await finalize_task
 
         assert (
-            await service.cleanup_prepared_agent_run(
-                prepared, identity_scope=make_identity_scope(user_id="u1", agent_id="a1")
-            )
-            is False
+            await service.cleanup_prepared_agent_run(prepared, identity_scope=ROOT_SCOPE) is False
         )
         discard.assert_not_awaited()
 
@@ -438,7 +439,8 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
             service.finalize_agent_run(
                 prepared,
                 _sealed_payload(),
-                identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+                identity_scope=ROOT_SCOPE,
+                participant=PARTICIPANT,
             )
         )
         await asyncio.wait_for(apply_started.wait(), timeout=1)
@@ -447,10 +449,7 @@ async def test_detached_apply_failure_cleans_new_empty_topic() -> None:
             await finalize_task
 
         assert (
-            await service.cleanup_prepared_agent_run(
-                prepared, identity_scope=make_identity_scope(user_id="u1", agent_id="a1")
-            )
-            is False
+            await service.cleanup_prepared_agent_run(prepared, identity_scope=ROOT_SCOPE) is False
         )
 
         release_apply.set()
@@ -481,7 +480,8 @@ async def test_post_apply_retrieval_hit_failure_is_best_effort() -> None:
         result = await service.finalize_agent_run(
             _prepared(memories=[_memory()]),
             _sealed_payload(),
-            identity_scope=make_identity_scope(user_id="u1", agent_id="a1"),
+            identity_scope=ROOT_SCOPE,
+            participant=PARTICIPANT,
         )
         await service.drain_active_finalizations()
     finally:

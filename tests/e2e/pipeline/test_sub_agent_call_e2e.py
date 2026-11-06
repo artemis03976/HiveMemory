@@ -15,7 +15,7 @@ from typing import Any
 import pytest
 
 from hivememory.core.models.model_definition import ModelSelection
-from tests.e2e.conftest import root_access, workspace_for
+from tests.e2e.conftest import root_actor, workspace_for
 from tests.helpers.registered_chat import stream_registered_chat
 
 logger = logging.getLogger(__name__)
@@ -52,20 +52,19 @@ async def _caller_with_coder_doll(system, e2e_user) -> str:
     """
     user_id = e2e_user()
     workspace = workspace_for(user_id)
-    async with root_access(system, workspace) as access:
-        await system.root_agent_service.create_agent_profile(
-            target_workspace=workspace,
-            title="Coder Doll",
-            alias="coder_doll",
-            summary="专用于代码生成的子代理",
-            content=(
-                "你是 coder_doll，擅长编写简洁、正确、可读的 Python 代码。"
-                "在收到任务时优先直接给出可运行实现。"
-            ),
-            tags=["agent", "profile", "coder"],
-            agent_config={"model_name": "default", "temperature": 0.2, "language": "zh"},
-            access=access,
-        )
+    await system.root_agent_service.create_agent_profile(
+        target_workspace=workspace,
+        title="Coder Doll",
+        alias="coder_doll",
+        summary="专用于代码生成的子代理",
+        content=(
+            "你是 coder_doll，擅长编写简洁、正确、可读的 Python 代码。"
+            "在收到任务时优先直接给出可运行实现。"
+        ),
+        tags=["agent", "profile", "coder"],
+        agent_config={"model_name": "default", "temperature": 0.2, "language": "zh"},
+        actor=await root_actor(system, workspace),
+    )
     return user_id
 
 

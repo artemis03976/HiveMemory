@@ -10,11 +10,15 @@ from httpx import ASGITransport, AsyncClient
 
 from hivememory.config.gateway import SystemGatewayConfig
 from hivememory.config.import_bus import ImportBusConfig
+from hivememory.core.access import CallerPrincipal
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.server import deps
 from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.import_bus import router as import_bus_router
+from hivememory.system.access import LOCAL_ADAPTER, SYSTEM_PRINCIPAL_ID
 from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.system.services.import_bus import ImportBusIngestor
+from hivememory.workspace.capability.root.interaction import RootInteractionService
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 pytestmark = pytest.mark.e2e
@@ -24,9 +28,13 @@ pytestmark = pytest.mark.e2e
 async def test_http_import_turn_forms_interaction_in_patchouli(patchouli_chat_stack):
     """连接器导入一轮：经认证网关与真实 Gateway 落位，Patchouli 话题中出现该轮。"""
     stack = patchouli_chat_stack
-    # 连接器以自己的 principal 经 import adapter 接入，并携带接入凭据。
+    # 连接器以自己的 principal 经 import adapter 接入，并携带接入凭据；导入由 system
+    # 执行，Import Bus 服务以系统自身的 principal 认证它。
     access = make_access_composition(
-        [make_actor_access_record(agent_id="claude_code", allowed_operations=frozenset())],
+        [
+            make_actor_access_record(agent_id="claude_code", allowed_operations=frozenset()),
+            make_actor_access_record(agent_id=SYSTEM_AGENT_ID),
+        ],
         principal_id="harness:claude-code",
         adapters=("import",),
         credential="token-e2e",
@@ -36,11 +44,15 @@ async def test_http_import_turn_forms_interaction_in_patchouli(patchouli_chat_st
     service = ImportBusService(
         ingestor=ImportBusIngestor(
             stack.bus,
+            interactions=RootInteractionService(stack.bus, operation_authorizer=access.authorizer),
             gateway_request_timeout_ms=gateway_config.workflow.default_request_timeout_ms,
             gateway_session_turn_limit=gateway_config.context_preparation.session_turn_limit,
             apply_wait_seconds=ImportBusConfig().apply_wait_seconds,
         ),
+        access_gateway=access.gateway,
         operation_authorizer=access.authorizer,
+        system_principal=CallerPrincipal(SYSTEM_PRINCIPAL_ID),
+        system_adapter=LOCAL_ADAPTER,
     )
     app = FastAPI()
     install_error_handlers(app)

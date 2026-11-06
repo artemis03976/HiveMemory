@@ -15,6 +15,7 @@ from httpx import ASGITransport, AsyncClient
 from hivememory.alice.system import AliceSystem
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.access import WorkspaceOperation
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
     ActorIdentity,
     AttachmentSelectionRequest,
@@ -70,7 +71,9 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
                 allowed_operations=frozenset(
                     {WorkspaceOperation.MEMORY_READ, WorkspaceOperation.MEMORY_SEARCH}
                 ),
-            )
+            ),
+            # 注册入口以系统自身的 principal 认证 system，系统阶段以它执行。
+            make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
         ],
         adapters=("http",),
         default_workspace=workspace,
@@ -177,7 +180,6 @@ async def test_http_read_search_agent_rejects_model_write_without_registering_in
         await alice.stop()
         runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()
 
 
 class _RecordingCPU:
@@ -207,20 +209,26 @@ class _RecordingCPU:
 
 
 @pytest.mark.asyncio
-async def test_http_chat_without_actor_operations_completes_with_actor_visible_inputs(
+async def test_http_chat_with_only_search_completes_with_executor_visible_inputs(
     patchouli_chat_stack,
 ):
-    """空白名单不阻断阶段，Profile、附件和预检索仍按进程 actor 校验归属与可见性。"""
+    """白名单只有检索时系统阶段照常执行：Profile 与附件由 system 加载，检索按执行者可见性。
+
+    Gateway、Profile、附件与 finalize 是系统级操作，不看执行者的白名单；执行者
+    自己的 PRIVATE 图纸按管理语义加载。prepare 的检索是执行者唯一获准的 actor
+    操作，结果按执行者的可见性过滤；交互的发起者仍是执行者。
+    """
     stack = patchouli_chat_stack
     workspace = make_workspace_identity(owner_user_id="u1")
-    actor = ActorIdentity(user_id="u1", agent_id="agent_no_operations")
+    actor = ActorIdentity(user_id="u1", agent_id="agent_search_only")
     access = make_access_composition(
         [
             make_actor_access_record(
                 owner_user_id="u1",
                 agent_id=actor.agent_id,
-                allowed_operations=frozenset(),
-            )
+                allowed_operations=frozenset({WorkspaceOperation.MEMORY_SEARCH}),
+            ),
+            make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
         ],
         adapters=("http",),
         default_workspace=workspace,
@@ -231,7 +239,7 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
         ),
         index=IndexLayer(
             alias=actor.agent_id,
-            title="无操作许可的执行 Profile",
+            title="只有检索许可的执行 Profile",
             memory_type=MemoryType.AGENT_PROFILE,
         ),
         payload=PayloadLayer(
@@ -286,7 +294,7 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
     async def completion(messages, _params):
         """替换外部 LLM 流式协议；输入编译、Alice 循环与交互封口仍走真实组件。"""
         llm_messages.append([dict(item) for item in messages])
-        yield "阶段授权验收完成"
+        yield "系统阶段验收完成"
 
     alice = AliceSystem(
         config=HiveMemoryConfig().alice,
@@ -337,7 +345,7 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
         terminal, done = events[-1]
         assert terminal == "done"
         assert done["status"] == "completed"
-        assert done["final_text"] == "阶段授权验收完成"
+        assert done["final_text"] == "系统阶段验收完成"
 
         # 检索结果经引用事件公开，编译正文经端口输入交给 CPU；两者都要检查，
         # 不能只看模型回复是否成功。
@@ -347,26 +355,25 @@ async def test_http_chat_without_actor_operations_completes_with_actor_visible_i
         assert "本轮公共资料" in manifest.turn_context
         assert "本轮专属资料" in manifest.turn_context
         assert "他人的私有资料" not in manifest.turn_context
-        # 图纸与操作快照随主线程的描述交给 CPU，空白名单原样交出。
+        # 图纸与操作快照随主线程的描述交给 CPU，白名单原样交出。
         (main_thread,) = cpu.threads
         assert main_thread.agent_profile.agent_id == actor.agent_id
         assert main_thread.agent_profile.persona == profile.payload.content
-        assert main_thread.allowed_operations == frozenset()
+        assert main_thread.allowed_operations == frozenset({WorkspaceOperation.MEMORY_SEARCH})
         assert "本轮选中的附件正文" in manifest.turn_context
         (messages,) = llm_messages
         assert profile.payload.content in messages[0]["content"]
         assert "他人的私有资料" not in "\n".join(item["content"] for item in messages)
 
-        # finalize 后真实话题记录保留本轮 actor，阶段授权没有把发起者改成 system。
+        # finalize 由 system 执行，真实话题记录的发起者仍是本轮的执行者。
         topic = stack.short_term.get(workspace, done["topic_id"])
         (block,) = topic.blocks
         assert block.turn.identity == actor
         assert block.user_message == message
-        assert block.reply_text == "阶段授权验收完成"
+        assert block.reply_text == "系统阶段验收完成"
         assert assets.close_and_clear().leases_cleared == 0
     finally:
         await alice.stop()
         runtime.close()
         assets.close_and_clear()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()

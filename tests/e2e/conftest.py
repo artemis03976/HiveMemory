@@ -5,7 +5,7 @@ E2E 测试共享 Fixtures
     - e2e_environment (session-scoped): 与开发数据隔离的配置与访问登记
     - e2e_system (session-scoped, session 事件循环): 真实 HiveMemorySystem 实例
     - e2e_user: 工厂 fixture，每次返回一个已登记准入、尚未使用过的测试用户
-    - root_access / wait_for_workspace_memories: 经 root API 预埋与读取记忆
+    - root_actor / wait_for_workspace_memories: 经 root API 预埋与读取记忆
 
 隔离：每个 session 使用独立的 Qdrant collection（结束时删除），长期归档、
 Artifact 与 Agent workspace 目录指向临时目录；Workspace 访问登记由本 session
@@ -20,7 +20,6 @@ from __future__ import annotations
 import asyncio
 import logging
 from collections.abc import AsyncIterator, Iterator
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from pathlib import Path
 from uuid import uuid4
@@ -31,7 +30,7 @@ import yaml
 
 from hivememory.config.access import WORKSPACE_ACTORS_FILE_ENV
 from hivememory.config.app import HiveMemoryConfig, load_app_config
-from hivememory.core.access import CallerPrincipal, RunBinding, WorkspaceAccessContext
+from hivememory.core.access import CallerPrincipal, WorkingActor
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import ActorIdentity, MemoryAtom, WorkspaceIdentity
 from hivememory.infrastructure.storage.qdrant_client import create_async_qdrant_client
@@ -169,25 +168,17 @@ def workspace_for(user_id: str) -> WorkspaceIdentity:
     return make_workspace_identity(owner_user_id=user_id)
 
 
-@asynccontextmanager
-async def root_access(
-    system: HiveMemorySystem, workspace: WorkspaceIdentity
-) -> AsyncIterator[WorkspaceAccessContext]:
-    """以保留 system 经认证网关取得请求级 root context，退出时失效。"""
+async def root_actor(system: HiveMemorySystem, workspace: WorkspaceIdentity) -> WorkingActor:
+    """以 server 的 principal 经认证网关认证保留 system，得到调用 root API 的工作 actor。"""
     gateway = system.access_gateway
     assert gateway is not None, "e2e 系统必须装配认证网关"
-    access = await gateway.authenticate(
+    return await gateway.authenticate(
         adapter="http",
         principal=CallerPrincipal(system.config.system.server_principal_id),
         credential=None,
         actor=ActorIdentity(user_id=workspace.owner_user_id, agent_id=SYSTEM_AGENT_ID),
         workspace=workspace,
-        binding=RunBinding.for_request(f"e2e_{uuid4().hex}"),
     )
-    try:
-        yield access
-    finally:
-        gateway.revoke_context(access)
 
 
 async def wait_for_workspace_memories(
@@ -203,10 +194,9 @@ async def wait_for_workspace_memories(
     loop = asyncio.get_running_loop()
     deadline = loop.time() + timeout
     while True:
-        async with root_access(system, workspace) as access:
-            page = await system.root_memory_service.list_memories(
-                target_workspace=workspace, limit=100, access=access
-            )
+        page = await system.root_memory_service.list_memories(
+            target_workspace=workspace, limit=100, actor=await root_actor(system, workspace)
+        )
         memories = list(page.memories)
         if len(memories) >= min_count:
             logger.info("用户 %s 记忆已持久化: %d 条", user_id, len(memories))

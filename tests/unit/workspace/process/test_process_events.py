@@ -17,6 +17,7 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.core.errors import AssetNotReadyError
 from hivememory.core.models import (
@@ -68,8 +69,13 @@ def _workspace() -> WorkspaceIdentity:
 
 
 def _composition() -> AccessTestComposition:
-    """u1/omni_doll 全 operation 的访问组合：注册声明与请求方 context 的签发来源。"""
-    return make_access_composition([make_actor_access_record(owner_user_id=_USER, agent_id=_AGENT)])
+    """u1/omni_doll 全 operation 与 u1 的 system 的访问组合：注册声明与取消请求方的认证来源。"""
+    return make_access_composition(
+        [
+            make_actor_access_record(owner_user_id=_USER, agent_id=_AGENT),
+            make_actor_access_record(owner_user_id=_USER, agent_id=SYSTEM_AGENT_ID),
+        ]
+    )
 
 
 def _decision_outcome() -> GatewayDecisionOutcome:
@@ -113,7 +119,7 @@ async def _service(
     composition: AccessTestComposition | None = None,
     process_table: ProcessTable | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
-    """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
+    """构造被测服务与配套认证组合：注册、系统阶段与取消使用同一网关/授权者实例。"""
     composition = composition or _composition()
     service = make_task_process_service(
         bus,
@@ -212,12 +218,12 @@ async def test_stop_during_gateway_cancels_process_in_gateway_phase() -> None:
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
     sink = RecordingRuntimeEventSink()
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=ScriptedCPU())
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    requestor = await composition.authenticate(agent_id=SYSTEM_AGENT_ID)
     handle = await _register(composition, service, "问题", process_id="process-stop")
     task = asyncio.create_task(collect_events(service, handle))
     await gateway_started.wait()
 
-    stop_result = service.cancel_process("process-stop", access=requestor)
+    stop_result = service.cancel_process("process-stop", actor=requestor)
     await task
 
     assert stop_result.cancelled is True
@@ -244,9 +250,9 @@ async def test_cancel_of_uncontrollable_process_publishes_not_found_request_even
     service, composition = await _service(
         GlobalSystemBus(), RuntimeEventPublisher(sink), cpu=ScriptedCPU()
     )
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    requestor = await composition.authenticate(agent_id=SYSTEM_AGENT_ID)
 
-    result = service.cancel_process("missing-process", access=requestor)
+    result = service.cancel_process("missing-process", actor=requestor)
 
     assert result.cancelled is False
     assert result.status == "not_found"

@@ -23,7 +23,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from sse_starlette.sse import AppStatus
 
-from hivememory.core.access import WorkspaceAccessContext
+from hivememory.core.access import WorkingActor
 from hivememory.core.errors import AdmissionDeniedError
 from hivememory.core.models.model_definition import ModelSelection
 from hivememory.server import deps
@@ -46,7 +46,7 @@ def _create_test_app(mock_service, access=None):
     app.include_router(router, prefix="/api/v1")
 
     app.dependency_overrides[deps.get_process_service] = lambda: mock_service
-    # /chat 与 /chat/stop 经统一认证网关取得访问 context（进程绑定/请求级）；
+    # /chat 的注册入口与 /chat/stop 的依赖经统一认证网关认证；
     # 注册失败的 403 映射复用生产异常处理器。
 
     if access is None:
@@ -427,10 +427,11 @@ class TestChatRouter:
             "status": "not_found",
             "reason": "user_requested",
         }
-        # 取消以请求级 access context 发起（经网关认证签发）
+        # 取消以经网关认证得到的 (user, system) 工作 actor 发起
         cancel_args, cancel_kwargs = mock_service.cancel_process.call_args
         assert cancel_args == ("process-1",)
-        assert isinstance(cancel_kwargs["access"], WorkspaceAccessContext)
+        assert isinstance(cancel_kwargs["actor"], WorkingActor)
+        assert cancel_kwargs["actor"].actor.agent_id == "system"
 
     def test_uuid_payload_is_serializable(self):
         mock_service = _wired_chat_service(

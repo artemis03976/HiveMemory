@@ -2,8 +2,9 @@
 
 被测对象：两个公开提交 API 的载荷语义（行为授权在 workspace 能力层完成，本层只接收
 调用方传入的 ``IdentityScope``）：
-- ``submit_interaction`` 经真实内存队列接纳并返回收据投影；队列容量已满或已停止
-  以可重试的 ``InteractionAdmissionUnavailableError`` 拒绝；
+- ``submit_interaction`` 经真实内存队列接纳并返回收据投影；交互由系统以 root scope
+  提交，归属取 scope，发起者取显式的参与者；队列容量已满或已停止以可重试的
+  ``InteractionAdmissionUnavailableError`` 拒绝；
 - ``interaction_status`` 未接纳时为空，接纳后报告等待中、成功（附真实落点）或失败，
   同名交互归属其他 Workspace 时报冲突；``wait_interaction`` 等到终态或超时；
 - ``submit_memory_intent`` 把中立意图转换为内部生成任务（出站载荷契约），
@@ -17,8 +18,9 @@ import asyncio
 import pytest
 
 from hivememory.components.work_queue import QueuePolicy
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import WorkspaceMismatchError
-from hivememory.core.models import IdentityScope
+from hivememory.core.models import ActorIdentity, IdentityScope
 from hivememory.core.models.pending import UpdateFocus, WriteFocus
 from hivememory.patchouli.application import (
     InteractionSubmissionService,
@@ -45,6 +47,15 @@ def _run(coro):
 
 def _scope(workspace_id: str = "main_workspace") -> IdentityScope:
     return make_identity_scope(user_id="u1", agent_id="a1", workspace_id=workspace_id)
+
+
+def _root_scope(workspace_id: str = "main_workspace") -> IdentityScope:
+    """交互提交是系统级操作：授权点以 system 的 root 授权组装 scope。"""
+    return make_identity_scope(user_id="u1", agent_id=SYSTEM_AGENT_ID, workspace_id=workspace_id)
+
+
+# 交互中的 Agent：作为参与者显式传入，记为交互的发起者。
+PARTICIPANT = ActorIdentity(user_id="u1", agent_id="a1")
 
 
 def _payload():
@@ -78,7 +89,8 @@ def test_submit_interaction_accepts_scope_and_returns_receipt():
 
     result = _run(
         service.submit_interaction(
-            identity_scope=_scope(),
+            identity_scope=_root_scope(),
+            participant=PARTICIPANT,
             payload=_payload(),
             requested_topic_id="topic_1",
             interaction_id="interaction_stable_1",
@@ -89,6 +101,37 @@ def test_submit_interaction_accepts_scope_and_returns_receipt():
     assert result.work_id.startswith("interaction:")
     # 队列只是接纳（seal 后的领域应用异步发生）
     assert applied == []
+
+
+def test_submitted_interaction_records_participant_as_initiator_within_scope_workspace():
+    """交互由 system 提交：应用时归属取 scope 的 Workspace，发起者是参与者而不是 system。"""
+    applied: list[dict] = []
+
+    async def _apply(payload, *, belong_to, from_actor, target_topic_id, **_kwargs):
+        applied.append({"belong_to": belong_to, "from_actor": from_actor})
+        return target_topic_id
+
+    async def scenario():
+        queue = InteractionSubmissionQueue(_apply)
+        service = InteractionSubmissionService(interaction_queue=queue)
+        await queue.start()
+        try:
+            await service.submit_interaction(
+                identity_scope=_root_scope(),
+                participant=PARTICIPANT,
+                payload=_payload(),
+                requested_topic_id="topic_1",
+                interaction_id="interaction_participant",
+            )
+            await queue.drain_all(timeout=2)
+        finally:
+            await queue.stop()
+
+    _run(scenario())
+
+    assert applied == [
+        {"belong_to": _root_scope().workspace_identity, "from_actor": PARTICIPANT},
+    ]
 
 
 async def _never_applied(_payload, **_kwargs):
@@ -109,13 +152,19 @@ def test_submit_interaction_reports_unavailable_admission_as_retryable(stop_queu
         )
         service = InteractionSubmissionService(interaction_queue=queue)
         await service.submit_interaction(
-            identity_scope=_scope(), payload=_payload(), interaction_id="interaction_first"
+            identity_scope=_root_scope(),
+            participant=PARTICIPANT,
+            payload=_payload(),
+            interaction_id="interaction_first",
         )
         if stop_queue:
             await queue.stop()
         with pytest.raises(InteractionAdmissionUnavailableError) as error:
             await service.submit_interaction(
-                identity_scope=_scope(), payload=_payload(), interaction_id="interaction_second"
+                identity_scope=_root_scope(),
+                participant=PARTICIPANT,
+                payload=_payload(),
+                interaction_id="interaction_second",
             )
         await queue.stop()
         return error.value
@@ -133,17 +182,21 @@ def test_interaction_status_reports_progress_and_rejects_foreign_workspace():
             interaction_queue=InteractionSubmissionQueue(_never_applied)
         )
         before = await service.interaction_status(
-            identity_scope=_scope(), interaction_id="interaction_query"
+            identity_scope=_root_scope(), interaction_id="interaction_query"
         )
         await service.submit_interaction(
-            identity_scope=_scope(), payload=_payload(), interaction_id="interaction_query"
+            identity_scope=_root_scope(),
+            participant=PARTICIPANT,
+            payload=_payload(),
+            interaction_id="interaction_query",
         )
         after = await service.interaction_status(
-            identity_scope=_scope(), interaction_id="interaction_query"
+            identity_scope=_root_scope(), interaction_id="interaction_query"
         )
         with pytest.raises(WorkspaceMismatchError):
             await service.interaction_status(
-                identity_scope=_scope("isolation_workspace"), interaction_id="interaction_query"
+                identity_scope=_root_scope("isolation_workspace"),
+                interaction_id="interaction_query",
             )
         return before, after
 
@@ -167,11 +220,16 @@ def test_interaction_status_gives_real_topic_on_success_and_none_on_failure():
         await queue.start()
         for interaction_id in ("interaction_ok", "interaction_failing"):
             await service.submit_interaction(
-                identity_scope=_scope(), payload=_payload(), interaction_id=interaction_id
+                identity_scope=_root_scope(),
+                participant=PARTICIPANT,
+                payload=_payload(),
+                interaction_id=interaction_id,
             )
             await queue.wait(interaction_id, timeout=2)
         statuses = [
-            await service.interaction_status(identity_scope=_scope(), interaction_id=interaction_id)
+            await service.interaction_status(
+                identity_scope=_root_scope(), interaction_id=interaction_id
+            )
             for interaction_id in ("interaction_ok", "interaction_failing")
         ]
         await queue.stop()
@@ -199,18 +257,21 @@ def test_wait_interaction_reports_pending_on_timeout_and_success_once_applied():
         service = InteractionSubmissionService(interaction_queue=queue)
         await queue.start()
         missing = await service.wait_interaction(
-            identity_scope=_scope(), interaction_id="interaction_missing", timeout_seconds=0.01
+            identity_scope=_root_scope(), interaction_id="interaction_missing", timeout_seconds=0.01
         )
         await service.submit_interaction(
-            identity_scope=_scope(), payload=_payload(), interaction_id="interaction_slow"
+            identity_scope=_root_scope(),
+            participant=PARTICIPANT,
+            payload=_payload(),
+            interaction_id="interaction_slow",
         )
         await started.wait()
         timed_out = await service.wait_interaction(
-            identity_scope=_scope(), interaction_id="interaction_slow", timeout_seconds=0.01
+            identity_scope=_root_scope(), interaction_id="interaction_slow", timeout_seconds=0.01
         )
         release.set()
         applied = await service.wait_interaction(
-            identity_scope=_scope(), interaction_id="interaction_slow", timeout_seconds=2
+            identity_scope=_root_scope(), interaction_id="interaction_slow", timeout_seconds=2
         )
         await queue.stop()
         return missing, timed_out, applied

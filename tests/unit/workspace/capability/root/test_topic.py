@@ -17,7 +17,7 @@ from tests.helpers.workspace import (
 
 @pytest.fixture
 def workspace():
-    """管理入口的目标 workspace（等于 context 的驻留 workspace）。"""
+    """管理入口的目标 workspace（等于工作 actor 的驻留 workspace）。"""
     return make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 
 
@@ -48,18 +48,18 @@ class TestRootTopicService:
     async def test_list_active_topics_uses_public_route(self, service, bus, composition, workspace):
         handler = AsyncMock(return_value=["snapshot"])
         bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, handler)
-        access = await composition.authenticate(agent_id="system", user_id="u1")
+        actor = await composition.authenticate(agent_id="system", user_id="u1")
 
-        await service.list_active_topics(target_workspace=workspace, access=access)
+        await service.list_active_topics(target_workspace=workspace, actor=actor)
 
         # 传给 Patchouli 的 scope 来自 guard：已认证 actor + 目标 workspace；
-        # context 不向下游传递，路由不接收 access。
+        # 工作 actor 不向下游传递，路由不接收它。
         handler.assert_awaited_once()
         scope = handler.await_args.kwargs["identity_scope"]
         assert scope.actor_identity.user_id == "u1"
         assert scope.actor_identity.agent_id == "system"
         assert scope.workspace_identity == workspace
-        assert "access" not in handler.await_args.kwargs
+        assert "actor" not in handler.await_args.kwargs
 
     @pytest.mark.asyncio
     async def test_settle_topic_uses_public_route(self, service, bus, composition, workspace):
@@ -72,11 +72,9 @@ class TestRootTopicService:
             )
         )
         bus.register(PatchouliRoutes.MANUAL_SETTLE_TOPIC, handler)
-        access = await composition.authenticate(agent_id="system", user_id="u1")
+        actor = await composition.authenticate(agent_id="system", user_id="u1")
 
-        result = await service.settle_topic(
-            target_workspace=workspace, topic_id="t1", access=access
-        )
+        result = await service.settle_topic(target_workspace=workspace, topic_id="t1", actor=actor)
 
         assert result.topic_id == "t1"
         assert result.generation_task_id == "memtask_1"
@@ -84,7 +82,7 @@ class TestRootTopicService:
         handler.assert_awaited_once()
         assert handler.await_args.kwargs["topic_id"] == "t1"
         assert handler.await_args.kwargs["identity_scope"].workspace_identity == workspace
-        assert "access" not in handler.await_args.kwargs
+        assert "actor" not in handler.await_args.kwargs
 
     @pytest.mark.asyncio
     async def test_settle_topic_without_generation_still_reports_success(
@@ -99,11 +97,9 @@ class TestRootTopicService:
             )
         )
         bus.register(PatchouliRoutes.MANUAL_SETTLE_TOPIC, handler)
-        access = await composition.authenticate(agent_id="system", user_id="u1")
+        actor = await composition.authenticate(agent_id="system", user_id="u1")
 
-        result = await service.settle_topic(
-            target_workspace=workspace, topic_id="t1", access=access
-        )
+        result = await service.settle_topic(target_workspace=workspace, topic_id="t1", actor=actor)
 
         assert result.topic_id == "t1"
         assert result.generation_task_id is None
@@ -115,9 +111,9 @@ class TestRootTopicService:
 
         handler = AsyncMock(return_value=TopicEvictionResult(topic_id="t1", removed=True))
         bus.register(PatchouliRoutes.EVICT_TOPIC, handler)
-        access = await composition.authenticate(agent_id="system", user_id="u1")
+        actor = await composition.authenticate(agent_id="system", user_id="u1")
 
-        result = await service.evict_topic(target_workspace=workspace, topic_id="t1", access=access)
+        result = await service.evict_topic(target_workspace=workspace, topic_id="t1", actor=actor)
 
         # evict_topic 是纯透传；约束力来自路由与参数
         handler.assert_awaited_once()

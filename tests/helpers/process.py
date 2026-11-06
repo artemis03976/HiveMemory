@@ -1,10 +1,10 @@
 """任务进程测试的装配辅助。
 
-与生产组合根同构：编排依赖（总线、CPU 端口、CPU 分配器、阶段授权、
+与生产组合根同构：编排依赖（总线、CPU 端口、CPU 分配器、操作授权者、
 线程管理、Gateway 超时）只交给执行器 ``TaskProcessRunner``；CPU
-持有真实操作入口，以每次执行收到的线程 context 绑定提交函数。注册入口
-``TaskProcessService`` 只持有执行器与生命周期依赖（认证网关、进程控制
-授权、事件发布器）。
+持有真实操作入口，以每次执行收到的线程句柄绑定提交函数。注册入口
+``TaskProcessService`` 只持有执行器与生命周期依赖（认证网关、系统自身的
+principal、取消的 root 授权、事件发布器）。
 """
 
 from __future__ import annotations
@@ -16,8 +16,10 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.config.workspace import WorkspaceSessionConfig
+from hivememory.core.access import CallerPrincipal
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.patchouli.contracts import PatchouliRoutes
+from hivememory.system.access import LOCAL_ADAPTER, SYSTEM_PRINCIPAL_ID
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
@@ -53,7 +55,12 @@ def make_task_process_service(
     gateway_session_turn_limit: int = 3,
     shutdown_wait_seconds: float = 10.0,
 ) -> TaskProcessService:
-    """按生产顺序装配能力与操作入口，再构建 CPU 分配器、执行器与注册入口。"""
+    """按生产顺序装配能力与操作入口，再构建 CPU 分配器、执行器与注册入口。
+
+    注册入口与生产一样以系统自身的 principal 经 ``local`` adapter 认证系统的
+    root 工作 actor：认证网关须登记该 principal（``make_access_composition``
+    缺省登记），Workspace 访问登记须有该用户 ``system`` 的记录。
+    """
     if (
         isinstance(global_bus, GlobalSystemBus)
         and PatchouliRoutes.MEMORY_INTENT_SUBMIT not in global_bus.list_routes()
@@ -63,7 +70,7 @@ def make_task_process_service(
         backing=BusCanonicalReadBackend(global_bus), atom_capacity=64, profile_capacity=32
     )
     table = process_table if process_table is not None else ProcessTable()
-    threads = ProcessThreads(table, lifecycle=access_gateway, authorizer=operation_authorizer)
+    threads = ProcessThreads(table, admission=access_gateway, authorizer=operation_authorizer)
     memory = ActorMemoryService(
         global_bus,
         operation_authorizer=operation_authorizer,
@@ -99,6 +106,8 @@ def make_task_process_service(
         sessions=sessions,
         access_gateway=access_gateway,
         operation_authorizer=operation_authorizer,
+        system_principal=CallerPrincipal(SYSTEM_PRINCIPAL_ID),
+        system_adapter=LOCAL_ADAPTER,
         event_publisher=event_publisher,
         shutdown_wait_seconds=shutdown_wait_seconds,
     )

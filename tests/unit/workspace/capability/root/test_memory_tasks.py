@@ -16,7 +16,7 @@ from tests.helpers.workspace import (
 
 @pytest.fixture
 def workspace():
-    """观察/取消的目标 workspace（等于 context 的驻留 workspace）。"""
+    """观察/取消的目标 workspace（等于工作 actor 的驻留 workspace）。"""
     return make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 
 
@@ -44,18 +44,18 @@ async def test_list_memory_tasks_requests_patchouli_route(composition, workspace
     bus = GlobalSystemBus()
     handler = AsyncMock(return_value=["task"])
     bus.register(PatchouliRoutes.MEMORY_TASK_LIST, handler)
-    access = await composition.authenticate(agent_id="system", user_id="u1")
+    actor = await composition.authenticate(agent_id="system", user_id="u1")
 
     result = await _service(bus, composition).list_memory_tasks(
-        target_workspace=workspace, access=access
+        target_workspace=workspace, actor=actor
     )
 
     # 结果经真实总线派发到达，验证 request→返回完整链路
     assert result == ["task"]
     handler.assert_awaited_once()
-    expected_scope = composition.authorizer.authorize_root(access, workspace)
+    expected_scope = composition.authorizer.authorize_root(actor, workspace)
     assert handler.await_args.kwargs["identity_scope"] == expected_scope
-    assert "access" not in handler.await_args.kwargs
+    assert "actor" not in handler.await_args.kwargs
 
 
 @pytest.mark.asyncio
@@ -63,14 +63,14 @@ async def test_get_memory_task_requests_patchouli_route(composition, workspace):
     bus = GlobalSystemBus()
     handler = AsyncMock(return_value="task")
     bus.register(PatchouliRoutes.MEMORY_TASK_GET, handler)
-    access = await composition.authenticate(agent_id="system", user_id="u1")
+    actor = await composition.authenticate(agent_id="system", user_id="u1")
 
     result = await _service(bus, composition).get_memory_task(
-        "task_1", target_workspace=workspace, access=access
+        "task_1", target_workspace=workspace, actor=actor
     )
 
     assert result == "task"
-    expected_scope = composition.authorizer.authorize_root(access, workspace)
+    expected_scope = composition.authorizer.authorize_root(actor, workspace)
     handler.assert_awaited_once_with("task_1", identity_scope=expected_scope)
 
 
@@ -79,12 +79,12 @@ async def test_cancel_memory_task_requests_patchouli_route(composition, workspac
     bus = GlobalSystemBus()
     handler = AsyncMock(return_value=True)
     bus.register(PatchouliRoutes.MEMORY_TASK_CANCEL, handler)
-    access = await composition.authenticate(agent_id="system", user_id="u1")
+    actor = await composition.authenticate(agent_id="system", user_id="u1")
 
     result = await _service(bus, composition).cancel_memory_task(
-        "task_1", target_workspace=workspace, access=access
+        "task_1", target_workspace=workspace, actor=actor
     )
 
     assert result is True
-    expected_scope = composition.authorizer.authorize_root(access, workspace)
+    expected_scope = composition.authorizer.authorize_root(actor, workspace)
     handler.assert_awaited_once_with("task_1", identity_scope=expected_scope)

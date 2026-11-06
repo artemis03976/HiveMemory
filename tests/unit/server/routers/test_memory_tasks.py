@@ -1,7 +1,7 @@
 """记忆任务路由测试。
 
 覆盖序列化投影、取消链路的 router→能力层调用契约（``target_workspace`` +
-``access``，不再传 ``identity_scope``），以及 root API 的成功与拒绝映射。
+认证得到的工作 ``actor``，不传 ``identity_scope``），以及 root API 的成功与拒绝映射。
 """
 
 from datetime import UTC, datetime
@@ -11,7 +11,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import WorkspaceAccessContext
+from hivememory.core.access import WorkingActor
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import ActorIdentity
@@ -40,7 +40,7 @@ def _create_test_app(service):
     # 403 映射复用生产的访问错误处理器。
 
     app.dependency_overrides[deps.get_root_memory_task_service] = lambda: service
-    # memory-tasks 路由经统一认证网关取得请求级 context。
+    # memory-tasks 路由经统一认证网关认证得到 (user, system) 的工作 actor。
     overrides, _ = make_server_access_overrides()
     app.dependency_overrides.update(overrides)
     return app
@@ -84,11 +84,11 @@ def test_list_memory_tasks_serializes_task_source():
     assert item["reason"] is None
     assert "source_verb" not in item
     assert "tasks" not in item
-    # router 以请求声明解析的 workspace 与请求级 context 调用能力层
+    # router 以工作 actor 驻留的 workspace 与工作 actor 调用能力层
     call_kwargs = service.list_memory_tasks.await_args.kwargs
     assert call_kwargs["target_workspace"].owner_user_id == "default"
     assert call_kwargs["target_workspace"].workspace_id == "main_workspace"
-    assert isinstance(call_kwargs["access"], WorkspaceAccessContext)
+    assert isinstance(call_kwargs["actor"], WorkingActor)
     assert "identity_scope" not in call_kwargs
 
 
@@ -118,15 +118,15 @@ def test_cancel_memory_task_calls_service():
     assert body["source"] == "WRITE"
     assert body["pending_alias"] == "draft_abc"
     service.cancel_memory_task.assert_awaited_once()
-    # 路由在 service 调用前经网关取得请求级 access context
+    # 路由在 service 调用前经网关认证得到工作 actor
     assert "task_1" == service.cancel_memory_task.await_args.args[0]
     cancel_kwargs = service.cancel_memory_task.await_args.kwargs
     assert cancel_kwargs["target_workspace"].owner_user_id == "default"
-    assert isinstance(cancel_kwargs["access"], WorkspaceAccessContext)
+    assert isinstance(cancel_kwargs["actor"], WorkingActor)
     assert "identity_scope" not in cancel_kwargs
     service.get_memory_task.assert_awaited_once()
     assert "task_1" == service.get_memory_task.await_args.args[0]
-    assert "access" in service.get_memory_task.await_args.kwargs
+    assert "actor" in service.get_memory_task.await_args.kwargs
 
 
 def test_cancel_memory_task_returns_terminal_cancelled_state():
@@ -210,22 +210,21 @@ def _create_authorized_task_app(*, request_agent_id: str = SYSTEM_AGENT_ID):
         composition.principal.principal_id
     )
 
-    async def selected_request_access():
-        """经真实请求级认证签发指定 actor 的凭据，退出时照常失效。"""
+    async def selected_request_actor():
+        """经真实认证网关认证指定 actor，交给路由的是认证得到的工作 actor。"""
         claims = deps.RequestIdentityClaims(
             actor=ActorIdentity(user_id="default", agent_id=request_agent_id),
             workspace=composition.default_workspace,
         )
-        async with deps.request_access_for_claims(
+        return await deps.authenticate_request_actor(
             claims,
             gateway=composition.gateway,
             principal_id=composition.principal.principal_id,
             adapter=deps.HTTP_ADAPTER,
             credential=None,
-        ) as request_access:
-            yield request_access
+        )
 
-    app.dependency_overrides[deps.get_request_access] = selected_request_access
+    app.dependency_overrides[deps.get_request_actor] = selected_request_actor
     return app, list_handler
 
 
@@ -241,8 +240,8 @@ def test_list_memory_tasks_with_root_and_no_operations_returns_200():
     list_handler.assert_awaited_once()
 
 
-def test_list_memory_tasks_with_non_root_context_returns_403():
-    """普通 actor 凭据不能进入 root API，HTTP 保留 root_required 拒绝原因。"""
+def test_list_memory_tasks_with_non_root_actor_returns_403():
+    """普通 actor 的工作 actor 不能进入 root API，HTTP 保留 root_required 拒绝原因。"""
     app, list_handler = _create_authorized_task_app(request_agent_id="task-observer")
     client = TestClient(app)
 

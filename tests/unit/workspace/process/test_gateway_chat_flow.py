@@ -1,8 +1,9 @@
 """主动聊天任务进程的 Gateway 编排测试。
 
 被测边界：``TaskProcessService`` 注册入口与四阶段编排在命令短路、完成、
-取消与失败路径上的行为，以及各阶段停止的响应点。注册经真实认证网关完成两阶段认证（组合内
-显式登记）并返回进程句柄；停止请求以 process_id 加请求级 context 注入；Actor 阶段以
+取消与失败路径上的行为，以及各阶段停止的响应点。注册经真实认证网关认证执行者与系统的
+root 工作 actor（组合内显式登记）并返回进程句柄；系统阶段以 root scope 调用，prepare 的
+检索按执行者授权；停止请求以 process_id 加 system 的工作 actor 注入；Actor 阶段以
 测试 CPU 替换 Alice（总线上不注册 Alice 路由），子系统路由用
 GlobalSystemBus 上的替身隔离。
 """
@@ -18,7 +19,8 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
-from hivememory.core.access import WorkspaceAccessContext
+from hivememory.core.access import WorkspaceOperation
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import (
     AssetNotReadyError,
@@ -85,28 +87,39 @@ def _workspace() -> WorkspaceIdentity:
     return make_workspace_identity(owner_user_id=_USER)
 
 
-def _expected_scope() -> IdentityScope:
-    """认证声明经操作授权者授权规则应组装出的 IdentityScope。"""
+def _root_scope() -> IdentityScope:
+    """系统阶段的 scope：root 授权以系统的 root 工作 actor 组装。"""
+    return IdentityScope(
+        actor_identity=ActorIdentity(user_id=_USER, agent_id=SYSTEM_AGENT_ID),
+        workspace_identity=_workspace(),
+    )
+
+
+def _executor_scope() -> IdentityScope:
+    """prepare 检索的 scope：以执行者授权 ``memory.search`` 组装。"""
     return IdentityScope(actor_identity=_actor(), workspace_identity=_workspace())
 
 
-def _composition() -> AccessTestComposition:
-    """u1/omni_doll 全 operation 的访问组合：注册声明与请求方 context 的签发来源。"""
-    return make_access_composition([make_actor_access_record(owner_user_id=_USER, agent_id=_AGENT)])
+def _composition(
+    allowed_operations: list[WorkspaceOperation] | None = None,
+) -> AccessTestComposition:
+    """u1/omni_doll 与 u1 的 system 的访问组合：注册声明与取消请求方的认证来源。
+
+    ``allowed_operations`` 缺省为全部 operation。
+    """
+    return make_access_composition(
+        [
+            make_actor_access_record(
+                owner_user_id=_USER, agent_id=_AGENT, allowed_operations=allowed_operations
+            ),
+            make_actor_access_record(owner_user_id=_USER, agent_id=SYSTEM_AGENT_ID),
+        ]
+    )
 
 
-def _capture_issued_contexts(composition: AccessTestComposition) -> list[WorkspaceAccessContext]:
-    """包装认证网关捕获每次签发的 context：注册入口签发即绑定，供失效断言使用。"""
-    issued: list[WorkspaceAccessContext] = []
-    original = composition.gateway.authenticate
-
-    async def authenticate(**kwargs):
-        context = await original(**kwargs)
-        issued.append(context)
-        return context
-
-    composition.gateway.authenticate = authenticate  # type: ignore[method-assign]
-    return issued
+async def _system_requestor(composition: AccessTestComposition):
+    """取消请求方：与管理入口一样以 (user, system) 认证得到的工作 actor。"""
+    return await composition.authenticate(agent_id=SYSTEM_AGENT_ID)
 
 
 async def _service(
@@ -114,9 +127,10 @@ async def _service(
     cpu: ScriptedCPU | None = None,
     process_table: ProcessTable | None = None,
     event_publisher: RuntimeEventPublisher | None = None,
+    composition: AccessTestComposition | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
-    """构造被测服务与配套认证组合：注册与阶段授权使用同一网关/授权者实例。"""
-    composition = _composition()
+    """构造被测服务与配套认证组合：注册、系统阶段与取消使用同一网关/授权者实例。"""
+    composition = composition or _composition()
     service = make_task_process_service(
         bus,
         cpu=cpu or ScriptedCPU(result=make_cpu_result()),
@@ -516,9 +530,13 @@ async def test_completed_stream_uses_one_process_id_for_events_and_downstream_ro
 
 
 @pytest.mark.asyncio
-async def test_stage_routes_receive_only_authorizer_assembled_identity_scope() -> None:
-    """阶段授权之后，Gateway、prepare 与结算后话题池读取只收到操作授权者组装的
-    IdentityScope：无 access，也不取自 prepare 结果。"""
+async def test_system_stages_run_with_root_scope_and_executor_is_explicit() -> None:
+    """系统阶段以 root scope 执行，执行者只出现在检索 scope 与 finalize 的参与者中。
+
+    Gateway、prepare 的话题准备与 finalize 都收到系统 root 授权组装的 scope；
+    prepare 的检索 scope 以执行者授权；finalize 的参与者是执行者。结算后不再
+    读取话题池。Profile 与附件的 root 授权由 CPU 分配的测试覆盖。
+    """
     bus = GlobalSystemBus()
     captured: dict[str, dict] = {}
 
@@ -546,49 +564,72 @@ async def test_stage_routes_receive_only_authorizer_assembled_identity_scope() -
 
     service, composition = await _service(bus)
     # 流式交付只保留阶段调用，话题池由独立管理入口读取。
-    await _run_once(composition, service, "问题", process_id="process-scope-only")
+    events = await _run_once(composition, service, "问题", process_id="process-scope-only")
 
-    assert "access" not in captured["gateway"]
-    assert captured["gateway"]["identity_scope"] == _expected_scope()
-    assert "access" not in captured["prepare"]
-    assert captured["prepare"]["identity_scope"] == _expected_scope()
-    assert captured["finalize"]["identity_scope"] == _expected_scope()
-    assert "access" not in captured["finalize"]
+    assert done_data(events)["status"] == CPUExecutionStatus.COMPLETED.value
+    assert captured["gateway"]["identity_scope"] == _root_scope()
+    assert captured["prepare"]["identity_scope"] == _root_scope()
+    assert captured["prepare"]["retrieval_scope"] == _executor_scope()
+    assert captured["finalize"]["identity_scope"] == _root_scope()
+    assert captured["finalize"]["participant"] == _actor()
     # finalize 后不再请求话题池。
     assert "topic_pool" not in captured
 
 
+@pytest.mark.asyncio
+async def test_executor_without_search_permission_runs_without_retrieval() -> None:
+    """执行者没有 ``memory.search``：prepare 不带检索 scope，对话照常完成并提交。"""
+    bus = GlobalSystemBus()
+    captured: dict[str, dict] = {}
+
+    async def prepare(**kwargs):
+        captured["prepare"] = kwargs
+        return await _scoped_prepared_route()(**kwargs)
+
+    async def finalize(**kwargs):
+        captured["finalize"] = kwargs
+        return []
+
+    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
+    _register_profile(bus)
+    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    composition = _composition(allowed_operations=[WorkspaceOperation.MEMORY_READ])
+
+    service, composition = await _service(bus, composition=composition)
+    events = await _run_once(composition, service, "问题", process_id="process-no-search")
+
+    assert done_data(events)["status"] == CPUExecutionStatus.COMPLETED.value
+    assert captured["prepare"]["identity_scope"] == _root_scope()
+    assert captured["prepare"]["retrieval_scope"] is None
+    assert captured["finalize"]["participant"] == _actor()
+
+
 class _AdmissionChangingAuthorizer:
-    """阶段授权使用实时准入：Actor 执行后切换到已撤销的真实访问登记。"""
+    """系统阶段的 root 授权使用实时准入：Actor 执行后切换到已失效的真实访问登记。"""
 
     def __init__(self, delegate):
         self._delegate = delegate
         self._revoked = make_access_composition([]).authorizer
         self.revoked = False
 
-    def authorize_stage(self, access, target_workspace):
+    def __getattr__(self, name):
+        return getattr(self._delegate, name)
+
+    def authorize_root(self, actor, target_workspace):
         authorizer = self._revoked if self.revoked else self._delegate
-        return authorizer.authorize_stage(access, target_workspace)
-
-    def authorize_operation(self, access, operation, target_workspace):
-        return self._delegate.authorize_operation(access, operation, target_workspace)
-
-    def get_stage_operations(self, access, target_workspace):
-        authorizer = self._revoked if self.revoked else self._delegate
-        return authorizer.get_stage_operations(access, target_workspace)
-
-    def authorize_process_control(self, requestor, record_access):
-        return self._delegate.authorize_process_control(requestor, record_access)
+        return authorizer.authorize_root(actor, target_workspace)
 
 
 @pytest.mark.asyncio
 async def test_finalize_reauthorizes_and_revoked_admission_closes_completed_cpu_process() -> None:
-    """Actor 完成前准入撤销：不提交交互，进程失败且 cleanup 不越过准入检查。"""
+    """Actor 完成前 system 的准入失效：不提交交互，进程失败、注销且 cleanup 不越过准入检查。"""
     bus = GlobalSystemBus()
     finalized = []
     cleaned = []
     composition = _composition()
     authorizer = _AdmissionChangingAuthorizer(composition.authorizer)
+    table = ProcessTable()
 
     async def revoke_admission(_submit):
         authorizer.revoked = True
@@ -612,8 +653,8 @@ async def test_finalize_reauthorizes_and_revoked_admission_closes_completed_cpu_
         cpu=cpu,
         access_gateway=composition.gateway,
         operation_authorizer=authorizer,
+        process_table=table,
     )
-    issued = _capture_issued_contexts(composition)
     events = await _run_once(composition, service, "问题", process_id="process-finalize-denied")
 
     assert error_code(events) == ScopeRequiredError.code
@@ -621,16 +662,17 @@ async def test_finalize_reauthorizes_and_revoked_admission_closes_completed_cpu_
     assert cpu.finished is True
     assert finalized == []
     assert cleaned == []
-    assert composition.is_revoked(issued[0]) is True
+    assert table.get("process-finalize-denied") is None
 
 
 @pytest.mark.asyncio
 async def test_cleanup_admission_denial_skips_route_and_still_closes_process(caplog) -> None:
-    """Actor 失败前准入撤销：cleanup 只记录拒绝警告，进程注销与 context 失效照常。"""
+    """Actor 失败前 system 的准入失效：cleanup 只记录拒绝警告，进程照常注销。"""
     bus = GlobalSystemBus()
     cleaned = []
     composition = _composition()
     authorizer = _AdmissionChangingAuthorizer(composition.authorizer)
+    table = ProcessTable()
 
     async def revoke_admission(_submit):
         authorizer.revoked = True
@@ -651,14 +693,14 @@ async def test_cleanup_admission_denial_skips_route_and_still_closes_process(cap
         cpu=cpu,
         access_gateway=composition.gateway,
         operation_authorizer=authorizer,
+        process_table=table,
     )
-    issued = _capture_issued_contexts(composition)
     events = await _run_once(composition, service, "问题", process_id="process-cleanup-denied")
 
     assert done_data(events)["status"] == "failed"
     assert cleaned == []
     assert "清理 prepared run 失败" in caplog.text
-    assert composition.is_revoked(issued[0]) is True
+    assert table.get("process-cleanup-denied") is None
 
 
 @pytest.mark.asyncio
@@ -672,12 +714,12 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
 
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
     service, composition = await _service(bus)
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    requestor = await _system_requestor(composition)
     handle = await _register(composition, service, "问题", process_id="process-gateway")
 
     task = asyncio.create_task(collect_events(service, handle))
     await started.wait()
-    stop_result = service.cancel_process("process-gateway", access=requestor)
+    stop_result = service.cancel_process("process-gateway", actor=requestor)
     events = await task
 
     assert stop_result.cancelled is True
@@ -720,9 +762,9 @@ async def test_cpu_self_reported_cancel_skips_finalize_and_cleans_prepared_run()
     assert (done["status"], done["stopped"]) == (CPUExecutionStatus.CANCELLED.value, True)
     finalize.assert_not_awaited()
     # cleanup 只在唯一的关闭流程中补偿一次本进程 prepare 的结果，scope 来自
-    # 关闭前的阶段再授权。
+    # 关闭前系统的 root 再授权。
     cleanup.assert_awaited_once_with(
-        prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
+        prepared_run=prepared_holder["prepared"], identity_scope=_root_scope()
     )
 
 
@@ -752,9 +794,7 @@ async def test_failed_agent_run_keeps_failed_status_and_skips_finalize() -> None
     done = done_data(events)
     assert (done["status"], done["stopped"]) == (CPUExecutionStatus.FAILED.value, True)
     finalize.assert_not_awaited()
-    cleanup.assert_any_await(
-        prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
-    )
+    cleanup.assert_any_await(prepared_run=prepared_holder["prepared"], identity_scope=_root_scope())
 
 
 @pytest.mark.asyncio
@@ -791,12 +831,12 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_cpu_and_finalize
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service, composition = await _service(bus, cpu)
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    requestor = await _system_requestor(composition)
     handle = await _register(composition, service, "问题", process_id="process-prepare")
 
     task = asyncio.create_task(collect_events(service, handle))
     await prepare_started.wait()
-    stop_result = service.cancel_process("process-prepare", access=requestor)
+    stop_result = service.cancel_process("process-prepare", actor=requestor)
     release_prepare.set()
     events = await task
 
@@ -805,9 +845,7 @@ async def test_stop_during_prepare_waits_for_prepare_then_skips_cpu_and_finalize
     assert done_data(events)["status"] == CPUExecutionStatus.CANCELLED.value
     assert cpu.calls == []
     finalize.assert_not_awaited()
-    cleanup.assert_any_await(
-        prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
-    )
+    cleanup.assert_any_await(prepared_run=prepared_holder["prepared"], identity_scope=_root_scope())
 
 
 @pytest.mark.asyncio
@@ -841,7 +879,7 @@ async def test_actor_stop_takes_effect_while_waiting_on_cpu_or_channel(blocked_o
     service, composition = await _service(
         bus, cpu, process_table=table, event_publisher=RuntimeEventPublisher(sink)
     )
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    requestor = await _system_requestor(composition)
     handle = await _register(composition, service, "问题", process_id="process-actor-stop")
     stream = service.run_process(handle)
     first = await anext(stream)
@@ -851,7 +889,7 @@ async def test_actor_stop_takes_effect_while_waiting_on_cpu_or_channel(blocked_o
     else:
         await asyncio.wait_for(cpu.last_event_entered.wait(), timeout=1)
         assert cpu.hang_entered.is_set() is False
-    stop_result = service.cancel_process("process-actor-stop", access=requestor)
+    stop_result = service.cancel_process("process-actor-stop", actor=requestor)
     await wait_for_process_exit(table, "process-actor-stop")
     events = [first, *[event async for event in stream]]
 
@@ -861,7 +899,7 @@ async def test_actor_stop_takes_effect_while_waiting_on_cpu_or_channel(blocked_o
     assert events[-1]["data"]["status"] == "cancelled"
     finalize.assert_not_awaited()
     cleanup.assert_awaited_once_with(
-        prepared_run=prepared_holder["prepared"], identity_scope=_expected_scope()
+        prepared_run=prepared_holder["prepared"], identity_scope=_root_scope()
     )
     cancelled = [
         event for event in sink.events if event.event_type == RuntimeEventType.CHAT_RUN_CANCELLED
@@ -890,12 +928,12 @@ async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
     bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service, composition = await _service(bus)
-    requestor = await composition.authenticate(agent_id=_AGENT)
+    requestor = await _system_requestor(composition)
     handle = await _register(composition, service, "问题", process_id="process-finalize")
 
     task = asyncio.create_task(collect_events(service, handle))
     await finalize_started.wait()
-    stop_result = service.cancel_process("process-finalize", access=requestor)
+    stop_result = service.cancel_process("process-finalize", actor=requestor)
     release_finalize.set()
     events = await task
 

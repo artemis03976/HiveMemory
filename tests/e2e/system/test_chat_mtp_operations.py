@@ -1,4 +1,4 @@
-"""确定性 HTTP chat：真实 Alice 经线程 context 绑定的操作入口执行 MTP 资源操作。
+"""确定性 HTTP chat：真实 Alice 经线程句柄绑定的操作入口执行 MTP 资源操作。
 
 覆盖单轮内的检索、引用、写入与 CALL，跨轮回读写入意图，以及 CPU 未成功结束时已接纳写入的落库。
 """
@@ -17,6 +17,7 @@ from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.app import HiveMemoryConfig
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -78,7 +79,11 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
     workspace = make_workspace_identity(owner_user_id="u1")
     actor = ActorIdentity(user_id="u1", agent_id="omni_doll")
     access = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="omni_doll")],
+        # 注册入口以系统自身的 principal 认证 system，系统阶段以它执行。
+        [
+            make_actor_access_record(owner_user_id="u1", agent_id="omni_doll"),
+            make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
+        ],
         adapters=("http",),
         default_workspace=workspace,
     )
@@ -259,7 +264,6 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
         await alice.stop()
         runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()
 
 
 @pytest.mark.asyncio
@@ -292,6 +296,7 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
                     WorkspaceOperation.AGENT_CALL,
                 },
             ),
+            make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
         ],
         adapters=("http",),
         default_workspace=workspace,
@@ -410,7 +415,6 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
         await alice.stop()
         runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()
 
 
 @pytest.mark.asyncio
@@ -418,7 +422,11 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
     """第一轮 WRITE 保留 MATERIALIZING，第二轮真实 MTP READ 取得草稿内容。"""
     workspace = make_workspace_identity(owner_user_id="u1")
     access = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="omni_doll")],
+        # 注册入口以系统自身的 principal 认证 system，系统阶段以它执行。
+        [
+            make_actor_access_record(owner_user_id="u1", agent_id="omni_doll"),
+            make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
+        ],
         adapters=("http",),
         default_workspace=workspace,
     )
@@ -436,7 +444,7 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
             identity_scope=identity_scope, interaction_id=interaction_id or "chat"
         )
 
-    async def profile(_alias, *, identity_scope):
+    async def profile(_alias, *, identity_scope, **_kwargs):
         return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
     async def finalize(*, payload, **_kwargs):
@@ -525,7 +533,6 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
         await alice.stop()
         harness.runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()
 
 
 @pytest.mark.asyncio
@@ -545,7 +552,11 @@ async def test_http_write_survives_cancelled_cpu_and_process_close(patchouli_cha
     workspace = make_workspace_identity(owner_user_id="u1")
     actor = ActorIdentity(user_id="u1", agent_id="omni_doll")
     access = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="omni_doll")],
+        # 注册入口以系统自身的 principal 认证 system，系统阶段以它执行。
+        [
+            make_actor_access_record(owner_user_id="u1", agent_id="omni_doll"),
+            make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
+        ],
         adapters=("http",),
         default_workspace=workspace,
     )
@@ -630,4 +641,3 @@ async def test_http_write_survives_cancelled_cpu_and_process_close(patchouli_cha
         stack.vector_store.write_allowed.set()
         runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()
