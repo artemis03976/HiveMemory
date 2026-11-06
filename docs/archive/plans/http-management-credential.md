@@ -2,7 +2,7 @@
 title: HTTP 管理面的管理凭据
 status: archived
 archived_at: 2026-11-05
-implemented_by: 提交 31f39135、9069db27、952d209f（分支 feat/http-management-credential）
+implemented_by: PR #182
 superseded_by: docs/workspace/authentication.md
 owner: system
 target: 版本之外的工作（owner，2026-11-05：不绑定版本）

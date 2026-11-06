@@ -2,7 +2,7 @@
 title: 本机 HTTP 管理接口不证明调用方
 status: archived
 archived_at: 2026-11-05
-implemented_by: 提交 31f39135、9069db27、952d209f（分支 feat/http-management-credential）
+implemented_by: PR #182
 superseded_by: docs/workspace/authentication.md
 owner: system
 scope: local-http-management-routes-caller-authentication

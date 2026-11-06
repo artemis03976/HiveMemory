@@ -10,7 +10,7 @@ last_reviewed: 2026-11-05
 
 本目录保存已完成的修复与技术债处置历史；当前行为从对应事实文档进入，活动待办见 [Todo](../../todo/README.md)。每条登记一行：归档日期、所在的 PR 与替代它的当前文档；处置过程见各事项自身。
 
-- [本机 HTTP 管理接口不证明调用方](./local-http-management-access.md)：2026-11-05，提交 31f39135、9069db27、952d209f（分支 feat/http-management-credential）；[认证与访问登记](../../workspace/authentication.md#1-两阶段认证)、[配置指南](../../help/configuration.md#51-访问登记)
+- [本机 HTTP 管理接口不证明调用方](./local-http-management-access.md)：2026-11-05，PR #182；[认证与访问登记](../../workspace/authentication.md#1-两阶段认证)、[配置指南](../../help/configuration.md#51-访问登记)
 - [运行时事件没有持久的记录](./runtime-events-not-persisted.md)：2026-11-03，PR #175；[可观测性](../../components/observability.md#51-事件记录文件)、[System 配置](../../system/configuration.md)
 - [维护任务空转也发事件](./maintenance-event-noise.md)：2026-11-03，PR #174；[运行时机制](../../components/runtime-and-bus.md#22-运行结果与事件)、[可观测性](../../components/observability.md)
 - [部分失败事件没有稳定原因码](./failure-event-reason-codes.md)：2026-11-03，PR #173；[事件契约](../../contracts/routes-and-events.md#44-失败与降级观测)、[可观测性](../../components/observability.md)

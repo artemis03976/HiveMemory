@@ -19,7 +19,7 @@ last_reviewed: 2026-11-05
 
 ## 版本之外
 
-- [HTTP 管理面的管理凭据](./http-management-credential.md)：2026-11-05，提交 31f39135、9069db27、952d209f（分支 feat/http-management-credential）；[认证与访问登记](../../workspace/authentication.md#1-两阶段认证)、[安装与启动](../../help/setup.md#43-启动后端)
+- [HTTP 管理面的管理凭据](./http-management-credential.md)：2026-11-05，PR #182；[认证与访问登记](../../workspace/authentication.md#1-两阶段认证)、[安装与启动](../../help/setup.md#43-启动后端)
 - [dsh 子 Agent 会话不再独立导入，交回的消息进入父会话的一轮](./dsh-subagent-sessions.md)：2026-11-02，提交 4a16b46a；[Import Bus](../../system/import-bus.md#93-轮次的切分与映射)、[数据模型](../../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)
 - [模型选择统一为 ModelSelection，组件模型只经注册表解析](./llm-config-retirement.md)：2026-11-01，PR #167；[System 配置与注册表](../../system/configuration.md#3-registry-解析)、[System 组合根](../../system/composition.md#13-llm-bundle)
 - [DeepSeek Harness 插件接入](./dsh-plugin-integration.md)：2026-11-01，PR #158；[Import Bus](../../system/import-bus.md#9-deepseek-harness-插件)、[接入 DeepSeek Harness](../../help/deepseek-harness-plugin.md)
