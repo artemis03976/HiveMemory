@@ -10,7 +10,7 @@ from dataclasses import dataclass
 
 from hivememory.config.attachments import AttachmentParserConfig
 from hivememory.core.errors import AssetFailedError, WorkspaceDomainError
-from hivememory.core.models.identity import IdentityScope
+from hivememory.core.models.identity import WorkspaceIdentity
 from hivememory.core.models.workspace_asset import (
     AssetRepresentationKind,
     AssetRepresentationState,
@@ -37,9 +37,9 @@ logger = logging.getLogger(__name__)
 class AttachmentParseService:
     """拥有解析交接逻辑，状态与 token 的有效性仍由 Store 原子校验。
 
-    输入是注册后的 handle；解析只读取 Store 命令返回的冻结快照，不依赖
-    HTTP 回执、上传流或只接受 READY 资产的 reader。调用方负责同上传操作
-    的串行化，本服务不另存运行记录。
+    输入是资产归属与注册后的 handle；解析只读取 Store 命令返回的冻结快照，
+    不依赖 HTTP 回执、上传流或只接受 READY 资产的 reader。授权与同上传操作的
+    串行化由调用方负责，本服务不另存运行记录。
     """
 
     def __init__(
@@ -54,7 +54,7 @@ class AttachmentParseService:
 
     async def parse_required_representation(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         handle: WorkspaceAssetHandle,
     ) -> WorkspaceAsset:
         """返回 READY/FAILED 快照，或传播 Store 冲突、移除、关闭等错误。"""
@@ -64,7 +64,7 @@ class AttachmentParseService:
         asset_ref = handle.asset_ref
         parser = self._parser_factory(handle.asset.media_type)
         pending = self._store.register_representation(
-            identity_scope,
+            belong_to,
             asset_ref,
             kind=AssetRepresentationKind.EXTRACTED_TEXT,
             producer=parser.producer,
@@ -75,7 +75,7 @@ class AttachmentParseService:
             for item in pending.representations
             if item.kind == AssetRepresentationKind.EXTRACTED_TEXT
         )
-        processing = self._store.start_representation(identity_scope, asset_ref, target_id)
+        processing = self._store.start_representation(belong_to, asset_ref, target_id)
         target = next(
             item for item in processing.representations if item.representation_id == target_id
         )
@@ -98,7 +98,7 @@ class AttachmentParseService:
             # 原 token 尽力收尾；Store 拒绝不能替换请求取消，也不另起任务重试。
             try:
                 self._fail(
-                    identity_scope,
+                    belong_to,
                     asset_ref,
                     target.representation_id,
                     operation_id,
@@ -113,13 +113,11 @@ class AttachmentParseService:
                 if exc.category in {CONTENT_UNREADABLE, RESOURCE_LIMIT}
                 else _GENERIC_PARSE_FAILURE_MESSAGE
             )
-            return self._fail(
-                identity_scope, asset_ref, target.representation_id, operation_id, message
-            )
+            return self._fail(belong_to, asset_ref, target.representation_id, operation_id, message)
         except Exception as exc:
             logger.warning("附件解析发生内部错误：%r", exc)
             return self._fail(
-                identity_scope,
+                belong_to,
                 asset_ref,
                 target.representation_id,
                 operation_id,
@@ -128,7 +126,7 @@ class AttachmentParseService:
 
         # Store 提交错误必须原样传播，不能被转换成解析失败或旧快照。
         return self._store.complete_representation(
-            identity_scope,
+            belong_to,
             asset_ref,
             target.representation_id,
             operation_id,
@@ -138,7 +136,7 @@ class AttachmentParseService:
 
     def _fail(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
         representation_id: str,
         operation_id: str,
@@ -146,7 +144,7 @@ class AttachmentParseService:
     ) -> WorkspaceAsset:
         """以原目标 token 提交安全失败；过期、移除或关闭均由 Store 拒绝。"""
         return self._store.fail_representation(
-            identity_scope,
+            belong_to,
             asset_ref,
             representation_id,
             operation_id,

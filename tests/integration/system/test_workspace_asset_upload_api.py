@@ -23,7 +23,10 @@ from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.workspace_assets import router
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.attachment_parsing import make_upload_service
-from tests.helpers.workspace import make_identity_scope, make_server_access_overrides
+from tests.helpers.workspace import (
+    make_server_access_overrides,
+    make_workspace_identity,
+)
 
 USER_HEADERS = {"x-user-id": "user-1"}
 
@@ -117,7 +120,7 @@ def test_unadmitted_user_upload_returns_403_with_stable_reason(upload_stack) -> 
     body = response.json()
     assert body["error"] == "workspace.admission_denied"
     assert body["reason"] == "actor_not_admitted"
-    assert store.list_workspace_assets(make_identity_scope(user_id="user-3")) == []
+    assert store.list_workspace_assets(make_workspace_identity(owner_user_id="user-3")) == []
 
 
 def test_upload_returns_201_with_terminal_summary_matching_store_snapshot(upload_stack) -> None:
@@ -160,14 +163,14 @@ def test_upload_returns_201_with_terminal_summary_matching_store_snapshot(upload
     assert body["safe_error"] is None
 
     # A 门：HTTP 结果与同一 Workspace 的 Store 快照及资产列表一致。
-    handles = store.list_workspace_assets(make_identity_scope(user_id="user-1"))
+    handles = store.list_workspace_assets(make_workspace_identity(owner_user_id="user-1"))
     assert [handle.asset.asset_id for handle in handles] == [body["asset_ref"]["asset_id"]]
     asset = handles[0].asset
     assert asset.representations[0].content_hash == raw["content_hash"]
     assert asset.representations[0].revision == raw["revision"]
     # required text READY 后 reader 才开放（B/C 门）。
     resolved = store.resolve_asset(
-        make_identity_scope(user_id="user-1"),
+        make_workspace_identity(owner_user_id="user-1"),
         WorkspaceAssetRef.model_validate(body["asset_ref"]),
     )
     assert resolved.state.value == "ready"
@@ -227,7 +230,7 @@ def test_public_chain_reaches_terminal_for_all_approved_formats(upload_stack) ->
     states = [
         handle.asset.state.value
         for handle in store.list_workspace_assets(
-            make_identity_scope(user_id="user-1"),
+            make_workspace_identity(owner_user_id="user-1"),
         )
     ]
     assert sorted(states) == ["failed", "ready", "ready", "ready"]
@@ -243,7 +246,7 @@ def test_idempotent_replay_returns_200_with_same_logical_asset(upload_stack) -> 
     assert first.status_code == 201
     assert replay.status_code == 200
     assert replay.json()["asset_ref"] == first.json()["asset_ref"]
-    assert len(store.list_workspace_assets(make_identity_scope(user_id="user-1"))) == 1
+    assert len(store.list_workspace_assets(make_workspace_identity(owner_user_id="user-1"))) == 1
 
 
 def test_same_key_with_different_content_returns_409(upload_stack) -> None:
@@ -254,7 +257,7 @@ def test_same_key_with_different_content_returns_409(upload_stack) -> None:
     conflict = _upload_files(client, content=b"# changed\n")
 
     assert conflict.status_code == 409
-    assert len(store.list_workspace_assets(make_identity_scope(user_id="user-1"))) == 1
+    assert len(store.list_workspace_assets(make_workspace_identity(owner_user_id="user-1"))) == 1
 
 
 def test_replay_after_remove_returns_410_and_does_not_recreate(upload_stack) -> None:
@@ -262,12 +265,12 @@ def test_replay_after_remove_returns_410_and_does_not_recreate(upload_stack) -> 
     client, store = upload_stack
 
     first = _upload_files(client)
-    scope = make_identity_scope(user_id="user-1")
-    store.remove_asset(scope, WorkspaceAssetRef.model_validate(first.json()["asset_ref"]))
+    workspace = make_workspace_identity(owner_user_id="user-1")
+    store.remove_asset(workspace, WorkspaceAssetRef.model_validate(first.json()["asset_ref"]))
     replay = _upload_files(client)
 
     assert replay.status_code == 410
-    assert store.list_workspace_assets(scope) == []
+    assert store.list_workspace_assets(workspace) == []
 
 
 def test_store_closed_returns_503(upload_stack) -> None:
@@ -301,8 +304,8 @@ def test_other_owner_workspace_stays_isolated(upload_stack) -> None:
 
     assert other.status_code == 201
     assert other.json()["asset_ref"] != first.json()["asset_ref"]
-    assert len(store.list_workspace_assets(make_identity_scope(user_id="user-1"))) == 1
-    assert len(store.list_workspace_assets(make_identity_scope(user_id="user-2"))) == 1
+    assert len(store.list_workspace_assets(make_workspace_identity(owner_user_id="user-1"))) == 1
+    assert len(store.list_workspace_assets(make_workspace_identity(owner_user_id="user-2"))) == 1
 
 
 def test_empty_file_returns_400(upload_stack) -> None:

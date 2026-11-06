@@ -13,13 +13,13 @@ import pytest
 
 from hivememory.core.models import (
     AssetRepresentationKind,
-    IdentityScope,
     IndexLayer,
     MemoryAtom,
     MemoryType,
     PayloadLayer,
     TopicAssetBinding,
     WorkspaceAssetMetadata,
+    WorkspaceIdentity,
 )
 from hivememory.core.models.artifact import ArtifactRef, ArtifactType
 from hivememory.core.models.workspace_asset import WorkspaceAssetRef
@@ -30,15 +30,14 @@ from hivememory.patchouli.control.interaction_submission import (
 )
 from hivememory.patchouli.control.memory_generation.models import MemoryGenerationSource
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
-from hivememory.system.services.asset_materialization_reader import AssetMaterializationReader
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.sessions import make_interaction_payload
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 
 
-def _scope() -> IdentityScope:
-    return make_identity_scope(user_id="user-1", agent_id="agent-1")
+def _workspace() -> WorkspaceIdentity:
+    return make_workspace_identity(owner_user_id="user-1")
 
 
 def _make_ready_asset(
@@ -55,7 +54,7 @@ def _make_ready_asset(
         required_representation_kind=AssetRepresentationKind.EXTRACTED_TEXT,
     )
     receipt = store.register_uploaded_asset(
-        _scope(),
+        _workspace(),
         metadata,
         operation_id,
         raw_content_object=b"raw-md",
@@ -64,7 +63,7 @@ def _make_ready_asset(
         raw_producer_version="1",
     )
     pending = store.register_representation(
-        _scope(),
+        _workspace(),
         receipt.handle.asset_ref,
         kind=AssetRepresentationKind.EXTRACTED_TEXT,
         producer="text_decode",
@@ -75,14 +74,14 @@ def _make_ready_asset(
         for item in pending.representations
         if item.kind == AssetRepresentationKind.EXTRACTED_TEXT
     )
-    processing = store.start_representation(_scope(), receipt.handle.asset_ref, target_id)
+    processing = store.start_representation(_workspace(), receipt.handle.asset_ref, target_id)
     token = next(
         item.parse_operation_id
         for item in processing.representations
         if item.representation_id == target_id
     )
     store.complete_representation(
-        _scope(),
+        _workspace(),
         receipt.handle.asset_ref,
         target_id,
         token,
@@ -218,7 +217,7 @@ def _familiar(
         generation_engine=_StubGenerationEngine(actions),
         memory_library=SimpleNamespace(mid_term=_StubMidTerm()),
         artifact_engine=_StubArtifactEngine(document_builder),
-        asset_reader=AssetMaterializationReader(store),
+        asset_reader=store,
     )
 
 
@@ -274,16 +273,16 @@ async def test_promotion_runs_on_create_and_pins_frozen_source_mapping() -> None
     ref = _make_ready_asset(store, operation_id="op-a")
     builder = _RecordingDocumentBuilder()
     familiar = _familiar(store, builder, [GenerationAction.CREATE])
-    scope = _scope()
+    workspace = _workspace()
     binding = _binding(store, ref)
 
-    await familiar._promote_attachment_bindings((binding,), belong_to=scope.workspace_identity)
+    await familiar._promote_attachment_bindings((binding,), belong_to=workspace)
 
     assert len(builder.calls) == 1
     call = builder.calls[0]
     representation_id = next(
         item.representation_id
-        for handle in store.list_workspace_assets(scope)
+        for handle in store.list_workspace_assets(workspace)
         for item in handle.asset.representations
         if item.kind == AssetRepresentationKind.EXTRACTED_TEXT
     )
@@ -315,8 +314,8 @@ async def test_generation_gating_skips_promotion_for_touch() -> None:
     )
     binding = _binding(store, ref)
     spec = SimpleNamespace(
-        belong_to=_scope().workspace_identity,
-        from_actor=_scope().actor_identity,
+        belong_to=_workspace(),
+        from_actor=make_identity_scope(user_id="user-1", agent_id="agent-1").actor_identity,
         interaction_input=SimpleNamespace(asset_bindings=(binding,)),
         request=SimpleNamespace(context=GenerationContext()),
         source=MemoryGenerationSource.SETTLE,
@@ -352,13 +351,13 @@ async def test_promotion_degrades_when_ref_removed() -> None:
     """捕获 ref 失效时 promotion 抛错或破坏已提交 binding。"""
     store = InMemoryWorkspaceAssetStore()
     ref = _make_ready_asset(store, operation_id="op-a")
-    store.remove_asset(_scope(), ref)
+    store.remove_asset(_workspace(), ref)
     builder = _RecordingDocumentBuilder()
     familiar = _familiar(store, builder, [GenerationAction.CREATE])
     binding = _binding(store, ref)
 
     # 不抛错：按 best-effort 降级，不写入 artifact。
-    await familiar._promote_attachment_bindings((binding,), belong_to=_scope().workspace_identity)
+    await familiar._promote_attachment_bindings((binding,), belong_to=_workspace())
     assert builder.calls == []
 
 
@@ -372,7 +371,7 @@ async def test_promotion_degrades_when_store_closed() -> None:
     binding = _binding(store, ref)
     store.close_and_clear()
 
-    await familiar._promote_attachment_bindings((binding,), belong_to=_scope().workspace_identity)
+    await familiar._promote_attachment_bindings((binding,), belong_to=_workspace())
     assert builder.calls == []
 
 
@@ -385,7 +384,7 @@ async def test_promotion_write_failure_is_best_effort_and_releases_lease() -> No
     familiar = _familiar(store, builder, [GenerationAction.CREATE])
     binding = _binding(store, ref)
 
-    await familiar._promote_attachment_bindings((binding,), belong_to=_scope().workspace_identity)
+    await familiar._promote_attachment_bindings((binding,), belong_to=_workspace())
 
     assert len(builder.calls) == 1  # 写入被尝试过
     assert store.close_and_clear().leases_cleared == 0  # lease 仍被释放

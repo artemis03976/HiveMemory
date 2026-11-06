@@ -25,13 +25,13 @@ from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from tests.helpers.sessions import make_interaction_payload
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_identity_scope, make_workspace_identity
 
 
-def _make_ready_asset(asset_store: InMemoryWorkspaceAssetStore, scope):
+def _make_ready_asset(asset_store: InMemoryWorkspaceAssetStore, workspace):
     """构造一个 READY 的 RAW 资产并返回 (asset, ref)。"""
     handle = asset_store.create_asset(
-        scope,
+        workspace,
         WorkspaceAssetMetadata(
             kind="image",
             display_name="diagram",
@@ -42,7 +42,7 @@ def _make_ready_asset(asset_store: InMemoryWorkspaceAssetStore, scope):
         client_operation_id="op-1",
     )
     asset = asset_store.register_raw_representation(
-        scope,
+        workspace,
         handle.asset_ref,
         content_object=b"data",
         content_hash="hash",
@@ -75,77 +75,77 @@ def _payload() -> InteractionPayload:
 def test_remove_before_acquire_establishes_no_binding():
     asset_store = InMemoryWorkspaceAssetStore()
     _, store = _make_familiar_with_store()
-    scope = make_identity_scope(user_id="u1")
-    asset, ref = _make_ready_asset(asset_store, scope)
+    workspace = make_workspace_identity(owner_user_id="u1")
+    asset, ref = _make_ready_asset(asset_store, workspace)
 
-    topic = store.create(scope.workspace_identity)
-    asset_store.remove_asset(scope, ref)
+    topic = store.create(workspace)
+    asset_store.remove_asset(workspace, ref)
 
     # remove 后 acquire 失败 -> 本轮没有使用事实，也就无从建立 binding。
     with pytest.raises(AssetRemovedError):
-        asset_store.acquire_ready_representation(scope, ref)
+        asset_store.acquire_ready_representation(workspace, ref)
 
     assert asset.asset_id
-    assert store.get(scope.workspace_identity, topic.topic_id).bindings == ()
+    assert store.get(workspace, topic.topic_id).bindings == ()
 
 
 @pytest.mark.asyncio
 async def test_acquire_before_remove_leaves_binding_and_blocks_future_acquire():
     asset_store = InMemoryWorkspaceAssetStore()
     familiar, store = _make_familiar_with_store()
-    scope = make_identity_scope(user_id="u1")
-    asset, ref = _make_ready_asset(asset_store, scope)
+    workspace = make_workspace_identity(owner_user_id="u1")
+    asset, ref = _make_ready_asset(asset_store, workspace)
 
-    topic = store.create(scope.workspace_identity)
+    topic = store.create(workspace)
 
     # acquire 先于 remove：已有 lease 可完成本轮使用。
-    lease = asset_store.acquire_ready_representation(scope, ref)
+    lease = asset_store.acquire_ready_representation(workspace, ref)
     assert lease.representation.asset_id == asset.asset_id
 
     # remove 发生在 acquire 之后；既有 lease 仍有效，但后续 acquire 被拒绝。
-    asset_store.remove_asset(scope, ref)
+    asset_store.remove_asset(workspace, ref)
 
     # 成功 Interaction 在 remove 后提交 binding：记录 remove 前已发生的真实使用。
     await familiar.apply_interaction(
         _payload(),
-        belong_to=scope.workspace_identity,
-        from_actor=scope.actor_identity,
+        belong_to=workspace,
+        from_actor=make_identity_scope(user_id="u1").actor_identity,
         target_topic_id=topic.topic_id,
         interaction_id="i1",
         asset_refs=(ref,),
     )
 
-    bindings = store.get(scope.workspace_identity, topic.topic_id).bindings
+    bindings = store.get(workspace, topic.topic_id).bindings
     assert len(bindings) == 1
     assert bindings[0].asset_id == asset.asset_id
 
     # 历史 binding 不恢复当前可用性；新 acquire 仍稳定失败。
     with pytest.raises(AssetRemovedError):
-        asset_store.acquire_ready_representation(scope, ref)
+        asset_store.acquire_ready_representation(workspace, ref)
 
 
 @pytest.mark.asyncio
 async def test_commit_before_remove_preserves_binding():
     asset_store = InMemoryWorkspaceAssetStore()
     familiar, store = _make_familiar_with_store()
-    scope = make_identity_scope(user_id="u1")
-    asset, ref = _make_ready_asset(asset_store, scope)
+    workspace = make_workspace_identity(owner_user_id="u1")
+    asset, ref = _make_ready_asset(asset_store, workspace)
 
-    topic = store.create(scope.workspace_identity)
+    topic = store.create(workspace)
 
-    lease = asset_store.acquire_ready_representation(scope, ref)
+    lease = asset_store.acquire_ready_representation(workspace, ref)
     await familiar.apply_interaction(
         _payload(),
-        belong_to=scope.workspace_identity,
-        from_actor=scope.actor_identity,
+        belong_to=workspace,
+        from_actor=make_identity_scope(user_id="u1").actor_identity,
         target_topic_id=topic.topic_id,
         interaction_id="i1",
         asset_refs=(ref,),
     )
 
-    asset_store.remove_asset(scope, ref)
+    asset_store.remove_asset(workspace, ref)
 
     # remove 只终止后续可用性，不改写历史使用事实。
-    bindings = store.get(scope.workspace_identity, topic.topic_id).bindings
+    bindings = store.get(workspace, topic.topic_id).bindings
     assert len(bindings) == 1
     assert lease.asset_ref.token == ref.token

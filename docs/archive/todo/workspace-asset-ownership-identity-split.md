@@ -1,19 +1,21 @@
 ---
 title: WorkspaceAsset 内部归属与操作身份拆分
-status: todo
+status: archived
+archived_at: 2026-11-06
+implemented_by: PR #185
+superseded_by: docs/workspace/assets.md
 owner: workspace
 scope: workspace-asset-store-parser-and-materialization-reader-ownership-boundary
 code_paths:
   - src/hivememory/workspace/assets/store.py
   - src/hivememory/workspace/assets/parse_service.py
   - src/hivememory/core/ports/workspace_assets.py
-  - src/hivememory/system/services/asset_materialization_reader.py
 related_docs:
   - docs/workspace/README.md
   - docs/system/attachments.md
   - docs/contracts/subsystem-contracts.md
   - docs/archive/plans/v0.7.0-identity-access-batch-2.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-11-06
 ---
 
 # WorkspaceAsset 内部归属与操作身份拆分
@@ -45,4 +47,5 @@ Alice/CPU 的执行身份与 PendingAtom 回读范围不由本 Todo 承接。资
 
 ## 追踪
 
-- 2026-10-04：用户在身份第二批任务中明确暂缓 `WorkspaceAssetStore` 调整，本地阶段收尾时登记；实施历史见 [第二批归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)。目前未绑定后续版本或 Issue。
+- 2026-10-04：用户在身份第二批任务中明确暂缓 `WorkspaceAssetStore` 调整，本地阶段收尾时登记；实施历史见 [第二批归档计划](../plans/v0.7.0-identity-access-batch-2.md)。目前未绑定后续版本或 Issue。
+- 2026-11-06：owner 要求为它制定计划并实施，见 [WorkspaceAsset 的归属拆分](../plans/workspace-asset-ownership-split.md)（归档计划）；完成条件全部满足，Todo 随计划收尾归档。当前事实见 [WorkspaceAsset](../../workspace/assets.md#3-身份与归属)。

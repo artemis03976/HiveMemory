@@ -208,7 +208,7 @@ class CPUAllocator:
         """acquire 单个选中附件并核对客户端提供的版本摘要。
 
         附件是用户的选择，由系统以 root 授权租借：授权检查先于租借副作用执行，
-        租借使用授权者返回的可信 scope，资产库只核对其中的 Workspace。
+        通过后只把资产归属交给资产库，由它核对引用属于这个 Workspace。
         reader 的同一 Store 临界区已完成
         Workspace/ref、asset READY 与 representation READY 校验并建立
         lease，无需先做 resolve_asset。取得的 lease 先登记进工作集；版本
@@ -216,7 +216,7 @@ class CPUAllocator:
         """
         scope = self._authorizer.authorize_root(system_actor, target_workspace)
         lease = self._asset_reader.acquire_ready_representation(
-            scope,
+            scope.workspace_identity,
             selection.asset_ref,
         )
         working_set.register_lease(lease)

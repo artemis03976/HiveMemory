@@ -19,9 +19,7 @@ from hivememory.core.errors import (
     AssetRemovedError,
 )
 from hivememory.core.models import (
-    ActorIdentity,
     AssetRepresentationKind,
-    IdentityScope,
     WorkspaceAssetMetadata,
     WorkspaceIdentity,
 )
@@ -92,12 +90,12 @@ class _LeaseHoldingSubsystem:
         self,
         calls: list[str],
         store: InMemoryWorkspaceAssetStore,
-        scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: Any,
     ) -> None:
         self._calls = calls
         self._store = store
-        self._scope = scope
+        self._belong_to = belong_to
         self._asset_ref = asset_ref
         self._lease: Any = None
         self.released_active_lease: bool | None = None
@@ -106,7 +104,7 @@ class _LeaseHoldingSubsystem:
     async def start(self) -> None:
         # 消费者在运行期间取得 READY lease，并在 shutdown drain 期间持有。
         self._lease = self._store.acquire_ready_representation(
-            self._scope,
+            self._belong_to,
             self._asset_ref,
         )
 
@@ -129,7 +127,7 @@ class _AssetReadingSubsystem:
         name: str,
         calls: list[str],
         store: InMemoryWorkspaceAssetStore,
-        scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: Any,
         *,
         fail_on_stop: bool = False,
@@ -137,7 +135,7 @@ class _AssetReadingSubsystem:
         self.name = name
         self._calls = calls
         self._store = store
-        self._scope = scope
+        self._belong_to = belong_to
         self._asset_ref = asset_ref
         self._fail_on_stop = fail_on_stop
         self.asset_id_seen_on_stop: str | None = None
@@ -148,7 +146,7 @@ class _AssetReadingSubsystem:
     async def stop(self) -> None:
         self._calls.append(self.name)
         self.asset_id_seen_on_stop = self._store.resolve_asset(
-            self._scope,
+            self._belong_to,
             self._asset_ref,
         ).asset_id
         if self._fail_on_stop:
@@ -158,22 +156,19 @@ class _AssetReadingSubsystem:
         return {"status": "ok"}
 
 
-def _scope() -> IdentityScope:
-    """构造集成场景的 main Workspace scope。"""
-    return IdentityScope(
-        actor_identity=ActorIdentity(user_id="user-1", agent_id="agent-1"),
-        workspace_identity=WorkspaceIdentity(
-            owner_user_id="user-1",
-            workspace_key="main_workspace",
-            workspace_id="main_workspace",
-        ),
+def _workspace() -> WorkspaceIdentity:
+    """构造集成场景的资产归属：main Workspace。"""
+    return WorkspaceIdentity(
+        owner_user_id="user-1",
+        workspace_key="main_workspace",
+        workspace_id="main_workspace",
     )
 
 
-def _ready_asset(store: InMemoryWorkspaceAssetStore, scope: IdentityScope):
+def _ready_asset(store: InMemoryWorkspaceAssetStore, workspace: WorkspaceIdentity):
     """建立可供所有 shutdown 消费者读取的 READY 资产。"""
     handle = store.create_asset(
-        scope,
+        workspace,
         WorkspaceAssetMetadata(
             kind="binary",
             display_name="payload.bin",
@@ -184,7 +179,7 @@ def _ready_asset(store: InMemoryWorkspaceAssetStore, scope: IdentityScope):
         "upload-1",
     )
     store.register_raw_representation(
-        scope,
+        workspace,
         handle.asset_ref,
         content_object=b"payload",
         content_hash="payload-hash",
@@ -196,7 +191,7 @@ def _ready_asset(store: InMemoryWorkspaceAssetStore, scope: IdentityScope):
 
 def _build_system(
     store: InMemoryWorkspaceAssetStore,
-    scope: IdentityScope,
+    workspace: WorkspaceIdentity,
     asset_ref: Any,
     *,
     failing_subsystem: str | None = None,
@@ -219,7 +214,7 @@ def _build_system(
             name,
             calls,
             store,
-            scope,
+            workspace,
             asset_ref,
             fail_on_stop=name == failing_subsystem,
         )
@@ -281,9 +276,9 @@ def test_assemble_wires_single_store_across_consumers() -> None:
 
     store = system._workspace_asset_store
     # Patchouli 的归属读取适配器应租借原 Store 的表示，没有第二份资产工作集。
-    scope = _scope()
+    workspace = _workspace()
     handle = store.register_uploaded_asset(
-        scope,
+        workspace,
         WorkspaceAssetMetadata(
             kind="image",
             display_name="shared.png",
@@ -298,7 +293,7 @@ def test_assemble_wires_single_store_across_consumers() -> None:
         raw_producer_version="1",
     ).handle
     reader = system._patchouli.runtime._workspace_asset_reader
-    lease = reader.acquire_ready_representation(scope.workspace_identity, handle.asset_ref)
+    lease = reader.acquire_ready_representation(workspace, handle.asset_ref)
     assert lease.representation.content_object == b"shared"
     assert store.release_representation_lease(lease.lease_id) is True
     assert reader.release_representation_lease(lease.lease_id) is False
@@ -309,22 +304,16 @@ def test_assemble_wires_single_store_across_consumers() -> None:
 def test_workspace_assets_and_refs_are_isolated_across_workspaces() -> None:
     """捕获同名资产或 opaque ref 被错误合并、跨域读取或删除的缺陷。"""
     store = InMemoryWorkspaceAssetStore()
-    main = _scope()
-    isolated = IdentityScope(
-        actor_identity=ActorIdentity(user_id="user-1", agent_id="agent-1"),
-        workspace_identity=WorkspaceIdentity(
-            owner_user_id="user-1",
-            workspace_key="isolation_workspace",
-            workspace_id="isolation_workspace",
-        ),
+    main = _workspace()
+    isolated = WorkspaceIdentity(
+        owner_user_id="user-1",
+        workspace_key="isolation_workspace",
+        workspace_id="isolation_workspace",
     )
-    other_owner = IdentityScope(
-        actor_identity=ActorIdentity(user_id="user-2", agent_id="agent-1"),
-        workspace_identity=WorkspaceIdentity(
-            owner_user_id="user-2",
-            workspace_key="main_workspace",
-            workspace_id="main_workspace",
-        ),
+    other_owner = WorkspaceIdentity(
+        owner_user_id="user-2",
+        workspace_key="main_workspace",
+        workspace_id="main_workspace",
     )
     main_handle = _ready_asset(store, main)
     isolated_handle = _ready_asset(store, isolated)
@@ -368,9 +357,9 @@ def test_workspace_assets_and_refs_are_isolated_across_workspaces() -> None:
 async def test_system_closes_store_only_after_all_asset_consumers_stop() -> None:
     """捕获 Topic settlement 或其他消费者停止前提前清空 AssetStore。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = _scope()
-    handle = _ready_asset(store, scope)
-    system, calls, subsystems, sink = _build_system(store, scope, handle.asset_ref)
+    workspace = _workspace()
+    handle = _ready_asset(store, workspace)
+    system, calls, subsystems, sink = _build_system(store, workspace, handle.asset_ref)
 
     await system.start()
     sink.events.clear()
@@ -396,11 +385,11 @@ async def test_system_closes_store_only_after_all_asset_consumers_stop() -> None
 async def test_upstream_stop_failure_does_not_clear_store_or_report_stopped() -> None:
     """捕获上游 shutdown 失败后仍清空 Store 并谎报有序停止成功。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = _scope()
-    handle = _ready_asset(store, scope)
+    workspace = _workspace()
+    handle = _ready_asset(store, workspace)
     system, calls, _, sink = _build_system(
         store,
-        scope,
+        workspace,
         handle.asset_ref,
         failing_subsystem="patchouli",
     )
@@ -412,7 +401,7 @@ async def test_upstream_stop_failure_does_not_clear_store_or_report_stopped() ->
 
     assert calls == ["scheduler", "import_bus", "alice", "patchouli"]
     assert store.is_closed is False
-    assert store.resolve_asset(scope, handle.asset_ref).asset_id == handle.asset.asset_id
+    assert store.resolve_asset(workspace, handle.asset_ref).asset_id == handle.asset.asset_id
     assert [event.event_type for event in sink.events] == [
         RuntimeEventType.SYSTEM_SHUTTING_DOWN,
         RuntimeEventType.SYSTEM_STOP_FAILED,
@@ -423,13 +412,13 @@ async def test_upstream_stop_failure_does_not_clear_store_or_report_stopped() ->
 async def test_system_waits_for_lease_release_before_close_and_clear() -> None:
     """真实 lease 贯穿 shutdown：消费者先显式 release，close_and_clear 不掩盖泄漏。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = _scope()
-    handle = _ready_asset(store, scope)
+    workspace = _workspace()
+    handle = _ready_asset(store, workspace)
     calls: list[str] = []
     sink = RecordingRuntimeEventSink()
-    lease_consumer = _LeaseHoldingSubsystem(calls, store, scope, handle.asset_ref)
+    lease_consumer = _LeaseHoldingSubsystem(calls, store, workspace, handle.asset_ref)
     reader_consumers = {
-        name: _AssetReadingSubsystem(name, calls, store, scope, handle.asset_ref)
+        name: _AssetReadingSubsystem(name, calls, store, workspace, handle.asset_ref)
         for name in ("gateway", "alice")
     }
 
@@ -495,14 +484,14 @@ async def test_system_stop_closes_authentication_gateway_first() -> None:
     工作 actor 不是凭据，停止流程没有撤销步骤；操作授权者无状态，不随停止关闭。
     """
     store = InMemoryWorkspaceAssetStore()
-    scope = _scope()
-    handle = _ready_asset(store, scope)
+    workspace = _workspace()
+    handle = _ready_asset(store, workspace)
     composition = make_access_composition(
         [make_actor_access_record(owner_user_id="user-1", agent_id="agent-1")],
         default_workspace=make_workspace_identity(owner_user_id="user-1"),
     )
     system, _, _, sink = _build_system(
-        store, scope, handle.asset_ref, access_gateway=composition.gateway
+        store, workspace, handle.asset_ref, access_gateway=composition.gateway
     )
 
     await system.start()

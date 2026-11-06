@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any, Protocol, runtime_checkable
 
-from hivememory.core.models.identity import IdentityScope, WorkspaceIdentity
+from hivememory.core.models.identity import WorkspaceIdentity
 from hivememory.core.models.workspace_asset import (
     AssetRepresentationKind,
     AssetSafeError,
@@ -20,32 +20,11 @@ from hivememory.core.models.workspace_asset import (
 
 @runtime_checkable
 class WorkspaceAssetReaderPort(Protocol):
-    """读取可用资产并在消费期间持有 representation 的端口。"""
+    """在消费期间持有 READY representation 的读取端口。
 
-    def resolve_asset(
-        self,
-        identity_scope: IdentityScope,
-        asset_ref: WorkspaceAssetRef,
-    ) -> WorkspaceAsset: ...
-
-    def list_workspace_assets(
-        self,
-        identity_scope: IdentityScope,
-    ) -> list[WorkspaceAssetHandle]: ...
-
-    def acquire_ready_representation(
-        self,
-        identity_scope: IdentityScope,
-        asset_ref: WorkspaceAssetRef,
-        preference: RepresentationPreference | None = None,
-    ) -> RepresentationLease: ...
-
-    def release_representation_lease(self, lease_id: str) -> bool: ...
-
-
-@runtime_checkable
-class WorkspaceAssetMaterializationReaderPort(Protocol):
-    """记忆物化使用的归属读取端口，不让后台任务携带操作 scope。"""
+    CPU 分配租借本轮选用的附件，Patchouli 在记忆物化时提升附件，两者都只
+    交出资产归属；授权由调用方在交出之前完成。
+    """
 
     def acquire_ready_representation(
         self,
@@ -63,14 +42,14 @@ class WorkspaceAssetCommandPort(Protocol):
 
     def create_asset(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         metadata: WorkspaceAssetMetadata,
         client_operation_id: str,
     ) -> WorkspaceAssetHandle: ...
 
     def register_uploaded_asset(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         metadata: WorkspaceAssetMetadata,
         client_operation_id: str,
         *,
@@ -82,7 +61,7 @@ class WorkspaceAssetCommandPort(Protocol):
 
     def register_raw_representation(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
         *,
         content_object: Any,
@@ -93,7 +72,7 @@ class WorkspaceAssetCommandPort(Protocol):
 
     def register_representation(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
         *,
         kind: AssetRepresentationKind,
@@ -103,14 +82,14 @@ class WorkspaceAssetCommandPort(Protocol):
 
     def start_representation(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
         representation_id: str,
     ) -> WorkspaceAsset: ...
 
     def complete_representation(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
         representation_id: str,
         expected_revision_or_token: int | str,
@@ -121,7 +100,7 @@ class WorkspaceAssetCommandPort(Protocol):
 
     def fail_representation(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
         representation_id: str,
         expected_revision_or_token: int | str,
@@ -131,7 +110,7 @@ class WorkspaceAssetCommandPort(Protocol):
 
     def remove_asset(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
     ) -> WorkspaceAsset: ...
 
@@ -139,5 +118,4 @@ class WorkspaceAssetCommandPort(Protocol):
 __all__ = [
     "WorkspaceAssetCommandPort",
     "WorkspaceAssetReaderPort",
-    "WorkspaceAssetMaterializationReaderPort",
 ]

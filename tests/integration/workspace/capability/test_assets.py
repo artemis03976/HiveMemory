@@ -35,7 +35,6 @@ from tests.helpers.attachment_parsing import ChunkedSource, make_upload_access, 
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
-    make_identity_scope,
     make_workspace_identity,
 )
 
@@ -141,7 +140,7 @@ async def test_upload_rejects_empty_file_without_orphan_asset() -> None:
     with pytest.raises(EmptyAttachmentError):
         await _upload(service, composition, content=b"")
 
-    assert store.list_workspace_assets(make_identity_scope(user_id="user-1")) == []
+    assert store.list_workspace_assets(make_workspace_identity(owner_user_id="user-1")) == []
 
 
 @pytest.mark.asyncio
@@ -153,7 +152,7 @@ async def test_upload_aborts_when_actual_bytes_exceed_configured_limit() -> None
     with pytest.raises(AttachmentTooLargeError):
         await _upload(service, composition, content=b"123456789")
 
-    assert store.list_workspace_assets(make_identity_scope(user_id="user-1")) == []
+    assert store.list_workspace_assets(make_workspace_identity(owner_user_id="user-1")) == []
 
 
 @pytest.mark.asyncio
@@ -188,7 +187,7 @@ async def test_upload_rejects_blank_name_with_no_side_effect() -> None:
             declared_media_type=None,
         )
 
-    assert store.list_workspace_assets(make_identity_scope(user_id="user-1")) == []
+    assert store.list_workspace_assets(make_workspace_identity(owner_user_id="user-1")) == []
 
 
 @pytest.mark.asyncio
@@ -240,7 +239,7 @@ async def test_upload_rejects_filename_over_display_length_limit() -> None:
             declared_media_type="text/plain",
         )
 
-    assert store.list_workspace_assets(make_identity_scope(user_id="user-1")) == []
+    assert store.list_workspace_assets(make_workspace_identity(owner_user_id="user-1")) == []
 
 
 @pytest.mark.asyncio
@@ -259,7 +258,7 @@ async def test_upload_rejects_unapproved_format_before_store_write() -> None:
         )
     assert error.value.reason == "unsupported_format"
 
-    assert store.list_workspace_assets(make_identity_scope(user_id="user-1")) == []
+    assert store.list_workspace_assets(make_workspace_identity(owner_user_id="user-1")) == []
 
 
 @pytest.mark.asyncio
@@ -284,7 +283,7 @@ async def test_upload_replay_reuses_registered_asset_without_second_raw() -> Non
     """捕获重复上传重复注册 RAW 或创建第二个资产。"""
     store = InMemoryWorkspaceAssetStore()
     service, composition = _service(store)
-    scope = make_identity_scope(user_id="user-1")
+    workspace = make_workspace_identity(owner_user_id="user-1")
 
     first = await _upload(
         service,
@@ -303,7 +302,7 @@ async def test_upload_replay_reuses_registered_asset_without_second_raw() -> Non
 
     assert (first.created, replay.created) == (True, False)
     assert replay.handle == first.handle
-    assets = store.list_workspace_assets(scope)
+    assets = store.list_workspace_assets(workspace)
     assert len(assets) == 1
     # 重放命中终态：不重复 register/start/parse，只有 RAW + EXTRACTED_TEXT 各一个。
     assert len(assets[0].asset.representations) == 2
@@ -332,7 +331,7 @@ async def test_upload_target_outside_resident_workspace_is_denied_before_side_ef
         )
 
     assert exc_info.value.details["reason"] == "target_workspace_not_resident"
-    assert store.list_workspace_assets(make_identity_scope(user_id="user-1")) == []
+    assert store.list_workspace_assets(make_workspace_identity(owner_user_id="user-1")) == []
 
 
 @pytest.mark.asyncio
@@ -366,4 +365,4 @@ async def test_non_system_upload_denied_and_registers_nothing() -> None:
         )
 
     assert exc_info.value.details["reason"] == "root_required"
-    assert store.list_workspace_assets(make_identity_scope(user_id="user-1")) == []
+    assert store.list_workspace_assets(make_workspace_identity(owner_user_id="user-1")) == []

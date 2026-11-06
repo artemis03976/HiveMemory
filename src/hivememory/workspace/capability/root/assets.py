@@ -29,7 +29,7 @@ class RootWorkspaceAssetService:
     """只向 system 提供上传编排，输入规则与解析接纳由附件服务负责。
 
     同 key 的门覆盖完整请求，等待方在前次请求终态或错误收尾后进入
-    Store 的重放/冲突判定；授权先于文件接收，scope 仅在本次上传内流动。
+    Store 的重放/冲突判定；授权先于文件接收，之后只把资产归属交给 Store。
     """
 
     def __init__(
@@ -58,9 +58,9 @@ class RootWorkspaceAssetService:
     ) -> WorkspaceAssetUploadReceipt:
         """接收一个文件，注册资产并返回解析终态，保留首次创建/重放标记。"""
         # 行为检查先于接收与注册副作用：不允许未经许可的上传消耗解析与
-        # 存储资源；后续全部使用操作授权者返回的可信 scope。
-        authorized_scope = self._authorizer.authorize_root(actor, target_workspace)
-        key = (authorized_scope.workspace_identity, client_operation_id)
+        # 存储资源。资产 Store 与解析服务只接收授权后的资产归属。
+        belong_to = self._authorizer.authorize_root(actor, target_workspace).workspace_identity
+        key = (belong_to, client_operation_id)
         async with self._serial_gate.hold(key):
             metadata, content, content_hash = await receive_upload(
                 file_name=file_name,
@@ -69,7 +69,7 @@ class RootWorkspaceAssetService:
                 config=self._parser_config,
             )
             receipt = self._store.register_uploaded_asset(
-                authorized_scope,
+                belong_to,
                 metadata,
                 client_operation_id,
                 raw_content_object=content,
@@ -78,7 +78,7 @@ class RootWorkspaceAssetService:
                 raw_producer_version=UPLOAD_PRODUCER_VERSION,
             )
             snapshot = await self._parse_service.parse_required_representation(
-                authorized_scope,
+                belong_to,
                 receipt.handle,
             )
             return WorkspaceAssetUploadReceipt(

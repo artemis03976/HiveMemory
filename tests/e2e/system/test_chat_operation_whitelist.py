@@ -19,7 +19,6 @@ from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
     ActorIdentity,
     AttachmentSelectionRequest,
-    IdentityScope,
     IndexLayer,
     MemoryAtom,
     MemoryType,
@@ -271,7 +270,7 @@ async def test_http_chat_with_only_search_completes_with_executor_visible_inputs
     assets = InMemoryWorkspaceAssetStore()
     asset_ref = make_ready_text_asset(
         assets,
-        IdentityScope(actor_identity=actor, workspace_identity=workspace),
+        workspace,
         operation_id="stage-chat-attachment",
         content="本轮选中的附件正文",
     )

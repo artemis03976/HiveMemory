@@ -38,7 +38,7 @@ from hivememory.config.patchouli import PatchouliConfig
 from hivememory.config.runtime import SchedulerConfig
 from hivememory.config.shared import SharedConfig
 from hivememory.core.contracts.subsystem import SubsystemProtocol
-from hivememory.core.ports.workspace_assets import WorkspaceAssetMaterializationReaderPort
+from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.patchouli.application import (
     AgentProfileManagementService,
     InteractionSubmissionService,
@@ -84,7 +84,7 @@ class PatchouliSystem(SubsystemProtocol):
         global_bus: GlobalSystemBus | None = None,
         scheduler: AsyncMaintenanceScheduler | None = None,
         runtime_events: RuntimeEventSink | None = None,
-        workspace_asset_reader: WorkspaceAssetMaterializationReaderPort | None = None,
+        workspace_asset_reader: WorkspaceAssetReaderPort | None = None,
         *,
         shared_config: SharedConfig | None = None,
         scheduler_config: SchedulerConfig | None = None,

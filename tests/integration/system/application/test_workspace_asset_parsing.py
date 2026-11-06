@@ -33,7 +33,7 @@ from tests.helpers.attachment_parsing import (
     scripted_factory,
     wait_until_condition,
 )
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_workspace_identity
 
 
 def _service(
@@ -84,9 +84,9 @@ def _raw_of(asset):
 async def test_parse_acceptance_leaves_single_tokened_target_mid_parse() -> None:
     """捕获重复注册目标、跳过 start 或聚合状态提前 READY。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = make_identity_scope(user_id="user-1")
+    workspace = make_workspace_identity(owner_user_id="user-1")
     gate = threading.Event()
-    parser = ScriptedAttachmentParser(store, scope, gate=gate)
+    parser = ScriptedAttachmentParser(store, workspace, gate=gate)
     service, composition = _service(store, scripted_factory(parser))
 
     task = asyncio.create_task(_upload(service, composition, content=b"payload"))
@@ -113,7 +113,7 @@ async def test_parse_acceptance_leaves_single_tokened_target_mid_parse() -> None
 async def test_expected_parse_failure_commits_failed_terminal_with_safe_error() -> None:
     """捕获解析失败未落终态、内容泄漏或以半份成功结果冒充。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = make_identity_scope(user_id="user-1")
+    workspace = make_workspace_identity(owner_user_id="user-1")
     parser = ScriptedAttachmentParser(
         error=AttachmentParseError(
             CONTENT_UNREADABLE,
@@ -143,7 +143,7 @@ async def test_expected_parse_failure_commits_failed_terminal_with_safe_error() 
     # RAW 保留原文，但普通 reader 拒绝 FAILED asset。
     assert raw.state == AssetRepresentationState.READY
     with pytest.raises(AssetFailedError):
-        store.resolve_asset(scope, receipt.handle.asset_ref)
+        store.resolve_asset(workspace, receipt.handle.asset_ref)
 
 
 @pytest.mark.asyncio
@@ -181,7 +181,7 @@ async def test_result_source_mismatch_is_treated_as_execution_failure() -> None:
 async def test_cancelled_request_submits_safe_failure_with_original_token() -> None:
     """捕获取消后目标滞留 PROCESSING 或异常文本被写入安全摘要。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = make_identity_scope(user_id="user-1")
+    workspace = make_workspace_identity(owner_user_id="user-1")
     gate = threading.Event()
     parser = ScriptedAttachmentParser(gate=gate)
     service, composition = _service(store, scripted_factory(parser))
@@ -192,7 +192,7 @@ async def test_cancelled_request_submits_safe_failure_with_original_token() -> N
     with pytest.raises(asyncio.CancelledError):
         await task
 
-    asset = store.list_workspace_assets(scope)[0].asset
+    asset = store.list_workspace_assets(workspace)[0].asset
     assert asset.state == WorkspaceAssetState.FAILED
     assert asset.safe_error_message == "附件解析失败，请重新上传"
     assert _extracted_of(asset).state == AssetRepresentationState.FAILED
@@ -206,7 +206,7 @@ async def test_cancelled_request_submits_safe_failure_with_original_token() -> N
 async def test_concurrent_same_key_uploads_serialize_and_parse_once() -> None:
     """捕获同 key 并发重复解析、重复注册或第二个资产被创建。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = make_identity_scope(user_id="user-1")
+    workspace = make_workspace_identity(owner_user_id="user-1")
     gate = threading.Event()
     parser = ScriptedAttachmentParser(gate=gate)
     service, composition = _service(store, scripted_factory(parser))
@@ -231,7 +231,7 @@ async def test_concurrent_same_key_uploads_serialize_and_parse_once() -> None:
     assert second.handle.asset_ref == first.handle.asset_ref
     assert first.handle.asset.state == WorkspaceAssetState.READY
     assert parser.calls == [b"same"]
-    assert len(store.list_workspace_assets(scope)) == 1
+    assert len(store.list_workspace_assets(workspace)) == 1
 
 
 @pytest.mark.asyncio

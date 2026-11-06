@@ -11,7 +11,7 @@ from hivememory.core.models import (
 )
 from hivememory.workspace.assets.parse_service import AttachmentParseService
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_workspace_identity
 
 
 @pytest.mark.asyncio
@@ -28,9 +28,9 @@ async def test_inconsistent_raw_is_failed_without_leaving_processing(
 ) -> None:
     """移除独立上传摘要参数后，仍从实际 RAW 校验摘要/大小并用原 token 收尾。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = make_identity_scope()
+    workspace = make_workspace_identity()
     receipt = store.register_uploaded_asset(
-        scope,
+        workspace,
         WorkspaceAssetMetadata(
             kind="document",
             display_name="x.txt",
@@ -46,7 +46,7 @@ async def test_inconsistent_raw_is_failed_without_leaving_processing(
     )
     service = AttachmentParseService(store, AttachmentParserConfig())
 
-    failed = await service.parse_required_representation(scope, receipt.handle)
+    failed = await service.parse_required_representation(workspace, receipt.handle)
 
     assert failed.state == WorkspaceAssetState.FAILED
     assert failed.safe_error_message == "附件解析失败，请重新上传"
@@ -54,4 +54,4 @@ async def test_inconsistent_raw_is_failed_without_leaving_processing(
         (AssetRepresentationKind.RAW, AssetRepresentationState.READY),
         (AssetRepresentationKind.EXTRACTED_TEXT, AssetRepresentationState.FAILED),
     ]
-    assert store.list_workspace_assets(scope)[0].asset == failed
+    assert store.list_workspace_assets(workspace)[0].asset == failed

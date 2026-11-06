@@ -84,7 +84,6 @@ Workspace 的访问、能力层与任务进程规则较多。改动这些区域�
 - **任务进程与执行线程**（[任务进程](docs/workspace/task-process.md)、[执行线程](docs/workspace/execution-threads.md)）：进程与线程只负责存活与派发话题，不承载授权。进程记录持有注册时认证的执行者与系统的 root 工作 actor，线程记录持有自己的工作 actor；CPU 只拿到不透明的线程句柄，线程表按对象身份核对。`ProcessThreads` 是派生、结束与解析线程的唯一入口，存活只有一个判定（线程未结束且进程仍在运行）。执行者经提交函数 `OperationSubmitter` 提交 `OperationRequest`；请求只携带操作参数，不暴露线程句柄或工作 actor，也不能切换目标 Workspace 或指定 `process_id`。
 - **身份数据**（[身份与授权](docs/workspace/identity-and-authorization.md)）：工作 actor、`IdentityScope`、`ExecutionLabels` 与操作快照各有形态，不得互相代替。工作 actor 只由认证一侧构造，只留在进程记录、线程记录与入口调用链中，不进入资源 owner 或 CPU 可见的对象；`IdentityScope` 只由授权点组装，只在一次操作的调用链内传递；两者都不写入记录、事件或后台任务；标签与操作快照只用于观测、提示词与执行策略，不参与授权。资源 owner 在公共边界把 scope 拆为资源归属与发起者；资源授权在 owner 处进行，先校验归属等于目标 Workspace，再按资源 policy 判断发起者的可见性。
 - **会话**（[会话资源](docs/workspace/sessions.md)）：ConversationSession 属于 Workspace，不属于 Agent；同一会话同时只允许一个任务进程；会话原文不删改，压缩只产生检查点；会话管理只经 root API。
-- **已知例外**：`WorkspaceAssetStore`、解析服务与既有资产 Reader/Command 端口仍以旧 `IdentityScope` 做归属检查，System 的 `AssetMaterializationReader` 为此在一次租借内组装 scope。此例外仅限该适配器，不得扩散，后续拆分见 [WorkspaceAsset 归属拆分 Todo](docs/todo/workspace-asset-ownership-identity-split.md)。
 
 ## 4. 关键流程不变量
 

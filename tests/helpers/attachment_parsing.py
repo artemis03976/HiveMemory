@@ -93,7 +93,7 @@ class ScriptedAttachmentParser:
     def __init__(
         self,
         store=None,
-        scope=None,
+        belong_to=None,
         *,
         error: Exception | None = None,
         producer_override: str | None = None,
@@ -101,7 +101,7 @@ class ScriptedAttachmentParser:
         gate: threading.Event | None = None,
     ) -> None:
         self._store = store
-        self._scope = scope
+        self._belong_to = belong_to
         self._error = error
         self._producer_override = producer_override
         self._result_text = result_text
@@ -121,8 +121,8 @@ class ScriptedAttachmentParser:
         clock=None,
     ):
         self.calls.append(raw)
-        if self._store is not None and self._scope is not None:
-            self.snapshots_at_parse.append(self._store.list_workspace_assets(self._scope))
+        if self._store is not None and self._belong_to is not None:
+            self.snapshots_at_parse.append(self._store.list_workspace_assets(self._belong_to))
         self.started.set()
         if self._gate is not None:
             self._gate.wait(timeout=10)
