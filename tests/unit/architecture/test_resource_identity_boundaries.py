@@ -1,4 +1,4 @@
-"""资源 owner 的身份边界约束：操作 scope 与工作 actor 不进入 Patchouli 内部和长期载体。"""
+"""资源 owner 的身份边界约束：操作 scope 与工作 actor 不进入 Patchouli 内部、资产 owner 和长期载体。"""
 
 from __future__ import annotations
 
@@ -73,6 +73,20 @@ def test_patchouli_engines_do_not_reference_identity_scope():
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
             for line in sorted(set(_symbol_references(tree, IDENTITY_SCOPE_SYMBOLS))):
                 violations.append(f"{path.relative_to(SRC_ROOT).as_posix()}:{line}")
+    assert violations == []
+
+
+def test_workspace_asset_owner_does_not_reference_identity_scope():
+    """资产 Store、解析服务与资产端口在授权点以下，只接收资产归属，不引用操作 scope。"""
+    files = [
+        *_source_files(SRC_ROOT / "workspace" / "assets"),
+        SRC_ROOT / "core" / "ports" / "workspace_assets.py",
+    ]
+    violations = []
+    for path in files:
+        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
+        for line in sorted(set(_symbol_references(tree, IDENTITY_SCOPE_SYMBOLS))):
+            violations.append(f"{path.relative_to(SRC_ROOT).as_posix()}:{line}")
     assert violations == []
 
 
