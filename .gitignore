@@ -42,6 +42,9 @@ config/.env
 # Provider Secrets (API keys managed via UI — use providers.secrets.example.yaml as template)
 configs/providers.secrets.yaml
 
+# HTTP 管理面的管理凭据（后端首次启动时生成）
+configs/management.token
+
 # Database
 *.db
 *.sqlite

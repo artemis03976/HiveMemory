@@ -16,3 +16,5 @@ frontend/dist
 tests
 docs
 scripts
+# configs/ 会被 COPY 进镜像；本机密钥不进镜像，运行时经 Compose 挂载的 configs 目录读取
+configs/management.token

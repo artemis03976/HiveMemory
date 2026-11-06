@@ -6,7 +6,8 @@ services:
       dockerfile: docker/Dockerfile
     container_name: hivememory_app
     ports:
-      - "8000:8000"
+      # 只在宿主的本机地址上开放；需要局域网访问时自行改回 "8000:8000"
+      - "127.0.0.1:8000:8000"
     env_file:
       - path: ../.env
         required: false
