@@ -2,7 +2,7 @@
 title: 统一身份授权入口
 status: archived
 archived_at: 2026-11-06
-implemented_by: 分支 refactor/unified-identity-authorization-entry，提交 1d44659a..df45e5b9 与文档收尾提交
+implemented_by: PR #184（提交 1d44659a..df45e5b9 与文档收尾提交）
 superseded_by: docs/workspace/identity-and-authorization.md
 owner: workspace
 target: 版本之外的工作（身份与访问主线，owner 2026-11-05 定为不绑定版本的主线方向）

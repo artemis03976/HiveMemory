@@ -2,7 +2,7 @@
 title: Import Bus 的授权移入能力层
 status: archived
 archived_at: 2026-11-06
-implemented_by: 分支 refactor/unified-identity-authorization-entry，提交 248c4e67、5144038e 与文档收尾提交
+implemented_by: PR #184（提交 248c4e67、5144038e 与文档收尾提交）
 superseded_by: docs/system/import-bus.md
 owner: system
 target: 版本之外的工作（身份与访问主线，统一身份授权入口的后续）
