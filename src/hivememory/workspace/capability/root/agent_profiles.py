@@ -15,7 +15,7 @@ from hivememory.patchouli.contracts import AgentProfileCreation, PatchouliRoutes
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
-    from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.core.access import WorkingActor
     from hivememory.core.models import WorkspaceIdentity
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 
@@ -42,14 +42,14 @@ class RootAgentProfileService:
         content: str = "",
         tags: list[str],
         agent_config: dict[str, Any] | None = None,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> MemoryAtom:
         """在目标 Workspace 中创建 Agent Profile（root 管理用例）。
 
         只提交创建材料，原子由 Patchouli 构造；字段非法时 Patchouli 以
         ``InvalidMemoryFieldError`` 拒绝。
         """
-        scope = self._authorizer.authorize_root(access, target_workspace)
+        scope = self._authorizer.authorize_root(actor, target_workspace)
         return await self._global_bus.request(
             PatchouliRoutes.AGENT_PROFILE_CREATE,
             identity_scope=scope,
@@ -68,10 +68,10 @@ class RootAgentProfileService:
         *,
         target_workspace: WorkspaceIdentity,
         limit: int = 100,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> list[MemoryAtom]:
         """在目标 Workspace 中列出 Agent Profile（root 管理用例）。"""
-        scope = self._authorizer.authorize_root(access, target_workspace)
+        scope = self._authorizer.authorize_root(actor, target_workspace)
         return await self._global_bus.request(
             PatchouliRoutes.AGENT_PROFILE_LIST,
             identity_scope=scope,

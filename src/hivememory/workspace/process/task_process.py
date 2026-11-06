@@ -1,13 +1,13 @@
 """任务进程 — 一次进程的状态容器。
 
 任务进程是运行时的状态容器：只持有本进程独有的东西
-——进程记录（控制面：访问 context、观测标签、阶段与终态、绑定了本进程
-关联字段的事件通道）、任务参数、工作集（待释放与
+——进程记录（控制面：执行者与系统的工作 actor、观测标签、阶段与终态、
+绑定了本进程关联字段的事件通道）、任务参数、工作集（待释放与
 待补偿的资源）、线程表（Actor 阶段内的执行线程）、``trace_id``、进程 task
 与输出通道。跨进程共享的编排依赖
 （总线、CPU 端口、CPU 分配器、操作授权者、Gateway 超时配置）只由四阶段
 骨架（``workspace.process.runner`` 的 ``TaskProcessRunner``）持有；进程
-task 的创建、进程的登记、注销与 context 失效由注册入口
+task 的创建、进程的登记与注销由注册入口
 （``workspace.process.service``）负责。进程记录与 ``TaskProcess`` 都不
 离开注册入口。
 """
@@ -27,7 +27,7 @@ from hivememory.workspace.process.working_set import ProcessWorkingSet
 
 @dataclass(frozen=True, kw_only=True)
 class ProcessRequest:
-    """一次任务进程的任务参数（注册完成后冻结，不含身份凭据）。
+    """一次任务进程的任务参数（注册完成后冻结，不含身份）。
 
     ``message`` 是交给 Gateway 分析的指令文本：主动请求是用户本次发出的
     消息。``target_workspace`` 是注册时通过认证的请求进入 workspace：它是

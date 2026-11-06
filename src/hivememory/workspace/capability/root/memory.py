@@ -25,7 +25,7 @@ from hivememory.patchouli.contracts import (
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
-    from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.core.access import WorkingActor
     from hivememory.core.models import WorkspaceIdentity
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 
@@ -52,7 +52,7 @@ class RootMemoryService:
         memory_type: MemoryType,
         tags: list[str],
         alias: str | None = None,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> MemoryAtom:
         """管理创建入口（root 授权）：在目标 Workspace 中创建 Memory。
 
@@ -61,7 +61,7 @@ class RootMemoryService:
         不参与可见性授权；字段非法时 Patchouli 以 ``InvalidMemoryFieldError``
         拒绝。
         """
-        scope = self._authorizer.authorize_root(access, target_workspace)
+        scope = self._authorizer.authorize_root(actor, target_workspace)
         return await self._global_bus.request(
             PatchouliRoutes.MEMORY_CREATE,
             identity_scope=scope,
@@ -83,7 +83,7 @@ class RootMemoryService:
         memory_type: str | None = None,
         limit: int = 20,
         cursor: str | None = None,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> MemoryListPage:
         """管理读取入口（root 授权）：在目标 Workspace 中列出一页 Memory。
 
@@ -91,7 +91,7 @@ class RootMemoryService:
         Profile），不做 Agent ``MemoryAccessPolicy`` 过滤；没有 ``query``
         时把上一页的 ``next_cursor`` 作为 ``cursor`` 传回即取得下一页。
         """
-        scope = self._authorizer.authorize_root(access, target_workspace)
+        scope = self._authorizer.authorize_root(actor, target_workspace)
         filters = self._build_filters(memory_type=memory_type)
         return await self._global_bus.request(
             PatchouliRoutes.MEMORY_LIST,
@@ -109,10 +109,10 @@ class RootMemoryService:
         memory_id: UUID,
         *,
         target_workspace: WorkspaceIdentity,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> MemoryAtom:
         """管理读取入口（root 授权）：在目标 Workspace 中读取 Memory。"""
-        scope = self._authorizer.authorize_root(access, target_workspace)
+        scope = self._authorizer.authorize_root(actor, target_workspace)
         atom = await self._global_bus.request(
             PatchouliRoutes.MEMORY_GET,
             memory_id,
@@ -134,10 +134,10 @@ class RootMemoryService:
         alias: str | None = None,
         tags: list[str] | None = None,
         agent_config: dict | None = None,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> MemoryAtom:
         """管理更新入口（root 授权）：显式授权 mutation，且不改变原 ownership/provenance。"""
-        scope = self._authorizer.authorize_root(access, target_workspace)
+        scope = self._authorizer.authorize_root(actor, target_workspace)
         atom = await self._global_bus.request(
             PatchouliRoutes.MEMORY_UPDATE,
             memory_id,
@@ -162,10 +162,10 @@ class RootMemoryService:
         target_workspace: WorkspaceIdentity,
         positive: bool,
         source: str,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ):
         """管理反馈入口（root 授权）：在目标 Workspace 中记录反馈。"""
-        scope = self._authorizer.authorize_root(access, target_workspace)
+        scope = self._authorizer.authorize_root(actor, target_workspace)
         return await self._global_bus.request(
             PatchouliRoutes.MEMORY_RECORD_FEEDBACK,
             memory_id,
@@ -179,10 +179,10 @@ class RootMemoryService:
         memory_id: UUID,
         *,
         target_workspace: WorkspaceIdentity,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> bool:
         """管理删除入口（root 授权）：在目标 Workspace 中删除 Memory。"""
-        scope = self._authorizer.authorize_root(access, target_workspace)
+        scope = self._authorizer.authorize_root(actor, target_workspace)
         return await self._global_bus.request(
             PatchouliRoutes.MEMORY_DELETE,
             memory_id,

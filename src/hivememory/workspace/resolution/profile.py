@@ -11,6 +11,11 @@
 
 读取 Profile 不等于获得其描述的权限；选择 Profile、绑定模型/工具与应用
 执行限制归 Actor runtime。
+
+管理读取（``enforce_actor_visibility=False``）供任务进程以 root scope 加载
+执行者自己的图纸：缓存命中与冷读都只检查 Workspace 归属，不按 scope 的
+actor 检查可见性，与 root API 读取记忆的管理语义相同。CALL 解析被调用方的
+图纸仍按调用方的可见性交付。
 """
 
 from __future__ import annotations
@@ -42,11 +47,13 @@ class ProfileResolver:
         agent_alias: str | None,
         *,
         scope: IdentityScope,
+        enforce_actor_visibility: bool = True,
     ) -> AgentProfile:
         """解析并交付 AgentProfile 独立副本。
 
         缺失、不可见、类型不符或配置损坏均按 backing 的既有错误失败，不降级
         为默认配置；命中后对当前 Actor 不可见时与"不存在"同样表达，不泄露资源是否存在。
+        ``enforce_actor_visibility=False`` 是管理读取，命中与冷读都不检查可见性。
         """
         self._guard.ensure_open()
         workspace = scope.workspace_identity
@@ -54,11 +61,13 @@ class ProfileResolver:
         if alias:
             cached = self._cache.get(workspace, alias)
             if cached is not None:
-                return self._deliver(cached, alias, scope)
+                return self._deliver(cached, alias, scope, enforce_actor_visibility)
 
         resolved, fill = await self._guard.load(
             workspace,
-            lambda: self._backing.get_agent_profile(alias or None, scope=scope),
+            lambda: self._backing.get_agent_profile(
+                alias or None, scope=scope, enforce_actor_visibility=enforce_actor_visibility
+            ),
         )
         policy = resolved.access_policy
         source_memory_id = resolved.source_memory_id
@@ -76,12 +85,22 @@ class ProfileResolver:
         )
         if fill:
             self._cache.put(workspace, alias, entry)
-        return self._deliver(entry, alias, scope)
+        return self._deliver(entry, alias, scope, enforce_actor_visibility)
 
     @staticmethod
-    def _deliver(entry: ProfileCacheEntry, alias: str, scope: IdentityScope) -> AgentProfile:
-        """交付边界逐次授权：按条目随存的源原子 policy 判定当前 Actor。"""
-        if not access_policy_permits(entry.access_policy, scope.actor_identity):
+    def _deliver(
+        entry: ProfileCacheEntry,
+        alias: str,
+        scope: IdentityScope,
+        enforce_actor_visibility: bool,
+    ) -> AgentProfile:
+        """交付边界逐次授权：按条目随存的源原子 policy 判定当前 Actor；管理读取跳过。
+
+        缓存按 ``(Workspace, alias)`` 分区，归属已由键保证，管理读取不需要另查。
+        """
+        if enforce_actor_visibility and not access_policy_permits(
+            entry.access_policy, scope.actor_identity
+        ):
             raise ResourceNotFoundError(details={"resource": "agent_profile", "agent_alias": alias})
         return entry.profile.model_copy(deep=True)
 

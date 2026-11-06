@@ -37,16 +37,21 @@ from hivememory.workspace.thread_ports import ExecutionThreadTable
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
-    from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.core.access import WorkingActor
     from hivememory.core.models import IdentityScope
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
+    from hivememory.workspace.contracts.threads import ThreadHandle
     from hivememory.workspace.resolution.memory import MemoryReader
 
 logger = logging.getLogger(__name__)
 
 
 class ActorMemoryService:
-    """actor 资源入口，访问 context 只由本层授权并转为本次操作 scope。"""
+    """actor 资源入口：每个方法在入口以工作 actor 授权，转为本次操作的 scope。
+
+    工作 actor 由操作入口交来：线程提交取自线程表的解析结果，请求级提交取自
+    入口的认证结果。目标取工作 actor 的驻留 Workspace。
+    """
 
     def __init__(
         self,
@@ -67,17 +72,16 @@ class ActorMemoryService:
         self,
         request: SubmitWriteIntentRequest,
         *,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
+        thread: ThreadHandle | None = None,
         dispatch_topic_id: str | None = None,
     ) -> PendingAtom:
         """提交 WRITE（``memory.write``），生成队列接纳后才返回 ACK。
 
-        ``dispatch_topic_id`` 只由不建进程的请求级提交给出，见 :meth:`_resolve_for_dispatch`。
+        ``thread`` 与 ``dispatch_topic_id`` 恰有其一，见 :meth:`_resolve_for_dispatch`。
         """
-        scope = self._authorize(
-            access, WorkspaceOperation.MEMORY_WRITE, request_level=dispatch_topic_id is not None
-        )
-        process_id, thread_id, topic_id = self._resolve_for_dispatch(access, dispatch_topic_id)
+        scope = self._authorize(actor, WorkspaceOperation.MEMORY_WRITE)
+        process_id, thread_id, topic_id = self._resolve_for_dispatch(thread, dispatch_topic_id)
         pending = self._intents.register_write(
             request.focus,
             belong_to=scope.workspace_identity,
@@ -91,23 +95,22 @@ class ActorMemoryService:
         self,
         request: SubmitUpdateIntentRequest,
         *,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
+        thread: ThreadHandle | None = None,
         dispatch_topic_id: str | None = None,
     ) -> PendingAtom:
         """提交 UPDATE（``memory.update``）：授权后解析可读正式基础原子，登记成功才失效基础缓存。
 
-        ``dispatch_topic_id`` 只由不建进程的请求级提交给出，见 :meth:`_resolve_for_dispatch`。
+        ``thread`` 与 ``dispatch_topic_id`` 恰有其一，见 :meth:`_resolve_for_dispatch`。
         """
-        scope = self._authorize(
-            access, WorkspaceOperation.MEMORY_UPDATE, request_level=dispatch_topic_id is not None
-        )
+        scope = self._authorize(actor, WorkspaceOperation.MEMORY_UPDATE)
         result = (await self._reader.resolve_references([request.base_alias], scope=scope))[0]
         if result.kind == "pending":
             raise PendingUpdateNotAllowedError(details={"alias": request.base_alias})
         if result.kind != "atom" or result.atom is None:
             raise ResourceNotFoundError(details={"alias": request.base_alias})
         atom = result.atom
-        process_id, thread_id, topic_id = self._resolve_for_dispatch(access, dispatch_topic_id)
+        process_id, thread_id, topic_id = self._resolve_for_dispatch(thread, dispatch_topic_id)
         pending = self._intents.register_update(
             UpdateFocus(
                 base_alias=atom.index.alias or request.base_alias,
@@ -124,21 +127,24 @@ class ActorMemoryService:
         return await self._dispatch(pending, topic_id=topic_id, scope=scope)
 
     def _resolve_for_dispatch(
-        self, access: WorkspaceAccessContext, dispatch_topic_id: str | None
+        self, thread: ThreadHandle | None, dispatch_topic_id: str | None
     ) -> tuple[str | None, str | None, str]:
         """登记前的同步段：取得进程关联、线程标识与派发话题。
 
-        请求级提交没有线程：派发话题由调用方给出，是为这一轮落位得到的话题，
-        登记不带进程与线程关联；授权已确认 context 是请求级的。
+        线程提交给出线程句柄，请求级提交给出派发话题，二者恰有其一，否则是
+        接线缺陷，以 ``TypeError`` 拒绝。请求级提交没有线程：派发话题是调用方
+        为这一轮落位得到的话题，登记不带进程与线程关联。
 
-        线程提交只解析一次线程，三者都取自结果。从这里到登记结束不挂起，线程
-        结束与停止都不能插入同步段；UPDATE 的基础冷读在此之前，冷读跨越线程
-        结束或停止时在这里拒绝，不产生意图。
+        线程提交在这里再解析一次线程，三者都取自结果。从这里到登记结束不挂起，
+        线程结束与停止都不能插入同步段；UPDATE 的基础冷读在此之前，冷读跨越
+        线程结束或停止时在这里拒绝，不产生意图。
         """
-        if dispatch_topic_id is not None:
+        if thread is not None and dispatch_topic_id is None:
+            resolved = self._threads.resolve(thread)
+            return resolved.process_id, resolved.thread_id, resolved.dispatch_topic_id
+        if thread is None and dispatch_topic_id is not None:
             return None, None, dispatch_topic_id
-        thread = self._threads.resolve(access)
-        return thread.process_id, thread.thread_id, thread.dispatch_topic_id
+        raise TypeError("写入与更新需要线程句柄或派发话题，二者恰有其一")
 
     async def _dispatch(
         self, pending: PendingAtom, *, topic_id: str, scope: IdentityScope
@@ -241,7 +247,7 @@ class ActorMemoryService:
         self,
         request: ResolveReferencesRequest,
         *,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> list[ReferenceResolution]:
         """读取引用（``memory.read``），为本次交付的正式原子逐一记录引用。
 
@@ -249,21 +255,21 @@ class ActorMemoryService:
         只处理 atom 或带可读原子的 redirect；缓存命中也记录。记录失败只
         影响日志，不改变读取结果，取消则继续传播给调用方。
         """
-        scope = self._authorize(access, WorkspaceOperation.MEMORY_READ)
+        scope = self._authorize(actor, WorkspaceOperation.MEMORY_READ)
         return await self._resolve_and_record_citations(list(request.aliases), scope=scope)
 
     async def resolve_run_target(
         self,
         request: ResolveRunTargetRequest,
         *,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> ReferenceResolution:
         """解析 RUN 的单个执行目标（``memory.run``），交付时记录正式引用。
 
         RUN 与 READ 独立授权；资源可见性与引用副作用沿用同一读取视图，
         返回中立解析结果，目标是否可执行仍由 Actor 的工具运行时判断。
         """
-        scope = self._authorize(access, WorkspaceOperation.MEMORY_RUN)
+        scope = self._authorize(actor, WorkspaceOperation.MEMORY_RUN)
         return (await self._resolve_and_record_citations([request.alias], scope=scope))[0]
 
     async def _resolve_and_record_citations(
@@ -303,7 +309,7 @@ class ActorMemoryService:
         self,
         request: RetrieveRequest,
         *,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> list[MemoryAtom]:
         """语义检索（``memory.search``）：保持领域排序，结果协作预热缓存。
 
@@ -311,7 +317,7 @@ class ActorMemoryService:
         ``IdentityScope`` 不进入调用方输入，
         不能据请求体重新选择 Workspace。
         """
-        scope = self._authorize(access, WorkspaceOperation.MEMORY_SEARCH)
+        scope = self._authorize(actor, WorkspaceOperation.MEMORY_SEARCH)
         retrieval = RetrievalRequest(
             semantic_query=request.semantic_query,
             keywords=list(request.keywords),
@@ -321,14 +327,6 @@ class ActorMemoryService:
         )
         return await self._reader.search(retrieval, scope=scope)
 
-    def _authorize(
-        self,
-        access: WorkspaceAccessContext,
-        operation: WorkspaceOperation,
-        *,
-        request_level: bool = False,
-    ) -> IdentityScope:
-        """在 backing 调用前执行操作授权，返回组装的可信 scope。"""
-        return self._authorizer.authorize_actor_operation(
-            access, operation, request_level=request_level
-        )
+    def _authorize(self, actor: WorkingActor, operation: WorkspaceOperation) -> IdentityScope:
+        """在 backing 调用前对驻留 Workspace 执行操作授权，返回组装的可信 scope。"""
+        return self._authorizer.authorize_agent(actor, operation, actor.workspace)

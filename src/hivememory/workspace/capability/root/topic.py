@@ -12,7 +12,7 @@ from hivememory.patchouli.contracts.topic_management import (
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
-    from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.core.access import WorkingActor
     from hivememory.core.models import TopicSnapshot, WorkspaceIdentity
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 
@@ -33,10 +33,10 @@ class RootTopicService:
         self,
         *,
         target_workspace: WorkspaceIdentity,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> tuple[TopicSnapshot, ...]:
         """列出活跃 Topic 快照（root 管理读取）。"""
-        scope = self._authorizer.authorize_root(access, target_workspace)
+        scope = self._authorizer.authorize_root(actor, target_workspace)
         return await self._global_bus.request(
             PatchouliRoutes.TOPIC_LIST_ACTIVE,
             identity_scope=scope,
@@ -47,10 +47,10 @@ class RootTopicService:
         *,
         target_workspace: WorkspaceIdentity,
         topic_id: str,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> TopicSettleResult:
         """结算 Topic（root 授权），并原样返回 Patchouli 的业务结果。"""
-        scope = self._authorizer.authorize_root(access, target_workspace)
+        scope = self._authorizer.authorize_root(actor, target_workspace)
         return await self._global_bus.request(
             PatchouliRoutes.MANUAL_SETTLE_TOPIC,
             identity_scope=scope,
@@ -62,10 +62,10 @@ class RootTopicService:
         *,
         target_workspace: WorkspaceIdentity,
         topic_id: str,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> TopicEvictionResult:
         """删除 Topic（root 授权），并原样返回 Patchouli 的驱逐结果。"""
-        scope = self._authorizer.authorize_root(access, target_workspace)
+        scope = self._authorizer.authorize_root(actor, target_workspace)
         return await self._global_bus.request(
             PatchouliRoutes.EVICT_TOPIC,
             identity_scope=scope,

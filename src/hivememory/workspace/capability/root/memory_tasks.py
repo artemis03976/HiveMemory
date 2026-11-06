@@ -9,7 +9,7 @@ from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationTask
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
-    from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.core.access import WorkingActor
     from hivememory.core.models import WorkspaceIdentity
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 
@@ -30,10 +30,10 @@ class RootMemoryTaskService:
         self,
         *,
         target_workspace: WorkspaceIdentity,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> list[MemoryGenerationTask]:
         """列出本 Workspace 的记忆生成任务（root 授权）。"""
-        scope = self._authorizer.authorize_root(access, target_workspace)
+        scope = self._authorizer.authorize_root(actor, target_workspace)
         return await self._global_bus.request(
             PatchouliRoutes.MEMORY_TASK_LIST,
             identity_scope=scope,
@@ -44,13 +44,13 @@ class RootMemoryTaskService:
         task_id: str,
         *,
         target_workspace: WorkspaceIdentity,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> MemoryGenerationTask:
         """读取单个记忆生成任务（root 授权）。
 
         不存在与越域由资源 owner 统一以 ``ResourceNotFoundError`` 拒绝，不返回 ``None``。
         """
-        scope = self._authorizer.authorize_root(access, target_workspace)
+        scope = self._authorizer.authorize_root(actor, target_workspace)
         return await self._global_bus.request(
             PatchouliRoutes.MEMORY_TASK_GET,
             task_id,
@@ -62,10 +62,10 @@ class RootMemoryTaskService:
         task_id: str,
         *,
         target_workspace: WorkspaceIdentity,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> bool:
         """取消记忆生成任务（root 管理操作）。"""
-        scope = self._authorizer.authorize_root(access, target_workspace)
+        scope = self._authorizer.authorize_root(actor, target_workspace)
         return await self._global_bus.request(
             PatchouliRoutes.MEMORY_TASK_CANCEL,
             task_id,

@@ -8,14 +8,14 @@ from hivememory.core.access import WorkspaceOperation
 from hivememory.workspace.contracts.operations import DeriveCallThreadRequest
 
 if TYPE_CHECKING:
-    from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.core.access import WorkingActor
     from hivememory.core.models.agent import AgentProfile
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
     from hivememory.workspace.resolution.profile import ProfileResolver
 
 
 class ActorAgentService:
-    """actor 资源入口，访问 context 只由本层授权并转为本次操作 scope。"""
+    """actor 资源入口：在入口以工作 actor 授权，转为本次操作的 scope。"""
 
     def __init__(
         self,
@@ -30,14 +30,18 @@ class ActorAgentService:
         self,
         request: DeriveCallThreadRequest,
         *,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> AgentProfile:
         """CALL 的 actor 操作（``agent.call``）：以调用方可见的图纸确定被调用方。
 
-        只做权限检查与图纸解析，结果只有图纸、不含凭据；子线程的派生与结束是
-        线程的生命周期动作，由操作入口在同一次提交内交给线程表。未指定 alias
-        或显式选择 ``default`` / ``omni_doll`` 时返回内置 Profile；自定义 alias
-        缺失、不可见、类型不符或配置损坏均显式失败，不降级为默认配置。
+        ``actor`` 是调用方线程的工作 actor，目标取它的驻留 Workspace；图纸按
+        调用方的可见性解析。只做权限检查与图纸解析，结果只有图纸、不含身份；
+        子线程的派生与结束是线程的生命周期动作，由操作入口在同一次提交内交给
+        线程表。未指定 alias 或显式选择 ``default`` / ``omni_doll`` 时返回内置
+        Profile；自定义 alias 缺失、不可见、类型不符或配置损坏均显式失败，不
+        降级为默认配置。
         """
-        scope = self._authorizer.authorize_actor_operation(access, WorkspaceOperation.AGENT_CALL)
+        scope = self._authorizer.authorize_agent(
+            actor, WorkspaceOperation.AGENT_CALL, actor.workspace
+        )
         return await self._profile_reader.get(request.agent_alias, scope=scope)

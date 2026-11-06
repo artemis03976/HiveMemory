@@ -19,6 +19,6 @@ def mtp_verbs_for_operations(operations: frozenset[WorkspaceOperation]) -> froze
     """翻译提示词与执行策略；系统工具不设权限，因此 RUN 始终可用。
 
     没有 ``memory.run`` 时，RUN 的记忆目标仍由 actor API 逐次拒绝。
-    此处不兑现访问凭据，也不代替 workspace 的操作授权。
+    此处不涉及身份，也不代替 workspace 的操作授权。
     """
     return frozenset({MTPVerb.RUN.value, *(_OPERATION_VERBS[op] for op in operations)})
