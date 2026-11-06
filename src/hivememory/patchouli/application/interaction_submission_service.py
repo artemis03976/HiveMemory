@@ -96,7 +96,7 @@ class InteractionSubmissionService:
     async def interaction_status(
         self, *, identity_scope: IdentityScope, interaction_id: str
     ) -> InteractionStatus | None:
-        """回答该交互在提交队列中的进度，供提交方在重发前查重、续接上一轮的落点。
+        """回答该交互在提交队列中的进度，供提交方在重发前查重、续接上一轮所在的话题。
 
         归属是硬边界：同名交互已由另一个 Workspace 提交时以
         ``WorkspaceMismatchError`` 拒绝，不把其他 Workspace 的接纳当作重复。
@@ -119,7 +119,7 @@ class InteractionSubmissionService:
     ) -> InteractionStatus | None:
         """等待交互应用到终态或超时，返回此时的进度；未被接纳时返回 ``None``。
 
-        供需要“应用完成后才确认”的提交方使用：成功时进度带真实落点，超时
+        供需要“应用完成后才确认”的提交方使用：成功时进度带实际所在的话题，超时
         时仍为 ``pending``，队列停止时返回停止那一刻的进度。归属校验与
         ``interaction_status`` 相同，先于等待完成。
         """

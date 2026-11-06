@@ -121,7 +121,7 @@ owner 对这些层层概念不满意，代码可读性差到无法理解现状�
 - WorkspaceAsset 的归属拆分：资产桥接自行构造 `IdentityScope` 的例外保留（[WorkspaceAsset 归属拆分 Todo](../../todo/workspace-asset-ownership-identity-split.md)）。
 - 两阶段认证的检查内容、登记的生效时点（E-1）与接入凭据。
 - 历史对话导入本身：本计划只让交互提交成为 root 能力，历史导入将来经它提交。
-- MCP 写入与更新的顺序：先落位、再授权写入，保持 [MCP 记忆访问](../../contracts/mcp.md#4-落位操作入口与授权)第 4 节的现状。
+- MCP 写入与更新的顺序：先落位、再授权写入，保持 [MCP 记忆访问](../../contracts/mcp.md#4-确定话题操作入口与授权)第 4 节的现状。
 - 后台任务：以 `system` 发起的 SETTLE 等任务只携带 `belong_to` 与 `from_actor`，不在这条主线上，不变。
 
 ## 3. 当前状态和缺口

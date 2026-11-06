@@ -1,13 +1,13 @@
-"""Import Bus 应用服务：把一次导入或落位请求翻译为 root 授权与一次编排调用。
+"""Import Bus 应用服务：把一次导入或确定话题请求翻译为 root 授权与一次编排调用。
 
 server 与 MCP 入口以请求声明的 principal、凭据与 (user, 具体 Agent) 经统一
 认证网关认证，得到请求的工作 actor：它证明请求来自哪个调用来源、参与者是
-哪个 Agent。导入与落位都是系统级操作，Agent 不能拥有：本服务再以系统自身
+哪个 Agent。导入与确定话题都是系统级操作，Agent 不能拥有：本服务再以系统自身
 的 principal 认证同一用户在参与者驻留 Workspace 的 ``system``，以 root 授权
 得到本次请求内有效的 ``IdentityScope``，连同参与的 Agent 与 principal 标识
 交给编排器。system 驻留在参与者的 Workspace，root 授权因此同时确认目标就是
 参与者驻留的 Workspace。actor 操作白名单不参与，空白名单的 Agent 也能导入；
-落位之后的写入与更新仍由 actor API 按请求的工作 actor 逐次授权。
+确定话题之后的写入与更新仍由 actor API 按请求的工作 actor 逐次授权。
 """
 
 from __future__ import annotations
@@ -28,7 +28,7 @@ from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 
 
 class ImportBusService:
-    """外部 harness 交互导入与写入时落位的入口服务，不持有跨请求的业务状态。
+    """外部 harness 交互导入与写入时确定话题的入口服务，不持有跨请求的业务状态。
 
     ``system_principal`` 与 ``system_adapter`` 是组合根注入的系统自身调用来源，
     与任务进程的注册入口相同。
@@ -77,10 +77,10 @@ class ImportBusService:
         actor: WorkingActor,
         target_workspace: WorkspaceIdentity,
     ) -> str:
-        """为仍在进行的一轮落位，返回落点话题的真实 id。
+        """为仍在进行的一轮确定话题，返回该话题的真实 id。
 
-        写入与更新在交互进行中提交，以落点话题派发；同一轮再次落位返回同一
-        落点，这一轮结束导入时沿用它。``actor`` 与 ``target_workspace`` 的
+        写入与更新在交互进行中提交，以该话题派发；同一轮再次请求返回同一
+        话题，这一轮结束导入时沿用它。``actor`` 与 ``target_workspace`` 的
         含义与导入相同；认证与授权失败按访问错误原样传播。
         """
         _system_actor, scope = await self._authorize_system(actor, target_workspace)

@@ -22,7 +22,7 @@ last_reviewed: 2026-11-06
 
 # 能力层
 
-能力层是 workspace 对外提供资源能力的地方。它对外有两个互不导入的 API 面：只供保留 `system` 的 root API，与只经操作入口供 actor 使用的 actor API；任务进程另有自己的阶段调用。三者都是授权点，能力层的 API 代表谁在执行这项操作：每个方法在入口以执行者调用 `WorkspaceOperationAuthorizer` 的两个授权方法之一——actor 执行期间的操作以 `authorize_agent`，系统级操作以 `authorize_root`（[身份与授权](./identity-and-authorization.md#4-操作授权)）。System 的 Import Bus 服务也以 `authorize_root` 授权导入与落位，它不是能力层的调用面，提交交互则经 root API。
+能力层是 workspace 对外提供资源能力的地方。它对外有两个互不导入的 API 面：只供保留 `system` 的 root API，与只经操作入口供 actor 使用的 actor API；任务进程另有自己的阶段调用。三者都是授权点，能力层的 API 代表谁在执行这项操作：每个方法在入口以执行者调用 `WorkspaceOperationAuthorizer` 的两个授权方法之一——actor 执行期间的操作以 `authorize_agent`，系统级操作以 `authorize_root`（[身份与授权](./identity-and-authorization.md#4-操作授权)）。System 的 Import Bus 服务也以 `authorize_root` 授权导入与确定话题，它不是能力层的调用面，提交交互则经 root API。
 
 ## 1. 三个调用面
 
@@ -97,7 +97,7 @@ root API 与阶段调用只接收工作 actor、目标 Workspace 与业务参数
 
 执行者通过 `workspace.contracts` 的 `OperationRequest` 与提交函数 `OperationSubmitter` 提交操作，提交函数内部持有不透明的线程句柄。`WorkspaceOperationEntry` 实现公共 `OperationEntry`，线程提交只接收线程句柄：`execute` 在分派前调用线程表的 `resolve`，全部 actor 操作因此共用同一个存活判定（[执行线程](./execution-threads.md#3-生命周期与唯一的存活判定)）；线程已结束或进程已收到停止、已经关闭以 `ThreadEndedError` 拒绝，登记的不是这一个句柄以 `ScopeRequiredError` 拒绝，均没有副作用。解析结果带着线程的工作 actor，`execute` 只按请求类型把五项记忆请求与这个工作 actor 直接交给对应的 actor API 方法，不拆参数；写入与更新另带句柄，供登记前的同步段再解析一次线程。actor API 逐次授权并组装该次调用的 `IdentityScope`，资源 owner 仍执行归属与 actor policy 检查。CPU 一侧只持有句柄，取不到工作 actor，也就无法调用请求级提交。
 
-请求级提交 `execute_request(request, *, actor, dispatch_topic_id=None)` 只供 MCP 入口调用，门面以 `operation_entry` 交出同一个入口：外部 harness 的任务对 HiveMemory 不可见，没有进程与线程，每次工具调用由入口认证一次，得到的工作 actor 只在本次调用内交给这里（[MCP 记忆访问](../contracts/mcp.md)）。它接受检索、读取、写入与更新四种请求，与 `execute` 共用同一分派表；可提交的请求类型只写在这一处（[子系统公共契约](../contracts/subsystem-contracts.md#46-操作请求与线程句柄)）。写入与更新登记意图后要以一个派发话题派发：线程提交取线程的派发话题，请求级提交没有线程，由调用方以参数 `dispatch_topic_id` 给出，即 MCP 入口经 Import Bus 为这一轮落位得到的话题（[Import Bus](../system/import-bus.md#47-写入时落位)）。检索与读取不得给出派发话题，写入与更新必须给出；其余请求类型、或派发话题与请求类型不符时在分派前以 `TypeError` 拒绝，没有副作用。请求级提交不做存活判定。
+请求级提交 `execute_request(request, *, actor, dispatch_topic_id=None)` 只供 MCP 入口调用，门面以 `operation_entry` 交出同一个入口：外部 harness 的任务对 HiveMemory 不可见，没有进程与线程，每次工具调用由入口认证一次，得到的工作 actor 只在本次调用内交给这里（[MCP 记忆访问](../contracts/mcp.md)）。它接受检索、读取、写入与更新四种请求，与 `execute` 共用同一分派表；可提交的请求类型只写在这一处（[子系统公共契约](../contracts/subsystem-contracts.md#46-操作请求与线程句柄)）。写入与更新登记意图后要以一个派发话题派发：线程提交取线程的派发话题，请求级提交没有线程，由调用方以参数 `dispatch_topic_id` 给出，即 MCP 入口经 Import Bus 为这一轮确定的话题（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。检索与读取不得给出派发话题，写入与更新必须给出；其余请求类型、或派发话题与请求类型不符时在分派前以 `TypeError` 拒绝，没有副作用。请求级提交不做存活判定。
 
 actor API 的写入与更新接收线程句柄或派发话题，二者恰有其一，否则是接线缺陷，以 `TypeError` 拒绝。给出派发话题时不解析线程，意图登记的进程与线程关联为空；派发、ACK、拒绝与结果未知的语义与线程路径相同。请求级提交到不了 RUN 与 CALL：经 `execute` 提交需要线程句柄，经 `execute_request` 提交时被类型表拒绝，CALL 的派生先判定调用方存活。
 
@@ -117,7 +117,7 @@ CALL 的派生与子线程的结束是入口的另外两个生命周期方法 `d
 - 工作 actor 只由认证一侧构造，`IdentityScope` 只由授权者与登记例外的资产桥接构造；跳过 Agent 可见性的 Profile 管理读取只由 CPU 分配发起；
 - Alice 除 CPU 驱动与组合入口外不引用线程句柄、执行线程或操作入口；CPU 可见的对象（输入清单、线程描述、提交函数交出的描述）不含工作 actor 与 `IdentityScope`；
 - 入口的 `execute` 只把五项记忆请求直接分派到 actor API 方法，没有拆参 handler，请求级提交 `execute_request` 共用同一分派表，CALL 的派生与结束是入口的两个生命周期方法；
-- actor API 只被操作入口导入（组合根装配除外）；`execute_request` 只由 MCP 入口调用；MCP 入口不导入 actor API、root API、任务进程与 Import Bus 的服务和编排器，在 Import Bus 中只导入在途轮次的输入模型，落位经门面取得的服务调用；
+- actor API 只被操作入口导入（组合根装配除外）；`execute_request` 只由 MCP 入口调用；MCP 入口不导入 actor API、root API、任务进程与 Import Bus 的服务和编排器，在 Import Bus 中只导入在途轮次的输入模型，确定话题经门面取得的服务调用；
 - 两个 API 目录互不导入，capability 父包只导出共享的读取 backing；server 只导入 root API，操作入口只导入 actor API；actor API 的公开方法、操作目录与请求类型保持一一对应。
 
 不要新增可登记给 actor 的管理 operation，也不要让系统级操作借用 actor 操作。

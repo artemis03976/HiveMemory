@@ -629,7 +629,7 @@ async def test_request_level_write_and_update_register_without_thread_and_dispat
     [
         # RUN 授权本会通过：执行发生在执行单元的环境中，请求级提交不开放。
         (ResolveRunTargetRequest("base"), None),
-        # 写入没有落位的话题就无处派发。
+        # 写入没有确定的话题就无处派发。
         (SubmitWriteIntentRequest(WriteFocus(content="正文")), None),
         # 读取不涉及话题，给出派发话题即是接线错误。
         (ResolveReferencesRequest(("base",)), "placed-topic"),

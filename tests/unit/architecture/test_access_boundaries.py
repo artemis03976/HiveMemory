@@ -246,7 +246,7 @@ def test_request_level_submission_is_only_used_by_mcp_entry():
 def test_mcp_entry_reaches_capabilities_only_through_the_facade():
     """MCP 入口不导入 actor API、root API、任务进程与 Import Bus 的服务和编排器。
 
-    操作入口与 Import Bus 的落位都经门面取得；Import Bus 只导入在途轮次的
+    操作入口与 Import Bus 服务（写入前确定话题）都经门面取得；Import Bus 只导入在途轮次的
     输入模型，用来接收连接器补上的轮次信息。
     """
     forbidden = (

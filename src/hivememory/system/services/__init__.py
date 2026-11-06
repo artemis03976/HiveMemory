@@ -13,7 +13,7 @@ System 业务能力提供者
 
 当前能力：
     - `import_bus`  Import Bus（外部 harness 一轮完整交互的串行导入、查重、
-      Gateway 落位与经 Patchouli 公开路由的提交）
+      Gateway 路由与经 Patchouli 公开路由的提交）
 """
 
 from hivememory.system.services.import_bus import (

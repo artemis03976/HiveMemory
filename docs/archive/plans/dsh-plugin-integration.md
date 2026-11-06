@@ -68,7 +68,7 @@ owner 决定（2026-10-31）以 DeepSeek Harness（`dsh`）作为第二个接入
 ## 3. 当前状态和缺口
 
 - HiveMemory 的 `/mcp` 是无状态、JSON 响应的 streamable HTTP：`initialize`（带服务说明）与 `tools/list` 不需要会话即可调用，已在本机运行的 0.7.2 服务上只读核对（2026-11-01）。写入与更新缺少 `turn` 时以 `request.turn_required` 拒绝。
-- Import Bus 按 `principal/user/agent/source/外部会话/外部轮次` 推导交互标识，写入时的落位与回流共用这一标识（[Import Bus](../../system/import-bus.md#47-写入时落位)第 4.7 节）。
+- Import Bus 按 `principal/user/agent/source/外部会话/外部轮次` 推导交互标识，写入时的落位与回流共用这一标识（[Import Bus](../../system/import-bus.md#47-写入时确定话题)第 4.7 节）。
 - 接入登记只有 `harness:claude-code`；Workspace 访问登记只有 Agent `claude_code` 的精确记录。
 
 插件依赖的 dsh 能力均来自固定源码 `ce7073d5` 与实测：工具注册表接受原始 JSON Schema 参数（只对输出 schema 做子集校验）；`session/event` 在事件提交后同步通知；`agent/created` 在 Agent 创建与恢复时触发；`ctx.sessionQuery.readSession(id)` 优先读实时会话，冷读时为崩溃未结束的最后一轮补上 `interrupted` 收尾；`ctx.sessions.flush(session)` 把缓冲事件写入持久记录；`ctx.systemPrompt.section` 注册系统提示词的一节。owner 日常使用的 Windows 桌面端是 dsh `0.2.1-rc.5`（npm 的 `latest`，比调研快照旧），上述能力在这个版本上同样实测可用；调研中提到的 `ctx.agents.turnBoundaryOf` 在 0.2.1-rc.5 中不存在，插件因此不依赖它，当前一轮与水位都从会话记录本身得到。

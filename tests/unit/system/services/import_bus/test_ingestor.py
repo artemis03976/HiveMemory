@@ -1,14 +1,14 @@
 """Import Bus 编排器的单元测试。
 
-被测对象：``ImportBusIngestor`` 在串行门内的进度查询、跳过、Gateway 落位、
-封口、提交与等待应用，写入时为在途轮次落位与回流沿用落点，以及关闭时等待
+被测对象：``ImportBusIngestor`` 在串行门内的进度查询、跳过、Gateway 路由、
+封口、提交与等待应用，写入时为在途轮次确定话题与回流沿用该话题，以及关闭时等待
 在途导入。提交经真实的 root 交互提交 API（以系统的 root 工作 actor 授权）；
 Patchouli 的提交、进度查询与等待使用真实的 ``InteractionSubmissionService`` 与
 内存队列（只在进程内）；Gateway 与 Patchouli 的 prepare 是边界之外的协作者，
 以确定性的替身给出决定、话题或失败。
 
 保护的契约：
-- 路由、落位与提交都在系统的 root scope 下进行，提交的交互以参与的 Agent 为
+- 路由、确定话题与提交都在系统的 root scope 下进行，提交的交互以参与的 Agent 为
   发起者、以目标 Workspace 为归属；
 - 只有应用完成后才确认；应用失败与等待超时不确认，重发时失败的重新路由并
   再次提交、仍在应用的继续等待；
@@ -18,11 +18,11 @@ Patchouli 的提交、进度查询与等待使用真实的 ``InteractionSubmissi
 - 同一外部会话串行、不同会话并发；
 - 事件不携带正文、工具参数与工具结果；
 - 关闭后拒绝新导入与门外等待的导入，并等待在途导入结束；
-- 在途轮次第一次落位只路由一次并准备话题，再次落位返回同一落点；已落位的
-  轮次回流时不再路由、以落点话题提交；落点在提交被接纳前保留，落点话题已
-  不存在时应用失败，重发时重新路由；尚未回流的上一轮以落点续接；已回流的
-  轮次再落位时沿用它应用后的话题，仍在应用时交回可重试错误；落位时 Gateway
-  的可恢复异常交给调用方。
+- 在途轮次第一次确定话题只路由一次并准备话题，再次请求返回同一话题；已确定
+  话题的轮次回流时不再路由、以该话题提交；已确定话题的登记在提交被接纳前保留，
+  该话题已不存在时应用失败，重发时重新路由；尚未回流的上一轮以写入时确定的
+  话题续接；已回流的轮次再次请求时沿用它应用后的话题，仍在应用时交回可重试
+  错误；确定话题时 Gateway 的可恢复异常交给调用方。
 """
 
 from __future__ import annotations
@@ -406,7 +406,7 @@ async def test_gateway_receives_passive_mode_and_truncated_recent_turns() -> Non
 
 @pytest.mark.asyncio
 async def test_last_recent_turn_carries_its_applied_topic_for_continuation() -> None:
-    """最近一轮带外部标识时，Gateway 收到它实际落位的话题，供路由失败时续接。"""
+    """最近一轮带外部标识时，Gateway 收到它实际所在的话题，供路由失败时续接。"""
     async with _harness() as harness:
         first = await harness.ingest(_turn(external_turn_id="prompt-1"))
         await harness.queue.wait(first.interaction_id, timeout=2)
@@ -430,7 +430,7 @@ async def test_last_recent_turn_carries_its_applied_topic_for_continuation() -> 
 
 @pytest.mark.asyncio
 async def test_last_recent_turn_carries_its_placement_before_it_is_imported() -> None:
-    """上一轮已在写入时落位、回流尚未到达时，下一轮落位以它的落点续接。"""
+    """上一轮已在写入时确定话题、回流尚未到达时，下一轮确定话题以它的话题续接。"""
     async with _harness() as harness:
         placed = await harness.place(_in_flight(external_turn_id="prompt-1"))
         await harness.place(
@@ -567,7 +567,7 @@ async def test_runtime_events_carry_identifiers_without_content() -> None:
     [accepted] = harness.events.events
     assert accepted.event_type == RuntimeEventType.IMPORT_TURN_ACCEPTED.value
     assert accepted.agent_id == "claude_code"
-    # 应用完成后才确认：新建话题的真实落点此时已经确定。
+    # 应用完成后才确认：新建话题的真实 id 此时已经确定。
     assert accepted.topic_id == "topic-applied"
     assert accepted.data == {
         "source": "claude-code",
@@ -619,7 +619,7 @@ async def test_shutdown_waits_for_inflight_import_and_rejects_new_ones() -> None
 
 @pytest.mark.asyncio
 async def test_first_placement_routes_and_prepares_once_and_later_placements_reuse_it() -> None:
-    """第一次落位以 PASSIVE_MEMORY 路由一次，关闭检索准备话题；同一轮再次落位返回同一落点。"""
+    """第一次确定话题以 PASSIVE_MEMORY 路由一次，关闭检索准备话题；同一轮再次请求返回同一话题。"""
     async with _harness() as harness:
         first = await harness.place(_in_flight())
         again = await harness.place(_in_flight())
@@ -630,21 +630,21 @@ async def test_first_placement_routes_and_prepares_once_and_later_placements_reu
     [prepare] = harness.prepare_calls
     assert prepare["identity_scope"] == harness.scope
     assert prepare["identity_scope"].actor_identity.agent_id == SYSTEM_AGENT_ID
-    # 落位只准备话题：不带检索 scope，prepare 不检索。
+    # 确定话题时只准备话题：不带检索 scope，prepare 不检索。
     assert prepare.get("retrieval_scope") is None
     assert prepare["gateway_decision"] == _decision()
 
 
 @pytest.mark.asyncio
 async def test_placed_turn_is_submitted_to_its_placement_without_rerouting() -> None:
-    """已落位的轮次回流时不调用 Gateway，以落点话题提交，不再携带新话题的标题与摘要。"""
+    """已确定话题的轮次回流时不调用 Gateway，以该话题提交，不再携带新话题的标题与摘要。"""
     async with _harness() as harness:
         topic_id = await harness.place(_in_flight())
         result = await harness.ingest(_turn())
 
     assert result.status == "accepted"
     assert len(harness.gateway_calls) == 1
-    # 落位与导入对同一轮推导出同一个交互标识，回流因此找得到落点。
+    # 确定话题与导入对同一轮推导出同一个交互标识，回流因此找得到已确定的话题。
     assert harness.prepare_calls[0]["interaction_id"] == result.interaction_id
     [(_, kwargs)] = harness.applied
     assert kwargs["target_topic_id"] == topic_id
@@ -655,7 +655,7 @@ async def test_placed_turn_is_submitted_to_its_placement_without_rerouting() -> 
 
 @pytest.mark.asyncio
 async def test_vanished_placement_fails_apply_and_resend_reroutes() -> None:
-    """落点话题在本轮进行中结束生命周期时应用失败；重发时已没有落点，按现行规则重新路由。"""
+    """已确定的话题在本轮进行中结束生命周期时应用失败；重发时已没有登记，按现行规则重新路由。"""
 
     async def apply(payload, **kwargs):
         if kwargs["target_topic_id"] == "topic-placed":
@@ -678,9 +678,10 @@ async def test_vanished_placement_fails_apply_and_resend_reroutes() -> None:
 
 @pytest.mark.asyncio
 async def test_placement_is_kept_until_its_submission_is_accepted() -> None:
-    """提交队列拥塞时提交没有被接纳，落点保留：重发仍以落点提交，不改由 Gateway 重新路由。
+    """提交队列拥塞时提交没有被接纳，已确定话题的登记保留：重发仍以该话题提交，不改由
+    Gateway 重新路由。
 
-    队列不运行时第一轮被接纳但迟迟没有应用，占满容量；之后落位的一轮两次
+    队列不运行时第一轮被接纳但迟迟没有应用，占满容量；之后确定话题的一轮两次
     回流都在提交时被拒绝。
     """
     async with _harness(
@@ -698,7 +699,7 @@ async def test_placement_is_kept_until_its_submission_is_accepted() -> None:
             rejected.append(congested.value.details)
 
     assert rejected == [{"reason": "queue_unavailable"}] * 2
-    # 第一轮导入与落位各路由一次，两次回流都沿用落点。
+    # 第一轮导入与确定话题各路由一次，两次回流都沿用已确定的话题。
     assert len(harness.gateway_calls) == 2
 
 
@@ -737,7 +738,7 @@ async def test_placement_while_the_turn_is_still_applying_is_retryable() -> None
 
 @pytest.mark.asyncio
 async def test_recoverable_gateway_failure_during_placement_leaves_no_placement() -> None:
-    """落位时 Gateway 的可恢复异常以 gateway_unavailable 交回，不登记落点，也不记为导入推迟。"""
+    """确定话题时 Gateway 的可恢复异常以 gateway_unavailable 交回，不登记话题，也不记为导入推迟。"""
     failures = [GatewayTimeoutError("deadline")]
 
     async def gateway(**kwargs):

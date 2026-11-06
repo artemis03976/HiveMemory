@@ -1,22 +1,22 @@
-"""Import Bus 编排器：串行门内完成查重、Gateway 落位、封口与提交接纳。
+"""Import Bus 编排器：串行门内完成查重、Gateway 路由、封口与提交接纳。
 
 Import Bus 只向记忆网络输入，不检索记忆、不返回记忆上下文：
 
     按外部会话串行 -> 推导 interaction_id -> 查询进度 -> 没有输出则跳过
-    -> 写入时已落位则沿用落点，否则 Gateway PASSIVE_MEMORY（附最近轮次与
-    上一轮的落位）-> 共用封口函数 -> Patchouli 公开提交路由 -> 等待感知应用
+    -> 写入时已确定话题则沿用该话题，否则 Gateway PASSIVE_MEMORY（附最近轮次与
+    上一轮所在的话题）-> 共用封口函数 -> Patchouli 公开提交路由 -> 等待感知应用
     完成 -> 确认
 
 确认表示交互已经应用：应用失败或等待超时都不确认，连接器保留这一轮
-稍后重发。等待在串行门内完成，同一外部会话的下一轮路由时，上一轮落位
-的话题已经建立，可以成为候选与续接的落点。
+稍后重发。等待在串行门内完成，同一外部会话的下一轮路由时，上一轮所在
+的话题已经建立，可以成为候选话题与续接目标。
 
-写入与更新在交互进行中提交，需要这一轮最终所在的话题。落位在同一串行门
-内以与导入相同的输入路由，经 Patchouli prepare（关闭检索）准备话题，新话题
-在此预建；落点按 interaction_id 登记，同一轮再次落位直接返回，回流时以落点
-话题提交、不再路由。落位只读取候选话题，不读取记忆。
+写入与更新在交互进行中提交，需要这一轮最终所在的话题。为这一轮确定话题时，
+在同一串行门内以与导入相同的输入路由，经 Patchouli prepare（关闭检索）准备
+话题，新话题在此预建；已确定的话题按 interaction_id 登记，同一轮再次请求直接
+返回，回流时以该话题提交、不再路由。确定话题只读取候选话题，不读取记忆。
 
-落位、路由与提交都是系统级操作：传入的 ``IdentityScope`` 是 Import Bus 服务
+确定话题、路由与提交都是系统级操作：传入的 ``IdentityScope`` 是 Import Bus 服务
 以系统的 root 工作 actor 授权得到的 scope，只在这一次导入的调用链内经公共
 路由到达 Gateway 与 Patchouli，不写入记录、事件或后台任务；提交经 root API
 的“提交交互”进行。交互中的 Agent 与认证通过的 principal 标识作为数据显式
@@ -79,9 +79,9 @@ class ImportBusIngestor:
     不再调用 Gateway——Gateway 给出的目标话题与新话题标题写入提交，重新路由
     可能得到不同的提交而被队列判为冲突。只有应用失败的轮次重新路由后再提交。
 
-    写入时的落位与导入共用同一串行门与在途计数：同一外部会话的落位与回流
-    按到达顺序处理，关闭时同样等待在途的落位。``interactions`` 是组合根注入的
-    root 交互提交 API，提交由它以 root 授权进行。
+    写入时确定话题与导入共用同一串行门与在途计数：同一外部会话的确定话题请求
+    与回流按到达顺序处理，关闭时同样等待在途的确定话题请求。``interactions``
+    是组合根注入的 root 交互提交 API，提交由它以 root 授权进行。
     """
 
     def __init__(
@@ -108,7 +108,7 @@ class ImportBusIngestor:
         # 写入时为仍在进行的一轮 prepare 的结果，只读取其中的话题与是否新建；
         # 按 interaction_id 保存，回流的提交被接纳后取走，不进入 finalize 或
         # cleanup。按轮次而不是按外部会话保存：下一轮的写入可能早于上一轮的
-        # 回流到达。只在进程内、不持久化；从未回流的轮次的落点留到进程重启。
+        # 回流到达。只在进程内、不持久化；从未回流的轮次的登记留到进程重启。
         self._placements: dict[str, PreparedAgentRun] = {}
 
     async def ingest(
@@ -148,17 +148,17 @@ class ImportBusIngestor:
         participant: ActorIdentity,
         principal_id: str,
     ) -> str:
-        """为仍在进行的一轮落位，返回落点话题的真实 id；同一轮再次落位返回同一落点。
+        """为仍在进行的一轮确定话题，返回该话题的真实 id；同一轮再次请求返回同一话题。
 
-        第一次落位以与导入相同的输入与续接规则做 PASSIVE_MEMORY 路由，再经
-        Patchouli prepare（关闭检索）准备话题，新话题在此预建，然后登记落点。
+        第一次请求以与导入相同的输入与续接规则做 PASSIVE_MEMORY 路由，再经
+        Patchouli prepare（关闭检索）准备话题，新话题在此预建，然后登记已确定的话题。
         这一轮已经回流并应用时（后台运行的子代理可能在这一轮结束、回流之后
-        才写入），直接返回它实际落位的话题，不再路由，也不登记落点；已经提交
+        才写入），直接返回它实际所在的话题，不再路由，也不登记；已经提交
         但仍在应用时以 ``apply_pending`` 交回，写入方稍后重试。
         Gateway 整体抛出的可恢复异常与关闭中以 ``ImportBusUnavailableError``
         交回；写入正等待这个结果，失败直接交给调用方，不记为导入推迟。prepare
-        失败时由 Patchouli 清理它预建的空话题，异常原样传播，不登记落点。
-        ``identity_scope`` 是系统的 root scope，落位不检索、不读取记忆；
+        失败时由 Patchouli 清理它预建的空话题，异常原样传播，不登记。
+        ``identity_scope`` 是系统的 root scope，确定话题时不检索、不读取记忆；
         ``participant`` 与 ``principal_id`` 的含义与导入相同。
         """
         interaction_id = self._interaction_id(turn, participant, principal_id)
@@ -171,17 +171,17 @@ class ImportBusIngestor:
                 identity_scope=identity_scope,
                 interaction_id=interaction_id,
             )
-            # 只有已应用的轮次带真实落点。
+            # 只有已应用的轮次带实际所在的话题。
             if status is not None and status.topic_id is not None:
                 return status.topic_id
             if status is not None and status.state == "pending":
-                # 这一轮已经提交、等待应用超时，落点要等应用完成才确定；写入方稍后
+                # 这一轮已经提交、等待应用超时，所在的话题要等应用完成才确定；写入方稍后
                 # 重试时它已应用。此时重新路由会让写入与这一轮落在不同的话题。
                 raise ImportBusUnavailableError(reason="apply_pending")
             decision = await self._request_gateway_decision(
                 turn, identity_scope, participant, principal_id
             )
-            # 落位只准备话题：不给检索 scope，prepare 不检索。
+            # 这里只准备话题：不给检索 scope，prepare 不检索。
             placement = await self._bus.request(
                 PatchouliRoutes.PREPARE_AGENT_RUN,
                 identity_scope=identity_scope,
@@ -190,7 +190,7 @@ class ImportBusIngestor:
             )
             self._placements[interaction_id] = placement
             logger.info(
-                "Import Bus 为在途轮次落位: source=%s, interaction_id=%s, topic_id=%s, "
+                "Import Bus 为在途轮次确定话题: source=%s, interaction_id=%s, topic_id=%s, "
                 "new_topic=%s",
                 turn.source,
                 interaction_id,
@@ -238,7 +238,7 @@ class ImportBusIngestor:
 
     @staticmethod
     def _interaction_id(turn: InFlightTurn, participant: ActorIdentity, principal_id: str) -> str:
-        """落位与导入对同一轮推导出同一个标识，回流因此能找到落点。"""
+        """写入时确定话题与导入对同一轮推导出同一个标识，回流因此能找到已确定的话题。"""
         return derive_import_interaction_id(
             principal_id=principal_id,
             actor=participant,
@@ -275,11 +275,11 @@ class ImportBusIngestor:
             )
             return ImportTurnResult(status="skipped", interaction_id=interaction_id)
 
-        # 尚未提交，或上一次提交在应用时失败：（再次）提交。写入时已落位的轮次
-        # 沿用落点话题，不再路由；其余轮次重新路由。
+        # 尚未提交，或上一次提交在应用时失败：（再次）提交。写入时已确定话题的
+        # 轮次沿用该话题，不再路由；其余轮次重新路由。
         placement = self._placements.get(interaction_id)
         if placement is not None:
-            # 落点话题在落位时已经建立，新话题的标题与摘要随之写入。
+            # 该话题在写入时已经建立，新话题的标题与摘要随之写入。
             topic_id, is_new_topic = placement.topic_id, placement.is_new_topic
             new_topic_title = new_topic_summary = None
         else:
@@ -294,7 +294,7 @@ class ImportBusIngestor:
                 raise
             topic_id = decision.target_topic_id
             is_new_topic = topic_id == _NEW_TOPIC
-            # 新话题以 Gateway 给出的标题与摘要建立，后续落位依赖它们。
+            # 新话题以 Gateway 给出的标题与摘要建立，后续路由依赖它们。
             new_topic_title = decision.new_topic_title if is_new_topic else None
             new_topic_summary = decision.new_topic_summary if is_new_topic else None
         payload = seal_interaction(
@@ -321,8 +321,8 @@ class ImportBusIngestor:
                 turn, scope, participant, interaction_id, "queue_unavailable", error
             )
             raise ImportBusUnavailableError(reason="queue_unavailable") from error
-        # 提交已被接纳，落点改由提交记录承载：此后的重发按提交进度处理，应用
-        # 失败后的重发重新路由。队列拥塞时落点保留，重发仍然沿用。
+        # 提交已被接纳，这一轮的话题改由提交记录承载：此后的重发按提交进度处理，
+        # 应用失败后的重发重新路由。队列拥塞时登记保留，重发仍然沿用。
         self._placements.pop(interaction_id, None)
 
         applied = await self._wait_applied(turn, scope, participant, interaction_id)
@@ -411,9 +411,9 @@ class ImportBusIngestor:
         participant: ActorIdentity,
         principal_id: str,
     ) -> GatewayDecision:
-        """以 PASSIVE_MEMORY 模式只取得话题落位与新话题的标题和摘要。
+        """以 PASSIVE_MEMORY 模式只取得话题路由与新话题的标题和摘要。
 
-        最近一轮带外部标识时附上它实际落位的话题：话题路由失败时，Gateway
+        最近一轮带外部标识时附上它实际所在的话题：话题路由失败时，Gateway
         续接上一轮的话题，而不是新建无标题话题。Gateway 整体抛出的可恢复
         异常转为 ``gateway_unavailable``，原异常作为 cause；是否记为导入推迟
         由调用方决定。
@@ -456,10 +456,10 @@ class ImportBusIngestor:
         participant: ActorIdentity,
         principal_id: str,
     ) -> str | None:
-        """查出最近一轮的落位：写入时已落位、尚未回流的取落点，否则取它应用后的话题。
+        """查出最近一轮所在的话题：写入时已确定话题、尚未回流的取该话题，否则取它应用后的话题。
 
-        该轮未带外部标识、既没有落点也未导入或尚未应用成功时为空。连接器的
-        回流可能晚于下一轮的写入到达，此时上一轮只有落点。
+        该轮未带外部标识、写入时没有确定话题也未导入或尚未应用成功时为空。连接器的
+        回流可能晚于下一轮的写入到达，此时上一轮只有写入时确定的话题。
         """
         previous = turn.recent_turns[-1]
         if previous.external_turn_id is None:

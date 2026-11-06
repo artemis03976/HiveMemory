@@ -28,7 +28,7 @@ class InteractionStatus:
 
     ``pending`` 尚未应用完成，``succeeded`` 已应用，``failed`` 应用失败且不再
     重试，``unknown`` 表示接纳过但结局已超出队列的保留窗口。``topic_id`` 只在
-    ``succeeded`` 时给出，是该交互的真实落点（``NEW_TOPIC`` 已解析）。
+    ``succeeded`` 时给出，是该交互实际所在的话题（``NEW_TOPIC`` 已解析）。
     """
 
     interaction_id: str
@@ -38,7 +38,7 @@ class InteractionStatus:
 
 @dataclass(frozen=True)
 class InteractionSubmissionResult:
-    """handler 成功后的业务结果；``topic_id`` 是 NEW_TOPIC 的真实落点。"""
+    """handler 成功后的业务结果；``topic_id`` 是 NEW_TOPIC 解析后实际所在的话题。"""
 
     interaction_id: str
     topic_id: str

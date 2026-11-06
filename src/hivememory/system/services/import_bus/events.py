@@ -76,7 +76,7 @@ class ImportBusEventEmitter:
         topic_id: str | None,
         is_new_topic: bool,
     ) -> None:
-        """交互已应用：报告实际落位的话题与是否新建。"""
+        """交互已应用：报告实际所在的话题与是否新建。"""
         self._emit(
             RuntimeEventType.IMPORT_TURN_ACCEPTED,
             turn=turn,

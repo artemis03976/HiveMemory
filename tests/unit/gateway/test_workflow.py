@@ -310,7 +310,7 @@ async def test_declared_fallbacks_form_a_complete_conservative_decision() -> Non
 async def test_topic_routing_failure_continues_previous_topic_while_it_is_a_candidate(
     previous_topic_id: str, expected_target: str
 ) -> None:
-    """话题路由失败时续接上一轮落位的话题；该话题已不在候选中时才新建。"""
+    """话题路由失败时续接上一轮所在的话题；该话题已不在候选中时才新建。"""
     router = _Router()
     router.route = AsyncMock(side_effect=TopicRouterError("路由模型不可用"))
     workflow = _make_workflow(provider=_Provider(), router=router, resolver=_Resolver())

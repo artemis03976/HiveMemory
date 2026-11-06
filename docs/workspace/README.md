@@ -83,7 +83,7 @@ flowchart TB
     BUS --> PA
     APP --> CPU["CPU 端口\n输入清单 labels + 独立线程句柄"] --> AL
     AL --> OP["操作请求\n绑定线程句柄的 OperationSubmitter"] --> ENTRY --> SCOPE
-    MCP --> REQ["操作请求\n每次调用认证的工作 actor；写入与更新带 Import Bus 的落点话题"] --> ENTRY
+    MCP --> REQ["操作请求\n每次调用认证的工作 actor；写入与更新带 Import Bus 为这一轮确定的话题"] --> ENTRY
     PA --> IDENTITY --> TOPIC
     APP --> ASSET
     IDENTITY -. "最终资源边界重新校验" .-> TOPIC

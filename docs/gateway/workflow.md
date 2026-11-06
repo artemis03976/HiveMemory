@@ -64,7 +64,7 @@ entry_interception
 
 简单寒暄也可以被 L1 规则命中，但它不会提前结束整个 decision flow。Gateway 仍准备候选话题并完成话题路由，只在最后以 `simple_chat_defaults` 代替 LLM 查询分析。这保持了话题连续性，同时避免为明确的寒暄调用查询分析模型。
 
-`PASSIVE_MEMORY` 的每一轮也走 `simple_chat_defaults`，不运行 `user_query_analysis`：被动入口不检索记忆，调用方 Import Bus 只使用决定中的话题落位与新话题标题、摘要，查询分析的产物（重写、关键词与检索计划）没有使用方。决策前缀照常运行，话题路由与它的兜底不受影响。
+`PASSIVE_MEMORY` 的每一轮也走 `simple_chat_defaults`，不运行 `user_query_analysis`：被动入口不检索记忆，调用方 Import Bus 只使用决定中的话题路由与新话题标题、摘要，查询分析的产物（重写、关键词与检索计划）没有使用方。决策前缀照常运行，话题路由与它的兜底不受影响。
 
 ### 2.2 Decision 前缀
 
@@ -76,7 +76,7 @@ Decision 分支固定经过三个步骤：
 
 两阶段准备避免为了做候选选择而加载所有话题全文，也避免 Query Analysis 自行再查一套上下文。它牺牲了一次潜在 route round trip，换取了更小的模型输入、更明确的数据所有权和可独立降级的边界。
 
-`session_turns` 随公开/本地 process 路由进入 workflow，作为受保护的入口字段保存在 state/snapshot，steps 不得覆盖。Topic Routing、它的兜底与 User Query Analysis 都消费它，最终投影不输出它。近期轮数与各轮的落位话题由调用方（任务进程、Import Bus）按配置裁剪并附上，workflow 不读取 workspace 会话服务，也不查询 Patchouli 的交互状态。
+`session_turns` 随公开/本地 process 路由进入 workflow，作为受保护的入口字段保存在 state/snapshot，steps 不得覆盖。Topic Routing、它的兜底与 User Query Analysis 都消费它，最终投影不输出它。近期轮数与各轮所在的话题由调用方（任务进程、Import Bus）按配置裁剪并附上，workflow 不读取 workspace 会话服务，也不查询 Patchouli 的交互状态。
 
 ## 3. Step 是一次受控提交
 
@@ -142,7 +142,7 @@ Gateway 不接收 Chat Run 的取消句柄，也不轮询取消状态。Chat app
 |:---|:---|:---|
 | `entry_interception` | 无 fallback | 入口分类失败会影响分支合法性，不能猜测 |
 | `candidate_topics_preparation` | 空 `CandidateTopics` | 仍可创建新话题，不伪造已有话题 |
-| `topic_routing` | 最近一轮会话的 `topic_id` 仍在候选话题中时续接该话题，否则 `NEW_TOPIC`；标题/摘要都为空 | 相邻轮次大多仍在同一话题，续接比新建无标题话题归错的代价小；只认候选中的话题，不落到已驱逐或结算的话题，也不在没有上一轮落位时猜测其他已有话题 |
+| `topic_routing` | 最近一轮会话的 `topic_id` 仍在候选话题中时续接该话题，否则 `NEW_TOPIC`；标题/摘要都为空 | 相邻轮次大多仍在同一话题，续接比新建无标题话题归错的代价小；只认候选中的话题，不落到已驱逐或结算的话题，也不在不知道上一轮所在的话题时猜测其他已有话题 |
 | `routed_topic_preparation` | `None` | 查询分析可以在缺少历史上下文时继续 |
 | `simple_chat_defaults` | 原文、`CHAT`、写入 `SKIP`、检索 `SKIP` | 寒暄不值得因分析能力失败阻塞入口 |
 | `user_query_analysis` | 原文、`RAG`、写入 `UNKNOWN`、`HYBRID` 和默认 `top_k` | 保留检索机会，不把未知误判为明确写入或跳过 |
@@ -188,5 +188,5 @@ RuntimeEvent sink 失败不得改变 Gateway 结果。观测字段也不进入�
 - `tests/unit/gateway/test_context_provider.py`
 - `tests/unit/gateway/test_request_control.py`
 - `tests/unit/workspace/process/test_gateway_chat_flow.py`
-- `tests/unit/system/services/import_bus/test_ingestor.py`（Import Bus 以 `PASSIVE_MEMORY` 调用并附最近轮次与上一轮落位）
-- `tests/integration/workspace/test_session_context.py`（任务进程交给 Gateway 的会话轮次带各自的落位话题）
+- `tests/unit/system/services/import_bus/test_ingestor.py`（Import Bus 以 `PASSIVE_MEMORY` 调用并附最近轮次与上一轮所在的话题）
+- `tests/integration/workspace/test_session_context.py`（任务进程交给 Gateway 的会话轮次带各自所在的话题）

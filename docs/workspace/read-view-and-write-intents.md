@@ -63,7 +63,7 @@ WRITE 经 `memory.write`、UPDATE 经 `memory.update` 分别授权后登记为 M
 派发话题是 Patchouli 读取生成材料的话题，有两个来源：
 
 - **线程提交**（Alice 的 MTP WRITE、UPDATE）：进程关联、线程标识与派发话题取自线程表的一次解析，派发话题是 CPU 分配冻结的本轮话题（[执行线程](./execution-threads.md#7-actor-阶段结束与停止)）；
-- **请求级提交**（外部 harness 经 MCP）：没有线程，派发话题由操作入口的调用方给出，是 Import Bus 在写入时为这一轮落位得到的话题，这一轮回流时沿用同一话题（[Import Bus](../system/import-bus.md#47-写入时落位)）。授权取入口认证得到的工作 actor，登记不带进程与线程关联（[能力层](./capability.md#6-操作入口)）。
+- **请求级提交**（外部 harness 经 MCP）：没有线程，派发话题由操作入口的调用方给出，是 Import Bus 在写入时为这一轮确定的话题，这一轮回流时沿用同一话题（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。授权取入口认证得到的工作 actor，登记不带进程与线程关联（[能力层](./capability.md#6-操作入口)）。
 
 两种提交登记的是同一种意图，回读、派发、ACK 与结算的规则相同。
 

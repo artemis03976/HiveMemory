@@ -195,7 +195,7 @@ def _compose(allowed_operations: frozenset[WorkspaceOperation]):
                 adapters=frozenset({"http"}),
                 allow_system_actor=True,
             ),
-            # 系统自身的来源：Import Bus 以它认证 system，执行落位与交互提交。
+            # 系统自身的来源：Import Bus 以它认证 system，执行确定话题与交互提交。
             SystemActorAccessEntry(
                 principal_id=SYSTEM_PRINCIPAL_ID,
                 adapters=frozenset({"local"}),
@@ -347,8 +347,8 @@ def _record_authentications(gateway: ActorAuthenticationGateway) -> list[tuple[s
 async def test_written_memory_reads_back_redirects_after_settlement_and_turn_lands_on_its_topic():
     """经 MCP 写入：读到在途句柄，结算后重定向到正式记忆；这一轮回流时落在写入派发的话题。
 
-    写入这次工具调用只认证一次请求方；落位由 Import Bus 以系统自身的 principal
-    认证 system 后执行，先于以落点话题派发的写入。
+    写入这次工具调用只认证一次请求方；确定话题由 Import Bus 以系统自身的 principal
+    认证 system 后执行，先于以该话题派发的写入。
     """
     system, patchouli, gateway = _compose(_READ_AND_SEARCH | {WorkspaceOperation.MEMORY_WRITE})
     authentications = _record_authentications(system.access_gateway)
@@ -388,5 +388,5 @@ async def test_written_memory_reads_back_redirects_after_settlement_and_turn_lan
     assert "部署改为手动执行。" in tool_text(settled)
     assert result.status == "accepted"
     assert intent.topic_id == patchouli.applied_topics[result.interaction_id] == "topic-prepared"
-    # 写入时落位路由过一次，回流沿用落点，不再路由。
+    # 写入时确定话题路由过一次，回流沿用该话题，不再路由。
     assert gateway.calls == 1

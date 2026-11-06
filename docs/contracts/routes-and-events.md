@@ -97,7 +97,7 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
 | `patchouli.public.interaction.submit` | `submit_interaction` | `identity_scope`（归属）、`participant`（交互的发起者）、`InteractionPayload`、可选 requested topic / interaction id / origin、新话题的 `new_topic_title` / `new_topic_summary`（只在 `NEW_TOPIC` 时允许） | `InteractionSubmitResult`（接纳收据）；队列容量已满或已停止抛 `InteractionAdmissionUnavailableError` |
-| `patchouli.public.interaction.status` | `interaction_status` | `identity_scope`、interaction id | `InteractionStatus \| None`（`pending` / `succeeded` 附真实落点 / `failed` / `unknown`；未接纳为 `None`）；同名交互属于其他 Workspace 抛 `WorkspaceMismatchError` |
+| `patchouli.public.interaction.status` | `interaction_status` | `identity_scope`、interaction id | `InteractionStatus \| None`（`pending` / `succeeded` 附实际所在的话题 / `failed` / `unknown`；未接纳为 `None`）；同名交互属于其他 Workspace 抛 `WorkspaceMismatchError` |
 | `patchouli.public.interaction.wait` | `wait_interaction` | `identity_scope`、interaction id、`timeout_seconds` | 应用到终态或超时时的 `InteractionStatus \| None`；归属校验同 status |
 | `patchouli.public.memory_intent.submit` | `submit_memory_intent` | `identity_scope`、`MemoryIntent` | `MemoryIntentSubmissionResult`（accepted / rejected / unknown；仅 accepted 带任务坐标） |
 
@@ -194,7 +194,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 `system.stopped` 与 `system.stop_failed` 的 `data` 包含 `steps`、`completed_steps`、`scheduler_stopped` 与 `import_bus_shutdown`；后者是 Import Bus 关闭时等待的结果（`{"waited_requests": 关闭开始时的在途导入数}`），停止在它之前失败时为 None。
 
-`import.turn.*` 由 Import Bus 在一次导入的结局处发布，`task_type` 为 `background`（导入没有用户在 HiveMemory 一侧等待），`agent_id` 与 `workspace_id` 取交互的参与者与目标 Workspace，只作观测标签。`data` 只携带 `source`、`external_conversation_id`、`external_turn_id`、`interaction_id` 与事件数量 `event_count`，不携带用户消息、回复、思考、工具参数或工具结果的正文：`accepted` 在交互应用完成后发布，信封 `topic_id` 是实际落位的话题，`data` 另带 `outcome` 与 `is_new_topic`；`deferred` 是可重试或应用失败的推迟，`severity=warning`。关闭中拒绝（`shutting_down`）、认证与授权失败以及原样传播的契约错误与程序错误不发布 `import.turn.*`。
+`import.turn.*` 由 Import Bus 在一次导入的结局处发布，`task_type` 为 `background`（导入没有用户在 HiveMemory 一侧等待），`agent_id` 与 `workspace_id` 取交互的参与者与目标 Workspace，只作观测标签。`data` 只携带 `source`、`external_conversation_id`、`external_turn_id`、`interaction_id` 与事件数量 `event_count`，不携带用户消息、回复、思考、工具参数或工具结果的正文：`accepted` 在交互应用完成后发布，信封 `topic_id` 是实际所在的话题，`data` 另带 `outcome` 与 `is_new_topic`；`deferred` 是可重试或应用失败的推迟，`severity=warning`。关闭中拒绝（`shutting_down`）、认证与授权失败以及原样传播的契约错误与程序错误不发布 `import.turn.*`。
 
 ### 4.1 投递语义
 
@@ -297,7 +297,7 @@ Alice 在创建根 frame 前可推送 `context_compaction`，经 CPU 事件 sink
 | `user_message` | 该轮的用户消息；服务端写成序号为 0 的 `user_message` 事件 |
 | `events` | 用户消息之后的事件，与 `TurnEvent` 同形（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)），`sequence` 从 1 起严格递增；`kind` 为 `assistant_message`、`thought`、`subagent_message` 或 `tool_call`，另有 `content`；`subagent_message` 是 harness 中被委托的子 Agent 结束时交回的消息，只带 `content`。工具调用必带轮内唯一的 `action_id`，带 `tool_name`、`tool_args`，有结局时带成对的 `status`（`success`，出错为 `error`）与 `result`。`verb` 只接受 `SEARCH`、`READ`、`WRITE`、`UPDATE`，只为 HiveMemory 自身 MCP 工具的调用设置（[MCP 记忆访问](./mcp.md#6-连接器调用名轮次信息与回声标记)），与 `tool_name` 互斥；`READ` 与 `UPDATE` 必须带非空的 `targets`。不接受 `produced_aliases`：写入与更新返回的 pending alias 只留在工具结果中 |
 | `model_used` | 实际使用的模型名，可为空；回复正文不单独上传，由事件中的助手正文得到 |
-| `recent_turns` | 该轮之前最近的若干轮（`user_message`、`assistant_text`、可选的 `external_turn_id`），只供 Gateway 落位，不进入交互载荷 |
+| `recent_turns` | 该轮之前最近的若干轮（`user_message`、`assistant_text`、可选的 `external_turn_id`），只供 Gateway 路由，不进入交互载荷 |
 
 请求以 `X-Principal-ID` 声明连接器的 principal、以 `Authorization: Bearer` 携带接入凭据；用户与 Workspace 选择仍只来自统一请求头。
 

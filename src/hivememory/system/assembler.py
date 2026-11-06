@@ -498,7 +498,7 @@ class SystemAssembler:
             gateway_session_turn_limit=self._config.gateway.context_preparation.session_turn_limit,
         )
         # 系统自身的调用来源：注册入口与 Import Bus 服务都以它认证系统的 root
-        # 工作 actor，执行系统阶段、落位与交互提交。
+        # 工作 actor，执行系统阶段、确定话题与交互提交。
         system_principal = CallerPrincipal(SYSTEM_PRINCIPAL_ID)
         process = TaskProcessService(
             runner,

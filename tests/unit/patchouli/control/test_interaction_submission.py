@@ -460,7 +460,7 @@ async def test_lookup_reads_owner_from_index_and_from_work_record() -> None:
 
 @pytest.mark.asyncio
 async def test_lookup_reports_real_topic_on_success_and_none_on_failure() -> None:
-    """成功的交互给出真实落点（NEW_TOPIC 已解析）；应用失败的交互不给落点。"""
+    """成功的交互给出实际所在的话题（NEW_TOPIC 已解析）；应用失败的交互不给话题。"""
 
     async def apply(payload, *, interaction_id, **_kwargs):
         if interaction_id == "interaction-failing":
@@ -489,7 +489,7 @@ async def test_lookup_reports_real_topic_on_success_and_none_on_failure() -> Non
 
 @pytest.mark.asyncio
 async def test_failed_interaction_can_be_resubmitted_with_a_new_payload() -> None:
-    """应用失败的交互以同一标识重新提交（载荷可以不同），成功后报告新落点；
+    """应用失败的交互以同一标识重新提交（载荷可以不同），成功后报告新的所在话题；
     等待中或已成功的交互仍按原规则拒绝不同的载荷。"""
     attempts: list[str] = []
 

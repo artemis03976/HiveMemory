@@ -90,9 +90,9 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 | 层 | 持有 | 不持有 |
 |:---|:---|:---|
 | server（入口 adapter） | 认证前的声明（只作为认证输入）；自身的 principal 与 adapter；导入请求声明的 principal 与凭据（只交给网关）；管理操作、取消与导入在调用链内的请求的工作 actor；chat 的不透明进程句柄 | 认证前组装的 `IdentityScope`；进程记录及其中的工作 actor |
-| MCP 入口（`mcp_server`，操作适配器） | 认证前的声明与凭据（只交给网关）；一次工具调用的工作 actor，只在本次调用内交给 Import Bus 服务的落位与操作入口的请求级提交 | `IdentityScope`；actor API 本身（只经门面取得的操作入口提交） |
+| MCP 入口（`mcp_server`，操作适配器） | 认证前的声明与凭据（只交给网关）；一次工具调用的工作 actor，只在本次调用内交给 Import Bus 服务的确定话题与操作入口的请求级提交 | `IdentityScope`；actor API 本身（只经门面取得的操作入口提交） |
 | 授权点：注册入口、能力层、任务进程的执行器与 CPU 分配、Import Bus 服务 | 交来的工作 actor、操作授权者（注册入口与 Import Bus 服务另持认证网关与系统自身的 principal；进程线程管理另经子工作 actor 的准入端口） | 调用方另行传入的 `IdentityScope` |
-| Import Bus 编排器（`ImportBusIngestor`） | 系统的 root 工作 actor 与以它授权的 `IdentityScope`、参与的 Agent 与 principal 标识，只在本次导入或落位请求的调用链内使用：推导外部会话键与 `interaction_id`，经公共路由交给 Gateway 与 Patchouli，经 root API 提交交互；落点登记只保存 prepare 的结果（话题与 Workspace 归属），不保存身份 | 认证网关、操作授权者；不把 scope 或工作 actor 写入记录、事件或后台任务 |
+| Import Bus 编排器（`ImportBusIngestor`） | 系统的 root 工作 actor 与以它授权的 `IdentityScope`、参与的 Agent 与 principal 标识，只在本次导入或确定话题请求的调用链内使用：推导外部会话键与 `interaction_id`，经公共路由交给 Gateway 与 Patchouli，经 root API 提交交互；已确定话题的登记只保存 prepare 的结果（话题与 Workspace 归属），不保存身份 | 认证网关、操作授权者；不把 scope 或工作 actor 写入记录、事件或后台任务 |
 | Gateway 与 Patchouli 公共边界 | 授权点组装后传入的 `IdentityScope`（系统阶段是 root scope）；显式的参与者；Patchouli 立即拆分归属与发起者 | 工作 actor、认证网关、操作授权者 |
 | Patchouli 内部、引擎、存储 | 独立的 `WorkspaceIdentity` 与需要时的 `ActorIdentity` | `IdentityScope`、工作 actor、认证网关、操作授权者 |
 | 进程记录 | 执行者与系统的 root 工作 actor、进程元数据；事件绑定载体中的只读观测标签 | — |
@@ -133,7 +133,7 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 | root API（管理、会话、上传与提交交互） | 请求的 `system` | `authorize_root`，目标由请求给出 |
 | 任务进程的 Gateway、话题准备、Profile、附件、finalize 与 cleanup | 系统的 root 工作 actor | `authorize_root` |
 | 取消 | 请求方（`system`） | `authorize_root(请求方, 进程的 Workspace)`，拒绝呈现为 `not_found` |
-| Import Bus 的导入与写入前的落位 | 系统的 root 工作 actor | `authorize_root` |
+| Import Bus 的导入与写入前的确定话题 | 系统的 root 工作 actor | `authorize_root` |
 
 各项归属的理由：
 
@@ -143,7 +143,7 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 - **prepare 的检索**要按执行者的可见性返回记忆，因此是执行者的 actor 操作；执行者没有 `memory.search` 时不检索，对话照常进行。
 - **交互提交**是系统级操作，Agent 不能拥有这项能力。三个来源都在这一范畴：chat 的 finalize、plugin 模式的导入，以及将来的历史对话导入。交互中的 Agent 作为参与者显式传给 Patchouli。导入不检查白名单：白名单为空、只登记了准入的 Agent 也能导入；外部 harness 不能声明 `system`，管的是边界上的声明，与系统执行交互提交无关。
 
-**系统自身的 principal**：系统组件以自己登记的 principal 经 `local` adapter 认证 (user, `system`)，取得执行系统级操作的身份（[认证与访问登记](./authentication.md#5-系统自身的-principal)）。任务进程在注册时认证一次，Import Bus 每次导入或落位时认证一次，认证的是参与者驻留 Workspace 的 `system`：目标不是参与者驻留的 Workspace 时，root 授权以 `target_workspace_not_resident` 拒绝，交互不会落到参与者所在之外的 Workspace。
+**系统自身的 principal**：系统组件以自己登记的 principal 经 `local` adapter 认证 (user, `system`)，取得执行系统级操作的身份（[认证与访问登记](./authentication.md#5-系统自身的-principal)）。任务进程在注册时认证一次，Import Bus 每次导入或确定话题时认证一次，认证的是参与者驻留 Workspace 的 `system`：目标不是参与者驻留的 Workspace 时，root 授权以 `target_workspace_not_resident` 拒绝，交互不会落到参与者所在之外的 Workspace。
 
 两个授权方法的调用位置与系统自身的 principal 的使用位置都由架构测试锁定：`authorize_agent` 只在 actor API 与任务进程中调用，`authorize_root` 只在 root API、任务进程与 Import Bus 服务中调用。认证与授权互不依赖：两者都只读同一份访问注册表，经工作 actor 这个类型发生联系（[认证与访问登记](./authentication.md#3-工作-actor)）。
 
@@ -193,7 +193,7 @@ work queue、ordering/idempotency key、task/run registry、scheduler、runtime 
 
 导入 `POST /api/v1/import/turns` 也是 Agent action：server 以 (user, 请求体中的具体 Agent) 声明、请求声明的 principal、凭据与 `import` adapter 经网关认证，这一步证明请求来自哪个调用来源、参与者是哪个 Agent；Import Bus 服务再以系统的 root 工作 actor 授权，经公共路由交给 Gateway 与 Patchouli，经 root API 提交交互。提交的交互归属取目标 Workspace，发起者是参与的 Agent。外部来源与外部会话标识只用于按会话串行与推导 `interaction_id`，不进入身份，也不因此建立第二套 Workspace 资源状态（[Import Bus](../system/import-bus.md)）。下游不使用进程当前 Workspace 推断资源归属。
 
-MCP 工具调用同样是 Agent action：MCP 入口以 (user, `X-Agent-ID` 中的具体 Agent) 声明、请求声明的 principal、凭据与 `mcp` adapter 经网关认证一次，得到的工作 actor 经操作入口的请求级提交进入 actor API，actor API 以 `authorize_agent` 组装本次调用的 `IdentityScope`；写入与更新之前，Import Bus 服务以系统的 root 工作 actor 为这一轮落位。工具参数与连接器补上的轮次信息都不作为身份来源（[MCP 记忆访问](../contracts/mcp.md)）。
+MCP 工具调用同样是 Agent action：MCP 入口以 (user, `X-Agent-ID` 中的具体 Agent) 声明、请求声明的 principal、凭据与 `mcp` adapter 经网关认证一次，得到的工作 actor 经操作入口的请求级提交进入 actor API，actor API 以 `authorize_agent` 组装本次调用的 `IdentityScope`；写入与更新之前，Import Bus 服务以系统的 root 工作 actor 为这一轮确定话题。工具参数与连接器补上的轮次信息都不作为身份来源（[MCP 记忆访问](../contracts/mcp.md)）。
 
 ### 6.2 后台任务和重试
 
@@ -221,6 +221,6 @@ Interaction codec 为 v7，generation codec 的 `schema_version` 为字符串 `"
 ## 9. 代码与测试入口
 
 - 模型：[`identity.py`](../../src/hivememory/core/models/identity.py)、[`workspace.py`](../../src/hivememory/core/models/workspace.py)、[`core/access.py`](../../src/hivememory/core/access.py)（操作目录、工作 actor、调用来源身份与端口）；
-- 授权：[`workspace/authorization.py`](../../src/hivememory/workspace/authorization.py)；系统阶段的授权：[`workspace/process/`](../../src/hivememory/workspace/process/)；导入与落位的 root 授权：[`import_bus_service.py`](../../src/hivememory/system/application/import_bus_service.py)；声明解析与请求的工作 actor：[`server/deps.py`](../../src/hivememory/server/deps.py)；
+- 授权：[`workspace/authorization.py`](../../src/hivememory/workspace/authorization.py)；系统阶段的授权：[`workspace/process/`](../../src/hivememory/workspace/process/)；导入与确定话题的 root 授权：[`import_bus_service.py`](../../src/hivememory/system/application/import_bus_service.py)；声明解析与请求的工作 actor：[`server/deps.py`](../../src/hivememory/server/deps.py)；
 - 资源边界：[`topic.py`](../../src/hivememory/core/models/topic.py)、[`memory.py`](../../src/hivememory/core/models/memory.py)、[`artifact.py`](../../src/hivememory/core/models/artifact.py)、[`ShortTermMemoryStore`](../../src/hivememory/patchouli/memory_library/stores.py)、[`PerceptionFamiliar`](../../src/hivememory/patchouli/services/perception.py)；
 - 测试：[`tests/unit/workspace/test_access.py`](../../tests/unit/workspace/test_access.py)、[`tests/unit/architecture/test_access_boundaries.py`](../../tests/unit/architecture/test_access_boundaries.py)、[`test_identity_resolution.py`](../../tests/unit/server/routers/test_identity_resolution.py)、[`test_import_bus.py`](../../tests/unit/server/routers/test_import_bus.py)（导入的声明、准入与 `system` 拒绝）、[`test_import_bus_submission.py`](../../tests/integration/system/test_import_bus_submission.py)（交互的发起者是参与者，目标不是参与者驻留的 Workspace 时被拒）、[`test_chat_run_control_contract.py`](../../tests/unit/workspace/process/test_chat_run_control_contract.py)（注册的两次认证与取消的 root 授权）、[`test_gateway_chat_flow.py`](../../tests/unit/workspace/process/test_gateway_chat_flow.py)（系统阶段以 root scope 执行、检索按执行者授权）、[`tests/unit/core/models/test_workspace.py`](../../tests/unit/core/models/test_workspace.py)、[`test_application_access_boundary.py`](../../tests/integration/workspace/test_application_access_boundary.py)、[`test_workspace_access_propagation.py`](../../tests/integration/system/test_workspace_access_propagation.py)、[`test_memory_workspace_isolation.py`](../../tests/integration/patchouli/test_memory_workspace_isolation.py)、[`test_topic_access_chain.py`](../../tests/integration/patchouli/test_topic_access_chain.py)。

@@ -118,9 +118,9 @@ Prepare 只准备话题与检索结果，不解析 Profile、不编译记忆、�
 
 ### 3.2 Import Bus 与话题结算
 
-Import Bus 是 System 的用例，把外部 harness 已经结束的一轮交互导入记忆网络；按外部会话串行、查重、Gateway 落位、封口、等待应用与可重试错误都由它负责。它以与任务进程共用的封口函数把整轮记录封口为结构化 `InteractionPayload`，只经 Patchouli 的公开交互路由交接，不持有提交队列：
+Import Bus 是 System 的用例，把外部 harness 已经结束的一轮交互导入记忆网络；按外部会话串行、查重、Gateway 路由、封口、等待应用与可重试错误都由它负责。它以与任务进程共用的封口函数把整轮记录封口为结构化 `InteractionPayload`，只经 Patchouli 的公开交互路由交接，不持有提交队列：
 
-- `patchouli.public.interaction.status` 回答该交互在提交队列中的进度（`pending`、`succeeded` 附真实落点、`failed`、`unknown`，未接纳时为空），Import Bus 据此查重，并取上一轮的真实落点供 Gateway 话题路由失败时续接；
+- `patchouli.public.interaction.status` 回答该交互在提交队列中的进度（`pending`、`succeeded` 附实际所在的话题、`failed`、`unknown`，未接纳时为空），Import Bus 据此查重，并取上一轮实际所在的话题供 Gateway 话题路由失败时续接；
 - `patchouli.public.interaction.submit` 以来源 `import_bus` 提交，Gateway 判定新建话题时携带它给出的标题与摘要；
 - `patchouli.public.interaction.wait` 等待交互应用到终态或超时，Import Bus 只在应用成功后才确认这一轮。
 

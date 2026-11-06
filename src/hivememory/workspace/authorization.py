@@ -8,7 +8,7 @@
   授权；
 - :meth:`~WorkspaceOperationAuthorizer.authorize_root`：系统以保留的
   ``system`` 执行的操作（root API、任务进程的系统阶段与取消、Import Bus
-  的落位与提交），不检查白名单。
+  的确定话题与交互提交），不检查白名单。
 
 两者共用三项前提，按顺序检查：准入记录有效、目标等于驻留 Workspace、actor
 的用户是目标 Workspace 的 owner。授权成功后组装并返回 ``IdentityScope``。

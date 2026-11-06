@@ -5,7 +5,7 @@
 - ``submit_interaction`` 经真实内存队列接纳并返回收据投影；交互由系统以 root scope
   提交，归属取 scope，发起者取显式的参与者；队列容量已满或已停止以可重试的
   ``InteractionAdmissionUnavailableError`` 拒绝；
-- ``interaction_status`` 未接纳时为空，接纳后报告等待中、成功（附真实落点）或失败，
+- ``interaction_status`` 未接纳时为空，接纳后报告等待中、成功（附实际所在的话题）或失败，
   同名交互归属其他 Workspace 时报冲突；``wait_interaction`` 等到终态或超时；
 - ``submit_memory_intent`` 把中立意图转换为内部生成任务（出站载荷契约），
   确定性 alias 支持重试幂等；接纳后只携带独立归属与发起者。
@@ -207,7 +207,7 @@ def test_interaction_status_reports_progress_and_rejects_foreign_workspace():
 
 
 def test_interaction_status_gives_real_topic_on_success_and_none_on_failure():
-    """应用成功的交互报告真实落点；应用失败的交互报告失败、不给落点。"""
+    """应用成功的交互报告实际所在的话题；应用失败的交互报告失败、不给话题。"""
 
     async def apply(_payload, *, interaction_id, **_kwargs):
         if interaction_id == "interaction_failing":
@@ -242,7 +242,7 @@ def test_interaction_status_gives_real_topic_on_success_and_none_on_failure():
 
 
 def test_wait_interaction_reports_pending_on_timeout_and_success_once_applied():
-    """等待超时时仍为等待中；应用完成后报告成功与真实落点；未接纳的交互为空。"""
+    """等待超时时仍为等待中；应用完成后报告成功与实际所在的话题；未接纳的交互为空。"""
 
     async def scenario():
         started = asyncio.Event()

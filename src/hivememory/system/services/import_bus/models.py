@@ -5,7 +5,7 @@
       用户消息由服务端写成序号为 0 的事件，其后的事件序号严格递增。回复
       正文不单独上传，由事件中的助手正文得到。
     - 在途轮次是仍在进行的一轮：只有外部标识、本轮用户消息与之前几轮，供
-      写入时为这一轮落位。完整记录在它之上加入事件与结局，同名字段的校验
+      写入时为这一轮确定话题。完整记录在它之上加入事件与结局，同名字段的校验
       规则因此相同，两者推导出同一个交互标识。
     - 事件与 ``TurnEvent`` 同形，请求校验阶段执行同样的字段规则与一轮的
       不变量，违反时整轮拒绝。``verb`` 标记对 HiveMemory 能力的调用：外部
@@ -15,8 +15,8 @@
       参数由连接器归一化。
     - 事件不接受 ``produced_aliases``：写入与更新返回的 pending alias 只留在
       工具结果中。
-    - ``recent_turns`` 只供 Gateway 落位，不进入交互载荷；最近一轮带外部标识
-      时，服务端查出它实际落位的话题，供话题路由失败时续接。
+    - ``recent_turns`` 只供 Gateway 路由，不进入交互载荷；最近一轮带外部标识
+      时，服务端查出它实际所在的话题，供话题路由失败时续接。
     - 交互标识由认证结果与外部标识推导，同一轮重发时不变，不同调用来源、
       actor 或外部来源的同名轮次不会撞号。
 """
@@ -112,7 +112,7 @@ class ImportedTurnEvent(BaseModel):
 
 
 class ImportedRecentTurn(BaseModel):
-    """该轮之前的一轮，只供 Gateway 理解上文与落位。"""
+    """该轮之前的一轮，只供 Gateway 理解上文与路由。"""
 
     user_message: str = Field(description="该轮的用户消息")
     assistant_text: str = Field(default="", description="该轮最终的回复正文")
@@ -120,7 +120,7 @@ class ImportedRecentTurn(BaseModel):
         default=None,
         min_length=1,
         max_length=256,
-        description="该轮在 harness 中的标识；最近一轮带上它时，服务端查出它的落位，供话题路由失败时续接",
+        description="该轮在 harness 中的标识；最近一轮带上它时，服务端查出它所在的话题，供话题路由失败时续接",
     )
 
     model_config = ConfigDict(extra="forbid", frozen=True)
@@ -129,8 +129,8 @@ class ImportedRecentTurn(BaseModel):
 class InFlightTurn(BaseModel):
     """harness 中仍在进行的一轮：外部标识、本轮用户消息与之前几轮。
 
-    写入与更新在交互进行中提交，以它为这一轮落位；字段与轮次结束时导入
-    的同名字段相同，推导出同一个交互标识，回流时据此沿用落点。
+    写入与更新在交互进行中提交，以它为这一轮确定话题；字段与轮次结束时导入
+    的同名字段相同，推导出同一个交互标识，回流时据此沿用已确定的话题。
     """
 
     source: str = Field(
@@ -148,7 +148,7 @@ class InFlightTurn(BaseModel):
     user_message: str = Field(description="该轮的用户消息")
     recent_turns: list[ImportedRecentTurn] = Field(
         default_factory=list,
-        description="该轮之前最近的若干轮，只供 Gateway 落位，不进入交互载荷",
+        description="该轮之前最近的若干轮，只供 Gateway 路由，不进入交互载荷",
     )
 
     model_config = ConfigDict(extra="forbid", frozen=True)

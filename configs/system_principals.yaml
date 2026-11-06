@@ -22,7 +22,7 @@ principals:
       - "http"
     allow_system_actor: true
 
-  # 系统自身的来源：任务进程注册与 Import Bus 的导入、落位以它认证 (user, system)，
+  # 系统自身的来源：任务进程注册与 Import Bus 的导入、确定话题以它认证 (user, system)，
   # 由 system 执行系统阶段、取消与交互提交。缺少这条登记时 chat 注册与导入
   # 都以 unknown_principal 拒绝；自定义过本文件的部署需要补上。
   - principal_id: "hivememory:system"

@@ -43,7 +43,7 @@ MCP_ADAPTER = "mcp"
 IMPORT_ADAPTER = "import"
 
 #: 系统自身的调用来源：任务进程的注册入口与 Import Bus 服务以它经 ``local``
-#: adapter 认证 (user, ``system``)，取得执行系统级操作（系统阶段、取消、落位与
+#: adapter 认证 (user, ``system``)，取得执行系统级操作（系统阶段、取消、确定话题与
 #: 交互提交）的 root 工作 actor。须在接入登记中登记、允许声明 ``system``。
 SYSTEM_PRINCIPAL_ID = "hivememory:system"
 

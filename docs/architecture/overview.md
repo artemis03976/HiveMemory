@@ -223,7 +223,7 @@ TaskProcessService（workspace.process）
 
 ## 6. Import Bus：让外部经历进入记忆，而不是伪造一次对话
 
-Import Bus 属于 System 应用层，而不是 Patchouli 或 Alice 的替代 chat 入口。它解决的是“如何把其他 harness 已经发生的经历带入 HiveMemory”，而不是要求系统重新扮演一次对话参与者。外部 harness 在一轮交互结束后提交这一轮的完整记录（用户消息、回复、思考、外部工具的调用与结果、结局，以及只供落位参考的最近几轮）；当前的接入方是仓库中的 Claude Code 连接器插件（`integrations/claude-code/`）。
+Import Bus 属于 System 应用层，而不是 Patchouli 或 Alice 的替代 chat 入口。它解决的是“如何把其他 harness 已经发生的经历带入 HiveMemory”，而不是要求系统重新扮演一次对话参与者。外部 harness 在一轮交互结束后提交这一轮的完整记录（用户消息、回复、思考、外部工具的调用与结果、结局，以及只供话题路由参考的最近几轮）；当前的接入方是仓库中的 Claude Code 连接器插件（`integrations/claude-code/`）。
 
 ```text
 POST /api/v1/import/turns
@@ -231,7 +231,7 @@ POST /api/v1/import/turns
   -> ImportBusService：以系统自身的 principal 认证 (user, system)，root 授权（不检查 actor 操作白名单）
   -> ImportBusIngestor：按 (user, 参与的 Agent, source, 外部会话) 串行
      -> 推导 interaction_id，经 Patchouli interaction.status 查询进度
-     -> 写入时已落位：沿用落点话题（第 6.1 节）；否则 Gateway PROCESS (PASSIVE_MEMORY)：只取话题落位，不运行查询分析
+     -> 写入时已确定话题：沿用该话题（第 6.1 节）；否则 Gateway PROCESS (PASSIVE_MEMORY)：只取话题路由，不运行查询分析
      -> core 共用封口函数 seal_interaction
      -> root API 提交交互 -> Patchouli interaction.submit（感知队列接纳，参与的 Agent 记为发起者）
      -> Patchouli interaction.wait：等待感知应用完成
@@ -256,13 +256,13 @@ POST /api/v1/import/turns
 ```text
 POST /mcp（插件 .mcp.json 声明；请求头带 principal、接入凭据、user 与 Agent 声明）
   -> mcp_server：解析声明，经统一认证网关（mcp adapter）认证一次，得到本次调用的工作 actor
-  -> 写入与更新：门面取得的 Import Bus 服务为这一轮落位（系统执行；连接器的 PreToolUse hook 补上轮次信息）
-  -> 门面取得的操作入口：请求级提交 execute_request（写入与更新带落点话题作为派发话题）
+  -> 写入与更新：门面取得的 Import Bus 服务为这一轮确定话题（系统执行；连接器的 PreToolUse hook 补上轮次信息）
+  -> 门面取得的操作入口：请求级提交 execute_request（写入与更新带这一轮的话题作为派发话题）
   -> actor API：retrieve / resolve_references / submit_write_intent / submit_update_intent（按访问登记白名单逐次授权）
   -> MemoryCompiler 呈现检索与读取结果；写入与更新返回 pending alias
 ```
 
-外部 harness 的任务对 HiveMemory 不可见，不建进程、不派生线程，每次工具调用只认证一次，工作 actor 只留在本次调用内。MCP 入口与 Alice 的 MTP 适配器同为操作适配器：都把协议调用归一为固定类型的操作请求，经同一个操作入口进入同一组 actor API 方法，入口仍是 actor API 唯一的调用方；写入与更新与主动链路共用同一意图登记与生成链路。写入发生在一轮进行之中，主动链路由 prepare 为本轮准备的话题此时不存在，Import Bus 因此在写入时为这一轮就地落位，这一轮结束回流时沿用落点，写入的话题就是这一轮最终所在的话题（[Import Bus](../system/import-bus.md#47-写入时落位)）。连接器把插件自身四个工具的调用标为 SEARCH、READ、WRITE、UPDATE 后导入，生成视图对检索与读取只留一行摘要、不渲染写入与更新，经 MCP 取回或显式写入的内容因此不会被再提取一遍。契约见 [MCP 记忆访问](../contracts/mcp.md)。
+外部 harness 的任务对 HiveMemory 不可见，不建进程、不派生线程，每次工具调用只认证一次，工作 actor 只留在本次调用内。MCP 入口与 Alice 的 MTP 适配器同为操作适配器：都把协议调用归一为固定类型的操作请求，经同一个操作入口进入同一组 actor API 方法，入口仍是 actor API 唯一的调用方；写入与更新与主动链路共用同一意图登记与生成链路。写入发生在一轮进行之中，主动链路由 prepare 为本轮准备的话题此时不存在，Import Bus 因此在写入时为这一轮就地确定话题，这一轮结束回流时沿用该话题，写入的话题就是这一轮最终所在的话题（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。连接器把插件自身四个工具的调用标为 SEARCH、READ、WRITE、UPDATE 后导入，生成视图对检索与读取只留一行摘要、不渲染写入与更新，经 MCP 取回或显式写入的内容因此不会被再提取一遍。契约见 [MCP 记忆访问](../contracts/mcp.md)。
 
 ## 7. 生命周期顺序与设计理由
 
@@ -286,7 +286,7 @@ Gateway -> Patchouli -> Alice -> Scheduler
 - local bus 路由不得成为其他子系统的隐式 API；
 - Gateway 命令结果与普通决策互斥；
 - `PASSIVE_MEMORY` 模式不得产生命令结果；Import Bus 不检索记忆、不返回记忆上下文，只在交互应用完成后确认；
-- Alice 不直接请求 Patchouli，也不持有其 Runtime / Service；MTP 与 MCP 都经 workspace 的操作入口访问记忆能力，MCP 的请求级提交只能检索、读取、写入与更新，写入与更新的派发话题由 Import Bus 的落位给出；
+- Alice 不直接请求 Patchouli，也不持有其 Runtime / Service；MTP 与 MCP 都经 workspace 的操作入口访问记忆能力，MCP 的请求级提交只能检索、读取、写入与更新，写入与更新的派发话题由 Import Bus 为这一轮确定；
 - 观测事件是旁路信息，不参与业务正确性判断；
 - 当前实现是单进程异步架构，不承诺分布式投递语义。
 

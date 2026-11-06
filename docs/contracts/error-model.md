@@ -198,12 +198,12 @@ Import Bus 在交互应用完成之后才确认，失败按“重发能否得到
 | 同上 | 503 | `queue_unavailable` | Patchouli 提交队列容量已满或已停止，交互未被接管；以同一 `interaction_id` 重发不会形成重复 |
 | 同上 | 503 | `apply_pending` | 交互已被接纳，等待应用超过 `import_bus.apply_wait_seconds`；重发时查到仍在应用，只继续等待、不重复提交 |
 | 同上 | 503 | `shutting_down` | 编排器已开始关闭：认证网关关闭之前已通过认证、关闭开始后才到达，或在同一外部会话的串行门外等待的请求 |
-| `ImportBusApplyFailedError` / `import_bus.apply_failed` | 500 | —— | 交互已被接纳，但在感知应用时失败（例如落位的话题在应用前已被驱逐）；重发时重新路由并以同一 `interaction_id` 再次提交，失败可能反复出现，连接器有限次重试 |
+| `ImportBusApplyFailedError` / `import_bus.apply_failed` | 500 | —— | 交互已被接纳，但在感知应用时失败（例如提交指定的话题在应用前已被驱逐）；重发时重新路由并以同一 `interaction_id` 再次提交，失败可能反复出现，连接器有限次重试 |
 | `ImportBusContractError`（`RuntimeError`） | 500（`server.internal_error`） | —— | 下游破坏公共契约，例如 `PASSIVE_MEMORY` 返回命令结果，或已接纳的交互在等待时查不到；重发只会重复失败，不转为可重试错误 |
 
 请求进入 Import Bus 之前的拒绝沿用 server 与访问边界的分类：请求体超过 `import_bus.max_request_bytes` 在框架解析请求体之前以 413 `request.body_too_large` 拒绝，过大且不是合法 JSON 的请求不会落成 422；请求校验失败为 422，缺少 principal 声明（`request.principal_required`）、Agent 缺失或为 `system` 为 400，凭据缺失或不一致（`invalid_credential`）与其他未获准入为 403，认证网关已关闭为 503（第 4.4 节）。其中只有认证网关关闭的 503 可以稍后重发，其余拒绝重发也不会改变结果。
 
-外部 harness 经 MCP 写入与更新之前，Import Bus 为这一轮落位，失败使用同一类型：Gateway 整体抛出可恢复异常为 `gateway_unavailable`，编排器关闭中为 `shutting_down`，这一轮已经提交、等待应用超时仍在应用时为 `apply_pending`。三者都直接交给等待中的写入方，写入方稍后重试即可，不发出 `import.turn.deferred`（[Import Bus](../system/import-bus.md#47-写入时落位)）。
+外部 harness 经 MCP 写入与更新之前，Import Bus 为这一轮确定话题，失败使用同一类型：Gateway 整体抛出可恢复异常为 `gateway_unavailable`，编排器关闭中为 `shutting_down`，这一轮已经提交、等待应用超时仍在应用时为 `apply_pending`。三者都直接交给等待中的写入方，写入方稍后重试即可，不发出 `import.turn.deferred`（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。
 
 **提交队列的拥塞**：Patchouli 的公开提交路由在提交队列容量已满（`WorkQueueCapacityError`）或已停止（`WorkQueueStoppedError`）时抛出 `InteractionAdmissionUnavailableError`（`patchouli.interaction.admission_unavailable`，reason `capacity_rejected` / `queue_stopped`），表示队列没有接管这次提交；Import Bus 把它转为 `queue_unavailable`，因此这两种拥塞以 503 返回，不落入 500。`InteractionAdmissionUnavailableError` 本身没有 HTTP 映射，由消费它的一方翻译。
 

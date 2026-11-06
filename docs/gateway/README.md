@@ -82,7 +82,7 @@ GatewaySystem
 
 `ACTIVE_CHAT` 允许命令短路，也允许普通决策。命令一旦命中（包括未知命令与参数无效），Gateway 只解析不执行，以携带解析结果的 `GatewayCommandOutcome` 结束，不再进入话题、检索或 Agent 执行链路；用户可见的命令终态由任务进程产生，内置命令当前暂时不可用。
 
-`PASSIVE_MEMORY` 禁止系统命令，只能形成 `GatewayDecisionOutcome`；[Import Bus](../system/import-bus.md) 为需要提交的导入轮次（尚未提交或上次应用失败）以这一模式调用 Gateway 取得落位。Gateway 在这一模式下运行与主动入口相同的话题路由，但不运行查询分析：Import Bus 只取话题落位（`target_topic_id` 与新话题的标题、摘要），查询分析的产物没有使用方，决定的意图与检索计划取不检索的默认值（[话题与查询分析](./analysis.md)）。改写查询不进入交互记录，Import Bus 也不执行检索。导入的串行、查重、封口、Patchouli 提交、等待应用与可重试错误都属于 System 的 Import Bus，不属于 Gateway；Gateway 在这一模式下返回命令结果时，Import Bus 把它当作契约错误。
+`PASSIVE_MEMORY` 禁止系统命令，只能形成 `GatewayDecisionOutcome`；[Import Bus](../system/import-bus.md) 为需要提交的导入轮次（尚未提交或上次应用失败）以这一模式调用 Gateway 取得话题路由。Gateway 在这一模式下运行与主动入口相同的话题路由，但不运行查询分析：Import Bus 只取话题路由（`target_topic_id` 与新话题的标题、摘要），查询分析的产物没有使用方，决定的意图与检索计划取不检索的默认值（[话题与查询分析](./analysis.md)）。改写查询不进入交互记录，Import Bus 也不执行检索。导入的串行、查重、封口、Patchouli 提交、等待应用与可重试错误都属于 System 的 Import Bus，不属于 Gateway；Gateway 在这一模式下返回命令结果时，Import Bus 把它当作契约错误。
 
 完整跨子系统语义见[子系统公共契约](../contracts/subsystem-contracts.md)和[公开路由与事件](../contracts/routes-and-events.md)。
 

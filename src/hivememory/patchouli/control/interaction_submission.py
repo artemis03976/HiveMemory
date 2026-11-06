@@ -390,7 +390,7 @@ class _StoredSubmission:
 
 @dataclass(frozen=True)
 class InteractionRecordView:
-    """提交队列对一个交互的记录投影：归属、工作状态与成功时的真实落点。
+    """提交队列对一个交互的记录投影：归属、工作状态与成功时实际所在的话题。
 
     ``state`` 为空表示旁路索引仍在、工作记录已超出终态保留窗口，接纳过但
     结局不再可知；``topic_id`` 只在成功时给出，``NEW_TOPIC`` 已解析为真实话题。
@@ -584,7 +584,7 @@ class InteractionSubmissionQueue:
     async def submit(self, submission: InteractionSubmission) -> InteractionSubmissionReceipt:
         """规范化并接受一次 submission；重复 interaction_id 只返回原收据。
 
-        已应用失败的交互允许以同一标识重新提交，载荷可以不同（例如落位的话题
+        已应用失败的交互允许以同一标识重新提交，载荷可以不同（例如提交指定的话题
         已被驱逐，提交方重新路由后再交）：新的提交以递增的尝试号作为工作项
         标识入队。等待中与已成功的交互仍按原规则幂等，载荷不同时报冲突。
         """

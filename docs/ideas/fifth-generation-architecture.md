@@ -292,7 +292,7 @@ flowchart TB
 
 **约束**：
 
-- Gateway 的话题路由只服务于后台的 Topic 落位；
+- Gateway 的话题路由只服务于后台为交互确定 Topic；
 - 会话压缩由执行单元负责，不改写记忆材料；
 - 生成材料取自 Topic 及同步到 Patchouli 的交互，不读取会话。
 

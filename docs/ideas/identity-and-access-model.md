@@ -68,7 +68,7 @@ last_reviewed: 2026-11-06
 |:---|:---|:---|
 | Principal 登记 | 两份配置文件在启动时装载（[认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节） | 运行时登记、修改与撤销：第 3 节 |
 | 调用方证明 | 统一认证网关；外部 principal 以共享密钥证明；任务进程注册、Import Bus 与 MCP 入口经网关；HTTP 管理面以管理凭据防误用（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节） | HTTP 管理入口的防刻意随桌面客户端；controller 模式下请求与进程的归属校验：第 4 节 |
-| 工作 actor 与操作授权 | 工作 actor 只含 principal、actor 与驻留 Workspace；actor 执行期间按白名单授权，系统级操作（root API、任务进程的系统阶段与取消、导入与落位）以 `system` 授权（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)第 4 节） | 工作 actor 是否带 adapter、本次运行的操作上限、进程控制中取消以外的授权主体：第 5 节 |
+| 工作 actor 与操作授权 | 工作 actor 只含 principal、actor 与驻留 Workspace；actor 执行期间按白名单授权，系统级操作（root API、任务进程的系统阶段与取消、导入与确定话题）以 `system` 授权（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)第 4 节） | 工作 actor 是否带 adapter、本次运行的操作上限、进程控制中取消以外的授权主体：第 5 节 |
 | 资源可见性 | 只有 MemoryAtom 带资源 policy，且只表达读取；其余资源只按归属授权 | 修改与执行授权、写入意图的可见性：第 6 节 |
 | 进入其他 Workspace | 第 3 阶段只接受目标等于驻留 Workspace | 受限穿透访问：第 7 节 |
 | 例外、暂缓与已知限制 | — | 第 8 节 |
@@ -157,7 +157,7 @@ last_reviewed: 2026-11-06
 
 - 访问 context 按运行类型分为进程、执行线程（主线程与子线程）和请求三种。“线程结束后拒绝迟到的请求”同时由线程 context 的撤销与线程表的存活判定承担。
 - 操作授权者有七个方法，其中四个共用同一组前置检查。阶段授权与导入授权不检查白名单，它们的安全依赖架构测试限定调用位置。
-- 请求级提交另加了派发话题与 `request_level` 参数。MCP 写入先经导入授权落位，再经 actor 授权登记。
+- 请求级提交另加了派发话题与 `request_level` 参数。MCP 写入先经导入授权确定话题，再经 actor 授权登记。
 - 回答“某个外部调用方能做什么”，要依次查 principal 登记、Workspace 访问登记、入口开放的请求类型，以及它经过的授权方法。
 
 **分析**（不是 owner 决定）：

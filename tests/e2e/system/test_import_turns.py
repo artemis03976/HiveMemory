@@ -26,7 +26,7 @@ pytestmark = pytest.mark.e2e
 
 @pytest.mark.asyncio
 async def test_http_import_turn_forms_interaction_in_patchouli(patchouli_chat_stack):
-    """连接器导入一轮：经认证网关与真实 Gateway 落位，Patchouli 话题中出现该轮。"""
+    """连接器导入一轮：经认证网关与真实 Gateway 路由，Patchouli 话题中出现该轮。"""
     stack = patchouli_chat_stack
     # 连接器以自己的 principal 经 import adapter 接入，并携带接入凭据；导入由 system
     # 执行，Import Bus 服务以系统自身的 principal 认证它。

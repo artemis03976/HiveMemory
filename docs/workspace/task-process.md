@@ -115,7 +115,7 @@ TaskProcessService.run_process(handle)：创建进程 task；流式交付订阅�
 
 调用 Gateway 之前，进程请求 Patchouli 在后台预取推理模型：路由只开始加载、立即返回，模型加载与 Gateway 的 LLM 调用并行，空闲卸载之后的重新加载因此尽量不落在 prepare 检索的路径上（[Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载)）。预取在 Gateway 的 root 授权之后发出，准入已失效的进程不触发加载；Gateway 判定为命令或不需要检索时模型同样会加载，这部分内存由空闲卸载回收。预取不涉及 Workspace 资源，不是阶段调用，不携带 scope；预取失败只记录日志，不影响进程。
 
-Gateway 阶段从会话取最近 `gateway.context_preparation.session_turn_limit` 轮的用户与助手文本，连同每轮在会话中标注的落位话题 `topic_id`，随 `session_turns` 交给 Gateway（[Gateway 分析](../gateway/analysis.md)）。落位话题只在话题路由失败时使用：Gateway 续接上一轮的话题（该话题仍在本次的候选话题中时），否则新建话题；同一会话的相邻轮次大多仍在同一话题上，续接比每次失败都新建无标题话题归错的代价小。
+Gateway 阶段从会话取最近 `gateway.context_preparation.session_turn_limit` 轮的用户与助手文本，连同每轮在会话中记录的所在话题 `topic_id`，随 `session_turns` 交给 Gateway（[Gateway 分析](../gateway/analysis.md)）。所在话题只在话题路由失败时使用：Gateway 续接上一轮的话题（该话题仍在本次的候选话题中时），否则新建话题；同一会话的相邻轮次大多仍在同一话题上，续接比每次失败都新建无标题话题归错的代价小。
 
 ### 5.2 阶段调用
 

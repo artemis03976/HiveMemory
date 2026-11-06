@@ -60,14 +60,14 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 |:---|:---|:---|
 | `TaskProcessService`（`workspace.process`） | 任务请求的唯一注册入口：注册时完成两阶段认证并创建进程，以流式交付运行已注册的进程（四阶段编排），提供取消与关闭 | [任务进程](../workspace/task-process.md) |
 | `RootMemoryService`、`RootMemoryTaskService`、`RootAgentProfileService`、`RootSessionService`、`RootTopicService`、`RootWorkspaceAssetService`（`workspace.capability.root`） | 以 root 授权提供 Memory、记忆任务、Profile、会话、话题与附件上传的管理用例 | [能力层](../workspace/capability.md#3-root-api) |
-| `ImportBusService`（`system.application`） | 外部 harness 一轮完整交互的导入与写入时落位：以系统的 root 工作 actor 授权后委托编排器；关闭时等待在途导入 | 第 3 节；[Import Bus](./import-bus.md) |
+| `ImportBusService`（`system.application`） | 外部 harness 一轮完整交互的导入与写入时确定话题：以系统的 root 工作 actor 授权后委托编排器；关闭时等待在途导入 | 第 3 节；[Import Bus](./import-bus.md) |
 | `SystemReadinessService`（`system.application`） | 模型 warmup、ready 和简短 readiness 状态 | 第 3 节 |
 
 这些服务的“拥有”只指顶层用例入口，不改变后端子系统的状态所有权。actor API 的 `ActorMemoryService` 与 `ActorAgentService` 不经门面暴露，只由操作入口持有。
 
 ## 3. 系统级服务
 
-`ImportBusService` 是 `POST /api/v1/import/turns` 背后的用例入口，也为 MCP 写入与更新落位。导入与落位是系统级操作：入口认证得到的工作 actor 只证明来源与参与的 Agent，服务以组合根注入的系统自身的 principal 认证参与者驻留 Workspace 的 `system`，经 `authorize_root` 得到本次请求的 `IdentityScope`（不检查 actor 操作白名单，目标只能是参与者驻留的 Workspace），连同参与者与 principal 标识交给 `system.services.import_bus` 的编排器 `ImportBusIngestor`。编排器按外部会话串行，经 Patchouli 公开路由查询进度与等待应用，经 root API 的提交交互提交，经 Gateway 的 `PASSIVE_MEMORY` 入口只取得话题落位，以与任务进程共用的封口函数组装交互记录，应用完成后才确认。它不检索记忆、不返回记忆上下文，不运行 Alice、MTP、命令或回复生成，不经任务进程的注册入口，不持有 Patchouli 的提交队列，也不向调度器注册维护任务。链路、失败分类与 Claude Code 连接器见 [Import Bus](./import-bus.md)，导入在访问模型中的位置见[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)。
+`ImportBusService` 是 `POST /api/v1/import/turns` 背后的用例入口，也为 MCP 写入与更新确定话题。导入与确定话题是系统级操作：入口认证得到的工作 actor 只证明来源与参与的 Agent，服务以组合根注入的系统自身的 principal 认证参与者驻留 Workspace 的 `system`，经 `authorize_root` 得到本次请求的 `IdentityScope`（不检查 actor 操作白名单，目标只能是参与者驻留的 Workspace），连同参与者与 principal 标识交给 `system.services.import_bus` 的编排器 `ImportBusIngestor`。编排器按外部会话串行，经 Patchouli 公开路由查询进度与等待应用，经 root API 的提交交互提交，经 Gateway 的 `PASSIVE_MEMORY` 入口只取得话题路由，以与任务进程共用的封口函数组装交互记录，应用完成后才确认。它不检索记忆、不返回记忆上下文，不运行 Alice、MTP、命令或回复生成，不经任务进程的注册入口，不持有 Patchouli 的提交队列，也不向调度器注册维护任务。链路、失败分类与 Claude Code 连接器见 [Import Bus](./import-bus.md)，导入在访问模型中的位置见[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)。
 
 `SystemReadinessService` 提供模型 warmup、ready 查询和 `ready/warming_up` 摘要，经 Patchouli readiness routes 取得状态，不参与 Workspace 资源授权。ready 表示每个启用的推理模型自进程启动后至少成功加载过一次，且当前不处于加载失败状态：启动预热完成之前为 `warming_up`；空闲卸载不改变 ready，ready 也不表示模型此刻在内存中；重新加载失败时回到 `warming_up`，直到下一次加载成功。驻留与卸载见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载)。
 

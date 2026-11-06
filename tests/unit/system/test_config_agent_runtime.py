@@ -110,7 +110,7 @@ def test_memory_compiler_config_accepts_cascade_strategy():
         }
     )
 
-    # discriminated union 能解析 cascade 分支且字段落位
+    # discriminated union 能解析 cascade 分支且字段取到对应的值
     strategy = config.memory_compiler.retrieval_context.strategy
     assert isinstance(strategy, CascadeContextStrategyConfig)
     assert strategy.type == "cascade"

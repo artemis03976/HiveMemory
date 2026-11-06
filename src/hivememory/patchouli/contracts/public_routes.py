@@ -197,7 +197,7 @@ class PatchouliRoutes:
     ) -> InteractionStatus | None:
         """查询交互在提交队列中的进度；未被接纳时返回 ``None``。
 
-        同名交互属于其他 Workspace 时报冲突；成功时给出真实落点。
+        同名交互属于其他 Workspace 时报冲突；成功时给出实际所在的话题。
         """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 

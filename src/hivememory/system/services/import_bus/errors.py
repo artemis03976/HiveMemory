@@ -41,7 +41,7 @@ class ImportBusUnavailableError(DomainError):
 
 
 class ImportBusApplyFailedError(DomainError):
-    """交互已被接纳，但在感知应用时失败（例如落位的话题在应用前已被驱逐）。
+    """交互已被接纳，但在感知应用时失败（例如提交指定的话题在应用前已被驱逐）。
 
     重发时 Import Bus 重新路由并以同一交互标识再次提交；失败若反复出现，
     连接器按服务器内部错误有限次重试后放弃这一轮。

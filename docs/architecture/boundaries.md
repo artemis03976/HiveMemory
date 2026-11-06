@@ -62,7 +62,7 @@ last_reviewed: 2026-11-06
 
 公共模型在这里相当于一张“交接单”：它应说明上一阶段已经确认了什么、下一阶段可以依赖什么，却不允许接收方通过模型继续操纵发送方的内部对象。将公共模型做成 frozen 或依赖中立结构，目的正是防止 workflow state、存储客户端和引擎实体沿调用链泄漏，最终形成无法辨认的共享内部状态。
 
-访问控制的所有权同样分属两处：System 持有调用来源接入登记与 Principal authentication（`system.access`，第 1 阶段：登记、adapter、外部来源的接入凭据、可代表的用户与能否声明 `system`）；workspace 持有统一认证网关与第 2 阶段的准入（`workspace.authentication`，产出工作 actor）、第 3 阶段的操作授权（`workspace.authorization`）与访问注册表（`workspace.registry`）。访问值类型与端口协议（`WorkspaceOperation`、工作 actor `WorkingActor`、`CallerPrincipal`、`PrincipalAuthenticator` 与子工作 actor 的准入端口）位于 `core.access`。操作授权在 workspace 的授权点完成，按谁在执行这项操作区分：actor 执行期间的操作（actor API、prepare 的检索）以 `authorize_agent` 检查 actor 操作白名单；系统级操作（root API、任务进程的系统阶段与取消、Import Bus 的落位与交互提交）以 `authorize_root` 只接受保留的 `system`，交互中的 Agent 作为参与者显式传递；它们都把组装的 `IdentityScope` 交给公共 route；资源 owner 拆分身份后独立执行资源规则：先检查 Workspace 硬边界，再按 policy 判断发起者的可见性，来源字段不参与授权。Patchouli 与 Gateway 不接收工作 actor，也不依赖 workspace 的认证与授权实现。依赖方向为 `system → workspace → core`；workspace 不导入 System。完整模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节。
+访问控制的所有权同样分属两处：System 持有调用来源接入登记与 Principal authentication（`system.access`，第 1 阶段：登记、adapter、外部来源的接入凭据、可代表的用户与能否声明 `system`）；workspace 持有统一认证网关与第 2 阶段的准入（`workspace.authentication`，产出工作 actor）、第 3 阶段的操作授权（`workspace.authorization`）与访问注册表（`workspace.registry`）。访问值类型与端口协议（`WorkspaceOperation`、工作 actor `WorkingActor`、`CallerPrincipal`、`PrincipalAuthenticator` 与子工作 actor 的准入端口）位于 `core.access`。操作授权在 workspace 的授权点完成，按谁在执行这项操作区分：actor 执行期间的操作（actor API、prepare 的检索）以 `authorize_agent` 检查 actor 操作白名单；系统级操作（root API、任务进程的系统阶段与取消、Import Bus 的确定话题与交互提交）以 `authorize_root` 只接受保留的 `system`，交互中的 Agent 作为参与者显式传递；它们都把组装的 `IdentityScope` 交给公共 route；资源 owner 拆分身份后独立执行资源规则：先检查 Workspace 硬边界，再按 policy 判断发起者的可见性，来源字段不参与授权。Patchouli 与 Gateway 不接收工作 actor，也不依赖 workspace 的认证与授权实现。依赖方向为 `system → workspace → core`；workspace 不导入 System。完整模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节。
 
 local bus 则是一个子系统内部的组合机制。它允许所有者替换内部实现，却不承诺跨子系统稳定性。一旦其他子系统直接依赖 local route，所谓内部重构就会变成隐蔽的公共契约变更，因此跨边界能力必须显式提升为公共 route、公共模型或全局事件。
 
@@ -107,14 +107,14 @@ Gateway 的价值在于把不稳定、可能降级的入口分析收敛为一个
 
 ### 5.1 输入与输出
 
-Gateway 的唯一公开业务入口是 `gateway.public.process`。输入包括消息、`IdentityScope`、`GatewayIngressMode`、可选 `request_timeout_ms` 与最近轮次 `session_turns`（每轮只有用户与助手文本，以及该轮实际落位的 `topic_id`）；输出为命令终态或普通决策终态。Chat application 通过取消自己创建的 Gateway task 中断调用，不向 Gateway 传递控制句柄。
+Gateway 的唯一公开业务入口是 `gateway.public.process`。输入包括消息、`IdentityScope`、`GatewayIngressMode`、可选 `request_timeout_ms` 与最近轮次 `session_turns`（每轮只有用户与助手文本，以及该轮实际所在话题的 `topic_id`）；输出为命令终态或普通决策终态。Chat application 通过取消自己创建的 Gateway task 中断调用，不向 Gateway 传递控制句柄。
 
 `GatewayDecision` 只表达下游需要的稳定事实：目标话题、查询重写、关键词、记忆写入信号、检索计划和主意图。Workflow 的 step、snapshot、fallback 原因与内部分析对象不越过公共边界。
 
 ### 5.2 降级边界
 
 - 候选话题失败：使用空候选集；
-- 话题路由失败：上一轮落位的话题仍在本次候选话题中时续接它，否则选择 `NEW_TOPIC`；
+- 话题路由失败：上一轮所在的话题仍在本次候选话题中时续接它，否则选择 `NEW_TOPIC`；
 - 已路由话题加载失败：使用空话题上下文；
 - 查询分析失败：保留原始查询，使用 `RAG + HYBRID` 和默认 `top_k`；
 - step 投影、状态提交或终态不变量失败：不使用局部 fallback，整个 workflow 失败；
@@ -125,7 +125,7 @@ Gateway 的唯一公开业务入口是 `gateway.public.process`。输入包括�
 
 ### 5.3 模式边界
 
-`ACTIVE_CHAT` 允许命令识别和分发；`PASSIVE_MEMORY` 禁止命令分支，也不运行查询分析。两种模式共用决策 workflow 的话题前缀，但后续由不同的应用服务（chat 任务进程与 Import Bus）消费：Import Bus 只使用决定中的话题落位，不执行检索。
+`ACTIVE_CHAT` 允许命令识别和分发；`PASSIVE_MEMORY` 禁止命令分支，也不运行查询分析。两种模式共用决策 workflow 的话题前缀，但后续由不同的应用服务（chat 任务进程与 Import Bus）消费：Import Bus 只使用决定中的话题路由，不执行检索。
 
 ## 6. Patchouli 边界
 

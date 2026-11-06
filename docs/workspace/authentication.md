@@ -93,7 +93,7 @@ last_reviewed: 2026-11-06
 | workspace_actors | 用户 `default` 的 `claude_code`（Claude Code 导入与 MCP 访问声明的 Agent） | 精确记录，`allowed_operations` 为 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` |
 | workspace_actors | 用户 `default` 的 `dsh`（DeepSeek Harness 插件导入与记忆工具声明的 Agent） | 精确记录，`allowed_operations` 同 `claude_code` |
 
-`system` 记录只回答“能否进入”：root 授权不读取白名单，`system` 也因白名单为空而不能经操作入口执行任何 actor 操作，管理员的直接通道不会走到带缓存的 actor 读取。管理路由、chat 的系统阶段与 Import Bus 都以这条记录准入 `system`，因此任何要对话、导入或经 MCP 写入的 Workspace 都需要它；用户级记录不覆盖 `system`。`claude_code` 与 `dsh` 的精确记录获准检索、读取、写入与更新：导入与写入前的落位由系统执行、不读取白名单（[身份与授权](./identity-and-authorization.md#4-操作授权)），MCP 的每次工具调用按这份白名单逐次授权；精确记录优先于用户级记录，这两个 Agent 因此不继承用户级的 `memory.run` 与 `agent.call`。
+`system` 记录只回答“能否进入”：root 授权不读取白名单，`system` 也因白名单为空而不能经操作入口执行任何 actor 操作，管理员的直接通道不会走到带缓存的 actor 读取。管理路由、chat 的系统阶段与 Import Bus 都以这条记录准入 `system`，因此任何要对话、导入或经 MCP 写入的 Workspace 都需要它；用户级记录不覆盖 `system`。`claude_code` 与 `dsh` 的精确记录获准检索、读取、写入与更新：导入与写入前的确定话题由系统执行、不读取白名单（[身份与授权](./identity-and-authorization.md#4-操作授权)），MCP 的每次工具调用按这份白名单逐次授权；精确记录优先于用户级记录，这两个 Agent 因此不继承用户级的 `memory.run` 与 `agent.call`。
 
 ## 3. 工作 actor
 
@@ -121,7 +121,7 @@ last_reviewed: 2026-11-06
 |:---|:---|:---|:---|
 | 执行者（主工作 actor） | 注册入口认证 (user, 具体 Agent) | 进程记录与主线程记录 | 主线程的 actor 操作；prepare 的检索；finalize 中作为交互的参与者 |
 | 子工作 actor | 线程表派生子线程时的准入 | 子线程记录 | 子线程的 actor 操作，按被调用方的白名单与可见性授权 |
-| 系统的 root 工作 actor | 系统组件以系统自身的 principal 认证 (user, `system`) | 进程记录；Import Bus 的调用链 | 任务进程的系统阶段；导入与落位 |
+| 系统的 root 工作 actor | 系统组件以系统自身的 principal 认证 (user, `system`) | 进程记录；Import Bus 的调用链 | 任务进程的系统阶段；导入与确定话题 |
 | 请求的工作 actor | 管理路由、`/chat/stop`、导入与 MCP 入口的认证 | 入口调用链 | 管理与取消（`system`）；证明导入的来源与参与者；MCP 的 actor 操作 |
 
 持有工作 actor 的记录不撤销：进程记录随进程注销被丢弃，线程记录的存活由线程表判定（[执行线程](./execution-threads.md#3-生命周期与唯一的存活判定)），请求的工作 actor 是入口调用链内的局部值，调用返回即不再被引用。
@@ -133,7 +133,7 @@ last_reviewed: 2026-11-06
 系统级操作以保留的 `system` 执行（[身份与授权](./identity-and-authorization.md#4-操作授权)）。系统组件取得这个身份的方式与 Profile 注入脚本相同：以自己登记的 principal 经进程内 adapter 认证 (user, `system`)。
 
 - 随仓库发布的登记包含 `hivememory:system`（`local` adapter、允许声明 `system`、不带凭据）；它的标识与 adapter 标识一样定义为 `system/access/` 中的常量 `SYSTEM_PRINCIPAL_ID`，只由组合根引用，注入任务进程的注册入口与 Import Bus 服务（架构测试守护）。
-- 任务进程注册时认证一次，得到存进进程记录的系统 root 工作 actor；Import Bus 每次导入或落位时认证一次，认证的是参与者驻留 Workspace 的 `system`。
+- 任务进程注册时认证一次，得到存进进程记录的系统 root 工作 actor；Import Bus 每次导入或确定话题时认证一次，认证的是参与者驻留 Workspace 的 `system`。
 - (user, `system`) 的准入沿用访问登记中已有的 `system` 记录。缺少系统自身的 principal 时，chat 注册、导入与 MCP 写入都以 `unknown_principal` 拒绝；缺少该用户在对应 Workspace 的 `system` 记录时以 `actor_not_admitted` 拒绝。
 - 能声明 `system` 的来源由登记逐个限定，外部 harness 不能；外部请求声明 `system` 作为参与者时，入口的声明解析先以 `request.agent_reserved` 拒绝。
 
@@ -155,7 +155,7 @@ last_reviewed: 2026-11-06
 - 认证网关注入任务进程的注册入口与 Import Bus 服务，并经 `HiveMemorySystem.access_gateway` 暴露给 server 与 MCP 入口；系统自身的 principal 与 `local` adapter 注入注册入口与 Import Bus 服务；
 - 操作授权者注入 root API 与 actor API 的各服务、注册入口、执行器、CPU 分配、进程线程管理与 Import Bus 服务；CPU 分配另注入读取视图的 Profile 读取端口；
 - 进程表由组合根在构建 actor API 之前创建，同时交给注册入口与进程线程管理 `ProcessThreads`；`ProcessThreads` 以认证网关作为子工作 actor 的准入端口、以操作授权者读取操作快照，注入执行器（主线程的派生与兜底结束）、操作入口与 actor API（线程端口 `ExecutionThreadTable`，位于 `workspace/thread_ports.py`，不属于公共契约），能力层与任务进程仍互不导入；
-- `WorkspaceOperationEntry` 由组合根以 actor API 与线程端口装配，公共 `OperationEntry` 注入 `AliceCPU`，同一个入口经门面的 `operation_entry` 交给 MCP 入口，只用其请求级提交；MCP 入口另经门面的 `import_bus_service` 在写入与更新前为这一轮落位；actor API 只由操作入口持有，门面不暴露它；
+- `WorkspaceOperationEntry` 由组合根以 actor API 与线程端口装配，公共 `OperationEntry` 注入 `AliceCPU`，同一个入口经门面的 `operation_entry` 交给 MCP 入口，只用其请求级提交；MCP 入口另经门面的 `import_bus_service` 在写入与更新前为这一轮确定话题；actor API 只由操作入口持有，门面不暴露它；
 - Patchouli 与 Gateway 不注入任何认证或授权对象。
 
 ## 8. 已知限制

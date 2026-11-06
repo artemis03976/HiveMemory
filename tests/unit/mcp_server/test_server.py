@@ -1,7 +1,7 @@
 """MCP 入口：身份取自请求头、每次调用认证一次、结果编译与错误投影。
 
 真实协作：MCP SDK 的 streamable HTTP 应用与客户端（经 ASGI）、server 的声明
-解析与错误投影、MemoryCompiler；认证网关、Import Bus 的落位与操作入口在本单元
+解析与错误投影、MemoryCompiler；认证网关、Import Bus 的确定话题与操作入口在本单元
 边界之外，以记录调用的替身代替。
 """
 
@@ -84,7 +84,7 @@ class _Entry:
 
 
 class _ImportBus:
-    """记录落位请求，返回固定的落点话题或抛出预置异常。"""
+    """记录确定话题请求，返回固定的话题或抛出预置异常。"""
 
     def __init__(self, error: Exception | None = None) -> None:
         self.error = error
@@ -300,7 +300,7 @@ async def test_subscriptions_listen_is_neither_advertised_nor_served():
 async def test_intent_places_the_turn_then_submits_with_its_topic_under_one_actor(
     tool, arguments, expected
 ):
-    """先以连接器补上的轮次落位，再带落点话题经请求级提交；只认证一次，两步共用同一个工作 actor。"""
+    """先以连接器补上的轮次确定话题，再带该话题经请求级提交；只认证一次，两步共用同一个工作 actor。"""
     pending = _pending()
     system = _system(_Entry(result=pending))
     gateway = system.access_gateway
@@ -323,7 +323,7 @@ async def test_intent_places_the_turn_then_submits_with_its_topic_under_one_acto
 
 @pytest.mark.asyncio
 async def test_intent_without_turn_is_rejected_before_authentication():
-    """连接器没有补上轮次信息时以 request.turn_required 拒绝：不认证、不落位、不登记意图。"""
+    """连接器没有补上轮次信息时以 request.turn_required 拒绝：不认证、不确定话题、不登记意图。"""
     system = _system(_Entry(result=_pending()))
 
     async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
@@ -337,7 +337,7 @@ async def test_intent_without_turn_is_rejected_before_authentication():
 
 @pytest.mark.asyncio
 async def test_placement_failure_is_projected_without_submission():
-    """落位失败按 HTTP 出口的投影返回，不提交写入。"""
+    """确定话题失败按 HTTP 出口的投影返回，不提交写入。"""
     system = _system(
         _Entry(result=_pending()),
         import_bus=_ImportBus(error=ImportBusUnavailableError(reason="gateway_unavailable")),

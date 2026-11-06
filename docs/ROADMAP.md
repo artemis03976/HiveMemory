@@ -73,7 +73,7 @@ last_reviewed: 2026-11-06
 | 方向 | 结果 | 当前事实 |
 |:---|:---|:---|
 | 生成材料修正与原始证据保存 | 生成视图只限制单次工具调用的结果，一轮交互不再被单轮、思考与参数上限截断；`worth_saving` 移除；Topic 按顺序保存全部交互记录与折叠记录，工作视图由二者派生；结算冻结全部记录，来源 InteractionArtifact 覆盖已折叠的轮次并带折叠记录 | [感知与短期话题](./patchouli/perception.md)、[Patchouli 生成](./patchouli/generation.md)、[Artifacts](./patchouli/artifacts.md) |
-| plugin 模式开放 WRITE 与 UPDATE | Claude Code 经 MCP 的 `memory_write`、`memory_update` 进入 actor API，派发到 Patchouli 的 Mode B、Mode C，与主动链路共用意图登记与生成链路；写入时 Import Bus 为进行中的一轮就地落位，这一轮回流时沿用落点；记忆编译的命名与文案不再按 MTP 编写 | [MCP 记忆访问](./contracts/mcp.md)、[Import Bus](./system/import-bus.md#47-写入时落位) |
+| plugin 模式开放 WRITE 与 UPDATE | Claude Code 经 MCP 的 `memory_write`、`memory_update` 进入 actor API，派发到 Patchouli 的 Mode B、Mode C，与主动链路共用意图登记与生成链路；写入时 Import Bus 为进行中的一轮就地确定话题，这一轮回流时沿用该话题；记忆编译的命名与文案不再按 MTP 编写 | [MCP 记忆访问](./contracts/mcp.md)、[Import Bus](./system/import-bus.md#47-写入时确定话题) |
 | 查重与更新：先落库再合并 | 查重落在合并区间时，草稿先作为新记忆落库，再由生成队列中的合并任务把两条记忆融合为一条，不再整体覆盖已有记忆；写入句柄随合并改指保留的记忆；判定信号不变 | [Patchouli 生成](./patchouli/generation.md#4-查重与合并)、[读取视图与写入意图](./workspace/read-view-and-write-intents.md) |
 | 一个话题提取多条记忆 | 话题结算一次调用输出草稿列表，逐条查重与写入，同批别名互不冲突；输出被截断时任务失败、不再静默记为没有产出；Librarian 的输出上限提高到 32768 | [Patchouli 生成](./patchouli/generation.md#31-mode-a被动观察--archive) |
 | 文档治理 | 归档与工作区索引每条一行、只列活动事项；文档治理规范删去已完成的迁移内容与内部重复；DeepSeek Harness 插件接入的调研需求与快照 | [文档治理规范](./DOCUMENTATION.md)、[调研需求与报告](./research/deepseek-harness-plugin-survey.md) |
@@ -143,7 +143,7 @@ last_reviewed: 2026-11-06
 | 生成任务失败带原因码 | 失败分类按异常给出稳定原因码，进入工作记录、`work.failed`、`memory.task.failed` 与分类处的一行日志；任务事件载荷带 `error_class` | [Patchouli 生成](./patchouli/generation.md#61-失败原因码)、[事件契约](./contracts/routes-and-events.md#44-失败与降级观测) |
 | 主动写入沿用 agent 的标题 | Mode B 把 agent 拟定的标题交给模型并要求沿用，只在与内容不符或缺少检索名词时修改；MCP 写入工具说明与使用手册 skill 同步 | [Patchouli 生成](./patchouli/generation.md#32-mode-b主动-write)、[MCP 记忆访问](./contracts/mcp.md#3-工具) |
 
-不在 v0.7.3：合并遇到版本冲突时是否重做（[合并版本冲突 Todo](./todo/merge-version-conflict.md)）；多条提取后被动提取的膨胀与低留存（[被动提取膨胀 Todo](./todo/passive-extraction-volume-and-retention.md)）；两种生成方式在统一架构中的兼容（[统一的交互记忆](./ideas/unified-interaction-memory.md)，候选方向）；查重的判定信号（[查重 Todo](./todo/generation-dedup-decision-signal.md)）；导入轮次的跨会话落位（[跨会话落位 Todo](./todo/cross-conversation-topic-placement.md)）；本机 HTTP 管理接口证明调用方（2026-11-05 以管理凭据完成防误用，[归档 Todo](./archive/todo/local-http-management-access.md)）。
+不在 v0.7.3：合并遇到版本冲突时是否重做（[合并版本冲突 Todo](./todo/merge-version-conflict.md)）；多条提取后被动提取的膨胀与低留存（[被动提取膨胀 Todo](./todo/passive-extraction-volume-and-retention.md)）；两种生成方式在统一架构中的兼容（[统一的交互记忆](./ideas/unified-interaction-memory.md)，候选方向）；查重的判定信号（[查重 Todo](./todo/generation-dedup-decision-signal.md)）；导入轮次的跨会话话题路由（[跨会话话题路由 Todo](./todo/cross-conversation-topic-placement.md)）；本机 HTTP 管理接口证明调用方（2026-11-05 以管理凭据完成防误用，[归档 Todo](./archive/todo/local-http-management-access.md)）。
 
 ### 4.4 冷启动、历史导入与外源文档资产化（候选）
 

@@ -373,7 +373,7 @@ class HiveMemorySystem:
 
     @property
     def import_bus_service(self) -> ImportBusService:
-        """Import Bus 服务：接收外部 harness 一轮完整交互记录，也为写入中的一轮落位。
+        """Import Bus 服务：接收外部 harness 一轮完整交互记录，也为写入中的一轮确定话题。
 
         导入路由使用前者；MCP 入口在写入与更新前使用后者。
         """

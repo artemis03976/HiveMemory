@@ -238,11 +238,11 @@ def _select_topic_routing_input(snapshot: GatewayStateSnapshot) -> TopicRoutingI
 def _continue_previous_topic(
     selected: TopicRoutingInput, _error: BaseException
 ) -> dict[str, object | None]:
-    """话题路由失败时续接上一轮落位的话题，没有可续接的话题才新建。
+    """话题路由失败时续接上一轮所在的话题，没有可续接的话题才新建。
 
     同一会话的相邻轮次大多仍在同一话题上；只有上一轮的话题仍在本次的
-    候选话题中才续接，已被驱逐或结算的话题不会成为落点。会话的第一轮、
-    上一轮落位未知或候选话题读取失败时，按新话题兜底。
+    候选话题中才续接，已被驱逐或结算的话题不会被续接。会话的第一轮、
+    上一轮所在的话题未知或候选话题读取失败时，按新话题兜底。
     """
     previous = selected.session_turns[-1].topic_id if selected.session_turns else None
     candidate_ids = {snapshot.topic_id for snapshot in selected.topic_snapshots}
