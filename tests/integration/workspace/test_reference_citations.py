@@ -10,7 +10,6 @@ import pytest
 import pytest_asyncio
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import WorkspaceAccessContext
 from hivememory.core.contracts.events import GlobalEvents
 from hivememory.core.models import (
     IdentityScope,
@@ -30,6 +29,7 @@ from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.contracts import (
     ResolveReferencesRequest,
     SubmitWriteIntentRequest,
+    ThreadHandle,
 )
 from hivememory.workspace.read_view import WorkspaceReadView
 from tests.helpers.intent_dispatch import install_intent_admission
@@ -82,7 +82,7 @@ class _ReferenceChain:
     runtime: WorkspaceReadView
     entry: WorkspaceOperationEntry
     composition: AccessTestComposition
-    access: WorkspaceAccessContext
+    thread: ThreadHandle
 
 
 @pytest_asyncio.fixture
@@ -98,7 +98,7 @@ async def chain():
     runtime = make_workspace_read_view(global_bus=bus)
     runtime.subscribe(bus)
     composition = make_access_composition([make_actor_access_record()])
-    access = await composition.authenticate_thread(process_id="references", register_process=True)
+    thread = (await composition.authenticate_main_thread(process_id="references")).handle
     memory = ActorMemoryService(
         bus,
         operation_authorizer=composition.authorizer,
@@ -114,11 +114,10 @@ async def chain():
         threads=composition.threads,
     )
     try:
-        yield _ReferenceChain(bus, backing, runtime, entry, composition, access)
+        yield _ReferenceChain(bus, backing, runtime, entry, composition, thread)
     finally:
         runtime.close()
         composition.gateway.close()
-        composition.gateway.revoke_all_contexts()
 
 
 def _add_atom(chain, alias="canonical", *, visibility="PUBLIC"):
@@ -137,13 +136,13 @@ def _add_atom(chain, alias="canonical", *, visibility="PUBLIC"):
 
 
 async def _resolve(chain, *aliases):
-    """经线程 context 绑定的公开操作请求读取，不向请求提交者暴露身份。"""
-    return await chain.entry.execute(ResolveReferencesRequest(tuple(aliases)), access=chain.access)
+    """经线程句柄提交的公开操作请求读取，不向请求提交者暴露身份。"""
+    return await chain.entry.execute(ResolveReferencesRequest(tuple(aliases)), thread=chain.thread)
 
 
 async def _write(chain):
     return await chain.entry.execute(
-        SubmitWriteIntentRequest(WriteFocus(content="待结算内容")), access=chain.access
+        SubmitWriteIntentRequest(WriteFocus(content="待结算内容")), thread=chain.thread
     )
 
 
@@ -163,7 +162,7 @@ async def _settle(chain, pending, *, atom):
 
 @pytest.mark.asyncio
 async def test_reference_read_records_each_delivered_atom_once_with_authorized_scope(chain):
-    """重复项仍逐项交付，引用按正式 memory id 去重，身份只能来自入口线程 context。"""
+    """重复项仍逐项交付，引用按正式 memory id 去重，身份只能来自入口解析的线程。"""
     first = _add_atom(chain, "first")
     second = _add_atom(chain, "second")
 

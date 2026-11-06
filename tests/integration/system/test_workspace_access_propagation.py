@@ -1,9 +1,9 @@
 """任务进程编排（chat）经共享总线并发传播 IdentityScope 的集成测试。
 
-访问边界：每个进程的 context 在
-``register_process`` 经真实网关签发并绑定本进程；进程控制（状态查询与
-取消）由请求级 context 经操作授权者的进程控制授权比对驻留坐标——跨
-workspace 请求与不存在统一按 ``not_found`` 呈现。
+访问边界：每个进程的执行者与系统的 root 工作 actor 在 ``register_process``
+经真实网关认证并存进进程记录，系统阶段以各自进程的 root scope 执行；取消以
+请求方的工作 actor 对进程的 Workspace 执行 root 授权——跨 workspace 请求与
+不存在统一按 ``not_found`` 呈现。
 """
 
 from __future__ import annotations
@@ -13,6 +13,7 @@ import asyncio
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import ActorIdentity, ResolvedAgentProfile, TurnEvent
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
@@ -50,7 +51,7 @@ def _profile_route():
     """PATCHOULI_GET_AGENT_PROFILE 替身：返回 builtin omni_doll Profile。"""
     from hivememory.core.models import OMNI_DOLL_PROFILE
 
-    async def route(agent_id, *, identity_scope):
+    async def route(agent_id, *, identity_scope, **_kwargs):
         return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
     return route
@@ -65,15 +66,14 @@ def _prepared(identity_scope) -> PreparedAgentRun:
 
 
 def _composition():
-    """两个 workspace（同 owner）的用户级登记 + 真实网关组合。"""
+    """两个 workspace（同 owner）的用户级与 system 登记 + 真实网关组合。"""
     return make_access_composition(
         [
             make_actor_access_record(
-                owner_user_id="u1", workspace_id="main_workspace", agent_id=None
-            ),
-            make_actor_access_record(
-                owner_user_id="u1", workspace_id="isolation_workspace", agent_id=None
-            ),
+                owner_user_id="u1", workspace_id=workspace_id, agent_id=agent_id
+            )
+            for workspace_id in ("main_workspace", "isolation_workspace")
+            for agent_id in (None, SYSTEM_AGENT_ID)
         ],
         default_workspace=make_workspace_identity(
             owner_user_id="u1", workspace_id="main_workspace"
@@ -91,7 +91,7 @@ def _service(bus: GlobalSystemBus, composition, cpu) -> TaskProcessService:
 
 
 async def _register(service, composition, *, workspace, process_id: str, message: str):
-    """经注册入口完成两阶段认证并登记进程（认证失败不创建进程）。"""
+    """经注册入口认证执行者与系统并登记进程（认证失败不创建进程）。"""
     return await service.register_process(
         adapter="local",
         principal=composition.principal,
@@ -125,12 +125,13 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
     isolation_ws = make_workspace_identity(owner_user_id="u1", workspace_id="isolation_workspace")
     both_gateway_calls_started = asyncio.Event()
     release_gateway = asyncio.Event()
-    gateway_contexts = []
-    finalized_contexts = []
+    gateway_scopes = []
+    finalized_scopes = []
+    participants = []
 
     async def gateway(*, identity_scope, **_kwargs):
-        gateway_contexts.append(identity_scope)
-        if len(gateway_contexts) == 2:
+        gateway_scopes.append(identity_scope)
+        if len(gateway_scopes) == 2:
             both_gateway_calls_started.set()
         await release_gateway.wait()
         return _decision()
@@ -138,8 +139,9 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
     async def prepare(*, identity_scope, **_kwargs):
         return _prepared(identity_scope)
 
-    async def finalize(*, prepared_run, identity_scope, **_kwargs):
-        finalized_contexts.append(identity_scope)
+    async def finalize(*, prepared_run, identity_scope, participant, **_kwargs):
+        finalized_scopes.append(identity_scope)
+        participants.append(participant)
         return []
 
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
@@ -182,14 +184,16 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
 
     assert done_data(main_result)["final_text"] == "main_workspace"
     assert done_data(isolation_result)["final_text"] == "isolation_workspace"
-    assert {context for context in gateway_contexts} == {
-        make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace"),
-        make_identity_scope(user_id="u1", agent_id="a1", workspace_id="isolation_workspace"),
+    # 系统阶段各自以本进程 Workspace 的 root scope 执行，交互的参与者是执行者。
+    root_scopes = {
+        make_identity_scope(user_id="u1", agent_id=SYSTEM_AGENT_ID, workspace_id="main_workspace"),
+        make_identity_scope(
+            user_id="u1", agent_id=SYSTEM_AGENT_ID, workspace_id="isolation_workspace"
+        ),
     }
-    assert {context for context in finalized_contexts} == {
-        make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace"),
-        make_identity_scope(user_id="u1", agent_id="a1", workspace_id="isolation_workspace"),
-    }
+    assert set(gateway_scopes) == root_scopes
+    assert set(finalized_scopes) == root_scopes
+    assert participants == [ActorIdentity(user_id="u1", agent_id="a1")] * 2
 
 
 @pytest.mark.asyncio
@@ -248,12 +252,13 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
         )
     )
 
-    main_request_access = await composition.authenticate(agent_id="a1", workspace=main_ws)
+    # 取消方是驻留在 main 的 system：root 授权本身成立，只有目标 Workspace 不同。
+    main_requestor = await composition.authenticate(agent_id=SYSTEM_AGENT_ID, workspace=main_ws)
     try:
         await asyncio.wait_for(both_gateway_calls_started.wait(), timeout=1)
         cross_scope_cancel = service.cancel_process(
             "process-run-isolated",
-            access=main_request_access,
+            actor=main_requestor,
         )
 
         assert cross_scope_cancel.cancelled is False

@@ -1,23 +1,23 @@
 """
 TaskProcessService — 任务请求的唯一注册入口与进程控制面
 
-位于 workspace：完成任务请求的两阶段认证（注册步骤），签发即绑定并立即
-创建进程、登记到进程表，返回不透明的进程句柄；交付方首次运行进程时，
-本入口为它创建进程 task，在其中由组合根注入的执行器
+位于 workspace：完成任务请求的认证（注册步骤）——执行者与系统的 root 工作
+actor 各认证一次——并立即创建进程、登记到进程表，返回不透明的进程句柄；
+交付方首次运行进程时，本入口为它创建进程 task，在其中由组合根注入的执行器
 :class:`TaskProcessRunner`（四阶段编排骨架）推进各阶段。交付方只订阅
 进程的输出通道（流式交付），并经进程表提供取消。本入口只管理任务进程的
 生命周期：不持有总线、CPU 端口、CPU 分配器、asset reader 与编译配置等
 编排依赖，它们只由执行器持有。
 
-注册入口的生命周期职责：未通过两阶段认证不创建进程；注册成功即登记；
-进程只有一条退出路径——进程 task 在执行器完成关闭流程后，由本入口使
-context 失效、从进程表注销并释放会话认领，最后结束输出通道。交付方离开
+注册入口的生命周期职责：任一认证未通过都不创建进程；注册成功即登记；
+进程只有一条退出路径——进程 task 在执行器完成关闭流程后，由本入口从进程
+表注销并释放会话认领，最后结束输出通道。交付方离开
 只退订并以交付方给出的原因请求停止，不在自己的取消上下文中执行关闭。
 进程表是唯一的进程注册表，登记 ``process_id → TaskProcess``。进程记录与
 ``TaskProcess`` 都不离开本入口：入口 adapter（server）只持有
 :class:`ProcessHandle`；句柄按对象身份判定有效，持有有效句柄即为该进程
-生命周期的所有者，运行与关闭以句柄为参数；取消以 ``process_id`` 加请求级
-context 为依据。注册成功但交付一直没有开始时（例如关停信号在注册期间
+生命周期的所有者，运行与关闭以句柄为参数；取消以 ``process_id`` 加请求方
+的工作 actor 为依据。注册成功但交付一直没有开始时（例如关停信号在注册期间
 到达），调用方经 :meth:`close_process` 关闭进程。
 """
 
@@ -31,13 +31,9 @@ from typing import Any
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.trace_context import generate_trace_id
-from hivememory.core.access import (
-    CallerPrincipal,
-    RunBinding,
-    WorkspaceAccessContext,
-)
+from hivememory.core.access import CallerPrincipal, WorkingActor
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.errors import WorkspaceDomainError
+from hivememory.core.errors import OperationDeniedError, WorkspaceDomainError
 from hivememory.core.models import (
     ActorIdentity,
     AttachmentSelectionRequest,
@@ -67,13 +63,12 @@ class ProcessHandle:
     """已注册任务进程的不透明句柄。
 
     句柄是入口 adapter 与已注册进程之间唯一的引用：只暴露 ``process_id`` 与 ``session_id``，
-    不暴露进程记录、其中的访问 context 或 ``TaskProcess``。句柄只由注册
+    不暴露进程记录、其中的工作 actor 或 ``TaskProcess``。句柄只由注册
     入口签发，按对象身份判定有效：它私下记着
     签发时对应的进程，注册入口解析时要求进程表中登记的正是这一个。按
     ``process_id`` 重新构造的对象、进程关闭后的旧句柄都不是有效句柄；
     入口 adapter 见不到进程对象，因此造不出有效句柄。这维护的是可信进程
-    内的调用纪律，与访问 context 的信任模型一致；句柄不离开进程，不提供
-    序列化。
+    内的调用纪律；句柄不离开进程，不提供序列化。
     """
 
     __slots__ = ("_process", "_process_id")
@@ -84,7 +79,7 @@ class ProcessHandle:
 
     @property
     def session_id(self) -> str:
-        """本进程认领的会话 ID；不暴露访问凭据。"""
+        """本进程认领的会话 ID；不暴露工作 actor。"""
         return self._process.request.session_id
 
     @property
@@ -99,19 +94,20 @@ class ProcessHandle:
 class TaskProcessService:
     """任务进程服务 — 任务请求的唯一注册入口与进程控制面。
 
-    注册入口完成两阶段认证：调用方只
-    提交 actor 声明与请求进入的 workspace（认证前不组装 ``IdentityScope``），
-    认证失败直接抛出 ``AdmissionDeniedError``，不创建、不登记进程。任务
-    进程是 Agent action，必须由具体 Agent 执行；actor 为保留 ``system`` 值
-    的声明在认证前被拒绝。
+    注册入口完成两次认证：调用方只提交 actor 声明与请求进入的 workspace
+    （认证前不组装 ``IdentityScope``），执行者以入口的 principal 认证，系统
+    的 root 工作 actor 以 ``system_principal`` 经 ``system_adapter`` 认证
+    (user, ``system``)；任一失败直接抛出 ``AdmissionDeniedError``，不创建、
+    不登记进程。任务进程是 Agent action，必须由具体 Agent 执行；actor 为
+    保留 ``system`` 值的声明在认证前被拒绝。
 
     本入口只持有生命周期依赖：``runner`` 是组合根构建的执行器（四阶段编排
-    骨架，持有总线、CPU 端口、CPU 分配器等编排依赖）；本服务是进程
-    context 的运行持有者——注册经 ``access_gateway`` 认证签发即绑定本进程，
-    进程以任何结局关闭时由本入口经认证网关使绑定 context 失效；
-    ``operation_authorizer`` 只用于进程控制授权（阶段授权由执行器执行）；
-    ``event_publisher`` 驱动 ``chat.run.*`` 观测事件；``shutdown_wait_seconds``
-    是 System 关闭时请求停止后等待进程 task 结束的上限，超时后硬取消。
+    骨架，持有总线、CPU 端口、CPU 分配器等编排依赖）；``access_gateway`` 只
+    用于注册时的认证，``system_principal`` 与 ``system_adapter`` 是组合根注入
+    的系统自身调用来源；``operation_authorizer`` 只用于取消的 root 授权（系统
+    阶段的授权由执行器执行）；``event_publisher`` 驱动 ``chat.run.*`` 观测
+    事件；``shutdown_wait_seconds`` 是 System 关闭时请求停止后等待进程 task
+    结束的上限，超时后硬取消。
     """
 
     def __init__(
@@ -122,6 +118,8 @@ class TaskProcessService:
         sessions: ConversationSessionService,
         access_gateway: ActorAuthenticationGateway,
         operation_authorizer: WorkspaceOperationAuthorizer,
+        system_principal: CallerPrincipal,
+        system_adapter: str,
         event_publisher: RuntimeEventPublisher | None = None,
         shutdown_wait_seconds: float = 10.0,
     ) -> None:
@@ -135,6 +133,8 @@ class TaskProcessService:
         )
         self._access_gateway = access_gateway
         self._authorizer = operation_authorizer
+        self._system_principal = system_principal
+        self._system_adapter = system_adapter
 
     # ========== 注册入口 ==========
 
@@ -152,45 +152,53 @@ class TaskProcessService:
         attachments: list[AttachmentSelectionRequest] | None = None,
         session_id: str | None = None,
     ) -> ProcessHandle:
-        """注册步骤：认证、签发即绑定、创建进程并登记（流式响应开始前完成）。
+        """注册步骤：认证执行者与系统、创建进程并登记（流式响应开始前完成）。
 
         ``actor`` / ``workspace`` 是 server 入口解析的声明（不是已组装的
         ``IdentityScope``）；``process_id`` 由 server 入口在进入本服务前
-        生成并冻结，认证签发的 context 以它为运行绑定。任一认证
-        检查失败直接抛出（HTTP 入口据此返回 403），此时不创建、不登记
-        进程；认证通过后、登记完成前失败（如会话忙碌）时使已签发的
-        context 失效，并还原本次的会话认领与新建，不留悬挂凭据。注册成功
-        返回不透明的进程句柄；``attachments`` 只透传用户选择，
-        ref/READY/版本校验发生在进程的 CPU 分配边界。
+        生成并冻结。执行者以入口的 principal 认证，系统的 root 工作 actor
+        以系统自身的 principal 认证同一用户的 ``system``；任一认证检查失败
+        直接抛出（HTTP 入口据此返回 403），此时不创建、不登记进程。认证
+        通过后、登记完成前失败（如会话忙碌）时还原本次的会话认领与新建；
+        工作 actor 只是局部值，不登记就不留下任何状态。注册成功返回不透明的
+        进程句柄；``attachments`` 只透传用户选择，ref/READY/版本校验发生在
+        进程的 CPU 分配边界。
         """
         # 1. 拒绝 system 作为任务请求的 actor：任务进程必须由具体 Agent 执行。
         self._reject_system_actor(actor.agent_id)
-        # 2. 经认证网关完成两阶段认证，签发即绑定本进程。
+        # 2. 经认证网关认证执行者与系统的 root 工作 actor。
         # 注册入口只服务进程内入口（server 的 chat），没有接入凭据。
-        access = await self._access_gateway.authenticate(
+        working_actor = await self._access_gateway.authenticate(
             adapter=adapter,
             principal=principal,
             credential=None,
             actor=actor,
             workspace=workspace,
-            binding=RunBinding.for_task_process(process_id),
+        )
+        system_actor = await self._access_gateway.authenticate(
+            adapter=self._system_adapter,
+            principal=self._system_principal,
+            credential=None,
+            actor=ActorIdentity(user_id=actor.user_id, agent_id=SYSTEM_AGENT_ID),
+            workspace=workspace,
         )
         claimed = False
         created = False
         try:
-            # 认证成功后同步认领；后续登记失败时还原会话与凭据。
+            # 认证成功后同步认领；后续登记失败时还原会话。
             if session_id is None:
                 session_id = self._sessions.create(workspace).session_id
                 created = True
             self._sessions.claim(workspace, session_id, process_id)
             claimed = True
-            # 3-4. 创建进程记录写入 context 与观测标签，并登记到进程表。
+            # 3-4. 创建进程记录写入两个工作 actor 与观测标签，并登记到进程表。
             # 标签只在认证成功后创建一次，事件、会话记录与 CPU 输入清单共用。
             labels = ExecutionLabels(agent_id=actor.agent_id, workspace_id=workspace.workspace_id)
             trace_id = generate_trace_id("task")
             record = ProcessRecord(
                 process_id=process_id,
-                access=access,
+                actor=working_actor,
+                system_actor=system_actor,
                 labels=labels,
                 events=self._events.for_process(
                     process_id=process_id,
@@ -210,8 +218,7 @@ class TaskProcessService:
             self._process_table.register(process)
             record.events.created(record)
         except BaseException:
-            # 登记前失败：使已签发的 context 失效，不留悬挂凭据。
-            self._access_gateway.revoke_context(access)
+            # 登记前失败：还原本次的会话认领与新建。
             if claimed and session_id is not None:
                 self._sessions.release(workspace, session_id, process_id)
             if created and session_id is not None:
@@ -299,8 +306,8 @@ class TaskProcessService:
 
         ``run`` 为真时由执行器推进各阶段并在收尾中完成关闭流程；为假时进程
         从未运行，只执行关闭流程。无论以终态还是硬取消结束，``finally`` 都
-        撤销进程 context、从进程表注销、释放会话认领，最后结束输出通道：
-        订阅者读到结束标记时，进程已经关闭。
+        从进程表注销、释放会话认领，最后结束输出通道：订阅者读到结束标记时，
+        进程已经关闭。
         """
         try:
             if run:
@@ -314,11 +321,12 @@ class TaskProcessService:
                 process.outputs.end()
 
     def _release(self, process: TaskProcess) -> None:
-        """进程关闭后的收口：撤销进程 context、注销进程，再释放会话认领。"""
+        """进程关闭后的收口：注销进程，再释放会话认领。
+
+        注销之后，线程表把仍指向本进程的线程句柄视为已结束；系统阶段都在执行器
+        的运行与关闭流程之内，在注销之前结束。
+        """
         record = process.record
-        # 绑定 context 随进程关闭失效：无论 completed、失败、取消还是
-        # 硬取消，进程结束后该凭据不再可用。
-        self._access_gateway.revoke_context(record.access)
         self._process_table.close(process)
         # 只释放本进程的认领，会话不会被误交给后继进程。
         self._sessions.release(
@@ -355,25 +363,33 @@ class TaskProcessService:
 
     # ========== 进程控制 ==========
 
-    def cancel_process(self, process_id: str, *, access: WorkspaceAccessContext) -> CancelResult:
+    def cancel_process(self, process_id: str, *, actor: WorkingActor) -> CancelResult:
         """用户停止的控制请求（``/chat/stop``），幂等。
 
-        经操作授权者的进程控制授权比对请求方 ``access`` 与进程记录的驻留
-        坐标；不匹配时与进程不存在一样返回 ``not_found``，不泄露进程是否
-        存在。判定顺序：进程查无先于请求方 context 校验；进程存在而请求方
-        context 无效按接线缺陷以 ``ScopeRequiredError`` 拒绝（生产入口经网关
-        签发后不应出现）。取消不新增 operation；stop 记录、终态判定与运行时
+        取消是用户下达的指令，属于 root：以请求方的工作 ``actor`` 对进程的
+        Workspace 执行 root 授权。授权拒绝（请求方驻留在其他 Workspace、不是
+        system 等）时与进程不存在一样返回 ``not_found``，不泄露进程是否存在；
+        进程查无先于授权。取消不新增 operation；stop 记录、终态判定与运行时
         事件和交付方离开共用一份实现，事件使用进程注册时绑定的观测标签。
         """
         reason = "user_requested"
         process = self._process_table.get(process_id)
-        if process is None or not self._authorizer.authorize_process_control(
-            access, process.record.access
-        ):
+        if process is None or not self._may_cancel(actor, process):
             result = _not_found(process_id, reason)
             self._events.cancel_requested(result)
             return result
         return self._request_stop(process, reason)
+
+    def _may_cancel(self, actor: WorkingActor, process: TaskProcess) -> bool:
+        """请求方能否取消该进程：对进程的 Workspace 通过 root 授权。
+
+        只把操作拒绝翻译为不可取消；准入失效等其他授权错误原样传播。
+        """
+        try:
+            self._authorizer.authorize_root(actor, process.request.target_workspace)
+        except OperationDeniedError:
+            return False
+        return True
 
     # ========== 内部辅助 ==========
 

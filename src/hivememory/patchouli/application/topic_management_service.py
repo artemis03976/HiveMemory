@@ -23,8 +23,8 @@ class TopicManagementService:
     """Patchouli 对外提供的 Topic 管理应用服务。
 
     管理列表与生命周期变更由 workspace root API 授权；进程读取话题
-    时使用阶段授权。本层是授权点以下的资源 owner，只接收授权点组装的
-    ``IdentityScope``，不接收访问 context。Topic 可见性仍由领域实现强制。
+    时由系统以 root 授权。本层是授权点以下的资源 owner，只接收授权点组装的
+    ``IdentityScope``，不接收工作 actor。Topic 可见性仍由领域实现强制。
 
     ``prepare_topic`` 是内部对话编排用例（未挂载公开路由），不属于
     Actor 行为目录。

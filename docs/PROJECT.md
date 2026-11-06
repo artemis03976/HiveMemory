@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/contracts/mcp.md
-last_reviewed: 2026-11-04
+last_reviewed: 2026-11-06
 ---
 
 # HiveMemory 项目总览
@@ -154,8 +154,8 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 - ConversationSession 的创建、列表、重命名、删除与历史恢复；会话属于 Workspace，逐轮选择 Agent，Alice 从全量原文构建带工具减重与接力摘要的预算视图，Gateway 使用最近 N 轮；原文与压缩检查点仅在进程内保存；
 - SSE 流式 Agent run；
 - 全局系统指令的注册与解析：命令以命令终态结束、不进入普通 chat，当前不执行内置命令（[Gateway 全局命令](./gateway/commands.md)）；
-- Import Bus：外部 harness 一轮已结束交互的整轮导入（`POST /api/v1/import/turns`），经统一认证与导入授权、Gateway 话题落位、共用封口后提交 Patchouli 感知，交互应用完成后才确认，不检索记忆、不返回记忆上下文；外部 harness 写入记忆时，Import Bus 为进行中的一轮就地落位，这一轮回流时沿用落点；仓库附带 Claude Code 插件（`integrations/claude-code/`），其中的连接器在轮次结束与会话开始、结束时把会话记录中已结束的轮次导入，并把插件自身记忆工具的调用标为 SEARCH、READ、WRITE、UPDATE，避免取回或显式写入的内容被再提取；另附 DeepSeek Harness 插件（`integrations/deepseek-harness/`），经 dsh 的会话查询服务读取已结束的轮次导入，规则相同；
-- MCP 记忆访问：外部 harness 经 `POST /mcp` 的四个工具检索（`memory_search`）、读取（`memory_read`）、写入（`memory_write`）与更新（`memory_update`）记忆；每次工具调用以请求头中的接入身份与凭据经统一认证网关签发一份请求级 context，经操作入口的请求级提交进入 actor API、按访问登记逐次授权，不建进程；写入与更新先经 Import Bus 为这一轮落位，与主动链路共用同一意图登记与生成链路，返回 pending alias；Claude Code 插件以 `.mcp.json` 声明这个 MCP server，并以 `PreToolUse` hook 为写入与更新补上当前一轮的信息；dsh 不能在工具执行前改写参数，DeepSeek Harness 插件因此把四个工具注册为 dsh 原生工具，执行时经本端点调用，并以调用方会话的当前一轮补上轮次信息（[MCP 记忆访问](./contracts/mcp.md)）；Claude Code 插件另附 HiveMemory 使用手册 skill（`integrations/claude-code/skills/hivememory/`），引导 agent 主动检索、写入与修正记忆，其他 harness 复制到自己的 skill 目录使用；
+- Import Bus：外部 harness 一轮已结束交互的整轮导入（`POST /api/v1/import/turns`），经统一认证证明来源与参与的 Agent，由系统经 root API（逐次 root 授权）执行 Gateway 话题路由、共用封口与 Patchouli 感知提交（参与的 Agent 记为交互的发起者），交互应用完成后才确认，不检索记忆、不返回记忆上下文；外部 harness 写入记忆时，Import Bus 为进行中的一轮就地确定话题，这一轮回流时沿用该话题；仓库附带 Claude Code 插件（`integrations/claude-code/`），其中的连接器在轮次结束与会话开始、结束时把会话记录中已结束的轮次导入，并把插件自身记忆工具的调用标为 SEARCH、READ、WRITE、UPDATE，避免取回或显式写入的内容被再提取；另附 DeepSeek Harness 插件（`integrations/deepseek-harness/`），经 dsh 的会话查询服务读取已结束的轮次导入，规则相同；
+- MCP 记忆访问：外部 harness 经 `POST /mcp` 的四个工具检索（`memory_search`）、读取（`memory_read`）、写入（`memory_write`）与更新（`memory_update`）记忆；每次工具调用以请求头中的接入身份与凭据经统一认证网关认证一次，得到的工作 actor 经操作入口的请求级提交进入 actor API、按访问登记逐次授权，不建进程；写入与更新先经 Import Bus 为这一轮确定话题，与主动链路共用同一意图登记与生成链路，返回 pending alias；Claude Code 插件以 `.mcp.json` 声明这个 MCP server，并以 `PreToolUse` hook 为写入与更新补上当前一轮的信息；dsh 不能在工具执行前改写参数，DeepSeek Harness 插件因此把四个工具注册为 dsh 原生工具，执行时经本端点调用，并以调用方会话的当前一轮补上轮次信息（[MCP 记忆访问](./contracts/mcp.md)）；Claude Code 插件另附 HiveMemory 使用手册 skill（`integrations/claude-code/skills/hivememory/`），引导 agent 主动检索、写入与修正记忆，其他 harness 复制到自己的 skill 目录使用；
 - 外部 harness 的接入身份：每个外部 harness 在接入登记中有自己的 principal 与接入凭据（Claude Code 为 `harness:claude-code`，DeepSeek Harness 为 `harness:dsh`），导入与 MCP 共用；能否声明保留的 `system` 由登记逐个限定；
 - Gateway 的话题路由、查询分析、请求取消、总超时和局部保守降级。
 
@@ -194,7 +194,7 @@ Workspace 身份隔离与附件链路已在 v0.6.2 落地：TXT/Markdown/DOCX �
 HiveMemorySystem（组合根与门面）
   ├─ 门面提供的服务
   │    ├─ TaskProcessService      任务进程表与 chat 任务进程编排（workspace.process）
-  │    ├─ ImportBusService        外部交互导入与写入时落位（System 的 Import Bus）
+  │    ├─ ImportBusService        外部交互导入与写入时确定话题（System 的 Import Bus）
   │    ├─ WorkspaceOperationEntry 操作入口（只供 MCP 入口使用其请求级提交）
   │    └─ Memory / Task / Profile / Topic / Asset 管理服务（workspace.capability 的 root API，只供 system）
   ├─ 共享运行时（components）：GlobalSystemBus / RuntimeEventBus / Scheduler / Local Work Queue
@@ -226,7 +226,7 @@ Patchouli 拥有长期记忆、话题、Agent Profile、检索、感知、生成
 
 ### 7.3 Alice
 
-Alice 以 CPU 端口的实现接入任务进程，消费任务进程组装的输入清单（`CPUInputManifest`）执行 Agent run，拥有 frame、Agent loop、Koakuma MTP runtime、frame ACK alias 集合和 CALL 编排。写入意图登记与引用解析由 workspace 持有，Alice 经线程 context 绑定的提交函数发出操作请求。它不直接拥有长期记忆存储。会话压缩算法与逐帧输入守卫见 [Agent Runtime](./alice/agent-runtime.md#31-会话上下文视图)，检查点由 workspace 会话资源接受和保存。
+Alice 以 CPU 端口的实现接入任务进程，消费任务进程组装的输入清单（`CPUInputManifest`）执行 Agent run，拥有 frame、Agent loop、Koakuma MTP runtime、frame ACK alias 集合和 CALL 编排。写入意图登记与引用解析由 workspace 持有，Alice 经线程句柄绑定的提交函数发出操作请求。它不直接拥有长期记忆存储。会话压缩算法与逐帧输入守卫见 [Agent Runtime](./alice/agent-runtime.md#31-会话上下文视图)，检查点由 workspace 会话资源接受和保存。
 
 代码入口：`src/hivememory/alice/system.py`、`runtime/`、`src/hivememory/agent_runtime/`。
 
@@ -263,11 +263,11 @@ message
 ```text
 外部 harness 一轮已结束的交互（例如 Claude Code 连接器）
   -> POST /api/v1/import/turns
-  -> 统一认证网关 + 导入授权
+  -> 统一认证网关（来源与参与的 Agent）+ 系统的 root 授权
   -> Import Bus 编排（按外部会话串行，查询交互进度）
-  -> Gateway PROCESS(PASSIVE_MEMORY)：只取话题落位
+  -> Gateway PROCESS(PASSIVE_MEMORY)：只取话题路由
   -> 共用封口函数 seal_interaction
-  -> Patchouli interaction.submit -> 感知队列
+  -> root API 提交交互 -> Patchouli interaction.submit -> 感知队列
   -> 等待应用完成后确认（accepted / duplicate / skipped）
 ```
 
@@ -275,7 +275,7 @@ Import Bus 不运行 Alice、MTP、命令或回复生成，不检索记忆，也
 
 ### 8.3 MTP
 
-Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、执行、写入、更新记忆或调用子 Agent。资源操作统一经绑定线程 context 的操作请求进入 workspace 的 actor API，每个动词检查访问登记中对应的一项 actor 操作，Alice 只持有只读观测标签；READ 与 RUN 的引用交付统一记录 `workspace.reference_read` citation，CALL 目标 Profile 包括内置目标都要求 `agent.call`。WRITE/UPDATE 在操作内登记并实时派发，ACK 表示生成队列已接纳，正式持久化由 Patchouli 生成链处理。停止被接受或 Actor 阶段结束时全部执行线程结束、线程 context 撤销，此后的操作请求以线程已结束拒绝；CPU 失败、取消、进程关闭或 CALL 子帧失败不撤回已提交写入。
+Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、执行、写入、更新记忆或调用子 Agent。资源操作统一经绑定线程句柄的操作请求进入 workspace 的 actor API，以线程的工作 actor 授权，每个动词检查访问登记中对应的一项 actor 操作，Alice 只持有只读观测标签；READ 与 RUN 的引用交付统一记录 `workspace.reference_read` citation，CALL 目标 Profile 包括内置目标都要求 `agent.call`。WRITE/UPDATE 在操作内登记并实时派发，ACK 表示生成队列已接纳，正式持久化由 Patchouli 生成链处理。停止被接受或 Actor 阶段结束时全部执行线程结束，此后的操作请求以线程已结束拒绝；CPU 失败、取消、进程关闭或 CALL 子帧失败不撤回已提交写入。
 
 完整规范见[MTP 契约](./contracts/mtp.md)。
 

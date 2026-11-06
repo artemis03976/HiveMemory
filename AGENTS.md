@@ -42,7 +42,7 @@
 
 ## 3. 当前架构与所有权
 
-当前组合根是 `src/hivememory/system/` 中的 `HiveMemorySystem`（装配、门面与生命周期）。HTTP 路由与 MCP 入口（`mcp_server`）是入口适配层，经门面取得服务调用，不应重新实现业务流程：管理能力由 `workspace.capability` 的 root API 提供（actor API 只经操作入口，不经门面；MCP 入口只用门面交出的操作入口的请求级提交，以及 Import Bus 服务的写入时落位），chat 任务进程的进程表与四阶段编排骨架位于 `workspace.process`，Import Bus 的应用服务与就绪检查位于 `system.application`。
+当前组合根是 `src/hivememory/system/` 中的 `HiveMemorySystem`（装配、门面与生命周期）。HTTP 路由与 MCP 入口（`mcp_server`）是入口适配层，经门面取得服务调用，不应重新实现业务流程：管理能力由 `workspace.capability` 的 root API 提供（actor API 只经操作入口，不经门面；MCP 入口只用门面交出的操作入口的请求级提交，以及 Import Bus 服务的写入时确定话题），chat 任务进程的进程表与四阶段编排骨架位于 `workspace.process`，Import Bus 的应用服务与就绪检查位于 `system.application`。
 
 包按层组织，依赖只能指向同层或更低层（由 `tests/unit/architecture/test_package_layers.py` 守护）：
 
@@ -67,7 +67,7 @@
 | Core/Contracts | 依赖中立的模型、协议枚举、Route 泛型原语、事件常量、访问值类型与端口协议 | 业务编排、I/O、可变运行时状态 |
 | Components | 进程内运行时机制（总线、调度器、work queue、运行时事件、串行门、trace context、取消收尾） | 业务状态与业务判断 |
 
-必须保持以下方向：`server -> 经门面取得的服务（workspace 能力层与任务进程编排 / System Import Bus） -> Global public routes -> 子系统`；`mcp_server -> 门面取得的操作入口（请求级提交） -> actor API`，写入与更新先经门面取得的 Import Bus 服务为这一轮落位。route 名称与签名由提供方 `contracts` 声明，调用方直接导入提供方的类型化 route；core 只提供 `Route` / `route` 原语，事件常量仍在 core。跨子系统使用公共 route、公共模型或全局事件；不要持有对方 Runtime、Service、Controller、存储客户端或 local bus。
+必须保持以下方向：`server -> 经门面取得的服务（workspace 能力层与任务进程编排 / System Import Bus） -> Global public routes -> 子系统`；`mcp_server -> 门面取得的操作入口（请求级提交） -> actor API`，写入与更新先经门面取得的 Import Bus 服务为这一轮确定话题。route 名称与签名由提供方 `contracts` 声明，调用方直接导入提供方的类型化 route；core 只提供 `Route` / `route` 原语，事件常量仍在 core。跨子系统使用公共 route、公共模型或全局事件；不要持有对方 Runtime、Service、Controller、存储客户端或 local bus。
 
 关键所有权约束：
 
@@ -80,9 +80,9 @@
 
 Workspace 的访问、能力层与任务进程规则较多。改动这些区域前先读对应的当前设计文档；下面只列出最容易被违反的约束：
 
-- **能力层**（[能力层](docs/workspace/capability.md)）：三个调用面互不借用。actor API 的六项 actor 操作与 MTP 的 READ、SEARCH、RUN、WRITE、UPDATE、CALL 一一对应，逐次按访问登记白名单授权；root API 只接受保留的 `system`，HTTP 管理路由只调用它；任务进程的阶段调用只校验准入与目标，只在 `workspace.process` 中发起。两个 API 目录互不导入，不要新增可登记给 actor 的管理 operation。操作入口是 actor API 唯一的调用方：执行线程经线程提交，不建进程的 MCP 入口以请求级 context 经请求级提交 `execute_request`，它开放检索、读取、写入与更新，写入与更新必须带 Import Bus 落位得到的派发话题（[MCP 记忆访问](docs/contracts/mcp.md)）。
-- **任务进程与执行线程**（[任务进程](docs/workspace/task-process.md)、[执行线程](docs/workspace/execution-threads.md)）：进程 context 服务阶段调用，线程 context 只服务 Actor 阶段的 actor 操作。`ProcessThreads` 是派生、结束与解析线程的唯一入口，存活只有一个判定（线程未结束且进程仍在运行）。执行者经线程句柄 `OperationSubmitter` 提交 `OperationRequest`；请求只携带操作参数，不暴露访问 context，也不能切换目标 Workspace 或指定 `process_id`。
-- **身份数据**（[身份与授权](docs/workspace/identity-and-authorization.md)）：访问 context、`IdentityScope`、`ExecutionLabels` 与操作快照各有形态，不得互相代替。`IdentityScope` 只由授权点组装，只在一次操作的调用链内传递，不写入记录、事件或后台任务；标签与操作快照只用于观测、提示词与执行策略，不参与授权。资源 owner 在公共边界把 scope 拆为资源归属与发起者；资源授权在 owner 处进行，先校验归属等于目标 Workspace，再按资源 policy 判断发起者的可见性。
+- **能力层**（[能力层](docs/workspace/capability.md)、[身份与授权](docs/workspace/identity-and-authorization.md)）：能力层的 API 代表谁在执行这项操作，授权只有两个方法。actor API 的六项 actor 操作与 MTP 的 READ、SEARCH、RUN、WRITE、UPDATE、CALL 一一对应，在方法入口以执行线程或请求的工作 actor 经 `authorize_agent` 按访问登记白名单授权；prepare 的检索也是执行者的 actor 操作。其余都是系统级操作，以保留的 `system` 经 `authorize_root` 执行：root API（HTTP 管理路由只调用它）、任务进程的系统阶段（Gateway、话题准备、Profile、附件、finalize、cleanup）与取消；Import Bus 的查重、路由、确定话题、交互提交与等待应用都经 root API，System 的服务只认证、不授权；交互中的 Agent 是参与者，作为数据显式传递，不是执行者。两个 API 目录互不导入，不要新增授权方法，也不要新增可登记给 actor 的管理 operation。操作入口是 actor API 唯一的调用方：执行线程以线程句柄经线程提交，不建进程的 MCP 入口以入口认证得到的工作 actor 经请求级提交 `execute_request`，它开放检索、读取、写入与更新，写入与更新必须带 Import Bus 为这一轮确定的派发话题（[MCP 记忆访问](docs/contracts/mcp.md)）。
+- **任务进程与执行线程**（[任务进程](docs/workspace/task-process.md)、[执行线程](docs/workspace/execution-threads.md)）：进程与线程只负责存活与派发话题，不承载授权。进程记录持有注册时认证的执行者与系统的 root 工作 actor，线程记录持有自己的工作 actor；CPU 只拿到不透明的线程句柄，线程表按对象身份核对。`ProcessThreads` 是派生、结束与解析线程的唯一入口，存活只有一个判定（线程未结束且进程仍在运行）。执行者经提交函数 `OperationSubmitter` 提交 `OperationRequest`；请求只携带操作参数，不暴露线程句柄或工作 actor，也不能切换目标 Workspace 或指定 `process_id`。
+- **身份数据**（[身份与授权](docs/workspace/identity-and-authorization.md)）：工作 actor、`IdentityScope`、`ExecutionLabels` 与操作快照各有形态，不得互相代替。工作 actor 只由认证一侧构造，只留在进程记录、线程记录与入口调用链中，不进入资源 owner 或 CPU 可见的对象；`IdentityScope` 只由授权点组装，只在一次操作的调用链内传递；两者都不写入记录、事件或后台任务；标签与操作快照只用于观测、提示词与执行策略，不参与授权。资源 owner 在公共边界把 scope 拆为资源归属与发起者；资源授权在 owner 处进行，先校验归属等于目标 Workspace，再按资源 policy 判断发起者的可见性。
 - **会话**（[会话资源](docs/workspace/sessions.md)）：ConversationSession 属于 Workspace，不属于 Agent；同一会话同时只允许一个任务进程；会话原文不删改，压缩只产生检查点；会话管理只经 root API。
 - **已知例外**：`WorkspaceAssetStore`、解析服务与既有资产 Reader/Command 端口仍以旧 `IdentityScope` 做归属检查，System 的 `AssetMaterializationReader` 为此在一次租借内组装 scope。此例外仅限该适配器，不得扩散，后续拆分见 [WorkspaceAsset 归属拆分 Todo](docs/todo/workspace-asset-ownership-identity-split.md)。
 
@@ -92,7 +92,7 @@ Workspace 的访问、能力层与任务进程规则较多。改动这些区域�
 
 - 主动链路：`Gateway process -> Patchouli prepare（话题与检索） -> 任务进程 CPU 分配 -> Actor 执行（经 CPU 端口，当前为 Alice） -> 有输出时封口交互记录并写入会话 -> Patchouli finalize`。prepare 失败、进程异常、finalize 前断连或 CPU 无输出时不进入 finalize；cleanup 只补偿 prepare 新建且仍为空的话题，不是跨边界事务回滚。附件租借随进程关闭释放。
 - 停止与取消：用户停止保留部分输出并提交，交付方离开与系统关闭丢弃本轮；进入 FINALIZE 后拒绝停止，提交不受交付方离开影响。停止被接受时全部线程即已结束，CPU 取消后的收尾不得依赖 actor 操作。
-- Import Bus 链路：`POST /api/v1/import/turns -> 统一认证网关 + 导入授权 -> 按外部会话串行编排 -> Gateway PASSIVE_MEMORY（只取话题落位） -> 共用封口 seal_interaction -> Patchouli 公开提交路由 -> 等待感知应用完成后确认`。经 MCP 写入的轮次在写入时已就地落位，回流时沿用落点话题、不再路由（[Import Bus](docs/system/import-bus.md)）。Import Bus 不运行 Alice、MTP、命令或回复生成，不检索记忆，也不返回记忆上下文。
+- Import Bus 链路：`POST /api/v1/import/turns -> 统一认证网关（证明来源与参与的 Agent）+ 认证系统自身的 system -> 按外部会话串行编排 -> 经 root API 查重与 Gateway PASSIVE_MEMORY（只取话题路由） -> 共用封口 seal_interaction -> root API 提交交互（Patchouli 公开提交路由，参与者显式传递） -> 经 root API 等待感知应用完成后确认`；每次 root API 调用在方法入口 root 授权。经 MCP 写入的轮次在写入时已就地确定话题，回流时沿用已确定的话题、不再路由（[Import Bus](docs/system/import-bus.md)）。Import Bus 不运行 Alice、MTP、命令或回复生成，不检索记忆，也不返回记忆上下文。
 - WRITE/UPDATE（Alice 的 MTP 与外部 harness 的 MCP）的 ACK 表示意图已在 workspace 登记，并已被 Patchouli 生成队列接纳，不表示正式记忆已经持久化；派发开始后，写入不因 CPU 失败、取消、停止、线程结束、进程关闭或 MCP 调用方断开而撤回。正式持久化只由 Patchouli 生成链结算，不能在 Alice（含 Koakuma）内直接写正式 Memory。详见[读取视图与写入意图](docs/workspace/read-view-and-write-intents.md)。
 - Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，Agent Profile 不承载任何权限。CALL 派生的子 frame 以被调用方身份运行，只允许根 frame 发起，不得递归 CALL。详见 [MTP 契约](docs/contracts/mtp.md)与[执行线程](docs/workspace/execution-threads.md)。
 - Gateway 的局部失败只能在仍满足终态不变量时保守降级；投影、终态校验、装配错误和 cancellation 不得被静默吞掉。
@@ -169,7 +169,7 @@ cd frontend && npm ci && npm run lint && npm run build
 
 - [ ] 改动范围只覆盖任务所需文件，未覆盖用户已有修改。
 - [ ] 所有跨边界调用遵循公共 route/model/event 和唯一状态所有者；新增导入符合包分层规则。
-- [ ] Workspace 访问与身份数据（访问 context、`IdentityScope`、资源归属与发起者）、取消、超时、失败、幂等和资源清理语义已核对。
+- [ ] Workspace 访问与身份数据（工作 actor、`IdentityScope`、资源归属与发起者）、取消、超时、失败、幂等和资源清理语义已核对。
 - [ ] 新增的类型、端口、DTO、状态或配置项都有生产使用方；没有为生产中不会出现的输入写处理分支。
 - [ ] 改动的代码不借助 Agent 也能读懂；命名、结构、错误处理与注释沿用了周边代码的写法。
 - [ ] 新测试属于正确主类型，断言可在生产代码改坏时失败。

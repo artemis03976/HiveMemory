@@ -8,12 +8,12 @@ from fastapi.routing import APIRoute
 
 from hivememory.server.deps import (
     RequestIdentitySelection,
+    authenticate_request_actor,
     bearer_credential,
     get_access_gateway,
     get_identity_selection,
     get_import_bus_service,
     get_import_request_limit,
-    request_access_for_claims,
     resolve_principal_claim,
     resolve_request_identity_claims,
 )
@@ -80,8 +80,9 @@ async def import_turn(
     用户与 Workspace 选择只来自统一请求头。连接器以 ``X-Principal-ID``
     声明调用来源、以 ``Authorization: Bearer`` 携带接入凭据；server 以
     (user, 具体 Agent) 声明、请求声明的 principal 与 ``import`` adapter 经
-    统一认证网关取得请求级 context，凭据由网关核对，请求结束时失效；认证前
-    不组装 ``IdentityScope``。
+    统一认证网关认证，凭据由网关核对，得到的工作 actor 证明来源与参与的
+    Agent，只在本次调用内使用；认证前不组装 ``IdentityScope``。导入本身由
+    Import Bus 服务以系统的 root 工作 actor 执行。
 
     确认表示交互已经应用。状态码区分是否可重试：校验失败、principal 或
     Agent 缺失、Agent 为 ``system``、请求体过大、凭据无效与准入失败不可
@@ -91,16 +92,14 @@ async def import_turn(
     """
     principal_id = resolve_principal_claim(x_principal_id)
     claims = resolve_request_identity_claims(selection, require_agent=True, agent_id=body.agent_id)
-    async with request_access_for_claims(
+    actor = await authenticate_request_actor(
         claims,
         gateway=gateway,
         principal_id=principal_id,
         adapter=IMPORT_ADAPTER,
         credential=bearer_credential(authorization),
-    ) as request_access:
-        result = await service.import_turn(
-            body.to_imported_turn(),
-            access=request_access.access,
-            target_workspace=request_access.target_workspace,
-        )
+    )
+    result = await service.import_turn(
+        body.to_imported_turn(), actor=actor, target_workspace=actor.workspace
+    )
     return ImportTurnResponse(status=result.status, interaction_id=result.interaction_id)

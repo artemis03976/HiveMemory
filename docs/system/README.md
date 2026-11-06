@@ -17,7 +17,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/components/README.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-11-06
 ---
 
 # System
@@ -32,7 +32,7 @@ Workspace 是跨 System 与各领域 Store 的资源归属坐标，不是由 Sys
 
 - [组合根与生命周期](./composition.md)：`HiveMemorySystem`、`SystemAssembler`、子系统装配和启停顺序；
 - [应用服务](./application-services.md)：用例层的共同规则、Transport 边界，以及 Import Bus 与就绪检查两个系统级服务；任务进程与能力层属于 workspace；
-- [Import Bus](./import-bus.md)：外部 harness 一轮完整交互的导入——导入授权、按外部会话串行、Gateway 落位、共用封口、应用完成后确认、失败分类，以及 Claude Code 连接器；
+- [Import Bus](./import-bus.md)：外部 harness 一轮完整交互的导入——由系统以 root 授权执行、按外部会话串行、Gateway 路由、共用封口、应用完成后确认、失败分类，以及 Claude Code 连接器；
 - [Workspace](../workspace/README.md)：workspace 子系统的文档包——身份与授权、认证与访问登记、能力层、任务进程与执行线程、会话、读取视图与写入意图、WorkspaceAsset；
 - [配置与注册表](./configuration.md)：`config` 包的配置段与根配置加载、所有权、模型/Provider 注册和覆盖边界；
 - [i18n](./i18n.md)：语言归一化、解析优先级和各文本领域的当前入口。

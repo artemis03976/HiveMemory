@@ -25,8 +25,8 @@ HiveMemory 是一套面向 LLM Agent 的持久化记忆管理系统，目标是�
 
 - **主动模式（Active mode）**：通过 `POST /api/v1/chat` 提供 SSE 流式对话。每次请求经 workspace 的唯一注册入口认证并登记为任务进程，由 `TaskProcessService` 驱动 Gateway 分析、Patchouli prepare/finalize 与经 CPU 端口的 Alice Agent 执行；`POST /api/v1/chat/stop` 停止进程，客户端断连按停止处理
 - `POST /api/v1/chat` 支持在请求体中携带 `generation_options`（`model` / `temperature` / `top_p` / `max_tokens`）作为单次对话覆盖参数，不会写入全局配置文件
-- **Import Bus（外部 harness 导入）**：通过 `POST /api/v1/import/turns` 导入外部 harness 一轮已结束交互的完整记录（用户消息、回复、思考、外部工具的调用与结果、结局）。请求经统一认证网关与导入授权，由 System 层的 Import Bus 编排 Gateway 话题落位、共用封口与 Patchouli 感知提交，交互应用完成后才确认；外部 harness 写入记忆时，它为进行中的一轮就地落位，这一轮回流时沿用落点；它只向记忆网络输入，不检索记忆，也不返回记忆上下文
-- **MCP 记忆访问**：`POST /mcp` 是外部 harness 使用的 MCP 端点（streamable HTTP，无状态，只接受本机地址），提供检索、读取、写入与更新四个工具（`memory_search`、`memory_read`、`memory_write`、`memory_update`）。每次工具调用经统一认证网关取得一份请求级访问 context，按 Workspace 访问登记的白名单逐次授权，不建任务进程；写入与更新与主动链路共用同一意图登记与生成链路，返回 pending alias
+- **Import Bus（外部 harness 导入）**：通过 `POST /api/v1/import/turns` 导入外部 harness 一轮已结束交互的完整记录（用户消息、回复、思考、外部工具的调用与结果、结局）。请求经统一认证网关证明来源与参与的 Agent，由 System 层的 Import Bus 以系统的 root 授权编排 Gateway 话题路由、共用封口与 Patchouli 感知提交，交互应用完成后才确认；外部 harness 写入记忆时，它为进行中的一轮就地确定话题，这一轮回流时沿用该话题；它只向记忆网络输入，不检索记忆，也不返回记忆上下文
+- **MCP 记忆访问**：`POST /mcp` 是外部 harness 使用的 MCP 端点（streamable HTTP，无状态，只接受本机地址），提供检索、读取、写入与更新四个工具（`memory_search`、`memory_read`、`memory_write`、`memory_update`）。每次工具调用经统一认证网关认证一次，按 Workspace 访问登记的白名单逐次授权，不建任务进程；写入与更新与主动链路共用同一意图登记与生成链路，返回 pending alias
 - **Claude Code 插件**：`integrations/claude-code/`（插件 `hivememory-connector`，本地 marketplace `hivememory-local`，只用 Python 标准库）同时提供对话回流与记忆访问。连接器在轮次结束与会话开始、结束时把 Claude Code 会话记录中已结束的轮次导入 HiveMemory，网络提交在脱离 Claude Code 的后台进程中完成；插件声明的 MCP server 让 Claude Code 的 agent 检索、读取、写入与更新记忆，`PreToolUse` hook 在写入与更新前补上当前一轮的信息。两者都以 Claude Code 自己的接入登记 `harness:claude-code` 认证，HiveMemory 一侧的 `HIVEMEMORY_CLAUDE_CODE_TOKEN` 与 Claude Code 一侧的 `HIVEMEMORY_TOKEN` 需配置同一份凭据；`configs/workspace_actors.yaml` 为 Agent `claude_code` 登记了检索、读取、写入与更新。安装与配置见[接入 Claude Code](docs/help/claude-code-plugin.md)
 - **DeepSeek Harness 插件**：`integrations/deepseek-harness/`（dsh bundle `hivememory-connector`，只用 Node 标准库）同时提供对话回流与记忆工具。dsh 中一轮结束、会话创建或恢复时，插件经 dsh 的会话查询服务读取已结束的轮次导入 HiveMemory；四个记忆工具注册为 dsh 原生工具，写入与更新时插件以调用方会话的当前一轮补上轮次信息。以 `harness:dsh` 认证，HiveMemory 一侧的 `HIVEMEMORY_DSH_TOKEN` 与 dsh 一侧的 `HIVEMEMORY_TOKEN` 需配置同一份凭据，`configs/workspace_actors.yaml` 为 Agent `dsh` 登记了检索、读取、写入与更新。支持 Windows 桌面端连接 WSL 中的 HiveMemory，安装与配置见[接入 DeepSeek Harness](docs/help/deepseek-harness-plugin.md)
 - **HiveMemory 使用手册 skill**：`integrations/claude-code/skills/hivememory/SKILL.md` 引导 agent 主动检索、写入与修正记忆，并与 harness 自己的记忆共存。Claude Code 插件自动加载它；DeepSeek Harness 等其他 harness 把它复制到自己的 skill 目录使用，见两份接入手册
@@ -297,7 +297,7 @@ HiveMemory 当前采用“环境变量 + YAML”分层配置：
 它提供两种主要接入方式：
 
 - `process_service.register_process()` 与 `run_process()`：主动模式。先由注册入口完成认证并登记任务进程，取得进程句柄；再以 `run_process()` 订阅进程的流式输出，由 `TaskProcessService` 协调 Gateway 分析、Patchouli 记忆准备、Alice Agent 执行与 Patchouli 后处理
-- `import_bus_service.import_turn()`：Import Bus，导入外部 harness 一轮已结束交互的完整记录；调用方需先经统一认证网关取得请求级访问 context（HTTP 入口 `POST /api/v1/import/turns` 已完成这一步）
+- `import_bus_service.import_turn()`：Import Bus，导入外部 harness 一轮已结束交互的完整记录；调用方需先经统一认证网关认证得到请求的工作 actor（HTTP 入口 `POST /api/v1/import/turns` 已完成这一步）
 
 如果你只需要 HTTP 接口，可直接使用 FastAPI 服务；如果你要让已有 Agent harness 的交互沉淀为 HiveMemory 的记忆，并让它读取这些记忆，通常从 `POST /api/v1/import/turns` 与 `/mcp` 开始更自然，Claude Code 插件（`integrations/claude-code/`）与 DeepSeek Harness 插件（`integrations/deepseek-harness/`）是现成的接入实现。
 

@@ -100,7 +100,7 @@ class ExecutionFrame:
     topic_id: str | None
     execution_policy: FrameExecutionPolicy
 
-    # 每帧使用所属线程的提交函数；线程 context 由 CPU 驱动绑定。
+    # 每帧使用所属线程的提交函数；线程句柄由 CPU 驱动绑定在提交函数内部。
     submit_operation: OperationSubmitter
     # 本帧的已解析语言：MTP 回填、错误与 CALL 响应沿用它，与提示词保持一致，
     # 不在执行中从 Profile 或进程默认值重新推导。

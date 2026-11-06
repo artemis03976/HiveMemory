@@ -15,7 +15,7 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
-from hivememory.core.access import AccessRunType, WorkspaceAccessContext
+from hivememory.core.access import WorkingActor
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import ActorIdentity, IdentityScope, WorkspaceIdentity
 from hivememory.server import deps
@@ -254,19 +254,19 @@ class TestChatEntryIdentity:
 class TestStopEntryIdentity:
     @staticmethod
     def _stop_service_mock(composition, *, user_id, cancelled, status):
-        """取消发生时经 root 授权确认请求级 context 的身份；请求结束后它已失效。
+        """取消发生时经 root 授权确认请求方工作 actor 的身份。
 
-        返回 ``(mock_service, scopes)``：``scopes`` 记录 cancel_process 被调用
-        时刻对 ``user_id`` 默认 Workspace 的 root 授权结果（此时 context 尚未随
-        请求收尾失效）；只有驻留在该 Workspace 的 system 声明能通过 root 授权。
+        返回 ``(mock_service, scopes)``：``scopes`` 记录 cancel_process 收到的
+        工作 actor 对 ``user_id`` 默认 Workspace 的 root 授权结果；只有驻留在该
+        Workspace 的 system 声明能通过 root 授权。
         """
 
         scopes: list[IdentityScope] = []
         mock_service = MagicMock()
         workspace = deps.resolve_default_workspace_identity(user_id)
 
-        def fake_cancel(process_id, *, access):
-            scopes.append(composition.authorizer.authorize_root(access, workspace))
+        def fake_cancel(process_id, *, actor):
+            scopes.append(composition.authorizer.authorize_root(actor, workspace))
             return MagicMock(
                 process_id=process_id,
                 cancelled=cancelled,
@@ -293,9 +293,6 @@ class TestStopEntryIdentity:
         assert [scope.actor_identity for scope in scopes] == [
             ActorIdentity(user_id="default", agent_id=SYSTEM_AGENT_ID)
         ]
-        # 请求结束后请求级 context 已失效
-        access = mock_service.cancel_process.call_args.kwargs["access"]
-        assert composition.is_revoked(access) is True
 
     def test_stop_uses_header_selection_for_ownership_check(self):
         overrides, composition = make_server_access_overrides(users=["u1"])
@@ -313,20 +310,17 @@ class TestStopEntryIdentity:
 
         assert response.status_code == 200
         assert response.json()["cancelled"] is True
-        # 取消发生时请求级 context 仍有效，且以 header 选择的 (u1, system) 声明签发
+        # 取消方的工作 actor 以 header 选择的 (u1, system) 声明认证
         assert [scope.actor_identity for scope in scopes] == [
             ActorIdentity(user_id="u1", agent_id=SYSTEM_AGENT_ID)
         ]
-        # 请求结束后请求级 context 已失效
-        access = mock_service.cancel_process.call_args.kwargs["access"]
-        assert composition.is_revoked(access) is True
 
 
-class TestAuthenticateRequestAccess:
-    """请求级认证经网关签发：授予内容携带 server principal 与请求运行类型。"""
+class TestAuthenticateRequestActor:
+    """请求认证经网关完成：工作 actor 携带给定的 principal、声明的 actor 与驻留 Workspace。"""
 
     @pytest.mark.asyncio
-    async def test_authenticate_request_access_binds_request_run(self):
+    async def test_authenticate_request_actor_carries_given_principal(self):
         composition = make_access_composition(
             [
                 make_actor_access_record(owner_user_id="u1", agent_id=None),
@@ -337,17 +331,7 @@ class TestAuthenticateRequestAccess:
         claims = deps.resolve_request_identity_claims(
             deps.RequestIdentitySelection(user_id="u1", workspace_id=None),
         )
-        # 网关的认证输入就是被测契约：记录交给网关的来源与运行绑定。
-        authenticated: list[dict] = []
-        authenticate = composition.gateway.authenticate
-
-        async def recording_authenticate(**kwargs):
-            authenticated.append(kwargs)
-            return await authenticate(**kwargs)
-
-        composition.gateway.authenticate = recording_authenticate  # type: ignore[method-assign]
-
-        access = await deps.authenticate_request_access(
+        actor = await deps.authenticate_request_actor(
             claims,
             gateway=composition.gateway,
             principal_id=composition.principal.principal_id,
@@ -355,17 +339,17 @@ class TestAuthenticateRequestAccess:
             credential=None,
         )
 
-        scope = composition.authorizer.authorize_root(access, claims.workspace)
+        assert actor.principal == composition.principal
+        assert actor.workspace == claims.workspace
+        scope = composition.authorizer.authorize_root(actor, claims.workspace)
         assert scope.actor_identity == ActorIdentity(user_id="u1", agent_id=SYSTEM_AGENT_ID)
-        assert [call["principal"] for call in authenticated] == [composition.principal]
-        assert authenticated[0]["binding"].run_type is AccessRunType.REQUEST
 
 
-class TestRequestAccessResolvedOncePerRequest:
-    """同一请求内声明与请求级 context 只解析/认证一次，服务收到同一坐标。"""
+class TestRequestActorResolvedOncePerRequest:
+    """同一请求内声明只解析、工作 actor 只认证一次，服务收到同一坐标。"""
 
     @pytest.mark.asyncio
-    async def test_single_request_access_per_request(self):
+    async def test_single_request_actor_per_request(self):
         captured: list[SimpleNamespace] = []
 
         app = FastAPI()
@@ -373,12 +357,12 @@ class TestRequestAccessResolvedOncePerRequest:
         install_error_handlers(app)
         app.include_router(topics_router, prefix="/api/v1")
 
-        class AccessCapturingStub:
-            async def list_active_topics(self, *, target_workspace, access):
-                captured.append(SimpleNamespace(target_workspace=target_workspace, access=access))
+        class ActorCapturingStub:
+            async def list_active_topics(self, *, target_workspace, actor):
+                captured.append(SimpleNamespace(target_workspace=target_workspace, actor=actor))
                 return []
 
-        app.dependency_overrides[deps.get_root_topic_service] = lambda: AccessCapturingStub()
+        app.dependency_overrides[deps.get_root_topic_service] = lambda: ActorCapturingStub()
 
         overrides, _ = make_server_access_overrides(users=["u1"])
         app.dependency_overrides.update(overrides)
@@ -389,4 +373,5 @@ class TestRequestAccessResolvedOncePerRequest:
         assert len(captured) == 1
         assert captured[0].target_workspace.owner_user_id == "u1"
         assert captured[0].target_workspace.workspace_id == "main_workspace"
-        assert isinstance(captured[0].access, WorkspaceAccessContext)
+        assert isinstance(captured[0].actor, WorkingActor)
+        assert captured[0].actor.workspace == captured[0].target_workspace

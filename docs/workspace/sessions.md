@@ -14,7 +14,7 @@ related_docs:
   - docs/workspace/task-process.md
   - docs/alice/agent-runtime.md
   - docs/gateway/analysis.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-11-06
 ---
 
 # 会话资源
@@ -43,7 +43,7 @@ ConversationSession 是 workspace 的进程内资源，属于 Workspace、不属
 
 ## 4. 写入会话的时机
 
-有输出的 completed/cancelled/failed 交互在 Actor 阶段结束、撤销线程后封口，同步追加会话，再进入 finalize；无输出、进程异常与 finalize 前交付方离开不追加。提交失败不回滚已经封口的会话事实，也不回滚已接纳写入。取消收口与 finalize 的任务所有权见[任务进程](./task-process.md#8-封口部分输出与结算)。
+有输出的 completed/cancelled/failed 交互在 Actor 阶段结束、全部线程结束后封口，同步追加会话，再进入 finalize；无输出、进程异常与 finalize 前交付方离开不追加。提交失败不回滚已经封口的会话事实，也不回滚已接纳写入。取消收口与 finalize 的任务所有权见[任务进程](./task-process.md#8-封口部分输出与结算)。
 
 ## 5. 压缩检查点
 
@@ -51,7 +51,7 @@ ConversationSession 是 workspace 的进程内资源，属于 Workspace、不属
 
 `accept_checkpoint()` 是同步操作：校验完整 Workspace 归属、当前进程认领、两个非空游标都指向本会话已有轮次、减重边界不早于摘要覆盖，以及相对同一产生方与格式版本的旧检查点两个游标各自不回退。游标只在同一格式内可比：CPU 忽略无法解释的旧检查点并从头重建时，新检查点可以替换旧值，不会因游标更早而被永久拒绝。拒绝不改变已有值；进程记录告警后继续收尾。完整会话读取返回检查点、列表不返回，删除与关闭随会话清除。
 
-进程在 Actor 阶段结束、线程 context 撤销之后，判断丢弃或无输出之前接受 CPU 返回结果中的检查点，同一次执行只接受一次；接受到正常封口、会话追加之间没有 await。检查点只覆盖旧轮次，因此无输出、取消或交付方离开导致本轮不保存时仍可接受已完成的压缩；CPU 在停止后返回的取消结果同样可以携带它。普通执行异常没有返回结果，不接受任何候选值；进程 task 被硬取消而 CPU 把取消转为返回值时，先接受检查点再传播取消。压缩进度与 RuntimeEvent 都不是接受依据。
+进程在 Actor 阶段结束、全部线程结束之后，判断丢弃或无输出之前接受 CPU 返回结果中的检查点，同一次执行只接受一次；接受到正常封口、会话追加之间没有 await。检查点只覆盖旧轮次，因此无输出、取消或交付方离开导致本轮不保存时仍可接受已完成的压缩；CPU 在停止后返回的取消结果同样可以携带它。普通执行异常没有返回结果，不接受任何候选值；进程 task 被硬取消而 CPU 把取消转为返回值时，先接受检查点再传播取消。压缩进度与 RuntimeEvent 都不是接受依据。
 
 ## 6. 已知限制
 

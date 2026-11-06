@@ -64,9 +64,9 @@ Perception 以 `TopicData` 快照维护话题。快照只存两份原始数据�
 
 `InteractionSubmission` 另外携带可选的 `new_topic_title` 与 `new_topic_summary`：只在 `requested_topic_id` 为 `NEW_TOPIC` 时允许非空，已有话题的标题与摘要由话题自身持有，提交不能借此改写。`InteractionSubmissionCodec` 当前为 v6，只注册当前布局：缺失字段、额外字段、旧 `identity_scope` 布局及嵌套对象不能规范往返的载荷均被拒绝。队列使用 `InMemoryWorkStore`，提交快照与幂等收据只驻留于当前进程，不提供旧版本队列载荷迁移或重启恢复。
 
-队列按 `interaction_id` 幂等：等待中或已成功的交互以相同载荷重交时复用原收据，载荷不同明确冲突。为此保留的旁路索引只存编码载荷的摘要与归属，冲突比较不需要留住整份载荷。应用失败（工作项已到终态但没有成功）的交互允许以同一标识重新提交，载荷可以不同，例如原落点已被驱逐、提交方重新路由后再交；新提交以递增的尝试号作为工作项标识入队。这条例外只放开已经失败的交互：等待中的交互重交会被判为重复或冲突，已成功的交互不会被第二份载荷重复应用。同一轮也不会被写入两次：把 block 写入话题是应用中最后一个可能失败的步骤，应用要么失败且没有写入，要么写入并成功，因此重新提交的只会是没有写入的交互，感知一侧不另设应用记录。在写入之后加入可能失败的步骤会破坏这一点。
+队列按 `interaction_id` 幂等：等待中或已成功的交互以相同载荷重交时复用原收据，载荷不同明确冲突。为此保留的旁路索引只存编码载荷的摘要与归属，冲突比较不需要留住整份载荷。应用失败（工作项已到终态但没有成功）的交互允许以同一标识重新提交，载荷可以不同，例如原先指定的话题已被驱逐、提交方重新路由后再交；新提交以递增的尝试号作为工作项标识入队。这条例外只放开已经失败的交互：等待中的交互重交会被判为重复或冲突，已成功的交互不会被第二份载荷重复应用。同一轮也不会被写入两次：把 block 写入话题是应用中最后一个可能失败的步骤，应用要么失败且没有写入，要么写入并成功，因此重新提交的只会是没有写入的交互，感知一侧不另设应用记录。在写入之后加入可能失败的步骤会破坏这一点。
 
-公开路由 `patchouli.public.interaction.status` 把队列中的工作状态归为四种进度：`pending`、`succeeded`（附真实落点，`NEW_TOPIC` 已解析为实际话题）、`failed` 与 `unknown`（旁路索引仍在、工作记录已超出终态保留窗口，接纳过但结局不再可知），未被接纳时为空。`patchouli.public.interaction.wait` 在交互仍为 `pending` 时等待到终态或超时，超时时仍报告 `pending`，队列停止时返回停止那一刻的进度。两者都先校验归属，同名交互属于另一个 Workspace 时以 `WorkspaceMismatchError` 拒绝，不把其他 Workspace 的接纳当作重复。查询只覆盖队列的进程内保留窗口，窗口外的交互视为未接纳。公开提交路由在队列容量已满或已停止时以 `InteractionAdmissionUnavailableError` 拒绝，表示这次提交没有被接管，调用方可用同一标识重试。
+公开路由 `patchouli.public.interaction.status` 把队列中的工作状态归为四种进度：`pending`、`succeeded`（附实际所在的话题，`NEW_TOPIC` 已解析为实际话题）、`failed` 与 `unknown`（旁路索引仍在、工作记录已超出终态保留窗口，接纳过但结局不再可知），未被接纳时为空。`patchouli.public.interaction.wait` 在交互仍为 `pending` 时等待到终态或超时，超时时仍报告 `pending`，队列停止时返回停止那一刻的进度。两者都先校验归属，同名交互属于另一个 Workspace 时以 `WorkspaceMismatchError` 拒绝，不把其他 Workspace 的接纳当作重复。查询只覆盖队列的进程内保留窗口，窗口外的交互视为未接纳。公开提交路由在队列容量已满或已停止时以 `InteractionAdmissionUnavailableError` 拒绝，表示这次提交没有被接管，调用方可用同一标识重试。
 
 当前布局、幂等拒绝与失败后重交的回归入口为 [InteractionSubmission 测试](../../tests/unit/patchouli/control/test_interaction_submission.py)，进度查询与等待见[提交服务测试](../../tests/unit/patchouli/application/test_submission_services.py)；Import Bus 经过真实队列与感知存储的身份交接、查重与新话题标题见 [Import Bus 集成测试](../../tests/integration/system/test_import_bus_submission.py)。
 
@@ -88,9 +88,9 @@ InteractionPayload（构造时已校验一轮的不变量）
 
 对事件集的解读只在感知层进行一次：`engines/perception/material.py` 把一轮事件渲染为感知层唯一的材料文本，记忆生成视图（[记忆生成](./generation.md#21-材料与渲染)）、LLM 接力摘要与逻辑块的 token 统计都使用它，按同一个工具结果上限得到同样的材料。入口层与封口不另行构造第二套摘要，否则历史重放、主动生成与导入归档会拥有互相漂移的事实来源。
 
-目标话题属于提交前的 Gateway 落位决定，而不是应用时重新计算的感知结果。任务进程在 Gateway 阶段取得落位，并在 prepare 时建立新话题；Import Bus 在提交前以 `PASSIVE_MEMORY` 为需要提交的每一轮调用 Gateway，把落位作为 `requested_topic_id` 提交。目标为 `NEW_TOPIC` 时，Perception 以提交携带的 `new_topic_title`/`new_topic_summary` 建立话题，缺省时使用默认标题“新建话题”与空摘要；后续轮次的落位依赖候选话题的标题与摘要，因此 Import Bus 新建话题时带上 Gateway 给出的标题与摘要。外部 harness 经 MCP 写入时，Import Bus 在写入时经 prepare 预建这一轮的话题（以同样的标题与摘要），这一轮回流时以该话题的真实 id 提交（[Import Bus](../system/import-bus.md#47-写入时落位)）。应用失败的交互没有写入任何话题，重新提交时按提交方这一次交来的落位应用。Import Bus 拥有外部会话的串行、查重与确认，Gateway 只负责入口判断，两者都不持有话题内容。
+目标话题属于提交前的 Gateway 路由决定，而不是应用时重新计算的感知结果。任务进程在 Gateway 阶段取得话题路由，并在 prepare 时建立新话题；Import Bus 在提交前以 `PASSIVE_MEMORY` 为需要提交的每一轮调用 Gateway，把路由得到的目标话题作为 `requested_topic_id` 提交。目标为 `NEW_TOPIC` 时，Perception 以提交携带的 `new_topic_title`/`new_topic_summary` 建立话题，缺省时使用默认标题“新建话题”与空摘要；后续轮次的路由依赖候选话题的标题与摘要，因此 Import Bus 新建话题时带上 Gateway 给出的标题与摘要。外部 harness 经 MCP 写入时，Import Bus 在写入时经 prepare 预建这一轮的话题（以同样的标题与摘要），这一轮回流时以该话题的真实 id 提交（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。应用失败的交互没有写入任何话题，重新提交时按提交方这一次交来的目标话题应用。Import Bus 拥有外部会话的串行、查重与确认，Gateway 只负责入口判断，两者都不持有话题内容。
 
-形成 settlement payload 时，话题接收到的全部交互都进入结算，不在入口筛选。入口只看到用户消息与已有话题上下文，看不到这一轮的回答、工具调用与结果，“请提交”“继续”这类短消息背后常是整轮实现；按入口判断筛选会把这些轮次整轮丢出生成，交互 Artifact 也不再保存它们。一轮是否有长期价值，由生成阶段在完整材料上判断；Gateway 的决定只提供话题落位，不携带价值信号。
+形成 settlement payload 时，话题接收到的全部交互都进入结算，不在入口筛选。入口只看到用户消息与已有话题上下文，看不到这一轮的回答、工具调用与结果，“请提交”“继续”这类短消息背后常是整轮实现；按入口判断筛选会把这些轮次整轮丢出生成，交互 Artifact 也不再保存它们。一轮是否有长期价值，由生成阶段在完整材料上判断；Gateway 的决定只提供话题路由，不携带价值信号。
 
 ## 3. 话题准备与 LRU
 

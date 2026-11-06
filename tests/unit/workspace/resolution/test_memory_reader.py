@@ -6,7 +6,7 @@
 单元边界之外的 Patchouli），按 backing 契约只返回当前 Actor 可读的原子。
 
 resolver 与 backing 位于授权点以下：只流动
-授权点组装的可信 ``IdentityScope``，不接收访问 context。
+授权点组装的可信 ``IdentityScope``，不接收工作 actor。
 """
 
 from __future__ import annotations

@@ -1,9 +1,9 @@
 """Import Bus 路由单元测试。
 
 被测对象：``POST /api/v1/import/turns`` 的传输校验、声明解析、以请求声明的
-principal 与凭据经统一认证网关的请求级认证与错误分类。应用服务是真实的 ``ImportBusService``（导入
-授权使用与网关同一组合的操作授权者），编排器以记录调用的替身代替；编排
-本身的行为由 System 归属层测试覆盖。
+principal 与凭据经统一认证网关的认证与错误分类。应用服务是真实的 ``ImportBusService``
+（以与网关同一组合认证系统的 root 工作 actor），编排器以记录调用的
+替身代替；编排本身的行为由 System 归属层测试覆盖。
 """
 
 from __future__ import annotations
@@ -12,10 +12,13 @@ import pytest
 from fastapi import FastAPI
 from fastapi.testclient import TestClient
 
+from hivememory.core.access import CallerPrincipal
 from hivememory.core.constants import SYSTEM_AGENT_ID
+from hivememory.core.models import ActorIdentity
 from hivememory.server import deps
 from hivememory.server.error_handlers import install_error_handlers
 from hivememory.server.routers.import_bus import router
+from hivememory.system.access import LOCAL_ADAPTER, SYSTEM_PRINCIPAL_ID
 from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.system.services.import_bus import (
     ImportBusApplyFailedError,
@@ -31,25 +34,36 @@ _HEADERS = {"X-Principal-ID": _PRINCIPAL, "Authorization": f"Bearer {_TOKEN}"}
 
 
 class _RecordingIngestor:
-    """记录编排器收到的导入与授权结果；可配置为抛出指定错误。"""
+    """记录编排器收到的导入、系统的 root 工作 actor、目标与参与者；可配置为抛出指定错误。"""
 
     def __init__(self, error: Exception | None = None) -> None:
         self.calls: list[dict] = []
         self._error = error
 
-    async def ingest(self, turn, *, identity_scope, principal_id):
+    async def ingest(self, turn, *, system_actor, target_workspace, participant, principal_id):
         self.calls.append(
-            {"turn": turn, "identity_scope": identity_scope, "principal_id": principal_id}
+            {
+                "turn": turn,
+                "system_actor": system_actor,
+                "target_workspace": target_workspace,
+                "participant": participant,
+                "principal_id": principal_id,
+            }
         )
         if self._error is not None:
             raise self._error
         return ImportTurnResult(status="accepted", interaction_id="import_0123")
 
 
+# 导入由系统执行：Import Bus 服务以系统自身的 principal 认证该用户的 system。
+_SYSTEM_RECORD = make_actor_access_record(owner_user_id="default", agent_id=SYSTEM_AGENT_ID)
+
+
 def _connector_access(records=None):
     """连接器的接入登记：外部 principal 只经 import adapter、携带凭据接入。"""
     composition = make_access_composition(
-        records or [make_actor_access_record(owner_user_id="default", agent_id=None)],
+        (records or [make_actor_access_record(owner_user_id="default", agent_id=None)])
+        + [_SYSTEM_RECORD],
         principal_id=_PRINCIPAL,
         adapters=("import",),
         credential=_TOKEN,
@@ -64,7 +78,9 @@ def _client(ingestor=None, *, access=None, limit: int = 1024 * 1024, headers=Non
     app.include_router(router, prefix="/api/v1")
     service = ImportBusService(
         ingestor=ingestor or _RecordingIngestor(),
-        operation_authorizer=composition.authorizer,
+        access_gateway=composition.gateway,
+        system_principal=CallerPrincipal(SYSTEM_PRINCIPAL_ID),
+        system_adapter=LOCAL_ADAPTER,
     )
     app.dependency_overrides[deps.get_import_bus_service] = lambda: service
     app.dependency_overrides[deps.get_import_request_limit] = lambda: limit
@@ -98,7 +114,11 @@ def _body(**overrides):
 
 
 def test_import_turn_authenticates_agent_claims_and_returns_result():
-    """以请求声明的 principal、凭据与 (user, 具体 Agent) 认证；编排器收到不含认证声明的记录。"""
+    """以请求声明的 principal、凭据与 (user, 具体 Agent) 认证；编排器收到系统的 root 工作 actor 与参与者。
+
+    导入由系统执行：服务认证的是该用户驻留在参与者 Workspace 的 system，声明的
+    Agent 只作为参与者与 principal 标识一起交给编排器；服务本身不授权。
+    """
     ingestor = _RecordingIngestor()
     client, composition = _client(ingestor)
 
@@ -109,9 +129,10 @@ def test_import_turn_authenticates_agent_claims_and_returns_result():
     [call] = ingestor.calls
     assert type(call["turn"]) is ImportedTurn
     assert call["turn"].external_turn_id == "prompt-1"
-    assert call["identity_scope"].actor_identity.user_id == "default"
-    assert call["identity_scope"].actor_identity.agent_id == "claude_code"
-    assert call["identity_scope"].workspace_identity.workspace_id == "main_workspace"
+    assert call["system_actor"].actor == ActorIdentity(user_id="default", agent_id=SYSTEM_AGENT_ID)
+    assert call["system_actor"].workspace.workspace_id == "main_workspace"
+    assert call["target_workspace"].workspace_id == "main_workspace"
+    assert call["participant"] == ActorIdentity(user_id="default", agent_id="claude_code")
     assert call["principal_id"] == _PRINCIPAL
 
 

@@ -35,7 +35,6 @@ from hivememory.core.models import (
     MemoryVisibility,
     PayloadLayer,
     WorkspaceMemoryKey,
-    build_internal_identity_scope,
 )
 from hivememory.engines.artifacts import ArtifactEngine
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
@@ -54,6 +53,7 @@ from hivememory.patchouli.memory_library.stores import (
 from hivememory.patchouli.services.memory_generation import MemoryGenerationFamiliar
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
 
 FIXED_NOW = datetime(2026, 9, 25, 12, 0, 0, tzinfo=UTC)
 
@@ -83,9 +83,9 @@ async def qdrant_mid_term():
 
 
 def _scope(workspace_id: str = "main_workspace", *, agent_id: str = "agent-a"):
-    return build_internal_identity_scope(
-        ActorIdentity(user_id="u1", agent_id=agent_id, team_id="team-a"),
-        workspace_id,
+    return make_identity_scope(
+        actor_identity=ActorIdentity(user_id="u1", agent_id=agent_id, team_id="team-a"),
+        workspace_id=workspace_id,
     )
 
 

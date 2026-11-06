@@ -177,7 +177,7 @@ def test_workspace_shared_facilities_do_not_import_capability():
 
 
 def test_workspace_process_does_not_import_capability():
-    """进程只负责阶段编排与线程 context 生命周期，不持有具体能力服务。"""
+    """进程只负责阶段编排与执行线程生命周期，不持有具体能力服务。"""
     files = sorted((WORKSPACE_PACKAGE / "process").rglob("*.py"))
     assert files, "未扫描到 workspace process 源文件"
     violations = [

@@ -11,7 +11,7 @@ class ExecutionLabels(BaseModel):
     标签不含发起者或资源归属，不能组装授权身份、访问资源或切换 Workspace。
     任务进程在注册时绑定一组标签；执行线程的标签取线程自己的身份：主线程
     与注册标签相同，CALL 子线程为被调用方与注册时的 workspace，由线程表在
-    派生时生成。操作始终以线程 context 逐次授权。
+    派生时生成。操作始终以线程记录的工作 actor 逐次授权。
     """
 
     model_config = ConfigDict(frozen=True, extra="forbid")

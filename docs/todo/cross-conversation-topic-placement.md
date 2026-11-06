@@ -19,11 +19,11 @@ last_reviewed: 2026-11-03
 
 ## 问题与证据（2026-11-03）
 
-Import Bus 为导入轮次与写入时的在途轮次落位，经 Gateway 的话题路由在本 Workspace 的驻留话题中选择（[Gateway 分析](../gateway/analysis.md#3-topic-router只做选择)第 3 节，[Import Bus](../system/import-bus.md#47-写入时落位)第 4.7 节）。候选话题不区分来源与外部会话，外部会话的第一轮没有 `session_turns`，路由只凭这一轮的用户消息与候选话题的标题、摘要判断。
+Import Bus 为导入轮次与写入时的在途轮次确定话题，经 Gateway 的话题路由在本 Workspace 的驻留话题中选择（[Gateway 分析](../gateway/analysis.md#3-topic-router只做选择)第 3 节，[Import Bus](../system/import-bus.md#47-写入时确定话题)第 4.7 节）。候选话题不区分来源与外部会话，外部会话的第一轮没有 `session_turns`，路由只凭这一轮的用户消息与候选话题的标题、摘要判断。
 
 2026-11-02（UTC 11-03）的一次实例：
 
-- dsh 新会话的第一轮是「请使用 repo-deep-dive 的 standard 模式，对 dsh-agent-soul 进行深度调研」。它在第一次 `memory_write` 时落位（UTC 02:24:53），被路由到已有话题 `45fe6125`（`new_topic=False`）。
+- dsh 新会话的第一轮是「请使用 repo-deep-dive 的 standard 模式，对 dsh-agent-soul 进行深度调研」。它在第一次 `memory_write` 时确定话题（UTC 02:24:53），被路由到已有话题 `45fe6125`（`new_topic=False`）。
 - 这个话题来自同一时间的另一段 Claude Code 会话，标题是「dsh 调研记忆质量评估与 repo-deep-dive skill 改进」，与这一轮只在 dsh、repo-deep-dive 两个词上重合，内容无关。
 - 话题结算（UTC 03:24）时，生成材料混合了 4 轮 Claude Code 与 1 轮 dsh，一次提取用了约 17.5 万 token。
 - 这一轮 dsh 的 9 条主动写入，正式记忆的 `contributing_agent_ids` 都多了 `claude_code`，Claude Code 并没有参与这次调研。
@@ -49,7 +49,7 @@ Import Bus 为导入轮次与写入时的在途轮次落位，经 Gateway 的话
 ## 完成条件
 
 - owner 选定规则；
-- 外部会话第一轮的落位覆盖：内容无关但标题有通用词重合时新建话题，明确延续时续接；
+- 外部会话第一轮的话题路由覆盖：内容无关但标题有通用词重合时新建话题，明确延续时续接；
 - Gateway 分析与 Import Bus 文档写明候选话题与外部会话的关系。
 
 ## 非目标

@@ -14,6 +14,7 @@ if TYPE_CHECKING:
     from uuid import UUID
 
     from hivememory.core.models import (
+        ActorIdentity,
         IdentityScope,
         MemoryAtom,
         ResolvedAgentProfile,
@@ -150,9 +151,16 @@ class PatchouliRoutes:
 
     @route("patchouli.public.get_agent_profile")
     async def GET_AGENT_PROFILE(
-        agent_alias: str | None, *, identity_scope: IdentityScope
+        agent_alias: str | None,
+        *,
+        identity_scope: IdentityScope,
+        enforce_actor_visibility: bool = True,
     ) -> ResolvedAgentProfile:
-        """Profile 定义解析 backing：唯一解析规则 + 源原子 policy 依据与关联。"""
+        """Profile 定义解析 backing：唯一解析规则 + 源原子 policy 依据与关联。
+
+        ``enforce_actor_visibility=False`` 只用于管理读取：仍校验 Workspace 归属，
+        不按 scope 的 actor 检查源原子的可见性。
+        """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.memory.read")
@@ -166,6 +174,7 @@ class PatchouliRoutes:
     async def INTERACTION_SUBMIT(
         *,
         identity_scope: IdentityScope,
+        participant: ActorIdentity,
         payload: InteractionPayload,
         requested_topic_id: str = "NEW_TOPIC",
         interaction_id: str | None = None,
@@ -175,8 +184,10 @@ class PatchouliRoutes:
     ) -> InteractionSubmitResult:
         """提交一份已发生的交互载荷；队列按 interaction_id 幂等接纳。
 
-        目标为 ``NEW_TOPIC`` 时可携带新话题的标题与摘要；队列容量已满或已
-        停止以 ``InteractionAdmissionUnavailableError`` 拒绝，可用同一标识重试。
+        ``identity_scope`` 只提供归属，``participant`` 是交互中的 Agent，记为
+        交互的发起者。目标为 ``NEW_TOPIC`` 时可携带新话题的标题与摘要；队列
+        容量已满或已停止以 ``InteractionAdmissionUnavailableError`` 拒绝，可用
+        同一标识重试。
         """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
@@ -186,7 +197,7 @@ class PatchouliRoutes:
     ) -> InteractionStatus | None:
         """查询交互在提交队列中的进度；未被接纳时返回 ``None``。
 
-        同名交互属于其他 Workspace 时报冲突；成功时给出真实落点。
+        同名交互属于其他 Workspace 时报冲突；成功时给出实际所在的话题。
         """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
@@ -213,9 +224,13 @@ class PatchouliRoutes:
         identity_scope: IdentityScope,
         interaction_id: str,
         gateway_decision: GatewayDecision,
-        enable_memory_retrieval: bool = True,
+        retrieval_scope: IdentityScope | None = None,
     ) -> PreparedAgentRun:
-        """准备本轮的 Topic 与未编译检索结果（prepare 只做 Topic 与检索）。"""
+        """准备本轮的 Topic 与未编译检索结果（prepare 只做 Topic 与检索）。
+
+        话题与归属取 ``identity_scope``；检索按 ``retrieval_scope`` 的 actor 的
+        可见性进行，为空时不检索：是否检索只由调用方是否给出它决定。
+        """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.finalize_agent_run")
@@ -224,8 +239,13 @@ class PatchouliRoutes:
         payload: InteractionPayload,
         *,
         identity_scope: IdentityScope,
+        participant: ActorIdentity,
     ) -> None:
-        """原样提交封口好的交互记录，并把 post-apply 工作交给 Patchouli 持有。"""
+        """原样提交封口好的交互记录，并把 post-apply 工作交给 Patchouli 持有。
+
+        ``identity_scope`` 只提供归属，``participant`` 是交互中的 Agent，记为
+        交互的发起者。
+        """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.cleanup_prepared_agent_run")

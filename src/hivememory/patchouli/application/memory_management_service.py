@@ -31,7 +31,7 @@ class MemoryManagementService:
 
     管理用例由 workspace root API 授权，actor 读取由 actor 能力授权点
     校验；本层是授权点以下的资源 owner，只接收组装后的 ``IdentityScope``，
-    不接收访问 context。资源归属与 ``MemoryAccessPolicy`` 仍由本层与存储
+    不接收工作 actor。资源归属与 ``MemoryAccessPolicy`` 仍由本层与存储
     边界独立校验，读取 backing 路由同时服务于阶段编排与 actor 读取视图。
     """
 

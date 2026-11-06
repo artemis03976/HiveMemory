@@ -6,7 +6,6 @@ from hivememory.agent_runtime.frame import FrameExecutionPolicy, RuntimeScope
 from hivememory.agent_runtime.mtp.context import MTPExecutionContext
 from hivememory.agent_runtime.mtp.runtime import KoakumaRuntime
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import RunBinding
 from hivememory.core.errors import ResourceUnavailableError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -70,7 +69,7 @@ class MemoryBackend:
             return await self.bus.request(PatchouliRoutes.MEMORY_RETRIEVE, request=request)
         return list(self.memories.values())
 
-    async def get_agent_profile(self, alias, *, scope):
+    async def get_agent_profile(self, alias, *, scope, enforce_actor_visibility=True):
         # 内存 backing 沿用 Patchouli 的内置图纸规则；入口仍必须先执行
         # agent.call 授权，测试不在 Alice 内另设默认配置回退。
         self.reads.append("get_agent_profile")
@@ -79,7 +78,10 @@ class MemoryBackend:
         if self.bus is None:
             raise NotImplementedError("本测试未装配 Profile backing")
         return await self.bus.request(
-            PatchouliRoutes.GET_AGENT_PROFILE, alias, identity_scope=scope
+            PatchouliRoutes.GET_AGENT_PROFILE,
+            alias,
+            identity_scope=scope,
+            enforce_actor_visibility=enforce_actor_visibility,
         )
 
 
@@ -114,7 +116,7 @@ class OperationsHarness:
         )
 
     def make_entry(self, operation_authorizer, threads) -> WorkspaceOperationEntry:
-        """入口与所有测试线程 context 共享同一份登记，替身仅位于持久化边界。"""
+        """入口与所有测试线程共享同一份登记，替身仅位于持久化边界。"""
         return WorkspaceOperationEntry(
             ActorMemoryService(
                 self.bus,
@@ -137,7 +139,7 @@ class OperationsHarness:
         allowed_operations=None,
         callee_operations=None,
     ) -> OperationSubmitter:
-        """完成真实认证并构造绑定线程 context 的泛型提交函数。"""
+        """完成真实认证、登记主线程，构造绑定线程句柄的泛型提交函数。"""
         workspace = scope.workspace_identity
         actor = scope.actor_identity
         composition = make_access_composition(
@@ -159,27 +161,23 @@ class OperationsHarness:
             ],
             default_workspace=workspace,
         )
-        access = await composition.gateway.authenticate(
+        executor = await composition.gateway.authenticate(
             adapter="local",
             principal=composition.principal,
             credential=None,
             actor=actor,
             workspace=workspace,
-            binding=RunBinding.for_task_process(process_id),
         )
         self.compositions.setdefault(process_id, []).append(composition)
         entry = self.make_entry(composition.authorizer, composition.threads)
-        thread = composition.register_main_thread(
-            access, process_id=process_id, agent_id=actor.agent_id
-        )
+        thread = composition.register_main_thread(executor, process_id=process_id)
         return ThreadOperationSubmitter(entry, thread)
 
-    def revoke(self, process_id: str = "test_run") -> None:
-        """同步结束测试进程的全部线程并撤销进程 context，不取消调用方任务。"""
+    def close_process(self, process_id: str = "test_run") -> None:
+        """同步结束测试进程的全部线程并注销进程，不取消调用方任务。"""
         for composition in self.compositions.pop(process_id, []):
             process = composition.process_table.get(process_id)
             composition.threads.end_all(process)
-            composition.gateway.revoke_context(process.record.access)
             composition.process_table.close(process)
 
 

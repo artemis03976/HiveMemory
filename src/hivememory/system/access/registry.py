@@ -28,6 +28,7 @@ __all__ = [
     "IMPORT_ADAPTER",
     "LOCAL_ADAPTER",
     "MCP_ADAPTER",
+    "SYSTEM_PRINCIPAL_ID",
     "SystemActorAccessEntry",
     "SystemActorAccessRegistry",
 ]
@@ -40,6 +41,11 @@ HTTP_ADAPTER = "http"
 MCP_ADAPTER = "mcp"
 #: Import Bus 路由（外部 harness 的连接器）以请求声明的 principal 接入时使用的 adapter 标识。
 IMPORT_ADAPTER = "import"
+
+#: 系统自身的调用来源：任务进程的注册入口与 Import Bus 服务以它经 ``local``
+#: adapter 认证 (user, ``system``)，取得执行系统级操作（系统阶段、取消、确定话题与
+#: 交互提交）的 root 工作 actor。须在接入登记中登记、允许声明 ``system``。
+SYSTEM_PRINCIPAL_ID = "hivememory:system"
 
 # 只有进程内入口以自己的 principal 接入、不携带凭据；其余 adapter 都是外部
 # 入口，principal 取自请求声明，只有核对凭据后才成立。新增的 adapter 默认

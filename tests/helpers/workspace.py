@@ -6,23 +6,18 @@ from dataclasses import dataclass, field
 from hivememory.agent_runtime.frame import RuntimeScope
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
-from hivememory.core.access import (
-    CallerPrincipal,
-    RunBinding,
-    WorkspaceAccessContext,
-    WorkspaceOperation,
-)
+from hivememory.core.access import CallerPrincipal, WorkingActor, WorkspaceOperation
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
 from hivememory.core.models import (
     ActorIdentity,
     AgentProfile,
     ExecutionLabels,
     IdentityScope,
     WorkspaceIdentity,
-    build_internal_identity_scope,
 )
 from hivememory.system.access import (
+    LOCAL_ADAPTER,
+    SYSTEM_PRINCIPAL_ID,
     SystemActorAccessEntry,
     SystemActorAccessRegistry,
     SystemPrincipalAuthenticator,
@@ -73,9 +68,12 @@ def make_identity_scope(
     ``interaction_id`` 仅为兼容现有测试调用签名而接收；它不会写入
     ``IdentityScope``。需要保存 interaction ID 的测试载体应独立持有该字段。
     """
-    return build_internal_identity_scope(
-        actor_identity or ActorIdentity(user_id=user_id, agent_id=agent_id),
-        workspace_id,
+    actor = actor_identity or ActorIdentity(user_id=user_id, agent_id=agent_id)
+    return IdentityScope(
+        actor_identity=actor,
+        workspace_identity=make_workspace_identity(
+            owner_user_id=actor.user_id, workspace_id=workspace_id
+        ),
     )
 
 
@@ -149,10 +147,9 @@ def make_actor_access_record(
 class AccessTestComposition:
     """一次性装配的认证与授权两侧组合，供各层测试显式认证与授权。
 
-    ``gateway`` / ``authenticator`` 是认证一侧（准入、签发、撤销），
-    ``authorizer`` 是操作授权者（第 3 阶段授权、进程控制授权、CPU 执行
-    身份）；两者与生产装配同构：互不依赖，都只读同一份访问登记，授权者
-    读取 context 密封的授予内容。
+    ``gateway`` / ``authenticator`` 是认证一侧（准入，产出工作 actor），
+    ``authorizer`` 是操作授权者（``authorize_agent`` / ``authorize_root`` 与
+    操作集合查询）；两者与生产装配同构：互不依赖，都只读同一份访问登记。
     """
 
     gateway: ActorAuthenticationGateway
@@ -166,54 +163,41 @@ class AccessTestComposition:
     def threads(self) -> ProcessThreads:
         """能力测试复用真实进程表与线程管理，只有显式登记的线程可解析与派生。"""
         return ProcessThreads(
-            self.process_table, lifecycle=self.gateway, authorizer=self.authorizer
+            self.process_table, admission=self.gateway, authorizer=self.authorizer
         )
-
-    def is_revoked(self, context: WorkspaceAccessContext) -> bool:
-        """经操作授权者判断 context 是否已撤销：已撤销的 context 以 ``context_not_issued`` 拒绝。
-
-        兑现凭据先于目标校验，因此任何运行种类的 context 都可以这样判断；
-        仍然有效但驻留在其他 Workspace 的 context 不算撤销。
-        """
-        try:
-            self.authorizer.authorize_stage(context, self.default_workspace)
-        except ScopeRequiredError as error:
-            if error.details.get("reason") == "context_not_issued":
-                return True
-            raise
-        except OperationDeniedError:
-            return False
-        return False
 
     def register_main_thread(
         self,
-        process: WorkspaceAccessContext,
+        executor: WorkingActor,
         *,
         process_id: str,
-        agent_id: str,
         profile: AgentProfile | None = None,
     ) -> ExecutionThread:
-        """测试组合根登记已认证进程，以真实线程管理派生主线程。
+        """测试组合根以执行者登记一个处于 Actor 阶段的进程，以真实线程管理派生主线程。
 
-        ``process_id`` 与 ``agent_id`` 必须与认证 ``process`` 时的运行绑定和
-        actor 声明一致，与注册入口一样由登记方提供；``profile`` 缺省为只带
-        该 Agent 身份的图纸，主线程的操作快照按访问登记读取。
+        ``profile`` 缺省为只带执行者身份的图纸，主线程的操作快照按访问登记读取。
+        线程管理不使用系统的 root 工作 actor，这里以未经认证的 ``system`` 值占位；
+        需要系统阶段的测试经注册入口登记进程。
         """
         events = TaskProcessEventEmitter(RuntimeEventPublisher(NullRuntimeEventSink()))
-        labels = ExecutionLabels(
-            agent_id=agent_id, workspace_id=self.default_workspace.workspace_id
-        )
+        agent_id = executor.actor.agent_id
+        labels = ExecutionLabels(agent_id=agent_id, workspace_id=executor.workspace.workspace_id)
         task = TaskProcess(
             record=ProcessRecord(
                 process_id=process_id,
-                access=process,
+                actor=executor,
+                system_actor=WorkingActor(
+                    principal=executor.principal,
+                    actor=ActorIdentity(user_id=executor.actor.user_id, agent_id=SYSTEM_AGENT_ID),
+                    workspace=executor.workspace,
+                ),
                 labels=labels,
                 events=events.for_process(process_id=process_id, labels=labels, trace_id="test"),
             ),
             request=ProcessRequest(
                 session_id="test-session",
                 message="测试派生",
-                target_workspace=self.default_workspace,
+                target_workspace=executor.workspace,
             ),
             trace_id="test",
         )
@@ -225,29 +209,9 @@ class AccessTestComposition:
     async def authenticate_main_thread(
         self, *, process_id: str = "test_run", agent_id: str = "test_agent", **kwargs
     ) -> ExecutionThread:
-        """先认证进程再登记进程并派生主线程，返回交给 CPU 驱动的执行线程。"""
-        process = await self.authenticate(
-            agent_id=agent_id, binding=RunBinding.for_task_process(process_id), **kwargs
-        )
-        return self.register_main_thread(process, process_id=process_id, agent_id=agent_id)
-
-    async def authenticate_thread(
-        self,
-        *,
-        process_id: str = "test_run",
-        agent_id: str = "test_agent",
-        register_process: bool = False,
-        **kwargs,
-    ) -> WorkspaceAccessContext:
-        """先认证进程再派生主线程，actor API 测试不自行构造或解封 context。"""
-        process = await self.authenticate(
-            agent_id=agent_id, binding=RunBinding.for_task_process(process_id), **kwargs
-        )
-        if register_process:
-            return self.register_main_thread(
-                process, process_id=process_id, agent_id=agent_id
-            ).access
-        return self.gateway.derive_thread_context(process)
+        """认证执行者，登记进程并派生主线程，返回交给 CPU 驱动的执行线程。"""
+        executor = await self.authenticate(agent_id=agent_id, **kwargs)
+        return self.register_main_thread(executor, process_id=process_id)
 
     async def authenticate(
         self,
@@ -257,13 +221,8 @@ class AccessTestComposition:
         workspace: WorkspaceIdentity | None = None,
         adapter: str = "local",
         principal_id: str | None = None,
-        binding: RunBinding | None = None,
-    ) -> WorkspaceAccessContext:
-        """按组合内的默认坐标完成两项认证并返回访问上下文。
-
-        ``binding`` 缺省为测试请求级运行绑定；任务进程测试应显式传
-        ``RunBinding.for_task_process(process_id)``。
-        """
+    ) -> WorkingActor:
+        """按组合内的默认坐标完成两项认证并返回工作 actor。"""
         target_user = user_id or (self.default_workspace.owner_user_id)
         return await self.gateway.authenticate(
             adapter=adapter,
@@ -271,7 +230,19 @@ class AccessTestComposition:
             credential=None,
             actor=ActorIdentity(user_id=target_user, agent_id=agent_id),
             workspace=workspace or self.default_workspace,
-            binding=binding or RunBinding.for_request("test_request"),
+        )
+
+    async def authenticate_system(
+        self, *, workspace: WorkspaceIdentity | None = None
+    ) -> WorkingActor:
+        """以系统自身的 principal 认证目标 Workspace owner 的 ``system``，与注册入口相同。"""
+        target = workspace or self.default_workspace
+        return await self.gateway.authenticate(
+            adapter=LOCAL_ADAPTER,
+            principal=CallerPrincipal(SYSTEM_PRINCIPAL_ID),
+            credential=None,
+            actor=ActorIdentity(user_id=target.owner_user_id, agent_id=SYSTEM_AGENT_ID),
+            workspace=target,
         )
 
 
@@ -282,6 +253,7 @@ def make_access_composition(
     adapters: tuple[str, ...] = ("local",),
     credential: str | None = None,
     default_workspace: WorkspaceIdentity | None = None,
+    register_system_principal: bool = True,
 ) -> AccessTestComposition:
     """构造 System 接入登记 + Workspace Actor 注册表 + 认证网关 + 操作授权者。
 
@@ -289,22 +261,30 @@ def make_access_composition(
     给出 ``credential`` 时模拟外部入口的来源（``adapters`` 须为外部
     adapter）：认证必须携带一致的凭据，不能声明 system。
 
-    context 不设固定有效期，只随进程关闭、请求结束与撤销全部失效；
-    需要验证单个 context 失效时经组合的网关调用
-    ``gateway.revoke_context(context)``。
+    与随仓库发布的接入登记相同，缺省另登记系统自身的 principal（``local``
+    adapter、允许声明 system），任务进程注册与 Import Bus 以它认证系统的 root
+    工作 actor；``register_system_principal=False`` 模拟自定义登记漏掉它。它只
+    属于接入登记，Workspace 准入仍要求 ``records`` 中有 ``system`` 的记录。
     """
     principal = CallerPrincipal(principal_id)
-    system_registry = SystemActorAccessRegistry(
-        [
+    entries = [
+        SystemActorAccessEntry(
+            principal_id=principal_id,
+            adapters=frozenset(adapters),
+            allow_system_actor=credential is None,
+            credential_env=None if credential is None else "TEST_PRINCIPAL_TOKEN",
+            credential=credential,
+        )
+    ]
+    if register_system_principal and principal_id != SYSTEM_PRINCIPAL_ID:
+        entries.append(
             SystemActorAccessEntry(
-                principal_id=principal_id,
-                adapters=frozenset(adapters),
-                allow_system_actor=credential is None,
-                credential_env=None if credential is None else "TEST_PRINCIPAL_TOKEN",
-                credential=credential,
+                principal_id=SYSTEM_PRINCIPAL_ID,
+                adapters=frozenset({LOCAL_ADAPTER}),
+                allow_system_actor=True,
             )
-        ]
-    )
+        )
+    system_registry = SystemActorAccessRegistry(entries)
     workspace_registry = WorkspaceActorAccessRegistry(records)
     authenticator = WorkspaceAuthenticator(workspace_registry)
     authorizer = WorkspaceOperationAuthorizer(workspace_registry)
@@ -337,41 +317,6 @@ def make_workspace_read_view(
         atom_capacity=atom_capacity,
         profile_capacity=profile_capacity,
     )
-
-
-async def make_process_access(
-    *,
-    user_id: str = "u1",
-    agent_id: str = "omni_doll",
-    workspace_id: str = "main_workspace",
-    process_id: str = "process_test",
-) -> tuple[
-    WorkspaceOperationAuthorizer,
-    ActorAuthenticationGateway,
-    WorkspaceAccessContext,
-    ActorIdentity,
-    WorkspaceIdentity,
-]:
-    """任务进程测试的 (authorizer, gateway, access, actor, workspace) 组合。
-
-    进程持有的 access 由注入服务的同一组合签发，与生产装配一致：认证
-    一侧与操作授权者读取同一份访问登记。测试显式构造该组合：context 以 ``for_task_process(process_id)`` 绑定签发；返回
-    的 actor/workspace 声明供 ``register_process`` 使用。记录授予全部
-    operation（测试便利），阶段授权只检查准入与目标。
-    """
-    composition = make_access_composition(
-        [make_actor_access_record(owner_user_id=user_id, agent_id=agent_id)]
-    )
-    actor = ActorIdentity(user_id=user_id, agent_id=agent_id)
-    workspace = make_workspace_identity(owner_user_id=user_id, workspace_id=workspace_id)
-    context = await composition.gateway.authenticate(
-        adapter="local",
-        principal=composition.principal,
-        actor=actor,
-        workspace=workspace,
-        binding=RunBinding.for_task_process(process_id),
-    )
-    return composition.authorizer, composition.gateway, context, actor, workspace
 
 
 def make_server_access_overrides(*, users: list[str] | None = None):

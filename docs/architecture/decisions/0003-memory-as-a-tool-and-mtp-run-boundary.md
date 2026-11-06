@@ -4,7 +4,7 @@ status: accepted
 owner: project
 scope: memory-as-a-tool-asset-consumption-and-executable-boundary
 decided_at: 2026-09-07
-last_reviewed: 2026-10-11
+last_reviewed: 2026-11-06
 related_docs:
   - docs/VISION.md
   - docs/contracts/mtp.md
@@ -64,7 +64,7 @@ Skill 和 Plugin 都可能同时包含说明、代码和运行时能力，不能
 - 来源与观测 hook（引用读取记录，以及执行结果作为记忆演化输入的关联依据）；
 - 失败契约（结构化 `MTPErrorInfo`，不回灌裸 stderr）。
 
-其中资源访问身份与读取权限由 workspace 的 actor API 逐次授权（2026-10-11 起身份来自 CPU 附上的线程 context，取代 2026-10-09 引入的执行凭据），MTP Runtime 只持有提交函数并检查 frame 的动词集合（2026-10-11 起来自访问登记的操作白名单，Profile 不再承载权限）；参数、deadline、取消和本次执行限制仍由 Runtime 绑定。它们不能被缓存为脱离调用方的静态 Memory 视图。当前引用读取的自动副作用与统一来源标签见 [MTP 契约](../../contracts/mtp.md)，本决策不另行固定引用来源字符串。具体执行后端（当前本地 subprocess，未来沙箱容器或 MCP）是 RUN 的可替换落点，不是资产语义的一部分。
+其中资源访问身份与读取权限由 workspace 的 actor API 逐次授权（2026-11-06 起身份来自线程记录的工作 actor，CPU 只持有不透明的线程句柄；此前先后是 2026-10-09 引入的执行凭据与 2026-10-11 起的线程 context），MTP Runtime 只持有提交函数并检查 frame 的动词集合（2026-10-11 起来自访问登记的操作白名单，Profile 不再承载权限）；参数、deadline、取消和本次执行限制仍由 Runtime 绑定。它们不能被缓存为脱离调用方的静态 Memory 视图。当前引用读取的自动副作用与统一来源标签见 [MTP 契约](../../contracts/mtp.md)，本决策不另行固定引用来源字符串。具体执行后端（当前本地 subprocess，未来沙箱容器或 MCP）是 RUN 的可替换落点，不是资产语义的一部分。
 
 附件的 `AssetRepresentation` 当前已经携带 `revision` 与 `content_hash`，但它属于 WorkspaceAsset 的进程内表示，不是通用的可执行资产模型。未来 RUN 若消费附件或其他外部资料，应建立等价的版本冻结约束；本 ADR 不把它提前提升为已经成立的全系统不变量。
 

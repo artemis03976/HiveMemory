@@ -11,7 +11,7 @@ import pytest_asyncio
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.patchouli import DeduplicatorConfig, ExtractorConfig
-from hivememory.core.access import RunBinding, WorkspaceAccessContext
+from hivememory.core.access import WorkingActor
 from hivememory.core.contracts.events import GlobalEvents
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
@@ -65,9 +65,11 @@ from hivememory.workspace.cache.invalidation import CacheInvalidator
 from hivememory.workspace.capability.actor import ActorAgentService, ActorMemoryService
 from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.contracts import (
+    DeriveCallThreadRequest,
     ResolveReferencesRequest,
     SubmitUpdateIntentRequest,
     SubmitWriteIntentRequest,
+    ThreadHandle,
 )
 from hivememory.workspace.contracts.errors import PendingUpdateNotAllowedError
 from hivememory.workspace.process.allocation import CPUAllocator
@@ -147,9 +149,22 @@ class _Chain:
     profiles: ActorAgentService
     root_memories: RootMemoryService
     composition: AccessTestComposition
-    writer: WorkspaceAccessContext
-    reader: WorkspaceAccessContext
-    manager: WorkspaceAccessContext
+    # writer 与 reader 各自登记一个进程的主线程：读取以工作 actor 授权，写入与
+    # 更新另带线程句柄，取得派发话题与进程关联。
+    writer: WorkingActor
+    writer_thread: ThreadHandle
+    reader: WorkingActor
+    reader_thread: ThreadHandle
+    manager: WorkingActor
+
+
+async def _registered_thread(
+    composition: AccessTestComposition, agent_id: str, process_id: str
+) -> tuple[WorkingActor, ThreadHandle]:
+    """认证执行者并登记它的主线程，返回工作 actor 与线程句柄。"""
+    executor = await composition.authenticate(agent_id=agent_id)
+    thread = composition.register_main_thread(executor, process_id=process_id)
+    return executor, thread.handle
 
 
 @pytest_asyncio.fixture
@@ -201,6 +216,8 @@ async def chain(tmp_path):
         ],
         default_workspace=WORKSPACE,
     )
+    writer, writer_thread = await _registered_thread(composition, "writer", "writer_process")
+    reader, reader_thread = await _registered_thread(composition, "reader", "reader_process")
     result = _Chain(
         bus=bus,
         local_bus=local_bus,
@@ -218,12 +235,10 @@ async def chain(tmp_path):
             operation_authorizer=composition.authorizer,
             profile_reader=runtime.profiles,
         ),
-        writer=await composition.authenticate_thread(
-            agent_id="writer", process_id="writer_process", register_process=True
-        ),
-        reader=await composition.authenticate_thread(
-            agent_id="reader", process_id="reader_process", register_process=True
-        ),
+        writer=writer,
+        writer_thread=writer_thread,
+        reader=reader,
+        reader_thread=reader_thread,
         manager=await composition.authenticate(agent_id="system"),
     )
     try:
@@ -257,15 +272,15 @@ async def test_management_update_invalidates_actor_atom_read_before_return(chain
     atom = _atom()
     await chain.store.upsert(atom)
     first = await chain.memories.resolve_references(
-        ResolveReferencesRequest(("canonical",)), access=chain.reader
+        ResolveReferencesRequest(("canonical",)), actor=chain.reader
     )
     assert first[0].atom.payload.content == "old content"
 
     await chain.root_memories.update_memory(
-        atom.id, content="new content", target_workspace=WORKSPACE, access=chain.manager
+        atom.id, content="new content", target_workspace=WORKSPACE, actor=chain.manager
     )
     second = await chain.memories.resolve_references(
-        ResolveReferencesRequest(("canonical",)), access=chain.reader
+        ResolveReferencesRequest(("canonical",)), actor=chain.reader
     )
 
     assert second[0].atom.payload.content == "new content"
@@ -277,28 +292,25 @@ async def test_profile_source_update_invalidates_profile_configuration(chain):
     """Profile 的源原子管理变更后，下一次进程阶段解析取得新配置。"""
     atom = _atom("custom_agent", profile=True)
     await chain.store.upsert(atom)
-    process_access = await chain.composition.authenticate(
-        agent_id="custom_agent", binding=RunBinding.for_task_process("first_profile_process")
-    )
+    system_actor = await chain.composition.authenticate_system()
     allocator = CPUAllocator(
         operation_authorizer=chain.composition.authorizer,
         profile_reader=chain.runtime.profiles,
         asset_reader=InMemoryWorkspaceAssetStore(),
     )
-    first = await allocator.resolve_agent_profile(target_workspace=WORKSPACE, access=process_access)
+    first = await allocator.resolve_agent_profile(
+        agent_id="custom_agent", system_actor=system_actor, target_workspace=WORKSPACE
+    )
     assert first.model_name == "old-model"
 
     await chain.root_memories.update_memory(
         atom.id,
         agent_config={"model_name": "new-model"},
         target_workspace=WORKSPACE,
-        access=chain.manager,
-    )
-    next_process_access = await chain.composition.authenticate(
-        agent_id="custom_agent", binding=RunBinding.for_task_process("next_profile_process")
+        actor=chain.manager,
     )
     second = await allocator.resolve_agent_profile(
-        target_workspace=WORKSPACE, access=next_process_access
+        agent_id="custom_agent", system_actor=system_actor, target_workspace=WORKSPACE
     )
 
     assert second.model_name == "new-model"
@@ -306,10 +318,15 @@ async def test_profile_source_update_invalidates_profile_configuration(chain):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("warm_cache", [False, True], ids=["canonical", "cached"])
-async def test_cpu_profile_without_actor_operations_rejects_other_agents_private_source(
+async def test_cpu_profile_loads_private_source_while_call_keeps_caller_visibility(
     chain, warm_cache: bool
 ):
-    """阶段读取不检查 actor 操作，但冷读与缓存命中都保持 PRIVATE 可见性。"""
+    """进程按管理语义加载执行者的图纸，CALL 仍按调用方的可见性解析。
+
+    源原子只对 writer 可见，执行者 custom_agent 与 system 都不是它的目标：进程
+    以系统的 root 授权在冷读与缓存命中两条路径都能加载它；随后 reader 经 CALL
+    解析同一图纸仍按"不存在"拒绝，管理读取填充的缓存不能放宽 actor 读取。
+    """
     atom = _atom("custom_agent", profile=True, visibility="PRIVATE")
     await chain.store.upsert(atom)
     if warm_cache:
@@ -317,26 +334,23 @@ async def test_cpu_profile_without_actor_operations_rejects_other_agents_private
         await chain.runtime.profiles.get(
             "custom_agent", scope=make_identity_scope(user_id="u1", agent_id="writer")
         )
-    composition = make_access_composition(
-        [
-            make_actor_access_record(
-                owner_user_id="u1", agent_id="custom_agent", allowed_operations=frozenset()
-            )
-        ],
-        default_workspace=WORKSPACE,
-    )
-    access = await composition.authenticate(
-        agent_id="custom_agent", binding=RunBinding.for_task_process("private_profile_process")
-    )
     allocator = CPUAllocator(
-        operation_authorizer=composition.authorizer,
+        operation_authorizer=chain.composition.authorizer,
         profile_reader=chain.runtime.profiles,
         asset_reader=InMemoryWorkspaceAssetStore(),
     )
 
+    profile = await allocator.resolve_agent_profile(
+        agent_id="custom_agent",
+        system_actor=await chain.composition.authenticate_system(),
+        target_workspace=WORKSPACE,
+    )
     with pytest.raises(ResourceNotFoundError) as excinfo:
-        await allocator.resolve_agent_profile(target_workspace=WORKSPACE, access=access)
+        await chain.profiles.resolve_call_target(
+            DeriveCallThreadRequest("custom_agent"), actor=chain.reader
+        )
 
+    assert profile.model_name == "old-model"
     assert excinfo.value.details == {"resource": "agent_profile", "agent_alias": "custom_agent"}
 
 
@@ -345,10 +359,11 @@ async def test_write_handle_follows_created_memory_through_real_merge(chain, tmp
     """句柄先指向新记忆，真实合并、版本落库与跨总线改指后读到保留记忆。"""
     pending = await chain.memories.submit_write_intent(
         SubmitWriteIntentRequest(WriteFocus(content="later progress")),
-        access=chain.writer,
+        actor=chain.writer,
+        thread=chain.writer_thread,
     )
     before = await chain.memories.resolve_references(
-        ResolveReferencesRequest((pending.pending_alias,)), access=chain.reader
+        ResolveReferencesRequest((pending.pending_alias,)), actor=chain.reader
     )
     assert (before[0].kind, before[0].pending.focus.content) == ("pending", "later progress")
     artifacts = ArtifactStore(FilesystemArtifactStorageAdapter(str(tmp_path / "merge_artifacts")))
@@ -425,7 +440,7 @@ async def test_write_handle_follows_created_memory_through_real_merge(chain, tmp
         assert settled.settlement.resolution == PendingAtomResolution.CREATED
         created_read = (
             await chain.memories.resolve_references(
-                ResolveReferencesRequest((pending.pending_alias,)), access=chain.reader
+                ResolveReferencesRequest((pending.pending_alias,)), actor=chain.reader
             )
         )[0]
         absorbed = created_read.atom
@@ -450,7 +465,7 @@ async def test_write_handle_follows_created_memory_through_real_merge(chain, tmp
         assert all(item.status == MemoryGenerationTaskStatus.COMPLETED for item in tasks)
         merged_read = (
             await chain.memories.resolve_references(
-                ResolveReferencesRequest((pending.pending_alias,)), access=chain.reader
+                ResolveReferencesRequest((pending.pending_alias,)), actor=chain.reader
             )
         )[0]
         assert (
@@ -487,17 +502,20 @@ async def test_update_rejects_pending_and_missing_bases_without_registering(chai
     """UPDATE 基础不合法时不产生新意图，pending 与缺失分别表达领域错误。"""
     pending = await chain.memories.submit_write_intent(
         SubmitWriteIntentRequest(WriteFocus(content="pending base")),
-        access=chain.writer,
+        actor=chain.writer,
+        thread=chain.writer_thread,
     )
     with pytest.raises(PendingUpdateNotAllowedError):
         await chain.memories.submit_update_intent(
             SubmitUpdateIntentRequest(pending.pending_alias, "revise"),
-            access=chain.writer,
+            actor=chain.writer,
+            thread=chain.writer_thread,
         )
     with pytest.raises(ResourceNotFoundError):
         await chain.memories.submit_update_intent(
             SubmitUpdateIntentRequest("missing", "revise"),
-            access=chain.writer,
+            actor=chain.writer,
+            thread=chain.writer_thread,
         )
 
     assert chain.runtime.intents.size == 1
@@ -514,19 +532,21 @@ async def test_update_intent_on_private_base_is_indistinguishable_from_missing(c
     await chain.store.upsert(atom)
     pending = await chain.memories.submit_update_intent(
         SubmitUpdateIntentRequest("private_base", "revise", "secret revision"),
-        access=chain.writer,
+        actor=chain.writer,
+        thread=chain.writer_thread,
     )
 
     hidden = await chain.memories.resolve_references(
-        ResolveReferencesRequest((pending.pending_alias,)), access=chain.reader
+        ResolveReferencesRequest((pending.pending_alias,)), actor=chain.reader
     )
     visible = await chain.memories.resolve_references(
-        ResolveReferencesRequest((pending.pending_alias,)), access=chain.writer
+        ResolveReferencesRequest((pending.pending_alias,)), actor=chain.writer
     )
     with pytest.raises(ResourceNotFoundError):
         await chain.memories.submit_update_intent(
             SubmitUpdateIntentRequest(pending.pending_alias, "revise again"),
-            access=chain.reader,
+            actor=chain.reader,
+            thread=chain.reader_thread,
         )
 
     assert (hidden[0].kind, hidden[0].pending) == ("not_found", None)
@@ -540,12 +560,13 @@ async def test_update_success_invalidates_base_and_claims_canonical_uuid(chain, 
     atom = _atom()
     await chain.store.upsert(atom)
     await chain.memories.resolve_references(
-        ResolveReferencesRequest(("canonical",)), access=chain.writer
+        ResolveReferencesRequest(("canonical",)), actor=chain.writer
     )
 
     pending = await chain.memories.submit_update_intent(
         SubmitUpdateIntentRequest("canonical", "revise", "replacement"),
-        access=chain.writer,
+        actor=chain.writer,
+        thread=chain.writer_thread,
     )
     # 基础缓存已失效：首次解析预热了缓存，再次解析同一 alias 必须回到存储冷读。
     cold_reads: list[list[str]] = []
@@ -558,7 +579,7 @@ async def test_update_success_invalidates_base_and_claims_canonical_uuid(chain, 
 
     monkeypatch.setattr(chain.bus, "request", recording_request)
     await chain.memories.resolve_references(
-        ResolveReferencesRequest(("canonical",)), access=chain.writer
+        ResolveReferencesRequest(("canonical",)), actor=chain.writer
     )
     assert cold_reads == [["canonical"]]
     task = pending
@@ -575,7 +596,8 @@ async def test_update_rejects_settled_handle_but_accepts_formal_alias(chain):
     """结算句柄可 READ redirect，UPDATE 仍要求正式 atom alias。"""
     pending = await chain.memories.submit_write_intent(
         SubmitWriteIntentRequest(WriteFocus(content="shared")),
-        access=chain.writer,
+        actor=chain.writer,
+        thread=chain.writer_thread,
     )
     atom = _atom()
     await chain.store.upsert(atom)
@@ -590,19 +612,14 @@ async def test_update_rejects_settled_handle_but_accepts_formal_alias(chain):
         ),
     )
 
+    actor, thread = await _registered_thread(chain.composition, "writer", "second_process")
     with pytest.raises(ResourceNotFoundError):
         await chain.memories.submit_update_intent(
-            SubmitUpdateIntentRequest(pending.pending_alias, "revise"),
-            access=await chain.composition.authenticate_thread(
-                agent_id="writer", process_id="second_process"
-            ),
+            SubmitUpdateIntentRequest(pending.pending_alias, "revise"), actor=actor, thread=thread
         )
     assert chain.runtime.intents.size == 1
     revision = await chain.memories.submit_update_intent(
-        SubmitUpdateIntentRequest("canonical", "revise"),
-        access=await chain.composition.authenticate_thread(
-            agent_id="writer", process_id="second_process", register_process=True
-        ),
+        SubmitUpdateIntentRequest("canonical", "revise"), actor=actor, thread=thread
     )
 
     assert (revision.source_verb, revision.focus.base_uuid) == ("UPDATE", str(atom.id))
@@ -636,11 +653,11 @@ async def test_subscriber_failure_after_invalidation_preserves_commit_and_advanc
     subscriber.subscribe(chain.bus)
     try:
         updated = await chain.root_memories.update_memory(
-            atom.id, content="committed", target_workspace=WORKSPACE, access=chain.manager
+            atom.id, content="committed", target_workspace=WORKSPACE, actor=chain.manager
         )
         read = (
             await chain.memories.resolve_references(
-                ResolveReferencesRequest((atom.index.alias,)), access=chain.reader
+                ResolveReferencesRequest((atom.index.alias,)), actor=chain.reader
             )
         )[0].atom
 
@@ -659,7 +676,8 @@ async def test_registry_unsubscribe_stops_terminal_events_and_resubscribe_is_ide
     """重复装配不重复执行，取消订阅后全局失败事件不再改登记。"""
     pending = await chain.memories.submit_write_intent(
         SubmitWriteIntentRequest(WriteFocus(content="shared")),
-        access=chain.writer,
+        actor=chain.writer,
+        thread=chain.writer_thread,
     )
     chain.runtime.unsubscribe()
     await chain.bus.publish(

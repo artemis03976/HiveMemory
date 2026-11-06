@@ -250,7 +250,7 @@ class TestSearchRetrievalRequest:
         assert "Test Memory" in result.response_content
 
     def test_search_uses_authenticated_identity_when_observation_labels_differ(self, koakuma):
-        """观测标签不能替代访问 context 的认证身份，检索仍以显式认证主体读取。"""
+        """观测标签不能替代认证得到的工作 actor，检索仍以显式认证主体读取。"""
         mem = _make_memory(user_id="user_42")
         koakuma.harness.backing.bus._mock_retrieval.retrieve.return_value = (
             _make_retrieval_response([mem])

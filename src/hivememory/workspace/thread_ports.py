@@ -7,45 +7,44 @@
 from dataclasses import dataclass
 from typing import Protocol
 
-from hivememory.core.access import WorkspaceAccessContext
+from hivememory.core.access import WorkingActor
 from hivememory.core.models.agent import AgentProfile
-from hivememory.workspace.contracts.threads import ExecutionThread
+from hivememory.workspace.contracts.threads import ExecutionThread, ThreadHandle
 
 
 @dataclass(frozen=True, slots=True)
 class ResolvedThread:
-    """线程表对一个存活线程的一次解析结果：进程关联、线程标识与派发话题。
+    """线程表对一个存活线程的一次解析结果：进程关联、线程标识、派发话题与工作 actor。
 
     只在 workspace 内部、一次操作的调用链内使用，不进入 CPU 可见的对象、
-    记录或事件；身份仍只在线程 context 中，由授权者逐次授权时读取。
+    记录或事件。``actor`` 是线程记录持有的工作 actor，由 actor API 交给
+    授权者逐次授权。
     """
 
     process_id: str
     thread_id: str
     # CPU 分配冻结的真实话题，主线程与 CALL 子线程共享，actor 请求不能指定。
     dispatch_topic_id: str
+    actor: WorkingActor
 
 
 class ExecutionThreadTable(Protocol):
     """执行线程的唯一入口：解析、派生与结束都只经过所属进程的线程表。"""
 
-    def resolve(self, access: WorkspaceAccessContext) -> ResolvedThread:
+    def resolve(self, thread: ThreadHandle) -> ResolvedThread:
         """同步判定线程存活并返回解析结果。
 
-        线程已结束（凭据已撤销、线程已结束或进程已收到停止）以
-        ``ThreadEndedError`` 拒绝；context 不对、线程或进程未登记属于接线
-        缺陷，以 ``ScopeRequiredError`` 拒绝。
+        线程已结束、进程已收到停止或已经关闭，以 ``ThreadEndedError`` 拒绝；
+        句柄不是登记的那一个，属于接线缺陷，以 ``ScopeRequiredError`` 拒绝。
         """
         ...
 
-    def derive_child(
-        self, *, parent: WorkspaceAccessContext, profile: AgentProfile
-    ) -> ExecutionThread:
-        """重新判定调用方存活且是主线程，再以图纸的 Agent 派生、读取操作快照并登记。"""
+    def derive_child(self, *, parent: ThreadHandle, profile: AgentProfile) -> ExecutionThread:
+        """重新判定调用方存活且是主线程，再为图纸的 Agent 做准入、读取操作快照并登记。"""
         ...
 
-    def end_child(self, access: WorkspaceAccessContext) -> None:
-        """同步结束一个子线程并撤销其凭据；已结束的线程是空操作，主线程以接线缺陷拒绝。"""
+    def end_child(self, thread: ThreadHandle) -> None:
+        """同步结束一个子线程；已结束的线程是空操作，主线程以接线缺陷拒绝。"""
         ...
 
 

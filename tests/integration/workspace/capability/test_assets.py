@@ -6,7 +6,7 @@
 解析协议替身与事件屏障。
 
 访问边界：上传只向保留的 ``system`` actor 开放，
-access 由与上传服务共享同一访问组合（认证一侧 + 操作授权者）的网关签发，
+工作 actor 由与上传服务共享同一访问组合（认证一侧 + 操作授权者）的网关认证，
 注册使用的 scope 只来自授权——授权先于接收与注册副作用，调用方不能再
 另传 scope。
 """
@@ -60,14 +60,14 @@ def _service(
 
 
 async def _upload(service, composition, *, content: bytes, operation_id: str = "op-1", **kwargs):
-    """经组合签发的 access 上传到驻留 workspace（授权组装可信 scope）。"""
+    """以组合认证的 system 工作 actor 上传到驻留 workspace（授权组装可信 scope）。"""
     return await service.upload_asset(
         target_workspace=composition.default_workspace,
         file_name=kwargs.get("file_name", "doc.txt"),
         declared_media_type=kwargs.get("declared_media_type", "text/plain"),
         source=ChunkedSource(content),
         client_operation_id=operation_id,
-        access=await composition.authenticate(agent_id="system"),
+        actor=await composition.authenticate(agent_id="system"),
     )
 
 
@@ -311,7 +311,7 @@ async def test_upload_replay_reuses_registered_asset_without_second_raw() -> Non
 
 @pytest.mark.asyncio
 async def test_upload_target_outside_resident_workspace_is_denied_before_side_effects() -> None:
-    """目标 workspace 不等于 context 驻留 workspace 时在授权点拒绝，无资产副作用。
+    """目标 workspace 不等于工作 actor 驻留 workspace 时在授权点拒绝，无资产副作用。
 
     上传使用的 scope 只来自授权点：不存在"另传 scope 与目标一致性"的
     二次校验，跨 workspace 声明在 ``authorize_root`` 处按
@@ -328,7 +328,7 @@ async def test_upload_target_outside_resident_workspace_is_denied_before_side_ef
             declared_media_type="text/plain",
             source=ChunkedSource(b"x"),
             client_operation_id="op-cross",
-            access=await composition.authenticate(agent_id="system"),
+            actor=await composition.authenticate(agent_id="system"),
         )
 
     assert exc_info.value.details["reason"] == "target_workspace_not_resident"
@@ -362,7 +362,7 @@ async def test_non_system_upload_denied_and_registers_nothing() -> None:
             declared_media_type="text/plain",
             source=ChunkedSource(b"x"),
             client_operation_id="op-denied",
-            access=await restricted_composition.authenticate(),
+            actor=await restricted_composition.authenticate(),
         )
 
     assert exc_info.value.details["reason"] == "root_required"

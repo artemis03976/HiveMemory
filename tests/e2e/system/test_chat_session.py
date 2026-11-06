@@ -189,7 +189,6 @@ async def test_http_session_resume_after_partial_stop(patchouli_chat_stack):
         await alice.stop()
         runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()
 
 
 @pytest.mark.asyncio
@@ -204,8 +203,10 @@ async def test_text_only_cpu_output_is_structured_before_patchouli_submission(
     outcome = "completed"
     from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 
+    # 注册入口以系统自身的 principal 认证 system 执行系统阶段，需要它的准入记录。
     access = make_access_composition(
-        [make_actor_access_record(agent_id="omni_doll")], adapters=("http",)
+        [make_actor_access_record(agent_id=agent) for agent in ("omni_doll", "system")],
+        adapters=("http",),
     )
     sessions = ConversationSessionService(WorkspaceSessionConfig())
     service = make_task_process_service(
@@ -247,7 +248,6 @@ async def test_text_only_cpu_output_is_structured_before_patchouli_submission(
     finally:
         await service.shutdown()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()
 
 
 @pytest.mark.asyncio
@@ -428,4 +428,3 @@ async def test_http_long_session_reuses_compacted_history_and_seals_budget_failu
         await alice.stop()
         runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()

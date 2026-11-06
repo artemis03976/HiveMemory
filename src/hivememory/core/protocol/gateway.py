@@ -13,9 +13,9 @@ from hivememory.core.models import FrozenDict, freeze_mapping
 class GatewaySessionTurn(BaseModel):
     """Gateway 分析专用的会话轮次；不携带会话 ID 或授权身份。
 
-    ``topic_id`` 是该轮实际落位的话题，只在话题路由失败时用于续接上一轮：
+    ``topic_id`` 是该轮实际所在的话题，只在话题路由失败时用于续接上一轮：
     同一会话的相邻轮次大多仍在同一话题上，续接比新建无标题话题归错的
-    代价小。不知道落位时为空，模型提示词不渲染它。
+    代价小。不知道所在的话题时为空，模型提示词不渲染它。
     """
 
     user_message: str

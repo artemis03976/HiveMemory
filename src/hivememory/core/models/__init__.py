@@ -87,9 +87,7 @@ from .workspace import (
     IdentityScope,
     WorkspaceIdentity,
     WorkspaceTopicKey,
-    build_internal_identity_scope,
     require_identity_scope,
-    resolve_default_identity_scope,
     resolve_default_workspace_identity,
 )
 from .workspace_asset import (
@@ -182,8 +180,6 @@ __all__ = [
     "system_actor_for_workspace",
     "WorkspaceTopicKey",
     "resolve_default_workspace_identity",
-    "resolve_default_identity_scope",
-    "build_internal_identity_scope",
     "require_identity_scope",
     "AssetRepresentation",
     "AssetRepresentationKind",

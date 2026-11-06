@@ -45,13 +45,13 @@ class TestRootMemoryService:
 
     @pytest.fixture
     def workspace(self):
-        """管理入口的目标 workspace（等于 context 的驻留 workspace）。"""
+        """管理入口的目标 workspace（等于工作 actor 的驻留 workspace）。"""
         return make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 
     @pytest.fixture
     def composition(self, workspace):
         # root 管理授权在本层执行：用真实
-        # 组合为 (u1, system) 签发管理 context。
+        # 组合为 (u1, system) 认证管理入口的工作 actor。
         return make_access_composition(
             [
                 make_actor_access_record(
@@ -76,13 +76,13 @@ class TestRootMemoryService:
         )
 
     @pytest_asyncio.fixture
-    async def access(self, composition):
-        """管理入口的访问 context（经真实网关两阶段认证签发）。"""
+    async def actor(self, composition):
+        """管理入口的工作 actor（经真实网关两阶段认证）。"""
         return await composition.authenticate(agent_id="system", user_id="u1")
 
     @pytest.mark.asyncio
     async def test_create_memory_uses_public_route(
-        self, service, mock_global_bus, workspace, access
+        self, service, mock_global_bus, workspace, actor
     ):
         created = _make_memory_atom(title="Created memory")
         mock_global_bus.request.return_value = created
@@ -95,10 +95,10 @@ class TestRootMemoryService:
             memory_type=MemoryType.FACT,
             tags=["created", "ui"],
             alias="created-memory",
-            access=access,
+            actor=actor,
         )
 
-        # 只提交创建材料：原子由 Patchouli 构造，scope 来自 root 授权，access 不向下游传递
+        # 只提交创建材料：原子由 Patchouli 构造，scope 来自 root 授权，工作 actor 不向下游传递
         mock_global_bus.request.assert_awaited_once_with(
             PatchouliRoutes.MEMORY_CREATE,
             identity_scope=IdentityScope(
@@ -117,12 +117,12 @@ class TestRootMemoryService:
 
     @pytest.mark.asyncio
     async def test_get_memory_not_found_raises_domain_error(
-        self, service, mock_global_bus, workspace, access
+        self, service, mock_global_bus, workspace, actor
     ):
         mock_global_bus.request.return_value = None
 
         with pytest.raises(ResourceNotFoundError):
-            await service.get_memory(uuid4(), target_workspace=workspace, access=access)
+            await service.get_memory(uuid4(), target_workspace=workspace, actor=actor)
 
     @pytest.mark.asyncio
     async def test_record_feedback_does_not_reclassify_programming_errors(
@@ -130,7 +130,7 @@ class TestRootMemoryService:
         service,
         mock_global_bus,
         workspace,
-        access,
+        actor,
     ):
         mock_global_bus.request.side_effect = RuntimeError("feedback handler broken")
 
@@ -140,5 +140,5 @@ class TestRootMemoryService:
                 target_workspace=workspace,
                 positive=True,
                 source="ui.memory_ref",
-                access=access,
+                actor=actor,
             )

@@ -49,13 +49,12 @@ class TestActorMemoryService:
 
     @pytest.fixture
     def workspace(self):
-        """actor 入口的目标 workspace（等于 context 的驻留 workspace）。"""
+        """actor 入口的目标 workspace（等于工作 actor 的驻留 workspace）。"""
         return make_workspace_identity(owner_user_id="u1", workspace_id="main_workspace")
 
     @pytest.fixture
     def composition(self, workspace):
-        # actor 操作授权在本层执行：用真实
-        # 组合为 (u1, test_agent) 签发 actor context。
+        # actor 操作授权在本层执行：用真实组合为 (u1, test_agent) 认证工作 actor。
         return make_access_composition(
             [make_actor_access_record(owner_user_id="u1", agent_id="test_agent")],
             default_workspace=workspace,
@@ -67,13 +66,13 @@ class TestActorMemoryService:
         return GlobalSystemBus()
 
     @pytest_asyncio.fixture
-    async def access(self, composition):
-        """actor 入口的访问 context（经真实网关两阶段认证签发）。"""
-        return await composition.authenticate_thread(agent_id="test_agent", user_id="u1")
+    async def actor(self, composition):
+        """actor 入口的工作 actor（经真实网关两阶段认证）。"""
+        return await composition.authenticate(agent_id="test_agent", user_id="u1")
 
     @pytest.mark.asyncio
     async def test_retrieve_builds_backing_request_from_authorized_scope(
-        self, global_bus, workspace, composition, access
+        self, global_bus, workspace, composition, actor
     ):
         """检索请求由能力层用授权返回的可信 scope 构造，身份不进入调用方输入。
 
@@ -94,8 +93,8 @@ class TestActorMemoryService:
                 captured["scope"] = scope
                 return [_make_memory_atom(title="Hit")]
 
-        expected_scope = composition.authorizer.authorize_operation(
-            access, WorkspaceOperation.MEMORY_SEARCH, workspace
+        expected_scope = composition.authorizer.authorize_agent(
+            actor, WorkspaceOperation.MEMORY_SEARCH, workspace
         )
         service = ActorMemoryService(
             global_bus=global_bus,
@@ -105,7 +104,7 @@ class TestActorMemoryService:
         )
 
         result = await service.retrieve(
-            RetrieveRequest(semantic_query="q", keywords=("keyword",), top_k=3), access=access
+            RetrieveRequest(semantic_query="q", keywords=("keyword",), top_k=3), actor=actor
         )
 
         assert [atom.index.title for atom in result] == ["Hit"]
@@ -126,7 +125,7 @@ class TestActorMemoryService:
 
     @pytest.mark.asyncio
     async def test_reference_status_outside_formal_delivery_does_not_record_citation(
-        self, composition, workspace, access
+        self, composition, workspace, actor
     ):
         """只为正式交付记录引用，其他状态即使带有原子也不能引用；READ 与 RUN 共用该判断。
 
@@ -163,7 +162,7 @@ class TestActorMemoryService:
         )
 
         (result,) = await service.resolve_references(
-            ResolveReferencesRequest(("draft",)), access=access
+            ResolveReferencesRequest(("draft",)), actor=actor
         )
 
         assert (result.requested_alias, result.kind) == ("draft", kind)

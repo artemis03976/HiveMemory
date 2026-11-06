@@ -8,10 +8,11 @@ Actor 只消费编译结果，不接触租借或编译配置。
 附件租借由本分配器取得，也由本分配器释放（:meth:`CPUAllocator.release`）：
 工作集只登记租借，不持有 reader。
 
-授权边界：本层是任务进程的阶段授权点——Profile 解析与附件租借只检查
-准入与任务目标 workspace，不借用 actor 操作；读取视图仍按进程 actor
-检查 Profile 可见性。检查在对应副作用前执行；CPU 输入清单的
-观测标签沿用注册时的绑定值，不从访问 context 读取或组装执行身份。
+授权边界：本层是任务进程的系统阶段授权点——Profile 与附件是用户的选择，
+对用户可见而不是对 Agent 可见，两者都由系统以 root 工作 actor 授权，不借用
+actor 操作。Profile 按管理语义读取，只检查 Workspace 归属；资产库只核对
+Workspace。检查在对应副作用前执行；CPU 输入清单的观测标签沿用注册时的
+绑定值，不从工作 actor 读取或组装执行身份。
 """
 
 from __future__ import annotations
@@ -21,7 +22,7 @@ from typing import Protocol
 
 from hivememory.config.attachments import AttachmentCompilerConfig
 from hivememory.config.memory_compiler import MemoryCompilerConfig
-from hivememory.core.access import WorkspaceAccessContext
+from hivememory.core.access import WorkingActor
 from hivememory.core.errors import AssetOperationConflictError, WorkspaceDomainError
 from hivememory.core.models import (
     AgentProfile,
@@ -55,8 +56,9 @@ class _AgentProfileReader(Protocol):
         agent_alias: str | None,
         *,
         scope: IdentityScope,
+        enforce_actor_visibility: bool = True,
     ) -> AgentProfile:
-        """按阶段授权的 scope 解析 Profile，并在交付前检查源原子可见性。"""
+        """按授权的 scope 解析 Profile；``enforce_actor_visibility=False`` 是管理读取。"""
         ...
 
 
@@ -66,7 +68,7 @@ class CPUAllocator:
     ``asset_reader`` 是进程级唯一 WorkspaceAssetStore 的只读 reader 端口；
     两个编译配置段驱动进程侧的记忆/附件编译。
     ``operation_authorizer`` 是组合根注入的授权者：
-    Profile 解析与附件租借的阶段授权在本层、对应副作用前执行。
+    Profile 解析与附件租借的 root 授权在本层、对应副作用前执行。
     """
 
     def __init__(
@@ -90,24 +92,27 @@ class CPUAllocator:
     async def resolve_agent_profile(
         self,
         *,
-        access: WorkspaceAccessContext,
+        agent_id: str,
+        system_actor: WorkingActor,
         target_workspace: WorkspaceIdentity,
     ) -> AgentProfile:
-        """阶段授权后经读取视图解析本进程的执行 Profile。
+        """以系统的 root 工作 actor 授权后，经读取视图按管理语义解析执行者的 Profile。
 
-        阶段授权只校验准入与目标，读取视图负责可见性、缓存及 canonical 变更失效；运行上下文
-        只需要能力描述，源原子的授权依据不进入 run。
+        ``agent_id`` 是注册时认证得到的执行者，不能从入口附带的 Profile alias
+        推断。Profile 是用户的选择：读取只检查 Workspace 归属，不按 Agent 的
+        可见性裁剪，指向其他 Agent 的 PRIVATE 图纸也能被它自己的进程加载；
+        读取视图负责缓存及 canonical 变更失效。运行上下文只需要能力描述，源
+        原子的授权依据不进入 run。
 
         Profile 属于 CPU 分配，但在 Patchouli prepare 之前解析。prepare 保留
         Topic 预建，话题池已满时还会先按 LRU 结算已有话题；先解析 Profile
         可避免缺少图纸的请求留下这些副作用，也保证 Actor 开始前已有派发话题。
         """
-        # 当前执行 Agent 由授权点确定，不能从入口附带的 Profile alias 推断。
-        # Profile 可见性仍由读取视图按进程 actor 检查，不改用 system 身份。
-        scope = self._authorizer.authorize_stage(access, target_workspace)
+        scope = self._authorizer.authorize_root(system_actor, target_workspace)
         return await self._profile_reader.get(
-            scope.actor_identity.agent_id,
+            agent_id,
             scope=scope,
+            enforce_actor_visibility=False,
         )
 
     def allocate(
@@ -121,17 +126,17 @@ class CPUAllocator:
         selections: list[AttachmentSelectionRequest],
         session_history: tuple[ConversationTurn, ...] = (),
         compaction_checkpoint: SessionCompactionCheckpoint | None = None,
-        access: WorkspaceAccessContext,
+        system_actor: WorkingActor,
         target_workspace: WorkspaceIdentity,
     ) -> CPUInputManifest:
         """取得附件租借并编译附件与记忆，组装输入清单。
 
         在 prepare 之后执行，读取工作集中的 prepare 结果；Profile 已由
         :meth:`resolve_agent_profile` 提前解析，只用于编译人格段，图纸与操作
-        快照随主线程交给 CPU，不进入清单。附件租借执行阶段授权，
-        授权检查在租借副作用前执行（``_acquire_selected_attachment``）。
-        ``labels`` 由注册入口认证成功后绑定，只供 CPU 的提示词与观测使用；
-        阶段调用仍凭访问 context 逐次授权。stop 请求不打断分配，由调用方在
+        快照随主线程交给 CPU，不进入清单。附件租借以系统的 root 工作 actor
+        授权，授权检查在租借副作用前执行（``_acquire_selected_attachment``）。
+        ``labels`` 由注册入口认证成功后绑定，只供 CPU 的提示词与观测使用，
+        不参与授权。stop 请求不打断分配，由调用方在
         进入 Actor 之前统一检查。任何失败沿异常路径上抛，已取得的租借由
         本分配器在进程关闭时释放。
         """
@@ -144,7 +149,7 @@ class CPUAllocator:
         for selection in selections:
             self._acquire_selected_attachment(
                 working_set,
-                access,
+                system_actor,
                 target_workspace,
                 selection,
             )
@@ -177,7 +182,7 @@ class CPUAllocator:
             attachment_context=attachment_compile_result.attachment_context,
         )
 
-        # 4. 清单：沿用注册时的只读标签，CPU 不接收身份或访问 context。
+        # 4. 清单：沿用注册时的只读标签，CPU 不接收身份或工作 actor。
         #    标签与资源授权分离；附件租借仍在各次 acquire 前独立授权。
         manifest = CPUInputManifest(
             process_id=process_id,
@@ -196,19 +201,20 @@ class CPUAllocator:
     def _acquire_selected_attachment(
         self,
         working_set: ProcessWorkingSet,
-        access: WorkspaceAccessContext,
+        system_actor: WorkingActor,
         target_workspace: WorkspaceIdentity,
         selection: AttachmentSelectionRequest,
     ) -> RepresentationLease:
         """acquire 单个选中附件并核对客户端提供的版本摘要。
 
-        阶段授权检查先于租借副作用执行，租借使用授权者返回的可信 scope。
+        附件是用户的选择，由系统以 root 授权租借：授权检查先于租借副作用执行，
+        租借使用授权者返回的可信 scope，资产库只核对其中的 Workspace。
         reader 的同一 Store 临界区已完成
         Workspace/ref、asset READY 与 representation READY 校验并建立
         lease，无需先做 resolve_asset。取得的 lease 先登记进工作集；版本
         摘要不一致时立即移出工作集并释放该租借，拒绝整轮，不留游离租借。
         """
-        scope = self._authorizer.authorize_stage(access, target_workspace)
+        scope = self._authorizer.authorize_root(system_actor, target_workspace)
         lease = self._asset_reader.acquire_ready_representation(
             scope,
             selection.asset_ref,

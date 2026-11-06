@@ -12,6 +12,7 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.core.access import WorkspaceOperation
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
@@ -60,7 +61,10 @@ async def test_process_terminal_status_preserves_dispatched_intents(status):
     不能沿用 Gateway 的目标标记。
     """
     access = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="omni_doll")]
+        [
+            make_actor_access_record(owner_user_id="u1", agent_id="omni_doll"),
+            make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
+        ]
     )
     workspace = access.default_workspace
     actor = ActorIdentity(user_id="u1", agent_id="omni_doll")
@@ -147,12 +151,11 @@ async def test_process_terminal_status_preserves_dispatched_intents(status):
             ResolveReferencesRequest(aliases=(other.pending_alias,)),
         ):
             with pytest.raises(ThreadEndedError):
-                await cpu.operation_entry.execute(request, access=cpu.calls[0].thread.access)
+                await cpu.operation_entry.execute(request, thread=cpu.calls[0].thread.handle)
         assert runtime.intents.size == 2
     finally:
         runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()
 
 
 @pytest.mark.asyncio
@@ -171,6 +174,7 @@ async def test_main_and_child_thread_writes_record_their_own_thread_ids():
                 agent_id="worker",
                 allowed_operations=[WorkspaceOperation.MEMORY_WRITE],
             ),
+            make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
         ]
     )
     bus = GlobalSystemBus()
@@ -236,11 +240,10 @@ async def test_main_and_child_thread_writes_record_their_own_thread_ids():
     finally:
         runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()
 
 
 class _RevokeAdmissionAtFinalize:
-    """Actor 登记意图后切换到已撤销的真实准入登记，阶段调用必须即时拒绝。"""
+    """Actor 登记意图后切换到已失效的真实准入登记，系统阶段的 root 授权必须即时拒绝。"""
 
     def __init__(self, inner) -> None:
         self._inner = inner
@@ -250,16 +253,19 @@ class _RevokeAdmissionAtFinalize:
     def __getattr__(self, name):
         return getattr(self._inner, name)
 
-    def authorize_stage(self, access, target_workspace):
+    def authorize_root(self, actor, target_workspace):
         authorizer = self._revoked if self.revoked else self._inner
-        return authorizer.authorize_stage(access, target_workspace)
+        return authorizer.authorize_root(actor, target_workspace)
 
 
 @pytest.mark.asyncio
 async def test_finalize_authorization_failure_preserves_dispatched_intents():
     """finalize 授权失败只影响交互提交，不撤回已经派发的意图。"""
     access = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="omni_doll")]
+        [
+            make_actor_access_record(owner_user_id="u1", agent_id="omni_doll"),
+            make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
+        ]
     )
     workspace = access.default_workspace
     actor = ActorIdentity(user_id="u1", agent_id="omni_doll")
@@ -323,14 +329,16 @@ async def test_finalize_authorization_failure_preserves_dispatched_intents():
     finally:
         runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()
 
 
 @pytest.mark.asyncio
-async def test_process_close_revokes_waiting_update_without_cancelling_request_task():
-    """进程在 UPDATE 冷读期间关闭：拒绝登记，调用方任务不被线程 context 撤销取消。"""
+async def test_process_close_rejects_waiting_update_without_cancelling_request_task():
+    """进程在 UPDATE 冷读期间关闭：拒绝登记，调用方任务不因线程结束被取消。"""
     access = make_access_composition(
-        [make_actor_access_record(owner_user_id="u1", agent_id="omni_doll")]
+        [
+            make_actor_access_record(owner_user_id="u1", agent_id="omni_doll"),
+            make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
+        ]
     )
     bus = GlobalSystemBus()
     entered = asyncio.Event()
@@ -355,7 +363,7 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
     update_tasks = []
 
     async def update(submit):
-        # 外部适配器任务独立于 CPU 拉取任务，撤销线程 context 不得取消它。
+        # 外部适配器任务独立于 CPU 拉取任务，线程结束不得取消它。
         update_tasks.append(
             asyncio.create_task(
                 submit(SubmitUpdateIntentRequest(base_alias="base", instruction="新内容"))
@@ -408,7 +416,7 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
             while (await anext(stream))["event"] != "token":
                 pass
         await stream.aclose()
-        # 交付方离开只请求停止；等待进程在自己的 task 中撤销线程并关闭。
+        # 交付方离开只请求停止；等待进程在自己的 task 中结束线程并关闭。
         await service.close_process(handle)
         (task,) = update_tasks
         assert task.cancelling() == 0
@@ -420,7 +428,7 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
         assert runtime.intents.size == 0
         with pytest.raises(ThreadEndedError):
             await cpu.operation_entry.execute(
-                ResolveReferencesRequest(aliases=("base",)), access=cpu.calls[0].thread.access
+                ResolveReferencesRequest(aliases=("base",)), thread=cpu.calls[0].thread.handle
             )
     finally:
         await stream.aclose()
@@ -430,4 +438,3 @@ async def test_process_close_revokes_waiting_update_without_cancelling_request_t
         await asyncio.gather(*update_tasks, return_exceptions=True)
         runtime.close()
         access.gateway.close()
-        access.gateway.revoke_all_contexts()

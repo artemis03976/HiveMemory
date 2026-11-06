@@ -45,10 +45,10 @@ class PatchouliService:
     prepare 只做 Topic 与检索：Profile 解析、附件租借与记忆/附件编译由
     chat 任务进程在 CPU 分配时完成，不属于 Patchouli 公开路由。
 
-    访问边界：本门面是授权点以下的资源
-    owner，阶段路由只接收任务进程在阶段授权后组装的 ``IdentityScope``，
-    不接收访问 context，也不做 operation 检查；资源归属仍由本层与领域
-    实现独立校验。
+    访问边界：本门面是授权点以下的资源 owner，阶段路由只接收授权点组装的
+    ``IdentityScope``，不接收工作 actor，也不做 operation 检查；资源归属仍由
+    本层与领域实现独立校验。scope 只提供归属：检索的可见性取自单独的检索
+    scope，交互的发起者取自显式的参与者。
     """
 
     def __init__(
@@ -73,17 +73,27 @@ class PatchouliService:
         identity_scope: IdentityScope,
         interaction_id: str,
         gateway_decision: GatewayDecision,
-        enable_memory_retrieval: bool = True,
+        retrieval_scope: IdentityScope | None = None,
     ) -> PreparedAgentRun:
         """准备本轮的 Topic 与未编译检索结果（prepare 只做 Topic 与检索）。
 
         返回的 PreparedAgentRun 携带话题准备结果与检索到的原始记忆原子；
         Profile 解析、附件租借与编译由任务进程在 CPU 分配时完成，用户消息
         与 Gateway 决定也由进程持有。prepare 失败时只清理本轮可能预创建的
-        空话题。``identity_scope`` 是任务进程通过阶段授权后组装的可信 scope。
+        空话题。
+
+        ``identity_scope`` 是系统执行话题准备的 root scope，归属取自它；
+        ``retrieval_scope`` 是执行者经 ``memory.search`` 授权得到的 scope，检索
+        按它的 actor 的可见性进行；为空时不检索，是否检索由调用方决定。给出时
+        仍按 Gateway 的检索计划，检索模式为跳过或要求零条时同样不检索。两份 scope 的
+        Workspace 不同时在任何副作用之前拒绝。
         """
         identity_scope = require_identity_scope(identity_scope)
         belong_to = identity_scope.workspace_identity
+        if retrieval_scope is not None and (
+            require_identity_scope(retrieval_scope).workspace_identity != belong_to
+        ):
+            raise WorkspaceMismatchError(details={"interaction_id": interaction_id})
         real_topic_id: str | None = None
         is_new = gateway_decision.target_topic_id == "NEW_TOPIC"
 
@@ -95,12 +105,13 @@ class PatchouliService:
                 new_topic_summary=gateway_decision.new_topic_summary,
                 belong_to=belong_to,
             )
-            memories = await self.retrieve_for_decision(
-                gateway_decision,
-                belong_to=belong_to,
-                from_actor=identity_scope.actor_identity,
-                enable_retrieval=enable_memory_retrieval,
-            )
+            memories: tuple[MemoryAtom, ...] = ()
+            if retrieval_scope is not None:
+                memories = await self.retrieve_for_decision(
+                    gateway_decision,
+                    belong_to=belong_to,
+                    from_actor=retrieval_scope.actor_identity,
+                )
 
             return PreparedAgentRun(
                 belong_to=belong_to,
@@ -124,14 +135,16 @@ class PatchouliService:
         payload: InteractionPayload,
         *,
         identity_scope: IdentityScope,
+        participant: ActorIdentity,
     ) -> None:
         """原样提交封口好的交互记录，并把 post-apply 工作交给 Patchouli 持有。
 
         ``payload`` 由提交方（任务进程）组装并封口，与 Import Bus 一致；finalize
         原样提交，不改写其内容；附件租借由进程持有并随进程关闭
-        释放，finalize 不负责释放。``identity_scope`` 来自调用前的
-        任务进程阶段授权；公共边界拆分后，后台 continuation
-        只携带归属与本次提交的发起者。
+        释放，finalize 不负责释放。交互提交由系统执行：``identity_scope`` 是
+        任务进程调用前经 root 授权得到的 scope，只提供归属；``participant``
+        是本轮的执行 Agent，记为交互的发起者。后台 continuation 只携带归属与
+        参与者。
         """
         scope = require_identity_scope(identity_scope)
         if prepared_run.belong_to != scope.workspace_identity:
@@ -139,7 +152,7 @@ class PatchouliService:
         continuation = self._active_finalizations.get(prepared_run.interaction_id)
         if continuation is None:
             continuation = asyncio.create_task(
-                self._continue_active_finalization(prepared_run, payload, scope.actor_identity),
+                self._continue_active_finalization(prepared_run, payload, participant),
                 name=f"active_finalize_{prepared_run.interaction_id[:8]}",
             )
             self._active_finalizations[prepared_run.interaction_id] = continuation
@@ -321,7 +334,7 @@ class PatchouliService:
         """清理已 prepare 但未 finalize 的预创建空话题。
 
         附件租借由持有它的任务进程随进程关闭统一释放，cleanup 不涉及租借。
-        调用方重新通过任务进程阶段授权。本边界校验待清理结果的归属，
+        调用方以 root 授权得到的 scope 调用。本边界校验待清理结果的归属，
         越域结果不会进入补偿流程。
         """
         scope = require_identity_scope(identity_scope)
@@ -361,18 +374,13 @@ class PatchouliService:
         *,
         belong_to: WorkspaceIdentity,
         from_actor: ActorIdentity,
-        enable_retrieval: bool = True,
     ) -> tuple[MemoryAtom, ...]:
         """按 GatewayDecision 派生 Patchouli 检索请求，返回按领域排序的原始记忆。
 
-        检索模式为跳过、要求零条或调用方关闭检索时不发起请求，返回空元组。
+        检索模式为跳过或要求零条时不发起请求，返回空元组。
         """
 
-        if (
-            not enable_retrieval
-            or decision.retrieval_plan.mode == RetrievalMode.SKIP
-            or decision.retrieval_plan.top_k == 0
-        ):
+        if decision.retrieval_plan.mode == RetrievalMode.SKIP or decision.retrieval_plan.top_k == 0:
             return ()
 
         query = RetrievalQuery(

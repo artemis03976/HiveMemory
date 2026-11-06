@@ -5,8 +5,8 @@ resolver 只依赖本协议，不导入总线、System 路由常量或 Patchouli
 ``components`` 的子包），由组合根注入。冷读取经跨越记忆库边界的公共 backing 路由，库侧资源
 归属与 policy 校验独立成立，构成纵深防御。
 
-``scope`` 是授权点（actor API 的操作授权或任务进程的阶段授权）组装的可信
-坐标；resolver 与 backing 位于授权点以下，不接收访问 context。
+``scope`` 是授权点（actor API 的操作授权或任务进程的 root 授权）组装的可信
+坐标；resolver 与 backing 位于授权点以下，不接收工作 actor。
 """
 
 from __future__ import annotations
@@ -55,8 +55,12 @@ class CanonicalReadBackend(Protocol):
         agent_alias: str | None,
         *,
         scope: IdentityScope,
+        enforce_actor_visibility: bool = True,
     ) -> ResolvedAgentProfile:
-        """Profile 定义解析：AgentProfile + 源原子 policy 依据与关联。"""
+        """Profile 定义解析：AgentProfile + 源原子 policy 依据与关联。
+
+        ``enforce_actor_visibility=False`` 是管理读取，只校验 Workspace 归属。
+        """
         ...
 
 

@@ -20,7 +20,7 @@ def test_rejected_extra_file_closes_every_parsed_upload(monkeypatch):
     app.include_router(router, prefix="/api/v1")
     service = AsyncMock()
     app.dependency_overrides[deps.get_root_workspace_asset_service] = lambda: service
-    app.dependency_overrides[deps.get_request_access] = lambda: None
+    app.dependency_overrides[deps.get_request_actor] = lambda: None
     closed = []
     original_close = UploadFile.close
 
@@ -60,7 +60,7 @@ def test_invalid_form_keeps_named_transport_error(headers, expected):
     install_error_handlers(app)
     app.include_router(router, prefix="/api/v1")
     app.dependency_overrides[deps.get_root_workspace_asset_service] = lambda: None
-    app.dependency_overrides[deps.get_request_access] = lambda: None
+    app.dependency_overrides[deps.get_request_actor] = lambda: None
     with TestClient(app) as client:
         response = client.post(
             "/api/v1/workspace/assets",

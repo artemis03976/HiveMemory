@@ -141,7 +141,7 @@ export function turnInfo(sessionId, turns, index) {
     recent_turns: previous.map(earlier => ({
       user_message: truncate(earlier.userMessage),
       assistant_text: truncate(assistantText(earlier)),
-      // 服务端据此查出上一轮实际落位的话题，话题路由失败时续接。
+      // 服务端据此查出上一轮实际所在的话题，话题路由失败时续接。
       external_turn_id: String(earlier.number),
     })),
   }

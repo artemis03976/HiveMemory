@@ -26,8 +26,8 @@ from tests.helpers.workspace import (
 def make_upload_access(*, user_id: str = "user-1") -> AccessTestComposition:
     """上传用例的访问组合：显式登记 root actor 与用于拒绝验证的普通 actor。
 
-    上传是授权点行为（root API）：access 必须由与上传服务
-    共享同一访问组合（认证一侧 + 操作授权者）的网关签发，因此需要上传的
+    上传是授权点行为（root API）：工作 actor 必须由与上传服务
+    共享同一访问组合（认证一侧 + 操作授权者）的网关认证，因此需要上传的
     测试先用本函数构造组合，再把它传给 :func:`make_upload_service`；
     缺省组合为 ``system`` 登记空白名单，普通 actor 的操作许可不能授予上传。
     """
@@ -50,7 +50,7 @@ def make_upload_service(
     """用同一 Store 和配置装配真实上传用例，仅允许替换解析算法。
 
     上传服务在自己公共入口执行 root API
-    授权；注入的操作授权者与签发上传 access 的认证一侧来自同一组合，
+    授权；注入的操作授权者与认证上传方的认证一侧来自同一组合，
     读取同一份访问登记（与生产装配一致）；``access_composition`` 缺省为
     :func:`make_upload_access` 的本地登记组合。
     """

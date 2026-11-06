@@ -10,7 +10,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import WorkspaceAccessContext
+from hivememory.core.access import WorkingActor
 from hivememory.core.errors import (
     InvalidMemoryFieldError,
     MemoryAliasConflictError,
@@ -608,11 +608,11 @@ class TestMemoriesRouter:
 
 
 class TestRouterCapabilityContract:
-    def test_create_memory_passes_target_workspace_and_access(self):
-        """路由只取得请求级 context 与目标 workspace，并以此调用能力层。
+    def test_create_memory_passes_target_workspace_and_actor(self):
+        """路由只取得认证得到的工作 actor 与目标 workspace，并以此调用能力层。
 
         mock 能力服务以观察调用契约：目标 workspace 与 header 用户一致、
-        access 是网关签发的请求级 context；路由处理函数不接触声明——
+        actor 是网关认证的 (user, system) 工作 actor；路由处理函数不接触声明——
         调用参数里没有 identity_scope，也没有认证前的 claims。
         """
         service = MagicMock()
@@ -644,7 +644,8 @@ class TestRouterCapabilityContract:
         kwargs = service.create_memory.await_args.kwargs
         assert kwargs["target_workspace"].owner_user_id == "u1"
         assert kwargs["target_workspace"].workspace_id == "main_workspace"
-        assert isinstance(kwargs["access"], WorkspaceAccessContext)
+        assert isinstance(kwargs["actor"], WorkingActor)
+        assert (kwargs["actor"].actor.user_id, kwargs["actor"].actor.agent_id) == ("u1", "system")
         # 声明只作为认证输入：路由处理函数不取得 identity_scope 或 claims
         assert "identity_scope" not in kwargs
         assert "claims" not in kwargs

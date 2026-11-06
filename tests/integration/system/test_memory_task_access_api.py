@@ -160,7 +160,6 @@ def task_api_stack(tmp_path) -> Iterator[_TaskApiStack]:
                 await controller.cancel_task(task.task_id)
             await controller.stop()
             access.gateway.close()
-            access.gateway.revoke_all_contexts()
 
     app = FastAPI(lifespan=lifespan)
     install_error_handlers(app)

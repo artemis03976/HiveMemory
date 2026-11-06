@@ -4,9 +4,8 @@
 解析替身。覆盖状态接纳、结果提交、失败收尾、取消安全收尾、同 key
 串行化与资源边界；转换正确性由真实 parser 样本的测试另行验证。
 
-访问边界：上传 access 由与上传服务共享
-访问组合（认证一侧 + 操作授权者）的网关签发；注册与解析交接一律使用
-授权返回的可信 scope。
+访问边界：上传方的 system 工作 actor 由与上传服务共享访问组合（认证一侧 +
+操作授权者）的网关认证；注册与解析交接一律使用授权返回的可信 scope。
 """
 
 import asyncio
@@ -65,7 +64,7 @@ async def _upload(
         declared_media_type="text/plain",
         source=ChunkedSource(content),
         client_operation_id=operation_id,
-        access=await composition.authenticate(agent_id="system"),
+        actor=await composition.authenticate(agent_id="system"),
     )
 
 

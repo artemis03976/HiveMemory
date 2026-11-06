@@ -10,7 +10,7 @@ Claude Code 的后台同步进程，hook 因此不阻塞 Claude Code，HiveMemor
   全部已登记会话记录中尚未提交的已结束轮次；
 - ``SessionEnd``：标记会话已结束，末尾没有结束记录的一轮按中断提交；
 - ``PreToolUse``（只匹配本插件的写入与更新工具）：把当前一轮的信息补进工具
-  参数，HiveMemory 据此在写入时为这一轮落位，见 :func:`pre_tool_use`。
+  参数，HiveMemory 据此在写入时为这一轮确定话题，见 :func:`pre_tool_use`。
 
 用户中断时 Claude Code 不触发 ``Stop``，被中断的一轮由中断标记、下一轮或
 会话结束判定，在下次同步时补发。``Stop`` 必须同步运行：它在下一条消息

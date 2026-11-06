@@ -29,7 +29,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-06
 ---
 
 # 公开路由与事件
@@ -87,8 +87,8 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 | `patchouli.public.memory.retrieve` | `MemoryManagementService.retrieve` | `RetrievalRequest`（含 `identity_scope`） | `list[MemoryAtom]`（按领域排序） |
 | `patchouli.public.memory.retrieve_by_aliases` | `retrieve_by_aliases` | aliases、`IdentityScope` | `list[MemoryAtom]`（只含实际可读的原子） |
 | `patchouli.public.memory.read` | `read_memory` | memory id、`identity_scope`、refresh | `MemoryAtom \| None`（未知或不可见均为 `None`） |
-| `patchouli.public.prepare_agent_run` | `PatchouliService.prepare_agent_run` | `IdentityScope`、`interaction_id`、`GatewayDecision`、是否检索 | `PreparedAgentRun`（Topic 准备结果与未编译检索结果） |
-| `patchouli.public.finalize_agent_run` | `PatchouliService.finalize_agent_run` | `PreparedAgentRun`、任务进程封口的 `InteractionPayload`（含实际使用的附件引用）、必需的 `identity_scope` | `None`（交互 applied、命中记录完成）；目标归属不一致抛 `WorkspaceMismatchError` |
+| `patchouli.public.prepare_agent_run` | `PatchouliService.prepare_agent_run` | `identity_scope`（话题与归属）、可为空的 `retrieval_scope`（检索的可见性，为空时不检索）、`interaction_id`、`GatewayDecision` | `PreparedAgentRun`（Topic 准备结果与未编译检索结果）；两份 scope 的 Workspace 不同时在任何副作用之前抛 `WorkspaceMismatchError` |
+| `patchouli.public.finalize_agent_run` | `PatchouliService.finalize_agent_run` | `PreparedAgentRun`、任务进程封口的 `InteractionPayload`（含实际使用的附件引用）、必需的 `identity_scope`（归属）与 `participant`（交互的发起者） | `None`（交互 applied、命中记录完成）；目标归属不一致抛 `WorkspaceMismatchError` |
 | `patchouli.public.cleanup_prepared_agent_run` | `cleanup_prepared_agent_run` | `PreparedAgentRun`、必需的 `identity_scope` | 是否清理空话题；越域 prepared 返回 `False` |
 | `patchouli.public.record_memory_citation` | `record_memory_citation` | memory id、`IdentityScope`、source | 记录结果 |
 
@@ -96,16 +96,16 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `patchouli.public.interaction.submit` | `submit_interaction` | `identity_scope`、`InteractionPayload`、可选 requested topic / interaction id / origin、新话题的 `new_topic_title` / `new_topic_summary`（只在 `NEW_TOPIC` 时允许） | `InteractionSubmitResult`（接纳收据）；队列容量已满或已停止抛 `InteractionAdmissionUnavailableError` |
-| `patchouli.public.interaction.status` | `interaction_status` | `identity_scope`、interaction id | `InteractionStatus \| None`（`pending` / `succeeded` 附真实落点 / `failed` / `unknown`；未接纳为 `None`）；同名交互属于其他 Workspace 抛 `WorkspaceMismatchError` |
+| `patchouli.public.interaction.submit` | `submit_interaction` | `identity_scope`（归属）、`participant`（交互的发起者）、`InteractionPayload`、可选 requested topic / interaction id / origin、新话题的 `new_topic_title` / `new_topic_summary`（只在 `NEW_TOPIC` 时允许） | `InteractionSubmitResult`（接纳收据）；队列容量已满或已停止抛 `InteractionAdmissionUnavailableError` |
+| `patchouli.public.interaction.status` | `interaction_status` | `identity_scope`、interaction id | `InteractionStatus \| None`（`pending` / `succeeded` 附实际所在的话题 / `failed` / `unknown`；未接纳为 `None`）；同名交互属于其他 Workspace 抛 `WorkspaceMismatchError` |
 | `patchouli.public.interaction.wait` | `wait_interaction` | `identity_scope`、interaction id、`timeout_seconds` | 应用到终态或超时时的 `InteractionStatus \| None`；归属校验同 status |
 | `patchouli.public.memory_intent.submit` | `submit_memory_intent` | `identity_scope`、`MemoryIntent` | `MemoryIntentSubmissionResult`（accepted / rejected / unknown；仅 accepted 带任务坐标） |
 
 上表路由只接收调用方授权点组装的 `IdentityScope`，本身不做操作授权。`memory_intent.submit` 的生产调用方是 workspace actor API 的 WRITE/UPDATE：`MemoryIntent.intent_id` 与 `pending_alias` 必填，沿用登记值；话题由任务进程提供。Patchouli 在内部构造物化任务，唯一调用 local `GENERATION_SUBMIT_ACTIVE`，每次一个意图，返回接纳、明确拒绝或未知结果。明确拒绝结算 FAILED；未知结果不提前结算，既有任务保留结算权。
 
-三条交互路由的生产调用方是 Import Bus，在导入授权之后调用：提交前以 `interaction.status` 查重，提交后以 `interaction.wait` 等待应用；进度、重发与幂等规则见[子系统公共契约](./subsystem-contracts.md#36-交互提交进度与等待)第 3.6 节。chat finalize 不经这些路由：Patchouli 在 finalize 内部构造 `InteractionSubmission` 并提交同一条 lane，两条路径的 handler 都调用 `PerceptionFamiliar.apply_interaction()`。`InteractionPayload` 不携带物化任务；submission 的 `belong_to/from_actor` 分别是归属与发起者来源，调用方不能从 payload 或 topic id 反推作用域。`chat.run.completed` 和 SSE `done` 都不携带记忆任务 ID；任务通过 `memory.task.*` 事件及 list/get 查询观察。
+三条交互路由的生产调用方是 Import Bus，以系统的 root 工作 actor 经 root API 的 `RootInteractionService` 调用，每次调用在方法入口 root 授权：提交前以 `interaction.status` 查重，提交调用 `interaction.submit`，提交后以 `interaction.wait` 等待应用；进度、重发与幂等规则见[子系统公共契约](./subsystem-contracts.md#36-交互提交进度与等待)第 3.6 节。chat finalize 不经这些路由：Patchouli 在 finalize 内部构造 `InteractionSubmission` 并提交同一条 lane，两条路径的 handler 都调用 `PerceptionFamiliar.apply_interaction()`。`InteractionPayload` 不携带物化任务；submission 的 `belong_to/from_actor` 分别取自 scope 与显式的参与者：交互提交由系统执行，scope 的 actor 是 `system`，交互记录的发起者仍是参与的 Agent；调用方不能从 payload 或 topic id 反推作用域。`chat.run.completed` 和 SSE `done` 都不携带记忆任务 ID；任务通过 `memory.task.*` 事件及 list/get 查询观察。
 
-Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与存储只接收 `belong_to` 和需要的 `from_actor`。`PreparedAgentRun` 只保留 prepare 的归属；任务进程在调用 finalize 前重新执行阶段授权并传入当次 scope；cleanup 同样重新执行阶段授权，授权被拒时记录警告并完成关闭；资源 owner 拒绝删除越域 prepared 或已被提交链接管的话题。
+Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与存储只接收 `belong_to` 和需要的 `from_actor`。`PreparedAgentRun` 只保留 prepare 的归属；任务进程在调用 finalize 前以系统的 root 工作 actor 重新授权并传入当次 scope 与参与者（本轮的执行 Agent）；cleanup 同样重新执行 root 授权，授权被拒时记录警告并完成关闭；资源 owner 拒绝删除越域 prepared 或已被提交链接管的话题。
 
 ### 2.3 Patchouli Memory
 
@@ -129,7 +129,7 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 | `patchouli.public.memory_task.cancel` | `cancel_memory_task` | task id、`identity_scope` | `bool`；越域与不存在统一抛 `ResourceNotFoundError` |
 | `patchouli.public.agent_profile.create` | `create_agent_profile` | `identity_scope`、`AgentProfileCreation`（创建材料，alias 必填） | 持久化后的 `MemoryAtom` |
 | `patchouli.public.agent_profile.list` | `list_agent_profiles` | `identity_scope`、limit | profile atom 列表 |
-| `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、必需的 `IdentityScope`（builtin 同样需要） | `ResolvedAgentProfile`（`AgentProfile` + 源原子 policy 依据与 source 关联，builtin 无源原子）；显式缺失/越权/无效时抛结构化 MTP error |
+| `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、必需的 `IdentityScope`（builtin 同样需要）、`enforce_actor_visibility`（默认真；假为管理读取，只校验 Workspace 归属，供任务进程以 root scope 加载执行者的图纸） | `ResolvedAgentProfile`（`AgentProfile` + 源原子 policy 依据与 source 关联，builtin 无源原子）；显式缺失/越权/无效时抛结构化 MTP error |
 | `patchouli.public.topic.list_active` | `list_active_topics` | `identity_scope`、`include_empty` | `tuple[TopicSnapshot, ...]` |
 | `patchouli.public.topic.get_data` | `get_topic_data` | `identity_scope`、topic id | `TopicData | None`（越域目标隐藏） |
 | `patchouli.public.manual_settle_topic` | `settle_topic` | `identity_scope`、`topic_id` | `TopicSettleResult` |
@@ -194,7 +194,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 `system.stopped` 与 `system.stop_failed` 的 `data` 包含 `steps`、`completed_steps`、`scheduler_stopped` 与 `import_bus_shutdown`；后者是 Import Bus 关闭时等待的结果（`{"waited_requests": 关闭开始时的在途导入数}`），停止在它之前失败时为 None。
 
-`import.turn.*` 由 Import Bus 在一次导入的结局处发布，`task_type` 为 `background`（导入没有用户在 HiveMemory 一侧等待），`agent_id` 与 `workspace_id` 取导入授权的发起者与目标 Workspace，只作观测标签。`data` 只携带 `source`、`external_conversation_id`、`external_turn_id`、`interaction_id` 与事件数量 `event_count`，不携带用户消息、回复、思考、工具参数或工具结果的正文：`accepted` 在交互应用完成后发布，信封 `topic_id` 是实际落位的话题，`data` 另带 `outcome` 与 `is_new_topic`；`deferred` 是可重试或应用失败的推迟，`severity=warning`。关闭中拒绝（`shutting_down`）、认证与授权失败以及原样传播的契约错误与程序错误不发布 `import.turn.*`。
+`import.turn.*` 由 Import Bus 在一次导入的结局处发布，`task_type` 为 `background`（导入没有用户在 HiveMemory 一侧等待），`agent_id` 与 `workspace_id` 取交互的参与者与目标 Workspace，只作观测标签。`data` 只携带 `source`、`external_conversation_id`、`external_turn_id`、`interaction_id` 与事件数量 `event_count`，不携带用户消息、回复、思考、工具参数或工具结果的正文：`accepted` 在交互应用完成后发布，信封 `topic_id` 是实际所在的话题，`data` 另带 `outcome` 与 `is_new_topic`；`deferred` 是可重试或应用失败的推迟，`severity=warning`。关闭中拒绝（`shutting_down`）、认证与授权失败以及原样传播的契约错误与程序错误不发布 `import.turn.*`。
 
 ### 4.1 投递语义
 
@@ -249,13 +249,13 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 
 - 用户导向身份选择为 `user_id + workspace_id` 基础选择，Agent action（Chat、导入）由请求体附加具体 `agent_id`；基础选择只经统一请求头 `x-user-id`/`x-workspace-id` 承载，Chat/stop、导入请求体与 Topic、会话等管理路由都不接受 body 或 query 中的 user 与 Workspace 字段。
 - `server/deps.py resolve_request_identity_claims` 是唯一解析入口，只产出身份声明（actor 声明与请求进入的 Workspace），不组装 `IdentityScope`；只含空白的身份请求头拒绝（400）；未知 Workspace 拒绝（404）；Agent action 缺失具体 `agent_id` 或显式使用保留的 `system` 返回 400；非 Agent action 使用保留 `SYSTEM_AGENT_ID = "system"`（"没有具体 Agent 作为操作来源主体"，不得成为 `MemoryAccessPolicy` target）。
-- 声明交给统一认证网关取得访问 context：Chat 由任务进程的注册入口认证并创建进程；管理操作、`/chat/stop` 与导入取得绑定本次请求的请求级 context，请求结束时撤销。进入上述 route 的 `IdentityScope` 由授权点在操作授权后组装。
+- 声明交给统一认证网关认证，得到工作 actor：Chat 由任务进程的注册入口认证执行者与系统的 root 工作 actor 并创建进程；管理操作、`/chat/stop` 与导入在入口认证，得到只在本次调用内使用的工作 actor。进入上述 route 的 `IdentityScope` 由授权点以执行者授权后组装。
 - Chat 请求体的 `message` 不能为空（空串以 422 拒绝），每轮交互记录因此都以序号 0 的用户消息事件开头；`session_id` 绑定会话资源，缺省自动创建；不进入身份构造，finalize 关联仍使用进程 ID；`ActorIdentity` 仅包含 `user_id`、`agent_id` 与可选 `team_id`。
-- `/chat/stop` 不是 Agent action：注册入口经进程控制授权比对请求方与进程记录的驻留坐标，不可控与不存在统一按 `not_found` 返回，取消与事件发布使用进程注册时绑定的观测标签，不从当前选择重新构造身份。
+- `/chat/stop` 不是 Agent action：注册入口以请求方 (user, `system`) 的工作 actor 对进程的 Workspace 执行 root 授权，授权拒绝与不存在统一按 `not_found` 返回，取消与事件发布使用进程注册时绑定的观测标签，不从当前选择重新构造身份。
 - 外部入口（导入与 MCP）不使用 server 的 principal：请求以 `X-Principal-ID` 声明调用来源、以 `Authorization: Bearer` 携带接入凭据，`resolve_principal_claim` 解析声明（缺省返回 400 `request.principal_required`），`bearer_credential` 取出凭据，两者交给统一认证网关核对；server 的 principal 只用于前端的管理、chat 与取消路由（[认证与访问登记](../workspace/authentication.md)）。
 - `/api/` 下除导入之外的 HTTP 与 WebSocket 路由，在进入路由之前先核对管理凭据，缺少或不一致时以 401 `request.management_credential_invalid` 拒绝，WebSocket 以 1008 关闭；它不改变上述身份声明与认证（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节）。
-- 导入以请求声明的 principal、凭据与 (user, 具体 Agent) 声明经 `import` adapter 认证；Import Bus 服务以导入授权组装 `IdentityScope`：只校验准入与目标，不检查 actor 操作白名单，拒绝保留的 `system`（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。认证前不组装 scope，没有例外入口。
-- MCP 入口（`POST /mcp`）以请求头声明的 principal、凭据与 (user, 具体 Agent) 经 `mcp` adapter 认证，每次工具调用一份请求级 context，契约见 [MCP 记忆访问](./mcp.md)。
+- 导入以请求声明的 principal、凭据与 (user, 具体 Agent) 声明经 `import` adapter 认证，证明来源与参与的 Agent；Import Bus 服务再以系统自身的 principal 认证系统的 root 工作 actor，交给编排器；编排器经 root API 执行每一步，由 root API 在方法入口组装 `IdentityScope`：不检查参与 Agent 的操作白名单，目标只能是参与者驻留的 Workspace（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。认证前不组装 scope，没有例外入口。
+- MCP 入口（`POST /mcp`）以请求头声明的 principal、凭据与 (user, 具体 Agent) 经 `mcp` adapter 认证，每次工具调用认证一次，契约见 [MCP 记忆访问](./mcp.md)。
 - 管理读取（Memory/Agent Profile/Topic 管理）按 owner-management 语义执行：在 Workspace ownership hard boundary 通过后可读取该 Workspace 的 `PUBLIC/PRIVATE/TEAM` 全部 Memory，不执行 Agent 可见性过滤；Agent retrieval 仍按 `MemoryAccessPolicy` 过滤，`system` 不承担权限绕过语义。
 - Memory task list 按快照的必需 `belong_to` 过滤；get/cancel 对越域与不存在统一抛 `ResourceNotFoundError`，HTTP 统一映射为 404，任务 ID 不授予观察或取消能力。
 - 响应 DTO 中的 `user_id`（如 `MemoryResponse.user_id`）保留为对外 owner 展示兼容字段，来源是 `workspace_identity.owner_user_id`；前端不得把它反推为下一次 actor 选择。
@@ -297,7 +297,7 @@ Alice 在创建根 frame 前可推送 `context_compaction`，经 CPU 事件 sink
 | `user_message` | 该轮的用户消息；服务端写成序号为 0 的 `user_message` 事件 |
 | `events` | 用户消息之后的事件，与 `TurnEvent` 同形（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)），`sequence` 从 1 起严格递增；`kind` 为 `assistant_message`、`thought`、`subagent_message` 或 `tool_call`，另有 `content`；`subagent_message` 是 harness 中被委托的子 Agent 结束时交回的消息，只带 `content`。工具调用必带轮内唯一的 `action_id`，带 `tool_name`、`tool_args`，有结局时带成对的 `status`（`success`，出错为 `error`）与 `result`。`verb` 只接受 `SEARCH`、`READ`、`WRITE`、`UPDATE`，只为 HiveMemory 自身 MCP 工具的调用设置（[MCP 记忆访问](./mcp.md#6-连接器调用名轮次信息与回声标记)），与 `tool_name` 互斥；`READ` 与 `UPDATE` 必须带非空的 `targets`。不接受 `produced_aliases`：写入与更新返回的 pending alias 只留在工具结果中 |
 | `model_used` | 实际使用的模型名，可为空；回复正文不单独上传，由事件中的助手正文得到 |
-| `recent_turns` | 该轮之前最近的若干轮（`user_message`、`assistant_text`、可选的 `external_turn_id`），只供 Gateway 落位，不进入交互载荷 |
+| `recent_turns` | 该轮之前最近的若干轮（`user_message`、`assistant_text`、可选的 `external_turn_id`），只供 Gateway 路由，不进入交互载荷 |
 
 请求以 `X-Principal-ID` 声明连接器的 principal、以 `Authorization: Bearer` 携带接入凭据；用户与 Workspace 选择仍只来自统一请求头。
 

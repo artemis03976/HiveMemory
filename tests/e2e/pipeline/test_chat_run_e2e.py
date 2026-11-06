@@ -19,7 +19,7 @@ import pytest
 
 from hivememory.core.models import MemoryAtom, MemoryType
 from hivememory.core.models.model_definition import ModelSelection
-from tests.e2e.conftest import root_access, wait_for_workspace_memories, workspace_for
+from tests.e2e.conftest import root_actor, wait_for_workspace_memories, workspace_for
 from tests.helpers.registered_chat import run_registered_chat, stream_registered_chat
 
 # 系统由 session 级 fixture 在 session 事件循环中启动，测试须运行在同一循环。
@@ -35,16 +35,15 @@ async def _seed_memory(
     的说明会让向量偏离内容，低于 Dense 召回阈值。
     """
     workspace = workspace_for(user_id)
-    async with root_access(system, workspace) as access:
-        return await system.root_memory_service.create_memory(
-            target_workspace=workspace,
-            title=title,
-            summary=summary,
-            content=content,
-            memory_type=MemoryType.FACT,
-            tags=["e2e"],
-            access=access,
-        )
+    return await system.root_memory_service.create_memory(
+        target_workspace=workspace,
+        title=title,
+        summary=summary,
+        content=content,
+        memory_type=MemoryType.FACT,
+        tags=["e2e"],
+        actor=await root_actor(system, workspace),
+    )
 
 
 def _event_summary(events: list[dict[str, Any]]) -> str:

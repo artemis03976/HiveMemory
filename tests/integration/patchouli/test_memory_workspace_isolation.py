@@ -13,12 +13,12 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
-    build_internal_identity_scope,
 )
 from hivememory.infrastructure.storage.vector_store import QdrantMemoryStore
 from hivememory.patchouli.memory_library.adapters.mid_term import QdrantStorageAdapter
 from hivememory.patchouli.memory_library.stores import MidTermMemoryStore
 from tests.helpers.memory import make_memory_metadata
+from tests.helpers.workspace import make_identity_scope
 
 
 class _DeterministicEmbedding:
@@ -54,9 +54,9 @@ def _identity_scope(
     user_id: str = "u1",
     agent_id: str = "agent-a",
 ):
-    return build_internal_identity_scope(
-        ActorIdentity(user_id=user_id, agent_id=agent_id, team_id="team-a"),
-        workspace_id,
+    return make_identity_scope(
+        actor_identity=ActorIdentity(user_id=user_id, agent_id=agent_id, team_id="team-a"),
+        workspace_id=workspace_id,
     )
 
 

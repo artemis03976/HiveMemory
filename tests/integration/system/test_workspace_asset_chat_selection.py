@@ -5,9 +5,9 @@
 resolve/acquire 并冻结坐标。捕获选择绕过 READY 门槛、版本摘要漂移或
 removed 竞态下继续使用 representation 的缺陷。
 
-访问边界：上传 access 与进程 context 都
-由同一真实网关组合签发（``register_process`` 完成两阶段认证并绑定
-process_id）；上传执行 root 授权，进程阶段只校验准入与目标。
+访问边界：上传方与进程的工作 actor 都由同一真实网关组合认证（``register_process``
+认证执行者与系统的 root 工作 actor）；上传与附件租借都由 system 执行 root 授权，
+资产库只核对 Workspace。
 """
 
 import pytest
@@ -50,26 +50,26 @@ async def _gateway_route(**_kwargs):
 async def _upload(
     upload_service,
     composition,
-    upload_access,
+    upload_actor,
     *,
     file_name: str,
     content: bytes,
     operation_id: str,
     media_type: str = "text/markdown",
 ):
-    """经组合签发的 access 上传（授权组装可信 scope）。"""
+    """以组合认证的 system 工作 actor 上传（root API 授权组装可信 scope）。"""
     return await upload_service.upload_asset(
         target_workspace=composition.default_workspace,
         file_name=file_name,
         declared_media_type=media_type,
         source=ChunkedSource(content),
         client_operation_id=operation_id,
-        access=upload_access,
+        actor=upload_actor,
     )
 
 
 def _process_service(bus: GlobalSystemBus, composition, store, cpu: ScriptedCPU):
-    """注册入口与上传共享同一访问组合：签发与授权读取同一份访问登记。"""
+    """注册入口与上传共享同一访问组合：认证与授权读取同一份访问登记。"""
     return make_task_process_service(
         bus,
         asset_reader=store,
@@ -84,7 +84,7 @@ async def test_uploaded_ready_asset_can_be_selected_by_task_process() -> None:
     """捕获选择坐标与上传产物漂移，或 PROCESSING 资产被提前选择。"""
     store = InMemoryWorkspaceAssetStore()
     composition = make_upload_access(user_id="user-1")
-    upload_access = await composition.authenticate(agent_id="system")
+    upload_actor = await composition.authenticate(agent_id="system")
     upload_service = make_upload_service(
         store=store,
         parser_config=AttachmentParserConfig(),
@@ -99,7 +99,7 @@ async def test_uploaded_ready_asset_can_be_selected_by_task_process() -> None:
     first = await _upload(
         upload_service,
         composition,
-        upload_access,
+        upload_actor,
         file_name="first.md",
         content="# 第一份\n".encode(),
         operation_id="op-first",
@@ -107,7 +107,7 @@ async def test_uploaded_ready_asset_can_be_selected_by_task_process() -> None:
     second = await _upload(
         upload_service_2,
         composition,
-        upload_access,
+        upload_actor,
         file_name="second.md",
         content="# 第二份\n".encode(),
         operation_id="op-second",
@@ -166,7 +166,7 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
     store = InMemoryWorkspaceAssetStore()
     scope = make_identity_scope(user_id="user-1", agent_id="omni_doll")
     composition = make_upload_access(user_id="user-1")
-    upload_access = await composition.authenticate(agent_id="system")
+    upload_actor = await composition.authenticate(agent_id="system")
     upload_service = make_upload_service(
         store=store,
         parser_config=AttachmentParserConfig(),
@@ -175,7 +175,7 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
     receipt = await _upload(
         upload_service,
         composition,
-        upload_access,
+        upload_actor,
         file_name="gone.txt",
         content="正文".encode(),
         operation_id="op-gone",
@@ -224,7 +224,7 @@ async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
     """
     store = InMemoryWorkspaceAssetStore()
     composition = make_upload_access(user_id="user-1")
-    upload_access = await composition.authenticate(agent_id="system")
+    upload_actor = await composition.authenticate(agent_id="system")
     upload_service = make_upload_service(
         store=store,
         parser_config=AttachmentParserConfig(),
@@ -233,7 +233,7 @@ async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
     receipt = await _upload(
         upload_service,
         composition,
-        upload_access,
+        upload_actor,
         file_name="chat.md",
         content="# 选中正文\n".encode(),
         operation_id="op-chat",

@@ -81,12 +81,12 @@ async def test_write_ack_can_be_read_in_next_process_and_redirect_after_settleme
 
 
 @pytest.mark.asyncio
-async def test_revoked_thread_context_returns_mtp_system_fault_without_registering():
-    """撤销线程 context后不能留下新意图，Alice 仍回填现有结构化系统错误。"""
+async def test_ended_thread_returns_mtp_system_fault_without_registering():
+    """线程结束后不能留下新意图，Alice 仍回填现有结构化系统错误。"""
     harness = OperationsHarness()
     scope = make_runtime_scope()
     submit_operation = await harness.submitter(make_identity_scope())
-    harness.revoke("test_run")
+    harness.close_process("test_run")
     context = MTPExecutionContext(
         execution_policy=FrameExecutionPolicy.from_verbs(
             {"SEARCH", "READ", "RUN", "WRITE", "UPDATE", "CALL"}
@@ -245,7 +245,7 @@ async def test_system_run_with_no_actor_operations_executes_without_submission()
     requests = []
 
     async def record_submission(request):
-        """观察公开提交端口；任何意外请求仍经真实线程 context与授权执行。"""
+        """观察公开提交端口；任何意外请求仍经真实线程句柄与授权执行。"""
         requests.append(request)
         return await submit(request)
 
@@ -311,12 +311,12 @@ async def test_write_observation_labels_cannot_replace_thread_context_actor_or_w
     )
 
     result = await KoakumaRuntime().execute_mtp(
-        '⟪ WRITE | * | content="线程 context确定写入主体" ⟫', context
+        '⟪ WRITE | * | content="线程的工作 actor 确定写入主体" ⟫', context
     )
 
     assert result.response_status == "ack"
     pending = harness.registry.get(result.pending_alias, scope.workspace_identity)
-    assert pending.focus.content == "线程 context确定写入主体"
+    assert pending.focus.content == "线程的工作 actor 确定写入主体"
     assert pending.belong_to == scope.workspace_identity
     assert pending.from_actor == scope.actor_identity
     assert (

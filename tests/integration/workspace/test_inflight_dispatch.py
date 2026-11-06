@@ -97,7 +97,7 @@ async def chain():
         admit.set()
         finish.set()
         await controller.stop()
-        harness.revoke()
+        harness.close_process()
         harness.runtime.close()
 
 
@@ -149,7 +149,7 @@ async def test_ack_waits_for_admission_and_settlement_reaches_registered_handle(
 
 def _end_threads(chain):
     """Actor 阶段收尾：结束测试进程的全部线程。"""
-    chain.harness.revoke()
+    chain.harness.close_process()
 
 
 def _stop_process(chain):

@@ -1,12 +1,11 @@
 """Workspace：资源访问边界、能力层、读取视图与任务进程编排。
 
 - ``authentication``：认证入口——统一认证网关（唯一对外认证入口）与
-  ``WorkspaceAuthenticator``（第 2 阶段准入、密封 context 的签发与撤销）；
-  Principal authentication 经 ``core.access.PrincipalAuthenticator`` 端口
-  委托 System；
-- ``authorization``：``WorkspaceOperationAuthorizer``——第 3 阶段的 actor
-  操作授权、root 授权、任务进程阶段授权与操作快照读取，以及进程控制授权；
-  只依赖访问注册表，读取 context 密封的授予内容，与认证一侧互不依赖；
+  ``WorkspaceAuthenticator``（第 2 阶段准入，产出工作 actor）；Principal
+  authentication 经 ``core.access.PrincipalAuthenticator`` 端口委托 System；
+- ``authorization``：``WorkspaceOperationAuthorizer``——actor 执行期间的操作
+  授权（``authorize_agent``）、系统级操作的 root 授权（``authorize_root``）与
+  操作集合的只读查询；只依赖访问注册表，读取工作 actor，与认证一侧互不依赖；
 - ``registry``：Workspace Actor 访问注册表（准入状态与 actor 操作白名单）；
 - ``cache`` / ``resolution`` / ``read_view``：读取视图——完整原子缓存、
   Profile 解析缓存、失效代次与记忆、Profile 两个读取器；

@@ -200,6 +200,7 @@ class RetrievalFamiliar:
         *,
         belong_to: WorkspaceIdentity,
         from_actor: ActorIdentity,
+        enforce_actor_visibility: bool = True,
     ) -> ResolvedAgentProfile:
         """
         Profile 解析的唯一实现：builtin/alias 查找/可见性校验/类型校验/解析
@@ -209,7 +210,8 @@ class RetrievalFamiliar:
         Omni-Doll（无源原子）。任何自定义 alias 的缺失、越权、类型错误或配置
         损坏都会显式失败，不降级为默认配置。源原子的读取策略与 UUID/版本随
         结果返回，供 workspace Profile 解析缓存做命中授权与失效对账；可见性
-        校验在此处独立成立（纵深防御）。
+        校验在此处独立成立（纵深防御）。``enforce_actor_visibility=False`` 只用
+        于管理读取：归属硬边界仍然生效，跳过 ``from_actor`` 的可见性策略。
         """
         normalized_alias = agent_alias.strip() if agent_alias else ""
         if not normalized_alias or normalized_alias in ("default", "omni_doll"):
@@ -219,6 +221,7 @@ class RetrievalFamiliar:
             belong_to,
             normalized_alias,
             from_actor=from_actor,
+            enforce_actor_visibility=enforce_actor_visibility,
         )
         if atom is None:
             raise ResourceNotFoundError(

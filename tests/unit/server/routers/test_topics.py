@@ -40,7 +40,7 @@ def _create_test_app(librarian_core, *, manual_settle_topic=None, evict_topic=No
     if evict_topic is not None:
         bus.register(PatchouliRoutes.EVICT_TOPIC, evict_topic)
     # Topic 管理读取与生命周期变更执行 root 授权；服务与访问依赖共享
-    # 同一组合的操作授权者，context 才能通过签发与 root 身份校验。
+    # 同一组合的认证网关与操作授权者，工作 actor 才能通过准入与 root 身份校验。
     overrides, composition = make_server_access_overrides()
     service = RootTopicService(
         global_bus=bus,
@@ -210,7 +210,7 @@ class TestTopicsRouter:
         """手动结算与其他 Topic 写入冲突时应提供可重试的 HTTP 409。"""
         librarian_core = MagicMock()
 
-        async def reject_busy_topic(*, identity_scope, topic_id, access=None):
+        async def reject_busy_topic(*, identity_scope, topic_id):
             raise TopicBusyError(f"topic '{topic_id}' 正忙")
 
         app = _create_test_app(

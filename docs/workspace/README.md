@@ -24,7 +24,7 @@ related_docs:
   - docs/architecture/data-model.md
   - docs/system/composition.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-06
 ---
 
 # Workspace
@@ -81,9 +81,9 @@ flowchart TB
     APP --> SCOPE --> BUS
     BUS --> GW
     BUS --> PA
-    APP --> CPU["CPU 端口\n输入清单 labels + 独立线程 context"] --> AL
-    AL --> OP["操作请求\n绑定线程 context 的 OperationSubmitter"] --> ENTRY --> SCOPE
-    MCP --> REQ["操作请求\n请求级 context；写入与更新带 Import Bus 的落点话题"] --> ENTRY
+    APP --> CPU["CPU 端口\n输入清单 labels + 独立线程句柄"] --> AL
+    AL --> OP["操作请求\n绑定线程句柄的 OperationSubmitter"] --> ENTRY --> SCOPE
+    MCP --> REQ["操作请求\n每次调用认证的工作 actor；写入与更新带 Import Bus 为这一轮确定的话题"] --> ENTRY
     PA --> IDENTITY --> TOPIC
     APP --> ASSET
     IDENTITY -. "最终资源边界重新校验" .-> TOPIC
@@ -112,7 +112,7 @@ workspace 不负责：
 - 调用来源的接入登记与 Principal authentication：属于 System，经 `core.access.PrincipalAuthenticator` 端口注入；
 - Agent loop、MTP 解释与 CALL 编排：属于 Alice，workspace 只经 CPU 端口调用执行者；
 - 入口分析：Gateway 只产生 `GatewayDecision`；
-- 外部交互的导入：属于 System 的 Import Bus 服务（[Import Bus](../system/import-bus.md)）；workspace 只提供它调用的导入授权（[身份与授权](./identity-and-authorization.md#4-操作授权)），不为导入创建任务进程。
+- 外部交互的导入：属于 System 的 Import Bus 服务（[Import Bus](../system/import-bus.md)）；workspace 只提供它调用的 root API：查进度、PASSIVE_MEMORY 路由、准备话题、提交交互与等待应用，每次调用在方法入口 root 授权（[身份与授权](./identity-and-authorization.md#4-操作授权)），不为导入创建任务进程。
 
 ## 4. 包结构与依赖规则
 
@@ -121,7 +121,7 @@ workspace 不负责：
 | `authentication.py`、`authorization.py`、`registry.py` | 认证网关与 `WorkspaceAuthenticator`、无状态的 `WorkspaceOperationAuthorizer`、Workspace Actor 访问注册表 |
 | `capability/root/`、`capability/actor/`、`capability/operations.py`、`capability/backing.py` | root API、actor API、操作入口 `WorkspaceOperationEntry`、两个 API 面共享的读取 backing |
 | `process/`、`thread_ports.py` | 注册入口与进程表、进程状态容器、执行器、CPU 分配、线程表与线程管理、交付与事件投影；能力层使用的线程端口 |
-| `contracts/` | 其他子系统可导入的唯一入口：CPU 输入与结果、CPU 端口、线程描述与执行线程、操作请求、入口与线程句柄协议、会话与写入意图的错误 |
+| `contracts/` | 其他子系统可导入的唯一入口：CPU 输入与结果、CPU 端口、线程描述、线程句柄与执行线程、操作请求、入口与提交函数协议、会话与写入意图的错误 |
 | `sessions/` | 会话服务 |
 | `read_view.py`、`cache/`、`resolution/`、`intents/` | 读取视图、派生缓存与失效代次、记忆与 Profile 读取器、写入意图登记 |
 | `assets/` | WorkspaceAssetStore、解析交接与上传接收 |
@@ -138,20 +138,20 @@ System 的启动顺序为 `Gateway -> Patchouli -> Alice -> Scheduler`；Import 
 
 停止顺序的逐步列表只由 [System 组合根](../system/composition.md#3-停止顺序)维护；本节说明其中与 workspace 相关的约束。
 
-认证网关最先关闭，此后不再签发新的访问 context，已签发的 context 照常可用，使在途请求与任务进程能完成各自的授权；全部已签发 context 在最后一步撤销。网关关闭后新的导入请求即以 503 拒绝；随后先停调度器，再等待在途导入结束（含其等待应用的时间，不排空提交队列，队列由 Patchouli 停止时排空），避免 shutdown 期间继续接纳新的维护或导入；任务进程全部关闭后才清空会话，会话认领随进程关闭释放（[任务进程](./task-process.md#13-关闭与系统停止)）。Alice 卸载运行入口、Patchouli 完成已接纳工作的 drain 后，先解除 workspace 的 canonical 变更与意图结算订阅、关闭读取视图（停止新读、清理派生缓存，不触碰 canonical 数据），再清空 WorkspaceAssetStore（[WorkspaceAsset](./assets.md#5-关闭与失败边界)）。`close_and_clear()` 幂等，重复 stop 不会重新打开或恢复任何状态。Patchouli 内部的 drain 顺序见[System 组合根与生命周期](../system/composition.md)。
+认证网关最先关闭，此后新的请求与导入不再取得工作 actor；已有任务进程照常收尾，进程记录中的工作 actor 不受影响，子线程的被调用方仍可准入；在途请求由随后各组件的关闭拒绝。工作 actor 不是需要撤销的凭据，停止流程没有撤销步骤。网关关闭后新的导入请求即以 503 拒绝；随后先停调度器，再等待在途导入结束（含其等待应用的时间，不排空提交队列，队列由 Patchouli 停止时排空），避免 shutdown 期间继续接纳新的维护或导入；任务进程全部关闭后才清空会话，会话认领随进程关闭释放（[任务进程](./task-process.md#13-关闭与系统停止)）。Alice 卸载运行入口、Patchouli 完成已接纳工作的 drain 后，先解除 workspace 的 canonical 变更与意图结算订阅、关闭读取视图（停止新读、清理派生缓存，不触碰 canonical 数据），再清空 WorkspaceAssetStore（[WorkspaceAsset](./assets.md#5-关闭与失败边界)）。`close_and_clear()` 幂等，重复 stop 不会重新打开或恢复任何状态。Patchouli 内部的 drain 顺序见[System 组合根与生命周期](../system/composition.md)。
 
 ## 6. 当前设计文档
 
 - [身份与授权](./identity-and-authorization.md)：身份坐标、四阶段访问模型、身份数据的形态与流向、操作授权、资源归属与后台交接、拒绝语义；
-- [认证与访问登记](./authentication.md)：两类访问登记、密封的访问 context、进程与线程 context 的签发与派生、认证网关与装配；
+- [认证与访问登记](./authentication.md)：两类访问登记、两阶段认证、工作 actor 的角色与持有位置、子工作 actor 的准入、系统自身的 principal、认证网关与装配；
 - [能力层](./capability.md)：三个调用面、actor 操作目录、root API、两种读取视角、操作入口与引用记录；
 - [任务进程](./task-process.md)：唯一注册入口、进程表与句柄、执行流与输出通道、四阶段骨架、CPU 分配、封口、交付、取消与关闭；
-- [执行线程](./execution-threads.md)：线程表、唯一的存活判定、主线程与 CALL 子线程的派生与结束；
+- [执行线程](./execution-threads.md)：线程表与线程句柄、唯一的存活判定、主线程与 CALL 子线程的派生与结束；
 - [会话资源](./sessions.md)：ConversationSession、历史所有权与压缩检查点；
 - [读取视图与写入意图](./read-view-and-write-intents.md)：派生缓存的键控与失效、写入意图的所有权、引用解析与结算；
 - [WorkspaceAsset](./assets.md)：AssetStore 的所有权、两级状态、TopicAssetBinding 交接与关闭。
 
-跨子系统契约：CPU 端口、操作请求与线程 context 见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；Chat SSE 与会话管理见[公开路由与事件](../contracts/routes-and-events.md)第 6 节；访问与线程结束错误见[错误模型](../contracts/error-model.md)第 4.4 节。附件从上传到编译的完整链路见[Chat 附件链路](../system/attachments.md)。
+跨子系统契约：CPU 端口、操作请求与线程句柄见[子系统公共契约](../contracts/subsystem-contracts.md)第 4 节；Chat SSE 与会话管理见[公开路由与事件](../contracts/routes-and-events.md)第 6 节；访问与线程结束错误见[错误模型](../contracts/error-model.md)第 4.4 节。附件从上传到编译的完整链路见[Chat 附件链路](../system/attachments.md)。
 
 ## 7. 当前边界与限制
 

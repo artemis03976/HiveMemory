@@ -3,15 +3,15 @@
 实现 ``workspace.resolution.CanonicalReadBackend``：resolver 的 L2 冷读经
 ``GlobalSystemBus`` 调用 Patchouli 公共 backing 路由（第二层 client-server），
 不形成递归，也不持有 Patchouli 的 Runtime、Service 或存储对象。它不是 API，
-由组合根注入 ``WorkspaceReadView``；actor API 的读取与任务进程阶段调用中的
+由组合根注入 ``WorkspaceReadView``；actor API 的读取与任务进程系统阶段中的
 Profile 解析都经读取视图到达这里。
 
 放在 ``capability`` 而不是 ``resolution``：读取本体按导入边界只依赖 core 与
 workspace 自身，经本协议冷读，不导入总线；依赖总线机制的适配器留在可以
 依赖 ``components`` 的子包中。
 
-``scope`` 是授权点（actor API 的操作授权或任务进程的阶段授权）组装的可信
-坐标，原样传给 Patchouli backing；本模块位于授权点以下，不接收访问 context。
+``scope`` 是授权点（actor API 的操作授权或任务进程的 root 授权）组装的可信
+坐标，原样传给 Patchouli backing；本模块位于授权点以下，不接收工作 actor。
 
 库不可达（backing 路由未挂载，如 Patchouli 未启动或已卸载）时抛出
 ``ResourceUnavailableError``，由调用方显式失败，不以空结果伪装成功；
@@ -74,11 +74,13 @@ class BusCanonicalReadBackend:
         agent_alias: str | None,
         *,
         scope: IdentityScope,
+        enforce_actor_visibility: bool = True,
     ) -> ResolvedAgentProfile:
         return await self._request(
             PatchouliRoutes.GET_AGENT_PROFILE,
             agent_alias,
             identity_scope=scope,
+            enforce_actor_visibility=enforce_actor_visibility,
         )
 
     async def _request[**P, R](self, route: Route[P, R], *args: P.args, **kwargs: P.kwargs) -> R:

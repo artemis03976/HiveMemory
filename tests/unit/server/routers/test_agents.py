@@ -9,7 +9,7 @@ from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.core.access import WorkspaceAccessContext
+from hivememory.core.access import WorkingActor
 from hivememory.core.errors import InvalidMemoryFieldError, MemoryAliasConflictError
 from hivememory.core.models import IndexLayer, MemoryAtom, MemoryType, PayloadLayer
 from hivememory.patchouli.contracts import PatchouliRoutes
@@ -132,8 +132,8 @@ def test_create_agent_alias_conflict_returns_409():
     assert response.status_code == 409
 
 
-def test_list_agents_passes_target_workspace_and_access():
-    """路由只取得请求级 context 与目标 workspace，并以此调用能力层。"""
+def test_list_agents_passes_target_workspace_and_actor():
+    """路由只取得认证得到的 (user, system) 工作 actor 与目标 workspace，并以此调用能力层。"""
     service = MagicMock()
     service.list_agent_profiles = AsyncMock(return_value=[])
 
@@ -154,7 +154,8 @@ def test_list_agents_passes_target_workspace_and_access():
     assert kwargs["target_workspace"].owner_user_id == "u1"
     assert kwargs["target_workspace"].workspace_id == "main_workspace"
     assert kwargs["limit"] == 100
-    assert isinstance(kwargs["access"], WorkspaceAccessContext)
+    assert isinstance(kwargs["actor"], WorkingActor)
+    assert (kwargs["actor"].actor.user_id, kwargs["actor"].actor.agent_id) == ("u1", "system")
     # 声明只作为认证输入：路由处理函数不取得 identity_scope 或 claims
     assert "identity_scope" not in kwargs
     assert "claims" not in kwargs

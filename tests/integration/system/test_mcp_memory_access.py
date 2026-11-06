@@ -2,8 +2,8 @@
 
 真实协作：MCP SDK 的 HTTP 应用与客户端（经 ASGI）、System 接入登记与
 Principal 认证（含凭据核对）、Workspace 准入与操作授权、操作入口的请求级
-提交、actor API、读取视图与写入意图登记、Import Bus 服务与编排器；Patchouli
-与 Gateway 只在公共 RPC 边界以内存替身代替。
+提交、actor API、读取视图与写入意图登记、Import Bus 服务、编排器与 root 交互
+提交 API；Patchouli 与 Gateway 只在公共 RPC 边界以内存替身代替。
 """
 
 from __future__ import annotations
@@ -14,7 +14,8 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.core.access import CallerPrincipal, RunBinding, WorkspaceOperation
+from hivememory.core.access import CallerPrincipal, WorkspaceOperation
+from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.contracts.events import GlobalEvents
 from hivememory.core.models import (
     ActorIdentity,
@@ -40,6 +41,8 @@ from hivememory.patchouli.contracts.interaction_submission import (
     InteractionSubmitResult,
 )
 from hivememory.system.access import (
+    LOCAL_ADAPTER,
+    SYSTEM_PRINCIPAL_ID,
     SystemActorAccessEntry,
     SystemActorAccessRegistry,
     SystemPrincipalAuthenticator,
@@ -53,6 +56,8 @@ from hivememory.workspace.capability.actor.agent_profiles import ActorAgentServi
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
+from hivememory.workspace.capability.root.interaction import RootInteractionService
+from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.process.threads import ProcessThreads
 from hivememory.workspace.read_view import WorkspaceReadView
@@ -191,13 +196,20 @@ def _compose(allowed_operations: frozenset[WorkspaceOperation]):
                 adapters=frozenset({"http"}),
                 allow_system_actor=True,
             ),
+            # 系统自身的来源：Import Bus 以它认证 system，执行确定话题与交互提交。
+            SystemActorAccessEntry(
+                principal_id=SYSTEM_PRINCIPAL_ID,
+                adapters=frozenset({"local"}),
+                allow_system_actor=True,
+            ),
         ]
     )
     actors = WorkspaceActorAccessRegistry(
         [
             make_actor_access_record(
                 owner_user_id="u1", agent_id="claude_code", allowed_operations=allowed_operations
-            )
+            ),
+            make_actor_access_record(owner_user_id="u1", agent_id=SYSTEM_AGENT_ID),
         ]
     )
     authorizer = WorkspaceOperationAuthorizer(actors)
@@ -212,7 +224,7 @@ def _compose(allowed_operations: frozenset[WorkspaceOperation]):
         backing=BusCanonicalReadBackend(bus), atom_capacity=16, profile_capacity=16
     )
     read_view.subscribe(bus)
-    threads = ProcessThreads(ProcessTable(), lifecycle=gateway, authorizer=authorizer)
+    threads = ProcessThreads(ProcessTable(), admission=gateway, authorizer=authorizer)
     entry = WorkspaceOperationEntry(
         ActorMemoryService(
             bus, operation_authorizer=authorizer, memory_reader=read_view.memory, threads=threads
@@ -222,9 +234,15 @@ def _compose(allowed_operations: frozenset[WorkspaceOperation]):
     )
     import_bus = ImportBusService(
         ingestor=ImportBusIngestor(
-            bus, gateway_request_timeout_ms=1000, gateway_session_turn_limit=3, apply_wait_seconds=2
+            interactions=RootInteractionService(bus, operation_authorizer=authorizer),
+            topics=RootTopicService(bus, operation_authorizer=authorizer),
+            gateway_request_timeout_ms=1000,
+            gateway_session_turn_limit=3,
+            apply_wait_seconds=2,
         ),
-        operation_authorizer=authorizer,
+        access_gateway=gateway,
+        system_principal=CallerPrincipal(SYSTEM_PRINCIPAL_ID),
+        system_adapter=LOCAL_ADAPTER,
     )
     system = SimpleNamespace(
         access_gateway=gateway,
@@ -300,31 +318,46 @@ _TURN = {
 async def _import_turn(system, turn: ImportedTurn):
     """轮次结束后连接器经导入入口回流这一轮：同一 principal 与 Agent，import adapter。"""
     workspace = resolve_default_workspace_identity("u1")
-    access = await system.access_gateway.authenticate(
+    actor = await system.access_gateway.authenticate(
         adapter="import",
         principal=CallerPrincipal("harness:claude-code"),
         credential=_TOKEN,
         actor=ActorIdentity(user_id="u1", agent_id="claude_code"),
         workspace=workspace,
-        binding=RunBinding.for_request("import-request"),
     )
-    try:
-        return await system.import_bus_service.import_turn(
-            turn, access=access, target_workspace=workspace
-        )
-    finally:
-        system.access_gateway.revoke_context(access)
+    return await system.import_bus_service.import_turn(
+        turn, actor=actor, target_workspace=workspace
+    )
+
+
+def _record_authentications(gateway: ActorAuthenticationGateway) -> list[tuple[str, str]]:
+    """记录经网关完成的每次认证的 (adapter, principal)，认证本身照常执行。"""
+    authentications: list[tuple[str, str]] = []
+    authenticate = gateway.authenticate
+
+    async def recording_authenticate(**claims):
+        authentications.append((claims["adapter"], claims["principal"].principal_id))
+        return await authenticate(**claims)
+
+    gateway.authenticate = recording_authenticate  # type: ignore[method-assign]
+    return authentications
 
 
 @pytest.mark.asyncio
 async def test_written_memory_reads_back_redirects_after_settlement_and_turn_lands_on_its_topic():
-    """经 MCP 写入：读到在途句柄，结算后重定向到正式记忆；这一轮回流时落在写入派发的话题。"""
+    """经 MCP 写入：读到在途句柄，结算后重定向到正式记忆；这一轮回流时落在写入派发的话题。
+
+    写入这次工具调用只认证一次请求方；确定话题由 Import Bus 以系统自身的 principal
+    认证 system 后执行，先于以该话题派发的写入。
+    """
     system, patchouli, gateway = _compose(_READ_AND_SEARCH | {WorkspaceOperation.MEMORY_WRITE})
+    authentications = _record_authentications(system.access_gateway)
 
     async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
         written = await session.call_tool(
             "memory_write", {"content": "部署改为手动执行。", "turn": _TURN}
         )
+        write_authentications = list(authentications)
         [(intent, _scope)] = patchouli.admission.submissions
         in_flight = await session.call_tool("memory_read", {"aliases": [intent.pending_alias]})
         await patchouli.settle(
@@ -345,11 +378,15 @@ async def test_written_memory_reads_back_redirects_after_settlement_and_turn_lan
         ),
     )
 
+    assert write_authentications == [
+        ("mcp", "harness:claude-code"),
+        ("local", SYSTEM_PRINCIPAL_ID),
+    ]
     assert intent.pending_alias in tool_text(written)
     assert "运行时待定原子" in tool_text(in_flight)
     assert "规范别名: manual_deploy" in tool_text(settled)
     assert "部署改为手动执行。" in tool_text(settled)
     assert result.status == "accepted"
     assert intent.topic_id == patchouli.applied_topics[result.interaction_id] == "topic-prepared"
-    # 写入时落位路由过一次，回流沿用落点，不再路由。
+    # 写入时确定话题路由过一次，回流沿用该话题，不再路由。
     assert gateway.calls == 1

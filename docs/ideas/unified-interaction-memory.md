@@ -134,7 +134,7 @@ Patchouli 的权威据此落在记录上：谁说的、何时、依据什么、�
 - [写入意图的后续方向](./pending-intent-migration.md)：结算对账、意图持久化与"完整的生成材料"会落在断言层。
 - [全链路原始资料保存](./PatchouliPageFoldingRawEvidenceDesign.md)与 [Turn 内上下文折叠](./long-running-agent-intra-turn-context-folding.md)：分别对应轨迹层的保存承诺与长程 run 的分段。
 - 记忆价值体系的重新设计（[ROADMAP](../ROADMAP.md) 第 4.7 节）："谁断言的、带着什么意图"是价值信号的一部分。
-- [导入轮次的跨会话落位 Todo](../todo/cross-conversation-topic-placement.md)：时间线按会话划分后，材料不再跨会话混合，但话题落位本身仍要处理。
+- [导入轮次的跨会话话题路由 Todo](../todo/cross-conversation-topic-placement.md)：时间线按会话划分后，材料不再跨会话混合，但话题路由本身仍要处理。
 
 ## 7. 升级为计划的条件
 

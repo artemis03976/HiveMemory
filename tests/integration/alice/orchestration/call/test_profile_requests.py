@@ -129,7 +129,7 @@ def _profile_atom(*, visibility="PUBLIC", agent_config=None) -> MemoryAtom:
 
 
 async def _profile_submitter(chain):
-    """操作入口与管理服务共用同一读取视图，线程 context 绑定主线程身份。"""
+    """操作入口与管理服务共用同一读取视图，提交函数绑定 reader 主线程的句柄。"""
     entry = WorkspaceOperationEntry(
         chain.memories, agent=chain.profiles, threads=chain.composition.threads
     )
@@ -159,7 +159,7 @@ async def test_call_reloads_profile_after_management_updates_source_atom(profile
         content="更新后的人设",
         agent_config={"model_name": "new-model"},
         target_workspace=workspace,
-        access=profile_chain.manager,
+        actor=profile_chain.manager,
     )
     second, _, _ = await _begin_call(_caller(submit_operation, agent_id="reader"), "custom_agent")
 
@@ -342,7 +342,7 @@ async def _profile_named_by_alias(alias, **_kwargs):
 async def test_unadmitted_call_target_returns_structured_error_without_creating_child():
     """目标准入失败时只回填结构化权限错误，进程登记里没有子线程。
 
-    缺失、禁用与保留 system 三种准入拒绝由认证一侧的子线程派生测试覆盖。
+    缺失、禁用与保留 system 三种准入拒绝由认证一侧的子工作 actor 准入测试覆盖。
     """
     target = "omni_doll"
     access = make_access_composition([make_actor_access_record(agent_id="parent")])
@@ -362,7 +362,6 @@ async def test_unadmitted_call_target_returns_structured_error_without_creating_
         process = access.process_table.get("call-process")
         assert [thread.thread_id for thread in process.threads.snapshot()] == ["main"]
     finally:
-        access.gateway.revoke_all_contexts()
         harness.runtime.close()
 
 
@@ -412,6 +411,6 @@ async def test_failed_child_preserves_dispatched_intents():
             PendingAtomStatus.MATERIALIZING,
         ]
     finally:
-        harness.revoke("call-process")
-        harness.revoke("other-process")
+        harness.close_process("call-process")
+        harness.close_process("other-process")
         harness.runtime.close()

@@ -232,7 +232,11 @@ class PatchouliLocalRoutes:
 
     @route("memory.get_agent_profile")
     async def GET_AGENT_PROFILE(
-        agent_alias: str | None, *, belong_to: WorkspaceIdentity, from_actor: ActorIdentity
+        agent_alias: str | None,
+        *,
+        belong_to: WorkspaceIdentity,
+        from_actor: ActorIdentity,
+        enforce_actor_visibility: bool = True,
     ) -> ResolvedAgentProfile:
         """Profile 解析的唯一实现：builtin/alias 查找/可见性校验/类型校验/解析"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。

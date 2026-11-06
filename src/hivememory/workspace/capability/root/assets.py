@@ -21,7 +21,7 @@ from hivememory.workspace.assets.upload import (
 )
 
 if TYPE_CHECKING:
-    from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.core.access import WorkingActor
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 
 
@@ -54,12 +54,12 @@ class RootWorkspaceAssetService:
         declared_media_type: str | None,
         source: SupportsAsyncRead,
         client_operation_id: str,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
     ) -> WorkspaceAssetUploadReceipt:
         """接收一个文件，注册资产并返回解析终态，保留首次创建/重放标记。"""
         # 行为检查先于接收与注册副作用：不允许未经许可的上传消耗解析与
         # 存储资源；后续全部使用操作授权者返回的可信 scope。
-        authorized_scope = self._authorizer.authorize_root(access, target_workspace)
+        authorized_scope = self._authorizer.authorize_root(actor, target_workspace)
         key = (authorized_scope.workspace_identity, client_operation_id)
         async with self._serial_gate.hold(key):
             metadata, content, content_hash = await receive_upload(

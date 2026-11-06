@@ -81,7 +81,7 @@ def turn_info(source: str, turn: TranscriptTurn, previous: list[TranscriptTurn])
             {
                 "user_message": earlier.user_message[:RECENT_TEXT_LIMIT],
                 "assistant_text": (earlier.assistant_final_text or "")[:RECENT_TEXT_LIMIT],
-                # 服务端据此查出上一轮实际落位的话题，话题路由失败时续接。
+                # 服务端据此查出上一轮实际所在的话题，话题路由失败时续接。
                 "external_turn_id": earlier.turn_id,
             }
             for earlier in previous

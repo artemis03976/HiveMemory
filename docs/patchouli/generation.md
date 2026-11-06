@@ -17,7 +17,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-04
+last_reviewed: 2026-11-06
 ---
 
 # 记忆生成
@@ -26,7 +26,7 @@ last_reviewed: 2026-11-04
 
 当前设计因此保留三种生成模式，并把“构造任务”“执行生成”“写 artifacts 和持久化”“发布任务/settlement 终态”拆成不同层。生成不再是 Perception 的一个回调，也不再由一个 LibrarianCore 同时管理计算与后台任务。
 
-每个 `MemoryGenerationTaskSpec` 都独立携带创建任务时冻结的 `belong_to: WorkspaceIdentity`、`from_actor: ActorIdentity` 和 `topic_id`；任务快照沿用相同字段，不保存 `IdentityScope` 或访问 context。Generation 先限定资源归属，再按发起者读取策略查重，不从进程当前上下文重新推导 Workspace 或权限。WorkspaceAsset 不属于 Generation，生成链只接收 settlement 交接中已经冻结的资产绑定事实；Store 自身的归属与访问接口拆分见[后续待办](../todo/workspace-asset-ownership-identity-split.md)。
+每个 `MemoryGenerationTaskSpec` 都独立携带创建任务时冻结的 `belong_to: WorkspaceIdentity`、`from_actor: ActorIdentity` 和 `topic_id`；任务快照沿用相同字段，不保存 `IdentityScope` 或工作 actor。Generation 先限定资源归属，再按发起者读取策略查重，不从进程当前上下文重新推导 Workspace 或权限。WorkspaceAsset 不属于 Generation，生成链只接收 settlement 交接中已经冻结的资产绑定事实；Store 自身的归属与访问接口拆分见[后续待办](../todo/workspace-asset-ownership-identity-split.md)。
 
 提取阶段选择 LLM 而不是固定规则，是因为“是否值得长期保存”以及如何把自然语言重组为 title、summary、content 与 tags，本质上依赖跨表达方式的语义判断；只靠关键词或消息计数会把调用方措辞固化成记忆结构。代价是延迟、成本与非确定性，因此它被放在后台冷路径，并为显式 WRITE 保留确定性的 fallback；LLM 可以提出记忆草稿，但不能独自决定任务终态、持久化成功或用户承诺。
 
@@ -130,9 +130,9 @@ Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记�
 
 ### 3.2 Mode B：主动 WRITE
 
-WRITE 经操作请求进入 workspace 能力层，在共享 `WriteIntentRegistry` 登记 MATERIALIZING 意图，并立即调用 Patchouli 的 `memory_intent.submit`。两种来源走同一条链路：Alice 的 MTP WRITE 以线程 context 提交，派发话题是 CPU 分配冻结的本轮话题；外部 harness（plugin 模式）的 `memory_write` 以请求级 context 提交，派发话题是 Import Bus 在写入时为这一轮落位得到的话题，这一轮回流时落在同一话题（[Import Bus](../system/import-bus.md#47-写入时落位)）。服务沿用登记的 `intent_id` 与 `pending_alias` 构造内部 `PendingAtomMaterializeTask`，生成队列接纳后才返回 ACK。意图登记与终态由 workspace 持有，正式记忆生成与任务状态由 Patchouli 持有。
+WRITE 经操作请求进入 workspace 能力层，在共享 `WriteIntentRegistry` 登记 MATERIALIZING 意图，并立即调用 Patchouli 的 `memory_intent.submit`。两种来源走同一条链路：Alice 的 MTP WRITE 经执行线程提交、以线程的工作 actor 授权，派发话题是 CPU 分配冻结的本轮话题；外部 harness（plugin 模式）的 `memory_write` 经请求级提交、以每次调用认证得到的工作 actor 授权，派发话题是 Import Bus 在写入时为这一轮确定的话题，这一轮回流时落在同一话题（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。服务沿用登记的 `intent_id` 与 `pending_alias` 构造内部 `PendingAtomMaterializeTask`，生成队列接纳后才返回 ACK。意图登记与终态由 workspace 持有，正式记忆生成与任务状态由 Patchouli 持有。
 
-Coordinator 使用话题的 `state_summary` 与过去 N 个 block 作为背景，以 `WriteFocus` 为保存核心。N 由 `patchouli.generation.active_recent_blocks` 配置（默认 5，允许 0），与感知折叠保留轮数无关。派发发生在交互封口前，当前轮不进入背景；新话题为空时只依赖 focus。plugin 模式下同样如此：落位预建的新话题在派发时为空，落到已有话题时背景是该话题此前回流的几轮。话题不存在时按空材料生成，话题读取抛错时因尚无任务入队，逐项结算 FAILED 并拒绝。
+Coordinator 使用话题的 `state_summary` 与过去 N 个 block 作为背景，以 `WriteFocus` 为保存核心。N 由 `patchouli.generation.active_recent_blocks` 配置（默认 5，允许 0），与感知折叠保留轮数无关。派发发生在交互封口前，当前轮不进入背景；新话题为空时只依赖 focus。plugin 模式下同样如此：写入时预建的新话题在派发时为空，落到已有话题时背景是该话题此前回流的几轮。话题不存在时按空材料生成，话题读取抛错时因尚无任务入队，逐项结算 FAILED 并拒绝。
 
 提取器把 agent 拟定的标题（`WriteFocus.title`，可以为空，空时提示词写"未提供"）连同正文与保存理由交给模型。提示词要求沿用这个标题、不改写措辞，只在它与草稿内容不符，或缺少让人检索到它的关键名词（项目、组件、工具名）时修改，修改时保留原标题的判断与表述。检索只比较标题、类型、标签与摘要，agent 斟酌过的标题是这条记忆能否被找到的主要依据；改写第一当事人拟定的标题属于越权到措辞。系统不比较模型输出与 agent 的标题，是否修改由模型按规则判断；摘要、标签与正文照常由生成整理，合并仍会重新综合两条记忆的标题（第 4.1 节）。
 
@@ -329,7 +329,7 @@ Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任
 - 两个合并同时以同一条 M 为保留记忆时（同一次结算的两条草稿命中同一条 M，或两个话题同时命中；生成队列并发为 2），后写回的合并以 `merge_aborted.version_changed` 失败，留下重复；真实样本见[合并版本冲突 Todo](../todo/merge-version-conflict.md)；
 - 本话题主动写入的记录只在进程内，进程崩溃时丢失，之后的结算退回不区分来源的查重；话题未经结算即被删除，或结算开始之后才完成的同话题写入，留下的记录保留到进程结束；
 - 生成 lane 不按话题排序：结算开始时仍在执行的同话题写入不在记录中，它与被动草稿之间照旧按查重合并；
-- 复述写入但相似度不高于下限的被动草稿照常新建；话题落位错误时（[跨会话落位 Todo](../todo/cross-conversation-topic-placement.md)），另一段对话里与这些写入相似的草稿也会被丢弃；被动草稿里比主动写入更细的内容随草稿一起丢弃；
+- 复述写入但相似度不高于下限的被动草稿照常新建；话题路由错误时（[跨会话话题路由 Todo](../todo/cross-conversation-topic-placement.md)），另一段对话里与这些写入相似的草稿也会被丢弃；被动草稿里比主动写入更细的内容随草稿一起丢弃；
 - 生成材料只截断工具结果，单个轮次没有总量上限，生成也不分片读取：工作视图保留的 blocks 很大时（例如单轮上百次工具调用），结算的提取可能超出模型窗口，任务以 `model_context_window_exceeded` 失败（超窗不重试），原文仍在来源 InteractionArtifact 中但没有记忆引用；
 - Active tasks 复用相同 blocks 输入，但会各自写 InteractionArtifact；
 - memory 版本 Artifact 失败会阻断该次内容提交（无历史不成功）；provenance 写入与 MemoryAtom 发布仍不是原子事务，canonical 失败会留下孤立 Artifact。

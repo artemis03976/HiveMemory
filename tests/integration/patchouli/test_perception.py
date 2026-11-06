@@ -164,7 +164,7 @@ class TestApplyInteraction:
 
     @pytest.mark.asyncio
     async def test_new_topic_uses_submitted_title_and_summary(self):
-        """提交携带的新话题标题与摘要用于建立话题，后续落位依赖它们。"""
+        """提交携带的新话题标题与摘要用于建立话题，后续路由依赖它们。"""
         familiar, store, _, _ = _make_familiar()
         scope = _identity_scope()
 

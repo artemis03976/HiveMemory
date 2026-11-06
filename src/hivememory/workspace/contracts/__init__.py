@@ -27,7 +27,11 @@ from hivememory.workspace.contracts.operations import (
     ThreadOperationSubmitter,
 )
 from hivememory.workspace.contracts.process import CPUInputManifest
-from hivememory.workspace.contracts.threads import ExecutionThread, ThreadDescriptor
+from hivememory.workspace.contracts.threads import (
+    ExecutionThread,
+    ThreadDescriptor,
+    ThreadHandle,
+)
 
 __all__ = [
     "CPUEventSink",
@@ -39,6 +43,7 @@ __all__ = [
     "ExecutionThread",
     "ThreadDescriptor",
     "ThreadEndedError",
+    "ThreadHandle",
     "ThreadOperationSubmitter",
     "OperationEntry",
     "OperationRequest",

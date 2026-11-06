@@ -6,12 +6,11 @@ from hivememory.alice import AliceSystem
 from hivememory.alice.interface.cpu import AliceUnavailableError
 from hivememory.config.alice import AliceConfig
 from hivememory.core.models.model_definition import ModelSelection
-from hivememory.workspace.contracts import ExecutionThread
+from hivememory.workspace.contracts import ExecutionThread, ThreadHandle
 from tests.helpers.alice import CollectedEvents
 from tests.helpers.chat_handoff import make_input_manifest, make_thread_descriptor
 from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.operations import OperationsHarness
-from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 
 @pytest.mark.asyncio
@@ -22,8 +21,11 @@ async def test_system_lifecycle_controls_cpu_execution():
         operation_entry=operations.entry,
         llm_service=ScriptedLLMService("完成"),
     )
-    access = await make_access_composition([make_actor_access_record()]).authenticate_thread()
-    thread = ExecutionThread(descriptor=make_thread_descriptor(), access=access)
+    # 本组运行不提交操作，句柄不会被解析。
+    thread = ExecutionThread(
+        descriptor=make_thread_descriptor(),
+        handle=ThreadHandle(process_id="process-1", thread_id="main"),
+    )
 
     async def execute():
         return await system.cpu_port.execute(

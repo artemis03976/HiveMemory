@@ -227,7 +227,6 @@ class TestHiveMemorySystem:
             "gateway.stop",
             "workspace_read_view.close",
             "workspace_asset_store.close_and_clear",
-            "workspace_access_contexts.revoke",
         ]
         assert system.workspace_read_view.is_closed is True
         assert stopped.data["scheduler_stopped"] is True
@@ -255,7 +254,6 @@ class TestHiveMemorySystem:
             "sessions.close_and_clear",
             "workspace_read_view.close",
             "workspace_asset_store.close_and_clear",
-            "workspace_access_contexts.revoke",
         ]
         assert system.workspace_read_view.is_closed is True
         assert stopped.data["scheduler_stopped"] is False

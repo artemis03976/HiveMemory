@@ -3,9 +3,9 @@
 进程表是 workspace 进程内共享设施，也是唯一的进程注册表：以
 ``process_id`` 为键登记任务进程（``TaskProcess`` 容器），进程记录作为
 进程的控制面经进程取得，不单独登记。
-注册、注销与进程控制授权由注册入口（``workspace.process.service``）负责，
+注册、注销与取消的 root 授权由注册入口（``workspace.process.service``）负责，
 阶段推进与终态记录由编排骨架（``workspace.process.runner``）负责；
-进程记录只持有访问 context、观测标签与进程自身的元数据，不保存身份字段。
+进程记录持有注册时认证得到的两个工作 actor、观测标签与进程自身的元数据。
 """
 
 from __future__ import annotations
@@ -20,7 +20,7 @@ from hivememory.core.errors import WorkspaceDomainError
 # TaskProcess 只做类型检查时导入：task_process 在运行时从本模块导入进程
 # 记录与相关枚举，反向的运行时导入会形成循环。
 if TYPE_CHECKING:
-    from hivememory.core.access import WorkspaceAccessContext
+    from hivememory.core.access import WorkingActor
     from hivememory.core.models import ExecutionLabels
     from hivememory.workspace.process.events import BoundProcessEvents
     from hivememory.workspace.process.task_process import TaskProcess
@@ -77,21 +77,23 @@ class CancelResult:
 
 @dataclass
 class ProcessRecord:
-    """一次任务进程的阶段引用、访问 context 与终态事实（与进程同寿）。
+    """一次任务进程的阶段引用、两个工作 actor 与终态事实（与进程同寿）。
 
     ``process_id`` 是任意任务进程的唯一标识：由 server 入口在进入
     编排服务前生成并冻结，进程表以它为稳定键，进程内不保存第二份生成事实。
-    ``access`` 是注册入口经两阶段认证取得、绑定本进程的访问 context：它是
-    记录持有的唯一身份凭据，只交给操作授权者用于授权与控制比对，进程以
-    任何结局关闭时由注册入口使其失效。记录不保存 actor、驻留
-    workspace 等身份字段：阶段调用的目标取自任务参数。``labels`` 是注册时
-    用通过认证的声明创建一次的观测标签，供事件、会话记录、CPU 输入清单与
-    线程描述使用，不参与授权；``events`` 是记录与事件发布器之间唯一的持有
-    关系，发布器不回指记录。
+    两个工作 actor 都由注册入口在注册时认证，任一失败都不创建进程：
+    ``actor`` 是执行者（主工作 actor），主线程以它执行 actor 操作，prepare 的
+    检索按它授权；``system_actor`` 是系统的 root 工作 actor，系统阶段（Gateway、
+    话题准备、Profile、附件、finalize、cleanup）以它经 root 授权执行。两者只
+    交给操作授权者与线程表，不进入 CPU 可见的对象、事件或会话记录；阶段调用
+    的目标取自任务参数。``labels`` 是注册时用通过认证的声明创建一次的观测
+    标签，供事件、会话记录、CPU 输入清单与线程描述使用，不参与授权；
+    ``events`` 是记录与事件发布器之间唯一的持有关系，发布器不回指记录。
     """
 
     process_id: str
-    access: WorkspaceAccessContext
+    actor: WorkingActor
+    system_actor: WorkingActor
     labels: ExecutionLabels
     events: BoundProcessEvents
     phase: ProcessPhase = ProcessPhase.CREATED
@@ -193,7 +195,7 @@ class ProcessTable:
     """进程内唯一的任务进程注册表：登记 ``process_id → TaskProcess``。
 
     登记与注销由注册入口负责；进程记录经 ``process.record`` 取得。本表
-    不做 scope 过滤，控制请求的授权比对由注册入口经操作授权者完成。
+    不做 scope 过滤，取消请求的 root 授权由注册入口经操作授权者完成。
     """
 
     def __init__(self) -> None:

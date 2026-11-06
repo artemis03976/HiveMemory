@@ -10,18 +10,19 @@ import pytest
 from hivememory.agent_runtime.frame import FrameExecutionResult, FrameExecutionStatus
 from hivememory.agent_runtime.output import TokenDelta
 from hivememory.alice.interface.cpu import AliceCPU
-from hivememory.workspace.contracts import ExecutionThread
+from hivememory.workspace.contracts import ExecutionThread, ThreadHandle
 from tests.helpers.alice import CollectedEvents, build_run_service
 from tests.helpers.chat_handoff import make_input_manifest, make_thread_descriptor
 from tests.helpers.llm import ScriptedLLMService
 from tests.helpers.operations import OperationsHarness
-from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 
-async def _main_thread():
-    """真实认证得到的主线程 context 与缺省线程描述组成的执行线程。"""
-    access = await make_access_composition([make_actor_access_record()]).authenticate_thread()
-    return ExecutionThread(descriptor=make_thread_descriptor(), access=access)
+def _main_thread():
+    """缺省线程描述与主线程句柄组成的执行线程；本组运行不提交操作，句柄不会被解析。"""
+    return ExecutionThread(
+        descriptor=make_thread_descriptor(),
+        handle=ThreadHandle(process_id="process-1", thread_id="main"),
+    )
 
 
 @pytest.mark.asyncio
@@ -39,7 +40,7 @@ async def test_cpu_pushes_events_then_returns_result_from_real_service():
     cpu.start()
     events = CollectedEvents()
     result = await cpu.execute(
-        make_input_manifest(), thread=await _main_thread(), model_selection=None, events=events
+        make_input_manifest(), thread=_main_thread(), model_selection=None, events=events
     )
     assert [event["event"] for event in events.events] == ["token"]
     assert events.events[0]["data"]["content"] == "执行完成"
@@ -71,7 +72,7 @@ async def test_cancelled_cpu_finishes_cleanup_before_returning_cancelled_result(
     execution = asyncio.create_task(
         cpu.execute(
             make_input_manifest(),
-            thread=await _main_thread(),
+            thread=_main_thread(),
             model_selection=None,
             events=events,
         )

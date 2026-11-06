@@ -1,4 +1,4 @@
-"""资源 owner 的身份边界约束：操作 scope 不进入 Patchouli 内部和长期载体。"""
+"""资源 owner 的身份边界约束：操作 scope 与工作 actor 不进入 Patchouli 内部和长期载体。"""
 
 from __future__ import annotations
 
@@ -76,8 +76,12 @@ def test_patchouli_engines_do_not_reference_identity_scope():
     assert violations == []
 
 
-def test_public_records_and_materialize_tasks_do_not_store_identity_scope():
-    """公开记录与物化任务不能保存超出一次操作寿命的 scope 字段。"""
+def test_public_records_and_materialize_tasks_do_not_store_identity():
+    """公开记录与物化任务不能保存超出一次操作寿命的 scope 或工作 actor 字段。
+
+    交互与意图只以 ``ActorIdentity`` 记录发起者；身份的持有位置限于任务进程
+    记录与入口调用链。
+    """
     paths = [
         *_source_files(SRC_ROOT / "patchouli" / "contracts"),
         SRC_ROOT / "core" / "models" / "pending.py",
@@ -94,7 +98,7 @@ def test_public_records_and_materialize_tasks_do_not_store_identity_scope():
                 if not isinstance(field, ast.AnnAssign) or not isinstance(field.target, ast.Name):
                     continue
                 if field.target.id == "identity_scope" or _symbol_references(
-                    field, {"IdentityScope"}
+                    field, {"IdentityScope", "WorkingActor"}
                 ):
                     violations.append(
                         f"{path.relative_to(SRC_ROOT).as_posix()}:{field.lineno} "

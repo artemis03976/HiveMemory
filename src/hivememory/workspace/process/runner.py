@@ -10,8 +10,8 @@ Patchouli 在后台预取推理模型。
 
 执行器跨进程共享、不持有任何进程的状态：它只持有编排依赖，每次运行与
 关闭都以 :class:`TaskProcess` 为参数，进程的全部状态（进程记录、任务参数、
-工作集、输出通道）都在进程上。执行器经进程记录使用绑定的访问 context 与
-事件发布器；进程 task 的创建、进程的登记、注销与 context 失效由注册入口
+工作集、输出通道）都在进程上。执行器经进程记录使用注册时认证的两个工作
+actor 与事件发布器；进程 task 的创建、进程的登记与注销由注册入口
 （``workspace.process.service``）负责。
 """
 
@@ -29,7 +29,8 @@ from hivememory.components.trace_context import (
     reset_trace_context,
     set_trace_context,
 )
-from hivememory.core.errors import WorkspaceDomainError
+from hivememory.core.access import WorkspaceOperation
+from hivememory.core.errors import OperationDeniedError, WorkspaceDomainError
 from hivememory.core.models import AgentProfile, IdentityScope
 from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode, GatewaySessionTurn
 from hivememory.core.protocol.models import InteractionPayload
@@ -147,9 +148,11 @@ class TaskProcessRunner:
     以进程为参数、都运行在进程 task 中，执行器自身不保存任何进程的状态。
     执行器与 ``CPUAllocator`` 由组合根构建并注入注册入口。
 
-    阶段调用由进程编排负责，每次调用前校验准入与任务目标 Workspace，
-    不检查 actor 操作白名单。授权返回的 ``IdentityScope`` 保留进程 actor，
-    使预检索仍按该 actor 的资源可见性过滤；scope 不进入 CPU 输入清单。
+    阶段调用按“谁在执行”授权：Gateway、话题准备、Profile、附件、finalize 与
+    cleanup 是系统级操作，每次调用前以进程记录的系统 root 工作 actor 经 root
+    授权；prepare 的检索是执行者的 actor 操作，执行者持有 ``memory.search``
+    时以它授权，检索按执行者的可见性进行。交互中的 Agent（执行者）作为参与
+    者显式交给 finalize。scope 只交给紧随的阶段调用，不进入 CPU 输入清单。
     """
 
     def __init__(
@@ -224,9 +227,9 @@ class TaskProcessRunner:
         # ---- Gateway：可被 stop 中断 ----
         record.enter_phase(ProcessPhase.GATEWAY)
         events.status(record)
-        # 阶段授权只校验准入与目标；Gateway 沿用进程 actor 的 scope
-        # 读取话题，actor 是否持有 READ 不影响这次系统编排。
-        gateway_scope = self._authorize(process)
+        # Gateway 面对的话题属于 Workspace，与 Agent 无关：由系统以 root
+        # 授权执行，执行者是否持有 READ 不影响这次系统编排。
+        gateway_scope = self._root_scope(process)
         await self._prefetch_models()
         gateway_result = await _run_interruptible(
             record,
@@ -290,7 +293,7 @@ class TaskProcessRunner:
     async def _prefetch_models(self) -> None:
         """在 Gateway 之前请求 Patchouli 在后台加载推理模型，让加载与 Gateway 的 LLM 调用并行。
 
-        在阶段授权之后发出，准入已失效的进程不触发加载。路由只开始加载、立即返回；
+        在 Gateway 的 root 授权之后发出，准入已失效的进程不触发加载。路由只开始加载、立即返回；
         Gateway 判定不需要检索时模型同样会加载，由空闲卸载回收。预取失败只记录日志，
         不影响任务进程。
         """
@@ -310,11 +313,10 @@ class TaskProcessRunner:
         以它为准，不再按停止标志改写为取消；CPU 原样传播取消、没有结果时按
         无输出的取消传播。
 
-        主线程以 prepare 之前解析的图纸派生，派生时以主线程 context 读取操作
-        快照；准入此时已被撤销则派生失败，进程按失败收口。子线程随 CALL 返回
-        由 CPU 结束；全部线程只在本阶段的 ``finally`` 中兜底结束一次（关闭
-        流程只是再兜底），结束即撤销线程 context；停止被接受时线程已随之结束，
-        迟到的提交在此之前就被拒绝。检查点也只在这里接受一次：结束线程之后、
+        主线程以 prepare 之前解析的图纸派生，派生时按执行者读取操作快照；准入
+        此时已失效则派生失败，进程按失败收口。子线程随 CALL 返回由 CPU 结束；
+        全部线程只在本阶段的 ``finally`` 中兜底结束一次（关闭流程只是再兜底）；
+        停止被接受时线程已随之结束，迟到的提交在此之前就被拒绝。检查点也只在这里接受一次：结束线程之后、
         判断丢弃与有无输出之前。普通执行异常没有可接受的结果。进程 task 被
         硬取消而 CPU 把取消转换为返回值时，先结束线程、接受其中已完成的
         检查点，再重新抛出取消。
@@ -322,7 +324,7 @@ class TaskProcessRunner:
         record = process.record
         record.enter_phase(ProcessPhase.ACTOR)
         record.events.status(record)
-        # CPU 只持有主线程的执行线程；进程 context 留给全部阶段的授权。
+        # CPU 只持有主线程的执行线程（描述与不透明句柄），不持有任何工作 actor。
         thread = self._threads.derive_main(process, agent_profile)
         returned = _ReturnedResult()
 
@@ -346,8 +348,8 @@ class TaskProcessRunner:
                 raise
             return returned.result
         finally:
-            # 先结束全部线程（撤销线程 context），再接受检查点；两者都先于
-            # 封口、finalize 与终态交付，硬取消时先于重新抛出取消。
+            # 先结束全部线程，再接受检查点；两者都先于封口、finalize 与
+            # 终态交付，硬取消时先于重新抛出取消。
             self._threads.end_all(process)
             self._accept_checkpoint(process, returned.result)
         # drive 正常结束时已经写入 CPU 返回的结果。
@@ -403,12 +405,17 @@ class TaskProcessRunner:
     async def _finalize(
         self, process: TaskProcess, prepared: PreparedAgentRun, payload: InteractionPayload
     ) -> None:
-        """把已封口交互交回 Patchouli；任务归进程持有，scope 仅在调用链内存在。"""
+        """把已封口交互交回 Patchouli；任务归进程持有，scope 仅在调用链内存在。
+
+        交互提交是系统级操作，由系统以 root 授权执行；本轮的执行 Agent 作为
+        参与者显式传递，记为交互的发起者。
+        """
         await self._bus.request(
             PatchouliRoutes.FINALIZE_AGENT_RUN,
             prepared_run=prepared,
             payload=payload,
-            identity_scope=self._authorize(process),
+            identity_scope=self._root_scope(process),
+            participant=process.record.actor.actor,
         )
         process.working_set.hand_off_prepared()
 
@@ -435,27 +442,28 @@ class TaskProcessRunner:
     ) -> tuple[PreparedAgentRun, AgentProfile, CPUInputManifest]:
         """Profile 解析、Patchouli prepare 与 CPU 分配，最后检查一次停止请求。
 
-        Profile 解析与附件租借由 CPUAllocator 在副作用前执行阶段授权；
-        prepare 同样只检查准入与目标。finalize 在调用前再次校验，不要求
-        actor 持有交互提交操作。解析出的图纸随主线程交给 CPU，不进入输入清单。
+        Profile 解析与附件租借是用户的选择，由 CPUAllocator 在副作用前以系统的
+        root 工作 actor 授权；prepare 的话题准备同样由系统执行，检索则是执行者
+        的 actor 操作。解析出的图纸随主线程交给 CPU，不进入输入清单。
         """
         record = process.record
         request = process.request
         working_set = process.working_set
         record.enter_phase(ProcessPhase.PREPARE)
         # Profile 在 prepare 之前解析：缺少图纸的请求不会留下预建话题或 LRU 结算的副作用。
+        # 加载哪份图纸取自认证得到的执行者，不取自请求输入。
         agent_profile = await self._allocator.resolve_agent_profile(
-            access=record.access,
+            agent_id=record.actor.actor.agent_id,
+            system_actor=record.system_actor,
             target_workspace=request.target_workspace,
         )
-        # prepare 做话题准备与检索，资源可见性仍使用进程 actor。
-        prepare_scope = self._authorize(process)
+        # 话题准备由系统执行；检索按执行者的可见性进行，不检索时对话照常进行。
         prepared: PreparedAgentRun = await self._bus.request(
             PatchouliRoutes.PREPARE_AGENT_RUN,
-            identity_scope=prepare_scope,
+            identity_scope=self._root_scope(process),
+            retrieval_scope=self._retrieval_scope(process),
             interaction_id=record.process_id,
             gateway_decision=decision,
-            enable_memory_retrieval=request.enable_memory_retrieval,
         )
         working_set.prepared = prepared
         record.events.bind_topic(prepared.topic_id)
@@ -471,7 +479,7 @@ class TaskProcessRunner:
             selections=list(request.attachments),
             session_history=session.turns,
             compaction_checkpoint=session.compaction_checkpoint,
-            access=record.access,
+            system_actor=record.system_actor,
             target_workspace=request.target_workspace,
         )
 
@@ -504,16 +512,38 @@ class TaskProcessRunner:
                 exc_info=True,
             )
 
-    def _authorize(self, process: TaskProcess) -> IdentityScope:
-        """以进程记录绑定的 context 对任务目标 workspace 执行阶段授权。
+    def _root_scope(self, process: TaskProcess) -> IdentityScope:
+        """以进程记录的系统 root 工作 actor 对任务目标 workspace 执行 root 授权。
 
-        返回操作授权者组装的可信 scope，供紧随的阶段路由使用；授权失败
+        返回操作授权者组装的可信 scope，供紧随的系统阶段路由使用；授权失败
         沿异常路径按进程失败收口。
         """
-        return self._authorizer.authorize_stage(
-            process.record.access,
+        return self._authorizer.authorize_root(
+            process.record.system_actor,
             process.request.target_workspace,
         )
+
+    def _retrieval_scope(self, process: TaskProcess) -> IdentityScope | None:
+        """prepare 是否检索的唯一判定：返回检索 scope，为空即不检索。
+
+        请求关闭了记忆检索时不检索；否则检索是执行者的 actor 操作，以
+        ``authorize_agent`` 授权一次，结果按执行者的可见性过滤。执行者没有
+        ``memory.search`` 时授权以 ``operation_not_allowed`` 拒绝，这里把它译为
+        不检索，对话照常进行；只译这一种拒绝，准入失效等其他授权失败照常传播，
+        进程按失败收口。
+        """
+        if not process.request.enable_memory_retrieval:
+            return None
+        try:
+            return self._authorizer.authorize_agent(
+                process.record.actor,
+                WorkspaceOperation.MEMORY_SEARCH,
+                process.request.target_workspace,
+            )
+        except OperationDeniedError as error:
+            if error.details.get("reason") != "operation_not_allowed":
+                raise
+            return None
 
     # ========== 关闭流程 ==========
 
@@ -523,10 +553,10 @@ class TaskProcessRunner:
         只在进程 task 中执行：:meth:`run` 的收尾，或进程从未运行就被关闭时
         由注册入口的进程 task 直接调用。终态兜底只在进程仍无终态时执行，即
         硬取消与“从未运行就被关闭”两种情形。结束线程与租借释放都先于任何
-        await 同步执行：硬取消打断后续 cleanup 时，也不留下有效的线程凭据或
+        await 同步执行：硬取消打断后续 cleanup 时，也不留下仍在运行的线程或
         未释放的租借；线程正常由 Actor 阶段结束，这里只是兜底，重复结束是
-        空操作。context 失效与进程注销由注册入口在本流程之后执行。工作集中的
-        每项资源只取出一次，本方法即使重复执行也不会重复释放。
+        空操作。进程注销由注册入口在本流程之后执行。工作集中的每项资源只
+        取出一次，本方法即使重复执行也不会重复释放。
         """
         record = process.record
         working_set = process.working_set
@@ -544,8 +574,8 @@ class TaskProcessRunner:
                 await self._bus.request(
                     PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
                     prepared_run=prepared,
-                    # 补偿仍校验准入与任务目标，context 此时尚未失效。
-                    identity_scope=self._authorize(process),
+                    # 补偿面对的话题属于 Workspace，由系统以 root 授权执行。
+                    identity_scope=self._root_scope(process),
                 )
             except Exception:
                 logger.warning("清理 prepared run 失败", exc_info=True)

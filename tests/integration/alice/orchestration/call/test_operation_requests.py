@@ -99,7 +99,7 @@ async def test_callee_frame_uses_callee_verbs_without_call():
 
 
 @pytest.mark.asyncio
-async def test_callee_submits_with_own_thread_context_and_keeps_callee_as_intent_actor() -> None:
+async def test_callee_submits_with_own_thread_and_keeps_callee_as_intent_actor() -> None:
     """真实子帧取得独立提交函数，WRITE 归被调用方且仍绑定同一进程，父帧可回读。"""
     harness = OperationsHarness()
     scope = make_runtime_scope(agent_id="parent", run_id="process-parent")
@@ -205,7 +205,7 @@ async def test_child_reads_only_callee_private_memory_and_records_callee_citatio
             "omni_doll",
         ]
     finally:
-        harness.revoke()
+        harness.close_process()
         harness.runtime.close()
 
 
@@ -230,7 +230,7 @@ async def test_callee_permissions_do_not_inherit_caller_read_and_cannot_recursiv
             await child.derive_child(DeriveCallThreadRequest())
         assert len(harness.backing.reads) == 2
     finally:
-        harness.revoke()
+        harness.close_process()
         harness.runtime.close()
 
 
@@ -309,5 +309,5 @@ async def test_completed_call_ends_child_thread_but_keeps_its_dispatched_write()
         (read,) = await caller.submit_operation(ResolveReferencesRequest((pending.pending_alias,)))
         assert read.kind == "pending"
     finally:
-        harness.revoke(scope.run_id)
+        harness.close_process(scope.run_id)
         harness.runtime.close()

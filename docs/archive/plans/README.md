@@ -3,7 +3,7 @@ title: Archived Plans
 status: current
 owner: project
 scope: completed-or-superseded-plans
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-06
 ---
 
 # Archived Plans
@@ -19,6 +19,8 @@ last_reviewed: 2026-11-05
 
 ## 版本之外
 
+- [Import Bus 的授权移入能力层](./import-bus-authorization-in-capability-layer.md)：2026-11-06，PR #184；[Import Bus](../../system/import-bus.md#41-认证与授权)、[能力层](../../workspace/capability.md)
+- [统一身份授权入口](./unified-identity-authorization-entry.md)：2026-11-06，PR #184；[身份与授权](../../workspace/identity-and-authorization.md#4-操作授权)、[认证与访问登记](../../workspace/authentication.md#3-工作-actor)
 - [HTTP 管理面的管理凭据](./http-management-credential.md)：2026-11-05，PR #182；[认证与访问登记](../../workspace/authentication.md#1-两阶段认证)、[安装与启动](../../help/setup.md#43-启动后端)
 - [dsh 子 Agent 会话不再独立导入，交回的消息进入父会话的一轮](./dsh-subagent-sessions.md)：2026-11-02，提交 4a16b46a；[Import Bus](../../system/import-bus.md#93-轮次的切分与映射)、[数据模型](../../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)
 - [模型选择统一为 ModelSelection，组件模型只经注册表解析](./llm-config-retirement.md)：2026-11-01，PR #167；[System 配置与注册表](../../system/configuration.md#3-registry-解析)、[System 组合根](../../system/composition.md#13-llm-bundle)
@@ -29,7 +31,7 @@ last_reviewed: 2026-11-05
 - [v0.7.2 版本收尾审计](./v0.7.2-release-closeout-audit.md)：2026-11-01，PR #156；[PROJECT](../../PROJECT.md)
 - [一个话题提取多条记忆](./v0.7.2-multi-memory-extraction.md)：2026-11-01，PR #155；[Patchouli 生成](../../patchouli/generation.md#31-mode-a被动观察--archive)
 - [查重与更新：先落库再合并](./v0.7.2-dedup-merge.md)：2026-10-31，PR #154；[Patchouli 生成](../../patchouli/generation.md#4-查重与合并)、[读取视图与写入意图](../../workspace/read-view-and-write-intents.md)
-- [plugin 模式开放 WRITE 与 UPDATE](./v0.7.2-plugin-write-update.md)：2026-10-31，PR #152；[MCP 记忆访问](../../contracts/mcp.md)、[Import Bus](../../system/import-bus.md#47-写入时落位)
+- [plugin 模式开放 WRITE 与 UPDATE](./v0.7.2-plugin-write-update.md)：2026-10-31，PR #152；[MCP 记忆访问](../../contracts/mcp.md)、[Import Bus](../../system/import-bus.md#47-写入时确定话题)
 - [生成材料修正与 Topic 之后的原始证据保存](./v0.7.2-generation-material-and-raw-evidence.md)：2026-10-31，PR #150；[感知与短期话题](../../patchouli/perception.md)、[Patchouli 生成](../../patchouli/generation.md)
 
 ## v0.7.1
