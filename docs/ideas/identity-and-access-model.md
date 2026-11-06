@@ -33,6 +33,7 @@ related_docs:
   - docs/archive/ideas/execution-thread-definition.md
   - docs/archive/todo/local-http-management-access.md
   - docs/archive/plans/http-management-credential.md
+  - docs/plans/unified-identity-authorization-entry.md
   - docs/todo/workspace-asset-ownership-identity-split.md
   - docs/todo/memory-visibility-policy-ui.md
   - docs/todo/frontend-identity-ownership.md
@@ -57,7 +58,7 @@ last_reviewed: 2026-11-05
 - 未决的部分散落在第五代架构 Idea、外部 Actor Idea、写入意图 Idea、五份 Todo 与身份治理中；
 - 例外与补丁逐渐累积：WorkspaceAsset 仍以旧 `IdentityScope` 做归属检查（AGENTS.md 登记的唯一例外），Profile 注入脚本以 `system` 进入 root API，HTTP 管理接口沿用本地单用户部署的信任假设（2026-11-05 起以管理凭据防误用）。
 
-已经具备、本文不再讨论的地基：三个身份模型与两阶段认证、两阶段授权；密封的访问 context 及进程、线程、请求三种运行绑定（owner 2026-11-05 决定改为统一身份授权入口，候选设计见第 5 节）；资源归属与发起者的拆分；root API、actor API 与阶段调用三个调用面；外部 principal 以本地共享密钥证明身份（P-1c）；`allow_system_actor` 限定能声明 `system` 的来源；不建进程的访问每次操作一份请求级 context（P-9c；统一身份授权入口保留其目标、改变其实现，见第 5 节）。
+已经具备、本文不再讨论的地基：三个身份模型与两阶段认证、两阶段授权；密封的访问 context 及进程、线程、请求三种运行绑定（owner 2026-11-05 决定改为统一身份授权入口，计划见第 5 节）；资源归属与发起者的拆分；root API、actor API 与阶段调用三个调用面；外部 principal 以本地共享密钥证明身份（P-1c）；`allow_system_actor` 限定能声明 `system` 的来源；不建进程的访问每次操作一份请求级 context（P-9c；统一身份授权入口保留其目标、改变其实现，见第 5 节）。
 
 **对发布的影响**（分析）：owner 定下的 v1.0 范围包括桌面客户端，以及 Claude Code、dsh、Codex 与 pi 四个 harness 的 plugin 模式接入（owner，2026-11-04）。桌面端常驻后端之后，本机进程、各 harness 中的 agent 与前端都是调用方，本地单用户的信任假设与只能静态修改的登记都会被直接触及。
 
@@ -67,7 +68,7 @@ last_reviewed: 2026-11-05
 |:---|:---|:---|
 | Principal 登记 | 两份配置文件在启动时装载（[认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节） | 运行时登记、修改与撤销：第 3 节 |
 | 调用方证明 | 统一认证网关；外部 principal 以共享密钥证明；任务进程注册、Import Bus 与 MCP 入口经网关；HTTP 管理面以管理凭据防误用（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节） | HTTP 管理入口的防刻意随桌面客户端；controller 模式下请求与进程的归属校验：第 4 节 |
-| 访问 context 与操作授权 | context 只含 actor、驻留 Workspace、principal 与运行绑定；白名单逐次授权；阶段授权；root 只认 `system` | 统一身份授权入口（方向已由 owner 决定，候选设计待细化）；工作 actor 是否带 adapter、本次运行的操作上限、进程控制的授权主体：第 5 节 |
+| 访问 context 与操作授权 | context 只含 actor、驻留 Workspace、principal 与运行绑定；白名单逐次授权；阶段授权；root 只认 `system` | 统一身份授权入口（方向已由 owner 决定，计划 planned，见第 5 节）；工作 actor 是否带 adapter、本次运行的操作上限、进程控制的授权主体：第 5 节 |
 | 资源可见性 | 只有 MemoryAtom 带资源 policy，且只表达读取；其余资源只按归属授权 | 修改与执行授权、写入意图的可见性：第 6 节 |
 | 进入其他 Workspace | 第 3 阶段只接受目标等于驻留 Workspace | 受限穿透访问：第 7 节 |
 | 例外、暂缓与已知限制 | — | 第 8 节 |
@@ -122,7 +123,7 @@ last_reviewed: 2026-11-05
 
 防误用部分已落地（2026-11-05，[归档计划](../archive/plans/http-management-credential.md)）：`/api/` 下除导入之外的接口都要求管理凭据，后端默认只监听本机地址，当前事实见[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节。本节只剩防刻意。
 
-**防刻意的候选设计**（不是 owner 决定，随桌面客户端的计划细化）：桌面客户端的主进程启动后端时生成凭据，经管道而不是文件或环境变量交给后端，再交给自己的页面，凭据不落盘。带着正确管理凭据的 HTTP 请求成为经过证明的工作 actor（第 5 节）。
+**防刻意的候选设计**（不是 owner 决定，随桌面客户端的计划细化）：桌面客户端的主进程启动后端时生成凭据，经管道而不是文件或环境变量交给后端，再交给自己的页面，凭据不落盘。
 
 ### P-5 被动请求的认证
 
@@ -135,10 +136,10 @@ last_reviewed: 2026-11-05
 
 访问 context 的授予内容只包含 actor、驻留 Workspace、principal 与运行绑定（[认证与访问登记](../workspace/authentication.md#3-访问-context密封的运行时凭据)第 3 节）。owner 决定（2026-11-05）以统一身份授权入口取代按运行类型分化的访问 context（下一节）；以下两个方向届时落在工作 actor 或进程记录上，各自随相应问题决定：
 
-- **adapter**：context 暂存签发时的 principal（I-2），adapter 是否一并保存未决，随 P-1b 一并决定；统一入口下它是工作 actor 的字段；
+- **adapter**：context 暂存签发时的 principal（I-2），adapter 是否一并保存未决，随 P-1b 一并决定；统一入口的计划暂不在工作 actor 中带 adapter；
 - **本次运行的操作上限**：只有 P-4a 采用“进程持有白名单的子集”时才需要携带它；统一入口下记在进程记录上。
 
-context 没有固定有效期，随绑定的运行结束失效。原先列为开放方向的“plugin 模式需要长连接时是否加有效期”已不再成立：plugin 模式的 MCP 访问每次工具调用签发一份请求级 context，调用结束即撤销（P-9c，[MCP 记忆访问](../contracts/mcp.md)），没有长连接持有 context。统一身份授权入口下不再签发请求级 context，见下一节“对 P-9c 的影响”。
+context 没有固定有效期，随绑定的运行结束失效。原先列为开放方向的“plugin 模式需要长连接时是否加有效期”已不再成立：plugin 模式的 MCP 访问每次工具调用签发一份请求级 context，调用结束即撤销（P-9c，[MCP 记忆访问](../contracts/mcp.md)），没有长连接持有 context。统一身份授权入口下不再签发请求级 context，见下一节。
 
 ### 访问 context 与授权入口的收拢
 
@@ -188,112 +189,33 @@ context 没有固定有效期，随绑定的运行结束失效。原先列为开
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|
 | A | 维持现有的 context 与授权方法，只做局部清理，例如删除无生产使用方的代码、统一运行类型检查 | 改动小；按运行类型分化的结构保留，新的运行形态（controller 的外部执行单元、更多 harness）仍需新增 context 用途或授权分支 |
-| B | 身份不随运行类型分化：主工作 actor、一次操作的授权与运行三者分开，候选设计见下 | 涉及认证网关、操作授权者、任务进程的线程表、操作入口、能力层、MCP 与导入入口，以及相应的架构测试；实施前要先逐条列出现有 context 保证的行为，并确认每一条的去处 |
+| B | 身份不随运行类型分化：主工作 actor、一次操作的授权与运行三者分开，计划见下 | 涉及认证网关、操作授权者、任务进程的线程表、操作入口、能力层、MCP 与导入入口，以及相应的架构测试；实施前要先逐条列出现有 context 保证的行为，并确认每一条的去处 |
 | C | 其他 | —— |
 
-**owner 决定**（2026-11-05）：选项 B。这条线的方向固定为统一身份授权入口，本问题关闭。以下细节是候选设计，不是 owner 决定，可在计划评审时调整。
+**owner 决定**（2026-11-05）：选项 B。这条线的方向固定为统一身份授权入口，本问题关闭。候选设计已移入下述计划，不是 owner 决定，可在计划评审时调整。
 
-**统一身份授权入口的候选设计**：
+**统一身份授权入口的计划**：已抽出计划[统一身份授权入口](../plans/unified-identity-authorization-entry.md)（planned，2026-11-05）。工作 actor、两个授权方法、系统级操作的身份、运行与线程句柄、各入口、结构守护，以及现有 context 保证的行为逐条去处，都以计划为准。本节只留摘要：
 
-命名（owner，2026-11-05）：不使用 Caller 与 Callee。CALL 来自 Alice 唤起子 agent 的方式，不适合作为 Workspace 体系的通用概念。owner 倾向 MainWorkingAgent 或 MainWorkingActor，对应 SubWorkingAgent 或 SubWorkingActor。下文暂用 Actor 一组（分析）：root 管理的主工作 actor 是保留的 `system`，它不是 Agent。
+- 认证得到工作 actor（principal、actor 与驻留 Workspace）。plugin 请求、管理路由与导入只在入口调用链中持有它；任务进程把它存进进程记录，线程记录持有主工作 actor 或子工作 actor；任务进程与 Import Bus 另以系统自身的 principal 认证，得到执行系统级操作的 root 工作 actor。命名（owner，2026-11-05）：不使用 Caller 与 Callee，它们来自 Alice 唤起子 agent 的方式，不适合作为 Workspace 体系的通用概念；owner 倾向 MainWorkingAgent 或 MainWorkingActor，对应 SubWorkingAgent 或 SubWorkingActor。计划以一个类型 `WorkingActor` 表达，主、子是它的两种角色（计划第 4.8 节）。
+- 授权只有两个方法（owner，2026-11-05 计划评审），都属于 workspace 的操作授权者 `WorkspaceOperationAuthorizer`（`workspace/authorization.py`）：`authorize_agent` 只用于 actor 执行期间的操作授权（执行线程、MCP 请求与 prepare 的检索），按白名单判定；`authorize_root` 用于系统级操作，要求 actor 是 `system`。两者都在能力层方法的入口调用并产出 `IdentityScope`，不设带操作枚举的通用授权方法。
+- 任务进程与执行线程只负责存活与派发话题，CPU 只持有线程句柄。
+- P-9c 保留目标（每次工具调用一份身份，调用结束即失效），不再需要请求级 context 与 `request_level`。
+- 不在这条主线上的是后台任务：以 `system` 发起的 SETTLE 等任务不经认证，只携带 `belong_to` 与 `from_actor`，不变。
+- controller 回调（P-1b）在边界上证明调用方，并与进程记录中的 principal 比对，不从请求重新建立身份；它不在计划范围内。
 
-**统一的认证授权主线**：plugin 请求、任务进程（现在的 Alice chat，以后的 controller 模式）、管理路由与导入共用同一个认证网关、同一个授权入口与同一张规则表，产出同一种 `IdentityScope`。
+**计划评审中的 owner 决定**（2026-11-05）。完整内容见计划第 4.1 节：
 
-```text
-第 1、2 阶段：证明调用方 + Workspace 准入 → 工作 actor
-    ├─ plugin 请求：入口的局部值，请求结束即消失
-    └─ 任务进程：存入进程记录；线程记录持有主工作 actor 或子工作 actor；授权前先判定线程存活
-第 3 阶段：authorize(工作 actor, 操作, 目标 Workspace) → IdentityScope（按规则表）
-第 4 阶段：能力层 → Patchouli 公共边界 → 资源 owner（不变）
-```
+- 现在叫“授权”的有两件事：操作授权只在 actor 执行期间才有意义；root 管理、阶段调用、导入与进程控制之所以要检查，是因为所有 API 都收拢到了 Workspace 能力层。能力层的 API 代表谁在执行这项操作。
+- 由系统以 root 身份执行的操作：
+  - 取消：用户下达的指令；
+  - Profile 与附件：用户的选择，对用户可见而不是对 Agent 可见，不能以错误的身份执行；
+  - Gateway 与 cleanup：面对的话题属于 Workspace；
+  - 交互提交：三个来源，即 controller 模式的交互提交（现在 chat 的 finalize）、plugin 模式的导入与将来的历史对话导入，都是系统级操作，Agent 不能拥有这项能力。外部 harness 不能声明 `system` 与此无关。
+- prepare 的检索以执行者的 actor 操作进行。
+- 系统组件以自己登记的 principal 经进程内 adapter 认证 `(user, system)`，取得执行 root 操作的身份，与 Profile 注入脚本的做法相同。
+- “认证直接产出 `IdentityScope`、删除入口检查”的最小版本被否决：它会退掉 v0.7.0 的大半成果，抹掉驻留身份与单次操作 scope 的区分。
 
-- 认证之后不能跳过第 3 阶段。两阶段认证只回答调用方是谁、能否进入这个 Workspace，操作是否获准（白名单）在第 3 阶段判定。一次请求可以有多次授权，例如 MCP 写入以同一个局部 actor 先授权 `memory.write`，再用于落位。
-- 任务进程内，阶段调用使用主工作 actor；actor 操作使用提交它的线程的 actor，主线程是主工作 actor，子线程是派生时经过准入的子工作 actor。
-- 各入口在边界上的动作：
-
-  | 入口 | 边界上做什么 | 身份从哪来 |
-  |:---|:---|:---|
-  | plugin 请求、管理路由、导入 | 证明调用方，加准入 | 这次认证的结果 |
-  | 任务进程注册 | 证明调用方，加准入 | 这次认证的结果，存入进程记录 |
-  | controller 回调：外部 harness 经绑定的线程回调 | 证明调用方，比对它与进程记录中的 principal（P-1b） | 进程或线程记录，不从请求重新建立 |
-
-- 不在这条主线上的是后台任务。以 `system` 发起的 SETTLE 等任务不经认证，只携带 `belong_to` 与 `from_actor`，由资源 owner 检查，保持不变。
-- 主线统一之后，边界上能证明什么，取决于第 4 节 HTTP 管理入口的调用方证明（owner 已决定以管理凭据修复）。principal 标识执行环境，agent 由经过证明的执行环境声明，不另设 principal 与 agent 的绑定（第 8 节）。管理凭据（防误用）已于 2026-11-05 落地；它如何表达进工作 actor（下文流程表中的“未证明”），由统一入口的计划决定。
-
-主线中的概念：
-
-- **主工作 actor（MainWorkingActor）**：入口认证一次得到，字段为 principal、是否经过证明与 actor。一次请求或一个任务进程有一个主工作 actor。它只用于进程内部的协调，只留在进程或线程记录中；plugin 请求没有记录，它是入口调用链内的局部值。它不交给能力层、Patchouli 或 CPU。
-- **子工作 actor（SubWorkingActor）**：任务进程派生子线程时，为子线程的 actor 做准入后得到。它沿用主工作 actor 的 principal 与证明，只换 actor；两者字段相同，区别只在来源。当前只有 Alice 的 CALL 派生子线程。
-- **授权入口**：`authorize(工作 actor, 操作, 目标 Workspace)` 是唯一的授权入口，按规则表判定并产出 `IdentityScope`。授权由持有记录的一侧发起：线程表、进程，或 plugin 的入口。交出去的只有 `IdentityScope`，能力层方法接收已授权的 scope，不再接收访问 context。目标仍由运行（进程记录中的 Workspace）或请求给出，操作请求不能指定。
-- **运行**：任务进程与执行线程只负责存活与派发话题，不承载身份。CPU 拿到的是线程句柄，它只是 `(process_id, thread_id)` 的引用，不含身份。plugin 模式是“有主工作 actor、没有运行”，controller 模式是“有主工作 actor，加一个进程运行”，两者共用同一个授权入口。
-- **一条纪律**：`IdentityScope` 与工作 actor 只能由授权入口与认证产出，只在一次调用链或运行记录内存在，不写入其他记录、事件与后台任务。由架构测试限制 `IdentityScope(...)` 的构造位置（现在没有这条测试）。现有测试“能力层公共方法不接收 `IdentityScope`”的本意是 scope 不能由调用方组装，届时改写为“scope 只由授权入口产出”。资产桥接这一例外随 WorkspaceAsset 的归属拆分移除（第 8 节）。
-
-规则表。所有操作的共同前提：准入记录有效，目标 Workspace 的 owner 是 actor 的用户。
-
-| 操作 | 规则 |
-|:---|:---|
-| root 管理 | actor 是 `system` |
-| 六项 actor 操作 | actor 不是 `system`，且操作在访问登记的白名单中 |
-| 阶段操作 | actor 不是 `system`；不查白名单 |
-| 导入 | actor 不是 `system`；不查白名单 |
-| 进程控制 | 与进程在同一 Workspace（P-7 未决，先沿用现状） |
-
-现有概念的去处：
-
-| 现有概念 | 它保护的行为 | 选项 B 下由什么保证 |
-|:---|:---|:---|
-| 进程 context | 阶段调用以进程 Agent 的身份进行；进程结束后不能再做阶段调用 | 进程记录持有主工作 actor；进程是否结束由进程表判定 |
-| 主线程 context 及其撤销 | 停止后迟到的 actor 请求被拒绝 | 线程表的存活判定（现在已是唯一的存活判定） |
-| 子线程 context | 子线程以自己的 actor 运行，按它的白名单授权 | 线程表派生子线程时做准入，线程记录持有子工作 actor |
-| 请求级 context 及其撤销 | MCP 每次工具调用一份身份，调用结束后失效 | 主工作 actor 只是这次调用的入口局部值，调用返回即消失（见下文对 P-9c 的影响） |
-| 密封与特权兑现接口 | 防止代码把驻留身份直接当作操作身份 | 授权入口是唯一能产出 `IdentityScope` 的地方，构造位置由架构测试限制 |
-| 四个授权方法与 `request_level` | 各调用面的不同规则；线程 context 不能借请求级提交绕过存活判定 | 授权入口与规则表；请求级提交接收主工作 actor，线程提交接收线程句柄，Alice 只持有句柄 |
-
-**主要流程的变化**。以一个场景推演：前端用 coder 对话，coder 先检索，再派生子线程运行 reviewer，reviewer 写入一条记忆；用户中途停止时，reviewer 还有一个读取请求在路上；同时 dsh 经 MCP 写入一条记忆。
-
-| 流程 | 现在 | 选项 B |
-|:---|:---|:---|
-| chat 注册 | 网关签发密封的进程 context，存进进程记录 | 网关认证得到主工作 actor `(server, 未证明, (default, coder))`，连同 Workspace 存进进程记录 |
-| 阶段调用：Gateway、Profile、prepare、附件、finalize、cleanup | `authorize_stage(进程 context, 目标)` | `authorize(主工作 actor, 阶段操作, 进程的 Workspace)` |
-| 进入 Actor 阶段 | 线程表从进程 context 派生主线程 context，与线程描述一起交给 CPU | 线程表登记主线程记录 `(main, coder, 运行中)`，交给 CPU 线程句柄 |
-| coder 检索 | 线程表判定存活；`authorize_actor_operation` 确认 context 种类，再兑现、准入、检查目标与白名单 | 线程表按句柄判定存活，并取出线程记录中的 actor；`authorize(coder, memory.search, 进程的 Workspace)` |
-| 派生 reviewer 子线程 | 以 coder 授权 `agent.call` 并读取图纸；线程表从进程 context 派生子线程 context，并为 reviewer 做准入 | 以 coder 授权 `agent.call` 并读取图纸；线程表为 reviewer 做准入，登记子线程记录，持有 reviewer 的子工作 actor |
-| reviewer 写入 | 子线程 context 授权 `memory.write`，再解析一次线程，取得进程标识与话题 | 按句柄取出线程记录，`authorize(reviewer, memory.write, 进程的 Workspace)`，从同一条记录取得进程标识与话题 |
-| 子线程结束 | 撤销子线程 context | 线程记录标为已结束 |
-| 用户停止 | 以 `(default, system)` 取得请求级 context；比对两份 context 的驻留 Workspace；撤销全部线程 context | 主工作 actor `(server, 未证明, (default, system))`；`authorize(…, 进程控制, 进程的 Workspace)`；全部线程记录标为已结束 |
-| reviewer 迟到的读取 | context 已撤销、进程也已停止，两道判定都拒绝 | 线程表看到线程已结束，一道判定 |
-| 进程关闭 | 撤销进程 context | 进程记录移出进程表 |
-| dsh 的 `memory_write` | 请求级 context；先以 `authorize_import` 落位（不查白名单），再以 `request_level=True` 授权 `memory.write` | 主工作 actor `(harness:dsh, 已证明, (default, dsh))`；先 `authorize(…, memory.write, 请求的 Workspace)`，通过后再落位并登记 |
-| 管理路由、导入 | 请求级 context；`authorize_root` 或 `authorize_import` | 主工作 actor；`authorize(…, root 管理)` 或 `authorize(…, 导入)` |
-
-不变的部分：两阶段认证；root 与 actor 两个调用面；白名单是 Agent 权限的唯一来源；授权后仍产出 `IdentityScope`，Patchouli 在公共边界拆为 `belong_to` 与 `from_actor`，资源授权不变；目标由运行或请求给出。回答“某个外部调用方能做什么”，只需看规则表与访问登记。
-
-**对 P-9c 的影响**：选项 B 重新打开 P-9c 的实现，但保留它的目标：每次工具调用一份身份，调用结束即失效。plugin 的入口本身就是授权点：
-
-1. 认证得到主工作 actor，它是入口的局部值；
-2. 以它调用授权入口，产出 `IdentityScope`；
-3. 以 scope 调用 actor API；
-4. 请求返回，两者一同消失。
-
-不再需要请求级 context 这层包装，也不需要 `request_level`：Alice 只持有线程句柄，请求提交与线程提交的入口类型本来就不同。
-
-**代价与待核对**（分析）：
-
-1. **身份的失效方式**。
-    - 现在的 context 带撤销标记，运行结束时被撤销。误留到运行结束之后的 context 再拿去授权会失败。
-    - 进程与线程路径：工作 actor 只留在记录中，不往外交，授权由记录一侧发起。记录移出进程表或线程表即失效，不需要撤销标记。
-    - plugin 请求路径：主工作 actor 是入口的局部值，只有被误放进比请求活得更久的后台任务或闭包时才会留存。这与今天的 `IdentityScope` 处境相同，它本就是不可撤销的普通值，依赖的也是上文候选设计中“一条纪律”的不变量。选项 B 在这条路径上没有带来新的风险，只是让同一条不变量多覆盖一个类型。
-    - 也可以为每个请求建一份轻量记录，让“记录移除即失效”在请求路径上同样成立；这等于为 plugin 重新引入一种运行，不建议。
-2. **持有限制仍然需要**。
-    - 阶段操作与导入不查白名单。现在，阻止 Alice 或其他代码借 `authorize_stage` 绕过白名单的，是架构测试限定这些方法只能出现在哪些模块（调用点限制），授权方法本身不检查是谁在调用。
-    - B 下规则表写明了“阶段操作不查白名单”，持有工作 actor 的代码都能以它请求阶段操作。所以仍需要结构规则：工作 actor 只在入口、进程记录与线程记录中，Alice 与 CPU 只持有线程句柄。现在已有对应的架构测试。
-    - 变化是从“四个授权方法各自限定调用模块”收缩为“谁能持有工作 actor、谁能构造 scope”，不是取消结构规则。在单个 Python 进程内，区分特权最终都要靠结构纪律。
-3. **改动面**：认证网关、操作授权者、线程表、操作入口、能力层 26 个方法的签名（`access` 改为已授权的 `IdentityScope`）、MCP 与导入入口、`server/deps.py`，以及约 40 条身份相关架构测试中的大部分。
-4. **细节核对**：例如 UPDATE 的冷读跨越线程结束时不登记写入，现在依赖“同步段只解析一次线程”，B 下必须保持。实施前要逐条列出现有 context 保证的行为，确认每一条的去处。
-
-暂不处理：跨 Workspace 的目标（第 7 节），目标仍只能等于运行或请求所在的 Workspace；P-4a 若选择“进程持有白名单的子集”，子集记在进程记录上，由授权入口读取。
-
-**与其他问题的关系**：主工作 actor 中“是否经过证明”与 actor 的含义，取决于第 4 节 HTTP 管理入口的调用方证明，两者应一并设计，避免收拢之后再加一层。principal 标识执行环境、不与 agent 绑定（第 8 节），不需要另行设计绑定。P-1b 成为主线中 controller 回调在边界上的比对，P-7 的授权主体成为规则表中的条目。
+**与其他问题的关系**：第 4 节 HTTP 管理入口的调用方证明已以管理凭据落地（防误用），计划据此不在工作 actor 中设“是否经过证明”。principal 标识执行环境、不与 agent 绑定（第 8 节），不需要另行设计绑定。P-1b 成为主线中 controller 回调在边界上的比对，不在计划范围内；P-7 中取消已定为 root（见下），其余不在计划范围内。
 
 ### P-4a 进程能否持有白名单的子集
 
@@ -305,6 +227,8 @@ context 没有固定有效期，随绑定的运行结束失效。原先列为开
 ### P-7 进程控制操作的授权主体
 
 2026-11-05 由[第五代架构 Idea](./fifth-generation-architecture.md) 移入。取消由持有进程句柄的入口与进程控制授权处理；状态查询等其余控制操作的授权主体尚未决定。
+
+**owner 决定**（2026-11-05，统一身份授权入口的计划评审）：取消是用户下达的指令，由 root 执行。状态查询，以及 controller 模式下由谁控制进程，仍按下列选项未决。
 
 选项：仅进程的注册 principal / 注册 principal 与管理员 / Workspace 内任何获准者 / 其他。
 
