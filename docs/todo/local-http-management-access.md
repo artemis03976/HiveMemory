@@ -9,10 +9,11 @@ code_paths:
   - src/hivememory/server/routers/
   - configs/system_principals.yaml
 related_docs:
+  - docs/ideas/identity-and-access-model.md
   - docs/help/configuration.md
   - docs/workspace/authentication.md
   - docs/archive/todo/config-secrets-written-to-yaml.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-05
 ---
 
 # 本机 HTTP 管理接口不证明调用方
@@ -25,7 +26,7 @@ HTTP 接口按本地单用户部署的信任假设设计：
 - **不经认证网关的路由**：`config`、`providers`、`models`、`logs`、`runtime_events`，可以读写主配置、提供商密钥与模型注册表，并读取日志与运行时事件。
 - **要求调用方出示凭据的入口**：只有外部 harness 使用的 `/api/v1/import/turns` 与 `/mcp`，凭据按 principal 登记。
 
-本机任何进程都能调用前两类接口。外部 harness 接入之后，这类进程包括 harness 中带 shell 或网络工具的 agent。WSL2 默认的网络模式还会把 Windows 上的 `127.0.0.1` 转发到 WSL 中监听本机地址的服务，Windows 上的进程同样能访问。
+本机任何进程都能调用前两类接口。`hivememory-server` 入口还把监听地址固定为 `0.0.0.0`（[`server/__main__.py`](../../src/hivememory/server/__main__.py)），同一网络中的其他机器也能连接；开发脚本 `scripts/hivememory-dev.sh` 默认监听 `127.0.0.1`。外部 harness 接入之后，这类进程包括 harness 中带 shell 或网络工具的 agent。WSL2 默认的网络模式还会把 Windows 上的 `127.0.0.1` 转发到 WSL 中监听本机地址的服务，Windows 上的进程同样能访问。
 
 证据：2026-11-01 dsh 接入试用中，Windows 桌面端里的 agent 经本机转发直接调用了 `/api/v1/config`，取得了明文密钥。接口自身的明文泄露已在同日改为打码；主配置保存把密钥写进 YAML 是另一个问题，已于同日修复（[归档 Todo](../archive/todo/config-secrets-written-to-yaml.md)）。
 
@@ -34,16 +35,14 @@ HTTP 接口按本地单用户部署的信任假设设计：
 - 外部 harness 的 agent 在 Workspace 访问登记中只有四项记忆操作，但经 HTTP 管理接口可以绕过这份白名单：管理记忆、改写主配置、写入提供商密钥、读取日志；
 - 本机其他程序同样可以这样做，本地单用户部署的信任假设不再成立。
 
-可能的处理（未决定）：
-
-- 为 HTTP 管理接口增加本机管理凭据，前端随页面取得，外部进程没有；
-- 管理接口只监听另一个端口或 Unix socket，与 harness 使用的 `/mcp`、`/api/v1/import/turns` 分开；
-- 收紧到只读，或移除不经认证网关的写接口。
-
-这会改变整个 HTTP API 的信任模型，涉及前端、认证网关与部署方式，实施前先形成 Idea 或计划。
+这会改变整个 HTTP API 的信任模型，涉及前端、认证网关与部署方式。认证方式的选项与影响已移入[身份与访问体系 Idea](../ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节（2026-11-05），本 Todo 保留问题、证据与完成条件。
 
 ## 完成条件
 
-- 决定 HTTP 管理接口的调用方认证方式，记入对应的 Idea 或计划；
+- 决定 HTTP 管理接口的调用方认证方式，记入对应的 Idea 或计划（已完成：owner 2026-11-05 决定采用管理凭据，现在先防误用，防刻意随 v1.0 桌面客户端完成，见[身份与访问体系 Idea](../ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节）；
 - 外部 harness 的 agent 与本机其他进程不能在没有管理凭据的情况下读写记忆、配置、密钥与模型注册表；
 - 更新[配置指南](../help/configuration.md#51-访问登记)与[认证与访问登记](../workspace/authentication.md)中关于信任假设的描述。
+
+## 追踪
+
+- 2026-11-05：owner 决定采用管理凭据；防误用部分抽出计划 [HTTP 管理面的管理凭据](../plans/http-management-credential.md)，计划收尾时本 Todo 归档。

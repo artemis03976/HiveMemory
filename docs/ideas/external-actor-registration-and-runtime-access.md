@@ -28,7 +28,7 @@ related_docs:
   - docs/VISION.md
   - docs/ideas/execution-environment.md
   - docs/archive/ideas/execution-thread-definition.md
-last_reviewed: 2026-11-04
+last_reviewed: 2026-11-05
 ---
 
 # 外部 Actor 的接入登记与运行时访问
@@ -125,14 +125,14 @@ owner 采纳：一个外部 harness 只登记一份，由这份登记派生两�
 
 - 运行时仍是两个注册表，按方向分开：入站认证属于 System，出站执行属于任务进程。System 装载登记后分别构造两者并注入使用方，与总 Idea D-5 的做法一致。
 - 由此，任务进程调用 CPU 采用对象端口：端口由 workspace 定义，CPU 实现，组合根注入，不采用总线路由契约（[子系统公共契约](../contracts/subsystem-contracts.md)第 4.1 节）。
-- 登记仍在启动时从配置装载（E-1）。
+- 登记仍在启动时从配置装载（E-1，见[身份与访问体系 Idea](./identity-and-access-model.md#3-principal-登记的来源与生效时点e-1)第 3 节）。
 - 并非每个参与者都有两个侧面（分析）：plugin 模式的 harness 与管理员直接通道只有接入侧面；Alice 两个侧面都有，执行侧面是内置的；测试 CPU 只有执行侧面。
 - 驱动与执行单元（分析，2026-10-20 按修订后的用语改写）：驱动是代码，按协议而不是按 harness 编写，例如一个 ACP 驱动可以覆盖所有支持 ACP 的 harness；执行单元由登记数据配出，登记包括选用的驱动、驱动配置与绑定的 principal。能否不写代码就加入一个新 harness 取决于 E-2a：采用通用协议时，只需新增一条登记；按各家 SDK 或 CLI 适配时，每家至少需要一个驱动。入站方向的 `adapters` 字段已经是“代码定义种类、登记数据引用种类”的形态。
 - 后续设计（owner，2026-09-30）：actor 对应哪个 CPU 的映射放在哪里（执行侧面 / Agent Profile 的字段 / 独立的映射表 / 其他）；按 actor 或按请求选择 CPU 的机制。v0.7.0 只需要 Alice 接入 CPU 端口。
   - 2026-10-06：按[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节的用语，CPU 专指执行单元，即 CPU 驱动加上它驱动的 harness 实例，actor 是执行单元中的执行线程；本表的执行侧面对应 CPU 驱动，接入侧面对应操作适配器。只有接入侧面的参与者不称 CPU（执行单元 Idea T-6）。
   - 2026-10-20：第五代架构 Idea 第 2 节修订用语：执行单元改指 CPU 的常驻实例，原“CPU 驱动加 harness 实例”合并为执行单元，驱动只指实现它的代码；本表的执行侧面对应执行单元。
   - 2026-10-06：按执行单元 Idea前提 9、10，agent 与执行环境解耦，不存在固定的“actor 对应哪个 CPU”的映射：用户在对话开始前分别选择 agent 与执行环境，选择执行环境不是 workspace 的能力，倾向由系统层级控制、在 CPU 分配时决定 backend（E-6a）。选择的承载、默认值与可用范围见执行单元 Idea T-8。
-- 仍待决：登记记录的结构，以及它与 Workspace Actor 访问登记的关系（E-1a）。
+- 仍待决：登记记录的结构，以及它与 Workspace Actor 访问登记的关系（E-1a，同在身份与访问体系 Idea 第 3 节）。
 
 ## 2. 现状事实（代码核对，2026-11-04）
 
@@ -140,7 +140,7 @@ plugin 模式的两步已经实施（第 4 节）。本节只列与本文开放�
 
 ### 2.1 接入登记
 
-- 两类登记仍在启动时从配置装载，运行中不可变，修改需要重启（E-1 选项 A）：System 接入登记来自 `configs/system_principals.yaml`（[`system/access/registry.py`](../../src/hivememory/system/access/registry.py)），Workspace Actor 访问登记来自 `configs/workspace_actors.yaml`（[`workspace/registry.py`](../../src/hivememory/workspace/registry.py)），字段见[认证与访问登记](../workspace/authentication.md)。
+- 两类登记仍在启动时从配置装载，运行中不可变，修改需要重启（E-1 选项 A，见[身份与访问体系 Idea](./identity-and-access-model.md#3-principal-登记的来源与生效时点e-1)）：System 接入登记来自 `configs/system_principals.yaml`（[`system/access/registry.py`](../../src/hivememory/system/access/registry.py)），Workspace Actor 访问登记来自 `configs/workspace_actors.yaml`（[`workspace/registry.py`](../../src/hivememory/workspace/registry.py)），字段见[认证与访问登记](../workspace/authentication.md)。
 - 除配置文件外，没有登记、修改或撤销接入的入口。
 
 ### 2.2 认证
@@ -305,7 +305,7 @@ plugin 模式在 Claude Code 中的形态（分析，2026-10-20 按 [Claude Code
 
 - 范围：Claude Code 插件提供 MCP 工具，经能力层检索与读取记忆，访问不建进程、不绑定进程；结果带有可回查的记忆引用。
 - 验收方向：Claude Code 在会话中检索到已有记忆（包括对话回流积累与 Alice 会话形成的记忆）并实际使用；访问按 Workspace 访问登记逐次授权，越权与跨 Workspace 的访问被拒绝。与第一步合起来达到 [ROADMAP](../ROADMAP.md) 第 3.1 节的验收闭环。
-- 阻塞问题：已于 2026-10-29 全部决定。本文 E-2（传输承载）、E-3b（操作适配器的代码位置）与 E-7（记忆到达 harness 的方式），见各节；[第五代架构 Idea](./fifth-generation-architecture.md) 的 P-1c（身份证明的实现位置）与 P-9c（不建进程的 actor 访问如何进入 actor API），见下文“[P-1c 与 P-9c](#p-1c-与-p-9c-身份证明与不建进程的访问-context)”。计划为 Claude Code 登记自己的 principal，并在同一计划中落实已决定的 root 声明范围（身份与访问体系 Idea 第 4 节）。
+- 阻塞问题：已于 2026-10-29 全部决定。本文 E-2（传输承载）、E-3b（操作适配器的代码位置）与 E-7（记忆到达 harness 的方式），见各节；[第五代架构 Idea](./fifth-generation-architecture.md) 的 P-1c（身份证明的实现位置）与 P-9c（不建进程的 actor 访问如何进入 actor API），见下文“[P-1c 与 P-9c](#p-1c-与-p-9c-身份证明与不建进程的访问-context)”。计划为 Claude Code 登记自己的 principal，并在同一计划中落实已决定的 root 声明范围（现记录在身份与访问体系 Idea 第 8 节）。
 - 不阻塞本步（分析）：只读取时没有异步结果需要观察，E-4 不涉及。
 - 候选设计（分析，2026-10-29）：取回的记忆不经对话回流再次提取（回声），检索结果的优先级低于仓库代码与 harness 自己的指令和记忆文件；见 E-7 之后的“与对话回流及 harness 自带记忆的衔接”。
 
@@ -330,25 +330,12 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
 - 验收方向：在 HiveMemory 前端选择该 harness 完成多轮对话，停止有效，交互封口后进入记忆生成；新会话中 prepare 检索到的记忆作为材料交给 harness，形成被动注入的跨会话闭环。
 - 不包含：harness 主动调用记忆（操作适配器）、工具调用的事件呈现、Profile 应用结果的报告、harness 的子 agent、第二个 harness。
 - 阻塞问题：本文 E-2a；[任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) Q-8；[执行环境 Idea](./execution-environment.md) T-7、T-8、T-11。候选 harness 的程序化接口见[接口调研需求](../research/harness-interface-survey.md)与 [2026-10-20 资料快照](../research/harness-interface-survey-snapshot.md)（模型实测待验证）。
-- 不阻塞这一步（分析）：harness 不回调 HiveMemory，也不需要登记外部来源，E-2 主问题、E-3b、[第五代架构 Idea](./fifth-generation-architecture.md) P-1b 与 P-1c、[身份与授权](../workspace/identity-and-authorization.md#8-已知限制)第 8 节的 `system` 声明规则都不涉及；只回传正文与终态字段时，T-10 的三个选项行为相同。
+- 不阻塞这一步（分析）：harness 不回调 HiveMemory，也不需要登记外部来源，E-2 主问题、E-3b、[身份与访问体系 Idea](./identity-and-access-model.md#p-1-经网络接入的执行者如何证明身份) P-1b 与 P-1c、[身份与授权](../workspace/identity-and-authorization.md#8-已知限制)第 8 节的 `system` 声明规则都不涉及；只回传正文与终态字段时，T-10 的三个选项行为相同。
 - 后续步骤（候选）：harness 经绑定线程的操作适配器主动使用记忆，需要 E-2 主问题、E-3b、P-1b 与 `system` 声明规则，T-10 需要在此之前决定；Profile 应用结果的报告（P-10a，与 T-7b 相互约束）与前端呈现；E-2a 若选通用协议，接入第二个 harness 验证驱动的通用性。Q-3b 只在外部协议直接发起任务时才需要；P-3 随执行基座考虑（暂不考虑，见 ROADMAP 第 5.4 节）。验收方向见 ROADMAP 第 5.6 节。
 
 ### E-1 接入登记的来源与生效时点
 
-**背景**：两类登记只能在启动时从配置装载，运行中不可变（2.1）。
-
-| 选项 | 内容 | 影响 |
-|:---|:---|:---|
-| A | 维持启动时从配置装载 | 新增或撤销外部 Actor 需要修改配置并重启 |
-| B | 提供运行时登记入口（例如经管理员直接通道，见总 Idea 15.1 方案 C） | 需要定义登记、修改、撤销的授权与生效时点，以及已签发 context 的处理 |
-| C | 登记数据来自外部身份系统 | 需要定义与外部系统的信任关系与同步方式 |
-| D | 其他 | —— |
-
-**子问题 E-1a**：System 接入登记与 Workspace Actor 访问登记是否经同一入口维护：同一入口 / 分开维护 / 其他。
-
-**owner 决定（2026-09-27）**：接入登记维持启动时从配置装载（选项 A）。运行时登记与其他配置文件的热更新一并由未来单独的计划实现；E-1a 随该计划决定。
-
-**补充（owner，2026-09-30）**：启动时从配置装载的决定仍然成立，harness 登记（1.2）同样从配置装载。目前 `configs/config.yaml` 没有 access 配置段（2.1），需要先建立承载登记的配置文件。owner 于 2026-10-01 决定：登记使用单独的配置文件，在 [A1 返工](../archive/plans/v0.7.0-a1-access-boundary-rework.md)中建立。2026-10-02：`principals` 与 `workspace_actors` 移出 `config.yaml`，改用单独的配置文件；2026-10-03 细化为两类登记各用一个文件，harness 登记的执行侧面在 principals 文件中留出位置，具体结构不在 A1 返工中定义（总 Idea 15.6）。
+2026-11-05 移入[身份与访问体系 Idea](./identity-and-access-model.md#3-principal-登记的来源与生效时点e-1)第 3 节，连同 owner 决定（2026-09-27，选项 A：维持启动时从配置装载）与子问题 E-1a，在那里随身份与访问主线维护。
 
 ### E-2 运行时访问的传输承载
 
@@ -503,7 +490,7 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
   - Claude Code 的接入登记；
   - `mcp` 与 `import` 两个 adapter 标识；
   - 凭据只以环境变量名登记；
-  - 登记逐个声明能否声明 `system`，落实身份与访问体系 Idea 第 4 节的 root 声明范围。
+  - 登记逐个声明能否声明 `system`，落实身份与访问体系 Idea 第 8 节记录的 root 声明范围。
 
 #### P-9c 不建进程的 actor 访问如何进入 actor API
 
@@ -526,8 +513,8 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
 
 | 问题 | 位置 | 关系 |
 |:---|:---|:---|
-| P-1 经网络接入的 Actor 每次请求如何证明身份 | [第五代架构 Idea](./fifth-generation-architecture.md) P-1 | 运行时访问的身份证明；P-1a 已决定：注册前经认证网关验证身份，此后每次请求重新校验（总 Idea 15.2）；P-1c 已决定（2026-10-29）：由统一认证网关证明，每个外部 principal 一份本地共享密钥作为接入证据，见第 4 节“P-1c 与 P-9c” |
-| P-3 能力层是否覆盖执行类操作 | 同上 | 外部 Actor 可调用的操作范围（3.5） |
+| P-1 经网络接入的 Actor 每次请求如何证明身份 | [身份与访问体系 Idea](./identity-and-access-model.md#p-1-经网络接入的执行者如何证明身份) P-1（2026-11-05 由第五代架构 Idea 移入） | 运行时访问的身份证明；P-1a 已决定：注册前经认证网关验证身份，此后每次请求重新校验（总 Idea 15.2）；P-1c 已决定（2026-10-29）：由统一认证网关证明，每个外部 principal 一份本地共享密钥作为接入证据，见第 4 节“P-1c 与 P-9c” |
+| P-3 能力层是否覆盖执行类操作 | [第五代架构 Idea](./fifth-generation-architecture.md) P-3 | 外部 Actor 可调用的操作范围（3.5） |
 | P-9c 不建进程的 actor 访问如何进入 actor API | 同上 | plugin 模式的访问不建进程（1.1）；已决定（2026-10-29）：每次操作一份请求级访问 context，见第 4 节“P-1c 与 P-9c” |
 | P-10 Agent Profile 的能力描述是否与 MTP 解耦 | 同上 | 外部 Actor 如何理解 Profile；已决定：allow 字段并入能力层的 operation 控制（总 Idea 15.4），P-10a 仍待决 |
 | Q-8 外部 CPU 的进程 | [任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) | 外部 Actor 的调用与进程的关系、回收与取消；只涉及 controller 模式（1.1） |

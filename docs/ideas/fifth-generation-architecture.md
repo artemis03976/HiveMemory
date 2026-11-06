@@ -19,7 +19,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/pending-intent-migration.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-29
+last_reviewed: 2026-11-05
 ---
 
 # 第五代架构：Workspace 网络
@@ -323,23 +323,19 @@ flowchart TB
 - **外部会话与 Topic 投影**（3.9）：会话模型、workspace 共享的 Topic 池、前端回归会话模型，见[外部会话 Idea](./external-session-and-topic-projection.md)。
 - **外部 Actor 接入**（3.1、3.3）：controller 模式下外部 harness 是进程中的执行单元；plugin 模式下 HiveMemory 挂载在外部 harness 中，只有接入侧面，对话经 Import Bus 回流。见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md)与 [Import Bus](../system/import-bus.md)。
 - **执行基座与执行环境**（3.3）：用户在对话开始前分别选择 agent 与执行环境，见[执行环境 Idea](./execution-environment.md)。
-- **被动请求**（3.2）：定时与队列触发创建任务进程，见[任务进程 Idea](./task-process-table-and-registration-entry.md)与第 5 节 P-5。
+- **被动请求**（3.2）：定时与队列触发创建任务进程，见[任务进程 Idea](./task-process-table-and-registration-entry.md)与[身份与访问体系 Idea](./identity-and-access-model.md#p-5-被动请求的认证) P-5。
 - **流式同步与 turn 内上下文折叠**（3.8、3.9）：交互以更原子的结构流式同步到 Patchouli，生成材料包含当前轮已接收的消息，见[长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md)。
 - **写入意图的后续**（3.7、3.8）：结算对账、句柄寿命、意图 policy 与外部提交契约，见[写入意图后续方向 Idea](./pending-intent-migration.md)。
-- **子网与跨 Workspace**（3.5）：受限穿透访问、Mount、Bridge 与能力子网，见 [AE2 Idea](./ae2-hivememory-architecture-analogy.md)与[身份与访问体系 Idea](./identity-and-access-model.md)。
+- **身份与访问体系**（3.5、3.6）：principal 的登记与调用方证明、进入 Workspace 的身份、操作调用的授权与资源可见性，作为单独的主线方向维护（owner，2026-11-05），见[身份与访问体系 Idea](./identity-and-access-model.md)。
+- **子网与跨 Workspace**（3.5）：受限穿透访问、Mount、Bridge 与能力子网，见 [AE2 Idea](./ae2-hivememory-architecture-analogy.md)与[身份与访问体系 Idea](./identity-and-access-model.md#7-受限穿透访问)第 7 节。
 - **持久化与恢复**（3.4、3.7）：会话、意图、任务与登记的耐久性等级，见[耐久性与故障恢复治理](../governance/reliability/durability-and-recovery.md)。
-- **运行时登记与配置热更新**（3.5）：接入登记与操作白名单的运行时编辑，见[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#e-1-接入登记的来源与生效时点) E-1。
+- **运行时登记与配置热更新**（3.5）：接入登记与操作白名单的运行时编辑，见[身份与访问体系 Idea](./identity-and-access-model.md#3-principal-登记的来源与生效时点e-1) E-1。
 
 ## 5. 架构级开放问题
 
 只收跨子系统、没有归属到某个子 Idea 的问题。每个问题只列出选项及其影响，选项顺序不代表倾向；编号沿用原文，便于追溯。
 
-### P-1 经网络接入的执行者如何证明身份
-
-Principal 认证目前只检查声称的 principal 是否已登记、adapter 是否匹配，HTTP 入口的身份取自请求头（[认证与访问登记](../workspace/authentication.md#8-已知限制)第 8 节）。
-
-- **P-1b 请求与进程的归属校验**：请求的 principal 必须与进程注册时一致 / 其他规则；
-- **P-1c 身份证明的实现位置**：owner 决定（2026-10-29）由统一认证网关证明，每个外部 principal 一份本地共享密钥作为接入证据，一个 harness 对应一个 principal；决定与复核记录在[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#p-1c-与-p-9c-身份证明与不建进程的访问-context)。
+身份与访问相关的 P-1（含 P-1b，P-1c 已决定）、P-4a、P-5、P-7、P-8 于 2026-11-05 移入[身份与访问体系 Idea](./identity-and-access-model.md)，沿用原编号；那份 Idea 是身份与访问这条主线的维护位置。
 
 ### P-3 能力层是否覆盖执行本身
 
@@ -350,34 +346,6 @@ RUN 与 CALL 已是 actor 操作，授权进入能力层；系统工具暂不设
 | A | 覆盖：RUN、CALL、系统工具的执行也经能力层 | 能力层承担执行入口，与执行基座的边界需要一并确定 |
 | B | 不覆盖：能力层只负责授权与资源，执行留在执行单元的执行环境 | 3.1 的“唯一能力提供者”限定为资源操作与授权 |
 | C | 部分覆盖 | 需要划分标准 |
-
-### P-4a 进程能否持有白名单的子集
-
-- 支持：注册时声明所需操作集合，入口校验它是白名单子集，能力层按进程的集合授权；访问 context 需要携带本次运行的操作上限；
-- 不支持：进程一律继承 actor 在该 Workspace 的白名单。
-
-### P-5 被动请求的认证
-
-被动请求只存在于 controller 模式（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）。
-
-- **P-5b 触发器的 principal**：触发器的登记者 / 系统内置 principal / 其他。owner 倾向（2026-09-27）由登记的 Agent 反推 principal；
-- **P-5c 触发器的准入检查时点**：登记触发器时 / 每次触发时 / 两者都查。
-
-### P-7 进程控制操作的授权主体
-
-取消由持有进程句柄的入口与进程控制授权处理；状态查询等其余控制操作的授权主体尚未决定。
-
-选项：仅进程的注册 principal / 注册 principal 与管理员 / Workspace 内任何获准者 / 其他。
-
-### P-8 资源边界是否增加修改与执行授权
-
-`MemoryAccessPolicy` 只表达读取。
-
-| 选项 | 内容 | 影响 |
-|:---|:---|:---|
-| A | 资源策略扩展到修改与执行 | 需要扩展 `MemoryAccessPolicy` 或新增策略模型，并确定默认值与存量迁移 |
-| B | 不增加 | 修改权限只由操作白名单与读取可见性共同约束 |
-| C | 只对部分资源类型增加 | 需要划分资源类型 |
 
 ### P-9 不建进程的访问
 
@@ -413,7 +381,7 @@ C 与 [engines 对上层的既有导入](../todo/engines-upward-imports.md)相�
 | [任务进程 Idea](./task-process-table-and-registration-entry.md) | 3.2：请求方分类、进程结构、阶段与取消、被动请求 |
 | [执行线程](../workspace/execution-threads.md)（已归档的[执行线程 Idea](../archive/ideas/execution-thread-definition.md)） | 3.3 与第 2 节用语中的执行线程：定义、生命周期与观测（当前事实） |
 | [执行环境 Idea](./execution-environment.md) | 3.3：agent 与执行环境的分别选择、不同执行环境的输出词汇 |
-| [身份与访问体系 Idea](./identity-and-access-model.md) | 3.5、3.6：身份数据的形态与流向 |
+| [身份与访问体系 Idea](./identity-and-access-model.md) | 3.5、3.6：身份与访问主线，从 principal 的登记与调用方证明到资源可见性；P-1、P-4a、P-5、P-7、P-8 |
 | [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 3.9：会话模型与 Topic 池 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | 3.1、3.3：接入侧面、操作适配器与两种接入模式 |
 | [写入意图后续方向 Idea](./pending-intent-migration.md) | 3.7、3.8：结算对账、句柄寿命与外部契约 |
