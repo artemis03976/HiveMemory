@@ -121,7 +121,7 @@ class PatchouliSystem(SubsystemProtocol):
         # 2. Patchouli 对外能力门面。主动链路与 Import Bus 共用同一条 interaction lane。
         # 访问边界：Patchouli 是授权点以下的
         # 资源 owner，公开方法与阶段路由只接收授权点组装的 IdentityScope，
-        # 不接收访问 context，也不再注入共享操作授权。
+        # 不接收工作 actor，也不注入共享操作授权。
         self._service = PatchouliService(
             bus=self.runtime.local_bus,
             interaction_queue=self._interaction_submission_queue,

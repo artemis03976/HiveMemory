@@ -15,10 +15,11 @@ from hivememory.patchouli.runtime.bus import PatchouliBus
 class AgentProfileManagementService:
     """Patchouli 面向公开 agent profile 管理/读取 API 的应用服务。
 
-    Profile 管理写入与列表由 workspace root API 授权；actor 读取与进程
-    阶段读取分别在对应授权点校验。本层只接收组装后的 ``IdentityScope``，
-    不接收访问 context。读取返回 ``ResolvedAgentProfile``（Profile、源原子
-    policy 依据与关联），读取视图在交付时仍按 actor 检查可见性。
+    Profile 管理写入与列表由 workspace root API 授权；actor 读取（CALL）与
+    任务进程加载执行者图纸（root 授权、管理读取）分别在对应授权点校验。本层
+    只接收组装后的 ``IdentityScope``，不接收工作 actor。读取返回
+    ``ResolvedAgentProfile``（Profile、源原子 policy 依据与关联），读取视图在
+    交付时仍按 actor 检查可见性，管理读取除外。
     """
 
     def __init__(self, *, bus: PatchouliBus) -> None:
@@ -68,12 +69,18 @@ class AgentProfileManagementService:
         agent_alias: str | None,
         *,
         identity_scope: IdentityScope,
+        enforce_actor_visibility: bool = True,
     ) -> ResolvedAgentProfile:
-        """Profile 定义解析 backing：唯一解析规则 + 源原子 policy 依据与关联。"""
+        """Profile 定义解析 backing：唯一解析规则 + 源原子 policy 依据与关联。
+
+        ``enforce_actor_visibility=False`` 是管理读取：任务进程以 root scope 加载
+        执行者的图纸时只校验归属，不按 system 的 Agent 可见性过滤。
+        """
         scope = require_identity_scope(identity_scope)
         return await self._bus.request(
             PatchouliLocalRoutes.GET_AGENT_PROFILE,
             agent_alias,
             belong_to=scope.workspace_identity,
             from_actor=scope.actor_identity,
+            enforce_actor_visibility=enforce_actor_visibility,
         )
