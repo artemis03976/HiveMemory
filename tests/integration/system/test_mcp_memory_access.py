@@ -57,6 +57,7 @@ from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.capability.root.interaction import RootInteractionService
+from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.process.threads import ProcessThreads
 from hivememory.workspace.read_view import WorkspaceReadView
@@ -233,14 +234,13 @@ def _compose(allowed_operations: frozenset[WorkspaceOperation]):
     )
     import_bus = ImportBusService(
         ingestor=ImportBusIngestor(
-            bus,
             interactions=RootInteractionService(bus, operation_authorizer=authorizer),
+            topics=RootTopicService(bus, operation_authorizer=authorizer),
             gateway_request_timeout_ms=1000,
             gateway_session_turn_limit=3,
             apply_wait_seconds=2,
         ),
         access_gateway=gateway,
-        operation_authorizer=authorizer,
         system_principal=CallerPrincipal(SYSTEM_PRINCIPAL_ID),
         system_adapter=LOCAL_ADAPTER,
     )

@@ -36,6 +36,7 @@ from hivememory.system.access import LOCAL_ADAPTER, SYSTEM_PRINCIPAL_ID
 from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.system.services.import_bus import ImportBusIngestor, ImportedTurn
 from hivememory.workspace.capability.root.interaction import RootInteractionService
+from hivememory.workspace.capability.root.topic import RootTopicService
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -233,14 +234,13 @@ def _import_bus_service(bus, composition, config) -> ImportBusService:
     """与组合根相同地装配 Import Bus 服务：编排器经 root 交互提交 API 提交。"""
     return ImportBusService(
         ingestor=ImportBusIngestor(
-            bus,
             interactions=RootInteractionService(bus, operation_authorizer=composition.authorizer),
+            topics=RootTopicService(bus, operation_authorizer=composition.authorizer),
             gateway_request_timeout_ms=config.gateway.workflow.default_request_timeout_ms,
             gateway_session_turn_limit=config.gateway.context_preparation.session_turn_limit,
             apply_wait_seconds=config.import_bus.apply_wait_seconds,
         ),
         access_gateway=composition.gateway,
-        operation_authorizer=composition.authorizer,
         system_principal=CallerPrincipal(SYSTEM_PRINCIPAL_ID),
         system_adapter=LOCAL_ADAPTER,
     )

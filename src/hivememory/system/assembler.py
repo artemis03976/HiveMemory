@@ -514,16 +514,21 @@ class SystemAssembler:
             # chat.run.* 由任务进程的领域 emitter 投影，来源标签在 emitter 内统一。
             event_publisher=runtime.event_publisher,
         )
-        # Import Bus 经公开路由查重、经 root API 的“提交交互”提交，不持有
-        # Patchouli 的提交队列；系统的 root 工作 actor 经同一网关认证、同一操作
-        # 授权者授权，Gateway 时限与最近轮数沿用 Gateway 配置。
+        # root 话题 API 同时供 HTTP 管理路由与 Import Bus 使用。
+        root_topic = RootTopicService(
+            global_bus=runtime.global_bus,
+            operation_authorizer=access_control.operation_authorizer,
+        )
+        # Import Bus 只认证系统自身：查重、路由、准备话题、提交与等待应用都经
+        # root API，由它在方法入口授权；编排器不持有 Patchouli 的提交队列。
+        # Gateway 时限与最近轮数沿用 Gateway 配置。
         import_bus = ImportBusService(
             ingestor=ImportBusIngestor(
-                runtime.global_bus,
                 interactions=RootInteractionService(
                     runtime.global_bus,
                     operation_authorizer=access_control.operation_authorizer,
                 ),
+                topics=root_topic,
                 gateway_request_timeout_ms=(
                     self._config.gateway.workflow.default_request_timeout_ms
                 ),
@@ -537,7 +542,6 @@ class SystemAssembler:
                 ),
             ),
             access_gateway=access_control.access_gateway,
-            operation_authorizer=access_control.operation_authorizer,
             system_principal=system_principal,
             system_adapter=LOCAL_ADAPTER,
         )
@@ -552,10 +556,6 @@ class SystemAssembler:
             operation_authorizer=access_control.operation_authorizer,
         )
         root_memory_task = RootMemoryTaskService(
-            global_bus=runtime.global_bus,
-            operation_authorizer=access_control.operation_authorizer,
-        )
-        root_topic = RootTopicService(
             global_bus=runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,
         )

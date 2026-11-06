@@ -4,7 +4,7 @@ Import Bus 只向记忆网络输入，不检索记忆、不返回记忆上下文
 
     按外部会话串行 -> 推导 interaction_id -> 查询进度 -> 没有输出则跳过
     -> 写入时已确定话题则沿用该话题，否则 Gateway PASSIVE_MEMORY（附最近轮次与
-    上一轮所在的话题）-> 共用封口函数 -> Patchouli 公开提交路由 -> 等待感知应用
+    上一轮所在的话题）-> 共用封口函数 -> root API 提交交互 -> 等待感知应用
     完成 -> 确认
 
 确认表示交互已经应用：应用失败或等待超时都不确认，连接器保留这一轮
@@ -16,11 +16,12 @@ Import Bus 只向记忆网络输入，不检索记忆、不返回记忆上下文
 话题，新话题在此预建；已确定的话题按 interaction_id 登记，同一轮再次请求直接
 返回，回流时以该话题提交、不再路由。确定话题只读取候选话题，不读取记忆。
 
-确定话题、路由与提交都是系统级操作：传入的 ``IdentityScope`` 是 Import Bus 服务
-以系统的 root 工作 actor 授权得到的 scope，只在这一次导入的调用链内经公共
-路由到达 Gateway 与 Patchouli，不写入记录、事件或后台任务；提交经 root API
-的“提交交互”进行。交互中的 Agent 与认证通过的 principal 标识作为数据显式
-传入：外部会话键、交互标识与事件中的 Agent 取自它们，提交的发起者是参与者。
+查询进度、路由、准备话题、提交与等待应用都是系统级操作：编排器以 Import Bus
+服务认证得到的系统 root 工作 actor 调用 root API，每次调用由 root API 在方法
+入口授权，编排器自己不授权、也不持有 scope。目标不是参与者驻留的 Workspace
+时，第一次 root 调用即被拒绝，先于路由与提交。交互中的 Agent 与认证通过的
+principal 标识作为数据显式传入：外部会话键、交互标识与事件中的 Agent 取自
+它们，提交的发起者是参与者。
 编排器不持有提交队列，也不登记维护任务；关闭时只等待在途导入（含其等待
 应用的时间），队列由 Patchouli 自己排空。
 """
@@ -33,19 +34,13 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from typing import Any
 
-from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RuntimeEventSink
 from hivememory.components.serial_gate import KeyedSerialGate
 from hivememory.core.access import WorkingActor
-from hivememory.core.models import ActorIdentity, IdentityScope
-from hivememory.core.protocol.gateway import (
-    GatewayDecision,
-    GatewayIngressMode,
-    GatewaySessionTurn,
-)
+from hivememory.core.models import ActorIdentity, WorkspaceIdentity
+from hivememory.core.protocol.gateway import GatewayDecision, GatewaySessionTurn
 from hivememory.core.protocol.sealing import seal_interaction
-from hivememory.gateway.contracts import GatewayPublicRoutes
-from hivememory.patchouli.contracts import PatchouliRoutes, PreparedAgentRun
+from hivememory.patchouli.contracts import PreparedAgentRun
 from hivememory.patchouli.contracts.errors import InteractionAdmissionUnavailableError
 from hivememory.patchouli.contracts.interaction_submission import InteractionStatus
 from hivememory.system.services.import_bus.errors import (
@@ -64,6 +59,7 @@ from hivememory.system.services.import_bus.models import (
     derive_import_interaction_id,
 )
 from hivememory.workspace.capability.root.interaction import RootInteractionService
+from hivememory.workspace.capability.root.topic import RootTopicService
 
 logger = logging.getLogger(__name__)
 
@@ -81,21 +77,21 @@ class ImportBusIngestor:
 
     写入时确定话题与导入共用同一串行门与在途计数：同一外部会话的确定话题请求
     与回流按到达顺序处理，关闭时同样等待在途的确定话题请求。``interactions``
-    是组合根注入的 root 交互提交 API，提交由它以 root 授权进行。
+    与 ``topics`` 是组合根注入的 root 交互 API 与 root 话题 API。
     """
 
     def __init__(
         self,
-        bus: GlobalSystemBus,
         *,
         interactions: RootInteractionService,
+        topics: RootTopicService,
         gateway_request_timeout_ms: int,
         gateway_session_turn_limit: int,
         apply_wait_seconds: float,
         runtime_events: RuntimeEventSink | None = None,
     ) -> None:
-        self._bus = bus
         self._interactions = interactions
+        self._topics = topics
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
         self._gateway_session_turn_limit = gateway_session_turn_limit
         self._apply_wait_seconds = apply_wait_seconds
@@ -116,15 +112,15 @@ class ImportBusIngestor:
         turn: ImportedTurn,
         *,
         system_actor: WorkingActor,
-        identity_scope: IdentityScope,
+        target_workspace: WorkspaceIdentity,
         participant: ActorIdentity,
         principal_id: str,
     ) -> ImportTurnResult:
         """导入一轮完整记录，应用完成后返回接纳；已应用的返回重复，没有输出的跳过。
 
-        ``system_actor`` 是系统的 root 工作 actor，``identity_scope`` 是以它
-        root 授权得到的 scope；提交经 root API 以 ``system_actor`` 再授权一次。
-        ``participant`` 与 ``principal_id`` 是请求认证通过的 Agent 与调用来源。
+        ``system_actor`` 是系统的 root 工作 actor，以它调用 root API；
+        ``target_workspace`` 是这次导入的目标。``participant`` 与
+        ``principal_id`` 是请求认证通过的 Agent 与调用来源。
         Gateway 整体抛出的可恢复异常、提交队列拥塞、等待应用超时与关闭中以
         ``ImportBusUnavailableError`` 交回，应用失败以 ``ImportBusApplyFailedError``
         交回，都可用同一轮次重发；契约错误、程序错误与取消原样传播。
@@ -134,7 +130,7 @@ class ImportBusIngestor:
             return await self._ingest_serialized(
                 turn,
                 system_actor=system_actor,
-                scope=identity_scope,
+                target_workspace=target_workspace,
                 participant=participant,
                 principal_id=principal_id,
                 interaction_id=interaction_id,
@@ -144,7 +140,8 @@ class ImportBusIngestor:
         self,
         turn: InFlightTurn,
         *,
-        identity_scope: IdentityScope,
+        system_actor: WorkingActor,
+        target_workspace: WorkspaceIdentity,
         participant: ActorIdentity,
         principal_id: str,
     ) -> str:
@@ -157,19 +154,21 @@ class ImportBusIngestor:
         但仍在应用时以 ``apply_pending`` 交回，写入方稍后重试。
         Gateway 整体抛出的可恢复异常与关闭中以 ``ImportBusUnavailableError``
         交回；写入正等待这个结果，失败直接交给调用方，不记为导入推迟。prepare
-        失败时由 Patchouli 清理它预建的空话题，异常原样传播，不登记。
-        ``identity_scope`` 是系统的 root scope，确定话题时不检索、不读取记忆；
-        ``participant`` 与 ``principal_id`` 的含义与导入相同。
+        失败时由 Patchouli 清理它预建的空话题，异常原样传播，不登记。确定话题时
+        不检索、不读取记忆；参数的含义与导入相同。
+
+        已确定话题的登记命中时直接返回，不经过 root API：登记项只由此前经过 root
+        授权的请求写入，键由同一 principal 与参与者推导。
         """
         interaction_id = self._interaction_id(turn, participant, principal_id)
         async with self._serialized(turn, participant):
             placement = self._placements.get(interaction_id)
             if placement is not None:
                 return placement.topic_id
-            status = await self._bus.request(
-                PatchouliRoutes.INTERACTION_STATUS,
-                identity_scope=identity_scope,
+            status = await self._interactions.interaction_status(
+                target_workspace=target_workspace,
                 interaction_id=interaction_id,
+                actor=system_actor,
             )
             # 只有已应用的轮次带实际所在的话题。
             if status is not None and status.topic_id is not None:
@@ -179,14 +178,13 @@ class ImportBusIngestor:
                 # 重试时它已应用。此时重新路由会让写入与这一轮落在不同的话题。
                 raise ImportBusUnavailableError(reason="apply_pending")
             decision = await self._request_gateway_decision(
-                turn, identity_scope, participant, principal_id
+                turn, system_actor, target_workspace, participant, principal_id
             )
-            # 这里只准备话题：不给检索 scope，prepare 不检索。
-            placement = await self._bus.request(
-                PatchouliRoutes.PREPARE_AGENT_RUN,
-                identity_scope=identity_scope,
+            placement = await self._topics.prepare_topic(
+                target_workspace=target_workspace,
                 interaction_id=interaction_id,
                 gateway_decision=decision,
+                actor=system_actor,
             )
             self._placements[interaction_id] = placement
             logger.info(
@@ -252,26 +250,35 @@ class ImportBusIngestor:
         turn: ImportedTurn,
         *,
         system_actor: WorkingActor,
-        scope: IdentityScope,
+        target_workspace: WorkspaceIdentity,
         participant: ActorIdentity,
         principal_id: str,
         interaction_id: str,
     ) -> ImportTurnResult:
-        status = await self._bus.request(
-            PatchouliRoutes.INTERACTION_STATUS,
-            identity_scope=scope,
+        status = await self._interactions.interaction_status(
+            target_workspace=target_workspace,
             interaction_id=interaction_id,
+            actor=system_actor,
         )
         if status is not None and status.state in ("succeeded", "unknown"):
-            return self._duplicate(turn, scope, participant, interaction_id, status.state)
+            return self._duplicate(
+                turn, target_workspace, participant, interaction_id, status.state
+            )
         if status is not None and status.state == "pending":
             # 上一次提交已被接纳、仍在应用：继续等待，不再路由与提交。
-            settled = await self._wait_applied(turn, scope, participant, interaction_id)
-            return self._duplicate(turn, scope, participant, interaction_id, settled.state)
+            settled = await self._wait_applied(
+                turn, system_actor, target_workspace, participant, interaction_id
+            )
+            return self._duplicate(
+                turn, target_workspace, participant, interaction_id, settled.state
+            )
 
         if status is None and not turn.has_output:
             self._events.skipped(
-                turn=turn, scope=scope, participant=participant, interaction_id=interaction_id
+                turn=turn,
+                workspace=target_workspace,
+                participant=participant,
+                interaction_id=interaction_id,
             )
             return ImportTurnResult(status="skipped", interaction_id=interaction_id)
 
@@ -285,11 +292,16 @@ class ImportBusIngestor:
         else:
             try:
                 decision = await self._request_gateway_decision(
-                    turn, scope, participant, principal_id
+                    turn, system_actor, target_workspace, participant, principal_id
                 )
             except ImportBusUnavailableError as error:
                 self._record_deferred(
-                    turn, scope, participant, interaction_id, "gateway_unavailable", error.__cause__
+                    turn,
+                    target_workspace,
+                    participant,
+                    interaction_id,
+                    "gateway_unavailable",
+                    error.__cause__,
                 )
                 raise
             topic_id = decision.target_topic_id
@@ -306,7 +318,7 @@ class ImportBusIngestor:
         try:
             # 交互提交是 root 能力：由系统执行，参与的 Agent 记为发起者。
             await self._interactions.submit_interaction(
-                target_workspace=scope.workspace_identity,
+                target_workspace=target_workspace,
                 participant=participant,
                 payload=payload,
                 requested_topic_id=topic_id,
@@ -318,14 +330,16 @@ class ImportBusIngestor:
             )
         except InteractionAdmissionUnavailableError as error:
             self._record_deferred(
-                turn, scope, participant, interaction_id, "queue_unavailable", error
+                turn, target_workspace, participant, interaction_id, "queue_unavailable", error
             )
             raise ImportBusUnavailableError(reason="queue_unavailable") from error
         # 提交已被接纳，这一轮的话题改由提交记录承载：此后的重发按提交进度处理，
         # 应用失败后的重发重新路由。队列拥塞时登记保留，重发仍然沿用。
         self._placements.pop(interaction_id, None)
 
-        applied = await self._wait_applied(turn, scope, participant, interaction_id)
+        applied = await self._wait_applied(
+            turn, system_actor, target_workspace, participant, interaction_id
+        )
         logger.info(
             "Import Bus 确认轮次: source=%s, interaction_id=%s, new_topic=%s",
             turn.source,
@@ -334,7 +348,7 @@ class ImportBusIngestor:
         )
         self._events.accepted(
             turn=turn,
-            scope=scope,
+            workspace=target_workspace,
             participant=participant,
             interaction_id=interaction_id,
             topic_id=applied.topic_id,
@@ -345,16 +359,17 @@ class ImportBusIngestor:
     async def _wait_applied(
         self,
         turn: ImportedTurn,
-        scope: IdentityScope,
+        system_actor: WorkingActor,
+        target_workspace: WorkspaceIdentity,
         participant: ActorIdentity,
         interaction_id: str,
     ) -> InteractionStatus:
         """等待已接纳的交互应用完成；超时与应用失败都不确认，交回给连接器重发。"""
-        status = await self._bus.request(
-            PatchouliRoutes.INTERACTION_WAIT,
-            identity_scope=scope,
+        status = await self._interactions.wait_interaction(
+            target_workspace=target_workspace,
             interaction_id=interaction_id,
             timeout_seconds=self._apply_wait_seconds,
+            actor=system_actor,
         )
         if status is None:
             raise ImportBusContractError("已接纳的交互在提交队列中查不到")
@@ -366,7 +381,7 @@ class ImportBusIngestor:
             )
             self._events.deferred(
                 turn=turn,
-                scope=scope,
+                workspace=target_workspace,
                 participant=participant,
                 interaction_id=interaction_id,
                 reason="apply_failed",
@@ -376,7 +391,7 @@ class ImportBusIngestor:
         if status.state == "pending":
             self._events.deferred(
                 turn=turn,
-                scope=scope,
+                workspace=target_workspace,
                 participant=participant,
                 interaction_id=interaction_id,
                 reason="apply_pending",
@@ -388,7 +403,7 @@ class ImportBusIngestor:
     def _duplicate(
         self,
         turn: ImportedTurn,
-        scope: IdentityScope,
+        workspace: WorkspaceIdentity,
         participant: ActorIdentity,
         interaction_id: str,
         state: str,
@@ -400,14 +415,15 @@ class ImportBusIngestor:
             state,
         )
         self._events.duplicate(
-            turn=turn, scope=scope, participant=participant, interaction_id=interaction_id
+            turn=turn, workspace=workspace, participant=participant, interaction_id=interaction_id
         )
         return ImportTurnResult(status="duplicate", interaction_id=interaction_id)
 
     async def _request_gateway_decision(
         self,
         turn: InFlightTurn,
-        scope: IdentityScope,
+        system_actor: WorkingActor,
+        target_workspace: WorkspaceIdentity,
         participant: ActorIdentity,
         principal_id: str,
     ) -> GatewayDecision:
@@ -420,7 +436,9 @@ class ImportBusIngestor:
         """
         recent_turns = turn.recent_turns[-self._gateway_session_turn_limit :]
         previous_topic_id = (
-            await self._previous_topic_id(turn, scope, participant, principal_id)
+            await self._previous_topic_id(
+                turn, system_actor, target_workspace, participant, principal_id
+            )
             if recent_turns
             else None
         )
@@ -433,13 +451,12 @@ class ImportBusIngestor:
             for index, recent in enumerate(recent_turns)
         )
         try:
-            result = await self._bus.request(
-                GatewayPublicRoutes.PROCESS,
+            result = await self._topics.route_passive_turn(
+                target_workspace=target_workspace,
                 message=turn.user_message,
-                identity_scope=scope,
-                ingress_mode=GatewayIngressMode.PASSIVE_MEMORY,
-                request_timeout_ms=self._gateway_request_timeout_ms,
                 session_turns=session_turns,
+                request_timeout_ms=self._gateway_request_timeout_ms,
+                actor=system_actor,
             )
         except Exception as error:
             if not is_recoverable_gateway_error(error):
@@ -452,7 +469,8 @@ class ImportBusIngestor:
     async def _previous_topic_id(
         self,
         turn: InFlightTurn,
-        scope: IdentityScope,
+        system_actor: WorkingActor,
+        target_workspace: WorkspaceIdentity,
         participant: ActorIdentity,
         principal_id: str,
     ) -> str | None:
@@ -474,17 +492,17 @@ class ImportBusIngestor:
         placement = self._placements.get(previous_interaction_id)
         if placement is not None:
             return placement.topic_id
-        status = await self._bus.request(
-            PatchouliRoutes.INTERACTION_STATUS,
-            identity_scope=scope,
+        status = await self._interactions.interaction_status(
+            target_workspace=target_workspace,
             interaction_id=previous_interaction_id,
+            actor=system_actor,
         )
         return status.topic_id if status is not None else None
 
     def _record_deferred(
         self,
         turn: ImportedTurn,
-        scope: IdentityScope,
+        workspace: WorkspaceIdentity,
         participant: ActorIdentity,
         interaction_id: str,
         reason: ImportUnavailableReason,
@@ -501,7 +519,7 @@ class ImportBusIngestor:
         )
         self._events.deferred(
             turn=turn,
-            scope=scope,
+            workspace=workspace,
             participant=participant,
             interaction_id=interaction_id,
             reason=reason,

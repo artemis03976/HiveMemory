@@ -131,8 +131,11 @@ def test_agent_authorization_is_only_called_by_actor_api_and_task_process():
     }
 
 
-def test_root_authorization_is_only_called_by_root_api_task_process_and_import_bus():
-    """root 授权只供 root API、任务进程的系统阶段与取消，以及 Import Bus 服务使用。"""
+def test_root_authorization_is_only_called_by_root_api_and_task_process():
+    """root 授权只供 root API 与任务进程的系统阶段与取消使用。
+
+    System 的服务不授权：Import Bus 只认证系统自身，需要授权的步骤经 root API。
+    """
     assert _attribute_sites("authorize_root") == {
         "workspace/capability/root/agent_profiles.py",
         "workspace/capability/root/assets.py",
@@ -144,7 +147,6 @@ def test_root_authorization_is_only_called_by_root_api_task_process_and_import_b
         "workspace/process/allocation.py",
         "workspace/process/runner.py",
         "workspace/process/service.py",
-        "system/application/import_bus_service.py",
     }
 
 

@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from hivememory.components.events.bus import NullRuntimeEventSink, RuntimeEventSink
 from hivememory.core.contracts.runtime_events import RuntimeEvent, RuntimeEventType
-from hivememory.core.models import ActorIdentity, IdentityScope
+from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.system.services.import_bus.models import ImportedTurn
 
 
@@ -23,7 +23,7 @@ class ImportBusEventEmitter:
 
     emit 失败不得影响业务流程，因此本类只做纯粹的构造与转发；背压与异常
     吞吐由底层 ``RuntimeEventBus`` 负责。事件中的 Agent 是交互的参与者，
-    Workspace 取 scope 的归属：scope 的 actor 是执行导入的 ``system``。
+    Workspace 是这次导入的目标；执行导入的 ``system`` 不出现在事件中。
     """
 
     def __init__(self, sink: RuntimeEventSink | None = None) -> None:
@@ -34,7 +34,7 @@ class ImportBusEventEmitter:
         event_type: RuntimeEventType,
         *,
         turn: ImportedTurn,
-        scope: IdentityScope,
+        workspace: WorkspaceIdentity,
         participant: ActorIdentity,
         interaction_id: str,
         status: str,
@@ -50,7 +50,7 @@ class ImportBusEventEmitter:
                 task_type="background",
                 agent_id=participant.agent_id,
                 # Workspace 仅作为观测标签，不参与 EventBus 的路由或序号语义。
-                workspace_id=scope.workspace_identity.workspace_id,
+                workspace_id=workspace.workspace_id,
                 topic_id=topic_id,
                 status=status,
                 reason=reason,
@@ -70,7 +70,7 @@ class ImportBusEventEmitter:
         self,
         *,
         turn: ImportedTurn,
-        scope: IdentityScope,
+        workspace: WorkspaceIdentity,
         participant: ActorIdentity,
         interaction_id: str,
         topic_id: str | None,
@@ -80,7 +80,7 @@ class ImportBusEventEmitter:
         self._emit(
             RuntimeEventType.IMPORT_TURN_ACCEPTED,
             turn=turn,
-            scope=scope,
+            workspace=workspace,
             participant=participant,
             interaction_id=interaction_id,
             status="accepted",
@@ -96,7 +96,7 @@ class ImportBusEventEmitter:
         self,
         *,
         turn: ImportedTurn,
-        scope: IdentityScope,
+        workspace: WorkspaceIdentity,
         participant: ActorIdentity,
         interaction_id: str,
     ) -> None:
@@ -104,7 +104,7 @@ class ImportBusEventEmitter:
         self._emit(
             RuntimeEventType.IMPORT_TURN_DUPLICATE,
             turn=turn,
-            scope=scope,
+            workspace=workspace,
             participant=participant,
             interaction_id=interaction_id,
             status="duplicate",
@@ -115,7 +115,7 @@ class ImportBusEventEmitter:
         self,
         *,
         turn: ImportedTurn,
-        scope: IdentityScope,
+        workspace: WorkspaceIdentity,
         participant: ActorIdentity,
         interaction_id: str,
     ) -> None:
@@ -123,7 +123,7 @@ class ImportBusEventEmitter:
         self._emit(
             RuntimeEventType.IMPORT_TURN_SKIPPED,
             turn=turn,
-            scope=scope,
+            workspace=workspace,
             participant=participant,
             interaction_id=interaction_id,
             status="skipped",
@@ -134,7 +134,7 @@ class ImportBusEventEmitter:
         self,
         *,
         turn: ImportedTurn,
-        scope: IdentityScope,
+        workspace: WorkspaceIdentity,
         participant: ActorIdentity,
         interaction_id: str,
         reason: str,
@@ -144,7 +144,7 @@ class ImportBusEventEmitter:
         self._emit(
             RuntimeEventType.IMPORT_TURN_DEFERRED,
             turn=turn,
-            scope=scope,
+            workspace=workspace,
             participant=participant,
             interaction_id=interaction_id,
             status="deferred",

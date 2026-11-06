@@ -2,7 +2,7 @@
 
 被测对象：``POST /api/v1/import/turns`` 的传输校验、声明解析、以请求声明的
 principal 与凭据经统一认证网关的认证与错误分类。应用服务是真实的 ``ImportBusService``
-（以与网关同一组合认证系统的 root 工作 actor 并 root 授权），编排器以记录调用的
+（以与网关同一组合认证系统的 root 工作 actor），编排器以记录调用的
 替身代替；编排本身的行为由 System 归属层测试覆盖。
 """
 
@@ -34,18 +34,18 @@ _HEADERS = {"X-Principal-ID": _PRINCIPAL, "Authorization": f"Bearer {_TOKEN}"}
 
 
 class _RecordingIngestor:
-    """记录编排器收到的导入、root 授权结果与参与者；可配置为抛出指定错误。"""
+    """记录编排器收到的导入、系统的 root 工作 actor、目标与参与者；可配置为抛出指定错误。"""
 
     def __init__(self, error: Exception | None = None) -> None:
         self.calls: list[dict] = []
         self._error = error
 
-    async def ingest(self, turn, *, system_actor, identity_scope, participant, principal_id):
+    async def ingest(self, turn, *, system_actor, target_workspace, participant, principal_id):
         self.calls.append(
             {
                 "turn": turn,
                 "system_actor": system_actor,
-                "identity_scope": identity_scope,
+                "target_workspace": target_workspace,
                 "participant": participant,
                 "principal_id": principal_id,
             }
@@ -79,7 +79,6 @@ def _client(ingestor=None, *, access=None, limit: int = 1024 * 1024, headers=Non
     service = ImportBusService(
         ingestor=ingestor or _RecordingIngestor(),
         access_gateway=composition.gateway,
-        operation_authorizer=composition.authorizer,
         system_principal=CallerPrincipal(SYSTEM_PRINCIPAL_ID),
         system_adapter=LOCAL_ADAPTER,
     )
@@ -115,10 +114,10 @@ def _body(**overrides):
 
 
 def test_import_turn_authenticates_agent_claims_and_returns_result():
-    """以请求声明的 principal、凭据与 (user, 具体 Agent) 认证；编排器收到 root scope 与参与者。
+    """以请求声明的 principal、凭据与 (user, 具体 Agent) 认证；编排器收到系统的 root 工作 actor 与参与者。
 
-    导入由系统执行：scope 的 actor 是该用户的 system，声明的 Agent 只作为参与者
-    与 principal 标识一起交给编排器。
+    导入由系统执行：服务认证的是该用户驻留在参与者 Workspace 的 system，声明的
+    Agent 只作为参与者与 principal 标识一起交给编排器；服务本身不授权。
     """
     ingestor = _RecordingIngestor()
     client, composition = _client(ingestor)
@@ -130,11 +129,9 @@ def test_import_turn_authenticates_agent_claims_and_returns_result():
     [call] = ingestor.calls
     assert type(call["turn"]) is ImportedTurn
     assert call["turn"].external_turn_id == "prompt-1"
-    assert call["identity_scope"].actor_identity == ActorIdentity(
-        user_id="default", agent_id=SYSTEM_AGENT_ID
-    )
-    assert call["identity_scope"].workspace_identity.workspace_id == "main_workspace"
-    assert call["system_actor"].actor == call["identity_scope"].actor_identity
+    assert call["system_actor"].actor == ActorIdentity(user_id="default", agent_id=SYSTEM_AGENT_ID)
+    assert call["system_actor"].workspace.workspace_id == "main_workspace"
+    assert call["target_workspace"].workspace_id == "main_workspace"
     assert call["participant"] == ActorIdentity(user_id="default", agent_id="claude_code")
     assert call["principal_id"] == _PRINCIPAL
 

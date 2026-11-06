@@ -19,6 +19,7 @@ from hivememory.system.access import LOCAL_ADAPTER, SYSTEM_PRINCIPAL_ID
 from hivememory.system.application.import_bus_service import ImportBusService
 from hivememory.system.services.import_bus import ImportBusIngestor
 from hivememory.workspace.capability.root.interaction import RootInteractionService
+from hivememory.workspace.capability.root.topic import RootTopicService
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 pytestmark = pytest.mark.e2e
@@ -43,14 +44,13 @@ async def test_http_import_turn_forms_interaction_in_patchouli(patchouli_chat_st
     gateway_config = SystemGatewayConfig()
     service = ImportBusService(
         ingestor=ImportBusIngestor(
-            stack.bus,
             interactions=RootInteractionService(stack.bus, operation_authorizer=access.authorizer),
+            topics=RootTopicService(stack.bus, operation_authorizer=access.authorizer),
             gateway_request_timeout_ms=gateway_config.workflow.default_request_timeout_ms,
             gateway_session_turn_limit=gateway_config.context_preparation.session_turn_limit,
             apply_wait_seconds=ImportBusConfig().apply_wait_seconds,
         ),
         access_gateway=access.gateway,
-        operation_authorizer=access.authorizer,
         system_principal=CallerPrincipal(SYSTEM_PRINCIPAL_ID),
         system_adapter=LOCAL_ADAPTER,
     )

@@ -2,14 +2,15 @@
 
 被测对象：``ImportBusIngestor`` 在串行门内的进度查询、跳过、Gateway 路由、
 封口、提交与等待应用，写入时为在途轮次确定话题与回流沿用该话题，以及关闭时等待
-在途导入。提交经真实的 root 交互提交 API（以系统的 root 工作 actor 授权）；
+在途导入。编排器只持有系统的 root 工作 actor：查进度、路由、准备话题、提交与
+等待都经真实的 root 交互 API 与 root 话题 API，由它们以 root 授权；
 Patchouli 的提交、进度查询与等待使用真实的 ``InteractionSubmissionService`` 与
 内存队列（只在进程内）；Gateway 与 Patchouli 的 prepare 是边界之外的协作者，
 以确定性的替身给出决定、话题或失败。
 
 保护的契约：
-- 路由、确定话题与提交都在系统的 root scope 下进行，提交的交互以参与的 Agent 为
-  发起者、以目标 Workspace 为归属；
+- 路由、确定话题与提交都经 root API 在系统的 root scope 下进行，提交的交互以参与的
+  Agent 为发起者、以目标 Workspace 为归属；目标不是驻留 Workspace 时先于路由拒绝；
 - 只有应用完成后才确认；应用失败与等待超时不确认，重发时失败的重新路由并
   再次提交、仍在应用的继续等待；
 - 已应用的轮次返回 duplicate、不再调用 Gateway；没有输出的轮次返回 skipped；
@@ -66,6 +67,7 @@ from hivememory.system.services.import_bus import (
     InFlightTurn,
 )
 from hivememory.workspace.capability.root.interaction import RootInteractionService
+from hivememory.workspace.capability.root.topic import RootTopicService
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -129,7 +131,8 @@ class _Harness:
     ingestor: ImportBusIngestor
     queue: InteractionSubmissionQueue
     events: RecordingRuntimeEventSink
-    # 系统的 root 工作 actor 与以它 root 授权得到的 scope，与 Import Bus 服务交给编排器的相同。
+    # 系统的 root 工作 actor，与 Import Bus 服务交给编排器的相同；scope 是以它对目标
+    # Workspace root 授权得到的 scope，只用来核对路由收到的 scope。
     system_actor: WorkingActor
     scope: IdentityScope
     gateway_calls: list[dict] = field(default_factory=list)
@@ -140,14 +143,18 @@ class _Harness:
         return await self.ingestor.ingest(
             turn,
             system_actor=self.system_actor,
-            identity_scope=self.scope,
+            target_workspace=WORKSPACE,
             participant=PARTICIPANT,
             principal_id=PRINCIPAL,
         )
 
     async def place(self, turn: InFlightTurn) -> str:
         return await self.ingestor.place(
-            turn, identity_scope=self.scope, participant=PARTICIPANT, principal_id=PRINCIPAL
+            turn,
+            system_actor=self.system_actor,
+            target_workspace=WORKSPACE,
+            participant=PARTICIPANT,
+            principal_id=PRINCIPAL,
         )
 
 
@@ -215,8 +222,8 @@ async def _harness(
     bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
     harness = _Harness(
         ingestor=ImportBusIngestor(
-            bus,
             interactions=RootInteractionService(bus, operation_authorizer=access.authorizer),
+            topics=RootTopicService(bus, operation_authorizer=access.authorizer),
             gateway_request_timeout_ms=1234,
             gateway_session_turn_limit=session_turn_limit,
             apply_wait_seconds=apply_wait_seconds,
