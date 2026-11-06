@@ -457,15 +457,13 @@ class TaskProcessRunner:
             system_actor=record.system_actor,
             target_workspace=request.target_workspace,
         )
-        # 话题准备由系统执行；检索按执行者的可见性进行，执行者没有 memory.search
-        # 时不检索，对话照常进行。
+        # 话题准备由系统执行；检索按执行者的可见性进行，不检索时对话照常进行。
         prepared: PreparedAgentRun = await self._bus.request(
             PatchouliRoutes.PREPARE_AGENT_RUN,
             identity_scope=self._root_scope(process),
             retrieval_scope=self._retrieval_scope(process),
             interaction_id=record.process_id,
             gateway_decision=decision,
-            enable_memory_retrieval=request.enable_memory_retrieval,
         )
         working_set.prepared = prepared
         record.events.bind_topic(prepared.topic_id)
@@ -526,12 +524,16 @@ class TaskProcessRunner:
         )
 
     def _retrieval_scope(self, process: TaskProcess) -> IdentityScope | None:
-        """prepare 检索的 scope：执行者持有 ``memory.search`` 时以它授权，否则为空、不检索。
+        """prepare 是否检索的唯一判定：返回检索 scope，为空即不检索。
 
-        检索是执行者的 actor 操作：按执行者的白名单授权，结果按执行者的
-        可见性过滤。
+        请求关闭了记忆检索，或执行者没有 ``memory.search`` 时不检索；否则检索
+        是执行者的 actor 操作，按执行者的白名单授权，结果按执行者的可见性过滤。
+        没有 ``memory.search`` 是正常的“不检索”，因此先查操作集合，而不是以授权
+        拒绝的异常表达这个分支。
         """
         actor = process.record.actor
+        if not process.request.enable_memory_retrieval:
+            return None
         if WorkspaceOperation.MEMORY_SEARCH not in self._authorizer.allowed_operations(actor):
             return None
         return self._authorizer.authorize_agent(

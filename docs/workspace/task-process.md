@@ -98,7 +98,7 @@ TaskProcessService.run_process(handle)：创建进程 task；流式交付订阅�
   -> command: return command outcome
   -> decision: 解析执行者的 Agent Profile（workspace 读取视图，管理读取）  root 授权
   -> Patchouli prepare_agent_run（Topic 与检索；interaction_id 取 process_id 值）
-       话题：root 授权；检索：执行者持有 memory.search 时 actor 授权，否则不检索
+       话题：root 授权；检索：请求未关闭检索且执行者持有 memory.search 时 actor 授权，否则不检索
   -> CPU 分配：附件租借（root 授权）与编译、记忆编译、中立提示词编译、组装 CPUInputManifest
   -> Actor 执行：以执行者与图纸派生主线程（读取操作快照、登记线程表），在可中断子 task 中 await CPU 端口 execute
        （CPUInputManifest 与主线程的 ExecutionThread；交互事件经 events sink 写入输出通道，终态结果作为返回值）
@@ -126,9 +126,9 @@ Gateway 阶段从会话取最近 `gateway.context_preparation.session_turn_limit
 | Gateway 的话题读取、话题准备、cleanup 补偿 | 系统 | `authorize_root(system_actor, 目标)`：话题属于 Workspace，与 Agent 无关 |
 | Profile 解析、附件租借 | 系统 | `authorize_root(system_actor, 目标)`：两者是用户的选择，对用户可见 |
 | finalize | 系统，执行者作为参与者 | `authorize_root(system_actor, 目标)`，`participant` 为执行者 |
-| prepare 的检索 | 执行者 | 执行者持有 `memory.search` 时 `authorize_agent(actor, memory.search, 目标)` 得到检索 scope，否则检索 scope 为空、不检索 |
+| prepare 的检索 | 执行者 | 请求未关闭记忆检索（`enable_memory_retrieval`）且执行者持有 `memory.search` 时，`authorize_agent(actor, memory.search, 目标)` 得到检索 scope；否则检索 scope 为空、不检索 |
 
-系统阶段不检查 actor 操作白名单，因此没有任何 actor 操作的 Agent 也能完成对话；它只是不预检索，对话照常进行。检索 scope 以执行者为发起者，资源 owner 照常按执行者过滤可见性：预检索结果中不会出现其他 Agent 的 PRIVATE 记忆。prepare 仍是一次调用：话题与归属取 root scope，检索与可见性取检索 scope，Patchouli 在任何副作用之前要求两者的 Workspace 相同（[Patchouli](../patchouli/README.md)）。
+是否检索只在执行器判定一次，结果就是检索 scope 是否为空，prepare 路由没有另外的检索开关。系统阶段不检查 actor 操作白名单，因此没有任何 actor 操作的 Agent 也能完成对话；它只是不预检索，对话照常进行。检索 scope 以执行者为发起者，资源 owner 照常按执行者过滤可见性：预检索结果中不会出现其他 Agent 的 PRIVATE 记忆。prepare 仍是一次调用：话题与归属取 root scope，检索与可见性取检索 scope，Patchouli 在任何副作用之前要求两者的 Workspace 相同（[Patchouli](../patchouli/README.md)）。
 
 授权得到的 scope 只交给紧随的阶段调用，不保存在工作集中等待使用，也不进入 CPU 输入清单、线程描述或任何 CPU 可见的对象。`PreparedAgentRun` 只冻结 prepare 的 `belong_to`：Workspace 归属由资源 owner 校验，进程不另行比对自家子系统的返回值，只把结果写入工作集供关闭时补偿（第 9 节）。finalize 的 root 授权在提交任务内、调用公开路由之前执行，Patchouli 在接纳交互之前比对 prepared 的归属与 scope 的目标 Workspace；授权失败时不提交交互，不影响已接纳写入。cleanup 重新执行 root 授权，拒绝时记录警告并完成进程关闭；资源 owner 对越域 prepared 返回 `False`，不执行删除。两个授权方法在 `workspace.process` 中的调用位置由架构测试锁定。
 
@@ -241,7 +241,7 @@ chat 路由订阅流式交付，不轮询断连，也不为每个事件创建 ta
 - 封口：与 Import Bus 共用的 [`core/protocol/sealing.py`](../../src/hivememory/core/protocol/sealing.py)；
 - 公共契约：[`workspace/contracts/cpu.py`](../../src/hivememory/workspace/contracts/cpu.py)、[`workspace/contracts/process.py`](../../src/hivememory/workspace/contracts/process.py)；HTTP 入口：[`server/routers/chat.py`](../../src/hivememory/server/routers/chat.py)；
 - 测试：
-  - `tests/unit/workspace/process/test_gateway_chat_flow.py`（系统阶段以 root scope 执行、finalize 的参与者是执行者、执行者没有 `memory.search` 时不检索；Actor 中停止在等 CPU 与阻塞于通道写入时的响应，以及 Gateway 之前的模型预取）；
+  - `tests/unit/workspace/process/test_gateway_chat_flow.py`（系统阶段以 root scope 执行、finalize 的参与者是执行者、执行者没有 `memory.search` 或请求关闭检索时不检索；Actor 中停止在等 CPU 与阻塞于通道写入时的响应，以及 Gateway 之前的模型预取）；
   - `tests/unit/workspace/process/test_chat_run_control_contract.py`（注册的两次认证与失败时不登记、取消的 root 授权、输出通道的容量与离开语义、订阅者暂停时进程仍推进、五种结局的唯一退出路径、交付方离开不等待关闭）；
   - `tests/unit/workspace/process/test_cpu_allocation.py`（Profile 的管理读取与附件租借以 root scope 执行、租借释放与关闭顺序）；
   - `tests/unit/workspace/process/test_cpu_port.py`（经 CPU 端口执行：测试 CPU 跑通任务进程、自报结局与执行异常）；

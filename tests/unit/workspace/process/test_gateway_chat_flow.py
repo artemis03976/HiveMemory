@@ -577,8 +577,21 @@ async def test_system_stages_run_with_root_scope_and_executor_is_explicit() -> N
 
 
 @pytest.mark.asyncio
-async def test_executor_without_search_permission_runs_without_retrieval() -> None:
-    """执行者没有 ``memory.search``：prepare 不带检索 scope，对话照常完成并提交。"""
+@pytest.mark.parametrize(
+    ("allowed_operations", "registration"),
+    [
+        ([WorkspaceOperation.MEMORY_READ], {}),
+        (
+            [WorkspaceOperation.MEMORY_READ, WorkspaceOperation.MEMORY_SEARCH],
+            {"enable_memory_retrieval": False},
+        ),
+    ],
+    ids=["executor-without-search", "request-disables-retrieval"],
+)
+async def test_prepare_without_retrieval_scope_still_completes(
+    allowed_operations, registration
+) -> None:
+    """执行者没有 ``memory.search``，或请求关闭了记忆检索：prepare 不带检索 scope，对话照常完成并提交。"""
     bus = GlobalSystemBus()
     captured: dict[str, dict] = {}
 
@@ -594,10 +607,12 @@ async def test_executor_without_search_permission_runs_without_retrieval() -> No
     bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
     _register_profile(bus)
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-    composition = _composition(allowed_operations=[WorkspaceOperation.MEMORY_READ])
+    composition = _composition(allowed_operations=allowed_operations)
 
     service, composition = await _service(bus, composition=composition)
-    events = await _run_once(composition, service, "问题", process_id="process-no-search")
+    events = await _run_once(
+        composition, service, "问题", process_id="process-no-search", **registration
+    )
 
     assert done_data(events)["status"] == CPUExecutionStatus.COMPLETED.value
     assert captured["prepare"]["identity_scope"] == _root_scope()

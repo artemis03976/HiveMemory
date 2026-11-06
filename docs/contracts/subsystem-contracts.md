@@ -110,11 +110,10 @@ prepare_agent_run(
     interaction_id: str,
     gateway_decision: GatewayDecision,
     retrieval_scope: IdentityScope | None = None,
-    enable_memory_retrieval: bool = True,
 ) -> PreparedAgentRun
 ```
 
-prepare 只做 Patchouli 自己的两件事：按 Gateway 的路由决定准备本轮 Topic（必要时新建，话题池已满时先按 LRU 结算一个已有话题），并按检索计划检索记忆。两件事由不同的执行者完成，因此接收两份 scope：话题与归属取 `identity_scope`（系统以 root 授权组装）；检索按 `retrieval_scope` 的 actor 的可见性进行（执行 Agent 以 `memory.search` 授权组装），`retrieval_scope` 为空时不检索。两份 scope 的 Workspace 不同时，在任何副作用之前抛 `WorkspaceMismatchError`。Import Bus 的落位只准备话题，不给检索 scope。它不解析 Agent Profile、不接触附件、不编译记忆，也不为任何执行者组装运行上下文；这些属于任务进程在分配 CPU 时的工作（第 5 节）。
+prepare 只做 Patchouli 自己的两件事：按 Gateway 的路由决定准备本轮 Topic（必要时新建，话题池已满时先按 LRU 结算一个已有话题），并按检索计划检索记忆。两件事由不同的执行者完成，因此接收两份 scope：话题与归属取 `identity_scope`（系统以 root 授权组装）；检索按 `retrieval_scope` 的 actor 的可见性进行（执行 Agent 以 `memory.search` 授权组装），`retrieval_scope` 为空时不检索。是否检索只由调用方是否给出检索 scope 决定，路由没有另外的检索开关；给出时仍按 Gateway 的检索计划，检索模式为跳过或要求零条时同样不检索。两份 scope 的 Workspace 不同时，在任何副作用之前抛 `WorkspaceMismatchError`。Import Bus 的落位只准备话题，不给检索 scope。它不解析 Agent Profile、不接触附件、不编译记忆，也不为任何执行者组装运行上下文；这些属于任务进程在分配 CPU 时的工作（第 5 节）。
 
 `PreparedAgentRun`（`patchouli.contracts.prepare`）是不可变 dataclass，既是 prepare 的结果，也是 finalize 与 cleanup 的输入句柄：
 

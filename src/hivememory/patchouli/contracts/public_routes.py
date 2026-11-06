@@ -225,12 +225,11 @@ class PatchouliRoutes:
         interaction_id: str,
         gateway_decision: GatewayDecision,
         retrieval_scope: IdentityScope | None = None,
-        enable_memory_retrieval: bool = True,
     ) -> PreparedAgentRun:
         """准备本轮的 Topic 与未编译检索结果（prepare 只做 Topic 与检索）。
 
         话题与归属取 ``identity_scope``；检索按 ``retrieval_scope`` 的 actor 的
-        可见性进行，为空时不检索。
+        可见性进行，为空时不检索：是否检索只由调用方是否给出它决定。
         """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 

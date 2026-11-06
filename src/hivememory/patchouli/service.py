@@ -74,7 +74,6 @@ class PatchouliService:
         interaction_id: str,
         gateway_decision: GatewayDecision,
         retrieval_scope: IdentityScope | None = None,
-        enable_memory_retrieval: bool = True,
     ) -> PreparedAgentRun:
         """准备本轮的 Topic 与未编译检索结果（prepare 只做 Topic 与检索）。
 
@@ -85,8 +84,9 @@ class PatchouliService:
 
         ``identity_scope`` 是系统执行话题准备的 root scope，归属取自它；
         ``retrieval_scope`` 是执行者经 ``memory.search`` 授权得到的 scope，检索
-        按它的 actor 的可见性进行，为空时不检索。两份 scope 的 Workspace 不同
-        时在任何副作用之前拒绝。
+        按它的 actor 的可见性进行；为空时不检索，是否检索由调用方决定。给出时
+        仍按 Gateway 的检索计划，检索模式为跳过或要求零条时同样不检索。两份 scope 的
+        Workspace 不同时在任何副作用之前拒绝。
         """
         identity_scope = require_identity_scope(identity_scope)
         belong_to = identity_scope.workspace_identity
@@ -111,7 +111,6 @@ class PatchouliService:
                     gateway_decision,
                     belong_to=belong_to,
                     from_actor=retrieval_scope.actor_identity,
-                    enable_retrieval=enable_memory_retrieval,
                 )
 
             return PreparedAgentRun(
@@ -375,18 +374,13 @@ class PatchouliService:
         *,
         belong_to: WorkspaceIdentity,
         from_actor: ActorIdentity,
-        enable_retrieval: bool = True,
     ) -> tuple[MemoryAtom, ...]:
         """按 GatewayDecision 派生 Patchouli 检索请求，返回按领域排序的原始记忆。
 
-        检索模式为跳过、要求零条或调用方关闭检索时不发起请求，返回空元组。
+        检索模式为跳过或要求零条时不发起请求，返回空元组。
         """
 
-        if (
-            not enable_retrieval
-            or decision.retrieval_plan.mode == RetrievalMode.SKIP
-            or decision.retrieval_plan.top_k == 0
-        ):
+        if decision.retrieval_plan.mode == RetrievalMode.SKIP or decision.retrieval_plan.top_k == 0:
             return ()
 
         query = RetrievalQuery(

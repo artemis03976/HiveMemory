@@ -528,7 +528,7 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 - 系统自身的 principal 常量只由组合根引用，以 `system_principal` 与 `system_adapter` 注入注册入口与 Import Bus 服务，两处写法一致；第 4.8 节的架构测试相应限定为“只由组合根引用”。
 - 线程句柄所属的进程已从进程表注销时，线程表按线程已结束（`ThreadEndedError`）拒绝，进程仍在而登记的不是这一个句柄时才以接线缺陷（`ScopeRequiredError`）拒绝：进程关闭后迟到的调用在生产中会出现，这与原先“context 已撤销即线程已结束”的语义一致。
 - 新增第 4.8 节之外的一项架构守护：跳过 Agent 可见性的 Profile 管理读取只由 CPU 分配发起，CALL 不能借用。
-- prepare 保留 `enable_memory_retrieval`，与 `retrieval_scope` 并存：前者表达本次请求是否要求检索，后者表达以谁的可见性、是否有权检索。
+- prepare 路由删除了 `enable_memory_retrieval`，是否检索只由检索 scope 是否为空表达：执行器在一处判定（请求未关闭记忆检索且执行者持有 `memory.search` 时才以 `authorize_agent` 取得检索 scope），Import Bus 的落位不给检索 scope。实施初版两者并存，owner 在收尾后要求简化（2026-11-06）。
 - 授权者与线程表不检查参数类型（工作 actor、线程句柄）：生产中不会出现其他类型，类型由 mypy 守住。
 
 **测试**：
@@ -552,8 +552,7 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 - `tests/e2e/system` 需要 Qdrant 与模型，未运行；
 - 第 7 节的手动验收四项要用这个分支重启正在运行的后端（它从本仓库以 `serve` 模式运行，dsh 与 Claude Code 正在使用），在归档后的日常使用中进行。
 
-**实施中发现、未处理的简化点**（交 owner 决定）：
+**实施中发现的简化点**：
 
-- prepare 的两个检索开关 `retrieval_scope` 与 `enable_memory_retrieval` 可以合并为一个；
-- 导入编排器同时接收系统的 root 工作 actor 与以它授权的 scope，经 root API 提交交互时再授权一次，这是“提交交互走 root API”带来的；
-- 任务进程判断是否检索时先查 `allowed_operations` 再调用 `authorize_agent`，同一份访问记录查询两次。
+- prepare 的两个检索开关合并为检索 scope 一个（2026-11-06 已处理，见上文与第 4、5 节的出入）。判断时先查 `allowed_operations` 再调用 `authorize_agent`，同一份访问记录读两次：没有 `memory.search` 是正常的“不检索”，不以授权拒绝的异常表达，授权本身按设计每次即时读取访问登记，因此保留；
+- 未处理（交 owner 决定）：导入编排器同时接收系统的 root 工作 actor 与以它授权的 scope，经 root API 提交交互时再授权一次，这是“提交交互走 root API”带来的。

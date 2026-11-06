@@ -87,7 +87,7 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 | `patchouli.public.memory.retrieve` | `MemoryManagementService.retrieve` | `RetrievalRequest`（含 `identity_scope`） | `list[MemoryAtom]`（按领域排序） |
 | `patchouli.public.memory.retrieve_by_aliases` | `retrieve_by_aliases` | aliases、`IdentityScope` | `list[MemoryAtom]`（只含实际可读的原子） |
 | `patchouli.public.memory.read` | `read_memory` | memory id、`identity_scope`、refresh | `MemoryAtom \| None`（未知或不可见均为 `None`） |
-| `patchouli.public.prepare_agent_run` | `PatchouliService.prepare_agent_run` | `identity_scope`（话题与归属）、可为空的 `retrieval_scope`（检索的可见性，为空时不检索）、`interaction_id`、`GatewayDecision`、是否检索 | `PreparedAgentRun`（Topic 准备结果与未编译检索结果）；两份 scope 的 Workspace 不同时在任何副作用之前抛 `WorkspaceMismatchError` |
+| `patchouli.public.prepare_agent_run` | `PatchouliService.prepare_agent_run` | `identity_scope`（话题与归属）、可为空的 `retrieval_scope`（检索的可见性，为空时不检索）、`interaction_id`、`GatewayDecision` | `PreparedAgentRun`（Topic 准备结果与未编译检索结果）；两份 scope 的 Workspace 不同时在任何副作用之前抛 `WorkspaceMismatchError` |
 | `patchouli.public.finalize_agent_run` | `PatchouliService.finalize_agent_run` | `PreparedAgentRun`、任务进程封口的 `InteractionPayload`（含实际使用的附件引用）、必需的 `identity_scope`（归属）与 `participant`（交互的发起者） | `None`（交互 applied、命中记录完成）；目标归属不一致抛 `WorkspaceMismatchError` |
 | `patchouli.public.cleanup_prepared_agent_run` | `cleanup_prepared_agent_run` | `PreparedAgentRun`、必需的 `identity_scope` | 是否清理空话题；越域 prepared 返回 `False` |
 | `patchouli.public.record_memory_citation` | `record_memory_citation` | memory id、`IdentityScope`、source | 记录结果 |

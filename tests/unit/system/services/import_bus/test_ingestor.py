@@ -633,7 +633,6 @@ async def test_first_placement_routes_and_prepares_once_and_later_placements_reu
     # 落位只准备话题：不带检索 scope，prepare 不检索。
     assert prepare.get("retrieval_scope") is None
     assert prepare["gateway_decision"] == _decision()
-    assert prepare["enable_memory_retrieval"] is False
 
 
 @pytest.mark.asyncio

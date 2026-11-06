@@ -187,7 +187,6 @@ class ImportBusIngestor:
                 identity_scope=identity_scope,
                 interaction_id=interaction_id,
                 gateway_decision=decision,
-                enable_memory_retrieval=False,
             )
             self._placements[interaction_id] = placement
             logger.info(

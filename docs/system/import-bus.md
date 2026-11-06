@@ -185,7 +185,7 @@ root scope 只在这一次导入的调用链内经公共路由到达 Gateway 与
     succeeded        -> 返回这一轮实际所在的话题，不登记落点
     pending          -> 503 apply_pending，写入方稍后重试
   Gateway PASSIVE_MEMORY（与导入相同的输入与续接规则）
-  patchouli.public.prepare_agent_run（enable_memory_retrieval=False），新话题在此预建
+  patchouli.public.prepare_agent_run（不给检索 scope，不检索），新话题在此预建
   登记落点，返回落点话题的真实 id
 ```
 
