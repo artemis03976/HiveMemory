@@ -77,6 +77,7 @@ type HTTPErrorCode = Literal[
     "request.body_too_large",
     "request.not_found",
     "request.turn_required",
+    "request.management_credential_invalid",
 ]
 
 # 显式传输错误由调用点选择机器类别，不能根据异常 detail 反查分类。
@@ -105,6 +106,7 @@ _HTTP_ERRORS: dict[HTTPErrorCode, tuple[int, str]] = {
     "request.body_too_large": (413, "请求体超过允许的大小上限"),
     "request.not_found": (404, "请求的资源不存在"),
     "request.turn_required": (400, "写入与更新必须由连接器补上当前一轮的信息"),
+    "request.management_credential_invalid": (401, "管理接口需要管理凭据：缺少凭据或凭据不正确"),
 }
 
 
