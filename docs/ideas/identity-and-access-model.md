@@ -33,12 +33,12 @@ related_docs:
   - docs/archive/ideas/execution-thread-definition.md
   - docs/archive/todo/local-http-management-access.md
   - docs/archive/plans/http-management-credential.md
-  - docs/plans/unified-identity-authorization-entry.md
+  - docs/archive/plans/unified-identity-authorization-entry.md
   - docs/todo/workspace-asset-ownership-identity-split.md
   - docs/todo/memory-visibility-policy-ui.md
   - docs/todo/frontend-identity-ownership.md
   - docs/todo/run-target-executability-check.md
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-06
 ---
 
 # 身份与访问体系
@@ -58,7 +58,7 @@ last_reviewed: 2026-11-05
 - 未决的部分散落在第五代架构 Idea、外部 Actor Idea、写入意图 Idea、五份 Todo 与身份治理中；
 - 例外与补丁逐渐累积：WorkspaceAsset 仍以旧 `IdentityScope` 做归属检查（AGENTS.md 登记的唯一例外），Profile 注入脚本以 `system` 进入 root API，HTTP 管理接口沿用本地单用户部署的信任假设（2026-11-05 起以管理凭据防误用）。
 
-已经具备、本文不再讨论的地基：三个身份模型与两阶段认证、两阶段授权；密封的访问 context 及进程、线程、请求三种运行绑定（owner 2026-11-05 决定改为统一身份授权入口，计划见第 5 节）；资源归属与发起者的拆分；root API、actor API 与阶段调用三个调用面；外部 principal 以本地共享密钥证明身份（P-1c）；`allow_system_actor` 限定能声明 `system` 的来源；不建进程的访问每次操作一份请求级 context（P-9c；统一身份授权入口保留其目标、改变其实现，见第 5 节）。
+已经具备、本文不再讨论的地基：三个身份模型与两阶段认证、两阶段授权；统一身份授权入口（认证得到工作 actor，授权只有 actor 执行期间的 `authorize_agent` 与系统级操作的 `authorize_root` 两个方法，交互的参与者作为数据显式传递；2026-11-06 落地，见第 5 节）；资源归属与发起者的拆分；外部 principal 以本地共享密钥证明身份（P-1c）；`allow_system_actor` 限定能声明 `system` 的来源；不建进程的访问每次工具调用认证一次、身份只在本次调用内有效（P-9c）。
 
 **对发布的影响**（分析）：owner 定下的 v1.0 范围包括桌面客户端，以及 Claude Code、dsh、Codex 与 pi 四个 harness 的 plugin 模式接入（owner，2026-11-04）。桌面端常驻后端之后，本机进程、各 harness 中的 agent 与前端都是调用方，本地单用户的信任假设与只能静态修改的登记都会被直接触及。
 
@@ -68,7 +68,7 @@ last_reviewed: 2026-11-05
 |:---|:---|:---|
 | Principal 登记 | 两份配置文件在启动时装载（[认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节） | 运行时登记、修改与撤销：第 3 节 |
 | 调用方证明 | 统一认证网关；外部 principal 以共享密钥证明；任务进程注册、Import Bus 与 MCP 入口经网关；HTTP 管理面以管理凭据防误用（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节） | HTTP 管理入口的防刻意随桌面客户端；controller 模式下请求与进程的归属校验：第 4 节 |
-| 访问 context 与操作授权 | context 只含 actor、驻留 Workspace、principal 与运行绑定；白名单逐次授权；阶段授权；root 只认 `system` | 统一身份授权入口（方向已由 owner 决定，计划 planned，见第 5 节）；工作 actor 是否带 adapter、本次运行的操作上限、进程控制的授权主体：第 5 节 |
+| 工作 actor 与操作授权 | 工作 actor 只含 principal、actor 与驻留 Workspace；actor 执行期间按白名单授权，系统级操作（root API、任务进程的系统阶段与取消、导入与落位）以 `system` 授权（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)第 4 节） | 工作 actor 是否带 adapter、本次运行的操作上限、进程控制中取消以外的授权主体：第 5 节 |
 | 资源可见性 | 只有 MemoryAtom 带资源 policy，且只表达读取；其余资源只按归属授权 | 修改与执行授权、写入意图的可见性：第 6 节 |
 | 进入其他 Workspace | 第 3 阶段只接受目标等于驻留 Workspace | 受限穿透访问：第 7 节 |
 | 例外、暂缓与已知限制 | — | 第 8 节 |
@@ -132,18 +132,18 @@ last_reviewed: 2026-11-05
 - **P-5b 触发器的 principal**：触发器的登记者 / 系统内置 principal / 其他。owner 倾向（2026-09-27）由登记的 Agent 反推 principal；
 - **P-5c 触发器的准入检查时点**：登记触发器时 / 每次触发时 / 两者都查。
 
-## 5. 访问 context 与操作授权
+## 5. 工作 actor 与操作授权
 
-访问 context 的授予内容只包含 actor、驻留 Workspace、principal 与运行绑定（[认证与访问登记](../workspace/authentication.md#3-访问-context密封的运行时凭据)第 3 节）。owner 决定（2026-11-05）以统一身份授权入口取代按运行类型分化的访问 context（下一节）；以下两个方向届时落在工作 actor 或进程记录上，各自随相应问题决定：
+工作 actor 只包含 principal、actor 与驻留 Workspace（[认证与访问登记](../workspace/authentication.md#3-工作-actor)第 3 节）。以下两个方向落在工作 actor 或进程记录上，各自随相应问题决定：
 
-- **adapter**：context 暂存签发时的 principal（I-2），adapter 是否一并保存未决，随 P-1b 一并决定；统一入口的计划暂不在工作 actor 中带 adapter；
-- **本次运行的操作上限**：只有 P-4a 采用“进程持有白名单的子集”时才需要携带它；统一入口下记在进程记录上。
+- **adapter**：工作 actor 保存认证时的 principal（I-2），adapter 是否一并保存未决，随 P-1b 一并决定；
+- **本次运行的操作上限**：只有 P-4a 采用“进程持有白名单的子集”时才需要携带它，记在进程记录上。
 
-context 没有固定有效期，随绑定的运行结束失效。原先列为开放方向的“plugin 模式需要长连接时是否加有效期”已不再成立：plugin 模式的 MCP 访问每次工具调用签发一份请求级 context，调用结束即撤销（P-9c，[MCP 记忆访问](../contracts/mcp.md)），没有长连接持有 context。统一身份授权入口下不再签发请求级 context，见下一节。
+工作 actor 没有有效期：进程记录与线程记录持有的随进程注销被丢弃，入口为一次请求认证得到的只在本次调用内使用（P-9c，[MCP 记忆访问](../contracts/mcp.md)），没有长连接持有身份。
 
 ### 访问 context 与授权入口的收拢
 
-2026-11-05 新列，同日 owner 决定方向（选项 B）。
+2026-11-05 新列，同日 owner 决定方向（选项 B）。已按[统一身份授权入口](../archive/plans/unified-identity-authorization-entry.md)实施（2026-11-06，归档计划），当前事实见[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)第 4 节、[认证与访问登记](../workspace/authentication.md#3-工作-actor)第 3–5 节与[执行线程](../workspace/execution-threads.md)。以下保留决定时的观察、现状与分析。
 
 **owner 观察**（2026-11-05）：
 
@@ -153,7 +153,7 @@ context 没有固定有效期，随绑定的运行结束失效。原先列为开
 - 新需求不断出现，造成了“加”；为避免反复的决策矛盾，又造成了“不改”。结果是体系不统一，漏洞越来越大。
 - owner 对进程 context、线程 context 与操作授权信息来源的层层概念不满意，代码可读性差到无法理解现状。
 
-**现状**（[身份与访问体系现状调查](../governance/baselines/identity-access-current-state-2026-11-05.md)第 4、6、10 节）：
+**实施前的现状**（[身份与访问体系现状调查](../governance/baselines/identity-access-current-state-2026-11-05.md)第 4、6、10 节）：
 
 - 访问 context 按运行类型分为进程、执行线程（主线程与子线程）和请求三种。“线程结束后拒绝迟到的请求”同时由线程 context 的撤销与线程表的存活判定承担。
 - 操作授权者有七个方法，其中四个共用同一组前置检查。阶段授权与导入授权不检查白名单，它们的安全依赖架构测试限定调用位置。
@@ -194,16 +194,9 @@ context 没有固定有效期，随绑定的运行结束失效。原先列为开
 
 **owner 决定**（2026-11-05）：选项 B。这条线的方向固定为统一身份授权入口，本问题关闭。候选设计已移入下述计划，不是 owner 决定，可在计划评审时调整。
 
-**统一身份授权入口的计划**：已抽出计划[统一身份授权入口](../plans/unified-identity-authorization-entry.md)（planned，2026-11-05）。工作 actor、两个授权方法、系统级操作的身份、运行与线程句柄、各入口、结构守护，以及现有 context 保证的行为逐条去处，都以计划为准。本节只留摘要：
+**实施**：工作 actor、两个授权方法、系统级操作的身份、运行与线程句柄、各入口与结构守护都已落地，设计与逐条核对见归档计划，当前事实以上述事实文档为准。命名（owner，2026-11-05）：不使用 Caller 与 Callee，它们来自 Alice 唤起子 agent 的方式，不适合作为 Workspace 体系的通用概念；实现以一个类型 `WorkingActor` 表达，主工作 actor、子工作 actor 与系统的 root 工作 actor 是它的角色。不在这条主线上的是后台任务：以 `system` 发起的 SETTLE 等任务不经认证，只携带 `belong_to` 与 `from_actor`，没有改变。controller 回调（P-1b）在边界上证明调用方，并与进程记录中的 principal 比对，不从请求重新建立身份；它不在这次实施的范围内。
 
-- 认证得到工作 actor（principal、actor 与驻留 Workspace）。plugin 请求、管理路由与导入只在入口调用链中持有它；任务进程把它存进进程记录，线程记录持有主工作 actor 或子工作 actor；任务进程与 Import Bus 另以系统自身的 principal 认证，得到执行系统级操作的 root 工作 actor。命名（owner，2026-11-05）：不使用 Caller 与 Callee，它们来自 Alice 唤起子 agent 的方式，不适合作为 Workspace 体系的通用概念；owner 倾向 MainWorkingAgent 或 MainWorkingActor，对应 SubWorkingAgent 或 SubWorkingActor。计划以一个类型 `WorkingActor` 表达，主、子是它的两种角色（计划第 4.8 节）。
-- 授权只有两个方法（owner，2026-11-05 计划评审），都属于 workspace 的操作授权者 `WorkspaceOperationAuthorizer`（`workspace/authorization.py`）：`authorize_agent` 只用于 actor 执行期间的操作授权（执行线程、MCP 请求与 prepare 的检索），按白名单判定；`authorize_root` 用于系统级操作，要求 actor 是 `system`。两者都在能力层方法的入口调用并产出 `IdentityScope`，不设带操作枚举的通用授权方法。
-- 任务进程与执行线程只负责存活与派发话题，CPU 只持有线程句柄。
-- P-9c 保留目标（每次工具调用一份身份，调用结束即失效），不再需要请求级 context 与 `request_level`。
-- 不在这条主线上的是后台任务：以 `system` 发起的 SETTLE 等任务不经认证，只携带 `belong_to` 与 `from_actor`，不变。
-- controller 回调（P-1b）在边界上证明调用方，并与进程记录中的 principal 比对，不从请求重新建立身份；它不在计划范围内。
-
-**计划评审中的 owner 决定**（2026-11-05）。完整内容见计划第 4.1 节：
+**计划评审中的 owner 决定**（2026-11-05）。完整内容见归档计划第 4.1 节：
 
 - 现在叫“授权”的有两件事：操作授权只在 actor 执行期间才有意义；root 管理、阶段调用、导入与进程控制之所以要检查，是因为所有 API 都收拢到了 Workspace 能力层。能力层的 API 代表谁在执行这项操作。
 - 由系统以 root 身份执行的操作：
@@ -215,20 +208,20 @@ context 没有固定有效期，随绑定的运行结束失效。原先列为开
 - 系统组件以自己登记的 principal 经进程内 adapter 认证 `(user, system)`，取得执行 root 操作的身份，与 Profile 注入脚本的做法相同。
 - “认证直接产出 `IdentityScope`、删除入口检查”的最小版本被否决：它会退掉 v0.7.0 的大半成果，抹掉驻留身份与单次操作 scope 的区分。
 
-**与其他问题的关系**：第 4 节 HTTP 管理入口的调用方证明已以管理凭据落地（防误用），计划据此不在工作 actor 中设“是否经过证明”。principal 标识执行环境、不与 agent 绑定（第 8 节），不需要另行设计绑定。P-1b 成为主线中 controller 回调在边界上的比对，不在计划范围内；P-7 中取消已定为 root（见下），其余不在计划范围内。
+**与其他问题的关系**：第 4 节 HTTP 管理入口的调用方证明已以管理凭据落地（防误用），工作 actor 因此不设“是否经过证明”。principal 标识执行环境、不与 agent 绑定（第 8 节），不需要另行设计绑定。P-1b 成为主线中 controller 回调在边界上的比对；P-7 中取消已由 root 执行（见下），其余仍未决。
 
 ### P-4a 进程能否持有白名单的子集
 
 2026-11-05 由[第五代架构 Idea](./fifth-generation-architecture.md) 移入。
 
-- 支持：注册时声明所需操作集合，入口校验它是白名单子集，能力层按进程的集合授权；本次运行的操作上限由访问 context 携带（统一身份授权入口下记在进程记录上）；
+- 支持：注册时声明所需操作集合，入口校验它是白名单子集，能力层按进程的集合授权；本次运行的操作上限记在进程记录上；
 - 不支持：进程一律继承 actor 在该 Workspace 的白名单。
 
 ### P-7 进程控制操作的授权主体
 
-2026-11-05 由[第五代架构 Idea](./fifth-generation-architecture.md) 移入。取消由持有进程句柄的入口与进程控制授权处理；状态查询等其余控制操作的授权主体尚未决定。
+2026-11-05 由[第五代架构 Idea](./fifth-generation-architecture.md) 移入。状态查询等取消以外的控制操作的授权主体尚未决定。
 
-**owner 决定**（2026-11-05，统一身份授权入口的计划评审）：取消是用户下达的指令，由 root 执行。状态查询，以及 controller 模式下由谁控制进程，仍按下列选项未决。
+**owner 决定**（2026-11-05，统一身份授权入口的计划评审）：取消是用户下达的指令，由 root 执行，已落地（2026-11-06）。状态查询，以及 controller 模式下由谁控制进程，仍按下列选项未决。
 
 选项：仅进程的注册 principal / 注册 principal 与管理员 / Workspace 内任何获准者 / 其他。
 
@@ -299,7 +292,7 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 
 - WorkspaceAsset 的 Store、解析服务与旧端口仍接收 `IdentityScope`，归属拆分暂缓：[WorkspaceAsset 归属拆分 Todo](../todo/workspace-asset-ownership-identity-split.md)；
 - chat 请求体中 `session_id` 的未来语义：[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md)；
-- **root 的声明范围**（owner，2026-10-20）：能以保留的 `system` 进入 root API 的只有用户经 HTTP 入口的管理访问，其他接入来源不能声明 `system`。已落实（2026-10-29，[记忆访问计划](../archive/plans/v0.7.1-memory-access-mcp.md)）：接入登记的 `allow_system_actor` 逐个声明能否声明 `system`，默认不能，server 与 Profile 注入脚本显式允许，外部 harness 不能（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）。Profile 注入脚本（`hivememory:profile-injector`）不在这条规则的范围内（owner，2026-10-20）：它用于向默认 Workspace 快速注入预设 Agent，理想情况下只在项目初次部署时使用，不应经过权限系统；现状仍作为登记来源经网关以 `system` 进入 root API，项目接入部署流程时再调整。
+- **root 的声明范围**（owner，2026-10-20）：能以保留的 `system` 进入 root API 的只有用户经 HTTP 入口的管理访问，其他接入来源不能声明 `system`。已落实（2026-10-29，[记忆访问计划](../archive/plans/v0.7.1-memory-access-mcp.md)）：接入登记的 `allow_system_actor` 逐个声明能否声明 `system`，默认不能，server 与 Profile 注入脚本显式允许，外部 harness 不能（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）。2026-11-06 起，系统自身的 principal `hivememory:system` 同样允许，供任务进程与 Import Bus 执行系统级操作（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)）。Profile 注入脚本（`hivememory:profile-injector`）不在这条规则的范围内（owner，2026-10-20）：它用于向默认 Workspace 快速注入预设 Agent，理想情况下只在项目初次部署时使用，不应经过权限系统；现状仍作为登记来源经网关以 `system` 进入 root API，项目接入部署流程时再调整。
 
 **相关 Todo 与治理工作包**
 

@@ -22,14 +22,14 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-06
 ---
 
 # Patchouli
 
 Patchouli 是 HiveMemory 的记忆与知识子系统。若说 Gateway 决定一条输入应当如何进入系统，Alice 决定一次 Agent run 如何执行，那么 Patchouli 回答的就是另一组更缓慢、也更需要保持连续性的问题：哪些交互应形成长期资产，一条记忆如何被检索和使用，它在被修订、强化、衰减与归档时由谁维护真相。
 
-Patchouli 在公共边界接收授权点组装的 `IdentityScope`，随即拆为资源归属 `belong_to: WorkspaceIdentity` 与发起者 `from_actor: ActorIdentity`。内部领域服务、存储和后台任务分别携带需要的身份字段，不继续传递或重组 scope；Topic、Memory、Artifact 的 Workspace 归属最终由各自的 Store 校验，Memory 读取再检查资源自身的 actor policy。来源与贡献者只表达 provenance，不参与授权。
+Patchouli 在公共边界接收授权点组装的 `IdentityScope`，随即拆为资源归属 `belong_to: WorkspaceIdentity` 与发起者 `from_actor: ActorIdentity`。交互提交（finalize 与 `INTERACTION_SUBMIT`）由系统以 root 授权调用，scope 的 actor 是 `system`，因此只取 scope 的归属；发起者取自显式的参与者参数，是交互中的 Agent（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。内部领域服务、存储和后台任务分别携带需要的身份字段，不继续传递或重组 scope；Topic、Memory、Artifact 的 Workspace 归属最终由各自的 Store 校验，Memory 读取再检查资源自身的 actor policy。来源与贡献者只表达 provenance，不参与授权。
 
 Patchouli 不拥有 `WorkspaceAssetStore`；它只在成功 Interaction 后接收 `TopicAssetBinding` 这类真实使用事实，并在需要时把不透明的 asset ref 作为领域输入继续交接。Workspace 身份、资源复合键和 AssetStore 生命周期见[Workspace](../workspace/README.md)；Store 自身的归属与访问接口拆分见[后续待办](../todo/workspace-asset-ownership-identity-split.md)，本文只描述 Patchouli 自己的领域责任。
 
@@ -97,24 +97,24 @@ PatchouliSystem
 
 ```text
 GatewayDecision
-  -> Patchouli PREPARE_AGENT_RUN
-       -> prepare topic
-       -> retrieve memories
+  -> Patchouli PREPARE_AGENT_RUN（root scope + 可为空的检索 scope）
+       -> prepare topic（归属取 root scope）
+       -> retrieve memories（检索 scope 的 actor 的可见性；为空时不检索）
        -> PreparedAgentRun（话题准备结果 + 未编译的检索原子）
   -> workspace 任务进程：CPU 分配（编译检索结果与附件，组装输入清单）
   -> Alice RUN / RUN_STREAM
        -> WRITE / UPDATE -> workspace actor API -> memory_intent.submit -> generation tasks
   -> workspace 任务进程：封口交互记录（InteractionPayload：MTP trace、实际使用的附件）
-  -> Patchouli FINALIZE_AGENT_RUN
+  -> Patchouli FINALIZE_AGENT_RUN（root scope + 参与者）
        -> InteractionSubmissionQueue -> PerceptionFamiliar.apply_interaction
        -> best-effort record retrieval HIT
 ```
 
 Prepare 只准备话题与检索结果，不解析 Profile、不编译记忆、不接触附件，也不运行 Alice；`PreparedAgentRun` 位于 `patchouli.contracts.prepare`，由任务进程读取并交回 finalize/cleanup。Finalize 接收任务进程封口的 `InteractionPayload` 并原样提交，先等待本轮结构化事实成功摄入话题；该 applied gate 锁定 Chat completed，之后在同一个 Active continuation 内执行 best-effort retrieval HIT，返回 `None`，不反向改写 Chat 终态。HIT 只做单批去重，不自动 retry，也不提供跨 finalize 去重。若 prepare 已创建新话题而 run 没有走到 finalize，任务进程会调用 cleanup 删除仍为空的话题。
 
-`PreparedAgentRun` 只保存资源归属与准备结果，不保存阶段授权 scope。任务进程在 prepare、finalize 与 cleanup 调用前分别从仍有效的访问 context 授权并组装 scope；finalize 和 cleanup 会核对准备结果的归属，拒绝越域交接。进入提交队列后的交互记录独立携带归属与本轮发起者，取消调用方等待不会让后台 continuation 重新依赖访问 context。
+`PreparedAgentRun` 只保存资源归属与准备结果，不保存 scope 或任何身份。任务进程在 prepare、finalize 与 cleanup 调用前分别以系统的 root 工作 actor 授权并组装 scope；prepare 另收执行者经 `memory.search` 授权得到的检索 scope：话题与归属取 root scope，检索按检索 scope 的 actor 过滤可见性，检索 scope 为空时不检索，两份 scope 的 Workspace 不同时在任何副作用之前以 `WorkspaceMismatchError` 拒绝。finalize 另收参与者（本轮的执行 Agent），记为交互的发起者；finalize 和 cleanup 会核对准备结果的归属，拒绝越域交接。进入提交队列后的交互记录独立携带归属与本轮发起者，取消调用方等待不会让后台 continuation 重新依赖调用方的授权。
 
-`WRITE` / `UPDATE` 的 ACK 表示 workspace 已登记意图且生成队列已接纳。Alice 经线程 context 绑定的提交函数发出操作请求，actor API 在操作内经 `memory_intent.submit` 实时派发；这是主动生成的唯一生产入口。背景取过去 N 个 block 与摘要（`patchouli.generation.active_recent_blocks`，默认 5），不含当前轮；后续执行失败、取消或进程关闭都不撤回写入。Patchouli 完成生成、去重、artifact 挂载和中期存储写入后，才通过 settlement 通知 workspace registry 投影 canonical alias/UUID 或 discard/failure/cancel 终态。canonical 读取缓存由中期 Store 的独立变更事件失效，结算通知不回填原子；详情见[MemoryLibrary](./memory-library.md)与[PendingAtom](../alice/pending-atom.md)。
+`WRITE` / `UPDATE` 的 ACK 表示 workspace 已登记意图且生成队列已接纳。Alice 经绑定了线程句柄的提交函数发出操作请求，actor API 在操作内经 `memory_intent.submit` 实时派发；这是主动生成的唯一生产入口。背景取过去 N 个 block 与摘要（`patchouli.generation.active_recent_blocks`，默认 5），不含当前轮；后续执行失败、取消或进程关闭都不撤回写入。Patchouli 完成生成、去重、artifact 挂载和中期存储写入后，才通过 settlement 通知 workspace registry 投影 canonical alias/UUID 或 discard/failure/cancel 终态。canonical 读取缓存由中期 Store 的独立变更事件失效，结算通知不回填原子；详情见[MemoryLibrary](./memory-library.md)与[PendingAtom](../alice/pending-atom.md)。
 
 ### 3.2 Import Bus 与话题结算
 

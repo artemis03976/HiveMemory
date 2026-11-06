@@ -24,7 +24,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-11-06
 ---
 
 # 多 Agent 编排
@@ -48,14 +48,14 @@ AliceSystem
 ```
 
 - AgentRunService 是内部运行用例：`run_agent` 面向运行层的 `RunOutput`，创建根 frame 与每次 run 的 Executor，返回 CPU 中立执行结果并发布终态观测；模型预算、视图与压缩交给独立的 `RootContextBuilder`，结果投影放在 `run/result.py`；它是 Alice 作为 CPU 的最外层，被取消时把已产生的输出与已完成检查点组装为 cancelled 结果返回，不再传播取消，没有可交回的内容时才原样传播；
-- AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程。它把进程交来的主线程绑定为线程句柄、检查宿主启停，每次执行都以 `SinkRunOutput` 直接等待运行服务，交互事件推送给进程的 sink，类型化结果作为返回值交回；
+- AliceCPU 实现 workspace 定义的 CPU 端口，由组合根注入任务进程。它把进程交来的主线程绑定为提交函数、检查宿主启停，每次执行都以 `SinkRunOutput` 直接等待运行服务，交互事件推送给进程的 sink，类型化结果作为返回值交回；
 - AliceSystem 是子系统装配根，通过内核工厂构造 AgentRuntime。Profile 读取与缓存归 workspace，内核不参与多帧调度；
 - RunSession 只拥有一次 run 的 frame registry 与 CALL record，不保存取消信号、活动 frame、frame 调度状态或传输层 stream sequence；
 - RunExecutor 是唯一调用 `AgentRuntime.run_frame()` 的 Alice 编排组件。它以协程递归执行 CALL 派生 frame，并在根帧终态只记录一次 run 结果；意图收尾属于任务进程；
 - AgentRunOutput 是调度与当前请求交互输出之间的窄端口，只承载 frame 输出与 CALL 边界；上下文层的 `ContextProgressOutput` 只承载压缩进度。运行层的 `RunOutput` 合并两者并补充 run 绑定与取消观测信息，生产实现只有 `interface/output.py` 的 `SinkRunOutput`，不缓存事件；
 - SinkRunOutput 只负责把输出投影为交互事件并推送，AgentRunEventEmitter 只负责全局观测投影，两者不参与 frame 求值；
 - CallContextProvider 经 caller 句柄的 `derive_child` 取得子线程的句柄（被调用方）并读取 `context_refs`，返回由被调用方句柄与共享上下文组成、不含 frame 或 CALL ledger 状态的 `CallContext`；
-- CallCoordinator 把 CALL 拆为 `begin_call()` 与 `complete_call()`：消费 `CallContext` 组装 callee、投影 outcome，并通过 `AgentRuntime.apply_call_response()` exactly-once 恢复 caller；它在 CALL 收尾时经子线程句柄结束子线程（第 8 节），不解析 Profile/记忆，不运行 frame，也不收尾整个 run；
+- CallCoordinator 把 CALL 拆为 `begin_call()` 与 `complete_call()`：消费 `CallContext` 组装 callee、投影 outcome，并通过 `AgentRuntime.apply_call_response()` exactly-once 恢复 caller；它在 CALL 收尾时经子线程的提交函数结束子线程（第 8 节），不解析 Profile/记忆，不运行 frame，也不收尾整个 run；
 - FrameFactory 无状态地创建普通 frame，不表达主/子拓扑；
 - `ResolveReferencesRequest` 让 context refs 与 READ 使用 workspace 的同一套引用解析、授权和引用记录；
 - AgentRuntime 只运行给定 frame，不接触多 Agent 拓扑。
@@ -69,7 +69,7 @@ AliceSystem
 - `run_id=agent_run_<uuid>`，也是 `RunSession.agent_run_id`；任务进程的必填 `process_id` 随输入清单传入，作为外层关联值；
 - 唯一且无拓扑含义的 `frame_id`；
 - `topic_id` 指向 Patchouli 已准备的话题；
-- `submit_operation` 是主线程的句柄，也是资源请求的唯一交付入口，只交出主线程描述，不暴露访问 context 或目标选择；
+- `submit_operation` 是主线程的提交函数，也是资源请求的唯一交付入口，只交出主线程描述，不暴露线程句柄、工作 actor 或目标选择；
 - `ExecutionLabels` 取自主线程描述，即注册时绑定的 agent/workspace 观测标签，不参与资源授权；
 - `agent_profile` 是主线程描述中的图纸（进程在 prepare 之前解析），模型解析也用它；MTP 动词由主线程描述的操作快照翻译。`agent.run.*` 与历史中的当前 Agent 取输入清单的注册标签，与主线程标签相同；
 - `working_history` 来自 `SessionContextView` 组装的预算内视图，预算与请求参数来自同一次模型解析（帧上的 `input_token_limit` 与 `llm_params`）。
@@ -155,7 +155,7 @@ Agent Profile 作为记忆存在，使服务发现可以复用预检索与 SEARC
 - 目标 Agent Profile（取自子线程描述）；
 - 由 persona、裁剪后的 MTP 教学、shared context 和 task 组成的全新消息历史；
 - 子线程描述中的 `ExecutionLabels`：被调用方与注册时的 workspace，不沿用调用方，由 workspace 的线程表生成；
-- 子线程的句柄：以被调用方身份授权，写入意图记在被调用方名下并记录子线程标识。
+- 子线程的提交函数：以被调用方的子工作 actor 授权，写入意图记在被调用方名下并记录子线程标识。
 
 子帧不读取主话题完整 history，也不会把内部 token、SEARCH/RUN 重试或工具结果写回主 frame 的 working history。只有子帧以 `COMPLETED` 自然结束后，CallCoordinator 才取 `text_segments` 形成 reply，并把运行期间收到 ACK 的 aliases 放入 CALL artifacts。取消、失败或预算耗尽的子帧不会收割 reply/artifact，已提交写入仍由 Patchouli 继续生成。`SUSPENDED` 是 RunExecutor 必须继续递归消费的非终态 trap；若它进入 `complete_call()`，属于编排不变量违约，不构造 CALL response。
 
@@ -186,7 +186,7 @@ root frame
 
 CALL 故意没有配套的 MTP `RETURN` 动词。返回描述的是子 frame 生命周期的自然完成，不是一项新的记忆或工具动作；若再要求模型生成 `RETURN`，就会在已有执行终态之外增加一条语法、权限和 formatter 都可能失败的路径。当前由子帧自然结束触发返回，以自然语言 reply 表达结论，以 PendingAtom alias 收割表达可继续寻址的副作用，两者共同组成 CALL response。隐式返回只消除了重复协议动作，并不把任何退出都视作成功：`alice/orchestration/call/response.py` 仅将 `COMPLETED` 映射为 success，将 `CANCELLED` 映射为 cancelled，将 `FAILED`、`BUDGET_EXHAUSTED` 映射为带稳定 error code 的 error；`SUSPENDED` 不属于可映射终态。
 
-caller 与 callee 各自使用自己线程的句柄：callee 登记的意图发起者是被调用方，进程关联与 caller 相同，操作内立即派发到相同的进程话题。子线程随 CALL 返回结束（第 8 节），之后以子线程句柄提交的请求以线程已结束拒绝；callee 未成功结束不回填 IPC alias，也不撤回已经提交的写入。IPC alias 服务于 caller 当前认知，正式生成由能力层提交后独立运行；CPU 结果不携带物化任务，Alice 不管理 run 级登记收尾。
+caller 与 callee 各自使用自己线程的提交函数：callee 登记的意图发起者是被调用方，进程关联与 caller 相同，操作内立即派发到相同的进程话题。子线程随 CALL 返回结束（第 8 节），之后以子线程的提交函数提交的请求以线程已结束拒绝；callee 未成功结束不回填 IPC alias，也不撤回已经提交的写入。IPC alias 服务于 caller 当前认知，正式生成由能力层提交后独立运行；CPU 结果不携带物化任务，Alice 不管理 run 级登记收尾。
 
 ## 7. 流式事件
 

@@ -30,7 +30,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-06
 ---
 
 # 跨边界错误模型
@@ -217,10 +217,10 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 
 | Code | 语义 |
 |:---|:---|
-| `workspace.scope_required` | 缺少完整 `IdentityScope`，或访问 context 无效：传入的不是访问 context，或 context 已撤销（`reason=context_not_issued`），或授权时准入记录已不存在（`reason=actor_not_admitted`） |
-| `workspace.mismatch` | 资源与请求 Workspace 不一致，例如 prepare 返回的 scope 与授权组装的 scope 不一致 |
+| `workspace.scope_required` | 缺少完整 `IdentityScope`；授权时工作 actor 的准入记录已不存在（`reason=actor_not_admitted`）；或执行线程的接线缺陷（登记的不是这一个线程句柄、子线程试图派生、CPU 结束主线程） |
+| `workspace.mismatch` | 资源与请求 Workspace 不一致，例如 prepare 返回的 scope 与授权组装的 scope 不一致，或 prepare 的检索 scope 与 root scope 不属于同一 Workspace |
 | `workspace.admission_denied` | 统一认证网关的接入/准入拒绝（`details.reason` 区分阶段：`unknown_principal`、`adapter_mismatch`、`invalid_credential`、`actor_not_allowed_for_principal`、`system_actor_not_allowed`、`actor_not_owner`、`actor_not_admitted`、`authentication_gateway_closed`） |
-| `workspace.operation_denied` | 第 3 阶段授权失败（`details.reason` 区分：`target_workspace_not_resident`、`target_owner_mismatch`、`operation_not_allowed`、`root_required`、`agent_required`） |
+| `workspace.operation_denied` | 第 3 阶段授权失败（`details.reason` 区分：`target_workspace_not_resident`、`target_owner_mismatch`、`operation_not_allowed`、`root_required`） |
 | `workspace.resource.not_found` | 当前 Workspace 作用域内不存在目标资源 |
 | `workspace.resource.not_visible` | 资源存在但当前 Actor 未通过可见性授权（与 not_found 有意区分；调用方可按契约合并呈现） |
 | `workspace.resource.unavailable` | 资源 provider 暂时不可用，不代表资源不存在或被拒绝 |
@@ -247,14 +247,16 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 | 认证网关已关闭（System 停止中） | `AdmissionDeniedError` | `authentication_gateway_closed` | 503 |
 | 第 3 阶段：目标 Workspace 不等于驻留 Workspace | `OperationDeniedError` | `target_workspace_not_resident` | 403 |
 | 第 3 阶段：actor 用户不是目标 Workspace 的 owner | `OperationDeniedError` | `target_owner_mismatch` | 403 |
-| 第 3 阶段（actor API）：白名单不含该 actor 操作 | `OperationDeniedError` | `operation_not_allowed` | 403 |
-| 第 3 阶段（root API）：actor 不是保留的 `system` | `OperationDeniedError` | `root_required` | 403 |
-| 第 3 阶段（导入授权）：actor 是保留的 `system`（HTTP 入口已在声明解析处以 400 `request.agent_reserved` 拒绝，这里是授权点的再次检查） | `OperationDeniedError` | `agent_required` | 403 |
-| 访问 context 无效：不是访问 context，或已撤销（线程已结束见下文）；授权时准入记录已不存在；把进程 context、请求级 context 或未登记在线程表中的线程 context 交给操作入口的线程提交；把进程 context 交给 actor API；从非进程 context 派生线程 context；以子线程派生 CALL 子线程；CPU 结束主线程 | `ScopeRequiredError` | 无 / `context_not_issued` / `actor_not_admitted` | 500：生产入口经网关签发后不应出现，出现即为接线缺陷 |
+| 第 3 阶段（`authorize_agent`）：白名单不含该 actor 操作 | `OperationDeniedError` | `operation_not_allowed` | 403 |
+| 第 3 阶段（`authorize_root`）：actor 不是保留的 `system` | `OperationDeniedError` | `root_required` | 403 |
+| 第 3 阶段：工作 actor 的准入记录在授权时已不存在 | `ScopeRequiredError` | `actor_not_admitted` | 500：访问登记在运行实例内不可变，生产中不应出现 |
+| 执行线程的接线缺陷：登记的不是这一个线程句柄、以子线程派生 CALL 子线程、CPU 结束主线程（线程已结束见下文） | `ScopeRequiredError` | 无 | 500：出现即为接线缺陷 |
 | 资源与请求 Workspace 不一致 | `WorkspaceMismatchError` | —— | 409 |
 
-- 缺少行为许可属于授权失败，不是身份认证失败；空白名单可以进入，但所有 actor 操作都被拒绝。未知 operation 在访问登记装载期失败。`operation_not_allowed` 的 `details.operation` 给出被拒绝的 actor 操作；root 授权、任务进程的阶段授权与导入授权不检查 operation，它们的目标拒绝、`root_required` 与 `agent_required` 不附带 `operation`。阶段授权与导入授权只校验准入与目标，因此不会出现 `operation_not_allowed`。
-- 访问 context 没有固定有效期，不存在“过期”拒绝；认证网关关闭只拒绝新认证，已签发的 context 照常可用，直到被撤销。
+- 缺少行为许可属于授权失败，不是身份认证失败；空白名单可以进入，但所有 actor 操作都被拒绝。未知 operation 在访问登记装载期失败。`operation_not_allowed` 的 `details.operation` 给出被拒绝的 actor 操作；`authorize_root`（root API、任务进程的系统阶段与取消、Import Bus）不检查 operation，它的目标拒绝与 `root_required` 不附带 `operation`，也不会出现 `operation_not_allowed`。
+- 工作 actor 没有有效期，不存在“过期”拒绝；认证网关关闭只拒绝新认证，已有进程持有的工作 actor 照常用于授权。
+- 取消把 root 授权的拒绝（请求方驻留在其他 Workspace、不是 `system`）呈现为 `not_found`，不返回 403，不泄露进程是否存在。
+- 系统自身的 principal 未登记时，chat 注册、导入与 MCP 写入、更新以 `unknown_principal` 拒绝，与调用方自己的 principal 未登记同一原因（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)）。
 - 凭据错误与未登记分开报告（`invalid_credential` 与 `unknown_principal`），用户才能区分“没登记”和“凭据不对”；两者都不泄露凭据本身。外部入口缺少 principal 声明时在入口以 400 `request.principal_required` 拒绝，不经网关。
 - HTTP 映射由 server 的异常处理器统一完成（`server/error_handlers.py`），响应体包含稳定机器码 `error`、安全 `detail` 与可选 `reason`，不暴露接入凭据。MCP 入口复用同一投影，把结果写入 `isError` 的工具结果；写入与更新缺少连接器补上的轮次信息时，在认证前以 400 `request.turn_required` 拒绝（[MCP 记忆访问](./mcp.md#5-错误)）。
 - 拒绝阶段可观测的最小记录为 principal 标识、Actor/Workspace 安全投影、operation、关联 ID 与拒绝阶段，不记录接入凭据和原始对话。
@@ -263,9 +265,9 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 
 actor API 与操作入口的错误保持各自边界：每种 actor 请求缺少对应操作时抛 `OperationDeniedError`（`operation_not_allowed`）——READ 与 CALL 的 `context_refs` 缺少 `memory.read`、SEARCH 缺少 `memory.search`、RUN 的记忆目标缺少 `memory.run`、WRITE 缺少 `memory.write`、UPDATE 缺少 `memory.update`、CALL 目标读取缺少 `agent.call`（包括内置目标）；UPDATE 基础为 pending 时抛 `PendingUpdateNotAllowedError`，不存在、不可读或不是正式 atom 时抛 `ResourceNotFoundError`。Koakuma 分别映射为现有 `mtp.permission.denied`、`mtp.argument.invalid` 与 `mtp.alias.not_found`，provider 不可用映射为 `mtp.system.service_unavailable`，不暴露内部 cause。
 
-CALL 派生子线程时，被调用方在本 Workspace 没有准入或为保留的 `system`，认证一侧抛 `AdmissionDeniedError`（`actor_not_admitted` / `system_actor_not_allowed`），不签发、不登记子线程；Alice 映射为 `mtp.permission.denied`，文案键 `mtp.call.agent_unavailable`（目标 agent 不可用），与调用方缺少 `agent.call` 时的 `mtp.permission.verb_denied` 区分。子线程试图再派生抛 `ScopeRequiredError`，属于接线缺陷，Koakuma 呈现为 `mtp.system.fault`；冷读期间调用方结束或进程收到停止抛 `ThreadEndedError`（见下文）。
+CALL 派生子线程时，被调用方在本 Workspace 没有准入或为保留的 `system`，认证一侧的子工作 actor 准入抛 `AdmissionDeniedError`（`actor_not_admitted` / `system_actor_not_allowed`），不登记子线程；Alice 映射为 `mtp.permission.denied`，文案键 `mtp.call.agent_unavailable`（目标 agent 不可用），与调用方缺少 `agent.call` 时的 `mtp.permission.verb_denied` 区分。子线程试图再派生抛 `ScopeRequiredError`，属于接线缺陷，Koakuma 呈现为 `mtp.system.fault`；冷读期间调用方结束或进程收到停止抛 `ThreadEndedError`（见下文）。
 
-线程已结束时，操作入口、CALL 派生与 actor API 的同步段抛 `ThreadEndedError`（`core.errors`，继承 `DomainError`，由 `workspace.contracts` 重新导出，code 为 `workspace.thread.ended`）：线程的凭据已撤销、线程已结束（子线程随 CALL 返回，或 Actor 阶段收尾），或所属进程已收到停止，都属于这一种生命周期拒绝，六项 actor 操作得到同一种错误。未知请求类型（包括请求级提交收到它不开放的请求类型，或派发话题与请求类型不符）抛 `TypeError`，是接线违规；两者都与表示接线缺陷的 `ScopeRequiredError` 区分。它们没有独立 HTTP API，不新增 HTTP 映射。普通 MTP 与 CALL 将线程结束呈现为 `mtp.system.fault`，文案键 `mtp.system.thread_ended`：原线程已结束，停止操作，不重试或重新获取身份。未知入口异常使用固定系统故障文案，不暴露 cause。线程结束同步撤销线程 context，不取消其他在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 在基础校验之后、登记之前的同步段解析线程，跨越线程结束或停止时拒绝登记；派发开始后持有提交任务直到完成，再传播调用方取消。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
+线程已结束时，操作入口、CALL 派生与 actor API 的同步段抛 `ThreadEndedError`（`core.errors`，继承 `DomainError`，由 `workspace.contracts` 重新导出，code 为 `workspace.thread.ended`）：线程已结束（子线程随 CALL 返回，或 Actor 阶段收尾），所属进程已收到停止，或进程已经关闭、线程句柄指向的进程已不在进程表中，都属于这一种生命周期拒绝，六项 actor 操作得到同一种错误。未知请求类型（包括请求级提交收到它不开放的请求类型，或派发话题与请求类型不符）抛 `TypeError`，是接线违规；两者都与表示接线缺陷的 `ScopeRequiredError` 区分。它们没有独立 HTTP API，不新增 HTTP 映射。普通 MTP 与 CALL 将线程结束呈现为 `mtp.system.fault`，文案键 `mtp.system.thread_ended`：原线程已结束，停止操作，不重试或重新获取身份。未知入口异常使用固定系统故障文案，不暴露 cause。线程结束只是同步标记，不取消其他在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 在基础校验之后、登记之前的同步段解析线程，跨越线程结束或停止时拒绝登记；派发开始后持有提交任务直到完成，再传播调用方取消。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
 
 WRITE/UPDATE 登记后的派发错误携带 `pending_alias` 与 `intent_id`，不暴露内部 cause：
 

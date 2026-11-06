@@ -11,6 +11,7 @@ code_paths:
   - src/hivememory/config/import_bus.py
   - src/hivememory/core/protocol/sealing.py
   - src/hivememory/workspace/authorization.py
+  - src/hivememory/workspace/capability/root/interaction.py
   - src/hivememory/patchouli/contracts/public_routes.py
   - src/hivememory/patchouli/control/interaction_submission.py
   - integrations/claude-code/
@@ -38,7 +39,7 @@ related_plans:
   - docs/archive/plans/v0.7.1-memory-access-mcp.md
   - docs/archive/plans/v0.7.2-plugin-write-update.md
   - docs/archive/plans/dsh-plugin-integration.md
-last_reviewed: 2026-11-02
+last_reviewed: 2026-11-06
 ---
 
 # Import Bus
@@ -61,15 +62,16 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 
 | 部分 | 位置 | 负责 | 不负责 |
 |:---|:---|:---|:---|
-| HTTP 入口 | `server/routers/import_bus.py`、`server/models/import_bus.py` | 请求体上限、请求校验、身份声明解析、经统一认证网关取得请求级 context、错误映射 | 授权、编排 |
-| 应用服务 `ImportBusService` | `system/application/import_bus_service.py` | 导入（`import_turn`）与写入时落位（`place_turn`）：以导入授权把 context 兑现为本次请求的 `IdentityScope` 与 principal 标识，委托编排器；关闭时转交 | 跨请求的业务状态 |
-| 编排器 `ImportBusIngestor` | `system/services/import_bus/` | 按外部会话串行、推导 `interaction_id`、进度查询、Gateway 落位、写入时为在途轮次准备话题并登记落点、封口、提交、等待应用、观测事件、关闭时等待在途请求 | 持有提交队列、注册维护任务、检索、记忆存储、写入意图的登记与派发 |
+| HTTP 入口 | `server/routers/import_bus.py`、`server/models/import_bus.py` | 请求体上限、请求校验、身份声明解析、经统一认证网关认证得到请求的工作 actor、错误映射 | 授权、编排 |
+| 应用服务 `ImportBusService` | `system/application/import_bus_service.py` | 导入（`import_turn`）与写入时落位（`place_turn`）：以系统自身的 principal 认证系统的 root 工作 actor，root 授权得到本次请求的 `IdentityScope`，连同参与的 Agent 与 principal 标识委托编排器；关闭时转交 | 跨请求的业务状态 |
+| 编排器 `ImportBusIngestor` | `system/services/import_bus/` | 按外部会话串行、推导 `interaction_id`、进度查询、Gateway 落位、写入时为在途轮次准备话题并登记落点、封口、经 root API 的提交交互提交、等待应用、观测事件、关闭时等待在途请求 | 持有提交队列、注册维护任务、检索、记忆存储、写入意图的登记与派发 |
+| root API 的提交交互 `RootInteractionService` | `workspace/capability/root/interaction.py` | root 授权后调用 `patchouli.public.interaction.submit`，参与者显式传递 | 编排、查重、重试 |
 | 封口函数 `seal_interaction` | `core/protocol/sealing.py` | 两条链路共用：组装 `InteractionPayload` | 解析事件（只在感知层进行） |
 | Patchouli | 公开路由 `patchouli.public.interaction.submit` / `.status` / `.wait` | 提交队列、查重、应用、新话题的建立 | 导入的身份与重试策略 |
 | Claude Code 连接器 | `integrations/claude-code/` | 读取会话记录、切分轮次、游标与重发 | 服务端的查重与授权 |
 | DeepSeek Harness 插件 | `integrations/deepseek-harness/` | 读取 dsh 会话的逻辑记录、切分轮次、水位与重发；注册记忆工具 | 服务端的查重与授权 |
 
-编排器的状态只有串行门、在途计数与落点登记，都只在进程内。它经 `GlobalSystemBus` 调用 Gateway 与 Patchouli 的公开路由，不持有任何子系统的 Runtime 或 Patchouli 的提交队列；组合根只注入全局总线、Gateway 请求时限与最近轮数（沿用 Gateway 配置）、等待应用的时限与观测 sink，导入授权使用与其他入口相同的操作授权者。
+编排器的状态只有串行门、在途计数与落点登记，都只在进程内。它经 `GlobalSystemBus` 调用 Gateway 与 Patchouli 的公开路由，经 root API 的提交交互提交，不持有任何子系统的 Runtime 或 Patchouli 的提交队列；组合根只注入全局总线、root API 的提交交互、Gateway 请求时限与最近轮数（沿用 Gateway 配置）、等待应用的时限与观测 sink。应用服务另由组合根注入认证网关、操作授权者与系统自身的 principal 及其 adapter，与任务进程的注册入口相同。
 
 ## 3. HTTP 入口
 
@@ -106,13 +108,13 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 
 ## 4. 认证、授权与编排
 
-### 4.1 认证与导入授权
+### 4.1 认证与授权
 
-导入是 Agent action：server 用 `resolve_request_identity_claims(require_agent=True)` 把请求头的用户选择与请求体的 `agent_id` 解析为 (user, 具体 Agent) 声明，缺失 `agent_id` 返回 400（`request.agent_required`），显式给出保留的 `system` 返回 400（`request.agent_reserved`）；`X-Workspace-ID` 只接受 `main_workspace`，其他值返回 404。principal 取自请求头 `X-Principal-ID`，缺省返回 400（`request.principal_required`）；凭据取自 `Authorization: Bearer`。随后以请求声明的 principal、`import` adapter 与凭据经统一认证网关取得请求级 context（`request_access_for_claims`），请求结束时撤销；凭据由网关第一阶段核对，缺失或不一致以 403 `invalid_credential` 拒绝。连接器以 Claude Code 自己的接入登记 `harness:claude-code` 认证，与插件中的 MCP server 共用（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）；server 的 principal 只用于前端路由。认证前不组装 `IdentityScope`。请求头中的用户身份不做证明，沿用本地单用户部署的信任假设。
+导入是 Agent action：server 用 `resolve_request_identity_claims(require_agent=True)` 把请求头的用户选择与请求体的 `agent_id` 解析为 (user, 具体 Agent) 声明，缺失 `agent_id` 返回 400（`request.agent_required`），显式给出保留的 `system` 返回 400（`request.agent_reserved`）；`X-Workspace-ID` 只接受 `main_workspace`，其他值返回 404。principal 取自请求头 `X-Principal-ID`，缺省返回 400（`request.principal_required`）；凭据取自 `Authorization: Bearer`。随后以请求声明的 principal、`import` adapter 与凭据经统一认证网关认证（`authenticate_request_actor`），得到请求的工作 actor：它证明请求来自哪个调用来源、交互的参与者是哪个 Agent，只在本次调用内使用；凭据由网关第一阶段核对，缺失或不一致以 403 `invalid_credential` 拒绝。连接器以 Claude Code 自己的接入登记 `harness:claude-code` 认证，与插件中的 MCP server 共用（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）；server 的 principal 只用于前端路由。认证前不组装 `IdentityScope`。请求头中的用户身份不做证明，沿用本地单用户部署的信任假设。
 
-workspace 授权点的 `authorize_import` 只校验 context 有效、已准入且目标等于驻留 Workspace，不检查 actor 操作白名单，拒绝保留的 `system` 作为发起者（`OperationDeniedError`，reason `agent_required`），返回本次请求的 `IdentityScope` 与认证通过的 principal 标识。不检查白名单的理由：导入提交的是已经在外部发生的交互，与任务进程封口后提交交互记录同类，不调用任何 actor 操作，因此白名单为空的 Agent 也能导入。写入时的落位（第 4.7 节）同样使用导入授权：它只为这一轮选定话题，紧随其后的写入与更新由 actor API 按白名单逐次授权。`authorize_import` 的生产调用位置由架构测试锁定为 `system/application/import_bus_service.py`。
+导入与落位是系统级操作，执行者是系统，交互中的 Agent 只是参与者（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。应用服务以系统自身的 principal 经 `local` adapter 认证同一用户在参与者驻留 Workspace 的 `system`，得到系统的 root 工作 actor（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)），再以 `authorize_root` 对目标授权。system 驻留在参与者的 Workspace，root 授权因此同时确认目标就是参与者驻留的 Workspace，否则以 `target_workspace_not_resident` 拒绝，交互不会落到参与者所在之外的 Workspace。actor 操作白名单不参与：导入提交的是已经在外部发生的交互，与任务进程封口后提交交互记录同类，不调用任何 actor 操作，因此白名单为空的 Agent 也能导入；保留的 `system` 作为参与者已由声明解析以 `request.agent_reserved` 拒绝。写入时的落位（第 4.7 节）同样由系统执行：它只为这一轮选定话题，紧随其后的写入与更新由 actor API 按请求的工作 actor 的白名单逐次授权。系统自身的 principal 未登记时以 403 `unknown_principal` 拒绝，该用户在这个 Workspace 没有 `system` 的访问记录时以 403 `actor_not_admitted` 拒绝。`authorize_root` 与系统自身的 principal 的使用位置都由架构测试锁定。
 
-`IdentityScope` 只在这一次导入的调用链内经公共路由到达 Gateway 与 Patchouli，不写入记录、事件或后台任务；Patchouli 在提交边界把它拆为归属（目标 Workspace）与发起者（认证通过的 user 与 Agent）。访问模型见[身份与授权](../workspace/identity-and-authorization.md)，访问登记的匹配规则见[认证与访问登记](../workspace/authentication.md#2-两类访问登记)。随仓库发布的 `configs/workspace_actors.yaml` 为 `default` 用户在 `main_workspace` 登记了 `claude_code` 的精确记录，`allowed_operations` 为 `memory.read`、`memory.search`、`memory.write` 与 `memory.update`，供 MCP 工具使用；导入与落位不读取白名单，不受它影响。精确记录优先于用户级记录，这个 Agent 不继承用户级的 `memory.run` 与 `agent.call`：MCP 入口不提供这两项操作。
+root scope 只在这一次导入的调用链内经公共路由到达 Gateway 与 Patchouli，不写入记录、事件或后台任务。提交经 root API 的提交交互进行，它以同一个系统的 root 工作 actor 在入口再授权一次，并把参与的 Agent 显式交给 `patchouli.public.interaction.submit`：Patchouli 以 scope 作归属（目标 Workspace），以参与者作交互的发起者。访问模型见[身份与授权](../workspace/identity-and-authorization.md)，访问登记的匹配规则见[认证与访问登记](../workspace/authentication.md#2-两类访问登记)。随仓库发布的 `configs/workspace_actors.yaml` 为 `default` 用户在 `main_workspace` 登记了 `claude_code` 的精确记录，`allowed_operations` 为 `memory.read`、`memory.search`、`memory.write` 与 `memory.update`，供 MCP 工具使用；导入与落位不读取白名单，不受它影响。精确记录优先于用户级记录，这个 Agent 不继承用户级的 `memory.run` 与 `agent.call`：MCP 入口不提供这两项操作。
 
 ### 4.2 编排顺序
 
@@ -129,16 +131,16 @@ workspace 授权点的 `authorize_import` 只校验 context 有效、已准入�
       写入时已落位       -> 沿用落点话题（第 4.7 节）
       否则 Gateway PASSIVE_MEMORY（附最近轮次与上一轮的落位）
       seal_interaction -> InteractionPayload
-      patchouli.public.interaction.submit（origin import_bus，新话题附标题与摘要）
+      root API 的提交交互 -> patchouli.public.interaction.submit（origin import_bus，参与者，新话题附标题与摘要）
       提交被接纳         -> 取走落点
       等待应用（第 4.6 节）-> accepted
 ```
 
 ### 4.3 交互标识与串行
 
-`interaction_id` 是 `import_` 加上对（principal、user、Agent、`source`、`external_conversation_id`、`external_turn_id`）规范化 JSON 序列取 SHA-256 的前 32 位十六进制。同一轮重发得到同一标识，队列据此幂等；principal 是连接器声明、经凭据核对的接入来源（Claude Code 为 `harness:claude-code`），纳入认证通过的 actor 使代表不同用户或 Agent 的连接器不会撞号；前缀把它与任务进程的 `process_id` 及其他来源的标识分开。
+`interaction_id` 是 `import_` 加上对（principal、user、Agent、`source`、`external_conversation_id`、`external_turn_id`）规范化 JSON 序列取 SHA-256 的前 32 位十六进制。同一轮重发得到同一标识，队列据此幂等；principal 是连接器声明、经凭据核对的接入来源（Claude Code 为 `harness:claude-code`），user 与 Agent 取自显式的参与者（请求认证通过的 actor），代表不同用户或 Agent 的连接器因此不会撞号；前缀把它与任务进程的 `process_id` 及其他来源的标识分开。执行导入的 `system` 不进入推导，标识不随执行者变化。
 
-编排器按（user、Agent、`source`、`external_conversation_id`）持 `KeyedSerialGate`（[运行时与总线](../components/runtime-and-bus.md#5-keyedserialgate)），门内依次完成进度查询、Gateway、提交与等待应用。同一外部会话的并发请求（例如两个 hook 同时触发补发）因此按到达顺序处理，后到的请求看到前一个的结果；串行门持有到应用完成，同一外部会话的下一轮路由时，上一轮新建的话题已经建立，可以成为候选与续接的落点。不同外部会话互不阻塞。串行键只用于进程内排序，不参与授权。
+编排器按参与者的（user、Agent）与（`source`、`external_conversation_id`）持 `KeyedSerialGate`（[运行时与总线](../components/runtime-and-bus.md#5-keyedserialgate)），门内依次完成进度查询、Gateway、提交与等待应用。同一外部会话的并发请求（例如两个 hook 同时触发补发）因此按到达顺序处理，后到的请求看到前一个的结果；串行门持有到应用完成，同一外部会话的下一轮路由时，上一轮新建的话题已经建立，可以成为候选与续接的落点。不同外部会话互不阻塞。串行键只用于进程内排序，不参与授权。
 
 ### 4.4 进度查询与重发
 
@@ -157,7 +159,7 @@ workspace 授权点的 `authorize_import` 只校验 context 有效、已准入�
 
 - **Gateway**：以 `PASSIVE_MEMORY` 模式调用 `gateway.public.process`，消息为该轮的用户消息，时限为 `gateway.workflow.default_request_timeout_ms`。`session_turns` 取请求中 `recent_turns` 的最后 `gateway.context_preparation.session_turn_limit` 轮；最近一轮带 `external_turn_id` 时，编排器推导它的 `interaction_id`，取它的落点（写入时已落位、尚未回流），否则经状态查询取得应用成功后的真实落点，写入该轮的 `topic_id`。连接器的回流可能晚于下一轮的写入到达，此时上一轮只有落点。话题路由失败时，Gateway 续接上一轮仍在候选中的话题，否则按新话题兜底（[Gateway 分析](../gateway/analysis.md)）。Import Bus 只使用决定中的 `target_topic_id`、`new_topic_title` 与 `new_topic_summary`，三者都来自话题路由；Gateway 在这一模式下不运行查询分析，每个导入轮次只有话题路由一次模型调用，决定中的意图与检索计划是不检索的默认值，Import Bus 不调用检索。导入一侧不在入口作任何价值判断，交互记录不因入口判断被丢弃。
 - **封口**：以补上序号 0 用户消息事件后的轮次事件、`outcome` 与 `model_used` 调用 `seal_interaction`；Import Bus 不携带附件，`used_attachments` 为空。Gateway 决定不进入交互记录。
-- **提交**：调用 `patchouli.public.interaction.submit`，`origin` 为 `import_bus`；目标为 `NEW_TOPIC` 时附上 Gateway 给出的 `new_topic_title` 与 `new_topic_summary`，感知以它们建立新话题。后续落位依赖候选话题的标题与摘要，缺少它们的“新建话题”会让持续导入的落位质量下降。写入时已落位的轮次以落点话题的真实 id 提交，不再携带标题与摘要：新话题在落位时已经以它们建立。提交按话题生成排序键，导入与主动链路落到同一话题时由同一个排序键保证先后。
+- **提交**：经 root API 的提交交互调用 `patchouli.public.interaction.submit`，`origin` 为 `import_bus`，参与者为请求认证通过的 Agent；目标为 `NEW_TOPIC` 时附上 Gateway 给出的 `new_topic_title` 与 `new_topic_summary`，感知以它们建立新话题。后续落位依赖候选话题的标题与摘要，缺少它们的“新建话题”会让持续导入的落位质量下降。写入时已落位的轮次以落点话题的真实 id 提交，不再携带标题与摘要：新话题在落位时已经以它们建立。提交按话题生成排序键，导入与主动链路落到同一话题时由同一个排序键保证先后。
 
 ### 4.6 等待应用与确认
 
@@ -171,7 +173,7 @@ workspace 授权点的 `authorize_import` 只校验 context 有效、已准入�
 
 ### 4.7 写入时落位
 
-外部 harness 经 MCP 写入与更新记忆（[MCP 记忆访问](../contracts/mcp.md)）时，写入发生在一轮进行之中，而导入要等这一轮结束才路由。写入意图需要一个派发话题：Patchouli 以它的状态摘要与最近几个 block 作为生成材料（[生成](../patchouli/generation.md)），写入的话题也应当就是这一轮最终所在的话题。MCP 入口因此在提交写入之前，以同一份请求级 context 调用 `ImportBusService.place_turn`：
+外部 harness 经 MCP 写入与更新记忆（[MCP 记忆访问](../contracts/mcp.md)）时，写入发生在一轮进行之中，而导入要等这一轮结束才路由。写入意图需要一个派发话题：Patchouli 以它的状态摘要与最近几个 block 作为生成材料（[生成](../patchouli/generation.md)），写入的话题也应当就是这一轮最终所在的话题。MCP 入口因此在提交写入之前，以同一个工作 actor 调用 `ImportBusService.place_turn`，由系统为这一轮落位：
 
 ```text
 关闭中？ -> 503 shutting_down
@@ -208,6 +210,7 @@ workspace 授权点的 `authorize_import` 只校验 context 有效、已准入�
 | `X-Workspace-ID` 不是 `main_workspace` | 404 | `request.workspace_not_found` | 保留游标，停止 |
 | 凭据未配置或不一致 | 403 | `workspace.admission_denied` / `invalid_credential` | 保留游标，停止；修正凭据后补发 |
 | 未获准入 | 403 | `workspace.admission_denied`（如 `actor_not_admitted`） | 保留游标，停止 |
+| 服务端接入登记缺少系统自身的 principal | 403 | `workspace.admission_denied` / `unknown_principal` | 保留游标，停止；与连接器自己的 principal 未登记同一原因，排查时两条登记都要核对 |
 | 认证网关已关闭 | 503 | `workspace.admission_denied` / `authentication_gateway_closed` | 保留游标，稍后重发 |
 | Gateway 整体抛出可恢复异常 | 503 | `import_bus.unavailable` / `gateway_unavailable` | 保留游标，稍后重发 |
 | 提交队列容量已满或已停止 | 503 | `import_bus.unavailable` / `queue_unavailable` | 保留游标，稍后重发 |
@@ -404,7 +407,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 - 落位与导入对同一轮推导出同一个 `interaction_id`，在同一把串行门内按到达顺序处理；落位只读取候选话题与交互进度，不读取记忆。
 - 同一（user、Agent、`source`、外部会话）内按到达顺序处理，串行门持有到应用完成；不同外部会话不被一把全局锁串行化。
 - `interaction_id` 只由认证结果与外部标识推导，同一轮重发不变。
-- 导入授权只在 Import Bus 服务调用，只校验准入与目标，不检查白名单，拒绝保留的 `system`；`IdentityScope` 只在一次请求的调用链内使用。
+- 导入与落位由系统以 root 授权执行，目标只能是参与者驻留的 Workspace，不检查参与者的白名单；交互的发起者是参与的 Agent；`IdentityScope` 与工作 actor 只在一次请求的调用链内使用。
 - 交互记录由共用的 `seal_interaction` 产出，与任务进程的交互记录同形，只以事件表达交互内容；Gateway 决定不进入交互记录，也不得删除原始交互。
 - 编排器不持有提交队列、不注册维护任务；关闭时只等待在途请求，不排空队列。
 - RuntimeEvent 不携带正文，发布失败不改变结果。
@@ -435,9 +438,9 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 
 代码：
 
-- 入口：[`server/routers/import_bus.py`](../../src/hivememory/server/routers/import_bus.py)、[`server/models/import_bus.py`](../../src/hivememory/server/models/import_bus.py)、错误映射 [`server/error_handlers.py`](../../src/hivememory/server/error_handlers.py)、声明解析与请求级 context [`server/deps.py`](../../src/hivememory/server/deps.py)；
+- 入口：[`server/routers/import_bus.py`](../../src/hivememory/server/routers/import_bus.py)、[`server/models/import_bus.py`](../../src/hivememory/server/models/import_bus.py)、错误映射 [`server/error_handlers.py`](../../src/hivememory/server/error_handlers.py)、声明解析与请求的工作 actor [`server/deps.py`](../../src/hivememory/server/deps.py)；
 - 服务与编排：[`system/application/import_bus_service.py`](../../src/hivememory/system/application/import_bus_service.py)、[`system/services/import_bus/`](../../src/hivememory/system/services/import_bus/)（`ingestor.py`、`models.py`、`errors.py`、`events.py`）；装配见 [`system/assembler.py`](../../src/hivememory/system/assembler.py)，停止顺序见 [`system/system.py`](../../src/hivememory/system/system.py)；
-- 导入授权：[`workspace/authorization.py`](../../src/hivememory/workspace/authorization.py) 的 `authorize_import`；
+- 授权：[`workspace/authorization.py`](../../src/hivememory/workspace/authorization.py) 的 `authorize_root`；root API 的提交交互：[`workspace/capability/root/interaction.py`](../../src/hivememory/workspace/capability/root/interaction.py)；
 - 封口：[`core/protocol/sealing.py`](../../src/hivememory/core/protocol/sealing.py)；
 - Patchouli 公开路由与提交队列：[`patchouli/contracts/public_routes.py`](../../src/hivememory/patchouli/contracts/public_routes.py)、[`patchouli/contracts/interaction_submission.py`](../../src/hivememory/patchouli/contracts/interaction_submission.py)、[`patchouli/control/interaction_submission.py`](../../src/hivememory/patchouli/control/interaction_submission.py)；
 - 配置：[`config/import_bus.py`](../../src/hivememory/config/import_bus.py)；访问登记：[`configs/workspace_actors.yaml`](../../configs/workspace_actors.yaml)；
@@ -447,9 +450,9 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 
 - 编排（进度查询、跳过、Gateway 输入、等待应用与重发、失败分类、串行、事件脱敏、关闭，写入时落位、回流沿用、落点续接与迟到的写入）：`tests/unit/system/services/import_bus/test_ingestor.py`；输入模型、动词与交互标识：`tests/unit/system/services/import_bus/test_models.py`；
 - HTTP 入口（principal 与凭据、声明、准入、413 在解析前判定、503/500 映射）：`tests/unit/server/routers/test_import_bus.py`、`tests/unit/server/test_error_handlers.py`；
-- 导入授权与调用位置：`tests/unit/workspace/test_access.py`、`tests/unit/architecture/test_access_boundaries.py`；
+- root 授权与调用位置、系统自身的 principal 的使用位置：`tests/unit/workspace/test_access.py`、`tests/unit/architecture/test_access_boundaries.py`；提交交互：`tests/unit/workspace/capability/root/test_interaction.py`；
 - 封口：`tests/unit/core/protocol/test_seal_interaction.py`；提交队列的状态、等待与失败后重交：`tests/unit/patchouli/control/test_interaction_submission.py`；
 - 装配与关闭：`tests/unit/system/application/test_api_services.py`、`tests/unit/system/test_hivememory_system.py`、`tests/unit/system/test_lifecycle.py`；配置：`tests/unit/system/test_config_agent_runtime.py`；
-- 真实队列与感知的协作：`tests/integration/system/test_import_bus_submission.py`；经 MCP 写入后回流落在写入派发的话题：`tests/integration/system/test_mcp_memory_access.py`；离线 E2E：`tests/e2e/system/test_import_turns.py`；
+- 真实队列与感知的协作、交互的发起者是参与者、系统自身的 principal 未登记与目标不是参与者驻留的 Workspace 时的拒绝：`tests/integration/system/test_import_bus_submission.py`；经 MCP 写入后回流落在写入派发的话题：`tests/integration/system/test_mcp_memory_access.py`；离线 E2E：`tests/e2e/system/test_import_turns.py`；
 - 连接器（含回声标记、`PreToolUse` 的轮次信息与之后的导入一致、插件声明与 hooks matcher 和常量一致、principal 与凭据请求头）：`tests/unit/connectors/test_claude_code_reader.py`、`tests/unit/connectors/test_claude_code_hooks.py`、`tests/unit/connectors/test_sync.py`；
 - dsh 插件（轮次投影、回声标记与结局、写入时的轮次信息与之后的导入一致、提交分类、水位与补发）：`integrations/deepseek-harness/test/`，以 `npm test` 运行（CI 的 `dsh-plugin` 任务）；插件的工具名、参数与 MCP server 一致，principal 与 Agent 在发布的登记中：`tests/unit/connectors/test_deepseek_harness_plugin.py`。

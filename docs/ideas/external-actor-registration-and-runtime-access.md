@@ -89,7 +89,7 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 |:---|:---|:---|
 | 能力层（资源操作与授权） | 共用 | 共用 |
 | 任务进程与注册入口 | 不使用：外部 harness 的任务对 HiveMemory 不可见 | 使用：外部 harness 与 Alice 同为进程中的 CPU |
-| 访问 context | 不绑定进程，形状与管理员直接通道相同（[能力层](../workspace/capability.md#1-三个调用面)第 1 节；[第五代架构 Idea](./fifth-generation-architecture.md) P-9） | 绑定进程 |
+| 身份 | 入口每次调用认证得到工作 actor，只在本次调用内，与管理员直接通道相同（[认证与访问登记](../workspace/authentication.md#4-工作-actor-的角色与持有位置)；[第五代架构 Idea](./fifth-generation-architecture.md) P-9） | 进程记录持有执行者与系统的 root 工作 actor |
 | 记忆域访问 | 外部 harness 经 MCP 调用能力层 | 外部 harness 同样可经 MCP 调用能力层；例如 ACP 在创建会话时允许客户端提供 MCP server，HiveMemory 可以提供绑定进程的操作适配器端点（这类由执行单元回到进程的通道见执行单元 Idea T-4） |
 | 交互记录的回流 | 经 Import Bus（2026-10-21 实施，见 [Import Bus](../system/import-bus.md)） | 任务进程自行提交（[任务进程](../workspace/task-process.md)） |
 | HiveMemory 能否发起任务 | 不能 | 能；被动请求（定时任务、队列任务）只能在此模式下存在 |
@@ -145,13 +145,13 @@ plugin 模式的两步已经实施（第 4 节）。本节只列与本文开放�
 
 ### 2.2 认证
 
-- 统一认证网关执行两阶段认证，任务进程注册、Import Bus 与 MCP 入口都经它取得访问 context；外部 principal 以各自的本地共享密钥证明身份（P-1c，[认证与访问登记](../workspace/authentication.md)）。
+- 统一认证网关执行两阶段认证，任务进程注册、Import Bus 与 MCP 入口都经它认证得到工作 actor；外部 principal 以各自的本地共享密钥证明身份（P-1c，[认证与访问登记](../workspace/authentication.md)）。
 - HTTP 管理面以管理凭据防误用，前端以外的调用方没有凭据时被拒绝（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节）；防刻意随桌面客户端，见[身份与访问体系 Idea](./identity-and-access-model.md#http-管理入口的调用方证明)第 4 节。
 
 ### 2.3 外部入口
 
-- 对话回流：`POST /api/v1/import/turns` 每次接收一整轮，经导入授权、Gateway 落位与共用封口提交，应用完成后才确认；不读取记忆，也不返回记忆上下文（[Import Bus](../system/import-bus.md)）。
-- 记忆访问：MCP 端点提供 `memory_search`、`memory_read`、`memory_write` 与 `memory_update`，每次工具调用签发一份请求级 context；写入与更新先经 Import Bus 为这一轮落位（[MCP 记忆访问](../contracts/mcp.md)）。
+- 对话回流：`POST /api/v1/import/turns` 每次接收一整轮，认证证明来源与参与的 Agent 后，由系统以 root 授权执行 Gateway 落位与共用封口提交，应用完成后才确认；不读取记忆，也不返回记忆上下文（[Import Bus](../system/import-bus.md)）。
+- 记忆访问：MCP 端点提供 `memory_search`、`memory_read`、`memory_write` 与 `memory_update`，每次工具调用认证一次；写入与更新先经 Import Bus 为这一轮落位（[MCP 记忆访问](../contracts/mcp.md)）。
 - 已接入的 harness：Claude Code（hooks 与 MCP server 打包为插件）与 DeepSeek Harness（原生插件），见[接入 Claude Code](../help/claude-code-plugin.md)与[接入 DeepSeek Harness](../help/deepseek-harness-plugin.md)。
 
 ### 2.4 能力层
@@ -368,8 +368,8 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
 - **E-3b 代码位置**：入口层（`server`） / workspace 包内 / 独立的 adapter 包 / 其他。位置决定操作适配器在包分层中的层级，以及它能导入哪些包（分层规则见[系统架构概览](../architecture/overview.md)）。
   - **owner 决定（2026-10-29）**：MCP 的操作适配器放在与 `server` 同层的独立入口包；MTP 的操作适配器留在 `agent_runtime`，不一起迁移。本决定只涉及 plugin 模式下不绑定进程的 MCP 适配器；controller 模式下绑定线程的适配器（T-4）随该模式另行考虑。
   - 两者不放在一起的理由（分析）：
-    - 分层：MTP 的动词由 Alice 的 agent loop 调用，放到 `server` 同层后 Alice 无法导入；MCP 适配器要经认证网关与门面取得访问 context，放不进子系统层。
-    - 两者位于执行线程的两侧：MTP 适配器在执行线程内运行，只持有线程句柄 `OperationSubmitter`，读不出 context；MCP 适配器位于网络入口，没有线程，每次调用经网关签发一份请求级 context（P-9c）。
+    - 分层：MTP 的动词由 Alice 的 agent loop 调用，放到 `server` 同层后 Alice 无法导入；MCP 适配器要经认证网关取得工作 actor、经门面取得操作入口，放不进子系统层。
+    - 两者位于执行线程的两侧：MTP 适配器在执行线程内运行，只持有提交函数 `OperationSubmitter`，取不到线程句柄或工作 actor；MCP 适配器位于网络入口，没有线程，每次调用经网关认证一次（P-9c）。
     - MTP 的动词还承担执行单元的行为：RUN 在沙箱中执行用户工具，`sys_*` 系统工具在本地执行，CALL 是 Alice 的编排，SEARCH 把结果编译为 Agent 可读的检索上下文。MCP 适配器不需要这些。
   - 能力层统一的是归一化的目标，不是适配器的位置。两个适配器共用的部分已经位于更低的层：同一套操作请求（`workspace.contracts`）与 actor API、中立的错误类型，以及 `engines.memory_compiler` 的记忆渲染。各适配器只各自实现协议两端：解析请求，把结果与错误映射回协议（MTP 一侧见 [`agent_runtime/mtp/error_mapping.py`](../../src/hivememory/agent_runtime/mtp/error_mapping.py)）。
   - 候选设计（分析，不是 owner 决定，可在计划评审时调整）：
@@ -422,7 +422,7 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
 | 选项 | 内容 | 影响 |
 |:---|:---|:---|
 | A | 只由 harness 经 MCP 工具主动调用 | 是否检索由模型决定，可能该用的记忆没有被用上；与 [VISION](../VISION.md) 假设 H3（主动记忆交互优于纯预检索注入）的检验方式一致 |
-| B | 连接器在用户提交消息时自动检索并注入上下文（经能力层，不经 Import Bus） | 每条消息都承担一次检索的延迟与成本，经 Gateway 分析时还多一次模型调用；受 harness hook 时限约束，超时则本轮没有记忆；自动检索与 MCP 工具相同，以请求级访问 context 发起（P-9c，2026-10-29 已决定） |
+| B | 连接器在用户提交消息时自动检索并注入上下文（经能力层，不经 Import Bus） | 每条消息都承担一次检索的延迟与成本，经 Gateway 分析时还多一次模型调用；受 harness hook 时限约束，超时则本轮没有记忆；自动检索与 MCP 工具相同，入口认证一次后经请求级提交发起（P-9c） |
 | C | 两者并存 | 需要避免同一轮重复检索与重复注入 |
 | D | 其他 | —— |
 
@@ -494,6 +494,8 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
 
 #### P-9c 不建进程的 actor 访问如何进入 actor API
 
+> 2026-11-05 owner 决定的统一身份授权入口取代了本节的“请求级访问 context”：认证得到工作 actor，请求级提交接收入口认证得到的工作 actor，actor 操作只以 `authorize_agent` 授权（当前事实见[认证与访问登记](../workspace/authentication.md#3-工作-actor)与[能力层](../workspace/capability.md#6-操作入口)）。下文保留决定当时的记录。
+
 - **owner 决定（2026-10-29）**：与 root 的直接通道相同，不建进程的 actor 访问只有操作、没有进程，每次操作对应一份访问 context，由入口经统一认证网关签发，操作结束时撤销。
 - 现状核对（代码，2026-10-29）：
   - 这种 context 已经存在。root 管理、Import Bus 与 Profile 注入脚本使用的都是 `WorkspaceAccessContext`，运行绑定为请求级（`AccessRunType.REQUEST`）：server 在请求开始时经网关签发，请求结束时撤销（[`server/deps.py`](../../src/hivememory/server/deps.py) 的 `request_access_for_claims`）。任务进程、执行线程与请求是同一种密封凭据的三种运行绑定，不需要新的 context 类型。
@@ -515,7 +517,7 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
 |:---|:---|:---|
 | P-1 经网络接入的 Actor 每次请求如何证明身份 | [身份与访问体系 Idea](./identity-and-access-model.md#p-1-经网络接入的执行者如何证明身份) P-1（2026-11-05 由第五代架构 Idea 移入） | 运行时访问的身份证明；P-1a 已决定：注册前经认证网关验证身份，此后每次请求重新校验（总 Idea 15.2）；P-1c 已决定（2026-10-29）：由统一认证网关证明，每个外部 principal 一份本地共享密钥作为接入证据，见第 4 节“P-1c 与 P-9c” |
 | P-3 能力层是否覆盖执行类操作 | [第五代架构 Idea](./fifth-generation-architecture.md) P-3 | 外部 Actor 可调用的操作范围（3.5） |
-| P-9c 不建进程的 actor 访问如何进入 actor API | 同上 | plugin 模式的访问不建进程（1.1）；已决定（2026-10-29）：每次操作一份请求级访问 context，见第 4 节“P-1c 与 P-9c” |
+| P-9c 不建进程的 actor 访问如何进入 actor API | 同上 | plugin 模式的访问不建进程（1.1）；已决定（2026-10-29）：每次操作一份请求级访问 context，2026-11-05 起由统一身份授权入口改为入口认证得到的工作 actor，见第 4 节“P-1c 与 P-9c” |
 | P-10 Agent Profile 的能力描述是否与 MTP 解耦 | 同上 | 外部 Actor 如何理解 Profile；已决定：allow 字段并入能力层的 operation 控制（总 Idea 15.4），P-10a 仍待决 |
 | Q-8 外部 CPU 的进程 | [任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) | 外部 Actor 的调用与进程的关系、回收与取消；只涉及 controller 模式（1.1） |
 | Import Bus 后续方向 | [已归档的 Import Bus Idea](../archive/ideas/import-bus.md)第 2 节 | 流式监听、历史导入另设通道、第二个 harness 的连接器；完整交互记录的接收已实施；该 Idea 于 2026-10-30 归档，各方向的去向见其归档说明 |

@@ -23,7 +23,7 @@ related_docs:
   - docs/patchouli/generation.md
   - docs/governance/reliability/durability-and-recovery.md
   - docs/archive/plans/v0.6.1-local-work-queue-runtime.md
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-06
 ---
 
 # 运行时机制：总线、调度器与 Work Queue
@@ -75,7 +75,7 @@ CI 的 typecheck job 使用锁定版本的 uv 与 setup action，以 `uv sync --
 
 RPC 用于需要确定交接结果的 prepare、retrieve、run、finalize 和管理操作；Pub/Sub 只用于通知。总线不提供持久化、跨进程传输、自动重试、版本协商或 exactly-once。
 
-Workspace 不会改变 route 的全局注册语义。身份声明经认证形成访问 context，授权点在每次操作时组装 scope，再作为公开 route 参数传递；总线只负责交接，不解析、缓存或授权 Workspace。
+Workspace 不会改变 route 的全局注册语义。身份声明经认证得到工作 actor，授权点在每次操作时组装 scope，再作为公开 route 参数传递；总线只负责交接，不解析、缓存或授权 Workspace。
 
 ## 2. GlobalMaintenanceScheduler
 

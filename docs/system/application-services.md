@@ -17,7 +17,7 @@ related_docs:
   - docs/workspace/capability.md
   - docs/architecture/boundaries.md
   - docs/system/import-bus.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-06
 ---
 
 # 应用服务
@@ -36,15 +36,15 @@ last_reviewed: 2026-10-31
 
 应用服务的共同规则是：
 
-1. 跨资源 owner 时通过 `GlobalSystemBus` 请求公开 route；执行者的资源操作通过绑定线程 context 的提交函数进入 workspace 能力入口；
-2. 在边界处接受访问 context 与目标 Workspace、请求模型或面向 API 的结果，不接受调用方另行组装的 `IdentityScope`；
+1. 跨资源 owner 时通过 `GlobalSystemBus` 请求公开 route；执行者的资源操作通过绑定线程句柄的提交函数进入 workspace 能力入口；
+2. 在边界处接受工作 actor 与目标 Workspace、请求模型或面向 API 的结果，不接受调用方另行组装的 `IdentityScope`；
 3. 不持有另一个子系统的 Runtime、Service、Controller 或 local bus；
 4. 不把内部 execution state、fallback 原因和观测事件直接返回给外部客户端；
 5. 对取消、失败和 cleanup 保持与 Contracts 一致的终态。
 
-身份与访问的交接遵循两阶段认证与两阶段授权（[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)）：server 在 `server/deps.py` 用 `resolve_request_identity_claims` 把用户导向身份选择（`user_id + workspace_id`，Agent action 附加 `agent_id`）解析为身份声明，交给统一认证网关取得访问 context：chat 由任务进程的注册入口认证，管理操作、取消与交互导入取得绑定本次请求的请求级 context。应用服务不解析身份，也不执行默认解析；Agent action（Chat 与交互导入）必须声明具体 Agent，非 Agent action 的声明使用保留 `system` actor，标记“没有具体 Agent 作为操作来源主体”，它也是 root API 唯一接受的 actor。`IdentityScope` 只用于一次操作到公开资源边界的调用；Patchouli 在该边界拆出 `belong_to` 与 `from_actor`，后台 task 和 retry 使用这些独立字段，由领域所有者校验归属与可见性。应用服务不会因此拥有 Workspace 资源，也不会为共享 runtime 创建按 Workspace 分区的状态。
+身份与访问的交接遵循两阶段认证与两阶段授权（[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)）：server 在 `server/deps.py` 用 `resolve_request_identity_claims` 把用户导向身份选择（`user_id + workspace_id`，Agent action 附加 `agent_id`）解析为身份声明，交给统一认证网关认证，得到工作 actor：chat 由任务进程的注册入口认证执行者与系统的 root 工作 actor，管理操作、取消与交互导入在入口认证得到请求的工作 actor。应用服务不解析身份，也不执行默认解析；Agent action（Chat 与交互导入）必须声明具体 Agent，非 Agent action 的声明使用保留 `system` actor，标记“没有具体 Agent 作为操作来源主体”，它也是 root 授权唯一接受的 actor。`IdentityScope` 只用于一次操作到公开资源边界的调用；Patchouli 在该边界拆出 `belong_to` 与 `from_actor`，后台 task 和 retry 使用这些独立字段，由领域所有者校验归属与可见性。应用服务不会因此拥有 Workspace 资源，也不会为共享 runtime 创建按 Workspace 分区的状态。
 
-应用服务可以保存一次用例的短期控制状态，例如任务进程编排的进程表，但不能保存 Patchouli 的长期记忆状态或 Gateway 的请求级 workflow state。workspace 能力层的两个 API 面都是授权点，先授权、再用返回的 `IdentityScope` 调用资源 owner，不向下传 context（[能力层](../workspace/capability.md#5-授权点的共同约定)）。
+应用服务可以保存一次用例的短期控制状态，例如任务进程编排的进程表，但不能保存 Patchouli 的长期记忆状态或 Gateway 的请求级 workflow state。workspace 能力层的两个 API 面都是授权点，先授权、再用返回的 `IdentityScope` 调用资源 owner，不向下传工作 actor（[能力层](../workspace/capability.md#5-授权点的共同约定)）。
 
 ### 1.1 Transport / Router 边界
 
@@ -60,14 +60,14 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 |:---|:---|:---|
 | `TaskProcessService`（`workspace.process`） | 任务请求的唯一注册入口：注册时完成两阶段认证并创建进程，以流式交付运行已注册的进程（四阶段编排），提供取消与关闭 | [任务进程](../workspace/task-process.md) |
 | `RootMemoryService`、`RootMemoryTaskService`、`RootAgentProfileService`、`RootSessionService`、`RootTopicService`、`RootWorkspaceAssetService`（`workspace.capability.root`） | 以 root 授权提供 Memory、记忆任务、Profile、会话、话题与附件上传的管理用例 | [能力层](../workspace/capability.md#3-root-api) |
-| `ImportBusService`（`system.application`） | 外部 harness 一轮完整交互的导入：导入授权后委托编排器；关闭时等待在途导入 | 第 3 节；[Import Bus](./import-bus.md) |
+| `ImportBusService`（`system.application`） | 外部 harness 一轮完整交互的导入与写入时落位：以系统的 root 工作 actor 授权后委托编排器；关闭时等待在途导入 | 第 3 节；[Import Bus](./import-bus.md) |
 | `SystemReadinessService`（`system.application`） | 模型 warmup、ready 和简短 readiness 状态 | 第 3 节 |
 
 这些服务的“拥有”只指顶层用例入口，不改变后端子系统的状态所有权。actor API 的 `ActorMemoryService` 与 `ActorAgentService` 不经门面暴露，只由操作入口持有。
 
 ## 3. 系统级服务
 
-`ImportBusService` 是 `POST /api/v1/import/turns` 背后的用例入口：以 workspace 的导入授权（`authorize_import`，只校验准入与目标、不检查 actor 操作白名单、拒绝保留的 `system`）把请求级 context 兑现为本次请求的 `IdentityScope` 与 principal 标识，再交给 `system.services.import_bus` 的编排器 `ImportBusIngestor`。编排器按外部会话串行，经 Patchouli 公开路由查询进度、提交与等待应用，经 Gateway 的 `PASSIVE_MEMORY` 入口只取得话题落位，以与任务进程共用的封口函数组装交互记录，应用完成后才确认。它不检索记忆、不返回记忆上下文，不运行 Alice、MTP、命令或回复生成，不经任务进程的注册入口，不持有 Patchouli 的提交队列，也不向调度器注册维护任务。链路、失败分类与 Claude Code 连接器见 [Import Bus](./import-bus.md)，导入授权在访问模型中的位置见[身份与授权](../workspace/identity-and-authorization.md)。
+`ImportBusService` 是 `POST /api/v1/import/turns` 背后的用例入口，也为 MCP 写入与更新落位。导入与落位是系统级操作：入口认证得到的工作 actor 只证明来源与参与的 Agent，服务以组合根注入的系统自身的 principal 认证参与者驻留 Workspace 的 `system`，经 `authorize_root` 得到本次请求的 `IdentityScope`（不检查 actor 操作白名单，目标只能是参与者驻留的 Workspace），连同参与者与 principal 标识交给 `system.services.import_bus` 的编排器 `ImportBusIngestor`。编排器按外部会话串行，经 Patchouli 公开路由查询进度与等待应用，经 root API 的提交交互提交，经 Gateway 的 `PASSIVE_MEMORY` 入口只取得话题落位，以与任务进程共用的封口函数组装交互记录，应用完成后才确认。它不检索记忆、不返回记忆上下文，不运行 Alice、MTP、命令或回复生成，不经任务进程的注册入口，不持有 Patchouli 的提交队列，也不向调度器注册维护任务。链路、失败分类与 Claude Code 连接器见 [Import Bus](./import-bus.md)，导入在访问模型中的位置见[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)。
 
 `SystemReadinessService` 提供模型 warmup、ready 查询和 `ready/warming_up` 摘要，经 Patchouli readiness routes 取得状态，不参与 Workspace 资源授权。ready 表示每个启用的推理模型自进程启动后至少成功加载过一次，且当前不处于加载失败状态：启动预热完成之前为 `warming_up`；空闲卸载不改变 ready，ready 也不表示模型此刻在内存中；重新加载失败时回到 `warming_up`，直到下一次加载成功。驻留与卸载见 [Patchouli](../patchouli/README.md#41-模型驻留与空闲卸载)。
 
@@ -96,7 +96,7 @@ Router 不得直接访问 `HiveMemorySystem.patchouli`、Alice/Gateway runtime�
 
 - `tests/unit/system/application/test_api_services.py`（门面与 server 依赖交出的服务，含 Import Bus 与请求体上限）
 - `tests/unit/system/application/test_readiness_service.py`
-- `tests/unit/architecture/test_access_boundaries.py`（能力层、任务进程入口与 Import Bus 服务只经访问 context 接收身份；导入授权只由 Import Bus 服务调用）
+- `tests/unit/architecture/test_access_boundaries.py`（能力层、任务进程入口与 Import Bus 服务只以工作 actor 接收身份；`authorize_root` 与系统自身的 principal 的使用位置）
 - `tests/integration/system/application/test_workspace_asset_parsing.py`（真实附件服务、解析服务与 Store 的上传协作）
 - `tests/integration/workspace/test_published_registration_chain.py`（随仓库发布的登记文件驱动的管理路由、chat 与取消链路）
 

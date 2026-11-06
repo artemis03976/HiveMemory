@@ -1,6 +1,9 @@
 ---
 title: 统一身份授权入口
-status: planned
+status: archived
+archived_at: 2026-11-06
+implemented_by: 分支 refactor/unified-identity-authorization-entry，提交 1d44659a..df45e5b9 与文档收尾提交
+superseded_by: docs/workspace/identity-and-authorization.md
 owner: workspace
 target: 版本之外的工作（身份与访问主线，owner 2026-11-05 定为不绑定版本的主线方向）
 scope: working-actor-two-authorization-methods-root-system-operations-and-runs-without-identity
@@ -62,13 +65,13 @@ related_docs:
 
 # 统一身份授权入口
 
-> **计划状态**：planned。方向来自[身份与访问体系 Idea](../ideas/identity-and-access-model.md#访问-context-与授权入口的收拢)第 5 节的 owner 决定（2026-11-05，选项 B）。2026-11-05 计划评审中 owner 又做了一组决定，标为“owner，2026-11-05”，集中列在第 4.1 节；其余是候选设计，不是 owner 决定，评审时可调整，相对 Idea 候选设计的调整列在第 4.10 节。
+> **状态**：Archived（2026-11-06，已实施，实施记录见第 10 节）。当前事实见[身份与授权](../../workspace/identity-and-authorization.md#4-操作授权)第 4 节、[认证与访问登记](../../workspace/authentication.md#3-工作-actor)第 3–5 节与[执行线程](../../workspace/execution-threads.md)。以下为实施时的计划原文，链接已按归档位置改正。方向来自[身份与访问体系 Idea](../../ideas/identity-and-access-model.md#访问-context-与授权入口的收拢)第 5 节的 owner 决定（2026-11-05，选项 B）。2026-11-05 计划评审中 owner 又做了一组决定，标为“owner，2026-11-05”，集中列在第 4.1 节；其余是候选设计，不是 owner 决定，评审时可调整，相对 Idea 候选设计的调整列在第 4.10 节。
 
 ## 1. 背景和问题
 
-身份现在随运行类型分化（[身份与访问体系现状调查](../governance/baselines/identity-access-current-state-2026-11-05.md)第 4、6、10 节）：
+身份现在随运行类型分化（[身份与访问体系现状调查](../../governance/baselines/identity-access-current-state-2026-11-05.md)第 4、6、10 节）：
 
-- 认证网关签发密封的访问 context，按运行绑定分为进程、执行线程（主线程与子线程）和请求三种（[认证与访问登记](../workspace/authentication.md#3-访问-context密封的运行时凭据)第 3、4 节）。
+- 认证网关签发密封的访问 context，按运行绑定分为进程、执行线程（主线程与子线程）和请求三种（[认证与访问登记](../../workspace/authentication.md)第 3、4 节）。
 - 操作授权者有七个授权方法和一个只读查询；actor 操作的授权另带 `request_level` 参数，MCP 的写入与更新另带派发话题。
 - 回答“某个外部调用方能做什么”，要依次查 principal 登记、Workspace 访问登记、入口开放的请求类型与它经过的授权方法。
 
@@ -115,10 +118,10 @@ owner 对这些层层概念不满意，代码可读性差到无法理解现状�
 - 跨 Workspace 的目标（Idea 第 7 节）：目标仍只能等于驻留 Workspace。
 - P-4a（进程能否持有白名单的子集）、P-1b（controller 回调的归属校验）。
 - P-7 中取消以外的部分：取消由 root 执行（owner，2026-11-05），状态查询，以及 controller 模式下由谁控制进程，仍未决。
-- WorkspaceAsset 的归属拆分：资产桥接自行构造 `IdentityScope` 的例外保留（[WorkspaceAsset 归属拆分 Todo](../todo/workspace-asset-ownership-identity-split.md)）。
+- WorkspaceAsset 的归属拆分：资产桥接自行构造 `IdentityScope` 的例外保留（[WorkspaceAsset 归属拆分 Todo](../../todo/workspace-asset-ownership-identity-split.md)）。
 - 两阶段认证的检查内容、登记的生效时点（E-1）与接入凭据。
 - 历史对话导入本身：本计划只让交互提交成为 root 能力，历史导入将来经它提交。
-- MCP 写入与更新的顺序：先落位、再授权写入，保持 [MCP 记忆访问](../contracts/mcp.md#4-落位操作入口与授权)第 4 节的现状。
+- MCP 写入与更新的顺序：先落位、再授权写入，保持 [MCP 记忆访问](../../contracts/mcp.md#4-落位操作入口与授权)第 4 节的现状。
 - 后台任务：以 `system` 发起的 SETTLE 等任务只携带 `belong_to` 与 `from_actor`，不在这条主线上，不变。
 
 ## 3. 当前状态和缺口
@@ -482,28 +485,75 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 ## 9. 完成时必须更新的当前文档
 
 - **workspace**：
-  - [认证与访问登记](../workspace/authentication.md)：第 1–7 节改写为工作 actor 与系统自身的 principal，删除 context 的密封、种类与生命周期；
-  - [身份与授权](../workspace/identity-and-authorization.md)：第 2–4、6–8 节，包括执行者、参与者与两个授权方法；
-  - [执行线程](../workspace/execution-threads.md)：线程句柄与存活判定；
-  - [任务进程](../workspace/task-process.md)：注册时的两次认证与系统阶段；
-  - [能力层](../workspace/capability.md)：两个授权方法、root API 的“提交交互”与操作入口；
-  - [读取视图与写入意图](../workspace/read-view-and-write-intents.md)：Profile 的管理读取；
-  - [Workspace](../workspace/README.md)：停止流程。
-- **Patchouli**：[Patchouli](../patchouli/README.md)：prepare 与 finalize 的身份。
+  - [认证与访问登记](../../workspace/authentication.md)：第 1–7 节改写为工作 actor 与系统自身的 principal，删除 context 的密封、种类与生命周期；
+  - [身份与授权](../../workspace/identity-and-authorization.md)：第 2–4、6–8 节，包括执行者、参与者与两个授权方法；
+  - [执行线程](../../workspace/execution-threads.md)：线程句柄与存活判定；
+  - [任务进程](../../workspace/task-process.md)：注册时的两次认证与系统阶段；
+  - [能力层](../../workspace/capability.md)：两个授权方法、root API 的“提交交互”与操作入口；
+  - [读取视图与写入意图](../../workspace/read-view-and-write-intents.md)：Profile 的管理读取；
+  - [Workspace](../../workspace/README.md)：停止流程。
+- **Patchouli**：[Patchouli](../../patchouli/README.md)：prepare 与 finalize 的身份。
 - **契约**：
-  - [子系统公共契约](../contracts/subsystem-contracts.md)：访问上下文与 Patchouli 公共路由；
-  - [路由与事件契约](../contracts/routes-and-events.md)第 6 节；
-  - [MCP 记忆访问](../contracts/mcp.md)第 2、4 节；
-  - [错误模型](../contracts/error-model.md)第 4.4 节。
+  - [子系统公共契约](../../contracts/subsystem-contracts.md)：访问上下文与 Patchouli 公共路由；
+  - [路由与事件契约](../../contracts/routes-and-events.md)第 6 节；
+  - [MCP 记忆访问](../../contracts/mcp.md)第 2、4 节；
+  - [错误模型](../../contracts/error-model.md)第 4.4 节。
 - **system**：
-  - [Import Bus](../system/import-bus.md)：root 授权与显式参与者；
-  - [组合根](../system/composition.md)、[应用服务](../system/application-services.md)、[System](../system/README.md)；
-  - [System 配置](../system/configuration.md)：系统自身的 principal。
-- **帮助**：[配置指南](../help/configuration.md)第 5.1 节：系统自身的 principal 与升级说明。
-- **架构**：[系统架构概览](../architecture/overview.md)、[边界](../architecture/boundaries.md)、[数据模型](../architecture/data-model.md)。
-- **治理与项目**：[身份治理](../governance/security/identity-and-execution-safety.md)、[PROJECT](../PROJECT.md)。
+  - [Import Bus](../../system/import-bus.md)：root 授权与显式参与者；
+  - [组合根](../../system/composition.md)、[应用服务](../../system/application-services.md)、[System](../../system/README.md)；
+  - [System 配置](../../system/configuration.md)：系统自身的 principal。
+- **帮助**：[配置指南](../../help/configuration.md)第 5.1 节：系统自身的 principal 与升级说明。
+- **架构**：[系统架构概览](../../architecture/overview.md)、[边界](../../architecture/boundaries.md)、[数据模型](../../architecture/data-model.md)。
+- **治理与项目**：[身份治理](../../governance/security/identity-and-execution-safety.md)、[PROJECT](../../PROJECT.md)。
 - **Alice 文档**：凡提到线程 context 的段落，例如 MTP 运行时、Agent 运行时与编排。
 - **`AGENTS.md`**：
   - 第 3 节“能力层”“任务进程与执行线程”“身份数据”三条约束；
   - 第 4 节 Import Bus 链路中的“导入授权”。
-- **收尾时**：本计划归档；Idea 第 5 节、[Plans 导航](./README.md)与 ROADMAP 第 4.2 节“身份与访问体系”一行同步。
+- **收尾时**：本计划归档；Idea 第 5 节、[Plans 导航](../../plans/README.md)与 ROADMAP 第 4.2 节“身份与访问体系”一行同步。
+
+## 10. 实施记录
+
+**实现**（2026-11-05 至 2026-11-06，分支 `refactor/unified-identity-authorization-entry`），按第 6 节的实施顺序分为五个代码提交与一个文档收尾提交：
+
+1. `1d44659a` 认证与授权：`WorkingActor`、子工作 actor 的准入端口、`authorize_agent` 与 `authorize_root`、只读查询 `allowed_operations`、系统自身的 principal `hivememory:system`；删除密封 context、运行绑定、撤销与原有的七个授权方法；错误投影的 reason 白名单去掉 `context_not_issued` 与 `agent_required`；删除两个没有生产调用方的 scope 辅助函数。
+2. `c64ae55a` Patchouli 契约：prepare 的 `retrieval_scope`，finalize 与 `INTERACTION_SUBMIT` 的 `participant`。
+3. `6acea094` 运行与能力层：进程记录的两个工作 actor、`ThreadHandle`、单一存活判定、系统阶段与取消的 root 授权、actor API 与 root API 的签名、`RootInteractionService`、Profile 的管理读取。
+4. `2965ba23` 入口：server、MCP 入口、Import Bus 服务与编排器、System 停止流程、组合根、Profile 注入脚本。
+5. `df45e5b9` 结构守护与测试。
+
+与第 4、5 节的出入：
+
+- `GET_AGENT_PROFILE`（公开与本地路由、检索服务）、`CanonicalReadBackend` 与 `ProfileResolver` 增加 `enforce_actor_visibility`。第 4.9 节要求冷读路径也按管理语义交付，而 Patchouli 的 Profile backing 按 scope 的 actor 检查可见性，root scope 的 actor 是 `system`，因此 backing 同样需要跳过；第 5 节没有列出这项契约变化。
+- Import Bus 认证的是参与者驻留 Workspace 的 `system`，而不是请求给出的目标 Workspace 的 `system`。代码审查发现，原导入授权检查的“目标等于参与者驻留的 Workspace”在第一版实现中丢失；这样做之后，`authorize_root(system, 目标)` 重新以 `target_workspace_not_resident` 拒绝不一致的目标，不需要新增分支。
+- 系统自身的 principal 常量只由组合根引用，以 `system_principal` 与 `system_adapter` 注入注册入口与 Import Bus 服务，两处写法一致；第 4.8 节的架构测试相应限定为“只由组合根引用”。
+- 线程句柄所属的进程已从进程表注销时，线程表按线程已结束（`ThreadEndedError`）拒绝，进程仍在而登记的不是这一个句柄时才以接线缺陷（`ScopeRequiredError`）拒绝：进程关闭后迟到的调用在生产中会出现，这与原先“context 已撤销即线程已结束”的语义一致。
+- 新增第 4.8 节之外的一项架构守护：跳过 Agent 可见性的 Profile 管理读取只由 CPU 分配发起，CALL 不能借用。
+- prepare 保留 `enable_memory_retrieval`，与 `retrieval_scope` 并存：前者表达本次请求是否要求检索，后者表达以谁的可见性、是否有权检索。
+- 授权者与线程表不检查参数类型（工作 actor、线程句柄）：生产中不会出现其他类型，类型由 mypy 守住。
+
+**测试**：
+
+- `test_access_boundaries.py` 原有 23 条：
+  - 保留 11 条：认证与授权模块的导入方，能力层与任务进程不导入认证一侧，授权者不导入任务进程与能力层，actor API 只经操作入口，请求级提交只供 MCP 入口，MCP 入口只经门面，入口分派不拆请求，认证与授权互不导入，Alice 不引用 Patchouli 路由，Alice 不引用 `IdentityScope`，主动生成只经意图提交服务。
+  - 改写 10 条：阶段授权、导入授权、actor 操作授权与 root 授权的四条调用面测试改为按 `authorize_agent` 与 `authorize_root` 限定的两条；操作快照改为 `allowed_operations` 只在任务进程中调用；线程生命周期改为子工作 actor 的准入只由线程表调用；签发与撤销改为 `WorkingActor` 只由认证一侧构造；CPU 可见对象改为不含工作 actor 与 `IdentityScope`；Alice 运行改为不接触线程句柄；能力层与任务进程入口改为以工作 actor 接收身份。
+  - 删除 2 条：线程绑定查询只供线程表、授予内容只由授权者与认证一侧读取，守护的对象已不存在。
+  - 另新增：`IdentityScope` 只由授权者与资产桥接构造，资源 owner 与 CPU 不引用工作 actor，系统自身的 principal 只由组合根引用，Profile 管理读取只由 CPU 分配发起；`test_resource_identity_boundaries.py` 的“公开记录不保存身份”扩展到工作 actor。
+- 第 7 节的不变量写入各归属层的现有测试文件；两个以线程 context 命名的测试文件中仍成立的用例并入 `test_process_threads.py` 后删除，`test_access_binding.py` 随 `RunBinding` 删除；root API 的提交交互另有 `tests/unit/workspace/capability/root/test_interaction.py`。
+- Import Bus 的目标检查回归测试（`test_import_bus_submission.py`）已确认在修复前失败、修复后通过。
+
+**验证**：
+
+- `pytest tests/unit tests/integration -m "not live_llm and not e2e and not slow" -n auto --cov=hivememory --cov-fail-under=85`：3186 通过，覆盖率 94.75%（实施前为 3220，差额是随删除概念删除的测试）；
+- `ruff check .`、`black --check .`、`mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py`（446 个文件）、`scripts/check_version_consistency.py`、`git diff --check` 通过；
+- `pytest tests/e2e --collect-only`：21 个用例全部收集成功。
+
+**未完成**：
+
+- `tests/e2e/system` 需要 Qdrant 与模型，未运行；
+- 第 7 节的手动验收四项要用这个分支重启正在运行的后端（它从本仓库以 `serve` 模式运行，dsh 与 Claude Code 正在使用），在归档后的日常使用中进行。
+
+**实施中发现、未处理的简化点**（交 owner 决定）：
+
+- prepare 的两个检索开关 `retrieval_scope` 与 `enable_memory_retrieval` 可以合并为一个；
+- 导入编排器同时接收系统的 root 工作 actor 与以它授权的 scope，经 root API 提交交互时再授权一次，这是“提交交互走 root API”带来的；
+- 任务进程判断是否检索时先查 `allowed_operations` 再调用 `authorize_agent`，同一份访问记录查询两次。

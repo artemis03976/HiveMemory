@@ -21,7 +21,7 @@ related_docs:
   - docs/architecture/boundaries.md
 related_inventories:
   - docs/governance/baselines/data-model-phase-i-inventory.md
-last_reviewed: 2026-11-02
+last_reviewed: 2026-11-06
 ---
 
 # 数据模型与可变性边界
@@ -123,17 +123,18 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 
 ### 4.6 身份收敛与读侧兼容投影收口
 
-领域模型中的 actor / owner 语义遵循统一约定：actor 语义使用 `ActorIdentity`，owner 语义使用 `WorkspaceIdentity.owner_user_id`。公开操作以 `IdentityScope` 进入资源 owner，Patchouli 在公共边界将其拆为 `belong_to` 与 `from_actor`，内部服务、五个引擎和存储不再接收或重建 scope；`system` 是非 Agent 来源的保留 actor，不得成为 `MemoryAccessPolicy.target_agent_id`/`target_team_id`。
+领域模型中的 actor / owner 语义遵循统一约定：actor 语义使用 `ActorIdentity`，owner 语义使用 `WorkspaceIdentity.owner_user_id`。公开操作以 `IdentityScope` 进入资源 owner，Patchouli 在公共边界将其拆为 `belong_to` 与 `from_actor`，内部服务、五个引擎和存储不再接收或重建 scope；交互提交与 finalize 由系统执行，`from_actor` 取自显式的参与者而不是 scope 的 actor；`system` 是非 Agent 来源的保留 actor，不得成为 `MemoryAccessPolicy.target_agent_id`/`target_team_id`。
 
 | 载体 | 保存的身份事实 | 寿命与用途 |
 |:---|:---|:---|
 | `ActorIdentity` | `user_id`、`agent_id`（必填）、可选 `team_id` | 不含 session 或运行关联 ID；模型没有默认身份，`TurnRecord`、`GenerationTurn` 等携带它的模型也由构造方显式给出 |
-| `IdentityScope` | 操作发起者 + 目标 Workspace | 一次操作调用链；不写入记录或后台任务 |
+| 工作 actor（`WorkingActor`） | 认证通过的 principal、actor 与驻留 Workspace | 冻结的普通值；由认证一侧构造，只在进程记录、线程记录、入口与 Import Bus 的调用链中持有，交给操作授权者；不写入记录、事件或 DTO（[认证与访问登记](../workspace/authentication.md#3-工作-actor)） |
+| `IdentityScope` | 操作执行者 + 目标 Workspace | 一次操作调用链；不写入记录或后台任务 |
 | `ExecutionLabels` | 只有 `agent_id` 与 `workspace_id` 两个观测字符串；拒绝额外字段 | 进程级标签在注册认证通过后创建一次，CPU 清单与运行事件共享；线程描述携带线程自己的标签（主线程与注册标签相同，CALL 子线程为被调用方与注册时的 workspace），frame 取所属线程的标签；不用于授权 |
-| 线程描述（`ThreadDescriptor`） | `thread_id`、观测标签、图纸 `AgentProfile` 与操作快照；不含访问 context | 线程表在派生时生成并冻结，随执行线程交给 CPU；快照只供提示词与执行策略 |
-| 线程 context（`WorkspaceAccessContext`，运行绑定为执行线程） | 密封的授予内容：沿用进程 context 的驻留 Workspace 与 principal；主线程沿用进程的 actor，CALL 子线程的 actor 是同一用户的被调用方；运行绑定为所属进程的 `process_id` 加线程标识（`main` 或 `child-N`） | 主线程在进入 Actor 阶段时、子线程在 CALL 派生时从进程 context 派生，与线程描述一起作为执行线程交给 CPU 驱动；登记在进程的线程表中，随线程结束撤销（子线程随 CALL 返回，其余至迟在 Actor 阶段收尾）；不复制或序列化 |
-| `PreparedAgentRun` | `belong_to` | prepare 结果；finalize/cleanup 另接当次阶段授权的 scope |
-| `InteractionSubmission` | 必需的 `belong_to`、`from_actor` | 交互提交与重试；内容由 payload 保存 |
+| 线程描述（`ThreadDescriptor`） | `thread_id`、观测标签、图纸 `AgentProfile` 与操作快照；不含工作 actor | 线程表在派生时生成并冻结，随执行线程交给 CPU；快照只供提示词与执行策略 |
+| 线程句柄（`ThreadHandle`） | 只有 `process_id` 与 `thread_id`（`main` 或 `child-N`），用于定位，不含身份 | 线程表登记线程时创建，按对象身份核对，标识相同的另一个句柄被拒；与线程描述一起作为执行线程交给 CPU 驱动。线程的工作 actor 留在线程表的线程记录中：主线程为进程的执行者，CALL 子线程为同一用户、经准入的被调用方 |
+| `PreparedAgentRun` | `belong_to` | prepare 结果；finalize/cleanup 另接当次 root 授权的 scope |
+| `InteractionSubmission` | 必需的 `belong_to`、`from_actor`（交互的参与者） | 交互提交与重试；内容由 payload 保存 |
 | `MemoryGenerationTaskSpec` / `MemoryGenerationTask` | 必需的 `belong_to`、`from_actor` | 生成输入与对外任务快照；归属用于观察与取消检查 |
 | `PendingAtomMaterializeTask` | 必需的 `belong_to`、`from_actor` | Patchouli 意图服务根据 `MemoryIntent` 与当次授权身份构造的内部只读生成请求 |
 | `TopicMaterializeTask` / Topic lease | `belong_to` | 结算与占用；不保存最近访问者 |
@@ -146,8 +147,8 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 - `ActorIdentity.session_id` 已删除；历史 Artifact 中 actor 的额外 `session_id` 字段按 Pydantic 的额外字段忽略行为读取，重新输出时不保留。Chat 请求体使用 `session_id` 绑定会话资源；它仍不构造身份，finalize 使用进程关联。
 - Interaction submission codec 为 v7，generation codec 的 `schema_version` 为字符串 `"1.1"`，归属与发起者分别 round-trip；进程内队列只注册当前版本，不提供旧任务 scope payload 的兼容重放。
 - V1 存储数据迁移与 legacy 兼容分支删除已完成：Qdrant 中 Memory payload 只接受 schema v2（`decode_memory_payload` 不再解释缺 `schema_version` 的记录），检索过滤只按 canonical owner/workspace 投影与 v2 actor read policy（`meta.user_id` OR 分支与 legacy visibility 分支已删除），ArtifactStore 不再把仅含 owner 字段的历史文件解释为 `main_workspace` 归属。迁移报告与旧新 ID 映射见归档 Plan（[v0.6.2 V1 Memory Legacy 迁移](../archive/plans/v0.6.2-v1-memory-legacy-migration.md)）。
-- 读侧兼容属性已收口：`TopicData.user_id`、`TopicMaterializeTask.user_id`、`StreamMessage` 的 `user_id/agent_id/session_id` 兼容 property 与 `ActorIdentity.buffer_key` 已删除；`ExecutionFrame` 与 `MTPExecutionContext` 不再派生 `.identity` 或 `identity_scope`。`RuntimeScope` 与 `CPUInputManifest` 只保存 `labels: ExecutionLabels`，资源身份由 CPU 持有的线程 context 与逐次授权决定。
-- Import Bus 的 `ImportConversationKey` 由认证通过的 actor 平铺的 `user_id`、`agent_id` 与外部 `source`、外部会话标识组成，只作进程内串行门的稳定命名域，不解释 scope 对象、不参与授权；`MemoryAccessPolicy` 对 `PUBLIC/PRIVATE/TEAM` 的 target 组合校验在模型层完整执行，管理读取（owner-management 语义）跳过 actor 可见性过滤但保留 ownership hard boundary。
+- 读侧兼容属性已收口：`TopicData.user_id`、`TopicMaterializeTask.user_id`、`StreamMessage` 的 `user_id/agent_id/session_id` 兼容 property 与 `ActorIdentity.buffer_key` 已删除；`ExecutionFrame` 与 `MTPExecutionContext` 不再派生 `.identity` 或 `identity_scope`。`RuntimeScope` 与 `CPUInputManifest` 只保存 `labels: ExecutionLabels`，资源身份由线程记录的工作 actor 与逐次授权决定，CPU 只持有不透明的线程句柄。
+- Import Bus 的 `ImportConversationKey` 由认证通过的参与者平铺的 `user_id`、`agent_id` 与外部 `source`、外部会话标识组成，只作进程内串行门的稳定命名域，不解释 scope 对象、不参与授权；`MemoryAccessPolicy` 对 `PUBLIC/PRIVATE/TEAM` 的 target 组合校验在模型层完整执行，管理读取（owner-management 语义）跳过 actor 可见性过滤但保留 ownership hard boundary。
 
 ### 4.7 Memory schema 2.1 与受控写入（v0.7.0 A2-P）
 
@@ -165,7 +166,7 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 
 会话摘要包含 `session_id`、`belong_to`、标题、创建/更新时间、轮数和当前认领的 `active_process_id`；完整读取增加 `turns` 和可空的 `compaction_checkpoint`。`ConversationTurn` 位于 `core.protocol.models`，包含 `interaction_id`、`agent_id`（标签）、`payload`、`topic_id`、`created_at`。服务仅在同步操作中更新内部记录，对外交付嵌套深复制的快照，防止 frozen 外壳中的可变 payload 泄漏。
 
-`InteractionPayload.outcome` 与 `TurnRecord.outcome` 均为 completed/cancelled/failed，默认 completed；`GenerationTurn` 继续传递结局以注明中断材料。InteractionSubmission codec 6 拒绝旧版本。会话保存完整交互，CPU 清单的 `session_history` 是本会话全量快照，Gateway 的 `GatewaySessionTurn` 只投影用户与助手文本以及该轮实际落位的 `topic_id`（只供话题路由失败时续接上一轮）；二者都不含访问 context。资源生命周期见 [会话资源](../workspace/sessions.md)。
+`InteractionPayload.outcome` 与 `TurnRecord.outcome` 均为 completed/cancelled/failed，默认 completed；`GenerationTurn` 继续传递结局以注明中断材料。InteractionSubmission codec 6 拒绝旧版本。会话保存完整交互，CPU 清单的 `session_history` 是本会话全量快照，Gateway 的 `GatewaySessionTurn` 只投影用户与助手文本以及该轮实际落位的 `topic_id`（只供话题路由失败时续接上一轮）；二者都不含工作 actor。资源生命周期见 [会话资源](../workspace/sessions.md)。
 
 `SessionCompactionCheckpoint` 同置 `core.protocol.models`，冻结产生方、版本、两个覆盖游标、摘要、引用 tuple 与时间；字段规范见[子系统契约](../contracts/subsystem-contracts.md#421-会话压缩检查点)。它是会话旁挂的执行视图，不进入 `InteractionPayload` 或 submission codec；旧会话没有检查点时按原文重放。
 

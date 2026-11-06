@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-06
 ---
 
 # System 配置与注册表
@@ -85,21 +85,24 @@ last_reviewed: 2026-11-03
 | `configs/workspace_actors.yaml` | `workspace_actors`：Workspace Actor 的准入与行为白名单 | workspace | `HIVEMEMORY_WORKSPACE_ACTORS_PATH` |
 
 - 两个文件都拒绝未知字段；默认路径的文件缺失时按空登记装载并告警，网关随后拒绝一切认证（fail closed）；显式指定的路径缺失或内容非法时装载失败。
-- 登记在运行实例内不可变，修改经重启生效；登记中没有 context 有效期。
+- 登记在运行实例内不可变，修改经重启生效。
 - `system.server_principal_id`（默认 `hivememory:http-server`）是 server 的前端路由（管理、chat 与取消）经统一认证网关认证时使用的 principal，必须与 `system_principals.yaml` 中的登记一致；导入与 MCP 入口不使用它，以请求声明的 principal 认证。
+- 系统自身的 principal `hivememory:system`（`local` adapter、`allow_system_actor: true`、不带凭据）不经配置项指定：它的标识是代码中的常量，任务进程的注册入口与 Import Bus 服务以它认证 (user, `system`)，取得执行系统阶段、导入与落位的 root 工作 actor（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)）。登记文件缺少这一条时，chat 注册、对话导入与 MCP 写入、更新都以 403 `unknown_principal` 拒绝。
 - `system_principals.yaml` 的每条登记另有 `allow_system_actor`（能否声明保留的 `system`，默认 `false`）与 `credential_env`（接入凭据所在的环境变量名）。列出外部 adapter（`mcp`、`import`）的登记必须声明 `credential_env`，列出进程内 adapter（`http`、`local`）的登记不能声明，否则装载失败。凭据本身不写入登记文件：组合根装配时按与其他配置相同的来源读取，进程环境变量优先，其次是 `.env` / `configs/.env`，去掉首尾空白；环境变量为空时启动告警，该来源的认证一律以 `invalid_credential` 拒绝，HiveMemory 照常启动。随仓库发布的登记中，Claude Code 的 `harness:claude-code` 使用 `HIVEMEMORY_CLAUDE_CODE_TOKEN`，DeepSeek Harness 的 `harness:dsh` 使用 `HIVEMEMORY_DSH_TOKEN`，各自与 harness 一侧插件使用的 `HIVEMEMORY_TOKEN` 配置为同一份凭据（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）。
 
-`allowed_operations` 只接受六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，分别对应 MTP 的 READ、SEARCH、RUN（记忆中的用户工具）、WRITE、UPDATE 与 CALL，互不隐含。默认用户级登记包含全部六项；内置 CALL Profile 同样要求 `agent.call`。chat 的阶段调用（Gateway、预检索、Profile 解析、附件租借、finalize）不检查 actor 操作，白名单为空的 Agent 也能完成对话，只是不能执行任何 MTP 资源操作。交互导入（`POST /api/v1/import/turns`）同样只校验准入与目标、不检查 actor 操作；随仓库发布的登记为 Claude Code 使用的 `claude_code` 与 DeepSeek Harness 使用的 `dsh` 各登记了 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` 的精确记录，供四个记忆工具逐次授权，导入与写入前的落位不受白名单影响；精确记录优先于用户级记录，这两个 Agent 因此不继承 `memory.run` 与 `agent.call`（[Import Bus](./import-bus.md#41-认证与导入授权)、[MCP 记忆访问](../contracts/mcp.md)）。
+`allowed_operations` 只接受六项 actor 操作：`memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update`、`agent.call`，分别对应 MTP 的 READ、SEARCH、RUN（记忆中的用户工具）、WRITE、UPDATE 与 CALL，互不隐含。默认用户级登记包含全部六项；内置 CALL Profile 同样要求 `agent.call`。chat 的系统阶段（Gateway、话题准备、Profile 解析、附件租借、finalize）由系统执行、不检查执行 Agent 的白名单；prepare 的预检索是执行 Agent 的检索操作，只在它持有 `memory.search` 时进行。白名单为空的 Agent 因此也能完成对话，只是没有预检索，也不能执行任何 MTP 资源操作。交互导入（`POST /api/v1/import/turns`）同样由系统执行，不检查参与 Agent 的白名单；随仓库发布的登记为 Claude Code 使用的 `claude_code` 与 DeepSeek Harness 使用的 `dsh` 各登记了 `memory.read`、`memory.search`、`memory.write` 与 `memory.update` 的精确记录，供四个记忆工具逐次授权，导入与写入前的落位不受白名单影响；精确记录优先于用户级记录，这两个 Agent 因此不继承 `memory.run` 与 `agent.call`（[Import Bus](./import-bus.md#41-认证与授权)、[MCP 记忆访问](../contracts/mcp.md)）。
 
 访问登记的白名单是 Agent 操作权限的唯一来源：Agent Profile 的 `agent_config` 不再承载权限，`sys_*` 系统工具不设权限。修改白名单需改本文件并重启，运行时编辑属于尚未排期的配置热更新。
 
-保留的 `system` 记录只登记准入，不得配置 `allowed_operations`：管理入口经 root API 授权，只要求 actor 是 `system`，不读取白名单。默认接入登记另有本地来源 `hivememory:profile-injector`（kind `local-process`，adapter `local`，`allow_system_actor: true`），供 `scripts/inject_profiles.py` 经认证网关以 `system` 取得 context 后调用 root API 注入 Profile；脚本可用 `--principal-id` 指定其他已登记的本地来源。
+保留的 `system` 记录只登记准入，不得配置 `allowed_operations`：root 授权只要求 actor 是 `system`，不读取白名单。管理入口、chat 的系统阶段与 Import Bus 都以这条记录准入 `system`，用户级记录不覆盖它，因此用于对话、导入或 MCP 写入的 Workspace 都要为该用户单独登记 `system`，否则以 403 `actor_not_admitted` 拒绝。默认接入登记另有本地来源 `hivememory:profile-injector`（kind `local-process`，adapter `local`，`allow_system_actor: true`），供 `scripts/inject_profiles.py` 经认证网关以 `system` 认证后调用 root API 注入 Profile；脚本可用 `--principal-id` 指定其他已登记的本地来源。
 
 升级注意（能力层分为 root API 与 actor API）：旧名称 `resource.read`、`resource.search`、`profile.read`、`asset.acquire`、`interaction.submit`、`memory_intent.submit`、`task.observe` 与 `management.*` 已删除，配置中出现时装载失败并指出值与记录坐标；`system` 记录配置任何 operation 时同样装载失败。自定义过该文件的部署应改用新名称，并删除 `system` 记录上的 `allowed_operations`。旧 `memory_intent.submit` 拆为 `memory.write` 与 `memory.update`；RUN 的记忆目标改为需要 `memory.run`（不再借用 READ）。缺少对应操作时，MTP 权限拒绝沿用 `mtp.permission.verb_denied` 文案键，缺少 `agent.call` 时 CALL 以准备失败回填。
 
 升级注意（Agent 操作白名单）：Agent Profile 的 `allowed_mtp_verbs` 与 `allowed_sys_tools` 已删除，存量图纸中的这两个键在解析时被忽略、不需要迁移，前端也不再提供对应开关。曾依赖它们收窄动词的 Agent，现在按访问登记执行（默认用户级记录为全部六项）；需要收窄时，在本文件为该 Agent 增加精确记录。系统工具无法再按 Agent 限制。CALL 子 Agent 不再按被调用方 Profile 收窄，与父 Agent 的动词集合一致（去掉 CALL）。
 
 升级注意（执行线程层）：CALL 派生的子 Agent 以目标 Agent 的身份运行，需要目标在同一 Workspace 有准入记录，并按目标自己的白名单授权。随仓库发布的默认登记以用户级记录覆盖该用户的全部 Agent，行为不受影响；只为个别 Agent 配置精确记录的登记，需要为 CALL 目标补充记录，否则这些 CALL 以“agent 不可用”失败。内置图纸（未指定目标、`default` 或 `omni_doll`）以 `omni_doll` 身份运行。
+
+升级注意（系统阶段与导入由系统执行）：chat 的系统阶段、对话导入与 MCP 写入前的落位改由系统以 `hivememory:system` 认证的 root 工作 actor 执行。随仓库发布的 `system_principals.yaml` 已包含这条登记；自定义过该文件的部署需要补上（`kind: local-process`、`adapters: [local]`、`allow_system_actor: true`，不声明 `credential_env`），否则 chat 注册、导入与 MCP 写入、更新以 403 `unknown_principal` 拒绝，与调用方自己的 principal 未登记同一原因。`workspace_actors.yaml` 需要为每个用于这些用途的 Workspace 登记该用户的 `system`，默认登记已有；只登记了用户级记录的部署会以 403 `actor_not_admitted` 拒绝。交互记录的发起者仍是参与的 Agent，导入交互标识不变。没有 `memory.search` 的 Agent 不再做预检索。
 
 升级注意（接入登记的 `system` 声明范围与外部入口）：`allow_system_actor` 默认 `false`。自定义过 `system_principals.yaml` 的部署需要为 server 的登记显式设为 `true`，否则管理路由以 403 `system_actor_not_allowed` 拒绝；Profile 注入脚本使用的本地来源同理。导入改为以 Claude Code 自己的 principal 与凭据认证：服务端与插件需要一起更新，并在两侧配置同一份凭据；只更新服务端时，旧连接器的导入以 400 `request.principal_required` 拒绝，连接器保留游标，配置完成后补发，不丢失轮次。导入交互标识由 principal 参与推导，迁移后同一外部轮次得到新的标识，只有“已应用但确认在升级时丢失”的轮次会被再导入一次。
 

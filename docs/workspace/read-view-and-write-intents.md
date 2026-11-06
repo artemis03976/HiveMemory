@@ -22,7 +22,7 @@ related_docs:
   - docs/contracts/mcp.md
   - docs/patchouli/generation.md
   - docs/architecture/decisions/0006-memory-library-custody-criteria-and-independence-contract.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-06
 ---
 
 # 读取视图与写入意图
@@ -31,13 +31,18 @@ actor 读取经 workspace 读取视图完成，写入意图在正式落库之前
 
 ## 1. 读取视图
 
-`WorkspaceReadView`（`workspace/read_view.py`）聚合 actor 读取路径的三层：L0 写入意图登记、L1 完整原子缓存与 Profile 缓存、L2 经 `CanonicalReadBackend` 冷读并回填。读取视图提供两个读取器：`MemoryReader`（`.memory`）解析引用，`ProfileResolver`（`.profiles`）读取主进程与 CALL 目标的 Profile。它只负责引用定位、交付授权与缓存，不做检索排序、去重或内容解释，也没有写路径。管理读取不经读取视图（[能力层](./capability.md#4-两种读取视角)）。
+`WorkspaceReadView`（`workspace/read_view.py`）聚合 actor 读取路径的三层：L0 写入意图登记、L1 完整原子缓存与 Profile 缓存、L2 经 `CanonicalReadBackend` 冷读并回填。读取视图提供两个读取器：`MemoryReader`（`.memory`）解析引用，`ProfileResolver`（`.profiles`）读取主进程执行者与 CALL 目标的 Profile。它只负责引用定位、交付授权与缓存，不做检索排序、去重或内容解释，也没有写路径。root API 的管理读取不经读取视图（[能力层](./capability.md#4-两种读取视角)）。
 
 语义检索能力预热完整原子缓存，MTP SEARCH 经该能力获得同样行为；prepare 的检索结果不预热。
 
 ### 1.1 派生缓存的键控
 
-派生视图按派生源坐标键控：完整原子缓存按 `(WorkspaceIdentity, memory_id)` 寻址并维护 alias 索引，Profile 缓存按 `(WorkspaceIdentity, agent_alias)` 寻址，随条目保存源原子 policy 与 UUID。命中后对当前发起者逐次授权，不缓存授权结论；保存与交付均复制嵌套可变对象。主进程与 CALL 目标都经同一个 `ProfileResolver` 读取并按当前发起者检查源原子可见性：主进程 Profile 由 CPU 分配在阶段授权后读取，CALL 目标经 actor API 先检查 `agent.call`，内置 Profile 同样检查。
+派生视图按派生源坐标键控：完整原子缓存按 `(WorkspaceIdentity, memory_id)` 寻址并维护 alias 索引，Profile 缓存按 `(WorkspaceIdentity, agent_alias)` 寻址，随条目保存源原子 policy 与 UUID。命中后对当前发起者逐次授权，不缓存授权结论；保存与交付均复制嵌套可变对象。主进程与 CALL 目标经同一个 `ProfileResolver` 读取、共用同一份缓存，但交付语义不同：
+
+- **CALL 目标**是调用方自己的 actor 操作：actor API 先检查 `agent.call`（内置 Profile 同样检查），再按调用方检查源原子可见性，调用方只能唤起它看得见的 Agent；
+- **主进程执行者的 Profile** 是用户为这一轮作出的选择：CPU 分配以系统的 root scope 读取、加载哪份图纸取自认证得到的执行者，按管理语义交付（`enforce_actor_visibility=False`）。缓存命中与经 Patchouli `GET_AGENT_PROFILE` 的冷读都只检查 Workspace 归属，不按 scope 的 actor 检查可见性：指向其他 Agent 的 PRIVATE 图纸也能被它自己的进程加载，与 root API 读取记忆的管理语义相同。如果按 Agent 的可见性读取，用户为 Agent 选择的图纸反而可能对它不可见；以 `system` 的可见性读取则读不出任何 PRIVATE 图纸。
+
+管理读取由一个参数切换而非另设读取器，是因为两种语义共用同一份按 `(WorkspaceIdentity, agent_alias)` 键控的缓存与同一条失效路径；缓存条目随存源原子 policy，管理读取填入的条目在之后的 CALL 命中时仍按调用方授权。跳过可见性的管理读取只由 CPU 分配发起，由架构测试守护。
 
 这与事实源的规则不同：跨子系统的 WorkspaceAssetStore 等事实源以 `WorkspaceIdentity` 参与资源复合键，在最终边界校验归属（[身份与授权](./identity-and-authorization.md#5-资源归属与寻址)）。
 
@@ -58,7 +63,7 @@ WRITE 经 `memory.write`、UPDATE 经 `memory.update` 分别授权后登记为 M
 派发话题是 Patchouli 读取生成材料的话题，有两个来源：
 
 - **线程提交**（Alice 的 MTP WRITE、UPDATE）：进程关联、线程标识与派发话题取自线程表的一次解析，派发话题是 CPU 分配冻结的本轮话题（[执行线程](./execution-threads.md#7-actor-阶段结束与停止)）；
-- **请求级提交**（外部 harness 经 MCP）：没有线程，派发话题由操作入口的调用方给出，是 Import Bus 在写入时为这一轮落位得到的话题，这一轮回流时沿用同一话题（[Import Bus](../system/import-bus.md#47-写入时落位)）。授权只接受请求级 context，登记不带进程与线程关联（[能力层](./capability.md#6-操作入口)）。
+- **请求级提交**（外部 harness 经 MCP）：没有线程，派发话题由操作入口的调用方给出，是 Import Bus 在写入时为这一轮落位得到的话题，这一轮回流时沿用同一话题（[Import Bus](../system/import-bus.md#47-写入时落位)）。授权取入口认证得到的工作 actor，登记不带进程与线程关联（[能力层](./capability.md#6-操作入口)）。
 
 两种提交登记的是同一种意图，回读、派发、ACK 与结算的规则相同。
 
@@ -88,4 +93,4 @@ UPDATE 的基础冷读在登记的同步段之前完成，冷读跨越线程结�
 ## 7. 代码与测试入口
 
 - [`WorkspaceReadView`](../../src/hivememory/workspace/read_view.py)（[`cache/`](../../src/hivememory/workspace/cache/)、[`resolution/`](../../src/hivememory/workspace/resolution/)）、[`MemoryReader`](../../src/hivememory/workspace/resolution/memory.py)、[`ProfileResolver`](../../src/hivememory/workspace/resolution/profile.py)、[`WriteIntentRegistry`](../../src/hivememory/workspace/intents/registry.py)；
-- 测试：[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)（线程与请求级提交的登记与派发）、[`tests/unit/workspace/intents/test_registry.py`](../../tests/unit/workspace/intents/test_registry.py)、[`test_intent_registry_and_read_cache.py`](../../tests/integration/workspace/test_intent_registry_and_read_cache.py)、[`test_memory_reader.py`](../../tests/unit/workspace/resolution/test_memory_reader.py)、[`test_profile_resolver.py`](../../tests/unit/workspace/resolution/test_profile_resolver.py)（缓存串扰与授权重验）、[`test_workspace_intent_subscription.py`](../../tests/integration/system/test_workspace_intent_subscription.py)（组合根装配即订阅、关闭即取消订阅）、[`test_inflight_dispatch.py`](../../tests/integration/workspace/test_inflight_dispatch.py)。
+- 测试：[`test_operation_requests.py`](../../tests/integration/workspace/test_operation_requests.py)（线程与请求级提交的登记与派发）、[`tests/unit/workspace/intents/test_registry.py`](../../tests/unit/workspace/intents/test_registry.py)、[`test_intent_registry_and_read_cache.py`](../../tests/integration/workspace/test_intent_registry_and_read_cache.py)（含进程加载 PRIVATE 图纸而 CALL 仍按调用方可见性拒绝）、[`test_memory_reader.py`](../../tests/unit/workspace/resolution/test_memory_reader.py)、[`test_profile_resolver.py`](../../tests/unit/workspace/resolution/test_profile_resolver.py)（缓存串扰与授权重验，管理读取在命中与冷读两条路径交付 PRIVATE 图纸）、[`test_workspace_intent_subscription.py`](../../tests/integration/system/test_workspace_intent_subscription.py)（组合根装配即订阅、关闭即取消订阅）、[`test_inflight_dispatch.py`](../../tests/integration/workspace/test_inflight_dispatch.py)。

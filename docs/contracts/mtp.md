@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-06
 ---
 
 # Memory Tool Protocol (MTP)
@@ -59,7 +59,7 @@ MTP 是 Alice Agent 在生成循环中调用记忆、系统工具和子 Agent �
 
 Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格式化结果回填到消息历史，再继续生成。CALL 的 `suspend` 由 Alice `RunExecutor`/`CallCoordinator` 消费，不直接回填为空结果；Koakuma 只产出结构化 `MTPCallRequest`，目标 Profile 与 `context_refs` 由 `CallContextProvider` 在 Alice 编排边界解析。Executor 递归等待被调用 frame，完成后由 `AgentRuntime.apply_call_response()` 一次性写回 caller history 和 `tool_result`。
 
-每条指令的 `MTPExecutionContext` 从当前 frame 冻结得到，其中 `RuntimeScope` 只携带执行关联与只读 `ExecutionLabels`，不含 `IdentityScope`。任务进程进入 Actor 阶段时派生主线程，CPU 驱动把它绑定为主 frame 的线程句柄；CALL 派生的子 frame 得到以被调用方身份签发的子线程与自己的句柄。每个 frame 的观测标签取所属线程的描述：主 frame 为注册标签，子 frame 为被调用方。子线程随 CALL 返回结束，Actor 阶段结束时全部线程结束，此后的提交被拒绝。请求不能自行指定目标或 process_id：actor API 的目标取线程的驻留 Workspace，意图的进程关联与线程标识取自线程表的解析；READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别要求 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，各项互不隐含（RUN 不要求 READ，WRITE 不授予 UPDATE）；RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求；CPU 或 CALL 子帧失败均不撤回已接纳写入。资源归属与 actor policy 仍逐次校验。
+每条指令的 `MTPExecutionContext` 从当前 frame 冻结得到，其中 `RuntimeScope` 只携带执行关联与只读 `ExecutionLabels`，不含 `IdentityScope`。任务进程进入 Actor 阶段时派生主线程，CPU 驱动把它的线程句柄绑定为主 frame 的提交函数；CALL 派生的子 frame 得到以被调用方身份准入的子线程与自己的提交函数。每个 frame 的观测标签取所属线程的描述：主 frame 为注册标签，子 frame 为被调用方。子线程随 CALL 返回结束，Actor 阶段结束时全部线程结束，此后的提交被拒绝。请求不能自行指定目标或 process_id：actor API 以线程的工作 actor 授权，目标取它的驻留 Workspace，意图的进程关联与线程标识取自线程表的解析；READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别要求 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，各项互不隐含（RUN 不要求 READ，WRITE 不授予 UPDATE）；RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求；CPU 或 CALL 子帧失败均不撤回已接纳写入。资源归属与 actor policy 仍逐次校验。
 
 ## 3. 动词契约
 
@@ -220,7 +220,7 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 
 空 `content` 不产生正文，无 warnings 时不产生 `<warnings>`；成功 CALL 的空 reply 仍保留 reply label 和空正文。上述规则覆盖成功 content、MemoryCompiler 编译出的可选摘要、CALL reply、artifact alias、warning 和 error reason，不要求各 verb handler 自行转义。
 
-普通 MTP 与 CALL 各有唯一的错误投影入口；存储、资源与 Profile 生产者不依赖 MTP 异常。错误 params 按允许项构造，内部 cause/details 不进入 XML。写入结果未知时优先 READ 已有句柄（须具备 READ 能力），否则说明无法确认，不能重复提交；线程已撤销时停止原线程操作。severity 不单独授予重试许可。
+普通 MTP 与 CALL 各有唯一的错误投影入口；存储、资源与 Profile 生产者不依赖 MTP 异常。错误 params 按允许项构造，内部 cause/details 不进入 XML。写入结果未知时优先 READ 已有句柄（须具备 READ 能力），否则说明无法确认，不能重复提交；线程已结束时停止原线程操作。severity 不单独授予重试许可。
 
 错误结构详见[error-model.md](./error-model.md)。
 
@@ -231,7 +231,7 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 - READ/SEARCH 输出通过 MemoryCompiler，不在 handler 内维护第二套记忆渲染；
 - WRITE/UPDATE 的 ACK 不等同于持久化成功；
 - CALL 的 suspend 只能由 Alice 编排层恢复；
-- 记忆访问经线程 context 绑定的提交函数进入 workspace，授权点组装当次 `IdentityScope`，资源 owner 先执行 Workspace ownership hard boundary，再执行 actor 可见性策略；执行标签不能代替任一授权边界；
+- 记忆访问经绑定了线程句柄的提交函数进入 workspace，授权点组装当次 `IdentityScope`，资源 owner 先执行 Workspace ownership hard boundary，再执行 actor 可见性策略；执行标签不能代替任一授权边界；
 - cancellation 不能被转换成普通 success。
 
 > **实现说明**：workspace 统一按 L0 写入意图登记、L1 完整原子缓存、L2 canonical 冷读解析。L0 只比较 Workspace 归属，不比较提交 Agent 或进程；UPDATE 意图另按基础原子的 actor policy 判断，读不到基础时与不存在相同；L1/L2 对正式原子逐次执行 ownership 与 actor policy。redirect 目标不可读时清空 canonical 引用和结算视图字段，并省略可能携带基础身份的 pending 记录。Patchouli 的 canonical 变更事件内联失效原子、Profile 与 Workspace 代次；UPDATE 登记成功后另失效基础原子。意图与原子结果均为独立副本。详见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)、[MTP Runtime](../alice/mtp-runtime.md)。
@@ -253,7 +253,7 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 ## 8. 验证入口
 
 - parser / filter：`tests/unit/core/mtp/`；
-- verb 链路：`tests/integration/mtp/`；操作入口、引用计数与撤销边界：`tests/integration/workspace/test_operation_requests.py`、`test_reference_citations.py`；
+- verb 链路：`tests/integration/mtp/`；操作入口、引用计数与线程结束边界：`tests/integration/workspace/test_operation_requests.py`、`test_reference_citations.py`；
 - HTTP 单轮 SEARCH/READ/WRITE/CALL 与真实记忆结算：`tests/e2e/system/test_chat_mtp_operations.py`；
 - alias / PendingAtom：`tests/unit/workspace/intents/test_registry.py`、`tests/unit/workspace/resolution/test_memory_reader.py` 与 `tests/integration/workspace/test_intent_registry_and_read_cache.py`；
 - CALL：`tests/unit/core/mtp/test_call_response_formatting.py`、Alice RunExecutor/CallContextProvider/CallCoordinator 测试；
