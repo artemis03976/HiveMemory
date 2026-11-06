@@ -2,7 +2,7 @@
 title: WorkspaceAsset 内部归属与操作身份拆分
 status: archived
 archived_at: 2026-11-06
-implemented_by: 分支 docs/workspace-asset-ownership-plan（尚未提交）
+implemented_by: PR #185
 superseded_by: docs/workspace/assets.md
 owner: workspace
 scope: workspace-asset-store-parser-and-materialization-reader-ownership-boundary

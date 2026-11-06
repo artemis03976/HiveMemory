@@ -2,7 +2,7 @@
 title: WorkspaceAsset 的归属拆分
 status: archived
 archived_at: 2026-11-06
-implemented_by: 分支 docs/workspace-asset-ownership-plan（尚未提交）
+implemented_by: PR #185（提交 069d7bc9、10bf59b1 与文档收尾提交）
 superseded_by: docs/workspace/assets.md
 owner: workspace
 target: 版本之外的工作（身份与访问主线；候选清单 A-13）
@@ -176,7 +176,7 @@ git diff --check
 
 ## 10. 实施记录
 
-**实现**（2026-11-06，分支 `docs/workspace-asset-ownership-plan`，尚未提交）。第 6 节的三批在同一工作区完成：
+**实现**（2026-11-06，PR #185），按第 6 节分为三个提交：
 
 1. 签名切换：
    - 资产 Store、解析服务与命令端口的第一个参数改为 `belong_to: WorkspaceIdentity`，Store 中删除 `require_identity_scope`。
