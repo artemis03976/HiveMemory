@@ -5,9 +5,10 @@
 - ``SystemPrincipalAuthenticator``：实现 ``core.access.PrincipalAuthenticator``，
   由组合根注入 workspace 认证入口（``workspace.authentication``）；
 - adapter 标识（进程内入口的 ``LOCAL_ADAPTER``、``HTTP_ADAPTER``，外部入口的
-  ``MCP_ADAPTER``、``IMPORT_ADAPTER``）：由各入口固定传入，从不取自请求。
+  ``MCP_ADAPTER``、``IMPORT_ADAPTER``）：由各入口固定传入，从不取自请求；
+- ``SYSTEM_PRINCIPAL_ID``：系统组件取得 root 工作 actor 时使用的调用来源。
 
-Workspace 准入、签发生命周期与行为白名单归 workspace；本包不依赖 workspace。
+Workspace 准入与行为白名单归 workspace；本包不依赖 workspace。
 """
 
 from hivememory.system.access.principal import SystemPrincipalAuthenticator
@@ -16,6 +17,7 @@ from hivememory.system.access.registry import (
     IMPORT_ADAPTER,
     LOCAL_ADAPTER,
     MCP_ADAPTER,
+    SYSTEM_PRINCIPAL_ID,
     SystemActorAccessEntry,
     SystemActorAccessRegistry,
 )
@@ -25,6 +27,7 @@ __all__ = [
     "IMPORT_ADAPTER",
     "LOCAL_ADAPTER",
     "MCP_ADAPTER",
+    "SYSTEM_PRINCIPAL_ID",
     "SystemActorAccessEntry",
     "SystemActorAccessRegistry",
     "SystemPrincipalAuthenticator",

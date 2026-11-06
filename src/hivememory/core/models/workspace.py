@@ -1,4 +1,4 @@
-"""Workspace 资源键、默认作用域解析与严格作用域校验。"""
+"""Workspace 资源键、默认 Workspace 解析与严格作用域校验。"""
 
 from typing import Any
 
@@ -6,7 +6,6 @@ from pydantic import BaseModel, ConfigDict, field_validator
 
 from hivememory.core.errors import ScopeRequiredError
 from hivememory.core.models.identity import (
-    ActorIdentity,
     IdentityScope,
     WorkspaceIdentity,
     _validate_non_empty,
@@ -43,38 +42,6 @@ def resolve_default_workspace_identity(owner_user_id: str) -> WorkspaceIdentity:
     )
 
 
-def resolve_default_identity_scope(
-    actor_identity: ActorIdentity,
-) -> IdentityScope:
-    """在顶层入口一次性冻结默认 Workspace 的 IdentityScope。
-
-    P2.5 起不再生成或接受 interaction_id；关联 ID 由具体领域载体独立持有。
-    """
-    return IdentityScope(
-        actor_identity=actor_identity,
-        workspace_identity=resolve_default_workspace_identity(actor_identity.user_id),
-    )
-
-
-def build_internal_identity_scope(
-    actor_identity: ActorIdentity,
-    workspace_id: str,
-) -> IdentityScope:
-    """为内部服务和隔离测试显式构造非默认 Workspace 的 IdentityScope。
-
-    该 seam 不属于 HTTP 产品入口，也不会创建或注册 Workspace。
-    """
-    workspace = _validate_non_empty(workspace_id, "workspace_id")
-    return IdentityScope(
-        actor_identity=actor_identity,
-        workspace_identity=WorkspaceIdentity(
-            owner_user_id=actor_identity.user_id,
-            workspace_key=workspace,
-            workspace_id=workspace,
-        ),
-    )
-
-
 def require_identity_scope(
     identity_scope: IdentityScope | None,
 ) -> IdentityScope:
@@ -91,7 +58,5 @@ __all__ = [
     "IdentityScope",
     "WorkspaceTopicKey",
     "resolve_default_workspace_identity",
-    "resolve_default_identity_scope",
-    "build_internal_identity_scope",
     "require_identity_scope",
 ]

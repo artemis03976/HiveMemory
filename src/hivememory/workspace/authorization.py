@@ -1,88 +1,63 @@
-"""Workspace 授权：actor 操作、root 管理、系统阶段、交互导入与进程控制。
+"""Workspace 授权：actor 执行期间的操作授权与系统级操作的 root 授权。
 
-:class:`WorkspaceOperationAuthorizer` 是授权点（能力层、任务进程的阶段
-检查、注册入口的取消、Import Bus 的导入）使用的操作授权者：它无状态，只
-依赖 Workspace Actor 访问登记——每次授权都读取 context 密封的授予内容，
-再校验目标 workspace 与 owner，按调用面检查 actor 操作白名单或保留的
-system 身份；任务进程阶段与交互导入不检查操作白名单。授权成功后组装并
-返回 ``IdentityScope``。
+:class:`WorkspaceOperationAuthorizer` 是授权点使用的操作授权者，只有两个
+授权方法，按“谁在执行这项操作”区分：
 
-认证与授权互不依赖：本模块不导入认证一侧（``workspace.authentication``），
-只经 context 这个类型与它发生联系；也不导入任务进程与能力层。授权点
-显式接收目标 workspace：它是这次操作的参数，不是身份。目标只能等于
-驻留 workspace，跨 Workspace 的访问不可表达；目标作为参数单独传入，
-放宽这条规则时授权点的签名不变。
+- :meth:`~WorkspaceOperationAuthorizer.authorize_agent`：Agent 在 actor 执行
+  期间发起的操作（actor API、任务进程 prepare 的检索），按访问登记的白名单
+  授权；
+- :meth:`~WorkspaceOperationAuthorizer.authorize_root`：系统以保留的
+  ``system`` 执行的操作（root API、任务进程的系统阶段与取消、Import Bus
+  的落位与提交），不检查白名单。
+
+两者共用三项前提，按顺序检查：准入记录有效、目标等于驻留 Workspace、actor
+的用户是目标 Workspace 的 owner。授权成功后组装并返回 ``IdentityScope``。
+
+授权者无状态，只依赖 Workspace Actor 访问登记，每次授权即时查询、不缓存
+结论。它不导入认证一侧（``workspace.authentication``），只经工作 actor 这个
+类型与它发生联系；也不导入任务进程与能力层。目标 Workspace 作为参数单独
+传入：它是这次操作的参数，不是身份；目标只能等于驻留 Workspace，放宽这条
+规则时授权点的签名不变。
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-
-from hivememory.core.access import (
-    AccessGrant,
-    AccessRunType,
-    RunBinding,
-    WorkspaceAccessContext,
-    WorkspaceOperation,
-)
+from hivememory.core.access import WorkingActor, WorkspaceOperation
 from hivememory.core.constants import SYSTEM_AGENT_ID
-from hivememory.core.errors import (
-    OperationDeniedError,
-    ScopeRequiredError,
-    ThreadEndedError,
-)
+from hivememory.core.errors import OperationDeniedError, ScopeRequiredError
 from hivememory.core.models import IdentityScope, WorkspaceIdentity
 from hivememory.workspace.registry import (
     WorkspaceActorAccessRecord,
     WorkspaceActorAccessRegistry,
 )
 
-__all__ = [
-    "ImportAuthorization",
-    "WorkspaceOperationAuthorizer",
-]
-
-
-@dataclass(frozen=True)
-class ImportAuthorization:
-    """导入授权的结果：本次请求内有效的 scope 与认证通过的 principal 标识。
-
-    ``identity_scope`` 只在这一次导入请求的调用链内经公共路由到达
-    Gateway 与 Patchouli，不写入记录、事件或后台任务；``principal_id``
-    只用于推导导入交互的稳定标识，使不同调用来源的同名外部轮次不会撞号。
-    """
-
-    identity_scope: IdentityScope
-    principal_id: str
+__all__ = ["WorkspaceOperationAuthorizer"]
 
 
 class WorkspaceOperationAuthorizer:
-    """逐次授权：共享准入与目标校验，按 API 调用面检查权限并组装可信 scope。
+    """逐次授权：共享准入与目标校验，按执行者检查白名单或 root，并组装可信 scope。
 
-    同一有效凭据可反复授权执行不同的获准操作；切换 Actor/Workspace 或
-    凭据被撤销后必须重新经认证网关认证。授权规则来自同一份 Workspace
-    访问登记的白名单，每次授权即时查询、不缓存结论。
+    同一工作 actor 可反复授权执行不同的获准操作；授权规则来自同一份
+    Workspace 访问登记，每次授权即时查询、不缓存结论。
     """
 
     def __init__(self, access_registry: WorkspaceActorAccessRegistry) -> None:
         self._registry = access_registry
 
-    def authorize_operation(
+    def authorize_agent(
         self,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
         operation: WorkspaceOperation,
         target_workspace: WorkspaceIdentity,
     ) -> IdentityScope:
-        """第 3 阶段操作授权：确认 context 有效，返回目标 workspace 的可信 scope。
+        """actor 操作授权：共同前提通过后，要求访问登记的白名单含该 operation。
 
-        目标不等于驻留 workspace、actor 用户不是目标 workspace 的 owner、
-        或访问登记的白名单不含该 operation 时分别以稳定 reason 拒绝。
+        缺少行为许可是授权失败，不是身份认证失败，以 ``operation_not_allowed``
+        拒绝。生产调用面限定在 actor API 与任务进程 prepare 的检索。
         """
         if not isinstance(operation, WorkspaceOperation):
             raise TypeError("operation 必须是 WorkspaceOperation")
-        grant, record = self._redeem(access)
-        self._check_target(grant, target_workspace, operation=operation)
-        # 行为白名单：缺少行为许可是授权失败，不是身份认证失败。
+        record = self._check_premises(actor, target_workspace, operation=operation)
         if operation not in record.allowed_operations:
             raise OperationDeniedError(
                 details={
@@ -90,222 +65,78 @@ class WorkspaceOperationAuthorizer:
                     "reason": "operation_not_allowed",
                 }
             )
-        return IdentityScope(actor_identity=grant.actor, workspace_identity=target_workspace)
-
-    def get_thread_binding(self, access: WorkspaceAccessContext) -> RunBinding:
-        """读出有效线程 context 的运行绑定，供线程表定位所属进程与线程。
-
-        只读查询，不代替逐次操作授权：凭据已撤销以 ``ThreadEndedError``
-        拒绝，不是线程 context 以 ``ScopeRequiredError`` 拒绝。线程与进程的
-        存活由线程表判定；生产调用面限定在 ``workspace.process`` 的线程管理。
-        """
-        return self._thread_grant(access).binding
-
-    def authorize_actor_operation(
-        self,
-        access: WorkspaceAccessContext,
-        operation: WorkspaceOperation,
-        *,
-        request_level: bool = False,
-    ) -> IdentityScope:
-        """actor 只在驻留 Workspace 发起操作，目标从密封授予内容取得。
-
-        接受执行线程 context 与请求级 context（不建进程的外部入口每次调用
-        签发一份）；哪种提交方式能使用哪些操作由操作入口决定，不在这里区分。
-        进程 context 只服务阶段调用，以 ``ScopeRequiredError`` 拒绝。
-
-        ``request_level`` 不改变上述操作规则，只约束 context 的种类：调用方
-        不经线程解析时置为真，此时只接受请求级 context。写入与更新给出派发
-        话题时就不解析线程，线程 context 走这条路径会绕过线程的存活判定与
-        派发话题，因此同样以 ``ScopeRequiredError`` 拒绝。
-        """
-        grant = self._actor_grant(access)
-        if request_level and grant.binding.run_type is not AccessRunType.REQUEST:
-            raise ScopeRequiredError("给出派发话题的 actor 操作需要请求级 context")
-        return self.authorize_operation(access, operation, grant.workspace)
-
-    @staticmethod
-    def _actor_grant(access: WorkspaceAccessContext) -> AccessGrant:
-        """凭据已撤销表示线程已结束，类型或运行种类错误属于接线缺陷。
-
-        请求级 context 只在调用结束时撤销，调用期间不会遇到撤销。
-        """
-        if type(access) is not WorkspaceAccessContext:
-            raise ScopeRequiredError("actor 操作需要线程或请求级 context")
-        grant = access._unseal()
-        if grant is None:
-            raise ThreadEndedError("Thread context is revoked")
-        if grant.binding.run_type not in (AccessRunType.EXECUTION_THREAD, AccessRunType.REQUEST):
-            raise ScopeRequiredError("actor 操作需要线程或请求级 context")
-        return grant
-
-    @staticmethod
-    def _thread_grant(access: WorkspaceAccessContext) -> AccessGrant:
-        """凭据已撤销表示线程已结束，类型或运行种类错误属于接线缺陷。"""
-        if type(access) is not WorkspaceAccessContext:
-            raise ScopeRequiredError("actor 操作需要线程 context")
-        grant = access._unseal()
-        if grant is None:
-            raise ThreadEndedError("Thread context is revoked")
-        if grant.binding.run_type is not AccessRunType.EXECUTION_THREAD:
-            raise ScopeRequiredError("actor 操作需要线程 context")
-        return grant
-
-    def authorize_process_control(
-        self,
-        requestor: WorkspaceAccessContext,
-        record_access: WorkspaceAccessContext,
-    ) -> bool:
-        """进程控制授权：比对请求方与进程记录的驻留坐标。
-
-        两份 context 驻留在同一 owner 与 workspace 时返回 ``True``（沿用
-        既有进程表比对规则）；请求方 context 无效以 ``ScopeRequiredError``
-        拒绝（生产入口经网关签发后不应出现）。进程记录侧的 context 已撤销
-        或准入已失效时返回 ``False``：进程收尾与注销之间的窗口内到达的
-        控制请求呈现为 ``not_found``，不泄露目标进程是否存在。
-        """
-        requestor_grant, _ = self._redeem(requestor)
-        record_grant = (
-            record_access._unseal() if type(record_access) is WorkspaceAccessContext else None
-        )
-        if record_grant is None or self._admission_record(record_grant) is None:
-            return False
-        # WorkspaceIdentity 相等性覆盖 owner_user_id 与 workspace 坐标。
-        return requestor_grant.workspace == record_grant.workspace
-
-    def authorize_stage(
-        self,
-        access: WorkspaceAccessContext,
-        target_workspace: WorkspaceIdentity,
-    ) -> IdentityScope:
-        """任务进程阶段授权：校验准入与目标，不检查 actor 操作白名单。
-
-        阶段调用由进程负责，scope 保留进程 actor 的身份以执行资源可见性
-        检查；它只交给紧随的阶段调用，不进入 CPU 输入清单或线程 context。
-        生产调用面限定在 ``workspace.process``。
-        """
-        grant, _ = self._redeem(access)
-        self._check_target(grant, target_workspace)
-        return IdentityScope(actor_identity=grant.actor, workspace_identity=target_workspace)
-
-    def authorize_import(
-        self,
-        access: WorkspaceAccessContext,
-        target_workspace: WorkspaceIdentity,
-    ) -> ImportAuthorization:
-        """交互导入授权：校验准入与目标，不检查 actor 操作白名单。
-
-        导入提交的是已经在外部 harness 发生的交互，与任务进程封口后提交
-        交互记录同类，不调用任何 actor 操作，因此空白名单的 Agent 也能
-        导入。发起者必须是具体 Agent：保留的 system 不代表任何交互的参与者，
-        以 ``agent_required`` 拒绝。生产调用面限定在 Import Bus 服务。
-        """
-        grant, _ = self._redeem(access)
-        self._check_target(grant, target_workspace)
-        if grant.actor.agent_id == SYSTEM_AGENT_ID:
-            raise OperationDeniedError(details={"reason": "agent_required"})
-        return ImportAuthorization(
-            identity_scope=IdentityScope(
-                actor_identity=grant.actor, workspace_identity=target_workspace
-            ),
-            principal_id=grant.principal.principal_id,
-        )
+        return IdentityScope(actor_identity=actor.actor, workspace_identity=target_workspace)
 
     def authorize_root(
         self,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
         target_workspace: WorkspaceIdentity,
     ) -> IdentityScope:
-        """root API 授权：有效准入与目标校验后，只允许保留的 system actor。
+        """root 授权：共同前提通过后，只允许保留的 system actor。
 
         root 是授权规则，不是身份类型或可登记的 actor 操作；空白名单不影响
-        system 的管理能力，其他 actor 即使持有全部操作也不能进入 root API。
+        system 的系统级操作，其他 actor 即使持有全部操作也不能通过，以
+        ``root_required`` 拒绝。生产调用面限定在 root API、任务进程与 Import
+        Bus 服务。
         """
-        grant, _ = self._redeem(access)
-        self._check_target(grant, target_workspace)
-        if grant.actor.agent_id != SYSTEM_AGENT_ID:
+        self._check_premises(actor, target_workspace)
+        if actor.actor.agent_id != SYSTEM_AGENT_ID:
             raise OperationDeniedError(details={"reason": "root_required"})
-        return IdentityScope(actor_identity=grant.actor, workspace_identity=target_workspace)
+        return IdentityScope(actor_identity=actor.actor, workspace_identity=target_workspace)
 
-    def get_stage_operations(
-        self,
-        access: WorkspaceAccessContext,
-        target_workspace: WorkspaceIdentity,
-    ) -> frozenset[WorkspaceOperation]:
-        """线程表派生线程时，以该线程的 context 读取对应 actor 的操作集合。
+    def allowed_operations(self, actor: WorkingActor) -> frozenset[WorkspaceOperation]:
+        """读取工作 actor 当前获准的 actor 操作集合；只读查询，不授予权限。
 
-        与阶段授权相同地兑现凭据、确认准入并校验目标；空白名单照常返回。
-        返回值进入线程描述，只用于 CPU 提示词与执行策略，不授予权限，也不
-        携带访问身份；actor API 仍逐次授权。生产调用面限定在
-        ``workspace.process`` 的线程管理。
+        供线程表生成线程描述中的操作快照，以及任务进程判断 prepare 是否检索；
+        actor API 仍逐次授权。准入记录已不再有效时与授权一样以
+        ``actor_not_admitted`` 拒绝；空白名单照常返回。
         """
-        grant, record = self._redeem(access)
-        self._check_target(grant, target_workspace)
-        return record.allowed_operations
+        return self._admission_record(actor).allowed_operations
 
     # ---- 内部辅助 ----
 
-    def _redeem(
-        self, access: WorkspaceAccessContext
-    ) -> tuple[AccessGrant, WorkspaceActorAccessRecord]:
-        """读取 context 密封的授予内容，并按完整坐标确认准入仍然有效。
-
-        不是签发得到的 context 或已撤销的 context 以 ``context_not_issued``
-        拒绝；准入记录已不再有效时以 ``actor_not_admitted`` 拒绝。授予内容
-        不绑定白名单快照，每次都即时查询访问登记。
-        """
-        if type(access) is not WorkspaceAccessContext:
-            raise ScopeRequiredError("公共入口需要经统一认证网关签发的 WorkspaceAccessContext")
-        grant = access._unseal()
-        if grant is None:
-            raise ScopeRequiredError(
-                "access context 未签发或已撤销",
-                details={"reason": "context_not_issued"},
-            )
-        record = self._admission_record(grant)
-        if record is None:
-            raise ScopeRequiredError(
-                "该 Actor 已无有效的 Workspace 访问登记",
-                details={"reason": "actor_not_admitted"},
-            )
-        return grant, record
-
-    def _admission_record(self, grant: AccessGrant) -> WorkspaceActorAccessRecord | None:
-        record = self._registry.record_for(grant.workspace, grant.actor)
-        if record is None or not record.enabled:
-            return None
-        return record
-
-    @staticmethod
-    def _check_target(
-        grant: AccessGrant,
+    def _check_premises(
+        self,
+        actor: WorkingActor,
         target_workspace: WorkspaceIdentity,
         *,
         operation: WorkspaceOperation | None = None,
-    ) -> None:
-        """操作授权的目标 workspace 与 owner 检查。
+    ) -> WorkspaceActorAccessRecord:
+        """两个授权方法的共同前提：准入有效、目标是驻留 Workspace、actor 用户是 owner。
 
-        目标只接受等于驻留 workspace 的目标；owner 约束在第 3 阶段同样检查，
-        身份类型不承担授权规则。
+        owner 约束在认证时已经检查，这里对目标 Workspace 再检查一次：身份类型
+        不承担授权规则。
         """
         if not isinstance(target_workspace, WorkspaceIdentity):
             raise TypeError("target_workspace 必须是 WorkspaceIdentity")
+        record = self._admission_record(actor)
         operation_detail = {"operation": operation.value} if operation is not None else {}
-        if target_workspace != grant.workspace:
+        if target_workspace != actor.workspace:
             raise OperationDeniedError(
                 details={
                     **operation_detail,
                     "reason": "target_workspace_not_resident",
-                    "resident_workspace_id": grant.workspace.workspace_id,
+                    "resident_workspace_id": actor.workspace.workspace_id,
                     "target_workspace_id": target_workspace.workspace_id,
                 }
             )
-        if grant.actor.user_id != target_workspace.owner_user_id:
+        if actor.actor.user_id != target_workspace.owner_user_id:
             raise OperationDeniedError(
                 details={
                     **operation_detail,
                     "reason": "target_owner_mismatch",
-                    "actor_user_id": grant.actor.user_id,
+                    "actor_user_id": actor.actor.user_id,
                     "owner_user_id": target_workspace.owner_user_id,
                 }
             )
+        return record
+
+    def _admission_record(self, actor: WorkingActor) -> WorkspaceActorAccessRecord:
+        """按驻留坐标确认准入仍然有效；无效时以 ``actor_not_admitted`` 拒绝。"""
+        record = self._registry.record_for(actor.workspace, actor.actor)
+        if record is None or not record.enabled:
+            raise ScopeRequiredError(
+                "该 Actor 已无有效的 Workspace 访问登记",
+                details={"reason": "actor_not_admitted"},
+            )
+        return record

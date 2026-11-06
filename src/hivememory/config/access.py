@@ -9,8 +9,8 @@
 
 装载规则沿用既有约束：拒绝未知字段（``extra="forbid"``），缺失登记即
 fail closed——默认路径的登记文件缺失时按空登记装载并告警，网关随后拒绝
-一切认证；显式指定路径缺失或文件内容非法则显式失败。登记不包含 context
-有效期：context 只随进程关闭、请求结束与 System 停止失效。
+一切认证；显式指定路径缺失或文件内容非法则显式失败。登记在运行实例内
+不可变，修改经重启生效。
 """
 
 from __future__ import annotations
@@ -68,8 +68,8 @@ class SystemPrincipalAccessEntry(BaseModel):
     ``allowed_user_ids`` 为可选身份解析收紧，``None`` 表示不按用户限定。
     ``credential_env`` 只写接入凭据所在的环境变量名，凭据本身不进入仓库；
     列出外部 adapter（``mcp``、``import``）的登记必须声明它。
-    ``allow_system_actor`` 决定该来源能否声明保留的 ``system`` 进入 root
-    API，默认不能。principal 配置不授予任何 Workspace operation。
+    ``allow_system_actor`` 决定该来源能否声明保留的 ``system``、执行 root
+    授权的系统级操作，默认不能。principal 配置不授予任何 Workspace operation。
     """
 
     principal_id: str = Field(description="稳定调用来源标识（带命名空间）")
@@ -85,7 +85,7 @@ class SystemPrincipalAccessEntry(BaseModel):
     )
     allow_system_actor: bool = Field(
         default=False,
-        description="该来源能否声明保留的 system actor（进入 root API）",
+        description="该来源能否声明保留的 system actor（执行 root 授权的系统级操作）",
     )
     credential_env: str | None = Field(
         default=None,
