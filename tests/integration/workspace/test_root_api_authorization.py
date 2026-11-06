@@ -19,6 +19,7 @@ from hivememory.core.models import (
     PayloadLayer,
     WorkspaceAssetState,
 )
+from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationSource, MemoryGenerationTask
 from hivememory.patchouli.contracts.topic_management import TopicEvictionResult, TopicSettleResult
@@ -31,6 +32,7 @@ from hivememory.workspace.capability.root import (
     RootTopicService,
 )
 from tests.helpers.attachment_parsing import ChunkedSource, make_upload_service
+from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import (
@@ -111,6 +113,30 @@ _ROUTED_CASES = [
             ("interaction_id", "import_1"),
             ("origin", "import_bus"),
         ),
+    ),
+    _Case(
+        "interaction",
+        "interaction_status",
+        PatchouliRoutes.INTERACTION_STATUS,
+        keywords=(("interaction_id", "import_1"),),
+    ),
+    _Case(
+        "interaction",
+        "wait_interaction",
+        PatchouliRoutes.INTERACTION_WAIT,
+        keywords=(("interaction_id", "import_1"), ("timeout_seconds", 1.0)),
+    ),
+    _Case(
+        "topic",
+        "route_passive_turn",
+        GatewayPublicRoutes.PROCESS,
+        keywords=(("message", "用户消息"), ("session_turns", ()), ("request_timeout_ms", 1000)),
+    ),
+    _Case(
+        "topic",
+        "prepare_topic",
+        PatchouliRoutes.PREPARE_AGENT_RUN,
+        keywords=(("interaction_id", "import_1"), ("gateway_decision", make_gateway_decision())),
     ),
 ]
 # 上传不经 Patchouli 路由，副作用落在进程内资产 Store。
