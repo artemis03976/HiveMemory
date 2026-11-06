@@ -146,7 +146,7 @@ plugin 模式的两步已经实施（第 4 节）。本节只列与本文开放�
 ### 2.2 认证
 
 - 统一认证网关执行两阶段认证，任务进程注册、Import Bus 与 MCP 入口都经它取得访问 context；外部 principal 以各自的本地共享密钥证明身份（P-1c，[认证与访问登记](../workspace/authentication.md)）。
-- HTTP 管理接口中仍有不经认证网关、不证明调用方的部分，本机任何进程都能调用，见[本机 HTTP 管理接口 Todo](../todo/local-http-management-access.md)。
+- HTTP 管理面以管理凭据防误用，前端以外的调用方没有凭据时被拒绝（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节）；防刻意随桌面客户端，见[身份与访问体系 Idea](./identity-and-access-model.md#http-管理入口的调用方证明)第 4 节。
 
 ### 2.3 外部入口
 

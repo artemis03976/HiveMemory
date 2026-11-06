@@ -15,7 +15,7 @@ code_paths:
 related_docs:
   - docs/help/configuration.md
   - docs/system/configuration.md
-  - docs/todo/local-http-management-access.md
+  - docs/archive/todo/local-http-management-access.md
 last_reviewed: 2026-11-01
 ---
 

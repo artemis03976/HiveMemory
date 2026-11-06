@@ -22,6 +22,7 @@ code_paths:
   - src/hivememory/workspace/authorization.py
   - src/hivememory/workspace/contracts/operations.py
   - src/hivememory/server/error_handlers.py
+  - src/hivememory/server/management_credential.py
   - src/hivememory/server/models/errors.py
 related_contracts:
   - docs/contracts/mtp.md
@@ -29,7 +30,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-05
 ---
 
 # 跨边界错误模型
@@ -348,7 +349,7 @@ reason  可选字符串，仅输出各错误允许的原因
 issues  可选列表，每项仅 loc / type / message
 ```
 
-请求校验为 422；配置路由手动校验仍为 400。issues 不包含原始 input、校验 ctx 或任意 validator 原文。显式传输拒绝用 `APIError` 的受控类别；未知 `HTTPException` 保留 status/headers，但 detail 替换为固定提示。未知程序错误为 500、`server.internal_error` 和固定说明。资源缺失/不可见继续隐藏为 404，Topic busy 为 409，确认的依赖或接纳不可用为 503；不能从 503 推断副作用尚未发生。
+管理凭据缺失或不一致时，中间件在路由之前以 401 `request.management_credential_invalid` 拒绝，带 `WWW-Authenticate: Bearer`，响应体同样是这个信封、说明文字不含凭据；WebSocket 在接受之前以 1008 关闭，不使用信封（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节）。请求校验为 422；配置路由手动校验仍为 400。issues 不包含原始 input、校验 ctx 或任意 validator 原文。显式传输拒绝用 `APIError` 的受控类别；未知 `HTTPException` 保留 status/headers，但 detail 替换为固定提示。未知程序错误为 500、`server.internal_error` 和固定说明。资源缺失/不可见继续隐藏为 404，Topic busy 为 409，确认的依赖或接纳不可用为 503；不能从 503 推断副作用尚未发生。
 
 SSE 开始后由进程流内投影输出安全 code/message，不能改 HTTP status；CPU failure_reason、事件名、部分输出与 finalize 规则保持独立。readiness、静态文件、WebSocket 和正常业务 outcome 不强制使用错误信封。`/runtime-events` 的 disabled 503 仍返回其业务状态 DTO。
 

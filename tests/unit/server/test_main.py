@@ -50,13 +50,14 @@ def test_main_runs_uvicorn_with_expected_args(monkeypatch):
 
     monkeypatch.setattr("hivememory.server.__main__.uvicorn.run", fake_run)
     monkeypatch.setattr("hivememory.server.__main__._install_thread_exception_hook", lambda: None)
+    monkeypatch.delenv("HIVEMEMORY_BACKEND_HOST", raising=False)
 
     server_main.main()
 
     assert len(calls) == 1
     args, kwargs = calls[0]
     assert args[0] == "hivememory.server.app:app"
-    assert kwargs["host"] == "0.0.0.0"
+    assert kwargs["host"] == "127.0.0.1"
     assert kwargs["port"] == 8769
     assert kwargs["log_level"] == "info"
 

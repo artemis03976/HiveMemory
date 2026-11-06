@@ -149,7 +149,7 @@ See [docs/contracts/mtp.md](docs/contracts/mtp.md) for the current protocol and 
 | `/api/v1/runtime-events/stream` | GET | Runtime event SSE stream |
 | `/api/v1/ws/logs` | WS | Stream runtime logs |
 
-The request identity is selected with the `x-user-id` / `x-workspace-id` headers, and agent actions also carry an `agent_id`; see the [routes and events contract](docs/contracts/routes-and-events.md#6-http-入口的身份交接与管理读取边界) for the handoff rules. `/api/v1/import/turns` and `/mcp` are entries for external harnesses and additionally declare the access source with `X-Principal-ID` and carry the access credential in `Authorization: Bearer`; see [Import Bus](docs/system/import-bus.md) and [MCP memory access](docs/contracts/mcp.md).
+The request identity is selected with the `x-user-id` / `x-workspace-id` headers, and agent actions also carry an `agent_id`; see the [routes and events contract](docs/contracts/routes-and-events.md#6-http-入口的身份交接与管理读取边界) for the handoff rules. `/api/v1/import/turns` and `/mcp` are entries for external harnesses and additionally declare the access source with `X-Principal-ID` and carry the access credential in `Authorization: Bearer`; see [Import Bus](docs/system/import-bus.md) and [MCP memory access](docs/contracts/mcp.md). Except for import, every endpoint under `/api/` requires the management credential `configs/management.token`, which the backend generates on its first start; the frontend attaches it automatically, and [setup](docs/help/setup.md#43-启动后端) shows how to call the API from a terminal.
 
 ## Requirements
 

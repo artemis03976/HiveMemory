@@ -29,7 +29,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-05
 ---
 
 # 公开路由与事件
@@ -253,6 +253,7 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 - Chat 请求体的 `message` 不能为空（空串以 422 拒绝），每轮交互记录因此都以序号 0 的用户消息事件开头；`session_id` 绑定会话资源，缺省自动创建；不进入身份构造，finalize 关联仍使用进程 ID；`ActorIdentity` 仅包含 `user_id`、`agent_id` 与可选 `team_id`。
 - `/chat/stop` 不是 Agent action：注册入口经进程控制授权比对请求方与进程记录的驻留坐标，不可控与不存在统一按 `not_found` 返回，取消与事件发布使用进程注册时绑定的观测标签，不从当前选择重新构造身份。
 - 外部入口（导入与 MCP）不使用 server 的 principal：请求以 `X-Principal-ID` 声明调用来源、以 `Authorization: Bearer` 携带接入凭据，`resolve_principal_claim` 解析声明（缺省返回 400 `request.principal_required`），`bearer_credential` 取出凭据，两者交给统一认证网关核对；server 的 principal 只用于前端的管理、chat 与取消路由（[认证与访问登记](../workspace/authentication.md)）。
+- `/api/` 下除导入之外的 HTTP 与 WebSocket 路由，在进入路由之前先核对管理凭据，缺少或不一致时以 401 `request.management_credential_invalid` 拒绝，WebSocket 以 1008 关闭；它不改变上述身份声明与认证（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节）。
 - 导入以请求声明的 principal、凭据与 (user, 具体 Agent) 声明经 `import` adapter 认证；Import Bus 服务以导入授权组装 `IdentityScope`：只校验准入与目标，不检查 actor 操作白名单，拒绝保留的 `system`（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。认证前不组装 scope，没有例外入口。
 - MCP 入口（`POST /mcp`）以请求头声明的 principal、凭据与 (user, 具体 Agent) 经 `mcp` adapter 认证，每次工具调用一份请求级 context，契约见 [MCP 记忆访问](./mcp.md)。
 - 管理读取（Memory/Agent Profile/Topic 管理）按 owner-management 语义执行：在 Workspace ownership hard boundary 通过后可读取该 Workspace 的 `PUBLIC/PRIVATE/TEAM` 全部 Memory，不执行 Agent 可见性过滤；Agent retrieval 仍按 `MemoryAccessPolicy` 过滤，`system` 不承担权限绕过语义。

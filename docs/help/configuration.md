@@ -15,11 +15,12 @@ code_paths:
   - src/hivememory/system/provider_registry.py
   - src/hivememory/system/model_registry.py
   - src/hivememory/server/routers/config.py
+  - src/hivememory/server/management_credential.py
 related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/system/import-bus.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-05
 ---
 
 # HiveMemory 配置指南
@@ -136,7 +137,8 @@ ProviderRegistry 和 ModelRegistry 自身支持运行时 CRUD；Provider 凭证�
 - 登记文件缺失时按空登记处理，所有 Workspace 请求都会被拒绝；
 - `configs/system_principals.yaml` 中每个调用来源能否以 `system` 进入管理接口由 `allow_system_actor` 决定，默认不能；自定义过该文件时，server 的登记需要显式设为 `true`，否则管理接口返回 403（`reason=system_actor_not_allowed`）；
 - 外部 harness 的接入凭据只在登记中写环境变量名（`credential_env`），值写在 `.env` 或环境变量中，修改后重启服务；
-- 请求头中的用户身份不做证明，只适用于本地单用户部署。
+- 前端使用的接口在经过认证网关之前，另要求后端首次启动时生成的管理凭据 `configs/management.token`；它不需要配置，前端自动带上，终端调用的写法见[安装与启动](./setup.md#43-启动后端)；
+- 请求头中的用户身份不做证明，管理凭据也只防误用，两者都只适用于本地单用户部署。
 
 字段说明与规则见 [System 配置](../system/configuration.md)第 1.1 节与 [认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节。
 
@@ -167,7 +169,8 @@ Provider 与 Model Registry 使用独立、已对齐的 API。其余主配置表
 
 ## 7. 安全检查
 
-- 不提交 `.env`、`configs/providers.secrets.yaml` 或任何真实 API key；
-- 生产环境优先使用进程/编排环境注入，并限制配置 API 的网络可达性；当前服务没有登录系统，请求头中的用户身份不做证明，访问登记只适用于本地单用户部署；
+- 不提交 `.env`、`configs/providers.secrets.yaml`、`configs/management.token` 或任何真实 API key；
+- 构建 Docker 镜像时，`configs` 中的三份本机密钥文件（`configs/.env`、`configs/providers.secrets.yaml`、`configs/management.token`）被 `.dockerignore` 排除，不进入镜像；容器经 Compose 挂载的 `configs` 目录读取它们，不经 Compose 运行镜像时需要自行挂载；
+- 生产环境优先使用进程/编排环境注入，并限制配置 API 的网络可达性：后端默认只监听本机地址，改为对外监听前确认网络范围；当前服务没有登录系统，管理凭据只防误用，请求头中的用户身份不做证明，访问登记只适用于本地单用户部署；
 - 修改 Provider/Model/Config 后检查实际进程使用的模型，而不只看页面保存 toast；
 - 项目版本不是可覆盖配置；代码、Python 包、FastAPI 与 health 使用同一规范版本，是否已经发布仍以匹配的 Git tag 为准，完整口径见 [Project](../PROJECT.md)。

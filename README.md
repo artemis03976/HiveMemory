@@ -149,7 +149,7 @@ HiveMemory 提供一套进程内协议，让 Worker Agent 可以在生成过程�
 | `/api/v1/runtime-events/stream` | GET | 运行时事件 SSE 流 |
 | `/api/v1/ws/logs` | WS | 获取实时日志流 |
 
-请求身份经 `x-user-id` / `x-workspace-id` 请求头选择，Agent action 另带 `agent_id`；交接规则见[路由与事件契约](docs/contracts/routes-and-events.md#6-http-入口的身份交接与管理读取边界)。`/api/v1/import/turns` 与 `/mcp` 是外部 harness 的入口，另以 `X-Principal-ID` 声明接入来源、以 `Authorization: Bearer` 携带接入凭据，见 [Import Bus](docs/system/import-bus.md) 与 [MCP 记忆访问](docs/contracts/mcp.md)。
+请求身份经 `x-user-id` / `x-workspace-id` 请求头选择，Agent action 另带 `agent_id`；交接规则见[路由与事件契约](docs/contracts/routes-and-events.md#6-http-入口的身份交接与管理读取边界)。`/api/v1/import/turns` 与 `/mcp` 是外部 harness 的入口，另以 `X-Principal-ID` 声明接入来源、以 `Authorization: Bearer` 携带接入凭据，见 [Import Bus](docs/system/import-bus.md) 与 [MCP 记忆访问](docs/contracts/mcp.md)。除导入外，`/api/` 下的接口都要求后端首次启动时生成的管理凭据 `configs/management.token`，前端自动带上，在终端中调用的写法见[安装与启动](docs/help/setup.md#43-启动后端)。
 
 ## 环境要求
 

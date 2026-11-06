@@ -28,6 +28,7 @@ async def test_lifespan_starts_and_shuts_down_hivememory_system():
     with (
         patch.object(app_module, "load_app_config", return_value=config),
         patch.object(app_module, "configure_logging") as configure_logging,
+        patch.object(app_module, "load_management_credential", return_value="credential"),
         patch.object(app_module, "init_system", return_value=mock_system) as init_system,
         patch.object(app_module, "init_websocket_log_broadcasting", return_value=ws_manager),
         patch.object(app_module, "shutdown_system", AsyncMock()) as shutdown_system,
@@ -37,6 +38,8 @@ async def test_lifespan_starts_and_shuts_down_hivememory_system():
         async with app_module.lifespan(app):
             # 验证生产代码将 ws_manager 存储到 app.state 的接线行为
             assert app.state.ws_manager is ws_manager
+            # 管理凭据中间件从 app.state 读取凭据；缺少它时 /api/ 下的请求全部被拒。
+            assert app.state.management_credential == "credential"
             # 列出工具不经门面：只验证 /mcp 路由与会话管理器的接线。
             async with connect_mcp(app_module.app, {}) as session:
                 tools = await session.list_tools()

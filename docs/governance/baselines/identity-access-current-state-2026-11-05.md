@@ -38,7 +38,7 @@ related_docs:
   - docs/workspace/execution-threads.md
   - docs/contracts/mcp.md
   - docs/system/import-bus.md
-  - docs/todo/local-http-management-access.md
+  - docs/archive/todo/local-http-management-access.md
   - docs/todo/workspace-asset-ownership-identity-split.md
   - docs/governance/baselines/task-process-concept-inventory-2026-10-28.md
 last_reviewed: 2026-11-05
@@ -320,7 +320,7 @@ last_reviewed: 2026-11-05
 - `sys_*` 工具不受白名单约束，白名单为空的 Agent 也能执行 Python 与读写文件；
 - 正式入口监听 `0.0.0.0`。
 
-v1.0 让四个 harness 共用一个常驻后端。威胁从“自家代码接错线”变为“harness 中带 shell 的 agent 绕过白名单”。密封 context 对后者不起作用，调用方证明才起作用。2026-11-01 dsh 中的 agent 取得明文密钥，就是这一类情形（[管理接口 Todo](../../todo/local-http-management-access.md)）。
+v1.0 让四个 harness 共用一个常驻后端。威胁从“自家代码接错线”变为“harness 中带 shell 的 agent 绕过白名单”。密封 context 对后者不起作用，调用方证明才起作用。2026-11-01 dsh 中的 agent 取得明文密钥，就是这一类情形（[管理接口 Todo](../../archive/todo/local-http-management-access.md)）。
 
 ### 12.4 Agent 身份是最弱的一环
 

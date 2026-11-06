@@ -24,6 +24,12 @@ from hivememory.server.deps import (
 )
 from hivememory.server.error_handlers import APIError, install_error_handlers
 from hivememory.server.logging_setup import configure_logging
+from hivememory.server.management_credential import (
+    MANAGEMENT_CREDENTIAL_COOKIE,
+    MANAGEMENT_CREDENTIAL_PATH,
+    ManagementCredentialMiddleware,
+    load_management_credential,
+)
 from hivememory.server.models.common import HealthResponse, ReadinessResponse
 from hivememory.server.routers.agents import router as agents_router
 from hivememory.server.routers.chat import router as chat_router
@@ -64,6 +70,8 @@ async def lifespan(app: FastAPI):
     # 装配期间的日志才按配置输出。
     config = load_app_config()
     configure_logging(config.logging)
+    # 读入之前，中间件把 /api/ 下除导入之外的请求一律按凭据无效拒绝。
+    app.state.management_credential = load_management_credential(MANAGEMENT_CREDENTIAL_PATH)
     # MCP 会话管理器在装配系统之前进入、在系统停止之后退出：挂进宿主后 SDK
     # 自己的 lifespan 不会执行。系统停止时先关闭认证网关，此后的工具调用得到
     # “服务不可用”的工具结果。
@@ -95,6 +103,10 @@ app = FastAPI(
     version=__version__,
     lifespan=lifespan,
 )
+
+# 管理凭据的校验必须位于 CORS 之内：跨域预检由 CORS 直接回应，不要求凭据。
+# 后登记的中间件在外层，因此它先于 CORS 登记。
+app.add_middleware(ManagementCredentialMiddleware)
 
 # CORS 中间件 — 允许前端开发服务器跨域
 app.add_middleware(
@@ -183,44 +195,55 @@ FRONTEND_DIST_DIR = os.path.abspath(
     os.path.expanduser(os.getenv("HIVEMEMORY_FRONTEND_DIST_DIR", DEFAULT_FRONTEND_DIST_DIR))
 )
 
+
+def mount_frontend(app: FastAPI, dist_dir: str) -> None:
+    """由后端提供构建好的前端：挂载静态资源，未匹配的非 API 路径返回页面。
+
+    返回页面时下发管理凭据 cookie，页面的同源请求、SSE 与 WebSocket 都会自动携带它。
+    HttpOnly 使页面脚本读不到凭据，SameSite=Strict 使其他站点发起的请求不携带它。
+    """
+    # 挂载前端静态资源文件夹（Vite 构建通常在 assets 下）
+    assets_dir = os.path.join(dist_dir, "assets")
+    if os.path.exists(assets_dir):
+        app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
+
+    # SPA (单页应用) 兜底路由
+    # 将所有未匹配的非 API 请求转发给 index.html，由前端 React Router 接管
+    @app.get("/{catchall:path}")
+    async def serve_spa(catchall: str, request: Request):
+        if catchall == "api" or catchall.startswith("api/"):
+            raise APIError("request.not_found")
+
+        dist_root = os.path.realpath(dist_dir)
+        requested_path = os.path.realpath(os.path.join(dist_root, catchall))
+        try:
+            if os.path.commonpath([dist_root, requested_path]) != dist_root:
+                return JSONResponse(status_code=404, content={"error": "Not Found"})
+        except ValueError:
+            return JSONResponse(status_code=404, content={"error": "Not Found"})
+
+        if os.path.isfile(requested_path):
+            return FileResponse(requested_path)
+
+        index_path = os.path.join(dist_root, "index.html")
+        if os.path.exists(index_path):
+            response = FileResponse(index_path)
+            response.set_cookie(
+                MANAGEMENT_CREDENTIAL_COOKIE,
+                request.app.state.management_credential,
+                httponly=True,
+                samesite="strict",
+                path="/",
+            )
+            return response
+        else:
+            return JSONResponse(status_code=404, content={"error": "Frontend index.html not found"})
+
+
 if SERVE_FRONTEND:
     if os.path.isdir(FRONTEND_DIST_DIR):
         logger.info(f"启用前端静态资源代理: {FRONTEND_DIST_DIR}")
-
-        # 挂载前端静态资源文件夹（Vite 构建通常在 assets 下）
-        assets_dir = os.path.join(FRONTEND_DIST_DIR, "assets")
-        if os.path.exists(assets_dir):
-            app.mount("/assets", StaticFiles(directory=assets_dir), name="assets")
-
-        # 挂载其他可能存在的静态目录或文件（根据需要可进一步细化）
-        # app.mount(...)
-
-        # SPA (单页应用) 兜底路由
-        # 将所有未匹配的非 API 请求转发给 index.html，由前端 React Router 接管
-        @app.get("/{catchall:path}")
-        async def serve_spa(catchall: str):
-            if catchall == "api" or catchall.startswith("api/"):
-                raise APIError("request.not_found")
-
-            dist_root = os.path.realpath(FRONTEND_DIST_DIR)
-            requested_path = os.path.realpath(os.path.join(dist_root, catchall))
-            try:
-                if os.path.commonpath([dist_root, requested_path]) != dist_root:
-                    return JSONResponse(status_code=404, content={"error": "Not Found"})
-            except ValueError:
-                return JSONResponse(status_code=404, content={"error": "Not Found"})
-
-            if os.path.isfile(requested_path):
-                return FileResponse(requested_path)
-
-            index_path = os.path.join(dist_root, "index.html")
-            if os.path.exists(index_path):
-                return FileResponse(index_path)
-            else:
-                return JSONResponse(
-                    status_code=404, content={"error": "Frontend index.html not found"}
-                )
-
+        mount_frontend(app, FRONTEND_DIST_DIR)
     else:
         logger.warning(
             f"未找到前端构建目录 {FRONTEND_DIST_DIR}。请先在 frontend 目录下执行 'npm run build'。"

@@ -1,6 +1,9 @@
 ---
 title: HTTP 管理面的管理凭据
-status: planned
+status: archived
+archived_at: 2026-11-05
+implemented_by: PR #182
+superseded_by: docs/workspace/authentication.md
 owner: system
 target: 版本之外的工作（owner，2026-11-05：不绑定版本）
 scope: management-credential-for-all-http-management-routes-and-local-listen-address
@@ -12,16 +15,21 @@ updates:
   - docs/help/configuration.md
   - docs/help/setup.md
   - docs/help/troubleshooting.md
+  - docs/contracts/routes-and-events.md
+  - docs/governance/security/identity-and-execution-safety.md
+  - README.md
 code_paths:
+  - src/hivememory/server/management_credential.py
   - src/hivememory/server/app.py
   - src/hivememory/server/__main__.py
   - src/hivememory/server/error_handlers.py
   - frontend/vite.config.ts
   - docker/docker-compose.yml
   - .gitignore
+  - .dockerignore
 related_docs:
   - docs/ideas/identity-and-access-model.md
-  - docs/todo/local-http-management-access.md
+  - docs/archive/todo/local-http-management-access.md
   - docs/governance/baselines/identity-access-current-state-2026-11-05.md
   - docs/workspace/authentication.md
   - docs/contracts/error-model.md
@@ -29,11 +37,11 @@ related_docs:
 
 # HTTP 管理面的管理凭据
 
-> **计划状态**：planned。方向来自[身份与访问体系 Idea](../ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节的 owner 决定（2026-11-05）：采用管理凭据，现在先做到防误用，防刻意随 v1.0 的桌面客户端完成。本计划承接[本机 HTTP 管理接口 Todo](../todo/local-http-management-access.md)，不绑定版本。
+> **状态**：Archived（2026-11-05，已实施，实施记录见第 10 节）。当前事实见[认证与访问登记](../../workspace/authentication.md#1-两阶段认证)第 1 节与[安装与启动](../../help/setup.md#43-启动后端)。以下为实施时的计划原文，链接已按归档位置改正。方向来自[身份与访问体系 Idea](../../ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节的 owner 决定（2026-11-05）：采用管理凭据，现在先做到防误用，防刻意随 v1.0 的桌面客户端完成。本计划承接[本机 HTTP 管理接口 Todo](../todo/local-http-management-access.md)，不绑定版本。
 
 ## 1. 背景和问题
 
-HTTP 接口沿用本地单用户部署的信任假设，不证明调用方是谁（[身份与访问体系现状调查](../governance/baselines/identity-access-current-state-2026-11-05.md)第 5 节）：
+HTTP 接口沿用本地单用户部署的信任假设，不证明调用方是谁（[身份与访问体系现状调查](../../governance/baselines/identity-access-current-state-2026-11-05.md)第 5 节）：
 
 - 管理路由以 server 的 principal 和 `(请求头中的用户, system)` 声明经认证网关进入 root API。请求头只是文本，任何程序都能发出同样的请求。
 - `config`、`providers`、`models`、运行时事件与日志 WebSocket 完全不经认证网关，可以读写主配置、提供商密钥与模型注册表，并读取含内容片段的日志与事件。
@@ -136,7 +144,7 @@ curl -H "Authorization: Bearer $(cat configs/management.token)" \
   - `error_handlers.py`：登记新的错误码。
 - **前端**：`frontend/vite.config.ts` 的代理配置。不改前端源码。
 - **部署**：`docker/docker-compose.yml` 的端口映射；`.gitignore` 增加 `configs/management.token`。
-- **契约**：[错误模型](../contracts/error-model.md)新增 `request.management_credential_invalid`（401）。路由、请求体与响应体不变。
+- **契约**：[错误模型](../../contracts/error-model.md)新增 `request.management_credential_invalid`（401）。路由、请求体与响应体不变。
 - **不变**：System、workspace、Patchouli、认证网关、两类访问登记、MCP 与导入入口、harness 插件。
 
 ## 6. 兼容与迁移
@@ -187,10 +195,46 @@ cd frontend && npm run lint && npm run build
 
 ## 9. 完成时必须更新的当前文档
 
-- [认证与访问登记](../workspace/authentication.md)：第 1 节“请求头中的用户身份不做证明”与第 8 节已知限制，改为说明 HTTP 管理面由管理凭据保护、请求头中的用户仍是声明。
-- [身份与授权](../workspace/identity-and-authorization.md)：第 8 节关于“能连到 server 的程序都能以 `system` 进入 root API”的限制。
-- [错误模型](../contracts/error-model.md)：新增错误码。
-- [状态、持久化与传输](../frontend/state-and-transports.md)：前端经 Vite 代理或 cookie 携带管理凭据。
-- 帮助：[配置指南](../help/configuration.md)第 5.1 节的信任假设、[安装与运行](../help/setup.md)的监听地址与手动调用、[排障](../help/troubleshooting.md)的 401。
-- [身份治理](../governance/security/identity-and-execution-safety.md)第 1 节“管理入口（root）”一行的当前风险。
-- 收尾时：本计划归档；[本机 HTTP 管理接口 Todo](../todo/local-http-management-access.md) 归档；Idea 第 4 节、ROADMAP 第 4.2 节“本机 HTTP 接口的密钥与访问控制”一行与 [Plans 导航](./README.md)同步。
+- [认证与访问登记](../../workspace/authentication.md)：第 1 节“请求头中的用户身份不做证明”与第 8 节已知限制，改为说明 HTTP 管理面由管理凭据保护、请求头中的用户仍是声明。
+- [身份与授权](../../workspace/identity-and-authorization.md)：第 8 节关于“能连到 server 的程序都能以 `system` 进入 root API”的限制。
+- [错误模型](../../contracts/error-model.md)：新增错误码。
+- [状态、持久化与传输](../../frontend/state-and-transports.md)：前端经 Vite 代理或 cookie 携带管理凭据。
+- 帮助：[配置指南](../../help/configuration.md)第 5.1 节的信任假设、[安装与运行](../../help/setup.md)的监听地址与手动调用、[排障](../../help/troubleshooting.md)的 401。
+- [身份治理](../../governance/security/identity-and-execution-safety.md)第 1 节“管理入口（root）”一行的当前风险。
+- 收尾时：本计划归档；[本机 HTTP 管理接口 Todo](../todo/local-http-management-access.md) 归档；Idea 第 4 节、ROADMAP 第 4.2 节“本机 HTTP 接口的密钥与访问控制”一行与 [Plans 导航](../../plans/README.md)同步。
+
+## 10. 实施记录
+
+**实现**（2026-11-05，分支 `feat/http-management-credential`）：
+
+- server：新模块 `server/management_credential.py` 负责凭据文件的生成与读取、按路径判定与中间件；`app.py` 在 lifespan 中把凭据读入 `app.state`，中间件先于 CORS 登记、位于 CORS 之内，跨域预检不要求凭据；`__main__.py` 默认监听 `127.0.0.1`，`HIVEMEMORY_BACKEND_HOST` 可改；`error_handlers.py` 登记 401 `request.management_credential_invalid`，中间件取用同一张表的状态码与说明文字。
+- 与第 4 节的出入：
+  - 401 响应带 `WWW-Authenticate: Bearer`；
+  - 拒绝时记一条 warning 日志（连接类型与路径，不含凭据）；
+  - 凭据文件存在但为空时启动失败，不重新生成；
+  - SPA 兜底路由抽为 `mount_frontend(app, dist_dir)`，为了能在测试中装到最小应用上；cookie 只随页面（`index.html`）下发，直接请求的静态文件不带；
+  - `.dockerignore` 排除 `configs/management.token`，否则 Dockerfile 的 `COPY configs/` 会把本机凭据打进镜像。
+- 前端：`vite.config.ts` 的 `/api` 代理在 `proxyReq` 与 `proxyReqWs` 两个事件中附上请求头。第 8 节“Vite 代理对 WebSocket 附加请求头”的风险已排除：Vite 7.3 内置的 http-proxy-3 在 WebSocket 升级请求发出前触发 `proxyReqWs`，不需要退回 cookie。
+- 部署：Compose 端口映射改为 `127.0.0.1:8000:8000`；`.gitignore` 排除凭据文件。
+
+**测试**：不变量写入 `tests/unit/server/test_management_credential.py`，另改了两处现有测试：`test_app_lifespan.py` 断言凭据读入 `app.state`（加载函数打桩，不写仓库的 `configs/`），`test_main.py` 的默认监听地址改为 `127.0.0.1`。
+
+- 真实应用的路由表枚举覆盖全部路由而不只是 `/api/`：除显式列出的公开路由（存活与就绪检查、`/mcp`、导入、接口文档）之外都必须被拒，以后在 `/api/` 之外新增的管理路由也会让测试失败。FastAPI 0.141 对 include 进来的 WebSocket 路由只在 `starlette_route` 上给出完整路径，测试对此有说明，并断言枚举到了配置接口与日志 WebSocket，避免枚举失效时静默通过。
+- 已逐一核对：去掉中间件的登记时，路由表测试失败；去掉 cookie 的 `HttpOnly` 时，页面 cookie 测试失败。
+
+**验证**：
+
+- `pytest tests/unit/server -q`：232 通过；
+- `pytest tests/unit tests/integration -m "not live_llm and not e2e and not slow" -n auto --cov=hivememory --cov-fail-under=85`：3220 通过，覆盖率 94.74%；
+- `ruff check .`、`black --check .`、`mypy`（445 个文件）通过；
+- `npm run lint`、`npm run build` 通过。
+
+**手动验收**（第 7 节）：
+
+- 已完成：以真实中间件加最小路由的应用监听临时端口，用本仓库的 Vite 配置把代理目标指向它。
+  - 经 Vite 代理的 HTTP 与 WebSocket 都通过；直连后端时，不带凭据的 HTTP 得到 401，WebSocket 握手被拒（403），带凭据的 curl 成功；
+  - 生成的凭据文件权限为 600；
+  - 验收用的凭据文件已删除，后端首次启动时会重新生成。
+- 未完成：第 1、3、4 项要用这个分支重启正在运行的后端（它从本仓库以 `serve` 模式运行，dsh 与 Claude Code 正在使用），在归档后的日常使用中进行。
+
+**实施中发现的同类问题**：`.dockerignore` 同样没有排除 `configs/providers.secrets.yaml` 与配置加载器会读取的 `configs/.env`，`docker build` 会把本机密钥打进镜像。owner 要求一并修复（2026-11-05），两者已加入 `.dockerignore`；本机没有 Docker，未以实际构建验证。
