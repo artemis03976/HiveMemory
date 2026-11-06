@@ -85,7 +85,7 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 
 MCP 入口与 Alice 的 MTP 适配器形态相同：都把协议调用归一为 `OperationRequest`，交给同一个操作入口，由入口分派到同一组 actor API 方法。写入与更新多一步确定话题。
 
-- **确定话题**：入口以同一个工作 actor 调用门面取得的 `ImportBusService.place_turn(turn, actor, target_workspace)`。确定话题是系统级操作：服务以系统自身的 principal 认证参与者驻留 Workspace 的 `system`，以 root 授权取得 scope，不检查参与 Agent 的操作白名单，在这一轮所属外部会话的串行门内返回这一轮的话题：已确定话题时直接返回；这一轮已经回流并应用时返回它实际所在的话题；否则路由、准备话题并登记已确定的话题。规则见 [Import Bus](../system/import-bus.md#47-写入时确定话题) 第 4.7 节。目标 Workspace 取工作 actor 驻留的 Workspace，与导入入口相同。
+- **确定话题**：入口以同一个工作 actor 调用门面取得的 `ImportBusService.place_turn(turn, actor, target_workspace)`。确定话题是系统级操作：服务以系统自身的 principal 认证参与者驻留 Workspace 的 `system`，编排器以它经 root API 查进度、路由与准备话题，由 root API 逐次 root 授权，不检查参与 Agent 的操作白名单，在这一轮所属外部会话的串行门内返回这一轮的话题：已确定话题时直接返回；这一轮已经回流并应用时返回它实际所在的话题；否则路由、准备话题并登记已确定的话题。规则见 [Import Bus](../system/import-bus.md#47-写入时确定话题) 第 4.7 节。目标 Workspace 取工作 actor 驻留的 Workspace，与导入入口相同。
 - **请求级提交**：操作入口 `WorkspaceOperationEntry` 的 `execute_request(request, actor, dispatch_topic_id=None)` 与线程提交的 `execute` 共用同一分派表。检索与读取不得给出派发话题，写入与更新必须给出；其余请求类型、或派发话题与请求类型不符时，在分派前以 `TypeError` 拒绝，没有副作用。它不做存活判定：工作 actor 是入口调用链内的局部值，没有线程可判定。
 - **actor API**：以 `authorize_agent` 授权，目标取工作 actor 驻留的 Workspace，白名单照常逐次检查。写入与更新接收线程句柄或派发话题，二者恰有其一：线程提交给出句柄，请求级提交给出派发话题。CPU 一侧只持有不透明的线程句柄，取不到工作 actor，因此无法经请求级提交绕过线程的存活判定与派发话题（架构测试守护）。给出派发话题时不解析线程，意图登记的进程与线程关联为空；派发、ACK、拒绝与结果未知的语义与线程路径相同，派发开始后调用方断开或取消不撤回写入（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。请求级提交到不了 RUN 与 CALL：`execute_request` 的类型表拒绝它们，`execute` 只接收线程句柄。
 - **门面**：以 `operation_entry` 交出组合根装配的同一个操作入口，只供 MCP 入口调用 `execute_request`；以 `import_bus_service` 交出 Import Bus 服务。门面不暴露 actor API。

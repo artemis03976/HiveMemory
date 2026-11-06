@@ -228,13 +228,13 @@ Import Bus 属于 System 应用层，而不是 Patchouli 或 Alice 的替代 cha
 ```text
 POST /api/v1/import/turns
   -> 统一认证网关：以连接器声明的 principal、接入凭据（import adapter）与 (user, 具体 Agent) 声明认证，证明来源与参与的 Agent
-  -> ImportBusService：以系统自身的 principal 认证 (user, system)，root 授权（不检查 actor 操作白名单）
-  -> ImportBusIngestor：按 (user, 参与的 Agent, source, 外部会话) 串行
-     -> 推导 interaction_id，经 Patchouli interaction.status 查询进度
-     -> 写入时已确定话题：沿用该话题（第 6.1 节）；否则 Gateway PROCESS (PASSIVE_MEMORY)：只取话题路由，不运行查询分析
+  -> ImportBusService：以系统自身的 principal 认证 (user, system)，只认证、不授权
+  -> ImportBusIngestor：按 (user, 参与的 Agent, source, 外部会话) 串行；以下每一步经 root API，在方法入口 root 授权（不检查 actor 操作白名单）
+     -> 推导 interaction_id，经 root API -> Patchouli interaction.status 查询进度
+     -> 写入时已确定话题：沿用该话题（第 6.1 节）；否则经 root API -> Gateway PROCESS (PASSIVE_MEMORY)：只取话题路由，不运行查询分析
      -> core 共用封口函数 seal_interaction
      -> root API 提交交互 -> Patchouli interaction.submit（感知队列接纳，参与的 Agent 记为发起者）
-     -> Patchouli interaction.wait：等待感知应用完成
+     -> root API -> Patchouli interaction.wait：等待感知应用完成
   -> accepted / duplicate / skipped
 ```
 
@@ -243,7 +243,7 @@ POST /api/v1/import/turns
 - 只向记忆网络输入：不检索记忆，也不向调用方返回记忆上下文；Gateway 在这一模式下不运行查询分析，决定的检索计划是不检索的默认值；
 - 禁止系统指令分支；形如 `/clear` 的文本仍按普通外部消息处理；
 - 不运行 Alice，不生成面向用户的回复，不执行 MTP 或全局命令；
-- 与主动链路同样在认证之后由授权点组装 `IdentityScope`；导入与交互提交都是系统级操作，由系统以 root 授权执行，不检查 actor 操作白名单，参与的 Agent 只作为数据；
+- 与主动链路同样在认证之后由授权点组装 `IdentityScope`；导入与交互提交都是系统级操作，由系统经 root API 以 root 授权执行，不检查 actor 操作白名单，参与的 Agent 只作为数据；Import Bus 服务只认证，不授权；
 - 交互记录与任务进程使用同一个封口函数，经 Patchouli 公开提交路由进入同一条感知队列；
 - 应用完成后才确认：同一轮重发得到同一 `interaction_id`，已应用返回 duplicate；等待超时以 503 交回、重发时继续等待，应用失败以 500 交回、重发时重新路由并以同一标识再次提交。Import Bus 不持有提交队列，不维护第二个 outbox，也不注册维护任务。
 

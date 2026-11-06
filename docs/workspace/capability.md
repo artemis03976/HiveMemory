@@ -29,7 +29,7 @@ last_reviewed: 2026-11-06
 | 调用面 | 代码 | 执行者与授权 | 检查（共用的准入与目标检查之外） | 调用方 |
 |:---|:---|:---|:---|:---|
 | actor API | `workspace/capability/actor/` | 执行线程或请求的工作 actor，`authorize_agent`，目标取驻留 Workspace | 访问登记白名单包含该 actor 操作 | 只有操作入口 `WorkspaceOperationEntry`（第 6 节）；执行线程经线程提交，MCP 入口经门面取得同一入口的请求级提交 |
-| root API | `workspace/capability/root/` | 请求的 `system`，`authorize_root`，目标由请求给出 | actor 是保留的 `system`；不读取白名单 | 门面暴露给 server 的 HTTP 管理入口；Profile 注入脚本；Import Bus 编排器（提交交互，由组合根注入） |
+| root API | `workspace/capability/root/` | 请求的 `system`，`authorize_root`，目标由请求给出 | actor 是保留的 `system`；不读取白名单 | 门面暴露给 server 的 HTTP 管理入口；Profile 注入脚本；Import Bus 编排器（查进度、路由、准备话题、提交交互与等待应用，由组合根注入） |
 | 阶段调用 | `workspace/process/`（`TaskProcessRunner`、`CPUAllocator`、注册入口的取消） | 系统阶段与取消以 `authorize_root`；prepare 的检索以执行者 `authorize_agent(memory.search)` | 系统阶段不检查 actor 操作；检索检查执行者的 `memory.search` | 任务进程自身的编排（[任务进程](./task-process.md#52-阶段调用)） |
 
 **为什么分成三个调用面**：能力层最初从 System 层的应用服务原样迁入，管理方法与 actor 方法混在同一批服务中，管理能力是可以登记给任何 actor 的普通 operation；actor 一侧的方法也与 actor 能做的事对不齐，任务进程的阶段调用还借用 actor 的 operation，没有检索许可的 Agent 在 prepare 阶段就会失败。现在的划分按“谁在做这件事”区分：
@@ -64,10 +64,10 @@ RUN 不要求 READ，WRITE 不授予 UPDATE；只持有 `agent.call` 的 actor �
 | `RootMemoryService` | `create_memory`、`list_memories`、`get_memory`、`update_memory`、`record_feedback`、`delete_memory` | 以授权返回的 `IdentityScope` 经 Patchouli public route 执行；创建与编辑只提交 API 字段，原子由 Patchouli 构造与校验，root API 不组装 `MemoryAtom`。列表查询显式排除 `AGENT_PROFILE`，避免普通记忆管理与 Profile 资产混为一类；不存在的 get/update 使用共享的 `ResourceNotFoundError` |
 | `RootAgentProfileService` | `create_agent_profile`、`list_agent_profiles` | 只提交创建材料并列出 `AGENT_PROFILE`，Profile 原子的构造、持久化和可见性都由 Patchouli 负责；`agent_config` 是资产内容，不是 System 直接解释的运行时权限 |
 | `RootSessionService` | `create_session`、`list_sessions`、`get_session`、`rename_session`、`delete_session` | 委托共享会话服务（[会话资源](./sessions.md)） |
-| `RootTopicService` | `list_active_topics`、`settle_topic`、`evict_topic` | 授权后以返回的 scope 经 Patchouli topic route 交给 Topic 所有者，不根据 ID 或缓存自行判断 Workspace 可见性和生命周期 |
+| `RootTopicService` | `list_active_topics`、`settle_topic`、`evict_topic`、`route_passive_turn`、`prepare_topic` | 授权后以返回的 scope 经 Patchouli topic route 交给 Topic 所有者，不根据 ID 或缓存自行判断 Workspace 可见性和生命周期。`route_passive_turn` 以 PASSIVE_MEMORY 模式请求 Gateway 为导入的一轮做话题路由，`prepare_topic` 以不检索的 prepare 确认或新建一轮的话题；两者只供 Import Bus 的编排器使用，没有 HTTP 管理路由 |
 | `RootMemoryTaskService` | `list_memory_tasks`、`get_memory_task`、`cancel_memory_task` | Patchouli 将 scope 的目标 Workspace 与任务的 `belong_to` 比对；不存在与越域任务统一隐藏，HTTP 查询和取消都映射为同一 404。不从任务对象推导第二套状态机 |
 | `RootWorkspaceAssetService` | `upload_asset` | 编排附件的接收、原子注册和请求内解析，保留首次创建/重放回执语义；在接收与注册副作用之前执行 root 授权，注册与解析交接只使用授权返回的 scope；链路事实见 [Chat 附件链路](../system/attachments.md) |
-| `RootInteractionService` | `submit_interaction` | 提交交互：以 root 授权后调用 Patchouli 的 `INTERACTION_SUBMIT`，交互中的 Agent 作为参与者显式传递、记为发起者，scope 只提供归属；接纳与幂等由 Patchouli 的提交队列负责。Import Bus 的编排器经它提交导入的轮次（[Import Bus](../system/import-bus.md)）；任务进程的 finalize 依赖本轮 prepare 的结果，走 Patchouli 的 finalize 路由，同样以 root 授权，不经这里 |
+| `RootInteractionService` | `submit_interaction`、`interaction_status`、`wait_interaction` | 提交交互：以 root 授权后调用 Patchouli 的 `INTERACTION_SUBMIT`，交互中的 Agent 作为参与者显式传递、记为发起者，scope 只提供归属；接纳与幂等由 Patchouli 的提交队列负责。`interaction_status` 与 `wait_interaction` 以 root 授权查询进度与等待应用。Import Bus 的编排器经它查重、提交导入的轮次并等待应用（[Import Bus](../system/import-bus.md)）；任务进程的 finalize 依赖本轮 prepare 的结果，走 Patchouli 的 finalize 路由，同样以 root 授权，不经这里 |
 
 管理读写按 owner-management 语义执行：在 Workspace 归属硬边界之内访问该 Workspace 的全部 Memory 与 Profile，不执行 Agent 级 `MemoryAccessPolicy` 可见性过滤（[MemoryLibrary](../patchouli/memory-library.md)）。这些服务的“拥有”只指顶层用例入口，不改变后端状态的所有权：例如 `RootMemoryTaskService` 可以取消任务，但任务生命周期仍由 Patchouli 负责。记忆任务是后台系统的任务，不暴露给 Agent：任务的列表、查询与取消只在 root API，没有对应的 actor 操作或 MTP 动词。
 
@@ -113,7 +113,7 @@ CALL 的派生与子线程的结束是入口的另外两个生命周期方法 `d
 
 架构测试限定：
 
-- `authorize_agent` 只在 actor API 与 `workspace/process/runner.py`（prepare 的检索）中调用，`authorize_root` 只在 root API、`workspace/process/` 的 runner、CPU 分配与注册入口，以及 System 的 Import Bus 服务中调用；操作集合的查询 `allowed_operations` 只在进程线程管理中调用；子工作 actor 的准入只由进程线程管理调用；
+- `authorize_agent` 只在 actor API 与 `workspace/process/runner.py`（prepare 的检索）中调用，`authorize_root` 只在 root API 与 `workspace/process/` 的 runner、CPU 分配与注册入口中调用，System 的服务不授权；操作集合的查询 `allowed_operations` 只在进程线程管理中调用；子工作 actor 的准入只由进程线程管理调用；
 - 工作 actor 只由认证一侧构造，`IdentityScope` 只由授权者与登记例外的资产桥接构造；跳过 Agent 可见性的 Profile 管理读取只由 CPU 分配发起；
 - Alice 除 CPU 驱动与组合入口外不引用线程句柄、执行线程或操作入口；CPU 可见的对象（输入清单、线程描述、提交函数交出的描述）不含工作 actor 与 `IdentityScope`；
 - 入口的 `execute` 只把五项记忆请求直接分派到 actor API 方法，没有拆参 handler，请求级提交 `execute_request` 共用同一分派表，CALL 的派生与结束是入口的两个生命周期方法；

@@ -153,7 +153,7 @@ last_reviewed: 2026-11-06
 `SystemAssembler` 从两个登记文件装载两类注册表（接入注册表经 `SystemActorAccessRegistry.from_config` 装配，同时读取各来源的接入凭据），构造 `WorkspaceAuthenticator` 与 `WorkspaceOperationAuthorizer`（两者都只接收 Workspace Actor 访问注册表），再以 `SystemPrincipalAuthenticator` 与 `WorkspaceAuthenticator` 组装认证网关：
 
 - 认证网关注入任务进程的注册入口与 Import Bus 服务，并经 `HiveMemorySystem.access_gateway` 暴露给 server 与 MCP 入口；系统自身的 principal 与 `local` adapter 注入注册入口与 Import Bus 服务；
-- 操作授权者注入 root API 与 actor API 的各服务、注册入口、执行器、CPU 分配、进程线程管理与 Import Bus 服务；CPU 分配另注入读取视图的 Profile 读取端口；
+- 操作授权者注入 root API 与 actor API 的各服务、注册入口、执行器、CPU 分配与进程线程管理；Import Bus 服务只注入认证网关，需要授权的步骤经 root API；CPU 分配另注入读取视图的 Profile 读取端口；
 - 进程表由组合根在构建 actor API 之前创建，同时交给注册入口与进程线程管理 `ProcessThreads`；`ProcessThreads` 以认证网关作为子工作 actor 的准入端口、以操作授权者读取操作快照，注入执行器（主线程的派生与兜底结束）、操作入口与 actor API（线程端口 `ExecutionThreadTable`，位于 `workspace/thread_ports.py`，不属于公共契约），能力层与任务进程仍互不导入；
 - `WorkspaceOperationEntry` 由组合根以 actor API 与线程端口装配，公共 `OperationEntry` 注入 `AliceCPU`，同一个入口经门面的 `operation_entry` 交给 MCP 入口，只用其请求级提交；MCP 入口另经门面的 `import_bus_service` 在写入与更新前为这一轮确定话题；actor API 只由操作入口持有，门面不暴露它；
 - Patchouli 与 Gateway 不注入任何认证或授权对象。

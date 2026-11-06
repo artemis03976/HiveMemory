@@ -112,7 +112,7 @@ workspace 不负责：
 - 调用来源的接入登记与 Principal authentication：属于 System，经 `core.access.PrincipalAuthenticator` 端口注入；
 - Agent loop、MTP 解释与 CALL 编排：属于 Alice，workspace 只经 CPU 端口调用执行者；
 - 入口分析：Gateway 只产生 `GatewayDecision`；
-- 外部交互的导入：属于 System 的 Import Bus 服务（[Import Bus](../system/import-bus.md)）；workspace 只提供它调用的 root 授权与 root API 的提交交互（[身份与授权](./identity-and-authorization.md#4-操作授权)），不为导入创建任务进程。
+- 外部交互的导入：属于 System 的 Import Bus 服务（[Import Bus](../system/import-bus.md)）；workspace 只提供它调用的 root API：查进度、PASSIVE_MEMORY 路由、准备话题、提交交互与等待应用，每次调用在方法入口 root 授权（[身份与授权](./identity-and-authorization.md#4-操作授权)），不为导入创建任务进程。
 
 ## 4. 包结构与依赖规则
 

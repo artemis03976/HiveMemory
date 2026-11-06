@@ -555,4 +555,4 @@ uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 **实施中发现的简化点**：
 
 - prepare 的两个检索开关合并为检索 scope 一个（2026-11-06 已处理，见上文与第 4、5 节的出入）。判断是否检索原先先查 `allowed_operations` 再调用 `authorize_agent`，同一份访问记录读两次；owner 选择（2026-11-06）只调用一次 `authorize_agent`，只把 `operation_not_allowed` 的拒绝译为不检索，其他授权失败照常传播，`allowed_operations` 因此只剩线程表一个调用方；
-- 未处理（交 owner 决定）：导入编排器同时接收系统的 root 工作 actor 与以它授权的 scope，经 root API 提交交互时再授权一次，这是“提交交互走 root API”带来的。
+- 未处理（交 owner 决定）：导入编排器同时接收系统的 root 工作 actor 与以它授权的 scope，经 root API 提交交互时再授权一次，这是“提交交互走 root API”带来的。（追溯，2026-11-06：owner 指出 System 的服务不应授权，已由 [Import Bus 的授权移入能力层](./import-bus-authorization-in-capability-layer.md)处理。）

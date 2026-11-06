@@ -91,8 +91,8 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 |:---|:---|:---|
 | server（入口 adapter） | 认证前的声明（只作为认证输入）；自身的 principal 与 adapter；导入请求声明的 principal 与凭据（只交给网关）；管理操作、取消与导入在调用链内的请求的工作 actor；chat 的不透明进程句柄 | 认证前组装的 `IdentityScope`；进程记录及其中的工作 actor |
 | MCP 入口（`mcp_server`，操作适配器） | 认证前的声明与凭据（只交给网关）；一次工具调用的工作 actor，只在本次调用内交给 Import Bus 服务的确定话题与操作入口的请求级提交 | `IdentityScope`；actor API 本身（只经门面取得的操作入口提交） |
-| 授权点：注册入口、能力层、任务进程的执行器与 CPU 分配、Import Bus 服务 | 交来的工作 actor、操作授权者（注册入口与 Import Bus 服务另持认证网关与系统自身的 principal；进程线程管理另经子工作 actor 的准入端口） | 调用方另行传入的 `IdentityScope` |
-| Import Bus 编排器（`ImportBusIngestor`） | 系统的 root 工作 actor 与以它授权的 `IdentityScope`、参与的 Agent 与 principal 标识，只在本次导入或确定话题请求的调用链内使用：推导外部会话键与 `interaction_id`，经公共路由交给 Gateway 与 Patchouli，经 root API 提交交互；已确定话题的登记只保存 prepare 的结果（话题与 Workspace 归属），不保存身份 | 认证网关、操作授权者；不把 scope 或工作 actor 写入记录、事件或后台任务 |
+| 授权点：注册入口、能力层、任务进程的执行器与 CPU 分配 | 交来的工作 actor、操作授权者（注册入口另持认证网关与系统自身的 principal；进程线程管理另经子工作 actor 的准入端口） | 调用方另行传入的 `IdentityScope` |
+| Import Bus 服务与编排器（`ImportBusService`、`ImportBusIngestor`） | 服务持认证网关与系统自身的 principal，只认证系统的 root 工作 actor；编排器持系统的 root 工作 actor、目标 Workspace、参与的 Agent 与 principal 标识，只在本次导入或确定话题请求的调用链内使用：推导外部会话键与 `interaction_id`，经 root API 查询进度、路由、准备话题、提交交互与等待应用；已确定话题的登记只保存 prepare 的结果（话题与 Workspace 归属），不保存身份 | 操作授权者、`IdentityScope`；不把工作 actor 写入记录、事件或后台任务 |
 | Gateway 与 Patchouli 公共边界 | 授权点组装后传入的 `IdentityScope`（系统阶段是 root scope）；显式的参与者；Patchouli 立即拆分归属与发起者 | 工作 actor、认证网关、操作授权者 |
 | Patchouli 内部、引擎、存储 | 独立的 `WorkspaceIdentity` 与需要时的 `ActorIdentity` | `IdentityScope`、工作 actor、认证网关、操作授权者 |
 | 进程记录 | 执行者与系统的 root 工作 actor、进程元数据；事件绑定载体中的只读观测标签 | — |
@@ -120,7 +120,7 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 | 方法 | 规则 | 拒绝 | 调用位置 |
 |:---|:---|:---|:---|
 | `authorize_agent(actor, operation, target)` | `operation` 是六项 `WorkspaceOperation` 之一，且在访问登记的白名单中 | `operation_not_allowed` | actor API 的方法入口；任务进程中 prepare 的检索 |
-| `authorize_root(actor, target)` | actor 是保留的 `system` | `root_required` | root API 的方法入口；任务进程的系统阶段与取消；Import Bus 服务 |
+| `authorize_root(actor, target)` | actor 是保留的 `system` | `root_required` | root API 的方法入口（Import Bus 经它执行）；任务进程的系统阶段与取消 |
 
 两个方法共用三项前提，按顺序检查：准入记录仍然有效，否则 `ScopeRequiredError`（`actor_not_admitted`）；目标等于驻留 Workspace，否则 `OperationDeniedError`（`target_workspace_not_resident`）；actor 用户是目标 Workspace 的 owner，否则 `OperationDeniedError`（`target_owner_mismatch`）。全部通过才返回 `IdentityScope(actor, target)`。owner 检查因此分在两处：第 2 阶段检查要进入的 Workspace，第 3 阶段检查操作的目标。行为白名单不进入工作 actor：每次授权都按访问登记即时查询，不缓存授权结论。另有只读查询 `allowed_operations(actor)`：返回白名单，只供线程表生成线程描述的操作快照，不授予权限。
 
@@ -133,7 +133,7 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 | root API（管理、会话、上传与提交交互） | 请求的 `system` | `authorize_root`，目标由请求给出 |
 | 任务进程的 Gateway、话题准备、Profile、附件、finalize 与 cleanup | 系统的 root 工作 actor | `authorize_root` |
 | 取消 | 请求方（`system`） | `authorize_root(请求方, 进程的 Workspace)`，拒绝呈现为 `not_found` |
-| Import Bus 的导入与写入前的确定话题 | 系统的 root 工作 actor | `authorize_root` |
+| Import Bus 的导入与写入前的确定话题 | 系统的 root 工作 actor | `authorize_root`，在编排器调用的每个 root API 方法入口 |
 
 各项归属的理由：
 
@@ -143,9 +143,9 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 - **prepare 的检索**要按执行者的可见性返回记忆，因此是执行者的 actor 操作；执行者没有 `memory.search` 时不检索，对话照常进行。
 - **交互提交**是系统级操作，Agent 不能拥有这项能力。三个来源都在这一范畴：chat 的 finalize、plugin 模式的导入，以及将来的历史对话导入。交互中的 Agent 作为参与者显式传给 Patchouli。导入不检查白名单：白名单为空、只登记了准入的 Agent 也能导入；外部 harness 不能声明 `system`，管的是边界上的声明，与系统执行交互提交无关。
 
-**系统自身的 principal**：系统组件以自己登记的 principal 经 `local` adapter 认证 (user, `system`)，取得执行系统级操作的身份（[认证与访问登记](./authentication.md#5-系统自身的-principal)）。任务进程在注册时认证一次，Import Bus 每次导入或确定话题时认证一次，认证的是参与者驻留 Workspace 的 `system`：目标不是参与者驻留的 Workspace 时，root 授权以 `target_workspace_not_resident` 拒绝，交互不会落到参与者所在之外的 Workspace。
+**系统自身的 principal**：系统组件以自己登记的 principal 经 `local` adapter 认证 (user, `system`)，取得执行系统级操作的身份（[认证与访问登记](./authentication.md#5-系统自身的-principal)）。任务进程在注册时认证一次，Import Bus 每次导入或确定话题时认证一次，认证的是参与者驻留 Workspace 的 `system`：目标不是参与者驻留的 Workspace 时，编排器第一次调用 root API 即以 `target_workspace_not_resident` 拒绝，先于路由与提交，交互不会落到参与者所在之外的 Workspace。
 
-两个授权方法的调用位置与系统自身的 principal 的使用位置都由架构测试锁定：`authorize_agent` 只在 actor API 与任务进程中调用，`authorize_root` 只在 root API、任务进程与 Import Bus 服务中调用。认证与授权互不依赖：两者都只读同一份访问注册表，经工作 actor 这个类型发生联系（[认证与访问登记](./authentication.md#3-工作-actor)）。
+两个授权方法的调用位置与系统自身的 principal 的使用位置都由架构测试锁定：`authorize_agent` 只在 actor API 与任务进程中调用，`authorize_root` 只在 root API 与任务进程中调用，System 的服务不授权。认证与授权互不依赖：两者都只读同一份访问注册表，经工作 actor 这个类型发生联系（[认证与访问登记](./authentication.md#3-工作-actor)）。
 
 ## 5. 资源归属与寻址
 
@@ -191,7 +191,7 @@ work queue、ordering/idempotency key、task/run registry、scheduler、runtime 
 
 主动 Chat 是 Agent action，必须携带具体 `agent_id`；注册入口认证执行者与系统的 root 工作 actor 并立即创建进程，进程的阶段调用以注册时通过认证的 Workspace 为目标，按第 4 节的执行者授权（[任务进程](./task-process.md#2-注册)）。`/chat/stop` 不是 Agent action：server 以 `(user, system)` 声明认证，注册入口对进程的 Workspace 执行 root 授权。
 
-导入 `POST /api/v1/import/turns` 也是 Agent action：server 以 (user, 请求体中的具体 Agent) 声明、请求声明的 principal、凭据与 `import` adapter 经网关认证，这一步证明请求来自哪个调用来源、参与者是哪个 Agent；Import Bus 服务再以系统的 root 工作 actor 授权，经公共路由交给 Gateway 与 Patchouli，经 root API 提交交互。提交的交互归属取目标 Workspace，发起者是参与的 Agent。外部来源与外部会话标识只用于按会话串行与推导 `interaction_id`，不进入身份，也不因此建立第二套 Workspace 资源状态（[Import Bus](../system/import-bus.md)）。下游不使用进程当前 Workspace 推断资源归属。
+导入 `POST /api/v1/import/turns` 也是 Agent action：server 以 (user, 请求体中的具体 Agent) 声明、请求声明的 principal、凭据与 `import` adapter 经网关认证，这一步证明请求来自哪个调用来源、参与者是哪个 Agent；Import Bus 服务再认证系统的 root 工作 actor，编排器以它经 root API 完成查进度、路由、提交交互与等待应用，由 root API 逐次授权。提交的交互归属取目标 Workspace，发起者是参与的 Agent。外部来源与外部会话标识只用于按会话串行与推导 `interaction_id`，不进入身份，也不因此建立第二套 Workspace 资源状态（[Import Bus](../system/import-bus.md)）。下游不使用进程当前 Workspace 推断资源归属。
 
 MCP 工具调用同样是 Agent action：MCP 入口以 (user, `X-Agent-ID` 中的具体 Agent) 声明、请求声明的 principal、凭据与 `mcp` adapter 经网关认证一次，得到的工作 actor 经操作入口的请求级提交进入 actor API，actor API 以 `authorize_agent` 组装本次调用的 `IdentityScope`；写入与更新之前，Import Bus 服务以系统的 root 工作 actor 为这一轮确定话题。工具参数与连接器补上的轮次信息都不作为身份来源（[MCP 记忆访问](../contracts/mcp.md)）。
 

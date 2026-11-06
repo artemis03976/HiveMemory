@@ -19,6 +19,7 @@ last_reviewed: 2026-11-06
 
 ## 版本之外
 
+- [Import Bus 的授权移入能力层](./import-bus-authorization-in-capability-layer.md)：2026-11-06，提交 248c4e67、5144038e（未合并）；[Import Bus](../../system/import-bus.md#41-认证与授权)、[能力层](../../workspace/capability.md)
 - [统一身份授权入口](./unified-identity-authorization-entry.md)：2026-11-06，提交 1d44659a..df45e5b9（未合并）；[身份与授权](../../workspace/identity-and-authorization.md#4-操作授权)、[认证与访问登记](../../workspace/authentication.md#3-工作-actor)
 - [HTTP 管理面的管理凭据](./http-management-credential.md)：2026-11-05，PR #182；[认证与访问登记](../../workspace/authentication.md#1-两阶段认证)、[安装与启动](../../help/setup.md#43-启动后端)
 - [dsh 子 Agent 会话不再独立导入，交回的消息进入父会话的一轮](./dsh-subagent-sessions.md)：2026-11-02，提交 4a16b46a；[Import Bus](../../system/import-bus.md#93-轮次的切分与映射)、[数据模型](../../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)

@@ -15,7 +15,7 @@ related_docs:
   - docs/ideas/long-running-agent-intra-turn-context-folding.md
   - docs/todo/conversation-compact-command.md
   - docs/ideas/unified-interaction-memory.md
-  - docs/plans/import-bus-authorization-in-capability-layer.md
+  - docs/archive/plans/import-bus-authorization-in-capability-layer.md
 last_reviewed: 2026-11-06
 ---
 
@@ -381,7 +381,7 @@ Topic 身份、prepare handle、路由关联和资料快照分别交接。主动
 
 ## 10. 交互提交收束与话题按需创建
 
-本节由“交互提交收束与话题按需创建”计划草案于 2026-11-06 退回：草案从导入一轮做两次 root 授权的审计出发，混入了交互提交与话题建立时点的重构。身份访问的部分另立为 [Import Bus 的授权移入能力层](../plans/import-bus-authorization-in-capability-layer.md)计划；其余设计保留在这里，删除了阶段划分、验收与文档更新清单。草案从未提交。
+本节由“交互提交收束与话题按需创建”计划草案于 2026-11-06 退回：草案从导入一轮做两次 root 授权的审计出发，混入了交互提交与话题建立时点的重构。身份访问的部分另立为 [Import Bus 的授权移入能力层](../archive/plans/import-bus-authorization-in-capability-layer.md)计划（已于 2026-11-06 实施并归档）；其余设计保留在这里，删除了阶段划分、验收与文档更新清单。草案从未提交。
 
 ### 10.1 背景
 
@@ -399,7 +399,7 @@ Topic 身份、prepare handle、路由关联和资料快照分别交接。主动
 5. **交互提交队列收束提交接口、完整封装提交逻辑**，不能让两边各自管理。
 6. **controller 的交互提交走 root API**，与 Import Bus 共用同一组方法，这是统一交互提交操作的核心。
 7. **写入先授权、再建立话题**，MCP 同样：被拒的写入不触发路由、建立话题或 LRU 结算。
-8. **Import Bus 的进度查询与 PASSIVE_MEMORY 路由**在身份访问计划中临时做成 root 方法，在本方向实施时移除。
+8. **Import Bus 的进度查询与 PASSIVE_MEMORY 路由**在身份访问计划中临时做成 root 方法（`RootInteractionService.interaction_status`、`RootTopicService.route_passive_turn`），在本方向实施时移除。同一计划另加的 `wait_interaction` 与 `prepare_topic` 的去留由本方向决定。
 
 ### 10.3 候选设计
 

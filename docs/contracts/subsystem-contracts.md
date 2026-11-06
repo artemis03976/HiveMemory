@@ -401,14 +401,14 @@ Agent Profile 属于 CPU 分配，但当前在 prepare 之前解析：prepare �
 
 ## 6. Import Bus 契约
 
-Import Bus 由 System 拥有：`ImportBusService` 以系统的 root 工作 actor 授权，连同参与的 Agent 委托编排器 `ImportBusIngestor`。它接收外部 harness 一轮已经结束的交互的完整记录，以 Gateway `PASSIVE_MEMORY` 模式只取话题路由，以共用封口函数封口，经 root API 的提交交互调用 Patchouli 的公开交互路由提交，并等待应用完成（第 3.6 节）。它不调用 Alice、不执行命令、不运行 MTP、不生成回复，不检索记忆，也不返回记忆上下文。HTTP 入口与载荷字段见[公开路由与事件](./routes-and-events.md#62-import-bus-导入)，编排细节见 [Import Bus](../system/import-bus.md)。
+Import Bus 由 System 拥有：`ImportBusService` 只认证系统的 root 工作 actor，连同参与的 Agent 委托编排器 `ImportBusIngestor`，自身不授权。它接收外部 harness 一轮已经结束的交互的完整记录，以 Gateway `PASSIVE_MEMORY` 模式只取话题路由，以共用封口函数封口，提交并等待应用完成（第 3.6 节）；查进度、路由、写入时准备话题、提交与等待都以系统的 root 工作 actor 经 root API（`RootInteractionService`、`RootTopicService`），由它在方法入口授权。它不调用 Alice、不执行命令、不运行 MTP、不生成回复，不检索记忆，也不返回记忆上下文。HTTP 入口与载荷字段见[公开路由与事件](./routes-and-events.md#62-import-bus-导入)，编排细节见 [Import Bus](../system/import-bus.md)。
 
 对外结果只有 `accepted`（本次提交且已应用）、`duplicate`（此前已应用）与 `skipped`（用户消息之外没有输出，与任务进程一样不封口），并带推导出的 `interaction_id`；Gateway 决定、话题与 RuntimeEvent 不进入响应。`accepted` 与 `duplicate` 都表示这一轮已经应用，确认只在应用完成之后给出：可重试与不可重试的失败经错误区分（[错误模型](./error-model.md#43-import-bus)）。
 
 - **交互标识**：`import_` 加上对（principal、user、Agent、来源、外部会话、外部轮次）规范化序列取 SHA-256 的前 32 位十六进制。同一轮重发得到同一标识，队列据此幂等；纳入认证通过的 actor，使代表不同用户或 Agent 的连接器不会撞号。
 - **串行与查重**：同一（user、Agent、来源、外部会话）在单进程内按到达顺序串行，串行范围包含进度查询、Gateway、提交与等待应用；不同会话可以并发。门内先查询进度：已应用（`succeeded`）或接纳过但结局已超出保留窗口（`unknown`）时返回 `duplicate`；仍在应用（`pending`）只继续等待，不再路由与提交——Gateway 的路由结果随提交写入，重新路由可能得到不同的提交而被队列判为冲突；未提交或应用失败的轮次才调用 Gateway 并（再次）提交。该契约不扩展为跨进程排序或持久化 mailbox。
 - **话题路由**：`session_turns` 取请求中最近若干轮的最后 `gateway.context_preparation.session_turn_limit` 轮；最近一轮带外部标识时，Import Bus 推导它的交互标识，取它写入时确定的话题，否则经状态查询取得应用成功后实际所在的话题，作为该轮的 `topic_id`。新话题以 Gateway 给出的标题与摘要提交。
-- **写入时确定话题**：`ImportBusService.place_turn(turn, *, actor, target_workspace) -> str` 为仍在进行的一轮（`InFlightTurn`：来源、外部会话与外部轮次、用户消息、最近几轮）确定话题并返回该话题的真实 id，供 MCP 写入与更新作为派发话题。它与导入一样由系统以 root 授权执行，使用同一交互标识推导与同一串行门：已确定话题时直接返回；这一轮已应用时返回它所在的话题；已提交仍在应用时以 `apply_pending` 拒绝；否则以 `PASSIVE_MEMORY` 路由、经 `patchouli.public.prepare_agent_run`（关闭检索）准备话题并登记已确定的话题。已确定话题的轮次回流时以该话题提交、不调用 Gateway，提交被接纳后取走登记（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。
+- **写入时确定话题**：`ImportBusService.place_turn(turn, *, actor, target_workspace) -> str` 为仍在进行的一轮（`InFlightTurn`：来源、外部会话与外部轮次、用户消息、最近几轮）确定话题并返回该话题的真实 id，供 MCP 写入与更新作为派发话题。它与导入一样由系统经 root API 以 root 授权执行，使用同一交互标识推导与同一串行门：已确定话题时直接返回；这一轮已应用时返回它所在的话题；已提交仍在应用时以 `apply_pending` 拒绝；否则以 `PASSIVE_MEMORY` 路由、经 `patchouli.public.prepare_agent_run`（关闭检索）准备话题并登记已确定的话题。已确定话题的轮次回流时以该话题提交、不调用 Gateway，提交被接纳后取走登记（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。
 - **事件**：导入的事件与 `TurnEvent` 同形（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)），请求校验阶段执行同样的事件规则。`verb` 只接受 `SEARCH`、`READ`、`WRITE`、`UPDATE`，只标在 HiveMemory 自身 MCP 工具的调用上，`READ` 与 `UPDATE` 必须带作用对象；生成视图对检索与读取只留一行摘要、不再渲染取回的记忆，写入与更新不渲染；其他外部工具调用只带 `tool_name`。用户消息由服务端写成序号为 0 的事件。
 
 这条限制保护的是入口语义。Import Bus 摄入的是已经在外部发生的经历，并不等价于伪造一次用户与 Agent 的对话；如果它允许命令或 Alice 执行，外部内容便可能意外触发控制行为、工具调用和回复生成，也会让“谁发起了这次行动”失去可靠答案。

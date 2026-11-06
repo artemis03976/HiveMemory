@@ -63,15 +63,16 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 | 部分 | 位置 | 负责 | 不负责 |
 |:---|:---|:---|:---|
 | HTTP 入口 | `server/routers/import_bus.py`、`server/models/import_bus.py` | 请求体上限、请求校验、身份声明解析、经统一认证网关认证得到请求的工作 actor、错误映射 | 授权、编排 |
-| 应用服务 `ImportBusService` | `system/application/import_bus_service.py` | 导入（`import_turn`）与写入时确定话题（`place_turn`）：以系统自身的 principal 认证系统的 root 工作 actor，root 授权得到本次请求的 `IdentityScope`，连同参与的 Agent 与 principal 标识委托编排器；关闭时转交 | 跨请求的业务状态 |
-| 编排器 `ImportBusIngestor` | `system/services/import_bus/` | 按外部会话串行、推导 `interaction_id`、进度查询、Gateway 路由、写入时为在途轮次准备话题并登记已确定的话题、封口、经 root API 的提交交互提交、等待应用、观测事件、关闭时等待在途请求 | 持有提交队列、注册维护任务、检索、记忆存储、写入意图的登记与派发 |
-| root API 的提交交互 `RootInteractionService` | `workspace/capability/root/interaction.py` | root 授权后调用 `patchouli.public.interaction.submit`，参与者显式传递 | 编排、查重、重试 |
+| 应用服务 `ImportBusService` | `system/application/import_bus_service.py` | 导入（`import_turn`）与写入时确定话题（`place_turn`）：以系统自身的 principal 认证系统的 root 工作 actor，连同目标 Workspace、参与的 Agent 与 principal 标识委托编排器；关闭时转交 | 授权、跨请求的业务状态 |
+| 编排器 `ImportBusIngestor` | `system/services/import_bus/` | 按外部会话串行、推导 `interaction_id`、封口、登记已确定的话题、观测事件、关闭时等待在途请求；进度查询、Gateway 路由、写入时准备话题、提交与等待应用都以系统的 root 工作 actor 经 root API | 授权、持有 scope 或提交队列、注册维护任务、检索、记忆存储、写入意图的登记与派发 |
+| root API `RootInteractionService` | `workspace/capability/root/interaction.py` | root 授权后调用 `patchouli.public.interaction.submit`（参与者显式传递）、`.status` 与 `.wait` | 编排、查重、重试 |
+| root API `RootTopicService` | `workspace/capability/root/topic.py` | root 授权后以 PASSIVE_MEMORY 模式调用 Gateway `PROCESS`，以及不检索的 `patchouli.public.prepare_agent_run`（写入时准备话题） | 编排、登记 |
 | 封口函数 `seal_interaction` | `core/protocol/sealing.py` | 两条链路共用：组装 `InteractionPayload` | 解析事件（只在感知层进行） |
 | Patchouli | 公开路由 `patchouli.public.interaction.submit` / `.status` / `.wait` | 提交队列、查重、应用、新话题的建立 | 导入的身份与重试策略 |
 | Claude Code 连接器 | `integrations/claude-code/` | 读取会话记录、切分轮次、游标与重发 | 服务端的查重与授权 |
 | DeepSeek Harness 插件 | `integrations/deepseek-harness/` | 读取 dsh 会话的逻辑记录、切分轮次、水位与重发；注册记忆工具 | 服务端的查重与授权 |
 
-编排器的状态只有串行门、在途计数与已确定话题的登记，都只在进程内。它经 `GlobalSystemBus` 调用 Gateway 与 Patchouli 的公开路由，经 root API 的提交交互提交，不持有任何子系统的 Runtime 或 Patchouli 的提交队列；组合根只注入全局总线、root API 的提交交互、Gateway 请求时限与最近轮数（沿用 Gateway 配置）、等待应用的时限与观测 sink。应用服务另由组合根注入认证网关、操作授权者与系统自身的 principal 及其 adapter，与任务进程的注册入口相同。
+编排器的状态只有串行门、在途计数与已确定话题的登记，都只在进程内。它只经 root API 调用 Gateway 与 Patchouli 的公开路由，不持有全局总线、任何子系统的 Runtime 或 Patchouli 的提交队列；组合根只注入 root API 的 `RootInteractionService` 与 `RootTopicService`、Gateway 请求时限与最近轮数（沿用 Gateway 配置）、等待应用的时限与观测 sink。应用服务另由组合根注入认证网关与系统自身的 principal 及其 adapter，与任务进程的注册入口相同，不注入操作授权者。
 
 ## 3. HTTP 入口
 
@@ -112,9 +113,9 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 
 导入是 Agent action：server 用 `resolve_request_identity_claims(require_agent=True)` 把请求头的用户选择与请求体的 `agent_id` 解析为 (user, 具体 Agent) 声明，缺失 `agent_id` 返回 400（`request.agent_required`），显式给出保留的 `system` 返回 400（`request.agent_reserved`）；`X-Workspace-ID` 只接受 `main_workspace`，其他值返回 404。principal 取自请求头 `X-Principal-ID`，缺省返回 400（`request.principal_required`）；凭据取自 `Authorization: Bearer`。随后以请求声明的 principal、`import` adapter 与凭据经统一认证网关认证（`authenticate_request_actor`），得到请求的工作 actor：它证明请求来自哪个调用来源、交互的参与者是哪个 Agent，只在本次调用内使用；凭据由网关第一阶段核对，缺失或不一致以 403 `invalid_credential` 拒绝。连接器以 Claude Code 自己的接入登记 `harness:claude-code` 认证，与插件中的 MCP server 共用（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）；server 的 principal 只用于前端路由。认证前不组装 `IdentityScope`。请求头中的用户身份不做证明，沿用本地单用户部署的信任假设。
 
-导入与确定话题是系统级操作，执行者是系统，交互中的 Agent 只是参与者（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。应用服务以系统自身的 principal 经 `local` adapter 认证同一用户在参与者驻留 Workspace 的 `system`，得到系统的 root 工作 actor（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)），再以 `authorize_root` 对目标授权。system 驻留在参与者的 Workspace，root 授权因此同时确认目标就是参与者驻留的 Workspace，否则以 `target_workspace_not_resident` 拒绝，交互不会落到参与者所在之外的 Workspace。actor 操作白名单不参与：导入提交的是已经在外部发生的交互，与任务进程封口后提交交互记录同类，不调用任何 actor 操作，因此白名单为空的 Agent 也能导入；保留的 `system` 作为参与者已由声明解析以 `request.agent_reserved` 拒绝。写入时确定话题（第 4.7 节）同样由系统执行：它只为这一轮选定话题，紧随其后的写入与更新由 actor API 按请求的工作 actor 的白名单逐次授权。系统自身的 principal 未登记时以 403 `unknown_principal` 拒绝，该用户在这个 Workspace 没有 `system` 的访问记录时以 403 `actor_not_admitted` 拒绝。`authorize_root` 与系统自身的 principal 的使用位置都由架构测试锁定。
+导入与确定话题是系统级操作，执行者是系统，交互中的 Agent 只是参与者（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。应用服务以系统自身的 principal 经 `local` adapter 认证同一用户在参与者驻留 Workspace 的 `system`，得到系统的 root 工作 actor（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)），交给编排器；应用服务只认证、不授权。编排器的每一步都以这个工作 actor 调用 root API，由 root API 在方法入口以 `authorize_root` 对目标授权。system 驻留在参与者的 Workspace，root 授权因此同时确认目标就是参与者驻留的 Workspace，否则编排器的第一次 root 调用（查询进度）即以 `target_workspace_not_resident` 拒绝，先于路由与提交，交互不会落到参与者所在之外的 Workspace。actor 操作白名单不参与：导入提交的是已经在外部发生的交互，与任务进程封口后提交交互记录同类，不调用任何 actor 操作，因此白名单为空的 Agent 也能导入；保留的 `system` 作为参与者已由声明解析以 `request.agent_reserved` 拒绝。写入时确定话题（第 4.7 节）同样由系统执行：它只为这一轮选定话题，紧随其后的写入与更新由 actor API 按请求的工作 actor 的白名单逐次授权。系统自身的 principal 未登记时以 403 `unknown_principal` 拒绝，该用户在这个 Workspace 没有 `system` 的访问记录时以 403 `actor_not_admitted` 拒绝。`authorize_root` 只在 root API 与任务进程中调用，系统自身的 principal 的使用位置也由架构测试锁定。
 
-root scope 只在这一次导入的调用链内经公共路由到达 Gateway 与 Patchouli，不写入记录、事件或后台任务。提交经 root API 的提交交互进行，它以同一个系统的 root 工作 actor 在入口再授权一次，并把参与的 Agent 显式交给 `patchouli.public.interaction.submit`：Patchouli 以 scope 作归属（目标 Workspace），以参与者作交互的发起者。访问模型见[身份与授权](../workspace/identity-and-authorization.md)，访问登记的匹配规则见[认证与访问登记](../workspace/authentication.md#2-两类访问登记)。随仓库发布的 `configs/workspace_actors.yaml` 为 `default` 用户在 `main_workspace` 登记了 `claude_code` 的精确记录，`allowed_operations` 为 `memory.read`、`memory.search`、`memory.write` 与 `memory.update`，供 MCP 工具使用；导入与确定话题不读取白名单，不受它影响。精确记录优先于用户级记录，这个 Agent 不继承用户级的 `memory.run` 与 `agent.call`：MCP 入口不提供这两项操作。
+编排器不持有 `IdentityScope`：root API 每次授权得到的 scope 只在那一次调用内经公共路由到达 Gateway 与 Patchouli，不写入记录、事件或后台任务；一轮导入因此授权三到五次（查进度、查上一轮的进度、路由、提交、等待），每次都是进程内的登记查找。写入时确定话题的登记命中时直接返回、不经 root API：登记项只由此前经过 root 授权的请求写入，键由同一 principal 与参与者推导。提交经 root API 的提交交互进行，它把参与的 Agent 显式交给 `patchouli.public.interaction.submit`：Patchouli 以 scope 作归属（目标 Workspace），以参与者作交互的发起者。访问模型见[身份与授权](../workspace/identity-and-authorization.md)，访问登记的匹配规则见[认证与访问登记](../workspace/authentication.md#2-两类访问登记)。随仓库发布的 `configs/workspace_actors.yaml` 为 `default` 用户在 `main_workspace` 登记了 `claude_code` 的精确记录，`allowed_operations` 为 `memory.read`、`memory.search`、`memory.write` 与 `memory.update`，供 MCP 工具使用；导入与确定话题不读取白名单，不受它影响。精确记录优先于用户级记录，这个 Agent 不继承用户级的 `memory.run` 与 `agent.call`：MCP 入口不提供这两项操作。
 
 ### 4.2 编排顺序
 
@@ -123,13 +124,13 @@ root scope 只在这一次导入的调用链内经公共路由到达 Gateway 与
 推导 interaction_id
 持串行门（user, Agent, source, external_conversation_id）
   关闭中？ -> 503 shutting_down
-  patchouli.public.interaction.status
+  root API -> patchouli.public.interaction.status（第一次 root 调用，目标不符在此拒绝）
     succeeded / unknown -> duplicate
     pending             -> 等待应用（第 4.6 节）-> duplicate
     failed / 未提交：
       未提交且没有输出   -> skipped
       写入时已确定话题   -> 沿用该话题（第 4.7 节）
-      否则 Gateway PASSIVE_MEMORY（附最近轮次与上一轮所在的话题）
+      否则 root API -> Gateway PASSIVE_MEMORY（附最近轮次与上一轮所在的话题）
       seal_interaction -> InteractionPayload
       root API 的提交交互 -> patchouli.public.interaction.submit（origin import_bus，参与者，新话题附标题与摘要）
       提交被接纳         -> 取走已确定话题的登记
@@ -163,7 +164,7 @@ root scope 只在这一次导入的调用链内经公共路由到达 Gateway 与
 
 ### 4.6 等待应用与确认
 
-提交被接纳后，编排器在串行门内调用 `patchouli.public.interaction.wait`，最多等待 `import_bus.apply_wait_seconds`：
+提交被接纳后，编排器在串行门内经 root API 调用 `patchouli.public.interaction.wait`，最多等待 `import_bus.apply_wait_seconds`：
 
 - `succeeded`：发出 `import.turn.accepted`，返回 `accepted`；
 - 仍为 `pending`（等待超时）：返回 503（`import_bus.unavailable`，reason `apply_pending`）；重发时查到仍在应用，只继续等待；
@@ -181,11 +182,11 @@ root scope 只在这一次导入的调用链内经公共路由到达 Gateway 与
 持串行门（与导入同一把）
   关闭中？ -> 503 shutting_down
   已确定话题         -> 返回该话题
-  patchouli.public.interaction.status
+  root API -> patchouli.public.interaction.status
     succeeded        -> 返回这一轮实际所在的话题，不登记
     pending          -> 503 apply_pending，写入方稍后重试
-  Gateway PASSIVE_MEMORY（与导入相同的输入与续接规则）
-  patchouli.public.prepare_agent_run（不给检索 scope，不检索），新话题在此预建
+  root API -> Gateway PASSIVE_MEMORY（与导入相同的输入与续接规则）
+  root API -> patchouli.public.prepare_agent_run（不给检索 scope，不检索），新话题在此预建
   登记已确定的话题，返回该话题的真实 id
 ```
 
@@ -407,7 +408,7 @@ hook 同步运行但只做本地工作（登记会话记录、写结束记录、
 - 写入时确定话题与导入对同一轮推导出同一个 `interaction_id`，在同一把串行门内按到达顺序处理；确定话题只读取候选话题与交互进度，不读取记忆。
 - 同一（user、Agent、`source`、外部会话）内按到达顺序处理，串行门持有到应用完成；不同外部会话不被一把全局锁串行化。
 - `interaction_id` 只由认证结果与外部标识推导，同一轮重发不变。
-- 导入与确定话题由系统以 root 授权执行，目标只能是参与者驻留的 Workspace，不检查参与者的白名单；交互的发起者是参与的 Agent；`IdentityScope` 与工作 actor 只在一次请求的调用链内使用。
+- 导入与确定话题由系统经 root API 以 root 授权执行，应用服务只认证、不授权；目标只能是参与者驻留的 Workspace，不检查参与者的白名单；交互的发起者是参与的 Agent；`IdentityScope` 只在一次 root API 调用内、工作 actor 只在一次请求的调用链内使用。
 - 交互记录由共用的 `seal_interaction` 产出，与任务进程的交互记录同形，只以事件表达交互内容；Gateway 决定不进入交互记录，也不得删除原始交互。
 - 编排器不持有提交队列、不注册维护任务；关闭时只等待在途请求，不排空队列。
 - RuntimeEvent 不携带正文，发布失败不改变结果。
