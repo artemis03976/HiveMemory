@@ -22,7 +22,9 @@ v0.7.2（Git tag `v0.7.2`，2026-11-01）、v0.7.1（Git tag `v0.7.1`，2026-10-
 
 ## 未绑定版本
 
-当前没有生效计划。HTTP 管理面的管理凭据（2026-11-05）、此前的 DeepSeek Harness 插件接入、模型选择统一（2026-11-01）与 dsh 子 Agent 会话不再独立导入（2026-11-02）已归档，见 [Archived Plans](../archive/plans/README.md)。观测与日志是版本之外的工作，目前以治理主题与 Todo 跟踪，见[日志与运行时事件](../governance/observability/logs-and-events.md)。
+- [统一身份授权入口](./unified-identity-authorization-entry.md)：planned（版本之外的工作，身份与访问主线），方向来自[身份与访问体系 Idea](../ideas/identity-and-access-model.md#访问-context-与授权入口的收拢)第 5 节的 owner 决定。
+
+HTTP 管理面的管理凭据（2026-11-05）、此前的 DeepSeek Harness 插件接入、模型选择统一（2026-11-01）与 dsh 子 Agent 会话不再独立导入（2026-11-02）已归档，见 [Archived Plans](../archive/plans/README.md)。观测与日志是版本之外的工作，目前以治理主题与 Todo 跟踪，见[日志与运行时事件](../governance/observability/logs-and-events.md)。
 
 ## 准入规则
 
