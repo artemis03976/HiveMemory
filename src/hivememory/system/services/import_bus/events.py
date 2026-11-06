@@ -14,7 +14,7 @@ from __future__ import annotations
 
 from hivememory.components.events.bus import NullRuntimeEventSink, RuntimeEventSink
 from hivememory.core.contracts.runtime_events import RuntimeEvent, RuntimeEventType
-from hivememory.core.models import IdentityScope
+from hivememory.core.models import ActorIdentity, IdentityScope
 from hivememory.system.services.import_bus.models import ImportedTurn
 
 
@@ -22,7 +22,8 @@ class ImportBusEventEmitter:
     """把一次导入的结局投影为结构化 RuntimeEvent。
 
     emit 失败不得影响业务流程，因此本类只做纯粹的构造与转发；背压与异常
-    吞吐由底层 ``RuntimeEventBus`` 负责。
+    吞吐由底层 ``RuntimeEventBus`` 负责。事件中的 Agent 是交互的参与者，
+    Workspace 取 scope 的归属：scope 的 actor 是执行导入的 ``system``。
     """
 
     def __init__(self, sink: RuntimeEventSink | None = None) -> None:
@@ -34,6 +35,7 @@ class ImportBusEventEmitter:
         *,
         turn: ImportedTurn,
         scope: IdentityScope,
+        participant: ActorIdentity,
         interaction_id: str,
         status: str,
         severity: str = "info",
@@ -46,7 +48,7 @@ class ImportBusEventEmitter:
                 event_type=event_type,
                 # 导入没有用户在 HiveMemory 一侧等待，按后台工作呈现。
                 task_type="background",
-                agent_id=scope.actor_identity.agent_id,
+                agent_id=participant.agent_id,
                 # Workspace 仅作为观测标签，不参与 EventBus 的路由或序号语义。
                 workspace_id=scope.workspace_identity.workspace_id,
                 topic_id=topic_id,
@@ -69,6 +71,7 @@ class ImportBusEventEmitter:
         *,
         turn: ImportedTurn,
         scope: IdentityScope,
+        participant: ActorIdentity,
         interaction_id: str,
         topic_id: str | None,
         is_new_topic: bool,
@@ -78,6 +81,7 @@ class ImportBusEventEmitter:
             RuntimeEventType.IMPORT_TURN_ACCEPTED,
             turn=turn,
             scope=scope,
+            participant=participant,
             interaction_id=interaction_id,
             status="accepted",
             # 应用完成后才确认，新建话题的真实标识此时已经确定。
@@ -88,23 +92,39 @@ class ImportBusEventEmitter:
             },
         )
 
-    def duplicate(self, *, turn: ImportedTurn, scope: IdentityScope, interaction_id: str) -> None:
+    def duplicate(
+        self,
+        *,
+        turn: ImportedTurn,
+        scope: IdentityScope,
+        participant: ActorIdentity,
+        interaction_id: str,
+    ) -> None:
         """同一轮已被接纳，本次重发不再路由与提交。"""
         self._emit(
             RuntimeEventType.IMPORT_TURN_DUPLICATE,
             turn=turn,
             scope=scope,
+            participant=participant,
             interaction_id=interaction_id,
             status="duplicate",
             reason="interaction_already_accepted",
         )
 
-    def skipped(self, *, turn: ImportedTurn, scope: IdentityScope, interaction_id: str) -> None:
+    def skipped(
+        self,
+        *,
+        turn: ImportedTurn,
+        scope: IdentityScope,
+        participant: ActorIdentity,
+        interaction_id: str,
+    ) -> None:
         """轮次没有用户消息之外的输出，不封口。"""
         self._emit(
             RuntimeEventType.IMPORT_TURN_SKIPPED,
             turn=turn,
             scope=scope,
+            participant=participant,
             interaction_id=interaction_id,
             status="skipped",
             reason="no_output",
@@ -115,6 +135,7 @@ class ImportBusEventEmitter:
         *,
         turn: ImportedTurn,
         scope: IdentityScope,
+        participant: ActorIdentity,
         interaction_id: str,
         reason: str,
         error_class: str | None,
@@ -124,6 +145,7 @@ class ImportBusEventEmitter:
             RuntimeEventType.IMPORT_TURN_DEFERRED,
             turn=turn,
             scope=scope,
+            participant=participant,
             interaction_id=interaction_id,
             status="deferred",
             severity="warning",

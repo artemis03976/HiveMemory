@@ -2,7 +2,8 @@
 
 from fastapi import APIRouter, Depends
 
-from hivememory.server.deps import RequestAccess, get_request_access, get_root_topic_service
+from hivememory.core.access import WorkingActor
+from hivememory.server.deps import get_request_actor, get_root_topic_service
 from hivememory.server.error_handlers import error_responses
 from hivememory.server.models.topic import (
     ActiveTopicListResponse,
@@ -17,13 +18,13 @@ router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503),
 
 @router.get("/topics", response_model=ActiveTopicListResponse)
 async def list_topics(
-    access: RequestAccess = Depends(get_request_access),
+    actor: WorkingActor = Depends(get_request_actor),
     service: RootTopicService = Depends(get_root_topic_service),
 ) -> ActiveTopicListResponse:
     """经 root API 获取目标 Workspace 的活跃话题列表。"""
     snapshots = await service.list_active_topics(
-        target_workspace=access.target_workspace,
-        access=access.access,
+        target_workspace=actor.workspace,
+        actor=actor,
     )
     return ActiveTopicListResponse(
         topics=[ActiveTopicResponse.from_domain(snapshot) for snapshot in snapshots]
@@ -33,14 +34,14 @@ async def list_topics(
 @router.post("/topics/{topic_id}/settle", response_model=TopicSettleResponse)
 async def settle_topic(
     topic_id: str,
-    access: RequestAccess = Depends(get_request_access),
+    actor: WorkingActor = Depends(get_request_actor),
     service: RootTopicService = Depends(get_root_topic_service),
 ) -> TopicSettleResponse:
     """经 root API 手动结算话题。"""
     result = await service.settle_topic(
-        target_workspace=access.target_workspace,
+        target_workspace=actor.workspace,
         topic_id=topic_id,
-        access=access.access,
+        actor=actor,
     )
     return TopicSettleResponse.from_domain(result)
 
@@ -48,13 +49,13 @@ async def settle_topic(
 @router.delete("/topics/{topic_id}", response_model=TopicDeleteResponse)
 async def delete_topic(
     topic_id: str,
-    access: RequestAccess = Depends(get_request_access),
+    actor: WorkingActor = Depends(get_request_actor),
     service: RootTopicService = Depends(get_root_topic_service),
 ) -> TopicDeleteResponse:
     """经 root API 从活跃池驱逐话题，不结算或写入记忆。"""
     result = await service.evict_topic(
-        target_workspace=access.target_workspace,
+        target_workspace=actor.workspace,
         topic_id=topic_id,
-        access=access.access,
+        actor=actor,
     )
     return TopicDeleteResponse.from_domain(result)

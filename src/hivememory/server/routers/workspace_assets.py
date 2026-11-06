@@ -10,9 +10,9 @@ from starlette.datastructures import UploadFile
 from starlette.exceptions import HTTPException
 from starlette.formparsers import MultiPartException
 
+from hivememory.core.access import WorkingActor
 from hivememory.server.deps import (
-    RequestAccess,
-    get_request_access,
+    get_request_actor,
     get_root_workspace_asset_service,
 )
 from hivememory.server.error_handlers import APIError, error_responses
@@ -75,16 +75,16 @@ async def upload_workspace_asset(
     request: Request,
     response: Response,
     idempotency_key: str | None = Header(default=None),
-    request_access: RequestAccess = Depends(get_request_access),
+    actor: WorkingActor = Depends(get_request_actor),
     service: RootWorkspaceAssetService = Depends(get_root_workspace_asset_service),
 ) -> WorkspaceAssetUploadResponse:
     """上传单个附件，创建 WorkspaceAsset 并返回 bound ref 与 RAW 摘要。
 
     首次创建返回 201；同一 ``Idempotency-Key`` 且内容一致的重放返回 200
     和同一逻辑资产的当前快照。上传成功只表示 RAW 已注册，不把附件自动
-    加入当前 Chat run。上传经 root API：请求经统一认证网关取得保留的
-    system actor 访问 context，注册使用的 scope 由授权者组装，调用方不能
-    另行传入，自报的 scope 无法越过授权。
+    加入当前 Chat run。上传经 root API：请求经统一认证网关认证为保留的
+    system actor，注册使用的 scope 由 root API 的授权组装，调用方不能另行
+    传入，自报的 scope 无法越过授权。
     """
     operation_id = idempotency_key.strip() if idempotency_key else ""
     if not operation_id:
@@ -96,12 +96,12 @@ async def upload_workspace_asset(
     try:
         upload = uploads[0]
         receipt = await service.upload_asset(
-            target_workspace=request_access.target_workspace,
+            target_workspace=actor.workspace,
             file_name=upload.filename or "",
             declared_media_type=upload.content_type,
             source=upload,
             client_operation_id=operation_id,
-            access=request_access.access,
+            actor=actor,
         )
     finally:
         # 所有路径（含成功与拒绝）都关闭上传流及框架临时文件。

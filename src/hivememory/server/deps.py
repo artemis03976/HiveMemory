@@ -1,15 +1,12 @@
 """依赖注入 — HiveMemorySystem 单例管理与身份解析唯一入口"""
 
 import logging
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from dataclasses import dataclass
-from uuid import uuid4
 
 from fastapi import Depends, Header
 
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.core.access import CallerPrincipal, RunBinding, WorkspaceAccessContext
+from hivememory.core.access import CallerPrincipal, WorkingActor
 from hivememory.core.constants import DEFAULT_USER_ID, SYSTEM_AGENT_ID
 from hivememory.core.models import ActorIdentity, WorkspaceIdentity
 from hivememory.core.models.workspace import MAIN_WORKSPACE_ID, resolve_default_workspace_identity
@@ -204,7 +201,7 @@ def resolve_request_identity_claims(
 
     身份只取自统一请求头的选择，默认回退与 Workspace 取值规则见
     :func:`_resolve_identity_coordinates`。经认证网关的请求一律使用本函数；声明只作为认证输入，认证通过后经过
-    验证的身份只存在于密封的 context 中，server 不把声明当作已确认
+    验证的身份是认证得到的工作 actor，server 不把声明当作已确认
     的身份继续使用。Agent action（``require_agent=True``）显式给出保留的
     :data:`SYSTEM_AGENT_ID` 时返回 400：它表示"没有具体 Agent"，不能作为
     任务进程的执行 Agent（注册入口仍保留同一检查）。
@@ -229,12 +226,13 @@ def resolve_request_identity_claims(
 # 统一认证网关接入
 #
 # server 是一个登记过的调用来源：以自身 principal 与 ``http`` adapter 对
-# 每个与 workspace 相关的请求经网关取得 context。外部入口（MCP 与 Import
-# Bus）不使用 server 的 principal，而是把请求声明的 principal 与接入凭据交给
-# 同一个网关核对。请求头中的用户身份不做证明——这是本地单用户部署的信任假设。
-# 认证前 server 只持有声明（:class:`RequestIdentityClaims`），声明只作为
-# 认证输入：认证通过后，经过验证的身份只存在于密封的 context 中，server
-# 不把声明当作已确认的身份继续使用，也不把声明交给路由处理函数。
+# 每个与 workspace 相关的请求经网关认证。外部入口（MCP 与 Import Bus）不使用
+# server 的 principal，而是把请求声明的 principal 与接入凭据交给同一个网关
+# 核对。请求头中的用户身份不做证明——这是本地单用户部署的信任假设。认证前
+# server 只持有声明（:class:`RequestIdentityClaims`），声明只作为认证输入：
+# 认证通过后，经过验证的身份是工作 actor，它只是入口调用链内的局部值，调用
+# 返回即不再被引用；server 不把声明当作已确认的身份继续使用，也不把声明交给
+# 路由处理函数。
 # ---------------------------------------------------------------------------
 
 
@@ -272,25 +270,24 @@ def bearer_credential(authorization: str | None) -> str | None:
     return token.strip() or None
 
 
-def _request_run_id() -> str:
-    """为请求级 context 生成一次性的运行标识（server 为本次请求生成）。"""
-    return f"request_{uuid4().hex}"
-
-
-async def authenticate_request_access(
+async def authenticate_request_actor(
     claims: RequestIdentityClaims,
     *,
     gateway: ActorAuthenticationGateway,
     principal_id: str,
     adapter: str,
     credential: str | None,
-) -> WorkspaceAccessContext:
-    """以给定 principal、adapter 与凭据经统一认证网关取得请求级访问 context。
+) -> WorkingActor:
+    """以给定 principal、adapter 与凭据经统一认证网关认证，返回请求的工作 actor。
 
     ``claims`` 是 :func:`resolve_request_identity_claims` 解析的请求身份
-    声明，只在这里作为认证输入使用；运行绑定为本次请求的标识。网关认证
-    失败（未登记 principal、adapter 不匹配、凭据无效、未获准入）以
-    ``AdmissionDeniedError`` 拒绝，由访问错误映射转为 HTTP 状态码。
+    声明，只在这里作为认证输入使用，声明不越过认证边界。principal、adapter
+    与凭据由调用方给出：管理路由经 :func:`get_request_actor` 传入 server 自身
+    的 principal、``http`` 与 ``None``，以 (user, ``system``) 声明调用；导入
+    入口与 MCP 入口传入请求声明的 principal、各自的 adapter（``import``、
+    ``mcp``）与请求中的凭据，以 (user, 具体 Agent) 声明调用，导入的 Agent
+    取自请求体。网关认证失败（未登记 principal、adapter 不匹配、凭据无效、
+    未获准入）以 ``AdmissionDeniedError`` 拒绝，由访问错误映射转为 HTTP 状态码。
     """
     return await gateway.authenticate(
         adapter=adapter,
@@ -298,73 +295,28 @@ async def authenticate_request_access(
         credential=credential,
         actor=claims.actor,
         workspace=claims.workspace,
-        binding=RunBinding.for_request(_request_run_id()),
     )
 
 
-@dataclass(frozen=True)
-class RequestAccess:
-    """一次请求的请求级访问凭据与目标 workspace。
-
-    声明只作为认证输入：路由处理函数只取得 ``access`` 与
-    ``target_workspace``（这次操作的参数，当前取请求进入的 workspace），
-    不接触声明、认证后的身份或任何预先组装的 ``IdentityScope``。
-    """
-
-    access: WorkspaceAccessContext
-    target_workspace: WorkspaceIdentity
-
-
-@asynccontextmanager
-async def request_access_for_claims(
-    claims: RequestIdentityClaims,
-    *,
-    gateway: ActorAuthenticationGateway,
-    principal_id: str,
-    adapter: str,
-    credential: str | None,
-) -> AsyncIterator[RequestAccess]:
-    """以给定声明取得请求级访问凭据；退出时使 context 失效。
-
-    取得 context、以 :class:`RequestAccess` 交出凭据与目标 workspace，声明
-    不越过认证边界。principal、adapter 与凭据由调用方给出：管理路由经
-    :func:`get_request_access` 传入 server 自身的 principal、``http`` 与
-    ``None``，以 (user, ``system``) 声明调用；导入入口与 MCP 入口传入请求
-    声明的 principal、各自的 adapter（``import``、``mcp``）与请求中的凭据，
-    以 (user, 具体 Agent) 声明调用，导入的 Agent 取自请求体。
-    """
-    access = await authenticate_request_access(
-        claims,
-        gateway=gateway,
-        principal_id=principal_id,
-        adapter=adapter,
-        credential=credential,
-    )
-    try:
-        yield RequestAccess(access=access, target_workspace=claims.workspace)
-    finally:
-        gateway.revoke_context(access)
-
-
-async def get_request_access(
+async def get_request_actor(
     selection: RequestIdentitySelection = Depends(get_identity_selection),
     gateway: ActorAuthenticationGateway = Depends(get_access_gateway),
     principal_id: str = Depends(get_server_principal_id),
-) -> AsyncIterator[RequestAccess]:
-    """FastAPI yield 依赖 — 管理员请求的请求级访问凭据与目标 workspace。
+) -> WorkingActor:
+    """FastAPI 依赖 — 管理请求的工作 actor，一次请求认证一次。
 
-    以 (user, ``system``) 声明经网关认证取得 context，一次请求一个；
-    请求结束（含失败）时失效。全部管理路由与取消入口共用这一依赖。
+    以 server 自身的 principal 与 (user, ``system``) 声明经网关认证。全部管理
+    路由与取消入口共用这一依赖：管理路由把工作 actor 与目标交给 root API，
+    目标取它驻留的 Workspace；授权由 root API 在入口执行。
     """
     claims = resolve_request_identity_claims(selection)
-    async with request_access_for_claims(
+    return await authenticate_request_actor(
         claims,
         gateway=gateway,
         principal_id=principal_id,
         adapter=HTTP_ADAPTER,
         credential=None,
-    ) as request_access:
-        yield request_access
+    )
 
 
 def init_websocket_log_broadcasting(

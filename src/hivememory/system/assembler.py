@@ -30,12 +30,14 @@ from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.config.access import load_access_registration
 from hivememory.config.app import HiveMemoryConfig, provider_credentials_from_env
-from hivememory.core.access import WorkspaceOperation
+from hivememory.core.access import CallerPrincipal, WorkspaceOperation
 from hivememory.gateway import GatewaySystem
 from hivememory.i18n import set_default_language
 from hivememory.infrastructure.llm import BaseLLMService, LiteLLMService, LLMRequestParams
 from hivememory.patchouli.system import PatchouliSystem
 from hivememory.system.access import (
+    LOCAL_ADAPTER,
+    SYSTEM_PRINCIPAL_ID,
     SystemActorAccessRegistry,
     SystemPrincipalAuthenticator,
 )
@@ -55,6 +57,7 @@ from hivememory.workspace.capability.backing import BusCanonicalReadBackend
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
 from hivememory.workspace.capability.root.agent_profiles import RootAgentProfileService
 from hivememory.workspace.capability.root.assets import RootWorkspaceAssetService
+from hivememory.workspace.capability.root.interaction import RootInteractionService
 from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.capability.root.memory_tasks import RootMemoryTaskService
 from hivememory.workspace.capability.root.session import RootSessionService
@@ -315,10 +318,9 @@ class SystemAssembler:
         拒绝），Workspace Actor 访问登记从 ``configs/workspace_actors.yaml`` 装载
         转入 Workspace 注册表，operation 枚举值在装载期校验（未知值显式
         失败，不静默丢弃）。缺省空登记即 fail closed——网关拒绝一切认证。
-        认证与操作授权分属两个类：认证一侧签发与撤销
-        密封的 context，操作授权者读取其授予内容，两者互不依赖、都只读
-        访问注册表；组合根把操作授权者注入各授权点，运行持有者只经认证
-        网关接触认证一侧。
+        认证与操作授权分属两个类：认证一侧产出工作 actor，操作授权者读取
+        它逐次授权，两者互不依赖、都只读访问注册表；组合根把操作授权者注入
+        各授权点，运行持有者只经认证网关接触认证一侧。
         """
         registration = load_access_registration()
 
@@ -338,13 +340,13 @@ class SystemAssembler:
 
         system_registry = SystemActorAccessRegistry.from_config(registration.principals)
         workspace_registry = WorkspaceActorAccessRegistry(workspace_records)
-        # 第 2 阶段的准入、签发与撤销归认证一侧；第 3 阶段归操作授权者
-        # （无状态，读取 context 密封的授予内容）。两者互不依赖，都只读
-        # 同一份 Workspace 访问登记。
+        # 第 2 阶段的准入归认证一侧，产出工作 actor；第 3 阶段归操作授权者
+        # （无状态，读取工作 actor）。两者互不依赖，都只读同一份 Workspace
+        # 访问登记。
         authenticator = WorkspaceAuthenticator(workspace_registry)
         operation_authorizer = WorkspaceOperationAuthorizer(workspace_registry)
         # Principal authentication 归 System（接入登记），经端口注入认证
-        # 网关；Workspace 准入与签发归认证一侧。
+        # 网关；Workspace 准入归认证一侧。
         access_gateway = ActorAuthenticationGateway(
             principals=SystemPrincipalAuthenticator(system_registry),
             authenticator=authenticator,
@@ -359,13 +361,13 @@ class SystemAssembler:
 
     @staticmethod
     def _build_process_facilities(access_control: _AccessControlBundle) -> _ProcessFacilitiesBundle:
-        """进程线程管理经认证网关派生与撤销线程 context，经操作授权者读取运行绑定与操作快照。"""
+        """进程线程管理经认证网关为子线程的被调用方做准入，经操作授权者读取操作快照。"""
         process_table = ProcessTable()
         return _ProcessFacilitiesBundle(
             process_table=process_table,
             process_threads=ProcessThreads(
                 process_table,
-                lifecycle=access_control.access_gateway,
+                admission=access_control.access_gateway,
                 authorizer=access_control.operation_authorizer,
             ),
         )
@@ -488,29 +490,40 @@ class SystemAssembler:
             cpu=subsystems.alice.cpu_port,
             sessions=runtime.sessions,
             allocator=allocator,
-            # 阶段授权在执行器内、每次阶段调用前执行。
+            # 系统阶段的 root 授权与 prepare 检索的 actor 授权在执行器内、
+            # 每次阶段调用前执行。
             operation_authorizer=access_control.operation_authorizer,
             threads=processes.process_threads,
             gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
             gateway_session_turn_limit=self._config.gateway.context_preparation.session_turn_limit,
         )
+        # 系统自身的调用来源：注册入口与 Import Bus 服务都以它认证系统的 root
+        # 工作 actor，执行系统阶段、落位与交互提交。
+        system_principal = CallerPrincipal(SYSTEM_PRINCIPAL_ID)
         process = TaskProcessService(
             runner,
             process_table=processes.process_table,
             sessions=runtime.sessions,
             shutdown_wait_seconds=self._config.workspace.process.shutdown_wait_seconds,
-            # 注册入口是进程 context 的运行持有者：
-            # 认证经网关，进程控制授权经操作授权者。
+            # 注册入口经网关认证执行者，并以系统自身的 principal 认证系统的
+            # root 工作 actor；取消的 root 授权经操作授权者。
             access_gateway=access_control.access_gateway,
             operation_authorizer=access_control.operation_authorizer,
+            system_principal=system_principal,
+            system_adapter=LOCAL_ADAPTER,
             # chat.run.* 由任务进程的领域 emitter 投影，来源标签在 emitter 内统一。
             event_publisher=runtime.event_publisher,
         )
-        # Import Bus 经公开路由查重与提交，不持有 Patchouli 的提交队列；
-        # 导入授权由同一操作授权者执行，Gateway 时限与最近轮数沿用 Gateway 配置。
+        # Import Bus 经公开路由查重、经 root API 的“提交交互”提交，不持有
+        # Patchouli 的提交队列；系统的 root 工作 actor 经同一网关认证、同一操作
+        # 授权者授权，Gateway 时限与最近轮数沿用 Gateway 配置。
         import_bus = ImportBusService(
             ingestor=ImportBusIngestor(
                 runtime.global_bus,
+                interactions=RootInteractionService(
+                    runtime.global_bus,
+                    operation_authorizer=access_control.operation_authorizer,
+                ),
                 gateway_request_timeout_ms=(
                     self._config.gateway.workflow.default_request_timeout_ms
                 ),
@@ -523,7 +536,10 @@ class SystemAssembler:
                     component="import_bus",
                 ),
             ),
+            access_gateway=access_control.access_gateway,
             operation_authorizer=access_control.operation_authorizer,
+            system_principal=system_principal,
+            system_adapter=LOCAL_ADAPTER,
         )
         # root API 独立于 actor 读取视图，只供保留的 system actor 管理资源。
         # 管理读取直接走资源所有者路由；actor 能力服务只经操作入口，不经门面。

@@ -1,11 +1,11 @@
-"""MCP 入口：把外部 harness 的工具调用归一为操作请求，经操作入口以请求级 context 提交。
+"""MCP 入口：把外部 harness 的工具调用归一为操作请求，经操作入口的请求级提交进入 actor API。
 
 提供检索、读取、写入与更新四个工具。每次工具调用以请求头中的声明（principal、
-接入凭据、用户与具体 Agent）经统一认证网关签发一份请求级访问 context，
-经门面取得的操作入口的请求级提交进入 actor API，调用结束（含失败）时撤销；
-不建进程，不派生线程。写入与更新先经门面取得的 Import Bus 服务为这一轮落位，
-再以落点话题提交，两步共用同一份 context。工具参数由模型生成，永远不作为
-身份来源；连接器补上的轮次信息只用于落位。本入口也不组装 ``IdentityScope``。
+接入凭据、用户与具体 Agent）经统一认证网关认证一次，得到的工作 actor 只是
+本次调用内的局部值，经门面取得的操作入口的请求级提交进入 actor API；不建
+进程，不派生线程。写入与更新先经门面取得的 Import Bus 服务为这一轮落位，再以
+落点话题提交，两步共用同一个工作 actor。工具参数由模型生成，永远不作为身份
+来源；连接器补上的轮次信息只用于落位。本入口也不组装 ``IdentityScope``。
 """
 
 from __future__ import annotations
@@ -13,7 +13,6 @@ from __future__ import annotations
 import logging
 import time
 from collections.abc import Callable, Mapping
-from contextlib import AbstractAsyncContextManager
 from typing import TYPE_CHECKING, Annotated
 
 from mcp.server.mcpserver import Context, MCPServer
@@ -21,6 +20,7 @@ from mcp.types import CallToolResult, TextContent, ToolAnnotations
 from pydantic import Field
 
 from hivememory import __version__
+from hivememory.core.access import WorkingActor
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import MemoryAtom, PendingAtom, ReferenceResolution, WriteFocus
 from hivememory.engines.memory_compiler import (
@@ -31,10 +31,9 @@ from hivememory.engines.memory_compiler import (
     readable_source,
 )
 from hivememory.server.deps import (
-    RequestAccess,
     RequestIdentitySelection,
+    authenticate_request_actor,
     bearer_credential,
-    request_access_for_claims,
     resolve_principal_claim,
     resolve_request_identity_claims,
 )
@@ -257,13 +256,11 @@ def _new_server() -> MCPServer:
         root.removeHandler(placeholder)
 
 
-def _request_access(
-    system: HiveMemorySystem, headers: Mapping[str, str]
-) -> AbstractAsyncContextManager[RequestAccess]:
-    """以请求头的声明经统一认证网关签发请求级 context，退出时撤销。
+async def _authenticate(system: HiveMemorySystem, headers: Mapping[str, str]) -> WorkingActor:
+    """以请求头的声明经统一认证网关认证一次，返回本次调用的工作 actor。
 
     principal 与凭据由网关核对，用户、Workspace 与 Agent 声明经 server 唯一的
-    声明解析与默认回退；声明不合法时在认证前拒绝。context 不离开本次调用。
+    声明解析与默认回退；声明不合法时在认证前拒绝。工作 actor 不离开本次调用。
     """
     principal_id = resolve_principal_claim(headers.get("x-principal-id"))
     claims = resolve_request_identity_claims(
@@ -273,7 +270,7 @@ def _request_access(
         require_agent=True,
         agent_id=headers.get("x-agent-id"),
     )
-    return request_access_for_claims(
+    return await authenticate_request_actor(
         claims,
         gateway=system.access_gateway,
         principal_id=principal_id,
@@ -285,9 +282,9 @@ def _request_access(
 async def _submit[R](
     system: HiveMemorySystem, headers: Mapping[str, str], request: OperationRequest[R]
 ) -> R:
-    """检索与读取：经请求级提交分派后撤销 context。"""
-    async with _request_access(system, headers) as request_access:
-        return await system.operation_entry.execute_request(request, access=request_access.access)
+    """检索与读取：认证后经请求级提交分派。"""
+    actor = await _authenticate(system, headers)
+    return await system.operation_entry.execute_request(request, actor=actor)
 
 
 async def _submit_intent(
@@ -296,21 +293,22 @@ async def _submit_intent(
     turn: InFlightTurn | None,
     request: OperationRequest[PendingAtom],
 ) -> PendingAtom:
-    """写入与更新：先为这一轮落位，再以落点话题经请求级提交；两步共用一份 context。
+    """写入与更新：先为这一轮落位，再以落点话题经请求级提交；两步共用同一个工作 actor。
 
     缺少轮次信息时在认证前拒绝，不落位也不登记意图：写入必须落在这一轮最终
-    所在的话题，不退化为不绑定话题。落位按导入授权，只校验准入与目标；提交
-    由 actor API 按操作白名单授权。目标 Workspace 取声明解析的结果，与导入相同。
+    所在的话题，不退化为不绑定话题。落位由系统执行，与 Agent 的许可无关；
+    提交由 actor API 按工作 actor 的操作白名单授权。目标 Workspace 取工作
+    actor 驻留的 Workspace，与导入相同。
     """
     if turn is None:
         raise APIError("request.turn_required")
-    async with _request_access(system, headers) as request_access:
-        topic_id = await system.import_bus_service.place_turn(
-            turn, access=request_access.access, target_workspace=request_access.target_workspace
-        )
-        return await system.operation_entry.execute_request(
-            request, access=request_access.access, dispatch_topic_id=topic_id
-        )
+    actor = await _authenticate(system, headers)
+    topic_id = await system.import_bus_service.place_turn(
+        turn, actor=actor, target_workspace=actor.workspace
+    )
+    return await system.operation_entry.execute_request(
+        request, actor=actor, dispatch_topic_id=topic_id
+    )
 
 
 def _search_text(

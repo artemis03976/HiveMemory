@@ -11,14 +11,13 @@ from fastapi import APIRouter, Depends
 from sse_starlette.sse import EventSourceResponse
 from starlette.types import Receive, Scope, Send
 
-from hivememory.core.access import CallerPrincipal
+from hivememory.core.access import CallerPrincipal, WorkingActor
 from hivememory.server.deps import (
     HTTP_ADAPTER,
-    RequestAccess,
     RequestIdentitySelection,
     get_identity_selection,
     get_process_service,
-    get_request_access,
+    get_request_actor,
     get_server_principal_id,
     resolve_request_identity_claims,
 )
@@ -68,9 +67,9 @@ async def chat(
     Chat 是 Agent action：body 必须携带具体 ``agent_id``；用户导向基础选择
     （user_id + workspace_id）只来自统一请求头，在此解析为身份声明（认证
     前不组装 ``IdentityScope``，声明只作为注册入口的认证输入）。注册入口
-    以 server 自身 principal 完成两阶段认证并立即创建、登记任务进程（签发
-    即绑定，运行类型为本进程），返回不透明的进程句柄；注册失败直接抛出、
-    返回 HTTP 403 且不创建进程，注册成功后才开始流式响应。
+    以 server 自身 principal 认证执行者、以系统自身的 principal 认证系统的
+    root 工作 actor，并立即创建、登记任务进程，返回不透明的进程句柄；注册
+    失败直接抛出、返回 HTTP 403 且不创建进程，注册成功后才开始流式响应。
 
     进程在自己的 task 中运行，路由只订阅它的流式交付。客户端断连时
     sse_starlette 取消响应，交付生成器随之以 ``client_disconnected`` 退订并
@@ -137,19 +136,18 @@ async def chat(
 @router.post("/chat/stop")
 async def stop_chat(
     request: StopChatRequest,
-    access: RequestAccess = Depends(get_request_access),
+    actor: WorkingActor = Depends(get_request_actor),
     service: TaskProcessService = Depends(get_process_service),
 ):
     """Idempotently cancel an active streaming generation.
 
-    取消不是 Agent action：基础身份选择只来自统一请求头。取消入口只服务
-    于以请求级 context 发起的控制请求：请求先经统一认证网关取得请求级
-    (user, ``system``) context——只有已获准入的用户能发起取消；取消本身
-    由注册入口经操作授权者的进程控制授权比对请求方与进程记录的驻留坐标
-    （不新增 operation），不可控与不存在统一按 ``not_found`` 返回，context
-    在请求结束时失效。
+    取消不是 Agent action：基础身份选择只来自统一请求头。请求先经统一认证
+    网关认证为 (user, ``system``) 的工作 actor——只有已获准入的用户能发起
+    取消；取消是用户下达的指令，属于 root，由注册入口以该工作 actor 对进程的
+    Workspace 执行 root 授权（不新增 operation），不可控与不存在统一按
+    ``not_found`` 返回。
     """
-    result = service.cancel_process(request.process_id, access=access.access)
+    result = service.cancel_process(request.process_id, actor=actor)
     return {
         "process_id": result.process_id,
         "cancelled": result.cancelled,

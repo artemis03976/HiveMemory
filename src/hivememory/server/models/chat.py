@@ -49,9 +49,9 @@ class StopChatRequest(BaseModel):
     """Stop 请求体。
 
     取消不是 Agent action：不携带 agent_id。基础身份选择同样只来自统一
-    请求头，认证后得到请求级访问 context；进程控制授权以它比对进程记录
-    持有的访问 context 的驻留坐标，不匹配与进程不存在一样返回
-    ``not_found``。找到进程时，取消事件使用进程注册时绑定的观测标签。
+    请求头，认证后得到 (user, ``system``) 的工作 actor；取消以它对进程的
+    Workspace 执行 root 授权，拒绝与进程不存在一样返回 ``not_found``。找到
+    进程时，取消事件使用进程注册时绑定的观测标签。
     """
 
     process_id: str = Field(..., description="要停止的任务进程 ID")

@@ -1,81 +1,118 @@
-"""Import Bus 应用服务：把一次导入或落位请求翻译为导入授权与一次编排调用。
+"""Import Bus 应用服务：把一次导入或落位请求翻译为 root 授权与一次编排调用。
 
-server 与 MCP 入口以 (user, 具体 Agent) 声明经统一认证网关取得请求级
-context；本服务以导入授权把它兑现为本次请求内有效的 ``IdentityScope`` 与
-认证通过的 principal 标识，再交给编排器。导入授权只校验准入与目标、不检查
-actor 操作白名单：导入提交的是已经发生的交互，落位只为这一轮选定话题，两者
-都不调用 actor 操作；落位之后的写入与更新仍由 actor API 逐次授权。
+server 与 MCP 入口以请求声明的 principal、凭据与 (user, 具体 Agent) 经统一
+认证网关认证，得到请求的工作 actor：它证明请求来自哪个调用来源、参与者是
+哪个 Agent。导入与落位都是系统级操作，Agent 不能拥有：本服务再以系统自身
+的 principal 认证同一用户在参与者驻留 Workspace 的 ``system``，以 root 授权
+得到本次请求内有效的 ``IdentityScope``，连同参与的 Agent 与 principal 标识
+交给编排器。system 驻留在参与者的 Workspace，root 授权因此同时确认目标就是
+参与者驻留的 Workspace。actor 操作白名单不参与，空白名单的 Agent 也能导入；
+落位之后的写入与更新仍由 actor API 按请求的工作 actor 逐次授权。
 """
 
 from __future__ import annotations
 
 from typing import Any
 
-from hivememory.core.access import WorkspaceAccessContext
-from hivememory.core.models import WorkspaceIdentity
+from hivememory.core.access import CallerPrincipal, WorkingActor
+from hivememory.core.constants import SYSTEM_AGENT_ID
+from hivememory.core.models import ActorIdentity, IdentityScope, WorkspaceIdentity
 from hivememory.system.services.import_bus import (
     ImportBusIngestor,
     ImportedTurn,
     ImportTurnResult,
     InFlightTurn,
 )
+from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 
 
 class ImportBusService:
-    """外部 harness 交互导入与写入时落位的入口服务，不持有跨请求的业务状态。"""
+    """外部 harness 交互导入与写入时落位的入口服务，不持有跨请求的业务状态。
+
+    ``system_principal`` 与 ``system_adapter`` 是组合根注入的系统自身调用来源，
+    与任务进程的注册入口相同。
+    """
 
     def __init__(
         self,
         *,
         ingestor: ImportBusIngestor,
+        access_gateway: ActorAuthenticationGateway,
         operation_authorizer: WorkspaceOperationAuthorizer,
+        system_principal: CallerPrincipal,
+        system_adapter: str,
     ) -> None:
         self._ingestor = ingestor
+        self._access_gateway = access_gateway
         self._authorizer = operation_authorizer
+        self._system_principal = system_principal
+        self._system_adapter = system_adapter
 
     async def import_turn(
         self,
         turn: ImportedTurn,
         *,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
         target_workspace: WorkspaceIdentity,
     ) -> ImportTurnResult:
         """导入一轮完整记录，返回接纳、重复或跳过。
 
-        ``access`` 是本次请求的请求级 context，``target_workspace`` 是这次
-        导入的目标；授权失败按访问错误原样传播。
+        ``actor`` 是入口为本次请求认证得到的工作 actor，``target_workspace``
+        是这次导入的目标；认证与授权失败按访问错误原样传播。
         """
-        authorization = self._authorizer.authorize_import(access, target_workspace)
+        system_actor, scope = await self._authorize_system(actor, target_workspace)
         return await self._ingestor.ingest(
             turn,
-            identity_scope=authorization.identity_scope,
-            principal_id=authorization.principal_id,
+            system_actor=system_actor,
+            identity_scope=scope,
+            participant=actor.actor,
+            principal_id=actor.principal.principal_id,
         )
 
     async def place_turn(
         self,
         turn: InFlightTurn,
         *,
-        access: WorkspaceAccessContext,
+        actor: WorkingActor,
         target_workspace: WorkspaceIdentity,
     ) -> str:
         """为仍在进行的一轮落位，返回落点话题的真实 id。
 
         写入与更新在交互进行中提交，以落点话题派发；同一轮再次落位返回同一
-        落点，这一轮结束导入时沿用它。``access`` 与 ``target_workspace`` 的
-        含义与导入相同；授权失败按访问错误原样传播。
+        落点，这一轮结束导入时沿用它。``actor`` 与 ``target_workspace`` 的
+        含义与导入相同；认证与授权失败按访问错误原样传播。
         """
-        authorization = self._authorizer.authorize_import(access, target_workspace)
+        _system_actor, scope = await self._authorize_system(actor, target_workspace)
         return await self._ingestor.place(
             turn,
-            identity_scope=authorization.identity_scope,
-            principal_id=authorization.principal_id,
+            identity_scope=scope,
+            participant=actor.actor,
+            principal_id=actor.principal.principal_id,
         )
 
     async def shutdown(self) -> dict[str, Any]:
         """停止接收并等待在途导入结束，返回等待的结果。"""
         return await self._ingestor.shutdown()
+
+    async def _authorize_system(
+        self, actor: WorkingActor, target_workspace: WorkspaceIdentity
+    ) -> tuple[WorkingActor, IdentityScope]:
+        """以系统自身的 principal 认证参与者驻留 Workspace 的 ``system``，再对目标执行 root 授权。
+
+        目标不是参与者驻留的 Workspace 时，root 授权以
+        ``target_workspace_not_resident`` 拒绝。系统自身的 principal 未登记时以
+        ``unknown_principal`` 拒绝；认证网关关闭后同样拒绝，导入入口据此返回
+        可重试的 503。
+        """
+        system_actor = await self._access_gateway.authenticate(
+            adapter=self._system_adapter,
+            principal=self._system_principal,
+            credential=None,
+            actor=ActorIdentity(user_id=actor.actor.user_id, agent_id=SYSTEM_AGENT_ID),
+            workspace=actor.workspace,
+        )
+        return system_actor, self._authorizer.authorize_root(system_actor, target_workspace)
 
 
 __all__ = ["ImportBusService"]

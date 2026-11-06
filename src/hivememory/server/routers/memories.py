@@ -4,11 +4,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query
 
+from hivememory.core.access import WorkingActor
 from hivememory.core.errors import (
     ResourceNotFoundError,
 )
 from hivememory.core.models import MemoryType
-from hivememory.server.deps import RequestAccess, get_request_access, get_root_memory_service
+from hivememory.server.deps import get_request_actor, get_root_memory_service
 from hivememory.server.error_handlers import APIError, error_responses
 from hivememory.server.models.memory import (
     MemoryCreateRequest,
@@ -27,18 +28,18 @@ router = APIRouter(responses=error_responses(400, 403, 404, 409, 422, 500, 503),
 async def create_memory(
     body: MemoryCreateRequest,
     service: RootMemoryService = Depends(get_root_memory_service),
-    request_access: RequestAccess = Depends(get_request_access),
+    actor: WorkingActor = Depends(get_request_actor),
 ):
     """创建新的记忆（管理用例，actor 为保留 system）"""
     atom = await service.create_memory(
-        target_workspace=request_access.target_workspace,
+        target_workspace=actor.workspace,
         title=body.title,
         summary=body.summary,
         content=body.content,
         memory_type=MemoryType(body.memory_type),
         tags=body.tags,
         alias=body.alias,
-        access=request_access.access,
+        actor=actor,
     )
     return MemoryResponse.from_atom(atom)
 
@@ -50,7 +51,7 @@ async def list_memories(
     limit: int = Query(default=20, le=100, description="每页最大返回数量"),
     cursor: UUID | None = Query(default=None, description="上一页返回的 next_cursor"),
     service: RootMemoryService = Depends(get_root_memory_service),
-    request_access: RequestAccess = Depends(get_request_access),
+    actor: WorkingActor = Depends(get_request_actor),
 ):
     """列出一页记忆，或按 query 语义检索（owner-management 语义，不做 Agent 可见性过滤）。
 
@@ -58,12 +59,12 @@ async def list_memories(
     库内记忆总数；有 query 时按相关度返回，不翻页。
     """
     page = await service.list_memories(
-        target_workspace=request_access.target_workspace,
+        target_workspace=actor.workspace,
         query=query,
         memory_type=memory_type,
         limit=limit,
         cursor=str(cursor) if cursor is not None else None,
-        access=request_access.access,
+        actor=actor,
     )
     return MemoryListResponse(
         memories=[MemoryResponse.from_atom(a) for a in page.memories],
@@ -76,7 +77,7 @@ async def list_memories(
 async def get_memory(
     memory_id: str,
     service: RootMemoryService = Depends(get_root_memory_service),
-    request_access: RequestAccess = Depends(get_request_access),
+    actor: WorkingActor = Depends(get_request_actor),
 ):
     """获取单条记忆详情"""
     try:
@@ -86,8 +87,8 @@ async def get_memory(
 
     atom = await service.get_memory(
         uid,
-        target_workspace=request_access.target_workspace,
-        access=request_access.access,
+        target_workspace=actor.workspace,
+        actor=actor,
     )
     return MemoryResponse.from_atom(atom)
 
@@ -97,7 +98,7 @@ async def update_memory(
     memory_id: str,
     body: MemoryUpdateRequest,
     service: RootMemoryService = Depends(get_root_memory_service),
-    request_access: RequestAccess = Depends(get_request_access),
+    actor: WorkingActor = Depends(get_request_actor),
 ):
     """更新记忆的可编辑字段"""
     try:
@@ -107,14 +108,14 @@ async def update_memory(
 
     atom = await service.update_memory(
         uid,
-        target_workspace=request_access.target_workspace,
+        target_workspace=actor.workspace,
         title=body.title,
         summary=body.summary,
         content=body.content,
         alias=body.alias,
         tags=body.tags,
         agent_config=body.agent_config,
-        access=request_access.access,
+        actor=actor,
     )
     return MemoryResponse.from_atom(atom)
 
@@ -124,7 +125,7 @@ async def record_memory_feedback(
     memory_id: str,
     body: MemoryFeedbackRequest,
     service: RootMemoryService = Depends(get_root_memory_service),
-    request_access: RequestAccess = Depends(get_request_access),
+    actor: WorkingActor = Depends(get_request_actor),
 ):
     """记录用户对某条记忆的显式反馈。"""
     try:
@@ -134,10 +135,10 @@ async def record_memory_feedback(
 
     result = await service.record_feedback(
         uid,
-        target_workspace=request_access.target_workspace,
+        target_workspace=actor.workspace,
         positive=body.positive,
         source=body.source,
-        access=request_access.access,
+        actor=actor,
     )
 
     return MemoryFeedbackResponse(
@@ -160,7 +161,7 @@ async def record_memory_feedback(
 async def delete_memory(
     memory_id: str,
     service: RootMemoryService = Depends(get_root_memory_service),
-    request_access: RequestAccess = Depends(get_request_access),
+    actor: WorkingActor = Depends(get_request_actor),
 ):
     """删除记忆"""
     try:
@@ -170,8 +171,8 @@ async def delete_memory(
 
     success = await service.delete_memory(
         uid,
-        target_workspace=request_access.target_workspace,
-        access=request_access.access,
+        target_workspace=actor.workspace,
+        actor=actor,
     )
     if not success:
         raise ResourceNotFoundError()

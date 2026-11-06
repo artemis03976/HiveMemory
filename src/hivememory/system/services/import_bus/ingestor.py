@@ -16,11 +16,13 @@ Import Bus 只向记忆网络输入，不检索记忆、不返回记忆上下文
 在此预建；落点按 interaction_id 登记，同一轮再次落位直接返回，回流时以落点
 话题提交、不再路由。落位只读取候选话题，不读取记忆。
 
-传入的 ``IdentityScope`` 只在这一次导入的调用链内经公共路由到达 Gateway
-与 Patchouli，不写入记录、事件或后台任务；提交的归属取目标 Workspace，
-发起者取认证通过的 (user, Agent)。编排器不持有提交队列，也不登记维护
-任务；关闭时只等待在途导入（含其等待应用的时间），队列由 Patchouli
-自己排空。
+落位、路由与提交都是系统级操作：传入的 ``IdentityScope`` 是 Import Bus 服务
+以系统的 root 工作 actor 授权得到的 scope，只在这一次导入的调用链内经公共
+路由到达 Gateway 与 Patchouli，不写入记录、事件或后台任务；提交经 root API
+的“提交交互”进行。交互中的 Agent 与认证通过的 principal 标识作为数据显式
+传入：外部会话键、交互标识与事件中的 Agent 取自它们，提交的发起者是参与者。
+编排器不持有提交队列，也不登记维护任务；关闭时只等待在途导入（含其等待
+应用的时间），队列由 Patchouli 自己排空。
 """
 
 from __future__ import annotations
@@ -34,7 +36,8 @@ from typing import Any
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RuntimeEventSink
 from hivememory.components.serial_gate import KeyedSerialGate
-from hivememory.core.models import IdentityScope
+from hivememory.core.access import WorkingActor
+from hivememory.core.models import ActorIdentity, IdentityScope
 from hivememory.core.protocol.gateway import (
     GatewayDecision,
     GatewayIngressMode,
@@ -60,6 +63,7 @@ from hivememory.system.services.import_bus.models import (
     InFlightTurn,
     derive_import_interaction_id,
 )
+from hivememory.workspace.capability.root.interaction import RootInteractionService
 
 logger = logging.getLogger(__name__)
 
@@ -76,19 +80,22 @@ class ImportBusIngestor:
     可能得到不同的提交而被队列判为冲突。只有应用失败的轮次重新路由后再提交。
 
     写入时的落位与导入共用同一串行门与在途计数：同一外部会话的落位与回流
-    按到达顺序处理，关闭时同样等待在途的落位。
+    按到达顺序处理，关闭时同样等待在途的落位。``interactions`` 是组合根注入的
+    root 交互提交 API，提交由它以 root 授权进行。
     """
 
     def __init__(
         self,
         bus: GlobalSystemBus,
         *,
+        interactions: RootInteractionService,
         gateway_request_timeout_ms: int,
         gateway_session_turn_limit: int,
         apply_wait_seconds: float,
         runtime_events: RuntimeEventSink | None = None,
     ) -> None:
         self._bus = bus
+        self._interactions = interactions
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
         self._gateway_session_turn_limit = gateway_session_turn_limit
         self._apply_wait_seconds = apply_wait_seconds
@@ -108,25 +115,37 @@ class ImportBusIngestor:
         self,
         turn: ImportedTurn,
         *,
+        system_actor: WorkingActor,
         identity_scope: IdentityScope,
+        participant: ActorIdentity,
         principal_id: str,
     ) -> ImportTurnResult:
         """导入一轮完整记录，应用完成后返回接纳；已应用的返回重复，没有输出的跳过。
 
-        ``identity_scope`` 与 ``principal_id`` 来自导入授权。Gateway 整体抛出的
-        可恢复异常、提交队列拥塞、等待应用超时与关闭中以
+        ``system_actor`` 是系统的 root 工作 actor，``identity_scope`` 是以它
+        root 授权得到的 scope；提交经 root API 以 ``system_actor`` 再授权一次。
+        ``participant`` 与 ``principal_id`` 是请求认证通过的 Agent 与调用来源。
+        Gateway 整体抛出的可恢复异常、提交队列拥塞、等待应用超时与关闭中以
         ``ImportBusUnavailableError`` 交回，应用失败以 ``ImportBusApplyFailedError``
         交回，都可用同一轮次重发；契约错误、程序错误与取消原样传播。
         """
-        interaction_id = self._interaction_id(turn, identity_scope, principal_id)
-        async with self._serialized(turn, identity_scope):
-            return await self._ingest_serialized(turn, identity_scope, interaction_id, principal_id)
+        interaction_id = self._interaction_id(turn, participant, principal_id)
+        async with self._serialized(turn, participant):
+            return await self._ingest_serialized(
+                turn,
+                system_actor=system_actor,
+                scope=identity_scope,
+                participant=participant,
+                principal_id=principal_id,
+                interaction_id=interaction_id,
+            )
 
     async def place(
         self,
         turn: InFlightTurn,
         *,
         identity_scope: IdentityScope,
+        participant: ActorIdentity,
         principal_id: str,
     ) -> str:
         """为仍在进行的一轮落位，返回落点话题的真实 id；同一轮再次落位返回同一落点。
@@ -139,9 +158,11 @@ class ImportBusIngestor:
         Gateway 整体抛出的可恢复异常与关闭中以 ``ImportBusUnavailableError``
         交回；写入正等待这个结果，失败直接交给调用方，不记为导入推迟。prepare
         失败时由 Patchouli 清理它预建的空话题，异常原样传播，不登记落点。
+        ``identity_scope`` 是系统的 root scope，落位不检索、不读取记忆；
+        ``participant`` 与 ``principal_id`` 的含义与导入相同。
         """
-        interaction_id = self._interaction_id(turn, identity_scope, principal_id)
-        async with self._serialized(turn, identity_scope):
+        interaction_id = self._interaction_id(turn, participant, principal_id)
+        async with self._serialized(turn, participant):
             placement = self._placements.get(interaction_id)
             if placement is not None:
                 return placement.topic_id
@@ -157,7 +178,10 @@ class ImportBusIngestor:
                 # 这一轮已经提交、等待应用超时，落点要等应用完成才确定；写入方稍后
                 # 重试时它已应用。此时重新路由会让写入与这一轮落在不同的话题。
                 raise ImportBusUnavailableError(reason="apply_pending")
-            decision = await self._request_gateway_decision(turn, identity_scope, principal_id)
+            decision = await self._request_gateway_decision(
+                turn, identity_scope, participant, principal_id
+            )
+            # 落位只准备话题：不给检索 scope，prepare 不检索。
             placement = await self._bus.request(
                 PatchouliRoutes.PREPARE_AGENT_RUN,
                 identity_scope=identity_scope,
@@ -193,13 +217,15 @@ class ImportBusIngestor:
     # ------------------------------------------------------------------
 
     @asynccontextmanager
-    async def _serialized(self, turn: InFlightTurn, scope: IdentityScope) -> AsyncIterator[None]:
+    async def _serialized(
+        self, turn: InFlightTurn, participant: ActorIdentity
+    ) -> AsyncIterator[None]:
         """在这一轮所属外部会话的串行门内执行，并计入在途请求；关闭开始后拒绝。"""
         if self._closed:
             # 认证网关先于编排器关闭；关闭前已通过认证的请求在这里收到同一
             # 可重试结论，而不是在已停止的子系统上失败。
             raise ImportBusUnavailableError(reason="shutting_down")
-        key = ImportConversationKey.for_turn(scope.actor_identity, turn)
+        key = ImportConversationKey.for_turn(participant, turn)
         self._enter()
         try:
             async with self._serial_gate.hold(key):
@@ -212,18 +238,25 @@ class ImportBusIngestor:
             self._leave()
 
     @staticmethod
-    def _interaction_id(turn: InFlightTurn, scope: IdentityScope, principal_id: str) -> str:
+    def _interaction_id(turn: InFlightTurn, participant: ActorIdentity, principal_id: str) -> str:
         """落位与导入对同一轮推导出同一个标识，回流因此能找到落点。"""
         return derive_import_interaction_id(
             principal_id=principal_id,
-            actor=scope.actor_identity,
+            actor=participant,
             source=turn.source,
             external_conversation_id=turn.external_conversation_id,
             external_turn_id=turn.external_turn_id,
         )
 
     async def _ingest_serialized(
-        self, turn: ImportedTurn, scope: IdentityScope, interaction_id: str, principal_id: str
+        self,
+        turn: ImportedTurn,
+        *,
+        system_actor: WorkingActor,
+        scope: IdentityScope,
+        participant: ActorIdentity,
+        principal_id: str,
+        interaction_id: str,
     ) -> ImportTurnResult:
         status = await self._bus.request(
             PatchouliRoutes.INTERACTION_STATUS,
@@ -231,14 +264,16 @@ class ImportBusIngestor:
             interaction_id=interaction_id,
         )
         if status is not None and status.state in ("succeeded", "unknown"):
-            return self._duplicate(turn, scope, interaction_id, status.state)
+            return self._duplicate(turn, scope, participant, interaction_id, status.state)
         if status is not None and status.state == "pending":
             # 上一次提交已被接纳、仍在应用：继续等待，不再路由与提交。
-            settled = await self._wait_applied(turn, scope, interaction_id)
-            return self._duplicate(turn, scope, interaction_id, settled.state)
+            settled = await self._wait_applied(turn, scope, participant, interaction_id)
+            return self._duplicate(turn, scope, participant, interaction_id, settled.state)
 
         if status is None and not turn.has_output:
-            self._events.skipped(turn=turn, scope=scope, interaction_id=interaction_id)
+            self._events.skipped(
+                turn=turn, scope=scope, participant=participant, interaction_id=interaction_id
+            )
             return ImportTurnResult(status="skipped", interaction_id=interaction_id)
 
         # 尚未提交，或上一次提交在应用时失败：（再次）提交。写入时已落位的轮次
@@ -250,10 +285,12 @@ class ImportBusIngestor:
             new_topic_title = new_topic_summary = None
         else:
             try:
-                decision = await self._request_gateway_decision(turn, scope, principal_id)
+                decision = await self._request_gateway_decision(
+                    turn, scope, participant, principal_id
+                )
             except ImportBusUnavailableError as error:
                 self._record_deferred(
-                    turn, scope, interaction_id, "gateway_unavailable", error.__cause__
+                    turn, scope, participant, interaction_id, "gateway_unavailable", error.__cause__
                 )
                 raise
             topic_id = decision.target_topic_id
@@ -268,24 +305,28 @@ class ImportBusIngestor:
             outcome=turn.outcome,
         )
         try:
-            await self._bus.request(
-                PatchouliRoutes.INTERACTION_SUBMIT,
-                identity_scope=scope,
+            # 交互提交是 root 能力：由系统执行，参与的 Agent 记为发起者。
+            await self._interactions.submit_interaction(
+                target_workspace=scope.workspace_identity,
+                participant=participant,
                 payload=payload,
                 requested_topic_id=topic_id,
                 interaction_id=interaction_id,
                 origin="import_bus",
                 new_topic_title=new_topic_title,
                 new_topic_summary=new_topic_summary,
+                actor=system_actor,
             )
         except InteractionAdmissionUnavailableError as error:
-            self._record_deferred(turn, scope, interaction_id, "queue_unavailable", error)
+            self._record_deferred(
+                turn, scope, participant, interaction_id, "queue_unavailable", error
+            )
             raise ImportBusUnavailableError(reason="queue_unavailable") from error
         # 提交已被接纳，落点改由提交记录承载：此后的重发按提交进度处理，应用
         # 失败后的重发重新路由。队列拥塞时落点保留，重发仍然沿用。
         self._placements.pop(interaction_id, None)
 
-        applied = await self._wait_applied(turn, scope, interaction_id)
+        applied = await self._wait_applied(turn, scope, participant, interaction_id)
         logger.info(
             "Import Bus 确认轮次: source=%s, interaction_id=%s, new_topic=%s",
             turn.source,
@@ -295,6 +336,7 @@ class ImportBusIngestor:
         self._events.accepted(
             turn=turn,
             scope=scope,
+            participant=participant,
             interaction_id=interaction_id,
             topic_id=applied.topic_id,
             is_new_topic=is_new_topic,
@@ -302,7 +344,11 @@ class ImportBusIngestor:
         return ImportTurnResult(status="accepted", interaction_id=interaction_id)
 
     async def _wait_applied(
-        self, turn: ImportedTurn, scope: IdentityScope, interaction_id: str
+        self,
+        turn: ImportedTurn,
+        scope: IdentityScope,
+        participant: ActorIdentity,
+        interaction_id: str,
     ) -> InteractionStatus:
         """等待已接纳的交互应用完成；超时与应用失败都不确认，交回给连接器重发。"""
         status = await self._bus.request(
@@ -322,6 +368,7 @@ class ImportBusIngestor:
             self._events.deferred(
                 turn=turn,
                 scope=scope,
+                participant=participant,
                 interaction_id=interaction_id,
                 reason="apply_failed",
                 error_class=None,
@@ -331,6 +378,7 @@ class ImportBusIngestor:
             self._events.deferred(
                 turn=turn,
                 scope=scope,
+                participant=participant,
                 interaction_id=interaction_id,
                 reason="apply_pending",
                 error_class=None,
@@ -339,7 +387,12 @@ class ImportBusIngestor:
         return status
 
     def _duplicate(
-        self, turn: ImportedTurn, scope: IdentityScope, interaction_id: str, state: str
+        self,
+        turn: ImportedTurn,
+        scope: IdentityScope,
+        participant: ActorIdentity,
+        interaction_id: str,
+        state: str,
     ) -> ImportTurnResult:
         logger.info(
             "Import Bus 忽略已应用的轮次: source=%s, interaction_id=%s, state=%s",
@@ -347,11 +400,17 @@ class ImportBusIngestor:
             interaction_id,
             state,
         )
-        self._events.duplicate(turn=turn, scope=scope, interaction_id=interaction_id)
+        self._events.duplicate(
+            turn=turn, scope=scope, participant=participant, interaction_id=interaction_id
+        )
         return ImportTurnResult(status="duplicate", interaction_id=interaction_id)
 
     async def _request_gateway_decision(
-        self, turn: InFlightTurn, scope: IdentityScope, principal_id: str
+        self,
+        turn: InFlightTurn,
+        scope: IdentityScope,
+        participant: ActorIdentity,
+        principal_id: str,
     ) -> GatewayDecision:
         """以 PASSIVE_MEMORY 模式只取得话题落位与新话题的标题和摘要。
 
@@ -362,7 +421,9 @@ class ImportBusIngestor:
         """
         recent_turns = turn.recent_turns[-self._gateway_session_turn_limit :]
         previous_topic_id = (
-            await self._previous_topic_id(turn, scope, principal_id) if recent_turns else None
+            await self._previous_topic_id(turn, scope, participant, principal_id)
+            if recent_turns
+            else None
         )
         session_turns = tuple(
             GatewaySessionTurn(
@@ -390,7 +451,11 @@ class ImportBusIngestor:
         return result.decision
 
     async def _previous_topic_id(
-        self, turn: InFlightTurn, scope: IdentityScope, principal_id: str
+        self,
+        turn: InFlightTurn,
+        scope: IdentityScope,
+        participant: ActorIdentity,
+        principal_id: str,
     ) -> str | None:
         """查出最近一轮的落位：写入时已落位、尚未回流的取落点，否则取它应用后的话题。
 
@@ -402,7 +467,7 @@ class ImportBusIngestor:
             return None
         previous_interaction_id = derive_import_interaction_id(
             principal_id=principal_id,
-            actor=scope.actor_identity,
+            actor=participant,
             source=turn.source,
             external_conversation_id=turn.external_conversation_id,
             external_turn_id=previous.external_turn_id,
@@ -421,6 +486,7 @@ class ImportBusIngestor:
         self,
         turn: ImportedTurn,
         scope: IdentityScope,
+        participant: ActorIdentity,
         interaction_id: str,
         reason: ImportUnavailableReason,
         cause: BaseException | None,
@@ -437,6 +503,7 @@ class ImportBusIngestor:
         self._events.deferred(
             turn=turn,
             scope=scope,
+            participant=participant,
             interaction_id=interaction_id,
             reason=reason,
             error_class=error_class,

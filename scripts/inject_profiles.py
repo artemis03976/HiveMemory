@@ -24,10 +24,9 @@ Patchouli 完整写入路径）：执行字段校验并生成版本记录。已�
 import argparse
 import asyncio
 import logging
-from uuid import uuid4
 
 from hivememory.config.app import load_app_config
-from hivememory.core.access import CallerPrincipal, RunBinding
+from hivememory.core.access import CallerPrincipal
 from hivememory.core.constants import DEFAULT_USER_ID, SYSTEM_AGENT_ID
 from hivememory.core.models import ActorIdentity
 from hivememory.core.models.workspace import resolve_default_workspace_identity
@@ -89,22 +88,20 @@ async def main(user_id: str, principal_id: str = "hivememory:profile-injector") 
     target_workspace = resolve_default_workspace_identity(user_id)
     system = HiveMemorySystem.build(config=load_app_config())
     await system.start()
-    access = None
     try:
         # 脚本是独立的本地入口，不能借用 HTTP 来源；接入登记与 system 准入
-        # 都由同一网关确认，root 服务只接受网关签发的请求级 context。
-        access = await system.access_gateway.authenticate(
+        # 都由同一网关确认，root 服务在入口以得到的工作 actor 授权。
+        actor = await system.access_gateway.authenticate(
             adapter="local",
             principal=CallerPrincipal(principal_id=principal_id),
             credential=None,
             actor=ActorIdentity(user_id=user_id, agent_id=SYSTEM_AGENT_ID),
             workspace=target_workspace,
-            binding=RunBinding.for_request(f"profile-injection:{uuid4()}"),
         )
         existing = {
             atom.index.alias
             for atom in await system.root_agent_service.list_agent_profiles(
-                access=access, target_workspace=target_workspace, limit=1000
+                actor=actor, target_workspace=target_workspace, limit=1000
             )
         }
         for profile in PROFILES:
@@ -113,7 +110,7 @@ async def main(user_id: str, principal_id: str = "hivememory:profile-injector") 
                 logger.info(f"Profile '{alias}' already exists, skipping.")
                 continue
             atom = await system.root_agent_service.create_agent_profile(
-                access=access,
+                actor=actor,
                 target_workspace=target_workspace,
                 title=profile["title"],
                 alias=alias,
@@ -124,8 +121,6 @@ async def main(user_id: str, principal_id: str = "hivememory:profile-injector") 
             )
             logger.info(f"Injected profile: {alias} (id={atom.id})")
     finally:
-        if access is not None:
-            system.access_gateway.revoke_context(access)
         await system.stop()
 
     logger.info("Agent profile injection finished.")
