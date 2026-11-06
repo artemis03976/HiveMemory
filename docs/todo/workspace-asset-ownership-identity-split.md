@@ -13,7 +13,7 @@ related_docs:
   - docs/system/attachments.md
   - docs/contracts/subsystem-contracts.md
   - docs/archive/plans/v0.7.0-identity-access-batch-2.md
-last_reviewed: 2026-10-21
+last_reviewed: 2026-11-06
 ---
 
 # WorkspaceAsset 内部归属与操作身份拆分
@@ -46,3 +46,4 @@ Alice/CPU 的执行身份与 PendingAtom 回读范围不由本 Todo 承接。资
 ## 追踪
 
 - 2026-10-04：用户在身份第二批任务中明确暂缓 `WorkspaceAssetStore` 调整，本地阶段收尾时登记；实施历史见 [第二批归档计划](../archive/plans/v0.7.0-identity-access-batch-2.md)。目前未绑定后续版本或 Issue。
+- 2026-11-06：owner 要求为它制定计划，见 [WorkspaceAsset 的归属拆分](../plans/workspace-asset-ownership-split.md)；Todo 随计划收尾归档。
