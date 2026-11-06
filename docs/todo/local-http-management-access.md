@@ -39,6 +39,10 @@ HTTP 接口按本地单用户部署的信任假设设计：
 
 ## 完成条件
 
-- 决定 HTTP 管理接口的调用方认证方式，记入对应的 Idea 或计划；
+- 决定 HTTP 管理接口的调用方认证方式，记入对应的 Idea 或计划（已完成：owner 2026-11-05 决定采用管理凭据，现在先防误用，防刻意随 v1.0 桌面客户端完成，见[身份与访问体系 Idea](../ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节）；
 - 外部 harness 的 agent 与本机其他进程不能在没有管理凭据的情况下读写记忆、配置、密钥与模型注册表；
 - 更新[配置指南](../help/configuration.md#51-访问登记)与[认证与访问登记](../workspace/authentication.md)中关于信任假设的描述。
+
+## 追踪
+
+- 2026-11-05：owner 决定采用管理凭据；防误用部分抽出计划 [HTTP 管理面的管理凭据](../plans/http-management-credential.md)，计划收尾时本 Todo 归档。

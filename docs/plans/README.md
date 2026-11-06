@@ -3,7 +3,7 @@ title: Plans
 status: current
 owner: project
 scope: implementation-plan-navigation-by-version
-last_reviewed: 2026-11-04
+last_reviewed: 2026-11-05
 ---
 
 # Plans
@@ -22,7 +22,9 @@ v0.7.2（Git tag `v0.7.2`，2026-11-01）、v0.7.1（Git tag `v0.7.1`，2026-10-
 
 ## 未绑定版本
 
-暂无。DeepSeek Harness 插件接入、模型选择统一（2026-11-01）与 dsh 子 Agent 会话不再独立导入（2026-11-02）已归档，见 [Archived Plans](../archive/plans/README.md)。观测与日志是版本之外的工作，目前以治理主题与 Todo 跟踪，见[日志与运行时事件](../governance/observability/logs-and-events.md)。
+- [HTTP 管理面的管理凭据](./http-management-credential.md)：planned（版本之外的工作，owner 2026-11-05），承接[本机 HTTP 管理接口 Todo](../todo/local-http-management-access.md)。
+
+此前的 DeepSeek Harness 插件接入、模型选择统一（2026-11-01）与 dsh 子 Agent 会话不再独立导入（2026-11-02）已归档，见 [Archived Plans](../archive/plans/README.md)。观测与日志是版本之外的工作，目前以治理主题与 Todo 跟踪，见[日志与运行时事件](../governance/observability/logs-and-events.md)。
 
 ## 准入规则
 
