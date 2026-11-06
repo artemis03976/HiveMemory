@@ -6,6 +6,8 @@ scope: common-runtime-and-frontend-failures
 code_paths:
   - docker/docker-compose.yml
   - src/hivememory/server/app.py
+  - src/hivememory/server/management_credential.py
+  - frontend/vite.config.ts
   - src/hivememory/config/
   - frontend/src/
   - integrations/claude-code/
@@ -13,7 +15,7 @@ code_paths:
 related_contracts:
   - docs/contracts/error-model.md
   - docs/contracts/mcp.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-05
 ---
 
 # HiveMemory 故障排查
@@ -32,6 +34,8 @@ last_reviewed: 2026-11-01
 
 - Docker 检查镜像是否成功执行 `npm run build`，以及 `HIVEMEMORY_SERVE_FRONTEND=true`；
 - 本地开发必须另行启动 Vite，并访问 `http://127.0.0.1:5173`；`8769` 默认只提供 API，不直接提供未构建前端。
+
+从其他机器访问不到时，注意后端默认只监听 `127.0.0.1`，Docker Compose 只在宿主的本机地址上开放 `8000`（[安装与启动](./setup.md#43-启动后端)）。
 
 ## 2. Qdrant 连接失败
 
@@ -91,7 +95,13 @@ Provider/Model 列表 API 只返回脱敏 key；看到掩码代表“存在一�
 
 整合部署确认浏览器与 API 同源 `8000`。如果使用自定义反向代理，必须同时转发普通 HTTP、SSE 长连接和 `/api/v1/ws/logs` WebSocket upgrade。
 
-`VITE_BACKEND_ORIGIN` 当前只控制日志与 RuntimeEvent stream，不能改变所有 HTTP API。仅设置它而没有代理 `/api`，Chat、Memory 和 Settings 仍会请求前端当前 origin。
+`VITE_BACKEND_ORIGIN` 当前只控制日志与 RuntimeEvent stream，不能改变所有 HTTP API。仅设置它而没有代理 `/api`，Chat、Memory 和 Settings 仍会请求前端当前 origin；直连后端的日志与 RuntimeEvent 也不带管理凭据，会被拒绝。
+
+接口返回 401 `request.management_credential_invalid`，或日志 WebSocket 连接被拒绝，说明请求没有带上一致的管理凭据：
+
+- 开发模式：确认后端已启动、`configs/management.token` 已生成，且 Vite 读得到它（Vite 从 `frontend` 目录以 `../configs/management.token` 读取）；修改 `vite.config.ts` 之后需要重启 Vite；
+- 后端提供页面时：重新加载页面，让后端重新下发凭据 cookie；后端重新生成过凭据时同样如此；
+- 在终端中调用：带上 `Authorization: Bearer $(cat configs/management.token)`（[安装与启动](./setup.md#43-启动后端)）。
 
 ## 6. 页面显示了数据，但写操作全部失败
 

@@ -31,7 +31,8 @@ related_docs:
   - docs/ideas/execution-environment.md
   - docs/ideas/ae2-hivememory-architecture-analogy.md
   - docs/archive/ideas/execution-thread-definition.md
-  - docs/todo/local-http-management-access.md
+  - docs/archive/todo/local-http-management-access.md
+  - docs/archive/plans/http-management-credential.md
   - docs/todo/workspace-asset-ownership-identity-split.md
   - docs/todo/memory-visibility-policy-ui.md
   - docs/todo/frontend-identity-ownership.md
@@ -54,7 +55,7 @@ last_reviewed: 2026-11-05
 
 - 已落地的模型分布在多份事实文档中：身份与授权、认证与访问登记、能力层、执行线程与 MCP 记忆访问；
 - 未决的部分散落在第五代架构 Idea、外部 Actor Idea、写入意图 Idea、五份 Todo 与身份治理中；
-- 例外与补丁逐渐累积：WorkspaceAsset 仍以旧 `IdentityScope` 做归属检查（AGENTS.md 登记的唯一例外），Profile 注入脚本以 `system` 进入 root API，HTTP 管理接口沿用本地单用户部署的信任假设。
+- 例外与补丁逐渐累积：WorkspaceAsset 仍以旧 `IdentityScope` 做归属检查（AGENTS.md 登记的唯一例外），Profile 注入脚本以 `system` 进入 root API，HTTP 管理接口沿用本地单用户部署的信任假设（2026-11-05 起以管理凭据防误用）。
 
 已经具备、本文不再讨论的地基：三个身份模型与两阶段认证、两阶段授权；密封的访问 context 及进程、线程、请求三种运行绑定（owner 2026-11-05 决定改为统一身份授权入口，候选设计见第 5 节）；资源归属与发起者的拆分；root API、actor API 与阶段调用三个调用面；外部 principal 以本地共享密钥证明身份（P-1c）；`allow_system_actor` 限定能声明 `system` 的来源；不建进程的访问每次操作一份请求级 context（P-9c；统一身份授权入口保留其目标、改变其实现，见第 5 节）。
 
@@ -65,7 +66,7 @@ last_reviewed: 2026-11-05
 | 环节 | 已有（当前事实） | 缺口与去向 |
 |:---|:---|:---|
 | Principal 登记 | 两份配置文件在启动时装载（[认证与访问登记](../workspace/authentication.md#2-两类访问登记)第 2 节） | 运行时登记、修改与撤销：第 3 节 |
-| 调用方证明 | 统一认证网关；外部 principal 以共享密钥证明；任务进程注册、Import Bus 与 MCP 入口经网关 | HTTP 管理入口不证明调用方（owner 已决定以管理凭据修复，先防误用）；controller 模式下请求与进程的归属校验：第 4 节 |
+| 调用方证明 | 统一认证网关；外部 principal 以共享密钥证明；任务进程注册、Import Bus 与 MCP 入口经网关；HTTP 管理面以管理凭据防误用（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节） | HTTP 管理入口的防刻意随桌面客户端；controller 模式下请求与进程的归属校验：第 4 节 |
 | 访问 context 与操作授权 | context 只含 actor、驻留 Workspace、principal 与运行绑定；白名单逐次授权；阶段授权；root 只认 `system` | 统一身份授权入口（方向已由 owner 决定，候选设计待细化）；工作 actor 是否带 adapter、本次运行的操作上限、进程控制的授权主体：第 5 节 |
 | 资源可见性 | 只有 MemoryAtom 带资源 policy，且只表达读取；其余资源只按归属授权 | 修改与执行授权、写入意图的可见性：第 6 节 |
 | 进入其他 Workspace | 第 3 阶段只接受目标等于驻留 Workspace | 受限穿透访问：第 7 节 |
@@ -104,7 +105,7 @@ last_reviewed: 2026-11-05
 
 ### HTTP 管理入口的调用方证明
 
-问题、证据与影响见[本机 HTTP 管理接口 Todo](../todo/local-http-management-access.md)：前端使用的 Workspace 路由以 server 的 principal 经网关接入，`config`、`providers`、`models`、`logs`、`runtime_events` 不经网关，本机任何进程（包括 harness 中的 agent）都能调用，绕过 Workspace 访问登记的白名单，以 `system` 声明进入 root API。owner（2026-11-01）决定下一步修复；它会改变整个 HTTP API 的信任模型，Todo 要求实施前先在 Idea 或计划中定下认证方式，本节承接这一设计问题。
+问题、证据与影响见[本机 HTTP 管理接口 Todo](../archive/todo/local-http-management-access.md)（已归档）：管理凭据落地之前，前端使用的 Workspace 路由以 server 的 principal 经网关接入，`config`、`providers`、`models`、`logs`、`runtime_events` 不经网关，本机任何进程（包括 harness 中的 agent）都能调用，绕过 Workspace 访问登记的白名单，以 `system` 声明进入 root API。owner（2026-11-01）决定下一步修复；它会改变整个 HTTP API 的信任模型，Todo 要求实施前先在 Idea 或计划中定下认证方式，本节承接这一设计问题。
 
 | 选项 | 内容 | 影响（分析） |
 |:---|:---|:---|
@@ -119,7 +120,7 @@ last_reviewed: 2026-11-05
 - **防刻意**：agent 专门在本机寻找凭据也拿不到。harness 的 agent 以同一个系统用户运行，用户能读的文件与环境变量它都能读，所以凭据要放在它拿不到的地方：桌面客户端主进程的内存，或需要人参与的口令。
 - harness 的共享密钥目前同样只做到防误用（[认证与访问登记](../workspace/authentication.md#8-已知限制)第 8 节）。
 
-防误用部分已抽出计划：[HTTP 管理面的管理凭据](../plans/http-management-credential.md)。凭据的生成与保存、校验位置、前端取得凭据的方式与监听地址，都以计划为准。
+防误用部分已落地（2026-11-05，[归档计划](../archive/plans/http-management-credential.md)）：`/api/` 下除导入之外的接口都要求管理凭据，后端默认只监听本机地址，当前事实见[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节。本节只剩防刻意。
 
 **防刻意的候选设计**（不是 owner 决定，随桌面客户端的计划细化）：桌面客户端的主进程启动后端时生成凭据，经管道而不是文件或环境变量交给后端，再交给自己的页面，凭据不落盘。带着正确管理凭据的 HTTP 请求成为经过证明的工作 actor（第 5 节）。
 
@@ -217,7 +218,7 @@ context 没有固定有效期，随绑定的运行结束失效。原先列为开
   | controller 回调：外部 harness 经绑定的线程回调 | 证明调用方，比对它与进程记录中的 principal（P-1b） | 进程或线程记录，不从请求重新建立 |
 
 - 不在这条主线上的是后台任务。以 `system` 发起的 SETTLE 等任务不经认证，只携带 `belong_to` 与 `from_actor`，由资源 owner 检查，保持不变。
-- 主线统一之后，边界上能证明什么，取决于第 4 节 HTTP 管理入口的调用方证明（owner 已决定以管理凭据修复）。principal 标识执行环境，agent 由经过证明的执行环境声明，不另设 principal 与 agent 的绑定（第 8 节）。管理凭据落地之前，经 HTTP 进入的工作 actor 是“未证明”的。
+- 主线统一之后，边界上能证明什么，取决于第 4 节 HTTP 管理入口的调用方证明（owner 已决定以管理凭据修复）。principal 标识执行环境，agent 由经过证明的执行环境声明，不另设 principal 与 agent 的绑定（第 8 节）。管理凭据（防误用）已于 2026-11-05 落地；它如何表达进工作 actor（下文流程表中的“未证明”），由统一入口的计划决定。
 
 主线中的概念：
 

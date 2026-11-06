@@ -14,7 +14,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-18
+last_reviewed: 2026-11-05
 ---
 
 # 前端状态、持久化与传输
@@ -80,11 +80,19 @@ Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送�
 
 本地开发时，Vite 在 `127.0.0.1:5173` 运行，并将 `/api` 代理到 `http://localhost:8769`，包括 WebSocket upgrade。Docker/整合部署由 FastAPI 在 `8000` 同源提供前端和 API。
 
+`/api` 下的管理接口要求管理凭据（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节），前端源码不读取也不保存它，fetch、`EventSource` 与 WebSocket 客户端都不处理凭据：
+
+- Vite 代理每次转发 HTTP 与 WebSocket 请求时，从 `../configs/management.token` 读出凭据并附上 `Authorization` 请求头；文件尚未生成时不附加，后端以 401 拒绝；
+- 后端提供页面时，页面响应下发 `HttpOnly` 的 `hivememory_management` cookie，同源请求、SSE 与 WebSocket 自动携带它。
+
+凭据缺失或不一致的 401 经第 3.1 节的错误解析显示后端的说明文字，前端没有专门的界面。
+
 普通 HTTP services 全部使用相对 `/api`；日志与 RuntimeEvent 流的 URL 则由 `VITE_BACKEND_ORIGIN || window.location.origin` 生成。因此：
 
 - 同源部署与 Vite proxy 是当前完整支持路径；
 - 仅设置 `VITE_BACKEND_ORIGIN` 只会迁移日志和 RuntimeEvent，不会迁移 chat、memory、topic 等 HTTP 请求；
-- 真正的前后端分域部署需要反向代理，或统一改造所有 service 的 base URL 与 CORS/credential 策略。
+- 真正的前后端分域部署需要反向代理，或统一改造所有 service 的 base URL 与 CORS/credential 策略；
+- 设置 `VITE_BACKEND_ORIGIN` 直连后端时，日志与 RuntimeEvent 不经 Vite 代理，也不在后端页面的同源 cookie 范围内，会被管理凭据检查拒绝。
 
 后端 CORS 当前允许若干本地开发 origin，没有面向任意生产域名的配置化清单。
 

@@ -10,6 +10,7 @@ code_paths:
   - src/hivememory/config/access.py
   - src/hivememory/system/access/
   - src/hivememory/server/deps.py
+  - src/hivememory/server/management_credential.py
   - src/hivememory/server/routers/import_bus.py
   - src/hivememory/mcp_server/
   - configs/system_principals.yaml
@@ -23,7 +24,7 @@ related_docs:
   - docs/system/configuration.md
   - docs/system/import-bus.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-05
 ---
 
 # 认证与访问登记
@@ -57,6 +58,14 @@ last_reviewed: 2026-11-01
 - 装载时校验：列出外部 adapter 的登记必须声明 `credential_env`，列出进程内 adapter 的登记不能声明凭据，否则装载失败。没有凭据的 principal（server、Profile 注入脚本）因此只能经进程内 adapter 接入，外部请求无法借用它们的身份；进程内入口总是不带凭据认证，与凭据同登记会使这些入口一律被拒绝。新增的 adapter 默认属于外部入口，必须声明凭据。
 
 **`system` 的声明范围**：登记的 `allow_system_actor` 默认为 `false`。第 1 阶段在用户检查之后拒绝不允许的 principal 声明保留的 `system`（`system_actor_not_allowed`）；能以 `system` 进入 root API 的只有用户经 HTTP 入口的管理访问与 Profile 注入脚本，两者的登记显式设为 `true`，外部 harness 取默认值。
+
+**HTTP 管理面的管理凭据**：上表的 server 的 principal 不携带凭据，HTTP 管理面另由管理凭据证明调用方，检查发生在认证网关之前。
+
+- 范围：server 的一个 ASGI 中间件（`server/management_credential.py`）只按路径判定、默认拒绝。路径以 `/api/` 开头的 HTTP 请求与 WebSocket 连接都要求管理凭据，导入 `POST /api/v1/import/turns` 除外；`/health`、`/health/ready`、`/mcp` 与前端页面不要求。以后在 `/api/` 下新增的路由自动受保护，前端使用的 `config`、`providers`、`models`、运行时事件与日志这些不经认证网关的接口也在其中。
+- 校验：凭据放在 `Authorization: Bearer` 请求头或名为 `hivememory_management` 的 cookie 中，任一与后端持有的凭据一致即可，以常量时间比较。缺少或不一致时，HTTP 以 401 `request.management_credential_invalid` 拒绝，WebSocket 在接受连接之前以策略违规（1008）关闭，路由处理函数都不会执行。
+- 凭据保存在 `configs/management.token`，与 `providers.secrets.yaml` 同目录，被 `.gitignore` 与 `.dockerignore` 排除。后端启动时读取它：不存在就生成随机凭据，以只有当前用户可读写的权限原子写入；文件为空时启动失败。删除文件后重启即得到新凭据，没有环境变量覆盖与轮换。读入之前，中间件把要求凭据的请求一律按凭据无效拒绝。
+- 前端源码不处理凭据：Vite 开发服务器的 `/api` 代理每次转发 HTTP 与 WebSocket 请求时读这个文件并附上请求头；后端提供页面时，返回页面的同时下发 `HttpOnly`、`SameSite=Strict`、`Path=/` 的 cookie，页面的同源请求、SSE 与 WebSocket 自动携带它，页面脚本读不到它。
+- 凭据属于 server，不进入接入登记：它保护的是 HTTP 管理面，不参与 Workspace 准入。通过检查的请求照旧以 server 的 principal 经网关认证，请求头中的用户身份仍是声明。它只防误用，边界见第 8 节。
 
 ## 2. 两类访问登记
 
@@ -167,6 +176,7 @@ context 只属于一次运行，没有固定有效期，只在以下时点失效
 ## 8. 已知限制
 
 - 访问登记只有进程内本地配置：无远程凭据协议、通用 IAM、管理 API 或热更新；HTTP 请求头中的用户身份不做证明，只适用于本地单用户部署；
+- 管理凭据只防误用：它挡住 agent 在工作中顺手调用管理接口，以及读不到凭据文件的其他机器；以同一系统用户运行、专门读取 `configs/management.token` 的程序仍能通过。后端提供页面时，能请求到页面的程序都能取得 cookie，因此正式入口默认只监听本机地址（[安装与启动](../help/setup.md#43-启动后端)）。凭据不区分用户，没有轮换与过期；
 - 接入凭据是每个外部 principal 一份本地共享密钥，存在于两侧的环境变量中：只能防止本机其他程序冒用 harness 身份，不防止能读取用户环境的程序；凭据由用户生成，没有签发、轮换、撤销与过期，修改经重启生效；
 - 用户级访问记录让同一用户的所有具体 Agent 共享一份白名单；按 Agent 区分需要逐个登记精确记录；
 - Agent 操作白名单只能通过修改 `workspace_actors.yaml` 并重启来变更，前端没有权限编辑入口；运行时编辑并入 [ROADMAP](../ROADMAP.md) 的“配置热更新”，届时需要处理线程描述中的快照与即时检查之间的差异。

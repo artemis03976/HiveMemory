@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-11-04
+last_reviewed: 2026-11-05
 ---
 
 # Todo
@@ -16,7 +16,6 @@ last_reviewed: 2026-11-04
 - [多条提取后被动提取的记忆膨胀与低留存](./passive-extraction-volume-and-retention.md)（2026-11-03 由记忆增长统计登记：多条提取后每次结算的 Mode A 新建从 1 条变为平均 5.2 条，其中仅 52% 留存，owner 手动清理；owner 的目标是全自主记忆维护，本 Todo 保留证据与度量，可合进任一 Idea 或计划）；
 - [导入轮次被落进另一个外部会话的话题](./cross-conversation-topic-placement.md)（2026-11-03 由 dsh 调研取证登记：外部会话的第一轮没有会话上下文，Gateway 凭标题中的通用词把一次 dsh 调研落进了同时进行的 Claude Code 会话的话题，结算材料混合了两段无关对话，主动写入的贡献者被污染；一个话题能否跨外部会话待 owner 决定，未排期）；
 - [Agent Profile 以 ModelSelection 表达模型选择](./agent-profile-model-selection.md)（2026-11-01 由模型选择统一计划登记：Profile 仍以平铺的 `model_name`、`temperature`、`top_p` 表达模型选择，没有 `max_tokens`；改动涉及已存 Profile 的读取与 Agent 编辑页，owner 决定另行处理，未排期）；
-- [本机 HTTP 管理接口不证明调用方](./local-http-management-access.md)（2026-11-01 由 dsh 接入试用登记：管理接口以 server 的 principal 接入或不经认证网关，本机任何进程包括 harness 中的 agent 都能读写记忆、配置与密钥；会改变 HTTP 的信任模型，实施前先形成 Idea 或计划；owner 决定下一步修复）；
 - [推理模型重新加载时的事件循环停顿](./model-reload-event-loop-stall.md)（2026-10-30 由空闲卸载计划的实测验收登记：onnxruntime 创建会话与卸载时的 `gc.collect()` 持有 GIL，重新加载期间其他请求最长等待约 1～3.7 秒，两个模型同时加载时最长；owner 决定记为已知限制，之后单独优化，未排期）；
 - [生成查重的决策信号](./generation-dedup-decision-signal.md)（2026-10-29 由 Import Bus 真实使用观察登记：dense top-1 余弦在记忆对记忆的比较中分不开同一工作与同项目的其他记忆；2026-10-30 补充：同项目记忆增多后，查重判出的 UPDATE 整体覆盖了两条记忆的主要内容；2026-10-31 owner 决定命中后先落库再融合，覆盖问题随 v0.7.2 的[查重与更新计划](../archive/plans/v0.7.2-dedup-merge.md)解决并于同日归档；判定信号暂不改动，信号部分留在本 Todo；2026-11-01 查询改为与入库的嵌入文本同形，阈值不变）；
 - [重排模型 int8 与 ONNX 内存池](./reranker-int8-and-onnx-memory.md)（2026-10-27 排查常驻内存时登记：重排模型 int8 先做实验评估，另有 ONNX 内存池保留推理峰值、嵌入截断上限 8192 token、配置项不生效与 Docker 预下载落空；后四项已于同日完成；int8 评估 owner 2026-10-30 决定现在不是必要项，移出 v0.7.1，未排期）；

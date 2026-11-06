@@ -21,7 +21,7 @@ related_docs:
   - docs/system/import-bus.md
   - docs/architecture/data-model.md
   - docs/governance/security/identity-and-execution-safety.md
-last_reviewed: 2026-11-02
+last_reviewed: 2026-11-05
 ---
 
 # 身份与授权
@@ -196,7 +196,7 @@ Interaction codec 为 v7，generation codec 的 `schema_version` 为字符串 `"
 
 ## 8. 已知限制
 
-- root 只由 actor 是否为保留的 `system` 判定；能声明 `system` 的来源由接入登记的 `allow_system_actor` 逐个限定（默认不能），当前只有 HTTP server 与 Profile 注入脚本可以，外部 harness 不能（[认证与访问登记](./authentication.md#1-两阶段认证)）。HTTP 请求头中的用户身份不做证明，因此能连到 server 的程序都能经管理路由以 `system` 声明进入 root API，这沿用本地单用户部署的信任假设；
+- root 只由 actor 是否为保留的 `system` 判定；能声明 `system` 的来源由接入登记的 `allow_system_actor` 逐个限定（默认不能），当前只有 HTTP server 与 Profile 注入脚本可以，外部 harness 不能（[认证与访问登记](./authentication.md#1-两阶段认证)）。HTTP 管理路由要求管理凭据（[认证与访问登记](./authentication.md#1-两阶段认证)第 1 节），但请求头中的用户身份仍不做证明，管理凭据也只防误用：能读到凭据文件的本机程序仍能经管理路由以 `system` 声明进入 root API，这沿用本地单用户部署的信任假设；
 - principal 标识接入来源，一个外部 harness 对应一个 principal（[认证与访问登记](./authentication.md#1-两阶段认证)第 1 节），不与 Agent 绑定：同一个 harness 可以以不同的具体 Agent 运行，Agent 由经过凭据证明的来源声明，权限与记忆可见性只跟随 Agent，与经哪个来源接入无关。仍然存在的限制是可声明的 Agent 不要求已登记：用户级访问记录接纳该用户的任意具体 Agent，chat 需要对应的 Agent Profile，导入与 MCP 不要求。请求级 context 只能检索、读取、写入与更新，RUN 与 CALL 仍需要执行线程；
 - Patchouli 的交互提交（含状态查询与等待）与主动记忆意图提交路由只接收 `IdentityScope`、不做操作授权。交互提交路由唯一的生产调用方是 Import Bus，在导入授权之后调用；意图提交路由唯一的生产调用方是 actor API，在 `memory.write`/`memory.update` 授权之后调用。新的调用方必须在自己的授权点先完成授权；
 - 第 3 阶段只接受目标等于驻留 Workspace，跨 Workspace 的授权模型尚不存在；后续方向见[身份与访问体系 Idea](../ideas/identity-and-access-model.md)。

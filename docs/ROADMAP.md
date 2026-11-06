@@ -36,7 +36,7 @@ last_reviewed: 2026-11-05
 
 - 最近已发布基线：`v0.7.2`（Git tag，2026-11-01）；[收尾审计](./archive/plans/v0.7.2-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果；
 - 当前内容基线：`v0.7.3`，主动写入与被动提取的收敛，作为过渡措施（owner，2026-11-03），2026-11-04 收尾：话题内主动写入优先、生成任务失败带原因码与主动写入沿用 agent 的标题三份计划均已完成，发布标签 `v0.7.3` 在合并后创建；[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md)记录版本目标判定、内容核对与验证结果（第 4.3 节）。v0.7.3 之后的版本目标尚未确定；
-- 版本之外：观测与日志的其余工作包随时可以开始（owner，2026-11-03，第 4.2 节），本机 HTTP 管理接口证明调用方仍待修复；HiveMemory 使用手册 skill 已基本稳定，在使用中逐步完善（owner，2026-11-03，第 4.2 节）。
+- 版本之外：观测与日志的其余工作包随时可以开始（owner，2026-11-03，第 4.2 节），本机 HTTP 管理面已以管理凭据完成防误用（2026-11-05）；HiveMemory 使用手册 skill 已基本稳定，在使用中逐步完善（owner，2026-11-03，第 4.2 节）。
 
 当前规范代码版本为 `0.7.3`，由 `src/hivememory/_version.py` 唯一声明并供构建与运行时复用。Python 包、前端清单与锁文件保持一致；本次发布标签为 `v0.7.3`，待合并后创建，最近已发布基线为 `v0.7.2`。
 
@@ -117,7 +117,7 @@ last_reviewed: 2026-11-05
 |:---|:---:|:---|:---|
 | `v0.7.3` 主动写入与被动提取的收敛 | Completed（2026-11-04 收尾）/ 版本目标 owner，2026-11-03：三份计划均已完成 | 在统一的记忆架构成形之前止住两种生成方式互相改写（过渡措施）：被动提取不再改写本话题的主动写入，主动写入沿用 agent 的标题，生成失败可诊断 | 第 4.3 节；[收尾审计](./archive/plans/v0.7.3-release-closeout-audit.md) |
 | 第二个外部 harness：DeepSeek Harness 的 plugin 模式接入 | Completed（2026-11-01 收尾）/ 版本之外的工作（owner，2026-10-31）；接入路径为纯原生插件（owner，2026-11-01）；owner 决定收尾，真实模型下的完整验收在日常使用中完成；调研中发现子 Agent 会话独立导入属于实现漂移（owner，2026-11-02），已于 2026-11-02 修复：只导入顶层会话，子 Agent 的结算通知进入父会话这一轮的生成材料 | dsh 经对话回流与原生记忆工具接入 HiveMemory，Windows 桌面端可以连接 WSL 中的 HiveMemory；之后经它进行 agent memory 与 harness 项目的调研，同时作为压测与数据积累 | [调研需求与报告](./research/deepseek-harness-plugin-survey.md)、[归档计划](./archive/plans/dsh-plugin-integration.md)、[接入手册](./help/deepseek-harness-plugin.md)、[子 Agent 会话的归档计划](./archive/plans/dsh-subagent-sessions.md) |
-| 本机 HTTP 接口的密钥与访问控制 | Partially Landed（owner，2026-11-01 决定下一步修复）：`/api/v1/config` 响应打码（PR #157）；密钥移出主配置与 `config.yaml`，提供商凭证收归 Provider 注册表（2026-11-01，PR #159，[归档 Todo](./archive/todo/config-secrets-written-to-yaml.md)）；模型定义不再保存连接凭证（2026-11-01，PR #166，[归档 Todo](./archive/todo/model-registry-api-key-override.md)）；Gateway 与 Librarian 只经模型与 Provider 注册表选择模型，主配置不再有 LLM 密钥（2026-11-01，PR #167，[归档计划](./archive/plans/llm-config-retirement.md)）；HTTP 管理接口证明调用方仍待修复，方式已定为管理凭据，先防误用，防刻意随桌面客户端（owner，2026-11-05）；防误用部分见[计划](./plans/http-management-credential.md) | HTTP 管理接口证明调用方，harness 中的 agent 不能绕过 Workspace 访问登记 | [管理接口 Todo](./todo/local-http-management-access.md)；认证方式的选项见[身份与访问体系 Idea](./ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节 |
+| 本机 HTTP 接口的密钥与访问控制 | Completed（防误用，2026-11-05）/ 防刻意随桌面客户端（第 5.1 节）：`/api/v1/config` 响应打码（PR #157）；密钥移出主配置与 `config.yaml`，提供商凭证收归 Provider 注册表（2026-11-01，PR #159，[归档 Todo](./archive/todo/config-secrets-written-to-yaml.md)）；模型定义不再保存连接凭证（2026-11-01，PR #166，[归档 Todo](./archive/todo/model-registry-api-key-override.md)）；Gateway 与 Librarian 只经模型与 Provider 注册表选择模型，主配置不再有 LLM 密钥（2026-11-01，PR #167，[归档计划](./archive/plans/llm-config-retirement.md)）；HTTP 管理面要求管理凭据、后端默认只监听本机地址，先防误用，防刻意随桌面客户端（owner，2026-11-05；[归档计划](./archive/plans/http-management-credential.md)） | HTTP 管理接口证明调用方，harness 中的 agent 不能绕过 Workspace 访问登记 | [认证与访问登记](./workspace/authentication.md#1-两阶段认证)第 1 节；[归档 Todo](./archive/todo/local-http-management-access.md)；防刻意见[身份与访问体系 Idea](./ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节 |
 | 身份与访问体系 | Candidate / 不绑定版本；owner（2026-11-05）定为单独的主线方向，最好在发布前打好地基；同日决定方向为统一身份授权入口，候选设计待细化 | 从 principal 的登记与调用方证明，到进入 Workspace 的身份、操作调用的授权与资源可见性，收敛 v0.7.0 以来多轮返工留下的例外与补丁；按运行类型分化的访问 context 收敛为统一身份授权入口，plugin 请求与任务进程共用同一个认证网关、授权入口与规则表；controller 与 plugin 两种接入都以它为基础 | [身份与访问体系 Idea](./ideas/identity-and-access-model.md)第 5 节、[现状调查](./governance/baselines/identity-access-current-state-2026-11-05.md)、[身份治理](./governance/security/identity-and-execution-safety.md) |
 | 观测与日志 | Unscheduled / 版本之外的工作（owner，2026-11-03）；W1～W3 已完成（2026-11-03），其余未排期 | 排查一次失败只需要后端日志与事件文件：运行时事件写入单独的事件记录文件并可按关联标识排时间线、生成任务之外的失败事件带稳定原因码、维护任务空转不发事件，均已完成；日志格式带 trace、存量日志收敛与事件生产端收敛（W4～W6）见治理主题 | [日志与运行时事件](./governance/observability/logs-and-events.md) |
 | HiveMemory 使用手册 skill | Landed（2026-11-01，PR #162）：owner 决定做成跨 harness 通用的 skill，不只服务 DeepSeek Harness（2026-11-01）；已基本稳定，不再单独定稿，在使用中逐步完善（owner，2026-11-03） | 引导各 harness 中的 agent 主动检索、写入与修正记忆，并与 harness 自己的记忆共存；dsh 插件还不能自动加载这份 skill；MCP 写入工具说明中“对话在每轮结束后会自动归档，不需要把对话过程复述写入”与主动写入的方向冲突，是否改写待 owner 决定 | [skill](../integrations/claude-code/skills/hivememory/SKILL.md)、[接入 Claude Code](./help/claude-code-plugin.md)、[接入 DeepSeek Harness](./help/deepseek-harness-plugin.md) |
@@ -143,7 +143,7 @@ last_reviewed: 2026-11-05
 | 生成任务失败带原因码 | 失败分类按异常给出稳定原因码，进入工作记录、`work.failed`、`memory.task.failed` 与分类处的一行日志；任务事件载荷带 `error_class` | [Patchouli 生成](./patchouli/generation.md#61-失败原因码)、[事件契约](./contracts/routes-and-events.md#44-失败与降级观测) |
 | 主动写入沿用 agent 的标题 | Mode B 把 agent 拟定的标题交给模型并要求沿用，只在与内容不符或缺少检索名词时修改；MCP 写入工具说明与使用手册 skill 同步 | [Patchouli 生成](./patchouli/generation.md#32-mode-b主动-write)、[MCP 记忆访问](./contracts/mcp.md#3-工具) |
 
-不在 v0.7.3：合并遇到版本冲突时是否重做（[合并版本冲突 Todo](./todo/merge-version-conflict.md)）；多条提取后被动提取的膨胀与低留存（[被动提取膨胀 Todo](./todo/passive-extraction-volume-and-retention.md)）；两种生成方式在统一架构中的兼容（[统一的交互记忆](./ideas/unified-interaction-memory.md)，候选方向）；查重的判定信号（[查重 Todo](./todo/generation-dedup-decision-signal.md)）；导入轮次的跨会话落位（[跨会话落位 Todo](./todo/cross-conversation-topic-placement.md)）；本机 HTTP 管理接口证明调用方（[管理接口 Todo](./todo/local-http-management-access.md)）。
+不在 v0.7.3：合并遇到版本冲突时是否重做（[合并版本冲突 Todo](./todo/merge-version-conflict.md)）；多条提取后被动提取的膨胀与低留存（[被动提取膨胀 Todo](./todo/passive-extraction-volume-and-retention.md)）；两种生成方式在统一架构中的兼容（[统一的交互记忆](./ideas/unified-interaction-memory.md)，候选方向）；查重的判定信号（[查重 Todo](./todo/generation-dedup-decision-signal.md)）；导入轮次的跨会话落位（[跨会话落位 Todo](./todo/cross-conversation-topic-placement.md)）；本机 HTTP 管理接口证明调用方（2026-11-05 以管理凭据完成防误用，[归档 Todo](./archive/todo/local-http-management-access.md)）。
 
 ### 4.4 冷启动、历史导入与外源文档资产化（候选）
 
@@ -238,7 +238,7 @@ v0.7.0 A2-P 完整记忆历史 + 文档来源 / 版本 -> MTP READ 专项编译
 
 状态：Candidate，不绑定版本（2026-10-30 撤销原 `v0.8.x` 产品化窗口），正式 Plan 待建立；不是 Deep Research 或 Alice 高级编排的强制下游。完整发布之前可以做有限启动/连接原型，完整发布以资源生命周期、前端传输和数据管理稳定为门槛。
 
-桌面化覆盖的工作多于 Web 页面外壳：本地 Python 服务及存储依赖的分发/连接、启动就绪、端口冲突、关闭 drain、数据目录、备份与升级、凭据、日志与崩溃诊断。HTTP、SSE、WebSocket 都需可配置地连接同一服务，不能仅迁移日志 URL。平台先选实际使用的一种完成闭环，再扩展安装包和签名发布。
+桌面化覆盖的工作多于 Web 页面外壳：本地 Python 服务及存储依赖的分发/连接、启动就绪、端口冲突、关闭 drain、数据目录、备份与升级、凭据、日志与崩溃诊断。HTTP 管理凭据的防刻意随桌面客户端完成：主进程在内存中持有凭据，不落盘（[身份与访问体系 Idea](./ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节）。HTTP、SSE、WebSocket 都需可配置地连接同一服务，不能仅迁移日志 URL。平台先选实际使用的一种完成闭环，再扩展安装包和签名发布。
 
 Electron renderer 使用公开资源 API，main process 只持有必要的原生桥接与服务管理权限；远程内容和 Agent 代码不在特权主进程执行。Electron 的 renderer sandbox 不能替代 Agent 执行沙箱。
 

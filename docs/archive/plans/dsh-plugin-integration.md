@@ -215,6 +215,6 @@ pytest tests/integration/workspace/test_published_registration_chain.py -q
 
 - 插件加载并注册四个工具，登记了 4 个会话：3 个是安装前已有的会话，不回填；1 个新会话的第 1 轮等待导入。插件的轮次投影离线核对过这些会话的真实记录（6 轮，均为 `completed`）。
 - 工具调用与导入以 `unknown_principal` 被拒：运行中的后端早于 `harness:dsh` 的登记启动，而登记只在启动时装载。处理是重启后端，排查表中有对应一行。dsh 中的 agent 把原因误判为缺少 `X-Workspace-ID`，插件不需要改动。
-- 试用中 dsh 的 agent 经本机转发读取 `/api/v1/config`，拿到了明文密钥。接口响应的打码已由 PR #157 修复，主配置保存写入密钥与 HTTP 管理接口不证明调用方登记为 Todo（[密钥写入](../todo/config-secrets-written-to-yaml.md)、[管理接口](../../todo/local-http-management-access.md)）。含密钥的那一轮由 owner 轮换密钥后照常导入。
+- 试用中 dsh 的 agent 经本机转发读取 `/api/v1/config`，拿到了明文密钥。接口响应的打码已由 PR #157 修复，主配置保存写入密钥与 HTTP 管理接口不证明调用方登记为 Todo（[密钥写入](../todo/config-secrets-written-to-yaml.md)、[管理接口](../todo/local-http-management-access.md)）。含密钥的那一轮由 owner 轮换密钥后照常导入。
 
 **验收状态**：owner 决定此时收尾并合并（2026-11-01）。真实模型下的完整验收在重启后端后的日常使用中完成：写入得到 `draft_` 句柄、这一轮回流落在写入派发的话题、新会话中检索召回。dsh 配套的引导 skill 在后续分支完成（owner，2026-11-01）。

@@ -11,6 +11,7 @@ code_paths:
   - frontend/vite.config.ts
   - src/hivememory/server/__main__.py
   - src/hivememory/server/app.py
+  - src/hivememory/server/management_credential.py
   - scripts/hivememory-dev.sh
   - scripts/hivememory-dev.env.example
 related_contracts:
@@ -18,7 +19,7 @@ related_contracts:
 related_docs:
   - docs/help/claude-code-plugin.md
   - docs/help/deepseek-harness-plugin.md
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-05
 ---
 
 # 安装与启动 HiveMemory
@@ -90,6 +91,8 @@ Compose 会启动：
 - Liveness：`http://localhost:8000/health`
 - Readiness：`http://localhost:8000/health/ready`
 
+Compose 只在宿主的本机地址上开放 `8000`；需要从其他机器访问时，自行把 `docker/docker-compose.yml` 中的端口映射改回 `8000:8000`。页面会自动取得管理凭据，在终端中调用管理接口见第 4.3 节。
+
 Qdrant HTTP/gRPC 分别暴露在 `6333/6334`，Qdrant 镜像自带的管理界面位于 `http://localhost:6333/dashboard`。
 
 Dockerfile 默认在镜像构建阶段预下载模型，经运行时同一套配置加载与模型服务完成，模型落在配置的 `cache_dir`（默认 `data/model_cache`），运行时直接使用，因此首次 `--build` 可能耗时很长；运行容器仍会在后台完成模型 warmup。Compose healthcheck 当前检查 `/health`，它只证明 Web 服务存活，不代表模型已经 ready。
@@ -136,7 +139,7 @@ python -c "import hivememory; print(hivememory.__version__)"
 hivememory-server
 ```
 
-包脚本调用 `hivememory.server.__main__`，监听 `0.0.0.0:8769`。启动后检查：
+包脚本调用 `hivememory.server.__main__`，默认只监听本机地址 `127.0.0.1:8769`；需要对外监听时，以环境变量 `HIVEMEMORY_BACKEND_HOST` 显式指定（例如 `0.0.0.0`）。启动后检查：
 
 ```text
 curl http://localhost:8769/health
@@ -146,6 +149,15 @@ curl http://localhost:8769/health/ready
 `/health/ready` 在模型尚未完成后台预热时返回 HTTP 503 与 `warming_up`，这是可预期状态。若服务进程退出或长时间无法 ready，再进入排障。
 
 ready 表示嵌入与重排模型都至少成功加载过一次，不表示模型此刻在内存中。默认配置下模型空闲一段时间后卸载、归还内存（嵌入模型 30 分钟、重排模型 10 分钟），`/health/ready` 仍为 ready；卸载后的首次使用要重新加载模型，单个模型约需 1～3 秒，首次检索可能跳过重排。需要模型一直驻留时，把 `shared.embedding.default.residency` 与 `patchouli.retrieval.reranker.residency` 设为 `resident`（[配置](../system/configuration.md)）。
+
+后端首次启动时生成管理凭据 `configs/management.token`（已被 `.gitignore` 排除）。`/api/` 下除对话导入之外的接口都要求它，前端会自动带上（第 4.4 节）；在终端中直接调用时需要自己带上，否则返回 401：
+
+```bash
+curl -H "Authorization: Bearer $(cat configs/management.token)" \
+  http://127.0.0.1:8769/api/v1/memories
+```
+
+删除这个文件后重启后端会生成新的凭据，开发模式下的 Vite 不需要重启。外部 harness 的插件只调用 `/mcp` 与对话导入，不需要管理凭据。管理凭据只防误用：以同一系统用户运行的程序能读到这个文件（[认证与访问登记](../workspace/authentication.md#8-已知限制)）。
 
 ### 4.4 启动前端
 
@@ -157,7 +169,7 @@ npm ci
 npm run dev
 ```
 
-打开 `http://127.0.0.1:5173`。Vite 将相对 `/api` 请求和 WebSocket 代理到 `http://localhost:8769`。
+打开 `http://127.0.0.1:5173`。Vite 将相对 `/api` 请求和 WebSocket 代理到 `http://localhost:8769`，转发时从 `configs/management.token` 读出管理凭据并附上；Vite 先于后端启动时，后端生成凭据之后的请求即可通过。
 
 ### 4.5 用脚本管理本机服务（WSL/Linux）
 
