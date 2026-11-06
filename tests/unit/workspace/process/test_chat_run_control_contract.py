@@ -39,7 +39,6 @@ from hivememory.core.models import (
     ActorIdentity,
     AttachmentSelectionRequest,
     ExecutionLabels,
-    IdentityScope,
     ResolvedAgentProfile,
     WorkspaceIdentity,
 )
@@ -775,8 +774,7 @@ async def test_every_outcome_exits_through_single_close_path(outcome: str, last_
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
     requestor = await _system_requestor(composition)
-    asset_scope = IdentityScope(actor_identity=_actor(), workspace_identity=_workspace())
-    asset = make_ready_text_asset(store, asset_scope, operation_id="op-exit", content="附件正文")
+    asset = make_ready_text_asset(store, _workspace(), operation_id="op-exit", content="附件正文")
     sessions = ConversationSessionService(WorkspaceSessionConfig())
     released: list[str] = []
     release = sessions.release

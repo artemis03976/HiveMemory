@@ -41,7 +41,7 @@ from hivememory.core.models.artifact import (
 )
 from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.core.models.workspace_asset import TopicAssetBinding
-from hivememory.core.ports.workspace_assets import WorkspaceAssetMaterializationReaderPort
+from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
 from hivememory.engines.generation.models import (
     GenerationAction,
@@ -75,7 +75,7 @@ class MemoryGenerationFamiliar:
         generation_engine: MemoryGenerationEngine,
         memory_library: MemoryLibrary,
         artifact_engine: ArtifactEngine | None = None,
-        asset_reader: WorkspaceAssetMaterializationReaderPort | None = None,
+        asset_reader: WorkspaceAssetReaderPort | None = None,
         now: Callable[[], datetime] | None = None,
     ) -> None:
         from hivememory.engines.artifacts.engine import ArtifactEngine

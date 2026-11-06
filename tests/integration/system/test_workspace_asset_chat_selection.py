@@ -29,7 +29,7 @@ from tests.helpers.process import (
     error_code,
     make_task_process_service,
 )
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_workspace_identity
 from tests.unit.workspace.process.test_gateway_chat_flow import (
     _profile_route,
     _scoped_prepared_route,
@@ -164,7 +164,7 @@ async def test_uploaded_ready_asset_can_be_selected_by_task_process() -> None:
 async def test_removed_asset_rejects_selection_after_upload() -> None:
     """捕获 removed 后的选择绕过 not-found/removed 语义进入本轮。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = make_identity_scope(user_id="user-1", agent_id="omni_doll")
+    workspace = make_workspace_identity(owner_user_id="user-1")
     composition = make_upload_access(user_id="user-1")
     upload_actor = await composition.authenticate(agent_id="system")
     upload_service = make_upload_service(
@@ -181,7 +181,7 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
         operation_id="op-gone",
         media_type="text/plain",
     )
-    store.remove_asset(scope, receipt.handle.asset_ref)
+    store.remove_asset(workspace, receipt.handle.asset_ref)
 
     bus = GlobalSystemBus()
     bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())

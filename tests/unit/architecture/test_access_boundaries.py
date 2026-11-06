@@ -207,12 +207,9 @@ def test_working_actor_is_only_constructed_by_the_authentication_side():
     assert _constructor_sites("WorkingActor") == {"workspace/authentication.py"}
 
 
-def test_identity_scope_is_only_constructed_by_the_authorizer_and_asset_bridge():
-    """``IdentityScope`` 只由授权者组装；资产桥接在一次租借内组装 scope 是登记的例外。"""
-    assert _constructor_sites("IdentityScope") == {
-        "workspace/authorization.py",
-        "system/services/asset_materialization_reader.py",
-    }
+def test_identity_scope_is_only_constructed_by_the_authorizer():
+    """``IdentityScope`` 只由授权者组装：资源 owner 与适配器不能自行拼出操作身份。"""
+    assert _constructor_sites("IdentityScope") == {"workspace/authorization.py"}
 
 
 def test_resource_owners_and_cpu_do_not_reference_working_actor():

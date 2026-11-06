@@ -141,9 +141,9 @@ def _memory_atom(title: str) -> MemoryAtom:
     )
 
 
-async def _store_scope(composition: AccessTestComposition) -> IdentityScope:
-    """构造 Store 测试资产的 scope：资产归属只取其中的 Workspace。"""
-    return IdentityScope(actor_identity=_actor(), workspace_identity=composition.default_workspace)
+def _asset_workspace(composition: AccessTestComposition) -> WorkspaceIdentity:
+    """Store 测试资产的归属：任务的目标 Workspace。"""
+    return composition.default_workspace
 
 
 def _constant(value):
@@ -562,31 +562,31 @@ async def test_profile_resolution_failure_fails_stream_before_prepare() -> None:
 # ========== 附件租借（CPU 分配边界） ==========
 
 
-class _ScopeRecordingReader:
-    """资产库只读端口的代理：记录每次租借收到的 scope，其余行为来自真实 Store。"""
+class _RecordingReader:
+    """资产库只读端口的代理：记录每次租借收到的归属，其余行为来自真实 Store。"""
 
     def __init__(self, store: InMemoryWorkspaceAssetStore) -> None:
         self._store = store
-        self.acquire_scopes: list[IdentityScope] = []
+        self.acquired_for: list[WorkspaceIdentity] = []
 
     def __getattr__(self, name):
         return getattr(self._store, name)
 
-    def acquire_ready_representation(self, scope, asset_ref):
-        self.acquire_scopes.append(scope)
-        return self._store.acquire_ready_representation(scope, asset_ref)
+    def acquire_ready_representation(self, belong_to, asset_ref):
+        self.acquired_for.append(belong_to)
+        return self._store.acquire_ready_representation(belong_to, asset_ref)
 
 
 @pytest.mark.asyncio
 async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> None:
-    """按用户选择顺序由系统以 root scope 租借并编译；prepare 路由不再接收附件参数。"""
+    """按用户选择顺序由系统以 root 授权后租借并编译；prepare 路由不再接收附件参数。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
-    scope = await _store_scope(composition)
-    ref_a = make_ready_text_asset(store, scope, operation_id="op-a", content="正文甲")
+    belong_to = _asset_workspace(composition)
+    ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a", content="正文甲")
     ref_b = make_ready_text_asset(
         store,
-        scope,
+        belong_to,
         operation_id="op-b",
         content="正文乙",
         content_hash="text-hash-b",
@@ -610,7 +610,7 @@ async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> N
 
     bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
-    reader = _ScopeRecordingReader(store)
+    reader = _RecordingReader(store)
     service, composition = await _service(bus, store=reader)
     events = await _run_once(
         composition,
@@ -627,8 +627,8 @@ async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> N
     assert "selected_attachments" not in prepare_kwargs
     # 用户顺序：第二份在前；实际使用引用按编译顺序冻结，经封口 payload 交给 finalize。
     assert list(finalize_kwargs["payload"].used_attachments) == [ref_b, ref_a]
-    # 附件是用户的选择：租借以系统的 root scope 进行，不以执行者的身份。
-    assert reader.acquire_scopes == [_root_scope(), _root_scope()]
+    # 附件是用户的选择：系统以 root 授权之后租借，资产库只收到任务的目标 Workspace。
+    assert reader.acquired_for == [composition.default_workspace] * 2
     assert store.close_and_clear().leases_cleared == 0
 
 
@@ -637,8 +637,8 @@ async def test_no_actor_operations_still_allocates_attachments_and_finalizes() -
     """没有 actor 操作仍能租借并编译附件，完成交互封口后释放全部租借。"""
     store = InMemoryWorkspaceAssetStore()
     # 资产准备与本轮进程的行为许可无关；以同一归属的独立测试组合预先上传。
-    scope = await _store_scope(_composition())
-    ref_a = make_ready_text_asset(store, scope, operation_id="op-a", content="阶段附件正文")
+    belong_to = _asset_workspace(_composition())
+    ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a", content="阶段附件正文")
     composition = _composition(excluded_operations=frozenset(WorkspaceOperation))
 
     bus = GlobalSystemBus()
@@ -674,11 +674,11 @@ async def test_attachment_version_mismatch_releases_leases_and_rejects() -> None
     """版本摘要不一致（分配失败）：抛 AssetOperationConflictError，已取得的租借全部释放。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
-    scope = await _store_scope(composition)
-    ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
+    belong_to = _asset_workspace(composition)
+    ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
     ref_b = make_ready_text_asset(
         store,
-        scope,
+        belong_to,
         operation_id="op-b",
         content="正文乙",
         content_hash="text-hash-b",
@@ -712,8 +712,8 @@ async def test_unknown_attachment_ref_rejected_without_leaking_leases() -> None:
     """未知 ref：拒绝整轮，且此前已取得的租借不泄漏。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
-    scope = await _store_scope(composition)
-    ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
+    belong_to = _asset_workspace(composition)
+    ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
 
     bus = GlobalSystemBus()
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
@@ -744,9 +744,9 @@ async def test_removed_asset_rejected_without_leaking_leases() -> None:
     """已移除资产：沿用 Store 的 removed 语义拒绝，不残留租借。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
-    scope = await _store_scope(composition)
-    ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
-    store.remove_asset(scope, ref_a)
+    belong_to = _asset_workspace(composition)
+    ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
+    store.remove_asset(belong_to, ref_a)
 
     bus = GlobalSystemBus()
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
@@ -772,11 +772,11 @@ async def test_finalize_receives_used_attachments_from_compile_result() -> None:
     """finalize 收到的 used_attachments 等于编译实际使用的附件；被预算跳过的不在其中。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
-    scope = await _store_scope(composition)
-    ref_a = make_ready_text_asset(store, scope, operation_id="op-a", content="a" * 15)
+    belong_to = _asset_workspace(composition)
+    ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a", content="a" * 15)
     ref_b = make_ready_text_asset(
         store,
-        scope,
+        belong_to,
         operation_id="op-b",
         content="b" * 10,
         content_hash="text-hash-b",
@@ -827,8 +827,8 @@ async def test_leased_attachment_released_after_completed_run() -> None:
     """完成路径：finalize 之后进程 finally 释放租借。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
-    scope = await _store_scope(composition)
-    ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
+    belong_to = _asset_workspace(composition)
+    ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
 
     bus = GlobalSystemBus()
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
@@ -854,8 +854,8 @@ async def test_leased_attachment_released_when_cpu_reports_failure() -> None:
     """CPU 自报失败且无输出：不进入 finalize，进程 finally 仍释放租借。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
-    scope = await _store_scope(composition)
-    ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
+    belong_to = _asset_workspace(composition)
+    ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
 
     bus = GlobalSystemBus()
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
@@ -900,8 +900,8 @@ async def test_delivery_cancelled_during_cleanup_still_releases_leases_and_close
     """
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
-    scope = await _store_scope(composition)
-    ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
+    belong_to = _asset_workspace(composition)
+    ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
 
     bus = GlobalSystemBus()
     cleanup_started = asyncio.Event()
@@ -945,8 +945,8 @@ async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() ->
     """
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
-    scope = await _store_scope(composition)
-    ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
+    belong_to = _asset_workspace(composition)
+    ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
 
     bus = GlobalSystemBus()
     prepare_started = asyncio.Event()
@@ -1004,8 +1004,8 @@ async def test_stop_during_profile_resolution_takes_effect_before_actor() -> Non
     """
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
-    scope = await _store_scope(composition)
-    ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
+    belong_to = _asset_workspace(composition)
+    ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
 
     bus = GlobalSystemBus()
     allocation_started = asyncio.Event()
@@ -1057,8 +1057,8 @@ async def test_lease_release_tolerates_store_closed_after_finalize() -> None:
     """Store 关闭后的租借释放只记录警告，不把已完成的 Chat 改写为异常。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
-    scope = await _store_scope(composition)
-    ref_a = make_ready_text_asset(store, scope, operation_id="op-a")
+    belong_to = _asset_workspace(composition)
+    ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
 
     bus = GlobalSystemBus()
     bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)

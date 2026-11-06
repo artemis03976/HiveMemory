@@ -18,9 +18,8 @@ from hivememory.core.errors import (
     AssetRemovedError,
     StaleAssetResultError,
 )
-from hivememory.core.models.identity import IdentityScope, WorkspaceIdentity
+from hivememory.core.models.identity import WorkspaceIdentity
 from hivememory.core.models.immutable import FrozenDict, freeze_value
-from hivememory.core.models.workspace import require_identity_scope
 from hivememory.core.models.workspace_asset import (
     AssetRepresentation,
     AssetRepresentationKind,
@@ -86,6 +85,9 @@ class InMemoryWorkspaceAssetStore:
 
     所有命名命令和 ``close_and_clear`` 共用一把 RLock。required representation
     的状态更新、asset 聚合更新及 REMOVED 检查因此形成同一次线性化提交。
+
+    Store 是授权点以下的资源 owner：每个方法只接收资产归属 ``belong_to``，
+    授权由调用方先完成；归属不符与未知引用以同一错误拒绝。
     """
 
     def __init__(self) -> None:
@@ -113,19 +115,18 @@ class InMemoryWorkspaceAssetStore:
 
     def create_asset(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         metadata: WorkspaceAssetMetadata,
         client_operation_id: str,
     ) -> WorkspaceAssetHandle:
         """按 WorkspaceIdentity 与客户端操作 ID 幂等创建逻辑资产。"""
-        scope = require_identity_scope(identity_scope)
         operation_id = self._require_text(client_operation_id, "client_operation_id")
         if not isinstance(metadata, WorkspaceAssetMetadata):
             raise TypeError("metadata 必须是 WorkspaceAssetMetadata")
 
         with self._lock:
             self._ensure_open()
-            idempotency_key = (scope.workspace_identity, operation_id)
+            idempotency_key = (belong_to, operation_id)
             existing = self._idempotency_index.get(idempotency_key)
             if existing is not None:
                 if existing.metadata != metadata:
@@ -138,7 +139,7 @@ class InMemoryWorkspaceAssetStore:
 
             asset_id = self._new_prefixed_id("asset")
             asset_key = WorkspaceAssetKey(
-                workspace_identity=scope.workspace_identity,
+                workspace_identity=belong_to,
                 asset_id=asset_id,
             )
             asset_ref = WorkspaceAssetRef(
@@ -161,7 +162,7 @@ class InMemoryWorkspaceAssetStore:
 
     def register_uploaded_asset(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         metadata: WorkspaceAssetMetadata,
         client_operation_id: str,
         *,
@@ -184,7 +185,6 @@ class InMemoryWorkspaceAssetStore:
         对文档资产，RAW 不满足 required representation，因此聚合状态保持
         ``PROCESSING``，等待后续 ``EXTRACTED_TEXT`` 终态原子提交。
         """
-        scope = require_identity_scope(identity_scope)
         operation_id = self._require_text(client_operation_id, "client_operation_id")
         if not isinstance(metadata, WorkspaceAssetMetadata):
             raise TypeError("metadata 必须是 WorkspaceAssetMetadata")
@@ -193,7 +193,7 @@ class InMemoryWorkspaceAssetStore:
 
         with self._lock:
             self._ensure_open()
-            idempotency_key = (scope.workspace_identity, operation_id)
+            idempotency_key = (belong_to, operation_id)
             existing = self._upload_idempotency_index.get(idempotency_key)
             if existing is not None:
                 if existing.metadata != metadata or existing.raw_content_hash != normalized_hash:
@@ -211,7 +211,7 @@ class InMemoryWorkspaceAssetStore:
 
             asset_id = self._new_prefixed_id("asset")
             asset_key = WorkspaceAssetKey(
-                workspace_identity=scope.workspace_identity,
+                workspace_identity=belong_to,
                 asset_id=asset_id,
             )
             asset_ref = WorkspaceAssetRef(
@@ -257,7 +257,7 @@ class InMemoryWorkspaceAssetStore:
 
     def register_raw_representation(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
         *,
         content_object: Any,
@@ -267,7 +267,7 @@ class InMemoryWorkspaceAssetStore:
     ) -> WorkspaceAsset:
         """原子注册一个初始即 READY 的 RAW representation。"""
         with self._lock:
-            entry = self._entry_for_command(identity_scope, asset_ref)
+            entry = self._entry_for_command(belong_to, asset_ref)
             self._require_asset_processing(entry)
             self._require_kind_absent(entry, AssetRepresentationKind.RAW)
             representation = AssetRepresentation(
@@ -288,7 +288,7 @@ class InMemoryWorkspaceAssetStore:
 
     def register_representation(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
         *,
         kind: AssetRepresentationKind,
@@ -297,7 +297,7 @@ class InMemoryWorkspaceAssetStore:
     ) -> WorkspaceAsset:
         """注册一个 PENDING 非 RAW representation，等待显式 start。"""
         with self._lock:
-            entry = self._entry_for_command(identity_scope, asset_ref)
+            entry = self._entry_for_command(belong_to, asset_ref)
             if kind == AssetRepresentationKind.RAW:
                 raise AssetOperationConflictError("RAW representation 必须通过专用命令注册")
             self._require_asset_processing(entry)
@@ -317,13 +317,13 @@ class InMemoryWorkspaceAssetStore:
 
     def start_representation(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
         representation_id: str,
     ) -> WorkspaceAsset:
         """将 PENDING representation 推进到 PROCESSING 并签发随机操作 token。"""
         with self._lock:
-            entry = self._entry_for_command(identity_scope, asset_ref)
+            entry = self._entry_for_command(belong_to, asset_ref)
             self._require_asset_processing(entry)
             representation = self._get_representation(entry, representation_id)
             if representation.state != AssetRepresentationState.PENDING:
@@ -347,7 +347,7 @@ class InMemoryWorkspaceAssetStore:
 
     def complete_representation(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
         representation_id: str,
         expected_revision_or_token: int | str,
@@ -357,7 +357,7 @@ class InMemoryWorkspaceAssetStore:
     ) -> WorkspaceAsset:
         """校验 result guard 后原子提交 READY representation 与资产聚合状态。"""
         with self._lock:
-            entry = self._entry_for_command(identity_scope, asset_ref)
+            entry = self._entry_for_command(belong_to, asset_ref)
             representation = self._get_processing_result_target(
                 entry,
                 representation_id,
@@ -381,7 +381,7 @@ class InMemoryWorkspaceAssetStore:
 
     def fail_representation(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
         representation_id: str,
         expected_revision_or_token: int | str,
@@ -390,7 +390,7 @@ class InMemoryWorkspaceAssetStore:
     ) -> WorkspaceAsset:
         """校验 result guard 后原子提交 FAILED representation 与资产聚合状态。"""
         with self._lock:
-            entry = self._entry_for_command(identity_scope, asset_ref)
+            entry = self._entry_for_command(belong_to, asset_ref)
             if not isinstance(safe_error, AssetSafeError):
                 raise TypeError("safe_error 必须是 AssetSafeError")
             representation = self._get_processing_result_target(
@@ -416,27 +416,26 @@ class InMemoryWorkspaceAssetStore:
 
     def resolve_asset(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
     ) -> WorkspaceAsset:
         """在重验 Workspace 归属后仅返回 READY asset。"""
         with self._lock:
-            entry = self._entry_for_read(identity_scope, asset_ref)
+            entry = self._entry_for_read(belong_to, asset_ref)
             self._require_asset_ready(entry)
             return self._snapshot(entry)
 
     def list_workspace_assets(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
     ) -> list[WorkspaceAssetHandle]:
         """列出当前 Workspace 内尚未移除的权威资产快照。"""
-        scope = require_identity_scope(identity_scope)
         with self._lock:
             self._ensure_open()
             entries = (
                 entry
                 for entry in self._assets.values()
-                if entry.key.workspace_identity == scope.workspace_identity
+                if entry.key.workspace_identity == belong_to
                 and entry.state != WorkspaceAssetState.REMOVED
             )
             return [
@@ -446,13 +445,13 @@ class InMemoryWorkspaceAssetStore:
 
     def acquire_ready_representation(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
         preference: RepresentationPreference | None = None,
     ) -> RepresentationLease:
         """选择 READY representation 并在同一临界区建立进程内 hold。"""
         with self._lock:
-            entry = self._entry_for_read(identity_scope, asset_ref)
+            entry = self._entry_for_read(belong_to, asset_ref)
             self._require_asset_ready(entry)
             kinds = (
                 preference.preferred_kinds
@@ -496,12 +495,12 @@ class InMemoryWorkspaceAssetStore:
 
     def remove_asset(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
     ) -> WorkspaceAsset:
         """将资产原子推进到不可逆 REMOVED，并释放非 lease 内容引用。"""
         with self._lock:
-            entry = self._entry_for_read(identity_scope, asset_ref)
+            entry = self._entry_for_read(belong_to, asset_ref)
             if entry.state == WorkspaceAssetState.REMOVED:
                 return self._snapshot(entry)
 
@@ -559,17 +558,16 @@ class InMemoryWorkspaceAssetStore:
 
     def _entry_for_read(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
     ) -> _AssetEntry:
-        scope = require_identity_scope(identity_scope)
         self._ensure_open()
         if not isinstance(asset_ref, WorkspaceAssetRef):
             raise AssetNotFoundError()
         asset_key = self._ref_index.get(asset_ref.token)
         if (
             asset_key is None
-            or asset_key.workspace_identity != scope.workspace_identity
+            or asset_key.workspace_identity != belong_to
             or asset_key.asset_id != asset_ref.asset_id
         ):
             # 跨 Workspace 与未知 token 使用同一结果，避免泄露资源是否存在。
@@ -581,10 +579,10 @@ class InMemoryWorkspaceAssetStore:
 
     def _entry_for_command(
         self,
-        identity_scope: IdentityScope,
+        belong_to: WorkspaceIdentity,
         asset_ref: WorkspaceAssetRef,
     ) -> _AssetEntry:
-        entry = self._entry_for_read(identity_scope, asset_ref)
+        entry = self._entry_for_read(belong_to, asset_ref)
         if entry.state == WorkspaceAssetState.REMOVED:
             raise AssetRemovedError()
         return entry

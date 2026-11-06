@@ -29,7 +29,7 @@ from tests.helpers.attachment_parsing import (
     scripted_factory,
     wait_until_condition,
 )
-from tests.helpers.workspace import make_identity_scope
+from tests.helpers.workspace import make_workspace_identity
 
 
 def _stack(store: InMemoryWorkspaceAssetStore, parser: ScriptedAttachmentParser):
@@ -73,14 +73,14 @@ async def test_remove_during_parse_wins_and_late_result_cannot_resurrect(
 ) -> None:
     """捕获 remove 与 complete/fail 竞态中出现部分提交或 REMOVED 复活。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = make_identity_scope(user_id="user-1")
+    workspace = make_workspace_identity(owner_user_id="user-1")
     gate = threading.Event()
     parser = ScriptedAttachmentParser(error=parse_error, gate=gate)
     service, composition = _stack(store, parser)
 
     task = asyncio.create_task(_raced_upload(service, composition))
     await wait_until_condition(lambda: parser.started.is_set())
-    removed = store.remove_asset(scope, _current_ref(store, scope))
+    removed = store.remove_asset(workspace, _current_ref(store, workspace))
     assert removed.state == WorkspaceAssetState.REMOVED
 
     gate.set()
@@ -88,7 +88,7 @@ async def test_remove_during_parse_wins_and_late_result_cannot_resurrect(
     with pytest.raises(AssetRemovedError):
         await task
 
-    assert store.list_workspace_assets(scope) == []
+    assert store.list_workspace_assets(workspace) == []
     # 资产记录保持 REMOVED，未因晚到结果复活。
     await wait_until_condition(lambda: parser.finished.is_set())
 
@@ -97,21 +97,21 @@ async def test_remove_during_parse_wins_and_late_result_cannot_resurrect(
 async def test_late_parse_failure_preserves_winner_and_reports_stale_result() -> None:
     """其他提交已决定终态时，晚到失败应返回冲突，不能回退到上传旧快照。"""
     store = InMemoryWorkspaceAssetStore()
-    scope = make_identity_scope(user_id="user-1")
+    workspace = make_workspace_identity(owner_user_id="user-1")
     gate = threading.Event()
     parser = ScriptedAttachmentParser(error=RuntimeError("late failure"), gate=gate)
     service, composition = _stack(store, parser)
     task = asyncio.create_task(_raced_upload(service, composition))
     try:
         await wait_until_condition(parser.started.is_set)
-        handle = store.list_workspace_assets(scope)[0]
+        handle = store.list_workspace_assets(workspace)[0]
         target = next(
             item
             for item in handle.asset.representations
             if item.kind == AssetRepresentationKind.EXTRACTED_TEXT
         )
         winner = store.fail_representation(
-            scope,
+            workspace,
             handle.asset_ref,
             target.representation_id,
             target.parse_operation_id,
@@ -120,14 +120,14 @@ async def test_late_parse_failure_preserves_winner_and_reports_stale_result() ->
         gate.set()
         with pytest.raises(StaleAssetResultError):
             await task
-        assert store.list_workspace_assets(scope)[0].asset == winner
+        assert store.list_workspace_assets(workspace)[0].asset == winner
     finally:
         gate.set()
         await asyncio.gather(task, return_exceptions=True)
 
 
-def _current_ref(store: InMemoryWorkspaceAssetStore, scope):
+def _current_ref(store: InMemoryWorkspaceAssetStore, workspace):
     """取当前资产的 opaque ref（remove 竞态的准备步骤）。"""
-    handles = store.list_workspace_assets(scope)
+    handles = store.list_workspace_assets(workspace)
     assert len(handles) == 1
     return handles[0].asset_ref

@@ -9,16 +9,16 @@ from __future__ import annotations
 
 from hivememory.core.models import (
     AssetRepresentationKind,
-    IdentityScope,
     WorkspaceAssetMetadata,
     WorkspaceAssetRef,
+    WorkspaceIdentity,
 )
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 
 
 def make_ready_text_asset(
     store: InMemoryWorkspaceAssetStore,
-    scope: IdentityScope,
+    belong_to: WorkspaceIdentity,
     *,
     operation_id: str,
     content: str = "extracted-body",
@@ -33,7 +33,7 @@ def make_ready_text_asset(
         required_representation_kind=AssetRepresentationKind.EXTRACTED_TEXT,
     )
     receipt = store.register_uploaded_asset(
-        scope,
+        belong_to,
         metadata,
         operation_id,
         raw_content_object=b"raw-bytes",
@@ -42,7 +42,7 @@ def make_ready_text_asset(
         raw_producer_version="1",
     )
     pending = store.register_representation(
-        scope,
+        belong_to,
         receipt.handle.asset_ref,
         kind=AssetRepresentationKind.EXTRACTED_TEXT,
         producer="test-parser",
@@ -53,7 +53,7 @@ def make_ready_text_asset(
         for item in pending.representations
         if item.kind == AssetRepresentationKind.EXTRACTED_TEXT
     )
-    processing = store.start_representation(scope, receipt.handle.asset_ref, target_id)
+    processing = store.start_representation(belong_to, receipt.handle.asset_ref, target_id)
     token = next(
         item.parse_operation_id
         for item in processing.representations
@@ -61,7 +61,7 @@ def make_ready_text_asset(
     )
     # 按确定性解析的产物契约构造 content_object（compiler 依赖映射结构与 locator）。
     store.complete_representation(
-        scope,
+        belong_to,
         receipt.handle.asset_ref,
         target_id,
         token,

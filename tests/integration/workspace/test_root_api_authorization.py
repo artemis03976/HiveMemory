@@ -38,7 +38,7 @@ from tests.helpers.sessions import make_interaction_payload
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
-    make_identity_scope,
+    make_workspace_identity,
 )
 
 _MEMORY_ID = UUID("da42f85f-63c6-44c1-b7c8-5b7084133508")
@@ -267,7 +267,7 @@ async def test_each_root_method_rejects_non_system_before_owner_or_asset_effects
     assert excinfo.value.details["reason"] == "root_required"
     assert owner.accepted == []
     assert upload_source.read_count == 0
-    assert store.list_workspace_assets(make_identity_scope(user_id="u1")) == []
+    assert store.list_workspace_assets(make_workspace_identity(owner_user_id="u1")) == []
 
 
 async def _system_root_services():
@@ -309,5 +309,5 @@ async def test_root_upload_registers_asset_as_system_without_actor_operations():
 
     assert receipt.handle.asset.state == WorkspaceAssetState.READY
     assert receipt.handle.asset.representations[1].content_object["text"] == "root upload"
-    assert len(store.list_workspace_assets(make_identity_scope(user_id="u1"))) == 1
+    assert len(store.list_workspace_assets(make_workspace_identity(owner_user_id="u1"))) == 1
     assert owner.accepted == []
