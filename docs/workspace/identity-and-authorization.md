@@ -105,11 +105,11 @@ Workspace 的访问控制分四个阶段。前两个阶段在 actor 进入 Works
 1. 第 3 阶段之前不存在 `IdentityScope`：入口在认证前只持有 actor 声明与请求进入的 Workspace。
 2. 工作 actor 只由认证一侧构造，只出现在进程记录、线程记录、入口与 Import Bus 的调用链和授权点；不进入资源 owner、Gateway、引擎或存储，不进入 CPU 可见的对象，不写入任何记录、事件、交互记录或 DTO。
 3. 交互记录与后台任务独立保存资源归属和需要的发起者，不保存操作 scope 或工作 actor。
-4. 授权点只接收工作 actor 与目标 Workspace，`IdentityScope` 只由操作授权者组装（资产桥接是登记的例外，见第 8 节），不由调用方另行传入；公共 route 接收 scope，Patchouli 公共边界以下只接收拆分后的归属与发起者。
+4. 授权点只接收工作 actor 与目标 Workspace，`IdentityScope` 只由操作授权者组装，不由调用方另行传入；公共 route 接收 scope，Patchouli 公共边界以下只接收拆分后的归属与发起者。
 5. 资源 owner 先校验目标 Workspace 等于资源归属，再按资源 policy 检查发起者；管理视角也不跳过 Workspace 硬边界，资源来源不能充当权限依据。归属检查常以分区键或查询预过滤的形式完成、看似多余，但缓存与资产索引是进程级共享设施，存储的预过滤也不是授权事实，因此不能省略。
 6. 授权规则不是身份类型的约束：“actor 用户等于 Workspace owner”属于第 2、3 阶段，`IdentityScope` 不校验它。
 
-不变量 2、4 由架构测试守护：认证与授权模块只允许 workspace、System（组合根与 Import Bus 服务）与 server 导入；能力层、任务进程的执行器、CPU 分配与进程线程管理不导入认证一侧，子工作 actor 的准入只由进程线程管理调用；`WorkingActor(...)` 只在认证一侧构造，`IdentityScope(...)` 只在授权者与资产桥接中构造；Alice、agent_runtime、Patchouli、Gateway 与引擎不引用工作 actor；能力层、任务进程与 Import Bus 服务的公共方法不接收调用方组装的 `IdentityScope`，显式的目标 Workspace 必须与工作 actor 配对出现。身份拆分边界测试另限定 Patchouli 的 scope 引用只能出现在公共 handler，五个引擎与记录/任务模型不保留 scope 或工作 actor。
+不变量 2、4 由架构测试守护：认证与授权模块只允许 workspace、System（组合根与 Import Bus 服务）与 server 导入；能力层、任务进程的执行器、CPU 分配与进程线程管理不导入认证一侧，子工作 actor 的准入只由进程线程管理调用；`WorkingActor(...)` 只在认证一侧构造，`IdentityScope(...)` 只在授权者中构造；Alice、agent_runtime、Patchouli、Gateway 与引擎不引用工作 actor；能力层、任务进程与 Import Bus 服务的公共方法不接收调用方组装的 `IdentityScope`，显式的目标 Workspace 必须与工作 actor 配对出现。身份拆分边界测试另限定 Patchouli 的 scope 引用只能出现在公共 handler，五个引擎、资产 Store 与资产端口不引用 scope，记录/任务模型不保留 scope 或工作 actor。
 
 执行标签 `ExecutionLabels(agent_id, workspace_id)` 不是上表中的身份形态：它是注册认证通过后创建的冻结观测标签，输入清单与线程描述各带一份，只服务历史角色匹配、展示回退与观测，不能授权或选择资源目标，也不得据此重建访问身份（[任务进程](./task-process.md#2-注册)、[执行线程](./execution-threads.md#5-主线程交给-cpu)）。
 
@@ -215,7 +215,6 @@ Interaction codec 为 v7，generation codec 的 `schema_version` 为字符串 `"
 - principal 标识接入来源，一个外部 harness 对应一个 principal（[认证与访问登记](./authentication.md#1-两阶段认证)第 1 节），不与 Agent 绑定：同一个 harness 可以以不同的具体 Agent 运行，Agent 由经过凭据证明的来源声明，权限与记忆可见性只跟随 Agent，与经哪个来源接入无关。仍然存在的限制是可声明的 Agent 不要求已登记：用户级访问记录接纳该用户的任意具体 Agent，chat 需要对应的 Agent Profile，导入与 MCP 不要求。请求级提交只能检索、读取、写入与更新，RUN 与 CALL 仍需要执行线程；
 - 工作 actor 是普通值，进程内的防误用由构造、持有与调用位置的架构测试承担，不隔离刻意违规的进程内代码；
 - Patchouli 的交互提交（含状态查询与等待）与主动记忆意图提交路由只接收 `IdentityScope`、不做操作授权。交互提交路由唯一的生产调用方是 root API 的提交交互，意图提交路由唯一的生产调用方是 actor API，在 `memory.write`/`memory.update` 授权之后调用。新的调用方必须在自己的授权点先完成授权；
-- WorkspaceAsset 的存储、解析服务与既有资产端口仍以 `IdentityScope` 做归属检查，System 的资产桥接 `AssetMaterializationReader` 为此在一次租借内自行组装 scope，是 `IdentityScope` 构造位置的登记例外；
 - 第 3 阶段只接受目标等于驻留 Workspace，跨 Workspace 的授权模型尚不存在；后续方向见[身份与访问体系 Idea](../ideas/identity-and-access-model.md)。
 
 ## 9. 代码与测试入口

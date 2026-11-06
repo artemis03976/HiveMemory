@@ -24,7 +24,7 @@ related_docs:
   - docs/alice/orchestration.md
   - docs/todo/frontend-identity-ownership.md
   - docs/archive/todo/mtp-cache-scope-revalidation.md
-  - docs/todo/workspace-asset-ownership-identity-split.md
+  - docs/archive/todo/workspace-asset-ownership-identity-split.md
 last_reviewed: 2026-11-06
 ---
 
@@ -48,7 +48,7 @@ HiveMemory 已建立 Workspace 归属、MemoryVisibility、MTP permission、Agen
 | Frontend identity | 前端已统一用户导向身份选择上下文（`user_id + workspace_id` 基础选择经 `services/identity.ts` 以请求头携带） | UI 字段不是认证/授权边界；尚无登录/Workspace 切换 UI，切换时 cache/stream 清理仍待完整设计 |
 | Observability | RuntimeEvent 可携带 identity/run/frame/atom 关联 | 事件 payload 不能成为授权依据，也不能泄漏不应被当前身份看到的内容 |
 | Background work | Interaction 与生成任务独立保存 `belong_to`、`from_actor`；四种 SETTLE 触发统一使用归属 owner 的 `system` actor，查重只读取 PUBLIC | Work Store 仍只有进程内实现；跨重启恢复不在当前承诺内 |
-| WorkspaceAsset | Store 与解析链仍使用旧 `IdentityScope` 接口，但资源检查只比较归属；System 的 `AssetMaterializationReader` 为 Patchouli 提供归属读取端口 | 这是身份第二批明确暂缓的内部拆分，跟踪见 [WorkspaceAsset 归属拆分 Todo](../../todo/workspace-asset-ownership-identity-split.md) |
+| WorkspaceAsset | Store、解析服务与资产端口只接收资产归属，归属不符与未知引用以同一错误拒绝；上传与附件租借的授权在调用方完成 | 资产只按归属授权，没有修改与执行授权（[身份与访问体系 Idea](../../ideas/identity-and-access-model.md) P-8） |
 
 ## 2. 目标与非目标
 
@@ -92,7 +92,7 @@ CALL 子 Agent 以被调用方身份运行：任务进程在派生时对被调�
 
 入口层现状：HTTP 的用户导向身份选择在 `server/deps.py resolve_request_identity_claims` 解析为身份声明，经统一认证网关认证后，由 workspace 授权点在操作授权时组装 `IdentityScope`（模型见[身份与授权](../../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节），应用服务不再解析裸 `user_id`。交互导入（`POST /api/v1/import/turns`）与 MCP 记忆访问（`POST /mcp`）同样没有认证前组装的例外：外部 harness 有自己的接入登记，请求以 `X-Principal-ID` 声明 principal、以 `Authorization: Bearer` 携带接入凭据，网关第一阶段以常量时间比较核对凭据后才承认这个 principal；导入经 `import` adapter 认证，证明来源与参与的 Agent，导入本身由系统以 root 授权执行（不检查 actor 操作白名单，参与的 Agent 不能是 `system`），交互的发起者是参与者；MCP 经 `mcp` adapter 每次工具调用认证一次，只能检索、读取、写入与更新，写入与更新先由系统为这一轮确定话题，再按白名单授权（[MCP 记忆访问](../../contracts/mcp.md)）。接入凭据是每个外部 principal 一份本地共享密钥，只能防止本机其他程序冒用 harness 身份，不防止能读取用户环境的程序；principal 标识接入的 harness，不与 Agent 绑定：同一 harness 可以以不同 Agent 运行，Agent 由经过证明的来源声明；请求头中的用户选择与其他 HTTP 入口一样不做额外证明。非 Agent action 与系统级操作使用单独登记的保留 `system` actor，它是 root 授权唯一接受的 actor（root 授权不读取白名单）；Memory 管理读取按 owner-management 语义在归属硬边界内跳过 actor 可见性过滤，Agent retrieval 与 SETTLE 查重仍执行普通 `MemoryAccessPolicy`，后者以 `system` 为可见性主体。
 
-WorkspaceAsset 的 Store、解析服务与既有 Reader/Command 端口仍使用旧 `IdentityScope` 接口做归属检查；System 的 `AssetMaterializationReader` 只在一次 representation 租借内以归属和保留 `system` actor 组装适配所需 scope，Patchouli 使用归属读取端口，不保存该 scope。此例外不扩展到 Alice、CPU 或其他资源路径，内部拆分继续由 [WorkspaceAsset 归属 Todo](../../todo/workspace-asset-ownership-identity-split.md) 跟踪。
+WorkspaceAsset 的 Store、解析服务与资产端口只接收资产归属，`IdentityScope` 只由操作授权者构造，没有例外（2026-11-06，[归档计划](../../archive/plans/workspace-asset-ownership-split.md)）。
 
 工作 actor 是普通值：进程内的防误用由构造与持有位置的架构测试承担——只由认证一侧构造，不进入 Alice、agent_runtime、Patchouli、Gateway 与 CPU 可见的对象，不写入记录；子工作 actor 只沿用主工作 actor 的 principal 与驻留 Workspace、只换 Agent，准入与白名单仍在每次授权时即时检查。CPU 只持有不透明的线程句柄：`WorkspaceOperationEntry` 的线程提交分派前经线程表做唯一的存活判定（线程未结束且进程仍在运行），按对象身份核对句柄，标识相同的另一个句柄以接线缺陷拒绝，已结束的线程以生命周期错误拒绝，actor API 方法以线程记录的工作 actor 逐次授权；请求级提交只供 MCP 入口，只开放检索、读取、写入与更新，其余请求类型在分派前拒绝；`system` 的白名单为空，不能执行 actor 操作。CALL 的派生由入口在一次提交内组合：先以 `agent.call` 解析图纸，再由线程表以被调用方准入后派生，CPU 不能交回图纸来自报子线程的身份。线程结束只是标记；进程关闭兜底结束线程与释放租借先于任何 await，在途只读可完成。WRITE/UPDATE 在基础校验之后的同步段只解析一次线程，取得进程关联、线程标识与进程话题并登记；冷读跨越线程结束或停止时不登记。派发开始后持有受取消保护的提交任务直至结束，再传播取消；进程或 CALL 失败不撤回写入。新增副作用前有 await 的能力方法必须明确撤销与提交的边界。
 
@@ -131,7 +131,7 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 
 1. 已完成（2026-10-07）：PendingAtom registry 与引用解析归 workspace，按 Workspace 硬边界回读，不再按整个执行 scope 相等判断。Pending 第一版在全 Workspace 开放（UPDATE 意图跟随基础原子的可读性，2026-10-09），canonical redirect 重新校验资源 policy；旧 scope 校验背景见 [MTP cache scope revalidation 历史记录](../../archive/todo/mtp-cache-scope-revalidation.md)；
 2. 已完成（2026-10-07）：workspace 原子和 Profile 派生缓存按源坐标分区、命中重验、保存/读取副本，canonical 变更事件失效派生项并推进 Workspace 代次；CALL 目标 Profile 于 2026-10-09 纳入同一读取视图与 canonical 失效链。编译上下文等其余共享组件不因 Workspace 自动拆分；
-3. 已完成（身份第二批）：MemoryLibrary、Artifact 与 lifecycle 内部按归属传递，涉及 actor 可见性的读取另外接收发起者；后台任务独立保存归属与发起者，架构测试限制 Patchouli 内部和五个引擎包使用 `IdentityScope`。跨重启恢复仍由可靠性治理处理，资产旧 scope 接口由 [Todo](../../todo/workspace-asset-ownership-identity-split.md) 跟踪；
+3. 已完成（身份第二批）：MemoryLibrary、Artifact 与 lifecycle 内部按归属传递，涉及 actor 可见性的读取另外接收发起者；后台任务独立保存归属与发起者，架构测试限制 Patchouli 内部和五个引擎包使用 `IdentityScope`。跨重启恢复仍由可靠性治理处理，资产 Store 与端口的归属拆分已于 2026-11-06 完成（[归档计划](../../archive/plans/workspace-asset-ownership-split.md)）；
 4. 对显式 Profile 解析失败、权限拒绝和未指定 Profile 分别返回稳定结果；
 5. 将失败 reason 和安全摘要写入可观察事件，但不泄漏不可见正文。
 

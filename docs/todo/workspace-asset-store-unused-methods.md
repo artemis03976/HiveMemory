@@ -10,7 +10,7 @@ code_paths:
   - src/hivememory/server/error_handlers.py
 related_docs:
   - docs/workspace/assets.md
-  - docs/plans/workspace-asset-ownership-split.md
+  - docs/archive/plans/workspace-asset-ownership-split.md
 last_reviewed: 2026-11-06
 ---
 
@@ -18,11 +18,11 @@ last_reviewed: 2026-11-06
 
 ## 问题与证据
 
-制定 [WorkspaceAsset 的归属拆分](../plans/workspace-asset-ownership-split.md)计划时核对（2026-11-06）：资产 Store [`InMemoryWorkspaceAssetStore`](../../src/hivememory/workspace/assets/store.py) 有五个公开方法，生产代码里没有调用方，只在测试与测试辅助中使用。
+制定 [WorkspaceAsset 的归属拆分](../archive/plans/workspace-asset-ownership-split.md)计划（已实施）时核对（2026-11-06）：资产 Store [`InMemoryWorkspaceAssetStore`](../../src/hivememory/workspace/assets/store.py) 有五个公开方法，生产代码里没有调用方，只在测试与测试辅助中使用。
 
 | 方法 | 做什么 | 现状 |
 |:---|:---|:---|
-| `resolve_asset` | 按引用读取资产快照 | 读取端口中有声明，生产调用方只用租借与释放 |
+| `resolve_asset` | 按引用读取资产快照 | 读取端口只保留租借与释放，生产代码不调用它 |
 | `list_workspace_assets` | 列出一个 Workspace 中未移除的资产 | 没有 HTTP 列表路由，前端不经它取得资产 |
 | `create_asset` | 只凭元数据创建资产 | 生产只经 `register_uploaded_asset` 一次完成注册与原始内容登记 |
 | `register_raw_representation` | 为 `create_asset` 创建的资产补登原始内容 | 同上，只服务 `create_asset` 的两步路径 |
@@ -32,11 +32,11 @@ last_reviewed: 2026-11-06
 
 ## 影响范围
 
-- 资产 Store 与资产端口的公开方法；
+- 资产 Store 的公开方法与命令端口（`create_asset`、`register_raw_representation`、`remove_asset` 仍在命令端口中声明）；
 - REMOVED 状态、`AssetRemovedError` 与对应的 HTTP 错误投影；
 - 以这些方法搭建状态的测试与测试辅助（资产 Store、解析、上传、chat 选用附件与附件提升的测试）。
 
-这些方法不影响现有行为，归属拆分计划按 owner 决定（2026-11-06）保留它们，随签名一起切换。
+这些方法不影响现有行为，归属拆分计划按 owner 决定（2026-11-06）保留它们，已随签名一起改为接收归属。
 
 ## 完成条件
 

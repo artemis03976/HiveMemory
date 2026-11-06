@@ -118,7 +118,7 @@ owner 对这些层层概念不满意，代码可读性差到无法理解现状�
 - 跨 Workspace 的目标（Idea 第 7 节）：目标仍只能等于驻留 Workspace。
 - P-4a（进程能否持有白名单的子集）、P-1b（controller 回调的归属校验）。
 - P-7 中取消以外的部分：取消由 root 执行（owner，2026-11-05），状态查询，以及 controller 模式下由谁控制进程，仍未决。
-- WorkspaceAsset 的归属拆分：资产桥接自行构造 `IdentityScope` 的例外保留（[WorkspaceAsset 归属拆分 Todo](../../todo/workspace-asset-ownership-identity-split.md)）。
+- WorkspaceAsset 的归属拆分：资产桥接自行构造 `IdentityScope` 的例外保留（[WorkspaceAsset 归属拆分 Todo](../todo/workspace-asset-ownership-identity-split.md)）。
 - 两阶段认证的检查内容、登记的生效时点（E-1）与接入凭据。
 - 历史对话导入本身：本计划只让交互提交成为 root 能力，历史导入将来经它提交。
 - MCP 写入与更新的顺序：先落位、再授权写入，保持 [MCP 记忆访问](../../contracts/mcp.md#4-确定话题操作入口与授权)第 4 节的现状。

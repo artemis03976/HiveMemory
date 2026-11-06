@@ -34,7 +34,7 @@ related_docs:
   - docs/archive/todo/local-http-management-access.md
   - docs/archive/plans/http-management-credential.md
   - docs/archive/plans/unified-identity-authorization-entry.md
-  - docs/todo/workspace-asset-ownership-identity-split.md
+  - docs/archive/plans/workspace-asset-ownership-split.md
   - docs/todo/memory-visibility-policy-ui.md
   - docs/todo/frontend-identity-ownership.md
   - docs/todo/run-target-executability-check.md
@@ -290,7 +290,6 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 
 **已登记的例外与暂缓**
 
-- WorkspaceAsset 的 Store、解析服务与旧端口仍接收 `IdentityScope`，归属拆分暂缓：[WorkspaceAsset 归属拆分 Todo](../todo/workspace-asset-ownership-identity-split.md)；
 - chat 请求体中 `session_id` 的未来语义：[外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md)；
 - **root 的声明范围**（owner，2026-10-20）：能以保留的 `system` 进入 root API 的只有用户经 HTTP 入口的管理访问，其他接入来源不能声明 `system`。已落实（2026-10-29，[记忆访问计划](../archive/plans/v0.7.1-memory-access-mcp.md)）：接入登记的 `allow_system_actor` 逐个声明能否声明 `system`，默认不能，server 与 Profile 注入脚本显式允许，外部 harness 不能（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）。2026-11-06 起，系统自身的 principal `hivememory:system` 同样允许，供任务进程与 Import Bus 执行系统级操作（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)）。Profile 注入脚本（`hivememory:profile-injector`）不在这条规则的范围内（owner，2026-10-20）：它用于向默认 Workspace 快速注入预设 Agent，理想情况下只在项目初次部署时使用，不应经过权限系统；现状仍作为登记来源经网关以 `system` 进入 root API，项目接入部署流程时再调整。
 

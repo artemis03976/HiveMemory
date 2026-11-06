@@ -7,14 +7,13 @@ code_paths:
   - src/hivememory/workspace/assets/
   - src/hivememory/core/models/workspace_asset.py
   - src/hivememory/core/ports/workspace_assets.py
-  - src/hivememory/system/services/asset_materialization_reader.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/system/attachments.md
   - docs/patchouli/perception.md
   - docs/patchouli/artifacts.md
-last_reviewed: 2026-10-19
+last_reviewed: 2026-11-06
 ---
 
 # WorkspaceAsset
@@ -43,7 +42,7 @@ WorkspaceAsset 是 workspace 的进程内资源：用户上传的附件先成为
 
 WorkspaceAsset 以 `WorkspaceAssetKey(workspace_identity, asset_id)` 寻址，外部使用当前 Store 的 opaque `WorkspaceAssetRef`。它不保存 `visibility`、`created_by_agent_id`、`created_by_team_id` 或 actor-policy target：同一 Workspace 内不同 Agent/Team 的资产访问结果一致；跨 Workspace 的 ref、asset key 或 URI 均不能绕过归属校验。
 
-Store、解析流程与 `WorkspaceAssetReaderPort` 仍接收旧的 `IdentityScope` 做归属检查。System 的 `AssetMaterializationReader` 兼容适配器接收 Patchouli 提交的 `belong_to`，仅在一次 representation 租借调用内以归属和保留 `system` actor 组装旧接口所需的 scope，不保存到后台任务、不返回给 Patchouli；Patchouli 只使用归属读取端口。此例外仅限该适配器，不得扩散，拆分见 [WorkspaceAsset 归属拆分 Todo](../todo/workspace-asset-ownership-identity-split.md)。
+Store 是授权点以下的资源 owner：Store、解析服务、读取端口 `WorkspaceAssetReaderPort` 与命令端口 `WorkspaceAssetCommandPort` 只接收资产归属 `belong_to: WorkspaceIdentity`，不接收、不保存也不构造 `IdentityScope`（架构测试守护）。授权由调用方先完成：上传在 root API 入口以 `authorize_root` 授权，CPU 分配租借附件前以系统的 root 工作 actor 授权，二者都只把目标 Workspace 交给 Store；Patchouli 的附件提升按任务冻结的归属租借。读取端口只含租借与释放，由 CPU 分配与 Patchouli 共用。
 
 ## 4. TopicAssetBinding 交接
 
@@ -66,5 +65,5 @@ WorkspaceAssetStore 的清理不是队列可靠性或跨 Store 事务的替代�
 
 ## 7. 代码与测试入口
 
-- [`InMemoryWorkspaceAssetStore`](../../src/hivememory/workspace/assets/store.py)、[`parse_service.py`](../../src/hivememory/workspace/assets/parse_service.py)、[`upload.py`](../../src/hivememory/workspace/assets/upload.py)、[`workspace ports`](../../src/hivememory/core/ports/workspace_assets.py)、[`workspace_asset.py`](../../src/hivememory/core/models/workspace_asset.py)（含 `TopicAssetBinding`）、[`AssetMaterializationReader`](../../src/hivememory/system/services/asset_materialization_reader.py)；
+- [`InMemoryWorkspaceAssetStore`](../../src/hivememory/workspace/assets/store.py)、[`parse_service.py`](../../src/hivememory/workspace/assets/parse_service.py)、[`upload.py`](../../src/hivememory/workspace/assets/upload.py)、[`workspace ports`](../../src/hivememory/core/ports/workspace_assets.py)、[`workspace_asset.py`](../../src/hivememory/core/models/workspace_asset.py)（含 `TopicAssetBinding`）；
 - 测试：[`tests/unit/workspace/assets/test_store.py`](../../tests/unit/workspace/assets/test_store.py)、[`test_workspace_asset_runtime.py`](../../tests/integration/system/test_workspace_asset_runtime.py)、[`tests/integration/workspace/capability/test_assets.py`](../../tests/integration/workspace/capability/test_assets.py)、[`test_workspace_asset_upload_api.py`](../../tests/integration/system/test_workspace_asset_upload_api.py)、[`test_workspace_asset_chat_selection.py`](../../tests/integration/system/test_workspace_asset_chat_selection.py)。
