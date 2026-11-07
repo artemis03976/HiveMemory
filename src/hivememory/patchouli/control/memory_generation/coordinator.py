@@ -68,7 +68,7 @@ class MemoryGenerationCoordinator:
             state_summary=payload.state_summary,
         )
         if not gen_context.turns:
-            logger.warning("空对话轮次，跳过被动生成")
+            logger.warning("Empty conversation turn, skipping passive generation")
             return None
 
         spec = MemoryGenerationTaskSpec(

@@ -685,7 +685,7 @@ class PatchouliRuntime:
                 if component.required and not component.healthy
             ]
             detail = {component.name: component.detail for component in unhealthy}
-            logger.warning("Storage health check failed: %s", detail)
+            logger.warning("存储健康检查失败: %s", detail)
         return report.healthy
 
     async def ensure_storage_ready(self) -> None:

@@ -149,7 +149,7 @@ uv sync --frozen --extra dev
 uv run --no-sync mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py
 
 # 前端变更
-cd frontend && npm ci && npm run lint && npm run build
+cd frontend && npm ci && npm run lint && npm test && npm run build
 ```
 
 需要真实 Qdrant/LLM 的测试只在明确需要时运行：CI 中 E2E 是手动 workflow；本地可以使用 Docker 或 `scripts/hivememory-dev.sh` 管理 Qdrant、后端和 Vite。测试结论必须说明外部依赖是否可用。

@@ -94,7 +94,7 @@ class AgentLoopExecutor:
                 except asyncio.CancelledError:
                     raise
                 except Exception as error:
-                    logger.error("Streaming frame generation failed: %s", error, exc_info=True)
+                    logger.error("流式 frame 生成失败: %s", error, exc_info=True)
                     return FrameExecutionResult(
                         status=FrameExecutionStatus.FAILED,
                         error=error,

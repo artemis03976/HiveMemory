@@ -385,7 +385,7 @@ class MemoryGenerationFamiliar:
         )
 
         memories = [outcome.atom for outcome in outcomes if outcome.atom is not None]
-        logger.info("Extracted %d memories", len(memories))
+        logger.info("提取出 %d 条记忆", len(memories))
 
         # Step 2/3：按 outcome 依次完成提交字段分配、artifact 挂载与持久化。
         for outcome in outcomes:
@@ -583,7 +583,7 @@ class MemoryGenerationFamiliar:
                 belong_to=belong_to,
             )
         except Exception:
-            logger.warning("Failed to build interaction artifact", exc_info=True)
+            logger.warning("构建交互 artifact 失败", exc_info=True)
             return None
 
     async def _commit_outcome(
