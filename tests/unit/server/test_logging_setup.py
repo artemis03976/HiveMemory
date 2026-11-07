@@ -8,6 +8,7 @@ import time
 import pytest
 
 from hivememory.components.events.bus import RUNTIME_EVENT_RECORD_LOGGER
+from hivememory.components.trace_context import reset_trace_context, set_trace_context
 from hivememory.config.app import LoggingConfig
 from hivememory.server.logging_setup import configure_logging
 
@@ -68,6 +69,23 @@ def test_console_outputs_records_at_or_above_level_in_configured_format(capsys, 
     stderr = capsys.readouterr().err
     assert "WARNING|tests.logging_setup|kept" in stderr
     assert "dropped" not in stderr
+
+
+def test_default_format_carries_the_trace_context(tmp_path, log):
+    """默认格式带上当前的 trace_id 与 span_name，任务进程中的日志能对应到这个进程。"""
+    log_file = tmp_path / "backend.log"
+    configure_logging(LoggingConfig(console_output=False, file_path=str(log_file)))
+
+    tokens = set_trace_context("task-1a2b3c4d", "TaskProcess", "foreground")
+    try:
+        log.warning("inside process")
+    finally:
+        reset_trace_context(tokens)
+    log.warning("outside process")
+
+    first, second = log_file.read_text(encoding="utf-8").splitlines()
+    assert first.endswith(" - WARNING - [task-1a2b3c4d/TaskProcess] - inside process")
+    assert second.endswith(" - WARNING - [system/main] - outside process")
 
 
 def test_file_output_creates_directory_while_console_is_disabled(tmp_path, capsys, log):

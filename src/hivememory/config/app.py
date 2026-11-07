@@ -236,7 +236,11 @@ LogLevelName = Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"]
 
 class LoggingConfig(BaseModel):
     level: LogLevelName = Field(default="INFO")
-    format: str = Field(default="%(asctime)s - %(name)s - %(levelname)s - %(message)s")
+    # trace_id 与 span_name 由入口装上的每个输出注入：任务进程中是该进程的 trace，
+    # 进程之外是 system/main。
+    format: str = Field(
+        default="%(asctime)s - %(name)s - %(levelname)s - [%(trace_id)s/%(span_name)s] - %(message)s"
+    )
     file_path: str | None = Field(default=None)
     # 运行时事件的记录文件，每行一个事件的 JSON，与 file_path 的日志分开；为空时不记录。
     event_file_path: str | None = Field(default=None)

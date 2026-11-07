@@ -52,11 +52,11 @@ owner 2026-11-03 决定把观测与日志作为版本之外的工作，随时可
 - **内容**：任何级别都不记录用户消息、记忆正文、工具参数与结果、提示词和密钥；需要时只记录长度或标识。
 - **一次失败记一次**：在做出失败判断的那一层记录，向上传播时不重复记录。
 
-## 3. 成熟度与已知缺口（2026-11-03）
+## 3. 成熟度与已知缺口（2026-11-07）
 
 | 方面 | 现状 |
 |:---|:---|
-| 日志配置 | 按天切分、只替换自己装上的输出、uvicorn 与 `warnings` 并入根 logger，已经成熟（`server/logging_setup.py`）。默认格式 `%(asctime)s - %(name)s - %(levelname)s - %(message)s` 不含 `TraceInjectFilter` 已经注入的 `trace_id` 与 `span_name` |
+| 日志配置 | 按天切分、只替换自己装上的输出、uvicorn 与 `warnings` 并入根 logger，已经成熟（`server/logging_setup.py`）。默认格式带上 `TraceInjectFilter` 注入的 `trace_id` 与 `span_name`（2026-11-07）：任务进程中的日志与该进程的运行时事件是同一个 `trace_id`，进程之外是 `system/main` |
 | 日志写法 | 约 300 处日志调用，约 120 处 f-string、约 89 处 `%` 格式；中文约 190 处、英文约 111 处；关联标识只在部分消息中随手写出 |
 | 事件的消费与记录 | 前端实时面板，以及配置后单独写入的事件记录文件；开发脚本写到 `.hivememory/logs/runtime-events.jsonl`，`scripts/runtime_event_timeline.py` 按关联标识排时间线 |
 | 失败事件的原因码 | 失败事件都有稳定原因码，异常类名在 `data.error_class`（[事件契约](../../contracts/routes-and-events.md#44-失败与降级观测)第 4.4 节）；生成任务的原因码由失败分类按异常给出（2026-11-03） |
@@ -70,11 +70,11 @@ owner 2026-11-03 决定把观测与日志作为版本之外的工作，随时可
 | W1 | 运行时事件写入单独的事件日志文件，配离线时间线脚本 | 已完成（2026-11-03，[归档 Todo](../../archive/todo/runtime-events-not-persisted.md)） |
 | W2 | 维护任务空转不发事件 | 已完成（2026-11-03，[归档 Todo](../../archive/todo/maintenance-event-noise.md)） |
 | W3 | 失败事件带稳定原因码（生成任务之外） | 已完成（2026-11-03，[归档 Todo](../../archive/todo/failure-event-reason-codes.md)）；生成任务的原因码随 v0.7.3 于同日完成（[归档计划](../../archive/plans/v0.7.3-generation-failure-reason-codes.md)），见[已归档的收敛 Idea](../../archive/ideas/generation-source-convergence.md) 第 4.3 节 |
-| W4 | 默认日志格式带 `trace_id` 与 `span_name` | 未排期 |
+| W4 | 默认日志格式带 `trace_id` 与 `span_name` | 已完成（2026-11-07，PR #190） |
 | W5 | 存量日志按领域收敛到第 2.2 节的写法 | 未排期；Gateway 拦截器记录原始用户消息已处理（2026-11-07），接下来先处理调度器的 f-string、任务进程中不带 `process_id` 的失败日志 |
 | W6 | RuntimeEvent 生产端收敛 | 未排期：Gateway、Scheduler 与 System lifecycle 仍各自组装信封，按领域迁移到窄领域 emitter 或 scoped publisher，迁移不得改变 wire format；由原 RuntimeEvent 生产端迁移 Todo 转入（2026-11-03） |
 
-W1～W3 已于 2026-11-03 完成。W4～W6 在动到对应领域、或 owner 排期时登记为 Todo 或计划。
+W1～W3 已于 2026-11-03 完成，W4 于 2026-11-07 完成。W5、W6 在动到对应领域、或 owner 排期时登记为 Todo 或计划。
 
 ## 5. 长期目标与非目标
 
