@@ -2,7 +2,7 @@
 title: 交互提交收束与话题按需创建
 status: archived
 archived_at: 2026-11-06
-implemented_by: 分支 docs/interaction-submission-plan（PR 待开）
+implemented_by: PR #186（提交 d8409176、2743019a、0b3fee80、f4d0bf75、e019eb2f）
 superseded_by: docs/workspace/task-process.md
 owner: workspace
 target: 版本之外的工作（身份与访问主线的后续：controller 与 Import Bus 的交互提交统一经 root API）
