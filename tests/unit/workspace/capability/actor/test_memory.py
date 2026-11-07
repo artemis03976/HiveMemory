@@ -20,6 +20,7 @@ from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.contracts import (
     ResolveReferencesRequest,
+    ResolveRunTargetRequest,
     RetrieveRequest,
 )
 from hivememory.workspace.intents import WriteIntentRegistry
@@ -185,6 +186,54 @@ class TestActorMemoryService:
         result = await service.retrieve(RetrieveRequest(semantic_query="q"), actor=actor)
 
         assert [atom.id for atom in result] == [delivered[0].id]
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("operation", "memory_type", "cited"),
+        [
+            pytest.param("run", MemoryType.CODE_SNIPPET, True, id="run-code-snippet"),
+            pytest.param("run", MemoryType.FACT, False, id="run-not-runnable"),
+            pytest.param("read", MemoryType.FACT, True, id="read-any-type"),
+        ],
+    )
+    async def test_run_records_citation_only_for_runnable_targets(
+        self, composition, actor, operation, memory_type, cited
+    ):
+        """RUN 只为 CODE_SNIPPET 目标记录引用，不可执行的目标被拒绝、不算一次使用；READ 不受类型限制。"""
+        citations = []
+        atom = _make_memory_atom()
+        atom.index.memory_type = memory_type
+
+        class CitationBus:
+            """只捕获库侧引用 RPC 的公开副作用。"""
+
+            async def request(self, route, *, memory_id, identity_scope, source):
+                citations.append(memory_id)
+
+        class ReferenceReader:
+            """把任何 alias 解析为同一条正式原子。"""
+
+            intents = WriteIntentRegistry()
+
+            async def resolve_references(self, aliases, *, scope):
+                return [ReferenceResolution(kind="atom", requested_alias=aliases[0], atom=atom)]
+
+        service = ActorMemoryService(
+            global_bus=CitationBus(),
+            operation_authorizer=composition.authorizer,
+            memory_reader=ReferenceReader(),
+            threads=composition.threads,
+        )
+
+        if operation == "run":
+            result = await service.resolve_run_target(ResolveRunTargetRequest("tool"), actor=actor)
+        else:
+            (result,) = await service.resolve_references(
+                ResolveReferencesRequest(("tool",)), actor=actor
+            )
+
+        assert result.atom is atom
+        assert citations == ([atom.id] if cited else [])
 
     @pytest.mark.asyncio
     async def test_reference_status_outside_formal_delivery_does_not_record_citation(

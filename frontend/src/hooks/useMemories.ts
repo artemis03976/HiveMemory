@@ -9,6 +9,7 @@ import type {
 
 import { useMemoryViewStore } from '@/stores';
 import { MOCK_MEMORIES } from '@/constants/memories';
+import { isDebugMode } from '@/utils/debugMode';
 import {
   deleteMemory as deleteMemoryApi,
   fetchAllMemories,
@@ -120,11 +121,16 @@ export function useMemories(): UseMemoriesReturn {
       setRawMemories(data.memories);
       setTotal(data.total);
     } catch (err) {
-      console.warn('API fetch failed, using mock data:', err);
-      // Use mock data when API is unavailable
-      setRawMemories(MOCK_MEMORIES);
-      setTotal(MOCK_MEMORIES.length);
-      setError(null); // Clear error when using mock data
+      if (isDebugMode()) {
+        console.warn('API fetch failed, using mock data:', err);
+        setRawMemories(MOCK_MEMORIES);
+        setTotal(MOCK_MEMORIES.length);
+        return;
+      }
+      // 读取失败如实显示，不保留上一次的列表，避免把旧数据当成当前结果。
+      setRawMemories([]);
+      setTotal(0);
+      setError(err instanceof Error ? err.message : '记忆读取失败');
     } finally {
       setLoading(false);
     }

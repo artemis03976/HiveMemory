@@ -1,9 +1,10 @@
 import { apiErrorMessage } from '@/services/apiError';
 import type { MemoryGenerationTask, MemoryTaskListResponse } from '@/types/memoryTask';
 import { MOCK_MEMORY_TASKS } from '@/constants/memoryTasks';
+import { isDebugMode } from '@/utils/debugMode';
 
 function shouldUseMockMemoryTasks(): boolean {
-  return import.meta.env.DEV;
+  return isDebugMode();
 }
 
 function getMockMemoryTask(taskId: string): MemoryGenerationTask | null {

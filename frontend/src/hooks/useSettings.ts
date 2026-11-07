@@ -4,8 +4,10 @@ import { validateConfig } from '../utils/configValidation';
 import { fetchConfig, updateConfig as updateConfigApi, fetchDefaultConfig } from '../services/configApi';
 import { useDraft } from './useDraft';
 
-// Mock data for development when backend is offline
+// debug 模式下后端不可用时使用的 mock 配置
 import { MOCK_CONFIG } from '@/constants/settings';
+import { useToastStore } from '@/stores';
+import { isDebugMode } from '@/utils/debugMode';
 
 interface UseSettingsReturn {
   config: HiveMemoryConfig | null;
@@ -51,9 +53,12 @@ export const useSettings = (): UseSettingsReturn => {
         setOriginalConfig(JSON.parse(JSON.stringify(data)));
         setValidationErrors(validateConfig(data));
       } catch (err) {
-        console.warn('Failed to load config from backend, using mock data:', err);
-        setOriginalConfig(JSON.parse(JSON.stringify(MOCK_CONFIG)));
-        setValidationErrors(validateConfig(MOCK_CONFIG));
+        // 非 debug 模式不换用 mock：配置保持为空，页面显示加载失败。
+        if (isDebugMode()) {
+          console.warn('Failed to load config from backend, using mock data:', err);
+          setOriginalConfig(JSON.parse(JSON.stringify(MOCK_CONFIG)));
+          setValidationErrors(validateConfig(MOCK_CONFIG));
+        }
         setError(err instanceof Error ? err.message : 'Unknown error');
       } finally {
         setLoading(false);
@@ -99,9 +104,14 @@ export const useSettings = (): UseSettingsReturn => {
       const data = await fetchDefaultConfig();
       updateDraft(data);
     } catch (err) {
-      console.warn('Failed to load defaults from backend, using mock data:', err);
-      updateDraft(MOCK_CONFIG);
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      const message = err instanceof Error ? err.message : 'Unknown error';
+      if (isDebugMode()) {
+        console.warn('Failed to load defaults from backend, using mock data:', err);
+        updateDraft(MOCK_CONFIG);
+      } else {
+        useToastStore.getState().addToast('恢复默认设置失败: ' + message, 'error');
+      }
+      setError(message);
     } finally {
       setLoading(false);
     }

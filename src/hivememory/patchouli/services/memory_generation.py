@@ -43,6 +43,7 @@ from hivememory.core.models.provenance import MemoryProvenance
 from hivememory.core.models.workspace_asset import TopicAssetBinding
 from hivememory.core.ports.workspace_assets import WorkspaceAssetReaderPort
 from hivememory.engines.artifacts.memory import MemoryCreationBundle
+from hivememory.engines.generation.alias import fallback_alias
 from hivememory.engines.generation.models import (
     GenerationAction,
     GenerationContext,
@@ -218,8 +219,8 @@ class MemoryGenerationFamiliar:
 
         原子的身份、时间戳、来源记录、默认访问策略与生命周期都在这里确定：
         创建时点取提交边界的同一时刻（created/updated/decay 同值），来源记录
-        取本次发起者，只作展示、不参与可见性授权。字段非法以
-        ``InvalidMemoryFieldError`` 拒绝。
+        取本次发起者，只作展示、不参与可见性授权；没有给出别名时以
+        ``mem_<memory id>`` 命名（Agent Profile 除外）。字段非法以 ``InvalidMemoryFieldError`` 拒绝。
         """
         try:
             index = IndexLayer(
@@ -248,6 +249,10 @@ class MemoryGenerationFamiliar:
             index=index,
             payload=payload,
         )
+        if atom.index.alias is None and memory_type != MemoryType.AGENT_PROFILE:
+            # 没有给出别名时与生成路径一致，以这条记忆的 id 命名并落库，保证可按别名寻址；
+            # Agent Profile 的别名就是 agent_id，必须显式给出，由提交边界拒绝。
+            atom.index.alias = fallback_alias(atom.id)
         await self._attach_memory_artifact(
             atom=atom,
             action=GenerationAction.CREATE,

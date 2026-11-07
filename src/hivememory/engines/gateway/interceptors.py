@@ -91,8 +91,11 @@ class RuleInterceptor(BaseInterceptor):
             and query_stripped.startswith("/")
             and (not self.enable_system or self.command_registry is None)
         ):
-            logger.debug("L1 filtered slash command without active registry: %s", query_stripped)
             command = self._disabled_command_result(query_stripped)
+            logger.debug(
+                "L1 filtered slash command without active registry: parse_status=%s",
+                command.parse_status,
+            )
             return InterceptorResult(
                 intent=GatewayIntent.SYSTEM,
                 reason=self._command_reason(query_stripped, command.parse_status),
@@ -103,7 +106,12 @@ class RuleInterceptor(BaseInterceptor):
         if allow_system and self.enable_system and self.command_registry is not None:
             matched = self.command_registry.match(query_stripped)
             if matched is not None:
-                logger.debug("L1 intercepted system command: %s", query_stripped)
+                # 只记录命令标识，不记录用户输入与命令参数。
+                logger.debug(
+                    "L1 intercepted system command: command_id=%s parse_status=%s",
+                    matched.command_id,
+                    matched.parse_status,
+                )
                 return InterceptorResult(
                     intent=GatewayIntent.SYSTEM,
                     reason=self._command_reason(query_stripped, matched.parse_status),
@@ -114,7 +122,7 @@ class RuleInterceptor(BaseInterceptor):
         if self.enable_chat:
             for pattern in self._chat_regex:
                 if pattern.match(query_stripped):
-                    logger.debug("L1 intercepted simple chat: %s", query_stripped)
+                    logger.debug("L1 intercepted simple chat: length=%d", len(query_stripped))
                     return InterceptorResult(
                         intent=GatewayIntent.CHAT,
                         reason="简单寒暄",

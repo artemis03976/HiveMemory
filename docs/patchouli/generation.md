@@ -183,7 +183,7 @@ Familiar 的合并路径：
 
 以下情况以 `MemoryMergeAbortedError`（`workspace.memory.merge_aborted`）让任务失败，两条记忆都不变，不回退为追加或覆盖：任一记忆缺失或不可见（`memory_missing`）、合并条件不满足（`not_mergeable`）、写回前版本已变（`version_changed`）、模型输出为空、无法解析或把类型改为 Profile（`model_output_invalid`）。提供商失败重试一次后原样传播 `ModelProviderError`。版本检查与写回之间没有原子保证，与 alias 唯一性的“检查→写入”相同。
 
-Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前缀和 extractor 给出的 suffix 构造候选，例如 `code_* / fact_* / url_* / ref_* / user_* / wip_* / agent_*`；suffix 清洗后为空时改由 title 派生，仍为空则该记忆没有 alias。候选先经中期库确认在同一 Workspace 内空闲，被占用时依次追加 `_2`、`_3`…… 消歧后缀重试，全部被占用时抛 `MemoryAliasConflictError`（`reason=alias_candidates_exhausted`）。同一次结算的多条草稿全部算完之后才由 Familiar 依次落库，中期库查不到本批已分配的 alias，因此引擎把它们作为已占用传给后续草稿，后缀相同的草稿得到消歧后缀。生成侧只负责让正常路径避开冲突；同一 Workspace 内 alias 唯一的不变量由中期库写入前校验兜底，见 [MemoryLibrary](./memory-library.md)第 1.2 节。Pending alias 只在 Alice 运行期定位候选意图；settlement 后的 canonical alias 才属于正式 MemoryAtom。
+Alias 由 `AliasGenerator`（`engines/generation/alias.py`）按 memory type 前缀和 extractor 给出的 suffix 构造候选，例如 `code_* / fact_* / url_* / ref_* / user_* / wip_* / agent_*`；suffix 清洗后为空时改由 title 派生，仍为空（例如纯中文或纯符号）时回退为 `mem_` 加记忆 ID 的 32 位十六进制（`fallback_alias`），不带连字符，MTP 的多目标列表可以直接引用；记忆 ID 唯一，回退别名因此不查询占用，引擎也因此先构造原子、再以原子的 ID 分配 alias。由前缀与 suffix 或 title 构成的候选先经中期库确认在同一 Workspace 内空闲，被占用时依次追加 `_2`、`_3`…… 消歧后缀重试，全部被占用时抛 `MemoryAliasConflictError`（`reason=alias_candidates_exhausted`）。同一次结算的多条草稿全部算完之后才由 Familiar 依次落库，中期库查不到本批已分配的 alias，因此引擎把它们作为已占用传给后续草稿，后缀相同的草稿得到消歧后缀。生成侧只负责让正常路径避开冲突；同一 Workspace 内 alias 唯一的不变量由中期库写入前校验兜底，见 [MemoryLibrary](./memory-library.md)第 1.2 节。Pending alias 只在 Alice 运行期定位候选意图；settlement 后的 canonical alias 才属于正式 MemoryAtom。
 
 ### 4.2 本话题的主动写入
 
@@ -227,7 +227,7 @@ artifact。因此 `TimeoutError`、`ConnectionError`、模型异常以及普通�
 `intent_id` 派生稳定 task/work identity：进程内重复 dispatch 会复用已有任务，且相同 identity 携带不同
 spec 会被拒绝。跨重启结果记录、数据面内部副作用幂等和 reconciliation 仍留待后续持久化/I2 阶段处理。
 
-手工 memory create/update 同样通过 Familiar，两者都只接收调用方提交的字段材料：创建由 Familiar 构造原子，记忆 ID、来源记录（取本次发起者）、默认访问策略、生命周期与完整时间戳都在提交边界确定，字段非法以 `InvalidMemoryFieldError` 拒绝，类型相关约束与 alias 唯一性在写版本记录之前检查；记忆管理入口不接受 `AGENT_PROFILE`，Profile 只经 Profile 管理入口创建，类型由入口固定。
+手工 memory create/update 同样通过 Familiar，两者都只接收调用方提交的字段材料：创建由 Familiar 构造原子，记忆 ID、来源记录（取本次发起者）、默认访问策略、生命周期与完整时间戳都在提交边界确定，字段非法以 `InvalidMemoryFieldError` 拒绝，类型相关约束与 alias 唯一性在写版本记录之前检查；创建时没有给出 alias 的记忆同样以 `mem_<记忆 ID>` 命名并落库，Agent Profile 除外；记忆管理入口不接受 `AGENT_PROFILE`，Profile 只经 Profile 管理入口创建，类型由入口固定。
 
 类型相关约束有两条：`AGENT_PROFILE` 必须带 alias（按 alias 寻址与 CALL）；`payload.agent_config` 只允许 `AGENT_PROFILE` 设置。`agent_config` 的唯一读取方是 Profile 解析，写在其他类型上只会生成无人使用的内容版本，调用方也得不到字段无效的反馈。记忆与 Profile 共用编辑路由，HTTP 的 `PATCH /api/v1/memories/{id}` 同时是前端保存 Agent 的入口，入口无法按类型区分，因此由 Familiar 在提交边界按原子类型检查，违反时以 `InvalidMemoryFieldError` 拒绝且不写版本记录。约束放在提交边界而不是 Memory 模型：模型约束同样作用于读取解码，收紧会让既有不合规记录无法读取。
 

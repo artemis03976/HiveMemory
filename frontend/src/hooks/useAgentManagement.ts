@@ -1,6 +1,7 @@
 import { useState, useCallback, useMemo, useEffect, useRef } from 'react';
 import { useAgents, type BackendAgent } from './useAgents';
 import { MOCK_AGENT_CONFIGS } from '@/constants/agents';
+import { isDebugMode } from '@/utils/debugMode';
 import type { AgentData, AgentProfileConfig } from '@/types';
 import { useToastStore } from '@/stores';
 import { createAgent, saveAgent, deleteAgent } from '@/services/agentApi';
@@ -45,9 +46,11 @@ export function useAgentManagement() {
     initialized.current = true;
     queueMicrotask(() => {
       if (fetchError) {
-        // 后端连接失败，fallback 到 mock 数据
-        setAgents(MOCK_AGENT_CONFIGS);
-        setSelectedId(MOCK_AGENT_CONFIGS[0]?.id ?? '');
+        // 只有 debug 模式在读取失败时换用 mock 数据；否则列表为空，由页面提示读取失败。
+        if (isDebugMode()) {
+          setAgents(MOCK_AGENT_CONFIGS);
+          setSelectedId(MOCK_AGENT_CONFIGS[0]?.id ?? '');
+        }
         return;
       }
       const backendData = rawAgents.map(backendToAgentData);
@@ -135,6 +138,7 @@ export function useAgentManagement() {
     searchQuery,
     setSearchQuery,
     loading: backendLoading,
+    loadFailed: fetchError && !isDebugMode(),
     createAgent: handleCreateAgent,
     saveAgent: handleSaveAgent,
     deleteAgent: handleDeleteAgent,

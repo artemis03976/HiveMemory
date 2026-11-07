@@ -3,7 +3,8 @@ HiveMemory - 记忆别名生成器 (Alias Generator)
 
 职责:
     按 memory type 前缀 + 后缀构造 MTP 别名候选，并经中期库确认同一
-    Workspace 内唯一；候选被占用时追加消歧后缀重试。
+    Workspace 内唯一；候选被占用时追加消歧后缀重试。后缀与标题都无法构造
+    有效候选（如纯中文或纯符号）时回退为 ``mem_<memory id>``。
 
 唯一性分两层保证:
     - 第一层（本组件）: 生成侧查询中期库后给出空闲候选，让抽取草稿的正常
@@ -83,8 +84,9 @@ class AliasGenerator:
         memory_type: str,
         alias_suffix: str,
         title: str,
+        memory_id: UUID,
         taken: Collection[str] = (),
-    ) -> str | None:
+    ) -> str:
         """
         生成 Workspace 内唯一的别名。
 
@@ -93,17 +95,18 @@ class AliasGenerator:
             memory_type: 记忆类型字符串 (e.g. "CODE_SNIPPET")
             alias_suffix: LLM 生成的别名后缀 (可能为空)
             title: 记忆标题 (用于 fallback)
+            memory_id: 这条记忆的 id，无法构造候选时用于回退别名
             taken: 调用方已分配但尚未落库的别名，中期库查不到，同样视为已占用
 
         Returns:
-            空闲的完整别名；后缀与标题都无法构造候选时返回 None
+            空闲的完整别名；后缀与标题都无法构造候选时为 ``fallback_alias(memory_id)``
 
         Raises:
             MemoryAliasConflictError: 全部消歧候选均已被占用
         """
         base = self.build_candidate(memory_type, alias_suffix, title)
         if base is None:
-            return None
+            return fallback_alias(memory_id)
         for attempt in range(1, self._max_attempts + 1):
             candidate = base if attempt == 1 else f"{base}_{attempt}"
             if candidate in taken:
@@ -161,6 +164,14 @@ class AliasGenerator:
         return f"{prefix}_{suffix}"
 
 
+def fallback_alias(memory_id: UUID) -> str:
+    """无法构造有效别名时的回退：``mem_`` 加记忆 id 的 32 位十六进制。
+
+    记忆 id 唯一，回退别名因此不必查询占用；不带连字符，MTP 的多目标列表可以直接引用。
+    """
+    return f"mem_{memory_id.hex}"
+
+
 def _clean_suffix(suffix: str) -> str:
     """合并连续下划线、截断到上限，并去除首尾下划线（含截断产生的尾部下划线）。"""
     suffix = re.sub(r"_+", "_", suffix).strip("_")
@@ -171,4 +182,5 @@ __all__ = [
     "MEMORY_TYPE_ALIAS_PREFIX",
     "AliasGenerator",
     "AliasHolderLookup",
+    "fallback_alias",
 ]

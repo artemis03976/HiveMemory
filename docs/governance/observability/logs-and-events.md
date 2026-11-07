@@ -12,7 +12,7 @@ related_docs:
   - docs/components/observability.md
   - docs/contracts/routes-and-events.md
   - docs/system/configuration.md
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-07
 ---
 
 # 日志与运行时事件
@@ -61,7 +61,7 @@ owner 2026-11-03 决定把观测与日志作为版本之外的工作，随时可
 | 事件的消费与记录 | 前端实时面板，以及配置后单独写入的事件记录文件；开发脚本写到 `.hivememory/logs/runtime-events.jsonl`，`scripts/runtime_event_timeline.py` 按关联标识排时间线 |
 | 失败事件的原因码 | 失败事件都有稳定原因码，异常类名在 `data.error_class`（[事件契约](../../contracts/routes-and-events.md#44-失败与降级观测)第 4.4 节）；生成任务的原因码由失败分类按异常给出（2026-11-03） |
 | 只有事件没有日志 | Gateway workflow 与查询分析的失败只发事件，不记日志 |
-| 内容进日志 | Gateway L1 拦截器在 debug 级别记录原始用户消息 |
+| 内容进日志 | Gateway L1 拦截器曾在 debug 级别记录原始用户消息，2026-11-07 改为只记录命令标识、解析状态或输入长度 |
 
 ## 4. 工作包
 
@@ -71,7 +71,7 @@ owner 2026-11-03 决定把观测与日志作为版本之外的工作，随时可
 | W2 | 维护任务空转不发事件 | 已完成（2026-11-03，[归档 Todo](../../archive/todo/maintenance-event-noise.md)） |
 | W3 | 失败事件带稳定原因码（生成任务之外） | 已完成（2026-11-03，[归档 Todo](../../archive/todo/failure-event-reason-codes.md)）；生成任务的原因码随 v0.7.3 于同日完成（[归档计划](../../archive/plans/v0.7.3-generation-failure-reason-codes.md)），见[已归档的收敛 Idea](../../archive/ideas/generation-source-convergence.md) 第 4.3 节 |
 | W4 | 默认日志格式带 `trace_id` 与 `span_name` | 未排期 |
-| W5 | 存量日志按领域收敛到第 2.2 节的写法 | 未排期；先处理 Gateway 拦截器记录原始用户消息、调度器的 f-string、任务进程中不带 `process_id` 的失败日志 |
+| W5 | 存量日志按领域收敛到第 2.2 节的写法 | 未排期；Gateway 拦截器记录原始用户消息已处理（2026-11-07），接下来先处理调度器的 f-string、任务进程中不带 `process_id` 的失败日志 |
 | W6 | RuntimeEvent 生产端收敛 | 未排期：Gateway、Scheduler 与 System lifecycle 仍各自组装信封，按领域迁移到窄领域 emitter 或 scoped publisher，迁移不得改变 wire format；由原 RuntimeEvent 生产端迁移 Todo 转入（2026-11-03） |
 
 W1～W3 已于 2026-11-03 完成。W4～W6 在动到对应领域、或 owner 排期时登记为 Todo 或计划。

@@ -7,6 +7,7 @@ code_paths:
   - frontend/src/stores/
   - frontend/src/services/
   - frontend/src/transports/
+  - frontend/src/utils/debugMode.ts
   - frontend/vite.config.ts
   - src/hivememory/server/routers/
 related_contracts:
@@ -14,7 +15,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-07
 ---
 
 # 前端状态、持久化与传输
@@ -94,6 +95,8 @@ Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送�
 - 真正的前后端分域部署需要反向代理，或统一改造所有 service 的 base URL 与 CORS/credential 策略；
 - 设置 `VITE_BACKEND_ORIGIN` 直连后端时，日志与 RuntimeEvent 不经 Vite 代理，也不在后端页面的同源 cookie 范围内，会被管理凭据检查拒绝。
 
+另一个构建变量 `VITE_DEBUG` 与 origin 无关，只决定读取失败时是否换用 mock 数据，见第 6 节。
+
 后端 CORS 当前允许若干本地开发 origin，没有面向任意生产域名的配置化清单。
 
 ## 5. 多窗口日志同步
@@ -104,22 +107,25 @@ Workspace store 通过 `hivememory_primary_window` localStorage heartbeat 判断
 
 ## 6. Mock 降级边界
 
-当前 mock 行为并不统一：
+mock 数据只在 debug 模式下启用。debug 模式只在 Vite 构建或开发服务器显式设置 `VITE_DEBUG=true` 时开启（`utils/debugMode.ts`），`npm run dev` 与生产构建默认都不开启：
 
-- Memory API 读取失败时始终回退 `MOCK_MEMORIES` 并清除 error；
-- Agent 列表失败时回退 `MOCK_AGENT_CONFIGS`；
-- Config 失败时回退 `MOCK_CONFIG`，同时保存 error；
-- Memory task 只在 Vite development 模式回退 mock；
-- Session、Provider、Model、Topic 与 Chat 不使用同类数据回退。
+| 读取 | 默认：读取失败时 | debug 模式：读取失败时 |
+|:---|:---|:---|
+| Memory 列表（`hooks/useMemories.ts`） | 清空列表并显示错误 | 换用 `MOCK_MEMORIES`，不显示错误 |
+| Agent 列表（`hooks/useAgentManagement.ts`） | 列表为空，页面提示“Agent 列表读取失败，请检查后端服务后刷新” | 换用 `MOCK_AGENT_CONFIGS` |
+| 主配置（`hooks/useSettings.ts`） | 配置保持未加载，页面显示“配置加载失败”；“恢复默认”失败以错误 toast 提示 | 加载 `MOCK_CONFIG` 并保存 error；“恢复默认”失败时草稿换成 `MOCK_CONFIG` |
+| Memory task（`services/memoryTaskApi.ts`） | 错误原样抛出 | 列表、按 ID 读取与取消换用 mock task |
 
-Mock 的合理用途是让组件开发仍有可见状态，不是把离线体验冒充真实系统。当前 Memory/Agent 页面缺少醒目的 mock 标识，且写操作仍指向后端，是最容易制造误解的边界。后续若统一降级策略，至少应区分 `loading / live / mock / stale / error`，并阻止或明确模拟不可兑现的写操作。
+Session、Provider、Model、Topic 与 Chat 不使用同类数据回退。
+
+Mock 的用途是让组件开发在脱离后端时仍有可见状态，不是把离线体验冒充真实系统，因此默认关闭，读取失败如实显示。debug 模式下页面没有 mock 标识，记忆、Agent 与配置的写操作仍指向后端并失败，只适合调界面。
 
 ## 7. 不变量与失败处理
 
 - localStorage 只保存偏好、视图和可安全重新解释的选择，不保存权威业务实体；
 - SSE、WebSocket 与 RuntimeEvent 的连接状态不等于业务终态；
 - 乐观更新必须有回滚或显式 reconciliation；
-- mock 数据必须可辨认，不能参与真实写请求后再显示成功；
+- mock 数据只在 debug 模式下出现，不能参与真实写请求后再显示成功；
 - transport 变更必须同时检查开发 proxy、整合部署、反向代理和多窗口行为；
 - store migration 负责清理旧结构，不能让过期 model ID、消息块或 nav tab 在升级后复活。
 
@@ -127,7 +133,6 @@ Mock 的合理用途是让组件开发仍有可见状态，不是把离线体验
 
 - 没有 chat SSE 的 last-event-id 或断线续传；会话历史可重新读取，但后端重启后丢失；
 - 没有统一 query cache、请求去重或 stale-while-revalidate 层；
-- 多个页面的 mock 降级策略和错误可见性不一致；
 - 基础身份选择当前固定为 `user_id=default + main_workspace`（`services/identity.ts`），没有认证 token、租户或 per-user storage namespace；
 - `VITE_BACKEND_ORIGIN` 不是全局 API base；
 - 会话已有自动化行为测试；尚无完整的持久化迁移矩阵与跨窗口一致性测试。

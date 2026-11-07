@@ -533,15 +533,17 @@ class MemoryGenerationEngine:
 
         logger.info("创建新记忆")
 
-        # 构建 Workspace 内唯一的 MTP 别名（唯一性第一层：生成侧先查询空闲候选）
-        alias = await self._alias_generator.generate(
+        memory = self._draft_to_memory(draft, belong_to, provenance, alias=None, now=now)
+        # 构建 Workspace 内唯一的 MTP 别名（唯一性第一层：生成侧先查询空闲候选）；
+        # 无法构造有效别名时回退到以这条记忆的 id 命名的别名，因此先构造原子。
+        memory.index.alias = await self._alias_generator.generate(
             workspace_identity=belong_to,
             memory_type=draft.memory_type,
             alias_suffix=draft.alias_suffix,
             title=draft.title,
+            memory_id=memory.id,
             taken=taken_aliases,
         )
-        memory = self._draft_to_memory(draft, belong_to, provenance, alias=alias, now=now)
 
         # 相似时也先保留独立的新记忆；策略不同或任一方是 Profile 时不提名合并，
         # 避免扩大可见范围或覆盖承载结构化配置的 Profile；命中 kept_apart_from

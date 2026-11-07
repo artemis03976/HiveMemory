@@ -144,6 +144,7 @@ class TestGenerate:
 
         alias = await generator.generate(
             workspace_identity=MAIN,
+            memory_id=uuid4(),
             memory_type="FACT",
             alias_suffix="project_env",
             title="x",
@@ -164,6 +165,7 @@ class TestGenerate:
 
         alias = await generator.generate(
             workspace_identity=MAIN,
+            memory_id=uuid4(),
             memory_type="FACT",
             alias_suffix="project_env",
             title="x",
@@ -183,6 +185,7 @@ class TestGenerate:
 
         alias = await generator.generate(
             workspace_identity=MAIN,
+            memory_id=uuid4(),
             memory_type="FACT",
             alias_suffix="project_env",
             title="x",
@@ -202,6 +205,7 @@ class TestGenerate:
         with pytest.raises(MemoryAliasConflictError) as exc_info:
             await generator.generate(
                 workspace_identity=MAIN,
+                memory_id=uuid4(),
                 memory_type="FACT",
                 alias_suffix="busy",
                 title="x",
@@ -210,19 +214,21 @@ class TestGenerate:
         assert exc_info.value.details["reason"] == "alias_candidates_exhausted"
 
     @pytest.mark.asyncio
-    async def test_no_candidate_skips_occupancy_query(self):
-        """无法构造候选时返回 None，不查询存储。"""
+    async def test_no_candidate_falls_back_to_memory_id_without_query(self):
+        """后缀与标题都无法构造候选时回退为 ``mem_<memory id>``，不查询存储。"""
         occupancy = _AliasOccupancy()
         generator = AliasGenerator(occupancy)
+        memory_id = uuid4()
 
         alias = await generator.generate(
             workspace_identity=MAIN,
+            memory_id=memory_id,
             memory_type="FACT",
-            alias_suffix="",
-            title="!@#$%",
+            alias_suffix="快速排序",
+            title="部署流程说明",
         )
 
-        assert alias is None
+        assert alias == f"mem_{memory_id.hex}"
         assert occupancy.queried == []
 
 

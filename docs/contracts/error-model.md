@@ -278,7 +278,7 @@ WRITE/UPDATE 登记后的派发错误携带 `pending_alias` 与 `intent_id`，�
 
 两种错误均在 ACK 之前交给 Agent，中英文文案分别说明拒绝与未知。外部 harness 经 MCP 提交时，它们与 `PendingUpdateNotAllowedError` 按 HTTP 出口的投影交给调用方：`dispatch_rejected` 为 503、`dispatch_unknown` 为 500、`pending_update_not_allowed` 为 409，文案同样不暴露 cause（[MCP 记忆访问](./mcp.md#5-错误)）。未知结果只在策略允许 READ 时建议查询已有句柄；没有 READ 能力则明确无法确认，任何情况下都不自动重复 WRITE/UPDATE。总线异常或接纳响应丢失按未知处理；队列停止、容量拒绝、UPDATE 基础丢失及本地意图参数非法按明确拒绝处理。由于 MTP 错误不携带内部 cause，根因只由 actor API 记录日志：总线异常导致的未知结果以 error 级别连同异常堆栈记录，并关联 `intent_id` 与 `pending_alias`，便于排查长期停在 MATERIALIZING 的句柄。
 
-引用交付的 citation 使用 `source="workspace.reference_read"`；普通记录失败只记日志、不改变可读结果，取消继续传播，已记录的引用不回滚。因此 RUN 工具失败不会撤销执行前已经完成的正式原子读取计数。
+引用交付的 citation 使用 `source="workspace.reference_read"`；普通记录失败只记日志、不改变可读结果，取消继续传播，已记录的引用不回滚。因此 RUN 工具失败不会撤销执行前已经完成的正式原子读取计数；RUN 只为 `CODE_SNIPPET` 目标计数，不可执行的目标不计数。
 
 会话错误由 `workspace.session.*` 表达：`not_found`（404，含越域隐藏）、`busy`（409，同一会话认领冲突或运行中删除）、`capacity_exceeded`（409，Workspace 会话数/会话轮数上限）、`closed`（503，服务已关闭）。这些错误在注册或管理操作时显式返回，不自动新建替代不存在的会话、不淘汰历史。
 
