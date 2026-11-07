@@ -332,7 +332,7 @@ HiveMemory/
 ## 开发说明
 
 - 测试默认由 `pytest` 驱动，配置见 [pyproject.toml](pyproject.toml)
-- 前端提供 `npm run dev` / `npm run build` / `npm run lint`
+- 前端提供 `npm run dev` / `npm run build` / `npm run lint` / `npm test`
 - 后端健康检查与 readiness 已内置在 API 中
 - 日志可通过 WebSocket 推送到前端
 

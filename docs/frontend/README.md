@@ -100,7 +100,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 | 主题与视觉 token | `frontend/src/index.css` |
 | 开发代理与构建 | `frontend/vite.config.ts`、`package.json` |
 
-前端的可执行门槛是 `npm run lint` 与 `npm run build`。`frontend/tests/` 下是 Node 内置测试运行器的测试，会话行为测试由 `npm run test:session` 运行（[Chat 视图](./chat-view.md)），其余以 `node --test` 直接运行；后端路由行为由 `tests/unit/server/routers/` 覆盖。安装与运行方式见 [Help](../help/README.md)。
+前端的可执行门槛是 `npm run lint`、`npm test` 与 `npm run build`，CI 的前端任务依次运行这三项。`frontend/tests/` 下是 Node 内置测试运行器的测试，`npm test` 运行全部，会话行为测试也可以由 `npm run test:session` 单独运行（[Chat 视图](./chat-view.md)）；后端路由行为由 `tests/unit/server/routers/` 覆盖。安装与运行方式见 [Help](../help/README.md)。
 
 ## 6. 当前总体限制
 
