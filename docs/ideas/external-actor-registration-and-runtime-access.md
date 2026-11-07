@@ -28,14 +28,14 @@ related_docs:
   - docs/VISION.md
   - docs/ideas/execution-environment.md
   - docs/archive/ideas/execution-thread-definition.md
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-07
 ---
 
 # 外部 Actor 的接入登记与运行时访问
 
 **文档状态**：Idea。plugin 模式已于 v0.7.1–v0.7.2 实施（第 4 节），当前事实见 [MCP 记忆访问](../contracts/mcp.md)与 [Import Bus](../system/import-bus.md)；controller 模式与其余开放问题未形成实施承诺
 
-**实施关联（2026-10-09）**：Alice 的操作请求、执行凭据与观测标签已通过 [迁移计划验收](../archive/plans/v0.7.0-alice-capability-migration.md)，当前接口见 [子系统契约](../contracts/subsystem-contracts.md)。本 Idea 的 controller/plugin 模式、传输会话到凭据的映射和独立子线程身份仍是后续方向，不能从 Alice 迁移完成推断它们已实现。
+**实施关联（2026-10-09）**：Alice 的操作请求、执行凭据与观测标签已通过 [迁移计划验收](../archive/plans/v0.7.0-alice-capability-migration.md)，当前接口见 [子系统契约](../contracts/subsystem-contracts.md)。本 Idea 的 controller 模式与传输会话到凭据的映射仍是后续方向，不能从 Alice 迁移完成推断它们已实现；plugin 模式已于 v0.7.1–v0.7.2 实施（第 4 节），子线程以自己的工作 actor 运行（[执行线程](../workspace/execution-threads.md#63-子线程以被调用方身份运行)）。
 **记录日期**：2026-09-27，由原 v0.7.0 计划 B 退回
 
 ## 0. 文档性质
@@ -102,7 +102,7 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 - 写入意图（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）：plugin 模式经 MCP 提交的写入意图没有所属进程（2026-09-28 已消解：写入意图在 workspace 登记，与进程解耦）；
 - 任务进程 Idea Q-14：两条回流路径进入同一提交队列；同一 harness 同时以两种模式使用时，同一交互可能被记录两次（2026-09-28：Q-14 选 A，Import Bus 排除在现有系统之外，此问题留待 plugin 模式设计时处理）；
 - [外部会话与 Topic 投影](./external-session-and-topic-projection.md)：plugin 模式的会话归外部 harness 所有，Alice 与 controller 模式的会话由 HiveMemory 发起；
-- [第五代架构 Idea](./fifth-generation-architecture.md) P-9：不建进程的访问不只来自管理员；
+- [第五代架构 Idea](./fifth-generation-architecture.md) P-9：不建进程的访问不只来自管理员（P-9c 已于 2026-10-29 决定并实施，见第 4 节“[P-1c 与 P-9c](#p-1c-与-p-9c-身份证明与不建进程的访问-context)”）；
 - Import Bus：同时是 plugin 模式的对话回流通道，不只承担对话导入。
 
 此前列入“外部 Actor 形态”单独审议的问题，在两种模式下的归属：
@@ -111,7 +111,7 @@ owner 表述（2026-09-27）：计划 B 的核心议题是**如何把外部 Acto
 |:---|:---|
 | [Q-8 外部 CPU 的进程](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) | 只涉及 controller 模式（plugin 模式不建进程）；Q-8a–Q-8c 仍待决 |
 | E-4 结果观察的方式 | 已关闭（owner，2026-10-31）：项目中不存在“结果观察”这一概念，见 E-4 |
-| [P-5b 被动请求的 principal](./fifth-generation-architecture.md) | 被动请求只存在于 controller 模式；owner 倾向由登记的 Agent 反推；仍待决 |
+| [P-5b 被动请求的 principal](./identity-and-access-model.md#p-5-被动请求的认证) | 被动请求只存在于 controller 模式；owner 倾向由登记的 Agent 反推；仍待决 |
 | 请求方类型与认证 principal 的关系 | 按两种模式的定义：controller 模式下，用户直接向 HiveMemory 的入口发出请求；plugin 模式下，没有请求进入注册入口，外部 harness 以不建进程的方式访问能力层。外部 harness 连接方的身份如何证明见 P-1c |
 
 ### 1.2 harness 登记的两个侧面（owner，2026-09-30）
@@ -331,7 +331,7 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
 - 不包含：harness 主动调用记忆（操作适配器）、工具调用的事件呈现、Profile 应用结果的报告、harness 的子 agent、第二个 harness。
 - 阻塞问题：本文 E-2a；[任务进程 Idea](./task-process-table-and-registration-entry.md#q-8-外部执行单元的进程) Q-8；[执行环境 Idea](./execution-environment.md) T-7、T-8、T-11。候选 harness 的程序化接口见[接口调研需求](../research/harness-interface-survey.md)与 [2026-10-20 资料快照](../research/harness-interface-survey-snapshot.md)（模型实测待验证）。
 - 不阻塞这一步（分析）：harness 不回调 HiveMemory，也不需要登记外部来源，E-2 主问题、E-3b、[身份与访问体系 Idea](./identity-and-access-model.md#p-1-经网络接入的执行者如何证明身份) P-1b 与 P-1c、[身份与授权](../workspace/identity-and-authorization.md#8-已知限制)第 8 节的 `system` 声明规则都不涉及；只回传正文与终态字段时，T-10 的三个选项行为相同。
-- 后续步骤（候选）：harness 经绑定线程的操作适配器主动使用记忆，需要 E-2 主问题、E-3b、P-1b 与 `system` 声明规则，T-10 需要在此之前决定；Profile 应用结果的报告（P-10a，与 T-7b 相互约束）与前端呈现；E-2a 若选通用协议，接入第二个 harness 验证驱动的通用性。Q-3b 只在外部协议直接发起任务时才需要；P-3 随执行基座考虑（暂不考虑，见 ROADMAP 第 5.4 节）。验收方向见 ROADMAP 第 5.6 节。
+- 后续步骤（候选）：harness 经绑定线程的操作适配器主动使用记忆，需要 E-3b 中绑定线程的适配器（T-4）与 P-1b（E-2 主问题已于 2026-10-29 决定，`system` 声明规则已于 2026-10-29 以 `allow_system_actor` 落实），T-10 需要在此之前决定；Profile 应用结果的报告（P-10a，与 T-7b 相互约束）与前端呈现；E-2a 若选通用协议，接入第二个 harness 验证驱动的通用性。Q-3b 只在外部协议直接发起任务时才需要；P-3 随执行基座考虑（暂不考虑，见 ROADMAP 第 5.4 节）。验收方向见 ROADMAP 第 5.6 节。
 
 ### E-1 接入登记的来源与生效时点
 
@@ -394,7 +394,7 @@ v0.7.2 的版本目标是生成质量（[ROADMAP](../ROADMAP.md#3-最近已发�
   - 来不及拦截：`tool_call` 通知是事后报告；只有 harness 对该工具发出 `session/request_permission`（协议中为 MAY）时，驱动才能在派生发生前介入。
   - 无法签发 context：harness 自己的子 agent 类型不是 HiveMemory 登记的 agent，没有 Agent Profile，也没有访问登记，无法通过 Workspace 准入（E-6a）。
 - **影响**（分析）：
-  - 外部 harness 子 agent 发起的读取与写入意图，以主线程 actor 的权限授权，来源也记为主线程的 actor；这与 Alice 目前的情形相同（总 Idea 18.2），差别是 Alice 将按执行单元 Idea T-1、T-2 改为每个线程一份 context。
+  - 外部 harness 子 agent 发起的读取与写入意图，以主线程 actor 的权限授权，来源也记为主线程的 actor；这与 Alice 当时的情形相同（总 Idea 18.2）。Alice 已按执行单元 Idea T-1、T-2 改为每个线程持有自己的工作 actor，CALL 子线程以被调用方的身份运行（[执行线程](../workspace/execution-threads.md#63-子线程以被调用方身份运行)）。
   - 在 HiveMemory 看来，外部执行单元只有主线程一个 actor，身份 Idea 第 2 节“一份 context 只属于一个 actor”仍然成立；执行单元 Idea T-1a、T-1b、T-2a 只涉及 Alice。
   - 外部执行单元不经过派生授权（执行单元 Idea T-3）；子 agent 能做什么只受主线程 actor 的白名单与资源 policy 约束。
   - 失效条件：出现能在协议中可靠标识派生调用、并允许子 agent 使用独立端点的 harness 或协议版本，且接入它的收益足够时，重新讨论。

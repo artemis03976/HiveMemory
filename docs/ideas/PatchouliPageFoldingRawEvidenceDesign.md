@@ -20,7 +20,7 @@ related_ideas:
 related_docs:
   - docs/archive/plans/v0.7.2-generation-material-and-raw-evidence.md
   - docs/archive/todo/generation-material-filtering-and-truncation.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-07
 ---
 
 # 从 ConversationSession 到 Topic 与 Memory Artifact 的原始资料保存
@@ -102,7 +102,7 @@ flowchart TD
 
 Topic 完整资料保存“有哪些来源材料”；`state_summary + recent_blocks` 等派生视图回答“当前分析或生成看什么”。两者应独立演进：page folding 只推进后者，既不决定原文是否值得保存，也不自动宣告该段材料已被物化为正式记忆。
 
-这不要求 active blocks 始终保留全部历史。若把所有正文留在同一个活跃输入中，Perception 会同时管理模型窗口和资料保全，settlement extractor 仍可能超出上下文窗口。候选方向是在 Topic 所有权下分开完整资料与工作窗口，共享稳定来源关联；具体数据布局留待 Plan 决定。
+这不要求 active blocks 始终保留全部历史。若把所有正文留在同一个活跃输入中，Perception 会同时管理模型窗口和资料保全，settlement extractor 仍可能超出上下文窗口。在 Topic 所有权下分开完整资料与工作窗口已于 v0.7.2 实施（见第 0 节）：Topic 按顺序保存全部交互记录与折叠记录，工作视图由它们派生（[感知与短期话题](../patchouli/perception.md)）。
 
 Alice compact 和 Topic folding 可以复用 token 计算、分段与摘要校验等机制，但拥有独立覆盖范围、检查点和保留策略。Alice 已压缩的进度不能证明 Patchouli 已接收资料，Topic 已折叠也不能证明 Memory 已生成。详细设计由[压缩 Idea](./short-term-memory-and-context-compaction.md)维护。
 
@@ -120,21 +120,21 @@ Alice compact 和 Topic folding 可以复用 token 计算、分段与摘要校�
 
 ### 5.2 从 Topic 资料到 Artifact
 
-生成接纳或执行时，应绑定稳定的来源范围，避免任务重试读取已变化的 Topic 或 Session 而悄悄切换证据。候选方向是在生成阶段将选定的完整来源冻结为 Artifact，或者复用内容与覆盖范围相同的已有 Artifact。冻结资料集可以比该次模型真正读取的片段更广，但不能声称未读部分已经影响生成结论。
+生成接纳或执行时，应绑定稳定的来源范围，避免任务重试读取已变化的 Topic 或 Session 而悄悄切换证据。话题结算的这一部分已于 v0.7.2 实施（见第 0 节）：结算冻结全部交互记录与折叠记录，来源 InteractionArtifact 覆盖已折叠的轮次（[Artifacts](../patchouli/artifacts.md)）。冻结资料集可以比该次模型真正读取的片段更广，但不能声称未读部分已经影响生成结论。
 
 生成来源至少需要能够解释三件事：原始资料来自哪里、这份快照覆盖哪些交互/事件、某次提取实际消费哪些范围。具体粒度、引用结构与 schema 需结合既有 Artifact 模型评估，不在本文冻结字段或新增类型。工具结果若只保存短标识、附件若只留下随时可能失效的临时 ref，也不能声称已经保存了其完整正文。
 
-候选生命周期要求是：Topic 结束或被驱逐之前，仍有保留责任的资料应已由生成任务接管、形成独立来源快照，或按明确保留规则继续可用；不能因为模型只消费了摘要，就删除尚无其他承接方的完整资料。冻结任务接纳不等于 Artifact 已写入，二者之间如何持有材料仍需设计。
+候选生命周期要求是：Topic 结束或被驱逐之前，仍有保留责任的资料应已由生成任务接管、形成独立来源快照，或按明确保留规则继续可用；不能因为模型只消费了摘要，就删除尚无其他承接方的完整资料。冻结任务接纳不等于 Artifact 已写入：v0.7.2 起二者之间由结算任务携带冻结的全部记录（见第 0 节）；Artifact 捕获失败时这次结算的原文不再保存在任何地方，是否允许这一缺口随第 7 节的保存承诺决定。
 
 ### 5.3 Memory 的来源关联
 
 Memory 关联来源 Artifact，不把原始对话嵌入每条知识正文。一份来源可以支撑多条 Memory，也可以在后续修订或高保真处理中被再次读取；生成任务的身份与原始交互身份不互相替代。
 
-没有产生 Memory 的资料，也需要明确释放规则。TOUCH、DISCARD、生成失败或取消，不应隐含地决定是否保留证据。当前不同结果的挂载行为见[Artifacts 当前文档](../patchouli/artifacts.md)；本 Idea 只要求后续计划明确完整资料链在这些结果下的承诺。
+没有产生 Memory 的资料，也需要明确释放规则。TOUCH、DISCARD、生成失败或取消，不应隐含地决定是否保留证据。话题结算中这一点已于 v0.7.2 实施：来源 InteractionArtifact 在生成之前捕获，提取失败、没有产出或结果为 TOUCH 时原文仍保存在其中，只是没有记忆引用它（[记忆生成](../patchouli/generation.md)第 5 节）。当前不同结果的挂载行为见[Artifacts 当前文档](../patchouli/artifacts.md)；本 Idea 只要求后续计划明确完整资料链在这些结果下的承诺。
 
 ## 6. 材料消费与高保真处理
 
-保存完整资料不意味着一次 generation 请求读完全部历史。默认分析与生成继续使用有界视图；需要高保真提取时，可按稳定范围分片读取原文，形成候选记忆，再由 Generation 的去重、合并与更新机制处理结果。
+保存完整资料不意味着一次 generation 请求读完全部历史。默认分析与生成继续使用有界视图；需要高保真提取时，可按稳定范围分片读取原文，形成候选记忆，再由 Generation 的去重、合并与更新机制处理结果。这一候选与下文的异步 refinement 已由第 0.1 节的 R-1 否决（owner，2026-10-30）：不采用分片，生成继续读取话题的工作视图，完整资料只做保存。
 
 异步 refinement 是可探索的消费策略，不是把原文推回 Alice 每轮输入的通道。它需要明确质量收益、资源预算、背压、可取消性、重试和幂等，并记录每次实际处理的资料范围。后续原文重读不应依赖已经失效的会话 cursor 或临时工作窗口。
 
@@ -187,7 +187,7 @@ Memory 关联来源 Artifact，不把原始对话嵌入每条知识正文。一�
 |:---|:---|
 | 完整范围与跨入口 | 哪些事件、工具结果、多模态与附件内容被承诺保存；来源未提供与投影丢失如何区分；混合来源 Topic 如何保留可靠 provenance |
 | 交接与引用 | 封口及流式资料何时算保存成功；正文复制与稳定引用如何取舍；Session 删除、Topic 结束或接纳结果未知时由谁继续持有 |
-| 冻结与生成 | 来源范围何时绑定，如何与有界视图、普通 settlement、主动生成和异步 refinement 对齐；过滤、失败、取消及无 Memory 结果后的资料如何处置 |
+| 冻结与生成 | v0.7.2 已实施（见第 0 节）：来源范围在结算时绑定，冻结全部交互记录与折叠记录，主动生成沿用话题最近的 blocks；来源 InteractionArtifact 在生成之前捕获，提取失败、没有产出或结果为 TOUCH 时原文仍在其中（[记忆生成](../patchouli/generation.md)第 5 节）。异步 refinement 已由 R-1 否决（owner，2026-10-30）。来源 Artifact 捕获失败与取消后的资料如何处置，随第 7 节的保存承诺决定 |
 | 容量与生命周期 | 进程内完整性的容量、保留期限、背压和释放条件；Artifact 引用共享、孤立资料、敏感内容删除及 shutdown 的承诺范围 |
 | 后续编辑能力 | 未来修订/分支如何寻址来源、使派生视图失效并处理既有记忆；与会话持久化的范围如何分别安排 |
 
@@ -198,7 +198,7 @@ Memory 关联来源 Artifact，不把原始对话嵌入每条知识正文。一�
 1. 通过实际案例明确要保全的资料范围、质量收益与当前丢失点，并决定接收和交接成功的含义。
 2. 确定 Session、Topic、任务持有材料与 Artifact 的生命周期和稳定引用保障，覆盖跨入口、失败、重试、取消与关闭。
 3. 明确保留、容量、隐私和删除规则；证明完整保全承诺与延迟目标、失败处理相容。
-4. 如纳入高保真 refinement，明确分片消费、生成侧去重、来源关联与预算，并验证其不依赖无界模型输入。
+4. 高保真 refinement 与分片消费已由第 0.1 节的 R-1 否决（owner，2026-10-30），不再是本文的升级条件；超出提取模型窗口的材料留到流式交互接收实现时处理（[长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md)）。
 5. 绑定版本或里程碑，确定相关契约、迁移与验证归属；实现、验收和代码审查完成后，再按最终代码更新 Workspace、Perception、Generation、Artifacts 与 Passive Ingress 的当前事实文档。
 
 会话原始数据持久化可以独立立项。本文不把它作为开始梳理和贯通进程内完整资料链的默认前置条件。

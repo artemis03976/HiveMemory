@@ -13,7 +13,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/execution-environment.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # 任务进程表与任务请求唯一注册入口
@@ -65,7 +65,7 @@ Profile 属于 CPU 分配，但现在提前到 prepare 之前解析，因为 pre
 owner（2026-09-28）为进程记录与工作集定下的内容中，以下部分尚未成为槽位：
 
 - 进程记录：请求方式（主动或被动）、CPU 分配（所用的执行环境，见[执行环境 Idea](./execution-environment.md) T-8）；
-- 工作集中的值：GatewayDecision、执行记录。
+- 工作集中的值：执行记录（GatewayDecision 已于 2026-11-06 成为工作集的 `ProcessWorkingSet.gateway_decision`，见[任务进程](../workspace/task-process.md#9-工作集与唯一的退出路径)第 9 节）。
 
 约束：槽位可以动态，值必须有类型，每个槽位都有声明的类型与所有者，不使用 `dict[str, Any]` 这类无类型载体；工作集中的资源在进程关闭时必须释放或补偿，无论从哪个阶段结束。
 
@@ -135,7 +135,7 @@ Alice 在进程内运行，进程能取消它，也知道它何时结束。外�
 | [第五代架构 Idea](./fifth-generation-architecture.md) | 3.2 的理念与检验问题；架构级开放问题 P-9d |
 | [身份与访问体系 Idea](./identity-and-access-model.md) | P-4a（进程能否持有白名单的子集）、P-5（被动请求的认证）、P-7（进程控制操作的授权主体），2026-11-05 由第五代架构 Idea 移入 |
 | [执行环境 Idea](./execution-environment.md) | 执行环境的选择（T-8）决定 CPU 分配记入进程记录的内容 |
-| [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 会话承载对话连续性；2.1、2.2 随它与流式同步的设计决定 |
+| [外部会话与 Topic 投影 Idea](./external-session-and-topic-projection.md) | 会话承载对话连续性；话题预建已于 2026-11-06 取消（其第 10 节），不再是 2.1、2.2 的前提：2.1 仍因会话与 `done` 需要实际所在的话题而未实施，2.2 要先改变主线程的派生时点 |
 | [外部 Actor Idea](./external-actor-registration-and-runtime-access.md) | controller 模式使用本文的进程模型（Q-3b、Q-8），plugin 模式不建进程 |
 | [Import Bus](../system/import-bus.md) | Q-5b 与 plugin 模式 `interaction_id` 推导的当前行为 |
 | [Chat Run 生命周期后续候选](./chat-run-lifecycle-follow-ups.md) | 进程生命周期的其他候选改进 |

@@ -38,7 +38,7 @@ related_docs:
   - docs/todo/memory-visibility-policy-ui.md
   - docs/todo/frontend-identity-ownership.md
   - docs/todo/run-target-executability-check.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # 身份与访问体系
@@ -56,7 +56,7 @@ last_reviewed: 2026-11-06
 
 - 已落地的模型分布在多份事实文档中：身份与授权、认证与访问登记、能力层、执行线程与 MCP 记忆访问；
 - 未决的部分散落在第五代架构 Idea、外部 Actor Idea、写入意图 Idea、五份 Todo 与身份治理中；
-- 例外与补丁逐渐累积：WorkspaceAsset 仍以旧 `IdentityScope` 做归属检查（AGENTS.md 登记的唯一例外），Profile 注入脚本以 `system` 进入 root API，HTTP 管理接口沿用本地单用户部署的信任假设（2026-11-05 起以管理凭据防误用）。
+- 例外与补丁逐渐累积：WorkspaceAsset 曾以旧 `IdentityScope` 做归属检查（AGENTS.md 登记的唯一例外，2026-11-06 随 WorkspaceAsset 的归属拆分删除，见[归档计划](../archive/plans/workspace-asset-ownership-split.md)），Profile 注入脚本以 `system` 进入 root API，HTTP 管理接口沿用本地单用户部署的信任假设（2026-11-05 起以管理凭据防误用）。
 
 已经具备、本文不再讨论的地基：三个身份模型与两阶段认证、两阶段授权；统一身份授权入口（认证得到工作 actor，授权只有 actor 执行期间的 `authorize_agent` 与系统级操作的 `authorize_root` 两个方法，交互的参与者作为数据显式传递；2026-11-06 落地，见第 5 节）；资源归属与发起者的拆分；外部 principal 以本地共享密钥证明身份（P-1c）；`allow_system_actor` 限定能声明 `system` 的来源；不建进程的访问每次工具调用认证一次、身份只在本次调用内有效（P-9c）。
 
@@ -298,7 +298,7 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 - RUN 的错误可以探测记忆的类型与是否存在，不可执行的目标也会记录一次引用：[RUN 目标的可执行性检查 Todo](../todo/run-target-executability-check.md)；
 - 前端身份切换时的持久化、失效与清理：[前端身份状态所有权 Todo](../todo/frontend-identity-ownership.md)，对应[身份治理](../governance/security/identity-and-execution-safety.md) Phase S4；
 - 显式 Profile 解析失败、权限拒绝与未指定 Profile 的稳定结果，以及失败事件不泄漏不可见正文：身份治理 Phase S1 第 4、5 项；
-- 身份与威胁模型清单：身份治理 Phase S0，尚未开始。
+- 身份与威胁模型清单（身份治理 Phase S0）：身份输入与授权所有者的盘点已由[现状调查](../governance/baselines/identity-access-current-state-2026-11-05.md)完成（2026-11-05）；越权、Profile 过期等最小复现样本不单独立项，随相关条目实施时补上（owner，2026-11-06）。
 
 **事实文档登记的已知限制**（[认证与访问登记](../workspace/authentication.md#8-已知限制)第 8 节、[身份与授权](../workspace/identity-and-authorization.md#8-已知限制)第 8 节）
 
@@ -313,7 +313,7 @@ owner（2026-10-03）：`IdentityScope` 由操作的发起者与目标 Workspace
 
 以下是分析，不是 owner 决定，也不预排计划。
 
-- 这条线目前没有一份统一的清单，能逐项列出各入口、路由、actor 操作、缓存、后台任务与资源操作的身份输入与授权所有者，也无法据此区分哪些是设计、哪些是补丁。身份治理 Phase S0 定义的正是这份清单，适合作为整理的第一步，第 8 节的例外与已知限制可以据此判断去留。
+- 整理的第一步是一份能逐项列出各入口、路由、actor 操作、缓存、后台任务与资源操作的身份输入与授权所有者、并区分设计与补丁的清单，即身份治理 Phase S0。2026-11-05 的[现状调查](../governance/baselines/identity-access-current-state-2026-11-05.md)完成了这份盘点；据此于 2026-11-06 完成了统一身份授权入口、Import Bus 的授权移入能力层、WorkspaceAsset 的归属拆分与交互提交收束。现状调查是冻结的快照，其中被这些计划改掉的部分以当前事实文档为准。
 - 按发布影响，第 4 节的 HTTP 管理入口与第 3 节的登记生效时点直接关系桌面端与多个 harness 同机运行；第 5 节的 P-1b、P-5、P-7 与第 7 节主要服务 controller 模式与多 Workspace，可以留到对应方向重启时再决定。
 
 ## 10. 相关文档

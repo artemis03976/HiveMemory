@@ -16,7 +16,7 @@ related_ideas:
   - docs/ideas/pending-intent-migration.md
 related_todos:
   - docs/todo/conversation-compact-command.md
-last_reviewed: 2026-10-17
+last_reviewed: 2026-11-07
 ---
 
 # 长时间运行 Agent 的 Turn 内上下文折叠
@@ -27,7 +27,7 @@ last_reviewed: 2026-10-17
 
 > 定位调整（owner，2026-10-01）：ConversationSession 落地后，前台对话与后台的记忆 Topic 管理是两项各自独立的工作。前台的上下文压缩归 CPU，用户以 `/compact` 触发（[会话 `/compact` 指令 Todo](../todo/conversation-compact-command.md)）；后台的 Topic 管理继续使用 page folding。本文据此分别讨论 CPU 的 turn 内执行视图与 Patchouli 的未结束交互资料视图，两边各自推进，不能串成前一级 compact 完成后再交给后一级 folding 的流水线。
 
-> 方向（owner，2026-10-13）：对话以流式方式同步到 Patchouli 侧，仍保留一轮 Interaction 的概念，但 Topic 侧接收更原子的输入结构，以解决一轮对话或执行过长导致的上下文爆炸。Topic 的生成材料相应变为之前全部的 Interaction 记录，加上当前轮已流式接收的消息。写入意图派发时“只取过去若干轮历史与 `state_summary`、当前一轮不参与”的局限随之消失（现状见 [Patchouli 生成](../patchouli/generation.md)第 3.2 节，材料方向见[写入意图后续方向 Idea](./pending-intent-migration.md)第 8 节）。影响（分析）：第 1 节“当前主路径以完整 turn 为基本摄入单位”是这一方向要改变的现状；第 3.1 节接收未结束 turn 的 OpenTurnWorkspace 是一种候选承载；第 10.1 节“partial turn 提前进入 settlement”的顾虑仍然成立，流式接收的消息作为生成材料不等于提前结算。接收流式输入需要 Patchouli 侧先有容器保存关联信息，并供生成取出已接收的内容；容器是话题本身，还是第 3.1 节那样单独接收未结束 Interaction 的容器，决定话题是否需要预建，在此之前话题保留预建（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1，owner，2026-10-13）。
+> 方向（owner，2026-10-13）：对话以流式方式同步到 Patchouli 侧，仍保留一轮 Interaction 的概念，但 Topic 侧接收更原子的输入结构，以解决一轮对话或执行过长导致的上下文爆炸。Topic 的生成材料相应变为之前全部的 Interaction 记录，加上当前轮已流式接收的消息。写入意图派发时“只取过去若干轮历史与 `state_summary`、当前一轮不参与”的局限随之消失（现状见 [Patchouli 生成](../patchouli/generation.md)第 3.2 节，材料方向见[写入意图后续方向 Idea](./pending-intent-migration.md)第 8 节）。影响（分析）：第 1 节“当前主路径以完整 turn 为基本摄入单位”是这一方向要改变的现状；第 3.1 节接收未结束 turn 的 OpenTurnWorkspace 是一种候选承载；第 10.1 节“partial turn 提前进入 settlement”的顾虑仍然成立，流式接收的消息作为生成材料不等于提前结算。接收流式输入需要 Patchouli 侧先有容器保存关联信息，并供生成取出已接收的内容；容器是话题本身，还是第 3.1 节那样单独接收未结束 Interaction 的容器，仍未决定，它属于短期记忆的单位与形态。2026-10-13 曾因此保留话题预建（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1，owner，2026-10-13）；2026-11-06 owner 重新打开话题按需创建：不预建话题，第一次写入时建立，否则推迟到接受交互时建立，同日实施（[归档计划](../archive/plans/interaction-submission-and-topic-on-demand.md)）。
 
 ## 0. 核心判断与升级门槛
 
@@ -427,13 +427,13 @@ summary 自身最终也会溢出，必须拥有独立预算、版本和再压缩
 
 ## 13. 开放问题
 
-1. Patchouli 接收当前轮材料的容器直接放在 Topic 中，还是独立设置 OpenTurnWorkspace；这对 Topic 预建和最终封口有什么影响？
+1. Patchouli 接收当前轮材料的容器直接放在 Topic 中，还是独立设置 OpenTurnWorkspace；这对话题的建立时点和最终封口有什么影响？（话题自 2026-11-06 起按需建立、不再预建，见开头的方向。）
 2. Segment boundary 应由 Agent runtime 声明、由 HiveMemory 归并，还是采用混合策略？
 3. 流式原子事件接纳、完整 Interaction 封口与写入意图读取材料之间，如何冻结一致的已接收快照？
 4. 完整原始资料链中的引用期限和删除规则，如何覆盖未结束 turn、延迟事件和后来生成的 Artifact？
 5. 尚未完整封口的事件流如何表达 partial facts，并与已有 cancelled/failed 封口记录区分？
 6. 外部事件标识或 sequence 不稳定时，如何检出重放与缺口；外部 checkpoint 可以提供哪些辅助诊断而不替代接收事实？
-7. 多 Agent/child frame 的材料如何关联 parent interaction；CPU 各 frame 的执行检查点如何独立定位这些来源？
+7. CPU 各 frame 的执行检查点如何独立定位多 Agent/child frame 的材料来源？材料与 parent interaction 的关联已决定（owner，2026-11-02）：子 Agent 是父 Agent 临时委托的执行线程，与 Alice 的 CALL 子帧一样，它的过程不进入记忆生成，要保留的内容由它自己写入记忆；父会话的一轮保留它交回的最终输出（[Import Bus](../system/import-bus.md#93-轮次的切分与映射)第 9.3 节）。
 8. managed-context API 是否属于 Import Bus（原 Passive Ingress）扩展，还是应成为独立的 conversation-context service？
 9. 具体消费者的 token budget 在模型切换时如何重新验证；超大且尚未闭合的 segment 采用什么有界表示？
 10. 哪些真实使用指标足以证明该复杂度优于“外部 Agent 自行 compact，HiveMemory 只做 post-hoc 记忆生成”？

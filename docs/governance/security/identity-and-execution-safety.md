@@ -122,6 +122,8 @@ MTP RUN 应将“可读取的 Memory”与“可执行的 Memory”分开：
 
 ### Phase S0：身份与威胁模型清单
 
+第 1、2、4 项的盘点已由[身份与访问体系现状调查](../baselines/identity-access-current-state-2026-11-05.md)完成（2026-11-05）。第 3 项的最小复现样本不单独排期，随相关条目实施时补在对应的测试中（owner，2026-11-06）。
+
 1. 列出所有 request、route、MTP verb、cache、work item、Artifact 和 MemoryLibrary 操作的身份输入与授权所有者；
 2. 画出主 Agent、子 Agent、后台 task、scheduler 和 frontend 的身份继承/缩小关系；
 3. 建立越权、alias 污染、Profile stale、重试跨用户、stream 切换和执行逃逸的最小复现样本；
