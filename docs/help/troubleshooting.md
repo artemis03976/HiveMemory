@@ -95,7 +95,7 @@ Provider/Model 列表 API 只返回脱敏 key；看到掩码代表“存在一�
 
 整合部署确认浏览器与 API 同源 `8000`。如果使用自定义反向代理，必须同时转发普通 HTTP、SSE 长连接和 `/api/v1/ws/logs` WebSocket upgrade。
 
-`VITE_BACKEND_ORIGIN` 当前只控制日志与 RuntimeEvent stream，不能改变所有 HTTP API。仅设置它而没有代理 `/api`，Chat、Memory 和 Settings 仍会请求前端当前 origin；直连后端的日志与 RuntimeEvent 也不带管理凭据，会被拒绝。
+设置 `VITE_BACKEND_ORIGIN` 后，前端的 HTTP、SSE 与日志 WebSocket 都直连这个 origin，不经 Vite 代理，也就不带管理凭据，会被拒绝；页面 origin 不在后端 CORS 允许的本地开发 origin 中时，浏览器还会拦下跨域请求。日常使用不设置它。
 
 接口返回 401 `request.management_credential_invalid`，或日志 WebSocket 连接被拒绝，说明请求没有带上一致的管理凭据：
 

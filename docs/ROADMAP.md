@@ -187,7 +187,7 @@ last_reviewed: 2026-11-07
 
 Frontend 已部分落地，后续优化按可用性和资源操作体验推进，详细事实见 [Frontend](./frontend/README.md)。本轨不阻塞后端基础重构，但与受影响 API 一起验收。
 
-- **近期可靠性**：统一身份状态，明确真实/stale/error，修复失败披露和乐观更新，覆盖 HTTP/SSE/WebSocket 的一致连接配置与请求终态。
+- **近期可靠性**：统一身份状态，明确真实/stale/error，修复失败披露和乐观更新，覆盖请求终态；HTTP、SSE 与 WebSocket 的连接目标已统一由 `VITE_BACKEND_ORIGIN` 配置（2026-11-07）。
 - **资源操作体验**：Memory Garden 真实语义检索、可见性策略、附件/来源检查、导入预览与失败重试。Workspace 选择 UI 只在对应后端能力真实可用后开放。
 - **交互和视觉完善**：布局、导航、窄屏、可访问性、空状态及主题；避免将未接线的 Terminal 或研究页面显示成已有功能。
 
@@ -238,7 +238,7 @@ v0.7.0 A2-P 完整记忆历史 + 文档来源 / 版本 -> MTP READ 专项编译
 
 状态：Candidate，不绑定版本（2026-10-30 撤销原 `v0.8.x` 产品化窗口），正式 Plan 待建立；不是 Deep Research 或 Alice 高级编排的强制下游。完整发布之前可以做有限启动/连接原型，完整发布以资源生命周期、前端传输和数据管理稳定为门槛。
 
-桌面化覆盖的工作多于 Web 页面外壳：本地 Python 服务及存储依赖的分发/连接、启动就绪、端口冲突、关闭 drain、数据目录、备份与升级、凭据、日志与崩溃诊断。HTTP 管理凭据的防刻意随桌面客户端完成：主进程在内存中持有凭据，不落盘（[身份与访问体系 Idea](./ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节）。HTTP、SSE、WebSocket 都需可配置地连接同一服务，不能仅迁移日志 URL。平台先选实际使用的一种完成闭环，再扩展安装包和签名发布。
+桌面化覆盖的工作多于 Web 页面外壳：本地 Python 服务及存储依赖的分发/连接、启动就绪、端口冲突、关闭 drain、数据目录、备份与升级、凭据、日志与崩溃诊断。HTTP 管理凭据的防刻意随桌面客户端完成：主进程在内存中持有凭据，不落盘（[身份与访问体系 Idea](./ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节）。HTTP、SSE、WebSocket 的连接目标已经统一配置（2026-11-07），直连时的管理凭据与 CORS 由桌面客户端处理。平台先选实际使用的一种完成闭环，再扩展安装包和签名发布。
 
 Electron renderer 使用公开资源 API，main process 只持有必要的原生桥接与服务管理权限；远程内容和 Agent 代码不在特权主进程执行。Electron 的 renderer sandbox 不能替代 Agent 执行沙箱。
 

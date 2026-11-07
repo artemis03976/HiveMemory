@@ -11,17 +11,18 @@ import type {
   ModelUpdatePayload,
   RegisteredModel,
 } from '@/types/model';
+import { apiUrl } from '@/transports/backendUrl';
 
 const BASE = '/api/v1/models';
 
 export async function fetchModels(): Promise<RegisteredModel[]> {
-  const res = await fetch(BASE);
+  const res = await fetch(apiUrl(BASE));
   if (!res.ok) throw new Error(await apiErrorMessage(res, 'fetchModels failed'));
   return res.json();
 }
 
 export async function createModel(payload: ModelCreatePayload): Promise<RegisteredModel> {
-  const res = await fetch(BASE, {
+  const res = await fetch(apiUrl(BASE), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -34,7 +35,7 @@ export async function updateModel(
   modelId: string,
   payload: ModelUpdatePayload,
 ): Promise<RegisteredModel> {
-  const res = await fetch(`${BASE}/${encodeURIComponent(modelId)}`, {
+  const res = await fetch(apiUrl(`${BASE}/${encodeURIComponent(modelId)}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -44,7 +45,7 @@ export async function updateModel(
 }
 
 export async function deleteModel(modelId: string): Promise<void> {
-  const res = await fetch(`${BASE}/${encodeURIComponent(modelId)}`, {
+  const res = await fetch(apiUrl(`${BASE}/${encodeURIComponent(modelId)}`), {
     method: 'DELETE',
   });
   if (!res.ok) throw new Error(await apiErrorMessage(res, 'deleteModel failed'));

@@ -3,8 +3,8 @@ import {
   MAX_RECONNECT_ATTEMPTS,
   PING_INTERVAL,
   RECONNECT_DELAYS,
-  WS_URL,
 } from '@/stores/workspace/constants';
+import { websocketUrl } from '@/transports/backendUrl';
 import { markActivity, markConnected, markDisconnected, markError, markReconnecting } from '@/transports/state';
 import { WebSocketClient } from '@/transports/websocket/websocketClient';
 import type { WorkspaceStore } from '@/types/workspace';
@@ -17,7 +17,7 @@ const websocketClient = new WebSocketClient<LogPayload>();
 
 export function initializeWebSocket(set: WorkspaceSet, get: WorkspaceGet): void {
   const ws = websocketClient.connect({
-    url: WS_URL,
+    url: websocketUrl('/api/v1/ws/logs'),
     connectTimeoutMs: CONNECT_TIMEOUT,
     pingIntervalMs: PING_INTERVAL,
     pingMessage: 'ping',

@@ -17,7 +17,8 @@ export class EventSourceClient<TEvent> {
   connect(options: EventSourceClientOptions<TEvent>): EventSource {
     this.disconnect();
 
-    const url = new URL(options.url);
+    // options.url 可以是相对路径（同源部署或经 Vite 代理），以页面 origin 补全。
+    const url = new URL(options.url, window.location.origin);
     if (options.lastEventId) {
       url.searchParams.set('last_event_id', options.lastEventId);
     }

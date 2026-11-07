@@ -1,6 +1,7 @@
 /** 会话管理客户端：正文只来自后端历史，浏览器只保存当前会话选择。 */
 import { apiErrorMessage } from '@/services/apiError';
 import { identityHeaders } from '@/services/identity';
+import { apiUrl } from '@/transports/backendUrl';
 
 export type TurnOutcome = 'completed' | 'cancelled' | 'failed';
 export interface SessionSummary {
@@ -56,7 +57,7 @@ export class SessionApiError extends Error {
   constructor(status: number, message: string) { super(message); this.status = status; }
 }
 async function request<T>(path = '', method = 'GET', title?: string): Promise<T> {
-  const response = await fetch(`/api/v1/sessions${path}`, {
+  const response = await fetch(apiUrl(`/api/v1/sessions${path}`), {
     method,
     headers: { ...identityHeaders(), 'Content-Type': 'application/json' },
     ...(title !== undefined ? { body: JSON.stringify({ title }) } : {}),

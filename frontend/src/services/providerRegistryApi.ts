@@ -1,11 +1,12 @@
 import { apiErrorMessage } from '@/services/apiError';
 import type { RegisteredProvider, ProviderUpsertPayload } from '@/types/provider';
+import { apiUrl } from '@/transports/backendUrl';
 
 const BASE = '/api/v1';
 
 /** 获取所有已配置的提供商（API 密钥已脱敏） */
 export async function fetchProviders(): Promise<RegisteredProvider[]> {
-  const res = await fetch(`${BASE}/providers`);
+  const res = await fetch(apiUrl(`${BASE}/providers`));
   if (!res.ok) throw new Error(await apiErrorMessage(res, '获取提供商列表失败'));
   return res.json();
 }
@@ -15,7 +16,7 @@ export async function upsertProvider(
   name: string,
   payload: ProviderUpsertPayload,
 ): Promise<RegisteredProvider> {
-  const res = await fetch(`${BASE}/providers/${encodeURIComponent(name)}`, {
+  const res = await fetch(apiUrl(`${BASE}/providers/${encodeURIComponent(name)}`), {
     method: 'PUT',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
@@ -28,7 +29,7 @@ export async function upsertProvider(
 
 /** 删除提供商凭证（仅可删除 yaml 层，无法删除来自环境变量的提供商） */
 export async function deleteProvider(name: string): Promise<void> {
-  const res = await fetch(`${BASE}/providers/${encodeURIComponent(name)}`, {
+  const res = await fetch(apiUrl(`${BASE}/providers/${encodeURIComponent(name)}`), {
     method: 'DELETE',
   });
   if (!res.ok) {

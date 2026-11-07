@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { Bot, Code2, CheckCircle, Palette, type LucideIcon } from 'lucide-react';
 import { DEFAULT_AGENT_ID } from '@/constants/identity';
+import { apiUrl } from '@/transports/backendUrl';
 
 export interface AgentProfile {
   id: string;       // alias (used as agent_id in chat)
@@ -63,7 +64,7 @@ export function useAgents() {
   const [fetchError, setFetchError] = useState(false);
 
   useEffect(() => {
-    fetch('/api/v1/agents')
+    fetch(apiUrl('/api/v1/agents'))
       .then(r => r.json())
       .then((data: BackendAgent[]) => {
         setRawAgents(data);

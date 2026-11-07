@@ -1,6 +1,7 @@
 import { apiErrorMessage } from '@/services/apiError';
 import { identityHeaders } from '@/services/identity';
 import type { MemoryAtom, MemoryListResponse } from '@/types/memory';
+import { apiUrl } from '@/transports/backendUrl';
 
 export type UpdateMemoryPatch = Partial<Pick<
   MemoryAtom,
@@ -21,7 +22,7 @@ export async function fetchMemoryPage(
   if (cursor) params.set('cursor', cursor);
   if (query) params.set('query', query);
   // Memory 管理请求统一携带 x-user-id / x-workspace-id 基础选择
-  const response = await fetch(`/api/v1/memories?${params}`, {
+  const response = await fetch(apiUrl(`/api/v1/memories?${params}`), {
     headers: identityHeaders(),
   });
 
@@ -67,7 +68,7 @@ export interface CreateMemoryPayload {
 }
 
 export async function createMemory(payload: CreateMemoryPayload): Promise<MemoryAtom> {
-  const response = await fetch('/api/v1/memories', {
+  const response = await fetch(apiUrl('/api/v1/memories'), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -85,7 +86,7 @@ export async function updateMemory(
   id: string,
   patch: UpdateMemoryPatch,
 ): Promise<MemoryAtom> {
-  const response = await fetch(`/api/v1/memories/${encodeURIComponent(id)}`, {
+  const response = await fetch(apiUrl(`/api/v1/memories/${encodeURIComponent(id)}`), {
     method: 'PATCH',
     headers: {
       'Content-Type': 'application/json',
@@ -102,7 +103,7 @@ export async function updateMemory(
 }
 
 export async function deleteMemory(id: string): Promise<void> {
-  const response = await fetch(`/api/v1/memories/${encodeURIComponent(id)}`, {
+  const response = await fetch(apiUrl(`/api/v1/memories/${encodeURIComponent(id)}`), {
     method: 'DELETE',
     headers: identityHeaders(),
   });
@@ -127,7 +128,7 @@ export async function recordMemoryFeedback(
   memoryId: string,
   positive: boolean,
 ): Promise<MemoryFeedbackResult> {
-  const response = await fetch(`/api/v1/memories/${encodeURIComponent(memoryId)}/feedback`, {
+  const response = await fetch(apiUrl(`/api/v1/memories/${encodeURIComponent(memoryId)}/feedback`), {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',

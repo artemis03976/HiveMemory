@@ -12,7 +12,7 @@ code_paths:
   - src/hivememory/server/app.py
 related_contracts:
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-10-15
+last_reviewed: 2026-11-07
 ---
 
 # 前端应用壳与视觉系统
@@ -96,7 +96,7 @@ HiveMemory 的价值不仅在最终回答，还在回答依赖了哪些记忆、
 
 生产构建只有在 `HIVEMEMORY_SERVE_FRONTEND=true` 且构建目录存在时才由 FastAPI 提供。静态服务对非 API 路径执行 SPA fallback，并对请求路径做 realpath/commonpath 检查；API 未匹配仍返回 404，不会被 `index.html` 吞掉。
 
-大多数前端请求直接使用相对 `/api`，因此非同源部署需要外部反向代理。`VITE_BACKEND_ORIGIN` 当前只直接影响日志 WebSocket 与 RuntimeEvent URL，不能单独改变全部 HTTP API 的目标。
+前端的 HTTP、SSE 与 WebSocket 默认连接页面自身的 origin。`VITE_BACKEND_ORIGIN` 让三者一起直连另一个 origin，但直连的请求不带管理凭据，非同源部署仍需要外部反向代理（[状态与传输](./state-and-transports.md#4-origin-与代理)第 4 节）。
 
 ## 6. 不变量与矛盾检查
 

@@ -1,4 +1,4 @@
-import { RUNTIME_EVENTS_STATUS_URL, RUNTIME_EVENTS_URL } from '@/stores/workspace/constants';
+import { apiUrl } from '@/transports/backendUrl';
 import { EventSourceClient } from '@/transports/sse/eventSourceClient';
 import { markConnected, markConnecting, markDisabled, markError } from '@/transports/state';
 import type { WorkspaceStore, RuntimeEvent } from '@/types/workspace';
@@ -22,7 +22,7 @@ export function initializeRuntimeEventStream(set: WorkspaceSet, get: WorkspaceGe
     runtimeEventConnection: markConnecting(state.runtimeEventConnection),
   });
 
-  void fetch(RUNTIME_EVENTS_STATUS_URL)
+  void fetch(apiUrl('/api/v1/runtime-events/status'))
     .then((response) => (response.ok ? response.json() : { enabled: false }))
     .then((status: { enabled?: boolean }) => {
       if (!status.enabled) {
@@ -48,7 +48,7 @@ export function initializeRuntimeEventStream(set: WorkspaceSet, get: WorkspaceGe
 function openRuntimeEventSource(lastEventId: string | null, set: WorkspaceSet, get: WorkspaceGet): void {
   try {
     const eventSource = runtimeEventClient.connect({
-      url: RUNTIME_EVENTS_URL,
+      url: apiUrl('/api/v1/runtime-events/stream'),
       lastEventId,
       eventName: 'runtime_event',
       parseEvent: (data) => JSON.parse(data) as RuntimeEvent,
