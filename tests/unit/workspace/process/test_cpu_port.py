@@ -24,7 +24,6 @@ from hivememory.core.models import (
     MemoryAtom,
     MemoryType,
     PayloadLayer,
-    TurnEvent,
     WorkspaceIdentity,
 )
 from hivememory.core.models.model_definition import ModelSelection
@@ -36,7 +35,6 @@ from hivememory.workspace.process.service import ProcessHandle, TaskProcessServi
 from hivememory.workspace.process.table import ProcessTable
 from tests.helpers.chat_handoff import (
     make_gateway_decision,
-    make_mtp_turn_events,
 )
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
@@ -191,34 +189,6 @@ async def _run_once(
 
 
 # ========== 测试 CPU 跑通完整进程 ==========
-
-
-@pytest.mark.asyncio
-async def test_test_cpu_completes_process_and_submits_its_execution_result() -> None:
-    """测试 CPU 跑完进程：done 与提交的交互记录都来自 CPU 的执行结果。"""
-    bus = GlobalSystemBus()
-    turn_events = make_mtp_turn_events()
-    cpu = ScriptedCPU(
-        events=[{"event": "token", "data": {"content": "完成"}}],
-        result=make_cpu_result(
-            turn_events=turn_events,
-        ),
-    )
-    stub = _install_turn_routes(bus)
-
-    service, composition = await _service(bus, cpu)
-    done = done_data(await _run_once(composition, service, "问题", process_id="process-cpu-once"))
-
-    assert done["status"] == CPUExecutionStatus.COMPLETED.value
-    assert done["final_text"] == "完成"
-    assert done["model_used"] == "glm-4"
-
-    payload = stub.submissions[0]["payload"]
-    assert payload.turn_events == [
-        *turn_events,
-        TurnEvent(kind="assistant_message", sequence=3, content="完成"),
-    ]
-    assert payload.model_used == "glm-4"
 
 
 @pytest.mark.asyncio

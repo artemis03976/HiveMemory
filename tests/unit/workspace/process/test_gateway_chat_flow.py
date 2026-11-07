@@ -375,7 +375,7 @@ async def test_model_prefetch_precedes_gateway_and_its_failure_does_not_affect_p
 
 @pytest.mark.asyncio
 async def test_completed_process_seals_interaction_payload() -> None:
-    """完成的进程：提交的交互记录由进程封口，CPU 终态结果逐字段进入交互记录。"""
+    """完成的进程：done 与提交的交互记录都来自 CPU 的执行结果，交互记录由进程封口、逐字段进入。"""
     bus, stub = _turn_bus()
     turn_events = make_mtp_turn_events()
     cpu = ScriptedCPU(
@@ -386,8 +386,10 @@ async def test_completed_process_seals_interaction_payload() -> None:
     service, composition = await _service(bus, cpu)
     events = await _run_once(composition, service, "问题", process_id="process-seal-stream")
 
-    assert events[-1]["event"] == "done"
-    assert events[-1]["data"]["status"] == "completed"
+    done = done_data(events)
+    assert done["status"] == "completed"
+    assert done["final_text"] == "完成"
+    assert done["model_used"] == "glm-4"
     _assert_sealed_payload(stub.submissions[0]["payload"], turn_events=turn_events)
 
 
@@ -664,6 +666,51 @@ async def test_new_topic_without_writes_is_created_by_submission() -> None:
 
 async def _admission_unavailable(**_kwargs):
     raise InteractionAdmissionUnavailableError(reason="capacity_rejected")
+@pytest.mark.asyncio
+async def test_submission_waits_for_topic_determination_left_running_by_cpu() -> None:
+    """CPU 返回时写入仍在为这一轮建立新话题：提交先等话题确定结束，再提交到这个话题。
+
+    不等待时提交读到空的派发话题，以 ``NEW_TOPIC`` 另建一个话题，交互与写入分落两处。
+    提交任务在交付 finalizing 之前已经开始，话题建立到这时才放行。
+    """
+    decision = _decision_outcome(
+        target_topic_id="NEW_TOPIC", new_topic_title="部署讨论", new_topic_summary="讨论部署步骤"
+    )
+    bus, stub = _turn_bus(decision=decision)
+    install_intent_admission(bus)
+    entered, release = asyncio.Event(), asyncio.Event()
+
+    async def prepare_topic(**_kwargs):
+        entered.set()
+        await release.wait()
+        return "topic-created"
+
+    bus.unregister(PatchouliRoutes.PREPARE_TOPIC)
+    bus.register(PatchouliRoutes.PREPARE_TOPIC, prepare_topic)
+    writes: list[asyncio.Task] = []
+
+    async def leave_write_running(submit):
+        request = SubmitWriteIntentRequest(focus=WriteFocus(content="记住这一点"))
+        writes.append(asyncio.create_task(submit(request)))
+        await entered.wait()
+
+    cpu = ScriptedCPU(result=make_cpu_result(), operation_script=leave_write_running)
+    service, composition = await _service(bus, cpu)
+    handle = await _register(composition, service, "问题", process_id="process-pending-topic")
+    events = []
+    try:
+        async with asyncio.timeout(5):
+            async for event in service.run_process(handle):
+                events.append(event)
+                if event["event"] == "run_status" and event["data"]["status"] == "finalizing":
+                    release.set()
+    finally:
+        await asyncio.gather(*writes, return_exceptions=True)
+
+    assert [call["requested_topic_id"] for call in stub.submissions] == ["topic-created"]
+    assert done_data(events)["topic_id"] == "topic-created"
+
+
 
 
 @pytest.mark.asyncio
