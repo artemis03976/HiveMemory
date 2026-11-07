@@ -365,9 +365,9 @@ def init_websocket_log_broadcasting(
     handler.addFilter(TraceInjectFilter())
 
     logger.info(
-        f"WebSocket log broadcasting initialized: "
-        f"namespaces={config.logging.websocket_namespaces}, "
-        f"level={config.logging.websocket_level}"
+        "WebSocket log broadcasting initialized: namespaces=%s, level=%s",
+        config.logging.websocket_namespaces,
+        config.logging.websocket_level,
     )
 
     return _ws_manager

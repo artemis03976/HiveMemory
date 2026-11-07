@@ -171,7 +171,7 @@ def _load_registration_file[ModelT: BaseModel](
     if not path.exists():
         if os.getenv(env_var):
             raise FileNotFoundError(f"访问登记文件不存在: {path}")
-        logger.warning(f"访问登记文件未找到: {path}，将按空登记 fail closed")
+        logger.warning("访问登记文件未找到: %s，将按空登记 fail closed", path)
         return model_type()
     with open(path, encoding="utf-8") as f:
         content = yaml.safe_load(f) or {}

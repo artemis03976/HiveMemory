@@ -385,7 +385,7 @@ class MemoryGenerationFamiliar:
         )
 
         memories = [outcome.atom for outcome in outcomes if outcome.atom is not None]
-        logger.info(f"Extracted {len(memories)} memories" if memories else "No memories extracted")
+        logger.info("Extracted %d memories", len(memories))
 
         # Step 2/3：按 outcome 依次完成提交字段分配、artifact 挂载与持久化。
         for outcome in outcomes:
@@ -653,8 +653,10 @@ class MemoryGenerationFamiliar:
         recompute = before is None or embedding_inputs_changed(before, atom)
         await self._mid_term.upsert(atom, recompute_vectors=recompute)
         logger.info(
-            f"记忆已存储 '{atom.index.title}' (ID: {atom.id}, "
-            f"action={action.value}, recompute_vectors={recompute})"
+            "记忆已存储: memory_id=%s, action=%s, recompute_vectors=%s",
+            atom.id,
+            action.value,
+            recompute,
         )
 
     async def _attach_memory_artifact(

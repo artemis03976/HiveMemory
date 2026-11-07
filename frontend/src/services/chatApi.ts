@@ -25,6 +25,7 @@ import type {
   CommandResultEvent,
   ContextCompactionEvent,
 } from '@/types';
+import { apiUrl } from '@/transports/backendUrl';
 
 export class ChatSSEClient {
   private client = new FetchSseClient();
@@ -47,7 +48,7 @@ export class ChatSSEClient {
     };
 
     await this.client.connect(
-      '/api/v1/chat',
+      apiUrl('/api/v1/chat'),
       {
         method: 'POST',
         headers: {
@@ -164,7 +165,7 @@ export async function stopProcess(processId: string): Promise<void> {
   try {
     // 取消不是 Agent action：只携带 process_id 与基础身份选择；
     // 后端通过进程表复用创建时冻结的原始 scope 执行取消。
-    await fetch('/api/v1/chat/stop', {
+    await fetch(apiUrl('/api/v1/chat/stop'), {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',

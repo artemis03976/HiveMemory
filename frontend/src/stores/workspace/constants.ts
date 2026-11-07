@@ -1,12 +1,3 @@
-const BACKEND_ORIGIN = import.meta.env.VITE_BACKEND_ORIGIN || window.location.origin;
-
-export const API_ORIGIN = new URL(BACKEND_ORIGIN, window.location.origin);
-const WS_PROTOCOL = API_ORIGIN.protocol === 'https:' ? 'wss' : 'ws';
-
-export const WS_URL = `${WS_PROTOCOL}://${API_ORIGIN.host}/api/v1/ws/logs`;
-export const RUNTIME_EVENTS_URL = `${API_ORIGIN.origin}/api/v1/runtime-events/stream`;
-export const RUNTIME_EVENTS_STATUS_URL = `${API_ORIGIN.origin}/api/v1/runtime-events/status`;
-
 export const BROADCAST_CHANNEL_NAME = 'hivememory_workspace_logs';
 export const PERSIST_KEY = 'workspace-store';
 export const LEGACY_PERSIST_KEY = 'kernel-store';

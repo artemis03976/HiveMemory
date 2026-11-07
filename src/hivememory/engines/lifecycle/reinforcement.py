@@ -105,7 +105,7 @@ class DynamicReinforcementEngine:
             WorkspaceMemoryKey(workspace_identity=belong_to, memory_id=memory_id)
         )
         if memory is None:
-            logger.warning(f"Memory not found for reinforcement: {memory_id}")
+            logger.warning("Memory not found for reinforcement: memory_id=%s", memory_id)
             raise ResourceNotFoundError(
                 f"Memory {memory_id} not found",
                 details={"resource": "memory", "memory_id": str(memory_id)},

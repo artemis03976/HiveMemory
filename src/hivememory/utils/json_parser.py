@@ -144,7 +144,7 @@ class LLMJSONParser:
             raise
         except Exception as e:
             if self.log_errors:
-                logger.debug(f"模型转换失败: {e}")
+                logger.debug("模型转换失败: %s", e)
             if default is not None:
                 return default
             raise JSONParseError(f"模型转换失败: {e}", raw_output) from e
@@ -174,7 +174,7 @@ class LLMJSONParser:
                         results.append(as_model(**parsed))
                     except Exception as e:
                         if self.log_errors:
-                            logger.debug(f"模型转换失败: {e}")
+                            logger.debug("模型转换失败: %s", e)
                 else:
                     results.append(parsed)
 

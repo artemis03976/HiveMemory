@@ -30,7 +30,7 @@ class FastEmbedRerankerService(SingletonModelService["TextCrossEncoder"], BaseRe
         except ImportError:
             raise ImportError("fastembed 未安装。请运行: pip install fastembed")
 
-        logger.info(f"正在加载 Reranker 模型: {self.model_name}")
+        logger.info("正在加载 Reranker 模型: %s", self.model_name)
         try:
             # 关闭 ONNX Runtime 的 CPU 内存池：开启时推理的峰值分配在推理结束后仍留在进程内。
             return TextCrossEncoder(
@@ -39,7 +39,7 @@ class FastEmbedRerankerService(SingletonModelService["TextCrossEncoder"], BaseRe
                 enable_cpu_mem_arena=False,
             )
         except Exception as e:
-            logger.error(f"Reranker 模型加载失败: {e}")
+            logger.error("Reranker 模型加载失败: %s", e)
             raise
 
     async def compute_score(self, pairs: list[list[str]]) -> list[float]:
@@ -67,7 +67,7 @@ class FastEmbedRerankerService(SingletonModelService["TextCrossEncoder"], BaseRe
             scores = list(model.rerank(query, documents, batch_size=self.config.batch_size))
             return [float(score) for score in scores]
         except Exception as e:
-            logger.error(f"Reranker 计算失败: {e}")
+            logger.error("Reranker 计算失败: %s", e)
             raise
 
 

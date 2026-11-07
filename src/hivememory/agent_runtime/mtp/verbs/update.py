@@ -56,9 +56,7 @@ async def handle_update(
         )
     )
 
-    logger.info(
-        f"MTP UPDATE admitted: alias='{alias}', " f"pending_alias='{pending.pending_alias}'"
-    )
+    logger.info("MTP UPDATE admitted: alias='%s', pending_alias='%s'", alias, pending.pending_alias)
 
     return MTPResponse(
         status=MTPResponseStatus.ACK,

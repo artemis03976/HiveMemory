@@ -59,7 +59,9 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         }
 
         logger.info(
-            f"PeriodicGarbageCollector initialized: threshold={config.low_watermark}, batch_size={config.batch_size}",
+            "PeriodicGarbageCollector initialized: threshold=%s, batch_size=%s",
+            config.low_watermark,
+            config.batch_size,
         )
 
     def scan_candidates(
@@ -80,7 +82,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         threshold = (
             vitality_threshold if vitality_threshold is not None else self.config.low_watermark
         )
-        logger.info(f"Scanning for memories with vitality <= {threshold}...")
+        logger.info("Scanning for memories with vitality <= %s...", threshold)
 
         candidates = [
             (
@@ -99,7 +101,7 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
         ]
         candidates.sort(key=lambda item: item[1])
 
-        logger.info(f"Found {len(candidates)} candidates for archival")
+        logger.info("Found %s candidates for archival", len(candidates))
         return [memory_key for memory_key, _ in candidates]
 
     async def collect(
@@ -147,14 +149,16 @@ class PeriodicGarbageCollector(BaseGarbageCollector):
 
                 await self.memory_library.archive(memory_key)
                 archived_count += 1
-                logger.info(f"Successfully archived {memory_key.memory_id}")
+                logger.info("Successfully archived memory_id=%s", memory_key.memory_id)
             except Exception as exc:
-                logger.error(f"Failed to archive {memory_key.memory_id}: {exc}")
+                logger.error("Failed to archive memory_id=%s: %s", memory_key.memory_id, exc)
                 skipped_count += 1
 
         self._update_stats(len(memories), archived_count, skipped_count)
         logger.info(
-            f"Garbage collection complete: {archived_count} archived, {skipped_count} skipped",
+            "Garbage collection complete: %s archived, %s skipped",
+            archived_count,
+            skipped_count,
         )
         return archived_count
 

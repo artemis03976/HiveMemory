@@ -37,7 +37,7 @@ class AsyncSystemBus:
     def register[**P, R](self, route: Route[P, R], handler: Callable[P, Awaitable[R]]) -> None:
         """按路由契约检查 handler 的静态签名，并保留运行时参数检查器。"""
         if route in self._handlers:
-            logger.warning(f"AsyncSystemBus: route '{route}' overwritten")
+            logger.warning("AsyncSystemBus: route '%s' overwritten", route)
         self._handlers[route] = handler
         self._checkers[route] = RouteArgumentChecker.for_handler(route, handler)
 
@@ -79,7 +79,9 @@ class AsyncSystemBus:
                 await cb(*args, **kwargs)
             except Exception as e:
                 logger.error(
-                    f"AsyncSystemBus: subscriber for event '{event}' failed: {e}",
+                    "AsyncSystemBus: subscriber for event '%s' failed: %s",
+                    event,
+                    e,
                     exc_info=True,
                 )
 

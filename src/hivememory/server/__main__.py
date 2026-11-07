@@ -15,7 +15,8 @@ def _install_thread_exception_hook() -> None:
             else None
         )
         logging.getLogger("hivememory.server").error(
-            f"未捕获线程异常: thread={getattr(args.thread, 'name', 'unknown')}",
+            "未捕获线程异常: thread=%s",
+            getattr(args.thread, "name", "unknown"),
             exc_info=exc_info,
         )
 

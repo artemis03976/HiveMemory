@@ -76,7 +76,7 @@ class MemoryDeduplicator(BaseDeduplicator):
         existing_memory = top_result["memory"]
 
         logger.info(
-            f"找到相似记忆: '{existing_memory.index.title}' " f"(相似度: {similarity_score:.3f})"
+            "找到相似记忆: memory_id=%s (相似度: %.3f)", existing_memory.id, similarity_score
         )
 
         decision = self._make_decision(
@@ -84,7 +84,7 @@ class MemoryDeduplicator(BaseDeduplicator):
             draft=draft,
             existing=existing_memory,
         )
-        logger.info(f"查重决策: {decision.value}")
+        logger.info("查重决策: %s", decision.value)
         return decision, existing_memory
 
     def _make_decision(

@@ -55,8 +55,10 @@ class FileBasedStorageAdapter(LongTermStoragePort):
         self._index_path = self._archive_dir / "archive_index.json"
         self._index: dict[str, ArchiveRecord] = self._load_index()
         logger.info(
-            f"FileBasedStorageAdapter 初始化: dir={self._archive_dir}, "
-            f"compress={compress}, indexed={len(self._index)}"
+            "FileBasedStorageAdapter 初始化: dir=%s, compress=%s, indexed=%s",
+            self._archive_dir,
+            compress,
+            len(self._index),
         )
 
     # ── LongTermStoragePort ──
@@ -69,7 +71,7 @@ class FileBasedStorageAdapter(LongTermStoragePort):
         )
         index_key = self._index_key(key)
         if index_key in self._index:
-            logger.warning(f"Memory {memory.id} already in cold storage, overwriting")
+            logger.warning("Memory already in cold storage, overwriting: memory_id=%s", memory.id)
 
         data = memory.model_dump(mode="json")
         file_path = self._get_file_path(memory.workspace_identity, memory.id)
@@ -90,7 +92,7 @@ class FileBasedStorageAdapter(LongTermStoragePort):
             compressed_size_bytes=file_path.stat().st_size if file_path.exists() else None,
         )
         self._save_index()
-        logger.info(f"持久化记忆到冷存储: {memory.id}")
+        logger.info("持久化记忆到冷存储: memory_id=%s", memory.id)
 
     async def load(self, key: WorkspaceMemoryKey) -> MemoryAtom:
         """从文件加载 MemoryAtom，不负责写回中期存储。"""
@@ -125,7 +127,7 @@ class FileBasedStorageAdapter(LongTermStoragePort):
             return
         self._save_index()
         Path(record.storage_path).unlink(missing_ok=True)
-        logger.info(f"从冷存储删除记忆: {key.memory_id}")
+        logger.info("从冷存储删除记忆: memory_id=%s", key.memory_id)
 
     async def is_archived(self, key: WorkspaceMemoryKey) -> bool:
         if self._index_key(key) in self._index:
@@ -191,7 +193,7 @@ class FileBasedStorageAdapter(LongTermStoragePort):
                 data = json.load(f)
             return {k: ArchiveRecord(**v) for k, v in data.items()}
         except Exception as e:
-            logger.error(f"加载归档索引失败: {e}")
+            logger.error("加载归档索引失败: %s", e)
             return {}
 
     def _save_index(self) -> None:

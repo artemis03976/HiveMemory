@@ -139,7 +139,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         )
         self.merge_user_prompt = get_generation_prompt_text("merge", "user_prompt", self.language)
 
-        logger.info(f"LLMMemoryExtractor 初始化完成 (模型: {llm_params.model})")
+        logger.info("LLMMemoryExtractor 初始化完成 (模型: %s)", llm_params.model)
 
     async def _complete(self, messages: list[dict[str, str]]) -> LLMCompletion:
         """调用 LLM 并返回完整结果；只对提供商失败重试，最后一次的失败原样抛出。
@@ -152,7 +152,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             except ModelContextWindowExceededError:
                 raise
             except ModelProviderError as error:
-                logger.warning(f"LLM 调用失败 (尝试 {attempt}/{_MAX_LLM_ATTEMPTS}): {error}")
+                logger.warning("LLM 调用失败 (尝试 %s/%s): %s", attempt, _MAX_LLM_ATTEMPTS, error)
         return await self._llm_service.complete(messages, self._llm_params)
 
     async def extract(self, transcript: str) -> list[ExtractedMemoryDraft]:
@@ -187,7 +187,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
         except JSONParseError:
             logger.warning("JSON 解析失败")
             return []
-        logger.info(f"成功提取 {len(result.memories)} 条记忆草稿")
+        logger.info("成功提取 %s 条记忆草稿", len(result.memories))
         return result.memories
 
     async def extract_write(
@@ -230,7 +230,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             return None
         draft.has_value = True
         draft.confidence_score = 1.0
-        logger.info(f"成功提取记忆草稿: '{draft.title}'")
+        logger.info("成功提取主动写入的记忆草稿")
         return draft
 
     async def revise(
@@ -291,7 +291,7 @@ class LLMMemoryExtractor(BaseMemoryExtractor):
             logger.warning("Mode C JSON 解析失败")
             return None
 
-        logger.info(f"成功修订记忆: changelog='{result.changelog}'")
+        logger.info("成功修订记忆")
         return result
 
     async def merge(self, retained: MemoryAtom, absorbed: MemoryAtom) -> MergeResult | None:

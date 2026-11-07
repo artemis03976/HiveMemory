@@ -224,7 +224,7 @@ class MemoryGenerationEngine:
         相似命中本话题其他主动写入结算到的记忆时照常新建、不提名合并：同一话题里
         agent 分开写的记忆是有意分开的。
         """
-        logger.info(f"[Mode B] WRITE 主动响应: content='{focus.content[:50]}...'")
+        logger.info("[Mode B] WRITE 主动响应: content_length=%d", len(focus.content))
 
         # 格式化背景对话；空上下文时由 _render_transcript() 统一返回占位文本
         transcript = self._render_transcript(request)
@@ -304,8 +304,9 @@ class MemoryGenerationEngine:
             )
 
         logger.info(
-            f"[Mode C] UPDATE 修订: alias='{uf.base_alias}', "
-            f"instruction='{uf.instruction[:50]}...'"
+            "[Mode C] UPDATE 修订: alias=%s, instruction_length=%d",
+            uf.base_alias,
+            len(uf.instruction),
         )
 
         # 格式化对话上下文；空上下文时由 _render_transcript() 统一返回占位文本
@@ -424,8 +425,8 @@ class MemoryGenerationEngine:
         # 字段；访问统计由 Familiar 经受限 patch_payload 处理。
         if result.new_content == memory.payload.content:
             logger.info(
-                "[Mode C] UPDATE 修订结果与现有内容一致，降级为 TOUCH: '%s'",
-                memory.index.title,
+                "[Mode C] UPDATE 修订结果与现有内容一致，降级为 TOUCH: memory_id=%s",
+                memory.id,
             )
             return [
                 GenerationOutcome(
@@ -448,8 +449,8 @@ class MemoryGenerationEngine:
         )
 
         logger.info(
-            f"[Mode C] UPDATE 内容已修订（待提交边界分配版本与内容时间）: "
-            f"'{memory.index.title}', changelog='{result.changelog}'"
+            "[Mode C] UPDATE 内容已修订（待提交边界分配版本与内容时间）: memory_id=%s",
+            memory.id,
         )
 
         return [
@@ -616,7 +617,7 @@ class MemoryGenerationEngine:
         try:
             mem_type = MemoryType(draft.memory_type)
         except ValueError:
-            logger.warning(f"未知的记忆类型: {draft.memory_type}, 使用 FACT")
+            logger.warning("未知的记忆类型: %s, 使用 FACT", draft.memory_type)
             mem_type = MemoryType.FACT
 
         # 创建时点 = 提交边界 now（Familiar 传入）：created/updated/decay 同值。

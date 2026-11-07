@@ -4,15 +4,16 @@
 import { apiErrorMessage } from '@/services/apiError';
 
 import type { HiveMemoryConfig } from '@/types/config';
+import { apiUrl } from '@/transports/backendUrl';
 
 export async function fetchConfig(): Promise<HiveMemoryConfig> {
-  const res = await fetch('/api/v1/config');
+  const res = await fetch(apiUrl('/api/v1/config'));
   if (!res.ok) throw new Error(await apiErrorMessage(res, 'fetchConfig failed'));
   return res.json();
 }
 
 export async function updateConfig(config: HiveMemoryConfig): Promise<HiveMemoryConfig> {
-  const res = await fetch('/api/v1/config', {
+  const res = await fetch(apiUrl('/api/v1/config'), {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(config),
@@ -22,7 +23,7 @@ export async function updateConfig(config: HiveMemoryConfig): Promise<HiveMemory
 }
 
 export async function fetchDefaultConfig(): Promise<HiveMemoryConfig> {
-  const res = await fetch('/api/v1/config/defaults');
+  const res = await fetch(apiUrl('/api/v1/config/defaults'));
   if (!res.ok) throw new Error(await apiErrorMessage(res, 'fetchDefaultConfig failed'));
   return res.json();
 }

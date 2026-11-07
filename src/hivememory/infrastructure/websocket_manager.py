@@ -42,7 +42,7 @@ class WebSocketConnectionManager:
         self._connections: dict[str, WebSocket] = {}
         self._buffer: deque = deque(maxlen=buffer_size)
         self._lock = asyncio.Lock()
-        logger.info(f"WebSocketConnectionManager initialized with buffer_size={buffer_size}")
+        logger.info("WebSocketConnectionManager initialized with buffer_size=%s", buffer_size)
 
     async def connect(self, websocket: WebSocket, client_id: str) -> None:
         """
@@ -55,7 +55,7 @@ class WebSocketConnectionManager:
         async with self._lock:
             await websocket.accept()
             self._connections[client_id] = websocket
-            logger.info(f"Client {client_id} connected (total: {len(self._connections)})")
+            logger.info("Client %s connected (total: %s)", client_id, len(self._connections))
 
     async def disconnect(self, client_id: str) -> None:
         """
@@ -68,7 +68,7 @@ class WebSocketConnectionManager:
             if client_id in self._connections:
                 del self._connections[client_id]
                 logger.info(
-                    f"Client {client_id} disconnected (remaining: {len(self._connections)})"
+                    "Client %s disconnected (remaining: %s)", client_id, len(self._connections)
                 )
 
     async def broadcast(self, message: dict[str, Any]) -> None:
@@ -93,13 +93,13 @@ class WebSocketConnectionManager:
                 try:
                     await ws.send_json(message)
                 except Exception as e:
-                    logger.warning(f"Failed to send to client {client_id}: {e}")
+                    logger.warning("Failed to send to client %s: %s", client_id, e)
                     dead_clients.append(client_id)
 
             # 清理死连接
             for client_id in dead_clients:
                 del self._connections[client_id]
-                logger.info(f"Removed dead client {client_id}")
+                logger.info("Removed dead client %s", client_id)
 
     async def send_buffered_logs(self, client_id: str) -> None:
         """
@@ -120,11 +120,11 @@ class WebSocketConnectionManager:
                     await ws.send_json(log_msg)
                     sent_count += 1
                 except Exception as e:
-                    logger.warning(f"Failed to send buffered log to {client_id}: {e}")
+                    logger.warning("Failed to send buffered log to %s: %s", client_id, e)
                     break
 
             if sent_count > 0:
-                logger.info(f"Sent {sent_count} buffered logs to client {client_id}")
+                logger.info("Sent %s buffered logs to client %s", sent_count, client_id)
 
     async def disconnect_all(self) -> None:
         """断开所有客户端连接（shutdown 时调用）"""
@@ -135,7 +135,7 @@ class WebSocketConnectionManager:
                     ws = self._connections[client_id]
                     await ws.close()
                 except Exception as e:
-                    logger.warning(f"Error closing connection {client_id}: {e}")
+                    logger.warning("Error closing connection %s: %s", client_id, e)
 
             self._connections.clear()
             logger.info("All WebSocket connections closed")

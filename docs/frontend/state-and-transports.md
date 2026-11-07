@@ -88,12 +88,10 @@ Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送�
 
 凭据缺失或不一致的 401 经第 3.1 节的错误解析显示后端的说明文字，前端没有专门的界面。
 
-普通 HTTP services 全部使用相对 `/api`；日志与 RuntimeEvent 流的 URL 则由 `VITE_BACKEND_ORIGIN || window.location.origin` 生成。因此：
+HTTP、SSE（chat 与 RuntimeEvent）与日志 WebSocket 的 URL 都由 `transports/backendUrl.ts` 生成，三者始终连接同一个后端：构建或开发服务器设置 `VITE_BACKEND_ORIGIN` 时直连这个 origin；不设置时（默认）HTTP 与 SSE 保持相对路径，WebSocket 取页面 origin，由同源部署的后端或 Vite 代理承接。因此：
 
 - 同源部署与 Vite proxy 是当前完整支持路径；
-- 仅设置 `VITE_BACKEND_ORIGIN` 只会迁移日志和 RuntimeEvent，不会迁移 chat、memory、topic 等 HTTP 请求；
-- 真正的前后端分域部署需要反向代理，或统一改造所有 service 的 base URL 与 CORS/credential 策略；
-- 设置 `VITE_BACKEND_ORIGIN` 直连后端时，日志与 RuntimeEvent 不经 Vite 代理，也不在后端页面的同源 cookie 范围内，会被管理凭据检查拒绝。
+- 设置 `VITE_BACKEND_ORIGIN` 只改变请求的目标：直连的请求不经 Vite 代理，也不在后端页面的同源 cookie 范围内，不带管理凭据，会被管理凭据检查拒绝；后端 CORS 也只允许固定的本地开发 origin（见下文）。真正的前后端分域部署目前仍需要反向代理。
 
 另一个构建变量 `VITE_DEBUG` 与 origin 无关，只决定读取失败时是否换用 mock 数据，见第 6 节。
 
@@ -134,7 +132,7 @@ Mock 的用途是让组件开发在脱离后端时仍有可见状态，不是把
 - 没有 chat SSE 的 last-event-id 或断线续传；会话历史可重新读取，但后端重启后丢失；
 - 没有统一 query cache、请求去重或 stale-while-revalidate 层；
 - 基础身份选择当前固定为 `user_id=default + main_workspace`（`services/identity.ts`），没有认证 token、租户或 per-user storage namespace；
-- `VITE_BACKEND_ORIGIN` 不是全局 API base；
+- 直连后端（`VITE_BACKEND_ORIGIN`）的请求不带管理凭据，后端 CORS 没有可配置的 origin 清单；
 - 会话已有自动化行为测试；尚无完整的持久化迁移矩阵与跨窗口一致性测试。
 
 后端 route 与 event 的唯一契约见[公开路由与事件](../contracts/routes-and-events.md)，Chat 事件如何进入页面见 [Chat 视图](./chat-view.md)。

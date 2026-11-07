@@ -278,7 +278,7 @@ class MTPFilterParser:
             return filters, warnings
 
         except Exception as e:
-            logger.warning(f"MTP filter parse failed: {e}")
+            logger.warning("MTP filter parse failed: %s", e)
             warnings.append(warning("mtp.filter.parse_failed"))
             return None, warnings
 

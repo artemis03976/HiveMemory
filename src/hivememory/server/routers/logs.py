@@ -68,9 +68,9 @@ async def websocket_logs_endpoint(
                 break
 
     except WebSocketDisconnect:
-        logger.info(f"Client {client_id} disconnected normally")
+        logger.info("Client %s disconnected normally", client_id)
     except Exception as e:
-        logger.error(f"Error in WebSocket connection {client_id}: {e}", exc_info=True)
+        logger.error("Error in WebSocket connection %s: %s", client_id, e, exc_info=True)
     finally:
         # 清理连接
         await manager.disconnect(client_id)

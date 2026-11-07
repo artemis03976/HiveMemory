@@ -236,7 +236,7 @@ class LLMRelayController(BaseRelayController):
             return await SimpleRelayController().generate_summary(blocks, previous_summary)
 
         summary = completion.text
-        logger.info(f"LLM 摘要生成成功，长度: {len(summary)} 字符")
+        logger.info("LLM 摘要生成成功，长度: %s 字符", len(summary))
         return summary
 
 

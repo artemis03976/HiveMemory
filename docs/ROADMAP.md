@@ -119,7 +119,7 @@ last_reviewed: 2026-11-07
 | 第二个外部 harness：DeepSeek Harness 的 plugin 模式接入 | Completed（2026-11-01 收尾）/ 版本之外的工作（owner，2026-10-31）；接入路径为纯原生插件（owner，2026-11-01）；owner 决定收尾，真实模型下的完整验收在日常使用中完成；调研中发现子 Agent 会话独立导入属于实现漂移（owner，2026-11-02），已于 2026-11-02 修复：只导入顶层会话，子 Agent 的结算通知进入父会话这一轮的生成材料 | dsh 经对话回流与原生记忆工具接入 HiveMemory，Windows 桌面端可以连接 WSL 中的 HiveMemory；之后经它进行 agent memory 与 harness 项目的调研，同时作为压测与数据积累 | [调研需求与报告](./research/deepseek-harness-plugin-survey.md)、[归档计划](./archive/plans/dsh-plugin-integration.md)、[接入手册](./help/deepseek-harness-plugin.md)、[子 Agent 会话的归档计划](./archive/plans/dsh-subagent-sessions.md) |
 | 本机 HTTP 接口的密钥与访问控制 | Completed（防误用，2026-11-05）/ 防刻意随桌面客户端（第 5.1 节）：`/api/v1/config` 响应打码（PR #157）；密钥移出主配置与 `config.yaml`，提供商凭证收归 Provider 注册表（2026-11-01，PR #159，[归档 Todo](./archive/todo/config-secrets-written-to-yaml.md)）；模型定义不再保存连接凭证（2026-11-01，PR #166，[归档 Todo](./archive/todo/model-registry-api-key-override.md)）；Gateway 与 Librarian 只经模型与 Provider 注册表选择模型，主配置不再有 LLM 密钥（2026-11-01，PR #167，[归档计划](./archive/plans/llm-config-retirement.md)）；HTTP 管理面要求管理凭据、后端默认只监听本机地址，先防误用，防刻意随桌面客户端（owner，2026-11-05；[归档计划](./archive/plans/http-management-credential.md)） | HTTP 管理接口证明调用方，harness 中的 agent 不能绕过 Workspace 访问登记 | [认证与访问登记](./workspace/authentication.md#1-两阶段认证)第 1 节；[归档 Todo](./archive/todo/local-http-management-access.md)；防刻意见[身份与访问体系 Idea](./ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节 |
 | 身份与访问体系 | Candidate / 不绑定版本；owner（2026-11-05）定为单独的主线方向，最好在发布前打好地基。统一身份授权入口已完成（2026-11-06，[归档计划](./archive/plans/unified-identity-authorization-entry.md)）：认证得到工作 actor，plugin 请求与任务进程共用同一个认证网关与两个授权方法（actor 执行期间的操作授权、系统级操作的 root 授权），交互的参与者显式传递；Import Bus 的服务只认证、需要授权的步骤经 root API（2026-11-06，[归档计划](./archive/plans/import-bus-authorization-in-capability-layer.md)）。WorkspaceAsset 的归属拆分已完成（2026-11-06，[归档计划](./archive/plans/workspace-asset-ownership-split.md)），`IdentityScope` 只由操作授权者构造。交互提交收束与话题按需创建已完成（2026-11-06，[归档计划](./archive/plans/interaction-submission-and-topic-on-demand.md)）：controller 与 Import Bus 的交互提交统一经 root API，话题在第一次写入或交互应用时建立，prepare 与 finalize 拆为能力层调用 | 从 principal 的登记与调用方证明，到进入 Workspace 的身份、操作调用的授权与资源可见性，收敛 v0.7.0 以来多轮返工留下的例外与补丁；controller 与 plugin 两种接入都以它为基础。仍未决定的有登记生效时点、controller 回调的调用方证明、进程控制中取消以外的授权主体与资源可见性 | [身份与访问体系 Idea](./ideas/identity-and-access-model.md)、[身份与授权](./workspace/identity-and-authorization.md#4-操作授权)、[现状调查](./governance/baselines/identity-access-current-state-2026-11-05.md)（实施前）、[身份治理](./governance/security/identity-and-execution-safety.md) |
-| 观测与日志 | Unscheduled / 版本之外的工作（owner，2026-11-03）；W1～W3 已完成（2026-11-03），其余未排期 | 排查一次失败只需要后端日志与事件文件：运行时事件写入单独的事件记录文件并可按关联标识排时间线、生成任务之外的失败事件带稳定原因码、维护任务空转不发事件，均已完成；日志格式带 trace、存量日志收敛与事件生产端收敛（W4～W6）见治理主题 | [日志与运行时事件](./governance/observability/logs-and-events.md) |
+| 观测与日志 | Unscheduled / 版本之外的工作（owner，2026-11-03）；W1～W3 已完成（2026-11-03），W4 已完成、W5 部分完成（2026-11-07），其余未排期 | 排查一次失败只需要后端日志与事件文件：运行时事件写入单独的事件记录文件并可按关联标识排时间线、生成任务之外的失败事件带稳定原因码、维护任务空转不发事件，均已完成；日志格式带 trace 已完成；存量日志收敛的剩余部分与事件生产端收敛（W5、W6）见治理主题 | [日志与运行时事件](./governance/observability/logs-and-events.md) |
 | HiveMemory 使用手册 skill | Landed（2026-11-01，PR #162）：owner 决定做成跨 harness 通用的 skill，不只服务 DeepSeek Harness（2026-11-01）；已基本稳定，不再单独定稿，在使用中逐步完善（owner，2026-11-03） | 引导各 harness 中的 agent 主动检索、写入与修正记忆，并与 harness 自己的记忆共存；dsh 插件还不能自动加载这份 skill；MCP 写入工具说明中“对话在每轮结束后会自动归档，不需要把对话过程复述写入”与主动写入的方向冲突，是否改写待 owner 决定 | [skill](../integrations/claude-code/skills/hivememory/SKILL.md)、[接入 Claude Code](./help/claude-code-plugin.md)、[接入 DeepSeek Harness](./help/deepseek-harness-plugin.md) |
 | 冷启动、历史导入与外源文档资产化 | Candidate / 不绑定版本 | 冷启动种子、历史对话导入、文档解析、证据与候选记忆分层，冻结 provenance | 第 4.4 节；[Artifacts](./patchouli/artifacts.md)、[附件链路](./system/attachments.md) |
 | MTP READ 专项编译与来源表达 | Candidate / 不绑定版本 | 按资源类型、版本、定位和预算编译 READ 输出，给出可核验引用 | 第 4.5 节；[MTP](./contracts/mtp.md)、[MemoryCompiler](./patchouli/memory-compiler.md) |
@@ -187,7 +187,7 @@ last_reviewed: 2026-11-07
 
 Frontend 已部分落地，后续优化按可用性和资源操作体验推进，详细事实见 [Frontend](./frontend/README.md)。本轨不阻塞后端基础重构，但与受影响 API 一起验收。
 
-- **近期可靠性**：统一身份状态，明确真实/stale/error，修复失败披露和乐观更新，覆盖 HTTP/SSE/WebSocket 的一致连接配置与请求终态。
+- **近期可靠性**：统一身份状态，明确真实/stale/error，修复失败披露和乐观更新，覆盖请求终态；HTTP、SSE 与 WebSocket 的连接目标已统一由 `VITE_BACKEND_ORIGIN` 配置（2026-11-07）。
 - **资源操作体验**：Memory Garden 真实语义检索、可见性策略、附件/来源检查、导入预览与失败重试。Workspace 选择 UI 只在对应后端能力真实可用后开放。
 - **交互和视觉完善**：布局、导航、窄屏、可访问性、空状态及主题；避免将未接线的 Terminal 或研究页面显示成已有功能。
 
@@ -238,7 +238,7 @@ v0.7.0 A2-P 完整记忆历史 + 文档来源 / 版本 -> MTP READ 专项编译
 
 状态：Candidate，不绑定版本（2026-10-30 撤销原 `v0.8.x` 产品化窗口），正式 Plan 待建立；不是 Deep Research 或 Alice 高级编排的强制下游。完整发布之前可以做有限启动/连接原型，完整发布以资源生命周期、前端传输和数据管理稳定为门槛。
 
-桌面化覆盖的工作多于 Web 页面外壳：本地 Python 服务及存储依赖的分发/连接、启动就绪、端口冲突、关闭 drain、数据目录、备份与升级、凭据、日志与崩溃诊断。HTTP 管理凭据的防刻意随桌面客户端完成：主进程在内存中持有凭据，不落盘（[身份与访问体系 Idea](./ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节）。HTTP、SSE、WebSocket 都需可配置地连接同一服务，不能仅迁移日志 URL。平台先选实际使用的一种完成闭环，再扩展安装包和签名发布。
+桌面化覆盖的工作多于 Web 页面外壳：本地 Python 服务及存储依赖的分发/连接、启动就绪、端口冲突、关闭 drain、数据目录、备份与升级、凭据、日志与崩溃诊断。HTTP 管理凭据的防刻意随桌面客户端完成：主进程在内存中持有凭据，不落盘（[身份与访问体系 Idea](./ideas/identity-and-access-model.md#http-管理入口的调用方证明)第 4 节）。HTTP、SSE、WebSocket 的连接目标已经统一配置（2026-11-07），直连时的管理凭据与 CORS 由桌面客户端处理。平台先选实际使用的一种完成闭环，再扩展安装包和签名发布。
 
 Electron renderer 使用公开资源 API，main process 只持有必要的原生桥接与服务管理权限；远程内容和 Agent 代码不在特权主进程执行。Electron 的 renderer sandbox 不能替代 Agent 执行沙箱。
 

@@ -100,11 +100,11 @@ class QdrantMemoryStore:
 
         if collection_exists:
             if recreate:
-                logger.warning(f"删除已存在的集合: {self.collection_name}")
+                logger.warning("删除已存在的集合: %s", self.collection_name)
                 with storage_operation("delete_collection", write=True):
                     await self.client.delete_collection(self.collection_name)
             else:
-                logger.info(f"集合已存在且有稀疏向量配置: {self.collection_name}")
+                logger.info("集合已存在且有稀疏向量配置: %s", self.collection_name)
                 return
 
         vectors_config = {
@@ -122,7 +122,7 @@ class QdrantMemoryStore:
                 on_disk_payload=self.qdrant_config.on_disk_payload,
             )
 
-        logger.info(f"✓ 成功创建集合: {self.collection_name} (Dense + Sparse)")
+        logger.info("✓ 成功创建集合: %s (Dense + Sparse)", self.collection_name)
 
     async def upsert_memory(
         self, memory: MemoryAtom, use_sparse: bool = True, recompute_vectors: bool = True
@@ -161,14 +161,14 @@ class QdrantMemoryStore:
                     payload=payload,
                     points=[point_id],
                 )
-                logger.debug(f"✓ 已保留向量并替换 payload: {memory.id}")
+                logger.debug("✓ 已保留向量并替换 payload: memory_id=%s", memory.id)
                 return
 
             await self.client.upsert(
                 collection_name=self.collection_name,
                 points=points,
             )
-            logger.debug(f"✓ 成功存储记忆: {memory.id} - {memory.index.title}")
+            logger.debug("✓ 成功存储记忆: memory_id=%s", memory.id)
 
     async def _encode_vectors(self, memory: MemoryAtom, *, use_sparse: bool) -> dict[str, Any]:
         """编译 embedding 输入并生成命名向量：dense 必有，sparse 为 BM25 文本。"""
@@ -342,7 +342,7 @@ class QdrantMemoryStore:
                 collection_name=self.collection_name,
                 points_selector=[self._point_id(key)],
             )
-        logger.debug(f"✓ 成功删除记忆: {key.memory_id}")
+        logger.debug("✓ 成功删除记忆: memory_id=%s", key.memory_id)
         return True
 
     async def get_memories_page(

@@ -102,7 +102,7 @@ Workspace 的访问、能力层与任务进程规则较多。改动这些区域�
 ## 5. Python 后端规范
 
 - Python `>=3.12`，源码位于 `src/`，配置和依赖入口是 `pyproject.toml`。
-- Black 行宽 100；Ruff 使用 `E,F,I,N,W,UP`，忽略 `E501`；新代码保持类型标注和清晰的公共模型边界。
+- Black 行宽 100；Ruff 使用 `E,F,I,N,W,UP,G004`，忽略 `E501`；新代码保持类型标注和清晰的公共模型边界。
 - 优先使用现有 Pydantic/domain model、route constants、错误类型和 service；不要为同一概念创建第二个 DTO、状态机或配置来源。
 - 异步代码必须正确传播 `asyncio.CancelledError`，给外部调用设置已有的 timeout/deadline，并在 service/runtime 关闭时释放自己创建的任务和资源。
 - 时间敏感逻辑注入可控时钟或使用相对时间；测试中不得通过固定 `sleep` 等待状态落定。

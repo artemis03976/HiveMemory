@@ -19,7 +19,7 @@ i18n:
 # ========== 日志配置 ==========
 logging:
   level: "INFO"
-  format: "%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+  format: "%(asctime)s - %(name)s - %(levelname)s - [%(trace_id)s/%(span_name)s] - %(message)s"
   file_path: null
   event_file_path: null
   console_output: true

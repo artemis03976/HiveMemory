@@ -236,7 +236,7 @@ class TaskProcessRunner:
                     exc.details,
                 )
             else:
-                logger.exception("任务进程异常")
+                logger.exception("任务进程异常: process_id=%s", record.process_id)
             record.mark_failed()
             events.failed(record, exc)
             return ProcessFailed(exc)
@@ -502,7 +502,11 @@ class TaskProcessRunner:
                 if submission.exception() is None:
                     self._mark_execution_terminal(process, execution_result)
                 else:
-                    logger.warning("硬取消期间交互提交失败", exc_info=submission.exception())
+                    logger.warning(
+                        "硬取消期间交互提交失败: process_id=%s",
+                        record.process_id,
+                        exc_info=submission.exception(),
+                    )
             raise
 
     async def _submit(

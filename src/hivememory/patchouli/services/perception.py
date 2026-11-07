@@ -98,7 +98,11 @@ class PerceptionFamiliar:
         if self._engine is None:  # 感知关闭：无任何存储副作用
             return target_topic_id
 
-        logger.info("PerceptionFamiliar 应用交互载荷: user='%s...'", payload.user_message[:30])
+        logger.info(
+            "PerceptionFamiliar 应用交互载荷: interaction_id=%s target_topic_id=%s",
+            interaction_id,
+            target_topic_id,
+        )
         await self._maybe_evict_lru(belong_to, target_topic_id)
         topic_id = self._ensure_topic(
             belong_to,

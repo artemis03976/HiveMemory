@@ -95,7 +95,7 @@ class ModelRegistry:
     def _load(self) -> None:
         """从 YAML 文件加载模型列表。文件不存在时以空注册表启动。"""
         if not self._path.exists():
-            logger.warning(f"模型注册表文件未找到: {self._path}，将以空注册表运行")
+            logger.warning("模型注册表文件未找到: %s，将以空注册表运行", self._path)
             return
 
         try:
@@ -108,22 +108,23 @@ class ModelRegistry:
                 # 的密钥或地址，而不是写入者以为的那一个。
                 if any(raw.get(field) not in (None, "") for field in ("api_key", "api_base")):
                     logger.error(
-                        f"跳过模型定义 {raw.get('id', '?')}：模型定义不保存 api_key 与 api_base，"
+                        "跳过模型定义 %s：模型定义不保存 api_key 与 api_base，"
                         "它们属于 Provider 凭证；删除这两个字段，写入 .env 的 "
                         "HIVEMEMORY__PROVIDERS__<名称>__API_KEY / __API_BASE 或在 Provider 设置中"
-                        "保存，需要不同的密钥或地址时另登记一个 Provider"
+                        "保存，需要不同的密钥或地址时另登记一个 Provider",
+                        raw.get("id", "?"),
                     )
                     continue
                 try:
                     model = ModelDefinition(**raw)
                     self._models[model.id] = model
                 except Exception as e:
-                    logger.error(f"跳过无效模型定义 {raw.get('id', '?')}: {e}")
+                    logger.error("跳过无效模型定义 %s: %s", raw.get("id", "?"), e)
 
-            logger.info(f"已加载 {len(self._models)} 个模型定义（来自 {self._path}）")
+            logger.info("已加载 %s 个模型定义（来自 %s）", len(self._models), self._path)
 
         except Exception as e:
-            logger.error(f"加载模型注册表失败: {e}")
+            logger.error("加载模型注册表失败: %s", e)
 
     def _save(self) -> None:
         """
@@ -148,7 +149,7 @@ class ModelRegistry:
                     sort_keys=False,
                 )
             os.replace(tmp_path, self._path)
-            logger.debug(f"模型注册表已持久化（{len(self._models)} 条记录）")
+            logger.debug("模型注册表已持久化（%s 条记录）", len(self._models))
         except Exception:
             # 清理临时文件后重新抛出
             try:
@@ -208,7 +209,7 @@ class ModelRegistry:
 
         self._models[model.id] = model
         self._save()
-        logger.info(f"已添加模型: {model.id} ({model.display_name})")
+        logger.info("已添加模型: %s (%s)", model.id, model.display_name)
 
     def update_model(self, model_id: str, updates: dict) -> ModelDefinition:
         """
@@ -239,7 +240,7 @@ class ModelRegistry:
 
         self._models[model_id] = updated
         self._save()
-        logger.info(f"已更新模型: {model_id}")
+        logger.info("已更新模型: %s", model_id)
         return updated
 
     def delete_model(self, model_id: str) -> None:
@@ -254,7 +255,7 @@ class ModelRegistry:
 
         del self._models[model_id]
         self._save()
-        logger.info(f"已删除模型: {model_id}")
+        logger.info("已删除模型: %s", model_id)
 
     # ------------------------------------------------------------------
     # 模型解析

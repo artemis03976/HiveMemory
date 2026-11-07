@@ -84,7 +84,7 @@ class DenseRetriever(BaseMemoryRetriever):
 
         # 获取搜索文本
         search_text = query.get_search_text()
-        logger.info(f"Dense检索: '{search_text[:50]}...', filters={query.filters}")
+        logger.debug("Dense检索: query_length=%d, filters=%s", len(search_text), query.filters)
 
         raw_results = await self.mid_term.search(
             query.belong_to,
@@ -129,7 +129,7 @@ class DenseRetriever(BaseMemoryRetriever):
             )
 
         latency = (time.time() - start_time) * 1000
-        logger.info(f"Dense检索完成: 返回 {len(search_results)} 条结果, 耗时 {latency:.1f}ms")
+        logger.debug("Dense检索完成: 返回 %s 条结果, 耗时 %.1fms", len(search_results), latency)
 
         return SearchResults(
             results=search_results, total_candidates=len(raw_results), latency_ms=latency
@@ -201,7 +201,7 @@ class SparseRetriever(BaseMemoryRetriever):
 
         # 获取搜索文本
         search_text = query.get_search_text()
-        logger.info(f"Sparse检索: '{search_text[:50]}...', filters={query.filters}")
+        logger.debug("Sparse检索: query_length=%d, filters=%s", len(search_text), query.filters)
 
         raw_results = await self.mid_term.search(
             query.belong_to,
@@ -226,7 +226,7 @@ class SparseRetriever(BaseMemoryRetriever):
             )
 
         latency = (time.time() - start_time) * 1000
-        logger.info(f"Sparse检索完成: 返回 {len(search_results)} 条结果, 耗时 {latency:.1f}ms")
+        logger.debug("Sparse检索完成: 返回 %s 条结果, 耗时 %.1fms", len(search_results), latency)
 
         return SearchResults(
             results=search_results, total_candidates=len(raw_results), latency_ms=latency
@@ -306,7 +306,7 @@ class HybridRetriever(BaseMemoryRetriever):
         fused_results.results = fused_results.results[:top_k]
 
         latency = (time.time() - start_time) * 1000
-        logger.info(f"混合检索完成: 返回 {len(fused_results)} 条结果, 耗时 {latency:.1f}ms")
+        logger.debug("混合检索完成: 返回 %s 条结果, 耗时 %.1fms", len(fused_results), latency)
 
         return fused_results
 
