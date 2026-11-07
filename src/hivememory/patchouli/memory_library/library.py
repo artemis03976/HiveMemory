@@ -72,7 +72,7 @@ class MemoryLibrary:
         memory.payload.artifacts.events.append(MemoryEventLog(event_type=MemoryEventType.ARCHIVED))
         await self.long_term.persist(memory)
         await self.mid_term.delete_by_key(key)
-        logger.info(f"记忆已归档至冷存储: {key.memory_id}")
+        logger.info("记忆已归档至冷存储: memory_id=%s", key.memory_id)
 
     # ========== 长期 → 中期（复活） ==========
 
@@ -92,7 +92,7 @@ class MemoryLibrary:
         # 复活重建必要索引：完整原子提交且重算向量，不视为内容修订。
         await self.mid_term.upsert(memory, recompute_vectors=True)
         await self.long_term.remove(key)
-        logger.info(f"记忆已从冷存储复活至向量库: {memory_id}")
+        logger.info("记忆已从冷存储复活至向量库: memory_id=%s", memory_id)
 
     async def delete(
         self,

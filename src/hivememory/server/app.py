@@ -61,9 +61,9 @@ async def lifespan(app: FastAPI):
     def _loop_exception_handler(_loop, context):
         exc = context.get("exception")
         if exc is not None:
-            logger.error(f"事件循环未处理异常: {exc}", exc_info=exc)
+            logger.error("事件循环未处理异常: %s", exc, exc_info=exc)
             return
-        logger.error(f"事件循环未处理异常: {context.get('message', 'unknown')}")
+        logger.error("事件循环未处理异常: %s", context.get("message", "unknown"))
 
     loop.set_exception_handler(_loop_exception_handler)
     # 两种启动方式（模块入口与直接运行 uvicorn）都经这里：先按配置设置日志，
@@ -132,7 +132,7 @@ async def log_requests(request: Request, call_next):
     response = await call_next(request)
     elapsed_ms = (time.time() - start) * 1000
     logger.info(
-        f"{request.method} {request.url.path} → {response.status_code} ({elapsed_ms:.0f}ms)"
+        "%s %s → %s (%.0fms)", request.method, request.url.path, response.status_code, elapsed_ms
     )
     return response
 
@@ -242,9 +242,9 @@ def mount_frontend(app: FastAPI, dist_dir: str) -> None:
 
 if SERVE_FRONTEND:
     if os.path.isdir(FRONTEND_DIST_DIR):
-        logger.info(f"启用前端静态资源代理: {FRONTEND_DIST_DIR}")
+        logger.info("启用前端静态资源代理: %s", FRONTEND_DIST_DIR)
         mount_frontend(app, FRONTEND_DIST_DIR)
     else:
         logger.warning(
-            f"未找到前端构建目录 {FRONTEND_DIST_DIR}。请先在 frontend 目录下执行 'npm run build'。"
+            "未找到前端构建目录 %s。请先在 frontend 目录下执行 'npm run build'。", FRONTEND_DIST_DIR
         )

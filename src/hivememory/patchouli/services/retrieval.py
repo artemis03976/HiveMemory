@@ -253,10 +253,11 @@ class RetrievalFamiliar:
         )
 
         logger.info(
-            f"检索完成: query='{query.semantic_query[:20]}...', "
-            f"filters={query.filters}, "
-            f"使魔取回了 {engine_result.memories_count} 条记忆, "
-            f"latency={engine_result.latency_ms:.1f}ms"
+            "检索完成: query_length=%d, filters=%s, 使魔取回了 %s 条记忆, latency=%.1fms",
+            len(query.semantic_query),
+            query.filters,
+            engine_result.memories_count,
+            engine_result.latency_ms,
         )
         return list(engine_result.memories)
 
@@ -299,7 +300,7 @@ class RetrievalFamiliar:
                 from_actor=from_actor,
             )
             if atom is None:
-                logger.debug(f"Alias not found during alias retrieval: {normalized}")
+                logger.debug("Alias not found during alias retrieval: %s", normalized)
                 continue
             memories.append(atom)
         return memories
@@ -343,7 +344,7 @@ class RetrievalFamiliar:
                     },
                 )
             except Exception as e:
-                logger.warning(f"更新访问统计失败: {memory.id} - {e}")
+                logger.warning("更新访问统计失败: memory_id=%s: %s", memory.id, e)
 
     # ========== 长期记忆查询 ==========
 
@@ -365,7 +366,7 @@ class RetrievalFamiliar:
                 persist=False,
             )
         except Exception as e:
-            logger.warning(f"Failed to refresh retrieval vitality scores: {e}")
+            logger.warning("Failed to refresh retrieval vitality scores: %s", e)
 
     @staticmethod
     def _build_business_filters(

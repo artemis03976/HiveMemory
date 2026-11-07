@@ -151,7 +151,7 @@ def yaml_config_settings_source() -> dict[str, Any]:
 
     if not path.exists():
         if str(path) == str(default_path):
-            logger.warning(f"默认配置文件未找到: {path}, 将使用默认值和环境变量")
+            logger.warning("默认配置文件未找到: %s, 将使用默认值和环境变量", path)
             return {}
         raise FileNotFoundError(f"配置文件不存在: {path}")
 
@@ -159,7 +159,7 @@ def yaml_config_settings_source() -> dict[str, Any]:
         with open(path, encoding="utf-8") as f:
             yaml_content = yaml.safe_load(f) or {}
     except Exception as e:
-        logger.error(f"加载 YAML 配置文件失败: {e}")
+        logger.error("加载 YAML 配置文件失败: %s", e)
         return {}
     _reject_unknown_sections(yaml_content, path)
     _reject_secrets(yaml_content, path)

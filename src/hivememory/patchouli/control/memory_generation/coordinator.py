@@ -191,7 +191,9 @@ class MemoryGenerationCoordinator:
             )
         except SpecBuildError as exc:
             logger.error(
-                f"Active spec build failed, skipping task: pending_alias={task.pending_alias}, err={exc}",
+                "Active spec build failed, skipping task: pending_alias=%s, err=%s",
+                task.pending_alias,
+                exc,
             )
             await self._pending_atom_settler.failed(task.pending_alias, task.intent_id)
             return MemoryGenerationAdmission.rejected()
@@ -241,7 +243,7 @@ class MemoryGenerationCoordinator:
                 from_actor=task.from_actor,
             )
             if existing is None:
-                logger.error(f"UPDATE target memory not found: {focus.base_uuid}")
+                logger.error("UPDATE target memory not found: memory_id=%s", focus.base_uuid)
                 raise SpecBuildError(f"UPDATE target memory not found: {focus.base_uuid}")
             request = GenerationRequest(
                 context=gen_context,

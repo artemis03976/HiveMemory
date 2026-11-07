@@ -107,7 +107,7 @@ async def main(user_id: str, principal_id: str = "hivememory:profile-injector") 
         for profile in PROFILES:
             alias = profile["alias"]
             if alias in existing:
-                logger.info(f"Profile '{alias}' already exists, skipping.")
+                logger.info("Profile '%s' already exists, skipping.", alias)
                 continue
             atom = await system.root_agent_service.create_agent_profile(
                 actor=actor,
@@ -119,7 +119,7 @@ async def main(user_id: str, principal_id: str = "hivememory:profile-injector") 
                 tags=profile["tags"],
                 agent_config=profile["agent_config"],
             )
-            logger.info(f"Injected profile: {alias} (id={atom.id})")
+            logger.info("Injected profile: %s (id=%s)", alias, atom.id)
     finally:
         await system.stop()
 

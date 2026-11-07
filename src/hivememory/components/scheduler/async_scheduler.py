@@ -74,7 +74,7 @@ class AsyncMaintenanceScheduler:
         """
         key = spec.task_key
         if key in self._tasks:
-            logger.warning(f"Maintenance task '{key}' already registered, overwriting")
+            logger.warning("Maintenance task '%s' already registered, overwriting", key)
 
         now = monotonic()
         jitter = random.uniform(0, spec.jitter_seconds) if spec.jitter_seconds > 0 else 0.0
@@ -86,8 +86,10 @@ class AsyncMaintenanceScheduler:
             next_run_at=next_run,
         )
         logger.info(
-            f"Maintenance task registered: key={key}, "
-            f"interval={spec.interval_seconds}s, enabled={spec.enabled}"
+            "Maintenance task registered: key=%s, interval=%ss, enabled=%s",
+            key,
+            spec.interval_seconds,
+            spec.enabled,
         )
 
     def unregister(self, task_key: str) -> bool:
@@ -96,7 +98,7 @@ class AsyncMaintenanceScheduler:
             return False
         if state.current_task and not state.current_task.done():
             state.current_task.cancel()
-        logger.info(f"Maintenance task unregistered: {task_key}")
+        logger.info("Maintenance task unregistered: %s", task_key)
         return True
 
     def unregister_owner(self, owner: str) -> int:
@@ -104,7 +106,7 @@ class AsyncMaintenanceScheduler:
         for key in keys_to_remove:
             self.unregister(key)
         if keys_to_remove:
-            logger.info(f"Unregistered {len(keys_to_remove)} task(s) for owner '{owner}'")
+            logger.info("Unregistered %s task(s) for owner '%s'", len(keys_to_remove), owner)
         return len(keys_to_remove)
 
     def set_enabled(self, task_key: str, enabled: bool) -> bool:
@@ -112,7 +114,7 @@ class AsyncMaintenanceScheduler:
         if state is None:
             return False
         state.spec.enabled = enabled
-        logger.info(f"Maintenance task '{task_key}' enabled={enabled}")
+        logger.info("Maintenance task '%s' enabled=%s", task_key, enabled)
         return True
 
     def list_tasks(self) -> list[MaintenanceTaskSpec]:
@@ -134,8 +136,9 @@ class AsyncMaintenanceScheduler:
         self._loop_task = asyncio.create_task(self._run_loop())
         self._started = True
         logger.info(
-            f"AsyncMaintenanceScheduler started: "
-            f"tick={self._tick_seconds}s, tasks={len(self._tasks)}"
+            "AsyncMaintenanceScheduler started: tick=%ss, tasks=%s",
+            self._tick_seconds,
+            len(self._tasks),
         )
 
     async def stop(self) -> None:
@@ -162,7 +165,7 @@ class AsyncMaintenanceScheduler:
         ]
         if running_tasks:
             logger.info(
-                f"Waiting for {len(running_tasks)} running maintenance task(s) to finish..."
+                "Waiting for %s running maintenance task(s) to finish...", len(running_tasks)
             )
             done, pending = await asyncio.wait(running_tasks, timeout=self._shutdown_wait_seconds)
             for t in pending:

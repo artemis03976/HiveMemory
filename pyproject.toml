@@ -95,7 +95,8 @@ line-length = 100
 target-version = "py312"
 
 [tool.ruff.lint]
-select = ["E", "F", "I", "N", "W", "UP"]
+# G004：日志消息不用 f-string，参数在级别过滤之后才格式化，全仓库只有 % 占位符一种写法。
+select = ["E", "F", "I", "N", "W", "UP", "G004"]
 ignore = [
     "E501",
     # UP042（str, Enum → StrEnum）会改变 str()/f-string 输出（"X.A" → "a"），

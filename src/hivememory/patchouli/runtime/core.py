@@ -219,10 +219,10 @@ class PatchouliRuntime:
                 await service.load()
             except Exception as e:
                 # 预热失败不阻塞服务，也不跳过其余模型：失败的模型保持未就绪，下一次使用时重新加载。
-                logger.error(f"模型预热失败: {service.model_name}: {e}", exc_info=True)
+                logger.error("模型预热失败: %s: %s", service.model_name, e, exc_info=True)
 
         elapsed = (time.time() - start) * 1000
-        logger.info(f"推理模型预热结束 ({elapsed:.0f}ms)")
+        logger.info("推理模型预热结束 (%.0fms)", elapsed)
 
     async def prefetch_models(self) -> None:
         """在后台开始加载尚未加载的推理模型并立即返回，不等待加载完成。
@@ -324,9 +324,9 @@ class PatchouliRuntime:
             "reentrant": False,
         }
         logger.info(
-            f"shutdown drain 完成: observer_payloads=0, "
-            f"settled_topics={len(perception_result.settled_topic_ids)}, "
-            f"generation_timed_out={generation_summary['timed_out']}"
+            "shutdown drain 完成: observer_payloads=0, settled_topics=%s, generation_timed_out=%s",
+            len(perception_result.settled_topic_ids),
+            generation_summary["timed_out"],
         )
         return result
 
@@ -686,7 +686,7 @@ class PatchouliRuntime:
                 if component.required and not component.healthy
             ]
             detail = {component.name: component.detail for component in unhealthy}
-            logger.warning(f"Storage health check failed: {detail}")
+            logger.warning("Storage health check failed: %s", detail)
         return report.healthy
 
     async def ensure_storage_ready(self) -> None:

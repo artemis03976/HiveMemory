@@ -90,10 +90,13 @@ def resolve_frame_model(
     model_definition = model_registry.select_model(selection.model_id or "default")
     params = model_registry.resolve(selection)
     logger.debug(
-        f"模型解析: selection={selection.model_id!r} "
-        f"(profile={profile.model_name!r}) → litellm_model={params.model!r}, "
-        f"display={model_definition.display_name!r}, "
-        f"temperature={params.temperature}, top_p={params.top_p}"
+        "模型解析: selection=%r (profile=%r) → litellm_model=%r, display=%r, temperature=%s, top_p=%s",
+        selection.model_id,
+        profile.model_name,
+        params.model,
+        model_definition.display_name,
+        params.temperature,
+        params.top_p,
     )
     assert params.max_tokens is not None  # 注册表以覆盖值或模型默认值填入
     limit = _input_token_limit(config, model_definition.context_window, params.max_tokens)

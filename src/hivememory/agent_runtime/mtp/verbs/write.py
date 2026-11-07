@@ -55,8 +55,9 @@ async def handle_write(
     )
 
     logger.info(
-        f"MTP WRITE admitted: content='{content[:50]}...', "
-        f"pending_alias='{pending.pending_alias}'"
+        "MTP WRITE admitted: content_length=%d, pending_alias=%s",
+        len(content),
+        pending.pending_alias,
     )
 
     return MTPResponse(

@@ -85,7 +85,7 @@ class ProviderRegistry:
     def _load(self) -> None:
         """从 providers.secrets.yaml 加载 yaml 层凭证。文件不存在时以空表启动。"""
         if not self._path.exists():
-            logger.info(f"提供商凭证文件未找到: {self._path}，使用空 yaml 层启动")
+            logger.info("提供商凭证文件未找到: %s，使用空 yaml 层启动", self._path)
             return
 
         try:
@@ -99,11 +99,11 @@ class ProviderRegistry:
                 try:
                     self._yaml[name.lower()] = ProviderCredentials(**raw)
                 except Exception as e:
-                    logger.error(f"跳过无效提供商凭证 '{name}': {e}")
+                    logger.error("跳过无效提供商凭证 '%s': %s", name, e)
 
-            logger.info(f"已加载 {len(self._yaml)} 个提供商凭证（yaml 层，来自 {self._path}）")
+            logger.info("已加载 %s 个提供商凭证（yaml 层，来自 %s）", len(self._yaml), self._path)
         except Exception as e:
-            logger.error(f"加载提供商凭证文件失败: {e}")
+            logger.error("加载提供商凭证文件失败: %s", e)
 
     def _save(self) -> None:
         """
@@ -134,7 +134,7 @@ class ProviderRegistry:
                     sort_keys=False,
                 )
             os.replace(tmp_path, self._path)
-            logger.debug(f"提供商凭证已持久化（{len(self._yaml)} 条 yaml 层记录）")
+            logger.debug("提供商凭证已持久化（%s 条 yaml 层记录）", len(self._yaml))
         except Exception:
             try:
                 os.unlink(tmp_path)
@@ -199,7 +199,7 @@ class ProviderRegistry:
         lower = name.lower()
         self._yaml[lower] = credentials
         self._save()
-        logger.info(f"已写入提供商凭证: {lower} (yaml 层)")
+        logger.info("已写入提供商凭证: %s (yaml 层)", lower)
 
     def delete(self, name: str) -> None:
         """
@@ -220,7 +220,7 @@ class ProviderRegistry:
             )
         del self._yaml[lower]
         self._save()
-        logger.info(f"已删除提供商凭证: {lower} (yaml 层)")
+        logger.info("已删除提供商凭证: %s (yaml 层)", lower)
 
     # ------------------------------------------------------------------
     # 内部辅助

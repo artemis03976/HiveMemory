@@ -55,9 +55,9 @@ class RuleInterceptor(BaseInterceptor):
             else 0
         )
         logger.debug(
-            "RuleInterceptor initialized: "
-            f"system_commands={system_commands_count}, "
-            f"chat={len(self._chat_regex)} patterns"
+            "RuleInterceptor initialized: system_commands=%s, chat=%s patterns",
+            system_commands_count,
+            len(self._chat_regex),
         )
 
     def intercept(

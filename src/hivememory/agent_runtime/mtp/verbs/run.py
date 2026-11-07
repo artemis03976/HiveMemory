@@ -106,7 +106,7 @@ async def handle_run(
 
     # 使用缓存的代码执行
     code = atom.payload.content
-    logger.info(f"User tool executing: alias='{alias}', UUID={atom.id}")
+    logger.info("User tool executing: alias=%s memory_id=%s", alias, atom.id)
     response = execute_user_tool(code, command.args, timeout_seconds=timeout_seconds)
     if warnings:
         response.warnings = [*warnings, *response.warnings]

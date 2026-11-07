@@ -102,8 +102,10 @@ class SingletonModelService[M](ABC):
         self._initialized = True
 
         logger.info(
-            f"{self.__class__.__name__} 配置: model={self.model_name}, "
-            f"residency={config.residency}"
+            "%s 配置: model=%s, residency=%s",
+            self.__class__.__name__,
+            self.model_name,
+            config.residency,
         )
 
     @abstractmethod
@@ -145,7 +147,7 @@ class SingletonModelService[M](ABC):
         try:
             await self.load()
         except Exception as e:
-            logger.warning(f"推理模型预取失败: model={self.model_name}: {e}")
+            logger.warning("推理模型预取失败: model=%s: %s", self.model_name, e)
 
     async def unload_if_idle(self) -> bool:
         """``idle_unload`` 模式下，模型空闲超过时限时卸载并归还内存，返回是否卸载。
@@ -214,7 +216,7 @@ class SingletonModelService[M](ABC):
         self._state = ModelLoadState.LOADED
         self._loaded_once = True
         elapsed_ms = (time.perf_counter() - started) * 1000
-        logger.info(f"推理模型加载完成: model={self.model_name}, 耗时={elapsed_ms:.0f}ms")
+        logger.info("推理模型加载完成: model=%s, 耗时=%.0fms", self.model_name, elapsed_ms)
         return model
 
     def _unload(self) -> None:

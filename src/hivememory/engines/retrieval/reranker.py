@@ -130,7 +130,7 @@ class CrossEncoderReranker(BaseReranker):
 
         if self.service.state is not ModelLoadState.LOADED:
             logger.warning(
-                f"重排模型未加载（{self.service.state}），本次按召回顺序返回，后台开始加载"
+                "重排模型未加载（%s），本次按召回顺序返回，后台开始加载", self.service.state
             )
             self.service.prefetch()
             return results
@@ -138,8 +138,9 @@ class CrossEncoderReranker(BaseReranker):
         # 1. 限制到 top_k 候选 (性能优化)
         candidates = results.results[: self.config.top_k]
         logger.debug(
-            f"CrossEncoderReranker: 对 {len(candidates)} 条结果进行重排序 "
-            f"(top_k={self.config.top_k})"
+            "CrossEncoderReranker: 对 %s 条结果进行重排序 (top_k=%s)",
+            len(candidates),
+            self.config.top_k,
         )
 
         # 2. 构建 [query, passage] 对
@@ -153,7 +154,7 @@ class CrossEncoderReranker(BaseReranker):
         try:
             raw_scores = await self.service.compute_score(pairs)
         except Exception as e:
-            logger.warning(f"Reranker 计算失败，返回原始结果: {e}")
+            logger.warning("Reranker 计算失败，返回原始结果: %s", e)
             return results
 
         # 4. 标准化分数并更新结果

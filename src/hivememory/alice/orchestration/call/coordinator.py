@@ -98,9 +98,9 @@ class CallCoordinator:
         record.begin_resolution()
 
         logger.info(
-            "CALL suspend: target=%s, task=%r",
+            "CALL suspend: target=%s, task_length=%d",
             call_request.target_alias,
-            call_request.task[:80],
+            len(call_request.task),
         )
 
         prepared = await self._prepare_callee(caller_frame, call_request)

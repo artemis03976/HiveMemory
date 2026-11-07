@@ -93,9 +93,12 @@ class ReciprocalRankFusion(BaseFusion):
             result.score = scores[memory_id]  # 更新为 RRF 分数
             fused_results.append(result)
 
-        logger.info(
-            f"RRF融合: Dense({len(dense_results)}) + Sparse({len(sparse_results)}) "
-            f"-> Fused({len(fused_results)}), 唯一记忆={len(result_map)}"
+        logger.debug(
+            "RRF融合: Dense(%s) + Sparse(%s) -> Fused(%s), 唯一记忆=%s",
+            len(dense_results),
+            len(sparse_results),
+            len(fused_results),
+            len(result_map),
         )
 
         total_latency = dense_results.latency_ms + sparse_results.latency_ms
@@ -261,9 +264,13 @@ class AdaptiveWeightedFusion(BaseFusion):
             new_result.score = scores[memory_id]
             fused_results.append(new_result)
 
-        logger.info(
-            f"AdaptiveWeightedFusion[{mode}]: Dense({len(dense_results)}) + Sparse({len(sparse_results)}) "
-            f"-> Fused({len(fused_results)}), 唯一记忆={len(result_map)}"
+        logger.debug(
+            "AdaptiveWeightedFusion[%s]: Dense(%s) + Sparse(%s) -> Fused(%s), 唯一记忆=%s",
+            mode,
+            len(dense_results),
+            len(sparse_results),
+            len(fused_results),
+            len(result_map),
         )
 
         total_latency = dense_results.latency_ms + sparse_results.latency_ms
@@ -341,7 +348,7 @@ class AdaptiveWeightedFusion(BaseFusion):
         }
 
         if mode not in mode_map:
-            logger.warning(f"未知的检索模式: {mode}, 使用默认模式: {self.config.default_mode}")
+            logger.warning("未知的检索模式: %s, 使用默认模式: %s", mode, self.config.default_mode)
             mode = self.config.default_mode
 
         return mode_map.get(mode, self.config.concept_mode)

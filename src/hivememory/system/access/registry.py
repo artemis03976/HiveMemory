@@ -133,8 +133,9 @@ class SystemActorAccessRegistry:
                 credential = (environment_value(entry.credential_env) or "").strip() or None
                 if credential is None:
                     logger.warning(
-                        f"接入登记 {entry.principal_id!r} 的凭据环境变量 "
-                        f"{entry.credential_env} 未设置，该来源的认证将一律被拒绝"
+                        "接入登记 %r 的凭据环境变量 %s 未设置，该来源的认证将一律被拒绝",
+                        entry.principal_id,
+                        entry.credential_env,
                     )
             entries.append(
                 SystemActorAccessEntry(

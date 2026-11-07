@@ -46,7 +46,7 @@ class BGEM3EmbeddingService(SingletonModelService["TextEmbedding"], BaseEmbeddin
         except ImportError:
             raise ImportError("fastembed 未安装。请运行: pip install fastembed")
 
-        logger.info(f"正在加载 FastEmbed BGE-M3 模型: {self.model_name}")
+        logger.info("正在加载 FastEmbed BGE-M3 模型: %s", self.model_name)
         try:
             TextEmbedding.add_custom_model(
                 model=_CUSTOM_BGE_M3_MODEL,
@@ -73,7 +73,7 @@ class BGEM3EmbeddingService(SingletonModelService["TextEmbedding"], BaseEmbeddin
             # 截断设置完成后才交给调用方，推理不会用到未截断的模型。
             return model
         except Exception as e:
-            logger.error(f"BGE-M3 模型加载失败: {e}")
+            logger.error("BGE-M3 模型加载失败: %s", e)
             raise
 
     # 存储层的两种调用（单条 dense、单条 dense+sparse）有精确返回类型；
@@ -132,7 +132,7 @@ class BGEM3EmbeddingService(SingletonModelService["TextEmbedding"], BaseEmbeddin
             embeddings = list(model.embed(input_list))
             return embeddings[0].tolist() if single else [e.tolist() for e in embeddings]
         except Exception as e:
-            logger.warning(f"稠密向量编码失败: {e}")
+            logger.warning("稠密向量编码失败: %s", e)
             empty_batch: list[list[float]] = [[] for _ in input_list]
             return [] if single else empty_batch
 

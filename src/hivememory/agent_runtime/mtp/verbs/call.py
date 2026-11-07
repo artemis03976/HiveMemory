@@ -56,12 +56,17 @@ async def handle_call(
             if not isinstance(context_refs, list):
                 context_refs = [context_refs]
         except json.JSONDecodeError:
-            logger.warning(f"Failed to parse context_refs: {context_refs_str}")
+            logger.warning(
+                "context_refs is not JSON, splitting by comma: length=%d", len(context_refs_str)
+            )
             # 降级为逗号分隔
             context_refs = [ref.strip() for ref in context_refs_str.split(",") if ref.strip()]
 
     logger.info(
-        f"MTP CALL: target={target_alias}, task='{task[:50]}...', " f"context_refs={context_refs}"
+        "MTP CALL: target=%s, task_length=%d, context_refs=%s",
+        target_alias,
+        len(task),
+        context_refs,
     )
 
     # 返回 SUSPEND 信号
