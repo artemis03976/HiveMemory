@@ -8,6 +8,7 @@ import {
   applySubAgentStart,
   applySubAgentToken,
 } from '@/stores/chat/messageReducers';
+import { chatErrorMessage } from '@/stores/chat/failureMessage';
 import type {
   ChatDoneEvent,
   ContextCompactionEvent,
@@ -94,8 +95,7 @@ export function createChatSSECallbacks(deps: CreateChatSSECallbacksDeps): SSECal
     },
 
     onError: (data) => {
-      const errorMessage = data.message || '系统错误，请检查后端服务器';
-      deps.finalizeError(errorMessage);
+      deps.finalizeError(chatErrorMessage(data.code, data.message));
     },
 
     onConnectionError: (error) => {

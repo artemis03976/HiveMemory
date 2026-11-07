@@ -298,6 +298,19 @@ for (const [reason, expected] of [
   });
 }
 
+test('交互提交失败的流式错误提示会话已保存、记忆未提交，其他领域错误沿用后端文案', async () => {
+  for (const [code, expected] of [
+    ['patchouli.interaction.finalization_failed', '本轮已保存到会话，但记忆没有提交成功'],
+    ['workspace.session.busy', '请求未能完成，请检查权限、资源和会话状态'],
+  ]) {
+    reset();
+    globalThis.fetch = async url => url === '/api/v1/sessions' ? new Response('[]') : new Response(
+      `event: error\ndata: ${JSON.stringify({ message: '请求未能完成，请检查权限、资源和会话状态', code })}\n\n`);
+    await useChatStore.getState().sendMessage('问题');
+    assert.equal(useChatStore.getState().connection.error, expected);
+  }
+});
+
 test('历史边界可展开摘要，摘要中的 HTML 不作为可执行内容', async () => {
   const { createElement } = await import('react');
   const { renderToStaticMarkup } = await import('react-dom/server');

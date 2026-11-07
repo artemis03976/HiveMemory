@@ -51,12 +51,10 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.patchouli.contracts.errors import (
-    ActiveInteractionFinalizationError,
-    InteractionAdmissionUnavailableError,
-)
+from hivememory.patchouli.contracts.errors import InteractionAdmissionUnavailableError
 from hivememory.patchouli.contracts.interaction_submission import InteractionSubmitResult
 from hivememory.workspace.contracts import CPUExecutionStatus, SubmitWriteIntentRequest
+from hivememory.workspace.contracts.errors import ActiveInteractionFinalizationError
 from hivememory.workspace.process.outputs import OUTPUT_CHANNEL_CAPACITY
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from hivememory.workspace.process.table import ProcessTable
@@ -275,16 +273,20 @@ def _gated_submission(started: asyncio.Event, release: asyncio.Event):
     return submit
 
 
-def _logged_finalization_failure(caplog) -> ActiveInteractionFinalizationError:
-    """执行器以失败收口时记录的交互提交错误；只应有一条。"""
-    failures = [
-        record.exc_info[1]
+def _logged_finalization_details(caplog) -> dict:
+    """执行器以失败收口时为交互提交错误记录的 details；只应有一条。
+
+    领域错误的日志参数依次是进程标识、错误码与 details。
+    """
+    details = [
+        record.args[2]
         for record in caplog.records
-        if record.exc_info is not None
-        and isinstance(record.exc_info[1], ActiveInteractionFinalizationError)
+        if isinstance(record.args, tuple)
+        and len(record.args) == 3
+        and record.args[1] == ActiveInteractionFinalizationError.code
     ]
-    assert len(failures) == 1, caplog.text
-    return failures[0]
+    assert len(details) == 1, caplog.text
+    return details[0]
 
 
 @pytest.mark.asyncio
@@ -731,11 +733,11 @@ async def test_submission_waits_for_topic_determination_left_running_by_cpu() ->
 async def test_unsuccessful_submission_keeps_turn_without_topic_and_fails_process(
     submit_state, rejects_admission, stage, reason, caplog
 ) -> None:
-    """交互没有应用成功：会话仍写入这一轮且话题为空，进程以交互提交错误失败。
+    """交互没有应用成功：会话仍写入这一轮且话题为空，进程以交互提交错误失败，流式错误带它的码。
 
     接纳被拒译为接纳阶段；应用失败、或队列停止使提交停在应用之前，译为应用阶段。
     """
-    caplog.set_level(logging.ERROR, logger="hivememory.workspace.process.runner")
+    caplog.set_level(logging.WARNING, logger="hivememory.workspace.process.runner")
     bus, _stub = _turn_bus(PatchouliTurnStub(submit_state=submit_state))
     if rejects_admission:
         bus.unregister(PatchouliRoutes.INTERACTION_SUBMIT)
@@ -746,15 +748,11 @@ async def test_unsuccessful_submission_keeps_turn_without_topic_and_fails_proces
 
     events = await collect_events(service, handle)
 
-    assert events[-1]["event"] == "error"
+    assert error_code(events) == "patchouli.interaction.finalization_failed"
     turns = sessions.get(_workspace(), handle.session_id).turns
     assert [(turn.payload.reply_text, turn.topic_id) for turn in turns] == [("完成", None)]
-    failure = _logged_finalization_failure(caplog)
-    assert (failure.code, failure.stage, failure.reason) == (
-        "patchouli.interaction.finalization_failed",
-        stage,
-        reason,
-    )
+    details = _logged_finalization_details(caplog)
+    assert (details["stage"], details["reason"]) == (stage, reason)
 
 
 @pytest.mark.asyncio

@@ -41,10 +41,7 @@ from hivememory.core.protocol.models import InteractionPayload
 from hivememory.core.protocol.sealing import seal_interaction
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.patchouli.contracts.errors import (
-    ActiveInteractionFinalizationError,
-    InteractionAdmissionUnavailableError,
-)
+from hivememory.patchouli.contracts.errors import InteractionAdmissionUnavailableError
 from hivememory.patchouli.contracts.interaction_submission import InteractionSubmitResult
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
 from hivememory.workspace.capability.root.interaction import RootInteractionService
@@ -55,6 +52,7 @@ from hivememory.workspace.contracts import (
     CPUInputManifest,
     CPUPort,
 )
+from hivememory.workspace.contracts.errors import ActiveInteractionFinalizationError
 from hivememory.workspace.contracts.operations import OperationEntry, RetrieveRequest
 from hivememory.workspace.contracts.threads import ExecutionThread
 from hivememory.workspace.process.allocation import CPUAllocator
@@ -233,7 +231,12 @@ class TaskProcessRunner:
             return RunCancelled(reason=record.stop_reason or "user_requested")
         except Exception as exc:
             if isinstance(exc, WorkspaceDomainError):
-                logger.warning("任务进程领域错误: %s", exc.code)
+                logger.warning(
+                    "任务进程领域错误: process_id=%s code=%s details=%s",
+                    record.process_id,
+                    exc.code,
+                    exc.details,
+                )
             else:
                 logger.exception("任务进程异常")
             record.mark_failed()

@@ -161,7 +161,7 @@ Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，�
 
 `MemoryGenerationTaskSpec`、只读快照 `MemoryGenerationTask` 与跨子系统请求 `PendingAtomMaterializeTask` 均独立保存必需的 `belong_to`、`from_actor`。WRITE/UPDATE 保留提交 Agent；手动、idle、LRU 和 shutdown SETTLE 统一使用 `system_actor_for_workspace(belong_to)`（owner 用户、保留的 system、无 Team），参与内容的 Agent 只记入贡献者，结算查重只看到本 Workspace 的 PUBLIC 记忆。`TopicMaterializeTask` 与 Topic lease 只保存资源归属，不保留最近访问者。
 
-Profile、Topic 与交互提交的公共失败定义在 `patchouli.contracts.errors`；会话与意图失败定义在 `workspace.contracts.errors`，共享访问、资源和存储类型位于 `core.errors`。调用者按类型处理，HTTP/MTP 在各自出口呈现；完整分类见[错误模型](./error-model.md)。Profile 不可见与缺失同样隐藏，类型或配置损坏显式失败，不回退内置 Profile。任务进程的交互提交没有跨过接纳或应用时，由进程以 `ActiveInteractionFinalizationError`（`patchouli.interaction.finalization_failed`）失败，`stage` 区分接纳与应用；接纳被拒以外的提交异常原样传播，不声称没有副作用。
+Profile、Topic 与交互提交的公共失败定义在 `patchouli.contracts.errors`；会话、意图与任务进程交互提交的失败定义在 `workspace.contracts.errors`，共享访问、资源和存储类型位于 `core.errors`。调用者按类型处理，HTTP/MTP 在各自出口呈现；完整分类见[错误模型](./error-model.md)。Profile 不可见与缺失同样隐藏，类型或配置损坏显式失败，不回退内置 Profile。任务进程的交互提交没有跨过接纳或应用时，由进程以 Workspace 领域错误 `ActiveInteractionFinalizationError`（`patchouli.interaction.finalization_failed`）失败，`details` 中的 `stage` 区分接纳与应用；接纳被拒以外的提交异常原样传播，不声称没有副作用。
 
 ### 3.5 工作 actor 与操作授权
 

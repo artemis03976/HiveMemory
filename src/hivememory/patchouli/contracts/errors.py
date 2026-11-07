@@ -43,33 +43,3 @@ class InteractionAdmissionUnavailableError(DomainError):
 
     def __init__(self, *, reason: Literal["capacity_rejected", "queue_stopped"]) -> None:
         super().__init__(details={"reason": reason})
-
-
-ActiveFinalizationStage = Literal[
-    "interaction_admission",
-    "interaction_apply",
-]
-
-
-class ActiveInteractionFinalizationError(DomainError):
-    """任务进程的交互提交未能跨过接纳或应用的成功边界。
-
-    ``stage`` 区分没有被接纳与接纳后应用没有成功；``error_class`` 是应用失败
-    时的异常类名。
-    """
-
-    code = "patchouli.interaction.finalization_failed"
-
-    def __init__(
-        self,
-        *,
-        interaction_id: str,
-        stage: ActiveFinalizationStage,
-        reason: str,
-        error_class: str | None = None,
-    ) -> None:
-        self.interaction_id = interaction_id
-        self.stage = stage
-        self.reason = reason
-        self.error_class = error_class
-        super().__init__(f"Active interaction finalization failed at {stage}: {reason}")
