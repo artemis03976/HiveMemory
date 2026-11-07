@@ -74,7 +74,7 @@ class SessionTurnResponse(BaseModel):
 
     interaction_id: str
     agent_id: str
-    topic_id: str
+    topic_id: str | None
     created_at: datetime
     payload: SessionTurnPayloadResponse
 

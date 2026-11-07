@@ -126,14 +126,17 @@ class _AccessControlBundle:
 
 @dataclass
 class _ProcessFacilitiesBundle:
-    """任务进程的共享设施：进程表与进程线程管理。
+    """任务进程的共享设施：进程表、进程线程管理与它确定话题所用的 root 话题 API。
 
     进程表同时交给注册入口与线程管理；线程管理在能力层之前构建，作为执行
-    线程的唯一入口（解析、CALL 子线程的派生与结束）注入操作入口与 actor API。
+    线程的唯一入口（解析、取得派发话题、CALL 子线程的派生与结束）注入操作入口
+    与 actor API。root 话题 API 只依赖全局总线与操作授权者，随线程管理一起
+    构建，之后同一实例再交给 HTTP 管理路由与 Import Bus。
     """
 
     process_table: ProcessTable
     process_threads: ProcessThreads
+    root_topic: RootTopicService
 
 
 @dataclass
@@ -202,7 +205,7 @@ class SystemAssembler:
         registries = self._build_registries()
         llm = self._build_llm(registries)
         access_control = self._build_access_control()
-        processes = self._build_process_facilities(access_control)
+        processes = self._build_process_facilities(runtime, access_control)
         capabilities = self._build_capabilities(runtime, access_control, processes)
         subsystems = self._build_subsystems(runtime, registries, llm, capabilities)
         services = self._build_services(
@@ -358,17 +361,28 @@ class SystemAssembler:
             access_gateway=access_gateway,
         )
 
-    @staticmethod
-    def _build_process_facilities(access_control: _AccessControlBundle) -> _ProcessFacilitiesBundle:
-        """进程线程管理经认证网关为子线程的被调用方做准入，经操作授权者读取操作快照。"""
+    def _build_process_facilities(
+        self, runtime: _RuntimeBundle, access_control: _AccessControlBundle
+    ) -> _ProcessFacilitiesBundle:
+        """进程线程管理经认证网关为子线程的被调用方做准入，经操作授权者读取操作快照，
+        经 root 话题 API 为进程这一轮确定话题。"""
         process_table = ProcessTable()
+        # root 话题 API 同时供线程管理、HTTP 管理路由与 Import Bus 使用；路由一轮
+        # 外部交互的 Gateway 时限沿用 Gateway 配置。
+        root_topic = RootTopicService(
+            global_bus=runtime.global_bus,
+            operation_authorizer=access_control.operation_authorizer,
+            gateway_request_timeout_ms=self._config.gateway.workflow.default_request_timeout_ms,
+        )
         return _ProcessFacilitiesBundle(
             process_table=process_table,
             process_threads=ProcessThreads(
                 process_table,
                 admission=access_control.access_gateway,
                 authorizer=access_control.operation_authorizer,
+                topics=root_topic,
             ),
+            root_topic=root_topic,
         )
 
     @staticmethod
@@ -482,6 +496,17 @@ class SystemAssembler:
             memory_compiler_config=self._config.memory_compiler,
             attachment_compiler_config=self._config.attachment_compiler,
         )
+        # 交互提交与记忆管理的 root API 由任务进程与 Import Bus、HTTP 管理路由
+        # 共用；提交方法路由一轮外部交互时沿用 Gateway 的时限。
+        root_interaction = RootInteractionService(
+            runtime.global_bus,
+            operation_authorizer=access_control.operation_authorizer,
+            gateway_request_timeout_ms=self._config.gateway.workflow.default_request_timeout_ms,
+        )
+        root_memory = RootMemoryService(
+            global_bus=runtime.global_bus,
+            operation_authorizer=access_control.operation_authorizer,
+        )
         runner = TaskProcessRunner(
             runtime.global_bus,
             # Actor 执行经 CPU 端口完成：Alice 是当前唯一的 CPU，其端口实现
@@ -489,10 +514,13 @@ class SystemAssembler:
             cpu=subsystems.alice.cpu_port,
             sessions=runtime.sessions,
             allocator=allocator,
-            # 系统阶段的 root 授权与 prepare 检索的 actor 授权在执行器内、
-            # 每次阶段调用前执行。
+            # Gateway 的 root 授权在执行器内、调用前执行；其余系统阶段经 root API。
             operation_authorizer=access_control.operation_authorizer,
             threads=processes.process_threads,
+            # 预检索是执行者的 actor 操作，经操作入口以主线程提交。
+            operations=capabilities.operations,
+            interactions=root_interaction,
+            memories=root_memory,
             gateway_request_timeout_ms=(self._config.gateway.workflow.default_request_timeout_ms),
             gateway_session_turn_limit=self._config.gateway.context_preparation.session_turn_limit,
         )
@@ -513,24 +541,14 @@ class SystemAssembler:
             # chat.run.* 由任务进程的领域 emitter 投影，来源标签在 emitter 内统一。
             event_publisher=runtime.event_publisher,
         )
-        # root 话题 API 同时供 HTTP 管理路由与 Import Bus 使用。
-        root_topic = RootTopicService(
-            global_bus=runtime.global_bus,
-            operation_authorizer=access_control.operation_authorizer,
-        )
-        # Import Bus 只认证系统自身：查重、路由、准备话题、提交与等待应用都经
-        # root API，由它在方法入口授权；编排器不持有 Patchouli 的提交队列。
-        # Gateway 时限与最近轮数沿用 Gateway 配置。
+        root_topic = processes.root_topic
+        # Import Bus 只认证系统自身：提交交互与为在途轮次确定话题都经 root API，
+        # 查重、路由与等待应用在 root 方法内完成，由它在方法入口授权；编排器
+        # 不持有 Patchouli 的提交队列。最近轮数沿用 Gateway 配置。
         import_bus = ImportBusService(
             ingestor=ImportBusIngestor(
-                interactions=RootInteractionService(
-                    runtime.global_bus,
-                    operation_authorizer=access_control.operation_authorizer,
-                ),
+                interactions=root_interaction,
                 topics=root_topic,
-                gateway_request_timeout_ms=(
-                    self._config.gateway.workflow.default_request_timeout_ms
-                ),
                 gateway_session_turn_limit=(
                     self._config.gateway.context_preparation.session_turn_limit
                 ),
@@ -546,10 +564,6 @@ class SystemAssembler:
         )
         # root API 独立于 actor 读取视图，只供保留的 system actor 管理资源。
         # 管理读取直接走资源所有者路由；actor 能力服务只经操作入口，不经门面。
-        root_memory = RootMemoryService(
-            global_bus=runtime.global_bus,
-            operation_authorizer=access_control.operation_authorizer,
-        )
         root_agent = RootAgentProfileService(
             global_bus=runtime.global_bus,
             operation_authorizer=access_control.operation_authorizer,

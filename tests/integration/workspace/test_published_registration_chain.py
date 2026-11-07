@@ -74,7 +74,6 @@ from hivememory.patchouli.contracts.memory_tasks import (
     MemoryGenerationTask,
     MemoryGenerationTaskStatus,
 )
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.server import deps
 from hivememory.server.deps import RequestIdentitySelection
 from hivememory.server.error_handlers import install_error_handlers
@@ -107,7 +106,7 @@ from hivememory.workspace.registry import WorkspaceActorAccessRecord, WorkspaceA
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
-from tests.helpers.process import make_task_process_service
+from tests.helpers.process import PatchouliTurnStub, make_task_process_service
 from tests.helpers.workspace import make_workspace_read_view
 
 #: 发布 principals 登记中 server 的接入标识（adapter http）；测试断言它与
@@ -157,8 +156,6 @@ class _BusRecordings:
         self.topic_list_scopes: list = []
         self.task_list_scopes: list = []
         self.gateway_calls = 0
-        #: prepare 收到的（话题与归属的 scope, 检索 scope）。
-        self.prepare_scopes: list = []
 
     @property
     def management_scopes(self) -> list:
@@ -215,17 +212,6 @@ def _memory_task(scope, *, task_id: str) -> MemoryGenerationTask:
     )
 
 
-def _prepared_run(scope) -> PreparedAgentRun:
-    """prepare 替身：按收到的授权 scope 构造真实 PreparedAgentRun。"""
-    return PreparedAgentRun(
-        belong_to=(scope).workspace_identity,
-        interaction_id="interaction-published",
-        topic_id="topic-1",
-        is_new_topic=True,
-        storage_available=True,
-    )
-
-
 @pytest_asyncio.fixture
 async def published_stack():
     """发布登记组合 + 全局总线替身路由 + 能力层/注册入口 + TestClient 应用。"""
@@ -257,37 +243,32 @@ async def published_stack():
         seen.gateway_calls += 1
         return GatewayDecisionOutcome(decision=make_gateway_decision())
 
-    async def prepare_agent_run(*, identity_scope, retrieval_scope=None, **_kwargs):
-        seen.prepare_scopes.append((identity_scope, retrieval_scope))
-        return _prepared_run(identity_scope)
-
     async def get_agent_profile(agent_id, *, identity_scope, **_kwargs):
         return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
-    async def finalize_agent_run(**_kwargs):
-        return []
-
+    patchouli = PatchouliTurnStub().install(bus)
     bus.register(PatchouliRoutes.MEMORY_CREATE, memory_create)
     bus.register(PatchouliRoutes.MEMORY_LIST, memory_list)
     bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, topic_list_active)
     bus.register(PatchouliRoutes.MEMORY_TASK_LIST, memory_task_list)
     bus.register(GatewayPublicRoutes.PROCESS, gateway_process)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare_agent_run)
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, get_agent_profile)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize_agent_run)
 
     cpu = ScriptedCPU(result=make_cpu_result(final_text="发布登记链路完成"))
 
     root_memory_service = RootMemoryService(bus, operation_authorizer=registration.authorizer)
+    topic_service = RootTopicService(bus, operation_authorizer=registration.authorizer)
     memory_service = ActorMemoryService(
         global_bus=bus,
         operation_authorizer=registration.authorizer,
         memory_reader=make_workspace_read_view(bus).memory,
         threads=ProcessThreads(
-            ProcessTable(), admission=registration.gateway, authorizer=registration.authorizer
+            ProcessTable(),
+            admission=registration.gateway,
+            authorizer=registration.authorizer,
+            topics=topic_service,
         ),
     )
-    topic_service = RootTopicService(bus, operation_authorizer=registration.authorizer)
     memory_task_service = RootMemoryTaskService(bus, operation_authorizer=registration.authorizer)
     process_service = make_task_process_service(
         bus,
@@ -317,6 +298,7 @@ async def published_stack():
         registration=registration,
         bus=bus,
         seen=seen,
+        patchouli=patchouli,
         cpu=cpu,
         client=client,
         app=app,
@@ -334,6 +316,7 @@ class _Stack:
         registration: _PublishedRegistration,
         bus,
         seen: _BusRecordings,
+        patchouli: PatchouliTurnStub,
         cpu: ScriptedCPU,
         client: TestClient,
         app: FastAPI,
@@ -343,6 +326,7 @@ class _Stack:
         self.registration = registration
         self.bus = bus
         self.seen = seen
+        self.patchouli = patchouli
         self.cpu = cpu
         self.client = client
         self.app = app
@@ -435,9 +419,9 @@ async def test_chat_full_chain_succeeds_through_published_registration(published
     """chat 注册 → 四阶段编排（fake CPU）经发布登记的用户级记录全链路成功。
 
     用户 actor 为 default 用户 + 具体 ``agent_id``：发布登记的用户级记录
-    （省略 agent_id，覆盖所有具体 Agent）完成准入；系统阶段由发布登记的
-    系统自身 principal 认证的 (default, system) 以 root 授权执行，prepare 的
-    检索按执行者在发布登记中的 ``memory.search`` 授权。
+    （省略 agent_id，覆盖所有具体 Agent）完成准入；系统阶段（话题确认与交互
+    提交）由发布登记的系统自身 principal 认证的 (default, system) 以 root 授权
+    执行，预检索按执行者在发布登记中的 ``memory.search`` 授权。
     """
     stack = published_stack
 
@@ -464,10 +448,18 @@ async def test_chat_full_chain_succeeds_through_published_registration(published
         "agent_id": "test_agent",
         "workspace_id": MAIN_WORKSPACE_ID,
     }
-    # prepare 的话题准备由 system 执行，检索按执行者的可见性进行。
-    root_scope, retrieval_scope = stack.seen.prepare_scopes[-1]
-    assert root_scope.actor_identity == ActorIdentity(user_id="default", agent_id="system")
-    assert retrieval_scope.actor_identity == ActorIdentity(user_id="default", agent_id="test_agent")
+    # 话题确认与交互提交由 system 执行，预检索按执行者的可见性进行。
+    system = ActorIdentity(user_id="default", agent_id="system")
+    executor = ActorIdentity(user_id="default", agent_id="test_agent")
+    (prepared,) = stack.patchouli.prepared_topics
+    (submitted,) = stack.patchouli.submissions
+    (retrieval,) = stack.patchouli.retrievals
+    assert prepared["identity_scope"].actor_identity == system
+    assert (submitted["identity_scope"].actor_identity, submitted["participant"]) == (
+        system,
+        executor,
+    )
+    assert retrieval.identity_scope.actor_identity == executor
 
 
 # ---------------------------------------------------------------------------

@@ -18,7 +18,7 @@ from __future__ import annotations
 
 import asyncio
 from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -45,7 +45,6 @@ from hivememory.core.models import (
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.system.access import SYSTEM_PRINCIPAL_ID
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.contracts import ResolveReferencesRequest
@@ -70,6 +69,7 @@ from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.process import (
+    PatchouliTurnStub,
     collect_events,
     make_task_process_service,
     process_state,
@@ -180,8 +180,8 @@ async def _register(
     )
 
 
-def _bus_until_finalize(cleanup: AsyncMock | None = None) -> GlobalSystemBus:
-    """Gateway → Profile → prepare → cleanup 的替身总线；finalize 由调用方登记。"""
+def _turn_bus() -> tuple[GlobalSystemBus, PatchouliTurnStub]:
+    """Gateway → Profile → Patchouli 一轮的替身总线，返回记录预检索、话题与提交的替身。"""
     bus = GlobalSystemBus()
 
     async def gateway(**_kwargs):
@@ -190,21 +190,9 @@ def _bus_until_finalize(cleanup: AsyncMock | None = None) -> GlobalSystemBus:
     async def profile(_agent_id, *, identity_scope, **_kwargs):
         return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
-    async def prepare(*, identity_scope, interaction_id, **_kwargs):
-        return PreparedAgentRun(
-            belong_to=(identity_scope).workspace_identity,
-            interaction_id=interaction_id,
-            topic_id="topic-control",
-            is_new_topic=False,
-        )
-
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, profile)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
-    bus.register(
-        PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup or AsyncMock(return_value=True)
-    )
-    return bus
+    return bus, PatchouliTurnStub().install(bus)
 
 
 # ========== 进程记录的 stop 语义 ==========
@@ -686,10 +674,8 @@ async def test_output_channel_detach_releases_blocked_writer_and_drops_later_out
 
 @pytest.mark.asyncio
 async def test_paused_subscriber_does_not_hold_back_process_within_channel_capacity() -> None:
-    """订阅者读到 process_id 后暂停：进程照常推进到 finalize 并关闭，交互事件缓存在通道中。"""
-    bus = _bus_until_finalize()
-    finalize = AsyncMock(return_value=[])
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    """订阅者读到 process_id 后暂停：进程照常推进到交互提交并关闭，交互事件缓存在通道中。"""
+    bus, stub = _turn_bus()
     token = {"event": "token", "data": {"content": "字"}}
     table = ProcessTable()
     service, composition = await _service(
@@ -703,7 +689,7 @@ async def test_paused_subscriber_does_not_hold_back_process_within_channel_capac
     first = await anext(stream)
     await wait_for_process_exit(table, "process-paused")
 
-    finalize.assert_awaited_once()
+    assert len(stub.submissions) == 1
     assert table.get("process-paused") is None
     events = [first, *[event async for event in stream]]
     assert [event["event"] for event in events] == [
@@ -784,8 +770,7 @@ async def test_every_outcome_exits_through_single_close_path(outcome: str, last_
         release(belong_to, session_id, process_id)
 
     sessions.release = recording_release  # type: ignore[method-assign]
-    bus = _bus_until_finalize()
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    bus, _stub = _turn_bus()
     cpu = ScriptedCPU(
         events=[{"event": "token", "data": {"content": "一"}}],
         result=make_cpu_result(),
@@ -844,9 +829,9 @@ class _SlowStoppingCPU:
 
 @pytest.mark.asyncio
 async def test_delivery_leaving_does_not_wait_for_process_close() -> None:
-    """交付方离开只退订并请求停止：CPU 收尾挂起时交付立即结束，进程放行后自行 cleanup 并注销。"""
-    cleanup = AsyncMock(return_value=True)
-    bus = _bus_until_finalize(cleanup)
+    """交付方离开只退订并请求停止：CPU 收尾挂起时交付立即结束，进程放行后自行关闭并注销，
+    丢弃本轮、不提交交互。"""
+    bus, stub = _turn_bus()
     cpu = _SlowStoppingCPU()
     table = ProcessTable()
     service, composition = await _service(bus, cpu=cpu, process_table=table)  # type: ignore[arg-type]
@@ -863,13 +848,10 @@ async def test_delivery_leaving_does_not_wait_for_process_close() -> None:
         "stop_requested",
         "client_disconnected",
     )
-    cleanup.assert_not_awaited()
     cpu.release_cancel.set()
     await wait_for_process_exit(table, "process-detached")
     assert table.get("process-detached") is None
-    assert [call.kwargs["prepared_run"].interaction_id for call in cleanup.await_args_list] == [
-        "process-detached"
-    ]
+    assert stub.submissions == []
 
 
 # ========== 控制面：取消的 root 授权 ==========

@@ -82,9 +82,9 @@ class ProcessRecord:
     ``process_id`` 是任意任务进程的唯一标识：由 server 入口在进入
     编排服务前生成并冻结，进程表以它为稳定键，进程内不保存第二份生成事实。
     两个工作 actor 都由注册入口在注册时认证，任一失败都不创建进程：
-    ``actor`` 是执行者（主工作 actor），主线程以它执行 actor 操作，prepare 的
-    检索按它授权；``system_actor`` 是系统的 root 工作 actor，系统阶段（Gateway、
-    话题准备、Profile、附件、finalize、cleanup）以它经 root 授权执行。两者只
+    ``actor`` 是执行者（主工作 actor），主线程以它执行 actor 操作，预检索按它
+    授权；``system_actor`` 是系统的 root 工作 actor，系统阶段（Gateway、Profile、
+    附件、存储健康、话题确认、检索命中与交互提交）以它经 root 授权执行。两者只
     交给操作授权者与线程表，不进入 CPU 可见的对象、事件或会话记录；阶段调用
     的目标取自任务参数。``labels`` 是注册时用通过认证的声明创建一次的观测
     标签，供事件、会话记录、CPU 输入清单与线程描述使用，不参与授权；

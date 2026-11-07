@@ -9,7 +9,6 @@
 from __future__ import annotations
 
 import asyncio
-from types import SimpleNamespace
 from unittest.mock import AsyncMock
 
 import pytest
@@ -34,13 +33,13 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUFailureReason
 from hivememory.workspace.process import TaskProcessService
 from hivememory.workspace.process.service import ProcessHandle
 from hivememory.workspace.process.table import ProcessTable
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.process import (
+    PatchouliTurnStub,
     collect_events,
     done_data,
     make_task_process_service,
@@ -56,6 +55,7 @@ from tests.helpers.workspace import (
 _USER = "u1"
 _AGENT = "omni_doll"
 _TOPIC_ID = "topic-events"
+_CREATED_TOPIC_ID = "topic-created"
 
 
 def _actor() -> ActorIdentity:
@@ -78,10 +78,11 @@ def _composition() -> AccessTestComposition:
     )
 
 
-def _decision_outcome() -> GatewayDecisionOutcome:
+def _decision_outcome(target_topic_id: str) -> GatewayDecisionOutcome:
     return GatewayDecisionOutcome(
         decision=GatewayDecision(
-            target_topic_id=_TOPIC_ID,
+            target_topic_id=target_topic_id,
+            new_topic_title="新话题" if target_topic_id == "NEW_TOPIC" else None,
             rewritten_query="问题",
             retrieval_plan=RetrievalPlan(),
             intent_type=IntentType.RAG,
@@ -89,25 +90,21 @@ def _decision_outcome() -> GatewayDecisionOutcome:
     )
 
 
-async def _prepare(*, identity_scope, interaction_id, **_kwargs):
-    return PreparedAgentRun(
-        belong_to=(identity_scope).workspace_identity,
-        interaction_id=interaction_id,
-        topic_id=_TOPIC_ID,
-        is_new_topic=False,
-    )
-
-
 async def _profile(agent_id, *, identity_scope, **_kwargs):
     return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
 
-def _bus_until_actor() -> GlobalSystemBus:
+def _turn_bus(target_topic_id: str = _TOPIC_ID) -> GlobalSystemBus:
+    """Gateway 指向给定话题、Profile 返回内置图纸、Patchouli 一轮的路由由替身回答的总线。
+
+    交互应用时新话题建立为 ``_CREATED_TOPIC_ID``。
+    """
     bus = GlobalSystemBus()
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
+    bus.register(
+        GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome(target_topic_id))
+    )
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
+    PatchouliTurnStub(new_topic_id=_CREATED_TOPIC_ID).install(bus)
     return bus
 
 
@@ -155,15 +152,23 @@ def _chat_events(sink: RecordingRuntimeEventSink) -> list[RuntimeEvent]:
 
 
 @pytest.mark.asyncio
-async def test_completed_stream_events_share_process_correlation_and_bind_topic() -> None:
-    """完成的流式进程：生命周期事件共享进程关联字段，prepare 之后的事件关联 Topic。"""
-    bus = _bus_until_actor()
+@pytest.mark.parametrize(
+    ("target_topic_id", "event_topics"),
+    [
+        pytest.param(_TOPIC_ID, [None, None, _TOPIC_ID, _TOPIC_ID, _TOPIC_ID], id="existing-topic"),
+        pytest.param("NEW_TOPIC", [None, None, None, None, _CREATED_TOPIC_ID], id="new-topic"),
+    ],
+)
+async def test_completed_stream_events_share_process_correlation_and_bind_topic(
+    target_topic_id: str, event_topics: list[str | None]
+) -> None:
+    """完成的流式进程：生命周期事件共享进程关联字段，话题确定之后的事件关联话题。
+
+    已有话题在 PREPARE 中确认，此后的事件都关联它；新话题且没有写入时，话题在交互
+    应用时才建立，只有终态事件关联它。
+    """
+    bus = _turn_bus(target_topic_id)
     cpu = ScriptedCPU(result=make_cpu_result())
-    bus.register(
-        PatchouliRoutes.FINALIZE_AGENT_RUN,
-        AsyncMock(return_value=[SimpleNamespace(task_id="memory-task-1")]),
-    )
-    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
     sink = RecordingRuntimeEventSink()
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=cpu)
     handle = await _register(composition, service, "问题", process_id="process-events")
@@ -178,7 +183,7 @@ async def test_completed_stream_events_share_process_correlation_and_bind_topic(
         (RuntimeEventType.CHAT_RUN_STATUS, "finalizing"),
         (RuntimeEventType.CHAT_RUN_COMPLETED, "completed"),
     ]
-    assert [event.topic_id for event in events] == [None, None, _TOPIC_ID, _TOPIC_ID, _TOPIC_ID]
+    assert [event.topic_id for event in events] == event_topics
     assert {
         (
             event.process_id,
@@ -279,7 +284,7 @@ async def test_cancel_of_uncontrollable_process_publishes_not_found_request_even
 @pytest.mark.asyncio
 async def test_failed_event_carries_domain_error_code() -> None:
     """Workspace 领域错误的失败事件只携带安全错误码。"""
-    bus = _bus_until_actor()
+    bus = _turn_bus()
     cpu = ScriptedCPU(error=AssetNotReadyError("附件尚未就绪"))
     sink = RecordingRuntimeEventSink()
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=cpu)
@@ -301,7 +306,7 @@ async def test_failed_event_carries_domain_error_code() -> None:
 @pytest.mark.asyncio
 async def test_failed_event_does_not_expose_exception_text() -> None:
     """非领域异常的失败事件带固定原因码与异常类名，异常正文不进入公共观测信封。"""
-    bus = _bus_until_actor()
+    bus = _turn_bus()
     cpu = ScriptedCPU(error=RuntimeError("internal-secret-detail"))
     sink = RecordingRuntimeEventSink()
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=cpu)
@@ -323,7 +328,7 @@ async def test_failed_event_does_not_expose_exception_text() -> None:
 @pytest.mark.parametrize("reason", [None, CPUFailureReason.TURN_CONTEXT_BUDGET_EXCEEDED])
 async def test_cpu_failure_reason_reaches_done_and_runtime_event(reason):
     """CPU 自报失败透传稳定原因码，未填写时原因码为 ``agent_run_failed``。"""
-    bus = _bus_until_actor()
+    bus = _turn_bus()
     sink = RecordingRuntimeEventSink()
     cpu = ScriptedCPU(result=make_cpu_result(status="failed", final_text="", failure_reason=reason))
     service, composition = await _service(bus, RuntimeEventPublisher(sink), cpu=cpu)
@@ -395,7 +400,7 @@ async def test_hard_cancelled_process_publishes_cancelled_with_close_reason() ->
     cpu = ScriptedCPU(hang_before_result=True, linger_on_cancel=True)
     composition = _composition()
     service = make_task_process_service(
-        _bus_until_actor(),
+        _turn_bus(),
         event_publisher=RuntimeEventPublisher(sink),
         cpu=cpu,
         access_gateway=composition.gateway,
@@ -428,8 +433,7 @@ class _RaisingSink(RecordingRuntimeEventSink):
 @pytest.mark.asyncio
 async def test_event_sink_failure_does_not_change_chat_result() -> None:
     """观测是 best-effort 旁路：sink 失败时进程仍按业务结果完成。"""
-    bus = _bus_until_actor()
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    bus = _turn_bus()
     cpu = ScriptedCPU(result=make_cpu_result())
     service, composition = await _service(bus, RuntimeEventPublisher(_RaisingSink()), cpu=cpu)
     handle = await _register(composition, service, "问题", process_id="process-sink-failure")

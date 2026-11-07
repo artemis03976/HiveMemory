@@ -29,6 +29,7 @@ from hivememory.core.models import (
     AttachmentSelectionRequest,
     ExecutionLabels,
     IdentityScope,
+    MemoryAtom,
     WorkspaceIdentity,
 )
 from hivememory.core.models.workspace_asset import RepresentationLease
@@ -104,9 +105,8 @@ class CPUAllocator:
         读取视图负责缓存及 canonical 变更失效。运行上下文只需要能力描述，源
         原子的授权依据不进入 run。
 
-        Profile 属于 CPU 分配，但在 Patchouli prepare 之前解析。prepare 保留
-        Topic 预建，话题池已满时还会先按 LRU 结算已有话题；先解析 Profile
-        可避免缺少图纸的请求留下这些副作用，也保证 Actor 开始前已有派发话题。
+        Profile 属于 CPU 分配，但在 PREPARE 开始时解析：主线程以它派生，预检索
+        与已有话题的确认都由主线程执行，缺少图纸的请求因此不会检索或刷新话题。
         """
         scope = self._authorizer.authorize_root(system_actor, target_workspace)
         return await self._profile_reader.get(
@@ -123,6 +123,8 @@ class CPUAllocator:
         labels: ExecutionLabels,
         user_message: str,
         agent_profile: AgentProfile,
+        memories: tuple[MemoryAtom, ...],
+        storage_available: bool,
         selections: list[AttachmentSelectionRequest],
         session_history: tuple[ConversationTurn, ...] = (),
         compaction_checkpoint: SessionCompactionCheckpoint | None = None,
@@ -131,7 +133,8 @@ class CPUAllocator:
     ) -> CPUInputManifest:
         """取得附件租借并编译附件与记忆，组装输入清单。
 
-        在 prepare 之后执行，读取工作集中的 prepare 结果；Profile 已由
+        ``memories`` 是预检索的结果，``storage_available`` 决定离线提示；清单的
+        话题取工作集已冻结的派发话题，Gateway 指向新话题时为空。Profile 已由
         :meth:`resolve_agent_profile` 提前解析，只用于编译人格段，图纸与操作
         快照随主线程交给 CPU，不进入清单。附件租借以系统的 root 工作 actor
         授权，授权检查在租借副作用前执行（``_acquire_selected_attachment``）。
@@ -140,10 +143,6 @@ class CPUAllocator:
         进入 Actor 之前统一检查。任何失败沿异常路径上抛，已取得的租借由
         本分配器在进程关闭时释放。
         """
-        prepared = working_set.prepared
-        if prepared is None:
-            raise RuntimeError("CPU 分配必须在 prepare 结果写入工作集之后执行")
-
         # 1. 附件：按用户选择顺序 acquire READY representation 并核对版本摘要。
         #    取得的 lease 由 _acquire_selected_attachment 直接登记进工作集。
         for selection in selections:
@@ -159,10 +158,9 @@ class CPUAllocator:
             leases=tuple(working_set.attachment_leases),
         )
         working_set.used_attachments = attachment_compile_result.used_attachments
-        memories = list(prepared.memories)
         memory_context = (
             self._memory_compiler.compile(
-                memories,
+                list(memories),
                 MemoryEnvelopeTarget.RETRIEVAL_CONTEXT,
                 MemoryCompileOptions(
                     retrieval_strategy_config=(
@@ -177,7 +175,7 @@ class CPUAllocator:
         # 3. 提示词：在 CPU 边界前定稿环境通知、人格与本轮材料，语言只解析一次。
         prompt = compile_prompt_input(
             agent_profile=agent_profile,
-            storage_available=prepared.storage_available,
+            storage_available=storage_available,
             memory_context=memory_context,
             attachment_context=attachment_compile_result.attachment_context,
         )
@@ -191,11 +189,10 @@ class CPUAllocator:
             language=prompt.language,
             instructions=prompt.instructions,
             turn_context=prompt.turn_context,
-            topic_id=prepared.topic_id,
+            topic_id=working_set.dispatch_topic_id,
             session_history=session_history,
             compaction_checkpoint=compaction_checkpoint,
         )
-        working_set.dispatch_topic_id = manifest.topic_id
         return manifest
 
     def _acquire_selected_attachment(

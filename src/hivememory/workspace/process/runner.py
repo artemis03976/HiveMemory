@@ -1,17 +1,17 @@
 """任务进程执行器 — 所有进程共用的四阶段编排骨架。
 
-骨架依次驱动 Gateway 分析 → Patchouli prepare → CPU 分配 → Actor 执行 →
-有输出时封口交互记录并 finalize，对子系统的一切调用都经全局总线
-的公开路由完成，Actor 执行经组合根注入的 CPU 端口（``workspace.contracts``
-的 :class:`CPUPort`）完成。骨架运行在进程自己的 task 中，只把类型化的阶段
-产出写入进程的输出通道（见 ``workspace.process.outputs``）：CPU 逐项推送
-交互事件，订阅通道的流式交付逐条转交。进入 Gateway 之前，骨架先请求
-Patchouli 在后台预取推理模型。
+骨架依次驱动 Gateway 分析 → PREPARE（派生主线程、预检索、已有话题的确认与
+CPU 分配）→ Actor 执行 → 有输出时封口交互记录并提交，对子系统的调用经 root
+API、操作入口或全局总线的公开路由完成，Actor 执行经组合根注入的 CPU 端口
+（``workspace.contracts`` 的 :class:`CPUPort`）完成。骨架运行在进程自己的
+task 中，只把类型化的阶段产出写入进程的输出通道（见 ``workspace.process.outputs``）：
+CPU 逐项推送交互事件，订阅通道的流式交付逐条转交。进入 Gateway 之前，骨架
+先请求 Patchouli 在后台预取推理模型。
 
 执行器跨进程共享、不持有任何进程的状态：它只持有编排依赖，每次运行与
 关闭都以 :class:`TaskProcess` 为参数，进程的全部状态（进程记录、任务参数、
-工作集、输出通道）都在进程上。执行器经进程记录使用注册时认证的两个工作
-actor 与事件发布器；进程 task 的创建、进程的登记与注销由注册入口
+工作集、线程表、输出通道）都在进程上。执行器经进程记录使用注册时认证的两个
+工作 actor 与事件发布器；进程 task 的创建、进程的登记与注销由注册入口
 （``workspace.process.service``）负责。
 """
 
@@ -29,22 +29,34 @@ from hivememory.components.trace_context import (
     reset_trace_context,
     set_trace_context,
 )
-from hivememory.core.access import WorkspaceOperation
-from hivememory.core.errors import OperationDeniedError, WorkspaceDomainError
-from hivememory.core.models import AgentProfile, IdentityScope
-from hivememory.core.protocol.gateway import GatewayDecision, GatewayIngressMode, GatewaySessionTurn
+from hivememory.core.errors import OperationDeniedError, ThreadEndedError, WorkspaceDomainError
+from hivememory.core.models import IdentityScope, MemoryAtom
+from hivememory.core.protocol.gateway import (
+    GatewayDecision,
+    GatewayIngressMode,
+    GatewaySessionTurn,
+    RetrievalMode,
+)
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.core.protocol.sealing import seal_interaction
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
+from hivememory.patchouli.contracts.errors import (
+    ActiveInteractionFinalizationError,
+    InteractionAdmissionUnavailableError,
+)
+from hivememory.patchouli.contracts.interaction_submission import InteractionSubmitResult
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
+from hivememory.workspace.capability.root.interaction import RootInteractionService
+from hivememory.workspace.capability.root.memory import RootMemoryService
 from hivememory.workspace.contracts import (
     CPUExecutionResult,
     CPUExecutionStatus,
     CPUInputManifest,
     CPUPort,
 )
+from hivememory.workspace.contracts.operations import OperationEntry, RetrieveRequest
+from hivememory.workspace.contracts.threads import ExecutionThread
 from hivememory.workspace.process.allocation import CPUAllocator
 from hivememory.workspace.process.command_terminal import command_terminal
 from hivememory.workspace.process.outputs import (
@@ -70,6 +82,10 @@ from hivememory.workspace.process.threads import ProcessThreads
 from hivememory.workspace.sessions import ConversationSessionService
 
 logger = logging.getLogger(__name__)
+
+_NEW_TOPIC = "NEW_TOPIC"
+# 预检索命中的来源：任务进程在 Actor 有输出后记录。
+_PRE_RETRIEVAL_HIT_SOURCE = "retrieval.pre_retrieval"
 
 
 class _ProcessCancelled(Exception):  # noqa: N818 - 设计要求使用私有领域分支名
@@ -148,11 +164,12 @@ class TaskProcessRunner:
     以进程为参数、都运行在进程 task 中，执行器自身不保存任何进程的状态。
     执行器与 ``CPUAllocator`` 由组合根构建并注入注册入口。
 
-    阶段调用按“谁在执行”授权：Gateway、话题准备、Profile、附件、finalize 与
-    cleanup 是系统级操作，每次调用前以进程记录的系统 root 工作 actor 经 root
-    授权；prepare 的检索是执行者的 actor 操作，执行者持有 ``memory.search``
-    时以它授权，检索按执行者的可见性进行。交互中的 Agent（执行者）作为参与
-    者显式交给 finalize。scope 只交给紧随的阶段调用，不进入 CPU 输入清单。
+    阶段调用按“谁在执行”授权：Gateway、Profile、附件、存储健康、检索命中、
+    话题确认与交互提交是系统级操作，以进程记录的系统 root 工作 actor 执行，
+    Gateway 由执行器在调用前 root 授权，其余经 root API 在方法入口授权；预检索
+    是执行者的 actor 操作，经操作入口以主线程提交，由 actor API 授权，检索按
+    执行者的可见性进行。交互中的 Agent（执行者）作为参与者显式交给提交。
+    scope 只交给紧随的阶段调用，不进入 CPU 输入清单。
     """
 
     def __init__(
@@ -164,6 +181,9 @@ class TaskProcessRunner:
         allocator: CPUAllocator,
         operation_authorizer: WorkspaceOperationAuthorizer,
         threads: ProcessThreads,
+        operations: OperationEntry,
+        interactions: RootInteractionService,
+        memories: RootMemoryService,
         gateway_request_timeout_ms: int = 8000,
         gateway_session_turn_limit: int = 3,
     ) -> None:
@@ -173,6 +193,9 @@ class TaskProcessRunner:
         self._allocator = allocator
         self._authorizer = operation_authorizer
         self._threads = threads
+        self._operations = operations
+        self._interactions = interactions
+        self._memories = memories
         self._gateway_request_timeout_ms = gateway_request_timeout_ms
         self._gateway_session_turn_limit = gateway_session_turn_limit
 
@@ -260,25 +283,22 @@ class TaskProcessRunner:
             events.command_completed(record, command_id=command_result.command_id)
             return CommandCompleted(command_result)
 
-        # ---- prepare 与 CPU 分配：不可中断，进入 Actor 前统一检查 stop ----
-        prepared, agent_profile, manifest = await self._prepare_and_allocate(
-            process, gateway_result.decision
-        )
-        await process.outputs.send(InputsAllocated(prepared=prepared))
+        # ---- PREPARE：不可中断，进入 Actor 前统一检查 stop ----
+        thread, memories, manifest = await self._prepare(process, gateway_result.decision)
+        await process.outputs.send(InputsAllocated(memories=memories))
 
         # ---- Actor 执行：可被 stop 中断；交互事件经输出通道逐条转交 ----
-        execution_result = await self._run_actor(process, manifest, agent_profile)
+        execution_result = await self._run_actor(process, manifest, thread)
         # 交付方离开或系统关闭时丢弃本轮；用户停止晚于 CPU 终态时沿用 CPU
         # 的结局，不把完整回复改记为 cancelled。
         if record.discards_output:
             raise _ProcessCancelled(
                 record.phase, record.stop_reason or CLIENT_DISCONNECTED_STOP_REASON
             )
-        has_output = execution_result.has_output
-        if has_output:
-            await self._seal_and_finalize(process, prepared, execution_result)
+        topic_id: str | None = None
+        if execution_result.has_output:
+            topic_id = await self._seal_and_submit(process, execution_result, memories)
 
-        topic_id = prepared.topic_id if has_output else None
         self._mark_execution_terminal(process, execution_result)
         if execution_result.status is CPUExecutionStatus.CANCELLED:
             return RunCancelled(
@@ -302,10 +322,105 @@ class TaskProcessRunner:
         except Exception as exc:
             logger.warning("推理模型预取请求失败，任务进程照常继续: %s", exc)
 
+    async def _prepare(
+        self,
+        process: TaskProcess,
+        decision: GatewayDecision,
+    ) -> tuple[ExecutionThread, tuple[MemoryAtom, ...], CPUInputManifest]:
+        """PREPARE：解析 Profile、派生主线程、预检索、确认已有话题、读取存储健康与 CPU 分配。
+
+        Profile 解析与附件租借是用户的选择，由 CPUAllocator 在副作用前以系统的
+        root 工作 actor 授权。主线程在 Profile 解析之后派生，预检索与已有话题的
+        确认都以它提交：停止被接受后主线程随之结束，两者都以 ``ThreadEndedError``
+        被拒绝，在此按 PREPARE 阶段的取消收口。Gateway 指向新话题时这里不建立
+        话题，话题在第一次写入或交互应用时才建立。阶段内其余时刻收到的停止
+        在进入 Actor 之前统一检查。
+        """
+        record = process.record
+        request = process.request
+        working_set = process.working_set
+        record.enter_phase(ProcessPhase.PREPARE)
+        working_set.gateway_decision = decision
+        # 加载哪份图纸取自认证得到的执行者，不取自请求输入。
+        agent_profile = await self._allocator.resolve_agent_profile(
+            agent_id=record.actor.actor.agent_id,
+            system_actor=record.system_actor,
+            target_workspace=request.target_workspace,
+        )
+        thread = self._threads.derive_main(process, agent_profile)
+        try:
+            memories = await self._pre_retrieve(process, decision, thread)
+            if decision.target_topic_id != _NEW_TOPIC:
+                # 已有话题：确认它存在并刷新驻留，派发话题从 Actor 开始即可用。
+                await self._threads.dispatch_topic(thread.handle)
+        except ThreadEndedError:
+            raise _ProcessCancelled(
+                ProcessPhase.PREPARE, record.stop_reason or "user_requested"
+            ) from None
+        storage_available = await self._memories.storage_available(
+            target_workspace=request.target_workspace,
+            actor=record.system_actor,
+        )
+
+        session = self._sessions.get(request.target_workspace, request.session_id)
+        manifest = self._allocator.allocate(
+            working_set,
+            process_id=record.process_id,
+            labels=record.labels,
+            user_message=request.message,
+            agent_profile=agent_profile,
+            memories=memories,
+            storage_available=storage_available,
+            selections=list(request.attachments),
+            session_history=session.turns,
+            compaction_checkpoint=session.compaction_checkpoint,
+            system_actor=record.system_actor,
+            target_workspace=request.target_workspace,
+        )
+
+        # 取消检查：只在进入 Actor 之前检查一次。PREPARE 期间收到的 stop 请求
+        # 都在此生效，已取得的租借由关闭流程释放。
+        if record.outcome is ProcessOutcome.STOP_REQUESTED:
+            raise _ProcessCancelled(ProcessPhase.PREPARE, record.stop_reason or "user_requested")
+        return thread, memories, manifest
+
+    async def _pre_retrieve(
+        self,
+        process: TaskProcess,
+        decision: GatewayDecision,
+        thread: ExecutionThread,
+    ) -> tuple[MemoryAtom, ...]:
+        """预检索：执行者的 actor 操作，按 Gateway 的检索计划经操作入口以主线程提交。
+
+        请求关闭了记忆检索、检索计划为跳过或要求零条时不检索。检索与 Alice 的
+        SEARCH 走同一条路：actor API 以执行者授权 ``memory.search``，读取视图
+        逐条做归属校验与交付授权。执行者没有 ``memory.search`` 时授权以
+        ``operation_not_allowed`` 拒绝，这里把它译为不检索，对话照常进行；只译
+        这一种拒绝，准入失效等其他授权失败照常传播，进程按失败收口。
+        """
+        plan = decision.retrieval_plan
+        if (
+            not process.request.enable_memory_retrieval
+            or plan.mode is RetrievalMode.SKIP
+            or plan.top_k == 0
+        ):
+            return ()
+        retrieval = RetrieveRequest(
+            semantic_query=decision.rewritten_query,
+            keywords=tuple(decision.search_keywords),
+            top_k=plan.top_k,
+        )
+        try:
+            return tuple(await self._operations.execute(retrieval, thread=thread.handle))
+        except OperationDeniedError as error:
+            if error.details.get("reason") != "operation_not_allowed":
+                raise
+            return ()
+
     async def _run_actor(
-        self, process: TaskProcess, manifest: CPUInputManifest, agent_profile: AgentProfile
+        self, process: TaskProcess, manifest: CPUInputManifest, thread: ExecutionThread
     ) -> CPUExecutionResult:
-        """Actor 阶段：派生主线程，在一个可中断子 task 中等待 CPU，返回本轮采用的结果。
+        """Actor 阶段：把主线程交给 CPU，在一个可中断子 task 中等待它，返回本轮采用的结果。
 
         子 task 直接等待 CPU 端口的 ``execute``，交互事件经 sink 写入输出
         通道；停止取消子 task 时，无论 CPU 在等模型还是阻塞在通道写入上，
@@ -313,19 +428,16 @@ class TaskProcessRunner:
         以它为准，不再按停止标志改写为取消；CPU 原样传播取消、没有结果时按
         无输出的取消传播。
 
-        主线程以 prepare 之前解析的图纸派生，派生时按执行者读取操作快照；准入
-        此时已失效则派生失败，进程按失败收口。子线程随 CALL 返回由 CPU 结束；
-        全部线程只在本阶段的 ``finally`` 中兜底结束一次（关闭流程只是再兜底）；
-        停止被接受时线程已随之结束，迟到的提交在此之前就被拒绝。检查点也只在这里接受一次：结束线程之后、
-        判断丢弃与有无输出之前。普通执行异常没有可接受的结果。进程 task 被
-        硬取消而 CPU 把取消转换为返回值时，先结束线程、接受其中已完成的
-        检查点，再重新抛出取消。
+        主线程在 PREPARE 派生。子线程随 CALL 返回由 CPU 结束；全部线程只在本
+        阶段的 ``finally`` 中兜底结束一次（关闭流程只是再兜底）；停止被接受时
+        线程已随之结束，迟到的提交在此之前就被拒绝。检查点也只在这里接受一次：
+        结束线程之后、判断丢弃与有无输出之前。普通执行异常没有可接受的结果。
+        进程 task 被硬取消而 CPU 把取消转换为返回值时，先结束线程、接受其中
+        已完成的检查点，再重新抛出取消。
         """
         record = process.record
         record.enter_phase(ProcessPhase.ACTOR)
         record.events.status(record)
-        # CPU 只持有主线程的执行线程（描述与不透明句柄），不持有任何工作 actor。
-        thread = self._threads.derive_main(process, agent_profile)
         returned = _ReturnedResult()
 
         async def publish(event: dict[str, Any]) -> None:
@@ -348,7 +460,7 @@ class TaskProcessRunner:
                 raise
             return returned.result
         finally:
-            # 先结束全部线程，再接受检查点；两者都先于封口、finalize 与
+            # 先结束全部线程，再接受检查点；两者都先于封口、提交与
             # 终态交付，硬取消时先于重新抛出取消。
             self._threads.end_all(process)
             self._accept_checkpoint(process, returned.result)
@@ -356,22 +468,21 @@ class TaskProcessRunner:
         assert returned.result is not None
         return returned.result
 
-    async def _seal_and_finalize(
+    async def _seal_and_submit(
         self,
         process: TaskProcess,
-        prepared: PreparedAgentRun,
         execution_result: CPUExecutionResult,
-    ) -> None:
-        """封口交互记录并同步写入会话，再把提交交给 Patchouli 并等待它完成。
+        memories: tuple[MemoryAtom, ...],
+    ) -> str | None:
+        """封口交互记录，进入 FINALIZE 后由进程持有的提交任务提交，返回实际所在的话题。
 
-        封口、会话追加、进入 finalize 与创建提交任务之间没有 await：提交任务
-        在写入 ``Finalizing`` 之前创建，交付方一旦收到 finalizing，提交就已由
-        进程持有。交付方离开打断不了提交；提交以 ``join_shielded`` 等待，只有
+        封口、进入 FINALIZE 与创建提交任务之间没有 await：提交任务在写入
+        ``Finalizing`` 之前创建，交付方一旦收到 finalizing，提交就已由进程
+        持有。交付方离开打断不了提交；提交以 ``join_shielded`` 等待，只有
         硬取消会遇到它，而硬取消也要等提交结束，提交成功时照常记录 CPU 的
         结局，再传播取消。
         """
         record = process.record
-        request = process.request
         payload = seal_interaction(
             turn_events=execution_result.turn_events,
             model_used=execution_result.model_used,
@@ -379,45 +490,107 @@ class TaskProcessRunner:
             outcome=execution_result.status.value,
             final_text=execution_result.final_text,
         )
-        self._sessions.append(
-            request.target_workspace,
-            request.session_id,
-            process_id=record.process_id,
-            agent_id=record.labels.agent_id,
-            payload=payload,
-            topic_id=prepared.topic_id,
-        )
         if not record.try_enter_finalizing():
             raise _ProcessCancelled(record.phase, record.stop_reason or "user_requested")
-        finalization = asyncio.create_task(self._finalize(process, prepared, payload))
+        submission = asyncio.create_task(self._submit(process, payload, memories))
         record.events.status(record)
         await process.outputs.send(Finalizing())
         try:
-            await join_shielded(finalization)
+            return await join_shielded(submission)
         except asyncio.CancelledError:
-            if not finalization.cancelled():
-                if finalization.exception() is None:
+            if not submission.cancelled():
+                if submission.exception() is None:
                     self._mark_execution_terminal(process, execution_result)
                 else:
-                    logger.warning("硬取消期间 finalize 失败", exc_info=finalization.exception())
+                    logger.warning("硬取消期间交互提交失败", exc_info=submission.exception())
             raise
 
-    async def _finalize(
-        self, process: TaskProcess, prepared: PreparedAgentRun, payload: InteractionPayload
-    ) -> None:
-        """把已封口交互交回 Patchouli；任务归进程持有，scope 仅在调用链内存在。
+    async def _submit(
+        self,
+        process: TaskProcess,
+        payload: InteractionPayload,
+        memories: tuple[MemoryAtom, ...],
+    ) -> str | None:
+        """提交任务：记录检索命中，经 root API 提交交互并等待应用，再写入会话。
 
-        交互提交是系统级操作，由系统以 root 授权执行；本轮的执行 Agent 作为
-        参与者显式传递，记为交互的发起者。
+        先等正在进行的话题确定结束：有派发话题时提交到它，否则提交 Gateway 的
+        新话题决定，话题在交互应用时建立。交互提交是系统级操作，以系统的
+        root 工作 actor 执行；本轮的执行 Agent 作为参与者显式传递，记为交互的
+        发起者。会话原文与记忆提交相互独立：提交成败都写入会话，话题取交互
+        实际所在的话题，没有应用成功时为空；没有应用成功时随后以
+        ``ActiveInteractionFinalizationError`` 失败，进程按失败收口。
         """
-        await self._bus.request(
-            PatchouliRoutes.FINALIZE_AGENT_RUN,
-            prepared_run=prepared,
-            payload=payload,
-            identity_scope=self._root_scope(process),
-            participant=process.record.actor.actor,
-        )
-        process.working_set.hand_off_prepared()
+        record = process.record
+        request = process.request
+        working_set = process.working_set
+        await working_set.settle_topic_determination()
+        await self._record_retrieval_hits(process, memories)
+
+        decision = working_set.gateway_decision
+        assert decision is not None
+        topic: str | GatewayDecision = working_set.dispatch_topic_id or decision
+        result: InteractionSubmitResult | None = None
+        try:
+            result = await self._interactions.submit_interaction(
+                target_workspace=request.target_workspace,
+                participant=record.actor.actor,
+                payload=payload,
+                interaction_id=record.process_id,
+                origin="active_chat",
+                topic=topic,
+                actor=record.system_actor,
+            )
+        except InteractionAdmissionUnavailableError as error:
+            raise ActiveInteractionFinalizationError(
+                interaction_id=record.process_id,
+                stage="interaction_admission",
+                reason=error.details.get("reason", "admission_unavailable"),
+            ) from error
+        finally:
+            applied_topic_id = (
+                result.topic_id if result is not None and result.state == "succeeded" else None
+            )
+            self._sessions.append(
+                request.target_workspace,
+                request.session_id,
+                process_id=record.process_id,
+                agent_id=record.labels.agent_id,
+                payload=payload,
+                topic_id=applied_topic_id,
+            )
+        if result.state != "succeeded":
+            # 不设时限的等待只会因队列停止而停在应用之前。
+            raise ActiveInteractionFinalizationError(
+                interaction_id=record.process_id,
+                stage="interaction_apply",
+                reason="queue_stopped" if result.state == "pending" else "apply_failed",
+                error_class=result.error_class,
+            )
+        if working_set.dispatch_topic_id is None and result.topic_id is not None:
+            record.events.bind_topic(result.topic_id)
+        return result.topic_id
+
+    async def _record_retrieval_hits(
+        self, process: TaskProcess, memories: tuple[MemoryAtom, ...]
+    ) -> None:
+        """为预检索到的记忆记录检索命中：Actor 有输出时记录，不依赖提交的结局。
+
+        命中是生命周期的强化信号，尽力而为：记录失败只记日志，不影响本轮。
+        """
+        if not memories:
+            return
+        record = process.record
+        try:
+            await self._memories.record_retrieval_hits(
+                [memory.id for memory in memories],
+                target_workspace=process.request.target_workspace,
+                source=_PRE_RETRIEVAL_HIT_SOURCE,
+                actor=record.system_actor,
+            )
+        except Exception:
+            logger.warning(
+                "记录检索命中失败，本轮照常提交: process_id=%s", record.process_id, exc_info=True
+            )
 
     @staticmethod
     def _mark_execution_terminal(process: TaskProcess, result: CPUExecutionResult) -> None:
@@ -434,60 +607,6 @@ class TaskProcessRunner:
         else:
             record.mark_completed()
             record.events.completed(record)
-
-    async def _prepare_and_allocate(
-        self,
-        process: TaskProcess,
-        decision: GatewayDecision,
-    ) -> tuple[PreparedAgentRun, AgentProfile, CPUInputManifest]:
-        """Profile 解析、Patchouli prepare 与 CPU 分配，最后检查一次停止请求。
-
-        Profile 解析与附件租借是用户的选择，由 CPUAllocator 在副作用前以系统的
-        root 工作 actor 授权；prepare 的话题准备同样由系统执行，检索则是执行者
-        的 actor 操作。解析出的图纸随主线程交给 CPU，不进入输入清单。
-        """
-        record = process.record
-        request = process.request
-        working_set = process.working_set
-        record.enter_phase(ProcessPhase.PREPARE)
-        # Profile 在 prepare 之前解析：缺少图纸的请求不会留下预建话题或 LRU 结算的副作用。
-        # 加载哪份图纸取自认证得到的执行者，不取自请求输入。
-        agent_profile = await self._allocator.resolve_agent_profile(
-            agent_id=record.actor.actor.agent_id,
-            system_actor=record.system_actor,
-            target_workspace=request.target_workspace,
-        )
-        # 话题准备由系统执行；检索按执行者的可见性进行，不检索时对话照常进行。
-        prepared: PreparedAgentRun = await self._bus.request(
-            PatchouliRoutes.PREPARE_AGENT_RUN,
-            identity_scope=self._root_scope(process),
-            retrieval_scope=self._retrieval_scope(process),
-            interaction_id=record.process_id,
-            gateway_decision=decision,
-        )
-        working_set.prepared = prepared
-        record.events.bind_topic(prepared.topic_id)
-
-        # CPU 分配的其余部分（附件租借与编译、清单组装）仍在 PREPARE 阶段内完成。
-        session = self._sessions.get(request.target_workspace, request.session_id)
-        manifest = self._allocator.allocate(
-            working_set,
-            process_id=record.process_id,
-            labels=record.labels,
-            user_message=request.message,
-            agent_profile=agent_profile,
-            selections=list(request.attachments),
-            session_history=session.turns,
-            compaction_checkpoint=session.compaction_checkpoint,
-            system_actor=record.system_actor,
-            target_workspace=request.target_workspace,
-        )
-
-        # 取消检查：只在进入 Actor 之前检查一次。prepare 与分配
-        # 期间收到的 stop 请求都在此生效，已取得的租借由关闭流程释放。
-        if record.outcome is ProcessOutcome.STOP_REQUESTED:
-            raise _ProcessCancelled(ProcessPhase.PREPARE, record.stop_reason or "user_requested")
-        return prepared, agent_profile, manifest
 
     def _accept_checkpoint(self, process: TaskProcess, result: CPUExecutionResult | None) -> None:
         """同步接受 CPU 的历史视图；领域拒绝仅记录告警，不影响本轮收尾。
@@ -523,40 +642,19 @@ class TaskProcessRunner:
             process.request.target_workspace,
         )
 
-    def _retrieval_scope(self, process: TaskProcess) -> IdentityScope | None:
-        """prepare 是否检索的唯一判定：返回检索 scope，为空即不检索。
-
-        请求关闭了记忆检索时不检索；否则检索是执行者的 actor 操作，以
-        ``authorize_agent`` 授权一次，结果按执行者的可见性过滤。执行者没有
-        ``memory.search`` 时授权以 ``operation_not_allowed`` 拒绝，这里把它译为
-        不检索，对话照常进行；只译这一种拒绝，准入失效等其他授权失败照常传播，
-        进程按失败收口。
-        """
-        if not process.request.enable_memory_retrieval:
-            return None
-        try:
-            return self._authorizer.authorize_agent(
-                process.record.actor,
-                WorkspaceOperation.MEMORY_SEARCH,
-                process.request.target_workspace,
-            )
-        except OperationDeniedError as error:
-            if error.details.get("reason") != "operation_not_allowed":
-                raise
-            return None
-
     # ========== 关闭流程 ==========
 
     async def close(self, process: TaskProcess) -> None:
-        """进程关闭：终态兜底、结束线程、释放租借、补偿 prepare。
+        """进程关闭：终态兜底、结束线程、释放租借、等待正在进行的话题确定。
 
         只在进程 task 中执行：:meth:`run` 的收尾，或进程从未运行就被关闭时
         由注册入口的进程 task 直接调用。终态兜底只在进程仍无终态时执行，即
         硬取消与“从未运行就被关闭”两种情形。结束线程与租借释放都先于任何
-        await 同步执行：硬取消打断后续 cleanup 时，也不留下仍在运行的线程或
+        await 同步执行：硬取消打断后续等待时，也不留下仍在运行的线程或
         未释放的租借；线程正常由 Actor 阶段结束，这里只是兜底，重复结束是
         空操作。进程注销由注册入口在本流程之后执行。工作集中的每项资源只
-        取出一次，本方法即使重复执行也不会重复释放。
+        取出一次，本方法即使重复执行也不会重复释放。没有任何补偿：话题只在
+        写入或交互应用时建立，建立后没有接收交互的话题由空闲结算或 LRU 回收。
         """
         record = process.record
         working_set = process.working_set
@@ -567,18 +665,8 @@ class TaskProcessRunner:
         self._threads.end_all(process)
         # 附件文本在 CPU 分配时已编译进清单，Actor 执行不再读取租借内容。
         self._allocator.release(working_set)
-        # 只要 prepare 成功但 finalize 未成功，就清理可能的新建空 Topic。
-        prepared = working_set.take_prepared_for_cleanup()
-        if prepared is not None:
-            try:
-                await self._bus.request(
-                    PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
-                    prepared_run=prepared,
-                    # 补偿面对的话题属于 Workspace，由系统以 root 授权执行。
-                    identity_scope=self._root_scope(process),
-                )
-            except Exception:
-                logger.warning("清理 prepared run 失败", exc_info=True)
+        # 没有提交的结局（停止、无输出、丢弃）下，写入启动的话题确定可能仍在进行。
+        await working_set.settle_topic_determination()
 
 
 __all__ = ["TaskProcessRunner"]

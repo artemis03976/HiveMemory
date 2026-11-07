@@ -99,7 +99,7 @@ class BoundProcessEvents:
         self._publisher = publisher
 
     def bind_topic(self, topic_id: str) -> None:
-        """prepare 返回后，此后的事件都关联本轮 Topic。"""
+        """本轮话题确定或交互应用之后，此后的事件都关联这个话题。"""
         self._publisher = self._publisher.bind(topic_id=topic_id)
 
     def created(self, record: ProcessRecord) -> None:

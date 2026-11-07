@@ -3,13 +3,14 @@
 被测边界：进程只经组合根注入的 ``CPUPort`` 调用 CPU，总线上不注册任何
 Alice 路由；没有 actor 操作权限仍能完成系统阶段调用。测试 CPU
 （``tests.helpers.cpu``）覆盖完成、自报取消/失败与执行异常；停止响应点、
-取消结果与交付方离开由流程、控制契约与会话完成测试覆盖。子系统路由用
-GlobalSystemBus 上的替身隔离。
+取消结果与交付方离开由流程、控制契约与会话完成测试覆盖。Gateway 与
+Patchouli 的公开路由用 GlobalSystemBus 上的替身隔离。
 """
 
 from __future__ import annotations
 
-from unittest.mock import AsyncMock
+from typing import Any
+from uuid import uuid4
 
 import pytest
 
@@ -19,16 +20,18 @@ from hivememory.core.access import WorkspaceOperation
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import (
     ActorIdentity,
+    IndexLayer,
+    MemoryAtom,
+    MemoryType,
+    PayloadLayer,
     TurnEvent,
     WorkspaceIdentity,
-    WriteFocus,
 )
 from hivememory.core.models.model_definition import ModelSelection
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.workspace.contracts import CPUExecutionStatus, SubmitWriteIntentRequest
+from hivememory.workspace.contracts import CPUExecutionStatus
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from hivememory.workspace.process.table import ProcessTable
 from tests.helpers.chat_handoff import (
@@ -36,7 +39,9 @@ from tests.helpers.chat_handoff import (
     make_mtp_turn_events,
 )
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
+from tests.helpers.memory import make_memory_metadata
 from tests.helpers.process import (
+    PatchouliTurnStub,
     collect_events,
     done_data,
     error_code,
@@ -92,25 +97,43 @@ async def _gateway_route(**_kwargs):
     return _decision_outcome()
 
 
-async def _prepare_route(
-    *,
-    identity_scope,
-    interaction_id,
-    **_kwargs,
-):
-    return PreparedAgentRun(
-        belong_to=(identity_scope).workspace_identity,
-        interaction_id=interaction_id,
-        topic_id="topic-1",
-        is_new_topic=False,
-        storage_available=True,
-    )
-
-
 async def _profile_route(agent_id, *, identity_scope, **_kwargs):
     from hivememory.core.models import OMNI_DOLL_PROFILE, ResolvedAgentProfile
 
     return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+
+
+def _install_turn_routes(
+    bus: GlobalSystemBus, stub: PatchouliTurnStub | None = None
+) -> PatchouliTurnStub:
+    """登记 Gateway、Profile 与 Patchouli 一轮的路由替身，返回记录调用的替身。"""
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route)
+    return (stub or PatchouliTurnStub()).install(bus)
+
+
+class _RequestRecordingBus(GlobalSystemBus):
+    """按顺序记录每次请求的路由名，其余行为与全局总线相同。"""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.requested: list[str] = []
+
+    async def request(self, route, *args: Any, **kwargs: Any) -> Any:
+        self.requested.append(route)
+        return await super().request(route, *args, **kwargs)
+
+
+def _pre_retrieved_atom() -> MemoryAtom:
+    """预检索交付的原子：属于被测 Workspace 且对执行者可读。"""
+    return MemoryAtom(
+        id=uuid4(),
+        meta=make_memory_metadata(source_agent_id="a1", user_id=_USER),
+        index=IndexLayer(
+            title="引用记忆", summary="引用摘要", tags=[], memory_type=MemoryType.FACT
+        ),
+        payload=PayloadLayer(content="引用正文"),
+    )
 
 
 async def _service(
@@ -171,34 +194,17 @@ async def _run_once(
 
 
 @pytest.mark.asyncio
-async def test_test_cpu_completes_process_and_finalizes_its_execution_result() -> None:
-    """测试 CPU 跑完进程：done 与 finalize 的交互记录都来自 CPU 的执行结果。"""
+async def test_test_cpu_completes_process_and_submits_its_execution_result() -> None:
+    """测试 CPU 跑完进程：done 与提交的交互记录都来自 CPU 的执行结果。"""
     bus = GlobalSystemBus()
     turn_events = make_mtp_turn_events()
-    submitted = []
-
-    async def write(submit):
-        submitted.append(
-            await submit(SubmitWriteIntentRequest(focus=WriteFocus(content="记住这一点")))
-        )
-
-    finalize_kwargs: dict = {}
     cpu = ScriptedCPU(
         events=[{"event": "token", "data": {"content": "完成"}}],
         result=make_cpu_result(
             turn_events=turn_events,
         ),
-        operation_script=write,
     )
-
-    async def finalize(**kwargs):
-        finalize_kwargs.update(kwargs)
-        return []
-
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    stub = _install_turn_routes(bus)
 
     service, composition = await _service(bus, cpu)
     done = done_data(await _run_once(composition, service, "问题", process_id="process-cpu-once"))
@@ -207,7 +213,7 @@ async def test_test_cpu_completes_process_and_finalizes_its_execution_result() -
     assert done["final_text"] == "完成"
     assert done["model_used"] == "glm-4"
 
-    payload = finalize_kwargs["payload"]
+    payload = stub.submissions[0]["payload"]
     assert payload.turn_events == [
         *turn_events,
         TurnEvent(kind="assistant_message", sequence=3, content="完成"),
@@ -221,11 +227,7 @@ async def test_test_cpu_completes_streaming_process_and_relays_events() -> None:
     bus = GlobalSystemBus()
     interaction_event = {"event": "token", "data": {"content": "完成"}}
     cpu = ScriptedCPU(events=[interaction_event], result=make_cpu_result())
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
-    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
+    _install_turn_routes(bus)
 
     service, composition = await _service(bus, cpu)
     events = await _run_once(composition, service, "问题", process_id="process-cpu-stream")
@@ -252,10 +254,7 @@ async def test_test_cpu_receives_model_selection_and_manifest() -> None:
     """进程把输入清单与生成参数原样传给 CPU 端口。"""
     bus = GlobalSystemBus()
     cpu = ScriptedCPU(result=make_cpu_result())
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    _install_turn_routes(bus)
 
     service, composition = await _service(bus, cpu)
     await _run_once(
@@ -276,20 +275,11 @@ async def test_test_cpu_receives_model_selection_and_manifest() -> None:
 
 
 @pytest.mark.asyncio
-async def test_no_actor_operations_still_executes_cpu_and_finalizes() -> None:
-    """空操作白名单不阻止系统编排：系统阶段由 system 执行，CPU 完成后仍封口交互并 finalize。"""
+async def test_no_actor_operations_still_executes_cpu_and_submits() -> None:
+    """空操作白名单不阻止系统编排：系统阶段由 system 执行，CPU 完成后仍封口并提交交互。"""
     bus = GlobalSystemBus()
     cpu = ScriptedCPU(result=make_cpu_result(final_text="无操作权限也完成"))
-    submitted_texts: list[str] = []
-
-    async def finalize(*, payload, **_kwargs):
-        submitted_texts.append(payload.reply_text)
-        return []
-
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    stub = _install_turn_routes(bus)
     composition = _composition(excluded_operations=frozenset(WorkspaceOperation))
     service, composition = await _service(bus, cpu, composition=composition)
     done = done_data(
@@ -298,7 +288,7 @@ async def test_no_actor_operations_still_executes_cpu_and_finalizes() -> None:
 
     assert done["status"] == "completed"
     assert done["final_text"] == "无操作权限也完成"
-    assert submitted_texts == ["无操作权限也完成"]
+    assert [call["payload"].reply_text for call in stub.submissions] == ["无操作权限也完成"]
     assert cpu.finished is True
 
 
@@ -307,33 +297,32 @@ async def test_no_actor_operations_still_executes_cpu_and_finalizes() -> None:
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize("status", [CPUExecutionStatus.CANCELLED, CPUExecutionStatus.FAILED])
-async def test_cpu_self_reported_terminal_ends_process_without_finalize(
+async def test_cpu_self_reported_terminal_without_output_requests_nothing_after_actor(
     status: CPUExecutionStatus,
 ) -> None:
-    """CPU 自报取消/失败且无输出：进程以相应结局结束，不调用 finalize，并请求 cleanup。"""
-    bus = GlobalSystemBus()
-    cpu = ScriptedCPU(result=make_cpu_result(status=status, final_text=""))
-    cleanup_calls: list = []
+    """CPU 自报取消/失败且无输出：进程以相应结局停止，不改记为另一种结局。
 
-    async def cleanup(*, prepared_run, **_kwargs):
-        cleanup_calls.append(prepared_run)
+    Actor 开始之后进程不再请求任何子系统路由：不提交交互、不为预检索到的记忆
+    记录命中，关闭流程也没有任何补偿请求。
+    """
+    bus = _RequestRecordingBus()
+    requests_before_actor: list[int] = []
 
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
-    bus.register(
-        PatchouliRoutes.FINALIZE_AGENT_RUN,
-        AsyncMock(side_effect=AssertionError("finalize 不应被调用")),
+    async def mark_actor_start(_submit):
+        requests_before_actor.append(len(bus.requested))
+
+    cpu = ScriptedCPU(
+        result=make_cpu_result(status=status, final_text=""), operation_script=mark_actor_start
     )
+    _install_turn_routes(bus, PatchouliTurnStub(memories=[_pre_retrieved_atom()]))
 
     service, composition = await _service(bus, cpu)
     events = await _run_once(composition, service, "问题", process_id=f"process-cpu-{status.value}")
 
-    assert done_data(events)["status"] == status.value
-    assert cleanup_calls != [] and all(
-        prepared.interaction_id == f"process-cpu-{status.value}" for prepared in cleanup_calls
-    )
+    done = done_data(events)
+    assert (done["status"], done["stopped"]) == (status.value, True)
+    assert PatchouliRoutes.MEMORY_RETRIEVE in bus.requested[: requests_before_actor[0]]
+    assert bus.requested[requests_before_actor[0] :] == []
 
 
 # ========== 执行异常 ==========
@@ -344,10 +333,7 @@ async def test_cpu_exception_fails_process() -> None:
     """CPU 抛出异常：进程按失败处理，流式交付以不带错误码的系统错误结束。"""
     bus = GlobalSystemBus()
     cpu = ScriptedCPU(error=RuntimeError("cpu exploded"))
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
+    _install_turn_routes(bus)
 
     service, composition = await _service(bus, cpu)
     events = await _run_once(composition, service, "问题", process_id="process-cpu-error")

@@ -28,7 +28,7 @@ export interface SessionTurnEvent {
 export interface ConversationTurn {
   interaction_id: string;
   agent_id: string;
-  topic_id: string;
+  topic_id: string | null;
   created_at: string;
   payload: {
     outcome: TurnOutcome;

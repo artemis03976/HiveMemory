@@ -23,11 +23,14 @@ from hivememory.core.protocol.gateway import (
 )
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUExecutionResult
 from hivememory.workspace.process.service import TaskProcessService
-from tests.helpers.chat_handoff import make_prepared_run
-from tests.helpers.process import collect_events, done_data, make_task_process_service
+from tests.helpers.process import (
+    PatchouliTurnStub,
+    collect_events,
+    done_data,
+    make_task_process_service,
+)
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -55,14 +58,6 @@ def _profile_route():
         return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
     return route
-
-
-def _prepared(identity_scope) -> PreparedAgentRun:
-    return make_prepared_run(
-        identity_scope=identity_scope,
-        interaction_id="interaction-test",
-        topic_id="topic-shared-name",
-    )
 
 
 def _composition():
@@ -126,8 +121,6 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
     both_gateway_calls_started = asyncio.Event()
     release_gateway = asyncio.Event()
     gateway_scopes = []
-    finalized_scopes = []
-    participants = []
 
     async def gateway(*, identity_scope, **_kwargs):
         gateway_scopes.append(identity_scope)
@@ -136,18 +129,9 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
         await release_gateway.wait()
         return _decision()
 
-    async def prepare(*, identity_scope, **_kwargs):
-        return _prepared(identity_scope)
-
-    async def finalize(*, prepared_run, identity_scope, participant, **_kwargs):
-        finalized_scopes.append(identity_scope)
-        participants.append(participant)
-        return []
-
+    patchouli = PatchouliTurnStub().install(bus)
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     main_task = asyncio.create_task(
         collect_events(
@@ -192,8 +176,11 @@ async def test_concurrent_scoped_runs_keep_independent_contexts_on_shared_servic
         ),
     }
     assert set(gateway_scopes) == root_scopes
-    assert set(finalized_scopes) == root_scopes
-    assert participants == [ActorIdentity(user_id="u1", agent_id="a1")] * 2
+    assert {s["identity_scope"] for s in patchouli.prepared_topics} == root_scopes
+    assert {s["identity_scope"] for s in patchouli.submissions} == root_scopes
+    assert [s["participant"] for s in patchouli.submissions] == [
+        ActorIdentity(user_id="u1", agent_id="a1")
+    ] * 2
 
 
 @pytest.mark.asyncio
@@ -216,16 +203,9 @@ async def test_cross_workspace_cancel_cannot_stop_the_other_run() -> None:
         await release_gateway.wait()
         return _decision()
 
-    async def prepare(*, identity_scope, **_kwargs):
-        return _prepared(identity_scope)
-
-    async def finalize(*, prepared_run, **_kwargs):
-        return []
-
+    PatchouliTurnStub().install(bus)
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     main_task = asyncio.create_task(
         collect_events(

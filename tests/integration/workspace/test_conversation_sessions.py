@@ -9,14 +9,13 @@ from hivememory.core.models import OMNI_DOLL_PROFILE, ActorIdentity, ResolvedAge
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.capability.root.session import RootSessionService
 from hivememory.workspace.contracts.errors import SessionBusyError, SessionNotFoundError
 from hivememory.workspace.process.table import ProcessTable
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.process import collect_events, make_task_process_service
+from tests.helpers.process import PatchouliTurnStub, collect_events, make_task_process_service
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -93,38 +92,29 @@ async def test_registration_claim_release_and_rejection_leave_no_process():
 
 
 @pytest.mark.asyncio
-async def test_completed_turn_is_saved_before_finalize_and_agents_can_switch():
+async def test_submitted_turns_are_saved_with_applied_topic_and_agents_can_switch():
+    """同一会话逐轮切换执行 Agent：每轮提交交互后按实际所在的话题写入会话。
+
+    Gateway 指向新话题、这一轮没有写入时，交互按新话题决定提交，会话记录的是
+    应用后实际所在的话题，而不是 Gateway 的目标标记。
+    """
     access = composition()
     store = ConversationSessionService(WorkspaceSessionConfig())
     bus = GlobalSystemBus()
-    submitted = []
 
     async def gateway(**kwargs):
-        return GatewayDecisionOutcome(decision=make_gateway_decision())
+        return GatewayDecisionOutcome(
+            decision=make_gateway_decision(target_topic_id="NEW_TOPIC", new_topic_title="新话题")
+        )
 
     async def profile(agent_id, **kwargs):
         return ResolvedAgentProfile(
             profile=OMNI_DOLL_PROFILE,
         )
 
-    async def prepare(*, identity_scope, interaction_id, **kwargs):
-        return PreparedAgentRun(
-            belong_to=identity_scope.workspace_identity,
-            interaction_id=interaction_id,
-            topic_id="shared-topic",
-            is_new_topic=False,
-        )
-
-    async def finalize(*, payload, prepared_run, **kwargs):
-        history = store.get(access.default_workspace, session_id).turns
-        assert history[-1].interaction_id == prepared_run.interaction_id
-        assert history[-1].payload == payload
-        submitted.append(payload.user_message)
-
+    patchouli = PatchouliTurnStub().install(bus)
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, profile)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
     service = make_task_process_service(
         bus,
         cpu=ScriptedCPU(result=make_cpu_result()),
@@ -146,7 +136,9 @@ async def test_completed_turn_is_saved_before_finalize_and_agents_can_switch():
         session_id = handle.session_id
         events = await collect_events(service, handle)
         assert events[0]["data"]["session_id"] == session_id
-    assert submitted == ["问题0", "问题1"]
-    assert [
-        (t.agent_id, t.topic_id) for t in store.get(access.default_workspace, session_id).turns
-    ] == [("a", "shared-topic"), ("b", "shared-topic")]
+    turns = store.get(access.default_workspace, session_id).turns
+    assert [s["payload"] for s in patchouli.submissions] == [t.payload for t in turns]
+    assert [(t.payload.user_message, t.agent_id, t.topic_id) for t in turns] == [
+        ("问题0", "a", "topic-new"),
+        ("问题1", "b", "topic-new"),
+    ]

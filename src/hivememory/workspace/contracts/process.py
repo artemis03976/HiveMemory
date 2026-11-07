@@ -17,7 +17,9 @@ class CPUInputManifest(BaseModel):
     文本，只负责布局与自身的工具教学、历史管理。检索原子只在进程内使用
     （编译与引用投影），不进入清单。
 
-    ``topic_id`` 只用于根帧挂载与观测；历史来自当前会话，Topic 不提供对话上下文。
+    ``topic_id`` 只用于根帧挂载与观测：Gateway 指向已有话题时是该话题，指向
+    新话题时为空，话题在第一次写入或交互应用时才建立。历史来自当前会话，
+    Topic 不提供对话上下文。
     """
 
     model_config = ConfigDict(frozen=True)
@@ -32,7 +34,9 @@ class CPUInputManifest(BaseModel):
     language: str = Field(description="进程解析好的提示词语言，CPU 的教学与摘要沿用此语言")
     instructions: str = Field(description="进程定稿的环境通知与人格段；无内容时为空字符串")
     turn_context: str = Field(description="进程定稿的记忆与附件段；无内容时为空字符串")
-    topic_id: str = Field(default="", description="本轮 Topic 准备结果，只用于根帧挂载与观测")
+    topic_id: str | None = Field(
+        default=None, description="本轮进入 Actor 时已确定的话题，只用于根帧挂载与观测"
+    )
     session_history: tuple[ConversationTurn, ...] = Field(
         default_factory=tuple, description="当前会话的全量历史快照，不按 Agent 过滤或截断"
     )

@@ -22,12 +22,11 @@ from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.gateway.runtime import GatewayRuntime
 from hivememory.gateway.service import GatewayService
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.llm import DEFAULT_LLM_PARAMS, ScriptedLLMService
-from tests.helpers.process import collect_events, make_task_process_service
+from tests.helpers.process import PatchouliTurnStub, collect_events, make_task_process_service
 from tests.helpers.sessions import make_compaction_checkpoint
 from tests.helpers.workspace import (
     make_access_composition,
@@ -50,29 +49,16 @@ async def test_interleaved_sessions_share_topic_but_not_cpu_or_gateway_history()
 
     async def gateway(*, session_turns, **kwargs):
         gateway_history.append(session_turns)
-        return GatewayDecisionOutcome(decision=make_gateway_decision())
+        return GatewayDecisionOutcome(
+            decision=make_gateway_decision(target_topic_id="shared-topic")
+        )
 
     async def profile(agent_id, **kwargs):
         return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
-    async def prepare(*, identity_scope, interaction_id, **kwargs):
-        return PreparedAgentRun(
-            belong_to=identity_scope.workspace_identity,
-            interaction_id=interaction_id,
-            topic_id="shared-topic",
-            is_new_topic=False,
-        )
-
-    async def finalize(**kwargs):
-        pass
-
-    for route, handler in [
-        (GatewayPublicRoutes.PROCESS, gateway),
-        (PatchouliRoutes.GET_AGENT_PROFILE, profile),
-        (PatchouliRoutes.PREPARE_AGENT_RUN, prepare),
-        (PatchouliRoutes.FINALIZE_AGENT_RUN, finalize),
-    ]:
-        bus.register(route, handler)
+    PatchouliTurnStub().install(bus)
+    bus.register(GatewayPublicRoutes.PROCESS, gateway)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, profile)
     cpu = ScriptedCPU(result=make_cpu_result(final_text="回复"))
     session_store = ConversationSessionService(WorkspaceSessionConfig())
     service = make_task_process_service(

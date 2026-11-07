@@ -154,7 +154,7 @@ class PendingAtomMaterializeTask(BaseModel):
     """跨子系统的不可变物化请求。
 
     actor API 登记 WRITE/UPDATE 意图后立即提交，Patchouli 的意图提交服务从
-    ``MemoryIntent`` 构造本任务并交给生成队列；finalize 不派发写入。与
+    ``MemoryIntent`` 构造本任务并交给生成队列；交互提交不派发写入。与
     PendingAtomSettlement 构成请求/应答对偶。
 
     字段下游流向（不相交）：

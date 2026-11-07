@@ -41,13 +41,15 @@ from hivememory.server.routers.chat import router
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
 from hivememory.workspace.capability.actor.memory import ActorMemoryService
 from hivememory.workspace.capability.operations import WorkspaceOperationEntry
+from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.contracts import SubmitWriteIntentRequest
-from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
+from hivememory.workspace.process.threads import ProcessThreads
+from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.llm import CallbackLLMService
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.operations import OperationsHarness
-from tests.helpers.process import make_task_process_service
+from tests.helpers.process import PatchouliTurnStub, make_task_process_service
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
@@ -56,6 +58,34 @@ from tests.helpers.workspace import (
 )
 
 pytestmark = pytest.mark.e2e
+
+
+def _threads(bus, access):
+    """Alice 的操作入口所用的线程管理：与注册入口共享进程表，经同一总线为这一轮确定话题。"""
+    return ProcessThreads(
+        access.process_table,
+        admission=access.gateway,
+        authorizer=access.authorizer,
+        topics=RootTopicService(bus, operation_authorizer=access.authorizer),
+    )
+
+
+def _operation_entry(bus, access, runtime):
+    """先于 Alice 装配的真实操作入口：Alice 构造时就要持有它，注册入口随后复用。"""
+    threads = _threads(bus, access)
+    return WorkspaceOperationEntry(
+        ActorMemoryService(
+            bus,
+            operation_authorizer=access.authorizer,
+            memory_reader=runtime.memory,
+            threads=threads,
+        ),
+        agent=ActorAgentService(
+            operation_authorizer=access.authorizer,
+            profile_reader=runtime.profiles,
+        ),
+        threads=threads,
+    )
 
 
 def _events(response):
@@ -103,19 +133,7 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
     publisher = RuntimeEventPublisher(sink)
     runtime = make_workspace_read_view(stack.bus)
     runtime.subscribe(stack.bus)
-    entry = WorkspaceOperationEntry(
-        ActorMemoryService(
-            stack.bus,
-            operation_authorizer=access.authorizer,
-            memory_reader=runtime.memory,
-            threads=access.threads,
-        ),
-        agent=ActorAgentService(
-            operation_authorizer=access.authorizer,
-            profile_reader=runtime.profiles,
-        ),
-        threads=access.threads,
-    )
+    entry = _operation_entry(stack.bus, access, runtime)
     script = (
         '⟪ SEARCH | * | query="HTTP formal context" ⟫',
         f"⟪ READ | {formal.index.alias} | ⟫",
@@ -270,7 +288,7 @@ async def test_http_chat_search_read_write_and_call_dispatches_intent_and_record
 async def test_http_call_uses_callee_permissions_private_memory_and_write_ownership(
     patchouli_chat_stack,
 ):
-    """HTTP CALL 子线程独立授权，完成后 WRITE 以被调用方身份进入真实 finalize。"""
+    """HTTP CALL 子线程独立授权，WRITE 以被调用方身份经真实生成链结算。"""
     from hivememory.core.access import WorkspaceOperation
 
     stack = patchouli_chat_stack
@@ -323,19 +341,7 @@ async def test_http_call_uses_callee_permissions_private_memory_and_write_owners
         )
     runtime = make_workspace_read_view(stack.bus)
     runtime.subscribe(stack.bus)
-    entry = WorkspaceOperationEntry(
-        ActorMemoryService(
-            stack.bus,
-            operation_authorizer=access.authorizer,
-            memory_reader=runtime.memory,
-            threads=access.threads,
-        ),
-        agent=ActorAgentService(
-            operation_authorizer=access.authorizer,
-            profile_reader=runtime.profiles,
-        ),
-        threads=access.threads,
-    )
+    entry = _operation_entry(stack.bus, access, runtime)
     script = (
         '⟪ CALL | worker | task="读取自己的私有资料并写入" ⟫',
         '⟪ SEARCH | * | query="不应继承父帧 SEARCH" ⟫',
@@ -432,25 +438,16 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
     )
     bus = GlobalSystemBus()
     harness = OperationsHarness(bus, operation_authorizer=access.authorizer)
-    entry = harness.make_entry(access.authorizer, access.threads)
-    payloads = []
+    entry = harness.make_entry(access.authorizer, _threads(bus, access))
+    # 本验收只验证提交和跨轮回读：交互提交由替身记录，外部生成流水线不会提前结算句柄。
+    patchouli = PatchouliTurnStub().install(bus)
     completions = 0
 
     async def gateway(**_kwargs):
         return GatewayDecisionOutcome(decision=make_gateway_decision())
 
-    async def prepare(*, identity_scope, interaction_id=None, **_kwargs):
-        return make_prepared_run(
-            identity_scope=identity_scope, interaction_id=interaction_id or "chat"
-        )
-
     async def profile(_alias, *, identity_scope, **_kwargs):
         return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
-
-    async def finalize(*, payload, **_kwargs):
-        # 本验收只验证提交和跨轮回读，不让外部生成流水线提前结算句柄。
-        payloads.append(payload)
-        return []
 
     async def topics(**_kwargs):
         return []
@@ -469,9 +466,7 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
 
     for route, handler in (
         (GatewayPublicRoutes.PROCESS, gateway),
-        (PatchouliRoutes.PREPARE_AGENT_RUN, prepare),
         (PatchouliRoutes.GET_AGENT_PROFILE, profile),
-        (PatchouliRoutes.FINALIZE_AGENT_RUN, finalize),
         (PatchouliRoutes.TOPIC_LIST_ACTIVE, topics),
     ):
         bus.register(route, handler)
@@ -518,6 +513,7 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
             "completed",
             "completed",
         ]
+        payloads = [submission["payload"] for submission in patchouli.submissions]
         assert len(payloads) == 2
         ((task, _scope),) = harness.admission.submissions
         assert (
@@ -539,7 +535,9 @@ async def test_next_http_chat_reads_pending_alias_from_previous_completed_proces
 async def test_http_write_survives_cancelled_cpu_and_process_close(patchouli_chat_stack):
     """WRITE 接纳后 CPU 无交互输出并取消，交互不提交，记忆仍经真实生成链落库。
 
-    各种 CPU 终态下意图都不撤回由任务进程的意图集成测试逐项守护，此处只保留端到端代表。
+    写入为这一轮建立的话题没有接收交互，关闭流程不删除它，留给空闲结算或 LRU
+    回收。各种 CPU 终态下意图都不撤回由任务进程的意图集成测试逐项守护，此处只
+    保留端到端代表。
     """
     status = "cancelled"
     from hivememory.components.events.publisher import RuntimeEventPublisher
@@ -627,7 +625,7 @@ async def test_http_write_survives_cancelled_cpu_and_process_close(patchouli_cha
         atom = await stack.mid_term.get_by_alias(workspace, task.canonical_alias, from_actor=actor)
         assert atom.payload.content == "HTTP chat materialized content"
         assert atom.meta.provenance.source_agent_id == actor.agent_id
-        assert stack.short_term.get(workspace, task.topic_id) is None
+        assert stack.short_term.get(workspace, task.topic_id).is_empty
         (extraction,) = stack.extractor.inputs
         assert "当前一轮不应进入生成背景" not in extraction["transcript"]
         assert extraction["content"] == "保留失败轮的写入"

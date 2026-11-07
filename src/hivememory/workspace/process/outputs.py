@@ -14,7 +14,6 @@ from typing import Any
 
 from hivememory.core.models import MemoryAtom
 from hivememory.core.protocol.gateway import CommandExecutionResult
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUExecutionResult, CPUExecutionStatus
 
 # ========== 阶段产出 ==========
@@ -27,9 +26,9 @@ class ProcessStarted:
 
 @dataclass(frozen=True, slots=True)
 class InputsAllocated:
-    """CPU 分配成功且进入 Actor 前未被停止；引用投影取自 prepare 的检索结果。"""
+    """CPU 分配成功且进入 Actor 前未被停止；引用投影取自预检索的结果。"""
 
-    prepared: PreparedAgentRun
+    memories: tuple[MemoryAtom, ...]
 
 
 @dataclass(frozen=True, slots=True)
@@ -41,7 +40,7 @@ class ActorEvent:
 
 @dataclass(frozen=True, slots=True)
 class Finalizing:
-    """Actor 已产生输出，进程已进入 finalize（此后拒绝取消）。"""
+    """Actor 已产生输出，进程已进入 finalize，开始提交交互（此后拒绝取消）。"""
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,7 +52,7 @@ class CommandCompleted:
 
 @dataclass(frozen=True, slots=True)
 class RunCompleted:
-    """终态：Actor 完成且 finalize 已接管本轮交互。"""
+    """终态：Actor 完成且交互已提交并应用；``topic_id`` 是交互实际所在的话题。"""
 
     execution_result: CPUExecutionResult
     topic_id: str | None = None
@@ -174,8 +173,7 @@ def stream_events(
                     "data": {"process_id": process_id, "session_id": session_id},
                 }
             ]
-        case InputsAllocated(prepared=prepared):
-            memories = prepared.memories
+        case InputsAllocated(memories=memories):
             return [
                 {
                     "event": "memory_refs",

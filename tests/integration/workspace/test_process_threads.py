@@ -1,4 +1,4 @@
-"""真实进程表、线程表与认证授权协作：线程的派生、结束、唯一的存活判定与 CPU 边界上的线程寿命。"""
+"""真实进程表、线程表与认证授权协作：线程的派生、结束、唯一的存活判定、派发话题与 CPU 边界上的线程寿命。"""
 
 import asyncio
 from types import SimpleNamespace
@@ -21,20 +21,33 @@ from hivememory.core.models import (
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
+from hivememory.patchouli.contracts.errors import TopicBusyError
+from hivememory.patchouli.contracts.interaction_submission import InteractionSubmitResult
+from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.contracts import ResolveReferencesRequest, ThreadHandle
 from hivememory.workspace.process.events import TaskProcessEventEmitter
 from hivememory.workspace.process.table import ProcessPhase, ProcessRecord, ProcessTable
 from hivememory.workspace.process.task_process import ProcessRequest, TaskProcess
 from hivememory.workspace.process.threads import ProcessThreads, ThreadState
 from hivememory.workspace.thread_ports import ResolvedThread
-from tests.helpers.chat_handoff import make_gateway_decision, make_prepared_run
+from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.process import collect_events, done_data, make_task_process_service
+from tests.helpers.process import (
+    PatchouliTurnStub,
+    collect_events,
+    done_data,
+    make_task_process_service,
+)
 from tests.helpers.workspace import (
     make_access_composition,
     make_actor_access_record,
     make_execution_labels,
     make_workspace_read_view,
+)
+
+#: Gateway 为这一轮给出的新话题决定：派发话题要等第一次写入时建立。
+NEW_TOPIC_DECISION = make_gateway_decision(
+    target_topic_id="NEW_TOPIC", new_topic_title="新话题", new_topic_summary="新话题摘要"
 )
 
 
@@ -43,8 +56,37 @@ def profile_of(agent_id):
     return AgentProfile(agent_id=agent_id)
 
 
+class TopicPreparation:
+    """Patchouli 话题准备公开路由的替身：记录每次请求，可挂起，可按序失败。
+
+    ``release`` 清除时请求停在路由内，``entered`` 在请求到达时置位；``failures``
+    中的异常按序抛出，用完后以 ``topic_id`` 应答。
+    """
+
+    def __init__(self):
+        self.topic_id = "topic-created"
+        self.calls = []
+        self.failures = []
+        self.entered = asyncio.Event()
+        self.release = asyncio.Event()
+        self.release.set()
+
+    async def prepare(self, *, identity_scope, target_topic_id, **kwargs):
+        self.calls.append(
+            {"identity_scope": identity_scope, "target_topic_id": target_topic_id, **kwargs}
+        )
+        self.entered.set()
+        await self.release.wait()
+        if self.failures:
+            raise self.failures.pop(0)
+        return self.topic_id
+
+
 async def make_process(access, table, process_id="p"):
-    """以认证得到的执行者与系统 root 工作 actor 登记、处于 Actor 阶段且已冻结派发话题的进程。"""
+    """以认证得到的执行者与系统 root 工作 actor 登记一个处于 Actor 阶段的进程。
+
+    Gateway 为这一轮给出新话题决定，派发话题尚未确定。
+    """
     events = TaskProcessEventEmitter(RuntimeEventPublisher(NullRuntimeEventSink()))
     labels = make_execution_labels()
     process = TaskProcess(
@@ -60,7 +102,7 @@ async def make_process(access, table, process_id="p"):
         ),
         trace_id="t",
     )
-    process.working_set.dispatch_topic_id = f"topic-{process_id}"
+    process.working_set.gateway_decision = NEW_TOPIC_DECISION
     table.register(process)
     process.record.enter_phase(ProcessPhase.ACTOR)
     return process
@@ -68,10 +110,10 @@ async def make_process(access, table, process_id="p"):
 
 async def make_process_threads():
     """用户级准入允许 READ，被调用方的精确登记只允许 WRITE，``blocked`` 的登记已禁用；
-    主线程已派生。
+    主线程已派生，话题准备经真实 root 话题 API 到达替身路由。
 
-    返回带 ``access``、``table``、``process``、``threads``、``main`` 属性的命名空间，
-    ``main`` 是交给 CPU 驱动的主线程句柄。
+    返回带 ``access``、``table``、``process``、``threads``、``topics``、``main`` 属性的
+    命名空间，``main`` 是交给 CPU 驱动的主线程句柄，``topics`` 是话题准备替身。
     """
     access = make_access_composition(
         [
@@ -85,11 +127,21 @@ async def make_process_threads():
             make_actor_access_record(agent_id=SYSTEM_AGENT_ID),
         ]
     )
+    bus = GlobalSystemBus()
+    topics = TopicPreparation()
+    bus.register(PatchouliRoutes.PREPARE_TOPIC, topics.prepare)
     table = ProcessTable()
     process = await make_process(access, table)
-    threads = ProcessThreads(table, admission=access.gateway, authorizer=access.authorizer)
+    threads = ProcessThreads(
+        table,
+        admission=access.gateway,
+        authorizer=access.authorizer,
+        topics=RootTopicService(bus, operation_authorizer=access.authorizer),
+    )
     main = threads.derive_main(process, profile_of("test_agent")).handle
-    return SimpleNamespace(access=access, table=table, process=process, threads=threads, main=main)
+    return SimpleNamespace(
+        access=access, table=table, process=process, threads=threads, topics=topics, main=main
+    )
 
 
 def registered(process):
@@ -137,10 +189,7 @@ async def test_derivation_registers_threads_in_order_with_their_own_descriptors(
     ]
     assert threads.resolve(main).actor == process.record.actor
     assert threads.resolve(second.handle) == ResolvedThread(
-        process_id="p",
-        thread_id="child-2",
-        dispatch_topic_id="topic-p",
-        actor=working_actor(chain.access, "other"),
+        process_id="p", thread_id="child-2", actor=working_actor(chain.access, "other")
     )
 
 
@@ -221,11 +270,12 @@ def foreign_handle(chain):
         pytest.param(foreign_handle, ScopeRequiredError, id="foreign-handle"),
     ],
 )
-async def test_liveness_is_judged_once_for_resolution_and_derivation(prepare, error):
-    """解析与派生共用同一个存活判定：线程未结束且进程仍在运行，接线缺陷另行区分。
+async def test_liveness_is_judged_once_for_resolution_derivation_and_dispatch_topic(prepare, error):
+    """解析、派生与取得派发话题共用同一个存活判定：线程未结束且进程仍在运行，接线缺陷另行区分。
 
     停止只改变进程结局、结束只标记线程、注销使进程离开进程表，三者都是“线程
-    已结束”；登记的不是这一个句柄属于接线缺陷。拒绝时线程表不变。
+    已结束”；登记的不是这一个句柄属于接线缺陷。拒绝时线程表不变，也不为这一轮
+    确定话题。
     """
     chain = await make_process_threads()
     caller = prepare(chain)
@@ -235,19 +285,88 @@ async def test_liveness_is_judged_once_for_resolution_and_derivation(prepare, er
         chain.threads.resolve(caller)
     with pytest.raises(error):
         chain.threads.derive_child(parent=caller, profile=profile_of("worker"))
+    with pytest.raises(error):
+        await chain.threads.dispatch_topic(caller)
     assert registered(chain.process) == before
+    assert chain.topics.calls == []
 
 
 @pytest.mark.asyncio
-async def test_resolution_ignores_phase_but_requires_frozen_dispatch_topic():
-    """存活不读取阶段；进程没有派发话题时线程不可能合法存在，以接线缺陷拒绝。"""
+async def test_resolution_ignores_phase_and_does_not_require_dispatch_topic():
+    """存活不读取阶段，也不要求派发话题：主线程从 PREPARE 起即可解析，解析不为这一轮确定话题。"""
     chain = await make_process_threads()
-    chain.process.record.enter_phase(ProcessPhase.FINALIZE)
-    assert chain.threads.resolve(chain.main).thread_id == "main"
+    for phase in (ProcessPhase.PREPARE, ProcessPhase.FINALIZE):
+        chain.process.record.enter_phase(phase)
+        assert chain.threads.resolve(chain.main).thread_id == "main"
+    assert chain.topics.calls == []
 
-    chain.process.working_set.dispatch_topic_id = None
-    with pytest.raises(ScopeRequiredError, match="派发话题"):
-        chain.threads.resolve(chain.main)
+
+@pytest.mark.asyncio
+async def test_concurrent_dispatch_topic_requests_determine_the_topic_once_as_system():
+    """主线程与子线程同时取得派发话题：这一轮只确定一次，二者得到同一个话题。
+
+    话题确定是系统级操作，以进程记录的系统 root 工作 actor 执行，按 Gateway 的
+    新话题决定以其标题与摘要建立；确定之后派发话题冻结，此后的请求直接返回。
+    """
+    chain = await make_process_threads()
+    child = chain.threads.derive_child(parent=chain.main, profile=profile_of("worker"))
+    chain.topics.release.clear()
+
+    waiters = [
+        asyncio.create_task(chain.threads.dispatch_topic(handle))
+        for handle in (chain.main, child.handle)
+    ]
+    await asyncio.wait_for(chain.topics.entered.wait(), timeout=1)
+    chain.topics.release.set()
+
+    assert await asyncio.gather(*waiters) == ["topic-created", "topic-created"]
+    assert await chain.threads.dispatch_topic(child.handle) == "topic-created"
+    (call,) = chain.topics.calls
+    system = ActorIdentity(
+        user_id=chain.access.default_workspace.owner_user_id, agent_id=SYSTEM_AGENT_ID
+    )
+    assert call["identity_scope"].actor_identity == system
+    assert call["identity_scope"].workspace_identity == chain.access.default_workspace
+    assert (call["target_topic_id"], call["new_topic_title"], call["new_topic_summary"]) == (
+        "NEW_TOPIC",
+        "新话题",
+        "新话题摘要",
+    )
+
+
+@pytest.mark.asyncio
+async def test_cancelled_waiter_does_not_cancel_topic_determination_for_other_threads():
+    """一个写入在等待话题确定时被取消：确定照常完成并冻结，另一线程的写入得到话题。
+
+    被取消的等待方仍等确定结束才离开，不留下无人持有的确定任务。
+    """
+    chain = await make_process_threads()
+    child = chain.threads.derive_child(parent=chain.main, profile=profile_of("worker"))
+    chain.topics.release.clear()
+    cancelled = asyncio.create_task(chain.threads.dispatch_topic(chain.main))
+    waiting = asyncio.create_task(chain.threads.dispatch_topic(child.handle))
+    await asyncio.wait_for(chain.topics.entered.wait(), timeout=1)
+
+    cancelled.cancel()
+    chain.topics.release.set()
+
+    assert await asyncio.wait_for(waiting, timeout=1) == "topic-created"
+    with pytest.raises(asyncio.CancelledError):
+        await cancelled
+    assert await chain.threads.dispatch_topic(chain.main) == "topic-created"
+    assert len(chain.topics.calls) == 1
+
+
+@pytest.mark.asyncio
+async def test_failed_topic_determination_reaches_its_waiter_and_next_request_retries():
+    """话题确定失败时 Patchouli 的错误原样交回这次请求，派发话题不冻结；下一次请求重新确定。"""
+    chain = await make_process_threads()
+    chain.topics.failures.append(TopicBusyError("话题被占用"))
+
+    with pytest.raises(TopicBusyError):
+        await chain.threads.dispatch_topic(chain.main)
+    assert await chain.threads.dispatch_topic(chain.main) == "topic-created"
+    assert len(chain.topics.calls) == 2
 
 
 @pytest.mark.asyncio
@@ -308,6 +427,7 @@ def derive_with_failing_snapshot(chain):
         chain.table,
         admission=chain.access.gateway,
         authorizer=_FailingSnapshotAuthorizer(chain.access.authorizer),
+        topics=RootTopicService(GlobalSystemBus(), operation_authorizer=chain.access.authorizer),
     )
     failing.derive_child(parent=chain.main, profile=profile_of("worker"))
 
@@ -424,7 +544,11 @@ _SYSTEM = ActorIdentity(user_id="u1", agent_id=SYSTEM_AGENT_ID)
 
 @pytest.fixture
 def process_chain():
-    """仅替换阶段 RPC 的资源 owner，认证、授权、执行器和入口均为真实对象。"""
+    """仅替换 Gateway 与 Patchouli 的公开路由，认证、授权、执行器和入口均为真实对象。
+
+    交互提交的替身在提交时核对：CPU 已经结束、提交以系统的 root scope 到达、
+    CPU 持有的主线程与子线程句柄都已不可用，再记入 ``submitted``。
+    """
     access = make_access_composition(
         [
             make_actor_access_record(owner_user_id="u1", agent_id=None),
@@ -434,12 +558,17 @@ def process_chain():
     bus = GlobalSystemBus()
     runtime = make_workspace_read_view(bus)
     table = ProcessTable()
-    threads = ProcessThreads(table, admission=access.gateway, authorizer=access.authorizer)
+    threads = ProcessThreads(
+        table,
+        admission=access.gateway,
+        authorizer=access.authorizer,
+        topics=RootTopicService(bus, operation_authorizer=access.authorizer),
+    )
     chain = SimpleNamespace(
         access=access,
         bus=bus,
         runtime=runtime,
-        stages=[],
+        submitted=[],
         table=table,
         threads=threads,
         children=[],
@@ -451,39 +580,26 @@ def process_chain():
     async def profile(*_args, **_kwargs):
         return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
-    async def prepare(*, interaction_id, identity_scope, **_kwargs):
-        return make_prepared_run(interaction_id=interaction_id, identity_scope=identity_scope)
-
-    async def after_cpu(stage, identity_scope):
-        # 阶段调用以系统的 root scope 到达 owner；CPU 持有的线程句柄已不可用。
+    async def submit(*, identity_scope, interaction_id, requested_topic_id, **_kwargs):
+        assert chain.cpu.finished
         assert identity_scope.actor_identity == _SYSTEM
         assert identity_scope.workspace_identity == access.default_workspace
-        with pytest.raises(ThreadEndedError):
-            await chain.cpu.operation_entry.execute(
-                ResolveReferencesRequest(("missing",)), thread=chain.cpu.calls[0].thread.handle
-            )
-        for child in chain.children:
+        for handle in (chain.cpu.calls[0].thread.handle, *chain.children):
             with pytest.raises(ThreadEndedError):
                 await chain.cpu.operation_entry.execute(
-                    ResolveReferencesRequest(("missing",)), thread=child
+                    ResolveReferencesRequest(("missing",)), thread=handle
                 )
-        chain.stages.append(stage)
+        chain.submitted.append(interaction_id)
+        return InteractionSubmitResult(
+            interaction_id=interaction_id, state="succeeded", topic_id=requested_topic_id
+        )
 
-    async def finalize(*, identity_scope, **_kwargs):
-        assert chain.cpu.finished
-        await after_cpu("finalize", identity_scope)
-        return []
-
-    async def cleanup(*, identity_scope, **_kwargs):
-        await after_cpu("cleanup", identity_scope)
-        return True
-
+    PatchouliTurnStub().install(bus)
+    bus.unregister(PatchouliRoutes.INTERACTION_SUBMIT)
     for route, handler in (
         (GatewayPublicRoutes.PROCESS, gateway),
         (PatchouliRoutes.GET_AGENT_PROFILE, profile),
-        (PatchouliRoutes.PREPARE_AGENT_RUN, prepare),
-        (PatchouliRoutes.FINALIZE_AGENT_RUN, finalize),
-        (PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup),
+        (PatchouliRoutes.INTERACTION_SUBMIT, submit),
     ):
         bus.register(route, handler)
     yield chain
@@ -530,20 +646,18 @@ class DerivingCPU(ScriptedCPU):
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "cpu_outcome, expected_stages",
+    "cpu_outcome, expected_submitted",
     [
         pytest.param(
-            {"result": make_cpu_result(status="completed")},
-            ["finalize"],
-            id="completed",
+            {"result": make_cpu_result(status="completed")}, ["thread-lifetime"], id="completed"
         ),
-        pytest.param({"error": RuntimeError("CPU failed")}, ["cleanup"], id="exception"),
+        pytest.param({"error": RuntimeError("CPU failed")}, [], id="exception"),
     ],
 )
-async def test_cpu_end_ends_threads_before_terminal_and_system_stages_still_run(
-    process_chain, cpu_outcome, expected_stages
+async def test_cpu_end_ends_threads_before_terminal_and_submission_runs_as_system(
+    process_chain, cpu_outcome, expected_submitted
 ):
-    """有终态与无终态两条路径都先于交付结束线程；finalize 或 cleanup 仍由系统执行。
+    """有终态与无终态两条路径都先于交付结束线程；有输出时交互提交仍由系统执行。
 
     三种终态共用取得结果后的统一结束，异常与缺失终态共用无结果时的提前结束；
     各取一个代表。CPU 运行期间主线程解析为执行者在本进程的主线程。
@@ -564,39 +678,35 @@ async def test_cpu_end_ends_threads_before_terminal_and_system_stages_still_run(
                 pass
         with pytest.raises(ThreadEndedError):
             chain.threads.resolve(cpu.calls[0].thread.handle)
-        # 终态交付后继续耗尽，确保注册入口的关闭与 cleanup 也执行完成。
+        # 终态交付后继续耗尽，确保注册入口的关闭也执行完成。
         assert [event async for event in stream] == []
     finally:
         await stream.aclose()
 
     assert observed == [("thread-lifetime", "main", _EXECUTOR)]
-    assert chain.stages == expected_stages
-
-
-async def start_hanging_process(chain):
-    """CPU 挂起在终态之前，使停止与取消都落在 Actor 阶段内。"""
-    cpu = DerivingCPU(chain, hang_before_result=True)
-    handle = await register(chain, cpu)
-    return cpu, asyncio.create_task(collect_events(chain.service, handle))
+    assert chain.submitted == expected_submitted
 
 
 @pytest.mark.asyncio
-async def test_user_stop_ends_threads_and_cleanup_still_runs_as_system(process_chain):
-    """用户停止使线程立即视为结束，cleanup 仍由系统以 root 授权执行。"""
+async def test_user_stop_ends_threads_before_cpu_finishes_its_cancellation(process_chain):
+    """用户停止使线程立即视为结束：CPU 收尾前持有的句柄已被拒绝，没有输出的一轮不提交。"""
     chain = process_chain
-    cpu, task = await start_hanging_process(chain)
+    cpu = DerivingCPU(chain, hang_before_result=True)
+    handle = await register(chain, cpu)
+    task = asyncio.create_task(collect_events(chain.service, handle))
     try:
         await asyncio.wait_for(cpu.hang_entered.wait(), timeout=2)
         requester = await chain.access.authenticate(user_id="u1", agent_id=SYSTEM_AGENT_ID)
         assert chain.service.cancel_process("thread-lifetime", actor=requester).cancelled
+        for thread in (cpu.calls[0].thread.handle, *chain.children):
+            with pytest.raises(ThreadEndedError):
+                await cpu.operation_entry.execute(
+                    ResolveReferencesRequest(("missing",)), thread=thread
+                )
         events = await asyncio.wait_for(task, timeout=2)
 
         assert done_data(events)["status"] == "cancelled"
-        with pytest.raises(ThreadEndedError):
-            await cpu.operation_entry.execute(
-                ResolveReferencesRequest(("missing",)), thread=cpu.calls[0].thread.handle
-            )
-        assert chain.stages == ["cleanup"]
+        assert chain.submitted == []
     finally:
         task.cancel()
         await asyncio.gather(task, return_exceptions=True)

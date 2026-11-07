@@ -4,6 +4,7 @@ from collections.abc import Iterable
 from dataclasses import dataclass, field
 
 from hivememory.agent_runtime.frame import RuntimeScope
+from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.access import CallerPrincipal, WorkingActor, WorkspaceOperation
@@ -31,6 +32,7 @@ from hivememory.workspace.authentication import (
     WorkspaceAuthenticator,
 )
 from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
+from hivememory.workspace.capability.root.topic import RootTopicService
 from hivememory.workspace.contracts import ExecutionThread
 from hivememory.workspace.process.events import TaskProcessEventEmitter
 from hivememory.workspace.process.table import ProcessPhase, ProcessRecord, ProcessTable
@@ -161,9 +163,16 @@ class AccessTestComposition:
 
     @property
     def threads(self) -> ProcessThreads:
-        """能力测试复用真实进程表与线程管理，只有显式登记的线程可解析与派生。"""
+        """能力测试复用真实进程表与线程管理，只有显式登记的线程可解析与派生。
+
+        :meth:`register_main_thread` 登记的进程已冻结派发话题，线程管理不会为它
+        确定话题，root 话题 API 因此挂在一条空总线上。
+        """
         return ProcessThreads(
-            self.process_table, admission=self.gateway, authorizer=self.authorizer
+            self.process_table,
+            admission=self.gateway,
+            authorizer=self.authorizer,
+            topics=RootTopicService(GlobalSystemBus(), operation_authorizer=self.authorizer),
         )
 
     def register_main_thread(

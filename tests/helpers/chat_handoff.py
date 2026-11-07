@@ -1,6 +1,6 @@
 """测试专用 chat 交接模型构造器。
 
-集中构造 ``PreparedAgentRun``（Patchouli prepare 结果）、
+集中构造 ``GatewayDecision``（Gateway 的检索与话题决定）、
 ``CPUInputManifest``（进程 CPU 分配结果）、``ThreadDescriptor``（交给 CPU 的
 线程描述）与交互记录封口所用的固定轮次事件，
 默认值与 ``make_identity_scope`` 的默认身份坐标一致，避免各测试文件重复拼装。
@@ -13,8 +13,6 @@ from hivememory.core.models import (
     OMNI_DOLL_PROFILE,
     AgentProfile,
     ExecutionLabels,
-    IdentityScope,
-    MemoryAtom,
     TurnEvent,
 )
 from hivememory.core.models.pending import PendingAtomMaterializeTask, WriteFocus
@@ -24,10 +22,9 @@ from hivememory.core.protocol.gateway import (
     RetrievalPlan,
 )
 from hivememory.core.protocol.models import ConversationTurn
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.contracts import CPUInputManifest, ThreadDescriptor
 from tests.helpers.memory import make_memory_identity_scope
-from tests.helpers.workspace import make_execution_labels, make_identity_scope
+from tests.helpers.workspace import make_execution_labels
 
 
 def make_gateway_decision(**overrides) -> GatewayDecision:
@@ -42,26 +39,6 @@ def make_gateway_decision(**overrides) -> GatewayDecision:
     return GatewayDecision(**defaults)
 
 
-def make_prepared_run(
-    *,
-    identity_scope: IdentityScope | None = None,
-    interaction_id: str = "interaction-test",
-    topic_id: str = "topic-1",
-    is_new_topic: bool = False,
-    memories: list[MemoryAtom] | None = None,
-    storage_available: bool = True,
-) -> PreparedAgentRun:
-    """构造精简后的 PreparedAgentRun（只含 Topic 与检索结果）。"""
-    return PreparedAgentRun(
-        belong_to=(identity_scope or make_identity_scope()).workspace_identity,
-        interaction_id=interaction_id,
-        topic_id=topic_id,
-        is_new_topic=is_new_topic,
-        memories=tuple(memories or ()),
-        storage_available=storage_available,
-    )
-
-
 def make_input_manifest(
     *,
     process_id: str = "process-test",
@@ -70,7 +47,7 @@ def make_input_manifest(
     language: str = "zh",
     instructions: str = "",
     turn_context: str = "",
-    topic_id: str = "topic-1",
+    topic_id: str | None = "topic-1",
     session_history: tuple[ConversationTurn, ...] = (),
 ) -> CPUInputManifest:
     """构造已编译文本齐备的 CPU 输入清单；不在 helper 中重新渲染 Profile。"""

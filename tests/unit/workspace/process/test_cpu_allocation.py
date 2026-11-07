@@ -1,10 +1,10 @@
 """任务进程 CPU 分配与主线程交接的行为测试。
 
-被测边界：``TaskProcessService`` 在 prepare 之后、进入 Actor 执行之前完成
-Profile 解析、附件租借与编译，并组装 ``CPUInputManifest``；Profile 与附件是
-用户的选择，由系统以 root 授权在分配层、副作用前执行，不检查 actor 操作，Profile
-按管理语义读取执行者的图纸；CPU 清单只接收注册时绑定的观测标签。图纸与操作快照
-随主线程的线程描述交给 CPU，快照在进入 Actor 阶段派生主线程时读取。
+被测边界：``TaskProcessService`` 在 PREPARE 中完成 Profile 解析、主线程派生、预检索、
+已有话题的确认与存储健康读取之后，租借并编译附件，组装 ``CPUInputManifest``；Profile
+与附件是用户的选择，由系统以 root 授权在分配层、副作用前执行，不检查 actor 操作，
+Profile 按管理语义读取执行者的图纸；CPU 清单只接收注册时绑定的观测标签。图纸与
+操作快照随主线程的线程描述交给 CPU，快照在 PREPARE 开始派生主线程时读取。
 Patchouli 以总线路由替身隔离；Actor 阶段以测试 CPU 替换 Alice（总线上不注册
 Alice 路由）；附件租借以真实 ``InMemoryWorkspaceAssetStore`` 的公开可观察状态
 验收，不断言私有字段。
@@ -13,7 +13,6 @@ Alice 路由）；附件租借以真实 ``InMemoryWorkspaceAssetStore`` 的公�
 from __future__ import annotations
 
 import asyncio
-from typing import Any
 from uuid import uuid4
 
 import pytest
@@ -48,7 +47,6 @@ from hivememory.core.models import (
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.contracts import CPUExecutionStatus
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
@@ -57,11 +55,11 @@ from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.process import (
+    PatchouliTurnStub,
     collect_events,
     done_data,
     error_code,
     make_task_process_service,
-    wait_for_process_exit,
 )
 from tests.helpers.workspace import (
     AccessTestComposition,
@@ -123,11 +121,12 @@ def _decision_outcome() -> GatewayDecisionOutcome:
 
 
 async def _gateway_route(**_kwargs):
-    """GATEWAY_PROCESS 替身：恒返回常规 RAG 决定。"""
+    """GATEWAY_PROCESS 替身：恒返回指向已有话题 ``topic-1`` 的常规 RAG 决定。"""
     return _decision_outcome()
 
 
 def _memory_atom(title: str) -> MemoryAtom:
+    """预检索命中的原子：属于被测 Workspace 且对执行者可读。"""
     return MemoryAtom(
         id=uuid4(),
         meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
@@ -144,15 +143,6 @@ def _memory_atom(title: str) -> MemoryAtom:
 def _asset_workspace(composition: AccessTestComposition) -> WorkspaceIdentity:
     """Store 测试资产的归属：任务的目标 Workspace。"""
     return composition.default_workspace
-
-
-def _constant(value):
-    """返回恒返回 ``value`` 的 async handler。"""
-
-    async def handler(*_args, **_kwargs):
-        return value
-
-    return handler
 
 
 def _raising(error: Exception):
@@ -173,8 +163,8 @@ def _profile_route(
 ):
     """PATCHOULI_GET_AGENT_PROFILE 替身：记录（agent_id, scope, 是否检查可见性）并返回固定结果。
 
-    ``started``/``gate`` 语义同 ``_prepare_route``，用于在 CPU 分配期间
-    注入 stop 请求。
+    ``started`` 在替身开始执行时置位；``gate`` 置位后替身才返回，用于在 Profile
+    解析期间注入 stop 请求。
     """
 
     async def route(agent_id, *, identity_scope, enforce_actor_visibility=True, **_kwargs):
@@ -189,41 +179,14 @@ def _profile_route(
     return route
 
 
-def _prepare_route(
-    *,
-    topic_id: str = "topic-1",
-    is_new_topic: bool = False,
-    storage_available: bool = True,
-    memories: list[MemoryAtom] | None = None,
-    started: asyncio.Event | None = None,
-    gate: asyncio.Event | None = None,
-):
-    """PATCHOULI_PREPARE_AGENT_RUN 替身：按请求 scope 构造真实 PreparedAgentRun。
-
-    ``started`` 在替身开始执行时置位；``gate`` 置位后替身才返回，用于在
-    prepare 期间注入 stop 请求。
-    """
-
-    async def route(
-        *,
-        identity_scope,
-        interaction_id,
-        **_kwargs,
-    ):
-        if started is not None:
-            started.set()
-        if gate is not None:
-            await gate.wait()
-        return PreparedAgentRun(
-            belong_to=(identity_scope).workspace_identity,
-            interaction_id=interaction_id,
-            topic_id=topic_id,
-            is_new_topic=is_new_topic,
-            memories=tuple(memories or ()),
-            storage_available=storage_available,
-        )
-
-    return route
+def _turn_bus(
+    stub: PatchouliTurnStub | None = None, *, profile_route=None
+) -> tuple[GlobalSystemBus, PatchouliTurnStub]:
+    """Gateway 恒返回常规决定、Profile 由给定替身解析、Patchouli 一轮的路由由替身回答的总线。"""
+    bus = GlobalSystemBus()
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, profile_route or _profile_route())
+    return bus, (stub or PatchouliTurnStub()).install(bus)
 
 
 async def _service(
@@ -301,11 +264,7 @@ async def test_main_thread_operations_follow_access_record_precedence():
         owner_user_id=_USER, agent_id=_AGENT, allowed_operations=frozenset()
     )
     composition = make_access_composition([user_record, exact_record, _system_record()])
-    bus = GlobalSystemBus()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
+    bus, _stub = _turn_bus()
     cpu = ScriptedCPU(result=make_cpu_result())
     service, composition = await _service(bus, cpu=cpu, composition=composition)
 
@@ -317,18 +276,15 @@ async def test_main_thread_operations_follow_access_record_precedence():
 
 @pytest.mark.asyncio
 async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manifest() -> None:
-    """主线程描述中的 Profile 来自 PATCHOULI_GET_AGENT_PROFILE，清单的基础字段由 prepare 冻结。"""
-    bus = GlobalSystemBus()
+    """主线程描述中的 Profile 来自 PATCHOULI_GET_AGENT_PROFILE；清单的话题取 PREPARE 已确认的
+    派发话题，离线提示来自经 root API 读取的存储健康。"""
     profile = AgentProfile(persona="allocated-persona", language="zh")
     profile_calls: list = []
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(
-        PatchouliRoutes.GET_AGENT_PROFILE,
-        _profile_route(profile=profile, calls=profile_calls),
+    bus, _stub = _turn_bus(
+        PatchouliTurnStub(storage_available=False),
+        profile_route=_profile_route(profile=profile, calls=profile_calls),
     )
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route(storage_available=False))
     cpu = ScriptedCPU(result=make_cpu_result())
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
 
     service, composition = await _service(bus, cpu=cpu)
     events = await _run_once(composition, service, "问题", process_id="process-manifest")
@@ -358,12 +314,8 @@ async def test_cpu_allocation_resolves_profile_via_public_route_and_fills_manife
 @pytest.mark.asyncio
 async def test_manifest_labels_match_registration_and_process_event_labels() -> None:
     """非默认注册标签贯穿 CPU 与进程事件，不能退回默认 Agent/Workspace。"""
-    bus = GlobalSystemBus()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
+    bus, _stub = _turn_bus()
     cpu = ScriptedCPU(result=make_cpu_result())
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
 
     sink = RecordingRuntimeEventSink()
     workspace = make_workspace_identity(owner_user_id="u1", workspace_id="labels_workspace")
@@ -408,15 +360,11 @@ async def test_manifest_labels_match_registration_and_process_event_labels() -> 
 
 
 @pytest.mark.asyncio
-async def test_manifest_turn_context_is_process_compiled_from_prepare_retrieval() -> None:
-    """记忆段由进程对 prepare 返回的原始原子编译得到；原子本身不进入清单。"""
-    bus = GlobalSystemBus()
+async def test_manifest_turn_context_is_process_compiled_from_pre_retrieval() -> None:
+    """记忆段由进程对预检索交付的原始原子编译得到；原子本身不进入清单。"""
     atoms = [_memory_atom("部署手册"), _memory_atom("发布记录")]
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route(memories=atoms))
+    bus, _stub = _turn_bus(PatchouliTurnStub(memories=atoms))
     cpu = ScriptedCPU(result=make_cpu_result())
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
 
     service, composition = await _service(bus, cpu=cpu)
     await _run_once(composition, service, "问题", process_id="process-compile")
@@ -429,12 +377,8 @@ async def test_manifest_turn_context_is_process_compiled_from_prepare_retrieval(
 @pytest.mark.asyncio
 async def test_manifest_turn_context_is_empty_string_without_retrieval() -> None:
     """检索为空时清单的 turn_context 是空字符串，而不是占位文本。"""
-    bus = GlobalSystemBus()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route(memories=[]))
+    bus, _stub = _turn_bus(PatchouliTurnStub(memories=[]))
     cpu = ScriptedCPU(result=make_cpu_result())
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
 
     service, composition = await _service(bus, cpu=cpu)
     await _run_once(composition, service, "问题", process_id="process-empty-retrieval")
@@ -442,28 +386,12 @@ async def test_manifest_turn_context_is_empty_string_without_retrieval() -> None
     assert cpu.calls[0].manifest.turn_context == ""
 
 
-def _recording(calls: list):
-    """返回记录每次调用关键字参数的 async handler。"""
-
-    async def handler(*_args, **kwargs):
-        calls.append(kwargs)
-
-    return handler
-
-
 @pytest.mark.asyncio
 async def test_no_actor_operations_still_allocates_execution_profile() -> None:
     """没有 actor 操作仍能解析执行 Profile：Profile 由系统按管理语义读取，不需要执行者的许可。"""
-    bus = GlobalSystemBus()
     profile_calls: list = []
     profile = AgentProfile(persona="阶段读取配置", language="zh")
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(
-        PatchouliRoutes.GET_AGENT_PROFILE,
-        _profile_route(profile=profile, calls=profile_calls),
-    )
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
+    bus, _stub = _turn_bus(profile_route=_profile_route(profile=profile, calls=profile_calls))
     cpu = ScriptedCPU(result=make_cpu_result())
     composition = _composition(excluded_operations=frozenset(WorkspaceOperation))
 
@@ -475,8 +403,8 @@ async def test_no_actor_operations_still_allocates_execution_profile() -> None:
     assert profile_calls == [("omni_doll", _root_scope(), False)]
 
 
-class _AdmissionRevokedAfterPrepare:
-    """真实授权者的代理：prepare 之后读取执行者的操作集合时遇到已失效的准入。"""
+class _AdmissionRevokedAfterProfile:
+    """真实授权者的代理：Profile 解析之后读取执行者的操作集合时遇到已失效的准入。"""
 
     def __init__(self, inner):
         self._inner = inner
@@ -492,26 +420,21 @@ class _AdmissionRevokedAfterPrepare:
 
 
 @pytest.mark.asyncio
-async def test_admission_revoked_before_actor_fails_main_thread_derivation() -> None:
-    """执行者的准入在 prepare 与进入 Actor 之间失效：派生主线程读取快照失败，进程在 Actor 阶段失败。
+async def test_admission_revoked_before_main_thread_fails_before_retrieval_or_topic() -> None:
+    """执行者的准入在 Profile 解析之后失效：派生主线程读取快照失败，进程在 PREPARE 失败。
 
-    CPU 不会被调用，主线程不登记，prepare 结果照常补偿。
+    主线程不登记，不检索、不确认话题，CPU 不会被调用。
     """
-    bus = GlobalSystemBus()
-    cleaned: list = []
     composition = _composition()
-    authorizer = _AdmissionRevokedAfterPrepare(composition.authorizer)
-    prepare = _prepare_route()
+    authorizer = _AdmissionRevokedAfterProfile(composition.authorizer)
+    profile = _profile_route()
 
-    async def prepare_then_revoke(**kwargs):
-        prepared = await prepare(**kwargs)
+    async def profile_then_revoke(agent_id, **kwargs):
+        resolved = await profile(agent_id, **kwargs)
         authorizer.revoked = True
-        return prepared
+        return resolved
 
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare_then_revoke)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _recording(cleaned))
+    bus, stub = _turn_bus(profile_route=profile_then_revoke)
     cpu = ScriptedCPU(result=make_cpu_result())
     sink = RecordingRuntimeEventSink()
     service = make_task_process_service(
@@ -525,28 +448,22 @@ async def test_admission_revoked_before_actor_fails_main_thread_derivation() -> 
     events = await _run_once(composition, service, "问题", process_id="process-admission-revoked")
 
     assert error_code(events) == ScopeRequiredError.code
+    assert stub.retrievals == []
+    assert stub.prepared_topics == []
     assert cpu.calls == []
-    assert len(cleaned) == 1
-    assert [event.status for event in sink.events][-2:] == ["streaming", "failed"]
+    assert [event.status for event in sink.events] == ["created", "preparing", "failed"]
 
 
 @pytest.mark.asyncio
-async def test_profile_resolution_failure_fails_stream_before_prepare() -> None:
-    """Profile 解析失败：流式路径在 prepare 之前以错误结束，不发出前导事件。
+async def test_profile_resolution_failure_fails_stream_before_retrieval_or_topic() -> None:
+    """Profile 解析失败：流式路径在 PREPARE 中以错误结束，不发出前导事件。
 
-    Profile 在 prepare 之前解析，失败的请求不触发 prepare，
-    因此不会预建 Topic、不会 LRU 结算已有话题，也不需要 cleanup。
+    Profile 在主线程派生之前解析，缺少图纸的请求不检索，也不确认或刷新已有话题。
     """
-    bus = GlobalSystemBus()
     failure = ResourceNotFoundError(
         details={"resource": "agent_profile", "agent_alias": "omni_doll"},
     )
-    prepare_calls: list = []
-    cleanup_calls: list = []
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _raising(failure))
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _recording(prepare_calls))
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _recording(cleanup_calls))
+    bus, stub = _turn_bus(profile_route=_raising(failure))
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, cpu=cpu)
@@ -554,8 +471,8 @@ async def test_profile_resolution_failure_fails_stream_before_prepare() -> None:
 
     assert [event["event"] for event in events] == ["process_id", "error"]
     assert error_code(events) == ResourceNotFoundError.code
-    assert prepare_calls == []
-    assert cleanup_calls == []
+    assert stub.retrievals == []
+    assert stub.prepared_topics == []
     assert cpu.calls == []
 
 
@@ -579,7 +496,7 @@ class _RecordingReader:
 
 @pytest.mark.asyncio
 async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> None:
-    """按用户选择顺序由系统以 root 授权后租借并编译；prepare 路由不再接收附件参数。"""
+    """按用户选择顺序由系统以 root 授权后租借并编译，实际使用引用随封口载荷提交。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
     belong_to = _asset_workspace(composition)
@@ -591,24 +508,7 @@ async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> N
         content="正文乙",
         content_hash="text-hash-b",
     )
-
-    bus = GlobalSystemBus()
-    prepare_kwargs: dict = {}
-
-    async def prepare(**kwargs):
-        prepare_kwargs.update(kwargs)
-        return _scoped_prepared(kwargs)
-
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
-    finalize_kwargs: dict = {}
-
-    async def finalize(**kwargs):
-        finalize_kwargs.update(kwargs)
-        return []
-
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    bus, stub = _turn_bus()
 
     reader = _RecordingReader(store)
     service, composition = await _service(bus, store=reader)
@@ -624,34 +524,22 @@ async def test_attachments_acquired_in_user_order_and_compiled_by_process() -> N
     )
 
     assert done_data(events)["status"] == "completed"
-    assert "selected_attachments" not in prepare_kwargs
-    # 用户顺序：第二份在前；实际使用引用按编译顺序冻结，经封口 payload 交给 finalize。
-    assert list(finalize_kwargs["payload"].used_attachments) == [ref_b, ref_a]
+    # 用户顺序：第二份在前；实际使用引用按编译顺序冻结，经封口载荷提交。
+    assert list(stub.submissions[0]["payload"].used_attachments) == [ref_b, ref_a]
     # 附件是用户的选择：系统以 root 授权之后租借，资产库只收到任务的目标 Workspace。
     assert reader.acquired_for == [composition.default_workspace] * 2
     assert store.close_and_clear().leases_cleared == 0
 
 
 @pytest.mark.asyncio
-async def test_no_actor_operations_still_allocates_attachments_and_finalizes() -> None:
-    """没有 actor 操作仍能租借并编译附件，完成交互封口后释放全部租借。"""
+async def test_no_actor_operations_still_allocates_attachments_and_submits() -> None:
+    """没有 actor 操作仍能租借并编译附件，完成交互提交后释放全部租借。"""
     store = InMemoryWorkspaceAssetStore()
     # 资产准备与本轮进程的行为许可无关；以同一归属的独立测试组合预先上传。
     belong_to = _asset_workspace(_composition())
     ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a", content="阶段附件正文")
     composition = _composition(excluded_operations=frozenset(WorkspaceOperation))
-
-    bus = GlobalSystemBus()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
-    finalize_kwargs: dict = {}
-
-    async def finalize(**kwargs):
-        finalize_kwargs.update(kwargs)
-        return []
-
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    bus, stub = _turn_bus()
     cpu = ScriptedCPU(result=make_cpu_result())
 
     service, composition = await _service(bus, store=store, cpu=cpu, composition=composition)
@@ -665,7 +553,7 @@ async def test_no_actor_operations_still_allocates_attachments_and_finalizes() -
 
     assert done_data(events)["status"] == "completed"
     assert "阶段附件正文" in cpu.calls[0].manifest.turn_context
-    assert tuple(finalize_kwargs["payload"].used_attachments) == (ref_a,)
+    assert tuple(stub.submissions[0]["payload"].used_attachments) == (ref_a,)
     assert store.close_and_clear().leases_cleared == 0
 
 
@@ -683,12 +571,7 @@ async def test_attachment_version_mismatch_releases_leases_and_rejects() -> None
         content="正文乙",
         content_hash="text-hash-b",
     )
-
-    bus = GlobalSystemBus()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
+    bus, _stub = _turn_bus()
 
     service, composition = await _service(bus, store=store)
     events = await _run_once(
@@ -714,12 +597,7 @@ async def test_unknown_attachment_ref_rejected_without_leaking_leases() -> None:
     composition = _composition()
     belong_to = _asset_workspace(composition)
     ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
-
-    bus = GlobalSystemBus()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
+    bus, _stub = _turn_bus()
 
     service, composition = await _service(bus, store=store)
     events = await _run_once(
@@ -747,12 +625,7 @@ async def test_removed_asset_rejected_without_leaking_leases() -> None:
     belong_to = _asset_workspace(composition)
     ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
     store.remove_asset(belong_to, ref_a)
-
-    bus = GlobalSystemBus()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
+    bus, _stub = _turn_bus()
 
     service, composition = await _service(bus, store=store)
     events = await _run_once(
@@ -768,8 +641,8 @@ async def test_removed_asset_rejected_without_leaking_leases() -> None:
 
 
 @pytest.mark.asyncio
-async def test_finalize_receives_used_attachments_from_compile_result() -> None:
-    """finalize 收到的 used_attachments 等于编译实际使用的附件；被预算跳过的不在其中。"""
+async def test_submission_receives_used_attachments_from_compile_result() -> None:
+    """提交的 used_attachments 等于编译实际使用的附件；被预算跳过的不在其中。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
     belong_to = _asset_workspace(composition)
@@ -781,19 +654,8 @@ async def test_finalize_receives_used_attachments_from_compile_result() -> None:
         content="b" * 10,
         content_hash="text-hash-b",
     )
-
-    bus = GlobalSystemBus()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
+    bus, stub = _turn_bus()
     cpu = ScriptedCPU(result=make_cpu_result())
-    finalize_kwargs: dict = {}
-
-    async def finalize(**kwargs):
-        finalize_kwargs.update(kwargs)
-        return []
-
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
 
     service, composition = await _service(
         bus,
@@ -816,7 +678,7 @@ async def test_finalize_receives_used_attachments_from_compile_result() -> None:
     manifest = cpu.calls[0].manifest
     assert "a" * 15 in manifest.turn_context
     assert "b" * 10 not in manifest.turn_context
-    assert list(finalize_kwargs["payload"].used_attachments) == [ref_a]
+    assert list(stub.submissions[0]["payload"].used_attachments) == [ref_a]
 
 
 # ========== 租借释放路径与取消位置 ==========
@@ -824,17 +686,12 @@ async def test_finalize_receives_used_attachments_from_compile_result() -> None:
 
 @pytest.mark.asyncio
 async def test_leased_attachment_released_after_completed_run() -> None:
-    """完成路径：finalize 之后进程 finally 释放租借。"""
+    """完成路径：交互提交之后，进程关闭流程释放租借。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
     belong_to = _asset_workspace(composition)
     ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
-
-    bus = GlobalSystemBus()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _constant([]))
+    bus, _stub = _turn_bus()
 
     service, composition = await _service(bus, store=store)
     events = await _run_once(
@@ -851,17 +708,12 @@ async def test_leased_attachment_released_after_completed_run() -> None:
 
 @pytest.mark.asyncio
 async def test_leased_attachment_released_when_cpu_reports_failure() -> None:
-    """CPU 自报失败且无输出：不进入 finalize，进程 finally 仍释放租借。"""
+    """CPU 自报失败且无输出：不提交交互，进程关闭流程仍释放租借。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
     belong_to = _asset_workspace(composition)
     ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
-
-    bus = GlobalSystemBus()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _constant(True))
+    bus, _stub = _turn_bus()
     cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
 
     service, composition = await _service(bus, store=store, cpu=cpu)
@@ -877,100 +729,32 @@ async def test_leased_attachment_released_when_cpu_reports_failure() -> None:
     assert store.close_and_clear().leases_cleared == 0
 
 
-def _blocking_cleanup(started: asyncio.Event, release: asyncio.Event):
-    """PATCHOULI_CLEANUP_PREPARED_AGENT_RUN 替身：开始后挂起，置位 ``release`` 才返回。
-
-    模拟 cleanup 期间 owner task 被取消：取消先中断第一次 close，收口的再次
-    close 进入的 cleanup 由测试显式放行，保证场景确定性。
-    """
-
-    async def cleanup(*, prepared_run, **_kwargs):
-        started.set()
-        await release.wait()
-
-    return cleanup
-
-
 @pytest.mark.asyncio
-async def test_delivery_cancelled_during_cleanup_still_releases_leases_and_closes_process() -> None:
-    """交付方在 cleanup 期间被取消：取消传给交付方，租借已同步释放，进程收口仍完成。
+async def test_stop_before_actor_skips_cpu_and_submission_and_releases_leases() -> None:
+    """读取存储健康期间收到的停止在 CPU 分配之后、进入 Actor 之前生效。
 
-    租借释放先于任何 await 同步执行，不依赖 cleanup 完成；交付方离开不打断进程自己的
-    关闭流程，cleanup 放行后进程从表中注销。
+    分配照常取得租借；不发出记忆引用等前导事件，done 为 cancelled；CPU 未调用、
+    交互未提交；分配已取得的租借由关闭流程释放。
     """
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
     belong_to = _asset_workspace(composition)
     ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
+    bus, stub = _turn_bus()
+    storage_started = asyncio.Event()
+    release_storage = asyncio.Event()
 
-    bus = GlobalSystemBus()
-    cleanup_started = asyncio.Event()
-    release_cleanup = asyncio.Event()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
-    bus.register(
-        PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
-        _blocking_cleanup(cleanup_started, release_cleanup),
-    )
+    async def storage_available():
+        storage_started.set()
+        await release_storage.wait()
+        return True
 
-    table = ProcessTable()
-    service, composition = await _service(bus, store=store, cpu=cpu, process_table=table)
-    handle = await _register(
-        composition,
-        service,
-        "带附件的消息",
-        process_id="process-stream-cancel-during-cleanup",
-        attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
-    )
-    task = asyncio.create_task(collect_events(service, handle))
-    await cleanup_started.wait()
-    task.cancel()
-    release_cleanup.set()
-    with pytest.raises(asyncio.CancelledError):
-        await task
-    await wait_for_process_exit(table, "process-stream-cancel-during-cleanup")
-
-    assert table.get("process-stream-cancel-during-cleanup") is None
-    assert store.close_and_clear().leases_cleared == 0
-
-
-@pytest.mark.asyncio
-async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() -> None:
-    """prepare 或分配期间收到的停止请求在进入 Actor 执行前生效。
-
-    不发出记忆引用等前导事件，done 为 cancelled；CPU 与 finalize 均未调用；cleanup
-    补偿 prepare 的结果；分配已取得的租借已释放。
-    """
-    store = InMemoryWorkspaceAssetStore()
-    composition = _composition()
-    belong_to = _asset_workspace(composition)
-    ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
-
-    bus = GlobalSystemBus()
-    prepare_started = asyncio.Event()
-    release_prepare = asyncio.Event()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(
-        PatchouliRoutes.PREPARE_AGENT_RUN,
-        _prepare_route(started=prepare_started, gate=release_prepare),
-    )
-    cleanup_calls: list = []
-
-    async def cleanup(*, prepared_run, **_kwargs):
-        cleanup_calls.append(prepared_run)
-
-    finalize_calls: list = []
-    bus.register(
-        PatchouliRoutes.FINALIZE_AGENT_RUN,
-        _recording(finalize_calls),
-    )
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    bus.unregister(PatchouliRoutes.STORAGE_AVAILABLE)
+    bus.register(PatchouliRoutes.STORAGE_AVAILABLE, storage_available)
+    reader = _RecordingReader(store)
     cpu = ScriptedCPU(result=make_cpu_result())
 
-    service, composition = await _service(bus, store=store, cpu=cpu)
+    service, composition = await _service(bus, store=reader, cpu=cpu)
     requestor = await composition.authenticate(agent_id=SYSTEM_AGENT_ID)
     handle = await _register(
         composition,
@@ -980,99 +764,75 @@ async def test_stop_before_actor_skips_cpu_and_finalize_and_releases_leases() ->
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
     task = asyncio.create_task(collect_events(service, handle))
-    await prepare_started.wait()
+    await storage_started.wait()
     stop_result = service.cancel_process("process-stop-before-actor", actor=requestor)
-    release_prepare.set()
+    release_storage.set()
     events = await task
 
     assert stop_result.cancelled is True
     assert [event["event"] for event in events] == ["process_id", "done"]
     assert done_data(events)["status"] == CPUExecutionStatus.CANCELLED.value
     assert cpu.calls == []
-    assert finalize_calls == []
-    assert cleanup_calls != [] and all(
-        prepared.interaction_id == "process-stop-before-actor" for prepared in cleanup_calls
-    )
+    assert stub.submissions == []
+    assert reader.acquired_for == [composition.default_workspace]
     assert store.close_and_clear().leases_cleared == 0
 
 
 @pytest.mark.asyncio
-async def test_stop_during_profile_resolution_takes_effect_before_actor() -> None:
-    """Profile 解析期间收到 stop：prepare 与其余分配照常完成，进入 Actor 前生效。
+async def test_stop_during_profile_resolution_rejects_pre_retrieval() -> None:
+    """Profile 解析期间收到 stop：主线程派生后随停止结束，预检索以线程结束被拒绝。
 
-    CPU 与 finalize 均未调用；cleanup 补偿 prepare 的结果；分配已取得的租借已释放。
+    进程按 PREPARE 阶段取消：不检索、不确认话题、不取得租借，CPU 未调用。
     """
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
     belong_to = _asset_workspace(composition)
     ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
-
-    bus = GlobalSystemBus()
-    allocation_started = asyncio.Event()
-    release_allocation = asyncio.Event()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(
-        PatchouliRoutes.GET_AGENT_PROFILE,
-        _profile_route(started=allocation_started, gate=release_allocation),
+    profile_started = asyncio.Event()
+    release_profile = asyncio.Event()
+    bus, stub = _turn_bus(
+        profile_route=_profile_route(started=profile_started, gate=release_profile)
     )
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
-    cleanup_calls: list = []
-
-    async def cleanup(*, prepared_run, **_kwargs):
-        cleanup_calls.append(prepared_run)
-
-    bus.register(
-        PatchouliRoutes.FINALIZE_AGENT_RUN,
-        _raising(AssertionError("finalize 不应被调用")),
-    )
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
+    reader = _RecordingReader(store)
     cpu = ScriptedCPU(result=make_cpu_result())
 
-    service, composition = await _service(bus, store=store, cpu=cpu)
+    service, composition = await _service(bus, store=reader, cpu=cpu)
     requestor = await composition.authenticate(agent_id=SYSTEM_AGENT_ID)
     handle = await _register(
         composition,
         service,
         "问题",
-        process_id="process-stop-during-allocation",
+        process_id="process-stop-during-profile",
         attachments=[AttachmentSelectionRequest(asset_ref=ref_a)],
     )
     task = asyncio.create_task(collect_events(service, handle))
-    await allocation_started.wait()
-    stop_result = service.cancel_process("process-stop-during-allocation", actor=requestor)
-    release_allocation.set()
+    await profile_started.wait()
+    stop_result = service.cancel_process("process-stop-during-profile", actor=requestor)
+    release_profile.set()
     events = await task
 
     assert stop_result.cancelled is True
     assert done_data(events)["status"] == CPUExecutionStatus.CANCELLED.value
+    assert stub.retrievals == []
+    assert stub.prepared_topics == []
+    assert reader.acquired_for == []
     assert cpu.calls == []
-    assert cleanup_calls != [] and all(
-        prepared.interaction_id == "process-stop-during-allocation" for prepared in cleanup_calls
-    )
-    assert store.close_and_clear().leases_cleared == 0
 
 
 @pytest.mark.asyncio
-async def test_lease_release_tolerates_store_closed_after_finalize() -> None:
-    """Store 关闭后的租借释放只记录警告，不把已完成的 Chat 改写为异常。"""
+async def test_lease_release_tolerates_store_closed_before_process_close() -> None:
+    """Store 在租借释放之前关闭：释放只记录警告，不把已完成的 Chat 改写为异常。"""
     store = InMemoryWorkspaceAssetStore()
     composition = _composition()
     belong_to = _asset_workspace(composition)
     ref_a = make_ready_text_asset(store, belong_to, operation_id="op-a")
+    bus, _stub = _turn_bus()
 
-    bus = GlobalSystemBus()
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _prepare_route())
-
-    async def finalize(**_kwargs):
-        # finalize 期间 Store 关闭：finally 中的租借释放沿容忍语义记录警告。
+    async def close_store(_submit):
         store.close_and_clear()
-        return []
 
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-
-    service, composition = await _service(bus, store=store)
+    cpu = ScriptedCPU(result=make_cpu_result(), operation_script=close_store)
+    service, composition = await _service(bus, store=store, cpu=cpu)
     events = await _run_once(
         composition,
         service,
@@ -1082,13 +842,3 @@ async def test_lease_release_tolerates_store_closed_after_finalize() -> None:
     )
 
     assert done_data(events)["final_text"] == "完成"
-
-
-def _scoped_prepared(kwargs: dict[str, Any]) -> PreparedAgentRun:
-    """按总线 kwargs 构造真实 PreparedAgentRun（无检索结果）。"""
-    return PreparedAgentRun(
-        belong_to=(kwargs["identity_scope"]).workspace_identity,
-        interaction_id=kwargs["interaction_id"],
-        topic_id="topic-1",
-        is_new_topic=False,
-    )

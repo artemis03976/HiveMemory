@@ -176,16 +176,23 @@ def test_workspace_shared_facilities_do_not_import_capability():
     assert violations == []
 
 
-def test_workspace_process_does_not_import_capability():
-    """进程只负责阶段编排与执行线程生命周期，不持有具体能力服务。"""
+def test_workspace_process_imports_only_root_capability_api():
+    """进程的系统阶段经 root API 执行；actor 操作只经操作入口的公共契约提交。
+
+    进程不取得 actor API 或操作入口的实现：预检索以主线程经 ``OperationEntry``
+    契约提交，与 CPU 一侧相同。
+    """
     files = sorted((WORKSPACE_PACKAGE / "process").rglob("*.py"))
     assert files, "未扫描到 workspace process 源文件"
+    capability = "hivememory.workspace.capability"
+    root_api = f"{capability}.root"
     violations = [
         f"{path}: {target}"
         for path in files
         for target in _import_targets_of(path)
-        if target == "hivememory.workspace.capability"
-        or target.startswith("hivememory.workspace.capability.")
+        if (target == capability or target.startswith(f"{capability}."))
+        and target != root_api
+        and not target.startswith(f"{root_api}.")
     ]
     assert violations == []
 

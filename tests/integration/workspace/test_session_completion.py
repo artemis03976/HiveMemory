@@ -1,4 +1,4 @@
-"""会话取消收口与 finalize 生命周期；保留真实注册入口、权限与进程编排。"""
+"""会话取消收口与交互提交生命周期；保留真实注册入口、权限与进程编排。"""
 
 import asyncio
 import logging
@@ -16,33 +16,38 @@ from hivememory.core.models.interaction import TurnEvent
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
+from hivememory.patchouli.contracts.interaction_submission import InteractionSubmitResult
 from hivememory.workspace.process.table import CancelResult
 from hivememory.workspace.sessions import ConversationSessionService
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
-from tests.helpers.process import collect_events, done_data, make_task_process_service
+from tests.helpers.process import (
+    PatchouliTurnStub,
+    collect_events,
+    done_data,
+    make_task_process_service,
+)
 from tests.helpers.sessions import make_compaction_checkpoint, make_interaction_payload
 from tests.helpers.workspace import make_access_composition, make_actor_access_record
 
 
 @dataclass
 class CompletionProbe:
-    """记录外部 Patchouli 边界的交互接管与清理，提供可控提交屏障与用户停止入口。
+    """记录外部 Patchouli 边界收到的交互提交，提供可控提交屏障与用户停止入口。
 
-    ``stop`` 以同一 Workspace 的 system 工作 actor 对本进程发起停止，与
-    ``/chat/stop`` 走同一个取消方法。
+    提交到达时置位 ``entered``，等 ``release`` 放行后才记入 ``submitted`` 并以
+    应用成功作答。``stop`` 以同一 Workspace 的 system 工作 actor 对本进程发起
+    停止，与 ``/chat/stop`` 走同一个取消方法。
     """
 
     submitted: list = field(default_factory=list)
-    cleaned: list = field(default_factory=list)
     entered: asyncio.Event = field(default_factory=asyncio.Event)
     release: asyncio.Event = field(default_factory=asyncio.Event)
     stop: Callable[[], CancelResult] | None = None
 
 
 async def completion_chain(
-    cpu, *, block_finalize=False, shutdown_wait_seconds=10.0, seed_history=False
+    cpu, *, block_submission=False, shutdown_wait_seconds=10.0, seed_history=False
 ):
     """组装进程与会话，只有 Gateway/Patchouli 服务边界使用确定性替身。"""
     access = make_access_composition(
@@ -54,41 +59,35 @@ async def completion_chain(
     sessions = ConversationSessionService(WorkspaceSessionConfig())
     bus = GlobalSystemBus()
     probe = CompletionProbe()
-    if not block_finalize:
+    if not block_submission:
         probe.release.set()
 
     async def gateway(**_kwargs):
-        return GatewayDecisionOutcome(decision=make_gateway_decision())
+        return GatewayDecisionOutcome(
+            decision=make_gateway_decision(target_topic_id="topic-shared")
+        )
 
     async def profile(*_args, **_kwargs):
         return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
 
-    async def prepare(*, identity_scope, interaction_id, **_kwargs):
-        return PreparedAgentRun(
-            belong_to=identity_scope.workspace_identity,
-            interaction_id=interaction_id,
-            topic_id="topic-shared",
-            is_new_topic=True,
-        )
-
-    async def finalize(*, payload, **_kwargs):
+    async def submit(*, payload, interaction_id, requested_topic_id, **_kwargs):
         probe.entered.set()
         await probe.release.wait()
         probe.submitted.append(payload)
-
-    async def cleanup(*, prepared_run, **_kwargs):
-        probe.cleaned.append(prepared_run.interaction_id)
+        return InteractionSubmitResult(
+            interaction_id=interaction_id, state="succeeded", topic_id=requested_topic_id
+        )
 
     async def prefetch_models() -> None:
         return None
 
+    PatchouliTurnStub().install(bus)
+    bus.unregister(PatchouliRoutes.INTERACTION_SUBMIT)
     for route, handler in (
         (PatchouliRoutes.PREFETCH_MODELS, prefetch_models),
         (GatewayPublicRoutes.PROCESS, gateway),
         (PatchouliRoutes.GET_AGENT_PROFILE, profile),
-        (PatchouliRoutes.PREPARE_AGENT_RUN, prepare),
-        (PatchouliRoutes.FINALIZE_AGENT_RUN, finalize),
-        (PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup),
+        (PatchouliRoutes.INTERACTION_SUBMIT, submit),
     ):
         bus.register(route, handler)
     service = make_task_process_service(
@@ -132,7 +131,7 @@ async def completion_chain(
 )
 async def test_user_stop_seals_outcome_returned_by_cpu(reported, final_text):
     """用户停止时沿用 CPU 取消后返回的结局：部分输出按 cancelled、停止前已完成按
-    completed，在 done 前封口、写入会话并由 Patchouli 接管。"""
+    completed，在 done 前封口、提交交互并写入会话。"""
     cpu = ScriptedCPU(
         events=[{"event": "token", "data": {"content": final_text}}],
         hang_before_result=True,
@@ -151,7 +150,6 @@ async def test_user_stop_seals_outcome_returned_by_cpu(reported, final_text):
         (reported, final_text)
     ]
     assert probe.submitted == [history.turns[0].payload]
-    assert probe.cleaned == []
     assert history.active_process_id is None
 
 
@@ -176,7 +174,6 @@ async def test_output_with_each_outcome_is_submitted_before_terminal(status):
     assert saved.turns[-1].payload == probe.submitted[0]
     assert saved.compaction_checkpoint.reduced_through == "old"
     assert "compaction_checkpoint" not in events[-1]["data"]
-    assert probe.cleaned == []
 
 
 @pytest.mark.asyncio
@@ -218,7 +215,6 @@ async def test_alice_context_guard_seals_tool_output_as_failed_turn(tmp_path):
         assert turns[0].payload.outcome == "failed"
         assert content in turns[0].payload.turn_events[-1].result
         assert probe.submitted == [turns[0].payload]
-        assert probe.cleaned == []
         assert len(llm.calls) == 1
     finally:
         await alice.stop()
@@ -249,14 +245,13 @@ async def test_empty_terminal_does_not_create_turn_and_done_omits_text():
     assert saved.compaction_checkpoint.reduced_through == "old"
     assert "compaction_checkpoint" not in events[-1]["data"]
     assert probe.submitted == []
-    assert probe.cleaned == [handle.process_id]
 
 
 @pytest.mark.asyncio
 async def test_delivery_leaving_after_finalizing_never_skips_submission():
-    """交付方在 finalizing 之后离开：退订立即返回，提交照常完成，已接管的交互不被 cleanup。"""
+    """交付方在 finalizing 之后离开：退订立即返回，提交照常完成，之后才写入会话并释放认领。"""
     service, handle, sessions, workspace, probe = await completion_chain(
-        ScriptedCPU(result=make_cpu_result()), block_finalize=True
+        ScriptedCPU(result=make_cpu_result()), block_submission=True
     )
     stream = service.run_process(handle)
     while (await anext(stream))["event"] != "run_status":
@@ -265,12 +260,14 @@ async def test_delivery_leaving_after_finalizing_never_skips_submission():
     await stream.aclose()
     await probe.entered.wait()
     assert probe.submitted == []
-    assert sessions.get(workspace, handle.session_id).active_process_id == handle.process_id
+    pending = sessions.get(workspace, handle.session_id)
+    assert (pending.active_process_id, pending.turns) == (handle.process_id, ())
     probe.release.set()
     await service.close_process(handle)
     assert [p.outcome for p in probe.submitted] == ["completed"]
-    assert probe.cleaned == []
-    assert sessions.get(workspace, handle.session_id).active_process_id is None
+    saved = sessions.get(workspace, handle.session_id)
+    assert [t.payload for t in saved.turns] == probe.submitted
+    assert saved.active_process_id is None
 
 
 @pytest.mark.asyncio
@@ -304,7 +301,6 @@ async def test_delivery_leaving_after_cpu_terminal_discards_turn_but_accepts_che
     assert [turn.interaction_id for turn in saved.turns] == ["old"]
     assert saved.active_process_id is None
     assert probe.submitted == []
-    assert probe.cleaned == [handle.process_id]
 
 
 async def _collect(stream):
@@ -342,14 +338,13 @@ async def test_shutdown_stops_streaming_process_and_discards_partial_output(capl
     assert (done["status"], done["reason"]) == ("cancelled", "system_shutdown")
     assert "final_text" not in done
     assert probe.submitted == []
-    assert probe.cleaned == [handle.process_id]
     assert cpu.finished is True
     assert [r.getMessage() for r in caplog.records if r.levelno >= logging.WARNING] == []
 
 
 @pytest.mark.asyncio
 async def test_shutdown_hard_cancels_process_that_does_not_stop_in_time(caplog):
-    """停止后未在等待上限内结束的进程被硬取消，照常收尾、补偿 prepare 并释放会话认领。"""
+    """停止后未在等待上限内结束的进程被硬取消，照常收尾并释放会话认领。"""
     cpu = ScriptedCPU(
         events=[{"event": "token", "data": {"content": "半截"}}],
         hang_before_result=True,
@@ -363,7 +358,6 @@ async def test_shutdown_hard_cancels_process_that_does_not_stop_in_time(caplog):
     with caplog.at_level(logging.WARNING):
         await service.shutdown()
     assert sessions.get(workspace, handle.session_id).active_process_id is None
-    assert probe.cleaned == [handle.process_id]
     assert cpu.finished is True
     assert probe.stop().status == "not_found"
     assert any("硬取消" in r.getMessage() for r in caplog.records)
@@ -371,10 +365,10 @@ async def test_shutdown_hard_cancels_process_that_does_not_stop_in_time(caplog):
 
 
 @pytest.mark.asyncio
-async def test_shutdown_hard_cancel_still_waits_for_finalize_submission():
-    """进入 finalize 的进程拒绝停止；被硬取消后仍等提交结束，不 cleanup 已接管交互。"""
+async def test_shutdown_hard_cancel_still_waits_for_submission():
+    """进入 FINALIZE 的进程拒绝停止；被硬取消后仍等提交结束，并照常写入会话。"""
     service, handle, sessions, workspace, probe = await completion_chain(
-        ScriptedCPU(result=make_cpu_result()), block_finalize=True, shutdown_wait_seconds=0
+        ScriptedCPU(result=make_cpu_result()), block_submission=True, shutdown_wait_seconds=0
     )
     stream = service.run_process(handle)
     while (await anext(stream))["event"] != "run_status":
@@ -391,7 +385,6 @@ async def test_shutdown_hard_cancel_still_waits_for_finalize_submission():
     finally:
         service_logger.removeHandler(signal)
     assert [p.outcome for p in probe.submitted] == ["completed"]
-    assert probe.cleaned == []
     saved = sessions.get(workspace, handle.session_id)
     assert [t.payload.outcome for t in saved.turns] == ["completed"]
     assert saved.active_process_id is None
@@ -407,7 +400,6 @@ async def test_shutdown_closes_registered_process_that_never_ran():
     await service.shutdown()
     assert sessions.get(workspace, handle.session_id).active_process_id is None
     assert probe.stop().status == "not_found"
-    assert probe.cleaned == []
 
 
 @pytest.mark.asyncio
@@ -473,8 +465,8 @@ async def test_rejected_checkpoint_does_not_prevent_current_turn_submission(capl
 
 
 @pytest.mark.asyncio
-async def test_unavailable_alice_fails_process_and_releases_prepared_resources():
-    """CPU 未启动时执行失败仍补偿 prepare、释放会话，并且不提交交互。"""
+async def test_unavailable_alice_fails_process_releases_session_and_submits_nothing():
+    """CPU 未启动时执行失败：释放会话认领，不写入会话，也不提交交互。"""
     from hivememory.alice import AliceSystem
     from hivememory.config.alice import AliceConfig
     from tests.helpers.llm import ScriptedLLMService
@@ -489,6 +481,5 @@ async def test_unavailable_alice_fails_process_and_releases_prepared_resources()
     saved = sessions.get(workspace, handle.session_id)
     assert saved.turns == ()
     assert saved.active_process_id is None
-    assert probe.cleaned == [handle.process_id]
     assert probe.submitted == []
     assert probe.stop().status == "not_found"
