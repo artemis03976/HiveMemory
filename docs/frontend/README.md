@@ -12,7 +12,7 @@ related_contracts:
   - docs/contracts/mtp.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # HiveMemory Frontend
@@ -52,8 +52,8 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 | 页面 | 当前责任 | 当前事实来源 |
 |:---|:---|:---|
 | Chat | 会话管理与历史恢复、逐轮 Agent 选择、MTP/子 Agent 卡片、逐轮 Topic 标注、引用记忆与运行观测 | sessions API、chat SSE、memory tasks、RuntimeEvent、logs |
-| Memory Library | 记忆浏览、客户端筛选、语义检索、创建、编辑与删除；短期话题池的 settle 与 delete | memories API、topics API；读取失败时回退 mock |
-| Agent Management | Agent Profile 列表、创建、编辑与删除 | agents API + generic memories API；失败时可能回退 mock |
+| Memory Library | 记忆浏览、客户端筛选、语义检索、创建、编辑与删除；短期话题池的 settle 与 delete | memories API、topics API；读取失败时显示错误，debug 模式下回退 mock |
+| Agent Management | Agent Profile 列表、创建、编辑与删除 | agents API + generic memories API；读取失败时提示，debug 模式下回退 mock |
 | Settings | 通用配置草稿、Provider 凭证和 Model Registry 管理 | config/providers/models API |
 
 全局导航还显示 Terminal 入口，但 `App.tsx` 当前没有对应渲染分支，选择后主区域为空。这是未完成入口，不是第五个已交付页面。
@@ -65,7 +65,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 - 把 HTTP、SSE、WebSocket 和 RuntimeEvent 映射为可理解的页面状态；
 - 保存主题、面板、筛选、当前 Agent 和 generation override 等界面偏好；
 - 对明确支持的变更提供表单、确认和失败提示；
-- 在不篡改业务语义的前提下执行乐观更新或开发期 mock fallback。
+- 在不篡改业务语义的前提下执行乐观更新，以及 debug 模式（`VITE_DEBUG=true`）下的 mock fallback。
 
 前端不负责：
 
@@ -105,7 +105,7 @@ Memory Library、Agent Management 与 Settings 为用户提供人工干预入口
 ## 6. 当前总体限制
 
 - 会话历史由后端进程内的 ConversationSession 持有，刷新页面可以恢复，后端重启后丢失；SSE 断线不续传；
-- Memory、Agent 与 Settings 在后端失败时采用不同程度的 mock fallback，部分页面可能看似可用但写操作仍会失败；
+- Memory、Agent 与 Settings 的 mock fallback 只在 debug 模式下启用，此时页面没有 mock 标识，看似可用但写操作仍会失败；
 - Settings 的主配置中只有 General 与“内部引擎”两个分类与后端配置结构一致，其余分类尚未对齐，不能视为可靠控制面；
 - `#` 引用、消息复制/点赞/重试、Memory Pin 和顶层 Terminal 页面仍是未接线入口；
 - UI 为固定桌面工作台布局，尚没有路由级深链接、正式响应式策略、账户系统或无障碍验收证据。

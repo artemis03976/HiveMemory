@@ -10,7 +10,7 @@ updates:
   - docs/ideas/
   - docs/todo/
   - docs/archive/plans/
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # HiveMemory 开发路线图
@@ -187,7 +187,7 @@ last_reviewed: 2026-11-06
 
 Frontend 已部分落地，后续优化按可用性和资源操作体验推进，详细事实见 [Frontend](./frontend/README.md)。本轨不阻塞后端基础重构，但与受影响 API 一起验收。
 
-- **近期可靠性**：统一身份状态，明确真实/mock/stale/error，修复失败披露和乐观更新，覆盖 HTTP/SSE/WebSocket 的一致连接配置与请求终态。
+- **近期可靠性**：统一身份状态，明确真实/stale/error，修复失败披露和乐观更新，覆盖 HTTP/SSE/WebSocket 的一致连接配置与请求终态。
 - **资源操作体验**：Memory Garden 真实语义检索、可见性策略、附件/来源检查、导入预览与失败重试。Workspace 选择 UI 只在对应后端能力真实可用后开放。
 - **交互和视觉完善**：布局、导航、窄屏、可访问性、空状态及主题；避免将未接线的 Terminal 或研究页面显示成已有功能。
 
@@ -200,7 +200,7 @@ Todo 排期按已核对状态和实际依赖吸收，不能把目录中所有事
 | [Alice 健康探针](./todo/alice-health-probes.md) | v0.7.0 收尾时搁置（2026-10-19），未绑定版本 | 反映执行器实际就绪/故障；不令资源 readiness 依赖 Alice 在线 |
 | [日志与运行时事件](./governance/observability/logs-and-events.md)（原 RuntimeEvent 生产端迁移 Todo，2026-11-03 转入治理主题 W6） | 版本之外的工作（owner，2026-11-03），随时可以开始 | 保持事件只做观测，不以事件投递成功控制业务状态 |
 | [前端身份所有权](./todo/frontend-identity-ownership.md) | 前端可靠性优先项 | 不把固定 main_workspace 选择冒充认证或 Workspace 管理 |
-| [Mock fallback 披露](./todo/frontend-mock-fallback-disclosure.md) | 前端可靠性优先项 | 可辨认的数据来源与可兑现的写操作 |
+| [Mock fallback 披露（归档）](./archive/todo/frontend-mock-fallback-disclosure.md) | Completed / Archived（2026-11-07）：owner 决定 mock 数据只在 debug 模式下启用 | 默认读取失败如实显示，不以 mock 数据冒充真实结果 |
 | [Memory 管理页列表与检索（归档）](./archive/todo/frontend-memory-library-listing.md) | Completed / Archived（2026-11-02）：列表跟随游标取全，语义检索请求后端 | 列表取全并显示真实总量；语义检索复用真实后端能力，保留失败和空结果 |
 | [Memory visibility policy UI](./todo/memory-visibility-policy-ui.md) | 后端契约稳定后进入资源体验 | UI 编辑策略不能替代后端授权 |
 | [会话 /compact 指令](./todo/conversation-compact-command.md) | 会话与 Alice 自动压缩已完成，仍依赖命令运行位置与命令系统接回 | compact 只作用于 CPU 的会话上下文，不改写 Session 记录与 Topic；后台 Topic 的 page folding 是另一个问题 |

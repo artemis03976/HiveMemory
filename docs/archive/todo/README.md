@@ -3,13 +3,14 @@ title: Archived Todo
 status: current
 owner: project
 scope: completed-todo-history
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # Archived Todo
 
 本目录保存已完成的修复与技术债处置历史；当前行为从对应事实文档进入，活动待办见 [Todo](../../todo/README.md)。每条登记一行：归档日期、所在的 PR 与替代它的当前文档；处置过程见各事项自身。
 
+- [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)：2026-11-07，PR #189；[状态与传输](../../frontend/state-and-transports.md#6-mock-降级边界)、[管理页面](../../frontend/management-views.md)
 - [WorkspaceAsset 内部归属与操作身份拆分](./workspace-asset-ownership-identity-split.md)：2026-11-06，随 [WorkspaceAsset 的归属拆分](../plans/workspace-asset-ownership-split.md)完成，PR #185；[WorkspaceAsset](../../workspace/assets.md#3-身份与归属)
 - [本机 HTTP 管理接口不证明调用方](./local-http-management-access.md)：2026-11-05，PR #182；[认证与访问登记](../../workspace/authentication.md#1-两阶段认证)、[配置指南](../../help/configuration.md#51-访问登记)
 - [运行时事件没有持久的记录](./runtime-events-not-persisted.md)：2026-11-03，PR #175；[可观测性](../../components/observability.md#51-事件记录文件)、[System 配置](../../system/configuration.md)

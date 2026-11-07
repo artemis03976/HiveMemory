@@ -30,6 +30,7 @@ export default function AgentManagement() {
     setSelectedId,
     searchQuery,
     setSearchQuery,
+    loadFailed,
     createAgent,
     saveAgent,
     deleteAgent,
@@ -152,7 +153,7 @@ export default function AgentManagement() {
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center bg-surface-container-lowest text-slate-500">
           <Bot className="w-16 h-16 mb-4 opacity-20" />
-          <p>从列表中选择一个 Agent 以查看详情</p>
+          <p>{loadFailed ? 'Agent 列表读取失败，请检查后端服务后刷新' : '从列表中选择一个 Agent 以查看详情'}</p>
         </div>
       )}
     </div>

@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/mtp.md
   - docs/contracts/mcp.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # HiveMemory 项目总览
@@ -337,7 +337,7 @@ Agent 使用 `⟪ VERB | TARGET | ARGS ⟫` 在生成中主动检索、读取、
 - 重试、重复投递和跨存储副作用尚未形成统一业务边界，见[跨子系统幂等性与重试治理](./governance/reliability/idempotency-and-retry.md)；
 - MTP RUN 不能作为执行不受信任代码的安全沙箱；身份传播、缓存隔离和执行安全见[身份隔离与执行安全治理](./governance/security/identity-and-execution-safety.md)；
 - Document Ingestion、Deep Research、完整对话分叉和高级记忆回档仍是未来工作；
-- 前端仍是面向个人开发的实验工作台：没有聊天历史恢复、账户边界和完整 Settings 配置结构对齐，mock fallback 也尚未统一标识。
+- 前端仍是面向个人开发的实验工作台：没有聊天历史恢复、账户边界和完整 Settings 配置结构对齐；mock fallback 只在 debug 模式（`VITE_DEBUG=true`）下启用，页面没有 mock 标识。
 
 ## 11. 修改入口
 

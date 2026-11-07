@@ -19,7 +19,7 @@ related_contracts:
 related_docs:
   - docs/help/claude-code-plugin.md
   - docs/help/deepseek-harness-plugin.md
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-07
 ---
 
 # 安装与启动 HiveMemory
@@ -240,7 +240,7 @@ npm run build
 - [ ] 默认模型对应 Provider 已配置有效 API key；
 - [ ] 开发模式可打开 `5173`，Docker 模式可打开 `8000`；
 - [ ] Chat 请求能够收到 SSE 终态，而不只是打开静态页面；
-- [ ] 页面中的 Memory、Agent 和 Settings 数据已确认来自真实后端而不是 mock fallback。
+- [ ] 前端没有以 debug 模式（`VITE_DEBUG=true`）运行，页面中的 Memory、Agent 和 Settings 数据来自真实后端而不是 mock fallback。
 
 遇到问题时见[故障排查](./troubleshooting.md)。
 

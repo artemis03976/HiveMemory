@@ -3,7 +3,7 @@ title: Todo
 status: current
 owner: project
 scope: small-defects-and-technical-debt
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # Todo
@@ -24,7 +24,6 @@ last_reviewed: 2026-11-06
 - [会话 `/compact` 指令](./conversation-compact-command.md)（2026-10-01 由原 Topic `/compact` 系统指令接入重写：compact 归属前台的 CPU 会话上下文，依赖 ConversationSession、命令运行位置与 Alice 会话压缩）；
 - [建立前端身份状态所有权](./frontend-identity-ownership.md)（单一身份入口已建立，剩下切换时的持久化、失效与清理，在登录或 Workspace 切换出现前没有使用方）；
 - [Work Queue Runtime 多 lane 拓扑技术债](./work-queue-runtime-lane-topology.md)；
-- [统一前端 mock fallback 的状态披露](./frontend-mock-fallback-disclosure.md)；
 - [Memory 可见性策略前端组件](./memory-visibility-policy-ui.md)（依赖 Memory CRUD 契约先支持 `access_policy` 读写）；
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
 - [engines 对上层的既有导入](./engines-upward-imports.md)（包分层登记的 10 处已知例外，原记录于 Workspace 网络与任务进程架构 Idea）；
