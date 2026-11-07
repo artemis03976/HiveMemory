@@ -18,7 +18,7 @@ related_docs:
   - docs/research/agent-context-compaction-research.md
 related_todos:
   - docs/todo/conversation-compact-command.md
-last_reviewed: 2026-11-04
+last_reviewed: 2026-11-07
 ---
 
 # 短期记忆与上下文压缩
@@ -75,11 +75,11 @@ Alice 基线于 2026-10-17 更新；Patchouli 缺口沿用 2026-10-16 的核对�
 - 写回 `total_tokens` 只累计保留 blocks，不包含 `state_summary`。代码默认的 SimpleRelay 追加旧摘要与本批统计，没有摘要自身的有界重写；仓库随附的 `configs/config.yaml` 选用 LLMRelay。[折叠写回](../../src/hivememory/patchouli/services/perception.py)、[Relay](../../src/hivememory/engines/perception/relay_controller.py)、[默认配置](../../src/hivememory/config/patchouli.py)
 - SimpleRelay 主要记录请求数、工具名、token 数与最近问题片段；LLMRelay 在缺少模型、提供商失败或摘要超时时回退为规则摘要，自 2026-10-27 起接在 previous summary 之后。现有字符串返回也未完整表达空、截断或拒绝等摘要终态。[Relay 实现](../../src/hivememory/engines/perception/relay_controller.py)
 - Generation 视图按出现顺序保留用户消息、助手正文、思考与子 Agent 消息；外部工具保留调用参数与结果，单条结果按 `max_result_chars`（默认 800 字符）保留首尾截断；SEARCH、READ、RUN 只有一行摘要，不渲染取回的记忆；WRITE、UPDATE、CALL 不进入材料。截断只依长度，仍需区分可去掉的日志和决定事实含义的关键证据。[材料渲染](../../src/hivememory/engines/perception/material.py)、[生成投影](../../src/hivememory/prompts/transcript/generation.py)、[Patchouli 生成](../patchouli/generation.md)
-- 已折叠前缀未由 folding 自动保存为原文。原文交接、Topic 完整资料与生成来源 Artifact 的缺口归 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)，不由摘要算法解决。
+- 折叠不再丢弃原文：被折叠的块留在 Topic 的交互记录中，结算时冻结进来源 InteractionArtifact，v0.7.2 已实施（见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)第 0 节 / [感知与短期话题](../patchouli/perception.md)）。剩下的交到 Topic 之前的原文交接与保存承诺归 Raw Evidence，不由摘要算法解决。
 
 ## 4. 两边的关系与不变量
 
-建议关系如下。图中完整资料保存是目标方向，尚未全部贯通；持久化不属于本文范围。
+建议关系如下。图中从 Topic 完整资料到生成来源 Artifact 的部分已于 v0.7.2 实施，Session 到 Topic 的交接仍是目标方向；持久化不属于本文范围。
 
 ```mermaid
 flowchart LR
@@ -116,11 +116,11 @@ flowchart LR
 | 摘要目标 | 保留事实、来源、时间、否定与纠正、结果和可复用经验；更新仍有效的旧事实，清除过时结论，摘要自身保持有界。不要只用请求数/工具名统计代替语义材料 |
 | 工具证据 | 从实际工具结果选择关键返回值、错误原因和验证结论，并保留原文定位；保留范围由生成质量样本验证，不要求将所有日志重新内联 |
 | 接受与失败 | 候选摘要完整、有效且满足预算后才切换视图；失败保留上次有效摘要与尚未可靠交接的材料，重试有界并检查是否实际释放空间。原始资料保存失败的责任和阻塞/背压由 Raw Evidence 讨论，不以一条 warning 宣称已保全 |
-| 生成消费 | 先取得契约所选时点的全部可用资料及覆盖信息，再按请求预算编译；普通摘要视图与按原文分块提取可采用不同策略，避免恢复全量材料后一次塞进模型 |
+| 生成消费 | 先取得契约所选时点的全部可用资料及覆盖信息，再按请求预算编译；按原文分块提取已由 R-1 否决（owner，2026-10-30，见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md#01-owner-决定2026-10-30)第 0.1 节），生成继续读取话题的工作视图，避免恢复全量材料后一次塞进模型 |
 | 跨入口 | 根据实际 provenance 与能力处理材料；主动/被动或 connector 名称不直接决定是否跳过 folding。混合来源 Topic 仍保持相同资源归属边界 |
 | 观测 | 记录资料规模、内联规模、摘要规模、损失/恢复能力、耗时及失败原因；观测不替代领域提交结果 |
 
-原文资料、摘要视图和正式 Memory 可分别存在。一次 folding 不隐式 settle，不证明已经生成 Memory，也不改变 Topic 的驱逐含义。分块生成的去重与 canonical 更新归 Generation，Perception 不另建“每块是否已经生成记忆”的平行状态机。
+原文资料、摘要视图和正式 Memory 可分别存在。一次 folding 不隐式 settle，不证明已经生成 Memory，也不改变 Topic 的驱逐含义。分块生成已由 R-1 否决（owner，2026-10-30）；去重与 canonical 更新归 Generation，Perception 不另建“每块是否已经生成记忆”的平行状态机。
 
 ## 7. 可共享的技术与专项边界
 
@@ -148,7 +148,7 @@ flowchart LR
 
 - 检索记忆在提示词中的位置与 KV cache：原外部会话 Idea 8.2 的议题迁入此处。现有动态记忆/附件会影响前缀稳定性；摘要位置、刷新边界和缓存成本需共同评估，不把预期命中写成既定收益。
 - 摘要内容质量与预算参数需要用中文夹代码、需求纠正、工具密集、取消/失败和多 Agent 会话验证；事实保留与继续执行能力分别评估，不能只检查摘要格式。
-- Topic 优化需先确定完整资料交接与工作视图边界，再明确 Relay 语义、summary-only、生成证据与失败策略；不因复用 Alice 的估算或摘要机制而改变 Topic 的资料所有权。
+- Topic 内完整资料与工作视图的边界已于 v0.7.2 实施（交互记录与折叠记录，工作视图由它们派生）；Topic 优化需先确定交到 Topic 之前的完整资料交接，再明确 Relay 语义、summary-only、生成证据与失败策略；不因复用 Alice 的估算或摘要机制而改变 Topic 的资料所有权。
 - 原始资料持久化、编辑/回退/分支后的来源版本与视图失效，由 Raw Evidence 及各自专项供料；不因本文引入摘要就承诺跨重启恢复。
 
 技术调研与固定源码证据见 [Agent Harness 会话压缩技术调研](../research/agent-context-compaction-research.md)。本文维护 HiveMemory 的候选设计；调研报告中的外部项目快照不在此复制，也不替代 owner 决定。

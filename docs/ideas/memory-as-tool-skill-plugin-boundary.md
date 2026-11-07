@@ -11,7 +11,7 @@ related_docs:
   - docs/patchouli/artifacts.md
   - docs/archive/ideas/workspace-mvp-chat-attachments-design.md
   - docs/architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md
-last_reviewed: 2026-10-09
+last_reviewed: 2026-11-07
 ---
 
 # MaaT 与 Skill/Plugin 边界的资产消费模型
@@ -97,12 +97,12 @@ ToolInvocationIR
   pinned_reference           # 引用及其内容 hash、工具/解析器版本
   invocation                 # entrypoint + 参数约束
   sandbox_profile            # 隔离级别、资源上限、可信来源审查
-  permission_decision        # 由 MTP Runtime 结合 AgentProfile + IdentityScope 得出
+  permission_decision        # 由 workspace 的 actor API 逐次授权得出
   citation_hook              # 触发 mtp.run 观测
   failure_contract           # 失败 -> 结构化 MTPErrorInfo，不回灌裸 stderr
 ```
 
-要点：这里描述的是未来 RUN 的结构化执行依据。MemoryCompiler 根据 target 编译资产信息；当前调用方的身份、权限、参数、deadline、取消和资源限制由 MTP Runtime 在执行前绑定。Shell 只是其中一个后端，不是协议本体。
+要点：这里描述的是未来 RUN 的结构化执行依据。MemoryCompiler 根据 target 编译资产信息；当前调用方的身份与权限由 workspace 的 actor API 逐次授权，参数、deadline、取消和资源限制由 MTP Runtime 在执行前绑定（[ADR-0003](../architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md)第 4 节）。Shell 只是其中一个后端，不是协议本体。
 
 ### 4.3 执行证据回流草案
 
@@ -140,7 +140,7 @@ run 记录（原子、revision/hash、参数、IdentityScope、结果、耗时�
 
 | 需求 | skill 文档 + 终端命令 | MTP RUN 编译后的记忆原子 |
 |:---|:---|:---|
-| 运行时授权 | 不会自动继承 HiveMemory 的 `IdentityScope` 和 AgentProfile 约束，需要额外 wrapper | 从 frame 冻结的 `IdentityScope` 注入 + AgentProfile 白名单 + 未来沙箱，运行时硬约束 |
+| 运行时授权 | 不会自动经过 HiveMemory 的 Workspace 访问登记与逐次授权，需要额外 wrapper | workspace 的 actor API 按访问登记的 actor 操作白名单逐次授权 + 未来沙箱，运行时硬约束 |
 | 可复现 | 依赖 PATH 上的临时版本，除非额外建立版本固定机制 | 冻结引用及其 hash、版本和运行来源 |
 | 溯源 | 不会自动形成 HiveMemory 的 `mtp.run` 记录 | `mtp.run` citation + 来源和结果记录 |
 | 复用/回流 | 每会话重写，结果易逝 | 可 SEARCH/CALL/跨 agent 复用，结果回流为记忆演化输入 |
@@ -174,7 +174,7 @@ run 记录（原子、revision/hash、参数、IdentityScope、结果、耗时�
 1. `CODE_SNIPPET` 的"content 即代码"语义如何迁移到三层语义模型？是否继续复用现有 `CODE_SNIPPET`，还是由后续设计引入新的表示方式？
 2. 引用层是否继续使用现有 `ArtifactRef`，还是需要独立的引用结构？如果引用可执行资料，如何保证版本、hash、entrypoint 和来源完整？
 3. content 中哪些内容属于 Agent 使用指引，哪些内容必须由 Runtime 结构化校验？如何避免从自由文本推导权限和执行入口？
-4. `RUNNABLE_TOOL` 的执行依据如何与当前 `MemoryCompiler` target 对接？哪些字段由 Compiler 提供，哪些字段由 MTP Runtime 在本次调用中绑定？
+4. `RUNNABLE_TOOL` 的执行依据如何与当前 `MemoryCompiler` target 对接？身份与权限已不在其中：由 workspace 的 actor API 逐次授权，Agent Profile 不承载权限（[ADR-0003](../architecture/decisions/0003-memory-as-a-tool-and-mtp-run-boundary.md)第 4 节、[MTP 契约](../contracts/mtp.md#4-权限)）；其余字段中哪些由 Compiler 提供，哪些由 MTP Runtime 在本次调用中绑定？
 5. `RUNNABLE_TOOL` 一旦进入公共契约，与 `mtp.md`、`memory-compiler.md` 的哪些字段需要同步冻结？
 6. 强沙箱、可信来源审查与资源限制应在哪个治理主题下建立，是否与 [Executable Asset Sandbox](../ROADMAP.md) 合并立项？
 7. 执行结果如何回流为记忆演化输入：`mtp.run` citation 扩展、独立 outcome 记录还是事件回流？哪些结果只能记录，哪些结果才允许影响验证状态或 vitality？

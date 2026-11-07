@@ -18,7 +18,7 @@ related_documents:
   - docs/workspace/README.md
   - docs/patchouli/memory-library.md
   - docs/alice/orchestration.md
-last_reviewed: 2026-09-01
+last_reviewed: 2026-11-07
 ---
 
 # AE2 与 HiveMemory 的架构同构性
@@ -77,6 +77,8 @@ AE2 子网不只是“另一个网络”。它可以拥有自己的存储、设�
 
 ## 3. HiveMemory 的精确映射
 
+执行一侧的对应关系以[第五代架构 Idea](./fifth-generation-architecture.md)第 2 节的用语为准（owner，2026-10-06，2026-10-20 修订）；下表是此前的映射，没有逐行改写。
+
 | AE2 概念 | HiveMemory 中更精确的对应物 | 当前状态 | 需要保留的限定 |
 |:---|:---|:---|:---|
 | 物品/流体栈 | `MemoryAtom`、Artifact、执行产物 | 已有基础 | 不同 MemoryType 不能被同质化处理 |
@@ -89,7 +91,7 @@ AE2 子网不只是“另一个网络”。它可以拥有自己的存储、设�
 | Crafting CPU | Alice Orchestrator、`ExecutionFrame`、运行时状态 | 部分成立 | 当前没有完整 DAG、并行 specialist、持久化 Job Queue |
 | CPU 中间材料 | `ExecutionProgress`、PendingAtom、materialize task | 已有基础 | 许多状态仍是进程内的，重启后不能恢复 |
 | ME Controller / Network | `GlobalSystemBus`、公共 Route/Contract、System 组合根 | 已有基础 | 当前是单进程异步总线，不承诺分布式投递 |
-| Subnetwork | 拥有独立资产、工具和环境的 Workspace | Workspace 已有初步资源网络边界；完整 Subnetwork 尚未实现 | 当前 Workspace ownership 不等于完整子网；历史 `WORKSPACE` visibility 只是兼容期的 team 可见性 |
+| Subnetwork | 拥有独立资产、工具和环境的 Workspace | Workspace 已有初步资源网络边界；完整 Subnetwork 尚未实现 | 当前 Workspace ownership 不等于完整子网 |
 | Interface + Storage Bus | 显式 Workspace Mount/Bridge | 尚未实现 | 需要独立的读取、修改、执行和导出权限 |
 | Channel / Coprocessor / Crafting Storage | 并发额度、队列容量、token/cost 预算、执行槽位 | 尚未系统化 | 配额不等于授权，必须分开建模 |
 
@@ -177,9 +179,11 @@ Agent 进入 Workspace 时，不应永久拥有这些东西，而应获得一次
 Effective Capability
   = User Identity
   ∩ Workspace Policy
-  ∩ Agent Profile Allowlist
+  ∩ Workspace 访问登记的 actor 操作白名单
   ∩ Run-local Restrictions
 ```
+
+Agent Profile 不承载权限，Agent 的操作权限只由 Workspace 访问登记的 actor 操作白名单表达，已实施，见[认证与访问登记](../workspace/authentication.md#2-两类访问登记)；Run-local Restrictions 对应进程能否持有白名单的子集，见[身份与访问体系 Idea](./identity-and-access-model.md#p-4a-进程能否持有白名单的子集) P-4a。
 
 跨 Workspace 的资源访问不应是隐式的全局 `PUBLIC` 查找，而应成为显式 Mount：
 
@@ -201,11 +205,12 @@ WorkspaceMount
 - 只向主 Workspace 导出构建产物、测试结果和已确认记忆；
 - 对主网表现成一个稳定的 `frontend capability`，而不暴露内部 Agent 拓扑。
 
-当前实现还没有上述完整能力容器。已落地的 Workspace 只提供身份坐标、资源 ownership、
-hard boundary、传播和部分生命周期基础，不拥有独立工具、执行环境、队列、配额或审计
-系统。Memory v2 的 `PUBLIC / PRIVATE / TEAM` actor read policy 只在 owning Workspace
-内部生效；历史 `WORKSPACE` visibility 是按 `team_id` 解释的兼容语义，不等于当前
-WorkspaceIdentity 或子网。当前文件工具也使用 Alice 配置中的单一 `workspace_path`，
+当前实现还没有上述完整能力容器。已落地的 Workspace 提供身份坐标、资源 ownership、
+hard boundary、传播和部分生命周期基础，以及能力层（root API 与 actor API）、带 actor
+操作白名单的访问登记、任务进程表与执行线程、会话资源、读取视图与写入意图登记；它仍不
+拥有独立工具、执行环境、队列、配额或审计系统。Memory v2 的 `PUBLIC / PRIVATE / TEAM`
+actor read policy 只在 owning Workspace 内部生效，不等于子网；历史 `WORKSPACE`
+visibility 的兼容分支已随存量迁移删除。当前文件工具也使用 Alice 配置中的单一 `workspace_path`，
 不能解释成每个 Workspace 都有独立执行环境。当前事实见[Workspace](../workspace/README.md)，
 相关缺口和风险见[检索身份过滤](../patchouli/retrieval.md)与[身份隔离与执行安全治理](../governance/security/identity-and-execution-safety.md)。
 
@@ -427,7 +432,7 @@ AE2 不把“物品被放在某个箱子里”自动视为合成完成，而要�
 
 ### 6.2 一个 Job 应绑定一个隔离的 CPU 状态域
 
-AE2 一个 Crafting CPU 处理一个 Job；并行 Job 需要独立 CPU 或明确的并行容量。HiveMemory 应逐步让每个 run 拥有独立的 scheduler state、alias view、cancel scope、预算账本和 PendingAtom 归属，避免进程级共享状态相互污染。
+AE2 一个 Crafting CPU 处理一个 Job；并行 Job 需要独立 CPU 或明确的并行容量。HiveMemory 应逐步让每个 run 拥有独立的 scheduler state、alias view、cancel scope 和预算账本，避免进程级共享状态相互污染。按任务进程的取消已实施，见[任务进程](../workspace/task-process.md#12-取消与停止)；写入意图不归单次 run，由 workspace 的进程级登记持有，供同 Workspace 的其他 Actor 与后续任务进程回读，见[读取视图与写入意图](../workspace/read-view-and-write-intents.md#2-写入意图为什么由-workspace-持有)。
 
 ### 6.3 黑盒可组合，内部复杂度不泄漏
 
@@ -452,7 +457,7 @@ AE2 可以统一搬运多种材料，但输入、配方、存储和机器仍然�
 - `ExecutionFrame` 保存可恢复的单帧运行状态；
 - WorkspaceIdentity、复合资源键和 IdentityScope 传播已经形成初步的“ME 网络”资源边界；
 - Memory v2 的 `PUBLIC / PRIVATE / TEAM` actor read policy 在 Workspace ownership hard
-  filter 之后执行；历史 `WORKSPACE` visibility 只作为兼容值解释；
+  filter 之后执行；
 - System、Gateway、Patchouli、Alice 通过公开 Route 和公共模型进行交接。
 
 以下内容不能被本文当作已经实现：
@@ -492,15 +497,15 @@ AE2 可以统一搬运多种材料，但输入、配方、存储和机器仍然�
 
 ## 9. 开放问题
 
-1. `team_id` 是否应演化为显式 `workspace_id`，还是 Workspace 与 Team 需要分开建模？
+1. `team_id` 是否应演化为显式 `workspace_id`，还是 Workspace 与 Team 需要分开建模？已实施为分开建模：资源归属由 `WorkspaceIdentity`（含 `workspace_id`）表达，`team_id` 只是 `ActorIdentity` 的可选字段与 TEAM 读取策略的目标，见[身份与授权](../workspace/identity-and-authorization.md#1-身份坐标)。
 2. Workspace 之间应采用严格树状父子关系，还是允许经过权限检查的有向 Mount 图？
-3. Memory alias 在不同 Workspace 中是局部命名，还是允许带 namespace 的全局引用？
+3. Memory alias 在不同 Workspace 中是局部命名，还是允许带 namespace 的全局引用？当前 alias 在同一 Workspace 内唯一（[MemoryLibrary](../patchouli/memory-library.md)第 1.2 节）；跨 Workspace 引用的限定形式见[身份与访问体系 Idea](./identity-and-access-model.md#t-5b-跨-workspace-目标的表达形式) T-5b。
 4. Workspace 的工具环境、模型策略和文件根目录是否需要可持久化并可恢复？
 5. 子 Workspace 产生的结果应该以 Artifact、MemoryAtom、Event 还是 Job Result 形式导出？
 6. `EXECUTE` 能力的来源、信任级别、审批和资源限制由谁维护？
 7. 跨 Workspace 的写入是否允许直接修改目标资产，还是必须通过 proposal/review/settlement？
-8. 多 Agent 并发时，资源配额与权限作用域如何同时传播到子帧、后台任务和重试？
-9. Harness-to-Harness 的共同最小契约应由 MTP 扩展、MCP、进程协议还是独立 Capability API 承载？
+8. 多 Agent 并发时，资源配额如何传播到子帧、后台任务和重试？权限作用域的传播已实施：CALL 子线程以被调用方身份按其白名单运行，后台任务与重试从载荷恢复资源归属与发起者，见[执行线程](../workspace/execution-threads.md#63-子线程以被调用方身份运行)与[身份与授权](../workspace/identity-and-authorization.md#62-后台任务和重试)；进程能否持有白名单的子集见[身份与访问体系 Idea](./identity-and-access-model.md#p-4a-进程能否持有白名单的子集) P-4a。
+9. Harness-to-Harness 委派的共同最小契约应由 MTP 扩展、MCP、进程协议还是独立 Capability API 承载？外部 harness 访问 HiveMemory 的一侧已决定：多种传输各由操作适配器归一到同一能力层，支持 MCP 的 harness 以 MCP 访问记忆（owner，2026-10-29，[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#e-2-运行时访问的传输承载) E-2 选项 C）；HiveMemory 驱动外部 harness 的方式见同节 E-2a。
 10. 主网如何验证子网“完成了任务”，而不把自然语言声明当成成功证明？
 11. 软件子网是否需要统一 Manifest，还是只要求符合公共 Capability Contract？
 12. 应用级 Workspace Memory 与全局用户 Memory 如何分层、挂载和撤销？

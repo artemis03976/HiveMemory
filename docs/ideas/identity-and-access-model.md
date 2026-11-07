@@ -38,7 +38,7 @@ related_docs:
   - docs/todo/memory-visibility-policy-ui.md
   - docs/todo/frontend-identity-ownership.md
   - docs/todo/run-target-executability-check.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # 身份与访问体系
@@ -56,7 +56,7 @@ last_reviewed: 2026-11-06
 
 - 已落地的模型分布在多份事实文档中：身份与授权、认证与访问登记、能力层、执行线程与 MCP 记忆访问；
 - 未决的部分散落在第五代架构 Idea、外部 Actor Idea、写入意图 Idea、五份 Todo 与身份治理中；
-- 例外与补丁逐渐累积：WorkspaceAsset 仍以旧 `IdentityScope` 做归属检查（AGENTS.md 登记的唯一例外），Profile 注入脚本以 `system` 进入 root API，HTTP 管理接口沿用本地单用户部署的信任假设（2026-11-05 起以管理凭据防误用）。
+- 例外与补丁逐渐累积：WorkspaceAsset 曾以旧 `IdentityScope` 做归属检查（AGENTS.md 登记的唯一例外，2026-11-06 随 WorkspaceAsset 的归属拆分删除，见[归档计划](../archive/plans/workspace-asset-ownership-split.md)），Profile 注入脚本以 `system` 进入 root API，HTTP 管理接口沿用本地单用户部署的信任假设（2026-11-05 起以管理凭据防误用）。
 
 已经具备、本文不再讨论的地基：三个身份模型与两阶段认证、两阶段授权；统一身份授权入口（认证得到工作 actor，授权只有 actor 执行期间的 `authorize_agent` 与系统级操作的 `authorize_root` 两个方法，交互的参与者作为数据显式传递；2026-11-06 落地，见第 5 节）；资源归属与发起者的拆分；外部 principal 以本地共享密钥证明身份（P-1c）；`allow_system_actor` 限定能声明 `system` 的来源；不建进程的访问每次工具调用认证一次、身份只在本次调用内有效（P-9c）。
 

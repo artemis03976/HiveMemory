@@ -11,7 +11,7 @@ related_contracts:
   - docs/gateway/analysis.md
   - docs/gateway/workflow.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-11-04
+last_reviewed: 2026-11-07
 ---
 
 # 复合意图分解
@@ -208,9 +208,9 @@ class RouteTarget(BaseModel):
 
 需要决定：
 
-1. 每个 `SubIntent` 是否独立重走话题准备与查询分析，还是复用 parent 的冻结入口上下文。
+1. 每个 `SubIntent` 是否独立重走话题准备与查询分析，还是复用 parent 的冻结入口上下文。Patchouli 的 prepare 已于 2026-11-06 删除（[归档计划](../archive/plans/interaction-submission-and-topic-on-demand.md)），一个任务进程只有一个派发话题，按需确定（[任务进程](../workspace/task-process.md#53-话题何时确定)第 5.3 节）。
 2. 多个 QUERY 子意图是否分别检索后交给 Alice 合成。
-3. 多个 WRITE 子意图是否分别进入 Patchouli finalize，还是合并为一次 memory write signal。
+3. 多个 WRITE 子意图是否分别进入 Patchouli finalize，还是合并为一次 memory write signal。写入是 actor 的 WRITE 操作，在执行期间实时派发，不经 finalize；Patchouli 的 finalize 已于 2026-11-06 删除，入口的写入信号已于 v0.7.2 移除（[ROADMAP](../ROADMAP.md) 第 4.7 节），这两个选项都不再有承接方，多个 WRITE 子意图如何处理仍开放。
 4. 分支是否共享 `CandidateTopics`。
 5. 分支是否共享 `RoutedTopicContext`，还是每个分支重新 topic routing。
 6. 分支失败是否影响 parent response。
@@ -231,14 +231,14 @@ class RouteTarget(BaseModel):
 TODO:
 
 - QUERY 分支如何生成 retrieval request。
-- WRITE 分支如何影响 memory write signal。
-- topic prepare 是 parent 级还是 branch 级。
+- WRITE 分支如何影响 memory write signal（入口的写入信号已于 v0.7.2 移除，写入是 actor 的 WRITE 操作、执行期间实时派发，见第 7 节第 3 项）。
+- topic prepare 是 parent 级还是 branch 级（Patchouli 的 prepare 已于 2026-11-06 删除，一个任务进程只有一个派发话题，见第 7 节第 1 项）。
 - 多分支 memory refs 如何合并。
 
 约束：
 
 - Patchouli 不应接收裸 `list[GatewayState]`。
-- Patchouli 只接收稳定 envelope 或派生 prepare decision。
+- Patchouli 只接收稳定 envelope 或派生 prepare decision（Patchouli 的 prepare 已于 2026-11-06 删除）。
 
 ### 8.2 Alice
 

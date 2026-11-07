@@ -15,7 +15,7 @@ related_docs:
   - docs/ideas/task-process-table-and-registration-entry.md
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/external-session-and-topic-projection.md
-last_reviewed: 2026-10-30
+last_reviewed: 2026-11-07
 ---
 
 # 执行环境
@@ -56,7 +56,7 @@ last_reviewed: 2026-10-30
 
 按前提 9，用户分别选择 agent 与执行环境，并非每个组合都有效。例如 Profile 指定的模型不在 harness 声明的模型配置项中；harness 无法注入 persona；执行环境要求的工作目录等条件不满足。
 
-- **T-7a 校验时点**：注册入口创建进程之前 / CPU 分配时，在 Patchouli prepare 之前（与 Profile 解析当前的时点相同） / 执行开始后由执行单元报告 / 其他。影响：Profile 提前到 prepare 之前解析，是因为 prepare 可能新建 Topic 或按 LRU 结算已有话题，这些副作用不可逆（[任务进程 Idea](./task-process-table-and-registration-entry.md) 2.2）；组合在 prepare 之后才被判定无效，会留下同样的副作用。
+- **T-7a 校验时点**：注册入口创建进程之前 / PREPARE 开始时，在预检索之前（与 Profile 解析当前的时点相同） / 执行开始后由执行单元报告 / 其他。影响：Profile 属于 CPU 分配，但在 PREPARE 开始时解析，是因为主线程以这份图纸派生，预检索与已有话题的确认都由主线程执行（[任务进程 Idea](./task-process-table-and-registration-entry.md) 2.2）；PREPARE 不建立话题（2026-11-06 起，[归档计划](../archive/plans/interaction-submission-and-topic-on-demand.md)），它的副作用是预检索与已有话题的驻留刷新，组合在 PREPARE 之后才被判定无效，会留下这些副作用。
 - **T-7b 无法完全应用时的处理**：拒绝请求 / 降级运行并报告未生效的项（第五代架构 Idea P-10a） / 按 Profile 字段区分：模型不可用时拒绝，persona 无法注入时降级 / 其他。
 
 ### T-8 执行环境选择的承载与系统层级的控制

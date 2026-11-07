@@ -8,7 +8,7 @@ related_current:
   - docs/patchouli/lifecycle.md
   - docs/patchouli/memory-library.md
   - docs/patchouli/retrieval.md
-last_reviewed: 2026-07-30
+last_reviewed: 2026-11-07
 ---
 
 # 生命力分数计算：长期演进方向
@@ -180,9 +180,9 @@ V(t) = V_0 · D(t) + A(access) + B(events)
 
 ### 核心想法
 
-认知科学里"前摄/后摄干扰"：学新知识会让旧的相关记忆退化。当前查重仅做 CREATE/UPDATE/TOUCH 决策（见 `engines/generation/engine.py:326-355`），**完全不影响旧记忆 vitality**。
+认知科学里"前摄/后摄干扰"：学新知识会让旧的相关记忆退化。当前查重只给出 CREATE 或 TOUCH：相似度落在 `SIMILAR` 范围时先新建记忆，再由生成队列中的 MERGE 任务把它融合进已有记忆（见 `engines/generation/engine.py` 的 `MemoryGenerationEngine._dedup_and_resolve` 与[记忆生成](../patchouli/generation.md#4-查重与合并)第 4 节），**不会削弱旧记忆的 vitality**。
 
-增加一步：当 dedup 决策为 CREATE 但与某条旧记忆高相似度（不构成 update 但有重叠）时，给旧记忆施加小幅干扰：
+增加一步：当 dedup 决策为 CREATE 但与某条旧记忆有重叠时，给旧记忆施加小幅干扰（`SIMILAR` 范围内的新记忆会被合并进旧记忆，干扰建模须先定义它与合并范围的关系）：
 - `event_vitality_boost -= 2` (或类似小幅度)
 - `decay_rate *= 1.05` (如果方向 1 已落地)
 

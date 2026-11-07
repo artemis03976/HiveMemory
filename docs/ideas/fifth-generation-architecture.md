@@ -19,7 +19,7 @@ related_docs:
   - docs/ideas/external-actor-registration-and-runtime-access.md
   - docs/ideas/pending-intent-migration.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-05
+last_reviewed: 2026-11-07
 ---
 
 # 第五代架构：Workspace 网络
@@ -229,8 +229,8 @@ flowchart TB
 
 - 每次请求重新校验身份，不以注册时的认证结果代替；
 - 行为许可与资源许可必须同时满足，任何一方都不能替代另一方；
-- root 只有保留的 `system` 一个，只在 root API 生效；授权不按 actor 类型分支；
-- 阶段调用是系统替 actor 做的操作，不检查 actor 操作，但仍按 actor 的身份过滤可见性。
+- root 只有保留的 `system` 一个，root 授权只接受它，覆盖 root API、任务进程的系统阶段与取消（owner，2026-11-05）；授权不按 actor 类型分支；
+- 阶段调用由系统以 root 工作 actor 执行，不以 Agent 的许可为前提，也不受 Agent 的可见性约束；任务进程的预检索按执行者的可见性返回记忆，是执行者的 actor 操作（owner，2026-11-05，[统一身份授权入口](../archive/plans/unified-identity-authorization-entry.md)第 4.1 节）。
 
 **检验问题**：新功能的授权点在哪一阶段、由谁负责？是否把权限写进了资源或身份类型？跨 Workspace 的操作是否同时满足驻留一侧与目标一侧的授予？
 

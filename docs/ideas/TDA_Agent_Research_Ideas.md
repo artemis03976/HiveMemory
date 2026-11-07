@@ -8,7 +8,7 @@ related_current:
   - docs/alice/agent-runtime.md
   - docs/alice/orchestration.md
   - docs/components/observability.md
-last_reviewed: 2026-07-29
+last_reviewed: 2026-11-07
 ---
 
 # TDA 在 Agent 轨迹与多智能体编排中的潜在应用想法
@@ -19,11 +19,11 @@ last_reviewed: 2026-07-29
 
 HiveMemory 已经拥有比自由文本 CoT 更可靠的一部分观测原语：`TurnEvent` 以 sequence 和 action id 保存消息、thought 与工具调用（调用与结局在同一个事件上）；`RuntimeEvent` 提供 trace、frame、run、task 和 topic 等关联字段；Alice 也能产生单层、串行 CALL 的子 Agent 事件。这些结构可以成为未来离线构图的数据来源。
 
-但当前没有持久化 Agent trajectory graph、依赖边抽取、filtration、persistent homology、topology monitor 或拓扑驱动的运行时控制。RuntimeEventBus 还是进程内 best-effort 观测流，TurnEvent 也没有完整的 parent dependency、成本、延迟与跨 run 回放语义；Alice 当前只支持单层星型 CALL，不具备并行团队、动态 DAG 或自治 review loop。因此下文的图模型、H0/H1 解释和控制策略都只是待证伪假设，不能反写为当前编排设计。
+但当前没有持久化 Agent trajectory graph、依赖边抽取、filtration、persistent homology、topology monitor 或拓扑驱动的运行时控制。RuntimeEventBus 还是进程内 best-effort 观测流，配置后事件另写入只追加的 JSONL 事件记录文件，可由 `scripts/runtime_event_timeline.py` 按关联标识排出时间线，但不回放到总线（[可观测性](../components/observability.md#51-事件记录文件)第 5.1 节）；TurnEvent 的原文随 InteractionArtifact（可选旁路）的 `turn_events` 快照保存（[Artifacts](../patchouli/artifacts.md#6-双视图与结构化事实)第 6 节），但仍没有完整的 parent dependency、成本、延迟与跨 run 回放语义；Alice 当前只支持单层星型 CALL，不具备并行团队、动态 DAG 或自治 review loop。因此下文的图模型、H0/H1 解释和控制策略都只是待证伪假设，不能反写为当前编排设计。
 
 本方向升级为 Plan 前，至少需要：
 
-1. 先冻结一个可导出、可脱敏、可重放的最小事件数据集，并说明它与业务真相、RuntimeEvent 和日志的关系；
+1. 在现有的事件记录文件与 InteractionArtifact 的 `turn_events` 之上，先冻结一个可导出、可脱敏、可重放的最小事件数据集，并说明它与业务真相、RuntimeEvent 和日志的关系；
 2. 建立普通计数/规则基线，例如 retry 次数、失败率、分支数和成本，证明 TDA 提供额外而稳定的解释力；
 3. 使用成功/失败、成本和人工质量标签完成离线评估，避免仅凭个别轨迹解释 H0/H1；
 4. 明确初期只做离线诊断，不让实验性拓扑信号直接取得取消、重试或调度权；
