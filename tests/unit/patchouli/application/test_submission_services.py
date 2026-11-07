@@ -2,8 +2,10 @@
 
 被测对象：两个公开提交 API 的载荷语义（行为授权在 workspace 能力层完成，本层只接收
 调用方传入的 ``IdentityScope``）：
-- ``submit_interaction`` 经真实内存队列接纳并返回收据投影；交互由系统以 root scope
-  提交，归属取 scope，发起者取显式的参与者；队列容量已满或已停止以可重试的
+- ``submit_interaction`` 经真实内存队列接纳并等待应用，返回结局：成功带实际所在的话题，
+  应用失败带异常类名，到时限或队列停止时仍未应用为等待中；同一交互再次提交只等待已有的
+  工作项；调用方取消等待不撤回已接纳的交互。交互由系统以 root scope 提交，归属取 scope，
+  发起者取显式的参与者；队列容量已满或已停止以可重试的
   ``InteractionAdmissionUnavailableError`` 拒绝；
 - ``interaction_status`` 未接纳时为空，接纳后报告等待中、成功（附实际所在的话题）或失败，
   同名交互归属其他 Workspace 时报冲突；``wait_interaction`` 等到终态或超时；
@@ -65,42 +67,201 @@ def _payload():
 # ---- 交互提交 ----
 
 
-def test_submit_interaction_accepts_scope_and_returns_receipt():
-    """合法 scope 直接提交：经真实内存队列接纳，收据携带稳定 interaction_id。"""
-    applied = []
+async def _never_applied(_payload, **_kwargs):
+    raise AssertionError("接纳查询与拒绝路径不应用交互")
 
-    async def _apply(
-        payload,
-        *,
-        belong_to,
-        from_actor,
-        target_topic_id,
-        interaction_id=None,
-        asset_refs=(),
-        new_topic_title=None,
-        new_topic_summary=None,
-    ):
+
+async def _wait_until_accepted(queue: InteractionSubmissionQueue, interaction_id: str) -> None:
+    """有界轮询，直到队列接纳该交互。"""
+    async with asyncio.timeout(2):
+        while not await queue.is_accepted(interaction_id):
+            await asyncio.sleep(0)
+
+
+def _blocked_apply():
+    """返回在 ``release`` 置位前不结束的应用，以及标记它已开始与放行它的两个事件。"""
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def apply(_payload, **_kwargs):
+        started.set()
+        await release.wait()
+        return "topic-real"
+
+    return apply, started, release
+
+
+def test_submit_interaction_waits_for_apply_and_reports_real_topic():
+    """新接纳的交互等到应用完成才返回：结局为成功，带 NEW_TOPIC 解析后实际所在的话题。"""
+
+    async def apply(_payload, **_kwargs):
+        return "topic-real"
+
+    async def scenario():
+        queue = InteractionSubmissionQueue(apply)
+        service = InteractionSubmissionService(interaction_queue=queue)
+        await queue.start()
+        try:
+            return await service.submit_interaction(
+                identity_scope=_root_scope(),
+                participant=PARTICIPANT,
+                payload=_payload(),
+                requested_topic_id="NEW_TOPIC",
+                interaction_id="interaction_new",
+            )
+        finally:
+            await queue.stop()
+
+    result = _run(scenario())
+
+    assert (result.interaction_id, result.state, result.topic_id) == (
+        "interaction_new",
+        "succeeded",
+        "topic-real",
+    )
+    assert (result.error_class, result.new_topic) == (None, True)
+
+
+def test_resubmitting_an_applied_interaction_reports_its_outcome_without_applying_again():
+    """同一交互已应用后以同一标识再次提交：不重复应用，结局取已有工作项的成功与话题。"""
+    applied: list[str] = []
+
+    async def apply(_payload, *, interaction_id, target_topic_id, **_kwargs):
         applied.append(interaction_id)
         return target_topic_id
 
-    service = InteractionSubmissionService(
-        interaction_queue=InteractionSubmissionQueue(_apply),
-    )
+    async def scenario():
+        queue = InteractionSubmissionQueue(apply)
+        service = InteractionSubmissionService(interaction_queue=queue)
+        payload = _payload()
+        await queue.start()
+        try:
+            for _ in range(2):
+                result = await service.submit_interaction(
+                    identity_scope=_root_scope(),
+                    participant=PARTICIPANT,
+                    payload=payload,
+                    requested_topic_id="topic_1",
+                    interaction_id="interaction_repeated",
+                )
+            return result
+        finally:
+            await queue.stop()
 
-    result = _run(
-        service.submit_interaction(
-            identity_scope=_root_scope(),
-            participant=PARTICIPANT,
-            payload=_payload(),
-            requested_topic_id="topic_1",
-            interaction_id="interaction_stable_1",
+    second = _run(scenario())
+
+    assert (second.state, second.topic_id) == ("succeeded", "topic_1")
+    assert applied == ["interaction_repeated"]
+
+
+def test_submit_interaction_reports_apply_failure_with_error_class():
+    """应用失败以结局交回而不是抛出：结局为失败，不带话题，带应用异常的类名。"""
+
+    async def failing_apply(_payload, **_kwargs):
+        raise RuntimeError("apply failed")
+
+    async def scenario():
+        queue = InteractionSubmissionQueue(failing_apply)
+        service = InteractionSubmissionService(interaction_queue=queue)
+        await queue.start()
+        try:
+            return await service.submit_interaction(
+                identity_scope=_root_scope(),
+                participant=PARTICIPANT,
+                payload=_payload(),
+                interaction_id="interaction_failing",
+            )
+        finally:
+            await queue.stop()
+
+    result = _run(scenario())
+
+    assert (result.state, result.topic_id, result.error_class) == ("failed", None, "RuntimeError")
+
+
+def test_submit_interaction_reports_pending_when_apply_outlasts_time_limit():
+    """到时限仍未应用完成时结局为等待中，不带话题。"""
+
+    async def scenario():
+        apply, _started, release = _blocked_apply()
+        queue = InteractionSubmissionQueue(apply)
+        service = InteractionSubmissionService(interaction_queue=queue)
+        await queue.start()
+        try:
+            return await service.submit_interaction(
+                identity_scope=_root_scope(),
+                participant=PARTICIPANT,
+                payload=_payload(),
+                interaction_id="interaction_slow",
+                timeout_seconds=0,
+            )
+        finally:
+            release.set()
+            await queue.stop()
+
+    result = _run(scenario())
+
+    assert (result.state, result.topic_id, result.error_class) == ("pending", None, None)
+
+
+def test_submit_without_time_limit_returns_pending_when_queue_stops():
+    """不设时限的等待在队列停止时以等待中返回，不会挂住系统关闭。"""
+
+    async def scenario():
+        # 队列不启动：交互停在已接纳、未应用的状态。
+        queue = InteractionSubmissionQueue(_never_applied)
+        service = InteractionSubmissionService(interaction_queue=queue)
+        submission = asyncio.create_task(
+            service.submit_interaction(
+                identity_scope=_root_scope(),
+                participant=PARTICIPANT,
+                payload=_payload(),
+                interaction_id="interaction_waiting",
+            )
         )
-    )
+        await _wait_until_accepted(queue, "interaction_waiting")
+        await queue.stop()
+        return await asyncio.wait_for(submission, timeout=2)
 
-    assert result.interaction_id == "interaction_stable_1"
-    assert result.work_id.startswith("interaction:")
-    # 队列只是接纳（seal 后的领域应用异步发生）
-    assert applied == []
+    result = _run(scenario())
+
+    assert (result.state, result.topic_id) == ("pending", None)
+
+
+def test_cancelled_submitter_leaves_accepted_interaction_to_apply():
+    """调用方在应用期间取消等待：已接纳的交互不被撤回，应用照常完成。"""
+
+    async def scenario():
+        apply, started, release = _blocked_apply()
+        queue = InteractionSubmissionQueue(apply)
+        service = InteractionSubmissionService(interaction_queue=queue)
+        await queue.start()
+        try:
+            submission = asyncio.create_task(
+                service.submit_interaction(
+                    identity_scope=_root_scope(),
+                    participant=PARTICIPANT,
+                    payload=_payload(),
+                    interaction_id="interaction_cancelled",
+                )
+            )
+            await asyncio.wait_for(started.wait(), timeout=2)
+            submission.cancel()
+            with pytest.raises(asyncio.CancelledError):
+                await submission
+            release.set()
+            return await service.wait_interaction(
+                identity_scope=_root_scope(),
+                interaction_id="interaction_cancelled",
+                timeout_seconds=2,
+            )
+        finally:
+            release.set()
+            await queue.stop()
+
+    status = _run(scenario())
+
+    assert (status.state, status.topic_id) == ("succeeded", "topic-real")
 
 
 def test_submitted_interaction_records_participant_as_initiator_within_scope_workspace():
@@ -123,7 +284,6 @@ def test_submitted_interaction_records_participant_as_initiator_within_scope_wor
                 requested_topic_id="topic_1",
                 interaction_id="interaction_participant",
             )
-            await queue.drain_all(timeout=2)
         finally:
             await queue.stop()
 
@@ -132,10 +292,6 @@ def test_submitted_interaction_records_participant_as_initiator_within_scope_wor
     assert applied == [
         {"belong_to": _root_scope().workspace_identity, "from_actor": PARTICIPANT},
     ]
-
-
-async def _never_applied(_payload, **_kwargs):
-    raise AssertionError("接纳查询与拒绝路径不应用交互")
 
 
 @pytest.mark.parametrize(
@@ -147,6 +303,7 @@ def test_submit_interaction_reports_unavailable_admission_as_retryable(stop_queu
     """容量已满与队列已停止都没有接管提交，以可重试的稳定原因拒绝。"""
 
     async def scenario():
+        # 队列不启动：第一份交互占住唯一容量，等待到时限即返回。
         queue = InteractionSubmissionQueue(
             _never_applied, policy=QueuePolicy(capacity=1, max_concurrency=1)
         )
@@ -156,6 +313,7 @@ def test_submit_interaction_reports_unavailable_admission_as_retryable(stop_queu
             participant=PARTICIPANT,
             payload=_payload(),
             interaction_id="interaction_first",
+            timeout_seconds=0,
         )
         if stop_queue:
             await queue.stop()
@@ -178,9 +336,8 @@ def test_interaction_status_reports_progress_and_rejects_foreign_workspace():
     """未接纳时为空；接纳后先为等待中；同名交互归属其他 Workspace 时报冲突。"""
 
     async def scenario():
-        service = InteractionSubmissionService(
-            interaction_queue=InteractionSubmissionQueue(_never_applied)
-        )
+        queue = InteractionSubmissionQueue(_never_applied)
+        service = InteractionSubmissionService(interaction_queue=queue)
         before = await service.interaction_status(
             identity_scope=_root_scope(), interaction_id="interaction_query"
         )
@@ -189,6 +346,7 @@ def test_interaction_status_reports_progress_and_rejects_foreign_workspace():
             participant=PARTICIPANT,
             payload=_payload(),
             interaction_id="interaction_query",
+            timeout_seconds=0,
         )
         after = await service.interaction_status(
             identity_scope=_root_scope(), interaction_id="interaction_query"
@@ -198,6 +356,7 @@ def test_interaction_status_reports_progress_and_rejects_foreign_workspace():
                 identity_scope=_root_scope("isolation_workspace"),
                 interaction_id="interaction_query",
             )
+        await queue.stop()
         return before, after
 
     before, after = _run(scenario())
@@ -218,22 +377,22 @@ def test_interaction_status_gives_real_topic_on_success_and_none_on_failure():
         queue = InteractionSubmissionQueue(apply)
         service = InteractionSubmissionService(interaction_queue=queue)
         await queue.start()
-        for interaction_id in ("interaction_ok", "interaction_failing"):
-            await service.submit_interaction(
-                identity_scope=_root_scope(),
-                participant=PARTICIPANT,
-                payload=_payload(),
-                interaction_id=interaction_id,
-            )
-            await queue.wait(interaction_id, timeout=2)
-        statuses = [
-            await service.interaction_status(
-                identity_scope=_root_scope(), interaction_id=interaction_id
-            )
-            for interaction_id in ("interaction_ok", "interaction_failing")
-        ]
-        await queue.stop()
-        return statuses
+        try:
+            for interaction_id in ("interaction_ok", "interaction_failing"):
+                await service.submit_interaction(
+                    identity_scope=_root_scope(),
+                    participant=PARTICIPANT,
+                    payload=_payload(),
+                    interaction_id=interaction_id,
+                )
+            return [
+                await service.interaction_status(
+                    identity_scope=_root_scope(), interaction_id=interaction_id
+                )
+                for interaction_id in ("interaction_ok", "interaction_failing")
+            ]
+        finally:
+            await queue.stop()
 
     succeeded, failed = _run(scenario())
 
@@ -245,36 +404,35 @@ def test_wait_interaction_reports_pending_on_timeout_and_success_once_applied():
     """等待超时时仍为等待中；应用完成后报告成功与实际所在的话题；未接纳的交互为空。"""
 
     async def scenario():
-        started = asyncio.Event()
-        release = asyncio.Event()
-
-        async def slow_apply(_payload, **_kwargs):
-            started.set()
-            await release.wait()
-            return "topic-real"
-
-        queue = InteractionSubmissionQueue(slow_apply)
+        apply, started, release = _blocked_apply()
+        queue = InteractionSubmissionQueue(apply)
         service = InteractionSubmissionService(interaction_queue=queue)
         await queue.start()
-        missing = await service.wait_interaction(
-            identity_scope=_root_scope(), interaction_id="interaction_missing", timeout_seconds=0.01
-        )
-        await service.submit_interaction(
-            identity_scope=_root_scope(),
-            participant=PARTICIPANT,
-            payload=_payload(),
-            interaction_id="interaction_slow",
-        )
-        await started.wait()
-        timed_out = await service.wait_interaction(
-            identity_scope=_root_scope(), interaction_id="interaction_slow", timeout_seconds=0.01
-        )
-        release.set()
-        applied = await service.wait_interaction(
-            identity_scope=_root_scope(), interaction_id="interaction_slow", timeout_seconds=2
-        )
-        await queue.stop()
-        return missing, timed_out, applied
+        try:
+            missing = await service.wait_interaction(
+                identity_scope=_root_scope(),
+                interaction_id="interaction_missing",
+                timeout_seconds=0,
+            )
+            await service.submit_interaction(
+                identity_scope=_root_scope(),
+                participant=PARTICIPANT,
+                payload=_payload(),
+                interaction_id="interaction_slow",
+                timeout_seconds=0,
+            )
+            await asyncio.wait_for(started.wait(), timeout=2)
+            timed_out = await service.wait_interaction(
+                identity_scope=_root_scope(), interaction_id="interaction_slow", timeout_seconds=0
+            )
+            release.set()
+            applied = await service.wait_interaction(
+                identity_scope=_root_scope(), interaction_id="interaction_slow", timeout_seconds=2
+            )
+            return missing, timed_out, applied
+        finally:
+            release.set()
+            await queue.stop()
 
     missing, timed_out, applied = _run(scenario())
 

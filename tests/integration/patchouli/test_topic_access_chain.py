@@ -4,8 +4,9 @@
     TopicManagementService → PatchouliBus（真实路由分发）→ Retrieval/Perception
     Familiar → TopicWorkingSet + ShortTermMemoryStore
 
-测试验证 Topic 的全局身份、Workspace 归属校验和管理操作的可观察结果；摘要
-生成器与 generation admission 位于本次边界之外，使用确定性的测试替身。
+测试验证 Topic 的全局身份、Workspace 归属校验、话题准备（确认已有话题、建立新话题与
+LRU 驱逐）和管理操作的可观察结果；摘要生成器与 generation admission 位于本次边界之外，
+使用确定性的测试替身；LRU 用例以可控时钟决定驻留话题的访问先后。
 """
 
 from types import SimpleNamespace
@@ -19,8 +20,6 @@ from hivememory.core.models import system_actor_for_workspace
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
 from hivememory.patchouli.application import TopicManagementService
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
-from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.patchouli.control.memory_generation.models import (
     MemoryGenerationSource,
     MemoryGenerationTask,
@@ -28,7 +27,6 @@ from hivememory.patchouli.control.memory_generation.models import (
 from hivememory.patchouli.memory_library.library import MemoryLibrary
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
 from hivememory.patchouli.runtime.bus import PatchouliBus
-from hivememory.patchouli.service import PatchouliService
 from hivememory.patchouli.services.perception import PerceptionFamiliar
 from hivememory.patchouli.services.retrieval import RetrievalFamiliar
 from hivememory.patchouli.services.topic_working_set import TopicWorkingSet
@@ -44,12 +42,25 @@ class _DeterministicRelay:
         return f"{prefix}folded:{len(blocks_to_fold)}"
 
 
+class _FakeClock:
+    """可控单调时钟：由测试手动推进，决定驻留话题的最近访问先后。"""
+
+    def __init__(self) -> None:
+        self.now = 1000.0
+
+    def __call__(self) -> float:
+        return self.now
+
+    def advance(self, seconds: float) -> None:
+        self.now += seconds
+
+
 def _payload(user_message: str, assistant_message: str):
     """构造真实 Perception 链路所需的结构化一轮对话。"""
     return make_interaction_payload(user_message, assistant_message)
 
 
-def _topic_boundary(*, max_resident_topics: int = 5):
+def _topic_boundary(*, max_resident_topics: int = 5, clock: _FakeClock | None = None):
     """组装 Topic 管理所需的真实内部组件（含真实 bus 路由分发）。"""
     store = ShortTermMemoryStore()
     relay = _DeterministicRelay()
@@ -60,7 +71,7 @@ def _topic_boundary(*, max_resident_topics: int = 5):
         ),
         relay_controller=relay,
     )
-    working_set = TopicWorkingSet(max_resident=max_resident_topics)
+    working_set = TopicWorkingSet(max_resident=max_resident_topics, clock=clock)
     bus = PatchouliBus()
     familiar = PerceptionFamiliar(
         engine=engine,
@@ -81,7 +92,6 @@ def _topic_boundary(*, max_resident_topics: int = 5):
     bus.register(PatchouliLocalRoutes.TOPIC_PREPARE, familiar.prepare_topic)
     bus.register(PatchouliLocalRoutes.TOPIC_EVICT, familiar.evict_topic)
     bus.register(PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE, familiar.manual_settle_topic)
-    bus.register(PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY, familiar.discard_if_empty)
 
     async def admit_settlement(payload):
         return MemoryGenerationTask(
@@ -101,13 +111,12 @@ def _topic_boundary(*, max_resident_topics: int = 5):
         familiar,
         working_set,
         store,
-        bus,
     )
 
 
 @pytest.mark.asyncio
 async def test_get_topic_data_is_pure_read():
-    service, familiar, working_set, store, _ = _topic_boundary()
+    service, familiar, working_set, store = _topic_boundary()
     identity_scope = make_identity_scope(user_id="u1")
     topic_id = await familiar.apply_interaction(
         _payload("question", "answer"),
@@ -128,7 +137,7 @@ async def test_get_topic_data_is_pure_read():
 @pytest.mark.asyncio
 async def test_same_title_topics_get_distinct_global_ids_and_cross_workspace_reads_are_hidden():
     """捕获 Topic ID 被错误建模为 Workspace-local、进而允许跨域读写的缺陷。"""
-    service, _, _, store, _ = _topic_boundary()
+    service, _, _, store = _topic_boundary()
     main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
     isolated = make_identity_scope(
         user_id="u1",
@@ -185,7 +194,7 @@ async def test_same_title_topics_get_distinct_global_ids_and_cross_workspace_rea
 @pytest.mark.asyncio
 async def test_cross_workspace_topic_management_rejects_without_side_effects():
     """捕获 settle/delete 只按裸 topic_id 操作而跨越 Workspace 的缺陷。"""
-    service, familiar, _, store, _ = _topic_boundary()
+    service, familiar, _, store = _topic_boundary()
     main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
     isolated = make_identity_scope(
         user_id="u1",
@@ -231,7 +240,7 @@ async def test_cross_workspace_topic_management_rejects_without_side_effects():
 @pytest.mark.asyncio
 async def test_cross_workspace_topic_prepare_is_not_projected_to_a_new_topic():
     """捕获未知异域 Topic ID 被静默回退为本域新 Topic 的缺陷。"""
-    service, familiar, _, store, _ = _topic_boundary()
+    service, familiar, _, store = _topic_boundary()
     main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
     isolated = make_identity_scope(
         user_id="u1",
@@ -243,10 +252,10 @@ async def test_cross_workspace_topic_prepare_is_not_projected_to_a_new_topic():
 
     with pytest.raises(ResourceNotFoundError):
         await service.prepare_topic(
-            main_topic.topic_id,
-            "不应创建",
-            "不应创建",
-            isolated.workspace_identity,
+            identity_scope=isolated,
+            target_topic_id=main_topic.topic_id,
+            new_topic_title="不应创建",
+            new_topic_summary="不应创建",
         )
 
     assert store.get(main.workspace_identity, main_topic.topic_id) is not None
@@ -270,7 +279,7 @@ async def test_cross_workspace_topic_prepare_is_not_projected_to_a_new_topic():
 @pytest.mark.asyncio
 async def test_unknown_cross_workspace_topic_does_not_evict_local_lru_before_rejection():
     """捕获话题池已满时先驱逐本域 LRU、再把异域 ID 回退成新话题的缺陷。"""
-    service, familiar, _, store, _ = _topic_boundary(max_resident_topics=1)
+    service, familiar, _, store = _topic_boundary(max_resident_topics=1)
     main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
     isolated = make_identity_scope(
         user_id="u1",
@@ -288,10 +297,10 @@ async def test_unknown_cross_workspace_topic_does_not_evict_local_lru_before_rej
 
     with pytest.raises(ResourceNotFoundError):
         await service.prepare_topic(
-            main_topic.topic_id,
-            "不应创建",
-            "不应创建",
-            isolated.workspace_identity,
+            identity_scope=isolated,
+            target_topic_id=main_topic.topic_id,
+            new_topic_title="不应创建",
+            new_topic_summary="不应创建",
         )
 
     # 拒绝必须发生在 LRU 处理之前；本域原有 Topic 保持可读且未被替换。
@@ -304,20 +313,43 @@ async def test_unknown_cross_workspace_topic_does_not_evict_local_lru_before_rej
 
 
 @pytest.mark.asyncio
-async def test_prepared_empty_topic_cleanup_reaches_real_discard_handler():
-    """公共 cleanup 经真实总线清理空话题，避免参数冲突被误作补偿失败。"""
-    _, familiar, working_set, store, bus = _topic_boundary()
-    scope = make_identity_scope(user_id="u1", agent_id="a1")
-    topic_id = await familiar.prepare_topic("NEW_TOPIC", "待补偿", None, scope.workspace_identity)
-    queue = InteractionSubmissionQueue(familiar.apply_interaction)
-    service = PatchouliService(bus, interaction_queue=queue)
-    prepared = PreparedAgentRun(
-        belong_to=scope.workspace_identity,
-        interaction_id="cleanup-empty-topic",
-        topic_id=topic_id,
-        is_new_topic=True,
+async def test_prepare_new_topic_creates_titled_topic_in_scope_workspace():
+    """捕获建立新话题时归属取错 Workspace，或标题与摘要错位、丢失的缺陷。"""
+    service, _, working_set, store = _topic_boundary()
+    main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
+
+    topic_id = await service.prepare_topic(
+        identity_scope=main,
+        target_topic_id="NEW_TOPIC",
+        new_topic_title="部署贪吃蛇",
+        new_topic_summary="讨论贪吃蛇游戏的部署步骤",
     )
 
-    assert await service.cleanup_prepared_agent_run(prepared, identity_scope=scope) is True
-    assert store.get(scope.workspace_identity, topic_id) is None
-    assert working_set.list_shutdown_candidates() == []
+    topic = store.get(main.workspace_identity, topic_id)
+    assert (topic.topic_title, topic.topic_summary) == ("部署贪吃蛇", "讨论贪吃蛇游戏的部署步骤")
+    assert working_set.list_shutdown_candidates() == [(main.workspace_identity, topic_id)]
+
+
+@pytest.mark.asyncio
+async def test_prepare_new_topic_on_full_pool_evicts_topic_least_recently_prepared():
+    """池满时建立新话题先驱逐最久未用的话题；确认已有话题算一次使用，不新建话题。
+
+    捕获确认已有话题时不刷新驻留、导致本轮要写入的话题被 LRU 驱逐的缺陷。
+    """
+    clock = _FakeClock()
+    service, _, _, store = _topic_boundary(max_resident_topics=2, clock=clock)
+    main = make_identity_scope(user_id="u1", agent_id="a1", workspace_id="main_workspace")
+    first = await service.prepare_topic(identity_scope=main, target_topic_id="NEW_TOPIC")
+    clock.advance(10)
+    await service.prepare_topic(identity_scope=main, target_topic_id="NEW_TOPIC")
+    clock.advance(10)
+
+    confirmed = await service.prepare_topic(identity_scope=main, target_topic_id=first)
+    clock.advance(10)
+    third = await service.prepare_topic(identity_scope=main, target_topic_id="NEW_TOPIC")
+
+    assert confirmed == first
+    assert {
+        topic.topic_id
+        for topic in store.list_by_workspace(main.workspace_identity, include_empty=True)
+    } == {first, third}

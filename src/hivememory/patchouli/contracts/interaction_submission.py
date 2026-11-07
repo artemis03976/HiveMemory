@@ -10,16 +10,26 @@ from typing import Literal
 InteractionOrigin = Literal["active_chat", "import_bus", "workspace_port"]
 
 
+InteractionProgress = Literal["pending", "succeeded", "failed", "unknown"]
+
+
 @dataclass(frozen=True)
 class InteractionSubmitResult:
-    """交互提交收据投影：请求已被队列接纳，应用进度按 interaction_id 跟踪。"""
+    """一次提交并等待应用的结局。
+
+    ``state`` 是等待结束时的进度：``succeeded`` 带实际所在的话题，``failed``
+    带应用失败的异常类名，``pending`` 表示等待到时限仍未应用完成，``unknown``
+    只出现在此前接纳、结局已超出保留窗口的交互上。``previously_accepted``
+    表示这一交互在本次调用之前已被接纳，本次没有再提交；``new_topic`` 表示
+    本次提交以 ``NEW_TOPIC`` 请求建立新话题。
+    """
 
     interaction_id: str
-    work_id: str
-    state: str
-
-
-InteractionProgress = Literal["pending", "succeeded", "failed", "unknown"]
+    state: InteractionProgress
+    topic_id: str | None = None
+    error_class: str | None = None
+    previously_accepted: bool = False
+    new_topic: bool = False
 
 
 @dataclass(frozen=True)

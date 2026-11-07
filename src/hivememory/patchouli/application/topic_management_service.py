@@ -6,7 +6,6 @@ from hivememory.core.models import (
     IdentityScope,
     TopicData,
     TopicSnapshot,
-    WorkspaceIdentity,
     require_identity_scope,
 )
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
@@ -26,8 +25,8 @@ class TopicManagementService:
     时由系统以 root 授权。本层是授权点以下的资源 owner，只接收授权点组装的
     ``IdentityScope``，不接收工作 actor。Topic 可见性仍由领域实现强制。
 
-    ``prepare_topic`` 是内部对话编排用例（未挂载公开路由），不属于
-    Actor 行为目录。
+    ``prepare_topic`` 为一轮确认或建立话题，由 root API 为任务进程的写入与
+    Import Bus 的写入时确定话题调用，不属于 Actor 行为目录。
     """
 
     def __init__(self, *, bus: PatchouliBus) -> None:
@@ -96,18 +95,24 @@ class TopicManagementService:
 
     async def prepare_topic(
         self,
+        *,
+        identity_scope: IdentityScope,
         target_topic_id: str,
-        new_topic_title: str | None,
-        new_topic_summary: str | None,
-        belong_to: WorkspaceIdentity,
+        new_topic_title: str | None = None,
+        new_topic_summary: str | None = None,
     ) -> str:
-        """内部对话编排只按资源归属准备话题，不接收操作 scope。"""
+        """确认或建立目标话题（必要时先按 LRU 驱逐），返回真实话题标识。
+
+        ``target_topic_id`` 为已有话题时确认它存在并刷新驻留；为 ``NEW_TOPIC``
+        时以给出的标题与摘要建立新话题。归属取 scope 的 Workspace。
+        """
+        scope = require_identity_scope(identity_scope)
         return await self._bus.request(
             PatchouliLocalRoutes.TOPIC_PREPARE,
             target_topic_id,
             new_topic_title,
             new_topic_summary,
-            belong_to,
+            scope.workspace_identity,
         )
 
 

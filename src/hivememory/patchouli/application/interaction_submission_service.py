@@ -1,9 +1,9 @@
 """Patchouli 交互提交 application API（公开路由 ``patchouli.public.interaction.*``）。
 
-公开的独立交互提交入口：封装 ``InteractionSubmissionQueue`` 的接纳、收据
-与进度查询。队列继续是 Patchouli 的内部协作者——Import Bus 等外部来源统一
-经本 API 提交，不直接持有 queue；单条事件接收、队列接纳、交互应用与
-Memory 物化是不同事实。
+公开的独立交互提交入口：封装 ``InteractionSubmissionQueue`` 的接纳、等待应用、
+结局归类与进度查询。队列继续是 Patchouli 的内部协作者——任务进程与 Import Bus
+都经 root API 调用本 API，不直接持有 queue；单条事件接收、队列接纳、交互应用
+与 Memory 物化是不同事实。
 
 交互提交是系统级操作，不属于 actor 操作：本层只接收授权点以 root 授权
 组装的 ``IdentityScope`` 作为归属，交互的发起者取自显式的参与者。
@@ -35,9 +35,11 @@ from hivememory.patchouli.control.interaction_submission import (
     topic_ordering_key,
 )
 
+_NEW_TOPIC = "NEW_TOPIC"
+
 
 class InteractionSubmissionService:
-    """经 Patchouli 交互队列的公开提交与进度查询 API。"""
+    """经 Patchouli 交互队列的公开提交、等待与进度查询 API。"""
 
     def __init__(self, *, interaction_queue: InteractionSubmissionQueue) -> None:
         self._queue = interaction_queue
@@ -48,19 +50,26 @@ class InteractionSubmissionService:
         identity_scope: IdentityScope,
         participant: ActorIdentity,
         payload: InteractionPayload,
-        requested_topic_id: str = "NEW_TOPIC",
+        requested_topic_id: str = _NEW_TOPIC,
         interaction_id: str | None = None,
         origin: InteractionOrigin = "workspace_port",
         new_topic_title: str | None = None,
         new_topic_summary: str | None = None,
+        timeout_seconds: float | None = None,
     ) -> InteractionSubmitResult:
-        """提交一份已发生的交互载荷；队列按 interaction_id 幂等接纳。
+        """提交一份已发生的交互载荷并等待它应用，返回结局。
 
         ``identity_scope`` 由调用方的授权点组装后传入，只提供归属；
         ``participant`` 是交互中的 Agent，记为发起者。新话题的标题与摘要
-        只在目标为 ``NEW_TOPIC`` 时允许非空。队列容量已满或已停止表示
-        这次提交没有被接管，以 ``InteractionAdmissionUnavailableError``
-        拒绝，调用方可用同一 interaction_id 重试。
+        只在目标为 ``NEW_TOPIC`` 时允许非空。队列按 interaction_id 幂等接纳：
+        同一交互仍在应用或已应用时不重复入队，只等待已有的工作项；应用失败
+        后允许以同一标识换载荷重新提交。
+
+        ``timeout_seconds`` 为空时等到终态，上限由队列自身的应用时限与重试
+        决定；到时限仍未应用完成时结局为 ``pending``，调用方可用同一标识稍后
+        重发。接纳失败、应用失败与超时只在这里归类：容量已满或队列已停止
+        表示这次提交没有被接管，以 ``InteractionAdmissionUnavailableError``
+        拒绝；应用失败与超时以结局交回。
         """
         scope = require_identity_scope(identity_scope)
         if payload is None:
@@ -87,16 +96,24 @@ class InteractionSubmissionService:
             raise InteractionAdmissionUnavailableError(reason="capacity_rejected") from error
         except WorkQueueStoppedError as error:
             raise InteractionAdmissionUnavailableError(reason="queue_stopped") from error
+
+        outcome = await self._queue.wait(receipt, timeout=timeout_seconds)
+        if outcome is None:
+            # 刚接纳的交互的旁路索引只在终态后才可能被裁剪，查不到属于队列缺陷。
+            raise RuntimeError(f"已接纳的交互在提交队列中查不到: {resolved_interaction_id}")
+        state = _progress(outcome.state)
         return InteractionSubmitResult(
-            interaction_id=receipt.interaction_id,
-            work_id=receipt.work_id,
-            state=receipt.state.value,
+            interaction_id=resolved_interaction_id,
+            state=state,
+            topic_id=outcome.topic_id,
+            error_class=outcome.error_class if state == "failed" else None,
+            new_topic=requested_topic_id == _NEW_TOPIC,
         )
 
     async def interaction_status(
         self, *, identity_scope: IdentityScope, interaction_id: str
     ) -> InteractionStatus | None:
-        """回答该交互在提交队列中的进度，供提交方在重发前查重、续接上一轮所在的话题。
+        """回答该交互在提交队列中的进度，供提交前查重、续接上一轮所在的话题。
 
         归属是硬边界：同名交互已由另一个 Workspace 提交时以
         ``WorkspaceMismatchError`` 拒绝，不把其他 Workspace 的接纳当作重复。
@@ -115,13 +132,17 @@ class InteractionSubmissionService:
         )
 
     async def wait_interaction(
-        self, *, identity_scope: IdentityScope, interaction_id: str, timeout_seconds: float
+        self,
+        *,
+        identity_scope: IdentityScope,
+        interaction_id: str,
+        timeout_seconds: float | None,
     ) -> InteractionStatus | None:
-        """等待交互应用到终态或超时，返回此时的进度；未被接纳时返回 ``None``。
+        """等待已接纳的交互应用到终态或时限，返回此时的进度；未被接纳时返回 ``None``。
 
-        供需要“应用完成后才确认”的提交方使用：成功时进度带实际所在的话题，超时
-        时仍为 ``pending``，队列停止时返回停止那一刻的进度。归属校验与
-        ``interaction_status`` 相同，先于等待完成。
+        供提交前查重时遇到仍在应用的交互：成功时进度带实际所在的话题，超时
+        时仍为 ``pending``，队列停止时返回停止那一刻的进度；时限为空时等到
+        终态。归属校验与 ``interaction_status`` 相同，先于等待完成。
         """
         status = await self.interaction_status(
             identity_scope=identity_scope, interaction_id=interaction_id

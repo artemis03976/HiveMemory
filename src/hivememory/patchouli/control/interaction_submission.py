@@ -613,7 +613,7 @@ class InteractionSubmissionQueue:
                 return existing.receipt
 
             # 调用方可能在 store 已接纳、receipt 尚未投影时被取消。稳定 work ID 允许
-            # 后续 finalize 恢复该 admission，而不是再次创建 interaction。
+            # 同一交互的再次提交恢复该 admission，而不是再次创建 interaction。
             existing_record = await self._runtime.get(base_work_id)
             if existing_record is not None:
                 if _ended_without_success(existing_record.state):

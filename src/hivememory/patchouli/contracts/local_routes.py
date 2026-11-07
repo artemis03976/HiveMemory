@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 class PatchouliLocalRoutes:
     """PatchouliBus 内部路由名。
 
-    局部路由描述可组合的 Patchouli 原语。prepare/finalize 等工作流归入公开路由。
+    局部路由描述可组合的 Patchouli 原语；对外的用例由公开路由组合它们。
     """
 
     @route("memory.create")
@@ -273,11 +273,6 @@ class PatchouliLocalRoutes:
         """从活跃话题池中驱逐话题，不触发结算；正被占用时报 ``removed=False``。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
-    @route("topic.discard_if_empty")
-    async def TOPIC_DISCARD_IF_EMPTY(belong_to: WorkspaceIdentity, topic_id: str) -> bool:
-        """话题真正为空（没有接收过任何交互）时清理并返回 True。"""
-        raise NotImplementedError  # 仅声明签名，不执行此函数。
-
     @route("runtime.models.warmup")
     async def RUNTIME_MODELS_WARMUP() -> None:
         """后台预热所有推理模型 (Embedding + Reranker)"""
@@ -329,7 +324,6 @@ class PatchouliLocalRoutes:
         TOPIC_LIST_ACTIVE,
         TOPIC_MANUAL_SETTLE,
         TOPIC_EVICT,
-        TOPIC_DISCARD_IF_EMPTY,
         RUNTIME_MODELS_WARMUP,
         RUNTIME_MODELS_PREFETCH,
         RUNTIME_MODELS_READY,

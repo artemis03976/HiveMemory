@@ -801,3 +801,14 @@ async def test_failure_while_scheduling_compaction_keeps_the_interaction_succeed
 def test_queue_rejects_configuration_that_breaks_its_guarantees(kwargs, message) -> None:
     with pytest.raises(ValueError, match=message):
         InteractionSubmissionQueue(AsyncMock(return_value="t1"), **kwargs)
+
+
+def test_default_lane_policy_leaves_time_limits_to_each_work_kind() -> None:
+    """lane 不设统一时限：交互应用由 handler 限时，折叠不被交互的时限截断。"""
+    queue = InteractionSubmissionQueue(AsyncMock(return_value="topic-1"))
+
+    policy = queue.runtime.lanes[0].policy
+
+    assert policy.timeout_seconds is None
+    assert policy.max_attempts == 3
+    assert policy.cancellable is False
