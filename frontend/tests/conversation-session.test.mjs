@@ -1,5 +1,5 @@
 /** 会话状态的可观察行为验收；HTTP 边界替换为确定性响应，Zustand 和历史重放保持真实。 */
-import { test, before, after } from 'node:test';
+import { test, before, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer } from 'vite';
 
@@ -158,6 +158,59 @@ test('finalizing 之后断连按服务端历史恢复本轮，不提示未保存
   assert.equal(state.isStreaming, false);
   assert.equal(state.draft, '');
   assert.deepEqual(state.connection, { status: 'error', error: '连接中断，本轮已保存到会话' });
+});
+
+const finalizingStream = processId => new Response(
+  `event: process_id\ndata: {"process_id":"${processId}","session_id":"s1"}\n\nevent: token\ndata: {"content":"完整答案"}\n\nevent: run_status\ndata: {"process_id":"${processId}","status":"finalizing"}\n\n`,
+  { headers: { 'Content-Type': 'text/event-stream' } });
+
+test('finalizing 之后断连先等进程释放会话认领，再按服务端历史恢复本轮', async () => {
+  reset({ currentSessionId: 's1', draft: '' });
+  const saved = { ...turn, interaction_id: 'p6', payload: { ...turn.payload, user_message: '问题',
+    assistant_final_text: '完整答案', outcome: 'completed', turn_events: [] } };
+  let sessionReads = 0;
+  globalThis.fetch = async url => {
+    if (url === '/api/v1/sessions') return new Response(JSON.stringify([summary]));
+    if (url === '/api/v1/sessions/s1') {
+      sessionReads += 1;
+      // 提交结束之前进程仍认领会话，会话里还没有这一轮。
+      return new Response(JSON.stringify(sessionReads === 1
+        ? { ...summary, active_process_id: 'p6', turns: [] } : { ...summary, turns: [saved] }));
+    }
+    return finalizingStream('p6');
+  };
+  mock.timers.enable({ apis: ['setTimeout', 'Date'] });
+  try {
+    const sending = useChatStore.getState().sendMessage('问题');
+    let settled = false;
+    void sending.then(() => { settled = true; });
+    while (sessionReads < 1) await new Promise(resolve => setImmediate(resolve));
+    assert.equal(useChatStore.getState().isStreaming, true);
+    assert.equal(useChatStore.getState().runStatus, 'finalizing');
+    while (!settled) {
+      mock.timers.tick(1000);
+      await new Promise(resolve => setImmediate(resolve));
+    }
+  } finally { mock.timers.reset(); }
+  const state = useChatStore.getState();
+  assert.deepEqual(state.messages.map(m => [m.id, m.content]), [['p6-user', '问题'], ['p6-assistant', '完整答案']]);
+  assert.equal(state.isStreaming, false);
+  assert.equal(state.draft, '');
+  assert.deepEqual(state.connection, { status: 'error', error: '连接中断，本轮已保存到会话' });
+});
+
+test('finalizing 之后断连、认领释放后历史中没有这一轮时提示未保存并回填输入', async () => {
+  reset({ currentSessionId: 's1', draft: '' });
+  globalThis.fetch = async url => {
+    if (url === '/api/v1/sessions') return new Response(JSON.stringify([summary]));
+    if (url === '/api/v1/sessions/s1') return new Response(JSON.stringify({ ...summary, turns: [] }));
+    return finalizingStream('p7');
+  };
+  await useChatStore.getState().sendMessage('问题');
+  const state = useChatStore.getState();
+  assert.equal(state.isStreaming, false);
+  assert.equal(state.draft, '问题');
+  assert.deepEqual(state.connection, { status: 'error', error: '连接中断，本轮未保存' });
 });
 
 test('finalizing 之前断连仍按未保存处理', async () => {
