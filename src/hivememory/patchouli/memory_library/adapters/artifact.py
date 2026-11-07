@@ -355,7 +355,7 @@ class FilesystemArtifactStorageAdapter(ArtifactStoragePort):
                         raise
                 finally:
                     temp_path.unlink(missing_ok=True)
-                logger.debug("artifact written: %s → %s", artifact.artifact_id, path)
+                logger.debug("artifact 已写入: %s → %s", artifact.artifact_id, path)
                 return self._ref_from_data(path, data)
 
         return await asyncio.to_thread(_write)

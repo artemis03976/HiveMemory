@@ -196,10 +196,10 @@ def create_interceptor(
         BaseInterceptor: RuleInterceptor 或 NoOpInterceptor
     """
     if config.enabled:
-        logger.info("Gateway L1 拦截器已启用")
+        logger.info("Gateway L1 interceptor enabled")
         return RuleInterceptor(config, command_registry=command_registry)
 
-    logger.info("Gateway L1 拦截器已禁用 (No-Op)")
+    logger.info("Gateway L1 interceptor disabled (no-op)")
     return NoOpInterceptor()
 
 

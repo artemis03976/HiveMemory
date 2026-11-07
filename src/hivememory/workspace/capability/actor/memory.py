@@ -377,7 +377,7 @@ class ActorMemoryService:
             )
         except Exception:
             logger.warning(
-                "记录检索命中失败: count=%s source=%s",
+                "Failed to record retrieval hits: count=%s source=%s",
                 len(memories),
                 _SEARCH_HIT_SOURCE,
                 exc_info=True,
