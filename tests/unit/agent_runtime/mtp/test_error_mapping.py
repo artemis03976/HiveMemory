@@ -19,6 +19,7 @@ from hivememory.core.mtp.exceptions import InvalidArgumentError, SyscallExecutio
 from hivememory.core.mtp.models import MTPErrorSeverity
 from hivememory.i18n.mtp_runtime import get_mtp_error_text
 from hivememory.i18n.syscall_runtime import get_syscall_error_text
+from hivememory.patchouli.contracts.errors import TopicBusyError
 from hivememory.workspace.contracts.errors import (
     IntentDispatchRejectedError,
     IntentDispatchUnknownError,
@@ -93,6 +94,14 @@ async def test_neutral_storage_failure_keeps_mtp_wire_category(error_type, code)
             "mtp.alias.not_found",
             "mtp.update.alias_not_found",
             {"alias": "a"},
+        ),
+        (
+            TopicBusyError("secret"),
+            "WRITE",
+            "",
+            "mtp.memory.topic_busy",
+            "mtp.memory.topic_busy",
+            {},
         ),
         (
             IntentDispatchRejectedError(details={"pending_alias": "p1", "reason": "secret"}),

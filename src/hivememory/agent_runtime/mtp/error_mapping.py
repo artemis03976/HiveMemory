@@ -13,6 +13,7 @@ from hivememory.core.errors import (
 )
 from hivememory.core.mtp.exceptions import MTPError
 from hivememory.core.mtp.models import MTPErrorInfo, MTPErrorSeverity
+from hivememory.patchouli.contracts.errors import TopicBusyError
 from hivememory.workspace.contracts.errors import (
     IntentDispatchRejectedError,
     IntentDispatchUnknownError,
@@ -127,6 +128,10 @@ def mtp_error_info(
         params = {"verb": verb}
     elif isinstance(error, ResourceUnavailableError):
         code = key = "mtp.system.service_unavailable"
+    elif isinstance(error, TopicBusyError):
+        # 写入在确定话题时失败，尚未登记；话题忙是瞬态冲突，稍后重试同一写入是安全的。
+        code = key = "mtp.memory.topic_busy"
+        severity = MTPErrorSeverity.AGENT_FAULT
     elif isinstance(error, PendingUpdateNotAllowedError):
         code, key, severity = (
             "mtp.argument.invalid",

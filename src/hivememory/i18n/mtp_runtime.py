@@ -34,6 +34,10 @@ _ERROR_TEXT_ZH: dict[str, str] = {
         "[Intent Rejected] 写入意图 '{pending_alias}' 未被生成队列接纳。\n"
         "Suggestion: 本次意图已失败，请调整请求或稍后重试。"
     ),
+    "mtp.memory.topic_busy": (
+        "[Topic Busy] 本轮的话题正忙，暂时无法建立，这次写入没有登记。\n"
+        "Suggestion: 稍后可以重试同一条 WRITE/UPDATE。"
+    ),
     "mtp.memory.intent_unknown": (
         "[Intent Unknown] 无法确认写入意图 '{pending_alias}' 是否已被接纳。\n"
         "Suggestion: 请用 READ 回读原句柄以核实状态；该意图仍可能完成，不要重复提交 WRITE/UPDATE。"
@@ -199,6 +203,11 @@ _ERROR_TEXT_EN: dict[str, str] = {
     "mtp.system.thread_ended": (
         "[Thread Ended] The original thread has ended. Stop operations on this thread.\n"
         "Suggestion: Do not retry or attempt to reacquire an identity."
+    ),
+    "mtp.memory.topic_busy": (
+        "[Topic Busy] This turn's topic is busy and could not be set up; the write was not "
+        "registered.\n"
+        "Suggestion: You may retry the same WRITE/UPDATE later."
     ),
     "mtp.memory.intent_rejected": (
         "[Intent Rejected] Intent '{pending_alias}' was not admitted to generation.\n"
