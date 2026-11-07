@@ -8,11 +8,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from hivememory.components.events.bus import (
-    NullRuntimeEventSink,
-    RuntimeEventSink,
-)
-from hivememory.components.events.publisher import Severity
+from hivememory.components.events.bus import NullRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher, Severity
 from hivememory.components.work_queue.cancellation import WorkCancellationToken
 from hivememory.components.work_queue.events import WorkQueueEventEmitter
 from hivememory.components.work_queue.exceptions import (
@@ -70,14 +67,16 @@ class WorkQueueRuntime:
         *,
         store: WorkStorePort,
         payload_codecs: WorkPayloadCodecRegistry,
-        runtime_events: RuntimeEventSink | None = None,
+        runtime_events: RuntimeEventPublisher | None = None,
         worker_poll_interval_seconds: float = 0.2,
         shutdown_wait_seconds: float = 10.0,
     ) -> None:
         self._store = store
         self._payload_codecs = payload_codecs
         self._bindings: dict[str, _LaneBinding] = {}
-        self._events = WorkQueueEventEmitter(runtime_events or NullRuntimeEventSink())
+        self._events = WorkQueueEventEmitter(
+            runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())
+        )
         self._supervisor = WorkQueueSupervisor(
             store=store,
             execute_work=self._execute_record,

@@ -145,7 +145,6 @@ def system_factory(mock_patchouli, global_bus, scheduler):
             workspace_read_view=make_workspace_read_view(),
             sessions=ConversationSessionService(WorkspaceSessionConfig()),
             event_bus=None,
-            event_sink=runtime_event_sink,
             event_publisher=RuntimeEventPublisher(runtime_event_sink),
         )
         registries = _RegistriesBundle(

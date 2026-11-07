@@ -3,6 +3,7 @@ from unittest.mock import AsyncMock, Mock, patch
 import pytest
 
 from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.patchouli import PatchouliConfig
 from hivememory.config.shared import SharedConfig
 from hivememory.core.contracts.runtime_events import RuntimeEventType
@@ -59,7 +60,7 @@ def _create_runtime():
         runtime = PatchouliRuntime(
             patchouli_config=patchouli_config,
             shared_config=Mock(),
-            runtime_events=runtime_events,
+            runtime_events=RuntimeEventPublisher(runtime_events),
         )
         runtime._test_runtime_events = runtime_events
         runtime._services = {

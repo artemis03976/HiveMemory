@@ -21,6 +21,7 @@ export type RuntimeEventConnectionStatus =
   | 'disabled'
   | 'error';
 
+/** 与后端 `RuntimeEventType` 一致的事件目录。 */
 export type RuntimeEventType =
   | 'chat.run.created'
   | 'chat.run.status'
@@ -28,17 +29,51 @@ export type RuntimeEventType =
   | 'chat.run.cancelled'
   | 'chat.run.completed'
   | 'chat.run.failed'
+  | 'import.turn.accepted'
+  | 'import.turn.duplicate'
+  | 'import.turn.skipped'
+  | 'import.turn.deferred'
+  | 'gateway.workflow.started'
+  | 'gateway.step.completed'
+  | 'gateway.workflow.completed'
+  | 'gateway.workflow.failed'
+  | 'gateway.analysis.capability.completed'
   | 'agent.run.started'
-  | 'agent.run.status'
   | 'agent.run.completed'
   | 'agent.run.cancelled'
   | 'agent.run.failed'
+  | 'agent.context.compaction'
+  | 'agent.context.budget_exceeded'
+  | 'actor.operation'
+  | 'topic.created'
+  | 'topic.settled'
+  | 'topic.deleted'
   | 'memory.task.created'
   | 'memory.task.status'
   | 'memory.task.cancel_requested'
   | 'memory.task.cancelled'
   | 'memory.task.completed'
   | 'memory.task.failed'
+  | 'work.queued'
+  | 'work.started'
+  | 'work.retry_scheduled'
+  | 'work.succeeded'
+  | 'work.failed'
+  | 'work.dead_lettered'
+  | 'work.cancel_requested'
+  | 'work.cancelled'
+  | 'work.rejected'
+  | 'maintenance.task.completed'
+  | 'maintenance.task.failed'
+  | 'system.starting'
+  | 'system.ready'
+  | 'system.start_failed'
+  | 'system.shutting_down'
+  | 'system.stopped'
+  | 'system.stop_failed'
+  | 'subsystem.operation.started'
+  | 'subsystem.operation.completed'
+  | 'subsystem.operation.failed'
   | 'event.stream.gap';
 
 /**
@@ -87,6 +122,7 @@ export interface RuntimeEvent {
   frame_id: string | null;
   topic_id: string | null;
   atom_id: string | null;
+  workspace_id: string | null;
   status: string | null;
   reason: string | null;
   message: string | null;

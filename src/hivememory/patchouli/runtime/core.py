@@ -33,11 +33,9 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any, TypedDict
 
-from hivememory.components.events.bus import (
-    NullRuntimeEventSink,
-    RuntimeEventSink,
-)
+from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.operations import RuntimeOperationObserver
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.work_queue import (
     QueuePolicy,
     WorkQueueShutdownSummary,
@@ -112,7 +110,7 @@ class PatchouliRuntime:
         self,
         patchouli_config: PatchouliConfig,
         shared_config: SharedConfig,
-        runtime_events: RuntimeEventSink | None = None,
+        runtime_events: RuntimeEventPublisher | None = None,
         workspace_asset_reader=None,
         *,
         llm_service: BaseLLMService | None = None,
@@ -120,7 +118,7 @@ class PatchouliRuntime:
     ):
         self._patchouli_config = patchouli_config
         self._shared_config = shared_config
-        self._runtime_events = runtime_events or NullRuntimeEventSink()
+        self._runtime_events = runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())
         # Librarian LLM：共享服务与组件请求参数由组合根注入；缺少任一项时
         # 记忆抽取以 No-Op 运行，Page Folding 回退为简单摘要。
         self._llm_service = llm_service
@@ -615,7 +613,7 @@ class PatchouliRuntime:
             bus=self._local_bus,
             pending_atom_settler=self._pending_atom_settler,
             runtime_events=self._runtime_events.scoped(
-                "patchouli",
+                subsystem="patchouli",
                 component="memory_generation_task_controller",
             ),
             queue_policy=QueuePolicy(
@@ -634,6 +632,7 @@ class PatchouliRuntime:
             working_set=working_set,
             bus=self._local_bus,
             config=self._patchouli_config.perception,
+            runtime_events=self._runtime_events,
         )
 
         self._services["lifecycle"] = LifecycleFamiliar(

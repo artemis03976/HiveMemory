@@ -11,6 +11,7 @@ from typing import Any
 import pytest
 
 from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.work_queue import (
     FailureAction,
     FailureDecision,
@@ -466,7 +467,7 @@ async def test_timeout_is_classified_by_handler() -> None:
 @pytest.mark.asyncio
 async def test_capacity_rejection_is_explicit_and_observable() -> None:
     sink = RecordingRuntimeEventSink()
-    runtime = _runtime(runtime_events=sink)
+    runtime = _runtime(runtime_events=RuntimeEventPublisher(sink))
     runtime.register_lane(
         "lane",
         handler=_ImmediateHandler(),
@@ -486,7 +487,7 @@ async def test_capacity_rejection_is_explicit_and_observable() -> None:
 @pytest.mark.asyncio
 async def test_enqueue_rejects_unknown_payload_codec_before_store_acceptance() -> None:
     sink = RecordingRuntimeEventSink()
-    runtime = _runtime(runtime_events=sink)
+    runtime = _runtime(runtime_events=RuntimeEventPublisher(sink))
     runtime.register_lane(
         "lane",
         handler=_ImmediateHandler(),
@@ -560,7 +561,7 @@ async def test_payload_decode_failure_is_dead_lettered_without_calling_handler()
 async def test_running_cancellation_is_idempotent_and_releases_ordering_key() -> None:
     handler = _ControlledHandler()
     sink = RecordingRuntimeEventSink()
-    runtime = _runtime(runtime_events=sink)
+    runtime = _runtime(runtime_events=RuntimeEventPublisher(sink))
     runtime.register_lane(
         "lane",
         handler=handler,
@@ -640,7 +641,7 @@ async def test_runtime_events_use_authoritative_transition_records_without_follo
     runtime = WorkQueueRuntime(
         store=store,
         payload_codecs=_TEST_PAYLOAD_CODECS,
-        runtime_events=sink,
+        runtime_events=RuntimeEventPublisher(sink),
         worker_poll_interval_seconds=10,
     )
     runtime.register_lane(
@@ -679,7 +680,7 @@ async def test_queued_cancel_event_uses_authoritative_record_without_follow_up_g
     runtime = WorkQueueRuntime(
         store=store,
         payload_codecs=_TEST_PAYLOAD_CODECS,
-        runtime_events=sink,
+        runtime_events=RuntimeEventPublisher(sink),
     )
     runtime.register_lane(
         "lane",
@@ -762,7 +763,7 @@ async def test_shutdown_cancels_running_work_when_lane_policy_allows_it() -> Non
 @pytest.mark.asyncio
 async def test_work_events_emit_safe_identifiers_without_business_payload() -> None:
     sink = RecordingRuntimeEventSink()
-    runtime = _runtime(runtime_events=sink)
+    runtime = _runtime(runtime_events=RuntimeEventPublisher(sink))
     runtime.register_lane(
         "lane",
         handler=_NoResultHandler(),
@@ -811,7 +812,7 @@ async def test_runtime_event_failure_does_not_change_work_result() -> None:
         def scoped(self, *_args, **_kwargs):
             return self
 
-    runtime = _runtime(runtime_events=FailingSink())
+    runtime = _runtime(runtime_events=RuntimeEventPublisher(FailingSink()))
     runtime.register_lane(
         "lane",
         handler=_ImmediateHandler(),
@@ -838,7 +839,9 @@ async def test_enqueue_unknown_failure_keeps_uncertainty_in_event() -> None:
 
     sink = RecordingRuntimeEventSink()
     runtime = WorkQueueRuntime(
-        store=UncertainStore(), payload_codecs=_TEST_PAYLOAD_CODECS, runtime_events=sink
+        store=UncertainStore(),
+        payload_codecs=_TEST_PAYLOAD_CODECS,
+        runtime_events=RuntimeEventPublisher(sink),
     )
     runtime.register_lane(
         "lane", handler=_ImmediateHandler(), policy=QueuePolicy(capacity=4, max_concurrency=1)
@@ -858,7 +861,7 @@ async def test_duplicate_enqueue_reports_stable_reason() -> None:
     from hivememory.components.work_queue import DuplicateWorkItemError
 
     sink = RecordingRuntimeEventSink()
-    runtime = _runtime(runtime_events=sink)
+    runtime = _runtime(runtime_events=RuntimeEventPublisher(sink))
     runtime.register_lane(
         "lane", handler=_ImmediateHandler(), policy=QueuePolicy(capacity=4, max_concurrency=1)
     )

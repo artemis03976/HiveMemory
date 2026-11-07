@@ -9,6 +9,7 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.gateway import (
     GatewayContextPreparationConfig,
     RuleInterceptorConfig,
@@ -133,7 +134,7 @@ def _build_provider_workflow(
         context_config=context_config,
         topic_router_config=TopicRouterConfig(timeout_ms=20),
         analysis_config=UserQueryAnalysisConfig(overall_timeout_ms=20),
-        runtime_events=events,
+        runtime_events=RuntimeEventPublisher(events),
     )
 
 

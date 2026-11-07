@@ -57,7 +57,9 @@ async def stream_runtime_events(
 
     query_id = last_event_id_query if isinstance(last_event_id_query, str) else None
     header_id = last_event_id_header if isinstance(last_event_id_header, str) else None
-    last_event_id = query_id or header_id
+    # 浏览器自动重连沿用首次连接的 URL，查询参数里是那时的回放点；请求头带的是
+    # 此后最新收到的事件，两者都在时以请求头为准，否则会把收到过的事件再推一遍。
+    last_event_id = header_id or query_id
 
     async def _event_generator():
         subscription = bus.subscribe(last_event_id=last_event_id)

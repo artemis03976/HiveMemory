@@ -10,15 +10,10 @@ from __future__ import annotations
 import re
 from time import perf_counter
 
-from hivememory.components.events.bus import (
-    NullRuntimeEventSink,
-    RuntimeEventSink,
-)
+from hivememory.components.events.bus import NullRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.gateway import UserQueryAnalysisConfig
-from hivememory.core.contracts.runtime_events import (
-    RuntimeEvent,
-    RuntimeEventType,
-)
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.protocol.gateway import (
     IntentType,
     RetrievalMode,
@@ -78,11 +73,13 @@ class LLMUserQueryAnalysisResolver:
         *,
         config: UserQueryAnalysisConfig,
         engine: QueryUnderstandingEngine,
-        runtime_events: RuntimeEventSink | None = None,
+        runtime_events: RuntimeEventPublisher | None = None,
     ) -> None:
         self._config = config
         self._engine = engine
-        self._runtime_events = runtime_events or NullRuntimeEventSink()
+        self._runtime_events = (
+            runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())
+        ).scoped(subsystem="gateway", component="user_query_analysis")
         self._write_patterns = [
             re.compile(pattern, re.IGNORECASE) for pattern in self._WRITE_INTENT_PATTERNS
         ]
@@ -153,25 +150,17 @@ class LLMUserQueryAnalysisResolver:
         *,
         error: QueryUnderstandingError | None,
     ) -> None:
-        """Resolver 内部能力调用的观测事件，失败不得影响业务结果。"""
-
-        try:
-            self._runtime_events.emit(
-                RuntimeEvent(
-                    event_type=RuntimeEventType.GATEWAY_ANALYSIS_CAPABILITY_COMPLETED,
-                    subsystem="gateway",
-                    component="user_query_analysis",
-                    severity="warning" if error is not None else "info",
-                    data={
-                        "capability_id": "query_understanding",
-                        "duration_ms": (perf_counter() - started_at) * 1000,
-                        "error": "query_understanding_failed" if error is not None else None,
-                        "error_class": type(error).__name__ if error is not None else None,
-                    },
-                )
-            )
-        except Exception:
-            return
+        """Resolver 内部能力调用的观测事件；发布失败由 publisher 吞下，不影响业务结果。"""
+        self._runtime_events.emit(
+            RuntimeEventType.GATEWAY_ANALYSIS_CAPABILITY_COMPLETED,
+            severity="warning" if error is not None else "info",
+            data={
+                "capability_id": "query_understanding",
+                "duration_ms": (perf_counter() - started_at) * 1000,
+                "error": "query_understanding_failed" if error is not None else None,
+                "error_class": type(error).__name__ if error is not None else None,
+            },
+        )
 
 
 __all__ = [

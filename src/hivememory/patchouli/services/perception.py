@@ -19,9 +19,12 @@ core 话题模型的两个写函数写入：写入一轮只追加交互记录，
 from __future__ import annotations
 
 import logging
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
+from hivememory.components.events.bus import NullRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.work_queue import WorkQueueCapacityError, WorkQueueStoppedError
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.errors import ResourceNotFoundError
 from hivememory.core.models import (
     ActorIdentity,
@@ -55,6 +58,9 @@ class PerceptionFamiliar:
 
     ``engine=None`` 表示感知关闭（原 ``NullPerceptionLayer`` 语义）：摄入
     路径无任何存储副作用；维护用例对空存储自然空转。
+
+    话题的建立、结算与不经结算的删除各发一个 ``topic.*`` 事件；事件只是旁路
+    观测，发布失败不影响话题的存储与结算。
     """
 
     def __init__(
@@ -65,12 +71,16 @@ class PerceptionFamiliar:
         working_set: TopicWorkingSet,
         bus: PatchouliBus,
         config: MemoryPerceptionConfig,
+        runtime_events: RuntimeEventPublisher | None = None,
     ) -> None:
         self._engine = engine
         self._store = store
         self._working_set = working_set
         self._bus = bus
         self._idle_timeout_seconds = config.idle_timeout_seconds
+        self._events = (runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())).scoped(
+            subsystem="patchouli", component="perception"
+        )
 
     # ========== Interaction 摄入 ==========
 
@@ -107,6 +117,7 @@ class PerceptionFamiliar:
         topic_id = self._ensure_topic(
             belong_to,
             target_topic_id,
+            created_by="interaction",
             topic_title=new_topic_title,
             topic_summary=new_topic_summary,
         )
@@ -145,6 +156,7 @@ class PerceptionFamiliar:
         topic_id = self._ensure_topic(
             belong_to,
             target_topic_id,
+            created_by="prepare",
             topic_title=new_topic_title,
             topic_summary=new_topic_summary,
         )
@@ -180,6 +192,7 @@ class PerceptionFamiliar:
             if task is None:  # 无可保存材料：正常结束生命周期，不触发生成
                 self._store.delete(belong_to, topic_id)
                 self._working_set.remove(belong_to, topic_id)
+                self._emit_topic_settled(belong_to, topic_id, reason, generation_submitted=False)
                 return True, None
 
             # admission：lease 持有期间等待 Generation queue 接纳。
@@ -200,6 +213,7 @@ class PerceptionFamiliar:
 
             self._store.delete(belong_to, topic_id)
             self._working_set.remove(belong_to, topic_id)
+            self._emit_topic_settled(belong_to, topic_id, reason, generation_submitted=True)
             return True, generation_task
         finally:
             self._working_set.release(lease)
@@ -328,6 +342,7 @@ class PerceptionFamiliar:
             removed = self._store.delete(belong_to, topic_id)
             if removed:
                 self._working_set.remove(belong_to, topic_id)
+                self._topic_events(belong_to, topic_id).emit(RuntimeEventType.TOPIC_DELETED)
             return TopicEvictionResult(topic_id=topic_id, removed=removed)
         finally:
             self._working_set.release(lease)
@@ -409,10 +424,15 @@ class PerceptionFamiliar:
         belong_to: WorkspaceIdentity,
         target_topic_id: str,
         *,
+        created_by: Literal["interaction", "prepare"],
         topic_title: str | None = None,
         topic_summary: str | None = None,
     ) -> str:
-        """确保目标话题存在并返回真实 topic_id；未知目标显式拒绝。"""
+        """确保目标话题存在并返回真实 topic_id；未知目标显式拒绝。
+
+        ``created_by`` 只用于新建话题的事件：应用交互时建立，或为写入预先确定
+        话题时建立。
+        """
         if target_topic_id == "NEW_TOPIC":
             topic = self._store.create(
                 belong_to,
@@ -421,10 +441,30 @@ class PerceptionFamiliar:
             )
             # 创建即入池：避免 Store 有记录而 WorkingSet 不可见的孤儿窗口。
             self._working_set.touch(belong_to, topic.topic_id)
+            self._topic_events(belong_to, topic.topic_id).emit(
+                RuntimeEventType.TOPIC_CREATED, data={"created_by": created_by}
+            )
             return topic.topic_id
         if self._store.get(belong_to, target_topic_id) is None:
             raise ResourceNotFoundError(details={"resource": "topic", "topic_id": target_topic_id})
         return target_topic_id
+
+    def _topic_events(self, belong_to: WorkspaceIdentity, topic_id: str) -> RuntimeEventPublisher:
+        return self._events.bind(topic_id=topic_id, workspace_id=belong_to.workspace_id)
+
+    def _emit_topic_settled(
+        self,
+        belong_to: WorkspaceIdentity,
+        topic_id: str,
+        reason: TriggerReason,
+        *,
+        generation_submitted: bool,
+    ) -> None:
+        """话题生命周期以结算结束；没有可保存材料时不提交生成。"""
+        self._topic_events(belong_to, topic_id).emit(
+            RuntimeEventType.TOPIC_SETTLED,
+            data={"reason": reason.value, "generation_submitted": generation_submitted},
+        )
 
     def _refresh_residency(self, belong_to: WorkspaceIdentity, topic_id: str) -> None:
         """更新驻留记录；话题已不存在时不复活陈旧条目。

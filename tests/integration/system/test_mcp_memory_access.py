@@ -13,10 +13,14 @@ from types import SimpleNamespace
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import RuntimeEventBus
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.components.trace_context import current_trace_id
 from hivememory.config.app import HiveMemoryConfig
 from hivememory.core.access import CallerPrincipal, WorkspaceOperation
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.contracts.events import GlobalEvents
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.core.models import (
     ActorIdentity,
     IndexLayer,
@@ -160,10 +164,12 @@ class _Gateway:
 
     def __init__(self, bus: GlobalSystemBus) -> None:
         self.calls = 0
+        self.traces: list[str] = []
         bus.register(GatewayPublicRoutes.PROCESS, self._process)
 
     async def _process(self, message, **kwargs):
         self.calls += 1
+        self.traces.append(current_trace_id.get())
         return GatewayDecisionOutcome(
             decision=GatewayDecision(
                 target_topic_id="NEW_TOPIC",
@@ -226,12 +232,15 @@ def _compose(allowed_operations: frozenset[WorkspaceOperation]):
     threads = ProcessThreads(
         ProcessTable(), admission=gateway, authorizer=authorizer, topics=root_topics
     )
+    # 真实事件总线：它在发布时从 contextvars 补上 trace。
+    runtime_events = RuntimeEventBus()
     entry = WorkspaceOperationEntry(
         ActorMemoryService(
             bus, operation_authorizer=authorizer, memory_reader=read_view.memory, threads=threads
         ),
         agent=ActorAgentService(operation_authorizer=authorizer, profile_reader=read_view.profiles),
         threads=threads,
+        runtime_events=RuntimeEventPublisher(runtime_events),
     )
     import_bus = ImportBusService(
         ingestor=ImportBusIngestor(
@@ -251,6 +260,7 @@ def _compose(allowed_operations: frozenset[WorkspaceOperation]):
         operation_entry=entry,
         import_bus_service=import_bus,
         config=HiveMemoryConfig(),
+        runtime_events=runtime_events,
     )
     return system, patchouli, gateway_routes
 
@@ -412,3 +422,27 @@ async def test_denied_write_never_determines_a_topic():
     assert gateway.calls == 0
     assert patchouli.prepared_topics == []
     assert patchouli.admission.submissions == []
+
+
+@pytest.mark.asyncio
+async def test_each_tool_call_runs_in_its_own_trace_shared_by_topic_routing():
+    """每次工具调用在自己的 mcp- trace 中进行：actor 操作事件不带进程，写入时为这一轮
+    确定话题的 Gateway 路由继承同一个 trace。"""
+    system, _patchouli, gateway = _compose(_READ_AND_SEARCH | {WorkspaceOperation.MEMORY_WRITE})
+
+    async with serve_mcp(create_mcp_server(lambda: system), _HEADERS) as session:
+        await session.call_tool("memory_search", {"query": "怎么部署"})
+        await session.call_tool("memory_write", {"content": "部署改为手动执行。", "turn": _TURN})
+
+    search, write = [
+        event
+        for event in system.runtime_events.buffer_snapshot
+        if event.event_type == RuntimeEventType.ACTOR_OPERATION
+    ]
+    assert (search.data["operation"], write.data["operation"]) == ("memory.search", "memory.write")
+    assert {search.data["entry"], write.data["entry"]} == {"request"}
+    assert {search.process_id, write.process_id} == {None}
+    assert search.trace_id.startswith("mcp-")
+    assert write.trace_id.startswith("mcp-")
+    assert search.trace_id != write.trace_id
+    assert gateway.traces == [write.trace_id]

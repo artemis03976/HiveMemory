@@ -21,7 +21,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from hivememory.components.events.bus import RuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.work_queue import (
     TERMINAL_WORK_STATES,
     FailureAction,
@@ -421,7 +421,7 @@ class InteractionSubmissionQueue:
         compaction: TopicCompactionPort | None = None,
         apply_timeout_seconds: float | None = 30.0,
         store: InMemoryWorkStore | None = None,
-        runtime_events: RuntimeEventSink | None = None,
+        runtime_events: RuntimeEventPublisher | None = None,
         policy: QueuePolicy | None = None,
     ) -> None:
         self._codecs = WorkPayloadCodecRegistry()

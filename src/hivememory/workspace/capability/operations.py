@@ -2,17 +2,23 @@
 
 执行线程的提交以线程句柄经线程表判定线程存活后分派，并提交线程的生命周期
 动作；不建进程的外部入口以入口认证得到的工作 actor 提交检索、读取、写入与
-更新。
+更新。每一次 actor 操作在结束时发一个 ``actor.operation`` 事件。
 """
 
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
+from functools import partial
 from typing import Any, cast
 
-from hivememory.core.access import WorkingActor
+from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.core.access import WorkingActor, WorkspaceOperation
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
 from hivememory.workspace.capability.actor.memory import ActorMemoryService, DispatchTopic
+from hivememory.workspace.capability.operation_events import (
+    ActorOperationEventEmitter,
+    operation_of,
+)
 from hivememory.workspace.contracts.operations import (
     DeriveCallThreadRequest,
     OperationRequest,
@@ -52,9 +58,11 @@ class WorkspaceOperationEntry:
         *,
         agent: ActorAgentService,
         threads: ExecutionThreadTable,
+        runtime_events: RuntimeEventPublisher | None = None,
     ) -> None:
         self._threads = threads
         self._agent = agent
+        self._events = ActorOperationEventEmitter(runtime_events)
         # 泛型结果由公开契约约束；异构表只在此擦除类型，直接指向 actor 方法。
         self._handlers: dict[type[OperationRequest[Any]], Callable[..., Awaitable[Any]]] = {
             SubmitWriteIntentRequest: memory.submit_write_intent,
@@ -73,14 +81,25 @@ class WorkspaceOperationEntry:
         工作 actor 交给 actor API 授权；写入与更新另带句柄，供登记前的同步段
         再解析一次线程。
         """
-        actor = self._threads.resolve(thread).actor
+        resolved = self._threads.resolve(thread)
+        actor = resolved.actor
         request_type = type(request)
         handler = self._handlers.get(request_type)
         if handler is None:
             raise TypeError(f"Unsupported operation request: {request_type.__name__}")
         if request_type in _INTENT_REQUESTS:
-            return cast(R, await handler(request, actor=actor, thread=thread))
-        return cast(R, await handler(request, actor=actor))
+            run = partial(handler, request, actor=actor, thread=thread)
+        else:
+            run = partial(handler, request, actor=actor)
+        result = await self._events.observe(
+            operation_of(request),
+            request,
+            run,
+            actor=actor,
+            entry="thread",
+            process_id=resolved.process_id,
+        )
+        return cast(R, result)
 
     async def execute_request[R](
         self,
@@ -101,17 +120,19 @@ class WorkspaceOperationEntry:
         if request_type in _REQUEST_READS:
             if dispatch_topic is not None:
                 raise TypeError(f"{request_type.__name__} does not take a dispatch topic")
-            return cast(R, await self._handlers[request_type](request, actor=actor))
-        if request_type in _INTENT_REQUESTS:
+            run = partial(self._handlers[request_type], request, actor=actor)
+        elif request_type in _INTENT_REQUESTS:
             if dispatch_topic is None:
                 raise TypeError(f"{request_type.__name__} requires a dispatch topic")
-            return cast(
-                R,
-                await self._handlers[request_type](
-                    request, actor=actor, dispatch_topic=dispatch_topic
-                ),
+            run = partial(
+                self._handlers[request_type], request, actor=actor, dispatch_topic=dispatch_topic
             )
-        raise TypeError(f"Unsupported request-level operation: {request_type.__name__}")
+        else:
+            raise TypeError(f"Unsupported request-level operation: {request_type.__name__}")
+        result = await self._events.observe(
+            operation_of(request), request, run, actor=actor, entry="request"
+        )
+        return cast(R, result)
 
     async def derive_child_thread(
         self, request: DeriveCallThreadRequest, *, thread: ThreadHandle
@@ -122,9 +143,21 @@ class WorkspaceOperationEntry:
         之后由线程表重新判定调用方存活并确认它是主线程，再为被调用方做准入、
         读取操作快照并登记；任一步拒绝都不留下登记。
         """
-        caller = self._threads.resolve(thread).actor
-        profile = await self._agent.resolve_call_target(request, actor=caller)
-        return self._threads.derive_child(parent=thread, profile=profile)
+        resolved = self._threads.resolve(thread)
+        caller = resolved.actor
+
+        async def derive() -> ExecutionThread:
+            profile = await self._agent.resolve_call_target(request, actor=caller)
+            return self._threads.derive_child(parent=thread, profile=profile)
+
+        return await self._events.observe(
+            WorkspaceOperation.AGENT_CALL,
+            request,
+            derive,
+            actor=caller,
+            entry="thread",
+            process_id=resolved.process_id,
+        )
 
     def end_thread(self, *, thread: ThreadHandle) -> None:
         """同步结束子线程；已结束的线程是空操作，主线程以接线缺陷拒绝。"""

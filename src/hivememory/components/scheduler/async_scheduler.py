@@ -21,19 +21,13 @@ from collections.abc import Awaitable, Callable
 from time import monotonic
 from typing import Any
 
-from hivememory.components.events.bus import (
-    NullRuntimeEventSink,
-    RuntimeEventSink,
-    safe_runtime_event_value,
-)
+from hivememory.components.events.bus import NullRuntimeEventSink, safe_runtime_event_value
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.models import (
     MaintenanceTaskSpec,
     TaskRuntimeState,
 )
-from hivememory.core.contracts.runtime_events import (
-    RuntimeEvent,
-    RuntimeEventType,
-)
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 
 logger = logging.getLogger(__name__)
 
@@ -49,11 +43,13 @@ class AsyncMaintenanceScheduler:
         self,
         tick_seconds: float = 1.0,
         shutdown_wait_seconds: float = 5.0,
-        runtime_events: RuntimeEventSink | None = None,
+        runtime_events: RuntimeEventPublisher | None = None,
     ):
         self._tick_seconds = tick_seconds
         self._shutdown_wait_seconds = shutdown_wait_seconds
-        self._runtime_events = runtime_events or NullRuntimeEventSink()
+        self._runtime_events = (
+            runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())
+        ).scoped(component="maintenance_scheduler")
         self._tasks: dict[str, TaskRuntimeState] = {}
         self._shutdown: asyncio.Event | None = None
         self._loop_task: asyncio.Task | None = None
@@ -271,18 +267,14 @@ class AsyncMaintenanceScheduler:
             "result": safe_runtime_event_value(result),
             "error_class": error_class,
         }
-        self._runtime_events.emit(
-            RuntimeEvent(
-                event_type=event_type,
-                task_type="background",
-                source=spec.task_key,
-                subsystem=self._subsystem_for_owner(spec.owner),
-                component="maintenance_scheduler",
-                severity="error" if failed else "info",
-                status=status,
-                reason="maintenance_task_failed" if failed else None,
-                data=data,
-            )
+        self._runtime_events.scoped(
+            subsystem=self._subsystem_for_owner(spec.owner), source=spec.task_key
+        ).bind(task_type="background").emit(
+            event_type,
+            severity="error" if failed else "info",
+            status=status,
+            reason="maintenance_task_failed" if failed else None,
+            data=data,
         )
 
     @staticmethod

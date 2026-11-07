@@ -5,10 +5,8 @@ from __future__ import annotations
 from typing import Any
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
-from hivememory.components.events.bus import (
-    NullRuntimeEventSink,
-    RuntimeEventSink,
-)
+from hivememory.components.events.bus import NullRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.gateway import SystemGatewayConfig
 from hivememory.engines.gateway.interceptors import create_interceptor
 from hivememory.engines.gateway.query_understanding import QueryUnderstandingEngine
@@ -44,7 +42,7 @@ class GatewayRuntime:
         *,
         config: SystemGatewayConfig,
         global_bus: GlobalSystemBus,
-        runtime_events: RuntimeEventSink | None = None,
+        runtime_events: RuntimeEventPublisher | None = None,
         workflow: GatewayWorkflow | None = None,
         context_provider: GatewayContextProvider | None = None,
         llm_service: BaseLLMService | None = None,
@@ -54,7 +52,7 @@ class GatewayRuntime:
     ) -> None:
         self.config = config
         self.global_bus = global_bus
-        self._runtime_events = runtime_events or NullRuntimeEventSink()
+        self._runtime_events = runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())
 
         self._local_bus = GatewayBus()
         self._local_routes_registered = False

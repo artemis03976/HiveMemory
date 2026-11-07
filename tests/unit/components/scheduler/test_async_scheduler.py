@@ -16,6 +16,7 @@ from unittest.mock import AsyncMock
 import pytest
 
 from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.async_scheduler import AsyncMaintenanceScheduler
 from hivememory.components.scheduler.models import MaintenanceTaskSpec
 from hivememory.core.contracts.runtime_events import RuntimeEventType
@@ -243,7 +244,7 @@ class TestSchedulerExecution:
 
         scheduler = AsyncMaintenanceScheduler(
             tick_seconds=0.01,
-            runtime_events=recorder,
+            runtime_events=RuntimeEventPublisher(recorder),
         )
         scheduler.register(make_spec(name="success", interval_seconds=1.0), callback)
         fake_clock.advance(1.0)
@@ -269,7 +270,7 @@ class TestSchedulerExecution:
         callback = AsyncMock(return_value=idle_result)
         scheduler = AsyncMaintenanceScheduler(
             tick_seconds=0.01,
-            runtime_events=recorder,
+            runtime_events=RuntimeEventPublisher(recorder),
         )
         scheduler.register(make_spec(name="idle", interval_seconds=1.0), callback)
         fake_clock.advance(1.0)
@@ -292,7 +293,7 @@ class TestSchedulerExecution:
 
         scheduler = AsyncMaintenanceScheduler(
             tick_seconds=0.01,
-            runtime_events=recorder,
+            runtime_events=RuntimeEventPublisher(recorder),
         )
         scheduler.register(make_spec(name="failing", interval_seconds=1.0), callback)
         fake_clock.advance(1.0)
@@ -320,7 +321,7 @@ class TestSchedulerExecution:
         callback = AsyncMock()
         scheduler = AsyncMaintenanceScheduler(
             tick_seconds=0.01,
-            runtime_events=recorder,
+            runtime_events=RuntimeEventPublisher(recorder),
         )
         scheduler.register(
             make_spec(name="disabled", interval_seconds=1.0, enabled=False),
@@ -350,7 +351,7 @@ class TestSchedulerExecution:
 
         scheduler = AsyncMaintenanceScheduler(
             tick_seconds=0.01,
-            runtime_events=recorder,
+            runtime_events=RuntimeEventPublisher(recorder),
         )
         scheduler.register(
             make_spec(

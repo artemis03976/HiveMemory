@@ -6,12 +6,9 @@ import asyncio
 from time import perf_counter
 from typing import Any
 
-from hivememory.components.events.bus import (
-    NullRuntimeEventSink,
-    RuntimeEventSink,
-)
+from hivememory.components.events.bus import NullRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.contracts.runtime_events import (
-    RuntimeEvent,
     RuntimeEventSeverity,
     RuntimeEventType,
 )
@@ -41,13 +38,15 @@ class GatewayWorkflow:
         decision_prefix: tuple[GatewayWorkflowStep[Any, Any], ...],
         simple_chat_defaults_step: GatewayWorkflowStep[Any, Any],
         user_query_analysis_step: GatewayWorkflowStep[Any, Any],
-        runtime_events: RuntimeEventSink | None = None,
+        runtime_events: RuntimeEventPublisher | None = None,
     ) -> None:
         self._entry_step = entry_step
         self._decision_prefix = decision_prefix
         self._simple_chat_defaults_step = simple_chat_defaults_step
         self._user_query_analysis_step = user_query_analysis_step
-        self._runtime_events = runtime_events or NullRuntimeEventSink()
+        self._runtime_events = (
+            runtime_events or RuntimeEventPublisher(NullRuntimeEventSink())
+        ).scoped(subsystem="gateway", component="workflow")
 
     async def run(
         self,
@@ -343,23 +342,10 @@ class GatewayWorkflow:
         data: dict[str, Any] | None = None,
         workspace_id: str | None = None,
     ) -> None:
-        """事件仅用于观测，sink 异常不得改变业务结果。"""
-
-        try:
-            self._runtime_events.emit(
-                RuntimeEvent(
-                    event_type=event_type,
-                    subsystem="gateway",
-                    component="workflow",
-                    severity=severity,
-                    reason=reason,
-                    message=message,
-                    workspace_id=workspace_id,
-                    data=data or {},
-                )
-            )
-        except Exception:
-            return
+        """事件仅用于观测，发布失败由 publisher 吞下，不改变业务结果。"""
+        self._runtime_events.bind(workspace_id=workspace_id).emit(
+            event_type, severity=severity, reason=reason, message=message, data=data
+        )
 
 
 def _elapsed_ms(started_at: float) -> float:

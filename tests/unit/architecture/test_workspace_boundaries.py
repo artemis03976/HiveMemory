@@ -215,11 +215,15 @@ def test_server_imports_only_root_capability_api():
 
 
 def test_operation_entry_only_imports_actor_capability_api():
-    """操作入口只取得 actor API；共享 backing 与意图设施可以继续使用。"""
+    """操作入口只取得 actor API；共享 backing、意图设施与 actor 操作的事件可以继续使用。"""
     entry = WORKSPACE_PACKAGE / "capability" / "operations.py"
     assert entry.is_file(), f"操作入口文件不存在: {entry}"
     capability = "hivememory.workspace.capability"
-    allowed = (f"{capability}.actor", f"{capability}.backing")
+    allowed = (
+        f"{capability}.actor",
+        f"{capability}.backing",
+        f"{capability}.operation_events",
+    )
     violations = [
         target
         for target in _import_targets_of(entry)

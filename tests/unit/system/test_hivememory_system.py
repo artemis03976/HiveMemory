@@ -46,7 +46,13 @@ def mock_patchouli():
 
 
 @pytest.fixture
-def system(mock_patchouli):
+def recorded_events():
+    """记录系统生命周期事件的 sink，经组装根的 publisher 写入。"""
+    return RecordingRuntimeEventSink()
+
+
+@pytest.fixture
+def system(mock_patchouli, recorded_events):
     config = MagicMock()
     global_bus = GlobalSystemBus()
     scheduler = GlobalMaintenanceScheduler(tick_seconds=0.05, shutdown_wait_seconds=0.5)
@@ -66,7 +72,7 @@ def system(mock_patchouli):
     memory_service = MagicMock()
     memory_task_service = MagicMock()
     agent_service = MagicMock()
-    runtime_events = RecordingRuntimeEventSink()
+    runtime_events = recorded_events
     # 访问控制组合：Topic 能力服务的操作授权经共享操作授权者完成；
     # 门面的认证网关以替身注入。
     access_composition = make_access_composition(
@@ -85,7 +91,6 @@ def system(mock_patchouli):
         workspace_read_view=make_workspace_read_view(),
         sessions=ConversationSessionService(WorkspaceSessionConfig()),
         event_bus=None,
-        event_sink=runtime_events,
         event_publisher=RuntimeEventPublisher(runtime_events),
     )
     registries = _RegistriesBundle(
@@ -123,12 +128,12 @@ def system(mock_patchouli):
 
 class TestHiveMemorySystem:
     @pytest.mark.asyncio
-    async def test_start_emits_system_lifecycle_events(self, system):
+    async def test_start_emits_system_lifecycle_events(self, system, recorded_events):
         system._scheduler.start = MagicMock()
 
         await system.start()
 
-        events = system._runtime_event_sink.events
+        events = recorded_events.events
         assert [event.event_type for event in events] == [
             RuntimeEventType.SYSTEM_STARTING,
             RuntimeEventType.SYSTEM_READY,
@@ -147,14 +152,14 @@ class TestHiveMemorySystem:
         assert isinstance(events[1].data["duration_ms"], float)
 
     @pytest.mark.asyncio
-    async def test_start_failure_emits_failed_lifecycle_event(self, system):
+    async def test_start_failure_emits_failed_lifecycle_event(self, system, recorded_events):
         system._scheduler.start = MagicMock()
         system._alice.start = AsyncMock(side_effect=RuntimeError("boom"))
 
         with pytest.raises(RuntimeError, match="boom"):
             await system.start()
 
-        events = system._runtime_event_sink.events
+        events = recorded_events.events
         assert [event.event_type for event in events] == [
             RuntimeEventType.SYSTEM_STARTING,
             RuntimeEventType.SYSTEM_START_FAILED,
@@ -200,15 +205,15 @@ class TestHiveMemorySystem:
         assert calls == ["stop_scheduler", "import_bus_shutdown", "stop"]
 
     @pytest.mark.asyncio
-    async def test_stop_emits_system_lifecycle_events(self, system):
+    async def test_stop_emits_system_lifecycle_events(self, system, recorded_events):
         system._scheduler.start = MagicMock()
         system._scheduler.stop = AsyncMock()
 
         await system.start()
-        system._runtime_event_sink.events.clear()
+        recorded_events.events.clear()
         await system.stop()
 
-        events = system._runtime_event_sink.events
+        events = recorded_events.events
         assert [event.event_type for event in events] == [
             RuntimeEventType.SYSTEM_SHUTTING_DOWN,
             RuntimeEventType.SYSTEM_STOPPED,
@@ -234,12 +239,14 @@ class TestHiveMemorySystem:
         assert isinstance(stopped.data["duration_ms"], float)
 
     @pytest.mark.asyncio
-    async def test_stop_when_not_started_emits_stopped_without_subsystem_stop(self, system):
+    async def test_stop_when_not_started_emits_stopped_without_subsystem_stop(
+        self, system, recorded_events
+    ):
         system._scheduler.stop = AsyncMock()
 
         await system.stop()
 
-        events = system._runtime_event_sink.events
+        events = recorded_events.events
         assert [event.event_type for event in events] == [
             RuntimeEventType.SYSTEM_SHUTTING_DOWN,
             RuntimeEventType.SYSTEM_STOPPED,
@@ -274,7 +281,7 @@ class TestHiveMemorySystem:
             await system.start()
 
     @pytest.mark.asyncio
-    async def test_stop_failure_emits_failed_lifecycle_event(self, system):
+    async def test_stop_failure_emits_failed_lifecycle_event(self, system, recorded_events):
         system._started = True
         system._scheduler.stop = AsyncMock()
         system._alice.stop = AsyncMock(side_effect=RuntimeError("stop boom"))
@@ -282,7 +289,7 @@ class TestHiveMemorySystem:
         with pytest.raises(RuntimeError, match="stop boom"):
             await system.stop()
 
-        events = system._runtime_event_sink.events
+        events = recorded_events.events
         assert [event.event_type for event in events] == [
             RuntimeEventType.SYSTEM_SHUTTING_DOWN,
             RuntimeEventType.SYSTEM_STOP_FAILED,

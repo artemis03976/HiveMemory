@@ -18,8 +18,6 @@ class RuntimeEventType(str, Enum):
     CHAT_RUN_COMPLETED = "chat.run.completed"
     CHAT_RUN_FAILED = "chat.run.failed"
 
-    COMMAND_EXECUTED = "command.executed"
-
     IMPORT_TURN_ACCEPTED = "import.turn.accepted"
     IMPORT_TURN_DUPLICATE = "import.turn.duplicate"
     IMPORT_TURN_SKIPPED = "import.turn.skipped"
@@ -28,17 +26,22 @@ class RuntimeEventType(str, Enum):
     GATEWAY_WORKFLOW_STARTED = "gateway.workflow.started"
     GATEWAY_STEP_COMPLETED = "gateway.step.completed"
     GATEWAY_WORKFLOW_COMPLETED = "gateway.workflow.completed"
-    GATEWAY_WORKFLOW_CANCELLED = "gateway.workflow.cancelled"
     GATEWAY_WORKFLOW_FAILED = "gateway.workflow.failed"
     GATEWAY_ANALYSIS_CAPABILITY_COMPLETED = "gateway.analysis.capability.completed"
 
     AGENT_RUN_STARTED = "agent.run.started"
-    AGENT_RUN_STATUS = "agent.run.status"
     AGENT_RUN_COMPLETED = "agent.run.completed"
     AGENT_RUN_CANCELLED = "agent.run.cancelled"
     AGENT_RUN_FAILED = "agent.run.failed"
     AGENT_CONTEXT_COMPACTION = "agent.context.compaction"
     AGENT_CONTEXT_BUDGET_EXCEEDED = "agent.context.budget_exceeded"
+
+    # 一次 actor 操作在结束时只发这一个事件，结局在 status：completed、rejected 或 failed。
+    ACTOR_OPERATION = "actor.operation"
+
+    TOPIC_CREATED = "topic.created"
+    TOPIC_SETTLED = "topic.settled"
+    TOPIC_DELETED = "topic.deleted"
 
     MEMORY_TASK_CREATED = "memory.task.created"
     MEMORY_TASK_STATUS = "memory.task.status"

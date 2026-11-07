@@ -42,9 +42,8 @@ export function sourceFromEvent(event: RuntimeEvent): MemoryGenerationTaskSource
   if (
     source === 'WRITE' ||
     source === 'UPDATE' ||
-    source === 'ARCHIVE' ||
-    source === 'MERGE' ||
-    source === 'SPLIT'
+    source === 'SETTLE' ||
+    source === 'MERGE'
   ) {
     return source;
   }

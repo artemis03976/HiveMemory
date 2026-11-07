@@ -1,18 +1,12 @@
 from __future__ import annotations
 
 from time import monotonic
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any
 
-from hivememory.components.events.bus import (
-    RuntimeEventBus,
-    RuntimeEventSink,
-    safe_runtime_event_value,
-)
+from hivememory.components.events.bus import RuntimeEventBus
+from hivememory.components.events.publisher import Severity
 from hivememory.config.app import HiveMemoryConfig
-from hivememory.core.contracts.runtime_events import (
-    RuntimeEvent,
-    RuntimeEventType,
-)
+from hivememory.core.contracts.runtime_events import RuntimeEventType
 from hivememory.system.assembler import (
     SystemAssembler,
     _RegistriesBundle,
@@ -65,7 +59,9 @@ class HiveMemorySystem:
         self._workspace_read_view = runtime.workspace_read_view
         self._sessions = runtime.sessions
         self._runtime_events = runtime.event_bus
-        self._runtime_event_sink = runtime.event_sink
+        self._lifecycle_events = runtime.event_publisher.scoped(
+            subsystem="system", source="system", component="hivememory_system"
+        )
 
         # 子系统
         self._gateway = subsystems.gateway
@@ -319,7 +315,7 @@ class HiveMemorySystem:
         event_type: RuntimeEventType,
         *,
         status: str,
-        severity: Literal["debug", "info", "warning", "error"] = "info",
+        severity: Severity = "info",
         reason: str | None = None,
         duration_ms: float | None = None,
         data: dict[str, Any] | None = None,
@@ -329,17 +325,8 @@ class HiveMemorySystem:
             "duration_ms": duration_ms,
             **(data or {}),
         }
-        self._runtime_event_sink.emit(
-            RuntimeEvent(
-                event_type=event_type,
-                source="system",
-                subsystem="system",
-                component="hivememory_system",
-                severity=severity,
-                status=status,
-                reason=reason,
-                data=safe_runtime_event_value(payload),
-            )
+        self._lifecycle_events.emit(
+            event_type, status=status, severity=severity, reason=reason, data=payload
         )
 
     @staticmethod
@@ -434,10 +421,6 @@ class HiveMemorySystem:
     @property
     def runtime_events(self) -> RuntimeEventBus | None:
         return self._runtime_events
-
-    @property
-    def runtime_event_sink(self) -> RuntimeEventSink:
-        return self._runtime_event_sink
 
     # ========== 配置管理 ==========
 

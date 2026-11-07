@@ -9,6 +9,7 @@ import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.config.gateway import (
     GatewayContextPreparationConfig,
     GatewayWorkflowConfig,
@@ -43,7 +44,7 @@ async def test_task_cancel_stops_current_provider_invoke_and_propagates() -> Non
     runtime = GatewayRuntime(
         config=SystemGatewayConfig(),
         global_bus=bus,
-        runtime_events=events,
+        runtime_events=RuntimeEventPublisher(events),
     )
     task = asyncio.create_task(
         GatewayService(runtime).process(
@@ -59,9 +60,13 @@ async def test_task_cancel_stops_current_provider_invoke_and_propagates() -> Non
     with pytest.raises(asyncio.CancelledError):
         await task
     assert provider_cancelled.is_set()
-    event_types = [event.event_type for event in events.events]
-    assert RuntimeEventType.GATEWAY_WORKFLOW_CANCELLED.value not in event_types
-    assert RuntimeEventType.GATEWAY_WORKFLOW_FAILED.value not in event_types
+    # 取消直接离开 Gateway，不发终态事件：由所在运行（任务进程或导入）的终态收尾。
+    event_types = {event.event_type for event in events.events}
+    assert RuntimeEventType.GATEWAY_WORKFLOW_STARTED.value in event_types
+    assert not event_types & {
+        RuntimeEventType.GATEWAY_WORKFLOW_COMPLETED.value,
+        RuntimeEventType.GATEWAY_WORKFLOW_FAILED.value,
+    }
 
 
 @pytest.mark.asyncio

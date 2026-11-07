@@ -7,7 +7,10 @@ import asyncio
 import pytest
 
 from hivememory.components.bus.global_bus import GlobalSystemBus
+from hivememory.components.events.bus import RecordingRuntimeEventSink
+from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.core.access import WorkspaceOperation
+from hivememory.core.contracts.runtime_events import RuntimeEvent, RuntimeEventType
 from hivememory.core.errors import OperationDeniedError, ResourceNotFoundError
 from hivememory.core.models import (
     ActorIdentity,
@@ -62,6 +65,7 @@ class _OperationHarness:
         )
         self.citations: list[dict] = []
         self.owner_calls: list[str] = []
+        self.events = RecordingRuntimeEventSink()
         self.backing = BusCanonicalReadBackend(self.bus)
         self.runtime = WorkspaceReadView(
             backing=self.backing, atom_capacity=32, profile_capacity=16
@@ -87,6 +91,7 @@ class _OperationHarness:
                 profile_reader=self.runtime.profiles,
             ),
             threads=access.threads,
+            runtime_events=RuntimeEventPublisher(self.events),
         )
 
     async def _read(self, memory_id, *, identity_scope):
@@ -130,6 +135,19 @@ _READ_ROUTES = frozenset(
         PatchouliRoutes.GET_AGENT_PROFILE,
     }
 )
+
+
+# 写入的摘要是入口交回的待生成记忆别名，用例在提交之后才知道它。
+_RETURNED_ALIAS = object()
+
+
+def _operation_events(harness) -> list[RuntimeEvent]:
+    """入口发出的 actor 操作事件。"""
+    return [
+        event
+        for event in harness.events.events
+        if event.event_type == RuntimeEventType.ACTOR_OPERATION
+    ]
 
 
 def _cold_reads(harness) -> int:
@@ -425,6 +443,12 @@ async def test_call_target_with_only_agent_call_delivers_profile(single_operatio
     assert harness.citations == []
     assert harness.registry.size == 0
     assert _cold_reads(harness) == 1
+    (event,) = _operation_events(harness)
+    assert (event.status, event.data["operation"], event.data["callee_agent_id"]) == (
+        "completed",
+        "agent.call",
+        "call_target",
+    )
 
 
 @pytest.mark.asyncio
@@ -466,6 +490,13 @@ async def test_request_without_required_operation_is_denied_before_side_effects(
             await _submit(harness.entry, operation_request, thread=thread)
         assert error.value.details["operation"] == operation.value
         assert error.value.details["reason"] == "operation_not_allowed"
+        (event,) = _operation_events(harness)
+        assert (event.status, event.severity, event.reason, event.data["operation"]) == (
+            "rejected",
+            "warning",
+            OperationDeniedError.code,
+            operation.value,
+        )
         assert harness.registry.size == 1
         assert (
             harness.registry.get(prior.pending_alias, access.default_workspace).status
@@ -940,3 +971,70 @@ async def test_every_actor_request_is_rejected_after_stop_without_side_effects(
     finally:
         harness.runtime.close()
         access.gateway.close()
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "operation_request,summary",
+    [
+        pytest.param(RetrieveRequest("查询基础内容"), {"result_count": 1}, id="search"),
+        pytest.param(
+            ResolveReferencesRequest(("base", "missing")),
+            {"requested_count": 2, "delivered_count": 1},
+            id="read",
+        ),
+        pytest.param(ResolveRunTargetRequest("base"), {"resolution": "atom"}, id="run"),
+        pytest.param(
+            SubmitWriteIntentRequest(WriteFocus(content="请求正文")),
+            {"pending_alias": _RETURNED_ALIAS},
+            id="write",
+        ),
+    ],
+)
+async def test_thread_submission_emits_one_completed_event_with_process_and_summary(
+    operation_setup, operation_request, summary
+):
+    """线程提交在操作结束时发一个 actor.operation：带进程与 actor 标签、按操作的摘要，不带请求内容。"""
+    harness, access = operation_setup
+    thread = await _derive_thread(access, process_id="process-1")
+
+    result = await _submit(harness.entry, operation_request, thread=thread)
+
+    (event,) = _operation_events(harness)
+    assert (event.status, event.severity, event.process_id, event.agent_id) == (
+        "completed",
+        "info",
+        "process-1",
+        "test_agent",
+    )
+    assert event.workspace_id == access.default_workspace.workspace_id
+    assert event.data["entry"] == "thread"
+    for key, expected in summary.items():
+        assert event.data[key] == (
+            result.pending_alias if expected is _RETURNED_ALIAS else expected
+        )
+    assert "查询基础内容" not in str(event.data)
+    assert "请求正文" not in str(event.data)
+
+
+@pytest.mark.asyncio
+async def test_unexpected_operation_error_emits_failed_event_and_propagates(operation_setup):
+    """意外异常发 failed 并带异常类名，异常原样抛给提交方。"""
+    harness, access = operation_setup
+    thread = await _derive_thread(access)
+
+    async def broken_retrieve(request):
+        raise RuntimeError("storage exploded")
+
+    harness.bus.register(PatchouliRoutes.MEMORY_RETRIEVE, broken_retrieve)
+
+    with pytest.raises(RuntimeError):
+        await harness.entry.execute(RetrieveRequest("查询基础内容"), thread=thread)
+
+    (event,) = _operation_events(harness)
+    assert (event.status, event.severity, event.reason, event.data["error_class"]) == (
+        "failed",
+        "error",
+        "actor_operation_failed",
+        "RuntimeError",
+    )
