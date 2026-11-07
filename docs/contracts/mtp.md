@@ -15,7 +15,7 @@ related_contracts:
   - docs/contracts/routes-and-events.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # Memory Tool Protocol (MTP)
@@ -78,7 +78,7 @@ Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格�
 - 结果由 MemoryCompiler 编译为 Retrieval Context；
 - 读取能力预热 workspace 完整原子缓存，后续交付仍重新检查当前 actor 的可见性；
 - 空结果仍为 `success`，并带 `no_memories_found` warning；
-- 不记录检索命中：命中只为任务进程的预检索、在 Actor 有输出之后记录（[记忆检索](../patchouli/retrieval.md#7-访问与生命力副作用)）。
+- actor API 随检索为交付的记忆记录检索命中，尽力而为，记录失败不改变检索结果（[记忆检索](../patchouli/retrieval.md#7-访问与生命力副作用)）。
 
 SEARCH 返回可继续消费的检索上下文，而不是把“没有找到”当成系统故障。检索本身具有不确定性，空结果只说明当前查询没有证据；Agent 仍可以改写查询、继续回答或明确告知信息不足。
 

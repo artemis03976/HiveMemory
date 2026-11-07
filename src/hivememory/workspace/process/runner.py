@@ -82,8 +82,6 @@ from hivememory.workspace.sessions import ConversationSessionService
 logger = logging.getLogger(__name__)
 
 _NEW_TOPIC = "NEW_TOPIC"
-# 预检索命中的来源：任务进程在 Actor 有输出后记录。
-_PRE_RETRIEVAL_HIT_SOURCE = "retrieval.pre_retrieval"
 
 
 class _ProcessCancelled(Exception):  # noqa: N818 - 设计要求使用私有领域分支名
@@ -162,11 +160,11 @@ class TaskProcessRunner:
     以进程为参数、都运行在进程 task 中，执行器自身不保存任何进程的状态。
     执行器与 ``CPUAllocator`` 由组合根构建并注入注册入口。
 
-    阶段调用按“谁在执行”授权：Gateway、Profile、附件、存储健康、检索命中、
-    话题确认与交互提交是系统级操作，以进程记录的系统 root 工作 actor 执行，
-    Gateway 由执行器在调用前 root 授权，其余经 root API 在方法入口授权；预检索
-    是执行者的 actor 操作，经操作入口以主线程提交，由 actor API 授权，检索按
-    执行者的可见性进行。交互中的 Agent（执行者）作为参与者显式交给提交。
+    阶段调用按“谁在执行”授权：Gateway、Profile、附件、存储健康、话题确认与
+    交互提交是系统级操作，以进程记录的系统 root 工作 actor 执行，Gateway 由
+    执行器在调用前 root 授权，其余经 root API 在方法入口授权；预检索是执行者的
+    actor 操作，经操作入口以主线程提交，由 actor API 授权，检索按执行者的可见性
+    进行，检索命中随检索记录。交互中的 Agent（执行者）作为参与者显式交给提交。
     scope 只交给紧随的阶段调用，不进入 CPU 输入清单。
     """
 
@@ -300,7 +298,7 @@ class TaskProcessRunner:
             )
         topic_id: str | None = None
         if execution_result.has_output:
-            topic_id = await self._seal_and_submit(process, execution_result, memories)
+            topic_id = await self._seal_and_submit(process, execution_result)
 
         self._mark_execution_terminal(process, execution_result)
         if execution_result.status is CPUExecutionStatus.CANCELLED:
@@ -475,7 +473,6 @@ class TaskProcessRunner:
         self,
         process: TaskProcess,
         execution_result: CPUExecutionResult,
-        memories: tuple[MemoryAtom, ...],
     ) -> str | None:
         """封口交互记录，进入 FINALIZE 后由进程持有的提交任务提交，返回实际所在的话题。
 
@@ -495,7 +492,7 @@ class TaskProcessRunner:
         )
         if not record.try_enter_finalizing():
             raise _ProcessCancelled(record.phase, record.stop_reason or "user_requested")
-        submission = asyncio.create_task(self._submit(process, payload, memories))
+        submission = asyncio.create_task(self._submit(process, payload))
         record.events.status(record)
         await process.outputs.send(Finalizing())
         try:
@@ -512,9 +509,8 @@ class TaskProcessRunner:
         self,
         process: TaskProcess,
         payload: InteractionPayload,
-        memories: tuple[MemoryAtom, ...],
     ) -> str | None:
-        """提交任务：记录检索命中，经 root API 提交交互并等待应用，再写入会话。
+        """提交任务：经 root API 提交交互并等待应用，再写入会话。
 
         先等正在进行的话题确定结束：有派发话题时提交到它，否则提交 Gateway 的
         新话题决定，话题在交互应用时建立。交互提交是系统级操作，以系统的
@@ -527,7 +523,6 @@ class TaskProcessRunner:
         request = process.request
         working_set = process.working_set
         await working_set.settle_topic_determination()
-        await self._record_retrieval_hits(process, memories)
 
         decision = working_set.gateway_decision
         assert decision is not None
@@ -572,28 +567,6 @@ class TaskProcessRunner:
         if working_set.dispatch_topic_id is None and result.topic_id is not None:
             record.events.bind_topic(result.topic_id)
         return result.topic_id
-
-    async def _record_retrieval_hits(
-        self, process: TaskProcess, memories: tuple[MemoryAtom, ...]
-    ) -> None:
-        """为预检索到的记忆记录检索命中：Actor 有输出时记录，不依赖提交的结局。
-
-        命中是生命周期的强化信号，尽力而为：记录失败只记日志，不影响本轮。
-        """
-        if not memories:
-            return
-        record = process.record
-        try:
-            await self._memories.record_retrieval_hits(
-                [memory.id for memory in memories],
-                target_workspace=process.request.target_workspace,
-                source=_PRE_RETRIEVAL_HIT_SOURCE,
-                actor=record.system_actor,
-            )
-        except Exception:
-            logger.warning(
-                "记录检索命中失败，本轮照常提交: process_id=%s", record.process_id, exc_info=True
-            )
 
     @staticmethod
     def _mark_execution_terminal(process: TaskProcess, result: CPUExecutionResult) -> None:

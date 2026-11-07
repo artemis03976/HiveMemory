@@ -17,9 +17,6 @@ export function LifecycleSettings({ config, updateConfig, getFieldError }: Setti
       </SettingSection>
 
       <SettingSection title="正向强化 (Reinforcement)">
-        <SettingRow label="命中加成" description="每次记忆被成功检索时增加的活力点数。">
-          <Input type="number" value={config.lifecycle.reinforcement.hit_boost} onChange={(v: number) => updateConfig('lifecycle.reinforcement.hit_boost', v)} step="0.5" className="w-24" />
-        </SettingRow>
         <SettingRow label="引用加成" description="当记忆被明确引用时增加的活力点数。">
           <Input type="number" value={config.lifecycle.reinforcement.citation_boost} onChange={(v: number) => updateConfig('lifecycle.reinforcement.citation_boost', v)} step="1.0" className="w-24" />
         </SettingRow>

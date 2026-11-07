@@ -15,7 +15,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # 记忆检索
@@ -134,11 +134,11 @@ Retrieval 只返回 atoms。当前主要调用者分别编译：
 检索结果产生与“记忆确实被使用”不是同一事实：
 
 - `retrieve_async()` 会对返回 atoms 重新计算内存中的 vitality，当前 `persist=False`；
-- 任务进程在 Actor 有输出之后、提交交互之前，经 root API 调用 `patchouli.public.memory.record_retrieval_hits`，为预检索注入的记忆逐条记录 HIT（来源 `retrieval.pre_retrieval`）：同一批按记忆去重，尽力而为，单条失败只记日志，不依赖交互提交的结局，CPU 失败但有输出的轮次也记录；Alice 的 SEARCH 与 MCP 的 `memory_search` 不记录 HIT；
+- workspace actor API 在每次检索交付结果之后，以 `memory.search` 授权返回的 scope 调用 `patchouli.public.memory.record_retrieval_hits`，为交付的记忆逐条记录 HIT（来源 `workspace.search`）：任务进程的预检索、Alice 的 SEARCH 与 MCP 的 `memory_search` 都经这里；同一批按记忆去重，尽力而为，单条失败只记日志，没有结果时不记录；root API 的管理读取不记录 HIT；
 - MTP 明确引用可走 citation route，触发生命周期强化；
 - `update_access_stats()` 提供批量访问统计入口，但不是 RetrievalEngine 内部隐式副作用。
 
-将副作用放在调用方明确的时点而非底层 retriever 中，可以避免预览、重试或内部排序无条件增加访问次数；只在 Actor 有输出之后记录，保留“本轮真正用上了”的含义。
+将副作用放在调用方明确的时点而非底层 retriever 中，可以避免预览、重试或内部排序无条件增加访问次数。命中在检索时记录（owner，2026-11-07），不等 Actor 有输出，也不区分结果是否被用上：HIT 表示记忆被交付给了 Agent，本轮之后失败、停止或没有输出也不撤回。HIT 只刷新最近访问时间，不计访问次数、不加事件加成，与问题无关的检索结果因此不会抬高 vitality；记忆确实被使用由 CITATION 表达（[生命周期](./lifecycle.md#3-强化事件)）。
 
 ## 8. 失败与降级
 

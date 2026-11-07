@@ -10,7 +10,7 @@ code_paths:
 related_contracts:
   - docs/components/runtime-and-bus.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # 记忆生命周期
@@ -68,14 +68,14 @@ B(events) = event_vitality_boost
 
 | 事件 | 默认 event boost | access count | last_accessed_at | decay_anchor_at | confidence |
 |:---|---:|:---:|:---:|:---:|:---:|
-| `HIT` | +5 | +1 | 推进 | 不推进 | 不变 |
+| `HIT` | 不变 | 不变 | 推进 | 不推进 | 不变 |
 | `CITATION` | +20 | +1 | 推进 | 推进 | 不变 |
 | `FEEDBACK_POSITIVE` | +50 | +1 | 推进 | 不推进 | 不变 |
 | `FEEDBACK_NEGATIVE` | -50 | +1 | 推进 | 不推进 | ×0.5 |
 
-HIT 表示一次被动检索命中，不应推进衰减基准，否则经常被召回的旧事实永不衰减。CITATION 表示 Agent 或用户显式使用，当前把它视作主动复习并推进 `decay_anchor_at`，对应“主动回忆重置遗忘曲线”。内容事实（`meta.updated_at`、`meta.version`）与版本 Artifact 不被任何强化事件触碰。
+HIT 表示一次被动检索命中：记忆被交付给了 Agent，不说明被用上。每次检索都为全部结果记录 HIT，若计入访问次数或事件加成，经常被带出的无关记忆会被持续抬高；推进衰减基准则会让经常被召回的旧事实永不衰减。因此 HIT 只刷新 `last_accessed_at`，生命力不变（owner，2026-11-07）。CITATION 表示 Agent 或用户显式使用，当前把它视作主动复习并推进 `decay_anchor_at`，对应“主动回忆重置遗忘曲线”。内容事实（`meta.updated_at`、`meta.version`）与版本 Artifact 不被任何强化事件触碰。
 
-所有事件读取当前原子、统一重算 vitality 后，把本事件授权的 lifecycle 字段经 `patch_payload` 受限提交：只提交 access_count、last_accessed_at、event_vitality_boost、vitality_score（及 CITATION 的 decay_anchor_at / 负反馈的 confidence_score），不做整原子 upsert、不重算向量。
+HIT 以外的事件读取当前原子、统一重算 vitality 后，把本事件授权的 lifecycle 字段经 `patch_payload` 受限提交：只提交 access_count、last_accessed_at、event_vitality_boost、vitality_score（及 CITATION 的 decay_anchor_at / 负反馈的 confidence_score）；HIT 只提交 last_accessed_at。所有事件都不做整原子 upsert、不重算向量。
 
 事件 history 默认只在 ReinforcementEngine 内存中保留，最大 10000 条，用于当前进程的调试与统计；它不是持久化审计日志。动态状态随 `meta.lifecycle` 聚合持久化。
 
@@ -104,7 +104,7 @@ Archive 顺序为长期 persist 后中期 delete，并在 atom 中追加 ARCHIVE
 
 ## 6. 当前调用点
 
-- 任务进程在 Actor 有输出之后，经公开路由 `patchouli.public.memory.record_retrieval_hits` 为预检索注入的记忆记录 HIT（尽力而为，不依赖交互提交的结局）；
+- workspace actor API 在每次检索（任务进程的预检索、Alice 的 SEARCH、MCP 的 `memory_search`）之后，经公开路由 `patchouli.public.memory.record_retrieval_hits` 为交付的记忆记录 HIT（尽力而为，不依赖本轮的结局）；
 - MTP/公开接口可记录 CITATION；
 - Memory management API 可记录正/负反馈；
 - Retrieval 返回时可临时刷新结果 atoms 的 vitality，但默认不持久化；

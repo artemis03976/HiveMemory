@@ -97,30 +97,40 @@ class TestDynamicReinforcementEngine:
         return args[1]
 
     @pytest.mark.asyncio
-    async def test_hit_event(self):
-        """测试 HIT 事件累加进 event_vitality_boost (B 项)，不推进衰减基准"""
-        original_decay_anchor_at = self.test_memory.meta.lifecycle.decay_anchor_at
-        original_updated_at = self.test_memory.meta.updated_at
-
+    async def test_hit_only_refreshes_last_access_time(self):
+        """HIT 只刷新最近访问时间：不计访问次数、不加事件加成、不推进衰减基准，生命力不变。"""
+        lifecycle = self.test_memory.meta.lifecycle
+        unchanged = (
+            lifecycle.access_count,
+            lifecycle.event_vitality_boost,
+            lifecycle.decay_anchor_at,
+            lifecycle.vitality_score,
+        )
         self.mock_mid_term.get_by_key.return_value = self.test_memory
-        self.mock_vitality_calc.calculate.return_value = 50.0  # 重算结果 (含 B 项)
+        engine = DynamicReinforcementEngine(
+            mid_term=self.mock_mid_term,
+            vitality_calculator=self.mock_vitality_calc,
+            config=self.config,
+            now=lambda: FIXED_NOW,
+        )
 
         event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
-
-        result = await self.engine.reinforce(
+        result = await engine.reinforce(
             _identity_scope().workspace_identity, self.test_memory.id, event
         )
 
-        assert result.event_type == EventType.HIT
-        assert result.previous_vitality == 50.0
-        # 事件加成累加进 B 项 (meta.lifecycle.event_vitality_boost)
-        patch = self._submitted_patch()
-        assert patch["meta.lifecycle.event_vitality_boost"] == self.config.hit_boost
-        # HIT patch 只含 4 个基础授权字段，不提交 decay_anchor_at
-        assert set(patch) == _BASE_PATCH_FIELDS
-        # HIT 不推进 decay_anchor_at，也不改写内容时间 updated_at
-        assert self.test_memory.meta.lifecycle.decay_anchor_at == original_decay_anchor_at
-        assert self.test_memory.meta.updated_at == original_updated_at
+        assert self._submitted_patch() == {"meta.lifecycle.last_accessed_at": FIXED_NOW}
+        assert (result.event_type, result.previous_vitality, result.new_vitality) == (
+            EventType.HIT,
+            50.0,
+            50.0,
+        )
+        assert (
+            lifecycle.access_count,
+            lifecycle.event_vitality_boost,
+            lifecycle.decay_anchor_at,
+            lifecycle.vitality_score,
+        ) == unchanged
 
     @pytest.mark.asyncio
     async def test_citation_resets_decay(self):
@@ -210,13 +220,15 @@ class TestDynamicReinforcementEngine:
         lifecycle.decay_anchor_at = FIXED_NOW - timedelta(days=30)
         self.mock_mid_term.get_by_key.return_value = self.test_memory
 
-        event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
+        event = MemoryEvent(
+            event_type=EventType.FEEDBACK_NEGATIVE, memory_id=self.test_memory.id, source="test"
+        )
         result = await engine.reinforce(
             _identity_scope().workspace_identity, self.test_memory.id, event
         )
 
-        # FACT 衰减 30 天 ≈71.89，加一次访问 10·ln2 ≈6.93 与 HIT 加成 5（固定期望值）
-        assert result.new_vitality == pytest.approx(83.82, abs=0.01)
+        # FACT 衰减 30 天 ≈71.89，加一次访问 10·ln2 ≈6.93 与负反馈 -50（固定期望值）
+        assert result.new_vitality == pytest.approx(28.82, abs=0.01)
         assert self._submitted_patch()["meta.lifecycle.vitality_score"] == result.new_vitality
 
     @pytest.mark.asyncio
@@ -250,13 +262,15 @@ class TestDynamicReinforcementEngine:
 
     @pytest.mark.asyncio
     async def test_access_count_increments(self):
-        """测试访问计数增加"""
+        """HIT 以外的事件（以 CITATION 为代表）增加访问计数"""
         original_count = self.test_memory.meta.lifecycle.access_count
 
         self.mock_mid_term.get_by_key.return_value = self.test_memory
         self.mock_vitality_calc.calculate.return_value = 55.0
 
-        event = MemoryEvent(event_type=EventType.HIT, memory_id=self.test_memory.id, source="test")
+        event = MemoryEvent(
+            event_type=EventType.CITATION, memory_id=self.test_memory.id, source="test"
+        )
 
         await self.engine.reinforce(
             _identity_scope().workspace_identity, self.test_memory.id, event

@@ -108,13 +108,6 @@ _ROUTED_CASES = [
     _Case("tasks", "list_memory_tasks", PatchouliRoutes.MEMORY_TASK_LIST),
     _Case("tasks", "get_memory_task", PatchouliRoutes.MEMORY_TASK_GET, ("task-1",)),
     _Case("tasks", "cancel_memory_task", PatchouliRoutes.MEMORY_TASK_CANCEL, ("task-1",)),
-    _Case(
-        "memory",
-        "record_retrieval_hits",
-        PatchouliRoutes.RECORD_RETRIEVAL_HITS,
-        ((_MEMORY_ID,),),
-        (("source", "root.test"),),
-    ),
     _Case("memory", "storage_available", PatchouliRoutes.STORAGE_AVAILABLE),
     _Case(
         "interaction",

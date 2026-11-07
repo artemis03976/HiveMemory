@@ -333,7 +333,6 @@ class VitalityCalculatorConfig(BaseModel):
 class ReinforcementEngineConfig(BaseModel):
     enable_event_history: bool = Field(default=True)
     event_history_limit: int = Field(default=10000)
-    hit_boost: float = Field(default=5.0)
     citation_boost: float = Field(default=20.0)
     positive_feedback_boost: float = Field(default=50.0)
     negative_feedback_penalty: float = Field(default=-50.0)

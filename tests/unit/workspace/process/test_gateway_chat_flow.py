@@ -1,10 +1,10 @@
 """主动聊天任务进程的编排测试。
 
 被测边界：``TaskProcessService`` 注册入口与四阶段编排在命令短路、完成、取消与失败
-路径上的行为：PREPARE 的预检索与已有话题的确认、有输出时的交互提交、检索命中与会话
-写入，以及各阶段停止的响应点。注册经真实认证网关认证执行者与系统的 root 工作 actor
-（组合内显式登记）并返回进程句柄；系统阶段（Gateway、话题确认、检索命中、交互提交）
-以 root scope 调用，预检索经真实操作入口以执行者授权；停止请求以 process_id 加 system
+路径上的行为：PREPARE 的预检索与已有话题的确认、有输出时的交互提交与会话写入、提交前
+等待进行中的话题确定，以及各阶段停止的响应点。注册经真实认证网关认证执行者与系统的
+root 工作 actor（组合内显式登记）并返回进程句柄；系统阶段（Gateway、话题确认、交互
+提交）以 root scope 调用，预检索与随它记录的检索命中经真实操作入口以执行者授权；停止请求以 process_id 加 system
 的工作 actor 注入；Actor 阶段以测试 CPU 替换 Alice（总线上不注册 Alice 路由），
 Gateway 与 Patchouli 的公开路由用 GlobalSystemBus 上的替身隔离。
 """
@@ -498,8 +498,8 @@ async def test_completed_stream_uses_one_process_id_for_events_and_downstream_ro
 async def test_system_stages_run_with_root_scope_and_executor_is_explicit() -> None:
     """系统阶段以 root scope 执行，执行者只出现在预检索的 scope 与提交的参与者中。
 
-    Gateway、已有话题的确认、检索命中与交互提交都收到系统 root 授权组装的 scope；
-    预检索经操作入口以执行者授权；提交的参与者是执行者、来源是主动对话。Profile 与
+    Gateway、已有话题的确认与交互提交都收到系统 root 授权组装的 scope；预检索经
+    操作入口以执行者授权，检索命中随检索以同一 scope 记录；提交的参与者是执行者、来源是主动对话。Profile 与
     附件的 root 授权由 CPU 分配的测试覆盖。
     """
     bus = GlobalSystemBus()
@@ -520,7 +520,7 @@ async def test_system_stages_run_with_root_scope_and_executor_is_explicit() -> N
     assert captured_gateway["identity_scope"] == _root_scope()
     assert [retrieval.identity_scope for retrieval in stub.retrievals] == [_executor_scope()]
     assert [call["identity_scope"] for call in stub.prepared_topics] == [_root_scope()]
-    assert [hit["identity_scope"] for hit in stub.hits] == [_root_scope()]
+    assert [hit["identity_scope"] for hit in stub.hits] == [_executor_scope()]
     assert [
         (call["identity_scope"], call["participant"], call["origin"]) for call in stub.submissions
     ] == [(_root_scope(), _actor(), "active_chat")]
@@ -666,8 +666,6 @@ async def test_new_topic_without_writes_is_created_by_submission() -> None:
     assert [turn.topic_id for turn in turns] == ["topic-created"]
 
 
-async def _admission_unavailable(**_kwargs):
-    raise InteractionAdmissionUnavailableError(reason="capacity_rejected")
 @pytest.mark.asyncio
 async def test_submission_waits_for_topic_determination_left_running_by_cpu() -> None:
     """CPU 返回时写入仍在为这一轮建立新话题：提交先等话题确定结束，再提交到这个话题。
@@ -713,6 +711,8 @@ async def test_submission_waits_for_topic_determination_left_running_by_cpu() ->
     assert done_data(events)["topic_id"] == "topic-created"
 
 
+async def _admission_unavailable(**_kwargs):
+    raise InteractionAdmissionUnavailableError(reason="capacity_rejected")
 
 
 @pytest.mark.asyncio
@@ -753,46 +753,6 @@ async def test_unsuccessful_submission_keeps_turn_without_topic_and_fails_proces
     assert [(turn.payload.reply_text, turn.topic_id) for turn in turns] == [("完成", None)]
     details = _logged_finalization_details(caplog)
     assert (details["stage"], details["reason"]) == (stage, reason)
-
-
-@pytest.mark.asyncio
-async def test_retrieval_hits_recorded_after_output_even_when_submission_fails() -> None:
-    """检索命中在 Actor 有输出之后记录，不依赖提交的结局：应用失败时照样为预检索交付的记忆记录命中。"""
-    atom = _memory_ref_atom()
-    bus, stub = _turn_bus(PatchouliTurnStub(memories=[atom], submit_state="failed"))
-    hits_at_actor_start: list[dict] = []
-
-    async def snapshot(_submit):
-        hits_at_actor_start.extend(stub.hits)
-
-    cpu = ScriptedCPU(result=make_cpu_result(), operation_script=snapshot)
-    service, composition = await _service(bus, cpu)
-    events = await _run_once(composition, service, "问题", process_id="process-hits")
-
-    assert events[-1]["event"] == "error"
-    assert hits_at_actor_start == []
-    assert [(hit["memory_ids"], hit["source"]) for hit in stub.hits] == [
-        ((atom.id,), "retrieval.pre_retrieval")
-    ]
-
-
-@pytest.mark.asyncio
-async def test_retrieval_hit_failure_does_not_affect_turn() -> None:
-    """记录检索命中失败只记日志：交互照常提交，进程以实际话题完成。"""
-    bus, stub = _turn_bus(PatchouliTurnStub(memories=[_memory_ref_atom()]))
-
-    async def failing_hits(memory_ids, *, identity_scope, source):
-        raise RuntimeError("lifecycle unavailable")
-
-    bus.unregister(PatchouliRoutes.RECORD_RETRIEVAL_HITS)
-    bus.register(PatchouliRoutes.RECORD_RETRIEVAL_HITS, failing_hits)
-
-    service, composition = await _service(bus)
-    events = await _run_once(composition, service, "问题", process_id="process-hits-failed")
-
-    done = done_data(events)
-    assert (done["status"], done["topic_id"]) == ("completed", "topic-1")
-    assert len(stub.submissions) == 1
 
 
 class _AdmissionChangingAuthorizer:

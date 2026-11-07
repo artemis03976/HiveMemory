@@ -18,7 +18,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # 子系统公共契约
@@ -142,7 +142,7 @@ memory.record_retrieval_hits(memory_ids, *, identity_scope: IdentityScope, sourc
 storage.available() -> bool
 ```
 
-- **检索命中**：为一批检索到的记忆逐条记录 HIT 强化事件，同一批按记忆去重，归属取 scope 的 Workspace；尽力而为，单条失败只记日志、不影响其余记忆，也不交回调用方，取消照常传播。唯一的调用方是任务进程：经 root API（`RootMemoryService.record_retrieval_hits`）为预检索到的记忆记录命中，来源为 `retrieval.pre_retrieval`，时点是 Actor 有输出之后、提交交互之前，不依赖提交的结局。Alice 的 SEARCH 与 MCP 的检索不记录命中（[记忆检索](../patchouli/retrieval.md#7-访问与生命力副作用)）。
+- **检索命中**：为一批检索到的记忆逐条记录 HIT 强化事件，同一批按记忆去重，归属取 scope 的 Workspace；尽力而为，单条失败只记日志、不影响其余记忆，也不交回调用方，取消照常传播。唯一的调用方是 actor API 的检索（`ActorMemoryService.retrieve`）：`memory.search` 授权、读取视图交付结果之后，以授权返回的 scope 为这一批记忆记录命中，来源为 `workspace.search`，没有结果时不调用。任务进程的预检索、Alice 的 SEARCH 与 MCP 的 `memory_search` 都经它，命中与检索同时记录，不依赖本轮之后的结局；root API 的管理读取不记录命中（[记忆检索](../patchouli/retrieval.md#7-访问与生命力副作用)）。
 - **存储健康**：返回记忆存储是否可用。任务进程在 PREPARE 经 root API（`RootMemoryService.storage_available`）读取，不可用时提示词注入离线提示。路由本身不接收身份，授权在 root API 的方法入口。
 
 ### 3.4 其他公开能力
@@ -154,7 +154,7 @@ storage.available() -> bool
 | Memory Task | 携带 `IdentityScope` 的 list/get/cancel；按 task 的 `belong_to` 检查归属，get/cancel 对越域与不存在统一抛 `ResourceNotFoundError` |
 | Agent Profile | 携带 `IdentityScope` 的 create/list/get；get（Profile 解析 backing）另有 `enforce_actor_visibility`，默认按 scope 的 actor 检查源原子可见性，假为管理读取，只校验 Workspace 归属 |
 | Topic | 携带 `IdentityScope` 的 list active、topic data、prepare（第 3.2 节）、manual settle、evict；Patchouli owner 拒绝越域 topic |
-| Citation 与命中 | 记录正式记忆引用，workspace 引用交付统一使用 `workspace.reference_read` 来源；为任务进程的预检索记录命中（第 3.3 节） |
+| Citation 与命中 | 记录正式记忆引用，workspace 引用交付统一使用 `workspace.reference_read` 来源；为 actor 的检索记录命中（第 3.3 节） |
 | Readiness | 模型 warmup、预取与 ready 查询；存储健康（第 3.3 节） |
 
 Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，调用方不能仅凭拿到 id 就假设目标可见；操作授权由调用方一侧的授权点完成（第 3.5 节）。任务快照的 `belong_to` 必须等于 scope 的目标 Workspace，知道任务 ID 不构成权限。Topic ID 在领域上保持全局唯一；scope 在公共边界拆分，内部以 `belong_to + topic_id` 检查归属，不构造另一套局部 ID 命名空间。
@@ -165,11 +165,11 @@ Profile、Topic 与交互提交的公共失败定义在 `patchouli.contracts.err
 
 ### 3.5 工作 actor 与操作授权
 
-Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService`（引用、检索命中与存储健康）以 `IdentityScope` 接收操作身份，不接收工作 actor，也不做操作授权。操作授权在调用方一侧的授权点以真正执行这项操作的身份完成，再把 `WorkspaceOperationAuthorizer` 返回的 `IdentityScope` 交给紧随的 Patchouli 路由：actor API 用 `authorize_agent(actor, operation, target)` 检查 actor 操作白名单，目标取工作 actor 的驻留 Workspace，任务进程的预检索也是执行者的 actor 操作，经操作入口到达这里；root API 用 `authorize_root(actor, target)`，只接受保留的 `system`，HTTP 管理路由、任务进程的系统阶段（确定话题、存储健康、检索命中与交互提交）与 Import Bus 都经它，Gateway 的话题读取与 Profile、附件由执行器与 CPU 分配在调用前以 root 授权。root API 的每个方法在入口授权一次，方法内部依次调用的公开路由沿用同一个 scope，不再各自授权；交互的参与者另以 `participant` 显式传递。公共 handler 拆分身份后，内部调用只传归属与需要的发起者（完整模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
+Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService`（引用、检索命中与存储健康）以 `IdentityScope` 接收操作身份，不接收工作 actor，也不做操作授权。操作授权在调用方一侧的授权点以真正执行这项操作的身份完成，再把 `WorkspaceOperationAuthorizer` 返回的 `IdentityScope` 交给紧随的 Patchouli 路由：actor API 用 `authorize_agent(actor, operation, target)` 检查 actor 操作白名单，目标取工作 actor 的驻留 Workspace，任务进程的预检索也是执行者的 actor 操作，经操作入口到达这里；root API 用 `authorize_root(actor, target)`，只接受保留的 `system`，HTTP 管理路由、任务进程的系统阶段（确定话题、存储健康与交互提交）与 Import Bus 都经它，Gateway 的话题读取与 Profile、附件由执行器与 CPU 分配在调用前以 root 授权。root API 的每个方法在入口授权一次，方法内部依次调用的公开路由沿用同一个 scope，不再各自授权；交互的参与者另以 `participant` 显式传递。公共 handler 拆分身份后，内部调用只传归属与需要的发起者（完整模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
 
 Patchouli 一侧仍独立执行资源授权：资源归属与 `MemoryAccessPolicy` 可见性在最终读写处校验，越域目标按不存在处理，不因调用方已通过操作授权而放宽。
 
-Alice 的 READ、SEARCH、RUN 记忆目标、WRITE、UPDATE、CALL 目标 Profile 与 context_refs 均经 actor API 逐次操作授权；READ 与 RUN 的引用交付由 actor API 记录 `workspace.reference_read` citation。Patchouli 的公开交互路由（提交、状态查询与等待）、话题准备、检索命中与存储健康路由的唯一生产调用方是 root API：提交交互（`RootInteractionService.submit_interaction`）、为一轮确定话题（`RootTopicService.determine_topic`）与 `RootMemoryService` 的两个方法，由任务进程与 Import Bus 以系统的 root 工作 actor 调用，不检查参与 Agent 的操作白名单；主动记忆意图提交路由只接收 `IdentityScope`，唯一的生产调用方是 actor API。新的调用方须在自己的授权点先完成授权。
+Alice 的 READ、SEARCH、RUN 记忆目标、WRITE、UPDATE、CALL 目标 Profile 与 context_refs 均经 actor API 逐次操作授权；READ 与 RUN 的引用交付由 actor API 记录 `workspace.reference_read` citation，SEARCH 的结果由它记录检索命中。Patchouli 的公开交互路由（提交、状态查询与等待）、话题准备与存储健康路由的唯一生产调用方是 root API：提交交互（`RootInteractionService.submit_interaction`）、为一轮确定话题（`RootTopicService.determine_topic`）与 `RootMemoryService.storage_available`，由任务进程与 Import Bus 以系统的 root 工作 actor 调用，不检查参与 Agent 的操作白名单；检索命中与主动记忆意图提交路由只接收 `IdentityScope`，唯一的生产调用方是 actor API。新的调用方须在自己的授权点先完成授权。
 
 Patchouli 提交与生成链沿用自身既有来源记录，公开 API 不接收 `CallerPrincipal` 或其他来源字段。阶段拒绝语义见[错误模型](./error-model.md)第 4.4 节。
 
@@ -361,7 +361,7 @@ Gateway decision outcome
   -> PREPARE
        -> 解析执行者的 Agent Profile（系统以 root 授权，经 workspace 的 Profile 读取视图按管理语义读取）
        -> 线程表以执行者派生主线程
-       -> 预检索：经操作入口以主线程提交检索（执行者的 memory.search，没有时不检索）
+       -> 预检索：经操作入口以主线程提交检索（执行者的 memory.search，没有时不检索），actor API 随检索记录命中
        -> Gateway 指向已有话题：经 root API 为一轮确定话题（确认存在并刷新驻留），冻结派发话题
        -> 经 root API 读取存储健康
        -> CPU 分配：附件租借、附件与记忆编译、组装输入清单
@@ -370,7 +370,7 @@ Gateway decision outcome
        -> WRITE/UPDATE：授权后取得派发话题；还没有时，进程经 root API 以 Gateway 的标题与摘要建立话题并冻结
        -> CPU 返回终态结果后，同步结束全部线程
   -> 有输出的 completed/cancelled/failed：封口交互记录（含结局和实际使用附件）
-       -> 进入 FINALIZE，持有提交任务：等待进行中的话题确定 -> 经 root API 记录预检索命中
+       -> 进入 FINALIZE，持有提交任务：等待进行中的话题确定
           -> 经 root API 提交交互并等待应用（参与者为执行者；有派发话题时提交到它，否则提交 NEW_TOPIC 与 Gateway 的标题、摘要）
           -> 写入会话（话题取交互实际所在的话题，没有应用成功时为空）
   -> 无输出/exception/进入 FINALIZE 前交付方离开：不提交

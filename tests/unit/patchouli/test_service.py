@@ -10,15 +10,14 @@ from uuid import uuid4
 
 import pytest
 
-from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.service import PatchouliService
 from tests.helpers.workspace import make_identity_scope
 
-# 命中由任务进程经 root API 记录：授权点以 system 的 root 授权组装 scope。
-ROOT_SCOPE = make_identity_scope(user_id="u1", agent_id=SYSTEM_AGENT_ID)
-SOURCE = "retrieval.pre_retrieval"
+# 命中由 actor API 随检索记录：scope 由授权点以执行者的 actor 授权组装。
+SCOPE = make_identity_scope(user_id="u1", agent_id="test_agent")
+SOURCE = "workspace.search"
 
 
 def _service_recording_hits(*, failing: frozenset = frozenset()):
@@ -42,10 +41,10 @@ async def test_record_retrieval_hits_records_each_memory_once_in_scope_workspace
     service, recorded = _service_recording_hits()
 
     await service.record_retrieval_hits(
-        [first, str(first), second, second], identity_scope=ROOT_SCOPE, source=SOURCE
+        [first, str(first), second, second], identity_scope=SCOPE, source=SOURCE
     )
 
-    belong_to = ROOT_SCOPE.workspace_identity
+    belong_to = SCOPE.workspace_identity
     assert recorded == [(first, belong_to, SOURCE), (second, belong_to, SOURCE)]
 
 
@@ -58,9 +57,7 @@ async def test_record_retrieval_hits_failure_is_logged_and_does_not_stop_the_bat
     service, recorded = _service_recording_hits(failing=frozenset({failed}))
 
     with caplog.at_level(logging.WARNING, logger="hivememory.patchouli.service"):
-        await service.record_retrieval_hits(
-            [failed, kept], identity_scope=ROOT_SCOPE, source=SOURCE
-        )
+        await service.record_retrieval_hits([failed, kept], identity_scope=SCOPE, source=SOURCE)
 
     assert [memory_id for memory_id, _, _ in recorded] == [kept]
     assert [record.levelno for record in caplog.records] == [logging.WARNING]

@@ -29,7 +29,7 @@ related_contracts:
 related_docs:
   - docs/workspace/README.md
   - docs/system/import-bus.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # 公开路由与事件
@@ -102,9 +102,9 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 
 上表路由只接收调用方授权点组装的 `IdentityScope`，本身不做操作授权。`memory_intent.submit` 的生产调用方是 workspace actor API 的 WRITE/UPDATE：`MemoryIntent.intent_id` 与 `pending_alias` 必填，沿用登记值；话题是 actor API 为这次写入取得的派发话题。Patchouli 在内部构造物化任务，唯一调用 local `GENERATION_SUBMIT_ACTIVE`，每次一个意图，返回接纳、明确拒绝或未知结果。明确拒绝结算 FAILED；未知结果不提前结算，既有任务保留结算权。
 
-交互路由、话题准备（第 2.4 节）、检索命中与存储健康的生产调用方都是 root API，由任务进程与 Import Bus 以系统的 root 工作 actor 调用，每个 root 方法在入口 root 授权一次，方法内依次调用的路由沿用同一个 scope：提交交互（`RootInteractionService.submit_interaction`）先以 `interaction.status` 查重、对仍在应用的交互以 `interaction.wait` 等待，只有未接纳或应用失败的交互才以 `interaction.submit` 提交并等待应用；为一轮确定话题（`RootTopicService.determine_topic`）以 `topic.prepare` 确认或建立话题，为外部交互确定话题前同样先查进度；`RootMemoryService` 的两个方法分别调用 `memory.record_retrieval_hits` 与 `storage.available`。进度、重发与幂等规则见[子系统公共契约](./subsystem-contracts.md#36-交互提交进度与等待)第 3.6 节。提交 handler 调用 `PerceptionFamiliar.apply_interaction()`。`InteractionPayload` 不携带物化任务；submission 的 `belong_to/from_actor` 分别取自 scope 与显式的参与者：交互提交由系统执行，scope 的 actor 是 `system`，交互记录的发起者仍是参与的 Agent；调用方不能从 payload 或 topic id 反推作用域。`chat.run.completed` 和 SSE `done` 都不携带记忆任务 ID；任务通过 `memory.task.*` 事件及 list/get 查询观察。
+交互路由、话题准备（第 2.4 节）与存储健康的生产调用方都是 root API，由任务进程与 Import Bus 以系统的 root 工作 actor 调用，每个 root 方法在入口 root 授权一次，方法内依次调用的路由沿用同一个 scope：提交交互（`RootInteractionService.submit_interaction`）先以 `interaction.status` 查重、对仍在应用的交互以 `interaction.wait` 等待，只有未接纳或应用失败的交互才以 `interaction.submit` 提交并等待应用；为一轮确定话题（`RootTopicService.determine_topic`）以 `topic.prepare` 确认或建立话题，为外部交互确定话题前同样先查进度；`RootMemoryService.storage_available` 调用 `storage.available`。`memory.record_retrieval_hits` 的生产调用方是 actor API 的检索：`memory.search` 授权、交付结果之后，以同一 scope 为这一批记忆记录命中。进度、重发与幂等规则见[子系统公共契约](./subsystem-contracts.md#36-交互提交进度与等待)第 3.6 节。提交 handler 调用 `PerceptionFamiliar.apply_interaction()`。`InteractionPayload` 不携带物化任务；submission 的 `belong_to/from_actor` 分别取自 scope 与显式的参与者：交互提交由系统执行，scope 的 actor 是 `system`，交互记录的发起者仍是参与的 Agent；调用方不能从 payload 或 topic id 反推作用域。`chat.run.completed` 和 SSE `done` 都不携带记忆任务 ID；任务通过 `memory.task.*` 事件及 list/get 查询观察。
 
-Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与存储只接收 `belong_to` 和需要的 `from_actor`。scope 不跨 root 方法调用保存：任务进程的确定话题、存储健康、检索命中与交互提交各自在 root API 入口以系统的 root 工作 actor 授权，交互的参与者（本轮的执行 Agent）显式传入。
+Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与存储只接收 `belong_to` 和需要的 `from_actor`。scope 不跨 root 方法调用保存：任务进程的确定话题、存储健康与交互提交各自在 root API 入口以系统的 root 工作 actor 授权，交互的参与者（本轮的执行 Agent）显式传入。
 
 ### 2.3 Patchouli Memory
 

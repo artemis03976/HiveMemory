@@ -46,6 +46,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+#: 检索命中的来源标签，只用于生命周期事件的观测。
+_SEARCH_HIT_SOURCE = "workspace.search"
+
 # 请求级提交的派发话题回调：没有线程的入口在授权之后才为这一轮确定话题。
 DispatchTopic = Callable[[], Awaitable[str]]
 
@@ -325,7 +328,7 @@ class ActorMemoryService:
         *,
         actor: WorkingActor,
     ) -> list[MemoryAtom]:
-        """语义检索（``memory.search``）：保持领域排序，结果协作预热缓存。
+        """语义检索（``memory.search``）：保持领域排序，结果协作预热缓存，并为结果记录命中。
 
         调用方只提交检索参数：检索请求由本层用授权返回的可信 scope 构造，
         ``IdentityScope`` 不进入调用方输入，
@@ -339,7 +342,35 @@ class ActorMemoryService:
             filters=request.filters,
             top_k=request.top_k,
         )
-        return await self._reader.search(retrieval, scope=scope)
+        memories = await self._reader.search(retrieval, scope=scope)
+        await self._record_retrieval_hits(memories, scope=scope)
+        return memories
+
+    async def _record_retrieval_hits(
+        self, memories: list[MemoryAtom], *, scope: IdentityScope
+    ) -> None:
+        """检索即为交付的记忆记录命中，不论调用方之后是否用上。
+
+        任务进程的预检索、Agent 的检索与外部 harness 的检索都经这里，命中因此
+        与检索同时发生。命中是生命周期的强化信号，尽力而为：记录失败只记日志，
+        不改变检索结果；取消照常传播。同一批的去重由 Patchouli 完成。
+        """
+        if not memories:
+            return
+        try:
+            await self._global_bus.request(
+                PatchouliRoutes.RECORD_RETRIEVAL_HITS,
+                tuple(memory.id for memory in memories),
+                identity_scope=scope,
+                source=_SEARCH_HIT_SOURCE,
+            )
+        except Exception:
+            logger.warning(
+                "记录检索命中失败: count=%s source=%s",
+                len(memories),
+                _SEARCH_HIT_SOURCE,
+                exc_info=True,
+            )
 
     def _authorize(self, actor: WorkingActor, operation: WorkspaceOperation) -> IdentityScope:
         """在 backing 调用前对驻留 Workspace 执行操作授权，返回组装的可信 scope。"""
