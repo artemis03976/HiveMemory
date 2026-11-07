@@ -1048,6 +1048,27 @@ class TestMemoryGenerationFamiliarArtifacts:
         assert atom.meta.created_at == FIXED_NOW
         assert atom.meta.updated_at == FIXED_NOW
         assert atom.meta.lifecycle.decay_anchor_at == FIXED_NOW
+
+    @pytest.mark.asyncio
+    async def test_create_external_memory_without_alias_persists_memory_id_alias(self):
+        """没有给出别名时以 ``mem_<memory id>`` 命名，落库的原子带着这个别名，可按别名寻址。"""
+        artifact_engine = Mock()
+        artifact_engine.memory = Mock()
+        artifact_engine.memory.build_for_create = AsyncMock(return_value=_creation_bundle())
+        mid_term = Mock()
+        mid_term.upsert = AsyncMock()
+        familiar = self._make_familiar(mid_term=mid_term, artifact_engine=artifact_engine)
+        scope = _identity_scope()
+
+        atom = await familiar.create_external_memory(
+            scope.workspace_identity,
+            from_actor=scope.actor_identity,
+            memory_type=MemoryType.FACT,
+            title="部署说明",
+        )
+
+        persisted = mid_term.upsert.await_args.args[0]
+        assert persisted.index.alias == f"mem_{atom.id.hex}"
         mid_term.upsert.assert_awaited_once_with(atom, recompute_vectors=True)
 
     @pytest.mark.asyncio
