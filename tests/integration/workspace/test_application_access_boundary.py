@@ -692,8 +692,8 @@ async def test_interaction_submit_reaches_real_queue_with_participant_as_initiat
 async def test_gateway_close_rejects_new_authentication_and_accepted_work_survives(wired):
     """网关关闭只拒绝新认证：已接纳的交互携带独立的归属与发起者，关闭后仍可应用。
 
-    System 停止先关闭网关；同一 interaction_id 的重放在关闭前只等待已有的工作项，
-    不重复入队。队列尚未启动，两次提交都以零时限等待并以 ``pending`` 交回。
+    System 停止先关闭网关；同一 interaction_id 的重放在关闭前照常被接纳。队列尚未
+    启动，两次提交都以零时限等待并以 ``pending`` 交回。
     """
     system_actor = await wired.access.authenticate(agent_id="system", workspace=MAIN)
     scope = wired.access.authorizer.authorize_root(system_actor, MAIN)
@@ -718,7 +718,6 @@ async def test_gateway_close_rejects_new_authentication_and_accepted_work_surviv
         timeout_seconds=0,
     )
     assert (first.state, replay.state) == ("pending", "pending")
-    assert await wired.queue.pending_count() == 1
 
     wired.access.gateway.close()
     with pytest.raises(AdmissionDeniedError) as auth_error:

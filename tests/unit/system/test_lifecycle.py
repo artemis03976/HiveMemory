@@ -12,6 +12,7 @@ from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.models import ActorIdentity
 from hivememory.patchouli.application import InteractionSubmissionService
+from hivememory.patchouli.contracts.errors import InteractionAdmissionUnavailableError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
 from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.patchouli.runtime.bus import PatchouliBus
@@ -230,7 +231,15 @@ class TestHiveMemorySystemLifecycle:
         assert [(outcome.state, outcome.topic_id) for outcome in outcomes] == [
             ("succeeded", "topic-real")
         ]
-        assert queue.stopped
+        # 系统停止之后提交队列已经停止，新的提交不再被接纳。
+        with pytest.raises(InteractionAdmissionUnavailableError) as rejected:
+            await submissions.submit_interaction(
+                identity_scope=make_identity_scope(user_id="u1", agent_id=SYSTEM_AGENT_ID),
+                participant=ActorIdentity(user_id="u1", agent_id="a1"),
+                payload=make_interaction_payload("迟到的问题", "回答"),
+                interaction_id="after_stop",
+            )
+        assert rejected.value.details["reason"] == "queue_stopped"
 
     @pytest.mark.asyncio
     async def test_stop_without_start_is_noop(self, system_factory, mock_patchouli):

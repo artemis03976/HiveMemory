@@ -20,10 +20,10 @@ from hivememory.components.work_queue import (
 from hivememory.config.patchouli import SemanticFlowPerceptionConfig
 from hivememory.core.protocol.models import InteractionPayload
 from hivememory.engines.perception.memory_perception_engine import MemoryPerceptionEngine
+from hivememory.patchouli.contracts.errors import TopicBusyError
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionQueue,
-    TransientInteractionSubmissionError,
     topic_ordering_key,
 )
 from hivememory.patchouli.memory_library.stores import ShortTermMemoryStore
@@ -101,7 +101,7 @@ async def test_interaction_retry_preserves_workspace_and_applies_block_once():
     ):
         attempts.append((len(attempts) + 1, belong_to))
         if len(attempts) == 1:
-            raise TransientInteractionSubmissionError("retry once")
+            raise TopicBusyError("retry once")
         return await familiar.apply_interaction(
             payload,
             belong_to=belong_to,

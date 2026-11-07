@@ -18,11 +18,11 @@ from hivememory.components.work_queue import (
 )
 from hivememory.core.models import TurnEvent, WorkspaceAssetRef
 from hivememory.core.protocol.models import InteractionPayload
+from hivememory.patchouli.contracts.errors import TopicBusyError
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionCodec,
     InteractionSubmissionQueue,
-    TransientInteractionSubmissionError,
     topic_ordering_key,
 )
 from tests.helpers.sessions import make_interaction_payload
@@ -77,7 +77,7 @@ async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> 
         if len(attempts) == 1:
             payload.model_used = "attempt-local-mutation"
             payload.turn_events.clear()
-            raise TransientInteractionSubmissionError("temporary failure")
+            raise TopicBusyError("temporary failure")
         return "topic-real"
 
     queue = InteractionSubmissionQueue(submit)
@@ -132,7 +132,7 @@ async def test_same_ordering_key_keeps_fifo_during_retry() -> None:
         if payload.user_message == "first":
             first_attempt += 1
             if first_attempt == 1:
-                raise TransientInteractionSubmissionError("retry first")
+                raise TopicBusyError("retry first")
         return f"topic:{payload.user_message}"
 
     queue = InteractionSubmissionQueue(submit)
@@ -272,7 +272,6 @@ async def test_submission_lookup_evicts_old_terminal_work() -> None:
     latest = await queue.wait("interaction-2")
     assert latest is not None
     assert latest.state == WorkState.SUCCEEDED
-    assert await queue.pending_count() == 0
 
 
 @pytest.mark.asyncio
@@ -320,7 +319,10 @@ async def test_same_interaction_id_different_scope_is_one_conflicting_work() -> 
         await queue.stop()
 
     assert receipt.work_id == "interaction:interaction-shared"
-    assert await queue.pending_count() == 1
+    # 冲突的提交没有改写已接纳的记录：归属仍是第一次提交的 Workspace。
+    view = await queue.lookup("interaction-shared")
+    assert view is not None
+    assert view.belong_to == first.belong_to
 
 
 def test_codec_roundtrip_preserves_split_identity_and_attachment_order() -> None:

@@ -74,7 +74,7 @@ async def _never_applied(_payload, **_kwargs):
 async def _wait_until_accepted(queue: InteractionSubmissionQueue, interaction_id: str) -> None:
     """有界轮询，直到队列接纳该交互。"""
     async with asyncio.timeout(2):
-        while not await queue.is_accepted(interaction_id):
+        while await queue.lookup(interaction_id) is None:
             await asyncio.sleep(0)
 
 

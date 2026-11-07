@@ -165,7 +165,6 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
     assert "已有记忆正文" not in transcript
     # 子 Agent 交回的消息随这一轮进入生成材料，不混入回复正文。
     assert "[Subagent]: 子 Agent 的报告：断言比较的是旧字段" in transcript
-    assert await queue.pending_count() == 0
 
 
 @pytest.mark.asyncio

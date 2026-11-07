@@ -501,6 +501,7 @@ git diff --check
   - `test_workspace_process_does_not_import_capability` 改为 `test_workspace_process_imports_only_root_capability_api`，任务进程在能力层中只允许导入 root API，这是决定 6 的代价；
   - `authorize_agent` 的调用位置去掉执行器；
   - `scripts/typecheck_bus_routes.py` 的位置参数示例改用 `TOPIC_EVICT`。
+- **实施后审计（owner，2026-11-06）**：交互提交队列中失去生产调用方的 `is_accepted`、`started`、`stopped`、`pending_count` 删除，按排序键排空的 `drain` 并入 `drain_all`；早于本计划、没有任何地方抛出的 `TransientInteractionSubmissionError` 一并删除，测试改用生产中真实出现的 `TopicBusyError` 触发重试。
 - **写入时确定话题**：这一轮已经应用时，root API 返回它实际所在的话题，编排器同样登记。原实现不登记；这类登记与从未回流的轮次一样，留到进程重启。
 - **第 9 节漏列、一并更新的文档**：
   - 根 README；
