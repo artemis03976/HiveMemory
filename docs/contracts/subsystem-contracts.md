@@ -9,6 +9,7 @@ code_paths:
   - src/hivememory/patchouli/contracts/
   - src/hivememory/alice/interface/cpu.py
   - src/hivememory/workspace/contracts/
+  - src/hivememory/workspace/capability/root/
   - src/hivememory/core/protocol/
   - src/hivememory/system/services/import_bus/
 related_contracts:
@@ -60,7 +61,7 @@ process(
 ) -> GatewayProcessResult
 ```
 
-`GatewaySessionTurn`（`core.protocol.gateway`）是交给 Gateway 的最近若干轮：`user_message`、`assistant_text` 与该轮实际所在话题的 `topic_id`（不知道时为空）。它不携带会话 ID 或授权身份；`topic_id` 不进入模型提示词，只在话题路由失败时使用：Gateway 续接最近一轮的话题（该话题仍在本次的候选话题中时），否则按新话题兜底。任务进程从会话轮次的话题标注取得所在的话题，Import Bus 经 Patchouli 的交互状态查询取得上一轮应用成功后实际所在的话题（第 3.6 节）。
+`GatewaySessionTurn`（`core.protocol.gateway`）是交给 Gateway 的最近若干轮：`user_message`、`assistant_text` 与该轮实际所在话题的 `topic_id`（不知道时为空）。它不携带会话 ID 或授权身份；`topic_id` 不进入模型提示词，只在话题路由失败时使用：Gateway 续接最近一轮的话题（该话题仍在本次的候选话题中时），否则按新话题兜底。任务进程从会话轮次的话题标注取得所在的话题；Import Bus 取上一轮写入时确定的话题，否则由 root API 在提交或确定话题的方法内查询上一轮的交互进度，取得它应用成功后实际所在的话题（第 3.6 节）。
 
 `GatewayProcessResult` 是不可变判别联合：
 
@@ -97,50 +98,13 @@ Gateway 只解析命令，不执行命令：`CommandParseResult` 与 `CommandPar
 
 ## 3. Patchouli 契约
 
-Patchouli 的公开面分为 chat 协作、记忆、任务、Agent Profile、话题与就绪状态。调用方不能直接调用 Patchouli local route。
+Patchouli 的公开面分为交互提交、记忆、任务、Agent Profile、话题与就绪状态。调用方不能直接调用 Patchouli local route。
 
 这些能力虽然服务于不同用例，却共享一个核心约束：Patchouli 对长期状态和身份可见性拥有最终解释权。公开契约允许外部请求“创建、检索或提交”，但不会把 MemoryLibrary、Familiar 或生成 Controller 交给调用方直接操作。
 
-### 3.1 PrepareAgentRun
+### 3.1 交互记录的封口
 
-```python
-prepare_agent_run(
-    *,
-    identity_scope: IdentityScope,
-    interaction_id: str,
-    gateway_decision: GatewayDecision,
-    retrieval_scope: IdentityScope | None = None,
-) -> PreparedAgentRun
-```
-
-prepare 只做 Patchouli 自己的两件事：按 Gateway 的路由决定准备本轮 Topic（必要时新建，话题池已满时先按 LRU 结算一个已有话题），并按检索计划检索记忆。两件事由不同的执行者完成，因此接收两份 scope：话题与归属取 `identity_scope`（系统以 root 授权组装）；检索按 `retrieval_scope` 的 actor 的可见性进行（执行 Agent 以 `memory.search` 授权组装），`retrieval_scope` 为空时不检索。是否检索只由调用方是否给出检索 scope 决定，路由没有另外的检索开关；给出时仍按 Gateway 的检索计划，检索模式为跳过或要求零条时同样不检索。两份 scope 的 Workspace 不同时，在任何副作用之前抛 `WorkspaceMismatchError`。Import Bus 写入时确定话题只准备话题，不给检索 scope。它不解析 Agent Profile、不接触附件、不编译记忆，也不为任何执行者组装运行上下文；这些属于任务进程在分配 CPU 时的工作（第 5 节）。
-
-`PreparedAgentRun`（`patchouli.contracts.prepare`）是不可变 dataclass，既是 prepare 的结果，也是 finalize 与 cleanup 的输入句柄：
-
-| 字段 | 内容 |
-|:---|:---|
-| `belong_to`、`interaction_id` | 冻结 prepare 的资源归属与交互关联；不保留 scope 或发起者 |
-| `topic_id`、`is_new_topic` | 本轮真实话题与是否由 prepare 新建 |
-| `memories` | 未编译的检索记忆（`tuple[MemoryAtom, ...]`，保持检索结果顺序）；检索被跳过时为空 |
-| `storage_available` | 记忆存储健康状态 |
-
-它位于 Patchouli 的 `contracts` 子包，因为 workspace 的任务进程需要读取其中的话题与检索结果；L3 子系统之间只能导入对方的 `contracts`。用户消息与 Gateway 决定由任务进程自己持有（组装输入清单与封口交互记录时使用），prepare 不接收用户消息，也不回传决定。
-
-prepare 的意义在于：由 Patchouli 在交出控制权前确认真实话题与本轮可见的记忆，调用方无需理解 Patchouli 内部存储。检索结果以原始 `MemoryAtom` 交出，如何呈现给执行者由任务进程决定。
-
-### 3.2 FinalizeAgentRun
-
-```python
-finalize_agent_run(
-    prepared_run: PreparedAgentRun,
-    payload: InteractionPayload,
-    *,
-    identity_scope: IdentityScope,
-    participant: ActorIdentity,
-) -> None
-```
-
-`payload` 是任务进程封口的本轮交互记录。进程在 Actor 有输出时、进入 finalize 之前以 core 的共用封口函数 `seal_interaction`（`core/protocol/sealing.py`）组装它，材料全部来自进程自身：
+任务进程与 Import Bus 交给 Patchouli 的交互记录都是封口后的 `InteractionPayload`。任务进程在 Actor 有输出时、进入 FINALIZE 之前以 core 的共用封口函数 `seal_interaction`（`core/protocol/sealing.py`）组装它，材料全部来自进程自身：
 
 | 字段 | 来源 |
 |:---|:---|
@@ -149,86 +113,101 @@ finalize_agent_run(
 | `model_used` | Actor 实际使用的模型展示名 |
 | `used_attachments` | 附件编译确认实际进入上下文的附件引用快照 |
 
-交互内容只以 `turn_events` 表达，载荷不携带由事件派生或与事件重复的表达：用户消息与回复正文是从事件读取的只读属性，不序列化；Gateway 的改写查询不进入载荷。字段与事件规则见[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)。
+交互内容只以 `turn_events` 表达，载荷不携带由事件派生或与事件重复的表达：用户消息与回复正文是从事件读取的只读属性，不序列化；Gateway 的改写查询不进入载荷。字段与事件规则见[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)。只有正文的 CPU 结果在封口处补成规范助手事件，感知侧仍只接收结构化事件。
 
-附件租借由任务进程持有并在进程结束时释放，finalize 不负责。
+附件租借由任务进程持有并在进程结束时释放，交互提交不负责。
 
-Finalize：
+交互提交是执行事务与记忆事务的分界。交互记录由提交方封口：主动链路由任务进程封口，Import Bus 由 System 的 Import Bus 编排器封口，两者调用 core 中同一个 `seal_interaction`，交给 Patchouli 的载荷同形（Import Bus 没有附件，`used_attachments` 为空）；Patchouli 的公开路由因此不必读懂任何执行者的运行结果，换一个 CPU 也不需要 Patchouli 随之改变。封口只组装、不解析事件：序号 0 的用户消息事件由提交方写出，一轮的不变量在载荷构造时校验，对事件的解析只在感知层进行一次（见[感知](../patchouli/perception.md)）。Patchouli 负责判断已封口的交互如何进入长期知识（提交、感知、生成与 lifecycle）；有输出的三种结局都封口提交，无输出或进入 FINALIZE 前交付方离开不提交；显式写入始终按自己的派发结果独立生成。两条链路的提交都经 root API 的同一个提交入口（第 3.6 节）。
 
-1. 验证当次 root scope，确认其目标 Workspace 等于 `prepared_run.belong_to`；不一致时在交互接纳前抛 `WorkspaceMismatchError`；
-2. 用 prepared 的归属与显式的参与者（本轮的执行 Agent）构造 `InteractionSubmission`，将 payload 原样提交到目标话题，不改写其内容；交互提交由系统执行，scope 的 actor 是 `system`，不作为发起者；
-3. 等待交互 applied，然后 best-effort 记录预检索命中，返回 `None`；WRITE/UPDATE 已在 actor 操作内独立派发。
-
-任务进程对有输出的 completed/cancelled/failed 结果封口，同步写入会话，再创建 finalize 任务；提交时以系统的 root 工作 actor 重新授权，不能从 prepared 取回旧 scope。只有正文的 CPU 结果在封口处补成规范助手事件，感知侧仍只接收结构化事件。Finalize 已成功后不能再 cleanup；调用方取消等待时，Patchouli 已接管的 finalization continuation 继续完成，cleanup 也不能删除其话题。
-
-finalize 是执行事务与记忆事务的分界。交互记录由提交方封口：主动链路由任务进程封口，Import Bus 由 System 的 Import Bus 编排器封口，两者调用 core 中同一个 `seal_interaction`，交给 Patchouli 的载荷同形（Import Bus 没有附件，`used_attachments` 为空）；Patchouli 的公开路由因此不必读懂任何执行者的运行结果，换一个 CPU 也不需要 Patchouli 随之改变。封口只组装、不解析事件：序号 0 的用户消息事件由提交方写出，一轮的不变量在载荷构造时校验，对事件的解析只在感知层进行一次（见[感知](../patchouli/perception.md)）。Patchouli 负责判断已封口的交互如何进入长期知识（提交、感知、生成与 lifecycle）；有输出的三种结局都封口提交，无输出或 finalize 前断连不提交；显式写入始终按自己的派发结果独立生成。
-
-### 3.3 CleanupPreparedAgentRun
+### 3.2 话题准备
 
 ```python
-cleanup_prepared_agent_run(
-    prepared_run: PreparedAgentRun,
+topic.prepare(
     *,
     identity_scope: IdentityScope,
-) -> bool
+    target_topic_id: str,
+    new_topic_title: str | None = None,
+    new_topic_summary: str | None = None,
+) -> str
 ```
 
-Cleanup 只尝试删除 prepare 阶段新建但仍为空的话题，不负责附件租借。任务进程调用前以系统的 root 工作 actor 重新授权；拒绝时记录警告并继续关闭。Patchouli 校验当次 scope 与 prepared 的资源归属，越域时返回 `False`，不触发删除；已有话题、已有内容或已被 finalization continuation/submission queue 接管的话题同样不删除。调用方把 cleanup 当作失败补偿，不把返回 `False` 视为新的业务错误。
+为一轮确认或建立目标话题，返回真实话题标识；不检索、不读取记忆。`target_topic_id` 为已有话题时确认它存在并刷新驻留，话题不存在时以 `ResourceNotFoundError` 拒绝；为 `NEW_TOPIC` 时以给出的标题与摘要建立新话题（缺省时使用默认标题），活跃池已满时先按 LRU 结算一个未被占用的话题，候选都被占用时抛 `TopicBusyError`。归属取 scope 的 Workspace。
 
-它不是 rollback，也不承诺撤销整个 prepare 之后发生的一切。跨子系统没有一项可以原子回滚的数据库事务；cleanup 只补偿明确由 prepare 创建、且仍可安全判断为空的临时副作用。将它描述为回滚会诱使调用方删除已经存在或已被其他流程使用的长期状态。
+唯一的生产调用方是 root API 的为一轮确定话题（`RootTopicService.determine_topic`）：任务进程在 PREPARE 确认 Gateway 指向的已有话题，在本轮第一次写入时建立 Gateway 指向的新话题；Import Bus 为外部 harness 写入时的一轮确定话题（第 6 节）。写入需要一个已存在的话题作为派发话题，交互本身不需要：没有写入的轮次以 `NEW_TOPIC` 提交，话题在交互应用时建立（第 3.6 节）。新话题因此只在第一次写入或交互应用时进入话题池，LRU 结算随之发生在这两个时点；建立之后没有接收交互的话题不另行补偿，由空闲结算、LRU 或关闭结算按没有材料的话题结束生命周期（[感知与短期话题](../patchouli/perception.md#3-话题准备与-lru)）。
+
+### 3.3 检索命中与存储健康
+
+```python
+memory.record_retrieval_hits(memory_ids, *, identity_scope: IdentityScope, source: str) -> None
+storage.available() -> bool
+```
+
+- **检索命中**：为一批检索到的记忆逐条记录 HIT 强化事件，同一批按记忆去重，归属取 scope 的 Workspace；尽力而为，单条失败只记日志、不影响其余记忆，也不交回调用方，取消照常传播。唯一的调用方是任务进程：经 root API（`RootMemoryService.record_retrieval_hits`）为预检索到的记忆记录命中，来源为 `retrieval.pre_retrieval`，时点是 Actor 有输出之后、提交交互之前，不依赖提交的结局。Alice 的 SEARCH 与 MCP 的检索不记录命中（[记忆检索](../patchouli/retrieval.md#7-访问与生命力副作用)）。
+- **存储健康**：返回记忆存储是否可用。任务进程在 PREPARE 经 root API（`RootMemoryService.storage_available`）读取，不可用时提示词注入离线提示。路由本身不接收身份，授权在 root API 的方法入口。
 
 ### 3.4 其他公开能力
 
 | 能力组 | 当前公开行为 |
 |:---|:---|
-| Interaction | 提交 `InteractionPayload` 到指定或新话题（新话题可附标题与摘要），查询交互进度与等待应用（第 3.6 节）；提交接收 scope（归属）与显式的参与者（发起者），进入 submission lane 时由 `InteractionSubmission.belong_to/from_actor` 独立携带 |
+| Interaction | 提交 `InteractionPayload` 到指定或新话题（新话题可附标题与摘要）并等待应用，查询交互进度与等待应用（第 3.6 节）；提交接收 scope（归属）与显式的参与者（发起者），进入 submission lane 时由 `InteractionSubmission.belong_to/from_actor` 独立携带 |
 | Memory | 携带 `IdentityScope` 的 create/list/get/update/delete、feedback、retrieve、retrieve_by_aliases；create/update 在提交边界生成完整版本记录（无历史不成功），无变化的编辑不创建版本 |
 | Memory Task | 携带 `IdentityScope` 的 list/get/cancel；按 task 的 `belong_to` 检查归属，get/cancel 对越域与不存在统一抛 `ResourceNotFoundError` |
 | Agent Profile | 携带 `IdentityScope` 的 create/list/get；get（Profile 解析 backing）另有 `enforce_actor_visibility`，默认按 scope 的 actor 检查源原子可见性，假为管理读取，只校验 Workspace 归属 |
-| Topic | 携带 `IdentityScope` 的 list active、topic data、manual settle、evict；Patchouli owner 拒绝越域 topic |
-| Citation | 记录正式记忆引用；workspace 引用交付统一使用 `workspace.reference_read` 来源 |
-| Readiness | 模型 warmup、预取与 ready 查询 |
+| Topic | 携带 `IdentityScope` 的 list active、topic data、prepare（第 3.2 节）、manual settle、evict；Patchouli owner 拒绝越域 topic |
+| Citation 与命中 | 记录正式记忆引用，workspace 引用交付统一使用 `workspace.reference_read` 来源；为任务进程的预检索记录命中（第 3.3 节） |
+| Readiness | 模型 warmup、预取与 ready 查询；存储健康（第 3.3 节） |
 
 Memory 与 Topic 的 Workspace 归属和 actor 可见性由 Patchouli 执行，调用方不能仅凭拿到 id 就假设目标可见；操作授权由调用方一侧的授权点完成（第 3.5 节）。任务快照的 `belong_to` 必须等于 scope 的目标 Workspace，知道任务 ID 不构成权限。Topic ID 在领域上保持全局唯一；scope 在公共边界拆分，内部以 `belong_to + topic_id` 检查归属，不构造另一套局部 ID 命名空间。
 
 `MemoryGenerationTaskSpec`、只读快照 `MemoryGenerationTask` 与跨子系统请求 `PendingAtomMaterializeTask` 均独立保存必需的 `belong_to`、`from_actor`。WRITE/UPDATE 保留提交 Agent；手动、idle、LRU 和 shutdown SETTLE 统一使用 `system_actor_for_workspace(belong_to)`（owner 用户、保留的 system、无 Team），参与内容的 Agent 只记入贡献者，结算查重只看到本 Workspace 的 PUBLIC 记忆。`TopicMaterializeTask` 与 Topic lease 只保存资源归属，不保留最近访问者。
 
-Profile、Topic 与 Active finalize 的公共失败定义在 `patchouli.contracts.errors`；会话与意图失败定义在 `workspace.contracts.errors`，共享访问、资源和存储类型位于 `core.errors`。调用者按类型处理，HTTP/MTP 在各自出口呈现；完整分类见[错误模型](./error-model.md)。Profile 不可见与缺失同样隐藏，类型或配置损坏显式失败，不回退内置 Profile。finalize 未能确认接纳时保留 `admission_unknown` 与原因链，不声称没有副作用。
+Profile、Topic 与交互提交的公共失败定义在 `patchouli.contracts.errors`；会话与意图失败定义在 `workspace.contracts.errors`，共享访问、资源和存储类型位于 `core.errors`。调用者按类型处理，HTTP/MTP 在各自出口呈现；完整分类见[错误模型](./error-model.md)。Profile 不可见与缺失同样隐藏，类型或配置损坏显式失败，不回退内置 Profile。任务进程的交互提交没有跨过接纳或应用时，由进程以 `ActiveInteractionFinalizationError`（`patchouli.interaction.finalization_failed`）失败，`stage` 区分接纳与应用；接纳被拒以外的提交异常原样传播，不声称没有副作用。
 
 ### 3.5 工作 actor 与操作授权
 
-Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService` 的阶段方法（prepare、finalize、cleanup）以 `IdentityScope` 接收操作身份，不接收工作 actor，也不做操作授权。操作授权在调用方一侧的授权点以真正执行这项操作的身份完成，再把 `WorkspaceOperationAuthorizer` 返回的 `IdentityScope` 交给紧随的 Patchouli 路由：actor API 用 `authorize_agent(actor, operation, target)` 检查 actor 操作白名单，目标取工作 actor 的驻留 Workspace；root API 与任务进程的系统阶段（Gateway 话题读取、prepare 的话题准备、Profile、finalize、cleanup）以及 Import Bus 用 `authorize_root(actor, target)`，只接受保留的 `system`；prepare 的检索以执行 Agent 的 `memory.search` 授权。finalize 与 cleanup 各自重新授权，不复用 prepare 的 scope；交互的参与者另以 `participant` 显式传递。公共 handler 拆分身份后，内部调用只传归属与需要的发起者（完整模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
+Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService`（引用、检索命中与存储健康）以 `IdentityScope` 接收操作身份，不接收工作 actor，也不做操作授权。操作授权在调用方一侧的授权点以真正执行这项操作的身份完成，再把 `WorkspaceOperationAuthorizer` 返回的 `IdentityScope` 交给紧随的 Patchouli 路由：actor API 用 `authorize_agent(actor, operation, target)` 检查 actor 操作白名单，目标取工作 actor 的驻留 Workspace，任务进程的预检索也是执行者的 actor 操作，经操作入口到达这里；root API 用 `authorize_root(actor, target)`，只接受保留的 `system`，HTTP 管理路由、任务进程的系统阶段（确定话题、存储健康、检索命中与交互提交）与 Import Bus 都经它，Gateway 的话题读取与 Profile、附件由执行器与 CPU 分配在调用前以 root 授权。root API 的每个方法在入口授权一次，方法内部依次调用的公开路由沿用同一个 scope，不再各自授权；交互的参与者另以 `participant` 显式传递。公共 handler 拆分身份后，内部调用只传归属与需要的发起者（完整模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。Gateway 的处理路由同样只接收 `IdentityScope`。
 
 Patchouli 一侧仍独立执行资源授权：资源归属与 `MemoryAccessPolicy` 可见性在最终读写处校验，越域目标按不存在处理，不因调用方已通过操作授权而放宽。
 
-Alice 的 READ、SEARCH、RUN 记忆目标、WRITE、UPDATE、CALL 目标 Profile 与 context_refs 均经 actor API 逐次操作授权；READ 与 RUN 的引用交付由 actor API 记录 `workspace.reference_read` citation。Patchouli 的公开交互路由（提交、状态查询与等待）与主动记忆意图提交路由只接收 `IdentityScope`：交互路由唯一的生产调用方是 Import Bus：状态查询与等待在系统的 root 授权之后直接调用，提交经 root API 的提交交互以 root 授权后调用，不检查参与 Agent 的操作白名单；意图提交唯一的生产调用方是 actor API。新的调用方须在自己的授权点先完成授权。
+Alice 的 READ、SEARCH、RUN 记忆目标、WRITE、UPDATE、CALL 目标 Profile 与 context_refs 均经 actor API 逐次操作授权；READ 与 RUN 的引用交付由 actor API 记录 `workspace.reference_read` citation。Patchouli 的公开交互路由（提交、状态查询与等待）、话题准备、检索命中与存储健康路由的唯一生产调用方是 root API：提交交互（`RootInteractionService.submit_interaction`）、为一轮确定话题（`RootTopicService.determine_topic`）与 `RootMemoryService` 的两个方法，由任务进程与 Import Bus 以系统的 root 工作 actor 调用，不检查参与 Agent 的操作白名单；主动记忆意图提交路由只接收 `IdentityScope`，唯一的生产调用方是 actor API。新的调用方须在自己的授权点先完成授权。
 
 Patchouli 提交与生成链沿用自身既有来源记录，公开 API 不接收 `CallerPrincipal` 或其他来源字段。阶段拒绝语义见[错误模型](./error-model.md)第 4.4 节。
 
 ### 3.6 交互提交、进度与等待
 
-主动链路的 finalize 在 Patchouli 内部构造 `InteractionSubmission` 并提交共享 lane；独立的交互提交经三条公开路由（`patchouli.contracts.interaction_submission`），当前调用方是 Import Bus：
+任务进程与 Import Bus 的交互提交都经 root API 的提交交互，它在方法内调用三条公开路由（`patchouli.contracts.interaction_submission`）：
 
 ```python
 interaction.submit(
     *,
     identity_scope: IdentityScope,
+    participant: ActorIdentity,
     payload: InteractionPayload,
     requested_topic_id: str = "NEW_TOPIC",
     interaction_id: str | None = None,
     origin: InteractionOrigin = "workspace_port",
     new_topic_title: str | None = None,
     new_topic_summary: str | None = None,
+    timeout_seconds: float | None = None,
 ) -> InteractionSubmitResult
 
 interaction.status(*, identity_scope, interaction_id) -> InteractionStatus | None
-interaction.wait(*, identity_scope, interaction_id, timeout_seconds) -> InteractionStatus | None
+interaction.wait(*, identity_scope, interaction_id, timeout_seconds: float | None) -> InteractionStatus | None
 ```
 
-- **提交**：调用方给出 scope 与显式的 `participant`；公共 handler 以 scope 的 Workspace 作 `InteractionSubmission.belong_to`、以参与者作 `from_actor`，按 `interaction_id` 幂等接纳。唯一的生产调用方是 root API 的提交交互（`RootInteractionService.submit_interaction`），它以 root 授权组装 scope，Agent 因此不能提交交互；省略 `interaction_id` 时每次生成新标识，需要重发语义的调用方必须给出稳定标识。`new_topic_title`/`new_topic_summary` 只在 `requested_topic_id` 为 `NEW_TOPIC` 时允许非空（已有话题的标题与摘要由话题自身持有，提交不能借此改写），感知建立新话题时使用，缺省时使用默认标题。`origin` 为 `active_chat`、`import_bus` 或 `workspace_port`，只是观测标签，不驱动任何分支。队列容量已满或已停止表示这次提交没有被接管，以 `InteractionAdmissionUnavailableError`（`patchouli.interaction.admission_unavailable`，reason `capacity_rejected` / `queue_stopped`）拒绝，调用方可用同一标识重发。
+- **提交并等待应用**：调用方给出 scope 与显式的 `participant`；公共 handler 以 scope 的 Workspace 作 `InteractionSubmission.belong_to`、以参与者作 `from_actor`，按 `interaction_id` 幂等接纳，然后等待交互应用到终态或时限，返回结局。`timeout_seconds` 为空时等到终态，上限由队列自身的应用时限与重试决定。省略 `interaction_id` 时每次生成新标识，需要重发语义的调用方必须给出稳定标识。`new_topic_title`/`new_topic_summary` 只在 `requested_topic_id` 为 `NEW_TOPIC` 时允许非空（已有话题的标题与摘要由话题自身持有，提交不能借此改写），感知建立新话题时使用，缺省时使用默认标题。`origin` 为 `active_chat`、`import_bus` 或 `workspace_port`，只是观测标签，不驱动任何分支。队列容量已满或已停止表示这次提交没有被接管，以 `InteractionAdmissionUnavailableError`（`patchouli.interaction.admission_unavailable`，reason `capacity_rejected` / `queue_stopped`）拒绝，调用方可用同一标识重发。接纳失败、应用失败与超时只在这里归类：接纳失败以异常拒绝，应用失败与超时以结局交回。调用方取消等待不撤回已接纳的交互，它照常应用。
+- **结局**：`InteractionSubmitResult` 携带 `interaction_id` 与等待结束时的进度 `state`：`succeeded` 带实际所在的话题 `topic_id`（`NEW_TOPIC` 已解析），`failed` 带应用失败的异常类名 `error_class`，`pending` 表示等到时限仍未应用完成（不设时限时只在队列停止时出现），`unknown` 只出现在此前接纳、结局已超出保留窗口的交互上。`previously_accepted` 表示这一交互在本次调用之前已被接纳，本次没有再提交；`new_topic` 表示本次提交以 `NEW_TOPIC` 请求建立新话题。
 - **进度**：`InteractionStatus` 的 `state` 为 `pending`（尚未应用完成）、`succeeded`（已应用，`topic_id` 给出实际所在的话题，`NEW_TOPIC` 已解析）、`failed`（到达终态但没有成功，不再重试）或 `unknown`（接纳过，但工作记录已超出队列的终态保留窗口）；未被接纳，或旁路索引与工作记录都已裁剪时返回 `None`。归属是硬边界：同名交互由另一个 Workspace 提交时以 `WorkspaceMismatchError` 拒绝，不把其他 Workspace 的接纳当作重复。
-- **等待**：`interaction.wait` 先按状态查询校验归属；仍为 `pending` 时等待交互应用到终态或超时，返回此时的进度，超时仍为 `pending`，队列停止时返回停止那一刻的进度。
+- **等待**：`interaction.wait` 先按状态查询校验归属；仍为 `pending` 时等待交互应用到终态或时限，返回此时的进度，超时仍为 `pending`，时限为空时等到终态，队列停止时返回停止那一刻的进度。状态查询与等待只在 root API 的方法内部调用：查重、续接上一轮所在的话题，以及等待仍在应用的交互。
 - **重发**：同一 `interaction_id` 在等待中或已成功时，相同载荷返回原收据，不同载荷报冲突；到达终态而未成功的交互允许以同一标识重新提交，载荷可以不同（例如提交指定的话题在应用前已被驱逐，提交方重新路由后再交），新提交以递增的尝试号作为工作项标识入队。为查重保留的旁路索引只存编码载荷的摘要，冲突比较不需要留住整份载荷。
+
+root API 的提交交互 `submit_interaction(*, target_workspace, participant, payload, interaction_id, origin, topic, timeout_seconds=None, actor)` 在入口 root 授权一次，目标不是 `system` 驻留的 Workspace 时在任何查询、路由与提交之前拒绝。方法内依次：
+
+1. 按 `interaction_id` 查进度：已应用或超出保留窗口的直接返回此前已接纳的结局；仍在应用的等待到终态或时限，等待的结果（包括应用失败）作为这次的结局交回。两者都不再路由与提交：重新路由可能选中另一个话题，让同一交互的再次提交被队列判为冲突。
+2. 只有未接纳或应用失败的交互才确定目标并提交。话题来源 `topic` 三选一：已确定的真实话题标识（任务进程冻结的派发话题，或 Import Bus 写入时确定的话题）；Gateway 的决定，目标为 `NEW_TOPIC` 时携带新话题的标题与摘要，话题在交互应用时建立；一轮待路由的外部交互（`PassiveTurnRouting`：用户消息、最近几轮，以及上一轮所在的话题或上一轮的交互标识），由方法以 Gateway 的 `PASSIVE_MEMORY` 模式路由，只给出上一轮的交互标识时先查它的进度，取得它应用后实际所在的话题。
+3. 交给 `interaction.submit` 提交并等待应用，返回结局。
+
+Gateway 的异常原样传出，可恢复与否由调用方判断；`PASSIVE_MEMORY` 返回命令结果、已接纳的交互在等待时查不到都是契约违约，以 `RuntimeError` 传播。
 
 Interaction codec 为 v7，编码新话题的标题与摘要，载荷的事件可以包含子 Agent 交回的消息；当前进程内队列不注册旧版本。查重与进度都只覆盖进程内的保留窗口，不跨重启。
 
@@ -263,7 +242,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 
 这两段文本是不透明的固定输入：CPU 决定放置位置，不解析或改写。分段使 Alice 可以在人设与本轮材料之间插入自己的历史摘要，也不要求其他 CPU 采用 Alice 的消息布局或历史管理方式。编译不读取 CPU 配置；存储不可用时总是附加中立离线通知，不取决于是否开启 MTP 教学。
 
-清单还携带 `process_id`、进程级观测标签 `labels: ExecutionLabels`、原样用户消息 `user_message`、只作挂载/观测的 `topic_id`、全量会话轮次 `session_history: tuple[ConversationTurn, ...]` 和可选 `compaction_checkpoint: SessionCompactionCheckpoint | None`（默认 None）。历史渲染与压缩由 CPU 自管；进程不知道执行模型的窗口，不在提示词编译时按模型预算裁剪材料。未编译的检索原子只在进程内使用：编译为 `turn_context`，并直接从 prepare 结果投影 `memory_refs` 事件，不进入清单。清单的 `labels` 注册认证成功后创建一次，与进程事件沿用同一对象，供运行级观测与历史归属使用，与主线程的标签相同；标签只有 `agent_id` 与 `workspace_id` 两个只读字符串，不含 actor、owner 或工作 actor，也不能改变授权或资源目标。
+清单还携带 `process_id`、进程级观测标签 `labels: ExecutionLabels`、原样用户消息 `user_message`、只作挂载/观测的可空 `topic_id`（Gateway 指向已有话题时是 PREPARE 确认的话题，指向新话题时为空：话题在第一次写入或交互应用时才建立）、全量会话轮次 `session_history: tuple[ConversationTurn, ...]` 和可选 `compaction_checkpoint: SessionCompactionCheckpoint | None`（默认 None）。历史渲染与压缩由 CPU 自管；进程不知道执行模型的窗口，不在提示词编译时按模型预算裁剪材料。未编译的检索原子只在进程内使用：编译为 `turn_context`，并直接从预检索结果投影 `memory_refs` 事件，不进入清单。清单的 `labels` 注册认证成功后创建一次，与进程事件沿用同一对象，供运行级观测与历史归属使用，与主线程的标签相同；标签只有 `agent_id` 与 `workspace_id` 两个只读字符串，不含 actor、owner 或工作 actor，也不能改变授权或资源目标。
 
 清单回答“处理什么”，执行线程回答“谁来处理”。`thread` 是本次执行的主线程 `ExecutionThread`（`workspace.contracts`）：线程描述 `descriptor` 与不透明的线程句柄 `handle`，是 execute 的独立参数，不进入冻结清单。线程描述 `ThreadDescriptor` 是冻结、CPU 可见的值：
 
@@ -271,7 +250,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 |:---|:---|
 | `thread_id: str` | 线程标识：主线程为 `main`，CALL 子线程按派生顺序为 `child-1`、`child-2`…… |
 | `labels: ExecutionLabels` | 线程自己的观测标签：主线程为注册标签，子线程为被调用方与注册时的 workspace；由线程表生成，CPU 不从图纸推导 |
-| `agent_profile: AgentProfile` | 本线程运行的图纸，供模型参数、人设与展示使用；主线程的图纸是进程在 prepare 之前以 root 授权、按管理语义经读取视图解析的执行者 Profile |
+| `agent_profile: AgentProfile` | 本线程运行的图纸，供模型参数、人设与展示使用；主线程的图纸是进程在 PREPARE 开始、派生主线程之前以 root 授权、按管理语义经读取视图解析的执行者 Profile |
 | `allowed_operations: frozenset[WorkspaceOperation]` | 派生时按本线程的工作 actor 读取的 actor 操作快照，空白名单得到空集合 |
 
 操作快照只描述执行者能做什么，供执行者生成提示词与执行策略（Alice 翻译为 MTP 动词，外部执行者的工具列表由其适配器翻译），不是授权依据：每个操作请求仍由 actor API 按访问登记即时授权。CPU 驱动以公共 `OperationEntry` 把执行线程绑定为提交函数（通用实现 `ThreadOperationSubmitter`，见 4.6），操作适配器只提交操作请求；线程句柄不含身份，CPU 一侧取不到任何工作 actor。Actor 阶段结束（`execute` 返回终态结果，或提前结束）时主线程与 CALL 派生的全部子线程即被结束，子线程也可能已随 CALL 返回结束；此后的提交以 `ThreadEndedError` 拒绝。
@@ -298,7 +277,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 
 执行结果与交互记录均不携带物化任务；WRITE/UPDATE 在操作内提交 `MemoryIntent`，由 Patchouli 的意图提交服务构造内部生成任务。
 
-执行者专属的统计（例如 Alice 的 MTP 迭代次数）不进入执行结果，只出现在各自的观测事件中。任务进程据执行结果决定是否进入 finalize，并从中封口交互记录；任何一方都不能仅凭流中的部分文本推断执行已经完成。
+执行者专属的统计（例如 Alice 的 MTP 迭代次数）不进入执行结果，只出现在各自的观测事件中。任务进程据执行结果决定是否进入 FINALIZE 提交交互，并从中封口交互记录；任何一方都不能仅凭流中的部分文本推断执行已经完成。
 
 ### 4.2.1 会话压缩检查点
 
@@ -318,7 +297,7 @@ CPU 端口（`workspace.contracts`）是任务进程调用执行者的唯一接�
 
 ### 4.3 Alice 的执行入口
 
-Alice 通过上述 `CPUPort` 对外提供执行能力，唯一的端口实现为 `AliceCPU`。`AliceSystem.start()` / `stop()` 切换 CPU 执行准入；未启动或已停止时，await `execute()` 抛出 `AliceUnavailableError`（异常上的 code 与 reason 只供诊断，见[错误模型](./error-model.md)）。任务进程按未分类的执行异常收尾，仍执行 prepare 清理与会话释放。
+Alice 通过上述 `CPUPort` 对外提供执行能力，唯一的端口实现为 `AliceCPU`。`AliceSystem.start()` / `stop()` 切换 CPU 执行准入；未启动或已停止时，await `execute()` 抛出 `AliceUnavailableError`（异常上的 code 与 reason 只供诊断，见[错误模型](./error-model.md)）。任务进程按未分类的执行异常收尾，仍执行关闭流程与会话释放。
 
 Alice 不注册执行总线路由，组合根构造 AliceSystem 时不传全局总线。启停只控制新执行的准入，运行中的进程由 workspace 取消和关闭；System 先关闭进程，再停止子系统。
 
@@ -333,7 +312,7 @@ Alice 不注册执行总线路由，组合根构造 AliceSystem 时不传全局�
 - Alice 不修改输入清单所引用的长期记忆或话题；
 - Alice 不直接请求 Patchouli；检索、引用交付与 Profile 读取经 workspace 操作请求完成，Alice 不持有资源缓存或 resolver；
 - WRITE/UPDATE 经操作请求登记 workspace 意图并实时派发，生成队列接纳后返回 ACK；Alice 不持有登记；
-- 有输出的 completed/cancelled/failed 都封口并进入 Patchouli finalize；无输出或进程异常不提交；
+- 有输出的 completed/cancelled/failed 都封口，由任务进程经 root API 提交交互；无输出或进程异常不提交；
 - Agent Profile 不承载权限；frame 的 MTP 动词集合由所属线程描述的 `allowed_operations` 翻译而来（RUN 始终可用，`sys_*` 系统工具不设权限），提交到 workspace 的请求仍由 actor API 逐次授权；
 - CALL 仅允许根 frame 发起；子 frame 是以被调用方身份运行的子线程，动词集合由被调用方的操作快照翻译并去掉 CALL，不能继续递归 CALL；被调用方 Profile 只提供人设、模型与语言，子 frame 的观测标签取子线程描述；
 - 子线程随 CALL 返回结束：子帧以任何终态收尾、取消沿递归栈清理 CALL，以及派生之后子帧开始运行之前的失败，都经子线程的提交函数同步结束子线程；Alice 不结束主线程。
@@ -363,52 +342,60 @@ RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求。
 
 这一形态来自“绑定”与“调用面”的拆分：绑定（属于哪个进程与线程，由谁执行）随线程变化，由线程句柄定位、线程表记录；调用面（能调用哪些能力）是稳定的，由请求类型与 actor API 各分类拥有。入口只按请求类型分派，接口不随能力增加而增长；操作适配器（Alice 的 MTP 适配器与外部 harness 的 MCP 入口）只把协议请求解析为请求对象，不持有能力层，也不持有身份。workspace 的调用方只有执行单元、HTTP 管理入口与 MCP 入口三类，因此不为它另建总线路由。
 
-线程提交只接受存活线程的句柄：`execute(request, *, thread)` 在分派前经 workspace 内部的线程端口 `ExecutionThreadTable`（`workspace/thread_ports.py`，不属于公共契约）向线程表做一次存活判定——线程未结束且进程仍在运行，再按请求类型把请求对象与线程的工作 actor 直接交给对应的 actor API 方法（`method(request, *, actor)`，写入与更新另带线程句柄）；入口不拆参数，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验；入口不持有 root API。actor API 的目标取工作 actor 的驻留 Workspace，线程提交的意图登记的进程关联、线程标识与派发话题取自登记前同步段对线程的再次解析。线程表按标识找到线程后还要求登记的正是这一个句柄，标识相同的另一个句柄以 `ScopeRequiredError` 拒绝。未知请求类型抛 `TypeError`；线程已结束（线程已结束、进程已收到停止或已经关闭）抛 `ThreadEndedError`（`core.errors`，由 `workspace.contracts` 重新导出）。拒绝都发生在任何副作用之前。
+线程提交只接受存活线程的句柄：`execute(request, *, thread)` 在分派前经 workspace 内部的线程端口 `ExecutionThreadTable`（`workspace/thread_ports.py`，不属于公共契约）向线程表做一次存活判定——线程未结束且进程仍在运行，再按请求类型把请求对象与线程的工作 actor 直接交给对应的 actor API 方法（`method(request, *, actor)`，写入与更新另带线程句柄）；入口不拆参数，既不替代逐次操作授权，也不替代资源 owner 的归属与 policy 校验；入口不持有 root API。actor API 的目标取工作 actor 的驻留 Workspace；线程提交的写入在授权（UPDATE 另有基础冷读）之后经线程端口的 `dispatch_topic` 取得进程这一轮的派发话题，意图登记的进程关联与线程标识取自登记前同步段对线程的再次解析。线程表按标识找到线程后还要求登记的正是这一个句柄，标识相同的另一个句柄以 `ScopeRequiredError` 拒绝。未知请求类型抛 `TypeError`；线程已结束（线程已结束、进程已收到停止或已经关闭）抛 `ThreadEndedError`（`core.errors`，由 `workspace.contracts` 重新导出）。拒绝都发生在任何副作用之前。
 
-`WorkspaceOperationEntry` 另有请求级提交 `execute_request[R](request, *, actor, dispatch_topic_id=None) -> R`，不属于 CPU 可见的 `OperationEntry`：不建进程的外部入口（MCP）以入口认证得到的工作 actor 提交，门面以 `operation_entry` 交出同一个入口，只供 MCP 入口调用。它接受 `RetrieveRequest`、`ResolveReferencesRequest`、`SubmitWriteIntentRequest` 与 `SubmitUpdateIntentRequest`，与 `execute` 共用同一分派表：检索与读取不得给出派发话题，写入与更新必须给出（调用方经 Import Bus 为这一轮确定的话题），其余请求类型、或派发话题与请求类型不符时在分派前抛 `TypeError`；请求级提交可用的请求类型只写在这一处。它不做存活判定：工作 actor 是入口调用链内的局部值，没有线程可判定。actor API 的写入与更新接收线程句柄或派发话题，二者恰有其一；给出派发话题时不解析线程，意图登记不带进程与线程关联。请求级提交因此到不了 RUN 与 CALL：`execute_request` 的类型表拒绝它们，`execute` 只接收线程句柄；CPU 一侧只持有线程句柄、取不到工作 actor，也就无法经请求级提交绕过线程的存活判定（[MCP 记忆访问](./mcp.md#4-确定话题操作入口与授权)）。
+`WorkspaceOperationEntry` 另有请求级提交 `execute_request[R](request, *, actor, dispatch_topic=None) -> R`，不属于 CPU 可见的 `OperationEntry`：不建进程的外部入口（MCP）以入口认证得到的工作 actor 提交，门面以 `operation_entry` 交出同一个入口，只供 MCP 入口调用。它接受 `RetrieveRequest`、`ResolveReferencesRequest`、`SubmitWriteIntentRequest` 与 `SubmitUpdateIntentRequest`，与 `execute` 共用同一分派表：写入与更新必须给出 `dispatch_topic`，即为这一轮确定派发话题的异步回调（MCP 入口的回调经 Import Bus 确定话题），检索与读取不得给出；其余请求类型、或回调与请求类型不符时在分派前抛 `TypeError`；请求级提交可用的请求类型只写在这一处。它不做存活判定：工作 actor 是入口调用链内的局部值，没有线程可判定。actor API 的写入与更新接收线程句柄或派发话题的回调，二者恰有其一，授权（UPDATE 另有基础冷读）之后才取得派发话题，被拒的写入因此不会确定话题；给出回调时不解析线程，意图登记不带进程与线程关联。请求级提交因此到不了 RUN 与 CALL：`execute_request` 的类型表拒绝它们，`execute` 只接收线程句柄；CPU 一侧只持有线程句柄、取不到工作 actor，也就无法经请求级提交绕过线程的存活判定（[MCP 记忆访问](./mcp.md#4-确定话题操作入口与授权)）。
 
 `derive_child_thread` 在一次提交内依次完成：确认调用方存活；actor API 的 `resolve_call_target` 授权 `agent.call` 并以调用方的可见性读取图纸（只交回图纸）；线程表在冷读之后重新判定调用方存活、确认调用方是主线程，为被调用方做子工作 actor 的准入、读取被调用方的操作快照并登记（[执行线程](../workspace/execution-threads.md#6-call-派生与子线程)）。被调用方的身份因此只来自 workspace 自己的解析，CPU 不能交回一份图纸来自报子线程的身份。被调用方未准入或为保留的 `system` 时抛 `AdmissionDeniedError`，子线程试图派生抛 `ScopeRequiredError`，冷读期间调用方结束或进程收到停止抛 `ThreadEndedError`，均不登记子线程。
 
-Actor 阶段结束时执行器同步结束本进程仍在运行的全部线程，关闭流程兜底；子线程也可以先随 CALL 返回结束。结束不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。WRITE/UPDATE 在基础校验之后的同步段只解析一次线程，取得进程关联、线程标识与派发话题并登记为 MATERIALIZING；UPDATE 冷读跨越线程结束或停止时不登记。派发开始后持有 shield 保护的提交任务直到结束，再传播调用方取消；主、子线程共享 CPU 输入清单的话题。完整生命周期见 [执行线程](../workspace/execution-threads.md#7-actor-阶段结束与停止)。
+Actor 阶段结束时执行器同步结束本进程仍在运行的全部线程，关闭流程兜底；子线程也可以先随 CALL 返回结束。结束不取消在途调用任务，已开始的只读操作可以自然完成，后续提交拒绝。WRITE/UPDATE 依次授权、（UPDATE）基础冷读、取得派发话题，再在同步段只解析一次线程，取得进程关联与线程标识并登记为 MATERIALIZING；基础冷读或取得派发话题跨越线程结束或停止时不登记。派发开始后持有 shield 保护的提交任务直到结束，再传播调用方取消。主、子线程共享进程这一轮的派发话题：Gateway 指向已有话题时在 PREPARE 确认，指向新话题时由第一次写入建立，同一进程只确定一次（[执行线程](../workspace/execution-threads.md#8-派发话题)）。完整生命周期见 [执行线程](../workspace/execution-threads.md#7-actor-阶段结束与停止)。
 
 ## 5. 顶层主动链路契约
 
 ```text
 Gateway command outcome（解析结果）
   -> 任务进程产生命令终态（解析成功：暂不可用；解析失败：拒绝）
-  -> 不调用 Patchouli prepare / CPU / Patchouli finalize
+  -> 不预检索、不调用 CPU、不提交交互
 
 Gateway decision outcome
-  -> 解析执行者的 Agent Profile（系统以 root 授权，经 workspace 的 Profile 读取视图按管理语义读取）
-  -> Patchouli prepare（Topic 以 root scope；检索以执行者的 memory.search，没有时不检索）
-  -> CPU 分配：附件租借、附件与记忆编译、组装输入清单
-  -> Actor 执行：线程表以执行者登记主线程，把描述与线程句柄交给 CPU 端口（当前为 Alice）并等待返回
+  -> PREPARE
+       -> 解析执行者的 Agent Profile（系统以 root 授权，经 workspace 的 Profile 读取视图按管理语义读取）
+       -> 线程表以执行者派生主线程
+       -> 预检索：经操作入口以主线程提交检索（执行者的 memory.search，没有时不检索）
+       -> Gateway 指向已有话题：经 root API 为一轮确定话题（确认存在并刷新驻留），冻结派发话题
+       -> 经 root API 读取存储健康
+       -> CPU 分配：附件租借、附件与记忆编译、组装输入清单
+  -> Actor 执行：把主线程的描述与线程句柄交给 CPU 端口（当前为 Alice）并等待返回
        -> CALL：经操作入口派生子线程（被调用方准入），线程表登记
+       -> WRITE/UPDATE：授权后取得派发话题；还没有时，进程经 root API 以 Gateway 的标题与摘要建立话题并冻结
        -> CPU 返回终态结果后，同步结束全部线程
   -> 有输出的 completed/cancelled/failed：封口交互记录（含结局和实际使用附件）
-       -> 同步追加会话 -> 持有 finalize 任务 -> Patchouli finalize（root scope，参与者为执行者）
-  -> 无输出/exception/finalize 前交付方离开：不提交，转入关闭补偿
-  -> 进程结束（在进程 task 中）：先同步结束仍在运行的线程（兜底）、释放附件租借
-       -> prepare 成功但 finalize 未成功时请求 Patchouli cleanup（root scope）
+       -> 进入 FINALIZE，持有提交任务：等待进行中的话题确定 -> 经 root API 记录预检索命中
+          -> 经 root API 提交交互并等待应用（参与者为执行者；有派发话题时提交到它，否则提交 NEW_TOPIC 与 Gateway 的标题、摘要）
+          -> 写入会话（话题取交互实际所在的话题，没有应用成功时为空）
+  -> 无输出/exception/进入 FINALIZE 前交付方离开：不提交
+  -> 进程结束（在进程 task 中）：同步结束仍在运行的线程（兜底）、释放附件租借，等待进行中的话题确定
        -> 注册入口最后注销进程并释放会话认领
 ```
 
-Agent Profile 属于 CPU 分配，但当前在 prepare 之前解析：prepare 可能新建 Topic 或按 LRU 结算已有话题，Profile 缺失的请求应在这些副作用发生前失败。
+Agent Profile 属于 CPU 分配，但当前在 PREPARE 开始时解析：主线程以它派生，预检索与已有话题的确认都由主线程执行，缺少图纸的请求因此不会检索或刷新话题。
+
+话题在需要时才建立：写入需要一个已存在的派发话题，没有写入的轮次只在交互应用时建立话题。任何路径都不提前建立话题，也就没有需要在失败时补偿的空话题；建立后最终没有接收交互的话题由 Patchouli 的空闲结算或 LRU 回收（第 3.2 节）。
 
 该顺序由 `TaskProcessService`（`workspace.process`）拥有。任何 transport adapter 都不能复制或调整此顺序。
 
-顺序本身就是契约的一部分：Gateway 先收敛入口语义，Patchouli 再准备长期知识的本轮视图，CPU 只执行，最后由 Patchouli 提交。让 transport adapter 复制这条链路，会很快产生“HTTP 可以、其他入口不可以”或两条 finalize 规则不一致的问题。
+顺序本身就是契约的一部分：Gateway 先收敛入口语义，进程再以执行者的身份取得本轮可见的记忆，CPU 只执行，最后经与 Import Bus 共用的提交入口交给 Patchouli。让 transport adapter 复制这条链路，会很快产生“HTTP 可以、其他入口不可以”或两套提交规则不一致的问题。
 
 ## 6. Import Bus 契约
 
-Import Bus 由 System 拥有：`ImportBusService` 只认证系统的 root 工作 actor，连同参与的 Agent 委托编排器 `ImportBusIngestor`，自身不授权。它接收外部 harness 一轮已经结束的交互的完整记录，以 Gateway `PASSIVE_MEMORY` 模式只取话题路由，以共用封口函数封口，提交并等待应用完成（第 3.6 节）；查进度、路由、写入时准备话题、提交与等待都以系统的 root 工作 actor 经 root API（`RootInteractionService`、`RootTopicService`），由它在方法入口授权。它不调用 Alice、不执行命令、不运行 MTP、不生成回复，不检索记忆，也不返回记忆上下文。HTTP 入口与载荷字段见[公开路由与事件](./routes-and-events.md#62-import-bus-导入)，编排细节见 [Import Bus](../system/import-bus.md)。
+Import Bus 由 System 拥有：`ImportBusService` 只认证系统的 root 工作 actor，连同参与的 Agent 委托编排器 `ImportBusIngestor`，自身不授权。它接收外部 harness 一轮已经结束的交互的完整记录，以共用封口函数封口，提交并等待应用完成（第 3.6 节），话题路由只取 Gateway `PASSIVE_MEMORY` 模式的话题决定。导入一轮与写入时确定话题各以系统的 root 工作 actor 调用一次 root API（`RootInteractionService.submit_interaction`、`RootTopicService.determine_topic`），查重、路由与等待应用都在方法内部，由它在方法入口授权一次。它不调用 Alice、不执行命令、不运行 MTP、不生成回复，不检索记忆，也不返回记忆上下文。HTTP 入口与载荷字段见[公开路由与事件](./routes-and-events.md#62-import-bus-导入)，编排细节见 [Import Bus](../system/import-bus.md)。
 
 对外结果只有 `accepted`（本次提交且已应用）、`duplicate`（此前已应用）与 `skipped`（用户消息之外没有输出，与任务进程一样不封口），并带推导出的 `interaction_id`；Gateway 决定、话题与 RuntimeEvent 不进入响应。`accepted` 与 `duplicate` 都表示这一轮已经应用，确认只在应用完成之后给出：可重试与不可重试的失败经错误区分（[错误模型](./error-model.md#43-import-bus)）。
 
 - **交互标识**：`import_` 加上对（principal、user、Agent、来源、外部会话、外部轮次）规范化序列取 SHA-256 的前 32 位十六进制。同一轮重发得到同一标识，队列据此幂等；纳入认证通过的 actor，使代表不同用户或 Agent 的连接器不会撞号。
-- **串行与查重**：同一（user、Agent、来源、外部会话）在单进程内按到达顺序串行，串行范围包含进度查询、Gateway、提交与等待应用；不同会话可以并发。门内先查询进度：已应用（`succeeded`）或接纳过但结局已超出保留窗口（`unknown`）时返回 `duplicate`；仍在应用（`pending`）只继续等待，不再路由与提交——Gateway 的路由结果随提交写入，重新路由可能得到不同的提交而被队列判为冲突；未提交或应用失败的轮次才调用 Gateway 并（再次）提交。该契约不扩展为跨进程排序或持久化 mailbox。
-- **话题路由**：`session_turns` 取请求中最近若干轮的最后 `gateway.context_preparation.session_turn_limit` 轮；最近一轮带外部标识时，Import Bus 推导它的交互标识，取它写入时确定的话题，否则经状态查询取得应用成功后实际所在的话题，作为该轮的 `topic_id`。新话题以 Gateway 给出的标题与摘要提交。
-- **写入时确定话题**：`ImportBusService.place_turn(turn, *, actor, target_workspace) -> str` 为仍在进行的一轮（`InFlightTurn`：来源、外部会话与外部轮次、用户消息、最近几轮）确定话题并返回该话题的真实 id，供 MCP 写入与更新作为派发话题。它与导入一样由系统经 root API 以 root 授权执行，使用同一交互标识推导与同一串行门：已确定话题时直接返回；这一轮已应用时返回它所在的话题；已提交仍在应用时以 `apply_pending` 拒绝；否则以 `PASSIVE_MEMORY` 路由、经 `patchouli.public.prepare_agent_run`（关闭检索）准备话题并登记已确定的话题。已确定话题的轮次回流时以该话题提交、不调用 Gateway，提交被接纳后取走登记（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。
+- **串行与查重**：同一（user、Agent、来源、外部会话）在单进程内按到达顺序串行，串行范围包含封口与那一次 root 提交（其中依次是进度查询、Gateway、提交与等待应用）；不同会话可以并发。没有输出的轮次在门内直接跳过，不查进度。其余轮次由 root API 的提交交互先查询进度：已应用（`succeeded`）或接纳过但结局已超出保留窗口（`unknown`）时返回 `duplicate`；仍在应用（`pending`）只继续等待，不再路由与提交——Gateway 的路由结果随提交写入，重新路由可能得到不同的提交而被队列判为冲突；未提交或应用失败的轮次才调用 Gateway 并（再次）提交。该契约不扩展为跨进程排序或持久化 mailbox。
+- **话题路由**：`session_turns` 取请求中最近若干轮的最后 `gateway.context_preparation.session_turn_limit` 轮；最近一轮带外部标识时，Import Bus 推导它的交互标识，取它写入时确定的话题，否则把交互标识交给 root API，由方法查询它应用成功后实际所在的话题，作为该轮的 `topic_id`。新话题以 Gateway 给出的标题与摘要提交。
+- **写入时确定话题**：`ImportBusService.place_turn(turn, *, actor, target_workspace) -> str` 为仍在进行的一轮（`InFlightTurn`：来源、外部会话与外部轮次、用户消息、最近几轮）确定话题并返回该话题的真实 id，供 MCP 写入与更新作为派发话题。它与导入一样由系统经 root API 以 root 授权执行，使用同一交互标识推导与同一串行门：已确定话题时直接返回；否则经 root API 的为一轮确定话题，这一轮已应用时返回它所在的话题，已提交仍在应用时不返回话题、Import Bus 以 `apply_pending` 拒绝，其余以 `PASSIVE_MEMORY` 路由、经 `patchouli.public.topic.prepare` 确认或建立话题，Import Bus 登记已确定的话题。MCP 入口在 actor API 授权写入之后才请求确定话题。已确定话题的轮次回流时以该话题提交、不调用 Gateway，提交被接纳后取走登记（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。
 - **事件**：导入的事件与 `TurnEvent` 同形（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)），请求校验阶段执行同样的事件规则。`verb` 只接受 `SEARCH`、`READ`、`WRITE`、`UPDATE`，只标在 HiveMemory 自身 MCP 工具的调用上，`READ` 与 `UPDATE` 必须带作用对象；生成视图对检索与读取只留一行摘要、不再渲染取回的记忆，写入与更新不渲染；其他外部工具调用只带 `tool_name`。用户消息由服务端写成序号为 0 的事件。
 
 这条限制保护的是入口语义。Import Bus 摄入的是已经在外部发生的经历，并不等价于伪造一次用户与 Agent 的对话；如果它允许命令或 Alice 执行，外部内容便可能意外触发控制行为、工具调用和回复生成，也会让“谁发起了这次行动”失去可靠答案。
@@ -421,11 +408,11 @@ Import Bus 由 System 拥有：`ImportBusService` 只认证系统的 root 工作
 
 `InteractionPayload.used_attachments` 携带任务进程的 `AttachmentCompiler` 确认实际进入上下文的 bound ref 快照（由任务进程封口时写入）：submission handler 把这份快照以 `asset_refs` 形参一次性传给 `apply_interaction`，不回查原始选择、asset 列表或当前 UI 状态。retry 重放同一份快照，不能替换 ref。
 
-1. **Interaction 内全序由生产者冻结。** `TurnEvent.sequence` 只在所属 interaction 内有效；payload 一旦进入 submission queue，retry、dedup、cleanup 和 handler 都不得改写既有事件顺序或生成新的语义身份。
+1. **Interaction 内全序由生产者冻结。** `TurnEvent.sequence` 只在所属 interaction 内有效；payload 一旦进入 submission queue，retry、dedup 和 handler 都不得改写既有事件顺序或生成新的语义身份。
 2. **Topic append 顺序由 Patchouli 拥有。** 当前以成功 apply 的实际 append 顺序作为 topic-local 权威投影。若未来增加 `topic_position`，必须由 topic owner 在持久化提交时原子分配，调用方不能根据时间戳自行计算。
 3. **Queue FIFO 只是执行约束。** ordering key 只串行化已经入队的 work，不代表源事件发生时间，也不表达 Agent 因果关系。话题折叠项与该话题的提交共用排序键，折叠执行期间同一话题的后续提交在队列中等待；折叠项不改写交互内容与交互之间的先后。队列的幂等接纳只防止重复副作用，不参与排序。
 4. **外部轮次的先后由提交方保证。** Import Bus 只保证同一外部会话内按到达顺序接纳与应用；连接器按会话顺序提交、确认后才推进，Patchouli 不按外部时间缓存、等待或重排晚到的轮次。导入与主动链路落到同一话题时，由同一个按话题的排序键保证先后。
-5. **Active prepare 读取的是一个 topic snapshot。** finalize/apply 的先后位置只能证明提交顺序，不能证明某个 run 在生成 LLM input 时看见过中间提交。多个 run 可以基于同一 revision 并发执行。
+5. **一轮执行读取的是某一时刻的 topic snapshot。** Gateway 路由读取候选话题的快照，写入的生成材料读取派发时话题的工作视图；apply 的先后位置只能证明提交顺序，不能证明某个 run 在生成 LLM input 时看见过中间提交。多个 run 可以基于同一 revision 并发执行。
 6. **多 Agent 并发优先表达因果偏序。** 未来应保存 `base_topic_revision`、causal parent 或等价的 run/frame 关系，再由 prompt/display 层按需要确定性线性化；不得仅按完成时间伪造语义先后。
 
 `occurred_at`、`received_at`、`enqueued_at` 与 `applied_at` 是不同阶段的观测时间，均不能替代 topic 内的权威顺序。当前契约要求的是 topic-local authoritative log 与可扩展的 causal relation，而不是全系统绝对时间线；本阶段不要求全局序列、向量时钟或完整事件溯源。
@@ -437,14 +424,14 @@ Import Bus 由 System 拥有：`ImportBusService` 只认证系统的 root 工作
 1. 这个模型是否只包含一次交接需要的稳定事实，还是暴露了可变 workflow state、引擎对象或回调？
 2. 接收方是否正在修改本应只读的决定，或重新推导一份与所有者可能分叉的状态？
 3. command outcome 是否仍能立即短路？Gateway 是否开始执行命令，或在公开结果中携带执行产物？`PASSIVE_MEMORY` 模式与 Import Bus 是否可能通过新分支触发命令、Alice、MTP 或回复生成？
-4. prepare、run、finalize 的顺序或资格是否被 transport、事件订阅者或兼容 fallback 悄悄改变？
-5. cleanup 是否仍是对空话题的有限补偿，还是被当成可以撤销长期状态的事务回滚？
-6. 执行结果、PendingAtom ACK 或流式片段是否被误认为 finalize 已成功？
+4. 预检索、run、交互提交的顺序或资格是否被 transport、事件订阅者或兼容 fallback 悄悄改变？
+5. 话题是否仍只在第一次写入或交互应用时建立，还是又出现了需要失败补偿的提前建立？
+6. 执行结果、PendingAtom ACK 或流式片段是否被误认为交互已经应用？
 7. 身份、可见性和权限检查是否仍由状态所有者执行，而不是由拿到 id 的调用方自行假设？
 8. 是否把 enqueue/apply timestamp 或 queue FIFO 误当作业务发生顺序？
 9. 是否把 topic append 顺序误当作 Agent 已观察到彼此结果的因果关系？
-10. 是否声称 finalize ordering 已经解决 prepare/LLM input snapshot 的并发？
-11. Patchouli 公开路由是否开始接收某个执行者专属的运行结果，或在 finalize 中改写提交方已封口的交互记录？
+10. 是否声称提交顺序已经解决执行时 topic snapshot 与 LLM input 的并发？
+11. Patchouli 公开路由是否开始接收某个执行者专属的运行结果，或在提交时改写提交方已封口的交互记录？
 
 这些问题能帮助评审者从契约语义发现设计分叉，而不只是检查函数签名是否还能调用。
 
@@ -455,9 +442,9 @@ Import Bus 由 System 拥有：`ImportBusService` 只认证系统的 root 工作
 - 修改 route 字符串或 handler 参数；
 - 修改判别联合的 `kind`；
 - 新增必填公共字段或改变字段语义；
-- 改变 prepare/finalize/cleanup 顺序；
+- 改变 PREPARE、Actor 与交互提交的顺序，或话题建立的时点；
 - 允许 `PASSIVE_MEMORY` 模式返回命令；
-- 改变 CPU 端口的输出语义、执行结果终态和 finalize 资格；
+- 改变 CPU 端口的输出语义、执行结果终态和交互提交资格；
 - 将 local route 或内部 workflow state 暴露为公共 API。
 
-验证入口：`tests/unit/system/contracts/`、`tests/unit/workspace/process/`、`tests/unit/system/application/`、`tests/unit/gateway/test_contracts.py`、`tests/unit/patchouli/test_service_gateway_decision.py`、`tests/unit/alice/run/test_service.py`、`tests/unit/alice/interface/test_cpu.py`、`tests/unit/workspace/process/test_cpu_port.py`、`tests/unit/patchouli/application/`、`tests/unit/patchouli/control/test_interaction_submission.py`、`tests/unit/core/protocol/test_seal_interaction.py`、`tests/unit/system/services/import_bus/`、`tests/integration/system/test_import_bus_submission.py`、`tests/integration/workspace/test_application_access_boundary.py`。
+验证入口：`tests/unit/system/contracts/`、`tests/unit/workspace/process/`、`tests/unit/system/application/`、`tests/unit/gateway/test_contracts.py`、`tests/unit/patchouli/test_service.py`、`tests/unit/workspace/capability/root/`、`tests/unit/alice/run/test_service.py`、`tests/unit/alice/interface/test_cpu.py`、`tests/unit/workspace/process/test_cpu_port.py`、`tests/unit/patchouli/application/`、`tests/unit/patchouli/control/test_interaction_submission.py`、`tests/unit/core/protocol/test_seal_interaction.py`、`tests/unit/system/services/import_bus/`、`tests/integration/system/test_import_bus_submission.py`、`tests/integration/workspace/test_application_access_boundary.py`。

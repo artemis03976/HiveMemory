@@ -68,15 +68,15 @@ AliceSystem
 
 - `run_id=agent_run_<uuid>`，也是 `RunSession.agent_run_id`；任务进程的必填 `process_id` 随输入清单传入，作为外层关联值；
 - 唯一且无拓扑含义的 `frame_id`；
-- `topic_id` 指向 Patchouli 已准备的话题；
+- `topic_id` 取输入清单的话题，只用于挂载与观测：Gateway 指向已有话题时是 PREPARE 确认的话题，指向新话题时为空（话题在第一次写入或交互应用时才建立）；
 - `submit_operation` 是主线程的提交函数，也是资源请求的唯一交付入口，只交出主线程描述，不暴露线程句柄、工作 actor 或目标选择；
 - `ExecutionLabels` 取自主线程描述，即注册时绑定的 agent/workspace 观测标签，不参与资源授权；
-- `agent_profile` 是主线程描述中的图纸（进程在 prepare 之前解析），模型解析也用它；MTP 动词由主线程描述的操作快照翻译。`agent.run.*` 与历史中的当前 Agent 取输入清单的注册标签，与主线程标签相同；
+- `agent_profile` 是主线程描述中的图纸（进程在 PREPARE 开始时解析），模型解析也用它；MTP 动词由主线程描述的操作快照翻译。`agent.run.*` 与历史中的当前 Agent 取输入清单的注册标签，与主线程标签相同；
 - `working_history` 来自 `SessionContextView` 组装的预算内视图，预算与请求参数来自同一次模型解析（帧上的 `input_token_limit` 与 `llm_params`）。
 
 根 frame 创建前只构建一次会话视图：先解析模型，再检查固定输入、复用已有检查点并按需减重/摘要。算法见 [Agent Runtime](./agent-runtime.md#31-会话上下文视图)。Alice 不拥有跨 run 的检查点存储；完整压缩结束才保存本次产物，由 CPU 结果交回会话服务。CALL 子 frame 不接收会话历史或检查点，只按自身模型执行轮内守卫；caller 重入复用原解析快照。
 
-FrameFactory 会把当前 user message 插入 `TurnEvent` 序列首位，使最终事件流拥有完整的一轮事实。随后 `RunExecutor._execute_frame()` 调用 `AgentRuntime.run_frame(frame)`：`SUSPENDED` 进入 CALL 事务并递归求值派生 frame；`COMPLETED/CANCELLED/FAILED/BUDGET_EXHAUSTED` 返回上一层。最外层入口 frame 的终态由 Alice 映射为 CPU 结果，任务进程据此封口交互或跳过 finalize，已提交写入不受影响。
+FrameFactory 会把当前 user message 插入 `TurnEvent` 序列首位，使最终事件流拥有完整的一轮事实。随后 `RunExecutor._execute_frame()` 调用 `AgentRuntime.run_frame(frame)`：`SUSPENDED` 进入 CALL 事务并递归求值派生 frame；`COMPLETED/CANCELLED/FAILED/BUDGET_EXHAUSTED` 返回上一层。最外层入口 frame 的终态由 Alice 映射为 CPU 结果，任务进程据此封口并提交交互或跳过提交，已提交写入不受影响。
 
 frame 是实际可恢复状态。恢复 caller 时必须继续使用原 frame，不能从消息重新构造一个“看似等价”的新 frame，否则迭代预算、事件序号、已经产生的正文和 ACK alias 清单都会分叉。父子、caller action 等调用关系只记录在 Alice 的 `CallRecord` 与事件元数据中，不进入 `RuntimeScope`。
 

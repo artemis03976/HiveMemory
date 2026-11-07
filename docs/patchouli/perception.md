@@ -11,6 +11,7 @@ code_paths:
   - src/hivememory/patchouli/memory_library/stores.py
   - src/hivememory/patchouli/control/interaction_submission.py
   - src/hivememory/patchouli/application/interaction_submission_service.py
+  - src/hivememory/patchouli/application/topic_management_service.py
   - src/hivememory/core/protocol/sealing.py
   - src/hivememory/core/models/interaction.py
   - src/hivememory/core/models/topic.py
@@ -19,7 +20,7 @@ related_contracts:
   - docs/system/import-bus.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-06
 ---
 
 # 感知与短期话题
@@ -62,13 +63,13 @@ Perception 以 `TopicData` 快照维护话题。快照只存两份原始数据�
 
 `InteractionPayload` 是主动链路与 [Import Bus](../system/import-bus.md) 共享的协议。交互内容只以 `turn_events` 表达，其余字段是本轮结局 `outcome`、执行者使用的模型 `model_used` 与实际使用的附件引用 `used_attachments`（Import Bus 的提交为空），它们不是对事件的解析；用户消息与回复正文是从事件读取的只读属性，不保存、不序列化。载荷构造时校验一轮事件集的不变量，违反时显式失败，不修补。两条链路都由 `core.protocol.sealing` 中同一个封口函数 `seal_interaction` 组装它，交给 Patchouli 的载荷因此同形；封口只组装、不解析事件，序号 0 的用户消息事件由提交方写出（Alice 执行循环、Import Bus 服务端），执行方只交出回复正文、没有写助手正文事件时，封口在末尾补一条助手正文事件。它不重复保存本轮 Workspace 身份；两条链路在资源 owner 边界拆分 `IdentityScope`，进入提交队列时由外层 `InteractionSubmission.belong_to` 与 `from_actor` 独立携带归属和本轮发起者。
 
-`InteractionSubmission` 另外携带可选的 `new_topic_title` 与 `new_topic_summary`：只在 `requested_topic_id` 为 `NEW_TOPIC` 时允许非空，已有话题的标题与摘要由话题自身持有，提交不能借此改写。`InteractionSubmissionCodec` 当前为 v6，只注册当前布局：缺失字段、额外字段、旧 `identity_scope` 布局及嵌套对象不能规范往返的载荷均被拒绝。队列使用 `InMemoryWorkStore`，提交快照与幂等收据只驻留于当前进程，不提供旧版本队列载荷迁移或重启恢复。
+`InteractionSubmission` 另外携带可选的 `new_topic_title` 与 `new_topic_summary`：只在 `requested_topic_id` 为 `NEW_TOPIC` 时允许非空，已有话题的标题与摘要由话题自身持有，提交不能借此改写。`InteractionSubmissionCodec` 当前为 v7，只注册当前布局：缺失字段、额外字段、旧 `identity_scope` 布局及嵌套对象不能规范往返的载荷均被拒绝。队列使用 `InMemoryWorkStore`，提交快照与幂等收据只驻留于当前进程，不提供旧版本队列载荷迁移或重启恢复。
 
 队列按 `interaction_id` 幂等：等待中或已成功的交互以相同载荷重交时复用原收据，载荷不同明确冲突。为此保留的旁路索引只存编码载荷的摘要与归属，冲突比较不需要留住整份载荷。应用失败（工作项已到终态但没有成功）的交互允许以同一标识重新提交，载荷可以不同，例如原先指定的话题已被驱逐、提交方重新路由后再交；新提交以递增的尝试号作为工作项标识入队。这条例外只放开已经失败的交互：等待中的交互重交会被判为重复或冲突，已成功的交互不会被第二份载荷重复应用。同一轮也不会被写入两次：把 block 写入话题是应用中最后一个可能失败的步骤，应用要么失败且没有写入，要么写入并成功，因此重新提交的只会是没有写入的交互，感知一侧不另设应用记录。在写入之后加入可能失败的步骤会破坏这一点。
 
-公开路由 `patchouli.public.interaction.status` 把队列中的工作状态归为四种进度：`pending`、`succeeded`（附实际所在的话题，`NEW_TOPIC` 已解析为实际话题）、`failed` 与 `unknown`（旁路索引仍在、工作记录已超出终态保留窗口，接纳过但结局不再可知），未被接纳时为空。`patchouli.public.interaction.wait` 在交互仍为 `pending` 时等待到终态或超时，超时时仍报告 `pending`，队列停止时返回停止那一刻的进度。两者都先校验归属，同名交互属于另一个 Workspace 时以 `WorkspaceMismatchError` 拒绝，不把其他 Workspace 的接纳当作重复。查询只覆盖队列的进程内保留窗口，窗口外的交互视为未接纳。公开提交路由在队列容量已满或已停止时以 `InteractionAdmissionUnavailableError` 拒绝，表示这次提交没有被接管，调用方可用同一标识重试。
+公开提交路由 `patchouli.public.interaction.submit` 接纳交互后等待它应用到终态或时限，返回结局：成功时带实际所在的话题（`NEW_TOPIC` 已解析），应用失败时带异常类名，到时限仍未应用完成时为 `pending`，时限为空时等到终态；调用方取消等待不撤回已接纳的交互，它照常应用。`patchouli.public.interaction.status` 把队列中的工作状态归为四种进度：`pending`、`succeeded`（附实际所在的话题，`NEW_TOPIC` 已解析为实际话题）、`failed` 与 `unknown`（旁路索引仍在、工作记录已超出终态保留窗口，接纳过但结局不再可知），未被接纳时为空。`patchouli.public.interaction.wait` 在交互仍为 `pending` 时等待到终态或超时，超时时仍报告 `pending`，队列停止时返回停止那一刻的进度。两者都先校验归属，同名交互属于另一个 Workspace 时以 `WorkspaceMismatchError` 拒绝，不把其他 Workspace 的接纳当作重复。查询只覆盖队列的进程内保留窗口，窗口外的交互视为未接纳。公开提交路由在队列容量已满或已停止时以 `InteractionAdmissionUnavailableError` 拒绝，表示这次提交没有被接管，调用方可用同一标识重试。三条路由的生产调用方都是 root API 的提交交互与为一轮确定话题，查重与续接上一轮所在的话题在那里完成（[子系统公共契约](../contracts/subsystem-contracts.md#36-交互提交进度与等待)）。
 
-当前布局、幂等拒绝与失败后重交的回归入口为 [InteractionSubmission 测试](../../tests/unit/patchouli/control/test_interaction_submission.py)，进度查询与等待见[提交服务测试](../../tests/unit/patchouli/application/test_submission_services.py)；Import Bus 经过真实队列与感知存储的身份交接、查重与新话题标题见 [Import Bus 集成测试](../../tests/integration/system/test_import_bus_submission.py)。
+当前布局、幂等拒绝与失败后重交的回归入口为 [InteractionSubmission 测试](../../tests/unit/patchouli/control/test_interaction_submission.py)，提交并等待应用的结局、进度查询与等待见[提交服务测试](../../tests/unit/patchouli/application/test_submission_services.py)；Import Bus 经过真实队列与感知存储的身份交接、查重与新话题标题见 [Import Bus 集成测试](../../tests/integration/system/test_import_bus_submission.py)。
 
 交互应用成功后，Perception 才会把用户明确使用的 `(asset_id, asset_ref)` 记录为 Topic 的 `TopicAssetBinding`。上传、候选列表或 UI 选择本身不会进入 Topic 事实。由此，感知层只接收已完成身份与资源前置校验的交接输入，不拥有 `WorkspaceAssetStore` 的生命周期。
 
@@ -82,27 +83,29 @@ InteractionPayload（构造时已校验一轮的不变量）
   -> needs_compact：提交队列排入折叠项 -> compact_topic（Page Folding，第 5 节）
 ```
 
-主动流程由任务进程封口 payload、Patchouli finalize 原样提交；Import Bus 以同一封口函数封口导入的整轮记录，经公开提交路由提交。两者先进入同一 `InteractionSubmissionQueue`，再由 `PerceptionFamiliar.apply_interaction()` 编排 `MemoryPerceptionEngine.build_block()`（纯算法）、占用检查与 Store 写入，不存在导入专用的扁平文本主链，也不存在中间感知层。应用在写入后即完成，不执行折叠；话题需要折叠时，由提交队列在这次应用之后另行排入折叠项。
+任务进程与 Import Bus 以同一封口函数封口，经 root API 的提交交互调用同一条公开提交路由，载荷原样提交。两者先进入同一 `InteractionSubmissionQueue`，再由 `PerceptionFamiliar.apply_interaction()` 编排 `MemoryPerceptionEngine.build_block()`（纯算法）、占用检查与 Store 写入，不存在导入专用的扁平文本主链，也不存在中间感知层。应用在写入后即完成，不执行折叠；话题需要折叠时，由提交队列在这次应用之后另行排入折叠项。
 
 结构化摄入的边界来自外部 harness 的真实事件形态：Import Bus 接收的一轮整轮记录中，用户消息由服务端写为序号 0 的事件，其后是助手正文、思考与工具调用三类事件。两种来源写出的事件同形，来源之间真实存在的差异只体现为取值：调用 HiveMemory 能力（Alice 的 MTP 指令、外部 harness 经 HiveMemory MCP 工具的检索、读取、写入与更新）带动词与作用对象，外部工具带工具名，下游不判断来源。思考、工具调用与工具返回必须以 `TurnEvent` 保留，不能为了生成一段看似完整的 transcript 而提前丢弃。
 
 对事件集的解读只在感知层进行一次：`engines/perception/material.py` 把一轮事件渲染为感知层唯一的材料文本，记忆生成视图（[记忆生成](./generation.md#21-材料与渲染)）、LLM 接力摘要与逻辑块的 token 统计都使用它，按同一个工具结果上限得到同样的材料。入口层与封口不另行构造第二套摘要，否则历史重放、主动生成与导入归档会拥有互相漂移的事实来源。
 
-目标话题属于提交前的 Gateway 路由决定，而不是应用时重新计算的感知结果。任务进程在 Gateway 阶段取得话题路由，并在 prepare 时建立新话题；Import Bus 在提交前以 `PASSIVE_MEMORY` 为需要提交的每一轮调用 Gateway，把路由得到的目标话题作为 `requested_topic_id` 提交。目标为 `NEW_TOPIC` 时，Perception 以提交携带的 `new_topic_title`/`new_topic_summary` 建立话题，缺省时使用默认标题“新建话题”与空摘要；后续轮次的路由依赖候选话题的标题与摘要，因此 Import Bus 新建话题时带上 Gateway 给出的标题与摘要。外部 harness 经 MCP 写入时，Import Bus 在写入时经 prepare 预建这一轮的话题（以同样的标题与摘要），这一轮回流时以该话题的真实 id 提交（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。应用失败的交互没有写入任何话题，重新提交时按提交方这一次交来的目标话题应用。Import Bus 拥有外部会话的串行、查重与确认，Gateway 只负责入口判断，两者都不持有话题内容。
+目标话题属于提交前的 Gateway 路由决定，而不是应用时重新计算的感知结果。任务进程在 Gateway 阶段取得话题路由：指向已有话题时在 PREPARE 确认它存在并刷新驻留，提交到该话题；指向新话题时，本轮第一次写入时经话题准备以 Gateway 的标题与摘要建立话题，没有写入则以 `NEW_TOPIC` 携带标题与摘要提交，在应用时建立。Import Bus 在提交前以 `PASSIVE_MEMORY` 为需要提交的每一轮调用 Gateway（在 root API 的提交方法内），把路由得到的目标话题作为 `requested_topic_id` 提交。目标为 `NEW_TOPIC` 时，Perception 以提交携带的 `new_topic_title`/`new_topic_summary` 建立话题，缺省时使用默认标题“新建话题”与空摘要；后续轮次的路由依赖候选话题的标题与摘要，因此 Import Bus 新建话题时带上 Gateway 给出的标题与摘要。外部 harness 经 MCP 写入时，Import Bus 在写入时经话题准备建立这一轮的话题（以同样的标题与摘要），这一轮回流时以该话题的真实 id 提交（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。应用失败的交互没有写入任何话题，重新提交时按提交方这一次交来的目标话题应用。Import Bus 拥有外部会话的串行、查重与确认，Gateway 只负责入口判断，两者都不持有话题内容。
 
 形成 settlement payload 时，话题接收到的全部交互都进入结算，不在入口筛选。入口只看到用户消息与已有话题上下文，看不到这一轮的回答、工具调用与结果，“请提交”“继续”这类短消息背后常是整轮实现；按入口判断筛选会把这些轮次整轮丢出生成，交互 Artifact 也不再保存它们。一轮是否有长期价值，由生成阶段在完整材料上判断；Gateway 的决定只提供话题路由，不携带价值信号。
 
 ## 3. 话题准备与 LRU
 
-`prepare_topic()` 在 Agent run 之前确保目标话题存在：
+`prepare_topic()`（公开路由 `patchouli.public.topic.prepare`）为一轮确认或建立目标话题，不检索：
 
 - `NEW_TOPIC` 创建 UUID、title 和 summary；
 - 已存在话题继续使用并刷新访问顺序；
 - 指定话题不存在时拒绝请求，不把跨 Workspace 的全局 ID 误当作新话题。
 
-当需要创建新话题且活跃池达到 `max_resident_topics` 时，`TopicWorkingSet.needs_eviction()` 判定容量、`select_lru_candidate()` 从驻留索引（OrderedDict，O(k)）选出最久未访问且未被占用（lease）的话题，按 `LRU_EVICTION` 结算并提交后台 generation task，然后从 Store 与驻留集合移除。已有话题命中不会为了“置顶”而误驱逐另一话题；候选被占用时改选其他话题，全部被占用时抛出 `TopicBusyError` 留待重试。容量与候选以 WorkingSet 驻留索引为准，Store 只表达内容事实。
+它服务于写入：写入需要一个已存在的话题作为派发话题，话题的状态摘要与最近 blocks 是生成材料。任务进程在 PREPARE 确认 Gateway 指向的已有话题并冻结为派发话题，在本轮第一次写入时建立 Gateway 指向的新话题；Import Bus 为外部 harness 写入时的一轮确定话题。交互本身不需要提前建立话题：Gateway 指向新话题而本轮没有写入时，以 `NEW_TOPIC` 提交，由 `apply_interaction()` 在应用时建立。两条路径共用同一套驱逐与建立（`_maybe_evict_lru` 与 `_ensure_topic`），新话题因此只在第一次写入或交互应用时进入话题池。
 
-Prepare 与 ingest 都会再次确保话题存在，以覆盖 prepare 后异常清理或其他边界变化。若 prepare 已创建新话题但 Agent run 失败，Patchouli cleanup 只在它仍为空时删除，避免误删已经摄入内容的话题。
+当需要创建新话题且活跃池达到 `max_resident_topics` 时，`TopicWorkingSet.needs_eviction()` 判定容量、`select_lru_candidate()` 从驻留索引（OrderedDict，O(k)）选出最久未访问且未被占用（lease）的话题，按 `LRU_EVICTION` 结算并提交后台 generation task，然后从 Store 与驻留集合移除。已有话题命中不会为了“置顶”而误驱逐另一话题；候选被占用时改选其他话题，全部被占用时抛出 `TopicBusyError` 留待重试。容量与候选以 WorkingSet 驻留索引为准，Store 只表达内容事实。LRU 结算随建立话题发生：没有建立话题的轮次不触发结算；驱逐失败（候选都被占用、结算材料未被生成队列接纳）发生在第一次写入时，错误交回这次写入；发生在交互应用时，交互按提交队列的规则重试或应用失败。
+
+话题准备与应用都会确保话题存在：已有话题在两者之间可能被空闲结算或驱逐，应用时话题已不存在则以 `ResourceNotFoundError` 失败，交互没有写入任何话题。建立之后没有接收交互的话题（例如确定话题之后进程收到停止、写入后 CPU 没有输出、外部 harness 的这一轮没有回流）不另行补偿：它不是 Gateway 的候选话题，由空闲结算、LRU 或关闭结算按没有材料的话题结束生命周期，不触发生成。
 
 ## 4. 触发原因与具名用例
 
@@ -122,7 +125,7 @@ settle / compact / evict 是三个概念独立的具名用例，由 `PerceptionF
 
 - **settle**（`_settle_topic` 统一时序，所有来源共用）：获取 lease → 冻结全部交互记录与折叠记录，构建 `TopicMaterializeTask` → 锁外 generation admission → 删除话题并移除驻留。admission 失败时话题内容原样保留可重试，无需 abort——记录从未被改动。
 - **compact**（`compact_topic`，是否需要由 `needs_compact` 判断）：取得 lease 后，把工作视图中保留后缀之前的旧 blocks 交给 RelayController 生成新的状态摘要，再经 `fold_topic` 追加一条折叠记录写回。被折叠的块仍留在交互记录中，工作视图向后推进，token 统计随之只计入保留的块。话题已被结算或驱逐时直接结束，正被占用时以 `TopicBusyError` 留待重试；摘要返回后才一次写回，中途失败或取消都不改动话题。
-- **evict**（`evict_topic` / `discard_if_empty`）：从 Store 与驻留集合移除话题，不结算、不写记忆；话题被占用时报 `removed=False` 而不是阻塞。
+- **evict**（`evict_topic`）：从 Store 与驻留集合移除话题，不结算、不写记忆；话题被占用时报 `removed=False` 而不是阻塞。
 
 历史上曾由 `TriggerManager`/`TRIGGER_PLANS` 决策矩阵与记录字段状态机（`BufferState`）承担这些流程，现已删除：占用权建模为 WorkingSet 的 lease，而不是记录状态，补偿校验随之消失。
 
@@ -132,7 +135,7 @@ settle / compact / evict 是三个概念独立的具名用例，由 `PerceptionF
 
 ### 内容判空语义
 
-Topic 是否为空只看是否接收过交互：`has_content` 为交互记录非空，`is_empty` 为其否定。折叠不移除交互记录，有折叠摘要的话题一定有交互记录；话题列表（排除空话题时）、prepare 失败后的空话题清理与折叠判断都使用这一判断，接收过交互的话题不会被当作空话题删除。真正空 Topic 没有可 settle/compact 的内容，但 settle 仍会正常结束其生命周期。compact 不支持“总结后清空全部 blocks”的 `retain_count=0` 语义：所有 compact 配置与内部入口都要求 `retain_recent_blocks >= 1`。
+Topic 是否为空只看是否接收过交互：`has_content` 为交互记录非空，`is_empty` 为其否定。折叠不移除交互记录，有折叠摘要的话题一定有交互记录；话题列表（排除空话题时）与折叠判断都使用这一判断，接收过交互的话题不会被当作空话题。没有接收交互的话题可能已经承载过写入的派发，Perception 不据此删除它，只在结算时按没有材料结束其生命周期。真正空 Topic 没有可 settle/compact 的内容，但 settle 仍会正常结束其生命周期。compact 不支持“总结后清空全部 blocks”的 `retain_count=0` 语义：所有 compact 配置与内部入口都要求 `retain_recent_blocks >= 1`。
 
 这层返回值边界很重要：底层感知算法可以决定“应交出哪些材料”，但后台任务、事件和取消属于上层控制面。
 
@@ -142,7 +145,7 @@ Topic 是否为空只看是否接收过交互：`has_content` 为交互记录非
 
 折叠是话题自身的维护，不属于交互应用。交互写入话题即完成提交；交互提交队列在这次应用之后检查 `needs_compact`，需要时排入一个折叠项。折叠项与该话题的提交共用排序键 `topic:{topic_id}`（`topic_ordering_key`），按键串行的 lane 因此在折叠执行期间挡住同一话题的后续提交，它们在队列中等待，等待不计入各自的处理时限；其他话题的提交照常执行。由此：
 
-- 交互的确认（Import Bus 的应用等待、主动链路的 finalize）不包含折叠耗时；同一话题的下一轮要等折叠结束，Import Bus 等待超过 `import_bus.apply_wait_seconds` 时返回可重试的 503 `apply_pending`；
+- 交互的确认（Import Bus 与任务进程的提交并等待应用）不包含折叠耗时；同一话题的下一轮要等折叠结束，Import Bus 等待超过 `import_bus.apply_wait_seconds` 时返回可重试的 503 `apply_pending`；
 - 同一话题同时至多一个未结束的折叠项；队列已满或排入时出错，就放弃这一次，交互结果不受影响，下一次写入该话题时重新判断；
 - 折叠失败只结束这个折叠项，话题保持原样；话题正被结算等用例占用时重试；
 - LLM relay 的每次摘要调用以 `summary_timeout_seconds` 为时限（第 6 节），超时回退为规则摘要，使一次折叠的耗时有上限，并让话题回到阈值以下。

@@ -33,7 +33,7 @@ last_reviewed: 2026-11-06
 
 外部 harness（当前为 Claude Code 与 DeepSeek Harness）经 HiveMemory 的 MCP 端点检索、读取、写入与更新记忆。它与 [MTP](./mtp.md) 并列：MTP 是 Alice 在生成循环中使用的文本协议，MCP 是外部 harness 使用的工具协议。两者都是**操作适配器**：把协议调用解析为固定类型的操作请求，经 workspace 的单一操作入口进入 actor API，不直接调用能力层，也不自行判定身份或权限。记忆能力属于 actor API，不为哪一种协议独占；写入与更新经两种协议进入的是同一组 actor 操作、同一条生成链路。
 
-plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任务进程，也就没有执行线程。每次工具调用因此只认证一次，得到一个**工作 actor**，它只是本次调用内的局部值，actor API 按 Workspace 访问登记逐次授权。写入与更新需要一个派发话题：线程提交从线程取得 prepare 为本轮选定的话题，请求级提交没有线程，改由 Import Bus 在写入时为这一轮就地确定话题（第 4 节）。RUN 的执行发生在执行单元的环境中，CALL 只属于 Alice，端点不提供这两项。
+plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任务进程，也就没有执行线程。每次工具调用因此只认证一次，得到一个**工作 actor**，它只是本次调用内的局部值，actor API 按 Workspace 访问登记逐次授权。写入与更新需要一个派发话题：线程提交向线程表取得进程这一轮的派发话题，请求级提交没有线程，入口给出一个回调，由 Import Bus 在写入时为这一轮确定话题（第 4 节）。RUN 的执行发生在执行单元的环境中，CALL 只属于 Alice，端点不提供这两项。
 
 ## 1. 端点与传输
 
@@ -62,8 +62,7 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 1. 写入与更新先检查轮次信息，缺少时以 `request.turn_required` 拒绝，不认证、不确定话题、不登记意图；
 2. `resolve_principal_claim` 解析 principal 声明，`resolve_request_identity_claims(require_agent=True)` 解析用户、Workspace 与 Agent 声明。两者都在 `server/deps.py`，MCP 入口沿用 server 唯一的默认身份回退点，不复制解析规则；
 3. `authenticate_request_actor` 以声明的 principal、`mcp` adapter 与凭据经统一认证网关认证一次，得到本次调用的工作 actor。第一阶段核对接入登记、adapter、凭据与用户，以及能否声明 `system`，第二阶段做 Workspace 准入（[认证与访问登记](../workspace/authentication.md)）；
-4. 写入与更新以同一个工作 actor 经门面取得的 Import Bus 服务为这一轮确定话题（第 4 节）；
-5. 把工具调用归一为操作请求，以门面取得的操作入口的 `execute_request` 提交，写入与更新带上这一轮的话题。工作 actor 不离开本次调用，调用返回即不再被引用。
+4. 把工具调用归一为操作请求，以门面取得的操作入口的 `execute_request` 提交。写入与更新另给出确定话题的回调：它以同一个工作 actor 经门面取得的 Import Bus 服务为这一轮确定话题（第 4 节），actor API 授权通过（更新另需读到基础记忆）之后才调用它。工作 actor 不离开本次调用，调用返回即不再被引用。
 
 ## 3. 工具
 
@@ -83,15 +82,15 @@ plugin 模式下，外部 harness 的任务对 HiveMemory 不可见，没有任�
 
 ## 4. 确定话题、操作入口与授权
 
-MCP 入口与 Alice 的 MTP 适配器形态相同：都把协议调用归一为 `OperationRequest`，交给同一个操作入口，由入口分派到同一组 actor API 方法。写入与更新多一步确定话题。
+MCP 入口与 Alice 的 MTP 适配器形态相同：都把协议调用归一为 `OperationRequest`，交给同一个操作入口，由入口分派到同一组 actor API 方法。写入与更新多给出一个确定话题的回调。
 
-- **确定话题**：入口以同一个工作 actor 调用门面取得的 `ImportBusService.place_turn(turn, actor, target_workspace)`。确定话题是系统级操作：服务以系统自身的 principal 认证参与者驻留 Workspace 的 `system`，编排器以它经 root API 查进度、路由与准备话题，由 root API 逐次 root 授权，不检查参与 Agent 的操作白名单，在这一轮所属外部会话的串行门内返回这一轮的话题：已确定话题时直接返回；这一轮已经回流并应用时返回它实际所在的话题；否则路由、准备话题并登记已确定的话题。规则见 [Import Bus](../system/import-bus.md#47-写入时确定话题) 第 4.7 节。目标 Workspace 取工作 actor 驻留的 Workspace，与导入入口相同。
-- **请求级提交**：操作入口 `WorkspaceOperationEntry` 的 `execute_request(request, actor, dispatch_topic_id=None)` 与线程提交的 `execute` 共用同一分派表。检索与读取不得给出派发话题，写入与更新必须给出；其余请求类型、或派发话题与请求类型不符时，在分派前以 `TypeError` 拒绝，没有副作用。它不做存活判定：工作 actor 是入口调用链内的局部值，没有线程可判定。
-- **actor API**：以 `authorize_agent` 授权，目标取工作 actor 驻留的 Workspace，白名单照常逐次检查。写入与更新接收线程句柄或派发话题，二者恰有其一：线程提交给出句柄，请求级提交给出派发话题。CPU 一侧只持有不透明的线程句柄，取不到工作 actor，因此无法经请求级提交绕过线程的存活判定与派发话题（架构测试守护）。给出派发话题时不解析线程，意图登记的进程与线程关联为空；派发、ACK、拒绝与结果未知的语义与线程路径相同，派发开始后调用方断开或取消不撤回写入（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。请求级提交到不了 RUN 与 CALL：`execute_request` 的类型表拒绝它们，`execute` 只接收线程句柄。
+- **确定话题**：回调以同一个工作 actor 调用门面取得的 `ImportBusService.place_turn(turn, actor, target_workspace)`。确定话题是系统级操作：服务以系统自身的 principal 认证参与者驻留 Workspace 的 `system`，编排器以它调用一次 root API 的为一轮确定话题（查进度、路由与确认或建立话题都在这个方法内，入口 root 授权一次），不检查参与 Agent 的操作白名单，在这一轮所属外部会话的串行门内返回这一轮的话题：已确定话题时直接返回；这一轮已经回流并应用时返回它实际所在的话题；已提交仍在应用时以 `apply_pending` 拒绝；否则路由、确认或建立话题并登记已确定的话题。规则见 [Import Bus](../system/import-bus.md#47-写入时确定话题) 第 4.7 节。目标 Workspace 取工作 actor 驻留的 Workspace，与导入入口相同。
+- **请求级提交**：操作入口 `WorkspaceOperationEntry` 的 `execute_request(request, actor, dispatch_topic=None)` 与线程提交的 `execute` 共用同一分派表。`dispatch_topic` 是返回派发话题的异步回调：写入与更新必须给出，检索与读取不得给出；其余请求类型、或回调与请求类型不符时，在分派前以 `TypeError` 拒绝，没有副作用。它不做存活判定：工作 actor 是入口调用链内的局部值，没有线程可判定。
+- **actor API**：以 `authorize_agent` 授权，目标取工作 actor 驻留的 Workspace，白名单照常逐次检查。写入与更新接收线程句柄或派发话题的回调，二者恰有其一：线程提交给出句柄，向线程表取得派发话题；请求级提交给出回调。两种提交的顺序相同：授权，UPDATE 解析可读的正式基础原子，取得派发话题，再在无挂起点的同步段登记意图（线程提交在这里再解析一次线程），然后派发。CPU 一侧只持有不透明的线程句柄，取不到工作 actor，因此无法经请求级提交绕过线程的存活判定与派发话题（架构测试守护）。给出回调时不解析线程，意图登记的进程与线程关联为空；派发、ACK、拒绝与结果未知的语义与线程路径相同，派发开始后调用方断开或取消不撤回写入（[读取视图与写入意图](../workspace/read-view-and-write-intents.md)）。请求级提交到不了 RUN 与 CALL：`execute_request` 的类型表拒绝它们，`execute` 只接收线程句柄。
 - **门面**：以 `operation_entry` 交出组合根装配的同一个操作入口，只供 MCP 入口调用 `execute_request`；以 `import_bus_service` 交出 Import Bus 服务。门面不暴露 actor API。
 - **结构守护**：`execute_request` 只由 MCP 入口调用；MCP 入口不导入 actor API、root API、任务进程与 Import Bus 的服务和编排器，在 Import Bus 中只导入在途轮次的输入模型（[能力层](../workspace/capability.md)）。
 
-没有写入许可的 Agent 调用写入时，确定话题仍先于 actor API 的授权发生。确定话题只是把这一轮的路由提前，这一轮回流时沿用同一话题，不会多一次路由。
+没有写入许可的 Agent 调用写入时，actor API 在调用回调之前以 `operation_not_allowed` 拒绝，不路由、不建立话题，也不触发 LRU 结算；更新的基础记忆不存在或不可见时同样在确定话题之前拒绝。确定话题失败时错误交回这次写入，不登记意图。确定话题只是把这一轮的路由提前，这一轮回流时沿用同一话题，不会多一次路由。
 
 ## 5. 错误
 
@@ -109,6 +108,7 @@ MCP 入口复用 HTTP 出口的 `project_error` 投影，不另建映射；投�
 | 生成队列拒绝接纳 | `IntentDispatchRejectedError`，句柄已标记 FAILED | `workspace.memory.intent.dispatch_rejected`（503） |
 | 派发结果未知 | `IntentDispatchUnknownError`，句柄保留 MATERIALIZING | `workspace.memory.intent.dispatch_unknown`（500） |
 | 确定话题暂时无法完成 | `ImportBusUnavailableError`：Gateway 暂不可用（`gateway_unavailable`）、这一轮已提交仍在应用（`apply_pending`）、服务正在关闭（`shutting_down`） | `import_bus.unavailable`，带 reason，可稍后重试 |
+| 建立新话题时活跃池已满且 LRU 候选都被占用 | `TopicBusyError` | `patchouli.topic.busy`（409），可稍后重试 |
 | 存储不可用 | `StorageOfflineError`、`StorageReadError` | `storage.offline`、`storage.read_failed` |
 | 其他异常 | —— | `server.internal_error`，异常正文不公开；在本次调用边界记录一次完整异常栈 |
 
@@ -158,4 +158,4 @@ Claude Code 改变命名规则时识别会静默失效，回声恢复，表现�
 - 入口包：`src/hivememory/mcp_server/server.py`（服务、工具、错误投影与日志）；接入：`src/hivememory/server/app.py`（路由与 lifespan）；声明解析：`src/hivememory/server/deps.py`；错误投影：`src/hivememory/server/error_handlers.py`。
 - 操作入口：`src/hivememory/workspace/capability/operations.py`；确定话题：`src/hivememory/system/application/import_bus_service.py` 与 `src/hivememory/system/services/import_bus/ingestor.py`；编译：`src/hivememory/engines/memory_compiler/`。
 - 插件声明：`integrations/claude-code/.mcp.json`、`integrations/claude-code/hooks/hooks.json`；轮次信息：`integrations/claude-code/connector/claude_code/hooks.py`；回声标记：`integrations/claude-code/connector/claude_code/reader.py`；dsh 插件的工具注册与轮次信息：`integrations/deepseek-harness/lib/tools.js`，回声标记：`integrations/deepseek-harness/lib/turns.js`。
-- 测试：`tests/unit/mcp_server/`（身份取自请求头、一次调用认证一次、写入与更新先确定话题再带该话题提交、缺少轮次信息与确定话题失败、错误投影、结果编译、不提供订阅）；`tests/integration/system/test_mcp_memory_access.py`（真实认证授权与操作入口下的检索、读取、拒绝，每次工具调用认证一次、写入时确定话题由系统认证执行，以及写入后读到在途句柄、结算后重定向、回流落在写入派发的话题）；`tests/integration/workspace/test_operation_requests.py`（请求级写入与更新、派发话题与请求类型不符时的拒绝）；`tests/unit/server/routers/test_app_lifespan.py`（`/mcp` 路由与会话管理器接线）；`tests/unit/architecture/test_access_boundaries.py`（调用面守护）；`tests/unit/connectors/`（`PreToolUse` 的轮次信息、回声标记与清单一致性，dsh 插件与本 server 的工具名、参数一致）；`integrations/deepseek-harness/test/`（dsh 插件的工具注册、轮次信息与回声标记，`npm test`）。
+- 测试：`tests/unit/mcp_server/`（身份取自请求头、一次调用认证一次、写入与更新以确定话题的回调提交、缺少轮次信息与确定话题失败、错误投影、结果编译、不提供订阅）；`tests/integration/system/test_mcp_memory_access.py`（真实认证授权与操作入口下的检索、读取、拒绝，每次工具调用认证一次、写入时确定话题由系统认证执行，被拒的写入不确定话题，以及写入后读到在途句柄、结算后重定向、回流落在写入派发的话题）；`tests/integration/workspace/test_operation_requests.py`（请求级写入与更新、回调与请求类型不符时的拒绝、更新在基础冷读之后与登记之前确定话题、被拒的请求不确定话题）；`tests/unit/server/routers/test_app_lifespan.py`（`/mcp` 路由与会话管理器接线）；`tests/unit/architecture/test_access_boundaries.py`（调用面守护）；`tests/unit/connectors/`（`PreToolUse` 的轮次信息、回声标记与清单一致性，dsh 插件与本 server 的工具名、参数一致）；`integrations/deepseek-harness/test/`（dsh 插件的工具注册、轮次信息与回声标记，`npm test`）。

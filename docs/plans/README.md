@@ -22,13 +22,9 @@ v0.7.2（Git tag `v0.7.2`，2026-11-01）、v0.7.1（Git tag `v0.7.1`，2026-10-
 
 ## 未绑定版本
 
-| 计划 | 状态 | 说明 |
-|:---|:---|:---|
-| [交互提交收束与话题按需创建](./interaction-submission-and-topic-on-demand.md) | Planned（2026-11-06） | 身份与访问主线的后续：controller 与 Import Bus 的交互提交统一经 root API，话题按需创建，prepare 与 finalize 拆分；背景与 owner 决定见[外部会话与 Topic 投影 Idea](../ideas/external-session-and-topic-projection.md#10-交互提交收束与话题按需创建)第 10 节 |
+当前没有生效计划。身份与访问主线是版本之外的工作，后续方向见[身份与访问体系 Idea](../ideas/identity-and-access-model.md)。
 
-身份与访问主线是版本之外的工作，其余方向见[身份与访问体系 Idea](../ideas/identity-and-access-model.md)。
-
-WorkspaceAsset 的归属拆分、Import Bus 的授权移入能力层与统一身份授权入口（2026-11-06）、HTTP 管理面的管理凭据（2026-11-05）、此前的 DeepSeek Harness 插件接入、模型选择统一（2026-11-01）与 dsh 子 Agent 会话不再独立导入（2026-11-02）已归档，见 [Archived Plans](../archive/plans/README.md)。观测与日志是版本之外的工作，目前以治理主题与 Todo 跟踪，见[日志与运行时事件](../governance/observability/logs-and-events.md)。
+交互提交收束与话题按需创建、WorkspaceAsset 的归属拆分、Import Bus 的授权移入能力层与统一身份授权入口（2026-11-06）、HTTP 管理面的管理凭据（2026-11-05）、此前的 DeepSeek Harness 插件接入、模型选择统一（2026-11-01）与 dsh 子 Agent 会话不再独立导入（2026-11-02）已归档，见 [Archived Plans](../archive/plans/README.md)。观测与日志是版本之外的工作，目前以治理主题与 Todo 跟踪，见[日志与运行时事件](../governance/observability/logs-and-events.md)。
 
 ## 准入规则
 

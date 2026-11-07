@@ -10,7 +10,7 @@ related_contracts:
   - docs/contracts/mtp.md
   - docs/system/i18n.md
   - docs/contracts/subsystem-contracts.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-06
 ---
 
 # MemoryCompiler
@@ -97,7 +97,7 @@ Compiler 维持输入顺序，不重新排序。top-k、分数和权限必须在
 
 ## 6. 当前调用点
 
-- workspace 任务进程：在 CPU 分配时把 Patchouli prepare 返回的检索原子编译为 `RETRIEVAL_CONTEXT` 文本，再经中立提示词编译置于附件段之前，写入输入清单的 `turn_context`（Patchouli prepare 本身不编译）；
+- workspace 任务进程：在 CPU 分配时把预检索返回的检索原子编译为 `RETRIEVAL_CONTEXT` 文本，再经中立提示词编译置于附件段之前，写入输入清单的 `turn_context`（检索路由本身不编译）；
 - Koakuma MTP：编译 SEARCH envelope 与 READ 的 atom/pending/redirect/terminal 结果；
 - MCP 入口：`memory_search` 编译关闭 header/footer 的 `RETRIEVAL_CONTEXT`，`memory_read` 逐项编译 `READ_RESULT`（[MCP 记忆访问](../contracts/mcp.md)）；
 - Alice orchestration：编译子 Agent shared context injection；

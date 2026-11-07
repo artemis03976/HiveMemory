@@ -11,7 +11,7 @@ related_contracts:
   - docs/contracts/subsystem-contracts.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-06
 ---
 
 # MemoryLibrary 与存储层
@@ -131,7 +131,7 @@ Revive 当前由 Patchouli local route 暴露给内部用例。它是显式状�
 - artifact store 为 optional，关闭时报告 `healthy=true, required=false, detail=disabled`；
 - 聚合 `healthy` 只要求所有 required 组件健康。
 
-Patchouli 的 `RUNTIME_STORAGE_HEALTH` 使用该聚合结果。Qdrant 不可用时，prepare 把 `storage_available=false` 放入 `PreparedAgentRun`，任务进程再把它写入交给 Alice 的输入清单，使 Alice 避免继续发出依赖长期存储的记忆操作。健康检查是降级信号，不是跨介质数据一致性证明。
+Patchouli 的 `RUNTIME_STORAGE_HEALTH` 使用该聚合结果。任务进程在 PREPARE 经 root API 读取这一结果（公开路由 `patchouli.public.storage.available`）；Qdrant 不可用时，任务进程在交给 Alice 的提示词中加入离线提示，使 Alice 避免继续发出依赖长期存储的记忆操作。健康检查是降级信号，不是跨介质数据一致性证明。
 
 存储 SDK/连接错误由适配器在实际 I/O 处转换为中立的离线、读取失败或写入失败，并保留 cause 与操作上下文；程序缺陷不转换成离线。写入失败不承诺尚未产生副作用；readiness 只对明确离线按既有策略等待，不吞掉程序错误。错误出口与类型归属见[错误模型](../contracts/error-model.md#45-memory-输入校验与存储错误)。
 

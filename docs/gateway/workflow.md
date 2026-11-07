@@ -13,7 +13,7 @@ related_contracts:
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-06
 ---
 
 # Gateway 固定工作流
@@ -188,5 +188,5 @@ RuntimeEvent sink 失败不得改变 Gateway 结果。观测字段也不进入�
 - `tests/unit/gateway/test_context_provider.py`
 - `tests/unit/gateway/test_request_control.py`
 - `tests/unit/workspace/process/test_gateway_chat_flow.py`
-- `tests/unit/system/services/import_bus/test_ingestor.py`（Import Bus 以 `PASSIVE_MEMORY` 调用并附最近轮次与上一轮所在的话题）
+- `tests/unit/workspace/capability/root/test_interaction.py`（root API 以 `PASSIVE_MEMORY` 路由一轮外部交互，并按上一轮的进度续接它所在的话题）、`tests/unit/system/services/import_bus/test_ingestor.py`（Import Bus 的路由输入附最近轮次与上一轮所在的话题）
 - `tests/integration/workspace/test_session_context.py`（任务进程交给 Gateway 的会话轮次带各自所在的话题）

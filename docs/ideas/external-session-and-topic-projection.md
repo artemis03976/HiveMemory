@@ -32,7 +32,7 @@ last_reviewed: 2026-11-06
 - 要解决的问题：Topic 体系不能接收外部 Actor 的会话消息（owner 表述，2026-09-27）。
 - **版本归属**（owner，2026-09-27）：本方向在 v0.7.0 内完成，Alice 作为第一个使用者（[ROADMAP](../ROADMAP.md) 的 v0.7.0 范围）。外部 Actor 分为两种接入模式（[外部 Actor Idea](./external-actor-registration-and-runtime-access.md#11-两种接入模式owner2026-09-27) 1.1）：2026-10-20 起 plugin 模式在 v0.7.1（首个接入 Claude Code），controller 模式退回候选方向，版本待定。
 - plugin 模式的会话归外部 harness 所有；Alice 与 controller 模式的会话由 HiveMemory 发起。本文最初面向外部 harness 自有的会话。
-- **Topic 与会话解耦**（owner，2026-09-28；预建部分 2026-10-13 改为保留，见本条末尾）：Topic 将与 conversation session 解耦，不再承担上下文，仍是记忆生成的历史材料组织方；任务进程不再预先创建临时话题，Gateway 的 Topic 路由决定跨阶段传递到结算，提交后依此按需创建 Topic（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1、Q-9）。本文第 3 节 Topic 的 working set 职责、第 4.3 节的 prepare 生命周期，以及第 8 节 Topic 生命周期事项中的预创建与条件清理，需要按此决定重新审视。（owner，2026-10-13）预建部分改为保留：将来对话流式同步到 Patchouli 时需要先有容器接收，话题是否预建随流式设计决定，“取消当前 Topic”与 `topic_info` 改为异步标注不依赖是否预建（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1）。（owner，2026-11-06）重新打开：不预建话题，第一次写入时建立，否则推迟到接受交互时建立，见第 10 节。
+- **Topic 与会话解耦**（owner，2026-09-28；预建部分 2026-10-13 改为保留，见本条末尾）：Topic 将与 conversation session 解耦，不再承担上下文，仍是记忆生成的历史材料组织方；任务进程不再预先创建临时话题，Gateway 的 Topic 路由决定跨阶段传递到结算，提交后依此按需创建 Topic（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1、Q-9）。本文第 3 节 Topic 的 working set 职责、第 4.3 节的 prepare 生命周期，以及第 8 节 Topic 生命周期事项中的预创建与条件清理，需要按此决定重新审视。（owner，2026-10-13）预建部分改为保留：将来对话流式同步到 Patchouli 时需要先有容器接收，话题是否预建随流式设计决定，“取消当前 Topic”与 `topic_info` 改为异步标注不依赖是否预建（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1）。（owner，2026-11-06）重新打开：不预建话题，第一次写入时建立，否则推迟到接受交互时建立，见第 10 节；同日实施（[归档计划](../archive/plans/interaction-submission-and-topic-on-demand.md)）。
 - **对话上下文由 Session 提供**（owner，2026-09-28）：实际使用的对话上下文由 ConversationSession 提供，原样积累，不再由外界干涉；Topic 作为内部记忆生成的资料，Gateway 话题路由与 Topic 只为记忆生成服务。Session 提供历史，CPU 管理派生视图的预算与压缩，详见[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)。
 - **会话模型与 Topic 池**（owner，2026-09-28）：见 0.1。
 - **后续讨论归属**（owner，2026-10-16）：Alice compact、Topic page folding 及两者关系迁入[短期记忆与上下文压缩](./short-term-memory-and-context-compaction.md)，包含原 0.3 和 AC-1/AC-2；原始资料沿 ConversationSession → Topic 完整资料 → 来源 Artifact 保存的规划见 [Raw Evidence](./PatchouliPageFoldingRawEvidenceDesign.md)。Session 可以承载原始记录，Patchouli 通过接收到的交互组织材料，不在生成时反向读取 Session 或 CPU 上下文；会话持久化另行计划。
@@ -202,7 +202,7 @@ TurnEvent 现有字段
 
 ## 4. Topic 路由指令与交接
 
-（2026-09-28：任务进程不再预先创建 Topic；Gateway 的路由决定由进程携带到结算，提交后按需创建 Topic（0.1；任务进程 Idea 1.2）。本节中 prepare handle 与预创建 Topic 的条件清理，在 controller 模式下失去前提，待本方向的实施批次重审；路由指令、路由关联与应用结果的内容不受影响。2026-10-13 owner 改为保留预建（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1），预建 Topic 的条件清理继续由现有 cleanup 路由承担。）
+（2026-09-28：任务进程不再预先创建 Topic；Gateway 的路由决定由进程携带到结算，提交后按需创建 Topic（0.1；任务进程 Idea 1.2）。本节中 prepare handle 与预创建 Topic 的条件清理，在 controller 模式下失去前提，待本方向的实施批次重审；路由指令、路由关联与应用结果的内容不受影响。2026-10-13 owner 改为保留预建（[任务进程 Idea](./task-process-table-and-registration-entry.md#21-交互被接纳后即关闭进程q-1) 2.1），预建 Topic 的条件清理继续由现有 cleanup 路由承担。2026-11-06 起不再预建：话题在第一次写入或交互应用时建立，cleanup 路由与 prepare 结果模型已删除（第 10 节），本节关于预建 Topic 条件清理的内容不再适用。）
 
 本节集中定义 Topic 交接生命周期，包含没有 Session 的 prepare/主动意图场景，不意味着 Topic 属于 Session。这部分的公开方法、总线路由映射、operation 绑定和领域实现应在同一处定义；生成侧只引用本节，不另行决定 handle/assignment 的有效性、清理或来源绑定。
 
@@ -255,7 +255,7 @@ Session 服务保证输入去重和开放段的本地顺序；Patchouli applicat
 
 下表统一既有计划中 handle、assignment reference 和 Topic 快照的含义，不要求为每个概念新增一个服务或 Python 类。
 
-当前 `TopicManagementService.prepare_topic()` 返回 topic_id 字符串，旧 `cleanup_prepared_agent_run()` 还依赖 PreparedAgentRun、新建标记与交互接纳状态。本节 handle 是目标交接语义；旧字段如何承接它待定（第 8 节），不宣称现有实现已有 handle 注册、预留或过期机制。
+当前 `TopicManagementService.prepare_topic()` 返回 topic_id 字符串，经 root API 的“为一轮确定话题”使用；`cleanup_prepared_agent_run()` 与 `PreparedAgentRun` 已于 2026-11-06 删除（第 10 节）。本节 handle 是目标交接语义；旧字段如何承接它待定（第 8 节），不宣称现有实现已有 handle 注册、预留或过期机制。
 
 | 对象 | 表达什么 | 不代表什么 |
 |:---|:---|:---|
@@ -364,7 +364,7 @@ Topic 身份、prepare handle、路由关联和资料快照分别交接。主动
 - TurnEvent 新增 kind、来源与时间、外部调用关联和多模态引用；外部来源的调用关联规则（第 2.3、5 节；controller 模式）。
 - `InteractionPayload` 增加会话与顺序字段（三种结局的表达已落地），`InteractionSubmission` codec 的新旧兼容样例；interaction_id 与 work_id、外部 ID、turn/block ID 的映射（第 2.2、6 节；controller 模式；`interaction_id` 取 `process_id` 已决定）。
 - 封口信号、迟到、重复与 sequence 缺口；开放段容量与无 user 事件的接收（第 4.1、5 节；controller 模式）。
-- Topic 生命周期：prepare 的副作用与 handle、handle 存续、条件清理、资料来源与保留、accepted/routed/applied 的结果查询与保留、相关 API 的迁移（第 4 节；2026-11-06 改为按需创建、不再补偿，见第 10 节）。
+- Topic 生命周期：prepare 的副作用与 handle、handle 存续、条件清理、资料来源与保留、accepted/routed/applied 的结果查询与保留、相关 API 的迁移（第 4 节；2026-11-06 改为按需创建、不再补偿，已实施，见第 10 节）。
 - 路由指令的优先级与显式 attach（第 4 节；默认候选范围已决定为整个 workspace）。
 - Gateway 的会话提示（恢复已有会话或新开会话）的判断方式、提议的呈现与确认（0.1、0.2；后续版本，路由上下文的矛盾见 0.2）；会话 ID 无需为此进入 Patchouli。
 
@@ -381,7 +381,7 @@ Topic 身份、prepare handle、路由关联和资料快照分别交接。主动
 
 ## 10. 交互提交收束与话题按需创建
 
-本节由“交互提交收束与话题按需创建”计划草案于 2026-11-06 退回：草案从导入一轮做两次 root 授权的审计出发，混入了交互提交与话题建立时点的重构。身份访问的部分另立为 [Import Bus 的授权移入能力层](../archive/plans/import-bus-authorization-in-capability-layer.md)计划（已于 2026-11-06 实施并归档）；其余设计退回这里，删除了阶段划分、验收与文档更新清单。草案从未提交。决定 9–11 作出后形成新的计划（10.3），候选设计随之移入计划，这里保留背景与 owner 决定。
+本节由“交互提交收束与话题按需创建”计划草案于 2026-11-06 退回：草案从导入一轮做两次 root 授权的审计出发，混入了交互提交与话题建立时点的重构。身份访问的部分另立为 [Import Bus 的授权移入能力层](../archive/plans/import-bus-authorization-in-capability-layer.md)计划（已于 2026-11-06 实施并归档）；其余设计退回这里，删除了阶段划分、验收与文档更新清单。草案从未提交。决定 9–11 作出后形成新的计划（10.3），候选设计随之移入计划，这里保留背景与 owner 决定。计划已于 2026-11-06 实施并归档。
 
 ### 10.1 背景
 
@@ -412,4 +412,4 @@ Topic 身份、prepare handle、路由关联和资料快照分别交接。主动
 
 ### 10.3 计划
 
-2026-11-06 形成[交互提交收束与话题按需创建](../plans/interaction-submission-and-topic-on-demand.md)计划，本节原有的候选设计、已知的行为变化与风险移入计划。
+2026-11-06 形成[交互提交收束与话题按需创建](../archive/plans/interaction-submission-and-topic-on-demand.md)计划，本节原有的候选设计、已知的行为变化与风险移入计划；计划同日实施并归档，当前事实见[任务进程](../workspace/task-process.md)与 [Import Bus](../system/import-bus.md)。

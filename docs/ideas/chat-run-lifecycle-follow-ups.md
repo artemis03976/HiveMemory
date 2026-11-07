@@ -220,7 +220,7 @@ RuntimeEvent 生产端收敛（[日志与运行时事件](../governance/observab
 3. 进入 Actor 执行前的停止检查命中，跳过 Actor 执行与 finalize；
 4. 进程关闭时对尚未交接的 prepare 结果请求 Patchouli 的 `cleanup_prepared_agent_run`，只补偿 prepare 新建且仍为空的话题。
 
-现行行为见[任务进程](../workspace/task-process.md)第 9、12 节。
+现行行为见[任务进程](../workspace/task-process.md)。2026-11-06 起 PREPARE 不再建立话题、关闭流程不再请求清理（[归档计划](../archive/plans/interaction-submission-and-topic-on-demand.md)），上述第 2、4 步随之不存在：话题只在写入或交互应用时建立，本候选的主要动机已不存在。
 
 这消除了“用户取消恰好发生在资源创建成功、但资源 id 尚未返回上层”这一主要租约动机。
 只要 prepare 保持短时且不可被用户取消，引入 lease 的成本高于收益。

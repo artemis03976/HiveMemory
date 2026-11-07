@@ -54,7 +54,7 @@ last_reviewed: 2026-11-06
 
 RPC 不提供持久化、重试、跨进程投递或版本协商。
 
-RPC 的等待关系也意味着责任关系：handler 的返回值或异常直接决定本次调用能否继续。将需要确定结果的 prepare、retrieve 或 run 改为 Pub/Sub，会让顶层链路无法知道工作何时完成，也无法可靠决定 finalize 或 cleanup。
+RPC 的等待关系也意味着责任关系：handler 的返回值或异常直接决定本次调用能否继续。将需要确定结果的检索、话题准备或交互提交改为 Pub/Sub，会让顶层链路无法知道工作何时完成，也无法可靠决定下一步。
 
 ### 1.2 Pub/Sub
 
@@ -87,25 +87,24 @@ Pub/Sub 是通知语义，不能用于要求调用方获得确定返回值的工
 | `patchouli.public.memory.retrieve` | `MemoryManagementService.retrieve` | `RetrievalRequest`（含 `identity_scope`） | `list[MemoryAtom]`（按领域排序） |
 | `patchouli.public.memory.retrieve_by_aliases` | `retrieve_by_aliases` | aliases、`IdentityScope` | `list[MemoryAtom]`（只含实际可读的原子） |
 | `patchouli.public.memory.read` | `read_memory` | memory id、`identity_scope`、refresh | `MemoryAtom \| None`（未知或不可见均为 `None`） |
-| `patchouli.public.prepare_agent_run` | `PatchouliService.prepare_agent_run` | `identity_scope`（话题与归属）、可为空的 `retrieval_scope`（检索的可见性，为空时不检索）、`interaction_id`、`GatewayDecision` | `PreparedAgentRun`（Topic 准备结果与未编译检索结果）；两份 scope 的 Workspace 不同时在任何副作用之前抛 `WorkspaceMismatchError` |
-| `patchouli.public.finalize_agent_run` | `PatchouliService.finalize_agent_run` | `PreparedAgentRun`、任务进程封口的 `InteractionPayload`（含实际使用的附件引用）、必需的 `identity_scope`（归属）与 `participant`（交互的发起者） | `None`（交互 applied、命中记录完成）；目标归属不一致抛 `WorkspaceMismatchError` |
-| `patchouli.public.cleanup_prepared_agent_run` | `cleanup_prepared_agent_run` | `PreparedAgentRun`、必需的 `identity_scope` | 是否清理空话题；越域 prepared 返回 `False` |
-| `patchouli.public.record_memory_citation` | `record_memory_citation` | memory id、`IdentityScope`、source | 记录结果 |
+| `patchouli.public.record_memory_citation` | `PatchouliService.record_memory_citation` | memory id、`IdentityScope`、source | 记录结果 |
+| `patchouli.public.memory.record_retrieval_hits` | `PatchouliService.record_retrieval_hits` | memory ids、`IdentityScope`、source | `None`；逐条记录 HIT，同一批去重，单条失败只记日志 |
+| `patchouli.public.storage.available` | `PatchouliService.storage_available` | 无 | `bool`：记忆存储是否可用，供提示词的离线提示 |
 
 交互与主动意图提交：
 
 | Route | Handler | 输入摘要 | 输出 |
 |:---|:---|:---|:---|
-| `patchouli.public.interaction.submit` | `submit_interaction` | `identity_scope`（归属）、`participant`（交互的发起者）、`InteractionPayload`、可选 requested topic / interaction id / origin、新话题的 `new_topic_title` / `new_topic_summary`（只在 `NEW_TOPIC` 时允许） | `InteractionSubmitResult`（接纳收据）；队列容量已满或已停止抛 `InteractionAdmissionUnavailableError` |
+| `patchouli.public.interaction.submit` | `submit_interaction` | `identity_scope`（归属）、`participant`（交互的发起者）、`InteractionPayload`、可选 requested topic / interaction id / origin、新话题的 `new_topic_title` / `new_topic_summary`（只在 `NEW_TOPIC` 时允许）、可选 `timeout_seconds`（为空时等到终态） | 接纳后等待应用，返回结局 `InteractionSubmitResult`（进度、成功时实际所在的话题、失败时的异常类名、此前是否已接纳、是否请求新话题）；队列容量已满或已停止抛 `InteractionAdmissionUnavailableError` |
 | `patchouli.public.interaction.status` | `interaction_status` | `identity_scope`、interaction id | `InteractionStatus \| None`（`pending` / `succeeded` 附实际所在的话题 / `failed` / `unknown`；未接纳为 `None`）；同名交互属于其他 Workspace 抛 `WorkspaceMismatchError` |
-| `patchouli.public.interaction.wait` | `wait_interaction` | `identity_scope`、interaction id、`timeout_seconds` | 应用到终态或超时时的 `InteractionStatus \| None`；归属校验同 status |
+| `patchouli.public.interaction.wait` | `wait_interaction` | `identity_scope`、interaction id、`timeout_seconds`（为空时等到终态） | 应用到终态或超时时的 `InteractionStatus \| None`；归属校验同 status |
 | `patchouli.public.memory_intent.submit` | `submit_memory_intent` | `identity_scope`、`MemoryIntent` | `MemoryIntentSubmissionResult`（accepted / rejected / unknown；仅 accepted 带任务坐标） |
 
-上表路由只接收调用方授权点组装的 `IdentityScope`，本身不做操作授权。`memory_intent.submit` 的生产调用方是 workspace actor API 的 WRITE/UPDATE：`MemoryIntent.intent_id` 与 `pending_alias` 必填，沿用登记值；话题由任务进程提供。Patchouli 在内部构造物化任务，唯一调用 local `GENERATION_SUBMIT_ACTIVE`，每次一个意图，返回接纳、明确拒绝或未知结果。明确拒绝结算 FAILED；未知结果不提前结算，既有任务保留结算权。
+上表路由只接收调用方授权点组装的 `IdentityScope`，本身不做操作授权。`memory_intent.submit` 的生产调用方是 workspace actor API 的 WRITE/UPDATE：`MemoryIntent.intent_id` 与 `pending_alias` 必填，沿用登记值；话题是 actor API 为这次写入取得的派发话题。Patchouli 在内部构造物化任务，唯一调用 local `GENERATION_SUBMIT_ACTIVE`，每次一个意图，返回接纳、明确拒绝或未知结果。明确拒绝结算 FAILED；未知结果不提前结算，既有任务保留结算权。
 
-三条交互路由的生产调用方是 Import Bus，以系统的 root 工作 actor 经 root API 的 `RootInteractionService` 调用，每次调用在方法入口 root 授权：提交前以 `interaction.status` 查重，提交调用 `interaction.submit`，提交后以 `interaction.wait` 等待应用；进度、重发与幂等规则见[子系统公共契约](./subsystem-contracts.md#36-交互提交进度与等待)第 3.6 节。chat finalize 不经这些路由：Patchouli 在 finalize 内部构造 `InteractionSubmission` 并提交同一条 lane，两条路径的 handler 都调用 `PerceptionFamiliar.apply_interaction()`。`InteractionPayload` 不携带物化任务；submission 的 `belong_to/from_actor` 分别取自 scope 与显式的参与者：交互提交由系统执行，scope 的 actor 是 `system`，交互记录的发起者仍是参与的 Agent；调用方不能从 payload 或 topic id 反推作用域。`chat.run.completed` 和 SSE `done` 都不携带记忆任务 ID；任务通过 `memory.task.*` 事件及 list/get 查询观察。
+交互路由、话题准备（第 2.4 节）、检索命中与存储健康的生产调用方都是 root API，由任务进程与 Import Bus 以系统的 root 工作 actor 调用，每个 root 方法在入口 root 授权一次，方法内依次调用的路由沿用同一个 scope：提交交互（`RootInteractionService.submit_interaction`）先以 `interaction.status` 查重、对仍在应用的交互以 `interaction.wait` 等待，只有未接纳或应用失败的交互才以 `interaction.submit` 提交并等待应用；为一轮确定话题（`RootTopicService.determine_topic`）以 `topic.prepare` 确认或建立话题，为外部交互确定话题前同样先查进度；`RootMemoryService` 的两个方法分别调用 `memory.record_retrieval_hits` 与 `storage.available`。进度、重发与幂等规则见[子系统公共契约](./subsystem-contracts.md#36-交互提交进度与等待)第 3.6 节。提交 handler 调用 `PerceptionFamiliar.apply_interaction()`。`InteractionPayload` 不携带物化任务；submission 的 `belong_to/from_actor` 分别取自 scope 与显式的参与者：交互提交由系统执行，scope 的 actor 是 `system`，交互记录的发起者仍是参与的 Agent；调用方不能从 payload 或 topic id 反推作用域。`chat.run.completed` 和 SSE `done` 都不携带记忆任务 ID；任务通过 `memory.task.*` 事件及 list/get 查询观察。
 
-Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与存储只接收 `belong_to` 和需要的 `from_actor`。`PreparedAgentRun` 只保留 prepare 的归属；任务进程在调用 finalize 前以系统的 root 工作 actor 重新授权并传入当次 scope 与参与者（本轮的执行 Agent）；cleanup 同样重新执行 root 授权，授权被拒时记录警告并完成关闭；资源 owner 拒绝删除越域 prepared 或已被提交链接管的话题。
+Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与存储只接收 `belong_to` 和需要的 `from_actor`。scope 不跨 root 方法调用保存：任务进程的确定话题、存储健康、检索命中与交互提交各自在 root API 入口以系统的 root 工作 actor 授权，交互的参与者（本轮的执行 Agent）显式传入。
 
 ### 2.3 Patchouli Memory
 
@@ -132,6 +131,7 @@ Patchouli 公共 handler 验证 scope 后拆分身份，内部服务、引擎与
 | `patchouli.public.get_agent_profile` | `get_agent_profile` | agent alias、必需的 `IdentityScope`（builtin 同样需要）、`enforce_actor_visibility`（默认真；假为管理读取，只校验 Workspace 归属，供任务进程以 root scope 加载执行者的图纸） | `ResolvedAgentProfile`（`AgentProfile` + 源原子 policy 依据与 source 关联，builtin 无源原子）；显式缺失/越权/无效时抛结构化 MTP error |
 | `patchouli.public.topic.list_active` | `list_active_topics` | `identity_scope`、`include_empty` | `tuple[TopicSnapshot, ...]` |
 | `patchouli.public.topic.get_data` | `get_topic_data` | `identity_scope`、topic id | `TopicData | None`（越域目标隐藏） |
+| `patchouli.public.topic.prepare` | `TopicManagementService.prepare_topic` | `identity_scope`、`target_topic_id`、新话题的 `new_topic_title` / `new_topic_summary` | 真实话题标识；已有话题确认存在并刷新驻留（不存在抛 `ResourceNotFoundError`），`NEW_TOPIC` 以标题与摘要建立新话题，池满时先按 LRU 结算（候选都被占用抛 `TopicBusyError`）；不检索 |
 | `patchouli.public.manual_settle_topic` | `settle_topic` | `identity_scope`、`topic_id` | `TopicSettleResult` |
 | `patchouli.public.evict_topic` | `evict_topic` | `identity_scope`、topic id | `TopicEvictionResult` |
 | `patchouli.public.models.warmup` | `warmup_models` | 无 | `None`；依次加载启用的推理模型，失败只记录日志 |
@@ -181,11 +181,11 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 | 事件组 | 类型前缀或成员 |
 |:---|:---|
-| Chat | `chat.run.*` |
+| Chat | `chat.run.*`（信封 `topic_id` 在本轮话题确定之后才带上：已有话题在 PREPARE 确认，新话题在第一次写入时建立或在交互应用之后） |
 | Command | `command.executed` |
 | Import Bus | `import.turn.accepted`、`import.turn.duplicate`、`import.turn.skipped`、`import.turn.deferred`；提交生命周期复用 `work.*` |
 | Gateway | `gateway.workflow.*`、`gateway.step.completed`、`gateway.analysis.capability.completed` |
-| Agent | `agent.run.*`、`agent.context.compaction`、`agent.context.budget_exceeded` |
+| Agent | `agent.run.*`（信封 `topic_id` 取输入清单的话题，Gateway 指向新话题时为空）、`agent.context.compaction`、`agent.context.budget_exceeded` |
 | Memory Task | `memory.task.*` |
 | Maintenance | `maintenance.task.*` |
 | System lifecycle | `system.starting/ready/start_failed/shutting_down/stopped/stop_failed` |
@@ -194,7 +194,7 @@ RuntimeEvent 不通过 `GlobalSystemBus` 发布，而通过独立 `RuntimeEventS
 
 `system.stopped` 与 `system.stop_failed` 的 `data` 包含 `steps`、`completed_steps`、`scheduler_stopped` 与 `import_bus_shutdown`；后者是 Import Bus 关闭时等待的结果（`{"waited_requests": 关闭开始时的在途导入数}`），停止在它之前失败时为 None。
 
-`import.turn.*` 由 Import Bus 在一次导入的结局处发布，`task_type` 为 `background`（导入没有用户在 HiveMemory 一侧等待），`agent_id` 与 `workspace_id` 取交互的参与者与目标 Workspace，只作观测标签。`data` 只携带 `source`、`external_conversation_id`、`external_turn_id`、`interaction_id` 与事件数量 `event_count`，不携带用户消息、回复、思考、工具参数或工具结果的正文：`accepted` 在交互应用完成后发布，信封 `topic_id` 是实际所在的话题，`data` 另带 `outcome` 与 `is_new_topic`；`deferred` 是可重试或应用失败的推迟，`severity=warning`。关闭中拒绝（`shutting_down`）、认证与授权失败以及原样传播的契约错误与程序错误不发布 `import.turn.*`。
+`import.turn.*` 由 Import Bus 在一次导入的结局处发布，`task_type` 为 `background`（导入没有用户在 HiveMemory 一侧等待），`agent_id` 与 `workspace_id` 取交互的参与者与目标 Workspace，只作观测标签。`data` 只携带 `source`、`external_conversation_id`、`external_turn_id`、`interaction_id` 与事件数量 `event_count`，不携带用户消息、回复、思考、工具参数或工具结果的正文：`accepted` 在交互应用完成后发布，信封 `topic_id` 是实际所在的话题，`data` 另带 `outcome` 与 `is_new_topic`（写入时已确定话题的轮次取该话题是否为这一轮新建，其余取本次提交是否请求建立新话题）；`deferred` 是可重试或应用失败的推迟，`severity=warning`。关闭中拒绝（`shutting_down`）、认证与授权失败以及原样传播的契约错误与程序错误不发布 `import.turn.*`。
 
 ### 4.1 投递语义
 
@@ -250,7 +250,7 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 - 用户导向身份选择为 `user_id + workspace_id` 基础选择，Agent action（Chat、导入）由请求体附加具体 `agent_id`；基础选择只经统一请求头 `x-user-id`/`x-workspace-id` 承载，Chat/stop、导入请求体与 Topic、会话等管理路由都不接受 body 或 query 中的 user 与 Workspace 字段。
 - `server/deps.py resolve_request_identity_claims` 是唯一解析入口，只产出身份声明（actor 声明与请求进入的 Workspace），不组装 `IdentityScope`；只含空白的身份请求头拒绝（400）；未知 Workspace 拒绝（404）；Agent action 缺失具体 `agent_id` 或显式使用保留的 `system` 返回 400；非 Agent action 使用保留 `SYSTEM_AGENT_ID = "system"`（"没有具体 Agent 作为操作来源主体"，不得成为 `MemoryAccessPolicy` target）。
 - 声明交给统一认证网关认证，得到工作 actor：Chat 由任务进程的注册入口认证执行者与系统的 root 工作 actor 并创建进程；管理操作、`/chat/stop` 与导入在入口认证，得到只在本次调用内使用的工作 actor。进入上述 route 的 `IdentityScope` 由授权点以执行者授权后组装。
-- Chat 请求体的 `message` 不能为空（空串以 422 拒绝），每轮交互记录因此都以序号 0 的用户消息事件开头；`session_id` 绑定会话资源，缺省自动创建；不进入身份构造，finalize 关联仍使用进程 ID；`ActorIdentity` 仅包含 `user_id`、`agent_id` 与可选 `team_id`。
+- Chat 请求体的 `message` 不能为空（空串以 422 拒绝），每轮交互记录因此都以序号 0 的用户消息事件开头；`session_id` 绑定会话资源，缺省自动创建；不进入身份构造，交互提交的标识仍使用进程 ID；`ActorIdentity` 仅包含 `user_id`、`agent_id` 与可选 `team_id`。
 - `/chat/stop` 不是 Agent action：注册入口以请求方 (user, `system`) 的工作 actor 对进程的 Workspace 执行 root 授权，授权拒绝与不存在统一按 `not_found` 返回，取消与事件发布使用进程注册时绑定的观测标签，不从当前选择重新构造身份。
 - 外部入口（导入与 MCP）不使用 server 的 principal：请求以 `X-Principal-ID` 声明调用来源、以 `Authorization: Bearer` 携带接入凭据，`resolve_principal_claim` 解析声明（缺省返回 400 `request.principal_required`），`bearer_credential` 取出凭据，两者交给统一认证网关核对；server 的 principal 只用于前端的管理、chat 与取消路由（[认证与访问登记](../workspace/authentication.md)）。
 - `/api/` 下除导入之外的 HTTP 与 WebSocket 路由，在进入路由之前先核对管理凭据，缺少或不一致时以 401 `request.management_credential_invalid` 拒绝，WebSocket 以 1008 关闭；它不改变上述身份声明与认证（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节）。
@@ -262,11 +262,11 @@ API 请求错误共用 `ErrorResponse`，校验 422 的 detail 是字符串、�
 
 ### 6.1 会话管理与 Chat SSE
 
-会话 HTTP 由 `server/routers/sessions.py` 经门面取得 `RootSessionService`，沿用请求认证与 root 授权。POST/GET `/api/v1/sessions` 创建（201）/列出摘要；GET/PATCH/DELETE `/api/v1/sessions/{session_id}` 读取全量历史/以 `{title}` 重命名/删除（204）。创建体同为 `{title}`，允许空标题，首轮写入时自动取用户消息前 80 字。标题最多 200 字。会话不属于 Agent，不增加 actor 操作。响应是 `server/models/session.py` 的投影，不含 Workspace 归属：摘要为 `session_id`、`title`、`created_at`、`updated_at`、`turn_count` 与 `active_process_id`（非空表示正被任务进程占用）；完整读取另含 `turns` 与可空的 `compaction_checkpoint`（结构见[子系统契约](./subsystem-contracts.md#421-会话压缩检查点)）。每轮只返回 `interaction_id`、`agent_id`（仅用于历史展示）、`topic_id`、`created_at` 与载荷中的 `outcome`、`user_message`、`assistant_final_text`、`turn_events`；用户消息与回复正文从轮次事件读取（`assistant_final_text` 为全部助手正文按序号以空行拼接，没有时为空串）。轮次事件与 `TurnEvent` 字段相同：`kind`、`sequence`、`content`、`action_id`、`tool_name`、`verb`、`targets`、`tool_args`、`status`、`result`、`produced_aliases`，一次工具调用与它的结局在同一个 `tool_call` 事件上，没有结局时三个结局字段缺省（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)）。列表摘要不含轮次或检查点。
+会话 HTTP 由 `server/routers/sessions.py` 经门面取得 `RootSessionService`，沿用请求认证与 root 授权。POST/GET `/api/v1/sessions` 创建（201）/列出摘要；GET/PATCH/DELETE `/api/v1/sessions/{session_id}` 读取全量历史/以 `{title}` 重命名/删除（204）。创建体同为 `{title}`，允许空标题，首轮写入时自动取用户消息前 80 字。标题最多 200 字。会话不属于 Agent，不增加 actor 操作。响应是 `server/models/session.py` 的投影，不含 Workspace 归属：摘要为 `session_id`、`title`、`created_at`、`updated_at`、`turn_count` 与 `active_process_id`（非空表示正被任务进程占用）；完整读取另含 `turns` 与可空的 `compaction_checkpoint`（结构见[子系统契约](./subsystem-contracts.md#421-会话压缩检查点)）。每轮只返回 `interaction_id`、`agent_id`（仅用于历史展示）、`topic_id`（交互实际所在的话题，没有应用成功时为 `null`）、`created_at` 与载荷中的 `outcome`、`user_message`、`assistant_final_text`、`turn_events`；用户消息与回复正文从轮次事件读取（`assistant_final_text` 为全部助手正文按序号以空行拼接，没有时为空串）。轮次事件与 `TurnEvent` 字段相同：`kind`、`sequence`、`content`、`action_id`、`tool_name`、`verb`、`targets`、`tool_args`、`status`、`result`、`produced_aliases`，一次工具调用与它的结局在同一个 `tool_call` 事件上，没有结局时三个结局字段缺省（[数据模型](../architecture/data-model.md#49-交互记录turnevent-与-interactionpayload)）。列表摘要不含轮次或检查点。
 
-Chat SSE 订阅任务进程的输出通道：进程在自己的 task 中运行，客户端断连时交付以 `client_disconnected` 退订并请求停止，与用户停止走同一条路径，发布 `chat.run.cancel_requested` 与带生效阶段的 `chat.run.cancelled`，本轮输出被丢弃；进入 finalize 后的断连不影响提交。响应不等待进程关闭，详见[任务进程](../workspace/task-process.md#111-流式交付)。
+Chat SSE 订阅任务进程的输出通道：进程在自己的 task 中运行，客户端断连时交付以 `client_disconnected` 退订并请求停止，与用户停止走同一条路径，发布 `chat.run.cancel_requested` 与带生效阶段的 `chat.run.cancelled`，本轮输出被丢弃；进入 FINALIZE 后的断连不影响提交。响应不等待进程关闭，详见[任务进程](../workspace/task-process.md#111-流式交付)。
 
-Chat 首个 `process_id` SSE 事件携带 `{process_id, session_id}`。`memory_refs` 保留；不再发布 `topic_info`。有输出的 completed/cancelled/failed 的 done 包含 `topic_id`，对应会话本轮标注；没有 `pool_topics`。无输出的 done 不含 `final_text` 与 `topic_id`。前端通过独立 Topic 列表接口管理短期话题。取消、失败有输出时先 finalize 再交付终态，详见[任务进程](../workspace/task-process.md#8-封口部分输出与结算)。
+Chat 首个 `process_id` SSE 事件携带 `{process_id, session_id}`。`memory_refs` 保留；不再发布 `topic_info`。有输出的 completed/cancelled/failed 的 done 包含 `topic_id`：交互应用后实际所在的话题，与会话本轮标注相同；没有 `pool_topics`。无输出的 done 不含 `final_text` 与 `topic_id`；交互没有应用成功时进程按失败收口，交付 `error` 事件而不是 done。前端通过独立 Topic 列表接口管理短期话题。取消、失败有输出时先提交交互、等待应用再交付终态，详见[任务进程](../workspace/task-process.md#8-封口部分输出与结算)。
 
 failed done 保留 `reason=agent_run_failed`，CPU 有稳定原因时另带 `failure_reason`；`chat.run.failed` 的 `reason` 与 `message` 使用该码（第 4.4 节），不下发异常正文。四类预算原因见[错误模型](./error-model.md#22-agent-run)。done 不包含 `turn_events` 或 `compaction_checkpoint`；检查点以会话读取结果为准，压缩结束事件不代表会话已接受。
 

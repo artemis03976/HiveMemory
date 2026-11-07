@@ -65,7 +65,7 @@ OmniInput 在发送前组装：
 | `process_id` | 建立取消请求所需的任务进程标识，并回填 `session_id` |
 | `run_status` | 驱动准备、流式、取消、收尾和失败状态 |
 | `context_compaction` | 显示压缩进度，不生成消息或工具卡片 |
-| `done` | 写入结局、可选最终文本和本轮 `topic_id`；不携带话题池或记忆任务 ID。无输出时移除本轮消息并把用户输入放回草稿 |
+| `done` | 写入结局、可选最终文本和交互实际所在的话题 `topic_id`（有输出且交互已应用时才有）；不携带话题池或记忆任务 ID。无输出时移除本轮消息并把用户输入放回草稿 |
 | `error` | 结束本地流并显示错误 |
 
 `scope=sub` 的 token 和 MTP 事件进入相应 SubAgentBlock，不与主 Agent 正文混合。`ContentBlock[]` 保留文本、MTP 和子 Agent 的相对顺序，使卡片能够出现在动作真实发生的位置，而不是全部堆在消息末尾。
@@ -76,7 +76,7 @@ OmniInput 在发送前组装：
 
 ChatLayout 挂载时加载会话列表，并按浏览器保存的 `currentSessionId` 读取历史。会话列表支持新建、选择、重命名和删除；TopBar 显示会话标题与轮数。会话内可逐轮切换 Agent；删除会话不删除 Topic 或 Memory。
 
-历史以 `ConversationTurn.payload` 的轮次事件为来源，按序号恢复正文、MTP 和 CALL 卡片：卡片的动词与目标取调用事件的 `verb`、`targets`，命令文本是调用原文（MTP 指令片段，指令前正文已是前一个正文块），状态与结果取同一个调用事件上的结局；无法解析的指令没有动词，显示为 UNKNOWN。WRITE/UPDATE 的 ACK 表示成功接纳；没有结局的调用（停止时仍挂起的 CALL）显示未完成，不继续转圈。CALL 只恢复根帧记录的结果，不编造子帧内部轨迹。每条回复显示本轮 Topic 标注，cancelled/failed 轮次带结局标记。
+历史以 `ConversationTurn.payload` 的轮次事件为来源，按序号恢复正文、MTP 和 CALL 卡片：卡片的动词与目标取调用事件的 `verb`、`targets`，命令文本是调用原文（MTP 指令片段，指令前正文已是前一个正文块），状态与结果取同一个调用事件上的结局；无法解析的指令没有动词，显示为 UNKNOWN。WRITE/UPDATE 的 ACK 表示成功接纳；没有结局的调用（停止时仍挂起的 CALL）显示未完成，不继续转圈。CALL 只恢复根帧记录的结果，不编造子帧内部轨迹。回复有话题时显示所在 Topic 的标注，交互没有应用成功的轮次话题为空、不显示标注；cancelled/failed 轮次带结局标记。
 
 会话读取同时恢复服务端已接受的压缩检查点。消息以 `interaction_id` 匹配摘要与减重边界，在对应回复之后标记覆盖位置；摘要可展开，摘要与引用以纯文本展示，完整原文仍然可见。未知产生方或格式版本不展示标记。压缩开始时显示“正在压缩较早的上下文”，不会插入正文，也不会使无输出轮次变成已保存轮次。
 
@@ -84,7 +84,7 @@ ChatLayout 挂载时加载会话列表，并按浏览器保存的 `currentSessio
 
 流式运行与历史加载期间禁止切换或删除当前会话；服务端仍负责跨窗口的会话互斥。读取历史返回 404 时清除失效选择并刷新列表；其他错误保留错误状态并禁止基于未加载的历史继续发送，允许重选重试。没有本地会话 ID 时仍可直接发送，由首个事件回填新会话。
 
-`topic_info` 与 `pool_topics` 已删除。本轮话题由 `done.topic_id` 给出，恢复时读会话轮次的 `topic_id`；Topic 不决定聊天历史。MemoryLibrary 经 Topic 列表接口读取短期话题池，保留 `settle` 与 `delete`：前者把内容交给记忆生成并结束 Topic 生命周期，后者结束生命周期而不触发记忆写入。失败时 Topic store 回滚乐观移除；Memory Library 的 `archive` 仍指中期记忆归档。
+`topic_info` 与 `pool_topics` 已删除。本轮话题由 `done.topic_id` 给出，恢复时读会话轮次的 `topic_id`（会话类型中可空）；两者都是交互应用后实际所在的话题（话题何时建立见[任务进程](../workspace/task-process.md#53-话题何时确定)）。Topic 不决定聊天历史。MemoryLibrary 经 Topic 列表接口读取短期话题池，保留 `settle` 与 `delete`：前者把内容交给记忆生成并结束 Topic 生命周期，后者结束生命周期而不触发记忆写入。失败时 Topic store 回滚乐观移除；Memory Library 的 `archive` 仍指中期记忆归档。
 
 本轮 failed done 的 `failure_reason` 映射为四类提示：缩短当前输入或附件、历史无法压缩进预算时重试或新建会话、工具结果超预算后继续对话或缩小任务、提供商超窗后减少输入或选择更大窗口。稳定原因定义见[错误模型](../contracts/error-model.md#22-agent-run)，未知原因使用通用失败提示。已有部分回复保留并标记未完成；无输出时移除本轮消息、回填草稿，同时展示原因。失败码只存在本次前端运行状态，不写入会话 payload，重载历史后显示通用 failed 结局。
 
@@ -128,7 +128,7 @@ ChatLayout 挂载时加载会话列表，并按浏览器保存的 `currentSessio
 ## 7. 不变量与错误边界
 
 - 只有后端事件可以把 MTP、子 Agent、task 或 run 标记为成功；
-- `done` 之前断流按失败或取消处理，不能把已有 token 当作完整终态；已收到 `finalizing` 时本轮已写入会话、后端继续提交，前端改为重新读取会话历史并提示“本轮已保存”，不回填输入；
+- `done` 之前断流按失败或取消处理，不能把已有 token 当作完整终态；已收到 `finalizing` 时后端继续提交，提交结束后才写入会话；前端改为重新读取会话历史并提示“本轮已保存”，不回填输入，提交尚未结束时读到的历史可能还没有这一轮；
 - 新一轮开始时清除旧引用，回复 Topic 标注来自 done 或服务端历史；
 - 取消是请求—确认过程，UI 必须区分 cancelling 与 cancelled；
 - 机器动作保留在有序结构块中，不能通过正则从最终自然语言“猜”出执行历史；

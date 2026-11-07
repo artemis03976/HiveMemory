@@ -16,7 +16,7 @@ related_contracts:
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-11-01
+last_reviewed: 2026-11-06
 ---
 
 # Gateway 话题与查询分析
@@ -51,7 +51,7 @@ Provider 负责读取和类型验证，不做决策。Patchouli 若返回非 tup
 
 这种设计避免 Gateway 缓存第二份权威话题状态，也避免把所有活跃话题的完整 transcript 送入模型。代价是路由后可能多一次读取，但失败可以局部降级为“没有 routed topic context”，而不必推翻已经完成的话题选择。
 
-调用方另传最近 `gateway.context_preparation.session_turn_limit` 轮（默认 3）的用户/助手文本，即 `session_turns`。两个调用方各自取得这些轮次：任务进程取当前会话的最近轮次，每轮附上会话中记录的所在话题；[Import Bus](../system/import-bus.md) 取请求 `recent_turns` 的最后若干轮，只有最近一轮带外部轮次标识时，才附上它经 Patchouli 交互状态查询得到的实际所在的话题（该轮已应用成功时才有）。`GatewaySessionTurn` 不携带工具事件、身份或权限；其中的 `topic_id` 只供话题路由失败时续接上一轮（第 3 节），不渲染进模型提示词。Topic 菜单和路由后辅助背景仍按既有路径读取，会话文本才是指代消解的对话来源。该输入不进入 `GatewayDecision` 或 InteractionPayload。
+调用方另传最近 `gateway.context_preparation.session_turn_limit` 轮（默认 3）的用户/助手文本，即 `session_turns`。两个调用方各自取得这些轮次：任务进程取当前会话的最近轮次，每轮附上会话中记录的所在话题；[Import Bus](../system/import-bus.md) 取请求 `recent_turns` 的最后若干轮，只有最近一轮带外部轮次标识时，才附上它写入时确定的话题，或由 root API 查询它的交互进度得到的实际所在的话题（该轮已应用成功时才有）。`GatewaySessionTurn` 不携带工具事件、身份或权限；其中的 `topic_id` 只供话题路由失败时续接上一轮（第 3 节），不渲染进模型提示词。Topic 菜单和路由后辅助背景仍按既有路径读取，会话文本才是指代消解的对话来源。该输入不进入 `GatewayDecision` 或 InteractionPayload。
 
 ## 3. Topic Router：只做选择
 
@@ -147,7 +147,7 @@ WRITE 表达式和简单寒暄正则直接写在代码中，语言覆盖有限�
 
 ### 7.4 未消费字段与配置边界仍需收敛
 
-`RetrievalPlan` 已经携带 mode、top-k 与 dense/sparse weight，但 Patchouli prepare 当前主要消费是否跳过和 top-k，具体融合权重仍由 Retrieval 自身配置决定。`UserQueryAnalysisConfig` 也同时承载 Resolver 开关、模型覆盖和 context 截断等实现细节，尚未形成“稳定公共策略”与“Resolver 私有参数”的清晰分层。
+`RetrievalPlan` 已经携带 mode、top-k 与 dense/sparse weight，但任务进程的预检索当前只消费是否跳过和 top-k，具体融合权重仍由 Retrieval 自身配置决定。`UserQueryAnalysisConfig` 也同时承载 Resolver 开关、模型覆盖和 context 截断等实现细节，尚未形成“稳定公共策略”与“Resolver 私有参数”的清晰分层。
 
 这些问题不能通过继续增加 DTO 字段解决。第二代调整前应先观察 rewrite 重复率、keywords 质量和 `COMPOSITE` 样本，再决定删除无消费者字段、下沉私有配置、扩展 Patchouli 消费，或拆分独立能力。观测只保存计数、耗时和脱敏摘要，不应把原始用户输入塞进 RuntimeEvent。复合意图的协议与样本门禁见[复合意图分解 Idea](../ideas/composite-intent-decomposition.md)，该方向当前未排期。
 
@@ -174,4 +174,4 @@ WRITE 表达式和简单寒暄正则直接写在代码中，语言覆盖有限�
 - `tests/unit/engines/gateway/test_topic_router.py`
 - `tests/unit/engines/gateway/test_query_understanding.py`
 - `tests/unit/engines/gateway/test_interceptors.py`
-- `tests/unit/patchouli/test_service_gateway_decision.py`
+- `tests/unit/workspace/process/test_gateway_chat_flow.py`（任务进程按检索计划预检索）
