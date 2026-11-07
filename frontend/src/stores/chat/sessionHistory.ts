@@ -50,6 +50,6 @@ export function sessionMessages(session: ConversationSession): Message[] {
       interactionId: turn.interaction_id,
       content: turn.payload.assistant_final_text || '', contentBlocks: blocksFor(turn),
       timestamp: Date.parse(turn.created_at), agent_id: turn.agent_id,
-      topicId: turn.topic_id, outcome: turn.payload.outcome, isStreaming: false },
+      topicId: turn.topic_id ?? undefined, outcome: turn.payload.outcome, isStreaming: false },
   ]);
 }

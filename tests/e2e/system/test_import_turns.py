@@ -42,11 +42,19 @@ async def test_http_import_turn_forms_interaction_in_patchouli(patchouli_chat_st
     )
     workspace = access.default_workspace
     gateway_config = SystemGatewayConfig()
+    gateway_timeout_ms = gateway_config.workflow.default_request_timeout_ms
     service = ImportBusService(
         ingestor=ImportBusIngestor(
-            interactions=RootInteractionService(stack.bus, operation_authorizer=access.authorizer),
-            topics=RootTopicService(stack.bus, operation_authorizer=access.authorizer),
-            gateway_request_timeout_ms=gateway_config.workflow.default_request_timeout_ms,
+            interactions=RootInteractionService(
+                stack.bus,
+                operation_authorizer=access.authorizer,
+                gateway_request_timeout_ms=gateway_timeout_ms,
+            ),
+            topics=RootTopicService(
+                stack.bus,
+                operation_authorizer=access.authorizer,
+                gateway_request_timeout_ms=gateway_timeout_ms,
+            ),
             gateway_session_turn_limit=gateway_config.context_preparation.session_turn_limit,
             apply_wait_seconds=ImportBusConfig().apply_wait_seconds,
         ),

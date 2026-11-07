@@ -165,7 +165,6 @@ async def test_imported_turn_applies_once_in_target_workspace_with_gateway_title
     assert "已有记忆正文" not in transcript
     # 子 Agent 交回的消息随这一轮进入生成材料，不混入回复正文。
     assert "[Subagent]: 子 Agent 的报告：断言比较的是旧字段" in transcript
-    assert await queue.pending_count() == 0
 
 
 @pytest.mark.asyncio
@@ -232,11 +231,19 @@ async def test_import_is_rejected_before_routing(
 
 def _import_bus_service(bus, composition, config) -> ImportBusService:
     """与组合根相同地装配 Import Bus 服务：编排器经 root 交互提交 API 提交。"""
+    gateway_timeout_ms = config.gateway.workflow.default_request_timeout_ms
     return ImportBusService(
         ingestor=ImportBusIngestor(
-            interactions=RootInteractionService(bus, operation_authorizer=composition.authorizer),
-            topics=RootTopicService(bus, operation_authorizer=composition.authorizer),
-            gateway_request_timeout_ms=config.gateway.workflow.default_request_timeout_ms,
+            interactions=RootInteractionService(
+                bus,
+                operation_authorizer=composition.authorizer,
+                gateway_request_timeout_ms=gateway_timeout_ms,
+            ),
+            topics=RootTopicService(
+                bus,
+                operation_authorizer=composition.authorizer,
+                gateway_request_timeout_ms=gateway_timeout_ms,
+            ),
             gateway_session_turn_limit=config.gateway.context_preparation.session_turn_limit,
             apply_wait_seconds=config.import_bus.apply_wait_seconds,
         ),

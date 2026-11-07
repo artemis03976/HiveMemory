@@ -2,7 +2,6 @@
 
 from typing import Literal
 
-from hivememory.components.work_queue import WorkState
 from hivememory.core.errors import DomainError
 
 
@@ -53,7 +52,11 @@ ActiveFinalizationStage = Literal[
 
 
 class ActiveInteractionFinalizationError(DomainError):
-    """Active interaction 未能跨过 admission/apply 硬成功边界。"""
+    """任务进程的交互提交未能跨过接纳或应用的成功边界。
+
+    ``stage`` 区分没有被接纳与接纳后应用没有成功；``error_class`` 是应用失败
+    时的异常类名。
+    """
 
     code = "patchouli.interaction.finalization_failed"
 
@@ -63,12 +66,10 @@ class ActiveInteractionFinalizationError(DomainError):
         interaction_id: str,
         stage: ActiveFinalizationStage,
         reason: str,
-        work_state: WorkState | None = None,
         error_class: str | None = None,
     ) -> None:
         self.interaction_id = interaction_id
         self.stage = stage
         self.reason = reason
-        self.work_state = work_state
         self.error_class = error_class
         super().__init__(f"Active interaction finalization failed at {stage}: {reason}")

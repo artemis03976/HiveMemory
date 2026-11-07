@@ -19,6 +19,7 @@ last_reviewed: 2026-11-06
 
 ## 版本之外
 
+- [交互提交收束与话题按需创建](./interaction-submission-and-topic-on-demand.md)：2026-11-06，PR #186；[任务进程](../../workspace/task-process.md)、[能力层](../../workspace/capability.md)、[Import Bus](../../system/import-bus.md)
 - [WorkspaceAsset 的归属拆分](./workspace-asset-ownership-split.md)：2026-11-06，PR #185；[WorkspaceAsset](../../workspace/assets.md#3-身份与归属)、[身份与授权](../../workspace/identity-and-authorization.md)
 - [Import Bus 的授权移入能力层](./import-bus-authorization-in-capability-layer.md)：2026-11-06，PR #184；[Import Bus](../../system/import-bus.md#41-认证与授权)、[能力层](../../workspace/capability.md)
 - [统一身份授权入口](./unified-identity-authorization-entry.md)：2026-11-06，PR #184；[身份与授权](../../workspace/identity-and-authorization.md#4-操作授权)、[认证与访问登记](../../workspace/authentication.md#3-工作-actor)

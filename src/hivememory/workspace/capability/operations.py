@@ -12,7 +12,7 @@ from typing import Any, cast
 
 from hivememory.core.access import WorkingActor
 from hivememory.workspace.capability.actor.agent_profiles import ActorAgentService
-from hivememory.workspace.capability.actor.memory import ActorMemoryService
+from hivememory.workspace.capability.actor.memory import ActorMemoryService, DispatchTopic
 from hivememory.workspace.contracts.operations import (
     DeriveCallThreadRequest,
     OperationRequest,
@@ -25,8 +25,8 @@ from hivememory.workspace.contracts.operations import (
 from hivememory.workspace.contracts.threads import ExecutionThread, ThreadHandle
 from hivememory.workspace.thread_ports import ExecutionThreadTable
 
-# 写入与更新登记意图后要以派发话题派发：线程提交取线程的派发话题，请求级
-# 提交取调用方给出的派发话题；其余请求不涉及话题。
+# 写入与更新登记意图后要以派发话题派发：线程提交向线程表取得进程的派发话题，
+# 请求级提交调用入口给出的回调确定话题；其余请求不涉及话题。
 _INTENT_REQUESTS: frozenset[type[OperationRequest[Any]]] = frozenset(
     {SubmitWriteIntentRequest, SubmitUpdateIntentRequest}
 )
@@ -87,27 +87,28 @@ class WorkspaceOperationEntry:
         request: OperationRequest[R],
         *,
         actor: WorkingActor,
-        dispatch_topic_id: str | None = None,
+        dispatch_topic: DispatchTopic | None = None,
     ) -> R:
         """以入口认证得到的工作 actor 提交检索、读取、写入或更新，与线程提交共用同一分派表。
 
-        写入与更新必须给出派发话题，即调用方为这一轮确定的话题；检索与
-        读取不得给出。其余请求类型、或派发话题与请求类型不符时，在分派前以
-        ``TypeError`` 拒绝，没有副作用：外部入口只按这两条规则构造请求，不符
-        即是接线缺陷。工作 actor 只是入口调用链内的局部值，不另做存活判定。
+        写入与更新必须给出 ``dispatch_topic``：为这一轮确定派发话题的回调，actor
+        API 在授权之后才调用它，被拒的写入因此不会确定话题；检索与读取不得
+        给出。其余请求类型、或回调与请求类型不符时，在分派前以 ``TypeError``
+        拒绝，没有副作用：外部入口只按这两条规则构造请求，不符即是接线缺陷。
+        工作 actor 只是入口调用链内的局部值，不另做存活判定。
         """
         request_type = type(request)
         if request_type in _REQUEST_READS:
-            if dispatch_topic_id is not None:
+            if dispatch_topic is not None:
                 raise TypeError(f"{request_type.__name__} does not take a dispatch topic")
             return cast(R, await self._handlers[request_type](request, actor=actor))
         if request_type in _INTENT_REQUESTS:
-            if dispatch_topic_id is None:
+            if dispatch_topic is None:
                 raise TypeError(f"{request_type.__name__} requires a dispatch topic")
             return cast(
                 R,
                 await self._handlers[request_type](
-                    request, actor=actor, dispatch_topic_id=dispatch_topic_id
+                    request, actor=actor, dispatch_topic=dispatch_topic
                 ),
             )
         raise TypeError(f"Unsupported request-level operation: {request_type.__name__}")

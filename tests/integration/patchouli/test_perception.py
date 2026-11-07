@@ -9,7 +9,7 @@ Bus（Generation 队列）是边界之外协作者，使用 Mock，时间使用�
 - LRU 驱逐: 池满驱逐最久未访问话题、busy 候选改选、admission 失败传播
 - 折叠: 应用不在内部折叠、needs_compact 判断、折叠追加折叠记录且不移除交互记录、摘要累积、
   失败后话题完整且可再次折叠、占用时 busy 拒绝、话题已结算时直接结束、未超保留块数不折叠
-- manual_settle_topic / evict_topic / discard_if_empty 具名用例，含 admission 失败可重试
+- manual_settle_topic / evict_topic 具名用例，含 admission 失败可重试
 - scan_idle_buffers_once / flush_all_for_shutdown 维护投影，含跨 Workspace 结算、
   折叠后结算携带被折叠的轮次、占用话题记为 failed 与生成跳过
 - 感知关闭时无副作用
@@ -479,7 +479,7 @@ class TestCompact:
         assert len(data.blocks) == 1
 
 
-# ========== manual_settle / evict / discard 具名用例 ==========
+# ========== manual_settle / evict 具名用例 ==========
 
 
 class TestNamedUseCases:
@@ -577,25 +577,6 @@ class TestNamedUseCases:
 
         assert result.removed is False
         assert store.get(scope.workspace_identity, topic_id) is not None
-
-    @pytest.mark.asyncio
-    async def test_discard_if_empty_removes_only_truly_empty_topic(self):
-        familiar, store, _, _ = _make_familiar()
-        scope = _identity_scope()
-        empty_id = await familiar.prepare_topic(
-            "NEW_TOPIC", "标题", "摘要", scope.workspace_identity
-        )
-        content_id = await familiar.apply_interaction(
-            _payload(),
-            belong_to=scope.workspace_identity,
-            from_actor=scope.actor_identity,
-            interaction_id="i-1",
-        )
-
-        assert familiar.discard_if_empty(scope.workspace_identity, empty_id) is True
-        assert familiar.discard_if_empty(scope.workspace_identity, content_id) is False
-        assert store.get(scope.workspace_identity, empty_id) is None
-        assert store.get(scope.workspace_identity, content_id) is not None
 
     @pytest.mark.asyncio
     @pytest.mark.parametrize(

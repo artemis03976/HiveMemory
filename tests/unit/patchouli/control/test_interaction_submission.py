@@ -18,11 +18,11 @@ from hivememory.components.work_queue import (
 )
 from hivememory.core.models import TurnEvent, WorkspaceAssetRef
 from hivememory.core.protocol.models import InteractionPayload
+from hivememory.patchouli.contracts.errors import TopicBusyError
 from hivememory.patchouli.control.interaction_submission import (
     InteractionSubmission,
     InteractionSubmissionCodec,
     InteractionSubmissionQueue,
-    TransientInteractionSubmissionError,
     topic_ordering_key,
 )
 from tests.helpers.sessions import make_interaction_payload
@@ -77,7 +77,7 @@ async def test_enqueue_uses_payload_snapshot_and_each_retry_gets_fresh_dto() -> 
         if len(attempts) == 1:
             payload.model_used = "attempt-local-mutation"
             payload.turn_events.clear()
-            raise TransientInteractionSubmissionError("temporary failure")
+            raise TopicBusyError("temporary failure")
         return "topic-real"
 
     queue = InteractionSubmissionQueue(submit)
@@ -132,7 +132,7 @@ async def test_same_ordering_key_keeps_fifo_during_retry() -> None:
         if payload.user_message == "first":
             first_attempt += 1
             if first_attempt == 1:
-                raise TransientInteractionSubmissionError("retry first")
+                raise TopicBusyError("retry first")
         return f"topic:{payload.user_message}"
 
     queue = InteractionSubmissionQueue(submit)
@@ -272,7 +272,6 @@ async def test_submission_lookup_evicts_old_terminal_work() -> None:
     latest = await queue.wait("interaction-2")
     assert latest is not None
     assert latest.state == WorkState.SUCCEEDED
-    assert await queue.pending_count() == 0
 
 
 @pytest.mark.asyncio
@@ -320,7 +319,10 @@ async def test_same_interaction_id_different_scope_is_one_conflicting_work() -> 
         await queue.stop()
 
     assert receipt.work_id == "interaction:interaction-shared"
-    assert await queue.pending_count() == 1
+    # 冲突的提交没有改写已接纳的记录：归属仍是第一次提交的 Workspace。
+    view = await queue.lookup("interaction-shared")
+    assert view is not None
+    assert view.belong_to == first.belong_to
 
 
 def test_codec_roundtrip_preserves_split_identity_and_attachment_order() -> None:
@@ -801,3 +803,14 @@ async def test_failure_while_scheduling_compaction_keeps_the_interaction_succeed
 def test_queue_rejects_configuration_that_breaks_its_guarantees(kwargs, message) -> None:
     with pytest.raises(ValueError, match=message):
         InteractionSubmissionQueue(AsyncMock(return_value="t1"), **kwargs)
+
+
+def test_default_lane_policy_leaves_time_limits_to_each_work_kind() -> None:
+    """lane 不设统一时限：交互应用由 handler 限时，折叠不被交互的时限截断。"""
+    queue = InteractionSubmissionQueue(AsyncMock(return_value="topic-1"))
+
+    policy = queue.runtime.lanes[0].policy
+
+    assert policy.timeout_seconds is None
+    assert policy.max_attempts == 3
+    assert policy.cancellable is False

@@ -1,16 +1,18 @@
-"""主动聊天任务进程的 Gateway 编排测试。
+"""主动聊天任务进程的编排测试。
 
-被测边界：``TaskProcessService`` 注册入口与四阶段编排在命令短路、完成、
-取消与失败路径上的行为，以及各阶段停止的响应点。注册经真实认证网关认证执行者与系统的
-root 工作 actor（组合内显式登记）并返回进程句柄；系统阶段以 root scope 调用，prepare 的
-检索按执行者授权；停止请求以 process_id 加 system 的工作 actor 注入；Actor 阶段以
-测试 CPU 替换 Alice（总线上不注册 Alice 路由），子系统路由用
-GlobalSystemBus 上的替身隔离。
+被测边界：``TaskProcessService`` 注册入口与四阶段编排在命令短路、完成、取消与失败
+路径上的行为：PREPARE 的预检索与已有话题的确认、有输出时的交互提交、检索命中与会话
+写入，以及各阶段停止的响应点。注册经真实认证网关认证执行者与系统的 root 工作 actor
+（组合内显式登记）并返回进程句柄；系统阶段（Gateway、话题确认、检索命中、交互提交）
+以 root scope 调用，预检索经真实操作入口以执行者授权；停止请求以 process_id 加 system
+的工作 actor 注入；Actor 阶段以测试 CPU 替换 Alice（总线上不注册 Alice 路由），
+Gateway 与 Patchouli 的公开路由用 GlobalSystemBus 上的替身隔离。
 """
 
 from __future__ import annotations
 
 import asyncio
+import logging
 from unittest.mock import AsyncMock
 from uuid import uuid4
 
@@ -19,6 +21,7 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.components.events.bus import RecordingRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
+from hivememory.config.workspace import WorkspaceSessionConfig
 from hivememory.core.access import WorkspaceOperation
 from hivememory.core.constants import SYSTEM_AGENT_ID
 from hivememory.core.contracts.runtime_events import RuntimeEventType
@@ -42,24 +45,28 @@ from hivememory.core.protocol.gateway import (
     CommandParseResult,
     CommandParseStatus,
     GatewayCommandOutcome,
-    GatewayDecision,
     GatewayDecisionOutcome,
-    IntentType,
+    RetrievalMode,
     RetrievalPlan,
 )
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
-from hivememory.patchouli.contracts.prepare import PreparedAgentRun
+from hivememory.patchouli.contracts.errors import (
+    ActiveInteractionFinalizationError,
+    InteractionAdmissionUnavailableError,
+)
+from hivememory.patchouli.contracts.interaction_submission import InteractionSubmitResult
 from hivememory.workspace.contracts import CPUExecutionStatus, SubmitWriteIntentRequest
 from hivememory.workspace.process.outputs import OUTPUT_CHANNEL_CAPACITY
 from hivememory.workspace.process.service import ProcessHandle, TaskProcessService
 from hivememory.workspace.process.table import ProcessTable
-from tests.helpers.chat_handoff import (
-    make_mtp_turn_events,
-)
+from hivememory.workspace.sessions import ConversationSessionService
+from tests.helpers.chat_handoff import make_gateway_decision, make_mtp_turn_events
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
+from tests.helpers.intent_dispatch import install_intent_admission
 from tests.helpers.memory import make_memory_metadata
 from tests.helpers.process import (
+    PatchouliTurnStub,
     collect_events,
     done_data,
     error_code,
@@ -96,7 +103,7 @@ def _root_scope() -> IdentityScope:
 
 
 def _executor_scope() -> IdentityScope:
-    """prepare 检索的 scope：以执行者授权 ``memory.search`` 组装。"""
+    """预检索的 scope：actor API 以执行者授权 ``memory.search`` 组装。"""
     return IdentityScope(actor_identity=_actor(), workspace_identity=_workspace())
 
 
@@ -128,6 +135,7 @@ async def _service(
     process_table: ProcessTable | None = None,
     event_publisher: RuntimeEventPublisher | None = None,
     composition: AccessTestComposition | None = None,
+    sessions: ConversationSessionService | None = None,
 ) -> tuple[TaskProcessService, AccessTestComposition]:
     """构造被测服务与配套认证组合：注册、系统阶段与取消使用同一网关/授权者实例。"""
     composition = composition or _composition()
@@ -138,6 +146,7 @@ async def _service(
         operation_authorizer=composition.authorizer,
         process_table=process_table,
         event_publisher=event_publisher,
+        sessions=sessions,
     )
     return service, composition
 
@@ -175,15 +184,9 @@ async def _run_once(
     return await collect_events(service, handle)
 
 
-def _decision_outcome() -> GatewayDecisionOutcome:
-    return GatewayDecisionOutcome(
-        decision=GatewayDecision(
-            target_topic_id="topic-1",
-            rewritten_query="原问题",
-            retrieval_plan=RetrievalPlan(),
-            intent_type=IntentType.RAG,
-        )
-    )
+def _decision_outcome(**overrides) -> GatewayDecisionOutcome:
+    """常规 RAG 决定：缺省指向已有话题 ``topic-1``。"""
+    return GatewayDecisionOutcome(decision=make_gateway_decision(**overrides))
 
 
 def _command_outcome() -> GatewayCommandOutcome:
@@ -200,22 +203,25 @@ def _command_outcome() -> GatewayCommandOutcome:
     )
 
 
-def _memory_ref_atom() -> MemoryAtom:
+def _memory_ref_atom(
+    title: str = "引用记忆", *, workspace_id: str = "main_workspace"
+) -> MemoryAtom:
+    """预检索命中的原子；缺省属于被测 Workspace 且对执行者可读。"""
     return MemoryAtom(
         id=uuid4(),
-        meta=make_memory_metadata(source_agent_id="a1", user_id="u1"),
+        meta=make_memory_metadata(source_agent_id="a1", user_id=_USER, workspace_id=workspace_id),
         index=IndexLayer(
-            title="引用记忆",
-            summary="引用摘要",
+            title=title,
+            summary=f"{title}摘要",
             tags=["t"],
             memory_type=MemoryType.FACT,
         ),
-        payload=PayloadLayer(content="引用正文"),
+        payload=PayloadLayer(content=f"{title}正文"),
     )
 
 
-def _assert_sealed_payload(payload, *, turn_events: list[TurnEvent], submitted) -> None:
-    """完成的进程交给 finalize 的交互记录逐字段等于 CPU 的执行结果与实际使用的附件。
+def _assert_sealed_payload(payload, *, turn_events: list[TurnEvent]) -> None:
+    """完成的进程提交的交互记录逐字段等于 CPU 的执行结果与实际使用的附件。
 
     Gateway 的改写与价值预判不进入交互记录。
     """
@@ -226,44 +232,6 @@ def _assert_sealed_payload(payload, *, turn_events: list[TurnEvent], submitted) 
     assert payload.model_used == "glm-4"
     # 本测试未选择附件：附件编译的实际使用集合为空
     assert payload.used_attachments == []
-
-
-def _scoped_prepared_route(
-    *,
-    memories: list[MemoryAtom] | None = None,
-    topic_id: str = "topic-1",
-    is_new_topic: bool = False,
-):
-    """prepare 替身：按请求 scope 构造真实 PreparedAgentRun（进程 CPU 分配的输入）。"""
-
-    async def route(
-        *,
-        identity_scope,
-        interaction_id,
-        **_kwargs,
-    ):
-        return PreparedAgentRun(
-            belong_to=(identity_scope).workspace_identity,
-            interaction_id=interaction_id,
-            topic_id=topic_id,
-            is_new_topic=is_new_topic,
-            memories=tuple(memories or ()),
-            storage_available=True,
-        )
-
-    return route
-
-
-def _recording_prepared_route(holder: dict):
-    """记录 prepare 结果的替身：供关闭路径断言 cleanup 补偿的参数。"""
-    base = _scoped_prepared_route()
-
-    async def route(**kwargs):
-        prepared = await base(**kwargs)
-        holder["prepared"] = prepared
-        return prepared
-
-    return route
 
 
 def _profile_route():
@@ -280,10 +248,49 @@ def _register_profile(bus: GlobalSystemBus) -> None:
     bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
 
 
+def _turn_bus(
+    stub: PatchouliTurnStub | None = None,
+    *,
+    decision: GatewayDecisionOutcome | None = None,
+) -> tuple[GlobalSystemBus, PatchouliTurnStub]:
+    """Gateway 返回给定决定、Profile 返回内置图纸、Patchouli 一轮的路由由替身回答的总线。"""
+    bus = GlobalSystemBus()
+    bus.register(
+        GatewayPublicRoutes.PROCESS, AsyncMock(return_value=decision or _decision_outcome())
+    )
+    _register_profile(bus)
+    return bus, (stub or PatchouliTurnStub()).install(bus)
+
+
+def _gated_submission(started: asyncio.Event, release: asyncio.Event):
+    """交互提交替身：开始后挂起，``release`` 置位后以应用成功结束，实际话题为请求的话题。"""
+
+    async def submit(*, interaction_id, requested_topic_id, **_kwargs):
+        started.set()
+        await release.wait()
+        return InteractionSubmitResult(
+            interaction_id=interaction_id, state="succeeded", topic_id=requested_topic_id
+        )
+
+    return submit
+
+
+def _logged_finalization_failure(caplog) -> ActiveInteractionFinalizationError:
+    """执行器以失败收口时记录的交互提交错误；只应有一条。"""
+    failures = [
+        record.exc_info[1]
+        for record in caplog.records
+        if record.exc_info is not None
+        and isinstance(record.exc_info[1], ActiveInteractionFinalizationError)
+    ]
+    assert len(failures) == 1, caplog.text
+    return failures[0]
+
+
 @pytest.mark.asyncio
 async def test_command_short_circuits_patchouli_and_cpu() -> None:
     """命令只解析不执行：进程把解析结果转为"暂不可用"终态，只发出 command_result 与 done，
-    不调用 prepare/Profile/CPU。"""
+    不解析 Profile、不检索、不调用 CPU。"""
     bus = GlobalSystemBus()
     gateway = AsyncMock(return_value=_command_outcome())
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
@@ -304,38 +311,40 @@ async def test_command_short_circuits_patchouli_and_cpu() -> None:
 
 
 @pytest.mark.asyncio
-async def test_decision_uses_one_prepare_cpu_finalize_sequence() -> None:
-    bus = GlobalSystemBus()
-    calls: list[str] = []
+async def test_pre_retrieval_follows_gateway_plan_and_delivers_through_read_view() -> None:
+    """预检索在 Actor 之前按 Gateway 的检索计划执行，结果经读取视图交付。
 
-    class _RecordingCPU(ScriptedCPU):
-        async def execute(self, manifest, **kwargs):
-            calls.append("cpu")
-            return await super().execute(manifest, **kwargs)
+    改写后的查询、关键词与条数原样成为检索请求；不属于本 Workspace 的原子被读取视图
+    丢弃，memory_refs 只投影交付的原子。
+    """
+    decision = _decision_outcome(
+        rewritten_query="改写后的问题",
+        search_keywords=("部署", "回滚"),
+        retrieval_plan=RetrievalPlan(top_k=3),
+    )
+    stub = PatchouliTurnStub(
+        memories=[_memory_ref_atom("引用记忆"), _memory_ref_atom("他处记忆", workspace_id="other")]
+    )
+    bus, stub = _turn_bus(stub, decision=decision)
+    retrievals_at_actor_start: list[int] = []
 
-    async def gateway(**_kwargs):
-        calls.append("gateway")
-        return _decision_outcome()
+    async def snapshot(_submit):
+        retrievals_at_actor_start.append(len(stub.retrievals))
 
-    async def prepare(**kwargs):
-        calls.append("prepare")
-        assert kwargs["gateway_decision"] == _decision_outcome().decision
-        return await _scoped_prepared_route()(**kwargs)
+    cpu = ScriptedCPU(result=make_cpu_result(), operation_script=snapshot)
+    service, composition = await _service(bus, cpu)
+    events = await _run_once(composition, service, "问题", process_id="process-pre-retrieval")
 
-    async def finalize(**_kwargs):
-        calls.append("finalize")
-        return []
-
-    bus.register(GatewayPublicRoutes.PROCESS, gateway)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-
-    service, composition = await _service(bus, _RecordingCPU(result=make_cpu_result()))
-    events = await _run_once(composition, service, "问题", process_id="process-sequence")
-
-    assert done_data(events)["final_text"] == "完成"
-    assert calls == ["gateway", "prepare", "cpu", "finalize"]
+    assert done_data(events)["status"] == "completed"
+    assert retrievals_at_actor_start == [1]
+    retrieval = stub.retrievals[0]
+    assert (retrieval.semantic_query, retrieval.keywords, retrieval.top_k) == (
+        "改写后的问题",
+        ["部署", "回滚"],
+        3,
+    )
+    memory_refs = next(event for event in events if event["event"] == "memory_refs")
+    assert [memory["title"] for memory in memory_refs["data"]["memories"]] == ["引用记忆"]
 
 
 @pytest.mark.asyncio
@@ -354,9 +363,8 @@ async def test_model_prefetch_precedes_gateway_and_its_failure_does_not_affect_p
 
     bus.register(PatchouliRoutes.PREFETCH_MODELS, prefetch_models)
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
     _register_profile(bus)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
+    PatchouliTurnStub().install(bus)
 
     service, composition = await _service(bus)
     events = await _run_once(composition, service, "问题", process_id="process-prefetch")
@@ -367,45 +375,20 @@ async def test_model_prefetch_precedes_gateway_and_its_failure_does_not_affect_p
 
 @pytest.mark.asyncio
 async def test_completed_process_seals_interaction_payload() -> None:
-    """完成的进程：交给 finalize 的交互记录由进程封口，CPU 终态结果逐字段进入交互记录。"""
-    bus = GlobalSystemBus()
+    """完成的进程：提交的交互记录由进程封口，CPU 终态结果逐字段进入交互记录。"""
+    bus, stub = _turn_bus()
     turn_events = make_mtp_turn_events()
-    submitted = []
-
-    async def write(submit):
-        submitted.append(
-            await submit(SubmitWriteIntentRequest(focus=WriteFocus(content="记住这一点")))
-        )
-
-    finalize_kwargs: dict = {}
     cpu = ScriptedCPU(
         events=[{"event": "token", "data": {"content": "完成"}}],
-        result=make_cpu_result(
-            turn_events=turn_events,
-        ),
-        operation_script=write,
+        result=make_cpu_result(turn_events=turn_events),
     )
-
-    async def finalize(**kwargs):
-        finalize_kwargs.update(kwargs)
-        return []
-
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
     service, composition = await _service(bus, cpu)
     events = await _run_once(composition, service, "问题", process_id="process-seal-stream")
 
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "completed"
-    _assert_sealed_payload(
-        finalize_kwargs["payload"],
-        turn_events=turn_events,
-        submitted=submitted,
-    )
+    _assert_sealed_payload(stub.submissions[0]["payload"], turn_events=turn_events)
 
 
 @pytest.mark.asyncio
@@ -455,19 +438,13 @@ async def test_streaming_done_omits_sealing_only_result_fields(
     expected_keys: set[str],
 ) -> None:
     """流式 done 只携带交付方使用的执行结果字段：轮次事件与物化任务只用于封口，不下发。"""
-    bus = GlobalSystemBus()
+    bus, _stub = _turn_bus()
     cpu = ScriptedCPU(
         result=make_cpu_result(
             status=status,
             turn_events=make_mtp_turn_events(),
         ),
     )
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=True))
-    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
     service, composition = await _service(bus, cpu)
     events = await _run_once(
@@ -485,25 +462,12 @@ async def test_streaming_done_omits_sealing_only_result_fields(
 @pytest.mark.asyncio
 async def test_completed_stream_uses_one_process_id_for_events_and_downstream_routes() -> None:
     """完成的流式进程：SSE 首个事件、finalizing 状态与 done 携带同一 process_id，
-    并以它调用 Patchouli prepare（interaction_id）与 CPU（清单 process_id）；
-    done 的话题标注与 memory_refs 由进程从 prepare 结果推导。"""
-    bus = GlobalSystemBus()
-    prepare_calls: list[dict] = []
+    并以它作为交互提交的交互标识与 CPU 清单的 process_id。"""
+    bus, stub = _turn_bus()
     cpu = ScriptedCPU(
         events=[{"event": "token", "data": {"content": "完成"}}],
         result=make_cpu_result(),
     )
-
-    async def prepare(*, identity_scope, **kwargs):
-        prepare_calls.append(kwargs)
-        route = _scoped_prepared_route(memories=[_memory_ref_atom()])
-        return await route(identity_scope=identity_scope, **kwargs)
-
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, AsyncMock(return_value=[]))
-    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, AsyncMock(return_value=[]))
 
     service, composition = await _service(bus, cpu)
     events = await _run_once(
@@ -516,97 +480,82 @@ async def test_completed_stream_uses_one_process_id_for_events_and_downstream_ro
     assert events[0]["event"] == "process_id"
     assert events[0]["data"]["process_id"] == "process-complete"
     assert events[0]["data"]["session_id"].startswith("session_")
-    assert events[-1]["data"]["topic_id"] == "topic-1"
-    memory_refs = next(event for event in events if event["event"] == "memory_refs")
-    assert memory_refs["data"]["memories"][0]["title"] == "引用记忆"
     assert [event["data"] for event in events if event["event"] == "run_status"] == [
         {"process_id": "process-complete", "status": "finalizing"}
     ]
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "completed"
     assert events[-1]["data"]["process_id"] == "process-complete"
-    assert [call["interaction_id"] for call in prepare_calls] == ["process-complete"]
+    assert [call["interaction_id"] for call in stub.submissions] == ["process-complete"]
     assert cpu.calls[0].manifest.process_id == "process-complete"
 
 
 @pytest.mark.asyncio
 async def test_system_stages_run_with_root_scope_and_executor_is_explicit() -> None:
-    """系统阶段以 root scope 执行，执行者只出现在检索 scope 与 finalize 的参与者中。
+    """系统阶段以 root scope 执行，执行者只出现在预检索的 scope 与提交的参与者中。
 
-    Gateway、prepare 的话题准备与 finalize 都收到系统 root 授权组装的 scope；
-    prepare 的检索 scope 以执行者授权；finalize 的参与者是执行者。结算后不再
-    读取话题池。Profile 与附件的 root 授权由 CPU 分配的测试覆盖。
+    Gateway、已有话题的确认、检索命中与交互提交都收到系统 root 授权组装的 scope；
+    预检索经操作入口以执行者授权；提交的参与者是执行者、来源是主动对话。Profile 与
+    附件的 root 授权由 CPU 分配的测试覆盖。
     """
     bus = GlobalSystemBus()
-    captured: dict[str, dict] = {}
+    captured_gateway: dict = {}
 
     async def gateway(**kwargs):
-        captured["gateway"] = kwargs
+        captured_gateway.update(kwargs)
         return _decision_outcome()
 
-    async def prepare(**kwargs):
-        captured["prepare"] = kwargs
-        return await _scoped_prepared_route()(**kwargs)
-
-    async def topic_list(**kwargs):
-        captured["topic_pool"] = kwargs
-        return []
-
-    async def finalize(**kwargs):
-        captured["finalize"] = kwargs
-        return []
-
     bus.register(GatewayPublicRoutes.PROCESS, gateway)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
     _register_profile(bus)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-    bus.register(PatchouliRoutes.TOPIC_LIST_ACTIVE, topic_list)
+    stub = PatchouliTurnStub(memories=[_memory_ref_atom()]).install(bus)
 
     service, composition = await _service(bus)
-    # 流式交付只保留阶段调用，话题池由独立管理入口读取。
     events = await _run_once(composition, service, "问题", process_id="process-scope-only")
 
     assert done_data(events)["status"] == CPUExecutionStatus.COMPLETED.value
-    assert captured["gateway"]["identity_scope"] == _root_scope()
-    assert captured["prepare"]["identity_scope"] == _root_scope()
-    assert captured["prepare"]["retrieval_scope"] == _executor_scope()
-    assert captured["finalize"]["identity_scope"] == _root_scope()
-    assert captured["finalize"]["participant"] == _actor()
-    # finalize 后不再请求话题池。
-    assert "topic_pool" not in captured
+    assert captured_gateway["identity_scope"] == _root_scope()
+    assert [retrieval.identity_scope for retrieval in stub.retrievals] == [_executor_scope()]
+    assert [call["identity_scope"] for call in stub.prepared_topics] == [_root_scope()]
+    assert [hit["identity_scope"] for hit in stub.hits] == [_root_scope()]
+    assert [
+        (call["identity_scope"], call["participant"], call["origin"]) for call in stub.submissions
+    ] == [(_root_scope(), _actor(), "active_chat")]
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    ("allowed_operations", "registration"),
+    ("allowed_operations", "registration", "decision"),
     [
-        ([WorkspaceOperation.MEMORY_READ], {}),
+        ([WorkspaceOperation.MEMORY_READ], {}, _decision_outcome()),
         (
             [WorkspaceOperation.MEMORY_READ, WorkspaceOperation.MEMORY_SEARCH],
             {"enable_memory_retrieval": False},
+            _decision_outcome(),
+        ),
+        (
+            [WorkspaceOperation.MEMORY_READ, WorkspaceOperation.MEMORY_SEARCH],
+            {},
+            _decision_outcome(retrieval_plan=RetrievalPlan(mode=RetrievalMode.SKIP)),
+        ),
+        (
+            [WorkspaceOperation.MEMORY_READ, WorkspaceOperation.MEMORY_SEARCH],
+            {},
+            _decision_outcome(retrieval_plan=RetrievalPlan(top_k=0)),
         ),
     ],
-    ids=["executor-without-search", "request-disables-retrieval"],
+    ids=[
+        "executor-without-search",
+        "request-disables-retrieval",
+        "plan-skips-retrieval",
+        "plan-requests-zero",
+    ],
 )
-async def test_prepare_without_retrieval_scope_still_completes(
-    allowed_operations, registration
+async def test_process_without_pre_retrieval_still_completes(
+    allowed_operations, registration, decision
 ) -> None:
-    """执行者没有 ``memory.search``，或请求关闭了记忆检索：prepare 不带检索 scope，对话照常完成并提交。"""
-    bus = GlobalSystemBus()
-    captured: dict[str, dict] = {}
-
-    async def prepare(**kwargs):
-        captured["prepare"] = kwargs
-        return await _scoped_prepared_route()(**kwargs)
-
-    async def finalize(**kwargs):
-        captured["finalize"] = kwargs
-        return []
-
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
+    """执行者没有 ``memory.search``、请求关闭了记忆检索，或 Gateway 的检索计划跳过检索、要求零条：
+    不检索，对话照常完成并提交。"""
+    bus, stub = _turn_bus(PatchouliTurnStub(memories=[_memory_ref_atom()]), decision=decision)
     composition = _composition(allowed_operations=allowed_operations)
 
     service, composition = await _service(bus, composition=composition)
@@ -615,9 +564,8 @@ async def test_prepare_without_retrieval_scope_still_completes(
     )
 
     assert done_data(events)["status"] == CPUExecutionStatus.COMPLETED.value
-    assert captured["prepare"]["identity_scope"] == _root_scope()
-    assert captured["prepare"]["retrieval_scope"] is None
-    assert captured["finalize"]["participant"] == _actor()
+    assert stub.retrievals == []
+    assert [call["participant"] for call in stub.submissions] == [_actor()]
 
 
 class _ExecutorAdmissionLostAtRetrieval:
@@ -638,17 +586,9 @@ class _ExecutorAdmissionLostAtRetrieval:
 
 @pytest.mark.asyncio
 async def test_retrieval_authorization_failure_other_than_missing_search_fails_process() -> None:
-    """检索授权只把“没有 memory.search”译为不检索：执行者的准入失效时进程失败，不会悄悄不检索。"""
-    bus = GlobalSystemBus()
-    prepared: list[dict] = []
-
-    async def prepare(**kwargs):
-        prepared.append(kwargs)
-        return await _scoped_prepared_route()(**kwargs)
-
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
-    _register_profile(bus)
+    """预检索只把“没有 memory.search”译为不检索：执行者的准入失效时进程在确认话题之前失败，
+    不会悄悄不检索。"""
+    bus, stub = _turn_bus()
     composition = _composition()
     cpu = ScriptedCPU(result=make_cpu_result())
     service = make_task_process_service(
@@ -661,8 +601,153 @@ async def test_retrieval_authorization_failure_other_than_missing_search_fails_p
     events = await _run_once(composition, service, "问题", process_id="process-retrieval-denied")
 
     assert error_code(events) == ScopeRequiredError.code
-    assert prepared == []
+    assert stub.retrievals == []
+    assert stub.prepared_topics == []
     assert cpu.calls == []
+
+
+@pytest.mark.asyncio
+async def test_existing_topic_is_determined_before_cpu_and_writes_dispatch_to_it() -> None:
+    """Gateway 指向已有话题：PREPARE 中确认一次，CPU 开始时派发话题已冻结。
+
+    清单携带该话题；Actor 中的写入直接派发到它，不再为这一轮确定话题。
+    """
+    bus, stub = _turn_bus()
+    intents = install_intent_admission(bus)
+    topics_at_actor_start: list[str] = []
+
+    async def write(submit):
+        topics_at_actor_start.extend(call["target_topic_id"] for call in stub.prepared_topics)
+        await submit(SubmitWriteIntentRequest(focus=WriteFocus(content="记住这一点")))
+
+    cpu = ScriptedCPU(result=make_cpu_result(), operation_script=write)
+    service, composition = await _service(bus, cpu)
+    events = await _run_once(composition, service, "问题", process_id="process-existing-topic")
+
+    assert done_data(events)["status"] == "completed"
+    assert topics_at_actor_start == ["topic-1"]
+    assert cpu.calls[0].manifest.topic_id == "topic-1"
+    assert [intent.topic_id for intent, _scope in intents.submissions] == ["topic-1"]
+    assert [call["target_topic_id"] for call in stub.prepared_topics] == ["topic-1"]
+
+
+@pytest.mark.asyncio
+async def test_new_topic_without_writes_is_created_by_submission() -> None:
+    """Gateway 指向新话题且本轮没有写入：PREPARE 与 Actor 都不建立话题，清单不带话题。
+
+    提交携带 ``NEW_TOPIC`` 与 Gateway 的标题、摘要；done 与会话记录的是交互应用时
+    建立的实际话题。
+    """
+    decision = _decision_outcome(
+        target_topic_id="NEW_TOPIC",
+        new_topic_title="部署讨论",
+        new_topic_summary="讨论部署步骤",
+    )
+    bus, stub = _turn_bus(PatchouliTurnStub(new_topic_id="topic-created"), decision=decision)
+    sessions = ConversationSessionService(WorkspaceSessionConfig())
+    cpu = ScriptedCPU(result=make_cpu_result())
+    service, composition = await _service(bus, cpu, sessions=sessions)
+    handle = await _register(composition, service, "问题", process_id="process-new-topic")
+
+    events = await collect_events(service, handle)
+
+    assert stub.prepared_topics == []
+    assert cpu.calls[0].manifest.topic_id is None
+    assert [
+        (call["requested_topic_id"], call["new_topic_title"], call["new_topic_summary"])
+        for call in stub.submissions
+    ] == [("NEW_TOPIC", "部署讨论", "讨论部署步骤")]
+    assert done_data(events)["topic_id"] == "topic-created"
+    turns = sessions.get(_workspace(), handle.session_id).turns
+    assert [turn.topic_id for turn in turns] == ["topic-created"]
+
+
+async def _admission_unavailable(**_kwargs):
+    raise InteractionAdmissionUnavailableError(reason="capacity_rejected")
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    ("submit_state", "rejects_admission", "stage", "reason"),
+    [
+        pytest.param(
+            "succeeded",
+            True,
+            "interaction_admission",
+            "capacity_rejected",
+            id="admission-unavailable",
+        ),
+        pytest.param("failed", False, "interaction_apply", "apply_failed", id="apply-failed"),
+        pytest.param("pending", False, "interaction_apply", "queue_stopped", id="queue-stopped"),
+    ],
+)
+async def test_unsuccessful_submission_keeps_turn_without_topic_and_fails_process(
+    submit_state, rejects_admission, stage, reason, caplog
+) -> None:
+    """交互没有应用成功：会话仍写入这一轮且话题为空，进程以交互提交错误失败。
+
+    接纳被拒译为接纳阶段；应用失败、或队列停止使提交停在应用之前，译为应用阶段。
+    """
+    caplog.set_level(logging.ERROR, logger="hivememory.workspace.process.runner")
+    bus, _stub = _turn_bus(PatchouliTurnStub(submit_state=submit_state))
+    if rejects_admission:
+        bus.unregister(PatchouliRoutes.INTERACTION_SUBMIT)
+        bus.register(PatchouliRoutes.INTERACTION_SUBMIT, _admission_unavailable)
+    sessions = ConversationSessionService(WorkspaceSessionConfig())
+    service, composition = await _service(bus, sessions=sessions)
+    handle = await _register(composition, service, "问题", process_id="process-submit-failed")
+
+    events = await collect_events(service, handle)
+
+    assert events[-1]["event"] == "error"
+    turns = sessions.get(_workspace(), handle.session_id).turns
+    assert [(turn.payload.reply_text, turn.topic_id) for turn in turns] == [("完成", None)]
+    failure = _logged_finalization_failure(caplog)
+    assert (failure.code, failure.stage, failure.reason) == (
+        "patchouli.interaction.finalization_failed",
+        stage,
+        reason,
+    )
+
+
+@pytest.mark.asyncio
+async def test_retrieval_hits_recorded_after_output_even_when_submission_fails() -> None:
+    """检索命中在 Actor 有输出之后记录，不依赖提交的结局：应用失败时照样为预检索交付的记忆记录命中。"""
+    atom = _memory_ref_atom()
+    bus, stub = _turn_bus(PatchouliTurnStub(memories=[atom], submit_state="failed"))
+    hits_at_actor_start: list[dict] = []
+
+    async def snapshot(_submit):
+        hits_at_actor_start.extend(stub.hits)
+
+    cpu = ScriptedCPU(result=make_cpu_result(), operation_script=snapshot)
+    service, composition = await _service(bus, cpu)
+    events = await _run_once(composition, service, "问题", process_id="process-hits")
+
+    assert events[-1]["event"] == "error"
+    assert hits_at_actor_start == []
+    assert [(hit["memory_ids"], hit["source"]) for hit in stub.hits] == [
+        ((atom.id,), "retrieval.pre_retrieval")
+    ]
+
+
+@pytest.mark.asyncio
+async def test_retrieval_hit_failure_does_not_affect_turn() -> None:
+    """记录检索命中失败只记日志：交互照常提交，进程以实际话题完成。"""
+    bus, stub = _turn_bus(PatchouliTurnStub(memories=[_memory_ref_atom()]))
+
+    async def failing_hits(memory_ids, *, identity_scope, source):
+        raise RuntimeError("lifecycle unavailable")
+
+    bus.unregister(PatchouliRoutes.RECORD_RETRIEVAL_HITS)
+    bus.register(PatchouliRoutes.RECORD_RETRIEVAL_HITS, failing_hits)
+
+    service, composition = await _service(bus)
+    events = await _run_once(composition, service, "问题", process_id="process-hits-failed")
+
+    done = done_data(events)
+    assert (done["status"], done["topic_id"]) == ("completed", "topic-1")
+    assert len(stub.submissions) == 1
 
 
 class _AdmissionChangingAuthorizer:
@@ -682,11 +767,9 @@ class _AdmissionChangingAuthorizer:
 
 
 @pytest.mark.asyncio
-async def test_finalize_reauthorizes_and_revoked_admission_closes_completed_cpu_process() -> None:
-    """Actor 完成前 system 的准入失效：不提交交互，进程失败、注销且 cleanup 不越过准入检查。"""
-    bus = GlobalSystemBus()
-    finalized = []
-    cleaned = []
+async def test_revoked_system_admission_after_actor_fails_without_submission() -> None:
+    """Actor 完成前 system 的准入失效：提交的 root 授权失败，不提交交互，进程失败并注销。"""
+    bus, stub = _turn_bus()
     composition = _composition()
     authorizer = _AdmissionChangingAuthorizer(composition.authorizer)
     table = ProcessTable()
@@ -695,19 +778,6 @@ async def test_finalize_reauthorizes_and_revoked_admission_closes_completed_cpu_
         authorizer.revoked = True
 
     cpu = ScriptedCPU(result=make_cpu_result(), operation_script=revoke_admission)
-
-    async def finalize(**kwargs):
-        finalized.append(kwargs)
-        return []
-
-    async def cleanup(**kwargs):
-        cleaned.append(kwargs)
-
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service = make_task_process_service(
         bus,
         cpu=cpu,
@@ -715,52 +785,13 @@ async def test_finalize_reauthorizes_and_revoked_admission_closes_completed_cpu_
         operation_authorizer=authorizer,
         process_table=table,
     )
-    events = await _run_once(composition, service, "问题", process_id="process-finalize-denied")
+    events = await _run_once(composition, service, "问题", process_id="process-submit-denied")
 
     assert error_code(events) == ScopeRequiredError.code
     assert len(cpu.calls) == 1
     assert cpu.finished is True
-    assert finalized == []
-    assert cleaned == []
-    assert table.get("process-finalize-denied") is None
-
-
-@pytest.mark.asyncio
-async def test_cleanup_admission_denial_skips_route_and_still_closes_process(caplog) -> None:
-    """Actor 失败前 system 的准入失效：cleanup 只记录拒绝警告，进程照常注销。"""
-    bus = GlobalSystemBus()
-    cleaned = []
-    composition = _composition()
-    authorizer = _AdmissionChangingAuthorizer(composition.authorizer)
-    table = ProcessTable()
-
-    async def revoke_admission(_submit):
-        authorizer.revoked = True
-
-    async def cleanup(**kwargs):
-        cleaned.append(kwargs)
-
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
-    cpu = ScriptedCPU(
-        result=make_cpu_result(status=CPUExecutionStatus.FAILED.value, final_text=""),
-        operation_script=revoke_admission,
-    )
-    service = make_task_process_service(
-        bus,
-        cpu=cpu,
-        access_gateway=composition.gateway,
-        operation_authorizer=authorizer,
-        process_table=table,
-    )
-    events = await _run_once(composition, service, "问题", process_id="process-cleanup-denied")
-
-    assert done_data(events)["status"] == "failed"
-    assert cleaned == []
-    assert "清理 prepared run 失败" in caplog.text
-    assert table.get("process-cleanup-denied") is None
+    assert stub.submissions == []
+    assert table.get("process-submit-denied") is None
 
 
 @pytest.mark.asyncio
@@ -787,125 +818,49 @@ async def test_gateway_cancellation_maps_to_cancelled_agent_outcomes() -> None:
 
 
 @pytest.mark.asyncio
-async def test_cpu_self_reported_cancel_skips_finalize_and_cleans_prepared_run() -> None:
-    """CPU 自报取消且无输出：done 为 stopped 的 cancelled，不调用 finalize，并补偿 prepare 结果。"""
-    bus = GlobalSystemBus()
-    prepared_holder: dict = {}
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.CANCELLED, final_text=""))
+async def test_stop_during_pre_retrieval_skips_topic_and_cpu_as_prepare_cancel() -> None:
+    """PREPARE 中的停止不打断进行中的预检索；主线程随停止结束，已有话题的确认被拒绝。
 
-    async def prepare(**kwargs):
-        prepared = await _scoped_prepared_route()(**kwargs)
-        prepared_holder["prepared"] = prepared
-        return prepared
+    进程按 PREPARE 阶段取消，不确认话题、不进入 Actor。
+    """
+    bus, stub = _turn_bus()
+    retrieval_started = asyncio.Event()
+    release_retrieval = asyncio.Event()
+    retrieval_cancelled = False
 
-    cleanup = AsyncMock(return_value=True)
-    bus.register(
-        GatewayPublicRoutes.PROCESS,
-        AsyncMock(return_value=_decision_outcome()),
-    )
-    bus.register(
-        PatchouliRoutes.PREPARE_AGENT_RUN,
-        prepare,
-    )
-    _register_profile(bus)
-    bus.register(
-        PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
-        cleanup,
-    )
-    finalize = AsyncMock(return_value=[])
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-
-    service, composition = await _service(bus, cpu)
-    events = await _run_once(composition, service, "问题", process_id="process-cancel-cleanup")
-
-    done = done_data(events)
-    assert (done["status"], done["stopped"]) == (CPUExecutionStatus.CANCELLED.value, True)
-    finalize.assert_not_awaited()
-    # cleanup 只在唯一的关闭流程中补偿一次本进程 prepare 的结果，scope 来自
-    # 关闭前系统的 root 再授权。
-    cleanup.assert_awaited_once_with(
-        prepared_run=prepared_holder["prepared"], identity_scope=_root_scope()
-    )
-
-
-@pytest.mark.asyncio
-async def test_failed_agent_run_keeps_failed_status_and_skips_finalize() -> None:
-    """CPU 自报失败且无输出：done 保持 failed（不改记为取消），不调用 finalize，补偿 prepare 结果。"""
-    bus = GlobalSystemBus()
-    finalize = AsyncMock(return_value=[])
-    cleanup = AsyncMock(return_value=True)
-    cpu = ScriptedCPU(result=make_cpu_result(status=CPUExecutionStatus.FAILED, final_text=""))
-    prepared_holder: dict = {}
-    bus.register(
-        GatewayPublicRoutes.PROCESS,
-        AsyncMock(return_value=_decision_outcome()),
-    )
-    bus.register(
-        PatchouliRoutes.PREPARE_AGENT_RUN,
-        _recording_prepared_route(prepared_holder),
-    )
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
-
-    service, composition = await _service(bus, cpu)
-    events = await _run_once(composition, service, "问题", process_id="process-cpu-failed")
-
-    done = done_data(events)
-    assert (done["status"], done["stopped"]) == (CPUExecutionStatus.FAILED.value, True)
-    finalize.assert_not_awaited()
-    cleanup.assert_any_await(prepared_run=prepared_holder["prepared"], identity_scope=_root_scope())
-
-
-@pytest.mark.asyncio
-async def test_stop_during_prepare_waits_for_prepare_then_skips_cpu_and_finalize() -> None:
-    bus = GlobalSystemBus()
-    prepare_started = asyncio.Event()
-    release_prepare = asyncio.Event()
-    prepare_cancelled = False
-    cpu = ScriptedCPU(result=make_cpu_result())
-
-    async def prepare(*, identity_scope, **kwargs):
-        nonlocal prepare_cancelled
-        prepare_started.set()
+    async def retrieve(request):
+        nonlocal retrieval_cancelled
+        retrieval_started.set()
         try:
-            await release_prepare.wait()
+            await release_retrieval.wait()
         except asyncio.CancelledError:
-            prepare_cancelled = True
+            retrieval_cancelled = True
             raise
-        route = _scoped_prepared_route()
-        return await route(identity_scope=identity_scope, **kwargs)
+        return []
 
-    finalize = AsyncMock()
-    cleanup = AsyncMock(return_value=True)
-    prepared_holder: dict = {}
-
-    async def recording_prepare(**kwargs):
-        prepared = await prepare(**kwargs)
-        prepared_holder["prepared"] = prepared
-        return prepared
-
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, recording_prepare)
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
-    service, composition = await _service(bus, cpu)
+    bus.unregister(PatchouliRoutes.MEMORY_RETRIEVE)
+    bus.register(PatchouliRoutes.MEMORY_RETRIEVE, retrieve)
+    sink = RecordingRuntimeEventSink()
+    cpu = ScriptedCPU(result=make_cpu_result())
+    service, composition = await _service(bus, cpu, event_publisher=RuntimeEventPublisher(sink))
     requestor = await _system_requestor(composition)
     handle = await _register(composition, service, "问题", process_id="process-prepare")
 
     task = asyncio.create_task(collect_events(service, handle))
-    await prepare_started.wait()
+    await retrieval_started.wait()
     stop_result = service.cancel_process("process-prepare", actor=requestor)
-    release_prepare.set()
+    release_retrieval.set()
     events = await task
 
     assert stop_result.cancelled is True
-    assert prepare_cancelled is False
+    assert retrieval_cancelled is False
     assert done_data(events)["status"] == CPUExecutionStatus.CANCELLED.value
+    assert stub.prepared_topics == []
     assert cpu.calls == []
-    finalize.assert_not_awaited()
-    cleanup.assert_any_await(prepared_run=prepared_holder["prepared"], identity_scope=_root_scope())
+    cancelled = [
+        event for event in sink.events if event.event_type == RuntimeEventType.CHAT_RUN_CANCELLED
+    ]
+    assert [event.data for event in cancelled] == [{"phase": "prepare"}]
 
 
 @pytest.mark.asyncio
@@ -914,26 +869,15 @@ async def test_actor_stop_takes_effect_while_waiting_on_cpu_or_channel(blocked_o
     """Actor 中的停止立即生效：子 task 在等 CPU 的下一项，或因订阅者暂停阻塞在通道写入上。
 
     订阅者读到 process_id 后不再读取；通道写满时 CPU 不会被继续推进（背压），
-    停止仍取消子 task、关闭 CPU 输出流，并按 Actor 阶段以取消收口。
+    停止仍取消子 task、关闭 CPU 输出流，并按 Actor 阶段以取消收口，不提交交互。
     """
-    bus = GlobalSystemBus()
+    bus, stub = _turn_bus()
     token = {"event": "token", "data": {"content": "late"}}
     cpu = ScriptedCPU(
         events=[token] * (1 if blocked_on == "cpu" else OUTPUT_CHANNEL_CAPACITY + 1),
         result=make_cpu_result(),
         hang_before_result=True,
     )
-    finalize = AsyncMock()
-    cleanup = AsyncMock(return_value=True)
-    prepared_holder: dict = {}
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    bus.register(
-        PatchouliRoutes.PREPARE_AGENT_RUN,
-        _recording_prepared_route(prepared_holder),
-    )
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     sink = RecordingRuntimeEventSink()
     table = ProcessTable()
     service, composition = await _service(
@@ -957,10 +901,7 @@ async def test_actor_stop_takes_effect_while_waiting_on_cpu_or_channel(blocked_o
     assert cpu.finished is True
     assert events[-1]["event"] == "done"
     assert events[-1]["data"]["status"] == "cancelled"
-    finalize.assert_not_awaited()
-    cleanup.assert_awaited_once_with(
-        prepared_run=prepared_holder["prepared"], identity_scope=_root_scope()
-    )
+    assert stub.submissions == []
     cancelled = [
         event for event in sink.events if event.event_type == RuntimeEventType.CHAT_RUN_CANCELLED
     ]
@@ -968,55 +909,38 @@ async def test_actor_stop_takes_effect_while_waiting_on_cpu_or_channel(blocked_o
 
 
 @pytest.mark.asyncio
-async def test_stop_during_finalize_is_rejected_and_finalize_completes() -> None:
-    bus = GlobalSystemBus()
-    finalize_started = asyncio.Event()
-    release_finalize = asyncio.Event()
-
-    async def finalize(**_kwargs):
-        finalize_started.set()
-        await release_finalize.wait()
-        return []
-
-    cleanup = AsyncMock(return_value=True)
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
+async def test_stop_during_submission_is_rejected_and_submission_completes() -> None:
+    """进入 FINALIZE 后的停止被拒绝：提交照常完成，进程以完成收口。"""
+    bus, _stub = _turn_bus()
+    submit_started = asyncio.Event()
+    release_submit = asyncio.Event()
+    bus.unregister(PatchouliRoutes.INTERACTION_SUBMIT)
     bus.register(
-        PatchouliRoutes.PREPARE_AGENT_RUN,
-        _scoped_prepared_route(),
+        PatchouliRoutes.INTERACTION_SUBMIT, _gated_submission(submit_started, release_submit)
     )
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, cleanup)
     service, composition = await _service(bus)
     requestor = await _system_requestor(composition)
     handle = await _register(composition, service, "问题", process_id="process-finalize")
 
     task = asyncio.create_task(collect_events(service, handle))
-    await finalize_started.wait()
+    await submit_started.wait()
     stop_result = service.cancel_process("process-finalize", actor=requestor)
-    release_finalize.set()
+    release_submit.set()
     events = await task
 
     assert stop_result.cancelled is False
     assert stop_result.reason == "already_finalizing"
-    assert done_data(events)["status"] == CPUExecutionStatus.COMPLETED.value
-    cleanup.assert_not_awaited()
+    done = done_data(events)
+    assert (done["status"], done["topic_id"]) == (CPUExecutionStatus.COMPLETED.value, "topic-1")
 
 
 @pytest.mark.asyncio
 async def test_streaming_workspace_domain_error_yields_safe_code() -> None:
     """捕获附件拒绝等 Workspace 领域错误丢失安全 code 或被包装成系统错误。"""
-    bus = GlobalSystemBus()
+    bus, _stub = _turn_bus()
+    cpu = ScriptedCPU(error=AssetNotReadyError("secret-token@internal-host 附件尚未完成解析"))
 
-    async def prepare(**_kwargs):
-        raise AssetNotReadyError("secret-token@internal-host 附件尚未完成解析")
-
-    bus.register(GatewayPublicRoutes.PROCESS, AsyncMock(return_value=_decision_outcome()))
-    _register_profile(bus)
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, prepare)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, AsyncMock(return_value=False))
-
-    service, composition = await _service(bus)
+    service, composition = await _service(bus, cpu)
     handle = await _register(composition, service, "问题", process_id="process-domain-error")
     events = await collect_events(service, handle)
 

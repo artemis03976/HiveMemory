@@ -51,8 +51,10 @@ HiveMemorySystem.build(config)
             WorkspaceAuthenticator（workspace.authentication；准入，产出工作 actor；子工作 actor 的准入）
             WorkspaceOperationAuthorizer（workspace.authorization；操作授权，只依赖访问注册表）
             ActorAuthenticationGateway（workspace.authentication，注入 SystemPrincipalAuthenticator 与 WorkspaceAuthenticator；同时实现子工作 actor 的准入端口）
+       -> process-facilities bundle
             ProcessTable（workspace.process；在构建 actor API 之前创建，与注册入口共享）
-            ProcessThreads（workspace.process；进程线程管理，注入进程表、认证网关（子工作 actor 的准入端口）与操作授权者）
+            RootTopicService（workspace.capability.root；注入全局总线、操作授权者与 Gateway 请求时限；同一实例之后交给 HTTP 管理路由与 Import Bus 的编排器）
+            ProcessThreads（workspace.process；进程线程管理，注入进程表、认证网关（子工作 actor 的准入端口）、操作授权者与 RootTopicService（为进程这一轮确定话题））
        -> capabilities bundle
             actor API：ActorMemoryService / ActorAgentService（workspace.capability.actor；注入操作授权者与统一读取视图，ActorMemoryService 另注入 ProcessThreads 作为线程端口）
             WorkspaceOperationEntry（workspace.capability；注入 actor API 与 ProcessThreads（线程端口）；线程提交接收线程句柄，请求级提交接收工作 actor，按请求类型直接分派到 actor API）
@@ -60,14 +62,16 @@ HiveMemorySystem.build(config)
             GatewaySystem / PatchouliSystem / AliceSystem（各自只接收自己的配置段与共享 LLM 服务；Alice 注入操作入口）
        -> service bundle
             CPUAllocator（workspace.process；注入操作授权者、Profile 读取端口（读取视图的 ProfileResolver）、AssetStore 只读 reader 与 memory_compiler / attachment_compiler 配置段）
-            TaskProcessRunner（workspace.process，四阶段骨架；注入全局总线、CPU 端口（AliceSystem.cpu_port）、会话服务、CPUAllocator、ProcessThreads、操作授权者与 Gateway 请求超时）
+            RootInteractionService（workspace.capability.root；注入全局总线、操作授权者与 Gateway 请求时限；同一实例交给执行器与 Import Bus 的编排器，不经门面）
+            RootMemoryService（workspace.capability.root；注入操作授权者；同一实例交给执行器与门面）
+            TaskProcessRunner（workspace.process，四阶段骨架；注入全局总线、CPU 端口（AliceSystem.cpu_port）、会话服务、CPUAllocator、ProcessThreads、操作入口（预检索）、RootInteractionService 与 RootMemoryService、操作授权者与 Gateway 请求超时）
             TaskProcessService（workspace.process，注册入口；注入 TaskProcessRunner、共享的进程表、会话服务、认证网关、操作授权者、系统自身的 principal 与 local adapter、root RuntimeEventPublisher）
-            ImportBusService（system.application；注入认证网关、系统自身的 principal 与 local adapter，以及编排器 ImportBusIngestor，后者只取得 root API 的 RootInteractionService 与 RootTopicService、Gateway 请求时限与最近轮数、等待应用的时限与观测 sink）
+            ImportBusService（system.application；注入认证网关、系统自身的 principal 与 local adapter，以及编排器 ImportBusIngestor，后者只取得 root API 的 RootInteractionService 与 RootTopicService、最近轮数、等待应用的时限与观测 sink）
             SystemReadinessService（system.application）
-            root API：RootMemoryService / RootAgentProfileService / RootTopicService / RootMemoryTaskService / RootWorkspaceAssetService（workspace.capability.root；注入操作授权者，不接触读取视图；RootTopicService 同一实例也交给 Import Bus 的编排器）
+            root API：RootAgentProfileService / RootMemoryTaskService / RootSessionService / RootWorkspaceAssetService（workspace.capability.root；注入操作授权者，不接触读取视图），连同上面的 RootMemoryService 与 RootTopicService 交给门面
 ```
 
-七个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，LLM 服务随后创建并取得组件请求参数，访问控制装载两类登记并组装认证网关与操作授权者，随后先构建 actor API 与操作入口，Alice 构建时即可注入入口；root API 在服务阶段构建，只交给门面；子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。接入注册表由 `SystemActorAccessRegistry.from_config` 装配：登记了 `credential_env` 的来源在这时按与其他配置相同的来源读取凭据（进程环境变量优先，其次是 `.env`），环境变量为空时告警并照常装配（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）。认证网关注入任务进程的注册入口与 Import Bus 服务，并经 `HiveMemorySystem.access_gateway` 暴露给 server 与 MCP 入口，另以只含子工作 actor 准入的 `SubActorAdmission` 端口注入进程线程管理 `ProcessThreads`；系统自身的 principal（`SYSTEM_PRINCIPAL_ID`）与 `local` adapter 只由组合根引用，注入注册入口与 Import Bus 服务，两者以它认证系统的 root 工作 actor（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)）；进程表在访问控制阶段创建，`ProcessThreads` 因此能在 actor API 之前构建，注入执行器（主线程）、操作入口与 actor API（线程解析与子线程派生），无需延迟绑定；操作授权者注入 root API（`authorize_root`）、actor API（`authorize_agent`）、任务进程的执行器与 CPU 分配（系统阶段的 `authorize_root` 与 prepare 检索的 `authorize_agent`）、注册入口（取消的 `authorize_root`）与进程线程管理（操作快照的只读查询）；Import Bus 服务不注入操作授权者，编排器需要授权的步骤经 root API；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[任务进程](../workspace/task-process.md)）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。
+八个 Bundle 是装配器的私有交接对象，不是公共协议。它们的作用是让依赖顺序显式可读：运行时先存在，注册表再解析模型配置，LLM 服务随后创建并取得组件请求参数，访问控制装载两类登记并组装认证网关与操作授权者，随后构建进程设施与 actor API、操作入口，Alice 构建时即可注入入口；root 话题 API 随进程设施构建，供进程线程管理为这一轮确定话题，其余 root API 在服务阶段构建：交互提交的 root API 只交给执行器与 Import Bus，记忆 root API 同时交给执行器与门面，管理用的 root API 经门面交给 HTTP 管理路由；子系统共享全局基础设施，服务最后只拿到公共总线、认证网关或操作授权者、必要配置与 AssetStore 读取端口。接入注册表由 `SystemActorAccessRegistry.from_config` 装配：登记了 `credential_env` 的来源在这时按与其他配置相同的来源读取凭据（进程环境变量优先，其次是 `.env`），环境变量为空时告警并照常装配（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)）。认证网关注入任务进程的注册入口与 Import Bus 服务，并经 `HiveMemorySystem.access_gateway` 暴露给 server 与 MCP 入口，另以只含子工作 actor 准入的 `SubActorAdmission` 端口注入进程线程管理 `ProcessThreads`；系统自身的 principal（`SYSTEM_PRINCIPAL_ID`）与 `local` adapter 只由组合根引用，注入注册入口与 Import Bus 服务，两者以它认证系统的 root 工作 actor（[认证与访问登记](../workspace/authentication.md#5-系统自身的-principal)）；进程表与 `ProcessThreads` 在 actor API 之前构建，注入执行器（主线程）、操作入口与 actor API（线程解析、取得派发话题与子线程派生），无需延迟绑定；操作授权者注入 root API（`authorize_root`）、actor API（`authorize_agent`）、任务进程的执行器与 CPU 分配（Gateway、Profile 与附件的 `authorize_root`；预检索经操作入口由 actor API 授权）、注册入口（取消的 `authorize_root`）与进程线程管理（操作快照的只读查询）；Import Bus 服务不注入操作授权者，编排器需要授权的步骤经 root API；任务进程的编排依赖只交给执行器，注册入口只拿到执行器与生命周期依赖（[任务进程](../workspace/task-process.md)）；Gateway、Patchouli 与 Alice 不注入任何认证或授权对象（访问模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节）。
 
 ### 1.1 Runtime bundle
 
@@ -80,7 +84,7 @@ HiveMemorySystem.build(config)
 - `InMemoryWorkspaceAssetStore`：workspace 的进程内 WorkspaceAsset working set，保存当前资产、representation、opaque ref 和 lease；不按 Workspace 复制实例，由组合根创建并在关闭时最后清理；
 - `WorkspaceReadView`：共享写入意图登记与读取视图（完整原子缓存、Profile 解析缓存、失效代次，以及记忆与 Profile 两个读取器），L2 冷读经 `GlobalSystemBus` 调用 Patchouli backing 路由；Alice 全部资源读取（含 SEARCH、CALL Profile）经 actor API 使用该视图，CPU 分配的 Profile 读取在 root 授权后以管理语义直接使用该视图的 `ProfileResolver`。组合根创建后立即订阅 canonical 变更与三种写入意图结算事件，早于子系统构建及请求接收。
 
-写入意图登记、完整引用解析、原子与 Profile 读取缓存由 workspace 唯一持有；Alice 不持有自己的资源缓存或 resolver。CPUAllocator 只依赖 Profile 读取协议，runner、操作入口与 actor API 只经 `ProcessThreads` 派生、解析与结束线程，不导入认证一侧，能力层与任务进程仍互不导入；CPU 驱动把不透明的线程句柄绑定为操作提交函数。WorkspaceAsset 命令端口由上传应用服务直接持有，附件上传不经过全局总线。
+写入意图登记、完整引用解析、原子与 Profile 读取缓存由 workspace 唯一持有；Alice 不持有自己的资源缓存或 resolver。CPUAllocator 只依赖 Profile 读取协议，runner、操作入口与 actor API 只经 `ProcessThreads` 派生、解析与结束线程，不导入认证一侧；任务进程只导入能力层中的 root API，能力层不导入任务进程；CPU 驱动把不透明的线程句柄绑定为操作提交函数。WorkspaceAsset 命令端口由上传应用服务直接持有，附件上传不经过全局总线。
 
 观测设施和业务总线在装配阶段就分开，是为了让 RuntimeEvent 的失败不会阻塞一次正常业务调用。
 
@@ -114,7 +118,7 @@ System 只创建一个 `LiteLLMService`，它是 `infrastructure.llm.base.BaseLL
 | 子系统 | System 负责的部分 | 子系统自己负责的部分 |
 |:---|:---|:---|
 | Gateway | 注入 `gateway` 配置段、共享 LLM 服务与 Gateway 请求参数、全局总线和观测 sink | GatewayRuntime、命令、上下文、workflow 与公共 process route |
-| Patchouli | 注入 `patchouli` / `shared` / `scheduler` 配置段、共享 LLM 服务与 Librarian 请求参数、全局总线、维护调度器、观测 sink、AssetStore 只读 reader（供 Artifact promotion） | 记忆、话题、检索、感知、生成任务与 prepare/finalize |
+| Patchouli | 注入 `patchouli` / `shared` / `scheduler` 配置段、共享 LLM 服务与 Librarian 请求参数、全局总线、维护调度器、观测 sink、AssetStore 只读 reader（供 Artifact promotion） | 记忆、话题、检索、感知、交互提交与生成任务 |
 | Alice | 注入 `alice` / `memory_compiler` 配置段、共享 LLM 服务、全局总线、模型解析端口（`ModelRegistry` 实现 `ModelResolver`）、操作入口（`WorkspaceOperationEntry` 实现 `OperationEntry`）和观测 sink | Agent run、frame、MTP 生成与执行、工具与 ACK alias 集合 |
 
 System 不通过这些宿主的具体 Runtime 互相串联；跨边界链路由服务（chat 编排、Import Bus、能力层）通过 `GlobalSystemBus` 发起。
@@ -155,7 +159,7 @@ ActorAuthenticationGateway.close
   -> SYSTEM_STOPPED
 ```
 
-认证网关最先关闭：此后拒绝新的认证，新的请求、注册与导入都取不到工作 actor；已有进程持有注册时认证的工作 actor，照常收尾，子线程的准入不受网关关闭影响。工作 actor 不登记、不撤销，在途请求由随后各组件的关闭拒绝。操作授权者无状态，不需要关闭。先停调度器是为了阻止新的维护 tick；随后 Import Bus 等待在途导入结束：认证网关已经关闭，新的导入以 503 拒绝，门外等待的导入以 `shutting_down` 拒绝，正在处理的导入继续到应用确认，因为 Patchouli 的提交队列要到 Patchouli 停止时才排空（[Import Bus](./import-bus.md#61-关闭)）。全部任务进程关闭后清空会话，再停止 Alice；Alice 停止时卸载自己的 run route；此后 Patchouli 才会按自己的顺序 drain interaction submission、active finalize、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 关闭 workspace 运行时（停止新读、取消结算与 canonical 变更订阅、清理派生缓存，不触碰 canonical 数据），最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
+认证网关最先关闭：此后拒绝新的认证，新的请求、注册与导入都取不到工作 actor；已有进程持有注册时认证的工作 actor，照常收尾，子线程的准入不受网关关闭影响。工作 actor 不登记、不撤销，在途请求由随后各组件的关闭拒绝。操作授权者无状态，不需要关闭。先停调度器是为了阻止新的维护 tick；随后 Import Bus 等待在途导入结束：认证网关已经关闭，新的导入以 503 拒绝，门外等待的导入以 `shutting_down` 拒绝，正在处理的导入继续到应用确认，因为 Patchouli 的提交队列要到 Patchouli 停止时才排空（[Import Bus](./import-bus.md#61-关闭)）。全部任务进程关闭后清空会话，再停止 Alice；任务进程的交互提交由进程持有，进程 task 结束时提交已经结束，Patchouli 不再为它们另行等待。Alice 停止时卸载自己的 run route；此后 Patchouli 才会按自己的顺序 drain interaction submission、Topic settlement/generation 和 memory-generation queue，避免消费者仍需反查 asset ref 时 Store 已经消失。Gateway 撤销后，System 关闭 workspace 运行时（停止新读、取消结算与 canonical 变更订阅、清理派生缓存，不触碰 canonical 数据），最后调用 `WorkspaceAssetStore.close_and_clear()`；Store 不调用 Patchouli controller 的 `wait_all`，也不查询 Topic 或 binding。
 
 重复 `stop()` 会保持幂等：scheduler 已停止时不重复等待，未启动的系统仍会等待 Import Bus 的在途导入并发布 `already_stopped=true`。`system.stopped` 与 `system.stop_failed` 的 `import_bus_shutdown` 字段报告 Import Bus 开始关闭时的在途请求数（`waited_requests`）。任一步骤失败都会发布 `system.stop_failed`，记录已完成步骤、失败步骤、scheduler 状态和 Import Bus 的等待结果后抛出异常。
 

@@ -71,7 +71,7 @@ class InteractionPayload(BaseModel):
     提交方封口、交由 Perception 消费的原子交互传输包
 
     作为系统级数据传输协议存在，承载单轮交互在进入感知层前的完整结构化结果。
-    主动链路与 Import Bus 一致：payload 由提交方组装并封口，Patchouli finalize 原样
+    主动链路与 Import Bus 一致：payload 由提交方组装并封口，经同一个提交入口原样
     提交。
 
     交互内容只以 ``turn_events`` 表达：对事件的解析由感知层进行，载荷不携带
@@ -134,12 +134,16 @@ class SessionCompactionCheckpoint(BaseModel):
 
 
 class ConversationTurn(BaseModel):
-    """一轮已封口的交互，正文只保存在 payload 中。"""
+    """一轮已封口的交互，正文只保存在 payload 中。
+
+    ``topic_id`` 是交互实际所在的话题，交互没有应用成功时为空；下一轮 Gateway
+    话题路由失败时据此续接上一轮。
+    """
 
     interaction_id: str
     agent_id: str
     payload: InteractionPayload
-    topic_id: str
+    topic_id: str | None
     created_at: datetime
 
     model_config = ConfigDict(frozen=True)

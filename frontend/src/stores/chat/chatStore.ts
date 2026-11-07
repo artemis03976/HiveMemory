@@ -196,8 +196,8 @@ export const useChatStore = create<ChatStore>()(devtools(persist((set, get) => (
           connection: { status: 'error', error: message }, _currentStreamingMessageId: null, _currentProcessId: null }));
       },
     });
-    // 连接在终态前结束：已收到 finalizing 时本轮已写入会话、后端继续提交，
-    // 改以服务端历史为准；此前结束的轮次没有保存。
+    // 连接在终态前结束：已收到 finalizing 时后端继续提交，提交结束后才写入会话，
+    // 改以服务端历史为准，提交尚未结束时读到的历史可能还没有这一轮；此前结束的轮次没有保存。
     const endWithoutTerminal = async (error: Error) => {
       if (terminalReceived) return;
       const sessionId = get().currentSessionId;

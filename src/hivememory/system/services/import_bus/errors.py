@@ -53,14 +53,6 @@ class ImportBusApplyFailedError(DomainError):
         super().__init__(details={})
 
 
-class ImportBusContractError(RuntimeError):
-    """下游破坏了 Import Bus 依赖的公共契约。
-
-    例如 ``PASSIVE_MEMORY`` 模式返回了命令结果。这是不可恢复的契约违约，
-    不转为可重试错误。
-    """
-
-
 def is_recoverable_gateway_error(error: BaseException) -> bool:
     """只把超时与明确的只读依赖故障视为可重试；未知异常、授权拒绝与取消传播。"""
     return isinstance(
@@ -77,7 +69,6 @@ def is_recoverable_gateway_error(error: BaseException) -> bool:
 
 __all__ = [
     "ImportBusApplyFailedError",
-    "ImportBusContractError",
     "ImportBusUnavailableError",
     "ImportUnavailableReason",
     "is_recoverable_gateway_error",

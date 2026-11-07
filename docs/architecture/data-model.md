@@ -123,7 +123,7 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 
 ### 4.6 身份收敛与读侧兼容投影收口
 
-领域模型中的 actor / owner 语义遵循统一约定：actor 语义使用 `ActorIdentity`，owner 语义使用 `WorkspaceIdentity.owner_user_id`。公开操作以 `IdentityScope` 进入资源 owner，Patchouli 在公共边界将其拆为 `belong_to` 与 `from_actor`，内部服务、五个引擎和存储不再接收或重建 scope；交互提交与 finalize 由系统执行，`from_actor` 取自显式的参与者而不是 scope 的 actor；`system` 是非 Agent 来源的保留 actor，不得成为 `MemoryAccessPolicy.target_agent_id`/`target_team_id`。
+领域模型中的 actor / owner 语义遵循统一约定：actor 语义使用 `ActorIdentity`，owner 语义使用 `WorkspaceIdentity.owner_user_id`。公开操作以 `IdentityScope` 进入资源 owner，Patchouli 在公共边界将其拆为 `belong_to` 与 `from_actor`，内部服务、五个引擎和存储不再接收或重建 scope；交互提交由系统执行，`from_actor` 取自显式的参与者而不是 scope 的 actor；`system` 是非 Agent 来源的保留 actor，不得成为 `MemoryAccessPolicy.target_agent_id`/`target_team_id`。
 
 | 载体 | 保存的身份事实 | 寿命与用途 |
 |:---|:---|:---|
@@ -133,7 +133,6 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 | `ExecutionLabels` | 只有 `agent_id` 与 `workspace_id` 两个观测字符串；拒绝额外字段 | 进程级标签在注册认证通过后创建一次，CPU 清单与运行事件共享；线程描述携带线程自己的标签（主线程与注册标签相同，CALL 子线程为被调用方与注册时的 workspace），frame 取所属线程的标签；不用于授权 |
 | 线程描述（`ThreadDescriptor`） | `thread_id`、观测标签、图纸 `AgentProfile` 与操作快照；不含工作 actor | 线程表在派生时生成并冻结，随执行线程交给 CPU；快照只供提示词与执行策略 |
 | 线程句柄（`ThreadHandle`） | 只有 `process_id` 与 `thread_id`（`main` 或 `child-N`），用于定位，不含身份 | 线程表登记线程时创建，按对象身份核对，标识相同的另一个句柄被拒；与线程描述一起作为执行线程交给 CPU 驱动。线程的工作 actor 留在线程表的线程记录中：主线程为进程的执行者，CALL 子线程为同一用户、经准入的被调用方 |
-| `PreparedAgentRun` | `belong_to` | prepare 结果；finalize/cleanup 另接当次 root 授权的 scope |
 | `InteractionSubmission` | 必需的 `belong_to`、`from_actor`（交互的参与者） | 交互提交与重试；内容由 payload 保存 |
 | `MemoryGenerationTaskSpec` / `MemoryGenerationTask` | 必需的 `belong_to`、`from_actor` | 生成输入与对外任务快照；归属用于观察与取消检查 |
 | `PendingAtomMaterializeTask` | 必需的 `belong_to`、`from_actor` | Patchouli 意图服务根据 `MemoryIntent` 与当次授权身份构造的内部只读生成请求 |
@@ -144,7 +143,7 @@ Alice 在请求内用 `ExecutionProgress` 等对象累积事件，Perception 在
 当前已经落地的事实：
 
 - `InteractionTurnSnapshot` 的执行者身份由单一 `actor_identity: ActorIdentity` 承载，不再平铺 `user_id/agent_id/team_id` 三元组；旧平铺 JSON 的读取升级分支已随 V1 存量数据迁移完成而删除，缺 `actor_identity` 的记录反序列化 fail closed，历史记录只能通过迁移工具的 canonical replacement 访问。
-- `ActorIdentity.session_id` 已删除；历史 Artifact 中 actor 的额外 `session_id` 字段按 Pydantic 的额外字段忽略行为读取，重新输出时不保留。Chat 请求体使用 `session_id` 绑定会话资源；它仍不构造身份，finalize 使用进程关联。
+- `ActorIdentity.session_id` 已删除；历史 Artifact 中 actor 的额外 `session_id` 字段按 Pydantic 的额外字段忽略行为读取，重新输出时不保留。Chat 请求体使用 `session_id` 绑定会话资源；它仍不构造身份，交互提交使用进程关联。
 - Interaction submission codec 为 v7，generation codec 的 `schema_version` 为字符串 `"1.1"`，归属与发起者分别 round-trip；进程内队列只注册当前版本，不提供旧任务 scope payload 的兼容重放。
 - V1 存储数据迁移与 legacy 兼容分支删除已完成：Qdrant 中 Memory payload 只接受 schema v2（`decode_memory_payload` 不再解释缺 `schema_version` 的记录），检索过滤只按 canonical owner/workspace 投影与 v2 actor read policy（`meta.user_id` OR 分支与 legacy visibility 分支已删除），ArtifactStore 不再把仅含 owner 字段的历史文件解释为 `main_workspace` 归属。迁移报告与旧新 ID 映射见归档 Plan（[v0.6.2 V1 Memory Legacy 迁移](../archive/plans/v0.6.2-v1-memory-legacy-migration.md)）。
 - 读侧兼容属性已收口：`TopicData.user_id`、`TopicMaterializeTask.user_id`、`StreamMessage` 的 `user_id/agent_id/session_id` 兼容 property 与 `ActorIdentity.buffer_key` 已删除；`ExecutionFrame` 与 `MTPExecutionContext` 不再派生 `.identity` 或 `identity_scope`。`RuntimeScope` 与 `CPUInputManifest` 只保存 `labels: ExecutionLabels`，资源身份由线程记录的工作 actor 与逐次授权决定，CPU 只持有不透明的线程句柄。
@@ -164,7 +163,7 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 
 ### 4.8 ConversationSession 与轮次结局
 
-会话摘要包含 `session_id`、`belong_to`、标题、创建/更新时间、轮数和当前认领的 `active_process_id`；完整读取增加 `turns` 和可空的 `compaction_checkpoint`。`ConversationTurn` 位于 `core.protocol.models`，包含 `interaction_id`、`agent_id`（标签）、`payload`、`topic_id`、`created_at`。服务仅在同步操作中更新内部记录，对外交付嵌套深复制的快照，防止 frozen 外壳中的可变 payload 泄漏。
+会话摘要包含 `session_id`、`belong_to`、标题、创建/更新时间、轮数和当前认领的 `active_process_id`；完整读取增加 `turns` 和可空的 `compaction_checkpoint`。`ConversationTurn` 位于 `core.protocol.models`，包含 `interaction_id`、`agent_id`（标签）、`payload`、`topic_id`（交互实际所在的话题，交互没有应用成功时为空）、`created_at`。服务仅在同步操作中更新内部记录，对外交付嵌套深复制的快照，防止 frozen 外壳中的可变 payload 泄漏。
 
 `InteractionPayload.outcome` 与 `TurnRecord.outcome` 均为 completed/cancelled/failed，默认 completed；`GenerationTurn` 继续传递结局以注明中断材料。InteractionSubmission codec 6 拒绝旧版本。会话保存完整交互，CPU 清单的 `session_history` 是本会话全量快照，Gateway 的 `GatewaySessionTurn` 只投影用户与助手文本以及该轮实际所在话题的 `topic_id`（只供话题路由失败时续接上一轮）；二者都不含工作 actor。资源生命周期见 [会话资源](../workspace/sessions.md)。
 
@@ -210,7 +209,7 @@ Memory 持久化契约已收敛到 schema `"2.1"`（codec 只解码 `"2.1"`，fa
 | 通用协议 | `RetrievalRequest`、`CPUInputManifest`、`CPUExecutionResult`、`InteractionPayload` | 公共 DTO 与运行结果仍含可变 list/model；冻结的 `ExecutionLabels` 不使整个清单递归不可变 |
 | 操作请求 | frozen `OperationRequest[R]` 及六种具体请求 | 请求外壳不可重新赋值，tuple 参数只读；`RetrieveRequest.filters` 等嵌套模型仍按自身可变性处理 |
 | Alice Runtime | frame、progress、generation result | 请求级累积状态有意可变，但所有权标记不统一 |
-| 应用服务结果 | `PreparedAgentRun` 等 | frozen 外壳包裹可变模型、list 或 dict |
+| 应用服务结果 | `MemoryListPage` 等 | frozen 外壳包裹可变模型、list 或 dict |
 | Gateway Step | `GatewayStepResult.updates` | 只冻结顶层 mapping |
 
 浅层冻结外壳可以减少误替换，却不能作为跨异步边界的数据隔离。随着缓存、并发任务或事件分发增加，共享引用可能让历史结果被后来写回。治理时应根据语义选择：把内容投影成真正只读 DTO，或把它明确限制为请求内临时句柄。

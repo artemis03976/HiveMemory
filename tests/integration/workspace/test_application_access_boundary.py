@@ -665,22 +665,23 @@ async def test_interaction_submit_reaches_real_queue_with_participant_as_initiat
     """交互由系统以 root scope 经真实全局路由提交，参与的 Agent 记为发起者。
 
     参与者 a3 是空白名单的 Agent，交互提交不要求它持有 actor 操作；队列记录的
-    发起者是参与者而不是执行提交的 system，归属取 root scope 的 Workspace。
+    发起者是参与者而不是执行提交的 system，归属取 root scope 的 Workspace。队列
+    尚未启动，提交以零时限等待，接纳后以 ``pending`` 交回。
     """
     system_actor = await wired.access.authenticate(agent_id="system", workspace=MAIN)
     scope = wired.access.authorizer.authorize_root(system_actor, MAIN)
     participant = ActorIdentity(user_id="u1", agent_id="a3")
-    receipt = await wired.global_bus.request(
+    result = await wired.global_bus.request(
         PatchouliRoutes.INTERACTION_SUBMIT,
         payload=make_interaction_payload("boundary question", "boundary answer"),
         identity_scope=scope,
         participant=participant,
         requested_topic_id="topic_boundary",
         interaction_id="interaction_boundary_1",
+        timeout_seconds=0,
     )
-    assert receipt.interaction_id == "interaction_boundary_1"
-    assert receipt.work_id.startswith("interaction:")
-    record = await wired.queue.runtime.get(receipt.work_id)
+    assert (result.interaction_id, result.state) == ("interaction_boundary_1", "pending")
+    record = await wired.queue.runtime.get("interaction:interaction_boundary_1")
     persisted = json.loads(record.item.payload)
     assert persisted["correlation"] == {}
     assert persisted["belong_to"] == MAIN.model_dump(mode="json")
@@ -691,7 +692,8 @@ async def test_interaction_submit_reaches_real_queue_with_participant_as_initiat
 async def test_gateway_close_rejects_new_authentication_and_accepted_work_survives(wired):
     """网关关闭只拒绝新认证：已接纳的交互携带独立的归属与发起者，关闭后仍可应用。
 
-    System 停止先关闭网关；同一 interaction_id 的重放在关闭前返回原收据。
+    System 停止先关闭网关；同一 interaction_id 的重放在关闭前照常被接纳。队列尚未
+    启动，两次提交都以零时限等待并以 ``pending`` 交回。
     """
     system_actor = await wired.access.authenticate(agent_id="system", workspace=MAIN)
     scope = wired.access.authorizer.authorize_root(system_actor, MAIN)
@@ -704,6 +706,7 @@ async def test_gateway_close_rejects_new_authentication_and_accepted_work_surviv
         participant=participant,
         interaction_id="delayed_interaction",
         requested_topic_id="topic_delayed",
+        timeout_seconds=0,
     )
     replay = await wired.global_bus.request(
         PatchouliRoutes.INTERACTION_SUBMIT,
@@ -712,8 +715,9 @@ async def test_gateway_close_rejects_new_authentication_and_accepted_work_surviv
         participant=participant,
         interaction_id="delayed_interaction",
         requested_topic_id="topic_delayed",
+        timeout_seconds=0,
     )
-    assert replay.work_id == first.work_id
+    assert (first.state, replay.state) == ("pending", "pending")
 
     wired.access.gateway.close()
     with pytest.raises(AdmissionDeniedError) as auth_error:

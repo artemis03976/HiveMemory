@@ -148,7 +148,7 @@ Alice Agent Runtime 推理（LLM/MTP）
        ├─ UPDATE 已有信息（偏好修正）
        └─ 无操作（闲聊不值得记）
   ↓
-Patchouli finalize（提交交互、记录命中并安排记忆生成）
+提交交互（记录命中、经 root API 提交交互并安排记忆生成）
   ↓
 回复用户
 ```
@@ -222,7 +222,7 @@ Patchouli finalize（提交交互、记录命中并安排记忆生成）
 ## 7.1 必须遵守
 
 - **基于现有 v4 架构**：不引入新的架构重构
-- **复用当前主动链路**：Gateway 决策 -> Patchouli prepare -> Alice run -> Patchouli finalize，不为应用另建入口或检索旁路
+- **复用当前主动链路**：Gateway 决策 -> 预检索 -> Alice run -> 提交交互，不为应用另建入口或检索旁路
 - **单 Agent**：不启用 Alice 的子帧派生
 - **MTP 指令子集**：SEARCH / WRITE / UPDATE / READ，以及仅用于 `sys_clock` 的 RUN
 - **第一版不超过 3 天开发时间**：超时则砍功能而非延期

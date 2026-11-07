@@ -32,7 +32,7 @@ Alice 当前拥有：
 - `CPUInputManifest -> CPUExecutionResult` 的执行边界：CPU 端口的 `execute` 接收任务进程组装的输入清单（`workspace.contracts`），逐项交出交互事件再交出终态，直接消费其中已定稿的提示词文本与解析好的语言；Alice 以 `AliceCPU` 实现 workspace 定义的 CPU 端口，由组合根注入任务进程；
 - 主 Agent 与子 Agent 的 `ExecutionFrame`、帧进度、CALL 挂起与恢复；
 - 单 Agent generate -> MTP -> 回填循环的装配与调用；
-- 根帧固定文本布局、工具教学、历史视图与压缩，以及模型选择和权限应用；主 Agent 的 Profile 由主线程描述提供（任务进程在 prepare 之前解析），CALL 子 Agent 的 Profile 随子线程派生由 workspace 能力层读取，在子线程描述中交给 Alice；
+- 根帧固定文本布局、工具教学、历史视图与压缩，以及模型选择和权限应用；主 Agent 的 Profile 由主线程描述提供（任务进程在 PREPARE 开始时解析），CALL 子 Agent 的 Profile 随子线程派生由 workspace 能力层读取，在子线程描述中交给 Alice；
 - Koakuma MTP runtime、运行时 syscall registry 与格式化错误回填；
 - 经所属线程的提交函数 `submit_operation` 提交资源操作请求、消费中立结果与记录本帧收到的 ACK alias；CALL 收尾时经子线程的提交函数结束子线程；
 - 单一流式执行的 Agent run（交付由任务进程负责），以及 `agent.run.*` RuntimeEvent；
@@ -46,7 +46,7 @@ Alice 不负责：
 - 分析原始入口、识别系统命令、选择话题或形成 `GatewayDecision`；
 - 创建、检索、归档或修订长期记忆的权威事实；
 - 决定一次已完成 run 是否进入 Perception，或直接调用 Patchouli 内部 Runtime/Store；
-- 在 Agent 执行运行时中持有 HTTP、SSE 连接、chat 总超时、跨子系统取消或 prepare/finalize 补偿（这些属于 `workspace.process` 的任务进程编排）；
+- 在 Agent 执行运行时中持有 HTTP、SSE 连接、chat 总超时、跨子系统取消或交互提交（这些属于 `workspace.process` 的任务进程编排）；
 - 自动生成 Agent Profile、维护持久化任务图或执行通用 plan-and-execute；
 - 把 `WRITE` / `UPDATE` ACK 当作正式记忆落库成功；
 - 为不受信任代码提供强安全沙箱。
@@ -96,7 +96,7 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 
 未指定主 Agent 时使用 `OMNI_DOLL_PROFILE`；显式选择 `default` / `omni_doll` 也会直接选择同一个内置 Profile，但不属于错误 fallback。Omni-Doll 无特定 persona、模型名为 `default`，verb/tool 使用当前内置能力的显式白名单，而不是 `None=未来所有能力也自动允许`。因此新增 MTP verb 或 syscall 时必须同步审查并更新白名单，不能悄悄扩大 fallback 权限。
 
-主 Agent 的 Profile 由任务进程在 prepare 之前以系统的 root 授权、按管理语义读取（只检查 Workspace 归属，不按 Agent 的可见性裁剪），不要求任何 actor 操作，随主线程描述交给 Alice；CALL 目标（包括内置 Profile）通过派生请求 `DeriveCallThreadRequest` 读取，经 workspace actor API 的 `agent.call` 授权、按调用方的可见性解析，再由线程表以被调用方准入后派生子线程。操作入口按 CPU 附上的线程句柄解析出线程的工作 actor，交给 actor API；actor API 以它在驻留 Workspace 授权后，才把一次操作的 `IdentityScope` 交给读取视图和 Patchouli 公开边界。Patchouli 先检查 Workspace 归属，再检查资源可见性、MemoryType 与 `agent_config`。Profile 缓存由 workspace 按 Workspace/alias 坐标定位，条目保存源原子的 policy 与 UUID，命中时对当前 actor 重验；canonical 源变更失效与在途回填代次检查统一维护，详见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
+主 Agent 的 Profile 由任务进程在 PREPARE 开始时以系统的 root 授权、按管理语义读取（只检查 Workspace 归属，不按 Agent 的可见性裁剪），不要求任何 actor 操作，随主线程描述交给 Alice；CALL 目标（包括内置 Profile）通过派生请求 `DeriveCallThreadRequest` 读取，经 workspace actor API 的 `agent.call` 授权、按调用方的可见性解析，再由线程表以被调用方准入后派生子线程。操作入口按 CPU 附上的线程句柄解析出线程的工作 actor，交给 actor API；actor API 以它在驻留 Workspace 授权后，才把一次操作的 `IdentityScope` 交给读取视图和 Patchouli 公开边界。Patchouli 先检查 Workspace 归属，再检查资源可见性、MemoryType 与 `agent_config`。Profile 缓存由 workspace 按 Workspace/alias 坐标定位，条目保存源原子的 policy 与 UUID，命中时对当前 actor 重验；canonical 源变更失效与在途回填代次检查统一维护，详见 [读取视图与写入意图](../workspace/read-view-and-write-intents.md)。显式 alias 不存在、越权、配置无效、读取失败或模型不可用都保持为结构化失败，不会改以 Omni-Doll 身份继续执行。
 
 ## 4. 当前主流程
 
@@ -106,17 +106,17 @@ Agent Profile 是 Patchouli 中 `MemoryType.AGENT_PROFILE` 记忆的运行时投
 任务进程的 CPUInputManifest
   -> attach submit_operation bound to the main thread handle to root frame
   -> resolve model budget; lay out MTP + instructions + summary + turn_context + session view
-  -> create root ExecutionFrame(topic_id=...)
+  -> create root ExecutionFrame(topic_id=清单的话题，Gateway 指向新话题时为空)
   -> RunExecutor -> AgentRuntime.run_frame()
        -> LLM generate
        -> natural stop | MTP execute | CALL suspend | cancel
   -> AgentRunService assembles CPUExecutionResult
-  -> 任务进程据执行结果决定是否封口交互记录并进入 Patchouli finalize
+  -> 任务进程据执行结果决定是否封口交互记录并经 root API 提交
 ```
 
 Alice 接收的是 workspace 任务进程组装的本轮输入清单，不在 run 中重新分析 Gateway，也不重新构造长期记忆上下文。主帧只保存运行所需的消息与 `ExecutionProgress`；最后的执行结果包含终态、自然语言正文、结构化 `TurnEvent[]`、实际模型展示名、可选失败原因和压缩检查点；迭代统计只出现在 `agent.run.*` 观测事件中。
 
-`FrameExecutionResult.FAILED` 与 `BUDGET_EXHAUSTED` 会由 Alice 稳定映射为执行结果的 `failed`，基础设施异常才向上抛出并由任务进程按失败结束；取消返回 `cancelled`，不交出物化任务。有输出的 completed/cancelled/failed 都由任务进程封口、追加会话并进入 Patchouli finalize；Alice 只提供结果，被取消时以返回的 cancelled 结果交回部分输出与已完成检查点。主帧历史来自输入清单的全量会话轮次，Alice 按模型预算先减重旧工具结果，再按需生成增量摘要；原文与检查点由会话资源保存。根帧与 CALL 子帧每次生成前都有输入预算守卫；算法与取消规则见 [Agent Runtime](./agent-runtime.md#31-会话上下文视图)。Topic 内容不作为对话上下文。
+`FrameExecutionResult.FAILED` 与 `BUDGET_EXHAUSTED` 会由 Alice 稳定映射为执行结果的 `failed`，基础设施异常才向上抛出并由任务进程按失败结束；取消返回 `cancelled`，不交出物化任务。有输出的 completed/cancelled/failed 都由任务进程封口、经 root API 提交交互并追加会话；Alice 只提供结果，被取消时以返回的 cancelled 结果交回部分输出与已完成检查点。主帧历史来自输入清单的全量会话轮次，Alice 按模型预算先减重旧工具结果，再按需生成增量摘要；原文与检查点由会话资源保存。根帧与 CALL 子帧每次生成前都有输入预算守卫；算法与取消规则见 [Agent Runtime](./agent-runtime.md#31-会话上下文视图)。Topic 内容不作为对话上下文。
 
 ### 4.2 CALL 与瞬态子帧
 

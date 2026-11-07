@@ -1,7 +1,7 @@
 """TopicManagementService 读语义的单元测试。
 
 被测对象：Patchouli Topic 公共入口。本层是授权点以下的资源 owner，阶段读取与
-root 管理的授权在 workspace 能力层与任务进程阶段完成。列表、读取、结算与驱逐经
+root 管理的授权在 workspace 能力层与任务进程阶段完成。列表、读取、准备、结算与驱逐经
 真实本地总线与 Perception 的链路见 ``tests/integration/patchouli/test_topic_access_chain.py``；
 本文件只守护本层的纵深防御：下游返回越域话题时 ``get_topic_data`` 仍然隐藏，不泄漏可见性。
 local bus 为记录型假总线（边界外协作者），用于构造真实存储不会返回的越域结果。

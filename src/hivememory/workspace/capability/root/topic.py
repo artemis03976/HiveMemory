@@ -1,33 +1,42 @@
-"""root Topic API：授权后调用话题列表、结算与驱逐的公共路由，并为导入的一轮路由与准备话题。
+"""root Topic API：授权后调用话题列表、结算与驱逐的公共路由，并为一轮确定话题。
 
-路由与准备话题服务于 Import Bus：外部 harness 的一轮在 HiveMemory 没有任务进程，
-它的话题路由（Gateway 的 PASSIVE_MEMORY 模式）与写入时的话题准备由系统执行，
-每次调用都在入口 root 授权。
+确定话题服务于写入：写入派发需要这一轮最终所在的话题。任务进程按 Gateway 的
+决定确认已有话题或在第一次写入时建立新话题；外部 harness 的一轮在 HiveMemory
+没有任务进程，由系统在方法内以 PASSIVE_MEMORY 路由后建立。每次调用都在入口
+root 授权一次。
 """
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, overload
 
-from hivememory.core.protocol.gateway import GatewayIngressMode
-from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
 from hivememory.patchouli.contracts.topic_management import (
     TopicEvictionResult,
     TopicSettleResult,
+)
+from hivememory.workspace.capability.root.passive_routing import (
+    PassiveTurnRouting,
+    route_passive_turn,
 )
 
 if TYPE_CHECKING:
     from hivememory.components.bus.global_bus import GlobalSystemBus
     from hivememory.core.access import WorkingActor
     from hivememory.core.models import TopicSnapshot, WorkspaceIdentity
-    from hivememory.core.protocol.gateway import (
-        GatewayDecision,
-        GatewayProcessResult,
-        GatewaySessionTurn,
-    )
-    from hivememory.patchouli.contracts import PreparedAgentRun
+    from hivememory.core.protocol.gateway import GatewayDecision
     from hivememory.workspace.authorization import WorkspaceOperationAuthorizer
+
+_NEW_TOPIC = "NEW_TOPIC"
+
+
+@dataclass(frozen=True)
+class DeterminedTopic:
+    """为一轮确定的话题：真实话题标识，以及它是否为这一轮新建。"""
+
+    topic_id: str
+    is_new: bool
 
 
 class RootTopicService:
@@ -38,9 +47,11 @@ class RootTopicService:
         global_bus: GlobalSystemBus,
         *,
         operation_authorizer: WorkspaceOperationAuthorizer,
+        gateway_request_timeout_ms: int = 8000,
     ) -> None:
         self._global_bus = global_bus
         self._authorizer = operation_authorizer
+        self._gateway_request_timeout_ms = gateway_request_timeout_ms
 
     async def list_active_topics(
         self,
@@ -85,50 +96,74 @@ class RootTopicService:
             topic_id=topic_id,
         )
 
-    async def route_passive_turn(
-        self,
-        *,
-        target_workspace: WorkspaceIdentity,
-        message: str,
-        session_turns: tuple[GatewaySessionTurn, ...],
-        request_timeout_ms: int,
-        actor: WorkingActor,
-    ) -> GatewayProcessResult:
-        """以 root 授权、以 PASSIVE_MEMORY 模式请求 Gateway 为一轮导入的交互做话题路由。
-
-        Gateway 的结果与异常原样交回：PASSIVE_MEMORY 只给出话题路由与新话题的
-        标题、摘要，不检索；结果的类型与可恢复异常由调用方判断。
-        """
-        scope = self._authorizer.authorize_root(actor, target_workspace)
-        return await self._global_bus.request(
-            GatewayPublicRoutes.PROCESS,
-            message=message,
-            identity_scope=scope,
-            ingress_mode=GatewayIngressMode.PASSIVE_MEMORY,
-            request_timeout_ms=request_timeout_ms,
-            session_turns=session_turns,
-        )
-
-    async def prepare_topic(
+    @overload
+    async def determine_topic(
         self,
         *,
         target_workspace: WorkspaceIdentity,
         interaction_id: str,
-        gateway_decision: GatewayDecision,
+        topic_source: GatewayDecision,
         actor: WorkingActor,
-    ) -> PreparedAgentRun:
-        """以 root 授权按 Gateway 的路由确认或新建一轮的话题，不检索。
+    ) -> DeterminedTopic: ...
 
-        经 Patchouli prepare 完成，不给检索 scope；新话题在此建立（必要时先按
-        LRU 驱逐），prepare 失败时由 Patchouli 清理它新建的空话题。
+    @overload
+    async def determine_topic(
+        self,
+        *,
+        target_workspace: WorkspaceIdentity,
+        interaction_id: str,
+        topic_source: PassiveTurnRouting,
+        actor: WorkingActor,
+    ) -> DeterminedTopic | None: ...
+
+    async def determine_topic(
+        self,
+        *,
+        target_workspace: WorkspaceIdentity,
+        interaction_id: str,
+        topic_source: GatewayDecision | PassiveTurnRouting,
+        actor: WorkingActor,
+    ) -> DeterminedTopic | None:
+        """以 root 授权为一轮确认或建立话题，返回真实话题；不检索。
+
+        ``topic_source`` 是任务进程已有的 Gateway 决定，或一轮待路由的外部
+        交互。后者先查这一轮的进度：已应用的返回它实际所在的话题；已提交、
+        仍在应用的不返回话题（返回 ``None``），所在的话题要等应用完成才确定，
+        此时重新路由会让写入与这一轮落在不同的话题；否则以 PASSIVE_MEMORY 路由。
+
+        目标是已有话题时确认它存在并刷新驻留，是 ``NEW_TOPIC`` 时以决定中的
+        标题与摘要建立（必要时先按 LRU 驱逐）。Gateway 与话题准备的异常原样
+        传出。
         """
         scope = self._authorizer.authorize_root(actor, target_workspace)
-        return await self._global_bus.request(
-            PatchouliRoutes.PREPARE_AGENT_RUN,
+        if isinstance(topic_source, PassiveTurnRouting):
+            status = await self._global_bus.request(
+                PatchouliRoutes.INTERACTION_STATUS,
+                identity_scope=scope,
+                interaction_id=interaction_id,
+            )
+            # 只有已应用的轮次带实际所在的话题。
+            if status is not None and status.topic_id is not None:
+                return DeterminedTopic(topic_id=status.topic_id, is_new=False)
+            if status is not None and status.state == "pending":
+                return None
+            decision = await route_passive_turn(
+                self._global_bus,
+                scope,
+                topic_source,
+                request_timeout_ms=self._gateway_request_timeout_ms,
+            )
+        else:
+            decision = topic_source
+        is_new = decision.target_topic_id == _NEW_TOPIC
+        topic_id = await self._global_bus.request(
+            PatchouliRoutes.PREPARE_TOPIC,
             identity_scope=scope,
-            interaction_id=interaction_id,
-            gateway_decision=gateway_decision,
+            target_topic_id=decision.target_topic_id,
+            new_topic_title=decision.new_topic_title if is_new else None,
+            new_topic_summary=decision.new_topic_summary if is_new else None,
         )
+        return DeterminedTopic(topic_id=topic_id, is_new=is_new)
 
 
-__all__ = ["RootTopicService"]
+__all__ = ["DeterminedTopic", "RootTopicService"]

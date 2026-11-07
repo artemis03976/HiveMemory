@@ -122,12 +122,11 @@ def test_authorizer_imports_neither_process_nor_capability():
     assert offenders == []
 
 
-def test_agent_authorization_is_only_called_by_actor_api_and_task_process():
-    """actor 操作授权只在 actor API 与任务进程 prepare 的检索中调用，其他代码不能借用白名单。"""
+def test_agent_authorization_is_only_called_by_actor_api():
+    """actor 操作授权只在 actor API 中调用；任务进程的预检索也经操作入口到达这里。"""
     assert _attribute_sites("authorize_agent") == {
         "workspace/capability/actor/memory.py",
         "workspace/capability/actor/agent_profiles.py",
-        "workspace/process/runner.py",
     }
 
 

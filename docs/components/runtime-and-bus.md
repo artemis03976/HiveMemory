@@ -73,7 +73,7 @@ CI 的 typecheck job 使用锁定版本的 uv 与 setup action，以 `uv sync --
 - 单个 subscriber 异常被记录并隔离，不传播给 publisher；
 - `unsubscribe` 只移除指定 callback。
 
-RPC 用于需要确定交接结果的 prepare、retrieve、run、finalize 和管理操作；Pub/Sub 只用于通知。总线不提供持久化、跨进程传输、自动重试、版本协商或 exactly-once。
+RPC 用于需要确定交接结果的检索、话题准备、交互提交和管理操作；Pub/Sub 只用于通知。总线不提供持久化、跨进程传输、自动重试、版本协商或 exactly-once。
 
 Workspace 不会改变 route 的全局注册语义。身份声明经认证得到工作 actor，授权点在每次操作时组装 scope，再作为公开 route 参数传递；总线只负责交接，不解析、缓存或授权 Workspace。
 
@@ -189,17 +189,18 @@ retry-wait 与有限终态记录均不可恢复，因此当前入口只能声称
 ### 3.3 Interaction Submission
 
 主动链路与 Import Bus 都通过唯一 `InteractionSubmissionQueue` 提交 versioned `InteractionSubmission`：
-主动链路经 finalize 提交，Import Bus 经 Patchouli 公开的交互提交路由提交。稳定 `interaction_id`
+两者都经 root API 的提交交互调用 Patchouli 公开的交互提交路由。稳定 `interaction_id`
 同时用于 work identity 和幂等定位；同 ID 相同 payload 的进程内重放返回原 receipt，等待中或已成功时
 同 ID 不同 canonical payload 被拒绝。应用失败（工作项终态未成功）的交互允许以同一 ID 重新提交，
 payload 可以不同，新提交以递增的尝试号区分工作项标识。为查重保留的旁路索引只存编码 payload 的摘要。
 `topic:{topic_id}` ordering key 只保证成功 apply 的 topic-local
-顺序，不代表 prepare snapshot 或 Agent 因果顺序。应用写入话题后，话题需要折叠时由队列以同一 ordering key
+顺序，不代表执行时读取的 topic snapshot 或 Agent 因果顺序。应用写入话题后，话题需要折叠时由队列以同一 ordering key
 排入折叠项，交互的应用结果不等折叠；折叠的语义见[感知与短期话题](../patchouli/perception.md#5-page-folding)。
 
-Active finalize 在 admission 后同步等待 applied gate，只有 work `SUCCEEDED` 才继续 materialization 与
-HIT 等后续副作用。Import Bus 在 admission 后经交互等待路由等待应用到终态或超时，成功才向调用方确认；
-它经交互状态查询判重，不持有队列。客户端在 admission 后断开不会撤销已由 Patchouli 接管的 interaction。
+提交路由在 admission 后等待 applied gate 到终态或调用方给出的时限，只有 work `SUCCEEDED` 才以成功结局交回：
+任务进程不设时限，成功后才以实际所在的话题写入会话并交付终态；Import Bus 以 `import_bus.apply_wait_seconds`
+为时限，成功才向调用方确认。查重在 root API 的提交方法内经交互状态查询完成，调用方都不持有队列。调用方
+在 admission 后取消等待或断开不会撤销已接纳的 interaction。
 
 ### 3.4 Memory Generation
 
@@ -250,7 +251,7 @@ chat run 的阶段、停止原因与可中断阶段 task 由 workspace 任务进
 
 ## 7. 取消收尾辅助
 
-[`cancellation.py`](../../src/hivememory/components/cancellation.py) 提供 `join_shielded(task)`：等待任务完成，期间屏蔽调用方的取消（可以反复收到），任务结束后再传播取消；调用方被取消时取走任务的异常，任务的错误由任务自身记录；任务自己被取消时立即传播。它区分任务自己的取消与调用方在等待期间收到的取消，且不留下无人等待的后台任务。任务进程等待 finalize 提交、actor API 等待写入意图派发时使用，使调用方取消不中断已经开始的提交。
+[`cancellation.py`](../../src/hivememory/components/cancellation.py) 提供 `join_shielded(task)`：等待任务完成，期间屏蔽调用方的取消（可以反复收到），任务结束后再传播取消；调用方被取消时取走任务的异常，任务的错误由任务自身记录；任务自己被取消时立即传播。它区分任务自己的取消与调用方在等待期间收到的取消，且不留下无人等待的后台任务。任务进程等待交互提交、写入等待进程这一轮的话题确定、actor API 等待写入意图派发时使用，使调用方取消不中断已经开始的提交或话题建立。
 
 ## 8. 调度、队列与总线的边界
 
@@ -268,7 +269,7 @@ Chat cancel -> ProcessTable（任务进程表，workspace.process，不属于本
 - 用 scheduler、Pub/Sub 或 RuntimeEvent 代替需要状态机和 backpressure 的 Work Queue；
 - 在业务组件内创建 BackgroundScheduler、额外 event loop 或 `asyncio.run()` 回跳主链；
 - 用 Pub/Sub 替代需要确定结果的 RPC；
-- 用 RuntimeEvent 触发业务重试、finalize 或 cleanup；
+- 用 RuntimeEvent 触发业务重试或交互提交；
 - 让 scheduler 直接修改 Patchouli、Gateway 或 Alice 的内部状态。
 
 ## 9. 设计矛盾检查
@@ -293,7 +294,7 @@ Chat cancel -> ProcessTable（任务进程表，workspace.process，不属于本
 - `tests/unit/infrastructure/work_queue/`
 - `tests/unit/patchouli/control/test_interaction_submission.py`
 - `tests/unit/patchouli/control/test_memory_generation_*.py`
-- `tests/integration/patchouli/test_active_interaction_submission.py`
+- `tests/unit/patchouli/application/test_submission_services.py`
 - `tests/unit/components/events/test_operations.py`
 - `tests/unit/components/test_serial_gate.py`
 - `tests/unit/components/test_cancellation.py`

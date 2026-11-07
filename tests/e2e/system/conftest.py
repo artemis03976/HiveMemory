@@ -169,7 +169,7 @@ class PatchouliChatStack:
 
 @pytest_asyncio.fixture
 async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
-    """完整 prepare/finalize、检索、引用和物化链路共用同一份真实资源所有者。"""
+    """话题准备、检索、交互提交、引用和物化链路共用同一份真实资源所有者。"""
     global_bus = GlobalSystemBus()
     local_bus = PatchouliBus()
     short_term = ShortTermMemoryStore()
@@ -235,7 +235,6 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
         (PatchouliLocalRoutes.TOPIC_PREPARE, perception.prepare_topic),
         (PatchouliLocalRoutes.TOPIC_GET, retrieval.get_topic),
         (PatchouliLocalRoutes.TOPIC_LIST_ACTIVE, retrieval.list_active_topics),
-        (PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY, perception.discard_if_empty),
         (PatchouliLocalRoutes.GET_AGENT_PROFILE, retrieval.get_agent_profile),
         (PatchouliLocalRoutes.MEMORY_RETRIEVE, retrieval.retrieve_async),
         (PatchouliLocalRoutes.MEMORY_RETRIEVE_BY_ALIASES, retrieval.retrieve_by_aliases_async),
@@ -253,7 +252,7 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
     ):
         local_bus.register(route, handler)
     queue = InteractionSubmissionQueue(perception.apply_interaction)
-    chat_service = PatchouliService(local_bus, interaction_queue=queue)
+    chat_service = PatchouliService(local_bus)
     bridge = PatchouliBridge(
         local_bus=local_bus,
         global_bus=global_bus,
@@ -287,7 +286,6 @@ async def patchouli_chat_stack(tmp_path) -> AsyncIterator[PatchouliChatStack]:
             queue,
         )
     finally:
-        await chat_service.drain_active_finalizations()
         await queue.stop()
         await controller.stop()
         bridge.unmount()

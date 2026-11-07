@@ -130,9 +130,9 @@ Mode B 新建记忆以提交 WRITE 的 actor Agent 为来源，贡献者先记�
 
 ### 3.2 Mode B：主动 WRITE
 
-WRITE 经操作请求进入 workspace 能力层，在共享 `WriteIntentRegistry` 登记 MATERIALIZING 意图，并立即调用 Patchouli 的 `memory_intent.submit`。两种来源走同一条链路：Alice 的 MTP WRITE 经执行线程提交、以线程的工作 actor 授权，派发话题是 CPU 分配冻结的本轮话题；外部 harness（plugin 模式）的 `memory_write` 经请求级提交、以每次调用认证得到的工作 actor 授权，派发话题是 Import Bus 在写入时为这一轮确定的话题，这一轮回流时落在同一话题（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。服务沿用登记的 `intent_id` 与 `pending_alias` 构造内部 `PendingAtomMaterializeTask`，生成队列接纳后才返回 ACK。意图登记与终态由 workspace 持有，正式记忆生成与任务状态由 Patchouli 持有。
+WRITE 经操作请求进入 workspace 能力层，在共享 `WriteIntentRegistry` 登记 MATERIALIZING 意图，并立即调用 Patchouli 的 `memory_intent.submit`。两种来源走同一条链路：Alice 的 MTP WRITE 经执行线程提交、以线程的工作 actor 授权，派发话题是进程这一轮的话题：Gateway 指向已有话题时是 PREPARE 确认的话题，指向新话题时由本轮第一次写入建立（[执行线程](../workspace/execution-threads.md#8-派发话题)）；外部 harness（plugin 模式）的 `memory_write` 经请求级提交、以每次调用认证得到的工作 actor 授权，派发话题是 Import Bus 在写入时为这一轮确定的话题，这一轮回流时落在同一话题（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。服务沿用登记的 `intent_id` 与 `pending_alias` 构造内部 `PendingAtomMaterializeTask`，生成队列接纳后才返回 ACK。意图登记与终态由 workspace 持有，正式记忆生成与任务状态由 Patchouli 持有。
 
-Coordinator 使用话题的 `state_summary` 与过去 N 个 block 作为背景，以 `WriteFocus` 为保存核心。N 由 `patchouli.generation.active_recent_blocks` 配置（默认 5，允许 0），与感知折叠保留轮数无关。派发发生在交互封口前，当前轮不进入背景；新话题为空时只依赖 focus。plugin 模式下同样如此：写入时预建的新话题在派发时为空，落到已有话题时背景是该话题此前回流的几轮。话题不存在时按空材料生成，话题读取抛错时因尚无任务入队，逐项结算 FAILED 并拒绝。
+Coordinator 使用话题的 `state_summary` 与过去 N 个 block 作为背景，以 `WriteFocus` 为保存核心。N 由 `patchouli.generation.active_recent_blocks` 配置（默认 5，允许 0），与感知折叠保留轮数无关。派发发生在交互封口前，当前轮不进入背景；新话题为空时只依赖 focus：任务进程第一次写入建立的新话题与 plugin 模式下写入时建立的新话题在派发时都为空，落到已有话题时背景是该话题此前的几轮。话题不存在时按空材料生成，话题读取抛错时因尚无任务入队，逐项结算 FAILED 并拒绝。
 
 提取器把 agent 拟定的标题（`WriteFocus.title`，可以为空，空时提示词写"未提供"）连同正文与保存理由交给模型。提示词要求沿用这个标题、不改写措辞，只在它与草稿内容不符，或缺少让人检索到它的关键名词（项目、组件、工具名）时修改，修改时保留原标题的判断与表述。检索只比较标题、类型、标签与摘要，agent 斟酌过的标题是这条记忆能否被找到的主要依据；改写第一当事人拟定的标题属于越权到措辞。系统不比较模型输出与 agent 的标题，是否修改由模型按规则判断；摘要、标签与正文照常由生成整理，合并仍会重新综合两条记忆的标题（第 4.1 节）。
 
@@ -284,25 +284,26 @@ PendingAtom settlement 只更新意图状态，不回填 canonical 缓存。中�
 
 同一次失败只在分类处记一行 error 日志：`work_id`（`memory_generation:<task_id>`）、原因码与异常类名；领域错误另记 `details`，未预期的异常带堆栈，提供商失败与超时不带堆栈（提取器重试前已以 warning 记录第一次失败的原因）。日志不带话题与来源，它们在同一任务的 `memory.task.failed` 中，按 `task_id` 在运行时事件记录文件里对应（[可观测性](../components/observability.md#51-事件记录文件)第 5.1 节）。任务快照与任务 API 不变，公开 `error` 仍是固定说明；写入意图的失败结算不带原因。分类与日志由生成队列的单元测试覆盖，原因码到 `work.failed` 与 `memory.task.failed` 的传递由控制器的单元测试覆盖。
 
-## 7. 实时派发与交互 finalize
+## 7. 实时派发与交互提交
 
 主动写入与交互提交分别执行：
 
 ```text
-WRITE/UPDATE -> workspace 登记 -> memory_intent.submit
+WRITE/UPDATE -> 授权 -> 取得派发话题 -> workspace 登记 -> memory_intent.submit
   -> Coordinator 构建材料与 spec -> Controller 接纳生成任务 -> ACK
   -> 后台生成、持久化与结算事件
 
-CPU 有输出（completed/cancelled/failed）-> 封口 InteractionPayload -> 同步写入会话 -> finalize
-  -> submit as-is -> wait until interaction applied
-  -> best-effort record prepared retrieval HITs -> None
+CPU 有输出（completed/cancelled/failed）-> 封口 InteractionPayload
+  -> best-effort record pre-retrieval HITs
+  -> root API 提交交互 -> interaction.submit：原样提交，等待交互应用
+  -> 写入会话（话题取实际所在的话题）
 ```
 
 每次提交只携带一个意图：Coordinator 的 `submit_active()` 为它构建 spec，交给 Controller 的 `admit_generation()`，返回单个 `MemoryGenerationAdmission`。accepted 携带新建或幂等复用的任务快照；rejected 由 Controller 结算对应 PendingAtom failed，不伪造 FAILED 任务；unknown 不结算，可继续由实际接纳的任务给出终态。Coordinator 在构建 spec 时遇到确定性失败（如 UPDATE 基础不存在）同样结算 failed 并返回 rejected，遇到无法判断的失败或接纳请求本身失败则返回 unknown。稳定的 `active:{intent_id}` 是任务标识，同一 intent 携带不同 spec 重放时结果为 unknown，既有任务保留结算权，不能抢先发布 failed。
 
-Interaction applied 仍是 Chat 的硬成功边界，finalize 不派发主动任务，也不返回任务列表。预检索 HIT 失败只记录 warning，不反向改写 Chat 终态。Finalization continuation 由 Patchouli 进程级持有，HTTP/SSE 调用方取消不会中止已经接管的提交与 post-apply 义务。CPU 失败、取消、进程关闭与失败 CALL 子帧都不撤回此前的显式写入。
+Interaction applied 仍是 Chat 的硬成功边界，交互提交不派发主动任务，也不返回任务列表。预检索 HIT 在提交之前记录，失败只记录 warning，不影响本轮。提交任务由任务进程持有并以 shield 等待，HTTP/SSE 调用方离开不会中止已经开始的提交；已接纳的交互也不随调用方取消撤回。CPU 失败、取消、进程关闭与失败 CALL 子帧都不撤回此前的显式写入。
 
-主动生成不等待当前交互 applied，不读取当前轮，也不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。有输出轮次的当前交互留在话题中，之后可在 idle/LRU/shutdown 时参与 Mode A；主动保存与被动归档不能通过清空 buffer 相互替代。未完成进程的预建空话题仍可 cleanup，已派发任务保留该 topic_id 作观测，正式原子不保存 topic_id。
+主动生成不等待当前交互 applied，不读取当前轮，也不会为了 WRITE/UPDATE 调用话题 settlement、summary 或 clear。有输出轮次的当前交互留在话题中，之后可在 idle/LRU/shutdown 时参与 Mode A；主动保存与被动归档不能通过清空 buffer 相互替代。写入建立的话题若最终没有接收交互（例如写入后 CPU 没有输出），不被补偿删除，由空闲结算或 LRU 按没有材料的话题结束；已派发任务保留该 topic_id 作观测，正式原子不保存 topic_id。
 
 这条解耦边界是对旧链路实际问题的回应。旧实现曾把 MTP WRITE/UPDATE 当作话题结算理由，执行 `archive + compact + clear`：连续两次 WRITE 时，第二次只能看到已经被压扁的 summary；每次主动写还会额外触发一次 summary，使原始细节在明确保存意图下反复丢失。当前实现直接使用 topic 最近 context，并以 `WriteFocus`/`UpdateFocus` 驱动 Mode B/C；主动生成与被动归档保持两条正交流，主动写入后的 blocks 仍可在之后进入 Mode A。
 

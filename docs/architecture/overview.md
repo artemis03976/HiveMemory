@@ -43,7 +43,7 @@ HiveMemory 因而保留了原项目“双系统”的核心思想：热路径负
 
 记忆需要跨会话保持身份、来源和版本，Agent 执行则围绕一次 run、一个 frame 和一组临时工具结果展开。早期实现曾把两类状态放进同一运行时，结果是 Patchouli 既要管理知识，又要管理 Agent loop；任何一侧变化都可能穿透另一侧。
 
-当前架构将 Patchouli 与 Alice 分开：Patchouli 是长期记忆与知识平面，Alice 是临时执行与控制平面。二者之间由 workspace 的任务进程居中交接：Patchouli 交出话题与未编译的检索结果（`PreparedAgentRun`），进程编译并组装与执行者无关的输入清单（`CPUInputManifest`），经 workspace 定义的 CPU 端口交给执行者（当前为 Alice），执行者交回 CPU 中立的执行结果（`CPUExecutionResult`）。这些交接模型不是共享内部状态的借口。
+当前架构将 Patchouli 与 Alice 分开：Patchouli 是长期记忆与知识平面，Alice 是临时执行与控制平面。二者之间由 workspace 的任务进程居中交接：Patchouli 经预检索交出未编译的检索原子，进程编译并组装与执行者无关的输入清单（`CPUInputManifest`），经 workspace 定义的 CPU 端口交给执行者（当前为 Alice），执行者交回 CPU 中立的执行结果（`CPUExecutionResult`），进程封口后经 root API 交回 Patchouli。这些交接模型不是共享内部状态的借口。
 
 ### 1.3 统一入口与领域自治
 
@@ -138,7 +138,7 @@ Patchouli 是记忆与知识平面，拥有：
 
 - 记忆、话题和 Agent Profile 的存储与查询；
 - Retrieval、Perception、Generation、Lifecycle 与 MemoryCompiler 协作；
-- 主动对话的 `prepare -> finalize` 记忆域事务；
+- 交互的提交与应用（主动对话与导入共用一条提交队列，提交并等待应用）、话题的确认与建立；
 - 记忆生成任务、PendingAtom 结算与引用/反馈记录；
 - 存储健康、模型预热和 Patchouli 维护任务。
 
@@ -160,7 +160,7 @@ Alice 是 Agent 执行与控制平面，拥有：
 
 Alice 是在图书馆中工作的 Agent 执行环境。它可以阅读书页、使用工具、提出写入或修订意图，也可以把工作委派给子 Agent；但正式书目如何产生、更新和归档仍由 Patchouli 决定。
 
-因此 Alice 的执行运行时（AgentRuntime、frame 与 Koakuma）不拥有长期记忆存储，也不决定 prepare/finalize。chat 任务进程编排（`workspace.process`）作为 chat 任务类型的执行步骤位于 workspace 包内，经公开路由调用 Gateway、Patchouli，经 CPU 对象端口调用执行者，不持有其他子系统的内部运行时对象。这个限制并非削弱 Alice，而是让运行失败、模型替换或 frame 调度变化不会直接破坏长期知识。
+因此 Alice 的执行运行时（AgentRuntime、frame 与 Koakuma）不拥有长期记忆存储，也不决定一轮交互是否提交。chat 任务进程编排（`workspace.process`）作为 chat 任务类型的执行步骤位于 workspace 包内，经公开路由调用 Gateway 与 Patchouli 的模型预取，对记忆与话题的操作经 workspace 的 root API 与操作入口完成，经 CPU 对象端口调用执行者，不持有其他子系统的内部运行时对象。这个限制并非削弱 Alice，而是让运行失败、模型替换或 frame 调度变化不会直接破坏长期知识。
 
 ## 4. 共享运行时：连接而不混合
 
@@ -198,28 +198,35 @@ TaskProcessService（workspace.process）
   -> Gateway PROCESS (ACTIVE_CHAT)，系统执行（root 授权）
      -> command: 返回命令结果并短路
      -> decision: 继续
-  -> workspace Profile 读取能力（CPU 分配的一部分，先于 prepare；系统执行，按管理语义读取执行者的图纸）
-  -> Patchouli PREPARE_AGENT_RUN（话题由系统准备；检索按执行者的 memory.search 授权与可见性）
-  -> CPU 分配：附件租借（系统执行）与编译、记忆编译、组装 CPUInputManifest
-  -> Actor 执行：登记主线程，把线程描述与线程句柄经 CPU 端口交给执行者（当前为 Alice，直接调用运行服务）
+  -> PREPARE：
+       -> workspace Profile 读取能力（系统执行，按管理语义读取执行者的图纸）
+       -> 以执行者与图纸派生主线程
+       -> 预检索：以主线程经操作入口进入 actor API 的检索（按执行者的 memory.search 授权与可见性）
+       -> Gateway 指向已有话题：root API 确认话题并冻结为派发话题（系统执行）；指向新话题时不建立
+       -> root API 读取存储健康；CPU 分配：附件租借（系统执行）与编译、记忆编译、组装 CPUInputManifest
+  -> Actor 执行：把主线程的线程描述与线程句柄经 CPU 端口交给执行者（当前为 Alice，直接调用运行服务）
+       新话题的第一次写入：root API 建立话题并冻结为派发话题（系统执行）
   -> CPU 结束：同步结束全部线程
-  -> 任务进程封口交互记录（InteractionPayload）
-  -> Patchouli FINALIZE_AGENT_RUN（系统执行，执行者作为参与者）
+  -> 任务进程封口交互记录（InteractionPayload），进入 FINALIZE
+  -> root API 记录预检索的命中；root API 提交交互并等待应用（系统执行，执行者作为参与者）
+  -> 追加 ConversationSession（话题取交互实际所在的话题）
   -> 释放附件租借（已接纳写入继续生成）
   -> 在进程自己的 task 中关闭进程，交付 Agent 结果（记忆任务独立经事件观察）
 ```
 
-这条三段式链路刻意把“准备知识”“执行工作”“沉淀结果”分开。若把 finalize 藏进 Alice，执行者就必须承担交互提交与 cleanup 的领域责任；若把 run 藏进 Patchouli，记忆域又会重新拥有模型执行。显式交接让每一步都可以单独失败、观测和补偿。
+这条链路刻意把“准备知识”“执行工作”“沉淀结果”分开。若把交互提交藏进 Alice，执行者就必须承担交互提交的领域责任；若把 run 藏进 Patchouli，记忆域又会重新拥有模型执行。显式交接让每一步都可以单独失败与观测。
 
 关键语义：
 
 1. Gateway 必须先形成命令终态或完整决策；
-2. Patchouli prepare 只准备话题并检索记忆，返回 `PreparedAgentRun`（未编译的检索原子）；
-3. 任务进程在 CPU 分配时解析 Agent Profile、取得附件租借、编译附件与记忆，组装 `CPUInputManifest`；CPU 消费输入清单、不透明的线程句柄（只用于提交操作请求，CPU 执行结束线程即结束）和单次生成覆盖参数，任务进程只经 CPU 端口调用它，因此执行者可以替换而不改动进程；
-4. 执行结果为 completed/cancelled/failed 且有输出时，先追加 ConversationSession，再进入 finalize；无输出、进程异常与 finalize 前断连不提交；
-5. prepare 成功但 finalize 未成功时，任务进程请求 Patchouli cleanup，清理可能预创建的空话题；附件租借无论结局如何都在进程结束时释放；
-6. 任务进程封口交互记录（只组装、不解析：交互内容只以结构化 `turn_events` 表达，由感知层解析），finalize 原样提交 interaction，并记录检索命中；WRITE/UPDATE 已在 actor 操作内独立派发；
-7. 每次阶段调用以真正执行它的身份授权：Gateway、话题准备、Profile、附件、finalize 与 cleanup 是系统级操作，由进程记录的系统 root 工作 actor 授权；prepare 的检索是执行者的 actor 操作，执行者没有 `memory.search` 时不检索，对话照常进行。交互中的执行 Agent 作为参与者显式交给 finalize，交互记录的发起者仍是它（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。
+2. 预检索是执行者的 actor 操作，以主线程经操作入口提交，与 Alice 的 SEARCH 走同一条路：按执行者的白名单授权与可见性过滤，结果经读取视图交付；执行者没有 `memory.search` 时不检索，对话照常进行；
+3. 话题按需确定，不预先建立：Gateway 指向已有话题时在 PREPARE 确认，指向新话题时在第一次写入时建立，没有写入时在交互应用时建立；因此没有任何补偿或清理话题的路径，建立后没有接收交互的话题由空闲结算或 LRU 回收；
+4. 任务进程在 CPU 分配时取得附件租借、编译附件与记忆，组装 `CPUInputManifest`；CPU 消费输入清单、不透明的线程句柄（只用于提交操作请求，CPU 执行结束线程即结束）和单次生成覆盖参数，任务进程只经 CPU 端口调用它，因此执行者可以替换而不改动进程；
+5. 执行结果为 completed/cancelled/failed 且有输出时，进入 FINALIZE 提交交互，应用之后追加 ConversationSession；无输出、进程异常与 FINALIZE 前断连不提交、不追加；附件租借无论结局如何都在进程结束时释放；
+6. 任务进程封口交互记录（只组装、不解析：交互内容只以结构化 `turn_events` 表达，由感知层解析），经 root API 的提交交互原样提交，与 Import Bus 共用同一个方法；检索命中在 Actor 有输出后经 root API 记录；WRITE/UPDATE 已在 actor 操作内独立派发；
+7. 每次阶段调用以真正执行它的身份授权：Gateway、Profile、附件、话题确认与建立、存储健康、检索命中与交互提交是系统级操作，由进程记录的系统 root 工作 actor 授权；预检索与 CPU 的请求是执行者的 actor 操作。交互中的执行 Agent 作为参与者显式交给提交，交互记录的发起者仍是它（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。
+
+阶段顺序、停止与关闭见[任务进程](../workspace/task-process.md#51-主动链路)。
 
 ## 6. Import Bus：让外部经历进入记忆，而不是伪造一次对话
 
@@ -229,13 +236,14 @@ Import Bus 属于 System 应用层，而不是 Patchouli 或 Alice 的替代 cha
 POST /api/v1/import/turns
   -> 统一认证网关：以连接器声明的 principal、接入凭据（import adapter）与 (user, 具体 Agent) 声明认证，证明来源与参与的 Agent
   -> ImportBusService：以系统自身的 principal 认证 (user, system)，只认证、不授权
-  -> ImportBusIngestor：按 (user, 参与的 Agent, source, 外部会话) 串行；以下每一步经 root API，在方法入口 root 授权（不检查 actor 操作白名单）
-     -> 推导 interaction_id，经 root API -> Patchouli interaction.status 查询进度
-     -> 写入时已确定话题：沿用该话题（第 6.1 节）；否则经 root API -> Gateway PROCESS (PASSIVE_MEMORY)：只取话题路由，不运行查询分析
+  -> ImportBusIngestor：按 (user, 参与的 Agent, source, 外部会话) 串行
+     -> 推导 interaction_id；没有输出的轮次直接 skipped
      -> core 共用封口函数 seal_interaction
-     -> root API 提交交互 -> Patchouli interaction.submit（感知队列接纳，参与的 Agent 记为发起者）
-     -> root API -> Patchouli interaction.wait：等待感知应用完成
-  -> accepted / duplicate / skipped
+     -> root API 提交交互（方法入口 root 授权一次，不检查 actor 操作白名单）：
+          -> Patchouli interaction.status 查进度：已应用的返回此前已接纳，仍在应用的等待，都不再提交
+          -> 话题：写入时已确定的沿用（第 6.1 节）；否则 Gateway PROCESS (PASSIVE_MEMORY) 只取话题路由，不运行查询分析
+          -> Patchouli interaction.submit：感知队列接纳（参与的 Agent 记为发起者），等待感知应用完成
+  -> 按结局确认：accepted / duplicate / skipped，或交回连接器重发
 ```
 
 因此，Import Bus 刻意保持较窄的能力面：
@@ -244,7 +252,7 @@ POST /api/v1/import/turns
 - 禁止系统指令分支；形如 `/clear` 的文本仍按普通外部消息处理；
 - 不运行 Alice，不生成面向用户的回复，不执行 MTP 或全局命令；
 - 与主动链路同样在认证之后由授权点组装 `IdentityScope`；导入与交互提交都是系统级操作，由系统经 root API 以 root 授权执行，不检查 actor 操作白名单，参与的 Agent 只作为数据；Import Bus 服务只认证，不授权；
-- 交互记录与任务进程使用同一个封口函数，经 Patchouli 公开提交路由进入同一条感知队列；
+- 交互记录与任务进程使用同一个封口函数，经同一个 root 方法（提交交互）进入同一条感知队列，一轮导入只做一次 root 授权；
 - 应用完成后才确认：同一轮重发得到同一 `interaction_id`，已应用返回 duplicate；等待超时以 503 交回、重发时继续等待，应用失败以 500 交回、重发时重新路由并以同一标识再次提交。Import Bus 不持有提交队列，不维护第二个 outbox，也不注册维护任务。
 
 链路、失败分类与关闭语义见 [Import Bus](../system/import-bus.md)。
@@ -256,13 +264,13 @@ POST /api/v1/import/turns
 ```text
 POST /mcp（插件 .mcp.json 声明；请求头带 principal、接入凭据、user 与 Agent 声明）
   -> mcp_server：解析声明，经统一认证网关（mcp adapter）认证一次，得到本次调用的工作 actor
-  -> 写入与更新：门面取得的 Import Bus 服务为这一轮确定话题（系统执行；连接器的 PreToolUse hook 补上轮次信息）
-  -> 门面取得的操作入口：请求级提交 execute_request（写入与更新带这一轮的话题作为派发话题）
+  -> 门面取得的操作入口：请求级提交 execute_request（写入与更新另带确定派发话题的回调）
   -> actor API：retrieve / resolve_references / submit_write_intent / submit_update_intent（按访问登记白名单逐次授权）
+       写入与更新在授权之后调用回调：门面取得的 Import Bus 服务为这一轮确定话题（系统执行；连接器的 PreToolUse hook 补上轮次信息）
   -> MemoryCompiler 呈现检索与读取结果；写入与更新返回 pending alias
 ```
 
-外部 harness 的任务对 HiveMemory 不可见，不建进程、不派生线程，每次工具调用只认证一次，工作 actor 只留在本次调用内。MCP 入口与 Alice 的 MTP 适配器同为操作适配器：都把协议调用归一为固定类型的操作请求，经同一个操作入口进入同一组 actor API 方法，入口仍是 actor API 唯一的调用方；写入与更新与主动链路共用同一意图登记与生成链路。写入发生在一轮进行之中，主动链路由 prepare 为本轮准备的话题此时不存在，Import Bus 因此在写入时为这一轮就地确定话题，这一轮结束回流时沿用该话题，写入的话题就是这一轮最终所在的话题（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。连接器把插件自身四个工具的调用标为 SEARCH、READ、WRITE、UPDATE 后导入，生成视图对检索与读取只留一行摘要、不渲染写入与更新，经 MCP 取回或显式写入的内容因此不会被再提取一遍。契约见 [MCP 记忆访问](../contracts/mcp.md)。
+外部 harness 的任务对 HiveMemory 不可见，不建进程、不派生线程，每次工具调用只认证一次，工作 actor 只留在本次调用内。MCP 入口与 Alice 的 MTP 适配器同为操作适配器：都把协议调用归一为固定类型的操作请求，经同一个操作入口进入同一组 actor API 方法，入口仍是 actor API 唯一的调用方；写入与更新与主动链路共用同一意图登记与生成链路。写入发生在一轮进行之中，而外部 harness 的一轮在 HiveMemory 没有任务进程，Import Bus 因此在写入时经 root API 的“为一轮确定话题”就地确定话题，这一轮结束回流时沿用该话题，写入的话题就是这一轮最终所在的话题（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。确定话题排在 actor API 的授权之后，没有写入许可的调用不会路由、建立话题或触发 LRU 结算。连接器把插件自身四个工具的调用标为 SEARCH、READ、WRITE、UPDATE 后导入，生成视图对检索与读取只留一行摘要、不渲染写入与更新，经 MCP 取回或显式写入的内容因此不会被再提取一遍。契约见 [MCP 记忆访问](../contracts/mcp.md)。
 
 ## 7. 生命周期顺序与设计理由
 
@@ -286,7 +294,8 @@ Gateway -> Patchouli -> Alice -> Scheduler
 - local bus 路由不得成为其他子系统的隐式 API；
 - Gateway 命令结果与普通决策互斥；
 - `PASSIVE_MEMORY` 模式不得产生命令结果；Import Bus 不检索记忆、不返回记忆上下文，只在交互应用完成后确认；
-- Alice 不直接请求 Patchouli，也不持有其 Runtime / Service；MTP 与 MCP 都经 workspace 的操作入口访问记忆能力，MCP 的请求级提交只能检索、读取、写入与更新，写入与更新的派发话题由 Import Bus 为这一轮确定；
+- Alice 不直接请求 Patchouli，也不持有其 Runtime / Service；MTP 与 MCP 都经 workspace 的操作入口访问记忆能力，MCP 的请求级提交只能检索、读取、写入与更新，写入与更新的派发话题在授权之后由 Import Bus 为这一轮确定；
+- 交互提交只有一个入口：root API 的提交交互，任务进程与 Import Bus 共用；话题只在第一次写入或交互应用时建立，没有补偿或清理话题的路径；
 - 观测事件是旁路信息，不参与业务正确性判断；
 - 当前实现是单进程异步架构，不承诺分布式投递语义。
 

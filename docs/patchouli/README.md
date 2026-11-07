@@ -29,7 +29,7 @@ last_reviewed: 2026-11-06
 
 Patchouli 是 HiveMemory 的记忆与知识子系统。若说 Gateway 决定一条输入应当如何进入系统，Alice 决定一次 Agent run 如何执行，那么 Patchouli 回答的就是另一组更缓慢、也更需要保持连续性的问题：哪些交互应形成长期资产，一条记忆如何被检索和使用，它在被修订、强化、衰减与归档时由谁维护真相。
 
-Patchouli 在公共边界接收授权点组装的 `IdentityScope`，随即拆为资源归属 `belong_to: WorkspaceIdentity` 与发起者 `from_actor: ActorIdentity`。交互提交（finalize 与 `INTERACTION_SUBMIT`）由系统以 root 授权调用，scope 的 actor 是 `system`，因此只取 scope 的归属；发起者取自显式的参与者参数，是交互中的 Agent（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。内部领域服务、存储和后台任务分别携带需要的身份字段，不继续传递或重组 scope；Topic、Memory、Artifact 的 Workspace 归属最终由各自的 Store 校验，Memory 读取再检查资源自身的 actor policy。来源与贡献者只表达 provenance，不参与授权。
+Patchouli 在公共边界接收授权点组装的 `IdentityScope`，随即拆为资源归属 `belong_to: WorkspaceIdentity` 与发起者 `from_actor: ActorIdentity`。交互提交（`INTERACTION_SUBMIT`，任务进程与 Import Bus 都经 root API 调用）由系统以 root 授权调用，scope 的 actor 是 `system`，因此只取 scope 的归属；发起者取自显式的参与者参数，是交互中的 Agent（[身份与授权](../workspace/identity-and-authorization.md#4-操作授权)）。内部领域服务、存储和后台任务分别携带需要的身份字段，不继续传递或重组 scope；Topic、Memory、Artifact 的 Workspace 归属最终由各自的 Store 校验，Memory 读取再检查资源自身的 actor policy。来源与贡献者只表达 provenance，不参与授权。
 
 Patchouli 不拥有 `WorkspaceAssetStore`；它只在成功 Interaction 后接收 `TopicAssetBinding` 这类真实使用事实，并在需要时把不透明的 asset ref 作为领域输入继续交接。Workspace 身份、资源复合键和 AssetStore 生命周期见[Workspace](../workspace/README.md)，Store 的归属接口见 [WorkspaceAsset](../workspace/assets.md#3-身份与归属)，本文只描述 Patchouli 自己的领域责任。
 
@@ -96,39 +96,42 @@ PatchouliSystem
 ### 3.1 主动 Agent 流程
 
 ```text
-GatewayDecision
-  -> Patchouli PREPARE_AGENT_RUN（root scope + 可为空的检索 scope）
-       -> prepare topic（归属取 root scope）
-       -> retrieve memories（检索 scope 的 actor 的可见性；为空时不检索）
-       -> PreparedAgentRun（话题准备结果 + 未编译的检索原子）
-  -> workspace 任务进程：CPU 分配（编译检索结果与附件，组装输入清单）
-  -> Alice RUN / RUN_STREAM
-       -> WRITE / UPDATE -> workspace actor API -> memory_intent.submit -> generation tasks
+GatewayDecision（任务进程持有）
+  -> workspace 任务进程 PREPARE
+       -> 预检索：主线程经操作入口 -> actor API（memory.search）-> patchouli.public.memory.retrieve
+       -> Gateway 指向已有话题：root API 确定话题 -> patchouli.public.topic.prepare（确认存在、刷新驻留）
+       -> root API -> patchouli.public.storage.available
+       -> CPU 分配（编译检索结果与附件，组装输入清单）
+  -> Alice（CPU 端口）
+       -> WRITE / UPDATE -> workspace actor API
+            -> 取得派发话题（新话题且本轮还没有时：root API -> patchouli.public.topic.prepare 建立话题）
+            -> memory_intent.submit -> generation tasks
   -> workspace 任务进程：封口交互记录（InteractionPayload：MTP trace、实际使用的附件）
-  -> Patchouli FINALIZE_AGENT_RUN（root scope + 参与者）
-       -> InteractionSubmissionQueue -> PerceptionFamiliar.apply_interaction
-       -> best-effort record retrieval HIT
+       -> root API -> patchouli.public.memory.record_retrieval_hits（预检索的记忆，尽力而为）
+       -> root API 提交交互 -> patchouli.public.interaction.submit（提交并等待应用）
+            -> InteractionSubmissionQueue -> PerceptionFamiliar.apply_interaction
 ```
 
-Prepare 只准备话题与检索结果，不解析 Profile、不编译记忆、不接触附件，也不运行 Alice；`PreparedAgentRun` 位于 `patchouli.contracts.prepare`，由任务进程读取并交回 finalize/cleanup。Finalize 接收任务进程封口的 `InteractionPayload` 并原样提交，先等待本轮结构化事实成功摄入话题；该 applied gate 锁定 Chat completed，之后在同一个 Active continuation 内执行 best-effort retrieval HIT，返回 `None`，不反向改写 Chat 终态。HIT 只做单批去重，不自动 retry，也不提供跨 finalize 去重。若 prepare 已创建新话题而 run 没有走到 finalize，任务进程会调用 cleanup 删除仍为空的话题。
+Patchouli 不参与任务进程的编排：它分别提供检索、话题准备、存储健康、检索命中与交互提交几项公开能力，由任务进程经操作入口或 root API 按顺序调用（[任务进程](../workspace/task-process.md)）；不解析 Profile、不编译记忆、不接触附件，也不运行 Alice。话题按需建立：Gateway 指向已有话题时在 PREPARE 确认，指向新话题时在本轮第一次写入时以 Gateway 的标题与摘要建立，没有写入则提交 `NEW_TOPIC`、在交互应用时建立；建立后没有接收交互的话题不补偿，由空闲结算、LRU 或关闭结算按没有材料的话题结束（[感知与短期话题](./perception.md#3-话题准备与-lru)）。交互提交等待本轮结构化事实成功摄入话题，结局由 root API 交回任务进程，applied 是 Chat 完成的硬成功边界。检索命中在 Actor 有输出之后、提交之前记录，只做单批去重，不自动 retry，失败不影响本轮，也不依赖提交的结局（[记忆检索](./retrieval.md#7-访问与生命力副作用)）。
 
-`PreparedAgentRun` 只保存资源归属与准备结果，不保存 scope 或任何身份。任务进程在 prepare、finalize 与 cleanup 调用前分别以系统的 root 工作 actor 授权并组装 scope；prepare 另收执行者经 `memory.search` 授权得到的检索 scope：话题与归属取 root scope，检索按检索 scope 的 actor 过滤可见性，检索 scope 为空时不检索，两份 scope 的 Workspace 不同时在任何副作用之前以 `WorkspaceMismatchError` 拒绝。finalize 另收参与者（本轮的执行 Agent），记为交互的发起者；finalize 和 cleanup 会核对准备结果的归属，拒绝越域交接。进入提交队列后的交互记录独立携带归属与本轮发起者，取消调用方等待不会让后台 continuation 重新依赖调用方的授权。
+Patchouli 的公开路由不保存跨调用的 scope 或身份。任务进程的每次 root 调用在 root API 的方法入口以系统的 root 工作 actor 授权；预检索由执行者经 actor API 以 `memory.search` 授权，没有该操作时不检索。交互提交另收参与者（本轮的执行 Agent），记为交互的发起者。进入提交队列后的交互记录独立携带归属与本轮发起者，调用方取消等待不会撤回已接纳的交互，也不会让它重新依赖调用方的授权。
 
 `WRITE` / `UPDATE` 的 ACK 表示 workspace 已登记意图且生成队列已接纳。Alice 经绑定了线程句柄的提交函数发出操作请求，actor API 在操作内经 `memory_intent.submit` 实时派发；这是主动生成的唯一生产入口。背景取过去 N 个 block 与摘要（`patchouli.generation.active_recent_blocks`，默认 5），不含当前轮；后续执行失败、取消或进程关闭都不撤回写入。Patchouli 完成生成、去重、artifact 挂载和中期存储写入后，才通过 settlement 通知 workspace registry 投影 canonical alias/UUID 或 discard/failure/cancel 终态。canonical 读取缓存由中期 Store 的独立变更事件失效，结算通知不回填原子；详情见[MemoryLibrary](./memory-library.md)与[PendingAtom](../alice/pending-atom.md)。
 
 ### 3.2 Import Bus 与话题结算
 
-Import Bus 是 System 的用例，把外部 harness 已经结束的一轮交互导入记忆网络；按外部会话串行、查重、Gateway 路由、封口、等待应用与可重试错误都由它负责。它以与任务进程共用的封口函数把整轮记录封口为结构化 `InteractionPayload`，只经 Patchouli 的公开交互路由交接，不持有提交队列：
+Import Bus 是 System 的用例，把外部 harness 已经结束的一轮交互导入记忆网络；按外部会话串行、封口与可重试错误由它负责，查重、Gateway 路由与等待应用在它调用的 root API 方法内完成。它以与任务进程共用的封口函数把整轮记录封口为结构化 `InteractionPayload`，经 root API 交给 Patchouli 的公开路由，不持有提交队列：
 
-- `patchouli.public.interaction.status` 回答该交互在提交队列中的进度（`pending`、`succeeded` 附实际所在的话题、`failed`、`unknown`，未接纳时为空），Import Bus 据此查重，并取上一轮实际所在的话题供 Gateway 话题路由失败时续接；
-- `patchouli.public.interaction.submit` 以来源 `import_bus` 提交，Gateway 判定新建话题时携带它给出的标题与摘要；
-- `patchouli.public.interaction.wait` 等待交互应用到终态或超时，Import Bus 只在应用成功后才确认这一轮。
+- `patchouli.public.interaction.status` 回答该交互在提交队列中的进度（`pending`、`succeeded` 附实际所在的话题、`failed`、`unknown`，未接纳时为空），root API 据此查重，并取上一轮实际所在的话题供 Gateway 话题路由失败时续接；
+- `patchouli.public.interaction.submit` 以来源 `import_bus` 提交并等待应用到终态或 `import_bus.apply_wait_seconds`，Gateway 判定新建话题时携带它给出的标题与摘要，Import Bus 只在应用成功后才确认这一轮；
+- `patchouli.public.interaction.wait` 等待已接纳、仍在应用的交互，重发时 root API 以它继续等待上一次提交；
+- `patchouli.public.topic.prepare` 为外部 harness 写入时的一轮确认或建立话题。
 
 交互进入 Patchouli 后，Perception 才负责将它变为 `TurnRecord` / `LogicalBlock`，加入目标话题并执行折叠或结算策略。
 
 ```text
 System Import Bus
-  -> patchouli.public.interaction.submit
+  -> root API 提交交互 -> patchouli.public.interaction.submit
   -> InteractionSubmissionQueue
   -> PerceptionFamiliar.apply_interaction
        -> MemoryPerceptionEngine.build_block（纯算法）
@@ -206,10 +209,10 @@ Patchouli 向全局调度器注册三个维护任务：
 | 责任 | 当前入口 |
 |:---|:---|
 | 子系统容器与启停 | `src/hivememory/patchouli/system.py` |
-| 公开 prepare/finalize 门面 | `src/hivememory/patchouli/service.py` |
+| 引用、检索命中与存储健康门面 | `src/hivememory/patchouli/service.py` |
 | 公开 route/event 桥接 | `src/hivememory/patchouli/runtime/bridge.py` |
 | 内部装配与 local routes | `src/hivememory/patchouli/runtime/core.py`、`route_bindings.py` |
-| 公开管理用例 | `src/hivememory/patchouli/application/` |
+| 公开管理、交互提交与话题准备用例 | `src/hivememory/patchouli/application/` |
 | 内部业务服务 | `src/hivememory/patchouli/services/`、`control/` |
 | 存储协调 | `src/hivememory/patchouli/memory_library/` |
 | 推理模型服务与驻留 | `src/hivememory/infrastructure/model_service.py`、`inference_worker.py`、`embedding/`、`rerank/` |

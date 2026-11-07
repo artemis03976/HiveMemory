@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -188,6 +189,37 @@ class RootMemoryService:
             memory_id,
             identity_scope=scope,
         )
+
+    async def record_retrieval_hits(
+        self,
+        memory_ids: Sequence[UUID],
+        *,
+        target_workspace: WorkspaceIdentity,
+        source: str,
+        actor: WorkingActor,
+    ) -> None:
+        """记录检索命中（root 授权）：为一批检索到的记忆逐条记录命中。
+
+        命中是生命周期的强化信号，由系统为任务进程的预检索记录；尽力而为，
+        单条失败只由 Patchouli 记日志。
+        """
+        scope = self._authorizer.authorize_root(actor, target_workspace)
+        await self._global_bus.request(
+            PatchouliRoutes.RECORD_RETRIEVAL_HITS,
+            tuple(memory_ids),
+            identity_scope=scope,
+            source=source,
+        )
+
+    async def storage_available(
+        self,
+        *,
+        target_workspace: WorkspaceIdentity,
+        actor: WorkingActor,
+    ) -> bool:
+        """读取存储是否可用（root 授权），供任务进程的提示词离线提示。"""
+        self._authorizer.authorize_root(actor, target_workspace)
+        return await self._global_bus.request(PatchouliRoutes.STORAGE_AVAILABLE)
 
     @staticmethod
     def _build_filters(

@@ -281,10 +281,6 @@ AfterApply = Callable[[WorkspaceIdentity, str], Awaitable[None]]
 RunCompaction = Callable[[TopicCompaction], Awaitable[None]]
 
 
-class TransientInteractionSubmissionError(RuntimeError):
-    """显式标记可由同一 interaction identity 安全重试的瞬态失败。"""
-
-
 class InteractionSubmissionHandler(
     WorkHandlerPort[InteractionSubmission | TopicCompaction, InteractionSubmissionResult | None]
 ):
@@ -363,9 +359,7 @@ class InteractionSubmissionHandler(
                 )
             return FailureDecision(action=FailureAction.FAIL, reason="topic_compaction_failed")
 
-        if isinstance(
-            error, (ConnectionError, TransientInteractionSubmissionError, TopicBusyError)
-        ):
+        if isinstance(error, (ConnectionError, TopicBusyError)):
             return FailureDecision(
                 action=FailureAction.RETRY,
                 retry_after_seconds=0.05,
@@ -477,14 +471,6 @@ class InteractionSubmissionQueue:
     @property
     def runtime(self) -> WorkQueueRuntime:
         return self._runtime
-
-    @property
-    def started(self) -> bool:
-        return self._runtime.started
-
-    @property
-    def stopped(self) -> bool:
-        return self._stopped.is_set()
 
     async def start(self) -> None:
         await self._runtime.start()
@@ -613,7 +599,7 @@ class InteractionSubmissionQueue:
                 return existing.receipt
 
             # 调用方可能在 store 已接纳、receipt 尚未投影时被取消。稳定 work ID 允许
-            # 后续 finalize 恢复该 admission，而不是再次创建 interaction。
+            # 同一交互的再次提交恢复该 admission，而不是再次创建 interaction。
             existing_record = await self._runtime.get(base_work_id)
             if existing_record is not None:
                 if _ended_without_success(existing_record.state):
@@ -669,10 +655,6 @@ class InteractionSubmissionQueue:
         )
         await self._trim_submissions_locked()
         return domain_receipt
-
-    async def is_accepted(self, interaction_id: str) -> bool:
-        """判断稳定 interaction ID 是否已经由 queue 接管。"""
-        return await self.lookup(interaction_id) is not None
 
     async def lookup(self, interaction_id: str) -> InteractionRecordView | None:
         """返回已由 queue 接管的同名 submission 的记录投影；未接纳时返回 ``None``。
@@ -746,23 +728,14 @@ class InteractionSubmissionQueue:
             await asyncio.gather(stopped_task, return_exceptions=True)
         return self._to_outcome(interaction_id, stored.receipt.work_id, record)
 
-    async def drain(
-        self,
-        ordering_key: str | None = None,
-        *,
-        timeout: float | None = 5.0,
-    ) -> int:
-        """等待已知交互进入终态，返回成功的交互数量。
+    async def drain_all(self, *, timeout: float | None = 5.0) -> int:
+        """等待已知交互与已排入的折叠项进入终态，返回成功的交互数量。
 
-        不限排序键时一并等待已排入的折叠项：系统停止时先关闭折叠再排空，
-        进行中的折叠在这里收尾并释放话题的 lease，之后的结算不会遇到占用。
+        系统停止时先关闭折叠再排空，进行中的折叠在这里收尾并释放话题的 lease，
+        之后的结算不会遇到占用。
         """
-        entries = [
-            stored
-            for stored in self._submissions.values()
-            if ordering_key is None or stored.receipt.ordering_key == ordering_key
-        ]
-        compaction_ids = list(self._compactions.values()) if ordering_key is None else []
+        entries = list(self._submissions.values())
+        compaction_ids = list(self._compactions.values())
         if not entries and not compaction_ids:
             return 0
         results = await asyncio.gather(
@@ -774,22 +747,6 @@ class InteractionSubmissionQueue:
             for record in results[: len(entries)]
             if record is not None and record.state == WorkState.SUCCEEDED
         )
-
-    async def drain_all(self, *, timeout: float | None = 5.0) -> int:
-        return await self.drain(timeout=timeout)
-
-    async def pending_count(self) -> int:
-        pending = 0
-        for stored in self._submissions.values():
-            record = await self._runtime.get(stored.receipt.work_id)
-            if record is not None and record.state not in {
-                WorkState.SUCCEEDED,
-                WorkState.FAILED,
-                WorkState.DEAD_LETTER,
-                WorkState.CANCELLED,
-            }:
-                pending += 1
-        return pending
 
     @staticmethod
     def _to_outcome(
@@ -832,6 +789,5 @@ __all__ = [
     "TopicCompaction",
     "TopicCompactionCodec",
     "TopicCompactionPort",
-    "TransientInteractionSubmissionError",
     "topic_ordering_key",
 ]

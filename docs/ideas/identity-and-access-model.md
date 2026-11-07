@@ -202,7 +202,7 @@ last_reviewed: 2026-11-06
 - 由系统以 root 身份执行的操作：
   - 取消：用户下达的指令；
   - Profile 与附件：用户的选择，对用户可见而不是对 Agent 可见，不能以错误的身份执行；
-  - Gateway 与 cleanup：面对的话题属于 Workspace；
+  - Gateway 与 cleanup：面对的话题属于 Workspace（cleanup 已于 2026-11-06 随话题按需创建删除）；
   - 交互提交：三个来源，即 controller 模式的交互提交（现在 chat 的 finalize）、plugin 模式的导入与将来的历史对话导入，都是系统级操作，Agent 不能拥有这项能力。外部 harness 不能声明 `system` 与此无关。
 - prepare 的检索以执行者的 actor 操作进行。
 - 系统组件以自己登记的 principal 经进程内 adapter 认证 `(user, system)`，取得执行 root 操作的身份，与 Profile 注入脚本的做法相同。

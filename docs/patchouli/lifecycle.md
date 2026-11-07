@@ -10,7 +10,7 @@ code_paths:
 related_contracts:
   - docs/components/runtime-and-bus.md
   - docs/contracts/routes-and-events.md
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-06
 ---
 
 # 记忆生命周期
@@ -104,7 +104,7 @@ Archive 顺序为长期 persist 后中期 delete，并在 atom 中追加 ARCHIVE
 
 ## 6. 当前调用点
 
-- Patchouli finalize 对 prepare 阶段实际注入的 memories 记录 HIT；
+- 任务进程在 Actor 有输出之后，经公开路由 `patchouli.public.memory.record_retrieval_hits` 为预检索注入的记忆记录 HIT（尽力而为，不依赖交互提交的结局）；
 - MTP/公开接口可记录 CITATION；
 - Memory management API 可记录正/负反馈；
 - Retrieval 返回时可临时刷新结果 atoms 的 vitality，但默认不持久化；

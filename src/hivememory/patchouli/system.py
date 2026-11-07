@@ -9,8 +9,10 @@
     - 实现 SubsystemProtocol 契约
 
 数据流:
-    Active: 任务进程 -> prepare_agent_run (Patchouli) -> CPU 端口 (Alice) -> finalize_agent_run (Patchouli)
-    Import: ImportBusService -> interaction.submit (公开路由) -> InteractionSubmissionQueue -> apply_interaction
+    Active: 任务进程 -> 预检索 (memory.retrieve) -> CPU 端口 (Alice) -> root API 提交交互
+            -> interaction.submit (公开路由) -> InteractionSubmissionQueue -> apply_interaction
+    Import: ImportBusService -> root API 提交交互 -> interaction.submit (公开路由)
+            -> InteractionSubmissionQueue -> apply_interaction
 
     ┌─────────────────────────────────────────┐
     │  PatchouliSystem (The Facility)         │
@@ -118,14 +120,10 @@ class PatchouliSystem(SubsystemProtocol):
             ),
         )
 
-        # 2. Patchouli 对外能力门面。主动链路与 Import Bus 共用同一条 interaction lane。
-        # 访问边界：Patchouli 是授权点以下的
-        # 资源 owner，公开方法与阶段路由只接收授权点组装的 IdentityScope，
+        # 2. Patchouli 对外能力门面。访问边界：Patchouli 是授权点以下的
+        # 资源 owner，公开方法只接收授权点组装的 IdentityScope，
         # 不接收工作 actor，也不注入共享操作授权。
-        self._service = PatchouliService(
-            bus=self.runtime.local_bus,
-            interaction_queue=self._interaction_submission_queue,
-        )
+        self._service = PatchouliService(bus=self.runtime.local_bus)
         self._memory_management_service = MemoryManagementService(
             bus=self.runtime.local_bus,
         )
@@ -135,8 +133,9 @@ class PatchouliSystem(SubsystemProtocol):
         self._agent_profile_management_service = AgentProfileManagementService(
             bus=self.runtime.local_bus,
         )
-        # 公开交互提交/意图提交用例：封装内部 queue 与生成提交链，
-        # Import Bus 等外部来源统一经此提交，不直接持有内部协作者。
+        # 公开交互提交/意图提交用例：封装内部 queue 与生成提交链。任务进程与
+        # Import Bus 共用同一条 interaction lane，都经 root API 调用这里，不直接
+        # 持有内部协作者。
         self._interaction_submission_service = InteractionSubmissionService(
             interaction_queue=self._interaction_submission_queue,
         )
@@ -238,12 +237,12 @@ class PatchouliSystem(SubsystemProtocol):
             self.unregister_maintenance_tasks(self._scheduler)
             self._maintenance_registered = False
 
-        # interaction work 不可取消；先等待所有已接纳 work 和 Active continuation
-        # 完成，再进入 perception flush，避免 handler 晚于 shutdown settlement 写入。
-        # 折叠先行关闭：排空时不再等待摘要模型，结算会带走话题的完整 blocks。
+        # interaction work 不可取消；先等待所有已接纳 work 完成，再进入
+        # perception flush，避免 handler 晚于 shutdown settlement 写入。任务进程
+        # 的提交由进程持有，系统关闭时进程服务先于 Patchouli 停止，等待已经在
+        # 那里完成。折叠先行关闭：排空时不再等待摘要模型，结算会带走话题的完整 blocks。
         self._interaction_submission_queue.close_compactions()
         await self._interaction_submission_queue.drain_all(timeout=None)
-        await self.service.drain_active_finalizations()
         await self._interaction_submission_queue.stop()
         await self.runtime.shutdown_drain()
         await self.runtime.stop_memory_generation_queue()

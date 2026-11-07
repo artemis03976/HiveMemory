@@ -5,14 +5,14 @@
 进程 task；每次任务请求创建一个状态容器 ``TaskProcess``（``task_process``），
 只持有本进程的进程记录、任务参数、工作集、线程表、进程 task 与输出通道；
 所有进程共用的执行器 ``TaskProcessRunner``（``runner``）持有编排依赖，在
-进程 task 中经全局总线的公开路由驱动 Gateway → Patchouli prepare → CPU 分配
-（``allocation``）→ Actor 执行（经组合根注入的 CPU 端口调用 CPU）→
-finalize，阶段产出写入输出通道，由流式交付订阅（``outputs``）。进程表是
+进程 task 中驱动 Gateway → PREPARE（派生主线程、预检索与 CPU 分配
+``allocation``）→ Actor 执行（经组合根注入的 CPU 端口调用 CPU）→ 经 root API
+提交交互，阶段产出写入输出通道，由流式交付订阅（``outputs``）。进程表是
 进程内共享设施，以 ``process_id`` 为键登记任务
 进程，进程记录经进程取得；取消请求经注册入口的 root 授权。
-``chat.run.*`` 观测事件由领域 emitter（``events``）投影。工作集登记关闭时
-仍需释放或补偿的资源，随进程关闭由取得它们的一方释放；Actor 阶段的执行线程
-登记在线程表中，派生、结束与解析只经线程管理（``threads``）。workspace 中
+``chat.run.*`` 观测事件由领域 emitter（``events``）投影。工作集登记这一轮的
+话题与关闭时仍需释放或等待的资源，随进程关闭由取得它们的一方处理；执行线程
+登记在线程表中，派生、结束、解析与取得派发话题只经线程管理（``threads``）。workspace 中
 ``process`` 以外的模块不得导入本子包。
 """
 

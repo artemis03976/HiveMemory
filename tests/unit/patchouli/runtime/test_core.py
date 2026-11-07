@@ -222,9 +222,6 @@ class TestRuntimeLocalRoutes:
     def test_local_routes_exclude_public_workflow_mirrors(self):
         routes = set(PatchouliLocalRoutes.ALL)
         assert not any(route.startswith("patchouli.public.") for route in routes)
-        assert not any("prepare_agent_run" in route for route in routes)
-        assert not any("finalize_agent_run" in route for route in routes)
-        assert not any("cleanup_prepared_agent_run" in route for route in routes)
 
     def test_mount_local_routes_registers_all_declared_routes(self):
         runtime = _create_runtime()

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Awaitable, Callable
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -45,6 +46,9 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger(__name__)
 
+# 请求级提交的派发话题回调：没有线程的入口在授权之后才为这一轮确定话题。
+DispatchTopic = Callable[[], Awaitable[str]]
+
 
 class ActorMemoryService:
     """actor 资源入口：每个方法在入口以工作 actor 授权，转为本次操作的 scope。
@@ -74,14 +78,15 @@ class ActorMemoryService:
         *,
         actor: WorkingActor,
         thread: ThreadHandle | None = None,
-        dispatch_topic_id: str | None = None,
+        dispatch_topic: DispatchTopic | None = None,
     ) -> PendingAtom:
         """提交 WRITE（``memory.write``），生成队列接纳后才返回 ACK。
 
-        ``thread`` 与 ``dispatch_topic_id`` 恰有其一，见 :meth:`_resolve_for_dispatch`。
+        ``thread`` 与 ``dispatch_topic`` 恰有其一，见 :meth:`_dispatch_topic`。
         """
         scope = self._authorize(actor, WorkspaceOperation.MEMORY_WRITE)
-        process_id, thread_id, topic_id = self._resolve_for_dispatch(thread, dispatch_topic_id)
+        topic_id = await self._dispatch_topic(thread, dispatch_topic)
+        process_id, thread_id = self._resolve_thread(thread)
         pending = self._intents.register_write(
             request.focus,
             belong_to=scope.workspace_identity,
@@ -97,11 +102,11 @@ class ActorMemoryService:
         *,
         actor: WorkingActor,
         thread: ThreadHandle | None = None,
-        dispatch_topic_id: str | None = None,
+        dispatch_topic: DispatchTopic | None = None,
     ) -> PendingAtom:
         """提交 UPDATE（``memory.update``）：授权后解析可读正式基础原子，登记成功才失效基础缓存。
 
-        ``thread`` 与 ``dispatch_topic_id`` 恰有其一，见 :meth:`_resolve_for_dispatch`。
+        ``thread`` 与 ``dispatch_topic`` 恰有其一，见 :meth:`_dispatch_topic`。
         """
         scope = self._authorize(actor, WorkspaceOperation.MEMORY_UPDATE)
         result = (await self._reader.resolve_references([request.base_alias], scope=scope))[0]
@@ -110,7 +115,8 @@ class ActorMemoryService:
         if result.kind != "atom" or result.atom is None:
             raise ResourceNotFoundError(details={"alias": request.base_alias})
         atom = result.atom
-        process_id, thread_id, topic_id = self._resolve_for_dispatch(thread, dispatch_topic_id)
+        topic_id = await self._dispatch_topic(thread, dispatch_topic)
+        process_id, thread_id = self._resolve_thread(thread)
         pending = self._intents.register_update(
             UpdateFocus(
                 base_alias=atom.index.alias or request.base_alias,
@@ -126,25 +132,33 @@ class ActorMemoryService:
         self._reader.evict(scope.workspace_identity, atom.id)
         return await self._dispatch(pending, topic_id=topic_id, scope=scope)
 
-    def _resolve_for_dispatch(
-        self, thread: ThreadHandle | None, dispatch_topic_id: str | None
-    ) -> tuple[str | None, str | None, str]:
-        """登记前的同步段：取得进程关联、线程标识与派发话题。
+    async def _dispatch_topic(
+        self, thread: ThreadHandle | None, dispatch_topic: DispatchTopic | None
+    ) -> str:
+        """取得这一轮的派发话题：线程提交向线程表要，请求级提交调用入口给出的回调。
 
-        线程提交给出线程句柄，请求级提交给出派发话题，二者恰有其一，否则是
-        接线缺陷，以 ``TypeError`` 拒绝。请求级提交没有线程：派发话题是调用方
-        为这一轮确定的话题，登记不带进程与线程关联。
-
-        线程提交在这里再解析一次线程，三者都取自结果。从这里到登记结束不挂起，
-        线程结束与停止都不能插入同步段；UPDATE 的基础冷读在此之前，冷读跨越
-        线程结束或停止时在这里拒绝，不产生意图。
+        二者恰有其一，否则是接线缺陷，以 ``TypeError`` 拒绝。取得派发话题可能要为
+        这一轮第一次建立话题，因此排在授权与 UPDATE 的基础冷读之后：被拒的写入
+        不会触发路由、建立话题或 LRU 结算。它也在登记的同步段之前，期间线程
+        结束或进程收到停止时，同步段照常拒绝登记。
         """
-        if thread is not None and dispatch_topic_id is None:
-            resolved = self._threads.resolve(thread)
-            return resolved.process_id, resolved.thread_id, resolved.dispatch_topic_id
-        if thread is None and dispatch_topic_id is not None:
-            return None, None, dispatch_topic_id
-        raise TypeError("写入与更新需要线程句柄或派发话题，二者恰有其一")
+        if thread is not None and dispatch_topic is None:
+            return await self._threads.dispatch_topic(thread)
+        if thread is None and dispatch_topic is not None:
+            return await dispatch_topic()
+        raise TypeError("写入与更新需要线程句柄或派发话题的回调，二者恰有其一")
+
+    def _resolve_thread(self, thread: ThreadHandle | None) -> tuple[str | None, str | None]:
+        """登记前的同步段：线程提交再解析一次线程，取得进程关联与线程标识。
+
+        请求级提交没有线程，登记不带进程与线程关联。从这里到登记结束不挂起，
+        线程结束与停止都不能插入同步段；UPDATE 的基础冷读与取得派发话题都在此
+        之前，跨越线程结束或停止时在这里拒绝，不产生意图。
+        """
+        if thread is None:
+            return None, None
+        resolved = self._threads.resolve(thread)
+        return resolved.process_id, resolved.thread_id
 
     async def _dispatch(
         self, pending: PendingAtom, *, topic_id: str, scope: IdentityScope

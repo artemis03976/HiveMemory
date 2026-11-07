@@ -79,7 +79,7 @@ HiveMemory 在产生失败的边界保留中立类型，在 HTTP、普通 MTP �
 
 ### 2.2 Agent run
 
-CPU 执行结果（`CPUExecutionResult`）的 `status` 为 `completed`、`cancelled` 或 `failed`。任务进程对有输出的三种结局封口、写入会话并 finalize；无输出、异常或 finalize 前断连执行控制收尾与 prepared cleanup。已进入 finalize 后交付方取消也必须等待提交完成。
+CPU 执行结果（`CPUExecutionResult`）的 `status` 为 `completed`、`cancelled` 或 `failed`。任务进程对有输出的三种结局封口，经 root API 提交交互并等待应用，再写入会话；无输出、异常或进入 FINALIZE 前断连不提交，只执行关闭流程（结束线程、释放附件租借）。已进入 FINALIZE 后交付方取消也必须等待提交完成。
 
 `CPUExecutionResult.failure_reason` 是可选的 `CPUFailureReason`，只在 failed 时有意义；未识别为以下类型的错误不填原因码，保留通用失败处理。Alice 按类型映射以下四种原因：
 
@@ -199,15 +199,15 @@ Import Bus 在交互应用完成之后才确认，失败按“重发能否得到
 | 同上 | 503 | `apply_pending` | 交互已被接纳，等待应用超过 `import_bus.apply_wait_seconds`；重发时查到仍在应用，只继续等待、不重复提交 |
 | 同上 | 503 | `shutting_down` | 编排器已开始关闭：认证网关关闭之前已通过认证、关闭开始后才到达，或在同一外部会话的串行门外等待的请求 |
 | `ImportBusApplyFailedError` / `import_bus.apply_failed` | 500 | —— | 交互已被接纳，但在感知应用时失败（例如提交指定的话题在应用前已被驱逐）；重发时重新路由并以同一 `interaction_id` 再次提交，失败可能反复出现，连接器有限次重试 |
-| `ImportBusContractError`（`RuntimeError`） | 500（`server.internal_error`） | —— | 下游破坏公共契约，例如 `PASSIVE_MEMORY` 返回命令结果，或已接纳的交互在等待时查不到；重发只会重复失败，不转为可重试错误 |
+| `RuntimeError`（root API 的契约检查） | 500（`server.internal_error`） | —— | 下游破坏公共契约，例如 `PASSIVE_MEMORY` 返回命令结果，或已接纳的交互在等待时查不到；重发只会重复失败，不转为可重试错误 |
 
 请求进入 Import Bus 之前的拒绝沿用 server 与访问边界的分类：请求体超过 `import_bus.max_request_bytes` 在框架解析请求体之前以 413 `request.body_too_large` 拒绝，过大且不是合法 JSON 的请求不会落成 422；请求校验失败为 422，缺少 principal 声明（`request.principal_required`）、Agent 缺失或为 `system` 为 400，凭据缺失或不一致（`invalid_credential`）与其他未获准入为 403，认证网关已关闭为 503（第 4.4 节）。其中只有认证网关关闭的 503 可以稍后重发，其余拒绝重发也不会改变结果。
 
-外部 harness 经 MCP 写入与更新之前，Import Bus 为这一轮确定话题，失败使用同一类型：Gateway 整体抛出可恢复异常为 `gateway_unavailable`，编排器关闭中为 `shutting_down`，这一轮已经提交、等待应用超时仍在应用时为 `apply_pending`。三者都直接交给等待中的写入方，写入方稍后重试即可，不发出 `import.turn.deferred`（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。
+外部 harness 经 MCP 写入与更新、actor API 授权通过之后，Import Bus 为这一轮确定话题，失败使用同一类型：Gateway 整体抛出可恢复异常为 `gateway_unavailable`，编排器关闭中为 `shutting_down`，这一轮已经提交、等待应用超时仍在应用时为 `apply_pending`。三者都直接交给等待中的写入方，写入方稍后重试即可，不发出 `import.turn.deferred`（[Import Bus](../system/import-bus.md#47-写入时确定话题)）。
 
-**提交队列的拥塞**：Patchouli 的公开提交路由在提交队列容量已满（`WorkQueueCapacityError`）或已停止（`WorkQueueStoppedError`）时抛出 `InteractionAdmissionUnavailableError`（`patchouli.interaction.admission_unavailable`，reason `capacity_rejected` / `queue_stopped`），表示队列没有接管这次提交；Import Bus 把它转为 `queue_unavailable`，因此这两种拥塞以 503 返回，不落入 500。`InteractionAdmissionUnavailableError` 本身没有 HTTP 映射，由消费它的一方翻译。
+**提交队列的拥塞**：Patchouli 的公开提交路由在提交队列容量已满（`WorkQueueCapacityError`）或已停止（`WorkQueueStoppedError`）时抛出 `InteractionAdmissionUnavailableError`（`patchouli.interaction.admission_unavailable`，reason `capacity_rejected` / `queue_stopped`），表示队列没有接管这次提交；Import Bus 把它转为 `queue_unavailable`，因此这两种拥塞以 503 返回，不落入 500；任务进程把它转为接纳阶段的 `ActiveInteractionFinalizationError`（第 4.5 节）。`InteractionAdmissionUnavailableError` 本身没有 HTTP 映射，由消费它的一方翻译。
 
-**Gateway 的失败**：Gateway 各决策步骤的失败由 Gateway 自身按 step fallback 兜底，照常返回一个决定（话题路由失败时续接上一轮的话题，否则新话题），导入按兜底结果继续。只有 Gateway 整体抛出的可恢复异常——`TimeoutError`、`GatewayTimeoutError`、`StorageOfflineError`、`StorageReadError`、`ResourceUnavailableError`——转为 `gateway_unavailable`。未知错误、授权拒绝、契约违约与原生取消原样传播，不能被“稍后重发”掩盖。
+**Gateway 的失败**：Gateway 各决策步骤的失败由 Gateway 自身按 step fallback 兜底，照常返回一个决定（话题路由失败时续接上一轮的话题，否则新话题），导入按兜底结果继续。只有 Gateway 整体抛出的可恢复异常——`TimeoutError`、`GatewayTimeoutError`、`StorageOfflineError`、`StorageReadError`、`ResourceUnavailableError`——转为 `gateway_unavailable`；查重、路由与提交在同一次 root API 调用内，Import Bus 对这次调用整体判断，其中抛出的这些异常都按这一原因交回。未知错误、授权拒绝、契约违约与原生取消原样传播，不能被“稍后重发”掩盖。
 
 可重试失败与应用失败发布 `import.turn.deferred`（reason 为 `gateway_unavailable`、`queue_unavailable`、`apply_pending` 或 `apply_failed`；`data.error_class` 只带异常类型名，等待应用得出的两种原因为空）；`shutting_down` 不发布事件（[事件契约](./routes-and-events.md#44-失败与降级观测)）。
 
@@ -218,7 +218,7 @@ Workspace 错误在资源所有者、访问边界或身份交接边界产生，�
 | Code | 语义 |
 |:---|:---|
 | `workspace.scope_required` | 缺少完整 `IdentityScope`；授权时工作 actor 的准入记录已不存在（`reason=actor_not_admitted`）；或执行线程的接线缺陷（登记的不是这一个线程句柄、子线程试图派生、CPU 结束主线程） |
-| `workspace.mismatch` | 资源与请求 Workspace 不一致，例如 prepare 返回的 scope 与授权组装的 scope 不一致，或 prepare 的检索 scope 与 root scope 不属于同一 Workspace |
+| `workspace.mismatch` | 资源与请求 Workspace 不一致，例如同一 `interaction_id` 的交互已由另一个 Workspace 提交，或 Artifact、记忆生成任务的归属与请求的 Workspace 不符 |
 | `workspace.admission_denied` | 统一认证网关的接入/准入拒绝（`details.reason` 区分阶段：`unknown_principal`、`adapter_mismatch`、`invalid_credential`、`actor_not_allowed_for_principal`、`system_actor_not_allowed`、`actor_not_owner`、`actor_not_admitted`、`authentication_gateway_closed`） |
 | `workspace.operation_denied` | 第 3 阶段授权失败（`details.reason` 区分：`target_workspace_not_resident`、`target_owner_mismatch`、`operation_not_allowed`、`root_required`） |
 | `workspace.resource.not_found` | 当前 Workspace 作用域内不存在目标资源 |
@@ -267,7 +267,7 @@ actor API 与操作入口的错误保持各自边界：每种 actor 请求缺少
 
 CALL 派生子线程时，被调用方在本 Workspace 没有准入或为保留的 `system`，认证一侧的子工作 actor 准入抛 `AdmissionDeniedError`（`actor_not_admitted` / `system_actor_not_allowed`），不登记子线程；Alice 映射为 `mtp.permission.denied`，文案键 `mtp.call.agent_unavailable`（目标 agent 不可用），与调用方缺少 `agent.call` 时的 `mtp.permission.verb_denied` 区分。子线程试图再派生抛 `ScopeRequiredError`，属于接线缺陷，Koakuma 呈现为 `mtp.system.fault`；冷读期间调用方结束或进程收到停止抛 `ThreadEndedError`（见下文）。
 
-线程已结束时，操作入口、CALL 派生与 actor API 的同步段抛 `ThreadEndedError`（`core.errors`，继承 `DomainError`，由 `workspace.contracts` 重新导出，code 为 `workspace.thread.ended`）：线程已结束（子线程随 CALL 返回，或 Actor 阶段收尾），所属进程已收到停止，或进程已经关闭、线程句柄指向的进程已不在进程表中，都属于这一种生命周期拒绝，六项 actor 操作得到同一种错误。未知请求类型（包括请求级提交收到它不开放的请求类型，或派发话题与请求类型不符）抛 `TypeError`，是接线违规；两者都与表示接线缺陷的 `ScopeRequiredError` 区分。它们没有独立 HTTP API，不新增 HTTP 映射。普通 MTP 与 CALL 将线程结束呈现为 `mtp.system.fault`，文案键 `mtp.system.thread_ended`：原线程已结束，停止操作，不重试或重新获取身份。未知入口异常使用固定系统故障文案，不暴露 cause。线程结束只是同步标记，不取消其他在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 在基础校验之后、登记之前的同步段解析线程，跨越线程结束或停止时拒绝登记；派发开始后持有提交任务直到完成，再传播调用方取消。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
+线程已结束时，操作入口、CALL 派生与 actor API 的同步段抛 `ThreadEndedError`（`core.errors`，继承 `DomainError`，由 `workspace.contracts` 重新导出，code 为 `workspace.thread.ended`）：线程已结束（子线程随 CALL 返回，或 Actor 阶段收尾），所属进程已收到停止，或进程已经关闭、线程句柄指向的进程已不在进程表中，都属于这一种生命周期拒绝，六项 actor 操作得到同一种错误。未知请求类型（包括请求级提交收到它不开放的请求类型，或派发话题的回调与请求类型不符）抛 `TypeError`，是接线违规；两者都与表示接线缺陷的 `ScopeRequiredError` 区分。它们没有独立 HTTP API，不新增 HTTP 映射。普通 MTP 与 CALL 将线程结束呈现为 `mtp.system.fault`，文案键 `mtp.system.thread_ended`：原线程已结束，停止操作，不重试或重新获取身份。未知入口异常使用固定系统故障文案，不暴露 cause。线程结束只是同步标记，不取消其他在途能力调用任务，已开始的只读操作可以自然完成；WRITE、UPDATE 取得派发话题时先判定线程存活，在授权、基础校验与取得派发话题之后、登记之前的同步段再解析一次线程，跨越线程结束或停止时拒绝登记；派发开始后持有提交任务直到完成，再传播调用方取消。外部 task cancellation 仍以 `asyncio.CancelledError` 传播。
 
 WRITE/UPDATE 登记后的派发错误携带 `pending_alias` 与 `intent_id`，不暴露内部 cause：
 
@@ -300,7 +300,7 @@ Memory 领域模型的 `validate_assignment` 使构造与就地赋值执行同�
 
 Profile 缺失和不可见统一隐藏为 `ResourceNotFoundError`；已找到但类型/配置不适用时为 `ProfileResolutionError`，reason 仅为 `type_mismatch` / `invalid_config`，必须携带 `agent_alias`。CALL 在出口转为既有 MTP 类别，CPU 分配按失败收尾，两者都不回退默认 Profile。
 
-Topic 缺失使用 `ResourceNotFoundError`，忙碌使用 `TopicBusyError`，明确的容量/停止接纳使用 `TopicSettleAdmissionError`。Active finalize 以 `ActiveInteractionFinalizationError` 保留 admission/apply 阶段；未知提交失败为 `admission_unknown`，类名放在诊断字段 `error_class`，不能据此声称可安全重试。生成任务的明确拒绝仅覆盖接纳前 codec、lane、容量与停止错误；任意 TypeError/ValueError、重复任务或未知队列失败保留 UNKNOWN 与原句柄结算权。
+Topic 缺失使用 `ResourceNotFoundError`，忙碌使用 `TopicBusyError`，明确的容量/停止接纳使用 `TopicSettleAdmissionError`。任务进程的交互提交没有跨过成功边界时，进程以 `ActiveInteractionFinalizationError`（`patchouli.interaction.finalization_failed`）失败：`stage` 为 `interaction_admission` 时接纳被拒，`reason` 取 `capacity_rejected` / `queue_stopped`；为 `interaction_apply` 时接纳后没有应用成功，`reason` 为 `apply_failed`（异常类名放在诊断字段 `error_class`），不设时限的等待停在应用之前只会因队列停止，`reason` 为 `queue_stopped`。其他提交异常原样传播，不能据此声称没有副作用。交互没有应用成功时（含提交异常），会话仍保存这一轮，话题为空；进程按失败收口，`chat.run.failed` 的 `reason` 为 `task_process_failed`，SSE 交付通用的 `error` 事件。生成任务的明确拒绝仅覆盖接纳前 codec、lane、容量与停止错误；任意 TypeError/ValueError、重复任务或未知队列失败保留 UNKNOWN 与原句柄结算权。
 
 ### 4.6 模型调用错误
 
@@ -353,7 +353,7 @@ issues  可选列表，每项仅 loc / type / message
 
 管理凭据缺失或不一致时，中间件在路由之前以 401 `request.management_credential_invalid` 拒绝，带 `WWW-Authenticate: Bearer`，响应体同样是这个信封、说明文字不含凭据；WebSocket 在接受之前以 1008 关闭，不使用信封（[认证与访问登记](../workspace/authentication.md#1-两阶段认证)第 1 节）。请求校验为 422；配置路由手动校验仍为 400。issues 不包含原始 input、校验 ctx 或任意 validator 原文。显式传输拒绝用 `APIError` 的受控类别；未知 `HTTPException` 保留 status/headers，但 detail 替换为固定提示。未知程序错误为 500、`server.internal_error` 和固定说明。资源缺失/不可见继续隐藏为 404，Topic busy 为 409，确认的依赖或接纳不可用为 503；不能从 503 推断副作用尚未发生。
 
-SSE 开始后由进程流内投影输出安全 code/message，不能改 HTTP status；CPU failure_reason、事件名、部分输出与 finalize 规则保持独立。readiness、静态文件、WebSocket 和正常业务 outcome 不强制使用错误信封。`/runtime-events` 的 disabled 503 仍返回其业务状态 DTO。
+SSE 开始后由进程流内投影输出安全 code/message，不能改 HTTP status；CPU failure_reason、事件名、部分输出与交互提交规则保持独立。readiness、静态文件、WebSocket 和正常业务 outcome 不强制使用错误信封。`/runtime-events` 的 disabled 503 仍返回其业务状态 DTO。
 
 前端 `services/apiError.ts` 是响应解析入口，普通服务与 SSE 握手共用它；保留各服务的状态异常类。已知旧 `detail`/`message` 字符串、`detail.message` 字符串和 422 校验列表可读取；未知对象、HTML、空体回落为带 status 的安全默认提示，AbortError 继续传播。完整消费规则见[前端传输](../frontend/state-and-transports.md)。
 

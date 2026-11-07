@@ -59,7 +59,7 @@ MTP 是 Alice Agent 在生成循环中调用记忆、系统工具和子 Agent �
 
 Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格式化结果回填到消息历史，再继续生成。CALL 的 `suspend` 由 Alice `RunExecutor`/`CallCoordinator` 消费，不直接回填为空结果；Koakuma 只产出结构化 `MTPCallRequest`，目标 Profile 与 `context_refs` 由 `CallContextProvider` 在 Alice 编排边界解析。Executor 递归等待被调用 frame，完成后由 `AgentRuntime.apply_call_response()` 一次性写回 caller history 和 `tool_result`。
 
-每条指令的 `MTPExecutionContext` 从当前 frame 冻结得到，其中 `RuntimeScope` 只携带执行关联与只读 `ExecutionLabels`，不含 `IdentityScope`。任务进程进入 Actor 阶段时派生主线程，CPU 驱动把它的线程句柄绑定为主 frame 的提交函数；CALL 派生的子 frame 得到以被调用方身份准入的子线程与自己的提交函数。每个 frame 的观测标签取所属线程的描述：主 frame 为注册标签，子 frame 为被调用方。子线程随 CALL 返回结束，Actor 阶段结束时全部线程结束，此后的提交被拒绝。请求不能自行指定目标或 process_id：actor API 以线程的工作 actor 授权，目标取它的驻留 Workspace，意图的进程关联与线程标识取自线程表的解析；READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别要求 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，各项互不隐含（RUN 不要求 READ，WRITE 不授予 UPDATE）；RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求；CPU 或 CALL 子帧失败均不撤回已接纳写入。资源归属与 actor policy 仍逐次校验。
+每条指令的 `MTPExecutionContext` 从当前 frame 冻结得到，其中 `RuntimeScope` 只携带执行关联与只读 `ExecutionLabels`，不含 `IdentityScope`。任务进程在 PREPARE 开始时派生主线程（预检索以它提交），进入 Actor 阶段时交给 CPU，CPU 驱动把它的线程句柄绑定为主 frame 的提交函数；CALL 派生的子 frame 得到以被调用方身份准入的子线程与自己的提交函数。每个 frame 的观测标签取所属线程的描述：主 frame 为注册标签，子 frame 为被调用方。子线程随 CALL 返回结束，Actor 阶段结束时全部线程结束，此后的提交被拒绝。请求不能自行指定目标或 process_id：actor API 以线程的工作 actor 授权，目标取它的驻留 Workspace，意图的进程关联与线程标识取自线程表的解析；READ、SEARCH、RUN 的记忆目标、WRITE、UPDATE 与 CALL 目标读取分别要求 actor 操作 `memory.read`、`memory.search`、`memory.run`、`memory.write`、`memory.update` 与 `agent.call`，各项互不隐含（RUN 不要求 READ，WRITE 不授予 UPDATE）；RUN 的 `sys_*` 系统工具在 Alice 本地执行，不提交请求；CPU 或 CALL 子帧失败均不撤回已接纳写入。资源归属与 actor policy 仍逐次校验。
 
 ## 3. 动词契约
 
@@ -77,7 +77,8 @@ Agent loop 检测 MTP 文本后暂停自然语言生成，执行指令并把格�
 - 提交 `RetrieveRequest` 经 workspace 语义检索能力读取，不指定 `top_k`，条数由检索引擎配置的 `retrieval.default_top_k`（默认 5）决定；
 - 结果由 MemoryCompiler 编译为 Retrieval Context；
 - 读取能力预热 workspace 完整原子缓存，后续交付仍重新检查当前 actor 的可见性；
-- 空结果仍为 `success`，并带 `no_memories_found` warning。
+- 空结果仍为 `success`，并带 `no_memories_found` warning；
+- 不记录检索命中：命中只为任务进程的预检索、在 Actor 有输出之后记录（[记忆检索](../patchouli/retrieval.md#7-访问与生命力副作用)）。
 
 SEARCH 返回可继续消费的检索上下文，而不是把“没有找到”当成系统故障。检索本身具有不确定性，空结果只说明当前查询没有证据；Agent 仍可以改写查询、继续回答或明确告知信息不足。
 
@@ -127,8 +128,9 @@ RUN 被保留在记忆协议中，是因为一部分记忆不仅需要被阅读�
 - `content` 必填；`title`、`reason` 可选；
 - 提交 `SubmitWriteIntentRequest`，workspace 登记 MATERIALIZING 意图并立即经 Patchouli 意图路由派发，生成队列接纳后返回 `ack + pending_alias`；同 Workspace 的其他 Agent 可经读取许可回读；
 - 不在 Koakuma 内同步创建正式 MemoryAtom；
-- 派发话题来自任务进程，与 CPU 输入清单一致，生成材料取过去的 block 与摘要，不含当前轮；
-- CPU 结果与 `InteractionPayload` 都不携带物化任务，finalize 只处理完成的交互与预检索命中。
+- 派发话题是进程这一轮的话题：Gateway 指向已有话题时是 PREPARE 确认的话题；指向新话题时，本轮第一次写入由进程以 Gateway 的标题与摘要建立话题，之后的写入（含 CALL 子帧）共用它（[执行线程](../workspace/execution-threads.md#8-派发话题)）。生成材料取过去的 block 与摘要，不含当前轮；
+- 建立话题失败（例如活跃池已满且 LRU 候选都被占用）时这次写入以 `mtp.system.fault` 回填，不登记意图，下一次写入重新建立；
+- CPU 结果与 `InteractionPayload` 都不携带物化任务，交互提交不派发写入。
 
 ACK 表示意图已在 workspace 登记并被生成队列接纳，不表示长期记忆已经持久化。确定性拒绝返回 `mtp.memory.intent_rejected`（agent_fault），句柄为 FAILED；结果未知返回 `mtp.memory.intent_unknown`（system_fault），句柄保持 MATERIALIZING，若实际已接纳可继续收到结算。两类错误都不返回 ACK，详见[错误模型](./error-model.md)。
 
@@ -144,7 +146,7 @@ ACK 表示意图已在 workspace 登记并被生成队列接纳，不表示长�
 - 目标必须解析为请求方可读的正式 atom；pending 与结算 redirect 句柄不能再次 UPDATE；
 - 提交 `SubmitUpdateIntentRequest`，注册以原记忆 UUID 为基线的 pending revision；基础校验不属于引用交付、不记录 citation；pending revision 只对能读取基础原子的 Agent 可回读，读不到基础时在任何状态下都与不存在相同，以它为目标再次 UPDATE 也按不存在拒绝；
 - 使 workspace 共享完整原子缓存中的基础原子及 alias 索引失效，防止后续脏读；
-- 基础冷读之后同步复查线程、读取进程话题并登记，立即提交到 Patchouli；接纳后返回 `ack + pending_alias`，正式更新由后台生成链处理，失败和取消规则与 WRITE 一致。
+- 基础冷读之后取得进程这一轮的派发话题（规则同 WRITE），再同步复查线程并登记，立即提交到 Patchouli；接纳后返回 `ack + pending_alias`，正式更新由后台生成链处理，失败和取消规则与 WRITE 一致。
 
 UPDATE 同样不原地覆盖旧记忆。它以正式 atom 为基线创建 pending revision，使当前 run 能表达修订意图，又保留旧版本和来源链；workspace 共享完整原子缓存中的基础原子及 alias 索引立即失效，是为了避免 Agent 在同一轮继续把待修订内容当成无变化的权威事实。
 
@@ -244,7 +246,7 @@ Formatter 把 handler、MemoryCompiler、i18n 和 CALL 提供的动态值都视�
 2. parser 是否只解析结构，Runtime 是否保留 Profile 权限、类型与取消检查，workspace 是否保留逐次操作授权和资源身份边界？
 3. alias 是否仍由运行时解析，还是模型或 handler 开始把可读名称直接当成正式记忆 id？
 4. WRITE/UPDATE 的 `ack` 或 PendingAtom 是否被调用方、UI 或 Agent 文案描述为已经持久化成功？
-5. 延迟意图是否只在完成的 run 中进入 finalize，失败和取消是否仍不会默认污染长期记忆？
+5. 写入意图是否仍在操作内实时派发、不依赖交互提交，失败和取消是否既不撤回已接纳的写入，也不默认污染长期记忆？
 6. CALL 的 `suspend` 是否仍交给 Alice 调度器恢复，还是被 formatter 当成普通 response 吞掉？
 7. RUN 的权限检查是否被误写成强安全沙箱，redirect 或代码记忆来源是否失去可见提示？
 8. error/warning 是否仍给 Agent 提供可执行的修正信息，同时不泄漏内部 cause？

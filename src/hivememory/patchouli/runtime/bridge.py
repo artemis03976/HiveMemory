@@ -174,16 +174,8 @@ class PatchouliBridge:
                 self._public_api.memory_intents.submit_memory_intent,
             ),
             RouteBinding.of(
-                PatchouliRoutes.PREPARE_AGENT_RUN,
-                self._public_api.chat.prepare_agent_run,
-            ),
-            RouteBinding.of(
-                PatchouliRoutes.FINALIZE_AGENT_RUN,
-                self._public_api.chat.finalize_agent_run,
-            ),
-            RouteBinding.of(
-                PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN,
-                self._public_api.chat.cleanup_prepared_agent_run,
+                PatchouliRoutes.PREPARE_TOPIC,
+                self._public_api.topics.prepare_topic,
             ),
             RouteBinding.of(
                 PatchouliRoutes.MANUAL_SETTLE_TOPIC,
@@ -196,6 +188,14 @@ class PatchouliBridge:
             RouteBinding.of(
                 PatchouliRoutes.RECORD_MEMORY_CITATION,
                 self._public_api.chat.record_memory_citation,
+            ),
+            RouteBinding.of(
+                PatchouliRoutes.RECORD_RETRIEVAL_HITS,
+                self._public_api.chat.record_retrieval_hits,
+            ),
+            RouteBinding.of(
+                PatchouliRoutes.STORAGE_AVAILABLE,
+                self._public_api.chat.storage_available,
             ),
             RouteBinding.of(
                 PatchouliRoutes.WARMUP_MODELS,

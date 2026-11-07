@@ -17,7 +17,7 @@ related_docs:
   - docs/workspace/README.md
   - docs/contracts/subsystem-contracts.md
   - docs/patchouli/artifacts.md
-last_reviewed: 2026-10-27
+last_reviewed: 2026-11-06
 ---
 
 # 跨子系统幂等性与重试治理
@@ -30,14 +30,14 @@ HiveMemory 的后台任务、Artifact、MemoryAtom、Import Bus、PendingAtom �
 
 | 操作 | 当前已有基础 | 当前缺口 |
 |:---|:---|:---|
-| Import Bus | 同一轮重发得到同一 `interaction_id`（由认证通过的 principal、user、Agent 与 `source`、外部会话、外部轮次推导）；同一外部会话串行处理；经 Patchouli 交互状态查询判重：已应用返回 duplicate，仍在应用只继续等待，应用失败后重新路由并以同一标识再次提交；应用完成后才确认 | 判重依赖提交队列的进程内记录，终态记录与旁路索引都有保留上限；接纳之后、确认送达之前服务重启，或超出保留窗口后重发，会形成重复交互 |
-| Interaction submission | 主动链路与 Import Bus 共享 apply、ordering key 与有限 retry；明确瞬态异常复用同一 `interaction_id`；应用失败（终态未成功）的交互允许以同一 `interaction_id` 重新提交新 payload，以递增尝试号区分工作项，等待中与已成功的仍按原规则幂等；应用把 block 写入话题是最后一个可能失败的步骤，未成功的应用没有写入，重新提交不会重复写入，感知一侧不另设应用记录 | retry 结果与跨重启 operation record 仍未耐久化；模糊失败 reconciliation 尚未完成 |
+| Import Bus | 同一轮重发得到同一 `interaction_id`（由认证通过的 principal、user、Agent 与 `source`、外部会话、外部轮次推导）；同一外部会话串行处理；经 root API 的提交交互判重（方法内查询交互进度）：已应用返回 duplicate，仍在应用只继续等待，应用失败后重新路由并以同一标识再次提交；应用完成后才确认 | 判重依赖提交队列的进程内记录，终态记录与旁路索引都有保留上限；接纳之后、确认送达之前服务重启，或超出保留窗口后重发，会形成重复交互 |
+| Interaction submission | 主动链路与 Import Bus 共用 root API 的同一个提交入口，共享 apply、ordering key 与有限 retry；明确瞬态异常复用同一 `interaction_id`；应用失败（终态未成功）的交互允许以同一 `interaction_id` 重新提交新 payload，以递增尝试号区分工作项，等待中与已成功的仍按原规则幂等；应用把 block 写入话题是最后一个可能失败的步骤，未成功的应用没有写入，重新提交不会重复写入，感知一侧不另设应用记录 | retry 结果与跨重启 operation record 仍未耐久化；模糊失败 reconciliation 尚未完成 |
 | Memory generation | TaskController 只写一次终态，lane 固定单次 attempt | 任务失败后的部分副作用仍可能无法确认；task id 是运行句柄，不自动等同业务幂等键 |
 | PendingAtom settlement | workspace `WriteIntentRegistry` 按 alias/intent_id 校验；登记生成唯一 intent_id，生成侧以 `active:{intent_id}` 幂等；同步拒绝与结算通知幂等，终态不再被后续通知重写 | registry 进程内，resolution 与重复 settlement 缺少耐久唯一约束、跨重启 replay 和通知未送达对账 |
 | Artifact | 随机 artifact id、hash 校验和 ref | `put()` 没有 compare-and-set，调用方仍需保证 id 一次性；artifact 写入和 atom upsert 不原子 |
 | MemoryAtom update | version 字段和 UPDATE artifact | 版本冲突、重复 UPDATE、CREATE/UPDATE/TOUCH 重放的业务结果需要统一 |
 | archive/revive | MemoryLibrary 编排跨层搬运，GC 会检查已归档 | 中间失败可能产生重复副本；重复 archive/revive 的返回语义未形成公共规则 |
-| Retrieval HIT | finalize 内有单批 `seen` 去重和 best-effort 记录入口 | 有意不提供跨 finalize 去重、retry 或耐久 event key；允许少量遗漏或重复 |
+| Retrieval HIT | 任务进程在 Actor 有输出后经 root API 记录，公开路由内有单批 `seen` 去重和 best-effort 记录 | 有意不提供跨轮去重、retry 或耐久 event key；允许少量遗漏或重复 |
 | CITATION/feedback | 生命周期事件入口已经存在 | 若未来被提升为必须恢复的用户事实，再为其定义稳定身份与重复语义 |
 | Work Queue | 当前进程内 Runtime 携带 lane 级 `idempotency_key`；Interaction 与 Memory Generation payload 独立保存 `belong_to` 与 `from_actor`，不保存 `IdentityScope`，并提供有限 retry 的 at-least-once 机械能力 | Store 尚无跨重启唯一约束；lane、ordering、registry 与 idempotency key 不因 Workspace 自动分区，业务 consumer 必须检查资源归属与适用的 actor policy；当前契约不含 lease，通用 key 不能替代领域对重复副作用的解释 |
 
@@ -64,7 +64,7 @@ canonical 变更失效只清除派生缓存并推进 Workspace 代次，不回�
 | 可重建投影 | 从 Interaction 或 MemoryAtom 派生的索引、摘要和视图 | 保留权威事实，失败后重新派生；不为每一步建立独立状态机 |
 | 统计与可观测信号 | Retrieval HIT、RuntimeEvent | best-effort；允许丢失或重复，不自动 retry |
 
-不得仅因为一个函数位于 finalize、后台协程或队列 handler 中，就默认把它提升为可恢复业务操作。新增幂等记录前，必须先证明重复或遗漏会破坏权威业务状态，而不是只造成可接受的统计误差。
+不得仅因为一个函数位于交互提交、后台协程或队列 handler 中，就默认把它提升为可恢复业务操作。新增幂等记录前，必须先证明重复或遗漏会破坏权威业务状态，而不是只造成可接受的统计误差。
 
 ### 2.3 可恢复操作的默认交付模型
 
@@ -96,7 +96,7 @@ at-least-once delivery
 | MemoryAtom update | `memory_id + expected_version + operation_id` | 同一 operation 重放返回原 version；不同版本冲突进入 retry/merge |
 | Artifact put | `artifact_id + content_hash` | 相同内容返回已有 ref；同 id 不同内容拒绝覆盖 |
 | Archive/revive | `memory_id + transition_id + target_state` | 已完成步骤返回已完成；中间态按 saga 恢复，不复制副本 |
-| Retrieval HIT | 无跨请求 key | 同批检索结果按 memory id 去重；跨 finalize 的少量重复或遗漏属于可接受统计误差 |
+| Retrieval HIT | 无跨请求 key | 同批检索结果按 memory id 去重；跨轮的少量重复或遗漏属于可接受统计误差 |
 | CITATION/feedback | 仅在升级为可恢复业务事实后定义显式 event id | 同一用户事实是否只计一次由届时的产品契约决定 |
 | Work item enqueue | `(lane, idempotency_key)` | 返回已有 work record，不能因为重试产生两个 handler 执行 |
 
@@ -168,4 +168,4 @@ reconciliation，而不是无限重试。LLM client 在单次 generation attempt
 
 ## 7. 依赖与不采用方案
 
-被明确列为可恢复的工作依赖[运行时状态持久化与故障恢复](./durability-and-recovery.md)提供耐久记录，也可以复用 [System 当前 Local Work Queue Runtime](../../components/runtime-and-bus.md#3-local-work-queue-runtime) 的队列机械能力。本文不要求所有 finalize 步骤进入队列，不引入全局万能 DedupService，不承诺 exactly-once，不用 RuntimeEvent 作为去重数据库，也不为 Retrieval HIT 等 best-effort 信号建立专用控制组件或持久化 marker。
+被明确列为可恢复的工作依赖[运行时状态持久化与故障恢复](./durability-and-recovery.md)提供耐久记录，也可以复用 [System 当前 Local Work Queue Runtime](../../components/runtime-and-bus.md#3-local-work-queue-runtime) 的队列机械能力。本文不要求任务进程的提交与收尾步骤都进入队列，不引入全局万能 DedupService，不承诺 exactly-once，不用 RuntimeEvent 作为去重数据库，也不为 Retrieval HIT 等 best-effort 信号建立专用控制组件或持久化 marker。

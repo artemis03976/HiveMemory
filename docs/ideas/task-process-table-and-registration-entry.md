@@ -52,13 +52,13 @@ last_reviewed: 2026-11-06
 
 owner（2026-09-28）决定：收尾阶段等到交互被提交队列接纳，进程即可关闭，不再等待 applied。附件租借因此在接纳时随进程关闭释放；Artifact promotion 在生成时按 `binding.asset_ref` 重新取得内容（[Chat 附件链路](../system/attachments.md)第 4 节），不依赖本轮的租借（分析）。
 
-owner（2026-10-13）决定这一项暂时不实施，与话题是否预建一起随外部会话与流式同步的设计决定（[外部会话 Idea](./external-session-and-topic-projection.md)；容器形态见[长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md)开头的方向）。2026-11-06 owner 重新打开话题按需创建（[外部会话 Idea](./external-session-and-topic-projection.md#10-交互提交收束与话题按需创建)第 10 节）；本项不在其中，那里的候选设计里进程仍等交互应用完成，因为会话与 `done` 需要实际所在的话题。
+owner（2026-10-13）决定这一项暂时不实施，与话题是否预建一起随外部会话与流式同步的设计决定（[外部会话 Idea](./external-session-and-topic-projection.md)；容器形态见[长时间运行 Agent Idea](./long-running-agent-intra-turn-context-folding.md)开头的方向）。2026-11-06 owner 重新打开话题按需创建（[外部会话 Idea](./external-session-and-topic-projection.md#10-交互提交收束与话题按需创建)第 10 节），同日实施（[归档计划](../archive/plans/interaction-submission-and-topic-on-demand.md)）；本项不在其中，进程仍等交互应用完成，因为会话与 `done` 需要实际所在的话题。
 
 **取舍**：曾考虑两阶段关闭（运行中 → 结算中 → 关闭），它需要在进程表中保留不占用执行单元的进程，并定义保留窗口、容量与停机处理；写入意图由 workspace 登记、与进程解耦之后，这些都不再需要。
 
 ### 2.2 Profile 解析回到 CPU 分配
 
-Profile 属于 CPU 分配，但现在提前到 prepare 之前解析，因为 prepare 可能新建 Topic、按 LRU 结算已有话题，这些副作用不可逆。Topic 的新建与驱逐改到交互提交之后，Profile 才能回到 prepare 之后的 CPU 分配步骤；它与 2.1 一样取决于话题是否预建。2026-11-06 owner 决定不再预建（[外部会话 Idea](./external-session-and-topic-projection.md#10-交互提交收束与话题按需创建)第 10 节），这个前提随该方向实施成立，移动时点尚未安排。
+Profile 属于 CPU 分配，但现在提前到 prepare 之前解析，因为 prepare 可能新建 Topic、按 LRU 结算已有话题，这些副作用不可逆。Topic 的新建与驱逐改到交互提交之后，Profile 才能回到 prepare 之后的 CPU 分配步骤；它与 2.1 一样取决于话题是否预建。2026-11-06 起不再预建（[外部会话 Idea](./external-session-and-topic-projection.md#10-交互提交收束与话题按需创建)第 10 节），这个前提已经成立；但主线程同时改为在 PREPARE 开始时以 Profile 派生，预检索与已有话题的确认都由它执行，Profile 因此仍需在 PREPARE 开头解析，移回 CPU 分配要先改变主线程的派生时点。移动时点尚未安排。
 
 ### 2.3 进程记录与工作集的剩余槽位
 

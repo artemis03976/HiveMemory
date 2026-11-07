@@ -9,7 +9,12 @@ from hivememory.components.events.bus import NullRuntimeEventSink
 from hivememory.components.events.publisher import RuntimeEventPublisher
 from hivememory.components.scheduler.global_scheduler import GlobalMaintenanceScheduler
 from hivememory.config.workspace import WorkspaceSessionConfig
+from hivememory.core.constants import SYSTEM_AGENT_ID
+from hivememory.core.models import ActorIdentity
+from hivememory.patchouli.application import InteractionSubmissionService
+from hivememory.patchouli.contracts.errors import InteractionAdmissionUnavailableError
 from hivememory.patchouli.contracts.local_routes import PatchouliLocalRoutes
+from hivememory.patchouli.control.interaction_submission import InteractionSubmissionQueue
 from hivememory.patchouli.runtime.bus import PatchouliBus
 from hivememory.patchouli.runtime.core import PatchouliRuntime
 from hivememory.patchouli.system import PatchouliSystem
@@ -23,7 +28,8 @@ from hivememory.system.system import HiveMemorySystem
 from hivememory.workspace.assets.store import InMemoryWorkspaceAssetStore
 from hivememory.workspace.authentication import ActorAuthenticationGateway
 from hivememory.workspace.sessions import ConversationSessionService
-from tests.helpers.workspace import make_workspace_read_view
+from tests.helpers.sessions import make_interaction_payload
+from tests.helpers.workspace import make_identity_scope, make_workspace_read_view
 
 
 def _build_runtime_with_local_bus():
@@ -90,7 +96,6 @@ def mock_patchouli():
     p._interaction_submission_queue.drain_all = AsyncMock(return_value=0)
     p._interaction_submission_queue.stop = AsyncMock()
     p.service = MagicMock()
-    p.service.drain_active_finalizations = AsyncMock()
     p.start = PatchouliSystem.start.__get__(p, PatchouliSystem)
     p.stop = PatchouliSystem.stop.__get__(p, PatchouliSystem)
     p.health = PatchouliSystem.health.__get__(p, PatchouliSystem)
@@ -198,6 +203,45 @@ class TestHiveMemorySystemLifecycle:
         assert not scheduler.is_running
 
     @pytest.mark.asyncio
+    async def test_stop_applies_process_submissions_before_stopping_submission_queue(
+        self, system_factory, mock_patchouli
+    ):
+        """任务进程在关闭中提交的交互照常应用：提交队列在进程服务关闭之后才停止。"""
+        queue = InteractionSubmissionQueue(AsyncMock(return_value="topic-real"))
+        mock_patchouli._interaction_submission_queue = queue
+        submissions = InteractionSubmissionService(interaction_queue=queue)
+        outcomes = []
+
+        async def shutdown_process_service():
+            # 进程服务关闭时等待进程持有的提交结束；提交经交互提交 API 等待应用。
+            outcomes.append(
+                await submissions.submit_interaction(
+                    identity_scope=make_identity_scope(user_id="u1", agent_id=SYSTEM_AGENT_ID),
+                    participant=ActorIdentity(user_id="u1", agent_id="a1"),
+                    payload=make_interaction_payload("问题", "回答"),
+                    interaction_id="process_in_shutdown",
+                )
+            )
+
+        system = system_factory(process_service=MagicMock(shutdown=shutdown_process_service))
+
+        await system.start()
+        await system.stop()
+
+        assert [(outcome.state, outcome.topic_id) for outcome in outcomes] == [
+            ("succeeded", "topic-real")
+        ]
+        # 系统停止之后提交队列已经停止，新的提交不再被接纳。
+        with pytest.raises(InteractionAdmissionUnavailableError) as rejected:
+            await submissions.submit_interaction(
+                identity_scope=make_identity_scope(user_id="u1", agent_id=SYSTEM_AGENT_ID),
+                participant=ActorIdentity(user_id="u1", agent_id="a1"),
+                payload=make_interaction_payload("迟到的问题", "回答"),
+                interaction_id="after_stop",
+            )
+        assert rejected.value.details["reason"] == "queue_stopped"
+
+    @pytest.mark.asyncio
     async def test_stop_without_start_is_noop(self, system_factory, mock_patchouli):
         system = system_factory()
         await system.stop()
@@ -219,18 +263,8 @@ class TestPatchouliSystemLocalRoutes:
         patchouli._interaction_submission_queue.drain_all = AsyncMock(return_value=0)
         patchouli._interaction_submission_queue.stop = AsyncMock()
         patchouli.service = MagicMock()
-        patchouli.service.drain_active_finalizations = AsyncMock()
-        patchouli.service.prepare_agent_run = AsyncMock()
-        patchouli.service.finalize_agent_run = AsyncMock()
-        patchouli.service.cleanup_prepared_agent_run = AsyncMock()
         patchouli.start = PatchouliSystem.start.__get__(patchouli, PatchouliSystem)
         patchouli.stop = PatchouliSystem.stop.__get__(patchouli, PatchouliSystem)
-
-        public_only_routes = {
-            "service.prepare_agent_run",
-            "service.finalize_agent_run",
-            "service.cleanup_prepared_agent_run",
-        }
 
         assert not set(PatchouliLocalRoutes.ALL).intersection(runtime.local_bus.list_routes())
 
@@ -238,18 +272,15 @@ class TestPatchouliSystemLocalRoutes:
 
         routes = set(runtime.local_bus.list_routes())
         assert set(PatchouliLocalRoutes.ALL).issubset(routes)
-        assert public_only_routes.isdisjoint(routes)
 
         await patchouli.stop()
 
         routes = set(runtime.local_bus.list_routes())
         assert not set(PatchouliLocalRoutes.ALL).intersection(routes)
-        assert public_only_routes.isdisjoint(routes)
         runtime.shutdown_drain.assert_awaited_once()
         runtime.start_memory_generation_queue.assert_awaited_once()
         runtime.stop_memory_generation_queue.assert_awaited_once()
         runtime.stop_inference_workers.assert_awaited_once()
         patchouli._interaction_submission_queue.start.assert_awaited_once()
         patchouli._interaction_submission_queue.drain_all.assert_awaited_once_with(timeout=None)
-        patchouli.service.drain_active_finalizations.assert_awaited_once()
         patchouli._interaction_submission_queue.stop.assert_awaited_once()

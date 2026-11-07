@@ -1,4 +1,4 @@
-"""附件选择跨阶段集成验收（prepare 拆分后由进程 CPU 分配承担）。
+"""附件选择跨阶段集成验收：由任务进程的 CPU 分配承担。
 
 从解析交接的真实出口出发：真实上传应用服务（真实 text parser）把文件推进
 到 EXTRACTED_TEXT READY，随后 chat 任务进程在 CPU 分配边界按用户选择顺序
@@ -15,7 +15,12 @@ import pytest
 from hivememory.components.bus.global_bus import GlobalSystemBus
 from hivememory.config.attachments import AttachmentParserConfig
 from hivememory.core.errors import AssetRemovedError
-from hivememory.core.models import ActorIdentity, AttachmentSelectionRequest
+from hivememory.core.models import (
+    OMNI_DOLL_PROFILE,
+    ActorIdentity,
+    AttachmentSelectionRequest,
+    ResolvedAgentProfile,
+)
 from hivememory.core.protocol.gateway import GatewayDecisionOutcome
 from hivememory.gateway.contracts import GatewayPublicRoutes
 from hivememory.patchouli.contracts import PatchouliRoutes
@@ -24,16 +29,13 @@ from tests.helpers.attachment_parsing import ChunkedSource, make_upload_access, 
 from tests.helpers.chat_handoff import make_gateway_decision
 from tests.helpers.cpu import ScriptedCPU, make_cpu_result
 from tests.helpers.process import (
+    PatchouliTurnStub,
     collect_events,
     done_data,
     error_code,
     make_task_process_service,
 )
 from tests.helpers.workspace import make_workspace_identity
-from tests.unit.workspace.process.test_gateway_chat_flow import (
-    _profile_route,
-    _scoped_prepared_route,
-)
 
 ACTOR = ActorIdentity(user_id="user-1", agent_id="omni_doll")
 
@@ -45,6 +47,20 @@ def _decision_outcome():
 async def _gateway_route(**_kwargs):
     """GATEWAY_PROCESS 替身：恒返回常规 RAG 决定。"""
     return _decision_outcome()
+
+
+async def _profile_route(*_args, **_kwargs):
+    """GET_AGENT_PROFILE 替身：返回内置 omni_doll 图纸。"""
+    return ResolvedAgentProfile(profile=OMNI_DOLL_PROFILE)
+
+
+def _chat_bus() -> tuple[GlobalSystemBus, PatchouliTurnStub]:
+    """Gateway 与 Patchouli 公开路由的替身总线，返回总线与记录交互提交的替身。"""
+    bus = GlobalSystemBus()
+    patchouli = PatchouliTurnStub().install(bus)
+    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route)
+    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
+    return bus, patchouli
 
 
 async def _upload(
@@ -117,18 +133,7 @@ async def test_uploaded_ready_asset_can_be_selected_by_task_process() -> None:
         "ready",
     )
 
-    bus = GlobalSystemBus()
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    finalize_kwargs: dict = {}
-
-    async def finalize(**kwargs):
-        finalize_kwargs.update(kwargs)
-        return []
-
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, finalize)
-
+    bus, patchouli = _chat_bus()
     service = _process_service(
         bus, composition, store, ScriptedCPU(result=make_cpu_result(final_text="完成"))
     )
@@ -151,9 +156,10 @@ async def test_uploaded_ready_asset_can_be_selected_by_task_process() -> None:
     )
     events = await collect_events(service, process)
 
-    # 用户选择只作为 compiler input：实际使用顺序由编译产物冻结，经封口 payload 交给 finalize。
+    # 用户选择只作为 compiler input：实际使用顺序由编译产物冻结，经封口 payload 交给提交。
     assert done_data(events)["status"] == "completed"
-    assert list(finalize_kwargs["payload"].used_attachments) == [
+    (submission,) = patchouli.submissions
+    assert list(submission["payload"].used_attachments) == [
         second.handle.asset_ref,
         first.handle.asset_ref,
     ]
@@ -183,12 +189,7 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
     )
     store.remove_asset(workspace, receipt.handle.asset_ref)
 
-    bus = GlobalSystemBus()
-    bus.register(PatchouliRoutes.PREPARE_AGENT_RUN, _scoped_prepared_route())
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.CLEANUP_PREPARED_AGENT_RUN, _async_true)
-
+    bus, _ = _chat_bus()
     service = _process_service(
         bus, composition, store, ScriptedCPU(result=make_cpu_result(final_text="完成"))
     )
@@ -209,84 +210,3 @@ async def test_removed_asset_rejects_selection_after_upload() -> None:
     # remove 清除全部 representation：同一 ref 不可能复活，也不会残留 lease。
     # 同 Workspace 内已知 ref 的既有 Store 语义是 AssetRemovedError。
     assert store.close_and_clear().leases_cleared == 0
-
-
-async def _async_true(*_args, **_kwargs):
-    return True
-
-
-@pytest.mark.asyncio
-async def test_chat_bus_route_reaches_real_prepare_with_attachments() -> None:
-    """回归：真实 Patchouli prepare（精简签名）+ 进程 CPU 分配的完整链路。
-
-    TaskProcessService 经 GlobalSystemBus 调用真实 ``prepare_agent_run``，
-    随后在进程侧取得附件租借并编译，最终以清单调用 Alice。
-    """
-    store = InMemoryWorkspaceAssetStore()
-    composition = make_upload_access(user_id="user-1")
-    upload_actor = await composition.authenticate(agent_id="system")
-    upload_service = make_upload_service(
-        store=store,
-        parser_config=AttachmentParserConfig(),
-        access_composition=composition,
-    )
-    receipt = await _upload(
-        upload_service,
-        composition,
-        upload_actor,
-        file_name="chat.md",
-        content="# 选中正文\n".encode(),
-        operation_id="op-chat",
-    )
-    assert receipt.handle.asset.state.value == "ready"
-
-    from hivememory.patchouli.control.interaction_submission import (
-        InteractionSubmissionQueue,
-    )
-    from hivememory.patchouli.service import PatchouliService
-    from tests.unit.patchouli.test_service_gateway_decision import _prepare_bus
-
-    async def apply_interaction(_payload, **_kwargs):
-        return "topic-1"
-
-    prepare_bus, _retrieve, _submit = _prepare_bus()
-    patchouli_service = PatchouliService(
-        prepare_bus,
-        interaction_queue=InteractionSubmissionQueue(apply_interaction),
-    )
-    bus = GlobalSystemBus()
-    bus.register(
-        PatchouliRoutes.PREPARE_AGENT_RUN,
-        patchouli_service.prepare_agent_run,
-    )
-    bus.register(PatchouliRoutes.GET_AGENT_PROFILE, _profile_route())
-    bus.register(GatewayPublicRoutes.PROCESS, _gateway_route)
-    bus.register(PatchouliRoutes.FINALIZE_AGENT_RUN, _async_empty_tasks)
-
-    service = _process_service(
-        bus, composition, store, ScriptedCPU(result=make_cpu_result(final_text="完成"))
-    )
-    process = await service.register_process(
-        adapter="local",
-        principal=composition.principal,
-        actor=ACTOR,
-        workspace=composition.default_workspace,
-        process_id="process-via-bus",
-        message="总结这份附件",
-        attachments=[
-            AttachmentSelectionRequest(
-                asset_ref=receipt.handle.asset_ref,
-                revision=1,
-                content_hash=receipt.handle.asset.representations[1].content_hash,
-            ),
-        ],
-    )
-    events = await collect_events(service, process)
-
-    # 真实 prepare 与进程 CPU 分配完整走通。
-    assert done_data(events)["final_text"] == "完成"
-    assert store.close_and_clear().leases_cleared == 0
-
-
-async def _async_empty_tasks(**_kwargs):
-    return []

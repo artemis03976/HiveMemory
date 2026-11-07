@@ -8,13 +8,14 @@ code_paths:
   - src/hivememory/patchouli/services/retrieval.py
   - src/hivememory/infrastructure/storage/vector_store.py
   - src/hivememory/infrastructure/rerank/
+  - src/hivememory/patchouli/service.py
 related_contracts:
   - docs/contracts/subsystem-contracts.md
   - docs/contracts/mtp.md
   - docs/architecture/boundaries.md
 related_docs:
   - docs/workspace/README.md
-last_reviewed: 2026-10-31
+last_reviewed: 2026-11-06
 ---
 
 # 记忆检索
@@ -39,7 +40,7 @@ RetrievalRequest
        -> 重排：Reranker（CrossEncoderReranker；关闭时 NoopReranker）
        -> 截取：请求的 top_k，缺省为 retrieval.default_top_k（只在这里进行一次）
   -> RetrievalResult
-  -> MemoryAtom[]（公共路由返回列表，prepare 交出 PreparedAgentRun.memories）
+  -> MemoryAtom[]（公共路由返回列表）
   -> caller-owned MemoryCompiler
 ```
 
@@ -49,7 +50,7 @@ RetrievalRequest
 
 ### 2.1 短期话题读取
 
-RetrievalFamiliar 通过 MemoryLibrary.short_term 返回不可变 `TopicData` 和 `TopicSnapshot`。Gateway 使用按最近访问降序、默认排除空话题的 snapshot 进行路由；Patchouli prepare 和前端可以请求包含空话题的完整池。
+RetrievalFamiliar 通过 MemoryLibrary.short_term 返回不可变 `TopicData` 和 `TopicSnapshot`。Gateway 使用按最近访问降序、默认排除空话题的 snapshot 进行路由；前端可以请求包含空话题的完整池。
 
 读取话题是纯读操作（无 touch 语义）：访问追踪与 LRU 顺序由 PerceptionFamiliar 编排的 `TopicWorkingSet` 维护，Store 快照不承载访问时间。手动结算必须指定 Topic，Patchouli 不保存“最近活跃话题”。
 
@@ -63,7 +64,7 @@ Familiar 可查询 archive records 或检查 `is_archived`，但普通检索只�
 
 ## 3. 身份与可见性过滤
 
-安全基线在公共 owner 边界从 `RetrievalRequest.identity_scope` 拆出；prepare 等内部编排直接用已经拆分的归属与发起者构造查询。调用方 filters 只能补充 memory type、source agent 与 min confidence 等业务维度，不能替换身份或 Workspace 边界。
+安全基线在公共 owner 边界从 `RetrievalRequest.identity_scope` 拆出，内部只用已经拆分的归属与发起者构造查询；任务进程的预检索与 MTP SEARCH、MCP 检索一样经 actor API 构造请求。调用方 filters 只能补充 memory type、source agent 与 min confidence 等业务维度，不能替换身份或 Workspace 边界。
 
 Qdrant 当前先要求记忆的 `workspace_identity` 与请求 Workspace 完全匹配；归属只由 canonical owner/workspace 投影字段表达，对旧 main-workspace 记录的受控兼容分支已随存量迁移完成删除（不再存在 `meta.user_id` OR 分支与 legacy visibility 分支）。通过 ownership hard filter 后，再按记忆的 actor read policy 选择：`PUBLIC` 对 Workspace 内所有已获准执行者可读，`TEAM` 仅目标 team 可读，`PRIVATE` 仅目标 agent 可读。因而 `PUBLIC` 也不表示跨 Workspace 或跨用户公开。
 
@@ -112,7 +113,7 @@ CrossEncoderReranker 不等待重排模型加载：模型空闲卸载后或尚�
 - 融合分数不设阈值：RRF 只反映名次，无意义查询的第 1 名与相关查询的第 1 名得分相同；加权融合直接相加 cosine 与 BM25 原始分，尺度随查询变化；
 - 重排分数不设阈值：CrossEncoderReranker 用 sigmoid 把分数映射到 0–1，只用于排序与展示。
 
-阈值不由调用方传入，引擎与检索器接口都只接收条数。本次结果条数是请求的 `top_k`；未给出时（当前为 MTP SEARCH）使用 `patchouli.retrieval.default_top_k`（默认 5）。prepare 的条数来自 Gateway 检索计划（`gateway.user_query_analysis.default_top_k`），不受该配置影响；Import Bus 不检索，忽略 Gateway 的检索计划。引擎按结果条数向重排器索取候选池，并且只在重排之后截取一次。
+阈值不由调用方传入，引擎与检索器接口都只接收条数。本次结果条数是请求的 `top_k`；未给出时（当前为 MTP SEARCH）使用 `patchouli.retrieval.default_top_k`（默认 5）。任务进程预检索的条数来自 Gateway 检索计划（`gateway.user_query_analysis.default_top_k`），不受该配置影响；Import Bus 不检索，忽略 Gateway 的检索计划。引擎按结果条数向重排器索取候选池，并且只在重排之后截取一次。
 
 已删除的配置键在出现时使配置加载显式失败，而不是被静默忽略：`retrieval.retriever.sparse.score_threshold`（以及 Sparse 检索器的 `score_threshold`）、Hybrid 顶层的 `score_threshold`、融合配置的 `final_top_k`（由 `retrieval.default_top_k` 取代）。
 
@@ -120,7 +121,7 @@ CrossEncoderReranker 不等待重排模型加载：模型空闲卸载后或尚�
 
 Retrieval 只返回 atoms。当前主要调用者分别编译：
 
-- workspace 任务进程（编译 Patchouli prepare 返回的检索原子，prepare 本身不编译）：`RETRIEVAL_CONTEXT`；
+- workspace 任务进程（在 CPU 分配时编译预检索返回的检索原子）：`RETRIEVAL_CONTEXT`；
 - Koakuma MTP SEARCH/READ：retrieval envelope 或 `READ_RESULT`；
 - MCP 入口的 `memory_search`/`memory_read`：关闭 header/footer 的 retrieval envelope 或 `READ_RESULT`；
 - 子 Agent orchestration：`SHARED_CONTEXT_INJECTION`；
@@ -133,11 +134,11 @@ Retrieval 只返回 atoms。当前主要调用者分别编译：
 检索结果产生与“记忆确实被使用”不是同一事实：
 
 - `retrieve_async()` 会对返回 atoms 重新计算内存中的 vitality，当前 `persist=False`；
-- 主动 chat finalize 对 prepare 阶段实际注入的去重 memory ids best-effort 记录 HIT；
+- 任务进程在 Actor 有输出之后、提交交互之前，经 root API 调用 `patchouli.public.memory.record_retrieval_hits`，为预检索注入的记忆逐条记录 HIT（来源 `retrieval.pre_retrieval`）：同一批按记忆去重，尽力而为，单条失败只记日志，不依赖交互提交的结局，CPU 失败但有输出的轮次也记录；Alice 的 SEARCH 与 MCP 的 `memory_search` 不记录 HIT；
 - MTP 明确引用可走 citation route，触发生命周期强化；
 - `update_access_stats()` 提供批量访问统计入口，但不是 RetrievalEngine 内部隐式副作用。
 
-将副作用放在 Familiar/finalize 而非底层 retriever 中，可以避免预览、重试或内部排序无条件增加访问次数。
+将副作用放在调用方明确的时点而非底层 retriever 中，可以避免预览、重试或内部排序无条件增加访问次数；只在 Actor 有输出之后记录，保留“本轮真正用上了”的含义。
 
 ## 8. 失败与降级
 

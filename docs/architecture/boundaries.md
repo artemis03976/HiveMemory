@@ -62,7 +62,7 @@ last_reviewed: 2026-11-06
 
 公共模型在这里相当于一张“交接单”：它应说明上一阶段已经确认了什么、下一阶段可以依赖什么，却不允许接收方通过模型继续操纵发送方的内部对象。将公共模型做成 frozen 或依赖中立结构，目的正是防止 workflow state、存储客户端和引擎实体沿调用链泄漏，最终形成无法辨认的共享内部状态。
 
-访问控制的所有权同样分属两处：System 持有调用来源接入登记与 Principal authentication（`system.access`，第 1 阶段：登记、adapter、外部来源的接入凭据、可代表的用户与能否声明 `system`）；workspace 持有统一认证网关与第 2 阶段的准入（`workspace.authentication`，产出工作 actor）、第 3 阶段的操作授权（`workspace.authorization`）与访问注册表（`workspace.registry`）。访问值类型与端口协议（`WorkspaceOperation`、工作 actor `WorkingActor`、`CallerPrincipal`、`PrincipalAuthenticator` 与子工作 actor 的准入端口）位于 `core.access`。操作授权在 workspace 的授权点完成，按谁在执行这项操作区分：actor 执行期间的操作（actor API、prepare 的检索）以 `authorize_agent` 检查 actor 操作白名单；系统级操作（root API、任务进程的系统阶段与取消、Import Bus 的确定话题与交互提交）以 `authorize_root` 只接受保留的 `system`，交互中的 Agent 作为参与者显式传递；它们都把组装的 `IdentityScope` 交给公共 route；资源 owner 拆分身份后独立执行资源规则：先检查 Workspace 硬边界，再按 policy 判断发起者的可见性，来源字段不参与授权。Patchouli 与 Gateway 不接收工作 actor，也不依赖 workspace 的认证与授权实现。依赖方向为 `system → workspace → core`；workspace 不导入 System。完整模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节。
+访问控制的所有权同样分属两处：System 持有调用来源接入登记与 Principal authentication（`system.access`，第 1 阶段：登记、adapter、外部来源的接入凭据、可代表的用户与能否声明 `system`）；workspace 持有统一认证网关与第 2 阶段的准入（`workspace.authentication`，产出工作 actor）、第 3 阶段的操作授权（`workspace.authorization`）与访问注册表（`workspace.registry`）。访问值类型与端口协议（`WorkspaceOperation`、工作 actor `WorkingActor`、`CallerPrincipal`、`PrincipalAuthenticator` 与子工作 actor 的准入端口）位于 `core.access`。操作授权在 workspace 的授权点完成，按谁在执行这项操作区分：actor 执行期间的操作（actor API，含任务进程以主线程提交的预检索）以 `authorize_agent` 检查 actor 操作白名单；系统级操作（root API、任务进程的系统阶段与取消；任务进程与 Import Bus 的交互提交与确定话题都经 root API）以 `authorize_root` 只接受保留的 `system`，交互中的 Agent 作为参与者显式传递；它们都把组装的 `IdentityScope` 交给公共 route；资源 owner 拆分身份后独立执行资源规则：先检查 Workspace 硬边界，再按 policy 判断发起者的可见性，来源字段不参与授权。Patchouli 与 Gateway 不接收工作 actor，也不依赖 workspace 的认证与授权实现。依赖方向为 `system → workspace → core`；workspace 不导入 System。完整模型见[身份与授权](../workspace/identity-and-authorization.md#2-访问边界两阶段认证与两阶段授权)第 2 节。
 
 local bus 则是一个子系统内部的组合机制。它允许所有者替换内部实现，却不承诺跨子系统稳定性。一旦其他子系统直接依赖 local route，所谓内部重构就会变成隐蔽的公共契约变更，因此跨边界能力必须显式提升为公共 route、公共模型或全局事件。
 
@@ -73,7 +73,7 @@ local bus 则是一个子系统内部的组合机制。它允许所有者替换�
 | System | 组合根与门面、配置加载、生命周期、共享设施实例的装配与关闭、Provider/Model 注册表、接入登记与 Principal authentication、Import Bus、就绪检查 | 查询分析、记忆算法、Agent loop、MTP 具体执行、Workspace 准入与行为白名单（归 workspace）、运行时机制实现（归 components） |
 | Workspace | 认证入口与准入、逐次行为授权、能力层（root API 与 actor API）、写入意图登记、读取视图（派生缓存与 resolver）、WorkspaceAsset working set 与上传/解析交接、任务进程表与 chat 任务进程编排（`process`） | 记忆算法与 canonical 存储、接入登记、Agent loop |
 | Gateway | 入口拦截、命令解析（不执行）、话题/查询分析、检索计划、保守降级 | 记忆存储、检索执行、回复生成、interaction 提交 |
-| Patchouli | 记忆/话题/Profile、检索、感知、生成、生命周期、prepare/finalize | 入口命令、顶层 chat 编排、Agent 生成循环 |
+| Patchouli | 记忆/话题/Profile、检索、感知、生成、生命周期、交互的提交与应用、话题的确认与建立 | 入口命令、顶层 chat 编排、Agent 生成循环 |
 | Alice | Agent run、frame 编排、MTP/工具执行与 CALL 编排 | 长期记忆所有权、Gateway 分析、chat 任务进程编排、HTTP 生命周期 |
 | Core contracts | 依赖中立的数据模型、协议枚举、稳定常量、访问值类型与端口协议 | 业务编排、I/O 与运行时状态 |
 | Components | 进程内运行时机制：总线、调度器、work queue、运行时事件、串行门、trace context、取消收尾 | 业务状态与业务判断 |
@@ -96,7 +96,7 @@ System 可以依赖任何下层包完成装配，也可以通过全局路由调�
 
 ### 4.3 禁止的越界
 
-- 在 server router 中重新实现 prepare/run/finalize；
+- 在 server router 中重新实现预检索、Actor 执行或交互提交；
 - 从应用服务直接调用另一个子系统的 Familiar、Controller 或 local bus；
 - 把 RuntimeEvent 当成可靠命令或业务返回值；
 - 由 Scheduler 实现 Patchouli 维护算法。
@@ -140,15 +140,17 @@ Patchouli 是长期知识事实的核心。检索、话题、Profile、Interacti
 - 记忆生成任务与维护状态；
 - 检索缓存、生命周期统计和引用/反馈记录。
 
-### 6.2 Prepare / Finalize 边界
+### 6.2 预检索、话题与交互提交的边界
 
-`prepare_agent_run` 把 Gateway 决策转换为 `PreparedAgentRun`：准备真实话题、读取话题上下文与话题池，并按检索计划检索记忆，返回未编译的检索原子。Agent Profile 解析、附件租借与编译、记忆与中立提示词编译、输入清单组装属于 workspace 任务进程的 CPU 分配，不在 Patchouli 边界内完成。
+Patchouli 在主动链路两端各提供一组公开能力，中间由任务进程把本轮快照编译为输入清单交给 CPU（当前为 Alice）：
 
-prepare 接收系统的 root scope 与可为空的检索 scope：话题与归属取前者，检索按后者的 actor 的可见性进行，后者为空时不检索；两份 scope 的 Workspace 不同时在任何副作用之前拒绝。`PreparedAgentRun` 只保存 prepare 的资源归属。`finalize_agent_run` 接收它、任务进程封口的 `InteractionPayload`、当次 root 授权的 `IdentityScope` 与显式的参与者；归属不一致时在交互接纳前抛 `WorkspaceMismatchError`，一致时以参与者为发起者创建 submission，原样提交感知链、等待 applied 并记录命中；主动写入经独立的意图路由实时派发。交互记录由提交方封口（主动链路是任务进程，导入链路是 System 的 Import Bus），两者调用 core 中同一个封口函数 `seal_interaction`，Patchouli 的公开路由因此不接收任何执行者专属的运行结果；trace 归约规则只有 core 中的一份，由封口函数调用。Import Bus 经 Patchouli 公开的交互提交、状态查询与等待路由交接，不持有提交队列。
+- **预检索**：任务进程以主线程经操作入口进入 actor API 的检索，Patchouli 按执行者的可见性返回未编译的检索原子，经 workspace 读取视图交付。Agent Profile 解析、附件租借与编译、记忆与中立提示词编译、输入清单组装属于 workspace 任务进程的 CPU 分配，不在 Patchouli 边界内完成。
+- **话题准备**：公开路由以 scope 的归属确认已有话题并刷新驻留，或以给出的标题与摘要建立新话题（必要时先按 LRU 结算），返回真实话题标识。它只由 root API 的“为一轮确定话题”调用：任务进程在 PREPARE 确认已有话题、在第一次写入时建立新话题，Import Bus 在外部 harness 写入时为一轮确定话题。
+- **交互提交**：公开提交路由接收封口的 `InteractionPayload`、当次 root 授权的 `IdentityScope`、显式的参与者与请求的话题（已确定的话题，或 `NEW_TOPIC` 与标题、摘要），以参与者为发起者创建 submission、原样提交感知链，接纳后等待应用到终态或时限，返回结局（进度、成功时实际所在的话题、失败时的异常类名）。它只由 root API 的提交交互调用，任务进程与 Import Bus 共用，接纳失败、应用失败与超时的归类只在 Patchouli 做一次。检索命中与存储健康各有一条公开路由，同样只经 root API 调用；主动写入经独立的意图路由实时派发。
 
-如果任务进程未能完成 finalize，只能重新执行 root 授权并调用 cleanup 请求 Patchouli 清理预创建空话题，不能自行修改话题状态。cleanup 对越域 prepared 返回 `False`；授权被拒时，任务进程记录警告并继续关闭。已被 finalization continuation 或 submission queue 接管的交互不再由调用方 cleanup。
+交互记录由提交方封口（主动链路是任务进程，导入链路是 System 的 Import Bus），两者调用 core 中同一个封口函数 `seal_interaction`，Patchouli 的公开路由因此不接收任何执行者专属的运行结果；trace 归约规则只有 core 中的一份，由封口函数调用。任务进程与 Import Bus 都经 root API 交接，不持有提交队列。
 
-prepare/finalize 把“为本次执行准备记忆视图”和“把完成后的交互提交回长期系统”放在 Patchouli 两端，中间由任务进程把本轮快照编译为输入清单交给 CPU（当前为 Alice）。这一设计允许执行者专注执行，又确保长期状态的创建与结算仍经过 Patchouli。cleanup 只是对 prepare 阶段临时副作用的补偿，不是跨子系统事务回滚：已经存在或已经产生内容的长期状态不会因为本轮执行失败而被调用方撤销。
+这一设计允许执行者专注执行，又确保长期状态的创建与结算仍经过 Patchouli。话题只在写入或交互应用时建立，没有为本轮预先建立、事后补偿的临时副作用；已经存在或已经产生内容的长期状态不会因为本轮执行失败而被调用方撤销，建立后没有接收交互的话题由 Patchouli 的空闲结算或 LRU 回收。完整契约见[子系统公共契约](../contracts/subsystem-contracts.md)。
 
 ### 6.3 禁止的越界
 
@@ -192,11 +194,10 @@ Patchouli 结算意图后，经全局事件更新 workspace 登记；canonical �
 |:---|:---|:---|
 | `GatewayExecutionState` | Gateway | 不公开；只投影 `GatewayProcessResult` |
 | `GatewayDecision` | Gateway 形成，调用链只读消费 | frozen 公共模型 |
-| `PreparedAgentRun` | Patchouli | `patchouli.contracts.prepare` 中的 frozen dataclass，只保留 `belong_to`；任务进程读取话题与检索结果，并携当次 root scope 交回 finalize/cleanup |
 | `CPUInputManifest` | workspace 任务进程编译提示词并组装，CPU 原样消费固定文本、自管历史与工具教学 | `workspace.contracts` 中的 frozen Pydantic 模型 |
 | `CPUPort` | workspace 定义，CPU 实现（当前为 Alice 的 `AliceCPU`），组合根注入任务进程 | `workspace.contracts` 中的协议；任务进程只经它调用 CPU |
 | `CPUExecutionResult` | CPU 组装（当前为 Alice），任务进程消费 | `workspace.contracts` 中的 frozen Pydantic 模型，不含执行者专属的统计 |
-| `InteractionPayload` | 提交方以 core 的 `seal_interaction` 组装并封口（主动：任务进程；导入：System Import Bus），Patchouli 消费 | 公共协议模型，不由 router 拼装，finalize 不改写 |
+| `InteractionPayload` | 提交方以 core 的 `seal_interaction` 组装并封口（主动：任务进程；导入：System Import Bus），Patchouli 消费 | 公共协议模型，不由 router 拼装，提交不改写 |
 | `InteractionSubmission` / `MemoryGenerationTaskSpec` / `MemoryGenerationTask` | Patchouli | 独立保存必需的 `belong_to` 与 `from_actor`（交互提交时取自显式的参与者）；scope 与工作 actor 不进入记录或队列 |
 | `PendingAtomMaterializeTask` | Patchouli 意图提交服务内部构造，生成链消费 | 只读请求独立保存 `belong_to` 与 `from_actor`，不交接 Alice 的运行时 scope |
 | `MemoryAtom` / Topic | Patchouli | 公共模型或受控路由返回值 |
@@ -220,7 +221,9 @@ Server adapters -> 门面提供的服务（workspace root API 与任务进程 / 
 上述服务 -> GlobalSystemBus public routes
 workspace 认证入口 -> System Principal authentication（经 core.access 端口注入）
 Gateway -> Patchouli public read routes (话题上下文)
-任务进程 -> Gateway / Patchouli public routes、Profile 读取视图与 AssetStore reader (系统阶段以 root 授权，prepare 的检索以执行者授权，不经能力层)
+任务进程 -> Gateway public routes、Patchouli 模型预取、Profile 读取视图与 AssetStore reader (以 root 授权，不经能力层)
+任务进程 -> workspace root API (话题确认与建立、存储健康、检索命中、交互提交) 与 OperationEntry (以主线程提交预检索)
+System Import Bus -> workspace root API (提交交互、为在途轮次确定话题)
 Alice -> OperationSubmitter -> workspace OperationEntry -> workspace actor API
 workspace root API / actor API -> Patchouli public routes (授权后组装当次 IdentityScope)
 Patchouli -> GlobalEvents -> workspace (意图结算与canonical读取失效)
@@ -254,7 +257,7 @@ Subsystem -> RuntimeEventSink (观测旁路)
 - 状态所有者变化；
 - 新增跨子系统直接依赖；
 - 公开 route、事件、输入输出或终态变化；
-- prepare/finalize、取消、清理或启停顺序变化；
+- 预检索、确定话题与交互提交的顺序，取消或启停顺序变化；
 - local 能力升级为公共能力；
 - RuntimeEvent 开始参与业务控制。
 - Workspace-owned 资源的所有权或复合寻址变化；

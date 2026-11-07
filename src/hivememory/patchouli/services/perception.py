@@ -328,22 +328,6 @@ class PerceptionFamiliar:
         finally:
             self._working_set.release(lease)
 
-    def discard_if_empty(self, belong_to: WorkspaceIdentity, topic_id: str) -> bool:
-        """话题真正为空（没有接收过任何交互）时清理并返回 True。"""
-        lease = self._working_set.acquire(belong_to, topic_id)
-        if lease is None:  # 正被占用（可能正在写入首块），留给后续维护判断
-            return False
-        try:
-            topic = self._store.get(belong_to, topic_id)
-            if topic is None or not topic.is_empty:
-                return False
-            removed = self._store.delete(belong_to, topic_id)
-            if removed:
-                self._working_set.remove(belong_to, topic_id)
-            return removed
-        finally:
-            self._working_set.release(lease)
-
     # ========== 维护与 shutdown ==========
 
     async def scan_idle_buffers_once(self) -> list[str]:

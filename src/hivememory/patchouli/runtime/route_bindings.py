@@ -41,10 +41,6 @@ def build_patchouli_route_bindings(
             sort_by_recency=sort_by_recency,
         )
 
-    async def discard_if_empty(belong_to: WorkspaceIdentity, topic_id: str) -> bool:
-        """只清理指定归属下仍为空的话题。"""
-        return runtime.perception_familiar.discard_if_empty(belong_to, topic_id)
-
     return (
         RouteBinding.of(
             PatchouliLocalRoutes.GENERATION_SUBMIT_SETTLEMENT,
@@ -138,10 +134,6 @@ def build_patchouli_route_bindings(
             list_active_topics,
         ),
         RouteBinding.of(PatchouliLocalRoutes.TOPIC_EVICT, runtime.perception_familiar.evict_topic),
-        RouteBinding.of(
-            PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY,
-            discard_if_empty,
-        ),
         RouteBinding.of(
             PatchouliLocalRoutes.TOPIC_MANUAL_SETTLE,
             runtime.perception_familiar.manual_settle_topic,

@@ -150,12 +150,12 @@ HiveMemory 不是通用 AGI，也不是已经完成的分布式 Agent 平台。�
 ### 5.1 入口与对话
 
 - 任务请求的唯一注册入口：chat 与命令经两阶段认证登记为任务进程，以 `process_id` 标识；进程持有自己的 task 与输出通道，用户停止、交付方断连与系统关闭都由进程在自己的 task 中收尾；
-- 主动 chat：Gateway 决策后执行 Patchouli prepare（话题与检索）、任务进程 CPU 分配（Profile、附件与记忆编译）、经 CPU 端口执行 Actor（当前为 Alice run）、有输出时任务进程封口并追加会话、Patchouli finalize；
+- 主动 chat：Gateway 决策后进入 PREPARE（解析 Profile、派生主线程并以它预检索、确认已有话题、CPU 分配中的附件与记忆编译），经 CPU 端口执行 Actor（当前为 Alice run），有输出时任务进程封口，经 root API 提交交互并等待应用，再追加会话；话题按需确定，新话题在第一次写入或交互应用时才建立；
 - ConversationSession 的创建、列表、重命名、删除与历史恢复；会话属于 Workspace，逐轮选择 Agent，Alice 从全量原文构建带工具减重与接力摘要的预算视图，Gateway 使用最近 N 轮；原文与压缩检查点仅在进程内保存；
 - SSE 流式 Agent run；
 - 全局系统指令的注册与解析：命令以命令终态结束、不进入普通 chat，当前不执行内置命令（[Gateway 全局命令](./gateway/commands.md)）；
-- Import Bus：外部 harness 一轮已结束交互的整轮导入（`POST /api/v1/import/turns`），经统一认证证明来源与参与的 Agent，由系统经 root API（逐次 root 授权）执行 Gateway 话题路由、共用封口与 Patchouli 感知提交（参与的 Agent 记为交互的发起者），交互应用完成后才确认，不检索记忆、不返回记忆上下文；外部 harness 写入记忆时，Import Bus 为进行中的一轮就地确定话题，这一轮回流时沿用该话题；仓库附带 Claude Code 插件（`integrations/claude-code/`），其中的连接器在轮次结束与会话开始、结束时把会话记录中已结束的轮次导入，并把插件自身记忆工具的调用标为 SEARCH、READ、WRITE、UPDATE，避免取回或显式写入的内容被再提取；另附 DeepSeek Harness 插件（`integrations/deepseek-harness/`），经 dsh 的会话查询服务读取已结束的轮次导入，规则相同；
-- MCP 记忆访问：外部 harness 经 `POST /mcp` 的四个工具检索（`memory_search`）、读取（`memory_read`）、写入（`memory_write`）与更新（`memory_update`）记忆；每次工具调用以请求头中的接入身份与凭据经统一认证网关认证一次，得到的工作 actor 经操作入口的请求级提交进入 actor API、按访问登记逐次授权，不建进程；写入与更新先经 Import Bus 为这一轮确定话题，与主动链路共用同一意图登记与生成链路，返回 pending alias；Claude Code 插件以 `.mcp.json` 声明这个 MCP server，并以 `PreToolUse` hook 为写入与更新补上当前一轮的信息；dsh 不能在工具执行前改写参数，DeepSeek Harness 插件因此把四个工具注册为 dsh 原生工具，执行时经本端点调用，并以调用方会话的当前一轮补上轮次信息（[MCP 记忆访问](./contracts/mcp.md)）；Claude Code 插件另附 HiveMemory 使用手册 skill（`integrations/claude-code/skills/hivememory/`），引导 agent 主动检索、写入与修正记忆，其他 harness 复制到自己的 skill 目录使用；
+- Import Bus：外部 harness 一轮已结束交互的整轮导入（`POST /api/v1/import/turns`），经统一认证证明来源与参与的 Agent，共用封口后由系统经 root API 的提交交互（与主动 chat 共用，一轮一次 root 授权）完成查重、Gateway 话题路由与 Patchouli 感知提交（参与的 Agent 记为交互的发起者），交互应用完成后才确认，不检索记忆、不返回记忆上下文；外部 harness 写入记忆时，Import Bus 为进行中的一轮就地确定话题，这一轮回流时沿用该话题；仓库附带 Claude Code 插件（`integrations/claude-code/`），其中的连接器在轮次结束与会话开始、结束时把会话记录中已结束的轮次导入，并把插件自身记忆工具的调用标为 SEARCH、READ、WRITE、UPDATE，避免取回或显式写入的内容被再提取；另附 DeepSeek Harness 插件（`integrations/deepseek-harness/`），经 dsh 的会话查询服务读取已结束的轮次导入，规则相同；
+- MCP 记忆访问：外部 harness 经 `POST /mcp` 的四个工具检索（`memory_search`）、读取（`memory_read`）、写入（`memory_write`）与更新（`memory_update`）记忆；每次工具调用以请求头中的接入身份与凭据经统一认证网关认证一次，得到的工作 actor 经操作入口的请求级提交进入 actor API、按访问登记逐次授权，不建进程；写入与更新在授权通过之后才经 Import Bus 为这一轮确定话题，与主动链路共用同一意图登记与生成链路，返回 pending alias；Claude Code 插件以 `.mcp.json` 声明这个 MCP server，并以 `PreToolUse` hook 为写入与更新补上当前一轮的信息；dsh 不能在工具执行前改写参数，DeepSeek Harness 插件因此把四个工具注册为 dsh 原生工具，执行时经本端点调用，并以调用方会话的当前一轮补上轮次信息（[MCP 记忆访问](./contracts/mcp.md)）；Claude Code 插件另附 HiveMemory 使用手册 skill（`integrations/claude-code/skills/hivememory/`），引导 agent 主动检索、写入与修正记忆，其他 harness 复制到自己的 skill 目录使用；
 - 外部 harness 的接入身份：每个外部 harness 在接入登记中有自己的 principal 与接入凭据（Claude Code 为 `harness:claude-code`，DeepSeek Harness 为 `harness:dsh`），导入与 MCP 共用；能否声明保留的 `system` 由登记逐个限定；
 - Gateway 的话题路由、查询分析、请求取消、总超时和局部保守降级。
 
@@ -218,7 +218,7 @@ Gateway 把原始入口消息投影为命令终态或稳定 `GatewayDecision`。
 
 ### 7.2 Patchouli
 
-Patchouli 拥有长期记忆、话题、Agent Profile、检索、感知、生成、生命周期和记忆任务。主动链路中它负责 prepare/finalize，MTP 所需的长期记忆能力也由它通过公开路由提供。
+Patchouli 拥有长期记忆、话题、Agent Profile、检索、感知、生成、生命周期和记忆任务。它为主动 chat 与 Import Bus 提供同一条交互提交队列（提交并等待应用）与话题的确认、建立，MTP 所需的长期记忆能力也由它通过公开路由提供。
 
 代码入口：`src/hivememory/patchouli/system.py`、`runtime/`、`application/`、`services/`、`control/`、`memory_library/`，以及由它拥有的 `src/hivememory/engines/{perception,generation,retrieval,lifecycle,artifacts,memory_compiler}/`。
 
@@ -248,27 +248,28 @@ Workspace 是与上述三个子系统同层的包，没有独立的生命周期�
 message
   -> Gateway PROCESS
   -> [命令终态（只解析，不执行）] 或 GatewayDecision
-  -> Patchouli prepare（话题与检索）
-  -> 任务进程 CPU 分配（Profile、附件租借与编译、记忆编译、输入清单）
-  -> Actor 执行：CPU 端口（当前为 Alice run）
-  -> 有输出时封口交互记录（InteractionPayload，含结局）并追加会话
-  -> Patchouli finalize
+  -> PREPARE：解析 Profile、派生主线程、以主线程预检索、确认已有话题、读取存储健康
+  -> 任务进程 CPU 分配（附件租借与编译、记忆编译、输入清单）
+  -> Actor 执行：CPU 端口（当前为 Alice run）；新话题在第一次写入时建立
+  -> 有输出时封口交互记录（InteractionPayload，含结局）
+  -> root API 提交交互并等待应用（没有写入的新话题在应用时建立）
+  -> 追加会话（话题取交互实际所在的话题）
   -> response + background memory tasks
 ```
 
-有输出的 completed/cancelled/failed 均提交交互；无输出、进程异常与 finalize 前断连不追加会话、不提交。finalize 任务在交出 finalizing 事件前创建，交付关闭也等待提交结束；尚未交接的 prepare 结果才请求 cleanup，补偿仅限新建空 Topic。附件租借在进程结束时释放，已接纳的显式写入继续生成。
+有输出的 completed/cancelled/failed 均提交交互；无输出、进程异常与进入 FINALIZE 前断连不提交、不追加会话。提交任务在交出 finalizing 事件前创建，交付关闭也等待提交结束；提交没有成功时会话仍有这一轮，话题为空。话题不预先建立，任何路径都不补偿或清理话题。附件租借在进程结束时释放，已接纳的显式写入继续生成。
 
 ### 8.2 Import Bus
 
 ```text
 外部 harness 一轮已结束的交互（例如 Claude Code 连接器）
   -> POST /api/v1/import/turns
-  -> 统一认证网关（来源与参与的 Agent）+ 系统的 root 授权
-  -> Import Bus 编排（按外部会话串行，查询交互进度）
-  -> Gateway PROCESS(PASSIVE_MEMORY)：只取话题路由
+  -> 统一认证网关（来源与参与的 Agent）+ 认证系统自身的 system
+  -> Import Bus 编排（按外部会话串行；没有输出的轮次跳过）
   -> 共用封口函数 seal_interaction
-  -> root API 提交交互 -> Patchouli interaction.submit -> 感知队列
-  -> 等待应用完成后确认（accepted / duplicate / skipped）
+  -> root API 提交交互（一次 root 授权）：查重 -> 未确定话题时 Gateway PROCESS(PASSIVE_MEMORY) 只取话题路由
+       -> Patchouli interaction.submit -> 感知队列 -> 等待应用
+  -> 按结局确认（accepted / duplicate / skipped）或交回连接器重发
 ```
 
 Import Bus 不运行 Alice、MTP、命令或回复生成，不检索记忆，也不返回记忆上下文。完整设计见 [Import Bus](./system/import-bus.md)。

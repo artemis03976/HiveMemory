@@ -146,9 +146,12 @@ class ConversationSessionService:
         process_id: str,
         agent_id: str,
         payload: InteractionPayload,
-        topic_id: str,
+        topic_id: str | None,
     ) -> None:
-        """认领者同步追加已封口的一轮；重复封口视为接线错误。"""
+        """认领者同步追加已封口的一轮；重复封口视为接线错误。
+
+        ``topic_id`` 是交互实际所在的话题，交互没有应用成功时为空。
+        """
         session = self._get(belong_to, session_id)
         if session.active_process_id != process_id:
             raise SessionBusyError("进程未持有会话认领")

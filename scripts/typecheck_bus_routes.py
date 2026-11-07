@@ -11,7 +11,11 @@ from hivememory.core.contracts.route import route
 from hivememory.core.models import IdentityScope, MemoryAtom, WorkspaceIdentity
 from hivememory.core.protocol.gateway import GatewayIngressMode, GatewayProcessResult
 from hivememory.gateway.contracts import GatewayPublicRoutes
-from hivememory.patchouli.contracts import PatchouliLocalRoutes, PatchouliRoutes
+from hivememory.patchouli.contracts import (
+    PatchouliLocalRoutes,
+    PatchouliRoutes,
+    TopicEvictionResult,
+)
 
 
 @route("typecheck.prepare")
@@ -55,9 +59,10 @@ async def check_routes(
 
     # 身份整体不能冒充资源归属，按位置传参同样需要静态约束。
     assert_type(
-        await bus.request(PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY, workspace, "topic"), bool
+        await bus.request(PatchouliLocalRoutes.TOPIC_EVICT, workspace, "topic"),
+        TopicEvictionResult,
     )
-    await bus.request(PatchouliLocalRoutes.TOPIC_DISCARD_IF_EMPTY, scope, "topic")  # type: ignore[arg-type]
+    await bus.request(PatchouliLocalRoutes.TOPIC_EVICT, scope, "topic")  # type: ignore[arg-type]
 
     # 普通字符串只保留运行时兼容性，不能进入生产代码的静态 API。
     bus.register("typecheck.prepare", prepare_handler)  # type: ignore[arg-type]

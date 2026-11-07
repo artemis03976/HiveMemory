@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from hivememory.core.contracts.route import route
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from typing import Any
     from uuid import UUID
 
@@ -21,7 +22,6 @@ if TYPE_CHECKING:
         TopicData,
         TopicSnapshot,
     )
-    from hivememory.core.protocol.gateway import GatewayDecision
     from hivememory.core.protocol.models import InteractionPayload, RetrievalRequest
     from hivememory.patchouli.contracts.interaction_submission import (
         InteractionOrigin,
@@ -39,7 +39,6 @@ if TYPE_CHECKING:
         MemoryListPage,
     )
     from hivememory.patchouli.contracts.memory_tasks import MemoryGenerationTask
-    from hivememory.patchouli.contracts.prepare import PreparedAgentRun
     from hivememory.patchouli.contracts.topic_management import (
         TopicEvictionResult,
         TopicSettleResult,
@@ -181,13 +180,15 @@ class PatchouliRoutes:
         origin: InteractionOrigin = "workspace_port",
         new_topic_title: str | None = None,
         new_topic_summary: str | None = None,
+        timeout_seconds: float | None = None,
     ) -> InteractionSubmitResult:
-        """提交一份已发生的交互载荷；队列按 interaction_id 幂等接纳。
+        """提交一份已发生的交互载荷并等待它应用，返回结局；队列按 interaction_id 幂等接纳。
 
         ``identity_scope`` 只提供归属，``participant`` 是交互中的 Agent，记为
-        交互的发起者。目标为 ``NEW_TOPIC`` 时可携带新话题的标题与摘要；队列
-        容量已满或已停止以 ``InteractionAdmissionUnavailableError`` 拒绝，可用
-        同一标识重试。
+        交互的发起者。目标为 ``NEW_TOPIC`` 时可携带新话题的标题与摘要。时限
+        为空时等到终态，到时限仍未应用完成时结局为 ``pending``；队列容量已满
+        或已停止以 ``InteractionAdmissionUnavailableError`` 拒绝，可用同一标识
+        重试。
         """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
@@ -203,11 +204,11 @@ class PatchouliRoutes:
 
     @route("patchouli.public.interaction.wait")
     async def INTERACTION_WAIT(
-        *, identity_scope: IdentityScope, interaction_id: str, timeout_seconds: float
+        *, identity_scope: IdentityScope, interaction_id: str, timeout_seconds: float | None
     ) -> InteractionStatus | None:
-        """等待交互应用到终态或超时，返回此时的进度；未被接纳时返回 ``None``。
+        """等待已接纳的交互应用到终态或时限，返回此时的进度；未被接纳时返回 ``None``。
 
-        超时时进度仍为 ``pending``；归属校验与状态查询相同。
+        超时时进度仍为 ``pending``，时限为空时等到终态；归属校验与状态查询相同。
         """
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
@@ -218,41 +219,18 @@ class PatchouliRoutes:
         """提交记忆意图；结果由 Patchouli 生成链决定并经任务观察 API 查询。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
-    @route("patchouli.public.prepare_agent_run")
-    async def PREPARE_AGENT_RUN(
+    @route("patchouli.public.topic.prepare")
+    async def PREPARE_TOPIC(
         *,
         identity_scope: IdentityScope,
-        interaction_id: str,
-        gateway_decision: GatewayDecision,
-        retrieval_scope: IdentityScope | None = None,
-    ) -> PreparedAgentRun:
-        """准备本轮的 Topic 与未编译检索结果（prepare 只做 Topic 与检索）。
+        target_topic_id: str,
+        new_topic_title: str | None = None,
+        new_topic_summary: str | None = None,
+    ) -> str:
+        """确认或建立一轮的目标话题（必要时先按 LRU 驱逐），返回真实话题标识。
 
-        话题与归属取 ``identity_scope``；检索按 ``retrieval_scope`` 的 actor 的
-        可见性进行，为空时不检索：是否检索只由调用方是否给出它决定。
+        已有话题确认存在并刷新驻留；``NEW_TOPIC`` 以给出的标题与摘要建立。
         """
-        raise NotImplementedError  # 仅声明签名，不执行此函数。
-
-    @route("patchouli.public.finalize_agent_run")
-    async def FINALIZE_AGENT_RUN(
-        prepared_run: PreparedAgentRun,
-        payload: InteractionPayload,
-        *,
-        identity_scope: IdentityScope,
-        participant: ActorIdentity,
-    ) -> None:
-        """原样提交封口好的交互记录，并把 post-apply 工作交给 Patchouli 持有。
-
-        ``identity_scope`` 只提供归属，``participant`` 是交互中的 Agent，记为
-        交互的发起者。
-        """
-        raise NotImplementedError  # 仅声明签名，不执行此函数。
-
-    @route("patchouli.public.cleanup_prepared_agent_run")
-    async def CLEANUP_PREPARED_AGENT_RUN(
-        prepared_run: PreparedAgentRun, *, identity_scope: IdentityScope
-    ) -> bool:
-        """清理已 prepare 但未 finalize 的预创建空话题。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.manual_settle_topic")
@@ -272,6 +250,18 @@ class PatchouliRoutes:
         memory_id: str | UUID, *, identity_scope: IdentityScope, source: str = "mtp"
     ) -> Any:
         """记录一次记忆引用事件。"""
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
+    @route("patchouli.public.memory.record_retrieval_hits")
+    async def RECORD_RETRIEVAL_HITS(
+        memory_ids: Sequence[str | UUID], *, identity_scope: IdentityScope, source: str
+    ) -> None:
+        """为一批检索到的记忆逐条记录命中，尽力而为，单条失败只记日志。"""
+        raise NotImplementedError  # 仅声明签名，不执行此函数。
+
+    @route("patchouli.public.storage.available")
+    async def STORAGE_AVAILABLE() -> bool:
+        """读取存储是否可用，供提示词的离线提示。"""
         raise NotImplementedError  # 仅声明签名，不执行此函数。
 
     @route("patchouli.public.models.warmup")
@@ -311,12 +301,12 @@ class PatchouliRoutes:
         INTERACTION_STATUS,
         INTERACTION_WAIT,
         MEMORY_INTENT_SUBMIT,
-        PREPARE_AGENT_RUN,
-        FINALIZE_AGENT_RUN,
-        CLEANUP_PREPARED_AGENT_RUN,
+        PREPARE_TOPIC,
         MANUAL_SETTLE_TOPIC,
         EVICT_TOPIC,
         RECORD_MEMORY_CITATION,
+        RECORD_RETRIEVAL_HITS,
+        STORAGE_AVAILABLE,
         WARMUP_MODELS,
         PREFETCH_MODELS,
         MODELS_READY,
