@@ -103,6 +103,8 @@ actor API 的写入与更新接收线程句柄或派发话题的回调，二者�
 
 请求只携带操作参数，不暴露工作 actor，也不能切换目标 Workspace、指定 process_id 或派发话题；线程提交的意图登记的 `process_id`、`thread_id` 取自线程表的解析结果，派发话题取自线程表为进程这一轮确定的话题。登记线程不授予操作许可：每个 actor 请求仍按线程的工作 actor 在白名单上授权。
 
+入口分派的每一次 actor 操作在结束时发一个 `actor.operation` 运行时事件：线程提交、请求级提交与 CALL 派生都发，`end_thread` 不发。结局在 `status`：返回为 `completed`，领域错误为 `rejected`（`reason` 为错误码），其他异常为 `failed`；取消不发。事件带操作种类、入口、耗时与按操作的摘要，`agent_id` 与 `workspace_id` 只作标签，线程提交另带线程解析得到的 `process_id`；工作 actor 本身与请求内容都不进入事件（[事件契约](../contracts/routes-and-events.md#4-runtimeevent-观测契约)第 4 节）。发事件的 `ActorOperationEventEmitter` 在 `workspace/capability/operation_events.py`，经构造参数注入入口，入口的方法集合不变。
+
 CALL 的派生与子线程的结束是入口的另外两个生命周期方法 `derive_child_thread` 与 `end_thread`，同样接收线程句柄，不经 `execute`：`DeriveCallThreadRequest` 不是 `OperationRequest`。两者见[执行线程](./execution-threads.md#6-call-派生与子线程)。六项 actor 请求的参数与结果契约见[子系统公共契约](../contracts/subsystem-contracts.md#46-操作请求与线程句柄)。
 
 ## 7. 引用读取的副作用

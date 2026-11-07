@@ -66,7 +66,7 @@ Settings 草稿使用组件 state/useDraft；OmniInput 草稿使用 chat store �
 | Chat | fetch-based SSE | `POST /api/v1/chat` | `done` / `error`；无断线续传 |
 | Stop | HTTP | `POST /api/v1/chat/stop` | best-effort 请求，等待流终态确认 |
 | Sessions / Topics / Memories / Agents / Config / Registries / Tasks | HTTP JSON | 相对 `/api/v1/...` | 请求级成功失败；页面按能力 refetch 或乐观更新 |
-| RuntimeEvent | EventSource SSE | `/api/v1/runtime-events/stream` | 支持 `last_event_id`/gap 的后端语义，浏览器只保留当前运行期 |
+| RuntimeEvent | EventSource SSE | `/api/v1/runtime-events/stream` | 支持 `last_event_id`/gap 的后端语义：`Last-Event-ID` 请求头优先于 URL 中的回放点，浏览器自动重连沿用首次连接的 URL 时按最新收到的事件续传；浏览器只保留当前运行期 |
 | Logs | WebSocket | `/api/v1/ws/logs` | ping/pong、有限重连，无历史恢复 |
 
 Chat 使用 fetch 而不是原生 EventSource，是因为需要以 POST 发送请求体。RuntimeEvent 是 GET 流，使用 EventSource。日志需要双向 ping/pong 和持续推送，使用 WebSocket。

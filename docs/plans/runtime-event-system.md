@@ -286,3 +286,19 @@ cd frontend && npm run lint && npm test && npm run build
 - [状态与传输](../frontend/state-and-transports.md)：回放点的优先级。
 - Idea 与 Ideas 索引：登记第 3.1 至 3.4 节已实施，运行页仍待计划。
 - [ROADMAP](../ROADMAP.md) 的观测与日志一行。
+
+## 10. 实施记录
+
+2026-11-07 在分支 `docs/runtime-event-system-plan` 上实施，与第 4 节的出入：
+
+- **不另建 emitter 类**：Gateway workflow 与查询分析、维护调度器、System 生命周期与操作观测原本就把发事件集中在一个辅助方法里，只把其中的 sink 换成注入的 publisher，没有新建第 4.7 节表中的 `GatewayEventEmitter`、`MaintenanceEventEmitter` 与 `SystemLifecycleEventEmitter`。话题事件同样由 `PerceptionFamiliar` 的两个私有方法发出，没有单独的 `perception_events.py`。只有操作入口需要单独的 `ActorOperationEventEmitter`：入口的方法集合被架构测试锁定。
+- **emitter 的位置**：`ActorOperationEventEmitter` 放在 `workspace/capability/operation_events.py`。workspace 包根下的模块只能依赖 core，因此不放在包根；操作入口的导入守护本意是"只用 actor API、不用 root API"，白名单加上这个事件模块。
+- **线程已结束的拒绝**：`execute` 在分派之前解析线程，线程已结束时直接拒绝、不发事件；写入与更新在 actor API 内再次解析线程时被拒，会发 `rejected`。
+- **前端 mock 任务**：来源类型对齐后，debug 模式的 mock 任务中的 `ARCHIVE`、`SPLIT` 改为 `SETTLE`、`MERGE`。
+
+验证：
+
+- `pytest tests/unit tests/integration -m "not live_llm and not e2e and not slow" -n auto --cov=hivememory --cov-fail-under=85`：3236 个通过，覆盖率 94.85%；`ruff check .`、`black --check .`、`mypy --warn-unused-ignores src scripts/typecheck_bus_routes.py`（446 个文件）通过。
+- 前端 `node --test tests/*.test.mjs` 41 个通过，`npm run lint` 与 `npm run build` 成功。
+- 反向确认：结算任务来源、回放点优先级、MCP 的 trace 与导入的 trace 四个新用例，在改动之前的代码上都失败。
+- 尚未进行：第 7 节的手动验收，需要用本分支重启正在使用的后端。验收之后本计划归档。

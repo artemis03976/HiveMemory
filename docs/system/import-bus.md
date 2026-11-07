@@ -41,7 +41,7 @@ related_plans:
   - docs/archive/plans/v0.7.1-memory-access-mcp.md
   - docs/archive/plans/v0.7.2-plugin-write-update.md
   - docs/archive/plans/dsh-plugin-integration.md
-last_reviewed: 2026-11-06
+last_reviewed: 2026-11-07
 ---
 
 # Import Bus
@@ -74,7 +74,7 @@ Import Bus 只向记忆网络输入：它不检索记忆，也不向调用方返
 | Claude Code 连接器 | `integrations/claude-code/` | 读取会话记录、切分轮次、游标与重发 | 服务端的查重与授权 |
 | DeepSeek Harness 插件 | `integrations/deepseek-harness/` | 读取 dsh 会话的逻辑记录、切分轮次、水位与重发；注册记忆工具 | 服务端的查重与授权 |
 
-编排器的状态只有串行门、在途计数与已确定话题的登记，都只在进程内。它只经 root API 调用 Gateway 与 Patchouli 的公开路由，不持有全局总线、任何子系统的 Runtime 或 Patchouli 的提交队列；组合根只注入 root API 的 `RootInteractionService` 与 `RootTopicService`（与任务进程共用同一实例，Gateway 请求时限注入在它们上面）、最近轮数（沿用 Gateway 配置）、等待应用的时限与观测 sink。应用服务另由组合根注入认证网关与系统自身的 principal 及其 adapter，与任务进程的注册入口相同，不注入操作授权者。
+编排器的状态只有串行门、在途计数与已确定话题的登记，都只在进程内。它只经 root API 调用 Gateway 与 Patchouli 的公开路由，不持有全局总线、任何子系统的 Runtime 或 Patchouli 的提交队列；组合根只注入 root API 的 `RootInteractionService` 与 `RootTopicService`（与任务进程共用同一实例，Gateway 请求时限注入在它们上面）、最近轮数（沿用 Gateway 配置）、等待应用的时限与观测 publisher。应用服务另由组合根注入认证网关与系统自身的 principal 及其 adapter，与任务进程的注册入口相同，不注入操作授权者。
 
 ## 3. HTTP 入口
 
@@ -249,7 +249,9 @@ ActorAuthenticationGateway.close      新的导入请求以 503 拒绝
 
 ### 6.2 运行时事件
 
-编排器经 `ImportBusEventEmitter` 发出 best-effort 的 RuntimeEvent（subsystem `system`，component `import_bus`，`task_type` 为 `background`：导入没有用户在 HiveMemory 一侧等待）。事件只携带 `source`、`external_conversation_id`、`external_turn_id`、`interaction_id`、事件数量与结构化标签，`agent_id` 与 `workspace_id` 只是观测标签；不携带用户消息、回复、思考、工具参数或工具结果的正文。脱敏规则集中在发布器一处。
+一轮导入在自己的 `import-` trace 中进行（`span_name` 为 `ImportBus.Turn`，`task_type` 为 `background`），结束时复原：Gateway 的被动路由、交互提交与新建话题的事件都继承它，与 `import.turn.*` 归为同一次运行（[运行时事件与可观测性](../components/observability.md#11-一次运行)第 1.1 节），这一轮的日志也带上它。
+
+编排器经 `ImportBusEventEmitter` 在注入的 publisher 上发出 best-effort 的 RuntimeEvent（subsystem `system`，component `import_bus`，`task_type` 为 `background`：导入没有用户在 HiveMemory 一侧等待）。事件只携带 `source`、`external_conversation_id`、`external_turn_id`、`interaction_id`、事件数量与结构化标签，`agent_id` 与 `workspace_id` 只是观测标签；不携带用户消息、回复、思考、工具参数或工具结果的正文。脱敏规则集中在发布器一处。
 
 | 事件 | 时机 | 附加内容 |
 |:---|:---|:---|
@@ -260,7 +262,7 @@ ActorAuthenticationGateway.close      新的导入请求以 503 拒绝
 
 事件发布失败不改变导入结果，事件也不能替代 HTTP 响应决定业务成功（[路由与事件](../contracts/routes-and-events.md)）。
 
-写入时确定话题不发出 RuntimeEvent，只记录一行日志：来源、`interaction_id`、确定的话题与是否新建，不记录正文。
+写入时确定话题本身不发出 `import.turn.*`，只记录一行日志：来源、`interaction_id`、确定的话题与是否新建，不记录正文。它在 MCP 工具调用的 trace 中执行，引起的 Gateway 路由与新建话题的事件归入那一次工具调用（[MCP 记忆访问](../contracts/mcp.md#7-观测)）。
 
 ## 7. 配置
 

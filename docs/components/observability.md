@@ -12,13 +12,16 @@ code_paths:
   - src/hivememory/core/contracts/runtime_events.py
   - src/hivememory/system/system.py
   - src/hivememory/system/services/import_bus/events.py
+  - src/hivememory/workspace/capability/operation_events.py
+  - src/hivememory/patchouli/services/perception.py
+  - src/hivememory/mcp_server/server.py
 related_contracts:
   - docs/contracts/routes-and-events.md
   - docs/contracts/error-model.md
 related_docs:
   - docs/workspace/README.md
   - docs/components/runtime-and-bus.md
-last_reviewed: 2026-11-03
+last_reviewed: 2026-11-07
 ---
 
 # 运行时事件与可观测性
@@ -47,7 +50,17 @@ HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么
 
 `workspace_id` 是可选的观测关联字段，用于把事件按资源归属域展示或筛选。它不代表完整的 `IdentityScope`，也不参与 EventBus 路由、订阅、sequence、授权、幂等判断或任何业务状态迁移；需要作出业务决定时必须回到领域返回值、异常或 Store 状态。
 
-事件类型由 `RuntimeEventType` 维护，当前覆盖 chat、command、Import Bus（`import.turn.*`）、Gateway workflow/analysis、Agent run、memory task、maintenance、System lifecycle、subsystem operation 和 stream gap。
+事件类型由 `RuntimeEventType` 维护，当前覆盖 chat、Import Bus（`import.turn.*`）、Gateway workflow/analysis、Agent run、actor 操作（`actor.operation`）、话题（`topic.*`）、memory task、work、maintenance、System lifecycle、subsystem operation 和 stream gap；每个类型的生产方、分组键与 `data` 见[事件契约](../contracts/routes-and-events.md#4-runtimeevent-观测契约)第 4 节的事件目录。
+
+### 1.1 一次运行
+
+运行时事件按"一次运行"归组展示，一条事件按下列规则归组，先匹配的规则生效：
+
+1. `memory.task.*` 与 `work.*` 按 `task_id` 归组（Work Queue 的 `task_id` 是 work id）：它们是队列中的任务，跨越提交者与 worker 两个 context，trace 前后不同。
+2. 其余 `trace_id` 不是 `system` 的事件按 `trace_id` 归组。设置 trace 的运行有三种：chat 任务进程（`task-` 前缀）、一轮导入（`import-`）与一次 MCP 工具调用（`mcp-`）。运行内的 Gateway、Alice、actor 操作与新建话题的事件都从 contextvars 继承所在运行的 trace，不必各自携带运行标识。
+3. 剩下的事件各自是单条运行：`maintenance.task.*`、`system.*`、`subsystem.operation.*`，以及空闲结算等不在任何运行内发生的 `topic.*`。
+
+不同运行之间经 `topic_id` 互相链接：导入或对话写入话题，话题结算引起生成任务。生成任务与维护任务不设置 trace。同一个 trace 也出现在日志格式中（[System 配置](../system/configuration.md)），一次运行的日志与事件可以互相对应。
 
 ## 2. RuntimeEventBus 语义
 
@@ -63,7 +76,23 @@ HiveMemory 的观测设计解决的是“如何知道一次运行发生了什么
 
 ## 3. Publisher、Scoped sink 与操作观测
 
-SystemAssembler 创建唯一 root `RuntimeEventPublisher`，并为 Alice 注入 subsystem scope；Publisher 负责合并稳定的 subsystem/source/component 与 run/task context，把 Pydantic 或 Mapping payload 转为安全 dict，并在 sink 或 payload 转换失败时保持 best-effort。Alice 进一步通过 `AgentRunEventEmitter` 把 `agent.run.*` 领域事实投影到 Publisher；chat 任务进程（`workspace.process`）通过 `TaskProcessEventEmitter` 投影 `chat.run.*`，进程创建时绑定 process、trace、workspace 与 agent 关联字段，prepare 返回后再绑定 topic。Gateway、Patchouli、Scheduler 与 System lifecycle 当前仍可继续使用 scoped sink，后续按计划渐进迁移。
+SystemAssembler 创建唯一 root `RuntimeEventPublisher`，为每个生产方注入带作用域的 publisher；sink 只留在总线与 publisher 内部。Publisher 负责合并稳定的 subsystem/source/component 与 run/task context，把 Pydantic 或 Mapping payload 转为安全 dict，并在 sink 或 payload 转换失败时保持 best-effort。各生产方在注入的 publisher 上投影事件：
+
+| 生产方 | 事件 |
+|:---|:---|
+| Alice（`AgentRunEventEmitter`） | `agent.run.*`、`agent.context.*` |
+| chat 任务进程（`TaskProcessEventEmitter`，进程创建时绑定 process、trace、workspace 与 agent，确定话题后再绑定 topic） | `chat.run.*` |
+| 操作入口（`ActorOperationEventEmitter`） | `actor.operation` |
+| Patchouli 感知层 | `topic.*` |
+| 生成任务 controller（`MemoryTaskEventEmitter`） | `memory.task.*` |
+| Work Queue（`WorkQueueEventEmitter`） | `work.*` |
+| Import Bus（`ImportBusEventEmitter`） | `import.turn.*` |
+| Gateway workflow 与查询分析 | `gateway.*` |
+| 维护调度器 | `maintenance.task.*` |
+| System 生命周期 | `system.*` |
+| 操作观测（`RuntimeOperationObserver`） | `subsystem.operation.*` |
+
+只有 `components.events` 直接构造 `RuntimeEvent`，由架构测试守护：各域直接组装信封会让默认 severity、关联字段与 best-effort 边界漂移。
 
 `RuntimeOperationObserver` 对单个 async operation 提供统一的 started/completed/failed 记录：
 
@@ -80,6 +109,12 @@ observer 不捕获后吞掉原异常，不执行重试，也不决定事务是�
 ## 4. 生命周期、Scheduler 与 Import Bus 事件
 
 System start/stop 发布 `system.starting/ready/start_failed/shutting_down/stopped/stop_failed`，事件 data 包含步骤列表、已完成步骤、失败步骤和耗时。Scheduler 只为做了事的周期发布 `maintenance.task.completed`，回调抛出异常时发布 `maintenance.task.failed` 并记录带堆栈的日志；空转与被跳过的周期不发事件（[运行时机制](./runtime-and-bus.md#22-运行结果与事件)第 2.2 节）。生命周期整理不自行捕获失败。Import Bus 以 `ImportBusEventEmitter` 投影一次导入的结局：`import.turn.accepted`（交互应用完成后发出，带实际所在的话题与是否新建）、`import.turn.duplicate`、`import.turn.skipped`（没有输出）与 `import.turn.deferred`（可重试失败或应用失败，原因码为 `gateway_unavailable`、`queue_unavailable`、`apply_pending` 或 `apply_failed`）；事件只携带来源、外部会话与轮次标识、`interaction_id`、事件数量与结构化标签，`task_type` 为 `background`。System 停止时的 `system.stopped` 以 `import_bus_shutdown` 报告 Import Bus 等待的在途请求数。submission 的 queued/running/retry/succeeded/failed 统一使用 Work Queue Runtime 的 `WORK_*` 事件。
+
+一轮导入在 `import-` trace 中进行，MCP 的每次工具调用在 `mcp-` trace 中进行（`span_name` 为工具名），结束时以 token 复原。导入时的 Gateway 被动路由、MCP 写入时为这一轮确定话题引起的路由，以及交互提交与新建话题的事件都因此归入所在的那一次运行（第 1.1 节）。
+
+操作入口对它分派的每一次 actor 操作在结束时发一个 `actor.operation`：预检索、MTP 的检索、读取、RUN、写入、更新与 CALL，以及 MCP 的四个工具，都经过这一处。结局在 `status`：返回为 `completed`；领域错误为 `rejected`，`reason` 是错误码；其他异常为 `failed`。取消不发事件。预检索未获授权时任务进程照常继续，这时仍会留下一条 `rejected`。
+
+Patchouli 感知层在新建话题时发 `topic.created`，在话题以结算结束时发 `topic.settled`（带结算原因与是否提交了生成），不经结算删除时发 `topic.deleted`。准入失败、话题保留时不发 `topic.settled`。话题折叠以 Work Queue 的 `work.*` 出现，不另发话题事件。
 
 这些事件描述状态转换，但不会驱动转换。例如 `maintenance.task.failed` 不自动重试任务，`work.retry_scheduled` 不直接修改 work record，`chat.run.cancelled` 也不由 UI event 反向取消 run；真正的业务控制分别由 scheduler、Work Queue Runtime 和 run registry 负责。
 
@@ -110,13 +145,11 @@ Agent token/MTP/CALL 交互输出不属于 RuntimeEvent。它由 Alice 的 `Fram
 4. 事件是否被误当成命令、重试信号、提交确认或持久化审计？
 5. sequence、trace 和 correlation ID 是否能解释一次用例而不建立第二套状态机？
 
-## 7. 当前生产端边界与演进计划
+## 7. 生产端的约束
 
-RuntimeEvent 的消费语义已经稳定，生产端迁移则处于渐进阶段。统一 `RuntimeEventPublisher` 基础设施已经落地，Alice 的 `agent.run.*` 已迁移到 `AgentRunEventEmitter`，补齐了 `process_id` 关联并删除 Agent run 主流程中的 envelope 构造；chat 任务进程的 `chat.run.*` 已迁移到 `TaskProcessEventEmitter`，编排骨架只在业务控制流中调用领域方法，不再拼装信封，失败事件只携带 Workspace 领域错误码或固定摘要。Gateway workflow、memory task、Scheduler 与 System lifecycle 尚未全部切换到这一模式；Import Bus 以独立的领域 emitter（`ImportBusEventEmitter`）发布 `import.turn.*`，写入 System 的 scoped sink。
+全部生产端都在注入的 publisher 上投影事件（第 3 节）。新增或修改生产点时保持三个约束：事件发生的时机由业务控制流显式决定；领域 emitter 只投影事实、不修改业务状态；底层 publisher 统一 scope、上下文、payload 安全转换和 best-effort 边界。
 
-这项重复不会改变当前 wire format 或业务正确性，但会让默认 severity、关联上下文、payload 白名单和异常隔离在多个生产域中漂移。后续迁移应保持三个约束：事件发生时机仍由业务控制流显式决定；领域 emitter 只投影事实、不修改业务状态；底层 publisher 统一 scope、上下文、payload 安全转换和 best-effort 边界。剩余范围见[日志与运行时事件](../governance/observability/logs-and-events.md)治理主题的工作包 W6。
-
-因此不能把“Publisher 与 Alice emitter 已落地”写成“全域生产端重构已完成”，也不能假设所有 payload 已强类型化。尚未迁移的生产点仍以代码和本文件描述的外部契约为准。
+`data` 仍是按事件类型约定的字典，没有逐类型的强类型模型；每个类型的字段以[事件契约](../contracts/routes-and-events.md#4-runtimeevent-观测契约)第 4 节为准。
 
 ## 8. 验证入口
 
@@ -128,5 +161,9 @@ RuntimeEvent 的消费语义已经稳定，生产端迁移则处于渐进阶段�
 - `tests/unit/components/events/test_operations.py`
 - `tests/unit/components/test_trace_context.py`
 - `tests/unit/system/test_lifecycle.py`
+- `tests/integration/workspace/test_operation_requests.py`（actor 操作事件）
+- `tests/integration/patchouli/test_perception.py`（话题事件）
+- `tests/unit/system/services/import_bus/test_ingestor.py`、`tests/integration/system/test_mcp_memory_access.py`（导入与 MCP 的 trace）
+- `tests/unit/architecture/test_package_layers.py`（只有 `components.events` 构造信封）
 - `tests/unit/system/services/import_bus/test_ingestor.py`
 - `src/hivememory/core/contracts/runtime_events.py`
