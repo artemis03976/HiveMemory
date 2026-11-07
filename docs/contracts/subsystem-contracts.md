@@ -169,7 +169,7 @@ Patchouli 是授权点以下的资源 owner：公开方法与 `PatchouliService`
 
 Patchouli 一侧仍独立执行资源授权：资源归属与 `MemoryAccessPolicy` 可见性在最终读写处校验，越域目标按不存在处理，不因调用方已通过操作授权而放宽。
 
-Alice 的 READ、SEARCH、RUN 记忆目标、WRITE、UPDATE、CALL 目标 Profile 与 context_refs 均经 actor API 逐次操作授权；READ 与 RUN 的引用交付由 actor API 记录 `workspace.reference_read` citation，SEARCH 的结果由它记录检索命中。Patchouli 的公开交互路由（提交、状态查询与等待）、话题准备与存储健康路由的唯一生产调用方是 root API：提交交互（`RootInteractionService.submit_interaction`）、为一轮确定话题（`RootTopicService.determine_topic`）与 `RootMemoryService.storage_available`，由任务进程与 Import Bus 以系统的 root 工作 actor 调用，不检查参与 Agent 的操作白名单；检索命中与主动记忆意图提交路由只接收 `IdentityScope`，唯一的生产调用方是 actor API。新的调用方须在自己的授权点先完成授权。
+Alice 的 READ、SEARCH、RUN 记忆目标、WRITE、UPDATE、CALL 目标 Profile 与 context_refs 均经 actor API 逐次操作授权；READ 与 RUN 的引用交付由 actor API 记录 `workspace.reference_read` citation（RUN 只为 `CODE_SNIPPET` 目标记录），SEARCH 的结果由它记录检索命中。Patchouli 的公开交互路由（提交、状态查询与等待）、话题准备与存储健康路由的唯一生产调用方是 root API：提交交互（`RootInteractionService.submit_interaction`）、为一轮确定话题（`RootTopicService.determine_topic`）与 `RootMemoryService.storage_available`，由任务进程与 Import Bus 以系统的 root 工作 actor 调用，不检查参与 Agent 的操作白名单；检索命中与主动记忆意图提交路由只接收 `IdentityScope`，唯一的生产调用方是 actor API。新的调用方须在自己的授权点先完成授权。
 
 Patchouli 提交与生成链沿用自身既有来源记录，公开 API 不接收 `CallerPrincipal` 或其他来源字段。阶段拒绝语义见[错误模型](./error-model.md)第 4.4 节。
 

@@ -113,7 +113,7 @@ READ 列表是协议中显式支持的批量读取，而不是多命令特例。
 1. `sys_*` 工具走 syscall 注册表中注册的 syscall；未注册的 `sys_*` alias 直接返回 `mtp.alias.not_found`，不转为记忆解析；
 2. 其他 alias 经 PendingAtom/正式记忆解析，只允许 `CODE_SNIPPET` MemoryAtom。
 
-系统工具不设 Agent 权限，所有已注册的 `sys_*` 对所有 Agent 可用，在 Alice 本地执行、不提交操作请求。redirect 可以执行但会附带 warning；pending 和 terminal alias 不可执行。记忆目标通过 `ResolveRunTargetRequest` 读取，要求 actor 操作 `memory.run`（不要求 `memory.read`），引用计数在工具类型检查与执行前已完成；后续类型拒绝或工具失败仍保留这次 `workspace.reference_read` citation。系统 syscall 不读取正式原子，不因此计数。
+系统工具不设 Agent 权限，所有已注册的 `sys_*` 对所有 Agent 可用，在 Alice 本地执行、不提交操作请求。redirect 可以执行但会附带 warning；pending 和 terminal alias 不可执行。目标对当前 actor 可见但不是 `CODE_SNIPPET` 时返回 `mtp.memory.type_mismatch`，提示写明这条记忆不可通过 RUN 运行、RUN 只能执行 `CODE_SNIPPET`，并给出它的类型，建议不再对它使用 RUN；只持有 `memory.run` 的 actor 因此能得知可见记忆的类型，这是 `memory.run` 许可内可以接受的披露。记忆目标通过 `ResolveRunTargetRequest` 读取，要求 actor 操作 `memory.run`（不要求 `memory.read`），只为 `CODE_SNIPPET` 目标记录 `workspace.reference_read` citation，不可执行的目标被拒绝、不计数；可执行目标的引用在工具执行前已完成，工具失败仍保留这次 citation。系统 syscall 不读取正式原子，不因此计数。
 
 当前用户代码通过本地执行器运行，尚无可作为安全边界的强隔离沙箱、进程级资源限制和真取消。不得把 RUN 描述为安全执行不受信任代码的能力。
 

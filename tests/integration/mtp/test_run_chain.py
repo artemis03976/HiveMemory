@@ -271,7 +271,7 @@ class TestRunUserToolPath:
         koakuma.harness.backing.bus._mock_storage.get_memory_by_alias.assert_not_called()
 
     def test_non_code_snippet_rejected(self, koakuma):
-        """类型不是 CODE_SNIPPET 时拒绝执行，但已交付的正式原子仍记录引用。"""
+        """类型不是 CODE_SNIPPET 时拒绝执行并明确提示不可通过 RUN 运行，不记录引用。"""
         fact_mem = _make_fact_memory()
         koakuma.memories[fact_mem.get_alias()] = fact_mem
 
@@ -280,9 +280,9 @@ class TestRunUserToolPath:
         assert not result.success
         assert result.response_content == ""
         assert "CODE_SNIPPET" in result.formatted_response
-        assert koakuma.harness.backing.bus._memory_citations == [
-            {"memory_id": fact_mem.id, "source": "workspace.reference_read"}
-        ]
+        # 提示明确告诉 Agent 这条记忆不能用 RUN 运行，而不只是报告类型不符。
+        assert "不可通过 RUN 运行" in result.formatted_response
+        assert koakuma.harness.backing.bus._memory_citations == []
 
     def test_sandbox_timeout(self, koakuma):
         """死循环代码触发超时"""

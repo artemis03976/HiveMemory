@@ -27,7 +27,6 @@ last_reviewed: 2026-11-07
 - [Memory 可见性策略前端组件](./memory-visibility-policy-ui.md)（依赖 Memory CRUD 契约先支持 `access_policy` 读写）；
 - [补齐 Alice Runtime 健康探针](./alice-health-probes.md)；
 - [engines 对上层的既有导入](./engines-upward-imports.md)（包分层登记的 10 处已知例外，原记录于 Workspace 网络与任务进程架构 Idea）；
-- [RUN 目标的可执行性检查](./run-target-executability-check.md)（能力层分层审查遗留：只有 `memory.run` 的 actor 可经 RUN 的错误探测可见记忆的类型与存在，不可执行目标也记录引用）；
 
 已完成的事项，以及升级为计划、并入计划或删除的事项，登记在 [Archived Todo](../archive/todo/README.md)。
 
